@@ -94,7 +94,7 @@ const struct http2_settings lws_h2_stock_settings = { {
  * another path via lws_service_do_ripe_rxflow() on mux children too tho...
  */
 
-static int
+static lws_handling_result_t
 rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 		       struct lws_pollfd *pollfd)
 {
@@ -376,7 +376,8 @@ drain:
 	return LWS_HPI_RET_HANDLED;
 }
 
-int rops_handle_POLLOUT_h2(struct lws *wsi)
+lws_handling_result_t
+rops_handle_POLLOUT_h2(struct lws *wsi)
 {
 	// lwsl_notice("%s\n", __func__);
 

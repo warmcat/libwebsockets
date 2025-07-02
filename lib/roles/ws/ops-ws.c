@@ -29,16 +29,18 @@
 /*
  * client-parser.c: lws_ws_client_rx_sm() needs to be roughly kept in
  *   sync with changes here, esp related to ext draining
+ *
+ * Notice this returns either LWS_HPI_RET_HANDLED or LWS_HPI_RET_PLEASE_CLOSE_ME
  */
 
-int
+lws_handling_result_t
 lws_ws_rx_sm(struct lws *wsi, char already_processed, unsigned char c)
 {
+	lws_handling_result_t ret = LWS_HPI_RET_HANDLED;
 	int callback_action = LWS_CALLBACK_RECEIVE;
 	struct lws_ext_pm_deflate_rx_ebufs pmdrx;
 	unsigned short close_code;
 	unsigned char *pp;
-	int ret = 0;
 	int n = 0;
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	int rx_draining_ext = 0;
@@ -147,7 +149,7 @@ handle_first:
 		if (((wsi->ws->opcode) & 8) && !wsi->ws->final) {
 			lws_close_reason(wsi, LWS_CLOSE_STATUS_PROTOCOL_ERR,
 					(uint8_t *)"frag ctl", 8);
-			return -1;
+			goto ret_asking_close;
 		}
 
 		switch (wsi->ws->opcode) {
@@ -163,7 +165,7 @@ handle_first:
 				lws_close_reason(wsi,
 					LWS_CLOSE_STATUS_PROTOCOL_ERR,
 					(uint8_t *)"bad cont", 8);
-				return -1;
+				goto ret_asking_close;
 			}
 			wsi->ws->rsv_first_msg = (c & 0x70);
 #if !defined(LWS_WITHOUT_EXTENSIONS)
@@ -184,7 +186,7 @@ handle_first:
 				lws_close_reason(wsi,
 					LWS_CLOSE_STATUS_PROTOCOL_ERR,
 					(uint8_t *)"bad cont", 8);
-				return -1;
+				goto ret_asking_close;
 			}
 			break;
 		case LWSWSOPC_CLOSE:
@@ -204,7 +206,7 @@ handle_first:
 			lws_close_reason(wsi, LWS_CLOSE_STATUS_PROTOCOL_ERR,
 					(uint8_t *)"bad opc", 7);
 			lwsl_info("illegal opcode\n");
-			return -1;
+			goto ret_asking_close;
 		}
 
 		if (wsi->ws->owed_a_fin &&
@@ -213,7 +215,7 @@ handle_first:
 			lwsl_info("hey you owed us a FIN\n");
 			lws_close_reason(wsi, LWS_CLOSE_STATUS_PROTOCOL_ERR,
 					(uint8_t *)"bad fin", 7);
-			return -1;
+			goto ret_asking_close;
 		}
 		if ((!(wsi->ws->opcode & 8)) && wsi->ws->final) {
 			wsi->ws->continuation_possible = 0;
@@ -232,7 +234,7 @@ handle_first:
 				    (wsi->ws->rsv & ~0x40))) {
 			lws_close_reason(wsi, LWS_CLOSE_STATUS_PROTOCOL_ERR,
 					 (uint8_t *)"rsv bits", 8);
-			return -1;
+			goto ret_asking_close;
 		}
 		break;
 
@@ -294,7 +296,7 @@ handle_first:
 		if (c & 0x80) {
 			lwsl_warn("b63 of length must be zero\n");
 			/* kill the connection */
-			return -1;
+			goto ret_asking_close;
 		}
 #if defined __LP64__
 		wsi->ws->rx_packet_length = ((size_t)c) << 56;
@@ -388,7 +390,7 @@ handle_first:
 
 		if (wsi->ws->rx_ubuf_head + LWS_PRE >= wsi->ws->rx_ubuf_alloc) {
 			lwsl_err("Attempted overflow \n");
-			return -1;
+			goto ret_asking_close;
 		}
 		if (!(already_processed & ALREADY_PROCESSED_IGNORE_CHAR)) {
 			if (wsi->ws->all_zero_nonce)
@@ -459,11 +461,11 @@ spill:
 				 * finish our close
 				 */
 				lwsl_parser("seen client close ack\n");
-				return -1;
+				goto ret_asking_close;
 			}
 			if (lwsi_state(wsi) == LRS_RETURNED_CLOSE)
 				/* if he sends us 2 CLOSE, kill him */
-				return -1;
+				goto ret_asking_close;
 
 			if (lws_partial_buffered(wsi)) {
 				/*
@@ -474,7 +476,7 @@ spill:
 				wsi->socket_is_permanently_unusable = 1;
 				lwsl_parser("Closing on peer close "
 					    "due to pending tx\n");
-				return -1;
+				goto ret_asking_close;
 			}
 
 			if (wsi->ws->rx_ubuf_head >= 2) {
@@ -500,7 +502,7 @@ spill:
 					wsi->user_space,
 					&wsi->ws->rx_ubuf[LWS_PRE],
 					wsi->ws->rx_ubuf_head))
-				return -1;
+				goto ret_asking_close;
 
 			lwsl_parser("server sees client close packet\n");
 			lwsi_set_state(wsi, LRS_RETURNED_CLOSE);
@@ -539,7 +541,8 @@ process_as_ping:
 			lws_callback_on_writable(wsi);
 ping_drop:
 			wsi->ws->rx_ubuf_head = 0;
-			return 0;
+
+			return LWS_HPI_RET_HANDLED;
 
 		case LWSWSOPC_PONG:
 			lwsl_info("received pong\n");
@@ -560,7 +563,7 @@ ping_drop:
 		default:
 			lwsl_parser("unknown opc %x\n", wsi->ws->opcode);
 
-			return -1;
+			goto ret_asking_close;
 		}
 
 		/*
@@ -627,7 +630,8 @@ drain_extension:
 				 * connection
 				 */
 				wsi->socket_is_permanently_unusable = 1;
-				return -1;
+
+				goto ret_asking_close;
 			}
 			if (n == PMDR_DID_NOTHING)
 				/* ie, not PMDR_NOTHING_WE_SHOULD_DO */
@@ -683,7 +687,7 @@ utf8_fail:
 					lwsl_hexdump_notice(pmdrx.eb_out.token,
 							    (size_t)pmdrx.eb_out.len);
 
-					return -1;
+					goto ret_asking_close;
 				}
 			}
 
@@ -707,17 +711,22 @@ utf8_fail:
 
 				if (wsi->a.protocol->callback &&
 				    !(already_processed & ALREADY_PROCESSED_NO_CB)) {
+					int _ret;
+
 					if (callback_action ==
 						      LWS_CALLBACK_RECEIVE_PONG)
 						lwsl_info("Doing pong callback\n");
 
-					ret = user_callback_handle_rxflow(
+					_ret = user_callback_handle_rxflow(
 						wsi->a.protocol->callback, wsi,
 						(enum lws_callback_reasons)
 							     callback_action,
 						wsi->user_space,
 						pmdrx.eb_out.token,
 						(size_t)pmdrx.eb_out.len);
+
+					if (_ret)
+						ret = LWS_HPI_RET_PLEASE_CLOSE_ME;
 				}
 				wsi->ws->first_fragment = 0;
 			}
@@ -743,8 +752,12 @@ already_done:
 illegal_ctl_length:
 
 	lwsl_warn("Control frame with xtended length is illegal\n");
+
+ret_asking_close:
+
 	/* kill the connection */
-	return -1;
+
+	return LWS_HPI_RET_PLEASE_CLOSE_ME;
 }
 
 
@@ -942,7 +955,7 @@ lws_is_ws_with_ext(struct lws *wsi)
 #endif
 }
 
-static int
+static lws_handling_result_t
 rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 		       struct lws_pollfd *pollfd)
 {
@@ -1038,7 +1051,7 @@ rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 		lwsl_info("%s: flowcontrolled, ignoring rx\n", __func__);
 
 		if (__lws_change_pollfd(wsi, LWS_POLLIN, 0))
-			return -1;
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
 		return LWS_HPI_RET_HANDLED;
 	}
@@ -1068,13 +1081,12 @@ rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 		lwsl_debug("%s: RX EXT DRAINING: Service\n", __func__);
 #if defined(LWS_WITH_CLIENT)
 		if (lwsi_role_client(wsi)) {
-			n = lws_ws_client_rx_sm(wsi, 0);
-			if (n == LWS_HPI_RET_PLEASE_CLOSE_ME)
+			if (lws_ws_client_rx_sm(wsi, 0)  == LWS_HPI_RET_PLEASE_CLOSE_ME)
 				/* we closed wsi */
 				return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		} else
 #endif
-			n = lws_ws_rx_sm(wsi, ALREADY_PROCESSED_IGNORE_CHAR, 0);
+			n = (int)lws_ws_rx_sm(wsi, ALREADY_PROCESSED_IGNORE_CHAR, 0);
 
 		return LWS_HPI_RET_HANDLED;
 	}
@@ -1233,10 +1245,9 @@ drain:
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 			while (wsi->ws->rx_draining_ext) {
 				// RX Extension needs to be drained before next read
-				n = lws_ws_rx_sm(wsi, ALREADY_PROCESSED_IGNORE_CHAR, 0);
-				if (n < 0) {
+				if (lws_ws_rx_sm(wsi, ALREADY_PROCESSED_IGNORE_CHAR, 0) ==
+							LWS_HPI_RET_PLEASE_CLOSE_ME)
 					return LWS_HPI_RET_PLEASE_CLOSE_ME;
-				}
 			}
 #endif
 			goto read;
@@ -1265,7 +1276,8 @@ drain:
 }
 
 
-int rops_handle_POLLOUT_ws(struct lws *wsi)
+lws_handling_result_t
+rops_handle_POLLOUT_ws(struct lws *wsi)
 {
 	int write_type = LWS_WRITE_PONG;
 #if !defined(LWS_WITHOUT_EXTENSIONS)

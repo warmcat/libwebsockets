@@ -24,7 +24,7 @@
 
 #include "private-lib-core.h"
 
-static int
+static lws_handling_result_t
 rops_handle_POLLIN_mqtt(struct lws_context_per_thread *pt, struct lws *wsi,
 			   struct lws_pollfd *pollfd)
 {
@@ -272,7 +272,7 @@ rops_client_bind_mqtt(struct lws *wsi, const struct lws_client_connect_info *i)
 	return 1; /* matched */
 }
 
-static int
+static lws_handling_result_t
 rops_handle_POLLOUT_mqtt(struct lws *wsi)
 {
 	struct lws **wsi2;

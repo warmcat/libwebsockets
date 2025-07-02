@@ -327,7 +327,7 @@ bail:
 	return -1;
 }
 #if defined(LWS_WITH_SERVER)
-static int
+static lws_handling_result_t
 lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
@@ -559,7 +559,7 @@ fail:
 }
 #endif
 
-static int
+static lws_handling_result_t
 rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 		       struct lws_pollfd *pollfd)
 {
@@ -631,7 +631,7 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 
 #if defined(LWS_WITH_SERVER)
 	if (!lwsi_role_client(wsi)) {
-		int n;
+		lws_handling_result_t hr;
 
 		lwsl_debug("%s: %s: wsistate 0x%x\n", __func__, lws_wsi_tag(wsi),
 			   (unsigned int)wsi->wsistate);
@@ -640,9 +640,9 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 		    !lws_buflist_total_len(&wsi->buflist))
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
-		n = lws_h1_server_socket_service(wsi, pollfd);
-		if (n != LWS_HPI_RET_HANDLED)
-			return n;
+		hr = lws_h1_server_socket_service(wsi, pollfd);
+		if (hr != LWS_HPI_RET_HANDLED)
+			return hr;
 		if (lwsi_state(wsi) != LRS_SSL_INIT)
 			if (lws_server_socket_service_ssl(wsi,
 							  LWS_SOCK_INVALID,
@@ -709,7 +709,7 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 	return LWS_HPI_RET_HANDLED;
 }
 
-static int
+static lws_handling_result_t
 rops_handle_POLLOUT_h1(struct lws *wsi)
 {
 

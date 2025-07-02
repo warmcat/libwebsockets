@@ -77,7 +77,7 @@ lws_create_client_ws_object(const struct lws_client_connect_info *i,
  * Returns either LWS_HPI_RET_PLEASE_CLOSE_ME or LWS_HPI_RET_HANDLED
  */
 
-int
+lws_handling_result_t
 lws_ws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 {
 	unsigned char *bufin = *buf;
@@ -123,18 +123,17 @@ lws_ws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 		}
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 		if (wsi->ws->rx_draining_ext) {
-			int m;
+			lws_handling_result_t m;
 
 			lwsl_wsi_info(wsi, "draining ext");
-			if (lwsi_role_client(wsi)) {
+			if (lwsi_role_client(wsi))
 				m = lws_ws_client_rx_sm(wsi, 0);
-				if (m == LWS_HPI_RET_PLEASE_CLOSE_ME)
-					return LWS_HPI_RET_PLEASE_CLOSE_ME;
-			} else {
+			else
 				m = lws_ws_rx_sm(wsi, 0, 0);
-				if (m < 0)
-					return LWS_HPI_RET_PLEASE_CLOSE_ME;
-			}
+
+			if (m == LWS_HPI_RET_PLEASE_CLOSE_ME)
+				return LWS_HPI_RET_PLEASE_CLOSE_ME;
+
 			continue;
 		}
 #endif

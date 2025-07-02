@@ -34,7 +34,8 @@
  * LWS_HPI_RET_HANDLED if we can continue okay.
  */
 
-int lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
+lws_handling_result_t
+lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 {
 	int callback_action = LWS_CALLBACK_CLIENT_RECEIVE;
 	struct lws_ext_pm_deflate_rx_ebufs pmdrx;

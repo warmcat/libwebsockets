@@ -472,7 +472,7 @@ bail:
  * this.
  */
 
-static int
+static lws_handling_result_t
 rops_handle_POLLIN_dbus(struct lws_context_per_thread *pt, struct lws *wsi,
 			struct lws_pollfd *pollfd)
 {

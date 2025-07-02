@@ -24,7 +24,7 @@
 
 #include <private-lib-core.h>
 
-static int
+static lws_handling_result_t
 rops_handle_POLLIN_raw_proxy(struct lws_context_per_thread *pt, struct lws *wsi,
 			     struct lws_pollfd *pollfd)
 {
@@ -182,7 +182,7 @@ rops_client_bind_raw_proxy(struct lws *wsi,
 	return 0;
 }
 
-static int
+static lws_handling_result_t
 rops_handle_POLLOUT_raw_proxy(struct lws *wsi)
 {
 	if (lwsi_state(wsi) == LRS_ESTABLISHED)

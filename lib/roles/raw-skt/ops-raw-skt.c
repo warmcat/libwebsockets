@@ -77,7 +77,7 @@ lws_raw_skt_connect(struct lws *wsi)
 }
 #endif
 
-static int
+static lws_handling_result_t
 rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 			   struct lws_pollfd *pollfd)
 {

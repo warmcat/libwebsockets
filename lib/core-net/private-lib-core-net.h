@@ -1103,7 +1103,7 @@ lws_pt_stats_unlock(struct lws_context_per_thread *pt)
 int LWS_WARN_UNUSED_RESULT
 lws_client_interpret_server_handshake(struct lws *wsi);
 
-int LWS_WARN_UNUSED_RESULT
+lws_handling_result_t LWS_WARN_UNUSED_RESULT
 lws_ws_rx_sm(struct lws *wsi, char already_processed, unsigned char c);
 
 int LWS_WARN_UNUSED_RESULT
@@ -1199,7 +1199,7 @@ lws_service_flag_pending(struct lws_context *context, int tsi);
 int
 lws_has_buffered_out(struct lws *wsi);
 
-int LWS_WARN_UNUSED_RESULT
+lws_handling_result_t LWS_WARN_UNUSED_RESULT
 lws_ws_client_rx_sm(struct lws *wsi, unsigned char c);
 
 lws_parser_return_t LWS_WARN_UNUSED_RESULT
@@ -1268,8 +1268,6 @@ lws_role_call_alpn_negotiated(struct lws *wsi, const char *alpn);
 int
 lws_tls_server_conn_alpn(struct lws *wsi);
 
-int
-lws_ws_client_rx_sm_block(struct lws *wsi, unsigned char **buf, size_t len);
 void
 lws_destroy_event_pipe(struct lws *wsi);
 

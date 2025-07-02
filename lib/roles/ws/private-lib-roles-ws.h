@@ -165,7 +165,7 @@ struct lws_ext_pm_deflate_rx_ebufs {
 	struct lws_tokens eb_out;
 };
 
-int
+lws_handling_result_t
 lws_ws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len);
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)
