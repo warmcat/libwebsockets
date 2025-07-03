@@ -86,19 +86,16 @@ _thread_spam(void *d)
 #else
 	unsigned int mypid = (unsigned int)getpid();
 #endif
-	unsigned int n = 0, atm = 0, m = (unsigned int)(intptr_t)d;
+	unsigned int n = 0, m = (unsigned int)(intptr_t)d;
 
 	while (!interrupted && n < how_many_msg) {
-
-		atm++;
 		if (lws_smd_msg_printf(context, LWSSMDCL_SYSTEM_STATE,
 					       "{\"s\":\"state\","
 						"\"pid\":%u,"
 						"\"msg\":%d}",
-					       mypid, (unsigned int)n)) {
-//			lwsl_err("%s: send attempt %d failed\n", __func__, atm);
+					       mypid, (unsigned int)n))
 			fail++;
-		} else
+		else
 			n++;
 #if defined(WIN32)
 		Sleep(3);
