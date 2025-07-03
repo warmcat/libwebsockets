@@ -138,7 +138,7 @@ typedef int (*lws_async_dns_find_t)(const char *name, void *opaque,
 /* locally query the response packet */
 
 struct label_stack {
-	char name[DNS_MAX];
+	char name[DNS_MAX + 10];
 	int enl;
 	const uint8_t *p;
 };
