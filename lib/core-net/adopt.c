@@ -394,6 +394,17 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 		if (new_wsi->a.context->event_loop_ops->sock_accept(new_wsi))
 			goto fail;
 
+	{
+        	struct lws *nwsi = lws_get_network_wsi(new_wsi);
+		char ta[64];
+
+        	if (nwsi->sa46_peer.sa4.sin_family)
+        	        lws_sa46_write_numeric_address(&nwsi->sa46_peer, ta, sizeof(ta));
+        	else
+                	strncpy(ta, "unknown", sizeof(ta));
+		__lws_lc_tag_append(&new_wsi->lc, ta);
+	}
+
 #if LWS_MAX_SMP > 1
 	/*
 	 * Caution: after this point the wsi is live on its service thread
