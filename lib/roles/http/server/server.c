@@ -2591,8 +2591,6 @@ bail_nuke_ah:
 int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed(struct lws *wsi)
 {
-	int n;
-
 	if (wsi->http.cgi_transaction_complete)
 		return 0;
 
@@ -2724,14 +2722,17 @@ lws_http_transaction_completed(struct lws *wsi)
 		lws_vfs_file_close(&wsi->http.fop_fd);
 #endif
 
-	n = NO_PENDING_TIMEOUT;
-	if (wsi->a.vhost->keepalive_timeout
+	{
+		enum pending_timeout ept = NO_PENDING_TIMEOUT;
+
+		if (wsi->a.vhost->keepalive_timeout
 #if defined(LWS_WITH_SERVER)
 			|| wsi->http.mount_specific_keepalive_timeout_secs
 #endif
    	   )
-		n = PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE;
-	lws_set_timeout(wsi, n, lws_wsi_keepalive_timeout_eff(wsi));
+		ept = PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE;
+		lws_set_timeout(wsi, ept, lws_wsi_keepalive_timeout_eff(wsi));
+	}
 
 	/*
 	 * We already know we are on http1.1 / keepalive and the next thing

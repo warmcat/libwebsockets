@@ -175,8 +175,8 @@ binance_state(void *userobj, void *h_src, lws_ss_constate_t state,
 {
 	binance_t *bin = (binance_t *)userobj;
 
-	lwsl_ss_info(bin->ss, "%s (%d), ord 0x%x",
-		     lws_ss_state_name((int)state), state, (unsigned int)ack);
+	lwsl_ss_info(bin->ss, "%s, ord 0x%x",
+		     lws_ss_state_name(state), (unsigned int)ack);
 
 	switch (state) {
 

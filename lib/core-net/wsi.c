@@ -1367,6 +1367,27 @@ lws_wsi_client_stash_item(struct lws *wsi, int stash_idx, int hdr_idx)
 }
 #endif
 
+int
+lws_wsi_keepalive_timeout_eff(struct lws *wsi)
+{
+	int ds = wsi->a.vhost->keepalive_timeout;
+
+#if defined(LWS_WITH_SERVER)
+	if (wsi->http.mount_specific_keepalive_timeout_secs)
+		ds = (int)wsi->http.mount_specific_keepalive_timeout_secs;
+
+	if (wsi->parent && (int)wsi->parent->http.mount_specific_keepalive_timeout_secs > ds)
+		ds = (int)wsi->parent->http.mount_specific_keepalive_timeout_secs;
+#endif
+
+	if (!ds)
+		ds = 31;
+
+	// lwsl_wsi_notice(wsi, "Eff keepalive_timeout %ds ===================\n", ds);
+
+	return ds;
+}
+
 #if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT)
 
 void
@@ -1598,27 +1619,6 @@ lws_wsi_txc_describe(struct lws_tx_credit *txc, const char *at, uint32_t sid)
 		  (int)txc->peer_tx_cr_est, (int)txc->tx_cr);
 }
 #endif
-
-int
-lws_wsi_keepalive_timeout_eff(struct lws *wsi)
-{
-	int ds = wsi->a.vhost->keepalive_timeout;
-
-#if defined(LWS_WITH_SERVER)
-	if (wsi->http.mount_specific_keepalive_timeout_secs)
-		ds = (int)wsi->http.mount_specific_keepalive_timeout_secs;
-
-	if (wsi->parent && (int)wsi->parent->http.mount_specific_keepalive_timeout_secs > ds)
-		ds = (int)wsi->parent->http.mount_specific_keepalive_timeout_secs;
-#endif
-
-	if (!ds)
-		ds = 31;
-
-	// lwsl_wsi_notice(wsi, "Eff keepalive_timeout %ds ===================\n", ds);
-
-	return ds;
-}
 
 int
 lws_wsi_tx_credit(struct lws *wsi, char peer_to_us, int add)
