@@ -52,7 +52,7 @@ callback_lws_urlarg(struct lws *wsi, enum lws_callback_reasons reason,
 
 	switch (reason) {
 	case LWS_CALLBACK_HTTP:
-		lwsl_notice("%s: CALLBACK_HTTP\n", __func__);
+		lwsl_info("%s: CALLBACK_HTTP\n", __func__);
 		pss->alen = lws_get_urlarg_by_name_safe(wsi, "x", pss->urlarg + LWS_PRE,
 					        sizeof(pss->urlarg) - LWS_PRE - 1);
 		if (pss->alen < 0) {
@@ -64,7 +64,7 @@ callback_lws_urlarg(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
-		lwsl_notice("%s: CALLBACK_HTTP_WRITEABLE\n", __func__);
+		lwsl_info("%s: CALLBACK_HTTP_WRITEABLE\n", __func__);
 
 		if (!pss->h) {
 			unsigned char headers[2048], *p = headers + LWS_PRE, *start = p, *end = p + sizeof(headers) - LWS_PRE - 1;

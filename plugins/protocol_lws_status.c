@@ -215,7 +215,7 @@ walk_final:
 		break;
 
 	case LWS_CALLBACK_RECEIVE:
-		lwsl_notice("pmd test: RX len %d\n", (int)len);
+		lwsl_info("pmd test: RX len %d\n", (int)len);
 		break;
 
 	case LWS_CALLBACK_CLOSED:
