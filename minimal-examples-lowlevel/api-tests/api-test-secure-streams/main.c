@@ -236,7 +236,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 	myss_t *m = (myss_t *)userobj;
 	lws_ss_state_return_t r;
 
-	lwsl_ss_notice(m->ss, "%s: %s, ord 0x%x, esp_nack: %d\n", __func__, lws_ss_state_name((int)state),
+	lwsl_ss_notice(m->ss, "%s: %s, ord 0x%x, esp_nack: %d\n", __func__, lws_ss_state_name(state),
 		  (unsigned int)ack, m->expect_nack);
 
 	switch (state) {

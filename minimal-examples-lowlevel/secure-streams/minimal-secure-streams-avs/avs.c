@@ -227,7 +227,7 @@ ss_avs_metadata_state(void *userobj, void *sh,
 	ss_avs_metadata_t *m = (ss_avs_metadata_t *)userobj;
 	// struct lws_context *context = (struct lws_context *)m->opaque_data;
 
-	lwsl_user("%s: %s, ord 0x%x\n", __func__, lws_ss_state_name((int)state),
+	lwsl_user("%s: %s, ord 0x%x\n", __func__, lws_ss_state_name(state),
 		  (unsigned int)ack);
 
 	switch (state) {
@@ -298,7 +298,7 @@ ss_avs_event_state(void *userobj, void *sh,
 	struct lws_context *context = (struct lws_context *)m->opaque_data;
 	lws_ss_info_t ssi;
 
-	lwsl_user("%s: %s, ord 0x%x\n", __func__, lws_ss_state_name((int)state),
+	lwsl_user("%s: %s, ord 0x%x\n", __func__, lws_ss_state_name(state),
 		  (unsigned int)ack);
 
 	switch (state) {

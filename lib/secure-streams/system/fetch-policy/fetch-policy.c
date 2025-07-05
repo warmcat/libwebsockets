@@ -97,7 +97,7 @@ ss_fetch_policy_state(void *userobj, void *sh, lws_ss_constate_t state,
 	ss_fetch_policy_t *m = (ss_fetch_policy_t *)userobj;
 	struct lws_context *context = (struct lws_context *)m->opaque_data;
 
-	lwsl_info("%s: %s, ord 0x%x\n", __func__, lws_ss_state_name((int)state),
+	lwsl_info("%s: %s, ord 0x%x\n", __func__, lws_ss_state_name(state),
 		  (unsigned int)ack);
 
 	switch (state) {

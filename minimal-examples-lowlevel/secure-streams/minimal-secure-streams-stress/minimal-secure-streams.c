@@ -303,8 +303,8 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		};
 #endif
 
-	lwsl_ss_user(m->ss, "%s (%d), ord 0x%x",
-		  lws_ss_state_name((int)state), state, (unsigned int)ack);
+	lwsl_ss_user(m->ss, "%s, ord 0x%x",
+		  lws_ss_state_name(state), (unsigned int)ack);
 
 	switch (state) {
 	case LWSSSCS_CREATING:

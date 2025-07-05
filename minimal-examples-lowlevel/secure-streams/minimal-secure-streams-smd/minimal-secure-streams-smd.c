@@ -152,8 +152,8 @@ myss_state(void *userobj, void *h_src, lws_ss_constate_t state,
 	myss_t *m = (myss_t *)userobj;
 
 	if (state != LWSSSCS_EVENT_WAIT_CANCELLED)
-		lwsl_notice("%s: %s: %s (%d), ord 0x%x\n", __func__, lws_ss_tag(m->ss),
-			    lws_ss_state_name((int)state), state, (unsigned int)ack);
+		lwsl_notice("%s: %s: %s, ord 0x%x\n", __func__, lws_ss_tag(m->ss),
+			    lws_ss_state_name(state), (unsigned int)ack);
 
 	if (state == LWSSSCS_DESTROYING) {
 		lws_sul_cancel(&m->sul);

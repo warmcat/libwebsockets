@@ -397,7 +397,7 @@ lws_ss_proxy_create(struct lws_context *context, const char *bind, int port);
  * Returns a printable name for the connection state index passed in.
  */
 LWS_VISIBLE LWS_EXTERN const char *
-lws_ss_state_name(int state);
+lws_ss_state_name(lws_ss_constate_t state);
 
 /**
  * lws_ss_get_context() - convenience helper to recover the lws context

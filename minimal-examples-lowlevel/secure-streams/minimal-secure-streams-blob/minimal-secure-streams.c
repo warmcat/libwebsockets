@@ -304,7 +304,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 	myss_t *m = (myss_t *)userobj;
 
 	lwsl_user("%s: %s (%d), ord 0x%x\n", __func__,
-		  lws_ss_state_name((int)state), state, (unsigned int)ack);
+		  lws_ss_state_name(state), (int)state, (unsigned int)ack);
 
 	switch (state) {
 	case LWSSSCS_CREATING:

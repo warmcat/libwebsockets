@@ -141,8 +141,8 @@ ss_s3_state(void *userobj, void *sh, lws_ss_constate_t state,
 {
 	ss_s3_put_t *m = (ss_s3_put_t *)userobj;
 
-	lwsl_user("%s: %s %s, ord 0x%x\n", __func__, lws_ss_tag(m->ss),
-		  lws_ss_state_name((int)state), (unsigned int)ack);
+	lwsl_ss_user(m->ss, "%s, ord 0x%x\n", lws_ss_state_name(state),
+			(unsigned int)ack);
 
 	switch (state) {
 	case LWSSSCS_CREATING:

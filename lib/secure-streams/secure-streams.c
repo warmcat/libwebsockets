@@ -331,9 +331,9 @@ lws_ss_check_next_state(lws_lifecycle_t *lc, uint8_t *prevstate,
 
 	if (ss_state_txn_validity[*prevstate] & (1u << cs)) {
 
-		lwsl_notice("%s: %s: %s -> %s\n", __func__, lc->gutag,
-			    lws_ss_state_name((int)*prevstate),
-			    lws_ss_state_name((int)cs));
+		lwsl_debug("%s: %s: %s -> %s\n", __func__, lc->gutag,
+			    lws_ss_state_name(*prevstate),
+			    lws_ss_state_name(cs));
 
 		/* this is explicitly allowed, update old state to new */
 		*prevstate = (uint8_t)cs;
@@ -342,8 +342,8 @@ lws_ss_check_next_state(lws_lifecycle_t *lc, uint8_t *prevstate,
 	}
 
 	lwsl_err("%s: %s: transition from %s -> %s is illegal\n", __func__,
-		 lc->gutag, lws_ss_state_name((int)*prevstate),
-		 lws_ss_state_name((int)cs));
+		 lc->gutag, lws_ss_state_name(*prevstate),
+		 lws_ss_state_name(cs));
 
 	assert(0);
 
@@ -380,9 +380,9 @@ lws_ss_check_next_state_ss(lws_ss_handle_t *ss, uint8_t *prevstate,
 
 	if (ss_state_txn_validity[*prevstate] & (1u << cs)) {
 
-		lwsl_ss_notice(ss, "%s -> %s",
-			       lws_ss_state_name((int)*prevstate),
-			       lws_ss_state_name((int)cs));
+		lwsl_ss_debug(ss, "%s -> %s",
+			       lws_ss_state_name(*prevstate),
+			       lws_ss_state_name(cs));
 
 		/* this is explicitly allowed, update old state to new */
 		*prevstate = (uint8_t)cs;
@@ -391,8 +391,8 @@ lws_ss_check_next_state_ss(lws_ss_handle_t *ss, uint8_t *prevstate,
 	}
 
 	lwsl_ss_err(ss, "transition from %s -> %s is illegal",
-		    lws_ss_state_name((int)*prevstate),
-		    lws_ss_state_name((int)cs));
+		    lws_ss_state_name(*prevstate),
+		    lws_ss_state_name(cs));
 
 	assert(0);
 
@@ -400,7 +400,7 @@ lws_ss_check_next_state_ss(lws_ss_handle_t *ss, uint8_t *prevstate,
 }
 
 const char *
-lws_ss_state_name(int state)
+lws_ss_state_name(lws_ss_constate_t state)
 {
 	if (state >= LWSSSCS_USER_BASE)
 		return "user state";

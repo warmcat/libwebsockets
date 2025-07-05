@@ -638,8 +638,8 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 	char buf[8];
 	size_t sl;
 
-	lwsl_info("%s: %s: %s (%d), ord 0x%x\n", __func__, lws_ss_tag(m->ss),
-		  lws_ss_state_name((int)state), state, (unsigned int)ack);
+	lwsl_info("%s: %s: %s, ord 0x%x\n", __func__, lws_ss_tag(m->ss),
+		  lws_ss_state_name(state), (unsigned int)ack);
 
 	if (curr_test->mask_unexpected & (1u << state)) {
 
@@ -648,7 +648,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		 */
 
 		lwsl_warn("%s: ======= FAILING ON UNEXPECTED STATE %s\n",
-				__func__, lws_ss_state_name((int)state));
+				__func__, lws_ss_state_name(state));
 
 fail:
 		m->result_reported = 1;
@@ -669,7 +669,7 @@ fail:
 		}
 
 		lwsl_warn("%s: ++++++++ saw expected state %s\n",
-				__func__, lws_ss_state_name((int)state));
+				__func__, lws_ss_state_name(state));
 		m->result_reported = 1;
 		tests_pass++;
 		/* we'll start the next test next time around the event loop */

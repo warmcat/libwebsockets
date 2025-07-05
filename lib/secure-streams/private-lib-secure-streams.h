@@ -317,7 +317,7 @@ struct lws_ss_serialization_parser {
 	uint8_t			*rxmetaval;
 
 	int			ps;
-	int			ctr;
+	lws_ss_constate_t	ctr;
 
 	uint32_t		usd_phandling;
 	uint32_t		flags;
