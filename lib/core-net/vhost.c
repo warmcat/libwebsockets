@@ -1918,7 +1918,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 			 * to get there or fail.
 			 */
 
-			lwsl_wsi_notice(wsi, "apply txn queue %s, state 0x%lx",
+			lwsl_wsi_info(wsi, "apply txn queue %s, state 0x%lx",
 					     lws_wsi_tag(w),
 					     (unsigned long)w->wsistate);
 			/*

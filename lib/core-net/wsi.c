@@ -1187,7 +1187,7 @@ _lws_generic_transaction_completed_active_conn(struct lws **_wsi, char take_vh_l
 	/* after the first one, they can only be coming from the queue */
 	wnew->transaction_from_pipeline_queue = 1;
 
-	lwsl_wsi_notice(wsi, " pipeline queue passed -> %s", lws_wsi_tag(wnew));
+	lwsl_wsi_info(wsi, " pipeline queue passed -> %s", lws_wsi_tag(wnew));
 
 	*_wsi = wnew; /* inform caller we swapped */
 

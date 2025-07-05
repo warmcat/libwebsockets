@@ -550,14 +550,14 @@ int lws_hdr_copy(struct lws *wsi, char *dst, int len,
 	do {
 		comma = (wsi->http.ah->frags[n].nfrag) ? 1 : 0;
 
-		if (h == WSI_TOKEN_HTTP_URI_ARGS)
+/*		if (h == WSI_TOKEN_HTTP_URI_ARGS)
 			lwsl_notice("%s: WSI_TOKEN_HTTP_URI_ARGS '%.*s'\n",
 				    __func__, (int)wsi->http.ah->frags[n].len,
 				    &wsi->http.ah->data[
 				                wsi->http.ah->frags[n].offset]);
-
+*/
 		if (wsi->http.ah->frags[n].len + comma >= len) {
-			lwsl_notice("blowout len\n");
+			lwsl_wsi_notice(wsi, "blowout len");
 			return -1;
 		}
 		strncpy(dst, &wsi->http.ah->data[wsi->http.ah->frags[n].offset],
@@ -587,8 +587,8 @@ int lws_hdr_copy(struct lws *wsi, char *dst, int len,
 	} while (n);
 	*dst = '\0';
 
-	if (h == WSI_TOKEN_HTTP_URI_ARGS)
-		lwsl_err("%s: WSI_TOKEN_HTTP_URI_ARGS toklen %d\n", __func__, (int)toklen);
+	// if (h == WSI_TOKEN_HTTP_URI_ARGS)
+	//	lwsl_err("%s: WSI_TOKEN_HTTP_URI_ARGS toklen %d\n", __func__, (int)toklen);
 
 	return toklen;
 }

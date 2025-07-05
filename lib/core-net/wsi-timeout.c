@@ -85,7 +85,7 @@ lws_sul_wsitimeout_cb(lws_sorted_usec_list_t *sul)
 //		if (wsi->pending_timeout != PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE)
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	if (wsi->pending_timeout != PENDING_TIMEOUT_USER_OK)
-		lwsl_wsi_err(wsi, "TIMEDOUT WAITING %d, dhdr %d, ah %p, wl %d",
+		lwsl_wsi_info(wsi, "TIMEDOUT WAITING %d, dhdr %d, ah %p, wl %d",
 				   wsi->pending_timeout,
 				   wsi->hdr_parsing_completed, wsi->http.ah,
 				   pt->http.ah_wait_list_length);

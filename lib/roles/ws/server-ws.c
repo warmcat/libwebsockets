@@ -633,7 +633,7 @@ lws_process_ws_upgrade(struct lws *wsi)
 	/* we didn't find a protocol he wanted? */
 
 	if (!pcol) {
-		lwsl_notice("No supported protocol \"%s\"\n", buf);
+		lwsl_wsi_notice(wsi, "No supported protocol \"%s\"\n", buf);
 
 		return 1;
 	}

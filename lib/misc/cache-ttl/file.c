@@ -915,7 +915,7 @@ lws_cache_nscookiejar_create(const struct lws_cache_creation_info *info)
 	 */
 	expiry_cb(&cache->cache.sul);
 
-	lwsl_notice("%s: create %s\n", __func__, info->name ? info->name : "?");
+	lwsl_info("%s: create %s\n", __func__, info->name ? info->name : "?");
 
 	return (struct lws_cache_ttl_lru *)cache;
 }

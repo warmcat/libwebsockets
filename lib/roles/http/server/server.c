@@ -1417,7 +1417,7 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 	}
 
 	i.path = rpath;
-	lwsl_notice("%s: proxied path '%s'\n", __func__, i.path);
+	lwsl_wsi_info(wsi, "proxied path '%s'", i.path);
 
 	/* incoming may be h1 or h2... if he sends h1 HOST, use that
 	 * directly, otherwise we must convert h2 :authority to h1
@@ -2019,7 +2019,6 @@ lws_http_action(struct lws *wsi)
 	if (m > 0)
 #endif
 	{
-lwsl_notice("%s: hit->protocol %s\n", __func__, hit->protocol);
 		/*
 		 * lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL);
 		 */
@@ -2027,7 +2026,6 @@ lwsl_notice("%s: hit->protocol %s\n", __func__, hit->protocol);
 			const struct lws_protocols *pp =
 					lws_vhost_name_to_protocol(
 						wsi->a.vhost, hit->protocol);
-lwsl_notice("%s: pp %p\n", __func__, pp);
 			/* coverity */
 			if (!pp)
 				return 1;
