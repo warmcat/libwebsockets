@@ -1629,6 +1629,9 @@ int
 lws_score_dns_results(struct lws_context *ctx,
 			     const struct addrinfo **result);
 
+int
+lws_wsi_keepalive_timeout_eff(struct lws *wsi);
+
 #if defined(LWS_WITH_SYS_SMD)
 int
 lws_netdev_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,

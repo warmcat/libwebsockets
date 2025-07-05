@@ -1538,6 +1538,8 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 	lwsl_info("%s: setting proxy clientside on %s (parent %s)\n",
 		  __func__, lws_wsi_tag(cwsi), lws_wsi_tag(lws_get_parent(cwsi)));
 
+	cwsi->http.mount_specific_keepalive_timeout_secs = (unsigned int)lws_wsi_keepalive_timeout_eff(wsi);
+
 	cwsi->http.proxy_clientside = 1;
 	if (ws) {
 		wsi->proxied_ws_parent = 1;
@@ -1857,6 +1859,8 @@ lws_http_action(struct lws *wsi)
 	wsi->mount_hit = 1;
 	wsi->http.mount_specific_headers = hit->headers;
 	wsi->http.mount_specific_keepalive_timeout_secs = hit->keepalive_timeout;
+
+	// lwsl_wsi_notice(wsi, "keepalive_timeout %d ******************\n", hit->keepalive_timeout);
 
 #if defined(LWS_WITH_FILE_OPS)
 	s = uri_ptr + hit->mountpoint_len;
@@ -2723,9 +2727,13 @@ lws_http_transaction_completed(struct lws *wsi)
 #endif
 
 	n = NO_PENDING_TIMEOUT;
-	if (wsi->a.vhost->keepalive_timeout)
+	if (wsi->a.vhost->keepalive_timeout
+#if defined(LWS_WITH_SERVER)
+			|| wsi->http.mount_specific_keepalive_timeout_secs
+#endif
+   	   )
 		n = PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE;
-	lws_set_timeout(wsi, (enum pending_timeout)n, wsi->a.vhost->keepalive_timeout);
+	lws_set_timeout(wsi, n, lws_wsi_keepalive_timeout_eff(wsi));
 
 	/*
 	 * We already know we are on http1.1 / keepalive and the next thing
