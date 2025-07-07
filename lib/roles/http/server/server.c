@@ -370,6 +370,8 @@ done_list:
 			goto bail;
 		}
 
+		lws_dll2_remove(&wsi->pre_natal);
+
 		lws_dll2_add_tail(&wsi->listen_list, &a->vhost->listen_wsi);
 		lws_pt_unlock(pt);
 
