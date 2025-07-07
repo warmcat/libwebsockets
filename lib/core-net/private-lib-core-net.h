@@ -312,6 +312,10 @@ struct lws_context_per_thread {
 
 	struct lws_dll2_owner pt_sul_owner[LWS_COUNT_PT_SUL_OWNERS];
 
+	lws_dll2_owner_t pre_natal_wsi_owner; /* allocated wsi not yet bound to vh
+						 are kept on here until bound, so
+						 they can be reaped if needed */
+
 #if (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)) && defined(LWS_WITH_SERVER)
 	lws_sorted_usec_list_t sul_ah_lifecheck;
 #endif
@@ -669,6 +673,8 @@ struct lws {
 #if defined(WIN32)
 	lws_sorted_usec_list_t		win32_sul_connect_async_check;
 #endif
+
+	lws_dll2_t			pre_natal;
 
 	struct lws_dll2			dll_buflist; /* guys with pending rxflow */
 	struct lws_dll2			same_vh_protocol;

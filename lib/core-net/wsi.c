@@ -289,6 +289,10 @@ lws_wsi_fault_timedclose(struct lws *wsi)
 
 /*
  * We need the context lock
+ *
+ * If we returned a wsi rather than NULL, it is listed on the
+ * context->pre_natal_owner list of wild wsi not yet part of
+ * a vhost or on the fd list.
  */
 
 struct lws *
@@ -296,6 +300,7 @@ __lws_wsi_create_with_role(struct lws_context *context, int tsi,
 			   const struct lws_role_ops *ops,
 			   lws_log_cx_t *log_cx_template)
 {
+	struct lws_context_per_thread *pt = &context->pt[tsi];
 	size_t s = sizeof(struct lws);
 	struct lws *wsi;
 
@@ -338,10 +343,15 @@ __lws_wsi_create_with_role(struct lws_context *context, int tsi,
 	lws_fi_inherit_copy(&wsi->fic, &context->fic, "wsi", NULL);
 
 	if (lws_fi(&wsi->fic, "createfail")) {
+		lws_dll2_remove(&wsi->pre_natal);
 		lws_fi_destroy(&wsi->fic);
 		lws_free(wsi);
 		return NULL;
 	}
+
+	lws_pt_lock(pt, __func__); /* -------------- pt { */
+	lws_dll2_add_head(&wsi->pre_natal, &pt->pre_natal_wsi_owner);
+	lws_pt_unlock(pt); /* } pt --------------- */
 
 	return wsi;
 }
@@ -360,6 +370,7 @@ lws_wsi_inject_to_loop(struct lws_context_per_thread *pt, struct lws *wsi)
 	if (__insert_wsi_socket_into_fds(pt->context, wsi))
 		goto bail;
 
+	lws_dll2_remove(&wsi->pre_natal);
 	ret = 0;
 
 bail:

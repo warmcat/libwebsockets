@@ -1823,10 +1823,11 @@ lws_pt_destroy(struct lws_context_per_thread *pt)
 #if defined(LWS_WITH_CGI)
 	lws_ctx_t ctx = pt->context;
 
-		if (lws_rops_fidx(&role_ops_cgi, LWS_ROPS_pt_init_destroy))
-			(lws_rops_func_fidx(&role_ops_cgi, LWS_ROPS_pt_init_destroy)).
-				pt_init_destroy(ctx, NULL, pt, 1);
+	if (lws_rops_fidx(&role_ops_cgi, LWS_ROPS_pt_init_destroy))
+		(lws_rops_func_fidx(&role_ops_cgi, LWS_ROPS_pt_init_destroy)).
+			pt_init_destroy(ctx, NULL, pt, 1);
 #endif
+
 	vpt = (volatile struct lws_context_per_thread *)pt;
 	ftp = vpt->foreign_pfd_list;
 	while (ftp) {
@@ -1837,6 +1838,15 @@ lws_pt_destroy(struct lws_context_per_thread *pt)
 	vpt->foreign_pfd_list = NULL;
 
 	lws_pt_lock(pt, __func__);
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+			      lws_dll2_get_head(&pt->pre_natal_wsi_owner)) {
+		struct lws *wsi = lws_container_of(d, struct lws, pre_natal);
+
+		lwsl_wsi_info(wsi, "pt pre_natal cleanup");
+		__lws_free_wsi(wsi);
+
+	} lws_end_foreach_dll_safe(d, d1);
 
 	if (pt->pipe_wsi) {
 		lws_destroy_event_pipe(pt->pipe_wsi);
