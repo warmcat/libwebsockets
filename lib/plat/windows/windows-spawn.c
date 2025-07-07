@@ -426,6 +426,8 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		lsp->stdwsi[n]->desc.filefd = lsp->pipe_fds[n][!n];
 		lsp->stdwsi[n]->file_desc = 1;
 
+		lws_dll2_remove(&lsp->stdwsi[n]->pre_natal);
+
 		lwsl_debug("%s: lsp stdwsi %p: pipe idx %d -> fd %d / %d\n",
 			   __func__, lsp->stdwsi[n], n,
 			   lsp->pipe_fds[n][!!(n == 0)],

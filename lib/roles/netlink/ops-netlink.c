@@ -597,6 +597,7 @@ bail2:
 	__lws_lc_untag(wsi->a.context, &wsi->lc);
 	compatible_close(wsi->desc.sockfd);
 bail1:
+	lws_dll2_remove(&wsi->pre_natal);
 	lws_free(wsi);
 bail:
 	return ret;

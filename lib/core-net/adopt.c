@@ -199,11 +199,19 @@ __lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 	lws_pt_unlock(pt);
 
 	/*
+	 * We can lose him from the context pre_natal "last resort" bind now,
+	 * because we will list him on a specific vhost
+	 */
+
+	lws_dll2_remove(&new_wsi->pre_natal);
+
+	/*
 	 * he's an allocated wsi, but he's not on any fds list or child list,
 	 * join him to the vhost's list of these kinds of incomplete wsi until
 	 * he gets another identity (he may do async dns now...)
 	 */
 	lws_vhost_lock(new_wsi->a.vhost);
+
 	lws_dll2_add_head(&new_wsi->vh_awaiting_socket,
 			  &new_wsi->a.vhost->vh_awaiting_socket_owner);
 	lws_vhost_unlock(new_wsi->a.vhost);

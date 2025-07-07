@@ -176,7 +176,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 				if (!vh) { /* coverity */
 					lwsl_cx_err(i->context, "no vhost");
-					goto bail;
+					goto bail; /* this frees the wsi */
 				}
 				if (!strcmp(vh->name, "system"))
 					vh = vh->vhost_next;
@@ -537,6 +537,8 @@ bail3:
 #endif
 
 bail:
+	lws_dll2_remove(&wsi->pre_natal);
+
 #if defined(LWS_WITH_TLS)
 	if (wsi->tls.ssl)
 		lws_tls_restrict_return(wsi);

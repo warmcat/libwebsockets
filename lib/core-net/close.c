@@ -212,6 +212,9 @@ __lws_free_wsi(struct lws *wsi)
 
 	lws_context_assert_lock_held(wsi->a.context);
 
+	/* just in case */
+	lws_dll2_remove(&wsi->pre_natal);
+
 #if defined(LWS_WITH_SECURE_STREAMS)
 	if (wsi->for_ss) {
 

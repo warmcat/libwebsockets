@@ -1145,6 +1145,7 @@ __lws_create_event_pipes(struct lws_context *context)
 
 			if (lws_wsi_inject_to_loop(pt, wsi))
 					goto bail;
+			return 0;
 		}
 	}
 
