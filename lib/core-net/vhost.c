@@ -1491,11 +1491,11 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 		while (n < vh->count_protocols) {
 			wsi.a.protocol = protocol;
 
-			lwsl_vhost_debug(vh, "protocol destroy");
-
-			if (protocol->callback && (vh->protocol_init & (1u << n)))
+			if (protocol->callback && (vh->protocol_init & (1u << n))) {
+				lwsl_vhost_debug(vh, "protocol %s destroy", protocol->name);
 				protocol->callback(&wsi, LWS_CALLBACK_PROTOCOL_DESTROY,
 					   NULL, NULL, 0);
+			}
 			protocol++;
 			n++;
 		}
