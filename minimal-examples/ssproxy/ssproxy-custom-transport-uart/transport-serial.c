@@ -187,16 +187,17 @@ cb_proxy_serial_transport(struct lws *wsi, enum lws_callback_reasons reason,
 		//lwsl_notice("%s: LWS_CALLBACK_RAW_WRITEABLE_FILE: %p\n",
 		//		__func__, pss->txp_ppath.priv_in);
 
-		if (pss)
+		if (pss) {
 			assert_is_pss(pss);
 
-		/* pass the event back inwards */
-		pss->txp_ppath.ops_in->event_proxy_can_write(
+			/* pass the event back inwards */
+			pss->txp_ppath.ops_in->event_proxy_can_write(
 				pss->txp_ppath.priv_in
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 					, NULL
 #endif
 				);
+		}
 		break;
 
 	default:
