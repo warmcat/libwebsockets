@@ -189,8 +189,8 @@ if (location.search) {
 
     for (var i = 0; i < parts.length; i++) {
         var nv = parts[i].split("=");
-        if (!nv[0]) continue;
-        params[nv[0]] = nv[1] || true;
+        if (nv[0] !== "mirror") continue;
+        params["mirror"] = nv[1] || true;
     }
 }
 
