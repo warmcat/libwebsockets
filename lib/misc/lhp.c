@@ -1641,8 +1641,8 @@ skip_image:
 					(c >= 'a' && c <= 'f') ||
 					(c >= 'A' && c <= 'F'))) {
 					ctx->temp = (uint32_t)(((int)ctx->temp << 4) |
-						((c >= '0' && c <= '9') ? c - '0' :
-							(c >= 'a' && c <= 'f') ? 10 + (c - 'a') :
+						((c <= '9') ? c - '0' :
+							(c >= 'a') ? 10 + (c - 'a') :
 								10 + (c - 'A')));
 					ctx->temp_count++;
 					break;
