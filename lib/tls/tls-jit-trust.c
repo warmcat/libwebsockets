@@ -587,8 +587,10 @@ lws_tls_jit_trust_got_cert_cb(struct lws_context *cx, void *got_opaque,
 	info.protocols = cx->protocols_copy;
 
 	v = lws_create_vhost(cx, &info);
-	if (!v)
+	if (!v) {
 		lwsl_err("%s: failed to create vh %s\n", __func__, vhtag);
+		goto destroy_inf;
+	}
 
 	v->grace_after_unref = 1;
 	lws_tls_jit_trust_vh_start_grace(v);
