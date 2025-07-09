@@ -566,8 +566,6 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 
 		switch (map->type) {
 		case LSMT_STRING_CHAR_ARRAY:
-			if (!q)
-				goto up;
 			break;
 		case LSMT_STRING_PTR:
 		case LSMT_CHILD_PTR:
