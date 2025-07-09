@@ -632,6 +632,7 @@ lws_tls_jit_trust_blob_queury_skid(const void *_blob, size_t blen,
 {
 	const uint8_t *pskidlen, *pskids, *pder, *blob = (uint8_t *)_blob;
 	const uint16_t *pderlen;
+	size_t siz;
 	int certs;
 
 	/* sanity check blob length and magic */
@@ -690,10 +691,13 @@ lws_tls_jit_trust_blob_queury_skid(const void *_blob, size_t blen,
 			 * We found a trusted CA cert of the right SKID
 			 */
 		        *prpder = pder;
-		        *prder_len = lws_ser_ru16be((uint8_t *)pderlen);
-			if ((const uint16_t *)(pder + *prder_len) >=
+		        siz = lws_ser_ru16be((uint8_t *)pderlen);
+
+			if ((const uint16_t *)(pder + siz) >=
 			    (const uint16_t *)(blob + blen))
 				break;
+
+			*prder_len = siz;
 
 		        return 0;
 		}
