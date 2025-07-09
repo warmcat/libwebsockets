@@ -2388,8 +2388,7 @@ next:
 		lws_metrics_destroy(context);
 #endif
 
-		if (context->external_baggage_free_on_destroy)
-			free(context->external_baggage_free_on_destroy);
+		free(context->external_baggage_free_on_destroy);
 
 #if defined(LWS_PLAT_FREERTOS)
 #if defined(LWS_AMAZON_RTOS)

@@ -402,10 +402,8 @@ int main(int argc, const char **argv)
 
 	lws_context_destroy(context);
 
-	if (hugeurl)
-		free(hugeurl);
-	if (check)
-		free(check);
+	free(hugeurl);
+	free(check);
 
 	lwsl_user("Completed: %s\n", bad ? "failed" : "OK");
 
