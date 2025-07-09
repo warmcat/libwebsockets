@@ -107,7 +107,7 @@
 		c2.innerHTML = humanize(file.size);
 
 		c3.classList.add("ogn");
-		c3.innerHTML = file.name;
+		c3.innerHTML = san(file.name);
 
 		if (file.size > server_max_size)
 			return;

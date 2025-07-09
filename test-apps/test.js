@@ -1,4 +1,18 @@
 (function () {
+
+/*
+ * We display untrusted stuff in html context... reject anything
+ * that has HTML stuff in it
+ */
+
+function san(s)
+{
+	if (s.search("<") !== -1)
+		return "invalid string";
+	
+	return s;
+}
+
 function check_file()
 {
 	var f = document.getElementById("file").files[0];
@@ -13,24 +27,11 @@ function check_file()
 							max_len+"</span>";
 		} else
 			document.getElementById("file_info").innerHTML =
-				"File length "+f.size;
+				"File length " + san(f.size);
 	} else
 		dis = 1;
 	
 	document.getElementById("upload").disabled = dis;
-}
-
-/*
- * We display untrusted stuff in html context... reject anything
- * that has HTML stuff in it
- */
-
-function san(s)
-{
-	if (s.search("<") !== -1)
-		return "invalid string";
-	
-	return s;
 }
 
 /* BrowserDetect came from http://www.quirksmode.org/js/detect.html */
