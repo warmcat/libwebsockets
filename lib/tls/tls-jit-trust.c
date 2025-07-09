@@ -653,6 +653,8 @@ lws_tls_jit_trust_blob_queury_skid(const void *_blob, size_t blen,
 
 	pderlen		= (uint16_t *)(blob + lws_ser_ru32be(blob +
 							LJT_OFS_32_DERLEN));
+	if (pderlen >= (const uint16_t *)(blob + blen))
+		return 1;
 	pskidlen	= blob + lws_ser_ru32be(blob + LJT_OFS_32_SKIDLEN);
 	pskids		= blob + lws_ser_ru32be(blob + LJT_OFS_32_SKID);
 	pder		= blob + LJT_OFS_DER;
@@ -663,10 +665,22 @@ lws_tls_jit_trust_blob_queury_skid(const void *_blob, size_t blen,
 
 		/* paranoia / sanity */
 
-		assert(pskids < blob + blen);
-		assert(pder < blob + blen);
-		assert(pskidlen < blob + blen);
-		assert((uint8_t *)pderlen < blob + blen);
+		if (pskids >= blob + blen) {
+			assert(0);
+			break;
+		}
+		if (pder >= blob + blen) {
+			assert(0);
+			break;
+		}
+		if (pskidlen >= blob + blen) {
+			assert(0);
+			break;
+		}
+		if ((uint8_t *)pderlen >= blob + blen) {
+			assert(0);
+			break;
+		}
 
 		/* we will accept to match on truncated SKIDs */
 
@@ -677,6 +691,9 @@ lws_tls_jit_trust_blob_queury_skid(const void *_blob, size_t blen,
 			 */
 		        *prpder = pder;
 		        *prder_len = lws_ser_ru16be((uint8_t *)pderlen);
+			if ((const uint16_t *)(pder + *prder_len) >=
+			    (const uint16_t *)(blob + blen))
+				break;
 
 		        return 0;
 		}
@@ -684,6 +701,9 @@ lws_tls_jit_trust_blob_queury_skid(const void *_blob, size_t blen,
 		pder += lws_ser_ru16be((uint8_t *)pderlen);
 		pskids += *pskidlen;
 		pderlen++;
+		if (pderlen >= (const uint16_t *)(blob + blen))
+			break;
+
 		pskidlen++;
 	}
 
