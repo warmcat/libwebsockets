@@ -312,7 +312,7 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 			return LWS_ITOSA_NOT_EXIST;
 		}
 		n = (int)(sizeof(uint16_t) + strlen(iface));
-		strcpy(serv_unix.sun_path, iface);
+		lws_strncpy(serv_unix.sun_path, iface, sizeof(serv_unix.sun_path) - 1);
 		if (serv_unix.sun_path[0] == '@')
 			serv_unix.sun_path[0] = '\0';
 		else
