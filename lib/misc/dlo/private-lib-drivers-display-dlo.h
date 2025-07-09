@@ -1,3 +1,6 @@
+#if !defined(__MISC_DLO_PRIVATE_LIB_DRIVERS_DISPLAY_DLO__)
+#define __MISC_DLO_PRIVATE_LIB_DRIVERS_DISPLAY_DLO__
+
 enum {
 	MCUFO_MAGIC			= 0,
 	MCUFO_FLAGS_VER			= 4,
@@ -54,4 +57,6 @@ lws_lhp_ss_html_parse_from_lhp(lhp_ctx_t *lhp);
 
 void
 lws_lhp_image_dimensions_cb(lws_sorted_usec_list_t *sul);
+
+#endif
 
