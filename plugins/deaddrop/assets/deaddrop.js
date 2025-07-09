@@ -37,6 +37,9 @@
 
 	function humanize(n)
 	{
+		if (typeof n !== 'number')
+			return 'NaN';
+
 		if (n < 1024)
 			return n + "B";
 
