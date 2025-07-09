@@ -160,6 +160,7 @@ char *
 lws_generate_client_ws_handshake(struct lws *wsi, char *p, const char *conn1, size_t p_len)
 {
 	char buf[128], hash[20], key_b64[40], *end = p + p_len;
+	size_t s;
 	int n;
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	const struct lws_extension *ext;
@@ -241,10 +242,13 @@ lws_generate_client_ws_handshake(struct lws *wsi, char *p, const char *conn1, si
 	/* prepare the expected server accept response */
 
 	key_b64[39] = '\0'; /* enforce composed length below buf sizeof */
-	n = sprintf(buf, "%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11",
-			  key_b64);
 
-	lws_SHA1((unsigned char *)buf, (unsigned int)n, (unsigned char *)hash);
+	s = strlen(key_b64);
+	memcpy(buf, key_b64, s);
+	memcpy(buf + s, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11", 36);
+	s += 36;
+
+	lws_SHA1((unsigned char *)buf, (unsigned int)s, (unsigned char *)hash);
 
 	lws_b64_encode_string(hash, 20,
 		  wsi->http.ah->initial_handshake_hash_base64,
