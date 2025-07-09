@@ -1538,6 +1538,8 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			if (wsi->for_ss) {
 				lws_ss_handle_t *h = (lws_ss_handle_t *)lws_get_opaque_user_data(wsi);
 
+				if (!h)
+					return 1;
 				h2n->swsi->for_ss = 1;
 				wsi->for_ss = 0;
 

@@ -163,6 +163,9 @@ lws_display_dlo_png_new(lws_displaylist_t *dl, lws_dlo_t *dlo_parent,
 {
 	lws_dlo_png_t *dlo_png = lws_zalloc(sizeof(*dlo_png), __func__);
 
+	if (!dlo_png)
+		return NULL;
+
 	dlo_png->png = lws_upng_new();
 	if (!dlo_png->png)
 		goto bail;

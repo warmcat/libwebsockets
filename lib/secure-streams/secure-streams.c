@@ -1622,6 +1622,9 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 			struct lws_sss_proxy_conn *conn = (struct lws_sss_proxy_conn *)
 				lws_get_opaque_user_data(h->wsi);
 
+			if (!conn)
+				return;
+
 			conn->ss = NULL;
 		}
 

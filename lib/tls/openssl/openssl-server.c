@@ -52,6 +52,8 @@ OpenSSL_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 	 * static
 	 */
 	wsi = SSL_get_ex_data(ssl, openssl_websocket_private_data_index);
+	if (!wsi)
+		return 0; /* OpenSSL failure */
 
 	n = lws_tls_openssl_cert_info(topcert, LWS_TLS_CERT_INFO_COMMON_NAME,
 				      &ir, sizeof(ir.ns.name));
