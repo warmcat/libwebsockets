@@ -548,9 +548,9 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 	size_t budget = 0, olen = len, m;
 	struct lws_dll2_owner *o;
 	unsigned long long uli;
+	char dbuf[72] = {};
 	const char *q;
 	const void *p;
-	char dbuf[72];
 	long long li;
 	int n, used;
 
