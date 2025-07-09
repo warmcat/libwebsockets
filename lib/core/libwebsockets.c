@@ -416,10 +416,11 @@ lws_check_utf8(unsigned char *state, unsigned char *buf, size_t len)
 char *
 lws_strdup(const char *s)
 {
-	char *d = lws_malloc(strlen(s) + 1, "strdup");
+	size_t l = strlen(s) + 1;
+	char *d = lws_malloc(l, "strdup");
 
 	if (d)
-		strcpy(d, s);
+		memcpy(d, s, l);
 
 	return d;
 }
