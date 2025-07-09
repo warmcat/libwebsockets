@@ -40,7 +40,7 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 {
 	struct lws_context *context = wsi->a.context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	char *p = (char *)&pt->serv_buf[0];
+	char *p = (char *)&pt->serv_buf[0], *end = p + wsi->a.context->pt_serv_buf_size;
 #if defined(LWS_WITH_TLS)
 	char ebuf[128];
 #endif
@@ -265,8 +265,8 @@ start_ws_handshake:
 	case LRS_H1C_ISSUE_HANDSHAKE2:
 
 hs2:
-
-		p = lws_generate_client_handshake(wsi, p);
+		p = lws_generate_client_handshake(wsi, p,
+						  lws_ptr_diff_size_t(end, p));
 		if (p == NULL) {
 			if (wsi->role_ops == &role_ops_raw_skt
 #if defined(LWS_ROLE_RAW_FILE)
@@ -1521,11 +1521,11 @@ lws_client_http_multipart(struct lws *wsi, const char *name,
 }
 
 char *
-lws_generate_client_handshake(struct lws *wsi, char *pkt)
+lws_generate_client_handshake(struct lws *wsi, char *pkt, size_t pkt_len)
 {
 	const char *meth, *pp = lws_hdr_simple_ptr(wsi,
 				_WSI_TOKEN_CLIENT_SENT_PROTOCOLS), *path;
-	char *p = pkt, *p1, *end = p + wsi->a.context->pt_serv_buf_size;
+	char *p = pkt, *p1, *end = p + pkt_len;
 
 	meth = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
 	if (!meth) {
@@ -1658,7 +1658,8 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 		const char *conn1 = "";
 	//	if (!wsi->client_pipeline)
 	//		conn1 = "close, ";
-		p = lws_generate_client_ws_handshake(wsi, p, conn1);
+		p = lws_generate_client_ws_handshake(wsi, p, conn1,
+						     lws_ptr_diff_size_t(end, p));
                 if (!p)
                     return NULL;
 	} else

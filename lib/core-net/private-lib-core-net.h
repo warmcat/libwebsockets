@@ -1261,7 +1261,7 @@ void
 lws_remove_child_from_any_parent(struct lws *wsi);
 
 char *
-lws_generate_client_ws_handshake(struct lws *wsi, char *p, const char *conn1);
+lws_generate_client_ws_handshake(struct lws *wsi, char *p, const char *conn1, size_t p_len);
 int
 lws_client_ws_upgrade(struct lws *wsi, const char **cce);
 int
@@ -1305,7 +1305,7 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi,
 				int group, const char *desc);
 
 char * LWS_WARN_UNUSED_RESULT
-lws_generate_client_handshake(struct lws *wsi, char *pkt);
+lws_generate_client_handshake(struct lws *wsi, char *pkt, size_t pkt_len);
 
 int
 lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd);

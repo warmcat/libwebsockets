@@ -157,9 +157,9 @@ lws_ws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 #endif
 
 char *
-lws_generate_client_ws_handshake(struct lws *wsi, char *p, const char *conn1)
+lws_generate_client_ws_handshake(struct lws *wsi, char *p, const char *conn1, size_t p_len)
 {
-	char buf[128], hash[20], key_b64[40];
+	char buf[128], hash[20], key_b64[40], *end = p + p_len;
 	int n;
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	const struct lws_extension *ext;
@@ -178,14 +178,20 @@ lws_generate_client_ws_handshake(struct lws *wsi, char *p, const char *conn1)
 	/* coverity[tainted_scalar] */
 	lws_b64_encode_string(hash, 16, key_b64, sizeof(key_b64));
 
-	p += sprintf(p, "Upgrade: websocket\x0d\x0a"
-			"Connection: %sUpgrade\x0d\x0a"
-			"Sec-WebSocket-Key: ", conn1);
-	strcpy(p, key_b64);
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+			  "Upgrade: websocket\x0d\x0a"
+			  "Connection: %sUpgrade\x0d\x0a"
+			  "Sec-WebSocket-Key: ", conn1);
+
+	if (lws_ptr_diff_size_t(end, p) < strlen(key_b64) + 2 + 128)
+		return NULL;
+
+	lws_strncpy(p, key_b64, lws_ptr_diff_size_t(end, p));
 	p += strlen(key_b64);
-	p += sprintf(p, "\x0d\x0a");
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\x0d\x0a");
 	if (lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_SENT_PROTOCOLS))
-		p += sprintf(p, "Sec-WebSocket-Protocol: %s\x0d\x0a",
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+				  "Sec-WebSocket-Protocol: %s\x0d\x0a",
 		     lws_hdr_simple_ptr(wsi,
 				     _WSI_TOKEN_CLIENT_SENT_PROTOCOLS));
 
@@ -215,19 +221,22 @@ lws_generate_client_ws_handshake(struct lws *wsi, char *p, const char *conn1)
 		if (ext_count)
 			*p++ = ',';
 		else
-			p += sprintf(p, "Sec-WebSocket-Extensions: ");
-		p += sprintf(p, "%s", ext->client_offer);
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+					  "Sec-WebSocket-Extensions: ");
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+					"%s", ext->client_offer);
 		ext_count++;
 
 		ext++;
 	}
 	if (ext_count)
-		p += sprintf(p, "\x0d\x0a");
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\x0d\x0a");
 #endif
 
 	if (wsi->ws->ietf_spec_revision)
-		p += sprintf(p, "Sec-WebSocket-Version: %d\x0d\x0a",
-			     wsi->ws->ietf_spec_revision);
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+				  "Sec-WebSocket-Version: %d\x0d\x0a",
+				  wsi->ws->ietf_spec_revision);
 
 	/* prepare the expected server accept response */
 
