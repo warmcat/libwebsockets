@@ -469,7 +469,7 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 
 		cp = strchr((const char *)in, '/');
 		if (cp) {
-			n = (int)(((void *)cp - in)) - 8;
+			n = (int)(((uint8_t *)cp - (uint8_t *)in)) - 8;
 
 			if ((int)strlen(pss->user) != n ||
 			    memcmp(pss->user, ((const char *)in) + 8, (unsigned int)n)) {
