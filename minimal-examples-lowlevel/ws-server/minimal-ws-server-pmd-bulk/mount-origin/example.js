@@ -5,10 +5,9 @@
 
 function san(s)
 {
-	if (s.search("<") !== -1)
-		return "invalid string";
-	
-	return s;
+	if (!s)
+		return "";
+	return document.createTextNode(s);
 }
 
 

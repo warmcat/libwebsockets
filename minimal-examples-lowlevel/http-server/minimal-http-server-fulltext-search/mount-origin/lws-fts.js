@@ -28,10 +28,9 @@
 	
 	function san(s)
 	{
-		s.replace(/</g, "!");
-		s.replace(/%/g, "!");
-		
-		return s;
+		if (!s)
+			return "";
+		return document.createTextNode(s);
 	}
 	
 	function lws_fts_choose()

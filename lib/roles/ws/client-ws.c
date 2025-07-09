@@ -161,7 +161,6 @@ lws_generate_client_ws_handshake(struct lws *wsi, char *p, const char *conn1, si
 {
 	char buf[128], hash[20], key_b64[40], *end = p + p_len;
 	size_t s;
-	int n;
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	const struct lws_extension *ext;
 	int ext_count = 0;
@@ -202,7 +201,7 @@ lws_generate_client_ws_handshake(struct lws *wsi, char *p, const char *conn1, si
 	ext = wsi->a.vhost->ws.extensions;
 	while (ext && ext->callback) {
 
-		n = wsi->a.vhost->protocols[0].callback(wsi,
+		int n = wsi->a.vhost->protocols[0].callback(wsi,
 			LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED,
 				wsi->user_space, (char *)ext->name, 0);
 

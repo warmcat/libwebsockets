@@ -7,10 +7,7 @@
 
 function san(s)
 {
-	if (s.search("<") !== -1)
-		return "invalid string";
-	
-	return s;
+	return document.createTextNode(s);
 }
 
 function check_file()
@@ -366,6 +363,7 @@ var last_x = 0, last_y = 0;
 var ctx;
 var color = "#000000";
 var lm_timer;
+var offsetX, offsetY;
 
 function ev_mousemove (ev) {
 	var x, y;
@@ -426,7 +424,7 @@ function ws_open_mirror()
 		};
 
 		socket_lm.onmessage =function got_packet(msg) {
-			j = msg.data.split(";");
+			var j = msg.data.split(";");
 			var f = 0;
 			while (f < j.length - 1) {
 				i = j[f].split(" ");
@@ -471,7 +469,7 @@ function ws_open_mirror()
 	canvas.addEventListener("mouseup", ev_mouseup, false);
 
 	offsetX = offsetY = 0;
-	element = canvas;
+	var element = canvas;
       if (element.offsetParent) {
         do {
           offsetX += element.offsetLeft;

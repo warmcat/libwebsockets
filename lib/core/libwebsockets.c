@@ -1074,12 +1074,15 @@ lws_tokenize(struct lws_tokenize *ts)
 
 		if (!utf8 &&
 		     ((ts->flags & LWS_TOKENIZE_F_RFC7230_DELIMS &&
-		     strchr(rfc7230_delims, c) && c > 32) ||
-		    ((!(ts->flags & LWS_TOKENIZE_F_RFC7230_DELIMS) &&
-		     (c < '0' || c > '9') && (c < 'A' || c > 'Z') &&
-		     (c < 'a' || c > 'z') && c != '_') &&
-		     c != s_minus && c != s_dot && c != s_star && c != s_eq) ||
-		    c == d_minus || c == d_dot || c == d_star || c == d_eq
+		       strchr(rfc7230_delims, c) && c > 32) ||
+		       ((!(ts->flags & LWS_TOKENIZE_F_RFC7230_DELIMS) &&
+		        (c < '0' || c > '9') && (c < 'A' || c > 'Z') &&
+		        (c < 'a' || c > 'z') && c != '_') &&
+		        c != s_minus && c != s_dot && c != s_star && c != s_eq) ||
+		        c == d_minus ||
+			c == d_dot ||
+			c == d_star ||
+			c == d_eq
 		    ) &&
 		    !((ts->flags & LWS_TOKENIZE_F_COLON_NONTERM) && c == ':') &&
 		    !((ts->flags & LWS_TOKENIZE_F_SLASH_NONTERM) && c == '/')) {

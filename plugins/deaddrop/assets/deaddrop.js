@@ -41,15 +41,15 @@
 			return "NaN";
 
 		if (n < 1024)
-			return n + "B";
+			return san(n + "B");
 
 		if (n < 1024 * 1024)
-			return trim((n / 1024).toFixed(2)) + "KiB";
+			return san(trim((n / 1024).toFixed(2)) + "KiB");
 
 		if (n < 1024 * 1024 * 1024)
-			return trim((n / (1024 * 1024)).toFixed(2)) + "MiB";
+			return san(trim((n / (1024 * 1024)).toFixed(2)) + "MiB");
 
-		return trim((n / (1024 * 1024 * 1024)).toFixed(2)) + "GiB";
+		return san(trim((n / (1024 * 1024 * 1024)).toFixed(2)) + "GiB");
 	}
 
 	function da_enter(e)
