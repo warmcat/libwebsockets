@@ -118,8 +118,7 @@ lws_sss_proxy_transport_wsi_cb(struct lws *wsi, enum lws_callback_reasons reason
 		lwsl_info("%s: RX: rx %d\n", __func__, (int)len);
 
 		if (!conn) {
-			lwsl_err("%s: rx with conn %p / priv_in %p\n", __func__,
-					conn, conn->txp_path.priv_in);
+			lwsl_err("%s: rx with conn NULL\n", __func__);
 
 			return -1;
 		}
