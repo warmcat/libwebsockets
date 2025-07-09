@@ -186,8 +186,8 @@ lws_plat_init(struct lws_context *context,
 
 		/* ... coverity taint with lws_strncpy()... */
 
-		while (klf_env && klf_env[n] &&
-		       n < sizeof(context->keylog_file) - 1) {
+		while (klf_env && n < sizeof(context->keylog_file) - 1 &&
+		       klf_env[n]) {
 			context->keylog_file[n] = klf_env[n];
 			n++;
 		}

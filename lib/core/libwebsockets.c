@@ -1520,7 +1520,7 @@ lws_cmdline_option(int argc, const char **argv, const char *val)
 	while (--c > 0) {
 
 		if (!strncmp(argv[c], val, n)) {
-			if (!*(argv[c] + n) && c < argc - 1) {
+			if (c < argc - 1 && !*(argv[c] + n)) {
 				/* coverity treats unchecked argv as "tainted" */
 				if (!argv[c + 1] || strlen(argv[c + 1]) > 1024)
 					return NULL;
