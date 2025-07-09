@@ -410,7 +410,7 @@ _lws_struct_sq3_ser_one(sqlite3 *pdb, const lws_struct_map_t *schema,
 		did++;
 		if (did != nef) {
 			if (sql_est - (unsigned int)m < 6)
-				return -1;
+				goto bail;
 			sql[m++] = ',';
 			sql[m++] = ' ';
 		}
@@ -421,6 +421,7 @@ _lws_struct_sq3_ser_one(sqlite3 *pdb, const lws_struct_map_t *schema,
 	n = sqlite3_exec(pdb, sql, NULL, NULL, NULL);
 	if (n != SQLITE_OK) {
 		lwsl_err("%s\n", sql);
+bail:
 		free(sql);
 		lwsl_err("%s: %s: fail\n", __func__, sqlite3_errmsg(pdb));
 		return -1;
