@@ -161,10 +161,6 @@ custom_poll_run(custom_poll_ctx_t *cpcx)
 				/* lws feels something bad happened, but
 				 * the outer application may not care */
 				continue;
-			if (!m) {
-				/* check if it is an fd owned by the
-				 * application */
-			}
 		}
 	}
 

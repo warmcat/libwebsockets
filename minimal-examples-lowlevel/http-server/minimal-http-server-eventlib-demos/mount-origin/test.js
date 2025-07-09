@@ -155,8 +155,6 @@ var BrowserDetect = {
 
 };
 
-var pos = 0;
-
 function get_appropriate_ws_url(extra_url)
 {
 	var pcol;
@@ -231,7 +229,7 @@ function ws_open_dumb_increment()
 	}
 }
 	
-	var socket_status, jso, s;
+	var socket_status, jso;
 	
 function ws_open_status()
 {	

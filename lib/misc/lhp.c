@@ -1304,11 +1304,6 @@ skip_image:
 					ps->cb(ctx, LHPCB_FAILED);
 					return LWS_SRET_FATAL;
 				}
-				if (c == '=') {
-					// !!! lwsl_err("%s: equal\n", __func__);
-					//ps->cb(ctx, LHPCB_FAILED);
-					//return LWS_SRET_FATAL;
-				}
 				break;
 			}
 			if (c == '/') {
