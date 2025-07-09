@@ -67,7 +67,8 @@ open_serial_port(const char *filepath)
 		return -1;
 	}
 
-	fcntl(fd, F_SETFL, O_NONBLOCK);
+	if (fcntl(fd, F_SETFL, O_NONBLOCK))
+		lwsl_info("%s: fcntl failed errno %d\n", __func__, errno);
 	tcflush(fd, TCIOFLUSH);
 
 #if defined(__linux__)
