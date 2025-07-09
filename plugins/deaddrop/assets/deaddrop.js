@@ -38,7 +38,7 @@
 	function humanize(n)
 	{
 		if (typeof n !== 'number')
-			return 'NaN';
+			return "NaN";
 
 		if (n < 1024)
 			return n + "B";
@@ -274,7 +274,7 @@
 				}
 				s += "</table>";
 
-				t.innerHTML = s;
+				t.innerHTML = san(s);
 
 				for (n = 0; n < j.files.length; n++) {
 					var d = document.getElementById("d" + n);
