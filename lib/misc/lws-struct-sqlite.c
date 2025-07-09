@@ -525,7 +525,8 @@ lws_struct_sq3_open(struct lws_context *context, const char *sqlite3_path,
 	if (uid)
 		if (chown(sqlite3_path, uid, gid))
 			lwsl_err("%s: failed to chown %s\n", __func__, sqlite3_path);
-	chmod(sqlite3_path, 0600);
+	if (chmod(sqlite3_path, 0600))
+		lwsl_err("%s: failed to chmod %s\n", __func__, sqlite3_path);
 
 	lwsl_debug("%s: created %s owned by %u:%u mode 0600\n", __func__,
 			sqlite3_path, (unsigned int)uid, (unsigned int)gid);
