@@ -263,7 +263,7 @@ _lws_dsh_alloc_tail(lws_dsh_t *dsh, int kind, const void *src1, size_t size1,
 //				(int)s.tail_obj->size, (int)s.natural_required, (int)dsh->splitat);
 	}
 
-	if (dsh && !dsh->being_destroyed)
+	if (!dsh->being_destroyed)
 		lws_dll2_foreach_safe(&dsh->oha[0].owner, &s, search_best_free);
 
 	if (!s.best) {
