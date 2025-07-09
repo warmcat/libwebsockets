@@ -170,7 +170,6 @@ drain:
 	}
 
 	ebuf.token = NULL;
-	ebuf.len = 0;
 
 	pending = (unsigned int)lws_ssl_pending(wsi);
 	if (pending) {
