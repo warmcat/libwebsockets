@@ -169,19 +169,20 @@ cb_proxy_serial_transport(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RAW_CLOSE_FILE:
 		lwsl_notice("LWS_CALLBACK_RAW_CLOSE_FILE\n");
 
-		if (pss)
+		if (pss) {
 			assert_is_pss(pss);
 
-		lws_set_opaque_user_data(wsi, NULL);
-		/*
-		 * We also have to eliminate the pss reference in
-		 * 	tm->info.txp_ppath.priv_onw
-		 */
+			lws_set_opaque_user_data(wsi, NULL);
+			/*
+			 * We also have to eliminate the pss reference in
+			 * 	tm->info.txp_ppath.priv_onw
+			 */
 
 			((lws_transport_mux_t *)pss->txp_ppath.priv_in)->
 					info.txp_ppath.priv_onw = NULL;
 
-		free(pss);
+			free(pss);
+		}
 		break;
 
 	case LWS_CALLBACK_RAW_WRITEABLE_FILE:
