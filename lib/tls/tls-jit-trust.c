@@ -693,8 +693,7 @@ lws_tls_jit_trust_blob_queury_skid(const void *_blob, size_t blen,
 		        *prpder = pder;
 		        siz = lws_ser_ru16be((uint8_t *)pderlen);
 
-			if ((const uint16_t *)(pder + siz) >=
-			    (const uint16_t *)(blob + blen))
+			if (siz >= blen - lws_ptr_diff_size_t(pder, blob))
 				break;
 
 			*prder_len = siz;
