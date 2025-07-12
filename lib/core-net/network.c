@@ -440,18 +440,10 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 			}
 		}
 		if (iface && iface[0] != '@' && uid && gid) {
-			int fdu = open(iface, O_RDWR);
-
-			if (fdu < 0) {
-				lwsl_wsi_err(wsi, "failed to open %s", iface);
-
-				return LWS_ITOSA_NOT_EXIST;
-			}
-			if (fchown(fdu, uid, gid)) {
+			if (chown(iface, uid, gid)) {
 				lwsl_wsi_err(wsi, "failed to set %s perms %u:%u",
 						  iface, (unsigned int)uid,
 						  (unsigned int)gid);
-				close(fdu);
 
 				return LWS_ITOSA_NOT_EXIST;
 			}
@@ -460,15 +452,11 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 					      (unsigned int)uid,
 					      (unsigned int)gid);
 
-			if (fchmod(fdu, 0660)) { /* lgtm [cpp/toctou-race-condition] */
+			if (chmod(iface, 0660)) { /* lgtm [cpp/toctou-race-condition] */
 				lwsl_wsi_err(wsi, "0600 mode on %s fail", iface);
-
-				close(fdu);
 
 				return LWS_ITOSA_NOT_EXIST;
 			}
-
-			close(fdu);
 		}
 	}
 #endif
