@@ -657,10 +657,6 @@ lws_json_purify_len(const char *string)
 void
 lws_filename_purify_inplace(char *filename)
 {
-	/* absolute path */
-	if (*filename == '/')
-		*filename = '_';
-
 	while (*filename) {
 
 		if (*filename == '.' && filename[1] == '.') {
