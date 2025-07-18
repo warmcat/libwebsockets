@@ -255,9 +255,9 @@ static int ssl_pm_reload_crt(SSL *ssl)
     struct pkey_pm *pkey_pm = (struct pkey_pm *)ssl->cert->pkey->pkey_pm;
     struct x509_pm *crt_pm = (struct x509_pm *)ssl->cert->x509->x509_pm;
 
-    if (ssl->verify_mode == SSL_VERIFY_PEER)
+    if (ssl->verify_mode & SSL_VERIFY_PEER)
         mode = MBEDTLS_SSL_VERIFY_REQUIRED;
-    else if (ssl->verify_mode == SSL_VERIFY_FAIL_IF_NO_PEER_CERT)
+    else if (ssl->verify_mode & SSL_VERIFY_FAIL_IF_NO_PEER_CERT)
         mode = MBEDTLS_SSL_VERIFY_OPTIONAL;
     else if (ssl->verify_mode == SSL_VERIFY_CLIENT_ONCE)
         mode = MBEDTLS_SSL_VERIFY_UNSET;
@@ -994,9 +994,9 @@ void SSL_set_SSL_CTX(SSL *ssl, SSL_CTX *ctx)
 
 #if defined(LWS_HAVE_mbedtls_ssl_set_hs_authmode)
 
-	if (ctx->verify_mode == SSL_VERIFY_PEER)
+	if (ctx->verify_mode & SSL_VERIFY_PEER)
 		mode = MBEDTLS_SSL_VERIFY_REQUIRED;
-	else if (ctx->verify_mode == SSL_VERIFY_FAIL_IF_NO_PEER_CERT)
+	else if (ctx->verify_mode & SSL_VERIFY_FAIL_IF_NO_PEER_CERT)
 		mode = MBEDTLS_SSL_VERIFY_REQUIRED;
 	else if (ctx->verify_mode == SSL_VERIFY_CLIENT_ONCE)
 		mode = MBEDTLS_SSL_VERIFY_UNSET;
