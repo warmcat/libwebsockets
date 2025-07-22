@@ -24,13 +24,6 @@
 
 cmake_minimum_required(VERSION 3.10...4.0)
 
-include(CheckFunctionExists)
-include(CheckSymbolExists)
-include(CheckIncludeFile)
-include(CheckIncludeFiles)
-include(CheckLibraryExists)
-include(CheckTypeSize)
-include(CheckCSourceCompiles)
 if (PICO_SDK_PATH)
 	include(cmake/pico_sdk_import.cmake)
 endif()
@@ -59,6 +52,14 @@ project(libwebsockets C)
 if (LWS_WITH_SECURE_STREAMS_CPP)
 	enable_language(CXX)
 endif()
+
+include(CheckFunctionExists)
+include(CheckSymbolExists)
+include(CheckIncludeFile)
+include(CheckIncludeFiles)
+include(CheckLibraryExists)
+include(CheckTypeSize)
+include(CheckCSourceCompiles)
 include(CTest)
 
 if (PICO_SDK_PATH)
