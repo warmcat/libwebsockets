@@ -75,13 +75,6 @@ You can do this by, eg
 ```
 
 **NOTE3**:
-On machines that want libraries in lib64, you can also add the
-following to the cmake line
-```
-    -DLIB_SUFFIX=64
-```
-
-**NOTE4**:
 If you are building against a non-distro OpenSSL (eg, in order to get
 access to ALPN support only in newer OpenSSL versions) the nice way to
 express that in one cmake command is eg,
