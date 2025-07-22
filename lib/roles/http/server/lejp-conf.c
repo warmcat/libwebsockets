@@ -670,6 +670,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 
 		/* attach the tree of mountpoint headers, if any */
 		m->headers = a->pvo_mp;
+		a->pvo_mp = NULL;
 
 		a->p += sizeof(*m);
 		if (!a->head)
