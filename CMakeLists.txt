@@ -22,11 +22,8 @@
 # IN THE SOFTWARE.
 #
 
-if (PICO_SDK_PATH)
-	cmake_minimum_required(VERSION 3.13)
-else()
-	cmake_minimum_required(VERSION 3.10)
-endif()
+cmake_minimum_required(VERSION 3.10...4.0)
+
 include(CheckFunctionExists)
 include(CheckSymbolExists)
 include(CheckIncludeFile)
@@ -36,23 +33,6 @@ include(CheckTypeSize)
 include(CheckCSourceCompiles)
 if (PICO_SDK_PATH)
 	include(cmake/pico_sdk_import.cmake)
-endif()
-
-
-if (POLICY CMP0048)
-	cmake_policy(SET CMP0048 NEW)
-endif()
-
-#if (POLICY CMP0024)
-#	cmake_policy(SET CMP0024 NEW)
-#endif()
-
-if (POLICY CMP0075)
-	cmake_policy(SET CMP0075 NEW)
-endif()
-
-if(POLICY CMP0091)
-	cmake_policy(SET CMP0091 NEW)
 endif()
 
 # General Advice
