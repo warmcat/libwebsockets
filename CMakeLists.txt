@@ -60,6 +60,7 @@ include(CheckIncludeFiles)
 include(CheckLibraryExists)
 include(CheckTypeSize)
 include(CheckCSourceCompiles)
+include(GNUInstallDirs)
 include(CTest)
 
 if (PICO_SDK_PATH)
@@ -376,6 +377,11 @@ if (MSVC)
 	option(LWS_MSVC_STATIC_RUNTIME "Link to static MSVC runtime" OFF)
 endif()
 
+
+if (DEFINED CACHE{LIB_SUFFIX})
+	message(WARNING "LIB_SUFFIX is deprecated and has no effect. Use CMAKE_INSTALL_LIBDIR and/or LWS_INSTALL_LIB_DIR instead.")
+endif()
+
 #
 # to use miniz, enable both LWS_WITH_ZLIB and LWS_WITH_MINIZ
 #
@@ -519,10 +525,6 @@ if (CMAKE_TOOLCHAIN_FILE)
 	message(STATUS "CMAKE_TOOLCHAIN_FILE='${CMAKE_TOOLCHAIN_FILE}'")
 endif()
 
-if (NOT LIB_SUFFIX)
-	set(LIB_SUFFIX "")
-endif()
-
 if (WIN32)
 	configure_file(${CMAKE_CURRENT_SOURCE_DIR}/win32port/version.rc.in ${CMAKE_CURRENT_BINARY_DIR}/win32port/version.rc @ONLY)
 	set(RESOURCES ${CMAKE_CURRENT_BINARY_DIR}/win32port/version.rc)
@@ -531,10 +533,10 @@ endif()
 include_directories(include)
 
 # Allow the user to override installation directories.
-set(LWS_INSTALL_LIB_DIR       lib CACHE PATH "Installation directory for libraries")
-set(LWS_INSTALL_BIN_DIR       bin CACHE PATH "Installation directory for executables")
-set(LWS_INSTALL_INCLUDE_DIR   include CACHE PATH "Installation directory for header files")
-set(LWS_INSTALL_EXAMPLES_DIR  bin CACHE PATH "Installation directory for example files")
+set(LWS_INSTALL_LIB_DIR       ${CMAKE_INSTALL_LIBDIR} CACHE PATH "Installation directory for libraries")
+set(LWS_INSTALL_BIN_DIR       ${CMAKE_INSTALL_BINDIR} CACHE PATH "Installation directory for executables")
+set(LWS_INSTALL_INCLUDE_DIR   ${CMAKE_INSTALL_INCLUDEDIR} CACHE PATH "Installation directory for header files")
+set(LWS_INSTALL_EXAMPLES_DIR  ${CMAKE_INSTALL_BINDIR} CACHE PATH "Installation directory for example files")
 
 # if you gave LWS_WITH_MINIZ, point to MINIZ here if not found
 # automatically
@@ -605,7 +607,7 @@ SET(LWS_INSTALL_PATH "${CMAKE_INSTALL_PREFIX}")
 
 # Put absolute path of dynamic libraries into the object code. Some
 # architectures, notably Mac OS X, need this.
-SET(CMAKE_INSTALL_NAME_DIR "${CMAKE_INSTALL_PREFIX}/${LWS_INSTALL_LIB_DIR}${LIB_SUFFIX}")
+SET(CMAKE_INSTALL_NAME_DIR "${CMAKE_INSTALL_PREFIX}/${LWS_INSTALL_LIB_DIR}")
 
 if (LWS_WITHOUT_BUILTIN_SHA1)
 	set(LWS_SHA1_USE_OPENSSL_NAME 1)
@@ -1074,7 +1076,7 @@ add_subdirectory(lib)
 if(WIN32 AND NOT CYGWIN)
   set(DEF_INSTALL_CMAKE_DIR cmake)
 else()
-  set(DEF_INSTALL_CMAKE_DIR lib${LIB_SUFFIX}/cmake/libwebsockets)
+  set(DEF_INSTALL_CMAKE_DIR ${CMAKE_INSTALL_LIBDIR}/cmake/libwebsockets)
 endif()
                 
 configure_file(${PROJECT_SOURCE_DIR}/cmake/LwsCheckRequirements.cmake

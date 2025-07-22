@@ -286,8 +286,8 @@ endif()
 # Install libs and headers.
 install(TARGETS ${LWS_LIBRARIES}
 		EXPORT LibwebsocketsTargets
-		LIBRARY DESTINATION "${LWS_INSTALL_LIB_DIR}${LIB_SUFFIX}" COMPONENT core
-		ARCHIVE DESTINATION "${LWS_INSTALL_LIB_DIR}${LIB_SUFFIX}" COMPONENT core
+		LIBRARY DESTINATION "${LWS_INSTALL_LIB_DIR}" COMPONENT core
+		ARCHIVE DESTINATION "${LWS_INSTALL_LIB_DIR}" COMPONENT core
 		RUNTIME DESTINATION "${LWS_INSTALL_BIN_DIR}" COMPONENT core # Windows DLLs
 		PUBLIC_HEADER DESTINATION "${LWS_INSTALL_INCLUDE_DIR}" COMPONENT dev)
 		
@@ -321,8 +321,8 @@ endif()
 file(WRITE "${PROJECT_BINARY_DIR}/libwebsockets.pc"
 "prefix=\"${CMAKE_INSTALL_PREFIX}\"
 exec_prefix=\${prefix}
-libdir=\${exec_prefix}/lib${LIB_SUFFIX}
-includedir=\${prefix}/include
+libdir=\${exec_prefix}/${LWS_INSTALL_LIB_DIR}
+includedir=\${prefix}/${LWS_INSTALL_INCLUDE_DIR}
 
 Name: libwebsockets
 Description: Websockets server and client library
@@ -338,13 +338,13 @@ endif()
 
 
 	install(FILES "${PROJECT_BINARY_DIR}/libwebsockets.pc"
-		DESTINATION lib${LIB_SUFFIX}/pkgconfig)
+		DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
 
 file(WRITE "${PROJECT_BINARY_DIR}/libwebsockets_static.pc"
 "prefix=\"${CMAKE_INSTALL_PREFIX}\"
 exec_prefix=\${prefix}
-libdir=\${exec_prefix}/lib${LIB_SUFFIX}
-includedir=\${prefix}/include
+libdir=\${exec_prefix}/${LWS_INSTALL_LIB_DIR}
+includedir=\${prefix}/${LWS_INSTALL_INCLUDE_DIR}
 
 Name: libwebsockets_static
 Description: Websockets server and client static library
@@ -362,7 +362,7 @@ endif()
 
 
 	install(FILES "${PROJECT_BINARY_DIR}/libwebsockets_static.pc"
-		DESTINATION lib${LIB_SUFFIX}/pkgconfig)
+		DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
 
 endif(UNIX OR MINGW)
 
