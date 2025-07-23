@@ -9,7 +9,7 @@
 			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export SAI_CPACK=\"-G RPM\";cmake .. ${cmake} && make -j4 && rm -rf ../destdir && make -j DESTDIR=../destdir install && ctest -j2 --output-on-failure ${cpack}"
 		},
 		"netbsd-OSX-bigsur/x86_64-intel-i3/llvm": {
-			"build": "mkdir build destdir; cd build; export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export SAI_CPACK=\"-G ZIP\";export MACOSX_DEPLOYMENT_TARGET=10.15 ; cmake .. -DCMAKE_MAKE_PROGRAM=/usr/bin/make -DLWS_OPENSSL_INCLUDE_DIRS=/usr/local/opt/openssl@1.1/include -DLWS_OPENSSL_LIBRARIES=\"/usr/local/opt/openssl/lib/libssl.dylib;/usr/local/opt/openssl/lib/libcrypto.dylib\" ${cmake} && make -j4 && make -j DESTDIR=../destdir install && ctest -j2 --output-on-failure ${cpack}"
+			"build": "mkdir build destdir; cd build; export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export SAI_CPACK=\"-G ZIP\";export MACOSX_DEPLOYMENT_TARGET=12.5 ; cmake .. -DCMAKE_MAKE_PROGRAM=/usr/bin/make ${cmake} && make -j4 && make -j DESTDIR=../destdir install && ctest -j2 --output-on-failure ${cpack}"
 		},
 		"ubuntu-noble/riscv64/gcc": {
 			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export SAI_CPACK=\"-G DEB\";cmake .. ${cmake} && make -j4 && rm -rf ../destdir && make -j DESTDIR=../destdir install && ctest -j2 --output-on-failure ${cpack}"
