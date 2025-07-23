@@ -135,10 +135,10 @@ scan_upload_dir(struct vhd_deaddrop *vhd)
 	char filepath[256], subdir[3][128], *p;
 	struct lwsac *lwsac_head = NULL;
 	lws_list_ptr sorted_head = NULL;
-	int i, sp = 0, found = 0;
 	struct dir_entry *dire;
 	struct dirent *de;
 	size_t initial, m;
+	int i, sp = 0;
 	struct stat s;
 	DIR *dir[3];
 
@@ -224,8 +224,6 @@ scan_upload_dir(struct vhd_deaddrop *vhd)
 			lws_strncpy(dire->user, subdir[1], sizeof(dire->user));
 #endif
 
-		found++;
-
 		memcpy(&dire[1], filepath + initial, m);
 
 		lws_list_ptr_insert(&sorted_head, &dire->next, de_mtime_sort);
@@ -243,8 +241,6 @@ scan_upload_dir(struct vhd_deaddrop *vhd)
 		vhd->dire_head = NULL;
 
 	vhd->filelist_version++;
-
-	lwsl_info("%s: found %d\n", __func__, found);
 
 	lws_start_foreach_llp(struct pss_deaddrop **, ppss, vhd->pss_head) {
 		start_sending_dir(*ppss);
