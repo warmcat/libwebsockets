@@ -251,6 +251,7 @@ lws_buflist_fragment_use(struct lws_buflist **head, uint8_t *buf,
 void
 lws_buflist_describe(struct lws_buflist **head, void *id, const char *reason)
 {
+#if !defined(LWS_WITH_NO_LOGS)
 	struct lws_buflist *old;
 	int n = 0;
 
@@ -271,6 +272,7 @@ lws_buflist_describe(struct lws_buflist **head, void *id, const char *reason)
 		}
 		n++;
 	}
+#endif
 }
 #endif
 
