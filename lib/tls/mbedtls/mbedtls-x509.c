@@ -293,6 +293,9 @@ lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
 
 	wsi = lws_get_network_wsi(wsi);
 
+	if (!wsi->tls.ssl)
+		return -1;
+
 	x509 = ssl_get_peer_mbedtls_x509_crt(wsi->tls.ssl);
 
 	if (!x509)
