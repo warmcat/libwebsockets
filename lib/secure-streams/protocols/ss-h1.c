@@ -1120,6 +1120,7 @@ malformed:
 						return -1;
 					if (lws_ss_alloc_set_metadata(h, "method", "GET", 3))
 						return -1;
+					m = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_AUTHORIZATION);
 					if (m && lws_ss_alloc_set_metadata(h, "auth",
 							lws_hdr_simple_ptr(wsi,
 								WSI_TOKEN_HTTP_AUTHORIZATION), (unsigned int)m))
@@ -1133,6 +1134,7 @@ malformed:
 							return -1;
 						if (lws_ss_alloc_set_metadata(h, "method", "POST", 4))
 							return -1;
+						m = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_AUTHORIZATION);
 						if (m && lws_ss_alloc_set_metadata(h, "auth",
 							lws_hdr_simple_ptr(wsi,
 								WSI_TOKEN_HTTP_AUTHORIZATION), (unsigned int)m))
@@ -1147,6 +1149,7 @@ malformed:
 								return -1;
 							if (lws_ss_alloc_set_metadata(h, "method", "PATCH", 5))
 								return -1;
+							m = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_AUTHORIZATION);
 							if (m && lws_ss_alloc_set_metadata(h, "auth",
 								lws_hdr_simple_ptr(wsi,
 									WSI_TOKEN_HTTP_AUTHORIZATION), (unsigned int)m))
