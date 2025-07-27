@@ -41,6 +41,9 @@
 #ifdef WIN32
 #include <io.h>
 #endif
+#if !defined(WIN32)
+#include <limits.h>
+#endif
 #include <stdio.h>
 #include <errno.h>
 
@@ -380,6 +383,11 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 	uint8_t buf[LWS_PRE + LWS_RECOMMENDED_MIN_HEADER_SPACE],
 		*start = &buf[LWS_PRE], *p = start,
 		*end = &buf[sizeof(buf) - 1];
+#if !defined(WIN32)
+	char path[512], resolved_path[PATH_MAX];
+#else
+	char path[512];
+#endif
 	char fname[256], *wp;
 	const char *cp;
 	int n, m, was;
@@ -463,34 +471,52 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 		if (strncmp((const char *)in, "{\"del\":\"", 8))
 			break;
 
-		cp = strchr((const char *)in, '/');
-		if (cp) {
-			n = (int)(((uint8_t *)cp - (uint8_t *)in)) - 8;
-
-			if ((int)strlen(pss->user) != n ||
-			    memcmp(pss->user, ((const char *)in) + 8, (unsigned int)n)) {
-				lwsl_notice("%s: del: auth mismatch "
-					    " '%s' '%s' (%d)\n",
-					    __func__, pss->user,
-					    ((const char *)in) + 8, n);
-				break;
-			}
-		}
+		/*
+		 * NOTE: any authenticated user can delete any file.
+		 * To restrict to owner, uncomment the following check.
+		 */
+		// cp = strchr((const char *)in, '/');
+		// if (cp) {
+		// 	n = (int)(((uint8_t *)cp - (uint8_t *)in)) - 8;
+		// 
+		// 	if ((int)strlen(pss->user) != n ||
+		// 	    memcmp(pss->user, ((const char *)in) + 8, (unsigned int)n)) {
+		// 		lwsl_notice("%s: del: auth mismatch "
+		// 			    " '%s' '%s' (%d)\n",
+		// 			    __func__, pss->user,
+		// 			    ((const char *)in) + 8, n);
+		// 		break;
+		// 	}
+		// }
 
 		lws_strncpy(fname, ((const char *)in) + 8, sizeof(fname));
-		lws_filename_purify_inplace(fname);
 		wp = strchr((const char *)fname, '\"');
 		if (wp)
 			*wp = '\0';
+		
+		lws_filename_purify_inplace(fname);
 
-		lws_snprintf((char *)buf, sizeof(buf), "%s/%s", vhd->upload_dir,
+		lws_snprintf(path, sizeof(path), "%s/%s", vhd->upload_dir,
 			     fname);
 
-		lwsl_notice("%s: del: path %s\n", __func__, (const char *)buf);
+#if !defined(WIN32)
+		if (!realpath(path, resolved_path)) {
+			lwsl_warn("%s: delete: realpath failed %s\n", __func__, path);
+			break;
+		}
 
-		if (unlink((const char *)buf) < 0)
-			lwsl_err("%s: unlink %s failed\n", __func__,
-					(const char *)buf);
+		if (strncmp(resolved_path, vhd->upload_dir, strlen(vhd->upload_dir))) {
+			lwsl_err("%s: illegal delete attempt '%s' -> '%s'\n", __func__, path, resolved_path);
+			break;
+		}
+		lws_strncpy(path, resolved_path, sizeof(path));
+#endif
+
+		lwsl_notice("%s: deleting '%s'\n", __func__, path);
+
+		if (unlink(path) < 0)
+			lwsl_err("%s: unlink %s failed: %s\n", __func__,
+					path, strerror(errno));
 
 		scan_upload_dir(vhd);
 		break;

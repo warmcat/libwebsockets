@@ -194,6 +194,14 @@
 		text_inp(); // Manually update button state after clearing
 	}
 
+	function delfile(e)
+	{
+		e.stopPropagation();
+		e.preventDefault();
+
+		ws.send("{\"del\":\"" + e.target.getAttribute("file") + "\"}");
+	}
+
 	function body_drop(e) {
 		e.preventDefault();
 	}
@@ -208,15 +216,6 @@
 		var content = document.getElementById("text_content"),
 		    upl_text = document.getElementById("upl_text");
 		upl_text.disabled = !content.value.length;
-	}
-
-	function delfile(e)
-	{
-		e.stopPropagation();
-		e.preventDefault();
-
-		ws.send("{\"del\":\"" + decodeURI(e.target.getAttribute("file")) +
-		"\"}");
 	}
 
 	function get_appropriate_ws_url(extra_url)
@@ -298,12 +297,12 @@
 					humanize(j.files[n].size) +
 					"</td><td class=\"dow\">" +
 					date.toDateString() + " " +
-					date.toLocaleTimeString() +
-					"</td><td>";
-					if (j.files[n].yours === 1)
+					date.toLocaleTimeString() + "</td><td>";
+
+					if (username) /* any authenticated user can delete */
 						s += "<img id=\"d" + n +
 					  "\" class=\"delbtn\" file=\"" +
-						lws_urlencode(san(j.files[n].name)) + "\">";
+						san(j.files[n].name) + "\">";
 					else
 						s += " ";
 
@@ -319,8 +318,7 @@
 				for (n = 0; n < j.files.length; n++) {
 					var d = document.getElementById("d" + n);
 					if (d)
-						d.addEventListener("click",
-								delfile, false);
+						d.addEventListener("click", delfile, false);
 				}
 			};
 
