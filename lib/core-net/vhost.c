@@ -305,7 +305,7 @@ lws_protocol_vh_priv_get(struct lws_vhost *vhost,
 		}
 
 		if (n == vhost->count_protocols) {
-			lwsl_vhost_err(vhost, "unknown protocol %p", prot);
+			lwsl_vhost_err(vhost, "unknown protocol %p (%s)", prot, prot->name);
 			return NULL;
 		}
 	}

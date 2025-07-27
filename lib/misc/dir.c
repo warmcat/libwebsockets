@@ -126,7 +126,7 @@ lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb)
 
 	n = scandir((char *)dirpath, &namelist, filter, alphasort);
 	if (n < 0) {
-		lwsl_err("Scandir on '%s' failed, errno %d\n", dirpath, LWS_ERRNO);
+		lwsl_info("Scandir on '%s' failed, errno %d\n", dirpath, LWS_ERRNO);
 		return 1;
 	}
 

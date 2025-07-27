@@ -113,7 +113,7 @@ lws_plat_dlopen(struct lws_plugin **pplugin, const char *libpath,
 	if (each)
 		each(pin, each_user);
 
-	lwsl_notice("   %s\n", libpath);
+	lwsl_info("   %s\n", libpath);
 
 	return hdr;
 
