@@ -5,12 +5,21 @@
   <script src="deaddrop.js"></script>
  </head>
  <body>
-	<h1>LWS Deaddrop</h1>
+	<h1>LWS Deaddrop 2</h1>
 	<div class="uplbox">
 	 <table id="ddrop" class="noconn">
 	  <tr><td class="vm">
 	 	<div id="da" class="da"><img class="disa" src="drop.svg"></div>
 	  </td><td>
+	   <h3>Paste text to upload:</h3>
+	   <form name=textupload action="upload" method="post"
+		 enctype="multipart/form-data">
+		<textarea id="text_content" class="dd-textarea"
+			placeholder="Paste content here"></textarea>
+		<input id="upl_text" type="submit" value="Upload Text"
+			class="ubtn" disabled>
+	   </form>
+	   <hr>
 	   <h3>...or select files to upload:</h3>
 	   <span id="size"></span><br>
 	  <form name=multipart action="upload" method="post"
@@ -31,4 +40,5 @@
 	 </table>
 	</div>
  </body>
-</html>
+
+    

@@ -502,8 +502,9 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 		was = 0;
 		if (pss->first) {
 			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
-					  "{\"max_size\":%llu, \"files\": [",
-					  vhd->max_size);
+					  "{\"max_size\":%llu, \"user\":\"%s\", "
+					  "\"files\": [", vhd->max_size,
+					  pss->user[0] ? pss->user : "");
 			was = 1;
 		}
 
