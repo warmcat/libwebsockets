@@ -655,10 +655,12 @@ lws_ss_smd_tx_cb(lws_sorted_usec_list_t *sul)
 		/* nonzero return means don't want to send anything */
 		return;
 
-	// lwsl_notice("%s: (SS %p bound to _lws_smd creates message) tx len %d\n", __func__, h, (int)len);
-	// lwsl_hexdump_notice(buf, len);
-
-	assert(len >= LWS_SMD_SS_RX_HEADER_LEN);
+	if (len < LWS_SMD_SS_RX_HEADER_LEN) {
+		lwsl_ss_notice(h, "smd message undersize: tx len %d vs %d",
+				(int)len, (int)LWS_SMD_SS_RX_HEADER_LEN);
+		lwsl_hexdump_notice(buf, len);
+		return;
+	}
 	_class = (lws_smd_class_t)lws_ser_ru64be(buf);
 	p = lws_smd_msg_alloc(h->context, _class, len - LWS_SMD_SS_RX_HEADER_LEN);
 	if (!p) {
