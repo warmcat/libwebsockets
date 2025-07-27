@@ -24,11 +24,16 @@
 
 #include "private-lib-core.h"
 
+typedef struct lws_serialized_mbedtls_session {
+	size_t len;
+	uint8_t data[2048]; /* Sized to hold a typical serialized session */
+} lws_ser_sess_t;
+
 typedef struct lws_tls_session_cache_mbedtls {
 	lws_dll2_t			list;
 
- 	mbedtls_ssl_session		session;
 	lws_sorted_usec_list_t		sul_ttl;
+	lws_ser_sess_t			*ser_data;
 
 	/* name is overallocated here */
 } lws_tls_scm_t;
@@ -44,8 +49,9 @@ __lws_tls_session_destroy(lws_tls_scm_t *ts)
 				     (unsigned int)(ts->list.owner->count - 1));
 
 	lws_sul_cancel(&ts->sul_ttl);
-	mbedtls_ssl_session_free(&ts->session);
 	lws_dll2_remove(&ts->list);		/* vh lock */
+	if (ts->ser_data)
+		lws_free(ts->ser_data);
 
 	lws_free(ts);
 }
@@ -76,6 +82,7 @@ lws_tls_reuse_session(struct lws *wsi)
 	char buf[LWS_SESSION_TAG_LEN];
 	mbedtls_ssl_context *msc;
 	lws_tls_scm_t *ts;
+	mbedtls_ssl_session session;
 
 	if (!wsi->a.vhost ||
 	    wsi->a.vhost->options & LWS_SERVER_OPTION_DISABLE_TLS_SESSION_CACHE)
@@ -94,11 +101,25 @@ lws_tls_reuse_session(struct lws *wsi)
 		goto bail;
 	}
 
+	if (!ts->ser_data) /* cache entry is invalid */
+		goto bail;
+
+	mbedtls_ssl_session_init(&session);
+
+	if (mbedtls_ssl_session_load(&session, ts->ser_data->data,
+				     ts->ser_data->len)) {
+		mbedtls_ssl_session_free(&session);
+		goto bail;
+	}
+
 	lwsl_tlssess("%s: %s\n", __func__, (const char *)&ts[1]);
 	wsi->tls_session_reused = 1;
 
 	msc = SSL_mbedtls_ssl_context_from_SSL(wsi->tls.ssl);
-	mbedtls_ssl_set_session(msc, &ts->session);
+	if (mbedtls_ssl_set_session(msc, &session)) {
+		/* Failed to set session, clean up and bail */
+	}
+	mbedtls_ssl_session_free(&session);
 
 	/* keep our session list sorted in lru -> mru order */
 
@@ -168,6 +189,7 @@ lws_tls_session_new_mbedtls(struct lws *wsi)
 	struct lws_vhost *vh;
 	lws_tls_scm_t *ts;
 	size_t nl;
+	mbedtls_ssl_session temp_session;
 #if !defined(LWS_WITH_NO_LOGS) && defined(_DEBUG)
 	const char *disposition = "reuse";
 #endif
@@ -182,6 +204,8 @@ lws_tls_session_new_mbedtls(struct lws *wsi)
 	nl = strlen(buf);
 
 	msc = SSL_mbedtls_ssl_context_from_SSL(wsi->tls.ssl);
+
+	mbedtls_ssl_session_init(&temp_session);
 
 	lws_context_lock(vh->context, __func__); /* -------------- cx { */
 	lws_vhost_lock(vh); /* -------------- vh { */
@@ -219,10 +243,25 @@ lws_tls_session_new_mbedtls(struct lws *wsi)
 		memset(ts, 0, sizeof(*ts));
 		memcpy(&ts[1], buf, nl + 1);
 
-		if (mbedtls_ssl_get_session(msc, &ts->session)) {
+		ts->ser_data = lws_malloc(sizeof(*ts->ser_data), __func__);
+		if (!ts->ser_data) {
+			lws_free(ts);
+			goto bail;
+		}
+
+		if (mbedtls_ssl_get_session(msc, &temp_session)) {
+			lws_free(ts->ser_data);
 			lws_free(ts);
 			/* no joy for whatever reason */
 			goto bail;
+		}
+
+		if (mbedtls_ssl_session_save(&temp_session, ts->ser_data->data,
+					     sizeof(ts->ser_data->data),
+					     &ts->ser_data->len)) {
+			/* Serialization failed, cache entry will be invalid */
+			lws_free(ts->ser_data);
+			ts->ser_data = NULL;
 		}
 
 		lws_dll2_add_tail(&ts->list, &vh->tls_sessions);
@@ -236,18 +275,30 @@ lws_tls_session_new_mbedtls(struct lws *wsi)
 		disposition = "new";
 #endif
 	} else {
-
-		mbedtls_ssl_session_free(&ts->session);
-
-		if (mbedtls_ssl_get_session(msc, &ts->session))
+		if (mbedtls_ssl_get_session(msc, &temp_session))
 			/* no joy for whatever reason */
 			goto bail;
+
+		if (!ts->ser_data) {
+			ts->ser_data = lws_malloc(sizeof(*ts->ser_data), __func__);
+			if (!ts->ser_data)
+				goto bail;
+		}
+
+		if (mbedtls_ssl_session_save(&temp_session, ts->ser_data->data,
+					     sizeof(ts->ser_data->data),
+					     &ts->ser_data->len)) {
+			/* Serialization failed, cache entry will be invalid */
+			lws_free(ts->ser_data);
+			ts->ser_data = NULL;
+		}
 
 		/* keep our session list sorted in lru -> mru order */
 
 		lws_dll2_remove(&ts->list);
 		lws_dll2_add_tail(&ts->list, &vh->tls_sessions);
 	}
+	mbedtls_ssl_session_free(&temp_session);
 
 	lws_vhost_unlock(vh); /* } vh --------------  */
 	lws_context_unlock(vh->context); /* } cx --------------  */
@@ -264,6 +315,7 @@ lws_tls_session_new_mbedtls(struct lws *wsi)
 	return 1;
 
 bail:
+	mbedtls_ssl_session_free(&temp_session);
 	lws_vhost_unlock(vh); /* } vh --------------  */
 	lws_context_unlock(vh->context); /* } cx --------------  */
 
