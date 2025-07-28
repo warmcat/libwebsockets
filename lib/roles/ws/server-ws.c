@@ -737,8 +737,9 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 
 		LWS_CPYAPP(p, "\x0d\x0aSec-WebSocket-Protocol: ");
 		p += lws_snprintf(p, 128, "%s", prot);
-		LWS_CPYAPP(p, "\x0d\x0a");
 	}
+
+       LWS_CPYAPP(p, "\x0d\x0a");
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	/*
