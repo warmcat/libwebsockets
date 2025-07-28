@@ -180,11 +180,19 @@
 		    ts = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' +
 		         pad(d.getDate()) + '_' + pad(d.getHours()) + '-' +
 			 pad(d.getMinutes()) + '-' + pad(d.getSeconds()),
-		    generated_filename = ts + (username ? '_' + username : '') + '.txt',
+		    generated_filename, // to be created below
 		    formData = new FormData(), blob;
 
 		e.preventDefault();
+
+		if (!username) { // Do not allow unauthenticated text uploads
+			alert("You must be logged in to upload text.");
+			return;
+		}
 		clear_errors();
+
+		// Filename now prefixed with username
+		generated_filename = username + '_' + ts + '.txt';
 
 		blob = new Blob([content.value], { type: "text/plain" });
 		formData.append("file", blob, generated_filename);
@@ -292,6 +300,16 @@
 
 				s += "<table class=\"nb\">";
 				for (n = 0; n < j.files.length; n++) {
+					var fullName = j.files[n].name;
+					var displayName = fullName;
+					var isOwner = username &&
+						      fullName.startsWith(username + "_");
+
+					// Strip username prefix for display if owner
+					if (isOwner)
+						displayName = fullName.substring(
+								username.length + 1);
+
 					var date = new Date(j.files[n].mtime * 1000);
 					s += "<tr><td class=\"dow r\">" +
 					humanize(j.files[n].size) +
@@ -299,17 +317,18 @@
 					date.toDateString() + " " +
 					date.toLocaleTimeString() + "</td><td>";
 
-					if (username) /* any authenticated user can delete */
+					// Only show delete button if authenticated and owner
+					if (isOwner)
 						s += "<img id=\"d" + n +
 					  "\" class=\"delbtn\" file=\"" +
-						san(j.files[n].name) + "\">";
+						san(fullName) + "\">";
 					else
 						s += " ";
 
 					s += "</td><td class=\"ogn\"><a href=\"get/" +
-					lws_urlencode(san(j.files[n].name)) +
-					  "\" download>" +
-					san(j.files[n].name) + "</a></td></tr>";
+					lws_urlencode(san(fullName)) +
+					  "\" download=\"" + san(displayName) + "\">" +
+					san(displayName) + "</a></td></tr>";
 				}
 				s += "</table>";
 

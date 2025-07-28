@@ -135,102 +135,65 @@ start_sending_dir(struct pss_deaddrop *pss)
 static int
 scan_upload_dir(struct vhd_deaddrop *vhd)
 {
-	char filepath[256], subdir[3][128], *p;
+	char filepath[512], *p_owner_end;
 	struct lwsac *lwsac_head = NULL;
 	lws_list_ptr sorted_head = NULL;
 	struct dir_entry *dire;
 	struct dirent *de;
-	size_t initial, m;
-	int i, sp = 0;
+	size_t m;
 	struct stat s;
-	DIR *dir[3];
+	DIR *dir;
 
-	initial = strlen(vhd->upload_dir) + 1;
-	lws_strncpy(subdir[sp], vhd->upload_dir, sizeof(subdir[sp]));
-	dir[sp] = opendir(vhd->upload_dir);
-	if (!dir[sp]) {
+	dir = opendir(vhd->upload_dir);
+	if (!dir) {
 		lwsl_err("%s: Unable to walk upload dir '%s'\n", __func__,
 			 vhd->upload_dir);
 		return -1;
 	}
 
-	do {
-		de = readdir(dir[sp]);
-		if (!de) {
-			closedir(dir[sp]);
-#if !defined(__COVERITY__)
-			if (!sp)
-#endif
-				break;
-#if !defined(__COVERITY__)
-			sp--;
-			continue;
-#endif
-		}
-
-		p = filepath;
-
-		for (i = 0; i <= sp; i++)
-			p += lws_snprintf(p, lws_ptr_diff_size_t((filepath + sizeof(filepath)), p),
-					  "%s/", subdir[i]);
-
-		lws_snprintf(p, lws_ptr_diff_size_t((filepath + sizeof(filepath)), p), "%s",
-				  de->d_name);
-
+	while ((de = readdir(dir))) {
 		/* ignore temp files */
-		if (de->d_name[strlen(de->d_name) - 1] == '~')
+		if (de->d_name[strlen(de->d_name) - 1] == '~' ||
+		    !strcmp(de->d_name, ".") || !strcmp(de->d_name, ".."))
 			continue;
-#if defined(__COVERITY__)
-		s.st_size = 0;
-		s.st_mtime = 0;
-#else
-		/* coverity[toctou] */
+
+		lws_snprintf(filepath, sizeof(filepath), "%s/%s",
+				  vhd->upload_dir, de->d_name);
+
 		if (stat(filepath, &s))
 			continue;
 
-		if (S_ISDIR(s.st_mode)) {
-			if (!strcmp(de->d_name, ".") ||
-			    !strcmp(de->d_name, ".."))
-				continue;
-			sp++;
-			if (sp == LWS_ARRAY_SIZE(dir)) {
-				lwsl_err("%s: Skipping too-deep subdir %s\n",
-					 __func__, filepath);
-				sp--;
-				continue;
-			}
-			lws_strncpy(subdir[sp], de->d_name, sizeof(subdir[sp]));
-			dir[sp] = opendir(filepath);
-			if (!dir[sp]) {
-				lwsl_err("%s: Unable to open subdir '%s'\n",
-					 __func__, filepath);
-				goto bail;
-			}
+		if (S_ISDIR(s.st_mode))
 			continue;
-		}
-#endif
 
-		m = strlen(filepath + initial) + 1;
+		m = strlen(de->d_name) + 1;
 		dire = lwsac_use(&lwsac_head, sizeof(*dire) + m, 0);
 		if (!dire) {
 			lwsac_free(&lwsac_head);
-
-			goto bail;
+			closedir(dir);
+			return -1;
 		}
 
 		dire->next = NULL;
 		dire->size = (unsigned long long)s.st_size;
 		dire->mtime = s.st_mtime;
 		dire->user[0] = '\0';
-#if !defined(__COVERITY__)
-		if (sp)
-			lws_strncpy(dire->user, subdir[1], sizeof(dire->user));
-#endif
 
-		memcpy(&dire[1], filepath + initial, m);
+		p_owner_end = strchr(de->d_name, '_');
+		if (p_owner_end) {
+			size_t owner_len = (size_t)(p_owner_end - de->d_name);
+			if (owner_len < sizeof(dire->user)) {
+				memcpy(dire->user, de->d_name, owner_len);
+				dire->user[owner_len] = '\0';
+			}
+		}
+
+		memcpy(&dire[1], de->d_name, m);
 
 		lws_list_ptr_insert(&sorted_head, &dire->next, de_mtime_sort);
-	} while (1);
+	}
+
+	closedir(dir);
 
 	/* the old lwsac continues to live while someone else is consuming it */
 	if (vhd->lwsac_head)
@@ -251,12 +214,6 @@ scan_upload_dir(struct vhd_deaddrop *vhd)
 	} lws_end_foreach_llp(ppss, pss_list);
 
 	return 0;
-
-bail:
-	while (sp >= 0)
-		closedir(dir[sp--]);
-
-	return -1;
 }
 
 static int
@@ -272,24 +229,22 @@ file_upload_cb(void *data, const char *name, const char *filename,
 
 	switch (state) {
 	case LWS_UFS_OPEN:
+		/* Require an authenticated user to upload */
+		if (!pss->user[0]) {
+			pss->response_code = HTTP_STATUS_FORBIDDEN;
+			lwsl_warn("%s: unauthenticated upload forbidden\n",
+				  __func__);
+			return -1;
+		}
+
 		lws_urldecode(filename2, filename, sizeof(filename2) - 1);
 		lws_filename_purify_inplace(filename2);
-		if (pss->user[0]) {
-			lws_filename_purify_inplace(pss->user);
-			lws_snprintf(pss->filename, sizeof(pss->filename),
-				     "%s/%s", pss->vhd->upload_dir, pss->user);
-			if (mkdir(pss->filename
-#if !defined(WIN32)
-				, 0700
-#endif
-				) < 0)
-				lwsl_debug("%s: mkdir failed\n", __func__);
-			lws_snprintf(pss->filename, sizeof(pss->filename),
-				     "%s/%s/%s~", pss->vhd->upload_dir,
-				     pss->user, filename2);
-		} else
-			lws_snprintf(pss->filename, sizeof(pss->filename),
-				     "%s/%s~", pss->vhd->upload_dir, filename2);
+		lws_filename_purify_inplace(pss->user);
+
+		/* New filename format: upload_dir/user_originalfilename~ */
+		lws_snprintf(pss->filename, sizeof(pss->filename),
+			     "%s/%s_%s~", pss->vhd->upload_dir,
+			     pss->user, filename2);
 		lwsl_notice("%s: filename '%s'\n", __func__, pss->filename);
 
 		pss->fd = (lws_filefd_type)(long long)lws_open(pss->filename,
@@ -464,30 +419,31 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 		return 0;
 
 	case LWS_CALLBACK_RECEIVE:
-		/* we get this kind of thing {"del":"agreen/no-entry.svg"} */
+		/* we get this kind of thing {"del":"user_agreen.txt"} */
 		if (!pss || len < 10)
 			break;
 
 		if (strncmp((const char *)in, "{\"del\":\"", 8))
 			break;
 
-		/*
-		 * NOTE: any authenticated user can delete any file.
-		 * To restrict to owner, uncomment the following check.
-		 */
-		// cp = strchr((const char *)in, '/');
-		// if (cp) {
-		// 	n = (int)(((uint8_t *)cp - (uint8_t *)in)) - 8;
-		// 
-		// 	if ((int)strlen(pss->user) != n ||
-		// 	    memcmp(pss->user, ((const char *)in) + 8, (unsigned int)n)) {
-		// 		lwsl_notice("%s: del: auth mismatch "
-		// 			    " '%s' '%s' (%d)\n",
-		// 			    __func__, pss->user,
-		// 			    ((const char *)in) + 8, n);
-		// 		break;
-		// 	}
-		// }
+		cp = strchr((const char *)in + 8, '_');
+		if (!cp) {
+			lwsl_warn("%s: del: no owner in filename\n", __func__);
+			break;
+		}
+
+		/* Check if the authenticated user matches the file owner prefix */
+		n = (int)(cp - (((const char *)in) + 8));
+
+		if ((int)strlen(pss->user) != n ||
+		    strncmp(pss->user, ((const char *)in) + 8, (unsigned int)n)) {
+			lwsl_notice("%s: del: auth mismatch "
+				    " user '%s' tried to delete file with "
+				    "owner '%.*s'\n",
+				    __func__, pss->user, n,
+				    ((const char *)in) + 8);
+			break;
+		}
 
 		lws_strncpy(fname, ((const char *)in) + 8, sizeof(fname));
 		wp = strchr((const char *)fname, '\"');
