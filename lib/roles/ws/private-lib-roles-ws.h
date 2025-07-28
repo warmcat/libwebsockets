@@ -168,6 +168,9 @@ struct lws_ext_pm_deflate_rx_ebufs {
 lws_handling_result_t
 lws_ws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len);
 
+lws_handling_result_t
+lws_ws_client_rx_parser_block(struct lws *wsi, const uint8_t **buf, size_t *len);
+
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 LWS_VISIBLE void
 lws_context_init_extensions(const struct lws_context_creation_info *info,

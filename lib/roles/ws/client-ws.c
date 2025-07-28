@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2021 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -80,7 +80,8 @@ lws_create_client_ws_object(const struct lws_client_connect_info *i,
 lws_handling_result_t
 lws_ws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 {
-	unsigned char *bufin = *buf;
+	const uint8_t **cbuf = (const uint8_t **)buf;
+	unsigned char *start_buf = *buf;
 
 	if ((lwsi_state(wsi) != LRS_WAITING_PROXY_REPLY) &&
 	    (lwsi_state(wsi) != LRS_H1C_ISSUE_HANDSHAKE) &&
@@ -88,69 +89,35 @@ lws_ws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 	    !lwsi_role_client(wsi))
 		return LWS_HPI_RET_HANDLED;
 
-	lwsl_wsi_debug(wsi, "hs client feels it has %d in", (int)len);
+	lwsl_wsi_debug(wsi, "hs client has %d in", (int)len);
 
-	while (len) {
-		/*
-		 * we were accepting input but now we stopped doing so
-		 */
-		if (lws_is_flowcontrolled(wsi)) {
-			lwsl_wsi_debug(wsi, "caching %ld", (long)len);
-			/*
-			 * Since we cached the remaining available input, we
-			 * can say we "consumed" it.
-			 *
-			 * But what about the case where the available input
-			 * came out of the rxflow cache already?  If we are
-			 * effectively "putting it back in the cache", we have
-			 * to place it at the cache head, not the tail as usual.
-			 */
-			if (lws_rxflow_cache(wsi, *buf, 0, len) ==
-							LWSRXFC_TRIMMED) {
-				/*
-				 * we dealt with it by trimming the existing
-				 * rxflow cache HEAD to account for what we used.
-				 *
-				 * indicate we didn't use anything to the caller
-				 * so he doesn't do any consumed processing
-				 */
-				lwsl_wsi_info(wsi, "trimming inside rxflow cache");
-				*buf = bufin;
-			} else
-				*buf += len;
-
-			return LWS_HPI_RET_HANDLED;
+	if (lws_is_flowcontrolled(wsi)) {
+		lwsl_wsi_debug(wsi, "caching %ld", (long)len);
+		if (lws_rxflow_cache(wsi, *buf, 0, len) == LWSRXFC_TRIMMED) {
+			lwsl_wsi_info(wsi, "trimming inside rxflow cache");
+			/* we indicate we used nothing, caller will not advance */
+		} else {
+			*buf += len; /* we indicate we used it all */
 		}
+		return LWS_HPI_RET_HANDLED;
+	}
+
 #if !defined(LWS_WITHOUT_EXTENSIONS)
-		if (wsi->ws->rx_draining_ext) {
-			lws_handling_result_t m;
-
-			lwsl_wsi_info(wsi, "draining ext");
-			if (lwsi_role_client(wsi))
-				m = lws_ws_client_rx_sm(wsi, 0);
-			else
-				m = lws_ws_rx_sm(wsi, 0, 0);
-
-			if (m == LWS_HPI_RET_PLEASE_CLOSE_ME)
-				return LWS_HPI_RET_PLEASE_CLOSE_ME;
-
-			continue;
-		}
+	if (wsi->ws->rx_draining_ext) {
+		lwsl_wsi_info(wsi, "draining ext");
+		if (lws_ws_client_rx_sm(wsi, 0) == LWS_HPI_RET_PLEASE_CLOSE_ME)
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+	}
 #endif
-		/*
-		 * caller will account for buflist usage by studying what
-		 * happened to *buf
-		 */
 
-		if (lws_ws_client_rx_sm(wsi, *(*buf)++) ==
-					LWS_HPI_RET_PLEASE_CLOSE_ME) {
-			lwsl_wsi_info(wsi, "client_rx_sm exited, DROPPING %d",
-				      (int)len);
+	if (len) {
+		if (lws_ws_client_rx_parser_block(wsi, cbuf, &len) !=
+							LWS_HPI_RET_HANDLED) {
+			lwsl_wsi_info(wsi, "client_rx_parser exited, closing");
+			*buf = start_buf + len; /* Update how much we used */
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
-		len--;
 	}
-	// lwsl_wsi_notice(wsi, "finished with %ld", (long)len);
 
 	return LWS_HPI_RET_HANDLED;
 }

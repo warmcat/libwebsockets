@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2021 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -33,6 +33,135 @@
  * a situation that requires the stream to close now, or
  * LWS_HPI_RET_HANDLED if we can continue okay.
  */
+
+static lws_handling_result_t
+_lws_ws_client_rx_payload_passthrough(struct lws *wsi, const uint8_t *buf,
+				      size_t len)
+{
+	struct lws_ext_pm_deflate_rx_ebufs pmdrx;
+	int n, m;
+
+	pmdrx.eb_in.token = (uint8_t *)buf;
+	pmdrx.eb_in.len = (int)len;
+
+	/* for the non-pm-deflate case */
+
+	pmdrx.eb_out = pmdrx.eb_in;
+
+	do {
+		n = PMDR_DID_NOTHING;
+
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+		n = lws_ext_cb_active(wsi, LWS_EXT_CB_PAYLOAD_RX, &pmdrx, 0);
+		if (n < 0) {
+			wsi->socket_is_permanently_unusable = 1;
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+		}
+		if (n == PMDR_DID_NOTHING)
+			break;
+#endif
+
+		if (wsi->ws->check_utf8 && !wsi->ws->defeat_check_utf8) {
+
+			if (lws_check_utf8(&wsi->ws->utf8,
+					   pmdrx.eb_out.token,
+					   (unsigned int)pmdrx.eb_out.len)) {
+				lws_close_reason(wsi,
+					LWS_CLOSE_STATUS_INVALID_PAYLOAD,
+					(uint8_t *)"bad utf8", 8);
+				return LWS_HPI_RET_PLEASE_CLOSE_ME;
+			}
+		}
+
+		if (lwsi_state(wsi) == LRS_RETURNED_CLOSE ||
+		    lwsi_state(wsi) == LRS_WAITING_TO_SEND_CLOSE ||
+		    lwsi_state(wsi) == LRS_AWAITING_CLOSE_ACK)
+			return LWS_HPI_RET_HANDLED;
+
+		if (n == PMDR_DID_NOTHING
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+		    || n == PMDR_NOTHING_WE_SHOULD_DO
+		    || n == PMDR_UNKNOWN
+#endif
+		)
+			pmdrx.eb_in.len -= pmdrx.eb_out.len;
+
+		m = wsi->a.protocol->callback(wsi, LWS_CALLBACK_CLIENT_RECEIVE,
+					    wsi->user_space, pmdrx.eb_out.token,
+					    (unsigned int)pmdrx.eb_out.len);
+
+		wsi->ws->first_fragment = 0;
+
+		if (m)
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+
+	} while (pmdrx.eb_in.len);
+
+	return LWS_HPI_RET_HANDLED;
+}
+
+lws_handling_result_t
+lws_ws_client_rx_parser_block(struct lws *wsi, const uint8_t **buf, size_t *len)
+{
+	lws_handling_result_t hpr = LWS_HPI_RET_HANDLED;
+	size_t chunk_len;
+
+	while (*len) {
+		/*
+		 * We can process headers and control frames byte-by-byte
+		 * using the original state machine.
+		 */
+		if (wsi->lws_rx_parse_state != LWS_RXPS_WS_FRAME_PAYLOAD) {
+			hpr = lws_ws_client_rx_sm(wsi, *(*buf));
+			if (hpr != LWS_HPI_RET_HANDLED)
+				return hpr;
+
+			(*buf)++;
+			(*len)--;
+			continue;
+		}
+
+		/*
+		 * We are in a payload state. We can process a block of
+		 * payload directly from the input buffer.
+		 */
+
+		chunk_len = *len;
+		if (chunk_len > wsi->ws->rx_packet_length)
+			chunk_len = (size_t)wsi->ws->rx_packet_length;
+
+		if (chunk_len) {
+			wsi->ws->rx_packet_length -= chunk_len;
+
+			hpr = _lws_ws_client_rx_payload_passthrough(wsi, *buf,
+								    chunk_len);
+			if (hpr != LWS_HPI_RET_HANDLED)
+				return hpr;
+
+			*buf += chunk_len;
+			*len -= chunk_len;
+		}
+
+		/*
+		 * If we finished the frame, go back to parsing headers
+		 */
+		if (wsi->ws->rx_packet_length == 0) {
+			wsi->lws_rx_parse_state = LWS_RXPS_NEW;
+
+			if (wsi->ws->final &&
+			    wsi->ws->check_utf8 && !wsi->ws->defeat_check_utf8 &&
+			    wsi->ws->utf8) {
+				lws_close_reason(wsi,
+					LWS_CLOSE_STATUS_INVALID_PAYLOAD,
+					(uint8_t *)"partial utf8", 12);
+
+				return LWS_HPI_RET_PLEASE_CLOSE_ME;
+			}
+		}
+	}
+
+	return LWS_HPI_RET_HANDLED;
+}
 
 lws_handling_result_t
 lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
