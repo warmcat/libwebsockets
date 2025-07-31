@@ -1257,3 +1257,59 @@ void SSL_set_alpn_select_cb(SSL *ssl, void *arg)
 
 	_ssl_set_alpn_list(ssl);
 }
+
+int SSL_CTX_load_verify_file(SSL_CTX *ctx, const char *CAfile)
+{
+	X509 *x;
+	int ret;
+
+	SSL_ASSERT1(ctx);
+	SSL_ASSERT1(CAfile);
+
+	x = X509_new();
+	ret = X509_METHOD_CALL(load_file, x, CAfile);
+	if (ret) {
+		X509_free(x);
+		return 0;
+	}
+
+	SSL_CTX_add_client_CA(ctx, x);
+	return 1;
+}
+
+int SSL_CTX_load_verify_dir(SSL_CTX *ctx, const char *CApath)
+{
+	X509 *x;
+	int ret;
+
+	SSL_ASSERT1(ctx);
+	SSL_ASSERT1(CApath);
+
+	x = X509_new();
+	ret = X509_METHOD_CALL(load_path, x, CApath);
+	if (ret) {
+		X509_free(x);
+		return 0;
+	}
+
+	SSL_CTX_add_client_CA(ctx, x);
+	return 1;
+}
+
+int SSL_CTX_load_verify_locations(SSL_CTX *ctx, const char *CAfile,
+                                  const char *CApath)
+{
+	if (CAfile == NULL && CApath == NULL) {
+		return 0;
+	}
+
+	if (CAfile != NULL && !SSL_CTX_load_verify_file(ctx, CAfile)) {
+		return 0;
+	}
+
+	if (CApath != NULL && !SSL_CTX_load_verify_dir(ctx, CApath)) {
+		return 0;
+	}
+
+	return 1;
+}
