@@ -722,6 +722,42 @@ no_mem:
     return -1;
 }
 
+int x509_pm_load_file(X509 *x, const char *path)
+{
+    int ret;
+    struct x509_pm *x509_pm = (struct x509_pm *)x->x509_pm;
+
+    mbedtls_x509_crt_free(&x509_pm->x509_crt);
+    mbedtls_x509_crt_init(&x509_pm->x509_crt);
+    ret = mbedtls_x509_crt_parse_file(&x509_pm->x509_crt, path);
+    if (ret) {
+        SSL_DEBUG(SSL_PLATFORM_ERROR_LEVEL,
+                  "mbedtls_x509_crt_parse_file return -0x%x", -ret);
+        mbedtls_x509_crt_free(&x509_pm->x509_crt);
+        return -1;
+    }
+
+    return 0;
+}
+
+int x509_pm_load_path(X509 *x, const char *path)
+{
+    int ret;
+    struct x509_pm *x509_pm = (struct x509_pm *)x->x509_pm;
+
+    mbedtls_x509_crt_free(&x509_pm->x509_crt);
+    mbedtls_x509_crt_init(&x509_pm->x509_crt);
+    ret = mbedtls_x509_crt_parse_path(&x509_pm->x509_crt, path);
+    if (ret) {
+        SSL_DEBUG(SSL_PLATFORM_ERROR_LEVEL,
+                  "mbedtls_x509_crt_parse_file return -0x%x", -ret);
+        mbedtls_x509_crt_free(&x509_pm->x509_crt);
+        return -1;
+    }
+
+    return 0;
+}
+
 int pkey_pm_new(EVP_PKEY *pk, EVP_PKEY *m_pkey, void *rngctx)
 {
     struct pkey_pm *pkey_pm;
