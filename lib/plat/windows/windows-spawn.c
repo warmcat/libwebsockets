@@ -571,6 +571,12 @@ lws_spawn_stdwsi_closed(struct lws_spawn_piped *lsp, struct lws *wsi)
 }
 
 int
+lws_spawn_cgroup_admin_init(const char *toplevel_name, const char *username, const char *groupname)
+{
+	return 1; /* Not supported on this platform */
+}
+
+int
 lws_spawn_get_stdfd(struct lws *wsi)
 {
 	return wsi->lsp_channel;

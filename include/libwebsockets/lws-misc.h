@@ -1053,6 +1053,8 @@ typedef void (*lsp_cb_t)(void *opaque, lws_usec_t *accounting, siginfo_t *si,
  * \p timeout: optional us-resolution timeout, or zero
  * \p reap_cb: callback when child process has been reaped and the lsp destroyed
  * \p tsi: tsi to bind stdwsi to... from opt_parent if given
+ * \p cgroup_name_suffix: for Linux, encapsulate spawn into this new cgroup
+ * \p p_cgroup_ret: NULL, or pointer to int to show if cgroups applied OK (0 = OK)
  */
 struct lws_spawn_piped_info {
 	struct lws_dll2_owner		*owner;
@@ -1078,6 +1080,9 @@ struct lws_spawn_piped_info {
 	const struct lws_role_ops	*ops; /* NULL is raw file */
 
 	uint8_t				disable_ctrlc;
+
+	const char			*cgroup_name_suffix;
+	int				*p_cgroup_ret;
 };
 
 /**
@@ -1154,6 +1159,41 @@ lws_spawn_get_stdfd(struct lws *wsi);
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_spawn_get_fd_stdxxx(struct lws_spawn_piped *lsp, int std_idx);
+
+/**
+ * lws_spawn_prepare_self_cgroup() - Create lws parent cgroup
+ *
+ * \p user: NULL, or the user name that will use the toplevel cgroup
+ * \p group: NULL, or the group name that will use the toplevel cgroup
+ *
+ * This helper should be called once at startup by a process that has root
+ * privileges. It will configure the current process cgroup to be able to
+ * bring children into it when running under different uid / gid.
+ *
+ * After this has been called successfully, the process can drop privileges
+ * to a non-root user, and subsequent calls to lws_spawn_piped() with a
+ * cgroup_name_suffix will succeed as long as that user has write permission
+ * in the master cgroup directory (which can be arranged via chown).
+ *
+ * Returns 0 on success. On non-Linux platforms, it's a no-op that returns 1.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_spawn_prepare_self_cgroup(const char *user, const char *group);
+
+/**
+ * lws_spawn_get_self_cgroup() - Return current process cgroup name
+ *
+ * \p cgroup: buffer to take cgroup name
+ * \p max: max size of cgroup buffer
+ *
+ * Helper stores cgroup name of current process into the buffer.
+ * Returns 0 on success or 1 if failed.
+ *
+ * Returned name is a fragment like "system.slice/sai-builder.service"
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_spawn_get_self_cgroup(char *cgroup, size_t max);
+
 #endif
 
 struct lws_fsmount {

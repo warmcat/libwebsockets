@@ -1757,7 +1757,7 @@ lws_system_cpd_set(struct lws_context *cx, lws_cpd_result_t result)
 		return;
 
 #if !defined(LWS_WITH_NO_LOGS)
-	lwsl_cx_notice(cx, "setting CPD result %s", cname[result]);
+	lwsl_cx_info(cx, "setting CPD result %s", cname[result]);
 #endif
 
 	cx->captive_portal_detect = (uint8_t)result;

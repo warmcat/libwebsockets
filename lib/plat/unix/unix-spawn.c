@@ -28,6 +28,13 @@
 
 #include "private-lib-core.h"
 #include <unistd.h>
+#include <sys/types.h>
+#include <pwd.h>
+#include <grp.h>
+
+#if defined(__linux__)
+#include <sys/stat.h>
+#endif
 
 #if defined(__OpenBSD__) || defined(__NetBSD__)
 #include <sys/resource.h>
@@ -51,7 +58,7 @@ lws_spawn_sul_reap(struct lws_sorted_usec_list *sul)
 	struct lws_spawn_piped *lsp = lws_container_of(sul,
 					struct lws_spawn_piped, sul_reap);
 
-	lwsl_notice("%s: reaping spawn after last stdpipe, tries left %d\n",
+	lwsl_info("%s: reaping spawn after last stdpipe, tries left %d\n",
 		    __func__, lsp->reap_retry_budget);
 	if (!lws_spawn_reap(lsp) && !lsp->pipes_alive) {
 		if (--lsp->reap_retry_budget) {
@@ -212,6 +219,21 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 
 	lws_sul_cancel(&lsp->sul);
 
+#if defined(__linux__)
+	if (lsp->cgroup_path[0]) {
+		/*
+		 * The child has been reaped, we can remove the cgroup dir.
+		 * This will only work if the cgroup is empty, which it should
+		 * be now.
+		 */
+		if (rmdir(lsp->cgroup_path))
+			lwsl_warn("%s: unable to rmdir cgroup %s, errno %d\n",
+				  __func__, lsp->cgroup_path, errno);
+		else
+			lwsl_info("%s: reaped cgroup %s\n", __func__, lsp->cgroup_path);
+	}
+#endif
+
 	/*
 	 * All the stdwsi went down, nothing more is coming... it's over
 	 * Collect the final information and then reap the dead process
@@ -240,7 +262,7 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	n = waitid(P_PID, (id_t)lsp->child_pid, &temp.si, WEXITED | WNOHANG);
 #endif
 	temp.si.si_status &= 0xff; /* we use b8 + for flags */
-	lwsl_info("%s: waitd says %d, process exit %d\n",
+	lwsl_warn("%s: waitd says %d, process exit %d\n",
 		    __func__, n, temp.si.si_status);
 
 	lsp->child_pid = -1;
@@ -319,6 +341,60 @@ lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp)
 	return 0;
 }
 
+int
+lws_spawn_get_self_cgroup(char *cgroup, size_t max)
+{
+#if defined(__linux__)
+	int fd = open("/proc/self/cgroup", O_RDONLY);
+	ssize_t r;
+	char *p, s[256];
+
+	if (fd < 0) {
+		lwsl_err("%s: unable to open /proc/self/cgroup\n", __func__);
+		return 1;
+	}
+
+	r = read(fd, s, sizeof(s) - 1);
+	close(fd);
+	if (r < 0) {
+		lwsl_err("%s: unable to read from /proc/self/cgroup\n", __func__);
+
+		return 1;
+	}
+
+	s[r] = '\0'; 
+	p = strchr(s, ':');
+
+	if (!p) {
+		lwsl_err("%s: unable to find first :  '%s'\n", __func__, s);
+		return 1;
+	}
+
+	p = strchr(p + 1, ':');
+	if (!p || (r - (p - s) < 3)) {
+		lwsl_err("%s: unable to find second :  '%s'\n", __func__, s);
+
+		return 1;
+	}
+	p++;
+
+	if (p[strlen(p) - 1] == '\n')
+		p[strlen(p) - 1] = '\0';
+
+	if ((size_t)(r - (p - s)) + 1 > max - 1) {
+		lwsl_err("%s: cgroup name too large :  '%s'\n", __func__, s);
+
+		return 1;
+	}
+
+	memcpy(cgroup, p, (size_t)(r - (p - s) + 1));
+
+	return 0;
+#else
+	return 1;
+#endif
+}
+
 /*
  * Deals with spawning a subprocess and executing it securely with stdin/out/err
  * diverted into pipes
@@ -330,6 +406,9 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	const struct lws_protocols *pcol = i->vh->context->vhost_list->protocols;
 	struct lws_context *context = i->vh->context;
 	struct lws_spawn_piped *lsp;
+#if defined(__linux__)
+	int do_cgroup = 0;
+#endif
 	const char *wd;
 	int n, m;
 
@@ -349,6 +428,13 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	/* wholesale take a copy of info */
 	lsp->info = *i;
 	lsp->reap_retry_budget = 20;
+
+#if defined(__linux__)
+	lsp->cgroup_path[0] = '\0';
+#endif
+
+	if (i->p_cgroup_ret)
+		*i->p_cgroup_ret = 1; /* Default to cgroup failed */
 
 	/*
 	 * Prepare the stdin / out / err pipes
@@ -445,6 +531,55 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		   lsp->stdwsi[LWS_STDIN]->desc.sockfd,
 		   lsp->stdwsi[LWS_STDOUT]->desc.sockfd,
 		   lsp->stdwsi[LWS_STDERR]->desc.sockfd);
+ 
+#if defined(__linux__)
+	if (i->cgroup_name_suffix && i->cgroup_name_suffix[0]) {
+		char self_cg[256];
+
+		if (lws_spawn_get_self_cgroup(self_cg, sizeof(self_cg) - 1))
+			lwsl_err("%s: failed to get self cgroup\n", __func__);
+		else {
+			lws_snprintf(lsp->cgroup_path, sizeof(lsp->cgroup_path),
+			     "/sys/fs/cgroup%s/%s", self_cg, i->cgroup_name_suffix);
+
+			if (mkdir(lsp->cgroup_path, 0755)) {
+				lwsl_warn("%s: failed to generate cgroup dir %s: errno %d\n",
+						__func__, lsp->cgroup_path, errno);
+				lsp->cgroup_path[0] = '\0';
+			} else {
+				char pth[300];
+				int cfd;
+
+				lws_snprintf(pth, sizeof(pth), "%s/cgroup.type", lsp->cgroup_path);
+				cfd = lws_open(pth, LWS_O_WRONLY);
+				if (cfd >= 0) {
+					if (write(cfd, "threaded", 8) != 8)
+						lwsl_warn("%s: failed to write threaded\n", __func__);
+
+					close(cfd);
+				}
+
+
+				lwsl_info("%s: created cgroup %s\n", __func__, lsp->cgroup_path);
+				lws_snprintf(pth, sizeof(pth), "%s/pids.max", lsp->cgroup_path);
+				cfd = lws_open(pth, LWS_O_WRONLY);
+				if (cfd >= 0) {
+					if (write(cfd, "max", 3) != 3)
+						lwsl_warn("%s: failed to write max\n", __func__);
+
+					close(cfd);
+				}
+
+				do_cgroup = 1;
+			}
+		}
+	}
+
+	if (i->p_cgroup_ret)
+		/* Report cgroup success to caller */
+		*i->p_cgroup_ret = !do_cgroup;
+
+#endif
 
 	/* we are ready with the redirection pipes... do the (v)fork */
 #if defined(__sun) || !defined(LWS_HAVE_VFORK) || !defined(LWS_HAVE_EXECVPE)
@@ -509,6 +644,32 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	 * the parent environment.  Stuff that changes kernel state for the
 	 * process is OK.  Stuff that happens after the execvpe() is OK.
 	 */
+
+#if defined(__linux__)
+	if (lsp->cgroup_path[0]) {
+		char path[300], pid_str[20];
+		int fd, len;
+
+		/*
+		 * We are the new child process. We must move ourselves into
+		 * the cgroup created for us by the parent.
+		 */
+		lws_snprintf(path, sizeof(path) - 1, "%s/cgroup.procs", lsp->cgroup_path);
+		fd = open(path, O_WRONLY);
+		if (fd >= 0) {
+			len = lws_snprintf(pid_str, sizeof(pid_str) - 1, "%d", (int)getpid());
+			if (write(fd, pid_str, (size_t)len) != (ssize_t)len) {
+				/*
+				 * using lwsl_err here is unsafe in vfork()
+				 * child, just exit with a special code
+				 */
+				_exit(121);
+			}
+			close(fd);
+		} else
+			_exit(122);
+	}
+#endif
 
 	if (i->chroot_path && chroot(i->chroot_path)) {
 		lwsl_err("%s: child chroot %s failed, errno %d\n",
@@ -603,6 +764,21 @@ lws_spawn_stdwsi_closed(struct lws_spawn_piped *lsp, struct lws *wsi)
 {
 	int n;
 
+	/*
+	 * This is part of the normal cleanup path, check if the lsp has already
+	 * been destroyed by a timeout or other error path. If the stdwsi that
+	 * is closing has already been nulled out, we have already been through
+	 * destroy.
+	 */
+	for (n = 0; n < 3; n++)
+		if (lsp->stdwsi[n] == wsi)
+			goto found;
+
+	/* Not found, so must have been destroyed already */
+	return;
+
+found:
+ 
 	assert(lsp);
 	lsp->pipes_alive--;
 	lwsl_debug("%s: pipes alive %d\n", __func__, lsp->pipes_alive);
@@ -619,6 +795,82 @@ int
 lws_spawn_get_stdfd(struct lws *wsi)
 {
 	return wsi->lsp_channel;
+}
+
+int
+lws_spawn_prepare_self_cgroup(const char *user, const char *group)
+{
+#if defined(__linux__)
+	uid_t uid = (uid_t)-1;
+	gid_t gid = (gid_t)-1;
+	char path[256], self_cgroup[256];
+	int fd;
+
+	if (lws_spawn_get_self_cgroup(self_cgroup, sizeof(self_cgroup) - 1)) {
+		lwsl_err("%s: unable to get self cgroup\n", __func__);
+
+		return 1;
+	}
+
+	lws_snprintf(path, sizeof(path), "/sys/fs/cgroup%s/cgroup.subtree_control",
+			self_cgroup);
+
+	fd = lws_open(path, LWS_O_WRONLY);
+	if (fd < 0) {
+		/* May fail if user doesn't own the file, that's okay */
+		lwsl_info("%s: cannot open subtree_control: %s\n",
+			    __func__, strerror(errno));
+		return 0; /* Still a success if dir exists */
+	}
+
+	if (write(fd, "+cpu +memory +pids +io", 22) != 22)
+		/* ignore, may be there already or fail due to perms */
+		lwsl_debug("%s: setting admin cgroup options failed\n", __func__);
+	close(fd);
+
+	lws_snprintf(path, sizeof(path), "/sys/fs/cgroup%s", self_cgroup);
+
+	if (user) {
+		struct passwd *pwd;
+
+		pwd = getpwnam(user);
+		if (pwd)
+			uid = pwd->pw_uid;
+		else
+			lwsl_warn("%s: user '%s' not found\n", __func__, user);
+	}
+	if (group) {
+		struct group *grp;
+ 
+		grp = getgrnam(group);
+		if (grp)
+			gid = grp->gr_gid;
+		else
+			lwsl_warn("%s: group '%s' not found\n", __func__, group);
+	}
+
+	lwsl_notice("%s: switching %s to %d:%d\n",
+			__func__, path, uid, gid);
+
+	if (chown(path, uid, gid) < 0)
+		lwsl_warn("%s: failed to chown %s: %s\n",
+			  __func__, path, strerror(errno));
+	/* 2. ALSO change ownership of the critical control files inside it */
+	lws_snprintf(path, sizeof(path), "/sys/fs/cgroup%s/cgroup.procs", self_cgroup);
+	if (chown(path, uid, gid) < 0)
+		lwsl_warn("%s: failed to chown %s: %s\n",
+			  __func__, path, strerror(errno));
+
+	lws_snprintf(path, sizeof(path), "/sys/fs/cgroup%s/cgroup.subtree_control", self_cgroup);
+	if (chown(path, uid, gid) < 0)
+		lwsl_warn("%s: failed to chown %s: %s\n",
+			  __func__, path, strerror(errno));
+ 
+	lwsl_notice("%s: lws cgroup parent configured\n", __func__);
+
+	return 0;
+#endif
+	return 1; /* Not supported on this platform */
 }
 
 int

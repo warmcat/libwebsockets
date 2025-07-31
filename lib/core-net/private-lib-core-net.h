@@ -926,6 +926,10 @@ struct lws_spawn_piped {
 	lws_sorted_usec_list_t		sul;
 	lws_sorted_usec_list_t		sul_reap;
 
+#if defined(__linux__)
+	char				cgroup_path[256];
+#endif
+
 	struct lws_context		*context;
 	struct lws			*stdwsi[3];
 	lws_filefd_type			pipe_fds[3][2];
