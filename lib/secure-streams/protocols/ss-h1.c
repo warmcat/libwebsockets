@@ -1120,6 +1120,11 @@ malformed:
 						return -1;
 					if (lws_ss_alloc_set_metadata(h, "method", "GET", 3))
 						return -1;
+					m = lws_hdr_fragment_length(wsi, WSI_TOKEN_HTTP_AUTHORIZATION, 0);
+					if (m && lws_ss_alloc_set_metadata(h, "auth",
+							lws_hdr_simple_ptr(wsi,
+								WSI_TOKEN_HTTP_AUTHORIZATION), (unsigned int)m))
+						return -1;
 				} else {
 					m = lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI);
 					if (m) {
@@ -1128,6 +1133,11 @@ malformed:
 									WSI_TOKEN_POST_URI), (unsigned int)m))
 							return -1;
 						if (lws_ss_alloc_set_metadata(h, "method", "POST", 4))
+							return -1;
+						m = lws_hdr_fragment_length(wsi, WSI_TOKEN_HTTP_AUTHORIZATION, 0);
+						if (m && lws_ss_alloc_set_metadata(h, "auth",
+							lws_hdr_simple_ptr(wsi,
+								WSI_TOKEN_HTTP_AUTHORIZATION), (unsigned int)m))
 							return -1;
 					} else {
 #if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_HTTP_HEADERS_ALL)
@@ -1138,6 +1148,11 @@ malformed:
 										WSI_TOKEN_PATCH_URI), (unsigned int)m))
 								return -1;
 							if (lws_ss_alloc_set_metadata(h, "method", "PATCH", 5))
+								return -1;
+							m = lws_hdr_fragment_length(wsi, WSI_TOKEN_HTTP_AUTHORIZATION, 0);
+							if (m && lws_ss_alloc_set_metadata(h, "auth",
+								lws_hdr_simple_ptr(wsi,
+									WSI_TOKEN_HTTP_AUTHORIZATION), (unsigned int)m))
 								return -1;
 						}
 #endif
