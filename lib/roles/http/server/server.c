@@ -1200,6 +1200,22 @@ lws_http_get_uri_and_method(struct lws *wsi, char **puri_ptr, int *puri_len)
 
 #if defined(LWS_WITH_HTTP_BASIC_AUTH)
 
+static int
+lws_authorization_rewrite(struct lws *wsi, const char *name, size_t len)
+{
+	char *p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_AUTHORIZATION);
+	int fi = wsi->http.ah->frag_index[WSI_TOKEN_HTTP_AUTHORIZATION];
+
+	if (!p)
+		return 1;
+
+	wsi->http.ah->frags[fi].len = (uint16_t)len;
+	strncpy(p, name, (unsigned int)len);
+	p[len] = '\0';
+
+	return 0;
+}
+
 enum lws_check_basic_auth_results
 lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file,
 		     unsigned int auth_mode)
@@ -1207,6 +1223,7 @@ lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file,
 #if defined(LWS_WITH_FILE_OPS)
 	char b64[160], plain[(sizeof(b64) * 3) / 4], *pcolon;
 	int m, ml, fi, bar;
+	size_t le;
 
 	if (!basic_auth_login_file && auth_mode == LWSAUTHM_DEFAULT)
 		return LCBA_CONTINUE;
@@ -1276,13 +1293,12 @@ lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file,
 	 * authorized username
 	 */
 
-	*pcolon = '\0';
-	wsi->http.ah->frags[fi].len = (uint16_t)lws_ptr_diff_size_t(pcolon, &plain[0]);
-	pcolon = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_AUTHORIZATION);
-	strncpy(pcolon, plain, (unsigned int)(ml - 1));
-	pcolon[ml - 1] = '\0';
-	lwsl_info("%s: basic auth accepted for %s\n", __func__,
-		 lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_AUTHORIZATION));
+	le = lws_ptr_diff_size_t(pcolon, plain);
+	plain[le] = '\0';
+	lws_authorization_rewrite(wsi, plain, le);
+
+	lwsl_wsi_info(wsi, "%s: basic auth accepted for '%s'\n", __func__,       
+			lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_AUTHORIZATION));
 
 	return LCBA_CONTINUE;
 #else
