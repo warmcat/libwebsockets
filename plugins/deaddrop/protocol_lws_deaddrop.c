@@ -41,11 +41,14 @@
 #ifdef WIN32
 #include <io.h>
 #endif
-#if !defined(WIN32)
+#if defined(__linux__)
 #include <limits.h>
 #endif
 #include <stdio.h>
 #include <errno.h>
+#if defined(__linux__)
+#include <sys/inotify.h>
+#endif
 
 struct dir_entry {
 	lws_list_ptr next; /* sorted by mtime */
@@ -73,6 +76,10 @@ struct vhd_deaddrop {
 	int filelist_version;
 
 	unsigned long long max_size;
+
+#if defined(__linux__)
+	int inotify_fd;
+#endif
 };
 
 struct pss_deaddrop {
@@ -81,7 +88,7 @@ struct pss_deaddrop {
 	struct lws *wsi;
 	char result[LWS_PRE + LWS_RECOMMENDED_MIN_HEADER_SPACE];
 	char filename[256];
-	char user[32];
+	char user[64];
 	unsigned long long file_length;
 	lws_filefd_type fd;
 	int response_code;
@@ -220,6 +227,9 @@ static int
 file_upload_cb(void *data, const char *name, const char *filename,
 	       char *buf, int _len, enum lws_spa_fileupload_states state)
 {
+	lwsl_warn("%s: entered, state %d, pss->user: '%s'\n", __func__,
+		  state, ((struct pss_deaddrop *)data)->user);
+
 	struct pss_deaddrop *pss = (struct pss_deaddrop *)data;
 	char filename2[256];
 	size_t len = (size_t)_len;
@@ -229,11 +239,10 @@ file_upload_cb(void *data, const char *name, const char *filename,
 
 	switch (state) {
 	case LWS_UFS_OPEN:
-		/* Require an authenticated user to upload */
+		/* REQUIRE an authenticated user on the upload POST itself */
 		if (!pss->user[0]) {
 			pss->response_code = HTTP_STATUS_FORBIDDEN;
-			lwsl_warn("%s: unauthenticated upload forbidden\n",
-				  __func__);
+			lwsl_wsi_warn(pss->wsi, "%s: no authenticated user (pss %p)\n", __func__, pss);
 			return -1;
 		}
 
@@ -241,7 +250,8 @@ file_upload_cb(void *data, const char *name, const char *filename,
 		lws_filename_purify_inplace(filename2);
 		lws_filename_purify_inplace(pss->user);
 
-		/* New filename format: upload_dir/user_originalfilename~ */
+		/* Server is authoritative: construct filename from authenticated
+		 * user and the base filename from the request. */
 		lws_snprintf(pss->filename, sizeof(pss->filename),
 			     "%s/%s_%s~", pss->vhd->upload_dir,
 			     pss->user, filename2);
@@ -338,16 +348,47 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 	uint8_t buf[LWS_PRE + LWS_RECOMMENDED_MIN_HEADER_SPACE],
 		*start = &buf[LWS_PRE], *p = start,
 		*end = &buf[sizeof(buf) - 1];
-#if !defined(WIN32)
+#if defined(__linux__)
 	char path[512], resolved_path[PATH_MAX];
 #else
 	char path[512];
 #endif
 	char fname[256], *wp;
 	const char *cp;
-	int n, m, was;
+	int n, m, was, uri_len;
+	char *uri_ptr;
+#if defined(__linux__)
+	char ev_buf[1024];
+#endif
 
 	switch (reason) {
+
+	case LWS_CALLBACK_HTTP:
+	{
+		int meth;
+//		pss->user[0] = '\0';
+
+		m = lws_hdr_copy(wsi, pss->user, sizeof(pss->user),
+				 WSI_TOKEN_HTTP_AUTHORIZATION);
+
+		if (m > 0)
+			lwsl_wsi_warn(wsi, "%s: upload auth user (pss %p): '%s'\n",
+				  __func__, (void *)pss, pss->user);
+		else
+			lwsl_wsi_warn(wsi, "%s: HTTP: no auth (%d)\n", __func__, m);
+
+
+		meth = lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len);
+		if (meth != LWSHUMETH_POST || !uri_ptr)
+			break;
+		if (!strstr(uri_ptr, "/upload/"))
+			break;
+
+		pss->vhd = vhd;
+		pss->wsi = wsi;
+
+		break;
+	}
 
 	case LWS_CALLBACK_PROTOCOL_INIT: /* per vhost */
 		lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
@@ -359,6 +400,9 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 						 lws_get_protocol(wsi));
 		if (!vhd)
 			return 0;
+#if defined(__linux__)
+		vhd->inotify_fd = -1;
+#endif
 
 		vhd->context = lws_get_context(wsi);
 		vhd->vh = lws_get_vhost(wsi);
@@ -372,6 +416,27 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 			return 0;
 		}
 
+#if defined(__linux__)
+		/*
+		 * Set up inotify on the upload dir and adopt it into the
+		 * lws event loop on our vhost, so we can be told about
+		 * external changes to the dir contents
+		 */
+		vhd->inotify_fd = inotify_init1(IN_NONBLOCK);
+		if (vhd->inotify_fd >= 0) {
+			if (inotify_add_watch(vhd->inotify_fd, vhd->upload_dir,
+					      IN_CLOSE_WRITE | IN_DELETE |
+					      IN_MOVED_FROM | IN_MOVED_TO) >= 0)
+				lws_adopt_descriptor_vhost(vhd->vh,
+					LWS_ADOPT_RAW_FILE_DESC,
+					(lws_sock_file_fd_type)vhd->inotify_fd,
+					vhd->protocol->name, NULL);
+			else
+				lwsl_err("%s: inotify_add_watch failed\n",
+					 __func__);
+		}
+#endif
+
 		scan_upload_dir(vhd);
 
 		lwsl_notice("  deaddrop: vh %s, upload dir %s, max size %llu\n",
@@ -380,8 +445,22 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
-		if (vhd)
+		if (vhd) {
 			lwsac_free(&vhd->lwsac_head);
+#if defined(__linux__)
+			if (vhd->inotify_fd != -1)
+				close(vhd->inotify_fd);
+#endif
+		}
+		break;
+
+	case LWS_CALLBACK_RAW_RX_FILE:
+#if defined(__linux__)
+		/* inotify has told us something changed in the upload dir */
+		n = (int)read(lws_get_socket_fd(wsi), ev_buf, sizeof(ev_buf));
+		lwsl_info("%s: inotify event (%d), rescanning upload dir\n", __func__, n);
+		scan_upload_dir(vhd);
+#endif
 		break;
 
 	/* WS-related */
@@ -395,11 +474,12 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 
 		m = lws_hdr_copy(wsi, pss->user, sizeof(pss->user),
 				 WSI_TOKEN_HTTP_AUTHORIZATION);
+
 		if (m > 0)
-			lwsl_info("%s: basic auth user: %s\n",
-				  __func__, pss->user);
+			lwsl_wsi_warn(wsi, "%s: upload auth user (pss %p): '%s'\n",
+				  __func__, (void *)pss, pss->user);
 		else
-			pss->user[0] = '\0';
+			lwsl_wsi_warn(wsi, "%s: HTTP: no auth (%d)\n", __func__, m);
 
 		start_sending_dir(pss);
 		lws_callback_on_writable(wsi);
@@ -455,7 +535,7 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_snprintf(path, sizeof(path), "%s/%s", vhd->upload_dir,
 			     fname);
 
-#if !defined(WIN32)
+#if defined(__linux__)
 		if (!realpath(path, resolved_path)) {
 			lwsl_warn("%s: delete: realpath failed %s\n", __func__, path);
 			break;
@@ -492,6 +572,13 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 
 		m = 5;
 		while (m-- && pss->dire) {
+			int is_yours = !strcmp(pss->user, pss->dire->user) &&
+				       pss->user[0];
+
+			lwsl_warn("[Deaddrop Debug] File: '%s', Owner: '%s', WS User: '%s', Is Yours: %d\n",
+				  (const char *)&pss->dire[1], pss->dire->user,
+				  pss->user, is_yours);
+
 			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
 					  "%c{\"name\":\"%s\", "
 					  "\"size\":%llu,"
@@ -500,9 +587,7 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 					  pss->first ? ' ' : ',',
 					  (const char *)&pss->dire[1],
 					  pss->dire->size,
-					  (unsigned long long)pss->dire->mtime,
-					  !strcmp(pss->user, pss->dire->user) &&
-						  pss->user[0]);
+					  (unsigned long long)pss->dire->mtime, is_yours);
 			pss->first = 0;
 			pss->dire = lp_to_dir_entry(pss->dire->next, next);
 		}
@@ -546,8 +631,6 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 
 		/* create the POST argument parser if not already existing */
 		if (!pss->spa) {
-			pss->vhd = vhd;
-			pss->wsi = wsi;
 			pss->spa = lws_spa_create(wsi, param_names,
 						  LWS_ARRAY_SIZE(param_names),
 						  1024, file_upload_cb, pss);
@@ -556,15 +639,7 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 
 			pss->filename[0] = '\0';
 			pss->file_length = 0;
-			/* catchall */
 			pss->response_code = HTTP_STATUS_SERVICE_UNAVAILABLE;
-
-			m = lws_hdr_copy(wsi, pss->user, sizeof(pss->user),
-					 WSI_TOKEN_HTTP_AUTHORIZATION);
-			if (m > 0)
-				lwsl_info("basic auth user: %s\n", pss->user);
-			else
-				pss->user[0] = '\0';
 		}
 
 		/* let it parse the POST data */

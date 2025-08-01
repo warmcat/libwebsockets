@@ -117,7 +117,8 @@
 
 		fetch("upload/" + lws_urlencode(displayName), {
 			method: "POST",
-			body: formData
+			body: formData,
+			credentials: "same-origin" /* Tells browser to send auth header */
 		})
 		.then((e) => { /* this just means we got a response code */
 			var us = e.url.split("/"), ul = us[us.length - 1], n;
@@ -149,8 +150,16 @@
 	}
 
 	function do_upload(file) {
-		var formData = new FormData();
-		formData.append("file", file);
+		var formData = new FormData(),
+		    displayName = file.name;
+
+		if (!username) { // Do not allow unauthenticated file uploads
+			alert("You must be logged in to upload files.");
+			return;
+		}
+
+		// The server is authoritative for the filename, we send the original.
+		formData.append("file", file, displayName);
 		_do_upload(formData, file.name, file.size);
 	}
 
@@ -180,7 +189,7 @@
 		    ts = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' +
 		         pad(d.getDate()) + '_' + pad(d.getHours()) + '-' +
 			 pad(d.getMinutes()) + '-' + pad(d.getSeconds()),
-		    generated_filename, // to be created below
+		    generated_filename,
 		    formData = new FormData(), blob;
 
 		e.preventDefault();
@@ -191,8 +200,8 @@
 		}
 		clear_errors();
 
-		// Filename now prefixed with username
-		generated_filename = username + '_' + ts + '.txt';
+		// Server is authoritative for prefixing, just generate a unique name
+		generated_filename = ts + '.txt';
 
 		blob = new Blob([content.value], { type: "text/plain" });
 		formData.append("file", blob, generated_filename);
@@ -226,30 +235,27 @@
 		upl_text.disabled = !content.value.length;
 	}
 
-	function get_appropriate_ws_url(extra_url)
-	{
-		var pcol;
-		var u = document.URL;
+	function get_appropriate_ws_url(extra_url) {
+		var pcol,
+		    url = new URL(document.URL);
 
-		/*
-		 * We open the websocket encrypted if this page came on an
-		 * https:// url itself, otherwise unencrypted
-		 */
-
-		if (u.substring(0, 5) === "https") {
+		if (url.protocol === "https:") {
 			pcol = "wss://";
-			u = u.substr(8);
 		} else {
 			pcol = "ws://";
-			if (u.substring(0, 4) === "http")
-				u = u.substr(7);
 		}
 
-		u = u.split("/");
+		var path = url.pathname;
+		/*
+		 * If the path looks like it has a filename (eg, contains a '.'),
+		 * then get its parent directory. Otherwise, use the path as-is.
+		 * This makes it robust for vhost paths like /.../docrepo/ vs
+		 * /.../docrepo/index.html
+		 */
+		if (path.split('/').pop().indexOf('.') !== -1)
+			path = path.substring(0, path.lastIndexOf('/') + 1);
 
-		/* + "/xxx" bit is for IE10 workaround */
-
-		return pcol + u[0] + "/" + extra_url;
+		return pcol + url.host + path + extra_url;
 	}
 
 	function new_ws(urlpath, protocol)
@@ -287,7 +293,6 @@
 				dd.classList.remove("noconn");
 				da.classList.remove("disa");
 			};
-
 			ws.onmessage = function got_packet(msg) {
 				var j = JSON.parse(msg.data), s = "", n,
 				t = document.getElementById("dd-list");
@@ -302,11 +307,14 @@
 				for (n = 0; n < j.files.length; n++) {
 					var fullName = j.files[n].name;
 					var displayName = fullName;
-					var isOwner = username &&
-						      fullName.startsWith(username + "_");
+					/*
+					 * The server is the single source of truth.
+					 * We trust the "yours" flag it sends us.
+					 */
+					var isOwner = j.files[n].yours;
 
 					// Strip username prefix for display if owner
-					if (isOwner)
+					if (isOwner === 1)
 						displayName = fullName.substring(
 								username.length + 1);
 
@@ -317,7 +325,7 @@
 					date.toDateString() + " " +
 					date.toLocaleTimeString() + "</td><td>";
 
-					// Only show delete button if authenticated and owner
+					/* Only show delete button if the server said we are the owner */
 					if (isOwner)
 						s += "<img id=\"d" + n +
 					  "\" class=\"delbtn\" file=\"" +
