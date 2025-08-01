@@ -866,6 +866,20 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 
 		if (lws_bind_protocol(wsi, pp, __func__))
 			return 1;
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
+		/* basic auth? */
+
+		switch (lws_check_basic_auth(wsi, hit->basic_auth_login_file,
+					     hit->auth_mask & AUTH_MODE_MASK)) {
+		case LCBA_CONTINUE:
+			break;
+		case LCBA_FAILED_AUTH:
+			return lws_unauthorised_basic_auth(wsi);
+		case LCBA_END_TRANSACTION:
+			lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
+			return lws_http_transaction_completed(wsi);
+		}
+#endif
 	}
 
 	methidx = lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len);
