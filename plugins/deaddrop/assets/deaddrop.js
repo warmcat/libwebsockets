@@ -6,12 +6,11 @@
 	{
 		if (!s)
 			return "";
-
-		return s.replace(/&/g, "&amp;").
-		replace(/\</g, "&lt;").
-		replace(/\>/g, "&gt;").
-		replace(/\"/g, "&quot;").
-		replace(/%/g, "&#37;");
+               return s.replace(/&/g, "&amp;").
+               replace(/\</g, "&lt;").
+               replace(/\>/g, "&gt;").
+               replace(/\"/g, "&quot;").
+               replace(/%/g, "&#37;");
 	}
 
 	function pad(n) {
@@ -294,8 +293,10 @@
 				da.classList.remove("disa");
 			};
 			ws.onmessage = function got_packet(msg) {
-				var j = JSON.parse(msg.data), s = "", n,
-				t = document.getElementById("dd-list");
+				var j = JSON.parse(msg.data),
+				    s_files = "", s_users = "", n,
+				    t_files = document.getElementById("dd-list"),
+				    t_users = document.getElementById("connected-users-list");
 
 				username = j.user || "";
 				server_max_size = j.max_size;
@@ -303,7 +304,7 @@
 					"Server maximum file size " +
 					humanize(j.max_size);
 
-				s += "<table class=\"nb\">";
+				s_files += "<table class=\"nb\">";
 				for (n = 0; n < j.files.length; n++) {
 					var fullName = j.files[n].name;
 					var displayName = fullName;
@@ -314,12 +315,12 @@
 					var isOwner = j.files[n].yours;
 
 					// Strip username prefix for display if owner
-					if (isOwner === 1)
+					if (isOwner && username.length > 0)
 						displayName = fullName.substring(
 								username.length + 1);
 
 					var date = new Date(j.files[n].mtime * 1000);
-					s += "<tr><td class=\"dow r\">" +
+					s_files += "<tr><td class=\"dow r\">" +
 					humanize(j.files[n].size) +
 					"</td><td class=\"dow\">" +
 					date.toDateString() + " " +
@@ -327,26 +328,48 @@
 
 					/* Only show delete button if the server said we are the owner */
 					if (isOwner)
-						s += "<img id=\"d" + n +
+						s_files += "<img id=\"d" + n +
 					  "\" class=\"delbtn\" file=\"" +
 						san(fullName) + "\">";
 					else
-						s += " ";
+						s_files += " ";
 
-					s += "</td><td class=\"ogn\"><a href=\"get/" +
+					s_files += "</td><td class=\"ogn\"><a href=\"get/" +
 					lws_urlencode(san(fullName)) +
 					  "\" download=\"" + san(displayName) + "\">" +
 					san(displayName) + "</a></td></tr>";
 				}
-				s += "</table>";
+				s_files += "</table>";
 
-				t.innerHTML = s;
+				t_files.innerHTML = s_files;
 
 				for (n = 0; n < j.files.length; n++) {
 					var d = document.getElementById("d" + n);
 					if (d)
 						d.addEventListener("click", delfile, false);
 				}
+
+				/*
+				 * Render the list of connected users
+				 */
+				if (t_users && j.connected_users) {
+					s_users += "<h2>Live Connections</h2>" +
+						"<table class=\"nb\">" +
+						"<tr><th>User</th><th>IP Address</th>" +
+						"<th>Platform</th><th>Client</th></tr>";
+
+					for (n = 0; n < j.connected_users.length; n++) {
+						var u = j.connected_users[n];
+						s_users += "<tr><td>" + san(u.user) +
+							"</td><td>" + san(u.ip) +
+							"</td><td>" + san(u.platform) +
+							"</td><td>" + san(u.browser) +
+							"</td></tr>";
+					}
+					s_users += "</table>";
+					t_users.innerHTML = s_users;
+				}
+
 			};
 
 			ws.onclose = function() {
@@ -362,4 +385,3 @@
 
 	});
 }());
-

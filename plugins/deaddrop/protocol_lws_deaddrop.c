@@ -88,6 +88,8 @@ struct pss_deaddrop {
 	struct lws *wsi;
 	char result[LWS_PRE + LWS_RECOMMENDED_MIN_HEADER_SPACE];
 	char filename[256];
+	char platform[32];
+	char browser[32];
 	char user[64];
 	unsigned long long file_length;
 	lws_filefd_type fd;
@@ -119,6 +121,36 @@ enum enum_param_names {
 	EPN_UPLOAD,
 };
 
+static void
+parse_user_agent(const char *ua, char *platform, size_t plat_len,
+		 char *browser, size_t browser_len)
+{
+	lws_strncpy(platform, "Unknown", plat_len);
+	lws_strncpy(browser, "Unknown", browser_len);
+
+	/* Guess platform from UA */
+
+	if (strstr(ua, "Windows"))
+		lws_strncpy(platform, "Windows", plat_len);
+	else if (strstr(ua, "Linux"))
+		lws_strncpy(platform, "Linux", plat_len);
+	else if (strstr(ua, "Macintosh") || strstr(ua, "Mac OS"))
+		lws_strncpy(platform, "macOS", plat_len);
+
+	/* Guess browser / client from UA */
+
+	if (strstr(ua, "curl"))
+		lws_strncpy(browser, "curl", browser_len);
+	else if (strstr(ua, "Wget"))
+		lws_strncpy(browser, "Wget", browser_len);
+	else if (strstr(ua, "Edg/"))
+		lws_strncpy(browser, "Edge", browser_len);
+	else if (strstr(ua, "Firefox/"))
+		lws_strncpy(browser, "Firefox", browser_len);
+	else if (strstr(ua, "Chrome/") && strstr(ua, "Safari/"))
+		lws_strncpy(browser, "Chrome", browser_len);
+}
+
 static int
 de_mtime_sort(lws_list_ptr a, lws_list_ptr b)
 {
@@ -138,6 +170,18 @@ start_sending_dir(struct pss_deaddrop *pss)
 	pss->filelist_version = pss->vhd->filelist_version;
 	pss->first = 1;
 }
+
+static void
+broadcast_state_update(struct vhd_deaddrop *vhd)
+{
+	vhd->filelist_version++; /* Invalidate client cache */
+
+	lws_start_foreach_llp(struct pss_deaddrop **, ppss, vhd->pss_head) {
+		start_sending_dir(*ppss);
+		lws_callback_on_writable((*ppss)->wsi);
+	} lws_end_foreach_llp(ppss, pss_list);
+}
+
 
 static int
 scan_upload_dir(struct vhd_deaddrop *vhd)
@@ -213,12 +257,7 @@ scan_upload_dir(struct vhd_deaddrop *vhd)
 	else
 		vhd->dire_head = NULL;
 
-	vhd->filelist_version++;
-
-	lws_start_foreach_llp(struct pss_deaddrop **, ppss, vhd->pss_head) {
-		start_sending_dir(*ppss);
-		lws_callback_on_writable((*ppss)->wsi);
-	} lws_end_foreach_llp(ppss, pss_list);
+	broadcast_state_update(vhd);
 
 	return 0;
 }
@@ -355,7 +394,7 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 #endif
 	char fname[256], *wp;
 	const char *cp;
-	int n, m, was, uri_len;
+	int n, was, uri_len;
 	char *uri_ptr;
 #if defined(__linux__)
 	char ev_buf[1024];
@@ -366,16 +405,15 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_HTTP:
 	{
 		int meth;
-//		pss->user[0] = '\0';
+		pss->user[0] = '\0';
 
-		m = lws_hdr_copy(wsi, pss->user, sizeof(pss->user),
-				 WSI_TOKEN_HTTP_AUTHORIZATION);
-
-		if (m > 0)
-			lwsl_wsi_warn(wsi, "%s: upload auth user (pss %p): '%s'\n",
-				  __func__, (void *)pss, pss->user);
+		/* Correctly get username after lws basic auth processing */
+		if (lws_hdr_copy(wsi, pss->user, sizeof(pss->user),
+				 WSI_TOKEN_HTTP_AUTHORIZATION) > 0)
+			lwsl_wsi_info(wsi, "%s: POST auth user (pss %p): '%s'\n",
+				      __func__, (void *)pss, pss->user);
 		else
-			lwsl_wsi_warn(wsi, "%s: HTTP: no auth (%d)\n", __func__, m);
+			lwsl_wsi_warn(wsi, "%s: HTTP POST: no auth\n", __func__);
 
 
 		meth = lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len);
@@ -472,17 +510,27 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 		pss->pss_list = vhd->pss_head;
 		vhd->pss_head = pss;
 
-		m = lws_hdr_copy(wsi, pss->user, sizeof(pss->user),
-				 WSI_TOKEN_HTTP_AUTHORIZATION);
+		pss->user[0] = '\0';
+		pss->platform[0] = '\0';
+		pss->browser[0] = '\0';
 
-		if (m > 0)
-			lwsl_wsi_warn(wsi, "%s: upload auth user (pss %p): '%s'\n",
+		/* Correctly get username after lws basic auth processing */
+		if (lws_hdr_copy(wsi, pss->user, sizeof(pss->user),
+				 WSI_TOKEN_HTTP_AUTHORIZATION) > 0)
+			lwsl_wsi_info(wsi, "%s: WS connect auth user (pss %p): '%s'\n",
 				  __func__, (void *)pss, pss->user);
 		else
-			lwsl_wsi_warn(wsi, "%s: HTTP: no auth (%d)\n", __func__, m);
+			lwsl_wsi_warn(wsi, "%s: WS connect: no auth\n", __func__);
 
-		start_sending_dir(pss);
-		lws_callback_on_writable(wsi);
+		/* Get and parse the User-Agent header */
+		{
+			char ua_buf[256];
+			if (lws_hdr_copy(wsi, ua_buf, sizeof(ua_buf), WSI_TOKEN_HTTP_USER_AGENT) > 0)
+				parse_user_agent(ua_buf, pss->platform, sizeof(pss->platform), pss->browser, sizeof(pss->browser));
+		}
+
+		broadcast_state_update(vhd);
+
 		return 0;
 
 	case LWS_CALLBACK_CLOSED:
@@ -496,6 +544,9 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 				break;
 			}
 		} lws_end_foreach_llp(ppss, pss_list);
+
+		broadcast_state_update(vhd);
+
 		return 0;
 
 	case LWS_CALLBACK_RECEIVE:
@@ -529,7 +580,7 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 		wp = strchr((const char *)fname, '\"');
 		if (wp)
 			*wp = '\0';
-		
+
 		lws_filename_purify_inplace(fname);
 
 		lws_snprintf(path, sizeof(path), "%s/%s", vhd->upload_dir,
@@ -564,20 +615,45 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 		was = 0;
 		if (pss->first) {
 			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
-					  "{\"max_size\":%llu, \"user\":\"%s\", "
-					  "\"files\": [", vhd->max_size,
+					  "{\"max_size\":%llu, \"user\":\"%s\", ",
+					  vhd->max_size,
 					  pss->user[0] ? pss->user : "");
+
+			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
+					  "\"connected_users\":[");
+
+			int first_user = 1;
+			lws_start_foreach_llp(struct pss_deaddrop **, ppss, vhd->pss_head) {
+				char ip[46];
+
+				/* Only list authenticated connections */
+				if (!(*ppss)->wsi || !(*ppss)->user[0])
+					continue;
+
+				lws_get_peer_simple((*ppss)->wsi, ip, sizeof(ip));
+
+				p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
+					"%c{\"user\":\"%s\", \"ip\":\"%s\", \"platform\":\"%s\", \"browser\":\"%s\"}",
+					first_user ? ' ' : ',',
+					(*ppss)->user, ip, (*ppss)->platform,
+					(*ppss)->browser);
+
+				first_user = 0;
+			} lws_end_foreach_llp(ppss, pss_list);
+
+			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
+					  "], \"files\": [");
 			was = 1;
 		}
 
-		m = 5;
-		while (m-- && pss->dire) {
+		n = 5;
+		while (n-- && pss->dire) {
 			int is_yours = !strcmp(pss->user, pss->dire->user) &&
 				       pss->user[0];
 
-			lwsl_warn("[Deaddrop Debug] File: '%s', Owner: '%s', WS User: '%s', Is Yours: %d\n",
-				  (const char *)&pss->dire[1], pss->dire->user,
-				  pss->user, is_yours);
+			// lwsl_warn("[Deaddrop Debug] File: '%s', Owner: '%s', WS User: '%s', Is Yours: %d\n",
+			//	  (const char *)&pss->dire[1], pss->dire->user,
+			//	  pss->user, is_yours);
 
 			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
 					  "%c{\"name\":\"%s\", "
