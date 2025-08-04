@@ -262,6 +262,11 @@
 		return new WebSocket(urlpath, protocol);
 	}
 
+	/* Reconnection logic */
+	const initial_reconnect_delay = 1000;
+	const max_reconnect_delay = 30000;
+	let current_reconnect_delay = initial_reconnect_delay;
+
 	document.addEventListener("DOMContentLoaded", function() {
 		var da = document.getElementById("da"),
 		    fi = document.getElementById("file"),
@@ -283,20 +288,30 @@
 		window.addEventListener("dragover", body_drop, false);
 		window.addEventListener("drop", body_drop, false);
 
-		ws = new_ws(get_appropriate_ws_url(""), "lws-deaddrop");
-		try {
-			ws.onopen = function() {
-				var dd = document.getElementById("ddrop"),
-				da = document.getElementById("da");
+		function connect_ws() {
+			ws = new_ws(get_appropriate_ws_url(""), "lws-deaddrop");
+			try {
+				ws.onopen = function() {
+					console.log("WebSocket connection established.");
+					var dd = document.getElementById("ddrop"),
+					da = document.getElementById("da");
 
-				dd.classList.remove("noconn");
-				da.classList.remove("disa");
-			};
-			ws.onmessage = function got_packet(msg) {
-				var j = JSON.parse(msg.data),
-				    s_files = "", s_users = "", n,
-				    t_files = document.getElementById("dd-list"),
-				    t_users = document.getElementById("connected-users-list");
+					/* We are connected, so reset the backoff delay */
+					current_reconnect_delay = initial_reconnect_delay;
+
+					dd.classList.remove("noconn");
+					da.classList.remove("disa");
+				};
+
+				ws.onerror = function(ev) {
+					console.error("WebSocket error observed:", ev);
+				};
+
+				ws.onmessage = function got_packet(msg) {
+					var j = JSON.parse(msg.data),
+					    s_files = "", s_users = "", n,
+					    t_files = document.getElementById("dd-list"),
+					    t_users = document.getElementById("connected-users-list");
 
 				username = j.user || "";
 				server_max_size = j.max_size;
@@ -353,7 +368,7 @@
 				 * Render the list of connected users
 				 */
 				if (t_users && j.connected_users) {
-					s_users += "<h2>Live Connections</h2>" +
+					s_users += "<h3>Live Connections</h3>" +
 						"<table class=\"nb\">" +
 						"<tr><th>User</th><th>IP Address</th>" +
 						"<th>Platform</th><th>Client</th></tr>";
@@ -369,19 +384,29 @@
 					s_users += "</table>";
 					t_users.innerHTML = s_users;
 				}
-
 			};
 
 			ws.onclose = function() {
 				var dd = document.getElementById("ddrop"),
 				da = document.getElementById("da");
+				console.log("WebSocket closed. Reconnecting in " + (current_reconnect_delay / 1000) + " seconds...");
 
 				dd.classList.add("noconn");
 				da.classList.add("disa");
+
+				/* Schedule the next reconnection attempt */
+				setTimeout(connect_ws, current_reconnect_delay);
+
+				/* Apply exponential backoff */
+				current_reconnect_delay = Math.min(max_reconnect_delay, current_reconnect_delay * 2);
 			};
-		} catch(exception) {
-			alert("<p>Error " + exception);
+			} catch(exception) {
+				alert("<p>Error " + exception);
+			}
 		}
 
+		/* Initial connection attempt */
+		connect_ws();
 	});
 }());
+

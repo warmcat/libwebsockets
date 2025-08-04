@@ -5,22 +5,28 @@
   <script src="deaddrop.js"></script>
  </head>
  <body>
-	<h1>LWS Deaddrop 2</h1>
+	 <div class="title"><img src="/docrepo.svg"></div>
 	<div class="uplbox">
-	 <table id="ddrop" class="noconn">
+		<table id="ddrop" class="noconn">
 	  <tr><td class="vm">
+	   <table><tr><th>Drag and drop files</th></tr><tr><td>
 	 	<div id="da" class="da"><img class="disa" src="drop.svg"></div>
-	  </td><td>
-	   <h3>Paste text to upload:</h3>
+	   </td></tr></table>
+	</td><td>
+	   <table><tr><th>Paste text to upload:</th></tr><tr><td>
 	   <form name=textupload action="upload" method="post"
 		 enctype="multipart/form-data">
-		<textarea id="text_content" class="dd-textarea"
+		   <table><tr><td>
+		<textarea id="text_content" class="dd-textarea" cols=40 rows=5
 			placeholder="Paste content here"></textarea>
+				   </td></tr><tr><td>
 		<input id="upl_text" type="submit" value="Upload Text"
 			class="ubtn" disabled>
+					   </td></tr></table>
 	   </form>
-	   <hr>
-	   <h3>...or select files to upload:</h3>
+	   </td></tr></table>
+	   <table><tr><th>... or select files to upload</th></tr><tr><td>
+
 	   <span id="size"></span><br>
 	  <form name=multipart action="upload" method="post"
 		 enctype="multipart/form-data">
@@ -30,7 +36,9 @@
 	    <input id="upl" type="submit" name="Upload" value="Upload"
 	    	    class="ubtn" disabled>
 	  </form>
-	   <table id="ongoing" class="nb"></table>
+	   </td></tr></table>
+
+	  <table id="ongoing" class="nb"></table>
 	 </td></tr>
 	 <tr><td colspan="2">
 	 	<div id="dd-list" class="dd-list">
