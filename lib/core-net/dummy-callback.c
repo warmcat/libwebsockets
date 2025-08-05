@@ -145,6 +145,7 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 	{
 		unsigned char **p = (unsigned char **)in, *end = (*p) + len,
 				    tmp[MAXHDRVAL];
+		char peer[64];
 
 		proxy_header(wsi, wsi->parent, tmp, sizeof(tmp),
 			      WSI_TOKEN_HTTP_ACCEPT_LANGUAGE, p, end);
@@ -154,6 +155,13 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 
 		proxy_header(wsi, wsi->parent, tmp, sizeof(tmp),
 			      WSI_TOKEN_HTTP_SET_COOKIE, p, end);
+
+		lws_get_peer_simple(wsi->parent, peer, sizeof(peer));
+		
+		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_X_FORWARDED_FOR,
+						 (uint8_t *)peer, (int)strlen(peer), p, end))
+                	lwsl_wsi_notice(wsi, "unable to append forwarded_for");
+
 		break;
 	}
 
