@@ -268,6 +268,16 @@ lws_struct_sq3_serialize(sqlite3 *pdb, const lws_struct_map_t *schema,
 			 lws_dll2_owner_t *owner, uint32_t manual_idx);
 
 LWS_VISIBLE LWS_EXTERN int
+lws_struct_sq3_update(sqlite3 *pdb, const char *table,
+		      const lws_struct_map_t *map, size_t map_entries, const void *data,
+		      const char *where_col);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_struct_sq3_upsert(sqlite3 *pdb, const char *table,
+		      const lws_struct_map_t *map, size_t map_entries, const void *data,
+		      const char *where_col);
+
+LWS_VISIBLE LWS_EXTERN int
 lws_struct_sq3_deserialize(sqlite3 *pdb, const char *filter, const char *order,
 			   const lws_struct_map_t *schema, lws_dll2_owner_t *o,
 			   struct lwsac **ac, int start, int limit);
