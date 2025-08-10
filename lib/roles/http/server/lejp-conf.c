@@ -1126,6 +1126,28 @@ lwsws_get_config_globals(struct lws_context_creation_info *info, const char *d,
 	return 0;
 }
 
+#if 0
+typedef struct lws_retry_bo {
+        const uint32_t  *retry_ms_table;           /* base delay in ms */
+        uint16_t        retry_ms_table_count;      /* entries in table */
+        uint16_t        conceal_count;             /* max retries to conceal */
+        uint16_t        secs_since_valid_ping;     /* idle before PING issued */
+        uint16_t        secs_since_valid_hangup;   /* idle before hangup conn */
+        uint8_t         jitter_percent;         /* % additional random jitter */
+} lws_retry_bo_t;
+#endif
+
+static const uint32_t rmst[] = { 1000, 2000, 5000, 10000, 30000 };
+
+static const lws_retry_bo_t rebo = {
+	.retry_ms_table			= rmst,
+	.retry_ms_table_count		= LWS_ARRAY_SIZE(rmst),
+	.conceal_count			= 2,
+	.secs_since_valid_ping		= 15,
+	.secs_since_valid_hangup	= 20,
+	.jitter_percent			= 25,
+};
+
 int
 lwsws_get_config_vhosts(struct lws_context *context,
 			struct lws_context_creation_info *info, const char *d,
@@ -1138,6 +1160,8 @@ lwsws_get_config_vhosts(struct lws_context *context,
 	memset(&a, 0, sizeof(a));
 
 	a.info = info;
+	if (!a.info->retry_and_idle_policy)
+		a.info->retry_and_idle_policy = &rebo;
 	a.p = *cs;
 	a.end = a.p + *len;
 	a.valid = 0;
