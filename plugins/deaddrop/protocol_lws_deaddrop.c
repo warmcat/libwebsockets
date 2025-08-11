@@ -650,6 +650,20 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 		while (n-- && pss->dire) {
 			int is_yours = !strcmp(pss->user, pss->dire->user) &&
 				       pss->user[0];
+			const char *fname = (const char *)&pss->dire[1];
+			const char *p_fn = fname;
+			int is_text = 0;
+
+			if (pss->dire->user[0])
+				p_fn += strlen(pss->dire->user) + 1;
+
+			/* check for YYYY-MM-DD_HH-MM-SS.txt format */
+			if (strlen(p_fn) == 23 &&
+			    p_fn[4] == '-' && p_fn[7] == '-' &&
+			    p_fn[10] == '_' && p_fn[13] == '-' &&
+			    p_fn[16] == '-' && !strcmp(p_fn + 19, ".txt"))
+				is_text = 1;
+
 
 			// lwsl_warn("[Deaddrop Debug] File: '%s', Owner: '%s', WS User: '%s', Is Yours: %d\n",
 			//	  (const char *)&pss->dire[1], pss->dire->user,
@@ -659,11 +673,13 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 					  "%c{\"name\":\"%s\", "
 					  "\"size\":%llu,"
 					  "\"mtime\":%llu,"
-					  "\"yours\":%d}",
+					  "\"yours\":%d,"
+					  "\"is_text\":%d}",
 					  pss->first ? ' ' : ',',
-					  (const char *)&pss->dire[1],
+					  fname,
 					  pss->dire->size,
-					  (unsigned long long)pss->dire->mtime, is_yours);
+					  (unsigned long long)pss->dire->mtime,
+					  is_yours, is_text);
 			pss->first = 0;
 			pss->dire = lp_to_dir_entry(pss->dire->next, next);
 		}

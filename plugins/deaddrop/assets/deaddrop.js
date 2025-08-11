@@ -218,6 +218,27 @@
 		ws.send("{\"del\":\"" + e.target.getAttribute("file") + "\"}");
 	}
 
+	function load_text(e)
+	{
+		var filename = e.target.getAttribute("file"),
+		    content = document.getElementById("text_content");
+
+		e.stopPropagation();
+		e.preventDefault();
+
+		fetch("get/" + lws_urlencode(filename), {
+			credentials: "same-origin"
+		})
+		.then(response => response.text())
+		.then(text => {
+			content.value = text;
+			content.select();
+			if (navigator.clipboard)
+				navigator.clipboard.writeText(text);
+			text_inp();
+		});
+	}
+
 	function body_drop(e) {
 		e.preventDefault();
 	}
@@ -341,6 +362,15 @@
 					date.toDateString() + " " +
 					date.toLocaleTimeString() + "</td><td>";
 
+					/* Show text button if it's a .txt file from textarea */
+					if (j.files[n].is_text)
+						s_files += "<button id=\"t" + n +
+						"\" class=\"textbtn\" file=\"" +
+						san(fullName) + "\">T</button>";
+					else
+						s_files += "<span class=\"textbtn_spacer\"></span>";
+
+
 					/* Only show delete button if the server said we are the owner */
 					if (isOwner)
 						s_files += "<img id=\"d" + n +
@@ -362,6 +392,9 @@
 					var d = document.getElementById("d" + n);
 					if (d)
 						d.addEventListener("click", delfile, false);
+					var t = document.getElementById("t" + n);
+					if (t)
+						t.addEventListener("click", load_text, false);
 				}
 
 				/*

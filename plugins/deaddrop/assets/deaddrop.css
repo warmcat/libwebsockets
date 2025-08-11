@@ -101,3 +101,25 @@ img.delbtn {
     transform:scale(1.1) rotate(2deg);
   }
 }
+
+.textbtn {
+	font-size: 8pt;
+	font-weight: bold;
+	padding: 2px 6px;
+	margin-right: 5px;
+	border-radius: 3px;
+	border: 1px solid #ccc;
+	background-color: #f0f0f0;
+	cursor: pointer;
+	vertical-align: middle;
+}
+
+.textbtn:hover {
+	background-color: #e0e0e0;
+}
+
+.textbtn_spacer {
+	display: inline-block;
+	width: 27px; /* Approximate width of the button */
+	vertical-align: middle;
+}
