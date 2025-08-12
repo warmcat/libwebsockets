@@ -120,6 +120,7 @@ const uint32_t ss_state_txn_validity[] = {
 					  (1 << LWSSSCS_QOS_NACK_LOCAL) |
 					  (1 << LWSSSCS_DISCONNECTED) |
 					  (1 << LWSSSCS_TIMEOUT) |
+					  (1 << LWSSSCS_CONNECTING) |
 					  (1 << LWSSSCS_POLL) | /* proxy retry */
 					  (1 << LWSSSCS_DESTROYING),
 
@@ -127,6 +128,8 @@ const uint32_t ss_state_txn_validity[] = {
 					  (1 << LWSSSCS_AUTH_FAILED) |
 					  (1 << LWSSSCS_CONNECTING) |
 					  (1 << LWSSSCS_CONNECTED) |
+					  (1 << LWSSSCS_QOS_ACK_REMOTE) |
+					  (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					  (1 << LWSSSCS_TIMEOUT) |
 					  (1 << LWSSSCS_POLL) |
 					  (1 << LWSSSCS_ALL_RETRIES_FAILED) | /* via timeout in this state */
@@ -147,6 +150,7 @@ const uint32_t ss_state_txn_validity[] = {
 
 	[LWSSSCS_QOS_ACK_REMOTE]	= (1 << LWSSSCS_DISCONNECTED) |
 					  (1 << LWSSSCS_TIMEOUT) |
+					  (1 << LWSSSCS_CONNECTING) |
 #if defined(LWS_ROLE_MQTT)
 					  (1 << LWSSSCS_QOS_ACK_REMOTE) |
 					  (1 << LWSSSCS_QOS_NACK_REMOTE) |
