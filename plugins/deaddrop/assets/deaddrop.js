@@ -360,7 +360,7 @@
 					humanize(j.files[n].size) +
 					"</td><td class=\"dow\">" +
 					date.toDateString() + " " +
-					date.toLocaleTimeString() + "</td><td>";
+					date.toLocaleTimeString() + "</td><td class=\"btn-cell\">";
 
 					/* Show text button if it's a .txt file from textarea */
 					if (j.files[n].is_text)
