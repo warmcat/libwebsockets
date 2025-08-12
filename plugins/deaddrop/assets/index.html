@@ -8,45 +8,50 @@
 	 <div class="title"><img src="/docrepo.svg"> Deaddrop</div>
 	<div class="uplbox">
 		<table id="ddrop" class="noconn">
-	  <tr><td class="vm">
-	   <table><tr><th>Drag and drop files</th></tr><tr><td>
-	 	<div id="da" class="da"><img class="disa" src="drop.svg"></div>
-	   </td></tr></table>
-	</td><td>
-	   <table><tr><th>Paste text to upload:</th></tr><tr><td>
-	   <form name=textupload action="upload" method="post"
-		 enctype="multipart/form-data">
-		   <table><tr><td>
-		<textarea id="text_content" class="dd-textarea" cols=40 rows=5
-			placeholder="Paste content here"></textarea>
-				   </td></tr><tr><td>
-		<input id="upl_text" type="submit" value="Upload Text"
-			class="ubtn" disabled>
-					   </td></tr></table>
-	   </form>
-	   </td></tr></table>
-	   <table><tr><th>... or select files to upload</th></tr><tr><td>
-
-	   <span id="size"></span><br>
-	  <form name=multipart action="upload" method="post"
-		 enctype="multipart/form-data">
-	    <input multiple type="file" name="file" id="file" size="20">
-	        <span id="file_info" class="dd-fileinfo"></span>
-	    <br>
-	    <input id="upl" type="submit" name="Upload" value="Upload"
-	    	    class="ubtn" disabled>
-	  </form>
-	   </td></tr></table>
-
-	  <table id="ongoing" class="nb"></table>
-	 </td></tr>
-	 <tr><td colspan="2">
-	 	<div id="dd-list" class="dd-list">
-		<!-- deaddrop-list -->
-		</div>
-		<div id="connected-users-list" style="margin-top: 2em;"></div>
-	 </td></tr>
-	 </table>
+			<tr>
+				<th>Drag and drop files</th>
+				<th>Paste text to upload:</th>
+			</tr>
+			<tr>
+				<td rowspan="3">
+					<div id="da" class="da"><img class="disa" src="drop.svg"></div>
+				</td>
+				<td>
+					<form name="textupload" action="upload" method="post" enctype="multipart/form-data">
+						<textarea id="text_content" class="dd-textarea" placeholder="Paste content here"></textarea>
+						<br>
+						<input id="upl_text" type="submit" value="Upload Text" class="ubtn" disabled>
+					</form>
+				</td>
+			</tr>
+			<tr>
+				<th>... or select files to upload</th>
+			</tr>
+			<tr>
+				<td>
+					<span id="size"></span><br>
+					<form name="multipart" action="upload" method="post" enctype="multipart/form-data">
+						<input multiple type="file" name="file" id="file" size="20">
+						<span id="file_info" class="dd-fileinfo"></span>
+						<br>
+						<input id="upl" type="submit" name="Upload" value="Upload" class="ubtn" disabled>
+					</form>
+				</td>
+			</tr>
+			<tr>
+				<td colspan="2">
+					<table id="ongoing" class="nb"></table>
+				</td>
+			</tr>
+			<tr>
+				<td colspan="2">
+					<div id="dd-list" class="dd-list">
+						<!-- deaddrop-list -->
+					</div>
+					<div id="connected-users-list" style="margin-top: 2em;"></div>
+				</td>
+			</tr>
+		</table>
 	</div>
  </body>
 
