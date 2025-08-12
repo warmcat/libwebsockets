@@ -42,34 +42,74 @@
 #include <sys/wait.h>
 #endif
 
-static struct lws_context *static_context;
+static int sigchld_pipe_fds[2] = { -1, -1 };
+
+static void
+lws_spawn_sigchld_cb(int signum)
+{
+	if (sigchld_pipe_fds[1] != -1)
+		if (write(sigchld_pipe_fds[1], "1", 1) != 1) {
+			/* what to do on error? */
+		}
+}
+
+static void
+lws_spawn_plat_sigchld_deinit(struct lws_context *context);
 
 static int
 callback_spawn_reap(struct lws *wsi, enum lws_callback_reasons reason,
-		    void *user, void *in, size_t len);
+		    void *user, void *in, size_t len)
+{
+	struct lws_context *context = (struct lws_context *)user;
+	struct lws_spawn_piped *lsp;
+	struct lws_dll2 *d;
+	pid_t pid;
+	int status;
+	char buf;
+
+	switch (reason) {
+	case LWS_CALLBACK_RAW_RX_FILE:
+		if (read(wsi->desc.sockfd, &buf, 1) != 1) {
+			lwsl_warn("%s: read from reap pipe failed\n", __func__);
+			return -1;
+		}
+
+		do {
+			pid = waitpid(-1, &status, WNOHANG);
+			if (pid > 0) {
+				lwsl_notice("%s: reaped pid %d\n", __func__, pid);
+
+				d = lws_dll2_get_head(&context->owner_spawn);
+				while (d) {
+					lsp = lws_container_of(d,
+							struct lws_spawn_piped,
+							dll_global);
+
+					if (lsp->child_pid == pid) {
+						lws_spawn_reap(lsp);
+						break;
+					}
+					d = d->next;
+				}
+			}
+		} while (pid > 0);
+		break;
+
+	case LWS_CALLBACK_CLOSED:
+		lws_spawn_plat_sigchld_deinit(context);
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
+}
 
 static const struct lws_protocols protocols_spawn_reap[] = {
 	{ "lws-spawn-reap", callback_spawn_reap, 0, 0, 0, NULL, 0 },
 	{ NULL, NULL, 0, 0, 0, NULL, 0 }
 };
-
-static void
-lws_spawn_sigchld_cb(int signum)
-{
-	int status, e = errno;
-	pid_t pid;
-
-	do {
-		pid = waitpid(-1, &status, WNOHANG);
-		if (pid > 0 && static_context &&
-		    static_context->spawn_notify_pipe_fds[1] != LWS_SOCK_INVALID)
-			if (write(static_context->spawn_notify_pipe_fds[1], &pid, sizeof(pid)) != sizeof(pid)) {
-				/* what to do on error? */
-			}
-	} while (pid > 0);
-
-	errno = e;
-}
 
 static int
 lws_spawn_plat_sigchld_init(struct lws_context *context)
@@ -89,12 +129,7 @@ lws_spawn_plat_sigchld_init(struct lws_context *context)
 		return -1;
 	}
 
-	if (pipe(context->spawn_notify_pipe_fds) < 0) {
-		lwsl_err("%s: pipe failed\n", __func__);
-		return -1;
-	}
-
-	if (pipe(context->spawn_notify_pipe_fds) < 0) {
+	if (pipe(sigchld_pipe_fds) < 0) {
 		lwsl_err("%s: pipe failed\n", __func__);
 		return -1;
 	}
@@ -104,7 +139,7 @@ lws_spawn_plat_sigchld_init(struct lws_context *context)
 	if (!context->spawn_wsi)
 		goto fail_pipe;
 
-	context->spawn_wsi->desc.sockfd = context->spawn_notify_pipe_fds[0];
+	context->spawn_wsi->desc.sockfd = sigchld_pipe_fds[0];
 	context->spawn_wsi->a.protocol = &protocols_spawn_reap[0];
 	context->spawn_wsi->a.opaque_user_data = context;
 
@@ -130,10 +165,10 @@ fail_wsi:
 	lws_close_free_wsi(context->spawn_wsi, LWS_CLOSE_STATUS_NOSTATUS,
 			   "reap wsi fail");
 fail_pipe:
-	close(context->spawn_notify_pipe_fds[0]);
-	close(context->spawn_notify_pipe_fds[1]);
-	context->spawn_notify_pipe_fds[0] = LWS_SOCK_INVALID;
-	context->spawn_notify_pipe_fds[1] = LWS_SOCK_INVALID;
+	close(sigchld_pipe_fds[0]);
+	close(sigchld_pipe_fds[1]);
+	sigchld_pipe_fds[0] = -1;
+	sigchld_pipe_fds[1] = -1;
 
 	return -1;
 }
@@ -147,57 +182,14 @@ lws_spawn_plat_sigchld_deinit(struct lws_context *context)
 	if (context->spawn_wsi)
 		lws_set_timeout(context->spawn_wsi, 1, LWS_TO_KILL_ASYNC);
 
-	if (context->spawn_notify_pipe_fds[1] != LWS_SOCK_INVALID)
-		close(context->spawn_notify_pipe_fds[1]);
+	if (sigchld_pipe_fds[1] != -1)
+		close(sigchld_pipe_fds[1]);
 
-	context->spawn_notify_pipe_fds[0] = LWS_SOCK_INVALID;
-	context->spawn_notify_pipe_fds[1] = LWS_SOCK_INVALID;
+	sigchld_pipe_fds[0] = -1;
+	sigchld_pipe_fds[1] = -1;
 
 	signal(SIGCHLD, SIG_DFL);
 	context->sigchld_hdlr_initted = 0;
-}
-
-static int
-callback_spawn_reap(struct lws *wsi, enum lws_callback_reasons reason,
-		    void *user, void *in, size_t len)
-{
-	struct lws_context *context = (struct lws_context *)user;
-	struct lws_spawn_piped *lsp;
-	struct lws_dll2 *d;
-	pid_t pid;
-
-	switch (reason) {
-	case LWS_CALLBACK_RAW_RX_FILE:
-		if (read(wsi->desc.sockfd, &pid, sizeof(pid)) != sizeof(pid)) {
-			lwsl_warn("%s: read from reap pipe failed\n", __func__);
-			return -1;
-		}
-
-		lwsl_notice("%s: reaped pid %d\n", __func__, pid);
-
-		d = lws_dll2_get_head(&context->owner_spawn);
-		while (d) {
-			lsp = lws_container_of(d, struct lws_spawn_piped,
-					       dll_global);
-
-			if (lsp->child_pid == pid) {
-				lws_spawn_reap(lsp);
-				break;
-			}
-			d = d->next;
-		}
-		break;
-
-	case LWS_CALLBACK_CLOSED:
-		lwsl_notice("LWS_CALLBACK_CLOSED\n");
-		lws_spawn_plat_sigchld_deinit(context);
-		break;
-
-	default:
-		break;
-	}
-
-	return 0;
 }
 
 void
