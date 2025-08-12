@@ -813,6 +813,16 @@ struct lws_context {
 	uint8_t captive_portal_detect_type;
 
 	uint8_t		destroy_state; /* enum lws_context_destroy */
+
+#if defined(LWS_WITH_SPAWN)
+	lws_dll2_owner_t		owner_spawn;
+	lws_sockfd_type			spawn_notify_pipe_fds[2];
+	struct lws			*spawn_wsi;
+	char				sigchld_hdlr_initted;
+#if defined(WIN32)
+	lws_sorted_usec_list_t		sul_spawn_reap_poll;
+#endif
+#endif
 };
 
 #define lws_get_context_protocol(ctx, x) ctx->vhost_list->protocols[x]

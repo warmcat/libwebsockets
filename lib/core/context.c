@@ -662,6 +662,11 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->mgr_system.context = context;
 #endif
 
+#if defined(LWS_WITH_SPAWN)
+	context->spawn_notify_pipe_fds[0] = LWS_SOCK_INVALID;
+	context->spawn_notify_pipe_fds[1] = LWS_SOCK_INVALID;
+#endif
+
 #if defined(LWS_WITH_NETWORK)
 	context->event_loop_ops = plev->ops;
 	context->us_wait_resolution = us_wait_resolution;
@@ -2402,6 +2407,13 @@ next:
 		if (context->evlib_plugin_list)
 			lws_plugins_destroy(&context->evlib_plugin_list,
 					    NULL, NULL);
+#endif
+
+#if defined(LWS_WITH_SPAWN)
+		if (context->spawn_notify_pipe_fds[0] != LWS_SOCK_INVALID)
+			close(context->spawn_notify_pipe_fds[0]);
+		if (context->spawn_notify_pipe_fds[1] != LWS_SOCK_INVALID)
+			close(context->spawn_notify_pipe_fds[1]);
 #endif
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)

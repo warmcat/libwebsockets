@@ -923,6 +923,7 @@ struct lws_spawn_piped {
 	struct lws_spawn_piped_info	info;
 
 	struct lws_dll2			dll;
+	struct lws_dll2			dll_global;
 	lws_sorted_usec_list_t		sul;
 	lws_sorted_usec_list_t		sul_reap;
 

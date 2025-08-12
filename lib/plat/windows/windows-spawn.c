@@ -134,6 +134,7 @@ lws_spawn_piped_destroy(struct lws_spawn_piped **_lsp)
 		}
 	}
 
+	lws_dll2_remove(&lsp->dll_global);
 	lws_dll2_remove(&lsp->dll);
 
 	lws_sul_cancel(&lsp->sul);
@@ -223,6 +224,33 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	lwsl_notice("%s: completed reap\n", __func__);
 
 	return 1; /* was reaped */
+}
+
+int
+lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp);
+
+static void
+lws_spawn_reap_poll_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws_context *context =
+		lws_container_of(sul, struct lws_context, sul_spawn_reap_poll);
+	struct lws_dll2 *d = lws_dll2_get_head(&context->owner_spawn);
+
+	while (d) {
+		struct lws_spawn_piped *lsp =
+				lws_container_of(d, struct lws_spawn_piped,
+						 dll_global);
+		if (lws_spawn_reap(lsp)) {
+			/* it was reaped, lsp is invalid. restart scan */
+			d = lws_dll2_get_head(&context->owner_spawn);
+			continue;
+		}
+		d = d->next;
+	}
+
+	if (context->owner_spawn.count)
+		lws_sul_schedule(context, 0, &context->sul_spawn_reap_poll,
+				 lws_spawn_reap_poll_cb, 250 * LWS_US_PER_MS);
 }
 
 int
@@ -520,6 +548,12 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 
 	if (i->owner)
 		lws_dll2_add_head(&lsp->dll, i->owner);
+
+	lws_dll2_add_head(&lsp->dll_global, &context->owner_spawn);
+
+	if (context->owner_spawn.count == 1)
+		lws_sul_schedule(context, 0, &context->sul_spawn_reap_poll,
+				 lws_spawn_reap_poll_cb, 100 * LWS_US_PER_MS);
 
 	if (i->timeout_us)
 		lws_sul_schedule(context, i->tsi, &lsp->sul,

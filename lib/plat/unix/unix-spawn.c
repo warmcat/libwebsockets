@@ -28,6 +28,7 @@
 
 #include "private-lib-core.h"
 #include <unistd.h>
+#include <signal.h>
 #include <sys/types.h>
 #include <pwd.h>
 #include <grp.h>
@@ -40,6 +41,164 @@
 #include <sys/resource.h>
 #include <sys/wait.h>
 #endif
+
+static struct lws_context *static_context;
+
+static int
+callback_spawn_reap(struct lws *wsi, enum lws_callback_reasons reason,
+		    void *user, void *in, size_t len);
+
+static const struct lws_protocols protocols_spawn_reap[] = {
+	{ "lws-spawn-reap", callback_spawn_reap, 0, 0, 0, NULL, 0 },
+	{ NULL, NULL, 0, 0, 0, NULL, 0 }
+};
+
+static void
+lws_spawn_sigchld_cb(int signum)
+{
+	int status, e = errno;
+	pid_t pid;
+
+	do {
+		pid = waitpid(-1, &status, WNOHANG);
+		if (pid > 0 && static_context &&
+		    static_context->spawn_notify_pipe_fds[1] != LWS_SOCK_INVALID)
+			if (write(static_context->spawn_notify_pipe_fds[1], &pid, sizeof(pid)) != sizeof(pid)) {
+				/* what to do on error? */
+			}
+	} while (pid > 0);
+
+	errno = e;
+}
+
+static int
+lws_spawn_plat_sigchld_init(struct lws_context *context)
+{
+	struct sigaction sa;
+
+	if (context->sigchld_hdlr_initted)
+		return 0;
+
+	memset(&sa, 0, sizeof(sa));
+	sa.sa_handler = lws_spawn_sigchld_cb;
+	sa.sa_flags = SA_RESTART;
+	sigemptyset(&sa.sa_mask);
+
+	if (sigaction(SIGCHLD, &sa, NULL) < 0) {
+		lwsl_err("%s: sigaction failed\n", __func__);
+		return -1;
+	}
+
+	if (pipe(context->spawn_notify_pipe_fds) < 0) {
+		lwsl_err("%s: pipe failed\n", __func__);
+		return -1;
+	}
+
+	if (pipe(context->spawn_notify_pipe_fds) < 0) {
+		lwsl_err("%s: pipe failed\n", __func__);
+		return -1;
+	}
+
+	context->spawn_wsi = lws_create_new_server_wsi(context->vhost_list, 0,
+			LWSLCG_WSI, "spawn-reap");
+	if (!context->spawn_wsi)
+		goto fail_pipe;
+
+	context->spawn_wsi->desc.sockfd = context->spawn_notify_pipe_fds[0];
+	context->spawn_wsi->a.protocol = &protocols_spawn_reap[0];
+	context->spawn_wsi->a.opaque_user_data = context;
+
+	if (lws_plat_set_nonblocking(context->spawn_wsi->desc.sockfd))
+		goto fail_wsi;
+
+	if (context->event_loop_ops->sock_accept)
+		if (context->event_loop_ops->sock_accept(context->spawn_wsi))
+			goto fail_wsi;
+
+	if (__insert_wsi_socket_into_fds(context, context->spawn_wsi))
+		goto fail_wsi;
+
+	lws_dll2_remove(&context->spawn_wsi->pre_natal);
+	if (lws_change_pollfd(context->spawn_wsi, LWS_POLLOUT, LWS_POLLIN))
+		goto fail_wsi;
+
+	context->sigchld_hdlr_initted = 1;
+
+	return 0;
+
+fail_wsi:
+	lws_close_free_wsi(context->spawn_wsi, LWS_CLOSE_STATUS_NOSTATUS,
+			   "reap wsi fail");
+fail_pipe:
+	close(context->spawn_notify_pipe_fds[0]);
+	close(context->spawn_notify_pipe_fds[1]);
+	context->spawn_notify_pipe_fds[0] = LWS_SOCK_INVALID;
+	context->spawn_notify_pipe_fds[1] = LWS_SOCK_INVALID;
+
+	return -1;
+}
+
+static void
+lws_spawn_plat_sigchld_deinit(struct lws_context *context)
+{
+	if (!context->sigchld_hdlr_initted)
+		return;
+
+	if (context->spawn_wsi)
+		lws_set_timeout(context->spawn_wsi, 1, LWS_TO_KILL_ASYNC);
+
+	if (context->spawn_notify_pipe_fds[1] != LWS_SOCK_INVALID)
+		close(context->spawn_notify_pipe_fds[1]);
+
+	context->spawn_notify_pipe_fds[0] = LWS_SOCK_INVALID;
+	context->spawn_notify_pipe_fds[1] = LWS_SOCK_INVALID;
+
+	signal(SIGCHLD, SIG_DFL);
+	context->sigchld_hdlr_initted = 0;
+}
+
+static int
+callback_spawn_reap(struct lws *wsi, enum lws_callback_reasons reason,
+		    void *user, void *in, size_t len)
+{
+	struct lws_context *context = (struct lws_context *)user;
+	struct lws_spawn_piped *lsp;
+	struct lws_dll2 *d;
+	pid_t pid;
+
+	switch (reason) {
+	case LWS_CALLBACK_RAW_RX_FILE:
+		if (read(wsi->desc.sockfd, &pid, sizeof(pid)) != sizeof(pid)) {
+			lwsl_warn("%s: read from reap pipe failed\n", __func__);
+			return -1;
+		}
+
+		lwsl_notice("%s: reaped pid %d\n", __func__, pid);
+
+		d = lws_dll2_get_head(&context->owner_spawn);
+		while (d) {
+			lsp = lws_container_of(d, struct lws_spawn_piped,
+					       dll_global);
+
+			if (lsp->child_pid == pid) {
+				lws_spawn_reap(lsp);
+				break;
+			}
+			d = d->next;
+		}
+		break;
+
+	case LWS_CALLBACK_CLOSED:
+		lwsl_notice("LWS_CALLBACK_CLOSED\n");
+		lws_spawn_plat_sigchld_deinit(context);
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
+}
 
 void
 lws_spawn_timeout(struct lws_sorted_usec_list *sul)
@@ -123,8 +282,14 @@ lws_spawn_piped_destroy(struct lws_spawn_piped **_lsp)
 	struct lws_spawn_piped *lsp = *_lsp;
 	int n;
 
+	struct lws_context *context = lsp->info.vh->context;
+
 	if (!lsp)
 		return;
+
+	lws_dll2_remove(&lsp->dll_global);
+	if (!context->owner_spawn.count)
+		lws_spawn_plat_sigchld_deinit(context);
 
 	lws_dll2_remove(&lsp->dll);
 
@@ -421,6 +586,8 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		return NULL;
 	}
 
+	static_context = context;
+
 	lsp = lws_zalloc(sizeof(*lsp), __func__);
 	if (!lsp)
 		return NULL;
@@ -630,6 +797,12 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		if (i->owner)
 			lws_dll2_add_head(&lsp->dll, i->owner);
 
+		lws_dll2_add_head(&lsp->dll_global, &context->owner_spawn);
+
+		if (context->owner_spawn.count == 1 &&
+		    lws_spawn_plat_sigchld_init(context))
+			goto bail_kill;
+
 		if (i->timeout_us)
 			lws_sul_schedule(context, i->tsi, &lsp->sul,
 					 lws_spawn_timeout, i->timeout_us);
@@ -735,6 +908,8 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 
 	_exit(1);
 
+bail_kill:
+	kill(lsp->child_pid, SIGKILL);
 bail3:
 
 	while (--n >= 0)
