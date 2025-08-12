@@ -499,6 +499,9 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 			lws_sul_schedule(context, i->tsi, &lsp->sul,
 					 lws_spawn_timeout, i->timeout_us);
 
+               if (i->plsp)
+                       *i->plsp = lsp;
+
 		return lsp;
 	}
 
