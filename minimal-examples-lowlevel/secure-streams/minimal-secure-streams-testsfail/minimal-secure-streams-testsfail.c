@@ -48,9 +48,9 @@ static const char * const default_ss_policy =
 
 	  "\"retry\": ["	/* named backoff / retry strategies */
 		"{\"default\": {"
-			"\"backoff\": [	 1000, 1000, 1000, 1000"
+			"\"backoff\": [	 1000, 1000 "
 				"],"
-			"\"conceal\":"		"4,"
+			"\"conceal\":"		"2,"
 			"\"jitterpc\":"		"20,"
 			"\"svalidping\":"	"30,"
 			"\"svalidhup\":"	"35"
@@ -243,7 +243,7 @@ static const char * const default_ss_policy =
 			"\"protocol\": \"h1\","
 			"\"http_method\": \"GET\","
 			"\"http_url\": \"/delay/10\","
-			"\"timeout_ms\": 8000,"
+			"\"timeout_ms\": 3000,"
 			"\"retry\": \"default\""
 		"}},{"
 		    "\"d_h1_tls\": {"
@@ -253,7 +253,7 @@ static const char * const default_ss_policy =
 			"\"http_method\": \"GET\","
 			"\"http_url\": \"/httpbin/delay/10\","
 			"\"tls\": true,"
-			"\"timeout_ms\": 8000,"
+			"\"timeout_ms\": 3000,"
 			"\"retry\": \"default\","
 			"\"tls_trust_store\": \"le_via_isrg\""
 		"}},{"
@@ -266,7 +266,7 @@ static const char * const default_ss_policy =
 			"\"tls\": true,"
 			"\"nghttp2_quirk_end_stream\": true,"
 			"\"h2q_oflow_txcr\": true,"
-			"\"timeout_ms\": 8000,"
+			"\"timeout_ms\": 3000,"
 			"\"retry\": \"default\","
 			"\"tls_trust_store\": \"le_via_isrg\""
 		"}},{"
@@ -284,7 +284,7 @@ static const char * const default_ss_policy =
 			"\"protocol\": \"h1\","
 			"\"http_method\": \"GET\","
 			"\"http_url\": \"/status/200\","
-			"\"timeout_ms\": 10000,"
+			"\"timeout_ms\": 5000,"
 			"\"retry\": \"default\""
 		"}},{"
 		    "\"nxd_h1_tls\": {"
@@ -294,7 +294,7 @@ static const char * const default_ss_policy =
 			"\"http_method\": \"GET\","
 			"\"http_url\": \"/status/200\","
 			"\"tls\": true,"
-			"\"timeout_ms\": 10000,"
+			"\"timeout_ms\": 5000,"
 			"\"retry\": \"default\","
 			"\"tls_trust_store\": \"arca1\""
 		"}},{"
@@ -307,7 +307,7 @@ static const char * const default_ss_policy =
 			"\"tls\": true,"
 			"\"nghttp2_quirk_end_stream\": true,"
 			"\"h2q_oflow_txcr\": true,"
-			"\"timeout_ms\": 10000,"
+			"\"timeout_ms\": 5000,"
 			"\"retry\": \"default\","
 			"\"tls_trust_store\": \"arca1\""
 		"}},{"
@@ -385,7 +385,7 @@ static const char * const default_ss_policy =
 			"\"http_method\": \"GET\","
 			"\"http_url\": \"/\","
 			"\"tls\": true,"
-			"\"timeout_ms\": 10000,"
+			"\"timeout_ms\": 3000,"
 			"\"retry\": \"default\","
 			"\"tls_trust_store\": \"le_via_isrg\""
 		"}},{"
@@ -397,7 +397,7 @@ static const char * const default_ss_policy =
 			"\"http_url\": \"/\","
 			"\"tls\": true,"
 			"\"retry\": \"default\","
-			"\"timeout_ms\": 10000,"
+			"\"timeout_ms\": 3000,"
 			"\"tls_trust_store\": \"le_via_isrg\""
 		"}},{"
 		    "\"badcert_selfsigned\": {"
@@ -409,7 +409,7 @@ static const char * const default_ss_policy =
 			"\"tls\": true,"
 			"\"nghttp2_quirk_end_stream\": true,"
 			"\"h2q_oflow_txcr\": true,"
-			"\"timeout_ms\": 10000,"
+			"\"timeout_ms\": 3000,"
 			"\"retry\": \"default\","
 			"\"tls_trust_store\": \"le_via_isrg\""
                 "}}"
@@ -469,21 +469,21 @@ struct tests_seq {
 
 	{
 		"h1:80 timeout after connection",
-		"d_h1", 8 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
+		"d_h1", 3 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
 		0
 	},
 	{
 		"h1:443 timeout after connection",
-		"d_h1_tls", 8 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
+		"d_h1_tls", 3 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
 		0
 	},
 	{
 		"h2:443 timeout after connection",
-		"d_h2_tls", 8 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		"d_h2_tls", 3 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE),
 		0
 	},
@@ -495,7 +495,7 @@ struct tests_seq {
 
 	{
 		"h1:80 NXDOMAIN",
-		"nxd_h1", 65 * LWS_US_PER_SEC, LWSSSCS_UNREACHABLE,
+		"nxd_h1", 35 * LWS_US_PER_SEC, LWSSSCS_UNREACHABLE,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_ALL_RETRIES_FAILED),
 		0
@@ -524,19 +524,19 @@ struct tests_seq {
 
 	{
 		"h1:80 NXDOMAIN exhaust retries",
-		"nxd_h1", 65 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		"nxd_h1", 35 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE),
 		0
 	},
 	{
 		"h1:443 NXDOMAIN exhaust retries",
-		"nxd_h1_tls", 65 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		"nxd_h1_tls", 35 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE),
 		0
 	},
 	{
 		"h2:443 NXDOMAIN exhaust retries",
-		"nxd_h2_tls", 65 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		"nxd_h2_tls", 25 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE),
 		0
 	},
@@ -547,21 +547,21 @@ struct tests_seq {
 
 	{
 		"h1:80 read bulk",
-		"bulk_h1", 15 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
+		"bulk_h1", 5 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 		(1 << LWSSSCS_ALL_RETRIES_FAILED),
 		12345
 	},
 	{
 		"h1:443 read bulk",
-		"bulk_h1_tls", 15 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
+		"bulk_h1_tls", 5 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 		(1 << LWSSSCS_ALL_RETRIES_FAILED),
 		12345
 	},
 	{
 		"h2:443 read bulk",
-		"bulk_h2_tls", 15 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
+		"bulk_h2_tls", 5 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 		(1 << LWSSSCS_ALL_RETRIES_FAILED),
 		12345
@@ -573,19 +573,19 @@ struct tests_seq {
 
 	{
 		"h1:badcert_hostname",
-		"badcert_hostname", 16 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		"badcert_hostname", 6 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_NACK_REMOTE),
 		0
 	},
 	{
 		"h1:badcert_expired",
-		"badcert_expired", 16 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		"badcert_expired", 6 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_NACK_REMOTE),
 		0
 	},
 	{
 		"h1:badcert_selfsigned",
-		"badcert_selfsigned", 16 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		"badcert_selfsigned", 6 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_NACK_REMOTE),
 		0
 	},
