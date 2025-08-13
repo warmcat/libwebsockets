@@ -45,7 +45,7 @@ lws_spawn_sul_reap(struct lws_sorted_usec_list *sul)
 	struct lws_spawn_piped *lsp = lws_container_of(sul,
 					struct lws_spawn_piped, sul_reap);
 
-	lwsl_notice("%s: reaping spawn after last stdpipe, tries left %d\n",
+       lwsl_info("%s: reaping spawn after last stdpipe, tries left %d\n",
 		    __func__, lsp->reap_retry_budget);
 	if (!lws_spawn_reap(lsp) && !lsp->pipes_alive) {
 		if (--lsp->reap_retry_budget) {
@@ -269,7 +269,7 @@ windows_pipe_poll_hack(lws_sorted_usec_list_t *sul)
 		if (!PeekNamedPipe(lsp->pipe_fds[LWS_STDOUT][0], &c, 1, &br,
 				   NULL, NULL)) {
 
-			lwsl_notice("%s: stdout pipe errored\n", __func__);
+			// lwsl_notice("%s: stdout pipe errored\n", __func__);
 			CloseHandle(lsp->stdwsi[LWS_STDOUT]->desc.filefd);
 			lsp->pipe_fds[LWS_STDOUT][0] = NULL;
 			lsp->stdwsi[LWS_STDOUT]->desc.filefd = NULL;
@@ -277,7 +277,7 @@ windows_pipe_poll_hack(lws_sorted_usec_list_t *sul)
 			lws_set_timeout(wsi, 1, LWS_TO_KILL_SYNC);
 
 			if (lsp->stdwsi[LWS_STDIN]) {
-				lwsl_notice("%s: closing stdin from stdout close\n",
+                               lwsl_info("%s: closing stdin from stdout close\n",
 						__func__);
 				CloseHandle(lsp->stdwsi[LWS_STDIN]->desc.filefd);
 				wsi = lsp->stdwsi[LWS_STDIN];
@@ -308,7 +308,7 @@ windows_pipe_poll_hack(lws_sorted_usec_list_t *sul)
 		if (!PeekNamedPipe(lsp->pipe_fds[LWS_STDERR][0], &c, 1, &br,
 				   NULL, NULL)) {
 
-			lwsl_notice("%s: stderr pipe errored\n", __func__);
+                       lwsl_info("%s: stderr pipe errored\n", __func__);
 			CloseHandle(wsi1->desc.filefd);
 			/*
 			 * Assume is stderr still extant on entry, lsp can't
@@ -400,7 +400,7 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 
 		if (!SetHandleInformation(&lsp->pipe_fds[n][!n],
 					  HANDLE_FLAG_INHERIT, 0)) {
-			lwsl_err("%s: SetHandleInformation() failed\n", __func__);
+			lwsl_info("%s: SetHandleInformation() failed\n", __func__);
 			//goto bail1;
 		}
 	}
@@ -452,10 +452,10 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 			i->opt_parent->child_list = lsp->stdwsi[n];
 		}
 
-	lwsl_notice("%s: pipe handles in %p, out %p, err %p\n", __func__,
-		   lsp->stdwsi[LWS_STDIN]->desc.sockfd,
-		   lsp->stdwsi[LWS_STDOUT]->desc.sockfd,
-		   lsp->stdwsi[LWS_STDERR]->desc.sockfd);
+	// lwsl_notice("%s: pipe handles in %p, out %p, err %p\n", __func__,
+	//	   lsp->stdwsi[LWS_STDIN]->desc.sockfd,
+	//	   lsp->stdwsi[LWS_STDOUT]->desc.sockfd,
+	//	   lsp->stdwsi[LWS_STDERR]->desc.sockfd);
 
 	/*
 	 * Windows nonblocking pipe handling is a mess that is unable
@@ -484,7 +484,9 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		n++;
 	}
 
-	puts(cli);
+	if (p > cli && p[-1] == ' ')
+		*(--p) = '\0';
+	// puts(cli);
 
 	memset(&pi, 0, sizeof(pi));
 	memset(&si, 0, sizeof(si));
