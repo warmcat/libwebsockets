@@ -14,23 +14,28 @@
 #include <string.h>
 #include <stdio.h>
 
-static int interrupted, result = 1, port = 7681, options;
+static int interrupted, result = 1;
 static struct lws_context *context;
 static struct lws_spawn_piped *lsp;
 static lws_sorted_usec_list_t sul_timeout;
 
-/*
- * The test is considered passed if we get some output from the child process
- * and the child process exits cleanly.
- */
+#if defined(WIN32)
+static const char * const exec_array[] = { "cmd.exe", "/c", "echo lws-test-spawn-data", NULL };
+#else
+static const char * const exec_array[] = { "/bin/sh", "-c", "echo lws-test-spawn-data", NULL };
+#endif
+static const char *expected_stdout = "lws-test-spawn-data\n";
 
-static char captured_stdout[4096];
+static char captured_stdout[128];
 static size_t captured_stdout_len;
 
 static void
 timeout_cb(lws_sorted_usec_list_t *sul)
 {
 	lwsl_err("%s: test timed out\n", __func__);
+	/* lsp may be NULL if the spawn failed */
+	if (lsp)
+		lws_spawn_piped_kill_child_process(lsp);
 	interrupted = 1;
 	lws_cancel_service(context);
 }
@@ -40,16 +45,13 @@ reap_cb(void *opaque, lws_usec_t *accounting, siginfo_t *si, int we_killed_him)
 {
 	lwsl_user("%s: child process exited\n", __func__);
 
-	/*
-	 * If we are here, it means the child process has exited.
-	 * We can check if we captured any output.
-	 */
-	if (captured_stdout_len > 0) {
-		lwsl_user("Captured %d bytes of stdout\n",
-			  (int)captured_stdout_len);
-		result = 0; /* PASS */
+	if (captured_stdout_len != strlen(expected_stdout) ||
+	    strncmp(captured_stdout, expected_stdout, captured_stdout_len)) {
+		lwsl_err("Captured stdout mismatch. Got '%s', expected '%s'\n",
+			 captured_stdout, expected_stdout);
 	} else {
-		lwsl_err("Child process produced no output\n");
+		lwsl_user("Captured expected stdout\n");
+		result = 0; /* PASS */
 	}
 
 	interrupted = 1;
@@ -63,12 +65,13 @@ protocol_test_spawn_cb(struct lws *wsi, enum lws_callback_reasons reason,
 	switch (reason) {
 	case LWS_CALLBACK_RAW_RX:
 		lwsl_user("LWS_CALLBACK_RAW_RX: len %d\n", (int)len);
-		if (len > 0 && captured_stdout_len < sizeof(captured_stdout)) {
-			size_t avail = sizeof(captured_stdout) - captured_stdout_len;
+		if (len > 0 && captured_stdout_len < sizeof(captured_stdout) - 1) {
+			size_t avail = sizeof(captured_stdout) - 1 - captured_stdout_len;
 			if (len > avail)
 				len = avail;
 			memcpy(captured_stdout + captured_stdout_len, in, len);
 			captured_stdout_len += len;
+			captured_stdout[captured_stdout_len] = '\0';
 		}
 		break;
 
@@ -84,22 +87,20 @@ protocol_test_spawn_cb(struct lws *wsi, enum lws_callback_reasons reason,
 }
 
 static struct lws_protocols protocols[] = {
-	{ "lws-test-spawn", protocol_test_spawn_cb, 0, 0 },
-	{ NULL, NULL, 0, 0 }
+	{
+		.name = "lws-test-spawn",
+		.callback = protocol_test_spawn_cb,
+	},
+	LWS_PROTOCOL_LIST_TERM
 };
 
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	struct lws_spawn_piped_info pinfo;
-#if defined(WIN32)
-	const char * const exec_array[] = { "cmd.exe", "/c", "dir", "C:\\", NULL };
-#else
-	const char * const exec_array[] = { "ls", "-l", "/", NULL };
-#endif
 
 	memset(&info, 0, sizeof info);
-	lws_cmdline_option_handle_extern(argc, argv);
+	lws_cmdline_option_handle_builtin(argc, argv, &info);
 
 	lwsl_user("LWS API selftest: spawn\n");
 
