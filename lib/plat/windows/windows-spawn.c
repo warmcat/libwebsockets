@@ -525,6 +525,9 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		lws_sul_schedule(context, i->tsi, &lsp->sul,
 				 lws_spawn_timeout, i->timeout_us);
 
+       if (i->plsp)
+               *(i->plsp) = lsp;
+
 	return lsp;
 
 bail3:
@@ -560,14 +563,21 @@ lws_spawn_stdwsi_closed(struct lws_spawn_piped *lsp, struct lws *wsi)
 
 	assert(lsp);
 	lsp->pipes_alive--;
-	lwsl_debug("%s: pipes alive %d\n", __func__, lsp->pipes_alive);
-	if (!lsp->pipes_alive)
+       lwsl_wsi_warn(wsi, "stdxxx down: pipes alive %d\n", lsp->pipes_alive);
+       if (!lsp->pipes_alive) {
+               lwsl_wsi_warn(wsi, "Scheduling reap");
 		lws_sul_schedule(lsp->info.vh->context, lsp->info.tsi,
 				&lsp->sul_reap, lws_spawn_sul_reap, 1);
+       }
 
 	for (n = 0; n < 3; n++)
-		if (lsp->stdwsi[n] == wsi)
+               if (lsp->stdwsi[n] == wsi) {
+                       lwsl_wsi_warn(wsi, "Identified stxxx wsi in lsp");
 			lsp->stdwsi[n] = NULL;
+                       return;
+               }
+
+       lwsl_wsi_warn(wsi, "!!! unable to find stdwsi in lsp %p", lsp);
 }
 
 int
