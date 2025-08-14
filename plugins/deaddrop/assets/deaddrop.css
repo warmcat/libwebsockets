@@ -1,3 +1,9 @@
+body {
+	background-image: url("deaddrop.png");
+	background-repeat: no-repeat;
+	background-size: cover;
+	background-attachment: fixed;
+}
 .td { padding: 8px }
 .h1 { }
 .dd-fileinfo { font-size: 8pt; }
