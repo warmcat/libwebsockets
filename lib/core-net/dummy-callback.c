@@ -213,6 +213,12 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_CLOSED:
 		lwsl_wsi_info(wsi, "closed");
+		if (wsi->child_list)
+			lws_set_timeout(wsi->child_list, 1,
+					LWS_TO_KILL_ASYNC);
+		if (wsi->ws)
+			lws_dll2_foreach_safe(&wsi->ws->proxy_owner, NULL,
+					      lws_dll2_empty_owner_free);
 		return -1;
 
 	case LWS_CALLBACK_RECEIVE:
