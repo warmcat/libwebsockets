@@ -1228,6 +1228,9 @@ drain:
 
 	pending = (unsigned int)lws_ssl_pending(wsi);
 
+	if (!pending && lws_buflist_next_segment_len(&wsi->buflist, NULL))
+		return LWS_HPI_RET_HANDLED;
+
 #if defined(LWS_WITH_CLIENT)
 	if (!pending && (wsi->flags & LCCSCF_PRIORITIZE_READS) &&
 	    lws_buflist_total_len(&wsi->buflist))
