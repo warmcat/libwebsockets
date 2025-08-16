@@ -338,14 +338,18 @@ int ssl_pm_handshake(SSL *ssl)
 
     /*
      * OpenSSL return codes:
-     *   0 = did not complete, but may be retried
+     *   0 = The TLS/SSL handshake was not successful but was shut down
+     *       controlled and by the specifications of the TLS/SSL protocol.
      *   1 = successfully completed
-     *   <0 = death
+     *   <0 = The TLS/SSL handshake was not successful because a fatal error
+     *        occurred either at the protocol level or a connection failure
+     *        occurred.
      */
     if (ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
-	    ssl->err = ret;
+	    ssl->err = (ret == MBEDTLS_ERR_SSL_WANT_READ) ? SSL_ERROR_WANT_READ :
+                                                        SSL_ERROR_WANT_WRITE;
         SSL_DEBUG(SSL_PLATFORM_ERROR_LEVEL, "mbedtls_ssl_handshake() return -0x%x", -ret);
-        return 0; /* OpenSSL: did not complete but may be retried */
+        return -1;
     }
 
     if (ret == 0) { /* successful */
@@ -359,7 +363,7 @@ int ssl_pm_handshake(SSL *ssl)
 	    lwsl_info("%s: ambiguous EAGAIN taken as WANT_READ\n", __func__);
 	    ssl->err = ret == MBEDTLS_ERR_SSL_WANT_READ;
 
-	    return 0;
+	    return -1;
     }
 
     lwsl_info("%s: mbedtls_ssl_handshake() returned -0x%x\n", __func__, -ret);
