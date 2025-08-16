@@ -1,9 +1,16 @@
 body { font-family: sans-serif; padding: 2em; background-color: #f4f4f4; }
 h1, h2, h3 { color: #333; }
 a { color: #007bff; text-decoration: none; }
+
+@font-face {
+  font-family: 'Bungee Tint';
+  src: url('BungeeTint-Regular.ttf') format('truetype');
+}
+
 a:hover { text-decoration: underline; }
 .container { max-width: 960px; margin: auto; background: white; padding: 2em; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
-div.title { display: flex; align-items: center; gap: .5em; text-align: left; font-size: 2em; font-weight: bold; line-height:100%}
+div.title { display: flex; align-items: center; gap: .5em; text-align: left; font-family: 'Bungee Tint'; font-size: 2em; font-weight: bold; line-height:100%}
+
 div.title img { margin: 0; }
 .nb {
 	border-collapse: collapse;
