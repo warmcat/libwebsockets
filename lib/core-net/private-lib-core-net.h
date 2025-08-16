@@ -669,6 +669,9 @@ struct lws {
 	lws_sorted_usec_list_t		sul_timeout;
 	lws_sorted_usec_list_t		sul_hrtimer;
 	lws_sorted_usec_list_t		sul_validity;
+#if defined(LWS_WITH_HTTP_PROXY)
+	lws_sorted_usec_list_t		sul_ws_proxy_est;
+#endif
 	lws_sorted_usec_list_t		sul_connect_timeout;
 #if defined(WIN32)
 	lws_sorted_usec_list_t		win32_sul_connect_async_check;
