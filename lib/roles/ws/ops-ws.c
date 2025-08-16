@@ -39,8 +39,7 @@ lws_ws_proxy_est_cb(lws_sorted_usec_list_t *sul)
 					    NULL,
 #endif
 					    wsi->h2_stream_carries_ws))
-			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
-					   "proxy est cb fail");
+			lws_wsi_close(wsi, LWS_TO_KILL_ASYNC);
 }
 #endif
 
