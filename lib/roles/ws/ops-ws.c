@@ -24,6 +24,27 @@
 
 #include <private-lib-core.h>
 
+#if defined(LWS_WITH_HTTP_PROXY)
+static void
+lws_ws_proxy_est_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws *wsi = lws_container_of(sul, struct lws, sul_ws_proxy_est);
+
+	lwsi_set_state(wsi, LRS_ESTABLISHED);
+
+	if (wsi->a.protocol->callback)
+		if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_ESTABLISHED,
+					    wsi->user_space,
+#ifdef LWS_WITH_TLS
+					    wsi->tls.ssl,
+#else
+					    NULL,
+#endif
+					    wsi->h2_stream_carries_ws))
+			lws_wsi_close(wsi, LWS_TO_KILL_ASYNC);
+}
+#endif
+
 #define LWS_CPYAPP(ptr, str) { strcpy(ptr, str); ptr += strlen(str); }
 
 /*
@@ -840,7 +861,10 @@ lws_server_init_wsi_for_ws(struct lws *wsi)
 {
 	int n;
 
-	lwsi_set_state(wsi, LRS_ESTABLISHED);
+#if defined(LWS_WITH_HTTP_PROXY)
+	if (!wsi->proxied_ws_parent) 
+		lwsi_set_state(wsi, LRS_ESTABLISHED);
+#endif
 
 	/*
 	 * create the frame buffer for this connection according to the
@@ -861,7 +885,15 @@ lws_server_init_wsi_for_ws(struct lws *wsi)
 
 	/* notify user code that we're ready to roll */
 
-	if (wsi->a.protocol->callback)
+	if (wsi->a.protocol->callback) {
+#if defined(LWS_WITH_HTTP_PROXY)
+		if (wsi->proxied_ws_parent) {
+			lws_sul_schedule(wsi->a.context, wsi->tsi,
+					 &wsi->sul_ws_proxy_est,
+					 lws_ws_proxy_est_cb, 5000);
+			goto validity;
+		}
+#endif
 		if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_ESTABLISHED,
 					    wsi->user_space,
 #ifdef LWS_WITH_TLS
@@ -871,6 +903,10 @@ lws_server_init_wsi_for_ws(struct lws *wsi)
 #endif
 					    wsi->h2_stream_carries_ws))
 			return 1;
+	}
+#if defined(LWS_WITH_HTTP_PROXY)
+validity:
+#endif
 
 	lws_validity_confirmed(wsi);
 	lwsl_debug("ws established\n");
