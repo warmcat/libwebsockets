@@ -1983,7 +1983,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		break;
 
 	case LWS_H2_FRAME_TYPE_GOAWAY:
-		lwsl_notice("GOAWAY: last sid %u, error 0x%08X, string '%s'\n",
+		lwsl_wsi_notice(wsi, "RX GOAWAY: last sid %u, error 0x%08X, string '%s'\n",
 			  (unsigned int)h2n->goaway_last_sid,
 			  (unsigned int)h2n->goaway_err, h2n->goaway_str);
 

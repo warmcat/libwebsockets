@@ -2118,18 +2118,24 @@ rops_issue_keepalive_ws(struct lws *wsi, int isvalid)
 						     encapsulation_parent(wsi);
 
 		assert(enc);
+		lwsl_wsi_info(wsi, "trying to do keepalive on h2 wrapper around ws");
 		if (lws_rops_func_fidx(enc->role_ops, LWS_ROPS_issue_keepalive).
-						  issue_keepalive(enc, isvalid))
+						  issue_keepalive(enc, isvalid)) {
+			lwsl_wsi_err(wsi, "FAILED to keep h2 wrapper for ws alive");
 			return 1;
+		}
 	}
 #endif
 
-	if (isvalid)
+	if (isvalid) {
+		lwsl_wsi_info(wsi, "confirming validity");
 		_lws_validity_confirmed_role(wsi);
-	else {
+	} else {
 		us = (uint64_t)lws_now_usecs();
 		memcpy(&wsi->ws->ping_payload_buf[LWS_PRE], &us, 8);
 		wsi->ws->send_check_ping = 1;
+		lwsl_wsi_info(wsi, "requesting send ping on ws");
+
 		lws_callback_on_writable(wsi);
 	}
 

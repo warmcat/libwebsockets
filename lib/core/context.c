@@ -1177,8 +1177,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 			context->default_retry.retry_ms_table_count =
 					LWS_ARRAY_SIZE(default_backoff_table);
 	context->default_retry.jitter_percent = 20;
-	context->default_retry.secs_since_valid_ping = 300;
-	context->default_retry.secs_since_valid_hangup = 310;
+	context->default_retry.secs_since_valid_ping = 40;
+	context->default_retry.secs_since_valid_hangup = 50;
 
 	if (info->retry_and_idle_policy &&
 	    info->retry_and_idle_policy->secs_since_valid_ping) {

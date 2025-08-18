@@ -194,7 +194,7 @@ lws_set_timeout_us(struct lws *wsi, enum pending_timeout reason, lws_usec_t us)
 	__lws_sul_insert_us(&pt->pt_sul_owner[LWSSULLI_MISS_IF_SUSPENDED],
 			    &wsi->sul_timeout, us);
 
-	lwsl_wsi_notice(wsi, "%llu us, reason %d",
+	lwsl_wsi_info(wsi, "%llu us, reason %d",
 			     (unsigned long long)us, reason);
 
 	wsi->pending_timeout = (char)reason;
