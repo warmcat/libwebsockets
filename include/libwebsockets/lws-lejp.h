@@ -217,6 +217,20 @@ struct _lejp_parsing_stack {
 	uint8_t			path_match;
 };
 
+typedef struct lejp_string_piece {
+	struct lejp_string_piece	*next;
+	const char			*piece;
+	size_t				len;
+} lejp_string_piece_t;
+
+typedef struct {
+	lejp_string_piece_t	*sph;
+	lejp_string_piece_t	**sp_next;
+	int			pieces;
+	size_t			asl;
+	char			*fp;
+} lejp_string_unifier_t;
+
 struct lejp_ctx {
 
 	/* sorted by type for most compact alignment
@@ -233,6 +247,8 @@ struct lejp_ctx {
 	uint16_t wild[LEJP_MAX_INDEX_DEPTH]; /* index array */
 	char path[LEJP_MAX_PATH];
 	char buf[LEJP_STRING_CHUNK + 1];
+
+	lejp_string_unifier_t	su;
 
 	/* size_t */
 
@@ -306,4 +322,10 @@ lejp_get_wildcard(struct lejp_ctx *ctx, int wildcard, char *dest, int len);
 
 LWS_VISIBLE LWS_EXTERN const char *
 lejp_error_to_string(int e);
+
+LWS_VISIBLE LWS_EXTERN int
+lejp_string_unify(struct lejp_ctx *ctx, struct lwsac **ac);
+
+LWS_VISIBLE LWS_EXTERN int
+lejp_string_unify_part(struct lejp_ctx *ctx, struct lwsac **ac, char reason);
 //@}
