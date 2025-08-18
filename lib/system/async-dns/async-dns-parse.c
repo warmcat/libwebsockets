@@ -575,7 +575,7 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 	n = 1 << (lws_ser_ru16be(pkt + DHO_TID) & 1);
 	if (q->responded & n) {
 		lwsl_notice("%s: dup\n", __func__);
-		goto fail_out;
+		return;
 	}
 
 	q->responded = (uint8_t)(q->responded | n);
