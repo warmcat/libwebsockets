@@ -952,3 +952,61 @@ lejp_error_to_string(int e)
 	return parser_errs[e];
 }
 
+int
+lejp_string_unify(struct lejp_ctx *ctx, struct lwsac **ac)
+{
+	char *p;
+
+	if (ctx->su.pieces == 1)
+		return 0;
+
+	ctx->su.fp = lwsac_use(ac, ctx->su.asl + 1u, 512);
+	if (!ctx->su.fp)
+		return 1;
+
+	p = ctx->su.fp;
+	while (ctx->su.sph) {
+		memcpy(p, ctx->su.sph->piece, ctx->su.sph->len);
+		p += ctx->su.sph->len;
+		ctx->su.sph = ctx->su.sph->next;
+	}
+	*p = '\0';
+
+	return 0;
+}
+
+int
+lejp_string_unify_part(struct lejp_ctx *ctx, struct lwsac **ac, char reason)
+{
+	if (reason == LEJPCB_VAL_STR_START) {
+		memset(&ctx->su, 0, sizeof(ctx->su));
+		ctx->su.sp_next = &ctx->su.sph;
+	}
+
+	if (
+	    (reason == LEJPCB_VAL_STR_START && ctx->npos) ||
+	    (reason == LEJPCB_VAL_STR_CHUNK && ctx->npos) ||
+	    (reason == LEJPCB_VAL_STR_END)) {
+		lejp_string_piece_t *s;
+
+		ctx->su.fp = lwsac_use(ac, ctx->npos + 1u, 512);
+		if (!ctx->su.fp)
+			return 1;
+		memcpy(ctx->su.fp, ctx->buf, ctx->npos);
+		ctx->su.fp[ctx->npos] = '\0';
+		s = lwsac_use_zero(ac, sizeof(*s), 512);
+		if (!s)
+			return 1;
+		*ctx->su.sp_next = s;
+		s->piece = ctx->su.fp;
+		s->len = ctx->npos;
+		ctx->su.asl += ctx->npos;
+		ctx->su.sp_next = &s->next;
+
+		if (reason == LEJPCB_VAL_STR_END)
+			ctx->su.sp_next = &ctx->su.sph;
+	}
+
+	return 0;
+}
+
