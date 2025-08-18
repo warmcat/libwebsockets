@@ -85,10 +85,10 @@ again1:
 		return -1;
 	}
 
-	if (ll > lws_ptr_diff_size_t(ls, ols) + (size_t)budget) {
-		lwsl_notice("%s: label too long %d vs %d (rem budget %d)\n",
-				__func__, ll, budget,
-				(int)(lws_ptr_diff_size_t(ls, ols) + (size_t)budget));
+	if (lws_ptr_diff_size_t(ls, ols) + ll > (size_t)budget) {
+		lwsl_notice("%s: label too long %d vs budget %d\n",
+				__func__, (int)lws_ptr_diff_size_t(ls, ols) + ll,
+				budget);
 
 		return -1;
 	}
@@ -575,7 +575,7 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 	n = 1 << (lws_ser_ru16be(pkt + DHO_TID) & 1);
 	if (q->responded & n) {
 		lwsl_notice("%s: dup\n", __func__);
-		return;
+		goto fail_out;
 	}
 
 	q->responded = (uint8_t)(q->responded | n);
