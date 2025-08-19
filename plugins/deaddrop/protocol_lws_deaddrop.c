@@ -163,6 +163,9 @@ de_mtime_sort(lws_list_ptr a, lws_list_ptr b)
 static void
 start_sending_dir(struct pss_deaddrop *pss)
 {
+	if (pss->lwsac_head)
+		lwsac_unreference(&pss->lwsac_head);
+
 	if (pss->vhd->lwsac_head)
 		lwsac_reference(pss->vhd->lwsac_head);
 	pss->lwsac_head = pss->vhd->lwsac_head;
@@ -405,8 +408,6 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_HTTP:
 	{
 		int meth;
-
-		memset(pss, 0, sizeof(*pss));
 		pss->user[0] = '\0';
 
 		/* Correctly get username after lws basic auth processing */
@@ -506,7 +507,6 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 	/* WS-related */
 
 	case LWS_CALLBACK_ESTABLISHED:
-		memset(pss, 0, sizeof(*pss));
 		pss->vhd = vhd;
 		pss->wsi = wsi;
 		/* add ourselves to the list of live pss held in the vhd */
