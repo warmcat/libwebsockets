@@ -209,6 +209,11 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 					pkt->first, pkt->final)) < 0)
 			return -1;
 
+		if (pkt->wp == LWS_WRITE_PONG) {
+			_lws_validity_confirmed_role(wsi);
+			lws_validity_confirmed(wsi);
+		}
+
 		lws_dll2_remove(dll);
 		lws_free(pkt);
 
@@ -243,6 +248,9 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_WS_PROXY_PONG_RECV:
+		_lws_validity_confirmed_role(wsi);
+		lws_validity_confirmed(wsi);
+		/* fallthru */
 	case LWS_CALLBACK_WS_PROXY_PING_RECV:
 		{
 			struct lws *wsi_peer = wsi->parent;
@@ -281,6 +289,11 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 				pkt->binary ? LWS_WRITE_BINARY : LWS_WRITE_TEXT,
 					pkt->first, pkt->final)) < 0)
 			return -1;
+
+		if (pkt->wp == LWS_WRITE_PONG) {
+			_lws_validity_confirmed_role(wsi);
+			lws_validity_confirmed(wsi);
+		}
 
 		wsi->ws->proxy_buffered -= pkt->len;
 
