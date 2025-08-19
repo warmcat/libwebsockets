@@ -100,6 +100,7 @@ struct _lws_websocket_related {
 
 #if defined(LWS_WITH_HTTP_PROXY)
 	struct lws_dll2_owner proxy_owner;
+	struct lws_dll2_owner proxy_control_owner;
 	char actual_protocol[16];
 	size_t proxy_buffered;
 #endif

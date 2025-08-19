@@ -197,7 +197,10 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
-		dll = lws_dll2_get_head(&wsi->ws->proxy_owner);
+		dll = lws_dll2_get_head(&wsi->ws->proxy_control_owner);
+		if (!dll)
+			dll = lws_dll2_get_head(&wsi->ws->proxy_owner);
+
 		if (!dll)
 			break;
 
@@ -271,7 +274,7 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 			memcpy(((uint8_t *)&pkt[1]) + LWS_PRE, in, len);
 
 			lws_dll2_add_tail(&pkt->pkt_list,
-					  &wsi_peer->ws->proxy_owner);
+					  &wsi_peer->ws->proxy_control_owner);
 			lws_callback_on_writable(wsi_peer);
 		}
 		break;
@@ -294,13 +297,16 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 			memcpy(((uint8_t *)&pkt[1]) + LWS_PRE, in, len);
 
 			lws_dll2_add_tail(&pkt->pkt_list,
-					  &wsi_peer->ws->proxy_owner);
+					  &wsi_peer->ws->proxy_control_owner);
 			lws_callback_on_writable(wsi_peer);
 		}
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
-		dll = lws_dll2_get_head(&wsi->ws->proxy_owner);
+		dll = lws_dll2_get_head(&wsi->ws->proxy_control_owner);
+		if (!dll)
+			dll = lws_dll2_get_head(&wsi->ws->proxy_owner);
+
 		if (!dll)
 			break;
 
