@@ -66,7 +66,7 @@ table {
 	transition: background-color 0.5s ease;
 }
 table.nb { border: 0px; border-radius: 0px; transition: opacity 0.5s; }
-table.noconn { background-color: #ddd; width: 100%; }
+table.noconn { background-color: #ddd; }
 
 div { transition: opacity 0.5s; }
 div.da { padding-left: 20px; padding-right:20px; }

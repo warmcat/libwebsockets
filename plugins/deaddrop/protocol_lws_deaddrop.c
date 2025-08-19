@@ -408,6 +408,8 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_HTTP:
 	{
 		int meth;
+
+		memset(pss, 0, sizeof(*pss));
 		pss->user[0] = '\0';
 
 		/* Correctly get username after lws basic auth processing */
@@ -507,6 +509,7 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 	/* WS-related */
 
 	case LWS_CALLBACK_ESTABLISHED:
+		memset(pss, 0, sizeof(*pss));
 		pss->vhd = vhd;
 		pss->wsi = wsi;
 		/* add ourselves to the list of live pss held in the vhd */
