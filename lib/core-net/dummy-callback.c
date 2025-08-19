@@ -250,9 +250,32 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_WS_PROXY_PONG_RECV:
-		_lws_validity_confirmed_role(wsi);
-		lws_validity_confirmed(wsi);
-		/* fallthru */
+		{
+			struct lws *wsi_peer = wsi->parent;
+
+			_lws_validity_confirmed_role(wsi);
+			lws_validity_confirmed(wsi);
+
+			if (!wsi_peer)
+				wsi_peer = wsi->child_list;
+			if (!wsi_peer)
+				break;
+
+			pkt = lws_zalloc(sizeof(*pkt) + LWS_PRE + len, __func__);
+			if (!pkt)
+				return -1;
+
+			pkt->len = len;
+			pkt->wp = LWS_WRITE_PONG;
+
+			memcpy(((uint8_t *)&pkt[1]) + LWS_PRE, in, len);
+
+			lws_dll2_add_tail(&pkt->pkt_list,
+					  &wsi_peer->ws->proxy_owner);
+			lws_callback_on_writable(wsi_peer);
+		}
+		break;
+
 	case LWS_CALLBACK_WS_PROXY_PING_RECV:
 		{
 			struct lws *wsi_peer = wsi->parent;
@@ -266,10 +289,7 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 				return -1;
 
 			pkt->len = len;
-			if (reason == LWS_CALLBACK_WS_PROXY_PING_RECV)
-				pkt->wp = LWS_WRITE_PING;
-			else
-				pkt->wp = LWS_WRITE_PONG;
+			pkt->wp = LWS_WRITE_PING;
 
 			memcpy(((uint8_t *)&pkt[1]) + LWS_PRE, in, len);
 
