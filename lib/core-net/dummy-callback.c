@@ -95,16 +95,6 @@ bail:
 
 #endif
 
-struct lws_proxy_pkt {
-	struct lws_dll2 pkt_list;
-	size_t len;
-	enum lws_write_protocol wp;
-	char binary;
-	char first;
-	char final;
-
-	/* data follows */
-};
 
 #if defined(LWS_WITH_HTTP_PROXY) && defined(LWS_ROLE_WS)
 int

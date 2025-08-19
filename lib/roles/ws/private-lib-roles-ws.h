@@ -99,6 +99,17 @@ struct _lws_websocket_related {
 #endif
 
 #if defined(LWS_WITH_HTTP_PROXY)
+struct lws_proxy_pkt {
+	struct lws_dll2 pkt_list;
+	size_t len;
+	enum lws_write_protocol wp;
+	char binary;
+	char first;
+	char final;
+
+	/* data follows */
+};
+
 	struct lws_dll2_owner proxy_owner;
 	struct lws_dll2_owner proxy_control_owner;
 	char actual_protocol[16];
