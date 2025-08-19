@@ -98,6 +98,7 @@ bail:
 struct lws_proxy_pkt {
 	struct lws_dll2 pkt_list;
 	size_t len;
+	enum lws_write_protocol wp;
 	char binary;
 	char first;
 	char final;
@@ -187,6 +188,7 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		pkt->first = (char)lws_is_first_fragment(wsi);
 		pkt->final = (char)lws_is_final_fragment(wsi);
 		pkt->binary = (char)lws_frame_is_binary(wsi);
+		pkt->wp = (enum lws_write_protocol)0;
 
 		memcpy(((uint8_t *)&pkt[1]) + LWS_PRE, in, len);
 
@@ -201,7 +203,8 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 
 		pkt = (struct lws_proxy_pkt *)dll;
 		if (lws_write(wsi, ((unsigned char *)&pkt[1]) +
-			      LWS_PRE, pkt->len, (enum lws_write_protocol)lws_write_ws_flags(
+			      LWS_PRE, pkt->len, pkt->wp ? pkt->wp :
+			      (enum lws_write_protocol)lws_write_ws_flags(
 				pkt->binary ? LWS_WRITE_BINARY : LWS_WRITE_TEXT,
 					pkt->first, pkt->final)) < 0)
 			return -1;
@@ -231,11 +234,39 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		pkt->first = (char)lws_is_first_fragment(wsi);
 		pkt->final = (char)lws_is_final_fragment(wsi);
 		pkt->binary = (char)lws_frame_is_binary(wsi);
+		pkt->wp = (enum lws_write_protocol)0;
 
 		memcpy(((uint8_t *)&pkt[1]) + LWS_PRE, in, len);
 
 		lws_dll2_add_tail(&pkt->pkt_list, &wsi->child_list->ws->proxy_owner);
 		lws_callback_on_writable(wsi->child_list);
+		break;
+
+	case LWS_CALLBACK_WS_PROXY_PONG_RECV:
+	case LWS_CALLBACK_WS_PROXY_PING_RECV:
+		{
+			struct lws *wsi_peer = wsi->parent;
+			if (!wsi_peer)
+				wsi_peer = wsi->child_list;
+			if (!wsi_peer)
+				break;
+
+			pkt = lws_zalloc(sizeof(*pkt) + LWS_PRE + len, __func__);
+			if (!pkt)
+				return -1;
+
+			pkt->len = len;
+			if (reason == LWS_CALLBACK_WS_PROXY_PING_RECV)
+				pkt->wp = LWS_WRITE_PING;
+			else
+				pkt->wp = LWS_WRITE_PONG;
+
+			memcpy(((uint8_t *)&pkt[1]) + LWS_PRE, in, len);
+
+			lws_dll2_add_tail(&pkt->pkt_list,
+					  &wsi_peer->ws->proxy_owner);
+			lws_callback_on_writable(wsi_peer);
+		}
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
@@ -245,7 +276,8 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 
 		pkt = (struct lws_proxy_pkt *)dll;
 		if (lws_write(wsi, ((unsigned char *)&pkt[1]) +
-			      LWS_PRE, pkt->len, (enum lws_write_protocol)lws_write_ws_flags(
+			      LWS_PRE, pkt->len, pkt->wp ? pkt->wp :
+			      (enum lws_write_protocol)lws_write_ws_flags(
 				pkt->binary ? LWS_WRITE_BINARY : LWS_WRITE_TEXT,
 					pkt->first, pkt->final)) < 0)
 			return -1;

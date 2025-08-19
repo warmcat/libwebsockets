@@ -884,6 +884,11 @@ enum lws_callback_reasons {
 	 * Return nonzero to close the wsi.
 	 */
 
+	LWS_CALLBACK_WS_PROXY_PONG_RECV,
+	/**< PONG received on proxy connection */
+	LWS_CALLBACK_WS_PROXY_PING_RECV,
+	/**< PING received on proxy connection */
+
 	/****** add new things just above ---^ ******/
 
 	LWS_CALLBACK_USER = 1000,

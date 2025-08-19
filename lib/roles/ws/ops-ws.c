@@ -25,6 +25,7 @@
 #include <private-lib-core.h>
 
 #if defined(LWS_WITH_HTTP_PROXY)
+extern const struct lws_protocols lws_ws_proxy;
 static void
 lws_ws_proxy_est_cb(lws_sorted_usec_list_t *sul)
 {
@@ -532,6 +533,10 @@ spill:
 			goto process_as_ping;
 
 		case LWSWSOPC_PING:
+			if (wsi->a.protocol == &lws_ws_proxy) {
+				callback_action = LWS_CALLBACK_WS_PROXY_PING_RECV;
+				break;
+			}
 			lwsl_info("received %d byte ping, sending pong\n",
 						 (int)wsi->ws->rx_ubuf_head);
 
@@ -566,6 +571,10 @@ ping_drop:
 			return LWS_HPI_RET_HANDLED;
 
 		case LWSWSOPC_PONG:
+			if (wsi->a.protocol == &lws_ws_proxy) {
+				callback_action = LWS_CALLBACK_WS_PROXY_PONG_RECV;
+				break;
+			}
 			lwsl_info("received pong\n");
 			lwsl_hexdump(&wsi->ws->rx_ubuf[LWS_PRE],
 			             wsi->ws->rx_ubuf_head);
