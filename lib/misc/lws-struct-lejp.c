@@ -154,8 +154,10 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 	}
 
 	if (reason == LEJPCB_ARRAY_START) {
-		if (!ctx->path_match)
-			lwsl_err("%s: ARRAY_START with ctx->path_match 0\n", __func__);
+		if (!ctx->path_match) {
+			lwsl_info("%s: ARRAY_START with ctx->path_match 0\n", __func__);
+			return 0;
+		}
 		map = &args->map_st[ctx->pst_sp][ctx->path_match - 1];
 
 		if (map->type == LSMT_LIST)

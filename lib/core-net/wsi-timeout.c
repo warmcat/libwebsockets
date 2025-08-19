@@ -211,7 +211,7 @@ lws_validity_cb(lws_sorted_usec_list_t *sul)
 	/* one of either the ping or hangup validity threshold was crossed */
 
 	if (wsi->validity_hup) {
-		lwsl_wsi_info(wsi, "validity too old");
+		lwsl_wsi_err(wsi, "validity too old");
 		struct lws_context *cx = wsi->a.context;
 		struct lws_context_per_thread *pt = &cx->pt[(int)wsi->tsi];
 
@@ -226,7 +226,7 @@ lws_validity_cb(lws_sorted_usec_list_t *sul)
 
 	/* schedule a protocol-dependent ping */
 
-	lwsl_wsi_info(wsi, "scheduling validity check");
+	lwsl_wsi_err(wsi, "scheduling validity check");
 
 	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_issue_keepalive))
 		lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_issue_keepalive).
@@ -267,7 +267,7 @@ _lws_validity_confirmed_role(struct lws *wsi)
 	wsi->validity_hup = rbo->secs_since_valid_ping >=
 			    rbo->secs_since_valid_hangup;
 
-	lwsl_wsi_info(wsi, "setting validity timer %ds (hup %d)",
+	lwsl_wsi_err(wsi, "setting validity timer %ds (hup %d)",
 			   wsi->validity_hup ? rbo->secs_since_valid_hangup :
 					    rbo->secs_since_valid_ping,
 			   wsi->validity_hup);
