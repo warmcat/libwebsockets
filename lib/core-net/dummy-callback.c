@@ -203,7 +203,8 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 			return -1;
 
 		if (pkt->wp == LWS_WRITE_PONG) {
-			_lws_validity_confirmed_role(wsi);
+			if (wsi->mux_substream)
+				_lws_validity_confirmed_role(wsi);
 			lws_validity_confirmed(wsi);
 		}
 
@@ -246,7 +247,8 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		{
 			struct lws *wsi_peer = wsi->parent;
 
-			_lws_validity_confirmed_role(wsi);
+			if (wsi->mux_substream)
+				_lws_validity_confirmed_role(wsi);
 			lws_validity_confirmed(wsi);
 
 			if (!wsi_peer)
@@ -309,7 +311,8 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 			return -1;
 
 		if (pkt->wp == LWS_WRITE_PONG) {
-			_lws_validity_confirmed_role(wsi);
+			if (wsi->mux_substream)
+				_lws_validity_confirmed_role(wsi);
 			lws_validity_confirmed(wsi);
 		}
 
