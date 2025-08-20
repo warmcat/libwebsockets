@@ -592,7 +592,7 @@ handler_server_http_writeable(struct vhd_deaddrop *vhd,
 	return 0;
 }
 
-static void
+static int
 handler_server_raw_file_rx(struct vhd_deaddrop *vhd, struct lws *wsi)
 {
 #if defined(__linux__)
@@ -602,6 +602,10 @@ handler_server_raw_file_rx(struct vhd_deaddrop *vhd, struct lws *wsi)
 	int n = (int)read(lws_get_socket_fd(wsi), ev_buf, sizeof(ev_buf));
 	lwsl_info("%s: inotify event (%d), rescanning upload dir\n", __func__, n);
 	scan_upload_dir(vhd);
+
+	return n;
+#else
+	return 0;
 #endif
 }
 
