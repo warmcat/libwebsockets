@@ -364,6 +364,13 @@ bad_conn_format:
 		goto bail2;
 	}
 
+#if defined(LWS_WITH_HTTP_PROXY)
+	if (wsi->h1_ws_proxied) {
+		wsi->a.protocol = &lws_ws_proxy;
+		goto check_extensions;
+	}
+#endif
+
 identify_protocol:
 
 #if defined(LWS_WITH_HTTP_PROXY)

@@ -423,7 +423,25 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 		lws_http_close_immortal(wsi);
 #endif
 
+#if defined(LWS_ROLE_WS) && defined(LWS_WITH_HTTP_PROXY)
+static int
+ws_destroy_proxy_pkt(struct lws_dll2 *d, void *user)
+{
+	lws_free(lws_container_of(d, struct lws_proxy_pkt, pkt_list));
+
+	return 0;
+}
+#endif
+
 	/* if we have children, close them first */
+#if defined(LWS_ROLE_WS) && defined(LWS_WITH_HTTP_PROXY)
+	if (wsi->role_ops == &role_ops_ws && wsi->ws) {
+		lws_dll2_foreach_safe(&wsi->ws->proxy_owner, NULL,
+				      ws_destroy_proxy_pkt);
+		lws_dll2_foreach_safe(&wsi->ws->proxy_control_owner, NULL,
+				      ws_destroy_proxy_pkt);
+	}
+#endif
 	if (wsi->child_list) {
 		wsi2 = wsi->child_list;
 		while (wsi2) {

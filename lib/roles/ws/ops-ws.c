@@ -2092,26 +2092,9 @@ rops_destroy_vhost_ws(struct lws_vhost *vh)
 	return 0;
 }
 
-#if defined(LWS_WITH_HTTP_PROXY)
-static int
-ws_destroy_proxy_pkt(struct lws_dll2 *d, void *user)
-{
-	lws_free(lws_container_of(d, struct lws_proxy_pkt, pkt_list));
-
-	return 0;
-}
-#endif
-
 static int
 rops_destroy_role_ws(struct lws *wsi)
 {
-#if defined(LWS_WITH_HTTP_PROXY)
-	lws_dll2_foreach_safe(&wsi->ws->proxy_owner, NULL,
-			      ws_destroy_proxy_pkt);
-	lws_dll2_foreach_safe(&wsi->ws->proxy_control_owner, NULL,
-			      ws_destroy_proxy_pkt);
-#endif
-
 	lws_free_set_NULL(wsi->ws);
 
 	return 0;
