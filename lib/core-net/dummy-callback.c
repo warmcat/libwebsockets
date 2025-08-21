@@ -223,6 +223,16 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		return -1;
 
 	case LWS_CALLBACK_RECEIVE:
+
+               if (!wsi->child_list) {
+                       lwsl_wsi_warn(wsi, "Proxy Srv side RX: no child");
+                       break;
+               }
+               if (!wsi->child_list->ws) {
+                       lwsl_wsi_warn(wsi, "Proxy Srv side RX: child does not have ws");
+                       break;
+               }
+
 		pkt = lws_zalloc(sizeof(*pkt) + LWS_PRE + len, __func__);
 		if (!pkt)
 			return -1;
