@@ -653,6 +653,9 @@ lws_ss_get_est_peer_tx_credit(struct lws_ss_handle *h);
 LWS_VISIBLE LWS_EXTERN const char *
 lws_ss_tag(struct lws_ss_handle *h);
 
+LWS_VISIBLE LWS_EXTERN void
+lws_ss_dump_extant(struct lws_context *cx, int tsi);
+
 #if defined(LWS_WITH_NETWORK)
 /**
  * lws_ss_adopt_raw() - bind ss to existing fd

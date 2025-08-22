@@ -2163,3 +2163,21 @@ lws_ss_assert_extant(struct lws_context *cx, int tsi, struct lws_ss_handle *h)
 	assert(0);
 }
 #endif
+
+void
+lws_ss_dump_extant(struct lws_context *cx, int tsi)
+{
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+	struct lws_context_per_thread *pt = &cx->pt[tsi];
+
+	lwsl_cx_notice(cx, "pt%d SS Rollcall (%d members)", tsi, (int)pt->ss_owner.count);
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, pt->ss_owner.head) {
+		struct lws_ss_handle *h = lws_container_of(d,
+						struct lws_ss_handle, list);
+
+		lwsl_ss_notice(h, "rollcall");
+	} lws_end_foreach_dll_safe(d, d1);
+#endif
+}
+

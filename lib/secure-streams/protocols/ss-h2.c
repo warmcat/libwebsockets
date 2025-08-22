@@ -188,6 +188,8 @@ secstream_connect_munge_h2(lws_ss_handle_t *h, char *buf, size_t len,
 			      &used_in, &used_out) != LSTRX_DONE)
 		return 1;
 
+	__lws_lc_tag_append(&h->lc, buf);
+
 	return 0;
 }
 

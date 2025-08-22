@@ -408,6 +408,8 @@ lws_display_get_ids_boxes(lws_display_render_state_t *rs)
 	memset(&rs->st[0].co, 0, sizeof(rs->st[0].co));
 	rs->st[0].dlo = lws_container_of(d, lws_dlo_t, list);
 
+	lwsl_notice("%s: going through rs stack\n", __func__);
+
 	while (rs->sp || rs->st[0].dlo) {
 		lws_dlo_t *dlo = rs->st[rs->sp].dlo;
 		lws_box_t co;
@@ -425,13 +427,19 @@ lws_display_get_ids_boxes(lws_display_render_state_t *rs)
 
 		lws_fx_add(&t2, &co.y, &dlo->box.h);
 
+
 		if (dlo->id) {
 			lws_display_id_t *id = dlo->id;
 
-			lwsl_debug("%s: set id box %s\n", __func__, id->id);
-			id->box = co;
+			if (id) {
+				id->id[sizeof(id->id) - 1] = '\0';
+				lwsl_debug("%s: set id box %s\n", __func__, id->id);
+
+				id->box = co;
+			}
 			dlo->id = NULL; /* decouple us */
 		}
+
 
 		if (co.y.whole + co.h.whole > rs->lowest_id_y) {
 			rs->lowest_id_y = (lws_display_scalar)(co.y.whole + co.h.whole);
@@ -451,6 +459,8 @@ lws_display_get_ids_boxes(lws_display_render_state_t *rs)
 		/* go into any children */
 
 		if (dlo->children.head) {
+			lwsl_notice("%s: child recurse\n", __func__);
+
 			if (rs->sp + 1 == LWS_ARRAY_SIZE(rs->st)) {
 				lwsl_err("%s: DLO stack overflow\n",
 						__func__);

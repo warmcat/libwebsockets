@@ -79,7 +79,9 @@ if (ESP_PLATFORM)
 		$ENV{IDF_PATH}/components/xtensa/${CONFIG_IDF_TARGET}/include/
 		$ENV{IDF_PATH}/components/freertos/include/esp_additions
 		$ENV{IDF_PATH}/components/hal/include
+		$ENV{IDF_PATH}/components/esp_rom/${CONFIG_IDF_TARGET}/include/${CONFIG_IDF_TARGET}/
 		$ENV{IDF_PATH}/components/soc/${CONFIG_IDF_TARGET}/include/
+		$ENV{IDF_PATH}/components/soc/${CONFIG_IDF_TARGET}/register/
 		$ENV{IDF_PATH}/components/soc/include/
 		$ENV{IDF_PATH}/components/esp_hw_support/include
 		$ENV{IDF_PATH}/components/hal/${CONFIG_IDF_TARGET}/include/

@@ -144,7 +144,11 @@ display_update(lws_display_state_t *lds)
 		"<div class=\"icon\"><img src=\"file://dlofs/update-icon.png\"></div><br>"
 		"</body></html>",
 		update_pc *  3,
+#if defined(LWS_WITH_OTA)
 		lws_ota_variant_name(),
+#else
+		"(ota disabled)",
+#endif
 		update_pc);
 
 	lws_dlo_file_register(cx, fs_update_html);
@@ -158,6 +162,7 @@ display_update(lws_display_state_t *lds)
 	return 0;
 }
 
+#if defined(LWS_WITH_OTA)
 static int
 ota_progress(lws_ota_ret_t state, int percent)
 {
@@ -166,9 +171,12 @@ ota_progress(lws_ota_ret_t state, int percent)
 
 	return 0;
 }
+#endif
 
 static lws_system_ops_t system_ops = {
 	.reboot				   = do_reboot,
+#if defined(LWS_WITH_OTA)
+
 	.ota_ops			   = {
 		.ota_start		   = lws_plat_ota_start,
 		.ota_queue		   = lws_plat_ota_queue,
@@ -176,6 +184,7 @@ static lws_system_ops_t system_ops = {
 		.ota_get_last_fw_unixtime  = lws_plat_ota_get_last_fw_unixtime,
 		.ota_progress		   = ota_progress,
 	},
+#endif
 	.jit_trust_query		   = jit_trust_query
 };
 
@@ -212,13 +221,17 @@ start_frame(lws_sorted_usec_list_t *sul)
                  lwsl_err("%s: init_browse failed\n", __func__);
          if (!carousel_urls[carousel])
                  carousel = 0;
+
+	lws_ss_dump_extant(cx, 0);
 }
 
 static int
 display_splash(lws_display_state_t *lds)
 {
 	char *p, age[32], varbuf[64];
+#if defined(LWS_WITH_OTA)
 	uint64_t fw = 0;
+#endif
 	lws_dll2_t *d;
 
 	lwsl_err("%s: boot_step %d... fs_splash_html %p, choose splash.html %p\n", __func__, boot_step, fs_splash_html, lws_dlo_file_choose(cx, "splash.html"));
@@ -249,6 +262,7 @@ display_splash(lws_display_state_t *lds)
 	p = (char *)(fs_splash_html + 1);
 	fs_splash_html->data = p;
 
+#if defined(LWS_WITH_OTA)
 	age[0] = '\0';
 	if (!system_ops.ota_ops.ota_get_last_fw_unixtime(&fw)) {
 		struct tm lt;
@@ -260,6 +274,10 @@ display_splash(lws_display_state_t *lds)
 		strcpy(age, "unknown");
 
 	strncpy(varbuf, lws_ota_variant_name(), sizeof(varbuf));
+#else
+	lws_strncpy(age, "unknown", sizeof(age) - 1);
+	lws_strncpy(varbuf, "ota disabled", sizeof(varbuf) - 1);
+#endif
 
 	fs_splash_html->len = lws_snprintf(p, 4096,
 		"<!doctype html><html><head><meta charset=\"utf-8\" /><link rel=\"stylesheet\" href=\"ui.css\"></head>"
@@ -319,6 +337,7 @@ int
 display_completion_cb(lws_display_state_t *lds, int a)
 {
 	lwsl_warn("%s: %d\n", __func__, a);
+	lws_ss_dump_extant(cx, 0);
 
 	switch (a) {
 

@@ -2657,7 +2657,7 @@ lws_jpeg_emit_next_line(lws_jpeg_t *j, const uint8_t **ppix,
 
 			j->lines = lws_zalloc(mcu_buf_len, __func__);
 			if (!j->lines) {
-				lwsl_jpeg("%s: OOM\n", __func__);
+				lwsl_jpeg("%s: OOM (%d)\n", __func__, (int)mcu_buf_len);
 				return LWS_SRET_FATAL + 32;
 			}
 

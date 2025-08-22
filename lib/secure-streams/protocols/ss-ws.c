@@ -237,6 +237,8 @@ secstream_connect_munge_ws(lws_ss_handle_t *h, char *buf, size_t len,
 			      &used_in, &used_out) != LSTRX_DONE)
 		return 1;
 
+	__lws_lc_tag_append(&h->lc, buf);
+
 	i->protocol = h->policy->u.http.u.ws.subprotocol;
 
 	lwsl_ss_info(h, "url %s, ws subprotocol %s", buf, i->protocol);
