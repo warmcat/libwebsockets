@@ -520,6 +520,14 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 #ifdef SSL_OP_NO_COMPRESSION
 	SSL_CTX_set_options(vhost->tls.ssl_ctx, SSL_OP_NO_COMPRESSION);
 #endif
+	if (lws_check_opt(info->options,
+	                  LWS_SERVER_OPTION_OPENSSL_AUTO_DH_PARAMETERS))
+#if defined(LWS_HAVE_SSL_CTX_SET_ECDH_AUTO) || defined(LWS_WITH_BORINGSSL)
+		(void)SSL_CTX_set_ecdh_auto(vhost->tls.ssl_ctx, 1);
+#else
+		SSL_CTX_set_dh_auto(vhost->tls.ssl_ctx, 1);
+#endif
+
 	SSL_CTX_set_options(vhost->tls.ssl_ctx, SSL_OP_SINGLE_DH_USE);
 	SSL_CTX_set_options(vhost->tls.ssl_ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
 

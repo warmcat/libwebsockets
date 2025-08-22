@@ -242,6 +242,12 @@
 #define LWS_SERVER_OPTION_DISABLE_TLS_SESSION_CACHE		 (1ll << 39)
 	/**< (VHOST) Disallow use of client tls caching (on by default) */
 
+#define LWS_SERVER_OPTION_OPENSSL_AUTO_DH_PARAMETERS		 (1ll << 40)
+	/**< Configure openssl to use the default built-in DH parameters
+	 * to support TLSv1.2 Kx=DH ciphers (by calling SSL_CTX_set_dh_auto)
+	 * This is needed when you want to enable TLSv1.2 ephemeral
+	 * Diffie-Hellman (DH) key exchange ciphers
+	 * (e.g. TLS_DHE_RSA_WITH_AES_256_GCM_SHA384). It's not recommended. */
 
 	/****** add new things just above ---^ ******/
 

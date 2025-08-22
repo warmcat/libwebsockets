@@ -579,6 +579,11 @@ int main(int argc, char **argv)
 			       "!DHE-RSA-AES256-SHA256:"
 			       "!AES256-GCM-SHA384:"
 			       "!AES256-SHA256";
+	/*
+	 * This is needed for DHE-RSA-AES256-GCM-SHA384, it does enable all
+	 * TLSv1.2 Kx=DH ciphers though (if the're on the ssl_cipher_list).
+	 */
+	info.options |= LWS_SERVER_OPTION_OPENSSL_AUTO_DH_PARAMETERS;
 #endif
 	info.mounts = &mount;
 #if defined(LWS_WITH_PEER_LIMITS)
