@@ -53,6 +53,10 @@ if (LWS_WITH_SECURE_STREAMS_CPP)
 	enable_language(CXX)
 endif()
 
+if ("${PROJECT_BINARY_DIR}" STREQUAL "${PROJECT_SOURCE_DIR}")
+	message(FATAL_ERROR "Fatal Error: Building in the source tree is not possible.  Please build in a subdirectory, eg from toplevel: `mkdir -p build && cd build` then `cmake .. && make`")
+endif()
+
 include(CheckFunctionExists)
 include(CheckSymbolExists)
 include(CheckIncludeFile)
