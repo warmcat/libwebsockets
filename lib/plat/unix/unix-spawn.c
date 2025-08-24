@@ -153,16 +153,11 @@ lws_spawn_piped_destroy(struct lws_spawn_piped **_lsp)
 int
 lws_spawn_reap(struct lws_spawn_piped *lsp)
 {
-	long hz = sysconf(_SC_CLK_TCK); /* accounting Hz */
 	void *opaque = lsp->info.opaque;
 	lsp_cb_t cb = lsp->info.reap_cb;
 	struct lws_spawn_piped temp;
-	struct tms tms;
-#if defined(__OpenBSD__) || defined(__NetBSD__)
-	struct rusage rusa;
-	int status;
-#endif
-	int n;
+	struct rusage ru;
+	int n, status;
 
 	if (lsp->child_pid < 1)
 		return 0;
@@ -170,21 +165,18 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	/* check if exited, do not reap yet */
 
 	memset(&lsp->si, 0, sizeof(lsp->si));
-#if defined(__OpenBSD__) || defined(__NetBSD__)
-	n = wait4(lsp->child_pid, &status, WNOHANG, &rusa);
-	if (!n)
-		return 0;
-	lsp->si.si_code = WIFEXITED(status);
-#else
-	n = waitid(P_PID, (id_t)lsp->child_pid, &lsp->si, WEXITED | WNOHANG | WNOWAIT);
-#endif
+	n = wait4(lsp->child_pid, &status, WNOHANG, &ru);
 	if (n < 0) {
-		lwsl_info("%s: child %d still running\n", __func__, lsp->child_pid);
+		lwsl_info("%s: child %d still running (errno %d)\n", __func__,
+			  lsp->child_pid, errno);
 		return 0;
 	}
 
-	if (!lsp->si.si_code)
+	if (!n)
 		return 0;
+
+	lsp->si.si_code = WIFEXITED(status);
+	lsp->si.si_status = WEXITSTATUS(status);
 
 	/* his process has exited... */
 
@@ -239,29 +231,30 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	 * Collect the final information and then reap the dead process
 	 */
 
-	if (times(&tms) != (clock_t) -1) {
-		/*
-		 * Cpu accounting in us
-		 */
-		lsp->accounting[0] = (lws_usec_t)((uint64_t)tms.tms_cstime * 1000000) / hz;
-		lsp->accounting[1] = (lws_usec_t)((uint64_t)tms.tms_cutime * 1000000) / hz;
-		lsp->accounting[2] = (lws_usec_t)((uint64_t)tms.tms_stime * 1000000) / hz;
-		lsp->accounting[3] = (lws_usec_t)((uint64_t)tms.tms_utime * 1000000) / hz;
+	lsp->res.us_cpu_user =
+		((uint64_t)ru.ru_utime.tv_sec * 1000000) + (uint64_t)ru.ru_utime.tv_usec;
+	lsp->res.us_cpu_sys =
+		((uint64_t)ru.ru_stime.tv_sec * 1000000) + (uint64_t)ru.ru_stime.tv_usec;
+
+	/* ru_maxrss is in KB */
+	lsp->res.peak_mem_rss = (uint64_t)ru.ru_maxrss * 1024;
+
+	if (getrusage(RUSAGE_CHILDREN, &ru) == 0) {
+		lsp->res.us_cpu_user +=
+			((uint64_t)ru.ru_utime.tv_sec * 1000000) + (uint64_t)ru.ru_utime.tv_usec;
+		lsp->res.us_cpu_sys +=
+			((uint64_t)ru.ru_stime.tv_sec * 1000000) + (uint64_t)ru.ru_stime.tv_usec;
+		/* ru_maxrss is in KB */
+		lsp->res.peak_mem_rss += (uint64_t)ru.ru_maxrss * 1024;
 	}
 
 	temp = *lsp;
-#if defined(__OpenBSD__) || defined(__NetBSD__)
-	n = wait4(lsp->child_pid, &status, WNOHANG, &rusa);
-	if (!n)
-		return 0;
-	lsp->si.si_code = WIFEXITED(status);
-	if (lsp->si.si_code == CLD_EXITED)
-		temp.si.si_code = CLD_EXITED;
-	temp.si.si_status = WEXITSTATUS(status);
-#else
-	n = waitid(P_PID, (id_t)lsp->child_pid, &temp.si, WEXITED | WNOHANG);
-#endif
-	temp.si.si_status &= 0xff; /* we use b8 + for flags */
+
+	n = waitpid(lsp->child_pid, &status, WNOHANG);
+	if (n < 0) {
+		lwsl_info("%s: child %d vanished\n", __func__, lsp->child_pid);
+	}
+
 	lwsl_warn("%s: waitd says %d, process exit %d\n",
 		    __func__, n, temp.si.si_status);
 
@@ -275,7 +268,7 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	/* then do the parent callback informing it's destroyed */
 
 	if (cb)
-		cb(opaque, temp.accounting, &temp.si,
+		cb(opaque, lsp->info.res ? lsp->info.res : &temp.res, &temp.si,
 		   temp.we_killed_him_timeout |
 			   (temp.we_killed_him_spew << 1));
 

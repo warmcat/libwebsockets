@@ -941,7 +941,7 @@ struct lws_spawn_piped {
 	lws_usec_t			created; /* set by lws_spawn_piped() */
 	lws_usec_t			reaped;
 
-	lws_usec_t			accounting[4];
+	lws_spawn_resource_us_t		res;
 
 #if defined(WIN32)
 	HANDLE				child_pid;
