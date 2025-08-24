@@ -165,7 +165,7 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	/* check if exited, do not reap yet */
 
 	memset(&lsp->si, 0, sizeof(lsp->si));
-	n = wait4(lsp->child_pid, &status, WNOHANG, &ru);
+	n = wait4(lsp->child_pid, &status, 0, &ru);
 	if (n < 0) {
 		lwsl_info("%s: child %d still running (errno %d)\n", __func__,
 			  lsp->child_pid, errno);
@@ -238,15 +238,6 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 
 	/* ru_maxrss is in KB */
 	lsp->res.peak_mem_rss = (uint64_t)ru.ru_maxrss * 1024;
-
-	if (getrusage(RUSAGE_CHILDREN, &ru) == 0) {
-		lsp->res.us_cpu_user +=
-			((uint64_t)ru.ru_utime.tv_sec * 1000000) + (uint64_t)ru.ru_utime.tv_usec;
-		lsp->res.us_cpu_sys +=
-			((uint64_t)ru.ru_stime.tv_sec * 1000000) + (uint64_t)ru.ru_stime.tv_usec;
-		/* ru_maxrss is in KB */
-		lsp->res.peak_mem_rss += (uint64_t)ru.ru_maxrss * 1024;
-	}
 
 	temp = *lsp;
 

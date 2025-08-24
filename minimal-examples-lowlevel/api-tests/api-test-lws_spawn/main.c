@@ -27,7 +27,6 @@ struct test_state; /* Forward declaration */
 struct per_spawn_state {
 	struct test_state	*ts;
 	struct lws_spawn_piped	*lsp;
-	lws_spawn_resource_us_t	res;
 };
 
 typedef enum {
@@ -53,8 +52,7 @@ struct test_state {
 };
 
 static void
-reap_cb(void *opaque, const lws_spawn_resource_us_t *res, siginfo_t *si,
-	int we_killed_him);
+reap_cb(void *opaque, lws_usec_t *accounting, siginfo_t *si, int we_killed_him);
 
 static int
 callback_spawn_test(struct lws *wsi, enum lws_callback_reasons reason,
@@ -102,7 +100,6 @@ spawn_next(struct test_state *ts)
 		pss->ts = ts;
 		info.opaque = pss;
 		info.plsp = &pss->lsp;
-		info.res = &pss->res;
 
 		pss->lsp = lws_spawn_piped(&info);
 		if (!pss->lsp) {
@@ -129,7 +126,6 @@ spawn_next(struct test_state *ts)
 				ts->result = 1; return 1;
 			}
 			info.cgroup_name_suffix = cgroup_name;
-			info.res = &pss->res;
 			pss->lsp = lws_spawn_piped(&info);
 			if (!pss->lsp) {
 				lwsl_err("%s: Failed to spawn for cgroup test\n", __func__);
@@ -153,8 +149,7 @@ spawn_next(struct test_state *ts)
 }
 
 static void
-reap_cb(void *opaque, const lws_spawn_resource_us_t *res, siginfo_t *si,
-	int we_killed_him)
+reap_cb(void *opaque, lws_usec_t *accounting, siginfo_t *si, int we_killed_him)
 {
 	/* Opaque is the per-spawn state, from which we find the main state */
 	struct per_spawn_state *pss = (struct per_spawn_state *)opaque;
@@ -162,48 +157,23 @@ reap_cb(void *opaque, const lws_spawn_resource_us_t *res, siginfo_t *si,
 	test_phase_t last_phase = ts->phase;
 
 	if (si) {
-		lwsl_user("%s: Reap callback for phase %d, exit code %d\n",
-			  __func__, (int)last_phase, si->si_status);
-		lwsl_notice(" CPU us: user %llu, sys %llu\n",
-			    (unsigned long long)res->us_cpu_user,
-			    (unsigned long long)res->us_cpu_sys);
-		lwsl_notice(" Mem peak: %llu\n",
-			    (unsigned long long)res->peak_mem_rss);
-		lwsl_notice(" IO bytes: r %llu, w %llu\n",
-			    (unsigned long long)res->io_r_bytes,
-			    (unsigned long long)res->io_w_bytes);
-
+		lwsl_user("%s: Reap callback for phase %d, exit code %d\n", __func__, (int)last_phase, si->si_status);
 		ts->reap_count++;
 		if (we_killed_him) {
-			lwsl_err("%s: Spawned process was killed by timeout\n",
-				 __func__);
+			lwsl_err("%s: Spawned process was killed by timeout\n", __func__);
 			ts->result = 1;
 		} else if (si->si_status != 0) {
-			lwsl_err("%s: Spawned process failed with exit code %d\n",
-				 __func__, si->si_status);
+			lwsl_err("%s: Spawned process failed with exit code %d\n", __func__, si->si_status);
 			ts->result = 1;
 		}
-
-		if (res->us_cpu_user == 0 && res->us_cpu_sys == 0) {
-			lwsl_err("%s: cpu usage reported as zero\n", __func__);
-			ts->result = 1;
-		}
-
-		if (res->peak_mem_rss == 0) {
-			lwsl_err("%s: peak mem usage reported as zero\n", __func__);
-			ts->result = 1;
-		}
-
 #if defined(__linux__)
 		if (last_phase == PHASE_TEST_CGROUP) {
 			struct stat s;
 			if (stat(ts->cgroup_path, &s) == 0) {
-				lwsl_err("%s: cgroup path '%s' not removed after reap\n",
-					 __func__, ts->cgroup_path);
+				lwsl_err("%s: cgroup path '%s' not removed after reap\n", __func__, ts->cgroup_path);
 				ts->result = 1;
 			} else {
-				lwsl_user("%s: Verified cgroup dir removed: %s\n",
-					  __func__, ts->cgroup_path);
+				lwsl_user("%s: Verified cgroup dir removed: %s\n", __func__, ts->cgroup_path);
 			}
 		}
 #endif

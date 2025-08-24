@@ -46,8 +46,7 @@ timeout_cb(lws_sorted_usec_list_t *sul)
 }
 
 static void
-reap_cb(void *opaque, const lws_spawn_resource_us_t *res, siginfo_t *si,
-	int we_killed_him)
+reap_cb(void *opaque, lws_usec_t *accounting, siginfo_t *si, int we_killed_him)
 {
 	lwsl_user("%s: child process exited\n", __func__);
 
