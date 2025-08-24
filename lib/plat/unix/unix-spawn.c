@@ -153,16 +153,12 @@ lws_spawn_piped_destroy(struct lws_spawn_piped **_lsp)
 int
 lws_spawn_reap(struct lws_spawn_piped *lsp)
 {
-	long hz = sysconf(_SC_CLK_TCK); /* accounting Hz */
 	void *opaque = lsp->info.opaque;
 	lsp_cb_t cb = lsp->info.reap_cb;
-	struct lws_spawn_piped temp;
-	struct tms tms;
-#if defined(__OpenBSD__) || defined(__NetBSD__)
-	struct rusage rusa;
-	int status;
-#endif
-	int n;
+	lws_spawn_resource_us_t res;
+	struct rusage ru;
+	siginfo_t si;
+	int n, status;
 
 	if (lsp->child_pid < 1)
 		return 0;
@@ -170,21 +166,18 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	/* check if exited, do not reap yet */
 
 	memset(&lsp->si, 0, sizeof(lsp->si));
-#if defined(__OpenBSD__) || defined(__NetBSD__)
-	n = wait4(lsp->child_pid, &status, WNOHANG, &rusa);
-	if (!n)
-		return 0;
-	lsp->si.si_code = WIFEXITED(status);
-#else
-	n = waitid(P_PID, (id_t)lsp->child_pid, &lsp->si, WEXITED | WNOHANG | WNOWAIT);
-#endif
+	n = wait4(lsp->child_pid, &status, WNOHANG, &ru);
 	if (n < 0) {
-		lwsl_info("%s: child %d still running\n", __func__, lsp->child_pid);
+		lwsl_info("%s: child %d still running (errno %d)\n", __func__,
+			  lsp->child_pid, errno);
 		return 0;
 	}
 
-	if (!lsp->si.si_code)
+	if (!n)
 		return 0;
+
+	lsp->si.si_code = WIFEXITED(status);
+	lsp->si.si_status = WEXITSTATUS(status);
 
 	/* his process has exited... */
 
@@ -239,33 +232,37 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	 * Collect the final information and then reap the dead process
 	 */
 
-	if (times(&tms) != (clock_t) -1) {
-		/*
-		 * Cpu accounting in us
-		 */
-		lsp->accounting[0] = (lws_usec_t)((uint64_t)tms.tms_cstime * 1000000) / hz;
-		lsp->accounting[1] = (lws_usec_t)((uint64_t)tms.tms_cutime * 1000000) / hz;
-		lsp->accounting[2] = (lws_usec_t)((uint64_t)tms.tms_stime * 1000000) / hz;
-		lsp->accounting[3] = (lws_usec_t)((uint64_t)tms.tms_utime * 1000000) / hz;
+	lsp->res.us_cpu_user =
+		((uint64_t)ru.ru_utime.tv_sec * 1000000) + (uint64_t)ru.ru_utime.tv_usec;
+	lsp->res.us_cpu_sys =
+		((uint64_t)ru.ru_stime.tv_sec * 1000000) + (uint64_t)ru.ru_stime.tv_usec;
+
+	/* ru_maxrss is in KB */
+	lsp->res.peak_mem_rss = (uint64_t)ru.ru_maxrss * 1024;
+
+	if (getrusage(RUSAGE_CHILDREN, &ru) == 0) {
+		lsp->res.us_cpu_user +=
+			((uint64_t)ru.ru_utime.tv_sec * 1000000) + (uint64_t)ru.ru_utime.tv_usec;
+		lsp->res.us_cpu_sys +=
+			((uint64_t)ru.ru_stime.tv_sec * 1000000) + (uint64_t)ru.ru_stime.tv_usec;
+		/* ru_maxrss is in KB */
+		lsp->res.peak_mem_rss += (uint64_t)ru.ru_maxrss * 1024;
+	} else
+		lwsl_err("%s: getrusage failed\n", __func__);
+
+	n = waitpid(lsp->child_pid, &status, WNOHANG);
+	if (n < 0) {
+		lwsl_info("%s: child %d vanished\n", __func__, lsp->child_pid);
 	}
 
-	temp = *lsp;
-#if defined(__OpenBSD__) || defined(__NetBSD__)
-	n = wait4(lsp->child_pid, &status, WNOHANG, &rusa);
-	if (!n)
-		return 0;
-	lsp->si.si_code = WIFEXITED(status);
-	if (lsp->si.si_code == CLD_EXITED)
-		temp.si.si_code = CLD_EXITED;
-	temp.si.si_status = WEXITSTATUS(status);
-#else
-	n = waitid(P_PID, (id_t)lsp->child_pid, &temp.si, WEXITED | WNOHANG);
-#endif
-	temp.si.si_status &= 0xff; /* we use b8 + for flags */
-	lwsl_warn("%s: waitd says %d, process exit %d\n",
-		    __func__, n, temp.si.si_status);
+	lwsl_info("%s: waitd says %d, process exit %d\n",
+		    __func__, n, lsp->si.si_status);
 
-	lsp->child_pid = -1;
+	lsp->child_pid		= -1;
+	si			= lsp->si;
+	res			= lsp->res;
+	n			= lsp->we_killed_him_timeout |
+					(lsp->we_killed_him_spew << 1);
 
 	/* destroy the lsp itself first (it's freed and plsp set NULL */
 
@@ -275,9 +272,7 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	/* then do the parent callback informing it's destroyed */
 
 	if (cb)
-		cb(opaque, temp.accounting, &temp.si,
-		   temp.we_killed_him_timeout |
-			   (temp.we_killed_him_spew << 1));
+		cb(opaque, &res, &si, n);
 
 	return 1; /* was reaped */
 }
@@ -559,7 +554,6 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 					close(cfd);
 				}
 
-
 				lwsl_info("%s: created cgroup %s\n", __func__, lsp->cgroup_path);
 				lws_snprintf(pth, sizeof(pth), "%s/pids.max", lsp->cgroup_path);
 				cfd = lws_open(pth, LWS_O_WRONLY);
@@ -821,7 +815,7 @@ lws_spawn_prepare_self_cgroup(const char *user, const char *group)
 	fd = lws_open(path, LWS_O_WRONLY);
 	if (fd < 0) {
 		/* May fail if user doesn't own the file, that's okay */
-		lwsl_info("%s: cannot open subtree_control: %s\n",
+		lwsl_notice("%s: cannot open subtree_control: %s\n",
 			    __func__, strerror(errno));
 		return 0; /* Still a success if dir exists */
 	}
@@ -852,24 +846,49 @@ lws_spawn_prepare_self_cgroup(const char *user, const char *group)
 			lwsl_warn("%s: group '%s' not found\n", __func__, group);
 	}
 
-	lwsl_notice("%s: switching %s to %d:%d\n",
-			__func__, path, uid, gid);
+	if (uid != (uid_t)-1 || gid != (gid_t)-1) {
 
-	if (chown(path, uid, gid) < 0)
-		lwsl_warn("%s: failed to chown %s: %s\n",
-			  __func__, path, strerror(errno));
-	/* 2. ALSO change ownership of the critical control files inside it */
-	lws_snprintf(path, sizeof(path), "/sys/fs/cgroup%s/cgroup.procs", self_cgroup);
-	if (chown(path, uid, gid) < 0)
-		lwsl_warn("%s: failed to chown %s: %s\n",
-			  __func__, path, strerror(errno));
+		lwsl_notice("%s: switching %s to %d:%d\n",
+				__func__, path, uid, gid);
 
-	lws_snprintf(path, sizeof(path), "/sys/fs/cgroup%s/cgroup.subtree_control", self_cgroup);
-	if (chown(path, uid, gid) < 0)
-		lwsl_warn("%s: failed to chown %s: %s\n",
-			  __func__, path, strerror(errno));
- 
-	lwsl_notice("%s: lws cgroup parent configured\n", __func__);
+		if (chown(path, uid, gid) < 0)
+			lwsl_warn("%s: failed to chown %s: %s\n",
+				  __func__, path, strerror(errno));
+		/* 2. ALSO change ownership of the critical control files inside it */
+		lws_snprintf(path, sizeof(path), "/sys/fs/cgroup%s/cgroup.procs", self_cgroup);
+		if (chown(path, uid, gid) < 0)
+			lwsl_warn("%s: failed to chown %s: %s\n",
+				  __func__, path, strerror(errno));
+
+		lws_snprintf(path, sizeof(path), "/sys/fs/cgroup%s/cgroup.subtree_control", self_cgroup);
+		if (chown(path, uid, gid) < 0)
+			lwsl_warn("%s: failed to chown %s: %s\n",
+				  __func__, path, strerror(errno));
+ 	}
+	lws_snprintf(path, sizeof(path), "/sys/fs/cgroup%s/lws", self_cgroup);
+	mkdir(path, 0775);
+	if (uid != (uid_t)-1 || gid != (gid_t)-1) {
+
+		lwsl_notice("%s: switching %s to %d:%d\n",
+				__func__, path, uid, gid);
+
+		if (chown(path, uid, gid) < 0)
+			lwsl_warn("%s: failed to chown %s: %s\n",
+				  __func__, path, strerror(errno));
+		/* 2. ALSO change ownership of the critical control files inside it */
+		lws_snprintf(path, sizeof(path), "/sys/fs/cgroup%s/cgroup.procs", self_cgroup);
+		if (chown(path, uid, gid) < 0)
+			lwsl_warn("%s: failed to chown %s: %s\n",
+				  __func__, path, strerror(errno));
+
+		lws_snprintf(path, sizeof(path), "/sys/fs/cgroup%s/cgroup.subtree_control", self_cgroup);
+		if (chown(path, uid, gid) < 0)
+			lwsl_warn("%s: failed to chown %s: %s\n",
+				  __func__, path, strerror(errno));
+ 	}
+
+
+	lwsl_notice("%s: lws cgroup parent configured: %s\n", __func__, path);
 
 	return 0;
 #endif

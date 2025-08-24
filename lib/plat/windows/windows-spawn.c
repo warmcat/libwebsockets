@@ -152,7 +152,10 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	void *opaque = lsp->info.opaque;
 	lsp_cb_t cb = lsp->info.reap_cb;
 	struct _lws_siginfo_t lsi;
-	lws_usec_t acct[4];
+	PROCESS_MEMORY_COUNTERS pmc;
+	IO_COUNTERS ic;
+	ULARGE_INTEGER uli;
+	FILETIME ftk, ftu;
 	DWORD ex;
 
 	if (!lsp->child_pid)
@@ -205,6 +208,27 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	 * Collect the final information and then reap the dead process
 	 */
 
+	if (GetProcessTimes(lsp->child_pid, &lsp->ft_create, &lsp->ft_exit,
+			    &ftk, &ftu)) {
+		uli.LowPart = ftu.dwLowDateTime;
+		uli.HighPart = ftu.dwHighDateTime;
+		lsp->res.us_cpu_user = uli.QuadPart / 10;
+
+		uli.LowPart = ftk.dwLowDateTime;
+		uli.HighPart = ftk.dwHighDateTime;
+		lsp->res.us_cpu_sys = uli.QuadPart / 10;
+	}
+
+	if (GetProcessMemoryInfo(lsp->child_pid, &pmc, sizeof(pmc)))
+		lsp->res.peak_mem_rss = pmc.PeakWorkingSetSize;
+
+	/*
+	if (GetProcessIoCounters(lsp->child_pid, &ic)) {
+		lsp->res.io_r_bytes = ic.ReadTransferCount;
+		lsp->res.io_w_bytes = ic.WriteTransferCount;
+	}
+	*/
+
 	lsi.retcode = 0x10000 | (int)ex;
 	lwsl_notice("%s: process exit 0x%x\n", __func__, lsi.retcode);
 	lsp->child_pid = NULL;
@@ -216,9 +240,8 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 
 	/* then do the parent callback informing it's destroyed */
 
-	memset(acct, 0, sizeof(acct));
 	if (cb)
-		cb(opaque, acct, &lsi, 0);
+		cb(opaque, lsp->info.res ? lsp->info.res : &lsp->res, &lsi, 0);
 
 	lwsl_notice("%s: completed reap\n", __func__);
 

@@ -1033,8 +1033,22 @@ struct _lws_siginfo_t {
 typedef struct _lws_siginfo_t siginfo_t;
 #endif
 
-typedef void (*lsp_cb_t)(void *opaque, lws_usec_t *accounting, siginfo_t *si,
-			 int we_killed_him);
+/**
+ * lws_spawn_resource_us_t - resource usage results from spawned process
+ *
+ * All time values are in uS.
+ * All size values are in bytes.
+ */
+typedef struct lws_spawn_resource_us {
+	uint64_t			us_cpu_user;  /**< user space cpu time */
+	uint64_t			us_cpu_sys;   /**< kernel space cpu time */
+
+	uint64_t			peak_mem_rss; /**< peak resident memory */
+	uint64_t			peak_mem_virt; /**< peak virtual memory */
+} lws_spawn_resource_us_t;
+
+typedef void (*lsp_cb_t)(void *opaque, const lws_spawn_resource_us_t *res,
+			 siginfo_t *si, int we_killed_him);
 
 
 /**
@@ -1050,11 +1064,11 @@ typedef void (*lsp_cb_t)(void *opaque, lws_usec_t *accounting, siginfo_t *si,
  * \p wd: working directory to cd to after fork, NULL defaults to /tmp
  * \p plsp: NULL, or pointer to the outer lsp pointer so it can be set NULL when destroyed
  * \p opaque: pointer passed to the reap callback, if any
- * \p timeout: optional us-resolution timeout, or zero
  * \p reap_cb: callback when child process has been reaped and the lsp destroyed
  * \p tsi: tsi to bind stdwsi to... from opt_parent if given
  * \p cgroup_name_suffix: for Linux, encapsulate spawn into this new cgroup
  * \p p_cgroup_ret: NULL, or pointer to int to show if cgroups applied OK (0 = OK)
+ * \p pres: NULL, or pointer to a lws_spawn_resource_us_t to take the results
  */
 struct lws_spawn_piped_info {
 	struct lws_dll2_owner		*owner;
@@ -1072,6 +1086,8 @@ struct lws_spawn_piped_info {
 	void				*opaque;
 
 	lsp_cb_t			reap_cb;
+
+	lws_spawn_resource_us_t		*res;
 
 	lws_usec_t			timeout_us;
 	int				max_log_lines;

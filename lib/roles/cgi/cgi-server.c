@@ -86,7 +86,7 @@ lws_cgi_grace(lws_sorted_usec_list_t *sul)
 
 
 static void
-lws_cgi_reap_cb(void *opaque, lws_usec_t *accounting, siginfo_t *si,
+lws_cgi_reap_cb(void *opaque, const struct lws_spawn_resource_us *res, siginfo_t *si,
 		 int we_killed_him)
 {
 	struct lws *wsi = (struct lws *)opaque;
