@@ -1,21 +1,20 @@
-project(lws-api-test-lws_spawn C)
+project(lws-api-test-dir C)
 cmake_minimum_required(VERSION 3.10)
 find_package(libwebsockets CONFIG REQUIRED)
 list(APPEND CMAKE_MODULE_PATH ${LWS_CMAKE_DIR})
 include(CheckCSourceCompiles)
 include(LwsCheckRequirements)
-include(CTest)
 
-set(SAMP lws-api-test-lws_spawn)
-set(SRCS main.c)
+set(SAMP lws-api-test-dir)
+set(SRCS main.c )
 
 set(requirements 1)
-# This API test requires the spawn feature to be enabled in lws
-require_lws_config(LWS_WITH_SPAWN 1 requirements)
+require_lws_config(LWS_WITH_DIR 1 requirements)
 
 if (requirements)
 
 	add_executable(${SAMP} ${SRCS})
+	add_test(NAME api-test-dir COMMAND ${SAMP})
 
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared ${LIBWEBSOCKETS_DEP_LIBS})

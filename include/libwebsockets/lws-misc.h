@@ -822,6 +822,34 @@ lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb);
 LWS_VISIBLE LWS_EXTERN int
 lws_dir_rm_rf_cb(const char *dirpath, void *user, struct lws_dir_entry *lde);
 
+
+/**
+ * lws_dir_du_t: context for lws_dir_du_cb()
+ *
+ * It's zeroed before starting the lws_dir() walk.
+ */
+
+typedef struct lws_dir_du {
+	uint64_t			size_in_bytes;
+	uint32_t			count_files;
+} lws_dir_du_t;
+
+/**
+ * lws_dir_du_cb() - callback for lws_dir that performs recursive du
+ *
+ * \param dirpath: directory we are at in lws_dir
+ * \param user: pointer to a lws_dir_du_t to collate the results in
+ * \param lde: lws_dir info on the file or directory we are at
+ *
+ * This is a readymade du -b callback for use with lws_dir.  It recursively
+ * sums the sizes of all files it finds and the count of files.  The user
+ an
+ * lws_dir_du_t struct should be zeroed before starting the walk.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dir_du_cb(const char *dirpath, void *user, struct lws_dir_entry *lde);
+
+
 /*
  * We pass every file in the base dir through a filter, and call back on the
  * ones that match.  Directories are ignored.
