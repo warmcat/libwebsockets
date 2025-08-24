@@ -209,6 +209,37 @@ lws_dir_glob_check(const char *nm, const char *filt)
 	return 0;
 }
 
+int
+lws_dir_du_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
+{
+	lws_dir_du_t *du = (lws_dir_du_t *)user;
+	char path[384];
+	struct stat s;
+
+	if (!strcmp(lde->name, ".") || !strcmp(lde->name, ".."))
+		return 0;
+
+	lws_snprintf(path, sizeof(path), "%s%c%s", dirpath, csep, lde->name);
+
+	if (lde->type == LDOT_DIR) {
+		lws_dir(path, user, lws_dir_du_cb);
+
+		return 0;
+	}
+
+	if (lde->type == LDOT_FILE) {
+		if (stat(path, &s))
+			lwsl_warn("%s: stat %s failed %d\n", __func__,
+				  path, errno);
+		else {
+			du->size_in_bytes += (uint64_t)s.st_size;
+			du->count_files++;
+		}
+	}
+
+	return 0;
+}
+
 /*
  * We get passed a single filter string, like "*.txt" or "mydir/\*.rpm" or so.
  */
