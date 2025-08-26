@@ -240,6 +240,7 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	/* ru_maxrss is in KB */
 	lsp->res.peak_mem_rss = (uint64_t)ru.ru_maxrss * 1024;
 
+#if 0
 	if (getrusage(RUSAGE_CHILDREN, &ru) == 0) {
 		lsp->res.us_cpu_user +=
 			((uint64_t)ru.ru_utime.tv_sec * 1000000) + (uint64_t)ru.ru_utime.tv_usec;
@@ -249,6 +250,7 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 		lsp->res.peak_mem_rss += (uint64_t)ru.ru_maxrss * 1024;
 	} else
 		lwsl_err("%s: getrusage failed\n", __func__);
+#endif
 
 	n = waitpid(lsp->child_pid, &status, WNOHANG);
 	if (n < 0) {
