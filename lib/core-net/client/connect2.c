@@ -136,7 +136,7 @@ static const char * const dns_nxdomain = "DNS NXDOMAIN";
 #endif
 
 struct lws *
-lws_client_connect_2_dnsreq(struct lws *wsi)
+lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(struct lws *wsi)
 {
 	struct addrinfo *result = NULL;
 	const char *meth = NULL;

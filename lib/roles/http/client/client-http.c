@@ -56,7 +56,7 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 		 * timeout protection set in client-handshake.c
 		 */
 		lwsl_err("%s: %s: WAITING_DNS\n", __func__, lws_wsi_tag(wsi));
-		if (!lws_client_connect_2_dnsreq(wsi)) {
+		if (!lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(wsi)) {
 			/* closed */
 			lwsl_client("closed\n");
 			return LWS_HPI_RET_WSI_ALREADY_DIED;
