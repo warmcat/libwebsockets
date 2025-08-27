@@ -68,7 +68,7 @@ lws_http_client_connect_via_info2(struct lws *wsi)
 #endif
 
 no_ah:
-	return lws_client_connect_2_dnsreq(wsi);
+	return lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(wsi);
 
 bail:
 #if defined(LWS_WITH_SOCKS5)

@@ -76,8 +76,8 @@ lws_client_dns_retry_timeout(lws_sorted_usec_list_t *sul)
 	 */
 
 	lwsl_wsi_info(wsi, "dns retry");
-	if (!lws_client_connect_2_dnsreq(wsi))
-		lwsl_wsi_notice(wsi, "DNS lookup failed");
+	if (!lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(wsi))
+		lwsl_notice("DNS lookup failed");
 }
 
 /*
