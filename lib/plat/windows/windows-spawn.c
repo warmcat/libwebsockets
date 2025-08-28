@@ -27,6 +27,7 @@
 #include <tchar.h>
 #include <stdio.h>
 #include <strsafe.h>
+#include <Psapi.h>
 
 void
 lws_spawn_timeout(struct lws_sorted_usec_list *sul)

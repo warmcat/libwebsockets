@@ -946,6 +946,8 @@ struct lws_spawn_piped {
 #if defined(WIN32)
 	HANDLE				child_pid;
 	lws_sorted_usec_list_t		sul_poll;
+	FILETIME			ft_create;
+	FILETIME			ft_exit;
 #else
 	pid_t				child_pid;
 
