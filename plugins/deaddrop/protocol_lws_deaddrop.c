@@ -371,20 +371,13 @@ file_upload_cb(void *data, const char *name, const char *filename,
 static int
 format_result(struct pss_deaddrop *pss)
 {
-	unsigned char *p, *start, *end;
-
-	p = (unsigned char *)pss->result + LWS_PRE;
-	start = p;
-	end = p + sizeof(pss->result) - LWS_PRE - 1;
-
-	p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
-			"<!DOCTYPE html><html lang=\"en\"><head>"
-			"<meta charset=utf-8 http-equiv=\"Content-Language\" "
-			"content=\"en\"/>"
-			"</head>");
-	p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "</body></html>");
-
-	return (int)lws_ptr_diff(p, start);
+	/*
+	 * We don't want to send any entity body back for the upload
+	 * POST.  The success / failure is indicated by the
+	 * HTTP response code.  The javascript on the client side that
+	 * did the post is not expecting to navigate to a new page.
+	 */
+	return 0;
 }
 
 
@@ -463,7 +456,7 @@ handler_server_protocol_destroy(struct vhd_deaddrop *vhd)
 #endif
 }
 
-static void
+static int
 handler_server_http(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 		    struct lws *wsi)
 {
@@ -484,12 +477,14 @@ handler_server_http(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 
 	meth = lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len);
 	if (meth != LWSHUMETH_POST || !uri_ptr)
-		return;
+		return 1;
 	if (!strstr(uri_ptr, "/upload/"))
-		return;
+		return 1;
 
 	pss->vhd = vhd;
 	pss->wsi = wsi;
+
+	return 0;
 }
 
 static int
@@ -566,8 +561,8 @@ handler_server_http_writeable(struct vhd_deaddrop *vhd,
 
 		/* first send the headers ... */
 		n = lws_write(wsi, start, lws_ptr_diff_size_t(p, start),
-			      LWS_WRITE_HTTP_HEADERS |
-			      LWS_WRITE_H2_STREAM_END);
+			      LWS_WRITE_HTTP_HEADERS );//|
+			      //LWS_WRITE_H2_STREAM_END);
 		if (n < 0)
 			return 1;
 
@@ -863,7 +858,8 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_HTTP:
-		handler_server_http(vhd, pss, wsi);
+		if (!handler_server_http(vhd, pss, wsi))
+			return 0;
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
@@ -889,7 +885,8 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
-		return handler_server_ws_writeable(vhd, pss, wsi);
+		handler_server_ws_writeable(vhd, pss, wsi);
+		return 0;
 
 	/* POST-related */
 
@@ -898,12 +895,12 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
 		handler_server_http_body_completion(pss, wsi);
-		break;
+		return 0;
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
 		switch (handler_server_http_writeable(vhd, pss, wsi)) {
 		case 0:
-			break;
+			return 0;
 		case 1:
 			goto bail;
 		case 2:
