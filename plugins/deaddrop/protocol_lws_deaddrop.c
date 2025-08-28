@@ -371,20 +371,13 @@ file_upload_cb(void *data, const char *name, const char *filename,
 static int
 format_result(struct pss_deaddrop *pss)
 {
-	unsigned char *p, *start, *end;
-
-	p = (unsigned char *)pss->result + LWS_PRE;
-	start = p;
-	end = p + sizeof(pss->result) - LWS_PRE - 1;
-
-	p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
-			"<!DOCTYPE html><html lang=\"en\"><head>"
-			"<meta charset=utf-8 http-equiv=\"Content-Language\" "
-			"content=\"en\"/>"
-			"</head>");
-	p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "</body></html>");
-
-	return (int)lws_ptr_diff(p, start);
+	/*
+	 * We don't want to send any entity body back for the upload
+	 * POST.  The success / failure is indicated by the
+	 * HTTP response code.  The javascript on the client side that
+	 * did the post is not expecting to navigate to a new page.
+	 */
+	return 0;
 }
 
 
