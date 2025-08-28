@@ -1762,23 +1762,37 @@ int
 lws_humanize(char *p, size_t len, uint64_t v, const lws_humanize_unit_t *schema)
 {
 	char *obuf = p, *end = p + len;
+	const lws_humanize_unit_t *s = NULL;
 
 	do {
 		if (v >= schema->factor || schema->factor == 1) {
+			if (schema[1].name)
+				s = &schema[1];
+
 			if (schema->factor == 1) {
 				p += decim(p, v, 4, 0);
 				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
-						    "%s", schema->name);
+						"%s", schema->name);
 				return lws_ptr_diff(p, obuf);
 			}
 
 			p += decim(p, v / schema->factor, 4, 0);
-			*p++ = '.';
-			p += decim(p, (v % schema->factor) /
-					(schema->factor / 1000), 3, 1);
+			if (s) {
+				uint64_t iif = schema->factor / s->factor;
 
+				if (s->factor * 1000 == schema->factor ||
+				    s->factor * 1024 == schema->factor) { /* decimal */
+					*p++ = '.';
+					p += decim(p, (v % schema->factor) /
+							(schema->factor / 1000), 3, 1);
+				} else { /* imperial fraction, eg, h:m */
+					*p++ = ':';
+					p += decim(p, (v % schema->factor) / s->factor,
+							iif >= 100 ? 3 : (iif >= 10 ? 2 : 1), 1);
+				}
+			}
 			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
-					    "%s", schema->name);
+					"%s", schema->name);
 			return lws_ptr_diff(p, obuf);
 		}
 		schema++;
@@ -1788,6 +1802,31 @@ lws_humanize(char *p, size_t len, uint64_t v, const lws_humanize_unit_t *schema)
 	strncpy(p, "unknown value", len);
 
 	return 0;
+}
+
+int
+lws_humanize_pad(char *p, size_t len, uint64_t v, const lws_humanize_unit_t *schema)
+{
+       size_t m, w = 0, n = (size_t)lws_humanize(p, len, v, schema);
+	const lws_humanize_unit_t *s = schema;
+       int t;
+
+	while (s->name) {
+		if (strlen(s->name) > w)
+			w = strlen(s->name);
+		s++;
+	}
+
+	m = (3 + 1 + 3 + w) - (size_t)n;
+
+       for (t = (int)n - 1; t >= 0; t--)
+               p[(size_t)t + m] = p[t];
+	p[m + n] = '\0';
+
+       for (t = 0; t < (int)m; t++)
+		p[t] = ' ';
+
+	return (int)(n + m);
 }
 
 /*

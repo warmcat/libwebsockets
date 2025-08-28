@@ -662,7 +662,7 @@ lws_struct_sq3_create_table(sqlite3 *pdb, const lws_struct_map_t *schema)
 	p += lws_snprintf(p, (unsigned int)lws_ptr_diff(end, p), ");");
 
 	if (sqlite3_exec(pdb, s, NULL, NULL, NULL) != SQLITE_OK) {
-		lwsl_err("%s: %s: fail\n", __func__, sqlite3_errmsg(pdb));
+		lwsl_err("%s: %s: fail: %s\n", __func__, sqlite3_errmsg(pdb), s);
 
 		return -1;
 	}
