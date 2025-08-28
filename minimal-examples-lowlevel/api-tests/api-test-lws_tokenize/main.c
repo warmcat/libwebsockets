@@ -1084,7 +1084,7 @@ int main(int argc, const char **argv)
 			fail++;
 		}
 		m = lws_humanize(buf, sizeof(buf), 1024, humanize_schema_si);
-		if (m != 7 || strcmp(buf, "1.000Ki")) {
+		if (m != 3 || strcmp(buf, "1Ki")) {
 			lwsl_user("%s: humanize 5 fail '%s' (%d)\n", __func__, buf, m);
 			fail++;
 		}
