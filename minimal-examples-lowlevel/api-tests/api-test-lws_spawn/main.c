@@ -166,8 +166,13 @@ reap_cb(void *opaque, const lws_spawn_resource_us_t *res, siginfo_t *si,
 	test_phase_t last_phase = ts->phase;
 
 	if (si) {
+#if defined(WIN32)
+		lwsl_user("%s: Reap callback for phase %d, exit code %d\n",
+			  __func__, (int)last_phase, (int)si->retcode);
+#else
 		lwsl_user("%s: Reap callback for phase %d, exit code %d\n",
 			  __func__, (int)last_phase, si->si_status);
+#endif
 		lwsl_notice(" CPU us: user %llu, sys %llu\n",
 			    (unsigned long long)res->us_cpu_user,
 			    (unsigned long long)res->us_cpu_sys);
@@ -179,10 +184,18 @@ reap_cb(void *opaque, const lws_spawn_resource_us_t *res, siginfo_t *si,
 			lwsl_err("%s: Spawned process was killed by timeout\n",
 				 __func__);
 			ts->result = 1;
-		} else if (si->si_status != 0) {
-			lwsl_err("%s: Spawned process failed with exit code %d\n",
+		} else {
+#if defined(WIN32)
+			if (si->retcode != 0) {
+				lwsl_err("%s: Spawned process failed with exit code %d\n",
+				 __func__, (int)si->retcode);
+#else
+			if (si->si_status != 0) {
+				lwsl_err("%s: Spawned process failed with exit code %d\n",
 				 __func__, si->si_status);
-			ts->result = 1;
+#endif
+				ts->result = 1;
+			}
 		}
 
 		if (res->us_cpu_user == 0 && res->us_cpu_sys == 0) {
