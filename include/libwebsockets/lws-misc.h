@@ -1016,12 +1016,19 @@ lws_assert_fourcc(uint32_t fourcc, uint32_t expected);
  * which represents a count of us as a human-readable time like "  14.350min",
  * or "  1.500d".
  *
- * You can produce your own schema.
+ * You can produce your own schema tables.
+ *
+ * lws_humanize_pad() is the same but pads the lhs so that it
+ * always produces the same length.
  */
 
 LWS_VISIBLE LWS_EXTERN int
 lws_humanize(char *buf, size_t len, uint64_t value,
 	     const lws_humanize_unit_t *schema);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_humanize_pad(char *p, size_t len, uint64_t v,
+		 const lws_humanize_unit_t *schema);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_ser_wu16be(uint8_t *b, uint16_t u);
