@@ -364,23 +364,6 @@ file_upload_cb(void *data, const char *name, const char *filename,
 	return 0;
 }
 
-/*
- * returns length in bytes
- */
-
-static int
-format_result(struct pss_deaddrop *pss)
-{
-	/*
-	 * We don't want to send any entity body back for the upload
-	 * POST.  The success / failure is indicated by the
-	 * HTTP response code.  The javascript on the client side that
-	 * did the post is not expecting to navigate to a new page.
-	 */
-	return 0;
-}
-
-
 static int
 handler_server_protocol_init(struct lws *wsi, void *in)
 {
@@ -537,54 +520,27 @@ handler_server_http_writeable(struct vhd_deaddrop *vhd,
 	if (!pss->completed)
 		return 0;
 
-	p = (unsigned char *)pss->result + LWS_PRE;
-	start = p;
-	end = p + sizeof(pss->result) - LWS_PRE - 1;
+	if (pss->sent_headers)
+		return 1;
 
-	if (!pss->sent_headers) {
-		int n = format_result(pss);
+	if (lws_add_http_header_status(wsi,
+			(unsigned int)pss->response_code, &p, end))
+		return 1;
 
-		if (lws_add_http_header_status(wsi,
-				(unsigned int)pss->response_code,
-					       &p, end))
-			return 1;
+	if (lws_add_http_header_content_length(wsi, 0, &p, end))
+		return 1;
 
-		if (lws_add_http_header_by_token(wsi,
-				WSI_TOKEN_HTTP_CONTENT_TYPE,
-				(unsigned char *)"text/html", 9,
-				&p, end))
-			return 1;
-		if (lws_add_http_header_content_length(wsi, (lws_filepos_t)n, &p, end))
-			return 1;
-		if (lws_finalize_http_header(wsi, &p, end))
-			return 1;
+	if (lws_finalize_http_header(wsi, &p, end))
+		return 1;
 
-		/* first send the headers ... */
-		n = lws_write(wsi, start, lws_ptr_diff_size_t(p, start),
-			      LWS_WRITE_HTTP_HEADERS |
-			      LWS_WRITE_H2_STREAM_END);
-		if (n < 0)
-			return 1;
+	if (lws_write(wsi, start, lws_ptr_diff_size_t(p, start),
+		      LWS_WRITE_HTTP_HEADERS | LWS_WRITE_HTTP_FINAL) < 0)
+		return 1;
 
-		pss->sent_headers = 1;
-		lws_callback_on_writable(wsi);
-		return 0;
-	}
+	pss->sent_headers = 1;
+	pss->sent_body = 1;
 
-	if (!pss->sent_body) {
-		int n = format_result(pss);
-		n = lws_write(wsi, (unsigned char *)start, (unsigned int)n,
-			      LWS_WRITE_HTTP_FINAL);
-
-		pss->sent_body = 1;
-		if (n < 0) {
-			lwsl_err("%s: writing body failed\n", __func__);
-			return 1;
-		}
-		return 2;
-	}
-	
-	return 0;
+	return 2; /* Signal completion */
 }
 
 static int
