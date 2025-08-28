@@ -50,12 +50,6 @@
 #include <sys/inotify.h>
 #endif
 
-#if defined(WIN32)
-#define LWS_DIR_SEP '\\'
-#else
-#define LWS_DIR_SEP '/'
-#endif
-
 struct dir_entry {
 	lws_list_ptr next; /* sorted by mtime */
 	char user[32];
@@ -219,8 +213,8 @@ scan_upload_dir(struct vhd_deaddrop *vhd)
 		    !strcmp(de->d_name, ".") || !strcmp(de->d_name, ".."))
 			continue;
 
-		lws_snprintf(filepath, sizeof(filepath), "%s%c%s",
-				  vhd->upload_dir, LWS_DIR_SEP, de->d_name);
+		lws_snprintf(filepath, sizeof(filepath), "%s/%s",
+				  vhd->upload_dir, de->d_name);
 
 		if (stat(filepath, &s))
 			continue;
@@ -307,8 +301,8 @@ file_upload_cb(void *data, const char *name, const char *filename,
 		 * request.
 		 */
 		lws_snprintf(pss->filename, sizeof(pss->filename),
-			     "%s%c%s_%s~", pss->vhd->upload_dir,
-			     LWS_DIR_SEP, pss->user, filename2);
+			     "%s/%s_%s~", pss->vhd->upload_dir,
+			     pss->user, filename2);
 		lwsl_notice("%s: filename '%s'\n", __func__, pss->filename);
 
 		pss->fd = (lws_filefd_type)(long long)lws_open(pss->filename,
@@ -377,13 +371,20 @@ file_upload_cb(void *data, const char *name, const char *filename,
 static int
 format_result(struct pss_deaddrop *pss)
 {
-	/*
-	 * We don't want to send any entity body back for the upload
-	 * POST.  The success / failure is indicated by the
-	 * HTTP response code.  The javascript on the client side that
-	 * did the post is not expecting to navigate to a new page.
-	 */
-	return 0;
+	unsigned char *p, *start, *end;
+
+	p = (unsigned char *)pss->result + LWS_PRE;
+	start = p;
+	end = p + sizeof(pss->result) - LWS_PRE - 1;
+
+	p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
+			"<!DOCTYPE html><html lang=\"en\"><head>"
+			"<meta charset=utf-8 http-equiv=\"Content-Language\" "
+			"content=\"en\"/>"
+			"</head>");
+	p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "</body></html>");
+
+	return (int)lws_ptr_diff(p, start);
 }
 
 
@@ -462,7 +463,7 @@ handler_server_protocol_destroy(struct vhd_deaddrop *vhd)
 #endif
 }
 
-static void
+static int
 handler_server_http(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 		    struct lws *wsi)
 {
@@ -483,12 +484,14 @@ handler_server_http(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 
 	meth = lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len);
 	if (meth != LWSHUMETH_POST || !uri_ptr)
-		return;
+		return 1;
 	if (!strstr(uri_ptr, "/upload/"))
-		return;
+		return 1;
 
 	pss->vhd = vhd;
 	pss->wsi = wsi;
+
+	return 0;
 }
 
 static int
@@ -702,7 +705,7 @@ handler_server_ws_rx(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 
 	lws_filename_purify_inplace(fname);
 
-	lws_snprintf(path, sizeof(path), "%s%c%s", vhd->upload_dir, LWS_DIR_SEP,
+	lws_snprintf(path, sizeof(path), "%s/%s", vhd->upload_dir,
 		     fname);
 
 #if defined(__linux__)
@@ -862,7 +865,8 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_HTTP:
-		handler_server_http(vhd, pss, wsi);
+		if (!handler_server_http(vhd, pss, wsi))
+			return 0;
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
