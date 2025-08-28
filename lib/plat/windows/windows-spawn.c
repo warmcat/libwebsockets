@@ -27,6 +27,7 @@
 #include <tchar.h>
 #include <stdio.h>
 #include <strsafe.h>
+#include <Psapi.h>
 
 void
 lws_spawn_timeout(struct lws_sorted_usec_list *sul)
@@ -153,7 +154,7 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	lsp_cb_t cb = lsp->info.reap_cb;
 	struct _lws_siginfo_t lsi;
 	PROCESS_MEMORY_COUNTERS pmc;
-	IO_COUNTERS ic;
+	// IO_COUNTERS ic;
 	ULARGE_INTEGER uli;
 	FILETIME ftk, ftu;
 	DWORD ex;
@@ -623,4 +624,10 @@ lws_spawn_get_fd_stdxxx(struct lws_spawn_piped *lsp, int std_idx)
 	assert(std_idx >= 0 && std_idx < 3);
 
 	return (int)(intptr_t)lsp->pipe_fds[std_idx][!!(std_idx == 0)];
+}
+
+int
+lws_spawn_prepare_self_cgroup(const char *user, const char *group)
+{
+	return 0;
 }
