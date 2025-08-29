@@ -101,6 +101,7 @@ const uint32_t ss_state_txn_validity[] = {
 	[LWSSSCS_UNREACHABLE]		= (1 << LWSSSCS_ALL_RETRIES_FAILED) |
 					  (1 << LWSSSCS_TIMEOUT) |
 					  (1 << LWSSSCS_POLL) |
+					  (1 << LWSSSCS_UNREACHABLE) |
 					  (1 << LWSSSCS_CONNECTING) |
 					  /* win conn failure > retry > succ */
 					  (1 << LWSSSCS_CONNECTED) |
