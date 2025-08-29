@@ -1,40 +1,75 @@
 {
 	"schema": "sai-1",
 
-	# We're doing separate install into destdir so that the test server
-	# has somewhere to go to find its /usr/share content like certs
-
 	"platforms": {
 		"rocky9/aarch64-a72a55-rk3588/gcc": {
-			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export SAI_CPACK=\"-G RPM\";cmake .. ${cmake} && make -j6 && rm -rf ../destdir && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
+                        "build": [
+                                "mkdir -p build destdir; cd build; CCACHE_DISABLE=1 LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib cmake .. ${cmake}",
+                                "cd build && make -j$SAI_PARALLEL && rm -rf ../destdir && make -j$SAI_PARALLEL DESTDIR=../destdir install",
+				"cd build && ctest -j$SAI_PARALLEL --output-on-failure",
+                                "cd build && SAI_CPACK=\"-G RPM\" ${cpack}"
+                        ]
 		},
 		"netbsd-OSX-bigsur/x86_64-intel-i3/llvm": {
-			"build": "mkdir build destdir; cd build; export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export SAI_CPACK=\"-G ZIP\";export MACOSX_DEPLOYMENT_TARGET=12.5 ; cmake .. -DCMAKE_MAKE_PROGRAM=/usr/bin/make ${cmake} && make -j4 && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
+                        "build": [
+				"mkdir -p build destdir; cd build; CCACHE_DISABLE=1 LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib MACOSX_DEPLOYMENT_TARGET=12.5 cmake .. -DCMAKE_MAKE_PROGRAM=/usr/bin/make ${cmake}",
+                                "cd build && make -j$SAI_PARALLEL && rm -rf ../destdir && make -j$SAI_PARALLEL DESTDIR=../destdir install",
+				"cd build && ctest -j$SAI_PARALLEL --output-on-failure",
+                                "cd build && SAI_CPACK=\"-G ZIP\" ${cpack}"
+			]
 		},
 		"ubuntu-noble/riscv64/gcc": {
-			"build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export SAI_CPACK=\"-G DEB\";cmake .. ${cmake} && make -j4 && rm -rf ../destdir && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
+                        "build": [
+				"mkdir -p build destdir; cd build; CCACHE_DISABLE=1 LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib cmake .. ${cmake}",
+                                "cd build && make -j$SAI_PARALLEL && rm -rf ../destdir && make -j$SAI_PARALLEL DESTDIR=../destdir install",
+				"cd build && ctest -j$SAI_PARALLEL --output-on-failure",
+                                "cd build && SAI_CPACK=\"-G DEB\" ${cpack}"
+			]
 		},
 		"rocky9/x86_64-amd/gcc": {
-                        "build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export SAI_CPACK=\"-G RPM\";cmake .. ${cmake} && make -j6 && rm -rf ../destdir && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
+                        "build": [
+				"mkdir -p build destdir; cd build; CCACHE_DISABLE=1 LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib cmake .. ${cmake}",
+                                "cd build && make -j$SAI_PARALLEL && rm -rf ../destdir && make -j$SAI_PARALLEL DESTDIR=../destdir install",
+				"cd build && ctest -j$SAI_PARALLEL --output-on-failure",
+                                "cd build && SAI_CPACK=\"-G RPM\" ${cpack}"
+			]
 		},
 		"linux-ubuntu-2404/aarch64-a72-bcm2711-rpi4/gcc": {
-                        "build": "mkdir build destdir;cd build;export CCACHE_DISABLE=1;export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export SAI_CPACK=\"-G DEB\";cmake .. ${cmake} && make -j4 && rm -rf ../destdir && make -j DESTDIR=../destdir install && ctest -j4 --output-on-failure ${cpack}"
+                        "build": [
+				"mkdir -p build destdir; cd build; CCACHE_DISABLE=1 LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib cmake .. ${cmake}",
+                                "cd build && make -j$SAI_PARALLEL && rm -rf ../destdir && make -j$SAI_PARALLEL DESTDIR=../destdir install",
+				"cd build && ctest -j$SAI_PARALLEL --output-on-failure",
+                                "cd build && SAI_CPACK=\"-G DEB\" ${cpack}"
+			]
 		},
                 "netbsd/aarch64BE-bcm2837-a53/gcc": {
-                        "build": "mkdir build destdir;cd build;export LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib;export CCACHE_DISABLE=1;cmake .. ${cmake};make -j6 && rm -rf ../destdir && make -j6 DESTDIR=../destdir install && /usr/pkg/bin/ctest -j4 --output-on-failure",
-                        "default": false
+                        "default": false,
+                        "build": [
+				"mkdir -p build destdir; cd build; CCACHE_DISABLE=1 LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib cmake .. ${cmake}",
+                                "cd build && make -j$SAI_PARALLEL && rm -rf ../destdir && make -j$SAI_PARALLEL DESTDIR=../destdir install",
+				"cd build && /usr/pkg/bin/ctest -j$SAI_PARALLEL --output-on-failure"
+			]
                 },
 		"w11/x86_64-amd/msvc": {
-			"build": "mkdir build && cd build && set SAI_CPACK=\"-G ZIP\" && cmake .. -DOPENSSL_ROOT_DIR=\"C:\\Users\\andy\\vcpkg\\packages\\openssl_x64-windows\" -DLWS_EXT_PTHREAD_INCLUDE_DIR=\"C:\\Program Files (x86)\\pthreads\\include\" -DLWS_EXT_PTHREAD_LIBRARIES=\"C:\\Program Files (x86)\\pthreads\\lib\\x64\\libpthreadGC2.a\" ${cmake} && cmake --build . --config DEBUG && set CTEST_OUTPUT_ON_FAILURE=1 && ctest . -C DEBUG -j1 --output-on-failure",
-			"default": false
+			"default": false,
+                        "build": [
+				"mkdir -p build; cd build; CCACHE_DISABLE=1 LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib cmake .. -DOPENSSL_ROOT_DIR=\"C:\\Users\\andy\\vcpkg\\packages\\openssl_x64-windows\" -DLWS_EXT_PTHREAD_INCLUDE_DIR=\"C:\\Program Files (x86)\\pthreads\\include\" -DLWS_EXT_PTHREAD_LIBRARIES=\"C:\\Program Files (x86)\\pthreads\\lib\\x64\\libpthreadGC2.a\" ${cmake}",
+                                "cd build && cmake --build . --config DEBUG",
+				"cd build && /usr/pkg/bin/ctest -j$SAI_PARALLEL --output-on-failure",
+                                "cd build && SAI_CPACK=\"-G ZIP\" ${cpack}"
+			]
 		},
 		"freertos-espidf/xl6-esp32/gcc": {
-			# official way to get sdkconfig.h is idf.py menuconfig, but
-			# no obvious way to do that in CI
-			"build":	"rm -rf ebuild ; mkdir ebuild; cd ebuild; cp -rp ../minimal-examples/embedded/esp32/${cpack} . ;  cd ${cpack} ; . /opt/esp/esp-idf/export.sh ; rm -f libwebsockets ; ln -sf ../.. libwebsockets ; idf.py set-target esp32 && cp libwebsockets/minimal-examples/embedded/esp32/${cpack}/sdkconfig . && cp sdkconfig.h build && idf.py ${cmake} build size size-components size-files && cd build && /usr/local/bin/sai-device ${cpack} ESPPORT=0 ctest --output-on-failure",
-			"default":	false
+                        "default": false,
+                        "build": [
+				"rm -rf ebuild ; mkdir ebuild; cd ebuild;cp -rp ../minimal-examples/embedded/esp32/${cpack} . ;  cd ${cpack} ; rm -flibwebsockets ; ln -sf ../.. libwebsockets",
+				"cp libwebsockets/minimal-examples/embedded/esp32/${cpack}/sdkconfig . && cp sdkconfig.h build",
+				". /opt/esp/esp-idf/export.sh ;  idf.py set-target esp32 && idf.py ${cmake} build size size-components size-files",
+				"cd build && /usr/local/bin/sai-device ${cpack} ESPPORT=0 ctest --output-on-failure"
+			]
 		}
 	},
+
 	"configurations": {
 		"default": {
 			"cmake":	"",
