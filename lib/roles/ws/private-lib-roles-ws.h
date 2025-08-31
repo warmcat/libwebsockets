@@ -137,6 +137,10 @@ struct _lws_websocket_related {
 	uint32_t rx_ubuf_head;
 	uint32_t rx_ubuf_alloc;
 
+	uint8_t		last_valid;
+	uint8_t		last_opcode;	/* for outgoing state validation */
+	uint8_t		last_fin;	/* for outgoing state validation */
+
 	uint8_t pong_payload_len;
 	uint8_t mask_idx;
 	uint8_t opcode;

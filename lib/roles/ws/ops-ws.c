@@ -915,6 +915,11 @@ validity:
 }
 
 
+int
+lws_ws_sending_multifragment(struct lws *wsi)
+{
+	return wsi->ws->last_valid && !wsi->ws->last_fin;
+}
 
 int
 lws_is_final_fragment(struct lws *wsi)
@@ -1830,12 +1835,37 @@ rops_write_role_protocol_ws(struct lws *wsi, unsigned char *buf, size_t len,
 		switch ((*wp) & 0xf) {
 		case LWS_WRITE_TEXT:
 			n = LWSWSOPC_TEXT_FRAME;
+			if (wsi->ws->last_valid && !wsi->ws->last_fin) {
+				lwsl_wsi_err(wsi, "Sending TEXT after previous frame that lacked FIN");
+				assert(0);
+			}
+			wsi->ws->last_valid = 1;
+			wsi->ws->last_opcode = (uint8_t)n;
+			wsi->ws->last_fin = !((*wp) & LWS_WRITE_NO_FIN);
 			break;
 		case LWS_WRITE_BINARY:
 			n = LWSWSOPC_BINARY_FRAME;
+			if (wsi->ws->last_valid && !wsi->ws->last_fin) {
+				lwsl_wsi_err(wsi, "Sending BINARY after previous frame that lacked FIN");
+				assert(0);
+			}
+			wsi->ws->last_valid = 1;
+			wsi->ws->last_opcode = (uint8_t)n;
+			wsi->ws->last_fin = !((*wp) & LWS_WRITE_NO_FIN);
 			break;
 		case LWS_WRITE_CONTINUATION:
 			n = LWSWSOPC_CONTINUATION;
+			if (wsi->ws->last_valid && wsi->ws->last_fin) {
+				lwsl_wsi_err(wsi, "Sending CONTINUATION after previous frame that had FIN");
+				assert(0);
+			}
+			if (!wsi->ws->last_valid) {
+				lwsl_wsi_err(wsi, "Sending CONTINUATION as first frame");
+				assert(0);
+			}
+			wsi->ws->last_valid = 1;
+			wsi->ws->last_opcode = (uint8_t)n;
+			wsi->ws->last_fin = !((*wp) & LWS_WRITE_NO_FIN);
 			break;
 
 		case LWS_WRITE_CLOSE:
