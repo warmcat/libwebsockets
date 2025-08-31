@@ -33,19 +33,9 @@ if (requirements)
        # machine context in parallel so they can tread on each other otherwise
        #
        set(PORT_HCM_SRV "7670")
-       if ("$ENV{SAI_INSTANCE_IDX}" STREQUAL "0")
-               set(PORT_HCM_SRV 7671)
+       if ("$ENV{SAI_INSTANCE_IDX}")
+	       math(EXPR PORT_HCM_SRV "7671 + $ENV{SAI_INSTANCE_IDX}")
        endif()
-       if ("$ENV{SAI_INSTANCE_IDX}" STREQUAL "1")
-               set(PORT_HCM_SRV 7672)
-       endif()
-       if ("$ENV{SAI_INSTANCE_IDX}" STREQUAL "2")
-               set(PORT_HCM_SRV 7673)
-       endif()
-       if ("$ENV{SAI_INSTANCE_IDX}" STREQUAL "3")
-               set(PORT_HCM_SRV 7674)
-       endif()
-
 
 # hack
 if (NOT WIN32 AND LWS_WITH_SERVER)
