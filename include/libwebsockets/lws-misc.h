@@ -178,6 +178,22 @@ lws_buflist_destroy_all_segments(struct lws_buflist **head);
 LWS_VISIBLE LWS_EXTERN void
 lws_buflist_describe(struct lws_buflist **head, void *id, const char *reason);
 
+/**
+ * lws_buflist_get_frag_start_or_NULL(): get pointer to start of fragment
+ *
+ * \param head: list head
+ *
+ * This gets you a pointer to the start of the fragment payload, no matter
+ * how much of it you may have 'used' already.  This is useful for schemes
+ * where you prepend something to the payload and need to reference it no
+ * matter how much of it you have consumed or the fragmentation details.
+ *
+ * If the buflist is empty, it will return NULL.
+ */
+LWS_VISIBLE LWS_EXTERN void *
+lws_buflist_get_frag_start_or_NULL(struct lws_buflist **head);
+
+
 
 /*
  * Optional helpers for closely-managed stream flow control.  These are useful

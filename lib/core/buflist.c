@@ -276,6 +276,17 @@ lws_buflist_describe(struct lws_buflist **head, void *id, const char *reason)
 }
 #endif
 
+LWS_VISIBLE LWS_EXTERN void *
+lws_buflist_get_frag_start_or_NULL(struct lws_buflist **head)
+{
+	struct lws_buflist *b = (*head);
+
+	if (!b)
+		return NULL;	/* there is no segment to work on */
+
+	return ((uint8_t *)b) + sizeof(*b) + LWS_PRE;
+}
+
 lws_stateful_ret_t
 lws_flow_feed(lws_flow_t *flow)
 {
