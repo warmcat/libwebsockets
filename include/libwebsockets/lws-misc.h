@@ -136,7 +136,7 @@ lws_buflist_linear_use(struct lws_buflist **head, uint8_t *buf, size_t len);
  * lws_buflist_fragment_use(): copy and consume <= 1 frag from buflist head
  *
  * \param head: list head
- * \param buf: buffer to copy linearly into
+ * \param buf: NULL, buffer to copy linearly into
  * \param len: length of buffer available
  * \param frag_first: pointer to char written on exit to if this is start of frag
  * \param frag_fin: pointer to char written on exit to if this is end of frag
@@ -147,6 +147,10 @@ lws_buflist_linear_use(struct lws_buflist **head, uint8_t *buf, size_t len);
  *
  * Since it was consumed, calling again will resume copying out and consuming
  * from as far as it got the first time.
+ *
+ * It's legal for buf to be NULL and / or len = 0.  In this case nothing is
+ * "used" and the effect is to set `frag_first` according to if we are at the
+ * start of the fragment and 0 is returned.
  *
  * Returns the number of bytes written into \p buf.
  */
@@ -177,6 +181,22 @@ lws_buflist_destroy_all_segments(struct lws_buflist **head);
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_buflist_describe(struct lws_buflist **head, void *id, const char *reason);
+
+/**
+ * lws_buflist_get_frag_start_or_NULL(): get pointer to start of fragment
+ *
+ * \param head: list head
+ *
+ * This gets you a pointer to the start of the fragment payload, no matter
+ * how much of it you may have 'used' already.  This is useful for schemes
+ * where you prepend something to the payload and need to reference it no
+ * matter how much of it you have consumed or the fragmentation details.
+ *
+ * If the buflist is empty, it will return NULL.
+ */
+LWS_VISIBLE LWS_EXTERN void *
+lws_buflist_get_frag_start_or_NULL(struct lws_buflist **head);
+
 
 
 /*
