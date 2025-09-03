@@ -70,6 +70,12 @@
 
 #if defined(LWS_WITH_TLS)
 #include <wincrypt.h>
+#if defined(LWS_WITH_BORINGSSL)
+  /* Undefine wincrypt.h symbols that conflict with BoringSSL */
+  #undef X509_NAME
+  #undef X509_EXTENSIONS
+  #undef PKCS7_SIGNER_INFO
+#endif
 #endif
 
 #if defined(LWS_HAVE_PTHREAD_H)
