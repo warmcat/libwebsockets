@@ -113,6 +113,9 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	case LWS_CALLBACK_ESTABLISHED:
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:
+		if (!h) {
+			return LWSSSSRET_DISCONNECT_ME;
+		}
 		h->retry = 0;
 		h->seqstate = SSSEQ_CONNECTED;
 		lws_sul_cancel(&h->sul);
