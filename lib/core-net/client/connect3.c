@@ -189,7 +189,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	const char *cce = "Unable to connect", *iface, *local_port;
 	const struct sockaddr *psa = NULL;
 	uint16_t port = wsi->conn_port;
-	char dcce[48], t16[16];
+	char dcce[128], t16[16];
 	lws_dns_sort_t *curr;
 	ssize_t plen = 0;
 	lws_dll2_t *d;
