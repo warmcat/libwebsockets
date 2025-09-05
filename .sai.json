@@ -70,6 +70,7 @@
 		}
 	},
 
+
 	"configurations": {
 		"default": {
 			"cmake":	"",
