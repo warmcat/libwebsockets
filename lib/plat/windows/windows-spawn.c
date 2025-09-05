@@ -149,7 +149,7 @@ lws_spawn_piped_destroy(struct lws_spawn_piped **_lsp)
 int
 lws_spawn_reap(struct lws_spawn_piped *lsp)
 {
-
+	lws_spawn_resource_us_t res = { };
 	void *opaque = lsp->info.opaque;
 	lsp_cb_t cb = lsp->info.reap_cb;
 	struct _lws_siginfo_t lsi;
@@ -234,6 +234,11 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	lwsl_notice("%s: process exit 0x%x\n", __func__, lsi.retcode);
 	lsp->child_pid = NULL;
 
+	if (lsp->info.res)
+		res = *lsp->info.res;
+	else
+		res = lsp->res;
+
 	/* destroy the lsp itself first (it's freed and plsp set NULL */
 
 	if (lsp->info.plsp)
@@ -242,7 +247,7 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	/* then do the parent callback informing it's destroyed */
 
 	if (cb)
-		cb(opaque, lsp->info.res ? lsp->info.res : &lsp->res, &lsi, 0);
+		cb(opaque, &res, &lsi, 0);
 
 	lwsl_notice("%s: completed reap\n", __func__);
 

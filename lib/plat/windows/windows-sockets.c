@@ -162,7 +162,7 @@ lws_plat_set_socket_options_ip(lws_sockfd_type fd, uint8_t pri, int lws_flags)
 	 * https://docs.microsoft.com/en-us/windows/win32/winsock/ipproto-ip-socket-options
 	 * https://docs.microsoft.com/en-us/previous-versions/windows/desktop/qos/differentiated-services
 	 */
-	lwsl_warn("%s: priority and ip sockets options not implemented on windows platform\n", __func__);
+	lwsl_info("%s: priority and ip sockets options not implemented on windows platform\n", __func__);
 	
 
 	/*
@@ -194,7 +194,7 @@ lws_plat_set_socket_options_ip(lws_sockfd_type fd, uint8_t pri, int lws_flags)
 #endif
 			ret = 1;
 		} else
-			lwsl_notice("%s: set use exclusive addresses\n", __func__);
+			lwsl_info("%s: set use exclusive addresses\n", __func__);
 	}
 
 
