@@ -1206,6 +1206,16 @@ lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp);
 LWS_VISIBLE LWS_EXTERN void
 lws_spawn_stdwsi_closed(struct lws_spawn_piped *lsp, struct lws *wsi);
 
+/*
+ * lws_spawn_closedown_stdwsis() - forcibly close the spawner side of stdwsi pipes
+ *
+ * \p lsp: the spawn object
+ *
+ * Closes the spawner side of all the stdwsi for an lsp that are still open.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_spawn_closedown_stdwsis(struct lws_spawn_piped *lsp);
+
 /**
  * lws_spawn_get_stdfd() - return std channel index for stdwsi
  *

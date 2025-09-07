@@ -587,6 +587,16 @@ bail1:
 	return NULL;
 }
 
+	void
+lws_spawn_closedown_stdwsis(struct lws_spawn_piped *lsp)
+{
+	int n;
+
+	for (n = 0; n < 3; n++)
+		if (lsp->stdwsi[n])
+			lws_wsi_close(lsp->stdwsi[n], LWS_TO_KILL_ASYNC);
+}
+
 void
 lws_spawn_stdwsi_closed(struct lws_spawn_piped *lsp, struct lws *wsi)
 {
