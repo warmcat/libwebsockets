@@ -350,6 +350,7 @@ else()
 	set(LWS_WITH_LIBCAP OFF)
 endif()
 option(LWS_WITH_MCUFONT_ENCODER "Build the ttf to mcufont encoder" OFF)
+option(LWS_WITH_WAKE_LOGGING "Log each wake reason" OFF)
 
 #
 # Compressed backtraces
