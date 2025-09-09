@@ -249,6 +249,16 @@
 	 * Diffie-Hellman (DH) key exchange ciphers
 	 * (e.g. TLS_DHE_RSA_WITH_AES_256_GCM_SHA384). It's not recommended. */
 
+#define LWS_SERVER_OPTION_MBEDTLS_VERIFY_CLIENT_CERT_POST_HANDSHAKE	 ((1ll << 41) | \
+								 (1ll << 12))
+	/**< (VH) An option to be used with mbedtls only, forces server to load 
+	 * and store the client cert (without CA dependent check)
+	 * to be able to verify it later (after the handshake);
+	 * provides LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT.
+	 * Note: LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT and
+	 * LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED are ignored if
+	 * LWS_SERVER_OPTION_MBEDTLS_VERIFY_CLIENT_CERT_POST_HANDSHAKE is set */
+
 	/****** add new things just above ---^ ******/
 
 

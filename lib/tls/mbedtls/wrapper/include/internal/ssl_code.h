@@ -31,6 +31,7 @@
 # define SSL_VERIFY_PEER                 0x01
 # define SSL_VERIFY_FAIL_IF_NO_PEER_CERT 0x02
 # define SSL_VERIFY_CLIENT_ONCE          0x04
+# define SSL_VERIFY_POST_HANDSHAKE       0x08
 
 /*
  * The following 3 states are kept in ssl->rlayer.rstate when reads fail, you
