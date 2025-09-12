@@ -408,6 +408,16 @@ macro(add_subdir_include_directories arg1)
 	include_directories(${_CMAKE_INC_LIST})
 endmacro()
 
+macro(add_subdir_include_directories_local arg1)
+	add_subdirectory(${arg1})
+	list(APPEND CMAKE_INC_LIST_TEMP ${_CMAKE_INC_LIST})
+endmacro()
+
+macro(add_subdir_include_directories_local_end)
+	set(_CMAKE_INC_LIST ${CMAKE_INC_LIST_TEMP} PARENT_SCOPE)
+endmacro()
+
+
 macro(exports_to_parent_scope)
 	set(SOURCES ${SOURCES} PARENT_SCOPE)
 	if (LIB_LIST)

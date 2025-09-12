@@ -51,7 +51,6 @@ if (LWS_WITH_LWSWS)
 		target_link_libraries(lwsws websockets ${LIB_LIST_AT_END})
 		add_dependencies(lwsws websockets)
 	endif()
-	target_include_directories(lwsws PRIVATE "${LWS_LIB_INCLUDES}" ${LWS_LIB_BUILD_INC_PATHS})
 	# Set test app specific defines.
 	set_property(TARGET lwsws
 		     PROPERTY COMPILE_DEFINITIONS
