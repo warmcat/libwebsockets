@@ -6,7 +6,7 @@
                         "build": [
                                 "mkdir -p build destdir; cd build; CCACHE_DISABLE=1 LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib cmake .. ${cmake}",
                                 "cd build && make -j$SAI_PARALLEL && rm -rf ../destdir && make -j$SAI_PARALLEL DESTDIR=../destdir install",
-				"cd build && ctest -j$SAI_PARALLEL --output-on-failure --repeat until-pass:3",
+				"cd build && LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib ctest -j$SAI_PARALLEL --output-on-failure --repeat until-pass:3",
                                 "cd build && SAI_CPACK=\"-G RPM\" ${cpack}"
                         ]
 		},
@@ -14,7 +14,7 @@
                         "build": [
 				"mkdir -p build destdir; cd build; CCACHE_DISABLE=1 LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib MACOSX_DEPLOYMENT_TARGET=12.5 cmake .. -DCMAKE_MAKE_PROGRAM=/usr/bin/make ${cmake}",
                                 "cd build && make -j$SAI_PARALLEL && rm -rf ../destdir && make -j$SAI_PARALLEL DESTDIR=../destdir install",
-				"cd build && ctest -j$SAI_PARALLEL --output-on-failure --repeat until-pass:3",
+				"cd build && LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib ctest -j$SAI_PARALLEL --output-on-failure --repeat until-pass:3",
                                 "cd build && SAI_CPACK=\"-G ZIP\" ${cpack}"
 			]
 		},
@@ -22,7 +22,7 @@
                         "build": [
 				"mkdir -p build destdir; cd build; CCACHE_DISABLE=1 LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib cmake .. ${cmake}",
                                 "cd build && make -j$SAI_PARALLEL && rm -rf ../destdir && make -j$SAI_PARALLEL DESTDIR=../destdir install",
-				"cd build && ctest -j$SAI_PARALLEL --output-on-failure --repeat until-pass:3",
+				"cd build && LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib ctest -j$SAI_PARALLEL --output-on-failure --repeat until-pass:3",
                                 "cd build && SAI_CPACK=\"-G DEB\" ${cpack}"
 			]
 		},
@@ -30,7 +30,7 @@
                         "build": [
 				"mkdir -p build destdir; cd build; CCACHE_DISABLE=1 LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib cmake .. ${cmake}",
                                 "cd build && make -j$SAI_PARALLEL && rm -rf ../destdir && make -j$SAI_PARALLEL DESTDIR=../destdir install",
-				"cd build && ctest -j$SAI_PARALLEL --output-on-failure --repeat until-pass:3",
+				"cd build && LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib ctest -j$SAI_PARALLEL --output-on-failure --repeat until-pass:3",
                                 "cd build && SAI_CPACK=\"-G RPM\" ${cpack}"
 			]
 		},
@@ -38,7 +38,7 @@
                         "build": [
 				"mkdir -p build destdir; cd build; CCACHE_DISABLE=1 LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib cmake .. ${cmake}",
                                 "cd build && make -j$SAI_PARALLEL && rm -rf ../destdir && make -j$SAI_PARALLEL DESTDIR=../destdir install",
-				"cd build && ctest -j$SAI_PARALLEL --output-on-failure --repeat until-pass:3",
+				"cd build && LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib ctest -j$SAI_PARALLEL --output-on-failure --repeat until-pass:3",
                                 "cd build && SAI_CPACK=\"-G DEB\" ${cpack}"
 			]
 		},
@@ -47,25 +47,23 @@
                         "build": [
 				"mkdir -p build destdir; cd build; CCACHE_DISABLE=1 LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib cmake .. ${cmake}",
                                 "cd build && make -j$SAI_PARALLEL && rm -rf ../destdir && make -j$SAI_PARALLEL DESTDIR=../destdir install",
-				"cd build && /usr/pkg/bin/ctest -j$SAI_PARALLEL --output-on-failure --repeat until-pass:3"
+				"cd build && LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib /usr/pkg/bin/ctest -j$SAI_PARALLEL --output-on-failure --repeat until-pass:3"
 			]
                 },
 		"w11/x86_64-amd/msvc": {
 			"default": false,
-                        "build": [
-				"mkdir -p build; cd build; CCACHE_DISABLE=1 LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib cmake .. -DOPENSSL_ROOT_DIR=\"C:\\Users\\andy\\vcpkg\\packages\\openssl_x64-windows\" -DLWS_EXT_PTHREAD_INCLUDE_DIR=\"C:\\Program Files (x86)\\pthreads\\include\" -DLWS_EXT_PTHREAD_LIBRARIES=\"C:\\Program Files (x86)\\pthreads\\lib\\x64\\libpthreadGC2.a\" ${cmake}",
-                                "cd build && cmake --build . --config DEBUG",
-				"cd build && /usr/pkg/bin/ctest -j$SAI_PARALLEL --output-on-failure --repeat until-pass:3",
-                                "cd build && SAI_CPACK=\"-G ZIP\" ${cpack}"
+			"build": [
+				"\"C:\\Program Files\\CMake\\bin\\cmake.exe\" -S . -B build -DOPENSSL_ROOT_DIR=\"C:\\Users\\andy\\vcpkg\\packages\\openssl_x64-windows\" -DLWS_EXT_PTHREAD_INCLUDE_DIR=\"C:\\Program Files (x86)\\pthreads\\include\" -DLWS_EXT_PTHREAD_LIBRARIES=\"C:\\Program Files (x86)\\pthreads\\lib\\x64\\libpthreadGC2.a\" ${cmake}",
+				"\"C:\\Program Files\\CMake\\bin\\cmake.exe\" --build build --config DEBUG --parallel %SAI_PARALLEL%",
+				"\"C:\\Program Files\\CMake\\bin\\ctest.exe\" --test-dir build -C DEBUG -j%SAI_PARALLEL% --output-on-failure --repeat until-pass:3"
 			]
 		},
 		"freertos-espidf/xl6-esp32/gcc": {
                         "default": false,
                         "build": [
-				"rm -rf ebuild ; mkdir ebuild; cd ebuild;cp -rp ../minimal-examples/embedded/esp32/${cpack} . ;  cd ${cpack} ; rm -flibwebsockets ; ln -sf ../.. libwebsockets",
-				"cp libwebsockets/minimal-examples/embedded/esp32/${cpack}/sdkconfig . && cp sdkconfig.h build",
-				". /opt/esp/esp-idf/export.sh ;  idf.py set-target esp32 && idf.py ${cmake} build size size-components size-files",
-				"cd build && /usr/local/bin/sai-device ${cpack} ESPPORT=0 ctest --output-on-failure"
+				"rm -rf ebuild ; mkdir ebuild; cd ebuild;cp -rp ../minimal-examples/embedded/esp32/${cpack} . ;  cd ${cpack} ; rm -f libwebsockets ; ln -sf ../.. libwebsockets && cp libwebsockets/minimal-examples/embedded/esp32/${cpack}/sdkconfig .",
+				"cd ebuild/${cpack} ; . /opt/esp/esp-idf/export.sh ;  idf.py set-target esp32 && mkdir -p build && cp sdkconfig.h build && idf.py ${cmake} build size size-components size-files",
+				"cd ebuild/${cpack} && /usr/local/bin/sai-device ${cpack} ESPPORT=0 ctest --output-on-failure"
 			]
 		}
 	},
@@ -169,16 +167,16 @@
 			"cmake":	"-DLWS_WITH_NETWORK=0"
 		},
 		"libev": {
-			"cmake":	"-DLWS_WITH_LIBEV=ON"
+			"cmake":	"-DLWS_WITH_LIBEV=ON -DLWS_WITH_PLUGINS=1"
 		},
 		"libevent": {
-			"cmake":	"-DLWS_WITH_LIBEVENT=ON"
+			"cmake":	"-DLWS_WITH_LIBEVENT=ON -DLWS_WITH_PLUGINS=1"
 		},
 		"libglib": {
-			"cmake":	"-DLWS_WITH_GLIB=ON"
+			"cmake":	"-DLWS_WITH_GLIB=ON -DLWS_WITH_PLUGINS=1"
 		},
 		"sdevent": {
-			"cmake":	"-DLWS_WITH_SDEVENT=ON",
+			"cmake":	"-DLWS_WITH_SDEVENT=ON -DLWS_WITH_PLUGINS=1",
 			"platforms":    "not netbsd-OSX-bigsur/x86_64-intel-i3/llvm"
 		},
 		"uncommon_headers": {
