@@ -267,7 +267,10 @@ lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp)
 
 	lwsl_warn("%s: calling TerminateProcess on child pid\n", __func__);
 	TerminateProcess(lsp->child_pid, 252);
-	lws_spawn_reap(lsp);
+	/*
+	 * Don't reap immediately, TerminateProcess is async and it may not
+	 * have happened yet. The normal reap flow will get it.
+	 */
 
 	/* that may have invalidated lsp */
 
