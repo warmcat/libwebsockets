@@ -48,7 +48,8 @@ if (requirements)
 				set(CTEST_SOCKET_PATH "@ctest-ssptf-$ENV{SAI_PROJECT}-$ENV{SAI_OVN}")
 			else()
 				# filesystem socket for others
-				set(CTEST_SOCKET_PATH "/tmp/ctest-ssptf-$ENV{SAI_PROJECT}-$ENV{SAI_OVN}")
+				string(SUBSTRING "$ENV{SAI_OVN}" 32 16 SHORT_HASH)
+				set(CTEST_SOCKET_PATH "/tmp/ctest-ssptf-$ENV{SAI_PROJECT}-${SHORT_HASH}")
 			endif()
 			add_test(NAME st_sstfproxy COMMAND
 				${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
