@@ -152,9 +152,8 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	lws_spawn_resource_us_t res = { };
 	void *opaque = lsp->info.opaque;
 	lsp_cb_t cb = lsp->info.reap_cb;
-	struct _lws_siginfo_t lsi;
 	PROCESS_MEMORY_COUNTERS pmc;
-	// IO_COUNTERS ic;
+	struct _lws_siginfo_t lsi;
 	ULARGE_INTEGER uli;
 	FILETIME ftk, ftu;
 	DWORD ex;
@@ -163,7 +162,7 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 		return 0;
 
 	if (!GetExitCodeProcess(lsp->child_pid, &ex)) {
-		lwsl_notice("%s: GetExitCodeProcess failed\n", __func__);
+               lwsl_notice("%s: GetExitCodeProcess failed, GetLastError: 0x%lx\n", __func__, (unsigned long)GetLastError());
 		return 0;
 	}
 
@@ -214,21 +213,21 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 		uli.LowPart = ftu.dwLowDateTime;
 		uli.HighPart = ftu.dwHighDateTime;
 		lsp->res.us_cpu_user = uli.QuadPart / 10;
+		if (lsp->info.res)
+			lsp->info.res->us_cpu_user = lsp->res.us_cpu_user;
 
 		uli.LowPart = ftk.dwLowDateTime;
 		uli.HighPart = ftk.dwHighDateTime;
 		lsp->res.us_cpu_sys = uli.QuadPart / 10;
+		if (lsp->info.res)
+			lsp->info.res->us_cpu_sys = lsp->res.us_cpu_sys;
 	}
 
-	if (GetProcessMemoryInfo(lsp->child_pid, &pmc, sizeof(pmc)))
+	if (GetProcessMemoryInfo(lsp->child_pid, &pmc, sizeof(pmc))) {
 		lsp->res.peak_mem_rss = pmc.PeakWorkingSetSize;
-
-	/*
-	if (GetProcessIoCounters(lsp->child_pid, &ic)) {
-		lsp->res.io_r_bytes = ic.ReadTransferCount;
-		lsp->res.io_w_bytes = ic.WriteTransferCount;
+		if (lsp->info.res)
+			lsp->info.res->peak_mem_rss = lsp->res.peak_mem_rss;
 	}
-	*/
 
 	lsi.retcode = 0x10000 | (int)ex;
 	lwsl_notice("%s: process exit 0x%x\n", __func__, lsi.retcode);
@@ -267,7 +266,10 @@ lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp)
 		return 0;
 
 	lwsl_warn("%s: calling TerminateProcess on child pid\n", __func__);
-	TerminateProcess(lsp->child_pid, 252);
+       if (!TerminateProcess(lsp->child_pid, 252)) {
+               lwsl_warn("%s: TerminateProcess failed: 0x%lx\n", __func__, (unsigned long)GetLastError());
+               return 0;
+       }
 	lws_spawn_reap(lsp);
 
 	/* that may have invalidated lsp */
@@ -534,6 +536,7 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	}
 
 	lsp->child_pid = pi.hProcess;
+	CloseHandle(pi.hThread);
 
 	lwsl_notice("%s: lsp %p spawned PID %d\n", __func__, lsp, lsp->child_pid);
 
