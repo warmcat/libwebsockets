@@ -163,7 +163,8 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 		return 0;
 
 	if (!GetExitCodeProcess(lsp->child_pid, &ex)) {
-		lwsl_notice("%s: GetExitCodeProcess failed\n", __func__);
+		lwsl_notice("%s: GetExitCodeProcess failed, GLE %d\n",
+			    __func__, (int)GetLastError());
 		return 0;
 	}
 
@@ -232,12 +233,11 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 
 	lsi.retcode = 0x10000 | (int)ex;
 	lwsl_notice("%s: process exit 0x%x\n", __func__, lsi.retcode);
+	CloseHandle(lsp->child_pid);
 	lsp->child_pid = NULL;
 
 	if (lsp->info.res)
-		res = *lsp->info.res;
-	else
-		res = lsp->res;
+		*lsp->info.res = lsp->res;
 
 	/* destroy the lsp itself first (it's freed and plsp set NULL */
 
@@ -247,7 +247,7 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	/* then do the parent callback informing it's destroyed */
 
 	if (cb)
-		cb(opaque, &res, &lsi, 0);
+		cb(opaque, lsp->info.res ? lsp->info.res : &lsp->res, &lsi, 0);
 
 	lwsl_notice("%s: completed reap\n", __func__);
 
@@ -266,15 +266,12 @@ lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp)
 		/* that may have invalidated lsp */
 		return 0;
 
-	lwsl_warn("%s: calling TerminateProcess on child pid\n", __func__);
-	TerminateProcess(lsp->child_pid, 252);
-
-	/*
-	 * give the terminated process a moment to die before we check
-	 * on it, since TerminateProcess() is async
-	 */
-	lws_sul_schedule(lsp->context, 0, &lsp->sul_reap,
-			 lws_spawn_sul_reap, 100 * LWS_US_PER_MS);
+	lwsl_warn("%s: calling TerminateProcess on child pid %p\n", __func__,
+		  lsp->child_pid);
+	if (!TerminateProcess(lsp->child_pid, 252))
+		lwsl_err("%s: TerminateProcess failed GLE %d\n", __func__,
+			 (int)GetLastError());
+	lws_spawn_reap(lsp);
 
 	/* that may have invalidated lsp */
 
@@ -540,8 +537,9 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	}
 
 	lsp->child_pid = pi.hProcess;
+	CloseHandle(pi.hThread);
 
-	lwsl_notice("%s: lsp %p spawned PID %d\n", __func__, lsp, lsp->child_pid);
+	lwsl_notice("%s: lsp %p spawned PID %p\n", __func__, lsp, lsp->child_pid);
 
 	lws_sul_schedule(context, i->tsi, &lsp->sul, lws_spawn_timeout,
 			 i->timeout_us ? i->timeout_us : 300 * LWS_US_PER_SEC);
