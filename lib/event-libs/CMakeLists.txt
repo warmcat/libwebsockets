@@ -31,6 +31,10 @@ macro(create_evlib_plugin PLUGIN_NAME MAIN_SRC PLUGIN_HDR EVLIB)
 	source_group("Headers Private"   FILES ${PLUGIN_HDR})
 	source_group("Sources"   FILES ${MAIN_SRC})
 	add_library(websockets-${PLUGIN_NAME} SHARED ${MAIN_SRC} ${PLUGIN_HDR})
+	if (LWS_HAVE_VISIBILITY)
+		set_target_properties(websockets-${PLUGIN_NAME} PROPERTIES
+			C_VISIBILITY_PRESET default)
+	endif()
 
 	if (APPLE)
 		set_property(TARGET websockets-${PLUGIN_NAME} PROPERTY MACOSX_RPATH YES)
@@ -42,7 +46,7 @@ macro(create_evlib_plugin PLUGIN_NAME MAIN_SRC PLUGIN_HDR EVLIB)
 
 	target_link_libraries(websockets-${PLUGIN_NAME} websockets_shared ${EVLIB})
 	add_dependencies(websockets-${PLUGIN_NAME} websockets_shared)
-	target_compile_definitions(websockets-${PLUGIN_NAME} PRIVATE ${LWS_BUILDING_SHARED} LWS_WITH_EVLIB_PLUGINS)
+	target_compile_definitions(websockets-${PLUGIN_NAME} PRIVATE ${LWS_BUILDING_SHARED})
 
 	target_include_directories(websockets-${PLUGIN_NAME} PRIVATE
 			${PLUGIN_INCLUDE} ${LWS_LIB_BUILD_INC_PATHS}
