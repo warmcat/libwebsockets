@@ -14,7 +14,7 @@
                         "build": [
 				"mkdir -p build destdir; cd build; CCACHE_DISABLE=1 LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib MACOSX_DEPLOYMENT_TARGET=12.5 cmake .. -DCMAKE_MAKE_PROGRAM=/usr/bin/make ${cmake}",
                                 "cd build && make -j$SAI_PARALLEL && rm -rf ../destdir && make -j$SAI_PARALLEL DESTDIR=../destdir install",
-				"cd build && LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib ctest -j$SAI_PARALLEL --output-on-failure --repeat until-pass:3",
+				"cd build ; export LD_LIBRARY_PATH=\"$HOME/jobs/$SAI_VN/src/build/lib\" ; ctest -j$SAI_PARALLEL --output-on-failure --repeat until-pass:3",
                                 "cd build && SAI_CPACK=\"-G ZIP\" ${cpack}"
 			]
 		},
@@ -61,9 +61,9 @@
 		"freertos-espidf/xl6-esp32/gcc": {
                         "default": false,
                         "build": [
-				"rm -rf ebuild ; mkdir ebuild; cd ebuild;cp -rp ../minimal-examples/embedded/esp32/${cpack} . ;  cd ${cpack} ; rm -f libwebsockets ; ln -sf ../.. libwebsockets && cp libwebsockets/minimal-examples/embedded/esp32/${cpack}/sdkconfig .",
-				"cd ebuild/${cpack} ; . /opt/esp/esp-idf/export.sh ;  idf.py set-target esp32 && mkdir -p build && cp sdkconfig.h build && idf.py ${cmake} build size size-components size-files",
-				"cd ebuild/${cpack} && /usr/local/bin/sai-device ${cpack} ESPPORT=0 ctest --output-on-failure"
+				"rm -rf ebuild ; mkdir ebuild; cd ebuild;cp -rp ../minimal-examples/embedded/esp32/${cpack} . ;  cd ${cpack} ; rm -f libwebsockets ; ln -sf ../.. libwebsockets",
+				"cd ebuild/${cpack} ; . /opt/esp/esp-idf/export.sh ; rm -rf build ; idf.py set-target esp32 && cp partitions.csv sdkconfig.h build && cp -rp sdkconfig.old sdkconfig && cp sdkconfig build && idf.py ${cmake} build size size-components size-files",
+				". /opt/esp/esp-idf/export.sh && pwd && cd ebuild/${cpack}/build && /usr/local/bin/sai-device ${cpack} ESPPORT=0 ctest --output-on-failure"
 			]
 		}
 	},
