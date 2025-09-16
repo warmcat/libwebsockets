@@ -358,6 +358,14 @@ done_list:
 		lws_vhost_bind_wsi(a->vhost, wsi);
 		wsi->listener = 1;
 
+		n = listen(wsi->desc.sockfd, LWS_SOMAXCONN);
+		if (n < 0) {
+			lwsl_err("listen failed with error %d\n", LWS_ERRNO);
+			lws_dll2_remove(&wsi->listen_list);
+			__remove_wsi_socket_from_fds(wsi);
+			goto bail;
+		}
+
 		if (wsi->a.context->event_loop_ops->init_vhost_listen_wsi)
 			wsi->a.context->event_loop_ops->init_vhost_listen_wsi(wsi);
 
@@ -399,14 +407,6 @@ done_list:
 		}
 #endif
 #endif
-
-		n = listen(wsi->desc.sockfd, LWS_SOMAXCONN);
-		if (n < 0) {
-			lwsl_err("listen failed with error %d\n", LWS_ERRNO);
-			lws_dll2_remove(&wsi->listen_list);
-			__remove_wsi_socket_from_fds(wsi);
-			goto bail;
-		}
 
 		if (wsi) {
 			if (a->info && a->info->vh_listen_sockfd)
