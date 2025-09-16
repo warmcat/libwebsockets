@@ -40,8 +40,9 @@
 
 struct per_session_data__post_demo {
 	struct lws_spa *spa;
+	struct lws *wsi;
 	char result[LWS_PRE + LWS_RECOMMENDED_MIN_HEADER_SPACE];
-	char filename[64];
+	char filename[128];
 	long file_length;
 #if !defined(LWS_WITH_ESP32)
 	lws_filefd_type fd;
@@ -81,10 +82,12 @@ file_upload_cb(void *data, const char *name, const char *filename,
 	case LWS_UFS_OPEN:
 		lws_strncpy(pss->filename, filename, sizeof(pss->filename));
 		/* we get the original filename in @filename arg, but for
-		 * simple demo use a fixed name so we don't have to deal with
+		 * simple demo use a unique name so we don't have to deal with
 		 * attacks  */
 #if !defined(LWS_WITH_ESP32)
-		pss->fd = (lws_filefd_type)(lws_intptr_t)lws_open("/tmp/post-file",
+		lws_snprintf(pss->filename, sizeof(pss->filename),
+			     "/tmp/post-file-%p", pss->wsi);
+		pss->fd = (lws_filefd_type)(lws_intptr_t)lws_open(pss->filename,
 			       O_CREAT | O_TRUNC | O_RDWR, 0600);
 #endif
 		break;
@@ -189,6 +192,7 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_HTTP_BODY:
 		/* create the POST argument parser if not already existing */
 		if (!pss->spa) {
+			pss->wsi = wsi;
 			pss->spa = lws_spa_create(wsi, param_names,
 					LWS_ARRAY_SIZE(param_names), 1024,
 					file_upload_cb, pss);

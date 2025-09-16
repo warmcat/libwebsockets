@@ -24,15 +24,15 @@ if [ -z "${SAI_LIST_PORT}" ] ; then
 		sleep 1
 	fi
 else
-	if [ "${VENDOR}" = "apple" ] ; then
-		while [ -z "`lsof -iTCP -sTCP:LISTEN -P -n | grep -- ':${SAI_LIST_PORT}'`" ] ; do
-			sleep 0.5
-		done
-	else
-		while [ -z "`netstat -ltn4 | grep LISTEN | tr -s ' ' | grep ":${SAI_LIST_PORT}\ "`" ] ; do
-			sleep 0.5
-		done
-	fi
+       if [ "${VENDOR}" = "apple" ] ; then
+               while [ -z "`netstat -an | grep LISTEN | tr -s ' ' | cut -d' ' -f4| grep "\.${SAI_LIST_PORT}\$"`" ] ; do
+                       sleep 0.5
+               done
+       else
+               while [ -z "`netstat -ltn4 | grep LISTEN | tr -s ' ' | grep ":${SAI_LIST_PORT}\ "`" ] ; do
+                       sleep 0.5
+               done
+       fi
 
 	sleep 1
 fi
