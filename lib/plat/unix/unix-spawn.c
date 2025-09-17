@@ -768,7 +768,7 @@ lws_spawn_closedown_stdwsis(struct lws_spawn_piped *lsp)
 			lws_wsi_close(lsp->stdwsi[n], LWS_TO_KILL_ASYNC);
 }
 
-void
+int
 lws_spawn_stdwsi_closed(struct lws_spawn_piped *lsp, struct lws *wsi)
 {
 	int n;
@@ -784,7 +784,9 @@ lws_spawn_stdwsi_closed(struct lws_spawn_piped *lsp, struct lws *wsi)
 			goto found;
 
 	/* Not found, so must have been destroyed already */
-	return;
+	lwsl_warn("%s: ----------------- didn't find stdwsi on lsp\n", __func__);
+
+	return 0;
 
 found:
  
@@ -798,6 +800,14 @@ found:
 	for (n = 0; n < 3; n++)
 		if (lsp->stdwsi[n] == wsi)
 			lsp->stdwsi[n] = NULL;
+
+	return !lsp->pipes_alive;
+}
+
+int
+lws_spawn_get_stdwsi_open_count(struct lws_spawn_piped *lsp)
+{
+	return lsp->pipes_alive;
 }
 
 int

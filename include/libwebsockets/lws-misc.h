@@ -1191,6 +1191,16 @@ LWS_VISIBLE LWS_EXTERN int
 lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp);
 
 /**
+ * lws_spawn_get_stdwsi_open_count() - return stdwsi unclosed count
+ *
+ * \p lsp: the spawn object
+ *
+ * Returns number of stdwsi left unclosed on the lsp.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_spawn_get_stdwsi_open_count(struct lws_spawn_piped *lsp);
+
+/**
  * lws_spawn_stdwsi_closed() - inform the spawn one of its stdxxx pipes closed
  *
  * \p lsp: the spawn object
@@ -1202,8 +1212,10 @@ lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp);
  *
  * This is the mechanism whereby the spawn object can understand its child
  * has closed.
+ *
+ * Returns non-zero if there are no more stdwsi to wait for.
  */
-LWS_VISIBLE LWS_EXTERN void
+LWS_VISIBLE LWS_EXTERN int
 lws_spawn_stdwsi_closed(struct lws_spawn_piped *lsp, struct lws *wsi);
 
 /*

@@ -590,7 +590,13 @@ bail1:
 	return NULL;
 }
 
-	void
+int
+lws_spawn_get_stdwsi_open_count(struct lws_spawn_piped *lsp)
+{
+	return lsp->pipes_alive;
+}
+
+void
 lws_spawn_closedown_stdwsis(struct lws_spawn_piped *lsp)
 {
 	int n;
@@ -600,7 +606,7 @@ lws_spawn_closedown_stdwsis(struct lws_spawn_piped *lsp)
 			lws_wsi_close(lsp->stdwsi[n], LWS_TO_KILL_ASYNC);
 }
 
-void
+int
 lws_spawn_stdwsi_closed(struct lws_spawn_piped *lsp, struct lws *wsi)
 {
 	int n;
@@ -618,10 +624,12 @@ lws_spawn_stdwsi_closed(struct lws_spawn_piped *lsp, struct lws *wsi)
                if (lsp->stdwsi[n] == wsi) {
                        lwsl_wsi_warn(wsi, "Identified stxxx wsi in lsp");
 			lsp->stdwsi[n] = NULL;
-                       return;
+                       return !!lsp->pipes_alive;
                }
 
        lwsl_wsi_warn(wsi, "!!! unable to find stdwsi in lsp %p", lsp);
+
+	return !!lsp->pipes_alive;
 }
 
 int
