@@ -1,7 +1,7 @@
 /*
  * lws-api-test-dir
  *
- * Written in 2010-2019 by Andy Green <andy@warmcat.com>
+ * Written in 2010-2025 by Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -15,9 +15,6 @@
 #include <direct.h>
 #define mkdir(x,y) _mkdir(x)
 #define rmdir _rmdir
-#define WRITE_LENGTH_CAST(x) (unsigned int)(x)
-#else
-#define WRITE_LENGTH_CAST(x) (x)
 #endif
 
 static int
@@ -36,7 +33,7 @@ create_file(const char *path, size_t size)
 		size_t w = sizeof(buf);
 		if (w > s)
 			w = s;
-		if (write(fd, buf, WRITE_LENGTH_CAST(w)) != (ssize_t)w) {
+		if (write(fd, buf, LWS_POSIX_LENGTH_CAST(w)) != (ssize_t)w) {
 			close(fd);
 			return 1;
 		}

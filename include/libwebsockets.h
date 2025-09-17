@@ -156,8 +156,12 @@ typedef int suseconds_t;
 #define __func__ __FUNCTION__
 #endif
 
+#define LWS_POSIX_LENGTH_CAST(x) (unsigned int)(x)
+
 #else /* NOT WIN32 */
 #include <unistd.h>
+
+#define LWS_POSIX_LENGTH_CAST(x) (x)
 
 #if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
 #include <sys/capability.h>
