@@ -84,6 +84,8 @@ lws_lhp_image_dimensions_cb(lws_sorted_usec_list_t *sul)
 	lws_lhp_ss_html_parse_from_lhp(m->lhp);
 }
 
+#if defined(LWS_WITH_SECURE_STREAMS)
+
 /* secure streams payload interface */
 
 static lws_ss_state_return_t
@@ -187,6 +189,7 @@ static LWS_SS_INFO("__default", dloss_t)
 	.rx				= dloss_rx,
 	.state				= dloss_state
 };
+#endif
 
 /*
  * If we have an active image asset from this URL, return a pointer to its
@@ -196,6 +199,7 @@ static LWS_SS_INFO("__default", dloss_t)
 int
 lws_dlo_ss_find(struct lws_context *cx, const char *url, lws_dlo_image_t *u)
 {
+#if defined(LWS_WITH_SECURE_STREAMS)
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			      lws_dll2_get_head(&cx->active_assets)) {
 		dloss_t *ds = lws_container_of(d, dloss_t, active_asset_list);
@@ -207,13 +211,14 @@ lws_dlo_ss_find(struct lws_context *cx, const char *url, lws_dlo_image_t *u)
 		}
 
 	} lws_end_foreach_dll(d);
-
+#endif
 	return 1; /* not found */
 }
 
 int
 lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 {
+#if defined(LWS_WITH_SECURE_STREAMS)
 	lws_dlo_jpeg_t *dlo_jpeg = NULL;
 	lws_dlo_png_t *dlo_png = NULL;
 	size_t ul = strlen(i->url);
@@ -337,6 +342,6 @@ fail:
 		lws_display_dlo_jpeg_destroy(&dlo_jpeg->dlo);
 		break;
 	}
-
+#endif
 	return 1;
 }

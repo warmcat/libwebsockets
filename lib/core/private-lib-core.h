@@ -321,7 +321,9 @@ struct lws_ring {
 struct lws_protocols;
 struct lws;
 
+#if defined(LWS_WITH_SECURE_STREAMS)
 #include "private-lib-secure-streams.h"
+#endif
 
 #if defined(LWS_WITH_NETWORK) /* network */
 #include "private-lib-event-libs.h"
