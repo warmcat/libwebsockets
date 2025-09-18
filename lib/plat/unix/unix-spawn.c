@@ -279,6 +279,14 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	return 1; /* was reaped */
 }
 
+/*
+ * We send the child a SIGTERM, that's all.
+ *
+ * The process should terminate, closing the stdwsi.  The stdwsi pipes on
+ * our side should indicate they need handling and CLOSE.  When the last
+ * one CLOSEs, the lws_spawn_stdwsi_closed() api should do the reap.
+ */
+
 int
 lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp)
 {
@@ -288,10 +296,6 @@ lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp)
 		return 1;
 
 	lsp->ungraceful = 1; /* don't wait for flushing, just kill it */
-
-	if (lws_spawn_reap(lsp))
-		/* that may have invalidated lsp */
-		return 0;
 
 	/* kill the process group */
 	n = kill(-lsp->child_pid, SIGTERM);
@@ -331,9 +335,6 @@ lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp)
 				lwsl_debug("%s: reaped PID %d\n", __func__, n);
 		}
 	}
-
-	lws_spawn_reap(lsp);
-	/* that may have invalidated lsp */
 
 	return 0;
 }
