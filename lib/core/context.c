@@ -2108,11 +2108,13 @@ next:
 
 		lwsl_cx_info(context, "manually destroying pts");
 
+#if 0
 		pt = context->pt;
 		for (n = 0; n < context->count_threads; n++, pt++) {
 			pt->event_loop_pt_unused = 1;
-			lws_pt_destroy(pt);
+			/* lws_pt_destroy(pt); */
 		}
+#endif
 #endif
 		/* fallthru */
 
@@ -2209,6 +2211,8 @@ next:
 
 			(void)pt;
 
+			lws_pt_destroy(pt);
+
 			LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar) {
 				if (lws_rops_fidx(ar, LWS_ROPS_pt_init_destroy))
 					(lws_rops_func_fidx(ar, LWS_ROPS_pt_init_destroy)).
@@ -2274,6 +2278,8 @@ next:
 
 		for (n = 0; n < context->count_threads; n++) {
 			struct lws_context_per_thread *pt = &context->pt[n];
+
+			lws_pt_destroy(pt);
 
 			/*
 			 * Destroy the pt-roles

@@ -268,6 +268,8 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_spa_destroy(pss->spa);
 			pss->spa = NULL;
 		}
+		if (pss->filename[0])
+			unlink(pss->filename);
 		break;
 
 	default:

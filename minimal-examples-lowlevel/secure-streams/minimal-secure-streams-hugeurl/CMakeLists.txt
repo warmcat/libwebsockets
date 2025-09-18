@@ -71,7 +71,8 @@ if (requirements)
 				set(CTEST_SOCKET_PATH "@ctest-ssp-hurl-$ENV{SAI_PROJECT}-$ENV{SAI_OVN}")
 			else()
 				# filesystem socket for others
-				set(CTEST_SOCKET_PATH "/tmp/ctest-ssp-hurl-$ENV{SAI_PROJECT}-$ENV{SAI_OVN}")
+				string(SUBSTRING "$ENV{SAI_OVN}" 0 16 SHORT_HASH)
+				set(CTEST_SOCKET_PATH "/tmp/ctest-ssp-hurl-$ENV{SAI_PROJECT}-${SHORT_HASH}")
 			endif()
 			add_test(NAME st_ssproxy-hurl COMMAND
 				${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
