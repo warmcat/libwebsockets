@@ -813,6 +813,13 @@ typedef int
 lws_dir_callback_function(const char *dirpath, void *user,
 			  struct lws_dir_entry *lde);
 
+struct lws_dir_info {
+	const char 			*dirpath;
+	void 				*user;
+	lws_dir_callback_function	*cb;
+	unsigned char			do_toplevel_cb:1;
+};
+
 /**
  * lws_dir() - get a callback for everything in a directory
  *
@@ -822,11 +829,41 @@ lws_dir_callback_function(const char *dirpath, void *user,
  *
  * Calls \p cb (with \p user) for every object in dirpath.
  *
+ * This form does not call the callback for the toplevel, dirpath dir
+ * itself.  If you want to do that, use lws_dir_via_info(), with
+ * .do_toplevel_cb nonzero.
+ *
  * This wraps whether it's using POSIX apis, or libuv (as needed for windows,
  * since it refuses to support POSIX apis for this).
+ *
+ * Returns 1 if completed normally or 0 if the recursion ended early.
+ *
+ * This is here for historical reasons, use the below lws_dir_via_info() for
+ * new code, it's the same function but using an info struct type args.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb);
+
+/**
+ * lws_dir_via_info() - get a callback for everything in a directory
+ *
+ * \param info: details of what to scan and how
+ *
+ * All of the members of \p info should be set on entry.
+ *
+ * Calls \p info.cb (with \p info.user) for every object in info.dirpath.
+ *
+ * Set \p info.do_toplevel_cb to nonzero if you also want the callback to
+ * be called for the toplevel dir, ie, dirpath itself.
+ *
+ * This wraps whether it's using POSIX apis, or libuv (as needed for windows,
+ * since it refuses to support POSIX apis for this).
+ *
+ * Returns 1 if completed normally or 0 if the recursion ended early.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dir_via_info(struct lws_dir_info *info);
+
 
 /**
  * lws_dir_rm_rf_cb() - callback for lws_dir that performs recursive rm -rf
