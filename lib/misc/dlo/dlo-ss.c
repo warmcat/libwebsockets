@@ -27,6 +27,8 @@
 #include <private-lib-core.h>
 #include "private-lib-drivers-display-dlo.h"
 
+#if defined(LWS_WITH_LHP)
+
 LWS_SS_USER_TYPEDEF
 	sul_cb_t			on_rx;
 	lhp_ctx_t			*lhp;
@@ -37,6 +39,7 @@ LWS_SS_USER_TYPEDEF
 	uint8_t				type; /* LWSDLOSS_TYPE_ */
 	char				url[96];
 } dloss_t;
+
 
 /*
  * dlo images call back here when they have their dimensions (or have failed)
@@ -345,3 +348,5 @@ fail:
 #endif
 	return 1;
 }
+#endif
+
