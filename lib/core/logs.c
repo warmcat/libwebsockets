@@ -146,6 +146,11 @@ __lws_lc_tag_append(lws_lifecycle_t *lc, const char *app)
 	if (n && lc->gutag[n - 1] == ']')
 		n--;
 
+	if (!lc->recycle_len)
+		lc->recycle_len = (uint8_t)n;
+	else
+		n = lc->recycle_len;
+
 	n += lws_snprintf(&lc->gutag[n], sizeof(lc->gutag) - 2u -
 					 (unsigned int)n, "|%s]", app);
 

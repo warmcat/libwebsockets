@@ -209,6 +209,7 @@ typedef struct lws_lifecycle {
 	lws_dll2_t			list; /* group list membership */
 	uint64_t			us_creation; /* creation timestamp */
 	lws_log_cx_t			*log_cx;
+	uint8_t				recycle_len;
 } lws_lifecycle_t;
 
 void
