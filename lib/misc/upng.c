@@ -276,7 +276,7 @@ lws_upng_emit_next_line(lws_upng_t *u, const uint8_t **ppix,
 		unsigned long x;
 
 		for (x = 0; x < (unsigned long)u->width * (unsigned long)uf->bpp; x++) {
-			uint8_t bit = (uint8_t)((uf->in[(uf->ibp) >> 3] >>
+			uint8_t bit = (uint8_t)((uf->in[((uf->ibp) >> 3) % u->inf.info_size] >>
 						(7 - ((uf->ibp) & 7))) & 1);
 			uf->ibp++;
 
