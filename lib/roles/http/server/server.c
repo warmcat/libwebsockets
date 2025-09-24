@@ -2379,49 +2379,49 @@ raw_transition:
 						HTTP_STATUS_FORBIDDEN, NULL) ||
 				    lws_http_transaction_completed(wsi))
 					goto bail_nuke_ah;
-			}
+			} else {
+				n = user_callback_handle_rxflow(wsi->a.protocol->callback,
+						wsi, LWS_CALLBACK_HTTP_CONFIRM_UPGRADE,
+						wsi->user_space, (char *)up, 0);
 
-			n = user_callback_handle_rxflow(wsi->a.protocol->callback,
-					wsi, LWS_CALLBACK_HTTP_CONFIRM_UPGRADE,
-					wsi->user_space, (char *)up, 0);
+				/* just hang up? */
 
-			/* just hang up? */
-
-			if (n < 0)
-				goto bail_nuke_ah;
-
-			/* callback returned headers already, do t_c? */
-
-			if (n > 0) {
-				if (lws_http_transaction_completed(wsi))
+				if (n < 0)
 					goto bail_nuke_ah;
 
-				/* continue on */
+				/* callback returned headers already, do t_c? */
 
-				return 0;
-			}
+				if (n > 0) {
+				    if (lws_http_transaction_completed(wsi))
+					goto bail_nuke_ah;
 
-			/* callback said 0, it was allowed */
+				    /* continue on */
 
-			if (wsi->a.vhost->options &
-			    LWS_SERVER_OPTION_VHOST_UPG_STRICT_HOST_CHECK &&
-			    lws_confirm_host_header(wsi))
-				goto bail_nuke_ah;
+				    return 0;
+				}
 
-			if (!strcasecmp(up, "websocket")) {
+				/* callback said 0, it was allowed */
+
+				if (wsi->a.vhost->options &
+					LWS_SERVER_OPTION_VHOST_UPG_STRICT_HOST_CHECK &&
+					lws_confirm_host_header(wsi))
+				    goto bail_nuke_ah;
+
+				if (!strcasecmp(up, "websocket")) {
 #if defined(LWS_ROLE_WS)
-				lws_metrics_tag_wsi_add(wsi, "upg", "ws");
-				lwsl_info("Upgrade to ws\n");
-				goto upgrade_ws;
+					lws_metrics_tag_wsi_add(wsi, "upg", "ws");
+					lwsl_info("Upgrade to ws\n");
+					goto upgrade_ws;
 #endif
-			}
+				}
 #if defined(LWS_WITH_HTTP2)
-			if (!strcasecmp(up, "h2c")) {
-				lws_metrics_tag_wsi_add(wsi, "upg", "h2c");
-				lwsl_info("Upgrade to h2c\n");
-				goto upgrade_h2c;
-			}
+				if (!strcasecmp(up, "h2c")) {
+				    lws_metrics_tag_wsi_add(wsi, "upg", "h2c");
+				    lwsl_info("Upgrade to h2c\n");
+				    goto upgrade_h2c;
+				}
 #endif
+			}
 		}
 
 		/* no upgrade ack... he remained as HTTP */
