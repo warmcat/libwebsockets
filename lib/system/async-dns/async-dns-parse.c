@@ -35,7 +35,7 @@ lws_adns_parse_label(const uint8_t *pkt, int len, const uint8_t *ls, int budget,
 	const uint8_t *e = pkt + len, *ols = ls;
 	char pointer = 0, first = 1;
 	uint8_t ll;
-	int n;
+	int n, readsize = 0;
 
 	if (budget < 1)
 		return 0;
@@ -88,7 +88,7 @@ again1:
 		return -1;
 	}
 
-	if ((unsigned int)ll + 2 > dl) {
+	if ((unsigned int)(ll + 2 + readsize) > dl) {
 		lwsl_notice("%s: qname too large\n", __func__);
 
 		return -1;
@@ -101,6 +101,7 @@ again1:
 	(*dest)[ll + 1] = '\0';
 	*dest += ll + 1;
 	ls += ll;
+	readsize += ll + 1;
 
 	if (pointer) {
 		if (*ls)
