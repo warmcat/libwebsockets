@@ -66,9 +66,10 @@ callback_minimal_server_echo(struct lws *wsi, enum lws_callback_reasons reason,
 	struct vhd_minimal_server_echo *vhd = (struct vhd_minimal_server_echo *)
 			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 				lws_get_protocol(wsi));
+	enum lws_write_protocol flags;
 	const struct msg *pmsg;
 	struct msg amsg;
-	int m, n, flags;
+	int m, n;
 
 	switch (reason) {
 
@@ -124,7 +125,7 @@ callback_minimal_server_echo(struct lws *wsi, enum lws_callback_reasons reason,
 
 		/* notice we allowed for LWS_PRE in the payload already */
 		m = lws_write(wsi, ((unsigned char *)pmsg->payload) +
-			      LWS_PRE, pmsg->len, (enum lws_write_protocol)flags);
+			      LWS_PRE, pmsg->len, flags);
 		if (m < (int)pmsg->len) {
 			lwsl_err("ERROR %d writing to ws socket\n", m);
 			return -1;

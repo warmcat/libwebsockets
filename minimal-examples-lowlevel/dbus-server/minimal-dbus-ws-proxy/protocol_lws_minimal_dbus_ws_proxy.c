@@ -638,8 +638,9 @@ callback_minimal_dbus_wsproxy(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 						 lws_get_protocol(wsi));
 	struct lws_dbus_ctx_wsproxy *wspctx;
+	enum lws_write_protocol flags;
 	const struct msg *pmsg;
-	int flags, m;
+	int m;
 
 	switch (reason) {
 

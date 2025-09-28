@@ -88,7 +88,8 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
                         lws_protocol_vh_priv_get(lws_get_vhost(wsi),
                                 lws_get_protocol(wsi));
 	uint8_t buf[LWS_PRE + MESSAGE_SIZE], *start = &buf[LWS_PRE], *p;
-	int n, m, flags, olen, amount;
+	enum lws_write_protocol flags;
+	int n, m, olen, amount;
 
 	switch (reason) {
         case LWS_CALLBACK_PROTOCOL_INIT:
@@ -158,7 +159,7 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		n = lws_ptr_diff(p, start);
-		m = lws_write(wsi, start, (unsigned int)n, (enum lws_write_protocol)flags);
+		m = lws_write(wsi, start, (unsigned int)n, flags);
 		lwsl_user("LWS_CALLBACK_SERVER_WRITEABLE: wrote %d\n", n);
 		if (m < n) {
 			lwsl_err("ERROR %d / %d writing ws\n", m, n);

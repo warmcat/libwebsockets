@@ -818,8 +818,7 @@ handler_server_ws_writeable(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 	}
 
 	n = lws_write(wsi, start, lws_ptr_diff_size_t(p, start),
-				  (enum lws_write_protocol)lws_write_ws_flags(
-				    LWS_WRITE_TEXT, was, !pss->dire));
+		      lws_write_ws_flags(LWS_WRITE_TEXT, was, !pss->dire));
 	if (n < 0) {
 		lwsl_notice("%s: ws write failed\n", __func__);
 		return 1;

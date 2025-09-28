@@ -201,7 +201,7 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 
 		pkt = (struct lws_proxy_pkt *)dll;
 		if (lws_write(wsi, ((unsigned char *)&pkt[1]) +
-			      LWS_PRE, pkt->len, (enum lws_write_protocol)lws_write_ws_flags(
+			      LWS_PRE, pkt->len, lws_write_ws_flags(
 				pkt->binary ? LWS_WRITE_BINARY : LWS_WRITE_TEXT,
 					pkt->first, pkt->final)) < 0)
 			return -1;
@@ -255,7 +255,7 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 
 		pkt = (struct lws_proxy_pkt *)dll;
 		if (lws_write(wsi, ((unsigned char *)&pkt[1]) +
-			      LWS_PRE, pkt->len, (enum lws_write_protocol)lws_write_ws_flags(
+			      LWS_PRE, pkt->len, lws_write_ws_flags(
 				pkt->binary ? LWS_WRITE_BINARY : LWS_WRITE_TEXT,
 					pkt->first, pkt->final)) < 0)
 			return -1;
