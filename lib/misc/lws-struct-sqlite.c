@@ -205,9 +205,15 @@ lws_struct_sq3_deserialize(sqlite3 *pdb, const char *filter, const char *order,
 
 	m = 0;
 	for (n = 0; n < (int)schema->child_map_size; n++)
-		m += lws_snprintf(&results[m], sizeof(results) - (unsigned int)n - 1,
-				  "%s%c", schema->child_map[n].colname,
-				  n + 1 == (int)schema->child_map_size ? ' ' : ',');
+		if (!schema->child_map[n].json_only) {
+			if (sizeof(results) - (unsigned int)n - 1 > 3 && m) {
+				results[m++] = ',';
+				results[m++] = ' ';
+				results[m] = '\0';
+			}
+			m += lws_snprintf(&results[m], sizeof(results) - (unsigned int)m - 1,
+					  "%s", schema->child_map[n].colname);
+			}
 
 	where[0] = '\0';
 	if (filter)
@@ -239,7 +245,7 @@ _lws_struct_sq3_ser_one(sqlite3 *pdb, const lws_struct_map_t *schema,
 			uint32_t idx, void *st)
 {
 	const lws_struct_map_t *map = schema->child_map;
-	int n, m, pk = 0, nentries = (int)(ssize_t)schema->child_map_size, nef = 0, did;
+	int n, m, ms, pk = 0, nentries = (int)(ssize_t)schema->child_map_size, nef = 0, did;
 	size_t sql_est = 46 + strlen(schema->colname) + 1;
 		/* "insert into  (_lws_idx, ) values (00000001,);" ...
 		 * plus the table name */
@@ -257,6 +263,8 @@ _lws_struct_sq3_ser_one(sqlite3 *pdb, const lws_struct_map_t *schema,
 	pk = 0;
 	nef = 0;
 	for (n = 0; n < nentries; n++) {
+		if (map[n].json_only)
+			continue;
 		if (!pk && map[n].type == LSMT_UNSIGNED) {
 			pk = 1;
 			continue;
@@ -274,7 +282,7 @@ _lws_struct_sq3_ser_one(sqlite3 *pdb, const lws_struct_map_t *schema,
 
 	for (n = 0; n < nentries; n++) {
 		sql_est += strlen(map[n].colname) + 2;
-		switch (map[n].type) {
+		switch (map[n].json_only ? LSMT_BLOB_PTR : map[n].type) {
 		case LSMT_SIGNED:
 		case LSMT_UNSIGNED:
 		case LSMT_BOOLEAN:
@@ -335,6 +343,9 @@ _lws_struct_sq3_ser_one(sqlite3 *pdb, const lws_struct_map_t *schema,
 	pk = 0;
 	did = 0;
 	for (n = 0; n < nentries; n++) {
+		if (map[n].json_only)
+			continue;
+
 		if (!pk && map[n].type == LSMT_UNSIGNED) {
 			pk = 1;
 			continue;
@@ -352,9 +363,13 @@ _lws_struct_sq3_ser_one(sqlite3 *pdb, const lws_struct_map_t *schema,
 
 	pk = 0;
 	did = 0;
+	ms = m;
 	for (n = 0; n < nentries; n++) {
 		uint64_t uu64;
 		size_t q;
+
+		if (map[n].json_only)
+			continue;
 
 		if (!pk && map[n].type == LSMT_UNSIGNED) {
 			pk = 1;
@@ -366,6 +381,11 @@ _lws_struct_sq3_ser_one(sqlite3 *pdb, const lws_struct_map_t *schema,
 		case LSMT_UNSIGNED:
 		case LSMT_BOOLEAN:
 
+			if ((sql_est - (unsigned int)m) > 3 && m != ms) {
+				sql[m++] = ',';
+				sql[m++] = ' ';
+				sql[m] = '\0';
+			}
 			uu64 = 0;
 			for (q = 0; q < map[n].aux; q++)
 				uu64 |= ((uint64_t)stb[map[n].ofs + q] <<
@@ -380,6 +400,12 @@ _lws_struct_sq3_ser_one(sqlite3 *pdb, const lws_struct_map_t *schema,
 			break;
 
 		case LSMT_STRING_CHAR_ARRAY:
+			if ((sql_est - (unsigned int)m) > 3 && m != ms) {
+				sql[m++] = ',';
+				sql[m++] = ' ';
+				sql[m] = '\0';
+			}
+
 			sql[m++] = '\'';
 			lws_sql_purify(sql + m, (const char *)&stb[map[n].ofs],
 				       sql_est - (size_t)(ssize_t)m - 4);
@@ -387,6 +413,12 @@ _lws_struct_sq3_ser_one(sqlite3 *pdb, const lws_struct_map_t *schema,
 			sql[m++] = '\'';
 			break;
 		case LSMT_STRING_PTR:
+			if ((sql_est - (unsigned int)m) > 3 && m != ms) {
+				sql[m++] = ',';
+				sql[m++] = ' ';
+				sql[m] = '\0';
+			}
+
 			p = *((const char * const *)&stb[map[n].ofs]);
 			sql[m++] = '\'';
 			if (p) {
@@ -406,12 +438,6 @@ _lws_struct_sq3_ser_one(sqlite3 *pdb, const lws_struct_map_t *schema,
 		}
 
 		did++;
-		if (did != nef) {
-			if (sql_est - (unsigned int)m < 6)
-				goto bail;
-			sql[m++] = ',';
-			sql[m++] = ' ';
-		}
 	}
 
 	lws_snprintf(sql + m, sql_est - (unsigned int)m, ");");
@@ -419,7 +445,6 @@ _lws_struct_sq3_ser_one(sqlite3 *pdb, const lws_struct_map_t *schema,
 	n = sqlite3_exec(pdb, sql, NULL, NULL, NULL);
 	if (n != SQLITE_OK) {
 		lwsl_err("%s\n", sql);
-bail:
 		free(sql);
 		lwsl_err("%s: %s: fail\n", __func__, sqlite3_errmsg(pdb));
 		return -1;
@@ -505,6 +530,9 @@ lws_struct_sq3_update(sqlite3 *pdb, const char *table,
 	for (i = 0; i < map_entries; i++) {
 		const void *memb = (const uint8_t *)data + map[i].ofs;
 
+		if (map[i].json_only)
+			continue;
+
 /* Don't try to UPDATE the primary key or the WHERE column itself */
 		if ((i == 0 && map[i].type == LSMT_UNSIGNED) ||
 		    !strcmp(map[i].colname, where_col) ||
@@ -522,7 +550,7 @@ lws_struct_sq3_update(sqlite3 *pdb, const char *table,
 	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), " WHERE %s=", where_col);
 
 	for (i = 0; i < map_entries; i++) {
-		if (!strcmp(map[i].colname, where_col)) {
+		if (!map[i].json_only && !strcmp(map[i].colname, where_col)) {
 			const void *memb = (const uint8_t *)data + map[i].ofs;
 			ls_sq3_serialize_col(memb, &map[i], &p, end);
 			break;
@@ -563,6 +591,8 @@ lws_struct_sq3_upsert(sqlite3 *pdb, const char *table,
 	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "INSERT INTO %s (", table);
 
 	for (i = 0; i < map_entries; i++) {
+		if (map[i].json_only)
+			continue;
 		/* Skip the primary key in the column list for INSERT */
 		if ((i == 0 && map[i].type == LSMT_UNSIGNED) ||
 		    map[i].type == LSMT_BLOB_PTR)
@@ -578,6 +608,9 @@ lws_struct_sq3_upsert(sqlite3 *pdb, const char *table,
 
 	/* Second pass for values, skipping the primary key */
 	for (i = 0; i < map_entries; i++) {
+		if (map[i].json_only)
+			continue;
+
 		/* Skip the primary key in the value list for INSERT */
 		if ((i == 0 && map[i].type == LSMT_UNSIGNED) ||
 		    map[i].type == LSMT_BLOB_PTR)
@@ -593,6 +626,8 @@ lws_struct_sq3_upsert(sqlite3 *pdb, const char *table,
 
 	/* Third pass for the UPDATE SET part, skipping the PK and the where_col */
 	for (i = 0; i < map_entries; i++) {
+		if (map[i].json_only)
+			continue;
 		if ((i == 0 && map[i].type == LSMT_UNSIGNED) || /* Skip PK */
 				!strcmp(map[i].colname, where_col))
 			continue;
@@ -629,7 +664,8 @@ lws_struct_sq3_create_table(sqlite3 *pdb, const lws_struct_map_t *schema)
 			  schema->colname);
 
 	while (map_size--) {
-		if (map->type > LSMT_STRING_PTR && map->type != LSMT_BLOB_PTR) {
+		if (map->json_only ||
+		    (map->type > LSMT_STRING_PTR && map->type != LSMT_BLOB_PTR)) {
 			map++;
 			continue;
 		}

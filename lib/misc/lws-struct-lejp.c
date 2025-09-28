@@ -565,7 +565,6 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 		q = j->obj + map->ofs;
 
 		/* early check if the entry should be elided */
-
 		switch (map->type) {
 		case LSMT_STRING_CHAR_ARRAY:
 			break;
