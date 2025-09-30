@@ -152,8 +152,8 @@ _fill_lde(char *combo, size_t l, const char *name, unsigned int type, struct lws
 int
 lws_dir_via_info(struct lws_dir_info *info)
 {
+	struct dirent **namelist = NULL;
 	struct lws_dir_entry lde;
-	struct dirent **namelist;
 	char combo[COMBO_SIZEOF];
 	unsigned int type = 0;
 	int n, i, ret = 1;
