@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2025 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -800,7 +800,7 @@ def_end:
 				n = 0;
 				goto completed;
 			}
-			if (ctx->pst_sp && !ctx->sp)
+			if (ctx->pst_sp > 1 && !ctx->sp)
 				lejp_parser_pop(ctx);
 			break;
 

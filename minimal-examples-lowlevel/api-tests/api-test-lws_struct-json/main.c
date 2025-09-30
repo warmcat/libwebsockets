@@ -591,7 +591,7 @@ int main(int argc, const char **argv)
 
 		/* 2. serialize the structs into JSON and confirm */
 
-		lwsl_notice("%s:    .... strarting serialization of test %d\n",
+		lwsl_notice("%s:    .... starting serialization of test %d\n",
 				__func__, m + 1);
 
 		if (m + 1 != 8) {
@@ -618,10 +618,13 @@ int main(int argc, const char **argv)
 				puts((const char *)buf);
 				break;
 			case LSJS_RESULT_CONTINUE:
+				lwsl_warn("%s: unexpected continue\n", __func__);
+				goto bail;
 			case LSJS_RESULT_ERROR:
+				lwsl_warn("%s: error\n", __func__);
 				goto bail;
 			}
-		} while(n == LSJS_RESULT_CONTINUE);
+		} while (n == LSJS_RESULT_CONTINUE);
 
 		if (strcmp(json_expected[m], (char *)buf)) {
 			lwsl_err("%s: test %d: expected %s\n", __func__, m + 1,
@@ -636,8 +639,10 @@ done:
 		lwsac_free(&a.ac);
 	}
 
-	if (e)
+	if (e) {
+		lwsl_warn("%s: error: %d\n", __func__, e);
 		goto bail;
+	}
 
 	/* ad-hoc tests */
 
@@ -787,6 +792,83 @@ done:
 				    __func__, ctx.line, lejp_error_to_string(m));
 			goto bail;
 		}
+	}
+
+	{
+		const char *inp = "{\"schema\":\"com.warmcat.sai.internal.taskinfo_auth\","
+				  "\"ti\":{\"task_hash\":\"B8C26049D88F1AA4B6089E164F465A103A95D931D48A2EE8CC98CF9F70E03E31\","
+				  		"\"logs\":1,\"js_api_version\":3,\"last_log_ts\":0},"
+				  "\"auth_user\":\"andy@warmcat.com\",\"authorized\":1,\"auth_secs\":126478}";
+		typedef struct sai_browse_rx_taskinfo {
+			char            		task_hash[65];
+			uint64_t        		last_log_ts;
+			unsigned int    		log_start;
+			unsigned int    		js_api_version;
+			uint8_t         		logs;
+		} sai_browse_rx_taskinfo_t;
+		/*
+		 * Internal message from sai-web -> sai-server, carrying browser auth
+		 * context along with the original request from the browser.
+		 */
+		typedef struct sai_web_to_server_taskinfo {
+			sai_browse_rx_taskinfo_t        *ti;
+			char                            auth_user[33];
+			int                             authorized;
+			int                             auth_secs;
+		} sai_web_to_server_taskinfo_t;
+		const lws_struct_map_t lsm_browse_rx_taskinfo[] = {
+			LSM_CARRAY         (sai_browse_rx_taskinfo_t, task_hash,           "task_hash"),
+			LSM_UNSIGNED       (sai_browse_rx_taskinfo_t, logs,                "logs"),
+			LSM_UNSIGNED       (sai_browse_rx_taskinfo_t, js_api_version,      "js_api_version"),
+			LSM_UNSIGNED       (sai_browse_rx_taskinfo_t, last_log_ts,         "last_log_ts"),
+		};
+		const lws_struct_map_t lsm_web_to_server_taskinfo[] = {
+			LSM_JO_CHILD_PTR   (sai_web_to_server_taskinfo_t, ti, sai_browse_rx_taskinfo_t,
+						NULL, lsm_browse_rx_taskinfo,		   "ti"),
+			LSM_CARRAY         (sai_web_to_server_taskinfo_t, auth_user,	   "auth_user"),
+			LSM_SIGNED         (sai_web_to_server_taskinfo_t, authorized,	   "authorized"),
+			LSM_SIGNED         (sai_web_to_server_taskinfo_t, auth_secs,	   "auth_secs"),
+		};
+		const lws_struct_map_t lsm_schema_json_map[] = {
+			LSM_SCHEMA      (sai_web_to_server_taskinfo_t, NULL,
+					lsm_web_to_server_taskinfo,
+					"com.warmcat.sai.internal.taskinfo_auth"),
+		};
+		sai_web_to_server_taskinfo_t *wst;
+		lws_struct_args_t a;
+		struct lejp_ctx ctx;
+		int n;
+
+		lwsl_user("%s: taskinfo test\n", __func__);
+
+		memset(&a, 0, sizeof(a));
+		a.map_st[0]		= lsm_schema_json_map;
+		a.map_entries_st[0]	= LWS_ARRAY_SIZE(lsm_schema_json_map);
+		a.map_entries_st[1]	= LWS_ARRAY_SIZE(lsm_schema_json_map);
+		a.ac_block_size		= 128;
+
+		lws_struct_json_init_parse(&ctx, NULL, &a);
+		n = lejp_parse(&ctx, (uint8_t *)inp, (int)strlen(inp));
+		if (n < 0 || !a.dest) {
+			lwsl_notice("%s: notification JSON decode failed '%s'\n",
+					__func__, lejp_error_to_string(n));
+			goto bail;
+		}
+
+		wst = (sai_web_to_server_taskinfo_t *)a.dest;
+		if (!wst->ti) {
+			lwsl_warn("%s: ti (%p) not set\n", __func__, (void *)&wst->ti);
+			goto bail;
+		}
+		if (!wst->ti->task_hash[0]) {
+			lwsl_warn("%s: no task hash\n", __func__);
+			goto bail;
+		}
+		if (!wst->authorized) {
+			lwsl_warn("%s: authorized not set\n", __func__);
+			goto bail;
+		}
+
 	}
 
 	lwsl_user("Completed: PASS\n");
