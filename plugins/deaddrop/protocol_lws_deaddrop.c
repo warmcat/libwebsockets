@@ -594,7 +594,12 @@ handler_server_raw_file_rx(struct vhd_deaddrop *vhd, struct lws *wsi)
 	char ev_buf[1024];
 
 	/* inotify has told us something changed in the upload dir */
-	int n = (int)read(lws_get_socket_fd(wsi), ev_buf, sizeof(ev_buf));
+	int n, fd = lws_get_socket_fd(wsi);
+
+	if (fd < 0)
+		return 0;
+
+	n = (int)read(fd, ev_buf, sizeof(ev_buf));
 	lwsl_info("%s: inotify event (%d), rescanning upload dir\n", __func__, n);
 	scan_upload_dir(vhd);
 
