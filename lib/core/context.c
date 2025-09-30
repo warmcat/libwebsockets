@@ -1211,7 +1211,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 		context->pt[n].fake_wsi = (struct lws *)u;
 		u += sizeof(struct lws);
 
-		memset(context->pt[n].fake_wsi, 0, sizeof(struct lws));
+		memset((void *)context->pt[n].fake_wsi, 0, sizeof(struct lws));
 #endif
 
 		context->pt[n].evlib_pt = u;
@@ -1860,7 +1860,7 @@ lws_pt_destroy(struct lws_context_per_thread *pt)
 	) {
 		struct lws wsi;
 
-		memset(&wsi, 0, sizeof(wsi));
+		memset((void *)&wsi, 0, sizeof(wsi));
 		wsi.a.context = pt->context;
 		wsi.tsi = (char)pt->tid;
 		lws_plat_pipe_close(&wsi);

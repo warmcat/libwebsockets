@@ -390,7 +390,7 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 	struct lws _lws;
 	struct lws_a *lwsa = &_lws.a;
 
-	memset(&_lws, 0, sizeof(_lws));
+	memset((void *)&_lws, 0, sizeof(_lws));
 #endif
 
 	lwsa->context = vh->context;
@@ -1483,7 +1483,7 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 	 * let the protocols destroy the per-vhost protocol objects
 	 */
 
-	memset(&wsi, 0, sizeof(wsi));
+	memset((void *)&wsi, 0, sizeof(wsi));
 	wsi.a.context = vh->context;
 	wsi.a.vhost = vh; /* not a real bound wsi */
 	protocol = vh->protocols;
