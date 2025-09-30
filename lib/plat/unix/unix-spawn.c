@@ -344,23 +344,25 @@ lws_spawn_get_self_cgroup(char *cgroup, size_t max)
 {
 #if defined(__linux__)
 	int fd = open("/proc/self/cgroup", O_RDONLY);
+	char *p, s[256], *end = &s[sizeof(s) - 1];
 	ssize_t r;
-	char *p, s[256];
+	size_t ur;
 
 	if (fd < 0) {
 		lwsl_err("%s: unable to open /proc/self/cgroup\n", __func__);
 		return 1;
 	}
 
-	r = read(fd, s, sizeof(s) - 1);
+	r = read(fd, s, sizeof(s) - 2);
 	close(fd);
 	if (r < 0) {
 		lwsl_err("%s: unable to read from /proc/self/cgroup\n", __func__);
 
 		return 1;
 	}
+	ur = (size_t)r;
 
-	s[r] = '\0'; 
+	s[ur] = '\0'; 
 	p = strchr(s, ':');
 
 	if (!p) {
@@ -369,23 +371,27 @@ lws_spawn_get_self_cgroup(char *cgroup, size_t max)
 	}
 
 	p = strchr(p + 1, ':');
-	if (!p || (r - (p - s) < 3)) {
+	if (!p || lws_ptr_diff_size_t(end, p) < 3) {
 		lwsl_err("%s: unable to find second :  '%s'\n", __func__, s);
 
 		return 1;
 	}
 	p++;
 
-	if (p[strlen(p) - 1] == '\n')
-		p[strlen(p) - 1] = '\0';
+	/* name starts from p to NUL */
 
-	if ((size_t)(r - (p - s)) + 1 > max - 1) {
+	ur = strlen(p);
+
+	if (p[ur - 1] == '\n')
+		p[--ur] = '\0';
+
+	if (ur > max - 1) {
 		lwsl_err("%s: cgroup name too large :  '%s'\n", __func__, s);
 
 		return 1;
 	}
 
-	memcpy(cgroup, p, (size_t)(r - (p - s) + 1));
+	memcpy(cgroup, p, ur + 1u);
 
 	return 0;
 #else
