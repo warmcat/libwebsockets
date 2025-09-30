@@ -56,8 +56,16 @@ int main(int argc, const char **argv)
 	lwsl_user("LWS API selftest: lws_dir du\n");
 
 	/* Create test directory structure */
-	mkdir("./test-dir", 0700);
-	mkdir("./test-dir/subdir", 0700);
+	if (mkdir("./test-dir", 0700) < 0) {
+		lwsl_err("%s: failed mkdir test-dir\n", __func__);
+		result = 1;
+		goto cleanup;
+	}
+	if (mkdir("./test-dir/subdir", 0700) < 0) {
+		lwsl_err("%s: failed mkdir test-dir/subdir\n", __func__);
+		result = 1;
+		goto cleanup;
+	}
 
 	if (create_file("./test-dir/file1", 10)) {
 		lwsl_err("Failed to create file1\n");
