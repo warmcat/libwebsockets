@@ -895,7 +895,8 @@ lws_spawn_prepare_self_cgroup(const char *user, const char *group)
 				  __func__, path, strerror(errno));
  	}
 	lws_snprintf(path, sizeof(path), "/sys/fs/cgroup%s/lws", self_cgroup);
-	mkdir(path, 0775);
+	if (mkdir(path, 0775) < 0)
+		lwsl_err("%s: unable to mkdir %s\n", __func__, path);
 	if (uid != (uid_t)-1 || gid != (gid_t)-1) {
 
 		lwsl_notice("%s: switching %s to %d:%d\n",
