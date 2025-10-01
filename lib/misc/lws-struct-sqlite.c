@@ -198,6 +198,7 @@ lws_struct_sq3_deserialize(sqlite3 *pdb, const char *filter, const char *order,
 	a.toplevel_dll2_ofs = schema->ofs;
 
 	lws_dll2_owner_clear(o);
+	results[0] = '\0';
 
 	/*
 	 * Explicitly list the columns instead of use *, so we can skip blobs
