@@ -261,18 +261,11 @@ lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp)
 
 	lsp->ungraceful = 1; /* don't wait for flushing, just kill it */
 
-	if (lws_spawn_reap(lsp))
-		/* that may have invalidated lsp */
-		return 0;
-
 	lwsl_warn("%s: calling TerminateProcess on child pid\n", __func__);
        if (!TerminateProcess(lsp->child_pid, 252)) {
                lwsl_warn("%s: TerminateProcess failed: 0x%lx\n", __func__, (unsigned long)GetLastError());
                return 0;
        }
-	lws_spawn_reap(lsp);
-
-	/* that may have invalidated lsp */
 
 	return 0;
 }
