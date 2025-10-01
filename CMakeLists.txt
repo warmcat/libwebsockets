@@ -53,6 +53,16 @@ if (LWS_WITH_SECURE_STREAMS_CPP)
 	enable_language(CXX)
 endif()
 
+# On macOS, check for the Apple Silicon Homebrew path and add it to the search prefix.
+# This makes find_package(), find_library(), etc. automatically find things
+# installed in /opt/homebrew on Apple Silicon machines, without breaking
+# the default /usr/local search on older Intel machines.
+if (APPLE)
+    if (EXISTS "/opt/homebrew/bin/brew")
+        list (PREPEND CMAKE_PREFIX_PATH "/opt/homebrew")
+    endif()
+endif()
+
 include(CheckFunctionExists)
 include(CheckSymbolExists)
 include(CheckIncludeFile)
