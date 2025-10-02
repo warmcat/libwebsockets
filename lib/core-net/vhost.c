@@ -451,7 +451,8 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 		 * prepared in case the protocol handler wants to touch them
 		 */
 
-		if (pvo
+		if (pvo || (vh->options & LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS)
+
 #if !defined(LWS_WITH_PLUGINS)
 				/*
 				 * with plugins, you have to explicitly
@@ -469,11 +470,7 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 			vh->protocol_init |= 1u << n;
 			if (vh->protocols[n].callback((struct lws *)lwsa,
 				LWS_CALLBACK_PROTOCOL_INIT, NULL,
-#if !defined(LWS_WITH_PLUGINS)
 				(void *)(pvo ? pvo->options : NULL),
-#else
-				(void *)pvo->options,
-#endif
 				0)) {
 				if (vh->protocol_vh_privs && vh->protocol_vh_privs[n]) {
 					lws_free(vh->protocol_vh_privs[n]);
@@ -850,7 +847,8 @@ lws_create_vhost(struct lws_context *context,
 	 * for a protocol get it enabled.
 	 */
 
-	if (context->options & LWS_SERVER_OPTION_EXPLICIT_VHOSTS)
+	if ((context->options & LWS_SERVER_OPTION_EXPLICIT_VHOSTS) &&
+	    !(vh->options & LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS))
 		f = 0;
 	(void)f;
 #ifdef LWS_WITH_PLUGINS

@@ -435,6 +435,13 @@ typedef struct lws_ss_sinks {
 } lws_ss_sinks_t;
 #endif
 
+typedef struct lws_buflist {
+	struct lws_buflist *next;
+	size_t len;
+	size_t pos;
+} lws_buflist_t;
+
+
 /*
  * the rest is managed per-context, that includes
  *
@@ -660,7 +667,19 @@ struct lws_context {
 	lws_txp_path_client_t			txp_cpath;
 
 	const void				*txp_ssproxy_info;
+#endif
 
+#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_BAREMETAL)
+	int					argc;
+	const char				**argv;
+
+	int					stdin_argc;
+	const char				*stdin_argv[16];
+
+	struct lws_buflist			*stdin_buflist;
+	char					*stdin_linear;
+	size_t					stdin_linear_size;
+	unsigned int				stdin_flags;
 #endif
 
 #if defined(LWS_WITH_FILE_OPS)
@@ -846,12 +865,6 @@ signed char char_to_hex(const char c);
 int
 lws_system_do_attach(struct lws_context_per_thread *pt);
 #endif
-
-struct lws_buflist {
-	struct lws_buflist *next;
-	size_t len;
-	size_t pos;
-};
 
 char *
 lws_strdup(const char *s);

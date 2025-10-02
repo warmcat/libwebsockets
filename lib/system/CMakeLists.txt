@@ -1,7 +1,7 @@
 #
 # libwebsockets - small server side websockets and web server implementation
 #
-# Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
+# Copyright (C) 2010 - 2025 Andy Green <andy@warmcat.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to
@@ -30,6 +30,10 @@
 # and keep everything else private
 
 include_directories(./async-dns)
+
+if (NOT LWS_PLAT_FREERTOS AND NOT LWS_PLAT_BAREMETAL)
+	list(APPEND SOURCES system/stdin.c)
+endif()
 
 if (NOT LWS_ONLY_SSPC)
 	list(APPEND SOURCES

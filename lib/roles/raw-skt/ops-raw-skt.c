@@ -281,10 +281,8 @@ rops_adoption_bind_raw_skt(struct lws *wsi, int type, const char *vh_prot_name)
 
 	/* no http but socket... must be raw skt */
 	if ((type & LWS_ADOPT_HTTP) || !(type & LWS_ADOPT_SOCKET) ||
-	    ((type & _LWS_ADOPT_FINISH) && (!(type & LWS_ADOPT_FLAG_UDP)))) {
-		lwsl_err("%s: out1\n", __func__);
+	    ((type & _LWS_ADOPT_FINISH) && (!(type & LWS_ADOPT_FLAG_UDP))))
 		return 0; /* no match */
-	}
 
 #if defined(LWS_WITH_UDP)
 	if ((type & LWS_ADOPT_FLAG_UDP) && !wsi->udp) {

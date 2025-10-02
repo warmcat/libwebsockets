@@ -108,6 +108,10 @@ lws_state_notify_protocol_init(struct lws_state_manager *mgr,
 	for (n = 0; n < context->count_threads; n++)
 		lws_system_do_attach(&context->pt[n]);
 
+	if (target == LWS_SYSTATE_COLLECTING_STDIN &&
+	    (!context->system_ops || !context->system_ops->stdin_rx))
+		return 0; /* move on */
+
 #if defined(LWS_WITH_SYS_DHCP_CLIENT)
 	if (target == LWS_SYSTATE_DHCP) {
 		/*
@@ -693,6 +697,10 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->gid = info->gid;
 	context->username = info->username;
 	context->groupname = info->groupname;
+#endif
+#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_BAREMETAL)
+	context->argc			= info->argc;
+	context->argv			= info->argv;
 #endif
 	context->name			= info->vhost_name;
 	if (info->log_cx)
@@ -1368,15 +1376,13 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 #if defined(LWS_WITH_NETWORK)
 
-#if defined(LWS_WITH_SYS_ASYNC_DNS) || defined(LWS_WITH_SYS_NTPCLIENT) || \
-	defined(LWS_WITH_SYS_DHCP_CLIENT)
 	{
 		/*
 		 * system vhost
 		 */
 
 		struct lws_context_creation_info ii;
-		const struct lws_protocols *pp[4];
+		const struct lws_protocols *pp[6], *ccop;
 		struct lws_vhost *vh;
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 		extern const struct lws_protocols lws_async_dns_protocol;
@@ -1387,6 +1393,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if defined(LWS_WITH_SYS_DHCP_CLIENT)
 		extern const struct lws_protocols lws_system_protocol_dhcpc4;
 #endif
+		extern const struct lws_protocols lws_system_protocol_stdin;
 
 		n = 0;
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
@@ -1398,12 +1405,17 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if defined(LWS_WITH_SYS_DHCP_CLIENT)
 		pp[n++] = &lws_system_protocol_dhcpc4;
 #endif
+		pp[n++] = &lws_system_protocol_stdin;
 		pp[n] = NULL;
 
 		memset(&ii, 0, sizeof(ii));
-		ii.vhost_name = "system";
-		ii.pprotocols = pp;
-		ii.port = CONTEXT_PORT_NO_LISTEN;
+		ii.vhost_name	= "system";
+		ii.pprotocols	= pp;
+		ii.port		= CONTEXT_PORT_NO_LISTEN;
+		ii.options	= LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS;
+
+		ccop = context->protocols_copy;
+		context->protocols_copy = NULL;
 
 		if (lws_fi(&context->fic, "ctx_createfail_sys_vh"))
 			vh = NULL;
@@ -1414,6 +1426,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 			goto bail_libuv_aware;
 		}
 
+		context->protocols_copy = ccop;
+
 		context->vhost_system = vh;
 
 		if (lws_protocol_init_vhost(vh, NULL) ||
@@ -1423,11 +1437,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 		}
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 		lws_async_dns_init(context);
-			//goto bail_libuv_aware;
 #endif
 	}
-
-#endif
 
 #if defined(LWS_WITH_SYS_STATE)
 	/*
@@ -2373,7 +2384,9 @@ next:
 		} lws_end_foreach_dll_safe(d, d1);
 #endif
 #endif
-
+#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_BAREMETAL)
+		lws_free(context->stdin_linear);
+#endif
 		/*
 		 * Context lock is about to go away
 		 */
