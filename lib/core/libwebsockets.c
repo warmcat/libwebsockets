@@ -1515,28 +1515,82 @@ lws_mutex_refcount_assert_held(struct lws_mutex_refcount *mr)
 
 
 const char *
-lws_cmdline_option(int argc, const char **argv, const char *val)
+lws_cmdline_options(int argc, const char * const *argv, const char *val, const char *last)
 {
-	size_t n = strlen(val);
-	int c = argc;
+	int c = 1, hit = 0;
+	size_t n = 0;
+	const char *p;
 
-	while (--c > 0) {
+	if (val)
+		n = strlen(val);
 
-		if (!strncmp(argv[c], val, n)) {
-			if (c < argc - 1 && !*(argv[c] + n)) {
-				/* coverity treats unchecked argv as "tainted" */
-				if (!argv[c + 1] || strlen(argv[c + 1]) > 1024)
-					return NULL;
-				return argv[c + 1];
-			}
+	while (c < argc) {
 
-			if (argv[c][n] == '=')
-				return &argv[c][n + 1];
-			return argv[c] + n;
+		if (val && strncmp(argv[c], val, n)) /* skip if not matching val */
+			goto bump;
+
+		if (!val && argv[c][0] == '-') /* looking for non-switch */
+			goto bump;
+
+		if (!val && argv[c][0] != '-') { /* looking for non-switch */
+			p = argv[c];
+			goto try;
 		}
+
+		if (c < argc - 1 && !*(argv[c] + n)) {
+			/* coverity treats unchecked argv as "tainted" */
+			if (!argv[c + 1] || strlen(argv[c + 1]) > 1024)
+				return NULL;
+
+			p = argv[c + 1];
+			goto try;
+		}
+
+		if (argv[c][n] == '=') {
+			p =  &argv[c][n + 1];
+			goto try;
+		}
+
+		p = argv[c] + n;
+
+try:
+		if (last && !hit) {
+			if (p == last)
+				hit = 1;
+			goto bump;
+		}
+
+		return p;
+bump:
+		c++;
 	}
 
 	return NULL;
+}
+
+const char *
+lws_cmdline_options_cx(const struct lws_context *cx, const char *val, const char *last)
+{
+	const char *k = NULL;
+
+	assert(cx->argc);
+
+	k = lws_cmdline_options((int)cx->stdin_argc, cx->stdin_argv, val, last);
+
+	return k;
+}
+
+const char *
+lws_cmdline_option_cx(const struct lws_context *cx, const char *val)
+{
+	return lws_cmdline_options_cx(cx, val, NULL);
+}
+
+
+const char *
+lws_cmdline_option(int argc, const char **argv, const char *val)
+{
+	return lws_cmdline_options(argc, argv, val, NULL);
 }
 
 static const char * const builtins[] = {
@@ -1641,6 +1695,9 @@ lws_cmdline_option_handle_builtin(int argc, const char **argv,
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	uint64_t seed = (uint64_t)lws_now_usecs();
 #endif
+
+	info->argc = argc;
+	info->argv = argv;
 
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(builtins); n++) {
 		p = lws_cmdline_option(argc, argv, builtins[n]);

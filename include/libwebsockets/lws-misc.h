@@ -548,6 +548,8 @@ lws_parse_uri(char *p, const char **prot, const char **ads, int *port,
  *
  * Returns NULL if the string \p val is not found in the arguments.
  *
+ * This only returns the first hit for \p val.
+ *
  * If it is found, then it returns a pointer to the next character after \p val.
  * So if \p val is "-d", then for the commandlines "myapp -d15" and
  * "myapp -d 15", in both cases the return will point to the "15".
@@ -555,9 +557,100 @@ lws_parse_uri(char *p, const char **prot, const char **ads, int *port,
  * In the case there is no argument, like "myapp -d", the return will
  * either point to the '\\0' at the end of -d, or to the start of the
  * next argument, ie, will be non-NULL.
+ *
+ * This original api variant does not handle stdin-passed commandline content,
+ * only that present in the passed argc / argv.
  */
 LWS_VISIBLE LWS_EXTERN const char *
 lws_cmdline_option(int argc, const char **argv, const char *val);
+
+/**
+ * lws_cmdline_options():	simple commandline parser
+ *
+ * \param argc:		count of argument strings
+ * \param argv:		argument strings
+ * \param val:		string to find
+ * \param last:		last successful return from previous call
+ *
+ * Returns NULL if the string \p val is not found in the arguments.
+ *
+ * Before checking, the api aligns itself to the place of the \p last
+ * hit (or the beginning of the commandline if NULL), and starts checking
+ * from just beyond that.  In this way you can get the first, or
+ * incrementally get multiple results, for every hit.
+ *
+ * If a match is found, then it returns a pointer to the next character after \p val.
+ * So if \p val is "-d", then for the commandlines "myapp -d15" and
+ * "myapp -d 15", in both cases the return will point to the "15".
+ *
+ * In the case there is no argument, like "myapp -d", the return will
+ * either point to the '\\0' at the end of -d, or to the start of the
+ * next argument, ie, will be non-NULL indicating success.
+ *
+ * This original api variant does not handle stdin-passed commandline content,
+ * only that present in the passed argc / argv.
+ */
+LWS_VISIBLE LWS_EXTERN const char *
+lws_cmdline_options(int argc, const char * const *argv, const char *val, const char *last);
+
+/**
+ * lws_cmdline_options_cx():	simple commandline parser
+ *
+ * \param cx:		the lws_context
+ * \param val:		string to find
+ * \param last:		last successful return from previous call
+ *
+ * Returns NULL if the string \p val is not found in the arguments.
+ *
+ * Before checking, the api aligns itself to the place of the \p last
+ * hit (or the beginning of the commandline if NULL), and starts checking
+ * from just beyond that.  In this way you can get the first, or
+ * incrementally get multiple results, for every hit.
+ * 
+ * If a match is found, then it returns a pointer to the next character after \p val.
+ * So if \p val is "-d", then for the commandlines "myapp -d15" and
+ * "myapp -d 15", in both cases the return will point to the "15".
+ *
+ * In the case there is no argument, like "myapp -d", the return will
+ * either point to the '\\0' at the end of -d, or to the start of the
+ * next argument, ie, will be non-NULL indicating success.
+ *
+ * This api variant handles stdin-passed commandline content, placing it
+ * after the argc / argv content.  You must ensure the context creation
+ * info .argc and .argv were set to the application's main argc and argv,
+ * either manually or it is handled for you as a side-effect of calling
+ * lws_cmdline_option_handle_builtin().
+ */
+
+LWS_VISIBLE LWS_EXTERN const char *
+lws_cmdline_options_cx(const struct lws_context *cx, const char *val, const char *last);
+
+/**
+ * lws_cmdline_option_cx():	simple commandline parser
+ *
+ * \param cx:		the lws_context
+ * \param val:		string to find
+ *
+ * Returns NULL if the string \p val is not found in the arguments.
+ *
+ * This only returns the first hit for \p val.
+ *
+ * If a match is found, then it returns a pointer to the next character after \p val.
+ * So if \p val is "-d", then for the commandlines "myapp -d15" and
+ * "myapp -d 15", in both cases the return will point to the "15".
+ *
+ * In the case there is no argument, like "myapp -d", the return will
+ * either point to the '\\0' at the end of -d, or to the start of the
+ * next argument, ie, will be non-NULL indicating success.
+ *
+ * This api variant handles stdin-passed commandline content, placing it
+ * after the argc / argv content.  You must ensure the context creation
+ * info .argc and .argv were set to the application's main argc and argv,
+ * either manually or it is handled for you as a side-effect of calling
+ * lws_cmdline_option_handle_builtin().
+ */
+LWS_VISIBLE LWS_EXTERN const char *
+lws_cmdline_option_cx(const struct lws_context *cx, const char *val);
 
 /**
  * lws_cmdline_option_handle_builtin(): apply standard cmdline options
