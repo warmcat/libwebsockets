@@ -55,10 +55,13 @@ lws_cmdline_option_cx(const struct lws_context *cx, const char *val);
 
 All four apis can be called with NULL `val`, in order to return a non-switch
 argument.  You can use the `lws_cmdline_options[_cx]()` variant to interate
-through the non-switch arguments.
+through the non-switch arguments for NULL `val` case too.
 
 For example, the commandline `--switch1=abc def` would return a pointer to 
 `def` if the api `lws_cmdline_options()` was called with NULL `val` and `last`.
+
+Although switches with args like -d 1039 are supported, users will have to
+use the form -d=1039 to allow non-switch args to be correctly distinguished.
 
 ### Timing of stdin commandline access
 
