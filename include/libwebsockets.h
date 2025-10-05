@@ -172,6 +172,12 @@ typedef int suseconds_t;
 #include <netinet/in.h>
 #endif
 
+/* Find ETHER_ADDR_LEN on OpenBSD */
+#if defined(__OpenBSD__)
+#include <net/if_arp.h>
+#include <netinet/if_ether.h>
+#endif
+
 #define LWS_INLINE inline
 #define LWS_O_RDONLY O_RDONLY
 #define LWS_O_WRONLY O_WRONLY
