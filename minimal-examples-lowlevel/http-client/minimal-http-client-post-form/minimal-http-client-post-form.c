@@ -6,50 +6,8 @@
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
  *
- * This demonstrates a minimal http client using lws to POST a form.
- *
- * https://scan.coverity.com/builds?project=warmcat%2Flibwebsockets
- * --form file=@xxx.bin
- * --form version=f2dcc4ea
- * --form description="lws qa"
- * --form token=mytoken
- * --form email=my@email.com
- *
- * We want it to emit this kind of thing:
- *
- * POST /builds?project=warmcat%2Flibwebsockets HTTP/1.1
- * Host: 127.0.0.1
- * User-Agent: lws
- * Accept: * / *
- * Content-Length: 698
- * Content-Type: multipart/form-data; boundary=------------------------dbe229171d826cc3
- *
- * --------------------------dbe229171d826cc3
- * Content-Disposition: form-data; name="file"; filename="xxx.bin"
- * Content-Type: application/octet-stream
- *
- * #!/bin/bash -x
- * xxx
- * exit $?
- *
- * --------------------------dbe229171d826cc3
- * Content-Disposition: form-data; name="version"
- *
- * f2dcc4ea
- * --------------------------dbe229171d826cc3
- * Content-Disposition: form-data; name="description"
- * 
- * lws qa
- * --------------------------dbe229171d826cc3
- * Content-Disposition: form-data; name="token"
- *
- * mytoken
- * --------------------------dbe229171d826cc3
- * Content-Disposition: form-data; name="email"
- *
- * my@email.com
- * --------------------------dbe229171d826cc3--
- *
+ * This demonstrates a minimal http client using lws to POST a form,
+ * using the newer client multipart form generation apis
  */
 
 #include <libwebsockets.h>
@@ -60,34 +18,35 @@ static int interrupted, bad = 0, status, completed;
 static lws_state_notify_link_t nl;
 static struct lws *client_wsi;
 
-typedef enum {
-	LWS_POST_STATE__NEXT,
-	LWS_POST_STATE__BOUNDARY,
-	LWS_POST_STATE__MULTIHDR,
-	LWS_POST_STATE__FILE,
-	LWS_POST_STATE__DATA,
-	LWS_POST_STATE__TERM
-} post_state;
-
 struct pss {
-	char		body_part;
-	char		boundary[24 + 16 + 1];
-	char		ft[256];
-	char		*eq;
-	int		fd;
-	lws_filepost_t	pos;
-	lws_filepost_t  total;
-	const char	*a; /* last hit */
-	post_state	ps;
+	struct lws_http_mp_sm	*hmp; /* opaque */
 };
+
+/*
+ * This allows lws_http_mp_sm to get its form elements from commandline options
+ */
+
+int
+form_cb(struct lws_context *cx, char *ft, size_t ft_len, const char **last)
+{
+	const char *p = lws_cmdline_options_cx(cx, "--form", *last);
+
+	if (!p)
+		return 1;
+
+	*last = p;
+	lws_strnncpy(ft, *last, strlen(*last), ft_len);
+
+	return 0;
+}
 
 static int
 callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	      void *user, void *in, size_t len)
 {
 	struct pss *pss = (struct pss *)user;
-	char buf[LWS_PRE + 1024], *start = &buf[LWS_PRE], *p = start,
-		*end = &buf[sizeof(buf) - 1], mph[512];
+	uint8_t buf[LWS_PRE + 1024], *start = &buf[LWS_PRE], *p = start,
+		*end = &buf[sizeof(buf) - LWS_PRE - 1];
 	int n;
 
 	switch (reason) {
@@ -105,6 +64,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		client_wsi = NULL;
 		bad |= status != 200;
 		completed++;
+		lws_http_mp_sm_destroy(&pss->hmp);
 		lws_cancel_service(lws_get_context(wsi));
 		break;
 
@@ -122,7 +82,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
 		n = sizeof(buf) - LWS_PRE;
-		if (lws_http_client_read(wsi, &p, &n) < 0)
+		if (lws_http_client_read(wsi, (char **)&p, &n) < 0)
 			return -1;
 
 		return 0; /* don't passthru */
@@ -136,7 +96,6 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		 * connection close
 		 */
 		client_wsi = NULL;
-		/* abort poll wait */
 		lws_cancel_service(lws_get_context(wsi));
 		break;
 
@@ -144,196 +103,50 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
 	{
-		unsigned char **p = (unsigned char **)in, *end = (*p) + len;
-		char cla[32 + sizeof(pss->boundary)], ft[256], *eq;
-		lws_filepost_t cl = 0;
-		const char *a = NULL;
-		struct stat s;
+		uint8_t **pin = (unsigned char **)in, *endin = (*pin) + len;
 
-		/* create 40-char random pss->boundary */
+		pss->hmp = NULL;
 
-		for (n = 0; n < 24; n++)
-			pss->boundary[n] = '-';
-		lws_hex_random(lws_get_context(wsi), pss->boundary + 24, 16);
-		pss->boundary[24 + 16] = '\0';
+		if (lws_http_is_redirected_to_get(wsi)) {
+			lwsl_user("%s: LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER: redirected to GET\n", __func__);
+			break;
+		}
 
-		n = lws_snprintf(cla, sizeof(cla), "multipart/form-data; boundary=%s", pss->boundary);
-		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
-			     (const uint8_t *)cla, n, p, end))
-			 return -1;
+		pss->hmp = lws_http_mp_sm_init(wsi, form_cb, pin, endin);
+		if (!pss->hmp)
+			return 1;
 
-		/*
-		 * We have to now add together the length of everything we will put in
-		 * the body, in order to know the content-length now at header-time.
-		 *
-		 * That includes the multipart boundaries, headers, and CRLF delimiters.
-		 */
-
-		do {
-			a = lws_cmdline_options_cx(lws_get_context(wsi), "--form", &a);
-			if (!a)
-				break;
-			lws_strnncpy(ft, a, strlen(a), sizeof(ft));
-			eq = strchr(ft, '=');
-			if (eq) {
-				*eq = '\0';
-				eq++;
-			} /* ft contains the lhs of the = (now NUL) and eq the rhs sz */
-
-			cl += 2 /* -- */ + strlen(pss->boundary) + 2 /* CRLF */;
-			if (*eq == '@') { /* ie, form file contents */
-				cl += lws_snprintf(mph, sizeof(mph),
-						   "Content-Disposition: form-data; name=\"%s\"; filename=\"%s\"\x0d\x0a"
-						   "Content-Type: application/octet-stream\x0d\x0a\x0d\x0a",
-						   ft, eq + 1);
-				if (stat(eq + 1, &s)) {
-					lwsl_warn("%s: failed to stat %s\n", __func__, eq + 1);
-					return -1;
-				}
-
-				cl += s.st_size;
-				continue;
-			}
-
-			/* form data */
-
-			cl += lws_snprintf(mph, sizeof(mph),
-					   "Content-Disposition: form-data; name=\"%s\"\x0d\x0a\x0d\x0a", ft);
-			cl += strlen(eq) + 2 /* CRLF */;
-
-		} while (1);
-
-		cl += 2 /* -- */ + strlen(pss->boundary) + 2 /* -- */ + 2 /* CRLF */;
-
-		if (lws_add_http_header_content_length(wsi, cl, p, end))
-			return -1;
-
-		pss->a		= NULL;
-		pss->pos	= 0;
-		pss->total	= 0;
+		lwsl_user("%s: doing POST body\n", __func__);
 
 		/*
 		 * Tell lws we are going to send the body next...
 		 */
 
-		if (!lws_http_is_redirected_to_get(wsi)) {
-			lwsl_user("%s: doing POST flow\n", __func__);
-			lws_client_http_body_pending(wsi, 1);
-			lws_callback_on_writable(wsi);
-		} else
-			lwsl_user("%s: doing GET flow\n", __func__);
+		lws_client_http_body_pending(wsi, 1);
+		lws_callback_on_writable(wsi);
 		break;
+	}
 
 	case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE:
 		if (lws_http_is_redirected_to_get(wsi))
 			break;
 
-		lwsl_user("LWS_CALLBACK_CLIENT_HTTP_WRITEABLE\n");
-		n = LWS_WRITE_HTTP;
-
-		do {
-			switch (pss->ps) {
-			case LWS_POST_STATE__NEXT:
-				pss->a = lws_cmdline_options_cx(lws_get_context(wsi), "--form", &pss->a);
-				if (!a)
-					break;
-				lws_strnncpy(ft, a, strlen(a), sizeof(ft));
-				eq = strchr(ft, '=');
-				if (eq) {
-					*eq = '\0';
-					eq++;
-				} /* ft contains the lhs of the = (now NUL) and eq the rhs sz */
-
-				cl += 2 /* -- */ + strlen(pss->boundary) + 2 /* CRLF */;
-				if (*eq == '@') { /* ie, form file contents */
-					cl += lws_snprintf(mph, sizeof(mph),
-							   "Content-Disposition: form-data; name=\"%s\"; filename=\"%s\"\x0d\x0a"
-							   "Content-Type: application/octet-stream\x0d\x0a\x0d\x0a",
-							   ft, eq + 1);
-					pss->fd = open(eq + 1, O_RDONLY);
-					if (pss->fd == -1) {
-						lwsl_warn("%s: unable to open '%s'\n", __func__, eq + 1);
-						return -1;
-					}
-					if (fstat(pss->fd, &s)) {
-						lwsl_warn("%s: failed to stat %s\n", __func__, eq + 1);
-						return -1;
-					}
-					cl += s.st_size;
-					continue;
-				}
-
-				/* form data */
-
-				cl += lws_snprintf(mph, sizeof(mph),
-					   "Content-Disposition: form-data; name=\"%s\"\x0d\x0a\x0d\x0a", ft);
-				cl += strlen(eq) + 2 /* CRLF */;
-
-				break;
-
-			case LWS_POST_STATE__BOUNDARY:
-			case LWS_POST_STATE__MULTIHDR:
-			case LWS_POST_STATE__FILE: {
-				size_t chunk = lws_ptr_diff_size_t(end, p);
-				ssize_t r;
-
-				r = read(pss->fd, p, chunk);
-				if (r < 0) {
-					lwsl_warn("%s: unable to read\n", __func__);
-					return -1;
-				}
-				p += chunk;
-				break;
-			}
-			case LWS_POST_STATE__DATA:
-			case LWS_POST_STATE__TERM:
-			}
-
-		do {
-		} while (1);
-
-
-
-		switch (pss->body_part++) {
-		case 0:
-			if (lws_client_http_multipart(wsi, "text", NULL, NULL,
-						      &p, end))
-				return -1;
-			/* notice every usage of the boundary starts with -- */
-			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "my text field\xd\xa");
-			break;
-		case 1:
-			if (lws_client_http_multipart(wsi, "file", "myfile.txt",
-						      "text/plain", &p, end))
-				return -1;
-			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
-					"This is the contents of the "
-					"uploaded file.\xd\xa"
-					"\xd\xa");
-			break;
-		case 2:
-			if (lws_client_http_multipart(wsi, NULL, NULL, NULL,
-						      &p, end))
-				return -1;
-			lws_client_http_body_pending(wsi, 0);
-			 /* necessary to support H2, it means we will write no
-			  * more on this stream */
-			n = LWS_WRITE_HTTP_FINAL;
-			break;
-
-		default:
-			/*
-			 * We can get extra callbacks here, if nothing to do,
-			 * then do nothing.
-			 */
+		if (!pss->hmp)
 			return 0;
+
+		n = lws_http_mp_sm_fill(pss->hmp, &p, end);
+		if (n < 0)
+			return 0;
+		if (!n) {
+			lws_client_http_body_pending(wsi, 0);
+			lws_http_mp_sm_destroy(&pss->hmp);
 		}
 
-		if (lws_write(wsi, (uint8_t *)start, lws_ptr_diff_size_t(p, start), (enum lws_write_protocol)n)
-				!= lws_ptr_diff(p, start))
+		if (lws_write(wsi, start, lws_ptr_diff_size_t(p, start),
+			      n ? LWS_WRITE_HTTP : LWS_WRITE_HTTP_FINAL) != lws_ptr_diff(p, start))
 			return 1;
 
-		if (n != LWS_WRITE_HTTP_FINAL)
+		if (n)
 			lws_callback_on_writable(wsi);
 
 		return 0;
@@ -372,7 +185,7 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 
 		memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
 		i.context			= cx;
-		i.ssl_connection		= LCCSCF_USE_SSL | LCCSCF_HTTP_MULTIPART_MIME;
+		i.ssl_connection		= LCCSCF_USE_SSL; /* notice must NOT use multipart flag */
 
 		if (lws_cmdline_option_cx(cx, "-l")) {
 			url = "https://libwebsockets.org:443/testserver/formtest";
@@ -380,8 +193,10 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		}
 
 		p = lws_cmdline_option_cx(cx, NULL);
-		if (p)
+		if (p) {
 			url = p;
+			lwsl_notice("%s: setting url to %s\n", __func__, p);
+		}
 
 		strncpy(urlcp, url, sizeof(urlcp));
 		if (lws_parse_uri(urlcp, &prot, &i.address, &i.port, &i.path)) {
@@ -401,9 +216,9 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		if (lws_cmdline_option_cx(cx, "--h1"))
 			i.alpn			= "http/1.1";
 
-		i.protocol = protocols[0].name;
+		i.protocol			= protocols[0].name;
+		i.pwsi				= &client_wsi;
 
-		i.pwsi = &client_wsi;
 		lwsl_user("%s: connecting to %s\n", __func__, url);
 		if (!lws_client_connect_via_info(&i))
 			completed++;
@@ -434,7 +249,7 @@ int main(int argc, const char **argv)
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
-	lwsl_user("LWS minimal http client - POST [-d<verbosity>] [-l] [--h1] https://libwebsockets.org/testserver/formtest\n");
+	lwsl_user("LWS minimal http client form - POST [-d<verbosity>] [-l] [--h1] https://libwebsockets.org/testserver/formtest\n");
 
 	info.options			= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.port			= CONTEXT_PORT_NO_LISTEN;
