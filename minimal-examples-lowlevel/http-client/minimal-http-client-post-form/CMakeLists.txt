@@ -28,9 +28,9 @@ if (requirements)
 	# instantiate the server per sai builder instance, they are running in the same
 	# machine context in parallel so they can tread on each other otherwise
 	#
-	set(PORT_HCP_SRV "7040")
+	set(PORT_HCP_SRV "7340")
 	if ("$ENV{SAI_INSTANCE_IDX}")
-		math(EXPR PORT_HCP_SRV "7041 + $ENV{SAI_INSTANCE_IDX}")
+		math(EXPR PORT_HCP_SRV "7341 + $ENV{SAI_INSTANCE_IDX}")
 	endif()
 
 # hack
@@ -41,57 +41,57 @@ if (NOT WIN32 AND LWS_WITH_SERVER)
 	#
 
 if (WIN32)
-	add_test(NAME st_hcp_srv COMMAND cmd.exe /c start /b $<TARGET_FILE:test-server> -s --port ${PORT_HCP_SRV})
-	add_test(NAME ki_hcp_srv COMMAND taskkill /F /IM $<TARGET_FILE_NAME:test-server> /T)
+	add_test(NAME st_hcpf_srv COMMAND cmd.exe /c start /b $<TARGET_FILE:test-server> -s --port ${PORT_HCP_SRV})
+	add_test(NAME ki_hcpf_srv COMMAND taskkill /F /IM $<TARGET_FILE_NAME:test-server> /T)
 else()
 	#
 	# mbedtls is too slow to keep up on some targets, when ctest is in parallel
 	#
 	if (VALGRIND AND NOT MBEDTLS)
-		add_test(NAME st_hcp_srv COMMAND
+		add_test(NAME st_hcpf_srv COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
-					hcp_srv ${VALGRIND} --tool=memcheck 
+					hcpf_srv ${VALGRIND} --tool=memcheck 
 					$<TARGET_FILE:test-server>
 					-r ${CMAKE_BINARY_DIR}/share/libwebsockets-test-server/
 					-s --port ${PORT_HCP_SRV} -d1151)
-		add_test(NAME ki_hcp_srv COMMAND
-			${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh hcp_srv ${VALGRIND}
+		add_test(NAME ki_hcpf_srv COMMAND
+			${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh hcpf_srv ${VALGRIND}
 					$<TARGET_FILE_NAME:test-server> --port ${PORT_HCP_SRV})
 	else()
-		add_test(NAME st_hcp_srv COMMAND
+		add_test(NAME st_hcpf_srv COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
-					hcp_srv
+					hcpf_srv
 					$<TARGET_FILE:test-server>
 					-r ${CMAKE_BINARY_DIR}/share/libwebsockets-test-server/
 					-s --port ${PORT_HCP_SRV} )
-		add_test(NAME ki_hcp_srv COMMAND
-			${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh hcp_srv
+		add_test(NAME ki_hcpf_srv COMMAND
+			${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh hcpf_srv
 					$<TARGET_FILE_NAME:test-server> --port ${PORT_HCP_SRV})
 	endif()
 endif()
 
-	set_tests_properties(st_hcp_srv PROPERTIES
+	set_tests_properties(st_hcpf_srv PROPERTIES
 					     WORKING_DIRECTORY .
-					     FIXTURES_SETUP hcp_srv
+					     FIXTURES_SETUP hcpf_srv
 					     TIMEOUT 800)
-	set_tests_properties(ki_hcp_srv PROPERTIES
-					     FIXTURES_CLEANUP hcp_srv)
+	set_tests_properties(ki_hcpf_srv PROPERTIES
+					     FIXTURES_CLEANUP hcpf_srv)
 
-	add_test(NAME http-client-post COMMAND
-		lws-minimal-http-client-post -l --port ${PORT_HCP_SRV})
-	add_test(NAME http-client-post-m COMMAND
-		lws-minimal-http-client-post -l -m --port ${PORT_HCP_SRV})
-	add_test(NAME http-client-post-h1 COMMAND
-		lws-minimal-http-client-post -l --h1 --port ${PORT_HCP_SRV})
-	add_test(NAME http-client-post-m-h1 COMMAND
-		lws-minimal-http-client-post -l -m --h1 --port ${PORT_HCP_SRV})
-	set_tests_properties(http-client-post
-			     http-client-post-m
-			     http-client-post-h1
-			     http-client-post-m-h1
+	add_test(NAME http-client-post-form COMMAND
+		lws-minimal-http-client-post-form -l --port ${PORT_HCP_SRV})
+	add_test(NAME http-client-post-form-m COMMAND
+		lws-minimal-http-client-post-form -l -m --port ${PORT_HCP_SRV})
+	add_test(NAME http-client-post-form-h1 COMMAND
+		lws-minimal-http-client-post-form -l --h1 --port ${PORT_HCP_SRV})
+	add_test(NAME http-client-post-form-m-h1 COMMAND
+		lws-minimal-http-client-post-form -l -m --h1 --port ${PORT_HCP_SRV})
+	set_tests_properties(http-client-post-form
+			     http-client-post-form-m
+			     http-client-post-form-h1
+			     http-client-post-form-m-h1
 			     PROPERTIES
-			     FIXTURES_REQUIRED "hcp_srv"
-			     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-client/minimal-http-client-post
+			     FIXTURES_REQUIRED "hcpf_srv"
+			     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-client/minimal-http-client-post-form
 			     TIMEOUT 20)
 endif()
 
