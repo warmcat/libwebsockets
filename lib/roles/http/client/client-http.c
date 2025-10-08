@@ -1117,19 +1117,21 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		/* let's let the user code know, if he cares */
 
 		if (wsi->a.protocol->callback(wsi,
-					    LWS_CALLBACK_CLIENT_HTTP_REDIRECT,
-					    wsi->user_space, p, (unsigned int)n)) {
+					LWS_CALLBACK_CLIENT_HTTP_REDIRECT,
+					wsi->user_space, p, (unsigned int)n)) {
 			cce = "HS: user code rejected redirect";
 			goto bail3;
 		}
 
 		/*
 		 * Some redirect codes imply we have to change the method
-		 * used for the subsequent transaction, commonly POST ->
-		 * 303 -> GET.
+		 * used for the subsequent transaction.
+		 *
+		 * ugh... https://peterdaugaardrasmussen.com/2020/05/09/how-to-redirect-http-put-or-post-requests/
+		 * says only 307 or 308 mean keep POST or other method
 		 */
 
-		if (n == 303) {
+		if (n != 307 && n != 308) {
 			char *mp = lws_hdr_simple_ptr(wsi,_WSI_TOKEN_CLIENT_METHOD);
 			int ml = lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_METHOD);
 
@@ -1138,7 +1140,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 				memcpy(mp, "GET", 4);
 				wsi->redirected_to_get = 1;
 				wsi->http.ah->frags[wsi->http.ah->frag_index[
-				             _WSI_TOKEN_CLIENT_METHOD]].len = 3;
+					_WSI_TOKEN_CLIENT_METHOD]].len = 3;
 			}
 		}
 
@@ -2005,7 +2007,7 @@ static uint8_t hnames2[] = {
  */
 struct lws *
 lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
-		 const char *path, const char *host, char weak)
+		const char *path, const char *host, char weak)
 {
 	struct lws_context_per_thread *pt;
 #if defined(LWS_ROLE_WS)
@@ -2014,7 +2016,7 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	const char *cisin[CIS_COUNT];
 	struct lws *wsi;
 	size_t o;
-	int n;
+	int n, r;
 
 	if (!pwsi)
 		return NULL;
@@ -2047,6 +2049,17 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(hnames2); n++)
 		cisin[n + 3] = lws_hdr_simple_ptr(wsi, hnames2[n]);
 
+	r = (int)wsi->http.ah->http_response;
+
+	/*
+	 * We could be a redirect before, or after the POST was done.
+	 * Http's hack around this is 307 / 308 keep the method, ie,
+	 * it's pre and they have to repeat the body.  Other 3xx
+	 * turn it into a GET.
+	 */
+	if ((r / 100) == 3 && r != 307 && r != 308)
+		cisin[CIS_METHOD] = "GET";
+
 #if defined(LWS_WITH_TLS)
 	cisin[CIS_ALPN]		= wsi->alpn;
 #endif
@@ -2064,17 +2077,18 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	wsi->c_port = (uint16_t)port;
 
 	wsi->flags = (wsi->flags & (~LCCSCF_USE_SSL)) |
-					(ssl ? LCCSCF_USE_SSL : 0);
+		(ssl ? LCCSCF_USE_SSL : 0);
 
 	if (!cisin[CIS_ALPN] || !cisin[CIS_ALPN][0])
 #if defined(LWS_ROLE_H2)
 		cisin[CIS_ALPN] = "h2,http/1.1";
 #else
-		cisin[CIS_ALPN] = "http/1.1";
+	cisin[CIS_ALPN] = "http/1.1";
 #endif
 
-	lwsl_notice("%s: REDIRECT %s:%d, path='%s', ssl = %d, alpn='%s'\n",
-		    __func__, address, port, path, ssl, cisin[CIS_ALPN]);
+	lwsl_notice("%s: REDIRECT %d: %s %s:%d, path='%s', ssl = %d, alpn='%s'\n",
+			__func__, r, cisin[CIS_METHOD], address,
+			port, path, ssl, cisin[CIS_ALPN]);
 
 	lws_pt_lock(pt, __func__);
 	__remove_wsi_socket_from_fds(wsi);
@@ -2100,6 +2114,9 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 		wsi->ws = ws;
 #endif
 	wsi->client_pipeline = 1;
+
+	if ((r / 100) == 3 && r != 307 && r != 308)
+		wsi->redirected_to_get = 1;
 
 	/*
 	 * Will complete at close flow
