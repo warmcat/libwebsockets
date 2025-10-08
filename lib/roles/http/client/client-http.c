@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2023 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2025 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -1117,29 +1117,10 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		/* let's let the user code know, if he cares */
 
 		if (wsi->a.protocol->callback(wsi,
-					    LWS_CALLBACK_CLIENT_HTTP_REDIRECT,
-					    wsi->user_space, p, (unsigned int)n)) {
+					LWS_CALLBACK_CLIENT_HTTP_REDIRECT,
+					wsi->user_space, p, (unsigned int)n)) {
 			cce = "HS: user code rejected redirect";
 			goto bail3;
-		}
-
-		/*
-		 * Some redirect codes imply we have to change the method
-		 * used for the subsequent transaction, commonly POST ->
-		 * 303 -> GET.
-		 */
-
-		if (n == 303) {
-			char *mp = lws_hdr_simple_ptr(wsi,_WSI_TOKEN_CLIENT_METHOD);
-			int ml = lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_METHOD);
-
-			if (ml >= 3 && mp) {
-				lwsl_info("%s: 303 switching to GET\n", __func__);
-				memcpy(mp, "GET", 4);
-				wsi->redirected_to_get = 1;
-				wsi->http.ah->frags[wsi->http.ah->frag_index[
-				             _WSI_TOKEN_CLIENT_METHOD]].len = 3;
-			}
 		}
 
 		/* Relative reference absolute path */
@@ -1191,6 +1172,48 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			else
 				path = p;
 		}
+
+		/*
+		 * Some redirect codes imply we have to change the method
+		 * used for the subsequent transaction.
+		 *
+		 * ugh... https://peterdaugaardrasmussen.com/2020/05/09/how-to-redirect-http-put-or-post-requests/
+		 * says only 307 or 308 mean keep POST or other method
+		 */
+
+		if (n != 307 && n != 308) {
+			char *mp = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
+			int ml = lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_METHOD);
+			uint16_t pl = (uint16_t)strlen(path);
+
+			if (ml >= 3 && mp) {
+				lwsl_info("%s: 303 switching to GET\n", __func__);
+				memcpy(mp, "GET", 4);
+				wsi->redirected_to_get = 1;
+				wsi->http.ah->frags[wsi->http.ah->frag_index[
+					_WSI_TOKEN_CLIENT_METHOD]].len = 3;
+			}
+        		if (wsi->stash)
+                		wsi->stash->cis[CIS_METHOD] = "GET";
+
+			mp = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI);
+			ml = lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_URI);
+
+			if (wsi->http.ah->pos + pl + 1 >= wsi->http.ah->data_length) {
+				lwsl_warn("%s: redirect path exceeds ah size\n", __func__);
+				goto bail3;
+			}
+			memcpy(wsi->http.ah->data + wsi->http.ah->pos + 1, path, pl + 1);
+			wsi->http.ah->data[wsi->http.ah->pos] = '/';
+			wsi->http.ah->frags[wsi->http.ah->frag_index[_WSI_TOKEN_CLIENT_URI]].offset = wsi->http.ah->pos;
+			wsi->http.ah->frags[wsi->http.ah->frag_index[_WSI_TOKEN_CLIENT_URI]].len = pl + 1;
+
+			if (wsi->stash)
+				wsi->stash->cis[CIS_PATH] = wsi->http.ah->data + wsi->http.ah->pos;
+
+			wsi->http.ah->pos += pl + 1;
+		}
+
 
 #if defined(LWS_WITH_TLS)
 		if ((wsi->tls.use_ssl & LCCSCF_USE_SSL) && !ssl &&
@@ -2005,7 +2028,7 @@ static uint8_t hnames2[] = {
  */
 struct lws *
 lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
-		 const char *path, const char *host, char weak)
+		const char *path, const char *host, char weak)
 {
 	struct lws_context_per_thread *pt;
 #if defined(LWS_ROLE_WS)
@@ -2014,7 +2037,7 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	const char *cisin[CIS_COUNT];
 	struct lws *wsi;
 	size_t o;
-	int n;
+	int n, r;
 
 	if (!pwsi)
 		return NULL;
@@ -2047,6 +2070,8 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(hnames2); n++)
 		cisin[n + 3] = lws_hdr_simple_ptr(wsi, hnames2[n]);
 
+	r = (int)wsi->http.ah->http_response;
+
 #if defined(LWS_WITH_TLS)
 	cisin[CIS_ALPN]		= wsi->alpn;
 #endif
@@ -2064,17 +2089,18 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	wsi->c_port = (uint16_t)port;
 
 	wsi->flags = (wsi->flags & (~LCCSCF_USE_SSL)) |
-					(ssl ? LCCSCF_USE_SSL : 0);
+		(ssl ? LCCSCF_USE_SSL : 0);
 
 	if (!cisin[CIS_ALPN] || !cisin[CIS_ALPN][0])
 #if defined(LWS_ROLE_H2)
 		cisin[CIS_ALPN] = "h2,http/1.1";
 #else
-		cisin[CIS_ALPN] = "http/1.1";
+	cisin[CIS_ALPN] = "http/1.1";
 #endif
 
-	lwsl_notice("%s: REDIRECT %s:%d, path='%s', ssl = %d, alpn='%s'\n",
-		    __func__, address, port, path, ssl, cisin[CIS_ALPN]);
+	lwsl_notice("%s: REDIRECT %d: %s %s:%d, path='%s', ssl = %d, alpn='%s'\n",
+			__func__, r, cisin[CIS_METHOD], address,
+			port, path, ssl, cisin[CIS_ALPN]);
 
 	lws_pt_lock(pt, __func__);
 	__remove_wsi_socket_from_fds(wsi);
@@ -2100,6 +2126,16 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 		wsi->ws = ws;
 #endif
 	wsi->client_pipeline = 1;
+
+	/*
+	 * We could be a redirect before, or after the POST was done.
+	 * Http's hack around this is 307 / 308 keep the method, ie,
+	 * it's pre and they have to repeat the body.  Other 3xx
+	 * turn it into a GET.
+	 */
+
+	if ((r / 100) == 3 && r != 307 && r != 308)
+		wsi->redirected_to_get = 1;
 
 	/*
 	 * Will complete at close flow
