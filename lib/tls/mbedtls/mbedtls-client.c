@@ -407,7 +407,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		return 1;
 	}
 	/* create context */
-	vh->tls.ssl_client_ctx = SSL_CTX_new(method, &vh->context->mcdc);
+	vh->tls.ssl_client_ctx = SSL_CTX_new(method);
 	if (!vh->tls.ssl_client_ctx) {
 		error = (unsigned long)ERR_get_error();
 		lwsl_err("problem creating ssl context %lu: %s\n",
@@ -416,6 +416,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		return 1;
 	}
 
+	vh->tls.ssl_client_ctx->rngctx = &vh->context->mcdc;
 	if (!ca_filepath && (!ca_mem || !ca_mem_len)) {
 #if defined(LWS_HAVE_SSL_CTX_load_verify_dir)
 		if (!SSL_CTX_load_verify_dir(
