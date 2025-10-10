@@ -185,7 +185,7 @@ const char *mbedtls_client_preload_filepath;
 /**
  * @brief create a SSL context
  */
-SSL_CTX* SSL_CTX_new(const SSL_METHOD *method, void *rngctx)
+SSL_CTX* SSL_CTX_new(const SSL_METHOD *method)
 {
     SSL_CTX *ctx;
     CERT *cert;
@@ -220,7 +220,6 @@ SSL_CTX* SSL_CTX_new(const SSL_METHOD *method, void *rngctx)
     ctx->method = method;
     ctx->client_CA = client_ca;
     ctx->cert = cert;
-    ctx->rngctx = rngctx;
 
     ctx->version = method->version;
 
