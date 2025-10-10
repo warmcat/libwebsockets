@@ -28,7 +28,7 @@
  *
  * @return new private key object point
  */
-EVP_PKEY* __EVP_PKEY_new(EVP_PKEY *ipk, void *rngctx);
+EVP_PKEY* __EVP_PKEY_new(EVP_PKEY *ipk);
 
 /**
  * @brief create a private key object
@@ -37,7 +37,7 @@ EVP_PKEY* __EVP_PKEY_new(EVP_PKEY *ipk, void *rngctx);
  *
  * @return private key object point
  */
-EVP_PKEY* EVP_PKEY_new(void *rngctx);
+EVP_PKEY* EVP_PKEY_new(void);
 
 /**
  * @brief load a character key context into system context. If '*a' is pointed to the
@@ -53,7 +53,7 @@ EVP_PKEY* EVP_PKEY_new(void *rngctx);
 EVP_PKEY* d2i_PrivateKey(int type,
                          EVP_PKEY **a,
                          const unsigned char **pp,
-                         long length, void *rngctx);
+                         long length);
 
 /**
  * @brief free a private key object

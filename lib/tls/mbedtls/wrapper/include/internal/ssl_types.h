@@ -306,7 +306,7 @@ struct x509_method_st {
 
 struct pkey_method_st {
 
-    int (*pkey_new)(EVP_PKEY *pkey, EVP_PKEY *m_pkey, void *rngctx);
+    int (*pkey_new)(EVP_PKEY *pkey, EVP_PKEY *m_pkey);
 
     void (*pkey_free)(EVP_PKEY *pkey);
 
