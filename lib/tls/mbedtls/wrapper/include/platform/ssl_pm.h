@@ -50,7 +50,7 @@ int x509_pm_load(X509 *x, const unsigned char *buffer, int len);
 int x509_pm_load_file(X509 *x, const char *path);
 int x509_pm_load_path(X509 *x, const char *path);
 
-int pkey_pm_new(EVP_PKEY *pk, EVP_PKEY *m_pk, void *rngctx);
+int pkey_pm_new(EVP_PKEY *pk, EVP_PKEY *m_pk);
 void pkey_pm_free(EVP_PKEY *pk);
 int pkey_pm_load(EVP_PKEY *pk, const unsigned char *buffer, int len);
 
