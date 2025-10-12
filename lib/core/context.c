@@ -1393,7 +1393,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if defined(LWS_WITH_SYS_DHCP_CLIENT)
 		extern const struct lws_protocols lws_system_protocol_dhcpc4;
 #endif
+#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_BAREMETAL)
 		extern const struct lws_protocols lws_system_protocol_stdin;
+#endif
 
 		n = 0;
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
@@ -1405,7 +1407,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if defined(LWS_WITH_SYS_DHCP_CLIENT)
 		pp[n++] = &lws_system_protocol_dhcpc4;
 #endif
+#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_BAREMETAL)
 		pp[n++] = &lws_system_protocol_stdin;
+#endif
 		pp[n] = NULL;
 
 		memset(&ii, 0, sizeof(ii));
