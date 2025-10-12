@@ -106,8 +106,9 @@ next:
 		for (int m = 0; m < cx->stdin_argc; m++)
 			lwsl_notice("%s: %d: '%s'\n", __func__, m, cx->stdin_argv[m]);
 #endif
-
+#if defined(LWS_WITH_SYS_STATE)
 		lws_state_transition_steps(&cx->mgr_system, LWS_SYSTATE_OPERATIONAL);
+#endif
 		break;
 
 	case LWS_CALLBACK_RAW_RX_FILE:
@@ -151,10 +152,12 @@ lws_system_adopt_stdin(struct lws_context *cx, unsigned int flags)
 	sock.filefd		= 0; /* stdin */
 	cx->stdin_flags		= flags;
 
+#if defined(LWS_WITH_SYS_STATE)
 	/* if there's no stdin_rx callback, there's nothing for us to do */
 
 	if (!cx->system_ops || !cx->system_ops->stdin_rx)
 		lws_state_transition_steps(&cx->mgr_system, LWS_SYSTATE_OPERATIONAL);
+#endif
 
 	vh = lws_get_vhost_by_name(cx, "system");
 	if (!vh) {
