@@ -81,7 +81,7 @@ callback_fts(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			return 0;
 		if (lws_pvo_get_str(in, "indexpath",
 				    (const char **)&vhd->indexpath))
-			return 1;
+                       return 0;
 
 		return 0;
 

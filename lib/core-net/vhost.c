@@ -467,20 +467,20 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 		) {
 			lwsl_vhost_info(vh, "init %s.%s", vh->name,
 					vh->protocols[n].name);
-			vh->protocol_init |= 1u << n;
 			if (vh->protocols[n].callback((struct lws *)lwsa,
-				LWS_CALLBACK_PROTOCOL_INIT, NULL,
-				(void *)(pvo ? pvo->options : NULL),
-				0)) {
+					LWS_CALLBACK_PROTOCOL_INIT, NULL,
+					(void *)(pvo ? pvo->options : NULL),
+					0)) {
 				if (vh->protocol_vh_privs && vh->protocol_vh_privs[n]) {
 					lws_free(vh->protocol_vh_privs[n]);
 					vh->protocol_vh_privs[n] = NULL;
 				}
-			lwsl_vhost_err(vh, "protocol %s failed init",
+				lwsl_vhost_warn(vh, "protocol %s failed init",
 					vh->protocols[n].name);
 
-				return 1;
-			}
+				// return 1;
+			} else
+				vh->protocol_init |= 1u << n;
 		}
 	}
 

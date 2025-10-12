@@ -1203,15 +1203,15 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 				lwsl_warn("%s: redirect path exceeds ah size\n", __func__);
 				goto bail3;
 			}
-			memcpy(wsi->http.ah->data + wsi->http.ah->pos + 1, path, pl + 1);
+			memcpy(wsi->http.ah->data + wsi->http.ah->pos + 1, path, pl + 1u);
 			wsi->http.ah->data[wsi->http.ah->pos] = '/';
 			wsi->http.ah->frags[wsi->http.ah->frag_index[_WSI_TOKEN_CLIENT_URI]].offset = wsi->http.ah->pos;
-			wsi->http.ah->frags[wsi->http.ah->frag_index[_WSI_TOKEN_CLIENT_URI]].len = pl + 1;
+			wsi->http.ah->frags[wsi->http.ah->frag_index[_WSI_TOKEN_CLIENT_URI]].len = (uint16_t)(pl + 1u);
 
 			if (wsi->stash)
 				wsi->stash->cis[CIS_PATH] = wsi->http.ah->data + wsi->http.ah->pos;
 
-			wsi->http.ah->pos += pl + 1;
+			wsi->http.ah->pos += pl + 1u;
 		}
 
 
