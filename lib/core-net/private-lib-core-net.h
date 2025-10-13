@@ -312,6 +312,10 @@ struct lws_context_per_thread {
 
 	struct lws_dll2_owner pt_sul_owner[LWS_COUNT_PT_SUL_OWNERS];
 
+	lws_dll2_owner_t pre_natal_wsi_owner; /* allocated wsi not yet bound to vh
+						 are kept on here until bound, so
+						 they can be reaped if needed */
+
 #if (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)) && defined(LWS_WITH_SERVER)
 	lws_sorted_usec_list_t sul_ah_lifecheck;
 #endif
@@ -534,7 +538,7 @@ struct lws_vhost {
 #if defined(LWS_WITH_TLS_SESSIONS)
 	uint32_t		tls_session_cache_max;
 #endif
-
+	uint32_t		protocol_init; /* bitmap indicating if protocol initialized */
 #if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY) || defined(LWS_WITH_SECURE_STREAMS_CPP)
 	int8_t			ss_refcount;
 	/**< refcount of number of ss connections with streamtypes using this
@@ -665,10 +669,15 @@ struct lws {
 	lws_sorted_usec_list_t		sul_timeout;
 	lws_sorted_usec_list_t		sul_hrtimer;
 	lws_sorted_usec_list_t		sul_validity;
+#if defined(LWS_WITH_HTTP_PROXY)
+	lws_sorted_usec_list_t		sul_ws_proxy_est;
+#endif
 	lws_sorted_usec_list_t		sul_connect_timeout;
 #if defined(WIN32)
 	lws_sorted_usec_list_t		win32_sul_connect_async_check;
 #endif
+
+	lws_dll2_t			pre_natal;
 
 	struct lws_dll2			dll_buflist; /* guys with pending rxflow */
 	struct lws_dll2			same_vh_protocol;
@@ -920,6 +929,10 @@ struct lws_spawn_piped {
 	lws_sorted_usec_list_t		sul;
 	lws_sorted_usec_list_t		sul_reap;
 
+#if defined(__linux__)
+	char				cgroup_path[256];
+#endif
+
 	struct lws_context		*context;
 	struct lws			*stdwsi[3];
 	lws_filefd_type			pipe_fds[3][2];
@@ -928,11 +941,13 @@ struct lws_spawn_piped {
 	lws_usec_t			created; /* set by lws_spawn_piped() */
 	lws_usec_t			reaped;
 
-	lws_usec_t			accounting[4];
+	lws_spawn_resource_us_t		res;
 
 #if defined(WIN32)
 	HANDLE				child_pid;
 	lws_sorted_usec_list_t		sul_poll;
+	FILETIME			ft_create;
+	FILETIME			ft_exit;
 #else
 	pid_t				child_pid;
 
@@ -1103,7 +1118,7 @@ lws_pt_stats_unlock(struct lws_context_per_thread *pt)
 int LWS_WARN_UNUSED_RESULT
 lws_client_interpret_server_handshake(struct lws *wsi);
 
-int LWS_WARN_UNUSED_RESULT
+lws_handling_result_t LWS_WARN_UNUSED_RESULT
 lws_ws_rx_sm(struct lws *wsi, char already_processed, unsigned char c);
 
 int LWS_WARN_UNUSED_RESULT
@@ -1199,7 +1214,7 @@ lws_service_flag_pending(struct lws_context *context, int tsi);
 int
 lws_has_buffered_out(struct lws *wsi);
 
-int LWS_WARN_UNUSED_RESULT
+lws_handling_result_t LWS_WARN_UNUSED_RESULT
 lws_ws_client_rx_sm(struct lws *wsi, unsigned char c);
 
 lws_parser_return_t LWS_WARN_UNUSED_RESULT
@@ -1255,7 +1270,7 @@ void
 lws_remove_child_from_any_parent(struct lws *wsi);
 
 char *
-lws_generate_client_ws_handshake(struct lws *wsi, char *p, const char *conn1);
+lws_generate_client_ws_handshake(struct lws *wsi, char *p, const char *conn1, size_t p_len);
 int
 lws_client_ws_upgrade(struct lws *wsi, const char **cce);
 int
@@ -1268,8 +1283,6 @@ lws_role_call_alpn_negotiated(struct lws *wsi, const char *alpn);
 int
 lws_tls_server_conn_alpn(struct lws *wsi);
 
-int
-lws_ws_client_rx_sm_block(struct lws *wsi, unsigned char **buf, size_t len);
 void
 lws_destroy_event_pipe(struct lws *wsi);
 
@@ -1290,7 +1303,7 @@ lws_usec_t
 __lws_ss_timeout_check(struct lws_context_per_thread *pt, lws_usec_t usnow);
 
 struct lws * LWS_WARN_UNUSED_RESULT
-lws_client_connect_2_dnsreq(struct lws *wsi);
+lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(struct lws *wsi);
 
 LWS_VISIBLE struct lws * LWS_WARN_UNUSED_RESULT
 lws_client_reset(struct lws **wsi, int ssl, const char *address, int port,
@@ -1301,7 +1314,7 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi,
 				int group, const char *desc);
 
 char * LWS_WARN_UNUSED_RESULT
-lws_generate_client_handshake(struct lws *wsi, char *pkt);
+lws_generate_client_handshake(struct lws *wsi, char *pkt, size_t pkt_len);
 
 int
 lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd);
@@ -1487,13 +1500,6 @@ lws_broadcast(struct lws_context_per_thread *pt, int reason, void *in, size_t le
 const char *
 lws_errno_describe(int en, char *result, size_t len);
 
-struct lws_plugin *
-lws_plugin_alloc(struct lws_plugin **pplugin);
-
-int
-lws_plugins_handle_builtin(struct lws_plugin **pplugin,
-			   each_plugin_cb_t each, void *each_user);
-
 #if defined(LWS_WITH_PEER_LIMITS)
 void
 lws_peer_track_wsi_close(struct lws_context *context, struct lws_peer *peer);
@@ -1637,6 +1643,9 @@ lws_netdev_instance_remove_destroy(struct lws_netdev_instance *ni);
 int
 lws_score_dns_results(struct lws_context *ctx,
 			     const struct addrinfo **result);
+
+int
+lws_wsi_keepalive_timeout_eff(struct lws *wsi);
 
 #if defined(LWS_WITH_SYS_SMD)
 int

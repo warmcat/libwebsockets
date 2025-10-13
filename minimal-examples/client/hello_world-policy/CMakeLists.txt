@@ -1,5 +1,5 @@
 project(lws-minimal-ss-hello_world-policy C)
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 find_package(libwebsockets CONFIG REQUIRED)
 
 require_lws_config(LWS_ROLE_H1 1 requirements)
@@ -140,7 +140,8 @@ if (requirements)
 				set(CTEST_SOCKET_PATH "@ctest-mssp-$ENV{SAI_PROJECT}-$ENV{SAI_OVN}")
 			else()
 				# filesystem socket for others
-				set(CTEST_SOCKET_PATH "/tmp/ctest-mssp-$ENV{SAI_PROJECT}-$ENV{SAI_OVN}")
+				string(SUBSTRING "$ENV{SAI_OVN}" 32 16 SHORT_HASH)
+				set(CTEST_SOCKET_PATH "/tmp/ctest-mssp-$ENV{SAI_PROJECT}-${SHORT_HASH}")
 			endif()
 			add_test(NAME st_mss-${PROJECT_NAME}-proxy COMMAND
 				${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh

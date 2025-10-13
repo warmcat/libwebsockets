@@ -313,7 +313,7 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 	static const char * const hver[] = {
 		"HTTP/1.0", "HTTP/1.1", "HTTP/2"
 	};
-	const struct lws_protocol_vhost_options *headers;
+	const struct lws_protocol_vhost_options *headers, *ho;
 	unsigned int code = _code & LWSAHH_CODE_MASK;
 	const char *description = "", *p1;
 	unsigned char code_and_desc[60];
@@ -362,11 +362,26 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 	}
 
 	headers = wsi->a.vhost->headers;
+
 	while (headers) {
+		/*
+		 * Give mount headers the chance to individually override
+		 * each vhost header
+		 */
+		ho = wsi->http.mount_specific_headers;
+		while (ho) {
+			if (!strcmp(ho->name, headers->name))
+				break;
+			ho = ho->next;
+		}
+		/* if there was no mount header of same name, use vhost one */
+		if (!ho)
+			ho = headers;
+
 		if (lws_add_http_header_by_name(wsi,
-				(const unsigned char *)headers->name,
-				(unsigned char *)headers->value,
-				(int)strlen(headers->value), p, end))
+				(const unsigned char *)ho->name,
+				(unsigned char *)ho->value,
+				(int)strlen(ho->value), p, end))
 			return 1;
 
 		headers = headers->next;

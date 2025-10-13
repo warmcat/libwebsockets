@@ -86,7 +86,7 @@ lws_cgi_grace(lws_sorted_usec_list_t *sul)
 
 
 static void
-lws_cgi_reap_cb(void *opaque, lws_usec_t *accounting, siginfo_t *si,
+lws_cgi_reap_cb(void *opaque, const struct lws_spawn_resource_us *res, siginfo_t *si,
 		 int we_killed_him)
 {
 	struct lws *wsi = (struct lws *)opaque;
@@ -117,42 +117,41 @@ lws_cgi_reap_cb(void *opaque, lws_usec_t *accounting, siginfo_t *si,
 }
 
 int
-lws_cgi(struct lws *wsi, const char * const *exec_array,
-	int script_uri_path_len, int timeout_secs,
-	const struct lws_protocol_vhost_options *mp_cgienv)
+lws_cgi_via_info(struct lws_cgi_info * cgiinfo)
 {
-	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	struct lws_context_per_thread *pt = &cgiinfo->wsi->a.context->pt[(int)cgiinfo->wsi->tsi];
 	struct lws_spawn_piped_info info;
 	char *env_array[30], cgi_path[500], e[1024], *p = e,
 	     *end = p + sizeof(e) - 1, tok[256], *t, *sum, *sumend;
 	struct lws_cgi *cgi;
 	int n, m = 0, i, uritok = -1, c;
+	const struct lws_protocol_vhost_options *mp_cgienv = cgiinfo->mp_cgienv;
 
 	/*
 	 * give the cgi stream wsi a cgi struct
 	 */
 
-	wsi->http.cgi = lws_zalloc(sizeof(*wsi->http.cgi), "new cgi");
-	if (!wsi->http.cgi) {
-		lwsl_wsi_err(wsi, "OOM");
+	cgiinfo->wsi->http.cgi = lws_zalloc(sizeof(*cgiinfo->wsi->http.cgi), "new cgi");
+	if (!cgiinfo->wsi->http.cgi) {
+		lwsl_wsi_err(cgiinfo->wsi, "OOM");
 		return -1;
 	}
 
-	wsi->http.cgi->response_code = HTTP_STATUS_OK;
+	cgiinfo->wsi->http.cgi->response_code = HTTP_STATUS_OK;
 
-	cgi = wsi->http.cgi;
-	cgi->wsi = wsi; /* set cgi's owning wsi */
+	cgi = cgiinfo->wsi->http.cgi;
+	cgi->wsi = cgiinfo->wsi; /* set cgi's owning wsi */
 	sum = cgi->summary;
 	sumend = sum + strlen(cgi->summary) - 1;
 
-	if (timeout_secs)
-		lws_set_timeout(wsi, PENDING_TIMEOUT_CGI, timeout_secs);
+	if (cgiinfo->timeout_secs)
+		lws_set_timeout(cgiinfo->wsi, PENDING_TIMEOUT_CGI, cgiinfo->timeout_secs);
 
 	/* the cgi stdout is always sending us http1.x header data first */
-	wsi->hdr_state = LCHS_HEADER;
+	cgiinfo->wsi->hdr_state = LCHS_HEADER;
 
 	/* add us to the pt list of active cgis */
-	lwsl_wsi_debug(wsi, "adding cgi %p to list", wsi->http.cgi);
+	lwsl_wsi_debug(cgiinfo->wsi, "adding cgi %p to list", cgiinfo->wsi->http.cgi);
 	cgi->cgi_list = pt->http.cgi_list;
 	pt->http.cgi_list = cgi;
 
@@ -161,27 +160,27 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 		lws_sul_schedule(pt->context, (int)(pt - pt->context->pt), &pt->sul_cgi,
 				 lws_cgi_sul_cb, 3 * LWS_US_PER_SEC);
 
-	sum += lws_snprintf(sum, lws_ptr_diff_size_t(sumend, sum), "%s ", exec_array[0]);
+	sum += lws_snprintf(sum, lws_ptr_diff_size_t(sumend, sum), "%s ", cgiinfo->exec_array[0]);
 
 	if (0) {
-		char *pct = lws_hdr_simple_ptr(wsi,
+		char *pct = lws_hdr_simple_ptr(cgiinfo->wsi,
 				WSI_TOKEN_HTTP_CONTENT_ENCODING);
 
 		if (pct && !strcmp(pct, "gzip"))
-			wsi->http.cgi->gzip_inflate = 1;
+			cgiinfo->wsi->http.cgi->gzip_inflate = 1;
 	}
 
 	/* prepare his CGI env */
 
 	n = 0;
 
-	if (lws_is_ssl(wsi)) {
+	if (lws_is_ssl(cgiinfo->wsi)) {
 		env_array[n++] = p;
 		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "HTTPS=ON");
 		p++;
 	}
 
-	if (wsi->http.ah) {
+	if (cgiinfo->wsi->http.ah) {
 		static const unsigned char meths[] = {
 			WSI_TOKEN_GET_URI,
 			WSI_TOKEN_POST_URI,
@@ -205,22 +204,22 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 			"CONNECT", "HEAD", ":path"
 		};
 
-		if (script_uri_path_len >= 0)
+		if (cgiinfo->script_uri_path_len >= 0)
 			for (m = 0; m < (int)LWS_ARRAY_SIZE(meths); m++)
-				if (lws_hdr_total_length(wsi, meths[m]) >=
-						script_uri_path_len) {
+				if (lws_hdr_total_length(cgiinfo->wsi, meths[m]) >=
+						cgiinfo->script_uri_path_len) {
 					uritok = meths[m];
 					break;
 				}
 
-		if (script_uri_path_len < 0 && uritok < 0)
+		if (cgiinfo->script_uri_path_len < 0 && uritok < 0)
 			goto bail;
-//		if (script_uri_path_len < 0)
+//		if (cgiinfo->script_uri_path_len < 0)
 //			uritok = 0;
 
-		if (m >= 0) {
+		if (m < (int)LWS_ARRAY_SIZE(meths)) {
 			env_array[n++] = p;
-			if (m < (int)LWS_ARRAY_SIZE(meths) - 1) {
+			if (m < (int)LWS_ARRAY_SIZE(meths) - 1) { /* not the final, PATH one */
 				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
 						  "REQUEST_METHOD=%s",
 						  meth_names[m]);
@@ -230,9 +229,9 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 			} else {
 				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
 						  "REQUEST_METHOD=%s",
-			  lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD));
+				lws_hdr_simple_ptr(cgiinfo->wsi, WSI_TOKEN_HTTP_COLON_METHOD));
 				sum += lws_snprintf(sum, lws_ptr_diff_size_t(sumend, sum), "%s ",
-					lws_hdr_simple_ptr(wsi,
+					lws_hdr_simple_ptr(cgiinfo->wsi,
 						  WSI_TOKEN_HTTP_COLON_METHOD));
 #endif
 			}
@@ -241,14 +240,14 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 
 		if (uritok >= 0)
 			sum += lws_snprintf(sum, lws_ptr_diff_size_t(sumend, sum), "%s ",
-					    lws_hdr_simple_ptr(wsi, (enum lws_token_indexes)uritok));
+					    lws_hdr_simple_ptr(cgiinfo->wsi, (enum lws_token_indexes)uritok));
 
 		env_array[n++] = p;
 		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "QUERY_STRING=");
 		/* dump the individual URI Arg parameters */
 		m = 0;
-		while (script_uri_path_len >= 0) {
-			i = lws_hdr_copy_fragment(wsi, tok, sizeof(tok),
+		while (cgiinfo->script_uri_path_len >= 0) {
+			i = lws_hdr_copy_fragment(cgiinfo->wsi, tok, sizeof(tok),
 					     WSI_TOKEN_HTTP_URI_ARGS, m);
 			if (i < 0)
 				break;
@@ -258,7 +257,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 			if (*t == '=')
 				*p++ = *t++;
 			i = urlencode(t, i - lws_ptr_diff(t, tok), p, lws_ptr_diff(end, p));
-			if (i > 0) {
+			if (i >= 0) {
 				p += i;
 				*p++ = '&';
 			}
@@ -270,7 +269,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 
 		if (uritok >= 0) {
 			strcpy(cgi_path, "REQUEST_URI=");
-			c = lws_hdr_copy(wsi, cgi_path + 12,
+			c = lws_hdr_copy(cgiinfo->wsi, cgi_path + 12,
 					 sizeof(cgi_path) - 12, (enum lws_token_indexes)uritok);
 			if (c < 0)
 				goto bail;
@@ -281,88 +280,88 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 
 		sum += lws_snprintf(sum, lws_ptr_diff_size_t(sumend, sum), "%s", env_array[n - 1]);
 
-		if (script_uri_path_len >= 0) {
+		if (cgiinfo->script_uri_path_len >= 0) {
 			env_array[n++] = p;
 			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "PATH_INFO=%s",
-				      cgi_path + 12 + script_uri_path_len);
+				      cgi_path + 12 + cgiinfo->script_uri_path_len);
 			p++;
 		}
 	}
 #if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
-	if (script_uri_path_len >= 0 &&
-	    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_REFERER)) {
+	if (cgiinfo->script_uri_path_len >= 0 &&
+	    lws_hdr_total_length(cgiinfo->wsi, WSI_TOKEN_HTTP_REFERER)) {
 		env_array[n++] = p;
 		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "HTTP_REFERER=%s",
-			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_REFERER));
+			      lws_hdr_simple_ptr(cgiinfo->wsi, WSI_TOKEN_HTTP_REFERER));
 		p++;
 	}
 #endif
-	if (script_uri_path_len >= 0 &&
-	    lws_hdr_total_length(wsi, WSI_TOKEN_HOST)) {
+	if (cgiinfo->script_uri_path_len >= 0 &&
+	    lws_hdr_total_length(cgiinfo->wsi, WSI_TOKEN_HOST)) {
 		env_array[n++] = p;
 		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "HTTP_HOST=%s",
-			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST));
+			      lws_hdr_simple_ptr(cgiinfo->wsi, WSI_TOKEN_HOST));
 		p++;
 	}
-	if (script_uri_path_len >= 0 &&
-	    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE)) {
+	if (cgiinfo->script_uri_path_len >= 0 &&
+	    lws_hdr_total_length(cgiinfo->wsi, WSI_TOKEN_HTTP_COOKIE)) {
 		env_array[n++] = p;
 		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "HTTP_COOKIE=");
-		m = lws_hdr_copy(wsi, p, lws_ptr_diff(end, p), WSI_TOKEN_HTTP_COOKIE);
+		m = lws_hdr_copy(cgiinfo->wsi, p, lws_ptr_diff(end, p), WSI_TOKEN_HTTP_COOKIE);
 		if (m > 0)
-			p += lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE);
+			p += lws_hdr_total_length(cgiinfo->wsi, WSI_TOKEN_HTTP_COOKIE);
 		*p++ = '\0';
 	}
 #if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
-	if (script_uri_path_len >= 0 &&
-	    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_USER_AGENT)) {
+	if (cgiinfo->script_uri_path_len >= 0 &&
+	    lws_hdr_total_length(cgiinfo->wsi, WSI_TOKEN_HTTP_USER_AGENT)) {
 		env_array[n++] = p;
 		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "HTTP_USER_AGENT=%s",
-			    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_USER_AGENT));
+			    lws_hdr_simple_ptr(cgiinfo->wsi, WSI_TOKEN_HTTP_USER_AGENT));
 		p++;
 	}
 #endif
-	if (script_uri_path_len >= 0 &&
-	    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_ENCODING)) {
+	if (cgiinfo->script_uri_path_len >= 0 &&
+	    lws_hdr_total_length(cgiinfo->wsi, WSI_TOKEN_HTTP_CONTENT_ENCODING)) {
 		env_array[n++] = p;
 		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "HTTP_CONTENT_ENCODING=%s",
-		      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_CONTENT_ENCODING));
+		      lws_hdr_simple_ptr(cgiinfo->wsi, WSI_TOKEN_HTTP_CONTENT_ENCODING));
 		p++;
 	}
-	if (script_uri_path_len >= 0 &&
-	    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_ACCEPT)) {
+	if (cgiinfo->script_uri_path_len >= 0 &&
+	    lws_hdr_total_length(cgiinfo->wsi, WSI_TOKEN_HTTP_ACCEPT)) {
 		env_array[n++] = p;
 		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "HTTP_ACCEPT=%s",
-			      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_ACCEPT));
+			      lws_hdr_simple_ptr(cgiinfo->wsi, WSI_TOKEN_HTTP_ACCEPT));
 		p++;
 	}
-	if (script_uri_path_len >= 0 &&
-	    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING)) {
+	if (cgiinfo->script_uri_path_len >= 0 &&
+	    lws_hdr_total_length(cgiinfo->wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING)) {
 		env_array[n++] = p;
 		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "HTTP_ACCEPT_ENCODING=%s",
-		      lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING));
+		      lws_hdr_simple_ptr(cgiinfo->wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING));
 		p++;
 	}
-	if (script_uri_path_len >= 0 &&
+	if (cgiinfo->script_uri_path_len >= 0 &&
 	    uritok == WSI_TOKEN_POST_URI) {
-		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE)) {
+		if (lws_hdr_total_length(cgiinfo->wsi, WSI_TOKEN_HTTP_CONTENT_TYPE)) {
 			env_array[n++] = p;
 			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "CONTENT_TYPE=%s",
-			  lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE));
+			  lws_hdr_simple_ptr(cgiinfo->wsi, WSI_TOKEN_HTTP_CONTENT_TYPE));
 			p++;
 		}
-		if (!wsi->http.cgi->gzip_inflate &&
-		    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
+		if (!cgiinfo->wsi->http.cgi->gzip_inflate &&
+		    lws_hdr_total_length(cgiinfo->wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
 			env_array[n++] = p;
 			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "CONTENT_LENGTH=%s",
-					  lws_hdr_simple_ptr(wsi,
+					  lws_hdr_simple_ptr(cgiinfo->wsi,
 					  WSI_TOKEN_HTTP_CONTENT_LENGTH));
 			p++;
 		}
 
-		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH))
-			wsi->http.cgi->post_in_expected = (lws_filepos_t)
-				atoll(lws_hdr_simple_ptr(wsi,
+		if (lws_hdr_total_length(cgiinfo->wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH))
+			cgiinfo->wsi->http.cgi->post_in_expected = (lws_filepos_t)
+				atoll(lws_hdr_simple_ptr(cgiinfo->wsi,
 						WSI_TOKEN_HTTP_CONTENT_LENGTH));
 	}
 
@@ -372,7 +371,7 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 	p++;
 
 	env_array[n++] = p;
-	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "SCRIPT_PATH=%s", exec_array[0]);
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "SCRIPT_PATH=%s", cgiinfo->exec_array[0]);
 	p++;
 
 	while (mp_cgienv) {
@@ -380,8 +379,8 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "%s=%s", mp_cgienv->name,
 			      mp_cgienv->value);
 		if (!strcmp(mp_cgienv->name, "GIT_PROJECT_ROOT")) {
-			wsi->http.cgi->implied_chunked = 1;
-			wsi->http.cgi->explicitly_chunked = 1;
+			cgiinfo->wsi->http.cgi->implied_chunked = 1;
+			cgiinfo->wsi->http.cgi->explicitly_chunked = 1;
 		}
 		lwsl_info("   Applying mount-specific cgi env '%s'\n",
 			   env_array[n - 1]);
@@ -402,53 +401,71 @@ lws_cgi(struct lws *wsi, const char * const *exec_array,
 
 	memset(&info, 0, sizeof(info));
 	info.env_array = (const char **)env_array;
-	info.exec_array = exec_array;
+	info.exec_array = cgiinfo->exec_array;
 	info.max_log_lines = 20000;
-	info.opt_parent = wsi;
+	info.opt_parent = cgiinfo->wsi;
 	info.timeout_us = 5 * 60 * LWS_US_PER_SEC;
-	info.tsi = wsi->tsi;
-	info.vh = wsi->a.vhost;
+	info.tsi = cgiinfo->wsi->tsi;
+	info.vh = cgiinfo->wsi->a.vhost;
 	info.ops = &role_ops_cgi;
-	info.plsp = &wsi->http.cgi->lsp;
-	info.opaque = wsi;
+	info.plsp = &cgiinfo->wsi->http.cgi->lsp;
+	info.opaque = cgiinfo->wsi;
 	info.reap_cb = lws_cgi_reap_cb;
+	info.chroot_path = cgiinfo->chroot_path;
+	info.wd = cgiinfo->wd;
 
 	/*
 	 * Actually having made the env, as a cgi we don't need the ah
 	 * any more
 	 */
-	if (script_uri_path_len >= 0) {
-		lws_header_table_detach(wsi, 0);
+	if (cgiinfo->script_uri_path_len >= 0) {
+		lws_header_table_detach(cgiinfo->wsi, 0);
 		info.disable_ctrlc = 1;
 	}
 
-	wsi->http.cgi->lsp = lws_spawn_piped(&info);
-	if (!wsi->http.cgi->lsp) {
+	cgiinfo->wsi->http.cgi->lsp = lws_spawn_piped(&info);
+	if (!cgiinfo->wsi->http.cgi->lsp) {
 		lwsl_err("%s: spawn failed\n", __func__);
 		goto bail;
 	}
 
-	wsi->http.cgi->pi = wsi->http.cgi->lsp->child_pid;
+	cgiinfo->wsi->http.cgi->pi = cgiinfo->wsi->http.cgi->lsp->child_pid;
 
 	/* we are the parent process */
 
-	wsi->a.context->count_cgi_spawned++;
+	cgiinfo->wsi->a.context->count_cgi_spawned++;
 
 	/* inform cgi owner of the child PID */
-	n = user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
+	n = user_callback_handle_rxflow(cgiinfo->wsi->a.protocol->callback, cgiinfo->wsi,
 				    LWS_CALLBACK_CGI_PROCESS_ATTACH,
-				    wsi->user_space, NULL, (unsigned int)cgi->lsp->child_pid);
+				    cgiinfo->wsi->user_space, NULL, (unsigned int)cgi->lsp->child_pid);
 	(void)n;
 
 	return 0;
 
 bail:
-	lws_sul_cancel(&wsi->http.cgi->sul_grace);
-	lws_free_set_NULL(wsi->http.cgi);
+	lws_sul_cancel(&cgiinfo->wsi->http.cgi->sul_grace);
+	lws_free_set_NULL(cgiinfo->wsi->http.cgi);
 
 	lwsl_err("%s: failed\n", __func__);
 
 	return -1;
+}
+
+int
+lws_cgi(struct lws *wsi, const char * const *exec_array,
+	int script_uri_path_len, int timeout_secs,
+	const struct lws_protocol_vhost_options *mp_cgienv)
+{
+	struct lws_cgi_info cgiinfo;
+
+	memset (&cgiinfo, 0, sizeof (cgiinfo));
+	cgiinfo.wsi = wsi;
+	cgiinfo.exec_array = exec_array;
+	cgiinfo.script_uri_path_len = script_uri_path_len;
+	cgiinfo.timeout_secs = timeout_secs;
+	cgiinfo.mp_cgienv = mp_cgienv;
+	return lws_cgi_via_info (&cgiinfo);
 }
 
 /* we have to parse out these headers in the CGI output */
@@ -838,7 +855,7 @@ agin:
 	n = lws_get_socket_fd(wsi->http.cgi->lsp->stdwsi[LWS_STDOUT]);
 	if (n < 0)
 		return -1;
-	n = (int)read(n, start, sizeof(buf) - LWS_PRE);
+	n = (int)read(n, start, sizeof(buf) - LWS_PRE - 16);
 
 	if (n < 0 && errno != EAGAIN) {
 		lwsl_wsi_debug(wsi, "stdout read says %d", n);
@@ -982,6 +999,8 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 				(unsigned long long)cgi->content_length_seen);
 			}
 
+			lwsl_cx_info(pt->context, "reaping cgi pid %d (content len %d, clen seen %d)", (int)n, (int)cgi->content_length, (int)cgi->content_length_seen);
+
 			/* reap it */
 			waitpid(n, &status, WNOHANG);
 			/*
@@ -1029,7 +1048,7 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 		/* we deferred killing him after reaping his PID */
 		if (cgi->chunked_grace) {
 			cgi->chunked_grace++;
-			if (cgi->chunked_grace < 2)
+			if (cgi->chunked_grace < 5)
 				continue;
 			goto finish_him;
 		}
@@ -1055,7 +1074,7 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 				 * give him 2s after the
 				 * cgi terminated to send buffered
 				 */
-				cgi->chunked_grace++;
+				cgi->chunked_grace += 4;
 				continue;
 			}
 finish_him:

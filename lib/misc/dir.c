@@ -111,65 +111,77 @@ lws_dir_via_stat(char *combo, size_t l, const char *path, struct lws_dir_entry *
         }
 }
 
-int
-lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb)
+static void
+_fill_lde(char *combo, size_t l, const char *name, unsigned int type, struct lws_dir_entry *lde)
 {
+	lde->name = name;
+
+	/*
+	 * some filesystems don't report this (ZFS) and tell that
+	 * files are LDOT_UNKNOWN
+	 */
+
+#if defined(__sun) || defined(__QNX__)
+	lws_dir_via_stat(combo, l, name, lde);
+#else
+	/*
+	 * XFS on Linux doesn't fill in d_type at all, always zero.
+	 */
+
+	     if (DT_BLK  != DT_UNKNOWN && type == DT_BLK)
+		lde->type = LDOT_BLOCK;
+	else if (DT_CHR  != DT_UNKNOWN && type == DT_CHR)
+		lde->type = LDOT_CHAR;
+	else if (DT_DIR  != DT_UNKNOWN && type == DT_DIR)
+		lde->type = LDOT_DIR;
+	else if (DT_FIFO != DT_UNKNOWN && type == DT_FIFO)
+		lde->type = LDOT_FIFO;
+	else if (DT_LNK  != DT_UNKNOWN && type == DT_LNK)
+		lde->type = LDOT_LINK;
+	else if (DT_REG  != DT_UNKNOWN && type == DT_REG)
+		lde->type = LDOT_FILE;
+	else if (DT_SOCK != DT_UNKNOWN && type == DT_SOCK)
+		lde->type = LDOTT_SOCKET;
+	else {
+		lde->type = LDOT_UNKNOWN;
+		lws_dir_via_stat(combo, l, name, lde);
+	}
+#endif
+}
+
+int
+lws_dir_via_info(struct lws_dir_info *info)
+{
+	struct dirent **namelist = NULL;
 	struct lws_dir_entry lde;
-	struct dirent **namelist;
-	int n, i, ret = 1;
 	char combo[COMBO_SIZEOF];
+	unsigned int type = 0;
+	int n, i, ret = 1;
 	size_t l;
 
-	l = (size_t)(ssize_t)lws_snprintf(combo, COMBO_SIZEOF - 2, "%s", dirpath);
+	assert(info->dirpath);
+	assert(info->cb);
+
+	l = (size_t)(ssize_t)lws_snprintf(combo, COMBO_SIZEOF - 2, "%s", info->dirpath);
 	combo[l++] = csep;
 	combo[l] = '\0';
 
-	n = scandir((char *)dirpath, &namelist, filter, alphasort);
+	n = scandir((char *)info->dirpath, &namelist, filter, alphasort);
 	if (n < 0) {
-		lwsl_err("Scandir on '%s' failed, errno %d\n", dirpath, LWS_ERRNO);
+		lwsl_info("Scandir on '%s' failed, errno %d\n", info->dirpath, LWS_ERRNO);
 		return 1;
 	}
 
 	for (i = 0; i < n; i++) {
 #if !defined(__sun) && !defined(__QNX__)
-		unsigned int type = namelist[i]->d_type;
+		type = namelist[i]->d_type;
 #endif
 		if (strchr(namelist[i]->d_name, '~'))
 			goto skip;
-		lde.name = namelist[i]->d_name;
 
-		/*
-		 * some filesystems don't report this (ZFS) and tell that
-		 * files are LDOT_UNKNOWN
-		 */
+		_fill_lde(combo, l, namelist[i]->d_name, type, &lde);
 
-#if defined(__sun) || defined(__QNX__)
-		lws_dir_via_stat(combo, l, namelist[i]->d_name, &lde);
-#else
-		/*
-		 * XFS on Linux doesn't fill in d_type at all, always zero.
-		 */
-
-		if (DT_BLK != DT_UNKNOWN && type == DT_BLK)
-			lde.type = LDOT_BLOCK;
-		else if (DT_CHR != DT_UNKNOWN && type == DT_CHR)
-			lde.type = LDOT_CHAR;
-		else if (DT_DIR != DT_UNKNOWN && type == DT_DIR)
-			lde.type = LDOT_DIR;
-		else if (DT_FIFO != DT_UNKNOWN && type == DT_FIFO)
-			lde.type = LDOT_FIFO;
-		else if (DT_LNK != DT_UNKNOWN && type == DT_LNK)
-			lde.type = LDOT_LINK;
-		else if (DT_REG != DT_UNKNOWN && type == DT_REG)
-			lde.type = LDOT_FILE;
-		else if (DT_SOCK != DT_UNKNOWN && type == DT_SOCK)
-			lde.type = LDOTT_SOCKET;
-		else {
-			lde.type = LDOT_UNKNOWN;
-			lws_dir_via_stat(combo, l, namelist[i]->d_name, &lde);
-		}
-#endif
-		if (cb(dirpath, user, &lde)) {
+		if (info->cb(info->dirpath, info->user, &lde)) {
 			while (i < n)
 				free(namelist[i++]);
 			ret = 0; /* told to stop by cb */
@@ -179,10 +191,32 @@ skip:
 		free(namelist[i]);
 	}
 
+	if (info->do_toplevel_cb) {
+		lde.name = "";
+		lws_dir_via_stat(combo, l, "", &lde);
+
+		if (info->cb(info->dirpath, info->user, &lde))
+			ret = 0; /* told to stop by cb */
+	}
+
 bail:
 	free(namelist);
 
 	return ret;
+}
+
+int
+lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb)
+{
+	struct lws_dir_info info;
+
+	memset(&info, 0, sizeof(info));
+
+	info.dirpath = dirpath;
+	info.user = user;
+	info.cb = cb;
+
+	return lws_dir_via_info(&info);
 }
 
 /*
@@ -204,6 +238,37 @@ lws_dir_glob_check(const char *nm, const char *filt)
 			filt++;
 		}
 		nm++;
+	}
+
+	return 0;
+}
+
+int
+lws_dir_du_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
+{
+	lws_dir_du_t *du = (lws_dir_du_t *)user;
+	char path[384];
+	struct stat s;
+
+	if (!strcmp(lde->name, ".") || !strcmp(lde->name, ".."))
+		return 0;
+
+	lws_snprintf(path, sizeof(path), "%s%c%s", dirpath, csep, lde->name);
+
+	if (lde->type == LDOT_DIR) {
+		lws_dir(path, user, lws_dir_du_cb);
+
+		return 0;
+	}
+
+	if (lde->type == LDOT_FILE) {
+		if (stat(path, &s))
+			lwsl_warn("%s: stat %s failed %d\n", __func__,
+				  path, errno);
+		else {
+			du->size_in_bytes += (uint64_t)s.st_size;
+			du->count_files++;
+		}
 	}
 
 	return 0;
@@ -284,8 +349,6 @@ lws_dir_rm_rf_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 
 #endif
 
-#if defined(LWS_WITH_PLUGINS_API)
-
 struct lws_plugin *
 lws_plugin_alloc(struct lws_plugin **pplugin)
 {
@@ -299,6 +362,8 @@ lws_plugin_alloc(struct lws_plugin **pplugin)
 
 	return pin;
 }
+
+#if defined(LWS_WITH_PLUGINS_API)
 
 #if defined(LWS_BUILTIN_PLUGIN_NAMES)
 
@@ -332,6 +397,7 @@ lws_plugins_handle_builtin(struct lws_plugin **pplugin,
 }
 #endif
 
+#if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_PLUGINS_API)
 struct lws_plugins_args {
 	struct lws_plugin	**pplugin;
 	const char		*_class;
@@ -469,4 +535,5 @@ lws_plugins_destroy(struct lws_plugin **pplugin, each_plugin_cb_t each,
 
 	return 0;
 }
+#endif
 #endif

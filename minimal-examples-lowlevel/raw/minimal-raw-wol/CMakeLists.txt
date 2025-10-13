@@ -1,5 +1,5 @@
 project(lws-minimal-raw-wol C)
-cmake_minimum_required(VERSION 3.6)
+cmake_minimum_required(VERSION 3.10)
 find_package(libwebsockets CONFIG REQUIRED)
 list(APPEND CMAKE_MODULE_PATH ${LWS_CMAKE_DIR})
 include(CheckCSourceCompiles)
@@ -10,6 +10,7 @@ set(SRCS minimal-raw-wol.c)
 
 set(requirements 1)
 require_lws_config(LWS_WITH_WOL 1 requirements)
+require_lws_config(LWS_WITH_NETWORK 1 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})

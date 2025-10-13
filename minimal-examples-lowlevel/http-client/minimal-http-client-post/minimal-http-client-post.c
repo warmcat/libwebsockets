@@ -1,7 +1,7 @@
 /*
  * lws-minimal-http-client-post
  *
- * Written in 2010-2019 by Andy Green <andy@warmcat.com>
+ * Written in 2010-2025 by Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -18,6 +18,7 @@
 #include <signal.h>
 
 static int interrupted, bad = 0, status, count_clients = 1, completed;
+static lws_state_notify_link_t nl;
 static struct lws *client_wsi[4];
 
 struct pss {
@@ -178,6 +179,72 @@ static const struct lws_protocols protocols[] = {
 	LWS_PROTOCOL_LIST_TERM
 };
 
+
+static int
+app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
+		    int current, int target)
+{
+	struct lws_context *cx = lws_system_context_from_system_mgr(mgr);
+	const char *p, *prot = NULL, *url = "https://libwebsockets.org:443/testserver/formtest";
+	struct lws_client_connect_info i;
+	static char urlcp[128];
+	int n;
+
+	switch (target) {
+	case LWS_SYSTATE_OPERATIONAL:
+		if (current != LWS_SYSTATE_OPERATIONAL)
+			break;
+
+		memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
+		i.context		= cx;
+		i.ssl_connection	= LCCSCF_USE_SSL | LCCSCF_HTTP_MULTIPART_MIME;
+
+		if (lws_cmdline_option_cx(cx, "-l")) {
+			url = "https://libwebsockets.org:443/testserver/formtest";
+			i.ssl_connection |= LCCSCF_ALLOW_SELFSIGNED;
+		}
+
+		p = lws_cmdline_option_cx(cx, NULL);
+		if (p)
+			url = p;
+
+		strncpy(urlcp, url, sizeof(urlcp));
+		if (lws_parse_uri(urlcp, &prot, &i.address, &i.port, &i.path)) {
+			lwsl_err("%s: URL like https://warmcat.com/mypath needed\n", __func__);
+			return 1;
+		}
+
+
+		if (lws_cmdline_option_cx(cx, "--form1"))
+			i.path			= "/form1";
+
+		i.host				= i.address;
+		i.origin			= i.address;
+		i.method = "POST";
+
+		/* force h1 even if h2 available */
+		if (lws_cmdline_option_cx(cx, "--h1"))
+			i.alpn			= "http/1.1";
+
+		i.protocol = protocols[0].name;
+
+		for (n = 0; n < count_clients; n++) {
+			i.pwsi = &client_wsi[n];
+			lwsl_user("%s: connecting to %s\n", __func__, url);
+			if (!lws_client_connect_via_info(&i))
+				completed++;
+		}
+		break;
+	}
+
+	return 0;
+}
+
+static lws_state_notify_link_t * const app_notifier_list[] = {
+	&nl, NULL
+};
+
+
 static void
 sigint_handler(int sig)
 {
@@ -187,23 +254,27 @@ sigint_handler(int sig)
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	struct lws_client_connect_info i;
 	struct lws_context *context;
-	const char *p;
 	int n = 0;
 
 	signal(SIGINT, sigint_handler);
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
-	lwsl_user("LWS minimal http client - POST [-d<verbosity>] [-l] [--h1]\n");
+	lwsl_user("LWS minimal http client - POST [-d<verbosity>] [-l] [--h1] https://libwebsockets.org/testserver/formtest\n");
 
 	if (lws_cmdline_option(argc, argv, "-m"))
 		count_clients = LWS_ARRAY_SIZE(client_wsi);
 
-	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-	info.port = CONTEXT_PORT_NO_LISTEN; /* we do not run any server */
-	info.protocols = protocols;
+	info.options			= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+	info.port			= CONTEXT_PORT_NO_LISTEN;
+	info.protocols			= protocols;
+
+	/* integrate us with lws system state management when context created */
+	nl.name				= "app";
+	nl.notify_cb			= app_system_state_nf;
+	info.register_notifier_list	= app_notifier_list;
+
 	/*
 	 * since we know this lws context is only ever going to be used with
 	 * one client wsis / fds / sockets at a time, let lws know it doesn't
@@ -228,48 +299,20 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
-	i.context = context;
-	i.ssl_connection = LCCSCF_USE_SSL | LCCSCF_HTTP_MULTIPART_MIME;
-
-	if (lws_cmdline_option(argc, argv, "-l")) {
-		i.port = 7681;
-		i.address = "localhost";
-		i.ssl_connection |= LCCSCF_ALLOW_SELFSIGNED;
-		i.path = "/formtest";
-	} else {
-		i.port = 443;
-		i.address = "libwebsockets.org";
-		i.path = "/testserver/formtest";
+	if (lws_system_adopt_stdin(context, LWS_SAS_FLAG__APPEND_COMMANDLINE)) {
+		lwsl_err("%s: failed to adopt stdin\n", __func__);
+		goto bail;
 	}
 
-	if (lws_cmdline_option(argc, argv, "--form1"))
-		i.path = "/form1";
-
-	if ((p = lws_cmdline_option(argc, argv, "--port")))
-		i.port = atoi(p);
-
-	i.host = i.address;
-	i.origin = i.address;
-	i.method = "POST";
-
-	/* force h1 even if h2 available */
-	if (lws_cmdline_option(argc, argv, "--h1"))
-		i.alpn = "http/1.1";
-
-	i.protocol = protocols[0].name;
-
-	for (n = 0; n < count_clients; n++) {
-		i.pwsi = &client_wsi[n];
-		lwsl_notice("%s: connecting to %s:%d\n", __func__,
-			    i.address, i.port);
-		if (!lws_client_connect_via_info(&i))
-			completed++;
-	}
+	/*
+	 * Init continues in app_system_state_nf() above after we reach system
+	 * state OPERATIONAL
+	 */
 
 	while (n >= 0 && completed != count_clients && !interrupted)
 		n = lws_service(context, 0);
 
+bail:
 	lws_context_destroy(context);
 	lwsl_user("Completed: %s\n", bad ? "failed" : "OK");
 

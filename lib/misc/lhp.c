@@ -245,7 +245,7 @@ lhp_clean_stack(lws_dll2_t *d, void *user)
 	return 0;
 }
 
-static const lws_fx_t c_254= { 2,54000000 }, c_10 = { 10,0 },
+static const lws_fx_t c_254= { 2,54000000 }, c_10 = { 10,0 }, c_0 = { 0, 0 },
 			     c_72 = { 72,0 }, c_6 = { 6,0 }, c_100 = { 100,0 };
 
 /*
@@ -324,6 +324,16 @@ lws_csp_px(const lcsp_atr_t *a, lhp_pstack_t *ps)
 
 	ctx = lws_container_of(ps->list.owner, lhp_ctx_t, stack);
 	f = ps->font;
+
+       /*
+        * We rely on f being non-null, but if it happens to be
+        * NULL, let's return a constant 0
+        */
+
+       if (!f) {
+               *(lws_fx_t *)&a->r = c_0;
+               return &a->r;
+       }
 
 	ref = lhp_prop_axis(a);
 
@@ -1304,11 +1314,6 @@ skip_image:
 					ps->cb(ctx, LHPCB_FAILED);
 					return LWS_SRET_FATAL;
 				}
-				if (c == '=') {
-					// !!! lwsl_err("%s: equal\n", __func__);
-					//ps->cb(ctx, LHPCB_FAILED);
-					//return LWS_SRET_FATAL;
-				}
 				break;
 			}
 			if (c == '/') {
@@ -1641,8 +1646,8 @@ skip_image:
 					(c >= 'a' && c <= 'f') ||
 					(c >= 'A' && c <= 'F'))) {
 					ctx->temp = (uint32_t)(((int)ctx->temp << 4) |
-						((c >= '0' && c <= '9') ? c - '0' :
-							(c >= 'a' && c <= 'f') ? 10 + (c - 'a') :
+						((c <= '9') ? c - '0' :
+							(c >= 'a') ? 10 + (c - 'a') :
 								10 + (c - 'A')));
 					ctx->temp_count++;
 					break;

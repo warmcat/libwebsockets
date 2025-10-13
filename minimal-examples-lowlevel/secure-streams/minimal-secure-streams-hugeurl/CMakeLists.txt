@@ -1,5 +1,5 @@
 project(lws-minimal-secure-streams-hugeurl C)
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 find_package(libwebsockets CONFIG REQUIRED)
 list(APPEND CMAKE_MODULE_PATH ${LWS_CMAKE_DIR})
 include(CheckCSourceCompiles)
@@ -46,9 +46,9 @@ if (requirements)
 			message("testing via valgrind")
 			add_test(NAME ss-warmcat-hurl COMMAND
 				${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
-				$<TARGET_FILE:lws-minimal-secure-streams-hugeurl>)
+				$<TARGET_FILE:lws-minimal-secure-streams-hugeurl> -h 1024 --h1)
 		else()
-			add_test(NAME ss-warmcat-hurl COMMAND lws-minimal-secure-streams-hugeurl)
+			add_test(NAME ss-warmcat-hurl COMMAND lws-minimal-secure-streams-hugeurl -h 1024 --h1)
 		endif()
 
 		set_tests_properties(ss-warmcat-hurl
@@ -71,7 +71,12 @@ if (requirements)
 				set(CTEST_SOCKET_PATH "@ctest-ssp-hurl-$ENV{SAI_PROJECT}-$ENV{SAI_OVN}")
 			else()
 				# filesystem socket for others
-				set(CTEST_SOCKET_PATH "/tmp/ctest-ssp-hurl-$ENV{SAI_PROJECT}-$ENV{SAI_OVN}")
+                                if (DEFINED ENV{SAI_OVN})
+                                        string(SUBSTRING "$ENV{SAI_OVN}" 32 16 SHORT_HASH)
+                                else()
+                                        set(SHORT_HASH "0")
+                                endif()
+				set(CTEST_SOCKET_PATH "/tmp/ctest-ssp-hurl-$ENV{SAI_PROJECT}-${SHORT_HASH}")
 			endif()
 			add_test(NAME st_ssproxy-hurl COMMAND
 				${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh

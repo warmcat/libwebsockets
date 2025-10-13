@@ -58,7 +58,33 @@ struct lws_cgi_args {
 	int len; /**< length */
 };
 
+/** struct lws_cgi_info - parameters to spawn network-connected cgi
+ *                        process when using lws_cgi_via_info() */
+struct lws_cgi_info {
+	struct lws *wsi;
+	/**< connection to own the process */
+	const char * const *exec_array;
+	/**< array of "exec-name" "arg1" ... "argn" NULL */
+	int script_uri_path_len;
+	/**< how many chars on the left of the uri are the path to the
+	 * cgi, or -1 to spawn without URL-related env vars */
+	int timeout_secs;
+	/**< seconds script should be allowed to run */
+	const struct lws_protocol_vhost_options *mp_cgienv;
+	/**< pvo list with per-vhost cgi options to put in env */
+	const char *chroot_path;
+	/**< NULL, or chroot patch for child process */
+	const char *wd;
+	/**< working directory to cd to after fork, NULL defaults to /tmp */
+};
+
 #ifdef LWS_WITH_CGI
+/**
+ * lws_cgi_via_info() - Spawn network-connected cgi process
+ * \param cgiinfo: pointer to lws_cgi_info struct
+ */
+LWS_VISIBLE LWS_EXTERN int lws_cgi_via_info(struct lws_cgi_info * cgiinfo);
+
 /**
  * lws_cgi: spawn network-connected cgi process
  *

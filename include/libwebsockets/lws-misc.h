@@ -136,7 +136,7 @@ lws_buflist_linear_use(struct lws_buflist **head, uint8_t *buf, size_t len);
  * lws_buflist_fragment_use(): copy and consume <= 1 frag from buflist head
  *
  * \param head: list head
- * \param buf: buffer to copy linearly into
+ * \param buf: NULL, buffer to copy linearly into
  * \param len: length of buffer available
  * \param frag_first: pointer to char written on exit to if this is start of frag
  * \param frag_fin: pointer to char written on exit to if this is end of frag
@@ -147,6 +147,10 @@ lws_buflist_linear_use(struct lws_buflist **head, uint8_t *buf, size_t len);
  *
  * Since it was consumed, calling again will resume copying out and consuming
  * from as far as it got the first time.
+ *
+ * It's legal for buf to be NULL and / or len = 0.  In this case nothing is
+ * "used" and the effect is to set `frag_first` according to if we are at the
+ * start of the fragment and 0 is returned.
  *
  * Returns the number of bytes written into \p buf.
  */
@@ -177,6 +181,22 @@ lws_buflist_destroy_all_segments(struct lws_buflist **head);
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_buflist_describe(struct lws_buflist **head, void *id, const char *reason);
+
+/**
+ * lws_buflist_get_frag_start_or_NULL(): get pointer to start of fragment
+ *
+ * \param head: list head
+ *
+ * This gets you a pointer to the start of the fragment payload, no matter
+ * how much of it you may have 'used' already.  This is useful for schemes
+ * where you prepend something to the payload and need to reference it no
+ * matter how much of it you have consumed or the fragmentation details.
+ *
+ * If the buflist is empty, it will return NULL.
+ */
+LWS_VISIBLE LWS_EXTERN void *
+lws_buflist_get_frag_start_or_NULL(struct lws_buflist **head);
+
 
 
 /*
@@ -528,6 +548,8 @@ lws_parse_uri(char *p, const char **prot, const char **ads, int *port,
  *
  * Returns NULL if the string \p val is not found in the arguments.
  *
+ * This only returns the first hit for \p val.
+ *
  * If it is found, then it returns a pointer to the next character after \p val.
  * So if \p val is "-d", then for the commandlines "myapp -d15" and
  * "myapp -d 15", in both cases the return will point to the "15".
@@ -535,9 +557,100 @@ lws_parse_uri(char *p, const char **prot, const char **ads, int *port,
  * In the case there is no argument, like "myapp -d", the return will
  * either point to the '\\0' at the end of -d, or to the start of the
  * next argument, ie, will be non-NULL.
+ *
+ * This original api variant does not handle stdin-passed commandline content,
+ * only that present in the passed argc / argv.
  */
 LWS_VISIBLE LWS_EXTERN const char *
 lws_cmdline_option(int argc, const char **argv, const char *val);
+
+/**
+ * lws_cmdline_options():	simple commandline parser
+ *
+ * \param argc:		count of argument strings
+ * \param argv:		argument strings
+ * \param val:		string to find
+ * \param last:		last successful return from previous call
+ *
+ * Returns NULL if the string \p val is not found in the arguments.
+ *
+ * Before checking, the api aligns itself to the place of the \p last
+ * hit (or the beginning of the commandline if NULL), and starts checking
+ * from just beyond that.  In this way you can get the first, or
+ * incrementally get multiple results, for every hit.
+ *
+ * If a match is found, then it returns a pointer to the next character after \p val.
+ * So if \p val is "-d", then for the commandlines "myapp -d15" and
+ * "myapp -d 15", in both cases the return will point to the "15".
+ *
+ * In the case there is no argument, like "myapp -d", the return will
+ * either point to the '\\0' at the end of -d, or to the start of the
+ * next argument, ie, will be non-NULL indicating success.
+ *
+ * This original api variant does not handle stdin-passed commandline content,
+ * only that present in the passed argc / argv.
+ */
+LWS_VISIBLE LWS_EXTERN const char *
+lws_cmdline_options(int argc, const char * const *argv, const char *val, const char *last);
+
+/**
+ * lws_cmdline_options_cx():	simple commandline parser
+ *
+ * \param cx:		the lws_context
+ * \param val:		string to find
+ * \param last:		last successful return from previous call
+ *
+ * Returns NULL if the string \p val is not found in the arguments.
+ *
+ * Before checking, the api aligns itself to the place of the \p last
+ * hit (or the beginning of the commandline if NULL), and starts checking
+ * from just beyond that.  In this way you can get the first, or
+ * incrementally get multiple results, for every hit.
+ * 
+ * If a match is found, then it returns a pointer to the next character after \p val.
+ * So if \p val is "-d", then for the commandlines "myapp -d15" and
+ * "myapp -d 15", in both cases the return will point to the "15".
+ *
+ * In the case there is no argument, like "myapp -d", the return will
+ * either point to the '\\0' at the end of -d, or to the start of the
+ * next argument, ie, will be non-NULL indicating success.
+ *
+ * This api variant handles stdin-passed commandline content, placing it
+ * after the argc / argv content.  You must ensure the context creation
+ * info .argc and .argv were set to the application's main argc and argv,
+ * either manually or it is handled for you as a side-effect of calling
+ * lws_cmdline_option_handle_builtin().
+ */
+
+LWS_VISIBLE LWS_EXTERN const char *
+lws_cmdline_options_cx(const struct lws_context *cx, const char *val, const char *last);
+
+/**
+ * lws_cmdline_option_cx():	simple commandline parser
+ *
+ * \param cx:		the lws_context
+ * \param val:		string to find
+ *
+ * Returns NULL if the string \p val is not found in the arguments.
+ *
+ * This only returns the first hit for \p val.
+ *
+ * If a match is found, then it returns a pointer to the next character after \p val.
+ * So if \p val is "-d", then for the commandlines "myapp -d15" and
+ * "myapp -d 15", in both cases the return will point to the "15".
+ *
+ * In the case there is no argument, like "myapp -d", the return will
+ * either point to the '\\0' at the end of -d, or to the start of the
+ * next argument, ie, will be non-NULL indicating success.
+ *
+ * This api variant handles stdin-passed commandline content, placing it
+ * after the argc / argv content.  You must ensure the context creation
+ * info .argc and .argv were set to the application's main argc and argv,
+ * either manually or it is handled for you as a side-effect of calling
+ * lws_cmdline_option_handle_builtin().
+ */
+LWS_VISIBLE LWS_EXTERN const char *
+lws_cmdline_option_cx(const struct lws_context *cx, const char *val);
 
 /**
  * lws_cmdline_option_handle_builtin(): apply standard cmdline options
@@ -793,6 +906,13 @@ typedef int
 lws_dir_callback_function(const char *dirpath, void *user,
 			  struct lws_dir_entry *lde);
 
+struct lws_dir_info {
+	const char 			*dirpath;
+	void 				*user;
+	lws_dir_callback_function	*cb;
+	unsigned char			do_toplevel_cb:1;
+};
+
 /**
  * lws_dir() - get a callback for everything in a directory
  *
@@ -802,11 +922,41 @@ lws_dir_callback_function(const char *dirpath, void *user,
  *
  * Calls \p cb (with \p user) for every object in dirpath.
  *
+ * This form does not call the callback for the toplevel, dirpath dir
+ * itself.  If you want to do that, use lws_dir_via_info(), with
+ * .do_toplevel_cb nonzero.
+ *
  * This wraps whether it's using POSIX apis, or libuv (as needed for windows,
  * since it refuses to support POSIX apis for this).
+ *
+ * Returns 1 if completed normally or 0 if the recursion ended early.
+ *
+ * This is here for historical reasons, use the below lws_dir_via_info() for
+ * new code, it's the same function but using an info struct type args.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb);
+
+/**
+ * lws_dir_via_info() - get a callback for everything in a directory
+ *
+ * \param info: details of what to scan and how
+ *
+ * All of the members of \p info should be set on entry.
+ *
+ * Calls \p info.cb (with \p info.user) for every object in info.dirpath.
+ *
+ * Set \p info.do_toplevel_cb to nonzero if you also want the callback to
+ * be called for the toplevel dir, ie, dirpath itself.
+ *
+ * This wraps whether it's using POSIX apis, or libuv (as needed for windows,
+ * since it refuses to support POSIX apis for this).
+ *
+ * Returns 1 if completed normally or 0 if the recursion ended early.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dir_via_info(struct lws_dir_info *info);
+
 
 /**
  * lws_dir_rm_rf_cb() - callback for lws_dir that performs recursive rm -rf
@@ -821,6 +971,34 @@ lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb);
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_dir_rm_rf_cb(const char *dirpath, void *user, struct lws_dir_entry *lde);
+
+
+/**
+ * lws_dir_du_t: context for lws_dir_du_cb()
+ *
+ * It's zeroed before starting the lws_dir() walk.
+ */
+
+typedef struct lws_dir_du {
+	uint64_t			size_in_bytes;
+	uint32_t			count_files;
+} lws_dir_du_t;
+
+/**
+ * lws_dir_du_cb() - callback for lws_dir that performs recursive du
+ *
+ * \param dirpath: directory we are at in lws_dir
+ * \param user: pointer to a lws_dir_du_t to collate the results in
+ * \param lde: lws_dir info on the file or directory we are at
+ *
+ * This is a readymade du -b callback for use with lws_dir.  It recursively
+ * sums the sizes of all files it finds and the count of files.  The user
+ an
+ * lws_dir_du_t struct should be zeroed before starting the walk.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dir_du_cb(const char *dirpath, void *user, struct lws_dir_entry *lde);
+
 
 /*
  * We pass every file in the base dir through a filter, and call back on the
@@ -988,12 +1166,19 @@ lws_assert_fourcc(uint32_t fourcc, uint32_t expected);
  * which represents a count of us as a human-readable time like "  14.350min",
  * or "  1.500d".
  *
- * You can produce your own schema.
+ * You can produce your own schema tables.
+ *
+ * lws_humanize_pad() is the same but pads the lhs so that it
+ * always produces the same length.
  */
 
 LWS_VISIBLE LWS_EXTERN int
 lws_humanize(char *buf, size_t len, uint64_t value,
 	     const lws_humanize_unit_t *schema);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_humanize_pad(char *p, size_t len, uint64_t v,
+		 const lws_humanize_unit_t *schema);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_ser_wu16be(uint8_t *b, uint16_t u);
@@ -1033,8 +1218,22 @@ struct _lws_siginfo_t {
 typedef struct _lws_siginfo_t siginfo_t;
 #endif
 
-typedef void (*lsp_cb_t)(void *opaque, lws_usec_t *accounting, siginfo_t *si,
-			 int we_killed_him);
+/**
+ * lws_spawn_resource_us_t - resource usage results from spawned process
+ *
+ * All time values are in uS.
+ * All size values are in bytes.
+ */
+typedef struct lws_spawn_resource_us {
+	uint64_t			us_cpu_user;  /**< user space cpu time */
+	uint64_t			us_cpu_sys;   /**< kernel space cpu time */
+
+	uint64_t			peak_mem_rss; /**< peak resident memory */
+	uint64_t			peak_mem_virt; /**< peak virtual memory */
+} lws_spawn_resource_us_t;
+
+typedef void (*lsp_cb_t)(void *opaque, const lws_spawn_resource_us_t *res,
+			 siginfo_t *si, int we_killed_him);
 
 
 /**
@@ -1050,9 +1249,11 @@ typedef void (*lsp_cb_t)(void *opaque, lws_usec_t *accounting, siginfo_t *si,
  * \p wd: working directory to cd to after fork, NULL defaults to /tmp
  * \p plsp: NULL, or pointer to the outer lsp pointer so it can be set NULL when destroyed
  * \p opaque: pointer passed to the reap callback, if any
- * \p timeout: optional us-resolution timeout, or zero
  * \p reap_cb: callback when child process has been reaped and the lsp destroyed
  * \p tsi: tsi to bind stdwsi to... from opt_parent if given
+ * \p cgroup_name_suffix: for Linux, encapsulate spawn into this new cgroup
+ * \p p_cgroup_ret: NULL, or pointer to int to show if cgroups applied OK (0 = OK)
+ * \p pres: NULL, or pointer to a lws_spawn_resource_us_t to take the results
  */
 struct lws_spawn_piped_info {
 	struct lws_dll2_owner		*owner;
@@ -1071,6 +1272,8 @@ struct lws_spawn_piped_info {
 
 	lsp_cb_t			reap_cb;
 
+	lws_spawn_resource_us_t		*res;
+
 	lws_usec_t			timeout_us;
 	int				max_log_lines;
 	int				tsi;
@@ -1078,6 +1281,9 @@ struct lws_spawn_piped_info {
 	const struct lws_role_ops	*ops; /* NULL is raw file */
 
 	uint8_t				disable_ctrlc;
+
+	const char			*cgroup_name_suffix;
+	int				*p_cgroup_ret;
 };
 
 /**
@@ -1115,6 +1321,16 @@ LWS_VISIBLE LWS_EXTERN int
 lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp);
 
 /**
+ * lws_spawn_get_stdwsi_open_count() - return stdwsi unclosed count
+ *
+ * \p lsp: the spawn object
+ *
+ * Returns number of stdwsi left unclosed on the lsp.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_spawn_get_stdwsi_open_count(struct lws_spawn_piped *lsp);
+
+/**
  * lws_spawn_stdwsi_closed() - inform the spawn one of its stdxxx pipes closed
  *
  * \p lsp: the spawn object
@@ -1126,9 +1342,21 @@ lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp);
  *
  * This is the mechanism whereby the spawn object can understand its child
  * has closed.
+ *
+ * Returns non-zero if there are no more stdwsi to wait for.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_spawn_stdwsi_closed(struct lws_spawn_piped *lsp, struct lws *wsi);
+
+/*
+ * lws_spawn_closedown_stdwsis() - forcibly close the spawner side of stdwsi pipes
+ *
+ * \p lsp: the spawn object
+ *
+ * Closes the spawner side of all the stdwsi for an lsp that are still open.
  */
 LWS_VISIBLE LWS_EXTERN void
-lws_spawn_stdwsi_closed(struct lws_spawn_piped *lsp, struct lws *wsi);
+lws_spawn_closedown_stdwsis(struct lws_spawn_piped *lsp);
 
 /**
  * lws_spawn_get_stdfd() - return std channel index for stdwsi
@@ -1142,6 +1370,52 @@ lws_spawn_stdwsi_closed(struct lws_spawn_piped *lsp, struct lws *wsi);
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_spawn_get_stdfd(struct lws *wsi);
+
+/**
+ * lws_spawn_get_fd_stdxxx() - return fd belonging to lws side of spawn stdxxx
+ *
+ * \p lsp: the opaque pointer returned from lws_spawn()
+ * \p std_idx: 0 (stdin write side), 1 (stdout read side), 2 (stderr read side)
+ *
+ * Lets you get the fd for writing to the spawned process stdin, or reading from
+ * the spawned process stdout and stderr.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_spawn_get_fd_stdxxx(struct lws_spawn_piped *lsp, int std_idx);
+
+/**
+ * lws_spawn_prepare_self_cgroup() - Create lws parent cgroup
+ *
+ * \p user: NULL, or the user name that will use the toplevel cgroup
+ * \p group: NULL, or the group name that will use the toplevel cgroup
+ *
+ * This helper should be called once at startup by a process that has root
+ * privileges. It will configure the current process cgroup to be able to
+ * bring children into it when running under different uid / gid.
+ *
+ * After this has been called successfully, the process can drop privileges
+ * to a non-root user, and subsequent calls to lws_spawn_piped() with a
+ * cgroup_name_suffix will succeed as long as that user has write permission
+ * in the master cgroup directory (which can be arranged via chown).
+ *
+ * Returns 0 on success. On non-Linux platforms, it's a no-op that returns 1.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_spawn_prepare_self_cgroup(const char *user, const char *group);
+
+/**
+ * lws_spawn_get_self_cgroup() - Return current process cgroup name
+ *
+ * \p cgroup: buffer to take cgroup name
+ * \p max: max size of cgroup buffer
+ *
+ * Helper stores cgroup name of current process into the buffer.
+ * Returns 0 on success or 1 if failed.
+ *
+ * Returned name is a fragment like "system.slice/sai-builder.service"
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_spawn_get_self_cgroup(char *cgroup, size_t max);
 
 #endif
 

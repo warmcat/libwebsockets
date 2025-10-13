@@ -1,5 +1,5 @@
 project(lws-api-test-async-dns C)
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 find_package(libwebsockets CONFIG REQUIRED)
 
 set(SAMP lws-api-test-async-dns)

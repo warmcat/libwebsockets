@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2021 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -72,87 +72,62 @@ lws_create_client_ws_object(const struct lws_client_connect_info *i,
 }
 
 #if defined(LWS_WITH_CLIENT)
-int
+
+/*
+ * Returns either LWS_HPI_RET_PLEASE_CLOSE_ME or LWS_HPI_RET_HANDLED
+ */
+
+lws_handling_result_t
 lws_ws_handshake_client(struct lws *wsi, unsigned char **buf, size_t len)
 {
-	unsigned char *bufin = *buf;
+	const uint8_t **cbuf = (const uint8_t **)buf;
+	unsigned char *start_buf = *buf;
 
 	if ((lwsi_state(wsi) != LRS_WAITING_PROXY_REPLY) &&
 	    (lwsi_state(wsi) != LRS_H1C_ISSUE_HANDSHAKE) &&
 	    (lwsi_state(wsi) != LRS_WAITING_SERVER_REPLY) &&
 	    !lwsi_role_client(wsi))
-		return 0;
+		return LWS_HPI_RET_HANDLED;
 
-	lwsl_wsi_debug(wsi, "hs client feels it has %d in", (int)len);
+	lwsl_wsi_debug(wsi, "hs client has %d in", (int)len);
 
-	while (len) {
-		/*
-		 * we were accepting input but now we stopped doing so
-		 */
-		if (lws_is_flowcontrolled(wsi)) {
-			lwsl_wsi_debug(wsi, "caching %ld", (long)len);
-			/*
-			 * Since we cached the remaining available input, we
-			 * can say we "consumed" it.
-			 *
-			 * But what about the case where the available input
-			 * came out of the rxflow cache already?  If we are
-			 * effectively "putting it back in the cache", we have
-			 * to place it at the cache head, not the tail as usual.
-			 */
-			if (lws_rxflow_cache(wsi, *buf, 0, len) ==
-							LWSRXFC_TRIMMED) {
-				/*
-				 * we dealt with it by trimming the existing
-				 * rxflow cache HEAD to account for what we used.
-				 *
-				 * indicate we didn't use anything to the caller
-				 * so he doesn't do any consumed processing
-				 */
-				lwsl_wsi_info(wsi, "trimming inside rxflow cache");
-				*buf = bufin;
-			} else
-				*buf += len;
-
-			return 0;
+	if (lws_is_flowcontrolled(wsi)) {
+		lwsl_wsi_debug(wsi, "caching %ld", (long)len);
+		if (lws_rxflow_cache(wsi, *buf, 0, len) == LWSRXFC_TRIMMED) {
+			lwsl_wsi_info(wsi, "trimming inside rxflow cache");
+			/* we indicate we used nothing, caller will not advance */
+		} else {
+			*buf += len; /* we indicate we used it all */
 		}
-#if !defined(LWS_WITHOUT_EXTENSIONS)
-		if (wsi->ws->rx_draining_ext) {
-			int m;
-
-			lwsl_wsi_info(wsi, "draining ext");
-			if (lwsi_role_client(wsi))
-				m = lws_ws_client_rx_sm(wsi, 0);
-			else
-				m = lws_ws_rx_sm(wsi, 0, 0);
-			if (m < 0)
-				return -1;
-			continue;
-		}
-#endif
-		/*
-		 * caller will account for buflist usage by studying what
-		 * happened to *buf
-		 */
-
-		if (lws_ws_client_rx_sm(wsi, *(*buf)++)) {
-			lwsl_wsi_info(wsi, "client_rx_sm exited, DROPPING %d",
-				      (int)len);
-			return -1;
-		}
-		len--;
+		return LWS_HPI_RET_HANDLED;
 	}
-	// lwsl_wsi_notice(wsi, "finished with %ld", (long)len);
 
-	return 0;
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+	if (wsi->ws->rx_draining_ext) {
+		lwsl_wsi_info(wsi, "draining ext");
+		if (lws_ws_client_rx_sm(wsi, 0) == LWS_HPI_RET_PLEASE_CLOSE_ME)
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+	}
+#endif
+
+	if (len) {
+		if (lws_ws_client_rx_parser_block(wsi, cbuf, &len) !=
+							LWS_HPI_RET_HANDLED) {
+			lwsl_wsi_info(wsi, "client_rx_parser exited, closing");
+			*buf = start_buf + len; /* Update how much we used */
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+		}
+	}
+
+	return LWS_HPI_RET_HANDLED;
 }
 #endif
 
 char *
-lws_generate_client_ws_handshake(struct lws *wsi, char *p, const char *conn1)
+lws_generate_client_ws_handshake(struct lws *wsi, char *p, const char *conn1, size_t p_len)
 {
-	char buf[128], hash[20], key_b64[40];
-	int n;
+	char buf[128], hash[20], key_b64[40], *end = p + p_len;
+	size_t s;
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	const struct lws_extension *ext;
 	int ext_count = 0;
@@ -170,14 +145,20 @@ lws_generate_client_ws_handshake(struct lws *wsi, char *p, const char *conn1)
 	/* coverity[tainted_scalar] */
 	lws_b64_encode_string(hash, 16, key_b64, sizeof(key_b64));
 
-	p += sprintf(p, "Upgrade: websocket\x0d\x0a"
-			"Connection: %sUpgrade\x0d\x0a"
-			"Sec-WebSocket-Key: ", conn1);
-	strcpy(p, key_b64);
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+			  "Upgrade: websocket\x0d\x0a"
+			  "Connection: %sUpgrade\x0d\x0a"
+			  "Sec-WebSocket-Key: ", conn1);
+
+	if (lws_ptr_diff_size_t(end, p) < strlen(key_b64) + 2 + 128)
+		return NULL;
+
+	lws_strncpy(p, key_b64, lws_ptr_diff_size_t(end, p));
 	p += strlen(key_b64);
-	p += sprintf(p, "\x0d\x0a");
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\x0d\x0a");
 	if (lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_SENT_PROTOCOLS))
-		p += sprintf(p, "Sec-WebSocket-Protocol: %s\x0d\x0a",
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+				  "Sec-WebSocket-Protocol: %s\x0d\x0a",
 		     lws_hdr_simple_ptr(wsi,
 				     _WSI_TOKEN_CLIENT_SENT_PROTOCOLS));
 
@@ -187,7 +168,7 @@ lws_generate_client_ws_handshake(struct lws *wsi, char *p, const char *conn1)
 	ext = wsi->a.vhost->ws.extensions;
 	while (ext && ext->callback) {
 
-		n = wsi->a.vhost->protocols[0].callback(wsi,
+		int n = wsi->a.vhost->protocols[0].callback(wsi,
 			LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED,
 				wsi->user_space, (char *)ext->name, 0);
 
@@ -207,27 +188,33 @@ lws_generate_client_ws_handshake(struct lws *wsi, char *p, const char *conn1)
 		if (ext_count)
 			*p++ = ',';
 		else
-			p += sprintf(p, "Sec-WebSocket-Extensions: ");
-		p += sprintf(p, "%s", ext->client_offer);
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+					  "Sec-WebSocket-Extensions: ");
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+					"%s", ext->client_offer);
 		ext_count++;
 
 		ext++;
 	}
 	if (ext_count)
-		p += sprintf(p, "\x0d\x0a");
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\x0d\x0a");
 #endif
 
 	if (wsi->ws->ietf_spec_revision)
-		p += sprintf(p, "Sec-WebSocket-Version: %d\x0d\x0a",
-			     wsi->ws->ietf_spec_revision);
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+				  "Sec-WebSocket-Version: %d\x0d\x0a",
+				  wsi->ws->ietf_spec_revision);
 
 	/* prepare the expected server accept response */
 
 	key_b64[39] = '\0'; /* enforce composed length below buf sizeof */
-	n = sprintf(buf, "%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11",
-			  key_b64);
 
-	lws_SHA1((unsigned char *)buf, (unsigned int)n, (unsigned char *)hash);
+	s = strlen(key_b64);
+	memcpy(buf, key_b64, s);
+	memcpy(buf + s, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11", 36);
+	s += 36;
+
+	lws_SHA1((unsigned char *)buf, (unsigned int)s, (unsigned char *)hash);
 
 	lws_b64_encode_string(hash, 20,
 		  wsi->http.ah->initial_handshake_hash_base64,

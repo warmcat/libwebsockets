@@ -28,7 +28,7 @@
 #  A macro used to find executable programs on the host system, not within the iOS environment.
 #  Thanks to the android-cmake project for providing the command
 
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 
 # Standard settings
 set (CMAKE_SYSTEM_NAME Darwin)

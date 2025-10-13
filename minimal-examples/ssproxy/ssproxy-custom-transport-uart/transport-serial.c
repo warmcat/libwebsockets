@@ -67,7 +67,8 @@ open_serial_port(const char *filepath)
 		return -1;
 	}
 
-	fcntl(fd, F_SETFL, O_NONBLOCK);
+	if (fcntl(fd, F_SETFL, O_NONBLOCK))
+		lwsl_info("%s: fcntl failed errno %d\n", __func__, errno);
 	tcflush(fd, TCIOFLUSH);
 
 #if defined(__linux__)
@@ -168,35 +169,37 @@ cb_proxy_serial_transport(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RAW_CLOSE_FILE:
 		lwsl_notice("LWS_CALLBACK_RAW_CLOSE_FILE\n");
 
-		if (pss)
+		if (pss) {
 			assert_is_pss(pss);
 
-		lws_set_opaque_user_data(wsi, NULL);
-		/*
-		 * We also have to eliminate the pss reference in
-		 * 	tm->info.txp_ppath.priv_onw
-		 */
+			lws_set_opaque_user_data(wsi, NULL);
+			/*
+			 * We also have to eliminate the pss reference in
+			 * 	tm->info.txp_ppath.priv_onw
+			 */
 
 			((lws_transport_mux_t *)pss->txp_ppath.priv_in)->
 					info.txp_ppath.priv_onw = NULL;
 
-		free(pss);
+			free(pss);
+		}
 		break;
 
 	case LWS_CALLBACK_RAW_WRITEABLE_FILE:
 		//lwsl_notice("%s: LWS_CALLBACK_RAW_WRITEABLE_FILE: %p\n",
 		//		__func__, pss->txp_ppath.priv_in);
 
-		if (pss)
+		if (pss) {
 			assert_is_pss(pss);
 
-		/* pass the event back inwards */
-		pss->txp_ppath.ops_in->event_proxy_can_write(
+			/* pass the event back inwards */
+			pss->txp_ppath.ops_in->event_proxy_can_write(
 				pss->txp_ppath.priv_in
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 					, NULL
 #endif
 				);
+		}
 		break;
 
 	default:

@@ -41,45 +41,19 @@ static const struct lws_protocol_vhost_options pvo = {
 /* override the default mount for /fts in the URL space */
 
 static const struct lws_http_mount mount_fts = {
-	/* .mount_next */		NULL,		/* linked-list "next" */
-	/* .mountpoint */		"/fts",		/* mountpoint URL */
-	/* .origin */			NULL,	/* protocol */
-	/* .def */			NULL,
-	/* .protocol */			"lws-test-fts",
-	/* .cgienv */			NULL,
-	/* .extra_mimetypes */		NULL,
-	/* .interpret */		NULL,
-	/* .cgi_timeout */		0,
-	/* .cache_max_age */		0,
-	/* .auth_mask */		0,
-	/* .cache_reusable */		0,
-	/* .cache_revalidate */		0,
-	/* .cache_intermediaries */	0,
-	/* .cache_no */			0,
-	/* .origin_protocol */		LWSMPRO_CALLBACK, /* dynamic */
-	/* .mountpoint_len */		4,		/* char count */
-	/* .basic_auth_login_file */	NULL,
+	.mountpoint		= "/fts",		/* mountpoint URL */
+	.protocol		= "lws-test-fts",
+	.origin_protocol	= LWSMPRO_CALLBACK, 	/* dynamic */
+	.mountpoint_len		= 4,			/* char count */
 };
 
 static const struct lws_http_mount mount = {
-	/* .mount_next */		&mount_fts,	/* linked-list "next" */
-	/* .mountpoint */		"/",		/* mountpoint URL */
-	/* .origin */			"./mount-origin", /* serve from dir */
-	/* .def */			"index.html",	/* default filename */
-	/* .protocol */			NULL,
-	/* .cgienv */			NULL,
-	/* .extra_mimetypes */		NULL,
-	/* .interpret */		NULL,
-	/* .cgi_timeout */		0,
-	/* .cache_max_age */		0,
-	/* .auth_mask */		0,
-	/* .cache_reusable */		0,
-	/* .cache_revalidate */		0,
-	/* .cache_intermediaries */	0,
-	/* .cache_no */			0,
-	/* .origin_protocol */		LWSMPRO_FILE,	/* files in a dir */
-	/* .mountpoint_len */		1,		/* char count */
-	/* .basic_auth_login_file */	NULL,
+	.mount_next		= &mount_fts,		/* linked-list "next" */
+	.mountpoint		= "/",			/* mountpoint URL */
+	.origin			= "./mount-origin",	/* serve from dir */
+	.def			= "index.html",		/* default filename */
+	.origin_protocol	= LWSMPRO_FILE,		/* files in a dir */
+	.mountpoint_len		= 1,			/* char count */
 };
 
 void sigint_handler(int sig)

@@ -52,7 +52,7 @@ lws_netlink_coldplug_done_cb(lws_sorted_usec_list_t *sul)
 #endif
 }
 
-static int
+static lws_handling_result_t
 rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 			   struct lws_pollfd *pollfd)
 {
@@ -669,6 +669,7 @@ bail2:
 	__lws_lc_untag(wsi->a.context, &wsi->lc);
 	compatible_close(wsi->desc.sockfd);
 bail1:
+	lws_dll2_remove(&wsi->pre_natal);
 	lws_free(wsi);
 bail:
 	return ret;

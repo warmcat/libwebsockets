@@ -1,7 +1,7 @@
 /*
  * lws System Message Distribution
  *
- * Copyright (C) 2019 - 2021 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2019 - 2025 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -80,8 +80,13 @@ lws_smd_msg_free(void **ppay)
 }
 
 #if defined(LWS_SMD_DEBUG)
+
+/*
+ * Caller must have peers and messages locks
+ */
+	
 static void
-lws_smd_dump(lws_smd_t *smd)
+_lws_smd_dump(lws_smd_t *smd)
 {
 	int n = 1;
 
@@ -115,6 +120,8 @@ _lws_smd_msg_peer_interested_in_msg(lws_smd_peer_t *pr, lws_smd_msg_t *msg)
 
 /*
  * Figure out what to set the initial refcount for the message to
+ *
+ * Caller must have peers and messages locks
  */
 
 static int
@@ -200,13 +207,20 @@ _lws_smd_msg_send(struct lws_context *ctx, void *pay, struct lws_smd_peer *exc)
 				LWS_SMD_SS_RX_HEADER_LEN_EFF - sizeof(*msg));
 
 	if (ctx->smd.owner_messages.count >= ctx->smd_queue_depth) {
-		lwsl_cx_warn(ctx, "rejecting message on queue depth %d",
-				  (int)ctx->smd.owner_messages.count);
+		// lwsl_cx_debug(ctx, "rejecting message on queue depth %d",
+		//		  (int)ctx->smd.owner_messages.count);
 		/* reject the message due to max queue depth reached */
 		return 1;
 	}
 
-	if (!ctx->smd.delivering &&
+	/*
+	 * In the case we received a message and in the callback for that, send
+	 * one, we end up here already holding lock_peers and will deadlock if
+	 * we try to take it again.  Throughout the callback, ctx->smd.delivering
+	 * is set in that case so we can avoid it.
+	 */
+
+	if ((!ctx->smd.delivering || !lws_thread_is(ctx->smd.tid_holding)) &&
 	    lws_mutex_lock(ctx->smd.lock_peers)) /* +++++++++++++++ peers */
 		return 1; /* For Coverity */
 
@@ -220,7 +234,7 @@ _lws_smd_msg_send(struct lws_context *ctx, void *pay, struct lws_smd_peer *exc)
 		lws_mutex_unlock(ctx->smd.lock_messages); /* --------------- messages */
 
 		lws_free(msg);
-		if (!ctx->smd.delivering)
+		if (!ctx->smd.delivering || !lws_thread_is(ctx->smd.tid_holding))
 			lws_mutex_unlock(ctx->smd.lock_peers); /* ------------- peers */
 
 		return 0;
@@ -252,13 +266,13 @@ _lws_smd_msg_send(struct lws_context *ctx, void *pay, struct lws_smd_peer *exc)
 #if defined(LWS_SMD_DEBUG)
 	lwsl_smd("%s: added %p (refc %u) depth now %d\n", __func__,
 		 msg, msg->refcount, ctx->smd.owner_messages.count);
-	lws_smd_dump(&ctx->smd);
+	_lws_smd_dump(&ctx->smd);
 #endif
 
 	lws_mutex_unlock(ctx->smd.lock_messages); /* --------------- messages */
 
 bail:
-	if (!ctx->smd.delivering)
+	if (!ctx->smd.delivering || !lws_thread_is(ctx->smd.tid_holding))
 		lws_mutex_unlock(ctx->smd.lock_peers); /* ------------- peers */
 
 	/* we may be happening from another thread context */
@@ -537,9 +551,23 @@ _lws_smd_msg_deliver_peer(struct lws_context *ctx, lws_smd_peer_t *pr)
 		    (unsigned int)msg->_class, (int)msg->length,
 		    pr);
 
+	/*
+	 * We call the peer's callback to deliver the message.
+	 * We hold the peer lock for the duration.
+	 * That's tricky because if, in the callback, he uses smd
+	 * apis to send, we will deadlock if we try to grab the
+	 * peer lock as usual in there.
+	 *
+	 * Another way to express this is that for this thread
+	 * (only) we know we already hold the peer lock.
+	 */
+
+	ctx->smd.tid_holding = lws_thread_id();
+	ctx->smd.delivering = 1;
 	pr->cb(pr->opaque, msg->_class, msg->timestamp,
 	       ((uint8_t *)&msg[1]) + LWS_SMD_SS_RX_HEADER_LEN_EFF,
 	       (size_t)msg->length);
+	ctx->smd.delivering = 0;
 #if !defined(__COVERITY__)
 	assert(msg->refcount);
 #endif
@@ -577,7 +605,6 @@ lws_smd_msg_distribute(struct lws_context *ctx)
 	if (!ctx->smd.owner_messages.count)
 		return 0;
 
-	ctx->smd.delivering = 1;
 
 	do {
 		more = 0;
@@ -595,7 +622,6 @@ lws_smd_msg_distribute(struct lws_context *ctx)
 		lws_mutex_unlock(ctx->smd.lock_peers); /* ------------- peers */
 	} while (more);
 
-	ctx->smd.delivering = 0;
 
 	return 0;
 }
@@ -614,11 +640,11 @@ lws_smd_register(struct lws_context *ctx, void *opaque, int flags,
 	pr->_class_filter = _class_filter;
 	pr->ctx = ctx;
 
-	if (!ctx->smd.delivering &&
+	if ((!ctx->smd.delivering || !lws_thread_is(ctx->smd.tid_holding)) &&
 	    lws_mutex_lock(ctx->smd.lock_peers)) { /* +++++++++++++++ peers */
-			lws_free(pr);
-			return NULL; /* For Coverity */
-		}
+		lws_free(pr);
+		return NULL; /* For Coverity */
+	}
 
 	/*
 	 * Let's lock the message list before adding this peer... because...
@@ -659,7 +685,7 @@ lws_smd_register(struct lws_context *ctx, void *opaque, int flags,
 			(unsigned int)ctx->smd.owner_peers.count);
 
 bail1:
-	if (!ctx->smd.delivering)
+	if (!ctx->smd.delivering || !lws_thread_is(ctx->smd.tid_holding))
 		lws_mutex_unlock(ctx->smd.lock_peers); /* ------------- peers */
 
 	return pr;
@@ -670,12 +696,13 @@ lws_smd_unregister(struct lws_smd_peer *pr)
 {
 	lws_smd_t *smd = lws_container_of(pr->list.owner, lws_smd_t, owner_peers);
 
-	if (!smd->delivering &&
+	if ((!smd->delivering || !lws_thread_is(smd->tid_holding)) &&
 	    lws_mutex_lock(smd->lock_peers)) /* +++++++++++++++++++ peers */
 		return; /* For Coverity */
 	lwsl_cx_notice(pr->ctx, "destroying peer %p", pr);
 	_lws_smd_peer_destroy(pr);
-	if (!smd->delivering)
+
+	if (!smd->delivering || !lws_thread_is(smd->tid_holding))
 		lws_mutex_unlock(smd->lock_peers); /* ----------------- peers */
 }
 
@@ -697,7 +724,8 @@ lws_smd_message_pending(struct lws_context *ctx)
 	 * have been hanging around too long
 	 */
 
-	if (lws_mutex_lock(ctx->smd.lock_peers)) /* +++++++++++++++++++++++ peers */
+	if ((!ctx->smd.delivering || !lws_thread_is(ctx->smd.tid_holding)) &&
+	    lws_mutex_lock(ctx->smd.lock_peers)) /* +++++++++++++++++++++++ peers */
 		return 1; /* For Coverity */
 	if (lws_mutex_lock(ctx->smd.lock_messages)) /* +++++++++++++++++ messages */
 		goto bail; /* For Coverity */
@@ -758,7 +786,8 @@ lws_smd_message_pending(struct lws_context *ctx)
 	ret = 0;
 
 bail:
-	lws_mutex_unlock(ctx->smd.lock_peers); /* --------------------- peers */
+	if (!ctx->smd.delivering || !lws_thread_is(ctx->smd.tid_holding))
+		lws_mutex_unlock(ctx->smd.lock_peers); /* --------------------- peers */
 
 	return ret;
 }

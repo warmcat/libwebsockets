@@ -92,7 +92,9 @@ static const char * const html_tests[] = {
 	 "<div class=\"wordy cat\">"
 	 "A bunch of normal <b> and bold</b>text in a div"
 	 "</div>"
-	 "hello</body></html>"
+        "hello</body></html>",
+
+        "<style> a { width: 0em }</style><a><body>"
 };
 
 static unsigned int m, step;

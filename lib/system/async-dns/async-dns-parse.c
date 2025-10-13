@@ -35,7 +35,7 @@ lws_adns_parse_label(const uint8_t *pkt, int len, const uint8_t *ls, int budget,
 	const uint8_t *e = pkt + len, *ols = ls;
 	char pointer = 0, first = 1;
 	uint8_t ll;
-	int n;
+	int n, readsize = 0;
 
 	if (len < DHO_SIZEOF || len > 1500)
 		return -1;
@@ -86,12 +86,14 @@ again1:
 	}
 
 	if (ll > lws_ptr_diff_size_t(ls, ols) + (size_t)budget) {
-		lwsl_notice("%s: label too long %d vs %d\n", __func__, ll, budget);
+		lwsl_notice("%s: label too long %d vs %d (rem budget %d)\n",
+				__func__, ll, budget,
+				(int)(lws_ptr_diff_size_t(ls, ols) + (size_t)budget));
 
 		return -1;
 	}
 
-	if ((unsigned int)ll + 2 > dl) {
+	if ((unsigned int)(ll + 2 + readsize) > dl) {
 		lwsl_notice("%s: qname too large\n", __func__);
 
 		return -1;
@@ -104,6 +106,7 @@ again1:
 	(*dest)[ll + 1] = '\0';
 	*dest += ll + 1;
 	ls += ll;
+	readsize += ll + 1;
 
 	if (pointer) {
 		if (*ls)
@@ -136,7 +139,7 @@ typedef int (*lws_async_dns_find_t)(const char *name, void *opaque,
 /* locally query the response packet */
 
 struct label_stack {
-	char name[DNS_MAX];
+	char name[DNS_MAX + 10];
 	int enl;
 	const uint8_t *p;
 };
@@ -157,7 +160,7 @@ lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
 		 const char *expname, lws_async_dns_find_t cb, void *opaque)
 {
 	const uint8_t *e = pkt + len, *p, *pay;
-	struct label_stack stack[4];
+	struct label_stack stack[8];
 	int n = 0, stp = 0, ansc, m;
 	uint16_t rrtype, rrpaylen;
 	char *sp, inq;
@@ -209,7 +212,7 @@ start:
 
 		/* while we have more labels */
 
-		n = lws_adns_parse_label(pkt, len, p, len, &sp,
+		n = lws_adns_parse_label(pkt, len, p, len - DHO_SIZEOF, &sp,
 					 sizeof(stack[0].name) -
 					 lws_ptr_diff_size_t(sp, stack[0].name));
 		/* includes case name won't fit */
@@ -573,7 +576,7 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 	n = 1 << (lws_ser_ru16be(pkt + DHO_TID) & 1);
 	if (q->responded & n) {
 		lwsl_notice("%s: dup\n", __func__);
-		goto fail_out;
+		return;
 	}
 
 	q->responded = (uint8_t)(q->responded | n);

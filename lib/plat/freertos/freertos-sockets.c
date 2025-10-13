@@ -99,7 +99,7 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd, int unix_skt)
 	if (vhost->ka_time) {
 		/* enable keepalive on this socket */
 		optval = 1;
-		if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE,
+		if (lwip_setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE,
 			       (const void *)&optval, optlen) < 0)
 			return 1;
 
@@ -115,17 +115,17 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd, int unix_skt)
 #else
 		/* set the keepalive conditions we want on it too */
 		optval = vhost->ka_time;
-		if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE,
+		if (lwip_setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE,
 			       (const void *)&optval, optlen) < 0)
 			return 1;
 
 		optval = vhost->ka_interval;
-		if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL,
+		if (lwip_setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL,
 			       (const void *)&optval, optlen) < 0)
 			return 1;
 
 		optval = vhost->ka_probes;
-		if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT,
+		if (lwip_setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT,
 			       (const void *)&optval, optlen) < 0)
 			return 1;
 #endif
@@ -133,7 +133,7 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd, int unix_skt)
 
 	/* Disable Nagle */
 	optval = 1;
-	if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &optval, optlen) < 0)
+	if (lwip_setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &optval, optlen) < 0)
 		return 1;
 
 	return lws_plat_set_nonblocking(fd);
@@ -162,7 +162,7 @@ lws_plat_set_socket_options_ip(lws_sockfd_type fd, uint8_t pri, int lws_flags)
 
 #if defined(SO_PRIORITY)
 	if (pri) { /* 0 is the default already */
-		if (setsockopt(fd, SOL_SOCKET, SO_PRIORITY,
+		if (lwip_setsockopt(fd, SOL_SOCKET, SO_PRIORITY,
 				(const void *)&optval, optlen) < 0) {
 #if !defined(LWS_WITH_NO_LOGS)
 			en = errno;
@@ -177,7 +177,7 @@ lws_plat_set_socket_options_ip(lws_sockfd_type fd, uint8_t pri, int lws_flags)
 
 	if (lws_flags & LCCSCF_ALLOW_REUSE_ADDR) {
 		optval = 1;
-		if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
+		if (lwip_setsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
 					(const void *)&optval, optlen) < 0) { 
 #if !defined(LWS_WITH_NO_LOGS)
 			en = errno;
@@ -194,7 +194,7 @@ lws_plat_set_socket_options_ip(lws_sockfd_type fd, uint8_t pri, int lws_flags)
 			continue;
 
 		optval = (int)ip_opt_val[n];
-		if (setsockopt(fd, IPPROTO_IP, IP_TOS, (const void *)&optval,
+		if (lwip_setsockopt(fd, IPPROTO_IP, IP_TOS, (const void *)&optval,
 			       optlen) < 0) {
 #if !defined(LWS_WITH_NO_LOGS)
 			en = errno;
@@ -288,7 +288,7 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 const char *
 lws_plat_inet_ntop(int af, const void *src, char *dst, socklen_t cnt)
 {
-	return inet_ntop(af, src, dst, cnt);
+	return lwip_inet_ntop(af, src, dst, cnt);
 }
 
 int

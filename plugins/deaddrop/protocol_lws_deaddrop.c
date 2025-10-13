@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2025 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -41,8 +41,14 @@
 #ifdef WIN32
 #include <io.h>
 #endif
+#if defined(__linux__)
+#include <limits.h>
+#endif
 #include <stdio.h>
 #include <errno.h>
+#if defined(__linux__)
+#include <sys/inotify.h>
+#endif
 
 struct dir_entry {
 	lws_list_ptr next; /* sorted by mtime */
@@ -57,42 +63,49 @@ struct dir_entry {
 struct pss_deaddrop;
 
 struct vhd_deaddrop {
-	struct lws_context *context;
-	struct lws_vhost *vh;
-	const struct lws_protocols *protocol;
+	struct lws_context		*context;
+	struct lws_vhost		*vh;
+	const struct lws_protocols	*protocol;
 
-	struct pss_deaddrop *pss_head;
+	struct pss_deaddrop		*pss_head;
 
-	const char *upload_dir;
+	const char			*upload_dir;
 
-	struct lwsac *lwsac_head;
-	struct dir_entry *dire_head;
-	int filelist_version;
+	struct lwsac			*lwsac_head;
+	struct dir_entry		*dire_head;
+	int				filelist_version;
 
-	unsigned long long max_size;
+	unsigned long long		max_size;
+
+#if defined(__linux__)
+	int				inotify_fd;
+#endif
 };
 
 struct pss_deaddrop {
-	struct lws_spa *spa;
-	struct vhd_deaddrop *vhd;
-	struct lws *wsi;
-	char result[LWS_PRE + LWS_RECOMMENDED_MIN_HEADER_SPACE];
-	char filename[256];
-	char user[32];
-	unsigned long long file_length;
-	lws_filefd_type fd;
-	int response_code;
+	struct lws_spa			*spa;
+	struct vhd_deaddrop		*vhd;
+	struct lws			*wsi;
+	char				result[LWS_PRE + 2048];
+	char				filename[256];
+	char				platform[32];
+	char				browser[32];
+	char				user[64];
+	unsigned long long		file_length;
+	lws_filefd_type			fd;
+	int				response_code;
 
-	struct pss_deaddrop *pss_list;
+	struct pss_deaddrop		*pss_list;
 
-	struct lwsac *lwsac_head;
-	struct dir_entry *dire;
-	int filelist_version;
+	struct lwsac			*lwsac_head;
+	struct dir_entry		*dire;
+	int				filelist_version;
 
-	uint8_t completed:1;
-	uint8_t sent_headers:1;
-	uint8_t sent_body:1;
-	uint8_t first:1;
+	uint8_t				completed:1;
+	uint8_t				sent_headers:1;
+	uint8_t				sent_body:1;
+	uint8_t				first:1;
+	uint8_t				ws_ongoing_send:1;
 };
 
 static const char * const param_names[] = {
@@ -109,6 +122,36 @@ enum enum_param_names {
 	EPN_UPLOAD,
 };
 
+static void
+parse_user_agent(const char *ua, char *platform, size_t plat_len,
+		 char *browser, size_t browser_len)
+{
+	lws_strncpy(platform, "Unknown", plat_len);
+	lws_strncpy(browser, "Unknown", browser_len);
+
+	/* Guess platform from UA */
+
+	if (strstr(ua, "Windows"))
+		lws_strncpy(platform, "Windows", plat_len);
+	else if (strstr(ua, "Linux"))
+		lws_strncpy(platform, "Linux", plat_len);
+	else if (strstr(ua, "Macintosh") || strstr(ua, "Mac OS"))
+		lws_strncpy(platform, "macOS", plat_len);
+
+	/* Guess browser / client from UA */
+
+	if (strstr(ua, "curl"))
+		lws_strncpy(browser, "curl", browser_len);
+	else if (strstr(ua, "Wget"))
+		lws_strncpy(browser, "Wget", browser_len);
+	else if (strstr(ua, "Edg/"))
+		lws_strncpy(browser, "Edge", browser_len);
+	else if (strstr(ua, "Firefox/"))
+		lws_strncpy(browser, "Firefox", browser_len);
+	else if (strstr(ua, "Chrome/") && strstr(ua, "Safari/"))
+		lws_strncpy(browser, "Chrome", browser_len);
+}
+
 static int
 de_mtime_sort(lws_list_ptr a, lws_list_ptr b)
 {
@@ -121,115 +164,92 @@ de_mtime_sort(lws_list_ptr a, lws_list_ptr b)
 static void
 start_sending_dir(struct pss_deaddrop *pss)
 {
+	if (pss->lwsac_head)
+		lwsac_unreference(&pss->lwsac_head);
+
 	if (pss->vhd->lwsac_head)
 		lwsac_reference(pss->vhd->lwsac_head);
 	pss->lwsac_head = pss->vhd->lwsac_head;
 	pss->dire = pss->vhd->dire_head;
 	pss->filelist_version = pss->vhd->filelist_version;
 	pss->first = 1;
+	pss->ws_ongoing_send = 1;
 }
+
+static void
+broadcast_state_update(struct vhd_deaddrop *vhd)
+{
+	vhd->filelist_version++; /* Invalidate client cache */
+
+	lws_start_foreach_llp(struct pss_deaddrop **, ppss, vhd->pss_head) {
+		start_sending_dir(*ppss);
+		lws_callback_on_writable((*ppss)->wsi);
+	} lws_end_foreach_llp(ppss, pss_list);
+}
+
 
 static int
 scan_upload_dir(struct vhd_deaddrop *vhd)
 {
-	char filepath[256], subdir[3][128], *p;
+	char filepath[512], *p_owner_end;
 	struct lwsac *lwsac_head = NULL;
 	lws_list_ptr sorted_head = NULL;
-	int i, sp = 0, found = 0;
 	struct dir_entry *dire;
 	struct dirent *de;
-	size_t initial, m;
+	size_t m;
 	struct stat s;
-	DIR *dir[3];
+	DIR *dir;
 
-	initial = strlen(vhd->upload_dir) + 1;
-	lws_strncpy(subdir[sp], vhd->upload_dir, sizeof(subdir[sp]));
-	dir[sp] = opendir(vhd->upload_dir);
-	if (!dir[sp]) {
+	dir = opendir(vhd->upload_dir);
+	if (!dir) {
 		lwsl_err("%s: Unable to walk upload dir '%s'\n", __func__,
 			 vhd->upload_dir);
 		return -1;
 	}
 
-	do {
-		de = readdir(dir[sp]);
-		if (!de) {
-			closedir(dir[sp]);
-#if !defined(__COVERITY__)
-			if (!sp)
-#endif
-				break;
-#if !defined(__COVERITY__)
-			sp--;
-			continue;
-#endif
-		}
-
-		p = filepath;
-
-		for (i = 0; i <= sp; i++)
-			p += lws_snprintf(p, lws_ptr_diff_size_t((filepath + sizeof(filepath)), p),
-					  "%s/", subdir[i]);
-
-		lws_snprintf(p, lws_ptr_diff_size_t((filepath + sizeof(filepath)), p), "%s",
-				  de->d_name);
-
+	while ((de = readdir(dir))) {
 		/* ignore temp files */
-		if (de->d_name[strlen(de->d_name) - 1] == '~')
+		if (de->d_name[strlen(de->d_name) - 1] == '~' ||
+		    !strcmp(de->d_name, ".") || !strcmp(de->d_name, ".."))
 			continue;
-#if defined(__COVERITY__)
-		s.st_size = 0;
-		s.st_mtime = 0;
-#else
-		/* coverity[toctou] */
+
+		lws_snprintf(filepath, sizeof(filepath), "%s/%s",
+				  vhd->upload_dir, de->d_name);
+
 		if (stat(filepath, &s))
 			continue;
 
-		if (S_ISDIR(s.st_mode)) {
-			if (!strcmp(de->d_name, ".") ||
-			    !strcmp(de->d_name, ".."))
-				continue;
-			sp++;
-			if (sp == LWS_ARRAY_SIZE(dir)) {
-				lwsl_err("%s: Skipping too-deep subdir %s\n",
-					 __func__, filepath);
-				sp--;
-				continue;
-			}
-			lws_strncpy(subdir[sp], de->d_name, sizeof(subdir[sp]));
-			dir[sp] = opendir(filepath);
-			if (!dir[sp]) {
-				lwsl_err("%s: Unable to open subdir '%s'\n",
-					 __func__, filepath);
-				goto bail;
-			}
+		if (S_ISDIR(s.st_mode))
 			continue;
-		}
-#endif
 
-		m = strlen(filepath + initial) + 1;
+		m = strlen(de->d_name) + 1;
 		dire = lwsac_use(&lwsac_head, sizeof(*dire) + m, 0);
 		if (!dire) {
 			lwsac_free(&lwsac_head);
-
-			goto bail;
+			closedir(dir);
+			return -1;
 		}
 
 		dire->next = NULL;
 		dire->size = (unsigned long long)s.st_size;
 		dire->mtime = s.st_mtime;
 		dire->user[0] = '\0';
-#if !defined(__COVERITY__)
-		if (sp)
-			lws_strncpy(dire->user, subdir[1], sizeof(dire->user));
-#endif
 
-		found++;
+		p_owner_end = strchr(de->d_name, '_');
+		if (p_owner_end) {
+			size_t owner_len = (size_t)(p_owner_end - de->d_name);
+			if (owner_len < sizeof(dire->user)) {
+				memcpy(dire->user, de->d_name, owner_len);
+				dire->user[owner_len] = '\0';
+			}
+		}
 
-		memcpy(&dire[1], filepath + initial, m);
+		memcpy(&dire[1], de->d_name, m);
 
 		lws_list_ptr_insert(&sorted_head, &dire->next, de_mtime_sort);
-	} while (1);
+	}
+
+	closedir(dir);
 
 	/* the old lwsac continues to live while someone else is consuming it */
 	if (vhd->lwsac_head)
@@ -242,28 +262,18 @@ scan_upload_dir(struct vhd_deaddrop *vhd)
 	else
 		vhd->dire_head = NULL;
 
-	vhd->filelist_version++;
-
-	lwsl_info("%s: found %d\n", __func__, found);
-
-	lws_start_foreach_llp(struct pss_deaddrop **, ppss, vhd->pss_head) {
-		start_sending_dir(*ppss);
-		lws_callback_on_writable((*ppss)->wsi);
-	} lws_end_foreach_llp(ppss, pss_list);
+	broadcast_state_update(vhd);
 
 	return 0;
-
-bail:
-	while (sp >= 0)
-		closedir(dir[sp--]);
-
-	return -1;
 }
 
 static int
 file_upload_cb(void *data, const char *name, const char *filename,
 	       char *buf, int _len, enum lws_spa_fileupload_states state)
 {
+	lwsl_warn("%s: entered, state %d, pss->user: '%s'\n", __func__,
+		  state, ((struct pss_deaddrop *)data)->user);
+
 	struct pss_deaddrop *pss = (struct pss_deaddrop *)data;
 	char filename2[256];
 	size_t len = (size_t)_len;
@@ -273,24 +283,26 @@ file_upload_cb(void *data, const char *name, const char *filename,
 
 	switch (state) {
 	case LWS_UFS_OPEN:
+		/* REQUIRE an authenticated user on the upload POST itself */
+		if (!pss->user[0]) {
+			pss->response_code = HTTP_STATUS_FORBIDDEN;
+			lwsl_wsi_warn(pss->wsi, "%s: no authenticated user"
+						" (pss %p)\n", __func__, pss);
+			return -1;
+		}
+
 		lws_urldecode(filename2, filename, sizeof(filename2) - 1);
 		lws_filename_purify_inplace(filename2);
-		if (pss->user[0]) {
-			lws_filename_purify_inplace(pss->user);
-			lws_snprintf(pss->filename, sizeof(pss->filename),
-				     "%s/%s", pss->vhd->upload_dir, pss->user);
-			if (mkdir(pss->filename
-#if !defined(WIN32)
-				, 0700
-#endif
-				) < 0)
-				lwsl_debug("%s: mkdir failed\n", __func__);
-			lws_snprintf(pss->filename, sizeof(pss->filename),
-				     "%s/%s/%s~", pss->vhd->upload_dir,
-				     pss->user, filename2);
-		} else
-			lws_snprintf(pss->filename, sizeof(pss->filename),
-				     "%s/%s~", pss->vhd->upload_dir, filename2);
+		lws_filename_purify_inplace(pss->user);
+
+		/*
+		 * Server is authoritative: construct filename from
+		 * authenticated user and the base filename from the
+		 * request.
+		 */
+		lws_snprintf(pss->filename, sizeof(pss->filename),
+			     "%s/%s_%s~", pss->vhd->upload_dir,
+			     pss->user, filename2);
 		lwsl_notice("%s: filename '%s'\n", __func__, pss->filename);
 
 		pss->fd = (lws_filefd_type)(long long)lws_open(pss->filename,
@@ -320,10 +332,12 @@ file_upload_cb(void *data, const char *name, const char *filename,
 			}
 
 			if (pss->fd != LWS_INVALID_FILE) {
-				n = (int)write((int)(lws_intptr_t)pss->fd, buf, (unsigned int)len);
+				n = (int)write((int)(lws_intptr_t)pss->fd, buf,
+						(unsigned int)len);
 				lwsl_debug("%s: write %d says %d\n", __func__,
 					   (int)len, n);
-				lws_set_timeout(pss->wsi, PENDING_TIMEOUT_HTTP_CONTENT, 30);
+				lws_set_timeout(pss->wsi,
+						PENDING_TIMEOUT_HTTP_CONTENT, 30);
 			}
 		}
 		if (state == LWS_UFS_CONTENT)
@@ -357,20 +371,479 @@ file_upload_cb(void *data, const char *name, const char *filename,
 static int
 format_result(struct pss_deaddrop *pss)
 {
-	unsigned char *p, *start, *end;
+	/*
+	 * We don't want to send any entity body back for the upload
+	 * POST.  The success / failure is indicated by the
+	 * HTTP response code.  The javascript on the client side that
+	 * did the post is not expecting to navigate to a new page.
+	 */
+	return 0;
+}
+
+
+static int
+handler_server_protocol_init(struct lws *wsi, void *in)
+{
+	struct vhd_deaddrop *vhd;
+	const char *cp;
+
+	lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
+				    lws_get_protocol(wsi),
+				    sizeof(struct vhd_deaddrop));
+
+	vhd = (struct vhd_deaddrop *)
+		lws_protocol_vh_priv_get(lws_get_vhost(wsi),
+					 lws_get_protocol(wsi));
+	if (!vhd)
+		return 0;
+
+#if defined(__linux__)
+	vhd->inotify_fd = -1;
+#endif
+
+	vhd->context	= lws_get_context(wsi);
+	vhd->vh		= lws_get_vhost(wsi);
+	vhd->protocol	= lws_get_protocol(wsi);
+	vhd->max_size	= 20 * 1024 * 1024; /* default without pvo */
+
+	if (!lws_pvo_get_str(in, "max-size", &cp))
+		vhd->max_size = (unsigned long long)atoll(cp);
+	if (lws_pvo_get_str(in, "upload-dir", &vhd->upload_dir)) {
+		lwsl_warn("%s: requires 'upload-dir' pvo\n", __func__);
+		return 0;
+	}
+
+#if defined(__linux__)
+	/*
+	 * Set up inotify on the upload dir and adopt it into the
+	 * lws event loop on our vhost, so we can be told about
+	 * external changes to the dir contents
+	 */
+	vhd->inotify_fd = inotify_init1(IN_NONBLOCK);
+	if (vhd->inotify_fd >= 0) {
+		if (inotify_add_watch(vhd->inotify_fd, vhd->upload_dir,
+				      IN_CLOSE_WRITE | IN_DELETE |
+				      IN_MOVED_FROM | IN_MOVED_TO) >= 0)
+			lws_adopt_descriptor_vhost(vhd->vh,
+				LWS_ADOPT_RAW_FILE_DESC,
+				(lws_sock_file_fd_type)vhd->inotify_fd,
+				vhd->protocol->name, NULL);
+		else
+			lwsl_err("%s: inotify_add_watch failed\n",
+				 __func__);
+	}
+#endif
+
+	scan_upload_dir(vhd);
+
+	lwsl_notice("  deaddrop: vh %s, upload dir %s, max size %llu\n",
+		    lws_get_vhost_name(vhd->vh), vhd->upload_dir,
+		    vhd->max_size);
+
+	return 0;
+}
+
+static void
+handler_server_protocol_destroy(struct vhd_deaddrop *vhd)
+{
+	if (!vhd)
+		return;
+
+	lwsac_free(&vhd->lwsac_head);
+#if defined(__linux__)
+	if (vhd->inotify_fd != -1)
+		close(vhd->inotify_fd);
+#endif
+}
+
+static int
+handler_server_http(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
+		    struct lws *wsi)
+{
+	char *uri_ptr;
+	int uri_len;
+	int meth;
+
+	memset(pss, 0, sizeof(*pss));
+	pss->user[0] = '\0';
+
+	/* Correctly get username after lws basic auth processing */
+	if (lws_hdr_copy(wsi, pss->user, sizeof(pss->user),
+			 WSI_TOKEN_HTTP_AUTHORIZATION) > 0)
+		lwsl_wsi_info(wsi, "%s: POST auth user (pss %p): '%s'\n",
+			      __func__, (void *)pss, pss->user);
+	else
+		lwsl_wsi_warn(wsi, "%s: HTTP POST: no auth\n", __func__);
+
+	meth = lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len);
+	if (meth != LWSHUMETH_POST || !uri_ptr)
+		return 1;
+	if (!strstr(uri_ptr, "/upload/"))
+		return 1;
+
+	pss->vhd = vhd;
+	pss->wsi = wsi;
+
+	return 0;
+}
+
+static int
+handler_server_http_body(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
+			 struct lws *wsi, void *in, size_t len)
+{
+	/* create the POST argument parser if not already existing */
+	if (!pss->spa) {
+		pss->spa = lws_spa_create(wsi, param_names,
+					  LWS_ARRAY_SIZE(param_names),
+					  1024, file_upload_cb, pss);
+		if (!pss->spa)
+			return -1;
+
+		pss->filename[0] = '\0';
+		pss->file_length = 0;
+		pss->response_code = HTTP_STATUS_SERVICE_UNAVAILABLE;
+	}
+
+	/* let it parse the POST data */
+	if (lws_spa_process(pss->spa, in, (int)len)) {
+		lwsl_notice("spa saw a problem\n");
+		/* some problem happened */
+		lws_spa_finalize(pss->spa);
+
+		pss->completed = 1;
+		lws_callback_on_writable(wsi);
+	}
+	
+	return 0;
+}
+
+static void
+handler_server_http_body_completion(struct pss_deaddrop *pss, struct lws *wsi)
+{
+	/* call to inform no more payload data coming */
+	lws_spa_finalize(pss->spa);
+
+	pss->completed = 1;
+	lws_callback_on_writable(wsi);
+}
+
+static int
+handler_server_http_writeable(struct vhd_deaddrop *vhd,
+			      struct pss_deaddrop *pss, struct lws *wsi)
+{
+	uint8_t buf[LWS_PRE + 2048], *start = &buf[LWS_PRE], *p = start,
+		*end = &buf[sizeof(buf) - 1];
+
+	if (!pss->completed)
+		return 0;
 
 	p = (unsigned char *)pss->result + LWS_PRE;
 	start = p;
 	end = p + sizeof(pss->result) - LWS_PRE - 1;
 
-	p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
-			"<!DOCTYPE html><html lang=\"en\"><head>"
-			"<meta charset=utf-8 http-equiv=\"Content-Language\" "
-			"content=\"en\"/>"
-			"</head>");
-	p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "</body></html>");
+	if (!pss->sent_headers) {
+		int n = format_result(pss);
 
-	return (int)lws_ptr_diff(p, start);
+		if (lws_add_http_header_status(wsi,
+				(unsigned int)pss->response_code,
+					       &p, end))
+			return 1;
+
+		if (lws_add_http_header_by_token(wsi,
+				WSI_TOKEN_HTTP_CONTENT_TYPE,
+				(unsigned char *)"text/html", 9,
+				&p, end))
+			return 1;
+		if (lws_add_http_header_content_length(wsi, (lws_filepos_t)n, &p, end))
+			return 1;
+		if (lws_finalize_http_header(wsi, &p, end))
+			return 1;
+
+		/* first send the headers ... */
+		n = lws_write(wsi, start, lws_ptr_diff_size_t(p, start),
+			      LWS_WRITE_HTTP_HEADERS );//|
+			      //LWS_WRITE_H2_STREAM_END);
+		if (n < 0)
+			return 1;
+
+		pss->sent_headers = 1;
+		lws_callback_on_writable(wsi);
+		return 0;
+	}
+
+	if (!pss->sent_body) {
+		int n = format_result(pss);
+		n = lws_write(wsi, (unsigned char *)start, (unsigned int)n,
+			      LWS_WRITE_HTTP_FINAL);
+
+		pss->sent_body = 1;
+		if (n < 0) {
+			lwsl_err("%s: writing body failed\n", __func__);
+			return 1;
+		}
+		return 2;
+	}
+	
+	return 0;
+}
+
+static int
+handler_server_raw_file_rx(struct vhd_deaddrop *vhd, struct lws *wsi)
+{
+#if defined(__linux__)
+	char ev_buf[1024];
+
+	/* inotify has told us something changed in the upload dir */
+	int n, fd = lws_get_socket_fd(wsi);
+
+	if (fd < 0)
+		return 0;
+
+	n = (int)read(fd, ev_buf, sizeof(ev_buf));
+	lwsl_info("%s: inotify event (%d), rescanning upload dir\n", __func__, n);
+	scan_upload_dir(vhd);
+
+	return n;
+#else
+	return 0;
+#endif
+}
+
+static void
+handler_server_ws_established(struct vhd_deaddrop *vhd,
+			      struct pss_deaddrop *pss, struct lws *wsi)
+{
+	char ua_buf[256];
+
+	pss->vhd		= vhd;
+	pss->wsi		= wsi;
+	/* add ourselves to the list of live pss held in the vhd */
+	pss->pss_list		= vhd->pss_head;
+	vhd->pss_head		= pss;
+
+	pss->user[0]		= '\0';
+	pss->platform[0]	= '\0';
+	pss->browser[0]		= '\0';
+
+	/* Correctly get username after lws basic auth processing */
+	if (lws_hdr_copy(wsi, pss->user, sizeof(pss->user),
+			 WSI_TOKEN_HTTP_AUTHORIZATION) > 0)
+		lwsl_wsi_info(wsi, "%s: WS connect auth user (pss %p): '%s'\n",
+			  __func__, (void *)pss, pss->user);
+	else
+		lwsl_wsi_warn(wsi, "%s: WS connect: no auth\n", __func__);
+
+	if (lws_hdr_copy(wsi, ua_buf, sizeof(ua_buf),
+			 WSI_TOKEN_HTTP_USER_AGENT) > 0)
+		parse_user_agent(ua_buf, pss->platform,  sizeof(pss->platform),
+				 pss->browser, sizeof(pss->browser));
+
+	broadcast_state_update(vhd);
+}
+
+static void
+handler_server_ws_closed(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss)
+{
+	if (pss->lwsac_head)
+		lwsac_unreference(&pss->lwsac_head);
+	/* remove our closing pss from the list of live pss */
+	lws_start_foreach_llp(struct pss_deaddrop **,
+			      ppss, vhd->pss_head) {
+		if (*ppss == pss) {
+			*ppss = pss->pss_list;
+			break;
+		}
+	} lws_end_foreach_llp(ppss, pss_list);
+
+	broadcast_state_update(vhd);
+}
+
+static void
+handler_server_ws_rx(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
+		     struct lws *wsi, void *in, size_t len)
+{
+#if defined(__linux__)
+	char path[512], resolved_path[PATH_MAX];
+#else
+	char path[512];
+#endif
+	char fname[256], *wp;
+	const char *cp;
+	int n;
+
+	/* we get this kind of thing {"del":"user_agreen.txt"} */
+	if (!pss || len < 10)
+		return;
+
+	if (strncmp((const char *)in, "{\"del\":\"", 8))
+		return;
+
+	cp = strchr((const char *)in + 8, '_');
+	if (!cp) {
+		lwsl_warn("%s: del: no owner in filename\n", __func__);
+		return;
+	}
+
+	/* Check if the authenticated user matches the file owner prefix */
+	n = (int)(cp - (((const char *)in) + 8));
+
+	if ((int)strlen(pss->user) != n ||
+	    strncmp(pss->user, ((const char *)in) + 8, (unsigned int)n)) {
+		lwsl_wsi_notice(wsi, "del: auth mismatch "
+			    " user '%s' tried to delete file with "
+			    "owner '%.*s'", pss->user, n,
+			    ((const char *)in) + 8);
+		return;
+	}
+
+	lws_strncpy(fname, ((const char *)in) + 8, sizeof(fname));
+	wp = strchr((const char *)fname, '\"');
+	if (wp)
+		*wp = '\0';
+
+	lws_filename_purify_inplace(fname);
+
+	lws_snprintf(path, sizeof(path), "%s/%s", vhd->upload_dir,
+		     fname);
+
+#if defined(__linux__)
+	if (!realpath(path, resolved_path)) {
+		lwsl_wsi_warn(wsi, "delete: realpath failed %s", path);
+		return;
+	}
+
+	if (strncmp(resolved_path, vhd->upload_dir,
+		    strlen(vhd->upload_dir))) {
+		lwsl_err("%s: illegal delete attempt '%s' -> '%s'\n",
+			 __func__, path, resolved_path);
+		return;
+	}
+	lws_strncpy(path, resolved_path, sizeof(path));
+#endif
+
+	lwsl_wsi_notice(wsi, "deleting '%s'", path);
+
+	if (unlink(path) < 0)
+		lwsl_err("%s: unlink %s failed: %s\n", __func__,
+				path, strerror(errno));
+
+	scan_upload_dir(vhd);
+}
+
+static int
+handler_server_ws_writeable(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
+			    struct lws *wsi)
+{
+	uint8_t buf[LWS_PRE + LWS_RECOMMENDED_MIN_HEADER_SPACE],
+		*start = &buf[LWS_PRE], *p = start,
+		*end = &buf[sizeof(buf) - 1];
+	int n, was = 0;
+
+	/* if nothing to write, write nothing */
+	if (!pss->ws_ongoing_send)
+		return 0;
+
+	if (pss->first) {
+		p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
+				  "{\"max_size\":%llu, \"user\":\"%s\", ",
+				  vhd->max_size,
+				  pss->user[0] ? pss->user : "");
+
+		p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
+				  "\"connected_users\":[");
+
+		int first_user = 1;
+		lws_start_foreach_llp(struct pss_deaddrop **, ppss,
+				      vhd->pss_head) {
+			char ip[46];
+
+			/* Only list authenticated connections */
+			if (!(*ppss)->wsi || !(*ppss)->user[0])
+				continue;
+
+			lws_get_peer_simple((*ppss)->wsi, ip, sizeof(ip));
+
+			p += lws_snprintf((char *)p,
+					  lws_ptr_diff_size_t(end, p),
+				"%c{\"user\":\"%s\", \"ip\":\"%s\", "
+				"\"platform\":\"%s\", \"browser\":\"%s\"}",
+				first_user ? ' ' : ',',
+				(*ppss)->user, ip, (*ppss)->platform,
+				(*ppss)->browser);
+
+			first_user = 0;
+		} lws_end_foreach_llp(ppss, pss_list);
+
+		p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
+				  "], \"files\": [");
+		was = 1;
+	}
+
+	n = 5;
+	while (n-- && pss->dire) {
+		int is_yours = !strcmp(pss->user, pss->dire->user) &&
+			       pss->user[0];
+		const char *fname = (const char *)&pss->dire[1];
+		const char *p_fn = fname;
+		int is_text = 0;
+
+		if (pss->dire->user[0])
+			p_fn += strlen(pss->dire->user) + 1;
+
+		/* check for YYYY-MM-DD_HH-MM-SS.txt format */
+		if (strlen(p_fn) == 23 &&
+		    p_fn[4] == '-' && p_fn[7] == '-' &&
+		    p_fn[10] == '_' && p_fn[13] == '-' &&
+		    p_fn[16] == '-' && !strcmp(p_fn + 19, ".txt"))
+			is_text = 1;
+
+		p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
+				  "%c{\"name\":\"%s\", "
+				  "\"size\":%llu,"
+				  "\"mtime\":%llu,"
+				  "\"yours\":%d,"
+				  "\"is_text\":%d}",
+				  pss->first ? ' ' : ',',
+				  fname,
+				  pss->dire->size,
+				  (unsigned long long)pss->dire->mtime,
+				  is_yours, is_text);
+		pss->first = 0;
+		pss->dire = lp_to_dir_entry(pss->dire->next, next);
+	}
+
+	if (!pss->dire) {
+		p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
+				  "]}");
+		if (pss->lwsac_head) {
+			lwsac_unreference(&pss->lwsac_head);
+			pss->lwsac_head = NULL;
+		}
+		pss->ws_ongoing_send = 0;
+	}
+
+	n = lws_write(wsi, start, lws_ptr_diff_size_t(p, start),
+		      lws_write_ws_flags(LWS_WRITE_TEXT, was, !pss->dire));
+	if (n < 0) {
+		lwsl_notice("%s: ws write failed\n", __func__);
+		return 1;
+	}
+	if (pss->ws_ongoing_send) {
+		lws_callback_on_writable(wsi);
+
+		return 0;
+	}
+
+	/* ie, we finished */
+
+	if (pss->filelist_version != pss->vhd->filelist_version) {
+		lwsl_info("%s: restart send\n", __func__);
+		/* what we just sent is already out of date */
+		start_sending_dir(pss);
+		lws_callback_on_writable(wsi);
+	}
+	
+	return 0;
 }
 
 static int
@@ -381,280 +854,60 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 							 lws_get_protocol(wsi));
 	struct pss_deaddrop *pss = (struct pss_deaddrop *)user;
-	uint8_t buf[LWS_PRE + LWS_RECOMMENDED_MIN_HEADER_SPACE],
-		*start = &buf[LWS_PRE], *p = start,
-		*end = &buf[sizeof(buf) - 1];
-	char fname[256], *wp;
-	const char *cp;
-	int n, m, was;
 
 	switch (reason) {
-
+	
 	case LWS_CALLBACK_PROTOCOL_INIT: /* per vhost */
-		lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
-					    lws_get_protocol(wsi),
-					    sizeof(struct vhd_deaddrop));
+		handler_server_protocol_init(wsi, in);
+		break;
 
-		vhd = (struct vhd_deaddrop *)
-			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
-						 lws_get_protocol(wsi));
-		if (!vhd)
+	case LWS_CALLBACK_HTTP:
+		if (!handler_server_http(vhd, pss, wsi))
 			return 0;
-
-		vhd->context = lws_get_context(wsi);
-		vhd->vh = lws_get_vhost(wsi);
-		vhd->protocol = lws_get_protocol(wsi);
-		vhd->max_size = 20 * 1024 * 1024; /* default without pvo */
-
-		if (!lws_pvo_get_str(in, "max-size", &cp))
-			vhd->max_size = (unsigned long long)atoll(cp);
-		if (lws_pvo_get_str(in, "upload-dir", &vhd->upload_dir)) {
-			lwsl_warn("%s: requires 'upload-dir' pvo\n", __func__);
-			return 0;
-		}
-
-		scan_upload_dir(vhd);
-
-		lwsl_notice("  deaddrop: vh %s, upload dir %s, max size %llu\n",
-			    lws_get_vhost_name(vhd->vh), vhd->upload_dir,
-			    vhd->max_size);
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
-		if (vhd)
-			lwsac_free(&vhd->lwsac_head);
+		handler_server_protocol_destroy(vhd);
+		break;
+
+	case LWS_CALLBACK_RAW_RX_FILE:
+		handler_server_raw_file_rx(vhd, wsi);
 		break;
 
 	/* WS-related */
 
 	case LWS_CALLBACK_ESTABLISHED:
-		pss->vhd = vhd;
-		pss->wsi = wsi;
-		/* add ourselves to the list of live pss held in the vhd */
-		pss->pss_list = vhd->pss_head;
-		vhd->pss_head = pss;
-
-		m = lws_hdr_copy(wsi, pss->user, sizeof(pss->user),
-				 WSI_TOKEN_HTTP_AUTHORIZATION);
-		if (m > 0)
-			lwsl_info("%s: basic auth user: %s\n",
-				  __func__, pss->user);
-		else
-			pss->user[0] = '\0';
-
-		start_sending_dir(pss);
-		lws_callback_on_writable(wsi);
+		handler_server_ws_established(vhd, pss, wsi);
 		return 0;
 
 	case LWS_CALLBACK_CLOSED:
-		if (pss->lwsac_head)
-			lwsac_unreference(&pss->lwsac_head);
-		/* remove our closing pss from the list of live pss */
-		lws_start_foreach_llp(struct pss_deaddrop **,
-				      ppss, vhd->pss_head) {
-			if (*ppss == pss) {
-				*ppss = pss->pss_list;
-				break;
-			}
-		} lws_end_foreach_llp(ppss, pss_list);
+		handler_server_ws_closed(vhd, pss);
 		return 0;
 
 	case LWS_CALLBACK_RECEIVE:
-		/* we get this kind of thing {"del":"agreen/no-entry.svg"} */
-		if (!pss || len < 10)
-			break;
-
-		if (strncmp((const char *)in, "{\"del\":\"", 8))
-			break;
-
-		cp = strchr((const char *)in, '/');
-		if (cp) {
-			n = (int)(((void *)cp - in)) - 8;
-
-			if ((int)strlen(pss->user) != n ||
-			    memcmp(pss->user, ((const char *)in) + 8, (unsigned int)n)) {
-				lwsl_notice("%s: del: auth mismatch "
-					    " '%s' '%s' (%d)\n",
-					    __func__, pss->user,
-					    ((const char *)in) + 8, n);
-				break;
-			}
-		}
-
-		lws_strncpy(fname, ((const char *)in) + 8, sizeof(fname));
-		lws_filename_purify_inplace(fname);
-		wp = strchr((const char *)fname, '\"');
-		if (wp)
-			*wp = '\0';
-
-		lws_snprintf((char *)buf, sizeof(buf), "%s/%s", vhd->upload_dir,
-			     fname);
-
-		lwsl_notice("%s: del: path %s\n", __func__, (const char *)buf);
-
-		if (unlink((const char *)buf) < 0)
-			lwsl_err("%s: unlink %s failed\n", __func__,
-					(const char *)buf);
-
-		scan_upload_dir(vhd);
+		handler_server_ws_rx(vhd, pss, wsi, in, len);
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
-		if (pss->lwsac_head && !pss->dire)
-			return 0;
-
-		was = 0;
-		if (pss->first) {
-			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
-					  "{\"max_size\":%llu, \"files\": [",
-					  vhd->max_size);
-			was = 1;
-		}
-
-		m = 5;
-		while (m-- && pss->dire) {
-			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
-					  "%c{\"name\":\"%s\", "
-					  "\"size\":%llu,"
-					  "\"mtime\":%llu,"
-					  "\"yours\":%d}",
-					  pss->first ? ' ' : ',',
-					  (const char *)&pss->dire[1],
-					  pss->dire->size,
-					  (unsigned long long)pss->dire->mtime,
-					  !strcmp(pss->user, pss->dire->user) &&
-						  pss->user[0]);
-			pss->first = 0;
-			pss->dire = lp_to_dir_entry(pss->dire->next, next);
-		}
-
-		if (!pss->dire) {
-			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
-					  "]}");
-			if (pss->lwsac_head) {
-				lwsac_unreference(&pss->lwsac_head);
-				pss->lwsac_head = NULL;
-			}
-		}
-
-		n = lws_write(wsi, start, lws_ptr_diff_size_t(p, start),
-				(enum lws_write_protocol)lws_write_ws_flags(LWS_WRITE_TEXT, was,
-						 !pss->dire));
-		if (n < 0) {
-			lwsl_notice("%s: ws write failed\n", __func__);
-			return 1;
-		}
-		if (pss->dire) {
-			lws_callback_on_writable(wsi);
-
-			return 0;
-		}
-
-		/* ie, we finished */
-
-		if (pss->filelist_version != pss->vhd->filelist_version) {
-			lwsl_info("%s: restart send\n", __func__);
-			/* what we just sent is already out of date */
-			start_sending_dir(pss);
-			lws_callback_on_writable(wsi);
-		}
-
+		handler_server_ws_writeable(vhd, pss, wsi);
 		return 0;
 
 	/* POST-related */
 
 	case LWS_CALLBACK_HTTP_BODY:
-
-		/* create the POST argument parser if not already existing */
-		if (!pss->spa) {
-			pss->vhd = vhd;
-			pss->wsi = wsi;
-			pss->spa = lws_spa_create(wsi, param_names,
-						  LWS_ARRAY_SIZE(param_names),
-						  1024, file_upload_cb, pss);
-			if (!pss->spa)
-				return -1;
-
-			pss->filename[0] = '\0';
-			pss->file_length = 0;
-			/* catchall */
-			pss->response_code = HTTP_STATUS_SERVICE_UNAVAILABLE;
-
-			m = lws_hdr_copy(wsi, pss->user, sizeof(pss->user),
-					 WSI_TOKEN_HTTP_AUTHORIZATION);
-			if (m > 0)
-				lwsl_info("basic auth user: %s\n", pss->user);
-			else
-				pss->user[0] = '\0';
-		}
-
-		/* let it parse the POST data */
-		if (lws_spa_process(pss->spa, in, (int)len)) {
-			lwsl_notice("spa saw a problem\n");
-			/* some problem happened */
-			lws_spa_finalize(pss->spa);
-
-			pss->completed = 1;
-			lws_callback_on_writable(wsi);
-		}
-		break;
+		return handler_server_http_body(vhd, pss, wsi, in, len);
 
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
-		/* call to inform no more payload data coming */
-		lws_spa_finalize(pss->spa);
-
-		pss->completed = 1;
-		lws_callback_on_writable(wsi);
-		break;
+		handler_server_http_body_completion(pss, wsi);
+		return 0;
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
-		if (!pss->completed)
-			break;
-
-		p = (unsigned char *)pss->result + LWS_PRE;
-		start = p;
-		end = p + sizeof(pss->result) - LWS_PRE - 1;
-
-		if (!pss->sent_headers) {
-			n = format_result(pss);
-
-			if (lws_add_http_header_status(wsi,
-					(unsigned int)pss->response_code,
-						       &p, end))
-				goto bail;
-
-			if (lws_add_http_header_by_token(wsi,
-					WSI_TOKEN_HTTP_CONTENT_TYPE,
-					(unsigned char *)"text/html", 9,
-					&p, end))
-				goto bail;
-			if (lws_add_http_header_content_length(wsi, (lws_filepos_t)n, &p, end))
-				goto bail;
-			if (lws_finalize_http_header(wsi, &p, end))
-				goto bail;
-
-			/* first send the headers ... */
-			n = lws_write(wsi, start, lws_ptr_diff_size_t(p, start),
-				      LWS_WRITE_HTTP_HEADERS |
-				      LWS_WRITE_H2_STREAM_END);
-			if (n < 0)
-				goto bail;
-
-			pss->sent_headers = 1;
-			lws_callback_on_writable(wsi);
-			break;
-		}
-
-		if (!pss->sent_body) {
-			n = format_result(pss);
-			n = lws_write(wsi, (unsigned char *)start, (unsigned int)n,
-				      LWS_WRITE_HTTP_FINAL);
-
-			pss->sent_body = 1;
-			if (n < 0) {
-				lwsl_err("%s: writing body failed\n", __func__);
-				return 1;
-			}
+		switch (handler_server_http_writeable(vhd, pss, wsi)) {
+		case 0:
+			return 0;
+		case 1:
+			goto bail;
+		case 2:
 			goto try_to_reuse;
 		}
 		break;
@@ -671,7 +924,7 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 	}
 
-	return 0;
+	return lws_callback_http_dummy(wsi, reason, user, in, len);
 
 bail:
 

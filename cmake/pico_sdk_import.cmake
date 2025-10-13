@@ -1,5 +1,7 @@
 # This is a copy of <PICO_SDK_PATH>/external/pico_sdk_import.cmake
 
+cmake_minimum_required(VERSION 3.13...4.0)
+
 # This can be dropped into an external project to help locate this SDK
 # It should be include()ed prior to project()
 

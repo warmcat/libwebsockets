@@ -24,6 +24,8 @@
 
 #include "private-lib-core.h"
 
+#include <lwip/sockets.h>
+
 int
 lws_plat_pipe_create(struct lws *wsi)
 {
@@ -41,11 +43,11 @@ lws_plat_pipe_create(struct lws *wsi)
 	 * ephemeral range for us.
 	 */
 
-	fd[0] = socket(AF_INET, SOCK_DGRAM, 0);
+	fd[0] = lwip_socket(AF_INET, SOCK_DGRAM, 0);
 	if (fd[0] < 0)
 		goto bail;
 
-	fd[1] = socket(AF_INET, SOCK_DGRAM, 0);
+	fd[1] = lwip_socket(AF_INET, SOCK_DGRAM, 0);
 	if (fd[1] < 0)
 		goto bail;
 
@@ -59,7 +61,12 @@ lws_plat_pipe_create(struct lws *wsi)
 	si->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 	si->sin_port = 0;
 
-	if (bind(fd[0], (const struct sockaddr *)si, sizeof(*si)) < 0)
+	if (lwip_bind(fd[1], (const struct sockaddr *)si, sizeof(*si)) < 0)
+		goto bail;
+
+	si->sin_port = 0;
+
+	if (lwip_bind(fd[0], (const struct sockaddr *)si, sizeof(*si)) < 0)
 		goto bail;
 
 	/*
@@ -71,7 +78,7 @@ lws_plat_pipe_create(struct lws *wsi)
 	 */
 
 	sl = sizeof(*si);
-	if (getsockname(fd[0], (struct sockaddr *)si, &sl))
+	if (lwip_getsockname(fd[0], (struct sockaddr *)si, &sl))
 		goto bail;
 
 	lwsl_info("%s: cancel UDP skt port %d\n", __func__,
@@ -106,7 +113,7 @@ lws_plat_pipe_signal(struct lws_context *ctx, int tsi)
 	 * (on udp/raw netconn, doing a sendto/recv is currently possible).
 	 */
 
-	n = sendto(fd[1], &u, 1, 0, (struct sockaddr *)si, sizeof(*si));
+	n = lwip_sendto(fd[1], &u, 1, 0, (struct sockaddr *)si, sizeof(*si));
 
 	return n != 1;
 }

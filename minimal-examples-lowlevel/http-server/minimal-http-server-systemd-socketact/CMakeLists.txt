@@ -1,5 +1,5 @@
 project(lws-minimal-http-server-systemd-socketact C)
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 find_package(libwebsockets CONFIG REQUIRED)
 list(APPEND CMAKE_MODULE_PATH ${LWS_CMAKE_DIR})
 include(CheckCSourceCompiles)
@@ -14,6 +14,8 @@ set(requirements 1)
 require_lws_config(LWS_ROLE_H1 1 requirements)
 require_lws_config(LWS_WITH_SERVER 1 requirements)
 require_lws_config(LWS_HAVE_SYSTEMD_H 1 requirements)
+require_lws_config(LWS_WITH_SDEVENT 1 requirements)
+
 
 if (requirements)
 	add_executable(${PROJECT_NAME} ${SRCS})

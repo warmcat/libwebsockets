@@ -121,6 +121,13 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!wsi->h1_ws_proxied || !wsi->parent)
 			break;
 
+		/*
+		 * If the parent has started to close, don't try to
+		 * upgrade it, just let it go.
+		 */
+		if ((lwsi_state(wsi->parent) & 0xff) >= (LRS_RETURNED_CLOSE & 0xff))
+			return -1;
+
 		if (lws_process_ws_upgrade2(wsi->parent))
 			return -1;
 
@@ -145,6 +152,7 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 	{
 		unsigned char **p = (unsigned char **)in, *end = (*p) + len,
 				    tmp[MAXHDRVAL];
+		char peer[64];
 
 		proxy_header(wsi, wsi->parent, tmp, sizeof(tmp),
 			      WSI_TOKEN_HTTP_ACCEPT_LANGUAGE, p, end);
@@ -154,6 +162,13 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 
 		proxy_header(wsi, wsi->parent, tmp, sizeof(tmp),
 			      WSI_TOKEN_HTTP_SET_COOKIE, p, end);
+
+		lws_get_peer_simple(wsi->parent, peer, sizeof(peer));
+		
+		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_X_FORWARDED_FOR,
+						 (uint8_t *)peer, (int)strlen(peer), p, end))
+                	lwsl_wsi_notice(wsi, "unable to append forwarded_for");
+
 		break;
 	}
 
@@ -186,7 +201,7 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 
 		pkt = (struct lws_proxy_pkt *)dll;
 		if (lws_write(wsi, ((unsigned char *)&pkt[1]) +
-			      LWS_PRE, pkt->len, (enum lws_write_protocol)lws_write_ws_flags(
+			      LWS_PRE, pkt->len, lws_write_ws_flags(
 				pkt->binary ? LWS_WRITE_BINARY : LWS_WRITE_TEXT,
 					pkt->first, pkt->final)) < 0)
 			return -1;
@@ -208,6 +223,16 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		return -1;
 
 	case LWS_CALLBACK_RECEIVE:
+
+               if (!wsi->child_list) {
+                       lwsl_wsi_warn(wsi, "Proxy Srv side RX: no child");
+                       break;
+               }
+               if (!wsi->child_list->ws) {
+                       lwsl_wsi_warn(wsi, "Proxy Srv side RX: child does not have ws");
+                       break;
+               }
+
 		pkt = lws_zalloc(sizeof(*pkt) + LWS_PRE + len, __func__);
 		if (!pkt)
 			return -1;
@@ -230,7 +255,7 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 
 		pkt = (struct lws_proxy_pkt *)dll;
 		if (lws_write(wsi, ((unsigned char *)&pkt[1]) +
-			      LWS_PRE, pkt->len, (enum lws_write_protocol)lws_write_ws_flags(
+			      LWS_PRE, pkt->len, lws_write_ws_flags(
 				pkt->binary ? LWS_WRITE_BINARY : LWS_WRITE_TEXT,
 					pkt->first, pkt->final)) < 0)
 			return -1;

@@ -94,7 +94,7 @@ const struct http2_settings lws_h2_stock_settings = { {
  * another path via lws_service_do_ripe_rxflow() on mux children too tho...
  */
 
-static int
+static lws_handling_result_t
 rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 		       struct lws_pollfd *pollfd)
 {
@@ -227,11 +227,13 @@ read:
 	       // lwsi_state(wsi) != LRS_H1C_ISSUE_HANDSHAKE2 &&
 	       lwsi_state(wsi) != LRS_H2_WAITING_TO_SEND_HEADERS))) {
 
+		int scr_ret;
+
 		ebuf.token = pt->serv_buf;
-		ebuf.len = lws_ssl_capable_read(wsi,
+		scr_ret = lws_ssl_capable_read(wsi,
 					ebuf.token,
 					wsi->a.context->pt_serv_buf_size);
-		switch (ebuf.len) {
+		switch (scr_ret) {
 		case 0:
 			lwsl_info("%s: zero length read\n", __func__);
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
@@ -240,6 +242,19 @@ read:
 			return LWS_HPI_RET_HANDLED;
 		case LWS_SSL_CAPABLE_ERROR:
 			lwsl_info("%s: LWS_SSL_CAPABLE_ERROR\n", __func__);
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+		}
+
+		/*
+		 * coverity is confused: it knows lws_ssl_capable_read may
+		 * return < 0 and assigning that to ebuf.len is bad, but it
+		 * doesn't understand this check below on scr_ret < 0
+		 * removes that possibility
+		 */
+
+		ebuf.len = scr_ret;
+		if (ebuf.len < 0) /* ie, not usable data */ {
+			lwsl_info("%s: other error\n", __func__);
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
 
@@ -313,7 +328,8 @@ drain:
 				lws_dll2_remove(&wsi->dll_buflist);
 			}
 		} else
-			if (n && n < ebuf.len && ebuf.len > 0) {
+			/* cov: both n and ebuf.len are int */
+			if (n > 0 && n < ebuf.len && ebuf.len > 0) {
 				// lwsl_notice("%s: h2 append seg %d\n", __func__, ebuf.len - n);
 				m = lws_buflist_append_segment(&wsi->buflist,
 						ebuf.token + n,
@@ -360,7 +376,8 @@ drain:
 	return LWS_HPI_RET_HANDLED;
 }
 
-int rops_handle_POLLOUT_h2(struct lws *wsi)
+lws_handling_result_t
+rops_handle_POLLOUT_h2(struct lws *wsi)
 {
 	// lwsl_notice("%s\n", __func__);
 
@@ -849,6 +866,20 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 
 		if (lws_bind_protocol(wsi, pp, __func__))
 			return 1;
+#if defined(LWS_WITH_HTTP_BASIC_AUTH)
+		/* basic auth? */
+
+		switch (lws_check_basic_auth(wsi, hit->basic_auth_login_file,
+					     hit->auth_mask & AUTH_MODE_MASK)) {
+		case LCBA_CONTINUE:
+			break;
+		case LCBA_FAILED_AUTH:
+			return lws_unauthorised_basic_auth(wsi);
+		case LCBA_END_TRANSACTION:
+			lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
+			return lws_http_transaction_completed(wsi);
+		}
+#endif
 	}
 
 	methidx = lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len);

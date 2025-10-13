@@ -1,3 +1,15 @@
+/*
+ * We display untrusted stuff in html context... reject anything
+ * that has HTML stuff in it
+ */
+
+function san(s)
+{
+	if (!s)
+		return "";
+	return document.createTextNode(s);
+}
+
 
 function get_appropriate_ws_url(extra_url)
 {
@@ -40,7 +52,6 @@ document.addEventListener("DOMContentLoaded", function() {
 		};
 	
 		ws.onmessage = function got_packet(msg) {
-			console.log("Received ws message len " + msg.data.size);
 			document.getElementById("r").value =
 				document.getElementById("r").value + "\nReceived: " + msg.data.size + " bytes\n";
 			document.getElementById("r").scrollTop =

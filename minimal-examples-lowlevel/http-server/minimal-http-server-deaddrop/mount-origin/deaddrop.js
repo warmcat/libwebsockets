@@ -6,12 +6,7 @@
 	{
 		if (!s)
 			return "";
-
-		return s.replace(/&/g, "&amp;").
-		replace(/\</g, "&lt;").
-		replace(/\>/g, "&gt;").
-		replace(/\"/g, "&quot;").
-		replace(/%/g, "&#37;");
+		return document.createTextNode(s);
 	}
 
 	function lws_urlencode(s)
@@ -37,16 +32,19 @@
 
 	function humanize(n)
 	{
+		if (typeof n !== 'number')
+			return "NaN";
+
 		if (n < 1024)
-			return n + "B";
+			return san(n + "B");
 
 		if (n < 1024 * 1024)
-			return trim((n / 1024).toFixed(2)) + "KiB";
+			return san(trim((n / 1024).toFixed(2)) + "KiB");
 
 		if (n < 1024 * 1024 * 1024)
-			return trim((n / (1024 * 1024)).toFixed(2)) + "MiB";
+			return san(trim((n / (1024 * 1024)).toFixed(2)) + "MiB");
 
-		return trim((n / (1024 * 1024 * 1024)).toFixed(2)) + "GiB";
+		return san(trim((n / (1024 * 1024 * 1024)).toFixed(2)) + "GiB");
 	}
 
 	function da_enter(e)
@@ -104,7 +102,7 @@
 		c2.innerHTML = humanize(file.size);
 
 		c3.classList.add("ogn");
-		c3.innerHTML = file.name;
+		c3.innerHTML = san(file.name);
 
 		if (file.size > server_max_size)
 			return;
@@ -271,7 +269,7 @@
 				}
 				s += "</table>";
 
-				t.innerHTML = s;
+				t.innerHTML = san(s);
 
 				for (n = 0; n < j.files.length; n++) {
 					var d = document.getElementById("d" + n);

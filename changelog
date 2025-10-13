@@ -10,7 +10,21 @@ v4.4.0
  file_ops that's the second arg now remains the platform file_ops ptr.  If you
  don't define your own VFS implementation, you don't need to care.
 
+- Secure Streams:  this is a thin layer on top of the traditional lws
+  apis, which continue unchanged.  You can choose to continue with the
+  old ways or look at using Secure Streams, it basically abstracts out
+  the differences between what protocol you're using into a JSON policy.
+  minimal-examples is for the SS API and minimal-examples-lowlevel is
+  the traditional stuff.  See  READMEs/README.secure-streams.md
 
+ - html parsing: see READMEs/README.html-parser.md  This uses the lws
+   support for DLO (Display List Objects) and png / jpeg linewise
+   decoding, which allows it to work on devices with very little RAM
+
+ - Support for various embedded EPD devices.  See
+   minimal-examples/embedded/lhp 
+
+ - Many fixes and cleanups
 
 v4.3.0
 ======

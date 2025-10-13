@@ -408,6 +408,8 @@ lws_display_get_ids_boxes(lws_display_render_state_t *rs)
 	memset(&rs->st[0].co, 0, sizeof(rs->st[0].co));
 	rs->st[0].dlo = lws_container_of(d, lws_dlo_t, list);
 
+	lwsl_notice("%s: going through rs stack\n", __func__);
+
 	while (rs->sp || rs->st[0].dlo) {
 		lws_dlo_t *dlo = rs->st[rs->sp].dlo;
 		lws_box_t co;
@@ -425,13 +427,19 @@ lws_display_get_ids_boxes(lws_display_render_state_t *rs)
 
 		lws_fx_add(&t2, &co.y, &dlo->box.h);
 
+
 		if (dlo->id) {
 			lws_display_id_t *id = dlo->id;
 
-			lwsl_debug("%s: set id box %s\n", __func__, id->id);
-			id->box = co;
+			if (id) {
+				id->id[sizeof(id->id) - 1] = '\0';
+				lwsl_debug("%s: set id box %s\n", __func__, id->id);
+
+				id->box = co;
+			}
 			dlo->id = NULL; /* decouple us */
 		}
+
 
 		if (co.y.whole + co.h.whole > rs->lowest_id_y) {
 			rs->lowest_id_y = (lws_display_scalar)(co.y.whole + co.h.whole);
@@ -451,6 +459,8 @@ lws_display_get_ids_boxes(lws_display_render_state_t *rs)
 		/* go into any children */
 
 		if (dlo->children.head) {
+			lwsl_notice("%s: child recurse\n", __func__);
+
 			if (rs->sp + 1 == LWS_ARRAY_SIZE(rs->st)) {
 				lwsl_err("%s: DLO stack overflow\n",
 						__func__);
@@ -502,14 +512,16 @@ lws_display_list_render_line(lws_display_render_state_t *rs)
 			continue;
 		}
 
-		// lwsl_notice("%s: curr %d: %d %d %d %d\n", __func__, rs->curr, dlo->box.x.whole, dlo->box.y.whole, dlo->box.w.whole, dlo->box.h.whole);
+//		lwsl_notice("%s: curr %d: %d %d %d %d\n", __func__, (int)rs->curr, (int)dlo->box.x.whole, (int)dlo->box.y.whole, (int)dlo->box.w.whole, (int)dlo->box.h.whole);
 
 		lws_fx_add(&co.x, &rs->st[rs->sp].co.x, &dlo->box.x);
 		lws_fx_add(&co.y, &rs->st[rs->sp].co.y, &dlo->box.y);
+
 		co.w = dlo->box.w;
 		co.h = dlo->box.h;
 
 		lws_fx_add(&t2, &co.y, &dlo->box.h);
+
 		if (rs->curr > lws_fx_roundup(&t2)) {
 			d = dlo->list.next;
 			rs->st[rs->sp].dlo = d ? lws_container_of(d, lws_dlo_t,
@@ -528,6 +540,7 @@ lws_display_list_render_line(lws_display_render_state_t *rs)
 		if (rs->curr >= co.y.whole - 1) {
 
 			r = dlo->render(rs);
+
 			//rs->ic, dlo, &rs->st[rs->sp].co,
 			//		rs->curr, rs->line, &dlo->nle[0]);
 			if (r)
@@ -536,11 +549,13 @@ lws_display_list_render_line(lws_display_render_state_t *rs)
 			/* next sibling at this level if any */
 
 			d = dlo->list.next;
+
 			if (d)
 				rs->st[rs->sp].dlo = lws_container_of(d,
 							lws_dlo_t, list);
 			else
 				rs->st[rs->sp].dlo = NULL;
+
 
 			/* go into any children */
 
@@ -565,6 +580,8 @@ lws_display_list_render_line(lws_display_render_state_t *rs)
 			else
 				rs->st[rs->sp].dlo = NULL;
 		}
+
+
 	}
 
 	return LWS_SRET_OK;

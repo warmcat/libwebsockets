@@ -494,7 +494,7 @@ lws_plat_rawudp_broadcast(uint8_t *p, const uint8_t *canned, size_t canned_len,
 
 	memset(&sll, 0, sizeof(sll));
 	sll.sll_family = AF_PACKET;
-	sll.sll_protocol = (uint32_t)(htons((uint16_t)0x800));
+	sll.sll_protocol = (uint16_t)(htons((uint16_t)0x800));
 	sll.sll_halen = 6;
 	sll.sll_ifindex = (int)if_nametoindex(iface);
 	memset(sll.sll_addr, 0xff, 6);

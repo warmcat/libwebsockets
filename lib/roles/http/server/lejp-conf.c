@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2025 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -99,6 +99,11 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].mounts[].extra-mimetypes",
 	"vhosts[].mounts[].interpret.*",
 	"vhosts[].mounts[].interpret",
+	"vhosts[].mounts[].cgi-chroot",
+	"vhosts[].mounts[].cgi-chdir",
+	"vhosts[].mounts[].headers[].*",
+	"vhosts[].mounts[].headers[]",
+	"vhosts[].mounts[].keepalive-timeout",
 	"vhosts[].mounts[]",
 	"vhosts[].ws-protocols[].*.*",
 	"vhosts[].ws-protocols[].*",
@@ -173,6 +178,11 @@ enum lejp_vhost_paths {
 	LEJPVP_MOUNT_EXTRA_MIMETYPES_base,
 	LEJPVP_MOUNT_INTERPRET,
 	LEJPVP_MOUNT_INTERPRET_base,
+	LEJPVP_CGI_CHROOT,
+	LEJPVP_CGI_CHDIR,
+	LEJPVP_MOUNTPOINT_HEADERS_NAME,
+	LEJPVP_MOUNTPOINT_HEADERS,
+	LEJPVP_MOUNTPOINT_KEEPALIVE_TIMEOUT,
 
 	LEJPVP_MOUNTS,
 
@@ -233,6 +243,9 @@ struct jpargs {
 	struct lws_protocol_vhost_options *pvo;
 	struct lws_protocol_vhost_options *pvo_em;
 	struct lws_protocol_vhost_options *pvo_int;
+
+	struct lws_protocol_vhost_options *pvo_mp;
+
 	struct lws_http_mount m;
 	const char **plugin_dirs;
 	int count_plugin_dirs;
@@ -242,6 +255,8 @@ struct jpargs {
 	unsigned int fresh_mount:1;
 	unsigned int any_vhosts:1;
 	unsigned int chunk:1;
+
+       void *user;
 };
 
 static void *
@@ -436,6 +451,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 #if defined(LWS_ROLE_WS)
 		a->info->extensions = a->extensions;
 #endif
+               a->info->user = a->user;
 #if defined(LWS_WITH_TLS)
 #if defined(LWS_WITH_CLIENT)
 		a->info->client_ssl_cipher_list = "ECDHE-ECDSA-AES256-GCM-SHA384:"
@@ -461,11 +477,13 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 				       "!DES:!MD5:!PSK:!RC4:!HMAC_SHA1:"
 				       "!SHA1:!DHE-RSA-AES128-GCM-SHA256:"
 				       "!DHE-RSA-AES128-SHA256:"
+                                      "!ECDHE-RSA-AES128-GCM-SHA256:"
 				       "!AES128-GCM-SHA256:"
 				       "!AES128-SHA256:"
 				       "!DHE-RSA-AES256-SHA256:"
 				       "!AES256-GCM-SHA384:"
-				       "!AES256-SHA256";
+                                      "!AES256-SHA256:"
+                                      "!CAMELLIA128:!CAMELLIA256";
 #endif
 #endif
 		a->info->keepalive_timeout = 5;
@@ -523,6 +541,37 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->chunk = reason == LEJPCB_VAL_STR_CHUNK;
 		goto dostring;
 	}
+
+	/* this catches, eg, vhosts[].mount[].headers[].xxx */
+	if ((reason == LEJPCB_VAL_STR_END || reason == LEJPCB_VAL_STR_CHUNK) &&
+	    ctx->path_match == LEJPVP_MOUNTPOINT_HEADERS_NAME + 1) {
+
+		if (!a->chunk) {
+			headers = lwsws_align(a);
+			a->p += sizeof(*headers);
+
+			n = lejp_get_wildcard(ctx, 0, a->p,
+					lws_ptr_diff(a->end, a->p));
+			/* ie, add this header */
+			/* linked-list of pvos start held in a->pvo_mp */
+			headers->next = a->pvo_mp;
+			a->pvo_mp = headers;
+			headers->name = a->p;
+
+			lwsl_notice("  adding header %s=%s\n", a->p, ctx->buf);
+			a->p += n - 1;
+			*(a->p++) = ':';
+			if (a->p < a->end)
+				*(a->p++) = '\0';
+			else
+				*(a->p - 1) = '\0';
+			headers->value = a->p;
+			headers->options = NULL;
+		}
+		a->chunk = reason == LEJPCB_VAL_STR_CHUNK;
+		goto dostring;
+	}
+
 
 	if (reason == LEJPCB_OBJECT_END &&
 	    (ctx->path_match == LEJPVP + 1 || !ctx->path[0]) &&
@@ -618,6 +667,10 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 			lwsl_err("unsupported protocol:// %s\n", a->m.origin);
 			return 1;
 		}
+
+		/* attach the tree of mountpoint headers, if any */
+		m->headers = a->pvo_mp;
+		a->pvo_mp = NULL;
 
 		a->p += sizeof(*m);
 		if (!a->head)
@@ -716,6 +769,9 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	case LEJPVP_KEEPALIVE_TIMEOUT:
 		a->info->keepalive_timeout = atoi(ctx->buf);
 		return 0;
+	case LEJPVP_MOUNTPOINT_KEEPALIVE_TIMEOUT:
+		a->m.keepalive_timeout = (unsigned int)atoi(ctx->buf);
+		return 0;
 #if defined(LWS_WITH_TLS)
 #if defined(LWS_WITH_CLIENT)
 	case LEJPVP_CLIENT_CIPHERS:
@@ -800,6 +856,14 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->p += n;
 		a->pvo_int->value = a->p;
 		a->pvo_int->options = NULL;
+		break;
+
+	case LEJPVP_CGI_CHROOT:
+		a->m.cgi_chroot_path = a->p;
+		break;
+
+	case LEJPVP_CGI_CHDIR:
+		a->m.cgi_wd = a->p;
 		break;
 
 	case LEJPVP_ENABLE_CLIENT_SSL:
@@ -1062,6 +1126,28 @@ lwsws_get_config_globals(struct lws_context_creation_info *info, const char *d,
 	return 0;
 }
 
+#if 0
+typedef struct lws_retry_bo {
+        const uint32_t  *retry_ms_table;           /* base delay in ms */
+        uint16_t        retry_ms_table_count;      /* entries in table */
+        uint16_t        conceal_count;             /* max retries to conceal */
+        uint16_t        secs_since_valid_ping;     /* idle before PING issued */
+        uint16_t        secs_since_valid_hangup;   /* idle before hangup conn */
+        uint8_t         jitter_percent;         /* % additional random jitter */
+} lws_retry_bo_t;
+#endif
+
+static const uint32_t rmst[] = { 1000, 2000, 5000, 10000, 30000 };
+
+static const lws_retry_bo_t rebo = {
+	.retry_ms_table			= rmst,
+	.retry_ms_table_count		= LWS_ARRAY_SIZE(rmst),
+	.conceal_count			= 2,
+	.secs_since_valid_ping		= 15,
+	.secs_since_valid_hangup	= 20,
+	.jitter_percent			= 25,
+};
+
 int
 lwsws_get_config_vhosts(struct lws_context *context,
 			struct lws_context_creation_info *info, const char *d,
@@ -1074,11 +1160,14 @@ lwsws_get_config_vhosts(struct lws_context *context,
 	memset(&a, 0, sizeof(a));
 
 	a.info = info;
+	if (!a.info->retry_and_idle_policy)
+		a.info->retry_and_idle_policy = &rebo;
 	a.p = *cs;
 	a.end = a.p + *len;
 	a.valid = 0;
 	a.context = context;
 	a.protocols = info->protocols;
+       a.user = info->user;
 	a.pprotocols = info->pprotocols;
 #if defined(LWS_ROLE_WS)
 	a.extensions = info->extensions;

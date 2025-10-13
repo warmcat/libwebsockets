@@ -345,7 +345,7 @@ static void
 elops_run_pt_ev(struct lws_context *context, int tsi)
 {
 	if (pt_to_priv_ev(&context->pt[tsi])->io_loop)
-		ev_run(pt_to_priv_ev(&context->pt[tsi])->io_loop, 0);
+		ev_run(pt_to_priv_ev(&context->pt[tsi])->io_loop, EVRUN_ONCE);
 }
 
 static int
@@ -371,7 +371,7 @@ elops_destroy_context2_ev(struct lws_context *context)
 			continue;
 		}
 		while (budget-- &&
-		       (m = ev_run(ptpr->io_loop, 0)))
+		       (m = ev_run(ptpr->io_loop, EVRUN_NOWAIT)))
 			;
 
 		ev_loop_destroy(ptpr->io_loop);

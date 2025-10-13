@@ -31,6 +31,15 @@ lws_tls_server_client_cert_verify_config(struct lws_vhost *vh)
 {
 	int verify_options = SSL_VERIFY_PEER;
 
+	if (lws_check_opt(vh->options,
+			  LWS_SERVER_OPTION_MBEDTLS_VERIFY_CLIENT_CERT_POST_HANDSHAKE)) {
+		verify_options |= SSL_VERIFY_POST_HANDSHAKE;
+		SSL_CTX_set_verify(vh->tls.ssl_ctx, verify_options, NULL);
+		lwsl_notice("%s: vh %s can verify client cert post-handshake\n",
+				__func__, vh->name);
+		return 0;
+	}
+
 	/* as a server, are we requiring clients to identify themselves? */
 	if (!lws_check_opt(vh->options,
 			  LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT)) {
@@ -39,7 +48,7 @@ lws_tls_server_client_cert_verify_config(struct lws_vhost *vh)
 	}
 
 	if (!lws_check_opt(vh->options, LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED))
-		verify_options = SSL_VERIFY_FAIL_IF_NO_PEER_CERT;
+		verify_options |= SSL_VERIFY_FAIL_IF_NO_PEER_CERT;
 
 	lwsl_notice("%s: vh %s requires client cert %d\n", __func__, vh->name,
 		    verify_options);

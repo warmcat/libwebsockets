@@ -239,6 +239,9 @@ lws_buflist_fragment_use(struct lws_buflist **head, uint8_t *buf,
 	if (frag_fin)
 		*frag_fin = (*head)->pos + s == (*head)->len;
 
+	if (!buf || !len)
+		return 0;
+
 	memcpy(buf, ((uint8_t *)((*head) + 1)) + LWS_PRE + (*head)->pos, s);
 	len -= s;
 	buf += s;
@@ -251,6 +254,7 @@ lws_buflist_fragment_use(struct lws_buflist **head, uint8_t *buf,
 void
 lws_buflist_describe(struct lws_buflist **head, void *id, const char *reason)
 {
+#if !defined(LWS_WITH_NO_LOGS)
 	struct lws_buflist *old;
 	int n = 0;
 
@@ -271,8 +275,20 @@ lws_buflist_describe(struct lws_buflist **head, void *id, const char *reason)
 		}
 		n++;
 	}
+#endif
 }
 #endif
+
+LWS_VISIBLE LWS_EXTERN void *
+lws_buflist_get_frag_start_or_NULL(struct lws_buflist **head)
+{
+	struct lws_buflist *b = (*head);
+
+	if (!b)
+		return NULL;	/* there is no segment to work on */
+
+	return ((uint8_t *)b) + sizeof(*b) + LWS_PRE;
+}
 
 lws_stateful_ret_t
 lws_flow_feed(lws_flow_t *flow)

@@ -42,6 +42,7 @@
 
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/mman.h>
@@ -77,11 +78,18 @@
 
 #if defined(LWS_HAVE_PTHREAD_H)
 #include <pthread.h>
+#include <sys/types.h>
+
 typedef pthread_mutex_t lws_mutex_t;
 #define lws_mutex_init(x)	pthread_mutex_init(&(x), NULL)
 #define lws_mutex_destroy(x)	pthread_mutex_destroy(&(x))
 #define lws_mutex_lock(x)	pthread_mutex_lock(&(x))
 #define lws_mutex_unlock(x)	pthread_mutex_unlock(&(x))
+
+#define lws_tid_t		pthread_t
+#define lws_thread_is(x)	pthread_equal(x, pthread_self())
+#define lws_thread_id()		pthread_self()
+
 #endif
 
 #if defined(__sun) && defined(__GNUC__)
@@ -139,6 +147,13 @@ typedef pthread_mutex_t lws_mutex_t;
 # define TCP_KEEPINTVL TCPCTL_KEEPINTVL
 # define TCP_KEEPIDLE  TCPCTL_KEEPIDLE
 # define TCP_KEEPCNT   TCPCTL_KEEPCNT
+#endif
+
+#if defined (__sun)
+	#include <sys/ethernet.h>
+	#if !defined(ETHER_ADDR_LEN) && defined(ETHERADDRL)
+		#define ETHER_ADDR_LEN ETHERADDRL
+	#endif
 #endif
 
 #define LWS_ERRNO errno

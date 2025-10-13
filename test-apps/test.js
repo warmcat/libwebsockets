@@ -1,4 +1,15 @@
 (function () {
+
+/*
+ * We display untrusted stuff in html context... reject anything
+ * that has HTML stuff in it
+ */
+
+function san(s)
+{
+	return document.createTextNode(s);
+}
+
 function check_file()
 {
 	var f = document.getElementById("file").files[0];
@@ -13,24 +24,11 @@ function check_file()
 							max_len+"</span>";
 		} else
 			document.getElementById("file_info").innerHTML =
-				"File length "+f.size;
+				"File length " + san(f.size);
 	} else
 		dis = 1;
 	
 	document.getElementById("upload").disabled = dis;
-}
-
-/*
- * We display untrusted stuff in html context... reject anything
- * that has HTML stuff in it
- */
-
-function san(s)
-{
-	if (s.search("<") !== -1)
-		return "invalid string";
-	
-	return s;
 }
 
 /* BrowserDetect came from http://www.quirksmode.org/js/detect.html */
@@ -154,8 +152,6 @@ var BrowserDetect = {
 
 };
 
-var pos = 0;
-
 function get_appropriate_ws_url(extra_url)
 {
 	var pcol;
@@ -189,8 +185,8 @@ if (location.search) {
 
     for (var i = 0; i < parts.length; i++) {
         var nv = parts[i].split("=");
-        if (!nv[0]) continue;
-        params[nv[0]] = nv[1] || true;
+        if (nv[0] !== "mirror") continue;
+        params["mirror"] = nv[1] || true;
     }
 }
 
@@ -230,7 +226,7 @@ function ws_open_dumb_increment()
 	}
 }
 	
-	var socket_status, jso, s;
+	var socket_status, jso;
 	
 function ws_open_status()
 {	
@@ -367,6 +363,7 @@ var last_x = 0, last_y = 0;
 var ctx;
 var color = "#000000";
 var lm_timer;
+var offsetX, offsetY;
 
 function ev_mousemove (ev) {
 	var x, y;
@@ -427,7 +424,7 @@ function ws_open_mirror()
 		};
 
 		socket_lm.onmessage =function got_packet(msg) {
-			j = msg.data.split(";");
+			var j = msg.data.split(";");
 			var f = 0;
 			while (f < j.length - 1) {
 				i = j[f].split(" ");
@@ -472,7 +469,7 @@ function ws_open_mirror()
 	canvas.addEventListener("mouseup", ev_mouseup, false);
 
 	offsetX = offsetY = 0;
-	element = canvas;
+	var element = canvas;
       if (element.offsetParent) {
         do {
           offsetX += element.offsetLeft;

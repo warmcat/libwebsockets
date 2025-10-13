@@ -30,7 +30,6 @@
 #include "mbedtls/ctr_drbg.h"
 #include "mbedtls/error.h"
 
-
 #define X509_INFO_STRING_LENGTH 8192
 
 struct ssl_pm
@@ -121,7 +120,7 @@ int ssl_pm_new(SSL *ssl)
     size_t pers_len = sizeof(pers);
 
     int endpoint;
-    int version;
+    //int version;
 
     const SSL_METHOD *method = ssl->method;
 
@@ -171,25 +170,28 @@ int ssl_pm_new(SSL *ssl)
         goto mbedtls_err2;
     }
 
+#if 0
+
     if (TLS_ANY_VERSION != ssl->version) {
         if (TLS1_2_VERSION == ssl->version)
-            version = MBEDTLS_SSL_MINOR_VERSION_3;
+            version = 3;
         else if (TLS1_1_VERSION == ssl->version)
             version = 2;
         else
             version = 1;
 
-        mbedtls_ssl_conf_max_version(&ssl_pm->conf, MBEDTLS_SSL_MAJOR_VERSION_3, version);
-        mbedtls_ssl_conf_min_version(&ssl_pm->conf, MBEDTLS_SSL_MAJOR_VERSION_3, version);
+        mbedtls_ssl_conf_max_version(&ssl_pm->conf, 3, version);
+        mbedtls_ssl_conf_min_version(&ssl_pm->conf, 3, version);
     } else {
-        mbedtls_ssl_conf_max_version(&ssl_pm->conf, MBEDTLS_SSL_MAJOR_VERSION_3, MBEDTLS_SSL_MINOR_VERSION_3);
+        mbedtls_ssl_conf_max_version(&ssl_pm->conf, 3, 3);
 
 #if defined(MBEDTLS_SSL_PROTO_TLS1_2)
-        mbedtls_ssl_conf_min_version(&ssl_pm->conf, MBEDTLS_SSL_MAJOR_VERSION_3, MBEDTLS_SSL_MINOR_VERSION_3);
+        mbedtls_ssl_conf_min_version(&ssl_pm->conf, 3, 3);
 #else
-        mbedtls_ssl_conf_min_version(&ssl_pm->conf, MBEDTLS_SSL_MAJOR_VERSION_3, 1);
+        mbedtls_ssl_conf_min_version(&ssl_pm->conf, 3, 1);
 #endif
     }
+#endif // 0
 
     mbedtls_ssl_conf_rng(&ssl_pm->conf, mbedtls_ctr_drbg_random, &ssl_pm->ctr_drbg);
 
@@ -255,10 +257,12 @@ static int ssl_pm_reload_crt(SSL *ssl)
     struct pkey_pm *pkey_pm = (struct pkey_pm *)ssl->cert->pkey->pkey_pm;
     struct x509_pm *crt_pm = (struct x509_pm *)ssl->cert->x509->x509_pm;
 
-    if (ssl->verify_mode == SSL_VERIFY_PEER)
+    if ((ssl->verify_mode & SSL_VERIFY_POST_HANDSHAKE) > 0)
         mode = MBEDTLS_SSL_VERIFY_OPTIONAL;
-    else if (ssl->verify_mode == SSL_VERIFY_FAIL_IF_NO_PEER_CERT)
+    else if ((ssl->verify_mode & SSL_VERIFY_PEER) > 0)
         mode = MBEDTLS_SSL_VERIFY_REQUIRED;
+    else if ((ssl->verify_mode & SSL_VERIFY_FAIL_IF_NO_PEER_CERT) > 0)
+        mode = MBEDTLS_SSL_VERIFY_OPTIONAL;
     else if (ssl->verify_mode == SSL_VERIFY_CLIENT_ONCE)
         mode = MBEDTLS_SSL_VERIFY_UNSET;
     else
@@ -421,24 +425,38 @@ int ssl_pm_clear(SSL *ssl)
 
 int ssl_pm_read(SSL *ssl, void *buffer, int len)
 {
-    int ret;
-    struct ssl_pm *ssl_pm = (struct ssl_pm *)ssl->ssl_pm;
+	int ret;
+	struct ssl_pm *ssl_pm = (struct ssl_pm *)ssl->ssl_pm;
 
-    ret = mbedtls_ssl_read(&ssl_pm->ssl, buffer, (size_t)len);
-    if (ret < 0) {
-	 //   lwsl_notice("%s: mbedtls_ssl_read says -0x%x\n", __func__, -ret);
-        SSL_DEBUG(SSL_PLATFORM_ERROR_LEVEL, "mbedtls_ssl_read() return -0x%x", -ret);
-        if (ret == MBEDTLS_ERR_NET_CONN_RESET ||
+	ret = mbedtls_ssl_read(&ssl_pm->ssl, buffer, (size_t)len);
+	if (ret < 0) {
+//		lwsl_notice("%s: mbedtls_ssl_read says -0x%x\n", __func__, -ret);
+		SSL_DEBUG(SSL_PLATFORM_ERROR_LEVEL, "mbedtls_ssl_read() return -0x%x", -ret);
+		if (ret == MBEDTLS_ERR_NET_CONN_RESET ||
 #if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
-	    ret <= MBEDTLS_ERR_SSL_HANDSHAKE_FAILURE) /* fatal errors */
+		    ret <= MBEDTLS_ERR_SSL_HANDSHAKE_FAILURE) /* fatal errors */
 #else
-            ret <= MBEDTLS_ERR_SSL_NO_USABLE_CIPHERSUITE) /* fatal errors */
+		    ret <= MBEDTLS_ERR_SSL_NO_USABLE_CIPHERSUITE) /* fatal errors */
 #endif
 		ssl->err = SSL_ERROR_SYSCALL;
-        ret = -1;
-    }
 
-    return ret;
+		switch (ret) {
+		case MBEDTLS_ERR_NET_CONN_RESET:
+			ssl->err = SSL_ERROR_SYSCALL;
+			break;
+		case MBEDTLS_ERR_SSL_WANT_WRITE:
+			ssl->err = SSL_ERROR_WANT_WRITE;
+			break;
+		case MBEDTLS_ERR_SSL_WANT_READ:
+			ssl->err = SSL_ERROR_WANT_READ;
+			break;
+		default:
+			break;
+		}
+		ret = -1;
+	}
+
+	return ret;
 }
 
 /*
@@ -693,6 +711,68 @@ int x509_pm_load(X509 *x, const unsigned char *buffer, int len)
 
     if (ret) {
         printf("mbedtls_x509_crt_parse return -0x%x", -ret);
+        goto failed;
+    }
+
+    return 0;
+
+failed:
+    mbedtls_x509_crt_free(x509_pm->x509_crt);
+    ssl_mem_free(x509_pm->x509_crt);
+    x509_pm->x509_crt = NULL;
+no_mem:
+    return -1;
+}
+
+int x509_pm_load_file(X509 *x, const char *path)
+{
+    int ret;
+    struct x509_pm *x509_pm = (struct x509_pm *)x->x509_pm;
+
+    if (!x509_pm->x509_crt) {
+        x509_pm->x509_crt = ssl_mem_malloc(sizeof(mbedtls_x509_crt) + 80);
+        if (!x509_pm->x509_crt) {
+            SSL_DEBUG(SSL_PLATFORM_ERROR_LEVEL, "no enough memory > (x509_pm->x509_crt)");
+            goto no_mem;
+        }
+        mbedtls_x509_crt_init(x509_pm->x509_crt);
+    }
+
+    ret = mbedtls_x509_crt_parse_file(x509_pm->x509_crt, path);
+    if (ret) {
+        SSL_DEBUG(SSL_PLATFORM_ERROR_LEVEL,
+                  "mbedtls_x509_crt_parse_file return -0x%x", -ret);
+        goto failed;
+    }
+
+    return 0;
+
+failed:
+    mbedtls_x509_crt_free(x509_pm->x509_crt);
+    ssl_mem_free(x509_pm->x509_crt);
+    x509_pm->x509_crt = NULL;
+no_mem:
+    return -1;
+}
+
+int x509_pm_load_path(X509 *x, const char *path)
+{
+    int ret;
+    struct x509_pm *x509_pm = (struct x509_pm *)x->x509_pm;
+
+    if (!x509_pm->x509_crt) {
+        x509_pm->x509_crt = ssl_mem_malloc(sizeof(mbedtls_x509_crt) + 80);
+        if (!x509_pm->x509_crt) {
+            SSL_DEBUG(SSL_PLATFORM_ERROR_LEVEL, "no enough memory > (x509_pm->x509_crt)");
+            goto no_mem;
+        }
+        mbedtls_x509_crt_init(x509_pm->x509_crt);
+    }
+
+    ret = mbedtls_x509_crt_parse_path(x509_pm->x509_crt, path);
+    if (ret) {
+        SSL_DEBUG(SSL_PLATFORM_ERROR_LEVEL,
+                  "mbedtls_x509_crt_parse_path return -0x%x", -ret);
         goto failed;
     }
 
@@ -981,9 +1061,9 @@ void SSL_set_SSL_CTX(SSL *ssl, SSL_CTX *ctx)
 
 #if defined(LWS_HAVE_mbedtls_ssl_set_hs_authmode)
 
-	if (ctx->verify_mode == SSL_VERIFY_PEER)
+	if ((ctx->verify_mode & SSL_VERIFY_PEER) > 0)
 		mode = MBEDTLS_SSL_VERIFY_REQUIRED;
-	else if (ctx->verify_mode == SSL_VERIFY_FAIL_IF_NO_PEER_CERT)
+	else if ((ctx->verify_mode & SSL_VERIFY_FAIL_IF_NO_PEER_CERT) > 0)
 		mode = MBEDTLS_SSL_VERIFY_REQUIRED;
 	else if (ctx->verify_mode == SSL_VERIFY_CLIENT_ONCE)
 		mode = MBEDTLS_SSL_VERIFY_UNSET;

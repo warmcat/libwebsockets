@@ -221,6 +221,9 @@ __lws_free_wsi(struct lws *wsi)
 
 	lws_context_assert_lock_held(wsi->a.context);
 
+	/* just in case */
+	lws_dll2_remove(&wsi->pre_natal);
+
 #if defined(LWS_WITH_SECURE_STREAMS)
 	if (wsi->for_ss) {
 
@@ -377,8 +380,10 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	context = wsi->a.context;
 	pt = &context->pt[(int)wsi->tsi];
 
-	if (pt->pipe_wsi == wsi)
+	if (pt->pipe_wsi == wsi) {
+		lws_plat_pipe_close(pt->pipe_wsi);
 		pt->pipe_wsi = NULL;
+	}
 
 #if defined(LWS_WITH_SYS_METRICS) && \
     (defined(LWS_WITH_CLIENT) || defined(LWS_WITH_SERVER))
@@ -650,7 +655,7 @@ just_kill_connection:
 		wsi->socket_is_permanently_unusable = 1;
 
 		lws_inform_client_conn_fail(wsi,
-			(void *)_reason, sizeof(_reason));
+			(void *)_reason, sizeof(_reason) - 1);
 	}
 #endif
 
@@ -939,7 +944,11 @@ __lws_close_free_wsi_final(struct lws *wsi)
 		if (pt->pipe_wsi == wsi)
 			pt->pipe_wsi = NULL;
 		if (pt->dummy_pipe_fds[0] == wsi->desc.sockfd)
+               {
+#if !defined(LWS_PLAT_FREERTOS)
 			pt->dummy_pipe_fds[0] = LWS_SOCK_INVALID;
+#endif
+               }
 	}
 
 	wsi->desc.sockfd = LWS_SOCK_INVALID;

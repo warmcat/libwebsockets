@@ -11,7 +11,7 @@
 # proxy has to support LWS_ROLE_WS=1 and LWS_WITHOUT_EXTENSIONS=0
 # to work with binance itself
 
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 
 # initialize the SDK based on PICO_SDK_PATH
 # note: this must happen before project()

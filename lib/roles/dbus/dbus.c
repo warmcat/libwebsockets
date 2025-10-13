@@ -94,10 +94,13 @@ __lws_shadow_wsi(struct lws_dbus_ctx *ctx, DBusWatch *w, int fd, int create_ok)
 	lws_vhost_bind_wsi(ctx->vh, wsi);
 	if (__insert_wsi_socket_into_fds(ctx->vh->context, wsi)) {
 		lwsl_err("inserting wsi socket into fds failed\n");
+		lws_dll2_remove(&wsi->pre_natal);
 		__lws_vhost_unbind_wsi(wsi); /* cx + vh lock */
 		lws_free(wsi);
 		return NULL;
 	}
+
+	lws_dll2_remove(&wsi->pre_natal);
 
 	return wsi;
 }
@@ -472,7 +475,7 @@ bail:
  * this.
  */
 
-static int
+static lws_handling_result_t
 rops_handle_POLLIN_dbus(struct lws_context_per_thread *pt, struct lws *wsi,
 			struct lws_pollfd *pollfd)
 {

@@ -382,6 +382,17 @@ int main(int argc, const char **argv)
 		memcert[info.client_ssl_ca_mem_len++] = '\0';
 	}
 #endif
+
+	{
+		const char * match, *argv1[] = { "arg0", "--arg1", "arg2", "-arg3", "arg4", NULL };
+
+		match = lws_cmdline_options(LWS_ARRAY_SIZE(argv1) - 1, argv1, NULL, NULL);
+		if (!match || strcmp(match, "arg2")) {
+			lwsl_warn("%s: test1 result unexpected: '%s'\n", __func__, match);
+			fail++;
+		}
+	}
+
 	{
 		/* lws_fx_t */
 
@@ -776,6 +787,62 @@ int main(int argc, const char **argv)
 		}
 	}
 
+	/* sanity check base64 decode */
+
+	{
+		struct lws_b64state b64;
+		uint8_t result[16];
+		size_t in_len, out_len;
+
+		lws_b64_decode_state_init(&b64);
+		in_len = 8;
+		out_len = sizeof(result);
+		if (lws_b64_decode_stateful(&b64, "YWJjZA==", &in_len, result, &out_len, 1)) {
+			lwsl_err("%s: b64 test 1 decode failed\n", __func__);
+			return 1;
+		}
+		if (out_len != 4) {
+			lwsl_err("%s: b64 test 1 decode len not 4 (%d)\n", __func__, (int)out_len);
+			return 1;
+		}
+		if (memcmp(result, "abcd", out_len)) {
+			lwsl_err("%s: b64 test 1 decode value not 'abcde' (%.*s)\n", __func__, (int)out_len, result);
+			return 1;
+		}
+
+		lws_b64_decode_state_init(&b64);
+		in_len = 8;
+		out_len = sizeof(result);
+		if (lws_b64_decode_stateful(&b64, "YWJjZGU=", &in_len, result, &out_len, 1)) {
+			lwsl_err("%s: b64 test 2 decode failed\n", __func__);
+			return 1;
+		}
+		if (out_len != 5) {
+			lwsl_err("%s: b64 test 2 decode len not 5 (%d)\n", __func__, (int)out_len);
+			return 1;
+		}
+		if (memcmp(result, "abcde", out_len)) {
+			lwsl_err("%s: b64 test 2 decode value not 'abcd' (%.*s)\n", __func__, (int)out_len, result);
+			return 1;
+		}
+
+		lws_b64_decode_state_init(&b64);
+		in_len = 8;
+		out_len = sizeof(result);
+		if (lws_b64_decode_stateful(&b64, "YWJjZGVm", &in_len, result, &out_len, 1)) {
+			lwsl_err("%s: b64 test 3 decode failed\n", __func__);
+			return 1;
+		}
+		if (out_len != 6) {
+			lwsl_err("%s: b64 test 3 decode len not 6 (%d)\n", __func__, (int)out_len);
+			return 1;
+		}
+		if (memcmp(result, "abcdef", out_len)) {
+			lwsl_err("%s: b64 test 3 decode value not 'abcde' (%.*s)\n", __func__, (int)out_len, result);
+			return 1;
+		}
+	}
+
 	/* sanity check lws_strnncpy() */
 
 	lws_strnncpy(dotstar, "12345678", 4, sizeof(dotstar));
@@ -1028,7 +1095,7 @@ int main(int argc, const char **argv)
 			fail++;
 		}
 		m = lws_humanize(buf, sizeof(buf), 1024, humanize_schema_si);
-		if (m != 7 || strcmp(buf, "1.000Ki")) {
+		if (m != 3 || strcmp(buf, "1Ki")) {
 			lwsl_user("%s: humanize 5 fail '%s' (%d)\n", __func__, buf, m);
 			fail++;
 		}

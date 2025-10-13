@@ -340,6 +340,10 @@ lws_ss_policy_ref_trust_store(struct lws_context *context,
 	i.client_ssl_ca_mem_len = (unsigned int)
 			pol->trust.store->ssx509[0]->ca_der_len;
 #endif
+#if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
+	lwsl_err("%s: ctx ext %p\n", __func__, context->extensions);
+	i.extensions = context->extensions;
+#endif
 	i.port = CONTEXT_PORT_NO_LISTEN;
 	lwsl_info("%s: %s trust store initial '%s'\n", __func__,
 		  i.vhost_name, pol->trust.store->ssx509[0]->vhost_name);

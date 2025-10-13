@@ -40,6 +40,9 @@
  * loop.  The iterator runs through the linked list starting at start and
  * ends when it gets a NULL.
  * The while loop should be terminated using lws_start_foreach_ll().
+ *
+ * Notice you can't use continue; to go around this iterator.  You must
+ * goto a label placed at the lws_end_foreach_ll().
  */
 #define lws_start_foreach_ll(type, it, start)\
 { \
@@ -54,6 +57,9 @@
  *
  * This helper is the partner for lws_start_foreach_ll() that ends the
  * while loop.
+ *
+ * Notice you can't use continue; to go around this iterator.  You must
+ * goto a label placed at the lws_end_foreach_ll().
  */
 
 #define lws_end_foreach_ll(it, nxt) \
@@ -75,6 +81,9 @@
  * The while loop should be terminated using lws_end_foreach_ll_safe().
  * Performs storage of next increment for situations where iterator can become invalidated
  * during iteration.
+ *
+ * Notice you can't use continue; to go around this iterator.  You must
+ * goto a label placed at the lws_end_foreach_ll_safe().
  */
 #define lws_start_foreach_ll_safe(type, it, start, nxt)\
 { \
@@ -90,6 +99,9 @@
  * This helper is the partner for lws_start_foreach_ll_safe() that ends the
  * while loop. It uses the precreated next_ variable already stored during
  * start.
+ *
+ * Notice you can't use continue; to go around this iterator.  You must
+ * goto a label placed at the lws_end_foreach_ll_safe().
  */
 
 #define lws_end_foreach_ll_safe(it) \
@@ -112,6 +124,9 @@
  * This helper variant iterates using a pointer to the previous linked-list
  * element.  That allows you to easily delete list members by rewriting the
  * previous pointer to the element's next pointer.
+ *
+ * Notice you can't use continue; to go around this iterator.  You must
+ * goto a label placed at the lws_end_foreach_llp() / ..._safe().
  */
 #define lws_start_foreach_llp(type, it, start)\
 { \
@@ -133,6 +148,9 @@
  *
  * This helper is the partner for lws_start_foreach_llp() that ends the
  * while loop.
+ *
+ * Notice you can't use continue; to go around this iterator.  You must
+ * goto a label placed at the lws_end_foreach_llp() / ..._safe().
  */
 
 #define lws_end_foreach_llp(it, nxt) \

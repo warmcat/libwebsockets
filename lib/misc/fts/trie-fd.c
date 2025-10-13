@@ -545,7 +545,6 @@ lws_fts_search(struct lws_fts_file *jtf, struct lws_fts_search_params *ftsp)
 					 */
 					bp += (int)slt;
 					slt = 0;
-					nac = 1;
 					goto ensure;
 				}
 

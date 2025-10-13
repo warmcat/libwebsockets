@@ -524,7 +524,8 @@ i2:
 						goto reject_callback;
 					pst->ppos = st->p;
 					ctx->path[pst->ppos] = '\0';
-					ctx->ipos--;
+					if (ctx->ipos) /* cov */
+						ctx->ipos--;
 					lecp_check_path_match(ctx);
 					lwcp_completed(ctx, 0);
 					break;
@@ -1217,7 +1218,8 @@ lws_lec_int(lws_lec_pctx_t *ctx, uint8_t opcode, uint8_t indet, uint64_t num)
 
 	ctx->scratch[ctx->scratch_len++] = (uint8_t)(opcode | hint);
 	n = 1u << (hint - LWS_CBOR_1);
-	while (n--) {
+	while (n) {
+		n--; /* cov */
 		ctx->scratch[ctx->scratch_len++] = (uint8_t)(num >> 56);
 		num <<= 8;
 	}

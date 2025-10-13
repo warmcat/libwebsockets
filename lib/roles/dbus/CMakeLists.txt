@@ -53,7 +53,8 @@ int main(void) {
 
 message("dbus include dir 1: ${LWS_DBUS_INCLUDE1}")
 if (LWS_DBUS_INCLUDE1)
-include_directories("${LWS_DBUS_INCLUDE1}")
+	set(LWS_LIB_BUILD_INC_PATHS ${LWS_LIB_BUILD_INC_PATHS} "${LWS_DBUS_INCLUDE1}")
+	#list(APPEND _CMAKE_INC_LIST ${LWS_DBUS_INCLUDE1})
 endif()
 list(APPEND LIB_LIST ${LWS_DBUS_LIB})
 

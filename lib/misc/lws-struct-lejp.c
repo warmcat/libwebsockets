@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2025 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -34,6 +34,7 @@ lws_struct_schema_only_lejp_cb(struct lejp_ctx *ctx, char reason)
 	const lws_struct_map_t *map = a->map_st[ctx->pst_sp];
 	size_t n = a->map_entries_st[ctx->pst_sp], imp = 0;
 	lejp_callback cb = map->lejp_cb;
+	void *v;
 
 	if (reason == LEJPCB_PAIR_NAME && strcmp(ctx->path, "schema")) {
 		/*
@@ -88,26 +89,25 @@ lws_struct_schema_only_lejp_cb(struct lejp_ctx *ctx, char reason)
 
 matched:
 
-		a->dest = lwsac_use_zero(&a->ac, map->aux, a->ac_block_size);
-		if (!a->dest) {
+		v = lwsac_use_zero(&a->ac, map->aux, a->ac_block_size);
+		if (!v) {
 			lwsl_err("%s: OOT\n", __func__);
 
 			return 1;
 		}
-		a->dest_len = map->aux;
-		if (!ctx->pst_sp)
-			a->top_schema_index = (int)(map - a->map_st[ctx->pst_sp]);
+		if (!a->dest) {
+			a->dest = v;
+			a->dest_len = map->aux;
 
+			a->top_schema_index = (int)(map - a->map_st[ctx->pst_sp]);
+		}
 		if (!cb)
 			cb = lws_struct_default_lejp_cb;
 
-		lejp_parser_push(ctx, a->dest, &map->child_map[0].colname,
+		lejp_parser_push(ctx, v, &map->child_map[0].colname,
 				 (uint8_t)map->child_map_size, cb);
 		a->map_st[ctx->pst_sp] = map->child_map;
 		a->map_entries_st[ctx->pst_sp] = map->child_map_size;
-
-		// lwsl_notice("%s: child map ofs_clist %d\n", __func__,
-		// 		(int)a->map_st[ctx->pst_sp]->ofs_clist);
 
 		if (imp)
 			return cb(ctx, reason);
@@ -154,8 +154,10 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 	}
 
 	if (reason == LEJPCB_ARRAY_START) {
-		if (!ctx->path_match)
-			lwsl_err("%s: ARRAY_START with ctx->path_match 0\n", __func__);
+		if (!ctx->path_match) {
+			lwsl_info("%s: ARRAY_START with ctx->path_match 0\n", __func__);
+			return 0;
+		}
 		map = &args->map_st[ctx->pst_sp][ctx->path_match - 1];
 
 		if (map->type == LSMT_LIST)
@@ -548,9 +550,9 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 	size_t budget = 0, olen = len, m;
 	struct lws_dll2_owner *o;
 	unsigned long long uli;
+	char dbuf[72] = {};
 	const char *q;
 	const void *p;
-	char dbuf[72];
 	long long li;
 	int n, used;
 
@@ -563,11 +565,8 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 		q = j->obj + map->ofs;
 
 		/* early check if the entry should be elided */
-
 		switch (map->type) {
 		case LSMT_STRING_CHAR_ARRAY:
-			if (!q)
-				goto up;
 			break;
 		case LSMT_STRING_PTR:
 		case LSMT_CHILD_PTR:

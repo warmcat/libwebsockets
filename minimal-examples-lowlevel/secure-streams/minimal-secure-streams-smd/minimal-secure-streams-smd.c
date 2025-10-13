@@ -49,7 +49,6 @@ static const char * const default_ss_policy =
 					"\"port\": 80,"
 					"\"protocol\": \"h1\","
 					"\"http_method\": \"GET\","
-					"\"opportunistic\": true,"
 					"\"http_expect\": 204,"
 					"\"http_fail_redirect\": true"
 				"}"
@@ -152,8 +151,9 @@ myss_state(void *userobj, void *h_src, lws_ss_constate_t state,
 {
 	myss_t *m = (myss_t *)userobj;
 
-	lwsl_notice("%s: %s: %s (%d), ord 0x%x\n", __func__, lws_ss_tag(m->ss),
-		    lws_ss_state_name((int)state), state, (unsigned int)ack);
+	if (state != LWSSSCS_EVENT_WAIT_CANCELLED)
+		lwsl_notice("%s: %s: %s, ord 0x%x\n", __func__, lws_ss_tag(m->ss),
+			    lws_ss_state_name(state), (unsigned int)ack);
 
 	if (state == LWSSSCS_DESTROYING) {
 		lws_sul_cancel(&m->sul);
@@ -302,6 +302,8 @@ int main(int argc, const char **argv)
 #endif
 	info.options			= LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 					  LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+	info.connect_timeout_secs = 15;
+	info.timeout_secs = 10;
 
 	info.early_smd_cb		= direct_smd_cb;
 	info.early_smd_class_filter	= 0xffffffff;

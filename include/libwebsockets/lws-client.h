@@ -396,11 +396,57 @@ lws_client_http_body_pending(struct lws *wsi, int something_left_to_send);
  * This issues a multipart mime boundary, or terminator if name = NULL.
  *
  * Returns 0 if OK or nonzero if couldn't fit in buffer
+ *
+ * This is deprecated in favour of the below lws_http_mp apis
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_client_http_multipart(struct lws *wsi, const char *name,
 			  const char *filename, const char *content_type,
 			  char **p, char *end);
+
+struct lws_http_mp_sm;
+typedef int (*lws_http_mp_sm_cb_t)(struct lws_context *cx, char *ft, size_t ft_len, const char **last);
+
+/**
+ * lws_http_mp_sm_init() - allocate and init an http post multipart state machine
+ *
+ * \p wsi: the wsi this will be used on
+ * \p cb: the http_mp callback for getting next form item
+ * \p p: pointer to pointer to next header byte
+ * \p end: pointer to last possible header byte
+ *
+ * Returns a new and initialized multipart post state machine object,
+ * or NULL if OOM or other problems.
+ */
+LWS_VISIBLE LWS_EXTERN struct lws_http_mp_sm *
+lws_http_mp_sm_init(struct lws *wsi, lws_http_mp_sm_cb_t cb, uint8_t **p, uint8_t *end);
+
+/**
+ * lws_http_mp_sm_destroy() - deallocates an http post multipart state machine
+ *
+ * \p pphms: pointer to http_mp_sm pointer
+ *
+ * Frees and sets the pointed-to pointer to NULL.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_http_mp_sm_destroy(struct lws_http_mp_sm **pphms);
+
+/**
+ * lws_http_mp_sm_fill() - fills a buffer with the next fragment of form data
+ *
+ * \p phms: pointer to http_mp_sm
+ * \p p: cursor into buffer - moved on by call
+ * \p end: last byte of buffer
+ *
+ * Fills \p *p potentially to \p end with form data, and moves
+ * *p on by the amount used.
+ *
+ * Returns 0 if successful (and *p has been moved on to show the extent
+ * of the written amount) or nonzero for failure
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_http_mp_sm_fill(struct lws_http_mp_sm *phms, uint8_t **p, uint8_t *end);
+
 
 /**
  * lws_http_basic_auth_gen() - helper to encode client basic auth string

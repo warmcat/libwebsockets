@@ -289,6 +289,10 @@ lws_wsi_fault_timedclose(struct lws *wsi)
 
 /*
  * We need the context lock
+ *
+ * If we returned a wsi rather than NULL, it is listed on the
+ * context->pre_natal_owner list of wild wsi not yet part of
+ * a vhost or on the fd list.
  */
 
 struct lws *
@@ -296,6 +300,7 @@ __lws_wsi_create_with_role(struct lws_context *context, int tsi,
 			   const struct lws_role_ops *ops,
 			   lws_log_cx_t *log_cx_template)
 {
+	struct lws_context_per_thread *pt = &context->pt[tsi];
 	size_t s = sizeof(struct lws);
 	struct lws *wsi;
 
@@ -338,10 +343,15 @@ __lws_wsi_create_with_role(struct lws_context *context, int tsi,
 	lws_fi_inherit_copy(&wsi->fic, &context->fic, "wsi", NULL);
 
 	if (lws_fi(&wsi->fic, "createfail")) {
+		lws_dll2_remove(&wsi->pre_natal);
 		lws_fi_destroy(&wsi->fic);
 		lws_free(wsi);
 		return NULL;
 	}
+
+	lws_pt_lock(pt, __func__); /* -------------- pt { */
+	lws_dll2_add_head(&wsi->pre_natal, &pt->pre_natal_wsi_owner);
+	lws_pt_unlock(pt); /* } pt --------------- */
 
 	return wsi;
 }
@@ -360,6 +370,7 @@ lws_wsi_inject_to_loop(struct lws_context_per_thread *pt, struct lws *wsi)
 	if (__insert_wsi_socket_into_fds(pt->context, wsi))
 		goto bail;
 
+	lws_dll2_remove(&wsi->pre_natal);
 	ret = 0;
 
 bail:
@@ -1187,7 +1198,7 @@ _lws_generic_transaction_completed_active_conn(struct lws **_wsi, char take_vh_l
 	/* after the first one, they can only be coming from the queue */
 	wnew->transaction_from_pipeline_queue = 1;
 
-	lwsl_wsi_notice(wsi, " pipeline queue passed -> %s", lws_wsi_tag(wnew));
+	lwsl_wsi_info(wsi, " pipeline queue passed -> %s", lws_wsi_tag(wnew));
 
 	*_wsi = wnew; /* inform caller we swapped */
 
@@ -1296,9 +1307,8 @@ lws_http_close_immortal(struct lws *wsi)
 		 * since we closed the only immortal stream on this nwsi, we
 		 * need to reapply a normal timeout regime to the nwsi
 		 */
-		lws_set_timeout(nwsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE,
-				wsi->a.vhost->keepalive_timeout ?
-				    wsi->a.vhost->keepalive_timeout : 31);
+		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE,
+				lws_wsi_keepalive_timeout_eff(wsi));
 }
 
 void
@@ -1313,7 +1323,7 @@ lws_mux_mark_immortal(struct lws *wsi)
 			&& !wsi->client_mux_substream
 #endif
 	) {
-		lwsl_wsi_err(wsi, "not mux substream");
+		// lwsl_wsi_err(wsi, "not mux substream");
 		return;
 	}
 
@@ -1367,6 +1377,27 @@ lws_wsi_client_stash_item(struct lws *wsi, int stash_idx, int hdr_idx)
 #endif
 }
 #endif
+
+int
+lws_wsi_keepalive_timeout_eff(struct lws *wsi)
+{
+	int ds = wsi->a.vhost->keepalive_timeout;
+
+#if defined(LWS_WITH_SERVER)
+	if (wsi->http.mount_specific_keepalive_timeout_secs)
+		ds = (int)wsi->http.mount_specific_keepalive_timeout_secs;
+
+	if (wsi->parent && (int)wsi->parent->http.mount_specific_keepalive_timeout_secs > ds)
+		ds = (int)wsi->parent->http.mount_specific_keepalive_timeout_secs;
+#endif
+
+	if (!ds)
+		ds = 31;
+
+	// lwsl_wsi_notice(wsi, "Eff keepalive_timeout %ds ===================\n", ds);
+
+	return ds;
+}
 
 #if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT)
 

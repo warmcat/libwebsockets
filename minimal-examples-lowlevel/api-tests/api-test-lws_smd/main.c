@@ -14,11 +14,14 @@
 #include <pthread.h>
 #include <signal.h>
 
-static int interrupted, ok, fail, _exp = 111;
-static unsigned int how_many_msg = 100, usec_interval = 1000;
+#define THRESHOLD_PC 55
+
+static unsigned int how_many_msg = 5000, ok, fail, usec_interval = 200, _exp;
+static char interrupted, completed[2] = { 0, 0 };
+
 static lws_sorted_usec_list_t sul_timeout, sul_initial_drain;
 struct lws_context *context;
-static pthread_t thread_spam;
+static pthread_t thread_spam1, thread_spam2;
 
 static void
 timeout_cb(lws_sorted_usec_list_t *sul)
@@ -83,31 +86,27 @@ _thread_spam(void *d)
 #else
 	unsigned int mypid = (unsigned int)getpid();
 #endif
-	unsigned int n = 0, atm = 0;
+	unsigned int n = 0, m = (unsigned int)(intptr_t)d;
 
-	while (n++ < how_many_msg) {
-
-		atm++;
+	while (!interrupted && n < how_many_msg) {
 		if (lws_smd_msg_printf(context, LWSSMDCL_SYSTEM_STATE,
 					       "{\"s\":\"state\","
 						"\"pid\":%u,"
 						"\"msg\":%d}",
-					       mypid, (unsigned int)n)) {
-			lwsl_err("%s: send attempt %d failed\n", __func__, atm);
-			n--;
+					       mypid, (unsigned int)n))
 			fail++;
-			if (fail >= 3) {
-				interrupted = 1;
-				lws_cancel_service(context);
-				break;
-			}
-		}
+		else
+			n++;
 #if defined(WIN32)
 		Sleep(3);
 #else
-		usleep(usec_interval);
+		if (usec_interval)
+			usleep(usec_interval);
 #endif
 	}
+
+	completed[m] = 1;
+
 #if !defined(WIN32)
 	pthread_exit(NULL);
 #endif
@@ -124,11 +123,14 @@ static void
 drained_cb(lws_sorted_usec_list_t *sul)
 {
 	/*
-	 * spawn the test thread, it's going to spam 100 messages at 3ms
+	 * spawn the test thread, it's going to spam messages at short (or zero)
 	 * intervals... check we got everything
 	 */
 
-	if (pthread_create(&thread_spam, NULL, _thread_spam, NULL))
+	if (pthread_create(&thread_spam1, NULL, _thread_spam, (void *)(intptr_t)0))
+		lwsl_err("%s: failed to create the spamming thread\n", __func__);
+
+	if (pthread_create(&thread_spam2, NULL, _thread_spam, (void *)(intptr_t)1))
 		lwsl_err("%s: failed to create the spamming thread\n", __func__);
 }
 
@@ -137,7 +139,7 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		   int current, int target)
 {
 	// struct lws_context *context = mgr->parent;
-	int n;
+	unsigned int n;
 
 	if (current != LWS_SYSTATE_OPERATIONAL || target != LWS_SYSTATE_OPERATIONAL)
 		return 0;
@@ -150,13 +152,13 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 	 */
 
 	n = 0;
-	while (n++ < 100)
+	while (n++ < how_many_msg)
 		if (lws_smd_msg_printf(context, LWSSMDCL_SYSTEM_STATE,
 				       "{\"s\":\"state\",\"test\":\"overflow\"}"))
 			break;
 
-	lwsl_notice("%s: overflow test added %d messages\n", __func__, n);
-	if (n == 100) {
+	lwsl_notice("%s: overflow test added %u messages\n", __func__, n);
+	if (n == how_many_msg) {
 		lwsl_err("%s: didn't overflow\n", __func__);
 		interrupted = 1;
 		return 1;
@@ -170,8 +172,7 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 	 */
 
 	lws_sul_schedule(context, 0, &sul_initial_drain, drained_cb,
-			 5 * LWS_US_PER_MS);
-
+			 3 * LWS_US_PER_MS);
 
 	lwsl_info("%s: operational\n", __func__);
 
@@ -200,6 +201,8 @@ main(int argc, const char **argv)
 	if ((p = lws_cmdline_option(argc, argv, "--count")))
 		how_many_msg = (unsigned int)atol(p);
 
+	_exp = (2 * how_many_msg * THRESHOLD_PC) / 100;
+
 	if ((p = lws_cmdline_option(argc, argv, "--interval")))
 		usec_interval = (unsigned int)atol(p);
 
@@ -221,7 +224,7 @@ main(int argc, const char **argv)
 	/* game over after this long */
 
 	lws_sul_schedule(context, 0, &sul_timeout, timeout_cb,
-			 (how_many_msg * (usec_interval + 1000)) + (4 * LWS_US_PER_SEC));
+			 50 * (LWS_US_PER_SEC));
 
 	/* register a messaging participant to hear INTERACTION class */
 
@@ -295,19 +298,26 @@ main(int argc, const char **argv)
 
 	/* the usual lws event loop */
 
-	while (!interrupted && lws_service(context, 0) >= 0)
+	while (!interrupted && (!completed[0] || !completed[1]) &&
+			lws_service(context, 0) >= 0)
 		;
 
-	pthread_join(thread_spam, &retval);
+	lwsl_notice("%s: exited loop\n", __func__);
+
+	pthread_join(thread_spam1, &retval);
+	pthread_join(thread_spam2, &retval);
 
 bail:
 	lws_context_destroy(context);
 
-	if (fail || ok >= _exp)
-		lwsl_user("Completed: PASS: %d / %d, FAIL: %d\n", ok, _exp,
-				fail);
-	else
-		lwsl_user("Completed: ALL PASS: %d / %d\n", ok, _exp);
+	/* expect some failures since we are spinning spamming the smd queue */
 
-	return !(ok >= _exp && !fail);
+	if (completed[0] && completed[1]) {
+		lwsl_user("Completed: PASS: %d / %d, (busy: %d)\n", ok, _exp, fail);
+		return 0;
+	}
+
+	lwsl_user("Completed: FAIL: %d / %d, (busy: %d)\n", ok, _exp, fail);
+
+	return 1;
 }

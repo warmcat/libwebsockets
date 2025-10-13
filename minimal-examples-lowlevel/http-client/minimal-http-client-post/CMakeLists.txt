@@ -1,5 +1,5 @@
 project(lws-minimal-http-client-post C)
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 find_package(libwebsockets CONFIG REQUIRED)
 list(APPEND CMAKE_MODULE_PATH ${LWS_CMAKE_DIR})
 include(CheckCSourceCompiles)
@@ -28,20 +28,11 @@ if (requirements)
 	# instantiate the server per sai builder instance, they are running in the same
 	# machine context in parallel so they can tread on each other otherwise
 	#
-	set(PORT_HCP_SRV "7640")
-	if ("$ENV{SAI_INSTANCE_IDX}" STREQUAL "0")
-		set(PORT_HCP_SRV 7641)
+	set(PORT_HCP_SRV "7040")
+	if ("$ENV{SAI_INSTANCE_IDX}")
+		math(EXPR PORT_HCP_SRV "7041 + $ENV{SAI_INSTANCE_IDX}")
 	endif()
-	if ("$ENV{SAI_INSTANCE_IDX}" STREQUAL "1")
-		set(PORT_HCP_SRV 7642)
-	endif()
-	if ("$ENV{SAI_INSTANCE_IDX}" STREQUAL "2")
-		set(PORT_HCP_SRV 7643)
-	endif()
-	if ("$ENV{SAI_INSTANCE_IDX}" STREQUAL "3")
-		set(PORT_HCP_SRV 7644)
-	endif()
-	
+
 # hack
 if (NOT WIN32 AND LWS_WITH_SERVER)
 
@@ -61,7 +52,7 @@ else()
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 					hcp_srv ${VALGRIND} --tool=memcheck 
 					$<TARGET_FILE:test-server>
-					-r ${CMAKE_SOURCE_DIR}/destdir/usr/local/share/libwebsockets-test-server/
+					-r ${CMAKE_BINARY_DIR}/share/libwebsockets-test-server/
 					-s --port ${PORT_HCP_SRV} -d1151)
 		add_test(NAME ki_hcp_srv COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh hcp_srv ${VALGRIND}
@@ -71,7 +62,7 @@ else()
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 					hcp_srv
 					$<TARGET_FILE:test-server>
-					-r ${CMAKE_SOURCE_DIR}/destdir/usr/local/share/libwebsockets-test-server/
+					-r ${CMAKE_BINARY_DIR}/share/libwebsockets-test-server/
 					-s --port ${PORT_HCP_SRV} )
 		add_test(NAME ki_hcp_srv COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh hcp_srv

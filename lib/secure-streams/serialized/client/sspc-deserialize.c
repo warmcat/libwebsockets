@@ -947,11 +947,6 @@ payload_ff:
 				break;
 			}
 
-			if (par->ctr < 0) {
-				lwsl_info("ORDA\n");
-				goto hangup;
-			}
-
 #if !defined(STANDALONE) && defined(_DEBUG)
 			lwsl_sspc_info(h, "forwarding proxied state %s",
 					lws_ss_state_name(par->ctr));

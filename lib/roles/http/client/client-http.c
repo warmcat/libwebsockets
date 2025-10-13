@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2023 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2025 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -30,12 +30,17 @@ lws_client_http_body_pending(struct lws *wsi, int something_left_to_send)
 	wsi->client_http_body_pending = !!something_left_to_send;
 }
 
+/*
+ * Returns 0 for wsi survived OK, or LWS_HPI_RET_WSI_ALREADY_DIED
+ * meaning the wsi was destroyed by us before return.
+ */
+	
 int
 lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 {
 	struct lws_context *context = wsi->a.context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	char *p = (char *)&pt->serv_buf[0];
+	char *p = (char *)&pt->serv_buf[0], *end = p + wsi->a.context->pt_serv_buf_size;
 #if defined(LWS_WITH_TLS)
 	char ebuf[128];
 #endif
@@ -51,10 +56,10 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 		 * timeout protection set in client-handshake.c
 		 */
 		lwsl_err("%s: %s: WAITING_DNS\n", __func__, lws_wsi_tag(wsi));
-		if (!lws_client_connect_2_dnsreq(wsi)) {
+		if (!lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(wsi)) {
 			/* closed */
 			lwsl_client("closed\n");
-			return -1;
+			return LWS_HPI_RET_WSI_ALREADY_DIED;
 		}
 
 		/* either still pending connection, or changed mode */
@@ -69,7 +74,7 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 		if (pollfd->revents & LWS_POLLOUT)
 			if (lws_client_connect_3_connect(wsi, NULL, NULL, 0, NULL) == NULL) {
 				lwsl_client("closed\n");
-				return -1;
+				return LWS_HPI_RET_WSI_ALREADY_DIED;
 			}
 		break;
 
@@ -137,7 +142,7 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 			goto bail3;
 		}
 
-		lwsl_info("%s: proxy connection extablished\n", __func__);
+		lwsl_info("%s: proxy connection established\n", __func__);
 
 		/* clear his proxy connection timeout */
 
@@ -163,8 +168,11 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 #if defined(LWS_WITH_SOCKS5)
 start_ws_handshake:
 #endif
-		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
-			return -1;
+		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
+			cce = "unable to clear POLLOUT";
+			/* turn whatever went wrong into a clean close */
+			goto bail3;
+		}
 
 #if defined(LWS_ROLE_H2) || defined(LWS_WITH_TLS)
 		if (
@@ -257,8 +265,8 @@ start_ws_handshake:
 	case LRS_H1C_ISSUE_HANDSHAKE2:
 
 hs2:
-
-		p = lws_generate_client_handshake(wsi, p);
+		p = lws_generate_client_handshake(wsi, p,
+						  lws_ptr_diff_size_t(end, p));
 		if (p == NULL) {
 			if (wsi->role_ops == &role_ops_raw_skt
 #if defined(LWS_ROLE_RAW_FILE)
@@ -286,7 +294,7 @@ hs2:
 			lwsl_debug("ERROR writing to client socket\n");
 			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
 					   "cws");
-			return 0;
+			return LWS_HPI_RET_WSI_ALREADY_DIED;
 		case LWS_SSL_CAPABLE_MORE_SERVICE:
 			lws_callback_on_writable(wsi);
 			break;
@@ -376,8 +384,10 @@ client_http_body_sent:
 		}
 
 		if (pollfd->revents & LWS_POLLOUT)
-			if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
-				return -1;
+			if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
+				cce = "Unable to clear POLLOUT";
+				goto bail3;
+			}
 
 		if (!(pollfd->revents & LWS_POLLIN))
 			break;
@@ -443,7 +453,7 @@ client_http_body_sent:
 			if (lws_buflist_aware_finished_consuming(wsi, &eb, m,
 								 buffered,
 								 __func__))
-			        return -1;
+			        goto bail3;
 
 			/*
 			 * coverity: uncomment if extended
@@ -486,7 +496,7 @@ bail3:
 		lws_inform_client_conn_fail(wsi, (void *)cce, strlen(cce));
 
 		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "cbail3");
-		return -1;
+		return LWS_HPI_RET_WSI_ALREADY_DIED;
 
 	default:
 		break;
@@ -981,7 +991,8 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 					    LRS_ESTABLISHED, &role_ops_h1);
 			}
 #else
-			return -1;
+			cce = "h1 not built";
+			goto bail3;
 #endif
 		}
 
@@ -1106,29 +1117,10 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		/* let's let the user code know, if he cares */
 
 		if (wsi->a.protocol->callback(wsi,
-					    LWS_CALLBACK_CLIENT_HTTP_REDIRECT,
-					    wsi->user_space, p, (unsigned int)n)) {
+					LWS_CALLBACK_CLIENT_HTTP_REDIRECT,
+					wsi->user_space, p, (unsigned int)n)) {
 			cce = "HS: user code rejected redirect";
 			goto bail3;
-		}
-
-		/*
-		 * Some redirect codes imply we have to change the method
-		 * used for the subsequent transaction, commonly POST ->
-		 * 303 -> GET.
-		 */
-
-		if (n == 303) {
-			char *mp = lws_hdr_simple_ptr(wsi,_WSI_TOKEN_CLIENT_METHOD);
-			int ml = lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_METHOD);
-
-			if (ml >= 3 && mp) {
-				lwsl_info("%s: 303 switching to GET\n", __func__);
-				memcpy(mp, "GET", 4);
-				wsi->redirected_to_get = 1;
-				wsi->http.ah->frags[wsi->http.ah->frag_index[
-				             _WSI_TOKEN_CLIENT_METHOD]].len = 3;
-			}
 		}
 
 		/* Relative reference absolute path */
@@ -1181,6 +1173,48 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 				path = p;
 		}
 
+		/*
+		 * Some redirect codes imply we have to change the method
+		 * used for the subsequent transaction.
+		 *
+		 * ugh... https://peterdaugaardrasmussen.com/2020/05/09/how-to-redirect-http-put-or-post-requests/
+		 * says only 307 or 308 mean keep POST or other method
+		 */
+
+		if (n != 307 && n != 308) {
+			char *mp = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
+			int ml = lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_METHOD);
+			uint16_t pl = (uint16_t)strlen(path);
+
+			if (ml >= 3 && mp) {
+				lwsl_info("%s: 303 switching to GET\n", __func__);
+				memcpy(mp, "GET", 4);
+				wsi->redirected_to_get = 1;
+				wsi->http.ah->frags[wsi->http.ah->frag_index[
+					_WSI_TOKEN_CLIENT_METHOD]].len = 3;
+			}
+        		if (wsi->stash)
+                		wsi->stash->cis[CIS_METHOD] = "GET";
+
+			mp = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI);
+			ml = lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_URI);
+
+			if (wsi->http.ah->pos + pl + 1 >= wsi->http.ah->data_length) {
+				lwsl_warn("%s: redirect path exceeds ah size\n", __func__);
+				goto bail3;
+			}
+			memcpy(wsi->http.ah->data + wsi->http.ah->pos + 1, path, pl + 1u);
+			wsi->http.ah->data[wsi->http.ah->pos] = '/';
+			wsi->http.ah->frags[wsi->http.ah->frag_index[_WSI_TOKEN_CLIENT_URI]].offset = wsi->http.ah->pos;
+			wsi->http.ah->frags[wsi->http.ah->frag_index[_WSI_TOKEN_CLIENT_URI]].len = (uint16_t)(pl + 1u);
+
+			if (wsi->stash)
+				wsi->stash->cis[CIS_PATH] = wsi->http.ah->data + wsi->http.ah->pos;
+
+			wsi->http.ah->pos += pl + 1u;
+		}
+
+
 #if defined(LWS_WITH_TLS)
 		if ((wsi->tls.use_ssl & LCCSCF_USE_SSL) && !ssl &&
 		     !(wsi->flags & LCCSCF_ACCEPT_TLS_DOWNGRADE_REDIRECTS)) {
@@ -1212,7 +1246,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "redir");
 		wsi->a.opaque_user_data = opaque;
 
-		return -1;
+		return LWS_HPI_RET_WSI_ALREADY_DIED;
 	}
 
 	/* if h1 KA is allowed, enable the queued pipeline guys */
@@ -1373,11 +1407,18 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		 * content-length of zero?  If so, and it's not H2 which will
 		 * notice it via END_STREAM, this transaction is already
 		 * completed at the end of the header processing...
+		 * We also completed it if the request method is HEAD which as
+		 * no content leftover.
+		 * Or if the response status code is 204 : No Content
 		 */
-		if (!wsi->mux_substream && !wsi->client_mux_substream &&
-		    lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
-		    !wsi->http.rx_content_length)
-		        return !!lws_http_transaction_completed_client(wsi);
+		simp = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
+		if (!wsi->mux_substream &&
+		    !wsi->client_mux_substream &&
+			(204 == lws_http_client_http_response(wsi) ||
+			 (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
+				(!wsi->http.rx_content_length ||
+				(simp && !strcmp(simp,"HEAD"))))))
+				return !!lws_http_transaction_completed_client(wsi);
 
 		/*
 		 * We can also get a case where it's http/1 and there's no
@@ -1427,7 +1468,7 @@ bail2:
 	/* closing will free up his parsing allocations */
 	lws_close_free_wsi(wsi, (enum lws_close_status)close_reason, "c hs interp");
 
-	return 1;
+	return LWS_HPI_RET_WSI_ALREADY_DIED;
 }
 #endif
 
@@ -1502,12 +1543,279 @@ lws_client_http_multipart(struct lws *wsi, const char *name,
 	return *p == end;
 }
 
+/*
+ * replacement multipart state machine
+ *
+ * We want it to emit this kind of thing:
+ *
+ * POST /builds?project=warmcat%2Flibwebsockets HTTP/1.1
+ * Host: 127.0.0.1
+ * User-Agent: lws
+ * Accept: * / *
+ * Content-Length: 698
+ * Content-Type: multipart/form-data; boundary=------------------------dbe229171d826cc3
+ *
+ * --------------------------dbe229171d826cc3
+ * Content-Disposition: form-data; name="file"; filename="xxx.bin"
+ * Content-Type: application/octet-stream
+ *
+ * #!/bin/bash -x
+ * xxx
+ * exit $?
+ *
+ * --------------------------dbe229171d826cc3
+ * Content-Disposition: form-data; name="version"
+ *
+ * f2dcc4ea
+ * --------------------------dbe229171d826cc3
+ * Content-Disposition: form-data; name="description"
+ * 
+ * lws qa
+ * --------------------------dbe229171d826cc3
+ * Content-Disposition: form-data; name="token"
+ *
+ * mytoken
+ * --------------------------dbe229171d826cc3
+ * Content-Disposition: form-data; name="email"
+ *
+ * my@email.com
+ * --------------------------dbe229171d826cc3--
+ *
+ */
+
+typedef enum {
+	LWS_POST_STATE__NEXT,
+	LWS_POST_STATE__FILE,
+	LWS_POST_STATE__DATA,
+} post_state;
+
+typedef struct lws_http_mp_sm {
+	struct lws_context	*cx;
+	lws_http_mp_sm_cb_t	cb;
+	char			boundary[24 + 16 + 1];
+	char			ft[4096];
+	char			*eq;
+	int			fd;
+	lws_filepos_t		pos;
+	lws_filepos_t		total;
+	const char		*a; /* last hit */
+	post_state		ps;
+} lws_http_mp_sm_t;
+
+struct lws_http_mp_sm *
+lws_http_mp_sm_init(struct lws *wsi, lws_http_mp_sm_cb_t cb, uint8_t **p, uint8_t *end)
+{
+	struct lws_http_mp_sm *phms;
+	char cla[512 + sizeof(phms->boundary)], ft[256], *eq;
+	uint64_t cl = 0;
+	struct stat s;
+	int n;
+
+	phms = lws_malloc(sizeof(*phms), __func__);
+	if (!phms)
+		return NULL;
+	phms->cb = cb;
+	phms->cx = lws_get_context(wsi);
+
+	for (n = 0; n < 24; n++)
+		phms->boundary[n] = '-';
+	lws_hex_random(phms->cx, phms->boundary + 24, 16);
+	phms->boundary[24 + 16] = '\0';
+
+	n = lws_snprintf(cla, sizeof(cla), "multipart/form-data; boundary=%s", phms->boundary);
+	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
+		     (const uint8_t *)cla, n, p, end)) {
+		lwsl_warn("%s: failed to set content_type\n", __func__);
+		goto bail;
+	}
+
+	/*
+	 * We have to now add together the length of everything we will put in
+	 * the body, in order to know the content-length now at header-time.
+	 *
+	 * That includes the multipart boundaries, headers, and CRLF delimiters.
+	 */
+
+	phms->a = NULL;
+	do {
+		/* The cb will a) use cla / len as a scratchpad and
+		 * b) provide a string formelem=@name or formelem=name */
+
+		n = phms->cb(lws_get_context(wsi), ft, sizeof(ft), &phms->a);
+		if (n < 0)
+			goto bail;
+		if (n)
+			break;
+		eq = strchr(ft, '=');
+		if (eq) {
+			*eq = '\0';
+			eq++;
+		} /* ft contains the lhs of the = (now NUL) and eq the rhs sz */
+
+		cl += 2 /* -- */ + strlen(phms->boundary) + 2 /* CRLF */;
+		if (eq && *eq == '@') { /* ie, form file contents */
+			cl += (unsigned int)lws_snprintf(cla, sizeof(cla),
+					   "Content-Disposition: form-data; name=\"%s\"; filename=\"%s\"\x0d\x0a"
+					   "Content-Type: application/octet-stream\x0d\x0a\x0d\x0a",
+					   ft, eq + 1);
+			if (stat(eq + 1, &s)) {
+				lwsl_warn("%s: failed to stat %s\n", __func__, eq + 1);
+				goto bail;
+			}
+
+			cl += (uint64_t)s.st_size + 2 /* ending CRLF */;
+			continue;
+		}
+
+		/* form data */
+
+		cl += (unsigned int)lws_snprintf(cla, sizeof(cla),
+				   "Content-Disposition: form-data; name=\"%s\"\x0d\x0a\x0d\x0a", ft);
+		cl += strlen(eq) + 2 /* CRLF */;
+
+	} while (1);
+
+	cl += 2 /* -- */ + strlen(phms->boundary) + 2 /* -- */ + 2 /* CRLF */;
+
+	// lwsl_warn("%s: going with content length 0x%x\n", __func__, (unsigned int)cl);
+
+	if (lws_add_http_header_content_length(wsi, cl, p, end))
+		goto bail;
+
+	phms->a		= NULL;
+	phms->pos	= 0;
+	phms->total	= 0;
+	phms->ps	= LWS_POST_STATE__NEXT;
+
+	/*
+	 * Tell lws we are going to send the body next...
+	 */
+
+	return phms;
+
+bail:
+	free(phms);
+
+	return NULL;
+}
+
+void
+lws_http_mp_sm_destroy(struct lws_http_mp_sm **pphms)
+{
+	if (*pphms) {
+		lws_free(*pphms);
+		*pphms = NULL;
+	}
+}
+
+int
+lws_http_mp_sm_fill(struct lws_http_mp_sm *phms, uint8_t **p, uint8_t *end)
+{
+	int n;
+
+	assert(phms);
+
+	do {
+		switch (phms->ps) {
+		case LWS_POST_STATE__NEXT:
+
+			if (lws_ptr_diff(end, *p) < 300)
+				return 1;
+
+			n = phms->cb(phms->cx, phms->ft, sizeof(phms->ft), &phms->a);
+			if (n < 0) { /* error */
+				return -1;
+			}
+			if (n) { /* no more form elements */
+				*p += lws_snprintf((char *)(*p), lws_ptr_diff_size_t(end, *p), "--%s--\x0d\x0a", phms->boundary);
+
+				return 0; /* finished then */
+			}
+
+			phms->eq = strchr(phms->ft, '=');
+			if (phms->eq) {
+				*phms->eq = '\0';
+				phms->eq++;
+			} /* phms->ft contains the lhs of the = (now NUL) and eq the rhs sz */
+
+			*p += lws_snprintf((char *)(*p), lws_ptr_diff_size_t(end, *p), "--%s\x0d\x0a", phms->boundary);
+
+			if (phms->eq && *phms->eq == '@') { /* ie, form file contents */
+				struct stat s;
+
+				*p += lws_snprintf((char *)(*p), lws_ptr_diff_size_t(end, *p),
+						   "Content-Disposition: form-data; name=\"%s\"; filename=\"%s\"\x0d\x0a"
+						   "Content-Type: application/octet-stream\x0d\x0a\x0d\x0a",
+						   phms->ft, phms->eq + 1);
+				phms->fd = open(phms->eq + 1, O_RDONLY);
+				if (phms->fd == -1) {
+					lwsl_warn("%s: unable to open '%s'\n", __func__, phms->eq + 1);
+					return -1; /* failed */
+				}
+				if (fstat(phms->fd, &s)) {
+					lwsl_warn("%s: failed to stat %s\n", __func__, phms->eq + 1);
+					return -1; /* failed */
+				}
+				phms->pos = 0;
+				phms->total = (lws_filepos_t)s.st_size;
+				phms->ps = LWS_POST_STATE__FILE;
+				continue;
+			}
+
+			/* form data */
+
+			*p += lws_snprintf((char *)(*p), lws_ptr_diff_size_t(end, *p),
+				   "Content-Disposition: form-data; name=\"%s\"\x0d\x0a\x0d\x0a", phms->ft);
+			phms->ps = LWS_POST_STATE__DATA;
+			break;
+
+		case LWS_POST_STATE__FILE: {
+			size_t chunk = lws_ptr_diff_size_t(end, *p) - 2;
+			ssize_t r;
+
+			if (lws_ptr_diff(end, *p) < 100)
+                                return 1;
+
+			r = read(phms->fd, *p, chunk);
+			if (r < 0) {
+				close(phms->fd);
+				lwsl_warn("%s: unable to read\n", __func__);
+				return -1; /* failed */
+			}
+
+			*p += r;
+			phms->pos += (uint64_t)r;
+			if (phms->pos == phms->total) {
+				**p = '\x0d';
+				*p += 1;
+				**p = '\x0a';
+				*p += 1;
+				close(phms->fd);
+				phms->ps = LWS_POST_STATE__NEXT;
+			}
+			break;
+		}
+		case LWS_POST_STATE__DATA:
+			if (lws_ptr_diff(end, *p) < 300)
+				return 1;
+
+			*p += lws_snprintf((char *)(*p), lws_ptr_diff_size_t(end, *p), "%s\x0d\x0a", phms->eq);
+			phms->ps = LWS_POST_STATE__NEXT;
+			break;
+
+		} /* switch */
+	} while (lws_ptr_diff(end, *p) > 100);
+
+	return 1; /* more to do */
+}
+
+
 char *
-lws_generate_client_handshake(struct lws *wsi, char *pkt)
+lws_generate_client_handshake(struct lws *wsi, char *pkt, size_t pkt_len)
 {
 	const char *meth, *pp = lws_hdr_simple_ptr(wsi,
 				_WSI_TOKEN_CLIENT_SENT_PROTOCOLS), *path;
-	char *p = pkt, *p1, *end = p + wsi->a.context->pt_serv_buf_size;
+	char *p = pkt, *p1, *end = p + pkt_len;
 
 	meth = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
 	if (!meth) {
@@ -1640,7 +1948,8 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt)
 		const char *conn1 = "";
 	//	if (!wsi->client_pipeline)
 	//		conn1 = "close, ";
-		p = lws_generate_client_ws_handshake(wsi, p, conn1);
+		p = lws_generate_client_ws_handshake(wsi, p, conn1,
+						     lws_ptr_diff_size_t(end, p));
                 if (!p)
                     return NULL;
 	} else
@@ -1986,7 +2295,7 @@ static uint8_t hnames2[] = {
  */
 struct lws *
 lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
-		 const char *path, const char *host, char weak)
+		const char *path, const char *host, char weak)
 {
 	struct lws_context_per_thread *pt;
 #if defined(LWS_ROLE_WS)
@@ -1995,7 +2304,7 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	const char *cisin[CIS_COUNT];
 	struct lws *wsi;
 	size_t o;
-	int n;
+	int n, r;
 
 	if (!pwsi)
 		return NULL;
@@ -2028,6 +2337,8 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(hnames2); n++)
 		cisin[n + 3] = lws_hdr_simple_ptr(wsi, hnames2[n]);
 
+	r = (int)wsi->http.ah->http_response;
+
 #if defined(LWS_WITH_TLS)
 	cisin[CIS_ALPN]		= wsi->alpn;
 #endif
@@ -2045,17 +2356,18 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	wsi->c_port = (uint16_t)port;
 
 	wsi->flags = (wsi->flags & (~LCCSCF_USE_SSL)) |
-					(ssl ? LCCSCF_USE_SSL : 0);
+		(ssl ? LCCSCF_USE_SSL : 0);
 
 	if (!cisin[CIS_ALPN] || !cisin[CIS_ALPN][0])
 #if defined(LWS_ROLE_H2)
 		cisin[CIS_ALPN] = "h2,http/1.1";
 #else
-		cisin[CIS_ALPN] = "http/1.1";
+	cisin[CIS_ALPN] = "http/1.1";
 #endif
 
-	lwsl_notice("%s: REDIRECT %s:%d, path='%s', ssl = %d, alpn='%s'\n",
-		    __func__, address, port, path, ssl, cisin[CIS_ALPN]);
+	lwsl_notice("%s: REDIRECT %d: %s %s:%d, path='%s', ssl = %d, alpn='%s'\n",
+		    __func__, r, cisin[CIS_METHOD], address,
+		    port, path, ssl, cisin[CIS_ALPN]);
 
 	lws_pt_lock(pt, __func__);
 	__remove_wsi_socket_from_fds(wsi);
@@ -2081,6 +2393,16 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 		wsi->ws = ws;
 #endif
 	wsi->client_pipeline = 1;
+
+	/*
+	 * We could be a redirect before, or after the POST was done.
+	 * Http's hack around this is 307 / 308 keep the method, ie,
+	 * it's pre and they have to repeat the body.  Other 3xx
+	 * turn it into a GET.
+	 */
+
+	if ((r / 100) == 3 && r != 307 && r != 308)
+		wsi->redirected_to_get = 1;
 
 	/*
 	 * Will complete at close flow

@@ -1620,7 +1620,7 @@ LWS_VISIBLE const struct lws_protocols lws_acme_client_protocols[] = {
 	LWS_PLUGIN_PROTOCOL_LWS_ACME_CLIENT
 };
 
-LWS_VISIBLE const lws_plugin_protocol_t protocol_lws_acme_client = {
+LWS_VISIBLE const lws_plugin_protocol_t lws_acme_client = {
 	.hdr = {
 		"acme client",
 		"lws_protocol_plugin",

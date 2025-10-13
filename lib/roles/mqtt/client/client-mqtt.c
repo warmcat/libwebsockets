@@ -241,7 +241,7 @@ lws_mqtt_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 		 * we are under PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE
 		 * timeout protection set in client-handshake.c
 		 */
-		if (!lws_client_connect_2_dnsreq(wsi)) {
+		if (!lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(wsi)) {
 			/* closed */
 			lwsl_client("closed\n");
 			return -1;

@@ -25,7 +25,7 @@ LWS_SS_USER_TYPEDEF
 	lws_display_render_state_t	*rs;
 } htmlss_t;
 
-static lws_display_render_state_t rs;
+static lws_display_render_state_t drs;
 
 static const uint8_t fira_c_r_10[] = {
 #include "../contrib/mcufont/fonts/FiraSansCondensed-Regular10.mcufont.h"
@@ -224,11 +224,11 @@ main(int argc, const char **argv)
 	lws_font_register(cx, fira_c_b_16, sizeof(fira_c_b_16));
 	lws_font_register(cx, fira_c_b_20, sizeof(fira_c_b_20));
 
-	rs.ic = &ic;
+	drs.ic = &ic;
 
 	/* create the SS to the html using the URL on argv[1] */
 
-	if (lws_lhp_ss_browse(cx, &rs, argv[1], render)) {
+	if (lws_lhp_ss_browse(cx, &drs, argv[1], render)) {
 		lws_context_destroy(cx);
 		goto bail;
 	}

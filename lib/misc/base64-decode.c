@@ -173,16 +173,21 @@ lws_b64_decode_stateful(struct lws_b64state *s, const char *in, size_t *in_len,
 		s->i = 0;
 
 		/*
-		 * "The '==' sequence indicates that the last group contained
-		 * only one byte, and '=' indicates that it contained two
+		 * Normally we convert a group of 4 incoming symbols into 3 bytes.
+		 *
+		 * "The 'XX==' sequence indicates that the last group contained
+		 * only one byte, and 'XXX=' indicates that it contained two
 		 * bytes." (wikipedia)
+		 *
 		 */
 
-		if (s->len >= 2 || equals > 1)
+		if (s->len >= 2)
 			*out++ = (uint8_t)(s->quad[0] << 2 | s->quad[1] >> 4);
-		if (s->len >= 3 || equals)
+
+		if (s->len >= 3 && equals != 2)
 			*out++ = (uint8_t)(s->quad[1] << 4 | s->quad[2] >> 2);
-		if (s->len >= 4 && !equals)
+
+		if (s->len >= 4 && equals != 1)
 			*out++ = (uint8_t)(((s->quad[2] << 6) & 0xc0) | s->quad[3]);
 
 		s->done += s->len - 1;
@@ -213,8 +218,10 @@ _lws_b64_decode_string(const char *in, int in_len, char *out, size_t out_size)
 	struct lws_b64state state;
 	size_t il = (size_t)in_len, ol = out_size;
 
-	if (in_len == -1)
+	if (in_len == -1) {
 		il = strlen(in);
+		in_len = (int)il;
+	}
 
 	lws_b64_decode_state_init(&state);
 	if (lws_b64_decode_stateful(&state, in, &il, (uint8_t *)out, &ol, 1) < 0)

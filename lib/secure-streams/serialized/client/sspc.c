@@ -239,8 +239,8 @@ lws_ss_check_next_state_sspc(lws_sspc_handle_t *ss, uint8_t *prevstate,
 	if (ss_state_txn_validity[*prevstate] & (1u << cs)) {
 
 		lwsl_sspc_notice(ss, "%s -> %s",
-			       lws_ss_state_name((int)*prevstate),
-			       lws_ss_state_name((int)cs));
+			       lws_ss_state_name(*prevstate),
+			       lws_ss_state_name(cs));
 
 		/* this is explicitly allowed, update old state to new */
 		*prevstate = (uint8_t)cs;
@@ -249,8 +249,8 @@ lws_ss_check_next_state_sspc(lws_sspc_handle_t *ss, uint8_t *prevstate,
 	}
 
 	lwsl_sspc_err(ss, "transition from %s -> %s is illegal",
-		    lws_ss_state_name((int)*prevstate),
-		    lws_ss_state_name((int)cs));
+		    lws_ss_state_name(*prevstate),
+		    lws_ss_state_name(cs));
 
 	assert(0);
 

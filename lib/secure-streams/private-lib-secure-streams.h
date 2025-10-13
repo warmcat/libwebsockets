@@ -132,17 +132,17 @@ typedef struct lws_ss_handle {
 
 			union {
 				struct { /* LWSSSP_H1 */
-#if defined(WIN32)
+#if defined(WIN32) || defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
 					uint8_t dummy;
 #endif
 				} h1;
 				struct { /* LWSSSP_H2 */
-#if defined(WIN32)
+#if defined(WIN32) || defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
 					uint8_t dummy;
 #endif
 				} h2;
 				struct { /* LWSSSP_WS */
-#if defined(WIN32)
+#if defined(WIN32) || defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
 					uint8_t dummy;
 #endif
 				} ws;
@@ -198,6 +198,7 @@ typedef struct lws_ss_handle {
 
 	uint8_t			txn_resp_set:1; /**< user code set one */
 	uint8_t			txn_resp_pending:1; /**< we have yet to send */
+	uint8_t			txn_n_acked:1; /** < set if we did NACK or ACK */
 	uint8_t			hanging_som:1;
 	uint8_t			inside_msg:1;
 	uint8_t			being_serialized:1; /* we are not the consumer */
@@ -215,7 +216,7 @@ union lws_ss_contemp {
 #if defined(LWS_ROLE_MQTT)
 	lws_mqtt_client_connect_param_t ccp;
 #else
-#if defined(WIN32)
+#if defined(WIN32) || defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
 	uint8_t	dummy;
 #endif
 #endif
@@ -316,7 +317,7 @@ struct lws_ss_serialization_parser {
 	uint8_t			*rxmetaval;
 
 	int			ps;
-	int			ctr;
+	lws_ss_constate_t	ctr;
 
 	uint32_t		usd_phandling;
 	uint32_t		flags;

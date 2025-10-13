@@ -198,11 +198,19 @@ __lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 	lws_pt_unlock(pt);
 
 	/*
+	 * We can lose him from the context pre_natal "last resort" bind now,
+	 * because we will list him on a specific vhost
+	 */
+
+	lws_dll2_remove(&new_wsi->pre_natal);
+
+	/*
 	 * he's an allocated wsi, but he's not on any fds list or child list,
 	 * join him to the vhost's list of these kinds of incomplete wsi until
 	 * he gets another identity (he may do async dns now...)
 	 */
 	lws_vhost_lock(new_wsi->a.vhost);
+
 	lws_dll2_add_head(&new_wsi->vh_awaiting_socket,
 			  &new_wsi->a.vhost->vh_awaiting_socket_owner);
 	lws_vhost_unlock(new_wsi->a.vhost);
@@ -210,6 +218,10 @@ __lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 	return new_wsi;
 
 bail:
+        lws_pt_lock(pt, __func__); /* -------------- pt { */
+        lws_dll2_remove(&new_wsi->pre_natal);
+        lws_pt_unlock(pt); /* } pt --------------- */
+
 	lwsl_wsi_notice(new_wsi, "exiting on bail");
 	if (parent)
 		parent->child_list = new_wsi->sibling_list;
@@ -393,6 +405,17 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 	if (new_wsi->a.context->event_loop_ops->sock_accept)
 		if (new_wsi->a.context->event_loop_ops->sock_accept(new_wsi))
 			goto fail;
+
+	{
+        	struct lws *nwsi = lws_get_network_wsi(new_wsi);
+		char ta[64];
+
+        	if (nwsi->sa46_peer.sa4.sin_family)
+        	        lws_sa46_write_numeric_address(&nwsi->sa46_peer, ta, sizeof(ta));
+        	else
+                	strncpy(ta, "unknown", sizeof(ta));
+		__lws_lc_tag_append(&new_wsi->lc, ta);
+	}
 
 #if LWS_MAX_SMP > 1
 	/*

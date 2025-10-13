@@ -41,13 +41,13 @@ lws_jwe_encrypt_cbc_hs(struct lws_jwe *jwe, uint8_t *cek,
 
 	if (jwe->jws.map.len[LJWE_ATAG] != (unsigned int)hlen / 2) {
 		lwsl_notice("%s: expected tag len %d, got %d\n", __func__,
-			    hlen / 2, jwe->jws.map.len[LJWE_ATAG]);
+			    hlen / 2, (int)jwe->jws.map.len[LJWE_ATAG]);
 		return -1;
 	}
 
 	if (jwe->jws.map.len[LJWE_IV] != 16) {
 		lwsl_notice("expected iv len %d, got %d\n", 16,
-				jwe->jws.map.len[LJWE_IV]);
+				(int)jwe->jws.map.len[LJWE_IV]);
 		return -1;
 	}
 
@@ -173,13 +173,13 @@ lws_jwe_auth_and_decrypt_cbc_hs(struct lws_jwe *jwe, uint8_t *enc_cek,
 
 	if (jwe->jws.map.len[LJWE_ATAG] != (unsigned int)hlen / 2) {
 		lwsl_notice("%s: expected tag len %d, got %d\n", __func__,
-				hlen / 2, jwe->jws.map.len[LJWE_ATAG]);
+				hlen / 2, (int)jwe->jws.map.len[LJWE_ATAG]);
 		return -1;
 	}
 
 	if (jwe->jws.map.len[LJWE_IV] != 16) {
 		lwsl_notice("expected iv len %d, got %d\n", 16,
-				jwe->jws.map.len[LJWE_IV]);
+				(int)jwe->jws.map.len[LJWE_IV]);
 		return -1;
 	}
 
@@ -226,7 +226,7 @@ lws_jwe_auth_and_decrypt_cbc_hs(struct lws_jwe *jwe, uint8_t *enc_cek,
 
 	if (lws_timingsafe_bcmp(digest, jwe->jws.map.buf[LJWE_ATAG], (unsigned int)hlen / 2)) {
 		lwsl_err("%s: auth failed: hmac tag (%d) != ATAG (%d)\n",
-			 __func__, hlen / 2, jwe->jws.map.len[LJWE_ATAG]);
+			 __func__, hlen / 2, (int)jwe->jws.map.len[LJWE_ATAG]);
 		lwsl_hexdump_notice(jwe->jws.map.buf[LJWE_ATAG], (unsigned int)hlen / 2);
 		lwsl_hexdump_notice(digest, (unsigned int)hlen / 2);
 		return -1;
@@ -254,7 +254,7 @@ lws_jwe_auth_and_decrypt_cbc_hs(struct lws_jwe *jwe, uint8_t *enc_cek,
 	    jwe->jws.map.len[LJWE_CTXT] <= (unsigned char)jwe->jws.map.buf[LJWE_CTXT]
 						[jwe->jws.map.len[LJWE_CTXT] - 1]) {
 		lwsl_err("%s: invalid padded ciphertext length: %d. Corrupt data?\n",
-				__func__, jwe->jws.map.len[LJWE_CTXT]);
+				__func__, (int)jwe->jws.map.len[LJWE_CTXT]);
 		return -1;
 	}
 	jwe->jws.map.len[LJWE_CTXT] = (uint32_t)((int)jwe->jws.map.len[LJWE_CTXT] -

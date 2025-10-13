@@ -75,8 +75,13 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	volatile struct lws_context_per_thread *vpt;
 	struct lws_context_per_thread *pt;
 	lws_usec_t timeout_us, us;
-#if defined(LWS_WITH_SYS_METRICS)
-	lws_usec_t a, b;
+#if defined(LWS_WITH_WAKE_LOGGING)
+	unsigned int u;
+	char hu[25];
+	lws_usec_t a1;
+#endif
+#if defined(LWS_WITH_SYS_METRICS) || defined(LWS_WITH_WAKE_LOGGING)
+	lws_usec_t a, b = 0;
 #endif
 	int n;
 #if (defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)) || defined(LWS_WITH_TLS)
@@ -114,7 +119,8 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		pt->service_tid = context->vhost_list->protocols[0].callback(
 					(struct lws *)plwsa,
 					LWS_CALLBACK_GET_THREAD_ID,
-					NULL, NULL, 0);
+					context->vhost_list->protocols[0].user,
+					NULL, 0);
 		pt->service_tid_detected = 1;
 	}
 
@@ -144,8 +150,13 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 	timeout_us /= LWS_US_PER_MS; /* ms now */
 
-#if defined(LWS_WITH_SYS_METRICS)
+#if defined(LWS_WITH_SYS_METRICS) || defined(LWS_WITH_WAKE_LOGGING)
 	a = lws_now_usecs() - b;
+#endif
+#if defined(LWS_WITH_WAKE_LOGGING)
+	a1 = lws_now_usecs();
+	lws_humanize(hu, sizeof(hu), (uint64_t)(timeout_us * LWS_US_PER_MS), humanize_schema_us);
+	lwsl_cx_notice(context, "event loop: entering sleep... scheduled wake after %s", hu);
 #endif
 	vpt->inside_poll = 1;
 	lws_memory_barrier();
@@ -153,9 +164,39 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	vpt->inside_poll = 0;
 	lws_memory_barrier();
 
-#if defined(LWS_WITH_SYS_METRICS)
+#if defined(LWS_WITH_SYS_METRICS) || defined(LWS_WITH_WAKE_LOGGING)
 	b = lws_now_usecs();
 #endif
+#if defined(LWS_WITH_WAKE_LOGGING)
+	lws_humanize(hu, sizeof(hu), (uint64_t)(b - a1), humanize_schema_us);
+	lwsl_cx_notice(context, "event loop: WOKE after %s, %d fds ready", hu, n);
+	for (u = 0; u < pt->fds_count; u++) {
+		struct lws *wsi;
+		struct lws_pollfd *pfd = &vpt->fds[u];
+
+		if (lws_socket_is_valid(pfd->fd) &&
+		    (pfd->revents & (POLLIN | POLLOUT | POLLERR))) {
+			wsi = wsi_from_fd(context, pfd->fd);
+#if defined(LWS_WITH_SECURE_STREAMS)
+			if (wsi->for_ss && wsi->a.opaque_user_data) {
+				lws_ss_handle_t *fih = (lws_ss_handle_t *)wsi->a.opaque_user_data;
+
+				lwsl_ss_notice(fih, "    ready fd %d, %s %s %s, SS policy %s", pfd->fd,
+					pfd->revents & POLLIN ? "POLLIN" : "",
+					pfd->revents & POLLOUT ? "POLLOUT" : "",
+					pfd->revents & POLLERR ? "POLLERR": "",
+					fih->policy ? fih->policy->streamtype : "(null)");
+			} else
+#endif
+			lwsl_wsi_notice(wsi, "    ready fd %d, %s %s %s, protocol %s", pfd->fd,
+					pfd->revents & POLLIN ? "POLLIN" : "",
+					pfd->revents & POLLOUT ? "POLLOUT" : "",
+					pfd->revents & POLLERR ? "POLLERR": "",
+					wsi->a.protocol ? wsi->a.protocol->name : "(null)");
+		}
+	}
+#endif
+
 	/* Collision will be rare and brief.  Spin until it completes */
 	while (vpt->foreign_spinlock)
 		;
@@ -185,6 +226,10 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 				__lws_change_pollfd(wsi, ftp->_and,
 						    ftp->_or);
 		}
+#if defined(LWS_WITH_WAKE_LOGGING)
+		else
+			lwsl_cx_notice(context, "*** WOKE on Invalid fd in foreign pfd list");
+#endif
 		lws_free((void *)ftp);
 		ftp = next;
 	}

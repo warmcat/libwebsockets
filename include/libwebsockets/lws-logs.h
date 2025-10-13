@@ -79,6 +79,10 @@ typedef void (*lws_log_use_cx_t)(struct lws_log_cx *cx, int _new);
 
 typedef struct lws_log_cx {
 	union {
+/* Apparently Qt likes to leave 'emit' defined at the preprocessor */
+#if defined(emit)
+#undef emit
+#endif
 		lws_log_emit_t		emit; /* legacy emit function */
 		lws_log_emit_cx_t	emit_cx; /* LLLF_LOG_CONTEXT_AWARE */
 	} u;
@@ -587,6 +591,8 @@ _lws_log_cx(lws_log_cx_t *cx, lws_log_prepend_cx_t prep, void *obj,
 #define lwsl_hexdump_wsi_notice(_v, ...) lwsl_hexdump_wsi(_v, LLL_NOTICE, __VA_ARGS__)
 #define lwsl_hexdump_wsi_info(_v, ...)   lwsl_hexdump_wsi(_v, LLL_INFO, __VA_ARGS__)
 #define lwsl_hexdump_wsi_debug(_v, ...)  lwsl_hexdump_wsi(_v, LLL_DEBUG, __VA_ARGS__)
+#define lwsl_hexdump_wsi_user(_v, ...)   lwsl_hexdump_wsi(_v, LLL_USER, __VA_ARGS__)
+
 
 
 /*

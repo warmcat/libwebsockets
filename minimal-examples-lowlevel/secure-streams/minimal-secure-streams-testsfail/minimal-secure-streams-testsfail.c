@@ -18,7 +18,7 @@
 #include <string.h>
 #include <signal.h>
 
-static int interrupted, tests, tests_pass, tests_fail;
+static int interrupted, tests, tests_pass, tests_fail, doing_a_retry;
 static lws_sorted_usec_list_t sul_next_test;
 static lws_state_notify_link_t nl;
 struct lws_context *context;
@@ -48,9 +48,9 @@ static const char * const default_ss_policy =
 
 	  "\"retry\": ["	/* named backoff / retry strategies */
 		"{\"default\": {"
-			"\"backoff\": [	 1000, 1000, 1000, 1000"
+			"\"backoff\": [	 1000, 1000 "
 				"],"
-			"\"conceal\":"		"4,"
+			"\"conceal\":"		"2,"
 			"\"jitterpc\":"		"20,"
 			"\"svalidping\":"	"30,"
 			"\"svalidhup\":"	"35"
@@ -181,7 +181,6 @@ static const char * const default_ss_policy =
 			"\"http_method\": \"POST\","
 			"\"http_url\": \"auth/o2/token\","
 			"\"plugins\": [],"
-			"\"opportunistic\": true,"
 			"\"tls\": true,"
 			"\"h2q_oflow_txcr\": true,"
 			"\"http_www_form_urlencoded\": true,"
@@ -191,44 +190,44 @@ static const char * const default_ss_policy =
 		"}},{"
 
 		/*
-		 * Just get a 200 from httpbin.org
+		 * Just get a 200 from httpbin
 		 * on h1:80, h1:443 and h2:443
 		 *
 		 * sanity check that we're working at all
 		 */
 
 		    "\"t_h1\": {"
-			"\"endpoint\": \"httpbin.org\","
-			"\"port\": 80,"
+			"\"endpoint\": \"libwebsockets.org\","
+			"\"port\": 8080,"
 			"\"protocol\": \"h1\","
 			"\"http_method\": \"GET\","
 			"\"http_url\": \"/status/200\","
-			"\"opportunistic\": true,"
+			"\"timeout_ms\": 10000,"
 			"\"retry\": \"default\""
 		"}},{"
 		    "\"t_h1_tls\": {"
-			"\"endpoint\": \"httpbin.org\","
+			"\"endpoint\": \"libwebsockets.org\","
 			"\"port\": 443,"
 			"\"protocol\": \"h1\","
 			"\"http_method\": \"GET\","
-			"\"http_url\": \"/status/200\","
+			"\"http_url\": \"/httpbin/status/200\","
 			"\"tls\": true,"
-			"\"opportunistic\": true,"
 			"\"retry\": \"default\","
-			"\"tls_trust_store\": \"arca1\""
+			"\"timeout_ms\": 10000,"
+			"\"tls_trust_store\": \"le_via_isrg\""
 		"}},{"
 		    "\"t_h2_tls\": {"
-			"\"endpoint\": \"httpbin.org\","
+			"\"endpoint\": \"libwebsockets.org\","
 			"\"port\": 443,"
 			"\"protocol\": \"h2\","
 			"\"http_method\": \"GET\","
-			"\"http_url\": \"/status/200\","
+			"\"http_url\": \"/httpbin/status/200\","
 			"\"tls\": true,"
 			"\"nghttp2_quirk_end_stream\": true,"
 			"\"h2q_oflow_txcr\": true,"
-			"\"opportunistic\": true,"
+			"\"timeout_ms\": 10000,"
 			"\"retry\": \"default\","
-			"\"tls_trust_store\": \"arca1\""
+			"\"tls_trust_store\": \"le_via_isrg\""
 		"}},{"
 
 		/*
@@ -239,37 +238,37 @@ static const char * const default_ss_policy =
 		 */
 
 		    "\"d_h1\": {"
-			"\"endpoint\": \"httpbin.org\","
-			"\"port\": 80,"
+			"\"endpoint\": \"libwebsockets.org\","
+			"\"port\": 8080,"
 			"\"protocol\": \"h1\","
 			"\"http_method\": \"GET\","
 			"\"http_url\": \"/delay/10\","
-			"\"opportunistic\": true,"
+			"\"timeout_ms\": 3000,"
 			"\"retry\": \"default\""
 		"}},{"
 		    "\"d_h1_tls\": {"
-			"\"endpoint\": \"httpbin.org\","
+			"\"endpoint\": \"libwebsockets.org\","
 			"\"port\": 443,"
 			"\"protocol\": \"h1\","
 			"\"http_method\": \"GET\","
-			"\"http_url\": \"/delay/10\","
+			"\"http_url\": \"/httpbin/delay/10\","
 			"\"tls\": true,"
-			"\"opportunistic\": true,"
+			"\"timeout_ms\": 3000,"
 			"\"retry\": \"default\","
-			"\"tls_trust_store\": \"arca1\""
+			"\"tls_trust_store\": \"le_via_isrg\""
 		"}},{"
 		    "\"d_h2_tls\": {"
-			"\"endpoint\": \"httpbin.org\","
+			"\"endpoint\": \"libwebsockets.org\","
 			"\"port\": 443,"
 			"\"protocol\": \"h2\","
 			"\"http_method\": \"GET\","
-			"\"http_url\": \"/delay/10\","
+			"\"http_url\": \"/httpbin/delay/10\","
 			"\"tls\": true,"
 			"\"nghttp2_quirk_end_stream\": true,"
 			"\"h2q_oflow_txcr\": true,"
-			"\"opportunistic\": true,"
+			"\"timeout_ms\": 3000,"
 			"\"retry\": \"default\","
-			"\"tls_trust_store\": \"arca1\""
+			"\"tls_trust_store\": \"le_via_isrg\""
 		"}},{"
 
 		/*
@@ -285,7 +284,7 @@ static const char * const default_ss_policy =
 			"\"protocol\": \"h1\","
 			"\"http_method\": \"GET\","
 			"\"http_url\": \"/status/200\","
-			"\"opportunistic\": true,"
+			"\"timeout_ms\": 5000,"
 			"\"retry\": \"default\""
 		"}},{"
 		    "\"nxd_h1_tls\": {"
@@ -295,7 +294,7 @@ static const char * const default_ss_policy =
 			"\"http_method\": \"GET\","
 			"\"http_url\": \"/status/200\","
 			"\"tls\": true,"
-			"\"opportunistic\": true,"
+			"\"timeout_ms\": 5000,"
 			"\"retry\": \"default\","
 			"\"tls_trust_store\": \"arca1\""
 		"}},{"
@@ -308,7 +307,7 @@ static const char * const default_ss_policy =
 			"\"tls\": true,"
 			"\"nghttp2_quirk_end_stream\": true,"
 			"\"h2q_oflow_txcr\": true,"
-			"\"opportunistic\": true,"
+			"\"timeout_ms\": 5000,"
 			"\"retry\": \"default\","
 			"\"tls_trust_store\": \"arca1\""
 		"}},{"
@@ -321,46 +320,46 @@ static const char * const default_ss_policy =
 		 */
 
 		    "\"bulk_h1\": {"
-			"\"endpoint\": \"httpbin.org\","
-			"\"port\": 80,"
+			"\"endpoint\": \"libwebsockets.org\","
+			"\"port\": 8080,"
 			"\"protocol\": \"h1\","
 			"\"http_method\": \"GET\","
-			"\"http_url\": \"range/${amount}\","
+			"\"http_url\": \"bytes/${amount}\","
 			"\"metadata\": [{"
 					"\"amount\": \"\""
 				"}],"
-			"\"opportunistic\": true,"
+			"\"timeout_ms\": 10000,"
 			"\"retry\": \"default\""
 		"}},{"
 		    "\"bulk_h1_tls\": {"
-			"\"endpoint\": \"httpbin.org\","
+			"\"endpoint\": \"libwebsockets.org\","
 			"\"port\": 443,"
 			"\"protocol\": \"h1\","
 			"\"http_method\": \"GET\","
-			"\"http_url\": \"range/${amount}\","
+			"\"http_url\": \"httpbin/bytes/${amount}\","
 			"\"metadata\": [{"
 					"\"amount\": \"\""
 				"}],"
 			"\"tls\": true,"
-			"\"opportunistic\": true,"
+			"\"timeout_ms\": 10000,"
 			"\"retry\": \"default\","
-			"\"tls_trust_store\": \"arca1\""
+			"\"tls_trust_store\": \"le_via_isrg\""
 		"}},{"
 		    "\"bulk_h2_tls\": {"
-			"\"endpoint\": \"httpbin.org\","
+			"\"endpoint\": \"libwebsockets.org\","
 			"\"port\": 443,"
 			"\"protocol\": \"h2\","
 			"\"http_method\": \"GET\","
-			"\"http_url\": \"range/${amount}\","
+			"\"http_url\": \"httpbin/bytes/${amount}\","
 			"\"metadata\": [{"
 					"\"amount\": \"\""
 				"}],"
 			"\"tls\": true,"
 			"\"nghttp2_quirk_end_stream\": true,"
 			"\"h2q_oflow_txcr\": true,"
-			"\"opportunistic\": true,"
+			"\"timeout_ms\": 10000,"
 			"\"retry\": \"default\","
-			"\"tls_trust_store\": \"arca1\""
+			"\"tls_trust_store\": \"le_via_isrg\""
 
 		"}},{"
 
@@ -386,7 +385,7 @@ static const char * const default_ss_policy =
 			"\"http_method\": \"GET\","
 			"\"http_url\": \"/\","
 			"\"tls\": true,"
-			"\"opportunistic\": true,"
+			"\"timeout_ms\": 3000,"
 			"\"retry\": \"default\","
 			"\"tls_trust_store\": \"le_via_isrg\""
 		"}},{"
@@ -397,8 +396,8 @@ static const char * const default_ss_policy =
 			"\"http_method\": \"GET\","
 			"\"http_url\": \"/\","
 			"\"tls\": true,"
-			"\"opportunistic\": true,"
 			"\"retry\": \"default\","
+			"\"timeout_ms\": 3000,"
 			"\"tls_trust_store\": \"le_via_isrg\""
 		"}},{"
 		    "\"badcert_selfsigned\": {"
@@ -410,7 +409,7 @@ static const char * const default_ss_policy =
 			"\"tls\": true,"
 			"\"nghttp2_quirk_end_stream\": true,"
 			"\"h2q_oflow_txcr\": true,"
-			"\"opportunistic\": true,"
+			"\"timeout_ms\": 3000,"
 			"\"retry\": \"default\","
 			"\"tls_trust_store\": \"le_via_isrg\""
                 "}}"
@@ -442,21 +441,21 @@ struct tests_seq {
 
 	{
 		"h1:80 just get 200",
-		"t_h1", 5 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
+		"t_h1", 15 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
 		0
 	},
 	{
 		"h1:443 just get 200",
-		"t_h1_tls", 5 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
+		"t_h1_tls", 15 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
 		0
 	},
 	{
 		"h2:443 just get 200",
-		"t_h2_tls", 5 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
+		"t_h2_tls", 15 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
 		0
@@ -470,23 +469,22 @@ struct tests_seq {
 
 	{
 		"h1:80 timeout after connection",
-		"d_h1", 5 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
+		"d_h1", 3 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
 		0
 	},
 	{
 		"h1:443 timeout after connection",
-		"d_h1_tls", 5 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
+		"d_h1_tls", 3 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
 		0
 	},
 	{
 		"h2:443 timeout after connection",
-		"d_h2_tls", 5 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
-		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
-					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
+		"d_h2_tls", 3 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE),
 		0
 	},
 
@@ -497,7 +495,7 @@ struct tests_seq {
 
 	{
 		"h1:80 NXDOMAIN",
-		"nxd_h1", 65 * LWS_US_PER_SEC, LWSSSCS_UNREACHABLE,
+		"nxd_h1", 35 * LWS_US_PER_SEC, LWSSSCS_UNREACHABLE,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE) |
 		(1 << LWSSSCS_TIMEOUT) | (1 << LWSSSCS_ALL_RETRIES_FAILED),
 		0
@@ -526,19 +524,19 @@ struct tests_seq {
 
 	{
 		"h1:80 NXDOMAIN exhaust retries",
-		"nxd_h1", 65 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		"nxd_h1", 35 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE),
 		0
 	},
 	{
 		"h1:443 NXDOMAIN exhaust retries",
-		"nxd_h1_tls", 65 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		"nxd_h1_tls", 35 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE),
 		0
 	},
 	{
 		"h2:443 NXDOMAIN exhaust retries",
-		"nxd_h2_tls", 65 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		"nxd_h2_tls", 25 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE),
 		0
 	},
@@ -640,16 +638,17 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 	char buf[8];
 	size_t sl;
 
-	lwsl_info("%s: %s: %s (%d), ord 0x%x\n", __func__, lws_ss_tag(m->ss),
-		  lws_ss_state_name((int)state), state, (unsigned int)ack);
+	lwsl_info("%s: %s: %s, ord 0x%x\n", __func__, lws_ss_tag(m->ss),
+		  lws_ss_state_name(state), (unsigned int)ack);
 
 	if (curr_test->mask_unexpected & (1u << state)) {
+
 		/*
 		 * We have definitively failed on an unexpected state received
 		 */
 
-		lwsl_warn("%s: failing on unexpected state %s\n",
-				__func__, lws_ss_state_name((int)state));
+		lwsl_warn("%s: ======= FAILING ON UNEXPECTED STATE %s\n",
+				__func__, lws_ss_state_name(state));
 
 fail:
 		m->result_reported = 1;
@@ -669,8 +668,8 @@ fail:
 			goto fail;
 		}
 
-		lwsl_warn("%s: saw expected state %s\n",
-				__func__, lws_ss_state_name((int)state));
+		lwsl_warn("%s: ++++++++ saw expected state %s\n",
+				__func__, lws_ss_state_name(state));
 		m->result_reported = 1;
 		tests_pass++;
 		/* we'll start the next test next time around the event loop */
@@ -692,7 +691,7 @@ fail:
 		return lws_ss_client_connect(m->ss);
 
 	case LWSSSCS_DESTROYING:
-		if (!m->result_reported) {
+		if (!m->result_reported && !doing_a_retry) {
 			lwsl_user("%s: failing on unexpected destruction\n",
 					__func__);
 
@@ -722,6 +721,8 @@ tests_start_next(lws_sorted_usec_list_t *sul)
 		lwsl_info("%s: destroying previous stream\n", __func__);
 		lws_ss_destroy(&h);
 	}
+
+	doing_a_retry = 0;
 
 	if ((unsigned int)tests >= LWS_ARRAY_SIZE(tests_seq)) {
 		lwsl_notice("Completed all tests\n");
@@ -828,6 +829,8 @@ main(int argc, const char **argv)
 
 	info.fd_limit_per_thread = 1 + 16 + 1;
 	info.port = CONTEXT_PORT_NO_LISTEN;
+	info.connect_timeout_secs = 15;
+	info.timeout_secs = 10;
 #if defined(LWS_SS_USE_SSPC)
 	info.protocols = lws_sspc_protocols;
 	{

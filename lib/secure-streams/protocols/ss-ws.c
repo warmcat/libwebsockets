@@ -33,8 +33,9 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 #endif
 	lws_ss_handle_t *h = (lws_ss_handle_t *)lws_get_opaque_user_data(wsi);
 	uint8_t buf[LWS_PRE + 1400];
+	enum lws_write_protocol f1;
 	lws_ss_state_return_t r;
-	int f = 0, f1, n;
+	int f = 0, n;
 	size_t buflen;
 
 	switch (reason) {
@@ -113,6 +114,9 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	case LWS_CALLBACK_ESTABLISHED:
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:
+		if (!h) {
+			return LWSSSSRET_DISCONNECT_ME;
+		}
 		h->retry = 0;
 		h->seqstate = SSSEQ_CONNECTED;
 		lws_sul_cancel(&h->sul);
@@ -170,7 +174,7 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 					!!(f & LWSSS_FLAG_SOM),
 					!!(f & LWSSS_FLAG_EOM));
 
-		n = lws_write(wsi, buf + LWS_PRE, buflen, (enum lws_write_protocol)f1);
+		n = lws_write(wsi, buf + LWS_PRE, buflen, f1);
 		if (n < (int)buflen) {
 			lwsl_info("%s: write failed %d %d\n", __func__,
 					n, (int)buflen);
@@ -236,6 +240,8 @@ secstream_connect_munge_ws(lws_ss_handle_t *h, char *buf, size_t len,
 	if (lws_strexp_expand(&exp, pbasis, strlen(pbasis),
 			      &used_in, &used_out) != LSTRX_DONE)
 		return 1;
+
+	__lws_lc_tag_append(&h->lc, buf);
 
 	i->protocol = h->policy->u.http.u.ws.subprotocol;
 

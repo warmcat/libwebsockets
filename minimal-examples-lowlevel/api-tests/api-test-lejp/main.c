@@ -1,7 +1,7 @@
 /*
  * lws-api-test-lejp
  *
- * Written in 2010-2020 by Andy Green <andy@warmcat.com>
+ * Written in 2010-2025 by Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -10,6 +10,25 @@
  */
 
 #include <libwebsockets.h>
+#include <stdio.h>
+
+/* for test 16 */
+
+static const char * const saifile_paths[] = {
+        "schema",
+        "platforms.*.build[]",
+        "platforms.*.build",
+        "platforms.*.default",
+        "platforms.*",
+        "configurations.*.prep",
+        "configurations.*.cmake",
+        "configurations.*.deps",
+        "configurations.*.platforms",
+        "configurations.*.artifacts",
+        "configurations.*.cpack",
+        "configurations.*",
+};
+
 
 /*
  * in this example, the JSON is for one "builder" object, which may specify
@@ -137,7 +156,82 @@ static const char * const json_tests[] = {
 	"{" /* test 12: test 11 but done with LEJP_FLAG_FEAT_OBJECT_INDEXES  */
 		"\"array1\": [[\"a\", \"b\", \"b1\"], [\"c\", \"d\", \"d1\"]],"
 		"\"array2\": [[\"e\", \"f\", \"f1\"], [\"g\", \"h\", \"h1\"]]"
+	"}",
+
+	"{" /* test 13: float vs int */
+		"\"a\": 1, \"b\": 1.0, \"c\": 1e-3, \"d\": 1e3"
+	"}",
+	"{}", /* test 14: empty body */
+	"{" /* test 15: wildcard plus array */
+	"\"schema\": \"sai-1\","
+	"\"platforms\": {"
+                "\"rocky9/aarch64-a72a55-rk3588/gcc\": {"
+                        "\"build\": ["
+				"\"mkdir build destdir;cd build; CCACHE_DISABLE=1 cmake .. ${cmake}\","
+				"\"make -j\","
+				"\"SAI_CPACK=\\\"-G RPM\\\" ${cpack}\""
+			"]"
+		"},"
+		"\"netbsd-OSX-bigsur/x86_64-intel-i3/llvm\": {"
+                        "\"build\": ["
+				"\"mkdir build destdir; cd build; MACOSX_DEPLOYMENT_TARGET=10.14 ; cmake .. -DCMAKE_MAKE_PROGRAM=/usr/bin/make -DLWS_OPENSSL_INCLUDE_DIRS=/usr/local/opt/openssl@1.1/include -DLWS_OPENSSL_LIBRARIES=\\\"/usr/local/opt/openssl/lib/libssl.dylib;/usr/local/opt/openssl/lib/libcrypto.dylib\\\" ${cmake} \","
+				"\"make -j && make -j DESTDIR=../destdir install\","
+				"\"ctest -j4 --output-on-failure\","
+				"\"SAI_CPACK=\\\"-G ZIP\\\" ${cpack}\""
+			"],"
+			"\"default\": false"
+                "}"
+	"},"
+
+	"\"configurations\": {"
+		"\"server+builder\": {"
+			"\"cmake\":	\"\","
+			"\"cpack\":        \"cpack -C DEBUG $SAI_CPACK\","
+			"\"artifacts\":	\"build/sai-*.rpm\""
+		"},"
+		"\"builder-only\": {"
+			"\"cmake\":	\"-DSAI_SERVER=0 \","
+			"\"cpack\":        \"cpack -C DEBUG $SAI_CPACK\","
+			"\"artifacts\":	\"build/sai-*.rpm\""
+		"}"
 	"}"
+	"}",
+	"{" /* test 16: wildcard plus array with paths */
+	"\"schema\": \"sai-1\","
+	"\"platforms\": {"
+                "\"rocky9/aarch64-a72a55-rk3588/gcc\": {"
+                        "\"build\": ["
+				"\"mkdir build destdir;cd build; CCACHE_DISABLE=1 cmake .. ${cmake}\","
+				"\"make -j\","
+				"\"SAI_CPACK=\\\"-G RPM\\\" ${cpack}\""
+			"]"
+		"},"
+		"\"netbsd-OSX-bigsur/x86_64-intel-i3/llvm\": {"
+                        "\"build\": ["
+				"\"mkdir build destdir; cd build; MACOSX_DEPLOYMENT_TARGET=10.14 ; cmake .. -DCMAKE_MAKE_PROGRAM=/usr/bin/make -DLWS_OPENSSL_INCLUDE_DIRS=/usr/local/opt/openssl@1.1/include -DLWS_OPENSSL_LIBRARIES=\\\"/usr/local/opt/openssl/lib/libssl.dylib;/usr/local/opt/openssl/lib/libcrypto.dylib\\\" ${cmake} \","
+				"\"make -j && make -j DESTDIR=../destdir install\","
+				"\"ctest -j4 --output-on-failure\","
+				"\"SAI_CPACK=\\\"-G ZIP\\\" ${cpack}\""
+			"],"
+			"\"default\": false"
+                "}"
+	"},"
+
+	"\"configurations\": {"
+		"\"server+builder\": {"
+			"\"cmake\":	\"\","
+			"\"cpack\":        \"cpack -C DEBUG $SAI_CPACK\","
+			"\"artifacts\":	\"build/sai-*.rpm\""
+		"},"
+		"\"builder-only\": {"
+			"\"cmake\":	\"-DSAI_SERVER=0 \","
+			"\"cpack\":        \"cpack -C DEBUG $SAI_CPACK\","
+			"\"artifacts\":	\"build/sai-*.rpm\""
+		"}"
+	"}"
+	"}"
+
+
 };
 
 static struct lejp_results {
@@ -438,6 +532,163 @@ static struct lejp_results {
 	{ 15, 1, 2, { 1,  }, "array2[]", "h1" },
 	{ 17, 1, 0, { 1, }, "array2[]", "h1" },
 	{ 3, 1, 0, { 1,  }, "array2[]", "h1" },
+}, r13[] = {
+	{ 0, 0, 0, {  }, "", "h1" },
+	{ 2, 0, 0, {  }, "", "h1" },
+	{ 16, 0, 0, { 0,  }, "", "h1" },
+	{ 5, 0, 0, { 0,  }, "a", "h1" },
+	{ 73, 0, 0, { 0,  }, "a", "1" },
+	{ 5, 0, 0, { 1,  }, "b", "1" },
+	{ 74, 0, 0, { 1,  }, "b", "1.0" },
+	{ 5, 0, 0, { 2,  }, "c", "1.0" },
+	{ 74, 0, 0, { 2,  }, "c", "1e-3" },
+	{ 5, 0, 0, { 3,  }, "d", "1e-3" },
+	{ 74, 0, 0, { 3,  }, "d", "1e3" },
+	{ 17, 0, 0, { 3,  }, "d", "1e3" },
+	{ 3, 0, 0, { 3,  }, "d", "1e3" },
+}, r14[] = {
+	{ 0, 0, 0, {  }, "", "1e3" },
+	{ 2, 0, 0, {  }, "", "1e3" },
+	{ 16, 0, 0, {  }, "", "1e3" },
+	{ 17, 0, 0, {  }, "", "1e3" },
+	{ 3, 0, 0, {  }, "", "1e3" },
+}, r15[] = {
+	{ 0, 0, 0, {  }, "", "1e3" },
+	{ 2, 0, 0, {  }, "", "1e3" },
+	{ 16, 0, 0, {  }, "", "1e3" },
+	{ 5, 0, 0, {  }, "schema", "1e3" },
+	{ 11, 0, 0, {  }, "schema", "" },
+	{ 77, 0, 0, {  }, "schema", "sai-1" },
+	{ 5, 0, 0, {  }, "platforms", "sai-1" },
+	{ 16, 0, 0, {  }, "platforms", "sai-1" },
+	{ 5, 0, 0, {  }, "platforms.rocky9/aarch64-a72a55-rk3588/gcc", "sai-1" },
+	{ 16, 0, 0, {  }, "platforms.rocky9/aarch64-a72a55-rk3588/gcc", "sai-1" },
+	{ 5, 0, 0, {  }, "platforms.rocky9/aarch64-a72a55-rk3588/gcc.build", "sai-1" },
+	{ 14, 0, 0, {  }, "platforms.rocky9/aarch64-a72a55-rk3588/gcc.build[]", "sai-1" },
+	{ 11, 1, 0, { 0,  }, "platforms.rocky9/aarch64-a72a55-rk3588/gcc.build[]", "" },
+	{ 77, 1, 0, { 0,  }, "platforms.rocky9/aarch64-a72a55-rk3588/gcc.build[]", "mkdir build destdir;cd build; CCACHE_DISABLE=1 cmake .. ${cmake}" },
+	{ 11, 1, 0, { 1,  }, "platforms.rocky9/aarch64-a72a55-rk3588/gcc.build[]", "" },
+	{ 77, 1, 0, { 1,  }, "platforms.rocky9/aarch64-a72a55-rk3588/gcc.build[]", "make -j" },
+	{ 11, 1, 0, { 2,  }, "platforms.rocky9/aarch64-a72a55-rk3588/gcc.build[]", "" },
+	{ 77, 1, 0, { 2,  }, "platforms.rocky9/aarch64-a72a55-rk3588/gcc.build[]", "SAI_CPACK=\"-G RPM\" ${cpack}" },
+	{ 15, 0, 0, {  }, "platforms.rocky9/aarch64-a72a55-rk3588/gcc", "SAI_CPACK=\"-G RPM\" ${cpack}" },
+	{ 17, 0, 0, {  }, "platforms.rocky9/aarch64-a72a55-rk3588/gcc", "SAI_CPACK=\"-G RPM\" ${cpack}" },
+	{ 5, 0, 0, {  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm", "SAI_CPACK=\"-G RPM\" ${cpack}" },
+	{ 16, 0, 0, {  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm", "SAI_CPACK=\"-G RPM\" ${cpack}" },
+	{ 5, 0, 0, {  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm.build", "SAI_CPACK=\"-G RPM\" ${cpack}" },
+	{ 14, 0, 0, {  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm.build[]", "SAI_CPACK=\"-G RPM\" ${cpack}" },
+	{ 11, 1, 0, { 0,  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm.build[]", "" },
+	{ 76, 1, 0, { 0,  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm.build[]", "mkdir build destdir; cd build; MACOSX_DEPLOYMENT_TARGET=10.14 ; cmake .. -DCMAKE_MAKE_PROGRAM=/usr/bin/make -DLWS_OPENSSL_INCLUDE_DIRS=/usr/local/opt/openssl@1.1/include -DLWS_OPENSSL_LIBRARIES=\"/usr/local/opt/openssl/lib/libssl.dylib;/usr/local/opt/open" },
+	{ 77, 1, 0, { 0,  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm.build[]", "ssl/lib/libcrypto.dylib\" ${cmake} " },
+	{ 11, 1, 0, { 1,  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm.build[]", "" },
+	{ 77, 1, 0, { 1,  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm.build[]", "make -j && make -j DESTDIR=../destdir install" },
+	{ 11, 1, 0, { 2,  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm.build[]", "" },
+	{ 77, 1, 0, { 2,  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm.build[]", "ctest -j4 --output-on-failure" },
+	{ 11, 1, 0, { 3,  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm.build[]", "" },
+	{ 77, 1, 0, { 3,  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm.build[]", "SAI_CPACK=\"-G ZIP\" ${cpack}" },
+	{ 15, 0, 0, {  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm", "SAI_CPACK=\"-G ZIP\" ${cpack}" },
+	{ 5, 0, 0, {  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm.default", "SAI_CPACK=\"-G ZIP\" ${cpack}" },
+	{ 71, 0, 0, {  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm.default", "0" },
+	{ 17, 0, 0, {  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm", "0" },
+	{ 17, 0, 0, {  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm", "0" },
+	{ 5, 0, 0, {  }, "configurations", "0" },
+	{ 16, 0, 0, {  }, "configurations", "0" },
+	{ 5, 0, 0, {  }, "configurations.server+builder", "0" },
+	{ 16, 0, 0, {  }, "configurations.server+builder", "0" },
+	{ 5, 0, 0, {  }, "configurations.server+builder.cmake", "0" },
+	{ 11, 0, 0, {  }, "configurations.server+builder.cmake", "" },
+	{ 77, 0, 0, {  }, "configurations.server+builder.cmake", "" },
+	{ 5, 0, 0, {  }, "configurations.server+builder.cpack", "" },
+	{ 11, 0, 0, {  }, "configurations.server+builder.cpack", "" },
+	{ 77, 0, 0, {  }, "configurations.server+builder.cpack", "cpack -C DEBUG $SAI_CPACK" },
+	{ 5, 0, 0, {  }, "configurations.server+builder.artifacts", "cpack -C DEBUG $SAI_CPACK" },
+	{ 11, 0, 0, {  }, "configurations.server+builder.artifacts", "" },
+	{ 77, 0, 0, {  }, "configurations.server+builder.artifacts", "build/sai-*.rpm" },
+	{ 17, 0, 0, {  }, "configurations.server+builder", "build/sai-*.rpm" },
+	{ 5, 0, 0, {  }, "configurations.builder-only", "build/sai-*.rpm" },
+	{ 16, 0, 0, {  }, "configurations.builder-only", "build/sai-*.rpm" },
+	{ 5, 0, 0, {  }, "configurations.builder-only.cmake", "build/sai-*.rpm" },
+	{ 11, 0, 0, {  }, "configurations.builder-only.cmake", "" },
+	{ 77, 0, 0, {  }, "configurations.builder-only.cmake", "-DSAI_SERVER=0 " },
+	{ 5, 0, 0, {  }, "configurations.builder-only.cpack", "-DSAI_SERVER=0 " },
+	{ 11, 0, 0, {  }, "configurations.builder-only.cpack", "" },
+	{ 77, 0, 0, {  }, "configurations.builder-only.cpack", "cpack -C DEBUG $SAI_CPACK" },
+	{ 5, 0, 0, {  }, "configurations.builder-only.artifacts", "cpack -C DEBUG $SAI_CPACK" },
+	{ 11, 0, 0, {  }, "configurations.builder-only.artifacts", "" },
+	{ 77, 0, 0, {  }, "configurations.builder-only.artifacts", "build/sai-*.rpm" },
+	{ 17, 0, 0, {  }, "configurations.builder-only", "build/sai-*.rpm" },
+	{ 17, 0, 0, {  }, "configurations.builder-only", "build/sai-*.rpm" },
+	{ 17, 0, 0, {  }, "configurations.builder-only", "build/sai-*.rpm" },
+	{ 3, 0, 0, {  }, "configurations.builder-only", "build/sai-*.rpm" },
+}, r16[] = {
+	{ 0, 0, 0, {  }, "", "build/sai-*.rpm" },
+	{ 2, 0, 0, {  }, "", "build/sai-*.rpm" },
+	{ 16, 0, 0, {  }, "", "build/sai-*.rpm" },
+	{ 5, 0, 1, {  }, "schema", "build/sai-*.rpm" },
+	{ 11, 0, 1, {  }, "schema", "" },
+	{ 77, 0, 1, {  }, "schema", "sai-1" },
+	{ 5, 0, 0, {  }, "platforms", "sai-1" },
+	{ 16, 0, 0, {  }, "platforms", "sai-1" },
+	{ 5, 0, 5, {  }, "platforms.rocky9/aarch64-a72a55-rk3588/gcc", "sai-1" },
+	{ 16, 0, 5, {  }, "platforms.rocky9/aarch64-a72a55-rk3588/gcc", "sai-1" },
+	{ 5, 0, 3, {  }, "platforms.rocky9/aarch64-a72a55-rk3588/gcc.build", "sai-1" },
+	{ 14, 0, 3, {  }, "platforms.rocky9/aarch64-a72a55-rk3588/gcc.build[]", "sai-1" },
+	{ 11, 1, 3, { 0,  }, "platforms.rocky9/aarch64-a72a55-rk3588/gcc.build[]", "" },
+	{ 77, 1, 3, { 0,  }, "platforms.rocky9/aarch64-a72a55-rk3588/gcc.build[]", "mkdir build destdir;cd build; CCACHE_DISABLE=1 cmake .. ${cmake}" },
+	{ 11, 1, 2, { 1,  }, "platforms.rocky9/aarch64-a72a55-rk3588/gcc.build[]", "" },
+	{ 77, 1, 2, { 1,  }, "platforms.rocky9/aarch64-a72a55-rk3588/gcc.build[]", "make -j" },
+	{ 11, 1, 2, { 2,  }, "platforms.rocky9/aarch64-a72a55-rk3588/gcc.build[]", "" },
+	{ 77, 1, 2, { 2,  }, "platforms.rocky9/aarch64-a72a55-rk3588/gcc.build[]", "SAI_CPACK=\"-G RPM\" ${cpack}" },
+	{ 15, 0, 5, {  }, "platforms.rocky9/aarch64-a72a55-rk3588/gcc", "SAI_CPACK=\"-G RPM\" ${cpack}" },
+	{ 17, 0, 5, {  }, "platforms.rocky9/aarch64-a72a55-rk3588/gcc", "SAI_CPACK=\"-G RPM\" ${cpack}" },
+	{ 5, 0, 5, {  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm", "SAI_CPACK=\"-G RPM\" ${cpack}" },
+	{ 16, 0, 5, {  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm", "SAI_CPACK=\"-G RPM\" ${cpack}" },
+	{ 5, 0, 3, {  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm.build", "SAI_CPACK=\"-G RPM\" ${cpack}" },
+	{ 14, 0, 3, {  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm.build[]", "SAI_CPACK=\"-G RPM\" ${cpack}" },
+	{ 11, 1, 3, { 0,  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm.build[]", "" },
+	{ 76, 1, 3, { 0,  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm.build[]", "mkdir build destdir; cd build; MACOSX_DEPLOYMENT_TARGET=10.14 ; cmake .. -DCMAKE_MAKE_PROGRAM=/usr/bin/make -DLWS_OPENSSL_INCLUDE_DIRS=/usr/local/opt/openssl@1.1/include -DLWS_OPENSSL_LIBRARIES=\"/usr/local/opt/openssl/lib/libssl.dylib;/usr/local/opt/open" },
+	{ 77, 1, 3, { 0,  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm.build[]", "ssl/lib/libcrypto.dylib\" ${cmake} " },
+	{ 11, 1, 2, { 1,  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm.build[]", "" },
+	{ 77, 1, 2, { 1,  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm.build[]", "make -j && make -j DESTDIR=../destdir install" },
+	{ 11, 1, 2, { 2,  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm.build[]", "" },
+	{ 77, 1, 2, { 2,  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm.build[]", "ctest -j4 --output-on-failure" },
+	{ 11, 1, 2, { 3,  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm.build[]", "" },
+	{ 77, 1, 2, { 3,  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm.build[]", "SAI_CPACK=\"-G ZIP\" ${cpack}" },
+	{ 15, 0, 5, {  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm", "SAI_CPACK=\"-G ZIP\" ${cpack}" },
+	{ 5, 0, 4, {  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm.default", "SAI_CPACK=\"-G ZIP\" ${cpack}" },
+	{ 71, 0, 4, {  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm.default", "0" },
+	{ 17, 0, 5, {  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm", "0" },
+	{ 17, 0, 5, {  }, "platforms.netbsd-OSX-bigsur/x86_64-intel-i3/llvm", "0" },
+	{ 5, 0, 0, {  }, "configurations", "0" },
+	{ 16, 0, 0, {  }, "configurations", "0" },
+	{ 5, 0, 12, {  }, "configurations.server+builder", "0" },
+	{ 16, 0, 12, {  }, "configurations.server+builder", "0" },
+	{ 5, 0, 7, {  }, "configurations.server+builder.cmake", "0" },
+	{ 11, 0, 7, {  }, "configurations.server+builder.cmake", "" },
+	{ 77, 0, 7, {  }, "configurations.server+builder.cmake", "" },
+	{ 5, 0, 11, {  }, "configurations.server+builder.cpack", "" },
+	{ 11, 0, 11, {  }, "configurations.server+builder.cpack", "" },
+	{ 77, 0, 11, {  }, "configurations.server+builder.cpack", "cpack -C DEBUG $SAI_CPACK" },
+	{ 5, 0, 10, {  }, "configurations.server+builder.artifacts", "cpack -C DEBUG $SAI_CPACK" },
+	{ 11, 0, 10, {  }, "configurations.server+builder.artifacts", "" },
+	{ 77, 0, 10, {  }, "configurations.server+builder.artifacts", "build/sai-*.rpm" },
+	{ 17, 0, 12, {  }, "configurations.server+builder", "build/sai-*.rpm" },
+	{ 5, 0, 12, {  }, "configurations.builder-only", "build/sai-*.rpm" },
+	{ 16, 0, 12, {  }, "configurations.builder-only", "build/sai-*.rpm" },
+	{ 5, 0, 7, {  }, "configurations.builder-only.cmake", "build/sai-*.rpm" },
+	{ 11, 0, 7, {  }, "configurations.builder-only.cmake", "" },
+	{ 77, 0, 7, {  }, "configurations.builder-only.cmake", "-DSAI_SERVER=0 " },
+	{ 5, 0, 11, {  }, "configurations.builder-only.cpack", "-DSAI_SERVER=0 " },
+	{ 11, 0, 11, {  }, "configurations.builder-only.cpack", "" },
+	{ 77, 0, 11, {  }, "configurations.builder-only.cpack", "cpack -C DEBUG $SAI_CPACK" },
+	{ 5, 0, 10, {  }, "configurations.builder-only.artifacts", "cpack -C DEBUG $SAI_CPACK" },
+	{ 11, 0, 10, {  }, "configurations.builder-only.artifacts", "" },
+	{ 77, 0, 10, {  }, "configurations.builder-only.artifacts", "build/sai-*.rpm" },
+	{ 17, 0, 12, {  }, "configurations.builder-only", "build/sai-*.rpm" },
+	{ 17, 0, 12, {  }, "configurations.builder-only", "build/sai-*.rpm" },
+	{ 17, 0, 0, {  }, "configurations.builder-only", "build/sai-*.rpm" },
+	{ 3, 0, 0, {  }, "configurations.builder-only", "build/sai-*.rpm" },
+
 };
 
 static const char * const tok[] = {
@@ -469,6 +720,11 @@ struct lejp_results_pkg {
 	{ r12, LWS_ARRAY_SIZE(r12), tok_test11, LWS_ARRAY_SIZE(tok_test11),
 			LEJP_FLAG_FEAT_LEADING_WC |
 			LEJP_FLAG_FEAT_OBJECT_INDEXES },
+	{ r13, LWS_ARRAY_SIZE(r13), tok, LWS_ARRAY_SIZE(tok), 0 },
+	{ r14, LWS_ARRAY_SIZE(r14), tok, LWS_ARRAY_SIZE(tok), 0 },
+	{ r15, LWS_ARRAY_SIZE(r15), tok, LWS_ARRAY_SIZE(tok), 0 },
+	{ r16, LWS_ARRAY_SIZE(r16), saifile_paths, LWS_ARRAY_SIZE(saifile_paths), 0 },
+
 };
 
 
@@ -486,7 +742,7 @@ test_cb(struct lejp_ctx *ctx, char reason)
 	for (n = 0; n < ctx->ipos; n++)
 		t += lws_snprintf(i + t, sizeof(i) - (size_t)t - 1ul, "%d, ", ctx->i[n]);
 
-	lwsl_notice("{ %d, %d, %d, { %s }, \"%s\", \"%s\" },\n", reason, ctx->ipos, ctx->path_match, i, ctx->path, ctx->buf);
+	fprintf(stdout, "{ %d, %d, %d, { %s }, \"%s\", \"%s\" },\n", reason, ctx->ipos, ctx->path_match, i, ctx->path, ctx->buf);
 
 	if (m < LWS_ARRAY_SIZE(rpkg)) {
 		if (step < rpkg[m].len) {
@@ -518,8 +774,13 @@ test_cb(struct lejp_ctx *ctx, char reason)
 				return -1;
 			}
 		} else {
+			/*
+			 * Disable below section if you're populating the results
+			 */
+#if 1
 			lwsl_err("%s: extra steps\n", __func__);
 			return -1;
+#endif
 		}
 
 		step++;

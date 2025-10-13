@@ -44,8 +44,18 @@ extern "C" {
 #if defined(LWS_HAVE_NET_ETHERNET_H)
 #include <net/ethernet.h>
 #endif
+/* NetBSD */
+#if defined(LWS_HAVE_NET_IF_ETHER_H)
+#include <net/if_ether.h>
+#endif
 #if defined(_WIN32) && !defined(ETHER_ADDR_LEN)
 #define ETHER_ADDR_LEN 6
+#endif
+#if defined (__sun)
+	#include <sys/ethernet.h>
+	#if !defined(ETHER_ADDR_LEN) && defined(ETHERADDRL)
+		#define ETHER_ADDR_LEN ETHERADDRL
+	#endif
 #endif
 #define LWS_ETHER_ADDR_LEN ETHER_ADDR_LEN
 
@@ -146,8 +156,12 @@ typedef int suseconds_t;
 #define __func__ __FUNCTION__
 #endif
 
+#define LWS_POSIX_LENGTH_CAST(x) (unsigned int)(x)
+
 #else /* NOT WIN32 */
 #include <unistd.h>
+
+#define LWS_POSIX_LENGTH_CAST(x) (x)
 
 #if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
 #include <sys/capability.h>
@@ -156,6 +170,12 @@ typedef int suseconds_t;
 #if defined(__NetBSD__) || defined(__FreeBSD__) || defined(__QNX__) || defined(__OpenBSD__) || defined(__NuttX__)
 #include <sys/socket.h>
 #include <netinet/in.h>
+#endif
+
+/* Find ETHER_ADDR_LEN on OpenBSD */
+#if defined(__OpenBSD__)
+#include <net/if_arp.h>
+#include <netinet/if_ether.h>
 #endif
 
 #define LWS_INLINE inline
@@ -693,13 +713,16 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 
 #include <libwebsockets/lws-ota.h>
 #include <libwebsockets/lws-system.h>
+#include <libwebsockets/lws-callbacks.h>
+
 #if defined(LWS_WITH_NETWORK)
 #include <libwebsockets/lws-ws-close.h>
-#include <libwebsockets/lws-callbacks.h>
 #include <libwebsockets/lws-ws-state.h>
 #include <libwebsockets/lws-ws-ext.h>
-#include <libwebsockets/lws-protocols-plugins.h>
 #endif
+
+#include <libwebsockets/lws-protocols-plugins.h>
+
 #include <libwebsockets/lws-context-vhost.h>
 
 #if defined(LWS_WITH_NETWORK)

@@ -27,6 +27,7 @@
 #include <tchar.h>
 #include <stdio.h>
 #include <strsafe.h>
+#include <Psapi.h>
 
 void
 lws_spawn_timeout(struct lws_sorted_usec_list *sul)
@@ -45,7 +46,7 @@ lws_spawn_sul_reap(struct lws_sorted_usec_list *sul)
 	struct lws_spawn_piped *lsp = lws_container_of(sul,
 					struct lws_spawn_piped, sul_reap);
 
-	lwsl_notice("%s: reaping spawn after last stdpipe, tries left %d\n",
+       lwsl_info("%s: reaping spawn after last stdpipe, tries left %d\n",
 		    __func__, lsp->reap_retry_budget);
 	if (!lws_spawn_reap(lsp) && !lsp->pipes_alive) {
 		if (--lsp->reap_retry_budget) {
@@ -148,18 +149,20 @@ lws_spawn_piped_destroy(struct lws_spawn_piped **_lsp)
 int
 lws_spawn_reap(struct lws_spawn_piped *lsp)
 {
-
+	lws_spawn_resource_us_t res = { };
 	void *opaque = lsp->info.opaque;
 	lsp_cb_t cb = lsp->info.reap_cb;
+	PROCESS_MEMORY_COUNTERS pmc;
 	struct _lws_siginfo_t lsi;
-	lws_usec_t acct[4];
+	ULARGE_INTEGER uli;
+	FILETIME ftk, ftu;
 	DWORD ex;
 
 	if (!lsp->child_pid)
 		return 0;
 
 	if (!GetExitCodeProcess(lsp->child_pid, &ex)) {
-		lwsl_notice("%s: GetExitCodeProcess failed\n", __func__);
+               lwsl_notice("%s: GetExitCodeProcess failed, GetLastError: 0x%lx\n", __func__, (unsigned long)GetLastError());
 		return 0;
 	}
 
@@ -205,9 +208,35 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	 * Collect the final information and then reap the dead process
 	 */
 
+	if (GetProcessTimes(lsp->child_pid, &lsp->ft_create, &lsp->ft_exit,
+			    &ftk, &ftu)) {
+		uli.LowPart = ftu.dwLowDateTime;
+		uli.HighPart = ftu.dwHighDateTime;
+		lsp->res.us_cpu_user = uli.QuadPart / 10;
+		if (lsp->info.res)
+			lsp->info.res->us_cpu_user = lsp->res.us_cpu_user;
+
+		uli.LowPart = ftk.dwLowDateTime;
+		uli.HighPart = ftk.dwHighDateTime;
+		lsp->res.us_cpu_sys = uli.QuadPart / 10;
+		if (lsp->info.res)
+			lsp->info.res->us_cpu_sys = lsp->res.us_cpu_sys;
+	}
+
+	if (GetProcessMemoryInfo(lsp->child_pid, &pmc, sizeof(pmc))) {
+		lsp->res.peak_mem_rss = pmc.PeakWorkingSetSize;
+		if (lsp->info.res)
+			lsp->info.res->peak_mem_rss = lsp->res.peak_mem_rss;
+	}
+
 	lsi.retcode = 0x10000 | (int)ex;
 	lwsl_notice("%s: process exit 0x%x\n", __func__, lsi.retcode);
 	lsp->child_pid = NULL;
+
+	if (lsp->info.res)
+		res = *lsp->info.res;
+	else
+		res = lsp->res;
 
 	/* destroy the lsp itself first (it's freed and plsp set NULL */
 
@@ -216,9 +245,8 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 
 	/* then do the parent callback informing it's destroyed */
 
-	memset(acct, 0, sizeof(acct));
 	if (cb)
-		cb(opaque, acct, &lsi, 0);
+		cb(opaque, &res, &lsi, 0);
 
 	lwsl_notice("%s: completed reap\n", __func__);
 
@@ -233,15 +261,11 @@ lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp)
 
 	lsp->ungraceful = 1; /* don't wait for flushing, just kill it */
 
-	if (lws_spawn_reap(lsp))
-		/* that may have invalidated lsp */
-		return 0;
-
 	lwsl_warn("%s: calling TerminateProcess on child pid\n", __func__);
-	TerminateProcess(lsp->child_pid, 252);
-	lws_spawn_reap(lsp);
-
-	/* that may have invalidated lsp */
+       if (!TerminateProcess(lsp->child_pid, 252)) {
+               lwsl_warn("%s: TerminateProcess failed: 0x%lx\n", __func__, (unsigned long)GetLastError());
+               return 0;
+       }
 
 	return 0;
 }
@@ -269,7 +293,7 @@ windows_pipe_poll_hack(lws_sorted_usec_list_t *sul)
 		if (!PeekNamedPipe(lsp->pipe_fds[LWS_STDOUT][0], &c, 1, &br,
 				   NULL, NULL)) {
 
-			lwsl_notice("%s: stdout pipe errored\n", __func__);
+			// lwsl_notice("%s: stdout pipe errored\n", __func__);
 			CloseHandle(lsp->stdwsi[LWS_STDOUT]->desc.filefd);
 			lsp->pipe_fds[LWS_STDOUT][0] = NULL;
 			lsp->stdwsi[LWS_STDOUT]->desc.filefd = NULL;
@@ -277,7 +301,7 @@ windows_pipe_poll_hack(lws_sorted_usec_list_t *sul)
 			lws_set_timeout(wsi, 1, LWS_TO_KILL_SYNC);
 
 			if (lsp->stdwsi[LWS_STDIN]) {
-				lwsl_notice("%s: closing stdin from stdout close\n",
+                               lwsl_info("%s: closing stdin from stdout close\n",
 						__func__);
 				CloseHandle(lsp->stdwsi[LWS_STDIN]->desc.filefd);
 				wsi = lsp->stdwsi[LWS_STDIN];
@@ -308,7 +332,7 @@ windows_pipe_poll_hack(lws_sorted_usec_list_t *sul)
 		if (!PeekNamedPipe(lsp->pipe_fds[LWS_STDERR][0], &c, 1, &br,
 				   NULL, NULL)) {
 
-			lwsl_notice("%s: stderr pipe errored\n", __func__);
+                       lwsl_info("%s: stderr pipe errored\n", __func__);
 			CloseHandle(wsi1->desc.filefd);
 			/*
 			 * Assume is stderr still extant on entry, lsp can't
@@ -400,7 +424,7 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 
 		if (!SetHandleInformation(&lsp->pipe_fds[n][!n],
 					  HANDLE_FLAG_INHERIT, 0)) {
-			lwsl_err("%s: SetHandleInformation() failed\n", __func__);
+			lwsl_info("%s: SetHandleInformation() failed\n", __func__);
 			//goto bail1;
 		}
 	}
@@ -426,6 +450,8 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		lsp->stdwsi[n]->desc.filefd = lsp->pipe_fds[n][!n];
 		lsp->stdwsi[n]->file_desc = 1;
 
+		lws_dll2_remove(&lsp->stdwsi[n]->pre_natal);
+
 		lwsl_debug("%s: lsp stdwsi %p: pipe idx %d -> fd %d / %d\n",
 			   __func__, lsp->stdwsi[n], n,
 			   lsp->pipe_fds[n][!!(n == 0)],
@@ -450,10 +476,10 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 			i->opt_parent->child_list = lsp->stdwsi[n];
 		}
 
-	lwsl_notice("%s: pipe handles in %p, out %p, err %p\n", __func__,
-		   lsp->stdwsi[LWS_STDIN]->desc.sockfd,
-		   lsp->stdwsi[LWS_STDOUT]->desc.sockfd,
-		   lsp->stdwsi[LWS_STDERR]->desc.sockfd);
+	// lwsl_notice("%s: pipe handles in %p, out %p, err %p\n", __func__,
+	//	   lsp->stdwsi[LWS_STDIN]->desc.sockfd,
+	//	   lsp->stdwsi[LWS_STDOUT]->desc.sockfd,
+	//	   lsp->stdwsi[LWS_STDERR]->desc.sockfd);
 
 	/*
 	 * Windows nonblocking pipe handling is a mess that is unable
@@ -482,7 +508,9 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		n++;
 	}
 
-	puts(cli);
+	if (p > cli && p[-1] == ' ')
+		*(--p) = '\0';
+	// puts(cli);
 
 	memset(&pi, 0, sizeof(pi));
 	memset(&si, 0, sizeof(si));
@@ -501,6 +529,7 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	}
 
 	lsp->child_pid = pi.hProcess;
+	CloseHandle(pi.hThread);
 
 	lwsl_notice("%s: lsp %p spawned PID %d\n", __func__, lsp, lsp->child_pid);
 
@@ -522,6 +551,9 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	if (i->timeout_us)
 		lws_sul_schedule(context, i->tsi, &lsp->sul,
 				 lws_spawn_timeout, i->timeout_us);
+
+       if (i->plsp)
+               *(i->plsp) = lsp;
 
 	return lsp;
 
@@ -551,25 +583,70 @@ bail1:
 	return NULL;
 }
 
+int
+lws_spawn_get_stdwsi_open_count(struct lws_spawn_piped *lsp)
+{
+	return lsp->pipes_alive;
+}
+
 void
+lws_spawn_closedown_stdwsis(struct lws_spawn_piped *lsp)
+{
+	int n;
+
+	for (n = 0; n < 3; n++)
+		if (lsp->stdwsi[n])
+			lws_wsi_close(lsp->stdwsi[n], LWS_TO_KILL_ASYNC);
+}
+
+int
 lws_spawn_stdwsi_closed(struct lws_spawn_piped *lsp, struct lws *wsi)
 {
 	int n;
 
 	assert(lsp);
 	lsp->pipes_alive--;
-	lwsl_debug("%s: pipes alive %d\n", __func__, lsp->pipes_alive);
-	if (!lsp->pipes_alive)
+       lwsl_wsi_warn(wsi, "stdxxx down: pipes alive %d\n", lsp->pipes_alive);
+       if (!lsp->pipes_alive) {
+               lwsl_wsi_warn(wsi, "Scheduling reap");
 		lws_sul_schedule(lsp->info.vh->context, lsp->info.tsi,
 				&lsp->sul_reap, lws_spawn_sul_reap, 1);
+       }
 
 	for (n = 0; n < 3; n++)
-		if (lsp->stdwsi[n] == wsi)
+               if (lsp->stdwsi[n] == wsi) {
+                       lwsl_wsi_warn(wsi, "Identified stxxx wsi in lsp");
 			lsp->stdwsi[n] = NULL;
+                       return !!lsp->pipes_alive;
+               }
+
+       lwsl_wsi_warn(wsi, "!!! unable to find stdwsi in lsp %p", lsp);
+
+	return !!lsp->pipes_alive;
+}
+
+int
+lws_spawn_cgroup_admin_init(const char *toplevel_name, const char *username, const char *groupname)
+{
+	return 1; /* Not supported on this platform */
 }
 
 int
 lws_spawn_get_stdfd(struct lws *wsi)
 {
 	return wsi->lsp_channel;
+}
+
+int
+lws_spawn_get_fd_stdxxx(struct lws_spawn_piped *lsp, int std_idx)
+{
+	assert(std_idx >= 0 && std_idx < 3);
+
+	return (int)(intptr_t)lsp->pipe_fds[std_idx][!!(std_idx == 0)];
+}
+
+int
+lws_spawn_prepare_self_cgroup(const char *user, const char *group)
+{
+	return 0;
 }

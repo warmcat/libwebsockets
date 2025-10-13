@@ -396,6 +396,7 @@ jit_trust_query(struct lws_context *cx, const uint8_t *skid,
 
 	/* Once we have a result, pass it to the completion helper */
 
+	/* coverity[tainted_data] */ 
 	return lws_tls_jit_trust_got_cert_cb(cx, got_opaque, skid, skid_len,
 					     der, der_len);
 }

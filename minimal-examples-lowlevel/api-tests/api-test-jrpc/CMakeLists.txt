@@ -1,5 +1,5 @@
 project(lws-api-test-jrpc)
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 include(CheckCSourceCompiles)
 
 set(SAMP lws-api-test-jrpc)

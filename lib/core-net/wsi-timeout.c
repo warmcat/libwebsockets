@@ -30,6 +30,9 @@ __lws_wsi_remove_from_sul(struct lws *wsi)
 	lws_sul_cancel(&wsi->sul_timeout);
 	lws_sul_cancel(&wsi->sul_hrtimer);
 	lws_sul_cancel(&wsi->sul_validity);
+#if defined(LWS_WITH_HTTP_PROXY)
+	lws_sul_cancel(&wsi->sul_ws_proxy_est);
+#endif
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	lws_sul_cancel(&wsi->sul_fault_timedclose);
 #endif
@@ -64,7 +67,10 @@ __lws_set_timer_usecs(struct lws *wsi, lws_usec_t us)
 void
 lws_set_timer_usecs(struct lws *wsi, lws_usec_t usecs)
 {
-	__lws_set_timer_usecs(wsi, usecs);
+	if ((int64_t)usecs == (int64_t)LWS_SET_TIMER_USEC_CANCEL)
+		lws_sul_cancel(&wsi->sul_hrtimer);
+	else
+		__lws_set_timer_usecs(wsi, usecs);
 }
 
 /*
@@ -188,7 +194,7 @@ lws_set_timeout_us(struct lws *wsi, enum pending_timeout reason, lws_usec_t us)
 	__lws_sul_insert_us(&pt->pt_sul_owner[LWSSULLI_MISS_IF_SUSPENDED],
 			    &wsi->sul_timeout, us);
 
-	lwsl_wsi_notice(wsi, "%llu us, reason %d",
+	lwsl_wsi_info(wsi, "%llu us, reason %d",
 			     (unsigned long long)us, reason);
 
 	wsi->pending_timeout = (char)reason;
@@ -205,7 +211,7 @@ lws_validity_cb(lws_sorted_usec_list_t *sul)
 	/* one of either the ping or hangup validity threshold was crossed */
 
 	if (wsi->validity_hup) {
-		lwsl_wsi_info(wsi, "validity too old");
+		lwsl_wsi_err(wsi, "validity too old");
 		struct lws_context *cx = wsi->a.context;
 		struct lws_context_per_thread *pt = &cx->pt[(int)wsi->tsi];
 

@@ -93,11 +93,6 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2))
 			endif()
 		endif()
 		
-		if (LWS_LIB_INCLUDES)
-			target_include_directories(${TEST_NAME} PRIVATE "${LWS_LIB_INCLUDES}" ${LWS_LIB_BUILD_INC_PATHS})
-		else()
-			target_include_directories(${TEST_NAME} PRIVATE ${LWS_LIB_BUILD_INC_PATHS})
-		endif()
 		target_compile_options(${TEST_NAME} PRIVATE ${LWS_PTHR_FLAGS})
 
 		if (LWS_WITH_HTTP_STREAM_COMPRESSION)

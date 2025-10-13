@@ -46,70 +46,37 @@ static struct lws_protocol_vhost_options em3 = {
 /* wire up /upload URLs to the plugin (protected by basic auth) */
 
 static const struct lws_http_mount mount_upload = {
-	/* .mount_next */		NULL,
-	/* .mountpoint */		"/upload",	/* mountpoint URL */
-	/* .origin */			"lws-deaddrop",
-	/* .def */			"",
-	/* .protocol */			NULL,
-	/* .cgienv */			NULL,
-	/* .extra_mimetypes */		NULL,
-	/* .interpret */		NULL,
-	/* .cgi_timeout */		0,
-	/* .cache_max_age */		0,
-	/* .auth_mask */		0,
-	/* .cache_reusable */		0,
-	/* .cache_revalidate */		0,
-	/* .cache_intermediaries */	0,
-	/* .cache_no */			0,
-	/* .origin_protocol */		LWSMPRO_CALLBACK,
-	/* .mountpoint_len */		7,		/* char count */
-	/* .basic_auth_login_file */	"./ba-passwords",
+	.mountpoint			= "/upload",		/* mountpoint URL */
+	.protocol			= "lws-deaddrop",
+	.def				= "",
+	.origin_protocol		= LWSMPRO_CALLBACK,
+	.mountpoint_len			= 7,			/* char count */
+	.basic_auth_login_file		= "./ba-passwords",
 };
 
 /* wire up /get URLs to the upload directory (protected by basic auth) */
 
 static const struct lws_http_mount mount_get = {
-	/* .mount_next */		&mount_upload,	/* linked-list "next" */
-	/* .mountpoint */		"/get",	/* mountpoint URL */
-	/* .origin */			"./uploads",
-	/* .def */			"",
-	/* .protocol */			NULL,
-	/* .cgienv */			NULL,
-	/* .extra_mimetypes */		&extra_mimetypes,
-	/* .interpret */		NULL,
-	/* .cgi_timeout */		0,
-	/* .cache_max_age */		0,
-	/* .auth_mask */		0,
-	/* .cache_reusable */		0,
-	/* .cache_revalidate */		0,
-	/* .cache_intermediaries */	0,
-	/* .cache_no */			0,
-	/* .origin_protocol */		LWSMPRO_FILE, /* dynamic */
-	/* .mountpoint_len */		4,		/* char count */
-	/* .basic_auth_login_file */	"./ba-passwords",
+	.mount_next			= &mount_upload,	/* linked-list "next" */
+	.mountpoint			= "/get",		/* mountpoint URL */
+	.origin				= "./uploads",
+	.def				= "",
+	.extra_mimetypes		= &extra_mimetypes,
+	.origin_protocol		= LWSMPRO_FILE, 	/* dynamic */
+	.mountpoint_len			= 4,			/* char count */
+	.basic_auth_login_file		= "./ba-passwords",
 };
 
 /* wire up / to serve from ./mount-origin (protected by basic auth) */
 
 static const struct lws_http_mount mount = {
-	/* .mount_next */		&mount_get,	/* linked-list "next" */
-	/* .mountpoint */		"/",		/* mountpoint URL */
-	/* .origin */			"./mount-origin", /* serve from dir */
-	/* .def */			"index.html",	/* default filename */
-	/* .protocol */			NULL,
-	/* .cgienv */			NULL,
-	/* .extra_mimetypes */		NULL,
-	/* .interpret */		NULL,
-	/* .cgi_timeout */		0,
-	/* .cache_max_age */		0,
-	/* .auth_mask */		0,
-	/* .cache_reusable */		0,
-	/* .cache_revalidate */		0,
-	/* .cache_intermediaries */	0,
-	/* .cache_no */			0,
-	/* .origin_protocol */		LWSMPRO_FILE,	/* files in a dir */
-	/* .mountpoint_len */		1,		/* char count */
-	/* .basic_auth_login_file */	"./ba-passwords",
+	.mount_next			= &mount_get,		/* linked-list "next" */
+	.mountpoint			= "/",			/* mountpoint URL */
+	.origin				= "./mount-origin",	/* serve from dir */
+	.def				= "index.html",		/* default filename */
+	.origin_protocol		= LWSMPRO_FILE,		/* files in a dir */
+	.mountpoint_len			= 1,			/* char count */
+	.basic_auth_login_file		= "./ba-passwords",
 };
 
 /* pass config options to the deaddrop plugin using pvos */

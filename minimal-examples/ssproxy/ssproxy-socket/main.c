@@ -190,6 +190,9 @@ int main(int argc, const char **argv)
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.fd_limit_per_thread = 1 + 26 + 1;
 
+	info.connect_timeout_secs = 15; /* httpbin.org seems to need this depending on time of day */
+	info.timeout_secs = 10;
+
 	nl.name = "app";
 	nl.notify_cb = app_system_state_nf;
 	info.register_notifier_list = app_notifier_list;

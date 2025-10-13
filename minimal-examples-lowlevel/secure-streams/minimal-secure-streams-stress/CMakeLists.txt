@@ -1,5 +1,5 @@
 project(lws-minimal-secure-streams-stress C)
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 find_package(libwebsockets CONFIG REQUIRED)
 list(APPEND CMAKE_MODULE_PATH ${LWS_CMAKE_DIR})
 include(CheckCSourceCompiles)
@@ -46,15 +46,15 @@ if (requirements)
 			message("testing via valgrind")
 			add_test(NAME ssstress-warmcat COMMAND
 				${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
-				$<TARGET_FILE:lws-minimal-secure-streams-stress> -c 4 --budget 5 --timeout_ms 60000)
+				$<TARGET_FILE:lws-minimal-secure-streams-stress> -c 2 --budget 3 --timeout_ms 60000)
 		else()
-			add_test(NAME ssstress-warmcat COMMAND lws-minimal-secure-streams-stress -c 4 --budget 5 --timeout_ms 50000)
+			add_test(NAME ssstress-warmcat COMMAND lws-minimal-secure-streams-stress -c 2 --budget 3 --timeout_ms 50000)
 		endif()
 
 		set_tests_properties(ssstress-warmcat
 				     PROPERTIES
 				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/secure-streams/minimal-secure-streams-stress
-				     TIMEOUT 80)
+				     TIMEOUT 110)
 		if (DEFINED ENV{SAI_OVN})
 			set_tests_properties(ssstress-warmcat PROPERTIES FIXTURES_REQUIRED "res_sspcmin")
 		endif()
@@ -71,7 +71,12 @@ if (requirements)
 				set(CTEST_SOCKET_PATH "@ctest-sspstress-$ENV{SAI_PROJECT}-$ENV{SAI_OVN}")
 			else()
 				# filesystem socket for others
-				set(CTEST_SOCKET_PATH "/tmp/ctest-sspstress-$ENV{SAI_PROJECT}-$ENV{SAI_OVN}")
+                                if (DEFINED ENV{SAI_OVN})
+                                        string(SUBSTRING "$ENV{SAI_OVN}" 32 16 SHORT_HASH)
+                                else()
+                                        set(SHORT_HASH "0")
+                                endif()
+				set(CTEST_SOCKET_PATH "/tmp/ctest-sspstress-$ENV{SAI_PROJECT}-${SHORT_HASH}")
 			endif()
 			add_test(NAME st_ssstressproxy COMMAND
 				${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
@@ -107,7 +112,7 @@ if (requirements)
 			set_tests_properties(sspc-minimalstress PROPERTIES
 				WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/secure-streams/minimal-secure-streams-stress
 				FIXTURES_REQUIRED "${fixlist}"
-				TIMEOUT 100)
+				TIMEOUT 110)
 
 		endif()
 

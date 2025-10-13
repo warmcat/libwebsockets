@@ -75,13 +75,6 @@ You can do this by, eg
 ```
 
 **NOTE3**:
-On machines that want libraries in lib64, you can also add the
-following to the cmake line
-```
-    -DLIB_SUFFIX=64
-```
-
-**NOTE4**:
 If you are building against a non-distro OpenSSL (eg, in order to get
 access to ALPN support only in newer OpenSSL versions) the nice way to
 express that in one cmake command is eg,
@@ -127,8 +120,13 @@ and libnsl, and only builds in 64bit mode.
 
 **NOTE7**
 
-Build and test flow against boringssl.  Notice `LWS_WITH_GENHASH` is currently
-unavailable with boringssl due to their removing the necessary apis.
+Build and test flow against boringssl.
+
+Notice since boringssl is based on openssl, it cannot coexist with openssl or
+other projects based directly on openssl, since they all share, eg,
+`/usr/include/openssl/...`.  For that reason, boring build is installed
+into `/usr/boringssl/` here so it cannot conflict with other tls libraries.
+
 
 Build current HEAD boringssl
 
@@ -138,29 +136,88 @@ Build current HEAD boringssl
  $ cd boringssl
  $ mkdir build
  $ cd build
- $ cmake ..  -DBUILD_SHARED_LIBS=1
- $ make -j8
+ $ cmake .. -DCMAKE_INSTALL_PREFIX=/usr/boringssl -DBUILD_SHARED_LIBS=1
+ $ make -j8 && sudo make -j8 install
 ```
 
 Build and test lws against it
 
 ```
  $ cd /projects/libwebsockets/build
- $ cmake .. -DOPENSSL_LIBRARIES="/projects/boringssl/build/ssl/libssl.so;\
-   /projects/boringssl/build/crypto/libcrypto.so" \
-   -DOPENSSL_INCLUDE_DIRS=/projects/boringssl/include \
+ $ cmake .. -DOPENSSL_LIBRARIES="/usr/boringssl/lib64/libssl.so;\
+   /usr/boringssl/lib64/libcrypto.so" \
+   -DOPENSSL_INCLUDE_DIRS=/usr/boringssl/include \
    -DLWS_WITH_BORINGSSL=1 -DCMAKE_BUILD_TYPE=DEBUG
- $ make -j8 && sudo make install
- $ LD_PRELOAD="/projects/boringssl/build/ssl/libssl.so \
-   /projects/boringssl/build/crypto/libcrypto.so" \
-   /usr/local/bin/libwebsockets-test-server -s
+ $ make -j8 && sudo make -j8 install
+ $ /usr/local/bin/libwebsockets-test-server -s
 ```
 
-4. Finally you can build using the generated Makefile:
+**NOTE8**
 
-```bash
-    $ make
- ```
+Build and test flow against libressl.
+
+Notice since libressl is based on openssl, it cannot coexist with openssl or
+other projects based directly on openssl, since they all share, eg,
+`/usr/include/openssl/...`.  For that reason, libressl build is installed
+into `/usr/libressl/` here so it cannot conflict with other tls libraries.
+
+Build current HEAD libressl
+
+```
+ $ cd /projects
+ $ git clone https://github.com/libressl/portable.git
+ $ cd portable
+ $ mkdir build
+ $ cd build
+ $ cmake ..  -DBUILD_SHARED_LIBS=1 -DOPENSSLDIR=/etc/ssl -DCMAKE_INSTALL_PREFIX=/usr/libressl
+ $ make -j8 && sudo make -j8 install
+```
+
+Build and test lws against it
+
+```
+ $ cd /projects/libwebsockets/build
+ $ cmake .. -DOPENSSL_LIBRARIES="/usr/libressl/lib64/libtls.so;/usr/libressl/lib64/libssl.so;\
+   /usr/libressl/lib64/libcrypto.so" \
+   -DOPENSSL_INCLUDE_DIRS=/usr/libressl/include \
+   -DLWS_WITH_LIBRESSL=1
+ $ make -j8 && sudo make -j8 install
+ $ /usr/local/bin/libwebsockets-test-server -s
+```
+
+**NOTE9**
+
+Build and test flow against AWS-LC.
+
+Notice since aws-lc is based on openssl, it cannot coexist with openssl or
+other projects based directly on openssl, since they all share, eg,
+`/usr/include/openssl/...`.  For that reason, aws-lc build is installed
+into `/usr/aws-lc/` here so it cannot conflict with other tls libraries.
+
+Build current HEAD AWS-LC
+
+```
+ $ cd /projects
+ $ git clone https://github.com/aws/aws-lc.git
+ $ cd aws-lc
+ $ mkdir build
+ $ cd build
+ $ cmake ..  -DBUILD_SHARED_LIBS=1 -DBUILD_TESTING=0 -DCMAKE_INSTALL_PREFIX=/usr/aws-lc
+ $ make -j8 && sudo make -j8 install
+```
+
+Build and test lws against it
+
+```
+ $ cd /projects/libwebsockets/build
+ $ cmake .. -DOPENSSL_LIBRARIES="/usr/aws-lc/lib64/libssl.so;\
+   /usr/aws-lc/lib64/libcrypto.so" \
+   -DOPENSSL_INCLUDE_DIRS=/usr/aws-lc/include \
+   -DLWS_WITH_AWSLC=1 -DCMAKE_BUILD_TYPE=DEBUG
+ $ make -j8 && sudo make install
+ $ /usr/local/bin/libwebsockets-test-server -s
+```
+
 
 @section lcap Linux Capabilities
 

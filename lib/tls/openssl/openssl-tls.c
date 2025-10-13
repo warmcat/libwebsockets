@@ -38,15 +38,11 @@ lws_tls_err_describe_clear(void)
 	unsigned long l;
 
 	do {
-		l = ERR_get_error();
+		l = ERR_peek_error();
 		if (!l)
 			break;
 
-		ERR_error_string_n(
-#if defined(LWS_WITH_BORINGSSL)
-				(uint32_t)
-#endif
-				l, buf, sizeof(buf));
+		ERR_error_string_n(ERR_get_error(), buf, sizeof(buf));
 		lwsl_info("   openssl error: %s\n", buf);
 	} while (l);
 	lwsl_info("\n");
@@ -92,12 +88,16 @@ lws_context_init_ssl_library(struct lws_context *cx,
 #else
 #if defined(LWS_WITH_BORINGSSL)
 	lwsl_cx_info(cx, " Compiled with BoringSSL support");
+#elif defined(LWS_WITH_AWSLC)
+	lwsl_cx_info(cx, " Compiled with AWS-LC support");
 #else
 	lwsl_cx_info(cx, " Compiled with OpenSSL support");
 #endif
 #endif
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT)) {
+#if !defined(LWS_WITH_MBEDTLS) && defined(LWS_WITH_NETWORK)
 		if (!info->provided_client_ssl_ctx)
+#endif
 			lwsl_cx_info(cx, " SSL disabled: no "
 				"LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT");
 		return 0;

@@ -356,8 +356,6 @@ do_write_nz:
 	case LPCSPROX_REPORTING_FAIL:
 		goto hangup;
 	case LPCSPROX_OPERATIONAL:
-		if (!conn)
-			break;
 		if (pay) {
 			if (si == csi)
 				lws_dsh_free((void **)&p);
@@ -391,7 +389,7 @@ do_write_nz:
 		if (!lws_dsh_get_head(conn->dsh, KIND_SS_TO_P,
 				     (void **)&p, &si)) {
 
-			if (conn && conn->txp_path.ops_onw->proxy_check_write_more &&
+			if (conn->txp_path.ops_onw->proxy_check_write_more &&
 			    conn->txp_path.ops_onw->proxy_check_write_more(
 					conn->txp_path.priv_onw)) {
 				cp = p;

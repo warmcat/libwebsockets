@@ -42,83 +42,31 @@ static struct lws_protocols protocols[] = {
  */
 
 static const struct lws_http_mount mount_ziptest_uncomm = {
-	NULL,			/* linked-list pointer to next*/
-	"/uncommziptest",		/* mountpoint in URL namespace on this vhost */
-	"./mount-origin/candide-uncompressed.zip",	/* handler */
-	NULL,	/* default filename if none given */
-	NULL,
-	NULL,
-	NULL,
-	NULL,
-	0,
-	0,
-	0,
-	0,
-	0,
-	0,
-	0,
-	LWSMPRO_FILE,	/* origin points to a callback */
-	14,			/* strlen("/ziptest"), ie length of the mountpoint */
-	NULL,
+	.mountpoint		= "/uncommziptest",		/* mountpoint in URL namespace on this vhost */
+	.origin			= "./mount-origin/candide-uncompressed.zip",	/* handler */
+	.origin_protocol	= LWSMPRO_FILE,	/* origin points to a file */
+	.mountpoint_len		= 14,			/* strlen("/ziptest"), ie length of the mountpoint */
 }, mount_ziptest = {
-	(struct lws_http_mount *)&mount_ziptest_uncomm,			/* linked-list pointer to next*/
-	"/ziptest",		/* mountpoint in URL namespace on this vhost */
-	"./mount-origin/candide.zip",	/* handler */
-	NULL,	/* default filename if none given */
-	NULL,
-	NULL,
-	NULL,
-	NULL,
-	0,
-	0,
-	0,
-	0,
-	0,
-	0,
-	0,
-	LWSMPRO_FILE,	/* origin points to a callback */
-	8,			/* strlen("/ziptest"), ie length of the mountpoint */
-	NULL,
+	.mount_next		= (struct lws_http_mount *)&mount_ziptest_uncomm,			/* linked-list pointer to next*/
+	.mountpoint		= "/ziptest",		/* mountpoint in URL namespace on this vhost */
+	.origin			= "./mount-origin/candide.zip",	/* handler */
+	.origin_protocol	= LWSMPRO_FILE,	/* origin points to a file */
+	.mountpoint_len		= 8,			/* strlen("/ziptest"), ie length of the mountpoint */
 
 }, mount_post = {
-	(struct lws_http_mount *)&mount_ziptest, /* linked-list pointer to next*/
-	"/formtest",		/* mountpoint in URL namespace on this vhost */
-	"protocol-post-demo",	/* handler */
-	NULL,	/* default filename if none given */
-	NULL,
-	NULL,
-	NULL,
-	NULL,
-	0,
-	0,
-	0,
-	0,
-	0,
-	0,
-	0,
-	LWSMPRO_CALLBACK,	/* origin points to a callback */
-	9,			/* strlen("/formtest"), ie length of the mountpoint */
-	NULL,
+	.mount_next		= (struct lws_http_mount *)&mount_ziptest, /* linked-list pointer to next*/
+	.mountpoint		= "/formtest",		/* mountpoint in URL namespace on this vhost */
+	.origin			= "protocol-post-demo",	/* handler */
+	.origin_protocol	= LWSMPRO_CALLBACK,	/* origin points to a callback */
+	.mountpoint_len		= 9,			/* strlen("/formtest"), ie length of the mountpoint */
 
 }, mount = {
-	/* .mount_next */		&mount_post,	/* linked-list "next" */
-	/* .mountpoint */		"/",		/* mountpoint URL */
-	/* .origin */			"./mount-origin", /* serve from dir */
-	/* .def */			"test.html",	/* default filename */
-	/* .protocol */			NULL,
-	/* .cgienv */			NULL,
-	/* .extra_mimetypes */		NULL,
-	/* .interpret */		NULL,
-	/* .cgi_timeout */		0,
-	/* .cache_max_age */		0,
-	/* .auth_mask */		0,
-	/* .cache_reusable */		0,
-	/* .cache_revalidate */		0,
-	/* .cache_intermediaries */	0,
-	/* .cache_no */			0,
-	/* .origin_protocol */		LWSMPRO_FILE,	/* files in a dir */
-	/* .mountpoint_len */		1,		/* char count */
-	/* .basic_auth_login_file */	NULL,
+	.mount_next		= &mount_post,		/* linked-list "next" */
+	.mountpoint		= "/",			/* mountpoint URL */
+	.origin			= "./mount-origin",	/* serve from dir */
+	.def			= "test.html",		/* default filename */
+	.origin_protocol	= LWSMPRO_FILE,		/* files in a dir */
+	.mountpoint_len		= 1,			/* char count */
 };
 
 void signal_cb(void *handle, int signum)

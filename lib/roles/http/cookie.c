@@ -160,11 +160,13 @@ lws_cookie_rm_sws(const char **buf_p, size_t *len_p)
 
 	buf = *buf_p;
 	len = *len_p;
+
 	while (buf[0] == ' ' && len > 0) {
 		buf++;
 		len--;
 	}
-	while (buf[len - 1] == ' ' && len > 0)
+
+	while (len && buf[len - 1] == ' ')
 		len--;
 
 	*buf_p = buf;

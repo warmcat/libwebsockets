@@ -13,11 +13,6 @@ Release Checklist
 
    set(SOVERSION "6")
 
-  - scripts/libwebsockets.spec
-
-  -/%{_libdir}/libwebsockets.so.6
-  +/%{_libdir}/libwebsockets.so.7
-
 3) changelog
 
  a) Add next version tag header.

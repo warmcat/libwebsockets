@@ -63,7 +63,7 @@ if (LWS_WITH_NETWORK)
 			list(APPEND SOURCES plat/unix/unix-resolv.c)
 		endif()
 	endif()
-	if (LWS_HAVE_SYSTEMD_H)
+	if (LWS_WITH_SDEVENT AND LWS_HAVE_SYSTEMD_H)
 		list(APPEND SOURCES
 			plat/unix/unix-systemd.c
 		)

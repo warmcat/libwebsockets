@@ -1463,7 +1463,7 @@ int lws_add_http2_header_by_token(struct lws *wsi, enum lws_token_indexes token,
 int lws_add_http2_header_status(struct lws *wsi, unsigned int code,
 				unsigned char **p, unsigned char *end)
 {
-	unsigned char status[10];
+	unsigned char status[12];
 	int n;
 
 	wsi->h2.send_END_STREAM = 0; // !!(code >= 400);

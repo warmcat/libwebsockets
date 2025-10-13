@@ -186,8 +186,8 @@ lws_plat_init(struct lws_context *context,
 
 		/* ... coverity taint with lws_strncpy()... */
 
-		while (klf_env && klf_env[n] &&
-		       n < sizeof(context->keylog_file) - 1) {
+		while (klf_env && n < sizeof(context->keylog_file) - 1 &&
+		       klf_env[n]) {
 			context->keylog_file[n] = klf_env[n];
 			n++;
 		}
@@ -197,21 +197,26 @@ lws_plat_init(struct lws_context *context,
 
 #if defined(LWS_WITH_PLUGINS) && !defined(LWS_WITH_PLUGINS_BUILTIN)
 	{
-		char *ld_env = getenv("LD_LIBRARY_PATH");
+		const char *pp[8] = { };
+		int n = 0;
 
-		if (ld_env) {
-			const char *pp[2] = { ld_env, NULL };
+		if (info->plugin_dirs) {
+			int m = 0;
 
-			lws_plugins_init(&context->plugin_list, pp,
-					 "lws_protocol_plugin", NULL,
-					 protocol_plugin_cb, context);
+			while (info->plugin_dirs[m] && n < (int)LWS_ARRAY_SIZE(pp) - 1)
+				pp[n++] = info->plugin_dirs[m++];
 		}
 
-		if (info->plugin_dirs)
-			lws_plugins_init(&context->plugin_list,
-					 info->plugin_dirs,
-					 "lws_protocol_plugin", NULL,
-					 protocol_plugin_cb, context);
+		if (n < (int)LWS_ARRAY_SIZE(pp) - 1)
+			pp[n++] = LWS_INSTALL_DATADIR"/libwebsockets-test-server/plugins";
+
+		pp[n] = NULL;
+
+		/* We'll also look at LD_LIBRARY_PATH first in here */
+
+		lws_plugins_init(&context->plugin_list, pp,
+				 "lws_protocol_plugin", NULL,
+				 protocol_plugin_cb, context);
 	}
 
 #endif
@@ -262,4 +267,9 @@ lws_plat_context_late_destroy(struct lws_context *context)
 		lwsl_err("ZERO RANDOM FD\n");
 	if (context->fd_random != LWS_INVALID_FILE)
 		close(context->fd_random);
+
+#if defined(LWS_WITH_MBEDTLS)
+	mbedtls_entropy_free(&context->mec);
+	mbedtls_ctr_drbg_free(&context->mcdc);
+#endif
 }

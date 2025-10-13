@@ -232,7 +232,7 @@ lws_tls_jit_trust_sort_kids(struct lws *wsi, lws_tls_kid_chain_t *ch)
 static void
 tag_to_vh_name(char *result, size_t max, uint32_t tag)
 {
-	lws_snprintf(result, max, "jitt-%08X", tag);
+	lws_snprintf(result, max, "jitt-%08X", (unsigned int)tag);
 }
 
 int
@@ -587,8 +587,10 @@ lws_tls_jit_trust_got_cert_cb(struct lws_context *cx, void *got_opaque,
 	info.protocols = cx->protocols_copy;
 
 	v = lws_create_vhost(cx, &info);
-	if (!v)
+	if (!v) {
 		lwsl_err("%s: failed to create vh %s\n", __func__, vhtag);
+		goto destroy_inf;
+	}
 
 	v->grace_after_unref = 1;
 	lws_tls_jit_trust_vh_start_grace(v);
@@ -630,6 +632,7 @@ lws_tls_jit_trust_blob_queury_skid(const void *_blob, size_t blen,
 {
 	const uint8_t *pskidlen, *pskids, *pder, *blob = (uint8_t *)_blob;
 	const uint16_t *pderlen;
+	size_t siz;
 	int certs;
 
 	/* sanity check blob length and magic */
@@ -651,6 +654,8 @@ lws_tls_jit_trust_blob_queury_skid(const void *_blob, size_t blen,
 
 	pderlen		= (uint16_t *)(blob + lws_ser_ru32be(blob +
 							LJT_OFS_32_DERLEN));
+	if (pderlen >= (const uint16_t *)(blob + blen))
+		return 1;
 	pskidlen	= blob + lws_ser_ru32be(blob + LJT_OFS_32_SKIDLEN);
 	pskids		= blob + lws_ser_ru32be(blob + LJT_OFS_32_SKID);
 	pder		= blob + LJT_OFS_DER;
@@ -661,10 +666,22 @@ lws_tls_jit_trust_blob_queury_skid(const void *_blob, size_t blen,
 
 		/* paranoia / sanity */
 
-		assert(pskids < blob + blen);
-		assert(pder < blob + blen);
-		assert(pskidlen < blob + blen);
-		assert((uint8_t *)pderlen < blob + blen);
+		if (pskids >= blob + blen) {
+			assert(0);
+			break;
+		}
+		if (pder >= blob + blen) {
+			assert(0);
+			break;
+		}
+		if (pskidlen >= blob + blen) {
+			assert(0);
+			break;
+		}
+		if ((uint8_t *)pderlen >= blob + blen) {
+			assert(0);
+			break;
+		}
 
 		/* we will accept to match on truncated SKIDs */
 
@@ -674,7 +691,12 @@ lws_tls_jit_trust_blob_queury_skid(const void *_blob, size_t blen,
 			 * We found a trusted CA cert of the right SKID
 			 */
 		        *prpder = pder;
-		        *prder_len = lws_ser_ru16be((uint8_t *)pderlen);
+		        siz = lws_ser_ru16be((uint8_t *)pderlen);
+
+			if (siz >= blen - lws_ptr_diff_size_t(pder, blob))
+				break;
+
+			*prder_len = siz;
 
 		        return 0;
 		}
@@ -682,6 +704,9 @@ lws_tls_jit_trust_blob_queury_skid(const void *_blob, size_t blen,
 		pder += lws_ser_ru16be((uint8_t *)pderlen);
 		pskids += *pskidlen;
 		pderlen++;
+		if (pderlen >= (const uint16_t *)(blob + blen))
+			break;
+
 		pskidlen++;
 	}
 

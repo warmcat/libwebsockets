@@ -202,7 +202,7 @@ lws_netdev_wifi_redo_last(lws_netdev_instance_wifi_t *wnd)
 	if (lws_settings_plat_get(netdevs->si, setname, buf, &l))
 		return 1;
 
-	lwsl_notice("%s: last successful %s\n", __func__, buf);
+	lwsl_notice("%s: last successful %.*s\n", __func__, (int)l, buf);
 
 	ssid = lws_json_simple_find((const char *)buf, l, "\"ssid\":", &al);
 	if (!ssid || al > 32)

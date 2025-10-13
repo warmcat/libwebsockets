@@ -263,7 +263,7 @@ int lws_open(const char *__file, int __oflag, ...)
 int
 lws_pthread_self_to_tsi(struct lws_context *context)
 {
-#if LWS_MAX_SMP > 1
+#if defined(LWS_WITH_NETWORK) && LWS_MAX_SMP > 1
 	pthread_t ps = pthread_self();
 	struct lws_context_per_thread *pt = &context->pt[0];
 	int n;
@@ -416,10 +416,11 @@ lws_check_utf8(unsigned char *state, unsigned char *buf, size_t len)
 char *
 lws_strdup(const char *s)
 {
-	char *d = lws_malloc(strlen(s) + 1, "strdup");
+	size_t l = strlen(s) + 1;
+	char *d = lws_malloc(l, "strdup");
 
 	if (d)
-		strcpy(d, s);
+		memcpy(d, s, l);
 
 	return d;
 }
@@ -867,7 +868,7 @@ lws_snprintf(char *str, size_t size, const char *format, ...)
 	va_list ap;
 	int n;
 
-	if (!size)
+	if (!str || !size)
 		return 0;
 
 	va_start(ap, format);
@@ -1069,12 +1070,15 @@ lws_tokenize(struct lws_tokenize *ts)
 
 		if (!utf8 &&
 		     ((ts->flags & LWS_TOKENIZE_F_RFC7230_DELIMS &&
-		     strchr(rfc7230_delims, c) && c > 32) ||
-		    ((!(ts->flags & LWS_TOKENIZE_F_RFC7230_DELIMS) &&
-		     (c < '0' || c > '9') && (c < 'A' || c > 'Z') &&
-		     (c < 'a' || c > 'z') && c != '_') &&
-		     c != s_minus && c != s_dot && c != s_star && c != s_eq) ||
-		    c == d_minus || c == d_dot || c == d_star || c == d_eq
+		       strchr(rfc7230_delims, c) && c > 32) ||
+		       ((!(ts->flags & LWS_TOKENIZE_F_RFC7230_DELIMS) &&
+		        (c < '0' || c > '9') && (c < 'A' || c > 'Z') &&
+		        (c < 'a' || c > 'z') && c != '_') &&
+		        c != s_minus && c != s_dot && c != s_star && c != s_eq) ||
+		        c == d_minus ||
+			c == d_dot ||
+			c == d_star ||
+			c == d_eq
 		    ) &&
 		    !((ts->flags & LWS_TOKENIZE_F_COLON_NONTERM) && c == ':') &&
 		    !((ts->flags & LWS_TOKENIZE_F_SLASH_NONTERM) && c == '/')) {
@@ -1418,7 +1422,7 @@ lws_strcmp_wildcard(const char *wildcard, size_t wlen, const char *check,
 	return wildcard != wc_end;
 }
 
-#if LWS_MAX_SMP > 1
+#if defined(LWS_WITH_NETWORK) && LWS_MAX_SMP > 1
 
 void
 lws_mutex_refcount_init(struct lws_mutex_refcount *mr)
@@ -1509,31 +1513,86 @@ lws_mutex_refcount_assert_held(struct lws_mutex_refcount *mr)
 
 #endif /* SMP */
 
+#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_BAREMETAL)
 
 const char *
-lws_cmdline_option(int argc, const char **argv, const char *val)
+lws_cmdline_options(int argc, const char * const *argv, const char *val, const char *last)
 {
-	size_t n = strlen(val);
-	int c = argc;
+	int c = 1, hit = 0;
+	size_t n = 0;
+	const char *p;
 
-	while (--c > 0) {
+	if (val)
+		n = strlen(val);
 
-		if (!strncmp(argv[c], val, n)) {
-			if (!*(argv[c] + n) && c < argc - 1) {
-				/* coverity treats unchecked argv as "tainted" */
-				if (!argv[c + 1] || strlen(argv[c + 1]) > 1024)
-					return NULL;
-				return argv[c + 1];
-			}
+	while (c < argc) {
 
-			if (argv[c][n] == '=')
-				return &argv[c][n + 1];
-			return argv[c] + n;
+		if (val && strncmp(argv[c], val, n)) /* skip if not matching val */
+			goto bump;
+
+		if (!val && argv[c][0] == '-') /* looking for non-switch */
+			goto bump;
+
+		if (!val && argv[c][0] != '-') { /* looking for non-switch */
+			p = argv[c];
+			goto try;
 		}
+
+		if (c < argc - 1 && !*(argv[c] + n)) {
+			/* coverity treats unchecked argv as "tainted" */
+			if (!argv[c + 1] || strlen(argv[c + 1]) > 1024)
+				return NULL;
+
+			p = argv[c + 1];
+			goto try;
+		}
+
+		if (argv[c][n] == '=') {
+			p =  &argv[c][n + 1];
+			goto try;
+		}
+
+		p = argv[c] + n;
+
+try:
+		if (last && !hit) {
+			if (p == last)
+				hit = 1;
+			goto bump;
+		}
+
+		return p;
+bump:
+		c++;
 	}
 
 	return NULL;
 }
+
+const char *
+lws_cmdline_options_cx(const struct lws_context *cx, const char *val, const char *last)
+{
+	assert(cx->argc);
+
+	if (!cx->stdin_argc)
+		return lws_cmdline_options((int)cx->argc, cx->argv, val, last);
+
+	return lws_cmdline_options((int)cx->stdin_argc, cx->stdin_argv, val, last);
+}
+
+const char *
+lws_cmdline_option_cx(const struct lws_context *cx, const char *val)
+{
+	return lws_cmdline_options_cx(cx, val, NULL);
+}
+
+
+const char *
+lws_cmdline_option(int argc, const char **argv, const char *val)
+{
+	return lws_cmdline_options(argc, argv, val, NULL);
+}
+#endif
 
 static const char * const builtins[] = {
 	"-d",
@@ -1637,6 +1696,9 @@ lws_cmdline_option_handle_builtin(int argc, const char **argv,
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	uint64_t seed = (uint64_t)lws_now_usecs();
 #endif
+
+	info->argc = argc;
+	info->argv = argv;
 
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(builtins); n++) {
 		p = lws_cmdline_option(argc, argv, builtins[n]);
@@ -1757,24 +1819,40 @@ decim(char *r, uint64_t v, char chars, char leading)
 int
 lws_humanize(char *p, size_t len, uint64_t v, const lws_humanize_unit_t *schema)
 {
+	const lws_humanize_unit_t *s = NULL;
 	char *obuf = p, *end = p + len;
 
 	do {
 		if (v >= schema->factor || schema->factor == 1) {
+			if (schema[1].name)
+				s = &schema[1];
+
 			if (schema->factor == 1) {
 				p += decim(p, v, 4, 0);
 				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
-						    "%s", schema->name);
+						"%s", schema->name);
 				return lws_ptr_diff(p, obuf);
 			}
 
 			p += decim(p, v / schema->factor, 4, 0);
-			*p++ = '.';
-			p += decim(p, (v % schema->factor) /
-					(schema->factor / 1000), 3, 1);
+			if (s) {
+				uint64_t iif = schema->factor / s->factor;
 
-			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
-					    "%s", schema->name);
+				if (s->factor * 1000 == schema->factor ||
+				    s->factor * 1024 == schema->factor) { /* decimal */
+					uint64_t d = (v % schema->factor) / (schema->factor / 1000);
+
+					if (d) { /* we want, eg 123ms rather than 123.000ms */
+						*p++ = '.';
+						p += decim(p, d, 3, 1);
+					}
+				} else { /* imperial fraction, eg, h:m */
+					*p++ = ':';
+					p += decim(p, (v % schema->factor) / s->factor,
+							iif >= 100 ? 3 : (iif >= 10 ? 2 : 1), 1);
+				}
+			}
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "%s", schema->name);
 			return lws_ptr_diff(p, obuf);
 		}
 		schema++;
@@ -1784,6 +1862,31 @@ lws_humanize(char *p, size_t len, uint64_t v, const lws_humanize_unit_t *schema)
 	strncpy(p, "unknown value", len);
 
 	return 0;
+}
+
+int
+lws_humanize_pad(char *p, size_t len, uint64_t v, const lws_humanize_unit_t *schema)
+{
+       size_t m, w = 0, n = (size_t)lws_humanize(p, len, v, schema);
+	const lws_humanize_unit_t *s = schema;
+       int t;
+
+	while (s->name) {
+		if (strlen(s->name) > w)
+			w = strlen(s->name);
+		s++;
+	}
+
+	m = (3 + 1 + 3 + w) - (size_t)n;
+
+       for (t = (int)n - 1; t >= 0; t--)
+               p[(size_t)t + m] = p[t];
+	p[m + n] = '\0';
+
+       for (t = 0; t < (int)m; t++)
+		p[t] = ' ';
+
+	return (int)(n + m);
 }
 
 /*

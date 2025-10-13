@@ -1,5 +1,5 @@
 project(lws-minimal-secure-streams C)
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 find_package(libwebsockets CONFIG REQUIRED)
 list(APPEND CMAKE_MODULE_PATH ${LWS_CMAKE_DIR})
 include(CheckCSourceCompiles)
@@ -102,7 +102,12 @@ if (requirements)
 				set(CTEST_SOCKET_PATH "@ctest-ssp-$ENV{SAI_PROJECT}-$ENV{SAI_OVN}")
 			else()
 				# filesystem socket for others
-				set(CTEST_SOCKET_PATH "/tmp/ctest-ssp-$ENV{SAI_PROJECT}-$ENV{SAI_OVN}")
+				if (DEFINED ENV{SAI_OVN})
+					string(SUBSTRING "$ENV{SAI_OVN}" 32 16 SHORT_HASH)
+				else()
+					set(SHORT_HASH "0")
+				endif()
+				set(CTEST_SOCKET_PATH "/tmp/ctest-ssp-$ENV{SAI_PROJECT}-${SHORT_HASH}")
 			endif()
 			add_test(NAME st_ssproxy COMMAND
 				${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh

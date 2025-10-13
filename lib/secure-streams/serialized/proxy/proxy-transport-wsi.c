@@ -48,6 +48,9 @@ lws_sss_proxy_transport_wsi_cb(struct lws *wsi, enum lws_callback_reasons reason
         case LWS_CALLBACK_RAW_ADOPT:
 		lwsl_user("LWS_CALLBACK_RAW_ADOPT %s\n", lws_txp_inside_proxy.name);
 
+		if (!pss)
+			return -1;
+
 		if (lws_txp_inside_proxy.event_new_conn(
 				wsi->a.context,
 				&lws_txp_inside_proxy,
@@ -115,14 +118,12 @@ lws_sss_proxy_transport_wsi_cb(struct lws *wsi, enum lws_callback_reasons reason
 		lwsl_info("%s: RX: rx %d\n", __func__, (int)len);
 
 		if (!conn) {
-			lwsl_err("%s: rx with conn %p / priv_in %p\n", __func__,
-					conn, conn->txp_path.priv_in);
+			lwsl_err("%s: rx with conn NULL\n", __func__);
 
 			return -1;
 		}
 
-		if (conn->txp_path.ops_in->proxy_read(
-				conn, in, len))
+		if (conn->txp_path.ops_in->proxy_read(conn, in, len))
 			return -1;
 
 		break;

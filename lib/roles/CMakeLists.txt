@@ -88,6 +88,6 @@ endif()
 # Keep explicit parent scope exports at end
 #
 
-exports_to_parent_scope()
+export_to_parent_intermediate()
 set(LWS_DEPS_LIB_PATHS ${LWS_DEPS_LIB_PATHS} PARENT_SCOPE)
 

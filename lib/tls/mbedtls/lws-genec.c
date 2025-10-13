@@ -64,7 +64,7 @@ lws_genec_keypair_import(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 			    el[LWS_GENCRYPTO_EC_KEYEL_CRV].buf ?
 				    (char *)el[LWS_GENCRYPTO_EC_KEYEL_CRV].buf :
 					    "null",
-			    el[LWS_GENCRYPTO_EC_KEYEL_CRV].len);
+			    (int)el[LWS_GENCRYPTO_EC_KEYEL_CRV].len);
 		return -21;
 	}
 

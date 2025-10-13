@@ -985,11 +985,18 @@ lws_h2_parse_frame_header(struct lws *wsi)
 
 	/* let the network wsi live a bit longer if subs are active */
 
-	if (!wsi->immortal_substream_count)
-		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE,
-				wsi->a.vhost->keepalive_timeout ?
-					wsi->a.vhost->keepalive_timeout : 31);
+	if (!wsi->immortal_substream_count) {
+		int ds = lws_wsi_keepalive_timeout_eff(wsi);
 
+		/*
+		 * A short (5s) timeout here affects the reverse proxy if
+		 * the onward box takes a long time to respond, eg to a POST.
+		 * The mount can override the keepalive timeout, eg, to give
+		 * the right behaviour depending on reverse proxy for a particular
+		 * server.
+		 */
+		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, ds);
+	}
 	if (h2n->sid)
 		h2n->swsi = lws_wsi_mux_from_id(wsi, h2n->sid);
 
@@ -1531,6 +1538,8 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			if (wsi->for_ss) {
 				lws_ss_handle_t *h = (lws_ss_handle_t *)lws_get_opaque_user_data(wsi);
 
+				if (!h)
+					return 1;
 				h2n->swsi->for_ss = 1;
 				wsi->for_ss = 0;
 
@@ -1974,7 +1983,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		break;
 
 	case LWS_H2_FRAME_TYPE_GOAWAY:
-		lwsl_notice("GOAWAY: last sid %u, error 0x%08X, string '%s'\n",
+		lwsl_wsi_notice(wsi, "RX GOAWAY: last sid %u, error 0x%08X, string '%s'\n",
 			  (unsigned int)h2n->goaway_last_sid,
 			  (unsigned int)h2n->goaway_err, h2n->goaway_str);
 
@@ -2179,9 +2188,8 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 				 */
 				if (!wsi->immortal_substream_count)
 					lws_set_timeout(wsi,
-					PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE,
-						wsi->a.vhost->keepalive_timeout ?
-					    wsi->a.vhost->keepalive_timeout : 31);
+						PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE,
+						lws_wsi_keepalive_timeout_eff(wsi));
 
 				if (!h2n->swsi)
 					break;
@@ -2329,12 +2337,14 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 						(unsigned int)h2n->count,
 						(unsigned int)h2n->length);
 
-				in += (unsigned int)n - 1;
-				h2n->inside += (unsigned int)n;
-				h2n->count += (unsigned int)n - 1;
+				if (n) {
+					in += (unsigned int)n - 1;
+					h2n->inside += (unsigned int)n;
+					h2n->count += (unsigned int)n - 1;
 
-				h2n->swsi->txc.peer_tx_cr_est -= n;
-				wsi->txc.peer_tx_cr_est -= n;
+					h2n->swsi->txc.peer_tx_cr_est -= n;
+					wsi->txc.peer_tx_cr_est -= n;
+				}
 
 do_windows:
 
@@ -2591,6 +2601,8 @@ lws_h2_client_handshake(struct lws *wsi)
 		path++;
 		n--;
 	}
+
+	// lwsl_hexdump_notice(path, (size_t)n);
 
 	if (n && lws_add_http_header_by_token(wsi,
 				WSI_TOKEN_HTTP_COLON_PATH,
@@ -2879,6 +2891,9 @@ lws_read_h2(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 		 */
 
 		m = lws_h2_parser(wsi, buf, len, &body_chunk_len);
+
+               body_chunk_len &= 0xffffffff; /* attempt workaround for finding len=7167 --> len = 0xffffffff00001bff on lws.org */
+
 		if (m && m != 2) {
 			lwsl_debug("%s: http2_parser bail: %d\n", __func__, m);
 			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,

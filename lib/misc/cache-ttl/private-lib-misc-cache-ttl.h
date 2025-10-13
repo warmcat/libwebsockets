@@ -22,6 +22,9 @@
  * IN THE SOFTWARE.
  */
 
+#if !defined(__MISC_CACHE_TTL_PRIVATE_LIB_MISC_CACHE_TTL__)
+#define __MISC_CACHE_TTL_PRIVATE_LIB_MISC_CACHE_TTL__
+
 #define lwsl_cache lwsl_debug
 #define lwsl_hexdump_cache lwsl_hexdump_debug
 
@@ -96,3 +99,6 @@ lws_cache_clear_matches(lws_dll2_owner_t *results_owner);
 
 void
 lws_cache_schedule(struct lws_cache_ttl_lru *cache, sul_cb_t cb, lws_usec_t e);
+
+#endif
+

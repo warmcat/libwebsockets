@@ -1,5 +1,5 @@
 project(lws-minimal-http-client-multi C)
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 find_package(libwebsockets CONFIG REQUIRED)
 list(APPEND CMAKE_MODULE_PATH ${LWS_CMAKE_DIR})
 include(CheckCSourceCompiles)
@@ -32,20 +32,10 @@ if (requirements)
        # instantiate the server per sai builder instance, they are running in the same
        # machine context in parallel so they can tread on each other otherwise
        #
-       set(PORT_HCM_SRV "7670")
-       if ("$ENV{SAI_INSTANCE_IDX}" STREQUAL "0")
-               set(PORT_HCM_SRV 7671)
+       set(PORT_HCM_SRV "6670")
+       if ("$ENV{SAI_INSTANCE_IDX}")
+	       math(EXPR PORT_HCM_SRV "6671 + $ENV{SAI_INSTANCE_IDX}")
        endif()
-       if ("$ENV{SAI_INSTANCE_IDX}" STREQUAL "1")
-               set(PORT_HCM_SRV 7672)
-       endif()
-       if ("$ENV{SAI_INSTANCE_IDX}" STREQUAL "2")
-               set(PORT_HCM_SRV 7673)
-       endif()
-       if ("$ENV{SAI_INSTANCE_IDX}" STREQUAL "3")
-               set(PORT_HCM_SRV 7674)
-       endif()
-
 
 # hack
 if (NOT WIN32 AND LWS_WITH_SERVER)
@@ -75,7 +65,7 @@ else()
 		add_test(NAME st_hcmp_srv COMMAND
 				${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 					hcmp_srv ${VALGRIND} --tool=memcheck $<TARGET_FILE:test-server> -s
-					-r ${CMAKE_SOURCE_DIR}/destdir/usr/local/share/libwebsockets-test-server/
+					-r ${CMAKE_BINARY_DIR}/share/libwebsockets-test-server/
 					--port 1${PORT_HCM_SRV})
 		add_test(NAME ki_hcmp_srv COMMAND
 				${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
@@ -93,7 +83,7 @@ else()
 		add_test(NAME st_hcmp_srv COMMAND
 				${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 					hcmp_srv $<TARGET_FILE:test-server> -s
-					-r ${CMAKE_SOURCE_DIR}/destdir/usr/local/share/libwebsockets-test-server/
+					-r ${CMAKE_BINARY_DIR}/share/libwebsockets-test-server/
 					--port 1${PORT_HCM_SRV} )
 		add_test(NAME ki_hcmp_srv COMMAND
 				${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
@@ -106,6 +96,9 @@ endif()
        		WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-server/minimal-http-server-tls
 		FIXTURES_SETUP hcm_srv
 		TIMEOUT 800)
+	set_property(TEST st_hcm_srv PROPERTY ENVIRONMENT SAI_LIST_PORT=${PORT_HCM_SRV} )
+	set_property(TEST st_hcm_srv PROPERTY ENVIRONMENT VENDOR=$ENV{VENDOR} )
+
 	set_tests_properties(ki_hcm_srv PROPERTIES
 		FIXTURES_CLEANUP hcm_srv)
 
@@ -113,6 +106,9 @@ endif()
        		WORKING_DIRECTORY .
 		FIXTURES_SETUP hcmp_srv
 		TIMEOUT 800)
+	set_property(TEST st_hcmp_srv PROPERTY ENVIRONMENT SAI_LIST_PORT=1${PORT_HCM_SRV} )
+	set_property(TEST st_hcmp_srv PROPERTY ENVIRONMENT VENDOR=$ENV{VENDOR} )
+
 	set_tests_properties(ki_hcmp_srv PROPERTIES
 		FIXTURES_CLEANUP hcmp_srv)
 
@@ -200,7 +196,7 @@ endif()
 			     PROPERTIES
 			     	FIXTURES_REQUIRED "hcmp_srv"
 			     	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-client/minimal-http-client-multi
-			     	TIMEOUT 20)
+			     	TIMEOUT 30)
 
 endif(NOT WIN32 AND LWS_WITH_SERVER)
 

@@ -309,14 +309,14 @@ For tests with local buddies using tcp sockets inside the same VM or systemd-
 nspawn networking context, you cannot just use a well-known port like 7681.
 
 ctest itself is usually executed concurrently, and Sai is typically building
-multiple different instances concurrently as well (typically 3), so it may be
+multiple different instances concurrently as well (perhaps dozens), so it may be
 running different ctests inside the same VM simultaneously.
 
 Different tests can have their own convention for port ranges, to solve the
 problem about Sai running different tests concurrently inside one ctest.
 
 For the case there are multiple ctests running, we can use the env var
-`$ENV{SAI_INSTANCE_IDX}`, which is an ordinal like 0 or 1, to further ensure
+`$ENV{SAI_INSTANCE_IDX}`, which is an ordinal like 0 or 1 or 33, to further ensure
 that port selections won't conflict.  If not using Sai, you can just set this
 in the evironment yourself to reflect your build instance index.
 
@@ -326,19 +326,13 @@ in the evironment yourself to reflect your build instance index.
        # machine context in parallel so they can tread on each other otherwise
        #
        set(PORT_HCM_SRV "7670")
-       if ("$ENV{SAI_INSTANCE_IDX}" STREQUAL "0")
-               set(PORT_HCM_SRV 7671)
-       endif()
-       if ("$ENV{SAI_INSTANCE_IDX}" STREQUAL "1")
-               set(PORT_HCM_SRV 7672)
-       endif()
-       if ("$ENV{SAI_INSTANCE_IDX}" STREQUAL "2")
-               set(PORT_HCM_SRV 7673)
-       endif()
-       if ("$ENV{SAI_INSTANCE_IDX}" STREQUAL "3")
-               set(PORT_HCM_SRV 7674)
+       if ("$ENV{SAI_INSTANCE_IDX}")
+	       math(EXPR PORT_HCM_SRV "7671 + $ENV{SAI_INSTANCE_IDX}")
        endif()
 ```
+
+The default value is for the case you are running the test manually, and not
+under Sai.
 
 This is complicated enough that the best approach is copy an existing simple
 case like the CMakeLists.txt for minimal-http-client and change the names and

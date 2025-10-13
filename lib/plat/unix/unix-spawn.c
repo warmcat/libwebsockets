@@ -28,6 +28,13 @@
 
 #include "private-lib-core.h"
 #include <unistd.h>
+#include <sys/types.h>
+#include <pwd.h>
+#include <grp.h>
+
+#if defined(__linux__)
+#include <sys/stat.h>
+#endif
 
 #if defined(__OpenBSD__) || defined(__NetBSD__)
 #include <sys/resource.h>
@@ -51,7 +58,7 @@ lws_spawn_sul_reap(struct lws_sorted_usec_list *sul)
 	struct lws_spawn_piped *lsp = lws_container_of(sul,
 					struct lws_spawn_piped, sul_reap);
 
-	lwsl_notice("%s: reaping spawn after last stdpipe, tries left %d\n",
+	lwsl_info("%s: reaping spawn after last stdpipe, tries left %d\n",
 		    __func__, lsp->reap_retry_budget);
 	if (!lws_spawn_reap(lsp) && !lsp->pipes_alive) {
 		if (--lsp->reap_retry_budget) {
@@ -146,16 +153,12 @@ lws_spawn_piped_destroy(struct lws_spawn_piped **_lsp)
 int
 lws_spawn_reap(struct lws_spawn_piped *lsp)
 {
-	long hz = sysconf(_SC_CLK_TCK); /* accounting Hz */
 	void *opaque = lsp->info.opaque;
 	lsp_cb_t cb = lsp->info.reap_cb;
-	struct lws_spawn_piped temp;
-	struct tms tms;
-#if defined(__OpenBSD__) || defined(__NetBSD__)
-	struct rusage rusa;
-	int status;
-#endif
-	int n;
+	lws_spawn_resource_us_t res;
+	struct rusage ru;
+	siginfo_t si;
+	int n, status;
 
 	if (lsp->child_pid < 1)
 		return 0;
@@ -163,21 +166,18 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	/* check if exited, do not reap yet */
 
 	memset(&lsp->si, 0, sizeof(lsp->si));
-#if defined(__OpenBSD__) || defined(__NetBSD__)
-	n = wait4(lsp->child_pid, &status, WNOHANG, &rusa);
-	if (!n)
-		return 0;
-	lsp->si.si_code = WIFEXITED(status);
-#else
-	n = waitid(P_PID, (id_t)lsp->child_pid, &lsp->si, WEXITED | WNOHANG | WNOWAIT);
-#endif
+	n = wait4(lsp->child_pid, &status, WNOHANG, &ru);
 	if (n < 0) {
-		lwsl_info("%s: child %d still running\n", __func__, lsp->child_pid);
+		lwsl_info("%s: child %d still running (errno %d)\n", __func__,
+			  lsp->child_pid, errno);
 		return 0;
 	}
 
-	if (!lsp->si.si_code)
+	if (!n)
 		return 0;
+
+	lsp->si.si_code = WIFEXITED(status);
+	lsp->si.si_status = WEXITSTATUS(status);
 
 	/* his process has exited... */
 
@@ -212,38 +212,59 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 
 	lws_sul_cancel(&lsp->sul);
 
+#if defined(__linux__)
+	if (lsp->cgroup_path[0]) {
+		/*
+		 * The child has been reaped, we can remove the cgroup dir.
+		 * This will only work if the cgroup is empty, which it should
+		 * be now.
+		 */
+		if (rmdir(lsp->cgroup_path))
+			lwsl_warn("%s: unable to rmdir cgroup %s, errno %d\n",
+				  __func__, lsp->cgroup_path, errno);
+		else
+			lwsl_info("%s: reaped cgroup %s\n", __func__, lsp->cgroup_path);
+	}
+#endif
+
 	/*
 	 * All the stdwsi went down, nothing more is coming... it's over
 	 * Collect the final information and then reap the dead process
 	 */
 
-	if (times(&tms) != (clock_t) -1) {
-		/*
-		 * Cpu accounting in us
-		 */
-		lsp->accounting[0] = (lws_usec_t)((uint64_t)tms.tms_cstime * 1000000) / hz;
-		lsp->accounting[1] = (lws_usec_t)((uint64_t)tms.tms_cutime * 1000000) / hz;
-		lsp->accounting[2] = (lws_usec_t)((uint64_t)tms.tms_stime * 1000000) / hz;
-		lsp->accounting[3] = (lws_usec_t)((uint64_t)tms.tms_utime * 1000000) / hz;
+	lsp->res.us_cpu_user =
+		((uint64_t)ru.ru_utime.tv_sec * 1000000) + (uint64_t)ru.ru_utime.tv_usec;
+	lsp->res.us_cpu_sys =
+		((uint64_t)ru.ru_stime.tv_sec * 1000000) + (uint64_t)ru.ru_stime.tv_usec;
+
+	/* ru_maxrss is in KB */
+	lsp->res.peak_mem_rss = (uint64_t)ru.ru_maxrss * 1024;
+
+#if 0
+	if (getrusage(RUSAGE_CHILDREN, &ru) == 0) {
+		lsp->res.us_cpu_user +=
+			((uint64_t)ru.ru_utime.tv_sec * 1000000) + (uint64_t)ru.ru_utime.tv_usec;
+		lsp->res.us_cpu_sys +=
+			((uint64_t)ru.ru_stime.tv_sec * 1000000) + (uint64_t)ru.ru_stime.tv_usec;
+		/* ru_maxrss is in KB */
+		lsp->res.peak_mem_rss += (uint64_t)ru.ru_maxrss * 1024;
+	} else
+		lwsl_err("%s: getrusage failed\n", __func__);
+#endif
+
+	n = waitpid(lsp->child_pid, &status, WNOHANG);
+	if (n < 0) {
+		lwsl_info("%s: child %d vanished\n", __func__, lsp->child_pid);
 	}
 
-	temp = *lsp;
-#if defined(__OpenBSD__) || defined(__NetBSD__)
-	n = wait4(lsp->child_pid, &status, WNOHANG, &rusa);
-	if (!n)
-		return 0;
-	lsp->si.si_code = WIFEXITED(status);
-	if (lsp->si.si_code == CLD_EXITED)
-		temp.si.si_code = CLD_EXITED;
-	temp.si.si_status = WEXITSTATUS(status);
-#else
-	n = waitid(P_PID, (id_t)lsp->child_pid, &temp.si, WEXITED | WNOHANG);
-#endif
-	temp.si.si_status &= 0xff; /* we use b8 + for flags */
 	lwsl_info("%s: waitd says %d, process exit %d\n",
-		    __func__, n, temp.si.si_status);
+		    __func__, n, lsp->si.si_status);
 
-	lsp->child_pid = -1;
+	lsp->child_pid		= -1;
+	si			= lsp->si;
+	res			= lsp->res;
+	n			= lsp->we_killed_him_timeout |
+					(lsp->we_killed_him_spew << 1);
 
 	/* destroy the lsp itself first (it's freed and plsp set NULL */
 
@@ -253,12 +274,18 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	/* then do the parent callback informing it's destroyed */
 
 	if (cb)
-		cb(opaque, temp.accounting, &temp.si,
-		   temp.we_killed_him_timeout |
-			   (temp.we_killed_him_spew << 1));
+		cb(opaque, &res, &si, n);
 
 	return 1; /* was reaped */
 }
+
+/*
+ * We send the child a SIGTERM, that's all.
+ *
+ * The process should terminate, closing the stdwsi.  The stdwsi pipes on
+ * our side should indicate they need handling and CLOSE.  When the last
+ * one CLOSEs, the lws_spawn_stdwsi_closed() api should do the reap.
+ */
 
 int
 lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp)
@@ -269,10 +296,6 @@ lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp)
 		return 1;
 
 	lsp->ungraceful = 1; /* don't wait for flushing, just kill it */
-
-	if (lws_spawn_reap(lsp))
-		/* that may have invalidated lsp */
-		return 0;
 
 	/* kill the process group */
 	n = kill(-lsp->child_pid, SIGTERM);
@@ -313,10 +336,67 @@ lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp)
 		}
 	}
 
-	lws_spawn_reap(lsp);
-	/* that may have invalidated lsp */
+	return 0;
+}
+
+int
+lws_spawn_get_self_cgroup(char *cgroup, size_t max)
+{
+#if defined(__linux__)
+	int fd = open("/proc/self/cgroup", O_RDONLY);
+	char *p, s[256], *end = &s[sizeof(s) - 1];
+	ssize_t r;
+	size_t ur;
+
+	if (fd < 0) {
+		lwsl_err("%s: unable to open /proc/self/cgroup\n", __func__);
+		return 1;
+	}
+
+	r = read(fd, s, sizeof(s) - 2);
+	close(fd);
+	if (r < 0) {
+		lwsl_err("%s: unable to read from /proc/self/cgroup\n", __func__);
+
+		return 1;
+	}
+	ur = (size_t)r;
+
+	s[ur] = '\0'; 
+	p = strchr(s, ':');
+
+	if (!p) {
+		lwsl_err("%s: unable to find first :  '%s'\n", __func__, s);
+		return 1;
+	}
+
+	p = strchr(p + 1, ':');
+	if (!p || lws_ptr_diff_size_t(end, p) < 3) {
+		lwsl_err("%s: unable to find second :  '%s'\n", __func__, s);
+
+		return 1;
+	}
+	p++;
+
+	/* name starts from p to NUL */
+
+	ur = strlen(p);
+
+	if (p[ur - 1] == '\n')
+		p[--ur] = '\0';
+
+	if (ur > max - 1) {
+		lwsl_err("%s: cgroup name too large :  '%s'\n", __func__, s);
+
+		return 1;
+	}
+
+	memcpy(cgroup, p, ur + 1u);
 
 	return 0;
+#else
+	return 1;
+#endif
 }
 
 /*
@@ -330,6 +410,9 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	const struct lws_protocols *pcol = i->vh->context->vhost_list->protocols;
 	struct lws_context *context = i->vh->context;
 	struct lws_spawn_piped *lsp;
+#if defined(__linux__)
+	int do_cgroup = 0;
+#endif
 	const char *wd;
 	int n, m;
 
@@ -350,6 +433,13 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	lsp->info = *i;
 	lsp->reap_retry_budget = 20;
 
+#if defined(__linux__)
+	lsp->cgroup_path[0] = '\0';
+#endif
+
+	if (i->p_cgroup_ret)
+		*i->p_cgroup_ret = 1; /* Default to cgroup failed */
+
 	/*
 	 * Prepare the stdin / out / err pipes
 	 */
@@ -364,7 +454,8 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	for (n = 0; n < 3; n++) {
 		if (pipe(lsp->pipe_fds[n]) == -1)
 			goto bail1;
-		lws_plat_apply_FD_CLOEXEC(lsp->pipe_fds[n][n == 0]);
+		if (lws_plat_apply_FD_CLOEXEC(lsp->pipe_fds[n][n == 0]))
+			lwsl_info("%s: FD_CLOEXEC didn't stick\n", __func__);
 	}
 
 	/*
@@ -423,6 +514,9 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 
 		if (__insert_wsi_socket_into_fds(context, lsp->stdwsi[n]))
 			goto bail3;
+
+		lws_dll2_remove(&lsp->stdwsi[n]->pre_natal);
+
 		if (i->opt_parent) {
 			lsp->stdwsi[n]->parent = i->opt_parent;
 			lsp->stdwsi[n]->sibling_list = i->opt_parent->child_list;
@@ -441,6 +535,54 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		   lsp->stdwsi[LWS_STDIN]->desc.sockfd,
 		   lsp->stdwsi[LWS_STDOUT]->desc.sockfd,
 		   lsp->stdwsi[LWS_STDERR]->desc.sockfd);
+ 
+#if defined(__linux__)
+	if (i->cgroup_name_suffix && i->cgroup_name_suffix[0]) {
+		char self_cg[256];
+
+		if (lws_spawn_get_self_cgroup(self_cg, sizeof(self_cg) - 1))
+			lwsl_err("%s: failed to get self cgroup\n", __func__);
+		else {
+			lws_snprintf(lsp->cgroup_path, sizeof(lsp->cgroup_path),
+			     "/sys/fs/cgroup%s/%s", self_cg, i->cgroup_name_suffix);
+
+			if (mkdir(lsp->cgroup_path, 0755)) {
+				lwsl_warn("%s: failed to generate cgroup dir %s: errno %d\n",
+						__func__, lsp->cgroup_path, errno);
+				lsp->cgroup_path[0] = '\0';
+			} else {
+				char pth[300];
+				int cfd;
+
+				lws_snprintf(pth, sizeof(pth), "%s/cgroup.type", lsp->cgroup_path);
+				cfd = lws_open(pth, LWS_O_WRONLY);
+				if (cfd >= 0) {
+					if (write(cfd, "threaded", 8) != 8)
+						lwsl_warn("%s: failed to write threaded\n", __func__);
+
+					close(cfd);
+				}
+
+				lwsl_info("%s: created cgroup %s\n", __func__, lsp->cgroup_path);
+				lws_snprintf(pth, sizeof(pth), "%s/pids.max", lsp->cgroup_path);
+				cfd = lws_open(pth, LWS_O_WRONLY);
+				if (cfd >= 0) {
+					if (write(cfd, "max", 3) != 3)
+						lwsl_warn("%s: failed to write max\n", __func__);
+
+					close(cfd);
+				}
+
+				do_cgroup = 1;
+			}
+		}
+	}
+
+	if (i->p_cgroup_ret)
+		/* Report cgroup success to caller */
+		*i->p_cgroup_ret = !do_cgroup;
+
+#endif
 
 	/* we are ready with the redirection pipes... do the (v)fork */
 #if defined(__sun) || !defined(LWS_HAVE_VFORK) || !defined(LWS_HAVE_EXECVPE)
@@ -484,9 +626,9 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		lwsl_info("%s: lsp %p spawned PID %d\n", __func__, lsp,
 			  lsp->child_pid);
 
-		lws_sul_schedule(context, i->tsi, &lsp->sul, lws_spawn_timeout,
-				 i->timeout_us ? i->timeout_us :
-						   300 * LWS_US_PER_SEC);
+		if (i->timeout_us)
+			lws_sul_schedule(context, i->tsi, &lsp->sul, lws_spawn_timeout,
+					 i->timeout_us);
 
 		if (i->owner)
 			lws_dll2_add_head(&lsp->dll, i->owner);
@@ -494,6 +636,9 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		if (i->timeout_us)
 			lws_sul_schedule(context, i->tsi, &lsp->sul,
 					 lws_spawn_timeout, i->timeout_us);
+
+               if (i->plsp)
+                       *i->plsp = lsp;
 
 		return lsp;
 	}
@@ -506,12 +651,41 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	 * process is OK.  Stuff that happens after the execvpe() is OK.
 	 */
 
+#if defined(__linux__)
+	if (lsp->cgroup_path[0]) {
+		char path[300], pid_str[20];
+		int fd, len;
+
+		/*
+		 * We are the new child process. We must move ourselves into
+		 * the cgroup created for us by the parent.
+		 */
+		lws_snprintf(path, sizeof(path) - 1, "%s/cgroup.procs", lsp->cgroup_path);
+		fd = open(path, O_WRONLY);
+		if (fd >= 0) {
+			len = lws_snprintf(pid_str, sizeof(pid_str) - 1, "%d", (int)getpid());
+			if (write(fd, pid_str, (size_t)len) != (ssize_t)len) {
+				/*
+				 * using lwsl_err here is unsafe in vfork()
+				 * child, just exit with a special code
+				 */
+				_exit(121);
+			}
+			close(fd);
+		} else
+			_exit(122);
+	}
+#endif
+
 	if (i->chroot_path && chroot(i->chroot_path)) {
 		lwsl_err("%s: child chroot %s failed, errno %d\n",
 			 __func__, i->chroot_path, errno);
 
 		exit(2);
 	}
+
+	if (chdir("/")) /* cov */
+		lwsl_notice("%s: Failed to cd to /\n", __func__);
 
 	/* cwd: somewhere we can at least read things and enter it */
 
@@ -592,10 +766,37 @@ bail1:
 }
 
 void
+lws_spawn_closedown_stdwsis(struct lws_spawn_piped *lsp)
+{
+	int n;
+
+	for (n = 0; n < 3; n++)
+		if (lsp->stdwsi[n])
+			lws_wsi_close(lsp->stdwsi[n], LWS_TO_KILL_ASYNC);
+}
+
+int
 lws_spawn_stdwsi_closed(struct lws_spawn_piped *lsp, struct lws *wsi)
 {
 	int n;
 
+	/*
+	 * This is part of the normal cleanup path, check if the lsp has already
+	 * been destroyed by a timeout or other error path. If the stdwsi that
+	 * is closing has already been nulled out, we have already been through
+	 * destroy.
+	 */
+	for (n = 0; n < 3; n++)
+		if (lsp->stdwsi[n] == wsi)
+			goto found;
+
+	/* Not found, so must have been destroyed already */
+	lwsl_warn("%s: ----------------- didn't find stdwsi on lsp\n", __func__);
+
+	return 0;
+
+found:
+ 
 	assert(lsp);
 	lsp->pipes_alive--;
 	lwsl_debug("%s: pipes alive %d\n", __func__, lsp->pipes_alive);
@@ -606,10 +807,128 @@ lws_spawn_stdwsi_closed(struct lws_spawn_piped *lsp, struct lws *wsi)
 	for (n = 0; n < 3; n++)
 		if (lsp->stdwsi[n] == wsi)
 			lsp->stdwsi[n] = NULL;
+
+	return !lsp->pipes_alive;
+}
+
+int
+lws_spawn_get_stdwsi_open_count(struct lws_spawn_piped *lsp)
+{
+	return lsp->pipes_alive;
 }
 
 int
 lws_spawn_get_stdfd(struct lws *wsi)
 {
 	return wsi->lsp_channel;
+}
+
+int
+lws_spawn_prepare_self_cgroup(const char *user, const char *group)
+{
+#if defined(__linux__)
+	uid_t uid = (uid_t)-1;
+	gid_t gid = (gid_t)-1;
+	char path[256], self_cgroup[256];
+	int fd;
+
+	if (lws_spawn_get_self_cgroup(self_cgroup, sizeof(self_cgroup) - 1)) {
+		lwsl_err("%s: unable to get self cgroup\n", __func__);
+
+		return 1;
+	}
+
+	lws_snprintf(path, sizeof(path), "/sys/fs/cgroup%s/cgroup.subtree_control",
+			self_cgroup);
+
+	fd = lws_open(path, LWS_O_WRONLY);
+	if (fd < 0) {
+		/* May fail if user doesn't own the file, that's okay */
+		lwsl_notice("%s: cannot open subtree_control: %s\n",
+			    __func__, strerror(errno));
+		return 0; /* Still a success if dir exists */
+	}
+
+	if (write(fd, "+cpu +memory +pids +io", 22) != 22)
+		/* ignore, may be there already or fail due to perms */
+		lwsl_debug("%s: setting admin cgroup options failed\n", __func__);
+	close(fd);
+
+	lws_snprintf(path, sizeof(path), "/sys/fs/cgroup%s", self_cgroup);
+
+	if (user) {
+		struct passwd *pwd;
+
+		pwd = getpwnam(user);
+		if (pwd)
+			uid = pwd->pw_uid;
+		else
+			lwsl_warn("%s: user '%s' not found\n", __func__, user);
+	}
+	if (group) {
+		struct group *grp;
+ 
+		grp = getgrnam(group);
+		if (grp)
+			gid = grp->gr_gid;
+		else
+			lwsl_warn("%s: group '%s' not found\n", __func__, group);
+	}
+
+	if (uid != (uid_t)-1 || gid != (gid_t)-1) {
+
+		lwsl_notice("%s: switching %s to %d:%d\n",
+				__func__, path, uid, gid);
+
+		if (chown(path, uid, gid) < 0)
+			lwsl_warn("%s: failed to chown %s: %s\n",
+				  __func__, path, strerror(errno));
+		/* 2. ALSO change ownership of the critical control files inside it */
+		lws_snprintf(path, sizeof(path), "/sys/fs/cgroup%s/cgroup.procs", self_cgroup);
+		if (chown(path, uid, gid) < 0)
+			lwsl_warn("%s: failed to chown %s: %s\n",
+				  __func__, path, strerror(errno));
+
+		lws_snprintf(path, sizeof(path), "/sys/fs/cgroup%s/cgroup.subtree_control", self_cgroup);
+		if (chown(path, uid, gid) < 0)
+			lwsl_warn("%s: failed to chown %s: %s\n",
+				  __func__, path, strerror(errno));
+ 	}
+	lws_snprintf(path, sizeof(path), "/sys/fs/cgroup%s/lws", self_cgroup);
+	if (mkdir(path, 0775) < 0)
+		lwsl_err("%s: unable to mkdir %s\n", __func__, path);
+	if (uid != (uid_t)-1 || gid != (gid_t)-1) {
+
+		lwsl_notice("%s: switching %s to %d:%d\n",
+				__func__, path, uid, gid);
+
+		if (chown(path, uid, gid) < 0)
+			lwsl_warn("%s: failed to chown %s: %s\n",
+				  __func__, path, strerror(errno));
+		/* 2. ALSO change ownership of the critical control files inside it */
+		lws_snprintf(path, sizeof(path), "/sys/fs/cgroup%s/cgroup.procs", self_cgroup);
+		if (chown(path, uid, gid) < 0)
+			lwsl_warn("%s: failed to chown %s: %s\n",
+				  __func__, path, strerror(errno));
+
+		lws_snprintf(path, sizeof(path), "/sys/fs/cgroup%s/cgroup.subtree_control", self_cgroup);
+		if (chown(path, uid, gid) < 0)
+			lwsl_warn("%s: failed to chown %s: %s\n",
+				  __func__, path, strerror(errno));
+ 	}
+
+
+	lwsl_notice("%s: lws cgroup parent configured: %s\n", __func__, path);
+
+	return 0;
+#endif
+	return 1; /* Not supported on this platform */
+}
+
+int
+lws_spawn_get_fd_stdxxx(struct lws_spawn_piped *lsp, int std_idx)
+{
+	assert(std_idx >= 0 && std_idx < 3);
+
+	return lsp->pipe_fds[std_idx][!!(std_idx == 0)];
 }

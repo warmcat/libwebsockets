@@ -633,7 +633,7 @@ lws_process_ws_upgrade(struct lws *wsi)
 	/* we didn't find a protocol he wanted? */
 
 	if (!pcol) {
-		lwsl_notice("No supported protocol \"%s\"\n", buf);
+		lwsl_wsi_notice(wsi, "No supported protocol \"%s\"\n", buf);
 
 		return 1;
 	}
@@ -739,17 +739,20 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 		p += lws_snprintf(p, 128, "%s", prot);
 	}
 
+       LWS_CPYAPP(p, "\x0d\x0a");
+
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	/*
 	 * Figure out which extensions the client has that we want to
 	 * enable on this connection, and give him back the list.
 	 *
-	 * Give him a limited write bugdet
+	 * Give him a limited write bugdet.
+	 *
+	 * This appends a closing CRLF before returning, if h1
 	 */
-	if (lws_extension_server_handshake(wsi, &p, 192))
+	if (lws_extension_server_handshake(wsi, &p, 190))
 		goto bail;
 #endif
-	LWS_CPYAPP(p, "\x0d\x0a");
 
 	args.p = p;
 	args.max_len = lws_ptr_diff((char *)pt->serv_buf +
@@ -999,6 +1002,7 @@ int
 lws_parse_ws(struct lws *wsi, unsigned char **buf, size_t len)
 {
 	unsigned char *bufin = *buf;
+	lws_handling_result_t hr;
 	int m, bulk = 0;
 
 	lwsl_debug("%s: received %d byte packet\n", __func__, (int)len);
@@ -1042,8 +1046,8 @@ lws_parse_ws(struct lws *wsi, unsigned char **buf, size_t len)
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 		if (wsi->ws->rx_draining_ext) {
 			lwsl_debug("%s: draining rx ext\n", __func__);
-			m = lws_ws_rx_sm(wsi, ALREADY_PROCESSED_IGNORE_CHAR, 0);
-			if (m < 0)
+			if (lws_ws_rx_sm(wsi, ALREADY_PROCESSED_IGNORE_CHAR, 0) ==
+						LWS_HPI_RET_PLEASE_CLOSE_ME)
 				return -1;
 			continue;
 		}
@@ -1075,7 +1079,7 @@ lws_parse_ws(struct lws *wsi, unsigned char **buf, size_t len)
 
 		if (!bulk) {
 			/* process the byte */
-			m = lws_ws_rx_sm(wsi, 0, *(*buf)++);
+			hr = lws_ws_rx_sm(wsi, 0, *(*buf)++);
 			len--;
 		} else {
 			/*
@@ -1088,11 +1092,11 @@ lws_parse_ws(struct lws *wsi, unsigned char **buf, size_t len)
 				   __func__, (int)len,
 				   wsi->ws->rx_draining_ext);
 #endif
-			m = lws_ws_rx_sm(wsi, ALREADY_PROCESSED_IGNORE_CHAR |
+			hr = lws_ws_rx_sm(wsi, ALREADY_PROCESSED_IGNORE_CHAR |
 					      ALREADY_PROCESSED_NO_CB, 0);
 		}
 
-		if (m < 0) {
+		if (hr == LWS_HPI_RET_PLEASE_CLOSE_ME) {
 			lwsl_info("%s: lws_ws_rx_sm bailed %d\n", __func__,
 				  bulk);
 

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 
 if (ESP_PLATFORM)
 
@@ -6,7 +6,7 @@ if (ESP_PLATFORM)
 	project(lws-minimal-esp32 C)
 	enable_testing()
 
-	target_link_libraries(lws-minimal-esp32.elf websockets)
+	target_link_libraries(lws-minimal-esp32.elf PRIVATE websockets)
 
 	option(LWS_WITH_DRIVERS "With generic drivers for gpio, i2c, display etc" ON)
 	set(LWS_WITH_DRIVERS ON)
@@ -30,8 +30,8 @@ if (ESP_PLATFORM)
         option(LWS_WITH_ALLOC_METADATA_LWS "Build lws_*alloc() with compressed backtraces (requires WITH_COMPRESSED_BACKTRACES)" OFF)
         set(LWS_WITH_ALLOC_METADATA_LWS OFF)
 
-        option(LWS_WITH_OTA "Build with support for Over The Air update download and validation" ON)
-        set(LWS_WITH_OTA ON)
+	option(LWS_WITH_OTA "Build with support for Over The Air update download and validation" OFF)
+	set(LWS_WITH_OTA OFF)
 
         set(LWS_OTA_VARIANT "esp32-heltec-128-64" CACHE STRING "Build variant for OTA filtering" FORCE)
         set(LWS_OTA_PUBLIC_JWK_FILE "$ENV{HOME}/.lws_ota/libwebsockets.org-ota-v1.public.jwk" CACHE STRING "JWK path" FORCE)

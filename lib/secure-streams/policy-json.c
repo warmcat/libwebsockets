@@ -896,6 +896,8 @@ lws_ss_policy_parser_cb(struct lejp_ctx *ctx, char reason)
 			sizeof(lws_ss_metadata_t) + ctx->npos +
 			(unsigned int)(ctx->path_match_len - ctx->st[ctx->sp - 2].p + 1) + 2,
 			POL_AC_GRAIN);
+		if (!a->curr[LTY_POLICY].p->metadata)
+			return -1;
 		a->curr[LTY_POLICY].p->metadata->next = pmd;
 
 		q = (char *)a->curr[LTY_POLICY].p->metadata +

@@ -379,7 +379,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 					)
 {
 	X509 *d2i_X509(X509 **cert, const unsigned char **buffer, long len);
-	SSL_METHOD *method = (SSL_METHOD *)TLS_client_method();
+	SSL_METHOD *method;
 	unsigned long error;
 	int n;
 
@@ -387,6 +387,16 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	vh->tls_session_cache_max = info->tls_session_cache_max ?
 				    info->tls_session_cache_max : 10;
 	lws_tls_session_cache(vh, info->tls_session_timeout);
+#endif
+
+#if defined(MBEDTLS_SSL_PROTO_TLS1_2)
+	method = (SSL_METHOD *)TLSv1_2_client_method();
+#elif defined(MBEDTLS_SSL_PROTO_TLS1_1)
+	method = (SSL_METHOD *)TLSv1_1_client_method();
+#elif defined(MBEDTLS_SSL_PROTO_TLS1)
+	method = (SSL_METHOD *)TLSv1_client_method();
+#else
+	method = (SSL_METHOD *)TLS_client_method();
 #endif
 
 	if (!method) {
@@ -406,38 +416,47 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		return 1;
 	}
 
-	if (!ca_filepath && (!ca_mem || !ca_mem_len))
-		return 0;
-
-	if (ca_filepath) {
+	if (!ca_filepath && (!ca_mem || !ca_mem_len)) {
+#if defined(LWS_HAVE_SSL_CTX_load_verify_dir)
+		if (!SSL_CTX_load_verify_dir(
+			vh->tls.ssl_client_ctx, LWS_OPENSSL_CLIENT_CERTS))
+#else
+		if (!SSL_CTX_load_verify_locations(
+			vh->tls.ssl_client_ctx, NULL, LWS_OPENSSL_CLIENT_CERTS))
+#endif
+			lwsl_err("Unable to load SSL Client certs from %s "
+			    "(set by LWS_OPENSSL_CLIENT_CERTS) -- "
+			    "client ssl isn't going to work\n",
+			    LWS_OPENSSL_CLIENT_CERTS);
+	} else if (ca_filepath) {
 #if !defined(LWS_PLAT_OPTEE)
-		uint8_t *buf;
-		lws_filepos_t len;
-
-		if (alloc_file(vh->context, ca_filepath, &buf, &len)) {
-			lwsl_err("Load CA cert file %s failed\n", ca_filepath);
-			return 1;
+#if defined(LWS_HAVE_SSL_CTX_load_verify_file)
+		if (!SSL_CTX_load_verify_file(
+			vh->tls.ssl_client_ctx, ca_filepath)) {
+#else
+		if (!SSL_CTX_load_verify_locations(
+			vh->tls.ssl_client_ctx, ca_filepath, NULL)) {
+#endif
+			lwsl_err(
+				"Unable to load SSL Client certs "
+				"file from %s -- client ssl isn't "
+				"going to work\n", ca_filepath);
 		}
-		vh->tls.x509_client_CA = d2i_X509(NULL, (const uint8_t **)&buf, (long)len);
-		free(buf);
-
-		lwsl_info("Loading vh %s client CA for verification %s\n", vh->name, ca_filepath);
 #endif
 	} else {
 		vh->tls.x509_client_CA = d2i_X509(NULL, (const uint8_t **)&ca_mem, (long)ca_mem_len);
 		lwsl_info("%s: using mem client CA cert %d\n",
 			    __func__, ca_mem_len);
-	}
+		if (!vh->tls.x509_client_CA) {
+			lwsl_err("client CA: x509 parse failed\n");
+			return 1;
+		}
 
-	if (!vh->tls.x509_client_CA) {
-		lwsl_err("client CA: x509 parse failed\n");
-		return 1;
+		if (!vh->tls.ssl_ctx)
+			SSL_CTX_add_client_CA(vh->tls.ssl_client_ctx, vh->tls.x509_client_CA);
+		else
+			SSL_CTX_add_client_CA(vh->tls.ssl_ctx, vh->tls.x509_client_CA);
 	}
-
-	if (!vh->tls.ssl_ctx)
-		SSL_CTX_add_client_CA(vh->tls.ssl_client_ctx, vh->tls.x509_client_CA);
-	else
-		SSL_CTX_add_client_CA(vh->tls.ssl_ctx, vh->tls.x509_client_CA);
 
 	/* support for client-side certificate authentication */
 	if (cert_filepath) {

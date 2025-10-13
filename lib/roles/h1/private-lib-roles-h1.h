@@ -25,6 +25,7 @@
  *
  *  Most of the h1 business is defined in the h1 / h2 common roles/http dir
  */
-
+int
+_lws_is_http_method(const char *method);
 extern const struct lws_role_ops role_ops_h1;
 #define lwsi_role_h1(wsi) (wsi->role_ops == &role_ops_h1)

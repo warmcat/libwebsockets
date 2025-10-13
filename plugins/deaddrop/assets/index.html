@@ -5,30 +5,54 @@
   <script src="deaddrop.js"></script>
  </head>
  <body>
-	<h1>LWS Deaddrop</h1>
+	 <div class="title"><img src="/docrepo.svg"><img src="/deaddrop-title.png"></div>
 	<div class="uplbox">
-	 <table id="ddrop" class="noconn">
-	  <tr><td class="vm">
-	 	<div id="da" class="da"><img class="disa" src="drop.svg"></div>
-	  </td><td>
-	   <h3>...or select files to upload:</h3>
-	   <span id="size"></span><br>
-	  <form name=multipart action="upload" method="post"
-		 enctype="multipart/form-data">
-	    <input multiple type="file" name="file" id="file" size="20">
-	        <span id="file_info" class="dd-fileinfo"></span>
-	    <br>
-	    <input id="upl" type="submit" name="Upload" value="Upload"
-	    	    class="ubtn" disabled>
-	  </form>
-	   <table id="ongoing" class="nb"></table>
-	 </td></tr>
-	 <tr><td colspan="2">
-	 	<div id="dd-list" class="dd-list">
-		<!-- deaddrop-list -->
-		</div>
-	 </td></tr>
-	 </table>
+		<table id="ddrop">
+			<tr>
+				<th>Drag and drop files</th>
+				<th>Paste text to upload:</th>
+			</tr>
+			<tr>
+				<td rowspan="3">
+					<div id="da" class="da"><img class="disa" src="drop.svg"></div>
+				</td>
+				<td>
+					<form name="textupload" action="upload" method="post" enctype="multipart/form-data">
+						<textarea id="text_content" class="dd-textarea" placeholder="Paste content here"></textarea>
+						<br>
+						<input id="upl_text" type="submit" value="Upload Text" class="ubtn" disabled>
+					</form>
+				</td>
+			</tr>
+			<tr>
+				<th>... or select files to upload</th>
+			</tr>
+			<tr>
+				<td>
+					<span id="size"></span><br>
+					<form name="multipart" action="upload" method="post" enctype="multipart/form-data">
+						<input multiple type="file" name="file" id="file" size="20">
+						<span id="file_info" class="dd-fileinfo"></span>
+						<br>
+						<input id="upl" type="submit" name="Upload" value="Upload" class="ubtn" disabled>
+					</form>
+				</td>
+			</tr>
+			<tr>
+				<td colspan="2">
+					<table id="ongoing" class="nb"></table>
+				</td>
+			</tr>
+			<tr>
+				<td colspan="2">
+					<div id="dd-list" class="dd-list">
+						<!-- deaddrop-list -->
+					</div>
+					<div id="connected-users-list" style="margin-top: 2em;"></div>
+				</td>
+			</tr>
+		</table>
 	</div>
  </body>
-</html>
+
+    

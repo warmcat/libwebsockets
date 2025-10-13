@@ -169,6 +169,21 @@ void lwsi_set_state(struct lws *wsi, lws_wsi_state_t lrs);
 
 #define _LWS_ADOPT_FINISH (1 << 24)
 
+typedef enum lws_handling_result {
+	LWS_HP_RET_BAIL_OK,
+	LWS_HP_RET_BAIL_DIE,
+	LWS_HP_RET_USER_SERVICE,
+	LWS_HP_RET_DROP_POLLOUT,
+
+	LWS_HPI_RET_WSI_ALREADY_DIED,	/* we closed it */
+	LWS_HPI_RET_HANDLED,		/* no probs */
+	LWS_HPI_RET_PLEASE_CLOSE_ME,	/* close it for us */
+
+	LWS_UPG_RET_DONE,
+	LWS_UPG_RET_CONTINUE,
+	LWS_UPG_RET_BAIL
+} lws_handling_result_t;
+
 /*
  * Internal role-specific ops
  *
@@ -205,11 +220,12 @@ typedef int (*lws_rops_destroy_vhost_t)(struct lws_vhost *vh);
 typedef int (*lws_rops_service_flag_pending_t)(struct lws_context *context,
 					       int tsi);
 /* an fd using this role has POLLIN signalled */
-typedef int (*lws_rops_handle_POLLIN_t)(struct lws_context_per_thread *pt,
+typedef lws_handling_result_t (*lws_rops_handle_POLLIN_t)(
+					struct lws_context_per_thread *pt,
 					struct lws *wsi,
 					struct lws_pollfd *pollfd);
 /* an fd using the role wanted a POLLOUT callback and now has it */
-typedef int (*lws_rops_handle_POLLOUT_t)(struct lws *wsi);
+typedef lws_handling_result_t (*lws_rops_handle_POLLOUT_t)(struct lws *wsi);
 /* perform user pollout */
 typedef int (*lws_rops_perform_user_POLLOUT_t)(struct lws *wsi);
 /* do effective callback on writeable */
@@ -408,21 +424,6 @@ extern const struct lws_role_ops role_ops_raw_skt, role_ops_raw_file,
 #else
  #define lwsi_role_mqtt(wsi) (0)
 #endif
-
-enum {
-	LWS_HP_RET_BAIL_OK,
-	LWS_HP_RET_BAIL_DIE,
-	LWS_HP_RET_USER_SERVICE,
-	LWS_HP_RET_DROP_POLLOUT,
-
-	LWS_HPI_RET_WSI_ALREADY_DIED,	/* we closed it */
-	LWS_HPI_RET_HANDLED,		/* no probs */
-	LWS_HPI_RET_PLEASE_CLOSE_ME,	/* close it for us */
-
-	LWS_UPG_RET_DONE,
-	LWS_UPG_RET_CONTINUE,
-	LWS_UPG_RET_BAIL
-};
 
 #define LWS_CONNECT_COMPLETION_GOOD (-99)
 

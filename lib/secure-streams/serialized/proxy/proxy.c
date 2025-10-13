@@ -307,7 +307,7 @@ lws_ss_serialize_state(struct lws_sss_proxy_conn *conn, lws_ss_constate_t state,
 	if (state == LWSSSCS_EVENT_WAIT_CANCELLED)
 		return 0;
 
-	lwsl_info("%s: %s, ord 0x%x\n", __func__, lws_ss_state_name((int)state),
+	lwsl_info("%s: %s, ord 0x%x\n", __func__, lws_ss_state_name(state),
 		  (unsigned int)ack);
 
 	if (!dsh) {

@@ -224,13 +224,13 @@ lws_write(struct lws *wsi, unsigned char *buf, size_t len,
  * Returns the correct LWS_WRITE_ flag to use for each fragment of a message
  * in turn.
  */
-static LWS_INLINE int
+static LWS_INLINE enum lws_write_protocol
 lws_write_ws_flags(int initial, int is_start, int is_end)
 {
-	int r;
+	enum lws_write_protocol r;
 
 	if (is_start)
-		r = initial;
+		r = (enum lws_write_protocol)initial;
 	else
 		r = LWS_WRITE_CONTINUATION;
 

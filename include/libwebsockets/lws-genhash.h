@@ -33,6 +33,11 @@
  */
 ///@{
 
+#if defined(LWS_WITH_AWSLC) || defined(LWS_WITH_BORINGSSL)
+#include <openssl/hmac.h>
+#endif
+
+
 enum lws_genhash_types {
 	LWS_GENHASH_TYPE_UNKNOWN,
 	LWS_GENHASH_TYPE_MD5,
@@ -77,7 +82,8 @@ struct lws_genhmac_ctx {
 #else
 	const EVP_MD *evp_type;
 
-#if defined(LWS_HAVE_EVP_PKEY_new_raw_private_key)
+#if !defined(LWS_WITH_BORINGSSL) &&\
+    defined(LWS_HAVE_EVP_PKEY_new_raw_private_key)
 	EVP_MD_CTX *ctx;
 	EVP_PKEY *key;
 #else

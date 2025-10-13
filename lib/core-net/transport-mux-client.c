@@ -304,8 +304,6 @@ lws_transport_mux_event_closed(lws_transport_priv_t priv)
 	lws_transport_mux_t *tm = lws_container_of(tmc->list.owner,
 				   lws_transport_mux_t, owner);
 #endif
-	if (!tmc)
-		return 0;
 	assert_is_tmch(tmc);
 	assert_is_tm(tm);
 

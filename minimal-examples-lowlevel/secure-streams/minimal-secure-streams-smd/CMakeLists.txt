@@ -1,5 +1,5 @@
 project(lws-minimal-secure-streams-smd C)
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 find_package(libwebsockets CONFIG REQUIRED)
 list(APPEND CMAKE_MODULE_PATH ${LWS_CMAKE_DIR})
 include(CheckCSourceCompiles)
@@ -34,7 +34,7 @@ if (requirements)
 		set_tests_properties(ss-smd
 				     PROPERTIES
 				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/secure-streams/minimal-secure-streams-smd
-				     TIMEOUT 10)
+				     TIMEOUT 20)
 
                if (has_fault_injection)
                        if (VALGRIND)
@@ -108,7 +108,12 @@ if (requirements)
 			set(CTEST_SOCKET_PATH "@ctest-sspsmd_sspc-$ENV{SAI_PROJECT}-$ENV{SAI_OVN}")
 		else()
 			# filesystem socket for others
-			set(CTEST_SOCKET_PATH "/tmp/ctest-sspsmd_sspc-$ENV{SAI_PROJECT}-$ENV{SAI_OVN}")
+                                if (DEFINED ENV{SAI_OVN})
+                                        string(SUBSTRING "$ENV{SAI_OVN}" 32 16 SHORT_HASH)
+                                else()
+                                        set(SHORT_HASH "0")
+                                endif()
+			set(CTEST_SOCKET_PATH "/tmp/ctest-sspsmd_sspc-$ENV{SAI_PROJECT}-${SHORT_HASH}")
 		endif()
 
 		add_test(NAME st_ssprxsmd_sspc COMMAND
@@ -151,7 +156,12 @@ if (requirements)
 			set(CTEST_SOCKET_PATH "@ctest-mul-sspsmd_sspc-$ENV{SAI_PROJECT}-$ENV{SAI_OVN}")
 		else()
 			# filesystem socket for others
-			set(CTEST_SOCKET_PATH "/tmp/ctest-mul-sspsmd_sspc-$ENV{SAI_PROJECT}-$ENV{SAI_OVN}")
+                                if (DEFINED ENV{SAI_OVN})
+                                        string(SUBSTRING "$ENV{SAI_OVN}" 32 16 SHORT_HASH)
+                                else()
+                                        set(SHORT_HASH "0")
+                                endif()
+			set(CTEST_SOCKET_PATH "/tmp/ctest-mul-sspsmd_sspc-$ENV{SAI_PROJECT}-${SHORT_HASH}")
 		endif()
 
 		add_test(NAME st_mulssprxsmd_sspc COMMAND

@@ -1,5 +1,5 @@
 project(lws-minimal-http-server-sse-ring C)
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 find_package(libwebsockets CONFIG REQUIRED)
 include(CheckIncludeFile)
 include(CheckCSourceCompiles)

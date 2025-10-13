@@ -314,47 +314,21 @@ static struct lws_protocols protocols[] = {
 /* override the default mount for /sse in the URL space */
 
 static const struct lws_http_mount mount_sse = {
-	/* .mount_next */		NULL,		/* linked-list "next" */
-	/* .mountpoint */		"/sse",		/* mountpoint URL */
-	/* .origin */			NULL,		/* protocol */
-	/* .def */			NULL,
-	/* .protocol */			"sse",
-	/* .cgienv */			NULL,
-	/* .extra_mimetypes */		NULL,
-	/* .interpret */		NULL,
-	/* .cgi_timeout */		0,
-	/* .cache_max_age */		0,
-	/* .auth_mask */		0,
-	/* .cache_reusable */		0,
-	/* .cache_revalidate */		0,
-	/* .cache_intermediaries */	0,
-	/* .cache_no */			0,
-	/* .origin_protocol */		LWSMPRO_CALLBACK, /* dynamic */
-	/* .mountpoint_len */		4,		  /* char count */
-	/* .basic_auth_login_file */	NULL,
+	.mountpoint		= "/sse",		/* mountpoint URL */
+	.protocol		= "sse",
+	.origin_protocol	= LWSMPRO_CALLBACK,	/* dynamic */
+	.mountpoint_len		= 4,		  	/* char count */
 };
 
 /* default mount serves the URL space from ./mount-origin */
 
 static const struct lws_http_mount mount = {
-	/* .mount_next */		&mount_sse,	/* linked-list "next" */
-	/* .mountpoint */		"/",		/* mountpoint URL */
-	/* .origin */			"./mount-origin", /* serve from dir */
-	/* .def */			"index.html",	/* default filename */
-	/* .protocol */			NULL,
-	/* .cgienv */			NULL,
-	/* .extra_mimetypes */		NULL,
-	/* .interpret */		NULL,
-	/* .cgi_timeout */		0,
-	/* .cache_max_age */		0,
-	/* .auth_mask */		0,
-	/* .cache_reusable */		0,
-	/* .cache_revalidate */		0,
-	/* .cache_intermediaries */	0,
-	/* .cache_no */			0,
-	/* .origin_protocol */		LWSMPRO_FILE,	/* files in a dir */
-	/* .mountpoint_len */		1,		/* char count */
-	/* .basic_auth_login_file */	NULL,
+	.mount_next		= &mount_sse,		/* linked-list "next" */
+	.mountpoint		= "/",			/* mountpoint URL */
+	.origin			= "./mount-origin",	/* serve from dir */
+	.def			= "index.html",		/* default filename */
+	.origin_protocol	= LWSMPRO_FILE,		/* files in a dir */
+	.mountpoint_len		= 1,			/* char count */
 };
 
 void sigint_handler(int sig)

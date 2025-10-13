@@ -252,9 +252,11 @@ lws_apply_metadata(lws_ss_handle_t *h, struct lws *wsi, uint8_t *buf,
 	 */
 
 	if (h->policy->u.http.method && (
-		(!strcmp(h->policy->u.http.method, "POST") ||
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_HTTP_HEADERS_ALL)
 		 !strcmp(h->policy->u.http.method, "PATCH") ||
-		 !strcmp(h->policy->u.http.method, "PUT"))) &&
+		 !strcmp(h->policy->u.http.method, "PUT") ||
+#endif
+		(!strcmp(h->policy->u.http.method, "POST"))) &&
 	    wsi->http.writeable_len) {
 		if (!(h->policy->flags &
 			LWSSSPOLF_HTTP_NO_CONTENT_LENGTH)) {
@@ -507,6 +509,7 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (!h)
 			break;
 
+		h->txn_n_acked = 0;
 		lws_sul_cancel(&h->sul_timeout);
 
 		lws_ss_assert_extant(wsi->a.context, wsi->tsi, h);
@@ -663,7 +666,10 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				if (r != LWSSSSRET_OK)
 					return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 			}
-			if (h->prev_ss_state != LWSSSCS_CONNECTED) {
+                       if (h->prev_ss_state != LWSSSCS_CONNECTED && 
+                           h->prev_ss_state != LWSSSCS_QOS_ACK_REMOTE &&
+                           h->prev_ss_state != LWSSSCS_QOS_NACK_REMOTE) {
+                               // lwsl_ss_notice(h, "HTTP_ESTABLISHED");
 				r = lws_ss_event_helper(h, LWSSSCS_CONNECTED);
 				if (r != LWSSSSRET_OK)
 					return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
@@ -840,8 +846,10 @@ malformed:
 		if ((h->policy->protocol == LWSSSP_H1 ||
 		     h->policy->protocol == LWSSSP_H2) &&
 		     h->being_serialized && (
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_HTTP_HEADERS_ALL)
 				!strcmp(h->policy->u.http.method, "PUT") ||
 				!strcmp(h->policy->u.http.method, "PATCH") ||
+#endif
 				!strcmp(h->policy->u.http.method, "POST"))) {
 
 			wsi->client_suppress_CONNECTION_ERROR = 1;
@@ -922,12 +930,20 @@ malformed:
 				       "SS_ACK_REMOTE" : "SS_NACK_REMOTE");
 #endif
 
-		r = lws_ss_event_helper(h, h->u.http.good_respcode ?
+		if (!h->ss_dangling_connected) {
+			r = lws_ss_event_helper(h, LWSSSCS_CONNECTED);
+			if (r != LWSSSSRET_OK)
+				return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
+		}
+
+		if (!h->txn_n_acked) {
+			h->txn_n_acked = 1;
+			r = lws_ss_event_helper(h, h->u.http.good_respcode ?
 						LWSSSCS_QOS_ACK_REMOTE :
 						LWSSSCS_QOS_NACK_REMOTE);
-		if (r != LWSSSSRET_OK)
-			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
-
+			if (r != LWSSSSRET_OK)
+				return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
+		}
 		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
 		break;
 
@@ -1104,6 +1120,11 @@ malformed:
 						return -1;
 					if (lws_ss_alloc_set_metadata(h, "method", "GET", 3))
 						return -1;
+					m = lws_hdr_fragment_length(wsi, WSI_TOKEN_HTTP_AUTHORIZATION, 0);
+					if (m && lws_ss_alloc_set_metadata(h, "auth",
+							lws_hdr_simple_ptr(wsi,
+								WSI_TOKEN_HTTP_AUTHORIZATION), (unsigned int)m))
+						return -1;
 				} else {
 					m = lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI);
 					if (m) {
@@ -1113,7 +1134,13 @@ malformed:
 							return -1;
 						if (lws_ss_alloc_set_metadata(h, "method", "POST", 4))
 							return -1;
+						m = lws_hdr_fragment_length(wsi, WSI_TOKEN_HTTP_AUTHORIZATION, 0);
+						if (m && lws_ss_alloc_set_metadata(h, "auth",
+							lws_hdr_simple_ptr(wsi,
+								WSI_TOKEN_HTTP_AUTHORIZATION), (unsigned int)m))
+							return -1;
 					} else {
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_HTTP_HEADERS_ALL)
 						m = lws_hdr_total_length(wsi, WSI_TOKEN_PATCH_URI);
 						if (m) {
 							if (lws_ss_alloc_set_metadata(h, "path",
@@ -1122,7 +1149,13 @@ malformed:
 								return -1;
 							if (lws_ss_alloc_set_metadata(h, "method", "PATCH", 5))
 								return -1;
+							m = lws_hdr_fragment_length(wsi, WSI_TOKEN_HTTP_AUTHORIZATION, 0);
+							if (m && lws_ss_alloc_set_metadata(h, "auth",
+								lws_hdr_simple_ptr(wsi,
+									WSI_TOKEN_HTTP_AUTHORIZATION), (unsigned int)m))
+								return -1;
 						}
+#endif
 					}
 				}
 			}
@@ -1219,6 +1252,11 @@ secstream_connect_munge_h1(lws_ss_handle_t *h, char *buf, size_t len,
 	if (lws_strexp_expand(&exp, pbasis, strlen(pbasis),
 			      &used_in, &used_out) != LSTRX_DONE)
 		return 1;
+
+	if (used_out + 1 < len - 1)
+		buf[used_out + 1] = '\0';
+
+	__lws_lc_tag_append(&h->lc, buf);
 
 	return 0;
 }

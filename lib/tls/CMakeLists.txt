@@ -51,8 +51,8 @@ set(LWS_WOLFSSL_LIBRARIES CACHE PATH "Path to the wolfSSL library" )
 set(LWS_WOLFSSL_INCLUDE_DIRS CACHE PATH "Path to the wolfSSL include directory" )
 
 
-if (LWS_WITH_BORINGSSL)
-	# boringssl deprecated EVP_PKEY
+if (LWS_WITH_BORINGSSL OR LWS_WITH_AWSLC)
+	# boringssl and aws-lc deprecated EVP_PKEY
 	set (LWS_WITH_GENHASH OFF PARENT_SCOPE)
 endif()
 
@@ -265,7 +265,7 @@ if (LWS_WITH_SSL)
 			set(OPENSSL_INCLUDE_DIRS "${OPENSSL_INCLUDE_DIR}")
 		endif()
 
-		if (NOT OPENSSL_FOUND AND NOT LWS_WITH_BORINGSSL)
+		if (NOT OPENSSL_FOUND AND NOT LWS_WITH_BORINGSSL AND NOT LWS_WITH_AWSLC)
 			# TODO: Add support for STATIC also.
 			if (NOT LWS_PLAT_FREERTOS)
 				find_package(PkgConfig QUIET)
@@ -327,11 +327,8 @@ endif()
 
 CHECK_FUNCTION_EXISTS(${VARIA}SSL_CTX_set1_param LWS_HAVE_SSL_CTX_set1_param PARENT_SCOPE)
 CHECK_FUNCTION_EXISTS(${VARIA}SSL_set_info_callback LWS_HAVE_SSL_SET_INFO_CALLBACK PARENT_SCOPE)
+
 CHECK_FUNCTION_EXISTS(${VARIA}X509_VERIFY_PARAM_set1_host LWS_HAVE_X509_VERIFY_PARAM_set1_host PARENT_SCOPE)
-CHECK_SYMBOL_EXISTS(${VARIA}X509_VERIFY_PARAM_set1_host LWS_HAVE_X509_VERIFY_PARAM_set1_host_sym PARENT_SCOPE)
-if (LWS_HAVE_X509_VERIFY_PARAM_set1_host_sym)
-	set(LWS_HAVE_X509_VERIFY_PARAM_set1_host 1 PARENT_SCOPE)
-endif()
 
 CHECK_FUNCTION_EXISTS(${VARIA}RSA_set0_key LWS_HAVE_RSA_SET0_KEY PARENT_SCOPE)
 CHECK_FUNCTION_EXISTS(${VARIA}X509_get_key_usage LWS_HAVE_X509_get_key_usage PARENT_SCOPE)
@@ -354,10 +351,10 @@ CHECK_FUNCTION_EXISTS(${VARIA}EVP_aes_128_ctr LWS_HAVE_EVP_aes_128_ctr PARENT_SC
 CHECK_FUNCTION_EXISTS(${VARIA}EVP_aes_128_xts LWS_HAVE_EVP_aes_128_xts PARENT_SCOPE)
 CHECK_FUNCTION_EXISTS(${VARIA}RSA_verify_pss_mgf1 LWS_HAVE_RSA_verify_pss_mgf1 PARENT_SCOPE)
 CHECK_FUNCTION_EXISTS(${VARIA}HMAC_CTX_new LWS_HAVE_HMAC_CTX_new PARENT_SCOPE)
-CHECK_SYMBOL_EXISTS(${VARIA}SSL_CTX_set_ciphersuites LWS_HAVE_SSL_CTX_set_ciphersuites PARENT_SCOPE)
+CHECK_FUNCTION_EXISTS(${VARIA}SSL_CTX_set_ciphersuites LWS_HAVE_SSL_CTX_set_ciphersuites PARENT_SCOPE)
 CHECK_FUNCTION_EXISTS(${VARIA}EVP_PKEY_new_raw_private_key LWS_HAVE_EVP_PKEY_new_raw_private_key PARENT_SCOPE)
 CHECK_FUNCTION_EXISTS(${VARIA}SSL_SESSION_set_time LWS_HAVE_SSL_SESSION_set_time PARENT_SCOPE)
-CHECK_SYMBOL_EXISTS(${VARIA}SSL_SESSION_up_ref LWS_HAVE_SSL_SESSION_up_ref PARENT_SCOPE)
+CHECK_FUNCTION_EXISTS(${VARIA}SSL_SESSION_up_ref LWS_HAVE_SSL_SESSION_up_ref PARENT_SCOPE)
 CHECK_FUNCTION_EXISTS(${VARIA}SSL_CTX_set_keylog_callback LWS_HAVE_SSL_CTX_set_keylog_callback PARENT_SCOPE)
 
 
@@ -370,14 +367,16 @@ if (LWS_WITH_SSL AND NOT LWS_WITH_MBEDTLS)
 CHECK_C_SOURCE_COMPILES("#include <openssl/ssl.h>\nint main(void) { STACK_OF(X509) *c = NULL; SSL_CTX *ctx = NULL; return (int)SSL_CTX_get_extra_chain_certs_only(ctx, &c); }\n" LWS_HAVE_SSL_EXTRA_CHAIN_CERTS)
 CHECK_C_SOURCE_COMPILES("#include <openssl/ssl.h>\nint main(void) { EVP_MD_CTX *md_ctx = NULL; EVP_MD_CTX_free(md_ctx); return 0; }\n" LWS_HAVE_EVP_MD_CTX_free)
 CHECK_C_SOURCE_COMPILES("#include <openssl/ssl.h>\nint main(void) { OPENSSL_STACK *x = NULL; return !x; } \n" LWS_HAVE_OPENSSL_STACK)
+CHECK_C_SOURCE_COMPILES("#include <openssl/ssl.h>\nint main(void) { SSL_CTX *ctx = NULL; return SSL_CTX_set_ecdh_auto(ctx, 1); }\n" LWS_HAVE_SSL_CTX_SET_ECDH_AUTO)
 set(LWS_HAVE_SSL_EXTRA_CHAIN_CERTS ${LWS_HAVE_SSL_EXTRA_CHAIN_CERTS} PARENT_SCOPE)
 set(LWS_HAVE_EVP_MD_CTX_free ${LWS_HAVE_EVP_MD_CTX_free} PARENT_SCOPE)
+set(LWS_HAVE_SSL_CTX_SET_ECDH_AUTO ${LWS_HAVE_SSL_CTX_SET_ECDH_AUTO} PARENT_SCOPE)
 CHECK_FUNCTION_EXISTS(${VARIA}ECDSA_SIG_set0 LWS_HAVE_ECDSA_SIG_set0 PARENT_SCOPE)
 CHECK_FUNCTION_EXISTS(${VARIA}BN_bn2binpad LWS_HAVE_BN_bn2binpad PARENT_SCOPE)
 CHECK_FUNCTION_EXISTS(${VARIA}EVP_aes_128_wrap LWS_HAVE_EVP_aes_128_wrap PARENT_SCOPE)
 CHECK_FUNCTION_EXISTS(${VARIA}EC_POINT_get_affine_coordinates LWS_HAVE_EC_POINT_get_affine_coordinates PARENT_SCOPE)
-CHECK_SYMBOL_EXISTS(${VARIA}SSL_CTX_load_verify_file LWS_HAVE_SSL_CTX_load_verify_file PARENT_SCOPE)
-CHECK_SYMBOL_EXISTS(${VARIA}SSL_CTX_load_verify_dir LWS_HAVE_SSL_CTX_load_verify_dir PARENT_SCOPE)
+CHECK_FUNCTION_EXISTS(${VARIA}SSL_CTX_load_verify_file LWS_HAVE_SSL_CTX_load_verify_file PARENT_SCOPE)
+CHECK_FUNCTION_EXISTS(${VARIA}SSL_CTX_load_verify_dir LWS_HAVE_SSL_CTX_load_verify_dir PARENT_SCOPE)
 endif()
 
 if (LWS_WITH_MBEDTLS)
@@ -513,14 +512,13 @@ if (GENCERTS)
                else()
 	
 		# Unix.
-		execute_process(
-			COMMAND printf "GB\\nErewhon\\nAll around\\nlibwebsockets-test\\n\\nlocalhost\\nnone@invalid.org\\n"
-			COMMAND "${OPENSSL_EXECUTABLE}"
-				req -new -newkey rsa:2048 -days 10000 -nodes -x509 -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
-			RESULT_VARIABLE OPENSSL_RETURN_CODE
-			#		OUTPUT_QUIET ERROR_QUIET
-			)
-			
+               execute_process(
+                       COMMAND printf "GB\\nErewhon\\nAll around\\nlibwebsockets-test\\n\\nlocalhost\\nnone@invalid.org\\n"
+                       COMMAND "${OPENSSL_EXECUTABLE}"
+                               req -config /etc/ssl/openssl.cnf -new -newkey rsa:2048 -days 10000 -nodes -x509 -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
+                       RESULT_VARIABLE OPENSSL_RETURN_CODE
+                       #               OUTPUT_QUIET ERROR_QUIET
+                       )
 		endif()
 
 		if (OPENSSL_RETURN_CODE)

@@ -24,7 +24,7 @@
 
 #include <private-lib-core.h>
 
-static int
+static lws_handling_result_t
 rops_handle_POLLIN_raw_file(struct lws_context_per_thread *pt, struct lws *wsi,
 			    struct lws_pollfd *pollfd)
 {

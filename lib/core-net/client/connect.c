@@ -68,7 +68,7 @@ lws_http_client_connect_via_info2(struct lws *wsi)
 #endif
 
 no_ah:
-	return lws_client_connect_2_dnsreq(wsi);
+	return lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(wsi);
 
 bail:
 #if defined(LWS_WITH_SOCKS5)
@@ -177,7 +177,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 				if (!vh) { /* coverity */
 					lwsl_cx_err(i->context, "no vhost");
-					goto bail;
+					goto bail; /* this frees the wsi */
 				}
 				if (!strcmp(vh->name, "system"))
 					vh = vh->vhost_next;
@@ -364,6 +364,20 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	cisin[CIS_USERNAME]	= i->auth_username;
 	cisin[CIS_PASSWORD]	= i->auth_password;
 
+/*
+	lwsl_notice("%d\n", (int)(cisin[CIS_ADDRESS] ? (int)strlen(cisin[CIS_ADDRESS]) : -1));
+	lwsl_notice("%d\n", (int)(cisin[CIS_PATH] ? (int)strlen(cisin[CIS_PATH]) : -1));
+	lwsl_notice("%d\n", (int)(cisin[CIS_HOST] ? (int)strlen(cisin[CIS_HOST]) : -1));
+	lwsl_notice("%d\n", (int)(cisin[CIS_ORIGIN] ? (int)strlen(cisin[CIS_ORIGIN]) : -1));
+	lwsl_notice("%d\n", (int)(cisin[CIS_PROTOCOL] ? (int)strlen(cisin[CIS_PROTOCOL]) : -1));
+	lwsl_notice("%d\n", (int)(cisin[CIS_METHOD] ? (int)strlen(cisin[CIS_METHOD]) : -1));
+	lwsl_notice("%d\n", (int)(cisin[CIS_IFACE] ? (int)strlen(cisin[CIS_IFACE]) : -1));
+	lwsl_notice("%d\n", (int)(cisin[CIS_LOCALPORT] ? (int)strlen(cisin[CIS_LOCALPORT]) : -1));
+	lwsl_notice("%d\n", (int)(cisin[CIS_ALPN] ? (int)strlen(cisin[CIS_ALPN]) : -1));
+	lwsl_notice("%d\n", (int)(cisin[CIS_USERNAME] ? (int)strlen(cisin[CIS_USERNAME]) : -1));
+	lwsl_notice("%d\n", (int)(cisin[CIS_PASSWORD] ? (int)strlen(cisin[CIS_PASSWORD]) : -1));
+*/
+
 	if (lws_client_stash_create(wsi, cisin))
 		goto bail;
 
@@ -541,6 +555,8 @@ bail3:
 #endif
 
 bail:
+	lws_dll2_remove(&wsi->pre_natal);
+
 #if defined(LWS_WITH_TLS)
 	if (wsi->tls.ssl)
 		lws_tls_restrict_return(wsi);

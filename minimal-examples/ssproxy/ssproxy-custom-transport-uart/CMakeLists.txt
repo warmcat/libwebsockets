@@ -1,5 +1,5 @@
 project(lws-minimal-ssproxy-custom-transport-uart C)
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 find_package(libwebsockets CONFIG REQUIRED)
 
 set(SRCS main.c transport-serial.c)

@@ -33,49 +33,24 @@ static const char * const plugin_dirs[] = {
 static const struct lws_http_mount
 #if defined(LWS_WITH_SYS_METRICS)
 	mount_metrics = {
-	/* .mount_next */		NULL,		/* linked-list "next" */
-	/* .mountpoint */		"/metrics",		/* mountpoint URL */
-	/* .origin */			"lws-openmetrics", /* serve from dir */
-	/* .def */			"x",	/* default filename */
-	/* .protocol */			"lws-openmetrics",
-	/* .cgienv */			NULL,
-	/* .extra_mimetypes */		NULL,
-	/* .interpret */		NULL,
-	/* .cgi_timeout */		0,
-	/* .cache_max_age */		0,
-	/* .auth_mask */		0,
-	/* .cache_reusable */		0,
-	/* .cache_revalidate */		0,
-	/* .cache_intermediaries */	0,
-	/* .cache_no */			0,
-	/* .origin_protocol */		LWSMPRO_CALLBACK, /* bind to callback */
-	/* .mountpoint_len */		8,		/* char count */
-	/* .basic_auth_login_file */	NULL,
+	.mountpoint		= "/metrics",		/* mountpoint URL */
+	.origin			= "lws-openmetrics",	/* serve from dir */
+	.def			= "x",			/* default filename */
+	.protocol		= "lws-openmetrics",
+	.origin_protocol	= LWSMPRO_CALLBACK,	/* bind to callback */
+	.mountpoint_len		= 8,			/* char count */
 	},
 #endif
 	mount = {
 #if defined(LWS_WITH_SYS_METRICS)
-	/* .mount_next */		&mount_metrics,		/* linked-list "next" */
-#else
-	/* .mount_next */		NULL,		/* linked-list "next" */
+	.mount_next		= &mount_metrics,	/* linked-list "next" */
 #endif
-	/* .mountpoint */		"/",		/* mountpoint URL */
-	/* .origin */			"./mount-origin", /* serve from dir */
-	/* .def */			"index.html",	/* default filename */
-	/* .protocol */			"http-only",
-	/* .cgienv */			NULL,
-	/* .extra_mimetypes */		NULL,
-	/* .interpret */		NULL,
-	/* .cgi_timeout */		0,
-	/* .cache_max_age */		0,
-	/* .auth_mask */		0,
-	/* .cache_reusable */		0,
-	/* .cache_revalidate */		0,
-	/* .cache_intermediaries */	0,
-	/* .cache_no */			0,
-	/* .origin_protocol */		LWSMPRO_FILE,	/* files in a dir */
-	/* .mountpoint_len */		1,		/* char count */
-	/* .basic_auth_login_file */	NULL,
+	.mountpoint		= "/",			/* mountpoint URL */
+	.origin			= "./mount-origin",	/* serve from dir */
+	.def			= "index.html",		/* default filename */
+	.protocol		= "http-only",
+	.origin_protocol	= LWSMPRO_FILE,		/* files in a dir */
+	.mountpoint_len		= 1,			/* char count */
 };
 
 #if !defined(WIN32)

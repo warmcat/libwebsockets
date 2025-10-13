@@ -79,6 +79,7 @@ typedef struct lws_smd {
 	lws_smd_class_t			_class_filter;
 
 	char				delivering;
+	lws_tid_t			tid_holding;
 } lws_smd_t;
 
 /* check if this tsi has pending messages to deliver */

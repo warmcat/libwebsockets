@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2025 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -356,3 +356,39 @@ lwsac_detach(struct lwsac **head)
 		lwsl_debug("%s: head %p: refcount %d: Marked as detached\n",
 			    __func__, *head, lachead->refcount);
 }
+
+int
+_lwsac_assert_valid(struct lwsac *aco, void *check, size_t len, const char *name_ac, const char *name_blob,
+		    const char *filename, int line)
+{
+	struct lwsac *ac = aco;
+
+	while (ac) {
+		void *pos = (uint8_t *)&ac[1],
+		     *end = ((uint8_t *)ac) + ac->ofs;
+
+		if (check >= pos && (void *)(((uint8_t *)check) + len) <= end)
+			return 0;
+
+		ac = ac->next;
+	}
+
+#if !defined(LWS_WITH_NO_LOGS) && (_LWS_ENABLED_LOGS & LLL_NOTICE)
+	ac = aco;
+
+	while (ac) {
+		void *pos = (uint8_t *)&ac[1],
+		     *end = ((uint8_t *)ac) + ac->ofs;
+
+		lwsl_notice("%s: ac chunk  %p -> %p\n", __func__, pos, end);
+
+		ac = ac->next;
+	}
+#endif
+
+	lwsl_err("%s:%d:  %s (%p) len %u is not found inside lwsac %s (%p)\n", filename, line, name_blob, check, (unsigned int)len, name_ac, aco);
+	assert(0); /* checked ptr is not in ac */
+
+	return 1;
+}
+

@@ -68,6 +68,7 @@ gai_strerror(int);
 #endif
 
 #if defined(LWS_WITH_ESP32)
+#include "lwip/port/include/lwipopts.h"
 #include "lwip/apps/sntp.h"
 #include <errno.h>
 #endif

@@ -397,7 +397,7 @@ lws_ss_proxy_create(struct lws_context *context, const char *bind, int port);
  * Returns a printable name for the connection state index passed in.
  */
 LWS_VISIBLE LWS_EXTERN const char *
-lws_ss_state_name(int state);
+lws_ss_state_name(lws_ss_constate_t state);
 
 /**
  * lws_ss_get_context() - convenience helper to recover the lws context
@@ -653,6 +653,10 @@ lws_ss_get_est_peer_tx_credit(struct lws_ss_handle *h);
 LWS_VISIBLE LWS_EXTERN const char *
 lws_ss_tag(struct lws_ss_handle *h);
 
+LWS_VISIBLE LWS_EXTERN void
+lws_ss_dump_extant(struct lws_context *cx, int tsi);
+
+#if defined(LWS_WITH_NETWORK)
 /**
  * lws_ss_adopt_raw() - bind ss to existing fd
  *
@@ -664,6 +668,7 @@ lws_ss_tag(struct lws_ss_handle *h);
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_ss_adopt_raw(struct lws_ss_handle *ss, lws_sock_file_fd_type fd);
+#endif
 
 #if defined(LWS_WITH_SECURE_STREAMS_AUTH_SIGV4)
 /**

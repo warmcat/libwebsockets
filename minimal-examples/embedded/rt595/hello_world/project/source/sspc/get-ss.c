@@ -49,8 +49,8 @@ get_state(void *userobj, void *h_src, lws_ss_constate_t state,
 {
 	get_t *g = (get_t *)userobj;
 
-	lwsl_ss_notice(lws_ss_from_user(g), "%s (%d), ord 0x%x",
-		       lws_ss_state_name((int)state), state, (unsigned int)ack);
+	lwsl_ss_notice(lws_ss_from_user(g), "%s, ord 0x%x",
+		       lws_ss_state_name(state), (unsigned int)ack);
 
 	switch (state) {
 	case LWSSSCS_CREATING:

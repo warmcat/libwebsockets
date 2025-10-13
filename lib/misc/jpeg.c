@@ -189,7 +189,7 @@ typedef struct huff_table {
 	uint8_t			value[16];
 } huff_table_t;
 
-typedef struct lws_jpeg {
+struct lws_jpeg {
 
 	pjpeg_scan_type_t	scan_type;
 	
@@ -301,7 +301,7 @@ typedef struct lws_jpeg {
 	uint8_t			fs_ir_phase;
 	uint8_t			fs_is_phase;
 
-} lws_jpeg_t;
+};
 
 static const int8_t ZAG[] = { 0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18,
 			      11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27,
@@ -2252,8 +2252,8 @@ lws_jpeg_mcu_next(lws_jpeg_t *j)
 				r = interval_restart(j);
 				if (r)
 					return r;
-			}
-			j->restarts_left--;
+			} else
+				j->restarts_left--;
 		}
 		
 		j->fs_mcu_mb = 0;
@@ -2657,7 +2657,7 @@ lws_jpeg_emit_next_line(lws_jpeg_t *j, const uint8_t **ppix,
 
 			j->lines = lws_zalloc(mcu_buf_len, __func__);
 			if (!j->lines) {
-				lwsl_jpeg("%s: OOM\n", __func__);
+				lwsl_jpeg("%s: OOM (%d)\n", __func__, (int)mcu_buf_len);
 				return LWS_SRET_FATAL + 32;
 			}
 

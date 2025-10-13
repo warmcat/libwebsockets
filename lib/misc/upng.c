@@ -276,7 +276,7 @@ lws_upng_emit_next_line(lws_upng_t *u, const uint8_t **ppix,
 		unsigned long x;
 
 		for (x = 0; x < (unsigned long)u->width * (unsigned long)uf->bpp; x++) {
-			uint8_t bit = (uint8_t)((uf->in[(uf->ibp) >> 3] >>
+			uint8_t bit = (uint8_t)((uf->in[((uf->ibp) >> 3) % u->inf.info_size] >>
 						(7 - ((uf->ibp) & 7))) & 1);
 			uf->ibp++;
 
@@ -458,7 +458,7 @@ lws_upng_decode(lws_upng_t* u, const uint8_t **_pos, size_t *_size)
 			/* 32KB gz sliding window */
 			u->inf.info_size = 32768 + 512;
 			u->u.bpp	 = lws_upng_get_bpp(u);
-			if (!u->u.bpp)
+			if (!u->u.bpp || u->width >= (UINT_MAX / u->u.bpp))
 				return LWS_SRET_FATAL + 14;
 
 			u->u.y		= 0;

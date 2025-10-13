@@ -210,7 +210,7 @@ ss_api_amazon_auth_state(void *userobj, void *sh, lws_ss_constate_t state,
 	lws_system_blob_t *ab;
 	size_t s;
 
-	lwsl_info("%s: %s, ord 0x%x\n", __func__, lws_ss_state_name((int)state),
+	lwsl_info("%s: %s, ord 0x%x\n", __func__, lws_ss_state_name(state),
 		  (unsigned int)ack);
 
 	ab = lws_system_get_blob(context, LWS_SYSBLOB_TYPE_AUTH, AUTH_IDX_ROOT);

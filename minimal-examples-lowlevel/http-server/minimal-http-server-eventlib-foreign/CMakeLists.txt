@@ -1,5 +1,5 @@
 project(lws-minimal-http-server-eventlib-foreign C)
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 find_package(libwebsockets CONFIG REQUIRED)
 list(APPEND CMAKE_MODULE_PATH ${LWS_CMAKE_DIR})
 include(CheckIncludeFile)
@@ -13,6 +13,7 @@ set(requirements 1)
 require_pthreads(requirements)
 require_lws_config(LWS_ROLE_H1 1 requirements)
 require_lws_config(LWS_WITH_SERVER 1 requirements)
+require_lws_config(LWS_WITHOUT_CLIENT 0 requirements)
 require_lws_config(LWS_WITH_TLS 1 requirements)
 
 CHECK_C_SOURCE_COMPILES("#include <libwebsockets.h>\nint main(void) {\n#if defined(LWS_WITH_LIBUV)\n return 0;\n#else\n fail;\n#endif\n return 0;\n}\n" LWS_WITH_LIBUV)
@@ -110,17 +111,8 @@ if (requirements)
 	#
 
 	set(PORT_HSEF_SRV "961")
-	if ("$ENV{SAI_INSTANCE_IDX}" STREQUAL "0")
-		set(PORT_HSEF_SRV 962)
-	endif()
-	if ("$ENV{SAI_INSTANCE_IDX}" STREQUAL "1")
-		set(PORT_HSEF_SRV 963)
-	endif()
-	if ("$ENV{SAI_INSTANCE_IDX}" STREQUAL "2")
-		set(PORT_HSEF_SRV 964)
-	endif()
-	if ("$ENV{SAI_INSTANCE_IDX}" STREQUAL "3")
-		set(PORT_HSEF_SRV 965)
+	if ("$ENV{SAI_INSTANCE_IDX}")
+		math(EXPR PORT_HSEF_SRV "962 + $ENV{SAI_INSTANCE_IDX}")
 	endif()
 
 	if (websockets_shared)
@@ -173,7 +165,7 @@ if (requirements)
 			     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-server/minimal-http-server-eventlib-foreign
 			     TIMEOUT 50)
 	endif()
-	if (LWS_WITH_SDEVENT)
+	if (LWS_WITH_ULOOP)
 		add_test(NAME hs_evlib_foreign_uloop COMMAND lws-minimal-http-server-eventlib-foreign --uloop -p ${PORT_HSEF_SRV}5)
 		set_tests_properties(hs_evlib_foreign_uloop
 			     PROPERTIES

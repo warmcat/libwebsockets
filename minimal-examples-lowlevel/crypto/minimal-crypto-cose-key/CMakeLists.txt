@@ -1,5 +1,5 @@
 project(lws-crypto-cose-key C)
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 find_package(libwebsockets CONFIG REQUIRED)
 list(APPEND CMAKE_MODULE_PATH ${LWS_CMAKE_DIR})
 include(CheckCSourceCompiles)
@@ -40,7 +40,7 @@ if (requirements)
 			     PROPERTIES
 		     		WORKING_DIRECTORY
 		     			${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/crypto/minimal-crypto-cose-key
-		     		TIMEOUT 5)
+				TIMEOUT 15)
 		     		
 	set_tests_properties(crypto-cose-key-7
 			     PROPERTIES

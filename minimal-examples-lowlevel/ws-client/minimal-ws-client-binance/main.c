@@ -84,7 +84,7 @@ static const lws_retry_bo_t retry = {
 	.conceal_count			= LWS_ARRAY_SIZE(backoff_ms),
 
 	.secs_since_valid_ping		= 400,  /* force PINGs after secs idle */
-	.secs_since_valid_hangup	= 400, /* hangup after secs idle */
+	.secs_since_valid_hangup	= 410, /* hangup after secs idle */
 
 	.jitter_percent			= 0,
 };

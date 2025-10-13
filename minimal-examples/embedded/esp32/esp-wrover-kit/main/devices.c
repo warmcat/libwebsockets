@@ -195,8 +195,8 @@ init_plat_devices(struct lws_context *ctx)
 
 		memset(&creds, 0, sizeof(creds));
 
-		lws_strncpy(creds.ssid, "xxx", sizeof(creds.ssid));
-		lws_strncpy(creds.passphrase, "yyy", sizeof(creds.passphrase));
+	//	lws_strncpy(creds.ssid, "Ulxxxx", sizeof(creds.ssid));
+	//	lws_strncpy(creds.passphrase, "secret", sizeof(creds.passphrase));
 		lws_dll2_add_tail(&creds.list, &netdevs->owner_creds);
 
 		if (lws_netdev_credentials_settings_set(netdevs)) {

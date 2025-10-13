@@ -23,7 +23,7 @@ LWS_SS_USER_TYPEDEF
 	lws_jpeg_t			*j;
 } myss_t;
 
-static lws_dlo_rasterize_t rast;
+static lws_dlo_rasterize_t dlo_rasterize;
 struct lws_context *cx;
 static int fdout = 1, result = 1;
 
@@ -165,7 +165,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		if (r)
 			return r;
 
-		lws_dll2_add_tail(&m->flow.list, &rast.owner);
+		lws_dll2_add_tail(&m->flow.list, &dlo_rasterize.owner);
 		break;
 
 	case LWSSSCS_DESTROYING:

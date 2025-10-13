@@ -144,7 +144,7 @@ lws_jwe_auth_and_decrypt_rsa_aes_cbc_hs(struct lws_jwe *jwe)
 
 	if (jwe->jws.map.len[LJWE_EKEY] < 40) {
 		lwsl_err("%s: EKEY length too short %d\n", __func__,
-				jwe->jws.map.len[LJWE_EKEY]);
+				(int)jwe->jws.map.len[LJWE_EKEY]);
 
 		return -1;
 	}
