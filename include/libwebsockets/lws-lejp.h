@@ -179,7 +179,7 @@ LWS_EXTERN signed char _lejp_callback(struct lejp_ctx *ctx, char reason);
 typedef signed char (*lejp_callback)(struct lejp_ctx *ctx, char reason);
 
 #ifndef LEJP_MAX_PARSING_STACK_DEPTH
-#define LEJP_MAX_PARSING_STACK_DEPTH 8
+#define LEJP_MAX_PARSING_STACK_DEPTH 10
 #endif
 #ifndef LEJP_MAX_DEPTH
 #define LEJP_MAX_DEPTH 16

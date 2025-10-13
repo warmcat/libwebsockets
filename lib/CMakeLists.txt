@@ -29,7 +29,10 @@ macro(add_subdir_include_dirs arg1)
 	list(APPEND LWS_LIB_BUILD_INC_PATHS ${_CMAKE_INC_LIST}) 
 endmacro()
 
+
+
 set(LWS_LIB_INCLUDES "")
+set(LWS_LIB_BUILD_INC_PATHS_TEMP "")
 
 #
 # Plat specific build items
@@ -135,34 +138,96 @@ configure_file(
        "${PROJECT_SOURCE_DIR}/cmake/lws_config_private.h.in"
        "${PROJECT_BINARY_DIR}/lws_config_private.h")
 
-add_subdir_include_dirs(core)
-add_subdir_include_dirs(misc)
-add_subdir_include_dirs(system)
+list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/core)
+list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/misc)
+list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/system)
+add_subdirectory(core)
+add_subdirectory(misc)
+add_subdirectory(system)
 
 if (LWS_WITH_DRIVERS)
-	add_subdir_include_dirs(drivers)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/drivers)
+	add_subdirectory(drivers)
 endif()
 
 if (LWS_WITH_NETWORK)
-	add_subdir_include_dirs(core-net)
-	add_subdir_include_dirs(roles)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/core-net)
+	add_subdirectory(core-net)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/roles)
+	add_subdirectory(roles)
 endif()
 
 if (LWS_WITH_JOSE)
-	add_subdir_include_dirs(jose)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/jose ${CMAKE_CURRENT_SOURCE_DIR}/jose/jwe)
+	add_subdirectory(jose)
 endif()
 
 if (LWS_WITH_COSE)
-	add_subdir_include_dirs(cose)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/cose)
+	add_subdirectory(cose)
 endif()
 
+if (LWS_ROLE_MQTT)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/roles/mqtt)
+endif()
+
+if (LWS_ROLE_DBUS AND NOT LWS_PLAT_FREERTOS)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/roles/dbus)
+endif()
+
+if (LWS_ROLE_H1 OR LWS_ROLE_H2)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/roles/http)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/roles/http/compression)
+endif()
+
+if (LWS_ROLE_H1)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/roles/h1)
+endif()
+
+if (LWS_ROLE_H2)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/roles/h2)
+endif()
+
+if (LWS_ROLE_WS)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/roles/ws)
+endif()
+
+if (LWS_ROLE_RAW)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/roles/raw-skt)
+endif()
+
+if (LWS_ROLE_RAW_FILE)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/roles/raw-file)
+endif()
+
+if (LWS_WITH_CGI)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/roles/cgi)
+endif()
+
+if (LWS_ROLE_RAW_PROXY)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/roles/raw-proxy)
+endif()
+
+if (NOT LWS_WITHOUT_SERVER OR LWS_WITH_SECURE_STREAMS_PROCESS_API)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/roles/listen)
+endif()
+
+if (LWS_WITH_SECURE_STREAMS)
 include_directories(secure-streams)
+endif()
+
+list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP "${CMAKE_CURRENT_SOURCE_DIR}/../core")
+
+
 add_subdir_include_dirs(event-libs)
 
 if (LWS_WITH_SECURE_STREAMS)
-	add_subdir_include_dirs(secure-streams)
+	list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/secure-streams)
+	add_subdirectory(secure-streams)
 endif()
-add_subdir_include_dirs(secure-streams/serialized/client)
+
+list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/secure-streams/serialized/client)
+add_subdirectory(secure-streams/serialized/client)
 
 if (LWS_WITH_STATIC)
     if (LWS_STATIC_PIC)
@@ -177,7 +242,7 @@ if (LWS_WITH_STATIC)
 		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>
 		$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../include>
 	)
-	target_include_directories(websockets PRIVATE ${LWS_LIB_BUILD_INC_PATHS})
+	target_include_directories(websockets PRIVATE ${LWS_LIB_BUILD_INC_PATHS} ${LWS_LIB_BUILD_INC_PATHS_TEMP} ${CMAKE_CURRENT_SOURCE_DIR}/../core)
 	target_compile_definitions(websockets PRIVATE LWS_BUILDING_STATIC)
 	target_include_directories(websockets PUBLIC ${LWS_PUBLIC_INCLUDES})
 	set(LWS_PUBLIC_INCLUDES ${LWS_PUBLIC_INCLUDES} PARENT_SCOPE)
@@ -205,7 +270,7 @@ if (LWS_WITH_SHARED)
 		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>
 		$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/../include>
 	)
-	target_include_directories(websockets_shared PRIVATE ${LWS_LIB_BUILD_INC_PATHS})
+	target_include_directories(websockets_shared PRIVATE ${LWS_LIB_BUILD_INC_PATHS} ${LWS_LIB_BUILD_INC_PATHS_TEMP} ${CMAKE_CURRENT_SOURCE_DIR}/../core)
 	target_compile_definitions(websockets_shared PRIVATE LWS_BUILDING_SHARED)
 	target_include_directories(websockets_shared PUBLIC ${LWS_PUBLIC_INCLUDES})
 	set(LWS_PUBLIC_INCLUDES ${LWS_PUBLIC_INCLUDES} PARENT_SCOPE)

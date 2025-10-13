@@ -115,7 +115,8 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 				lws_get_protocol(wsi));
 	uint8_t buf[LWS_PRE + MESSAGE_CHUNK_SIZE], *start = &buf[LWS_PRE], *p;
-	int n, m, flags;
+	enum lws_write_protocol flags;
+	int n, m;
 
 	switch (reason) {
 
@@ -194,7 +195,7 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		n = lws_ptr_diff(p, start);
-		m = lws_write(wsi, start, (unsigned int)n, (enum lws_write_protocol)flags);
+		m = lws_write(wsi, start, (unsigned int)n, flags);
 		if (m < n) {
 			lwsl_err("ERROR %d writing ws\n", m);
 			return -1;

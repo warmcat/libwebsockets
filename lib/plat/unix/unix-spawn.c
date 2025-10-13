@@ -279,6 +279,14 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 	return 1; /* was reaped */
 }
 
+/*
+ * We send the child a SIGTERM, that's all.
+ *
+ * The process should terminate, closing the stdwsi.  The stdwsi pipes on
+ * our side should indicate they need handling and CLOSE.  When the last
+ * one CLOSEs, the lws_spawn_stdwsi_closed() api should do the reap.
+ */
+
 int
 lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp)
 {
@@ -288,10 +296,6 @@ lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp)
 		return 1;
 
 	lsp->ungraceful = 1; /* don't wait for flushing, just kill it */
-
-	if (lws_spawn_reap(lsp))
-		/* that may have invalidated lsp */
-		return 0;
 
 	/* kill the process group */
 	n = kill(-lsp->child_pid, SIGTERM);
@@ -332,9 +336,6 @@ lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp)
 		}
 	}
 
-	lws_spawn_reap(lsp);
-	/* that may have invalidated lsp */
-
 	return 0;
 }
 
@@ -343,23 +344,25 @@ lws_spawn_get_self_cgroup(char *cgroup, size_t max)
 {
 #if defined(__linux__)
 	int fd = open("/proc/self/cgroup", O_RDONLY);
+	char *p, s[256], *end = &s[sizeof(s) - 1];
 	ssize_t r;
-	char *p, s[256];
+	size_t ur;
 
 	if (fd < 0) {
 		lwsl_err("%s: unable to open /proc/self/cgroup\n", __func__);
 		return 1;
 	}
 
-	r = read(fd, s, sizeof(s) - 1);
+	r = read(fd, s, sizeof(s) - 2);
 	close(fd);
 	if (r < 0) {
 		lwsl_err("%s: unable to read from /proc/self/cgroup\n", __func__);
 
 		return 1;
 	}
+	ur = (size_t)r;
 
-	s[r] = '\0'; 
+	s[ur] = '\0'; 
 	p = strchr(s, ':');
 
 	if (!p) {
@@ -368,23 +371,27 @@ lws_spawn_get_self_cgroup(char *cgroup, size_t max)
 	}
 
 	p = strchr(p + 1, ':');
-	if (!p || (r - (p - s) < 3)) {
+	if (!p || lws_ptr_diff_size_t(end, p) < 3) {
 		lwsl_err("%s: unable to find second :  '%s'\n", __func__, s);
 
 		return 1;
 	}
 	p++;
 
-	if (p[strlen(p) - 1] == '\n')
-		p[strlen(p) - 1] = '\0';
+	/* name starts from p to NUL */
 
-	if ((size_t)(r - (p - s)) + 1 > max - 1) {
+	ur = strlen(p);
+
+	if (p[ur - 1] == '\n')
+		p[--ur] = '\0';
+
+	if (ur > max - 1) {
 		lwsl_err("%s: cgroup name too large :  '%s'\n", __func__, s);
 
 		return 1;
 	}
 
-	memcpy(cgroup, p, (size_t)(r - (p - s) + 1));
+	memcpy(cgroup, p, ur + 1u);
 
 	return 0;
 #else
@@ -759,6 +766,16 @@ bail1:
 }
 
 void
+lws_spawn_closedown_stdwsis(struct lws_spawn_piped *lsp)
+{
+	int n;
+
+	for (n = 0; n < 3; n++)
+		if (lsp->stdwsi[n])
+			lws_wsi_close(lsp->stdwsi[n], LWS_TO_KILL_ASYNC);
+}
+
+int
 lws_spawn_stdwsi_closed(struct lws_spawn_piped *lsp, struct lws *wsi)
 {
 	int n;
@@ -774,7 +791,9 @@ lws_spawn_stdwsi_closed(struct lws_spawn_piped *lsp, struct lws *wsi)
 			goto found;
 
 	/* Not found, so must have been destroyed already */
-	return;
+	lwsl_warn("%s: ----------------- didn't find stdwsi on lsp\n", __func__);
+
+	return 0;
 
 found:
  
@@ -788,6 +807,14 @@ found:
 	for (n = 0; n < 3; n++)
 		if (lsp->stdwsi[n] == wsi)
 			lsp->stdwsi[n] = NULL;
+
+	return !lsp->pipes_alive;
+}
+
+int
+lws_spawn_get_stdwsi_open_count(struct lws_spawn_piped *lsp)
+{
+	return lsp->pipes_alive;
 }
 
 int
@@ -868,7 +895,8 @@ lws_spawn_prepare_self_cgroup(const char *user, const char *group)
 				  __func__, path, strerror(errno));
  	}
 	lws_snprintf(path, sizeof(path), "/sys/fs/cgroup%s/lws", self_cgroup);
-	mkdir(path, 0775);
+	if (mkdir(path, 0775) < 0)
+		lwsl_err("%s: unable to mkdir %s\n", __func__, path);
 	if (uid != (uid_t)-1 || gid != (gid_t)-1) {
 
 		lwsl_notice("%s: switching %s to %d:%d\n",

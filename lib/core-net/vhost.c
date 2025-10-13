@@ -390,7 +390,7 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 	struct lws _lws;
 	struct lws_a *lwsa = &_lws.a;
 
-	memset(&_lws, 0, sizeof(_lws));
+	memset((void *)&_lws, 0, sizeof(_lws));
 #endif
 
 	lwsa->context = vh->context;
@@ -451,7 +451,8 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 		 * prepared in case the protocol handler wants to touch them
 		 */
 
-		if (pvo
+		if (pvo || (vh->options & LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS)
+
 #if !defined(LWS_WITH_PLUGINS)
 				/*
 				 * with plugins, you have to explicitly
@@ -466,24 +467,20 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 		) {
 			lwsl_vhost_info(vh, "init %s.%s", vh->name,
 					vh->protocols[n].name);
-			vh->protocol_init |= 1u << n;
 			if (vh->protocols[n].callback((struct lws *)lwsa,
-				LWS_CALLBACK_PROTOCOL_INIT, NULL,
-#if !defined(LWS_WITH_PLUGINS)
-				(void *)(pvo ? pvo->options : NULL),
-#else
-				(void *)pvo->options,
-#endif
-				0)) {
+					LWS_CALLBACK_PROTOCOL_INIT, NULL,
+					(void *)(pvo ? pvo->options : NULL),
+					0)) {
 				if (vh->protocol_vh_privs && vh->protocol_vh_privs[n]) {
 					lws_free(vh->protocol_vh_privs[n]);
 					vh->protocol_vh_privs[n] = NULL;
 				}
-			lwsl_vhost_err(vh, "protocol %s failed init",
+				lwsl_vhost_warn(vh, "protocol %s failed init",
 					vh->protocols[n].name);
 
-				return 1;
-			}
+				// return 1;
+			} else
+				vh->protocol_init |= 1u << n;
 		}
 	}
 
@@ -850,7 +847,8 @@ lws_create_vhost(struct lws_context *context,
 	 * for a protocol get it enabled.
 	 */
 
-	if (context->options & LWS_SERVER_OPTION_EXPLICIT_VHOSTS)
+	if ((context->options & LWS_SERVER_OPTION_EXPLICIT_VHOSTS) &&
+	    !(vh->options & LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS))
 		f = 0;
 	(void)f;
 #ifdef LWS_WITH_PLUGINS
@@ -1483,7 +1481,7 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 	 * let the protocols destroy the per-vhost protocol objects
 	 */
 
-	memset(&wsi, 0, sizeof(wsi));
+	memset((void *)&wsi, 0, sizeof(wsi));
 	wsi.a.context = vh->context;
 	wsi.a.vhost = vh; /* not a real bound wsi */
 	protocol = vh->protocols;

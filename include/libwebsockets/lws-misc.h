@@ -548,6 +548,8 @@ lws_parse_uri(char *p, const char **prot, const char **ads, int *port,
  *
  * Returns NULL if the string \p val is not found in the arguments.
  *
+ * This only returns the first hit for \p val.
+ *
  * If it is found, then it returns a pointer to the next character after \p val.
  * So if \p val is "-d", then for the commandlines "myapp -d15" and
  * "myapp -d 15", in both cases the return will point to the "15".
@@ -555,9 +557,100 @@ lws_parse_uri(char *p, const char **prot, const char **ads, int *port,
  * In the case there is no argument, like "myapp -d", the return will
  * either point to the '\\0' at the end of -d, or to the start of the
  * next argument, ie, will be non-NULL.
+ *
+ * This original api variant does not handle stdin-passed commandline content,
+ * only that present in the passed argc / argv.
  */
 LWS_VISIBLE LWS_EXTERN const char *
 lws_cmdline_option(int argc, const char **argv, const char *val);
+
+/**
+ * lws_cmdline_options():	simple commandline parser
+ *
+ * \param argc:		count of argument strings
+ * \param argv:		argument strings
+ * \param val:		string to find
+ * \param last:		last successful return from previous call
+ *
+ * Returns NULL if the string \p val is not found in the arguments.
+ *
+ * Before checking, the api aligns itself to the place of the \p last
+ * hit (or the beginning of the commandline if NULL), and starts checking
+ * from just beyond that.  In this way you can get the first, or
+ * incrementally get multiple results, for every hit.
+ *
+ * If a match is found, then it returns a pointer to the next character after \p val.
+ * So if \p val is "-d", then for the commandlines "myapp -d15" and
+ * "myapp -d 15", in both cases the return will point to the "15".
+ *
+ * In the case there is no argument, like "myapp -d", the return will
+ * either point to the '\\0' at the end of -d, or to the start of the
+ * next argument, ie, will be non-NULL indicating success.
+ *
+ * This original api variant does not handle stdin-passed commandline content,
+ * only that present in the passed argc / argv.
+ */
+LWS_VISIBLE LWS_EXTERN const char *
+lws_cmdline_options(int argc, const char * const *argv, const char *val, const char *last);
+
+/**
+ * lws_cmdline_options_cx():	simple commandline parser
+ *
+ * \param cx:		the lws_context
+ * \param val:		string to find
+ * \param last:		last successful return from previous call
+ *
+ * Returns NULL if the string \p val is not found in the arguments.
+ *
+ * Before checking, the api aligns itself to the place of the \p last
+ * hit (or the beginning of the commandline if NULL), and starts checking
+ * from just beyond that.  In this way you can get the first, or
+ * incrementally get multiple results, for every hit.
+ * 
+ * If a match is found, then it returns a pointer to the next character after \p val.
+ * So if \p val is "-d", then for the commandlines "myapp -d15" and
+ * "myapp -d 15", in both cases the return will point to the "15".
+ *
+ * In the case there is no argument, like "myapp -d", the return will
+ * either point to the '\\0' at the end of -d, or to the start of the
+ * next argument, ie, will be non-NULL indicating success.
+ *
+ * This api variant handles stdin-passed commandline content, placing it
+ * after the argc / argv content.  You must ensure the context creation
+ * info .argc and .argv were set to the application's main argc and argv,
+ * either manually or it is handled for you as a side-effect of calling
+ * lws_cmdline_option_handle_builtin().
+ */
+
+LWS_VISIBLE LWS_EXTERN const char *
+lws_cmdline_options_cx(const struct lws_context *cx, const char *val, const char *last);
+
+/**
+ * lws_cmdline_option_cx():	simple commandline parser
+ *
+ * \param cx:		the lws_context
+ * \param val:		string to find
+ *
+ * Returns NULL if the string \p val is not found in the arguments.
+ *
+ * This only returns the first hit for \p val.
+ *
+ * If a match is found, then it returns a pointer to the next character after \p val.
+ * So if \p val is "-d", then for the commandlines "myapp -d15" and
+ * "myapp -d 15", in both cases the return will point to the "15".
+ *
+ * In the case there is no argument, like "myapp -d", the return will
+ * either point to the '\\0' at the end of -d, or to the start of the
+ * next argument, ie, will be non-NULL indicating success.
+ *
+ * This api variant handles stdin-passed commandline content, placing it
+ * after the argc / argv content.  You must ensure the context creation
+ * info .argc and .argv were set to the application's main argc and argv,
+ * either manually or it is handled for you as a side-effect of calling
+ * lws_cmdline_option_handle_builtin().
+ */
+LWS_VISIBLE LWS_EXTERN const char *
+lws_cmdline_option_cx(const struct lws_context *cx, const char *val);
 
 /**
  * lws_cmdline_option_handle_builtin(): apply standard cmdline options
@@ -813,6 +906,13 @@ typedef int
 lws_dir_callback_function(const char *dirpath, void *user,
 			  struct lws_dir_entry *lde);
 
+struct lws_dir_info {
+	const char 			*dirpath;
+	void 				*user;
+	lws_dir_callback_function	*cb;
+	unsigned char			do_toplevel_cb:1;
+};
+
 /**
  * lws_dir() - get a callback for everything in a directory
  *
@@ -822,11 +922,41 @@ lws_dir_callback_function(const char *dirpath, void *user,
  *
  * Calls \p cb (with \p user) for every object in dirpath.
  *
+ * This form does not call the callback for the toplevel, dirpath dir
+ * itself.  If you want to do that, use lws_dir_via_info(), with
+ * .do_toplevel_cb nonzero.
+ *
  * This wraps whether it's using POSIX apis, or libuv (as needed for windows,
  * since it refuses to support POSIX apis for this).
+ *
+ * Returns 1 if completed normally or 0 if the recursion ended early.
+ *
+ * This is here for historical reasons, use the below lws_dir_via_info() for
+ * new code, it's the same function but using an info struct type args.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_dir(const char *dirpath, void *user, lws_dir_callback_function cb);
+
+/**
+ * lws_dir_via_info() - get a callback for everything in a directory
+ *
+ * \param info: details of what to scan and how
+ *
+ * All of the members of \p info should be set on entry.
+ *
+ * Calls \p info.cb (with \p info.user) for every object in info.dirpath.
+ *
+ * Set \p info.do_toplevel_cb to nonzero if you also want the callback to
+ * be called for the toplevel dir, ie, dirpath itself.
+ *
+ * This wraps whether it's using POSIX apis, or libuv (as needed for windows,
+ * since it refuses to support POSIX apis for this).
+ *
+ * Returns 1 if completed normally or 0 if the recursion ended early.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dir_via_info(struct lws_dir_info *info);
+
 
 /**
  * lws_dir_rm_rf_cb() - callback for lws_dir that performs recursive rm -rf
@@ -1191,6 +1321,16 @@ LWS_VISIBLE LWS_EXTERN int
 lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp);
 
 /**
+ * lws_spawn_get_stdwsi_open_count() - return stdwsi unclosed count
+ *
+ * \p lsp: the spawn object
+ *
+ * Returns number of stdwsi left unclosed on the lsp.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_spawn_get_stdwsi_open_count(struct lws_spawn_piped *lsp);
+
+/**
  * lws_spawn_stdwsi_closed() - inform the spawn one of its stdxxx pipes closed
  *
  * \p lsp: the spawn object
@@ -1202,9 +1342,21 @@ lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp);
  *
  * This is the mechanism whereby the spawn object can understand its child
  * has closed.
+ *
+ * Returns non-zero if there are no more stdwsi to wait for.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_spawn_stdwsi_closed(struct lws_spawn_piped *lsp, struct lws *wsi);
+
+/*
+ * lws_spawn_closedown_stdwsis() - forcibly close the spawner side of stdwsi pipes
+ *
+ * \p lsp: the spawn object
+ *
+ * Closes the spawner side of all the stdwsi for an lsp that are still open.
  */
 LWS_VISIBLE LWS_EXTERN void
-lws_spawn_stdwsi_closed(struct lws_spawn_piped *lsp, struct lws *wsi);
+lws_spawn_closedown_stdwsis(struct lws_spawn_piped *lsp);
 
 /**
  * lws_spawn_get_stdfd() - return std channel index for stdwsi

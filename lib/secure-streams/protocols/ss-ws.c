@@ -33,8 +33,9 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 #endif
 	lws_ss_handle_t *h = (lws_ss_handle_t *)lws_get_opaque_user_data(wsi);
 	uint8_t buf[LWS_PRE + 1400];
+	enum lws_write_protocol f1;
 	lws_ss_state_return_t r;
-	int f = 0, f1, n;
+	int f = 0, n;
 	size_t buflen;
 
 	switch (reason) {
@@ -173,7 +174,7 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 					!!(f & LWSSS_FLAG_SOM),
 					!!(f & LWSSS_FLAG_EOM));
 
-		n = lws_write(wsi, buf + LWS_PRE, buflen, (enum lws_write_protocol)f1);
+		n = lws_write(wsi, buf + LWS_PRE, buflen, f1);
 		if (n < (int)buflen) {
 			lwsl_info("%s: write failed %d %d\n", __func__,
 					n, (int)buflen);

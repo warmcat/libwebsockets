@@ -53,6 +53,16 @@ if (LWS_WITH_SECURE_STREAMS_CPP)
 	enable_language(CXX)
 endif()
 
+# On macOS, check for the Apple Silicon Homebrew path and add it to the search prefix.
+# This makes find_package(), find_library(), etc. automatically find things
+# installed in /opt/homebrew on Apple Silicon machines, without breaking
+# the default /usr/local search on older Intel machines.
+if (APPLE)
+    if (EXISTS "/opt/homebrew/bin/brew")
+        list (PREPEND CMAKE_PREFIX_PATH "/opt/homebrew")
+    endif()
+endif()
+
 include(CheckFunctionExists)
 include(CheckSymbolExists)
 include(CheckIncludeFile)
@@ -350,6 +360,7 @@ else()
 	set(LWS_WITH_LIBCAP OFF)
 endif()
 option(LWS_WITH_MCUFONT_ENCODER "Build the ttf to mcufont encoder" OFF)
+option(LWS_WITH_WAKE_LOGGING "Log each wake reason" OFF)
 
 #
 # Compressed backtraces
@@ -406,6 +417,16 @@ macro(add_subdir_include_directories arg1)
 	add_subdirectory(${arg1})
 	include_directories(${_CMAKE_INC_LIST})
 endmacro()
+
+macro(add_subdir_include_directories_local arg1)
+	add_subdirectory(${arg1})
+	list(APPEND CMAKE_INC_LIST_TEMP ${_CMAKE_INC_LIST})
+endmacro()
+
+macro(add_subdir_include_directories_local_end)
+	set(_CMAKE_INC_LIST ${CMAKE_INC_LIST_TEMP} PARENT_SCOPE)
+endmacro()
+
 
 macro(exports_to_parent_scope)
 	set(SOURCES ${SOURCES} PARENT_SCOPE)
@@ -530,6 +551,7 @@ endif()
 if (WIN32)
 	configure_file(${CMAKE_CURRENT_SOURCE_DIR}/win32port/version.rc.in ${CMAKE_CURRENT_BINARY_DIR}/win32port/version.rc @ONLY)
 	set(RESOURCES ${CMAKE_CURRENT_BINARY_DIR}/win32port/version.rc)
+       include_directories("${CMAKE_CURRENT_SOURCE_DIR}/win32port/win32helpers")
 endif()
 
 include_directories(include)

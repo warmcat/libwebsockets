@@ -156,8 +156,12 @@ typedef int suseconds_t;
 #define __func__ __FUNCTION__
 #endif
 
+#define LWS_POSIX_LENGTH_CAST(x) (unsigned int)(x)
+
 #else /* NOT WIN32 */
 #include <unistd.h>
+
+#define LWS_POSIX_LENGTH_CAST(x) (x)
 
 #if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
 #include <sys/capability.h>
@@ -166,6 +170,12 @@ typedef int suseconds_t;
 #if defined(__NetBSD__) || defined(__FreeBSD__) || defined(__QNX__) || defined(__OpenBSD__) || defined(__NuttX__)
 #include <sys/socket.h>
 #include <netinet/in.h>
+#endif
+
+/* Find ETHER_ADDR_LEN on OpenBSD */
+#if defined(__OpenBSD__)
+#include <net/if_arp.h>
+#include <netinet/if_ether.h>
 #endif
 
 #define LWS_INLINE inline

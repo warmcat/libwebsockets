@@ -312,7 +312,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	if (ads && *ads == '+') {
 		ads++;
 		memset(&wsi->sa46_peer, 0, sizeof(wsi->sa46_peer));
-		af = sau.sun_family = AF_UNIX;
+		sau.sun_family = AF_UNIX;
 		strncpy(sau.sun_path, ads, sizeof(sau.sun_path));
 		sau.sun_path[sizeof(sau.sun_path) - 1] = '\0';
 
@@ -391,7 +391,6 @@ ads_known:
 		}
 
 #if defined(LWS_WITH_UNIX_SOCK)
-		af = 0;
 		if (wsi->unix_skt) {
 			af = AF_UNIX;
 			wsi->desc.sockfd = socket(AF_UNIX, SOCK_STREAM, 0);

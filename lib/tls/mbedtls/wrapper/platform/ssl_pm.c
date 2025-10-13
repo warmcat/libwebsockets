@@ -257,7 +257,9 @@ static int ssl_pm_reload_crt(SSL *ssl)
     struct pkey_pm *pkey_pm = (struct pkey_pm *)ssl->cert->pkey->pkey_pm;
     struct x509_pm *crt_pm = (struct x509_pm *)ssl->cert->x509->x509_pm;
 
-    if ((ssl->verify_mode & SSL_VERIFY_PEER) > 0)
+    if ((ssl->verify_mode & SSL_VERIFY_POST_HANDSHAKE) > 0)
+        mode = MBEDTLS_SSL_VERIFY_OPTIONAL;
+    else if ((ssl->verify_mode & SSL_VERIFY_PEER) > 0)
         mode = MBEDTLS_SSL_VERIFY_REQUIRED;
     else if ((ssl->verify_mode & SSL_VERIFY_FAIL_IF_NO_PEER_CERT) > 0)
         mode = MBEDTLS_SSL_VERIFY_OPTIONAL;

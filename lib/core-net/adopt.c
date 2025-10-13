@@ -218,6 +218,10 @@ __lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 	return new_wsi;
 
 bail:
+        lws_pt_lock(pt, __func__); /* -------------- pt { */
+        lws_dll2_remove(&new_wsi->pre_natal);
+        lws_pt_unlock(pt); /* } pt --------------- */
+
 	lwsl_wsi_notice(new_wsi, "exiting on bail");
 	if (parent)
 		parent->child_list = new_wsi->sibling_list;

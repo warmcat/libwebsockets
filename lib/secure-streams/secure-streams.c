@@ -146,6 +146,7 @@ const uint32_t ss_state_txn_validity[] = {
 					  (1 << LWSSSCS_DESTROYING),
 
 	[LWSSSCS_ALL_RETRIES_FAILED]	= (1 << LWSSSCS_CONNECTING) |
+					  (1 << LWSSSCS_POLL) |
 					  (1 << LWSSSCS_TIMEOUT) |
 					  (1 << LWSSSCS_UNREACHABLE) |
 					  (1 << LWSSSCS_DESTROYING),
@@ -729,7 +730,7 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 	union lws_ss_contemp ct;
 	lws_ss_state_return_t r;
 	int port, _port, tls;
-	char *path, ep[96];
+	char *path, ep[192];
 	lws_strexp_t exp;
 	struct lws *wsi;
 

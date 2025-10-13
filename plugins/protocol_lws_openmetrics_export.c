@@ -946,7 +946,8 @@ callback_lws_openmetrics_prox_client(struct lws *wsi,
 				lws_get_vhost(wsi), lws_get_protocol(wsi));
 	struct lws_context *cx = lws_get_context(wsi);
 	struct pss *pss = (struct pss *)user;
-	unsigned int m, wm;
+	enum lws_write_protocol wm;
+	unsigned int m;
 	const char *cp;
 	char first;
 
@@ -1116,11 +1117,9 @@ callback_lws_openmetrics_prox_client(struct lws *wsi,
 			return -1;
 		}
 
-		wm = (unsigned int)lws_write_ws_flags(LWS_WRITE_TEXT, first,
-						      !pss->walk);
+		wm = lws_write_ws_flags(LWS_WRITE_TEXT, first, !pss->walk);
 
-		if (lws_write(wsi, start, lws_ptr_diff_size_t(p, start),
-			      (enum lws_write_protocol)wm) < 0) {
+		if (lws_write(wsi, start, lws_ptr_diff_size_t(p, start), wm) < 0) {
 			lwsl_notice("%s: write fail\n", __func__);
 			return 1;
 		}

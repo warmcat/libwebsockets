@@ -249,6 +249,19 @@
 	 * Diffie-Hellman (DH) key exchange ciphers
 	 * (e.g. TLS_DHE_RSA_WITH_AES_256_GCM_SHA384). It's not recommended. */
 
+#define LWS_SERVER_OPTION_MBEDTLS_VERIFY_CLIENT_CERT_POST_HANDSHAKE	 ((1ll << 41) | \
+								 (1ll << 12))
+	/**< (VH) An option to be used with mbedtls only, forces server to load 
+	 * and store the client cert (without CA dependent check)
+	 * to be able to verify it later (after the handshake);
+	 * provides LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT.
+	 * Note: LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT and
+	 * LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED are ignored if
+	 * LWS_SERVER_OPTION_MBEDTLS_VERIFY_CLIENT_CERT_POST_HANDSHAKE is set */
+
+#define LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS		(1ll << 42)
+	/**< (VH) force instantiation of all protocols for this vhost */
+
 	/****** add new things just above ---^ ******/
 
 
@@ -977,6 +990,13 @@ struct lws_context_creation_info {
 	const char		*wol_if;
 	/**< CONTEXT: NULL, or interface name to bind outgoing WOL packet to */
 #endif
+
+	int			argc;
+	/**< CONTEXT: optionally pass the app commandline to the context, so we can use it
+	 * as part of lws_cmdline_option_cx() */
+	const char		**argv;
+	/**< CONTEXT: optionally pass the app commandline to the context, so we can use it
+	 * as part of lws_cmdline_option_cx() */
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility

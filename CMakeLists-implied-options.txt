@@ -340,10 +340,6 @@ if (NOT LWS_WITHOUT_EXTENSIONS OR LWS_WITH_ZIP_FOPS)
 	set(LWS_WITH_ZLIB 1)
 endif()
 
-if (LWS_WITH_SECURE_STREAMS)
-	set(LWS_WITH_SECURE_STREAMS_SYS_AUTH_API_AMAZON_COM 1)
-endif()
-
 if (NOT (LWS_WITH_STATIC OR LWS_WITH_SHARED))
 	message(FATAL_ERROR "Makes no sense to compile with neither static nor shared libraries.")
 endif()

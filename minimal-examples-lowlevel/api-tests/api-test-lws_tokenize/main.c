@@ -382,6 +382,17 @@ int main(int argc, const char **argv)
 		memcert[info.client_ssl_ca_mem_len++] = '\0';
 	}
 #endif
+
+	{
+		const char * match, *argv1[] = { "arg0", "--arg1", "arg2", "-arg3", "arg4", NULL };
+
+		match = lws_cmdline_options(LWS_ARRAY_SIZE(argv1) - 1, argv1, NULL, NULL);
+		if (!match || strcmp(match, "arg2")) {
+			lwsl_warn("%s: test1 result unexpected: '%s'\n", __func__, match);
+			fail++;
+		}
+	}
+
 	{
 		/* lws_fx_t */
 
@@ -1084,7 +1095,7 @@ int main(int argc, const char **argv)
 			fail++;
 		}
 		m = lws_humanize(buf, sizeof(buf), 1024, humanize_schema_si);
-		if (m != 7 || strcmp(buf, "1.000Ki")) {
+		if (m != 3 || strcmp(buf, "1Ki")) {
 			lwsl_user("%s: humanize 5 fail '%s' (%d)\n", __func__, buf, m);
 			fail++;
 		}

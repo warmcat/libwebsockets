@@ -380,8 +380,10 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	context = wsi->a.context;
 	pt = &context->pt[(int)wsi->tsi];
 
-	if (pt->pipe_wsi == wsi)
+	if (pt->pipe_wsi == wsi) {
+		lws_plat_pipe_close(pt->pipe_wsi);
 		pt->pipe_wsi = NULL;
+	}
 
 #if defined(LWS_WITH_SYS_METRICS) && \
     (defined(LWS_WITH_CLIENT) || defined(LWS_WITH_SERVER))
