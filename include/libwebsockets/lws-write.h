@@ -227,17 +227,17 @@ lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 static LWS_INLINE enum lws_write_protocol
 lws_write_ws_flags(int initial, int is_start, int is_end)
 {
-	enum lws_write_protocol r;
+	unsigned int r;
 
 	if (is_start)
-		r = (enum lws_write_protocol)initial;
+		r = (unsigned int)initial;
 	else
 		r = LWS_WRITE_CONTINUATION;
 
 	if (!is_end)
 		r |= LWS_WRITE_NO_FIN;
 
-	return r;
+	return (enum lws_write_protocol)r;
 }
 
 /**
