@@ -791,7 +791,7 @@ lws_spawn_stdwsi_closed(struct lws_spawn_piped *lsp, struct lws *wsi)
 			goto found;
 
 	/* Not found, so must have been destroyed already */
-	lwsl_warn("%s: ----------------- didn't find stdwsi on lsp\n", __func__);
+	// lwsl_warn("%s: ----------------- didn't find stdwsi on lsp\n", __func__);
 
 	return 0;
 

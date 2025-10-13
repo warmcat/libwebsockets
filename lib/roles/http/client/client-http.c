@@ -1776,7 +1776,7 @@ lws_http_mp_sm_fill(struct lws_http_mp_sm *phms, uint8_t **p, uint8_t *end)
 			if (lws_ptr_diff(end, *p) < 100)
                                 return 1;
 
-			r = read(phms->fd, *p, chunk);
+			r = read(phms->fd, *p, LWS_POSIX_LENGTH_CAST(chunk));
 			if (r < 0) {
 				close(phms->fd);
 				lwsl_warn("%s: unable to read\n", __func__);

@@ -117,7 +117,7 @@ next:
 			if (!cx->system_ops || !cx->system_ops->stdin_rx)
 				return -1;
 
-		fd = lws_get_socket_fd(wsi);
+		fd = (int)lws_get_socket_fd(wsi);
 		if (fd < 0)
 			return -1;
 		n = read(fd, buf, sizeof(buf));

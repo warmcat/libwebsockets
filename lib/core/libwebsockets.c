@@ -1594,6 +1594,7 @@ lws_cmdline_option(int argc, const char **argv, const char *val)
 }
 #endif
 
+#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_BAREMETAL) && !defined(LWS_PLAT_ANDROID) && defined(LWS_WITH_NETWORK)
 static const char * const builtins[] = {
 	"-d",
 	"--fault-injection",
@@ -1614,7 +1615,6 @@ enum opts {
 	OPT_SSPROXY_ADS,
 };
 
-#if !defined(LWS_PLAT_FREERTOS)
 static void
 lws_sigterm_catch(int sig)
 {
