@@ -60,8 +60,16 @@ through the non-switch arguments for NULL `val` case too.
 For example, the commandline `--switch1=abc def` would return a pointer to 
 `def` if the api `lws_cmdline_options()` was called with NULL `val` and `last`.
 
-Although switches with args like -d 1039 are supported, users will have to
-use the form -d=1039 to allow non-switch args to be correctly distinguished.
+Although switches with args like `-d 1039` are supported, if you will allow non-
+switch arguments, users will have to use the forms without any space between
+the switch and arg, ie:
+
+ - `-d1039`
+ - `-d=1039`
+ - `--port=1234`
+
+to allow non-switch args to be correctly distinguished.  Otherwise, eg, `1039`
+and `1234` would be seen as non-switch args.
 
 ### Timing of stdin commandline access
 
