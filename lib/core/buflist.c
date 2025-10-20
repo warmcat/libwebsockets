@@ -338,3 +338,127 @@ lws_flow_req(lws_flow_t *flow)
 	       flow->state != LWSDLOFLOW_STATE_READ ? LWS_SRET_OK :
 					              LWS_SRET_WANT_INPUT;
 }
+
+
+static void
+lws_wsmsg_transfer(lws_wsmsg_info_t *info)
+{
+	struct lws_buflist *bl = info->private_heads[info->private_source_idx],
+			   *ubl = *info->head_upstream;
+
+	/*
+	 * If we arrived at a complete message, and the upstream is
+	 * not blocked awaiting EOM, transfer the segments to the
+	 * upstream, emptying the private buflist
+	 */
+
+	if (!bl) {
+		lwsl_notice("%s: denied: no content to transfer\n", __func__);
+		return;
+	}
+
+	while (bl && bl->next)
+		bl = bl->next;
+
+	if (bl->awaiting_eom) {
+		lwsl_notice("%s: denied: head awaiting EOM\n", __func__);
+		return;
+	}
+
+	if (!*info->head_upstream) {
+		/*
+		 * If the upstream is empty, create it by pointing
+		 * it to the whole private chain, taking ownership
+		 */
+
+		*info->head_upstream = info->private_heads[info->private_source_idx];
+		info->private_heads[info->private_source_idx] = NULL;
+
+		lwsl_notice("%s: transferred: head -> head_upstream\n", __func__);
+
+		return;
+	}
+
+
+	/* find the end of the existing upstream */
+
+	while (ubl && ubl->next)
+		ubl = ubl->next;
+
+	if (ubl->awaiting_eom) {
+		lwsl_notice("%s: denied: no content to transfer\n", __func__);
+		return;
+	}
+
+	/*
+	 * Add the private buflist on to the end of
+	 * the upstream buflist, taking ownership
+	 */
+
+	ubl->next					= info->private_heads[info->private_source_idx];
+	info->private_heads[info->private_source_idx]	= NULL; /* now it transferred upstream, private owns nothing */
+}
+
+int
+lws_wsmsg_append(lws_wsmsg_info_t *info)
+{
+	struct lws_buflist *bl;
+
+	/*
+	 * if there's nothing already stored, the new message is complete,
+	 * and the upstream is either empty, or is not blocked awaiting EOM,
+	 * then just apply the message directly to the upstream.
+	 */
+
+	if (!info->private_heads[info->private_source_idx] &&
+	    (info->ss_flags == (LWSSS_FLAG_SOM | LWSSS_FLAG_EOM)) &&
+	    (!(*info->head_upstream) || !(*info->head_upstream)->awaiting_eom)) {
+
+		lwsl_notice("%s: directly applying upstream\n", __func__);
+
+		if (lws_buflist_append_segment(info->head_upstream, info->buf, info->len) < 0)
+			return -1;
+
+		/*
+		 * Let's tag the tail buflist we just added,
+		 * with extra information useful for debugging
+		 */
+
+		bl = *info->head_upstream;
+	} else {
+		/*
+		 * Otherwise, apply the message to the private buflist first
+		 */
+
+		lwsl_notice("%s: applying via private buflist\n", __func__);
+
+		if (lws_buflist_append_segment(&info->private_heads[info->private_source_idx],
+					       info->buf, info->len) < 0)
+			return -1;
+
+		bl = info->private_heads[info->private_source_idx];
+	}
+
+	while (bl && bl->next)
+		bl = bl->next;
+
+	if (!bl)
+		return 0;
+
+	bl->awaiting_eom	= !(info->ss_flags & LWSSS_FLAG_EOM);
+	bl->src_channel		= (unsigned char)info->private_source_idx;
+
+	lws_wsmsg_transfer(info);
+
+	return 0;
+}
+
+void
+lws_wsmsg_destroy(struct lws_buflist *private_heads[], size_t count_private_heads)
+{
+	size_t m = 0;
+
+	while (m < count_private_heads)
+		lws_buflist_destroy_all_segments(&private_heads[m++]);
+}
+

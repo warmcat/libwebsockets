@@ -436,9 +436,11 @@ typedef struct lws_ss_sinks {
 #endif
 
 typedef struct lws_buflist {
-	struct lws_buflist *next;
-	size_t len;
-	size_t pos;
+	struct lws_buflist			*next;
+	size_t					len;
+	size_t					pos;
+	unsigned char				awaiting_eom;
+	unsigned char				src_channel;
 } lws_buflist_t;
 
 
