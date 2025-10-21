@@ -359,6 +359,8 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	cisin[CIS_METHOD]	= i->method;
 	cisin[CIS_IFACE]	= i->iface;
 	cisin[CIS_ALPN]		= i->alpn;
+	cisin[CIS_USERNAME]	= i->auth_username;
+	cisin[CIS_PASSWORD]	= i->auth_password;
 
 	if (lws_client_stash_create(wsi, cisin))
 		goto bail;
