@@ -117,7 +117,7 @@
 			"platforms":	"none, rocky9/aarch64-a72a55-rk3588/gcc"
 		},
 		"default-examples": {
-			"cmake":	"-DLWS_WITH_MINIMAL_EXAMPLES=1",
+			"cmake":	"-DLWS_WITH_MINIMAL_EXAMPLES=0",
 			"platforms":	"netbsd/aarch64BE-bcm2837-a53/gcc"
 		},
 		"default-examples-tls-sess": {
