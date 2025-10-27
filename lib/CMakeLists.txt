@@ -333,7 +333,7 @@ endif()
 
 # Setup the linking for all libs.
 foreach (lib ${LWS_LIBRARIES})
-	target_link_libraries(${lib} ${LIB_LIST})
+	target_link_libraries(${lib} PRIVATE ${LIB_LIST})
 endforeach()
 
 #
