@@ -2144,6 +2144,14 @@ lws_log_prepend_ss(struct lws_log_cx *cx, void *obj, char **p, char *e)
 			lws_ss_tag(h));
 }
 
+void
+lws_ss_validity_confirmed(struct lws_ss_handle *h)
+{
+	if (h->wsi)
+		lws_validity_confirmed(h->wsi);
+}
+
+
 #if defined(_DEBUG)
 void
 lws_ss_assert_extant(struct lws_context *cx, int tsi, struct lws_ss_handle *h)

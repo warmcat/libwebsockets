@@ -670,6 +670,30 @@ LWS_VISIBLE LWS_EXTERN int
 lws_ss_adopt_raw(struct lws_ss_handle *ss, lws_sock_file_fd_type fd);
 #endif
 
+/*
+ * lws_ss_validity_confirmed() - reset the validity timer for a network connection
+ *
+ * \param h: the SS handle
+ *
+ * Network connections are subject to intervals defined by the context, the
+ * vhost if server connections, or the client connect info if a client
+ * connection.  If the connection goes longer than the specified time since
+ * last observing traffic that can only happen if traffic is passing in both
+ * directions, then lws will try to create a PING transaction on the network
+ * connection.
+ *
+ * If the connection reaches the specified `.secs_since_valid_hangup` time
+ * still without any proof of validity, the connection will be closed.
+ *
+ * If the PONG comes, or user code observes traffic that satisfies the proof
+ * that both directions are passing traffic to the peer and calls this api,
+ * the connection validity timer is reset and the scheme repeats.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_ss_validity_confirmed(struct lws_ss_handle *h);
+
+
+
 #if defined(LWS_WITH_SECURE_STREAMS_AUTH_SIGV4)
 /**
  * lws_ss_sigv4_set_aws_key() - set aws credential into system blob
