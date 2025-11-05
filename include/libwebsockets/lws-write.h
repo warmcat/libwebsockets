@@ -235,7 +235,7 @@ lws_write_ws_flags(int initial, int is_start, int is_end)
 		r = LWS_WRITE_CONTINUATION;
 
 	if (!is_end)
-		r |= LWS_WRITE_NO_FIN;
+		r = (enum lws_write_protocol)((int)r | (int)LWS_WRITE_NO_FIN);
 
 	return r;
 }
