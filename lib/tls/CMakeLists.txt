@@ -38,6 +38,10 @@ if (LWS_WITH_CYASSL AND LWS_WITH_WOLFSSL)
 	message(FATAL_ERROR "LWS_WITH_CYASSL and LWS_WITH_WOLFSSL are mutually exclusive!")
 endif()
 
+if (LWS_WITH_SCHANNEL AND NOT WIN32)
+	message(FATAL_ERROR "LWS_WITH_SCHANNEL is only available on Windows")
+endif()
+
 if (LWS_WITH_CYASSL)
 	# Copy CyaSSL options to the wolfSSL options
 	set(LWS_WITH_WOLFSSL ${LWS_WITH_CYASSL} CACHE BOOL "Use wolfSSL/CyaSSL instead of OpenSSL" FORCE PARENT_SCOPE)
@@ -155,6 +159,11 @@ if (LWS_WITH_SSL)
 				tls/mbedtls/lws-genec.c
 				tls/mbedtls/lws-gencrypto.c)
 		endif()
+	elseif(LWS_WITH_SCHANNEL)
+		if (LWS_WITH_NETWORK)
+			list(APPEND SOURCES
+				tls/schannel/schannel-ssl.c)
+		endif()
 	else()
 		list(APPEND SOURCES
 			tls/openssl/openssl-tls.c
@@ -184,6 +193,9 @@ if (LWS_WITH_SSL)
 		if (LWS_WITH_MBEDTLS)
 			list(APPEND SOURCES
 				tls/mbedtls/mbedtls-server.c)
+		elseif(LWS_WITH_SCHANNEL)
+			list(APPEND SOURCES
+				tls/schannel/schannel-server.c)
 		else()
 			list(APPEND SOURCES
 				tls/openssl/openssl-server.c)
@@ -195,6 +207,9 @@ if (LWS_WITH_SSL)
 		if (LWS_WITH_MBEDTLS)
 			list(APPEND SOURCES
 				tls/mbedtls/mbedtls-client.c)
+		elseif(LWS_WITH_SCHANNEL)
+			list(APPEND SOURCES
+				tls/schannel/schannel-client.c)
 		else()
 			list(APPEND SOURCES
 				tls/openssl/openssl-client.c)
@@ -258,6 +273,11 @@ if (LWS_WITH_SSL)
 	
 	if (LWS_WITH_MBEDTLS)
 		set(chose_ssl 1)
+	endif()
+
+	if (LWS_WITH_SCHANNEL)
+		set(chose_ssl 1)
+		list(INSERT LIB_LIST 0 secur32)
 	endif()
 
 	if (NOT chose_ssl)

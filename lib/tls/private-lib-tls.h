@@ -150,7 +150,7 @@ void
 lws_context_deinit_ssl_library(struct lws_context *context);
 #define LWS_SSL_ENABLED(vh) (vh && vh->tls.use_ssl)
 
-extern const struct lws_tls_ops tls_ops_openssl, tls_ops_mbedtls;
+extern const struct lws_tls_ops tls_ops_openssl, tls_ops_mbedtls, tls_ops_schannel;
 
 struct lws_ec_valid_curves {
 	int id;
