@@ -338,8 +338,28 @@ start_ws_handshake:
 		else
 			n = lws_read_mqtt(wsi, ebuf.token, (unsigned int)ebuf.len);
 		if (n < 0) {
-			lwsl_err("%s: Parsing packet failed\n", __func__);
-			goto fail;
+			lws_mqttc_t *c = &wsi->mqtt->client;
+			char msgBuffer[128];
+			switch (c->par.reason) {
+			case LMQCP_REASON_UNSUPPORTED_PROTOCOL:
+				snprintf(msgBuffer, sizeof(msgBuffer), "reason: %s %s\n", "server does not support MQTT protocol", MQTT_VER_STRING);
+			   break;
+			case LMQCP_REASON_CLIENT_ID_INVALID:
+				snprintf(msgBuffer, sizeof(msgBuffer), "reason: %s %.*s\n", "server does not accept client ID", c->id->len, c->id->buf);
+				break;
+			case LMQCP_REASON_BAD_CREDENTIALS:
+				snprintf(msgBuffer, sizeof(msgBuffer), "reason: %s\n", "invalid credentials");
+				break;
+			case LMQCP_REASON_NOT_AUTHORIZED:
+				snprintf(msgBuffer, sizeof(msgBuffer), "reason: %s\n", "not authorized");
+				break;
+			default:
+				snprintf(msgBuffer, sizeof(msgBuffer), "reason: %s\n", "unknown MQTT connection failure");
+				break;
+			}
+			lws_inform_client_conn_fail(wsi, (void *)msgBuffer, strlen(msgBuffer));
+			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, __func__);
+			return -1;
 		}
 
 		m = ebuf.len - n;
