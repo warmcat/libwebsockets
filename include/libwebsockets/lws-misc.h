@@ -198,6 +198,64 @@ LWS_VISIBLE LWS_EXTERN void *
 lws_buflist_get_frag_start_or_NULL(struct lws_buflist **head);
 
 
+struct lws_wsmsg_info;
+
+typedef void (*lws_wsmsg_transfer_cb)(struct lws_wsmsg_info *info);
+
+typedef struct lws_wsmsg_info {
+	struct lws_buflist	**head_upstream;	/* the upstream buflist */
+       	struct lws_buflist	**private_heads;	/* the private reassembly heads */
+	int			private_source_idx;	/* which index to use in private_heads */
+	lws_wsmsg_transfer_cb	optional_cb;		/* optional transfer callback */
+	void			*opaque;		/* optional opaque pointer */
+       	const uint8_t		*buf;			/* array to add */
+       	size_t			len;			/* length of bytes in array */
+       	unsigned int		ss_flags;		/* SS flags for SOM / EOM */
+} lws_wsmsg_info_t;
+
+/**
+ * lws_wsmsg_append() - append to buflist via private buflists
+ *
+ * \param info: the info struct, filled in before calling
+ *
+ * This api allows you to pass incoming fragments through a private buflist
+ * until the message it contains is reassembled and complete.  At that point, if
+ * the upstream buflist is not blocked by being in the middle of a message itself,
+ * the fragments are added to the end of an upstream buflist and the private
+ * buflist left empty.
+ *
+ * As an optimization, if the upstream buflist is not blocked waiting for an EOM,
+ * the private buflist is empty, and the incoming data represents a complete
+ * message, then the incoming message is added directly to the upstream buflist.
+ *
+ * This method allows potentially many async connections with fragmented messages
+ * to contribute to a single buflist containing only complete messages.  It's
+ * not possible to add a partial message (without the EOM flag) to the upstream
+ * buflist; when all parts of it have arrived it will be added.
+ *
+ * An array of private buflists is supported so that messages from many different
+ * connections can be reassembled before moving to the upstream buflist.
+ *
+ * Optionally, instead of transfer to another buflist when the message is complete,
+ * if the optional_cb is provided, this is called instead with the info struct, so
+ * arbitrary operations can be performed by the user.
+ *
+ * The info->opaque pointer is not used by lws, it's there to facilitate passing
+ * related user parameters in the callback case.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_wsmsg_append(lws_wsmsg_info_t *info);
+
+/*
+ * lws_wsmsg_destroy() - free all allocations in private buflists
+ *
+ * \param private_heads: the private buflists
+ * \param count_private_heads: the number of private buflists
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_wsmsg_destroy(struct lws_buflist *private_heads[], size_t count_private_heads);
+
+
 
 /*
  * Optional helpers for closely-managed stream flow control.  These are useful

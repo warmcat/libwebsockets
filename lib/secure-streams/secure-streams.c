@@ -97,7 +97,8 @@ const uint32_t ss_state_txn_validity[] = {
 					  (1 << LWSSSCS_CONNECTED) |
 					  (1 << LWSSSCS_TIMEOUT) |
 					  (1 << LWSSSCS_POLL) |
-					  (1 << LWSSSCS_DESTROYING),
+					  (1 << LWSSSCS_DESTROYING) |
+					  (1 << LWSSSCS_UNREACHABLE), /* sai-power talking to tasmota */
 
 	[LWSSSCS_UNREACHABLE]		= (1 << LWSSSCS_ALL_RETRIES_FAILED) |
 					  (1 << LWSSSCS_TIMEOUT) |
@@ -2143,6 +2144,14 @@ lws_log_prepend_ss(struct lws_log_cx *cx, void *obj, char **p, char *e)
 	*p += lws_snprintf(*p, lws_ptr_diff_size_t(e, (*p)), "%s: ",
 			lws_ss_tag(h));
 }
+
+void
+lws_ss_validity_confirmed(struct lws_ss_handle *h)
+{
+	if (h->wsi)
+		lws_validity_confirmed(h->wsi);
+}
+
 
 #if defined(_DEBUG)
 void

@@ -35,7 +35,6 @@ MACRO(SUBDIRLIST result curdir)
 ENDMACRO()
 
 include_directories(${LWS_LIB_BUILD_INC_PATHS})
-link_libraries(${LIB_LIST_AT_END})
 
 SUBDIRLIST(SUBDIRS "${PROJECT_SOURCE_DIR}/minimal-examples")
 

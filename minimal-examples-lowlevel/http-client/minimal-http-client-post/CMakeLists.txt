@@ -78,13 +78,13 @@ endif()
 					     FIXTURES_CLEANUP hcp_srv)
 
 	add_test(NAME http-client-post COMMAND
-		lws-minimal-http-client-post -l --port ${PORT_HCP_SRV})
+		lws-minimal-http-client-post -l https://localhost:${PORT_HCP_SRV}/formtest)
 	add_test(NAME http-client-post-m COMMAND
-		lws-minimal-http-client-post -l -m --port ${PORT_HCP_SRV})
+		lws-minimal-http-client-post -l -m https://localhost:${PORT_HCP_SRV}/formtest)
 	add_test(NAME http-client-post-h1 COMMAND
-		lws-minimal-http-client-post -l --h1 --port ${PORT_HCP_SRV})
+		lws-minimal-http-client-post -l --h1 https://localhost:${PORT_HCP_SRV}/formtest)
 	add_test(NAME http-client-post-m-h1 COMMAND
-		lws-minimal-http-client-post -l -m --h1 --port ${PORT_HCP_SRV})
+		lws-minimal-http-client-post -l -m --h1 https://localhost:${PORT_HCP_SRV}/formtest)
 	set_tests_properties(http-client-post
 			     http-client-post-m
 			     http-client-post-h1

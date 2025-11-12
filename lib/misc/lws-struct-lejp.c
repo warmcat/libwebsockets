@@ -827,7 +827,11 @@ up:
 			*buf++ = '}';
 			len--;
 			lws_struct_pretty(js, &buf, &len);
-			break;
+
+			*written = olen - len;
+			*buf = '\0'; /* convenience, a NUL after the official end */
+
+			return LSJS_RESULT_FINISH;
 		}
 		js->offset = 0;
 		j = &js->st[js->sp];
@@ -890,5 +894,5 @@ up:
 	*written = olen - len;
 	*buf = '\0'; /* convenience, a NUL after the official end */
 
-	return LSJS_RESULT_FINISH;
+	return LSJS_RESULT_CONTINUE;
 }

@@ -117,8 +117,10 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (!h) {
 			return LWSSSSRET_DISCONNECT_ME;
 		}
-		h->retry = 0;
-		h->seqstate = SSSEQ_CONNECTED;
+		h->retry		= 0;
+		h->seqstate		= SSSEQ_CONNECTED;
+		wsi->ws->last_valid	= 0;
+		wsi->ws->last_fin	= 0;
 		lws_sul_cancel(&h->sul);
 #if defined(LWS_WITH_SYS_METRICS)
 		/*
@@ -162,12 +164,40 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		}
 
 		buflen = sizeof(buf) - LWS_PRE;
+
+		/*
+		 * Let's prepare *flags with information about the channel ws message state
+		 * which the callback can simply overwrite.  But if you are tracing problems
+		 * with your own flags state blowing assert()s below, you can use this for
+		 * debugging the illegal state while still in your ss tx callback; otherwise
+		 * it can be harder to understand what you're doing wrong after we returned
+		 * from the callback and blow chunks here.
+		 *
+		 * b1 of flags is set if we know the last fin state.  If b1 is set, b0 is
+		 * the last FIN state.  You can use this info to see if your flags will
+		 * cause us to assert when you return.
+		 */
+
+		f = (!!wsi->ws->last_valid << 1) | (!!wsi->ws->last_fin);
 		r = h->info.tx(ss_to_userobj(h),  h->txord++, buf + LWS_PRE,
 				  &buflen, &f);
 		if (r == LWSSSSRET_TX_DONT_SEND)
 			return 0;
 		if (r != LWSSSSRET_OK)
 			return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
+
+		if ((f & LWSSS_FLAG_SOM) && wsi->ws->last_valid && !wsi->ws->last_fin) {
+			lwsl_ss_err(h, "%s TX: Illegal LWSSS_FLAG_SOM after previous frame without LWSSS_FLAG_EOM", h->policy ? h->policy->streamtype : "unknown");
+			assert(0);
+		}
+		if (!(f & LWSSS_FLAG_SOM) && wsi->ws->last_valid && wsi->ws->last_fin) {
+			lwsl_ss_err(h, "%s TX: Missing LWSSS_FLAG_SOM after previous frame with LWSSS_FLAG_EOM", h->policy ? h->policy->streamtype : "unknown");
+			assert(0);
+		}
+		if (!(f & LWSSS_FLAG_SOM) && !wsi->ws->last_valid) {
+			lwsl_ss_err(h, "%s TX: Missing LWSSS_FLAG_SOM on first frame", h->policy ? h->policy->streamtype : "unknown");
+			assert(0);
+		}
 
 		f1 = lws_write_ws_flags(h->policy->u.http.u.ws.binary ?
 					   LWS_WRITE_BINARY : LWS_WRITE_TEXT,

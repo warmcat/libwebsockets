@@ -300,8 +300,9 @@ if (LWS_WITH_SHARED)
 		   (${CMAKE_SYSTEM_NAME} MATCHES "OpenBSD") OR
 		   (${CMAKE_SYSTEM_NAME} MATCHES "QNX")))
 		   if (LWS_WITH_SHARED)
-				target_link_libraries(websockets_shared dl)
-			endif()
+			   # target_link_libraries(websockets_shared)
+			   list(APPEND LIB_LIST dl)
+		   endif()
 		endif()
 	endif()
 
@@ -333,7 +334,9 @@ endif()
 
 # Setup the linking for all libs.
 foreach (lib ${LWS_LIBRARIES})
+	#	target_link_libraries(${lib} PRIVATE ${LIB_LIST})
 	target_link_libraries(${lib} ${LIB_LIST})
+
 endforeach()
 
 #
