@@ -1671,7 +1671,8 @@ lws_http_mp_sm_init(struct lws *wsi, lws_http_mp_sm_cb_t cb, uint8_t **p, uint8_
 
 		cl += (unsigned int)lws_snprintf(cla, sizeof(cla),
 				   "Content-Disposition: form-data; name=\"%s\"\x0d\x0a\x0d\x0a", ft);
-		cl += strlen(eq) + 2 /* CRLF */;
+		if (eq)
+			cl += strlen(eq) + 2 /* CRLF */;
 
 	} while (1);
 
