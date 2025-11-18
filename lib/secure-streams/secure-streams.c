@@ -1023,20 +1023,22 @@ lws_ss_adopt_raw(struct lws_ss_handle *h, lws_sock_file_fd_type fd)
 {
 	const struct ss_pcols *ssp;
 	lws_ss_state_return_t r;
-        lws_adopt_desc_t desc;
-        struct lws *wsi;
+    lws_adopt_desc_t desc;
+    struct lws *wsi;
 
-        if (!h->policy || !h->policy->protocol)
+    if (!h->policy || !h->policy->protocol)
 		return 1;
 
-        ssp = ss_pcols[(int)h->policy->protocol];
-        if (!ssp)
+    ssp = ss_pcols[(int)h->policy->protocol];
+    if (!ssp)
 		return 1;
 
 	memset(&desc, 0, sizeof(desc));
 
 	desc.vh = lws_ss_get_vhost(h) ? lws_ss_get_vhost(h) :
 				lws_get_vhost_by_name(h->context, "_ss_default");
+	if (desc.vh == NULL)
+		return 1;
 	desc.vh_prot_name = ssp->protocol->name;
 	desc.type = LWS_ADOPT_RAW_FILE_DESC;
 	desc.fd = fd;
@@ -1730,7 +1732,7 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 	{
 
 		lws_ss_metadata_t *imd;
-	       
+
 		pmd = h->instant_metadata;
 
 		while (pmd) {
