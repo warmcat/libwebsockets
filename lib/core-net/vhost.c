@@ -745,6 +745,8 @@ lws_create_vhost(struct lws_context *context,
 	if (n) {
 		vh->tls.key_path = vh->tls.alloc_cert_path =
 					lws_malloc((unsigned int)n, "vh paths");
+		if (!vh->tls.alloc_cert_path)
+			goto bail;
 		if (info->ssl_cert_filepath) {
 			n = (int)strlen(info->ssl_cert_filepath) + 1;
 			memcpy(vh->tls.alloc_cert_path,
