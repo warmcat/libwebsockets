@@ -145,7 +145,7 @@ lws_h2_state(struct lws *wsi, enum lws_h2_states s)
 	lwsl_info("%s: %s: state %s -> %s\n", __func__, lws_wsi_tag(wsi),
 			h2_state_names[wsi->h2.h2_state],
 			h2_state_names[s]);
-		
+
 	(void)h2_state_names;
 	wsi->h2.h2_state = (uint8_t)s;
 }
@@ -2547,6 +2547,10 @@ lws_h2_client_handshake(struct lws *wsi)
 	unsigned int sid = nwsi->h2.h2n->highest_sid_opened + 2;
 
 	lwsl_debug("%s\n", __func__);
+	if (!uri || !meth) {
+		lwsl_err("Unable to get both method and path\n");
+		return -1;
+	}
 
 	/*
 	 * We MUST allocate our sid here at the point we're about to send the
