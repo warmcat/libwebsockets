@@ -816,7 +816,7 @@ just_kill_connection:
 		if (!wsi->a.protocol && wsi->a.vhost && wsi->a.vhost->protocols)
 			pro = &wsi->a.vhost->protocols[0];
 
-		if (pro && pro->callback && wsi->role_ops)
+		if (pro && pro->callback)
 			pro->callback(wsi,
 				wsi->role_ops->close_cb[lwsi_role_server(wsi)],
 				wsi->user_space, NULL, 0);
