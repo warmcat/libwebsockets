@@ -259,7 +259,7 @@ int main(int argc, const char **argv)
 
 		if (n != expected_parse_result_response[m]) {
 			lwsl_err("%s: got %d, expected %d\n", __func__, n,
-				 expected_parse_result[m]);
+				 expected_parse_result_response[m]);
 			e++;
 		}
 
