@@ -117,7 +117,7 @@ lws_tls_restrict_borrow(struct lws *wsi)
 	    cx->simultaneous_ssl_handshake >=
 			    cx->simultaneous_ssl_handshake_restriction) {
 		lwsl_notice("%s: tls handshake limit %d\n", __func__,
-			    cx->simultaneous_ssl);
+			    cx->simultaneous_ssl_handshake);
 		return 1;
 	}
 
