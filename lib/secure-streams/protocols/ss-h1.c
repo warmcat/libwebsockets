@@ -644,12 +644,10 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		if (h->u.http.good_respcode)
 			lwsl_info("%s: Connected streamtype %s, %d\n", __func__,
-				  h->policy->streamtype, status);
+				h->policy->streamtype, status);
 		else
-			if (h->u.http.good_respcode)
-				lwsl_warn("%s: Connected streamtype %s, BAD %d\n",
-					  __func__, h->policy->streamtype,
-					  status);
+			lwsl_warn("%s: Connected streamtype %s, BAD %d\n",
+				__func__, h->policy->streamtype, status);
 
 		h->hanging_som = 0;
 
@@ -669,7 +667,7 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				if (r != LWSSSSRET_OK)
 					return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 			}
-                       if (h->prev_ss_state != LWSSSCS_CONNECTED && 
+                       if (h->prev_ss_state != LWSSSCS_CONNECTED &&
                            h->prev_ss_state != LWSSSCS_QOS_ACK_REMOTE &&
                            h->prev_ss_state != LWSSSCS_QOS_NACK_REMOTE) {
                                // lwsl_ss_notice(h, "HTTP_ESTABLISHED");
