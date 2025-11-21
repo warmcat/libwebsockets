@@ -353,7 +353,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 #endif
 #endif
 #else
-#ifdef SSL_CTRL_SET_TLSEXT_HOSTNAME
+#if defined(SSL_CTRL_SET_TLSEXT_HOSTNAME) || defined(LWS_HAVE_SSL_set_tlsext_host_name)
 	SSL_set_tlsext_host_name(wsi->tls.ssl, hostname);
 #endif
 #endif

@@ -100,6 +100,7 @@
 #cmakedefine LWS_HAVE_SSL_get0_alpn_selected
 #cmakedefine LWS_HAVE_SSL_CTX_EVP_PKEY_new_raw_private_key
 #cmakedefine LWS_HAVE_SSL_set_alpn_protos
+#cmakedefine LWS_HAVE_SSL_set_tlsext_host_name
 #cmakedefine LWS_HAVE_SSL_SET_INFO_CALLBACK
 #cmakedefine LWS_HAVE_SSL_SESSION_set_time
 #cmakedefine LWS_HAVE_SSL_SESSION_up_ref

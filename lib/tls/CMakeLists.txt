@@ -368,6 +368,9 @@ CHECK_C_SOURCE_COMPILES("#include <openssl/ssl.h>\nint main(void) { STACK_OF(X50
 CHECK_C_SOURCE_COMPILES("#include <openssl/ssl.h>\nint main(void) { EVP_MD_CTX *md_ctx = NULL; EVP_MD_CTX_free(md_ctx); return 0; }\n" LWS_HAVE_EVP_MD_CTX_free)
 CHECK_C_SOURCE_COMPILES("#include <openssl/ssl.h>\nint main(void) { OPENSSL_STACK *x = NULL; return !x; } \n" LWS_HAVE_OPENSSL_STACK)
 CHECK_C_SOURCE_COMPILES("#include <openssl/ssl.h>\nint main(void) { SSL_CTX *ctx = NULL; return SSL_CTX_set_ecdh_auto(ctx, 1); }\n" LWS_HAVE_SSL_CTX_SET_ECDH_AUTO)
+CHECK_C_SOURCE_COMPILES("#include <openssl/ssl.h>\nint main(void) { SSL *ssl = NULL; return (int)SSL_set_tlsext_host_name(ssl, \"hello\"); }\n" LWS_HAVE_SSL_set_tlsext_host_name)
+
+set(LWS_HAVE_SSL_set_tlsext_host_name ${LWS_HAVE_SSL_set_tlsext_host_name} PARENT_SCOPE)
 set(LWS_HAVE_SSL_EXTRA_CHAIN_CERTS ${LWS_HAVE_SSL_EXTRA_CHAIN_CERTS} PARENT_SCOPE)
 set(LWS_HAVE_EVP_MD_CTX_free ${LWS_HAVE_EVP_MD_CTX_free} PARENT_SCOPE)
 set(LWS_HAVE_SSL_CTX_SET_ECDH_AUTO ${LWS_HAVE_SSL_CTX_SET_ECDH_AUTO} PARENT_SCOPE)
