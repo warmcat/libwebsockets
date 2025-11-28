@@ -1168,7 +1168,6 @@ configure_file(
        
 add_custom_command(
 		OUTPUT ${PROJECT_BINARY_DIR}/include/lws_config.h
-			${PROJECT_BINARY_DIR}/include/libwebsockets
 			${PROJECT_BINARY_DIR}/include/libwebsockets.h
 		COMMENT "Creating build include dir"
 		COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/include/libwebsockets.h
