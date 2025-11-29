@@ -58,6 +58,14 @@
 				"cd build && LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib /usr/pkg/bin/ctest -j$SAI_PARALLEL --output-on-failure --repeat until-pass:3"
 			]
                 },
+		"freebsd/aarch64/llvm": {
+                        "default": false,
+                        "build": [
+				"mkdir -p build destdir; cd build; CCACHE_DISABLE=1 LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib cmake .. ${cmake}",
+                                "cd build && make -j$SAI_PARALLEL && rm -rf ../destdir && make -j$SAI_PARALLEL DESTDIR=../destdir install",
+				"cd build && LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib /usr/local/bin/ctest -j$SAI_PARALLEL --output-on-failure --repeat until-pass:3"
+			]
+		},
 		"w11/x86_64-amd/msvc": {
 			"default": false,
 			"build": [
@@ -87,7 +95,7 @@
 	"configurations": {
 		"default": {
 			"cmake":	"",
-			"platforms":	"w11/x86_64-amd/msvc,netbsd/aarch64BE-bcm2837-a53/gcc"
+			"platforms":	"w11/x86_64-amd/msvc,netbsd/aarch64BE-bcm2837-a53/gcc,freebsd/aarch64/llvm"
 		},
 		"default-noudp": {
 			"cmake":	"-DLWS_WITH_UDP=0"
@@ -118,7 +126,7 @@
 		},
 		"default-examples": {
 			"cmake":	"-DLWS_WITH_MINIMAL_EXAMPLES=0",
-			"platforms":	"netbsd/aarch64BE-bcm2837-a53/gcc"
+			"platforms":	"netbsd/aarch64BE-bcm2837-a53/gcc,freebsd/aarch64/llvm"
 		},
 		"default-examples-tls-sess": {
 			"cmake":	"-DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_TLS_SESSIONS=1"

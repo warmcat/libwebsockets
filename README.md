@@ -2,7 +2,7 @@
 
 # Libwebsockets
 
-** v4.4 is released, you can follow it on v4.4-stable **
+** v4.5 is released, you can follow it on v4.5-stable **
 
 Libwebsockets is a simple-to-use, MIT-license, pure C library providing client and server
 for **http/1**, **http/2**, **websockets**, **MQTT** and other protocols in a security-minded,
@@ -139,3 +139,33 @@ You can get the latest version of the library from git:
 
 Doxygen API docs for development: https://libwebsockets.org/lws-api-doc-main/html/index.html
 
+### Patching with AI
+
+In 2025, writing actual code with AI is quite scary while at the same time offering a way
+forward for the thankless and lonely task of maintaining FOSS code.  I have been using Google's
+Gemini 2.5 and now 3.0, while it's very good at looking at the code and what I am asking
+and producing something sane (much better than a year ago or self-hosted generic models),
+it falls down badly on being able to complete the scope of the patch that it figured out it
+wants to do, and simply stops too early and drops the rest on the floor.
+
+It deserves praise for being able to work with quite complicated apis in lws like `lws_struct`
+with both JSON and sqlite3 serializations and deserializations, well, mostly.
+
+It is much more interested in making new structures and messages for whatever today's problem
+is and much less interested in looking at what's already there and thinking about how that
+could be adapted or unified.  In short it doesn't care at all about mantainability.
+
+It's also suffering from being strong with its mental model of what's going on and what the
+change does, but very weak when it has to be told that its patch doesn't do what it expected.
+Where a human would 'trap' the difference between its mental model and reality so they can
+see where the model broke, they will often avoid adding logging and instead go down very
+unlikely rabbit holes for hours.
+
+At the same time, it knows that maintainability and security are supposed to be desirable
+traits.  But it knows it in the same way it knows layered patches are desirable, it can't
+take care of these considerations properly yet, although it can talk about the concepts.
+
+In short in 2025, although I will continue to use it for some tasks, it's not at the state
+where someone who was unable to do the work carefully themselves can use it for lws.  It's
+too easy to wave through code that is not understood perhaps by anybody and then deal with
+security problems and other breakage for the rest of your life.
