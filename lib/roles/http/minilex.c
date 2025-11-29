@@ -43,6 +43,8 @@
  *  5 = uncommon     h2
  *  6 =           ws h2
  *  7 = uncommon  ws h2
+ *
+ * !!! Must be an entry in here for each string possible in set[] in lexable-strings.h
  */
 
 unsigned char filter_array[] = {
@@ -133,7 +135,9 @@ unsigned char filter_array[] = {
 	0xfa, /* replay-nonce */
 	0xf0, /* protocol */
 	0xff, /* x-auth-token */
-	0xff /* not matchable */
+	0xff, /* x-amzn-dss-signature */
+
+	0xff  /* not matchable */
 };
 
 static unsigned char lws_header_implies_psuedoheader_map[] = {
