@@ -25,6 +25,9 @@
 #include "private-lib-core.h"
 #include "private-lib-async-dns.h"
 
+// to store key log file path
+static char *klfl_env = NULL;
+
 #if defined(LWS_WITH_CLIENT)
 static int
 lws_close_trans_q_leader(struct lws_dll2 *d, void *user)
@@ -1046,6 +1049,28 @@ __lws_close_free_wsi_final(struct lws *wsi)
 	__lws_free_wsi(wsi);
 }
 
+/* To stop logging SSL keys, reset the `keylog_file` data */
+void lws_reset_keylog_file(struct lws *wsi)
+{
+	klfl_env = NULL;
+	wsi->a.context->keylog_file[0] = '\0';
+}
+
+/* The file path, either from user input or the environment variable, will be assigned to the LWS context to initiate SSL key logging. */
+void lws_set_keylog_file(struct lws *wsi, char *sslkeyfilepath)
+{
+	/* The user input file path takes priority over the environment variable. */
+	if('\0' != sslkeyfilepath[0])
+		klfl_env = sslkeyfilepath;
+	else
+		klfl_env = getenv("SSLKEYLOGFILE");
+
+	/* To begin logging SSL keys, the key log file will be set in lws_context */
+	if (NULL != klfl_env && strlen(klfl_env) > 1){
+		lws_strncpy(wsi->a.context->keylog_file, klfl_env,
+			strlen(klfl_env)+1);
+	}
+}
 
 void
 lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *caller)
@@ -1062,5 +1087,3 @@ lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason, const char *ca
 
 	lws_context_unlock(cx);
 }
-
-
