@@ -24,6 +24,10 @@
 
 #include <private-lib-core.h>
 
+int
+secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
+	     void *in, size_t len);
+
 static int
 secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	     void *in, size_t len)
@@ -213,6 +217,13 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		}
 
 		return 0;
+
+#if defined(LWS_WITH_SERVER)
+	case LWS_CALLBACK_HTTP_WRITEABLE:
+	case LWS_CALLBACK_HTTP:
+	case LWS_CALLBACK_CLOSED_HTTP: /* server */
+		return secstream_h1(wsi, reason, user, in, len);
+#endif
 
 	default:
 		break;
