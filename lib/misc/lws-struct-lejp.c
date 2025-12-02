@@ -147,11 +147,8 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 	size_t n;
 	char *u;
 
-	if (reason == LEJPCB_ARRAY_END) {
-		lejp_parser_pop(ctx);
-
+	if (reason == LEJPCB_ARRAY_END)
 		return 0;
-	}
 
 	if (reason == LEJPCB_ARRAY_START) {
 		if (!ctx->path_match) {
@@ -292,34 +289,35 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 	if (!ctx->path_match)
 		return 0;
 
-	if (reason == LEJPCB_VAL_STR_CHUNK) {
+	if (reason == LEJPCB_VAL_STR_CHUNK || reason == LEJPCB_VAL_STR_END) {
 		lejp_collation_t *coll;
 
 		/* don't cache stuff we are going to ignore */
 
-		if (map->type == LSMT_STRING_CHAR_ARRAY &&
-		    args->chunks_length >= map->aux)
+		if (map->type != LSMT_STRING_CHAR_ARRAY ||
+		    args->chunks_length < map->aux) {
+			coll = lwsac_use_zero(&args->ac_chunks, sizeof(*coll),
+					      sizeof(*coll));
+			if (!coll) {
+				lwsl_err("%s: OOT\n", __func__);
+
+				return 1;
+			}
+			coll->chunks.prev = NULL;
+			coll->chunks.next = NULL;
+			coll->chunks.owner = NULL;
+
+			coll->len = ctx->npos;
+			lws_dll2_add_tail(&coll->chunks, &args->chunks_owner);
+
+			memcpy(coll->buf, ctx->buf, ctx->npos);
+
+			args->chunks_length += ctx->npos;
+		}
+		if (reason == LEJPCB_VAL_STR_CHUNK)
 			return 0;
 
-		coll = lwsac_use_zero(&args->ac_chunks, sizeof(*coll),
-				      sizeof(*coll));
-		if (!coll) {
-			lwsl_err("%s: OOT\n", __func__);
-
-			return 1;
-		}
-		coll->chunks.prev = NULL;
-		coll->chunks.next = NULL;
-		coll->chunks.owner = NULL;
-
-		coll->len = ctx->npos;
-		lws_dll2_add_tail(&coll->chunks, &args->chunks_owner);
-
-		memcpy(coll->buf, ctx->buf, ctx->npos);
-
-		args->chunks_length += ctx->npos;
-
-		return 0;
+		ctx->npos = 0;
 	}
 
 	if (reason != LEJPCB_VAL_STR_END && reason != LEJPCB_VAL_NUM_INT &&
@@ -446,6 +444,7 @@ chunk_copy:
 			args->chunks_owner.count = 0;
 			args->chunks_owner.head = NULL;
 			args->chunks_owner.tail = NULL;
+			args->chunks_length = 0;
 
 			if (lim) {
 				b = ctx->npos;

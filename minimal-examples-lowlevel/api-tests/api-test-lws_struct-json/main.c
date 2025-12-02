@@ -1009,6 +1009,108 @@ done:
 		}
 	}
 
+	{
+		const char *msg = "{\"schema\":\"com.warmcat.sai.builder_registration\",\"builder_name\":\"freebsd\",\"power_controller_name\":\"p1\",\"platforms\":[{\"name\":\"freebsd.freebsd/aarch64/llvm\"}]}";
+		const char *msg1 = "{\"schema\":\"com.warmcat.sai.builder_registration\",\"platforms\":[{\"name\":\"freebsd.freebsd/aarch64/llvm\"}],\"builder_name\":\"freebsd\",\"power_controller_name\":\"p1\"}";
+
+		struct lws_struct_args	a;
+		struct lejp_ctx		ctx;
+	
+		typedef struct sai_builder_platform {
+			lws_dll2_t			list;
+			char				name[64];
+		} sai_builder_platform_t;
+
+		typedef struct sai_builder_registration {
+			lws_dll2_t			list;
+			lws_dll2_owner_t		platforms_owner; /* sai_builder_platform_t */
+			char				builder_name[64];
+			char				power_controller_name[64];
+		} sai_builder_registration_t;
+		sai_builder_registration_t *r;
+
+		const lws_struct_map_t lsm_builder_platform[] = {
+			LSM_CARRAY(sai_builder_platform_t, name, "name"),
+		};
+
+		const lws_struct_map_t lsm_builder_registration[] = {
+			LSM_LIST(sai_builder_registration_t, platforms_owner,
+					sai_builder_platform_t, list, NULL,
+					lsm_builder_platform, "platforms"),
+			LSM_CARRAY(sai_builder_registration_t, builder_name, "builder_name"),
+			LSM_CARRAY(sai_builder_registration_t, power_controller_name, "power_controller_name"),
+		};
+
+		const lws_struct_map_t lsm_schema_builder_registration[] = {
+			LSM_SCHEMA(sai_builder_registration_t, NULL,
+					lsm_builder_registration,
+					"com.warmcat.sai.builder_registration"),
+		};
+
+		memset(&a, 0, sizeof(a));
+
+		a.map_st[0]		= lsm_schema_builder_registration;
+		a.map_entries_st[0] 	= LWS_ARRAY_SIZE(lsm_schema_builder_registration);
+
+		a.ac_block_size		= 2048;
+
+		/* part 1 (list last) */
+
+		lws_struct_json_init_parse(&ctx, NULL, &a);
+
+		int pr = lejp_parse(&ctx, (const uint8_t *)msg, (int)strlen(msg));
+		lwsl_notice("%s: pr %d\n", __func__, pr);
+		if (pr < 0 || !a.dest) {
+			lwsl_warn("JSON decode failed");
+			lwsac_free(&a.ac);
+			goto bail;
+		}
+
+		r = (sai_builder_registration_t *)a.dest;
+
+		if (strcmp(r->builder_name, "freebsd")) {
+			lwsl_notice("%s: part1: builder_name: '%s' expected 'freebsd'\n", __func__, r->builder_name);
+			lwsl_hexdump_notice(r, sizeof(*r));
+			goto bail;
+		}
+		if (strcmp(r->power_controller_name, "p1")) {
+			lwsl_notice("%s: part1: power_controller_name: '%s' expected 'p1'\n", __func__, r->power_controller_name);
+			lwsl_hexdump_notice(r, sizeof(*r));
+			goto bail;
+		}
+
+		lwsac_free(&a.ac);
+
+		/* part2 (list first) */
+
+		lws_struct_json_init_parse(&ctx, NULL, &a);
+		a.dest = NULL;
+
+		pr = lejp_parse(&ctx, (const uint8_t *)msg1, (int)strlen(msg1));
+		lwsl_notice("%s: pr %d\n", __func__, pr);
+		if (pr < 0 || !a.dest) {
+			lwsl_warn("JSON decode failed");
+			lwsac_free(&a.ac);
+			goto bail;
+		}
+
+		r = (sai_builder_registration_t *)a.dest;
+
+		if (strcmp(r->builder_name, "freebsd")) {
+			lwsl_notice("%s: part2: dest %p, builder_name: '%s' expected 'freebsd'\n", __func__, a.dest, r->builder_name);
+			lwsl_hexdump_notice(r, sizeof(*r));
+			goto bail;
+		}
+		if (strcmp(r->power_controller_name, "p1")) {
+			lwsl_notice("%s: part2: power_controller_name: '%s' expected 'p1'\n", __func__, r->power_controller_name);
+			lwsl_hexdump_notice(r, sizeof(*r));
+			goto bail;
+		}
+
+		lwsac_free(&a.ac);
+
+	}
+
 	lwsl_user("Completed: PASS\n");
 
 	return 0;
