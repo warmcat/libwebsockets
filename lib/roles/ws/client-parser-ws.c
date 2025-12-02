@@ -111,7 +111,8 @@ lws_ws_client_rx_parser_block(struct lws *wsi, const uint8_t **buf, size_t *len)
 		 * We can process headers and control frames byte-by-byte
 		 * using the original state machine.
 		 */
-		if (wsi->lws_rx_parse_state != LWS_RXPS_WS_FRAME_PAYLOAD) {
+		if (wsi->lws_rx_parse_state != LWS_RXPS_WS_FRAME_PAYLOAD ||
+		    (wsi->ws->opcode & 8)) {
 			hpr = lws_ws_client_rx_sm(wsi, *(*buf));
 			if (hpr != LWS_HPI_RET_HANDLED)
 				return hpr;
