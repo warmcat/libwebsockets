@@ -264,7 +264,10 @@ start_ws_handshake:
 
 	case LRS_H1C_ISSUE_HANDSHAKE2:
 
+#if defined(LWS_ROLE_H2) || defined(LWS_WITH_TLS)
 hs2:
+#endif
+
 		p = lws_generate_client_handshake(wsi, p,
 						  lws_ptr_diff_size_t(end, p));
 		if (p == NULL) {

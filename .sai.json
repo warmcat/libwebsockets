@@ -134,6 +134,9 @@
 		"h1only-examples": {
 			"cmake":	"-DLWS_WITH_HTTP2=0 -DLWS_WITH_MINIMAL_EXAMPLES=1"
 		},
+		"h1only-notls": {
+			"cmake":	"-DLWS_WITH_HTTP2=0 -DLWS_WITH_SSL=OFF"
+		},
 		"unix-domain": {
 			"cmake":	"-DUNIX_SOCK=1"
 		},
