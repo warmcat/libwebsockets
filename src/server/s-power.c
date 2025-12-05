@@ -98,19 +98,12 @@ sais_power_rx(struct vhd *vhd, struct pss *pss, uint8_t *buf,
 
 		sai_sqlite3_statement(vhd->server.pdb, "BEGIN TRANSACTION", "txn begin");
 
-		/* Clear old PCONs? Or Upsert?
-		 * We probably want to replace since this is authoritative from sai-power.
-		 * But maybe just clear everything first?
-		 */
-		sai_sqlite3_statement(vhd->server.pdb, "DELETE FROM power_controllers", "delete pcons");
-		sai_sqlite3_statement(vhd->server.pdb, "DELETE FROM pcon_builders", "delete pcon_builders");
-
 		lws_start_foreach_dll(struct lws_dll2 *, p, pmb->power_controllers.head) {
 			sai_power_controller_t *pc = lws_container_of(p, sai_power_controller_t, list);
 			
 			/* Insert PCON */
 			lws_snprintf(q, sizeof(q),
-				     "INSERT INTO power_controllers (name, type, url, depends_on, state) VALUES ('%s', '%s', '', '%s', %d)",
+				     "INSERT OR REPLACE INTO power_controllers (name, type, url, depends_on, state) VALUES ('%s', '%s', '', '%s', %d)",
 				     pc->name, pc->type, pc->depends_on, pc->on);
 			sai_sqlite3_statement(vhd->server.pdb, q, "insert pcon");
 
@@ -118,8 +111,8 @@ sais_power_rx(struct vhd *vhd, struct pss *pss, uint8_t *buf,
 			lws_start_foreach_dll(struct lws_dll2 *, pb, pc->controlled_builders_owner.head) {
 				sai_controlled_builder_t *cb = lws_container_of(pb, sai_controlled_builder_t, list);
 				lws_snprintf(q, sizeof(q),
-					     "INSERT INTO pcon_builders (pcon_name, builder_name) VALUES ('%s', '%s')",
-					     pc->name, cb->name);
+					     "INSERT INTO pcon_builders (pcon_name, builder_name) SELECT '%s', '%s' WHERE NOT EXISTS (SELECT 1 FROM pcon_builders WHERE pcon_name = '%s' AND builder_name = '%s')",
+					     pc->name, cb->name, pc->name, cb->name);
 				lwsl_notice("%s: Inserting pcon_builder: pcon='%s', builder='%s'\n", __func__, pc->name, cb->name);
 				sai_sqlite3_statement(vhd->server.pdb, q, "insert pcon_builder");
 
