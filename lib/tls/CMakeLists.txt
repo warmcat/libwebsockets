@@ -155,6 +155,8 @@ if (LWS_WITH_SSL)
 				tls/mbedtls/lws-genec.c
 				tls/mbedtls/lws-gencrypto.c)
 		endif()
+	elseif (LWS_WITH_SCHANNEL)
+		add_subdir_include_directories(schannel)
 	else()
 		list(APPEND SOURCES
 			tls/openssl/openssl-tls.c
@@ -184,7 +186,7 @@ if (LWS_WITH_SSL)
 		if (LWS_WITH_MBEDTLS)
 			list(APPEND SOURCES
 				tls/mbedtls/mbedtls-server.c)
-		else()
+		elseif(NOT LWS_WITH_SCHANNEL)
 			list(APPEND SOURCES
 				tls/openssl/openssl-server.c)
 		endif()
@@ -195,7 +197,7 @@ if (LWS_WITH_SSL)
 		if (LWS_WITH_MBEDTLS)
 			list(APPEND SOURCES
 				tls/mbedtls/mbedtls-client.c)
-		else()
+		elseif(NOT LWS_WITH_SCHANNEL)
 			list(APPEND SOURCES
 				tls/openssl/openssl-client.c)
 		endif()
