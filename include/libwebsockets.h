@@ -276,6 +276,10 @@ typedef int suseconds_t;
 
 #if defined(LWS_WITH_TLS)
 
+#if defined(LWS_WITH_SCHANNEL)
+/* ... */
+#else
+
 #ifdef USE_WOLFSSL
 #ifdef USE_OLD_CYASSL
 #ifdef _WIN32
@@ -340,6 +344,7 @@ typedef int suseconds_t;
 #endif
 #endif
 #endif /* not USE_WOLFSSL */
+#endif /* not SCHANNEL */
 #endif
 
 /*
