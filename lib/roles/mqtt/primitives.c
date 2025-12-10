@@ -88,7 +88,6 @@ lws_mqtt_4byte_init(lws_mqtt_vbi *vbi)
 lws_mqtt_stateful_primitive_return_t
 lws_mqtt_vbi_r(lws_mqtt_vbi *vbi, const uint8_t **in, size_t *len)
 {
-	uint8_t multiplier = 0;
 	if (!vbi->budget) {
 		lwsl_info("%s: bad vbi\n", __func__);
 
@@ -99,9 +98,9 @@ lws_mqtt_vbi_r(lws_mqtt_vbi *vbi, const uint8_t **in, size_t *len)
 		uint8_t u = *((*in)++);
 
 		(*len)--;
+		uint8_t multiplier = (uint8_t)(7 * vbi->consumed);
 		vbi->consumed++;
 		vbi->value = vbi->value + (uint32_t)((u & 0x7f) << multiplier);
-		multiplier = (uint8_t)(multiplier + 7);
 		if (!(u & 0x80))
 			return LMSPR_COMPLETED; /* finished */
 	}
