@@ -25,10 +25,53 @@
 #include "private-lib-core.h"
 #include "private-lib-tls.h"
 
+/*
+ * We need to map integer IDs to BCRYPT string constants.
+ * SChannel/CNG doesn't use NIDs like OpenSSL.
+ */
+enum {
+	LWS_SCHANNEL_CURVE_P256 = 1,
+	LWS_SCHANNEL_CURVE_P384,
+	LWS_SCHANNEL_CURVE_P521,
+};
+
+const struct lws_ec_curves lws_ec_curves[4] = {
+	/*
+	 * These are the curves we are willing to use by default...
+	 *
+	 * The 3 recommended+ (P-256) and optional curves in RFC7518 7.6
+	 *
+	 * Specific keys lengths from RFC8422 p20
+	 */
+	{ "P-256", LWS_SCHANNEL_CURVE_P256, 32 },
+	{ "P-384", LWS_SCHANNEL_CURVE_P384, 48 },
+	{ "P-521", LWS_SCHANNEL_CURVE_P521, 66 },
+
+	{ NULL, 0, 0 }
+};
+
+static LPCWSTR
+lws_schannel_get_curve_alg(int nid, int is_ecdsa)
+{
+	switch (nid) {
+	case LWS_SCHANNEL_CURVE_P256:
+		return is_ecdsa ? BCRYPT_ECDSA_P256_ALGORITHM : BCRYPT_ECDH_P256_ALGORITHM;
+	case LWS_SCHANNEL_CURVE_P384:
+		return is_ecdsa ? BCRYPT_ECDSA_P384_ALGORITHM : BCRYPT_ECDH_P384_ALGORITHM;
+	case LWS_SCHANNEL_CURVE_P521:
+		return is_ecdsa ? BCRYPT_ECDSA_P521_ALGORITHM : BCRYPT_ECDH_P521_ALGORITHM;
+	default:
+		/* Default to P-256 if unknown or 0 */
+		return is_ecdsa ? BCRYPT_ECDSA_P256_ALGORITHM : BCRYPT_ECDH_P256_ALGORITHM;
+	}
+}
+
 int
 lws_genecdh_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 		   const struct lws_ec_curves *curve_table)
 {
+	int nid = 0;
+
 	ctx->context = context;
 	ctx->curve_table = curve_table;
 	ctx->genec_alg = LEGENEC_ECDH;
@@ -36,8 +79,11 @@ lws_genecdh_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 	ctx->u.hKey = NULL;
 	ctx->u.hKeyPeer = NULL;
 
-	/* Default to generic ECDH algorithm provider */
-	NTSTATUS status = BCryptOpenAlgorithmProvider(&ctx->u.hAlg, BCRYPT_ECDH_ALGORITHM, NULL, 0);
+	if (curve_table && curve_table->name)
+		nid = curve_table->tls_lib_nid;
+
+	/* Open specific algorithm provider based on curve if known */
+	NTSTATUS status = BCryptOpenAlgorithmProvider(&ctx->u.hAlg, lws_schannel_get_curve_alg(nid, 0), NULL, 0);
 	return BCRYPT_SUCCESS(status) ? 0 : -1;
 }
 
@@ -209,14 +255,19 @@ int
 lws_genecdsa_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 		    const struct lws_ec_curves *curve_table)
 {
+	int nid = 0;
+
 	ctx->context = context;
 	ctx->curve_table = curve_table;
 	ctx->genec_alg = LEGENEC_ECDSA;
 	ctx->u.hKey = NULL;
 	ctx->u.hKeyPeer = NULL;
 
-	/* Default to P256 alg provider */
-	NTSTATUS status = BCryptOpenAlgorithmProvider(&ctx->u.hAlg, BCRYPT_ECDSA_P256_ALGORITHM, NULL, 0);
+	if (curve_table && curve_table->name)
+		nid = curve_table->tls_lib_nid;
+
+	/* Default to P256 alg provider or specific if known */
+	NTSTATUS status = BCryptOpenAlgorithmProvider(&ctx->u.hAlg, lws_schannel_get_curve_alg(nid, 1), NULL, 0);
 	return BCRYPT_SUCCESS(status) ? 0 : -1;
 }
 
