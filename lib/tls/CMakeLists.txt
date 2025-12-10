@@ -56,7 +56,7 @@ if (LWS_WITH_BORINGSSL OR LWS_WITH_AWSLC)
 	set (LWS_WITH_GENHASH OFF PARENT_SCOPE)
 endif()
 
-if (LWS_WITH_SSL AND NOT LWS_WITH_WOLFSSL AND NOT LWS_WITH_MBEDTLS)
+if (LWS_WITH_SSL AND NOT LWS_WITH_WOLFSSL AND NOT LWS_WITH_MBEDTLS AND NOT LWS_WITH_SCHANNEL)
 	if ("${LWS_OPENSSL_LIBRARIES}" STREQUAL "" OR "${LWS_OPENSSL_INCLUDE_DIRS}" STREQUAL "")
 	else()
 		if (NOT LWS_PLAT_FREERTOS)
@@ -363,7 +363,7 @@ CHECK_FUNCTION_EXISTS(${VARIA}SSL_CTX_set_keylog_callback LWS_HAVE_SSL_CTX_set_k
 # deprecated in openssl v3
 CHECK_FUNCTION_EXISTS(${VARIA}EC_KEY_new_by_curve_name LWS_HAVE_EC_KEY_new_by_curve_name PARENT_SCOPE)
 
-if (LWS_WITH_SSL AND NOT LWS_WITH_MBEDTLS)
+if (LWS_WITH_SSL AND NOT LWS_WITH_MBEDTLS AND NOT LWS_WITH_SCHANNEL)
 	# we don't want to confuse what's in or out of the wrapper with
 	# what's in an openssl also installed on the build host
 CHECK_C_SOURCE_COMPILES("#include <openssl/ssl.h>\nint main(void) { STACK_OF(X509) *c = NULL; SSL_CTX *ctx = NULL; return (int)SSL_CTX_get_extra_chain_certs_only(ctx, &c); }\n" LWS_HAVE_SSL_EXTRA_CHAIN_CERTS)
