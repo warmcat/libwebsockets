@@ -78,6 +78,14 @@ struct lws_genaes_ctx {
 	struct {
 		void *hAlg;
 		void *hKey;
+		void *pbMacContext;
+		size_t cbMacContext;
+		void *pbNonce;
+		size_t cbNonce;
+		void *pbTag;
+		size_t cbTag;
+		void *pbAuthData;
+		size_t cbAuthData;
 	} u;
 #else
 	EVP_CIPHER_CTX *ctx;
