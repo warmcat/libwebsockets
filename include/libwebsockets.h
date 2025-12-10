@@ -276,6 +276,36 @@ typedef int suseconds_t;
 
 #if defined(LWS_WITH_TLS)
 
+#if defined(LWS_WITH_SCHANNEL)
+#include <wincrypt.h>
+typedef struct lws_tls_schannel_conn SSL;
+typedef struct lws_tls_schannel_ctx SSL_CTX;
+typedef struct lws_tls_schannel_bio BIO;
+typedef struct lws_tls_schannel_x509 X509;
+
+/*
+ * These are needed for lws-gen* and other headers that assume OpenSSL types
+ * when LWS_WITH_TLS is defined. SChannel implementation of these APIs
+ * will need to map these to Windows CryptoAPI/CNG types internally,
+ * or we can just treat them as opaque handles here.
+ */
+typedef void EVP_PKEY_CTX;
+typedef void EVP_MD;
+typedef void EVP_MD_CTX;
+typedef void HMAC_CTX;
+typedef void EVP_CIPHER_CTX;
+typedef void EVP_CIPHER;
+typedef void ENGINE;
+typedef void RSA;
+typedef void BIGNUM;
+typedef void EC_KEY;
+typedef void EC_POINT;
+typedef void EC_GROUP;
+typedef void X509_STORE_CTX;
+typedef void X509_VERIFY_PARAM;
+
+#else
+
 #ifdef USE_WOLFSSL
 #ifdef USE_OLD_CYASSL
 #ifdef _WIN32
@@ -340,6 +370,7 @@ typedef int suseconds_t;
 #endif
 #endif
 #endif /* not USE_WOLFSSL */
+#endif /* not SCHANNEL */
 #endif
 
 /*
