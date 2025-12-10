@@ -22,19 +22,7 @@
 # IN THE SOFTWARE.
 #
 
-list(APPEND SOURCES
-	tls/schannel/schannel-tls.c
-	tls/schannel/schannel-ssl.c
-	tls/schannel/schannel-x509.c
-)
-
-if (LWS_WITH_GENCRYPTO)
-	list(APPEND SOURCES
-		tls/schannel/lws-genhash.c
-		tls/schannel/lws-genrsa.c
-		tls/schannel/lws-genaes.c
-		tls/lws-genec-common.c
-		tls/schannel/lws-genec.c)
-endif()
+# SChannel sources are now handled in parent lib/tls/CMakeLists.txt for consistency.
+# This file remains as a placeholder if needed for include directories or specific options later.
 
 exports_to_parent_scope()
