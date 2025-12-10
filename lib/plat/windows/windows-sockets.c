@@ -303,7 +303,7 @@ lws_plat_change_pollfd(struct lws_context *context, struct lws *wsi,
 int
 lws_plat_vhost_tls_client_ctx_init(struct lws_vhost *vhost)
 {
-#if !defined(LWS_WITH_MBEDTLS) && defined(LWS_SSL_CLIENT_USE_OS_CA_CERTS)
+#if !defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_SCHANNEL) && defined(LWS_SSL_CLIENT_USE_OS_CA_CERTS)
 	PCCERT_CONTEXT pcc = NULL;
 	CERT_ENHKEY_USAGE* ceu = NULL;
 	DWORD ceu_alloc = 0;
