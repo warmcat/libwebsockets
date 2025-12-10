@@ -231,25 +231,147 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 	return ret;
 }
 
+/* Minimal ASN.1 Reader Helpers */
+static int lws_asn1_read_length(const uint8_t **p, const uint8_t *end, size_t *len) {
+	if (*p >= end) return -1;
+	uint8_t c = *(*p)++;
+	if (!(c & 0x80)) {
+		*len = c;
+	} else {
+		int bytes = c & 0x7F;
+		if (bytes > 4 || *p + bytes > end) return -1;
+		*len = 0;
+		while (bytes--) {
+			*len = (*len << 8) | *(*p)++;
+		}
+	}
+	return 0;
+}
+
+static int lws_asn1_read_integer(const uint8_t **p, const uint8_t *end, struct lws_gencrypto_keyelem *el) {
+	size_t len;
+	if (*p >= end || *(*p)++ != 0x02) return -1; /* Expect INTEGER tag */
+	if (lws_asn1_read_length(p, end, &len) < 0) return -1;
+	if (*p + len > end) return -1;
+
+	/* Skip leading zero if present (ASN.1 integer is signed, might have 0x00 pad for positive MSB) */
+	const uint8_t *val = *p;
+	size_t vlen = len;
+	if (vlen > 0 && val[0] == 0x00) {
+		val++;
+		vlen--;
+	}
+
+	/* Copy to key element */
+	el->len = (uint32_t)vlen;
+	el->buf = lws_malloc(vlen, "asn1 int");
+	if (!el->buf) return -1;
+	memcpy(el->buf, val, vlen);
+
+	*p += len;
+	return 0;
+}
+
 int
 lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 			 void *pem, size_t len, const char *passphrase)
 {
-	/* Parsing arbitrary PEM private keys on Windows is hard without a full parser.
-	   CryptStringToBinary can decode base64, but parsing the resulting PKCS#8 or plain RSA struct
-	   requires parsing ASN.1 to import into CNG.
-	   However, if the PEM is a standard PKCS#8 unencrypted key, CryptImportPKCS8 *might* work if we strip headers.
-	   Or `CryptDecodeObjectEx` with `PKCS_PRIVATE_KEY_INFO` or `RSA_PRIVATE_KEY` etc.
+	/* Minimal RSA PKCS#1 parser */
+	DWORD dwLen = 0, dwSkip, dwFlags;
+	uint8_t *der = NULL;
+	const uint8_t *p, *end;
+	size_t seq_len;
+	int ret = -1;
 
-	   For this stub/initial implementation, we might have to fail or implement a minimal ASN.1 reader.
-	   Since `lws-genrsa.c` implemented some manual logic, maybe we can rely on that?
-	   But converting PEM->DER->BCRYPT_BLOB is complex.
+	if (passphrase) {
+		lwsl_err("%s: Encrypted private keys not supported yet\n", __func__);
+		return -1;
+	}
 
-	   Given this is for `api-test-jose` which likely uses specific test keys, maybe we can support unencrypted PKCS#8?
+	if (!CryptStringToBinaryA((LPCSTR)pem, (DWORD)len, CRYPT_STRING_ANY, NULL, &dwLen, &dwSkip, &dwFlags)) {
+		lwsl_err("%s: CryptStringToBinary failed\n", __func__);
+		return -1;
+	}
 
-	   Returning -1 for now as a known limitation unless we want to pull in a big parser.
+	der = lws_malloc(dwLen, "privkey der");
+	if (!der) return -1;
+
+	if (!CryptStringToBinaryA((LPCSTR)pem, (DWORD)len, dwFlags, der, &dwLen, NULL, NULL)) {
+		lws_free(der);
+		return -1;
+	}
+
+	p = der;
+	end = der + dwLen;
+
+	/* Try parsing SEQUENCE */
+	if (p >= end || *p++ != 0x30) goto bail; /* SEQUENCE */
+	if (lws_asn1_read_length(&p, end, &seq_len) < 0) goto bail;
+
+	/* Check for PKCS#8 wrapping: version=0, AlgorithmIdentifier, OCTET STRING */
+	/* Peek version */
+	/*
+	   If it's RSA PKCS#1: SEQUENCE { version (0), n, e, d... }
+	   If it's PKCS#8: SEQUENCE { version (0), AlgId, OctetString }
 	*/
-	lwsl_err("%s: Parsing PEM private keys not fully supported on SChannel backend yet\n", __func__);
-	return -1;
+
+	/* Read version */
+	if (p >= end || *p++ != 0x02) goto bail; /* INTEGER */
+	size_t ver_len;
+	if (lws_asn1_read_length(&p, end, &ver_len) < 0) goto bail;
+	p += ver_len; /* Skip version value (usually 0) */
+
+	/* Check next tag */
+	if (p >= end) goto bail;
+
+	if (*p == 0x30) {
+		/* Likely PKCS#8 AlgorithmIdentifier. Skip it and OctetString header to get to inner key. */
+		/* Just a heuristic: if we see SEQUENCE, we assume PKCS#8 and try to dig in. */
+		/* Actually proper parsing is better but keeping it minimal. */
+		/* Skip AlgId */
+		size_t alg_len;
+		p++;
+		if (lws_asn1_read_length(&p, end, &alg_len) < 0) goto bail;
+		p += alg_len;
+
+		/* Expect OCTET STRING */
+		if (p >= end || *p++ != 0x04) goto bail;
+		size_t oct_len;
+		if (lws_asn1_read_length(&p, end, &oct_len) < 0) goto bail;
+
+		/* Now p points to inner key (RSAPrivateKey usually).
+		   It should be a SEQUENCE again. */
+		if (p >= end || *p++ != 0x30) goto bail;
+		if (lws_asn1_read_length(&p, end, &seq_len) < 0) goto bail;
+
+		/* Read inner version */
+		if (p >= end || *p++ != 0x02) goto bail;
+		if (lws_asn1_read_length(&p, end, &ver_len) < 0) goto bail;
+		p += ver_len;
+	} else if (*p == 0x02) {
+		/* Likely RSA PKCS#1 starting with Modulus (since we already read Version) */
+		/* Backtrack pointer to Modulus tag? No, we just continue reading RSA fields. */
+		p--; /* Back to tag */
+	} else {
+		goto bail;
+	}
+
+	/* Read RSA fields */
+	jwk->kty = LWS_GENCRYPTO_KTY_RSA;
+
+	if (lws_asn1_read_integer(&p, end, &jwk->e[LWS_GENCRYPTO_RSA_KEYEL_N]) < 0) goto bail;
+	if (lws_asn1_read_integer(&p, end, &jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E]) < 0) goto bail;
+	if (lws_asn1_read_integer(&p, end, &jwk->e[LWS_GENCRYPTO_RSA_KEYEL_D]) < 0) goto bail;
+	if (lws_asn1_read_integer(&p, end, &jwk->e[LWS_GENCRYPTO_RSA_KEYEL_P]) < 0) goto bail;
+	if (lws_asn1_read_integer(&p, end, &jwk->e[LWS_GENCRYPTO_RSA_KEYEL_Q]) < 0) goto bail;
+	if (lws_asn1_read_integer(&p, end, &jwk->e[LWS_GENCRYPTO_RSA_KEYEL_DP]) < 0) goto bail;
+	if (lws_asn1_read_integer(&p, end, &jwk->e[LWS_GENCRYPTO_RSA_KEYEL_DQ]) < 0) goto bail;
+	if (lws_asn1_read_integer(&p, end, &jwk->e[LWS_GENCRYPTO_RSA_KEYEL_QI]) < 0) goto bail;
+
+	ret = 0;
+
+bail:
+	lws_free(der);
+	return ret;
 }
 #endif
