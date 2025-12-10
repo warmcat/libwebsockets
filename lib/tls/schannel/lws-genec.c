@@ -232,8 +232,9 @@ int
 lws_genecdsa_set_key(struct lws_genec_ctx *ctx,
 		     const struct lws_gencrypto_keyelem *el)
 {
-	/* Same as ECDH set key */
-	return lws_genecdh_set_key(ctx, el, LDHS_OURS);
+	/* Same as ECDH set key
+	   Cast const away safely as the set_key function doesn't modify el */
+	return lws_genecdh_set_key(ctx, (struct lws_gencrypto_keyelem *)el, LDHS_OURS);
 }
 
 int

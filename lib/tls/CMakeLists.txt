@@ -160,6 +160,7 @@ if (LWS_WITH_SSL)
 			tls/schannel/schannel-tls.c
 			tls/schannel/schannel-ssl.c
 			tls/schannel/schannel-x509.c)
+		list(APPEND LIB_LIST "ncrypt" "bcrypt" "crypt32")
 		if (LWS_WITH_GENCRYPTO)
 			list(APPEND SOURCES
 				tls/schannel/lws-genhash.c
