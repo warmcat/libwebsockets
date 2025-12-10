@@ -339,11 +339,12 @@ _lws_log_cx(lws_log_cx_t *cx, lws_log_prepend_cx_t prep, void *obj,
 #define lwsl_user(...) do {} while(0)
 #endif
 
-#define lwsl_hexdump_err(...) lwsl_hexdump_level(LLL_ERR, __VA_ARGS__)
-#define lwsl_hexdump_warn(...) lwsl_hexdump_level(LLL_WARN, __VA_ARGS__)
-#define lwsl_hexdump_notice(...) lwsl_hexdump_level(LLL_NOTICE, __VA_ARGS__)
-#define lwsl_hexdump_info(...) lwsl_hexdump_level(LLL_INFO, __VA_ARGS__)
-#define lwsl_hexdump_debug(...) lwsl_hexdump_level(LLL_DEBUG, __VA_ARGS__)
+#define lwsl_hexdump_user(...)		lwsl_hexdump_level(LLL_USER,   __VA_ARGS__)
+#define lwsl_hexdump_err(...)		lwsl_hexdump_level(LLL_ERR,    __VA_ARGS__)
+#define lwsl_hexdump_warn(...)		lwsl_hexdump_level(LLL_WARN,   __VA_ARGS__)
+#define lwsl_hexdump_notice(...)	lwsl_hexdump_level(LLL_NOTICE, __VA_ARGS__)
+#define lwsl_hexdump_info(...)		lwsl_hexdump_level(LLL_INFO,   __VA_ARGS__)
+#define lwsl_hexdump_debug(...)		lwsl_hexdump_level(LLL_DEBUG,  __VA_ARGS__)
 
 /*
  * lws_context scope logs

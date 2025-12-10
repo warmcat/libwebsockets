@@ -79,7 +79,7 @@ In the install they give you the option to add a microsoft account and the
 alternative is, "not now, maybe later".  Compare and contrast to gcc or git or
 the other FOSS projects.
 
-### Required: OpenSSL
+### Required: OpenSSL (or MbedTLS, see next)
 
 Since I last did this, vcpkg has essentially wrapped the complicated build process.
 
@@ -91,6 +91,24 @@ Since I last did this, vcpkg has essentially wrapped the complicated build proce
 
 It took 30 minutes to build the thing apparently in the same way that was previously
 described here manually.
+
+A user contributed advice on building lws + openssl from scratch on windows
+
+https://github.com/warmcat/libwebsockets/issues/3513
+
+### Required: Mbedtls (or OpenSSL, see above)
+
+Mbedtls is also a CMake project that is buildable on Windows.
+
+A user shared with us that to get it to link with lws, it needed the following
+additional CMake options on lws:
+
+```
+      -DCMAKE_PREFIX_PATH=/path/to/mbedtls
+      -DCMAKE_EXE_LINKER_FLAGS="Bcrypt.lib" # Prevent unresolved BCryptGenRandom.
+      -DLWS_WITHOUT_SERVER=TRUE # Prevents certificate generation when OpenSSL isn't available.
+      -DLWS_WITH_MBEDTLS=TRUE
+```
 
 ### Powershell
 

@@ -188,8 +188,8 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		i.ssl_connection		= LCCSCF_USE_SSL; /* notice must NOT use multipart flag */
 
 		if (lws_cmdline_option_cx(cx, "-l")) {
-			url = "https://libwebsockets.org:443/testserver/formtest";
-			i.ssl_connection |= LCCSCF_ALLOW_SELFSIGNED;
+			url			= "https://localhost:7681/formtest";
+			i.ssl_connection	|= LCCSCF_ALLOW_SELFSIGNED;
 		}
 
 		p = lws_cmdline_option_cx(cx, NULL);
@@ -204,13 +204,16 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 			return 1;
 		}
 
+		p = lws_cmdline_option_cx(cx, "--port");
+		if (p)
+			i.port = atoi(p);
 
 		if (lws_cmdline_option_cx(cx, "--form1"))
-			i.path				= "/form1";
+			i.path			= "/form1";
 
 		i.host				= i.address;
 		i.origin			= i.address;
-		i.method = "POST";
+		i.method			= "POST";
 
 		/* force h1 even if h2 available */
 		if (lws_cmdline_option_cx(cx, "--h1"))
@@ -219,7 +222,7 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		i.protocol			= protocols[0].name;
 		i.pwsi				= &client_wsi;
 
-		lwsl_user("%s: connecting to %s\n", __func__, url);
+		lwsl_user("%s: connecting to https://%s:%d/%s\n", __func__, i.address, i.port, i.path);
 		if (!lws_client_connect_via_info(&i))
 			completed++;
 		break;

@@ -35,6 +35,11 @@ struct lws_genec_ctx {
 		mbedtls_ecdh_context *ctx_ecdh;
 		mbedtls_ecdsa_context *ctx_ecdsa;
 	} u;
+#elif defined(LWS_WITH_SCHANNEL)
+	struct {
+		void *hAlg;
+		void *hKey;
+	} u;
 #else
 	EVP_PKEY_CTX *ctx[2];
 #endif

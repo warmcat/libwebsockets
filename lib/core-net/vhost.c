@@ -745,6 +745,8 @@ lws_create_vhost(struct lws_context *context,
 	if (n) {
 		vh->tls.key_path = vh->tls.alloc_cert_path =
 					lws_malloc((unsigned int)n, "vh paths");
+		if (!vh->tls.alloc_cert_path)
+			goto bail;
 		if (info->ssl_cert_filepath) {
 			n = (int)strlen(info->ssl_cert_filepath) + 1;
 			memcpy(vh->tls.alloc_cert_path,
@@ -1574,6 +1576,7 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 
 #if defined (LWS_WITH_TLS)
 	lws_free_set_NULL(vh->tls.alloc_cert_path);
+	lws_free_set_NULL(vh->tls.key_path);
 #endif
 
 #if LWS_MAX_SMP > 1

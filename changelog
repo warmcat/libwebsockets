@@ -1,6 +1,31 @@
 Changelog
 ---------
 
+v4.5.0
+======
+
+ - fixes from coverity and Nozomi Networks
+ - fix for mountpoint headers being sticky for all following mounts too
+ - b64 apis: fixes and new api tests
+ - improvements to deaddrop example, now very useful for crossplatform
+   clipboard and file sharing
+ - mbedtls updates / fixes
+ - support basic auth on h2 POST
+ - add X-FORWARDED-FOR support to lws proxying, other fixes
+ - ctest improvements for speed and OSX UDS support
+ - esp-idf update to 5.5
+ - new lejp api tests
+ - NEW APIs: lws_humanize_pad
+ - NEW APIs: lws_dir_via_info
+ - NEW APIs: lws_http_mp_sm POST form api, plus examples
+ - NEW APIs: lws_wsmsg: lws_buflist variant that handles fragmentation flags
+ - ctest: disable broken amazon tests: broken at amazon
+ - lws_struct: extra api tests, docs
+ - ws: now checks sanity of fragment ordering at ws and ss levels
+ - stdin also allowed as source for commandline, add examples
+ - 307/308 POST support
+ - lws_hexdump_user() that was missing added in
+
 v4.4.0
 ======
 

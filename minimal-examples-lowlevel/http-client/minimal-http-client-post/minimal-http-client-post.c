@@ -200,7 +200,7 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		i.ssl_connection	= LCCSCF_USE_SSL | LCCSCF_HTTP_MULTIPART_MIME;
 
 		if (lws_cmdline_option_cx(cx, "-l")) {
-			url = "https://libwebsockets.org:443/testserver/formtest";
+			url = "https://localhost:7681/formtest";
 			i.ssl_connection |= LCCSCF_ALLOW_SELFSIGNED;
 		}
 
@@ -209,11 +209,15 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 			url = p;
 
 		strncpy(urlcp, url, sizeof(urlcp));
+		lwsl_user("%s: url=%s\n", __func__, urlcp);
 		if (lws_parse_uri(urlcp, &prot, &i.address, &i.port, &i.path)) {
 			lwsl_err("%s: URL like https://warmcat.com/mypath needed\n", __func__);
 			return 1;
 		}
 
+		p = lws_cmdline_option_cx(cx, "--port");
+		if (p)
+			i.port = atoi(p);
 
 		if (lws_cmdline_option_cx(cx, "--form1"))
 			i.path			= "/form1";
@@ -230,7 +234,7 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 
 		for (n = 0; n < count_clients; n++) {
 			i.pwsi = &client_wsi[n];
-			lwsl_user("%s: connecting to %s\n", __func__, url);
+			lwsl_user("%s: connecting to https://%s:%d/%s\n", __func__, i.address, i.port, i.path);
 			if (!lws_client_connect_via_info(&i))
 				completed++;
 		}

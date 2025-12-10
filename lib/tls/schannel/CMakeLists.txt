@@ -20,30 +20,21 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 # IN THE SOFTWARE.
+#
 
-MACRO(SUBDIRLIST result curdir)
-  FILE(GLOB children RELATIVE ${curdir} ${curdir}/*)
-  SET(dirlist "")
+list(APPEND SOURCES
+	tls/schannel/schannel-tls.c
+	tls/schannel/schannel-ssl.c
+	tls/schannel/schannel-x509.c
+)
 
-  FOREACH(child ${children})
-    IF (IS_DIRECTORY ${curdir}/${child})
-	LIST(APPEND dirlist ${child})
-    ENDIF()
-  ENDFOREACH()
+if (LWS_WITH_GENCRYPTO)
+	list(APPEND SOURCES
+		tls/schannel/lws-genhash.c
+		tls/schannel/lws-genrsa.c
+		tls/schannel/lws-genaes.c
+		tls/lws-genec-common.c
+		tls/schannel/lws-genec.c)
+endif()
 
-  SET(${result} ${dirlist})
-ENDMACRO()
-
-include_directories(${LWS_LIB_BUILD_INC_PATHS})
-
-SUBDIRLIST(SUBDIRS "${PROJECT_SOURCE_DIR}/minimal-examples-lowlevel")
-FOREACH(subdir ${SUBDIRS})
-
-	SUBDIRLIST(SUBDIRS2 "${PROJECT_SOURCE_DIR}/minimal-examples-lowlevel/${subdir}")
-	FOREACH(subdir2 ${SUBDIRS2})
-		if (EXISTS "${PROJECT_SOURCE_DIR}/minimal-examples-lowlevel/${subdir}/${subdir2}/CMakeLists.txt")
-			message("Processing ${PROJECT_SOURCE_DIR}/minimal-examples-lowlevel/${subdir}/${subdir2}")
-			add_subdirectory("${PROJECT_SOURCE_DIR}/minimal-examples-lowlevel/${subdir}/${subdir2}")
-		endif()
-	ENDFOREACH()
-ENDFOREACH()
+exports_to_parent_scope()

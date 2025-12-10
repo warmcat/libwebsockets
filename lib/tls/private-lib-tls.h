@@ -32,6 +32,12 @@
 
 #include "private-jit-trust.h"
 
+#if defined(LWS_WITH_SCHANNEL)
+ #include <wincrypt.h>
+ #include <bcrypt.h>
+ #include <ncrypt.h>
+#else
+
 #if defined(USE_WOLFSSL)
  #if defined(USE_OLD_CYASSL)
   #if defined(_WIN32)
@@ -110,6 +116,8 @@
  #endif /* not ESP32 */
 #endif /* not USE_WOLFSSL */
 
+#endif /* !LWS_WITH_SCHANNEL */
+
 #endif /* LWS_WITH_TLS */
 
 enum lws_tls_extant {
@@ -134,10 +142,21 @@ lws_tls_restrict_return(struct lws *wsi);
 void
 lws_tls_restrict_return_handshake(struct lws *wsi);
 
+#if defined(LWS_WITH_SCHANNEL)
+struct lws_tls_schannel_conn;
+struct lws_tls_schannel_ctx;
+struct lws_tls_schannel_bio;
+struct lws_tls_schannel_x509;
+typedef struct lws_tls_schannel_conn lws_tls_conn;
+typedef struct lws_tls_schannel_ctx lws_tls_ctx;
+typedef struct lws_tls_schannel_bio lws_tls_bio;
+typedef struct lws_tls_schannel_x509 lws_tls_x509;
+#else
 typedef SSL lws_tls_conn;
 typedef SSL_CTX lws_tls_ctx;
 typedef BIO lws_tls_bio;
 typedef X509 lws_tls_x509;
+#endif
 
 #if defined(LWS_WITH_NETWORK)
 #include "private-network.h"
@@ -150,7 +169,7 @@ void
 lws_context_deinit_ssl_library(struct lws_context *context);
 #define LWS_SSL_ENABLED(vh) (vh && vh->tls.use_ssl)
 
-extern const struct lws_tls_ops tls_ops_openssl, tls_ops_mbedtls;
+extern const struct lws_tls_ops tls_ops_openssl, tls_ops_mbedtls, tls_ops_schannel;
 
 struct lws_ec_valid_curves {
 	int id;

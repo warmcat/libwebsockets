@@ -370,10 +370,21 @@ lws_extract_metadata(lws_ss_handle_t *h, struct lws *wsi)
 						    polmd->value__may_own_heap,
 						    polmd->value_length);
 				if (n > 0) {
+					int r;
 
 					p = lws_malloc((unsigned int)n + 1, __func__);
 					if (!p)
 						return 1;
+
+					/*
+					 * copy the named custom header value
+					 * into the malloc'd buffer
+					 */
+
+					r = lws_hdr_custom_copy(wsi, p, n + 1,
+						     (const char *)
+						     polmd->value__may_own_heap,
+						     polmd->value_length);
 
 					/* if needed, free any previous value */
 
@@ -383,15 +394,7 @@ lws_extract_metadata(lws_ss_handle_t *h, struct lws *wsi)
 						polmd->value_on_lws_heap = 0;
 					}
 
-					/*
-					 * copy the named custom header value
-					 * into the malloc'd buffer
-					 */
-
-					if (lws_hdr_custom_copy(wsi, p, n + 1,
-						     (const char *)
-						     polmd->value__may_own_heap,
-						     polmd->value_length) < 0) {
+					if (r < 0) {
 						lws_free(p);
 
 						return 1;
@@ -641,12 +644,10 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		if (h->u.http.good_respcode)
 			lwsl_info("%s: Connected streamtype %s, %d\n", __func__,
-				  h->policy->streamtype, status);
+				h->policy->streamtype, status);
 		else
-			if (h->u.http.good_respcode)
-				lwsl_warn("%s: Connected streamtype %s, BAD %d\n",
-					  __func__, h->policy->streamtype,
-					  status);
+			lwsl_warn("%s: Connected streamtype %s, BAD %d\n",
+				__func__, h->policy->streamtype, status);
 
 		h->hanging_som = 0;
 
@@ -666,7 +667,7 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				if (r != LWSSSSRET_OK)
 					return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 			}
-                       if (h->prev_ss_state != LWSSSCS_CONNECTED && 
+                       if (h->prev_ss_state != LWSSSCS_CONNECTED &&
                            h->prev_ss_state != LWSSSCS_QOS_ACK_REMOTE &&
                            h->prev_ss_state != LWSSSCS_QOS_NACK_REMOTE) {
                                // lwsl_ss_notice(h, "HTTP_ESTABLISHED");

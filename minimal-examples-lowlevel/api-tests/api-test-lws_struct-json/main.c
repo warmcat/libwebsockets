@@ -871,6 +871,246 @@ done:
 
 	}
 
+	{
+		typedef struct sai_active_task_info {
+			lws_dll2_t              list;
+			char                    task_uuid[65];
+			char                    task_name[96];
+			int                     build_step;
+			int                     total_steps;
+			unsigned int            est_peak_mem_kib;
+			unsigned int            est_cpu_load_pct;
+			unsigned int            est_disk_kib;
+			uint64_t                started;
+		} sai_active_task_info_t;
+
+		typedef struct sai_load_report {
+			lws_dll2_t              list; /* For queuing on sai_plat_server */
+			char                    builder_name[64];
+			int                     core_count;
+			unsigned int            initial_free_ram_kib;
+			unsigned int            reserved_ram_kib;
+			unsigned int            initial_free_disk_kib;
+			unsigned int            reserved_disk_kib;
+			unsigned int            active_steps;
+			unsigned int            cpu_percent;
+			lws_dll2_owner_t        active_tasks;
+		} sai_load_report_t;
+
+		static const lws_struct_map_t lsm_active_task_info[] = {
+			LSM_CARRAY      (sai_active_task_info_t, task_uuid, "task_uuid"),
+			LSM_CARRAY      (sai_active_task_info_t, task_name, "task_name"),
+			LSM_SIGNED      (sai_active_task_info_t, build_step, "build_step"),
+			LSM_SIGNED      (sai_active_task_info_t, total_steps, "total_steps"),
+			LSM_UNSIGNED    (sai_active_task_info_t, est_peak_mem_kib, "est_peak_mem_kib"),
+			LSM_UNSIGNED    (sai_active_task_info_t, est_cpu_load_pct, "est_cpu_load_pct"),
+			LSM_UNSIGNED    (sai_active_task_info_t, est_disk_kib, "est_disk_kib"),
+			LSM_UNSIGNED    (sai_active_task_info_t, started, "started"),
+		};
+
+		static const lws_struct_map_t lsm_load_report_members[] = {
+			LSM_CARRAY      (sai_load_report_t, builder_name, "builder_name"),
+			LSM_SIGNED      (sai_load_report_t, core_count, "core_count"),
+			LSM_UNSIGNED    (sai_load_report_t, initial_free_ram_kib, "initial_free_ram_kib"),
+			LSM_UNSIGNED    (sai_load_report_t, reserved_ram_kib, "reserved_ram_kib"),
+			LSM_UNSIGNED    (sai_load_report_t, initial_free_disk_kib, "initial_free_disk_kib"),
+			LSM_UNSIGNED    (sai_load_report_t, reserved_disk_kib, "reserved_disk_kib"),
+			LSM_UNSIGNED    (sai_load_report_t, active_steps, "active_steps"),
+			LSM_UNSIGNED    (sai_load_report_t, cpu_percent, "cpu_percent"),
+			LSM_LIST        (sai_load_report_t, active_tasks, sai_active_task_info_t, list,
+					 NULL, lsm_active_task_info, "active_tasks"),
+		};
+
+		static const lws_struct_map_t lsm_schema_json_loadreport[] = {
+		        LSM_SCHEMA      (sai_load_report_t, NULL, lsm_load_report_members, "com.warmcat.sai.loadreport"),
+		};
+		sai_active_task_info_t ati[5];
+		sai_load_report_t lr;
+		lws_struct_serialize_t *js;
+		unsigned int ssf = LWSSS_FLAG_SOM;
+		uint8_t buf[1024];
+		size_t w = 0;
+		int step = 0;
+
+		memset(&ati, 0, sizeof(ati));
+                memset(&lr, 0, sizeof(lr));
+
+                lws_strncpy(lr.builder_name, "hello", sizeof(lr.builder_name));
+                lr.core_count                   = 1;
+                lr.initial_free_ram_kib         = 1234;
+                lr.initial_free_disk_kib        = 4567;
+                lr.reserved_ram_kib             = 0;
+                lr.reserved_disk_kib            = 0;
+                lr.cpu_percent                  = 33u;
+                lr.active_steps                 = 0;
+                lws_dll2_owner_clear(&lr.active_tasks);
+
+		strcpy(ati[0].task_uuid, "0123456789012345678901234567890101234567890123456789012345678901");
+		strcpy(ati[1].task_uuid, "0123456789012345678901234567890101234567890123456789012345678901");
+		strcpy(ati[2].task_uuid, "0123456789012345678901234567890101234567890123456789012345678901");
+		strcpy(ati[3].task_uuid, "0123456789012345678901234567890101234567890123456789012345678901");
+
+		strcpy(ati[0].task_name, "task1");
+		strcpy(ati[1].task_name, "task2");
+		strcpy(ati[2].task_name, "task3");
+		strcpy(ati[2].task_name, "task4");
+
+		lws_dll2_add_tail(&ati[0].list, &lr.active_tasks);
+		lws_dll2_add_tail(&ati[1].list, &lr.active_tasks);
+		lws_dll2_add_tail(&ati[2].list, &lr.active_tasks);
+		lws_dll2_add_tail(&ati[3].list, &lr.active_tasks);
+
+		js = lws_struct_json_serialize_create(lsm_schema_json_loadreport, LWS_ARRAY_SIZE(lsm_schema_json_loadreport), 0, &lr);
+		if (!js) {
+			lwsl_warn("%s: failed to serialize\n", __func__);
+			return -1;
+		}
+
+		/*
+		 * This should come out in two pieces, one is CONTINUE and the
+		 * other is FINISH
+		 */
+
+		do {
+			switch (lws_struct_json_serialize(js, buf, sizeof(buf), &w)) {
+				case LSJS_RESULT_CONTINUE:
+					if (step != 0) {
+						lwsl_err("%s: continue at wrong step\n", __func__);
+						goto bail;
+					}
+					step++;
+					lwsl_notice("%s: LSJS_RESULT_CONTINUE\n", __func__);
+					break;
+				case LSJS_RESULT_FINISH:
+					if (step != 1) {
+						lwsl_err("%s: finished too early\n", __func__);
+						goto bail;
+					}
+					step++;
+					lwsl_notice("%s: LSJS_RESULT_FINISH\n", __func__);
+					ssf |= LWSSS_FLAG_EOM;
+					break;
+				case LSJS_RESULT_ERROR:
+					lwsl_warn("%s: serialization failed\n", __func__);
+					goto bail;
+			}
+
+			lwsl_notice("%s: QUEUEing %d bytes, ss_flags %d\n", __func__, (int)w, ssf);
+			lwsl_hexdump_notice(buf, w);
+
+			ssf &= ~((unsigned int)LWSSS_FLAG_SOM);
+		} while (!(ssf & LWSSS_FLAG_EOM));
+
+		lws_struct_json_serialize_destroy(&js);
+
+		if (step != 2) {
+			lwsl_err("%s: test should have two steps\n", __func__);
+			goto bail;
+		}
+	}
+
+	{
+		const char *msg = "{\"schema\":\"com.warmcat.sai.builder_registration\",\"builder_name\":\"freebsd\",\"power_controller_name\":\"p1\",\"platforms\":[{\"name\":\"freebsd.freebsd/aarch64/llvm\"}]}";
+		const char *msg1 = "{\"schema\":\"com.warmcat.sai.builder_registration\",\"platforms\":[{\"name\":\"freebsd.freebsd/aarch64/llvm\"}],\"builder_name\":\"freebsd\",\"power_controller_name\":\"p1\"}";
+
+		struct lws_struct_args	a;
+		struct lejp_ctx		ctx;
+
+		typedef struct sai_builder_platform {
+			lws_dll2_t			list;
+			char				name[64];
+		} sai_builder_platform_t;
+
+		typedef struct sai_builder_registration {
+			lws_dll2_t			list;
+			lws_dll2_owner_t		platforms_owner; /* sai_builder_platform_t */
+			char				builder_name[64];
+			char				power_controller_name[64];
+		} sai_builder_registration_t;
+		sai_builder_registration_t *r;
+
+		const lws_struct_map_t lsm_builder_platform[] = {
+			LSM_CARRAY(sai_builder_platform_t, name, "name"),
+		};
+
+		const lws_struct_map_t lsm_builder_registration[] = {
+			LSM_LIST(sai_builder_registration_t, platforms_owner,
+					sai_builder_platform_t, list, NULL,
+					lsm_builder_platform, "platforms"),
+			LSM_CARRAY(sai_builder_registration_t, builder_name, "builder_name"),
+			LSM_CARRAY(sai_builder_registration_t, power_controller_name, "power_controller_name"),
+		};
+
+		const lws_struct_map_t lsm_schema_builder_registration[] = {
+			LSM_SCHEMA(sai_builder_registration_t, NULL,
+					lsm_builder_registration,
+					"com.warmcat.sai.builder_registration"),
+		};
+
+		memset(&a, 0, sizeof(a));
+
+		a.map_st[0]		= lsm_schema_builder_registration;
+		a.map_entries_st[0] 	= LWS_ARRAY_SIZE(lsm_schema_builder_registration);
+
+		a.ac_block_size		= 2048;
+
+		/* part 1 (list last) */
+
+		lws_struct_json_init_parse(&ctx, NULL, &a);
+
+		int pr = lejp_parse(&ctx, (const uint8_t *)msg, (int)strlen(msg));
+		lwsl_notice("%s: pr %d\n", __func__, pr);
+		if (pr < 0 || !a.dest) {
+			lwsl_warn("JSON decode failed");
+			lwsac_free(&a.ac);
+			goto bail;
+		}
+
+		r = (sai_builder_registration_t *)a.dest;
+
+		if (strcmp(r->builder_name, "freebsd")) {
+			lwsl_notice("%s: part1: builder_name: '%s' expected 'freebsd'\n", __func__, r->builder_name);
+			lwsl_hexdump_notice(r, sizeof(*r));
+			goto bail;
+		}
+		if (strcmp(r->power_controller_name, "p1")) {
+			lwsl_notice("%s: part1: power_controller_name: '%s' expected 'p1'\n", __func__, r->power_controller_name);
+			lwsl_hexdump_notice(r, sizeof(*r));
+			goto bail;
+		}
+
+		lwsac_free(&a.ac);
+
+		/* part2 (list first) */
+
+		lws_struct_json_init_parse(&ctx, NULL, &a);
+		a.dest = NULL;
+
+		pr = lejp_parse(&ctx, (const uint8_t *)msg1, (int)strlen(msg1));
+		lwsl_notice("%s: pr %d\n", __func__, pr);
+		if (pr < 0 || !a.dest) {
+			lwsl_warn("JSON decode failed");
+			lwsac_free(&a.ac);
+			goto bail;
+		}
+
+		r = (sai_builder_registration_t *)a.dest;
+
+		if (strcmp(r->builder_name, "freebsd")) {
+			lwsl_notice("%s: part2: dest %p, builder_name: '%s' expected 'freebsd'\n", __func__, a.dest, r->builder_name);
+			lwsl_hexdump_notice(r, sizeof(*r));
+			goto bail;
+		}
+		if (strcmp(r->power_controller_name, "p1")) {
+			lwsl_notice("%s: part2: power_controller_name: '%s' expected 'p1'\n", __func__, r->power_controller_name);
+			lwsl_hexdump_notice(r, sizeof(*r));
+			goto bail;
+		}
+
+		lwsac_free(&a.ac);
+
+	}
+
 	lwsl_user("Completed: PASS\n");
 
 	return 0;

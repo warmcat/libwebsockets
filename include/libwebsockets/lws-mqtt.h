@@ -33,6 +33,11 @@ struct lws_mqtt_str_st;
 typedef struct lws_mqtt_str_st lws_mqtt_str_t;
 
 #define MQTT_VER_3_1_1 4
+#if MQTT_VER_3_1_1 == 4
+	#define MQTT_VER_STRING "3.1.1"
+#else
+	#define MQTT_VER_STRING "unknown"
+#endif
 
 #define LWS_MQTT_FINAL_PART 1
 

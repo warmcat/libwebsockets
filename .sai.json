@@ -58,6 +58,14 @@
 				"cd build && LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib /usr/pkg/bin/ctest -j$SAI_PARALLEL --output-on-failure --repeat until-pass:3"
 			]
                 },
+		"freebsd/aarch64/llvm": {
+                        "default": false,
+                        "build": [
+				"mkdir -p build destdir; cd build; CCACHE_DISABLE=1 LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib cmake .. ${cmake}",
+                                "cd build && make -j$SAI_PARALLEL && rm -rf ../destdir && make -j$SAI_PARALLEL DESTDIR=../destdir install",
+				"cd build && LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib /usr/local/bin/ctest -j$SAI_PARALLEL --output-on-failure --repeat until-pass:3"
+			]
+		},
 		"w11/x86_64-amd/msvc": {
 			"default": false,
 			"build": [
@@ -87,7 +95,7 @@
 	"configurations": {
 		"default": {
 			"cmake":	"",
-			"platforms":	"w11/x86_64-amd/msvc,netbsd/aarch64BE-bcm2837-a53/gcc"
+			"platforms":	"w11/x86_64-amd/msvc,netbsd/aarch64BE-bcm2837-a53/gcc,freebsd/aarch64/llvm"
 		},
 		"default-noudp": {
 			"cmake":	"-DLWS_WITH_UDP=0"
@@ -117,14 +125,17 @@
 			"platforms":	"none, rocky9/aarch64-a72a55-rk3588/gcc"
 		},
 		"default-examples": {
-			"cmake":	"-DLWS_WITH_MINIMAL_EXAMPLES=1",
-			"platforms":	"netbsd/aarch64BE-bcm2837-a53/gcc"
+			"cmake":	"-DLWS_WITH_MINIMAL_EXAMPLES=0",
+			"platforms":	"netbsd/aarch64BE-bcm2837-a53/gcc,freebsd/aarch64/llvm"
 		},
 		"default-examples-tls-sess": {
 			"cmake":	"-DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_TLS_SESSIONS=1"
 		},
 		"h1only-examples": {
 			"cmake":	"-DLWS_WITH_HTTP2=0 -DLWS_WITH_MINIMAL_EXAMPLES=1"
+		},
+		"h1only-notls": {
+			"cmake":	"-DLWS_WITH_HTTP2=0 -DLWS_WITH_SSL=OFF"
 		},
 		"unix-domain": {
 			"cmake":	"-DUNIX_SOCK=1"
@@ -237,7 +248,7 @@
 		"coverity": {
 			"cmake":	"-DLWS_WITHOUT_EXTENSIONS=0 -DLWS_WITH_CGI=1 -DLWS_IPV6=1 -DLWS_WITH_HTTP_PROXY=1 -DLWS_WITH_RANGES=1 -DLWS_WITH_THREADPOOL=1 -DLWS_WITH_CBOR=1 -DLWS_WITH_JOSE=1 -DLWS_WITH_COSE=1 -DLWS_WITH_SYS_DHCP_CLIENT=1 -DLWS_WITH_FTS=1 -DLWS_WITH_STRUCT_SQLITE3=1 -DLWS_ROLE_DBUS=1 -DLWS_WITH_SYS_ASYNC_DNS=1 -DLWS_WITH_SYS_FAULT_INJECTION=1 -DLWS_WITH_TLS_JIT_TRUST=1 -DLWS_ROLE_MQTT=1 -DLWS_ROLE_RAW_PROXY=1 -DLWS_WITH_EVENT_LIBS=1 -DLWS_WITH_LIBUV=1 -DLWS_WITH_STRUCT_JSON=1 -DLWS_WITH_LWS_DSH=1 -DLWS_WITH_SECURE_STREAMS_PROXY_API=1",
 			"platforms":	"none, coverity/x86_64/gcc",
-			"cpack":	"export STAMP=`git log -1 --pretty=format:%h` && rm -f libwebsockets.tgz && tar czvf libwebsockets.tgz cov-int && lws-minimal-http-client-post-form https://scan.coverity.com/builds?project=warmcat%2Flibwebsockets --form file=@libwebsockets.tgz --form version=$STAMP --form 'description=lws qa' < /etc/coverity/secrets.sh",
+			"cpack":	"export STAMP=`git log -1 --pretty=format:%h` && rm -f libwebsockets.tgz && tar czvf libwebsockets.tgz cov-int && script -q -c \"cat /etc/coverity/secrets.sh | lws-minimal-http-client-post-form https://scan.coverity.com:443/builds?project=warmcat%2Flibwebsockets --form file=@libwebsockets.tgz --form version=${STAMP} --form 'description=lws qa'\" /dev/null",
 			"branches":	"coverity"
 		}
 	}

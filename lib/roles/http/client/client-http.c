@@ -264,7 +264,10 @@ start_ws_handshake:
 
 	case LRS_H1C_ISSUE_HANDSHAKE2:
 
+#if defined(LWS_ROLE_H2) || defined(LWS_WITH_TLS)
 hs2:
+#endif
+
 		p = lws_generate_client_handshake(wsi, p,
 						  lws_ptr_diff_size_t(end, p));
 		if (p == NULL) {
@@ -1671,7 +1674,8 @@ lws_http_mp_sm_init(struct lws *wsi, lws_http_mp_sm_cb_t cb, uint8_t **p, uint8_
 
 		cl += (unsigned int)lws_snprintf(cla, sizeof(cla),
 				   "Content-Disposition: form-data; name=\"%s\"\x0d\x0a\x0d\x0a", ft);
-		cl += strlen(eq) + 2 /* CRLF */;
+		if (eq)
+			cl += strlen(eq) + 2 /* CRLF */;
 
 	} while (1);
 
@@ -1776,7 +1780,7 @@ lws_http_mp_sm_fill(struct lws_http_mp_sm *phms, uint8_t **p, uint8_t *end)
 			if (lws_ptr_diff(end, *p) < 100)
                                 return 1;
 
-			r = read(phms->fd, *p, chunk);
+			r = read(phms->fd, *p, LWS_POSIX_LENGTH_CAST(chunk));
 			if (r < 0) {
 				close(phms->fd);
 				lwsl_warn("%s: unable to read\n", __func__);
