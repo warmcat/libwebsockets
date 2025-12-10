@@ -34,44 +34,104 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 	NTSTATUS status;
 	BCRYPT_RSAKEY_BLOB *rsablob;
 	ULONG bloblen;
+	uint8_t *p;
 
 	ctx->context = context;
 	ctx->mode = mode;
 	ctx->u.hKey = NULL;
 
 	/*
-	 * We need to construct a BCRYPT_RSAKEY_BLOB from the key elements.
-	 * The blob expects:
-	 * Magic (RSAPUBLICMAGIC or RSAPRIVATEMAGIC)
-	 * BitLength
-	 * PublicExpSize
-	 * ModulusSize
-	 * Prime1Size
-	 * Prime2Size
-	 * PublicExponent
-	 * Modulus
-	 * Prime1
-	 * Prime2
-	 * ...
-	 */
-
-	/* Simple implementation assuming standard layout for now.
-	 * In a real implementation we need to handle variable sizes carefully.
-	 */
-
-	// TODO: Full implementation requires assembling the blob from `el`
-	// For now we just prepare the handle if it was imported differently,
-	// but here we must import from elements.
-
-	/*
-	 * Since this is a complex manual blob construction in C without OpenSSL helpers,
-	 * and requires Windows headers which are mocked or unavailable,
-	 * we will implement the skeleton and basic logic.
+	 * BCRYPT_RSAKEY_BLOB layout:
+	 *   BCRYPT_RSAKEY_BLOB header
+	 *   Public Exponent (cbPublicExp)
+	 *   Modulus (cbModulus)
+	 *   Prime1 (cbPrime1)
+	 *   Prime2 (cbPrime2)
+	 *   ... (private key components if present)
 	 */
 
 	status = BCryptOpenAlgorithmProvider(&ctx->u.hAlg, BCRYPT_RSA_ALGORITHM, NULL, 0);
 	if (!BCRYPT_SUCCESS(status))
 		return -1;
+
+	/* Calculate total blob length */
+	bloblen = sizeof(BCRYPT_RSAKEY_BLOB);
+
+	/* Public Exponent */
+	bloblen += el[LWS_GENCRYPTO_RSA_KEYEL_E].len;
+	/* Modulus */
+	bloblen += el[LWS_GENCRYPTO_RSA_KEYEL_N].len;
+
+	if (el[LWS_GENCRYPTO_RSA_KEYEL_P].len) {
+		/* Private Key components */
+		bloblen += el[LWS_GENCRYPTO_RSA_KEYEL_P].len;
+		bloblen += el[LWS_GENCRYPTO_RSA_KEYEL_Q].len;
+		bloblen += el[LWS_GENCRYPTO_RSA_KEYEL_DP].len; /* Exponent1 */
+		bloblen += el[LWS_GENCRYPTO_RSA_KEYEL_DQ].len; /* Exponent2 */
+		bloblen += el[LWS_GENCRYPTO_RSA_KEYEL_QI].len; /* Coefficient */
+	}
+
+	rsablob = (BCRYPT_RSAKEY_BLOB *)lws_malloc(bloblen, "genrsa blob");
+	if (!rsablob) {
+		BCryptCloseAlgorithmProvider(ctx->u.hAlg, 0);
+		return -1;
+	}
+
+	/* Fill header */
+	rsablob->Magic = el[LWS_GENCRYPTO_RSA_KEYEL_P].len ? BCRYPT_RSAPRIVATE_MAGIC : BCRYPT_RSAPUBLIC_MAGIC;
+	rsablob->BitLength = el[LWS_GENCRYPTO_RSA_KEYEL_N].len * 8;
+	rsablob->cbPublicExp = el[LWS_GENCRYPTO_RSA_KEYEL_E].len;
+	rsablob->cbModulus = el[LWS_GENCRYPTO_RSA_KEYEL_N].len;
+
+	if (el[LWS_GENCRYPTO_RSA_KEYEL_P].len) {
+		rsablob->cbPrime1 = el[LWS_GENCRYPTO_RSA_KEYEL_P].len;
+		rsablob->cbPrime2 = el[LWS_GENCRYPTO_RSA_KEYEL_Q].len;
+	} else {
+		rsablob->cbPrime1 = 0;
+		rsablob->cbPrime2 = 0;
+	}
+
+	p = (uint8_t *)(rsablob + 1);
+
+	/* Copy Public Exponent */
+	memcpy(p, el[LWS_GENCRYPTO_RSA_KEYEL_E].buf, el[LWS_GENCRYPTO_RSA_KEYEL_E].len);
+	p += el[LWS_GENCRYPTO_RSA_KEYEL_E].len;
+
+	/* Copy Modulus */
+	memcpy(p, el[LWS_GENCRYPTO_RSA_KEYEL_N].buf, el[LWS_GENCRYPTO_RSA_KEYEL_N].len);
+	p += el[LWS_GENCRYPTO_RSA_KEYEL_N].len;
+
+	if (el[LWS_GENCRYPTO_RSA_KEYEL_P].len) {
+		/* Copy Primes and CRT params */
+		memcpy(p, el[LWS_GENCRYPTO_RSA_KEYEL_P].buf, el[LWS_GENCRYPTO_RSA_KEYEL_P].len);
+		p += el[LWS_GENCRYPTO_RSA_KEYEL_P].len;
+
+		memcpy(p, el[LWS_GENCRYPTO_RSA_KEYEL_Q].buf, el[LWS_GENCRYPTO_RSA_KEYEL_Q].len);
+		p += el[LWS_GENCRYPTO_RSA_KEYEL_Q].len;
+
+		/* Exponent1 (DP) */
+		memcpy(p, el[LWS_GENCRYPTO_RSA_KEYEL_DP].buf, el[LWS_GENCRYPTO_RSA_KEYEL_DP].len);
+		p += el[LWS_GENCRYPTO_RSA_KEYEL_DP].len;
+
+		/* Exponent2 (DQ) */
+		memcpy(p, el[LWS_GENCRYPTO_RSA_KEYEL_DQ].buf, el[LWS_GENCRYPTO_RSA_KEYEL_DQ].len);
+		p += el[LWS_GENCRYPTO_RSA_KEYEL_DQ].len;
+
+		/* Coefficient (QI) */
+		memcpy(p, el[LWS_GENCRYPTO_RSA_KEYEL_QI].buf, el[LWS_GENCRYPTO_RSA_KEYEL_QI].len);
+		p += el[LWS_GENCRYPTO_RSA_KEYEL_QI].len;
+	}
+
+	status = BCryptImportKeyPair(ctx->u.hAlg, NULL,
+		el[LWS_GENCRYPTO_RSA_KEYEL_P].len ? BCRYPT_RSAPRIVATE_BLOB : BCRYPT_RSAPUBLIC_BLOB,
+		&ctx->u.hKey, (PUCHAR)rsablob, bloblen, 0);
+
+	lws_free(rsablob);
+
+	if (!BCRYPT_SUCCESS(status)) {
+		BCryptCloseAlgorithmProvider(ctx->u.hAlg, 0);
+		return -1;
+	}
 
 	return 0;
 }
@@ -88,6 +148,10 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 		       int bits)
 {
 	NTSTATUS status;
+	BCRYPT_RSAKEY_BLOB *rsablob = NULL;
+	ULONG bloblen = 0;
+	ULONG reslen = 0;
+	uint8_t *p;
 
 	ctx->context = context;
 	ctx->mode = mode;
@@ -105,15 +169,76 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 
 	status = BCryptFinalizeKeyPair(ctx->u.hKey, 0);
 	if (!BCRYPT_SUCCESS(status)) {
-		BCryptDestroyKey(ctx->u.hKey);
-		BCryptCloseAlgorithmProvider(ctx->u.hAlg, 0);
-		ctx->u.hKey = NULL;
-		ctx->u.hAlg = NULL;
-		return -1;
+		goto fail;
 	}
 
-	// TODO: Export key to `el`
+	/* Export key to blob to fill 'el' */
+	status = BCryptExportKey(ctx->u.hKey, NULL, BCRYPT_RSAPRIVATE_BLOB, NULL, 0, &bloblen, 0);
+	if (!BCRYPT_SUCCESS(status) && status != 0xC0000023) { /* STATUS_BUFFER_TOO_SMALL */
+		goto fail;
+	}
+
+	rsablob = (BCRYPT_RSAKEY_BLOB *)lws_malloc(bloblen, "genrsa export blob");
+	if (!rsablob) goto fail;
+
+	status = BCryptExportKey(ctx->u.hKey, NULL, BCRYPT_RSAPRIVATE_BLOB, (PUCHAR)rsablob, bloblen, &reslen, 0);
+	if (!BCRYPT_SUCCESS(status)) goto fail;
+
+	/* Parse blob into 'el' */
+	p = (uint8_t *)(rsablob + 1);
+
+	/* Alloc helper macro */
+#define LWS_GENRSA_ALLOC_EL(idx, size) \
+	el[idx].buf = lws_malloc(size, "genrsa el"); \
+	if (!el[idx].buf) goto fail; \
+	el[idx].len = size;
+
+	/* Public Exponent */
+	LWS_GENRSA_ALLOC_EL(LWS_GENCRYPTO_RSA_KEYEL_E, rsablob->cbPublicExp);
+	memcpy(el[LWS_GENCRYPTO_RSA_KEYEL_E].buf, p, rsablob->cbPublicExp);
+	p += rsablob->cbPublicExp;
+
+	/* Modulus */
+	LWS_GENRSA_ALLOC_EL(LWS_GENCRYPTO_RSA_KEYEL_N, rsablob->cbModulus);
+	memcpy(el[LWS_GENCRYPTO_RSA_KEYEL_N].buf, p, rsablob->cbModulus);
+	p += rsablob->cbModulus;
+
+	/* Prime1 */
+	LWS_GENRSA_ALLOC_EL(LWS_GENCRYPTO_RSA_KEYEL_P, rsablob->cbPrime1);
+	memcpy(el[LWS_GENCRYPTO_RSA_KEYEL_P].buf, p, rsablob->cbPrime1);
+	p += rsablob->cbPrime1;
+
+	/* Prime2 */
+	LWS_GENRSA_ALLOC_EL(LWS_GENCRYPTO_RSA_KEYEL_Q, rsablob->cbPrime2);
+	memcpy(el[LWS_GENCRYPTO_RSA_KEYEL_Q].buf, p, rsablob->cbPrime2);
+	p += rsablob->cbPrime2;
+
+	/* Exponent1 */
+	LWS_GENRSA_ALLOC_EL(LWS_GENCRYPTO_RSA_KEYEL_DP, rsablob->cbPrime1); /* Same size as Prime1? Usually yes */
+	memcpy(el[LWS_GENCRYPTO_RSA_KEYEL_DP].buf, p, rsablob->cbPrime1);
+	p += rsablob->cbPrime1;
+
+	/* Exponent2 */
+	LWS_GENRSA_ALLOC_EL(LWS_GENCRYPTO_RSA_KEYEL_DQ, rsablob->cbPrime2);
+	memcpy(el[LWS_GENCRYPTO_RSA_KEYEL_DQ].buf, p, rsablob->cbPrime2);
+	p += rsablob->cbPrime2;
+
+	/* Coefficient */
+	LWS_GENRSA_ALLOC_EL(LWS_GENCRYPTO_RSA_KEYEL_QI, rsablob->cbPrime1);
+	memcpy(el[LWS_GENCRYPTO_RSA_KEYEL_QI].buf, p, rsablob->cbPrime1);
+	p += rsablob->cbPrime1;
+
+	el[LWS_GENCRYPTO_RSA_KEYEL_D].len = 0;
+	el[LWS_GENCRYPTO_RSA_KEYEL_D].buf = NULL;
+
+	lws_free(rsablob);
 	return 0;
+
+fail:
+	if (rsablob) lws_free(rsablob);
+	lws_genrsa_destroy_elements(el);
+	lws_genrsa_destroy(ctx);
+	return -1;
 }
 
 int
@@ -146,9 +271,7 @@ int
 lws_genrsa_private_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			   size_t in_len, uint8_t *out)
 {
-	// RSA Private Encrypt usually means signing in OpenSSL terms, but strictly encrypting with private key?
-	// CNG doesn't support "encrypt with private key" directly for data encryption, it supports Signing.
-	// But lws generic api expects this for some protocols.
+	/* CNG doesn't support raw encryption with private key. */
 	return -1;
 }
 
@@ -156,27 +279,7 @@ int
 lws_genrsa_public_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			  size_t in_len, uint8_t *out, size_t out_max)
 {
-	NTSTATUS status;
-	ULONG result_len = 0;
-	BCRYPT_OAEP_PADDING_INFO oaepInfo;
-	void *pPaddingInfo = NULL;
-	DWORD dwFlags = BCRYPT_PAD_PKCS1;
-
-	if (ctx->mode == LGRSAM_PKCS1_OAEP_PSS) {
-		oaepInfo.algId = BCRYPT_SHA1_ALGORITHM;
-		oaepInfo.pbLabel = NULL;
-		oaepInfo.cbLabel = 0;
-		pPaddingInfo = &oaepInfo;
-		dwFlags = BCRYPT_PAD_OAEP;
-	}
-
-	// Wait, public decrypt means verifying? Or decrypting data encrypted with private key?
-	// Usually public key is used to Encrypt (confidentiality) or Verify (authenticity).
-	// If decrypting with public key, it implies the data was encrypted with private key (Sign recovery).
-
-	// CNG BCryptDecrypt uses the key handle. If it's a public key handle...
-	// BCryptDecrypt works with Private Key.
-
+	/* CNG doesn't support raw decryption with public key. */
 	return -1;
 }
 
@@ -292,7 +395,6 @@ int
 lws_genrsa_render_pkey_asn1(struct lws_genrsa_ctx *ctx, int _private,
 			    uint8_t *pkey_asn1, size_t pkey_asn1_len)
 {
-	// Export key to blob then convert to ASN.1
-	// CNG exports to bespoke struct, conversion to ASN.1 is manual or needs another API (CryptEncodeObject)
+	/* ASN.1 encoding not supported in this backend */
 	return -1;
 }

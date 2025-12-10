@@ -39,6 +39,7 @@ struct lws_genec_ctx {
 	struct {
 		void *hAlg;
 		void *hKey;
+		void *hKeyPeer; /* For ECDH peer public key */
 	} u;
 #else
 	EVP_PKEY_CTX *ctx[2];

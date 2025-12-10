@@ -34,7 +34,9 @@ lws_genecdh_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 	ctx->genec_alg = LEGENEC_ECDH;
 	ctx->u.hAlg = NULL;
 	ctx->u.hKey = NULL;
+	ctx->u.hKeyPeer = NULL;
 
+	/* Default to generic ECDH algorithm provider */
 	NTSTATUS status = BCryptOpenAlgorithmProvider(&ctx->u.hAlg, BCRYPT_ECDH_ALGORITHM, NULL, 0);
 	return BCRYPT_SUCCESS(status) ? 0 : -1;
 }
@@ -43,9 +45,74 @@ int
 lws_genecdh_set_key(struct lws_genec_ctx *ctx, struct lws_gencrypto_keyelem *el,
 		    enum enum_lws_dh_side side)
 {
-	// Import key from elements to ctx->u.hKey
-	// Requires constructing BCRYPT_ECCKEY_BLOB
-	return -1;
+	NTSTATUS status;
+	BCRYPT_ECCKEY_BLOB *eccblob;
+	ULONG bloblen;
+	uint8_t *p;
+	ULONG magic;
+	ULONG keylen = el[LWS_GENCRYPTO_EC_KEYEL_X].len; /* Bytes in X coordinate */
+	BCRYPT_KEY_HANDLE *target_key_handle;
+
+	/* Determine target handle based on side */
+	if (side == LDHS_OURS) {
+		target_key_handle = &ctx->u.hKey;
+	} else if (side == LDHS_THEIRS) {
+		target_key_handle = &ctx->u.hKeyPeer;
+	} else {
+		return -1;
+	}
+
+	/* Determine Magic */
+	if (el[LWS_GENCRYPTO_EC_KEYEL_D].len) {
+		/* Private Key */
+		if (keylen == 32) magic = BCRYPT_ECDH_PRIVATE_P256_MAGIC;
+		else if (keylen == 48) magic = BCRYPT_ECDH_PRIVATE_P384_MAGIC;
+		else if (keylen == 66) magic = BCRYPT_ECDH_PRIVATE_P521_MAGIC; /* 521 bits = 66 bytes */
+		else return -1;
+	} else {
+		/* Public Key */
+		if (keylen == 32) magic = BCRYPT_ECDH_PUBLIC_P256_MAGIC;
+		else if (keylen == 48) magic = BCRYPT_ECDH_PUBLIC_P384_MAGIC;
+		else if (keylen == 66) magic = BCRYPT_ECDH_PUBLIC_P521_MAGIC;
+		else return -1;
+	}
+
+	bloblen = sizeof(BCRYPT_ECCKEY_BLOB) + el[LWS_GENCRYPTO_EC_KEYEL_X].len + el[LWS_GENCRYPTO_EC_KEYEL_Y].len;
+	if (el[LWS_GENCRYPTO_EC_KEYEL_D].len)
+		bloblen += el[LWS_GENCRYPTO_EC_KEYEL_D].len;
+
+	eccblob = (BCRYPT_ECCKEY_BLOB *)lws_malloc(bloblen, "genecdh blob");
+	if (!eccblob) return -1;
+
+	eccblob->dwMagic = magic;
+	eccblob->cbKey = keylen;
+
+	p = (uint8_t *)(eccblob + 1);
+
+	/* X */
+	memcpy(p, el[LWS_GENCRYPTO_EC_KEYEL_X].buf, el[LWS_GENCRYPTO_EC_KEYEL_X].len);
+	p += el[LWS_GENCRYPTO_EC_KEYEL_X].len;
+
+	/* Y */
+	memcpy(p, el[LWS_GENCRYPTO_EC_KEYEL_Y].buf, el[LWS_GENCRYPTO_EC_KEYEL_Y].len);
+	p += el[LWS_GENCRYPTO_EC_KEYEL_Y].len;
+
+	/* D */
+	if (el[LWS_GENCRYPTO_EC_KEYEL_D].len) {
+		memcpy(p, el[LWS_GENCRYPTO_EC_KEYEL_D].buf, el[LWS_GENCRYPTO_EC_KEYEL_D].len);
+		p += el[LWS_GENCRYPTO_EC_KEYEL_D].len;
+	}
+
+	/* Close previous key if any */
+	if (*target_key_handle) BCryptDestroyKey(*target_key_handle);
+
+	status = BCryptImportKeyPair(ctx->u.hAlg, NULL,
+		el[LWS_GENCRYPTO_EC_KEYEL_D].len ? BCRYPT_ECCPRIVATE_BLOB : BCRYPT_ECCPUBLIC_BLOB,
+		target_key_handle, (PUCHAR)eccblob, bloblen, 0);
+
+	lws_free(eccblob);
+
+	return BCRYPT_SUCCESS(status) ? 0 : -1;
 }
 
 int
@@ -53,15 +120,61 @@ lws_genecdh_new_keypair(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 		        const char *curve_name, struct lws_gencrypto_keyelem *el)
 {
 	NTSTATUS status;
-	// TODO: Map curve_name to BCRYPT properties if necessary or just generate standard key
+	ULONG bits = 256;
+	BCRYPT_ECCKEY_BLOB *eccblob = NULL;
+	ULONG bloblen = 0, reslen = 0;
+	uint8_t *p;
 
-	status = BCryptGenerateKeyPair(ctx->u.hAlg, &ctx->u.hKey, 256, 0); // Assuming P-256 for now
+	if (curve_name) {
+		if (strstr(curve_name, "256")) bits = 256;
+		else if (strstr(curve_name, "384")) bits = 384;
+		else if (strstr(curve_name, "521")) bits = 521;
+	}
+
+	status = BCryptGenerateKeyPair(ctx->u.hAlg, &ctx->u.hKey, bits, 0);
 	if (!BCRYPT_SUCCESS(status)) return -1;
 
-	BCryptFinalizeKeyPair(ctx->u.hKey, 0);
+	status = BCryptFinalizeKeyPair(ctx->u.hKey, 0);
+	if (!BCRYPT_SUCCESS(status)) goto fail;
 
-	// Export to el
+	/* Export to el */
+	status = BCryptExportKey(ctx->u.hKey, NULL, BCRYPT_ECCPRIVATE_BLOB, NULL, 0, &bloblen, 0);
+	if (!BCRYPT_SUCCESS(status) && status != 0xC0000023) goto fail;
+
+	eccblob = (BCRYPT_ECCKEY_BLOB *)lws_malloc(bloblen, "genec export");
+	if (!eccblob) goto fail;
+
+	status = BCryptExportKey(ctx->u.hKey, NULL, BCRYPT_ECCPRIVATE_BLOB, (PUCHAR)eccblob, bloblen, &reslen, 0);
+	if (!BCRYPT_SUCCESS(status)) goto fail;
+
+	p = (uint8_t *)(eccblob + 1);
+
+#define LWS_GENEC_ALLOC_EL(idx, size) \
+	el[idx].buf = lws_malloc(size, "genec el"); \
+	if (!el[idx].buf) goto fail; \
+	el[idx].len = size;
+
+	/* X */
+	LWS_GENEC_ALLOC_EL(LWS_GENCRYPTO_EC_KEYEL_X, eccblob->cbKey);
+	memcpy(el[LWS_GENCRYPTO_EC_KEYEL_X].buf, p, eccblob->cbKey);
+	p += eccblob->cbKey;
+
+	/* Y */
+	LWS_GENEC_ALLOC_EL(LWS_GENCRYPTO_EC_KEYEL_Y, eccblob->cbKey);
+	memcpy(el[LWS_GENCRYPTO_EC_KEYEL_Y].buf, p, eccblob->cbKey);
+	p += eccblob->cbKey;
+
+	/* D */
+	LWS_GENEC_ALLOC_EL(LWS_GENCRYPTO_EC_KEYEL_D, eccblob->cbKey);
+	memcpy(el[LWS_GENCRYPTO_EC_KEYEL_D].buf, p, eccblob->cbKey);
+
+	lws_free(eccblob);
 	return 0;
+
+fail:
+	if (eccblob) lws_free(eccblob);
+	lws_genec_destroy_elements(el);
+	return -1;
 }
 
 int
@@ -69,26 +182,26 @@ lws_genecdh_compute_shared_secret(struct lws_genec_ctx *ctx, uint8_t *ss,
 		  int *ss_len)
 {
 	NTSTATUS status;
-	BCRYPT_SECRET_HANDLE hSecret;
+	BCRYPT_SECRET_HANDLE hSecret = NULL;
+	ULONG reslen = 0;
 
-	// ECDH requires a second key (peer key) to compute secret.
-	// lws_genec_ctx structure in my simplified view only has one key.
-	// We need to see how lws handles the "other" key.
-	// Usually set_key is called for the peer key?
+	if (!ctx->u.hKey || !ctx->u.hKeyPeer)
+		return -1;
 
-	status = BCryptSecretAgreement(ctx->u.hKey, ctx->u.hKey, &hSecret, 0); // Self-agreement? Placeholder.
+	status = BCryptSecretAgreement(ctx->u.hKey, ctx->u.hKeyPeer, &hSecret, 0);
 	if (!BCRYPT_SUCCESS(status)) return -1;
 
-	ULONG len = 0;
-	status = BCryptDeriveKey(hSecret, BCRYPT_KDF_RAW_SECRET, NULL, NULL, 0, &len, 0);
-	if (BCRYPT_SUCCESS(status) && len <= (ULONG)*ss_len) {
-		status = BCryptDeriveKey(hSecret, BCRYPT_KDF_RAW_SECRET, NULL, ss, len, &len, 0);
-		*ss_len = (int)len;
+	/* Derive the raw secret */
+	status = BCryptDeriveKey(hSecret, BCRYPT_KDF_RAW_SECRET, NULL, NULL, 0, &reslen, 0);
+	if (BCRYPT_SUCCESS(status) && reslen <= (ULONG)*ss_len) {
+		status = BCryptDeriveKey(hSecret, BCRYPT_KDF_RAW_SECRET, NULL, ss, reslen, &reslen, 0);
+		*ss_len = (int)reslen;
 	} else {
 		status = -1;
 	}
 
-	BCryptDestroySecret(hSecret);
+	if (hSecret) BCryptDestroySecret(hSecret);
+
 	return BCRYPT_SUCCESS(status) ? 0 : -1;
 }
 
@@ -99,7 +212,10 @@ lws_genecdsa_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 	ctx->context = context;
 	ctx->curve_table = curve_table;
 	ctx->genec_alg = LEGENEC_ECDSA;
+	ctx->u.hKey = NULL;
+	ctx->u.hKeyPeer = NULL;
 
+	/* Default to P256 alg provider */
 	NTSTATUS status = BCryptOpenAlgorithmProvider(&ctx->u.hAlg, BCRYPT_ECDSA_P256_ALGORITHM, NULL, 0);
 	return BCRYPT_SUCCESS(status) ? 0 : -1;
 }
@@ -108,19 +224,16 @@ int
 lws_genecdsa_new_keypair(struct lws_genec_ctx *ctx, const char *curve_name,
 			 struct lws_gencrypto_keyelem *el)
 {
-	NTSTATUS status;
-	status = BCryptGenerateKeyPair(ctx->u.hAlg, &ctx->u.hKey, 256, 0);
-	if (!BCRYPT_SUCCESS(status)) return -1;
-	BCryptFinalizeKeyPair(ctx->u.hKey, 0);
-	return 0;
+	/* Same as ECDH new keypair basically, just different alg provider potentially */
+	return lws_genecdh_new_keypair(ctx, LDHS_OURS, curve_name, el);
 }
 
 int
 lws_genecdsa_set_key(struct lws_genec_ctx *ctx,
 		     const struct lws_gencrypto_keyelem *el)
 {
-	// Import
-	return -1;
+	/* Same as ECDH set key */
+	return lws_genecdh_set_key(ctx, el, LDHS_OURS);
 }
 
 int
@@ -129,7 +242,6 @@ lws_genecdsa_hash_sig_verify_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
 				 const uint8_t *sig, size_t sig_len)
 {
 	NTSTATUS status;
-	// Verify signature
 	status = BCryptVerifySignature(ctx->u.hKey, NULL, (PUCHAR)in, (ULONG)lws_genhash_size(hash_type), (PUCHAR)sig, (ULONG)sig_len, 0);
 	return BCRYPT_SUCCESS(status) ? 0 : -1;
 }
@@ -149,6 +261,7 @@ void
 lws_genec_destroy(struct lws_genec_ctx *ctx)
 {
 	if (ctx->u.hKey) BCryptDestroyKey(ctx->u.hKey);
+	if (ctx->u.hKeyPeer) BCryptDestroyKey(ctx->u.hKeyPeer);
 	if (ctx->u.hAlg) BCryptCloseAlgorithmProvider(ctx->u.hAlg, 0);
 }
 
