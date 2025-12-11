@@ -15,6 +15,7 @@
 #include <libwebsockets.h>
 #include <string.h>
 #include <signal.h>
+#include <time.h>
 
 static int interrupted, bad = 1, status;
 static struct lws *client_wsi;

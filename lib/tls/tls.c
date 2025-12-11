@@ -82,7 +82,7 @@ lws_klog_dump(const SSL *ssl, const char *line)
 
 
 #if defined(LWS_WITH_NETWORK)
-#if defined(LWS_WITH_MBEDTLS) || (defined(OPENSSL_VERSION_NUMBER) && \
+#if defined(LWS_WITH_MBEDTLS) || (!defined(LWS_WITH_SCHANNEL) && defined(OPENSSL_VERSION_NUMBER) && \
 				  OPENSSL_VERSION_NUMBER >= 0x10002000L)
 static int
 alpn_cb(SSL *s, const unsigned char **out, unsigned char *outlen,
@@ -228,9 +228,11 @@ lws_context_init_alpn(struct lws_vhost *vhost)
 	SSL_CTX_set_alpn_select_cb(vhost->tls.ssl_ctx, alpn_cb,
 				   &vhost->tls.alpn_ctx);
 #else
+#if !defined(LWS_WITH_SCHANNEL)
 	lwsl_err(" HTTP2 / ALPN configured "
 		 "but not supported by OpenSSL 0x%lx\n",
 		 OPENSSL_VERSION_NUMBER);
+#endif
 #endif // OPENSSL_VERSION_NUMBER >= 0x10002000L
 }
 
