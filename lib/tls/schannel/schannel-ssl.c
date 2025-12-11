@@ -555,7 +555,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
         /* Now handle extra data buffering */
         for (i = 0; i < 4; i++) {
             if (msg_buf[i].BufferType == SECBUFFER_EXTRA) {
-                 memmove(conn->rx_buf, (uint8_t*)conn->rx_buf + (conn->rx_len - msg_buf[i].cbBuffer), msg_buf[i].cbBuffer);
+                 memmove(conn->rx_buf, msg_buf[i].pvBuffer, msg_buf[i].cbBuffer);
                  conn->rx_len = msg_buf[i].cbBuffer;
                  goto done;
             }
