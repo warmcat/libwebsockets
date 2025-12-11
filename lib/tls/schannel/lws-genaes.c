@@ -178,14 +178,22 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 
 			/* Store Nonce/IV */
 			PUCHAR iv = (PUCHAR)iv_or_nonce_ctr_or_data_unit_16;
-			if (iv && nc_or_iv_off) {
+
+			/* Determine Nonce Size */
+			if (nc_or_iv_off)
 				ctx->u.cbNonce = *nc_or_iv_off;
-				ctx->u.pbNonce = lws_malloc(ctx->u.cbNonce, "genaes nonce");
-				if (!ctx->u.pbNonce) return -1;
+			else
+				ctx->u.cbNonce = 12; /* Default GCM nonce size */
+
+			/* Allocate Nonce Buffer */
+			ctx->u.pbNonce = lws_malloc(ctx->u.cbNonce, "genaes nonce");
+			if (!ctx->u.pbNonce) return -1;
+
+			/* Initialize Nonce */
+			if (iv)
 				memcpy(ctx->u.pbNonce, iv, ctx->u.cbNonce);
-			} else {
-				ctx->u.cbNonce = 12; // Default
-			}
+			else
+				memset(ctx->u.pbNonce, 0, ctx->u.cbNonce);
 
 			/* Setup Internal Tag Buffer */
 			int tlen = (taglen > 0) ? taglen : 16; /* Default to 16 if unknown */
@@ -195,7 +203,6 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			memset(ctx->u.pbTag, 0, ctx->u.cbTag);
 
 			/* Removed explicit BCryptSetProperty for BCRYPT_AUTH_TAG_LENGTH as it fails with STATUS_NOT_SUPPORTED on some providers */
-			/* The tag length is already specified in authInfo.cbTag below */
 
 			/* If decrypting and tag provided via stream_block (lws convention), copy it now */
 			if (ctx->op == LWS_GAESO_DEC && stream_block_16) {
