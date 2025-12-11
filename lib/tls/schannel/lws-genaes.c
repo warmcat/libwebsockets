@@ -165,11 +165,13 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 
 			/* Determine MacContext size */
 			ULONG ctxSize = 0, resLen = 0;
-			if (BCRYPT_SUCCESS(BCryptGetProperty(ctx->u.hAlg, BCRYPT_AUTH_MODE_INFO_BLOCK_LENGTH, (PUCHAR)&ctxSize, sizeof(ctxSize), &resLen, 0))) {
+			NTSTATUS st = BCryptGetProperty(ctx->u.hAlg, BCRYPT_AUTH_MODE_INFO_BLOCK_LENGTH, (PUCHAR)&ctxSize, sizeof(ctxSize), &resLen, 0);
+			if (BCRYPT_SUCCESS(st)) {
 				ctx->u.cbMacContext = ctxSize;
 			} else {
 				ctx->u.cbMacContext = 2048; /* Fallback if query fails */
 			}
+			lwsl_notice("%s: MacContext info: status 0x%x, size %lu\n", __func__, (unsigned int)st, ctx->u.cbMacContext);
 
 			ctx->u.pbMacContext = lws_malloc(ctx->u.cbMacContext, "genaes mac ctx");
 			if (!ctx->u.pbMacContext) return -1;
@@ -224,16 +226,18 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 
 				/* IMPORTANT: Pass dummy output buffer to force execution.
 				   Passing NULL for pbOutput puts BCrypt in "Get Size" mode and does not update context. */
-				uint8_t dummy[1];
+				uint8_t dummy[128];
+
+				lwsl_notice("%s: GCM AAD processing: len %lu, cbTag %lu, cbNonce %lu\n", __func__, (unsigned long)len, (unsigned long)ctx->u.cbTag, (unsigned long)ctx->u.cbNonce);
 
 				if (ctx->op == LWS_GAESO_ENC) {
-					status = BCryptEncrypt(ctx->u.hKey, NULL, 0, &authInfo, NULL, 0, dummy, 0, &result_len, BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG);
+					status = BCryptEncrypt(ctx->u.hKey, NULL, 0, &authInfo, NULL, 0, dummy, sizeof(dummy), &result_len, BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG);
 				} else {
-					status = BCryptDecrypt(ctx->u.hKey, NULL, 0, &authInfo, NULL, 0, dummy, 0, &result_len, BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG);
+					status = BCryptDecrypt(ctx->u.hKey, NULL, 0, &authInfo, NULL, 0, dummy, sizeof(dummy), &result_len, BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG);
 				}
 
 				if (!BCRYPT_SUCCESS(status)) {
-					lwsl_err("lws_genaes_crypt: GCM AAD failed: 0x%x, is enc: %d, len %lu\n", status, ctx->op == LWS_GAESO_ENC, (unsigned long)len);
+					lwsl_err("lws_genaes_crypt: GCM AAD failed: 0x%x, is enc: %d, len %lu, result_len %lu\n", status, ctx->op == LWS_GAESO_ENC, (unsigned long)len, result_len);
 					return -1;
 				}
 			}
