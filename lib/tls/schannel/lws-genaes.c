@@ -105,12 +105,12 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 
 		/* We must pass a valid output buffer (even if dummy) to force BCryptEncrypt to execute
 		   and produce the tag, otherwise it acts as "Get Size" */
-		uint8_t dummy[1];
+		uint8_t dummy[128];
 		ULONG result_len = 0;
 
 		if (ctx->op == LWS_GAESO_ENC && tag && tlen) {
 			/* Final call to generate tag in internal buffer */
-			if (BCRYPT_SUCCESS(BCryptEncrypt(ctx->u.hKey, NULL, 0, &authInfo, NULL, 0, dummy, 0, &result_len, 0))) {
+			if (BCRYPT_SUCCESS(BCryptEncrypt(ctx->u.hKey, NULL, 0, &authInfo, NULL, 0, dummy, sizeof(dummy), &result_len, 0))) {
 				/* Copy internal tag to user buffer */
 				if (tlen <= ctx->u.cbTag)
 					memcpy(tag, ctx->u.pbTag, tlen);
@@ -124,7 +124,7 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 			if (tlen <= ctx->u.cbTag)
 				memcpy(ctx->u.pbTag, tag, tlen);
 
-			if (!BCRYPT_SUCCESS(BCryptDecrypt(ctx->u.hKey, NULL, 0, &authInfo, NULL, 0, dummy, 0, &result_len, 0))) {
+			if (!BCRYPT_SUCCESS(BCryptDecrypt(ctx->u.hKey, NULL, 0, &authInfo, NULL, 0, dummy, sizeof(dummy), &result_len, 0))) {
 				/* Verification failed */
 				/* We cannot easily return failure here as destroy returns 0 typically,
 				   but the tag check failure is implied. */
@@ -218,6 +218,7 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			authInfo.cbTag = (ULONG)ctx->u.cbTag;
 			authInfo.pbMacContext = ctx->u.pbMacContext;
 			authInfo.cbMacContext = (ULONG)ctx->u.cbMacContext;
+			authInfo.dwFlags = BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG;
 
 			/* Process AAD if present */
 			if (in && len) {
@@ -231,9 +232,9 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 				lwsl_notice("%s: GCM AAD processing: len %lu, cbTag %lu, cbNonce %lu\n", __func__, (unsigned long)len, (unsigned long)ctx->u.cbTag, (unsigned long)ctx->u.cbNonce);
 
 				if (ctx->op == LWS_GAESO_ENC) {
-					status = BCryptEncrypt(ctx->u.hKey, NULL, 0, &authInfo, NULL, 0, dummy, sizeof(dummy), &result_len, BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG);
+					status = BCryptEncrypt(ctx->u.hKey, NULL, 0, &authInfo, NULL, 0, dummy, sizeof(dummy), &result_len, 0);
 				} else {
-					status = BCryptDecrypt(ctx->u.hKey, NULL, 0, &authInfo, NULL, 0, dummy, sizeof(dummy), &result_len, BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG);
+					status = BCryptDecrypt(ctx->u.hKey, NULL, 0, &authInfo, NULL, 0, dummy, sizeof(dummy), &result_len, 0);
 				}
 
 				if (!BCRYPT_SUCCESS(status)) {
@@ -253,11 +254,12 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			authInfo.cbTag = (ULONG)ctx->u.cbTag;
 			authInfo.pbMacContext = ctx->u.pbMacContext;
 			authInfo.cbMacContext = (ULONG)ctx->u.cbMacContext;
+			authInfo.dwFlags = BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG;
 
 			if (ctx->op == LWS_GAESO_ENC) {
-				status = BCryptEncrypt(ctx->u.hKey, (PUCHAR)in, (ULONG)len, &authInfo, NULL, 0, (PUCHAR)out, (ULONG)len, &result_len, BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG);
+				status = BCryptEncrypt(ctx->u.hKey, (PUCHAR)in, (ULONG)len, &authInfo, NULL, 0, (PUCHAR)out, (ULONG)len, &result_len, 0);
 			} else {
-				status = BCryptDecrypt(ctx->u.hKey, (PUCHAR)in, (ULONG)len, &authInfo, NULL, 0, (PUCHAR)out, (ULONG)len, &result_len, BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG);
+				status = BCryptDecrypt(ctx->u.hKey, (PUCHAR)in, (ULONG)len, &authInfo, NULL, 0, (PUCHAR)out, (ULONG)len, &result_len, 0);
 			}
 
 			lwsl_notice("%s: processed payload %d\n", __func__, status);
