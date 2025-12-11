@@ -155,10 +155,10 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			ctx->underway = 1;
 
 			/* Allocate MacContext */
-			ctx->u.cbMacContext = 512; /* Sufficient size for GCM state */
+			ctx->u.cbMacContext = 2048; /* Increased size for safety */
 			ctx->u.pbMacContext = lws_malloc(ctx->u.cbMacContext, "genaes mac ctx");
 			if (!ctx->u.pbMacContext) return -1;
-			memset(ctx->u.pbMacContext, 0, ctx->u.cbMacContext); /* Zero it to be safe */
+			memset(ctx->u.pbMacContext, 0, ctx->u.cbMacContext);
 
 			/* Store Nonce/IV */
 			PUCHAR iv = (PUCHAR)iv_or_nonce_ctr_or_data_unit_16;
@@ -177,6 +177,11 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 				ctx->u.cbTag = taglen;
 			}
 
+			/* Set tag length property on the key if known (crucial for variable tag lengths) */
+			if (taglen > 0) {
+				BCryptSetProperty(ctx->u.hKey, BCRYPT_AUTH_TAG_LENGTH, (PUCHAR)&taglen, sizeof(taglen), 0);
+			}
+
 			/* Process AAD */
 			authInfo.pbNonce = ctx->u.pbNonce;
 			authInfo.cbNonce = (ULONG)ctx->u.cbNonce;
@@ -185,16 +190,14 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			authInfo.pbMacContext = ctx->u.pbMacContext;
 			authInfo.cbMacContext = (ULONG)ctx->u.cbMacContext;
 
-			/* For first call (AAD), set pbMacContext to NULL in authInfo if it's the start?
-			   No, BCryptEncrypt uses chaining. To start a chain, we just call.
-			   The issue before was potentially garbage in pbMacContext buffer if not zeroed.
-			*/
-
 			if (in && len) {
 				authInfo.pbAuthData = (PUCHAR)in;
 				authInfo.cbAuthData = (ULONG)len;
 
 				if (ctx->op == LWS_GAESO_ENC) {
+					/* For AAD update, pbOutput can be NULL if cbOutput is 0.
+					   However, we pass NULL for pbOutput explicitly.
+					*/
 					status = BCryptEncrypt(ctx->u.hKey, NULL, 0, &authInfo, NULL, 0, NULL, 0, &result_len, BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG);
 				} else {
 					status = BCryptDecrypt(ctx->u.hKey, NULL, 0, &authInfo, NULL, 0, NULL, 0, &result_len, BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG);
@@ -226,23 +229,11 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 		PUCHAR iv_use = NULL;
 		ULONG iv_len = 0;
 
-		/* Handle IV chaining safely (don't write to iv_in if it might be const) */
 		if (iv_in && ctx->mode != LWS_GAESM_ECB) {
-			/* First call: copy IV to internal buffer */
-			/* Subsequent calls: ignore iv_in, continue using internal buffer?
-			   OpenSSL maintains internal state. lws API usually passes the same buffer or expects context to handle it.
-			   If lws passes a NEW buffer for chained calls, we'd need to use it.
-			   But if lws passes NULL, we use internal.
-			   Wait, checking lws docs: "iv_or_nonce... : NULL, iv, ...".
-			   If the user passes IV every time, they might expect it to be updated.
-			   But if they pass a const buffer, they can't expect it to be updated.
-			   So we MUST use our internal buffer `ctx->u.iv`.
-			*/
 			if (!ctx->underway) {
 				memcpy(ctx->u.iv, iv_in, 16);
 				ctx->underway = 1;
 			}
-			/* Always use internal IV for CNG call */
 			iv_use = ctx->u.iv;
 			iv_len = 16;
 		}
