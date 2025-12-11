@@ -29,6 +29,10 @@
 #define BCRYPT_AUTH_MODE_INFO_BLOCK_LENGTH L"AuthModeInfoBlockLength"
 #endif
 
+#ifndef MS_PRIMITIVE_PROVIDER
+#define MS_PRIMITIVE_PROVIDER L"Microsoft Primitive Provider"
+#endif
+
 int
 lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 		  enum enum_aes_modes mode, struct lws_gencrypto_keyelem *el,
@@ -58,7 +62,7 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 	/* Note: CNG AES supports CBC, ECB, CFB, GMAC (GCM) etc. */
 	algId = BCRYPT_AES_ALGORITHM;
 
-	status = BCryptOpenAlgorithmProvider(&ctx->u.hAlg, algId, NULL, 0);
+	status = BCryptOpenAlgorithmProvider(&ctx->u.hAlg, algId, MS_PRIMITIVE_PROVIDER, 0);
 	if (!BCRYPT_SUCCESS(status))
 		return -1;
 
