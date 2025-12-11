@@ -113,6 +113,8 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 		if (ctx->op == LWS_GAESO_DEC && tag && tlen) {
 			/* For decryption, we must populate the internal tag buffer with the expected tag
 			   BEFORE the final verification call.
+			   Note: We already copied the expected tag into ctx->u.pbTag in lws_genaes_crypt if it was available.
+			   If user passes tag here in destroy (common pattern), we should use it.
 			*/
 			if (tlen <= ctx->u.cbTag)
 				memcpy(ctx->u.pbTag, tag, tlen);
@@ -180,9 +182,13 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			if (!ctx->u.pbTag) return -1;
 			memset(ctx->u.pbTag, 0, ctx->u.cbTag);
 
-			/* Set tag length property on the key */
-			if (taglen > 0) {
-				BCryptSetProperty(ctx->u.hKey, BCRYPT_AUTH_TAG_LENGTH, (PUCHAR)&taglen, sizeof(taglen), 0);
+			/* Always Set tag length property on the key to match our buffer */
+			BCryptSetProperty(ctx->u.hKey, BCRYPT_AUTH_TAG_LENGTH, (PUCHAR)&tlen, sizeof(tlen), 0);
+
+			/* If decrypting and tag provided, copy it to internal buffer now */
+			if (ctx->op == LWS_GAESO_DEC && stream_block_16) {
+				/* Note: stream_block_16 is void*, cast to uint8_t* safely */
+				memcpy(ctx->u.pbTag, stream_block_16, ctx->u.cbTag);
 			}
 
 			/* Process AAD */
@@ -206,7 +212,7 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 				}
 
 				if (!BCRYPT_SUCCESS(status)) {
-					lwsl_err("lws_genaes_crypt: GCM AAD failed 0x%x\n", status);
+					lwsl_err("lws_genaes_crypt: GCM AAD failed: 0x%x, is enc: %d, len %lu\n", status, ctx->op == LWS_GAESO_ENC, (unsigned long)len);
 					return -1;
 				}
 			}
