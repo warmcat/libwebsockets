@@ -25,7 +25,7 @@
 #include "private-lib-core.h"
 #include "private-lib-tls.h"
 
-struct lws_tls_schannel_x509 {
+struct lws_x509_cert {
 	PCCERT_CONTEXT cert;
 };
 
