@@ -86,6 +86,7 @@ struct lws_genaes_ctx {
 		size_t cbTag;
 		void *pbAuthData;
 		size_t cbAuthData;
+		unsigned char iv[LWS_AES_CBC_BLOCKLEN]; /* Internal IV buffer for chaining */
 	} u;
 #else
 	EVP_CIPHER_CTX *ctx;

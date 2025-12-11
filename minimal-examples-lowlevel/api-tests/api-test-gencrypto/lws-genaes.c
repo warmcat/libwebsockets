@@ -11,7 +11,7 @@
 
 
 #if (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_CBC))) || \
-    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_cbc))
+    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_cbc)) || defined(LWS_WITH_SCHANNEL)
 
 static const uint8_t
 	/*
@@ -108,7 +108,7 @@ bail:
 #endif
 
 #if (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_CFB))) || \
-    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_cfb128))
+    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_cfb128)) || defined(LWS_WITH_SCHANNEL)
 static const uint8_t
 /*
  * produced with (plaintext.txt contains "test plaintext\0\0")
@@ -198,7 +198,7 @@ bail:
 #endif
 
 #if (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_CFB))) || \
-    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_cfb8))
+    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_cfb8)) || defined(LWS_WITH_SCHANNEL)
 
 static const uint8_t
 /*
@@ -286,7 +286,7 @@ bail:
 #endif
 
 #if (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_CTR))) || \
-    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_ctr))
+    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_ctr)) || defined(LWS_WITH_SCHANNEL)
 static const uint8_t
 /*
  * produced with (plaintext.txt contains "test plaintext\0\0")
@@ -382,7 +382,7 @@ bail:
 #endif
 
 #if (defined(LWS_WITH_MBEDTLS)) || \
-    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_ecb))
+    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_ecb)) || defined(LWS_WITH_SCHANNEL)
 static const uint8_t
 /*
  * produced with (plaintext.txt contains "test plaintext\0\0")
@@ -774,27 +774,27 @@ int
 test_genaes(struct lws_context *context)
 {
 #if (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_CBC))) || \
-    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_cbc))
+    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_cbc)) || defined(LWS_WITH_SCHANNEL)
 	if (test_genaes_cbc())
 		goto bail;
 #endif
 #if (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_CFB))) || \
-    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_cfb128))
+    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_cfb128)) || defined(LWS_WITH_SCHANNEL)
 	if (test_genaes_cfb128())
 		goto bail;
 #endif
 #if (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_CFB))) || \
-    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_cfb8))
+    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_cfb8)) || defined(LWS_WITH_SCHANNEL)
 	if (test_genaes_cfb8())
 		goto bail;
 #endif
 #if (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_CTR))) || \
-    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_ctr))
+    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_ctr)) || defined(LWS_WITH_SCHANNEL)
 	if (test_genaes_ctr())
 		goto bail;
 #endif
 #if (defined(LWS_WITH_MBEDTLS)) || \
-    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_ecb))
+    (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_ecb)) || defined(LWS_WITH_SCHANNEL)
 	if (test_genaes_ecb())
 		goto bail;
 #endif

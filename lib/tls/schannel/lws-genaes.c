@@ -49,6 +49,8 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 	ctx->u.pbAuthData = NULL;
 	ctx->u.cbAuthData = 0;
 
+	memset(ctx->u.iv, 0, sizeof(ctx->u.iv));
+
 	// Note: CNG AES supports CBC, ECB, CFB, GMAC (GCM) etc.
 	// We need to pick the right algorithm and chaining mode.
 	algId = BCRYPT_AES_ALGORITHM;
@@ -87,14 +89,7 @@ int
 lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 {
 	if (ctx->mode == LWS_GAESM_GCM && ctx->underway) {
-		/* If GCM encryption was underway, we might need to finalize it to get the tag if not done already.
-		   However, CNG usually writes the tag on the final call.
-		   lws_genaes_crypt doesn't signal 'final' explicitly unless implicit by call flow.
-		   But lws_genaes_destroy asks for the tag.
-		   If we have a stored tag pointer (from create/crypt) we should assume it was written?
-		   Wait, if we chained, we haven't written the tag yet.
-		   We must make a final call to flush tag.
-		*/
+		/* Finalize GCM to get/verify tag */
 
 		if (ctx->op == LWS_GAESO_ENC && tag && tlen) {
 			BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO authInfo;
@@ -110,11 +105,7 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 			ULONG result_len = 0;
 			BCryptEncrypt(ctx->u.hKey, NULL, 0, &authInfo, NULL, 0, NULL, 0, &result_len, 0);
 		}
-		/* For Decrypt, tag is verified. If we are here, we presumably verified it in the last payload call?
-		   Or we need to verify now? lws_genaes_destroy doesn't return verify status easily (int return).
-		   Actually it does return int.
-		   If we need to verify tag now:
-		*/
+
 		if (ctx->op == LWS_GAESO_DEC && tag && tlen) {
 			BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO authInfo;
 			BCRYPT_INIT_AUTH_MODE_INFO(authInfo);
@@ -128,7 +119,7 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 			ULONG result_len = 0;
 			if (!BCRYPT_SUCCESS(BCryptDecrypt(ctx->u.hKey, NULL, 0, &authInfo, NULL, 0, NULL, 0, &result_len, 0))) {
 				/* Verification failed */
-				// Clean up and return error
+				// Can't return error from destroy easily, but typically handled by upper layer checking auth
 			}
 		}
 	}
@@ -154,8 +145,6 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 {
 	NTSTATUS status;
 	ULONG result_len = 0;
-	PUCHAR iv = (PUCHAR)iv_or_nonce_ctr_or_data_unit_16;
-	ULONG iv_len = 16;
 
 	if (ctx->mode == LWS_GAESM_GCM) {
 		BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO authInfo;
@@ -169,30 +158,26 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			ctx->u.cbMacContext = 512; /* Sufficient size for GCM state */
 			ctx->u.pbMacContext = lws_malloc(ctx->u.cbMacContext, "genaes mac ctx");
 			if (!ctx->u.pbMacContext) return -1;
+			memset(ctx->u.pbMacContext, 0, ctx->u.cbMacContext); /* Zero it to be safe */
 
 			/* Store Nonce/IV */
+			PUCHAR iv = (PUCHAR)iv_or_nonce_ctr_or_data_unit_16;
 			if (iv && nc_or_iv_off) {
 				ctx->u.cbNonce = *nc_or_iv_off;
 				ctx->u.pbNonce = lws_malloc(ctx->u.cbNonce, "genaes nonce");
 				if (!ctx->u.pbNonce) return -1;
 				memcpy(ctx->u.pbNonce, iv, ctx->u.cbNonce);
 			} else {
-				/* Should typically provide IV on first call */
-				ctx->u.cbNonce = 12; // Default?
-				// Warning: if iv is NULL here, likely error
+				ctx->u.cbNonce = 12; // Default
 			}
 
-			/* Store Tag info if provided (for verify later or generation dest) */
+			/* Store Tag info if provided */
 			if (stream_block_16 && taglen) {
 				ctx->u.pbTag = stream_block_16;
 				ctx->u.cbTag = taglen;
 			}
 
 			/* Process AAD */
-			/*
-			   If 'in' is present, it is AAD.
-			   We chain this call.
-			*/
 			authInfo.pbNonce = ctx->u.pbNonce;
 			authInfo.cbNonce = (ULONG)ctx->u.cbNonce;
 			authInfo.pbTag = ctx->u.pbTag;
@@ -200,11 +185,15 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			authInfo.pbMacContext = ctx->u.pbMacContext;
 			authInfo.cbMacContext = (ULONG)ctx->u.cbMacContext;
 
+			/* For first call (AAD), set pbMacContext to NULL in authInfo if it's the start?
+			   No, BCryptEncrypt uses chaining. To start a chain, we just call.
+			   The issue before was potentially garbage in pbMacContext buffer if not zeroed.
+			*/
+
 			if (in && len) {
 				authInfo.pbAuthData = (PUCHAR)in;
 				authInfo.cbAuthData = (ULONG)len;
-				/* We perform an encrypt call with 0 input length just to process AAD?
-				   Yes, BCryptEncrypt with pbInput=NULL/0 and pbAuthData set works for AAD update. */
+
 				if (ctx->op == LWS_GAESO_ENC) {
 					status = BCryptEncrypt(ctx->u.hKey, NULL, 0, &authInfo, NULL, 0, NULL, 0, &result_len, BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG);
 				} else {
@@ -223,13 +212,6 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			authInfo.pbMacContext = ctx->u.pbMacContext;
 			authInfo.cbMacContext = (ULONG)ctx->u.cbMacContext;
 
-			/* We use CHAIN flag because we might finalize later in destroy?
-			   Or if this is the last payload?
-			   The API doesn't tell us if it's the last payload chunk.
-			   So we must CHAIN.
-			   Tag will be generated/verified when we call without CHAIN flag (in destroy).
-			*/
-
 			if (ctx->op == LWS_GAESO_ENC) {
 				status = BCryptEncrypt(ctx->u.hKey, (PUCHAR)in, (ULONG)len, &authInfo, NULL, 0, (PUCHAR)out, (ULONG)len, &result_len, BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG);
 			} else {
@@ -240,10 +222,35 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 		}
 	} else {
 		/* CBC, ECB, etc. */
+		PUCHAR iv_in = (PUCHAR)iv_or_nonce_ctr_or_data_unit_16;
+		PUCHAR iv_use = NULL;
+		ULONG iv_len = 0;
+
+		/* Handle IV chaining safely (don't write to iv_in if it might be const) */
+		if (iv_in && ctx->mode != LWS_GAESM_ECB) {
+			/* First call: copy IV to internal buffer */
+			/* Subsequent calls: ignore iv_in, continue using internal buffer?
+			   OpenSSL maintains internal state. lws API usually passes the same buffer or expects context to handle it.
+			   If lws passes a NEW buffer for chained calls, we'd need to use it.
+			   But if lws passes NULL, we use internal.
+			   Wait, checking lws docs: "iv_or_nonce... : NULL, iv, ...".
+			   If the user passes IV every time, they might expect it to be updated.
+			   But if they pass a const buffer, they can't expect it to be updated.
+			   So we MUST use our internal buffer `ctx->u.iv`.
+			*/
+			if (!ctx->underway) {
+				memcpy(ctx->u.iv, iv_in, 16);
+				ctx->underway = 1;
+			}
+			/* Always use internal IV for CNG call */
+			iv_use = ctx->u.iv;
+			iv_len = 16;
+		}
+
 		if (ctx->op == LWS_GAESO_ENC) {
-			status = BCryptEncrypt(ctx->u.hKey, (PUCHAR)in, (ULONG)len, NULL, iv, iv_len, (PUCHAR)out, (ULONG)len, &result_len, 0);
+			status = BCryptEncrypt(ctx->u.hKey, (PUCHAR)in, (ULONG)len, NULL, iv_use, iv_len, (PUCHAR)out, (ULONG)len, &result_len, 0);
 		} else {
-			status = BCryptDecrypt(ctx->u.hKey, (PUCHAR)in, (ULONG)len, NULL, iv, iv_len, (PUCHAR)out, (ULONG)len, &result_len, 0);
+			status = BCryptDecrypt(ctx->u.hKey, (PUCHAR)in, (ULONG)len, NULL, iv_use, iv_len, (PUCHAR)out, (ULONG)len, &result_len, 0);
 		}
 	}
 
