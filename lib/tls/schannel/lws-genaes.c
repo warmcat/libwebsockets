@@ -214,8 +214,13 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			/* Setup AuthInfo for AAD or Initial state */
 			authInfo.pbNonce = ctx->u.pbNonce;
 			authInfo.cbNonce = (ULONG)ctx->u.cbNonce;
-			authInfo.pbTag = ctx->u.pbTag;
-			authInfo.cbTag = (ULONG)ctx->u.cbTag;
+			if (ctx->op == LWS_GAESO_ENC) {
+				authInfo.pbTag = NULL;
+				authInfo.cbTag = 0;
+			} else {
+				authInfo.pbTag = ctx->u.pbTag;
+				authInfo.cbTag = (ULONG)ctx->u.cbTag;
+			}
 			authInfo.pbMacContext = ctx->u.pbMacContext;
 			authInfo.cbMacContext = (ULONG)ctx->u.cbMacContext;
 			authInfo.dwFlags = BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG;
@@ -250,8 +255,13 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			/* Subsequent calls: Process Payload */
 			authInfo.pbNonce = ctx->u.pbNonce;
 			authInfo.cbNonce = (ULONG)ctx->u.cbNonce;
-			authInfo.pbTag = ctx->u.pbTag;
-			authInfo.cbTag = (ULONG)ctx->u.cbTag;
+			if (ctx->op == LWS_GAESO_ENC) {
+				authInfo.pbTag = NULL;
+				authInfo.cbTag = 0;
+			} else {
+				authInfo.pbTag = ctx->u.pbTag;
+				authInfo.cbTag = (ULONG)ctx->u.cbTag;
+			}
 			authInfo.pbMacContext = ctx->u.pbMacContext;
 			authInfo.cbMacContext = (ULONG)ctx->u.cbMacContext;
 			authInfo.dwFlags = BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG;
