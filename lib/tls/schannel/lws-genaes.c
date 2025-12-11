@@ -194,9 +194,8 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			if (!ctx->u.pbTag) return -1;
 			memset(ctx->u.pbTag, 0, ctx->u.cbTag);
 
-			/* Always Set tag length property on the key to match our buffer */
-			status = BCryptSetProperty(ctx->u.hKey, BCRYPT_AUTH_TAG_LENGTH, (PUCHAR)&tlen, sizeof(tlen), 0);
-			if (!BCRYPT_SUCCESS(status)) return -1;
+			/* Removed explicit BCryptSetProperty for BCRYPT_AUTH_TAG_LENGTH as it fails with STATUS_NOT_SUPPORTED on some providers */
+			/* The tag length is already specified in authInfo.cbTag below */
 
 			/* If decrypting and tag provided via stream_block (lws convention), copy it now */
 			if (ctx->op == LWS_GAESO_DEC && stream_block_16) {
