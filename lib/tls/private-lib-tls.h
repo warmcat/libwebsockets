@@ -34,6 +34,8 @@
 
 #if defined(LWS_WITH_SCHANNEL)
  #include <wincrypt.h>
+ #include <bcrypt.h>
+ #include <ncrypt.h>
 #else
 
 #if defined(USE_WOLFSSL)

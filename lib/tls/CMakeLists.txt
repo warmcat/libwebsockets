@@ -156,7 +156,20 @@ if (LWS_WITH_SSL)
 				tls/mbedtls/lws-gencrypto.c)
 		endif()
 	elseif (LWS_WITH_SCHANNEL)
-		add_subdir_include_directories(schannel)
+		list(APPEND SOURCES
+			tls/schannel/schannel-tls.c
+			tls/schannel/schannel-ssl.c
+			tls/schannel/schannel-session.c
+			tls/schannel/schannel-x509.c)
+		list(APPEND LIB_LIST "ncrypt" "bcrypt" "crypt32")
+		if (LWS_WITH_GENCRYPTO)
+			list(APPEND SOURCES
+				tls/schannel/lws-genhash.c
+				tls/schannel/lws-genrsa.c
+				tls/schannel/lws-genaes.c
+				tls/lws-genec-common.c
+				tls/schannel/lws-genec.c)
+		endif()
 	else()
 		list(APPEND SOURCES
 			tls/openssl/openssl-tls.c
@@ -262,6 +275,10 @@ if (LWS_WITH_SSL)
 		set(chose_ssl 1)
 	endif()
 
+       if (LWS_WITH_SCHANNEL)
+               set(chose_ssl 1)
+       endif()
+
 	if (NOT chose_ssl)
 		if (OPENSSL_FOUND AND "${OPENSSL_INCLUDE_DIRS}" STREQUAL "")
 			set(OPENSSL_INCLUDE_DIRS "${OPENSSL_INCLUDE_DIR}")
@@ -327,6 +344,9 @@ if (NOT VARIA)
 	set(VARIA "")
 endif()
 
+if (LWS_WITH_SCHANNEL)
+else()
+
 CHECK_FUNCTION_EXISTS(${VARIA}SSL_CTX_set1_param LWS_HAVE_SSL_CTX_set1_param PARENT_SCOPE)
 CHECK_FUNCTION_EXISTS(${VARIA}SSL_set_info_callback LWS_HAVE_SSL_SET_INFO_CALLBACK PARENT_SCOPE)
 
@@ -383,6 +403,8 @@ CHECK_FUNCTION_EXISTS(${VARIA}EC_POINT_get_affine_coordinates LWS_HAVE_EC_POINT_
 CHECK_FUNCTION_EXISTS(${VARIA}SSL_CTX_load_verify_file LWS_HAVE_SSL_CTX_load_verify_file PARENT_SCOPE)
 CHECK_FUNCTION_EXISTS(${VARIA}SSL_CTX_load_verify_dir LWS_HAVE_SSL_CTX_load_verify_dir PARENT_SCOPE)
 endif()
+
+endif() # schannel
 
 if (LWS_WITH_MBEDTLS)
 	set(LWS_HAVE_TLS_CLIENT_METHOD 1 PARENT_SCOPE)
