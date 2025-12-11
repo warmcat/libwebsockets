@@ -527,21 +527,17 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
         uint8_t *dec_data = NULL;
         size_t dec_len = 0;
 
+        /* First locate the data pointer/length before any memmove happens */
         for (i = 0; i < 4; i++) {
             if (msg_buf[i].BufferType == SECBUFFER_DATA) {
                 dec_data = msg_buf[i].pvBuffer;
                 dec_len = msg_buf[i].cbBuffer;
-            } else if (msg_buf[i].BufferType == SECBUFFER_EXTRA) {
-                 memmove(conn->rx_buf, (uint8_t*)conn->rx_buf + (conn->rx_len - msg_buf[i].cbBuffer), msg_buf[i].cbBuffer);
-                 conn->rx_len = msg_buf[i].cbBuffer;
-                 goto data_extracted;
+                break;
             }
         }
-        conn->rx_len = 0;
 
-data_extracted:
+        /* Process decrypted data immediately */
         if (dec_len > 0) {
-            /* Copy what fits into user buf, append rest to buflist */
             size_t copy_len = dec_len > len ? len : dec_len;
             memcpy(buf, dec_data, copy_len);
 
@@ -551,9 +547,23 @@ data_extracted:
                      return LWS_SSL_CAPABLE_ERROR;
                 }
             }
-            return (int)copy_len;
+            n = (int)copy_len; /* Return value */
+        } else {
+            n = 0;
         }
-        return 0;
+
+        /* Now handle extra data buffering */
+        for (i = 0; i < 4; i++) {
+            if (msg_buf[i].BufferType == SECBUFFER_EXTRA) {
+                 memmove(conn->rx_buf, (uint8_t*)conn->rx_buf + (conn->rx_len - msg_buf[i].cbBuffer), msg_buf[i].cbBuffer);
+                 conn->rx_len = msg_buf[i].cbBuffer;
+                 goto done;
+            }
+        }
+        conn->rx_len = 0;
+
+done:
+        return (int)n;
     }
 
     return LWS_SSL_CAPABLE_ERROR;
