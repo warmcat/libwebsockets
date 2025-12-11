@@ -40,33 +40,10 @@ lws_context_deinit_ssl_library(struct lws_context *context)
 }
 
 int
-lws_tls_check_all_cert_lifetimes(struct lws_context *context)
-{
-	/* stub */
-	return 0;
-}
-
-int
 lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 			  const char *cert, const char *private_key,
 			  const char *mem_cert, size_t len_mem_cert,
 			  const char *mem_privkey, size_t mem_privkey_len)
-{
-	/* stub */
-	return 0;
-}
-
-enum lws_tls_extant
-lws_tls_generic_cert_checks(struct lws_vhost *vhost, const char *cert,
-			    const char *private_key)
-{
-	/* stub */
-	return LWS_TLS_EXTANT_NO;
-}
-
-int
-lws_context_init_server_ssl(const struct lws_context_creation_info *info,
-			    struct lws_vhost *vhost)
 {
 	/* stub */
 	return 0;
@@ -121,25 +98,10 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	return 0;
 }
 
-int
-lws_context_init_client_ssl(const struct lws_context_creation_info *info,
-			    struct lws_vhost *vhost)
-{
-	/* stub */
-	return 0;
-}
-
 void
 lws_ssl_info_callback(const lws_tls_conn *ssl, int where, int ret)
 {
 	/* stub */
-}
-
-int
-lws_tls_fake_POLLIN_for_buffered(struct lws_context_per_thread *pt)
-{
-	/* stub */
-	return 0;
 }
 
 int
