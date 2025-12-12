@@ -471,25 +471,52 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 	memset(e, 0, sizeof(e));
 
 	/* 1. Load Certificate */
+    HCERTSTORE hStore = CertOpenStore(CERT_STORE_PROV_MEMORY, 0, 0, 0, NULL);
+    if (!hStore) {
+        lwsl_err("%s: Failed to create memory store\n", __func__);
+        return 1;
+    }
+
 	if (cert) {
 		uint8_t *der = NULL;
 		lws_filepos_t amount;
 
 		if (lws_tls_alloc_pem_to_der_file(context, cert, mem_cert, len_mem_cert, &der, &amount)) {
 			lwsl_err("%s: Failed to load cert file %s\n", __func__, cert ? cert : "mem");
+            CertCloseStore(hStore, 0);
 			return 1;
 		}
 
-		x509_obj.cert = CertCreateCertificateContext(X509_ASN_ENCODING | PKCS_7_ASN_ENCODING, der, (DWORD)amount);
+		if (!CertAddEncodedCertificateToStore(hStore, X509_ASN_ENCODING | PKCS_7_ASN_ENCODING, der, (DWORD)amount, CERT_STORE_ADD_ALWAYS, &x509_obj.cert)) {
+             lwsl_err("%s: CertAddEncodedCertificateToStore failed\n", __func__);
+             lws_free(der);
+             CertCloseStore(hStore, 0);
+             return 1;
+        }
 		lws_free(der);
 	} else if (mem_cert) {
 		if (lws_x509_parse_from_pem(&x509_obj, mem_cert, len_mem_cert)) {
 			lwsl_err("%s: Failed to parse cert pem\n", __func__);
+            CertCloseStore(hStore, 0);
 			return 1;
 		}
+
+        /* Move to store */
+        PCCERT_CONTEXT pStoreCert = NULL;
+        if (!CertAddCertificateContextToStore(hStore, x509_obj.cert, CERT_STORE_ADD_ALWAYS, &pStoreCert)) {
+             lwsl_err("%s: CertAddCertificateContextToStore failed\n", __func__);
+             CertFreeCertificateContext(x509_obj.cert);
+             CertCloseStore(hStore, 0);
+             return 1;
+        }
+        CertFreeCertificateContext(x509_obj.cert);
+        x509_obj.cert = pStoreCert;
 	} else {
+        CertCloseStore(hStore, 0);
 		return 1; /* No cert */
 	}
+
+    CertCloseStore(hStore, 0);
 
 	if (!x509_obj.cert) {
 		lwsl_err("%s: Failed to create cert context\n", __func__);
