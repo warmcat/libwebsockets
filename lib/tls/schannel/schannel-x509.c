@@ -560,6 +560,12 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
     }
     lws_free(key_der);
 
+    lwsl_notice("RSA Key Loaded: N len %d, E len %d, D len %d\n",
+                e[LWS_GENCRYPTO_RSA_KEYEL_N].len, e[LWS_GENCRYPTO_RSA_KEYEL_E].len, e[LWS_GENCRYPTO_RSA_KEYEL_D].len);
+    if (e[LWS_GENCRYPTO_RSA_KEYEL_N].len > 0) {
+        lwsl_hexdump_notice(e[LWS_GENCRYPTO_RSA_KEYEL_N].buf, 16);
+    }
+
 	/* 3. Convert to BCRYPT_RSAKEY_BLOB */
 	bloblen = sizeof(BCRYPT_RSAKEY_BLOB) +
 		e[LWS_GENCRYPTO_RSA_KEYEL_E].len +
