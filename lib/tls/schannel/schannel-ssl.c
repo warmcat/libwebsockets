@@ -676,6 +676,7 @@ lws_ssl_pending(struct lws *wsi)
     if (conn && lws_buflist_next_segment_len(&conn->decrypted_list, NULL) > 0)
         return 1;
 
+    if (conn && conn->rx_len > 0) return 1;
 	return 0;
 }
 
