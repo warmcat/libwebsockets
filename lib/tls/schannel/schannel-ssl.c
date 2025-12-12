@@ -479,7 +479,8 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
          size_t copy_len = pending_len > len ? len : pending_len;
          lws_buflist_linear_use(&conn->decrypted_list, buf, copy_len);
          lwsl_notice("%s: buflist pending %d, copied %d\n", __func__, (int)pending_len, (int)copy_len);
-         return (int)copy_len;
+         n = (int)copy_len;
+         goto check_pending;
     }
 
     if (conn->rx_len == 0) {
@@ -582,10 +583,26 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
         conn->rx_len = 0;
 
 done:
-        return (int)n;
+        goto check_pending;
     }
 
     return LWS_SSL_CAPABLE_ERROR;
+
+check_pending:
+    if (n != (ssize_t)len) {
+        lws_ssl_remove_wsi_from_buffered_list(wsi);
+        return (int)n;
+    }
+
+    if (lws_ssl_pending(wsi)) {
+         struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+         if (lws_dll2_is_detached(&wsi->tls.dll_pending_tls))
+              lws_dll2_add_head(&wsi->tls.dll_pending_tls, &pt->tls.dll_pending_tls_owner);
+    } else {
+         lws_ssl_remove_wsi_from_buffered_list(wsi);
+    }
+
+    return (int)n;
 }
 
 int
