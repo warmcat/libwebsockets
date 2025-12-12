@@ -478,6 +478,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
     if (pending_len > 0) {
          size_t copy_len = pending_len > len ? len : pending_len;
          lws_buflist_linear_use(&conn->decrypted_list, buf, copy_len);
+         lwsl_info("%s: buflist pending %d, copied %d\n", __func__, (int)pending_len, (int)copy_len);
          return (int)copy_len;
     }
 
@@ -557,7 +558,17 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
             n = (int)copy_len; /* Return value */
             lwsl_info("%s: decrypted %d bytes, copied %d to user\n", __func__, (int)dec_len, (int)n);
         } else {
-            n = 0;
+            /* Handshake message or empty record. Recurse to read next record. */
+            /* But first move extra data */
+            for (i = 0; i < 4; i++) {
+                if (msg_buf[i].BufferType == SECBUFFER_EXTRA) {
+                     memmove(conn->rx_buf, msg_buf[i].pvBuffer, msg_buf[i].cbBuffer);
+                     conn->rx_len = msg_buf[i].cbBuffer;
+                     return lws_ssl_capable_read(wsi, buf, len);
+                }
+            }
+            conn->rx_len = 0;
+            return lws_ssl_capable_read(wsi, buf, len);
         }
 
         /* Now handle extra data buffering */
