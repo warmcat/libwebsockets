@@ -618,6 +618,8 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 	     goto cleanup;
 	}
 
+	lwsl_notice("%s: loaded cert and attached key\n", __func__);
+
 	/* Handle ownership transferred/shared with cert context. We do not free hKey. */
 	hKey = 0;
 	/* hProv is used by hKey, so we should probably keep it open too if hKey depends on it.
