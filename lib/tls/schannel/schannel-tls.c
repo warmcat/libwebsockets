@@ -30,6 +30,7 @@ int
 lws_context_init_ssl_library(struct lws_context *cx,
 			     const struct lws_context_creation_info *info)
 {
+	cx->tls_ops = &tls_ops_schannel;
 	return 0;
 }
 

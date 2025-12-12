@@ -478,7 +478,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
     if (pending_len > 0) {
          size_t copy_len = pending_len > len ? len : pending_len;
          lws_buflist_linear_use(&conn->decrypted_list, buf, copy_len);
-         lwsl_info("%s: buflist pending %d, copied %d\n", __func__, (int)pending_len, (int)copy_len);
+         lwsl_notice("%s: buflist pending %d, copied %d\n", __func__, (int)pending_len, (int)copy_len);
          return (int)copy_len;
     }
 
@@ -495,7 +495,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
              return LWS_SSL_CAPABLE_ERROR;
         }
         conn->rx_len = n;
-        lwsl_info("%s: recv %d bytes\n", __func__, (int)n);
+        lwsl_notice("%s: recv %d bytes\n", __func__, (int)n);
     }
 
     /* Decrypt */
@@ -556,7 +556,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
                 }
             }
             n = (int)copy_len; /* Return value */
-            lwsl_info("%s: decrypted %d bytes, copied %d to user\n", __func__, (int)dec_len, (int)n);
+            lwsl_notice("%s: decrypted %d bytes, copied %d to user\n", __func__, (int)dec_len, (int)n);
         } else {
             /* Handshake message or empty record. Recurse to read next record. */
             /* But first move extra data */
@@ -690,11 +690,15 @@ lws_ssl_pending(struct lws *wsi)
 {
     struct lws_tls_schannel_conn *conn = wsi->tls.ssl;
 
-    if (conn && lws_buflist_next_segment_len(&conn->decrypted_list, NULL) > 0)
+    if (conn && lws_buflist_next_segment_len(&conn->decrypted_list, NULL) > 0) {
+        lwsl_notice("%s: pending buflist\n", __func__);
         return 1;
+    }
 
-    if (conn && conn->rx_len > 0 && !conn->f_socket_is_blocking)
+    if (conn && conn->rx_len > 0 && !conn->f_socket_is_blocking) {
+        lwsl_notice("%s: pending rx_len %d\n", __func__, (int)conn->rx_len);
         return 1;
+    }
 
 	return 0;
 }
@@ -813,7 +817,9 @@ lws_ssl_get_error(struct lws *wsi, int n)
 static int
 tops_fake_POLLIN_for_buffered_schannel(struct lws_context_per_thread *pt)
 {
-	return lws_tls_fake_POLLIN_for_buffered(pt);
+    int ret = lws_tls_fake_POLLIN_for_buffered(pt);
+    if (ret) lwsl_info("%s: triggered %d\n", __func__, ret);
+	return ret;
 }
 
 const struct lws_tls_ops tls_ops_schannel = {
