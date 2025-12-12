@@ -345,7 +345,7 @@ lws_tls_server_accept(struct lws *wsi)
 	ssize_t n;
 
     if (!ctx || !conn) {
-        lwsl_err("%s: ctx %p conn %p missing\n", __func__, ctx, conn);
+        lwsl_wsi_err(wsi, "ctx %p (vhost %s) conn %p missing\n", ctx, wsi->a.vhost->name, conn);
         return LWS_SSL_CAPABLE_ERROR;
     }
 

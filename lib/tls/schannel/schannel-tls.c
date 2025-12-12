@@ -86,6 +86,7 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
     }
 
     vhost->tls.ssl_ctx->initialized = 1;
+    lwsl_vhost_notice(vhost, "vhost %p: server ctx %p created", vhost, vhost->tls.ssl_ctx);
 
 	return 0;
 }
@@ -169,6 +170,16 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
     status = AcquireCredentialsHandleA(NULL, UNISP_NAME_A, SECPKG_CRED_OUTBOUND, NULL,
                                       &schannel_cred, NULL, NULL,
                                       &vh->tls.ssl_client_ctx->cred, &tsExpiry);
+
+    if (status == SEC_E_NO_CREDENTIALS && schannel_cred.cCreds > 0) {
+        lwsl_warn("%s: client cert rejected by SChannel, retrying without\n", __func__);
+        schannel_cred.cCreds = 0;
+        schannel_cred.paCred = NULL;
+        schannel_cred.dwFlags &= ~SCH_CRED_NO_DEFAULT_CREDS;
+        status = AcquireCredentialsHandleA(NULL, UNISP_NAME_A, SECPKG_CRED_OUTBOUND, NULL,
+                                          &schannel_cred, NULL, NULL,
+                                          &vh->tls.ssl_client_ctx->cred, &tsExpiry);
+    }
 
     if (pCertCtx) CertFreeCertificateContext(pCertCtx);
 
