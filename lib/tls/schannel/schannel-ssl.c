@@ -490,6 +490,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
              return LWS_SSL_CAPABLE_ERROR;
         }
         conn->rx_len = n;
+        lwsl_info("%s: recv %d bytes\n", __func__, (int)n);
     }
 
     /* Decrypt */
@@ -548,6 +549,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
                 }
             }
             n = (int)copy_len; /* Return value */
+            lwsl_info("%s: decrypted %d bytes, copied %d to user\n", __func__, (int)dec_len, (int)n);
         } else {
             n = 0;
         }
@@ -674,7 +676,6 @@ lws_ssl_pending(struct lws *wsi)
     if (conn && lws_buflist_next_segment_len(&conn->decrypted_list, NULL) > 0)
         return 1;
 
-    if (conn && conn->rx_len > 0) return 1;
 	return 0;
 }
 
