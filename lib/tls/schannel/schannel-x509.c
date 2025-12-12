@@ -64,13 +64,13 @@ lws_tls_schannel_cert_info(PCCERT_CONTEXT pCert, enum lws_tls_cert_info type,
                 return -1;
              buf->ns.len = (int)strlen(buf->ns.name);
              break;
-        case LWS_TLS_CERT_INFO_USAGE_MASK:
+        case LWS_TLS_CERT_INFO_USAGE:
              {
                  BYTE usage[2] = {0};
                  if (CertGetIntendedKeyUsage(pCert->dwCertEncodingType, pCert->pCertInfo, usage, 2)) {
-                      buf->usage_mask = usage[0] | (usage[1] << 8);
+                      buf->usage = usage[0] | (usage[1] << 8);
                  } else {
-                      buf->usage_mask = 0;
+                      buf->usage = 0;
                  }
              }
              break;
