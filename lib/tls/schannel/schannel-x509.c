@@ -540,7 +540,7 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
         if (lws_asn1_read_length(&kp, kend, &ver_len) < 0) { lws_free(key_der); goto cleanup; }
         kp += ver_len;
     } else if (kp < kend && *kp == 0x02) {
-        kp--;
+        /* PKCS#1: kp points to Modulus tag. Version already consumed. */
     } else {
         lws_free(key_der);
         goto cleanup;
@@ -604,7 +604,7 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 	    goto cleanup;
 	}
 
-	status = NCryptImportKey(hProv, 0, BCRYPT_RSAPRIVATE_BLOB, NULL, &hKey, (PBYTE)rsablob, bloblen, 0);
+	status = NCryptImportKey(hProv, 0, BCRYPT_RSAFULLPRIVATE_BLOB, NULL, &hKey, (PBYTE)rsablob, bloblen, 0);
 	lws_free(rsablob);
 
 	if (status != ERROR_SUCCESS) {
