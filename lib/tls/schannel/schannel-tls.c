@@ -203,5 +203,11 @@ int
 lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 				  struct lws_vhost *vhost, struct lws *wsi)
 {
-	return 0;
+    return lws_tls_server_certs_load(vhost, wsi,
+                                     info->ssl_cert_filepath,
+                                     info->ssl_private_key_filepath,
+                                     info->server_ssl_cert_mem,
+                                     info->server_ssl_cert_mem_len,
+                                     info->server_ssl_private_key_mem,
+                                     info->server_ssl_private_key_mem_len);
 }
