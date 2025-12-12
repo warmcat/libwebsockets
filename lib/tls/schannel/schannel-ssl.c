@@ -344,7 +344,10 @@ lws_tls_server_accept(struct lws *wsi)
 	SECURITY_STATUS status;
 	ssize_t n;
 
-	if (!ctx || !conn) return LWS_SSL_CAPABLE_ERROR;
+    if (!ctx || !conn) {
+        lwsl_err("%s: ctx %p conn %p missing\n", __func__, ctx, conn);
+        return LWS_SSL_CAPABLE_ERROR;
+    }
 
 	if (conn->f_handshake_finished)
 		return LWS_SSL_CAPABLE_DONE;
@@ -373,11 +376,14 @@ lws_tls_server_accept(struct lws *wsi)
 		if (n < 0) {
 			if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
 				return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
+             lwsl_err("%s: recv failed %d\n", __func__, LWS_ERRNO);
 			return LWS_SSL_CAPABLE_ERROR;
 		} else if (n == 0) {
+            lwsl_err("%s: recv 0 (EOF)\n", __func__);
 			return LWS_SSL_CAPABLE_ERROR;
 		}
 		conn->rx_len = n;
+        lwsl_info("%s: recv %d bytes client hello\n", __func__, (int)n);
 	}
 
 	in_buf[0].BufferType = SECBUFFER_TOKEN;
@@ -401,6 +407,8 @@ lws_tls_server_accept(struct lws *wsi)
 			&in_desc, req_attrs, 0, &conn->ctxt,
 			&out_desc, &ret_attrs, NULL);
 	conn->f_context_init = 1;
+
+    lwsl_info("%s: AcceptSecurityContext status 0x%x\n", __func__, (int)status);
 
 	if (status == SEC_E_INCOMPLETE_MESSAGE) {
 		if (conn->rx_len == conn->rx_alloc) {
@@ -469,6 +477,9 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 	SecBuffer msg_buf[4];
 	SECURITY_STATUS status;
 	ssize_t n;
+
+    if (!wsi->tls.ssl)
+        return lws_ssl_capable_read_no_ssl(wsi, buf, len);
 
 	if (!conn || !conn->f_handshake_finished) return LWS_SSL_CAPABLE_ERROR;
 
@@ -619,6 +630,9 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 	uint8_t *alloc_buf;
 	size_t alloc_len;
 	ssize_t n;
+
+    if (!wsi->tls.ssl)
+        return lws_ssl_capable_write_no_ssl(wsi, buf, len);
 
 	if (!conn || !conn->f_handshake_finished) return LWS_SSL_CAPABLE_ERROR;
 
