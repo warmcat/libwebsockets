@@ -24,6 +24,7 @@
 
 #include "private-lib-core.h"
 #include "private-lib-tls.h"
+#include "private.h"
 
 struct lws_x509_cert {
 	PCCERT_CONTEXT cert;
@@ -248,7 +249,7 @@ static int lws_asn1_read_integer(const uint8_t **p, const uint8_t *end, struct l
 	/* Skip leading zero if present (ASN.1 integer is signed, might have 0x00 pad for positive MSB) */
 	const uint8_t *val = *p;
 	size_t vlen = len;
-	if (vlen > 0 && val[0] == 0x00) {
+	while (vlen > 0 && val[0] == 0x00) {
 		val++;
 		vlen--;
 	}
@@ -366,3 +367,189 @@ bail:
 	return ret;
 }
 #endif
+
+int
+lws_tls_schannel_cert_info_load(struct lws_context *context,
+                                const char *cert, const char *private_key,
+                                const char *mem_cert, size_t len_mem_cert,
+                                const char *mem_privkey, size_t mem_privkey_len,
+                                PCCERT_CONTEXT *pcert)
+{
+	struct lws_x509_cert x509_obj = {0};
+	struct lws_gencrypto_keyelem e[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
+	BCRYPT_RSAKEY_BLOB *rsablob;
+	ULONG bloblen;
+	NCRYPT_PROV_HANDLE hProv = 0;
+	NCRYPT_KEY_HANDLE hKey = 0;
+	SECURITY_STATUS status;
+	uint8_t *p;
+	int ret = 1;
+
+	memset(e, 0, sizeof(e));
+
+	/* 1. Load Certificate */
+	if (cert) {
+		uint8_t *der = NULL;
+		lws_filepos_t amount;
+
+		if (lws_tls_alloc_pem_to_der_file(context, cert, mem_cert, len_mem_cert, &der, &amount)) {
+			lwsl_err("%s: Failed to load cert file %s\n", __func__, cert ? cert : "mem");
+			return 1;
+		}
+
+		x509_obj.cert = CertCreateCertificateContext(X509_ASN_ENCODING | PKCS_7_ASN_ENCODING, der, (DWORD)amount);
+		lws_free(der);
+	} else if (mem_cert) {
+		if (lws_x509_parse_from_pem(&x509_obj, mem_cert, len_mem_cert)) {
+			lwsl_err("%s: Failed to parse cert pem\n", __func__);
+			return 1;
+		}
+	} else {
+		return 1; /* No cert */
+	}
+
+	if (!x509_obj.cert) {
+		lwsl_err("%s: Failed to create cert context\n", __func__);
+		return 1;
+	}
+
+	/* 2. Load Private Key */
+	if (!private_key && !mem_privkey) {
+		*pcert = x509_obj.cert;
+		return 0;
+	}
+
+    /* Load key DER */
+    uint8_t *key_der = NULL;
+    lws_filepos_t key_der_len;
+
+    if (lws_tls_alloc_pem_to_der_file(context, private_key, mem_privkey, mem_privkey_len, &key_der, &key_der_len)) {
+        lwsl_err("%s: Failed to load key\n", __func__);
+        goto cleanup;
+    }
+
+    /* Parse DER to Key Elements */
+    const uint8_t *kp = key_der;
+    const uint8_t *kend = key_der + key_der_len;
+    size_t seq_len;
+
+    if (kp >= kend || *kp++ != 0x30) { lws_free(key_der); goto cleanup; }
+    if (lws_asn1_read_length(&kp, kend, &seq_len) < 0) { lws_free(key_der); goto cleanup; }
+
+    /* Check for version */
+    if (kp >= kend || *kp++ != 0x02) { lws_free(key_der); goto cleanup; }
+    size_t ver_len;
+    if (lws_asn1_read_length(&kp, kend, &ver_len) < 0) { lws_free(key_der); goto cleanup; }
+    kp += ver_len;
+
+    /* PKCS#8 check */
+    if (kp < kend && *kp == 0x30) {
+        size_t alg_len;
+        kp++;
+        if (lws_asn1_read_length(&kp, kend, &alg_len) < 0) { lws_free(key_der); goto cleanup; }
+        kp += alg_len;
+        if (kp >= kend || *kp++ != 0x04) { lws_free(key_der); goto cleanup; }
+        size_t oct_len;
+        if (lws_asn1_read_length(&kp, kend, &oct_len) < 0) { lws_free(key_der); goto cleanup; }
+        if (kp >= kend || *kp++ != 0x30) { lws_free(key_der); goto cleanup; }
+        if (lws_asn1_read_length(&kp, kend, &seq_len) < 0) { lws_free(key_der); goto cleanup; }
+        if (kp >= kend || *kp++ != 0x02) { lws_free(key_der); goto cleanup; }
+        if (lws_asn1_read_length(&kp, kend, &ver_len) < 0) { lws_free(key_der); goto cleanup; }
+        kp += ver_len;
+    } else if (kp < kend && *kp == 0x02) {
+        kp--;
+    } else {
+        lws_free(key_der);
+        goto cleanup;
+    }
+
+    if (lws_asn1_read_integer(&kp, kend, &e[LWS_GENCRYPTO_RSA_KEYEL_N]) < 0 ||
+        lws_asn1_read_integer(&kp, kend, &e[LWS_GENCRYPTO_RSA_KEYEL_E]) < 0 ||
+        lws_asn1_read_integer(&kp, kend, &e[LWS_GENCRYPTO_RSA_KEYEL_D]) < 0 ||
+        lws_asn1_read_integer(&kp, kend, &e[LWS_GENCRYPTO_RSA_KEYEL_P]) < 0 ||
+        lws_asn1_read_integer(&kp, kend, &e[LWS_GENCRYPTO_RSA_KEYEL_Q]) < 0 ||
+        lws_asn1_read_integer(&kp, kend, &e[LWS_GENCRYPTO_RSA_KEYEL_DP]) < 0 ||
+        lws_asn1_read_integer(&kp, kend, &e[LWS_GENCRYPTO_RSA_KEYEL_DQ]) < 0 ||
+        lws_asn1_read_integer(&kp, kend, &e[LWS_GENCRYPTO_RSA_KEYEL_QI]) < 0) {
+        lws_free(key_der);
+        lws_gencrypto_destroy_elements(e, LWS_GENCRYPTO_RSA_KEYEL_COUNT);
+        goto cleanup;
+    }
+    lws_free(key_der);
+
+	/* 3. Convert to BCRYPT_RSAKEY_BLOB */
+	bloblen = sizeof(BCRYPT_RSAKEY_BLOB) +
+		e[LWS_GENCRYPTO_RSA_KEYEL_E].len +
+		e[LWS_GENCRYPTO_RSA_KEYEL_N].len +
+		e[LWS_GENCRYPTO_RSA_KEYEL_P].len +
+		e[LWS_GENCRYPTO_RSA_KEYEL_Q].len +
+		e[LWS_GENCRYPTO_RSA_KEYEL_DP].len +
+		e[LWS_GENCRYPTO_RSA_KEYEL_DQ].len +
+		e[LWS_GENCRYPTO_RSA_KEYEL_QI].len +
+		e[LWS_GENCRYPTO_RSA_KEYEL_D].len;
+
+	rsablob = (BCRYPT_RSAKEY_BLOB *)lws_malloc(bloblen, "rsablob");
+	if (!rsablob) {
+	    lws_gencrypto_destroy_elements(e, LWS_GENCRYPTO_RSA_KEYEL_COUNT);
+	    goto cleanup;
+	}
+
+	rsablob->Magic = BCRYPT_RSAFULLPRIVATE_MAGIC;
+	rsablob->BitLength = e[LWS_GENCRYPTO_RSA_KEYEL_N].len * 8;
+	rsablob->cbPublicExp = e[LWS_GENCRYPTO_RSA_KEYEL_E].len;
+	rsablob->cbModulus = e[LWS_GENCRYPTO_RSA_KEYEL_N].len;
+	rsablob->cbPrime1 = e[LWS_GENCRYPTO_RSA_KEYEL_P].len;
+	rsablob->cbPrime2 = e[LWS_GENCRYPTO_RSA_KEYEL_Q].len;
+
+	p = (uint8_t *)(rsablob + 1);
+	memcpy(p, e[LWS_GENCRYPTO_RSA_KEYEL_E].buf, rsablob->cbPublicExp); p += rsablob->cbPublicExp;
+	memcpy(p, e[LWS_GENCRYPTO_RSA_KEYEL_N].buf, rsablob->cbModulus); p += rsablob->cbModulus;
+	memcpy(p, e[LWS_GENCRYPTO_RSA_KEYEL_P].buf, rsablob->cbPrime1); p += rsablob->cbPrime1;
+	memcpy(p, e[LWS_GENCRYPTO_RSA_KEYEL_Q].buf, rsablob->cbPrime2); p += rsablob->cbPrime2;
+	memcpy(p, e[LWS_GENCRYPTO_RSA_KEYEL_DP].buf, rsablob->cbPrime1); p += rsablob->cbPrime1;
+	memcpy(p, e[LWS_GENCRYPTO_RSA_KEYEL_DQ].buf, rsablob->cbPrime2); p += rsablob->cbPrime2;
+	memcpy(p, e[LWS_GENCRYPTO_RSA_KEYEL_QI].buf, rsablob->cbPrime1); p += rsablob->cbPrime1;
+	memcpy(p, e[LWS_GENCRYPTO_RSA_KEYEL_D].buf, rsablob->cbModulus);
+
+	lws_gencrypto_destroy_elements(e, LWS_GENCRYPTO_RSA_KEYEL_COUNT);
+
+	/* 4. Import Key */
+	status = NCryptOpenStorageProvider(&hProv, MS_KEY_STORAGE_PROVIDER, 0);
+	if (status != ERROR_SUCCESS) {
+	    lwsl_err("NCryptOpenStorageProvider failed 0x%x\n", (int)status);
+	    lws_free(rsablob);
+	    goto cleanup;
+	}
+
+	status = NCryptImportKey(hProv, 0, BCRYPT_RSAPRIVATE_BLOB, NULL, &hKey, (PBYTE)rsablob, bloblen, 0);
+	lws_free(rsablob);
+
+	if (status != ERROR_SUCCESS) {
+	    lwsl_err("NCryptImportKey failed 0x%x\n", (int)status);
+	    goto cleanup;
+	}
+
+	/* 5. Link Key to Cert */
+	if (!CertSetCertificateContextProperty(x509_obj.cert, CERT_NCRYPT_KEY_HANDLE_PROP_ID, 0, (void*)&hKey)) {
+	     lwsl_err("CertSetCertificateContextProperty (Handle) failed %d\n", GetLastError());
+	     goto cleanup;
+	}
+
+	/* Handle ownership transferred/shared with cert context. We do not free hKey. */
+	hKey = 0;
+	/* hProv is used by hKey, so we should probably keep it open too if hKey depends on it.
+	   However, usually hKey keeps a reference to its provider.
+	   Safe bet: Do not free hProv either if hKey is alive.
+	*/
+	hProv = 0;
+
+	*pcert = x509_obj.cert;
+	ret = 0;
+
+cleanup:
+    if (hKey) NCryptFreeObject(hKey);
+    if (hProv) NCryptFreeObject(hProv);
+    if (ret && x509_obj.cert) CertFreeCertificateContext(x509_obj.cert);
+
+    return ret;
+}
