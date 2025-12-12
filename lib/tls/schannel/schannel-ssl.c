@@ -477,6 +477,9 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
     SECURITY_STATUS status;
     ssize_t n;
 
+    if (!wsi->tls.ssl)
+        return lws_ssl_capable_read_no_ssl(wsi, buf, len);
+
     if (!conn || !conn->f_handshake_finished) return LWS_SSL_CAPABLE_ERROR;
 
     conn->f_socket_is_blocking = 0;
@@ -623,6 +626,9 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
     uint8_t *alloc_buf;
     size_t alloc_len;
     ssize_t n;
+
+    if (!wsi->tls.ssl)
+        return lws_ssl_capable_write_no_ssl(wsi, buf, len);
 
     if (!conn || !conn->f_handshake_finished) return LWS_SSL_CAPABLE_ERROR;
 
