@@ -154,9 +154,10 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
     if (!vh->tls.ssl_client_ctx) return 1;
 
     schannel_cred.dwVersion = SCHANNEL_CRED_VERSION;
-    schannel_cred.dwFlags = SCH_CRED_NO_DEFAULT_CREDS | SCH_CRED_MANUAL_CRED_VALIDATION;
+    schannel_cred.dwFlags = SCH_CRED_MANUAL_CRED_VALIDATION;
 
     if (cert_filepath || cert_mem) {
+        schannel_cred.dwFlags |= SCH_CRED_NO_DEFAULT_CREDS;
         if (lws_tls_schannel_cert_info_load(vh->context, cert_filepath, private_key_filepath,
                                             cert_mem, cert_mem_len,
                                             key_mem, key_mem_len, &pCertCtx) == 0) {
