@@ -86,6 +86,7 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
     }
 
     vhost->tls.ssl_ctx->initialized = 1;
+    lwsl_info("%s: vhost %p: server ctx %p created\n", __func__, vhost, vhost->tls.ssl_ctx);
 
 	return 0;
 }
