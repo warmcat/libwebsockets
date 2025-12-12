@@ -471,6 +471,8 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 
     if (!conn || !conn->f_handshake_finished) return LWS_SSL_CAPABLE_ERROR;
 
+    conn->f_socket_is_blocking = 0;
+
     /* Check if we have decrypted data pending in buflist */
     size_t pending_len = lws_buflist_next_segment_len(&conn->decrypted_list, NULL);
     if (pending_len > 0) {
@@ -483,8 +485,10 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
         if (conn->rx_alloc == 0) lws_tls_schannel_realloc_buffer(conn, 4096);
         n = recv(wsi->desc.sockfd, (char *)conn->rx_buf, (int)conn->rx_alloc, 0);
         if (n < 0) {
-             if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
+             if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK) {
+                conn->f_socket_is_blocking = 1;
                 return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
+             }
              return LWS_SSL_CAPABLE_ERROR;
         } else if (n == 0) {
              return LWS_SSL_CAPABLE_ERROR;
@@ -513,8 +517,10 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 
         n = recv(wsi->desc.sockfd, (char *)conn->rx_buf + conn->rx_len, (int)(conn->rx_alloc - conn->rx_len), 0);
         if (n < 0) {
-             if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
+             if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK) {
+                conn->f_socket_is_blocking = 1;
                 return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
+             }
              return LWS_SSL_CAPABLE_ERROR;
         } else if (n == 0) {
              return LWS_SSL_CAPABLE_ERROR;
@@ -676,7 +682,9 @@ lws_ssl_pending(struct lws *wsi)
     if (conn && lws_buflist_next_segment_len(&conn->decrypted_list, NULL) > 0)
         return 1;
 
-    if (conn && conn->rx_len > 0) return 1;
+    if (conn && conn->rx_len > 0 && !conn->f_socket_is_blocking)
+        return 1;
+
 	return 0;
 }
 

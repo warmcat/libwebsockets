@@ -33,6 +33,7 @@ struct lws_tls_schannel_conn {
 	int f_context_init; /* 1 if context initialized (handshake started) */
 	int f_handshake_finished; /* 1 if handshake complete */
 	int f_allow_self_signed;
+	int f_socket_is_blocking; /* 1 if recv returned EWOULDBLOCK, so rx_buf might be incomplete */
 
 	char alpn[64];
     char hostname[128];
