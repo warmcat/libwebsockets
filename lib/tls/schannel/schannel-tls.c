@@ -69,7 +69,7 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
     schannel_cred.dwVersion = SCHANNEL_CRED_VERSION;
     schannel_cred.cCreds = 1;
     schannel_cred.paCred = &pCertCtx;
-    schannel_cred.dwFlags = SCH_CRED_NO_DEFAULT_CREDS;
+    schannel_cred.dwFlags = SCH_CRED_NO_DEFAULT_CREDS | SCH_CRED_NO_SYSTEM_MAPPER;
     /* Allow all protocol versions by default */
     schannel_cred.grbitEnabledProtocols = 0;
 
