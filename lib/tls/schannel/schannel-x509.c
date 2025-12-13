@@ -424,9 +424,7 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 		if (lws_asn1_read_length(&p, end, &ver_len) < 0) goto bail;
 		p += ver_len;
 	} else if (*p == 0x02) {
-		/* Likely RSA PKCS#1 starting with Modulus (since we already read Version) */
-		/* Backtrack pointer to Modulus tag? No, we just continue reading RSA fields. */
-		p--; /* Back to tag */
+		/* PKCS#1: kp points to Modulus tag. Version already consumed. */
 	} else {
 		goto bail;
 	}
@@ -594,15 +592,26 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
     }
 
 	/* 3. Convert to BCRYPT_RSAKEY_BLOB */
+	/* Determine aligned sizes for fields. BCRYPT expects fixed sizes for Modulus/D and Primes/Exps/Coeff. */
+
+	uint32_t cbModulus = e[LWS_GENCRYPTO_RSA_KEYEL_N].len;
+	if (e[LWS_GENCRYPTO_RSA_KEYEL_D].len > cbModulus) cbModulus = e[LWS_GENCRYPTO_RSA_KEYEL_D].len;
+
+	uint32_t cbPrime1 = e[LWS_GENCRYPTO_RSA_KEYEL_P].len;
+	if (e[LWS_GENCRYPTO_RSA_KEYEL_Q].len > cbPrime1) cbPrime1 = e[LWS_GENCRYPTO_RSA_KEYEL_Q].len;
+	if (e[LWS_GENCRYPTO_RSA_KEYEL_DP].len > cbPrime1) cbPrime1 = e[LWS_GENCRYPTO_RSA_KEYEL_DP].len;
+	if (e[LWS_GENCRYPTO_RSA_KEYEL_DQ].len > cbPrime1) cbPrime1 = e[LWS_GENCRYPTO_RSA_KEYEL_DQ].len;
+	if (e[LWS_GENCRYPTO_RSA_KEYEL_QI].len > cbPrime1) cbPrime1 = e[LWS_GENCRYPTO_RSA_KEYEL_QI].len;
+
 	bloblen = sizeof(BCRYPT_RSAKEY_BLOB) +
 		e[LWS_GENCRYPTO_RSA_KEYEL_E].len +
-		e[LWS_GENCRYPTO_RSA_KEYEL_N].len +
-		e[LWS_GENCRYPTO_RSA_KEYEL_P].len +
-		e[LWS_GENCRYPTO_RSA_KEYEL_Q].len +
-		e[LWS_GENCRYPTO_RSA_KEYEL_DP].len +
-		e[LWS_GENCRYPTO_RSA_KEYEL_DQ].len +
-		e[LWS_GENCRYPTO_RSA_KEYEL_QI].len +
-		e[LWS_GENCRYPTO_RSA_KEYEL_D].len;
+		cbModulus +     /* N */
+		cbPrime1 +      /* P */
+		cbPrime1 +      /* Q */
+		cbPrime1 +      /* DP */
+		cbPrime1 +      /* DQ */
+		cbPrime1 +      /* QI */
+		cbModulus;      /* D */
 
 	rsablob = (BCRYPT_RSAKEY_BLOB *)lws_malloc(bloblen, "rsablob");
 	if (!rsablob) {
@@ -611,21 +620,59 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 	}
 
 	rsablob->Magic = BCRYPT_RSAFULLPRIVATE_MAGIC;
-	rsablob->BitLength = e[LWS_GENCRYPTO_RSA_KEYEL_N].len * 8;
+	rsablob->BitLength = cbModulus * 8;
 	rsablob->cbPublicExp = e[LWS_GENCRYPTO_RSA_KEYEL_E].len;
-	rsablob->cbModulus = e[LWS_GENCRYPTO_RSA_KEYEL_N].len;
-	rsablob->cbPrime1 = e[LWS_GENCRYPTO_RSA_KEYEL_P].len;
-	rsablob->cbPrime2 = e[LWS_GENCRYPTO_RSA_KEYEL_Q].len;
+	rsablob->cbModulus = cbModulus;
+	rsablob->cbPrime1 = cbPrime1;
+	rsablob->cbPrime2 = cbPrime1;
 
 	p = (uint8_t *)(rsablob + 1);
-	memcpy(p, e[LWS_GENCRYPTO_RSA_KEYEL_E].buf, rsablob->cbPublicExp); p += rsablob->cbPublicExp;
-	memcpy(p, e[LWS_GENCRYPTO_RSA_KEYEL_N].buf, rsablob->cbModulus); p += rsablob->cbModulus;
-	memcpy(p, e[LWS_GENCRYPTO_RSA_KEYEL_P].buf, rsablob->cbPrime1); p += rsablob->cbPrime1;
-	memcpy(p, e[LWS_GENCRYPTO_RSA_KEYEL_Q].buf, rsablob->cbPrime2); p += rsablob->cbPrime2;
-	memcpy(p, e[LWS_GENCRYPTO_RSA_KEYEL_DP].buf, rsablob->cbPrime1); p += rsablob->cbPrime1;
-	memcpy(p, e[LWS_GENCRYPTO_RSA_KEYEL_DQ].buf, rsablob->cbPrime2); p += rsablob->cbPrime2;
-	memcpy(p, e[LWS_GENCRYPTO_RSA_KEYEL_QI].buf, rsablob->cbPrime1); p += rsablob->cbPrime1;
-	memcpy(p, e[LWS_GENCRYPTO_RSA_KEYEL_D].buf, rsablob->cbModulus);
+
+	/* Copy Public Exponent (no padding needed usually, var length allowed in header) */
+	memcpy(p, e[LWS_GENCRYPTO_RSA_KEYEL_E].buf, rsablob->cbPublicExp);
+	p += rsablob->cbPublicExp;
+
+	/* Copy Modulus (pad front) */
+	memset(p, 0, cbModulus);
+	if (e[LWS_GENCRYPTO_RSA_KEYEL_N].len > 0)
+	    memcpy(p + (cbModulus - e[LWS_GENCRYPTO_RSA_KEYEL_N].len), e[LWS_GENCRYPTO_RSA_KEYEL_N].buf, e[LWS_GENCRYPTO_RSA_KEYEL_N].len);
+	p += cbModulus;
+
+	/* Copy Prime1 (pad front) */
+	memset(p, 0, cbPrime1);
+	if (e[LWS_GENCRYPTO_RSA_KEYEL_P].len > 0)
+	    memcpy(p + (cbPrime1 - e[LWS_GENCRYPTO_RSA_KEYEL_P].len), e[LWS_GENCRYPTO_RSA_KEYEL_P].buf, e[LWS_GENCRYPTO_RSA_KEYEL_P].len);
+	p += cbPrime1;
+
+	/* Copy Prime2 (pad front) */
+	memset(p, 0, cbPrime1);
+	if (e[LWS_GENCRYPTO_RSA_KEYEL_Q].len > 0)
+	    memcpy(p + (cbPrime1 - e[LWS_GENCRYPTO_RSA_KEYEL_Q].len), e[LWS_GENCRYPTO_RSA_KEYEL_Q].buf, e[LWS_GENCRYPTO_RSA_KEYEL_Q].len);
+	p += cbPrime1;
+
+	/* Copy Exp1 (DP) (pad front) */
+	memset(p, 0, cbPrime1);
+	if (e[LWS_GENCRYPTO_RSA_KEYEL_DP].len > 0)
+	    memcpy(p + (cbPrime1 - e[LWS_GENCRYPTO_RSA_KEYEL_DP].len), e[LWS_GENCRYPTO_RSA_KEYEL_DP].buf, e[LWS_GENCRYPTO_RSA_KEYEL_DP].len);
+	p += cbPrime1;
+
+	/* Copy Exp2 (DQ) (pad front) */
+	memset(p, 0, cbPrime1);
+	if (e[LWS_GENCRYPTO_RSA_KEYEL_DQ].len > 0)
+	    memcpy(p + (cbPrime1 - e[LWS_GENCRYPTO_RSA_KEYEL_DQ].len), e[LWS_GENCRYPTO_RSA_KEYEL_DQ].buf, e[LWS_GENCRYPTO_RSA_KEYEL_DQ].len);
+	p += cbPrime1;
+
+	/* Copy Coeff (QI) (pad front) */
+	memset(p, 0, cbPrime1);
+	if (e[LWS_GENCRYPTO_RSA_KEYEL_QI].len > 0)
+	    memcpy(p + (cbPrime1 - e[LWS_GENCRYPTO_RSA_KEYEL_QI].len), e[LWS_GENCRYPTO_RSA_KEYEL_QI].buf, e[LWS_GENCRYPTO_RSA_KEYEL_QI].len);
+	p += cbPrime1;
+
+	/* Copy PrivateExponent (pad front) */
+	memset(p, 0, cbModulus);
+	if (e[LWS_GENCRYPTO_RSA_KEYEL_D].len > 0)
+	    memcpy(p + (cbModulus - e[LWS_GENCRYPTO_RSA_KEYEL_D].len), e[LWS_GENCRYPTO_RSA_KEYEL_D].buf, e[LWS_GENCRYPTO_RSA_KEYEL_D].len);
+	p += cbModulus;
 
 	lws_gencrypto_destroy_elements(e, LWS_GENCRYPTO_RSA_KEYEL_COUNT);
 
@@ -650,6 +697,12 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 	     lwsl_err("CertSetCertificateContextProperty (Handle) failed %d\n", GetLastError());
 	     goto cleanup;
 	}
+
+    /* Set Key Spec (AT_KEYEXCHANGE) */
+    DWORD keySpec = AT_KEYEXCHANGE;
+    if (!CertSetCertificateContextProperty(x509_obj.cert, CERT_KEY_SPEC_PROP_ID, 0, (void*)&keySpec)) {
+         lwsl_warn("CertSetCertificateContextProperty (KeySpec) failed %d\n", GetLastError());
+    }
 
 	lwsl_notice("%s: loaded cert and attached key\n", __func__);
 
