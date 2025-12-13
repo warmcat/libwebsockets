@@ -703,8 +703,8 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 	     goto cleanup;
 	}
 
-    /* Set Key Spec (AT_KEYEXCHANGE) */
-    DWORD keySpec = AT_KEYEXCHANGE;
+    /* Set Key Spec (CERT_NCRYPT_KEY_SPEC) */
+    DWORD keySpec = CERT_NCRYPT_KEY_SPEC;
     if (!CertSetCertificateContextProperty(x509_obj.cert, CERT_KEY_SPEC_PROP_ID, 0, (void*)&keySpec)) {
          lwsl_info("CertSetCertificateContextProperty (KeySpec) failed %d (ignored)\n", GetLastError());
     }
