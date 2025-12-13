@@ -53,16 +53,17 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
     if (!cert && !mem_cert)
         return 0;
 
+    vhost->tls.ssl_ctx = lws_zalloc(sizeof(*vhost->tls.ssl_ctx), "schannel_ctx");
+    if (!vhost->tls.ssl_ctx)
+        return 1;
+
     if (lws_tls_schannel_cert_info_load(vhost->context, cert, private_key,
                                         mem_cert, len_mem_cert,
-                                        mem_privkey, mem_privkey_len, &pCertCtx)) {
+                                        mem_privkey, mem_privkey_len, &pCertCtx,
+                                        &vhost->tls.ssl_ctx->store)) {
         lwsl_err("%s: Failed to load server certs\n", __func__);
-        return 1;
-    }
-
-    vhost->tls.ssl_ctx = lws_zalloc(sizeof(*vhost->tls.ssl_ctx), "schannel_ctx");
-    if (!vhost->tls.ssl_ctx) {
-        CertFreeCertificateContext(pCertCtx);
+        lws_free(vhost->tls.ssl_ctx);
+        vhost->tls.ssl_ctx = NULL;
         return 1;
     }
 
@@ -103,12 +104,16 @@ lws_ssl_destroy(struct lws_vhost *vhost)
     if (vhost->tls.ssl_ctx) {
         if (vhost->tls.ssl_ctx->initialized)
             FreeCredentialsHandle(&vhost->tls.ssl_ctx->cred);
+        if (vhost->tls.ssl_ctx->store)
+            CertCloseStore(vhost->tls.ssl_ctx->store, 0);
         lws_free(vhost->tls.ssl_ctx);
         vhost->tls.ssl_ctx = NULL;
     }
     if (vhost->tls.ssl_client_ctx) {
         if (vhost->tls.ssl_client_ctx->initialized)
             FreeCredentialsHandle(&vhost->tls.ssl_client_ctx->cred);
+        if (vhost->tls.ssl_client_ctx->store)
+            CertCloseStore(vhost->tls.ssl_client_ctx->store, 0);
         lws_free(vhost->tls.ssl_client_ctx);
         vhost->tls.ssl_client_ctx = NULL;
     }
@@ -162,7 +167,8 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
         schannel_cred.dwFlags |= SCH_CRED_NO_DEFAULT_CREDS;
         if (lws_tls_schannel_cert_info_load(vh->context, cert_filepath, private_key_filepath,
                                             cert_mem, cert_mem_len,
-                                            key_mem, key_mem_len, &pCertCtx) == 0) {
+                                            key_mem, key_mem_len, &pCertCtx,
+                                            NULL) == 0) {
             schannel_cred.cCreds = 1;
             schannel_cred.paCred = &pCertCtx;
         }

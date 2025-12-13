@@ -454,7 +454,7 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
                                 const char *cert, const char *private_key,
                                 const char *mem_cert, size_t len_mem_cert,
                                 const char *mem_privkey, size_t mem_privkey_len,
-                                PCCERT_CONTEXT *pcert)
+                                PCCERT_CONTEXT *pcert, HCERTSTORE *phStore)
 {
 	struct lws_x509_cert x509_obj = {0};
 	struct lws_gencrypto_keyelem e[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
@@ -465,6 +465,8 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 	SECURITY_STATUS status;
 	uint8_t *p;
 	int ret = 1;
+
+	if (phStore) *phStore = NULL;
 
 	memset(e, 0, sizeof(e));
 
@@ -514,7 +516,10 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 		return 1; /* No cert */
 	}
 
-    CertCloseStore(hStore, 0);
+    if (phStore)
+        *phStore = hStore;
+    else
+        CertCloseStore(hStore, 0);
 
 	if (!x509_obj.cert) {
 		lwsl_err("%s: Failed to create cert context\n", __func__);
@@ -721,6 +726,10 @@ cleanup:
     if (hKey) NCryptFreeObject(hKey);
     if (hProv) NCryptFreeObject(hProv);
     if (ret && x509_obj.cert) CertFreeCertificateContext(x509_obj.cert);
+    if (ret && phStore && *phStore) {
+        CertCloseStore(*phStore, 0);
+        *phStore = NULL;
+    }
 
     return ret;
 }
