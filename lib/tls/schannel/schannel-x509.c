@@ -225,6 +225,47 @@ lws_x509_verify(struct lws_x509_cert *x509, struct lws_x509_cert *trusted,
 	return -1;
 }
 
+/* Minimal ASN.1 Reader Helpers */
+static int lws_asn1_read_length(const uint8_t **p, const uint8_t *end, size_t *len) {
+	if (*p >= end) return -1;
+	uint8_t c = *(*p)++;
+	if (!(c & 0x80)) {
+		*len = c;
+	} else {
+		int bytes = c & 0x7F;
+		if (bytes > 4 || *p + bytes > end) return -1;
+		*len = 0;
+		while (bytes--) {
+			*len = (*len << 8) | *(*p)++;
+		}
+	}
+	return 0;
+}
+
+static int lws_asn1_read_integer(const uint8_t **p, const uint8_t *end, struct lws_gencrypto_keyelem *el) {
+	size_t len;
+	if (*p >= end || *(*p)++ != 0x02) return -1; /* Expect INTEGER tag */
+	if (lws_asn1_read_length(p, end, &len) < 0) return -1;
+	if (*p + len > end) return -1;
+
+	/* Skip leading zero if present (ASN.1 integer is signed, might have 0x00 pad for positive MSB) */
+	const uint8_t *val = *p;
+	size_t vlen = len;
+	while (vlen > 0 && val[0] == 0x00) {
+		val++;
+		vlen--;
+	}
+
+	/* Copy to key element */
+	el->len = (uint32_t)vlen;
+	el->buf = lws_malloc(vlen, "asn1 int");
+	if (!el->buf) return -1;
+	memcpy(el->buf, val, vlen);
+
+	*p += len;
+	return 0;
+}
+
 #if defined(LWS_WITH_JOSE)
 int
 lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
@@ -304,47 +345,6 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 
 	BCryptDestroyKey(hKey);
 	return ret;
-}
-
-/* Minimal ASN.1 Reader Helpers */
-static int lws_asn1_read_length(const uint8_t **p, const uint8_t *end, size_t *len) {
-	if (*p >= end) return -1;
-	uint8_t c = *(*p)++;
-	if (!(c & 0x80)) {
-		*len = c;
-	} else {
-		int bytes = c & 0x7F;
-		if (bytes > 4 || *p + bytes > end) return -1;
-		*len = 0;
-		while (bytes--) {
-			*len = (*len << 8) | *(*p)++;
-		}
-	}
-	return 0;
-}
-
-static int lws_asn1_read_integer(const uint8_t **p, const uint8_t *end, struct lws_gencrypto_keyelem *el) {
-	size_t len;
-	if (*p >= end || *(*p)++ != 0x02) return -1; /* Expect INTEGER tag */
-	if (lws_asn1_read_length(p, end, &len) < 0) return -1;
-	if (*p + len > end) return -1;
-
-	/* Skip leading zero if present (ASN.1 integer is signed, might have 0x00 pad for positive MSB) */
-	const uint8_t *val = *p;
-	size_t vlen = len;
-	while (vlen > 0 && val[0] == 0x00) {
-		val++;
-		vlen--;
-	}
-
-	/* Copy to key element */
-	el->len = (uint32_t)vlen;
-	el->buf = lws_malloc(vlen, "asn1 int");
-	if (!el->buf) return -1;
-	memcpy(el->buf, val, vlen);
-
-	*p += len;
-	return 0;
 }
 
 int
@@ -591,12 +591,6 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
     }
     lws_free(key_der);
 
-    lwsl_notice("RSA Key Loaded: N len %d, E len %d, D len %d\n",
-                e[LWS_GENCRYPTO_RSA_KEYEL_N].len, e[LWS_GENCRYPTO_RSA_KEYEL_E].len, e[LWS_GENCRYPTO_RSA_KEYEL_D].len);
-    if (e[LWS_GENCRYPTO_RSA_KEYEL_N].len > 0) {
-        lwsl_hexdump_notice(e[LWS_GENCRYPTO_RSA_KEYEL_N].buf, 16);
-    }
-
 	/* 3. Convert to PRIVATEKEYBLOB (CAPI) */
 	/* BLOBHEADER + RSAPUBKEY + Modulus + Prime1 + Prime2 + Exponent1 + Exponent2 + Coefficient + PrivateExponent */
 	/* CAPI uses Little Endian. */
@@ -757,8 +751,6 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
              lwsl_warn("CertSetCertificateContextProperty (KeySpec) failed 0x%x\n", GetLastError());
         }
     }
-
-	lwsl_notice("%s: loaded cert and attached key (CAPI)\n", __func__);
 
 	/* We can close the key handle, but MUST keep the provider handle open.
        The key is associated with the provider context.
