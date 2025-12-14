@@ -710,15 +710,52 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
     lws_free(rsablob);
 
 	/* 5. Link Key to Cert (Legacy Property) */
-	if (!CertSetCertificateContextProperty(x509_obj.cert, CERT_KEY_PROV_HANDLE_PROP_ID, 0, (void*)hProv)) {
-	     lwsl_err("CertSetCertificateContextProperty (ProvHandle) failed %d\n", GetLastError());
-	     goto cleanup;
-	}
+    if (container_name) {
+        /*
+         * For Server (Named Container), we must tell SChannel where the key is using PROV_INFO.
+         * SChannel runs in LSA and cannot always use the process-local handle we have.
+         */
+        CRYPT_KEY_PROV_INFO kpi = {0};
+        WCHAR wContainer[128];
 
-    /* Explicitly set Key Spec to AT_KEYEXCHANGE (1). SChannel needs this to find the key in the provider. */
-    DWORD keySpec = AT_KEYEXCHANGE;
-    if (!CertSetCertificateContextProperty(x509_obj.cert, CERT_KEY_SPEC_PROP_ID, 0, (void*)&keySpec)) {
-         lwsl_warn("CertSetCertificateContextProperty (KeySpec) failed %d\n", GetLastError());
+        /* Convert container name to Wide String */
+        if (!MultiByteToWideChar(CP_UTF8, 0, container_name, -1, wContainer, sizeof(wContainer)/sizeof(wContainer[0]))) {
+             lwsl_err("MultiByteToWideChar failed\n");
+             goto cleanup;
+        }
+
+        kpi.pwszContainerName = wContainer;
+#ifdef MS_ENH_RSA_AES_PROV_W
+        kpi.pwszProvName = (LPWSTR)MS_ENH_RSA_AES_PROV_W;
+#else
+        kpi.pwszProvName = (LPWSTR)L"Microsoft Enhanced RSA and AES Cryptographic Provider";
+#endif
+        kpi.dwProvType = PROV_RSA_AES;
+        kpi.dwFlags = 0;
+        kpi.cProvParam = 0;
+        kpi.rgProvParam = NULL;
+        kpi.dwKeySpec = AT_KEYEXCHANGE;
+
+        if (!CertSetCertificateContextProperty(x509_obj.cert, CERT_KEY_PROV_INFO_PROP_ID, 0, (void*)&kpi)) {
+             lwsl_err("CertSetCertificateContextProperty (ProvInfo) failed 0x%x\n", GetLastError());
+             goto cleanup;
+        }
+    } else {
+        /*
+         * For Client (Ephemeral), we use the handle directly.
+         * Note: CERT_KEY_PROV_HANDLE_PROP_ID usage is process-specific but usually works for client auth
+         * if the CSP supports it or if we are verifying context.
+         */
+        if (!CertSetCertificateContextProperty(x509_obj.cert, CERT_KEY_PROV_HANDLE_PROP_ID, 0, (void*)hProv)) {
+             lwsl_err("CertSetCertificateContextProperty (ProvHandle) failed 0x%x\n", GetLastError());
+             goto cleanup;
+        }
+
+        /* Explicitly set Key Spec to AT_KEYEXCHANGE (1) */
+        DWORD keySpec = AT_KEYEXCHANGE;
+        if (!CertSetCertificateContextProperty(x509_obj.cert, CERT_KEY_SPEC_PROP_ID, 0, (void*)&keySpec)) {
+             lwsl_warn("CertSetCertificateContextProperty (KeySpec) failed 0x%x\n", GetLastError());
+        }
     }
 
 	lwsl_notice("%s: loaded cert and attached key (CAPI)\n", __func__);
