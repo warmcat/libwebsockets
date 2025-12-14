@@ -2113,6 +2113,10 @@ spin_chunks:
 				lwsl_err("%s: chunking failure A\n", __func__);
 				return -1;
 			}
+			if (wsi->chunk_remaining > (INT_MAX - 15) / 16) {
+				lwsl_err("%s: chunk size overflow\n", __func__);
+				return -1;
+			}
 			wsi->chunk_remaining <<= 4;
 			wsi->chunk_remaining |= n;
 			break;
