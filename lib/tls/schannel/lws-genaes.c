@@ -179,7 +179,7 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			if (BCRYPT_SUCCESS(st)) {
 				ctx->u.cbMacContext = ctxSize;
 			} else {
-				ctx->u.cbMacContext = 64; /* Fallback if query fails */
+				ctx->u.cbMacContext = 2048; /* Fallback if query fails */
 			}
 			lwsl_notice("%s: MacContext info: status 0x%x, size %lu, authinfo sz %u\n", __func__, (unsigned int)st, ctx->u.cbMacContext, (unsigned int)sizeof(BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO));
 
@@ -233,8 +233,7 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			authInfo->cbNonce = (ULONG)ctx->u.cbNonce;
 			if (ctx->op == LWS_GAESO_ENC) {
 				authInfo->pbTag = NULL;
-				/* For encryption, cbTag must still be the size of the tag to be generated */
-				authInfo->cbTag = (ULONG)ctx->u.cbTag;
+				authInfo->cbTag = 0;
 			} else {
 				authInfo->pbTag = ctx->u.pbTag;
 				authInfo->cbTag = (ULONG)ctx->u.cbTag;
@@ -245,9 +244,9 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 
 			/* Process AAD if present */
 			if (in && len) {
-				uint8_t *dummy_in, *dummy_out, *authData = NULL;
+				uint8_t *dummy_in, *authData = NULL;
 
-				/* Allocate dummy buffers for alignment */
+				/* Allocate dummy buffer for alignment */
 				dummy_in = lws_malloc(128, "genaes dummy in");
 				if (!dummy_in) {
 					lws_free(authInfo);
@@ -255,18 +254,9 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 				}
 				memset(dummy_in, 0, 128);
 
-				dummy_out = lws_malloc(128, "genaes dummy out");
-				if (!dummy_out) {
-					lws_free(dummy_in);
-					lws_free(authInfo);
-					return -1;
-				}
-				memset(dummy_out, 0, 128);
-
 				/* Allocate and copy auth data for alignment */
 				authData = lws_malloc(len, "genaes aad");
 				if (!authData) {
-					lws_free(dummy_out);
 					lws_free(dummy_in);
 					lws_free(authInfo);
 					return -1;
@@ -279,13 +269,12 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 				lwsl_notice("%s: GCM AAD processing: len %lu, cbTag %lu, cbNonce %lu\n", __func__, (unsigned long)len, (unsigned long)ctx->u.cbTag, (unsigned long)ctx->u.cbNonce);
 
 				if (ctx->op == LWS_GAESO_ENC) {
-					status = BCryptEncrypt(ctx->u.hKey, dummy_in, 0, authInfo, NULL, 0, dummy_out, 128, &result_len, 0);
+					status = BCryptEncrypt(ctx->u.hKey, dummy_in, 0, authInfo, NULL, 0, NULL, 0, &result_len, 0);
 				} else {
-					status = BCryptDecrypt(ctx->u.hKey, dummy_in, 0, authInfo, NULL, 0, dummy_out, 128, &result_len, 0);
+					status = BCryptDecrypt(ctx->u.hKey, dummy_in, 0, authInfo, NULL, 0, NULL, 0, &result_len, 0);
 				}
 
 				lws_free(dummy_in);
-				lws_free(dummy_out);
 				lws_free(authData);
 
 				if (!BCRYPT_SUCCESS(status)) {
