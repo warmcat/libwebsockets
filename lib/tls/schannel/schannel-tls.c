@@ -60,7 +60,8 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
     if (lws_tls_schannel_cert_info_load(vhost->context, cert, private_key,
                                         mem_cert, len_mem_cert,
                                         mem_privkey, mem_privkey_len, &pCertCtx,
-                                        &vhost->tls.ssl_ctx->store)) {
+                                        &vhost->tls.ssl_ctx->store,
+                                        &vhost->tls.ssl_ctx->key_prov)) {
         lwsl_err("%s: Failed to load server certs\n", __func__);
         lws_free(vhost->tls.ssl_ctx);
         vhost->tls.ssl_ctx = NULL;
@@ -73,27 +74,6 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
     schannel_cred.dwFlags = SCH_CRED_NO_DEFAULT_CREDS | SCH_CRED_NO_SYSTEM_MAPPER;
     /* Allow all protocol versions by default */
     schannel_cred.grbitEnabledProtocols = 0;
-
-    /* Diagnostics: Verify key availability before SChannel */
-    {
-        HCRYPTPROV_OR_NCRYPT_KEY_HANDLE hCryptProvOrNCryptKey = 0;
-        DWORD dwSpec = 0;
-        BOOL fCallerFreeProvOrNCryptKey = FALSE;
-
-        if (CryptAcquireCertificatePrivateKey(pCertCtx,
-                                              CRYPT_ACQUIRE_ONLY_NCRYPT_KEY_FLAG | CRYPT_ACQUIRE_SILENT_FLAG,
-                                              NULL,
-                                              &hCryptProvOrNCryptKey,
-                                              &dwSpec,
-                                              &fCallerFreeProvOrNCryptKey)) {
-            lwsl_notice("Diagnostics: Successfully acquired private key. Spec: %d\n", (int)dwSpec);
-            if (fCallerFreeProvOrNCryptKey) {
-                 NCryptFreeObject(hCryptProvOrNCryptKey);
-            }
-        } else {
-            lwsl_err("Diagnostics: CryptAcquireCertificatePrivateKey failed: 0x%x\n", (int)GetLastError());
-        }
-    }
 
     status = AcquireCredentialsHandleA(NULL, UNISP_NAME_A, SECPKG_CRED_INBOUND, NULL,
                                       &schannel_cred, NULL, NULL,
@@ -125,6 +105,8 @@ lws_ssl_destroy(struct lws_vhost *vhost)
     if (vhost->tls.ssl_ctx) {
         if (vhost->tls.ssl_ctx->initialized)
             FreeCredentialsHandle(&vhost->tls.ssl_ctx->cred);
+        if (vhost->tls.ssl_ctx->key_prov)
+            NCryptFreeObject(vhost->tls.ssl_ctx->key_prov);
         if (vhost->tls.ssl_ctx->store)
             CertCloseStore(vhost->tls.ssl_ctx->store, 0);
         lws_free(vhost->tls.ssl_ctx);
@@ -133,6 +115,8 @@ lws_ssl_destroy(struct lws_vhost *vhost)
     if (vhost->tls.ssl_client_ctx) {
         if (vhost->tls.ssl_client_ctx->initialized)
             FreeCredentialsHandle(&vhost->tls.ssl_client_ctx->cred);
+        if (vhost->tls.ssl_client_ctx->key_prov)
+            NCryptFreeObject(vhost->tls.ssl_client_ctx->key_prov);
         if (vhost->tls.ssl_client_ctx->store)
             CertCloseStore(vhost->tls.ssl_client_ctx->store, 0);
         lws_free(vhost->tls.ssl_client_ctx);
@@ -189,7 +173,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
         if (lws_tls_schannel_cert_info_load(vh->context, cert_filepath, private_key_filepath,
                                             cert_mem, cert_mem_len,
                                             key_mem, key_mem_len, &pCertCtx,
-                                            NULL) == 0) {
+                                            NULL, NULL) == 0) {
             schannel_cred.cCreds = 1;
             schannel_cred.paCred = &pCertCtx;
         }

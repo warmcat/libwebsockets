@@ -12,6 +12,7 @@
 struct lws_tls_schannel_ctx {
 	CredHandle cred;
 	HCERTSTORE store;
+	NCRYPT_PROV_HANDLE key_prov;
 	int initialized;
 };
 
@@ -50,6 +51,7 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
                                 const char *cert, const char *private_key,
                                 const char *mem_cert, size_t len_mem_cert,
                                 const char *mem_privkey, size_t mem_privkey_len,
-                                PCCERT_CONTEXT *pcert, HCERTSTORE *phStore);
+                                PCCERT_CONTEXT *pcert, HCERTSTORE *phStore,
+                                NCRYPT_PROV_HANDLE *phProv);
 
 #endif

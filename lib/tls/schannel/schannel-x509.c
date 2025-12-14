@@ -454,7 +454,8 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
                                 const char *cert, const char *private_key,
                                 const char *mem_cert, size_t len_mem_cert,
                                 const char *mem_privkey, size_t mem_privkey_len,
-                                PCCERT_CONTEXT *pcert, HCERTSTORE *phStore)
+                                PCCERT_CONTEXT *pcert, HCERTSTORE *phStore,
+                                NCRYPT_PROV_HANDLE *phProv)
 {
 	struct lws_x509_cert x509_obj = {0};
 	struct lws_gencrypto_keyelem e[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
@@ -467,6 +468,7 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 	int ret = 1;
 
 	if (phStore) *phStore = NULL;
+    if (phProv) *phProv = 0;
 
 	memset(e, 0, sizeof(e));
 
@@ -724,7 +726,12 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 
 cleanup:
     if (hKey) NCryptFreeObject(hKey);
-    if (hProv) NCryptFreeObject(hProv);
+    if (hProv) {
+        if (!ret && phProv)
+            *phProv = hProv;
+        else
+            NCryptFreeObject(hProv);
+    }
     if (ret && x509_obj.cert) CertFreeCertificateContext(x509_obj.cert);
     if (ret && phStore && *phStore) {
         CertCloseStore(*phStore, 0);
