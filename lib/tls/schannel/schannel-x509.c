@@ -455,7 +455,8 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
                                 const char *mem_cert, size_t len_mem_cert,
                                 const char *mem_privkey, size_t mem_privkey_len,
                                 PCCERT_CONTEXT *pcert, HCERTSTORE *phStore,
-                                HCRYPTPROV *phProv)
+                                HCRYPTPROV *phProv,
+                                const char *container_name)
 {
 	struct lws_x509_cert x509_obj = {0};
 	struct lws_gencrypto_keyelem e[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
@@ -675,11 +676,30 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 
 	/* 4. Import Key (Legacy CAPI) */
     /* MS_ENH_RSA_AES_PROV type is PROV_RSA_AES, not PROV_RSA_FULL. Mismatch causes NTE_KEYSET_ENTRY_BAD. */
-    if (!CryptAcquireContext(&hProv, NULL, MS_ENH_RSA_AES_PROV, PROV_RSA_AES, CRYPT_VERIFYCONTEXT | CRYPT_SILENT)) {
-        /* Try without SILENT? Or default container? VERIFYCONTEXT is for ephemeral */
-        lwsl_err("CryptAcquireContext failed 0x%x\n", GetLastError());
-        lws_free(rsablob);
-        goto cleanup;
+    if (container_name) {
+        /* Use named container for persistence (needed for SChannel server) */
+        /* First try to create new keyset */
+        if (!CryptAcquireContext(&hProv, container_name, MS_ENH_RSA_AES_PROV, PROV_RSA_AES, CRYPT_NEWKEYSET | CRYPT_SILENT)) {
+            if (GetLastError() == NTE_EXISTS) {
+                /* Exists, open it */
+                 if (!CryptAcquireContext(&hProv, container_name, MS_ENH_RSA_AES_PROV, PROV_RSA_AES, CRYPT_SILENT)) {
+                     lwsl_err("CryptAcquireContext (open) failed 0x%x\n", GetLastError());
+                     lws_free(rsablob);
+                     goto cleanup;
+                 }
+            } else {
+                lwsl_err("CryptAcquireContext (new) failed 0x%x\n", GetLastError());
+                lws_free(rsablob);
+                goto cleanup;
+            }
+        }
+    } else {
+        /* Ephemeral (Client) */
+        if (!CryptAcquireContext(&hProv, NULL, MS_ENH_RSA_AES_PROV, PROV_RSA_AES, CRYPT_VERIFYCONTEXT | CRYPT_SILENT)) {
+            lwsl_err("CryptAcquireContext (ephemeral) failed 0x%x\n", GetLastError());
+            lws_free(rsablob);
+            goto cleanup;
+        }
     }
 
     if (!CryptImportKey(hProv, rsablob, bloblen, 0, CRYPT_EXPORTABLE, &hKey)) {

@@ -57,11 +57,17 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
     if (!vhost->tls.ssl_ctx)
         return 1;
 
+    /* Generate a unique container name for this vhost context to persist keys */
+    /* We need to clean this up in destroy */
+    lws_snprintf(vhost->tls.ssl_ctx->key_container_name, sizeof(vhost->tls.ssl_ctx->key_container_name),
+                 "lws_vhost_%p_%u", vhost, (unsigned int)time(NULL));
+
     if (lws_tls_schannel_cert_info_load(vhost->context, cert, private_key,
                                         mem_cert, len_mem_cert,
                                         mem_privkey, mem_privkey_len, &pCertCtx,
                                         &vhost->tls.ssl_ctx->store,
-                                        &vhost->tls.ssl_ctx->key_prov)) {
+                                        &vhost->tls.ssl_ctx->key_prov,
+                                        vhost->tls.ssl_ctx->key_container_name)) {
         lwsl_err("%s: Failed to load server certs\n", __func__);
         lws_free(vhost->tls.ssl_ctx);
         vhost->tls.ssl_ctx = NULL;
@@ -105,8 +111,16 @@ lws_ssl_destroy(struct lws_vhost *vhost)
     if (vhost->tls.ssl_ctx) {
         if (vhost->tls.ssl_ctx->initialized)
             FreeCredentialsHandle(&vhost->tls.ssl_ctx->cred);
-        if (vhost->tls.ssl_ctx->key_prov)
+        if (vhost->tls.ssl_ctx->key_prov) {
             CryptReleaseContext(vhost->tls.ssl_ctx->key_prov, 0);
+            /* Clean up the temporary key container */
+            if (vhost->tls.ssl_ctx->key_container_name[0]) {
+                 HCRYPTPROV hProv;
+                 if (CryptAcquireContext(&hProv, vhost->tls.ssl_ctx->key_container_name, MS_ENH_RSA_AES_PROV, PROV_RSA_AES, CRYPT_DELETEKEYSET | CRYPT_SILENT)) {
+                     // Successfully deleted
+                 }
+            }
+        }
         if (vhost->tls.ssl_ctx->store)
             CertCloseStore(vhost->tls.ssl_ctx->store, 0);
         lws_free(vhost->tls.ssl_ctx);
@@ -188,7 +202,8 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
                                                If client needs it open, we MUST pass the pointer.
                                                So I will pass the pointer.
                                             */
-                                            &vh->tls.ssl_client_ctx->key_prov) == 0) {
+                                            &vh->tls.ssl_client_ctx->key_prov,
+                                            NULL) == 0) {
             schannel_cred.cCreds = 1;
             schannel_cred.paCred = &pCertCtx;
         }
