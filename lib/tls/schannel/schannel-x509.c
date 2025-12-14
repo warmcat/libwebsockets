@@ -620,16 +620,6 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
              }
         }
 
-        /* Attempt Import */
-        status = NCryptImportKey(hProvCNG, 0,
-                                 LWS_GENCRYPTO_KTY_EC /* Text hint? No, this arg is Legacy Key Handle usually 0 */,
-                                 &hKeyCNG,
-                                 keyName,
-                                 (PUCHAR)key_der, (DWORD)key_der_len,
-                                 flags | NCRYPT_PKCS8_PRIVATE_KEY_BLOB); // Using header constant directly or cast?
-                                 // Actually the flag is typically passed in dwFlags? No, dwFlags is separate.
-                                 // The blob type is a string.
-
         /* NCryptImportKey signature:
            (hProvider, hImportKey, pszBlobType, pParameterList, phKey, pbInput, cbInput, dwFlags)
         */
