@@ -306,10 +306,35 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			authInfo->pbAuthData = NULL;
 			authInfo->cbAuthData = 0;
 
-			if (ctx->op == LWS_GAESO_ENC) {
-				status = BCryptEncrypt(ctx->u.hKey, (PUCHAR)in, (ULONG)len, authInfo, NULL, 0, (PUCHAR)out, (ULONG)len, &result_len, 0);
-			} else {
-				status = BCryptDecrypt(ctx->u.hKey, (PUCHAR)in, (ULONG)len, authInfo, NULL, 0, (PUCHAR)out, (ULONG)len, &result_len, 0);
+			{
+				uint8_t *in_aligned, *out_aligned;
+
+				/* Allocate aligned buffers */
+				in_aligned = lws_malloc(len, "genaes in aligned");
+				if (!in_aligned) {
+					lws_free(authInfo);
+					return -1;
+				}
+				memcpy(in_aligned, in, len);
+
+				out_aligned = lws_malloc(len, "genaes out aligned");
+				if (!out_aligned) {
+					lws_free(in_aligned);
+					lws_free(authInfo);
+					return -1;
+				}
+
+				if (ctx->op == LWS_GAESO_ENC) {
+					status = BCryptEncrypt(ctx->u.hKey, (PUCHAR)in_aligned, (ULONG)len, authInfo, NULL, 0, (PUCHAR)out_aligned, (ULONG)len, &result_len, 0);
+				} else {
+					status = BCryptDecrypt(ctx->u.hKey, (PUCHAR)in_aligned, (ULONG)len, authInfo, NULL, 0, (PUCHAR)out_aligned, (ULONG)len, &result_len, 0);
+				}
+
+				if (BCRYPT_SUCCESS(status))
+					memcpy(out, out_aligned, len);
+
+				lws_free(in_aligned);
+				lws_free(out_aligned);
 			}
 
 			lwsl_notice("%s: processed payload %d\n", __func__, status);
