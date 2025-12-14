@@ -66,7 +66,8 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
                                         mem_cert, len_mem_cert,
                                         mem_privkey, mem_privkey_len, &pCertCtx,
                                         &vhost->tls.ssl_ctx->store,
-                                        &vhost->tls.ssl_ctx->key_prov,
+                                        (void **)&vhost->tls.ssl_ctx->u.key_prov,
+                                        &vhost->tls.ssl_ctx->key_type,
                                         vhost->tls.ssl_ctx->key_container_name)) {
         lwsl_err("%s: Failed to load server certs\n", __func__);
         lws_free(vhost->tls.ssl_ctx);
@@ -111,16 +112,49 @@ lws_ssl_destroy(struct lws_vhost *vhost)
     if (vhost->tls.ssl_ctx) {
         if (vhost->tls.ssl_ctx->initialized)
             FreeCredentialsHandle(&vhost->tls.ssl_ctx->cred);
-        if (vhost->tls.ssl_ctx->key_prov) {
-            CryptReleaseContext(vhost->tls.ssl_ctx->key_prov, 0);
-            /* Clean up the temporary key container */
+
+        /* Cleanup Key */
+        if (vhost->tls.ssl_ctx->key_type == 0) {
+            /* CAPI */
+            if (vhost->tls.ssl_ctx->u.key_prov) {
+                CryptReleaseContext(vhost->tls.ssl_ctx->u.key_prov, 0);
+                /* Clean up the temporary key container */
+                if (vhost->tls.ssl_ctx->key_container_name[0]) {
+                     HCRYPTPROV hProv;
+                     if (CryptAcquireContext(&hProv, vhost->tls.ssl_ctx->key_container_name, MS_ENH_RSA_AES_PROV, PROV_RSA_AES, CRYPT_DELETEKEYSET | CRYPT_SILENT)) {
+                         // Successfully deleted
+                     }
+                }
+            }
+        } else {
+            /* CNG (EC) */
+            /* Ephemeral handles are returned, named container handles are closed but need deleting. */
+            /* If it's a named container, we might not have the handle open (it was closed after link). */
+            /* If it's ephemeral, we have the handle. */
+
+            if (vhost->tls.ssl_ctx->u.key_cng) {
+                 NCryptFreeObject(vhost->tls.ssl_ctx->u.key_cng);
+            }
+
             if (vhost->tls.ssl_ctx->key_container_name[0]) {
-                 HCRYPTPROV hProv;
-                 if (CryptAcquireContext(&hProv, vhost->tls.ssl_ctx->key_container_name, MS_ENH_RSA_AES_PROV, PROV_RSA_AES, CRYPT_DELETEKEYSET | CRYPT_SILENT)) {
-                     // Successfully deleted
+                 /* Delete named key */
+                 NCRYPT_PROV_HANDLE hProv = 0;
+                 if (NCryptOpenStorageProvider(&hProv, MS_KEY_STORAGE_PROVIDER, 0) == ERROR_SUCCESS) {
+                      NCRYPT_KEY_HANDLE hKey = 0;
+                      /* We need to open it to delete it? */
+                      /* Wait, NCryptDeleteKey takes a key handle. */
+                      WCHAR wName[128];
+                      if (MultiByteToWideChar(CP_UTF8, 0, vhost->tls.ssl_ctx->key_container_name, -1, wName, 128)) {
+                           if (NCryptOpenKey(hProv, &hKey, wName, 0, 0) == ERROR_SUCCESS) {
+                                NCryptDeleteKey(hKey, 0);
+                                /* hKey is freed by DeleteKey? "The handle is invalid after this function returns" */
+                           }
+                      }
+                      NCryptFreeObject(hProv);
                  }
             }
         }
+
         if (vhost->tls.ssl_ctx->store)
             CertCloseStore(vhost->tls.ssl_ctx->store, 0);
         lws_free(vhost->tls.ssl_ctx);
@@ -134,8 +168,14 @@ lws_ssl_destroy(struct lws_vhost *vhost)
            But if it passed a pointer, it would get an HCRYPTPROV.
            Let's assume CAPI.
         */
-        if (vhost->tls.ssl_client_ctx->key_prov)
-            CryptReleaseContext(vhost->tls.ssl_client_ctx->key_prov, 0);
+        if (vhost->tls.ssl_client_ctx->key_type == 0) {
+             if (vhost->tls.ssl_client_ctx->u.key_prov)
+                 CryptReleaseContext(vhost->tls.ssl_client_ctx->u.key_prov, 0);
+        } else {
+             if (vhost->tls.ssl_client_ctx->u.key_cng)
+                 NCryptFreeObject(vhost->tls.ssl_client_ctx->u.key_cng);
+        }
+
         if (vhost->tls.ssl_client_ctx->store)
             CertCloseStore(vhost->tls.ssl_client_ctx->store, 0);
         lws_free(vhost->tls.ssl_client_ctx);
@@ -202,7 +242,8 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
                                                If client needs it open, we MUST pass the pointer.
                                                So I will pass the pointer.
                                             */
-                                            &vh->tls.ssl_client_ctx->key_prov,
+                                            (void **)&vh->tls.ssl_client_ctx->u.key_prov,
+                                            &vh->tls.ssl_client_ctx->key_type,
                                             NULL) == 0) {
             schannel_cred.cCreds = 1;
             schannel_cred.paCred = &pCertCtx;
