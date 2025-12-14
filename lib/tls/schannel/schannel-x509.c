@@ -699,6 +699,13 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 	    goto cleanup;
 	}
 
+    /* Allow export (SChannel might need this to move key to LSA process) */
+    DWORD exportPolicy = NCRYPT_ALLOW_EXPORT_FLAG | NCRYPT_ALLOW_PLAINTEXT_EXPORT_FLAG;
+    status = NCryptSetProperty(hKey, NCRYPT_EXPORT_POLICY_PROPERTY, (PBYTE)&exportPolicy, sizeof(exportPolicy), 0);
+    if (status != ERROR_SUCCESS) {
+         lwsl_warn("NCryptSetProperty(ExportPolicy) failed 0x%x\n", (int)status);
+    }
+
 	/* 5. Link Key to Cert */
 	if (!CertSetCertificateContextProperty(x509_obj.cert, CERT_NCRYPT_KEY_HANDLE_PROP_ID, 0, (void*)&hKey)) {
 	     lwsl_err("CertSetCertificateContextProperty (Handle) failed %d\n", GetLastError());
@@ -719,7 +726,7 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 	   However, usually hKey keeps a reference to its provider.
 	   Safe bet: Do not free hProv either if hKey is alive.
 	*/
-	hProv = 0;
+	/* hProv will be handled in cleanup to return to caller if phProv is set */
 
 	*pcert = x509_obj.cert;
 	ret = 0;
