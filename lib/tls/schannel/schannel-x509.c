@@ -543,11 +543,6 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
         goto cleanup;
     }
 
-    if (key_der) {
-        lwsl_notice("Key DER len %d\n", (int)key_der_len);
-        lwsl_hexdump_notice(key_der, key_der_len > 64 ? 64 : key_der_len);
-    }
-
     /* Check if it is an EC key */
     /* If it is EC, we use CNG. If RSA, we use Legacy CAPI. */
     /* Simple check: If pem string contains "EC PRIVATE KEY", it's EC. */
@@ -579,8 +574,6 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
         }
     }
 
-    lwsl_notice("%s: is_ec = %d\n", __func__, is_ec);
-
     if (is_ec) {
         /* EC Path: Use CNG (NCrypt) */
         NCRYPT_PROV_HANDLE hProvCNG = 0;
@@ -605,10 +598,6 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
         /* Windows 10+ might support ECCPRIVATE_BLOB? */
         /* But generic "Private Key" usually implies PKCS#8. */
         /* Let's try importing as PKCS8 first. */
-
-        CRYPT_PKCS8_IMPORT_PARAMS params = {0};
-        /* For named container, we need to specify policy? */
-        /* Actually, NCryptImportKey with NCRYPT_PKCS8_PRIVATE_KEY_BLOB ignores legacy params usually. */
 
         DWORD flags = 0;
         if (container_name) {
