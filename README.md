@@ -2,6 +2,8 @@
 
 # Libwebsockets
 
+** NEW on main: Windows tls + gencrypto apis without OpenSSL: -DLWS_WITH_SCHANNEL=1 **
+
 ** v4.5 is released, you can follow it on v4.5-stable **
 
 Libwebsockets is a simple-to-use, MIT-license, pure C library providing client and server
@@ -145,7 +147,7 @@ In 2025, writing actual code with AI is quite scary while at the same time offer
 forward for the thankless and lonely task of maintaining FOSS code.  I have been using Google's
 Gemini 2.5 and now 3.0, while it's very good at looking at the code and what I am asking
 and producing something sane (much better than a year ago or self-hosted generic models),
-it falls down badly on being able to complete the scope of the patch that it figured out it
+it can fall down badly on being able to complete the scope of the patch that it figured out it
 wants to do, and simply stops too early and drops the rest on the floor.
 
 It deserves praise for being able to work with quite complicated apis in lws like `lws_struct`
@@ -159,7 +161,7 @@ It's also suffering from being strong with its mental model of what's going on a
 change does, but very weak when it has to be told that its patch doesn't do what it expected.
 Where a human would 'trap' the difference between its mental model and reality so they can
 see where the model broke, they will often avoid adding logging and instead go down very
-unlikely rabbit holes for hours.
+unlikely rabbit holes for hours.  (Gemini 3.0 has gotten better at this).
 
 At the same time, it knows that maintainability and security are supposed to be desirable
 traits.  But it knows it in the same way it knows layered patches are desirable, it can't
