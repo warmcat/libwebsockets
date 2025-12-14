@@ -303,6 +303,8 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			authInfo->pbMacContext = ctx->u.pbMacContext;
 			authInfo->cbMacContext = (ULONG)ctx->u.cbMacContext;
 			authInfo->dwFlags = BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG;
+			authInfo->pbAuthData = NULL;
+			authInfo->cbAuthData = 0;
 
 			if (ctx->op == LWS_GAESO_ENC) {
 				status = BCryptEncrypt(ctx->u.hKey, (PUCHAR)in, (ULONG)len, authInfo, NULL, 0, (PUCHAR)out, (ULONG)len, &result_len, 0);
