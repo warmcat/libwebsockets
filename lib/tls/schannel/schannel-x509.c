@@ -691,7 +691,7 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 	    goto cleanup;
 	}
 
-	status = NCryptImportKey(hProv, 0, BCRYPT_RSAFULLPRIVATE_BLOB, NULL, &hKey, (PBYTE)rsablob, bloblen, 0);
+	status = NCryptImportKey(hProv, 0, BCRYPT_RSAFULLPRIVATE_BLOB, NULL, &hKey, (PBYTE)rsablob, bloblen, NCRYPT_SILENT_FLAG);
 	lws_free(rsablob);
 
 	if (status != ERROR_SUCCESS) {
@@ -707,7 +707,7 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
     }
 
     /* Set Key Usage (SChannel needs to know it can decrypt/sign) */
-    DWORD keyUsage = NCRYPT_ALLOW_DECRYPT_FLAG | NCRYPT_ALLOW_SIGNING_FLAG | NCRYPT_ALLOW_KEY_AGREEMENT_FLAG;
+    DWORD keyUsage = NCRYPT_ALLOW_ALL_USAGES;
     status = NCryptSetProperty(hKey, NCRYPT_KEY_USAGE_PROPERTY, (PBYTE)&keyUsage, sizeof(keyUsage), 0);
     if (status != ERROR_SUCCESS) {
          lwsl_warn("NCryptSetProperty(KeyUsage) failed 0x%x\n", (int)status);

@@ -173,7 +173,8 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
         if (lws_tls_schannel_cert_info_load(vh->context, cert_filepath, private_key_filepath,
                                             cert_mem, cert_mem_len,
                                             key_mem, key_mem_len, &pCertCtx,
-                                            NULL, NULL) == 0) {
+                                            &vh->tls.ssl_client_ctx->store,
+                                            &vh->tls.ssl_client_ctx->key_prov) == 0) {
             schannel_cred.cCreds = 1;
             schannel_cred.paCred = &pCertCtx;
         }
