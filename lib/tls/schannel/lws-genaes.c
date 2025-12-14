@@ -178,7 +178,8 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			lwsl_notice("%s: MacContext info: status 0x%x, size %lu\n", __func__, (unsigned int)st, ctx->u.cbMacContext);
 
 			ctx->u.pbMacContext = lws_malloc(ctx->u.cbMacContext, "genaes mac ctx");
-			if (!ctx->u.pbMacContext) return -1;
+			if (!ctx->u.pbMacContext)
+				return -1;
 			/* Initialize to zero for first use */
 			memset(ctx->u.pbMacContext, 0, ctx->u.cbMacContext);
 
@@ -193,7 +194,8 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 
 			/* Allocate Nonce Buffer */
 			ctx->u.pbNonce = lws_malloc(ctx->u.cbNonce, "genaes nonce");
-			if (!ctx->u.pbNonce) return -1;
+			if (!ctx->u.pbNonce)
+				return -1;
 
 			/* Initialize Nonce */
 			if (iv)
@@ -205,7 +207,8 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			int tlen = (taglen > 0) ? taglen : 16; /* Default to 16 if unknown */
 			ctx->u.cbTag = tlen;
 			ctx->u.pbTag = lws_malloc(ctx->u.cbTag, "genaes tag");
-			if (!ctx->u.pbTag) return -1;
+			if (!ctx->u.pbTag)
+				return -1;
 			memset(ctx->u.pbTag, 0, ctx->u.cbTag);
 
 			/* Removed explicit BCryptSetProperty for BCRYPT_AUTH_TAG_LENGTH as it fails with STATUS_NOT_SUPPORTED on some providers */
@@ -238,12 +241,14 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 				   Passing NULL for pbOutput puts BCrypt in "Get Size" mode and does not update context. */
 				uint8_t dummy[128];
 
+				memset(dummy, 0, sizeof(dummy));
+
 				lwsl_notice("%s: GCM AAD processing: len %lu, cbTag %lu, cbNonce %lu\n", __func__, (unsigned long)len, (unsigned long)ctx->u.cbTag, (unsigned long)ctx->u.cbNonce);
 
 				if (ctx->op == LWS_GAESO_ENC) {
-					status = BCryptEncrypt(ctx->u.hKey, NULL, 0, &authInfo, NULL, 0, dummy, sizeof(dummy), &result_len, 0);
+					status = BCryptEncrypt(ctx->u.hKey, dummy, 0, &authInfo, NULL, 0, dummy, sizeof(dummy), &result_len, 0);
 				} else {
-					status = BCryptDecrypt(ctx->u.hKey, NULL, 0, &authInfo, NULL, 0, dummy, sizeof(dummy), &result_len, 0);
+					status = BCryptDecrypt(ctx->u.hKey, dummy, 0, &authInfo, NULL, 0, dummy, sizeof(dummy), &result_len, 0);
 				}
 
 				if (!BCRYPT_SUCCESS(status)) {
