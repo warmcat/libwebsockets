@@ -561,14 +561,14 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
         const uint8_t *kp = key_der;
         const uint8_t *kend = key_der + key_der_len;
         size_t seq_len;
-        if (kp < kend && *kp == 0x30 && lws_asn1_read_length(&kp, kend, &seq_len) == 0) {
+        if (kp < kend && *kp++ == 0x30 && lws_asn1_read_length(&kp, kend, &seq_len) == 0) {
              /* Check for version 0 */
              size_t ver_len;
-             if (kp < kend && *kp == 0x02 && lws_asn1_read_length(&kp, kend, &ver_len) == 0) {
+             if (kp < kend && *kp++ == 0x02 && lws_asn1_read_length(&kp, kend, &ver_len) == 0) {
                   kp += ver_len;
                   /* Next is AlgorithmIdentifier Sequence */
                   size_t alg_len;
-                  if (kp < kend && *kp == 0x30 && lws_asn1_read_length(&kp, kend, &alg_len) == 0) {
+                  if (kp < kend && *kp++ == 0x30 && lws_asn1_read_length(&kp, kend, &alg_len) == 0) {
                        /* Check OID: 1.2.840.10045.2.1 is 06 07 2A 86 48 CE 3D 02 01 */
                        const uint8_t ec_oid[] = { 0x06, 0x07, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x02, 0x01 };
                        if (alg_len >= sizeof(ec_oid) && !memcmp(kp, ec_oid, sizeof(ec_oid))) {
