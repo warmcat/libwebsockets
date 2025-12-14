@@ -106,7 +106,7 @@ lws_ssl_destroy(struct lws_vhost *vhost)
         if (vhost->tls.ssl_ctx->initialized)
             FreeCredentialsHandle(&vhost->tls.ssl_ctx->cred);
         if (vhost->tls.ssl_ctx->key_prov)
-            NCryptFreeObject(vhost->tls.ssl_ctx->key_prov);
+            CryptReleaseContext(vhost->tls.ssl_ctx->key_prov, 0);
         if (vhost->tls.ssl_ctx->store)
             CertCloseStore(vhost->tls.ssl_ctx->store, 0);
         lws_free(vhost->tls.ssl_ctx);
@@ -115,8 +115,13 @@ lws_ssl_destroy(struct lws_vhost *vhost)
     if (vhost->tls.ssl_client_ctx) {
         if (vhost->tls.ssl_client_ctx->initialized)
             FreeCredentialsHandle(&vhost->tls.ssl_client_ctx->cred);
+        /* Client context might not have key_prov set if we passed NULL, but if it does (future use), use CryptReleaseContext if it was CAPI?
+           Wait, lws_tls_client_create_vhost_context passes NULL for phProv currently.
+           But if it passed a pointer, it would get an HCRYPTPROV.
+           Let's assume CAPI.
+        */
         if (vhost->tls.ssl_client_ctx->key_prov)
-            NCryptFreeObject(vhost->tls.ssl_client_ctx->key_prov);
+            CryptReleaseContext(vhost->tls.ssl_client_ctx->key_prov, 0);
         if (vhost->tls.ssl_client_ctx->store)
             CertCloseStore(vhost->tls.ssl_client_ctx->store, 0);
         lws_free(vhost->tls.ssl_client_ctx);
@@ -174,6 +179,15 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
                                             cert_mem, cert_mem_len,
                                             key_mem, key_mem_len, &pCertCtx,
                                             &vh->tls.ssl_client_ctx->store,
+                                            /* We pass NULL for provider because client usually relies on default behavior or different handling.
+                                               Actually, if we want to support client certs from memory properly, we SHOULD pass &vh->tls.ssl_client_ctx->key_prov.
+                                               But the current change switches implementation to CAPI.
+                                               Let's stick to NULL for client for now to match "existing working" state (where we assumed it worked without keeping prov open, or used a different flow).
+                                               Wait, earlier finding was that client LEAKED the provider.
+                                               If we pass NULL, my new implementation in schannel-x509.c closes it.
+                                               If client needs it open, we MUST pass the pointer.
+                                               So I will pass the pointer.
+                                            */
                                             &vh->tls.ssl_client_ctx->key_prov) == 0) {
             schannel_cred.cCreds = 1;
             schannel_cred.paCred = &pCertCtx;

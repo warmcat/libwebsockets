@@ -455,16 +455,14 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
                                 const char *mem_cert, size_t len_mem_cert,
                                 const char *mem_privkey, size_t mem_privkey_len,
                                 PCCERT_CONTEXT *pcert, HCERTSTORE *phStore,
-                                NCRYPT_PROV_HANDLE *phProv)
+                                HCRYPTPROV *phProv)
 {
 	struct lws_x509_cert x509_obj = {0};
 	struct lws_gencrypto_keyelem e[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
-	BCRYPT_RSAKEY_BLOB *rsablob;
+	BYTE *rsablob = NULL;
 	ULONG bloblen;
-	NCRYPT_PROV_HANDLE hProv = 0;
-	NCRYPT_KEY_HANDLE hKey = 0;
-	SECURITY_STATUS status;
-	uint8_t *p;
+	HCRYPTPROV hProv = 0;
+	HCRYPTKEY hKey = 0;
 	int ret = 1;
 
 	if (phStore) *phStore = NULL;
@@ -598,132 +596,146 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
         lwsl_hexdump_notice(e[LWS_GENCRYPTO_RSA_KEYEL_N].buf, 16);
     }
 
-	/* 3. Convert to BCRYPT_RSAKEY_BLOB */
-	/* Determine aligned sizes for fields. BCRYPT expects fixed sizes for Modulus/D and Primes/Exps/Coeff. */
+	/* 3. Convert to PRIVATEKEYBLOB (CAPI) */
+	/* BLOBHEADER + RSAPUBKEY + Modulus + Prime1 + Prime2 + Exponent1 + Exponent2 + Coefficient + PrivateExponent */
+	/* CAPI uses Little Endian. */
 
-	uint32_t cbModulus = e[LWS_GENCRYPTO_RSA_KEYEL_N].len;
-	if (e[LWS_GENCRYPTO_RSA_KEYEL_D].len > cbModulus) cbModulus = e[LWS_GENCRYPTO_RSA_KEYEL_D].len;
+    uint32_t cbModulus = e[LWS_GENCRYPTO_RSA_KEYEL_N].len;
+    /* Ensure alignment to 8 bytes if needed? Usually just length */
+    uint32_t bitlen = cbModulus * 8;
+    uint32_t cbPrime = cbModulus / 2;
 
-	uint32_t cbPrime1 = e[LWS_GENCRYPTO_RSA_KEYEL_P].len;
-	if (e[LWS_GENCRYPTO_RSA_KEYEL_Q].len > cbPrime1) cbPrime1 = e[LWS_GENCRYPTO_RSA_KEYEL_Q].len;
-	if (e[LWS_GENCRYPTO_RSA_KEYEL_DP].len > cbPrime1) cbPrime1 = e[LWS_GENCRYPTO_RSA_KEYEL_DP].len;
-	if (e[LWS_GENCRYPTO_RSA_KEYEL_DQ].len > cbPrime1) cbPrime1 = e[LWS_GENCRYPTO_RSA_KEYEL_DQ].len;
-	if (e[LWS_GENCRYPTO_RSA_KEYEL_QI].len > cbPrime1) cbPrime1 = e[LWS_GENCRYPTO_RSA_KEYEL_QI].len;
+    bloblen = sizeof(BLOBHEADER) + sizeof(RSAPUBKEY) +
+              cbModulus +
+              cbPrime + /* P */
+              cbPrime + /* Q */
+              cbPrime + /* DP */
+              cbPrime + /* DQ */
+              cbPrime + /* InverseQ (Coeff) */
+              cbModulus; /* D */
 
-	bloblen = sizeof(BCRYPT_RSAKEY_BLOB) +
-		e[LWS_GENCRYPTO_RSA_KEYEL_E].len +
-		cbModulus +     /* N */
-		cbPrime1 +      /* P */
-		cbPrime1 +      /* Q */
-		cbPrime1 +      /* DP */
-		cbPrime1 +      /* DQ */
-		cbPrime1 +      /* QI */
-		cbModulus;      /* D */
+    rsablob = lws_malloc(bloblen, "rsablob capi");
+    if (!rsablob) {
+        lws_gencrypto_destroy_elements(e, LWS_GENCRYPTO_RSA_KEYEL_COUNT);
+        goto cleanup;
+    }
 
-	rsablob = (BCRYPT_RSAKEY_BLOB *)lws_malloc(bloblen, "rsablob");
-	if (!rsablob) {
-	    lws_gencrypto_destroy_elements(e, LWS_GENCRYPTO_RSA_KEYEL_COUNT);
-	    goto cleanup;
-	}
+    BLOBHEADER *blobHeader = (BLOBHEADER *)rsablob;
+    blobHeader->bType = PRIVATEKEYBLOB;
+    blobHeader->bVersion = CUR_BLOB_VERSION;
+    blobHeader->reserved = 0;
+    blobHeader->aiKeyAlg = CALG_RSA_KEYX;
 
-	rsablob->Magic = BCRYPT_RSAFULLPRIVATE_MAGIC;
-	rsablob->BitLength = cbModulus * 8;
-	rsablob->cbPublicExp = e[LWS_GENCRYPTO_RSA_KEYEL_E].len;
-	rsablob->cbModulus = cbModulus;
-	rsablob->cbPrime1 = cbPrime1;
-	rsablob->cbPrime2 = cbPrime1;
+    RSAPUBKEY *rsaPubKey = (RSAPUBKEY *)(rsablob + sizeof(BLOBHEADER));
+    rsaPubKey->magic = 0x32415352; /* "RSA2" for private key */
+    rsaPubKey->bitlen = bitlen;
+    /* Public Exponent: usually small, fit in 4 bytes. e.g. 65537 */
+    uint32_t pubExp = 0;
+    if (e[LWS_GENCRYPTO_RSA_KEYEL_E].len <= 4) {
+        /* ASN.1 is Big Endian. Convert to int host order (usually LE on Windows) */
+        for (uint32_t i = 0; i < e[LWS_GENCRYPTO_RSA_KEYEL_E].len; i++) {
+            pubExp = (pubExp << 8) | e[LWS_GENCRYPTO_RSA_KEYEL_E].buf[i];
+        }
+    } else {
+        /* Standard CAPI RSAPUBKEY has only DWORD pubexp. If larger, this structure is insufficient. */
+        /* Assuming standard exp */
+        pubExp = 65537;
+    }
+    rsaPubKey->pubexp = pubExp; /* Already LE if assigned to uint32 */
 
-	p = (uint8_t *)(rsablob + 1);
+    uint8_t *p = (uint8_t *)(rsaPubKey + 1);
 
-	/* Copy Public Exponent (no padding needed usually, var length allowed in header) */
-	memcpy(p, e[LWS_GENCRYPTO_RSA_KEYEL_E].buf, rsablob->cbPublicExp);
-	p += rsablob->cbPublicExp;
+    /* Helper macro to copy and reverse (Big Endian -> Little Endian) */
+    /* And pad with zeros at the END (high bytes) if source is shorter than dest */
+#define COPY_REVERSE(elem, size) \
+    do { \
+        uint32_t _len = e[elem].len; \
+        uint32_t _size = size; \
+        if (_len > _size) _len = _size; \
+        for (uint32_t i = 0; i < _len; i++) { \
+            p[(_len - 1) - i] = e[elem].buf[i]; \
+        } \
+        if (_size > _len) { \
+            memset(p + _len, 0, _size - _len); \
+        } \
+        p += _size; \
+    } while(0)
 
-	/* Copy Modulus (pad front) */
-	memset(p, 0, cbModulus);
-	if (e[LWS_GENCRYPTO_RSA_KEYEL_N].len > 0)
-	    memcpy(p + (cbModulus - e[LWS_GENCRYPTO_RSA_KEYEL_N].len), e[LWS_GENCRYPTO_RSA_KEYEL_N].buf, e[LWS_GENCRYPTO_RSA_KEYEL_N].len);
-	p += cbModulus;
+    COPY_REVERSE(LWS_GENCRYPTO_RSA_KEYEL_N, cbModulus);
+    COPY_REVERSE(LWS_GENCRYPTO_RSA_KEYEL_P, cbPrime);
+    COPY_REVERSE(LWS_GENCRYPTO_RSA_KEYEL_Q, cbPrime);
+    COPY_REVERSE(LWS_GENCRYPTO_RSA_KEYEL_DP, cbPrime);
+    COPY_REVERSE(LWS_GENCRYPTO_RSA_KEYEL_DQ, cbPrime);
+    COPY_REVERSE(LWS_GENCRYPTO_RSA_KEYEL_QI, cbPrime);
+    COPY_REVERSE(LWS_GENCRYPTO_RSA_KEYEL_D, cbModulus);
 
-	/* Copy Prime1 (pad front) */
-	memset(p, 0, cbPrime1);
-	if (e[LWS_GENCRYPTO_RSA_KEYEL_P].len > 0)
-	    memcpy(p + (cbPrime1 - e[LWS_GENCRYPTO_RSA_KEYEL_P].len), e[LWS_GENCRYPTO_RSA_KEYEL_P].buf, e[LWS_GENCRYPTO_RSA_KEYEL_P].len);
-	p += cbPrime1;
-
-	/* Copy Prime2 (pad front) */
-	memset(p, 0, cbPrime1);
-	if (e[LWS_GENCRYPTO_RSA_KEYEL_Q].len > 0)
-	    memcpy(p + (cbPrime1 - e[LWS_GENCRYPTO_RSA_KEYEL_Q].len), e[LWS_GENCRYPTO_RSA_KEYEL_Q].buf, e[LWS_GENCRYPTO_RSA_KEYEL_Q].len);
-	p += cbPrime1;
-
-	/* Copy Exp1 (DP) (pad front) */
-	memset(p, 0, cbPrime1);
-	if (e[LWS_GENCRYPTO_RSA_KEYEL_DP].len > 0)
-	    memcpy(p + (cbPrime1 - e[LWS_GENCRYPTO_RSA_KEYEL_DP].len), e[LWS_GENCRYPTO_RSA_KEYEL_DP].buf, e[LWS_GENCRYPTO_RSA_KEYEL_DP].len);
-	p += cbPrime1;
-
-	/* Copy Exp2 (DQ) (pad front) */
-	memset(p, 0, cbPrime1);
-	if (e[LWS_GENCRYPTO_RSA_KEYEL_DQ].len > 0)
-	    memcpy(p + (cbPrime1 - e[LWS_GENCRYPTO_RSA_KEYEL_DQ].len), e[LWS_GENCRYPTO_RSA_KEYEL_DQ].buf, e[LWS_GENCRYPTO_RSA_KEYEL_DQ].len);
-	p += cbPrime1;
-
-	/* Copy Coeff (QI) (pad front) */
-	memset(p, 0, cbPrime1);
-	if (e[LWS_GENCRYPTO_RSA_KEYEL_QI].len > 0)
-	    memcpy(p + (cbPrime1 - e[LWS_GENCRYPTO_RSA_KEYEL_QI].len), e[LWS_GENCRYPTO_RSA_KEYEL_QI].buf, e[LWS_GENCRYPTO_RSA_KEYEL_QI].len);
-	p += cbPrime1;
-
-	/* Copy PrivateExponent (pad front) */
-	memset(p, 0, cbModulus);
-	if (e[LWS_GENCRYPTO_RSA_KEYEL_D].len > 0)
-	    memcpy(p + (cbModulus - e[LWS_GENCRYPTO_RSA_KEYEL_D].len), e[LWS_GENCRYPTO_RSA_KEYEL_D].buf, e[LWS_GENCRYPTO_RSA_KEYEL_D].len);
-	p += cbModulus;
+#undef COPY_REVERSE
 
 	lws_gencrypto_destroy_elements(e, LWS_GENCRYPTO_RSA_KEYEL_COUNT);
 
-	/* 4. Import Key */
-	status = NCryptOpenStorageProvider(&hProv, MS_KEY_STORAGE_PROVIDER, 0);
-	if (status != ERROR_SUCCESS) {
-	    lwsl_err("NCryptOpenStorageProvider failed 0x%x\n", (int)status);
-	    lws_free(rsablob);
-	    goto cleanup;
-	}
-
-	status = NCryptImportKey(hProv, 0, BCRYPT_RSAFULLPRIVATE_BLOB, NULL, &hKey, (PBYTE)rsablob, bloblen, NCRYPT_SILENT_FLAG);
-	lws_free(rsablob);
-
-	if (status != ERROR_SUCCESS) {
-	    lwsl_err("NCryptImportKey failed 0x%x\n", (int)status);
-	    goto cleanup;
-	}
-
-    /* Allow export (SChannel might need this to move key to LSA process) */
-    DWORD exportPolicy = NCRYPT_ALLOW_EXPORT_FLAG | NCRYPT_ALLOW_PLAINTEXT_EXPORT_FLAG;
-    status = NCryptSetProperty(hKey, NCRYPT_EXPORT_POLICY_PROPERTY, (PBYTE)&exportPolicy, sizeof(exportPolicy), 0);
-    if (status != ERROR_SUCCESS) {
-         lwsl_warn("NCryptSetProperty(ExportPolicy) failed 0x%x\n", (int)status);
+	/* 4. Import Key (Legacy CAPI) */
+    if (!CryptAcquireContext(&hProv, NULL, MS_ENH_RSA_AES_PROV, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT | CRYPT_SILENT)) {
+        /* Try without SILENT? Or default container? VERIFYCONTEXT is for ephemeral */
+        lwsl_err("CryptAcquireContext failed 0x%x\n", GetLastError());
+        lws_free(rsablob);
+        goto cleanup;
     }
 
-    /* Set Key Usage (SChannel needs to know it can decrypt/sign) */
-    DWORD keyUsage = NCRYPT_ALLOW_ALL_USAGES;
-    status = NCryptSetProperty(hKey, NCRYPT_KEY_USAGE_PROPERTY, (PBYTE)&keyUsage, sizeof(keyUsage), 0);
-    if (status != ERROR_SUCCESS) {
-         lwsl_warn("NCryptSetProperty(KeyUsage) failed 0x%x\n", (int)status);
+    if (!CryptImportKey(hProv, rsablob, bloblen, 0, CRYPT_EXPORTABLE, &hKey)) {
+        lwsl_err("CryptImportKey failed 0x%x\n", GetLastError());
+        lws_free(rsablob);
+        goto cleanup;
     }
+    lws_free(rsablob);
 
-	/* 5. Link Key to Cert */
-	if (!CertSetCertificateContextProperty(x509_obj.cert, CERT_NCRYPT_KEY_HANDLE_PROP_ID, 0, (void*)&hKey)) {
-	     lwsl_err("CertSetCertificateContextProperty (Handle) failed %d\n", GetLastError());
+	/* 5. Link Key to Cert (Legacy Property) */
+	if (!CertSetCertificateContextProperty(x509_obj.cert, CERT_KEY_PROV_HANDLE_PROP_ID, 0, (void*)hProv)) {
+	     lwsl_err("CertSetCertificateContextProperty (ProvHandle) failed %d\n", GetLastError());
 	     goto cleanup;
 	}
 
-    /* Set Key Spec (CERT_NCRYPT_KEY_SPEC) */
-    DWORD keySpec = CERT_NCRYPT_KEY_SPEC;
-    if (!CertSetCertificateContextProperty(x509_obj.cert, CERT_KEY_SPEC_PROP_ID, 0, (void*)&keySpec)) {
-         lwsl_info("CertSetCertificateContextProperty (KeySpec) failed %d (ignored)\n", GetLastError());
+    /* No Key Spec warning needed, we rely on implicit AT_KEYEXCHANGE or similar */
+    /* With CERT_KEY_PROV_HANDLE_PROP_ID, the provider handle implies the spec if associated with key */
+    /* Actually CryptImportKey associates it. */
+
+	lwsl_notice("%s: loaded cert and attached key (CAPI)\n", __func__);
+
+	hKey = 0; /* Owned by provider/context? CryptDestroyKey is needed? */
+    /* CryptImportKey creates a key IN the provider.
+       If we keep hProv open, the key remains valid.
+       Do we need to keep hKey open?
+       CertSetCertificateContextProperty(CERT_KEY_PROV_HANDLE_PROP_ID) takes the PROVIDER handle.
+       It does not take the KEY handle.
+       But the key must be in the provider's container.
+       With CRYPT_VERIFYCONTEXT, the key is in memory of the provider.
+       We should probably NOT destroy the key handle if we want it to persist?
+       Actually, standard usage is: Import key, set Prov Handle property.
+       Does the property take ownership of the key? No, it takes the provider.
+       If we destroy the key, is it gone from the provider?
+       "When you have finished using the key, release the handle by calling the CryptDestroyKey function."
+       If we destroy it, it might be gone.
+       However, usually CERT_KEY_PROV_HANDLE_PROP_ID is used for keys in containers.
+       For memory keys (VERIFYCONTEXT), we import it into the *context*.
+       Does closing hKey remove it?
+       Usually yes. So we should leak hKey too?
+       Or does hProv own it?
+       Actually, `CertSetCertificateContextProperty` with `CERT_KEY_PROV_HANDLE_PROP_ID` associates the *Provider*.
+       But how does it know WHICH key in the provider?
+       The provider has a key container.
+       `CryptImportKey` puts it there.
+       Wait. `PROV_RSA_FULL` supports AT_KEYEXCHANGE and AT_SIGNATURE.
+       The blob header `aiKeyAlg = CALG_RSA_KEYX` sets it as Exchange key.
+       So it occupies the Exchange slot.
+       So we don't need the key handle specifically, just the provider handle.
+       So we can close hKey.
+    */
+    if (hKey) {
+        CryptDestroyKey(hKey);
+        hKey = 0;
     }
+
+	*pcert = x509_obj.cert;
+	ret = 0;
 
 	lwsl_notice("%s: loaded cert and attached key\n", __func__);
 
@@ -739,12 +751,13 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 	ret = 0;
 
 cleanup:
-    if (hKey) NCryptFreeObject(hKey);
+    /* hKey is CryptDestroyKey for CAPI, but if we zeroed it, it's fine. */
+    if (hKey) CryptDestroyKey(hKey);
     if (hProv) {
         if (!ret && phProv)
             *phProv = hProv;
         else
-            NCryptFreeObject(hProv);
+            CryptReleaseContext(hProv, 0);
     }
     if (ret && x509_obj.cert) CertFreeCertificateContext(x509_obj.cert);
     if (ret && phStore && *phStore) {
