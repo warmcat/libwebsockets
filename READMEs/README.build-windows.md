@@ -1,4 +1,16 @@
-# Some notes for the windows jungle
+# Building with schannel / bcrypt on Windows
+
+Windows has some built in crypto library functions which lws now knows how to
+use, with `-DLWS_WITH_SCHANNEL=1`
+
+This means you don't need openssl on windows and can build it out of the box
+on windows.
+
+lws generic crypto stuff is supported, as is tls client and tls server
+as normal.  lws brings in trusted CAs using windows' certificate store,
+but for serving, it uses cert and key from files as does lws on unix.
+
+# Some notes for building openssl on windows
 
 This was how I compiled libwebsockets starting from a blank windows install
 in June 2025.  Doing this on a linux distro is way simpler and quicker

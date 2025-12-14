@@ -856,7 +856,15 @@ lws_create_context(const struct lws_context_creation_info *info)
 		lwsl_cx_notice(context, "LWS: %s, MbedTLS-%s %s%s", library_version, mbedtls_version, opts_str, s);
 	}
 #else
+#if defined(LWS_WITH_SCHANNEL)
+	lwsl_cx_notice(context, "LWS: %s, SChannel, %s%s", library_version, opts_str, s);
+#else
+#if defined(LWS_WITH_SSL)
+	lwsl_cx_notice(context, "LWS: %s, OpenSSL, %s%s", library_version, opts_str, s);
+#else
 	lwsl_cx_notice(context, "LWS: %s, %s%s", library_version, opts_str, s);
+#endif
+#endif
 #endif
 
 #if defined(LWS_WITH_NETWORK)

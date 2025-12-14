@@ -124,7 +124,7 @@ lws_b64_decode_stateful(struct lws_b64state *s, const char *in, size_t *in_len,
 			while (in < end_in && *in && !v) {
 				s->c = v = (unsigned char)*in++;
 
-				if (v == '\x0a') {
+				if (v == '\x0a' || v == '\x0d') {
 					v = 0;
 					continue;
 				}
