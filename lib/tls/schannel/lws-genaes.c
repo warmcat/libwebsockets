@@ -233,6 +233,7 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			authInfo->cbNonce = (ULONG)ctx->u.cbNonce;
 			if (ctx->op == LWS_GAESO_ENC) {
 				authInfo->pbTag = NULL;
+				/* For encryption start, cbTag must be 0 */
 				authInfo->cbTag = 0;
 			} else {
 				authInfo->pbTag = ctx->u.pbTag;
@@ -246,7 +247,7 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			if (in && len) {
 				uint8_t *dummy_in, *dummy_out, *authData = NULL;
 
-				/* Allocate dummy buffer for alignment */
+				/* Allocate dummy buffers for alignment */
 				dummy_in = lws_malloc(128, "genaes dummy in");
 				if (!dummy_in) {
 					lws_free(authInfo);
@@ -300,12 +301,14 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			return 0;
 		} else {
 			/* Subsequent calls: Process Payload */
+			BCRYPT_INIT_AUTH_MODE_INFO(*authInfo);
+
 			authInfo->pbNonce = ctx->u.pbNonce;
 			authInfo->cbNonce = (ULONG)ctx->u.cbNonce;
 			if (ctx->op == LWS_GAESO_ENC) {
 				authInfo->pbTag = NULL;
-				/* For encryption, cbTag must still be the size of the tag to be generated */
-				authInfo->cbTag = (ULONG)ctx->u.cbTag;
+				/* For encryption, cbTag must be 0 for intermediate calls */
+				authInfo->cbTag = 0;
 			} else {
 				authInfo->pbTag = ctx->u.pbTag;
 				authInfo->cbTag = (ULONG)ctx->u.cbTag;
@@ -313,8 +316,7 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			authInfo->pbMacContext = ctx->u.pbMacContext;
 			authInfo->cbMacContext = (ULONG)ctx->u.cbMacContext;
 			authInfo->dwFlags = BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG;
-			authInfo->pbAuthData = NULL;
-			authInfo->cbAuthData = 0;
+			/* pbAuthData is NULL by default via BCRYPT_INIT_AUTH_MODE_INFO */
 
 			{
 				uint8_t *in_aligned, *out_aligned;
