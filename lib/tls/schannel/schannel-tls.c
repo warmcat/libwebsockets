@@ -74,6 +74,27 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
     /* Allow all protocol versions by default */
     schannel_cred.grbitEnabledProtocols = 0;
 
+    /* Diagnostics: Verify key availability before SChannel */
+    {
+        HCRYPTPROV_OR_NCRYPT_KEY_HANDLE hCryptProvOrNCryptKey = 0;
+        DWORD dwSpec = 0;
+        BOOL fCallerFreeProvOrNCryptKey = FALSE;
+
+        if (CryptAcquireCertificatePrivateKey(pCertCtx,
+                                              CRYPT_ACQUIRE_ONLY_NCRYPT_KEY_FLAG | CRYPT_ACQUIRE_SILENT_FLAG,
+                                              NULL,
+                                              &hCryptProvOrNCryptKey,
+                                              &dwSpec,
+                                              &fCallerFreeProvOrNCryptKey)) {
+            lwsl_notice("Diagnostics: Successfully acquired private key. Spec: %d\n", (int)dwSpec);
+            if (fCallerFreeProvOrNCryptKey) {
+                 NCryptFreeObject(hCryptProvOrNCryptKey);
+            }
+        } else {
+            lwsl_err("Diagnostics: CryptAcquireCertificatePrivateKey failed: 0x%x\n", (int)GetLastError());
+        }
+    }
+
     status = AcquireCredentialsHandleA(NULL, UNISP_NAME_A, SECPKG_CRED_INBOUND, NULL,
                                       &schannel_cred, NULL, NULL,
                                       &vhost->tls.ssl_ctx->cred, &tsExpiry);
