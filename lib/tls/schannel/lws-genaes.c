@@ -290,8 +290,6 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			return 0;
 		} else {
 			/* Subsequent calls: Process Payload */
-			BCRYPT_INIT_AUTH_MODE_INFO(*authInfo);
-
 			authInfo->pbNonce = ctx->u.pbNonce;
 			authInfo->cbNonce = (ULONG)ctx->u.cbNonce;
 			if (ctx->op == LWS_GAESO_ENC) {
@@ -304,6 +302,8 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			authInfo->pbMacContext = ctx->u.pbMacContext;
 			authInfo->cbMacContext = (ULONG)ctx->u.cbMacContext;
 			authInfo->dwFlags = BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG;
+			authInfo->pbAuthData = NULL;
+			authInfo->cbAuthData = 0;
 
 			{
 				uint8_t *in_aligned, *out_aligned;
