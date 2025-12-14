@@ -630,10 +630,35 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
                                  // Actually the flag is typically passed in dwFlags? No, dwFlags is separate.
                                  // The blob type is a string.
 
-        /* Wait, NCryptImportKey signature:
-           (hProvider, hImportKey, pszBlobType, phKey, phKey, cbKey, dwFlags)
+        /* NCryptImportKey signature:
+           (hProvider, hImportKey, pszBlobType, pParameterList, phKey, pbInput, cbInput, dwFlags)
         */
-        status = NCryptImportKey(hProvCNG, 0, NCRYPT_PKCS8_PRIVATE_KEY_BLOB, NULL, &hKeyCNG, (PUCHAR)key_der, (DWORD)key_der_len, flags);
+        if (container_name) {
+             /* For persisted keys, we need to pass the key name property.
+                However, NCryptImportKey into a named key usually requires specific steps or using NCryptCreatePersistedKey.
+                Wait, if we use NCryptImportKey with NCRYPT_OVERWRITE_KEY_FLAG and a key name, how do we pass the key name?
+                Docs say: "The behavior of this function is consistent with the NCryptCreatePersistedKey function...".
+                NCryptCreatePersistedKey takes pszKeyName directly.
+                NCryptImportKey does NOT take pszKeyName directly in the signature.
+
+                Actually, to import a named key, we should:
+                1. Create a parameter list with NCRYPT_KEY_NAME_PROPERTY (L"Name").
+             */
+             NCryptBuffer nameBuf;
+             NCryptBufferDesc nameDesc;
+
+             nameBuf.cbBuffer = (ULONG)((wcslen(wContainer) + 1) * sizeof(WCHAR));
+             nameBuf.BufferType = NCRYPTBUFFER_PKCS_KEY_NAME;
+             nameBuf.pvBuffer = wContainer;
+
+             nameDesc.ulVersion = NCRYPTBUFFER_VERSION;
+             nameDesc.cBuffers = 1;
+             nameDesc.pBuffers = &nameBuf;
+
+             status = NCryptImportKey(hProvCNG, 0, NCRYPT_PKCS8_PRIVATE_KEY_BLOB, &nameDesc, &hKeyCNG, (PUCHAR)key_der, (DWORD)key_der_len, flags);
+        } else {
+             status = NCryptImportKey(hProvCNG, 0, NCRYPT_PKCS8_PRIVATE_KEY_BLOB, NULL, &hKeyCNG, (PUCHAR)key_der, (DWORD)key_der_len, flags);
+        }
 
         if (status != ERROR_SUCCESS) {
              /* Maybe it is SEC1 (EC PRIVATE KEY) and not PKCS#8? */
