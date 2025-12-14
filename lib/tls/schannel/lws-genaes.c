@@ -160,8 +160,14 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 	ULONG result_len = 0;
 
 	if (ctx->mode == LWS_GAESM_GCM) {
-		BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO authInfo;
-		BCRYPT_INIT_AUTH_MODE_INFO(authInfo);
+		BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO *authInfo;
+
+		/* Ensure authInfo is heap allocated for alignment */
+		authInfo = lws_malloc(sizeof(BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO), "genaes auth info");
+		if (!authInfo)
+			return -1;
+
+		BCRYPT_INIT_AUTH_MODE_INFO(*authInfo);
 
 		if (!ctx->underway) {
 			/* First call: Initialize context and process AAD */
@@ -175,11 +181,13 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			} else {
 				ctx->u.cbMacContext = 2048; /* Fallback if query fails */
 			}
-			lwsl_notice("%s: MacContext info: status 0x%x, size %lu\n", __func__, (unsigned int)st, ctx->u.cbMacContext);
+			lwsl_notice("%s: MacContext info: status 0x%x, size %lu, authinfo sz %u\n", __func__, (unsigned int)st, ctx->u.cbMacContext, (unsigned int)sizeof(BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO));
 
 			ctx->u.pbMacContext = lws_malloc(ctx->u.cbMacContext, "genaes mac ctx");
-			if (!ctx->u.pbMacContext)
+			if (!ctx->u.pbMacContext) {
+				lws_free(authInfo);
 				return -1;
+			}
 			/* Initialize to zero for first use */
 			memset(ctx->u.pbMacContext, 0, ctx->u.cbMacContext);
 
@@ -194,8 +202,10 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 
 			/* Allocate Nonce Buffer */
 			ctx->u.pbNonce = lws_malloc(ctx->u.cbNonce, "genaes nonce");
-			if (!ctx->u.pbNonce)
+			if (!ctx->u.pbNonce) {
+				lws_free(authInfo);
 				return -1;
+			}
 
 			/* Initialize Nonce */
 			if (iv)
@@ -207,11 +217,11 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			int tlen = (taglen > 0) ? taglen : 16; /* Default to 16 if unknown */
 			ctx->u.cbTag = tlen;
 			ctx->u.pbTag = lws_malloc(ctx->u.cbTag, "genaes tag");
-			if (!ctx->u.pbTag)
+			if (!ctx->u.pbTag) {
+				lws_free(authInfo);
 				return -1;
+			}
 			memset(ctx->u.pbTag, 0, ctx->u.cbTag);
-
-			/* Removed explicit BCryptSetProperty for BCRYPT_AUTH_TAG_LENGTH as it fails with STATUS_NOT_SUPPORTED on some providers */
 
 			/* If decrypting and tag provided via stream_block (lws convention), copy it now */
 			if (ctx->op == LWS_GAESO_DEC && stream_block_16) {
@@ -219,69 +229,88 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			}
 
 			/* Setup AuthInfo for AAD or Initial state */
-			authInfo.pbNonce = ctx->u.pbNonce;
-			authInfo.cbNonce = (ULONG)ctx->u.cbNonce;
+			authInfo->pbNonce = ctx->u.pbNonce;
+			authInfo->cbNonce = (ULONG)ctx->u.cbNonce;
 			if (ctx->op == LWS_GAESO_ENC) {
-				authInfo.pbTag = NULL;
-				authInfo.cbTag = 0;
+				authInfo->pbTag = NULL;
+				authInfo->cbTag = 0;
 			} else {
-				authInfo.pbTag = ctx->u.pbTag;
-				authInfo.cbTag = (ULONG)ctx->u.cbTag;
+				authInfo->pbTag = ctx->u.pbTag;
+				authInfo->cbTag = (ULONG)ctx->u.cbTag;
 			}
-			authInfo.pbMacContext = ctx->u.pbMacContext;
-			authInfo.cbMacContext = (ULONG)ctx->u.cbMacContext;
-			authInfo.dwFlags = BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG;
+			authInfo->pbMacContext = ctx->u.pbMacContext;
+			authInfo->cbMacContext = (ULONG)ctx->u.cbMacContext;
+			authInfo->dwFlags = BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG;
 
 			/* Process AAD if present */
 			if (in && len) {
-				authInfo.pbAuthData = (PUCHAR)in;
-				authInfo.cbAuthData = (ULONG)len;
+				uint8_t *dummy, *authData = NULL;
 
-				/* IMPORTANT: Pass dummy output buffer to force execution.
-				   Passing NULL for pbOutput puts BCrypt in "Get Size" mode and does not update context. */
-				uint8_t dummy[128];
+				/* Allocate dummy buffer for alignment */
+				dummy = lws_malloc(128, "genaes dummy");
+				if (!dummy) {
+					lws_free(authInfo);
+					return -1;
+				}
+				memset(dummy, 0, 128);
 
-				memset(dummy, 0, sizeof(dummy));
+				/* Allocate and copy auth data for alignment */
+				authData = lws_malloc(len, "genaes aad");
+				if (!authData) {
+					lws_free(dummy);
+					lws_free(authInfo);
+					return -1;
+				}
+				memcpy(authData, in, len);
+
+				authInfo->pbAuthData = (PUCHAR)authData;
+				authInfo->cbAuthData = (ULONG)len;
 
 				lwsl_notice("%s: GCM AAD processing: len %lu, cbTag %lu, cbNonce %lu\n", __func__, (unsigned long)len, (unsigned long)ctx->u.cbTag, (unsigned long)ctx->u.cbNonce);
 
 				if (ctx->op == LWS_GAESO_ENC) {
-					status = BCryptEncrypt(ctx->u.hKey, dummy, 0, &authInfo, NULL, 0, dummy, sizeof(dummy), &result_len, 0);
+					status = BCryptEncrypt(ctx->u.hKey, dummy, 0, authInfo, NULL, 0, dummy, 128, &result_len, 0);
 				} else {
-					status = BCryptDecrypt(ctx->u.hKey, dummy, 0, &authInfo, NULL, 0, dummy, sizeof(dummy), &result_len, 0);
+					status = BCryptDecrypt(ctx->u.hKey, dummy, 0, authInfo, NULL, 0, dummy, 128, &result_len, 0);
 				}
+
+				lws_free(dummy);
+				lws_free(authData);
 
 				if (!BCRYPT_SUCCESS(status)) {
 					lwsl_err("lws_genaes_crypt: GCM AAD failed: 0x%x, is enc: %d, len %lu, result_len %lu\n", status, ctx->op == LWS_GAESO_ENC, (unsigned long)len, result_len);
+					lws_free(authInfo);
 					return -1;
 				}
 			}
 
 			lwsl_notice("%s: init completed\n", __func__);
+			lws_free(authInfo);
 
 			return 0;
 		} else {
 			/* Subsequent calls: Process Payload */
-			authInfo.pbNonce = ctx->u.pbNonce;
-			authInfo.cbNonce = (ULONG)ctx->u.cbNonce;
+			authInfo->pbNonce = ctx->u.pbNonce;
+			authInfo->cbNonce = (ULONG)ctx->u.cbNonce;
 			if (ctx->op == LWS_GAESO_ENC) {
-				authInfo.pbTag = NULL;
-				authInfo.cbTag = 0;
+				authInfo->pbTag = NULL;
+				authInfo->cbTag = 0;
 			} else {
-				authInfo.pbTag = ctx->u.pbTag;
-				authInfo.cbTag = (ULONG)ctx->u.cbTag;
+				authInfo->pbTag = ctx->u.pbTag;
+				authInfo->cbTag = (ULONG)ctx->u.cbTag;
 			}
-			authInfo.pbMacContext = ctx->u.pbMacContext;
-			authInfo.cbMacContext = (ULONG)ctx->u.cbMacContext;
-			authInfo.dwFlags = BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG;
+			authInfo->pbMacContext = ctx->u.pbMacContext;
+			authInfo->cbMacContext = (ULONG)ctx->u.cbMacContext;
+			authInfo->dwFlags = BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG;
 
 			if (ctx->op == LWS_GAESO_ENC) {
-				status = BCryptEncrypt(ctx->u.hKey, (PUCHAR)in, (ULONG)len, &authInfo, NULL, 0, (PUCHAR)out, (ULONG)len, &result_len, 0);
+				status = BCryptEncrypt(ctx->u.hKey, (PUCHAR)in, (ULONG)len, authInfo, NULL, 0, (PUCHAR)out, (ULONG)len, &result_len, 0);
 			} else {
-				status = BCryptDecrypt(ctx->u.hKey, (PUCHAR)in, (ULONG)len, &authInfo, NULL, 0, (PUCHAR)out, (ULONG)len, &result_len, 0);
+				status = BCryptDecrypt(ctx->u.hKey, (PUCHAR)in, (ULONG)len, authInfo, NULL, 0, (PUCHAR)out, (ULONG)len, &result_len, 0);
 			}
 
 			lwsl_notice("%s: processed payload %d\n", __func__, status);
+			lws_free(authInfo);
 
 			return BCRYPT_SUCCESS(status) ? 0 : -1;
 		}
