@@ -706,6 +706,13 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
          lwsl_warn("NCryptSetProperty(ExportPolicy) failed 0x%x\n", (int)status);
     }
 
+    /* Set Key Usage (SChannel needs to know it can decrypt/sign) */
+    DWORD keyUsage = NCRYPT_ALLOW_DECRYPT_FLAG | NCRYPT_ALLOW_SIGNING_FLAG | NCRYPT_ALLOW_KEY_AGREEMENT_FLAG;
+    status = NCryptSetProperty(hKey, NCRYPT_KEY_USAGE_PROPERTY, (PBYTE)&keyUsage, sizeof(keyUsage), 0);
+    if (status != ERROR_SUCCESS) {
+         lwsl_warn("NCryptSetProperty(KeyUsage) failed 0x%x\n", (int)status);
+    }
+
 	/* 5. Link Key to Cert */
 	if (!CertSetCertificateContextProperty(x509_obj.cert, CERT_NCRYPT_KEY_HANDLE_PROP_ID, 0, (void*)&hKey)) {
 	     lwsl_err("CertSetCertificateContextProperty (Handle) failed %d\n", GetLastError());
