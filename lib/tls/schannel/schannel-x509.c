@@ -695,58 +695,21 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 	     goto cleanup;
 	}
 
-    /* No Key Spec warning needed, we rely on implicit AT_KEYEXCHANGE or similar */
-    /* With CERT_KEY_PROV_HANDLE_PROP_ID, the provider handle implies the spec if associated with key */
-    /* Actually CryptImportKey associates it. */
+    /* Explicitly set Key Spec to AT_KEYEXCHANGE (1). SChannel needs this to find the key in the provider. */
+    DWORD keySpec = AT_KEYEXCHANGE;
+    if (!CertSetCertificateContextProperty(x509_obj.cert, CERT_KEY_SPEC_PROP_ID, 0, (void*)&keySpec)) {
+         lwsl_warn("CertSetCertificateContextProperty (KeySpec) failed %d\n", GetLastError());
+    }
 
 	lwsl_notice("%s: loaded cert and attached key (CAPI)\n", __func__);
 
-	hKey = 0; /* Owned by provider/context? CryptDestroyKey is needed? */
-    /* CryptImportKey creates a key IN the provider.
-       If we keep hProv open, the key remains valid.
-       Do we need to keep hKey open?
-       CertSetCertificateContextProperty(CERT_KEY_PROV_HANDLE_PROP_ID) takes the PROVIDER handle.
-       It does not take the KEY handle.
-       But the key must be in the provider's container.
-       With CRYPT_VERIFYCONTEXT, the key is in memory of the provider.
-       We should probably NOT destroy the key handle if we want it to persist?
-       Actually, standard usage is: Import key, set Prov Handle property.
-       Does the property take ownership of the key? No, it takes the provider.
-       If we destroy the key, is it gone from the provider?
-       "When you have finished using the key, release the handle by calling the CryptDestroyKey function."
-       If we destroy it, it might be gone.
-       However, usually CERT_KEY_PROV_HANDLE_PROP_ID is used for keys in containers.
-       For memory keys (VERIFYCONTEXT), we import it into the *context*.
-       Does closing hKey remove it?
-       Usually yes. So we should leak hKey too?
-       Or does hProv own it?
-       Actually, `CertSetCertificateContextProperty` with `CERT_KEY_PROV_HANDLE_PROP_ID` associates the *Provider*.
-       But how does it know WHICH key in the provider?
-       The provider has a key container.
-       `CryptImportKey` puts it there.
-       Wait. `PROV_RSA_FULL` supports AT_KEYEXCHANGE and AT_SIGNATURE.
-       The blob header `aiKeyAlg = CALG_RSA_KEYX` sets it as Exchange key.
-       So it occupies the Exchange slot.
-       So we don't need the key handle specifically, just the provider handle.
-       So we can close hKey.
+	/* We can close the key handle, but MUST keep the provider handle open.
+       The key is associated with the provider context.
     */
     if (hKey) {
         CryptDestroyKey(hKey);
         hKey = 0;
     }
-
-	*pcert = x509_obj.cert;
-	ret = 0;
-
-	lwsl_notice("%s: loaded cert and attached key\n", __func__);
-
-	/* Handle ownership transferred/shared with cert context. We do not free hKey. */
-	hKey = 0;
-	/* hProv is used by hKey, so we should probably keep it open too if hKey depends on it.
-	   However, usually hKey keeps a reference to its provider.
-	   Safe bet: Do not free hProv either if hKey is alive.
-	*/
-	/* hProv will be handled in cleanup to return to caller if phProv is set */
 
 	*pcert = x509_obj.cert;
 	ret = 0;
