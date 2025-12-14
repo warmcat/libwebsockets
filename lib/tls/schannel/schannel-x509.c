@@ -674,7 +674,8 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 	lws_gencrypto_destroy_elements(e, LWS_GENCRYPTO_RSA_KEYEL_COUNT);
 
 	/* 4. Import Key (Legacy CAPI) */
-    if (!CryptAcquireContext(&hProv, NULL, MS_ENH_RSA_AES_PROV, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT | CRYPT_SILENT)) {
+    /* MS_ENH_RSA_AES_PROV type is PROV_RSA_AES, not PROV_RSA_FULL. Mismatch causes NTE_KEYSET_ENTRY_BAD. */
+    if (!CryptAcquireContext(&hProv, NULL, MS_ENH_RSA_AES_PROV, PROV_RSA_AES, CRYPT_VERIFYCONTEXT | CRYPT_SILENT)) {
         /* Try without SILENT? Or default container? VERIFYCONTEXT is for ephemeral */
         lwsl_err("CryptAcquireContext failed 0x%x\n", GetLastError());
         lws_free(rsablob);
