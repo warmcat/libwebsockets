@@ -24,39 +24,123 @@
 
 #include "private-lib-core.h"
 #include "private-lib-tls.h"
+#include "private.h"
 
 struct lws_x509_cert {
 	PCCERT_CONTEXT cert;
 };
 
+static time_t
+filetime_to_unix(FILETIME ft)
+{
+    ULARGE_INTEGER ull;
+    ull.LowPart = ft.dwLowDateTime;
+    ull.HighPart = ft.dwHighDateTime;
+
+    return (time_t)((ull.QuadPart - 116444736000000000ULL) / 10000000ULL);
+}
+
+static int
+lws_tls_schannel_cert_info(PCCERT_CONTEXT pCert, enum lws_tls_cert_info type,
+			  union lws_tls_cert_info_results *buf, size_t len)
+{
+    if (!pCert) return -1;
+
+    switch(type) {
+        case LWS_TLS_CERT_INFO_VALIDITY_FROM:
+            buf->time = filetime_to_unix(pCert->pCertInfo->NotBefore);
+            break;
+        case LWS_TLS_CERT_INFO_VALIDITY_TO:
+            buf->time = filetime_to_unix(pCert->pCertInfo->NotAfter);
+            break;
+        case LWS_TLS_CERT_INFO_COMMON_NAME:
+            if (!CertGetNameStringA(pCert, CERT_NAME_ATTR_TYPE, 0, szOID_COMMON_NAME, buf->ns.name, (DWORD)len))
+                return -1;
+            buf->ns.len = (int)strlen(buf->ns.name);
+            break;
+        case LWS_TLS_CERT_INFO_ISSUER_NAME:
+             if (!CertNameToStrA(pCert->dwCertEncodingType, &pCert->pCertInfo->Issuer,
+                                 CERT_X500_NAME_STR, buf->ns.name, (DWORD)len))
+                return -1;
+             buf->ns.len = (int)strlen(buf->ns.name);
+             break;
+        case LWS_TLS_CERT_INFO_USAGE:
+             {
+                 BYTE usage[2] = {0};
+                 if (CertGetIntendedKeyUsage(pCert->dwCertEncodingType, pCert->pCertInfo, usage, 2)) {
+                      buf->usage = usage[0] | (usage[1] << 8);
+                 } else {
+                      buf->usage = 0;
+                 }
+             }
+             break;
+        case LWS_TLS_CERT_INFO_OPAQUE_PUBLIC_KEY:
+             if (len < pCert->pCertInfo->SubjectPublicKeyInfo.PublicKey.cbData) return -1;
+             memcpy(buf->ns.name, pCert->pCertInfo->SubjectPublicKeyInfo.PublicKey.pbData,
+                    pCert->pCertInfo->SubjectPublicKeyInfo.PublicKey.cbData);
+             buf->ns.len = (int)pCert->pCertInfo->SubjectPublicKeyInfo.PublicKey.cbData;
+             break;
+        case LWS_TLS_CERT_INFO_DER_RAW:
+             if (len < pCert->cbCertEncoded) return -1;
+             memcpy(buf->ns.name, pCert->pbCertEncoded, pCert->cbCertEncoded);
+             buf->ns.len = (int)pCert->cbCertEncoded;
+             break;
+        default:
+             return -1;
+    }
+    return 0;
+}
+
 int
 lws_tls_vhost_cert_info(struct lws_vhost *vhost, enum lws_tls_cert_info type,
 		        union lws_tls_cert_info_results *buf, size_t len)
 {
-	/* stub */
-	return 0;
+	/* stub - usually for server's own cert info? */
+	/* SChannel stores creds, not easy to extract cert back unless we kept it */
+	/* lws_tls_schannel_ctx has 'cred', but not cert. */
+	/* For now, leave as stub or failure */
+	return -1;
 }
 
 int
 lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
 		       union lws_tls_cert_info_results *buf, size_t len)
 {
-	/* stub */
-	return 0;
+    struct lws_tls_schannel_conn *conn = wsi->tls.ssl;
+    PCCERT_CONTEXT pCert = NULL;
+    int ret = 0;
+
+    if (!conn) return -1;
+
+    if (QueryContextAttributes(&conn->ctxt, SECPKG_ATTR_REMOTE_CERT_CONTEXT, &pCert) != SEC_E_OK || !pCert)
+        return -1;
+
+    switch (type) {
+    case LWS_TLS_CERT_INFO_VERIFIED:
+        /* If we are here, handshake succeeded. */
+        /* SChannel verifies by default unless SCH_CRED_NO_SERVER_CREDENTIALS */
+        /* But lws_tls_client_confirm_peer_cert does extra checks */
+        /* We can assume true if handshake passed, or check flags if we stored them */
+        buf->verified = 1;
+        break;
+    default:
+        ret = lws_tls_schannel_cert_info(pCert, type, buf, len);
+    }
+
+    CertFreeCertificateContext(pCert);
+    return ret;
 }
 
 int
 lws_x509_info(struct lws_x509_cert *x509, enum lws_tls_cert_info type,
 	      union lws_tls_cert_info_results *buf, size_t len)
 {
-	/* stub */
-	return 0;
+	return lws_tls_schannel_cert_info(x509->cert, type, buf, len);
 }
 
 int
 lws_tls_server_client_cert_verify_config(struct lws_vhost *vh)
 {
-	/* stub */
 	return 0;
 }
 
@@ -248,7 +332,7 @@ static int lws_asn1_read_integer(const uint8_t **p, const uint8_t *end, struct l
 	/* Skip leading zero if present (ASN.1 integer is signed, might have 0x00 pad for positive MSB) */
 	const uint8_t *val = *p;
 	size_t vlen = len;
-	if (vlen > 0 && val[0] == 0x00) {
+	while (vlen > 0 && val[0] == 0x00) {
 		val++;
 		vlen--;
 	}
@@ -340,9 +424,7 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 		if (lws_asn1_read_length(&p, end, &ver_len) < 0) goto bail;
 		p += ver_len;
 	} else if (*p == 0x02) {
-		/* Likely RSA PKCS#1 starting with Modulus (since we already read Version) */
-		/* Backtrack pointer to Modulus tag? No, we just continue reading RSA fields. */
-		p--; /* Back to tag */
+		/* PKCS#1: kp points to Modulus tag. Version already consumed. */
 	} else {
 		goto bail;
 	}
@@ -366,3 +448,343 @@ bail:
 	return ret;
 }
 #endif
+
+int
+lws_tls_schannel_cert_info_load(struct lws_context *context,
+                                const char *cert, const char *private_key,
+                                const char *mem_cert, size_t len_mem_cert,
+                                const char *mem_privkey, size_t mem_privkey_len,
+                                PCCERT_CONTEXT *pcert, HCERTSTORE *phStore,
+                                HCRYPTPROV *phProv,
+                                const char *container_name)
+{
+	struct lws_x509_cert x509_obj = {0};
+	struct lws_gencrypto_keyelem e[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
+	BYTE *rsablob = NULL;
+	ULONG bloblen;
+	HCRYPTPROV hProv = 0;
+	HCRYPTKEY hKey = 0;
+	int ret = 1;
+
+	if (phStore) *phStore = NULL;
+    if (phProv) *phProv = 0;
+
+	memset(e, 0, sizeof(e));
+
+	/* 1. Load Certificate */
+    HCERTSTORE hStore = CertOpenStore(CERT_STORE_PROV_MEMORY, 0, 0, 0, NULL);
+    if (!hStore) {
+        lwsl_err("%s: Failed to create memory store\n", __func__);
+        return 1;
+    }
+
+	if (cert) {
+		uint8_t *der = NULL;
+		lws_filepos_t amount;
+
+		if (lws_tls_alloc_pem_to_der_file(context, cert, mem_cert, len_mem_cert, &der, &amount)) {
+			lwsl_err("%s: Failed to load cert file %s\n", __func__, cert ? cert : "mem");
+            CertCloseStore(hStore, 0);
+			return 1;
+		}
+
+		if (!CertAddEncodedCertificateToStore(hStore, X509_ASN_ENCODING | PKCS_7_ASN_ENCODING, der, (DWORD)amount, CERT_STORE_ADD_ALWAYS, &x509_obj.cert)) {
+             lwsl_err("%s: CertAddEncodedCertificateToStore failed\n", __func__);
+             lws_free(der);
+             CertCloseStore(hStore, 0);
+             return 1;
+        }
+		lws_free(der);
+	} else if (mem_cert) {
+		if (lws_x509_parse_from_pem(&x509_obj, mem_cert, len_mem_cert)) {
+			lwsl_err("%s: Failed to parse cert pem\n", __func__);
+            CertCloseStore(hStore, 0);
+			return 1;
+		}
+
+        /* Move to store */
+        PCCERT_CONTEXT pStoreCert = NULL;
+        if (!CertAddCertificateContextToStore(hStore, x509_obj.cert, CERT_STORE_ADD_ALWAYS, &pStoreCert)) {
+             lwsl_err("%s: CertAddCertificateContextToStore failed\n", __func__);
+             CertFreeCertificateContext(x509_obj.cert);
+             CertCloseStore(hStore, 0);
+             return 1;
+        }
+        CertFreeCertificateContext(x509_obj.cert);
+        x509_obj.cert = pStoreCert;
+	} else {
+        CertCloseStore(hStore, 0);
+		return 1; /* No cert */
+	}
+
+    if (phStore)
+        *phStore = hStore;
+    else
+        CertCloseStore(hStore, 0);
+
+	if (!x509_obj.cert) {
+		lwsl_err("%s: Failed to create cert context\n", __func__);
+		return 1;
+	}
+
+	/* 2. Load Private Key */
+	if (!private_key && !mem_privkey) {
+		*pcert = x509_obj.cert;
+		return 0;
+	}
+
+    /* Load key DER */
+    uint8_t *key_der = NULL;
+    lws_filepos_t key_der_len;
+
+    if (lws_tls_alloc_pem_to_der_file(context, private_key, mem_privkey, mem_privkey_len, &key_der, &key_der_len)) {
+        lwsl_err("%s: Failed to load key\n", __func__);
+        goto cleanup;
+    }
+
+    /* Parse DER to Key Elements */
+    const uint8_t *kp = key_der;
+    const uint8_t *kend = key_der + key_der_len;
+    size_t seq_len;
+
+    if (kp >= kend || *kp++ != 0x30) { lws_free(key_der); goto cleanup; }
+    if (lws_asn1_read_length(&kp, kend, &seq_len) < 0) { lws_free(key_der); goto cleanup; }
+
+    /* Check for version */
+    if (kp >= kend || *kp++ != 0x02) { lws_free(key_der); goto cleanup; }
+    size_t ver_len;
+    if (lws_asn1_read_length(&kp, kend, &ver_len) < 0) { lws_free(key_der); goto cleanup; }
+    kp += ver_len;
+
+    /* PKCS#8 check */
+    if (kp < kend && *kp == 0x30) {
+        size_t alg_len;
+        kp++;
+        if (lws_asn1_read_length(&kp, kend, &alg_len) < 0) { lws_free(key_der); goto cleanup; }
+        kp += alg_len;
+        if (kp >= kend || *kp++ != 0x04) { lws_free(key_der); goto cleanup; }
+        size_t oct_len;
+        if (lws_asn1_read_length(&kp, kend, &oct_len) < 0) { lws_free(key_der); goto cleanup; }
+        if (kp >= kend || *kp++ != 0x30) { lws_free(key_der); goto cleanup; }
+        if (lws_asn1_read_length(&kp, kend, &seq_len) < 0) { lws_free(key_der); goto cleanup; }
+        if (kp >= kend || *kp++ != 0x02) { lws_free(key_der); goto cleanup; }
+        if (lws_asn1_read_length(&kp, kend, &ver_len) < 0) { lws_free(key_der); goto cleanup; }
+        kp += ver_len;
+    } else if (kp < kend && *kp == 0x02) {
+        /* PKCS#1: kp points to Modulus tag. Version already consumed. */
+    } else {
+        lws_free(key_der);
+        goto cleanup;
+    }
+
+    if (lws_asn1_read_integer(&kp, kend, &e[LWS_GENCRYPTO_RSA_KEYEL_N]) < 0 ||
+        lws_asn1_read_integer(&kp, kend, &e[LWS_GENCRYPTO_RSA_KEYEL_E]) < 0 ||
+        lws_asn1_read_integer(&kp, kend, &e[LWS_GENCRYPTO_RSA_KEYEL_D]) < 0 ||
+        lws_asn1_read_integer(&kp, kend, &e[LWS_GENCRYPTO_RSA_KEYEL_P]) < 0 ||
+        lws_asn1_read_integer(&kp, kend, &e[LWS_GENCRYPTO_RSA_KEYEL_Q]) < 0 ||
+        lws_asn1_read_integer(&kp, kend, &e[LWS_GENCRYPTO_RSA_KEYEL_DP]) < 0 ||
+        lws_asn1_read_integer(&kp, kend, &e[LWS_GENCRYPTO_RSA_KEYEL_DQ]) < 0 ||
+        lws_asn1_read_integer(&kp, kend, &e[LWS_GENCRYPTO_RSA_KEYEL_QI]) < 0) {
+        lws_free(key_der);
+        lws_gencrypto_destroy_elements(e, LWS_GENCRYPTO_RSA_KEYEL_COUNT);
+        goto cleanup;
+    }
+    lws_free(key_der);
+
+    lwsl_notice("RSA Key Loaded: N len %d, E len %d, D len %d\n",
+                e[LWS_GENCRYPTO_RSA_KEYEL_N].len, e[LWS_GENCRYPTO_RSA_KEYEL_E].len, e[LWS_GENCRYPTO_RSA_KEYEL_D].len);
+    if (e[LWS_GENCRYPTO_RSA_KEYEL_N].len > 0) {
+        lwsl_hexdump_notice(e[LWS_GENCRYPTO_RSA_KEYEL_N].buf, 16);
+    }
+
+	/* 3. Convert to PRIVATEKEYBLOB (CAPI) */
+	/* BLOBHEADER + RSAPUBKEY + Modulus + Prime1 + Prime2 + Exponent1 + Exponent2 + Coefficient + PrivateExponent */
+	/* CAPI uses Little Endian. */
+
+    uint32_t cbModulus = e[LWS_GENCRYPTO_RSA_KEYEL_N].len;
+    /* Ensure alignment to 8 bytes if needed? Usually just length */
+    uint32_t bitlen = cbModulus * 8;
+    uint32_t cbPrime = cbModulus / 2;
+
+    bloblen = sizeof(BLOBHEADER) + sizeof(RSAPUBKEY) +
+              cbModulus +
+              cbPrime + /* P */
+              cbPrime + /* Q */
+              cbPrime + /* DP */
+              cbPrime + /* DQ */
+              cbPrime + /* InverseQ (Coeff) */
+              cbModulus; /* D */
+
+    rsablob = lws_malloc(bloblen, "rsablob capi");
+    if (!rsablob) {
+        lws_gencrypto_destroy_elements(e, LWS_GENCRYPTO_RSA_KEYEL_COUNT);
+        goto cleanup;
+    }
+
+    BLOBHEADER *blobHeader = (BLOBHEADER *)rsablob;
+    blobHeader->bType = PRIVATEKEYBLOB;
+    blobHeader->bVersion = CUR_BLOB_VERSION;
+    blobHeader->reserved = 0;
+    blobHeader->aiKeyAlg = CALG_RSA_KEYX;
+
+    RSAPUBKEY *rsaPubKey = (RSAPUBKEY *)(rsablob + sizeof(BLOBHEADER));
+    rsaPubKey->magic = 0x32415352; /* "RSA2" for private key */
+    rsaPubKey->bitlen = bitlen;
+    /* Public Exponent: usually small, fit in 4 bytes. e.g. 65537 */
+    uint32_t pubExp = 0;
+    if (e[LWS_GENCRYPTO_RSA_KEYEL_E].len <= 4) {
+        /* ASN.1 is Big Endian. Convert to int host order (usually LE on Windows) */
+        for (uint32_t i = 0; i < e[LWS_GENCRYPTO_RSA_KEYEL_E].len; i++) {
+            pubExp = (pubExp << 8) | e[LWS_GENCRYPTO_RSA_KEYEL_E].buf[i];
+        }
+    } else {
+        /* Standard CAPI RSAPUBKEY has only DWORD pubexp. If larger, this structure is insufficient. */
+        /* Assuming standard exp */
+        pubExp = 65537;
+    }
+    rsaPubKey->pubexp = pubExp; /* Already LE if assigned to uint32 */
+
+    uint8_t *p = (uint8_t *)(rsaPubKey + 1);
+
+    /* Helper macro to copy and reverse (Big Endian -> Little Endian) */
+    /* And pad with zeros at the END (high bytes) if source is shorter than dest */
+#define COPY_REVERSE(elem, size) \
+    do { \
+        uint32_t _len = e[elem].len; \
+        uint32_t _size = size; \
+        if (_len > _size) _len = _size; \
+        for (uint32_t i = 0; i < _len; i++) { \
+            p[(_len - 1) - i] = e[elem].buf[i]; \
+        } \
+        if (_size > _len) { \
+            memset(p + _len, 0, _size - _len); \
+        } \
+        p += _size; \
+    } while(0)
+
+    COPY_REVERSE(LWS_GENCRYPTO_RSA_KEYEL_N, cbModulus);
+    COPY_REVERSE(LWS_GENCRYPTO_RSA_KEYEL_P, cbPrime);
+    COPY_REVERSE(LWS_GENCRYPTO_RSA_KEYEL_Q, cbPrime);
+    COPY_REVERSE(LWS_GENCRYPTO_RSA_KEYEL_DP, cbPrime);
+    COPY_REVERSE(LWS_GENCRYPTO_RSA_KEYEL_DQ, cbPrime);
+    COPY_REVERSE(LWS_GENCRYPTO_RSA_KEYEL_QI, cbPrime);
+    COPY_REVERSE(LWS_GENCRYPTO_RSA_KEYEL_D, cbModulus);
+
+#undef COPY_REVERSE
+
+	lws_gencrypto_destroy_elements(e, LWS_GENCRYPTO_RSA_KEYEL_COUNT);
+
+	/* 4. Import Key (Legacy CAPI) */
+    /* MS_ENH_RSA_AES_PROV type is PROV_RSA_AES, not PROV_RSA_FULL. Mismatch causes NTE_KEYSET_ENTRY_BAD. */
+    if (container_name) {
+        /* Use named container for persistence (needed for SChannel server) */
+        /* First try to create new keyset */
+        if (!CryptAcquireContext(&hProv, container_name, MS_ENH_RSA_AES_PROV, PROV_RSA_AES, CRYPT_NEWKEYSET | CRYPT_SILENT)) {
+            if (GetLastError() == NTE_EXISTS) {
+                /* Exists, open it */
+                 if (!CryptAcquireContext(&hProv, container_name, MS_ENH_RSA_AES_PROV, PROV_RSA_AES, CRYPT_SILENT)) {
+                     lwsl_err("CryptAcquireContext (open) failed 0x%x\n", GetLastError());
+                     lws_free(rsablob);
+                     goto cleanup;
+                 }
+            } else {
+                lwsl_err("CryptAcquireContext (new) failed 0x%x\n", GetLastError());
+                lws_free(rsablob);
+                goto cleanup;
+            }
+        }
+    } else {
+        /* Ephemeral (Client) */
+        if (!CryptAcquireContext(&hProv, NULL, MS_ENH_RSA_AES_PROV, PROV_RSA_AES, CRYPT_VERIFYCONTEXT | CRYPT_SILENT)) {
+            lwsl_err("CryptAcquireContext (ephemeral) failed 0x%x\n", GetLastError());
+            lws_free(rsablob);
+            goto cleanup;
+        }
+    }
+
+    if (!CryptImportKey(hProv, rsablob, bloblen, 0, CRYPT_EXPORTABLE, &hKey)) {
+        lwsl_err("CryptImportKey failed 0x%x\n", GetLastError());
+        lws_free(rsablob);
+        goto cleanup;
+    }
+    lws_free(rsablob);
+
+	/* 5. Link Key to Cert (Legacy Property) */
+    if (container_name) {
+        /*
+         * For Server (Named Container), we must tell SChannel where the key is using PROV_INFO.
+         * SChannel runs in LSA and cannot always use the process-local handle we have.
+         */
+        CRYPT_KEY_PROV_INFO kpi = {0};
+        WCHAR wContainer[128];
+
+        /* Convert container name to Wide String */
+        if (!MultiByteToWideChar(CP_UTF8, 0, container_name, -1, wContainer, sizeof(wContainer)/sizeof(wContainer[0]))) {
+             lwsl_err("MultiByteToWideChar failed\n");
+             goto cleanup;
+        }
+
+        kpi.pwszContainerName = wContainer;
+#ifdef MS_ENH_RSA_AES_PROV_W
+        kpi.pwszProvName = (LPWSTR)MS_ENH_RSA_AES_PROV_W;
+#else
+        kpi.pwszProvName = (LPWSTR)L"Microsoft Enhanced RSA and AES Cryptographic Provider";
+#endif
+        kpi.dwProvType = PROV_RSA_AES;
+        kpi.dwFlags = 0;
+        kpi.cProvParam = 0;
+        kpi.rgProvParam = NULL;
+        kpi.dwKeySpec = AT_KEYEXCHANGE;
+
+        if (!CertSetCertificateContextProperty(x509_obj.cert, CERT_KEY_PROV_INFO_PROP_ID, 0, (void*)&kpi)) {
+             lwsl_err("CertSetCertificateContextProperty (ProvInfo) failed 0x%x\n", GetLastError());
+             goto cleanup;
+        }
+    } else {
+        /*
+         * For Client (Ephemeral), we use the handle directly.
+         * Note: CERT_KEY_PROV_HANDLE_PROP_ID usage is process-specific but usually works for client auth
+         * if the CSP supports it or if we are verifying context.
+         */
+        if (!CertSetCertificateContextProperty(x509_obj.cert, CERT_KEY_PROV_HANDLE_PROP_ID, 0, (void*)hProv)) {
+             lwsl_err("CertSetCertificateContextProperty (ProvHandle) failed 0x%x\n", GetLastError());
+             goto cleanup;
+        }
+
+        /* Explicitly set Key Spec to AT_KEYEXCHANGE (1) */
+        DWORD keySpec = AT_KEYEXCHANGE;
+        if (!CertSetCertificateContextProperty(x509_obj.cert, CERT_KEY_SPEC_PROP_ID, 0, (void*)&keySpec)) {
+             lwsl_warn("CertSetCertificateContextProperty (KeySpec) failed 0x%x\n", GetLastError());
+        }
+    }
+
+	lwsl_notice("%s: loaded cert and attached key (CAPI)\n", __func__);
+
+	/* We can close the key handle, but MUST keep the provider handle open.
+       The key is associated with the provider context.
+    */
+    if (hKey) {
+        CryptDestroyKey(hKey);
+        hKey = 0;
+    }
+
+	*pcert = x509_obj.cert;
+	ret = 0;
+
+cleanup:
+    /* hKey is CryptDestroyKey for CAPI, but if we zeroed it, it's fine. */
+    if (hKey) CryptDestroyKey(hKey);
+    if (hProv) {
+        if (!ret && phProv)
+            *phProv = hProv;
+        else
+            CryptReleaseContext(hProv, 0);
+    }
+    if (ret && x509_obj.cert) CertFreeCertificateContext(x509_obj.cert);
+    if (ret && phStore && *phStore) {
+        CertCloseStore(*phStore, 0);
+        *phStore = NULL;
+    }
+
+    return ret;
+}

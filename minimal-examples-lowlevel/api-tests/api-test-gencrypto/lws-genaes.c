@@ -658,7 +658,7 @@ bail:
 }
 #endif
 
-#if !defined(LWS_WITH_SCHANNEL)
+//#if !defined(LWS_WITH_SCHANNEL)
 static const uint8_t
 	/*
 	 * https://csrc.nist.gov/CSRC/media/Projects/
@@ -773,7 +773,7 @@ bail:
 
 	return -1;
 }
-#endif
+//#endif
 
 int
 test_genaes(struct lws_context *context)
@@ -817,10 +817,10 @@ test_genaes(struct lws_context *context)
 		goto bail;
 #endif
 
-#if !defined(LWS_WITH_SCHANNEL)
+//#if !defined(LWS_WITH_SCHANNEL)
 	if (test_genaes_gcm())
 		goto bail;
-#endif
+//#endif
 
 	/* end */
 
