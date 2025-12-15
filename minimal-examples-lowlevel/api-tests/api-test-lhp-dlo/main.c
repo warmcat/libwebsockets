@@ -228,6 +228,12 @@ main(int argc, const char **argv)
 
 	/* create the SS to the html using the URL on argv[1] */
 
+	if (argv[1] == NULL) {
+		lwsl_err("Give a url like https://warmcat.com on the commandline\n");
+		result = 1;
+		goto bail;
+	}
+
 	if (lws_lhp_ss_browse(cx, &drs, argv[1], render)) {
 		lws_context_destroy(cx);
 		goto bail;
