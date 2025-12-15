@@ -245,11 +245,20 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 
 			/* Process AAD if present */
 			if (in && len) {
-				uint8_t *authData = NULL;
+				uint8_t *dummy_in, *authData = NULL;
+
+				/* Allocate dummy buffer for alignment */
+				dummy_in = lws_malloc(128, "genaes dummy in");
+				if (!dummy_in) {
+					lws_free(authInfo);
+					return -1;
+				}
+				memset(dummy_in, 0, 128);
 
 				/* Allocate and copy auth data for alignment */
 				authData = lws_malloc(len, "genaes aad");
 				if (!authData) {
+					lws_free(dummy_in);
 					lws_free(authInfo);
 					return -1;
 				}
@@ -258,22 +267,15 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 				authInfo->pbAuthData = (PUCHAR)authData;
 				authInfo->cbAuthData = (ULONG)len;
 
-				/*
-				 * For GCM, even if we don't supply the tag buffer yet (ENC), we must
-				 * tell the provider the length of the tag we intend to use.
-				 */
-				if (ctx->op == LWS_GAESO_ENC) {
-					authInfo->cbTag = (ULONG)ctx->u.cbTag;
-				}
-
 				lwsl_notice("%s: GCM AAD processing: len %lu, cbTag %lu, cbNonce %lu\n", __func__, (unsigned long)len, (unsigned long)ctx->u.cbTag, (unsigned long)ctx->u.cbNonce);
 
 				if (ctx->op == LWS_GAESO_ENC) {
-					status = BCryptEncrypt(ctx->u.hKey, NULL, 0, authInfo, NULL, 0, NULL, 0, &result_len, 0);
+					status = BCryptEncrypt(ctx->u.hKey, dummy_in, 0, authInfo, NULL, 0, NULL, 0, &result_len, 0);
 				} else {
-					status = BCryptDecrypt(ctx->u.hKey, NULL, 0, authInfo, NULL, 0, NULL, 0, &result_len, 0);
+					status = BCryptDecrypt(ctx->u.hKey, dummy_in, 0, authInfo, NULL, 0, NULL, 0, &result_len, 0);
 				}
 
+				lws_free(dummy_in);
 				lws_free(authData);
 
 				if (!BCRYPT_SUCCESS(status)) {
@@ -293,7 +295,7 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			authInfo->cbNonce = 0;
 			if (ctx->op == LWS_GAESO_ENC) {
 				authInfo->pbTag = NULL;
-				authInfo->cbTag = (ULONG)ctx->u.cbTag;
+				authInfo->cbTag = 0;
 			} else {
 				authInfo->pbTag = ctx->u.pbTag;
 				authInfo->cbTag = (ULONG)ctx->u.cbTag;
