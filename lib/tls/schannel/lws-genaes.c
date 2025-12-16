@@ -95,26 +95,24 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 int
 lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 {
-	if (ctx->mode == LWS_GAESM_GCM && ctx->underway) {
-		/* Finalize GCM to get/verify tag */
+	if (ctx->mode == LWS_GAESM_GCM && ctx->underway && ctx->u.pbMacContext) {
+		/* Finalize GCM to get/verify tag using persisted authInfo */
 
-		BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO authInfo;
-		BCRYPT_INIT_AUTH_MODE_INFO(authInfo);
-		authInfo.pbNonce = ctx->u.pbNonce;
-		authInfo.cbNonce = (ULONG)ctx->u.cbNonce;
-		authInfo.pbTag = ctx->u.pbTag; /* Internal tag buffer */
-		authInfo.cbTag = (ULONG)ctx->u.cbTag;
-		authInfo.pbMacContext = ctx->u.pbMacContext;
-		authInfo.cbMacContext = (ULONG)ctx->u.cbMacContext;
+		BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO *authInfo =
+			(BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO *)ctx->u.pbMacContext;
+
+		/* Clear the chaining flag for the final call */
+		authInfo->dwFlags &= ~BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG;
 
 		/* We must pass a valid output buffer (even if dummy) to force BCryptEncrypt to execute
 		   and produce the tag, otherwise it acts as "Get Size" */
 		uint8_t dummy[128];
 		ULONG result_len = 0;
 
+		/* Ensure tag buffer pointers are correct for the final call */
 		if (ctx->op == LWS_GAESO_ENC && tag && tlen) {
 			/* Final call to generate tag in internal buffer */
-			if (BCRYPT_SUCCESS(BCryptEncrypt(ctx->u.hKey, NULL, 0, &authInfo, NULL, 0, dummy, sizeof(dummy), &result_len, 0))) {
+			if (BCRYPT_SUCCESS(BCryptEncrypt(ctx->u.hKey, NULL, 0, authInfo, ctx->u.iv, 16, dummy, sizeof(dummy), &result_len, 0))) {
 				/* Copy internal tag to user buffer */
 				if (tlen <= ctx->u.cbTag)
 					memcpy(tag, ctx->u.pbTag, tlen);
@@ -128,7 +126,7 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 			if (tlen <= ctx->u.cbTag)
 				memcpy(ctx->u.pbTag, tag, tlen);
 
-			if (!BCRYPT_SUCCESS(BCryptDecrypt(ctx->u.hKey, NULL, 0, &authInfo, NULL, 0, dummy, sizeof(dummy), &result_len, 0))) {
+			if (!BCRYPT_SUCCESS(BCryptDecrypt(ctx->u.hKey, NULL, 0, authInfo, ctx->u.iv, 16, dummy, sizeof(dummy), &result_len, 0))) {
 				/* Verification failed */
 				/* We cannot easily return failure here as destroy returns 0 typically,
 				   but the tag check failure is implied. */
@@ -162,14 +160,6 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 	if (ctx->mode == LWS_GAESM_GCM) {
 		BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO *authInfo;
 
-		/* Ensure authInfo is heap allocated for alignment */
-		authInfo = lws_malloc(sizeof(BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO), "genaes auth info");
-		if (!authInfo)
-			return -1;
-
-		memset(authInfo, 0, sizeof(BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO));
-		BCRYPT_INIT_AUTH_MODE_INFO(*authInfo);
-
 		if (!ctx->underway) {
 			/* First call: Initialize context and process AAD */
 			ctx->underway = 1;
@@ -184,13 +174,25 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			}
 			lwsl_notice("%s: MacContext info: status 0x%x, size %lu, authinfo sz %u\n", __func__, (unsigned int)st, ctx->u.cbMacContext, (unsigned int)sizeof(BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO));
 
-			ctx->u.pbMacContext = lws_malloc(ctx->u.cbMacContext, "genaes mac ctx");
+			/*
+			 * Allocate PERSISTENT buffer for authInfo + MacContext.
+			 * We store this in ctx->u.pbMacContext so it survives until destroy.
+			 */
+			size_t allocSize = sizeof(BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO) + ctx->u.cbMacContext;
+			ctx->u.pbMacContext = lws_malloc(allocSize, "genaes auth info + mac ctx");
 			if (!ctx->u.pbMacContext) {
-				lws_free(authInfo);
 				return -1;
 			}
-			/* Initialize to zero for first use */
-			memset(ctx->u.pbMacContext, 0, ctx->u.cbMacContext);
+			/* Zero the whole buffer */
+			memset(ctx->u.pbMacContext, 0, allocSize);
+
+			/* Point authInfo to the start of the buffer */
+			authInfo = (BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO *)ctx->u.pbMacContext;
+			BCRYPT_INIT_AUTH_MODE_INFO(*authInfo);
+
+			/* Point pbMacContext to the space after authInfo */
+			authInfo->pbMacContext = ctx->u.pbMacContext + sizeof(BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO);
+			authInfo->cbMacContext = (ULONG)ctx->u.cbMacContext;
 
 			/* Store Nonce/IV */
 			PUCHAR iv = (PUCHAR)iv_or_nonce_ctr_or_data_unit_16;
@@ -204,7 +206,7 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			/* Allocate Nonce Buffer */
 			ctx->u.pbNonce = lws_malloc(ctx->u.cbNonce, "genaes nonce");
 			if (!ctx->u.pbNonce) {
-				lws_free(authInfo);
+				/* pbMacContext freed in destroy */
 				return -1;
 			}
 
@@ -219,7 +221,6 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			ctx->u.cbTag = tlen;
 			ctx->u.pbTag = lws_malloc(ctx->u.cbTag, "genaes tag");
 			if (!ctx->u.pbTag) {
-				lws_free(authInfo);
 				return -1;
 			}
 			memset(ctx->u.pbTag, 0, ctx->u.cbTag);
@@ -229,51 +230,28 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 				memcpy(ctx->u.pbTag, stream_block_16, ctx->u.cbTag);
 			}
 
-			/* Setup AuthInfo for AAD or Initial state */
+			/* Setup AuthInfo for Initial state - Persisted */
 			authInfo->pbNonce = ctx->u.pbNonce;
 			authInfo->cbNonce = (ULONG)ctx->u.cbNonce;
-			if (ctx->op == LWS_GAESO_ENC) {
-				authInfo->pbTag = NULL;
-				authInfo->cbTag = 0;
-			} else {
-				authInfo->pbTag = ctx->u.pbTag;
-				authInfo->cbTag = (ULONG)ctx->u.cbTag;
-			}
-			authInfo->pbMacContext = ctx->u.pbMacContext;
-			authInfo->cbMacContext = (ULONG)ctx->u.cbMacContext;
+
+			authInfo->pbTag = ctx->u.pbTag;
+			authInfo->cbTag = (ULONG)ctx->u.cbTag;
+
 			authInfo->dwFlags = BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG;
 
 			/* Process AAD if present */
 			if (in && len) {
-				uint8_t *dummy_in, *authData = NULL;
-
-				/* Allocate dummy buffer for alignment */
-				dummy_in = lws_malloc(128, "genaes dummy in");
-				if (!dummy_in) {
-					lws_free(authInfo);
-					return -1;
-				}
-				memset(dummy_in, 0, 128);
+				uint8_t *authData = NULL;
 
 				/* Allocate and copy auth data for alignment */
 				authData = lws_malloc(len, "genaes aad");
 				if (!authData) {
-					lws_free(dummy_in);
-					lws_free(authInfo);
 					return -1;
 				}
 				memcpy(authData, in, len);
 
 				authInfo->pbAuthData = (PUCHAR)authData;
 				authInfo->cbAuthData = (ULONG)len;
-
-				/*
-				 * For GCM, even if we don't supply the tag buffer yet (ENC), we must
-				 * tell the provider the length of the tag we intend to use.
-				 */
-				if (ctx->op == LWS_GAESO_ENC) {
-					authInfo->cbTag = (ULONG)ctx->u.cbTag;
-				}
 
 				lwsl_notice("%s: GCM AAD processing: len %lu, cbTag %lu, cbNonce %lu\n", __func__, (unsigned long)len, (unsigned long)ctx->u.cbTag, (unsigned long)ctx->u.cbNonce);
 
@@ -283,36 +261,36 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 					status = BCryptDecrypt(ctx->u.hKey, NULL, 0, authInfo, ctx->u.iv, 16, NULL, 0, &result_len, 0);
 				}
 
-				lws_free(dummy_in);
 				lws_free(authData);
 
 				if (!BCRYPT_SUCCESS(status)) {
 					lwsl_err("lws_genaes_crypt: GCM AAD failed: 0x%x, is enc: %d, len %lu, result_len %lu\n", status, ctx->op == LWS_GAESO_ENC, (unsigned long)len, result_len);
-					lws_free(authInfo);
 					return -1;
 				}
 			}
 
 			lwsl_notice("%s: init completed\n", __func__);
-			lws_free(authInfo);
 
 			return 0;
 		} else {
 			/* Subsequent calls: Process Payload */
-			authInfo->pbNonce = NULL;
-			authInfo->cbNonce = 0;
-			if (ctx->op == LWS_GAESO_ENC) {
-				authInfo->pbTag = NULL;
-				authInfo->cbTag = (ULONG)ctx->u.cbTag;
-			} else {
-				authInfo->pbTag = ctx->u.pbTag;
-				authInfo->cbTag = (ULONG)ctx->u.cbTag;
-			}
-			authInfo->pbMacContext = ctx->u.pbMacContext;
-			authInfo->cbMacContext = (ULONG)ctx->u.cbMacContext;
+
+			/* Retrieve persisted authInfo */
+			authInfo = (BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO *)ctx->u.pbMacContext;
+
+			/* Ensure flags are still set for chaining (should persist, but safety) */
 			authInfo->dwFlags = BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG;
+
+			/* Reset AAD pointers for payload call */
 			authInfo->pbAuthData = NULL;
 			authInfo->cbAuthData = 0;
+
+			/*
+			 * Note: Unlike previous attempts, we do NOT clear pbNonce/cbNonce here.
+			 * The persisted authInfo structure retains the pointer to the nonce,
+			 * which is required by CNG for the lifetime of the operation when using
+			 * a reused structure.
+			 */
 
 			{
 				uint8_t *in_aligned, *out_aligned;
@@ -320,7 +298,6 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 				/* Allocate aligned buffers */
 				in_aligned = lws_malloc(len, "genaes in aligned");
 				if (!in_aligned) {
-					lws_free(authInfo);
 					return -1;
 				}
 				memcpy(in_aligned, in, len);
@@ -328,7 +305,6 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 				out_aligned = lws_malloc(len, "genaes out aligned");
 				if (!out_aligned) {
 					lws_free(in_aligned);
-					lws_free(authInfo);
 					return -1;
 				}
 
@@ -346,7 +322,6 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			}
 
 			lwsl_notice("%s: processed payload 0x%x\n", __func__, (unsigned int)status);
-			lws_free(authInfo);
 
 			return BCRYPT_SUCCESS(status) ? 0 : -1;
 		}
