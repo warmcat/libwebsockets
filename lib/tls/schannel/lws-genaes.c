@@ -267,6 +267,14 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 				authInfo->pbAuthData = (PUCHAR)authData;
 				authInfo->cbAuthData = (ULONG)len;
 
+				/*
+				 * For GCM, even if we don't supply the tag buffer yet (ENC), we must
+				 * tell the provider the length of the tag we intend to use.
+				 */
+				if (ctx->op == LWS_GAESO_ENC) {
+					authInfo->cbTag = (ULONG)ctx->u.cbTag;
+				}
+
 				lwsl_notice("%s: GCM AAD processing: len %lu, cbTag %lu, cbNonce %lu\n", __func__, (unsigned long)len, (unsigned long)ctx->u.cbTag, (unsigned long)ctx->u.cbNonce);
 
 				if (ctx->op == LWS_GAESO_ENC) {
@@ -295,7 +303,7 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			authInfo->cbNonce = 0;
 			if (ctx->op == LWS_GAESO_ENC) {
 				authInfo->pbTag = NULL;
-				authInfo->cbTag = 0;
+				authInfo->cbTag = (ULONG)ctx->u.cbTag;
 			} else {
 				authInfo->pbTag = ctx->u.pbTag;
 				authInfo->cbTag = (ULONG)ctx->u.cbTag;
