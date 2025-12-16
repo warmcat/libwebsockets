@@ -191,7 +191,7 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			BCRYPT_INIT_AUTH_MODE_INFO(*authInfo);
 
 			/* Point pbMacContext to the space after authInfo */
-			authInfo->pbMacContext = ctx->u.pbMacContext + sizeof(BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO);
+			authInfo->pbMacContext = (PUCHAR)ctx->u.pbMacContext + sizeof(BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO);
 			authInfo->cbMacContext = (ULONG)ctx->u.cbMacContext;
 
 			/* Store Nonce/IV */
