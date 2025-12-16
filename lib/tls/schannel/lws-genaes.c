@@ -278,9 +278,9 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 				lwsl_notice("%s: GCM AAD processing: len %lu, cbTag %lu, cbNonce %lu\n", __func__, (unsigned long)len, (unsigned long)ctx->u.cbTag, (unsigned long)ctx->u.cbNonce);
 
 				if (ctx->op == LWS_GAESO_ENC) {
-					status = BCryptEncrypt(ctx->u.hKey, dummy_in, 0, authInfo, NULL, 0, NULL, 0, &result_len, 0);
+					status = BCryptEncrypt(ctx->u.hKey, NULL, 0, authInfo, ctx->u.iv, 16, NULL, 0, &result_len, 0);
 				} else {
-					status = BCryptDecrypt(ctx->u.hKey, dummy_in, 0, authInfo, NULL, 0, NULL, 0, &result_len, 0);
+					status = BCryptDecrypt(ctx->u.hKey, NULL, 0, authInfo, ctx->u.iv, 16, NULL, 0, &result_len, 0);
 				}
 
 				lws_free(dummy_in);
@@ -333,9 +333,9 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 				}
 
 				if (ctx->op == LWS_GAESO_ENC) {
-					status = BCryptEncrypt(ctx->u.hKey, (PUCHAR)in_aligned, (ULONG)len, authInfo, NULL, 0, (PUCHAR)out_aligned, (ULONG)len, &result_len, 0);
+					status = BCryptEncrypt(ctx->u.hKey, (PUCHAR)in_aligned, (ULONG)len, authInfo, ctx->u.iv, 16, (PUCHAR)out_aligned, (ULONG)len, &result_len, 0);
 				} else {
-					status = BCryptDecrypt(ctx->u.hKey, (PUCHAR)in_aligned, (ULONG)len, authInfo, NULL, 0, (PUCHAR)out_aligned, (ULONG)len, &result_len, 0);
+					status = BCryptDecrypt(ctx->u.hKey, (PUCHAR)in_aligned, (ULONG)len, authInfo, ctx->u.iv, 16, (PUCHAR)out_aligned, (ULONG)len, &result_len, 0);
 				}
 
 				if (BCRYPT_SUCCESS(status))
