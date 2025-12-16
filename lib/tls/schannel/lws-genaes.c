@@ -172,7 +172,6 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			} else {
 				ctx->u.cbMacContext = 2048; /* Fallback if query fails */
 			}
-			lwsl_notice("%s: MacContext info: status 0x%x, size %lu, authinfo sz %u\n", __func__, (unsigned int)st, ctx->u.cbMacContext, (unsigned int)sizeof(BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO));
 
 			/*
 			 * Allocate PERSISTENT buffer for authInfo + MacContext.
@@ -253,8 +252,6 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 				authInfo->pbAuthData = (PUCHAR)authData;
 				authInfo->cbAuthData = (ULONG)len;
 
-				lwsl_notice("%s: GCM AAD processing: len %lu, cbTag %lu, cbNonce %lu\n", __func__, (unsigned long)len, (unsigned long)ctx->u.cbTag, (unsigned long)ctx->u.cbNonce);
-
 				if (ctx->op == LWS_GAESO_ENC) {
 					status = BCryptEncrypt(ctx->u.hKey, NULL, 0, authInfo, ctx->u.iv, 16, NULL, 0, &result_len, 0);
 				} else {
@@ -264,12 +261,11 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 				lws_free(authData);
 
 				if (!BCRYPT_SUCCESS(status)) {
-					lwsl_err("lws_genaes_crypt: GCM AAD failed: 0x%x, is enc: %d, len %lu, result_len %lu\n", status, ctx->op == LWS_GAESO_ENC, (unsigned long)len, result_len);
+					lwsl_err("lws_genaes_crypt: GCM AAD failed: 0x%x\n",
+						 status);
 					return -1;
 				}
 			}
-
-			lwsl_notice("%s: init completed\n", __func__);
 
 			return 0;
 		} else {
@@ -286,7 +282,6 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			authInfo->cbAuthData = 0;
 
 			/*
-			 * Note: Unlike previous attempts, we do NOT clear pbNonce/cbNonce here.
 			 * The persisted authInfo structure retains the pointer to the nonce,
 			 * which is required by CNG for the lifetime of the operation when using
 			 * a reused structure.
@@ -321,8 +316,6 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 				lws_free(out_aligned);
 			}
 
-			lwsl_notice("%s: processed payload 0x%x\n", __func__, (unsigned int)status);
-
 			return BCRYPT_SUCCESS(status) ? 0 : -1;
 		}
 	} else {
@@ -346,8 +339,6 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 			status = BCryptDecrypt(ctx->u.hKey, (PUCHAR)in, (ULONG)len, NULL, iv_use, iv_len, (PUCHAR)out, (ULONG)len, &result_len, 0);
 		}
 	}
-
-	lwsl_notice("%s: func end %d\n", __func__, status);
 
 	return BCRYPT_SUCCESS(status) ? 0 : -1;
 }
