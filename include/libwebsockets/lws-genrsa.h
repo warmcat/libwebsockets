@@ -45,6 +45,11 @@ enum enum_genrsa_mode {
 struct lws_genrsa_ctx {
 #if defined(LWS_WITH_MBEDTLS)
 	mbedtls_rsa_context *ctx;
+#elif defined(LWS_WITH_SCHANNEL)
+	struct {
+		void *hAlg;
+		void *hKey;
+	} u;
 #else
 	BIGNUM *bn[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
 	EVP_PKEY_CTX *ctx;

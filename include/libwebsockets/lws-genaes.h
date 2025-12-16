@@ -74,6 +74,20 @@ struct lws_genaes_ctx {
 #endif
 		mbedtls_gcm_context ctx_gcm;
 	} u;
+#elif defined(LWS_WITH_SCHANNEL)
+	struct {
+		void *hAlg;
+		void *hKey;
+		void *pbMacContext;
+		size_t cbMacContext;
+		void *pbNonce;
+		size_t cbNonce;
+		void *pbTag;
+		size_t cbTag;
+		void *pbAuthData;
+		size_t cbAuthData;
+		unsigned char iv[LWS_AES_CBC_BLOCKLEN]; /* Internal IV buffer for chaining */
+	} u;
 #else
 	EVP_CIPHER_CTX *ctx;
 	const EVP_CIPHER *cipher;

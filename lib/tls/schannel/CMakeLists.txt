@@ -22,10 +22,7 @@
 # IN THE SOFTWARE.
 #
 
-list(APPEND SOURCES
-	tls/schannel/schannel-tls.c
-	tls/schannel/schannel-ssl.c
-	tls/schannel/schannel-x509.c
-)
+# SChannel sources are now handled in parent lib/tls/CMakeLists.txt for consistency.
+# This file remains as a placeholder if needed for include directories or specific options later.
 
 exports_to_parent_scope()

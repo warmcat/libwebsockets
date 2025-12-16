@@ -47,14 +47,6 @@ lws_ssl_pending(struct lws *wsi)
 }
 
 int
-lws_server_socket_service_ssl(struct lws *new_wsi, lws_sockfd_type accept_fd,
-			      char is_pollin)
-{
-	/* stub */
-	return 0;
-}
-
-int
 lws_ssl_close(struct lws *wsi)
 {
 	/* stub */
@@ -63,13 +55,6 @@ lws_ssl_close(struct lws *wsi)
 
 int
 lws_ssl_client_bio_create(struct lws *wsi)
-{
-	/* stub */
-	return 0;
-}
-
-int
-lws_ssl_client_connect2(struct lws *wsi, char *errbuf, size_t len)
 {
 	/* stub */
 	return 0;

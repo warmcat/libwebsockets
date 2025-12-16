@@ -10,6 +10,7 @@
 #include <libwebsockets.h>
 #include <sys/types.h>
 #include <fcntl.h>
+#include <stdio.h>
 
 /*
  * handles escapes and line wrapping suitable for use

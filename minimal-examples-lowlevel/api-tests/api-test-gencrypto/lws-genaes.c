@@ -1,7 +1,7 @@
 /*
  * lws-api-test-gencrypto - lws-genaes
  *
- * Written in 2010-2018 by Andy Green <andy@warmcat.com>
+ * Written in 2010-2025 by Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -10,7 +10,8 @@
 #include <libwebsockets.h>
 
 
-#if (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_CBC))) || \
+#if defined(LWS_WITH_SCHANNEL) || \
+    (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_CBC))) || \
     (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_cbc))
 
 static const uint8_t
@@ -197,7 +198,8 @@ bail:
 }
 #endif
 
-#if (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_CFB))) || \
+#if defined(LWS_WITH_SCHANNEL) || \
+    (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_CFB))) || \
     (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_cfb8))
 
 static const uint8_t
@@ -381,7 +383,8 @@ bail:
 }
 #endif
 
-#if (defined(LWS_WITH_MBEDTLS)) || \
+#if defined(LWS_WITH_SCHANNEL) || \
+    (defined(LWS_WITH_MBEDTLS)) || \
     (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_ecb))
 static const uint8_t
 /*
@@ -655,6 +658,7 @@ bail:
 }
 #endif
 
+#if !defined(LWS_WITH_SCHANNEL)
 static const uint8_t
 	/*
 	 * https://csrc.nist.gov/CSRC/media/Projects/
@@ -708,13 +712,13 @@ test_genaes_gcm(void)
 	if (lws_genaes_crypt(&ctx, gcm_aad, sizeof(gcm_aad), NULL,
 			     (uint8_t *)gcm_iv, (uint8_t *)gcm_tag,
 			     &iv_off, sizeof(gcm_tag))) {
-		lwsl_err("%s: lws_genaes_crypt 1 failed\n", __func__);
+		lwsl_err("%s: lws_genaes_crypt 1a failed\n", __func__);
 		goto bail;
 	}
 
 	if (lws_genaes_crypt(&ctx, gcm_pt, sizeof(gcm_pt), res,
 			     NULL, NULL, NULL, 0)) {
-		lwsl_err("%s: lws_genaes_crypt 2 failed\n", __func__);
+		lwsl_err("%s: lws_genaes_crypt 2a failed\n", __func__);
 		goto bail;
 	}
 
@@ -741,13 +745,13 @@ test_genaes_gcm(void)
 	if (lws_genaes_crypt(&ctx, gcm_aad, sizeof(gcm_aad), NULL,
 			     (uint8_t *)gcm_iv, (uint8_t *)gcm_tag,
 			     &iv_off, sizeof(gcm_tag))) {
-		lwsl_err("%s: lws_genaes_crypt 1 failed\n", __func__);
+		lwsl_err("%s: lws_genaes_crypt 1b failed\n", __func__);
 		goto bail;
 	}
 
 	if (lws_genaes_crypt(&ctx, gcm_ct, sizeof(gcm_ct), res,
 			     NULL, NULL, NULL, 0)) {
-		lwsl_err("%s: lws_genaes_crypt 2 failed\n", __func__);
+		lwsl_err("%s: lws_genaes_crypt 2b failed\n", __func__);
 		goto bail;
 	}
 
@@ -769,11 +773,13 @@ bail:
 
 	return -1;
 }
+#endif
 
 int
 test_genaes(struct lws_context *context)
 {
-#if (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_CBC))) || \
+#if defined(LWS_WITH_SCHANNEL) || \
+    (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_CBC))) || \
     (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_cbc))
 	if (test_genaes_cbc())
 		goto bail;
@@ -783,7 +789,8 @@ test_genaes(struct lws_context *context)
 	if (test_genaes_cfb128())
 		goto bail;
 #endif
-#if (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_CFB))) || \
+#if defined(LWS_WITH_SCHANNEL) || \
+    (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_CFB))) || \
     (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_cfb8))
 	if (test_genaes_cfb8())
 		goto bail;
@@ -793,7 +800,8 @@ test_genaes(struct lws_context *context)
 	if (test_genaes_ctr())
 		goto bail;
 #endif
-#if (defined(LWS_WITH_MBEDTLS)) || \
+#if defined(LWS_WITH_SCHANNEL) || \
+    (defined(LWS_WITH_MBEDTLS)) || \
     (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_ecb))
 	if (test_genaes_ecb())
 		goto bail;
@@ -809,8 +817,10 @@ test_genaes(struct lws_context *context)
 		goto bail;
 #endif
 
+#if !defined(LWS_WITH_SCHANNEL)
 	if (test_genaes_gcm())
 		goto bail;
+#endif
 
 	/* end */
 

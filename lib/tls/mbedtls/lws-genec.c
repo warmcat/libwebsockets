@@ -191,7 +191,7 @@ lws_genecdsa_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 
 
 int
-lws_genecdh_set_key(struct lws_genec_ctx *ctx, struct lws_gencrypto_keyelem *el,
+lws_genecdh_set_key(struct lws_genec_ctx *ctx, const struct lws_gencrypto_keyelem *el,
 		    enum enum_lws_dh_side side)
 {
 	if (ctx->genec_alg != LEGENEC_ECDH)
@@ -326,8 +326,10 @@ lws_genecdsa_new_keypair(struct lws_genec_ctx *ctx, const char *curve_name,
 	mbedtls_mpi *mpi[3];
 	int n;
 
-	if (ctx->genec_alg != LEGENEC_ECDSA)
+	if (ctx->genec_alg != LEGENEC_ECDSA) {
+		lwsl_err("lws_genecdsa_new_keypair: genec_alg != LEGENEC_ECDSA\n");
 		return -1;
+	}
 
 	curve = lws_genec_curve(ctx->curve_table, curve_name);
 	if (!curve) {
@@ -359,16 +361,20 @@ lws_genecdsa_new_keypair(struct lws_genec_ctx *ctx, const char *curve_name,
 	el[LWS_GENCRYPTO_EC_KEYEL_CRV].len = (uint32_t)strlen(curve_name) + 1;
 	el[LWS_GENCRYPTO_EC_KEYEL_CRV].buf =
 			lws_malloc(el[LWS_GENCRYPTO_EC_KEYEL_CRV].len, "ec");
-	if (!el[LWS_GENCRYPTO_EC_KEYEL_CRV].buf)
+	if (!el[LWS_GENCRYPTO_EC_KEYEL_CRV].buf) {
+		lwsl_err("lws_genecdsa_new_keypair: failed to alloc CRV\n");
 		goto bail1;
+	}
 	strcpy((char *)el[LWS_GENCRYPTO_EC_KEYEL_CRV].buf, curve_name);
 
 	for (n = LWS_GENCRYPTO_EC_KEYEL_X; n < LWS_GENCRYPTO_EC_KEYEL_COUNT;
 	     n++) {
 		el[n].len = curve->key_bytes;
 		el[n].buf = lws_malloc(curve->key_bytes, "ec");
-		if (!el[n].buf)
+		if (!el[n].buf) {
+			lwsl_err("lws_genecdsa_new_keypair: failed to alloc KEYEL %d\n", n);
 			goto bail2;
+		}
 
 
 		if (mbedtls_mpi_write_binary(mpi[n - 1], el[n].buf, el[n].len)) {

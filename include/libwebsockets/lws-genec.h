@@ -35,6 +35,12 @@ struct lws_genec_ctx {
 		mbedtls_ecdh_context *ctx_ecdh;
 		mbedtls_ecdsa_context *ctx_ecdsa;
 	} u;
+#elif defined(LWS_WITH_SCHANNEL)
+	struct {
+		void *hAlg;
+		void *hKey;
+		void *hKeyPeer; /* For ECDH peer public key */
+	} u;
 #else
 	EVP_PKEY_CTX *ctx[2];
 #endif
@@ -89,7 +95,7 @@ lws_genecdh_create(struct lws_genec_ctx *ctx, struct lws_context *context,
  * Applies an EC key to one side or the other of an ECDH ctx
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_genecdh_set_key(struct lws_genec_ctx *ctx, struct lws_gencrypto_keyelem *el,
+lws_genecdh_set_key(struct lws_genec_ctx *ctx, const struct lws_gencrypto_keyelem *el,
 		    enum enum_lws_dh_side side);
 
 /** lws_genecdh_new_keypair() - Create a genec with a new public / private key

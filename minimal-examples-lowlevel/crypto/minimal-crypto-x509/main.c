@@ -11,6 +11,7 @@
 #include <sys/types.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <stdio.h>
 
 static int
 read_pem(const char *filename, char *pembuf, int pembuf_len)
