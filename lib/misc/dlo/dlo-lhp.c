@@ -769,7 +769,6 @@ do_rect:
 
 			if (psb) {
 				lws_fx_add(&psb->curx, &psb->curx, &w);
-				lws_fx_add(&psb->cury, &psb->cury, &h);
 				psb->dlo_set_curx = ps->dlo;
 				psb->dlo_set_cury = ps->dlo;
 				if (lws_fx_comp(&psb->curx, &psb->widest) > 0)
