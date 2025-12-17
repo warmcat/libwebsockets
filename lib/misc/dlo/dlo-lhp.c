@@ -629,11 +629,16 @@ lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 			ps->is_table = 1;
 			/* fallthru */
 		case LHP_ELEM_DIV:
+			if (psb && (psb->runon & 1))
+				newline(ctx, psb, psb, drt->dl);
 			goto do_rect;
 
 		default: /* treat unknown elements as generic blocks (divs) if they match our list */
-			if (elem_match > LHP_ELEM_IMG)
+			if (elem_match > LHP_ELEM_IMG) {
+				if (psb && (psb->runon & 1))
+					newline(ctx, psb, psb, drt->dl);
 				goto do_rect;
+			}
 			break;
 
 do_rect:
