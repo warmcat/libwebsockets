@@ -459,8 +459,6 @@ lws_display_get_ids_boxes(lws_display_render_state_t *rs)
 		/* go into any children */
 
 		if (dlo->children.head) {
-			lwsl_notice("%s: child recurse\n", __func__);
-
 			if (rs->sp + 1 == LWS_ARRAY_SIZE(rs->st)) {
 				lwsl_err("%s: DLO stack overflow\n",
 						__func__);

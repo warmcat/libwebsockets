@@ -84,7 +84,6 @@ lws_lhp_ss_html_parse(lws_sorted_usec_list_t *sul)
 
 	m->lhp.flags = LHP_FLAG_DOCUMENT_END;
 	lws_lhp_parse(&m->lhp, (const uint8_t **)NULL, &zero);
-	lws_lhp_destruct(&m->lhp);
 	m->rs->html = 2; /* html completed.. rs outlives the html ss and priv */
 
 	lws_display_dl_dump(m->drt.dl);
@@ -120,7 +119,7 @@ htmlss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 
 	if (flags & LWSSS_FLAG_EOM) {
 		m->flow.state = LWSDLOFLOW_STATE_READ_COMPLETED;
-		r = LWSSSSRET_DISCONNECT_ME;
+		r = LWSSSSRET_OK;
 	}
 
 	lws_sul_schedule(m->cx, 0, &m->sul, lws_lhp_ss_html_parse, 1);
