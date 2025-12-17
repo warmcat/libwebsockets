@@ -134,10 +134,8 @@ dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	// lwsl_notice("%s: buflen size %d\n", __func__,
 	//		(int)lws_buflist_total_len(&m->u.u.dlo_jpeg->flow.bl));
 
-	if (flags & LWSSS_FLAG_EOM) {
+	if (flags & LWSSS_FLAG_EOM)
 		m->u.u.dlo_jpeg->flow.state = LWSDLOFLOW_STATE_READ_COMPLETED;
-		return LWSSSSRET_DISCONNECT_ME;
-	}
 
 	if (!lws_dlo_image_width(&m->u)) {
 		lws_flow_feed(&m->u.u.dlo_jpeg->flow);
@@ -158,12 +156,12 @@ dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 		} //else
 			//lwsl_err("%s: metadata scan no end yet\n", __func__);
 
-		return LWSSSSRET_OK;
+		return flags & LWSSS_FLAG_EOM ? LWSSSSRET_DISCONNECT_ME : LWSSSSRET_OK;
 	}
 okie:
 	lws_sul_schedule(lws_ss_get_context(m->ss), 0, m->ssevsul, m->on_rx, 1);
 
-	return LWSSSSRET_OK;
+	return flags & LWSSS_FLAG_EOM ? LWSSSSRET_DISCONNECT_ME : LWSSSSRET_OK;
 }
 
 static lws_ss_state_return_t
