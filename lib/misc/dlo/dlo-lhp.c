@@ -67,6 +67,31 @@ static const struct {
 	{ "tr",		2 },
 	{ "td",		2 },
 	{ "img",	3 },
+	{ "main",	4 },
+	{ "header",	6 },
+	{ "footer",	6 },
+	{ "article",	7 },
+	{ "section",	7 },
+	{ "nav",	3 },
+	{ "aside",	5 },
+	{ "address",	7 },
+	{ "h1",		2 },
+	{ "h2",		2 },
+	{ "h3",		2 },
+	{ "h4",		2 },
+	{ "h5",		2 },
+	{ "h6",		2 },
+	{ "p",		1 },
+	{ "ul",		2 },
+	{ "ol",		2 },
+	{ "li",		2 },
+	{ "dl",		2 },
+	{ "dt",		2 },
+	{ "dd",		2 },
+	{ "blockquote",	10 },
+	{ "form",	4 },
+	{ "fieldset",	8 },
+	{ "pre",	3 },
 };
 
 /*
@@ -604,6 +629,12 @@ lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 			ps->is_table = 1;
 			/* fallthru */
 		case LHP_ELEM_DIV:
+			goto do_rect;
+
+		default: /* treat unknown elements as generic blocks (divs) if they match our list */
+			if (elem_match > LHP_ELEM_IMG)
+				goto do_rect;
+			break;
 
 do_rect:
 			lws_fx_set(box.x, 0, 0);
@@ -746,8 +777,6 @@ do_rect:
 			}
 
 			break;
-		default:
-			break;
 		}
 		break;
 
@@ -798,6 +827,13 @@ do_rect:
 
 		case LHP_ELEM_TABLE:
 		case LHP_ELEM_DIV:
+			goto do_end_rect;
+
+		default:
+			if (elem_match > LHP_ELEM_IMG)
+				goto do_end_rect;
+			break;
+
 do_end_rect:
 			ox = ps->curx;
 
@@ -818,6 +854,7 @@ do_end_rect:
 
 				switch (ps->css_display->propval) {
 				case LCSP_PROPVAL_BLOCK:
+				case LCSP_PROPVAL_LIST_ITEM:
 				case LCSP_PROPVAL_TABLE:
 				case LCSP_PROPVAL_TABLE_ROW:
 					lws_fx_set(psb->curx, 0, 0);
@@ -848,8 +885,6 @@ do_end_rect:
 			}
 
 			ps->dlo = NULL;
-			break;
-		default:
 			break;
 		}
 		break;
