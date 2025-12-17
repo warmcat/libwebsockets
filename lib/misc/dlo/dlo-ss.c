@@ -138,6 +138,33 @@ dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 		m->u.u.dlo_jpeg->flow.state = LWSDLOFLOW_STATE_READ_COMPLETED;
 
 	if (!lws_dlo_image_width(&m->u)) {
+		uint8_t *p;
+		size_t avail = lws_buflist_next_segment_len(&m->u.u.dlo_png->flow.bl, &p);
+
+		if (m->type == LWSDLOSS_TYPE_PNG && avail >= 2 && p[0] == 0xff && p[1] == 0xd8) {
+			 lwsl_warn("%s: fixing up PNG -> JPG\n", __func__);
+			 lws_upng_free(&m->u.u.dlo_png->png);
+			 m->u.u.dlo_jpeg->j = lws_jpeg_new();
+			 if (!m->u.u.dlo_jpeg->j) return LWSSSSRET_DISCONNECT_ME;
+
+			 m->u.u.dlo_jpeg->dlo.render = lws_display_render_jpeg;
+			 m->u.u.dlo_jpeg->dlo._destroy = lws_display_dlo_jpeg_destroy;
+			 m->type = LWSDLOSS_TYPE_JPEG;
+			 m->u.type = LWSDLOSS_TYPE_JPEG;
+		} else if (m->type == LWSDLOSS_TYPE_JPEG && avail >= 8 &&
+			   p[0] == 0x89 && p[1] == 0x50 && p[2] == 0x4e && p[3] == 0x47 &&
+			   p[4] == 0x0d && p[5] == 0x0a && p[6] == 0x1a && p[7] == 0x0a) {
+			 lwsl_warn("%s: fixing up JPG -> PNG\n", __func__);
+			 lws_jpeg_free(&m->u.u.dlo_jpeg->j);
+			 m->u.u.dlo_png->png = lws_upng_new();
+			 if (!m->u.u.dlo_png->png) return LWSSSSRET_DISCONNECT_ME;
+
+			 m->u.u.dlo_png->dlo.render = lws_display_render_png;
+			 m->u.u.dlo_png->dlo._destroy = lws_display_dlo_png_destroy;
+			 m->type = LWSDLOSS_TYPE_PNG;
+			 m->u.type = LWSDLOSS_TYPE_PNG;
+		}
+
 		lws_flow_feed(&m->u.u.dlo_jpeg->flow);
 		r = lws_dlo_image_metadata_scan(&m->u);
 		lws_flow_req(&m->u.u.dlo_jpeg->flow);
