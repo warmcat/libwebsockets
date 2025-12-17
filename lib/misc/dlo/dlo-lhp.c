@@ -746,8 +746,8 @@ do_rect:
 					lws_csp_px(psb->css_margin[CCPAS_TOP], psb));
 			}
 
-			box.h = ctx->ic.wh_px[1]; /* placeholder */
-			lws_fx_sub(&box.w, &ctx->ic.wh_px[0], &box.x);
+					lws_fx_set(box.h, 0, 0);
+					lws_fx_set(box.w, 0, 0);
 
 			if (ps->css_width &&
 			    lws_fx_comp(lws_csp_px(ps->css_width, ps), &box.w) > 0)
@@ -757,8 +757,7 @@ do_rect:
 						ctx->base_url, pname))
 				break;
 
-			if (lws_dlo_ss_find(cx, url, &u))
-				break;
+			lws_dlo_ss_find(cx, url, &u);
 
 			lws_lhp_tag_dlo_id(ctx, ps, (lws_dlo_t *)(u.u.dlo_jpeg));
 
@@ -767,9 +766,9 @@ do_rect:
 			h = *lws_csp_px(lws_css_cascade_get_prop_atr(ctx,
 							LCSP_PROP_HEIGHT), ps);
 
-			if (!w.whole || !h.whole) {
+			if ((!w.whole || !h.whole) && u.u.dlo_jpeg) {
 				w = ((lws_dlo_t *)(u.u.dlo_jpeg))->box.w;
-				h = ((lws_dlo_t *)(u.u.dlo_jpeg))->box.w;
+				h = ((lws_dlo_t *)(u.u.dlo_jpeg))->box.h;
 			}
 
 			if (psb) {
