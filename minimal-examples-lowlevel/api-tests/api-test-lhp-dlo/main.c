@@ -112,6 +112,9 @@ render(lws_sorted_usec_list_t *sul)
 					(rs->ic->greyscale ? 1 : 3);
 	lws_stateful_ret_t r;
 
+	if (rs->html == 1)
+		return;
+
 	if (!rs->line) {
 
 		lws_display_get_ids_boxes(rs);

@@ -32,7 +32,7 @@
 #define LHP_MAX_DEPTH			12
 #endif
 #if !defined(LHP_STRING_CHUNK)
-#define LHP_STRING_CHUNK		254
+#define LHP_STRING_CHUNK		2048
 #endif
 
 enum lhp_callbacks {
