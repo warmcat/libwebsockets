@@ -92,6 +92,40 @@ static const lws_surface_info_t ic = {
 
 int fdin = 0, fdout = 1;
 
+static void
+write_bmp_header(int fd, int w, int h)
+{
+	uint8_t head[54];
+	int filesize = 54 + (w * h * 3);
+
+	memset(head, 0, sizeof(head));
+
+	head[0] = 'B';
+	head[1] = 'M';
+	head[2] = (uint8_t)(filesize & 0xff);
+	head[3] = (uint8_t)((filesize >> 8) & 0xff);
+	head[4] = (uint8_t)((filesize >> 16) & 0xff);
+	head[5] = (uint8_t)((filesize >> 24) & 0xff);
+	head[10] = 54;
+
+	head[14] = 40;
+	head[18] = (uint8_t)(w & 0xff);
+	head[19] = (uint8_t)((w >> 8) & 0xff);
+	head[20] = (uint8_t)((w >> 16) & 0xff);
+	head[21] = (uint8_t)((w >> 24) & 0xff);
+
+	h = -h; /* top-down */
+	head[22] = (uint8_t)(h & 0xff);
+	head[23] = (uint8_t)((h >> 8) & 0xff);
+	head[24] = (uint8_t)((h >> 16) & 0xff);
+	head[25] = (uint8_t)((h >> 24) & 0xff);
+
+	head[26] = 1;
+	head[28] = 24;
+
+	write(fd, head, 54);
+}
+
 #if defined(SEVENCOL)
 static void
 expand(uint8_t nyb, uint8_t *rgba)
@@ -131,6 +165,10 @@ render(lws_sorted_usec_list_t *sul)
 
 		memset(rs->line, 0, lbuflen);
 		rs->curr = 0;
+
+		if (fdout != 1)
+			write_bmp_header(fdout, rs->ic->wh_px[0].whole,
+					 rs->ic->wh_px[1].whole);
 	}
 
 	while (rs->curr != rs->lowest_id_y) {
@@ -157,6 +195,19 @@ render(lws_sorted_usec_list_t *sul)
 			write(fdout, dump, (size_t)rs->box.w.whole * 4);
 		}
 #else
+		{
+			/* swap RGB -> BGR */
+			uint8_t *p = (uint8_t *)rs->line;
+			size_t n;
+
+			for (n = 0; n < lbuflen; n += 3) {
+				uint8_t t = p[0];
+				p[0] = p[2];
+				p[2] = t;
+				p += 3;
+			}
+		}
+
 #if defined(WIN32)
 		if (write(fdout, rs->line, (unsigned int)lbuflen) < 0) {
 #else
