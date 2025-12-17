@@ -58,6 +58,9 @@ lws_display_render_jpeg(struct lws_display_render_state *rs)
 	lws_fx_add(&t1, &ay, &dlo->box.h);
 
 	if (!lws_jpeg_get_height(dlo_jpeg->j)) {
+		if (dlo_jpeg->flow.state == LWSDLOFLOW_STATE_READ_COMPLETED)
+			return LWS_SRET_OK;
+
 		lwsl_info("%s: jpeg does not have dimensions yet\n", __func__);
 		return LWS_SRET_WANT_INPUT;
 	}

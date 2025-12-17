@@ -53,6 +53,9 @@ lws_display_render_png(struct lws_display_render_state *rs)
 	int s, e;
 
 	if (!lws_upng_get_height(dlo_png->png)) {
+		if (dlo_png->flow.state == LWSDLOFLOW_STATE_READ_COMPLETED)
+			return LWS_SRET_OK;
+
 		lwsl_info("%s: png does not have dimensions yet\n", __func__);
 		return LWS_SRET_WANT_INPUT;
 	}

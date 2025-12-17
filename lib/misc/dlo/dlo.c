@@ -408,8 +408,6 @@ lws_display_get_ids_boxes(lws_display_render_state_t *rs)
 	memset(&rs->st[0].co, 0, sizeof(rs->st[0].co));
 	rs->st[0].dlo = lws_container_of(d, lws_dlo_t, list);
 
-	lwsl_notice("%s: going through rs stack\n", __func__);
-
 	while (rs->sp || rs->st[0].dlo) {
 		lws_dlo_t *dlo = rs->st[rs->sp].dlo;
 		lws_box_t co;
