@@ -1121,8 +1121,8 @@ elem_start:
 							lws_csp_px(psb->css_margin[CCPAS_TOP], psb));
 					}
 
-					box.h = ctx->ic.wh_px[LWS_LHPREF_HEIGHT]; /* placeholder */
-					lws_fx_sub(&box.w, &ctx->ic.wh_px[0], &box.x);
+					lws_fx_set(box.h, 0, 0);
+					lws_fx_set(box.w, 0, 0);
 
 					if (ps->css_width &&
 					    lws_fx_comp(lws_csp_px(ps->css_width, ps), &box.w) > 0)

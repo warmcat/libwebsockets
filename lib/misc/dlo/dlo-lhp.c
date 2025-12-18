@@ -746,8 +746,8 @@ do_rect:
 					lws_csp_px(psb->css_margin[CCPAS_TOP], psb));
 			}
 
-					lws_fx_set(box.h, 0, 0);
-					lws_fx_set(box.w, 0, 0);
+			lws_fx_set(box.h, 0, 0);
+			lws_fx_set(box.w, 0, 0);
 
 			if (ps->css_width &&
 			    lws_fx_comp(lws_csp_px(ps->css_width, ps), &box.w) > 0)
