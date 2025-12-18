@@ -1114,7 +1114,7 @@ elem_start:
 
 				if (lws_http_rel_to_url(url, sizeof(url),
 							ctx->base_url, pname))
-					goto skip_image;
+					goto check_closing;
 
 				psb = lws_css_get_parent_block(ctx, ps);
 				//if (!psb)
@@ -1169,7 +1169,7 @@ elem_start:
 					if (lws_dlo_ss_create(&i, &dlo)) {
 						/* we can't get it */
 						lwsl_cx_warn(cx, "Can't get %s", url);
-						goto issue_elem_start;
+						goto check_closing;
 					} else {
 						lwsl_cx_info(cx, "Created SS for %s\n", url);
 						if (psb)
@@ -1237,7 +1237,7 @@ elem_start:
 
 				if (u.u.dlo_png->dlo.box.w.whole < 0) {
 					lwsl_notice("%s: understanding image failed\n", __func__);
-					goto skip_image;
+					goto check_closing;
 				}
 
 				/*
@@ -1254,6 +1254,7 @@ issue_elem_start:
 				}
 			}
 
+check_closing:
 			if (ctx->u.f.closing || ctx->u.f.void_element){
 				if (ctx->stack.count == 1) {
 					lwsl_err("%s: element close mismatch\n", __func__);
@@ -1273,7 +1274,6 @@ issue_elem_start:
 				ps = lws_container_of(ctx->stack.tail,
 						      lhp_pstack_t, list);
 			}
-skip_image:
 			ctx->npos = 0;
 			ctx->state = LHPS_OUTER;
 			break;
