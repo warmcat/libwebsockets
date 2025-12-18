@@ -262,6 +262,27 @@ lhp_set_dlo_adjust_to_contents(lhp_pstack_t *ps)
 	lws_dlo_dim_t dim;
 
 	lws_dlo_contents(ps->dlo, &dim);
+
+	/*
+	 * we want to adjust the dlo size to the size of the contents,
+	 * plus the padding of the parent that the contents sits inside
+	 */
+
+	lws_fx_add(&dim.w, &dim.w, lws_csp_px(ps->css_padding[CCPAS_RIGHT], ps));
+	lws_fx_add(&dim.h, &dim.h, lws_csp_px(ps->css_padding[CCPAS_BOTTOM], ps));
+
+	/*
+	 * ... but if the dlo size was explicitly set by css, we should keep it
+	 */
+
+	if (ps->css_width && ps->css_width->unit != LCSP_UNIT_NONE &&
+	    ps->css_width->propval != LCSP_PROPVAL_AUTO)
+		dim.w = *lws_csp_px(ps->css_width, ps);
+
+	if (ps->css_height && ps->css_height->unit != LCSP_UNIT_NONE &&
+	    ps->css_height->propval != LCSP_PROPVAL_AUTO)
+		dim.h = *lws_csp_px(ps->css_height, ps);
+
 	lws_display_dlo_adjust_dims(ps->dlo, &dim);
 
 	if (lws_fx_comp(&dim.w, &psb->widest) > 0)
