@@ -1144,13 +1144,13 @@ elem_start:
 					i.u = &u;
 					i.window = ctx->window;
 
-					lwsl_cx_warn(cx, "not already in progress: %s", url);
+					lwsl_cx_info(cx, "not already in progress: %s", url);
 					if (lws_dlo_ss_create(&i, &dlo)) {
 						/* we can't get it */
 						lwsl_cx_warn(cx, "Can't get %s", url);
 						goto issue_elem_start;
 					} else {
-						lwsl_cx_warn(cx, "Created SS for %s\n", url);
+						lwsl_cx_info(cx, "Created SS for %s\n", url);
 						if (psb)
 							psb->dlo = dlo;
 					//	else
@@ -1184,7 +1184,7 @@ elem_start:
 							LCSP_PROP_HEIGHT), ps)->whole &&
 						lws_csp_px(lws_css_cascade_get_prop_atr(ctx,
 							LCSP_PROP_WIDTH), ps)->whole) {
-					lwsl_cx_warn(cx, "Have width and height %d x %d",
+					lwsl_cx_info(cx, "Have width and height %d x %d",
 							(int)lws_csp_px(lws_css_cascade_get_prop_atr(ctx,
 								LCSP_PROP_WIDTH), ps)->whole,
 							(int)lws_csp_px(lws_css_cascade_get_prop_atr(ctx,

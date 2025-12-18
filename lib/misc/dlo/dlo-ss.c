@@ -63,7 +63,7 @@ lws_lhp_image_dimensions_cb(lws_sorted_usec_list_t *sul)
 		dlo->box.w.whole = (int32_t)lws_dlo_image_width(&m->u);
 		dlo->box.h.whole = (int32_t)lws_dlo_image_height(&m->u);
 
-		lwsl_err("%s: setting dlo box %d x %d\n", __func__,
+		lwsl_info("%s: setting dlo box %d x %d\n", __func__,
 			(int)dlo->box.w.whole, (int)dlo->box.h.whole);
 #if 1
 		lws_dlo_contents(dlo, &dim);
@@ -177,7 +177,7 @@ dloss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 		}
 
 		if (r != LWS_SRET_WANT_INPUT) {
-			lwsl_notice("%s: seen metadata\n", __func__);
+			lwsl_info("%s: seen metadata\n", __func__);
 			lws_sul_schedule(lws_ss_get_context(m->ss), 0,
 					&m->sul, lws_lhp_image_dimensions_cb, 1);
 		} //else
@@ -353,7 +353,7 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 
 	lws_dll2_add_tail(&dloss->active_asset_list, &i->cx->active_assets);
 
-	lwsl_notice("%s: starting %s (dlo %p)\n", __func__, i->url, dlo);
+	lwsl_info("%s: starting %s (dlo %p)\n", __func__, i->url, dlo);
 
 	*pdlo = dlo;
 

@@ -190,7 +190,7 @@ lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(struct lws *wsi)
 	}
 
 	if (wsi->keepalive_rejected) {
-		lwsl_notice("defeating pipelining due to no "
+		lwsl_info("defeating pipelining due to no "
 				"keepalive on server\n");
 		goto solo;
 	}
@@ -211,7 +211,7 @@ lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(struct lws *wsi)
 	case ACTIVE_CONNS_SOLO:
 		break;
 	case ACTIVE_CONNS_MUXED:
-		lwsl_wsi_notice(wsi, "ACTIVE_CONNS_MUXED");
+		lwsl_wsi_info(wsi, "ACTIVE_CONNS_MUXED");
 		if (lwsi_role_h2(wsi)) {
 
 			if (wsi->a.protocol->callback(wsi,
