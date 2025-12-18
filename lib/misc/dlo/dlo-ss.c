@@ -269,7 +269,7 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 			if (!strcmp(i->url + ul - 4, ".css"))
 				type = LWSDLOSS_TYPE_CSS;
 			else {
-				lwsl_err("%s: unknown file type %s\n", __func__, i->url);
+				lwsl_warn("%s: unknown file type %s\n", __func__, i->url);
 				return 1;
 			}
 

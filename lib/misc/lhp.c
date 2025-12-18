@@ -76,6 +76,11 @@ enum {
 	LCSPS_ECOMMENT2,
 
 	LCSPS_CSS_STANZA,
+
+	/* script */
+
+	LHPS_SCRIPT,
+	LHPS_SCRIPT_TAG1,
 };
 
 /*
@@ -952,6 +957,21 @@ lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len)
 					ctx->npos = 0;
 					// lwsl_warn("leaving html for css\n");
 					ctx->state = LCSPS_CSS_OUTER;
+					break;
+				}
+
+				/* <script> trapdoor into skipping */
+
+				if (ctx->u.f.tag_used && c == '>' &&
+				    ctx->tag_len == 6 &&
+				    !strncasecmp(ctx->buf, "script", 6) &&
+				    !ctx->u.f.closing) {
+					/*
+					 * We don't want to parse script as
+					 * text.
+					 */
+					ctx->npos = 0;
+					ctx->state = LHPS_SCRIPT;
 					break;
 				}
 			}
@@ -1985,6 +2005,33 @@ finish_css:
 			ctx->buf[ctx->npos++] = '-';
 			ctx->buf[ctx->npos++] = (char)c;
 			ctx->state = LCSPS_COMMENT;
+			break;
+
+		case LHPS_SCRIPT:
+			if (c == '<') {
+				ctx->state = LHPS_SCRIPT_TAG1;
+				ctx->u.f.first = 1;
+				break;
+			}
+			break;
+
+		case LHPS_SCRIPT_TAG1:
+			if (c == '/' && ctx->u.f.first) {
+				ctx->u.s = 0;
+
+				ctx->tag = NULL;
+				ctx->tag_len = 0;
+				ctx->npos = 0;
+				ctx->state = LHPS_TAG;
+				ctx->await_css_done = 0;
+				ctx->finish_css = 0;
+				ctx->u.f.closing = 1;
+				break;
+			}
+			if (hspace(c))
+				break;
+
+			ctx->state = LHPS_SCRIPT;
 			break;
 
 		}
