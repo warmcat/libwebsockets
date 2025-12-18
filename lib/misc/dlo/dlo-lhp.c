@@ -280,6 +280,7 @@ lhp_set_dlo_adjust_to_contents(lhp_pstack_t *ps)
 		dim.w = *lws_csp_px(ps->css_width, ps);
 
 	if (ps->css_height && ps->css_height->unit != LCSP_UNIT_NONE &&
+	    ps->css_height->unit != LCSP_UNIT_LENGTH_PERCENT &&
 	    ps->css_height->propval != LCSP_PROPVAL_AUTO)
 		dim.h = *lws_csp_px(ps->css_height, ps);
 
