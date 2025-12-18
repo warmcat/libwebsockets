@@ -279,10 +279,17 @@ lhp_set_dlo_adjust_to_contents(lhp_pstack_t *ps)
 	    ps->css_height->unit != LCSP_UNIT_LENGTH_PERCENT &&
 	    ps->css_width->propval != LCSP_PROPVAL_AUTO)
 		dim.w = *lws_csp_px(ps->css_width, ps);
+	else if (ps->css_display->propval == LCSP_PROPVAL_BLOCK)
+		dim.w = ps->dlo->box.w;
 
 	if (ps->css_height && ps->css_height->unit != LCSP_UNIT_NONE &&
-	    ps->css_height->propval != LCSP_PROPVAL_AUTO)
-		dim.h = *lws_csp_px(ps->css_height, ps);
+	    ps->css_height->unit != LCSP_UNIT_LENGTH_PERCENT &&
+	    ps->css_height->propval != LCSP_PROPVAL_AUTO) {
+		const lws_fx_t *px = lws_csp_px(ps->css_height, ps);
+
+		if (lws_fx_comp(px, &dim.h) > 0)
+			dim.h = *px;
+	}
 
 	lws_display_dlo_adjust_dims(ps->dlo, &dim);
 
@@ -324,11 +331,18 @@ lws_lhp_dlo_adjust_div_type_element(lhp_ctx_t *ctx, lhp_pstack_t *psb,
 		lws_dlo_rect_t *re = (lws_dlo_rect_t *)ps->dlo;
 
 		/* h-center a div... find the available h space first */
+	if (psb) {
+		w = psb->drt.w;
+		lws_fx_sub(&w, &w, lws_csp_px(psb->css_padding[CCPAS_LEFT], psb));
+		lws_fx_sub(&w, &w, lws_csp_px(psb->css_padding[CCPAS_RIGHT], psb));
+	} else
 		w = ctx->ic.wh_px[LWS_LHPREF_WIDTH];
-		if (psb->css_width &&
+
+	/*
+	if (psb->css_width &&
 		    psb->css_width->propval != LCSP_PROPVAL_AUTO)
 			w = *lws_csp_px(psb->css_width, psb);
-
+*/
 		lws_fx_sub(&t1, &w, &re->dlo.box.w);
 		lws_fx_div(&t1, &t1, &two);
 		lws_fx_sub(&wd, &t1, &re->dlo.box.x);
@@ -692,8 +706,20 @@ do_rect:
 
 			if (ps->css_width &&
 			    ps->css_width->unit != LCSP_UNIT_NONE &&
-			    lws_fx_comp(lws_csp_px(ps->css_width, ps), &box.w) < 0)
+			    ps->css_width->propval != LCSP_PROPVAL_AUTO) {
+			    if (lws_fx_comp(lws_csp_px(ps->css_width, ps), &box.w) < 0)
 				box.w = *lws_csp_px(ps->css_width, ps);
+			} else if (ps->css_display->propval == LCSP_PROPVAL_BLOCK) {
+				if (psb && psb->dlo) {
+					box.w = psb->drt.w;
+					lws_fx_sub(&box.w, &box.w, lws_csp_px(psb->css_padding[CCPAS_LEFT], psb));
+					lws_fx_sub(&box.w, &box.w, lws_csp_px(psb->css_padding[CCPAS_RIGHT], psb));
+				} else {
+					box.w = ctx->ic.wh_px[LWS_LHPREF_WIDTH];
+				}
+				lws_fx_sub(&box.w, &box.w, lws_csp_px(ps->css_margin[CCPAS_LEFT], ps));
+				lws_fx_sub(&box.w, &box.w, lws_csp_px(ps->css_margin[CCPAS_RIGHT], ps));
+			}
 
 			/* !!! we rely on this being nonzero to not infinite loop at text layout */
 
@@ -806,7 +832,7 @@ do_rect:
 		break;
 
 	case LHPCB_ELEMENT_END:
-
+/*
 		if (ctx->npos == 2 && ctx->buf[0] == 'h' &&
 		    ctx->buf[1] > '0' && ctx->buf[1] <= '6') {
 
@@ -820,7 +846,7 @@ do_rect:
 				lws_csp_px(ps->css_margin[CCPAS_BOTTOM], ps));
 			break;
 		}
-
+*/
 		switch (elem_match) {
 
 		case LHP_ELEM_TR:
