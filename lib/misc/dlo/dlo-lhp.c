@@ -237,6 +237,10 @@ lhp_set_dlo_adjust_to_contents(lhp_pstack_t *ps)
 	lws_dlo_dim_t dim;
 
 	lws_dlo_contents(ps->dlo, &dim);
+
+	if (ps->css_height && ps->css_height->unit != LCSP_UNIT_NONE)
+		dim.h = ps->dlo->box.h;
+
 	lws_display_dlo_adjust_dims(ps->dlo, &dim);
 
 	if (lws_fx_comp(&dim.w, &psb->widest) > 0)
@@ -612,6 +616,16 @@ do_rect:
 			lws_fx_set(box.w, 0, 0);
 			abut_x = NULL;
 			abut_y = NULL;
+
+			if (ps->css_height &&
+			    ps->css_height->unit != LCSP_UNIT_NONE &&
+			    lws_fx_comp(lws_csp_px(ps->css_height, ps), &box.h) > 0)
+				box.h = *lws_csp_px(ps->css_height, ps);
+
+			lws_fx_add(&box.h, &box.h,
+			   lws_csp_px(ps->css_padding[CCPAS_TOP], ps));
+			lws_fx_add(&box.h, &box.h,
+			   lws_csp_px(ps->css_padding[CCPAS_BOTTOM], ps));
 
 			if (ps->css_position->propval == LCSP_PROPVAL_ABSOLUTE) {
 				box.x = *lws_csp_px(ps->css_pos[CCPAS_LEFT], ps);
