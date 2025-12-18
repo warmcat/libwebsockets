@@ -812,20 +812,6 @@ do_rect:
 
 	case LHPCB_ELEMENT_END:
 
-		if (ctx->npos == 2 && ctx->buf[0] == 'h' &&
-		    ctx->buf[1] > '0' && ctx->buf[1] <= '6') {
-
-			if (!psb)
-				break;
-
-			newline(ctx, psb, ps, drt->dl);
-			lws_fx_add(&psb->cury, &psb->cury,
-				lws_csp_px(ps->css_padding[CCPAS_BOTTOM], ps));
-			lws_fx_add(&psb->cury, &psb->cury,
-				lws_csp_px(ps->css_margin[CCPAS_BOTTOM], ps));
-			break;
-		}
-
 		switch (elem_match) {
 
 		case LHP_ELEM_TR:
