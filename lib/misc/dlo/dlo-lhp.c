@@ -282,8 +282,12 @@ lhp_set_dlo_adjust_to_contents(lhp_pstack_t *ps)
 
 	if (ps->css_height && ps->css_height->unit != LCSP_UNIT_NONE &&
 	    ps->css_height->unit != LCSP_UNIT_LENGTH_PERCENT &&
-	    ps->css_height->propval != LCSP_PROPVAL_AUTO)
-		dim.h = *lws_csp_px(ps->css_height, ps);
+	    ps->css_height->propval != LCSP_PROPVAL_AUTO) {
+		const lws_fx_t *px = lws_csp_px(ps->css_height, ps);
+
+		if (lws_fx_comp(px, &dim.h) > 0)
+			dim.h = *px;
+	}
 
 	lws_display_dlo_adjust_dims(ps->dlo, &dim);
 
