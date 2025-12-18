@@ -344,6 +344,9 @@ lws_lhp_dlo_adjust_div_type_element(lhp_ctx_t *ctx, lhp_pstack_t *psb,
 			w = *lws_csp_px(psb->css_width, psb);
 */
 		lws_fx_sub(&t1, &w, &re->dlo.box.w);
+		if (t1.whole < 0)
+			lws_fx_set(t1, 0, 0);
+
 		lws_fx_div(&t1, &t1, &two);
 		lws_fx_sub(&wd, &t1, &re->dlo.box.x);
 
