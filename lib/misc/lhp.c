@@ -684,6 +684,7 @@ lws_css_cascade(lhp_ctx_t *ctx)
 			     !strcmp((const char *)&a[1], "class")) {
 				ts.start = ((const char *)&a[1]) + 5 + 1;
 				ts.len = a->value_len;
+				ts.flags |= LWS_TOKENIZE_F_MINUS_NONTERM;
 			}
 
 			do {
@@ -1541,7 +1542,8 @@ skip_image:
 				ts.start = ctx->buf;
 				ts.len = (size_t)ctx->npos;
 				ts.flags = LWS_TOKENIZE_F_COMMA_SEP_LIST |
-						LWS_TOKENIZE_F_DOT_NONTERM;
+						LWS_TOKENIZE_F_DOT_NONTERM |
+						LWS_TOKENIZE_F_MINUS_NONTERM;
 
 				do {
 					ts.e = (int8_t)lws_tokenize(&ts);
