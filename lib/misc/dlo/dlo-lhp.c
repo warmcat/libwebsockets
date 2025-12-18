@@ -915,6 +915,8 @@ do_end_rect:
 		break;
 
 	case LHPCB_CONTENT:
+		{
+			lhp_pstack_t *ps_con = ps->dlo ? ps : psb;
 
 		if (!ps->css_display ||
 		    ps->css_display->propval == LCSP_PROPVAL_NONE)
@@ -943,10 +945,10 @@ do_end_rect:
 		 * surface.
 		 */
 
-		if (psb && psb->cury.whole > ctx->ic.wh_px[LWS_LHPREF_HEIGHT].whole)
+		if (ps_con && ps_con->cury.whole > ctx->ic.wh_px[LWS_LHPREF_HEIGHT].whole)
 			return 0;
 
-		if (!psb)
+		if (!ps_con)
 			return 0;
 
 		f = lws_font_choose(cx, &fc);
@@ -959,40 +961,40 @@ do_end_rect:
 			lws_fx_set(box.y, 0, 0);
 			lws_fx_set(box.w, 0, 0);
 
-			if (n == s && !(psb->runon & 1)) {
+			if (n == s && !(ps_con->runon & 1)) {
 				lws_fx_set(indent, 0, 0);
 			} else
-				indent = psb->curx;
+				indent = ps_con->curx;
 			lws_fx_add(&box.x, &indent,
 					  lws_csp_px(ps->css_padding[CCPAS_LEFT], ps));
-			lws_fx_add(&box.y, &box.y, &psb->cury);
+			lws_fx_add(&box.y, &box.y, &ps_con->cury);
 
 			box.h.whole = (int32_t)f->choice.fixed_height;
 			box.h.frac = 0;
 
-			if (psb->css_width &&
-				(psb->css_width->propval == LCSP_PROPVAL_AUTO ||
+			if (ps_con->css_width &&
+				(ps_con->css_width->propval == LCSP_PROPVAL_AUTO ||
 				 ps->css_width->propval == LCSP_PROPVAL_AUTO)) {
 				//lws_fx_sub(&box.w, &ctx->ic.wh_px[0], &box.x);
 				box.w = ctx->ic.wh_px[0];
 			} else {
-				lws_fx_sub(&t1, &psb->drt.w,
-					   lws_csp_px(psb->css_padding[CCPAS_LEFT], psb));
+				lws_fx_sub(&t1, &ps_con->drt.w,
+					   lws_csp_px(ps_con->css_padding[CCPAS_LEFT], ps_con));
 				lws_fx_sub(&box.w, &t1,
-					   lws_csp_px(psb->css_padding[CCPAS_RIGHT], psb));
+					   lws_csp_px(ps_con->css_padding[CCPAS_RIGHT], ps_con));
 			}
 
 			if (!box.w.whole)
 				lws_fx_sub(&box.w, &ctx->ic.wh_px[0], &box.x);
-			assert(psb);
+			assert(ps_con);
 
 			txt = lws_display_dlo_text_new(drt->dl,
-					(lws_dlo_t *)psb->dlo, &box, f);
+					(lws_dlo_t *)ps_con->dlo, &box, f);
 			if (!txt) {
 				lwsl_err("%s: failed to alloc text\n", __func__);
 				return 1;
 			}
-			runon(psb, &txt->dlo);
+			runon(ps_con, &txt->dlo);
 			txt->flags |= LWSDLO_TEXT_FLAG_WRAP;
 
 			lhp_set_dlo_padding_margin(ps, &txt->dlo);
@@ -1017,21 +1019,22 @@ do_end_rect:
 			txt->dlo.box.w = txt->bounding_box.w;
 			txt->dlo.box.h = txt->bounding_box.h;
 
-			lws_fx_add(&psb->curx, &psb->curx, &txt->bounding_box.w);
-			psb->dlo_set_curx = &txt->dlo;
+			lws_fx_add(&ps_con->curx, &ps_con->curx, &txt->bounding_box.w);
+			ps_con->dlo_set_curx = &txt->dlo;
 
 			//lwsl_user("%s: bounding width %d, m: %d, text %.*s\n",
 			//	  __func__, txt->bounding_box.w.whole, m,
 			//	  ctx->npos, ctx->buf);
 
 			if (m > 0) { /* wrapping */
-				newline(ctx, psb, ps, drt->dl);
+				newline(ctx, ps_con, ps, drt->dl);
 				lws_fx_set(ps->curx, 0, 0);
-				lws_fx_set(psb->curx, 0, 0);
-				psb->dlo_set_curx = NULL;
+				lws_fx_set(ps_con->curx, 0, 0);
+				ps_con->dlo_set_curx = NULL;
 				lws_fx_add(&ps->cury, &ps->cury, &txt->bounding_box.h);
-				psb->dlo_set_cury = &txt->dlo;
+				ps_con->dlo_set_cury = &txt->dlo;
 			}
+		}
 		}
 		break;
 	case LHPCB_COMMENT:
