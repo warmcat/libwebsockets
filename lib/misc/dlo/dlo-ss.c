@@ -364,10 +364,14 @@ fail:
 
 	switch (type) {
 	case LWSDLOSS_TYPE_PNG:
-		lws_display_dlo_png_destroy(&dlo_png->dlo);
+		dlo_png->flow.h = NULL;
+		lws_display_dlo_destroy(&dlo);
+		*pdlo = NULL;
 		break;
 	case LWSDLOSS_TYPE_JPEG:
-		lws_display_dlo_jpeg_destroy(&dlo_jpeg->dlo);
+		dlo_jpeg->flow.h = NULL;
+		lws_display_dlo_destroy(&dlo);
+		*pdlo = NULL;
 		break;
 	}
 #endif
