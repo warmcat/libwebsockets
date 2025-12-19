@@ -122,10 +122,7 @@ lws_surface_set_px(const lws_surface_info_t *ic, uint8_t *line, int x,
 void
 lws_dlo_contents(lws_dlo_t *parent, lws_dlo_dim_t *dim)
 {
-	lws_display_render_stack_t st[12]; /* DLO child stack */
-	lws_dll2_t *d;
 	lws_fx_t t1;
-	int sp = 0;
 
 	dim->w.whole = 0;
 	dim->w.frac = 0;
@@ -135,81 +132,20 @@ lws_dlo_contents(lws_dlo_t *parent, lws_dlo_dim_t *dim)
 	if (!parent)
 		return;
 
-	d = lws_dll2_get_head(&parent->children);
-	if (!d)
-		return;
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&parent->children)) {
+		lws_dlo_t *child = lws_container_of(d, lws_dlo_t, list);
 
-	memset(&st, 0, sizeof(st));
-	st[0].dlo = lws_container_of(d, lws_dlo_t, list);
-	st[0].co.w.whole = 0;
-	st[0].co.w.frac = 0;
-	st[0].co.h.whole = 0;
-	st[0].co.h.frac = 0;
+		lws_fx_add(&t1, &child->box.w, &child->box.x);
 
-	/* We are collecting worst dlo->box.x + dlo->box.w and .y + .h */
+		if (lws_fx_comp(&t1, &dim->w) > 0)
+			dim->w = t1;
 
-	while (sp || st[0].dlo) {
-		lws_dlo_t *dlo = st[sp].dlo;
+		lws_fx_add(&t1, &child->box.h, &child->box.y);
 
-		if (!dlo) {
-			if (!sp) {
-				lwsl_err("%s: underflow\n", __func__);
-				return;
-			}
+		if (lws_fx_comp(&t1, &dim->h) > 0)
+			dim->h = t1;
 
-			if (lws_fx_comp(&st[sp].co.w, &st[sp - 1].co.w) > 0)
-				st[sp - 1].co.w = st[sp].co.w;
-
-			if (lws_fx_comp(&st[sp].co.h, &st[sp - 1].co.h) > 0)
-				st[sp - 1].co.h = st[sp].co.h;
-
-			// lwsl_notice("sp %d: passing back w: %d, h: %d\n", sp, st[sp - 1].co.w.whole, st[sp - 1].co.h.whole);
-
-			sp--;
-
-			continue;
-		}
-
-		lws_fx_add(&t1, &dlo->box.w, &dlo->box.x);
-//		lws_fx_add(&t1, &t1, &dlo->margin[CCPAS_LEFT]);
-		lws_fx_add(&t1, &t1, &dlo->padding[CCPAS_LEFT]);
-//		lws_fx_add(&t1, &t1, &dlo->padding[CCPAS_RIGHT]);
-//		lws_fx_add(&t1, &t1, &dlo->margin[CCPAS_RIGHT]);
-		if (lws_fx_comp(&t1, &st[sp].co.w) > 0)
-			st[sp].co.w = t1;
-
-		lws_fx_add(&t1, &dlo->box.h, &dlo->box.y);
-//		lws_fx_add(&t1, &t1, &dlo->margin[CCPAS_TOP]);
-		lws_fx_add(&t1, &t1, &dlo->padding[CCPAS_TOP]);
-//		lws_fx_add(&t1, &t1, &dlo->padding[CCPAS_BOTTOM]);
-//		lws_fx_add(&t1, &t1, &dlo->margin[CCPAS_BOTTOM]);
-		if (lws_fx_comp(&t1, &st[sp].co.h) > 0)
-			st[sp].co.h = t1;
-
-		d = dlo->list.next;
-		if (d)
-			st[sp].dlo = lws_container_of(d, lws_dlo_t, list);
-		else
-			st[sp].dlo = NULL;
-
-		/* go into any children */
-
-		if (dlo->children.head) {
-			if (++sp == LWS_ARRAY_SIZE(st)) {
-				lwsl_err("%s: DLO stack overflow\n", __func__);
-				return;
-			}
-			st[sp].dlo = lws_container_of(
-				dlo->children.head, lws_dlo_t, list);
-			st[sp].co.w.whole = 0;
-			st[sp].co.h.whole = 0;
-			st[sp].co.w.frac = 0;
-			st[sp].co.h.frac = 0;
-		}
-	}
-
-	dim->w = st[0].co.w;
-	dim->h = st[0].co.h;
+	} lws_end_foreach_dll(d);
 
 	if (parent->col_list.owner) {
 		lhp_table_col_t *tc = lws_container_of(parent->col_list.owner,
@@ -321,7 +257,7 @@ lws_display_dl_dump(lws_displaylist_t *dl)
 	while (sp || st[0].dlo) {
 		lws_dlo_t *dlo = st[sp].dlo;
 		lws_box_t co;
-		//lws_fx_t t2;
+		lws_fx_t t2;
 
 		if (!dlo) {
 			if (!sp) {
@@ -336,6 +272,8 @@ lws_display_dl_dump(lws_displaylist_t *dl)
 		lws_fx_add(&co.y, &st[sp].co.y, &dlo->box.y);
 		co.w = dlo->box.w;
 		co.h = dlo->box.h;
+
+		lws_fx_add(&t2, &co.y, &dlo->box.h);
 
 		lws_snprintf(dt, sizeof(dt), "rect: RGBA 0x%08X", (unsigned int)dlo->dc);
 		if (dlo->_destroy == lws_display_dlo_text_destroy) {
