@@ -136,11 +136,18 @@ lws_dlo_contents(lws_dlo_t *parent, lws_dlo_dim_t *dim)
 		lws_dlo_t *child = lws_container_of(d, lws_dlo_t, list);
 
 		lws_fx_add(&t1, &child->box.w, &child->box.x);
+		/*
+		 * Original recursive code added padding here.
+		 * lws_fx_add(&t1, &t1, &dlo->padding[CCPAS_LEFT]);
+		 * But box.w usually includes padding in LHP DLOs.
+		 */
+		// lws_fx_add(&t1, &t1, &child->padding[CCPAS_LEFT]);
 
 		if (lws_fx_comp(&t1, &dim->w) > 0)
 			dim->w = t1;
 
 		lws_fx_add(&t1, &child->box.h, &child->box.y);
+		// lws_fx_add(&t1, &t1, &child->padding[CCPAS_TOP]);
 
 		if (lws_fx_comp(&t1, &dim->h) > 0)
 			dim->h = t1;
@@ -257,7 +264,6 @@ lws_display_dl_dump(lws_displaylist_t *dl)
 	while (sp || st[0].dlo) {
 		lws_dlo_t *dlo = st[sp].dlo;
 		lws_box_t co;
-		lws_fx_t t2;
 
 		if (!dlo) {
 			if (!sp) {
@@ -272,8 +278,6 @@ lws_display_dl_dump(lws_displaylist_t *dl)
 		lws_fx_add(&co.y, &st[sp].co.y, &dlo->box.y);
 		co.w = dlo->box.w;
 		co.h = dlo->box.h;
-
-		lws_fx_add(&t2, &co.y, &dlo->box.h);
 
 		lws_snprintf(dt, sizeof(dt), "rect: RGBA 0x%08X", (unsigned int)dlo->dc);
 		if (dlo->_destroy == lws_display_dlo_text_destroy) {
@@ -456,7 +460,7 @@ lws_display_list_render_line(lws_display_render_state_t *rs)
 
 		lws_fx_add(&t2, &co.y, &dlo->box.h);
 
-		if (rs->curr > lws_fx_roundup(&t2)) {
+		if (rs->curr > lws_fx_roundup(&t2) && dlo->box.h.whole) {
 			d = dlo->list.next;
 			rs->st[rs->sp].dlo = d ? lws_container_of(d, lws_dlo_t,
 								list) : NULL;

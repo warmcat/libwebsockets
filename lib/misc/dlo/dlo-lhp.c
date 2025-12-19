@@ -31,7 +31,7 @@
  *
  * The element stack only exists while it and its parent elements are being
  * parsed, it goes out of scope as the element ends.  So we must create related
- * DLOs by stream-parsing, while we still have everything relevant to hand.
+ * DLOs by stream-parsing, while we have everything relevant to hand.
  *
  * This gets us out of having to run around fixing up DLO (x,y) as we do the
  * layout, since the DLO parent-child relationships are static even if their
@@ -596,8 +596,23 @@ lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 	switch (reason) {
 	case LHPCB_CONSTRUCTED:
 	case LHPCB_DESTRUCTED:
-	case LHPCB_COMPLETE:
 	case LHPCB_FAILED:
+		break;
+
+	case LHPCB_COMPLETE:
+		{
+			lws_dll2_t *d = lws_dll2_get_tail(&ctx->stack);
+
+			while (d) {
+				lhp_pstack_t *ps = lws_container_of(d, lhp_pstack_t, list);
+
+				if (ps->dlo && ps->list.prev) {
+					lwsl_info("%s: finalizing stranded dlo %p\n", __func__, ps->dlo);
+					lhp_set_dlo_adjust_to_contents(ps);
+				}
+				d = d->prev;
+			}
+		}
 		break;
 
 	case LHPCB_ELEMENT_START:
