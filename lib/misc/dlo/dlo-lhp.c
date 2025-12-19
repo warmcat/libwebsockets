@@ -137,6 +137,9 @@ newline(lhp_ctx_t *ctx, lhp_pstack_t *psb, lhp_pstack_t *ps,
 	 */
 
 	while (d) {
+		if (lws_fx_comp(&d->box.y, &psb->cury) < 0)
+			break;
+
 		t |= d->_destroy == lws_display_dlo_text_destroy;
 		/* find the "worst" height on the line */
 		if (lws_fx_comp(&d->box.h, &line_height) > 0)
@@ -673,6 +676,14 @@ lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 			goto do_rect;
 
 		default: /* treat unknown elements as generic blocks (divs) if they match our list */
+			if (!elem_match && psb && !ps->dlo &&
+			    ps->css_display->propval != LCSP_PROPVAL_NONE) {
+				lws_fx_add(&psb->curx, &psb->curx,
+				   lws_csp_px(ps->css_margin[CCPAS_LEFT], ps));
+				lws_fx_add(&psb->curx, &psb->curx,
+				   lws_csp_px(ps->css_padding[CCPAS_LEFT], ps));
+			}
+
 			if (elem_match > LHP_ELEM_IMG) {
 				if (psb && (psb->runon & 1))
 					newline(ctx, psb, psb, drt->dl);
@@ -884,6 +895,14 @@ do_rect:
 			goto do_end_rect;
 
 		default:
+			if (!elem_match && psb && !ps->dlo &&
+			    ps->css_display->propval != LCSP_PROPVAL_NONE) {
+				lws_fx_add(&psb->curx, &psb->curx,
+				   lws_csp_px(ps->css_padding[CCPAS_RIGHT], ps));
+				lws_fx_add(&psb->curx, &psb->curx,
+				   lws_csp_px(ps->css_margin[CCPAS_RIGHT], ps));
+			}
+
 			if (elem_match > LHP_ELEM_IMG)
 				goto do_end_rect;
 			break;
@@ -992,10 +1011,25 @@ do_end_rect:
 
 			if (n == s && !(ps_con->runon & 1)) {
 				lws_fx_set(indent, 0, 0);
-			} else
+				if (ps != ps_con) {
+					lws_fx_add(&box.x, &indent,
+					    lws_csp_px(ps->css_margin[CCPAS_LEFT], ps));
+					lws_fx_add(&box.x, &box.x,
+					    lws_csp_px(ps->css_padding[CCPAS_LEFT], ps));
+				} else
+					lws_fx_add(&box.x, &indent,
+					    lws_csp_px(ps->css_padding[CCPAS_LEFT], ps));
+
+			} else {
 				indent = ps_con->curx;
-			lws_fx_add(&box.x, &indent,
-					  lws_csp_px(ps->css_padding[CCPAS_LEFT], ps));
+				if (ps != ps_con) {
+					/* margin / padding already in ps_con->curx */
+					box.x = indent;
+				} else {
+					lws_fx_add(&box.x, &indent,
+					    lws_csp_px(ps->css_padding[CCPAS_LEFT], ps));
+				}
+			}
 			lws_fx_add(&box.y, &box.y, &ps_con->cury);
 
 			box.h.whole = (int32_t)f->choice.fixed_height;
@@ -1047,6 +1081,43 @@ do_end_rect:
 			n = (int)((size_t)n + txt->text_len);
 			txt->dlo.box.w = txt->bounding_box.w;
 			txt->dlo.box.h = txt->bounding_box.h;
+
+			if (ps->css_background_color &&
+			    ps->css_background_color->unit == LCSP_UNIT_RGBA) {
+				lws_box_t b = txt->dlo.box;
+
+				/*
+				 * expand the box to match the padding of
+				 * the element
+				 */
+				lws_fx_sub(&b.x, &b.x,
+				   lws_csp_px(ps->css_padding[CCPAS_LEFT], ps));
+				lws_fx_add(&b.w, &b.w,
+				   lws_csp_px(ps->css_padding[CCPAS_LEFT], ps));
+				lws_fx_add(&b.w, &b.w,
+				   lws_csp_px(ps->css_padding[CCPAS_RIGHT], ps));
+
+				lws_fx_sub(&b.y, &b.y,
+				   lws_csp_px(ps->css_padding[CCPAS_TOP], ps));
+				lws_fx_add(&b.h, &b.h,
+				   lws_csp_px(ps->css_padding[CCPAS_TOP], ps));
+				lws_fx_add(&b.h, &b.h,
+				   lws_csp_px(ps->css_padding[CCPAS_BOTTOM], ps));
+
+				lws_display_dlo_rect_new(drt->dl,
+						(lws_dlo_t *)ps_con->dlo, &b,
+						NULL,
+						ps->css_background_color->u.rgba);
+
+				/*
+				 * reorder so the background rect is behind the
+				 * text
+				 */
+
+				lws_dll2_remove(&txt->dlo.list);
+				lws_dll2_add_tail(&txt->dlo.list,
+						  &ps_con->dlo->children);
+			}
 
 			lws_fx_add(&ps_con->curx, &ps_con->curx, &txt->bounding_box.w);
 			ps_con->dlo_set_curx = &txt->dlo;
