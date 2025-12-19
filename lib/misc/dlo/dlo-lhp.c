@@ -1082,41 +1082,56 @@ do_end_rect:
 			txt->dlo.box.w = txt->bounding_box.w;
 			txt->dlo.box.h = txt->bounding_box.h;
 
-			if (ps->css_background_color &&
-			    ps->css_background_color->unit == LCSP_UNIT_RGBA) {
-				lws_box_t b = txt->dlo.box;
+			{
+				const lcsp_atr_t *bg = ps->css_background_color;
 
-				/*
-				 * expand the box to match the padding of
-				 * the element
-				 */
-				lws_fx_sub(&b.x, &b.x,
-				   lws_csp_px(ps->css_padding[CCPAS_LEFT], ps));
-				lws_fx_add(&b.w, &b.w,
-				   lws_csp_px(ps->css_padding[CCPAS_LEFT], ps));
-				lws_fx_add(&b.w, &b.w,
-				   lws_csp_px(ps->css_padding[CCPAS_RIGHT], ps));
+				if (!bg)
+					bg = lws_css_cascade_get_prop_atr(ctx,
+							LCSP_PROP_BACKGROUND);
 
-				lws_fx_sub(&b.y, &b.y,
-				   lws_csp_px(ps->css_padding[CCPAS_TOP], ps));
-				lws_fx_add(&b.h, &b.h,
-				   lws_csp_px(ps->css_padding[CCPAS_TOP], ps));
-				lws_fx_add(&b.h, &b.h,
-				   lws_csp_px(ps->css_padding[CCPAS_BOTTOM], ps));
+				if (bg && bg->unit == LCSP_UNIT_RGBA) {
+					lws_fx_t radii[4];
+					lws_box_t b = txt->dlo.box;
+					int i;
 
-				lws_display_dlo_rect_new(drt->dl,
-						(lws_dlo_t *)ps_con->dlo, &b,
-						NULL,
-						ps->css_background_color->u.rgba);
+					/*
+					 * expand the box to match the padding of
+					 * the element
+					 */
+					lws_fx_sub(&b.x, &b.x,
+					   lws_csp_px(ps->css_padding[CCPAS_LEFT], ps));
+					lws_fx_add(&b.w, &b.w,
+					   lws_csp_px(ps->css_padding[CCPAS_LEFT], ps));
+					lws_fx_add(&b.w, &b.w,
+					   lws_csp_px(ps->css_padding[CCPAS_RIGHT], ps));
 
-				/*
-				 * reorder so the background rect is behind the
-				 * text
-				 */
+					lws_fx_sub(&b.y, &b.y,
+					   lws_csp_px(ps->css_padding[CCPAS_TOP], ps));
+					lws_fx_add(&b.h, &b.h,
+					   lws_csp_px(ps->css_padding[CCPAS_TOP], ps));
+					lws_fx_add(&b.h, &b.h,
+					   lws_csp_px(ps->css_padding[CCPAS_BOTTOM], ps));
 
-				lws_dll2_remove(&txt->dlo.list);
-				lws_dll2_add_tail(&txt->dlo.list,
-						  &ps_con->dlo->children);
+					memset(radii, 0, sizeof(radii));
+					for (i = 0; i < 4; i++)
+						if (ps->css_border_radius[i])
+							radii[i] = *lws_csp_px(
+							  ps->css_border_radius[i], ps);
+
+					lws_display_dlo_rect_new(drt->dl,
+							(lws_dlo_t *)ps_con->dlo, &b,
+							radii,
+							bg->u.rgba);
+
+					/*
+					 * reorder so the background rect is behind the
+					 * text
+					 */
+
+					lws_dll2_remove(&txt->dlo.list);
+					lws_dll2_add_tail(&txt->dlo.list,
+							  &ps_con->dlo->children);
+				}
 			}
 
 			lws_fx_add(&ps_con->curx, &ps_con->curx, &txt->bounding_box.w);
