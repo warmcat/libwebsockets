@@ -37,7 +37,7 @@ LWS_SS_USER_TYPEDEF
 	lws_dlo_image_t			u; /* we use the lws_flow_t in here */
 	lws_dll2_t			active_asset_list; /*cx->active_assets*/
 	uint8_t				type; /* LWSDLOSS_TYPE_ */
-	char				url[96];
+	char				url[LHP_URL_LEN];
 } dloss_t;
 
 
@@ -228,9 +228,12 @@ int
 lws_dlo_ss_find(struct lws_context *cx, const char *url, lws_dlo_image_t *u)
 {
 #if defined(LWS_WITH_SECURE_STREAMS)
+	lwsl_notice("searching '%s'\n", url);
+
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			      lws_dll2_get_head(&cx->active_assets)) {
 		dloss_t *ds = lws_container_of(d, dloss_t, active_asset_list);
+		lwsl_notice("  '%s'\n", ds->url);
 
 		if (!strcmp(url, ds->url)) {
 			*u = ds->u;
@@ -252,9 +255,12 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 	size_t ul = strlen(i->url);
 	struct lws_ss_handle *h;
 	lws_dlo_t *dlo = NULL;
+	char rebased_url[LHP_URL_LEN];
 	lws_ss_info_t ssi;
 	dloss_t *dloss;
 	uint8_t type;
+
+	lwsl_notice("%s: entry\n", __func__);
 
 	if (ul < 5)
 		return 1;
@@ -272,6 +278,13 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 				lwsl_warn("%s: unknown file type %s\n", __func__, i->url);
 				return 1;
 			}
+
+	if (lws_http_rel_to_url(rebased_url, sizeof(rebased_url), i->lhp->base_url, i->url)) {
+		lwsl_warn("%s: failed to rebase url\n", __func__);
+		return 1;
+	}
+
+	lwsl_notice("%s: rebased_url -> %s\n", __func__, rebased_url);
 
 	switch (type) {
 	case LWSDLOSS_TYPE_PNG:
@@ -326,7 +339,7 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 	dloss->lhp = i->lhp;
 	dloss->type = type;
 
-	lws_strncpy(dloss->url, i->url, sizeof(dloss->url));
+	lws_strncpy(dloss->url, rebased_url, sizeof(dloss->url));
 
 	switch (type) {
 	case LWSDLOSS_TYPE_PNG:
@@ -341,25 +354,28 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 		break;
 	}
 
-	if (lws_ss_alloc_set_metadata(h, "endpoint", i->url, ul)) {
+	if (lws_ss_alloc_set_metadata(h, "endpoint", rebased_url, strlen(rebased_url))) {
 		lwsl_err("%s: unable to set endpoint\n", __func__);
 		goto fail;
 	}
 
 	if (lws_ss_client_connect(dloss->ss)) {
-		lwsl_err("%s: unable to do client connection\n", __func__);
+		lwsl_err("%s: unable to do client conn '%s'\n", __func__, rebased_url);
 		goto fail;
 	}
 
 	lws_dll2_add_tail(&dloss->active_asset_list, &i->cx->active_assets);
 
-	lwsl_info("%s: starting %s (dlo %p)\n", __func__, i->url, dlo);
+	lwsl_notice("%s: starting %s (dlo %p)\n", __func__, rebased_url, dlo);
 
 	*pdlo = dlo;
 
 	return 0;
 
 fail:
+
+	lwsl_warn("%s: failing out\n", __func__);
+
 	lws_ss_destroy(&h);
 
 	switch (type) {

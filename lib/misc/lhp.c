@@ -820,7 +820,7 @@ lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len)
 			(*buf)--;
 		}
 
-		// lwsl_notice("%s: %d, '%c', %02X\n", __func__, ctx->state, c, c);
+	//	lwsl_notice("%s: %d, '%c', %02X\n", __func__, ctx->state, c, c);
 
 		switch (ctx->state) {
 
@@ -1036,7 +1036,7 @@ elem_start:
 				lhp_pstack_t *psb;
 				lws_dlo_t *dlo;
 				lws_box_t box;
-				char url[128];
+				char url[LHP_URL_LEN];
 
 				memset(&i, 0, sizeof(i));
 				lws_css_cascade(ctx);
@@ -1153,17 +1153,17 @@ elem_start:
 				memset(&u, 0, sizeof(u));
 				if (lws_dlo_ss_find(cx, url, &u)) {
 
-					i.cx = cx;
-					i.dl = drt->dl;
+					i.cx			= cx;
+					i.dl			= drt->dl;
 					if (psb)
-						i.dlo_parent = psb->dlo;
-					i.box = &box;
-					i.on_rx = ctx->ssevcb;
-					i.on_rx_sul = ctx->ssevsul;
-					i.url = url;
-					i.lhp = ctx;
-					i.u = &u;
-					i.window = ctx->window;
+						i.dlo_parent	= psb->dlo;
+					i.box			= &box;
+					i.on_rx			= ctx->ssevcb;
+					i.on_rx_sul		= ctx->ssevsul;
+					i.url			= url;
+					i.lhp			= ctx;
+					i.u			= &u;
+					i.window		= ctx->window;
 
 					lwsl_cx_info(cx, "not already in progress: %s", url);
 					if (lws_dlo_ss_create(&i, &dlo)) {
@@ -1226,7 +1226,7 @@ elem_start:
 
 				if (!lws_dlo_image_width(&u) ||
 				    !lws_dlo_image_height(&u)) {
-					// lwsl_warn("%s: exiting with AWAIT_RETRY\n", __func__);
+					lwsl_warn("%s: exiting with AWAIT_RETRY due to no dims\n", __func__);
 					return LWS_SRET_AWAIT_RETRY;
 				}
 

@@ -546,7 +546,7 @@ lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 	char lastm = 0;
 	int elem_match;
 	lws_box_t box;
-	char url[128];
+	char url[LHP_URL_LEN];
 	int n, s = 0;
 
 	/* default font choice */
