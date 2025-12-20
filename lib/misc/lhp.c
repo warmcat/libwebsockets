@@ -178,6 +178,7 @@ static const char *const default_css =
 	"u, ins          { text-decoration: underline }\n"
 	"br:before       { content: \"A\"; white-space: pre-line }\n"
 	"center          { text-align: center }\n"
+	"nav             { text-align: left }\n"
 	":link, :visited { text-decoration: underline }\n"
 	":focus          { outline: thin dotted invert }\n"
 
@@ -1097,8 +1098,7 @@ elem_start:
 					aa = lws_css_cascade_get_prop_atr(ctx,
 						LCSP_PROP_BACKGROUND_IMAGE);
 
-					if (ctx->npos == 4 &&
-					    !strncmp(ctx->buf, "body", 4) && aa)
+					if (aa)
 						pname = (const char *)(aa + 1);
 				}
 
@@ -1172,17 +1172,13 @@ elem_start:
 						goto check_closing;
 					} else {
 						lwsl_cx_info(cx, "Created SS for %s\n", url);
-						if (psb)
-							psb->dlo = dlo;
-					//	else
-						ps->dlo = dlo;
+						if (ctx->npos == 3 && !strncmp(ctx->buf, "img", 3))
+							ps->dlo = dlo;
 					}
 				} else {
 					// lwsl_cx_warn(cx, "Found in-progress %s\n", url);
-					if (psb)
-						psb->dlo = &u.u.dlo_png->dlo;
-					//else
-					ps->dlo = &u.u.dlo_png->dlo;
+					if (ctx->npos == 3 && !strncmp(ctx->buf, "img", 3))
+						ps->dlo = &u.u.dlo_png->dlo;
 				}
 
 				if (ctx->npos == 4 && !strncmp(ctx->buf, "link", 4)) {
@@ -1217,6 +1213,19 @@ elem_start:
 							LCSP_PROP_HEIGHT), ps)->whole;
 					goto issue_elem_start;
 				}
+
+				{
+					const char *p = lws_html_get_atr(ps, "width", 5);
+					if (p)
+						u.u.dlo_png->dlo.box.w.whole = atoi(p);
+					p = lws_html_get_atr(ps, "height", 6);
+					if (p)
+						u.u.dlo_png->dlo.box.h.whole = atoi(p);
+				}
+
+				if (u.u.dlo_png->dlo.box.w.whole &&
+				    u.u.dlo_png->dlo.box.h.whole)
+					goto issue_elem_start;
 
 				/*
 				 * Do we have the dimensions?  If not, bail
