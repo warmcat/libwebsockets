@@ -178,6 +178,14 @@ newline(lhp_ctx_t *ctx, lhp_pstack_t *psb, lhp_pstack_t *ps,
 			ft.frac = 0;
 
 			lws_fx_sub(&t1->dlo.box.y,  &t1->dlo.box.y, &ft);
+		} else {
+			/* bottom-align other things on the line to the text baseline */
+			lws_fx_t ft;
+
+			ft.whole = group_height - d1->box.h.whole;
+			ft.frac = 0;
+
+			lws_fx_add(&d1->box.y, &d1->box.y, &ft);
 		}
 		if (!d1->list.next)
 			break;
@@ -689,7 +697,7 @@ lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 			ps->is_table = 1;
 			/* fallthru */
 		case LHP_ELEM_DIV:
-			if (psb && (psb->runon & 1))
+			if (psb && ((psb->runon & 1) || psb->curx.whole > 0))
 				newline(ctx, psb, psb, drt->dl);
 			goto do_rect;
 
