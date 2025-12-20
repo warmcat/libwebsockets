@@ -91,7 +91,7 @@ lws_lhp_ss_html_parse(lws_sorted_usec_list_t *sul)
         /* schedule starting the render */
 
 	lws_sul_schedule(m->cx, 0, &m->rs->sul, m->lhp.ssevcb, 1);
-	lws_ss_destroy(&m->ss);
+	//lws_ss_destroy(&m->ss);
 }
 
 void

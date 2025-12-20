@@ -910,7 +910,7 @@ do_rect:
 			goto do_end_rect;
 
 		default:
-			if (!elem_match && psb && !ps->dlo &&
+			if (!elem_match && psb && ps && ps->css_display && !ps->dlo &&
 			    ps->css_display->propval != LCSP_PROPVAL_NONE) {
 				lws_fx_add(&psb->curx, &psb->curx,
 				   lws_csp_px(ps->css_padding[CCPAS_RIGHT], ps));

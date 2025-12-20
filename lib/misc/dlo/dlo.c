@@ -242,7 +242,7 @@ lws_display_dlo_adjust_dims(lws_dlo_t *dlo, lws_dlo_dim_t *dim)
 void
 lws_display_dl_dump(lws_displaylist_t *dl)
 {
-	lws_display_render_stack_t	st[12]; /* DLO child stack */
+	lws_display_render_stack_t	st[64]; /* DLO child stack */
 	int				sp = 0;
 	lws_dll2_t *d = lws_dll2_get_head(&dl->dl);
 #if (_LWS_ENABLED_LOGS & dlodump_loglevel)
@@ -400,7 +400,7 @@ lws_display_get_ids_boxes(lws_display_render_state_t *rs)
 
 		if (dlo->children.head) {
 			if (rs->sp + 1 == LWS_ARRAY_SIZE(rs->st)) {
-				lwsl_err("%s: DLO stack overflow\n",
+				lwsl_err("%s: DLO stack overflow A\n",
 						__func__);
 				return LWS_SRET_FATAL;
 			}
@@ -460,7 +460,7 @@ lws_display_list_render_line(lws_display_render_state_t *rs)
 
 		lws_fx_add(&t2, &co.y, &dlo->box.h);
 
-		if (rs->curr > lws_fx_roundup(&t2) && dlo->box.h.whole) {
+		if (rs->curr > lws_fx_roundup(&t2) && dlo->box.h.whole > 3) {
 			d = dlo->list.next;
 			rs->st[rs->sp].dlo = d ? lws_container_of(d, lws_dlo_t,
 								list) : NULL;
@@ -499,7 +499,7 @@ lws_display_list_render_line(lws_display_render_state_t *rs)
 
 			if (dlo->children.head) {
 				if (rs->sp + 1 == LWS_ARRAY_SIZE(rs->st)) {
-					lwsl_err("%s: DLO stack overflow\n",
+					lwsl_err("%s: DLO stack overflow B\n",
 							__func__);
 					return LWS_SRET_FATAL;
 				}
@@ -550,35 +550,38 @@ dlo_clean_table_cols(lws_dll2_t *d, void *user)
 void
 lws_display_dlo_destroy(lws_dlo_t **r)
 {
-	if (!(*r))
+	lws_dlo_t *rr = *r;
+
+	if (!rr)
 		return;
 
-	lws_dll2_remove(&(*r)->list);
-	lws_dll2_remove(&(*r)->col_list);
-	lws_dll2_remove(&(*r)->row_list);
+	lws_dll2_remove(&rr->list);
+	lws_dll2_remove(&rr->col_list);
+	lws_dll2_remove(&rr->row_list);
 
-	while ((*r)->children.head) {
-		lws_dlo_t *d = lws_container_of((*r)->children.head,
+	while (rr->children.head) {
+		lws_dlo_t *d = lws_container_of(rr->children.head,
 							lws_dlo_t, list);
 
 		lws_display_dlo_destroy(&d);
 	}
 
-	lws_dll2_foreach_safe(&(*r)->table_cols, NULL, dlo_clean_table_cols);
-	lws_dll2_foreach_safe(&(*r)->table_rows, NULL, dlo_clean_table_rows);
+	lws_dll2_foreach_safe(&rr->table_cols, NULL, dlo_clean_table_cols);
+	lws_dll2_foreach_safe(&rr->table_rows, NULL, dlo_clean_table_rows);
 
-	if ((*r)->_destroy)
-		(*r)->_destroy(*r);
+	if (rr->_destroy)
+		rr->_destroy(rr);
 
 	lws_free_set_NULL(*r);
-	*r = NULL;
 }
 
 void
-lws_display_list_destroy(lws_displaylist_t *dl)
+lws_display_list_destroy(struct lws_context *cx, lws_displaylist_t *dl)
 {
 	if (!dl)
 		return;
+
+	//lws_dlo_ss_stop_any_active(cx);
 
 	while (dl->dl.head) {
 		lws_dlo_t *d = lws_container_of(dl->dl.head, lws_dlo_t, list);

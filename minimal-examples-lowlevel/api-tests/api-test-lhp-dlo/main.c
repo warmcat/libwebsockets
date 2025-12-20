@@ -78,7 +78,7 @@ static const lws_display_colour_t palette[] = {
 #endif
 
 static const lws_surface_info_t ic = {
-	.wh_px = { { 1600,0 },       { 800,0 } },
+	.wh_px = { { 1600,0 },       { 1200,0 } },
 	.wh_mm = { { 114,5000000 }, {  82,5000000 } },
 #if defined(SEVENCOL)
         .palette                = palette,
@@ -221,7 +221,10 @@ render(lws_sorted_usec_list_t *sul)
 	}
 
         free(rs->line);
-	lws_display_list_destroy(&rs->displaylist);
+
+	lwsl_warn("%s: render has reached end and destroys displaylist\n", __func__);
+	lws_display_list_destroy(cx, &rs->displaylist);
+
 	lws_default_loop_exit(cx);
 }
 

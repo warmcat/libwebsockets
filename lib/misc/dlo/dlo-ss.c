@@ -228,12 +228,12 @@ int
 lws_dlo_ss_find(struct lws_context *cx, const char *url, lws_dlo_image_t *u)
 {
 #if defined(LWS_WITH_SECURE_STREAMS)
-	lwsl_notice("searching '%s'\n", url);
+	// lwsl_notice("searching '%s'\n", url);
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			      lws_dll2_get_head(&cx->active_assets)) {
 		dloss_t *ds = lws_container_of(d, dloss_t, active_asset_list);
-		lwsl_notice("  '%s'\n", ds->url);
+		// lwsl_notice("  '%s'\n", ds->url);
 
 		if (!strcmp(url, ds->url)) {
 			*u = ds->u;
@@ -394,4 +394,21 @@ fail:
 	return 1;
 }
 #endif
+
+
+int
+lws_dlo_ss_stop_any_active(struct lws_context *cx)
+{
+#if defined(LWS_WITH_SECURE_STREAMS)
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+			      lws_dll2_get_head(&cx->active_assets)) {
+		dloss_t *ds = lws_container_of(d, dloss_t, active_asset_list);
+
+		lws_dll2_remove(&ds->active_asset_list);
+		lws_ss_destroy(&ds->ss);
+
+	} lws_end_foreach_dll_safe(d, d1);
+#endif
+	return 0;
+}
 

@@ -780,6 +780,12 @@ lws_http_rel_to_url(char *dest, size_t len, const char *base, const char *rel)
 
 	// lwsl_err("%s: base %s, rel %s\n", __func__, base, rel);
 
+	if (rel[0] == '/' && rel[1] == '/') {
+		lws_snprintf(dest, len, "https:%s", rel);
+
+		return 0;
+	}
+
 	if (!strncmp(rel, "https://", 8) ||
 	    !strncmp(rel, "http://", 7) ||
 	    !strncmp(rel, "file://", 7)) {

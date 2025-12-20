@@ -1626,7 +1626,6 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 #endif
 
 	if (h->wsi) {
-
 		lwsl_warn("%s: conn->ss->wsi %d %d\n", __func__,
 				h->wsi->bound_ss_proxy_conn, h->wsi->client_proxy_onward);
 

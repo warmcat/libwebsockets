@@ -275,6 +275,8 @@ __lws_free_wsi(struct lws *wsi)
 	/* confirm no sul left scheduled in wsi itself */
 	lws_sul_debug_zombies(wsi->a.context, wsi, sizeof(*wsi), __func__);
 
+	wsi->socket_is_permanently_unusable = 1; // !!!
+
 	__lws_lc_untag(wsi->a.context, &wsi->lc);
 	lws_free(wsi);
 }
