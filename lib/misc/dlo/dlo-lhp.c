@@ -840,10 +840,22 @@ do_rect:
 
 			lws_lhp_tag_dlo_id(ctx, ps, (lws_dlo_t *)(u.u.dlo_jpeg));
 
-			w = *lws_csp_px(lws_css_cascade_get_prop_atr(ctx,
-							LCSP_PROP_WIDTH), ps);
-			h = *lws_csp_px(lws_css_cascade_get_prop_atr(ctx,
-							LCSP_PROP_HEIGHT), ps);
+			lws_fx_set(w, 0, 0);
+			lws_fx_set(h, 0, 0);
+
+			{
+				const lcsp_atr_t *wa = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_WIDTH);
+				if (wa && wa->propval != LCSP_PROPVAL_AUTO &&
+				    wa->unit != LCSP_UNIT_LENGTH_PERCENT)
+					w = *lws_csp_px(wa, ps);
+			}
+
+			{
+				const lcsp_atr_t *ha = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_HEIGHT);
+				if (ha && ha->propval != LCSP_PROPVAL_AUTO &&
+				    ha->unit != LCSP_UNIT_LENGTH_PERCENT)
+					h = *lws_csp_px(ha, ps);
+			}
 
 			if (!w.whole) {
 				const char *p = lws_html_get_atr(ps, "width", 5);
@@ -874,6 +886,9 @@ do_rect:
 				if (lws_fx_comp(&psb->curx, &psb->widest) > 0)
 					psb->widest = psb->curx;
 			}
+
+			if (ps->dlo)
+				runon(psb, ps->dlo);
 			break;
 		}
 		break;
