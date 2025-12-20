@@ -165,7 +165,7 @@ newline(lhp_ctx_t *ctx, lhp_pstack_t *psb, lhp_pstack_t *ps,
 
 	d1 = d;
 	while (d) {
-		if (d->_destroy == lws_display_dlo_text_destroy) {
+		if (d1->_destroy == lws_display_dlo_text_destroy) {
 			lws_dlo_text_t *t1 = lws_container_of(d1,
 						lws_dlo_text_t, dlo);
 			lws_fx_t ft;
@@ -178,7 +178,14 @@ newline(lhp_ctx_t *ctx, lhp_pstack_t *psb, lhp_pstack_t *ps,
 			ft.frac = 0;
 
 			lws_fx_sub(&t1->dlo.box.y,  &t1->dlo.box.y, &ft);
+		} else {
+			lws_fx_t ft;
+
+			/* bottom align others to the line height */
+			lws_fx_sub(&ft, &line_height, &d1->box.h);
+			lws_fx_add(&d1->box.y, &d1->box.y, &ft);
 		}
+
 		if (!d1->list.next)
 			break;
 		d1 = lws_container_of(d1->list.next, lws_dlo_t, list);
@@ -808,6 +815,11 @@ do_rect:
 			if (!psb)
 				break;
 
+			lws_fx_set(box.x, 0, 0);
+			lws_fx_set(box.y, 0, 0);
+			lws_fx_set(box.w, 0, 0);
+			lws_fx_set(box.h, 0, 0);
+
 			if (ps->css_position->propval == LCSP_PROPVAL_ABSOLUTE) {
 				box.x = *lws_csp_px(ps->css_pos[CCPAS_LEFT], ps);
 				box.y = *lws_csp_px(ps->css_pos[CCPAS_TOP], ps);
@@ -875,6 +887,31 @@ do_rect:
 			}
 
 			if (psb) {
+				lws_fx_t av;
+
+				/* wrapping? */
+
+				lws_fx_add(&t1, &psb->curx,
+					   lws_csp_px(ps->css_margin[CCPAS_LEFT], ps));
+				lws_fx_add(&t1, &t1, &w);
+				lws_fx_add(&t1, &t1,
+					   lws_csp_px(ps->css_margin[CCPAS_RIGHT], ps));
+
+				/* work out the available width */
+
+				av = psb->drt.w;
+				lws_fx_sub(&av, &av,
+					lws_csp_px(psb->css_padding[CCPAS_LEFT], psb));
+				lws_fx_sub(&av, &av,
+					lws_csp_px(psb->css_padding[CCPAS_RIGHT], psb));
+
+				if (lws_fx_comp(&t1, &av) > 0) {
+					newline(ctx, psb, psb, drt->dl);
+					lws_fx_set(ps->curx, 0, 0);
+					lws_fx_set(psb->curx, 0, 0);
+					psb->dlo_set_curx = NULL;
+				}
+
 				lws_fx_add(&psb->curx, &psb->curx,
 					   lws_csp_px(ps->css_margin[CCPAS_LEFT], ps));
 
