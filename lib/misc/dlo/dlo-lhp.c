@@ -616,6 +616,10 @@ lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 
 	case LHPCB_ELEMENT_START:
 
+		if (ps->css_display &&
+		    ps->css_display->propval == LCSP_PROPVAL_NONE)
+			return 0;
+
 		switch (elem_match) {
 		case LHP_ELEM_BR:
 			newline(ctx, psb, ps, drt->dl);
@@ -844,29 +848,25 @@ do_rect:
 			lws_fx_set(h, 0, 0);
 
 			{
-				const lcsp_atr_t *wa = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_WIDTH);
-				if (wa && wa->propval != LCSP_PROPVAL_AUTO &&
-				    wa->unit != LCSP_UNIT_LENGTH_PERCENT)
-					w = *lws_csp_px(wa, ps);
-			}
-
-			{
-				const lcsp_atr_t *ha = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_HEIGHT);
-				if (ha && ha->propval != LCSP_PROPVAL_AUTO &&
-				    ha->unit != LCSP_UNIT_LENGTH_PERCENT)
-					h = *lws_csp_px(ha, ps);
-			}
-
-			if (!w.whole) {
 				const char *p = lws_html_get_atr(ps, "width", 5);
 				if (p)
 					w.whole = atoi(p);
+
+				p = lws_html_get_atr(ps, "height", 6);
+				if (p)
+					h.whole = atoi(p);
+			}
+
+			if (!w.whole) {
+				const lcsp_atr_t *wa = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_WIDTH);
+				if (wa && wa->propval != LCSP_PROPVAL_AUTO)
+					w = *lws_csp_px(wa, ps);
 			}
 
 			if (!h.whole) {
-				const char *p = lws_html_get_atr(ps, "height", 6);
-				if (p)
-					h.whole = atoi(p);
+				const lcsp_atr_t *ha = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_HEIGHT);
+				if (ha && ha->propval != LCSP_PROPVAL_AUTO)
+					h = *lws_csp_px(ha, ps);
 			}
 
 			if ((!w.whole || !h.whole) && u.u.dlo_jpeg) {
@@ -877,6 +877,12 @@ do_rect:
 			if (psb) {
 				lws_fx_add(&psb->curx, &psb->curx,
 					   lws_csp_px(ps->css_margin[CCPAS_LEFT], ps));
+
+				if (ps->dlo) {
+					ps->dlo->box.x = psb->curx;
+					ps->dlo->box.y = psb->cury;
+				}
+
 				lws_fx_add(&psb->curx, &psb->curx, &w);
 				lws_fx_add(&psb->curx, &psb->curx,
 					   lws_csp_px(ps->css_margin[CCPAS_RIGHT], ps));
@@ -894,6 +900,11 @@ do_rect:
 		break;
 
 	case LHPCB_ELEMENT_END:
+
+		if (ps->css_display &&
+		    ps->css_display->propval == LCSP_PROPVAL_NONE)
+			return 0;
+
 /*
 		if (ctx->npos == 2 && ctx->buf[0] == 'h' &&
 		    ctx->buf[1] > '0' && ctx->buf[1] <= '6') {
