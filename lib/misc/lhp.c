@@ -179,6 +179,7 @@ static const char *const default_css =
 	"br:before       { content: \"A\"; white-space: pre-line }\n"
 	"center          { text-align: center }\n"
 	"nav             { text-align: left }\n"
+	"span, time, label, a, b, strong, i, em, code { display: inline }\n"
 	":link, :visited { text-decoration: underline }\n"
 	":focus          { outline: thin dotted invert }\n"
 
