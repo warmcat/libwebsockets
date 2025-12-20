@@ -137,9 +137,6 @@ newline(lhp_ctx_t *ctx, lhp_pstack_t *psb, lhp_pstack_t *ps,
 	 */
 
 	while (d) {
-		if (lws_fx_comp(&d->box.y, &psb->cury) < 0)
-			break;
-
 		t |= d->_destroy == lws_display_dlo_text_destroy;
 		/* find the "worst" height on the line */
 		if (lws_fx_comp(&d->box.h, &line_height) > 0)
