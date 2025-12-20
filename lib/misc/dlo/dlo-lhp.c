@@ -204,7 +204,6 @@ newline(lhp_ctx_t *ctx, lhp_pstack_t *psb, lhp_pstack_t *ps,
 
 	a = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_TEXT_ALIGN);
 	if (a) {
-
 		switch (a->propval) {
 		case LCSP_PROPVAL_CENTER:
 			add = *lws_csp_px(ps->css_padding[CCPAS_LEFT], ps);
@@ -818,13 +817,16 @@ do_rect:
 
 			if (psb) {
 				lws_fx_add(&box.x, &box.x,
-					lws_csp_px(psb->css_margin[CCPAS_LEFT], psb));
-				lws_fx_add(&box.y, &box.y,
-					lws_csp_px(psb->css_margin[CCPAS_TOP], psb));
+					lws_csp_px(ps->css_margin[CCPAS_LEFT], ps));
+				/*
+				 * If we respect the top margin, we can't align with
+				 * text on the same line that is top-aligned to the
+				 * line.  Just ignore it for now.
+				 *
+				 * lws_fx_add(&box.y, &box.y,
+				 * 	lws_csp_px(ps->css_margin[CCPAS_TOP], ps));
+				 */
 			}
-
-			lws_fx_set(box.h, 0, 0);
-			lws_fx_set(box.w, 0, 0);
 
 			if (ps->css_width &&
 			    lws_fx_comp(lws_csp_px(ps->css_width, ps), &box.w) > 0)
@@ -843,19 +845,35 @@ do_rect:
 			h = *lws_csp_px(lws_css_cascade_get_prop_atr(ctx,
 							LCSP_PROP_HEIGHT), ps);
 
+			if (!w.whole) {
+				const char *p = lws_html_get_atr(ps, "width", 5);
+				if (p)
+					w.whole = atoi(p);
+			}
+
+			if (!h.whole) {
+				const char *p = lws_html_get_atr(ps, "height", 6);
+				if (p)
+					h.whole = atoi(p);
+			}
+
 			if ((!w.whole || !h.whole) && u.u.dlo_jpeg) {
 				w = ((lws_dlo_t *)(u.u.dlo_jpeg))->box.w;
 				h = ((lws_dlo_t *)(u.u.dlo_jpeg))->box.h;
 			}
 
 			if (psb) {
+				lws_fx_add(&psb->curx, &psb->curx,
+					   lws_csp_px(ps->css_margin[CCPAS_LEFT], ps));
 				lws_fx_add(&psb->curx, &psb->curx, &w);
+				lws_fx_add(&psb->curx, &psb->curx,
+					   lws_csp_px(ps->css_margin[CCPAS_RIGHT], ps));
+
 				psb->dlo_set_curx = ps->dlo;
 				psb->dlo_set_cury = ps->dlo;
 				if (lws_fx_comp(&psb->curx, &psb->widest) > 0)
 					psb->widest = psb->curx;
 			}
-
 			break;
 		}
 		break;
