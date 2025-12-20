@@ -147,7 +147,7 @@ newline(lhp_ctx_t *ctx, lhp_pstack_t *psb, lhp_pstack_t *ps,
 
 		if (d->_destroy == lws_display_dlo_text_destroy) {
 			lws_dlo_text_t *text = lws_container_of(d,
-						lws_dlo_text_t, dlo.list);
+						lws_dlo_text_t, dlo);
 
 			if (text->font_y_baseline < group_baseline)
 				group_baseline = text->font_y_baseline;
@@ -167,7 +167,7 @@ newline(lhp_ctx_t *ctx, lhp_pstack_t *psb, lhp_pstack_t *ps,
 	while (d) {
 		if (d->_destroy == lws_display_dlo_text_destroy) {
 			lws_dlo_text_t *t1 = lws_container_of(d1,
-						lws_dlo_text_t, dlo.list);
+						lws_dlo_text_t, dlo);
 			lws_fx_t ft;
 
 			t1->group_height = group_height;
@@ -178,14 +178,6 @@ newline(lhp_ctx_t *ctx, lhp_pstack_t *psb, lhp_pstack_t *ps,
 			ft.frac = 0;
 
 			lws_fx_sub(&t1->dlo.box.y,  &t1->dlo.box.y, &ft);
-		} else {
-			/* bottom-align other things on the line to the text baseline */
-			lws_fx_t ft;
-
-			ft.whole = group_height - d1->box.h.whole;
-			ft.frac = 0;
-
-			lws_fx_add(&d1->box.y, &d1->box.y, &ft);
 		}
 		if (!d1->list.next)
 			break;
