@@ -2191,7 +2191,7 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 						PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE,
 						lws_wsi_keepalive_timeout_eff(wsi));
 
-				if (!h2n->swsi)
+				if (!h2n->swsi || h2n->swsi->socket_is_permanently_unusable)
 					break;
 
 				if (lws_buflist_next_segment_len(
