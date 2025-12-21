@@ -764,6 +764,12 @@ lws_urldecode(char *string, const char *escaped, int len)
  *   ../b.html            -> https://x.com/b.html
  *   /c.html              -> https://x.com/c.html
  *   https://y.com/a.html -> https://y.com/a.html
+ *
+ * If base is file:///path/to/origin/basis
+ *
+ *   a.html               -> file:///path/to/origin/basis/a.html
+ *   ../b.html            -> file:///path/to/origin/basis/../b.html
+ *   /c.html              -> file:///path/to/origin/basis/c.html
  */
 
 int
@@ -774,11 +780,32 @@ lws_http_rel_to_url(char *dest, size_t len, const char *base, const char *rel)
 
 	// lwsl_err("%s: base %s, rel %s\n", __func__, base, rel);
 
+	if (rel[0] == '/' && rel[1] == '/') {
+		lws_snprintf(dest, len, "https:%s", rel);
+
+		return 0;
+	}
+
 	if (!strncmp(rel, "https://", 8) ||
 	    !strncmp(rel, "http://", 7) ||
 	    !strncmp(rel, "file://", 7)) {
 		/* rel is already a full url, just copy it */
 		lws_strncpy(dest, rel, len);
+		return 0;
+	}
+
+	if (!strncmp(base, "file://", 7)) {
+		n = strlen(base);
+		while (n > 7) {
+			if (base[n - 1] == '/' && base[n - 2] != '/') {
+				n--;
+				break;
+			}
+			n--;
+		}
+		if (*rel == '/')
+			rel++;
+		lws_snprintf(dest, len, "%.*s/%s", (int)n, base, rel);
 		return 0;
 	}
 

@@ -33,7 +33,8 @@ lws_display_dlo_png_destroy(struct lws_dlo *dlo)
 	lws_dlo_png_t *dlo_png = lws_container_of(dlo, lws_dlo_png_t, dlo);
 
 #if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_SECURE_STREAMS)
-	lws_ss_destroy(&dlo_png->flow.h);
+	if (dlo_png->flow.h)
+		lws_ss_destroy(&dlo_png->flow.h);
 #endif
 	lws_buflist_destroy_all_segments(&dlo_png->flow.bl);
 
@@ -53,6 +54,9 @@ lws_display_render_png(struct lws_display_render_state *rs)
 	int s, e;
 
 	if (!lws_upng_get_height(dlo_png->png)) {
+		if (dlo_png->flow.state == LWSDLOFLOW_STATE_READ_COMPLETED)
+			return LWS_SRET_OK;
+
 		lwsl_info("%s: png does not have dimensions yet\n", __func__);
 		return LWS_SRET_WANT_INPUT;
 	}

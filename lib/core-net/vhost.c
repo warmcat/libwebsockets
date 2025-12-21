@@ -1873,7 +1873,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 			     lwsi_state(w) == LRS_ESTABLISHED ||
 			     lwsi_state(w) == LRS_IDLING)) {
 
-				lwsl_wsi_notice(w, "just join h2 directly 0x%x",
+				lwsl_wsi_info(w, "just join h2 directly 0x%x",
 						   lwsi_state(w));
 
 				if (lwsi_state(w) == LRS_IDLING)

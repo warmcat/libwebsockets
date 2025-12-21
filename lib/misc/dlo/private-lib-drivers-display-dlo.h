@@ -58,5 +58,8 @@ lws_lhp_ss_html_parse_from_lhp(lhp_ctx_t *lhp);
 void
 lws_lhp_image_dimensions_cb(lws_sorted_usec_list_t *sul);
 
+int
+lws_dlo_ss_stop_any_active(struct lws_context *cx);
+
 #endif
 

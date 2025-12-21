@@ -107,7 +107,7 @@ render(lws_sorted_usec_list_t *sul)
 
         free(rs->line);
         rs->line = NULL;
-	lws_display_list_destroy(&rs->displaylist);
+	lws_display_list_destroy(rs->lds->ctx, &rs->displaylist);
 
 	show_demo_phase(LWS_LHPCD_PHASE_IDLE);
 }

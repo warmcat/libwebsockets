@@ -76,6 +76,11 @@ enum {
 	LCSPS_ECOMMENT2,
 
 	LCSPS_CSS_STANZA,
+
+	/* script */
+
+	LHPS_SCRIPT,
+	LHPS_SCRIPT_TAG1,
 };
 
 /*
@@ -173,6 +178,8 @@ static const char *const default_css =
 	"u, ins          { text-decoration: underline }\n"
 	"br:before       { content: \"A\"; white-space: pre-line }\n"
 	"center          { text-align: center }\n"
+	"nav             { text-align: left }\n"
+	"span, time, label, a, b, strong, i, em, code { display: inline }\n"
 	":link, :visited { text-decoration: underline }\n"
 	":focus          { outline: thin dotted invert }\n"
 
@@ -679,6 +686,7 @@ lws_css_cascade(lhp_ctx_t *ctx)
 			     !strcmp((const char *)&a[1], "class")) {
 				ts.start = ((const char *)&a[1]) + 5 + 1;
 				ts.len = a->value_len;
+				ts.flags |= LWS_TOKENIZE_F_MINUS_NONTERM;
 			}
 
 			do {
@@ -814,7 +822,7 @@ lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len)
 			(*buf)--;
 		}
 
-		// lwsl_notice("%s: %d, '%c', %02X\n", __func__, ctx->state, c, c);
+	//	lwsl_notice("%s: %d, '%c', %02X\n", __func__, ctx->state, c, c);
 
 		switch (ctx->state) {
 
@@ -954,6 +962,21 @@ lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len)
 					ctx->state = LCSPS_CSS_OUTER;
 					break;
 				}
+
+				/* <script> trapdoor into skipping */
+
+				if (ctx->u.f.tag_used && c == '>' &&
+				    ctx->tag_len == 6 &&
+				    !strncasecmp(ctx->buf, "script", 6) &&
+				    !ctx->u.f.closing) {
+					/*
+					 * We don't want to parse script as
+					 * text.
+					 */
+					ctx->npos = 0;
+					ctx->state = LHPS_SCRIPT;
+					break;
+				}
 			}
 
 			if (ctx->u.f.void_element && c == '/') {
@@ -1015,7 +1038,7 @@ elem_start:
 				lhp_pstack_t *psb;
 				lws_dlo_t *dlo;
 				lws_box_t box;
-				char url[128];
+				char url[LHP_URL_LEN];
 
 				memset(&i, 0, sizeof(i));
 				lws_css_cascade(ctx);
@@ -1076,8 +1099,7 @@ elem_start:
 					aa = lws_css_cascade_get_prop_atr(ctx,
 						LCSP_PROP_BACKGROUND_IMAGE);
 
-					if (ctx->npos == 4 &&
-					    !strncmp(ctx->buf, "body", 4) && aa)
+					if (aa)
 						pname = (const char *)(aa + 1);
 				}
 
@@ -1093,7 +1115,7 @@ elem_start:
 
 				if (lws_http_rel_to_url(url, sizeof(url),
 							ctx->base_url, pname))
-					goto skip_image;
+					goto check_closing;
 
 				psb = lws_css_get_parent_block(ctx, ps);
 				//if (!psb)
@@ -1121,8 +1143,8 @@ elem_start:
 							lws_csp_px(psb->css_margin[CCPAS_TOP], psb));
 					}
 
-					box.h = ctx->ic.wh_px[LWS_LHPREF_HEIGHT]; /* placeholder */
-					lws_fx_sub(&box.w, &ctx->ic.wh_px[0], &box.x);
+					lws_fx_set(box.h, 0, 0);
+					lws_fx_set(box.w, 0, 0);
 
 					if (ps->css_width &&
 					    lws_fx_comp(lws_csp_px(ps->css_width, ps), &box.w) > 0)
@@ -1132,36 +1154,32 @@ elem_start:
 				memset(&u, 0, sizeof(u));
 				if (lws_dlo_ss_find(cx, url, &u)) {
 
-					i.cx = cx;
-					i.dl = drt->dl;
+					i.cx			= cx;
+					i.dl			= drt->dl;
 					if (psb)
-						i.dlo_parent = psb->dlo;
-					i.box = &box;
-					i.on_rx = ctx->ssevcb;
-					i.on_rx_sul = ctx->ssevsul;
-					i.url = url;
-					i.lhp = ctx;
-					i.u = &u;
-					i.window = ctx->window;
+						i.dlo_parent	= psb->dlo;
+					i.box			= &box;
+					i.on_rx			= ctx->ssevcb;
+					i.on_rx_sul		= ctx->ssevsul;
+					i.url			= url;
+					i.lhp			= ctx;
+					i.u			= &u;
+					i.window		= ctx->window;
 
-					lwsl_cx_warn(cx, "not already in progress: %s", url);
+					lwsl_cx_info(cx, "not already in progress: %s", url);
 					if (lws_dlo_ss_create(&i, &dlo)) {
 						/* we can't get it */
 						lwsl_cx_warn(cx, "Can't get %s", url);
-						goto issue_elem_start;
+						goto check_closing;
 					} else {
-						lwsl_cx_warn(cx, "Created SS for %s\n", url);
-						if (psb)
-							psb->dlo = dlo;
-					//	else
-						ps->dlo = dlo;
+						lwsl_cx_info(cx, "Created SS for %s\n", url);
+						if (ctx->npos == 3 && !strncmp(ctx->buf, "img", 3))
+							ps->dlo = dlo;
 					}
 				} else {
 					// lwsl_cx_warn(cx, "Found in-progress %s\n", url);
-					if (psb)
-						psb->dlo = &u.u.dlo_png->dlo;
-					//else
-					ps->dlo = &u.u.dlo_png->dlo;
+					if (ctx->npos == 3 && !strncmp(ctx->buf, "img", 3))
+						ps->dlo = &u.u.dlo_png->dlo;
 				}
 
 				if (ctx->npos == 4 && !strncmp(ctx->buf, "link", 4)) {
@@ -1184,7 +1202,7 @@ elem_start:
 							LCSP_PROP_HEIGHT), ps)->whole &&
 						lws_csp_px(lws_css_cascade_get_prop_atr(ctx,
 							LCSP_PROP_WIDTH), ps)->whole) {
-					lwsl_cx_warn(cx, "Have width and height %d x %d",
+					lwsl_cx_info(cx, "Have width and height %d x %d",
 							(int)lws_csp_px(lws_css_cascade_get_prop_atr(ctx,
 								LCSP_PROP_WIDTH), ps)->whole,
 							(int)lws_csp_px(lws_css_cascade_get_prop_atr(ctx,
@@ -1197,6 +1215,19 @@ elem_start:
 					goto issue_elem_start;
 				}
 
+				{
+					const char *p = lws_html_get_atr(ps, "width", 5);
+					if (p)
+						u.u.dlo_png->dlo.box.w.whole = atoi(p);
+					p = lws_html_get_atr(ps, "height", 6);
+					if (p)
+						u.u.dlo_png->dlo.box.h.whole = atoi(p);
+				}
+
+				if (u.u.dlo_png->dlo.box.w.whole &&
+				    u.u.dlo_png->dlo.box.h.whole)
+					goto issue_elem_start;
+
 				/*
 				 * Do we have the dimensions?  If not, bail
 				 * from here and await a retry (maybe caused by
@@ -1205,8 +1236,11 @@ elem_start:
 
 				if (!lws_dlo_image_width(&u) ||
 				    !lws_dlo_image_height(&u)) {
-					// lwsl_warn("%s: exiting with AWAIT_RETRY\n", __func__);
-					return LWS_SRET_AWAIT_RETRY;
+					ps->dlo->budget++;
+					if (ps->dlo->budget < 32) {
+						lwsl_warn("%s: exiting with AWAIT_RETRY due to no dims\n", __func__);
+						return LWS_SRET_AWAIT_RETRY;
+					}
 				}
 
 				u.u.dlo_png->dlo.box.w.whole = (int32_t)lws_dlo_image_width(&u);
@@ -1216,7 +1250,7 @@ elem_start:
 
 				if (u.u.dlo_png->dlo.box.w.whole < 0) {
 					lwsl_notice("%s: understanding image failed\n", __func__);
-					goto skip_image;
+					goto check_closing;
 				}
 
 				/*
@@ -1233,6 +1267,7 @@ issue_elem_start:
 				}
 			}
 
+check_closing:
 			if (ctx->u.f.closing || ctx->u.f.void_element){
 				if (ctx->stack.count == 1) {
 					lwsl_err("%s: element close mismatch\n", __func__);
@@ -1252,7 +1287,6 @@ issue_elem_start:
 				ps = lws_container_of(ctx->stack.tail,
 						      lhp_pstack_t, list);
 			}
-skip_image:
 			ctx->npos = 0;
 			ctx->state = LHPS_OUTER;
 			break;
@@ -1521,7 +1555,8 @@ skip_image:
 				ts.start = ctx->buf;
 				ts.len = (size_t)ctx->npos;
 				ts.flags = LWS_TOKENIZE_F_COMMA_SEP_LIST |
-						LWS_TOKENIZE_F_DOT_NONTERM;
+						LWS_TOKENIZE_F_DOT_NONTERM |
+						LWS_TOKENIZE_F_MINUS_NONTERM;
 
 				do {
 					ts.e = (int8_t)lws_tokenize(&ts);
@@ -1985,6 +2020,33 @@ finish_css:
 			ctx->buf[ctx->npos++] = '-';
 			ctx->buf[ctx->npos++] = (char)c;
 			ctx->state = LCSPS_COMMENT;
+			break;
+
+		case LHPS_SCRIPT:
+			if (c == '<') {
+				ctx->state = LHPS_SCRIPT_TAG1;
+				ctx->u.f.first = 1;
+				break;
+			}
+			break;
+
+		case LHPS_SCRIPT_TAG1:
+			if (c == '/' && ctx->u.f.first) {
+				ctx->u.s = 0;
+
+				ctx->tag = NULL;
+				ctx->tag_len = 0;
+				ctx->npos = 0;
+				ctx->state = LHPS_TAG;
+				ctx->await_css_done = 0;
+				ctx->finish_css = 0;
+				ctx->u.f.closing = 1;
+				break;
+			}
+			if (hspace(c))
+				break;
+
+			ctx->state = LHPS_SCRIPT;
 			break;
 
 		}

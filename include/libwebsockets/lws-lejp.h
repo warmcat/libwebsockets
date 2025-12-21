@@ -182,10 +182,10 @@ typedef signed char (*lejp_callback)(struct lejp_ctx *ctx, char reason);
 #define LEJP_MAX_PARSING_STACK_DEPTH 10
 #endif
 #ifndef LEJP_MAX_DEPTH
-#define LEJP_MAX_DEPTH 16
+#define LEJP_MAX_DEPTH 64
 #endif
 #ifndef LEJP_MAX_INDEX_DEPTH
-#define LEJP_MAX_INDEX_DEPTH 12
+#define LEJP_MAX_INDEX_DEPTH 64
 #endif
 #ifndef LEJP_MAX_PATH
 #define LEJP_MAX_PATH 192

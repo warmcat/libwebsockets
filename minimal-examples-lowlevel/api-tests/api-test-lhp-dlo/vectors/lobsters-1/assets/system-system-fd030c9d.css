@@ -1,0 +1,6 @@
+/* system color scheme (system contrast) */
+
+@import url("/assets/light-normal-bf538ff1.css"); /* default */
+@import url("/assets/light-high-56dfc432.css") (not (prefers-color-scheme: dark)) and (prefers-contrast: more);
+@import url("/assets/dark-normal-b6128952.css") (prefers-color-scheme: dark) and (not (prefers-contrast: more));
+@import url("/assets/dark-high-dd12f301.css") (prefers-color-scheme: dark) and (prefers-contrast: more);

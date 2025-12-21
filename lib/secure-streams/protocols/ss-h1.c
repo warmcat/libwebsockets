@@ -646,7 +646,7 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			lwsl_info("%s: Connected streamtype %s, %d\n", __func__,
 				h->policy->streamtype, status);
 		else
-			lwsl_warn("%s: Connected streamtype %s, BAD %d\n",
+			lwsl_info("%s: Connected streamtype %s, BAD %d\n",
 				__func__, h->policy->streamtype, status);
 
 		h->hanging_som = 0;

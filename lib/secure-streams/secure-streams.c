@@ -731,7 +731,7 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 	union lws_ss_contemp ct;
 	lws_ss_state_return_t r;
 	int port, _port, tls;
-	char *path, ep[192];
+	char *path, ep[LHP_URL_LEN];
 	lws_strexp_t exp;
 	struct lws *wsi;
 
@@ -1626,7 +1626,6 @@ lws_ss_destroy(lws_ss_handle_t **ppss)
 #endif
 
 	if (h->wsi) {
-
 		lwsl_warn("%s: conn->ss->wsi %d %d\n", __func__,
 				h->wsi->bound_ss_proxy_conn, h->wsi->client_proxy_onward);
 

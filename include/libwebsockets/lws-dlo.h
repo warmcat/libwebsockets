@@ -134,6 +134,8 @@ typedef struct lws_dlo {
 	lws_box_t			box;
 	lws_display_colour_t		dc;
 
+	uint8_t				budget; /* limit spinning */
+
 	uint8_t				flag_runon:1; /* continues same line */
 	uint8_t				flag_done_align:1;
 	uint8_t				flag_toplevel:1; /* don't scan up with me (different owner) */
@@ -294,7 +296,7 @@ typedef struct lws_display_render_state {
 
 	const struct lws_surface_info	*ic; /* display dimensions, palette */
 
-	lws_display_render_stack_t	st[12]; /* DLO child stack */
+	lws_display_render_stack_t	st[64]; /* DLO child stack */
 	int				sp;	/* DLO child stack level */
 
 	uint8_t				*line; /* Y or RGB line comp buffer */
@@ -346,12 +348,13 @@ lws_display_dl_dump(lws_displaylist_t *dl);
 /**
  * lws_display_list_destroy() - destroys display list and objects on it
  *
+ * \param cx: lws_context
  * \param dl: Pointer to the display list
  *
  * Destroys every DLO on the list.
  */
 LWS_VISIBLE LWS_EXTERN void
-lws_display_list_destroy(lws_displaylist_t *dl);
+lws_display_list_destroy(struct lws_context *cx, lws_displaylist_t *dl);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_display_dlo_destroy(lws_dlo_t **r);
