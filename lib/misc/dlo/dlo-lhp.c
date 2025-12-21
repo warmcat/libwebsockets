@@ -154,6 +154,10 @@ newline(lhp_ctx_t *ctx, lhp_pstack_t *psb, lhp_pstack_t *ps,
 
 		if (!d->flag_runon)
 			break;
+
+		if (!d->list.prev)
+			break;
+
 		d = lws_container_of(d->list.prev, lws_dlo_t, list);
 	};
 
@@ -198,7 +202,7 @@ newline(lhp_ctx_t *ctx, lhp_pstack_t *psb, lhp_pstack_t *ps,
 	if (lws_fx_comp(&w, &psb->widest) > 0)
 		psb->widest = w;
 
-	if (!t) /* no textual children to newline (eg, <div></div>) */
+	if (!t && !line_height.whole && !line_height.frac) /* no textual children to newline (eg, <div></div>) */
 		return;
 
 	 /*
@@ -903,7 +907,14 @@ do_rect:
 					lws_csp_px(psb->css_padding[CCPAS_RIGHT], psb));
 
 				if (lws_fx_comp(&t1, &av) > 0) {
+					if (ps->dlo)
+						lws_dll2_remove(&ps->dlo->list);
+
 					newline(ctx, psb, psb, drt->dl);
+
+					if (ps->dlo)
+						lws_dll2_add_tail(&ps->dlo->list, &psb->dlo->children);
+
 					lws_fx_set(ps->curx, 0, 0);
 					lws_fx_set(psb->curx, 0, 0);
 					psb->dlo_set_curx = NULL;
