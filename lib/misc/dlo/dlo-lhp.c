@@ -912,8 +912,11 @@ do_rect:
 
 					newline(ctx, psb, psb, drt->dl);
 
-					if (ps->dlo)
+					if (ps->dlo) {
 						lws_dll2_add_tail(&ps->dlo->list, &psb->dlo->children);
+						ps->dlo->box.y = psb->cury;
+						runon(psb, ps->dlo);
+					}
 
 					lws_fx_set(ps->curx, 0, 0);
 					lws_fx_set(psb->curx, 0, 0);
