@@ -26,13 +26,13 @@
  */
 
 #if !defined(LHP_MAX_ELEMS_NEST)
-#define LHP_MAX_ELEMS_NEST		32
+#define LHP_MAX_ELEMS_NEST		128
 #endif
 #if !defined(LHP_MAX_DEPTH)
-#define LHP_MAX_DEPTH			12
+#define LHP_MAX_DEPTH			64
 #endif
 #if !defined(LHP_STRING_CHUNK)
-#define LHP_STRING_CHUNK		254
+#define LHP_STRING_CHUNK		2048
 #endif
 
 enum lhp_callbacks {
