@@ -61,8 +61,9 @@ lws_display_render_jpeg(struct lws_display_render_state *rs)
 		if (dlo_jpeg->flow.state == LWSDLOFLOW_STATE_READ_COMPLETED)
 			return LWS_SRET_OK;
 
-		lwsl_info("%s: jpeg does not have dimensions yet\n", __func__);
+		lwsl_notice("%s: jpeg does not have dimensions yet\n", __func__);
 		return LWS_SRET_WANT_INPUT;
+		// return LWS_SRET_OK;
 	}
 
 	s = ax.whole;
@@ -168,7 +169,7 @@ lws_display_dlo_jpeg_metadata_scan(lws_dlo_jpeg_t *dlo_jpeg)
 
 lws_dlo_jpeg_t *
 lws_display_dlo_jpeg_new(lws_displaylist_t *dl, lws_dlo_t *dlo_parent,
-			 lws_box_t *box)
+			 lws_box_t *box, const char *name, size_t len)
 {
 	lws_dlo_jpeg_t *dlo_jpeg = lws_zalloc(sizeof(*dlo_jpeg), __func__);
 
@@ -179,6 +180,7 @@ lws_display_dlo_jpeg_new(lws_displaylist_t *dl, lws_dlo_t *dlo_parent,
 	if (!dlo_jpeg->j)
 		goto bail;
 
+	lws_strnncpy(dlo_jpeg->name, name, len, sizeof(dlo_jpeg->name)); 
 	dlo_jpeg->dlo.box = *box;
 	dlo_jpeg->dlo.render = lws_display_render_jpeg;
 	dlo_jpeg->dlo._destroy = lws_display_dlo_jpeg_destroy;

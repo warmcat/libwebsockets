@@ -421,8 +421,10 @@ lws_display_list_render_line(lws_display_render_state_t *rs)
 {
 	lws_dll2_t *d;
 
-	if (rs->html == 1)
+	if (rs->html == 1) {
+		lwsl_notice("%s: returning LWS_SRET_WANT_INPUT due to rs->html = 1\n", __func__);
 		return LWS_SRET_WANT_INPUT;
+	}
 
 	if (!rs->sp && !rs->st[0].dlo) {
 

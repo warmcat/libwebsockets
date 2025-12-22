@@ -1350,10 +1350,11 @@ elem_start:
 				if (!lws_dlo_image_width(&u) ||
 				    !lws_dlo_image_height(&u)) {
 					ps->dlo->budget++;
-					if (ps->dlo->budget < 32) {
+					if (ps->dlo->budget < 64) {
 						lwsl_warn("%s: exiting with AWAIT_RETRY due to no dims\n", __func__);
 						return LWS_SRET_AWAIT_RETRY;
-					}
+					} else
+						lwsl_err("%s: ignoring no dims\n", __func__);
 				}
 
 				u.u.dlo_png->dlo.box.w.whole = (int32_t)lws_dlo_image_width(&u);

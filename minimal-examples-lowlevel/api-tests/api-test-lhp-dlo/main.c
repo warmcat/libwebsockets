@@ -78,7 +78,7 @@ static const lws_display_colour_t palette[] = {
 #endif
 
 static const lws_surface_info_t ic = {
-	.wh_px = { { 1600,0 },       { 1400,0 } },
+	.wh_px = { { 1600,0 },       { 1200,0 } },
 	.wh_mm = { { 114,5000000 }, {  82,5000000 } },
 #if defined(SEVENCOL)
         .palette                = palette,
@@ -146,6 +146,8 @@ render(lws_sorted_usec_list_t *sul)
 					(rs->ic->greyscale ? 1 : 3);
 	lws_stateful_ret_t r;
 
+	lwsl_notice("%s: line %d\n", __func__, rs->curr);
+
 	if (rs->html == 1)
 		return;
 
@@ -177,7 +179,7 @@ render(lws_sorted_usec_list_t *sul)
 
 		if (r) {
 			/* eg, waiting for more jpg or whatever */
-			lwsl_info("%s: leaving %d\n", __func__, r);
+			lwsl_notice("%s: leaving 0x%x\n", __func__, (unsigned int)r);
 			return;
 		}
 
