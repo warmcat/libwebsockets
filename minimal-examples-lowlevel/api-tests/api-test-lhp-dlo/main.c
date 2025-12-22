@@ -78,7 +78,7 @@ static const lws_display_colour_t palette[] = {
 #endif
 
 static const lws_surface_info_t ic = {
-	.wh_px = { { 1600,0 },       { 1200,0 } },
+	.wh_px = { { 1600,0 },       { 2000,0 } },
 	.wh_mm = { { 114,5000000 }, {  82,5000000 } },
 #if defined(SEVENCOL)
         .palette                = palette,

@@ -553,7 +553,7 @@ lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 	char lastm = 0;
 	int elem_match;
 	lws_box_t box;
-	char url[LHP_URL_LEN];
+	char url[LHP_URL_LEN], url1[LHP_URL_LEN];
 	int n, s = 0;
 
 	/* default font choice */
@@ -849,11 +849,16 @@ do_rect:
 			    lws_fx_comp(lws_csp_px(ps->css_width, ps), &box.w) > 0)
 				box.w = *lws_csp_px(ps->css_width, ps);
 
-			if (lws_http_rel_to_url(url, sizeof(url),
+			if (lws_http_rel_to_url(url1, sizeof(url1),
 						ctx->base_url, pname))
 				break;
 
-			lws_dlo_ss_find(cx, url, &u);
+			lws_urldecode(url, url1, sizeof(url) - 1);
+
+			if (lws_dlo_ss_find(cx, url, &u)) {
+				lwsl_err("%s: no ss for %s\n", __func__, url);
+				break;
+			}
 
 			lws_lhp_tag_dlo_id(ctx, ps, (lws_dlo_t *)(u.u.dlo_jpeg));
 

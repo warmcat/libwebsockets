@@ -62,8 +62,10 @@ lws_display_render_jpeg(struct lws_display_render_state *rs)
 			return LWS_SRET_OK;
 
 		lwsl_notice("%s: jpeg does not have dimensions yet\n", __func__);
+		if (rs->html == 2)
+			return LWS_SRET_OK;
+
 		return LWS_SRET_WANT_INPUT;
-		// return LWS_SRET_OK;
 	}
 
 	s = ax.whole;

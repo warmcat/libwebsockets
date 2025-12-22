@@ -1232,6 +1232,13 @@ elem_start:
 							ctx->base_url, pname))
 					goto check_closing;
 
+				/* decode percent-encoding in the URL */
+				{
+					char temp[LHP_URL_LEN];
+					lws_strncpy(temp, url, sizeof(temp));
+					lws_urldecode(url, temp, sizeof(url) - 1);
+				}
+
 				psb = lws_css_get_parent_block(ctx, ps);
 				//if (!psb)
 				//	lwsl_err("%s: NULL psb\n", __func__);
@@ -1352,7 +1359,7 @@ elem_start:
 				if (!lws_dlo_image_width(&u) ||
 				    !lws_dlo_image_height(&u)) {
 					ps->dlo->budget++;
-					if (ps->dlo->budget < 64) {
+					if (ps->dlo->budget < 8) {
 						lwsl_warn("%s: exiting with AWAIT_RETRY due to no dims\n", __func__);
 						return LWS_SRET_AWAIT_RETRY;
 					} else

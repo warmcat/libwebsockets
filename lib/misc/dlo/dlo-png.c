@@ -58,7 +58,9 @@ lws_display_render_png(struct lws_display_render_state *rs)
 			return LWS_SRET_OK;
 
 		lwsl_notice("%s: png %s does not have dimensions yet\n", __func__, dlo_png->name);
-	//	return LWS_SRET_OK;
+		if (rs->html == 2)
+			return LWS_SRET_OK;
+
 		return LWS_SRET_WANT_INPUT;
 	}
 
