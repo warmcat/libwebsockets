@@ -242,7 +242,7 @@ static const char *const default_css =
 	"div             { display: block; width: auto; }\n"
 	"body		 { display: block}\n"
 	"li              { display: list-item }\n"
-	"head, script    { display: none }\n"
+	"head, script, style { display: none }\n"
 	"table           { display: table;  }\n"
 	"tr              { display: table-row }\n"
 	"thead           { display: table-header-group }\n"
