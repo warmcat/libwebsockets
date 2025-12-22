@@ -301,6 +301,9 @@ struct lws_jpeg {
 	uint8_t			fs_ir_phase;
 	uint8_t			fs_is_phase;
 
+	uint8_t			is_progressive_tiny;
+	uint8_t			Ss, Se, Ah, Al;
+
 };
 
 static const int8_t ZAG[] = { 0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18,
@@ -353,7 +356,13 @@ get_octet(lws_jpeg_t *j, uint8_t *c, uint8_t ffcheck)
 				return LWS_SRET_OK;
 			}
 			lwsl_jpeg("%s: nonzero stuffed 0x%02X\n", __func__, c1);
-			return LWS_SRET_FATAL + 1;
+
+			/* we stashed c1, but it was a marker... put it and the 0xff back */
+			j->stash[0] = 0xff;
+			j->stash[1] = c1;
+			j->stashc = 2;
+
+			return LWS_SRET_FATAL + 35;
 		}
 
 		*c = 0xff;
@@ -831,7 +840,7 @@ read_sos_marker(lws_jpeg_t *j)
 		/* fallthru */
 				
 	case 3:
-		r = get_bits8(j, &c, 8, 0);
+		r = get_bits8(j, &j->Ss, 8, 0);
 		if (r)
 			return r;
 
@@ -840,7 +849,7 @@ read_sos_marker(lws_jpeg_t *j)
 		/* fallthru */
 				
 	case 4:
-		r = get_bits8(j, &c, 8, 0);
+		r = get_bits8(j, &j->Se, 8, 0);
 		if (r)
 			return r;
 
@@ -849,7 +858,7 @@ read_sos_marker(lws_jpeg_t *j)
 		/* fallthru */
 				
 	case 5:
-		r = get_bits8(j, &c, 4, 0);
+		r = get_bits8(j, &j->Ah, 4, 0);
 		if (r)
 			return r;
 
@@ -858,7 +867,7 @@ read_sos_marker(lws_jpeg_t *j)
 		/* fallthru */
 				
 	case 6:
-		r = get_bits8(j, &c, 4, 0);
+		r = get_bits8(j, &j->Al, 4, 0);
 		if (r)
 			return r;
 		
@@ -928,6 +937,9 @@ process_markers(lws_jpeg_t *j, uint8_t *pMarker)
 		case PJM_SOF0:
 		case PJM_SOF1:
 		case PJM_SOF2:
+			if (j->fs_pm_c == PJM_SOF2)
+				j->is_progressive_tiny = 1;
+			/* fallthru */
 		case PJM_SOF3:
 		case PJM_SOF5:
 		case PJM_SOF6:
@@ -1341,7 +1353,7 @@ check_huff_tables(lws_jpeg_t *j)
 		uint8_t compACTab = (uint8_t)(j->comp_ac[j->comp_list[i]] + 2);
 
 		if (((j->huff_valid & (1 << compDCTab)) == 0) ||
-		    ((j->huff_valid & (1 << compACTab)) == 0)) {
+		    ((!j->is_progressive_tiny) && ((j->huff_valid & (1 << compACTab)) == 0))) {
 			lwsl_jpeg("%s: invalid hufftable\n", __func__);
 
 			return LWS_SRET_FATAL;
@@ -1550,12 +1562,21 @@ init_frame(lws_jpeg_t *j)
 		return LWS_SRET_FATAL;
 	}
 
+	if (j->is_progressive_tiny) {
+		j->mcu_max_size_x = (uint8_t)(j->mcu_max_size_x / 8);
+		j->mcu_max_size_y = (uint8_t)(j->mcu_max_size_y / 8);
+	}
+
 	j->mcu_max_row = (uint16_t)
 			((j->image_width + (j->mcu_max_size_x - 1)) >>
-	                ((j->mcu_max_size_x == 8) ? 3 : 4));
+	                ((j->mcu_max_size_x == 8 || j->mcu_max_size_x == 1) ?
+					(j->is_progressive_tiny ? 0 : 3) :
+					(j->is_progressive_tiny ? 1 : 4)));
 	j->mcu_max_col = (uint16_t)
 			((j->image_height + (j->mcu_max_size_y - 1)) >>
-	                ((j->mcu_max_size_y == 8) ? 3 : 4));
+	                ((j->mcu_max_size_y == 8 || j->mcu_max_size_y == 1) ?
+					(j->is_progressive_tiny ? 0 : 3) :
+					(j->is_progressive_tiny ? 1 : 4)));
 
 	j->mcu_count_left_x = j->mcu_max_row;
 	j->mcu_count_left_y = j->mcu_max_col;
@@ -2126,6 +2147,141 @@ convert_cr(lws_jpeg_t *j, uint8_t dst_ofs)
 }
 
 static void
+copy_y_tiny(lws_jpeg_t *j, uint8_t dst_ofs)
+{
+	uint8_t *pRDst = j->mcu_buf_R + dst_ofs;
+	uint8_t *pGDst = j->mcu_buf_G + dst_ofs;
+	uint8_t *pBDst = j->mcu_buf_B + dst_ofs;
+	int16_t *ps = j->coeffs;
+	uint8_t c = clamp((int16_t)(PJPG_DESCALE(ps[0]) + 128));
+
+	*pRDst = c;
+	*pGDst = c;
+	*pBDst = c;
+}
+
+static void
+convert_cb_tiny(lws_jpeg_t *j, uint8_t dst_ofs, uint8_t count)
+{
+	uint8_t *pg = j->mcu_buf_G + dst_ofs;
+	uint8_t *pb = j->mcu_buf_B + dst_ofs;
+	int16_t *ps = j->coeffs;
+	uint8_t cb = clamp((int16_t)(PJPG_DESCALE(ps[0]) + 128));
+	int16_t cbG, cbB;
+
+	cbG = (int16_t)(((cb * 88U) >> 8U) - 44U);
+	cbB = (int16_t)((cb + ((cb * 198U) >> 8U)) - 227U);
+
+	while (count--) {
+		*pg = sub_clamp(pg[0], cbG);
+		pg++;
+		*pb = add_clamp(pb[0], cbB);
+		pb++;
+	}
+}
+
+static void
+convert_cr_tiny(lws_jpeg_t *j, uint8_t dst_ofs, uint8_t count)
+{
+	uint8_t *pr = j->mcu_buf_R + dst_ofs;
+	uint8_t *pg = j->mcu_buf_G + dst_ofs;
+	int16_t *ps = j->coeffs;
+	uint8_t cr = clamp((int16_t)(PJPG_DESCALE(ps[0]) + 128));
+	int16_t crR, crG;
+
+	crR = (int16_t)((cr + ((cr * 103U) >> 8U)) - 179);
+	crG = (int16_t)(((cr * 183U) >> 8U) - 91);
+
+	while (count--) {
+		*pr = add_clamp(pr[0], crR);
+		pr++;
+		*pg = sub_clamp(pg[0], crG);
+		pg++;
+	}
+}
+
+static void
+transform_block_tiny(lws_jpeg_t *j, uint8_t mb)
+{
+	switch (j->scan_type) {
+	case PJPG_GRAYSCALE:
+		copy_y_tiny(j, 0);
+		break;
+
+	case PJPG_YH1V1:
+		switch (mb) {
+		case 0:
+			copy_y_tiny(j, 0);
+			break;
+		case 1:
+			convert_cb_tiny(j, 0, 1);
+			break;
+		case 2:
+			convert_cr_tiny(j, 0, 1);
+			break;
+		}
+		break;
+
+	case PJPG_YH1V2:
+		switch (mb) {
+		case 0:
+			copy_y_tiny(j, 0);
+			break;
+		case 1:
+			copy_y_tiny(j, 1);
+			break;
+		case 2:
+			convert_cb_tiny(j, 0, 2);
+			break;
+		case 3:
+			convert_cr_tiny(j, 0, 2);
+			break;
+		}
+		break;
+
+	case PJPG_YH2V1:
+		switch (mb) {
+		case 0:
+			copy_y_tiny(j, 0);
+			break;
+		case 1:
+			copy_y_tiny(j, 1);
+			break;
+		case 2:
+			convert_cb_tiny(j, 0, 2);
+			break;
+		case 3:
+			convert_cr_tiny(j, 0, 2);
+			break;
+		}
+		break;
+
+	case PJPG_YH2V2:
+		switch (mb) {
+		case 0:
+			copy_y_tiny(j, 0);
+			break;
+		case 1:
+			copy_y_tiny(j, 1);
+			break;
+		case 2:
+			copy_y_tiny(j, 2);
+			break;
+		case 3:
+			copy_y_tiny(j, 3);
+			break;
+		case 4:
+			convert_cb_tiny(j, 0, 4);
+			break;
+		case 5:
+			convert_cr_tiny(j, 0, 4);
+			break;
+		}
+		break;
+	}
+}
+
+static void
 transform_block(lws_jpeg_t *j, uint8_t mb)
 {
 	idct_rows(j);
@@ -2264,6 +2420,16 @@ lws_jpeg_mcu_next(lws_jpeg_t *j)
 		uint8_t id = j->mcu_org_id[j->fs_mcu_mb];
 		uint8_t compDCTab = j->comp_dc[id];
 		uint8_t compq = j->comp_quant[id];
+		uint8_t k;
+
+		for (k = 0; k < j->comp_scan_count; k++)
+			if (j->comp_list[k] == id)
+				break;
+
+		if (k == j->comp_scan_count) {
+			j->fs_mcu_mb++;
+			continue;
+		}
 		const int16_t *pQ = compq ? j->quant1 : j->quant0;
 		uint8_t nexb, compACTab, c;
 		uint16_t xr;
@@ -2276,8 +2442,14 @@ lws_jpeg_mcu_next(lws_jpeg_t *j)
 					 &j->huff_tab1 : &j->huff_tab0,
 				       compDCTab ?
 					 j->huff_val1 : j->huff_val0);
-			if (r)
+			if (r) {
+				if (r == LWS_SRET_FATAL + 35) {
+					j->mcu_count_left_x = 1;
+					j->mcu_count_left_y = 1;
+					return LWS_SRET_OK;
+				}
 				return r;
+			}
 
 			if (j->seen_eoi)
 				return LWS_SRET_OK;
@@ -2317,84 +2489,87 @@ lws_jpeg_mcu_next(lws_jpeg_t *j)
 			compACTab = j->comp_ac[id];
 
 			/* Decode and dequantize AC coefficients */
-			while (j->fs_mcu_k < 64) {
-				uint16_t exb;
+			if (!j->is_progressive_tiny) {
+				while (j->fs_mcu_k < 64) {
+					uint16_t exb;
 
-				if (!j->fs_mcu_phase_loop) {
-					r = huff_decode(j, &j->fs_mcu_s,
-							compACTab ?
-						&j->huff_tab3 : &j->huff_tab2,
-							compACTab ?
-						j->huff_val3 : j->huff_val2);
-					if (j->seen_eoi)
-						return LWS_SRET_OK;
-					if (r)
-						return r;
+					if (!j->fs_mcu_phase_loop) {
+						r = huff_decode(j, &j->fs_mcu_s,
+								compACTab ?
+							&j->huff_tab3 : &j->huff_tab2,
+								compACTab ?
+							j->huff_val3 : j->huff_val2);
+						if (j->seen_eoi)
+							return LWS_SRET_OK;
+						if (r)
+							return r;
 
-					j->fs_mcu_phase_loop = 1;
-				}
-
-				exb = 0;
-				nexb = j->fs_mcu_s & 0xf;
-				if (nexb) {
-					if (nexb > 8)
-						r = get_bits16(j, &exb, nexb, 1);
-					else {
-						c = 0;
-						r = get_bits8(j, &c, nexb, 1);
-						exb = (uint16_t)c;
+						j->fs_mcu_phase_loop = 1;
 					}
-					if (r)
-						return r;
-				}
 
-				xr = (j->fs_mcu_s >> 4) & 0xf;
-				s = j->fs_mcu_s & 15;
+					exb = 0;
+					nexb = j->fs_mcu_s & 0xf;
+					if (nexb) {
+						if (nexb > 8)
+							r = get_bits16(j, &exb, nexb, 1);
+						else {
+							c = 0;
+							r = get_bits8(j, &c, nexb, 1);
+							exb = (uint16_t)c;
+						}
+						if (r)
+							return r;
+					}
 
-				if (s) {
-					if (xr) {
-						if ((j->fs_mcu_k + xr) > 63) {
-							lwsl_jpeg("%s: k oflow\n",
-									__func__);
+					xr = (j->fs_mcu_s >> 4) & 0xf;
+					s = j->fs_mcu_s & 15;
 
+					if (s) {
+						if (xr) {
+							if ((j->fs_mcu_k + xr) > 63) {
+								lwsl_jpeg("%s: k oflow\n",
+										__func__);
+
+								return LWS_SRET_FATAL;
+							}
+
+							while (xr--)
+								j->coeffs[(int)ZAG[
+								  (unsigned int)
+								  j->fs_mcu_k++]] = 0;
+						}
+
+						j->coeffs[(int)ZAG[(unsigned int)
+						        j->fs_mcu_k]] = (int16_t)(
+							huff_extend(exb, s) *
+							pQ[(unsigned int)j->fs_mcu_k]);
+					} else {
+						if (xr != 15)
+							break; /* early loop exit */
+
+						if (((unsigned int)j->fs_mcu_k + 16) > 64) {
+							lwsl_jpeg("%s: k > 64\n", __func__);
 							return LWS_SRET_FATAL;
 						}
 
-						while (xr--)
-							j->coeffs[(int)ZAG[
-							  (unsigned int)
-							  j->fs_mcu_k++]] = 0;
+						for (xr = 16; xr > 0; xr--)
+							j->coeffs[(int)ZAG[(unsigned int)
+							            j->fs_mcu_k++]] = 0;
+
+						j->fs_mcu_k--;
 					}
 
+					j->fs_mcu_phase_loop = 0;
+					j->fs_mcu_k++;
+				} /* while k < 64 */
+
+				while (j->fs_mcu_k < 64)
 					j->coeffs[(int)ZAG[(unsigned int)
-					        j->fs_mcu_k]] = (int16_t)(
-						huff_extend(exb, s) *
-						pQ[(unsigned int)j->fs_mcu_k]);
-				} else {
-					if (xr != 15)
-						break; /* early loop exit */
+					                   j->fs_mcu_k++]] = 0;
 
-					if (((unsigned int)j->fs_mcu_k + 16) > 64) {
-						lwsl_jpeg("%s: k > 64\n", __func__);
-						return LWS_SRET_FATAL;
-					}
-
-					for (xr = 16; xr > 0; xr--)
-						j->coeffs[(int)ZAG[(unsigned int)
-						            j->fs_mcu_k++]] = 0;
-
-					j->fs_mcu_k--;
-				}
-
-				j->fs_mcu_phase_loop = 0;
-				j->fs_mcu_k++;
-			} /* while k < 64 */
-
-			while (j->fs_mcu_k < 64)
-				j->coeffs[(int)ZAG[(unsigned int)
-				                   j->fs_mcu_k++]] = 0;
-
-			transform_block(j, j->fs_mcu_mb);
+				transform_block(j, j->fs_mcu_mb);
+			} else
+				transform_block_tiny(j, j->fs_mcu_mb);
 
 			break;
 		} /* switch */
@@ -2409,8 +2584,9 @@ lws_jpeg_mcu_next(lws_jpeg_t *j)
 
 	 uint8_t *dr = j->lines + (j->mcu_ofs_x * j->mcu_max_size_x *
 				   j->frame_comps);
+	unsigned int step = j->is_progressive_tiny ? 1 : 8;
 
-         for (y = 0; y < j->mcu_max_size_y; y += 8) {
+         for (y = 0; y < j->mcu_max_size_y; y += step) {
 		unsigned int by_limit = (unsigned int)((unsigned int)j->image_height -
 					(unsigned int)((unsigned int)j->mcu_ofs_y *
 					(unsigned int)j->mcu_max_size_y +
@@ -2419,18 +2595,25 @@ lws_jpeg_mcu_next(lws_jpeg_t *j)
 		if (by_limit > 8)
 			by_limit = 8;
 
-		for (x = 0; x < j->mcu_max_size_x; x += 8) {
+		for (x = 0; x < j->mcu_max_size_x; x += step) {
 			uint8_t *db = dr + (x * j->frame_comps);
-			uint8_t src_ofs = (uint8_t)((x * 8U) + (y * 16U));
-			const uint8_t *pSrcR = j->mcu_buf_R + src_ofs;
-			const uint8_t *pSrcG = j->mcu_buf_G + src_ofs;
-			const uint8_t *pSrcB = j->mcu_buf_B + src_ofs;
+			uint8_t src_ofs;
+			const uint8_t *pSrcR, *pSrcG, *pSrcB;
 			unsigned int bx_limit = (unsigned int)(
 				(unsigned int)j->image_width -
 				(unsigned int)((unsigned int)j->mcu_ofs_x *
 				(unsigned int)j->mcu_max_size_x +
 							(unsigned int)x));
 			unsigned int bx, by;
+
+			if (j->is_progressive_tiny)
+				src_ofs = (uint8_t)(x + y * j->mcu_max_size_x);
+			else
+				src_ofs = (uint8_t)((x * 8U) + (y * 16U));
+
+			pSrcR = j->mcu_buf_R + src_ofs;
+			pSrcG = j->mcu_buf_G + src_ofs;
+			pSrcB = j->mcu_buf_B + src_ofs;
 
 			if (bx_limit > 8)
 				bx_limit = 8;
@@ -2442,7 +2625,8 @@ lws_jpeg_mcu_next(lws_jpeg_t *j)
 					for (bx = 0; bx < bx_limit; bx++)
 						*pDst++ = *pSrcR++;
 
-					pSrcR += (8 - bx_limit);
+					if (!j->is_progressive_tiny)
+						pSrcR += (8 - bx_limit);
 
 					db += row_pitch;
 				}
@@ -2457,16 +2641,21 @@ lws_jpeg_mcu_next(lws_jpeg_t *j)
 						pDst += 3;
 					}
 
-					pSrcR += (8 - bx_limit);
-					pSrcG += (8 - bx_limit);
-					pSrcB += (8 - bx_limit);
+					if (!j->is_progressive_tiny) {
+						pSrcR += (8 - bx_limit);
+						pSrcG += (8 - bx_limit);
+						pSrcB += (8 - bx_limit);
+					}
 
 					db += row_pitch;
 				}
 			}
 		} /* x */
 
-		dr += (row_pitch * 8);
+		if (j->is_progressive_tiny)
+			dr += row_pitch;
+		else
+			dr += (row_pitch * 8);
 	} /* y */
 
 	if (j->mcu_ofs_x++ == j->mcu_max_row - 1) {
@@ -2588,13 +2777,8 @@ lws_jpeg_emit_next_line(lws_jpeg_t *j, const uint8_t **ppix,
 			if (r)
 				goto fin;
 			
-			if (j->fs_emit_c == PJM_SOF2) {
-				lwsl_warn("%s: progressive JPEG not supported\n", __func__);
-				return LWS_SRET_FATAL + 31;
-			}
-
-			if (j->fs_emit_c != PJM_SOF0) {
-				lwsl_jpeg("%s: not SOF0 (%d)\n", __func__, (int)j->fs_emit_c);
+			if (j->fs_emit_c != PJM_SOF0 && j->fs_emit_c != PJM_SOF2) {
+				lwsl_jpeg("%s: not SOF0/2 (%d)\n", __func__, (int)j->fs_emit_c);
 
 				return LWS_SRET_FATAL + 31;
 			}
@@ -2608,6 +2792,11 @@ lws_jpeg_emit_next_line(lws_jpeg_t *j, const uint8_t **ppix,
 			r = read_sof_marker(j);
 			if (r)
 				goto fin;
+
+			if (j->is_progressive_tiny) {
+				j->image_width = (uint16_t)((j->image_width + 7) / 8);
+				j->image_height = (uint16_t)((j->image_height + 7) / 8);
+			}
 
 			j->dstate++;
 	
@@ -2674,6 +2863,9 @@ lws_jpeg_emit_next_line(lws_jpeg_t *j, const uint8_t **ppix,
 			if (j->ringy & (j->mcu_max_size_y - 1))
 				goto intra;
 
+			if (!j->mcu_count_left_x && !j->mcu_count_left_y)
+				return LWS_SRET_OK;
+
 			if (j->seen_eoi) {
 				r = LWS_SRET_OK;
 				goto intra;
@@ -2695,8 +2887,7 @@ lws_jpeg_emit_next_line(lws_jpeg_t *j, const uint8_t **ppix,
 					j->mcu_count_left_x = j->mcu_max_row;
 
 				if (!j->mcu_count_left_x && !j->mcu_count_left_y) {
-					lwsl_notice("%s: seems finished2\n", __func__);
-					r = LWS_SRET_NO_FURTHER_IN;
+					r = LWS_SRET_OK;
 					goto intra;
 				}
 
