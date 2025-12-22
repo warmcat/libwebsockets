@@ -994,6 +994,8 @@ lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len)
 					}
 					ctx->npos = 0;
 				}
+				ctx->saved_state = LHPS_OUTER;
+				ctx->entity_start = 0;
 				ctx->state = LHPS_AMP;
 				ctx->temp_count = 0;
 				continue;
@@ -1472,6 +1474,14 @@ check_closing:
 			if (c == '\'' || c == '\"')
 				break;
 
+			if (c == '&') {
+				ctx->saved_state = LHPS_ATTRIB_VAL;
+				ctx->entity_start = ctx->npos;
+				ctx->temp_count = 0;
+				ctx->state = LHPS_AMP;
+				break;
+			}
+
 			if (ctx->u.f.inq)
 				break;
 
@@ -1514,38 +1524,42 @@ check_closing:
 
 				ctx->buf[ctx->npos] = '\0';
 				for (n = 0; n < LWS_ARRAY_SIZE(entities); n++) {
-					if (!strcmp(ctx->buf, entities[n].name)) {
+					if (!strcmp(ctx->buf + ctx->entity_start, entities[n].name)) {
 						ctx->temp = entities[n].val;
-						ctx->npos = 0;
+						ctx->npos = ctx->entity_start;
 						lhp_uni_emit(ctx);
-						ctx->state = LHPS_OUTER;
+						ctx->state = ctx->saved_state;
 						goto done_amp;
 					}
 				}
 
 				if (ctx->npos + 2 < LHP_STRING_CHUNK) {
-					memmove(ctx->buf + 1, ctx->buf, (size_t)ctx->npos);
-					ctx->buf[0] = '&';
+					memmove(ctx->buf + ctx->entity_start + 1,
+						ctx->buf + ctx->entity_start,
+						(size_t)(ctx->npos - ctx->entity_start));
+					ctx->buf[ctx->entity_start] = '&';
 					ctx->buf[ctx->npos + 1] = ';';
 					ctx->npos += 2;
-					ctx->state = LHPS_OUTER;
+					ctx->state = ctx->saved_state;
 				} else {
 					ctx->npos = 0;
-					ctx->state = LHPS_OUTER;
+					ctx->state = ctx->saved_state;
 				}
 				break;
 			}
 
 			if (ctx->npos + 1 < LHP_STRING_CHUNK) {
-				memmove(ctx->buf + 1, ctx->buf, (size_t)ctx->npos);
-				ctx->buf[0] = '&';
+				memmove(ctx->buf + ctx->entity_start + 1,
+					ctx->buf + ctx->entity_start,
+					(size_t)(ctx->npos - ctx->entity_start));
+				ctx->buf[ctx->entity_start] = '&';
 				ctx->npos++;
 				(*len)++;
 				(*buf)--;
-				ctx->state = LHPS_OUTER;
+				ctx->state = ctx->saved_state;
 			} else {
 				ctx->npos = 0;
-				ctx->state = LHPS_OUTER;
+				ctx->state = ctx->saved_state;
 			}
 done_amp:
 			break;
@@ -1560,41 +1574,55 @@ done_amp:
 			}
 
 			if (ctx->temp_count++ > 32 /* sanity */) {
-				ctx->state = LHPS_OUTER;
+				ctx->state = ctx->saved_state;
 				break;
 			}
 			if (c == ';') {
 				if (ctx->npos >= LHP_STRING_CHUNK - 5) {
-					if (ctx->in_body)
+					if (ctx->saved_state == LHPS_OUTER && ctx->in_body) {
 						ps->cb(ctx, LHPCB_CONTENT);
-					ctx->npos = 0;
+						ctx->npos = 0;
+					} else {
+						if (ctx->saved_state != LHPS_OUTER)
+							lwsl_err("%s: string chunk\n", __func__);
+						ps->cb(ctx, LHPCB_FAILED);
+						return LWS_SRET_FATAL;
+					}
 				}
-				ctx->state = LHPS_OUTER;
+				ctx->npos = ctx->entity_start;
 				lhp_uni_emit(ctx);
+				ctx->state = ctx->saved_state;
 				break;
 			}
 
 			if (c >= '0' && c <= '9')
 				ctx->temp = (uint32_t)(((int)ctx->temp * 10) + ((int)c - '0'));
 			else
-				ctx->state = LHPS_OUTER;
+				ctx->state = ctx->saved_state;
 
 			break;
 
 		case LHPS_AMPHASH_HEX:
 			if (c == ';') {
 				if (ctx->npos >= LHP_STRING_CHUNK - 5) {
-					if (ctx->in_body)
+					if (ctx->saved_state == LHPS_OUTER && ctx->in_body) {
 						ps->cb(ctx, LHPCB_CONTENT);
-					ctx->npos = 0;
+						ctx->npos = 0;
+					} else {
+						if (ctx->saved_state != LHPS_OUTER)
+							lwsl_err("%s: string chunk\n", __func__);
+						ps->cb(ctx, LHPCB_FAILED);
+						return LWS_SRET_FATAL;
+					}
 				}
-				ctx->state = LHPS_OUTER;
+				ctx->npos = ctx->entity_start;
 				lhp_uni_emit(ctx);
+				ctx->state = ctx->saved_state;
 				break;
 			}
 
 			if (ctx->temp_count++ > 8 /* sanity */) {
-				ctx->state = LHPS_OUTER;
+				ctx->state = ctx->saved_state;
 				break;
 			}
 
@@ -1613,7 +1641,7 @@ done_amp:
 				break;
 			}
 
-			ctx->state = LHPS_OUTER;
+			ctx->state = ctx->saved_state;
 			break;
 		case LHPS_SCOMMENT1: /* we have <! */
 			if (c == '-') {
