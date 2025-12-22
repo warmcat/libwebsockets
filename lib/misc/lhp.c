@@ -1453,6 +1453,14 @@ check_closing:
 					break;
 			}
 
+			if (c == '&') {
+				ctx->saved_state = LHPS_ATTRIB_VAL;
+				ctx->entity_start = ctx->npos;
+				ctx->temp_count = 0;
+				ctx->state = LHPS_AMP;
+				break;
+			}
+
 			if ((ctx->u.f.inq || !hspace(c)) &&
 			    c != '>' && c != '\'' && c != '\"') {
 				/* collect the attrib value */
@@ -1472,14 +1480,6 @@ check_closing:
 
 			if (c == '\'' || c == '\"')
 				break;
-
-			if (c == '&') {
-				ctx->saved_state = LHPS_ATTRIB_VAL;
-				ctx->entity_start = ctx->npos;
-				ctx->temp_count = 0;
-				ctx->state = LHPS_AMP;
-				break;
-			}
 
 			if (ctx->u.f.inq)
 				break;
