@@ -547,6 +547,8 @@ typedef struct lhp_ctx {
 	int			state_css_comm; /* private */
 	int			nl_temp;
 	int			temp_count;
+	int			saved_state;
+	int			entity_start;
 
 	uint32_t		flags;
 	uint32_t		temp;
