@@ -1232,6 +1232,13 @@ elem_start:
 							ctx->base_url, pname))
 					goto check_closing;
 
+				/* decode percent-encoding in the URL */
+				{
+					char temp[LHP_URL_LEN];
+					lws_strncpy(temp, url, sizeof(temp));
+					lws_urldecode(url, temp, sizeof(url) - 1);
+				}
+
 				psb = lws_css_get_parent_block(ctx, ps);
 				//if (!psb)
 				//	lwsl_err("%s: NULL psb\n", __func__);
