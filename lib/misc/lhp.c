@@ -2278,6 +2278,7 @@ for_term:
 					memcpy(&v[1], ctx->buf, v->name_len);
 					*((uint8_t *)&v[1] + v->name_len) = '\0';
 					lws_dll2_add_tail(&v->list, &ctx->css_vars);
+					lwsl_notice("Defined var: %s\n", (const char *)&v[1]);
 				}
 
 				ctx->u.f.arg = 1;
