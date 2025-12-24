@@ -694,8 +694,38 @@ lcsp_append_cssval_string(lhp_ctx_t *ctx)
 	return 0;
 }
 
+const char *
+lws_html_get_atr(lhp_pstack_t *ps, const char *aname, size_t aname_len);
+
 static int
-lws_css_cascade_atr_match(lhp_ctx_t *ctx, const char *tag, size_t tag_len)
+lhp_element_has_class(lhp_pstack_t *ps, const char *name, size_t name_len)
+{
+	const char *c = lws_html_get_atr(ps, "class", 5);
+	struct lws_tokenize ts;
+
+	if (!c)
+		return 0;
+
+	memset(&ts, 0, sizeof(ts));
+	ts.start = c;
+	ts.len = strlen(c);
+	ts.flags = LWS_TOKENIZE_F_MINUS_NONTERM;
+
+	do {
+		ts.e = (int8_t)lws_tokenize(&ts);
+		if (ts.e == LWS_TOKZE_TOKEN) {
+			if (ts.token_len == name_len &&
+			    !memcmp(ts.token, name, name_len))
+				return 1;
+		}
+	} while (ts.e > 0);
+
+	return 0;
+}
+
+static int
+lws_css_cascade_atr_match(lhp_ctx_t *ctx, lhp_pstack_t *ps, const char *tag,
+			  size_t tag_len)
 {
 	lws_start_foreach_dll(struct lws_dll2 *, q, ctx->css.head) {
 		lcsp_stanza_t *stz = lws_container_of(q, lcsp_stanza_t, list);
@@ -707,14 +737,16 @@ lws_css_cascade_atr_match(lhp_ctx_t *ctx, const char *tag, size_t tag_len)
 							    list);
 			const char *p = (const char *)&nm[1];
 			size_t nl = nm->name_len;
+			char is_class_selector = 0;
 
 			if (nl && *p == '.') { /* match .mycss as mycss */
 				p++;
 				nl--;
+				is_class_selector = 1;
 			}
 
 			if (nl == tag_len && !memcmp(p, tag, tag_len)) {
-
+matched:
 				lcsp_stanza_ptr_t *sp = lwsac_use_zero(
 						&ctx->cascadeac,
 						sizeof(*sp), LHP_AC_GRANULE);
@@ -725,6 +757,39 @@ lws_css_cascade_atr_match(lhp_ctx_t *ctx, const char *tag, size_t tag_len)
 				lws_dll2_add_tail(&sp->list,
 						  &ctx->active_stanzas);
 				break;
+			} else {
+				/* check for tag.class or .class.class */
+				const char *dot = memchr(p, '.', nl);
+				if (dot) {
+					size_t p1_len = (size_t)(dot - p);
+					size_t p2_len = nl - p1_len - 1;
+					const char *p2 = dot + 1;
+
+					/* p1 is tag (or class1), p2 is class (or class2) */
+					/* check if 'tag' argument matches p1 */
+					if (tag_len == p1_len && !memcmp(tag, p, p1_len)) {
+						/* we matched p1, now check if element has p2 as class */
+						if (lhp_element_has_class(ps, p2, p2_len))
+							goto matched;
+					}
+
+					/* check if 'tag' argument matches p2 */
+					if (tag_len == p2_len && !memcmp(tag, p2, p2_len)) {
+						/* we matched p2. */
+						if (is_class_selector) {
+							/* .class1.class2: check if element has p1 as class */
+							if (lhp_element_has_class(ps, p, p1_len))
+								goto matched;
+						} else {
+							/* tag.class: check if element has p1 as tag */
+							if (ps->atr.head) {
+								lhp_atr_t *ta = lws_container_of(ps->atr.head, lhp_atr_t, list);
+								if (ta->name_len == p1_len && !memcmp(&ta[1], p, p1_len))
+									goto matched;
+							}
+						}
+					}
+				}
 			}
 
 		} lws_end_foreach_dll(z);
@@ -975,7 +1040,7 @@ lws_css_cascade(lhp_ctx_t *ctx)
 					 * for a tag match
 					 */
 
-					if (lws_css_cascade_atr_match(ctx,
+					if (lws_css_cascade_atr_match(ctx, ps,
 							ts.token, ts.token_len))
 						return 1;
 				}
