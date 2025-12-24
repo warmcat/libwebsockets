@@ -1256,7 +1256,6 @@ lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len)
 
 					ps->cb(ctx, LHPCB_ELEMENT_START);
 					ctx->npos = 0;
-					// lwsl_warn("leaving html for css\n");
 					ctx->state = LCSPS_CSS_OUTER;
 					break;
 				}
