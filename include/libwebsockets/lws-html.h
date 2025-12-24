@@ -507,6 +507,13 @@ typedef struct lcsp_atr_ptr {
 	lcsp_atr_t		*atr;
 } lcsp_atr_ptr_t;
 
+typedef struct lhp_css_var {
+	lws_dll2_t list;
+	size_t name_len;
+	lcsp_defs_t *def;
+	/* name+NUL follows */
+} lhp_css_var_t;
+
 #define LHP_FLAG_DOCUMENT_END					(1 << 0)
 
 typedef struct lhp_ctx {
@@ -528,6 +535,8 @@ typedef struct lhp_ctx {
 						 * in cascadeac */
 	lws_dll2_owner_t	active_atr; /* lcsp_atr_ptr_t allocated in
 					     * propatrac */
+
+	lws_dll2_owner_t	css_vars; /* lhp_css_var_t allocated in cssac */
 
 	lws_surface_info_t	ic;
 

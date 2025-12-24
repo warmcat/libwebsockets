@@ -751,6 +751,171 @@ lws_html_get_atr(lhp_pstack_t *ps, const char *aname, size_t aname_len)
 	return NULL;
 }
 
+static const lcsp_atr_t *
+lhp_resolve_var_color(lhp_ctx_t *ctx, const lcsp_atr_t *a)
+{
+	const char *n;
+	size_t len;
+
+	if (a->unit != LCSP_UNIT_STRING && a->unit != LCSP_UNIT_URL)
+		return a;
+
+	/* check if it is var(--name) */
+	n = (const char *)&a[1];
+	if (strncmp(n, "var(--", 6))
+		return a;
+
+	n += 4;
+	len = 0;
+	while (n[len] && n[len] != ')')
+		len++;
+
+	/* look it up in css_vars */
+	lws_start_foreach_dll(struct lws_dll2 *, d, ctx->css_vars.head) {
+		lhp_css_var_t *v = lws_container_of(d, lhp_css_var_t, list);
+		const char *vn = (const char *)&v[1];
+
+		if (v->name_len == len && !strncmp(vn, n, len)) {
+			/* found it */
+			if (v->def && v->def->atrs.head) {
+				lcsp_atr_t *ra = lws_container_of(v->def->atrs.head, lcsp_atr_t, list);
+				// lwsl_notice("resolved %.*s to unit %d\n", (int)len, n, ra->unit);
+				if (ra->unit == LCSP_UNIT_RGBA)
+					return ra;
+			}
+			break;
+		}
+	} lws_end_foreach_dll(d);
+
+	return a;
+}
+
+static const lcsp_atr_t *
+lhp_shorthand_TRBL(lhp_ctx_t *ctx, lcsp_props_t prop, int idx)
+{
+	const lcsp_atr_t *a;
+	int c;
+
+	a = lws_css_cascade_get_prop_atr(ctx, prop);
+	if (!a)
+		return NULL;
+
+	/*
+	 * Shorthand expansion:
+	 * 1 value: all
+	 * 2 values: top/bottom, left/right
+	 * 3 values: top, left/right, bottom
+	 * 4 values: top, right, bottom, left
+	 */
+
+	c = (int)ctx->active_atr.count;
+	if (!c) return NULL;
+
+	if (c == 1) /* apply to all */
+		return a; // Head is same as tail if count 1
+
+	/* navigate to the correct index in active_atr based on count and requested idx */
+	/* requested idx: 0=TOP, 1=RIGHT, 2=BOTTOM, 3=LEFT */
+
+	int use_idx = 0;
+	switch (c) {
+	case 2:
+		if (idx == 0 || idx == 2) use_idx = 0;
+		else use_idx = 1;
+		break;
+	case 3:
+		if (idx == 0) use_idx = 0;
+		else if (idx == 1 || idx == 3) use_idx = 1;
+		else use_idx = 2;
+		break;
+	case 4:
+		use_idx = idx;
+		break;
+	default:
+		return a;
+	}
+
+	lws_start_foreach_dll(struct lws_dll2 *, d, ctx->active_atr.head) {
+		lcsp_atr_ptr_t *ap = lws_container_of(d, lcsp_atr_ptr_t, list);
+		if (!use_idx--)
+			return ap->atr;
+	} lws_end_foreach_dll(d);
+
+	return a;
+}
+
+static const lcsp_atr_t *
+lhp_shorthand_radii(lhp_ctx_t *ctx, lcsp_props_t prop, int idx)
+{
+	const lcsp_atr_t *a;
+	int c;
+
+	a = lws_css_cascade_get_prop_atr(ctx, prop);
+	if (!a)
+		return NULL;
+
+	/*
+	 * Shorthand expansion for border-radius:
+	 * 1 value: all
+	 * 2 values: top-left/bottom-right, top-right/bottom-left
+	 * 3 values: top-left, top-right/bottom-left, bottom-right
+	 * 4 values: top-left, top-right, bottom-right, bottom-left
+	 */
+
+	c = (int)ctx->active_atr.count;
+	if (!c) return NULL;
+
+	if (c == 1) /* apply to all */
+		return a; // Head is same as tail if count 1
+
+	/* navigate to the correct index in active_atr based on count and requested idx */
+	/* requested idx: 0=TL, 1=TR, 2=BL, 3=BR */
+
+	int use_idx = 0;
+	switch (c) {
+	case 2:
+		/*
+		 * [0] is TL/BR
+		 * [1] is TR/BL
+		 */
+		if (idx == 0 || idx == 3) use_idx = 0;
+		else use_idx = 1;
+		break;
+	case 3:
+		/*
+		 * [0] is TL
+		 * [1] is TR/BL
+		 * [2] is BR
+		 */
+		if (idx == 0) use_idx = 0;
+		else if (idx == 1 || idx == 2) use_idx = 1;
+		else use_idx = 2;
+		break;
+	case 4:
+		/*
+		 * [0] is TL
+		 * [1] is TR
+		 * [2] is BR
+		 * [3] is BL
+		 */
+		if (idx == 0) use_idx = 0;
+		else if (idx == 1) use_idx = 1;
+		else if (idx == 3) use_idx = 2;
+		else use_idx = 3;
+		break;
+	default:
+		return a;
+	}
+
+	lws_start_foreach_dll(struct lws_dll2 *, d, ctx->active_atr.head) {
+		lcsp_atr_ptr_t *ap = lws_container_of(d, lcsp_atr_ptr_t, list);
+		if (!use_idx--)
+			return ap->atr;
+	} lws_end_foreach_dll(d);
+
+	return a;
+}
+
 /*
  * Produce an ordered list of css stanzas that apply to the current html
  * parsing context, accounting for class="xxx" at each level
@@ -830,12 +995,21 @@ lws_css_cascade(lhp_ctx_t *ctx)
 		ps->css_display = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_DISPLAY);
 
 		ps->css_border_radius[0] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_BORDER_TOP_LEFT_RADIUS);
+		if (!ps->css_border_radius[0]) ps->css_border_radius[0] = lhp_shorthand_radii(ctx, LCSP_PROP_BORDER_RADIUS, 0);
 		ps->css_border_radius[1] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_BORDER_TOP_RIGHT_RADIUS);
+		if (!ps->css_border_radius[1]) ps->css_border_radius[1] = lhp_shorthand_radii(ctx, LCSP_PROP_BORDER_RADIUS, 1);
 		ps->css_border_radius[2] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_BORDER_BOTTOM_LEFT_RADIUS);
+		if (!ps->css_border_radius[2]) ps->css_border_radius[2] = lhp_shorthand_radii(ctx, LCSP_PROP_BORDER_RADIUS, 2);
 		ps->css_border_radius[3] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_BORDER_BOTTOM_RIGHT_RADIUS);
+		if (!ps->css_border_radius[3]) ps->css_border_radius[3] = lhp_shorthand_radii(ctx, LCSP_PROP_BORDER_RADIUS, 3);
 
 		ps->css_background_color = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_BACKGROUND_COLOR);
+		if (ps->css_background_color)
+			ps->css_background_color = lhp_resolve_var_color(ctx, ps->css_background_color);
+
 		ps->css_color = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_COLOR);
+		if (ps->css_color)
+			ps->css_color = lhp_resolve_var_color(ctx, ps->css_color);
 
 		ps->css_pos[CCPAS_TOP] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_TOP);
 		ps->css_pos[CCPAS_RIGHT] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_RIGHT);
@@ -843,14 +1017,22 @@ lws_css_cascade(lhp_ctx_t *ctx)
 		ps->css_pos[CCPAS_LEFT] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_LEFT);
 
 		ps->css_margin[CCPAS_TOP] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_MARGIN_TOP);
+		if (!ps->css_margin[CCPAS_TOP]) ps->css_margin[CCPAS_TOP] = lhp_shorthand_TRBL(ctx, LCSP_PROP_MARGIN, CCPAS_TOP);
 		ps->css_margin[CCPAS_RIGHT] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_MARGIN_RIGHT);
+		if (!ps->css_margin[CCPAS_RIGHT]) ps->css_margin[CCPAS_RIGHT] = lhp_shorthand_TRBL(ctx, LCSP_PROP_MARGIN, CCPAS_RIGHT);
 		ps->css_margin[CCPAS_BOTTOM] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_MARGIN_BOTTOM);
+		if (!ps->css_margin[CCPAS_BOTTOM]) ps->css_margin[CCPAS_BOTTOM] = lhp_shorthand_TRBL(ctx, LCSP_PROP_MARGIN, CCPAS_BOTTOM);
 		ps->css_margin[CCPAS_LEFT] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_MARGIN_LEFT);
+		if (!ps->css_margin[CCPAS_LEFT]) ps->css_margin[CCPAS_LEFT] = lhp_shorthand_TRBL(ctx, LCSP_PROP_MARGIN, CCPAS_LEFT);
 
 		ps->css_padding[CCPAS_TOP] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_PADDING_TOP);
+		if (!ps->css_padding[CCPAS_TOP]) ps->css_padding[CCPAS_TOP] = lhp_shorthand_TRBL(ctx, LCSP_PROP_PADDING, CCPAS_TOP);
 		ps->css_padding[CCPAS_RIGHT] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_PADDING_RIGHT);
+		if (!ps->css_padding[CCPAS_RIGHT]) ps->css_padding[CCPAS_RIGHT] = lhp_shorthand_TRBL(ctx, LCSP_PROP_PADDING, CCPAS_RIGHT);
 		ps->css_padding[CCPAS_BOTTOM] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_PADDING_BOTTOM);
+		if (!ps->css_padding[CCPAS_BOTTOM]) ps->css_padding[CCPAS_BOTTOM] = lhp_shorthand_TRBL(ctx, LCSP_PROP_PADDING, CCPAS_BOTTOM);
 		ps->css_padding[CCPAS_LEFT] = lws_css_cascade_get_prop_atr(ctx, LCSP_PROP_PADDING_LEFT);
+		if (!ps->css_padding[CCPAS_LEFT]) ps->css_padding[CCPAS_LEFT] = lhp_shorthand_TRBL(ctx, LCSP_PROP_PADDING, CCPAS_LEFT);
 
 	} lws_end_foreach_dll(p);
 
@@ -867,6 +1049,7 @@ lws_lhp_destruct(lhp_ctx_t *ctx)
 	lws_dll2_foreach_safe(&ctx->stack, NULL, lhp_clean_stack);
 	lws_dll2_owner_clear(&ctx->active_stanzas);
 	lws_dll2_owner_clear(&ctx->active_atr);
+	lws_dll2_owner_clear(&ctx->css_vars);
 	lwsac_free(&ctx->propatrac);
 	lwsac_free(&ctx->cascadeac);
 	lwsac_free(&ctx->cssac);
@@ -2053,6 +2236,55 @@ for_term:
 				if (ctx->css_state) /* space after the start
 						     * means no match */
 					ctx->css_state = (int16_t)-1;
+				break;
+			}
+
+			/*
+			 * Check if it looks like a CSS variable definition, eg
+			 * --color-bg:
+			 */
+
+			if (c == '-' && !ctx->npos && !ctx->css_state) {
+				ctx->css_state = -2; /* var name */
+				ctx->buf[ctx->npos++] = (char)c;
+				break;
+			}
+
+			if (ctx->css_state == -2) {
+				if (c != ':') {
+					if (ctx->npos < 64)
+						ctx->buf[ctx->npos++] = (char)c;
+					break;
+				}
+
+				/* it is a var definition */
+
+				ctx->def = lwsac_use_zero(&ctx->cssac,
+						  sizeof(*ctx->def),
+						  LHP_AC_GRANULE);
+				if (!ctx->def)
+					goto oom;
+				ctx->def->prop = LCSP_PROP__COUNT; /* var definition */
+				lws_dll2_add_tail(&ctx->def->list, &ctx->stz->defs);
+
+				{
+					lhp_css_var_t *v = lwsac_use_zero(&ctx->cssac,
+							sizeof(*v) + (unsigned int)ctx->npos + 1,
+							LHP_AC_GRANULE);
+					if (!v)
+						goto oom;
+
+					v->name_len = (size_t)ctx->npos;
+					v->def = ctx->def;
+					memcpy(&v[1], ctx->buf, v->name_len);
+					*((uint8_t *)&v[1] + v->name_len) = '\0';
+					lws_dll2_add_tail(&v->list, &ctx->css_vars);
+				}
+
+				ctx->u.f.arg = 1;
+				ctx->npos = 0;
+				ctx->cssval_state = 0;
+				ctx->css_state = 0;
 				break;
 			}
 
