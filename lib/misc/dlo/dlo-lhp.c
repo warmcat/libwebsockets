@@ -749,7 +749,8 @@ do_rect:
 			    ps->css_width->propval != LCSP_PROPVAL_AUTO) {
 			    if (lws_fx_comp(lws_csp_px(ps->css_width, ps), &box.w) < 0)
 				box.w = *lws_csp_px(ps->css_width, ps);
-			} else if (ps->css_display->propval == LCSP_PROPVAL_BLOCK) {
+			} else if (ps->css_display->propval == LCSP_PROPVAL_BLOCK ||
+				   ps->css_display->unit == LCSP_UNIT_STRING) {
 				if (psb && psb->dlo) {
 					box.w = psb->drt.w;
 					lws_fx_sub(&box.w, &box.w, lws_csp_px(psb->css_padding[CCPAS_LEFT], psb));
@@ -1234,10 +1235,13 @@ do_end_rect:
 							radii[i] = *lws_csp_px(
 							  ps->css_border_radius[i], ps);
 
-					lws_display_dlo_rect_new(drt->dl,
+					lws_dlo_rect_t *dr = lws_display_dlo_rect_new(drt->dl,
 							(lws_dlo_t *)ps_con->dlo, &b,
 							radii,
 							bg->u.rgba);
+
+					if (dr)
+						runon(ps_con, &dr->dlo);
 
 					/*
 					 * reorder so the background rect is behind the
