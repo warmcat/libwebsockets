@@ -1210,6 +1210,7 @@ do_end_rect:
 					 * expand the box to match the padding of
 					 * the element
 					 */
+			// lwsl_notice("creating background rect for text '%.*s', rgba %08X\n", (int)txt->text_len, txt->text, bg->u.rgba);
 					lws_fx_sub(&b.x, &b.x,
 					   lws_csp_px(ps->css_padding[CCPAS_LEFT], ps));
 					lws_fx_add(&b.w, &b.w,
