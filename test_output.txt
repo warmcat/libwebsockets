@@ -1,0 +1,1 @@
+-bash: bin/lws-api-test-lhp-dlo: No such file or directory

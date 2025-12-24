@@ -685,6 +685,7 @@ lcsp_append_cssval_string(lhp_ctx_t *ctx)
 	atr->value_len = (size_t)ctx->npos;
 	memcpy(v, c, (size_t)ctx->npos);
 	v[ctx->npos] = '\0';
+	atr->unit = LCSP_UNIT_STRING;
 
 	//lwsl_notice("%s: %s\n", __func__, v);
 
@@ -751,7 +752,7 @@ lws_html_get_atr(lhp_pstack_t *ps, const char *aname, size_t aname_len)
 	return NULL;
 }
 
-static const lcsp_atr_t *
+const lcsp_atr_t *
 lhp_resolve_var_color(lhp_ctx_t *ctx, const lcsp_atr_t *a)
 {
 	const char *n;
@@ -765,10 +766,12 @@ lhp_resolve_var_color(lhp_ctx_t *ctx, const lcsp_atr_t *a)
 	if (strncmp(n, "var(--", 6))
 		return a;
 
-	n += 4;
+	n += 4; /* skip var( */
 	len = 0;
 	while (n[len] && n[len] != ')')
 		len++;
+
+	lwsl_err("RESOLVE: '%.*s'\n", (int)len, n);
 
 	/* look it up in css_vars */
 	lws_start_foreach_dll(struct lws_dll2 *, d, ctx->css_vars.head) {
@@ -779,7 +782,6 @@ lhp_resolve_var_color(lhp_ctx_t *ctx, const lcsp_atr_t *a)
 			/* found it */
 			if (v->def && v->def->atrs.head) {
 				lcsp_atr_t *ra = lws_container_of(v->def->atrs.head, lcsp_atr_t, list);
-				// lwsl_notice("resolved %.*s to unit %d\n", (int)len, n, ra->unit);
 				if (ra->unit == LCSP_UNIT_RGBA)
 					return ra;
 			}
@@ -1962,6 +1964,7 @@ done_amp:
 
 				ctx->buf[ctx->npos] = '\0';
 
+				ctx->npos = 0;
 				ctx->state = LCSPS_CSS_STANZA;
 				ctx->cssval_state = 0;
 				ctx->css_state = 0;

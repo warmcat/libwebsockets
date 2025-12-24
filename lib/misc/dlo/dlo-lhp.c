@@ -1197,9 +1197,12 @@ do_end_rect:
 			{
 				const lcsp_atr_t *bg = ps->css_background_color;
 
-				if (!bg)
+				if (!bg) {
 					bg = lws_css_cascade_get_prop_atr(ctx,
 							LCSP_PROP_BACKGROUND);
+					if (bg)
+						bg = lhp_resolve_var_color(ctx, bg);
+				}
 
 				if (bg && bg->unit == LCSP_UNIT_RGBA) {
 					lws_fx_t radii[4];

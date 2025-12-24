@@ -726,3 +726,6 @@ lhp_set_dlo_padding_margin(lhp_pstack_t *ps, lws_dlo_t *dlo);
 
 LWS_VISIBLE LWS_EXTERN int
 lhp_prop_axis(const lcsp_atr_t *a);
+
+LWS_VISIBLE LWS_EXTERN const lcsp_atr_t *
+lhp_resolve_var_color(lhp_ctx_t *ctx, const lcsp_atr_t *a);
