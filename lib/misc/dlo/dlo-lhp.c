@@ -92,6 +92,8 @@ static const struct {
 	{ "form",	4 },
 	{ "fieldset",	8 },
 	{ "pre",	3 },
+	{ "a",		1 },
+	{ "span",	4 },
 };
 
 /*
@@ -620,6 +622,7 @@ lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 				d = d->prev;
 			}
 		}
+
 		break;
 
 	case LHPCB_ELEMENT_START:
@@ -950,6 +953,85 @@ do_rect:
 			if (ps->dlo)
 				runon(psb, ps->dlo);
 			break;
+		}
+
+		if (ps->css_display &&
+		    ps->css_display->propval != LCSP_PROPVAL_NONE) {
+			const lcsp_atr_t *ac = lws_css_cascade_get_prop_atr(ctx,
+					LCSP_PROP_CONTENT);
+
+			if (ac && ac->unit == LCSP_UNIT_STRING &&
+			    ac->value_len) {
+				char buf[32], *p = (char *)&ac[1];
+				const char *end = p + ac->value_len;
+				int n = 0;
+
+				while (p < end && (size_t)n < sizeof(buf) - 5) {
+					if (*p == '\\') {
+						p++;
+						if (p >= end) break;
+						unsigned int v = 0;
+						int d = 0;
+						while (p < end && d++ < 6 && ((*p >= '0' && *p <= '9') ||
+						       (*p >= 'a' && *p <= 'f') || (*p >= 'A' && *p <= 'F'))) {
+							int c = *p++;
+							if (c >= '0' && c <= '9') v = (v << 4) | (unsigned int)(c - '0');
+							else if (c >= 'a' && c <= 'f') v = (v << 4) | (unsigned int)(c - 'a' + 10);
+							else v = (v << 4) | (unsigned int)(c - 'A' + 10);
+						}
+						if (p < end && *p == ' ') p++;
+
+						if (v < 0x80) buf[n++] = (char)v;
+						else if (v < 0x800) {
+							buf[n++] = (char)(0xc0 | (v >> 6));
+							buf[n++] = (char)(0x80 | (v & 0x3f));
+						} else {
+							buf[n++] = (char)(0xe0 | (v >> 12));
+							buf[n++] = (char)(0x80 | ((v >> 6) & 0x3f));
+							buf[n++] = (char)(0x80 | (v & 0x3f));
+						}
+						continue;
+					}
+					buf[n++] = *p++;
+				}
+				buf[n] = '\0';
+
+				if (n) {
+					lws_dlo_text_t *txt;
+					lws_box_t b;
+
+					lws_fx_set(b.x, 0, 0);
+					lws_fx_set(b.y, 0, 0);
+					lws_fx_set(b.w, 0, 0);
+					lws_fx_set(b.h, 0, 0);
+
+					/* if we are a rect, we want to be inside it */
+					if (ps->dlo) {
+						b.x = ps->curx;
+						b.y = ps->cury;
+
+						/* if we just created ps->dlo, curx/y are at padding start */
+					} else if (psb) {
+						b.x = psb->curx;
+						b.y = psb->cury;
+					}
+
+					txt = lws_display_dlo_text_new(drt->dl, (lws_dlo_t *)(ps->dlo ? ps->dlo : (psb ? psb->dlo : NULL)), &b, ps->font);
+					if (txt) {
+						lws_display_dlo_text_update(txt, ps->css_color ? ps->css_color->u.rgba : 0xff000000, b.x, buf, (size_t)n);
+
+						if (ps->dlo) {
+							lws_fx_add(&ps->curx, &ps->curx, &txt->bounding_box.w);
+							ps->dlo_set_curx = &txt->dlo;
+							runon(ps, &txt->dlo);
+						} else if (psb) {
+							lws_fx_add(&psb->curx, &psb->curx, &txt->bounding_box.w);
+							psb->dlo_set_curx = &txt->dlo;
+							runon(psb, &txt->dlo);
+						}
+					}
+				}
+			}
 		}
 		break;
 
