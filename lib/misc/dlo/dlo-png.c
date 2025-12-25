@@ -57,7 +57,10 @@ lws_display_render_png(struct lws_display_render_state *rs)
 		if (dlo_png->flow.state == LWSDLOFLOW_STATE_READ_COMPLETED)
 			return LWS_SRET_OK;
 
-		lwsl_info("%s: png does not have dimensions yet\n", __func__);
+		lwsl_notice("%s: png %s does not have dimensions yet\n", __func__, dlo_png->name);
+		if (rs->html == 2)
+			return LWS_SRET_OK;
+
 		return LWS_SRET_WANT_INPUT;
 	}
 
@@ -144,7 +147,7 @@ lws_display_dlo_png_metadata_scan(lws_dlo_png_t *dlo_png)
 
 		r = lws_upng_emit_next_line(dlo_png->png, &pix, &dlo_png->flow.data, &l, 1);
 		if (r & LWS_SRET_FATAL) {
-			lwsl_err("%s: hdr parse failed\n", __func__);
+			lwsl_err("%s: %s: hdr parse failed\n", __func__, dlo_png->name);
 			return r;
 		}
 
@@ -163,7 +166,7 @@ lws_display_dlo_png_metadata_scan(lws_dlo_png_t *dlo_png)
 
 lws_dlo_png_t *
 lws_display_dlo_png_new(lws_displaylist_t *dl, lws_dlo_t *dlo_parent,
-			lws_box_t *box)
+			lws_box_t *box, const char *name, size_t len)
 {
 	lws_dlo_png_t *dlo_png = lws_zalloc(sizeof(*dlo_png), __func__);
 
@@ -174,6 +177,8 @@ lws_display_dlo_png_new(lws_displaylist_t *dl, lws_dlo_t *dlo_parent,
 	if (!dlo_png->png)
 		goto bail;
 
+
+	lws_strnncpy(dlo_png->name, name, len, sizeof(dlo_png->name));
 	dlo_png->dlo.box = *box;
 	dlo_png->dlo.render = lws_display_render_png;
 	dlo_png->dlo._destroy = lws_display_dlo_png_destroy;
