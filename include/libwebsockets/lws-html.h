@@ -430,6 +430,9 @@ typedef enum lcsp_css_units {
 	LCSP_UNIT_LENGTH_PC,		/* u.i */
 	LCSP_UNIT_LENGTH_PX,		/* u.i */
 	LCSP_UNIT_LENGTH_PERCENT,	/* u.i */
+	LCSP_UNIT_LENGTH_REM,		/* u.i */
+
+	LCSP_UNIT_CALC,			/* u.i is index in string chunk */
 
 	LCSP_UNIT_ANGLE_ABS_DEG,	/* u.i */
 	LCSP_UNIT_ANGLE_REL_DEG,	/* u.i */
