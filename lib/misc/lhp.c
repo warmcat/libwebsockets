@@ -421,6 +421,36 @@ lws_css_compute_cascaded_length(lhp_ctx_t *ctx, int ref, lhp_pstack_t *ps,
 	return 0;
 }
 
+static void
+lhp_fx_parse(lws_fx_t *fx, const char *str, size_t len)
+{
+	const char *dot = NULL;
+	int i;
+
+	for (i = 0; i < (int)len; i++)
+		if (str[i] == '.') {
+			dot = &str[i];
+			break;
+		}
+
+	if (!dot) {
+		fx->whole = atoi(str);
+		fx->frac = 0;
+		return;
+	}
+
+	fx->whole = atoi(str);
+	fx->frac = 0;
+
+	dot++;
+	len -= (size_t)(dot - str);
+	i = 10000000;
+	while (len-- && *dot) {
+		fx->frac += ((*dot++) - '0') * i;
+		i /= 10;
+	}
+}
+
 const lws_fx_t *
 lws_csp_px(const lcsp_atr_t *a, lhp_pstack_t *ps)
 {
@@ -450,6 +480,89 @@ lws_csp_px(const lcsp_atr_t *a, lhp_pstack_t *ps)
 	ref = lhp_prop_axis(a);
 
 	switch (a->unit) {
+	case LCSP_UNIT_LENGTH_REM:
+		if (!ctx->stack.head)
+			break;
+		return lws_fx_mul((lws_fx_t *)&a->r, &a->u.i,
+			&((lhp_pstack_t *)lws_container_of(ctx->stack.head, lhp_pstack_t, list))->font->em);
+
+	case LCSP_UNIT_CALC:
+		{
+			char buf[128], unit[8];
+			const char *p = (const char *)&a[1];
+			size_t len = a->value_len;
+			lws_fx_t sum = { 0, 0 }, v;
+			lcsp_atr_t atr;
+			int op = 1;
+
+			memset(&atr, 0, sizeof(atr));
+
+			/* simplistic calc parser: A + B + C... */
+
+			while (len) {
+				size_t n = 0, m = 0;
+
+				while (len && (*p == ' ' || *p == '\t' || *p == '\n')) {
+					p++;
+					len--;
+				}
+
+				if (len && (*p == '+' || *p == '-')) {
+					op = *p++ == '+';
+					len--;
+					continue;
+				}
+
+				while (len && n < sizeof(buf) - 1 &&
+				       ((*p >= '0' && *p <= '9') || *p == '.')) {
+					buf[n++] = *p++;
+					len--;
+				}
+				buf[n] = '\0';
+
+				if (!n)
+					break;
+
+				lws_fx_set(atr.u.i, 0, 0);
+				lhp_fx_parse(&atr.u.i, buf, n);
+
+				while (len && m < sizeof(unit) - 1 &&
+				       (*p >= 'a' && *p <= 'z')) {
+					unit[m++] = *p++;
+					len--;
+				}
+				unit[m] = '\0';
+
+				if (len && *p == '%') {
+					unit[0] = '%';
+					unit[1] = '\0';
+					p++;
+					len--;
+				}
+
+				atr.unit = LCSP_UNIT_LENGTH_PX;
+				if (!strcmp(unit, "em")) atr.unit = LCSP_UNIT_LENGTH_EM;
+				if (!strcmp(unit, "ex")) atr.unit = LCSP_UNIT_LENGTH_EX;
+				if (!strcmp(unit, "rem")) atr.unit = LCSP_UNIT_LENGTH_REM;
+				if (!strcmp(unit, "in")) atr.unit = LCSP_UNIT_LENGTH_IN;
+				if (!strcmp(unit, "cm")) atr.unit = LCSP_UNIT_LENGTH_CM;
+				if (!strcmp(unit, "mm")) atr.unit = LCSP_UNIT_LENGTH_MM;
+				if (!strcmp(unit, "pt")) atr.unit = LCSP_UNIT_LENGTH_PT;
+				if (!strcmp(unit, "pc")) atr.unit = LCSP_UNIT_LENGTH_PC;
+				if (!strcmp(unit, "%")) atr.unit = LCSP_UNIT_LENGTH_PERCENT;
+
+				v = *lws_csp_px(&atr, ps);
+
+				if (op)
+					lws_fx_add(&sum, &sum, &v);
+				else
+					lws_fx_sub(&sum, &sum, &v);
+			}
+
+			*(lws_fx_t *)&a->r = sum;
+			return &a->r;
+		}
+
 	case LCSP_UNIT_LENGTH_EM:
 		return lws_fx_mul((lws_fx_t *)&a->r, &a->u.i, &f->em);
 
@@ -836,7 +949,7 @@ lhp_resolve_var_color(lhp_ctx_t *ctx, const lcsp_atr_t *a)
 	while (n[len] && n[len] != ')')
 		len++;
 
-	lwsl_err("RESOLVE: '%.*s'\n", (int)len, n);
+	/* lwsl_err("RESOLVE: '%.*s'\n", (int)len, n); */
 
 	/* look it up in css_vars */
 	lws_start_foreach_dll(struct lws_dll2 *, d, ctx->css_vars.head) {
@@ -876,7 +989,8 @@ lhp_shorthand_TRBL(lhp_ctx_t *ctx, lcsp_props_t prop, int idx)
 	 */
 
 	c = (int)ctx->active_atr.count;
-	if (!c) return NULL;
+	if (!c)
+		return NULL;
 
 	if (c == 1) /* apply to all */
 		return a; // Head is same as tail if count 1
@@ -2202,6 +2316,8 @@ done_amp:
 								ctx->unit = LCSP_UNIT_LENGTH_PX;
 						}
 						if (ctx->npos == 3) {
+							if (!strcmp(ctx->buf, "rem"))
+								ctx->unit = LCSP_UNIT_LENGTH_REM;
 							if (!strcmp(ctx->buf, "deg"))
 								ctx->unit = LCSP_UNIT_ANGLE_ABS_DEG;
 							if (!strcmp(ctx->buf, "rad"))
@@ -2241,6 +2357,44 @@ issue_post:
 				/* well-known property value strings */
 
 for_term:
+
+				if (ctx->npos == 5 && !memcmp(ctx->buf, "calc(", 5)) {
+					int nested = 1;
+
+					while (*len) {
+						c = *(*buf)++;
+						(*len)--;
+
+						if (c == '(')
+							nested++;
+						if (c == ')') {
+							nested--;
+							if (!nested) {
+								lcsp_atr_t *atr = lwsac_use_zero(&ctx->cssac,
+										sizeof(*atr) +
+										(unsigned int)ctx->npos + 1 - 5,
+										LHP_AC_GRANULE);
+								if (!atr)
+									goto oom;
+
+								atr->unit = LCSP_UNIT_CALC;
+								atr->value_len = (size_t)ctx->npos - 5;
+								memcpy(&atr[1], ctx->buf + 5, atr->value_len);
+								((char *)&atr[1])[atr->value_len] = '\0';
+
+								lws_dll2_add_tail(&atr->list, &ctx->def->atrs);
+								ctx->npos = 0;
+								break;
+							}
+						}
+						if (ctx->npos >= LHP_STRING_CHUNK) {
+							lwsl_err("%s: calc string too long\n", __func__);
+							goto oom;
+						}
+						ctx->buf[ctx->npos++] = (char)c;
+					}
+					break;
+				}
 
 				switch(lws_minilex_parse(css_propconst_lextable,
 							 &ctx->cssval_state,
