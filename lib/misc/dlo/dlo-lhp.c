@@ -55,6 +55,9 @@ enum {
 	LHP_ELEM_TR,
 	LHP_ELEM_TD,
 	LHP_ELEM_IMG,
+	/* ... */
+	LHP_ELEM_A = 32,
+	LHP_ELEM_SPAN,
 };
 
 static const struct {
@@ -92,7 +95,26 @@ static const struct {
 	{ "form",	4 },
 	{ "fieldset",	8 },
 	{ "pre",	3 },
+	{ "a",		1 },
+	{ "span",	4 },
 };
+
+static int
+lhp_is_inline(lhp_pstack_t *ps)
+{
+	const struct lcsp_atr *a = ps->css_display;
+
+	if (ps->forced_inline) return 1;
+	if (!a) return 0;
+	if (a->propval == LCSP_PROPVAL_INLINE ||
+	    a->propval == LCSP_PROPVAL_INLINE_BLOCK) return 1;
+	if (a->unit == LCSP_UNIT_STRING) {
+		const char *s = (const char *)&a[1];
+		if (a->value_len == 6 && !strncmp(s, "inline", 6)) return 1;
+		if (a->value_len == 12 && !strncmp(s, "inline-block", 12)) return 1;
+	}
+	return 0;
+}
 
 /*
  * Newline moves the psb->cury to cover text that was already placed using the
@@ -289,7 +311,8 @@ lhp_set_dlo_adjust_to_contents(lhp_pstack_t *ps)
 	    ps->css_height->unit != LCSP_UNIT_LENGTH_PERCENT &&
 	    ps->css_width->propval != LCSP_PROPVAL_AUTO)
 		dim.w = *lws_csp_px(ps->css_width, ps);
-	else if (ps->css_display->propval == LCSP_PROPVAL_BLOCK)
+	else if (ps->css_display->propval == LCSP_PROPVAL_BLOCK &&
+		 !lhp_is_inline(ps))
 		dim.w = ps->dlo->box.w;
 
 	if (ps->css_height && ps->css_height->unit != LCSP_UNIT_NONE &&
@@ -516,7 +539,8 @@ lws_lhp_dlo_adjust_div_type_element(lhp_ctx_t *ctx, lhp_pstack_t *psb,
 		}
 
 		if (elem_match != LHP_ELEM_TD) {
-			if (ps->css_display->propval != LCSP_PROPVAL_INLINE_BLOCK) {
+			if (ps->css_display->propval != LCSP_PROPVAL_INLINE_BLOCK &&
+			    !lhp_is_inline(ps)) {
 				lws_fx_add(&psb->cury, &psb->cury, &ps->dlo->box.h);
 				psb->dlo_set_cury = ps->dlo;
 			}
@@ -620,6 +644,7 @@ lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 				d = d->prev;
 			}
 		}
+
 		break;
 
 	case LHPCB_ELEMENT_START:
@@ -711,7 +736,11 @@ lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 			}
 
 			if (elem_match > LHP_ELEM_IMG) {
-				if (psb && (psb->runon & 1))
+				if (elem_match == LHP_ELEM_A)
+					ps->forced_inline = 1;
+
+				if (psb && (psb->runon & 1) &&
+				    !lhp_is_inline(ps))
 					newline(ctx, psb, psb, drt->dl);
 				goto do_rect;
 			}
@@ -749,8 +778,9 @@ do_rect:
 			    ps->css_width->propval != LCSP_PROPVAL_AUTO) {
 			    if (lws_fx_comp(lws_csp_px(ps->css_width, ps), &box.w) < 0)
 				box.w = *lws_csp_px(ps->css_width, ps);
-			} else if (ps->css_display->propval == LCSP_PROPVAL_BLOCK ||
-				   ps->css_display->unit == LCSP_UNIT_STRING) {
+			} else if ((ps->css_display->propval == LCSP_PROPVAL_BLOCK ||
+				    ps->css_display->unit == LCSP_UNIT_STRING) &&
+				   !lhp_is_inline(ps)) {
 				if (psb && psb->dlo) {
 					box.w = psb->drt.w;
 					lws_fx_sub(&box.w, &box.w, lws_csp_px(psb->css_padding[CCPAS_LEFT], psb));
@@ -809,6 +839,9 @@ do_rect:
 
 			lws_lhp_tag_dlo_id(ctx, ps, ps->dlo);
 			lhp_set_dlo_padding_margin(ps, ps->dlo);
+
+			if (psb && lhp_is_inline(ps))
+				runon(psb, ps->dlo);
 			break;
 
 		case LHP_ELEM_IMG:
@@ -951,6 +984,85 @@ do_rect:
 				runon(psb, ps->dlo);
 			break;
 		}
+
+		if (ps->css_display &&
+		    ps->css_display->propval != LCSP_PROPVAL_NONE) {
+			const lcsp_atr_t *ac = lws_css_cascade_get_prop_atr(ctx,
+					LCSP_PROP_CONTENT);
+
+			if (ac && ac->unit == LCSP_UNIT_STRING &&
+			    ac->value_len) {
+				char buf[32], *p = (char *)&ac[1];
+				const char *end = p + ac->value_len;
+				int n = 0;
+
+				while (p < end && (size_t)n < sizeof(buf) - 5) {
+					if (*p == '\\') {
+						p++;
+						if (p >= end) break;
+						unsigned int v = 0;
+						int d = 0;
+						while (p < end && d++ < 6 && ((*p >= '0' && *p <= '9') ||
+						       (*p >= 'a' && *p <= 'f') || (*p >= 'A' && *p <= 'F'))) {
+							int c = *p++;
+							if (c >= '0' && c <= '9') v = (v << 4) | (unsigned int)(c - '0');
+							else if (c >= 'a' && c <= 'f') v = (v << 4) | (unsigned int)(c - 'a' + 10);
+							else v = (v << 4) | (unsigned int)(c - 'A' + 10);
+						}
+						if (p < end && *p == ' ') p++;
+
+						if (v < 0x80) buf[n++] = (char)v;
+						else if (v < 0x800) {
+							buf[n++] = (char)(0xc0 | (v >> 6));
+							buf[n++] = (char)(0x80 | (v & 0x3f));
+						} else {
+							buf[n++] = (char)(0xe0 | (v >> 12));
+							buf[n++] = (char)(0x80 | ((v >> 6) & 0x3f));
+							buf[n++] = (char)(0x80 | (v & 0x3f));
+						}
+						continue;
+					}
+					buf[n++] = *p++;
+				}
+				buf[n] = '\0';
+
+				if (n) {
+					lws_dlo_text_t *txt;
+					lws_box_t b;
+
+					lws_fx_set(b.x, 0, 0);
+					lws_fx_set(b.y, 0, 0);
+					lws_fx_set(b.w, 0, 0);
+					lws_fx_set(b.h, 0, 0);
+
+					/* if we are a rect, we want to be inside it */
+					if (ps->dlo) {
+						b.x = ps->curx;
+						b.y = ps->cury;
+
+						/* if we just created ps->dlo, curx/y are at padding start */
+					} else if (psb) {
+						b.x = psb->curx;
+						b.y = psb->cury;
+					}
+
+					txt = lws_display_dlo_text_new(drt->dl, (lws_dlo_t *)(ps->dlo ? ps->dlo : (psb ? psb->dlo : NULL)), &b, ps->font);
+					if (txt) {
+						lws_display_dlo_text_update(txt, ps->css_color ? ps->css_color->u.rgba : 0xff000000, b.x, buf, (size_t)n);
+
+						if (ps->dlo) {
+							lws_fx_add(&ps->curx, &ps->curx, &txt->bounding_box.w);
+							ps->dlo_set_curx = &txt->dlo;
+							runon(ps, &txt->dlo);
+						} else if (psb) {
+							lws_fx_add(&psb->curx, &psb->curx, &txt->bounding_box.w);
+							psb->dlo_set_curx = &txt->dlo;
+							runon(psb, &txt->dlo);
+						}
+					}
+				}
+			}
+		}
 		break;
 
 	case LHPCB_ELEMENT_END:
@@ -1026,7 +1138,8 @@ do_end_rect:
 			if (lws_fx_comp(&ox, &ps->widest) > 0)
 				ps->widest = ox;
 
-			newline(ctx, ps, ps, drt->dl);
+			if (!lhp_is_inline(ps))
+				newline(ctx, ps, ps, drt->dl);
 
 			if (lws_lhp_dlo_adjust_div_type_element(ctx, psb, pst, ps, elem_match))
 				break;
@@ -1038,7 +1151,9 @@ do_end_rect:
 
 			if (psb && ps->css_position->propval != LCSP_PROPVAL_ABSOLUTE) {
 
-				switch (ps->css_display->propval) {
+				switch (lhp_is_inline(ps) ?
+						LCSP_PROPVAL_INLINE :
+						ps->css_display->propval) {
 				case LCSP_PROPVAL_BLOCK:
 				case LCSP_PROPVAL_LIST_ITEM:
 				case LCSP_PROPVAL_TABLE:
@@ -1160,7 +1275,7 @@ do_end_rect:
 					   lws_csp_px(ps_con->css_padding[CCPAS_RIGHT], ps_con));
 			}
 
-			if (!box.w.whole)
+			if (!box.w.whole && !ps->forced_inline)
 				lws_fx_sub(&box.w, &ctx->ic.wh_px[0], &box.x);
 			assert(ps_con);
 
