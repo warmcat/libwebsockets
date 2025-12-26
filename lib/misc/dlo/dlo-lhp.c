@@ -714,7 +714,8 @@ lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 			}
 
 			if (elem_match > LHP_ELEM_IMG) {
-				if (psb && (psb->runon & 1))
+				if (psb && (psb->runon & 1) &&
+				    ps->css_display->propval != LCSP_PROPVAL_INLINE)
 					newline(ctx, psb, psb, drt->dl);
 				goto do_rect;
 			}
@@ -812,6 +813,9 @@ do_rect:
 
 			lws_lhp_tag_dlo_id(ctx, ps, ps->dlo);
 			lhp_set_dlo_padding_margin(ps, ps->dlo);
+
+			if (psb && ps->css_display->propval == LCSP_PROPVAL_INLINE)
+				runon(psb, ps->dlo);
 			break;
 
 		case LHP_ELEM_IMG:
@@ -1108,7 +1112,8 @@ do_end_rect:
 			if (lws_fx_comp(&ox, &ps->widest) > 0)
 				ps->widest = ox;
 
-			newline(ctx, ps, ps, drt->dl);
+			if (ps->css_display->propval != LCSP_PROPVAL_INLINE)
+				newline(ctx, ps, ps, drt->dl);
 
 			if (lws_lhp_dlo_adjust_div_type_element(ctx, psb, pst, ps, elem_match))
 				break;
