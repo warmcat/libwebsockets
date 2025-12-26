@@ -736,7 +736,7 @@ lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 			}
 
 			if (elem_match > LHP_ELEM_IMG) {
-				if (elem_match == LHP_ELEM_A || elem_match == LHP_ELEM_SPAN)
+				if (elem_match == LHP_ELEM_A)
 					ps->forced_inline = 1;
 
 				if (psb && (psb->runon & 1) &&
