@@ -404,6 +404,7 @@ typedef struct lhp_pstack {
 
 	uint8_t				is_block:1; /* children use space in our drt */
 	uint8_t				is_table:1;
+	uint8_t				forced_inline:1;
 
 	/* user layout owns these after initial values set */
 
