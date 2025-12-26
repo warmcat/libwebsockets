@@ -860,6 +860,7 @@ lws_css_cascade_atr_match(lhp_ctx_t *ctx, lhp_pstack_t *ps, const char *tag,
 
 			if (nl == tag_len && !memcmp(p, tag, tag_len)) {
 matched:
+				{
 				lcsp_stanza_ptr_t *sp = lwsac_use_zero(
 						&ctx->cascadeac,
 						sizeof(*sp), LHP_AC_GRANULE);
@@ -870,6 +871,7 @@ matched:
 				lws_dll2_add_tail(&sp->list,
 						  &ctx->active_stanzas);
 				break;
+				}
 			} else {
 				/* check for tag.class or .class.class */
 				const char *dot = memchr(p, '.', nl);
