@@ -1606,35 +1606,26 @@ elem_start:
 				//if (!psb)
 				//	lwsl_err("%s: NULL psb\n", __func__);
 
-				if (ctx->npos == 3 && !strncmp(ctx->buf, "img", 3)) {
-					lws_fx_set(box.x, 0, 0);
-					lws_fx_set(box.y, 0, 0);
+				lws_fx_set(box.x, 0, 0);
+				lws_fx_set(box.y, 0, 0);
+				lws_fx_set(box.w, 0, 0);
+				lws_fx_set(box.h, 0, 0);
 
-					if (ps->css_position->propval == LCSP_PROPVAL_ABSOLUTE) {
-					//	box.x = *lws_csp_px(ps->css_pos[CCPAS_LEFT], ps);
-					///	box.y = *lws_csp_px(ps->css_pos[CCPAS_TOP], ps);
-					//	abs = 1;
-					} else {
-						if (psb) {
-							box.x = psb->curx;
-							box.y = psb->cury;
-						}
-					}
-
-					if (psb) {
-						lws_fx_add(&box.x, &box.x,
-							lws_csp_px(psb->css_margin[CCPAS_LEFT], psb));
-						lws_fx_add(&box.y, &box.y,
-							lws_csp_px(psb->css_margin[CCPAS_TOP], psb));
-					}
-
-					lws_fx_set(box.h, 0, 0);
-					lws_fx_set(box.w, 0, 0);
-
-					if (ps->css_width &&
-					    lws_fx_comp(lws_csp_px(ps->css_width, ps), &box.w) > 0)
-						box.w = *lws_csp_px(ps->css_width, ps);
+				if (psb) {
+					box.x = psb->curx;
+					box.y = psb->cury;
+					lws_fx_add(&box.x, &box.x,
+						lws_csp_px(psb->css_margin[CCPAS_LEFT], psb));
+					lws_fx_add(&box.y, &box.y,
+						lws_csp_px(psb->css_margin[CCPAS_TOP], psb));
 				}
+
+				if (ps->css_width &&
+					lws_fx_comp(lws_csp_px(ps->css_width, ps), &box.w) > 0)
+					box.w = *lws_csp_px(ps->css_width, ps);
+				if (ps->css_height &&
+					lws_fx_comp(lws_csp_px(ps->css_height, ps), &box.h) > 0)
+					box.h = *lws_csp_px(ps->css_height, ps);
 
 				memset(&u, 0, sizeof(u));
 				if (lws_dlo_ss_find(cx, url, &u)) {
