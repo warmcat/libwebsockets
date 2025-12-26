@@ -55,6 +55,9 @@ enum {
 	LHP_ELEM_TR,
 	LHP_ELEM_TD,
 	LHP_ELEM_IMG,
+	/* ... */
+	LHP_ELEM_A = 32,
+	LHP_ELEM_SPAN,
 };
 
 static const struct {
@@ -95,6 +98,23 @@ static const struct {
 	{ "a",		1 },
 	{ "span",	4 },
 };
+
+static int
+lhp_is_inline(lhp_pstack_t *ps)
+{
+	const struct lcsp_atr *a = ps->css_display;
+
+	if (ps->forced_inline) return 1;
+	if (!a) return 0;
+	if (a->propval == LCSP_PROPVAL_INLINE ||
+	    a->propval == LCSP_PROPVAL_INLINE_BLOCK) return 1;
+	if (a->unit == LCSP_UNIT_STRING) {
+		const char *s = (const char *)&a[1];
+		if (a->value_len == 6 && !strncmp(s, "inline", 6)) return 1;
+		if (a->value_len == 12 && !strncmp(s, "inline-block", 12)) return 1;
+	}
+	return 0;
+}
 
 /*
  * Newline moves the psb->cury to cover text that was already placed using the
@@ -291,7 +311,8 @@ lhp_set_dlo_adjust_to_contents(lhp_pstack_t *ps)
 	    ps->css_height->unit != LCSP_UNIT_LENGTH_PERCENT &&
 	    ps->css_width->propval != LCSP_PROPVAL_AUTO)
 		dim.w = *lws_csp_px(ps->css_width, ps);
-	else if (ps->css_display->propval == LCSP_PROPVAL_BLOCK)
+	else if (ps->css_display->propval == LCSP_PROPVAL_BLOCK &&
+		 !lhp_is_inline(ps))
 		dim.w = ps->dlo->box.w;
 
 	if (ps->css_height && ps->css_height->unit != LCSP_UNIT_NONE &&
@@ -518,7 +539,8 @@ lws_lhp_dlo_adjust_div_type_element(lhp_ctx_t *ctx, lhp_pstack_t *psb,
 		}
 
 		if (elem_match != LHP_ELEM_TD) {
-			if (ps->css_display->propval != LCSP_PROPVAL_INLINE_BLOCK) {
+			if (ps->css_display->propval != LCSP_PROPVAL_INLINE_BLOCK &&
+			    !lhp_is_inline(ps)) {
 				lws_fx_add(&psb->cury, &psb->cury, &ps->dlo->box.h);
 				psb->dlo_set_cury = ps->dlo;
 			}
@@ -714,8 +736,11 @@ lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 			}
 
 			if (elem_match > LHP_ELEM_IMG) {
+				if (elem_match == LHP_ELEM_A || elem_match == LHP_ELEM_SPAN)
+					ps->forced_inline = 1;
+
 				if (psb && (psb->runon & 1) &&
-				    ps->css_display->propval != LCSP_PROPVAL_INLINE)
+				    !lhp_is_inline(ps))
 					newline(ctx, psb, psb, drt->dl);
 				goto do_rect;
 			}
@@ -753,8 +778,9 @@ do_rect:
 			    ps->css_width->propval != LCSP_PROPVAL_AUTO) {
 			    if (lws_fx_comp(lws_csp_px(ps->css_width, ps), &box.w) < 0)
 				box.w = *lws_csp_px(ps->css_width, ps);
-			} else if (ps->css_display->propval == LCSP_PROPVAL_BLOCK ||
-				   ps->css_display->unit == LCSP_UNIT_STRING) {
+			} else if ((ps->css_display->propval == LCSP_PROPVAL_BLOCK ||
+				    ps->css_display->unit == LCSP_UNIT_STRING) &&
+				   !lhp_is_inline(ps)) {
 				if (psb && psb->dlo) {
 					box.w = psb->drt.w;
 					lws_fx_sub(&box.w, &box.w, lws_csp_px(psb->css_padding[CCPAS_LEFT], psb));
@@ -814,7 +840,7 @@ do_rect:
 			lws_lhp_tag_dlo_id(ctx, ps, ps->dlo);
 			lhp_set_dlo_padding_margin(ps, ps->dlo);
 
-			if (psb && ps->css_display->propval == LCSP_PROPVAL_INLINE)
+			if (psb && lhp_is_inline(ps))
 				runon(psb, ps->dlo);
 			break;
 
@@ -1112,7 +1138,7 @@ do_end_rect:
 			if (lws_fx_comp(&ox, &ps->widest) > 0)
 				ps->widest = ox;
 
-			if (ps->css_display->propval != LCSP_PROPVAL_INLINE)
+			if (!lhp_is_inline(ps))
 				newline(ctx, ps, ps, drt->dl);
 
 			if (lws_lhp_dlo_adjust_div_type_element(ctx, psb, pst, ps, elem_match))
@@ -1125,7 +1151,9 @@ do_end_rect:
 
 			if (psb && ps->css_position->propval != LCSP_PROPVAL_ABSOLUTE) {
 
-				switch (ps->css_display->propval) {
+				switch (lhp_is_inline(ps) ?
+						LCSP_PROPVAL_INLINE :
+						ps->css_display->propval) {
 				case LCSP_PROPVAL_BLOCK:
 				case LCSP_PROPVAL_LIST_ITEM:
 				case LCSP_PROPVAL_TABLE:
@@ -1247,7 +1275,7 @@ do_end_rect:
 					   lws_csp_px(ps_con->css_padding[CCPAS_RIGHT], ps_con));
 			}
 
-			if (!box.w.whole)
+			if (!box.w.whole && !ps->forced_inline)
 				lws_fx_sub(&box.w, &ctx->ic.wh_px[0], &box.x);
 			assert(ps_con);
 
