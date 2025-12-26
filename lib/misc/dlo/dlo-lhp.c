@@ -1310,7 +1310,7 @@ do_end_rect:
 			txt->dlo.box.w = txt->bounding_box.w;
 			txt->dlo.box.h = txt->bounding_box.h;
 
-			{
+			if (!ps->dlo) {
 				const lcsp_atr_t *bg = ps->css_background_color;
 
 				if (!bg) {
