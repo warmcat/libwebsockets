@@ -399,8 +399,9 @@ local_srv_state(void *userobj, void *sh, lws_ss_constate_t state,
 		if (len > 6 && !strncmp(path, "/stay/", 6)) {
 			lws_strnncpy(pn, &path[6], len - 6, sizeof(pn));
 
-			/* Assuming 'pn' is a builder name for legacy compatibility */
-			pc = find_pcon_by_builder_name(&power, pn);
+			pc = saip_pcon_by_name(&power, pn);
+			if (!pc)
+				pc = find_pcon_by_builder_name(&power, pn);
 
 			if (pc)
 				g->size = (size_t)lws_snprintf(g->payload, sizeof(g->payload),
@@ -414,8 +415,11 @@ local_srv_state(void *userobj, void *sh, lws_ss_constate_t state,
 		if (len > 10 && !strncmp(path, "/power-on/", 10)) {
 
 			lws_strnncpy(pn, &path[10], len - 10, sizeof(pn));
-			/* Assume builder name */
-			pc = find_pcon_by_builder_name(&power, pn);
+
+			pc = saip_pcon_by_name(&power, pn);
+			if (!pc)
+				pc = find_pcon_by_builder_name(&power, pn);
+
 			if (!pc) {
 				g->size = (size_t)lws_snprintf(g->payload, sizeof(g->payload),
                                                "Unable to find PCON for %s", pn);
@@ -488,7 +492,10 @@ power_off:
 		g->size = (size_t)lws_snprintf(g->payload, sizeof(g->payload),
                                                "Unable to find host %s", pn);
 
-		pc = find_pcon_by_builder_name(&power, pn);
+		pc = saip_pcon_by_name(&power, pn);
+		if (!pc)
+			pc = find_pcon_by_builder_name(&power, pn);
+
 		if (pc) {
 
 			if (apo) {
