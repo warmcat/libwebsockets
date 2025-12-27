@@ -36,6 +36,14 @@ static const lws_struct_map_t lsm_schema_power_state[] = {
 		   "com.warmcat.sai.powerstate"),
 };
 
+/* Combined map for RX from server */
+static const lws_struct_map_t lsm_saip_rx_map[] = {
+	LSM_SCHEMA(sai_stay_t, NULL, lsm_stay,
+		   "com.warmcat.sai.power.stay"),
+	LSM_SCHEMA(sai_pcon_control_t, NULL, lsm_pcon_control,
+		   "com.warmcat.sai.pcon_control"),
+};
+
 /*
  * (Structs and maps removed - now in common/include/private.h and common/struct-metadata.c)
  */
@@ -198,10 +206,8 @@ saip_m_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	/* lwsl_hexdump_notice(buf, len); */
 
 	memset(&a, 0, sizeof(a));
-	a.map_st[0] = lsm_schema_stay;
-	a.map_entries_st[0] = LWS_ARRAY_SIZE(lsm_schema_stay);
-	a.map_st[1] = lsm_schema_pcon_control;
-	a.map_entries_st[1] = LWS_ARRAY_SIZE(lsm_schema_pcon_control);
+	a.map_st[0] = lsm_saip_rx_map;
+	a.map_entries_st[0] = LWS_ARRAY_SIZE(lsm_saip_rx_map);
 	a.ac_block_size = 512;
 
 	lws_struct_json_init_parse(&ctx, NULL, &a);
