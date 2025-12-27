@@ -197,6 +197,8 @@ static const struct lws_protocols *pprotocols[] = {
 void
 sul_pcon_check_cb(lws_sorted_usec_list_t *sul)
 {
+	int any_changed = 0;
+
 	/* Iterate all PCONs */
 	lws_start_foreach_dll(struct lws_dll2 *, p, power.sai_pcon_owner.head) {
 		saip_pcon_t *pc = lws_container_of(p, saip_pcon_t, list);
@@ -204,11 +206,12 @@ sul_pcon_check_cb(lws_sorted_usec_list_t *sul)
 
 		/* Rule 1: No builders registered -> Turn ON (Cold start / Discovery) */
 		if (!pc->registered_builders_owner.count) {
-			target_on = 1;
-			lwsl_info("%s: PCON %s has 0 builders -> Force ON\n", __func__, pc->name);
+			/* target_on = 1; */
+			/* lwsl_info("%s: PCON %s has 0 builders -> Force ON\n", __func__, pc->name); */
 		}
+
 		/* Rule 2: User Keep On -> Turn ON */
-		else if (pc->user_keep_on) {
+		if (pc->user_keep_on) {
 			target_on = 1;
 			lwsl_info("%s: PCON %s has user keep on -> Force ON\n", __func__, pc->name);
 		}
@@ -223,13 +226,27 @@ sul_pcon_check_cb(lws_sorted_usec_list_t *sul)
 			lwsl_notice("%s: PCON %s ON (target=1, current=%d)\n", __func__, pc->name, pc->on);
 			pc->on = 1;
 			saip_switch(pc, 1);
+			any_changed = 1;
 		} else if (!target_on && pc->on) {
 			lwsl_notice("%s: PCON %s OFF (target=0, current=%d)\n", __func__, pc->name, pc->on);
 			pc->on = 0;
 			saip_switch(pc, 0);
+			any_changed = 1;
 		}
 
 	} lws_end_foreach_dll(p);
+
+	if (any_changed) {
+		lws_start_foreach_dll_safe(struct lws_dll2 *, mp, mp1,
+					   power.sai_server_owner.head) {
+			saip_server_t *sps = lws_container_of(mp, struct saip_server, list);
+			saip_queue_stay_info(sps);
+			if (sps->ss) {
+				if (lws_ss_request_tx(sps->ss))
+					lwsl_warn("%s: failed to request tx\n", __func__);
+			}
+		} lws_end_foreach_dll_safe(mp, mp1);
+	}
 
 	/* Schedule next check */
 	lws_sul_schedule(power.context, 0, &power.sul_pcon_check, sul_pcon_check_cb, 5 * LWS_US_PER_SEC);

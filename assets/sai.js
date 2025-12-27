@@ -401,6 +401,7 @@ var logs = "", redpend = 0, gitohashi_integ = 0, authd = 0, exptimer, auth_user 
 
 /* Global caches for reconcilation */
 var pcon_topology = {};
+var pcon_energy_cache = {};
 var last_builder_list = [];
 
 function createPconDiv(pcon) {
@@ -1406,6 +1407,18 @@ function createPconDiv(pcon) {
     let type = pcon.type ? `(${pcon.type})` : "";
 
     header.innerHTML = `<span class="${stateClass}">&#x23FB;</span> <b>${hsanitize(pcon.name)}</b> <span class="pcon-type">${hsanitize(type)}</span>`;
+
+    if (pcon_energy_cache[pcon.name]) {
+        const d = pcon_energy_cache[pcon.name];
+        let stats = document.createElement("span");
+        stats.className = "pcon-stats";
+        stats.style.marginLeft = "10px";
+        stats.style.fontSize = "0.9em";
+        stats.style.color = "#666";
+        stats.textContent = `${d.voltage_v}V ${d.active_power_w}W ${d.current_ma}mA today:${(d.energy_today_wh/1000).toFixed(3)}kWh`;
+        header.appendChild(stats);
+    }
+
     pconDiv.appendChild(header);
 
     /* Context menu for PCON */
@@ -1733,6 +1746,7 @@ function ws_open_sai()
 			case "com.warmcat.sai.pcon_energy":
 				if (jso.items) {
 					jso.items.forEach(item => {
+						pcon_energy_cache[item.name] = item;
 						const pconDiv = document.getElementById("pcon-" + item.name);
 						if (pconDiv) {
 							let header = pconDiv.querySelector(".pcon-header");
