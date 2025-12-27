@@ -22,7 +22,8 @@
 			"protocol":"h2",
 			"metadata": [
 				{"mime": "Content-Type:",
-				 "method": "","path": ""}
+				 "method": "","path": "",
+				 "my_arg": ""}
 				],
 			"tls":true,
 			"server_cert":"self_localhost",
