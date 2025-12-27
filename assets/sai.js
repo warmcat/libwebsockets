@@ -1413,6 +1413,34 @@ function createPconDiv(pcon) {
         { label: `<b>PCON:</b> ${pcon.name}` }
     ];
 
+    if (authd) {
+        if (pcon.on) {
+            menuItems.push({
+                label: "Turn Off",
+                callback: () => {
+                    const msg = {
+                        schema: "com.warmcat.sai.pcon_control",
+                        pcon_name: pcon.name,
+                        on: 0
+                    };
+                    sai.send(JSON.stringify(msg));
+                }
+            });
+        } else {
+             menuItems.push({
+                label: "Turn On",
+                callback: () => {
+                    const msg = {
+                        schema: "com.warmcat.sai.pcon_control",
+                        pcon_name: pcon.name,
+                        on: 1
+                    };
+                    sai.send(JSON.stringify(msg));
+                }
+            });
+        }
+    }
+
     header.addEventListener("contextmenu", function(event) {
         if (!authd) return;
         createContextMenu(event, menuItems);
@@ -1699,6 +1727,35 @@ function ws_open_sai()
 					/* Trigger redraw if we have builders */
 					const container = document.getElementById("sai_builders");
 					if (container) renderPconHierarchy(container);
+				}
+				break;
+
+			case "com.warmcat.sai.pcon_energy":
+				if (jso.items) {
+					jso.items.forEach(item => {
+						const pconDiv = document.getElementById("pcon-" + item.name);
+						if (pconDiv) {
+							let header = pconDiv.querySelector(".pcon-header");
+							let stats = header.querySelector(".pcon-stats");
+							if (!stats) {
+								stats = document.createElement("span");
+								stats.className = "pcon-stats";
+								stats.style.marginLeft = "10px";
+								stats.style.fontSize = "0.9em";
+								stats.style.color = "#666";
+								header.appendChild(stats);
+							}
+
+							const d = item;
+//							stats.textContent = `${d.voltage_v}V ${d.active_power_w}W ${d.current_ma}mA today:${(d.energy_today_wh/1000).toFixed(3)}kWh`;
+							if (d.voltage_v < 70)
+								stats.textContent = "unpowered";
+							else if (!d.active_power_w)
+								stats.textContent = "OFF";
+							else
+								stats.textContent = `${d.active_power_w}W`;
+						}
+					});
 				}
 				break;
 

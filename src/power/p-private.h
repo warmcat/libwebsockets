@@ -43,18 +43,6 @@
 
 #define SAI_POWERDOWN_HOLDOFF_US	(50 * LWS_US_PER_SEC)
 
-typedef struct tasmota_data {
-	unsigned int		voltage_v;
-	unsigned int		current_ma;
-	unsigned int		active_power_w;
-	unsigned int		apparent_power_va;
-	unsigned int		reactive_power_var;
-	unsigned int		power_factor_scaled_1000;
-	unsigned int		energy_today_wh;
-	unsigned int		energy_yesterday_wh;
-	unsigned int		energy_total_wh;
-} tasmota_data_t;
-
 typedef struct tasmota_parse {
 	tasmota_data_t		td;
 	struct lws_tokenize	ts;
@@ -87,6 +75,13 @@ typedef struct saip_pcon {
 	struct lws_ss_handle	*ss_tasmota_on;
 	struct lws_ss_handle	*ss_tasmota_off;
 	struct lws_ss_handle	*ss_tasmota_monitor;
+
+	tasmota_data_t		latest_data;
+	lws_usec_t		last_monitor_time;
+
+	/* For RX accumulation */
+	char			monitor_rx_buf[4096];
+	size_t			monitor_rx_pos;
 
 	char			on;
 	char			manual_stay; /* user asked to keep this PCON on via UI */
@@ -139,6 +134,7 @@ struct sai_power {
 
 	lws_sorted_usec_list_t	sul_idle;
 	lws_sorted_usec_list_t	sul_pcon_check; /* periodic check for cold start */
+	lws_sorted_usec_list_t	sul_monitor; /* periodic energy monitoring */
 
 	const char		*power_off;
 
@@ -187,6 +183,10 @@ void
 saip_set_stay(const char *pcon_name, int stay_on);
 int
 saip_queue_stay_info(saip_server_t *sps);
+
+int
+saip_queue_energy_report(saip_server_t *sps);
+
 saip_pcon_t *
 saip_pcon_by_name(struct sai_power *power, const char *name);
 

@@ -58,6 +58,10 @@ static lws_struct_map_t lsm_browser_taskreset[] = {
 	LSM_CARRAY	(sai_browse_rx_evinfo_t, event_hash,	"uuid"),
 };
 
+/*
+ * (Structs and maps removed - now in common/include/private.h and common/struct-metadata.c)
+ */
+
 static lws_struct_map_t lsm_browser_platreset[] = {
 	LSM_CARRAY	(sai_browse_rx_platreset_t, event_uuid, "event_uuid"),
 	LSM_CARRAY	(sai_browse_rx_platreset_t, platform,   "platform"),
@@ -93,6 +97,8 @@ static const lws_struct_map_t lsm_schema_json_map[] = {
 					      "com.warmcat.sai.platreset"),
 	LSM_SCHEMA	(sai_stay_t,		 NULL, lsm_stay,
 					      "com.warmcat.sai.stay"),
+	LSM_SCHEMA	(sai_pcon_control_t,	 NULL, lsm_pcon_control,
+			/* shares struct */   "com.warmcat.sai.pcon_control"),
 	LSM_SCHEMA	(sai_browse_rx_taskinfo_t, NULL, lsm_browser_taskinfo,
 						"com.warmcat.sai.taskinfo")
 };
@@ -107,6 +113,7 @@ enum {
 	SAIS_WS_WEBSRV_RX_REBUILD,
 	SAIS_WS_WEBSRV_RX_PLATRESET,
 	SAIS_WS_WEBSRV_RX_STAY,
+	SAIS_WS_WEBSRV_RX_PCON_CONTROL,
 	SAIS_WS_WEBSRV_RX_TASKINFO,
 };
 
@@ -402,8 +409,8 @@ websrvss_ws_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	sai_db_result_t r;
 	int n;
 
-	// lwsl_user("%s: len %d, flags: %d\n", __func__, (int)len, flags);
-	// lwsl_hexdump_info(buf, len);
+	lwsl_user("%s: len %d, flags: %d\n", __func__, (int)len, flags);
+	lwsl_hexdump_info(buf, len);
 
 	memset(&a, 0, sizeof(a));
 	a.map_st[0]		= lsm_schema_json_map;
@@ -467,6 +474,30 @@ websrvss_ws_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 		r = sais_plat_reset(m->vhd, pr->event_uuid, pr->platform);
 		if (r)
 			lwsl_ss_err(m->ss, "platreset failed");
+		lwsac_free(&a.ac);
+		break;
+	}
+	case SAIS_WS_WEBSRV_RX_PCON_CONTROL:
+	{
+		sai_pcon_control_t *ctl = (sai_pcon_control_t *)a.dest;
+
+		lwsl_notice("%s: pcon control received from web: %s -> %d\n",
+			    __func__, ctl->pcon_name, ctl->on);
+
+		lws_start_foreach_dll(struct lws_dll2 *, p,
+				      m->vhd->sai_powers.head) {
+			struct pss *pss_power = lws_container_of(p, struct pss, same);
+			sai_pcon_control_t *s;
+
+			s = malloc(sizeof(*s));
+			if (s) {
+				*s = *ctl;
+				lws_dll2_add_tail(&s->list, &pss_power->pcon_control_owner);
+				lws_callback_on_writable(pss_power->wsi);
+				lwsl_wsi_notice(pss_power->wsi, "queued pcon control on power conn");
+			}
+		} lws_end_foreach_dll(p);
+
 		lwsac_free(&a.ac);
 		break;
 	}

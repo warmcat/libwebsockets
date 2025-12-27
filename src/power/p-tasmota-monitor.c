@@ -103,8 +103,10 @@ saip_parse_tasmota_status(tasmota_parse_t *tp)
 				}
 			}
 
-			if (n == LWS_ARRAY_SIZE(tokens))
+			if (n == LWS_ARRAY_SIZE(tokens)) {
+				// lwsl_notice("%s: unknown token '%.*s'\n", __func__, (int)tp->ts.token_len, tp->ts.token);
 				continue;
+			}
 			break;
 
 		case LWS_TOKZE_INTEGER:

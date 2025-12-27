@@ -134,6 +134,7 @@ struct pss {
 	struct lws_dll2		same; /* owner: vhd.builders */
 
 	struct lws_buflist	*onward_reassembly;
+	struct lws_buflist	*power_rx_cache;
 
 	sqlite3			*pdb_artifact;
 	sqlite3_blob		*blob_artifact;
@@ -142,6 +143,7 @@ struct pss {
 	lws_dll2_owner_t	task_cancel_owner; /* sai_platform_t builder offers */
 	lws_dll2_owner_t	rebuild_owner;
 	lws_dll2_owner_t	stay_owner;
+	lws_dll2_owner_t	pcon_control_owner;
 	lws_dll2_owner_t	aft_owner; /* for statefully spooling artifact info */
 	lws_dll2_owner_t	res_owner; /* sai_resource_requisition_t
 					    * owner of resource objects related
@@ -151,6 +153,7 @@ struct pss {
 							  * messages to builder */
 	lws_dll2_owner_t	viewer_state_owner;
 	lws_struct_args_t	a;
+	struct lejp_ctx		ctx_power;
 
 	const char		*server_name;
 

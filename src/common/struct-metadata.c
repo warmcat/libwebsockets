@@ -393,3 +393,37 @@ const lws_struct_map_t lsm_schema_builder_registration[] = {
 		   lsm_builder_registration,
 		   "com.warmcat.sai.builder_registration"),
 };
+
+static const lws_struct_map_t lsm_pcon_energy_item[] = {
+	LSM_CARRAY	(sai_pcon_energy_report_item_t, name,			"name"),
+	LSM_UNSIGNED	(sai_pcon_energy_report_item_t, data.voltage_v,		"voltage_v"),
+	LSM_UNSIGNED	(sai_pcon_energy_report_item_t, data.current_ma,	"current_ma"),
+	LSM_UNSIGNED	(sai_pcon_energy_report_item_t, data.active_power_w,	"active_power_w"),
+	LSM_UNSIGNED	(sai_pcon_energy_report_item_t, data.apparent_power_va,	"apparent_power_va"),
+	LSM_UNSIGNED	(sai_pcon_energy_report_item_t, data.reactive_power_var,"reactive_power_var"),
+	LSM_UNSIGNED	(sai_pcon_energy_report_item_t, data.power_factor_scaled_1000, "power_factor_scaled_1000"),
+	LSM_UNSIGNED	(sai_pcon_energy_report_item_t, data.energy_today_wh,	"energy_today_wh"),
+	LSM_UNSIGNED	(sai_pcon_energy_report_item_t, data.energy_yesterday_wh,"energy_yesterday_wh"),
+	LSM_UNSIGNED	(sai_pcon_energy_report_item_t, data.energy_total_wh,	"energy_total_wh"),
+};
+
+const lws_struct_map_t lsm_pcon_energy_report[] = {
+	LSM_LIST	(sai_pcon_energy_report_t, items,
+			 sai_pcon_energy_report_item_t, list,
+			 NULL, lsm_pcon_energy_item, "items"),
+};
+
+const lws_struct_map_t lsm_schema_pcon_energy[] = {
+	LSM_SCHEMA(sai_pcon_energy_report_t, NULL, lsm_pcon_energy_report,
+		   "com.warmcat.sai.pcon_energy"),
+};
+
+const lws_struct_map_t lsm_pcon_control[] = {
+	LSM_CARRAY	(sai_pcon_control_t, pcon_name,		"pcon_name"),
+	LSM_UNSIGNED	(sai_pcon_control_t, on,		"on"),
+};
+
+const lws_struct_map_t lsm_schema_pcon_control[] = {
+	LSM_SCHEMA(sai_pcon_control_t, NULL, lsm_pcon_control,
+		   "com.warmcat.sai.pcon_control"),
+};

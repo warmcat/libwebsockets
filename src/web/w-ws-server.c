@@ -36,6 +36,10 @@ static lws_struct_map_t lsm_websrv_evinfo[] = {
 	LSM_CARRAY	(sai_browse_rx_evinfo_t, event_hash,	"event_hash"),
 };
 
+/*
+ * (Structs and maps removed - now in common/include/private.h and common/struct-metadata.c)
+ */
+
 const lws_struct_map_t lsm_schema_json_map[] = {
 	LSM_SCHEMA	(sai_browse_rx_evinfo_t, NULL, lsm_websrv_evinfo,
 			/* shares struct */   "sai-taskchange"),
@@ -55,6 +59,8 @@ const lws_struct_map_t lsm_schema_json_map[] = {
 	LSM_SCHEMA(sai_power_managed_builders_t, NULL,
 			lsm_power_managed_builders_list,
 			"com.warmcat.sai.power_managed_builders"),
+	LSM_SCHEMA	(sai_pcon_energy_report_t, NULL, lsm_pcon_energy_report,
+			 /* shares struct */ "com.warmcat.sai.pcon_energy"),
 };
 
 enum {
@@ -67,6 +73,7 @@ enum {
 	SAIS_WS_WEBSRV_RX_TASKACTIVITY,
 	SAIS_WS_WEBSRV_RX_BUILD_METRIC,
 	SAIS_WS_WEBSRV_RX_POWER_MANAGED_BUILDERS,
+	SAIS_WS_WEBSRV_RX_PCON_ENERGY,
 };
 
 /*
@@ -122,6 +129,7 @@ saiw_lp_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 		case SAIS_WS_WEBSRV_RX_TASKACTIVITY:
 		case SAIS_WS_WEBSRV_RX_SAI_BUILDERS:
 		case SAIS_WS_WEBSRV_RX_POWER_MANAGED_BUILDERS:
+		case SAIS_WS_WEBSRV_RX_PCON_ENERGY:
 			saiw_ws_broadcast_browsers_REQUIRES_LWS_PRE(vhd, buf, len,
 				lws_write_ws_flags(LWS_WRITE_TEXT,
 						   flags & LWSSS_FLAG_SOM,
@@ -139,6 +147,7 @@ saiw_lp_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 		case SAIS_WS_WEBSRV_RX_EVENTCHANGE:
 		case SAIS_WS_WEBSRV_RX_SAI_BUILDERS:
 		case SAIS_WS_WEBSRV_RX_POWER_MANAGED_BUILDERS:
+		case SAIS_WS_WEBSRV_RX_PCON_ENERGY:
 			saiw_ws_broadcast_browsers_REQUIRES_LWS_PRE(vhd, buf, len,
 				lws_write_ws_flags(LWS_WRITE_TEXT,
 						   flags & LWSSS_FLAG_SOM,
@@ -264,6 +273,10 @@ saiw_lp_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 		 * `com.warmcat.sai.power_managed_builders` is just passthrough to the browser, sai-web doesn't need to statefully track PCONs (browsers do).
 		 * So treating it like LOADREPORT (passthrough) is correct.
 		 */
+		saiw_ws_broadcast_browsers_REQUIRES_LWS_PRE(vhd, buf, len - (unsigned int)n,
+			lws_write_ws_flags(LWS_WRITE_TEXT, flags & LWSSS_FLAG_SOM, flags & LWSSS_FLAG_EOM));
+		break;
+	case SAIS_WS_WEBSRV_RX_PCON_ENERGY:
 		saiw_ws_broadcast_browsers_REQUIRES_LWS_PRE(vhd, buf, len - (unsigned int)n,
 			lws_write_ws_flags(LWS_WRITE_TEXT, flags & LWSSS_FLAG_SOM, flags & LWSSS_FLAG_EOM));
 		break;

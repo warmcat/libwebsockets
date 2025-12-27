@@ -649,6 +649,33 @@ typedef struct sai_builder_registration {
 	char				power_controller_name[64];
 } sai_builder_registration_t;
 
+typedef struct tasmota_data {
+	unsigned int		voltage_v;
+	unsigned int		current_ma;
+	unsigned int		active_power_w;
+	unsigned int		apparent_power_va;
+	unsigned int		reactive_power_var;
+	unsigned int		power_factor_scaled_1000;
+	unsigned int		energy_today_wh;
+	unsigned int		energy_yesterday_wh;
+	unsigned int		energy_total_wh;
+} tasmota_data_t;
+
+typedef struct sai_pcon_energy_report_item {
+	lws_dll2_t		list;
+	tasmota_data_t		data;
+	char			name[64];
+} sai_pcon_energy_report_item_t;
+
+typedef struct sai_pcon_energy_report {
+	lws_dll2_owner_t	items;
+} sai_pcon_energy_report_t;
+
+typedef struct sai_pcon_control {
+	lws_dll2_t		list;
+	char			pcon_name[64];
+	char			on;
+} sai_pcon_control_t;
 
 /*
  * Because the definitions of these arrays of map structs are mostly in
@@ -704,7 +731,11 @@ extern const lws_struct_map_t
 	lsm_builder_registration[3],
 	lsm_schema_sq3_map_power_controller[1],
 	lsm_schema_sq3_map_controlled_builder[1],
-	lsm_schema_builder_registration[1];
+	lsm_schema_builder_registration[1],
+	lsm_pcon_energy_report[1],
+	lsm_schema_pcon_energy[1],
+	lsm_pcon_control[2],
+	lsm_schema_pcon_control[1];
 
 extern const lws_ss_info_t ssi_said_logproxy;
 extern struct lws_ss_handle *ssh[3];
