@@ -84,7 +84,8 @@ typedef struct saip_pcon {
 	size_t			monitor_rx_pos;
 
 	char			on;
-	char			manual_stay; /* user asked to keep this PCON on via UI */
+	char			user_keep_on; /* user asked to keep this PCON on via UI */
+	char			server_requested_on; /* server requested stay for jobs */
 	char			needed; /* transiently set by deps analysis */
 } saip_pcon_t;
 

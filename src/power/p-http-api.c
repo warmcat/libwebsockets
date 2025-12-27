@@ -158,7 +158,7 @@ saip_set_stay(const char *builder_name, int stay_on)
 	sps = lws_container_of(power.sai_server_owner.head, saip_server_t, list);
 	/* pss = (saip_server_link_t *)lws_ss_to_user_object(sps->ss); */
 
-	pc->manual_stay = (char)stay_on;
+	pc->user_keep_on = (char)stay_on;
 	saip_notify_server_stay_state(builder_name, stay_on | pc->needed);
 
 	/* Trigger state re-eval */
@@ -404,7 +404,7 @@ local_srv_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 			if (pc)
 				g->size = (size_t)lws_snprintf(g->payload, sizeof(g->payload),
-								"%c", '0' + (pc->manual_stay | pc->needed));
+								"%c", '0' + (pc->user_keep_on | pc->needed));
 			else
 				g->size = (size_t)lws_snprintf(g->payload, sizeof(g->payload),
 								"unknown builder %s", pn);
@@ -433,7 +433,7 @@ local_srv_state(void *userobj, void *sh, lws_ss_constate_t state,
 				else
 					g->size = (size_t)lws_snprintf(g->payload, sizeof(g->payload),
 						"Resumed %s with stay", pn);
-				pc->manual_stay = 1;
+				pc->user_keep_on = 1;
 				goto bail;
 			}
 
@@ -452,7 +452,7 @@ local_srv_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 			lwsl_warn("%s: powered on %s\n", __func__, pc->name);
 
-			pc->manual_stay = 1; /* so builder can understand it's manual */
+			pc->user_keep_on = 1; /* so builder can understand it's manual */
 			saip_notify_server_power_state(pc->name, 1, 0);
 
 			sps = lws_container_of(power.sai_server_owner.head,
@@ -547,7 +547,7 @@ power_off:
 				pc->name,
 				(int)(SAI_POWERDOWN_HOLDOFF_US / LWS_USEC_PER_SEC));
 
-			pc->manual_stay = 0; /* reset any manual power up */
+			pc->user_keep_on = 0; /* reset any manual power up */
 		}
 
 bail:

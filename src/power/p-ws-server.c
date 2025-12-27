@@ -214,7 +214,7 @@ saip_m_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 
 			if (pc) {
 				lwsl_notice("%s: PCON Control '%s' -> %d\n", __func__, pc->name, ctl->on);
-				pc->manual_stay = ctl->on;
+				pc->user_keep_on = ctl->on;
 				if (ctl->on) {
 					saip_switch(pc, 1);
 				} else {
@@ -246,7 +246,7 @@ saip_m_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 						lwsl_notice("%s: Mapping stay for builder '%s' to PCON '%s'\n",
 							    __func__, sb->name, pc->name);
 						/* Update PCON stay state */
-						pc->manual_stay = stay->stay_on;
+						pc->server_requested_on = stay->stay_on;
 
 						/* If stay is cleared, schedule power off check */
 						if (!stay->stay_on)

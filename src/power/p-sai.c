@@ -207,40 +207,26 @@ sul_pcon_check_cb(lws_sorted_usec_list_t *sul)
 			target_on = 1;
 			lwsl_info("%s: PCON %s has 0 builders -> Force ON\n", __func__, pc->name);
 		}
-		/* Rule 2: Manual Stay -> Turn ON */
-		else if (pc->manual_stay) {
+		/* Rule 2: User Keep On -> Turn ON */
+		else if (pc->user_keep_on) {
 			target_on = 1;
-			lwsl_info("%s: PCON %s has manual stay -> Force ON\n", __func__, pc->name);
+			lwsl_info("%s: PCON %s has user keep on -> Force ON\n", __func__, pc->name);
 		}
-		/* Rule 3: Otherwise, rely on sai-server to tell us via 'stay' messages if it needs to be on.
-		 * Wait... sai-server tells us which *builders* need to stay on.
-		 * We need to map builder stay -> PCON stay.
-		 * But sai-power receives 'stay' messages for builders.
-		 */
-		else {
-			/* Check if any registered builder needs to stay on */
-			/* The 'stay' flag on the PCON struct isn't quite right,
-			   we need to check the builders we know about.
-			   Actually, sai-server tells sai-power: "Builder X needs to stay".
-			   sai-power should look up Builder X, find its PCON, and mark the PCON as needed.
-			*/
-			/* For now, let's assume if we aren't forcing it on, we let it be managed by the existing logic
-			 * which we need to adapt.
-			 */
+		/* Rule 3: Server Requested -> Turn ON */
+		else if (pc->server_requested_on) {
+			target_on = 1;
+			lwsl_info("%s: PCON %s has server request -> Force ON\n", __func__, pc->name);
 		}
-
-		/*
-		 * Existing logic in p-smartplug.c or similar likely handles the actual HTTP switching
-		 * based on a state flag. We need to make sure we set that flag.
-		 * The 'saip_pcon_t' has an 'on' member.
-		 */
 
 		/* If we decide it should be ON, trigger it */
 		if (target_on && !pc->on) {
-			/* This logic needs to hook into the actual switching code */
-			/* For now, just logging intent */
-			// pc->on = 1;
-			// saip_switch(pc, 1);
+			lwsl_notice("%s: PCON %s ON (target=1, current=%d)\n", __func__, pc->name, pc->on);
+			pc->on = 1;
+			saip_switch(pc, 1);
+		} else if (!target_on && pc->on) {
+			lwsl_notice("%s: PCON %s OFF (target=0, current=%d)\n", __func__, pc->name, pc->on);
+			pc->on = 0;
+			saip_switch(pc, 0);
 		}
 
 	} lws_end_foreach_dll(p);
@@ -285,7 +271,7 @@ sul_broadcast_energy_cb(lws_sorted_usec_list_t *sul)
 		if (queued) {
 			lwsl_notice("%s: Queued energy report for server\n", __func__);
 			if (lws_ss_request_tx(sps->ss)) /* Request write to send the report */
-				lwsl_warn("%s: Failed to trigger monitor request\n", __func__);
+				lwsl_warn("%s: failed to request tx\n", __func__);
 		}
 	} lws_end_foreach_dll_safe(mp, mp1);
 

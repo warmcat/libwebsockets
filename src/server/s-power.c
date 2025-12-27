@@ -218,7 +218,7 @@ passthru:
 				uint8_t *seg;
 				size_t slen;
 
-				slen = lws_buflist_next_segment_len(&pss->power_rx_cache, &seg);
+				slen = lws_buflist_next_segment_len(&pss->power_rx_cache, (uint8_t **)&seg);
 				if (!slen)
 					break;
 
