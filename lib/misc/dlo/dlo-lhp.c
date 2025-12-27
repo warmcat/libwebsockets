@@ -295,6 +295,7 @@ lhp_set_dlo_adjust_to_contents(lhp_pstack_t *ps)
 
 	lws_dlo_contents(ps->dlo, &dim);
 
+
 	/*
 	 * we want to adjust the dlo size to the size of the contents,
 	 * plus the padding of the parent that the contents sits inside
@@ -325,6 +326,9 @@ lhp_set_dlo_adjust_to_contents(lhp_pstack_t *ps)
 	}
 
 	lws_display_dlo_adjust_dims(ps->dlo, &dim);
+
+	if (ps->forced_inline)
+		lwsl_notice("A tag adjust dim.w %d box.w %d\n", dim.w.whole, ps->dlo->box.w.whole);
 
 	if (lws_fx_comp(&dim.w, &psb->widest) > 0)
 		psb->widest = dim.w;
@@ -1275,7 +1279,7 @@ do_end_rect:
 					   lws_csp_px(ps_con->css_padding[CCPAS_RIGHT], ps_con));
 			}
 
-			if (!box.w.whole && !ps->forced_inline)
+			if (!box.w.whole && !lhp_is_inline(ps_con))
 				lws_fx_sub(&box.w, &ctx->ic.wh_px[0], &box.x);
 			assert(ps_con);
 
@@ -1310,7 +1314,7 @@ do_end_rect:
 			txt->dlo.box.w = txt->bounding_box.w;
 			txt->dlo.box.h = txt->bounding_box.h;
 
-			if (!ps->dlo) {
+			if (!ps->dlo && (!psb || !psb->forced_inline)) {
 				const lcsp_atr_t *bg = ps->css_background_color;
 
 				if (!bg) {
