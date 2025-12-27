@@ -65,3 +65,15 @@ Commandline option|Meaning
 [2024/12/18 07:22:39:8486] N: __lws_lc_untag:  -- [vh|1|_ss_default||-1] (0) 10.637s
 [2024/12/18 07:22:39:8486] U: Completed: OK (seen expected 0)
 ```
+
+## Optional urlarg
+
+The server supports a possible urlarg like `?my_arg=1234`.
+
+If present on the client URL, the server will log it via SS metadata
+similar to this
+
+```
+[2025/12/27 11:14:54:7219] N: [wsiSScli|f|myserver]: myss_srv_state: Received my_arg: 1234
+```
+

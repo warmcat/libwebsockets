@@ -69,6 +69,14 @@ myss_srv_state(void *userobj, void *sh, lws_ss_constate_t state,
 					"text/html", 9))
 			return LWSSSSRET_DISCONNECT_ME;
 
+		{
+			const void *val;
+			size_t len;
+			if (!lws_ss_get_metadata(lws_ss_from_user(g), "my_arg", &val, &len)) {
+				lwsl_ss_notice(lws_ss_from_user(g), "Received my_arg: %.*s", (int)len, (const char *)val);
+			}
+		}
+
 		g->size	= (size_t)lws_snprintf(g->payload, sizeof(g->payload),
 					       "Hello World: %lu",
 					       (unsigned long)lws_now_usecs());
