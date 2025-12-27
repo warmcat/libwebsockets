@@ -684,12 +684,16 @@ saiw_ws_json_rx_browser(struct vhd *vhd, struct pss *pss, uint8_t *buf,
 			lwsl_err("%s: pcon control didn't like auth\n", __func__);
 			goto auth_error;
 		}
-		lwsl_notice("%s: web: received pcon control req\n", __func__);
+		lwsl_warn("%s: web: received pcon control req (len %d)\n", __func__, (int)bl);
 
 		/* Forward to sai-server via websrv link */
-		sai_ss_queue_frag_on_buflist_REQUIRES_LWS_PRE(vhd->h_ss_websrv,
+		if (sai_ss_queue_frag_on_buflist_REQUIRES_LWS_PRE(vhd->h_ss_websrv,
 			&((saiw_websrv_t *)lws_ss_to_user_object(vhd->h_ss_websrv))->wbltx,
-			buf, bl, ss_flags);
+			buf, bl, ss_flags))
+			lwsl_err("%s: failed to queue pcon control to server\n", __func__);
+		else
+			lwsl_warn("%s: queued pcon control to server OK\n", __func__);
+
 		goto ok;
 
 	case SAIM_WS_BROWSER_RX_TASKREBUILDLASTSTEP:

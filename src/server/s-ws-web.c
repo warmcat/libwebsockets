@@ -480,8 +480,9 @@ websrvss_ws_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	case SAIS_WS_WEBSRV_RX_PCON_CONTROL:
 	{
 		sai_pcon_control_t *ctl = (sai_pcon_control_t *)a.dest;
+		int count = 0;
 
-		lwsl_notice("%s: pcon control received from web: %s -> %d\n",
+		lwsl_warn("%s: pcon control received from web: '%s' -> %d\n",
 			    __func__, ctl->pcon_name, ctl->on);
 
 		lws_start_foreach_dll(struct lws_dll2 *, p,
@@ -494,9 +495,14 @@ websrvss_ws_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 				*s = *ctl;
 				lws_dll2_add_tail(&s->list, &pss_power->pcon_control_owner);
 				lws_callback_on_writable(pss_power->wsi);
-				lwsl_wsi_notice(pss_power->wsi, "queued pcon control on power conn");
-			}
+				lwsl_wsi_warn(pss_power->wsi, "queued pcon control on power conn");
+				count++;
+			} else
+				lwsl_err("%s: OOM queuing control\n", __func__);
 		} lws_end_foreach_dll(p);
+
+		if (!count)
+			lwsl_warn("%s: No sai-power connections found to forward control to!\n", __func__);
 
 		lwsac_free(&a.ac);
 		break;

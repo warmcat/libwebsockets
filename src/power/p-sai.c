@@ -213,13 +213,16 @@ sul_pcon_check_cb(lws_sorted_usec_list_t *sul)
 		/* Rule 2: User Keep On -> Turn ON */
 		if (pc->user_keep_on) {
 			target_on = 1;
-			lwsl_info("%s: PCON %s has user keep on -> Force ON\n", __func__, pc->name);
+			lwsl_warn("%s: PCON %s has user keep on -> Force ON\n", __func__, pc->name);
 		}
 		/* Rule 3: Server Requested -> Turn ON */
 		else if (pc->server_requested_on) {
 			target_on = 1;
-			lwsl_info("%s: PCON %s has server request -> Force ON\n", __func__, pc->name);
+			lwsl_warn("%s: PCON %s has server request -> Force ON\n", __func__, pc->name);
 		}
+
+		lwsl_info("%s: PCON %s check: target=%d, current=%d (user=%d, srv=%d)\n",
+			  __func__, pc->name, target_on, pc->on, pc->user_keep_on, pc->server_requested_on);
 
 		/* If we decide it should be ON, trigger it */
 		if (target_on && !pc->on) {

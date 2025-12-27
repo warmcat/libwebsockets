@@ -353,6 +353,10 @@ passthru:
 
 			free(p);
 		}
+
+		if (n == LEJP_CONTINUE)
+			return 0;
+
 		break;
 	default:
 		lwsl_warn("%s: unknown schema\n", __func__);

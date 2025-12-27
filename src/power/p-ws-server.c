@@ -212,8 +212,11 @@ saip_m_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 			sai_pcon_control_t *ctl = (sai_pcon_control_t *)a.dest;
 			saip_pcon_t *pc = saip_pcon_by_name(&power, ctl->pcon_name);
 
+			lwsl_warn("%s: RX PCON Control '%s' -> %d\n", __func__, ctl->pcon_name, ctl->on);
+
 			if (pc) {
-				lwsl_notice("%s: PCON Control '%s' -> %d\n", __func__, pc->name, ctl->on);
+				lwsl_warn("%s: Applying PCON Control '%s' -> %d (prev user_keep_on=%d)\n",
+					  __func__, pc->name, ctl->on, pc->user_keep_on);
 				pc->user_keep_on = ctl->on;
 				if (ctl->on) {
 					saip_switch(pc, 1);
