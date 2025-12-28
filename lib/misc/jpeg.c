@@ -2879,7 +2879,8 @@ lws_jpeg_emit_next_line(lws_jpeg_t *j, const uint8_t **ppix,
 			if (r)
 				goto fin;
 
-			j->mcu_count_left_x--;
+			if (j->mcu_count_left_x)
+				j->mcu_count_left_x--;
 			if (!j->mcu_count_left_x) {
 				j->mcu_count_left_y--;
 
