@@ -364,15 +364,16 @@ lws_lhp_dlo_adjust_div_type_element(lhp_ctx_t *ctx, lhp_pstack_t *psb,
 		lws_dlo_rect_t *re = (lws_dlo_rect_t *)ps->dlo;
 
 		/* h-center a div... find the available h space first */
-	w = psb->drt.w;
-	lws_fx_sub(&w, &w, lws_csp_px(psb->css_padding[CCPAS_LEFT], psb));
-	lws_fx_sub(&w, &w, lws_csp_px(psb->css_padding[CCPAS_RIGHT], psb));
+		w = psb->drt.w;
+		lws_fx_sub(&w, &w, lws_csp_px(psb->css_padding[CCPAS_LEFT], psb));
+		lws_fx_sub(&w, &w, lws_csp_px(psb->css_padding[CCPAS_RIGHT], psb));
 
-	/*
-	if (psb->css_width &&
-		    psb->css_width->propval != LCSP_PROPVAL_AUTO)
-			w = *lws_csp_px(psb->css_width, psb);
-*/
+		/*
+		if (psb->css_width &&
+			    psb->css_width->propval != LCSP_PROPVAL_AUTO)
+				w = *lws_csp_px(psb->css_width, psb);
+		*/
+
 		lws_fx_sub(&t1, &w, &re->dlo.box.w);
 		if (t1.whole < 0)
 			lws_fx_set(t1, 0, 0);
