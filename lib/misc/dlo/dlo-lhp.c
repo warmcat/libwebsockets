@@ -734,7 +734,8 @@ lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 			}
 
 			if (elem_match > LHP_ELEM_IMG) {
-				if (elem_match == LHP_ELEM_A)
+				if (elem_match == LHP_ELEM_A ||
+				    elem_match == LHP_ELEM_SPAN)
 					ps->forced_inline = 1;
 
 				if (psb && (psb->runon & 1) &&
@@ -1274,7 +1275,7 @@ do_end_rect:
 					   lws_csp_px(ps_con->css_padding[CCPAS_RIGHT], ps_con));
 			}
 
-			if (!box.w.whole && !ps->forced_inline)
+			if (!box.w.whole && (!lhp_is_inline(ps) || ps->forced_inline))
 				lws_fx_sub(&box.w, &ctx->ic.wh_px[0], &box.x);
 			assert(ps_con);
 
