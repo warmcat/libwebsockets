@@ -123,7 +123,8 @@ write_bmp_header(int fd, int w, int h)
 	head[26] = 1;
 	head[28] = 24;
 
-	write(fd, head, 54);
+	if (write(fd, head, 54) < 54)
+		lwsl_err("%s: write failed\n", __func__);
 }
 
 #if defined(SEVENCOL)
@@ -194,7 +195,8 @@ render(lws_sorted_usec_list_t *sul)
 				expand(rs->line[(n >> 1)] & 0xf, dump + (4 * (n + 1)));
 			}
 
-			write(fdout, dump, (size_t)rs->box.w.whole * 4);
+			if (write(fdout, dump, (size_t)rs->box.w.whole * 4) < (ssize_t)((size_t)rs->box.w.whole * 4))
+				lwsl_err("%s: write failed\n", __func__);
 		}
 #else
 		{
