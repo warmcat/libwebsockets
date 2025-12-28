@@ -1265,7 +1265,8 @@ do_end_rect:
 
 			if (ps_con->css_width &&
 				(ps_con->css_width->propval == LCSP_PROPVAL_AUTO ||
-				 ps->css_width->propval == LCSP_PROPVAL_AUTO)) {
+				 ps->css_width->propval == LCSP_PROPVAL_AUTO) &&
+				 !lhp_is_inline(ps)) {
 				//lws_fx_sub(&box.w, &ctx->ic.wh_px[0], &box.x);
 				box.w = ctx->ic.wh_px[0];
 			} else {
