@@ -364,12 +364,9 @@ lws_lhp_dlo_adjust_div_type_element(lhp_ctx_t *ctx, lhp_pstack_t *psb,
 		lws_dlo_rect_t *re = (lws_dlo_rect_t *)ps->dlo;
 
 		/* h-center a div... find the available h space first */
-	if (psb) {
-		w = psb->drt.w;
-		lws_fx_sub(&w, &w, lws_csp_px(psb->css_padding[CCPAS_LEFT], psb));
-		lws_fx_sub(&w, &w, lws_csp_px(psb->css_padding[CCPAS_RIGHT], psb));
-	} else
-		w = ctx->ic.wh_px[LWS_LHPREF_WIDTH];
+	w = psb->drt.w;
+	lws_fx_sub(&w, &w, lws_csp_px(psb->css_padding[CCPAS_LEFT], psb));
+	lws_fx_sub(&w, &w, lws_csp_px(psb->css_padding[CCPAS_RIGHT], psb));
 
 	/*
 	if (psb->css_width &&
@@ -778,7 +775,8 @@ do_rect:
 			    ps->css_width->propval != LCSP_PROPVAL_AUTO) {
 			    if (lws_fx_comp(lws_csp_px(ps->css_width, ps), &box.w) < 0)
 				box.w = *lws_csp_px(ps->css_width, ps);
-			} else if ((ps->css_display->propval == LCSP_PROPVAL_BLOCK ||
+			} else if (ps->css_display &&
+				   (ps->css_display->propval == LCSP_PROPVAL_BLOCK ||
 				    ps->css_display->unit == LCSP_UNIT_STRING) &&
 				   !lhp_is_inline(ps)) {
 				if (psb && psb->dlo) {
