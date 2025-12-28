@@ -252,13 +252,13 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 #if defined(LWS_WITH_SECURE_STREAMS)
 	lws_dlo_jpeg_t *dlo_jpeg = NULL;
 	lws_dlo_png_t *dlo_png = NULL;
+	char rebased_url[LHP_URL_LEN];
 	size_t ul = strlen(i->url);
 	struct lws_ss_handle *h;
 	lws_dlo_t *dlo = NULL;
-	char rebased_url[LHP_URL_LEN];
 	lws_ss_info_t ssi;
+	const char *p, *q;
 	dloss_t *dloss;
-	const char *p;
 	uint8_t type;
 
 	lwsl_notice("%s: entry\n", __func__);
@@ -270,14 +270,14 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 	if (!p)
 		p = i->url + ul;
 
-	if (!strcmp(p - 4, ".png"))
+	if (!strncmp(p - 4, ".png", 4))
 		type = LWSDLOSS_TYPE_PNG;
 	else
-		if (!strcmp(p - 4, ".jpg") ||
-		    !strcmp(p - 5, ".jpeg"))
+		if (!strncmp(p - 4, ".jpg", 4) ||
+		    !strncmp(p - 5, ".jpeg", 4))
 			type = LWSDLOSS_TYPE_JPEG;
 		else
-			if (!strcmp(p - 4, ".css"))
+			if (!strncmp(p - 4, ".css", 4))
 				type = LWSDLOSS_TYPE_CSS;
 			else {
 				lwsl_warn("%s: unknown file type %s\n", __func__, i->url);
@@ -291,9 +291,13 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 
 	lwsl_notice("%s: rebased_url -> %s\n", __func__, rebased_url);
 
+	q = p;
+	while (q > i->url && q[-1] != '/')
+		q--;
+
 	switch (type) {
 	case LWSDLOSS_TYPE_PNG:
-		dlo_png = lws_display_dlo_png_new(i->dl, i->dlo_parent, i->box);
+		dlo_png = lws_display_dlo_png_new(i->dl, i->dlo_parent, i->box, q, lws_ptr_diff_size_t(p, q));
 		if (!dlo_png)
 			return 1;
 
@@ -310,7 +314,7 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 		break;
 
 	case LWSDLOSS_TYPE_JPEG:
-		dlo_jpeg = lws_display_dlo_jpeg_new(i->dl, i->dlo_parent, i->box);
+		dlo_jpeg = lws_display_dlo_jpeg_new(i->dl, i->dlo_parent, i->box, q, lws_ptr_diff_size_t(p, q));
 		if (!dlo_jpeg)
 			return 1;
 

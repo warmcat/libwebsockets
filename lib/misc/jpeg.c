@@ -1209,8 +1209,8 @@ process_markers(lws_jpeg_t *j, uint8_t *pMarker)
 				if (r)
 					return r;
 				if (j->fs_pm_skip_budget < 2) {
-					lwsl_jpeg("%s: inadequate skip 3\n",
-								__func__);
+					lwsl_jpeg("%s: inadequate skip 3: %d\n",
+								__func__, j->fs_pm_skip_budget);
 
 					return LWS_SRET_FATAL + 19;
 				}

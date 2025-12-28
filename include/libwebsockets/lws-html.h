@@ -507,6 +507,13 @@ typedef struct lcsp_atr_ptr {
 	lcsp_atr_t		*atr;
 } lcsp_atr_ptr_t;
 
+typedef struct lhp_css_var {
+	lws_dll2_t list;
+	size_t name_len;
+	lcsp_defs_t *def;
+	/* name+NUL follows */
+} lhp_css_var_t;
+
 #define LHP_FLAG_DOCUMENT_END					(1 << 0)
 
 typedef struct lhp_ctx {
@@ -529,6 +536,8 @@ typedef struct lhp_ctx {
 	lws_dll2_owner_t	active_atr; /* lcsp_atr_ptr_t allocated in
 					     * propatrac */
 
+	lws_dll2_owner_t	css_vars; /* lhp_css_var_t allocated in cssac */
+
 	lws_surface_info_t	ic;
 
 	const char		*base_url; /* strdup of https://x.com/y.html */
@@ -547,6 +556,8 @@ typedef struct lhp_ctx {
 	int			state_css_comm; /* private */
 	int			nl_temp;
 	int			temp_count;
+	int			saved_state;
+	int			entity_start;
 
 	uint32_t		flags;
 	uint32_t		temp;
@@ -715,3 +726,6 @@ lhp_set_dlo_padding_margin(lhp_pstack_t *ps, lws_dlo_t *dlo);
 
 LWS_VISIBLE LWS_EXTERN int
 lhp_prop_axis(const lcsp_atr_t *a);
+
+LWS_VISIBLE LWS_EXTERN const lcsp_atr_t *
+lhp_resolve_var_color(lhp_ctx_t *ctx, const lcsp_atr_t *a);

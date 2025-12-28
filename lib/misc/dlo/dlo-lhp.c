@@ -553,7 +553,7 @@ lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 	char lastm = 0;
 	int elem_match;
 	lws_box_t box;
-	char url[LHP_URL_LEN];
+	char url[LHP_URL_LEN], url1[LHP_URL_LEN];
 	int n, s = 0;
 
 	/* default font choice */
@@ -749,7 +749,8 @@ do_rect:
 			    ps->css_width->propval != LCSP_PROPVAL_AUTO) {
 			    if (lws_fx_comp(lws_csp_px(ps->css_width, ps), &box.w) < 0)
 				box.w = *lws_csp_px(ps->css_width, ps);
-			} else if (ps->css_display->propval == LCSP_PROPVAL_BLOCK) {
+			} else if (ps->css_display->propval == LCSP_PROPVAL_BLOCK ||
+				   ps->css_display->unit == LCSP_UNIT_STRING) {
 				if (psb && psb->dlo) {
 					box.w = psb->drt.w;
 					lws_fx_sub(&box.w, &box.w, lws_csp_px(psb->css_padding[CCPAS_LEFT], psb));
@@ -849,11 +850,16 @@ do_rect:
 			    lws_fx_comp(lws_csp_px(ps->css_width, ps), &box.w) > 0)
 				box.w = *lws_csp_px(ps->css_width, ps);
 
-			if (lws_http_rel_to_url(url, sizeof(url),
+			if (lws_http_rel_to_url(url1, sizeof(url1),
 						ctx->base_url, pname))
 				break;
 
-			lws_dlo_ss_find(cx, url, &u);
+			lws_urldecode(url, url1, sizeof(url) - 1);
+
+			if (lws_dlo_ss_find(cx, url, &u)) {
+				lwsl_err("%s: no ss for %s\n", __func__, url);
+				break;
+			}
 
 			lws_lhp_tag_dlo_id(ctx, ps, (lws_dlo_t *)(u.u.dlo_jpeg));
 
@@ -1192,9 +1198,12 @@ do_end_rect:
 			{
 				const lcsp_atr_t *bg = ps->css_background_color;
 
-				if (!bg)
+				if (!bg) {
 					bg = lws_css_cascade_get_prop_atr(ctx,
 							LCSP_PROP_BACKGROUND);
+					if (bg)
+						bg = lhp_resolve_var_color(ctx, bg);
+				}
 
 				if (bg && bg->unit == LCSP_UNIT_RGBA) {
 					lws_fx_t radii[4];
@@ -1205,6 +1214,7 @@ do_end_rect:
 					 * expand the box to match the padding of
 					 * the element
 					 */
+			// lwsl_notice("creating background rect for text '%.*s', rgba %08X\n", (int)txt->text_len, txt->text, bg->u.rgba);
 					lws_fx_sub(&b.x, &b.x,
 					   lws_csp_px(ps->css_padding[CCPAS_LEFT], ps));
 					lws_fx_add(&b.w, &b.w,
@@ -1225,10 +1235,13 @@ do_end_rect:
 							radii[i] = *lws_csp_px(
 							  ps->css_border_radius[i], ps);
 
-					lws_display_dlo_rect_new(drt->dl,
+					lws_dlo_rect_t *dr = lws_display_dlo_rect_new(drt->dl,
 							(lws_dlo_t *)ps_con->dlo, &b,
 							radii,
 							bg->u.rgba);
+
+					if (dr)
+						runon(ps_con, &dr->dlo);
 
 					/*
 					 * reorder so the background rect is behind the

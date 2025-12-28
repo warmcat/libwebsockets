@@ -625,8 +625,10 @@ lws_upng_decode(lws_upng_t* u, const uint8_t **_pos, size_t *_size)
 	}
 
 	r = LWS_SRET_OK;
-	if (!u->no_more_input)
+	if (!u->no_more_input) {
+		lwsl_notice("%s: PNG says WANT_INPUT\n", __func__);
 		r = LWS_SRET_WANT_INPUT;
+	}
 
 bail:
 	*_pos = pos;

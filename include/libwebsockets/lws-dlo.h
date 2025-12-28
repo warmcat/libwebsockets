@@ -248,12 +248,14 @@ typedef struct lws_dlo_rasterize {
 typedef struct lws_dlo_png {
 	lws_dlo_t			dlo;  /* ordering: first */
 	lws_flow_t			flow; /* ordering: second */
+	char				name[25];
 	lws_upng_t			*png;
 } lws_dlo_png_t;
 
 typedef struct lws_dlo_jpeg {
 	lws_dlo_t			dlo;  /* ordering: first */
 	lws_flow_t			flow; /* ordering: second */
+	char				name[25];
 	lws_jpeg_t			*j;
 } lws_dlo_jpeg_t;
 
@@ -412,7 +414,7 @@ lws_display_dlo_text_destroy(struct lws_dlo *dlo);
 
 LWS_VISIBLE LWS_EXTERN lws_dlo_png_t *
 lws_display_dlo_png_new(lws_displaylist_t *dl, lws_dlo_t *dlo_parent,
-			lws_box_t *box);
+			lws_box_t *box, const char *name, size_t len);
 
 LWS_VISIBLE LWS_EXTERN lws_stateful_ret_t
 lws_display_render_png(struct lws_display_render_state *rs);
@@ -429,7 +431,7 @@ lws_display_dlo_png_destroy(struct lws_dlo *dlo);
 
 LWS_VISIBLE LWS_EXTERN lws_dlo_jpeg_t *
 lws_display_dlo_jpeg_new(lws_displaylist_t *dl, lws_dlo_t *dlo_parent,
-			 lws_box_t *box);
+			 lws_box_t *box, const char *name, size_t len);
 
 LWS_VISIBLE LWS_EXTERN lws_stateful_ret_t
 lws_display_render_jpeg(struct lws_display_render_state *rs);

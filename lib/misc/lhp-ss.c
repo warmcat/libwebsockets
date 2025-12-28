@@ -61,7 +61,7 @@ lws_lhp_ss_html_parse(lws_sorted_usec_list_t *sul)
 				lwsl_warn("%s: returning to await more input\n", __func__);
 				return;
 			}
-			lwsl_info("%s: inferring we are finished\n", __func__);
+			lwsl_notice("%s: inferring we are finished\n", __func__);
 			break;
 		}
 
