@@ -605,13 +605,9 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 	 */
 
 	while (ai) {
-#if defined(LWS_WITH_NETLINK) || \
-	(defined(LWS_WITH_NETLINK) && defined(LWS_WITH_IPV6))
-		lws_route_t
 #if defined(LWS_WITH_NETLINK)
-			*estr = NULL
-#endif
-#if defined(LWS_WITH_NETLINK) && defined(LWS_WITH_IPV6)
+		lws_route_t *estr = NULL
+#if defined(LWS_WITH_IPV6)
 			, *bestsrc = NULL
 #endif
 		;
