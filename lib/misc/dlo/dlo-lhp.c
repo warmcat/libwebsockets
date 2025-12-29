@@ -100,6 +100,23 @@ static const struct {
 };
 
 static int
+lhp_tag_cmp(const char *buf, const char *name, size_t len)
+{
+	while (len--) {
+		char c1 = *buf++, c2 = *name++;
+
+		if (c1 >= 'A' && c1 <= 'Z')
+			c1 = (char)(c1 + 'a' - 'A');
+		if (c2 >= 'A' && c2 <= 'Z')
+			c2 = (char)(c2 + 'a' - 'A');
+
+		if (c1 != c2)
+			return 1;
+	}
+	return 0;
+}
+
+static int
 lhp_is_inline(lhp_pstack_t *ps)
 {
 	const struct lcsp_atr *a = ps->css_display;
@@ -621,8 +638,9 @@ lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 	elem_match = 0;
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(elems); n++)
 		if (ctx->npos == elems[n].elem_len &&
-		    !memcmp(ctx->buf, elems[n].elem, elems[n].elem_len))
+		    !lhp_tag_cmp(ctx->buf, elems[n].elem, elems[n].elem_len))
 			elem_match = n + 1;
+
 
 	switch (reason) {
 	case LHPCB_CONSTRUCTED:
@@ -1276,7 +1294,7 @@ do_end_rect:
 					   lws_csp_px(ps_con->css_padding[CCPAS_RIGHT], ps_con));
 			}
 
-			if (!box.w.whole && !ps->forced_inline)
+			if (!box.w.whole)
 				lws_fx_sub(&box.w, &ctx->ic.wh_px[0], &box.x);
 			assert(ps_con);
 
