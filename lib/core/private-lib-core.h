@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2025 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -29,7 +29,7 @@
 #include "lws_config_private.h"
 
 #if !defined(LHP_URL_LEN)
-#define LHP_URL_LEN			384
+#define LHP_URL_LEN			240
 #endif
 
 

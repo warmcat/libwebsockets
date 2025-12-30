@@ -298,7 +298,11 @@ typedef struct lws_display_render_state {
 
 	const struct lws_surface_info	*ic; /* display dimensions, palette */
 
+#if defined(LWS_ESP_PLATFORM)
+	lws_display_render_stack_t	st[16]; /* DLO child stack */
+#else
 	lws_display_render_stack_t	st[64]; /* DLO child stack */
+#endif
 	int				sp;	/* DLO child stack level */
 
 	uint8_t				*line; /* Y or RGB line comp buffer */
