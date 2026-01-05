@@ -88,6 +88,36 @@ if (requirements)
 
 	endif()
 
+	#
+	# Local standalone test
+	#
+	if ("$ENV{SAI_INSTANCE_IDX}")
+		math(EXPR PORT_SRV "7681 + $ENV{SAI_INSTANCE_IDX}")
+	else()
+		set(PORT_SRV "7681")
+	endif()
+
+	# Allow running server on a different port than default
+	add_test(NAME st_sstf_srv COMMAND
+		${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
+		sstf_srv $<TARGET_FILE:lws-minimal-http-server-testsfail>
+		--port ${PORT_SRV})
+	# We run from CMAKE_BINARY_DIR so the server can find the certs generated there
+	set_tests_properties(st_sstf_srv PROPERTIES WORKING_DIRECTORY ${CMAKE_BINARY_DIR} FIXTURES_SETUP sstf_srv TIMEOUT 800)
+
+	add_test(NAME ki_sstf_srv COMMAND
+		${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
+		sstf_srv $<TARGET_FILE:lws-minimal-http-server-testsfail>
+		--port ${PORT_SRV})
+	set_tests_properties(ki_sstf_srv PROPERTIES FIXTURES_CLEANUP sstf_srv)
+
+	add_test(NAME ss-tf-local COMMAND lws-minimal-secure-streams-testsfail --local ${PORT_SRV})
+	set_tests_properties(ss-tf-local PROPERTIES
+		WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+		FIXTURES_REQUIRED "sstf_srv"
+		TIMEOUT 60)
+
+
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared ${LIBWEBSOCKETS_DEP_LIBS})
 		add_dependencies(${SAMP} websockets_shared)
