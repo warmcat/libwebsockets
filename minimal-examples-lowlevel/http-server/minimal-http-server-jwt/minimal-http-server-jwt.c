@@ -252,8 +252,12 @@ callback_jwt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 			if (!strcmp(url_path, "/api/secret")) {
 				if (!pss->authorized) {
-					if (lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL))
-						return -1;
+					/* Return redirect to login on failure */
+					const char *redir = "/?error=unauthorized";
+					if (lws_add_http_header_status(wsi, HTTP_STATUS_SEE_OTHER, &p, end)) return 1;
+					if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION,
+								(unsigned char *)redir, (int)strlen(redir), &p, end)) return 1;
+					if (lws_finalize_write_http_header(wsi, start, &p, end)) return 1;
 					return 0;
 				}
 
@@ -341,7 +345,14 @@ callback_jwt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				} else {
 					/* Login Failed */
 					lwsl_notice("Login failed for %s\n", user ? user : "null");
-					lws_return_http_status(wsi, HTTP_STATUS_UNAUTHORIZED, NULL);
+
+					/* Return redirect to login on failure */
+					const char *redir = "/?error=invalid_credentials";
+					if (lws_add_http_header_status(wsi, HTTP_STATUS_SEE_OTHER, &p, end)) return 1;
+					if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION,
+								(unsigned char *)redir, (int)strlen(redir), &p, end)) return 1;
+					if (lws_finalize_write_http_header(wsi, start, &p, end)) return 1;
+					return 0;
 				}
 
 spa_cleanup:

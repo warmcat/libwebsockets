@@ -13,6 +13,21 @@ document.addEventListener('DOMContentLoaded', function() {
     // HttpOnly cookies from JS. However, often a separate non-HttpOnly flag cookie 
     // is set, or we just try to fetch the secret and fail if not auth'd.
     // For this example, we'll try to fetch the secret api.
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const error = urlParams.get('error');
+    if (error) {
+        const errorDiv = document.getElementById('error-message');
+        if (errorDiv) {
+            let msg = "An error occurred.";
+            if (error === 'invalid_credentials') msg = "Invalid username or password.";
+            if (error === 'unauthorized') msg = "You must be logged in to view this content.";
+            errorDiv.textContent = msg;
+            errorDiv.classList.remove('hidden');
+        }
+        // Optional: clear the query string without reloading
+        window.history.replaceState({}, document.title, window.location.pathname);
+    }
     
     fetch('/api/secret')
         .then(response => {
