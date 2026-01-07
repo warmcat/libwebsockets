@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<title>LWS JWT Auth Example</title>
+	<link rel="stylesheet" href="example.css">
+	<script src="example.js"></script>
+</head>
+<body>
+	<div class="container">
+		<h1>LWS JWT Authentication Example</h1>
+
+		<div id="unauth-view">
+			<p>You are currently <b>unauthenticated</b>.</p>
+			<div class="login-box">
+				<form action="/login" method="post">
+					<div class="form-group">
+						<label for="username">Username:</label>
+						<input type="text" id="username" name="username" value="admin">
+					</div>
+					<div class="form-group">
+						<label for="password">Password:</label>
+						<input type="password" id="password" name="password" value="password">
+					</div>
+					<input type="hidden" name="success_redir" value="/">
+					<button type="submit">Log In</button>
+				</form>
+			</div>
+		</div>
+
+		<div id="auth-view" class="hidden">
+			<p>You are <b>authenticated</b> as <span id="user-display"></span>.</p>
+			
+			<div class="secret-box">
+				<h3>Secret Data</h3>
+				<p>This data is retrieved from the server and is only available with a valid JWT.</p>
+				<pre id="secret-content">Loading...</pre>
+			</div>
+
+			<form action="/logout" method="post">
+				<input type="hidden" name="success_redir" value="/">
+				<button type="submit">Log Out</button>
+			</form>
+		</div>
+	</div>
+</body>
+</html>
