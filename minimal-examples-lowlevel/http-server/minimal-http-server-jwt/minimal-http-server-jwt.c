@@ -324,7 +324,11 @@ callback_jwt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 					if (lws_jwt_sign_token_set_http_cookie(wsi, &ck, &p, end)) {
 						lwsl_err("JWT sign failed\n");
-						return 1;
+						if (lws_return_http_status(wsi,
+							HTTP_STATUS_INTERNAL_SERVER_ERROR,
+							"JWT Signing Failure"))
+							return 1;
+						return 0;
 					}
 
 					if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION, 
