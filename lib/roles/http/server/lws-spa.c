@@ -24,7 +24,7 @@
 
 #include "private-lib-core.h"
 
-#define LWS_MAX_ELEM_NAME 32
+#define LWS_MAX_ELEM_NAME 96
 
 enum urldecode_stateful {
 	US_NAME,
