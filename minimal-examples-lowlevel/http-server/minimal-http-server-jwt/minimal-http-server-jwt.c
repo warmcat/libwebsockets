@@ -245,6 +245,7 @@ callback_jwt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				/* Get redirect from form if present, but for now simple */
 				if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION, 
 							(unsigned char *)redir, (int)strlen(redir), &p, end)) return 1;
+				if (lws_add_http_header_content_length(wsi, 0, &p, end)) return 1;
 
 				if (lws_finalize_write_http_header(wsi, start, &p, end)) return 1;
 				return 0;
@@ -257,6 +258,7 @@ callback_jwt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 					if (lws_add_http_header_status(wsi, HTTP_STATUS_SEE_OTHER, &p, end)) return 1;
 					if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION,
 								(unsigned char *)redir, (int)strlen(redir), &p, end)) return 1;
+					if (lws_add_http_header_content_length(wsi, 0, &p, end)) return 1;
 					if (lws_finalize_write_http_header(wsi, start, &p, end)) return 1;
 					return 0;
 				}
@@ -338,6 +340,8 @@ callback_jwt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 					if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION, 
 								(unsigned char *)redir, (int)strlen(redir), &p, end))
 						return 1;
+					if (lws_add_http_header_content_length(wsi, 0, &p, end))
+						return 1;
 
 					if (lws_finalize_write_http_header(wsi, start, &p, end))
 						return 1;
@@ -351,6 +355,7 @@ callback_jwt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 					if (lws_add_http_header_status(wsi, HTTP_STATUS_SEE_OTHER, &p, end)) return 1;
 					if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION,
 								(unsigned char *)redir, (int)strlen(redir), &p, end)) return 1;
+					if (lws_add_http_header_content_length(wsi, 0, &p, end)) return 1;
 					if (lws_finalize_write_http_header(wsi, start, &p, end)) return 1;
 					return 0;
 				}
