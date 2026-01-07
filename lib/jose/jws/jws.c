@@ -753,6 +753,7 @@ lws_jws_sign_from_b64(struct lws_jose *jose, struct lws_jws *jws,
 	enum enum_genrsa_mode pad = LGRSAM_PKCS1_1_5;
 	uint8_t digest[LWS_GENHASH_LARGEST];
 	struct lws_genhash_ctx hash_ctx;
+	struct lws_genhmac_ctx hmac_ctx;
 	struct lws_genec_ctx ecdsactx;
 	struct lws_genrsa_ctx rsactx;
 	uint8_t *buf;
@@ -762,6 +763,31 @@ lws_jws_sign_from_b64(struct lws_jose *jose, struct lws_jws *jws,
 	    jose->alg->hmac_type == LWS_GENHMAC_TYPE_UNKNOWN &&
 	    !strcmp(jose->alg->alg, "none"))
 		return 0;
+
+	if (jose->alg->algtype_signing == LWS_JOSE_ENCTYPE_NONE) {
+		if (jws->jwk->kty != LWS_GENCRYPTO_KTY_OCT) {
+			lwsl_err("%s: kty not OCT for HMAC\n", __func__);
+			return -1;
+		}
+
+		if (lws_genhmac_init(&hmac_ctx, jose->alg->hmac_type,
+				     jws->jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].buf,
+				     jws->jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].len) ||
+		    lws_genhmac_update(&hmac_ctx, jws->map_b64.buf[LJWS_JOSE],
+				       jws->map_b64.len[LJWS_JOSE]) ||
+		    lws_genhmac_update(&hmac_ctx, ".", 1) ||
+		    lws_genhmac_update(&hmac_ctx, jws->map_b64.buf[LJWS_PYLD],
+				       jws->map_b64.len[LJWS_PYLD]) ||
+		    lws_genhmac_destroy(&hmac_ctx, digest)) {
+			lws_genhmac_destroy(&hmac_ctx, NULL);
+			lwsl_err("%s: hmac fail\n", __func__);
+			return -1;
+		}
+
+		return lws_jws_base64_enc((char *)digest,
+					  lws_genhmac_size(jose->alg->hmac_type),
+					  b64_sig, sig_len);
+	}
 
 	if (lws_genhash_init(&hash_ctx, jose->alg->hash_type) ||
 	    lws_genhash_update(&hash_ctx, jws->map_b64.buf[LJWS_JOSE],
@@ -815,10 +841,6 @@ lws_jws_sign_from_b64(struct lws_jose *jose, struct lws_jws *jws,
 
 		return n;
 
-	case LWS_JOSE_ENCTYPE_NONE:
-		return lws_jws_base64_enc((char *)digest,
-					 lws_genhash_size(jose->alg->hash_type),
-					  b64_sig, sig_len);
 	case LWS_JOSE_ENCTYPE_ECDSA:
 		/* ECDSA using SHA-256/384/512 */
 
