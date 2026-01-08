@@ -4,44 +4,45 @@
 	<meta charset="utf-8">
 	<title>LWS JWT Auth Example</title>
 	<link rel="stylesheet" href="example.css">
-	<script src="example.js"></script>
+	<script src="minimal-jwt.js"></script>
+	<style>
+		body { font-family: sans-serif; margin: 0; padding: 0; background: #f0f0f0; }
+		.top-bar {
+			background: #333;
+			color: #fff;
+			padding: 10px 20px;
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+		}
+		.logo { font-size: 1.2em; font-weight: bold; }
+		.container { padding: 20px; max-width: 800px; margin: 0 auto; background: #fff; box-shadow: 0 0 10px rgba(0,0,0,0.1); margin-top: 20px; min-height: 300px; }
+		#private-content { display: none; border-top: 1px solid #ccc; margin-top: 20px; padding-top: 20px; }
+	</style>
 </head>
 <body>
-	<div class="container">
-		<h1>LWS JWT Authentication Example</h1>
 
-		<div id="unauth-view">
-			<p>You are currently <b>unauthenticated</b>.</p>
-			<div class="login-box">
-				<form action="/login" method="post">
-					<div class="form-group">
-						<label for="username">Username:</label>
-						<input type="text" id="username" name="username" value="admin">
-					</div>
-					<div class="form-group">
-						<label for="password">Password:</label>
-						<input type="password" id="password" name="password" value="password">
-					</div>
-					<input type="hidden" name="success_redir" value="/">
-					<button type="submit">Log In</button>
-				</form>
-			</div>
-		</div>
-
-		<div id="auth-view" class="hidden">
-			<p>You are <b>authenticated</b> as <span id="user-display"></span>.</p>
-			
-			<div class="secret-box">
-				<h3>Secret Data</h3>
-				<p>This data is retrieved from the server and is only available with a valid JWT.</p>
-				<pre id="secret-content">Loading...</pre>
-			</div>
-
-			<form action="/logout" method="post">
-				<input type="hidden" name="success_redir" value="/">
-				<button type="submit">Log Out</button>
-			</form>
+	<div class="top-bar">
+		<div class="logo">LWS JWT Example</div>
+		<div id="auth-container">
+			<!-- Populated by JS -->
+			Checking auth...
 		</div>
 	</div>
+
+	<div class="container">
+		<div id="public-content">
+			<h2>Public Content</h2>
+			<p>This content is visible to everyone. The server serves this page statically.</p>
+			<p>If you have credentials, you can log in using the form in the top right.</p>
+		</div>
+
+		<div id="private-content">
+			<h2>Private Content</h2>
+			<p>Congratulations! You are authenticated.</p>
+			<p>This section is only revealed when the server validates your JWT via WebSocket and tells the client to show it.</p>
+		</div>
+	</div>
+
 </body>
 </html>

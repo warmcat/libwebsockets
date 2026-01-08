@@ -1,0 +1,42 @@
+{
+	"vhosts": [{
+		"name": "minimal-jwt",
+		"port": "7681",
+		"mounts": [{
+			"mountpoint": "/",
+			"origin": "file://mount-origin",
+			"default": "index.html"
+		}, {
+			"mountpoint": "/login",
+			"origin": "callback://http",
+			"protocol": "http"
+		}, {
+			"mountpoint": "/logout",
+			"origin": "callback://http",
+			"protocol": "http"
+		}],
+		"headers": [{
+			"content-security-policy": "default-src 'none'; img-src 'self' data:; script-src 'self'; font-src 'self'; style-src 'self'; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'none';",
+			"x-content-type-options": "nosniff",
+			"x-xss-protection": "1; mode=block",
+			"referrer-policy": "no-referrer"
+		}],
+		"ws-protocols": [{
+			"minimal-jwt": {
+				"database": "./users.sqlite3",
+				"jwt-auth-alg": "HS512",
+				"jwt-auth-jwk-path": "./private.jwk",
+				"jwt-iss": "minimal-jwt-server",
+				"jwt-aud": "minimal-jwt-example"
+			}
+		}, {
+			"http": {
+				"database": "./users.sqlite3",
+				"jwt-auth-alg": "HS512",
+				"jwt-auth-jwk-path": "./private.jwk",
+				"jwt-iss": "minimal-jwt-server",
+				"jwt-aud": "minimal-jwt-example"
+			}
+		}]
+	}]
+}

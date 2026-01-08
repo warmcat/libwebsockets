@@ -1,0 +1,8 @@
+{
+	"global": {
+		"uid": "0",
+		"gid": "0",
+		"count-threads": "1",
+		"init-ssl": "on"
+	}
+}
