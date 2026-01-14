@@ -254,6 +254,20 @@ lws_threadpool_task_sync(struct lws_threadpool_task *task, int stop);
 LWS_VISIBLE LWS_EXTERN void
 lws_threadpool_dump(struct lws_threadpool *tp);
 
+/**
+ * lws_threadpool_diagnose() - get threadpool state
+ *
+ * \param tp: the threadpool object
+ * \param ongoing: if non-NULL, receives the number of tasks currently running
+ * \param possible: if non-NULL, receives the number of available thread entries
+ * \param queue_depth: if non-NULL, receives the current queue depth
+ *
+ * This locks the threadpool and then returns the instantaneous state of the
+ * threadpool.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_threadpool_diagnose(struct lws_threadpool *tp,
+			int *ongoing, int *possible, int *queue_depth);
 
 
 LWS_VISIBLE LWS_EXTERN struct lws_threadpool_task *

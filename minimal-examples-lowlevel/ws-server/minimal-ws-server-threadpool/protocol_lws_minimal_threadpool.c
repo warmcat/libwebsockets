@@ -141,11 +141,18 @@ sul_tp_dump(struct lws_sorted_usec_list *sul)
 {
 	struct per_vhost_data__minimal *vhd =
 		lws_container_of(sul, struct per_vhost_data__minimal, sul);
+	int ongoing, possible, queue_depth;
+
 	/*
 	 * in debug mode, dump the threadpool stat to the logs once
 	 * a second
 	 */
 	lws_threadpool_dump(vhd->tp);
+
+	lws_threadpool_diagnose(vhd->tp, &ongoing, &possible, &queue_depth);
+	lwsl_user("DIAG: ongoing: %d, possible: %d, queue: %d\n",
+		    ongoing, possible, queue_depth);
+
 	lws_sul_schedule(vhd->context, 0, &vhd->sul,
 			 sul_tp_dump, LWS_US_PER_SEC);
 }
