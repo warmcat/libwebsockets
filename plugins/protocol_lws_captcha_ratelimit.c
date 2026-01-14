@@ -34,6 +34,10 @@
 #include <string.h>
 #include <stdlib.h>
 
+#if !defined (LWS_PLUGIN_STATIC)
+extern const struct lws_protocols captcha_ratelimit_protocols[];
+#endif
+
 struct pss_captcha {
 	lws_sorted_usec_list_t sul;
 	struct lws *wsi;
@@ -173,6 +177,19 @@ callback_captcha_ratelimit(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_HTTP_CAPTCHA_CHECK:
+#if !defined (LWS_PLUGIN_STATIC)
+		/*
+		 * When called from the diversion logic, wsi->protocol is the
+		 * original protocol (e.g., http), not this one. We must use
+		 * this protocol's definition to find our VHD.
+		 */
+		vhd = (struct vhd_captcha *)
+			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
+						 &captcha_ratelimit_protocols[0]);
+#endif
+		if (!vhd)
+			return 1;
+
 		/*
 		 * Check if the user has a valid cookie.
 		 * Return 0 if valid, 1 if not.
