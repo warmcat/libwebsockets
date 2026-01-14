@@ -233,6 +233,22 @@ lws_threadpool_dump(struct lws_threadpool *tp)
 #endif
 }
 
+void
+lws_threadpool_diagnose(struct lws_threadpool *tp,
+			int *ongoing, int *possible, int *queue_depth)
+{
+	pthread_mutex_lock(&tp->lock);
+
+	if (ongoing)
+		*ongoing = tp->running_tasks;
+	if (possible)
+		*possible = tp->threads_in_pool;
+	if (queue_depth)
+		*queue_depth = tp->queue_depth;
+
+	pthread_mutex_unlock(&tp->lock);
+}
+
 static void
 state_transition(struct lws_threadpool_task *task,
 		 enum lws_threadpool_task_status status)
