@@ -884,6 +884,14 @@ enum lws_callback_reasons {
 	 * Return nonzero to close the wsi.
 	 */
 
+	LWS_CALLBACK_HTTP_CAPTCHA_CHECK				= 213,
+	/**< A mount has a captcha_path enabled, this callback asks the
+	 * protocol bound to that mount if it is OK for this request to
+	 * proceed.  If returning 0, the request proceeds to the original
+	 * mount.  If nonzero, the request is diverted to the captcha_path
+	 * mount.
+	 */
+
 	/****** add new things just above ---^ ******/
 
 	LWS_CALLBACK_USER = 1000,
