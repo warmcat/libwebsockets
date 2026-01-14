@@ -241,6 +241,9 @@ if (LWS_WITH_PLUGINS AND NOT LWS_WITH_PLUGINS_BUILTIN)
 		install(FILES deaddrop/assets/index.html;deaddrop/assets/deaddrop.js;deaddrop/assets/deaddrop.css;deaddrop/assets/drop.svg
 			DESTINATION share/libwebsockets-test-server/deaddrop
 			COMPONENT plugins)
+		install(FILES captcha-assets/captcha.js;captcha-assets/captcha.css
+			DESTINATION share/libwebsockets-test-server/plugins/captcha-assets
+			COMPONENT plugins)
 	endif()
 
 

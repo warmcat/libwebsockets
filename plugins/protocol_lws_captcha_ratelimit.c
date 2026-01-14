@@ -16,6 +16,9 @@
  * These test plugins are intended to be adapted for use in your code, which
  * may be proprietary.  So unlike the library itself, they are licensed
  * Public Domain.
+ *
+ * This plugin serves as an example of how to implement a captcha diversion.
+ * Please refer to READMEs/README-captcha.md for configuration details.
  */
 
 #if !defined (LWS_PLUGIN_STATIC)
@@ -203,6 +206,22 @@ callback_captcha_ratelimit(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_HTTP:
+		{
+			char uri[256];
+			int len = lws_hdr_copy(wsi, uri, sizeof(uri), WSI_TOKEN_GET_URI);
+
+			if (len > 0) {
+				if (lws_strstr_wildcard(uri, sizeof(uri), "captcha.css", 0)) {
+					lws_serve_http_file(wsi, "plugins/captcha-assets/captcha.css", "text/css", NULL, 0);
+					return 1;
+				}
+				if (lws_strstr_wildcard(uri, sizeof(uri), "captcha.js", 0)) {
+					lws_serve_http_file(wsi, "plugins/captcha-assets/captcha.js", "application/javascript", NULL, 0);
+					return 1;
+				}
+			}
+		}
+
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)) {
 			/*
 			 * User clicked the button.
@@ -221,11 +240,19 @@ callback_captcha_ratelimit(struct lws *wsi, enum lws_callback_reasons reason,
 						 (unsigned char *)"text/html", 9, (unsigned char **)&p, (unsigned char *)end))
 			return 1;
 
-		n = sprintf(buf + LWS_PRE + 1024, /* buffer for body */
-			"<html><body><h1>Are you human?</h1>"
-			"<form method=\"POST\" action=\"\">"
-			"<input type=\"submit\" value=\"I am human (wait 5s)\">"
-			"</form></body></html>");
+		n = lws_snprintf(buf + LWS_PRE + 1024, sizeof(buf) - LWS_PRE - 1024, /* buffer for body */
+			"<html><head>"
+			"<link rel=\"stylesheet\" href=\"captcha.css\">"
+			"<script src=\"captcha.js\"></script>"
+			"</head><body>"
+			"<div class=\"captcha-modal\">"
+			"<h1>Are you human?</h1>"
+			"<form method=\"POST\" action=\"\" onsubmit=\"return startCaptcha()\">"
+			"<input type=\"submit\" id=\"captcha-btn\" value=\"I am human (wait 5s)\">"
+			"<div id=\"countdown\"></div>"
+			"</form>"
+			"</div>"
+			"</body></html>");
 
 		if (lws_add_http_header_content_length(wsi, (lws_filepos_t)n, (unsigned char **)&p, (unsigned char *)end))
 			return 1;
