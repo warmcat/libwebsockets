@@ -256,6 +256,7 @@ struct jpargs {
 	unsigned int any_vhosts:1;
 	unsigned int chunk:1;
 
+	struct lwsac *ac;
        void *user;
 };
 
@@ -403,6 +404,12 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	struct lws_http_mount *m;
 	char *p, *p1;
 	int n;
+
+	if (reason == LEJPCB_VAL_STR_START ||
+	    reason == LEJPCB_VAL_STR_CHUNK ||
+	    reason == LEJPCB_VAL_STR_END)
+		if (lejp_string_unify_part(ctx, &a->ac, reason))
+			return 1;
 
 #if 0
 	lwsl_notice(" %d: %s (%d)\n", reason, ctx->path, ctx->path_match);
@@ -794,6 +801,9 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 #endif
 	case LEJPVP_PMO:
 	case LEJPVP_CGI_ENV:
+		if (a->chunk)
+			goto dostring;
+
 		mp_cgienv = lwsws_align(a);
 		a->p += sizeof(*a->m.cgienv);
 
@@ -814,6 +824,9 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		 * vhosts[].ws-protocols[].xxx-protocol.yyy-option
 		 * ie, these are options attached to a protocol with { }
 		 */
+		if (a->chunk)
+			goto dostring;
+
 		pvo = lwsws_align(a);
 		a->p += sizeof(*a->pvo);
 
@@ -825,9 +838,12 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->p += n;
 		pvo->value = a->p;
 		pvo->options = NULL;
-		break;
+		goto dostring;
 
 	case LEJPVP_MOUNT_EXTRA_MIMETYPES:
+		if (a->chunk)
+			goto dostring;
+
 		a->pvo_em = lwsws_align(a);
 		a->p += sizeof(*a->pvo_em);
 
@@ -840,9 +856,12 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->p += n;
 		a->pvo_em->value = a->p;
 		a->pvo_em->options = NULL;
-		break;
+		goto dostring;
 
 	case LEJPVP_MOUNT_INTERPRET:
+		if (a->chunk)
+			goto dostring;
+
 		a->pvo_int = lwsws_align(a);
 		a->p += sizeof(*a->pvo_int);
 
@@ -856,7 +875,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->p += n;
 		a->pvo_int->value = a->p;
 		a->pvo_int->options = NULL;
-		break;
+		goto dostring;
 
 	case LEJPVP_CGI_CHROOT:
 		a->m.cgi_chroot_path = a->p;
@@ -983,8 +1002,24 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	}
 
 dostring:
-	p = ctx->buf;
-	p[LEJP_STRING_CHUNK] = '\0';
+	if (reason == LEJPCB_VAL_STR_CHUNK) {
+		a->chunk = 1;
+		return 0;
+	}
+
+	if (reason == LEJPCB_VAL_STR_END) {
+		lejp_string_unify(ctx, &a->ac);
+		p = ctx->su.fp;
+	} else
+		p = ctx->buf;
+
+	a->chunk = 0;
+
+	if (!p)
+		return 0;
+
+	if (reason != LEJPCB_VAL_STR_END)
+		p[LEJP_STRING_CHUNK] = '\0';
 	p1 = strstr(p, ESC_INSTALL_DATADIR);
 	if (p1) {
 		n = lws_ptr_diff(p1, p);
@@ -1120,6 +1155,8 @@ lwsws_get_config_globals(struct lws_context_creation_info *info, const char *d,
 
 	a.plugin_dirs[a.count_plugin_dirs] = NULL;
 
+	lwsac_free(&a.ac);
+
 	*cs = a.p;
 	*len = lws_ptr_diff(a.end, a.p);
 
@@ -1189,6 +1226,8 @@ lwsws_get_config_vhosts(struct lws_context *context,
 
 	*cs = a.p;
 	*len = lws_ptr_diff(a.end, a.p);
+
+	lwsac_free(&a.ac);
 
 	if (!a.any_vhosts) {
 		lwsl_err("Need at least one vhost\n");
