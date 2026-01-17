@@ -73,6 +73,10 @@ if (LWS_WITH_JPEG)
 	list(APPEND SOURCES
 		misc/jpeg.c)
 endif()
+if (LWS_WITH_DHT)
+	list(APPEND SOURCES
+		misc/dht.c)
+endif()
 
 
 if (LWS_WITH_DLO)
