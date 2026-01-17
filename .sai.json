@@ -100,6 +100,10 @@
 		"default-noudp": {
 			"cmake":	"-DLWS_WITH_UDP=0"
 		},
+		"default-dht": {
+			"cmake":	"-DLWS_WITH_DHT=1",
+			"platforms":	"w11/x86_64-amd/msvc,netbsd/aarch64BE-bcm2837-a53/gcc,freebsd/aarch64/llvm"
+		},
 		"fault-injection": {
 			"cmake":	"-DLWS_WITH_SYS_FAULT_INJECTION=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_CBOR=1"
 		},

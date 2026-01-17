@@ -362,6 +362,7 @@ else()
 endif()
 option(LWS_WITH_MCUFONT_ENCODER "Build the ttf to mcufont encoder" OFF)
 option(LWS_WITH_WAKE_LOGGING "Log each wake reason" OFF)
+option(LWS_WITH_DHT "Include DHT APIs" OFF)
 
 #
 # Compressed backtraces
