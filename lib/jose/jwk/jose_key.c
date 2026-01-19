@@ -482,6 +482,7 @@ lws_jwk_export(struct lws_jwk *jwk, int flags, char *p, int *len)
 		asym = 1;
 		break;
 	default:
+		lwsl_err("%s: unknown kty %d\n", __func__, jwk->kty);
 		return -1;
 	}
 

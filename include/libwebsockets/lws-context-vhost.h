@@ -1433,6 +1433,12 @@ struct lws_http_mount {
 		/**< 0 or seconds http stream should stay alive while
 		 * idle.  0 means use the vhost value for keepalive_timeout.
 		 */
+#if defined(LWS_WITH_JOSE)
+	const char *interceptor_path;
+	/**< NULL, or an alternative mount path to divert the connection to
+	 * if the protocol on that mount says we are not authorized.
+	 */
+#endif
 
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility

@@ -1,0 +1,38 @@
+<html>
+<head>
+    <script src="interceptor-config.js"></script>
+    <link rel="stylesheet" href="captcha.css">
+    <script src="captcha.js"></script>
+</head>
+<body>
+    <noscript>
+        <div class="noscript-msg">Please enable JavaScript to continue.</div>
+    </noscript>
+    <div class="captcha-modal">
+	<img id="header-img" src="/scrapers.jpg" class="captcha-header-img">
+        <div id="status-pre">
+            <h1>Please wait...</h1>
+            <p>Due to continuous high load from AI scraper bots, there are some ratelimit delays and a button to press</p>
+        </div>
+        <div id="status-ready" style="display: none;">
+            <h1>Ready!</h1>
+	    <p>The rate limit delay is complete.  Press the button to continue.</p>
+        </div>
+        <div id="status-pressed" style="display: none;">
+            <h1>Verifying...</h1>
+            <p>Please wait while we verify your request.</p>
+        </div>
+        <form id="captcha-form" method="POST" action="">
+            <div id="bargraph-container" class="bargraph-container">
+                <div id="bargraph-fill" class="bargraph-fill"></div>
+            </div>
+            <div id="countdown-msg"></div>
+            <input type="submit" id="captcha-btn" value="Continue">
+	</form>
+        <div class="stats-footer">
+            <div class="stat-item">Server Load: <span id="stat-load">-</span></div>
+            <div class="stat-item">Activity (1m): <span id="stat-served">-</span> served, <span id="stat-passed">-</span> passed</div>
+        </div>
+    </div>
+</body>
+</html>

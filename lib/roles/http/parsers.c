@@ -30,14 +30,7 @@ static const unsigned char lextable_h1[] = {
 
 #define FAIL_CHAR 0x08
 
-#if defined(LWS_WITH_CUSTOM_HEADERS)
 
-#define UHO_NLEN	0
-#define UHO_VLEN	2
-#define UHO_LL		4
-#define UHO_NAME	8
-
-#endif
 
 static struct allocated_headers *
 _lws_create_ah(struct lws_context_per_thread *pt, ah_data_idx_t data_size)
@@ -1664,7 +1657,7 @@ lws_jwt_get_http_cookie_validate_jwt(struct lws *wsi,
 		i->extra_json = cp;
 
 	if (!cp)
-		lwsl_notice("%s: no ext JWT payload\n", __func__);
+		lwsl_info("%s: no ext JWT payload\n", __func__);
 
 	return 0;
 }
@@ -1723,3 +1716,32 @@ lws_jwt_sign_token_set_http_cookie(struct lws *wsi,
 	return 0;
 }
 #endif
+
+int
+lws_http_remove_urlarg(struct lws *wsi, const char *name)
+{
+	int fi, pf = 0, sl = (int)strlen(name);
+	struct allocated_headers *ah = wsi->http.ah;
+
+	if (!ah)
+		return 1;
+
+	fi = ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS];
+
+	while (fi) {
+		struct lws_fragments *f = &ah->frags[fi];
+		if (f->len >= sl && !strncmp(&ah->data[f->offset], name, (size_t)sl)) {
+			/* matches... remove this fragment from the chain */
+			if (pf)
+				ah->frags[pf].nfrag = f->nfrag;
+			else
+				ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS] = f->nfrag;
+
+			return 0;
+		}
+		pf = fi;
+		fi = f->nfrag;
+	}
+
+	return 1;
+}

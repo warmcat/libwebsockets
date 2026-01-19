@@ -40,6 +40,10 @@ if (NOT LWS_WITHOUT_SERVER)
 	list(APPEND SOURCES
 		roles/http/server/server.c
 		roles/http/server/lws-spa.c)
+	if (LWS_WITH_JOSE)
+		list(APPEND SOURCES
+			roles/http/server/interceptor.c)
+	endif()
 endif()
 
 if (LWS_WITH_CACHE_NSCOOKIEJAR AND LWS_WITH_CLIENT)
