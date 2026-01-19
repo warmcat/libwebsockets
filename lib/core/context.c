@@ -859,8 +859,20 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if defined(LWS_WITH_SCHANNEL)
 	lwsl_cx_notice(context, "LWS: %s, SChannel, %s%s", library_version, opts_str, s);
 #else
-#if defined(LWS_WITH_SSL)
+#if defined(LWS_WITH_TLS)
+#if defined(USE_WOLFSSL)
+	lwsl_cx_notice(context, "LWS: %s, wolfSSL %s, %s%s", library_version, wolfSSL_lib_version(), opts_str, s);
+#elif defined(LWS_WITH_BORINGSSL)
+	lwsl_cx_notice(context, "LWS: %s, BoringSSL, %s%s", library_version, opts_str, s);
+#elif defined(LWS_WITH_AWSLC)
+	lwsl_cx_notice(context, "LWS: %s, AWS-LC, %s%s", library_version, opts_str, s);
+#elif defined(OPENSSL_VERSION_NUMBER) && (OPENSSL_VERSION_NUMBER >= 0x10100000L)
+	lwsl_cx_notice(context, "LWS: %s, %s, %s%s", library_version, OpenSSL_version(OPENSSL_VERSION), opts_str, s);
+#elif defined(OPENSSL_VERSION_NUMBER)
+	lwsl_cx_notice(context, "LWS: %s, %s, %s%s", library_version, SSLeay_version(SSLEAY_VERSION), opts_str, s);
+#else
 	lwsl_cx_notice(context, "LWS: %s, OpenSSL, %s%s", library_version, opts_str, s);
+#endif
 #else
 	lwsl_cx_notice(context, "LWS: %s, %s%s", library_version, opts_str, s);
 #endif
@@ -1305,12 +1317,14 @@ lws_create_context(const struct lws_context_creation_info *info)
 		    context->max_http_header_pool);
 #endif
 
+#if defined(LWS_WITH_NETWORK)
 #if defined(LWS_WITH_SERVER)
 	if (info->server_string) {
 		context->server_string = info->server_string;
 		context->server_string_len = (short)
 				strlen(context->server_string);
 	}
+#endif
 #endif
 
 #if defined(LWS_WITH_NETWORK) && LWS_MAX_SMP > 1
