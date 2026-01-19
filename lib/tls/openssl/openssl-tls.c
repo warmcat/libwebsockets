@@ -29,8 +29,8 @@ extern int openssl_websocket_private_data_index,
 	   openssl_SSL_CTX_private_data_index;
 #if defined(LWS_WITH_NETWORK)
 static char openssl_ex_indexes_acquired;
-static int openssl_contexts_using_global_init;
 #endif
+static int openssl_contexts_using_global_init;
 
 void
 lws_tls_err_describe_clear(void)
