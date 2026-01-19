@@ -1,0 +1,14 @@
+body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #f0f0f0; margin: 0; }
+.captcha-modal { background: white; padding: 2em; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center; }
+#captcha-btn { padding: 10px 20px; font-size: 16px; cursor: pointer; margin: 20px auto; }
+.bargraph-container { width: 100%; background: #eee; height: 16px; border-radius: 8px; margin-top: 20px; display: none; overflow: hidden; border: 1px solid #ccc; }
+.bargraph-fill { height: 100%; background: #4caf50; width: 0%; transition: none; }
+.bargraph-fill.verifying { background: #ff9800; }
+.captcha-header-img { max-width: 100%; margin-bottom: 20px; border-radius: 4px; }
+.noscript-msg { color: #d32f2f; margin-bottom: 20px; font-weight: bold; }
+#countdown-msg { margin-top: 10px; font-size: 0.9em; color: #666; }
+#status-ready, #status-pressed { display: none; }
+.captcha-header-img { max-width: 100%; height: auto; margin-bottom: 20px; border-radius: 4px; }
+.stats-footer { margin-top: 30px; padding-top: 15px; border-top: 1px solid #eee; font-size: 0.8em; color: #888; text-align: left; }
+.stat-item { margin-bottom: 4px; }
+#stat-load, #stat-served, #stat-passed { font-weight: bold; color: #444; }

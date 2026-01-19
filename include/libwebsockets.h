@@ -753,6 +753,9 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 #endif
 
 #include <libwebsockets/lws-protocols-plugins.h>
+#if defined(LWS_WITH_JOSE)
+#include <libwebsockets/lws-interceptor.h>
+#endif
 
 #include <libwebsockets/lws-context-vhost.h>
 

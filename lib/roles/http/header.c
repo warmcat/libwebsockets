@@ -679,3 +679,55 @@ lws_sul_http_ah_lifecheck(lws_sorted_usec_list_t *sul)
 	lws_pt_unlock(pt);
 }
 #endif
+
+int
+lws_http_zap_header(struct lws *wsi, const char *name)
+{
+	int n = (int)strlen(name);
+	int index;
+
+	if (!wsi->http.ah)
+		return 0;
+
+	index = lws_http_string_to_known_header(name, (size_t)n);
+	if (index != LWS_HTTP_NO_KNOWN_HEADER && index < WSI_TOKEN_COUNT) {
+		wsi->http.ah->frag_index[index] = 0;
+		return 0;
+	}
+
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+	{
+		ah_data_idx_t ll = wsi->http.ah->unk_ll_head, prev = 0;
+
+		while (ll) {
+			if (ll >= wsi->http.ah->data_length)
+				return 1;
+
+			if (n == lws_ser_ru16be(
+				(uint8_t *)&wsi->http.ah->data[ll + UHO_NLEN]) &&
+			    !strncmp(name, &wsi->http.ah->data[ll + UHO_NAME], (unsigned int)n)) {
+				/* found it, remove from list */
+				ah_data_idx_t next = lws_ser_ru32be(
+					(uint8_t *)&wsi->http.ah->data[ll + UHO_LL]);
+
+				if (!prev)
+					wsi->http.ah->unk_ll_head = next;
+				else
+					lws_ser_wu32be(
+						(uint8_t *)&wsi->http.ah->data[prev + UHO_LL],
+						next);
+
+				if (!next)
+					wsi->http.ah->unk_ll_tail = prev;
+
+				return 0;
+			}
+
+			prev = ll;
+			ll = lws_ser_ru32be((uint8_t *)&wsi->http.ah->data[ll + UHO_LL]);
+		}
+	}
+#endif
+
+	return 0;
+}

@@ -104,6 +104,9 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].mounts[].headers[].*",
 	"vhosts[].mounts[].headers[]",
 	"vhosts[].mounts[].keepalive-timeout",
+#if defined(LWS_WITH_JOSE)
+	"vhosts[].mounts[].interceptor-path",
+#endif
 	"vhosts[].mounts[]",
 	"vhosts[].ws-protocols[].*.*",
 	"vhosts[].ws-protocols[].*",
@@ -183,6 +186,9 @@ enum lejp_vhost_paths {
 	LEJPVP_MOUNTPOINT_HEADERS_NAME,
 	LEJPVP_MOUNTPOINT_HEADERS,
 	LEJPVP_MOUNTPOINT_KEEPALIVE_TIMEOUT,
+#if defined(LWS_WITH_JOSE)
+	LEJPVP_MOUNT_INTERCEPTOR_PATH,
+#endif
 
 	LEJPVP_MOUNTS,
 
@@ -779,6 +785,11 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	case LEJPVP_MOUNTPOINT_KEEPALIVE_TIMEOUT:
 		a->m.keepalive_timeout = (unsigned int)atoi(ctx->buf);
 		return 0;
+#if defined(LWS_WITH_JOSE)
+	case LEJPVP_MOUNT_INTERCEPTOR_PATH:
+		a->m.interceptor_path = a->p;
+		break;
+#endif
 #if defined(LWS_WITH_TLS)
 #if defined(LWS_WITH_CLIENT)
 	case LEJPVP_CLIENT_CIPHERS:
@@ -1065,7 +1076,7 @@ lwsws_get_config(void *user, const char *f, const char * const *paths,
 		n = (int)read(fd, buf, sizeof(buf));
 		if (!n)
 			break;
-
+		// write(2, buf, (size_t)n);
 		m = lejp_parse(&ctx, buf, n);
 	} while (m == LEJP_CONTINUE);
 
