@@ -1936,6 +1936,11 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt, size_t pkt_len)
 				  "Content-Type: %s\x0d\x0a",
 			lws_hdr_simple_ptr(wsi->parent, WSI_TOKEN_HTTP_CONTENT_TYPE));
 	}
+
+	if (wsi->parent && wsi->parent->http.extra_onward_headers) {
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "%s",
+				  wsi->parent->http.extra_onward_headers);
+	}
 #endif
 
 #if defined(LWS_WITH_HTTP_DIGEST_AUTH)

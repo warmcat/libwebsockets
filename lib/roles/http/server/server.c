@@ -986,7 +986,7 @@ notfound:
 #endif
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-const struct lws_http_mount *
+LWS_VISIBLE const struct lws_http_mount *
 lws_find_mount(struct lws *wsi, const char *uri_ptr, int uri_len)
 {
 	const struct lws_http_mount *hm, *hit = NULL;
@@ -1878,14 +1878,47 @@ lws_http_action(struct lws *wsi)
 	wsi->http.mount_specific_headers = hit->headers;
 	wsi->http.mount_specific_keepalive_timeout_secs = hit->keepalive_timeout;
 
-	// lwsl_wsi_notice(wsi, "keepalive_timeout %d ******************\n", hit->keepalive_timeout);
-
 #if defined(LWS_WITH_FILE_OPS)
 	s = uri_ptr + hit->mountpoint_len;
 #endif
 	n = (unsigned int)lws_http_redirect_hit(pt, wsi, hit, uri_ptr, uri_len, &ha);
 	if (ha)
 		return (int)n;
+
+	/*
+	 * If the mount has a interceptor requirement, and the plugin that implements
+	 * it says we are not authorized, divert the connection to the interceptor
+	 * mount
+	 */
+
+#if defined(LWS_WITH_JOSE)
+	{
+		const struct lws_http_mount *curr = hit;
+ 
+		while (curr && curr->interceptor_path) {
+			const struct lws_http_mount *m_interceptor = lws_find_mount(wsi,
+						curr->interceptor_path, (int)strlen(curr->interceptor_path));
+ 
+			if (!m_interceptor || !m_interceptor->protocol)
+				break;
+ 
+			const struct lws_protocols *p = lws_vhost_name_to_protocol(
+								wsi->a.vhost, m_interceptor->protocol);
+ 
+			if (p) {
+				if (p->callback(wsi, LWS_CALLBACK_HTTP_INTERCEPTOR_CHECK,
+					       wsi->user_space, (void *)p, 0)) {
+ 
+					hit = m_interceptor;
+					uri_ptr = (char *)hit->mountpoint; /* forced internal redirect */
+					uri_len = (int)hit->mountpoint_len;
+					break;
+				}
+			}
+			curr = m_interceptor;
+		}
+	}
+#endif
 
 #if defined(LWS_WITH_HTTP_BASIC_AUTH)
 
@@ -2609,6 +2642,8 @@ bail_nuke_ah:
 int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed(struct lws *wsi)
 {
+	lws_free_set_NULL(wsi->http.extra_onward_headers);
+
 	if (wsi->http.cgi_transaction_complete)
 		return 0;
 

@@ -96,6 +96,13 @@ lws_ranges_reset(struct lws_range_parsing *rp);
 
 #define LWS_HTTP_NO_KNOWN_HEADER 0xff
 
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+#define UHO_NLEN	0
+#define UHO_VLEN	2
+#define UHO_LL		4
+#define UHO_NAME	8
+#endif
+
 /*
  * these are assigned from a pool held in the context.
  * Both client and server mode uses them for http header analysis
@@ -285,6 +292,7 @@ struct _lws_http_mode_related {
 	char auth_username[64];
 	char auth_password[64];
 	char *digest_auth_hdr;
+	char *extra_onward_headers;
 };
 
 
