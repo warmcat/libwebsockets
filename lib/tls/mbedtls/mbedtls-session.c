@@ -106,11 +106,16 @@ lws_tls_reuse_session(struct lws *wsi)
 
 	mbedtls_ssl_session_init(&session);
 
+#if defined(LWS_HAVE_mbedtls_ssl_session_save)
 	if (mbedtls_ssl_session_load(&session, ts->ser_data->data,
 				     ts->ser_data->len)) {
 		mbedtls_ssl_session_free(&session);
 		goto bail;
 	}
+#else
+	/* Session load/save not supported in this mbedtls version */
+	goto bail;
+#endif
 
 	lwsl_tlssess("%s: %s\n", __func__, (const char *)&ts[1]);
 	wsi->tls_session_reused = 1;
@@ -256,6 +261,7 @@ lws_tls_session_new_mbedtls(struct lws *wsi)
 			goto bail;
 		}
 
+#if defined(LWS_HAVE_mbedtls_ssl_session_save)
 		if (mbedtls_ssl_session_save(&temp_session, ts->ser_data->data,
 					     sizeof(ts->ser_data->data),
 					     &ts->ser_data->len)) {
@@ -263,6 +269,11 @@ lws_tls_session_new_mbedtls(struct lws *wsi)
 			lws_free(ts->ser_data);
 			ts->ser_data = NULL;
 		}
+#else
+		/* Session save not supported in this mbedtls version */
+		lws_free(ts->ser_data);
+		ts->ser_data = NULL;
+#endif
 
 		lws_dll2_add_tail(&ts->list, &vh->tls_sessions);
 
@@ -285,6 +296,7 @@ lws_tls_session_new_mbedtls(struct lws *wsi)
 				goto bail;
 		}
 
+#if defined(LWS_HAVE_mbedtls_ssl_session_save)
 		if (mbedtls_ssl_session_save(&temp_session, ts->ser_data->data,
 					     sizeof(ts->ser_data->data),
 					     &ts->ser_data->len)) {
@@ -292,6 +304,11 @@ lws_tls_session_new_mbedtls(struct lws *wsi)
 			lws_free(ts->ser_data);
 			ts->ser_data = NULL;
 		}
+#else
+		/* Session save not supported in this mbedtls version */
+		lws_free(ts->ser_data);
+		ts->ser_data = NULL;
+#endif
 
 		/* keep our session list sorted in lru -> mru order */
 
