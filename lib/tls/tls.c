@@ -27,6 +27,7 @@
 
 #if defined(LWS_HAVE_SSL_CTX_set_keylog_callback) && defined(LWS_WITH_NETWORK) && \
 	defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS) && \
+	!defined(LWS_WITH_GNUTLS) && \
 	(!defined(LWS_WITHOUT_CLIENT) || !defined(LWS_WITHOUT_SERVER))
 void
 lws_klog_dump(const SSL *ssl, const char *line)
@@ -82,7 +83,7 @@ lws_klog_dump(const SSL *ssl, const char *line)
 
 
 #if defined(LWS_WITH_NETWORK)
-#if defined(LWS_WITH_MBEDTLS) || (!defined(LWS_WITH_SCHANNEL) && defined(OPENSSL_VERSION_NUMBER) && \
+#if (!defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_SCHANNEL) && defined(OPENSSL_VERSION_NUMBER) && \
 				  OPENSSL_VERSION_NUMBER >= 0x10002000L)
 static int
 alpn_cb(SSL *s, const unsigned char **out, unsigned char *outlen,
@@ -212,7 +213,8 @@ void
 lws_context_init_alpn(struct lws_vhost *vhost)
 {
 #if defined(LWS_WITH_MBEDTLS) || (defined(OPENSSL_VERSION_NUMBER) && \
-				  OPENSSL_VERSION_NUMBER >= 0x10002000L)
+				  OPENSSL_VERSION_NUMBER >= 0x10002000L) || \
+				  defined(LWS_WITH_GNUTLS)
 	const char *alpn_comma = vhost->context->tls.alpn_default;
 
 	if (vhost->tls.alpn)
@@ -225,10 +227,16 @@ lws_context_init_alpn(struct lws_vhost *vhost)
 					vhost->tls.alpn_ctx.data,
 					sizeof(vhost->tls.alpn_ctx.data) - 1);
 
+#if defined(LWS_WITH_GNUTLS)
+	/* GnuTLS ALPN is set per-session, nothing to do here for CTX */
+#elif defined(LWS_WITH_MBEDTLS)
+	/* MbedTLS ALPN is set per-session, nothing to do here for CTX */
+#else
 	SSL_CTX_set_alpn_select_cb(vhost->tls.ssl_ctx, alpn_cb,
 				   &vhost->tls.alpn_ctx);
+#endif
 #else
-#if !defined(LWS_WITH_SCHANNEL)
+#if !defined(LWS_WITH_SCHANNEL) && !defined(LWS_WITH_GNUTLS)
 	lwsl_err(" HTTP2 / ALPN configured "
 		 "but not supported by OpenSSL 0x%lx\n",
 		 OPENSSL_VERSION_NUMBER);
@@ -240,10 +248,11 @@ int
 lws_tls_server_conn_alpn(struct lws *wsi)
 {
 #if defined(LWS_WITH_MBEDTLS) || (defined(OPENSSL_VERSION_NUMBER) && \
-				  OPENSSL_VERSION_NUMBER >= 0x10002000L)
+				  OPENSSL_VERSION_NUMBER >= 0x10002000L) || \
+				  defined(LWS_WITH_GNUTLS)
 	const unsigned char *name = NULL;
 	char cstr[10];
-	unsigned len;
+	unsigned int len = 0;
 
 	lwsl_info("%s\n", __func__);
 
@@ -252,7 +261,17 @@ lws_tls_server_conn_alpn(struct lws *wsi)
 		return 0;
 	}
 
+#if defined(LWS_WITH_GNUTLS)
+	{
+		gnutls_datum_t selected;
+		if (gnutls_alpn_get_selected_protocol((gnutls_session_t)wsi->tls.ssl, &selected) == 0) {
+			name = selected.data;
+			len = selected.size;
+		}
+	}
+#else
 	SSL_get0_alpn_selected(wsi->tls.ssl, &name, &len);
+#endif
 	if (!len) {
 		lwsl_info("no ALPN upgrade\n");
 		return 0;
@@ -269,8 +288,8 @@ lws_tls_server_conn_alpn(struct lws *wsi)
 
 	return lws_role_call_alpn_negotiated(wsi, (const char *)cstr);
 #else
-	lwsl_err("%s: openssl too old\n", __func__);
-#endif // OPENSSL_VERSION_NUMBER >= 0x10002000L
+	lwsl_err("%s: openssl/gnutls too old\n", __func__);
+#endif
 
 	return 0;
 }

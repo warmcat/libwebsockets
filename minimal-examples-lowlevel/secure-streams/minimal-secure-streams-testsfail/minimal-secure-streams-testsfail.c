@@ -22,6 +22,7 @@ static int interrupted, tests, tests_pass, tests_fail, doing_a_retry;
 static lws_sorted_usec_list_t sul_next_test;
 static lws_state_notify_link_t nl;
 struct lws_context *context;
+struct lws_ss_handle *h;
 size_t amount = 12345;
 
 static void
@@ -262,7 +263,7 @@ static const char * const default_ss_policy =
 			"\"port\": 443,"
 			"\"protocol\": \"h2\","
 			"\"http_method\": \"GET\","
-			"\"http_url\": \"/httpbin/delay/10\","
+			"\"http_url\": \"/httpbin/delay/15\","
 			"\"tls\": true,"
 			"\"nghttp2_quirk_end_stream\": true,"
 			"\"h2q_oflow_txcr\": true,"
@@ -656,7 +657,8 @@ fail:
 		/* we'll start the next test next time around the event loop */
 		lws_sul_schedule(context, 0, &sul_next_test, tests_start_next, 1);
 
-		return LWSSSSRET_OK;
+		h = NULL;
+		return LWSSSSRET_DESTROY_ME;
 	}
 
 	if (state == curr_test->must_see) {
@@ -675,10 +677,19 @@ fail:
 		/* we'll start the next test next time around the event loop */
 		lws_sul_schedule(context, 0, &sul_next_test, tests_start_next, 1);
 
+		if (state == LWSSSCS_TIMEOUT ||
+		    state == LWSSSCS_ALL_RETRIES_FAILED) {
+			h = NULL;
+			return LWSSSSRET_DESTROY_ME;
+		}
+
 		return LWSSSSRET_OK;
 	}
 
 	switch (state) {
+	case LWSSSCS_CONNECTED:
+		lwsl_notice("%s: CONNECTED\n", __func__);
+		break;
 	case LWSSSCS_CREATING:
 		lws_ss_start_timeout(m->ss,
 			(unsigned int)(curr_test->timeout_us / LWS_US_PER_MS));
@@ -705,6 +716,9 @@ fail:
 		break;
 	}
 
+	if (state == LWSSSCS_TIMEOUT)
+		return LWSSSSRET_DISCONNECT_ME;
+
 	return LWSSSSRET_OK;
 }
 
@@ -713,7 +727,6 @@ tests_start_next(lws_sorted_usec_list_t *sul)
 {
 	struct tests_seq *ts;
 	lws_ss_info_t ssi;
-	static struct lws_ss_handle *h;
 
 	/* destroy the old one */
 

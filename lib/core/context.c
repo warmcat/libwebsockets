@@ -862,6 +862,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if defined(LWS_WITH_TLS)
 #if defined(USE_WOLFSSL)
 	lwsl_cx_notice(context, "LWS: %s, wolfSSL %s, %s%s", library_version, wolfSSL_lib_version(), opts_str, s);
+#elif defined(LWS_WITH_GNUTLS)
+	lwsl_cx_notice(context, "LWS: %s, GnuTLS %s, %s%s", library_version, gnutls_check_version(NULL), opts_str, s);
 #elif defined(LWS_WITH_BORINGSSL)
 	lwsl_cx_notice(context, "LWS: %s, BoringSSL, %s%s", library_version, opts_str, s);
 #elif defined(LWS_WITH_AWSLC)
@@ -967,6 +969,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 #else
 #if defined(LWS_WITH_SCHANNEL)
 	context->tls_ops = &tls_ops_schannel;
+#elif defined(LWS_WITH_GNUTLS)
+	context->tls_ops = &tls_ops_gnutls;
 #else
 	context->tls_ops = &tls_ops_openssl;
 #endif

@@ -73,6 +73,10 @@ struct lws_genhash_ctx {
 		void *hAlg;
 		void *hHash;
 	} u;
+#elif defined(LWS_WITH_GNUTLS)
+	union {
+		void *hash; /* gnutls_hash_hd_t */
+	} u;
 #else
         const EVP_MD *evp_type;
         EVP_MD_CTX *mdctx;
@@ -88,6 +92,10 @@ struct lws_genhmac_ctx {
 	struct {
 		void *hAlg;
 		void *hHash;
+	} u;
+#elif defined(LWS_WITH_GNUTLS)
+	union {
+		void *hash; /* gnutls_hash_hd_t */
 	} u;
 #else
 	const EVP_MD *evp_type;

@@ -105,6 +105,7 @@ do_err:
 	if (wsi->a.vhost)
 		lws_metric_event(wsi->a.vhost->mt_traffic_rx, METRES_NOGO, 0);
 #endif
+		__lws_ssl_remove_wsi_from_buffered_list(wsi);
 
 		return LWS_SSL_CAPABLE_ERROR;
 	}
