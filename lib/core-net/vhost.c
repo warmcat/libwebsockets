@@ -1575,7 +1575,7 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 
 #if defined (LWS_WITH_TLS)
 	lws_free_set_NULL(vh->tls.alloc_cert_path);
-	lws_free_set_NULL(vh->tls.key_path);
+	vh->tls.key_path = NULL;
 #endif
 
 #if LWS_MAX_SMP > 1
