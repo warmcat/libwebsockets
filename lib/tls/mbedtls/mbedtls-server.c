@@ -249,6 +249,18 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 	if (n)
 		return n;
 
+	/* Apply cipher list if specified */
+	if (info->ssl_cipher_list) {
+		if (!SSL_CTX_set_cipher_list(vhost->tls.ssl_ctx,
+					    info->ssl_cipher_list)) {
+			lwsl_err("SSL_CTX_set_cipher_list(%s) failed\n",
+				 info->ssl_cipher_list);
+			return 1;
+		}
+		lwsl_notice("%s: vh %s: applied cipher list: %s\n", __func__,
+			    vhost->name, info->ssl_cipher_list);
+	}
+
 	return 0;
 }
 
