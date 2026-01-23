@@ -254,7 +254,15 @@
 			"platforms":	"none, coverity/x86_64/gcc",
 			"cpack":	"export STAMP=`git log -1 --pretty=format:%h` && rm -f libwebsockets.tgz && tar czvf libwebsockets.tgz cov-int && script -q -c \"cat /etc/coverity/secrets.sh | lws-minimal-http-client-post-form https://scan.coverity.com:443/builds?project=warmcat%2Flibwebsockets --form file=@libwebsockets.tgz --form version=${STAMP} --form 'description=lws qa'\" /dev/null",
 			"branches":	"coverity"
+		},
+		# awkward, we also want to test mbedtls, but coverity blocks on SSL build needing manual intervention
+		"coverity-mbedtls": {
+			"cmake":	"-DLWS_WITH_MBEDTLS=1 -DLWS_WITHOUT_EXTENSIONS=0 -DLWS_WITH_CGI=1 -DLWS_IPV6=1 -DLWS_WITH_HTTP_PROXY=1 -DLWS_WITH_RANGES=1 -DLWS_WITH_THREADPOOL=1 -DLWS_WITH_CBOR=1 -DLWS_WITH_JOSE=1 -DLWS_WITH_COSE=1 -DLWS_WITH_SYS_DHCP_CLIENT=1 -DLWS_WITH_FTS=1 -DLWS_WITH_STRUCT_SQLITE3=1 -DLWS_ROLE_DBUS=1 -DLWS_WITH_SYS_ASYNC_DNS=1 -DLWS_WITH_SYS_FAULT_INJECTION=1 -DLWS_WITH_TLS_JIT_TRUST=1 -DLWS_ROLE_MQTT=1 -DLWS_ROLE_RAW_PROXY=1 -DLWS_WITH_EVENT_LIBS=1 -DLWS_WITH_LIBUV=1 -DLWS_WITH_STRUCT_JSON=1 -DLWS_WITH_LWS_DSH=1 -DLWS_WITH_SECURE_STREAMS_PROXY_API=1",
+			"platforms":	"none, coverity/x86_64/gcc",
+			"cpack":	"export STAMP=`git log -1 --pretty=format:%h` && rm -f libwebsockets.tgz && tar czvf libwebsockets.tgz cov-int && script -q -c \"cat /etc/coverity/secrets.sh | lws-minimal-http-client-post-form https://scan.coverity.com:443/builds?project=warmcat%2Flibwebsockets --form file=@libwebsockets.tgz --form version=${STAMP} --form 'description=lws qa'\" /dev/null",
+			"branches":	"coverity"
 		}
+
 	}
 }
 
