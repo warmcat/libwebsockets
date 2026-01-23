@@ -88,6 +88,8 @@ struct lws_genaes_ctx {
 		size_t cbAuthData;
 		unsigned char iv[LWS_AES_CBC_BLOCKLEN]; /* Internal IV buffer for chaining */
 	} u;
+#elif defined(LWS_WITH_GNUTLS)
+	gnutls_cipher_hd_t ctx;
 #else
 	EVP_CIPHER_CTX *ctx;
 	const EVP_CIPHER *cipher;

@@ -167,7 +167,7 @@ __lws_reset_wsi(struct lws *wsi)
 
 	/* since we will destroy the wsi, make absolutely sure now */
 
-#if defined(LWS_WITH_OPENSSL)
+#if defined(LWS_WITH_TLS)
 	__lws_ssl_remove_wsi_from_buffered_list(wsi);
 #endif
 	__lws_wsi_remove_from_sul(wsi);

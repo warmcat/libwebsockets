@@ -27,7 +27,7 @@ if(IOS)
     set(LWS_DETECTED_PLAT_IOS 1)
 endif()
 
-if (LWS_WITH_SCHANNEL)
+if (LWS_WITH_SCHANNEL OR LWS_WITH_GNUTLS)
        set(LWS_WITH_SSL 1)
 endif()
 
