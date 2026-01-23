@@ -61,6 +61,7 @@ lws_sss_transport_wsi_cb(struct lws *wsi, enum lws_callback_reasons reason,
 
         case LWS_CALLBACK_RAW_CONNECTED:
         	lwsl_user("%s: CONNECTED\n", __func__);
+        	h->txp_path.priv_in = (lws_transport_priv_t)wsi;
         	if (h->txp_path.ops_in->event_connect_disposition(h, 0))
         		return -1;
 		/*

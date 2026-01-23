@@ -86,6 +86,10 @@
   #else
    #include "openssl/ssl.h" /* wrapper !!!! */
   #endif
+  #elif defined(LWS_WITH_GNUTLS)
+   #include <gnutls/gnutls.h>
+   #include <gnutls/abstract.h>
+   #include <gnutls/crypto.h>
   #else
    #include <openssl/ssl.h>
    #include <openssl/evp.h>
@@ -151,6 +155,8 @@ typedef struct lws_tls_schannel_conn lws_tls_conn;
 typedef struct lws_tls_schannel_ctx lws_tls_ctx;
 typedef struct lws_tls_schannel_bio lws_tls_bio;
 typedef struct lws_tls_schannel_x509 lws_tls_x509;
+#elif defined(LWS_WITH_GNUTLS)
+#include "gnutls/private.h"
 #else
 typedef SSL lws_tls_conn;
 typedef SSL_CTX lws_tls_ctx;
@@ -169,7 +175,8 @@ void
 lws_context_deinit_ssl_library(struct lws_context *context);
 #define LWS_SSL_ENABLED(vh) (vh && vh->tls.use_ssl)
 
-extern const struct lws_tls_ops tls_ops_openssl, tls_ops_mbedtls, tls_ops_schannel;
+extern const struct lws_tls_ops tls_ops_openssl, tls_ops_mbedtls, tls_ops_schannel,
+				 tls_ops_gnutls;
 
 struct lws_ec_valid_curves {
 	int id;

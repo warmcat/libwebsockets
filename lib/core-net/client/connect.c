@@ -399,9 +399,9 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 		 */
 		__lws_lc_tag(i->context, &i->context->lcg[
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
-		         i->ssl_connection & LCCSCF_SECSTREAM_PROXY_LINK ? LWSLCG_WSI_SSP_CLIENT :
+		         (i->ssl_connection & LCCSCF_SECSTREAM_PROXY_LINK) ? LWSLCG_WSI_SSP_CLIENT :
 #if defined(LWS_WITH_SERVER)
-		         (i->ssl_connection & LCCSCF_SECSTREAM_PROXY_ONWARD ? LWSLCG_WSI_SSP_ONWARD :
+		         ((i->ssl_connection & LCCSCF_SECSTREAM_PROXY_ONWARD) ? LWSLCG_WSI_SSP_ONWARD :
 #endif
 			  LWSLCG_WSI_CLIENT
 #if defined(LWS_WITH_SERVER)
@@ -414,7 +414,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 			&wsi->lc, "%s/%s/%s/(%s)", i->method ? i->method : "WS",
 			wsi->role_ops->name, i->address,
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
-			wsi->client_bound_sspc ?
+			(i->ssl_connection & LCCSCF_SECSTREAM_PROXY_LINK) ?
 				lws_sspc_tag((lws_sspc_handle_t *)i->opaque_user_data) :
 #endif
 			lws_ss_tag(((lws_ss_handle_t *)i->opaque_user_data)));
