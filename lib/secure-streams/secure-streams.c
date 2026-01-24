@@ -2089,7 +2089,6 @@ lws_ss_start_timeout(struct lws_ss_handle *h, unsigned int timeout_ms)
 	if (!timeout_ms && !h->policy->timeout_ms)
 		return;
 
-	lwsl_notice("%s: %s scheduling timeout %lu ms\n", __func__, lws_ss_tag(h), (unsigned long)(timeout_ms ? timeout_ms : h->policy->timeout_ms));
 
 	lws_sul_schedule(h->context, 0, &h->sul_timeout, lws_ss_to_cb,
 			 (timeout_ms ? timeout_ms : h->policy->timeout_ms) *

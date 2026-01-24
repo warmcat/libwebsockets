@@ -452,7 +452,7 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		if (!h) {
-			lwsl_err("%s: CCE with no ss handle %s\n", __func__, lws_wsi_tag(wsi));
+			lwsl_notice("%s: CCE with no ss handle %s\n", __func__, lws_wsi_tag(wsi));
 			break;
 		}
 
@@ -513,7 +513,7 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			break;
 
 		h->txn_n_acked = 0;
-		lws_sul_cancel(&h->sul_timeout);
+		// lws_sul_cancel(&h->sul_timeout);
 
 		lws_ss_assert_extant(wsi->a.context, wsi->tsi, h);
 
@@ -549,9 +549,14 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			r = lws_ss_backoff(h);
 			if (r != LWSSSSRET_OK)
 				return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
+			if (h->seqstate == SSSEQ_IDLE)
+				lws_sul_cancel(&h->sul_timeout);
+
 			break;
-		} else
+		} else {
 			h->seqstate = SSSEQ_IDLE;
+			lws_sul_cancel(&h->sul_timeout);
+		}
 
 		if (h->ss_dangling_connected) {
 			/* already disconnected, no action for DISCONNECT_ME */
