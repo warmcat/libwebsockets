@@ -406,6 +406,8 @@ x509_get_akid(uint8_t **p, uint8_t *end, lws_mbedtls_x509_authority *akid)
 			 * so "len" shall be used */
 			r = lws_x509_get_general_names(p, (*p + len),
 						    &akid->authorityCertIssuer);
+			if (r)
+				return(r);
 		}
 	}
 
