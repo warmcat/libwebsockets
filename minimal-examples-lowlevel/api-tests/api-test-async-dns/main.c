@@ -12,7 +12,7 @@
 #include <libwebsockets.h>
 #include <signal.h>
 
-static int interrupted, dtest, ok, fail, _exp = 30;
+static int interrupted, dtest, ok, fail, _exp = 36;
 struct lws_context *context;
 
 /*
@@ -116,6 +116,18 @@ static struct async_dns_tests {
 //	{ "c-msn-com-europe-vip.trafficmanager.net", TEST_FLAG_NOCHECK_RESULT_IP |
 //		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 0,
 //		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
+	{ "awsrealm.majicrealm.com", LWS_ADNS_RECORD_A, 4,
+		{ 35, 88, 197, 177, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
+	{ "lwsbiglongtesthostname.lociterm.com", LWS_ADNS_RECORD_A, 4,
+		{ 127, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
+	{ "game.addictmud.org", LWS_ADNS_RECORD_A, 4,
+		{ 167, 172, 227, 42, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
+	{ "grow.lociterm.com", LWS_ADNS_RECORD_A, 4,
+		{ 127, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
+	{ "letsgobigorgohome.lociterm.com", LWS_ADNS_RECORD_A, 4,
+		{ 127, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
+	{ "terrafirma.terra.mud.org", LWS_ADNS_RECORD_A, 4,
+		{ 92,205,179,40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 };
 
 static uint8_t canned_c_msn_com[] = {
@@ -255,8 +267,8 @@ cb1(struct lws *wsi_unused, const char *ads, const struct addrinfo *a, int n,
     void *opaque)
 {
 	const struct addrinfo *ac = a;
-	int ctr = 0, alen;
-	uint8_t *addr;
+	int ctr = 0, alen = 0;
+	uint8_t *addr = NULL;
 	char buf[64];
 
 	dtest++;
@@ -319,6 +331,9 @@ again:
 	}
 
 	lwsl_err("%s: dns test %d: no match\n", __func__, dtest);
+	lwsl_hexdump_notice(adt[dtest - 1].ads, (size_t)alen);
+	if (addr)
+		lwsl_hexdump_notice(addr, (size_t)alen);
 	fail++;
 
 next:
