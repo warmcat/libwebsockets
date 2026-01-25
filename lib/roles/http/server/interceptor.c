@@ -26,6 +26,12 @@
 
  
 
+struct lws_interceptor_cidr {
+	struct lws_interceptor_cidr	*next;
+	lws_sockaddr46			sa46;
+	int				len;
+};
+
 struct vhd_interceptor {
 	struct lws_context		*context;
 	struct lws_vhost		*vhost;
@@ -53,6 +59,7 @@ struct vhd_interceptor {
 	int				always_pass;
 
 	lws_sorted_usec_list_t		sul_stats;
+	struct lws_interceptor_cidr	*cidr_head;
 	int				stats_logging;
 };
 
@@ -274,9 +281,28 @@ lws_interceptor_check(struct lws *wsi, const struct lws_protocols *prot)
 
 	lws_get_peer_simple(wsi, ip, sizeof(ip));
 	if (strcmp(sub_claim, ip)) {
-		lwsl_notice("%s: IP mismatch %s vs %s\n", __func__, sub_claim, ip);
-		lws_interceptor_inject_header(wsi, vhd, NULL);
-		return vhd->always_pass ? 0 : 1;
+		struct lws_interceptor_cidr *cidr = vhd->cidr_head;
+		lws_sockaddr46 sa46;
+		int allow = 0;
+
+		lws_get_peer_addresses(wsi, lws_get_socket_fd(wsi),
+				NULL, 0, ip, sizeof(ip));
+
+		if (!lws_sa46_parse_numeric_address(ip, &sa46)) {
+			while (cidr) {
+				if (!lws_sa46_on_net(&sa46, &cidr->sa46, cidr->len)) {
+					allow = 1;
+					break;
+				}
+				cidr = cidr->next;
+			}
+		}
+
+		if (!allow) {
+			lwsl_notice("%s: IP mismatch %s vs %s\n", __func__, sub_claim, ip);
+			lws_interceptor_inject_header(wsi, vhd, NULL);
+			return vhd->always_pass ? 0 : 1;
+		}
 	}
 
 	lwsl_notice("%s: valid JWT for %s: exp %lu, now %lu (expires in %lds)\n",
@@ -519,6 +545,7 @@ lws_callback_interceptor(struct lws *wsi, enum lws_callback_reasons reason,
 	struct vhd_interceptor *vhd = (struct vhd_interceptor *)lws_protocol_vh_priv_get(
 			lws_get_vhost(wsi), lws_get_protocol(wsi));
 	struct pss_interceptor *pss = (struct pss_interceptor *)user;
+	const struct lws_protocol_vhost_options *pvo;
 	const char *cp;
 
 	switch (reason) {
@@ -588,12 +615,41 @@ lws_callback_interceptor(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (!lws_pvo_get_str(in, "always-pass", &cp))
 			vhd->always_pass = !!atoi(cp);
+
+		pvo = lws_pvo_search(in, "cidr-allow");
+		while (pvo) {
+			struct lws_interceptor_cidr *cidr =
+				malloc(sizeof(*cidr));
+
+			if (!cidr) {
+				lwsl_err("%s: OOM\n", __func__);
+				return -1;
+			}
+
+			if (lws_parse_cidr(pvo->value, &cidr->sa46, &cidr->len)) {
+				lwsl_err("%s: Bad CIDR %s\n", __func__,
+						pvo->value);
+				free(cidr);
+				return -1;
+			}
+
+			cidr->next = vhd->cidr_head;
+			vhd->cidr_head = cidr;
+
+			pvo = lws_pvo_search(pvo->next, "cidr-allow");
+		}
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
 		if (vhd) {
 			lws_sul_cancel(&vhd->sul_stats);
 			lws_jwk_destroy(&vhd->jwk);
+			while (vhd->cidr_head) {
+				struct lws_interceptor_cidr *cidr = vhd->cidr_head;
+
+				vhd->cidr_head = cidr->next;
+				free(cidr);
+			}
 		}
 		break;
 
