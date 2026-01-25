@@ -216,8 +216,8 @@
 		"uncommon_headers": {
 			"cmake":	"-DLWS_WITH_HTTP_BASIC_AUTH=0 -DLWS_WITH_HTTP_UNCOMMON_HEADERS=0 -DLWS_HTTP_HEADERS_ALL=0"
 		},
-		"ipv6":	{
-			"cmake":	"-DLWS_IPV6=ON"
+		"ipv6-off":	{
+			"cmake":	"-DLWS_IPV6=OFF"
 		},
 		"nonetlink":	{
 			"cmake":	"-DLWS_WITH_NETLINK=0"
