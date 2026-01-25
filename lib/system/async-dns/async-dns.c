@@ -39,6 +39,11 @@ lws_adns_q_destroy(lws_adns_q_t *q)
 	lws_sul_cancel(&q->sul);
 	lws_sul_cancel(&q->write_sul);
 	lws_dll2_remove(&q->list);
+	if (q->firstcache) {
+		q->firstcache->refcount--;
+		q->firstcache = NULL;
+	}
+
 	lws_free(q);
 }
 
@@ -684,6 +689,11 @@ lws_async_dns_trim_cache(lws_async_dns_t *dns)
 	lws_adns_cache_t *c1;
 
 	if (dns->cached.count + 1< MAX_CACHE_ENTRIES)
+		return;
+
+	/* we want to make space for one new one */
+
+	if (!dns->cached.count)
 		return;
 
 	c1 = lws_container_of(lws_dll2_get_tail(&dns->cached),
