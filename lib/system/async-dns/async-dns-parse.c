@@ -233,7 +233,6 @@ start:
 		n = lws_adns_parse_label(pkt, len, p, len - DHO_SIZEOF, &sp,
 					 sizeof(stack[0].name) -
 					 lws_ptr_diff_size_t(sp, stack[0].name));
-		/* includes case name won't fit */
 		if (n < 0)
 			return -1;
 
@@ -366,7 +365,7 @@ do_cb:
 
 			p += n;
 
-			if (p + 14 > e)
+			if (p > e)
 				return -1;
 #if 0
 			/* it should have exactly reached rrpaylen if only one
@@ -727,6 +726,8 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 	 */
 
 fail_out:
+	if (q->go_nogo != METRES_GO)
+		lws_async_dns_complete(q, NULL);
 	lws_adns_q_destroy(q);
 }
 
