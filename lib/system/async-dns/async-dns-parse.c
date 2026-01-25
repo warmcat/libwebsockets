@@ -33,9 +33,9 @@ lws_adns_parse_label(const uint8_t *pkt, int len, const uint8_t *ls, int budget,
 		     char **dest, size_t dl)
 {
 	const uint8_t *e = pkt + len, *ols = ls;
-	char pointer = 0, first = 1;
+	char pointer = 0;
+	int n, readsize = 0, consumed = -1;
 	uint8_t ll;
-	int n, readsize = 0;
 
 	if (len < DHO_SIZEOF || len > 1500)
 		return -1;
@@ -62,6 +62,15 @@ again1:
 		}
 
 		/* dereference the label pointer */
+
+		/*
+		 * If this is the first pointer we encountered, the consumption
+		 * of the input from the caller's perspective ends here (plus
+		 * the 2-byte pointer).
+		 */
+		if (consumed == -1)
+			consumed = lws_ptr_diff(ls, ols) + 2;
+
 		ls = pkt + n;
 
 		/* are we being fuzzed or messed with? */
@@ -70,7 +79,7 @@ again1:
 			lwsl_notice("%s: label ptr to ptr invalid\n", __func__);
 
 			return -1;
-		}
+		} /* loops of pointers are not allowed, but ptr->label->ptr is */
 		pointer = 1;
 	}
 
@@ -85,7 +94,15 @@ again1:
 		return -1;
 	}
 
-	if (ll > lws_ptr_diff_size_t(ls, ols) + (size_t)budget) {
+	/*
+	 * If we are following a pointer, ls is not linearly related to ols any
+	 * more.  So we can't check it against the budget from ols.
+	 *
+	 * We already checked that the new ls and the label length are within
+	 * the packet boundaries (e).
+	 */
+
+	if (!pointer && ll > lws_ptr_diff_size_t(ls, ols) + (size_t)budget) {
 		lwsl_notice("%s: label too long %d vs %d (rem budget %d)\n",
 				__func__, ll, budget,
 				(int)(lws_ptr_diff_size_t(ls, ols) + (size_t)budget));
@@ -116,19 +133,20 @@ again1:
 		 * special fun rule... if whole qname was a pointer label,
 		 * it has no 00 terminator afterwards
 		 */
-		if (first)
-			return 2; /* we just took the 16-bit pointer */
 
-		return 3;
+		 return consumed;
 	}
 
-	first = 0;
 
 	if (*ls)
 		goto again1;
 
 	ls++;
 
+	/*
+	 * If we didn't use a pointer, consumed is still -1, and we return
+	 * the linear consumption
+	 */
 	return lws_ptr_diff(ls, ols);
 }
 
@@ -667,6 +685,7 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 	} else {
 
 		q->firstcache = c;
+		c->refcount++;
 		c->incomplete = !q->responded;// != q->asked;
 
 		/*
