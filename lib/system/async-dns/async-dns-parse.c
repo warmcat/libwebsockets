@@ -588,7 +588,14 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 		return;
 	}
 
-	/* we can get dups... drop any that have already happened */
+	/*
+	 * we may have recursed and the packet we just got started earlier than
+	 * the current TID we are working with... if so, ignore it
+	 */
+
+	if ((lws_ser_ru16be(pkt + DHO_TID) & 0xfffe) !=
+			(LADNS_MOST_RECENT_TID(q) & 0xfffe))
+		return;
 
 	n = 1 << (lws_ser_ru16be(pkt + DHO_TID) & 1);
 	if (q->responded & n) {
