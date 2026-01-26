@@ -40,14 +40,17 @@ static int *parse_cipher_list_to_ids(const char *str)
     struct lws_tokenize ts;
     lws_tokenize_elem e;
     char tok[256];
+    int flags = LWS_TOKENIZE_F_MINUS_NONTERM |
+                LWS_TOKENIZE_F_COMMA_SEP_LIST |
+                LWS_TOKENIZE_F_NO_INTEGERS;
 
     if (!str || !*str)
         return NULL;
 
     /* First pass: count tokens */
-    lws_tokenize_init(&ts, str, 0);
-    while (lws_tokenize(&ts) != LWS_TOKZE_ENDED) {
-        if (ts.e == LWS_TOKZE_TOKEN)
+    lws_tokenize_init(&ts, str, flags);
+    while ((e = lws_tokenize(&ts)) != LWS_TOKZE_ENDED) {
+        if (e == LWS_TOKZE_TOKEN)
             tokens++;
     }
 
@@ -59,7 +62,7 @@ static int *parse_cipher_list_to_ids(const char *str)
         return NULL;
 
     /* Second pass: parse and convert tokens */
-    lws_tokenize_init(&ts, str, 0);
+    lws_tokenize_init(&ts, str, flags);
     while ((e = lws_tokenize(&ts)) != LWS_TOKZE_ENDED) {
         int id = 0;
 

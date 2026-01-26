@@ -14,6 +14,11 @@ test_genaes(struct lws_context *context);
 int
 test_genec(struct lws_context *context);
 
+#if defined(LWS_WITH_MBEDTLS) && defined(LWS_WITH_TLS)
+int
+test_mbedtls_cipherlist(struct lws_context *context);
+#endif
+
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
@@ -41,6 +46,10 @@ int main(int argc, const char **argv)
 
 	result |= test_genaes(context);
 	result |= test_genec(context);
+
+#if defined(LWS_WITH_MBEDTLS) && defined(LWS_WITH_TLS)
+	result |= test_mbedtls_cipherlist(context);
+#endif
 
 	lwsl_user("Completed: %s\n", result ? "FAIL" : "PASS");
 
