@@ -51,7 +51,8 @@ _lws_plat_apply_caps(unsigned int mode, const cap_value_t *cv, int count)
 int
 lws_plat_user_colon_group_to_ids(const char *u_colon_g, uid_t *puid, gid_t *pgid)
 {
-	char *colon = strchr(u_colon_g, ':'), u[33];
+	const char *colon = strchr(u_colon_g, ':');
+	char u[33];
 	struct group *g;
 	struct passwd *p;
 	size_t ulen;
