@@ -392,6 +392,9 @@ endif()
 if (MSVC)
 	option(LWS_MSVC_STATIC_RUNTIME "Link to static MSVC runtime" OFF)
 endif()
+if (WIN32)
+    option(LWS_APPEND_DEBUG_SUFFIX_D "Append 'd' to library name when CMAKE_BUILD_TYPE=Debug" OFF)
+endif()
 
 
 if (DEFINED CACHE{LIB_SUFFIX})
