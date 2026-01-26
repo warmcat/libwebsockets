@@ -25,6 +25,12 @@ struct lws_context *context;
 struct lws_ss_handle *h;
 size_t amount = 12345;
 
+#if defined(LWS_WITH_SS_TESTS_HTTP_ONLY)
+#define TESTS_COUNT 18  /* Original number of tests */
+#else
+#define TESTS_COUNT 16  /* Number of tests with HTTP ones removed */
+#endif
+
 static void
 tests_start_next(lws_sorted_usec_list_t *sul);
 
@@ -188,7 +194,9 @@ static const char * const default_ss_policy =
 			"\"http_no_content_length\": true,"
 			"\"retry\": \"default\","
 			"\"tls_trust_store\": \"api_amazon_com\""
-		"}},{"
+		"}},"
+#if defined(LWS_WITH_SS_TESTS_HTTP_ONLY)
+		"{"
 
 		/*
 		 * Just get a 200 from httpbin
@@ -205,7 +213,9 @@ static const char * const default_ss_policy =
 			"\"http_url\": \"/status/200\","
 			"\"timeout_ms\": 10000,"
 			"\"retry\": \"default\""
-		"}},{"
+		"}},"
+#endif
+		"{"
 		    "\"t_h1_tls\": {"
 			"\"endpoint\": \"libwebsockets.org\","
 			"\"port\": 443,"
@@ -311,7 +321,9 @@ static const char * const default_ss_policy =
 			"\"timeout_ms\": 5000,"
 			"\"retry\": \"default\","
 			"\"tls_trust_store\": \"arca1\""
-		"}},{"
+		"}},"
+#if defined(LWS_WITH_SS_TESTS_HTTP_ONLY)
+		"{"
 
 		/*
 		 * bulk payload transfer from httpbin.org
@@ -331,7 +343,9 @@ static const char * const default_ss_policy =
 				"}],"
 			"\"timeout_ms\": 10000,"
 			"\"retry\": \"default\""
-		"}},{"
+		"}},"
+#endif
+		"{"
 		    "\"bulk_h1_tls\": {"
 			"\"endpoint\": \"libwebsockets.org\","
 			"\"port\": 443,"
@@ -439,7 +453,7 @@ struct tests_seq {
 	/*
 	 * We just get a 200 from httpbin.org as a sanity check first
 	 */
-
+#if defined(LWS_WITH_SS_TESTS_HTTP_ONLY)
 	{
 		"h1:80 just get 200",
 		"t_h1", 15 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
@@ -447,6 +461,7 @@ struct tests_seq {
 					 (1 << LWSSSCS_ALL_RETRIES_FAILED),
 		0
 	},
+#endif
 	{
 		"h1:443 just get 200",
 		"t_h1_tls", 15 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
@@ -545,7 +560,7 @@ struct tests_seq {
 	/*
 	 * Let's request some bulk data from httpbin.org
 	 */
-
+#if defined(LWS_WITH_SS_TESTS_HTTP_ONLY)
 	{
 		"h1:80 read bulk",
 		"bulk_h1", 5 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
@@ -553,6 +568,7 @@ struct tests_seq {
 		(1 << LWSSSCS_ALL_RETRIES_FAILED),
 		12345
 	},
+#endif
 	{
 		"h1:443 read bulk",
 		"bulk_h1_tls", 5 * LWS_US_PER_SEC, LWSSSCS_QOS_ACK_REMOTE,
@@ -796,7 +812,7 @@ tests_start_next(lws_sorted_usec_list_t *sul)
 
 	doing_a_retry = 0;
 
-	if ((unsigned int)tests >= LWS_ARRAY_SIZE(tests_seq)) {
+	if ((unsigned int)tests >= TESTS_COUNT) {
 		lwsl_notice("Completed all tests\n");
 		interrupted = 1;
 		return;
@@ -875,6 +891,16 @@ sigint_handler(int sig)
 	interrupted = 1;
 }
 
+static void 
+set_bulk_test_payloads(size_t payload_size) 
+{
+    for (size_t i = 0; i < TESTS_COUNT; i++) {
+        if (strstr(tests_seq[i].name, "read bulk")) {
+            tests_seq[i].eom_pass = payload_size;
+        }
+    }
+}
+
 int
 main(int argc, const char **argv)
 {
@@ -890,9 +916,8 @@ main(int argc, const char **argv)
 		amount = (size_t)atoi(pp);
 
 	/* set the expected payload for the bulk-related tests to amount */
+	set_bulk_test_payloads(amount);
 
-	tests_seq[12].eom_pass = tests_seq[13].eom_pass =
-					tests_seq[14].eom_pass = amount;
 #if !defined(LWS_SS_USE_SSPC)
 	// puts(default_ss_policy);
 #endif
