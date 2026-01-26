@@ -286,7 +286,8 @@ lws_cookie_write_nsc(struct lws *wsi, struct lws_cookie *c)
 	const char *ads, *path;
 	struct lws_cache_ttl_lru *l1;
 	struct client_info_stash *stash;
-	char *cookie_string = NULL, *dl;
+	char *cookie_string = NULL;
+	const char *dl;
 	 /* 6 tabs + 20 for max time_t + 2 * TRUE/FALSE + null */
 	size_t size = 6 + 20 + 10 + 1;
 	time_t expires = 0;
