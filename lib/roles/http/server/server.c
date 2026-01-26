@@ -2411,7 +2411,8 @@ raw_transition:
 		if (wsi->a.context->reject_service_keywords) {
 			const struct lws_protocol_vhost_options *rej =
 					wsi->a.context->reject_service_keywords;
-			char ua[384], *msg = NULL;
+			char ua[384];
+			const char *msg = NULL;
 
 			if (lws_hdr_copy(wsi, ua, sizeof(ua) - 1,
 					 WSI_TOKEN_HTTP_USER_AGENT) > 0) {
