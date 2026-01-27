@@ -341,7 +341,7 @@ lws_ss_policy_ref_trust_store(struct lws_context *context,
 			pol->trust.store->ssx509[0]->ca_der_len;
 #endif
 #if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
-	lwsl_err("%s: ctx ext %p\n", __func__, context->extensions);
+	lwsl_debug("%s: ctx ext %p\n", __func__, context->extensions);
 	i.extensions = context->extensions;
 #endif
 	i.port = CONTEXT_PORT_NO_LISTEN;
