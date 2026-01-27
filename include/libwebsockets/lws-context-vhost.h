@@ -262,6 +262,10 @@
 #define LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS		(1ll << 42)
 	/**< (VH) force instantiation of all protocols for this vhost */
 
+#define LWS_SERVER_OPTION_VH_SKIP_PRIV_DROP			(1ll << 43)
+	/**< Cause create vhost api to skip priv drop, requires caller
+	  *  to manage it themselves */
+
 	/****** add new things just above ---^ ******/
 
 

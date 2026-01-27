@@ -106,6 +106,7 @@ typedef enum { /* keep system_state_names[] in sync in context.c */
 	LWS_SYSTATE_UNKNOWN,
 
 	LWS_SYSTATE_CONTEXT_CREATED,	 /* context was just created */
+	LWS_SYSTATE_PRE_PRIV_DROP,	 /* just before we drop privs */
 	LWS_SYSTATE_INITIALIZED,	 /* protocols initialized.  Lws itself
 					  * can operate normally */
 	LWS_SYSTATE_COLLECTING_STDIN,	 /* we are waiting for stdin RX and / or

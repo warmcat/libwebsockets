@@ -18,7 +18,6 @@ static unsigned int timeout_ms = 6000;
 static int interrupted, bad = 1, h1;
 static lws_state_notify_link_t nl;
 static size_t hugeurl_size = 4000;
-static char *hugeurl, *check;
 
 #if !defined(LWS_SS_USE_SSPC)
 static const char * const default_ss_policy =
@@ -156,9 +155,8 @@ typedef struct myss {
 	size_t				comp;
 	size_t				cr;
 
+	char 				*expected_hugeurl;
 	unsigned char			check[16384];
-	char				started;
-
 } myss_t;
 
 
@@ -191,8 +189,21 @@ myss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 
 		/* confirm what we sent is the same as what we collected */
 
-		if (memcmp(hugeurl, m->check, hugeurl_size)) {
+		if (memcmp(m->expected_hugeurl, m->check, hugeurl_size)) {
+			size_t n;
 			lwsl_err("%s: huge url content mismatch\n", __func__);
+
+			for (n = 0; n < hugeurl_size; n++) {
+				if (m->expected_hugeurl[n] != m->check[n]) {
+					lwsl_err("%s: mismatches at offset %u (0x%2X vs 0x%2X)\n",
+							__func__, (unsigned int)n,
+							(unsigned int)(unsigned char)m->expected_hugeurl[n],
+							(unsigned int)(unsigned char)m->check[n]);
+					break;
+				}
+			}
+
+			lwsl_hexdump_err(m->check, 128);
 
 			return LWSSSSRET_OK;
 		}
@@ -221,25 +232,17 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 		/* let's make the hugeurl part */
 
-		hugeurl = malloc(hugeurl_size + 1);
-		if (!hugeurl) {
+		m->expected_hugeurl = malloc(hugeurl_size + 1);
+		if (!m->expected_hugeurl) {
 			lwsl_err("OOM\n");
-			return LWSSSSRET_DESTROY_ME;
-		}
-
-		check = malloc(hugeurl_size + 1);
-		if (!check) {
-			lwsl_err("OOM\n");
-			free(hugeurl);
-			hugeurl = NULL;
 			return LWSSSSRET_DESTROY_ME;
 		}
 
 		/* Create the big, random, urlarg */
 
-		lws_hex_random(lws_ss_get_context(m->ss), hugeurl,
+		lws_hex_random(lws_ss_get_context(m->ss), m->expected_hugeurl,
 			       hugeurl_size + 1);
-		if (lws_ss_set_metadata(m->ss, "hugearg", hugeurl, hugeurl_size))
+		if (lws_ss_set_metadata(m->ss, "hugearg", m->expected_hugeurl, hugeurl_size))
 			return LWSSSSRET_DISCONNECT_ME;
 
 		return lws_ss_client_connect(m->ss);
@@ -268,6 +271,13 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		lwsl_notice("%s: LWSSSCS_USER_BASE\n", __func__);
 		break;
 
+	case LWSSSCS_DESTROYING:
+		if (m->expected_hugeurl) {
+			free(m->expected_hugeurl);
+			m->expected_hugeurl = NULL;
+		}
+		break;
+
 	default:
 		break;
 	}
@@ -289,6 +299,7 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		    int current, int target)
 {
 	struct lws_context *context = lws_system_context_from_system_mgr(mgr);
+
 
 	/*
 	 * For the things we care about, let's notice if we are trying to get
@@ -401,9 +412,6 @@ int main(int argc, const char **argv)
 		n = lws_service(context, 0);
 
 	lws_context_destroy(context);
-
-	free(hugeurl);
-	free(check);
 
 	lwsl_user("Completed: %s\n", bad ? "failed" : "OK");
 

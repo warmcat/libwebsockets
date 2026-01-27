@@ -64,7 +64,9 @@ lws_get_library_version(void)
 static const char * system_state_names[] = {
 	"undef",
 	"CONTEXT_CREATED",
+	"PRE_PRIV_DROP",
 	"INITIALIZED",
+	"COLLECTING_STDIN",
 	"IFACE_COLDPLUG",
 	"DHCP",
 	"CPD_PRE_TIME",
@@ -227,13 +229,12 @@ lws_state_notify_protocol_init(struct lws_state_manager *mgr,
 		 * Start trying to acquire it if it's not already in progress
 		 * returns nonzero if we determine it's not needed
 		 */
-		if (!lws_ss_sys_fetch_policy(context))
+		if (!lws_ss_sys_fetch_policy(context)) {
 			/* we have it */
-			return 0;
-
-		/* deny while we fetch it */
-
-		return 1;
+		} else {
+			/* deny while we fetch it */
+			return 1;
+		}
 	}
 #endif
 #endif
@@ -1677,12 +1678,16 @@ lws_create_context(const struct lws_context_creation_info *info)
 	 * to listen on port < 1023 we would have needed root, but now we are
 	 * listening, we don't want the power for anything else
 	 */
-	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS))
+	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS)) {
+#if defined(LWS_WITH_SYS_STATE) && defined(LWS_WITH_NETWORK)
+		lws_state_transition(&context->mgr_system, LWS_SYSTATE_PRE_PRIV_DROP);
+#endif
 		if (lws_plat_drop_app_privileges(context, 1) ||
 		    lws_fi(&context->fic, "ctx_createfail_privdrop"))
 			goto bail_libuv_aware;
+	}
 
-#if defined(LWS_WITH_SYS_STATE)
+#if defined(LWS_WITH_SYS_STATE) && defined(LWS_WITH_NETWORK)
 	/*
 	 * We want to move on the syste, state as far as it can go towards
 	 * OPERATIONAL now.  But we have to return from here first so the user
