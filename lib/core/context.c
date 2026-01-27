@@ -64,6 +64,7 @@ lws_get_library_version(void)
 static const char * system_state_names[] = {
 	"undef",
 	"CONTEXT_CREATED",
+	"PRE_PRIV_DROP",
 	"INITIALIZED",
 	"IFACE_COLDPLUG",
 	"DHCP",
@@ -1677,10 +1678,12 @@ lws_create_context(const struct lws_context_creation_info *info)
 	 * to listen on port < 1023 we would have needed root, but now we are
 	 * listening, we don't want the power for anything else
 	 */
-	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS))
+	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS)) {
+		lws_state_transition(&context->mgr_system, LWS_SYSTATE_PRE_PRIV_DROP);
 		if (lws_plat_drop_app_privileges(context, 1) ||
 		    lws_fi(&context->fic, "ctx_createfail_privdrop"))
 			goto bail_libuv_aware;
+	}
 
 #if defined(LWS_WITH_SYS_STATE)
 	/*

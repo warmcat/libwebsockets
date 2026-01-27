@@ -217,7 +217,8 @@ The generic states defined are:
 |State|Meaning|
 |---|---|
 |`LWS_SYSTATE_CONTEXT_CREATED`|The context was just created.|
-|`LWS_SYSTATE_INITIALIZED`|The vhost protocols have been initialized|
+|`LWS_SYSTATE_PRE_PRIV_DROP`|Just before we will drop privileges|
+|`LWS_SYSTATE_INITIALIZED`|The vhost protocols have been initialized and we dropped privileges|
 |`LWS_SYSTATE_IFACE_COLDPLUG`|Existing network interfaces have been iterated|
 |`LWS_SYSTATE_DHCP`|Network identity is available|
 |`LWS_SYSTATE_TIME_VALID`|The system knows the time|

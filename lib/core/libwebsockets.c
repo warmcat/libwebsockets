@@ -873,9 +873,13 @@ lws_http_rel_to_url(char *dest, size_t len, const char *base, const char *rel)
 int
 lws_finalize_startup(struct lws_context *context)
 {
-	if (lws_check_opt(context->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS))
+	if (lws_check_opt(context->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS)) {
+		lwsl_user("%s: dropping app privs\n", __func__);
+		lws_state_transition(&context->mgr_system, LWS_SYSTATE_PRE_PRIV_DROP);
+
 		if (lws_plat_drop_app_privileges(context, 1))
 			return 1;
+	}
 
 	return 0;
 }

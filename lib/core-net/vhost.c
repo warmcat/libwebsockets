@@ -497,7 +497,7 @@ int
 lws_protocol_init(struct lws_context *context)
 {
 	struct lws_vhost *vh = context->vhost_list;
-	int any = 0, r = 0;
+	int any = 0, r = 0, spd = 0;
 
 	if (context->doing_protocol_init)
 		return 0;
@@ -507,6 +507,8 @@ lws_protocol_init(struct lws_context *context)
 	lwsl_cx_info(context, "\n");
 
 	while (vh) {
+
+		spd |= lws_check_opt(vh->options, LWS_SERVER_OPTION_VH_SKIP_PRIV_DROP);
 
 		/* only do the protocol init once for a given vhost */
 		if (vh->created_vhost_protocols ||
@@ -529,7 +531,8 @@ next:
 	if (!context->protocol_init_done) {
 
 		context->protocol_init_done = 1;
-		lws_finalize_startup(context);
+		if (!spd)
+			lws_finalize_startup(context);
 
 		return 0;
 	}
