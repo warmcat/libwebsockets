@@ -788,6 +788,9 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 #endif
 #include <libwebsockets/lws-state.h>
 #include <libwebsockets/lws-retry.h>
+#if defined(LWS_WITH_TRANSPORT_SEQUENCER)
+#include <libwebsockets/lws-transport-sequencer.h>
+#endif
 #if defined(LWS_WITH_NETWORK)
 #include <libwebsockets/lws-adopt.h>
 #include <libwebsockets/lws-network-helper.h>

@@ -678,12 +678,15 @@ lws_create_vhost(struct lws_context *context,
 	struct lws_plugin *plugin = context->plugin_list;
 #endif
 	struct lws_protocols *lwsp;
-	int m, f = !info->pvo, fx = 0, abs_pcol_count = 0, sec_pcol_count = 0;
+	int m, f = !info->pvo, fx = 0, abs_pcol_count = 0, sec_pcol_count = 0, dht_count = 0;
 	const char *name = "default";
 	char buf[96];
 	char *p;
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 	extern struct lws_protocols lws_async_dns_protocol;
+#endif
+#if defined(LWS_WITH_DHT)
+	extern const struct lws_protocols lws_dht_protocol;
 #endif
 	int n;
 
@@ -866,6 +869,9 @@ lws_create_vhost(struct lws_context *context,
 #if defined(LWS_WITH_SECURE_STREAMS)
 	sec_pcol_count = (int)LWS_ARRAY_SIZE(available_secstream_protocols) - 1;
 #endif
+#if defined(LWS_WITH_DHT)
+	dht_count = 1;
+#endif
 
 	/*
 	 * give the vhost a unified list of protocols including:
@@ -883,6 +889,7 @@ lws_create_vhost(struct lws_context *context,
 				((unsigned int)vh->count_protocols +
 				   (unsigned int)abs_pcol_count +
 				   (unsigned int)sec_pcol_count +
+				   (unsigned int)dht_count +
 				   (unsigned int)context->plugin_protocol_count +
 				   (unsigned int)fx + 1), "vh plugin table");
 	if (!lwsp) {
@@ -939,6 +946,12 @@ lws_create_vhost(struct lws_context *context,
 		       sizeof(*lwsp));
 		vh->count_protocols++;
 	}
+#endif
+
+#if defined(LWS_WITH_DHT)
+	memcpy(&lwsp[m], &lws_dht_protocol, sizeof(*lwsp));
+	m++;
+	vh->count_protocols++;
 #endif
 
 	/*

@@ -39,6 +39,13 @@ list(APPEND SOURCES
 	roles/pipe/ops-pipe.c
 )
 
+if (LWS_WITH_TRANSPORT_SEQUENCER)
+	list(APPEND SOURCES
+		core-net/lws-transport-sequencer.c
+	)
+endif()
+
+
 if (LWS_WITH_SYS_STATE)
 	list(APPEND SOURCES
 		core-net/state.c

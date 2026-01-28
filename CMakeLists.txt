@@ -24,6 +24,8 @@
 
 cmake_minimum_required(VERSION 3.10...4.0)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
+
 if (PICO_SDK_PATH)
 	include(cmake/pico_sdk_import.cmake)
 endif()
@@ -368,6 +370,7 @@ endif()
 option(LWS_WITH_MCUFONT_ENCODER "Build the ttf to mcufont encoder" OFF)
 option(LWS_WITH_WAKE_LOGGING "Log each wake reason" OFF)
 option(LWS_WITH_DHT "Include DHT APIs" OFF)
+option(LWS_WITH_TRANSPORT_SEQUENCER "Include Transport Sequencer APIs" OFF)
 option(LWS_WITH_MNEMONIC "Include mnemonic key generation support" OFF)
 
 #
