@@ -265,6 +265,20 @@ if (LWS_WITH_ACME)
 	endif()
 endif()
 
+if (LWS_WITH_DHT)
+	create_plugin(protocol_lws_dht_store ""
+		      "protocol_lws_dht_store.c" "" "")
+	if (NOT LWS_WITH_PLUGINS_BUILTIN)
+		target_compile_definitions(protocol_lws_dht_store PRIVATE LWS_BUILDING_SHARED)
+	endif()
+
+	create_plugin(protocol_lws_dht_object_store ""
+		      "protocol_lws_dht_object_store.c" "" "")
+	if (NOT LWS_WITH_PLUGINS_BUILTIN)
+		target_compile_definitions(protocol_lws_dht_object_store PRIVATE LWS_BUILDING_SHARED)
+	endif()
+endif()
+
 endif((LWS_WITH_PLUGINS AND LWS_WITH_SHARED) OR LWS_WITH_PLUGINS_BUILTIN)
 
 

@@ -540,7 +540,7 @@ lws_retry_sul_schedule(struct lws_context *context, int tid,
 	if (!conceal)
 		return 1;
 
-	lwsl_cx_info(context, "sul %p: scheduling retry in %dms", sul, (int)ms);
+	lwsl_cx_debug(context, "sul %p: scheduling retry in %dms", sul, (int)ms);
 
 	lws_sul_schedule(context, tid, sul, cb, (int64_t)(ms * 1000));
 
