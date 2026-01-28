@@ -689,6 +689,19 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	 */
 
 	if ((pollfd->revents & LWS_POLLHUP) == LWS_POLLHUP) {
+#if defined(LWS_WITH_CLIENT)
+		if (lwsi_state(wsi) == LRS_WAITING_CONNECT) {
+			lws_pt_lock(pt, __func__);
+			__remove_wsi_socket_from_fds(wsi);
+			lws_pt_unlock(pt);
+			compatible_close(wsi->desc.sockfd);
+			wsi->desc.sockfd = LWS_SOCK_INVALID;
+			if (lws_client_connect_3_connect(wsi, NULL, NULL, 0, NULL))
+				return 0;
+			else
+				return 1;
+		}
+#endif
 		wsi->socket_is_permanently_unusable = 1;
 
 		if (!(pollfd->revents & pollfd->events & LWS_POLLIN)) {
