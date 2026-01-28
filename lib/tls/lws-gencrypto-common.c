@@ -728,3 +728,25 @@ lws_genhash_render(enum lws_genhash_types type, const uint8_t *hash, char *out, 
 
 	return 0;
 }
+
+int
+lws_genhash_render_prefixed(enum lws_genhash_types type, const uint8_t *hash, char *out, size_t out_len)
+{
+	const char *t;
+	int n;
+
+	switch (type) {
+	case LWS_GENHASH_TYPE_MD5:	t = "MD5"; break;
+	case LWS_GENHASH_TYPE_SHA1:	t = "SHA1"; break;
+	case LWS_GENHASH_TYPE_SHA256:	t = "SHA256"; break;
+	case LWS_GENHASH_TYPE_SHA384:	t = "SHA384"; break;
+	case LWS_GENHASH_TYPE_SHA512:	t = "SHA512"; break;
+	default: return -1;
+	}
+
+	n = lws_snprintf(out, out_len, "%s:", t);
+	if (n < 0 || (size_t)n >= out_len)
+		return -1;
+
+	return lws_genhash_render(type, hash, out + n, out_len - (size_t)n);
+}
