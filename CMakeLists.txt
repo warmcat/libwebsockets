@@ -368,6 +368,7 @@ endif()
 option(LWS_WITH_MCUFONT_ENCODER "Build the ttf to mcufont encoder" OFF)
 option(LWS_WITH_WAKE_LOGGING "Log each wake reason" OFF)
 option(LWS_WITH_DHT "Include DHT APIs" OFF)
+option(LWS_WITH_MNEMONIC "Include mnemonic key generation support" OFF)
 
 #
 # Compressed backtraces
@@ -744,6 +745,10 @@ endif()
 #
 # add libs here that need to be at the end of the link order
 #
+
+if (LWS_WITH_MNEMONIC AND NOT LWS_WITH_GENCRYPTO)
+	message(FATAL_ERROR "LWS_WITH_MNEMONIC requires LWS_WITH_GENCRYPTO")
+endif()
 
 if (LWS_EXT_PTHREAD_INCLUDE_DIR)
 	list(APPEND LIB_LIST_AT_END ${LWS_EXT_PTHREAD_LIBRARIES})

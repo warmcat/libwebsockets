@@ -187,6 +187,11 @@ if (LWS_WITH_LHP)
 
 endif()
 
+if (LWS_WITH_MNEMONIC)
+	list(APPEND SOURCES
+		misc/mnemonic.c)
+endif()
+
 if (UNIX)
 	if (NOT LWS_HAVE_GETIFADDRS)
 		list(APPEND HDR_PRIVATE misc/getifaddrs.h)
