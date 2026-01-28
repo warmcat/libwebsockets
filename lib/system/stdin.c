@@ -125,7 +125,8 @@ next:
 			return -1;
 
 		if (!(cx->stdin_flags & LWS_SAS_FLAG__APPEND_COMMANDLINE)) {
-			cx->system_ops->stdin_rx(cx, buf, (size_t)n);
+			if (cx->system_ops->stdin_rx(cx, buf, (size_t)n) || !n)
+				return -1;
 			break;
 		}
 

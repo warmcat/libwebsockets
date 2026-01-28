@@ -189,6 +189,20 @@ lws_genhash_destroy(struct lws_genhash_ctx *ctx, void *result);
 LWS_VISIBLE LWS_EXTERN int
 lws_genhash_render(enum lws_genhash_types type, const uint8_t *hash, char *out, size_t out_len);
 
+/**
+ * lws_genhash_render_prefixed() - render a hash into a hex string with type prefix
+ *
+ * \param type: one of LWS_GENHASH_TYPE_...
+ * \param hash: pointer to the binary hash
+ * \param out: buffer to receive the hex string
+ * \param out_len: length of the out buffer
+ *
+ * Renders the binary hash into a hex string in the out buffer, prepending
+ * the hash type (e.g., "SHA256:hex...").
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_genhash_render_prefixed(enum lws_genhash_types type, const uint8_t *hash, char *out, size_t out_len);
+
 /** lws_genhmac_init() - prepare your struct lws_genhmac_ctx for use
  *
  * \param ctx: your struct lws_genhmac_ctx
