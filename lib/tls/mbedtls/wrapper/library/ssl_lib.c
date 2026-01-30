@@ -21,11 +21,93 @@
 #include "ssl_cert.h"
 #include "ssl_dbg.h"
 #include "ssl_port.h"
+#include "platform/ssl_pm.h"
+#include <string.h>
 
 char *
 lws_strncpy(char *dest, const char *src, size_t size);
 
 #define SSL_SEND_DATA_MAX_LENGTH 1460
+
+
+/* Parse a colon/comma/space separated list of IANA/mbedTLS ciphers
+ * into a malloc'ed int[] terminated with 0.
+ */
+static int *parse_cipher_list_to_ids(const char *str)
+{
+    int *result = NULL;
+    size_t tokens = 0, out = 0;
+    struct lws_tokenize ts;
+    lws_tokenize_elem e;
+    char tok[256];
+    int flags = LWS_TOKENIZE_F_MINUS_NONTERM |
+                LWS_TOKENIZE_F_COMMA_SEP_LIST |
+                LWS_TOKENIZE_F_NO_INTEGERS;
+
+    if (!str || !*str)
+        return NULL;
+
+    /* First pass: count tokens */
+    lws_tokenize_init(&ts, str, flags);
+    while ((e = lws_tokenize(&ts)) != LWS_TOKZE_ENDED) {
+        if (e == LWS_TOKZE_TOKEN)
+            tokens++;
+    }
+
+    if (!tokens)
+        return NULL;
+
+    result = ssl_mem_malloc((tokens + 1) * sizeof(int));
+    if (!result)
+        return NULL;
+
+    /* Second pass: parse and convert tokens */
+    lws_tokenize_init(&ts, str, flags);
+    while ((e = lws_tokenize(&ts)) != LWS_TOKZE_ENDED) {
+        int id = 0;
+
+        if (e != LWS_TOKZE_TOKEN)
+            continue;
+
+        /* Copy token to null-terminated buffer */
+        if (lws_tokenize_cstr(&ts, tok, sizeof(tok)))
+            continue;  /* token too long, skip it */
+
+        /* 1) try mbedTLS native name directly */
+        id = mbedtls_ssl_get_ciphersuite_id(tok);
+
+        /* 2) if that failed and it looks like IANA (TLS_...) convert '_' -> '-' */
+        if (id <= 0 && strncmp(tok, "TLS_", 4) == 0) {
+            char name[256];
+            size_t k;
+
+            strncpy(name, tok, sizeof(name) - 1);
+            name[sizeof(name) - 1] = '\0';
+
+            for (k = 0; name[k]; ++k) {
+                if (name[k] == '_')
+                    name[k] = '-';
+            }
+
+            id = mbedtls_ssl_get_ciphersuite_id(name);
+        }
+
+        if (id > 0)
+            result[out++] = id;
+        else
+            /* Optional: log unknown cipher */
+            lwsl_warn("%s: unknown TLS ciphersuite '%s' in list '%s'\n", __func__, tok, str);
+    }
+
+    if (!out) {
+        ssl_mem_free(result);
+        return NULL;
+    }
+
+    result[out] = 0;
+
+    return result;
+}
 
 /**
  * @brief create a new SSL session object
@@ -256,6 +338,11 @@ void SSL_CTX_free(SSL_CTX* ctx)
 {
     SSL_ASSERT3(ctx);
 
+    if (ctx->ciphersuites) {
+        ssl_mem_free(ctx->ciphersuites);
+        ctx->ciphersuites = NULL;
+    }
+
     ssl_cert_free(ctx->cert);
 
 #if defined(LWS_HAVE_mbedtls_x509_crt_parse_file)
@@ -279,6 +366,35 @@ void SSL_CTX_free(SSL_CTX* ctx)
     ssl_mem_free(ctx);
 }
 
+int SSL_CTX_set_cipher_list(SSL_CTX *ctx, const char *str)
+{
+    SSL_ASSERT1(ctx);
+
+    /* free previous list if any */
+    if (ctx->ciphersuites) {
+        ssl_mem_free(ctx->ciphersuites);
+        ctx->ciphersuites = NULL;
+    }
+
+    ctx->ciphersuites = parse_cipher_list_to_ids(str);
+
+    return !!ctx->ciphersuites;
+}
+
+int SSL_set_cipher_list(SSL *ssl, const char *str)
+{
+    int ok;
+
+    SSL_ASSERT1(ssl);
+
+    ok = SSL_CTX_set_cipher_list(ssl->ctx, str);
+
+    /* if config exists for this ssl instance, apply immediately if possible */
+    if (ok && ssl->ssl_pm && ssl->ctx && ssl->ctx->ciphersuites)
+        ssl_pm_set_ciphersuites(ssl, ssl->ctx->ciphersuites);
+
+    return ok;
+}
 /**
  * @brief set  the SSL context version
  */
