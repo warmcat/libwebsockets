@@ -50,6 +50,9 @@ struct lws_genrsa_ctx {
 		void *hAlg;
 		void *hKey;
 	} u;
+#elif defined(LWS_WITH_GNUTLS)
+	gnutls_privkey_t priv;
+	gnutls_pubkey_t pub;
 #else
 	BIGNUM *bn[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
 	EVP_PKEY_CTX *ctx;

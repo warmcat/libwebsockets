@@ -64,6 +64,7 @@ lws_get_library_version(void)
 static const char * system_state_names[] = {
 	"undef",
 	"CONTEXT_CREATED",
+	"PRE_PRIV_DROP",
 	"INITIALIZED",
 	"IFACE_COLDPLUG",
 	"DHCP",
@@ -862,6 +863,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if defined(LWS_WITH_TLS)
 #if defined(USE_WOLFSSL)
 	lwsl_cx_notice(context, "LWS: %s, wolfSSL %s, %s%s", library_version, wolfSSL_lib_version(), opts_str, s);
+#elif defined(LWS_WITH_GNUTLS)
+	lwsl_cx_notice(context, "LWS: %s, GnuTLS %s, %s%s", library_version, gnutls_check_version(NULL), opts_str, s);
 #elif defined(LWS_WITH_BORINGSSL)
 	lwsl_cx_notice(context, "LWS: %s, BoringSSL, %s%s", library_version, opts_str, s);
 #elif defined(LWS_WITH_AWSLC)
@@ -967,6 +970,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 #else
 #if defined(LWS_WITH_SCHANNEL)
 	context->tls_ops = &tls_ops_schannel;
+#elif defined(LWS_WITH_GNUTLS)
+	context->tls_ops = &tls_ops_gnutls;
 #else
 	context->tls_ops = &tls_ops_openssl;
 #endif
@@ -1673,10 +1678,12 @@ lws_create_context(const struct lws_context_creation_info *info)
 	 * to listen on port < 1023 we would have needed root, but now we are
 	 * listening, we don't want the power for anything else
 	 */
-	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS))
+	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS)) {
+		lws_state_transition(&context->mgr_system, LWS_SYSTATE_PRE_PRIV_DROP);
 		if (lws_plat_drop_app_privileges(context, 1) ||
 		    lws_fi(&context->fic, "ctx_createfail_privdrop"))
 			goto bail_libuv_aware;
+	}
 
 #if defined(LWS_WITH_SYS_STATE)
 	/*

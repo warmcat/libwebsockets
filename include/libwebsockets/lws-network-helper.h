@@ -258,4 +258,7 @@ lws_sa46_write_numeric_address(lws_sockaddr46 *sa46, char *buf, size_t len);
 LWS_VISIBLE LWS_EXTERN int
 lws_parse_mac(const char *ads, uint8_t *result_6_bytes);
 
+LWS_VISIBLE LWS_EXTERN int
+lws_parse_cidr(const char *cidr, lws_sockaddr46 *sa46, int *len);
+
 ///@}

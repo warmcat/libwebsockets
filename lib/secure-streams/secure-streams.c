@@ -2070,8 +2070,6 @@ lws_ss_to_cb(lws_sorted_usec_list_t *sul)
 	lws_ss_handle_t *h = lws_container_of(sul, lws_ss_handle_t, sul_timeout);
 	lws_ss_state_return_t r;
 
-	lwsl_info("%s: %s timeout fired\n", __func__, lws_ss_tag(h));
-
 	r = lws_ss_event_helper(h, LWSSSCS_TIMEOUT);
 	if (r != LWSSSSRET_DISCONNECT_ME && r != LWSSSSRET_DESTROY_ME)
 		return;
@@ -2082,6 +2080,7 @@ lws_ss_to_cb(lws_sorted_usec_list_t *sul)
 	_lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, h->wsi, &h);
 }
 
+
 void
 lws_ss_start_timeout(struct lws_ss_handle *h, unsigned int timeout_ms)
 {
@@ -2089,6 +2088,7 @@ lws_ss_start_timeout(struct lws_ss_handle *h, unsigned int timeout_ms)
 
 	if (!timeout_ms && !h->policy->timeout_ms)
 		return;
+
 
 	lws_sul_schedule(h->context, 0, &h->sul_timeout, lws_ss_to_cb,
 			 (timeout_ms ? timeout_ms : h->policy->timeout_ms) *

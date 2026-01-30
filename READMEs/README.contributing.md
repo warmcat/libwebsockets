@@ -19,6 +19,18 @@ However your contribution is coming is fine:
 
 are all OK.
 
+### AI usage
+
+So long as the AI is capable and concise, and the code quality is good, it
+passes the existing test suites, Coverity etc, AI coproductions with a human
+can be fine.
+
+ - You should use your name and email on the patch as the main author.
+
+ - Add a Co-developed-by: header in your patch with a brief description of the
+underlying AI, eg, Gemini 3.0 Pro, so we can understand specific advantages
+or weaknesses to expect based on the model.
+
 ### Coding Standards
 
 Code should look roughly like the existing code, which follows linux kernel

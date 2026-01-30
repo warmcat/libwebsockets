@@ -2815,7 +2815,12 @@ lws_css_pstack_name(lhp_pstack_t *ps)
 int
 lhp_prop_axis(const lcsp_atr_t *a)
 {
-	const lcsp_defs_t *d = lws_container_of(a->list.owner, lcsp_defs_t, atrs);
+	const lcsp_defs_t *d;
+
+	if (!a->list.owner)
+		return LWS_LHPREF_NONE;
+
+	d = lws_container_of(a->list.owner, lcsp_defs_t, atrs);
 
 	switch (d->prop) {
 	/* referenced to height */

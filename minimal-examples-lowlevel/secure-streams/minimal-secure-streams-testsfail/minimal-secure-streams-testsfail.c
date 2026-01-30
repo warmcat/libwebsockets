@@ -22,6 +22,7 @@ static int interrupted, tests, tests_pass, tests_fail, doing_a_retry;
 static lws_sorted_usec_list_t sul_next_test;
 static lws_state_notify_link_t nl;
 struct lws_context *context;
+struct lws_ss_handle *h;
 size_t amount = 12345;
 
 static void
@@ -262,7 +263,7 @@ static const char * const default_ss_policy =
 			"\"port\": 443,"
 			"\"protocol\": \"h2\","
 			"\"http_method\": \"GET\","
-			"\"http_url\": \"/httpbin/delay/10\","
+			"\"http_url\": \"/httpbin/delay/15\","
 			"\"tls\": true,"
 			"\"nghttp2_quirk_end_stream\": true,"
 			"\"h2q_oflow_txcr\": true,"
@@ -483,7 +484,7 @@ struct tests_seq {
 	},
 	{
 		"h2:443 timeout after connection",
-		"d_h2_tls", 3 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		"d_h2_tls", 3 * LWS_US_PER_SEC, LWSSSCS_TIMEOUT,
 		(1 << LWSSSCS_QOS_ACK_REMOTE) | (1 << LWSSSCS_QOS_NACK_REMOTE),
 		0
 	},
@@ -597,6 +598,7 @@ typedef struct myss {
 	void				*opaque_data;
 
 	size_t				rx_seen;
+	lws_usec_t			start_us;
 	char				result_reported;
 } myss_t;
 
@@ -656,8 +658,10 @@ fail:
 		/* we'll start the next test next time around the event loop */
 		lws_sul_schedule(context, 0, &sul_next_test, tests_start_next, 1);
 
-		return LWSSSSRET_OK;
+		h = NULL;
+		return LWSSSSRET_DESTROY_ME;
 	}
+
 
 	if (state == curr_test->must_see) {
 
@@ -675,24 +679,90 @@ fail:
 		/* we'll start the next test next time around the event loop */
 		lws_sul_schedule(context, 0, &sul_next_test, tests_start_next, 1);
 
+		if (state == LWSSSCS_TIMEOUT ||
+		    state == LWSSSCS_ALL_RETRIES_FAILED) {
+			h = NULL;
+			return LWSSSSRET_DESTROY_ME;
+		}
+
 		return LWSSSSRET_OK;
 	}
 
 	switch (state) {
+	case LWSSSCS_CONNECTED:
+		lwsl_notice("%s: CONNECTED\n", __func__);
+		{
+			lws_usec_t used = lws_now_usecs() - m->start_us;
+			unsigned int remaining;
+
+			if (used > (lws_usec_t)curr_test->timeout_us) {
+				if (curr_test->must_see == LWSSSCS_TIMEOUT ||
+				    (curr_test->must_see == LWSSSCS_ALL_RETRIES_FAILED)) {
+					lwsl_notice("%s: ++++++++ saw expected state %s (manual)\n", __func__, lws_ss_state_name(curr_test->must_see));
+					tests_pass++;
+				} else {
+					lwsl_notice("%s: timeout exceeded (must scan %d)\n", __func__, (int)curr_test->must_see);
+					tests_fail++;
+				}
+				m->result_reported = 1;
+				lws_sul_schedule(context, 0, &sul_next_test, tests_start_next, 1);
+				h = NULL;
+				return LWSSSSRET_DESTROY_ME;
+			}
+
+			remaining = (unsigned int)(((lws_usec_t)curr_test->timeout_us - used) / LWS_US_PER_MS);
+			if (!remaining)
+				remaining = 1;
+
+			lws_ss_start_timeout(m->ss, remaining);
+		}
+		break;
+	case LWSSSCS_CONNECTING:
 	case LWSSSCS_CREATING:
-		lws_ss_start_timeout(m->ss,
-			(unsigned int)(curr_test->timeout_us / LWS_US_PER_MS));
+		if (state == LWSSSCS_CREATING) {
+			m->start_us = lws_now_usecs();
+			lws_ss_start_timeout(m->ss,
+				(unsigned int)(curr_test->timeout_us / LWS_US_PER_MS));
+		} else {
+			lws_usec_t used = lws_now_usecs() - m->start_us;
+			unsigned int remaining;
+
+			if (used > (lws_usec_t)curr_test->timeout_us) {
+				if (curr_test->must_see == LWSSSCS_TIMEOUT ||
+				    (curr_test->must_see == LWSSSCS_ALL_RETRIES_FAILED)) {
+					lwsl_notice("%s: ++++++++ saw expected state %s (manual)\n", __func__, lws_ss_state_name(curr_test->must_see));
+					tests_pass++;
+				} else {
+					lwsl_notice("%s: timeout exceeded (must scan %d)\n", __func__, (int)curr_test->must_see);
+					tests_fail++;
+				}
+				m->result_reported = 1;
+				lws_sul_schedule(context, 0, &sul_next_test, tests_start_next, 1);
+				h = NULL;
+				return LWSSSSRET_DESTROY_ME;
+			}
+
+			remaining = (unsigned int)(((lws_usec_t)curr_test->timeout_us - used) / LWS_US_PER_MS);
+			if (!remaining)
+				remaining = 1;
+
+			lws_ss_start_timeout(m->ss, remaining);
+		}
+
 		if (curr_test->eom_pass) {
 			sl = (size_t)lws_snprintf(buf, sizeof(buf), "%u",
 					(unsigned int)curr_test->eom_pass);
 			if (lws_ss_set_metadata(m->ss, "amount", buf, sl))
 				return LWSSSSRET_DISCONNECT_ME;
 		}
-		return lws_ss_client_connect(m->ss);
+		if (state == LWSSSCS_CREATING)
+			return lws_ss_client_connect(m->ss);
+		break;
 
 	case LWSSSCS_DESTROYING:
+		lwsl_notice("%s: DESTROYING, res_rep %d, retry %d\n", __func__, m->result_reported, doing_a_retry);
 		if (!m->result_reported && !doing_a_retry) {
-			lwsl_user("%s: failing on unexpected destruction\n",
+			lwsl_notice("%s: failing on unexpected destruction\n",
 					__func__);
 
 			tests_fail++;
@@ -705,6 +775,9 @@ fail:
 		break;
 	}
 
+	if (state == LWSSSCS_TIMEOUT)
+		return LWSSSSRET_DISCONNECT_ME;
+
 	return LWSSSSRET_OK;
 }
 
@@ -713,7 +786,6 @@ tests_start_next(lws_sorted_usec_list_t *sul)
 {
 	struct tests_seq *ts;
 	lws_ss_info_t ssi;
-	static struct lws_ss_handle *h;
 
 	/* destroy the old one */
 

@@ -31,7 +31,7 @@ lws_set_proxy(struct lws_vhost *vhost, const char *proxy)
 {
 	char authstring[96];
 	int brackets = 0;
-	char *p;
+	const char *p;
 
 	if (!proxy)
 		return -1;
@@ -84,15 +84,17 @@ lws_set_proxy(struct lws_vhost *vhost, const char *proxy)
 
 #if defined(LWS_WITH_IPV6)
 	if (brackets) {
+		char *ncp;
+
 		/* original is IPv6 format "[::1]:443" */
 
-		p = strchr(vhost->http.http_proxy_address, ']');
-		if (!p) {
+		ncp = strchr(vhost->http.http_proxy_address, ']');
+		if (!ncp) {
 			lwsl_vhost_err(vhost, "malformed proxy '%s'", proxy);
 
 			return -1;
 		}
-		*p++ = '\0';
+		*ncp++ = '\0';
 	}
 #endif
 
@@ -103,7 +105,6 @@ lws_set_proxy(struct lws_vhost *vhost, const char *proxy)
 		return -1;
 	}
 	if (p) {
-		*p = '\0';
 		vhost->http.http_proxy_port = (unsigned int)atoi(p + 1);
 	}
 
