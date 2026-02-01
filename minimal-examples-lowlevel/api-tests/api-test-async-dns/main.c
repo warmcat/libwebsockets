@@ -12,7 +12,7 @@
 #include <libwebsockets.h>
 #include <signal.h>
 
-static int interrupted, dtest, ok, fail, _exp = 36;
+static int interrupted, dtest, ok, fail, _exp = 37;
 struct lws_context *context;
 
 /*
@@ -116,6 +116,8 @@ static struct async_dns_tests {
 //	{ "c-msn-com-europe-vip.trafficmanager.net", TEST_FLAG_NOCHECK_RESULT_IP |
 //		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 0,
 //		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
+	{ "mudpuddle.shwaine.com", LWS_ADNS_RECORD_A, 4,
+		{ 174, 134, 58, 54, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 	{ "awsrealm.majicrealm.com", LWS_ADNS_RECORD_A, 4,
 		{ 35, 88, 197, 177, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 	{ "lwsbiglongtesthostname.lociterm.com", LWS_ADNS_RECORD_A, 4,
