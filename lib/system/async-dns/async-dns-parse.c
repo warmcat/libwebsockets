@@ -563,7 +563,7 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 	lws_adns_cache_t *c;
 	struct adstore adst;
 	lws_adns_q_t *q;
-	int n, ncname;
+	int n;
 	size_t est;
 
 	// lwsl_hexdump_notice(pkt, len);
@@ -618,9 +618,12 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 	 *  char []: copy of resolved name
 	 */
 
-	ncname = (int)strlen(nmcname) + 1;
+	/* but we want to create the cache entry against the original request */
 
-	est = sizeof(lws_adns_cache_t) + (unsigned int)ncname;
+	nm = ((const char *)&q[1]) + DNS_MAX;
+	n = (int)strlen(nm) + 1;
+
+	est = sizeof(lws_adns_cache_t) + (unsigned int)n;
 	if (lws_ser_ru16be(pkt + DHO_NANSWERS)) {
 		int ir = lws_adns_iterate(q, pkt, (int)len, nmcname,
 					  lws_async_dns_estimate, &est);
@@ -630,11 +633,6 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 		if (ir == 2) /* CNAME recursive resolution */
 			return;
 	}
-
-	/* but we want to create the cache entry against the original request */
-
-	nm = ((const char *)&q[1]) + DNS_MAX;
-	n = (int)strlen(nm) + 1;
 
 	lwsl_info("%s: create cache entry for %s, %zu\n", __func__, nm,
 			est - sizeof(lws_adns_cache_t));
