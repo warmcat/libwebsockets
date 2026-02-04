@@ -278,6 +278,7 @@ int main(int argc, char **argv)
 	 * the original one dies randomly.
 	 */
 
+	signal(SIGPIPE, SIG_IGN);
 	signal(SIGHUP, reload_handler);
 	signal(SIGINT, reload_handler);
 
