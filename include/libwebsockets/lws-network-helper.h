@@ -103,7 +103,7 @@ lws_canonical_hostname(struct lws_context *context);
  *	truncated if there is not enough room.  If either cannot be
  *	determined, they will be returned as valid zero-length strings.
  */
-LWS_VISIBLE LWS_EXTERN void
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
 		       int name_len, char *rip, int rip_len);
 

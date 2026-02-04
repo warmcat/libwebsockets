@@ -105,8 +105,12 @@ lws_get_addresses(struct lws_vhost *vh, void *ads, char *name,
 	struct addrinfo ai, *res;
 	struct sockaddr_in addr4;
 
+	if (!rip)
+		return -1;
+
 	rip[0] = '\0';
-	name[0] = '\0';
+	if (name)
+		name[0] = '\0';
 	addr4.sin_family = AF_UNSPEC;
 
 #ifdef LWS_WITH_IPV6
@@ -212,7 +216,7 @@ lws_get_peer_simple(struct lws *wsi, char *name, size_t namelen)
 }
 #endif
 
-void
+int
 lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
 		       int name_len, char *rip, int rip_len)
 {
@@ -224,8 +228,13 @@ lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
 	struct sockaddr_in sin4;
 	void *p;
 
-	rip[0] = '\0';
-	name[0] = '\0';
+	if (!lws_socket_is_valid(fd))
+		return 1;
+
+	if (rip)
+		rip[0] = '\0';
+	if (name)
+		name[0] = '\0';
 
 #ifdef LWS_WITH_IPV6
 	if (LWS_IPV6_ENABLED(wsi->a.vhost)) {
@@ -245,19 +254,20 @@ lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
 		lwsl_wsi_warn(wsi, "getpeername: %s",
 			lws_errno_describe(LWS_ERRNO, t16, sizeof(t16)));
 #endif
-		goto bail;
+		return 1;
 	}
 
-	lws_get_addresses(wsi->a.vhost, p, name, name_len, rip, rip_len);
+	return lws_get_addresses(wsi->a.vhost, p, name, name_len, rip, rip_len);
 
-bail:
-#endif
+#else
 	(void)wsi;
 	(void)fd;
 	(void)name;
 	(void)name_len;
 	(void)rip;
 	(void)rip_len;
+	return 0;
+#endif
 }
 
 
