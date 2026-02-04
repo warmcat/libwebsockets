@@ -285,8 +285,13 @@ lws_interceptor_check(struct lws *wsi, const struct lws_protocols *prot)
 		lws_sockaddr46 sa46;
 		int allow = 0;
 
-		lws_get_peer_addresses(wsi, lws_get_socket_fd(wsi),
-				NULL, 0, ip, sizeof(ip));
+		lws_sockfd_type fd = lws_get_socket_fd(wsi);
+
+		if (lws_get_peer_addresses(wsi, fd,
+				NULL, 0, ip, sizeof(ip))) {
+			lwsl_err("%s: get peer ads fail\n", __func__);
+			return 1;
+		}
 
 		if (!lws_sa46_parse_numeric_address(ip, &sa46)) {
 			while (cidr) {
