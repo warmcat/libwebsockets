@@ -1,0 +1,21 @@
+If:
+  PathMatch: cmake/lws_config.h.in
+
+Diagnostics:
+  Suppress: "*"
+
+---
+
+If:
+  PathMatch: build.*/.*
+
+Diagnostics:
+  Suppress: "*"
+
+---
+
+If:
+  PathMatch: include/libwebsockets/.*
+
+CompileFlags:
+  Add: [-include, libwebsockets.h]
