@@ -85,7 +85,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	if (conmon)
 		dump_conmon_data(wsi);
 #endif
-		break;
+	break;
 
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
 		{
