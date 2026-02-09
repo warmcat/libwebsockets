@@ -89,4 +89,12 @@ if (LWS_WITH_SOCKS5 AND NOT LWS_WITHOUT_CLIENT)
 		core-net/socks5-client.c)
 endif()
 
+if (LWS_WITH_WEBRTC)
+	list(APPEND SOURCES
+		core-net/lws-rtp.c
+		core-net/lws-srtp.c
+		core-net/lws-stun.c
+	)
+endif()
+
 exports_to_parent_scope()

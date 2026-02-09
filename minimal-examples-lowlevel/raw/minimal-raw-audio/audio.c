@@ -146,20 +146,32 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RAW_RX_FILE:
 		if (vhd->times >= 6) {  /* delay amount decided by this */
-			n = snd_pcm_writei(vhd->pcm_playback,
+			snd_pcm_sframes_t r;
+
+			r = snd_pcm_writei(vhd->pcm_playback,
 					   &vhd->simplebuf[vhd->rpos],
-					   ((vhd->wpos - vhd->rpos) &
+					   (snd_pcm_uframes_t)((vhd->wpos - vhd->rpos) &
 					    (sizeof(vhd->simplebuf) - 1)) / 2);
-			vhd->rpos =  (vhd->rpos + (n * 2)) &
-					(sizeof(vhd->simplebuf) - 1);
+			if (r >= 0) {
+				n = (int)r;
+				vhd->rpos = (int)((vhd->rpos + (n * 2)) &
+						(sizeof(vhd->simplebuf) - 1));
+			}
 		}
 
-		n = snd_pcm_readi(vhd->pcm_capture, &vhd->simplebuf[vhd->wpos],
-				  (sizeof(vhd->simplebuf) - vhd->wpos) / 2);
-		lwsl_notice("LWS_CALLBACK_RAW_RX_FILE: %d samples\n", n);
-		vhd->times++;
+		{
+			snd_pcm_sframes_t r;
 
-		vhd->wpos = (vhd->wpos + (n * 2)) & (sizeof(vhd->simplebuf) - 1);
+			r = snd_pcm_readi(vhd->pcm_capture, &vhd->simplebuf[vhd->wpos],
+					  (snd_pcm_uframes_t)(sizeof(vhd->simplebuf) - (size_t)vhd->wpos) / 2);
+			if (r >= 0) {
+				n = (int)r;
+				lwsl_notice("LWS_CALLBACK_RAW_RX_FILE: %d samples\n", n);
+				vhd->times++;
+
+				vhd->wpos = (int)((vhd->wpos + (n * 2)) & (sizeof(vhd->simplebuf) - 1));
+			}
+		}
 		break;
 
 	default:
@@ -170,7 +182,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 }
 
 static struct lws_protocols protocols[] = {
-	{ "lws-audio-test", callback_raw_test, 0, 0 },
+	{ "lws-audio-test", callback_raw_test, 0, 0, 0, NULL, 0 },
 	LWS_PROTOCOL_LIST_TERM
 };
 

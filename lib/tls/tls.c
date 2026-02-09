@@ -396,7 +396,7 @@ bail:
  * set to the DER length.
  */
 
-int
+LWS_VISIBLE int
 lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 			      const char *inbuf, lws_filepos_t inlen,
 			      uint8_t **buf, lws_filepos_t *amount)
@@ -489,8 +489,8 @@ lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 	if (n == -1) /* coverity */
 		goto bail;
 
-    lwsl_notice("%s: PEM payload len %d\n", __func__, n);
-    lwsl_hexdump_notice(p, (size_t)n);
+    lwsl_info("%s: PEM payload len %d\n", __func__, n);
+    lwsl_hexdump_info(p, (size_t)n);
 
 	n = lws_b64_decode_string_len((char *)p, n,
 				      (char *)pem, (int)(long long)len);
