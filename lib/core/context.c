@@ -1796,7 +1796,7 @@ lws_system_cpd_start_defer(struct lws_context *cx, lws_usec_t defer_us)
 			 lws_system_deferred_cb, defer_us);
 }
 
-#if (defined(LWS_WITH_SYS_STATE) && defined(LWS_WITH_SYS_SMD)) || !defined(LWS_WITH_NO_LOGS)
+#if (defined(LWS_WITH_SYS_STATE) && defined(LWS_WITH_SYS_SMD)) || (_LWS_ENABLED_LOGS & LLL_INFO)
 static const char *cname[] = { "Unknown", "OK", "Captive", "No internet" };
 #endif
 
@@ -1806,7 +1806,7 @@ lws_system_cpd_set(struct lws_context *cx, lws_cpd_result_t result)
 	if (cx->captive_portal_detect != LWS_CPD_UNKNOWN)
 		return;
 
-#if !defined(LWS_WITH_NO_LOGS)
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 	lwsl_cx_info(cx, "setting CPD result %s", cname[result]);
 #endif
 
