@@ -93,6 +93,28 @@ LWS_VISIBLE LWS_EXTERN int
 lws_x509_create(struct lws_x509_cert **x509);
 
 /**
+ * lws_x509_create_self_signed() - Create a self-signed certificate
+ *
+ * \param context: lws_context
+ * \param cert_buf: pointer to pointer to be set to allocated DER cert
+ * \param cert_len: pointer to size_t to be set to length of allocated cert
+ * \param key_buf: pointer to pointer to be set to allocated DER private key
+ * \param key_len: pointer to size_t to be set to length of allocated key
+ * \param san: Subject Alternative Name (e.g. "localhost") or NULL
+ * \param key_bits: Key strength (e.g. 2048 for RSA)
+ *
+ * Creates a self-signed certificate and private key in memory (DER format).
+ * The caller is responsible for freeing *cert_buf and *key_buf using lws_free().
+ *
+ * Returns 0 on success.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_x509_create_self_signed(struct lws_context *context,
+			    uint8_t **cert_buf, size_t *cert_len,
+			    uint8_t **key_buf, size_t *key_len,
+			    const char *san, int key_bits);
+
+/**
  * lws_x509_parse_from_pem() - Read one or more x509 certs in PEM format from memory
  *
  * \param x509: pointer to lws_x509_cert object
@@ -291,3 +313,19 @@ lws_tls_cert_updated(struct lws_context *context, const char *certpath,
 		     const char *mem_cert, size_t len_mem_cert,
 		     const char *mem_privkey, size_t len_mem_privkey);
 
+/**
+ * lws_tls_alloc_pem_to_der_file() - Read a PEM file or buffer and convert to DER
+ *
+ * \param context: lws_context
+ * \param filename: filename to read from (or NULL)
+ * \param inbuf: input buffer if filename is NULL
+ * \param inlen: input length if filename is NULL
+ * \param buf: pointer to pointer to be set to allocated DER buffer
+ * \param amount: pointer to lws_filepos_t to be set to DER length
+ *
+ * Returns 0 on success.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
+			      const char *inbuf, lws_filepos_t inlen,
+			      uint8_t **buf, lws_filepos_t *amount);
