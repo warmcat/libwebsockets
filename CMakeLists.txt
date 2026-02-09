@@ -170,6 +170,7 @@ option(LWS_WITH_HTTP_BROTLI "Also offer brotli http stream compression (requires
 option(LWS_WITH_ACME "Enable support for ACME automatic cert acquisition + maintenance (letsencrypt etc)" OFF)
 option(LWS_WITH_HUBBUB "Enable libhubbub rewriting support" OFF)
 option(LWS_WITH_ALSA "Enable alsa audio example" OFF)
+option(LWS_WITH_ALEXA "Enable Alexa example" OFF)
 option(LWS_WITH_GTK "Enable gtk example" OFF)
 option(LWS_WITH_FTS "Full Text Search support" OFF)
 option(LWS_WITH_SYS_ASYNC_DNS "Nonblocking internal IPv4 + IPv6 DNS resolver" OFF)
