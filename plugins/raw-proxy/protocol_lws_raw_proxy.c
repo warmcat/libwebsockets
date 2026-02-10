@@ -194,9 +194,7 @@ callback_raw_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!vhd)
 			return 0;
 		if (lws_pvo_get_str(in, "onward", &cp)) {
-			lwsl_warn("%s: vh %s: pvo 'onward' required\n", __func__,
-				 lws_get_vhost_name(lws_get_vhost(wsi)));
-
+			lwsl_vhost_warn(lws_get_vhost(wsi), "%s: pvo 'onward' required\n", __func__);
 			return 0;
 		}
 		lws_tokenize_init(&ts, cp, LWS_TOKENIZE_F_DOT_NONTERM |

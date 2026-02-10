@@ -839,6 +839,7 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 #include <libwebsockets/lws-mnemonic.h>
 #endif
 #include <libwebsockets/lws-gendtls.h>
+#include <libwebsockets/lws-stun.h>
 #include <libwebsockets/lws-sha1-base64.h>
 #include <libwebsockets/lws-x509.h>
 #if defined(LWS_WITH_NETWORK)
@@ -914,9 +915,22 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 #include <libwebsockets/lws-uc8176-spi.h>
 #include <libwebsockets/lws-ssd1675b-spi.h>
 #include <libwebsockets/lws-settings.h>
+#if defined(LWS_WITH_DLTS)
+#include <libwebsockets/lws-gendtls.h>
+#endif
 #if defined(LWS_WITH_NETWORK)
 #include <libwebsockets/lws-netdev.h>
 #include "libwebsockets/lws-dht.h"
+#if defined(LWS_WITH_TRANSCODE)
+#include <libwebsockets/lws-transcode.h>
+#endif
+#if defined(LWS_WITH_V4L2)
+#include <libwebsockets/lws-v4l2.h>
+#endif
+#if defined(LWS_WITH_ALSA)
+#include <libwebsockets/lws-alsa.h>
+#include <libwebsockets/lws-audio-features.h>
+#endif
 #endif
 
 #include <libwebsockets/lws-html.h>
