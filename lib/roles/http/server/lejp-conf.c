@@ -1245,7 +1245,7 @@ lwsws_get_config_vhosts(struct lws_context *context,
 		return 1;
 	}
 
-//	lws_finalize_startup(context);
+//	lws_finalize_startup(context, __func__);
 
 	return 0;
 }

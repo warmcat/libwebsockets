@@ -481,7 +481,7 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 				lwsl_vhost_warn(vh, "protocol %s failed init",
 					vh->protocols[n].name);
 
-				// return 1;
+
 			} else
 				vh->protocol_init |= 1u << n;
 		}
@@ -573,7 +573,7 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 				lwsl_vhost_warn(vh, "protocol %s failed init",
 					vh->protocols[n].name);
 
-				// return 1;
+
 			} else
 				vh->protocol_init |= 1u << n;
 		}
@@ -627,7 +627,7 @@ next:
 
 		context->protocol_init_done = 1;
 		if (!spd)
-			lws_finalize_startup(context);
+			lws_finalize_startup(context, __func__);
 
 		return 0;
 	}
@@ -791,8 +791,7 @@ lws_create_vhost(struct lws_context *context,
 			info->pprotocols[vh->count_protocols];
 			vh->count_protocols++)
 				;
-			//lwsl_user("%s: ppcols: %s\n", __func__,
-			// info->pprotocols[vh->count_protocols]->name);
+
 	} else
 		for (vh->count_protocols = 0;
 			pcols[vh->count_protocols].callback;

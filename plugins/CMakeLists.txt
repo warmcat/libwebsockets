@@ -279,6 +279,21 @@ if (LWS_WITH_DHT)
 	endif()
 endif()
 
+create_plugin(protocol_lws_webrtc ""
+	      "protocol_lws_webrtc.c" "" "")
+if (NOT LWS_WITH_PLUGINS_BUILTIN)
+	target_compile_definitions(protocol_lws_webrtc PRIVATE LWS_BUILDING_SHARED)
+endif()
+
+if (LWS_WITH_TRANSCODE)
+	create_plugin(protocol_lws_webrtc_mixer ""
+		      "lws-webrtc-mixer/protocol_lws_webrtc_mixer.c;lws-webrtc-mixer/mixer-media.c;lws-webrtc-mixer/mixer-wav.c;lws-webrtc-mixer/layout-quad.c" "" "")
+	if (NOT LWS_WITH_PLUGINS_BUILTIN)
+		target_compile_definitions(protocol_lws_webrtc_mixer PRIVATE LWS_BUILDING_SHARED)
+		target_include_directories(protocol_lws_webrtc_mixer PRIVATE lws-webrtc-mixer)
+	endif()
+endif()
+
 endif((LWS_WITH_PLUGINS AND LWS_WITH_SHARED) OR LWS_WITH_PLUGINS_BUILTIN)
 
 
@@ -295,10 +310,17 @@ if (LWS_WITH_PLUGINS AND NOT LWS_WITH_PLUGINS_BUILTIN)
 		install(FILES deaddrop/assets/index.html;deaddrop/assets/deaddrop.js;deaddrop/assets/deaddrop.css;deaddrop/assets/drop.svg
 			DESTINATION share/libwebsockets-test-server/deaddrop
 			COMPONENT plugins)
+
+		install(DIRECTORY lws-webrtc-mixer/assets/
+			DESTINATION share/libwebsockets-test-server/lws-webrtc-mixer
+			COMPONENT plugins)
+
+		install(DIRECTORY lws-webrtc-mixer/sounds/
+			DESTINATION share/libwebsockets-test-server/lws-webrtc-mixer/sounds
+			COMPONENT plugins)
 	endif()
 
 
 endif()
 
 export_to_parent_intermediate()
-

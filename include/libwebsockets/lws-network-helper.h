@@ -27,6 +27,9 @@
  *
  * These wrap miscellaneous useful network-related functions
  */
+LWS_VISIBLE LWS_EXTERN struct lws_dll2_owner *
+lws_routing_table_get(struct lws_context *cx);
+
 ///@{
 
 #if defined(LWS_ESP_PLATFORM)
