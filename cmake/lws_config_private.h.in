@@ -11,7 +11,14 @@
  * LWS_OPENSSL_SUPPORT needs to be set also for this to work. */
 #cmakedefine USE_CYASSL
 
+/* Define to 1 if we have found rav1e via pkg-config */
+#cmakedefine LWS_HAVE_RAV1E
+
+/* Define to 1 if we want to enable AV1 encoding in the mixer */
+#cmakedefine LWS_WITH_AV1_ENCODE
+
 /* Define to 1 if you have the `fork' function. */
+
 #cmakedefine LWS_HAVE_FORK
 
 /* Define to 1 if you have the `getenv' function. */
@@ -111,4 +118,4 @@
 #cmakedefine LWS_HAVE_INTTYPES_H
 
 #cmakedefine LWS_HAVE_PTHREAD_H
-
+#cmakedefine LWS_HAVE_LIBV4L2

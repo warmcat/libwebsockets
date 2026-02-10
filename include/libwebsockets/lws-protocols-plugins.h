@@ -203,7 +203,7 @@ lws_adjust_protocol_psds(struct lws *wsi, size_t new_size);
  * you may choose to call it earlier
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_finalize_startup(struct lws_context *context);
+lws_finalize_startup(struct lws_context *context, const char *where);
 
 /**
  * lws_pvo_search() - helper to find a named pvo in a linked-list
@@ -231,7 +231,7 @@ lws_pvo_get_str(void *in, const char *name, const char **result);
 LWS_VISIBLE LWS_EXTERN int
 lws_protocol_init(struct lws_context *context);
 
-#define LWS_PLUGIN_API_MAGIC 191
+#define LWS_PLUGIN_API_MAGIC 192
 
 /*
  * Abstract plugin header for any kind of plugin class, always at top of
@@ -251,6 +251,10 @@ typedef struct lws_plugin_header {
 
 	unsigned int api_magic;
 	/* set to LWS_PLUGIN_API_MAGIC at plugin build time */
+
+	unsigned int priority;
+	/**< Higher value == initialized earlier.
+	 * Plugins with API magic < 192 default to 0. */
 
 	/* plugin-class specific superclass data follows */
 } lws_plugin_header_t;
@@ -343,6 +347,46 @@ lws_plugins_init(struct lws_plugin **pplugin, const char * const *d,
 LWS_VISIBLE LWS_EXTERN int
 lws_plugins_destroy(struct lws_plugin **pplugin, each_plugin_cb_t each,
 		    void *each_user);
+
+
+struct pss_webrtc;
+struct vhd_webrtc;
+
+typedef void (*lws_webrtc_on_media_cb)(struct lws *wsi_ws, int tid, const uint8_t *buf, size_t len, int marker, uint32_t timestamp);
+
+typedef int (*lws_webrtc_session_iter_cb)(struct pss_webrtc *pss, void *user);
+
+enum lws_webrtc_codec {
+	LWS_WEBRTC_CODEC_H264,
+	LWS_WEBRTC_CODEC_AV1
+};
+
+#define LWS_WEBRTC_OPS_ABI_VERSION 9
+
+struct lws_webrtc_ops {
+	uint32_t abi_version;
+
+	int (*send_video)(struct pss_webrtc *pss, const uint8_t *buf, size_t len, int codec, uint32_t pts);
+	int (*send_audio)(struct pss_webrtc *pss, const uint8_t *buf, size_t len, uint32_t timestamp);
+	int (*send_text)(struct pss_webrtc *pss, const char *buf, size_t len);
+	int (*send_pli)(struct pss_webrtc *pss);
+	int (*foreach_session)(struct vhd_webrtc *vhd, lws_webrtc_session_iter_cb cb, void *user);
+	int (*shared_callback)(struct lws *wsi, enum lws_callback_reasons reason, void *user, void *in, size_t len, struct vhd_webrtc *vhd);
+
+	void *(*get_user_data)(struct pss_webrtc *pss);
+	void (*set_user_data)(struct pss_webrtc *pss, void *data);
+	struct lws_vhost *(*get_vhost)(struct vhd_webrtc *vhd);
+	struct lws_context *(*get_context)(struct vhd_webrtc *vhd);
+	void (*set_on_media)(struct vhd_webrtc *vhd, lws_webrtc_on_media_cb cb);
+
+	uint8_t (*get_video_pt)(struct pss_webrtc *pss);
+	uint8_t (*get_audio_pt)(struct pss_webrtc *pss);
+
+	uint8_t (*get_video_pt_h264)(struct pss_webrtc *pss);
+	uint8_t (*get_video_pt_av1)(struct pss_webrtc *pss);
+    uint16_t (*get_seq_video)(struct pss_webrtc *pss);
+	int (*create_offer)(struct pss_webrtc *pss);
+};
 
 #if defined(LWS_WITH_PLUGINS_BUILTIN)
 

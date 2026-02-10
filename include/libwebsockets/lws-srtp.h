@@ -42,8 +42,13 @@ struct lws_srtp_ctx {
 	uint8_t srtcp_session_salt[14];
 	uint8_t srtcp_session_auth[20];
 
-	uint32_t roc; /* Roll-over counter */
-	uint16_t last_seq;
+	/* Multi-SSRC support (RFC 3711 requires per-SSRC ROC/Seq) */
+    struct lws_srtp_src_ctx {
+        uint32_t ssrc; /* 0 = unused slot */
+        uint32_t roc;
+        uint16_t last_seq;
+        uint8_t  any_packet_received;
+    } src[4]; /* Support up to 4 streams (Video, Audio, RTX, etc) */
 
 	uint32_t srtcp_index;
 

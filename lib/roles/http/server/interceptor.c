@@ -186,7 +186,7 @@ lws_interceptor_issue_cookie(struct lws *wsi)
 
 	if (lws_jwt_sign_token_set_http_cookie(wsi, &ck, (uint8_t **)&p,
 				(uint8_t *)end)) {
-		lwsl_err("%s: failed to sign JWT\n", __func__);
+		lwsl_vhost_err(vhd->vhost, "%s: failed to sign JWT", __func__);
 		return 1;
 	}
 
@@ -255,7 +255,7 @@ lws_interceptor_check(struct lws *wsi, const struct lws_protocols *prot)
 
 
 	if (!vhd) {
-		lwsl_notice("%s: vhd not found\n", __func__);
+		lwsl_vhost_notice(lws_get_vhost(wsi), "%s: vhd not found", __func__);
 		return 1;
 	}
 
@@ -269,7 +269,7 @@ lws_interceptor_check(struct lws *wsi, const struct lws_protocols *prot)
 
 	cp = lws_json_simple_find(buf, s, "\"sub\":", &claim_len);
 	if (!cp) {
-		lwsl_notice("%s: sub claim missing in JWT\n", __func__);
+		lwsl_vhost_notice(vhd->vhost, "%s: sub claim missing in JWT", __func__);
 		return 1;
 	}
 
@@ -289,7 +289,7 @@ lws_interceptor_check(struct lws *wsi, const struct lws_protocols *prot)
 
 		if (lws_get_peer_addresses(wsi, fd,
 				NULL, 0, ip, sizeof(ip))) {
-			lwsl_err("%s: get peer ads fail\n", __func__);
+			lwsl_vhost_err(vhd->vhost, "%s: get peer ads fail", __func__);
 			return 1;
 		}
 
@@ -304,13 +304,13 @@ lws_interceptor_check(struct lws *wsi, const struct lws_protocols *prot)
 		}
 
 		if (!allow) {
-			lwsl_notice("%s: IP mismatch %s vs %s\n", __func__, sub_claim, ip);
+			lwsl_vhost_notice(vhd->vhost, "%s: IP mismatch %s vs %s", __func__, sub_claim, ip);
 			lws_interceptor_inject_header(wsi, vhd, NULL);
 			return vhd->always_pass ? 0 : 1;
 		}
 	}
 
-	lwsl_notice("%s: valid JWT for %s: exp %lu, now %lu (expires in %lds)\n",
+	lwsl_vhost_notice(vhd->vhost, "%s: valid JWT for %s: exp %lu, now %lu (expires in %lds)",
 		    __func__, sub_claim, ck.expiry_unix_time, lws_now_secs(),
 		    (long)(ck.expiry_unix_time - lws_now_secs()));
 
@@ -359,7 +359,7 @@ lws_interceptor_handle_http(struct lws *wsi, void *user, const struct lws_interc
 	if (n <= 0)
 		n = lws_hdr_copy(wsi, (char *)uri, sizeof(uri), WSI_TOKEN_POST_URI);
 	if (n < 0) {
-		lwsl_notice("%s: can't get URI\n", __func__);
+		lwsl_vhost_notice(vhd->vhost, "%s: can't get URI", __func__);
 		return 1;
 	}
 
@@ -492,7 +492,7 @@ lws_interceptor_handle_http(struct lws *wsi, void *user, const struct lws_interc
 			return lws_serve_http_file(wsi, argbuf, ctype, vbuf, lws_ptr_diff(pv, vbuf));
 		}
 
-		lwsl_err("%s: failed to sign visit cookie\n", __func__);
+		lwsl_vhost_err(vhd->vhost, "%s: failed to sign visit cookie", __func__);
 		goto serve_file;
 	}
 
@@ -502,19 +502,19 @@ lws_interceptor_handle_http(struct lws *wsi, void *user, const struct lws_interc
 		lws_interceptor_init_jwt_cookie(&vck, vhd, ip, "lws_interceptor_v");
 
 		if (lws_jwt_get_http_cookie_validate_jwt(wsi, &vck, vbuf, &vs)) {
-			lwsl_notice("%s: POST: missing or invalid visit cookie\n", __func__);
+			lwsl_vhost_notice(vhd->vhost, "%s: POST: missing or invalid visit cookie", __func__);
 			return 1;
 		}
 
 		iat_p = lws_json_simple_find(vbuf, vs, "\"iat\":", &iat_len);
 		if (!iat_p) {
-			lwsl_notice("%s: POST: visit cookie missing iat\n", __func__);
+			lwsl_vhost_notice(vhd->vhost, "%s: POST: visit cookie missing iat", __func__);
 			return 1;
 		}
 		iat = atoll(iat_p);
 
 		if (lws_now_secs() < (unsigned long)iat + (unsigned long)(vhd->pre_delay_ms / 1000)) {
-			lwsl_notice("%s: POST: pre-delay not met\n", __func__);
+			lwsl_vhost_notice(vhd->vhost, "%s: POST: pre-delay not met", __func__);
 			return 1;
 		}
 
@@ -572,10 +572,10 @@ lws_callback_interceptor(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd->ops		= ops;
 
 		if (!lws_pvo_get_str(in, "jwt-issuer", &vhd->jwt_issuer))
-			lwsl_info("Using default jwt-issuer\n");
+			lwsl_vhost_info(vhd->vhost, "Using default jwt-issuer");
 
 		if (!lws_pvo_get_str(in, "jwt-audience", &vhd->jwt_audience))
-			lwsl_info("Using default jwt-audience\n");
+			lwsl_vhost_info(vhd->vhost, "Using default jwt-audience");
 
 		if (!lws_pvo_get_str(in, "jwt-alg", &cp))
 			lws_strncpy(vhd->jwt_alg, cp, sizeof(vhd->jwt_alg));
@@ -595,12 +595,12 @@ lws_callback_interceptor(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!lws_pvo_get_str(in, "jwt-jwk", &cp)) {
 			if (cp[0] == '{' || lws_jwk_load(&vhd->jwk, cp, NULL, NULL)) {
 				if (lws_jwk_import(&vhd->jwk, NULL, NULL, cp, strlen(cp))) {
-					lwsl_err("%s: failed to load/import JWK\n", __func__);
+					lwsl_vhost_err(vhd->vhost, "%s: failed to load/import JWK", __func__);
 					return -1;
 				}
 			}
 		} else {
-			lwsl_warn("%s: jwt-jwk PVO required\n", __func__);
+			lwsl_vhost_warn(vhd->vhost, "%s: jwt-jwk PVO required", __func__);
 			return -1;
 		}
 
@@ -615,7 +615,7 @@ lws_callback_interceptor(struct lws *wsi, enum lws_callback_reasons reason,
 				 stats_cb, 60LL * LWS_USEC_PER_SEC);
 
 		if (!lws_pvo_get_str(in, "auth-header-name", &vhd->auth_header_name))
-			lwsl_info("Auth header injection enabled: %s\n",
+			lwsl_vhost_info(vhd->vhost, "Auth header injection enabled: %s",
 				  vhd->auth_header_name);
 
 		if (!lws_pvo_get_str(in, "always-pass", &cp))
@@ -627,12 +627,12 @@ lws_callback_interceptor(struct lws *wsi, enum lws_callback_reasons reason,
 				malloc(sizeof(*cidr));
 
 			if (!cidr) {
-				lwsl_err("%s: OOM\n", __func__);
+				lwsl_vhost_err(vhd->vhost, "%s: OOM", __func__);
 				return -1;
 			}
 
 			if (lws_parse_cidr(pvo->value, &cidr->sa46, &cidr->len)) {
-				lwsl_err("%s: Bad CIDR %s\n", __func__,
+				lwsl_vhost_err(vhd->vhost, "%s: Bad CIDR %s", __func__,
 						pvo->value);
 				free(cidr);
 				return -1;

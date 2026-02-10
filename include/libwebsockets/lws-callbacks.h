@@ -892,6 +892,11 @@ enum lws_callback_reasons {
 	 * mount.
 	 */
 
+	LWS_CALLBACK_GET_PSS_SIZE					= 214,
+	/**< Called when a protocol wants to specify its PSS size at runtime.
+	 *   If the protocol structure has per_session_data_size == 0, lws will
+	 *   call this to get the size to allocate for the session. */
+
 	/****** add new things just above ---^ ******/
 
 	LWS_CALLBACK_USER = 1000,

@@ -23,14 +23,13 @@
  */
 
 #include "private-lib-core.h"
-#include "include/libwebsockets/lws-stun.h"
 
 int
 lws_stun_validate_and_reply(struct lws *wsi, uint8_t *in, size_t in_len,
 			    uint8_t *out, size_t out_len,
 			    const char *password, const struct sockaddr_in *peer_sin)
 {
-	uint32_t magic = 0x2112A442;
+	uint32_t magic = LWS_STUN_MAGIC_COOKIE;
 	uint16_t type, attr_type, attr_len;
 	uint8_t *p = (uint8_t *)in, *op = out;
 	uint8_t mi[20], *mi_ptr = NULL;
@@ -167,7 +166,7 @@ lws_stun_validate_and_reply(struct lws *wsi, uint8_t *in, size_t in_len,
 	out[3] = (uint8_t)(op - out + 8 - 20);
 
 	fp = lws_crc32(0, out, (size_t)(op - out));
-	fp ^= 0x5354554e;
+	fp ^= LWS_STUN_FINGERPRINT_XOR;
 	*op++ = 0x80; *op++ = 0x28;
 	*op++ = 0x00; *op++ = 0x04;
 	*op++ = (uint8_t)(fp >> 24);

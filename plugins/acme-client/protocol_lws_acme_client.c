@@ -828,7 +828,7 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 			if (!vhd->pvop[m] &&
 				m >= LWS_TLS_REQ_ELEMENT_COMMON_NAME &&
 				m != LWS_TLS_REQ_ELEMENT_SUBJECT_ALT_NAME) {
-				lwsl_notice("%s: require pvo '%s'\n", __func__,
+				lwsl_vhost_notice(vhd->vhost, "%s: require pvo '%s'\n", __func__,
 					    pvo_names[m]);
 				n |= 1;
 			} else {

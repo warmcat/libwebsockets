@@ -99,6 +99,11 @@ struct lws_gendtls_ctx {
 	size_t					cert_len;
 	uint8_t					*key_mem;
 	size_t					key_len;
+	char					key_container_name[64];
+	NCRYPT_KEY_HANDLE			key_cng;
+	/* Store the client address for SChannel DTLS ACCEPT */
+	struct sockaddr_storage			client_addr;
+	size_t					client_addr_len;
 #else /* OpenSSL */
 	void					*ssl; /* SSL * */
 	/* OpenSSL Bio mems are handled internally via SSL_set_bio */
@@ -232,6 +237,15 @@ lws_gendtls_export_keying_material(struct lws_gendtls_ctx *ctx, const char *labe
 LWS_VISIBLE LWS_EXTERN int
 lws_gendtls_handshake_done(struct lws_gendtls_ctx *ctx);
 
+/** lws_gendtls_is_clean() - Check if rx and tx queues are empty
+ *
+ * \param ctx: your struct lws_gendtls_ctx
+ *
+ * Returns 1 if queues are completely empty, 0 if data is pending.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_gendtls_is_clean(struct lws_gendtls_ctx *ctx);
+
 /** lws_gendtls_get_srtp_profile() - Get negotiated SRTP profile
  *
  * \param ctx: your struct lws_gendtls_ctx
@@ -240,6 +254,21 @@ lws_gendtls_handshake_done(struct lws_gendtls_ctx *ctx);
  */
 LWS_VISIBLE LWS_EXTERN const char *
 lws_gendtls_get_srtp_profile(struct lws_gendtls_ctx *ctx);
+
+#if defined(LWS_WITH_SCHANNEL)
+/** lws_gendtls_schannel_set_client_addr() - Set client address for SChannel DTLS server
+ *
+ * \param ctx: your struct lws_gendtls_ctx
+ * \param sa: sockaddr holding the client address
+ * \param sa_len: length of sockaddr
+ *
+ * Microsoft SChannel requires the true remote datagram IPv4/IPv6 source address to
+ * successfully establish the DTLS Server context.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_gendtls_schannel_set_client_addr(struct lws_gendtls_ctx *ctx,
+				     const struct sockaddr *sa, size_t sa_len);
+#endif
 
 #endif /* LWS_WITH_DTLS */
 

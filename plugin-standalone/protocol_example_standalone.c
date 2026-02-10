@@ -99,7 +99,7 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 		n = sprintf((char *)p, "%d", pss->number++);
 		m = lws_write(wsi, p, n, LWS_WRITE_TEXT);
 		if (m < n) {
-			lwsl_err("ERROR %d writing to di socket\n", n);
+			lwsl_vhost_err(vhd->vhost, "ERROR %d writing to di socket", n);
 			return -1;
 		}
 		break;

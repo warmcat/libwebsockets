@@ -141,8 +141,19 @@ configure_file(
 list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/core)
 list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/misc)
 list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/system)
+list(APPEND LWS_LIB_BUILD_INC_PATHS_TEMP ${CMAKE_CURRENT_SOURCE_DIR}/media)
 add_subdirectory(core)
 add_subdirectory(misc)
+add_subdirectory(media)
+
+if (LWS_WITH_TRANSCODE)
+	set_source_files_properties(media/transcode/transcode.c PROPERTIES COMPILE_FLAGS "-Wno-conversion -Wno-sign-conversion")
+endif()
+
+if (LWS_WITH_V4L2)
+	set_source_files_properties(media/v4l2/v4l2.c PROPERTIES COMPILE_FLAGS "-Wno-unused-variable")
+endif()
+
 add_subdirectory(system)
 
 if (LWS_WITH_DRIVERS)
@@ -437,6 +448,8 @@ endif(UNIX OR MINGW)
 
 # Keep explicit parent scope exports at end
 #
+
+set(LWS_LIB_BUILD_INC_PATHS ${LWS_LIB_BUILD_INC_PATHS} ${LWS_LIB_BUILD_INC_PATHS_TEMP} PARENT_SCOPE)
 
 export_to_parent_intermediate()
 if (DEFINED LWS_PLAT_UNIX)

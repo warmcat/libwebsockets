@@ -37,6 +37,11 @@ lws_rtp_init(struct lws_rtp_ctx *ctx, uint32_t ssrc, uint8_t pt)
 void
 lws_rtp_write_header(struct lws_rtp_ctx *ctx, uint8_t *buf, int marker)
 {
+	if (ctx->ts != ctx->last_ts) {
+		ctx->new_frame = 1;
+		ctx->last_ts = ctx->ts;
+	}
+
 	buf[0] = 0x80; /* V=2, P=0, X=0, CC=0 */
 	buf[1] = (uint8_t)((marker ? 0x80 : 0) | (ctx->pt & 0x7f));
 	buf[2] = (uint8_t)(ctx->seq >> 8);
@@ -92,6 +97,65 @@ lws_rtp_h264_packetize(struct lws_rtp_ctx *ctx, const uint8_t *nal, size_t len,
 		p += chunk;
 		left -= chunk;
 		first = 0;
+	}
+
+	return 0;
+}
+
+int
+lws_rtp_av1_packetize(struct lws_rtp_ctx *ctx, const uint8_t *obu, size_t len,
+		       int last_obu, size_t mtu, lws_rtp_cb_t cb, void *priv)
+{
+	uint8_t pkt[2048];
+	size_t rtp_mtu = mtu - LWS_RTP_HEADER_LEN;
+
+	if (len <= rtp_mtu - 1) {
+		lws_rtp_write_header(ctx, pkt, last_obu);
+		/* Annex B Aggregation Header: [ Z | Y | W | N | - - - - ]
+		 * Single OBU Element Packet:
+		 * Z=0, Y=0, W=0, N=1 (0x08) -> 0x08
+		 */
+		pkt[LWS_RTP_HEADER_LEN] = 0x08;
+
+
+
+		memcpy(pkt + LWS_RTP_HEADER_LEN + 1, obu, len);
+		cb(priv, pkt, LWS_RTP_HEADER_LEN + 1 + len, last_obu);
+	} else {
+		/* Fragmented OBU */
+		size_t written = 0;
+		int first = 1;
+
+		while (written < len) {
+			size_t frag = len - written;
+			int last_frag = 1;
+
+			if (frag > rtp_mtu - 1) {
+				frag = rtp_mtu - 1;
+				last_frag = 0;
+			}
+
+			lws_rtp_write_header(ctx, pkt, last_frag && last_obu);
+
+			if (first) {
+				/* First Fragment: Z=0, Y=1 (0x40), W=0, N=1 (0x08) -> 0x48 */
+				pkt[LWS_RTP_HEADER_LEN] = 0x48;
+			} else if (!last_frag) {
+				/* Middle Fragment: Z=1 (0x80), Y=1 (0x40), W=0, N=0 -> 0xC0 */
+				pkt[LWS_RTP_HEADER_LEN] = 0xC0;
+			} else {
+				/* Last Fragment: Z=1 (0x80), Y=0, W=0, N=0 -> 0x80 */
+				pkt[LWS_RTP_HEADER_LEN] = 0x80;
+			}
+
+
+
+			memcpy(pkt + LWS_RTP_HEADER_LEN + 1, obu + written, frag);
+			cb(priv, pkt, LWS_RTP_HEADER_LEN + 1 + frag, last_frag && last_obu);
+
+			written += frag;
+			first = 0;
+		}
 	}
 
 	return 0;

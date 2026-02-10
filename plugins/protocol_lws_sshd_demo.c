@@ -410,7 +410,7 @@ callback_lws_sshd_demo(struct lws *wsi, enum lws_callback_reasons reason,
 			vhd->privileged_fd = lws_open(TEST_SERVER_KEY_PATH,
 					O_CREAT | O_TRUNC | O_RDWR, 0600);
 		if (vhd->privileged_fd == -1) {
-			lwsl_warn("%s: Can't open %s\n", __func__,
+			lwsl_vhost_warn(lws_get_vhost(wsi), "%s: Can't open %s\n", __func__,
 				 TEST_SERVER_KEY_PATH);
 			return 0;
 		}

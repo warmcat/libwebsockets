@@ -25,8 +25,15 @@
 #ifndef _LWS_STUN_H_
 #define _LWS_STUN_H_
 
+#define LWS_STUN_MAGIC_COOKIE		0x2112A442
+#define LWS_STUN_FINGERPRINT_XOR	0x5354554e
+
 enum lws_stun_req_type {
 	LWS_STUNREQ_BINDING = 1,
+};
+
+enum lws_stun_attr_type {
+	LWS_STUN_ATTR_USERNAME = 0x0006,
 };
 
 /*

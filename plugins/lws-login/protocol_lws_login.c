@@ -121,7 +121,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_strncpy(vhd->jwt_alg, "HS256", sizeof(vhd->jwt_alg));
 
 		if (lws_pvo_get_str(in, "db-path", &vhd->db_path)) {
-			lwsl_err("%s: db-path PVO required\n", __func__);
+			lwsl_vhost_err(lws_get_vhost(wsi), "%s: db-path PVO required\n", __func__);
 			return -1;
 		}
 
@@ -155,7 +155,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				}
 			}
 		} else {
-			lwsl_err("%s: jwt-jwk PVO required\n", __func__);
+			lwsl_vhost_err(lws_get_vhost(wsi), "%s: jwt-jwk PVO required\n", __func__);
 			return -1;
 		}
 		break;

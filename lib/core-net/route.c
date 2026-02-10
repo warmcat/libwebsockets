@@ -221,7 +221,7 @@ _lws_route_est_outgoing(struct lws_context_per_thread *pt,
 			      lws_dll2_get_head(&pt->context->routing_table)) {
 		lws_route_t *rou = lws_container_of(d, lws_route_t, list);
 
-		// _lws_routing_entry_dump(rou);
+
 
 		if (rou->dest.sa4.sin_family &&
 		    !lws_sa46_on_net(dest, &rou->dest, rou->dest_len))
@@ -404,3 +404,11 @@ _lws_route_pt_close_route_users(struct lws_context_per_thread *pt,
 
 	return 0;
 }
+
+#if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_NETLINK)
+struct lws_dll2_owner *
+lws_routing_table_get(struct lws_context *cx)
+{
+return &cx->routing_table;
+}
+#endif

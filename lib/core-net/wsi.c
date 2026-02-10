@@ -395,7 +395,7 @@ int lws_rx_flow_control(struct lws *wsi, int _enable) {
 	// h2 ignores rx flow control atm
 	if (lwsi_role_h2(wsi) || wsi->mux_substream ||
 			lwsi_role_h2_ENCAPSULATION(wsi))
-		return 0; // !!!
+		return 0;
 
 	lwsl_wsi_info(wsi, "0x%x", _enable);
 
@@ -480,7 +480,7 @@ int __lws_rx_flow_control(struct lws *wsi) {
 	// h2 ignores rx flow control atm
 	if (lwsi_role_h2(wsi) || wsi->mux_substream ||
 			lwsi_role_h2_ENCAPSULATION(wsi))
-		return 0; // !!!
+		return 0;
 
 	/* if he has children, do those if they were changed */
 	while (wsic) {
@@ -498,7 +498,7 @@ int __lws_rx_flow_control(struct lws *wsi) {
 	if (lws_buflist_next_segment_len(&wsi->buflist, NULL)) {
 		/* get ourselves called back to deal with stashed buffer */
 		lws_callback_on_writable(wsi);
-		// return 0;
+
 	}
 
 	/* now the pending is cleared, we can change rxflow state */
@@ -512,7 +512,7 @@ int __lws_rx_flow_control(struct lws *wsi) {
 
 	if (wsi->rxflow_change_to & LWS_RXFLOW_ALLOW) {
 		lwsl_wsi_info(wsi, "reenable POLLIN");
-		// lws_buflist_describe(&wsi->buflist, NULL, __func__);
+
 		if (__lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
 			lwsl_wsi_info(wsi, "fail");
 			return -1;
@@ -533,12 +533,19 @@ int lws_ensure_user_space(struct lws *wsi) {
 
 	/* allocate the per-connection user memory (if any) */
 
-	if (wsi->a.protocol->per_session_data_size && !wsi->user_space) {
-		wsi->user_space =
-			lws_zalloc(wsi->a.protocol->per_session_data_size, "user space");
-		if (wsi->user_space == NULL) {
-			lwsl_wsi_err(wsi, "OOM");
-			return 1;
+	if (!wsi->user_space) {
+		size_t s = wsi->a.protocol->per_session_data_size;
+
+		if (!s)
+			s = (size_t)wsi->a.protocol->callback(wsi,
+					LWS_CALLBACK_GET_PSS_SIZE, NULL, NULL, 0);
+
+		if (s) {
+			wsi->user_space = lws_zalloc(s, "user space");
+			if (!wsi->user_space) {
+				lwsl_wsi_err(wsi, "OOM");
+				return 1;
+			}
 		}
 	} else
 		lwsl_wsi_debug(wsi, "protocol pss %lu, user_space=%p",

@@ -65,6 +65,32 @@ lws_srtp_prf(const uint8_t *key, const uint8_t *salt, uint8_t label, uint8_t *ou
 	return 0;
 }
 
+static struct lws_srtp_src_ctx *
+lws_srtp_get_src_ctx(struct lws_srtp_ctx *ctx, uint32_t ssrc, int create)
+{
+	int i;
+	/* Try to find existing first */
+	for (i = 0; i < 4; i++) {
+		if (ctx->src[i].any_packet_received && ctx->src[i].ssrc == ssrc)
+			return &ctx->src[i];
+	}
+
+	/* If creation allowed, find first empty slot */
+	if (create) {
+		for (i = 0; i < 4; i++) {
+			if (!ctx->src[i].any_packet_received) {
+				ctx->src[i].ssrc = ssrc;
+				ctx->src[i].any_packet_received = 1;
+				/* roc/last_seq are 0 by default (memset) */
+				return &ctx->src[i];
+			}
+		}
+		lwsl_err("SRTP: No free SSRC slots for SSRC %u\n", ssrc);
+	}
+
+	return NULL;
+}
+
 int
 lws_srtp_init(struct lws_srtp_ctx *ctx, enum lws_srtp_profiles profile,
 	      const uint8_t *master_key, const uint8_t *master_salt)
@@ -112,6 +138,7 @@ lws_srtp_protect_rtp(struct lws_srtp_ctx *ctx, uint8_t *pkt, size_t *len, size_t
 	uint8_t tag[20];
 	size_t nc = 0;
 	size_t tag_len = (ctx->profile == LWS_SRTP_PROFILE_AES128_CM_HMAC_SHA1_80) ? 10 : 4;
+	struct lws_srtp_src_ctx *sctx;
 
 	if (!ctx->keys_derived)
 		return -1;
@@ -119,12 +146,18 @@ lws_srtp_protect_rtp(struct lws_srtp_ctx *ctx, uint8_t *pkt, size_t *len, size_t
 	if (*len + tag_len > max_len)
 		return -1;
 
-	/* ROC management (simplistic) */
-	if (ctx->last_seq > 0xff00 && seq < 0x00ff)
-		ctx->roc++;
-	ctx->last_seq = seq;
+	sctx = lws_srtp_get_src_ctx(ctx, ssrc, 1);
+	if (!sctx)
+		return -1;
 
-	index = ((uint64_t)ctx->roc << 16) | seq;
+	/* ROC management (Sender Side) */
+    /* Robust check for wrap-around (per SSRC) */
+    int32_t diff = (int32_t)seq - (int32_t)sctx->last_seq;
+	if (diff < -32768)
+		sctx->roc++;
+	sctx->last_seq = seq;
+
+	index = ((uint64_t)sctx->roc << 16) | seq;
 
 	/* IV calculation for CTR */
 	memset(iv, 0, 16);
@@ -166,10 +199,10 @@ lws_srtp_protect_rtp(struct lws_srtp_ctx *ctx, uint8_t *pkt, size_t *len, size_t
 
 	/* ROC is authenticated as well */
 	uint8_t roc_bytes[4];
-	roc_bytes[0] = (uint8_t)(ctx->roc >> 24);
-	roc_bytes[1] = (uint8_t)(ctx->roc >> 16);
-	roc_bytes[2] = (uint8_t)(ctx->roc >> 8);
-	roc_bytes[3] = (uint8_t)(ctx->roc & 0xff);
+	roc_bytes[0] = (uint8_t)(sctx->roc >> 24);
+	roc_bytes[1] = (uint8_t)(sctx->roc >> 16);
+	roc_bytes[2] = (uint8_t)(sctx->roc >> 8);
+	roc_bytes[3] = (uint8_t)(sctx->roc & 0xff);
 
 	if (lws_genhmac_update(&hmac_ctx, roc_bytes, 4)) {
 		lws_genhmac_destroy(&hmac_ctx, NULL);
@@ -265,15 +298,44 @@ lws_srtp_unprotect_rtp(struct lws_srtp_ctx *ctx, uint8_t *pkt, size_t *len)
 	uint8_t iv[16], computed_tag[20];
 	size_t nc = 0;
 	size_t tag_len = (ctx->profile == LWS_SRTP_PROFILE_AES128_CM_HMAC_SHA1_80) ? 10 : 4;
+	struct lws_srtp_src_ctx *sctx;
 
 	if (!ctx->keys_derived || *len < 12 + tag_len)
 		return -1;
 
-	/* Simplified ROC management for RX */
-	if (ctx->last_seq > 0xff00 && seq < 0x00ff)
-		ctx->roc++;
-	ctx->last_seq = seq;
-	index = ((uint64_t)ctx->roc << 16) | seq;
+	sctx = lws_srtp_get_src_ctx(ctx, ssrc, 1);
+	if (!sctx)
+		return -1;
+
+	/*
+	 * RFC 3711 Section 3.3.1 Index Estimation (Per SSRC)
+	 */
+	uint32_t roc = sctx->roc;
+	uint32_t s_l = sctx->last_seq;
+	int32_t diff = (int32_t)seq - (int32_t)s_l;
+	uint64_t v;
+
+	if (s_l < 32768) {
+		if (diff > 32768) {
+			v = ((uint64_t)(roc - 1) << 16) | seq;
+		} else {
+			v = ((uint64_t)roc << 16) | seq;
+		}
+	} else {
+		if (diff < -32768) {
+			v = ((uint64_t)(roc + 1) << 16) | seq;
+		} else {
+			v = ((uint64_t)roc << 16) | seq;
+		}
+	}
+
+    index = v;
+    uint64_t highest_index = ((uint64_t)sctx->roc << 16) | sctx->last_seq;
+
+    /* However, 'ctx->roc' might be updated if we accept this packet.
+     * We should only update ctx->roc / ctx->last_seq AFTER successful Auth.
+     * But we need the index FOR Auth.
+     */
 
 	/* 1. Verify Authentication Tag */
 	if (lws_genhmac_init(&hmac_ctx, LWS_GENHMAC_TYPE_SHA1, ctx->session_auth, 20))
@@ -284,18 +346,20 @@ lws_srtp_unprotect_rtp(struct lws_srtp_ctx *ctx, uint8_t *pkt, size_t *len)
 		return -1;
 	}
 
+    /* Use ESTIMATED ROC (from v), not current context ROC */
+    uint32_t roc_est = (uint32_t)(v >> 16);
 	uint8_t roc_bytes[4];
-	roc_bytes[0] = (uint8_t)(ctx->roc >> 24);
-	roc_bytes[1] = (uint8_t)(ctx->roc >> 16);
-	roc_bytes[2] = (uint8_t)(ctx->roc >> 8);
-	roc_bytes[3] = (uint8_t)(ctx->roc & 0xff);
+	roc_bytes[0] = (uint8_t)(roc_est >> 24);
+	roc_bytes[1] = (uint8_t)(roc_est >> 16);
+	roc_bytes[2] = (uint8_t)(roc_est >> 8);
+	roc_bytes[3] = (uint8_t)(roc_est & 0xff);
 
 	if (lws_genhmac_update(&hmac_ctx, roc_bytes, 4) ||
 	    lws_genhmac_destroy(&hmac_ctx, computed_tag))
 		return -1;
 
 	if (memcmp(pkt + *len - tag_len, computed_tag, tag_len)) {
-		lwsl_err("SRTP: Auth tag mismatch!\n");
+		lwsl_err("SRTP: Auth tag mismatch! SSRC %u, Seq %d, ROC %d (Est ROC %d)\n", ssrc, seq, sctx->roc, roc_est);
 		return -2;
 	}
 
@@ -305,6 +369,7 @@ lws_srtp_unprotect_rtp(struct lws_srtp_ctx *ctx, uint8_t *pkt, size_t *len)
 	iv[5] = (uint8_t)(ssrc >> 16);
 	iv[6] = (uint8_t)(ssrc >> 8);
 	iv[7] = (uint8_t)(ssrc & 0xff);
+
 	iv[8] = (uint8_t)(index >> 40);
 	iv[9] = (uint8_t)(index >> 32);
 	iv[10] = (uint8_t)(index >> 24);
@@ -325,6 +390,12 @@ lws_srtp_unprotect_rtp(struct lws_srtp_ctx *ctx, uint8_t *pkt, size_t *len)
 		return -1;
 	}
 	lws_genaes_destroy(&aes_ctx, NULL, 0);
+
+    /* Update Context State on Success */
+    if (v > highest_index) {
+        sctx->roc = roc_est;
+        sctx->last_seq = seq;
+    }
 
 	*len -= tag_len;
 	return 0;

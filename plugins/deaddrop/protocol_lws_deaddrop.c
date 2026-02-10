@@ -182,7 +182,8 @@ broadcast_state_update(struct vhd_deaddrop *vhd)
 	vhd->filelist_version++; /* Invalidate client cache */
 
 	lws_start_foreach_llp(struct pss_deaddrop **, ppss, vhd->pss_head) {
-		start_sending_dir(*ppss);
+		if (!(*ppss)->ws_ongoing_send)
+			start_sending_dir(*ppss);
 		lws_callback_on_writable((*ppss)->wsi);
 	} lws_end_foreach_llp(ppss, pss_list);
 }
@@ -409,7 +410,7 @@ handler_server_protocol_init(struct lws *wsi, void *in)
 	if (!lws_pvo_get_str(in, "max-size", &cp))
 		vhd->max_size = (unsigned long long)atoll(cp);
 	if (lws_pvo_get_str(in, "upload-dir", &vhd->upload_dir)) {
-		lwsl_warn("%s: requires 'upload-dir' pvo\n", __func__);
+		lwsl_vhost_warn(lws_get_vhost(wsi), "%s: requires 'upload-dir' pvo\n", __func__);
 		return 0;
 	}
 

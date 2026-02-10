@@ -25,14 +25,32 @@
 #ifndef __LWS_RTP_H__
 #define __LWS_RTP_H__
 
+/* Video resolutions */
+#define LWS_RTP_VIDEO_WIDTH_720P	1280
+#define LWS_RTP_VIDEO_HEIGHT_720P	720
+#define LWS_RTP_VIDEO_WIDTH_360P	640
+#define LWS_RTP_VIDEO_HEIGHT_360P	360
+
+#define LWS_RTP_MTU_DEFAULT		1200
+
+/* Audio properties */
+#define LWS_RTP_AUDIO_SAMPLE_RATE	48000
+#define LWS_RTP_AUDIO_CHANNELS		2
+
+/* Common Payload Types (Dynamic usually) */
+#define LWS_RTP_PT_OPUS			111
+#define LWS_RTP_PT_H264			126
+
 /* RTP Header (RFC 3550) length */
 #define LWS_RTP_HEADER_LEN 12
 
 struct lws_rtp_ctx {
 	uint32_t ssrc;
 	uint32_t ts;
+	uint32_t last_ts;
 	uint16_t seq;
 	uint8_t pt; /* Payload Type */
+	uint8_t new_frame;
 };
 
 typedef void (*lws_rtp_cb_t)(void *priv, const uint8_t *pkt, size_t len, int marker);
@@ -75,5 +93,9 @@ lws_rtp_write_header(struct lws_rtp_ctx *ctx, uint8_t *buf, int marker);
 LWS_VISIBLE LWS_EXTERN int
 lws_rtp_h264_packetize(struct lws_rtp_ctx *ctx, const uint8_t *nal, size_t len,
 		       int last_nal, size_t mtu, lws_rtp_cb_t cb, void *priv);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_rtp_av1_packetize(struct lws_rtp_ctx *ctx, const uint8_t *obu, size_t len,
+		       int last_obu, size_t mtu, lws_rtp_cb_t cb, void *priv);
 
 #endif /* __LWS_RTP_H__ */

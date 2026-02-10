@@ -129,8 +129,8 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				pvo = pvo->next;
 			}
 			if (vhd->fifo_path[0] == '\0') {
-				lwsl_warn("%s: Missing pvo \"fifo-path\", "
-					 "raw file fd testing disabled\n",
+				lwsl_vhost_warn(vhd->vhost, "%s: Missing pvo \"fifo-path\", "
+					 "raw file fd testing disabled",
 					 __func__);
 				break;
 			}
