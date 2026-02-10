@@ -625,7 +625,7 @@ callback_lws_openmetrics_prox_agg(struct lws *wsi,
 				vhd->bind_partner_vhd->bind_partner_vhd = vhd;
 			}
 		} else {
-			lwsl_warn("%s: proxy-side-bind-name required\n", __func__);
+			lwsl_vhost_warn(lws_get_vhost(wsi), "%s: proxy-side-bind-name required\n", __func__);
 			return 0;
 		}
 
@@ -801,7 +801,7 @@ callback_lws_openmetrics_prox_server(struct lws *wsi,
 				vhd->bind_partner_vhd->bind_partner_vhd = vhd;
 			}
 		} else {
-			lwsl_warn("%s: proxy-side-bind-name required\n", __func__);
+			lwsl_vhost_warn(lws_get_vhost(wsi), "%s: proxy-side-bind-name required\n", __func__);
 			return 0;
 		}
 

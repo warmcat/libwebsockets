@@ -176,7 +176,7 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 			return 0;
 		}
 
-                lws_finalize_startup(cx);
+                lws_finalize_startup(cx, __func__);
 		break;
         }
 	return 0;

@@ -871,7 +871,7 @@ lws_http_rel_to_url(char *dest, size_t len, const char *base, const char *rel)
 }
 
 int
-lws_finalize_startup(struct lws_context *context)
+lws_finalize_startup(struct lws_context *context, const char *where)
 {
 	if (lws_check_opt(context->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS)) {
 		lwsl_info("%s: dropping app privs: %s\n", __func__, where);
