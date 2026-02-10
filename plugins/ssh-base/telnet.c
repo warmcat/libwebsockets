@@ -144,7 +144,7 @@ lws_callback_raw_telnet(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		if (!vhd->ops) {
-			lwsl_err("telnet pvo \"ops\" is mandatory\n");
+			lwsl_vhost_err(vhd->vhost, "telnet pvo \"ops\" is mandatory");
 			return -1;
 		}
 		break;

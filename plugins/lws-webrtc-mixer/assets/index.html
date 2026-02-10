@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LWS WebRTC Mixer</title>
+    <link rel="stylesheet" href="main.css">
+</head>
+<body>
+        <header>
+            <div class="header-left">
+                <h1>LWS WebRTC Mixer</h1>
+                <div class="join-controls">
+                    <div id="status" class="status">Disconnected</div>
+                    <input type="text" id="nameInput" placeholder="Enter name" maxlength="32">
+                    <button id="startButton" disabled>Fill Name to Join</button>
+
+                    <button id="muteVideoBtn" class="icon-button" title="Toggle Video">
+                        <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M23 7l-7 5 7 5V7z"></path><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+                    </button>
+                    <div class="audio-wrapper">
+                        <button id="muteAudioBtn" class="icon-button" title="Toggle Audio">
+                            <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+                        </button>
+                        <span id="audioDot" class="audio-dot"></span>
+                    </div>
+                </div>
+            </div>
+            <div class="menu-container">
+                <button id="chatButton" class="icon-button" aria-label="Chat" title="Toggle Chat" disabled>
+                    <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                    <span id="unreadBadge" class="badge hidden">0</span>
+                </button>
+                <div id="connStatus" class="conn-status" title="Disconnected"></div>
+                <div id="sysStatus" class="sys-status hidden">Loading...</div>
+
+
+                <button id="menuButton" class="icon-button" aria-label="Menu">
+                    <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+                </button>
+                <div id="menuDropdown" class="dropdown">
+                    <button id="devicesMenuOption">Devices</button>
+                </div>
+            </div>
+        </header>
+
+        <div class="main-layout">
+            <div class="video-container">
+                <video id="displayVideo" autoplay playsinline muted></video>
+                <div id="videoLabel" class="label">Local Preview</div>
+                <div id="overlayContainer" class="overlay-container"></div>
+
+                <div id="chatOverlay" class="chat-overlay hidden">
+                    <div id="chatHistory" class="chat-history"></div>
+                    <input type="text" id="chatInput" placeholder="Type a message..." maxlength="256">
+                </div>
+            </div>
+
+            <div class="sidebar">
+                <div class="participant-panel">
+                    <div class="panel-header">
+                        <h2>Participants</h2>
+                    </div>
+                    <div class="participant-list" id="participantList"></div>
+                </div>
+
+                <div id="settingsPanel" class="settings-panel hidden">
+                    <div class="panel-header">
+                        <h2>Device Settings</h2>
+                        <button id="closePanel" class="icon-button">
+                            <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                        </button>
+                    </div>
+                    <div class="settings-content">
+                        <!-- Remote Controls Section -->
+                        <div id="remoteSettingsGroup" class="settings-group hidden">
+                            <div class="remote-header-container">
+                                <!-- Title injected via JS -->
+                            </div>
+                            <div id="remoteControlsContainer" class="remote-controls"></div>
+                        </div>
+
+                        <!-- Local Controls Section -->
+                        <div id="localSettingsGroup" class="settings-group">
+                            <h3 class="section-title">Local Devices</h3>
+                            <div class="field">
+                                <label for="videoSource">Camera:</label>
+                                <select id="videoSource"></select>
+                                <div id="videoControls" class="dynamic-controls"></div>
+                            </div>
+                            <div class="field">
+                                <label for="videoCodec">Video Codec:</label>
+                                <select id="videoCodec">
+                                    <option value="auto">Auto (Default)</option>
+                                    <option value="H264">H.264</option>
+                                    <option value="AV1">AV1</option>
+                                    <option value="VP8">VP8</option>
+                                </select>
+                            </div>
+                            <div class="field">
+                                <label for="audioSource">Microphone:</label>
+                                <select id="audioSource"></select>
+                                <div id="audioControls" class="dynamic-controls"></div>
+                            </div>
+                            <div class="field">
+                                <label for="audioOutputSource">Speaker / Output:</label>
+                                <select id="audioOutputSource"></select>
+                                <div id="audioOutputControls" class="dynamic-controls"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="remoteSettingsModal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 id="remoteModalTitle">Remote Settings</h2>
+                    <button id="closeRemoteModal" class="icon-button">
+                        <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </button>
+                </div>
+                <div id="remoteModalBody" class="modal-body">
+                    <!-- Dynamic controls will be rendered here -->
+                </div>
+            </div>
+        </div>
+    <script src="main.js?v=7"></script>
+</body>
+</html>

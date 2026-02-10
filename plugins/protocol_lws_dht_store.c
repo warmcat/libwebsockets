@@ -97,7 +97,7 @@ callback_lws_dht_store(struct lws *wsi, enum lws_callback_reasons reason,
 
 		/* Parse PVOs */
 		if (lws_pvo_get_str(in, "dht-storage-path", &vhd->storage_path)) {
-			lwsl_err("%s: dht-storage-path PVO required\n", __func__);
+			lwsl_vhost_err(lws_get_vhost(wsi), "%s: dht-storage-path PVO required\n", __func__);
 			return -1;
 		}
 

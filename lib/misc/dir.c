@@ -406,6 +406,51 @@ struct lws_plugins_args {
 	void			*each_user;
 };
 
+static unsigned int
+lws_plugin_get_priority(const lws_plugin_header_t *hdr)
+{
+	if (hdr->api_magic >= 192)
+		return hdr->priority;
+
+	return 0;
+}
+
+static void
+lws_plugins_sort(struct lws_plugin **pplugin)
+{
+	struct lws_plugin *p1, *p2, *prev;
+	int swapped;
+
+	if (!pplugin || !*pplugin || !(*pplugin)->list)
+		return;
+
+	do {
+		swapped = 0;
+		p1 = *pplugin;
+		prev = NULL;
+
+		while (p1->list) {
+			p2 = p1->list;
+			if (lws_plugin_get_priority(p1->hdr) <
+			    lws_plugin_get_priority(p2->hdr)) {
+				/* swap */
+				p1->list = p2->list;
+				p2->list = p1;
+				if (prev)
+					prev->list = p2;
+				else
+					*pplugin = p2;
+
+				swapped = 1;
+				prev = p2;
+			} else {
+				prev = p1;
+				p1 = p1->list;
+			}
+		}
+	} while (swapped);
+}
+
 static int
 lws_plugins_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 {
@@ -442,7 +487,7 @@ lws_plugins_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	lws_snprintf(path, sizeof(path) - 1, "%s/%s", dirpath, lde->name);
 
 	pl = lws_plat_dlopen(pa->pplugin, path, base, pa->_class,
-			     pa->each, pa->each_user);
+			     NULL, NULL);
 
 	/*
 	 * If we were looking for a specific plugin, finding it should make
@@ -509,6 +554,20 @@ lws_plugins_init(struct lws_plugin **pplugin, const char * const *d,
 			ret = 0;
 
 		d++;
+	}
+
+	if (*pplugin) {
+		struct lws_plugin *p = *pplugin;
+
+		lws_plugins_sort(pplugin);
+
+		if (each) {
+			p = *pplugin;
+			while (p) {
+				each(p, each_user);
+				p = p->list;
+			}
+		}
 	}
 
 	return ret;
