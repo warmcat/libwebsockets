@@ -197,6 +197,17 @@ lws_buflist_describe(struct lws_buflist **head, void *id, const char *reason);
 LWS_VISIBLE LWS_EXTERN void *
 lws_buflist_get_frag_start_or_NULL(struct lws_buflist **head);
 
+/**
+ * lws_crc32(): calculate CRC32 of a buffer
+ *
+ * \param crc: seed CRC
+ * \param buf: the data to handle
+ * \param len: the length of the data to handle
+ */
+LWS_VISIBLE LWS_EXTERN uint32_t
+lws_crc32(uint32_t crc, const void *buf, size_t len);
+
+
 
 struct lws_wsmsg_info;
 
