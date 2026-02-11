@@ -838,6 +838,7 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 #if defined(LWS_WITH_MNEMONIC)
 #include <libwebsockets/lws-mnemonic.h>
 #endif
+#include <libwebsockets/lws-gendtls.h>
 #include <libwebsockets/lws-sha1-base64.h>
 #include <libwebsockets/lws-x509.h>
 #if defined(LWS_WITH_NETWORK)

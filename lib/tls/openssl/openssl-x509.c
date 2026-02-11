@@ -858,3 +858,137 @@ lws_x509_destroy(struct lws_x509_cert **x509)
 
 	lws_free_set_NULL(*x509);
 }
+
+static int
+X509_extension_helper(X509 *x, X509V3_CTX *ctx, int nid, const char *value)
+{
+	X509_EXTENSION *ex;
+
+	ex = X509V3_EXT_conf_nid(NULL, ctx, nid, (char *)value);
+	if (!ex)
+		return 1;
+
+	X509_add_ext(x, ex, -1);
+	X509_EXTENSION_free(ex);
+
+	return 0;
+}
+
+int
+lws_x509_create_self_signed(struct lws_context *context,
+			    uint8_t **cert_buf, size_t *cert_len,
+			    uint8_t **key_buf, size_t *key_len,
+			    const char *san, int key_bits)
+{
+	EVP_PKEY *pkey = EVP_PKEY_new();
+	X509 *x509 = NULL;
+	X509_NAME *name;
+	int ret = 1;
+	unsigned char *p;
+	int n;
+	size_t len;
+
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+	EVP_PKEY_CTX *pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_EC, NULL);
+	if (!pctx) return 1;
+	if (EVP_PKEY_keygen_init(pctx) <= 0 ||
+	    EVP_PKEY_CTX_set_ec_paramgen_curve_nid(pctx, NID_X9_62_prime256v1) <= 0 ||
+	    EVP_PKEY_keygen(pctx, &pkey) <= 0) {
+		EVP_PKEY_CTX_free(pctx);
+		return 1;
+	}
+	EVP_PKEY_CTX_free(pctx);
+#else
+	/* Legacy OpenSSL 1.0.2 fallback */
+	EC_KEY *ec = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
+	if (!ec) return 1;
+	EC_KEY_set_asn1_flag(ec, OPENSSL_EC_NAMED_CURVE);
+	if (EC_KEY_generate_key(ec) <= 0) {
+		EC_KEY_free(ec);
+		return 1;
+	}
+	EVP_PKEY_assign_EC_KEY(pkey, ec);
+#endif
+
+	/* Create Cert */
+	x509 = X509_new();
+	if (!x509) goto bail;
+
+	X509_set_version(x509, 2); /* X.509 v3 */
+
+	/* Random Serial */
+	{
+		ASN1_INTEGER *serial = X509_get_serialNumber(x509);
+		BIGNUM *bn = BN_new();
+		BN_pseudo_rand(bn, 64, 0, 0);
+		BN_to_ASN1_INTEGER(bn, serial);
+		BN_free(bn);
+	}
+
+	X509_gmtime_adj(X509_get_notBefore(x509), (long)-86400);
+	X509_gmtime_adj(X509_get_notAfter(x509), 31536000L); /* 1 Year */
+
+	X509_set_pubkey(x509, pkey);
+
+	name = X509_get_subject_name(x509);
+	X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
+				   (unsigned char *)(san ? san : "localhost"), -1, -1, 0);
+	X509_set_issuer_name(x509, name);
+
+	/* Add Extensions */
+	{
+		X509V3_CTX ctx;
+		X509V3_set_ctx(&ctx, x509, x509, NULL, NULL, 0);
+
+		X509_extension_helper(x509, &ctx, NID_basic_constraints, "critical,CA:FALSE");
+		X509_extension_helper(x509, &ctx, NID_key_usage, "critical,digitalSignature");
+		X509_extension_helper(x509, &ctx, NID_ext_key_usage, "serverAuth,clientAuth");
+		X509_extension_helper(x509, &ctx, NID_subject_key_identifier, "hash");
+		X509_extension_helper(x509, &ctx, NID_authority_key_identifier, "keyid:always");
+
+		if (san) {
+			char alt[256];
+			int is_ip = !!strchr(san, '.');
+			lws_snprintf(alt, sizeof(alt), "%s:%s", is_ip ? "IP" : "DNS", san);
+			X509_extension_helper(x509, &ctx, NID_subject_alt_name, alt);
+		}
+	}
+
+	/* Sign */
+	if (!X509_sign(x509, pkey, EVP_sha256()))
+		goto bail;
+
+	/* Export to DER buffers */
+
+	/* Cert */
+	n = i2d_X509(x509, NULL);
+	if (n < 0) goto bail;
+	len = (size_t)n;
+	*cert_buf = malloc(len); /* Use standard malloc for example to free */
+	if (!*cert_buf) goto bail;
+	p = *cert_buf;
+	*cert_len = (size_t)i2d_X509(x509, &p);
+
+	/* Private Key */
+	n = i2d_PrivateKey(pkey, NULL);
+	if (n < 0) {
+		free(*cert_buf);
+		goto bail;
+	}
+	len = (size_t)n;
+	*key_buf = malloc(len);
+	if (!*key_buf) {
+		free(*cert_buf);
+		goto bail;
+	}
+	p = *key_buf;
+	*key_len = (size_t)i2d_PrivateKey(pkey, &p);
+
+	ret = 0;
+
+bail:
+	if (x509) X509_free(x509);
+	if (pkey) EVP_PKEY_free(pkey);
+
+	return ret;
+}
