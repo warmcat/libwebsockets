@@ -372,6 +372,7 @@ option(LWS_WITH_WAKE_LOGGING "Log each wake reason" OFF)
 option(LWS_WITH_DHT "Include DHT APIs" OFF)
 option(LWS_WITH_TRANSPORT_SEQUENCER "Include Transport Sequencer APIs" OFF)
 option(LWS_WITH_MNEMONIC "Include mnemonic key generation support" OFF)
+option(LWS_WITH_DTLS "Compile with support for Generic DTLS" OFF)
 
 #
 # Compressed backtraces

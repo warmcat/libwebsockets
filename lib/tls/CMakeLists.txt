@@ -142,6 +142,10 @@ if (LWS_WITH_SSL)
 		if (LWS_WITH_NETWORK)
 			list(APPEND SOURCES
 				tls/mbedtls/mbedtls-ssl.c)
+			if (LWS_WITH_DTLS)
+				list(APPEND SOURCES
+					tls/mbedtls/lws-gendtls.c)
+			endif()
 		endif()
 		if (LWS_WITH_TLS_JIT_TRUST)
 			list(APPEND SOURCES
@@ -175,10 +179,15 @@ if (LWS_WITH_SSL)
 				tls/lws-genec-common.c
 				tls/schannel/lws-genec.c)
 		endif()
+		if (LWS_WITH_DTLS)
+			list(APPEND SOURCES
+				tls/schannel/lws-gendtls.c)
+		endif()
 	elseif (LWS_WITH_GNUTLS)
 		list(APPEND SOURCES
 			tls/gnutls/gnutls-tls.c
-			tls/gnutls/gnutls-ssl.c)
+			tls/gnutls/gnutls-ssl.c
+			tls/gnutls/gnutls-x509.c)
 		if (LWS_WITH_GENCRYPTO)
 			list(APPEND SOURCES
 				tls/gnutls/lws-genhash.c
@@ -186,6 +195,10 @@ if (LWS_WITH_SSL)
 				tls/gnutls/lws-genaes.c
 				tls/lws-genec-common.c
 				tls/gnutls/lws-genec.c)
+			if (LWS_WITH_DTLS)
+				list(APPEND SOURCES
+					tls/gnutls/lws-gendtls.c)
+			endif()
 		endif()
 	else()
 		list(APPEND SOURCES
@@ -194,6 +207,10 @@ if (LWS_WITH_SSL)
 		if (LWS_WITH_NETWORK)
 			list(APPEND SOURCES
 				tls/openssl/openssl-ssl.c)
+			if (LWS_WITH_DTLS)
+				list(APPEND SOURCES
+					tls/openssl/lws-gendtls.c)
+			endif()
 		endif()
 		if (LWS_WITH_TLS_SESSIONS)
 			list(APPEND SOURCES
@@ -456,6 +473,7 @@ if (LWS_WITH_MBEDTLS)
 		set(LWS_HAVE_mbedtls_md_setup 1 CACHE BOOL x) # not on xenial 2.2
 		set(LWS_HAVE_mbedtls_rsa_complete 1 CACHE BOOL x) # not on xenial 2.2
 		set(LWS_HAVE_mbedtls_internal_aes_encrypt 1 CACHE BOOL x) # not on xenial 2.2
+		set(LWS_HAVE_mbedtls_ssl_export_keying_material 1 CACHE BOOL x)
 	else()
 		CHECK_C_SOURCE_COMPILES("#include <mbedtls/x509_crt.h>\nint main(void) { struct mbedtls_x509_crt c; c.authority_key_id.keyIdentifier.tag = MBEDTLS_ASN1_OCTET_STRING; return c.authority_key_id.keyIdentifier.tag; }\n" LWS_HAVE_MBEDTLS_AUTH_KEY_ID)
 		CHECK_C_SOURCE_COMPILES("#include <mbedtls/ssl.h>\nint main(void) { void *v = (void *)mbedtls_ssl_set_verify; return !!v; }\n" LWS_HAVE_mbedtls_ssl_set_verify)
@@ -472,6 +490,7 @@ if (LWS_WITH_MBEDTLS)
 		CHECK_FUNCTION_EXISTS(mbedtls_md_setup LWS_HAVE_mbedtls_md_setup PARENT_SCOPE) # not on xenial 2.2
 		CHECK_FUNCTION_EXISTS(mbedtls_rsa_complete LWS_HAVE_mbedtls_rsa_complete PARENT_SCOPE) # not on xenial 2.2
 		CHECK_FUNCTION_EXISTS(mbedtls_internal_aes_encrypt LWS_HAVE_mbedtls_internal_aes_encrypt PARENT_SCOPE) # not on xenial 2.2
+		CHECK_FUNCTION_EXISTS(mbedtls_ssl_export_keying_material LWS_HAVE_mbedtls_ssl_export_keying_material PARENT_SCOPE)
 	endif()
 else()
 CHECK_FUNCTION_EXISTS(${VARIA}TLS_client_method LWS_HAVE_TLS_CLIENT_METHOD PARENT_SCOPE)
@@ -518,33 +537,22 @@ if (GENCERTS)
 				COMMAND "${OPENSSL_EXECUTABLE}" req -new -newkey rsa:2048 -days 10000 -nodes -x509 -subj "/C=GB/ST=Erewhon/L=All around/O=libwebsockets-test/CN=localhost" -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
 				RESULT_VARIABLE OPENSSL_RETURN_CODE)
 		else()
-			file(WRITE "${PROJECT_BINARY_DIR}/openssl_input.txt"
-				"GB\n"
-				"Erewhon\n"
-				"All around\n"
-				"libwebsockets-test\n"
-				"localhost\n"
-				"none@invalid.org\n\n"
+			file(WRITE "${PROJECT_BINARY_DIR}/openssl_test_server.cnf"
+				"[req]\n"
+				"distinguished_name=req_distinguished_name\n"
+				"prompt=no\n"
+				"\n"
+				"[req_distinguished_name]\n"
+				"C=GB\n"
+				"ST=Erewhon\n"
+				"L=All around\n"
+				"O=libwebsockets-test\n"
+				"CN=localhost\n"
 				)
 
-			# The "type" command is a bit picky with paths.
-			file(TO_NATIVE_PATH "${PROJECT_BINARY_DIR}/openssl_input.txt" OPENSSL_INPUT_WIN_PATH)
-			message("OPENSSL_INPUT_WIN_PATH = ${OPENSSL_INPUT_WIN_PATH}")
-			message("cmd = \"${OPENSSL_EXECUTABLE}\" req -new -newkey rsa:2048 -days 10000 -nodes -x509 -keyout \"${TEST_SERVER_SSL_KEY}\" -out \"${TEST_SERVER_SSL_CERT}\"")
-
-			if(OPENSSL_CONFIG_FILE)
-				execute_process(
-					COMMAND cmd /c type "${OPENSSL_INPUT_WIN_PATH}"
-					COMMAND "${OPENSSL_EXECUTABLE}" req -config ${OPENSSL_CONFIG_FILE} -new -newkey rsa:2048 -days 10000 -nodes -x509 -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
-					RESULT_VARIABLE OPENSSL_RETURN_CODE
-					OUTPUT_QUIET ERROR_QUIET)
-			else()
-				execute_process(
-					COMMAND cmd /c type "${OPENSSL_INPUT_WIN_PATH}"
-					COMMAND "${OPENSSL_EXECUTABLE}" req -new -newkey rsa:2048 -days 10000 -nodes -x509 -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
-					RESULT_VARIABLE OPENSSL_RETURN_CODE
-					OUTPUT_QUIET ERROR_QUIET)
-			endif()
+			execute_process(
+				COMMAND "${OPENSSL_EXECUTABLE}" req -config "${PROJECT_BINARY_DIR}/openssl_test_server.cnf" -new -newkey rsa:2048 -days 10000 -nodes -x509 -keyout "${TEST_SERVER_SSL_KEY}" -out "${TEST_SERVER_SSL_CERT}"
+				RESULT_VARIABLE OPENSSL_RETURN_CODE)
 
 			message("\n")
 		endif()
@@ -618,10 +626,10 @@ if (MSVC AND LWS_WITH_SSL AND NOT LWS_WITH_WOLFSSL)
 	endif()
 endif()
 
-if (LWS_WITH_TLS AND (LWS_WITH_JOSE OR LWS_WITH_GENCRYPTO))
 	list(APPEND SOURCES
 		tls/lws-gencrypto-common.c)
-endif()
+
+
 
 #
 # Keep explicit parent scope exports at end
