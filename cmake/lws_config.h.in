@@ -259,6 +259,7 @@
 #cmakedefine LWS_WITH_TLS_JIT_TRUST
 #cmakedefine LWS_WITH_TLS_SESSIONS
 #cmakedefine LWS_WITH_UDP
+#cmakedefine LWS_WITH_DTLS
 #cmakedefine LWS_WITH_ULOOP
 #cmakedefine LWS_WITH_UNIX_SOCK
 #cmakedefine LWS_WITH_UPNG
