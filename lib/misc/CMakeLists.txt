@@ -34,6 +34,7 @@ if (NOT LWS_ONLY_SSPC)
 list(APPEND SOURCES
 	misc/base64-decode.c
 	misc/prng.c
+	misc/lws-crc32.c
 	misc/lws-ring.c)
 
 if (LWS_WITH_NETWORK)
