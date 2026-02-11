@@ -653,6 +653,8 @@ lws_genhmac_size(enum lws_genhmac_types type)
 	switch(type) {
 	case LWS_GENHMAC_TYPE_UNKNOWN:
 		return 0;
+	case LWS_GENHMAC_TYPE_SHA1:
+		return 20;
 	case LWS_GENHMAC_TYPE_SHA256:
 		return 32;
 	case LWS_GENHMAC_TYPE_SHA384:

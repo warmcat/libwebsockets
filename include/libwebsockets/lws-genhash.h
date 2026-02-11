@@ -22,6 +22,9 @@
  * IN THE SOFTWARE.
  */
 
+#ifndef __LWS_GENHASH_H__
+#define __LWS_GENHASH_H__
+
 /*! \defgroup generichash Generic Hash
  * ## Generic Hash related functions
  *
@@ -49,6 +52,7 @@ enum lws_genhash_types {
 
 enum lws_genhmac_types {
 	LWS_GENHMAC_TYPE_UNKNOWN,
+	LWS_GENHMAC_TYPE_SHA1,
 	LWS_GENHMAC_TYPE_SHA256,
 	LWS_GENHMAC_TYPE_SHA384,
 	LWS_GENHMAC_TYPE_SHA512,
@@ -215,3 +219,5 @@ lws_genhmac_destroy(struct lws_genhmac_ctx *ctx, void *result);
 
 #endif
 ///@}
+
+#endif /* __LWS_GENHASH_H__ */

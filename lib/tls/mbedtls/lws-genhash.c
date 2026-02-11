@@ -258,6 +258,9 @@ lws_genhmac_init(struct lws_genhmac_ctx *ctx, enum lws_genhmac_types type,
 	ctx->type = (uint8_t)type;
 
 	switch (type) {
+	case LWS_GENHMAC_TYPE_SHA1:
+		t = MBEDTLS_MD_SHA1;
+		break;
 	case LWS_GENHMAC_TYPE_SHA256:
 		t = MBEDTLS_MD_SHA256;
 		break;
