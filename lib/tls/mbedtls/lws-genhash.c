@@ -258,6 +258,9 @@ lws_genhmac_init(struct lws_genhmac_ctx *ctx, enum lws_genhmac_types type,
 	ctx->type = (uint8_t)type;
 
 	switch (type) {
+	case LWS_GENHMAC_TYPE_SHA1:
+		t = MBEDTLS_MD_SHA1;
+		break;
 	case LWS_GENHMAC_TYPE_SHA256:
 		t = MBEDTLS_MD_SHA256;
 		break;
@@ -275,13 +278,15 @@ lws_genhmac_init(struct lws_genhmac_ctx *ctx, enum lws_genhmac_types type,
 	if (!ctx->hmac)
 		return -1;
 
-#if !defined(LWS_HAVE_mbedtls_md_setup)
-	if (mbedtls_md_init_ctx(&ctx->ctx, ctx->hmac))
-		return -1;
-#else
+#if defined(LWS_HAVE_mbedtls_md_setup) || \
+    (defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000)
 	if (mbedtls_md_setup(&ctx->ctx, ctx->hmac, 1))
 		return -1;
+#else
+	if (mbedtls_md_init_ctx(&ctx->ctx, ctx->hmac))
+		return -1;
 #endif
+
 
 	if (mbedtls_md_hmac_starts(&ctx->ctx, key, key_len)) {
 		mbedtls_md_free(&ctx->ctx);

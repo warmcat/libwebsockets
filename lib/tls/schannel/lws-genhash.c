@@ -129,6 +129,9 @@ lws_genhmac_init(struct lws_genhmac_ctx *ctx, enum lws_genhmac_types type,
 	ctx->u.hHash = NULL;
 
 	switch (ctx->type) {
+	case LWS_GENHMAC_TYPE_SHA1:
+		alg_id = BCRYPT_SHA1_ALGORITHM;
+		break;
 	case LWS_GENHMAC_TYPE_SHA256:
 		alg_id = BCRYPT_SHA256_ALGORITHM;
 		break;
