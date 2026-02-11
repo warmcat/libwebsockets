@@ -415,6 +415,9 @@ lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 		len = inlen;
 	}
 
+	if (len && pem[len - 1] == '\0')
+		len--;
+
 	opem = p = pem;
 	end = p + len;
 
@@ -485,6 +488,9 @@ lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 	n = lws_ptr_diff(q, p);
 	if (n == -1) /* coverity */
 		goto bail;
+
+    lwsl_notice("%s: PEM payload len %d\n", __func__, n);
+    lwsl_hexdump_notice(p, (size_t)n);
 
 	n = lws_b64_decode_string_len((char *)p, n,
 				      (char *)pem, (int)(long long)len);
