@@ -398,7 +398,102 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 
 	/* initialize supported protocols on this vhost */
 
+	/* Pass 1: init plugins first */
+
+	for (n = vh->plugin_protocol_bind;
+	     n < vh->plugin_protocol_bind + vh->plugin_protocol_count; n++) {
+		lwsa->protocol = &vh->protocols[n];
+		if (!vh->protocols[n].name)
+			continue;
+
+		pvo = lws_vhost_protocol_options(vh, vh->protocols[n].name);
+		if (pvo) {
+			/*
+			 * linked list of options specific to
+			 * vh + protocol
+			 */
+			pvo1 = pvo;
+			pvo = pvo1->options;
+
+			while (pvo) {
+				lwsl_vhost_debug(vh, "protocol \"%s\", "
+						     "option \"%s\"",
+						     vh->protocols[n].name,
+						     pvo->name);
+
+				if (!strcmp(pvo->name, "default")) {
+					lwsl_vhost_info(vh, "Setting default "
+							     "protocol to %s",
+							     vh->protocols[n].name);
+					vh->default_protocol_index = (unsigned char)n;
+				}
+				if (!strcmp(pvo->name, "raw")) {
+					lwsl_vhost_info(vh, "Setting raw "
+							     "protocol to %s",
+							     vh->protocols[n].name);
+					vh->raw_protocol_index = (unsigned char)n;
+				}
+				pvo = pvo->next;
+			}
+		} else
+			lwsl_vhost_debug(vh, "not instantiating %s",
+					     vh->protocols[n].name);
+
+#if defined(LWS_WITH_TLS)
+		if (any)
+			*any |= !!vh->tls.ssl_ctx;
+#endif
+
+		pvo = lws_vhost_protocol_options(vh, vh->protocols[n].name);
+
+		/*
+		 * inform all the protocols that they are doing their
+		 * one-time initialization if they want to.
+		 *
+		 * NOTE the fakewsi is garbage, except the key pointers that are
+		 * prepared in case the protocol handler wants to touch them
+		 */
+
+		if (pvo || (vh->options & LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS)
+
+#if !defined(LWS_WITH_PLUGINS)
+				/*
+				 * with plugins, you have to explicitly
+				 * instantiate them per-vhost with pvos.
+				 *
+				 * Without plugins, not setting the vhost pvo
+				 * list at creation enables all the protocols
+				 * by default, for backwards compatibility
+				 */
+				|| !vh->pvo
+#endif
+		) {
+			lwsl_vhost_info(vh, "init %s.%s", vh->name,
+					vh->protocols[n].name);
+			if (vh->protocols[n].callback((struct lws *)lwsa,
+					LWS_CALLBACK_PROTOCOL_INIT, NULL,
+					(void *)(pvo ? pvo->options : NULL),
+					0)) {
+				if (vh->protocol_vh_privs && vh->protocol_vh_privs[n]) {
+					lws_free(vh->protocol_vh_privs[n]);
+					vh->protocol_vh_privs[n] = NULL;
+				}
+				lwsl_vhost_warn(vh, "protocol %s failed init",
+					vh->protocols[n].name);
+
+				// return 1;
+			} else
+				vh->protocol_init |= 1u << n;
+		}
+	}
+
+	/* Pass 2: init non-plugins */
+
 	for (n = 0; n < vh->count_protocols; n++) {
+		if (n >= vh->plugin_protocol_bind &&
+		    n < vh->plugin_protocol_bind + vh->plugin_protocol_count)
+			continue;
+
 		lwsa->protocol = &vh->protocols[n];
 		if (!vh->protocols[n].name)
 			continue;
@@ -858,6 +953,7 @@ lws_create_vhost(struct lws_context *context,
 	(void)f;
 #ifdef LWS_WITH_PLUGINS
 	if (plugin) {
+		vh->plugin_protocol_bind = m;
 		while (plugin) {
 			const lws_plugin_protocol_t *plpr =
 				(const lws_plugin_protocol_t *)plugin->hdr;
@@ -874,6 +970,7 @@ lws_create_vhost(struct lws_context *context,
 					       sizeof(struct lws_protocols));
 					m++;
 					vh->count_protocols++;
+					vh->plugin_protocol_count++;
 				}
 			}
 			plugin = plugin->list;
