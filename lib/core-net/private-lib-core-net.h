@@ -521,6 +521,8 @@ struct lws_vhost {
 	unsigned int socks_proxy_port;
 #endif
 	int count_protocols;
+	int plugin_protocol_count;
+	int plugin_protocol_bind;
 	int ka_time;
 	int ka_probes;
 	int ka_interval;
