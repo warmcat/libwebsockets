@@ -1560,7 +1560,6 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 #if defined(LWS_WITH_PLUGINS)
 		context->plugin_list ||
 #endif
-	    (context->options & LWS_SERVER_OPTION_EXPLICIT_VHOSTS) ||
 	    vh->allocated_vhost_protocols)
 		lws_free((void *)vh->protocols);
 #if defined(LWS_WITH_NETWORK)
