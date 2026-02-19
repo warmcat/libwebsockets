@@ -76,22 +76,6 @@
 	#endif
 #endif
 
-#if defined(LWS_HAVE_PTHREAD_H)
-#include <pthread.h>
-#include <sys/types.h>
-
-typedef pthread_mutex_t lws_mutex_t;
-#define lws_mutex_init(x)	pthread_mutex_init(&(x), NULL)
-#define lws_mutex_destroy(x)	pthread_mutex_destroy(&(x))
-#define lws_mutex_lock(x)	pthread_mutex_lock(&(x))
-#define lws_mutex_unlock(x)	pthread_mutex_unlock(&(x))
-
-#define lws_tid_t		pthread_t
-#define lws_thread_is(x)	pthread_equal(x, pthread_self())
-#define lws_thread_id()		pthread_self()
-
-#endif
-
 #if defined(__sun) && defined(__GNUC__)
 
 #include <arpa/nameser_compat.h>

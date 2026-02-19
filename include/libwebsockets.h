@@ -126,6 +126,19 @@ typedef int suseconds_t;
 #define LWS_WARN_DEPRECATED
 #define LWS_FORMAT(string_index)
 
+#if defined(LWS_HAVE_PTHREAD_H)
+#define lws_mutex_t		pthread_mutex_t
+#define lws_mutex_init(x)	pthread_mutex_init(&(x), NULL)
+#define lws_mutex_destroy(x)	pthread_mutex_destroy(&(x))
+#define lws_mutex_lock(x)	pthread_mutex_lock(&(x))
+#define lws_mutex_unlock(x)	pthread_mutex_unlock(&(x))
+
+#define lws_tid_t		pthread_t
+#define lws_thread_is(x)	pthread_equal(x, pthread_self())
+#define lws_thread_id()		pthread_self()
+
+#endif
+
 #if !defined(LWS_EXTERN) && defined(LWS_BUILDING_SHARED)
 #ifdef LWS_DLL
 #ifdef LWS_INTERNAL
@@ -160,6 +173,34 @@ typedef int suseconds_t;
 
 #else /* NOT WIN32 */
 #include <unistd.h>
+
+#if defined (LWS_PLAT_FREERTOS)
+typedef SemaphoreHandle_t lws_mutex_t;
+#define lws_mutex_init(x)	x = xSemaphoreCreateMutex()
+#define lws_mutex_destroy(x)	vSemaphoreDelete(x)
+#define lws_mutex_lock(x)	(!xSemaphoreTake(x, portMAX_DELAY)) /*0 = OK */
+#define lws_mutex_unlock(x)	xSemaphoreGive(x)
+
+#define lws_tid_t		TaskHandle_t
+#define lws_thread_is(x)	(x == xTaskGetCurrentTaskHandle())
+#define lws_thread_id()		xTaskGetCurrentTaskHandle()
+#else
+
+#if defined(LWS_HAVE_PTHREAD_H)
+#include <pthread.h>
+#include <sys/types.h>
+
+typedef pthread_mutex_t lws_mutex_t;
+#define lws_mutex_init(x)	pthread_mutex_init(&(x), NULL)
+#define lws_mutex_destroy(x)	pthread_mutex_destroy(&(x))
+#define lws_mutex_lock(x)	pthread_mutex_lock(&(x))
+#define lws_mutex_unlock(x)	pthread_mutex_unlock(&(x))
+
+#define lws_tid_t		pthread_t
+#define lws_thread_is(x)	pthread_equal(x, pthread_self())
+#define lws_thread_id()		pthread_self()
+#endif
+#endif /* freertos */
 
 #define LWS_POSIX_LENGTH_CAST(x) (x)
 
