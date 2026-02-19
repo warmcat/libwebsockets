@@ -78,19 +78,6 @@
 #endif
 #endif
 
-#if defined(LWS_HAVE_PTHREAD_H)
-#define lws_mutex_t		pthread_mutex_t
-#define lws_mutex_init(x)	pthread_mutex_init(&(x), NULL)
-#define lws_mutex_destroy(x)	pthread_mutex_destroy(&(x))
-#define lws_mutex_lock(x)	pthread_mutex_lock(&(x))
-#define lws_mutex_unlock(x)	pthread_mutex_unlock(&(x))
-
-#define lws_tid_t		pthread_t
-#define lws_thread_is(x)	pthread_equal(x, pthread_self())
-#define lws_thread_id()		pthread_self()
-
-#endif
-
  #if !defined(LWS_HAVE_ATOLL)
   #if defined(LWS_HAVE__ATOI64)
    #define atoll _atoi64
