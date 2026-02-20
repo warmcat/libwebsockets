@@ -68,7 +68,7 @@ lcs_process_brotli(lws_comp_ctx_t *ctx, const void *in, size_t *ilen_iused,
 		}
 
 		n = BROTLI_OPERATION_PROCESS;
-		if (!ctx->buflist_comp && ctx->final_on_input_side)
+		if (ctx->final_on_input_side && !ctx->buflist_comp && !a_in)
 			n = BROTLI_OPERATION_FINISH;
 
 		if (BrotliEncoderCompressStream(ctx->u.br_en, n, &a_in, &n_in,
