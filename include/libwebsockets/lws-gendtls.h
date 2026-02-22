@@ -61,6 +61,12 @@ struct lws_gendtls_ctx {
 	mbedtls_ssl_cookie_ctx			cookie_ctx;
 	struct lws_buflist			*rx_head;
 	struct lws_buflist			*tx_head;
+	lws_usec_t				timer_set_us;
+	uint32_t				timer_int_ms;
+	uint32_t				timer_fin_ms;
+#if defined(MBEDTLS_SSL_DTLS_SRTP)
+	mbedtls_ssl_srtp_profile		srtp_profiles[4];
+#endif
 #elif defined(LWS_WITH_GNUTLS)
 	gnutls_session_t			session;
 	gnutls_certificate_credentials_t	cred;
