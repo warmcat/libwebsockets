@@ -26,7 +26,10 @@
 
 #include "../core/private-lib-core.h"
 #include "../core-net/private-lib-core-net.h"
+#include <arpa/inet.h>
+#include <errno.h>
 
+// #define DHT_VERBOSE
 #define lwsl_dht_err			lwsl_err
 #define lwsl_dht_warn			lwsl_warn
 #define lwsl_dht_rx_warn		lwsl_notice
@@ -66,6 +69,7 @@ typedef enum {
 	DHT_GET_PEERS,
 	DHT_ANNOUNCE_PEER,
 	DHT_PEER_ANNOUNCED,
+	DHT_DATA,
 } lws_dht_message_type_t;
 
 #define WANT4 1
@@ -158,6 +162,11 @@ struct storage {
 	struct storage          *next;
 };
 
+struct lws_dht_verb_list {
+	lws_dll2_t		list;
+	struct lws_dht_verb	v;
+};
+
 struct lws_dht_ctx {
 	struct lws_vhost	*vhost;
 	struct lws		*wsi_v4;
@@ -213,6 +222,9 @@ struct lws_dht_ctx {
 	lws_dht_blacklist_cb_t	*blacklist_cb;
 	lws_dht_hash_cb_t	*hash_cb;
 	lws_dht_capture_announce_cb_t *capture_announce_cb;
+
+	lws_dll2_owner_t	ts_owner;
+	lws_dll2_owner_t	verb_owner;
 };
 
 #define CHECK(offset, delta, size)								\
@@ -222,6 +234,25 @@ struct lws_dht_ctx {
 #define INC(offset, delta, size)								\
 	do { CHECK(offset, delta, size); 							\
 	     offset = (size_t)(offset) + (size_t)(delta); } while(0)
+
+static void *
+dht_memmem(const void *haystack, size_t haystacklen,
+	   const void *needle, size_t needlelen)
+{
+	const uint8_t *h = (const uint8_t *)haystack;
+	const uint8_t *n = (const uint8_t *)needle;
+	size_t i;
+
+	if (needlelen > haystacklen)
+		return NULL;
+
+	for (i = 0; i <= haystacklen - needlelen; i++) {
+		if (memcmp(h + i, n, needlelen) == 0)
+			return (void *)(h + i);
+	}
+
+	return NULL;
+}
 
 #define COPY(buf, offset, src, delta, size)							\
 	do { CHECK(offset, delta, size); 							\
@@ -319,7 +350,7 @@ lws_dht_hash_destroy(lws_dht_hash_t **p)
 	*p = NULL;
 }
 
-static int
+int
 lws_dht_hash_is_zero(const lws_dht_hash_t *h)
 {
 	int i;
@@ -655,7 +686,7 @@ make_tid(uint8_t *tid_return, const char *prefix, unsigned short seqno)
 	memcpy(tid_return + 2, &seqno, 2);
 }
 
-static int
+int
 tid_match(const uint8_t *tid, const char *prefix,
 		unsigned short *seqno_return)
 {
@@ -693,7 +724,7 @@ dht_send(struct lws_dht_ctx *ctx, const void *buf, size_t len,
 		const struct sockaddr *sa, size_t salen)
 {
 	struct lws *wsi;
-	uint8_t pkt[1024 + LWS_PRE];
+#if defined(HDT_VERBOSE)
 	char buf_ip[64];
 
 	if (sa->sa_family == AF_INET) {
@@ -702,8 +733,9 @@ dht_send(struct lws_dht_ctx *ctx, const void *buf, size_t len,
 		inet_ntop(AF_INET, &s->sin_addr, buf_ip, sizeof(buf_ip));
 		lwsl_dht_info("%s: sending to %s:%d\n", __func__, buf_ip, ntohs(s->sin_port));
 	}
+#endif
 
-	if (salen == 0)
+	if (!salen)
 		abort();
 
 	if (node_blacklisted(ctx, sa, salen)) {
@@ -725,17 +757,34 @@ dht_send(struct lws_dht_ctx *ctx, const void *buf, size_t len,
 		return -1;
 	}
 
-	if (len > 1024)
+	if (len > 1500)
 		return -1;
 
-	memcpy(pkt + LWS_PRE, buf, len);
+#if defined(HDT_VERBOSE)
+	{
+		size_t k;
+		fprintf(stderr, "DHT_SEND: ");
+		for (k=0; k<len; k++) fprintf(stderr, "%02X ", ((uint8_t *)buf)[k]);
+		fprintf(stderr, "\n");
+	}
+#endif
+
+	int n;
 
 #ifdef _WIN32
-	return (int)sendto(wsi->desc.sockfd, pkt + LWS_PRE, (int)len, 0, sa, (socklen_t)salen);
+	n = (int)sendto(wsi->desc.sockfd, (const char *)buf, (int)len, 0, sa, (socklen_t)salen);
 #else
-	return (int)sendto(wsi->desc.sockfd, pkt + LWS_PRE, len, 0, sa, (socklen_t)salen);
+	n = (int)sendto(wsi->desc.sockfd, (const void *)buf, len, 0, sa, (socklen_t)salen);
 #endif
+
+	if (n < 0) {
+		lwsl_dht_warn("%s: sendto failed: errno %d\n", __func__, errno);
+	}
+	return n;
 }
+
+/* ... */
+
 
 static int
 send_ping(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
@@ -779,7 +828,7 @@ fail:
 	return -1;
 }
 
-static int
+int
 send_pong(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
 		const uint8_t *tid, size_t tid_len)
 {
@@ -787,9 +836,25 @@ send_pong(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
 	size_t i = 0;
 	int rc;
 
-	rc = lws_snprintf(buf + i, sizeof(buf) - i, "d1:rd2:id20:");
+	rc = lws_snprintf(buf + i, sizeof(buf) - i, "d1:rd2:id%d:", ctx->legacy ? 20 : (2 + ctx->myid->len));
 	INC(i, rc, sizeof(buf));
-	COPY(buf, i, ctx->myid, 20, sizeof(buf));
+
+	if (ctx->legacy) {
+		if (ctx->myid->len >= 20)
+			COPY(buf, i, ctx->myid->id, 20, sizeof(buf));
+		else {
+			memset(buf + i, 0, 20);
+			memcpy(buf + i, ctx->myid->id, ctx->myid->len);
+			i += 20;
+		}
+	} else {
+		buf[i++] = (char)ctx->myid->type;
+		buf[i++] = (char)ctx->myid->len;
+		CHECK(i, ctx->myid->len, sizeof(buf));
+		memcpy(buf + i, ctx->myid->id, ctx->myid->len);
+		i += ctx->myid->len;
+	}
+
 	rc = lws_snprintf(buf + i, sizeof(buf) - i, "e1:t%d:", (int)tid_len);
 	INC(i, rc, sizeof(buf));
 	COPY(buf, i, tid, tid_len, sizeof(buf));
@@ -797,6 +862,7 @@ send_pong(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
 	ADD_V(buf, i, ctx, sizeof(buf));
 	rc = lws_snprintf(buf + i, sizeof(buf) - i, "1:y1:re");
 	INC(i, rc, sizeof(buf));
+
 	return dht_send(ctx, buf, i, sa, salen);
 
 fail:
@@ -851,7 +917,7 @@ flush_search_node(struct search_node *n, struct search *sr)
  * The internal blacklist is an LRU cache of nodes that have sent
  * incorrect messages.
  */
-static void
+void
 blacklist_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, const struct sockaddr *sa, size_t salen)
 {
 	int i;
@@ -878,8 +944,14 @@ blacklist_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, const struct s
 		}
 	}
 	/* And make sure we don't hear from it again. */
-	memcpy(&ctx->blacklist[ctx->next_blacklisted], sa, (size_t)salen);
-	ctx->next_blacklisted = (ctx->next_blacklisted + 1) % DHT_MAX_BLACKLISTED;
+	if (ctx->next_blacklisted >= DHT_MAX_BLACKLISTED)
+		ctx->next_blacklisted = 0;
+
+	if (salen > sizeof(ctx->blacklist[0]))
+		salen = sizeof(ctx->blacklist[0]);
+
+	memcpy(&ctx->blacklist[ctx->next_blacklisted], sa, salen);
+	ctx->next_blacklisted++;
 }
 
 /* Split a bucket into two equal parts. */
@@ -933,7 +1005,7 @@ split_bucket(struct lws_dht_ctx *ctx, struct bucket *b)
  * We just learnt about a node, not necessarily a new one.  Confirm is 1 if
  * the node sent a message, 2 if it sent us a reply.
  */
-static struct node *
+struct node *
 new_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, const struct sockaddr *sa, size_t salen,
 		int confirm)
 {
@@ -1136,7 +1208,7 @@ expire_buckets(struct lws_dht_ctx *ctx, struct bucket *b)
  * transaction id of the protocol packets).
  */
 
-static struct search *
+struct search *
 find_search(struct lws_dht_ctx *ctx, unsigned short tid, int af)
 {
 	struct search *sr = ctx->searches;
@@ -1490,7 +1562,7 @@ done:
 	if (callback)
 		(*callback)(closure, sr->af == AF_INET ?
 				LWS_DHT_EVENT_SEARCH_DONE : LWS_DHT_EVENT_SEARCH_DONE6,
-				sr->id, NULL, 0);
+				sr->id, NULL, 0, NULL, 0);
 
 	sr->step_time = ctx->now.tv_sec;
 }
@@ -1703,13 +1775,13 @@ lws_dht_search(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, int port, int 
 					memcpy(buf + 4, &swapped, 2);
 					if (callback)
 						(*callback)(closure, LWS_DHT_EVENT_VALUES, id,
-								(void*)buf, 6);
+								(void*)buf, 6, NULL, 0);
 				} else if (st->peers[i].len == 16) {
 					memcpy(buf, st->peers[i].ip, 16);
 					memcpy(buf + 16, &swapped, 2);
 					if (callback)
 						(*callback)(closure, LWS_DHT_EVENT_VALUES6, id,
-								(void*)buf, 18);
+								(void*)buf, 18, NULL, 0);
 				}
 			}
 		}
@@ -1881,7 +1953,7 @@ make_token(struct lws_dht_ctx *ctx, const struct sockaddr *sa, int old, uint8_t 
 			old ? ctx->oldsecret : ctx->secret, sizeof(ctx->secret),
 			ip, iplen, (uint8_t*)&port, 2);
 }
-static int
+int
 token_match(struct lws_dht_ctx *ctx, const uint8_t *token, size_t token_len,
 		const struct sockaddr *sa)
 {
@@ -2384,6 +2456,236 @@ buffer_closest_nodes(struct lws_dht_ctx *ctx, struct node **nodes, int numnodes,
 	return numnodes;
 }
 
+typedef struct lws_dht_ts {
+	lws_dll2_t			list;
+	struct lws_transport_sequencer	*ts;
+	struct sockaddr_storage		sa;
+	size_t				salen;
+	struct lws_dht_ctx		*ctx;
+} lws_dht_ts_t;
+
+static int
+dht_tx_chunk(struct lws_transport_sequencer *ts, uint64_t offset,
+	     const uint8_t *buf, size_t len)
+{
+	lws_dht_ts_t *dts = (lws_dht_ts_t *)lws_transport_sequencer_get_info(ts)->user_data;
+	char pkt[2048];
+	size_t i = 0;
+	int rc;
+
+	/* d1:ad4:data%d:<payload>6:offseti%llue3:leni%llue2:id%d:<id>e1:q4:data1:t2:da1:y1:qe */
+
+	rc = lws_snprintf(pkt + i, sizeof(pkt) - i, "d1:ad4:data%d:", (int)len);
+	INC(i, rc, sizeof(pkt));
+	COPY(pkt, i, buf, len, sizeof(pkt));
+
+	/* Correct alphabetical order: data (done), id, len, offset */
+	rc = lws_snprintf(pkt + i, sizeof(pkt) - i, "2:id%d:", dts->ctx->legacy ? 20 : (2 + dts->ctx->myid->len));
+	INC(i, rc, sizeof(pkt));
+
+	if (dts->ctx->legacy) {
+		if (dts->ctx->myid->len >= 20)
+			COPY(pkt, i, dts->ctx->myid->id, 20, sizeof(pkt));
+		else {
+			memset(pkt + i, 0, 20);
+			memcpy(pkt + i, dts->ctx->myid->id, dts->ctx->myid->len);
+			i += 20;
+		}
+	} else {
+		pkt[i++] = (char)dts->ctx->myid->type;
+		pkt[i++] = (char)dts->ctx->myid->len;
+		CHECK(i, dts->ctx->myid->len, sizeof(pkt));
+		memcpy(pkt + i, dts->ctx->myid->id, dts->ctx->myid->len);
+		i += dts->ctx->myid->len;
+	}
+
+	rc = lws_snprintf(pkt + i, sizeof(pkt) - i, "3:leni%llue6:offseti%llue",
+			 (unsigned long long)len, (unsigned long long)offset);
+	INC(i, rc, sizeof(pkt));
+
+	rc = lws_snprintf(pkt + i, sizeof(pkt) - i, "e1:q4:data1:t4:sqnc1:y1:qe");
+	INC(i, rc, sizeof(pkt));
+
+	return dht_send(dts->ctx, pkt, i, (struct sockaddr *)&dts->sa, dts->salen);
+
+fail:
+	return -1;
+}
+
+static int
+dht_tx_ack(struct lws_transport_sequencer *ts, uint64_t offset, size_t len)
+{
+	lws_dht_ts_t *dts = (lws_dht_ts_t *)lws_transport_sequencer_get_info(ts)->user_data;
+	const lws_transport_sequencer_stats_t *stats = lws_transport_sequencer_get_stats(ts);
+	char pkt[512];
+	size_t i = 0;
+	int rc;
+
+	/* d1:rd2:id%d:<id>3:leni%llue6:offseti%lluee1:t4:sqnc1:y1:re */
+
+	rc = lws_snprintf(pkt + i, sizeof(pkt) - i, "d1:rd2:id%d:", dts->ctx->legacy ? 20 : (2 + dts->ctx->myid->len));
+	INC(i, rc, sizeof(pkt));
+
+	if (dts->ctx->legacy) {
+		if (dts->ctx->myid->len >= 20)
+			COPY(pkt, i, dts->ctx->myid->id, 20, sizeof(pkt));
+		else {
+			memset(pkt + i, 0, 20);
+			memcpy(pkt + i, dts->ctx->myid->id, dts->ctx->myid->len);
+			i += 20;
+		}
+	} else {
+		pkt[i++] = (char)dts->ctx->myid->type;
+		pkt[i++] = (char)dts->ctx->myid->len;
+		CHECK(i, dts->ctx->myid->len, sizeof(pkt));
+		memcpy(pkt + i, dts->ctx->myid->id, dts->ctx->myid->len);
+		i += dts->ctx->myid->len;
+	}
+
+	/* Correct alphabetical order: id, len, offset, sack.  Need an extra 'e' to close rd dict. */
+	rc = lws_snprintf(pkt + i, sizeof(pkt) - i, "3:leni0e6:offseti%llue",
+			 (unsigned long long)stats->ack_offset);
+	INC(i, rc, sizeof(pkt));
+
+	{
+		lws_transport_sequencer_sack_block_t blocks[4];
+		size_t num_blocks, j;
+
+		num_blocks = lws_transport_sequencer_get_sack_blocks(ts, blocks, 4);
+		if (num_blocks) {
+			rc = lws_snprintf(pkt + i, sizeof(pkt) - i, "4:sackl");
+			INC(i, rc, sizeof(pkt));
+			for (j = 0; j < num_blocks; j++) {
+				/* d1:li...e1:oi...ee */
+				rc = lws_snprintf(pkt + i, sizeof(pkt) - i, "d1:li%llue1:oi%lluee",
+						  (unsigned long long)blocks[j].len,
+						  (unsigned long long)blocks[j].start);
+				INC(i, rc, sizeof(pkt));
+			}
+			rc = lws_snprintf(pkt + i, sizeof(pkt) - i, "e");
+			INC(i, rc, sizeof(pkt));
+		}
+	}
+
+	rc = lws_snprintf(pkt + i, sizeof(pkt) - i, "e1:t4:sqnc1:y1:re");
+	INC(i, rc, sizeof(pkt));
+
+	return dht_send(dts->ctx, pkt, i, (struct sockaddr *)&dts->sa, dts->salen);
+
+fail:
+	return -1;
+}
+
+static int
+dht_on_rx_data(struct lws_transport_sequencer *ts, uint64_t offset,
+	       const uint8_t *buf, size_t len)
+{
+	lws_dht_ts_t *dts = (lws_dht_ts_t *)lws_transport_sequencer_get_info(ts)->user_data;
+	struct lws_dht_msg msg;
+
+	if (!lws_dht_msg_parse((const char *)buf, len, &msg)) {
+		lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&dts->ctx->verb_owner)) {
+			struct lws_dht_verb_list *vl = lws_container_of(d, struct lws_dht_verb_list, list);
+			if (!strcmp(vl->v.name, msg.verb)) {
+				return vl->v.handler(dts->ctx, &msg, (struct sockaddr *)&dts->sa, dts->salen);
+			}
+		} lws_end_foreach_dll(d);
+	}
+
+	if (dts->ctx->cb)
+		dts->ctx->cb(dts->ctx->closure, LWS_DHT_EVENT_DATA,
+			     NULL, buf, len, (struct sockaddr *)&dts->sa, dts->salen);
+
+	return 0;
+}
+
+static void
+dht_on_state_change(struct lws_transport_sequencer *ts, int state, int status)
+{
+	lws_dht_ts_t *dts = (lws_dht_ts_t *)lws_transport_sequencer_get_info(ts)->user_data;
+
+	if (!dts->ctx->cb)
+		return;
+
+	dts->ctx->cb(dts->ctx->closure,
+		     state == 0 ? LWS_DHT_EVENT_WRITE_COMPLETED :
+				  LWS_DHT_EVENT_WRITE_FAILED,
+		     NULL, (void *)(intptr_t)status, 0,
+		     (struct sockaddr *)&dts->sa, dts->salen);
+}
+
+static const lws_transport_sequencer_ops_t dht_seq_ops = {
+	.name		= "dht-seq",
+	.tx_chunk	= dht_tx_chunk,
+	.tx_ack		= dht_tx_ack,
+	.on_rx_data	= dht_on_rx_data,
+	.on_state_change = dht_on_state_change,
+};
+
+static const lws_retry_bo_t dht_retry_policy = {
+	.retry_ms_table		= (uint32_t[]){ 25, 50, 100 },
+	.retry_ms_table_count	= 3,
+	.conceal_count		= 10, /* Increased from 5 to 10 */
+};
+
+LWS_VISIBLE struct lws_transport_sequencer *
+lws_dht_get_ts(struct lws_dht_ctx *ctx, const struct sockaddr *dest, size_t salen, int create)
+{
+	lws_dll2_t *d = lws_dll2_get_head(&ctx->ts_owner);
+	while (d) {
+		lws_dht_ts_t *dts = lws_container_of(d, lws_dht_ts_t, list);
+		int match = 0;
+
+		if (dts->sa.ss_family == dest->sa_family) {
+			if (dest->sa_family == AF_INET) {
+				struct sockaddr_in *sin1 = (struct sockaddr_in *)&dts->sa;
+				struct sockaddr_in *sin2 = (struct sockaddr_in *)dest;
+				if (sin1->sin_addr.s_addr == sin2->sin_addr.s_addr &&
+				    sin1->sin_port == sin2->sin_port)
+					match = 1;
+			} else if (dest->sa_family == AF_INET6) {
+				struct sockaddr_in6 *sin1 = (struct sockaddr_in6 *)&dts->sa;
+				struct sockaddr_in6 *sin2 = (struct sockaddr_in6 *)dest;
+				if (memcmp(&sin1->sin6_addr, &sin2->sin6_addr, 16) == 0 &&
+				    sin1->sin6_port == sin2->sin6_port)
+					match = 1;
+			}
+		}
+
+		if (match)
+			return dts->ts;
+		d = d->next;
+	}
+
+	if (!create)
+		return NULL;
+
+	lws_dht_ts_t *dts = lws_zalloc(sizeof(*dts), "dht ts");
+	if (!dts)
+		return NULL;
+
+	lws_transport_sequencer_info_t tsi = {
+		.cx		= ctx->vhost->context,
+		.ops		= &dht_seq_ops,
+		.retry_policy	= &dht_retry_policy,
+		.user_data	= dts,
+		.window_size	= 65536, /* 64KB - safe for broadside uploader */
+	};
+
+	dts->ctx = ctx;
+	dts->salen = salen;
+	memcpy(&dts->sa, dest, salen);
+	dts->ts = lws_transport_sequencer_create(&tsi);
+	if (!dts->ts) {
+		lws_free(dts);
+		return NULL;
+	}
+
+	lws_dll2_add_tail(&dts->list, &ctx->ts_owner);
+
+	return dts->ts;
+}
+
 struct lws_dht_mparams {
 	uint8_t			tid[16];
 	uint8_t			nodes[256];
@@ -2406,6 +2708,16 @@ struct lws_dht_mparams {
 	uint8_t			sender_ip[16];
 	int			sender_ip_len;
 	unsigned short		sender_port;
+
+	const uint8_t		*data;
+	size_t			data_len;
+
+	uint64_t		offset;
+	uint64_t		len;
+	int			status;
+
+	lws_transport_sequencer_sack_block_t sack[4];
+	uint8_t			num_sack;
 };
 
 static int
@@ -2556,7 +2868,7 @@ fail:
 	return -1;
 }
 
-static int
+int
 send_closest_nodes(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
 		   struct lws_dht_mparams *mp, const lws_dht_hash_t *id,
 		   int af, struct storage *st)
@@ -2600,37 +2912,21 @@ send_closest_nodes(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t sa
 				nodes6, numnodes6, af, st);
 }
 
-#ifdef HAVE_MEMMEM
+static unsigned long long
+dht_strtoull(const char *p, size_t max_len, char **endptr);
 
-static void *
-dht_memmem(const void *haystack, size_t haystacklen,
-		const void *needle, size_t needlelen)
-{
-	return memmem(haystack, haystacklen, needle, needlelen);
-}
+static const uint8_t *
+dht_bencode_get_string(const uint8_t *dict, const uint8_t *end, const char *key, size_t *len_ret);
 
-#else
+static const uint8_t *
+dht_bencode_find_key(const uint8_t *dict, const uint8_t *end, const char *key, size_t *len_ret);
 
-static void *
-dht_memmem(const void *haystack, size_t haystacklen,
-		const void *needle, size_t needlelen)
-{
-	const char *h = haystack;
-	const char *n = needle;
-	size_t i;
+static unsigned long long
+dht_bencode_get_int(const uint8_t *dict, const uint8_t *end, const char *key);
 
-	/* size_t is unsigned */
-	if (needlelen > haystacklen)
-		return NULL;
-
-	for (i = 0; i <= haystacklen - needlelen; i++) {
-		if (memcmp(h + i, n, needlelen) == 0)
-			return (void*)(h + i);
-	}
-	return NULL;
-}
-
-#endif
+static void
+parse_hash(const uint8_t *dict, const uint8_t *end, const char *key,
+	   lws_dht_hash_t **h_ret);
 
 static unsigned long long
 dht_strtoull(const char *p, size_t max_len, char **endptr)
@@ -2650,48 +2946,33 @@ dht_strtoull(const char *p, size_t max_len, char **endptr)
 }
 
 static void
-parse_hash(const uint8_t *buf, size_t buflen, const char *key, size_t keylen,
-		lws_dht_hash_t **h_ret)
+parse_hash(const uint8_t *dict, const uint8_t *end, const char *key,
+	   lws_dht_hash_t **h_ret)
 {
-	const void *p = dht_memmem(buf, buflen, key, keylen);
-	if (p) {
-		char *q;
-		size_t l = (size_t)dht_strtoull((const char *)p + keylen, buflen - (size_t)((const char *)p + keylen - (const char *)buf), &q);
+	size_t l;
+	const uint8_t *data = dht_bencode_get_string(dict, end, key, &l);
 
-		if (q && *q == ':' && l > 0 && l < 256) {
-			const uint8_t *data = (const uint8_t *)q + 1;
-			if (data + l <= buf + buflen) {
-				int type = 0, len = 0;
-				const uint8_t *hash_data = NULL;
+	*h_ret = NULL;
+	if (data) {
+		int type = 0, len = 0;
+		const uint8_t *hash_data = NULL;
 
-				if (l == 20) {
-					type = LWS_DHT_HASH_TYPE_SHA1;
-					len = 20;
-					hash_data = data;
-				} else if (l > 2 && data[1] == l - 2) {
-					type = data[0];
-					len = data[1];
-					hash_data = data + 2;
-				}
-
-				if (hash_data && lws_dht_hash_validate(type, len)) {
-					*h_ret = lws_dht_hash_create(type, len, hash_data);
-				} else {
-					lwsl_notice("%s: rejecting invalid/unsupported hash type %d len %d\n",
-							__func__, type, len);
-					*h_ret = NULL;
-				}
-			}
+		if (l == 20) {
+			type = LWS_DHT_HASH_TYPE_SHA1;
+			len = 20;
+			hash_data = data;
+		} else if (l > 2 && data[1] == l - 2) {
+			type = data[0];
+			len = data[1];
+			hash_data = data + 2;
 		}
-	}
-	if (!*h_ret) {
-		/*
-		 * Create empty/zero hash? Or leave NULL?
-		 * Existing code did memset(0).
-		 * We can create a dummy 20-byte zero hash?
-		 * Better to return NULL and handle it.
-		 */
-		*h_ret = NULL; // already NULL from caller
+
+		if (hash_data && lws_dht_hash_validate(type, len)) {
+			*h_ret = lws_dht_hash_create(type, len, hash_data);
+		} else {
+			lwsl_notice("%s: rejecting invalid/unsupported hash type %d len %d\n",
+					__func__, type, len);
+		}
 	}
 }
 
@@ -2722,62 +3003,196 @@ fail:
 
 
 static int
+dht_bencode_skip(const uint8_t **pp, const uint8_t *end)
+{
+	const uint8_t *p = *pp;
+	char *q;
+
+	if (p >= end)
+		return -1;
+
+	switch (*p) {
+	case 'd':
+		p++;
+		while (p < end && *p != 'e') {
+			if (dht_bencode_skip(&p, end)) /* key */
+				return -1;
+			if (dht_bencode_skip(&p, end)) /* value */
+				return -1;
+		}
+		if (p >= end || *p != 'e')
+			return -1;
+		p++;
+		break;
+	case 'l':
+		p++;
+		while (p < end && *p != 'e') {
+			if (dht_bencode_skip(&p, end))
+				return -1;
+		}
+		if (p >= end || *p != 'e')
+			return -1;
+		p++;
+		break;
+	case 'i':
+		p++;
+		while (p < end && *p != 'e')
+			p++;
+		if (p >= end || *p != 'e')
+			return -1;
+		p++;
+		break;
+	default: /* string N:data */
+		if (*p < '0' || *p > '9')
+			return -1;
+		{
+			unsigned long long l = dht_strtoull((const char *)p, (size_t)(end - p), &q);
+			if (!q || *q != ':')
+				return -1;
+			p = (uint8_t *)q + 1;
+			if (p + l > end)
+				return -1;
+			p += (size_t)l;
+		}
+		break;
+	}
+	*pp = p;
+	return 0;
+}
+
+static const uint8_t *
+dht_bencode_find_key(const uint8_t *buf, const uint8_t *end, const char *key, size_t *vlen)
+{
+	const uint8_t *p = buf;
+	size_t klen = strlen(key);
+	char *q;
+
+	if (p >= end || *p != 'd')
+		return NULL;
+	p++;
+
+	while (p < end && *p != 'e') {
+		unsigned long long l = dht_strtoull((const char *)p, (size_t)(end - p), &q);
+		if (!q || *q != ':')
+			return NULL;
+		p = (uint8_t *)q + 1;
+		if (p + l > end)
+			return NULL;
+
+		if ((size_t)l == klen && !memcmp(p, key, klen)) {
+			const uint8_t *vstart = p + (size_t)l;
+			const uint8_t *vend = vstart;
+
+			if (dht_bencode_skip(&vend, end))
+				return NULL;
+
+			if (vlen)
+				*vlen = (size_t)(vend - vstart);
+			return vstart;
+		}
+
+		p += (size_t)l;
+		if (dht_bencode_skip(&p, end))
+			return NULL;
+	}
+
+	return NULL;
+}
+
+static const uint8_t *
+dht_bencode_get_string(const uint8_t *dict, const uint8_t *end, const char *key, size_t *len_ret)
+{
+	size_t vlen;
+	const uint8_t *p = dht_bencode_find_key(dict, end, key, &vlen);
+	char *q;
+
+	if (!p)
+		return NULL;
+
+	*len_ret = (size_t)dht_strtoull((const char *)p, vlen, &q);
+	if (!q || *q != ':')
+		return NULL;
+
+	if ((const uint8_t *)q + 1 + *len_ret > end)
+		return NULL;
+
+	return (const uint8_t *)q + 1;
+}
+
+static unsigned long long
+dht_bencode_get_int(const uint8_t *dict, const uint8_t *end, const char *key)
+{
+	size_t vlen;
+	const uint8_t *p = dht_bencode_find_key(dict, end, key, &vlen);
+	char *q;
+
+	if (!p || *p != 'i')
+		return 0;
+
+	return dht_strtoull((const char *)p + 1, vlen - 1, &q);
+}
+
+int
 parse_message(const uint8_t *buf, size_t buflen, struct lws_dht_mparams *mp)
 {
-	const uint8_t *p;
+#define CHECK_BUF(p, l) \
+	do { if ((const uint8_t *)(p) + (l) > end) goto fail; } while(0)
+	const uint8_t *p, *end = buf + buflen, *meta = NULL, *meta_end = NULL;
+	size_t l;
+	int message = -1;
+	const uint8_t *q_ptr;
 
-#define CHECK_BUF(ptr, len)                                                 \
-	if (((const uint8_t*)(ptr)) + (len) > (buf) + (buflen)) { \
-		lwsl_dht_rx_warn("Accessing %d at %d overflows buffer %d\n", \
-				(int)(len), \
-				(int)lws_ptr_diff_size_t(((const uint8_t*)(ptr)), buf), \
-				(int)(buflen)); \
-		goto overflow; \
-	}
+	memset(mp, 0, sizeof(*mp));
+	mp->tid_len = sizeof(mp->tid);
+	mp->token_len = sizeof(mp->token);
+	mp->nodes_len = sizeof(mp->nodes);
+	mp->nodes6_len = sizeof(mp->nodes6);
+	mp->values_len = sizeof(mp->values);
+	mp->values6_len = sizeof(mp->values6);
+	mp->want = -1;
 
-	p = dht_memmem(buf, buflen, "1:t", 3);
-	if (p) {
-		size_t l;
-		char *q;
+	if (buflen < 2 || buf[0] != 'd')
+		return -1;
 
-		l = (size_t)dht_strtoull((char*)p + 3,
-			buflen - (size_t)((const char *)p + 3 - (const char *)buf), &q);
-		if (q && (uint8_t *)q < buf + buflen && *q == ':' && l > 0 && l < mp->tid_len) {
-			CHECK_BUF(q + 1, l);
-			memcpy(mp->tid, q + 1, l);
-			mp->tid_len = l;
-		} else
-			mp->tid_len = 0;
-	}
+	p = dht_bencode_get_string(buf, end, "t", &l);
+	if (p && l > 0 && l < sizeof(mp->tid)) {
+		memcpy(mp->tid, p, l);
+		mp->tid_len = l;
+	} else
+		mp->tid_len = 0;
 
-	mp->id = NULL;
-	mp->info_hash = NULL;
-	mp->target = NULL;
+	p = dht_bencode_get_string(buf, end, "y", &l);
+	if (!p || l != 1)
+		return -1;
 
-	parse_hash(buf, buflen, "2:id", 4, &mp->id);
-	parse_hash(buf, buflen, "9:info_hash", 11, &mp->info_hash);
-	parse_hash(buf, buflen, "6:target", 8, &mp->target);
+	switch (*p) {
+	case 'r':
+		message = DHT_REPLY;
+		meta = dht_bencode_find_key(buf, end, "r", &l);
+		break;
+	case 'q':
+		q_ptr = dht_bencode_get_string(buf, end, "q", &l);
+		if (!q_ptr)
+			return -1;
+		if (l == 4 && !memcmp(q_ptr, "ping", 4))
+			message = DHT_PING;
+		else if (l == 9 && !memcmp(q_ptr, "find_node", 9))
+			message = DHT_FIND_NODE;
+		else if (l == 9 && !memcmp(q_ptr, "get_peers", 9))
+			message = DHT_GET_PEERS;
+		else if (l == 13 && !memcmp(q_ptr, "announce_peer", 13))
+			message = DHT_ANNOUNCE_PEER;
+		else if (l == 4 && !memcmp(q_ptr, "data", 4))
+			message = DHT_DATA;
+		else
+			return -1;
 
-	p = dht_memmem(buf, buflen, "12:implied_porti1e", 18);
-	if (p)
-	{
-		// implied port
-		mp->port = 1;
-	}
-	else {
-		p = dht_memmem(buf, buflen, "porti", 5);
-		if (p) {
-			size_t l;
-			char *q;
-
-			l = (size_t)dht_strtoull((char*)p + 5,
-				buflen - (size_t)((const char *)p + 5 - (const char *)buf), &q);
-			if (q && (uint8_t *)q < buf + buflen && *q == 'e' && l > 0 && l < 0x10000)
-				mp->port = (unsigned short)l;
-			else
-				mp->port = 0;
-		} else
-			mp->port = 0;
+		meta = dht_bencode_find_key(buf, end, "a", &l);
+		break;
+	case 'e':
+		return DHT_ERROR;
+	default:
+		return -1;
 	}
 
 	p = dht_memmem(buf, buflen, "5:token", 7);
@@ -2793,117 +3208,116 @@ parse_message(const uint8_t *buf, size_t buflen, struct lws_dht_mparams *mp)
 			mp->token_len = l;
 		} else
 			mp->token_len = 0;
+	}
+
+	if (!meta || *meta != 'd')
+		return message;
+
+	meta_end = meta + l;
+
+	parse_hash(meta, meta_end, "id", &mp->id);
+	parse_hash(meta, meta_end, "info_hash", &mp->info_hash);
+	parse_hash(meta, meta_end, "target", &mp->target);
+
+	if (dht_bencode_find_key(meta, meta_end, "implied_port", &l))
+		mp->port = 1;
+	else
+		mp->port = (unsigned short)dht_bencode_get_int(meta, meta_end, "port");
+
+	p = dht_bencode_get_string(meta, meta_end, "token", &l);
+	if (p && l > 0 && l < sizeof(mp->token)) {
+		memcpy(mp->token, p, l);
+		mp->token_len = l;
 	} else
 		mp->token_len = 0;
 
-	p = dht_memmem(buf, buflen, "5:nodes", 7);
-	if (p) {
-		size_t l;
-		char *q;
-
-		l = dht_strtoull((char*)p + 7,
-			buflen - lws_ptr_diff_size_t(p + 7, buf), &q);
-		if (q && (uint8_t *)q < buf + buflen && *q == ':' && l > 0 && l < mp->nodes_len) {
-			CHECK_BUF(q + 1, l);
-			memcpy(mp->nodes, q + 1, l);
-			mp->nodes_len = l;
-		} else
-			mp->nodes_len = 0;
+	p = dht_bencode_get_string(meta, meta_end, "nodes", &l);
+	if (p && l > 0 && l < sizeof(mp->nodes)) {
+		memcpy(mp->nodes, p, l);
+		mp->nodes_len = l;
 	} else
 		mp->nodes_len = 0;
 
-	p = dht_memmem(buf, buflen, "6:nodes6", 8);
-	if (p) {
-		size_t l;
-		char *q;
-
-		l = dht_strtoull((char*)p + 8,
-			buflen - lws_ptr_diff_size_t(p + 8, buf), &q);
-		if (q && (uint8_t *)q < buf + buflen && *q == ':' && l > 0 && l < mp->nodes6_len) {
-			CHECK_BUF(q + 1, l);
-			memcpy(mp->nodes6, q + 1, l);
-			mp->nodes6_len = l;
-		} else
-			mp->nodes6_len = 0;
+	p = dht_bencode_get_string(meta, meta_end, "nodes6", &l);
+	if (p && l > 0 && l < sizeof(mp->nodes6)) {
+		memcpy(mp->nodes6, p, l);
+		mp->nodes6_len = l;
 	} else
 		mp->nodes6_len = 0;
 
-	p = dht_memmem(buf, buflen, "6:valuesl", 9);
-	if (p) {
-		size_t i = lws_ptr_diff_size_t(p, buf) + 9;
-		size_t j = 0, j6 = 0;
-
-		while (1) {
-			size_t l;
-			char *q;
-
-			l = dht_strtoull((char*)buf + i,
-				buflen - i, &q);
-			if (q && (uint8_t *)q < buf + buflen && *q == ':' && l > 0) {
-				CHECK_BUF(q + 1, l);
-				i = lws_ptr_diff_size_t(q + 1 + l, buf);
-				if (l == 6) {
-					if (j + l > mp->values_len)
-						continue;
-					memcpy((char*)mp->values + j, q + 1, l);
-					j += l;
-				} else if (l == 18) {
-					if (j6 + l > mp->values6_len)
-						continue;
-					memcpy((char*)mp->values6 + j6, q + 1, l);
-					j6 += l;
-				} else
-					lwsl_dht_rx_warn("Received weird value -- %d bytes.\n", (int)l);
-			} else
-				break;
-
+	if (message == DHT_DATA) {
+		p = dht_bencode_get_string(meta, meta_end, "data", &l);
+		if (p) {
+			mp->data = p;
+			mp->data_len = l;
 		}
-		if (i >= buflen || buf[i] != 'e')
-			lwsl_dht_rx_warn("eek... unexpected end for values.\n");
+	}
+
+	if (dht_bencode_find_key(meta, meta_end, "offset", NULL)) {
+		mp->offset = dht_bencode_get_int(meta, meta_end, "offset");
+		lwsl_debug("%s: Parsed offset %llu\n", __func__, (unsigned long long)mp->offset);
+	} else
+		lwsl_notice("%s: offset key NOT FOUND in reply\n", __func__);
+
+	if (dht_bencode_find_key(meta, meta_end, "len", NULL))
+		mp->len = dht_bencode_get_int(meta, meta_end, "len");
+
+	p = dht_bencode_find_key(meta, meta_end, "sack", &l);
+	if (p && *p == 'l') {
+		const uint8_t *v = p + 1, *vend = p + l;
+		while (v < vend && *v != 'e' && mp->num_sack < 4) {
+			if (*v == 'd') {
+				const uint8_t *vstart = v, *v_dict_end = v;
+				if (dht_bencode_skip(&v_dict_end, vend))
+					break;
+				mp->sack[mp->num_sack].len = (uint32_t)dht_bencode_get_int(vstart, v_dict_end, "l");
+				mp->sack[mp->num_sack].start = dht_bencode_get_int(vstart, v_dict_end, "o");
+				mp->num_sack++;
+				v = v_dict_end;
+			} else break;
+		}
+	}
+
+	p = dht_bencode_find_key(meta, meta_end, "values", &l);
+	if (p && *p == 'l') {
+		const uint8_t *v = p + 1, *vend = p + l;
+		size_t j = 0, j6 = 0;
+		while (v < vend && *v != 'e') {
+			size_t slen;
+			char *q_ptr;
+			unsigned long long sl = dht_strtoull((const char *)v, (size_t)(vend - v), &q_ptr);
+			if (!q_ptr || *q_ptr != ':')
+				break;
+			slen = (size_t)sl;
+			v = (const uint8_t *)q_ptr + 1;
+			if (v + slen > vend)
+				break;
+			if (slen == 6 && j + 6 <= sizeof(mp->values)) {
+				memcpy(mp->values + j, v, 6);
+				j += 6;
+			} else if (slen == 18 && j6 + 18 <= sizeof(mp->values6)) {
+				memcpy(mp->values6 + j6, v, 18);
+				j6 += 18;
+			}
+			v += slen;
+		}
 		mp->values_len = j;
 		mp->values6_len = j6;
-	} else {
-		mp->values_len = 0;
-		mp->values6_len = 0;
 	}
 
-	p = dht_memmem(buf, buflen, "4:wantl", 7);
-	if (p) {
-		size_t i = lws_ptr_diff_size_t(p, buf) + 7;
-
-		mp->want = 0;
-		while (buf[i] > '0' && buf[i] <= '9' && buf[i + 1] == ':' &&
-				(size_t)(i + 2 + buf[i] - '0') < buflen) {
-			CHECK_BUF(buf + i + 2, buf[i] - '0');
-			if (buf[i] == '2' && memcmp(buf + i + 2, "n4", 2) == 0)
-				mp->want |= WANT4;
-			else if (buf[i] == '2' && memcmp(buf + i + 2, "n6", 2) == 0)
-				mp->want |= WANT6;
-			else
-					lwsl_dht_rx_warn("eek... unexpected want flag (%c)\n", buf[i]);
-			i = i +2u + buf[i] - '0';
-		}
-		if (i >= buflen || buf[i] != 'e')
-			lwsl_dht_rx_warn("eek... unexpected end for want.\n");
-	} else {
-		mp->want = -1;
-	}
-
-	p = dht_memmem(buf, buflen, "2:ip", 4);
+	p = dht_bencode_find_key(buf, end, "ip", &l);
 	if (!p)
-		p = dht_memmem(buf, buflen, "2:you", 5);
-
+		p = dht_bencode_find_key(buf, end, "you", &l);
 	if (p) {
-		size_t l;
-		char *q;
-
-		l = dht_strtoull((char*)p + (p[2] == 'i' ? 4 : 5),
-			buflen - lws_ptr_diff_size_t(p + (p[2] == 'i' ? 4 : 5), buf), &q);
-		if (q && (uint8_t *)q < buf + buflen && *q == ':' && (l == 6 || l == 18)) {
-			CHECK_BUF(q + 1, l);
-			mp->sender_ip_len = (int)l - 2;
-			memcpy(mp->sender_ip, q + 1, (size_t)mp->sender_ip_len);
-			memcpy(&mp->sender_port, (uint8_t *)q + 1 + mp->sender_ip_len, 2);
+		size_t slen;
+		char *q_ptr;
+		unsigned long long sl = dht_strtoull((const char *)p, (size_t)(end - p), &q_ptr);
+		if (q_ptr && *q_ptr == ':' && (sl == 6 || sl == 18)) {
+			slen = (size_t)sl;
+			p = (const uint8_t *)q_ptr + 1;
+			mp->sender_ip_len = (int)slen - 2;
+			memcpy(mp->sender_ip, p, (size_t)mp->sender_ip_len);
+			memcpy(&mp->sender_port, p + mp->sender_ip_len, 2);
 			mp->sender_port = ntohs(mp->sender_port);
 		} else
 			mp->sender_ip_len = 0;
@@ -2942,24 +3356,17 @@ parse_message(const uint8_t *buf, size_t buflen, struct lws_dht_mparams *mp)
 					return DHT_GET_PEERS;
 				if (qlen == 13 && memcmp(p, "announce_peer", 13) == 0)
 					return DHT_ANNOUNCE_PEER;
+				if (qlen == 4 && memcmp(p, "data", 4) == 0)
+					return DHT_DATA;
 
 				lwsl_dht_rx_warn("Unknown q: %.*s\n", (int)qlen, p);
 			}
 		}
 	}
-	/* Fallback / original checks if above fails or for safety */
-	if (dht_memmem(buf, buflen, "1:q4:ping", 9))
-		return DHT_PING;
-	if (dht_memmem(buf, buflen, "1:q9:find_node", 14))
-		return DHT_FIND_NODE;
-	if (dht_memmem(buf, buflen, "1:q9:get_peers", 14))
-		return DHT_GET_PEERS;
-	if (dht_memmem(buf, buflen, "1:q13:announce_peer", 19))
-		return DHT_ANNOUNCE_PEER;
-	return -1;
 
-overflow:
-	lwsl_dht_rx_warn("Truncated message.\n");
+	return message;
+
+fail:
 	return -1;
 }
 
@@ -3157,9 +3564,9 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 				int j;
 
 				for (j = 0; j < (int)mp->values_len; j += 6)
-					(*ctx->cb)(ctx->closure, LWS_DHT_EVENT_VALUES, sr->id, mp->values + j, 6);
+					(*ctx->cb)(ctx->closure, LWS_DHT_EVENT_VALUES, sr->id, mp->values + j, 6, from, fromlen);
 				for (j = 0; j < (int)mp->values6_len; j += 18)
-					(*ctx->cb)(ctx->closure, LWS_DHT_EVENT_VALUES6, sr->id, mp->values6 + j, 18);
+					(*ctx->cb)(ctx->closure, LWS_DHT_EVENT_VALUES6, sr->id, mp->values6 + j, 18, from, fromlen);
 			}
 		}
 		search_send_get_peers(ctx, sr, NULL);
@@ -3204,6 +3611,9 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 	struct lws_dht_mparams mp;
 	int message;
 
+	memset(&mp, 0, sizeof(mp));
+	mp.offset = (uint64_t)-1;
+
 	mp.tid_len = sizeof(mp.tid);
 	mp.token_len = sizeof(mp.token);
 	mp.nodes_len = sizeof(mp.nodes);
@@ -3224,7 +3634,7 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 	message = parse_message(buf, buflen, &mp);
 
 	if (message < 0 || message == DHT_ERROR || lws_dht_hash_is_zero(mp.id)) {
-		lwsl_dht_rx_warn("Unparseable message.\n");
+		lwsl_dht_rx_warn("Unparseable message. msg=%d id_ptr=%p\n", message, mp.id);
 		goto done;
 	}
 
@@ -3233,7 +3643,7 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 		goto done;
 	}
 
-	if (message > DHT_REPLY) {
+	if (message > DHT_REPLY && message != DHT_DATA) {
 		/* Rate limit requests. */
 		if (!token_bucket(ctx)) {
 			lwsl_dht_warn("Dropping request due to rate limiting.\n");
@@ -3273,7 +3683,7 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 							ss.ss_family == AF_INET ?
 								LWS_DHT_EVENT_EXTERNAL_ADDR :
 								LWS_DHT_EVENT_EXTERNAL_ADDR6,
-							NULL, &ss, sslen);
+							NULL, &ss, sslen, from, fromlen);
 				}
 				break;
 			}
@@ -3305,6 +3715,22 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 			lws_dht_reply_announce(ctx, &mp, from, fromlen);
 			break;
 		}
+
+		if (tid_match(mp.tid, "da", NULL) || tid_match(mp.tid, "sqnc", NULL)) {
+			struct lws_transport_sequencer *ts;
+
+			ts = lws_dht_get_ts(ctx, from, fromlen, 0);
+			if (ts) {
+				lws_transport_sequencer_acknowledge_sack(ts, mp.offset + mp.len,
+									 mp.sack, mp.num_sack, mp.status);
+			} else {
+				char ads[64];
+				lws_sa46_write_numeric_address((lws_sockaddr46 *)from, ads, sizeof(ads));
+				lwsl_warn("dht_cb: ACK received from %s (len %d) but no sequencer found!\n", ads, (int)fromlen);
+			}
+			break;
+		}
+
 
 		lwsl_dht_rx_warn("Unexpected reply.\n");
 		blacklist_node(ctx, mp.id, from, fromlen);
@@ -3351,6 +3777,17 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 			break;
 		}
 		break;
+
+	case DHT_DATA:
+		if (mp.data) {
+			struct lws_transport_sequencer *ts;
+			lwsl_dht_rx("Received reliable data payload (%d bytes, offset %llu)\n",
+				    (int)mp.data_len, (unsigned long long)mp.offset);
+			ts = lws_dht_get_ts(ctx, from, fromlen, 1);
+			if (ts)
+				lws_transport_sequencer_rx(ts, mp.offset, mp.data, mp.data_len);
+		}
+		break;
 	case DHT_ANNOUNCE_PEER:
 		lwsl_dht_rx("Announce peer!\n");
 		new_node(ctx, mp.id, from, fromlen, 1);
@@ -3372,9 +3809,15 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 		if (!token_match(ctx, mp.token, mp.token_len, from)) {
 			lwsl_dht_rx_warn("Incorrect token for announce_peer.\n");
 			send_error(ctx, from, fromlen, mp.tid, mp.tid_len,
-					203, "Announce_peer with wrong token");
+					   203, "Announce_peer with bad token");
 			break;
 		}
+
+
+
+		lws_dht_capture_announce(ctx, mp.info_hash, from, mp.port ? mp.port : mp.sender_port);
+		lws_dht_reply_announce(ctx, &mp, from, fromlen);
+
 		if (mp.port == 0) {
 			lwsl_dht_rx_warn("Announce with forbidden port %d.\n", mp.port);
 			send_error(ctx, from, fromlen, mp.tid, mp.tid_len,
@@ -3415,8 +3858,10 @@ done:
 	return 0;
 }
 
-static int
-callback_dht(struct lws *wsi, enum lws_callback_reasons reason,
+
+
+int
+lws_callback_dht(struct lws *wsi, enum lws_callback_reasons reason,
 	     void *user, void *in, size_t len)
 {
 	struct lws_dht_ctx *ctx = lws_protocol_vh_priv_get(lws_get_vhost(wsi), lws_get_protocol(wsi));
@@ -3450,7 +3895,7 @@ callback_dht(struct lws *wsi, enum lws_callback_reasons reason,
 }
 
 LWS_VISIBLE const struct lws_protocols lws_dht_protocol =
-	{ "lws-dht", callback_dht, sizeof(struct lws_dht_ctx *), 0, 0, NULL, 0 };
+	{ "lws-dht", lws_callback_dht, sizeof(struct lws_dht_ctx *), 0, 0, NULL, 0 };
 
 int
 lws_dht_get_external_addr(struct lws_dht_ctx *ctx, struct sockaddr_storage *ss,
@@ -3490,6 +3935,8 @@ lws_dht_create(const lws_dht_info_t *info)
 	ctx->blacklist_cb = info->blacklist_cb;
 	ctx->hash_cb = info->hash_cb;
 	ctx->capture_announce_cb = info->capture_announce_cb;
+	lws_dll2_owner_clear(&ctx->ts_owner);
+	lws_dll2_owner_clear(&ctx->verb_owner);
 
 	if (info->id)
 		ctx->myid = lws_dht_hash_dup(info->id);
@@ -3581,6 +4028,12 @@ fail:
 	return NULL;
 }
 
+void *
+lws_dht_get_closure(struct lws_dht_ctx *ctx)
+{
+	return ctx->closure;
+}
+
 void
 lws_dht_destroy(struct lws_dht_ctx **pctx)
 {
@@ -3638,6 +4091,23 @@ lws_dht_destroy(struct lws_dht_ctx **pctx)
 			lws_dht_hash_destroy(&sr->nodes[i].id);
 		lws_free(sr);
 	}
+
+	lws_dll2_t *d = lws_dll2_get_head(&ctx->ts_owner);
+	while (d) {
+		lws_dll2_t *d1 = d->next;
+		lws_dht_ts_t *dts = lws_container_of(d, lws_dht_ts_t, list);
+
+		lws_transport_sequencer_destroy(&dts->ts);
+		lws_dll2_remove(&dts->list);
+		lws_free(dts);
+		d = d1;
+	}
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d_verb, d1_verb, lws_dll2_get_head(&ctx->verb_owner)) {
+		struct lws_dht_verb_list *vl = lws_container_of(d_verb, struct lws_dht_verb_list, list);
+		lws_dll2_remove(d_verb);
+		lws_free(vl);
+	} lws_end_foreach_dll_safe(d_verb, d1_verb);
 
 	lws_free(ctx);
 	*pctx = NULL;
@@ -3764,4 +4234,119 @@ lws_dht_ping_node(struct lws_dht_ctx *ctx, struct sockaddr *sa, size_t salen)
 	make_tid(tid, "pn", 0);
 
 	return send_ping(ctx, sa, salen, tid, 4);
+}
+
+
+LWS_VISIBLE LWS_EXTERN int
+lws_dht_send_data(struct lws_dht_ctx *ctx, const struct sockaddr *dest, const void *data, size_t len)
+{
+	struct lws_transport_sequencer *ts = lws_dht_get_ts(ctx, dest, (size_t)(dest->sa_family == AF_INET ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6)), 1);
+
+	if (!ts)
+		return 1;
+
+	return lws_transport_sequencer_write(ts, data, len);
+}
+
+int
+lws_dht_send_data_at(struct lws_dht_ctx *ctx, const struct sockaddr *dest, uint64_t offset, const void *data, size_t len)
+{
+	struct lws_transport_sequencer *ts = lws_dht_get_ts(ctx, dest, (size_t)(dest->sa_family == AF_INET ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6)), 1);
+
+	if (!ts)
+		return 1;
+
+	return lws_transport_sequencer_write_at(ts, offset, data, len);
+}
+struct lws_dll2_owner *
+lws_dht_get_ts_owner(struct lws_dht_ctx *ctx)
+{
+	return &ctx->ts_owner;
+}
+
+int
+lws_dht_msg_gen(char *out, size_t len, int cmd, const char *verb, const char *hash, unsigned long long offset, unsigned long long len_val)
+{
+	const char *cmd_str = verb;
+
+	if (!verb) {
+		switch (cmd) {
+		case LWS_DHT_CMD_PUT: cmd_str = "PUT"; break;
+		case LWS_DHT_CMD_GET: cmd_str = "GET"; break;
+		case LWS_DHT_CMD_ACK: cmd_str = "ACK"; break;
+		case LWS_DHT_CMD_RSP: cmd_str = "RSP"; break;
+		default: return -1;
+		}
+	}
+
+	return lws_snprintf(out, len, "%s %s %llu %llu ", cmd_str, hash, offset, len_val);
+}
+
+int
+lws_dht_msg_parse(const char *in, size_t len, struct lws_dht_msg *out)
+{
+	const char *p = in, *sp;
+	size_t l;
+
+	if (!in || !out || len < 10)
+		return -1;
+
+	memset(out, 0, sizeof(*out));
+
+	/* Parse VERB */
+	sp = strchr(p, ' ');
+	if (!sp) return -1;
+	l = (size_t)(sp - p);
+	if (l >= sizeof(out->verb)) l = sizeof(out->verb) - 1;
+	memcpy(out->verb, p, l);
+	out->verb[l] = '\0';
+
+	if (l == 3 && !memcmp(p, "PUT", 3)) out->cmd = LWS_DHT_CMD_PUT;
+	else if (l == 3 && !memcmp(p, "GET", 3)) out->cmd = LWS_DHT_CMD_GET;
+	else if (l == 3 && !memcmp(p, "ACK", 3)) out->cmd = LWS_DHT_CMD_ACK;
+	else if (l == 3 && !memcmp(p, "RSP", 3)) out->cmd = LWS_DHT_CMD_RSP;
+	else out->cmd = LWS_DHT_CMD_UNKNOWN;
+
+	/* Parse HASH */
+	p = sp + 1;
+	sp = strchr(p, ' ');
+	if (!sp) return -1;
+	l = (size_t)(sp - p);
+	if (l >= sizeof(out->hash)) l = sizeof(out->hash) - 1;
+	memcpy(out->hash, p, l);
+	out->hash[l] = '\0';
+
+	/* Parse OFFSET */
+	p = sp + 1;
+	sp = strchr(p, ' ');
+	if (!sp) return -1;
+	out->offset = (unsigned long long)strtoull(p, NULL, 10);
+
+	/* Parse LEN */
+	p = sp + 1;
+	sp = strchr(p, ' ');
+	out->len = (unsigned long long)strtoull(p, NULL, 10);
+
+	/* Payload */
+	if (sp) {
+		out->payload = sp + 1;
+		out->payload_len = len - (size_t)((const char *)out->payload - in);
+	}
+
+	return 0;
+}
+
+int
+lws_dht_register_verbs(struct lws_dht_ctx *ctx, const struct lws_dht_verb *verbs, int count)
+{
+	int i;
+
+	for (i = 0; i < count; i++) {
+		struct lws_dht_verb_list *vl = lws_zalloc(sizeof(*vl), "dht verb");
+		if (!vl) return -1;
+		vl->v = verbs[i];
+		lws_dll2_add_tail(&vl->list, &ctx->verb_owner);
+	}
+
+	return 0;
 }
