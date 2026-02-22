@@ -96,7 +96,85 @@ lws_dht_hash_destroy(lws_dht_hash_t **p);
  * \param data_len: length of event-specific data
  */
 typedef void
-lws_dht_callback_t(void *closure, int event, const lws_dht_hash_t *info_hash, const void *data, size_t data_len);
+lws_dht_callback_t(void *closure, int event, const lws_dht_hash_t *info_hash, const void *data, size_t data_len, const struct sockaddr *from, size_t fromlen);
+
+enum {
+	LWS_DHT_CMD_UNKNOWN	= 0,
+	LWS_DHT_CMD_PUT,
+	LWS_DHT_CMD_GET,
+	LWS_DHT_CMD_ACK,
+	LWS_DHT_CMD_RSP,
+	LWS_DHT_CMD_TEST_NONCE_REQ,
+	LWS_DHT_CMD_TEST_NONCE_RSP,
+	LWS_DHT_CMD_TEST_SIGN_REQ,
+
+	LWS_DHT_CMD_MAX
+};
+
+#define LWS_DHT_CMD_VERSION 1
+
+struct lws_dht_msg {
+	int cmd;
+	char verb[16];
+	char hash[LWS_GENHASH_LARGEST * 2 + 1];
+	unsigned long long offset;
+	unsigned long long len;
+	const void *payload;
+	size_t payload_len;
+};
+
+typedef int (lws_dht_verb_handler_t)(struct lws_dht_ctx *ctx,
+				     const struct lws_dht_msg *msg,
+				     const struct sockaddr *from,
+				     size_t fromlen);
+
+struct lws_dht_verb {
+	const char *name;
+	lws_dht_verb_handler_t *handler;
+};
+
+/**
+ * lws_dht_msg_parse() - Parse a raw DHT message
+ *
+ * \param in: raw message buffer
+ * \param len: length of raw message
+ * \param out: struct to populate with parsed data
+ *
+ * Safe parsing of DHT command messages.
+ *
+ * \return 0 on success, non-zero on error
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dht_msg_parse(const char *in, size_t len, struct lws_dht_msg *out);
+
+/**
+ * lws_dht_msg_gen() - Generate a raw DHT message
+ *
+ * \param out: buffer to write message to
+ * \param len: max size of buffer
+ * \param cmd: LWS_DHT_CMD_...
+ * \param hash: target hash string
+ * \param offset: offset value
+ * \param len_val: length value
+ *
+ * Generates a formatted DHT command message.
+ *
+ * \return number of bytes written, or -1 on error
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dht_msg_gen(char *out, size_t len, int cmd, const char *verb, const char *hash, unsigned long long offset, unsigned long long len_val);
+
+/**
+ * lws_dht_register_verbs() - Register custom verb handlers
+ *
+ * \param ctx: DHT context
+ * \param verbs: array of lws_dht_verb_t
+ * \param count: number of verbs in array
+ *
+ * \return 0 on success, non-zero on error
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dht_register_verbs(struct lws_dht_ctx *ctx, const struct lws_dht_verb *verbs, int count);
 
 /**
  * lws_dht_blacklist_cb_t() - DHT blacklist check callback
@@ -163,6 +241,9 @@ typedef enum {
 	LWS_DHT_EVENT_SEARCH_DONE6,	/**< IPv6 search operation completed */
 	LWS_DHT_EVENT_EXTERNAL_ADDR,	/**< External IPv4 address determined */
 	LWS_DHT_EVENT_EXTERNAL_ADDR6,	/**< External IPv6 address determined */
+	LWS_DHT_EVENT_DATA,		/**< Arbitrary data payload received */
+	LWS_DHT_EVENT_WRITE_COMPLETED,	/**< Reliable write successful */
+	LWS_DHT_EVENT_WRITE_FAILED,	/**< Reliable write failed */
 } lws_dht_event_t;
 
 
@@ -210,6 +291,16 @@ LWS_VISIBLE LWS_EXTERN struct lws_dht_ctx *
 lws_dht_create(const lws_dht_info_t *info);
 
 /**
+ * lws_dht_get_closure() - Get the user closure pointer
+ *
+ * \param ctx: DHT context
+ *
+ * \return the closure pointer
+ */
+LWS_VISIBLE LWS_EXTERN void *
+lws_dht_get_closure(struct lws_dht_ctx *ctx);
+
+/**
  * lws_dht_destroy() - Destroy a DHT context
  *
  * \param pctx: pointer to the DHT context pointer to destroy
@@ -242,6 +333,15 @@ lws_dht_insert_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_dht_ping_node(struct lws_dht_ctx *ctx, struct sockaddr *sa, size_t salen);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_dht_send_data(struct lws_dht_ctx *ctx, const struct sockaddr *dest, const void *data, size_t len);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_dht_send_data_at(struct lws_dht_ctx *ctx, const struct sockaddr *dest, uint64_t offset, const void *data, size_t len);
+
+LWS_VISIBLE LWS_EXTERN struct lws_transport_sequencer *
+lws_dht_get_ts(struct lws_dht_ctx *ctx, const struct sockaddr *dest, size_t salen, int create);
 
 /**
  * lws_dht_search() - Perform an asynchronous search for a hash
