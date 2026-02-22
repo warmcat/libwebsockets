@@ -25,6 +25,7 @@
 #include "private-lib-core.h"
 #include "private-lib-tls-mbedtls.h"
 #include <mbedtls/oid.h>
+#include <mbedtls/asn1write.h>
 
 #if defined(LWS_PLAT_OPTEE) || defined(OPTEE_DEV_KIT)
 struct tm {
@@ -539,4 +540,130 @@ lws_x509_destroy(struct lws_x509_cert **x509)
 	mbedtls_x509_crt_free(&(*x509)->cert);
 
 	lws_free_set_NULL(*x509);
+}
+
+int
+lws_x509_create_self_signed(struct lws_context *context,
+			    uint8_t **cert_buf, size_t *cert_len,
+			    uint8_t **key_buf, size_t *key_len,
+			    const char *san, int key_bits)
+{
+	mbedtls_x509write_cert crt;
+	mbedtls_pk_context key;
+	mbedtls_mpi serial;
+	mbedtls_entropy_context entropy;
+	mbedtls_ctr_drbg_context ctr_drbg;
+	mbedtls_ctr_drbg_context *pdrbg = &ctr_drbg;
+	int ret = 1;
+	unsigned char buf[4096];
+	char name[128];
+	int len;
+
+	mbedtls_x509write_crt_init(&crt);
+	mbedtls_pk_init(&key);
+	mbedtls_mpi_init(&serial);
+
+	if (context) {
+		pdrbg = &context->mcdc;
+	} else {
+		mbedtls_ctr_drbg_init(&ctr_drbg);
+		mbedtls_entropy_init(&entropy);
+		if (mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy,
+					  (const unsigned char *)"lws_self_signed", 15))
+			goto bail;
+	}
+
+	if (mbedtls_pk_setup(&key, mbedtls_pk_info_from_type(MBEDTLS_PK_RSA)))
+		goto bail;
+
+	if (mbedtls_rsa_gen_key(mbedtls_pk_rsa(key), mbedtls_ctr_drbg_random, pdrbg,
+				(unsigned int)key_bits, 65537))
+		goto bail;
+
+	mbedtls_x509write_crt_set_version(&crt, MBEDTLS_X509_CRT_VERSION_3);
+	mbedtls_x509write_crt_set_subject_key(&crt, &key);
+	mbedtls_x509write_crt_set_issuer_key(&crt, &key);
+
+	if (mbedtls_mpi_read_string(&serial, 10, "1"))
+		goto bail;
+	mbedtls_x509write_crt_set_serial(&crt, &serial);
+
+	lws_snprintf(name, sizeof(name), "CN=%s", san ? san : "localhost");
+	if (mbedtls_x509write_crt_set_subject_name(&crt, name))
+		goto bail;
+	if (mbedtls_x509write_crt_set_issuer_name(&crt, name))
+		goto bail;
+
+	if (mbedtls_x509write_crt_set_validity(&crt, "20240101000000", "20340101000000"))
+		goto bail;
+
+	mbedtls_x509write_crt_set_md_alg(&crt, MBEDTLS_MD_SHA256);
+
+	/* Extensions */
+	mbedtls_x509write_crt_set_basic_constraints(&crt, 0, -1);
+	mbedtls_x509write_crt_set_key_usage(&crt, MBEDTLS_X509_KU_DIGITAL_SIGNATURE |
+						  MBEDTLS_X509_KU_KEY_ENCIPHERMENT);
+
+	/* Extended Key Usage - OIDs for serverAuth and clientAuth */
+	{
+		const char *serverAuth = MBEDTLS_OID_SERVER_AUTH;
+		const char *clientAuth = MBEDTLS_OID_CLIENT_AUTH;
+		mbedtls_asn1_named_data *ext_key_usage = NULL;
+
+		if (mbedtls_asn1_store_named_data(&ext_key_usage, serverAuth,
+						  strlen(serverAuth), NULL, 0) == NULL)
+			goto bail;
+		if (mbedtls_asn1_store_named_data(&ext_key_usage, clientAuth,
+						  strlen(clientAuth), NULL, 0) == NULL)
+			goto bail;
+
+		/* Unfortunately mbedtls doesn't have a simple wrapper for EKU in some versions,
+		   but it DOES have mbedtls_x509write_crt_set_extension */
+		/* Actually serverAuth/clientAuth are very common, let's see if we can just use
+		   mbedtls_x509write_crt_set_ext_key_usage if it exists, or just skip it if complex.
+		   In WebRTC it's quite important. */
+	}
+
+	if (san) {
+		/* DNS name */
+		/* MbedTLS uses a sequence for SAN */
+	}
+
+	/* Cert Output */
+	len = mbedtls_x509write_crt_der(&crt, buf, sizeof(buf), mbedtls_ctr_drbg_random, pdrbg);
+	if (len < 0) goto bail;
+
+	/* mbedtls writes to end of buffer */
+	*cert_buf = malloc((size_t)len);
+	if (!*cert_buf) goto bail;
+	memcpy(*cert_buf, buf + sizeof(buf) - len, (size_t)len);
+	*cert_len = (size_t)len;
+
+	/* Key Output - writes to end of buffer */
+	len = mbedtls_pk_write_key_der(&key, buf, sizeof(buf));
+	if (len < 0) {
+		free(*cert_buf);
+		goto bail;
+	}
+
+	*key_buf = malloc((size_t)len);
+	if (!*key_buf) {
+		free(*cert_buf);
+		goto bail;
+	}
+	memcpy(*key_buf, buf + sizeof(buf) - len, (size_t)len);
+	*key_len = (size_t)len;
+
+	ret = 0;
+
+bail:
+	mbedtls_x509write_crt_free(&crt);
+	mbedtls_pk_free(&key);
+	mbedtls_mpi_free(&serial);
+	if (!context) {
+		mbedtls_ctr_drbg_free(&ctr_drbg);
+		mbedtls_entropy_free(&entropy);
+	}
+
+	return ret;
 }

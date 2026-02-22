@@ -88,15 +88,31 @@ lws_gendtls_mbedtls_bio_recv_timeout(void *ctx, unsigned char *buf, size_t len,
 static void
 lws_gendtls_mbedtls_set_timer(void *ctx, uint32_t int_ms, uint32_t fin_ms)
 {
-	(void)ctx;
-	(void)int_ms;
-	(void)fin_ms;
+	struct lws_gendtls_ctx *gctx = (struct lws_gendtls_ctx *)ctx;
+
+	gctx->timer_set_us = lws_now_usecs();
+	gctx->timer_int_ms = int_ms;
+	gctx->timer_fin_ms = fin_ms;
 }
 
 static int
 lws_gendtls_mbedtls_get_timer(void *ctx)
 {
-	(void)ctx;
+	struct lws_gendtls_ctx *gctx = (struct lws_gendtls_ctx *)ctx;
+	lws_usec_t now_us;
+	uint32_t diff_ms;
+
+	if (!gctx->timer_fin_ms)
+		return -1; /* cancelled */
+
+	now_us = lws_now_usecs();
+	diff_ms = (uint32_t)((now_us - gctx->timer_set_us) / 1000);
+
+	if (diff_ms >= gctx->timer_fin_ms)
+		return 2;
+	if (diff_ms >= gctx->timer_int_ms)
+		return 1;
+
 	return 0;
 }
 
@@ -162,8 +178,30 @@ lws_gendtls_create(struct lws_gendtls_ctx *ctx,
 
 	if (mode == LWS_GENDTLS_MODE_SERVER) {
 		/* Mandatory for DTLS cookies to have some client ID */
-		mbedtls_ssl_set_client_transport_id(&ctx->ssl, (const unsigned char *)"dummy", 5);
+		mbedtls_ssl_set_client_transport_id(&ctx->ssl,
+						    (const unsigned char *)&ctx,
+						    sizeof(ctx));
 	}
+
+#if defined(MBEDTLS_SSL_DTLS_SRTP)
+	if (info->use_srtp) {
+		int n = 0;
+		if (strstr(info->use_srtp, "SRTP_AES128_CM_SHA1_80"))
+			ctx->srtp_profiles[n++] = MBEDTLS_TLS_SRTP_AES128_CM_HMAC_SHA1_80;
+		if (strstr(info->use_srtp, "SRTP_AES128_CM_SHA1_32"))
+			ctx->srtp_profiles[n++] = MBEDTLS_TLS_SRTP_AES128_CM_HMAC_SHA1_32;
+		if (strstr(info->use_srtp, "SRTP_NULL_HMAC_SHA1_80"))
+			ctx->srtp_profiles[n++] = MBEDTLS_TLS_SRTP_NULL_HMAC_SHA1_80;
+		if (strstr(info->use_srtp, "SRTP_NULL_HMAC_SHA1_32"))
+			ctx->srtp_profiles[n++] = MBEDTLS_TLS_SRTP_NULL_HMAC_SHA1_32;
+
+		ctx->srtp_profiles[n] = MBEDTLS_TLS_SRTP_UNSET;
+
+		if (n) {
+			mbedtls_ssl_conf_dtls_srtp_protection_profiles(&ctx->conf, ctx->srtp_profiles);
+		}
+	}
+#endif
 
 	mbedtls_ssl_set_bio(&ctx->ssl, ctx,
 			    lws_gendtls_mbedtls_bio_send,
@@ -176,8 +214,7 @@ lws_gendtls_create(struct lws_gendtls_ctx *ctx,
 				 lws_gendtls_mbedtls_set_timer,
 				 lws_gendtls_mbedtls_get_timer);
 
-	/* Timer callbacks would be needed for proper retransmission support */
-	/* mbedtls_ssl_set_timer_cb(&ctx->ssl, timer_ctx, f_set_timer, f_get_timer); */
+
 
 	return 0;
 
@@ -339,4 +376,36 @@ lws_gendtls_export_keying_material(struct lws_gendtls_ctx *ctx, const char *labe
 		return -1;
 
 	return 0;
+}
+
+int
+lws_gendtls_is_clean(struct lws_gendtls_ctx *ctx)
+{
+	if (ctx->tx_head || ctx->rx_head)
+		return 0;
+
+	return 1;
+}
+
+const char *
+lws_gendtls_get_srtp_profile(struct lws_gendtls_ctx *ctx)
+{
+#if defined(MBEDTLS_SSL_DTLS_SRTP)
+	mbedtls_ssl_srtp_profile profile = mbedtls_ssl_get_dtls_srtp_protection_profile(&ctx->ssl);
+
+	switch (profile) {
+	case MBEDTLS_TLS_SRTP_AES128_CM_HMAC_SHA1_80:
+		return "SRTP_AES128_CM_SHA1_80";
+	case MBEDTLS_TLS_SRTP_AES128_CM_HMAC_SHA1_32:
+		return "SRTP_AES128_CM_SHA1_32";
+	case MBEDTLS_TLS_SRTP_NULL_HMAC_SHA1_80:
+		return "SRTP_NULL_HMAC_SHA1_80";
+	case MBEDTLS_TLS_SRTP_NULL_HMAC_SHA1_32:
+		return "SRTP_NULL_HMAC_SHA1_32";
+	default:
+		return NULL;
+	}
+#else
+	return NULL;
+#endif
 }
