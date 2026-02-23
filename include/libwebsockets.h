@@ -805,6 +805,7 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 #include <libwebsockets/lws-ws-close.h>
 #include <libwebsockets/lws-ws-state.h>
 #include <libwebsockets/lws-ws-ext.h>
+#include <libwebsockets/lws-latency.h>
 #endif
 
 #include <libwebsockets/lws-protocols-plugins.h>

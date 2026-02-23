@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Event Loop Latency Monitor</title>
+    <link rel="stylesheet" href="main.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Latency Monitor</h1>
+            <div id="status" class="status disconnected">Disconnected</div>
+        </header>
+
+        <div class="metrics">
+            <div class="metric-card">
+                <h3>Sleep time / sec</h3>
+                <div class="value" id="sleep-val">0ms</div>
+            </div>
+            <div class="metric-card">
+                <h3>Worst Latency</h3>
+                <div class="value" id="worst-lat-val">0us</div>
+            </div>
+            <div class="metric-card">
+                <h3>Events / sec</h3>
+                <div class="value" id="events-val">0</div>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <canvas id="latencyChart"></canvas>
+        </div>
+
+        <div class="table-container">
+            <h2>Historic Worst Latencies</h2>
+            <table class="latency-table">
+                <thead>
+                    <tr>
+                        <th>Time (us)</th>
+                        <th>Worst Latency</th>
+                        <th>Protocol</th>
+                    </tr>
+                </thead>
+                <tbody id="worst-latencies-body">
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script src="main.js"></script>
+</body>
+</html>
