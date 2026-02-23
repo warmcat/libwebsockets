@@ -158,7 +158,17 @@ __lws_sul_service_ripe(lws_dll2_owner_t *own, int own_len, lws_usec_t usnow)
 		// lwsl_notice("%s: sul: %p\n", __func__, hit->cb);
 
 		pt->inside_lws_service = 1;
+
+#if defined(LWS_WITH_LATENCY)
+		lws_latency_cb_start(pt);
+#endif
+
 		hit->cb(hit);
+
+#if defined(LWS_WITH_LATENCY)
+		lws_latency_cb_end(pt, "timer");
+#endif
+
 		pt->inside_lws_service = 0;
 
 	} while (1);

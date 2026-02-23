@@ -402,7 +402,24 @@ struct lws_context_per_thread {
 	unsigned char event_loop_pt_unused:1;
 	unsigned char destroy_self:1;
 	unsigned char is_destroyed:1;
+
+#if defined(LWS_WITH_LATENCY)
+	lws_usec_t latency_last_cb_end;
+	lws_usec_t latency_cb_start;
+	uint32_t latency_idx;
+	lws_latency_bucket_t latency_ring[LWS_LATENCY_RING_SIZE];
+#endif
 };
+
+#if defined(LWS_WITH_LATENCY)
+LWS_EXTERN LWS_VISIBLE void
+lws_latency_cb_start(struct lws_context_per_thread *pt);
+LWS_EXTERN LWS_VISIBLE void
+lws_latency_cb_end(struct lws_context_per_thread *pt, const char *pn);
+#else
+#define lws_latency_cb_start(_pt)
+#define lws_latency_cb_end(_pt, _pn)
+#endif
 
 /*
  * virtual host -related context information
