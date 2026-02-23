@@ -439,13 +439,25 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 		 * Otherwise give it to whoever wants it according to the
 		 * connection state
 		 */
+#if defined(LWS_WITH_LATENCY)
+		lws_usec_t _h1_read_start = lws_now_usecs();
+#endif
 #if defined(LWS_ROLE_H2)
 		if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY)
 			n = lws_read_h2(wsi, ebuf.token, (unsigned int)ebuf.len);
 		else
 #endif
 			n = lws_read_h1(wsi, ebuf.token, (unsigned int)ebuf.len);
+
+#if defined(LWS_WITH_LATENCY)
+		{
+			unsigned int ms = (unsigned int)((lws_now_usecs() - _h1_read_start) / 1000);
+			if (ms > 2)
+				lws_latency_note(pt, _h1_read_start, 2000, "h1read:%dms", ms);
+		}
+#endif
 		if (n < 0) /* we closed wsi */
+
 			return LWS_HPI_RET_WSI_ALREADY_DIED;
 
 		// lwsl_notice("%s: consumed %d\n", __func__, n);
@@ -512,6 +524,10 @@ try_pollout:
 
 	if (!wsi->hdr_parsing_completed)
 		return LWS_HPI_RET_HANDLED;
+
+	if (lwsi_state(wsi) == LRS_AWAITING_FILE_READ) {
+		return LWS_HPI_RET_HANDLED;
+	}
 
 	if (lwsi_state(wsi) != LRS_ISSUING_FILE) {
 
@@ -640,7 +656,20 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 		    !lws_buflist_total_len(&wsi->buflist))
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 
+#if defined(LWS_WITH_LATENCY)
+		lws_usec_t _h1s_start = lws_now_usecs();
+#endif
+
 		hr = lws_h1_server_socket_service(wsi, pollfd);
+
+#if defined(LWS_WITH_LATENCY)
+		{
+			unsigned int ms = (unsigned int)((lws_now_usecs() - _h1s_start) / 1000);
+			if (ms > 2)
+				lws_latency_note(pt, _h1s_start, 2000, "h1sv:%dms", ms);
+		}
+#endif
+
 		if (hr != LWS_HPI_RET_HANDLED)
 			return hr;
 		if (lwsi_state(wsi) != LRS_SSL_INIT)
@@ -775,6 +804,10 @@ rops_handle_POLLOUT_h1(struct lws *wsi)
 	if (lwsi_role_client(wsi))
 		return LWS_HP_RET_USER_SERVICE;
 
+	if (lwsi_state(wsi) == LRS_AWAITING_FILE_READ) {
+		return LWS_HP_RET_DROP_POLLOUT;
+	}
+
 	return LWS_HP_RET_BAIL_OK;
 }
 
@@ -797,7 +830,20 @@ rops_write_role_protocol_h1(struct lws *wsi, unsigned char *buf, size_t len,
 			   LWS_HTTP_CHUNK_HDR_MAX_SIZE -
 			   LWS_HTTP_CHUNK_TRL_MAX_SIZE;
 
+#if defined(LWS_WITH_LATENCY)
+		lws_usec_t _h1comp_start = lws_now_usecs();
+#endif
+
 		n = lws_http_compression_transform(wsi, buf, len, wp, &out, &o);
+
+#if defined(LWS_WITH_LATENCY)
+		{
+			unsigned int ms = (unsigned int)((lws_now_usecs() - _h1comp_start) / 1000);
+			if (ms > 2)
+				lws_latency_note((&wsi->a.context->pt[(int)wsi->tsi]), _h1comp_start, 2000, "h1comp:%dms", ms);
+		}
+#endif
+
 		if (n)
 			return n;
 

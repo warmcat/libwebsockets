@@ -1,0 +1,104 @@
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: #121212;
+    color: #e0e0e0;
+    margin: 0;
+    padding: 0;
+}
+
+.container {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+}
+
+h1 {
+    margin: 0;
+    font-weight: 500;
+}
+
+.status {
+    padding: 0.5rem 1rem;
+    border-radius: 9999px;
+    font-size: 0.875rem;
+    font-weight: bold;
+}
+.status.connected { background: #1b5e20; color: #a5d6a7; }
+.status.disconnected { background: #b71c1c; color: #ef9a9a; }
+
+.metrics {
+    display: flex;
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.metric-card {
+    background: #1e1e1e;
+    padding: 1.5rem;
+    border-radius: 8px;
+    flex: 1;
+    border: 1px solid #333;
+}
+
+.metric-card h3 {
+    margin: 0 0 0.5rem 0;
+    font-size: 0.875rem;
+    color: #9e9e9e;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.value {
+    font-size: 2rem;
+    font-weight: bold;
+}
+
+.chart-container {
+    background: #1e1e1e;
+    padding: 1.5rem;
+    border-radius: 8px;
+    height: 300px;
+    border: 1px solid #333;
+    margin-bottom: 2rem;
+}
+
+.chart-container canvas {
+    display: block;
+}
+
+.table-container {
+    background: #1e1e1e;
+    padding: 1.5rem;
+    border-radius: 8px;
+    border: 1px solid #333;
+}
+
+.table-container h2 {
+    margin-top: 0;
+    font-size: 1.125rem;
+    color: #e0e0e0;
+}
+
+.latency-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.latency-table th, .latency-table td {
+    padding: 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid #333;
+}
+
+.latency-table th {
+    color: #9e9e9e;
+    font-weight: normal;
+    font-size: 0.875rem;
+}

@@ -294,6 +294,14 @@ if (LWS_WITH_TRANSCODE)
 	endif()
 endif()
 
+if (LWS_WITH_LATENCY)
+	create_plugin(protocol_lws_latency ""
+		      "latency/protocol_lws_latency.c" "" "")
+	if (NOT LWS_WITH_PLUGINS_BUILTIN)
+		target_compile_definitions(protocol_lws_latency PRIVATE LWS_BUILDING_SHARED)
+	endif()
+endif()
+
 endif((LWS_WITH_PLUGINS AND LWS_WITH_SHARED) OR LWS_WITH_PLUGINS_BUILTIN)
 
 
@@ -318,6 +326,12 @@ if (LWS_WITH_PLUGINS AND NOT LWS_WITH_PLUGINS_BUILTIN)
 		install(DIRECTORY lws-webrtc-mixer/sounds/
 			DESTINATION share/libwebsockets-test-server/lws-webrtc-mixer/sounds
 			COMPONENT plugins)
+
+		if (LWS_WITH_LATENCY)
+			install(DIRECTORY latency/assets/
+				DESTINATION share/libwebsockets-test-server/lws-latency
+				COMPONENT plugins)
+		endif()
 	endif()
 
 
