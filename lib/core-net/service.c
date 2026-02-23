@@ -635,8 +635,8 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 	return forced;
 }
 
-int
-lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
+static int
+_lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		   int tsi)
 {
 	struct lws_context_per_thread *pt;
@@ -825,6 +825,35 @@ handled:
 	pt->inside_lws_service = 0;
 
 	return 0;
+}
+
+int
+lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
+		   int tsi)
+{
+	int ret;
+	struct lws_context_per_thread *pt = &context->pt[tsi];
+	const char *pn = "unknown";
+	struct lws *wsi;
+
+	if (!pollfd)
+		return -1;
+
+	wsi = wsi_from_fd(context, pollfd->fd);
+	if (wsi && wsi->a.protocol && wsi->a.protocol->name)
+		pn = wsi->a.protocol->name;
+
+#if defined(LWS_WITH_LATENCY)
+	lws_latency_cb_start(pt);
+#endif
+
+	ret = _lws_service_fd_tsi(context, pollfd, tsi);
+
+#if defined(LWS_WITH_LATENCY)
+	lws_latency_cb_end(pt, pn);
+#endif
+
+	return ret;
 }
 
 int
