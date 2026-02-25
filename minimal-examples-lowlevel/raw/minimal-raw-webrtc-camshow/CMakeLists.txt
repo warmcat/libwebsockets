@@ -14,6 +14,7 @@ require_lws_config(LWS_ROLE_WS 1 requirements)
 require_lws_config(LWS_WITH_CLIENT 1 requirements)
 require_lws_config(LWS_WITH_SERVER 1 requirements)
 require_lws_config(LWS_WITH_PLUGINS 1 requirements)
+require_lws_config(LWS_WITH_V4L2 1 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})

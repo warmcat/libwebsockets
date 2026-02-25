@@ -3360,10 +3360,16 @@ int lws_serve_http_file_fragment(struct lws *wsi)
 
 			/* enqueue */
 			pthread_mutex_lock(&wsi->a.context->async_worker_mutex);
+			if (wsi->a.context->async_worker_waiting.count >= (uint32_t)(wsi->a.context->count_async_threads * 10)) {
+				pthread_mutex_unlock(&wsi->a.context->async_worker_mutex);
+				lws_free(job);
+				wsi->async_worker_job = NULL;
+				goto file_had_it;
+			}
 			lws_dll2_add_tail(&job->list, &wsi->a.context->async_worker_waiting);
 
 			/* Scale threads up to limit if needed */
-			if (wsi->a.context->async_worker_waiting.count > wsi->a.context->async_worker_threads_active &&
+			if (wsi->a.context->async_worker_threads_idle == 0 &&
 			    wsi->a.context->async_worker_threads_active < wsi->a.context->count_async_threads) {
 				pthread_t pt;
 				wsi->a.context->async_worker_threads_active++;

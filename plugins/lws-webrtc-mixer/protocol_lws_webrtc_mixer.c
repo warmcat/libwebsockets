@@ -55,10 +55,15 @@ get_or_create_room(struct vhd_mixer *vhd, const char *name)
 	r->audio_info.max_energy = 327680.0;
 	r->audio_info.sample_stride = 48;
 
-	r->master_w = LWS_RTP_VIDEO_WIDTH_720P;
-	r->master_h = LWS_RTP_VIDEO_HEIGHT_720P;
+	r->master_w = LWS_RTP_VIDEO_WIDTH_1080P;
+	r->master_h = LWS_RTP_VIDEO_HEIGHT_1080P;
+
+	/* Initialize Performance Tracker (2 levels: 0=High Quality, 1=Fallback) */
+	/* 5s short-term EWMA for quick drops, 60s long-term EWMA for sustained recovery */
+	r->adapt_h264 = lws_adapt_create(2, 5 * LWS_US_PER_SEC, 60 * LWS_US_PER_SEC);
 
 	if (mixer_room_init(r) < 0) {
+		lws_adapt_destroy(&r->adapt_h264);
 		free(r);
 		return NULL;
 	}
@@ -521,7 +526,7 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 				int is_capabilities = 0;
 				int n;
 
-				lwsl_notice("%s: RECEIVE (len %zu)\n", __func__, len);
+				// lwsl_notice("%s: RECEIVE (len %zu)\n", __func__, len);
 
 				n = we_ops->shared_callback(wsi, reason, user, in, len, vhd->vhd);
 

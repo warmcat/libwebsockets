@@ -56,8 +56,16 @@ lws_async_worker_worker(void *d)
 	while (!cx->being_destroyed) {
 		d2 = lws_dll2_get_head(&cx->async_worker_waiting);
 		if (!d2) {
+			/* Scale down if we have multiple threads but no waiting work */
+			if (cx->async_worker_threads_active > 1) {
+				/* Wake up the next sleeping thread so it evaluates whether to exit */
+				pthread_cond_signal(&cx->async_worker_cond);
+				break;
+			}
 			/* Wait until work arrives or destruction */
+			cx->async_worker_threads_idle++;
 			pthread_cond_wait(&cx->async_worker_cond, &cx->async_worker_mutex);
+			cx->async_worker_threads_idle--;
 			continue;
 		}
 
@@ -104,12 +112,7 @@ lws_async_worker_worker(void *d)
 			lws_cancel_service(cx);
 		}
 
-		/* Scale down if we have multiple threads but no waiting work */
-		if (cx->async_worker_waiting.count == 0 && cx->async_worker_threads_active > 1) {
-			/* Leave at least one thread alive if work was recently done to avoid thrashing,
-			   but since we are empty, let's just exit this one. */
-			break;
-		}
+		/* Scale down check previously at the end of job is removed; it's handled at top-of-loop */
 	}
 
 	cx->async_worker_threads_active--;
