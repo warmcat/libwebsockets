@@ -287,7 +287,7 @@ endif()
 
 if (LWS_WITH_TRANSCODE)
 	create_plugin(protocol_lws_webrtc_mixer ""
-		      "lws-webrtc-mixer/protocol_lws_webrtc_mixer.c;lws-webrtc-mixer/mixer-media.c;lws-webrtc-mixer/mixer-wav.c;lws-webrtc-mixer/layout-quad.c" "" "")
+		      "lws-webrtc-mixer/protocol_lws_webrtc_mixer.c;lws-webrtc-mixer/mixer-media.c;lws-webrtc-mixer/mixer-wav.c;lws-webrtc-mixer/layout-quad.c;lws-webrtc-mixer/layout-speaker.c" "" "")
 	if (NOT LWS_WITH_PLUGINS_BUILTIN)
 		target_compile_definitions(protocol_lws_webrtc_mixer PRIVATE LWS_BUILDING_SHARED)
 		target_include_directories(protocol_lws_webrtc_mixer PRIVATE lws-webrtc-mixer)
