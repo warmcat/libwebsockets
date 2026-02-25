@@ -215,6 +215,10 @@ struct encoder_thread {
 	uint32_t                encoded_rtp_pts;
 	enum lws_video_codec    codec;
 	struct mixer_room       *room;
+
+	/* Dynamic restart flags */
+	int                     pending_restart;
+	int                     target_level;
 };
 
 struct mixer_room {
@@ -243,6 +247,8 @@ struct mixer_room {
 	/* Master video compositing */
 	struct lws_transcode_ctx *tcc_enc_h264;
 	struct lws_transcode_ctx *tcc_enc_av1;
+	struct lws_adapt        *adapt_h264;
+	int                     active_h264_level;
 	void                    *master_frame;   /* Managed by lws_transcode */
 	struct encoder_thread   enc_thread_h264;
 	struct encoder_thread   enc_thread_av1;
@@ -335,9 +341,6 @@ deinit_participant_media(struct participant *p);
 
 int
 media_handle_video_packet(struct participant *p, const uint8_t *buf, size_t len, int marker, uint16_t seq);
-
-int
-media_compose_and_broadcast(struct mixer_room *r);
 
 void *
 media_worker_thread(void *d);

@@ -929,9 +929,16 @@ function createPeerConnection() {
 
 let adaptationInterval = null;
 let currentScaleFactor = 1.0;
+let consecutiveGood = 0;
 
 function startAdaptationLoop() {
     if (adaptationInterval) clearInterval(adaptationInterval);
+
+    window.lastFramesEncoded = undefined;
+    window.lastPacketsLost = undefined;
+    window.lastComputedFps = 0;
+    consecutiveGood = 0;
+    currentScaleFactor = 1.0;
 
     adaptationInterval = setInterval(async () => {
         if (!pc || pc.signalingState !== 'stable') return;
@@ -960,32 +967,39 @@ function startAdaptationLoop() {
 
             // Calculate Outbound FPS
             var outboundFps = window.lastComputedFps || 0;
-            if (window.lastFramesCount !== undefined && currentFramesCount > window.lastFramesCount) {
+            if (window.lastFramesEncoded !== undefined && currentFramesEncoded > window.lastFramesEncoded) {
                  // Loop runs every 2s
-                 var instantFps = Math.round((currentFramesCount - window.lastFramesCount) / 2);
+                 var instantFps = Math.round((currentFramesEncoded - window.lastFramesEncoded) / 2);
                  outboundFps = Math.round((outboundFps * 0.5) + (instantFps * 0.5)); // Smoothing
             }
-            window.lastFramesCount = currentFramesCount;
+            window.lastFramesEncoded = currentFramesEncoded;
             window.lastComputedFps = outboundFps;
 
             // Calculate Recent Packet Loss
             var recentPacketsLost = 0;
             if (window.lastPacketsLost !== undefined) {
-                 recentPacketsLost = currentPacketsLost - window.lastPacketsLost;
+                 recentPacketsLost = packetsLost - window.lastPacketsLost;
                  if (recentPacketsLost < 0) recentPacketsLost = 0;
             }
-            window.lastFramesEncoded = currentFramesEncoded;
+            window.lastPacketsLost = packetsLost;
 
-            // Simple heuristic
+            // Scaling heuristic
             let newScale = currentScaleFactor;
-            if (packetsLost > 5 || rtt > 0.2) { // >5 packets lost or >200ms RTT
-                 newScale = Math.min(newScale * 2.0, 4.0); // Downgrade
-            } else if (packetsLost === 0 && rtt < 0.1) {
-                 newScale = Math.max(newScale / 2.0, 1.0); // Upgrade
+            if (recentPacketsLost > 0 || rtt > 0.150) { // downgrade if any loss or >150ms RTT
+                 newScale = Math.min(newScale * 1.5, 4.0);
+                 consecutiveGood = 0;
+            } else if (recentPacketsLost === 0 && rtt < 0.100) { // upgrade if perfectly clean
+                 consecutiveGood++;
+                 if (consecutiveGood > 3) { // 3 intervals (6s) of stability
+                     newScale = Math.max(newScale / 1.5, 1.0);
+                     consecutiveGood = 0;
+                 }
+            } else {
+                 consecutiveGood = 0;
             }
 
             if (newScale !== currentScaleFactor) {
-
+                console.log(`Adapting resolution scale factor from ${currentScaleFactor} to ${newScale} (Lost: ${recentPacketsLost}, RTT: ${rtt})`);
                 currentScaleFactor = newScale;
                 const params = videoSender.getParameters();
                 if (!params.encodings) params.encodings = [{}];
@@ -1077,8 +1091,8 @@ async function setupPreview() {
     let constraints = {
         audio: (audioId && audioId !== 'undefined') ? { deviceId: { exact: audioId } } : true,
         video: (videoId && videoId !== 'undefined') ?
-                { deviceId: { exact: videoId }, width: { min: 1280, ideal: 1280 }, height: { min: 720, ideal: 720 } } :
-                { width: { min: 1280, ideal: 1280 }, height: { min: 720, ideal: 720 } }
+                { deviceId: { exact: videoId }, width: { min: 1920, ideal: 1920 }, height: { min: 1080, ideal: 1080 } } :
+                { width: { min: 1920, ideal: 1920 }, height: { min: 1080, ideal: 1080 } }
     };
 
     localStream = await tryGetMedia(constraints);
@@ -1089,8 +1103,8 @@ async function setupPreview() {
         constraints = {
             audio: (audioId && audioId !== 'undefined') ? { deviceId: { ideal: audioId } } : true,
             video: (videoId && videoId !== 'undefined') ?
-                    { deviceId: { ideal: videoId }, width: { min: 1280, ideal: 1280 }, height: { min: 720, ideal: 720 } } :
-                    { width: { min: 1280, ideal: 1280 }, height: { min: 720, ideal: 720 } }
+                    { deviceId: { ideal: videoId }, width: { min: 1920, ideal: 1920 }, height: { min: 1080, ideal: 1080 } } :
+                    { width: { min: 1920, ideal: 1920 }, height: { min: 1080, ideal: 1080 } }
         };
         localStream = await tryGetMedia(constraints);
     }
@@ -1100,8 +1114,8 @@ async function setupPreview() {
         constraints = {
             audio: (audioId && audioId !== 'undefined') ? { deviceId: { ideal: audioId } } : true,
             video: (videoId && videoId !== 'undefined') ?
-                    { deviceId: { ideal: videoId }, width: { ideal: 1280 }, height: { ideal: 720 } } :
-                    { width: { ideal: 1280 }, height: { ideal: 720 } }
+                    { deviceId: { ideal: videoId }, width: { ideal: 1920 }, height: { ideal: 1080 } } :
+                    { width: { ideal: 1920 }, height: { ideal: 1080 } }
         };
         localStream = await tryGetMedia(constraints);
     }
@@ -1368,7 +1382,7 @@ function updateParticipants(clients) {
                 icon.style.opacity = '0.5';
                 item.title = "Connecting...";
             }
-            
+
             item.appendChild(icon);
 
             const nameSpan = document.createElement('span');
@@ -1388,17 +1402,17 @@ function updateLayout(regions) {
     regions.forEach(r => {
         const overlay = document.createElement('div');
         overlay.className = 'name-overlay';
-        
+
         // Apply explicit positions rather than CSS classes
         overlay.style.left = r.x + '%';
         overlay.style.top = r.y + '%';
         // Note: we don't strictly set width/height as it's an overlay div,
         // but it's guaranteed to be within the sub-region.
         overlay.style.maxWidth = r.w + '%';
-        
+
         // The text comes in as "Alice\nStats..."
         const parts = r.text.split('\n');
-        
+
         const nameSpan = document.createElement('div');
         nameSpan.innerText = parts[0] || '';
         nameSpan.style.fontWeight = 'bold';
