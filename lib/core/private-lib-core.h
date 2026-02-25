@@ -712,6 +712,7 @@ struct lws_context {
 	pthread_mutex_t		async_worker_mutex;
 	pthread_cond_t		async_worker_cond;
 	uint8_t			async_worker_threads_active;
+	uint8_t			async_worker_threads_idle;
 	uint8_t			count_async_threads;
 #endif
 

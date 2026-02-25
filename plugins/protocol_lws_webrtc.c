@@ -560,7 +560,7 @@ lws_webrtc_create_offer(struct pss_webrtc *pss)
 			"a=sendonly\\r\\n"
 			"a=msid:lws-stream lws-track-video\\r\\n"
 			"a=rtpmap:%u H264/90000\\r\\n"
-			"a=fmtp:%u level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42c01f\\r\\n"
+			"a=fmtp:%u level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e02a\\r\\n"
 			"a=rtpmap:%u AV1/90000\\r\\n"
 			"a=fmtp:%u profile=0;level-idx=5;tier=0\\r\\n"
 			"a=rtcp-fb:%u nack\\r\\n"
@@ -1412,7 +1412,7 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 		if (pss->media->fmtp_video[0])
 			lws_snprintf(c, sizeof(c), "a=fmtp:%u %s\\r\\n", pss->media->pt_video_h264, pss->media->fmtp_video);
 		else
-			lws_snprintf(c, sizeof(c), "a=fmtp:%u level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42c01f\\r\\n", pss->media->pt_video_h264);
+			lws_snprintf(c, sizeof(c), "a=fmtp:%u level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e02a\\r\\n", pss->media->pt_video_h264);
 		strncat(rtpmap_lines, c, sizeof(rtpmap_lines) - strlen(rtpmap_lines) - 1);
 
 		lws_snprintf(c, sizeof(c), "a=rtcp-fb:%u nack\\r\\na=rtcp-fb:%u nack pli\\r\\n", pss->media->pt_video_h264, pss->media->pt_video_h264);
