@@ -410,9 +410,15 @@ punt:
 			//lwsl_notice("%s: %s: QUEUING LWS_AQ_SSL_ACCEPT\n", __func__, lws_wsi_tag(wsi));
 
 			pthread_mutex_lock(&context->async_worker_mutex);
+			if (context->async_worker_waiting.count >= (uint32_t)(context->count_async_threads * 10)) {
+				pthread_mutex_unlock(&context->async_worker_mutex);
+				lws_free(job);
+				wsi->async_worker_job = NULL;
+				goto fail;
+			}
 			lws_dll2_add_tail(&job->list, &context->async_worker_waiting);
 
-			if (context->async_worker_waiting.count > context->async_worker_threads_active &&
+			if (context->async_worker_threads_idle == 0 &&
 			    context->async_worker_threads_active < context->count_async_threads) {
 				pthread_t pt_th;
 				context->async_worker_threads_active++;

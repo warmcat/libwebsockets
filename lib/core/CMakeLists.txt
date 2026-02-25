@@ -35,6 +35,7 @@ if (NOT LWS_ONLY_SSPC)
 		core/buflist.c
 		core/context.c
 		core/lws_map.c
+		core/adapt.c
 		core/libwebsockets.c
 		core/logs.c
 	)

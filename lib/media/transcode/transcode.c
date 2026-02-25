@@ -107,9 +107,15 @@ lws_transcode_encoder_create(const struct lws_transcode_info *info)
 		}
 	} else {
 		if (!strcmp(enc_name, "libx264")) {
+			char x264_opts[128];
 			av_opt_set(ctx->avctx->priv_data, "preset", "ultrafast", 0);
 			av_opt_set(ctx->avctx->priv_data, "tune", "zerolatency", 0);
-			av_opt_set(ctx->avctx->priv_data, "x264-params", "repeat-headers=1:annexb=1:keyint=10:rc-lookahead=0", 0);
+			lws_snprintf(x264_opts, sizeof(x264_opts),
+				"repeat-headers=1:annexb=1:keyint=%d:rc-lookahead=0:vbv-maxrate=%d:vbv-bufsize=%d",
+				(int)info->fps,
+				(int)(info->bitrate / 1000),         /* Max rate in kbps */
+				(int)(info->bitrate / 1000));        /* Buffer size in kbits (~1 sec buffer) */
+			av_opt_set(ctx->avctx->priv_data, "x264-params", x264_opts, 0);
 		}
 	}
 
