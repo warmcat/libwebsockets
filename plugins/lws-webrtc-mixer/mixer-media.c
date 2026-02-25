@@ -748,7 +748,7 @@ process_room_mix(struct vhd_mixer *vhd, struct mixer_room *r, lws_usec_t deadlin
 
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->sessions)) {
 		struct mixer_media_session *s = lws_container_of(d, struct mixer_media_session, list);
-		if (strcmp(s->room_name, r->name)) continue;
+		if (strcmp(s->room_name, r->name)) goto skip_decode;
 
 		/* Jitter Buffer Consumer Logic */
 		lws_mutex_lock(s->mutex); /* Protected access to ring_pcm */
@@ -787,6 +787,7 @@ process_room_mix(struct vhd_mixer *vhd, struct mixer_room *r, lws_usec_t deadlin
 
 			} else {
 				s->has_pcm = 0;
+				s->audio_energy = 0;
 				if (waiting > 0) {
 					static int starvation = 0;
 					if (starvation++ % 50 == 0)
@@ -796,15 +797,17 @@ process_room_mix(struct vhd_mixer *vhd, struct mixer_room *r, lws_usec_t deadlin
 			}
 		} else {
 			s->has_pcm = 0;
+			s->audio_energy = 0;
 		}
 		lws_mutex_unlock(s->mutex);
 
+skip_decode:
 	} lws_end_foreach_dll(d);
 
 	/* 2. Encode Audio (Mix-Minus) & Send */
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->sessions)) {
 		struct mixer_media_session *s = lws_container_of(d, struct mixer_media_session, list);
-		if (strcmp(s->room_name, r->name)) continue;
+		if (strcmp(s->room_name, r->name)) goto skip_encode;
 
 		if (s->encoder) {
 			int16_t out_pcm[AUDIO_SAMPLES_PER_FRAME];
@@ -831,6 +834,8 @@ process_room_mix(struct vhd_mixer *vhd, struct mixer_room *r, lws_usec_t deadlin
 				}
 			}
 		}
+
+skip_encode:
 	} lws_end_foreach_dll(d);
 
 	/* 3. Video Compose & Encode */
@@ -968,13 +973,17 @@ next_codec_count:;
 					if (src_w * slot_h > slot_w * src_h) { dst_h = (src_h * slot_w) / src_w; dst_h &= ~1; }
 					else { dst_w = (src_w * slot_h) / src_h; dst_w &= ~1; }
 
+					if (dst_w < 2) dst_w = 2;
+					if (dst_h < 2) dst_h = 2;
+
 					int off_x = (slot_w - dst_w) / 2; off_x &= ~1;
 					int off_y = (slot_h - dst_h) / 2; off_y &= ~1;
 
-					if (!s->sws_ctx_dec || s->last_dec_w != src_w || s->last_dec_h != src_h) {
+					if (!s->sws_ctx_dec || s->last_dec_w != src_w || s->last_dec_h != src_h || s->last_dst_w != dst_w || s->last_dst_h != dst_h) {
 						if (s->sws_ctx_dec) lws_transcode_scaler_destroy(&s->sws_ctx_dec);
 						s->sws_ctx_dec = lws_transcode_scaler_create((uint32_t)src_w, (uint32_t)src_h, (uint32_t)dst_w, (uint32_t)dst_h);
 						s->last_dec_w = src_w; s->last_dec_h = src_h;
+						s->last_dst_w = dst_w; s->last_dst_h = dst_h;
 						if (s->avframe_scaled) lws_transcode_frame_free(&s->avframe_scaled);
 						s->avframe_scaled = lws_transcode_frame_alloc((uint32_t)dst_w, (uint32_t)dst_h);
 					}
@@ -1245,7 +1254,7 @@ mixer_room_init(struct mixer_room *r)
 	init_enc_thread(&r->enc_thread_h264, r, LWS_CODEC_H264);
 	init_enc_thread(&r->enc_thread_av1, r, LWS_CODEC_AV1);
 
-	r->lm_ops = &lm_quad_ops;
+	r->lm_ops = &lm_speaker_ops;
 	if (r->lm_ops->create) {
 		r->lm_ctx = r->lm_ops->create(r);
 	}
@@ -1339,6 +1348,8 @@ init_participant_media(struct participant *p, enum lws_video_codec codec)
 	s->sws_ctx_dec          = NULL;
 	s->last_dec_w           = 0;
 	s->last_dec_h           = 0;
+	s->last_dst_w           = 0;
+	s->last_dst_h           = 0;
 
 	if (!s->ring_pcm) {
 		/* Initialize Audio Jitter Buffer */

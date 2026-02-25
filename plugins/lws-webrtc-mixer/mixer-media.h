@@ -127,6 +127,7 @@ struct mixer_media_session {
 	lws_usec_t              last_frame_usec;
 
 	int                     last_dec_w, last_dec_h, last_dec_fmt;
+	int                     last_dst_w, last_dst_h;
 	enum lws_video_codec    last_dec_codec;
 
 	/* Recovery */
@@ -277,6 +278,7 @@ struct layout_manager_ops {
 };
 
 LWS_VISIBLE extern const struct layout_manager_ops lm_quad_ops;
+LWS_VISIBLE extern const struct layout_manager_ops lm_speaker_ops;
 
 struct vhd_mixer {
 	struct vhd_webrtc       *vhd;
