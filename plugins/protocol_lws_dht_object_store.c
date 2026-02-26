@@ -220,7 +220,7 @@ verb_put_handler(struct lws_dht_ctx *ctx, const struct lws_dht_msg *msg,
 	/* Send ACK */
 	{
 		char ack[128];
-		lws_dht_msg_gen(ack, sizeof(ack), LWS_DHT_CMD_ACK, "ACK", msg->hash, msg->offset, msg->payload_len);
+		lws_dht_msg_gen(ack, sizeof(ack), "ACK", msg->hash, msg->offset, msg->payload_len);
 		lws_dht_send_data(ctx, from, ack, strlen(ack));
 	}
 
@@ -255,7 +255,7 @@ verb_get_handler(struct lws_dht_ctx *ctx, const struct lws_dht_msg *msg,
 	n = (int)read(fd, buf + 1024, 1024);
 	if (n < 0) goto fail;
 
-	lws_dht_msg_gen(buf, 1024, LWS_DHT_CMD_RSP, "RSP", msg->hash, msg->offset, (unsigned long long)n);
+	lws_dht_msg_gen(buf, 1024, "RSP", msg->hash, msg->offset, (unsigned long long)n);
 	lws_dht_send_data(ctx, from, buf, 1024 + (size_t)n);
 
 	free(buf);
@@ -333,7 +333,7 @@ verb_nonce_req_handler(struct lws_dht_ctx *ctx, const struct lws_dht_msg *msg,
 
 	lwsl_user("%s\n", __func__);
 	lws_get_random(vhd->context, vhd->pending_nonce, sizeof(vhd->pending_nonce));
-	lws_dht_msg_gen(buf, sizeof(buf), LWS_DHT_CMD_TEST_NONCE_RSP, "NONC_RSP", "0000", 0, 0);
+	lws_dht_msg_gen(buf, sizeof(buf), "NONC_RSP", "0000", 0, 0);
 	lws_dht_send_data(ctx, from, buf, strlen(buf));
 	return 0;
 }
@@ -354,15 +354,8 @@ verb_sign_req_handler(struct lws_dht_ctx *ctx, const struct lws_dht_msg *msg,
 	return 0;
 }
 
-static const struct lws_dht_verb store_verbs[] = {
-	{ "PUT", verb_put_handler },
-	{ "GET", verb_get_handler },
-	{ "ACK", verb_ack_handler },
-	{ "RSP", verb_rsp_handler },
-	{ "NONC_REQ", verb_nonce_req_handler },
-	{ "NONC_RSP", verb_nonce_rsp_handler },
-	{ "SIGN_REQ", verb_sign_req_handler },
-};
+	return 0;
+}
 
 /* --- Core Callback --- */
 
@@ -430,7 +423,7 @@ sul_put_cb(void *v)
 	}
 	lws_hex_from_byte_array(hash, (size_t)lws_genhash_size(LWS_DHT_STORE_GENHASH), hash_hex, sizeof(hash_hex));
 
-	hlen = lws_dht_msg_gen((char *)header, sizeof(header), LWS_DHT_CMD_PUT, "PUT",
+	hlen = lws_dht_msg_gen((char *)header, sizeof(header), "PUT",
 			hash_hex, vhd->bulk_sent, (unsigned long long)st.st_size);
 	memcpy(packet, header, (size_t)hlen);
 	memcpy(packet + hlen, buf + 256, (size_t)n);
@@ -452,7 +445,7 @@ sul_get_cb(void *v)
 
 	lwsl_user("Sending GET %s to %s:%d\n", vhd->cli_get_hash, vhd->target_ip, vhd->target_port);
 
-	lws_dht_msg_gen(buf, sizeof(buf), LWS_DHT_CMD_GET, "GET", vhd->cli_get_hash, 0, 1024);
+	lws_dht_msg_gen(buf, sizeof(buf), "GET", vhd->cli_get_hash, 0, 1024);
 	lws_dht_send_data(vhd->dht, (struct sockaddr *)&sin, buf, strlen(buf));
 }
 
@@ -471,7 +464,31 @@ callback_dht_object_store(struct lws* wsi, enum lws_callback_reasons reason,
 	const char *p = NULL;
 
 	switch (reason) {
-	case LWS_CALLBACK_PROTOCOL_INIT:
+	case LWS_CALLBACK_DHT_VERB_DISPATCH: {
+		struct lws_dht_verb_dispatch_args *args =
+			(struct lws_dht_verb_dispatch_args *)in;
+
+		if (!strcmp(args->msg->verb, "PUT")) return verb_put_handler(args->ctx, args->msg, args->from, args->fromlen);
+		if (!strcmp(args->msg->verb, "GET")) return verb_get_handler(args->ctx, args->msg, args->from, args->fromlen);
+		if (!strcmp(args->msg->verb, "ACK")) return verb_ack_handler(args->ctx, args->msg, args->from, args->fromlen);
+		if (!strcmp(args->msg->verb, "RSP")) return verb_rsp_handler(args->ctx, args->msg, args->from, args->fromlen);
+		if (!strcmp(args->msg->verb, "NONC_REQ")) return verb_nonce_req_handler(args->ctx, args->msg, args->from, args->fromlen);
+		if (!strcmp(args->msg->verb, "NONC_RSP")) return verb_nonce_rsp_handler(args->ctx, args->msg, args->from, args->fromlen);
+		if (!strcmp(args->msg->verb, "SIGN_REQ")) return verb_sign_req_handler(args->ctx, args->msg, args->from, args->fromlen);
+		
+		return -1;
+	}
+
+	case LWS_CALLBACK_PROTOCOL_INIT: {
+		struct lws_dht_verb store_verbs[] = {
+			{ "PUT", protocol },
+			{ "GET", protocol },
+			{ "ACK", protocol },
+			{ "RSP", protocol },
+			{ "NONC_REQ", protocol },
+			{ "NONC_RSP", protocol },
+			{ "SIGN_REQ", protocol },
+		};
 		lwsl_user("%s: LWS_CALLBACK_PROTOCOL_INIT\n", __func__);
 		vhd = lws_protocol_vh_priv_zalloc(vhost, protocol, sizeof(struct vhd_dht_store));
 		if (!vhd) return -1;
@@ -534,7 +551,7 @@ callback_dht_object_store(struct lws* wsi, enum lws_callback_reasons reason,
 			sin.sin_port = htons((uint16_t)vhd->target_port);
 			inet_pton(AF_INET, vhd->target_ip, &sin.sin_addr);
 
-			lws_dht_msg_gen(buf, sizeof(buf), LWS_DHT_CMD_TEST_NONCE_REQ, "NONC_REQ", "0000", 0, 0);
+			lws_dht_msg_gen(buf, sizeof(buf), "NONC_REQ", "0000", 0, 0);
 			lws_dht_send_data(vhd->dht, (const struct sockaddr *)&sin, buf, strlen(buf));
 		} else if (vhd->cli_put_file) {
 			lwsl_user("%s: Starting PUT task\n", __func__);

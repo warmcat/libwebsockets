@@ -171,6 +171,8 @@ struct lws_dht_ctx {
 	struct lws_vhost	*vhost;
 	struct lws		*wsi_v4;
 	struct lws		*wsi_v6;
+	lws_dll2_t		list;
+	char			*name;
 	lws_sorted_usec_list_t	sul;
 	lws_dht_callback_t	*cb;
 	void			*closure;
@@ -2587,7 +2589,29 @@ dht_on_rx_data(struct lws_transport_sequencer *ts, uint64_t offset,
 		lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&dts->ctx->verb_owner)) {
 			struct lws_dht_verb_list *vl = lws_container_of(d, struct lws_dht_verb_list, list);
 			if (!strcmp(vl->v.name, msg.verb)) {
-				return vl->v.handler(dts->ctx, &msg, (struct sockaddr *)&dts->sa, dts->salen);
+				struct lws_dht_verb_dispatch_args args;
+				struct lws *wsi;
+				int n;
+
+				args.ctx = dts->ctx;
+				args.msg = &msg;
+				args.from = (const struct sockaddr *)&dts->sa;
+				args.fromlen = dts->salen;
+
+				/* prepare a temporary wsi to associate the callback with this vhost and protocol */
+				wsi = lws_zalloc(sizeof(*wsi), "dht verb");
+				if (!wsi)
+					return -1;
+
+				wsi->a.context = dts->ctx->vhost->context;
+				wsi->a.vhost = dts->ctx->vhost;
+				wsi->a.protocol = vl->v.protocol;
+
+				n = vl->v.protocol->callback(wsi, LWS_CALLBACK_DHT_VERB_DISPATCH,
+							lws_protocol_vh_priv_get(dts->ctx->vhost, vl->v.protocol),
+							&args, 0);
+				lws_free(wsi);
+				return n;
 			}
 		} lws_end_foreach_dll(d);
 	}
@@ -3864,12 +3888,9 @@ int
 lws_callback_dht(struct lws *wsi, enum lws_callback_reasons reason,
 	     void *user, void *in, size_t len)
 {
-	struct lws_dht_ctx *ctx = lws_protocol_vh_priv_get(lws_get_vhost(wsi), lws_get_protocol(wsi));
+	struct lws_dht_ctx *ctx;
 
 	switch (reason) {
-
-	case LWS_CALLBACK_PROTOCOL_INIT:
-		break;
 
 	case LWS_CALLBACK_RAW_RX: {
 		if (!user)
@@ -3932,6 +3953,11 @@ lws_dht_create(const lws_dht_info_t *info)
 	ctx->closure		= info->closure;
 	ctx->legacy = info->legacy;
 	ctx->iface = info->iface;
+	if (info->name) {
+		ctx->name = lws_strdup(info->name);
+		if (!ctx->name)
+			goto fail;
+	}
 	ctx->blacklist_cb = info->blacklist_cb;
 	ctx->hash_cb = info->hash_cb;
 	ctx->capture_announce_cb = info->capture_announce_cb;
@@ -4021,6 +4047,8 @@ lws_dht_create(const lws_dht_info_t *info)
 	expire_buckets(ctx, ctx->buckets);
 	expire_buckets(ctx, ctx->buckets6);
 
+	lws_dll2_add_tail(&ctx->list, &ctx->vhost->dht_owner);
+
 	return ctx;
 
 fail:
@@ -4041,6 +4069,11 @@ lws_dht_destroy(struct lws_dht_ctx **pctx)
 
 	if (!ctx)
 		return;
+
+	lws_dll2_remove(&ctx->list);
+
+	if (ctx->name)
+		lws_free(ctx->name);
 
 	lws_sul_cancel(&ctx->sul);
 
@@ -4265,21 +4298,12 @@ lws_dht_get_ts_owner(struct lws_dht_ctx *ctx)
 }
 
 int
-lws_dht_msg_gen(char *out, size_t len, int cmd, const char *verb, const char *hash, unsigned long long offset, unsigned long long len_val)
+lws_dht_msg_gen(char *out, size_t len, const char *verb, const char *hash, unsigned long long offset, unsigned long long len_val)
 {
-	const char *cmd_str = verb;
+	if (!verb)
+		return -1;
 
-	if (!verb) {
-		switch (cmd) {
-		case LWS_DHT_CMD_PUT: cmd_str = "PUT"; break;
-		case LWS_DHT_CMD_GET: cmd_str = "GET"; break;
-		case LWS_DHT_CMD_ACK: cmd_str = "ACK"; break;
-		case LWS_DHT_CMD_RSP: cmd_str = "RSP"; break;
-		default: return -1;
-		}
-	}
-
-	return lws_snprintf(out, len, "%s %s %llu %llu ", cmd_str, hash, offset, len_val);
+	return lws_snprintf(out, len, "%s %s %llu %llu ", verb, hash, offset, len_val);
 }
 
 int
@@ -4300,12 +4324,6 @@ lws_dht_msg_parse(const char *in, size_t len, struct lws_dht_msg *out)
 	if (l >= sizeof(out->verb)) l = sizeof(out->verb) - 1;
 	memcpy(out->verb, p, l);
 	out->verb[l] = '\0';
-
-	if (l == 3 && !memcmp(p, "PUT", 3)) out->cmd = LWS_DHT_CMD_PUT;
-	else if (l == 3 && !memcmp(p, "GET", 3)) out->cmd = LWS_DHT_CMD_GET;
-	else if (l == 3 && !memcmp(p, "ACK", 3)) out->cmd = LWS_DHT_CMD_ACK;
-	else if (l == 3 && !memcmp(p, "RSP", 3)) out->cmd = LWS_DHT_CMD_RSP;
-	else out->cmd = LWS_DHT_CMD_UNKNOWN;
 
 	/* Parse HASH */
 	p = sp + 1;
@@ -4349,4 +4367,29 @@ lws_dht_register_verbs(struct lws_dht_ctx *ctx, const struct lws_dht_verb *verbs
 	}
 
 	return 0;
+}
+
+struct lws_dht_ctx *
+lws_dht_get_by_name(struct lws_vhost *vhost, const char *name)
+{
+	lws_start_foreach_dll(struct lws_dll2 *, d, vhost->dht_owner.head) {
+		struct lws_dht_ctx *ctx = lws_container_of(d, struct lws_dht_ctx, list);
+
+		if (ctx->name && !strcmp(ctx->name, name))
+			return ctx;
+	} lws_end_foreach_dll(d);
+
+	return NULL;
+}
+
+void
+lws_dht_destroy_all_on_vhost(struct lws_vhost *vh)
+{
+	while (vh->dht_owner.head) {
+		struct lws_dht_ctx *ctx = lws_container_of(vh->dht_owner.head,
+							   struct lws_dht_ctx,
+							   list);
+
+		lws_dht_destroy(&ctx);
+	}
 }

@@ -98,23 +98,7 @@ lws_dht_hash_destroy(lws_dht_hash_t **p);
 typedef void
 lws_dht_callback_t(void *closure, int event, const lws_dht_hash_t *info_hash, const void *data, size_t data_len, const struct sockaddr *from, size_t fromlen);
 
-enum {
-	LWS_DHT_CMD_UNKNOWN	= 0,
-	LWS_DHT_CMD_PUT,
-	LWS_DHT_CMD_GET,
-	LWS_DHT_CMD_ACK,
-	LWS_DHT_CMD_RSP,
-	LWS_DHT_CMD_TEST_NONCE_REQ,
-	LWS_DHT_CMD_TEST_NONCE_RSP,
-	LWS_DHT_CMD_TEST_SIGN_REQ,
-
-	LWS_DHT_CMD_MAX
-};
-
-#define LWS_DHT_CMD_VERSION 1
-
 struct lws_dht_msg {
-	int cmd;
 	char verb[16];
 	char hash[LWS_GENHASH_LARGEST * 2 + 1];
 	unsigned long long offset;
@@ -123,14 +107,16 @@ struct lws_dht_msg {
 	size_t payload_len;
 };
 
-typedef int (lws_dht_verb_handler_t)(struct lws_dht_ctx *ctx,
-				     const struct lws_dht_msg *msg,
-				     const struct sockaddr *from,
-				     size_t fromlen);
+struct lws_dht_verb_dispatch_args {
+	struct lws_dht_ctx *ctx;
+	const struct lws_dht_msg *msg;
+	const struct sockaddr *from;
+	size_t fromlen;
+};
 
 struct lws_dht_verb {
 	const char *name;
-	lws_dht_verb_handler_t *handler;
+	const struct lws_protocols *protocol;
 };
 
 /**
@@ -151,18 +137,15 @@ lws_dht_msg_parse(const char *in, size_t len, struct lws_dht_msg *out);
  * lws_dht_msg_gen() - Generate a raw DHT message
  *
  * \param out: buffer to write message to
- * \param len: max size of buffer
- * \param cmd: LWS_DHT_CMD_...
- * \param hash: target hash string
- * \param offset: offset value
- * \param len_val: length value
+ * \param verb: e.g. "PUT", "GET", "REPLICATE"
+ * \param hash: the hex SHA1 associated
+ * \param offset: the byte offset
+ * \param len_val: the length val
  *
- * Generates a formatted DHT command message.
- *
- * \return number of bytes written, or -1 on error
+ * Generate a complete DHT payload with a space separated verb schema.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_dht_msg_gen(char *out, size_t len, int cmd, const char *verb, const char *hash, unsigned long long offset, unsigned long long len_val);
+lws_dht_msg_gen(char *out, size_t len, const char *verb, const char *hash, unsigned long long offset, unsigned long long len_val);
 
 /**
  * lws_dht_register_verbs() - Register custom verb handlers
@@ -270,6 +253,7 @@ typedef struct lws_dht_info {
 	void				*closure;
 	const lws_dht_hash_t		*id;
 	const char			*v;
+	const char			*name;
 	int				port;
 	uint8_t				ipv6:1;
 	uint8_t				legacy:1;
@@ -307,6 +291,17 @@ lws_dht_get_closure(struct lws_dht_ctx *ctx);
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_dht_destroy(struct lws_dht_ctx **pctx);
+
+/**
+ * lws_dht_get_by_name() - Get a specific DHT context by name
+ *
+ * \param vhost: vhost the DHT is bound to
+ * \param name: name to match against
+ *
+ * \return pointer to DHT context or NULL on failure.
+ */
+LWS_VISIBLE LWS_EXTERN struct lws_dht_ctx *
+lws_dht_get_by_name(struct lws_vhost *vhost, const char *name);
 
 /**
  * lws_dht_insert_node() - Manually insert a node into the DHT

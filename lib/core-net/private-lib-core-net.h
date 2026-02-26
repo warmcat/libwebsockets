@@ -604,7 +604,17 @@ struct lws_vhost {
 
 	unsigned char default_protocol_index;
 	unsigned char raw_protocol_index;
+
+#if defined(LWS_WITH_DHT)
+	lws_dll2_owner_t	dht_owner;
+#endif
+
 };
+
+#if defined(LWS_WITH_DHT)
+void
+lws_dht_destroy_all_on_vhost(struct lws_vhost *vh);
+#endif
 
 void
 __lws_vhost_destroy2(struct lws_vhost *vh);
