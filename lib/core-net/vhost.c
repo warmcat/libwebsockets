@@ -1597,6 +1597,11 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 	memset((void *)&wsi, 0, sizeof(wsi));
 	wsi.a.context = vh->context;
 	wsi.a.vhost = vh; /* not a real bound wsi */
+
+#if defined(LWS_WITH_DHT)
+	lws_dht_destroy_all_on_vhost(vh);
+#endif
+
 	protocol = vh->protocols;
 	if (protocol && vh->created_vhost_protocols) {
 		n = 0;
