@@ -151,6 +151,14 @@ static const char * const paths_vhosts[] = {
 
 	"vhosts[].disable-no-protocol-ws-upgrades",
 	"vhosts[].h2-half-closed-long-poll",
+#if defined(LWS_WITH_DHT)
+	"vhosts[].dht[].v",
+	"vhosts[].dht[].name",
+	"vhosts[].dht[].port",
+	"vhosts[].dht[].ipv6",
+	"vhosts[].dht[].hash",
+	"vhosts[].dht[]",
+#endif
 };
 
 enum lejp_vhost_paths {
@@ -235,6 +243,14 @@ enum lejp_vhost_paths {
 
 	LEJPVP_FLAG_DISABLE_NO_PROTOCOL_WS_UPGRADES,
 	LEJPVP_FLAG_H2_HALF_CLOSED_LONG_POLL,
+#if defined(LWS_WITH_DHT)
+	LEJPVP_DHT_V,
+	LEJPVP_DHT_NAME,
+	LEJPVP_DHT_PORT,
+	LEJPVP_DHT_IPV6,
+	LEJPVP_DHT_HASH,
+	LEJPVP_DHT,
+#endif
 };
 
 #define MAX_PLUGIN_DIRS 10
@@ -266,6 +282,15 @@ struct jpargs {
 
 	struct lwsac *ac;
        void *user;
+
+#if defined(LWS_WITH_DHT)
+	struct lws_dht_info dht;
+	struct jpargs_dht_list {
+		struct jpargs_dht_list *next;
+		struct lws_dht_info info;
+	} *dht_head, *dht_last;
+	uint8_t dht_active;
+#endif
 };
 
 static void *
@@ -509,6 +534,16 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		a->info->keepalive_timeout = 5;
 	}
 
+#if defined(LWS_WITH_DHT)
+	if (reason == LEJPCB_OBJECT_START &&
+	    ctx->path_match == LEJPVP_DHT + 1) {
+		a->dht_active = 1;
+		memset(&a->dht, 0, sizeof(a->dht));
+		a->dht.port = 7682;
+		a->dht.legacy = 1;
+	}
+#endif
+
 	if (reason == LEJPCB_OBJECT_START &&
 	    ctx->path_match == LEJPVP_MOUNTS + 1) {
 		a->fresh_mount = 1;
@@ -644,8 +679,44 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		}
 #endif
 
+#if defined(LWS_WITH_DHT)
+		{
+			struct jpargs_dht_list *d = a->dht_head;
+			while (d) {
+				d->info.vhost = vhost;
+				if (!lws_dht_create(&d->info))
+					lwsl_err("Failed to create DHT\n");
+				d = d->next;
+			}
+			a->dht_head = a->dht_last = NULL;
+		}
+#endif
+
 		return 0;
 	}
+
+#if defined(LWS_WITH_DHT)
+	if (reason == LEJPCB_OBJECT_END &&
+	    ctx->path_match == LEJPVP_DHT + 1) {
+		struct jpargs_dht_list *d;
+
+		if (!a->dht_active)
+			return 0;
+
+		d = lwsws_align(a);
+		a->p += sizeof(*d);
+		d->info = a->dht;
+		d->next = NULL;
+
+		if (a->dht_last)
+			a->dht_last->next = d;
+		else
+			a->dht_head = d;
+
+		a->dht_last = d;
+		a->dht_active = 0;
+	}
+#endif
 
 	if (reason == LEJPCB_OBJECT_END &&
 	    ctx->path_match == LEJPVP_MOUNTS + 1) {
@@ -705,6 +776,35 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		return 0;
 
 	switch (ctx->path_match - 1) {
+#if defined(LWS_WITH_DHT)
+	case LEJPVP_DHT_V:
+		a->dht.v = a->p;
+		break;
+	case LEJPVP_DHT_NAME:
+		a->dht.name = a->p;
+		break;
+	case LEJPVP_DHT_PORT:
+		a->dht.port = atoi(ctx->buf);
+		return 0;
+	case LEJPVP_DHT_IPV6:
+		a->dht.ipv6 = !!arg_to_bool(ctx->buf);
+		return 0;
+	case LEJPVP_DHT_HASH:
+		if (!strcmp(ctx->buf, "sha1")) {
+			a->dht.aux = LWS_DHT_HASH_TYPE_SHA1;
+			a->dht.legacy = 0;
+		} else if (!strcmp(ctx->buf, "sha256")) {
+			a->dht.aux = LWS_DHT_HASH_TYPE_SHA256;
+			a->dht.legacy = 0;
+		} else if (!strcmp(ctx->buf, "sha512")) {
+			a->dht.aux = LWS_DHT_HASH_TYPE_SHA512;
+			a->dht.legacy = 0;
+		} else if (!strcmp(ctx->buf, "blake3")) {
+			a->dht.aux = LWS_DHT_HASH_TYPE_BLAKE3;
+			a->dht.legacy = 0;
+		}
+		return 0;
+#endif
 	case LEJPVP_NAME:
 		a->info->vhost_name = a->p;
 		break;
