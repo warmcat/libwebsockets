@@ -24,6 +24,38 @@
 
 #if defined(LWS_WITH_AUTHORITATIVE_DNS)
 
+struct auth_dns_rr {
+	lws_dll2_t list;
+
+	char *rdata;
+	size_t rdata_len;
+	
+	uint8_t *wire_rdata;
+	size_t wire_rdata_len;
+};
+
+struct auth_dns_rrset {
+	lws_dll2_t list;
+	lws_dll2_owner_t rr_list;
+
+	char *name;         
+	uint32_t ttl;
+	uint16_t class_;
+	uint16_t type;
+};
+
+struct auth_dns_zone {
+	lws_dll2_owner_t rrset_list;
+	char default_ttl[16];
+	char origin[256];
+};
+
+LWS_VISIBLE LWS_EXTERN int
+lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *zone);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_auth_dns_free_zone(struct auth_dns_zone *z);
+
 struct lws_auth_dns_sign_info {
 	const char			*input_filepath;
 	const char			*output_filepath;

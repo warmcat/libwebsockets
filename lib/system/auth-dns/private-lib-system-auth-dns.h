@@ -27,32 +27,6 @@
 
 #include "private-lib-core.h"
 
-struct auth_dns_rr {
-	lws_dll2_t list;
-
-	char *rdata;        // unparsed or raw payload from zone line
-	size_t rdata_len;
-	
-	uint8_t *wire_rdata; // canonical wire format
-	size_t wire_rdata_len;
-};
-
-struct auth_dns_rrset {
-	lws_dll2_t list;
-	lws_dll2_owner_t rr_list; // list of auth_dns_rr
-
-	char *name;         
-	uint32_t ttl;
-	uint16_t class_;    // e.g. 1 for IN
-	uint16_t type;      // e.g. 1 for A, 2 for NS, etc
-};
-
-struct auth_dns_zone {
-	lws_dll2_owner_t rrset_list;
-	char default_ttl[16];
-	char origin[128];
-};
-
 int
 lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint16_t type);
 
