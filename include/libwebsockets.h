@@ -869,6 +869,7 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 #include <libwebsockets/lws-jrpc.h>
 
 #include <libwebsockets/lws-async-dns.h>
+#include <libwebsockets/lws-auth-dns.h>
 
 #if defined(LWS_WITH_TLS)
 
