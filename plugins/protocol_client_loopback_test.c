@@ -168,14 +168,19 @@ callback_client_loopback_test(struct lws *wsi, enum lws_callback_reasons reason,
 	return 0;
 }
 
+#define LWS_PLUGIN_PROTOCOL_CLIENT_LOOPBACK_TEST \
+	{ \
+		"client-loopback-test", \
+		callback_client_loopback_test, \
+		sizeof(struct per_session_data__client_loopback_test), \
+		1024, /* rx buf size must be >= permessage-deflate rx size */ \
+		0, NULL, 0 \
+	}
+
+#if !defined (LWS_PLUGIN_STATIC)
+
 LWS_VISIBLE const struct lws_protocols client_loopback_test_protocols[] = {
-	{
-		"client-loopback-test",
-		callback_client_loopback_test,
-		sizeof(struct per_session_data__client_loopback_test),
-		1024, /* rx buf size must be >= permessage-deflate rx size */
-		0, NULL, 0
-	},
+	LWS_PLUGIN_PROTOCOL_CLIENT_LOOPBACK_TEST
 };
 
 LWS_VISIBLE const lws_plugin_protocol_t client_loopback_test = {
@@ -191,3 +196,5 @@ LWS_VISIBLE const lws_plugin_protocol_t client_loopback_test = {
 	.extensions = NULL,
 	.count_extensions = 0,
 };
+
+#endif
