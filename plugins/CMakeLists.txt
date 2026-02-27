@@ -279,11 +279,11 @@ if (LWS_WITH_DHT)
 	endif()
 endif()
 
-create_plugin(protocol_lws_webrtc ""
-	      "protocol_lws_webrtc.c" "" "")
-if (NOT LWS_WITH_PLUGINS_BUILTIN)
-	target_compile_definitions(protocol_lws_webrtc PRIVATE LWS_BUILDING_SHARED)
-endif()
+# create_plugin(protocol_lws_webrtc ""
+# 	      "protocol_lws_webrtc.c" "" "")
+# if (NOT LWS_WITH_PLUGINS_BUILTIN)
+# 	target_compile_definitions(protocol_lws_webrtc PRIVATE LWS_BUILDING_SHARED)
+# endif()
 
 if (LWS_WITH_TRANSCODE)
 	create_plugin(protocol_lws_webrtc_mixer ""
@@ -299,6 +299,15 @@ if (LWS_WITH_LATENCY)
 		      "latency/protocol_lws_latency.c" "" "")
 	if (NOT LWS_WITH_PLUGINS_BUILTIN)
 		target_compile_definitions(protocol_lws_latency PRIVATE LWS_BUILDING_SHARED)
+	endif()
+endif()
+
+if (LWS_WITH_AUTHORITATIVE_DNS)
+	create_plugin(protocol_lws_auth_dns ""
+		      "protocol_lws_auth_dns.c" "" "")
+	if (NOT LWS_WITH_PLUGINS_BUILTIN)
+		target_compile_definitions(protocol_lws_auth_dns PRIVATE LWS_BUILDING_SHARED)
+		target_include_directories(protocol_lws_auth_dns PRIVATE ../lib/core ../lib/system/auth-dns)
 	endif()
 endif()
 
