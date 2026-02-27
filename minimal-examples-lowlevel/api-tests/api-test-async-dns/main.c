@@ -12,7 +12,7 @@
 #include <libwebsockets.h>
 #include <signal.h>
 
-static int interrupted, dtest, ok, fail, _exp = 37;
+static int interrupted, dtest, ok, fail, _exp = 38;
 struct lws_context *context;
 
 /*
@@ -113,9 +113,8 @@ static struct async_dns_tests {
 //	{ "c-msn-com-europe-vip.trafficmanager.net", TEST_FLAG_NOCHECK_RESULT_IP |
 //		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 0,
 //		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
-//	{ "c-msn-com-europe-vip.trafficmanager.net", TEST_FLAG_NOCHECK_RESULT_IP |
-//		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 0,
-//		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
+	{ "tcp-fallback.libwebsockets.org", LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 0,
+		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 	{ "mudpuddle.shwaine.com", LWS_ADNS_RECORD_A, 4,
 		{ 174, 134, 58, 54, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 	{ "awsrealm.majicrealm.com", LWS_ADNS_RECORD_A, 4,
@@ -182,6 +181,18 @@ static uint8_t canned_c_msn_com[] = {
 	49,3,116,109,49,6,100,110,115,45,116,109,3,99,111,109,0,10,104,111,115,
 	116,109,97,115,116,101,114,192,33,7,11,234,133,0,0,3,132,0,0,1,44,0,36,
 	234,0,0,0,0,30,
+}, canned_tc_libwebsockets_org[] = {
+	0x00, 0x00, 
+	0x83, 0x80, 
+	0x00, 0x01, 
+	0x00, 0x00, 
+	0x00, 0x00, 
+	0x00, 0x00, 
+	12, 't', 'c', 'p', '-', 'f', 'a', 'l', 'l', 'b', 'a', 'c', 'k',
+	13, 'l', 'i', 'b', 'w', 'e', 'b', 's', 'o', 'c', 'k', 'e', 't', 's',
+	3, 'o', 'r', 'g', 0,
+	0x00, 0x01, 
+	0x00, 0x01  
 };
 
 static lws_sorted_usec_list_t sul, sul_timeout;
@@ -260,6 +271,13 @@ next_test_cb(lws_sorted_usec_list_t *sul)
 			lws_adns_parse_udp(lws_adns_get_async_dns(q),
 				canned_c_msn_com_europe_vip_trafficmanager_net,
 				sizeof(canned_c_msn_com_europe_vip_trafficmanager_net));
+		}
+		if (!strcmp(adt[dtest].dns_name, "tcp-fallback.libwebsockets.org")) {
+			canned_tc_libwebsockets_org[0] = (uint8_t)(lws_adns_get_tid(q) >> 8);
+			canned_tc_libwebsockets_org[1] = (uint8_t)lws_adns_get_tid(q);
+			lws_adns_parse_udp(lws_adns_get_async_dns(q),
+					canned_tc_libwebsockets_org,
+					sizeof(canned_tc_libwebsockets_org));
 		}
 	}
 }

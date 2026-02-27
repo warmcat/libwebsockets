@@ -39,6 +39,18 @@ lws_adns_q_destroy(lws_adns_q_t *q)
 	lws_sul_cancel(&q->sul);
 	lws_sul_cancel(&q->write_sul);
 	lws_dll2_remove(&q->list);
+
+	if (q->wsi_tcp) {
+		q->wsi_tcp->a.opaque_user_data = NULL;
+		lws_set_timeout(q->wsi_tcp, 1, LWS_TO_KILL_ASYNC);
+		q->wsi_tcp = NULL;
+	}
+
+	if (q->tcp_rx_buf) {
+		lws_free(q->tcp_rx_buf);
+		q->tcp_rx_buf = NULL;
+	}
+
 	if (q->firstcache) {
 		q->firstcache->refcount--;
 		q->firstcache = NULL;
@@ -268,8 +280,13 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 	assert(p < pkt + sizeof(pkt) - LWS_PRE);
 	n = lws_ptr_diff(p, pkt + LWS_PRE);
 
-	m = lws_write(wsi, pkt + LWS_PRE, (unsigned int)n, 0);
-	if (m != n) {
+	if (!wsi->udp) {
+		lws_ser_wu16be(pkt + LWS_PRE - 2, (uint16_t)n);
+		m = lws_write(wsi, pkt + LWS_PRE - 2, (unsigned int)n + 2, 0);
+	} else
+		m = lws_write(wsi, pkt + LWS_PRE, (unsigned int)n, 0);
+
+	if (m != (wsi->udp ? n : n + 2)) {
 		lwsl_wsi_notice(wsi, "dns write failed %d %d errno %d",
 			    m, n, errno);
 		goto qfail;
@@ -305,6 +322,81 @@ callback_async_dns(struct lws *wsi, enum lws_callback_reasons reason,
 		   void *user, void *in, size_t len)
 {
 	struct lws_async_dns *dns = &(lws_get_context(wsi)->async_dns);
+
+	if (!wsi->udp) {
+		lws_adns_q_t *q = (lws_adns_q_t *)wsi->a.opaque_user_data;
+
+		if (!q)
+			return 0;
+
+		switch (reason) {
+		case LWS_CALLBACK_RAW_CONNECTED:
+			lws_callback_on_writable(wsi);
+			break;
+		case LWS_CALLBACK_RAW_CLOSE:
+			q->wsi_tcp = NULL;
+			if (q->go_nogo != METRES_GO) {
+				lws_async_dns_complete(q, NULL);
+				lws_adns_q_destroy(q);
+			}
+			break;
+		case LWS_CALLBACK_RAW_RX:
+			/* accumulate bytes */
+			if (!q->has_tcp_len) {
+				const uint8_t *in8 = (const uint8_t *)in;
+
+				while (len && !q->has_tcp_len) {
+					q->tcp_rx_len = (uint16_t)((q->tcp_rx_len << 8) | *in8++);
+					q->tcp_rx_pos++;
+					len--;
+					if (q->tcp_rx_pos == 2) {
+						if (q->tcp_rx_len < DHO_SIZEOF ||
+						    q->tcp_rx_len > LWS_ADNS_MAX_PAYLOAD) {
+							lwsl_wsi_notice(wsi, "adns tcp len bad");
+							return -1;
+						}
+						q->has_tcp_len = 1;
+						q->tcp_rx_pos = 0;
+						q->tcp_rx_buf = lws_malloc(q->tcp_rx_len + 1, "adns tcp");
+						if (!q->tcp_rx_buf) {
+							lwsl_wsi_err(wsi, "OOM");
+							return -1;
+						}
+					}
+				}
+				in = (void *)in8;
+			}
+
+			if (q->has_tcp_len && len) {
+				size_t chunk = len;
+				if (q->tcp_rx_pos + chunk > (size_t)q->tcp_rx_len)
+					chunk = (size_t)(q->tcp_rx_len - q->tcp_rx_pos);
+				memcpy(q->tcp_rx_buf + q->tcp_rx_pos, in, chunk);
+				q->tcp_rx_pos = (uint16_t)(q->tcp_rx_pos + chunk);
+
+				if (q->tcp_rx_pos == q->tcp_rx_len) {
+					/* we have the whole message */
+					lws_adns_parse_udp(dns, q->tcp_rx_buf, q->tcp_rx_len);
+					/* TCP connection is done */
+					return -1;
+				}
+			}
+			break;
+		case LWS_CALLBACK_RAW_WRITEABLE:
+			if (!q->is_retry && q->sent[0]
+#if defined(LWS_WITH_IPV6)
+	         && q->sent[0] == q->sent[1]
+#endif
+			)
+				break;
+			lws_async_dns_writeable(wsi, q);
+			break;
+		default:
+			break;
+		}
+		return 0;
+	}
+
 	lws_async_dns_server_t *dsrv =
 			(lws_async_dns_server_t *)wsi->a.opaque_user_data;
 
@@ -335,7 +427,7 @@ callback_async_dns(struct lws *wsi, enum lws_callback_reasons reason,
 
 			if (//lws_dll2_is_detached(&q->sul.list) &&
 			    !q->is_synthetic &&
-			    (!q->asked || q->responded != q->asked))
+			    (!q->asked || q->responded != q->asked) && !q->is_tcp)
 				lws_async_dns_writeable(wsi, q);
 		} lws_end_foreach_dll_safe(d, d1);
 		break;
@@ -1220,4 +1312,37 @@ failed:
 		return LADNS_RET_FAILED_WSI_CLOSED;
 
 	return LADNS_RET_FAILED;
+}
+
+int
+lws_async_dns_create_tcp_wsi(lws_adns_q_t *q)
+{
+	struct lws_client_connect_info i;
+	char ads[48];
+
+	if (q->wsi_tcp)
+		return 0;
+
+	memset(&i, 0, sizeof(i));
+	i.context = q->context;
+
+	lws_sa46_write_numeric_address(&q->dsrv->sa46, ads, sizeof(ads));
+	i.address = ads;
+	i.port = 53;
+	i.ssl_connection = 0;
+	i.method = "RAW";
+	i.local_protocol_name = lws_async_dns_protocol.name;
+	i.opaque_user_data = q;
+
+	q->is_tcp = 1;
+	q->has_tcp_len = 0;
+	q->tcp_rx_pos = 0;
+	
+	q->wsi_tcp = lws_client_connect_via_info(&i);
+	if (!q->wsi_tcp) {
+		lwsl_cx_err(q->context, "adns tcp connect fail");
+		return 1;
+	}
+
+	return 0;
 }
