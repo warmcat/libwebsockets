@@ -42,8 +42,11 @@ name_to_wire(const char *name, const char *origin, uint8_t *wire, size_t *wire_l
 		lws_strncpy(f, name, sizeof(f));
 	}
 
+	int cycles = 0;
 	p = f;
 	while (*p) {
+		if (++cycles > 128)
+			return 1;
 		const char *dot = strchr(p, '.');
 		if (!dot)
 			l = strlen(p);
@@ -98,9 +101,10 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 	lws_tokenize_init(&ts, rr->rdata, LWS_TOKENIZE_F_HASH_COMMENT | LWS_TOKENIZE_F_DOT_NONTERM | LWS_TOKENIZE_F_NO_FLOATS | LWS_TOKENIZE_F_MINUS_NONTERM | LWS_TOKENIZE_F_SLASH_NONTERM | LWS_TOKENIZE_F_COLON_NONTERM | LWS_TOKENIZE_F_EQUALS_NONTERM | LWS_TOKENIZE_F_PLUS_NONTERM);
 	ts.len = strlen(rr->rdata);
 
+	int max_tokens = 0;
 	do {
 		e = lws_tokenize(&ts);
-		if (e == LWS_TOKZE_ENDED)
+		if (e == LWS_TOKZE_ENDED || ++max_tokens > 256)
 			break;
 
 		if (e == LWS_TOKZE_TOKEN || e == LWS_TOKZE_QUOTED_STRING || e == LWS_TOKZE_INTEGER) {
@@ -155,9 +159,11 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		}
 	} else if (type == 16) { // TXT
 		/* TXT strings are grouped as 1-byte length prefix + string payload */
-		for (int i = 0; i < num_toks && i < 8; i++) {
+		for (int i = 0; i < num_toks && i < 16; i++) {
 			n = (int)strlen(toks[i]);
 			if (n > 255) n = 255;
+			if (wl + 1 + (size_t)n > rr->rdata_len + 512)
+				goto fail;
 			w[wl++] = (uint8_t)n;
 			memcpy(w + wl, toks[i], (size_t)n);
 			wl += (size_t)n;

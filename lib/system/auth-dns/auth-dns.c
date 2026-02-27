@@ -82,8 +82,14 @@ lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *z
 
 	char line_accum[4096];
 	size_t lptr = 0;
+	int loop_cycles = 0;
 
 	while (p <= end) {
+		if (++loop_cycles > 5000000) {
+			lwsl_err("auth-dns: parsing exceeded maximum length\n");
+			break;
+		}
+
 		if (p < end && *p == '(' && !in_comment)
 			in_parens = 1;
 		else if (p < end && *p == ')' && !in_comment)
@@ -111,9 +117,10 @@ lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *z
 				lws_tokenize_init(&ts, line_accum, LWS_TOKENIZE_F_HASH_COMMENT | LWS_TOKENIZE_F_DOT_NONTERM | LWS_TOKENIZE_F_NO_FLOATS | LWS_TOKENIZE_F_MINUS_NONTERM | LWS_TOKENIZE_F_SLASH_NONTERM | LWS_TOKENIZE_F_COLON_NONTERM | LWS_TOKENIZE_F_EQUALS_NONTERM | LWS_TOKENIZE_F_PLUS_NONTERM);
 				ts.len = lptr;
 
+				int max_tokens = 0;
 				do {
 					e = lws_tokenize(&ts);
-					if (e == LWS_TOKZE_ENDED)
+					if (e == LWS_TOKZE_ENDED || ++max_tokens > 256)
 						break;
 
 					if (e == LWS_TOKZE_TOKEN || e == LWS_TOKZE_QUOTED_STRING || e == LWS_TOKZE_INTEGER) {
