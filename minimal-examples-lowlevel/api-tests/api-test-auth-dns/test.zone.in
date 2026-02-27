@@ -1,0 +1,26 @@
+$ORIGIN warmcat.com.    ; default zone domain
+$TTL 1200               ; default time to live
+
+@ IN SOA ns3.warmcat.com. andy.warmcat.com. (
+        20250425007     ; serial number
+        60              ; Refresh
+        120             ; Retry
+        1209600         ; Expire
+        120             ; Min TTL
+)
+
+@                       IN      NS      ns3.warmcat.com.
+@                       IN      NS      ns4.warmcat.com.
+ns3                     IN      A       212.83.179.61
+ns3                     IN      AAAA    2001:bc8:6010:213:208:a2ff:fe0c:72ce
+ns4                     IN      A       212.83.179.61
+ns4                     IN      AAAA    2001:bc8:6010:213:208:a2ff:fe0c:72ce
+@                       IN      A       ${MHWC_DYNAMIC}
+@                       IN      AAAA    2001:bc8:6010:213:208:a2ff:fe0c:72ce
+
+mail                    IN      A       212.83.179.61
+mail                    IN      AAAA    2001:bc8:6010:213:208:a2ff:fe0c:72ce
+@                       IN      MX      1 mx.warmcat.com.
+@                       IN      TXT     "v=spf1 mx a -all"
+mx              60      IN      A       ${MHWC_DYNAMIC}
+mx              60      IN      AAAA    2001:bc8:6010:213:208:a2ff:fe0c:72ce

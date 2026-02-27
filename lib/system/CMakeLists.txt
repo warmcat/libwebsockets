@@ -48,6 +48,12 @@ if (LWS_WITH_NETWORK)
 			system/async-dns/async-dns-parse.c)
 	endif()
 
+	if (LWS_WITH_AUTHORITATIVE_DNS)
+		list(APPEND SOURCES
+			system/auth-dns/auth-dns.c
+			system/auth-dns/sign.c)
+	endif()
+
 	if (LWS_WITH_SYS_NTPCLIENT)
 		list(APPEND SOURCES
 			system/ntpclient/ntpclient.c)
