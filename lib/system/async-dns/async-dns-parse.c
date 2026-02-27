@@ -37,7 +37,7 @@ lws_adns_parse_label(const uint8_t *pkt, int len, const uint8_t *ls, int budget,
 	int n, readsize = 0, consumed = -1;
 	uint8_t ll;
 
-	if (len < DHO_SIZEOF || len > 1500)
+	if (len < DHO_SIZEOF || len > LWS_ADNS_MAX_PAYLOAD)
 		return -1;
 
 	if (budget < 1)
@@ -184,7 +184,7 @@ lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
 	char *sp, inq;
 	uint32_t ttl;
 
-	if (len < DHO_SIZEOF || len > 1500)
+	if (len < DHO_SIZEOF || len > LWS_ADNS_MAX_PAYLOAD)
 		return -1;
 
 	lws_strncpy(stack[0].name, expname, sizeof(stack[0].name));
@@ -570,7 +570,7 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 
 	/* we have to at least have the header */
 
-	if (len < DHO_SIZEOF || len > 1500)
+	if (len < DHO_SIZEOF || len > LWS_ADNS_MAX_PAYLOAD)
 		return;
 
 	/* we asked with one query, so anything else is bogus */
@@ -604,6 +604,25 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 	}
 
 	q->responded = (uint8_t)(q->responded | n);
+
+	/* did we get truncated? */
+	if ((lws_ser_ru16be(pkt + DHO_FLAGS) & 0x0200) && !q->is_tcp) {
+		lwsl_notice("%s: ADNS truncated, falling back to TCP for %s\n",
+			    __func__, ((const char *)&q[1]) + DNS_MAX);
+		
+		q->responded = (uint8_t)(q->responded & ~n);
+		q->asked = 0;
+		q->sent[0] = 0;
+#if defined(LWS_WITH_IPV6)
+		q->sent[1] = 0;
+#endif
+		if (lws_async_dns_create_tcp_wsi(q)) {
+			q->go_nogo = METRES_NOGO;
+			goto fail_out;
+		}
+
+		return;
+	}
 
 	/* we want to confirm the results against what we last requested... */
 

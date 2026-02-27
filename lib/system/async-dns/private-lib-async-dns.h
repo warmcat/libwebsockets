@@ -28,6 +28,7 @@
 #define DNS_PACKET_LEN		1400	/* Buffer size for DNS packet	*/
 #define MAX_CACHE_ENTRIES	10	/* Dont cache more than that	*/
 #define DNS_QUERY_TIMEOUT	30	/* Query timeout, seconds	*/
+#define LWS_ADNS_MAX_PAYLOAD	1500	/* Maximum TCP payload size    */
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 
@@ -92,6 +93,13 @@ typedef struct lws_adns_q {
 
 	uint8_t			is_retry:1;
 	uint8_t			is_synthetic:1; /* test will deliver canned */
+	uint8_t			is_tcp:1;
+	uint8_t			has_tcp_len:1;
+
+	struct lws		*wsi_tcp;
+	uint8_t			*tcp_rx_buf;
+	uint16_t		tcp_rx_len;
+	uint16_t		tcp_rx_pos;
 
 	/* name overallocated here */
 } lws_adns_q_t;
@@ -138,6 +146,9 @@ lws_async_dns_trim_cache(lws_async_dns_t *dns);
 
 int
 lws_async_dns_get_new_tid(struct lws_context *context, lws_adns_q_t *q);
+
+int
+lws_async_dns_create_tcp_wsi(lws_adns_q_t *q);
 
 
 
