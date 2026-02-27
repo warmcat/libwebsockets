@@ -2605,12 +2605,12 @@ bail:
 		1024, 0, NULL, 900	\
 	}
 
+#if !defined (LWS_PLUGIN_STATIC)
+
 LWS_VISIBLE const struct lws_protocols lws_ssh_base_protocols[] = {
 	LWS_PLUGIN_PROTOCOL_LWS_RAW_SSHD,
 	{ NULL, NULL, 0, 0, 0, NULL, 0 } /* terminator */
 };
-
-#if !defined (LWS_PLUGIN_STATIC)
 
 LWS_VISIBLE const lws_plugin_protocol_t lws_ssh_base = {
 	.hdr = {

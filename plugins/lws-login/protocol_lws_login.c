@@ -277,13 +277,18 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 	return 0;
 }
 
-static const struct lws_protocols protocols[] = {
-	{
-		"lws_login",
-		callback_lws_login,
-		sizeof(struct pss_login),
-		1024, 0, NULL, 0
-	},
+#define LWS_PLUGIN_PROTOCOL_LWS_LOGIN \
+	{ \
+		"lws_login", \
+		callback_lws_login, \
+		sizeof(struct pss_login), \
+		1024, 0, NULL, 0 \
+	}
+
+#if !defined (LWS_PLUGIN_STATIC)
+
+LWS_VISIBLE const struct lws_protocols protocols[] = {
+	LWS_PLUGIN_PROTOCOL_LWS_LOGIN
 };
 
 LWS_VISIBLE const lws_plugin_protocol_t lws_login = {
@@ -299,3 +304,5 @@ LWS_VISIBLE const lws_plugin_protocol_t lws_login = {
 	.extensions = NULL,
 	.count_extensions = 0,
 };
+
+#endif
