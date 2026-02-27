@@ -154,6 +154,7 @@
 #cmakedefine LWS_WITH_ALLOC_METADATA_LWS
 #cmakedefine LWS_WITH_ALSA
 #cmakedefine LWS_WITH_SYS_ASYNC_DNS
+#cmakedefine LWS_WITH_AUTHORITATIVE_DNS
 #cmakedefine LWS_WITH_BORINGSSL
 #cmakedefine LWS_WITH_AWSLC
 #cmakedefine LWS_WITH_CGI
