@@ -1155,34 +1155,49 @@ do_retry:
 #endif
 
 
-LWS_VISIBLE const struct lws_protocols lws_openmetrics_export_protocols[] = {
 #if defined(LWS_WITH_SERVER)
-	{ /* for scraper directly: http export on listen socket */
-		"lws-openmetrics",
-		callback_lws_openmetrics_export,
-		sizeof(struct pss),
-		1024, 0, NULL, 0
-	},
-	{ /* for scraper via ws proxy: http export on listen socket */
-		"lws-openmetrics-prox-agg",
-		callback_lws_openmetrics_prox_agg,
-		sizeof(struct pss),
-		1024, 0, NULL, 0
-	},
-	{ /* metrics proxy server side: ws server for clients to connect to */
-		"lws-openmetrics-prox-server",
-		callback_lws_openmetrics_prox_server,
-		sizeof(struct pss),
-		1024, 0, NULL, 0
-	},
+#define LWS_PLUGIN_PROTOCOL_LWS_OPENMETRICS_EXPORT \
+	{ /* for scraper directly: http export on listen socket */ \
+		"lws-openmetrics", \
+		callback_lws_openmetrics_export, \
+		sizeof(struct pss), \
+		1024, 0, NULL, 0 \
+	}
+#define LWS_PLUGIN_PROTOCOL_LWS_OPENMETRICS_PROX_AGG \
+	{ /* for scraper via ws proxy: http export on listen socket */ \
+		"lws-openmetrics-prox-agg", \
+		callback_lws_openmetrics_prox_agg, \
+		sizeof(struct pss), \
+		1024, 0, NULL, 0 \
+	}
+#define LWS_PLUGIN_PROTOCOL_LWS_OPENMETRICS_PROX_SERVER \
+	{ /* metrics proxy server side: ws server for clients to connect to */ \
+		"lws-openmetrics-prox-server", \
+		callback_lws_openmetrics_prox_server, \
+		sizeof(struct pss), \
+		1024, 0, NULL, 0 \
+	}
 #endif
 #if defined(LWS_WITH_CLIENT) && defined(LWS_ROLE_WS)
-	{ /* client to metrics proxy: ws client to connect to metrics proxy*/
-		"lws-openmetrics-prox-client",
-		callback_lws_openmetrics_prox_client,
-		sizeof(struct pss),
-		1024, 0, NULL, 0
-	},
+#define LWS_PLUGIN_PROTOCOL_LWS_OPENMETRICS_PROX_CLIENT \
+	{ /* client to metrics proxy: ws client to connect to metrics proxy*/ \
+		"lws-openmetrics-prox-client", \
+		callback_lws_openmetrics_prox_client, \
+		sizeof(struct pss), \
+		1024, 0, NULL, 0 \
+	}
+#endif
+
+#if !defined (LWS_PLUGIN_STATIC)
+
+LWS_VISIBLE const struct lws_protocols lws_openmetrics_export_protocols[] = {
+#if defined(LWS_WITH_SERVER)
+	LWS_PLUGIN_PROTOCOL_LWS_OPENMETRICS_EXPORT,
+	LWS_PLUGIN_PROTOCOL_LWS_OPENMETRICS_PROX_AGG,
+	LWS_PLUGIN_PROTOCOL_LWS_OPENMETRICS_PROX_SERVER,
+#endif
+#if defined(LWS_WITH_CLIENT) && defined(LWS_ROLE_WS)
+	LWS_PLUGIN_PROTOCOL_LWS_OPENMETRICS_PROX_CLIENT,
 #endif
 };
 
@@ -1197,3 +1212,5 @@ LWS_VISIBLE const lws_plugin_protocol_t lws_openmetrics_export = {
 	.protocols = lws_openmetrics_export_protocols,
 	.count_protocols = LWS_ARRAY_SIZE(lws_openmetrics_export_protocols),
 };
+
+#endif
