@@ -706,6 +706,15 @@ struct lws_context {
 	struct lws_threadpool *tp_list_head;
 #endif
 
+#if defined(LWS_WITH_ASYNC_QUEUE)
+	lws_dll2_owner_t	async_worker_waiting;
+	lws_dll2_owner_t	async_worker_finished;
+	pthread_mutex_t		async_worker_mutex;
+	pthread_cond_t		async_worker_cond;
+	uint8_t			async_worker_threads_active;
+	uint8_t			count_async_threads;
+#endif
+
 #if defined(LWS_WITH_PEER_LIMITS)
 	struct lws_peer			**pl_hash_table;
 	struct lws_peer			*peer_wait_list;

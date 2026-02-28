@@ -436,12 +436,23 @@ lws_adopt_descriptor_vhost2(struct lws *new_wsi, lws_adoption_type type,
 		lws_pt_unlock(pt);
 	}
 #if defined(LWS_WITH_SERVER)
-	 else
+	 else {
+#if defined(LWS_WITH_LATENCY)
+		lws_usec_t _adptssl_start = lws_now_usecs();
+#endif
 		if (lws_server_socket_service_ssl(new_wsi, fd.sockfd, 0)) {
 			lwsl_wsi_info(new_wsi, "fail ssl negotiation");
 
 			goto fail;
 		}
+#if defined(LWS_WITH_LATENCY)
+		{
+			unsigned int ms = (unsigned int)((lws_now_usecs() - _adptssl_start) / 1000);
+			if (ms > 2)
+				lws_latency_note(pt, _adptssl_start, 2000, "adptssl:%dms", ms);
+		}
+#endif
+	}
 #endif
 
 	lws_vhost_lock(new_wsi->a.vhost);
@@ -543,28 +554,65 @@ lws_adopt_descriptor_vhost_via_info(const lws_adopt_desc_t *info)
 	}
 #endif
 
+#if defined(LWS_WITH_LATENCY)
+	lws_usec_t _adpt1_start = lws_now_usecs();
+#endif
+
 	lws_context_lock(info->vh->context, __func__);
 
 	new_wsi = __lws_adopt_descriptor_vhost1(info->vh, info->type,
 					      info->vh_prot_name, info->parent,
 					      info->opaque, info->fi_wsi_name);
+
+#if defined(LWS_WITH_LATENCY)
+	{
+		unsigned int ms = (unsigned int)((lws_now_usecs() - _adpt1_start) / 1000);
+		if (ms > 2)
+			lws_latency_note(info->vh->context->pt, _adpt1_start, 2000, "adpt1:%dms", ms);
+	}
+#endif
+
 	if (!new_wsi) {
 		if (info->type & LWS_ADOPT_SOCKET)
 			compatible_close(info->fd.sockfd);
 		goto bail;
 	}
 
+#if defined(LWS_WITH_LATENCY)
+	lws_usec_t _peer_start = lws_now_usecs();
+#endif
+
 	if (info->type & LWS_ADOPT_SOCKET &&
 	    getpeername(info->fd.sockfd, (struct sockaddr *)&new_wsi->sa46_peer,
 								    &slen) < 0)
 		lwsl_info("%s: getpeername failed\n", __func__);
+
+#if defined(LWS_WITH_LATENCY)
+	{
+		unsigned int ms = (unsigned int)((lws_now_usecs() - _peer_start) / 1000);
+		if (ms > 2)
+			lws_latency_note(info->vh->context->pt, _peer_start, 2000, "peer:%dms", ms);
+	}
+#endif
 
 #if defined(LWS_WITH_PEER_LIMITS)
 	if (peer)
 		lws_peer_add_wsi(info->vh->context, peer, new_wsi);
 #endif
 
+#if defined(LWS_WITH_LATENCY)
+	lws_usec_t _adpt2_start = lws_now_usecs();
+#endif
+
 	new_wsi = lws_adopt_descriptor_vhost2(new_wsi, info->type, info->fd);
+
+#if defined(LWS_WITH_LATENCY)
+	{
+		unsigned int ms = (unsigned int)((lws_now_usecs() - _adpt2_start) / 1000);
+		if (ms > 2)
+			lws_latency_note(info->vh->context->pt, _adpt2_start, 2000, "adpt2:%dms", ms);
+	}
+#endif
 
 bail:
 	lws_context_unlock(info->vh->context);

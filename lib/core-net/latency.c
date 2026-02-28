@@ -58,9 +58,26 @@ lws_latency_cb_end(struct lws_context_per_thread *pt, const char *pn)
 	bs = (uint64_t)now / LWS_LATENCY_BUCKET_US;
 
 	if (pt->latency_ring[pt->latency_idx].bucket_start_us != bs) {
+		char temp_req_info[64];
+		char temp_anno[64];
+		temp_req_info[0] = '\0';
+		temp_anno[0] = '\0';
+
+		/* carry over any req_info written during this prolonged callback */
+		if (pt->latency_ring[pt->latency_idx].req_info[0])
+			lws_strncpy(temp_req_info, pt->latency_ring[pt->latency_idx].req_info, sizeof(temp_req_info));
+
+		if (pt->latency_ring[pt->latency_idx].annotation[0])
+			lws_strncpy(temp_anno, pt->latency_ring[pt->latency_idx].annotation, sizeof(temp_anno));
+
 		pt->latency_idx = (pt->latency_idx + 1) % LWS_LATENCY_RING_SIZE;
 		memset(&pt->latency_ring[pt->latency_idx], 0, sizeof(pt->latency_ring[0]));
 		pt->latency_ring[pt->latency_idx].bucket_start_us = bs;
+
+		if (temp_req_info[0])
+			lws_strncpy(pt->latency_ring[pt->latency_idx].req_info, temp_req_info, sizeof(pt->latency_ring[0].req_info));
+		if (temp_anno[0])
+			lws_strncpy(pt->latency_ring[pt->latency_idx].annotation, temp_anno, sizeof(pt->latency_ring[0].annotation));
 	}
 
 	pt->latency_ring[pt->latency_idx].lat_us += lat_us;
@@ -104,11 +121,16 @@ lws_latency_get_json(struct lws_context *context, int tsi, uint64_t since_us,
 		first = 0;
 
 		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
-				  "{\"start\":%llu,\"lat\":%u,\"wrst\":%u,\"ev\":%u,\"proto\":\"%s\",\"ts\":\"%s\"}",
-				  (unsigned long long)bs_us,
-				  b->lat_us, b->worst_lat_us, b->events,
-				  b->worst_protocol[0] ? b->worst_protocol : "none",
-				  b->worst_time[0] ? b->worst_time : "-");
+			  "{\"start\":%llu,\"lat\":%u,\"wrst\":%u,\"ev\":%u,"
+			  "\"req_info\":\"%s\","
+			  "\"anno\":\"%s\","
+			  "\"proto\":\"%s\",\"ts\":\"%s\"}",
+			  (unsigned long long)bs_us,
+			  b->lat_us, b->worst_lat_us, b->events,
+			  b->req_info[0] ? b->req_info : "",
+			  b->annotation[0] ? b->annotation : "",
+			  b->worst_protocol[0] ? b->worst_protocol : "none",
+			  b->worst_time[0] ? b->worst_time : "-");
 		count++;
 	}
 

@@ -100,6 +100,8 @@ lws_ssl_close(struct lws *wsi)
 
 	__lws_ssl_remove_wsi_from_buffered_list(wsi);
 
+	lws_tls_restrict_return(wsi);
+
 	return 0;
 }
 
@@ -108,21 +110,36 @@ lws_tls_server_accept(struct lws *wsi)
 {
 	int n;
 
+#if defined(LWS_WITH_LATENCY)
+	lws_usec_t _g_ssl_acc_start = lws_now_usecs();
+#endif
+
 	n = gnutls_handshake((gnutls_session_t)wsi->tls.ssl);
 	lwsl_debug("%s: gnutls_handshake returned %d\n", __func__, n);
+
+#if defined(LWS_WITH_LATENCY)
+	{
+		unsigned int ms = (unsigned int)((lws_now_usecs() - _g_ssl_acc_start) / 1000);
+		if (ms > 2 && !wsi->tls.ssl_accept_in_bg)
+			lws_latency_note(&wsi->a.context->pt[(int)wsi->tsi], _g_ssl_acc_start, 2000, "ssl_accept:%dms", ms);
+	}
+#endif
+
 	if (n == GNUTLS_E_SUCCESS)
 		return LWS_SSL_CAPABLE_DONE;
 
 	if (n == GNUTLS_E_AGAIN || n == GNUTLS_E_INTERRUPTED) {
 		if (gnutls_record_get_direction((gnutls_session_t)wsi->tls.ssl) == 0) {
-			if (lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN))
+			if (!wsi->tls.ssl_accept_in_bg && lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN))
 				lwsl_notice("%s: lws_change_pollfd failed\n", __func__);
-		} else {
-			if (lws_change_pollfd(wsi, LWS_POLLIN, LWS_POLLOUT))
-				lwsl_notice("%s: lws_change_pollfd failed\n", __func__);
-		}
 
-		return LWS_SSL_CAPABLE_MORE_SERVICE;
+			return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
+		} else {
+			if (!wsi->tls.ssl_accept_in_bg && lws_change_pollfd(wsi, LWS_POLLIN, LWS_POLLOUT))
+				lwsl_notice("%s: lws_change_pollfd failed\n", __func__);
+
+			return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
+		}
 	}
 
 	lwsl_info("gnutls_handshake (server) failed: %s (%d)\n", gnutls_strerror(n), n);
@@ -197,7 +214,42 @@ lws_tls_server_abort_connection(struct lws *wsi)
 int
 lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 {
-	/* TODO: Implement peer cert verification for GnuTLS */
+	unsigned int status = 0;
+	gnutls_session_t session = (gnutls_session_t)wsi->tls.ssl;
+
+	if (gnutls_certificate_verify_peers2(session, &status) < 0) {
+		snprintf(ebuf, ebuf_len, "gnutls_certificate_verify_peers2 failed");
+		return -1;
+	}
+
+	if (status != 0) {
+		unsigned int allowed = 0;
+
+		if (wsi->tls.use_ssl & LCCSCF_ALLOW_INSECURE)
+			allowed = status;
+
+		if (wsi->tls.use_ssl & LCCSCF_ALLOW_SELFSIGNED)
+			allowed |= GNUTLS_CERT_INVALID | GNUTLS_CERT_SIGNER_NOT_FOUND | GNUTLS_CERT_SIGNER_NOT_CA;
+
+		if (wsi->tls.use_ssl & LCCSCF_ALLOW_EXPIRED)
+			allowed |= GNUTLS_CERT_EXPIRED | GNUTLS_CERT_NOT_ACTIVATED;
+
+		if ((status & ~allowed) == 0) {
+			lwsl_info("%s: allowing anyway\n", __func__);
+			return 0;
+		}
+
+		gnutls_datum_t ds;
+		gnutls_certificate_verification_status_print(status, gnutls_certificate_type_get(session), &ds, 0);
+		if (ds.data) {
+			snprintf(ebuf, ebuf_len, "Peer cert verify failed: %s", ds.data);
+			gnutls_free(ds.data);
+		} else {
+			snprintf(ebuf, ebuf_len, "Peer cert verify failed with status %d", status);
+		}
+		return -1;
+	}
+
 	return 0;
 }
 

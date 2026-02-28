@@ -282,3 +282,4 @@
 #cmakedefine LWS_WITH_V4L2
 #cmakedefine LWS_HAVE_LINUX_VIDEODEV2_H
 #cmakedefine LWS_HAVE_FFMPEG
+#cmakedefine LWS_WITH_ASYNC_QUEUE

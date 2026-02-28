@@ -83,11 +83,37 @@ lws_webrtc_get_context(struct vhd_webrtc *vhd)
 	return vhd->context;
 }
 
-static uint8_t lws_webrtc_get_video_pt(struct pss_webrtc *pss) { return pss->pt_video; }
-static uint8_t lws_webrtc_get_video_pt_h264(struct pss_webrtc *pss) { return pss->pt_video_h264; }
-static uint8_t lws_webrtc_get_video_pt_av1(struct pss_webrtc *pss) { return pss->pt_video_av1; }
-static uint16_t lws_webrtc_get_seq_video(struct pss_webrtc *pss) { return pss->last_seq_video; }
-static uint8_t lws_webrtc_get_audio_pt(struct pss_webrtc *pss) { return pss->pt_audio; }
+void
+lws_webrtc_media_ref(struct lws_webrtc_peer_media *media)
+{
+	if (!media) return;
+	/* In a real multi-threaded system this should be atomic, but for now we'll do:
+	 * Since `refcount` updates happen on the LWS event loop primarily, it's safe. */
+	media->refcount++;
+}
+
+void
+lws_webrtc_media_unref(struct lws_webrtc_peer_media **pmedia)
+{
+	struct lws_webrtc_peer_media *media = *pmedia;
+	if (!media) return;
+	media->refcount--;
+	if (media->refcount == 0) {
+		pthread_mutex_destroy(&media->lock_tx);
+		free(media);
+	}
+	*pmedia = NULL;
+}
+
+static struct lws_webrtc_peer_media *lws_webrtc_get_media(struct pss_webrtc *pss) {
+	return pss ? pss->media : NULL;
+}
+
+static uint8_t lws_webrtc_get_video_pt(struct pss_webrtc *pss) { return pss->media ? pss->media->pt_video : 0; }
+static uint8_t lws_webrtc_get_video_pt_h264(struct pss_webrtc *pss) { return pss->media ? pss->media->pt_video_h264 : 0; }
+static uint8_t lws_webrtc_get_video_pt_av1(struct pss_webrtc *pss) { return pss->media ? pss->media->pt_video_av1 : 0; }
+static uint16_t lws_webrtc_get_seq_video(struct pss_webrtc *pss) { return pss->media ? pss->media->last_seq_video : 0; }
+static uint8_t lws_webrtc_get_audio_pt(struct pss_webrtc *pss) { return pss->media ? pss->media->pt_audio : 0; }
 
 static void
 lws_webrtc_set_on_media(struct vhd_webrtc *vhd, lws_webrtc_on_media_cb cb)
@@ -98,20 +124,20 @@ lws_webrtc_set_on_media(struct vhd_webrtc *vhd, lws_webrtc_on_media_cb cb)
 static void
 rtp_packet_tx_cb(void *priv, const uint8_t *pkt, size_t len, int marker)
 {
-	struct pss_webrtc *pss = (struct pss_webrtc *)priv;
+	struct lws_webrtc_peer_media *media = (struct lws_webrtc_peer_media *)priv;
 	uint8_t protected_pkt[2048 + LWS_PRE];
 	uint8_t *p = protected_pkt + LWS_PRE;
 	size_t protected_len = len;
 
 	(void)marker;
 
-	if (!pss->has_peer_sin)
+	if (!media || !media->has_peer_sin)
 		return;
 
 	memcpy(p, pkt, len);
 	if (marker) p[1] |= 0x80;
 
-	if (lws_srtp_protect(&pss->srtp_ctx_tx, p, &protected_len, 2048)) {
+	if (lws_srtp_protect(&media->srtp_ctx_tx, p, &protected_len, 2048)) {
 		lwsl_err("%s: SRTP protect failed\n", __func__);
 		return;
 	}
@@ -120,20 +146,20 @@ rtp_packet_tx_cb(void *priv, const uint8_t *pkt, size_t len, int marker)
 	 * Non-blocking send. If we get EAGAIN/ENOBUFS, we must drop the packet
 	 * to avoid blocking the event loop or spinning.
 	 */
-	if (sendto(lws_get_socket_fd(pss->wsi_udp), (const char *)p, LWS_POSIX_LENGTH_CAST(protected_len), 0,
-				(const struct sockaddr *)&pss->peer_sin, sizeof(pss->peer_sin)) < (int)protected_len) {
+	if (sendto(lws_get_socket_fd(media->wsi_udp), (const char *)p, LWS_POSIX_LENGTH_CAST(protected_len), 0,
+				(const struct sockaddr *)&media->peer_sin, sizeof(media->peer_sin)) < (int)protected_len) {
 		if (errno != EAGAIN && errno != EWOULDBLOCK && errno != ENOBUFS) {
 			lwsl_err("%s: UDP sendto failed: %d (%s)\n", __func__, errno, strerror(errno));
 		}
 		/* Else: dropped (EAGAIN/ENOBUFS) */
 	} else {
-		if (!pss->sent_first_rtp) {
+		if (!media->sent_first_rtp) {
 			lwsl_notice("%s: Sent FIRST RTP packet to peer\n", __func__);
-			pss->sent_first_rtp = 1;
+			media->sent_first_rtp = 1;
 		}
-		if (len > 50 && pss->sent_first_video < 10) {
-			lwsl_notice("%s: Sent Video RTP pkt %d to peer (len %zu, marker %d)\n", __func__, pss->sent_first_video, protected_len, marker);
-			pss->sent_first_video++;
+		if (len > 50 && media->sent_first_video < 10) {
+			lwsl_notice("%s: Sent Video RTP pkt %d to peer (len %zu, marker %d)\n", __func__, media->sent_first_video, protected_len, marker);
+			media->sent_first_video++;
 		}
 	}
 }
@@ -145,30 +171,25 @@ rtp_packet_tx_cb(void *priv, const uint8_t *pkt, size_t len, int marker)
  */
 
 
-static void
-rtp_packet_tx_cb_tracker(void *priv, const uint8_t *pkt, size_t len, int m)
-{
-	struct rtp_tx_tracker *t = (struct rtp_tx_tracker *)priv;
-	t->count++;
-	rtp_packet_tx_cb(t->pss, pkt, len, m);
-}
 
 static int
-lws_webrtc_send_video(struct pss_webrtc *pss, const uint8_t *buf, size_t len, int codec, uint32_t pts)
+lws_webrtc_send_video(struct lws_webrtc_peer_media *media, const uint8_t *buf, size_t len, int codec, uint32_t pts)
 {
-	struct rtp_tx_tracker tracker = { pss, 0 };
+	/* We no longer use rtp_tx_tracker with pss here since rtp_packet_tx_cb expects a tracker with pss.
+	 * Wait, rtp_packet_tx_cb expects `tracker->pss`. Let's pass `media` instead.
+	 * Let's rewrite rtp_packet_tx_cb_tracker. */
 	int is_av1 = 0;
 	uint8_t pt = 0;
 
-	if (!pss->handshake_done)
+	if (!media || !media->handshake_done)
 		return 0;
 
 	if (codec == LWS_WEBRTC_CODEC_AV1) {
 		is_av1 = 1;
-		pt = pss->pt_video_av1;
+		pt = media->pt_video_av1;
 	} else {
 		is_av1 = 0;
-		pt = pss->pt_video_h264;
+		pt = media->pt_video_h264;
 	}
 
 	if (!pt) {
@@ -176,19 +197,21 @@ lws_webrtc_send_video(struct pss_webrtc *pss, const uint8_t *buf, size_t len, in
 		return 0;
 	}
 
-	if (pss->sent_first_video < 10)
-		lwsl_notice("%s: Outgoing video session %p, len %zu, PT %u, SSRC %u, Codec %d\n",
-				__func__, pss, len, pt, pss->ssrc_video, codec);
+	pthread_mutex_lock(&media->lock_tx);
 
-	if (!pss->rtp_ts_offset_set) {
+	if (media->sent_first_video < 10)
+		lwsl_notice("%s: Outgoing video session %p, len %zu, PT %u, SSRC %u, Codec %d\n",
+				__func__, media, len, pt, media->ssrc_video, codec);
+
+	if (!media->rtp_ts_offset_set) {
 		/* Lock the incoming master PTS to our randomized session timeline */
-		pss->rtp_ts_offset = pss->rtp_ctx_video.ts - pts;
-		pss->rtp_ts_offset_set = 1;
+		media->rtp_ts_offset = media->rtp_ctx_video.ts - pts;
+		media->rtp_ts_offset_set = 1;
 		lwsl_notice("%s: Session %p, Base TS %u, Master PTS %u, Sync Offset %u\n",
-				__func__, pss, pss->rtp_ctx_video.ts, pts, pss->rtp_ts_offset);
+				__func__, media, media->rtp_ctx_video.ts, pts, media->rtp_ts_offset);
 	}
 
-	pss->rtp_ctx_video.ts = pts + pss->rtp_ts_offset;
+	media->rtp_ctx_video.ts = pts + media->rtp_ts_offset;
 
 	// static int ts_tick = 0;
 	// if (ts_tick++ % 100 == 0)
@@ -197,7 +220,7 @@ lws_webrtc_send_video(struct pss_webrtc *pss, const uint8_t *buf, size_t len, in
 
 	if (is_av1) {
 		const uint8_t *src = buf, *end = buf + len;
-		pss->rtp_ctx_video.pt = pt;
+		media->rtp_ctx_video.pt = pt;
 
 		static int av1_rx_cnt = 0;
 		if (av1_rx_cnt++ % 50 == 0) {
@@ -309,7 +332,7 @@ lws_webrtc_send_video(struct pss_webrtc *pss, const uint8_t *buf, size_t len, in
 				//	tmp_obu[0], tl > 1 ? tmp_obu[1] : 0, tmp_obu[tl], tmp_obu[tl+1]);
 
 				memcpy(tmp_obu + tl, ps, pl);
-				lws_rtp_av1_packetize(&pss->rtp_ctx_video, tmp_obu, tl + pl, (obu_start == last_valid_obu), LWS_RTP_MTU_DEFAULT, rtp_packet_tx_cb_tracker, &tracker);
+				lws_rtp_av1_packetize(&media->rtp_ctx_video, tmp_obu, tl + pl, (obu_start == last_valid_obu), LWS_RTP_MTU_DEFAULT, rtp_packet_tx_cb, media);
 				if (tmp_obu != stack_obu) free(tmp_obu);
 			}
 
@@ -319,7 +342,7 @@ lws_webrtc_send_video(struct pss_webrtc *pss, const uint8_t *buf, size_t len, in
 		const uint8_t *p = buf, *end = buf + len;
 		const uint8_t *nal_start = NULL;
 
-		pss->rtp_ctx_video.pt = pt;
+		media->rtp_ctx_video.pt = pt;
 
 		while (p < end) {
 			const uint8_t *next_nal = NULL;
@@ -347,27 +370,27 @@ lws_webrtc_send_video(struct pss_webrtc *pss, const uint8_t *buf, size_t len, in
 			uint8_t type = nal_start[0] & 0x1f;
 			int last = !next_nal;
 
-			if (type == 7 || type == 8 || type == 5 || (pss->sent_first_video % 30 == 0))
-				lwsl_debug("%s: Outgoing H264 NAL type %u, len %zu, SSRC %u, PT %u (last %d)\n", __func__, type, nal_len, pss->ssrc_video, pt, last);
+			if (type == 7 || type == 8 || type == 5 || (media->sent_first_video % 30 == 0))
+				lwsl_debug("%s: Outgoing H264 NAL type %u, len %zu, SSRC %u, PT %u (last %d)\n", __func__, type, nal_len, media->ssrc_video, pt, last);
 
-			if (type == 7 && nal_len <= sizeof(pss->sps)) {
-				memcpy(pss->sps, nal_start, nal_len);
-				pss->sps_len = nal_len;
-			} else if (type == 8 && nal_len <= sizeof(pss->pps)) {
-				memcpy(pss->pps, nal_start, nal_len);
-				pss->pps_len = nal_len;
+			if (type == 7 && nal_len <= sizeof(media->sps)) {
+				memcpy(media->sps, nal_start, nal_len);
+				media->sps_len = nal_len;
+			} else if (type == 8 && nal_len <= sizeof(media->pps)) {
+				memcpy(media->pps, nal_start, nal_len);
+				media->pps_len = nal_len;
 			} else if (type == 5) {
 				lws_usec_t now = lws_now_usecs();
-				if (now - pss->last_sps_pps_ts > 1 * LWS_US_PER_SEC) {
-					if (pss->sps_len)
-						lws_rtp_h264_packetize(&pss->rtp_ctx_video, pss->sps, pss->sps_len, 0, LWS_RTP_MTU_DEFAULT, rtp_packet_tx_cb_tracker, &tracker);
-					if (pss->pps_len)
-						lws_rtp_h264_packetize(&pss->rtp_ctx_video, pss->pps, pss->pps_len, 0, LWS_RTP_MTU_DEFAULT, rtp_packet_tx_cb_tracker, &tracker);
-					pss->last_sps_pps_ts = now;
+				if (now - media->last_sps_pps_ts > 1 * LWS_US_PER_SEC) {
+					if (media->sps_len)
+						lws_rtp_h264_packetize(&media->rtp_ctx_video, media->sps, media->sps_len, 0, LWS_RTP_MTU_DEFAULT, rtp_packet_tx_cb, media);
+					if (media->pps_len)
+						lws_rtp_h264_packetize(&media->rtp_ctx_video, media->pps, media->pps_len, 0, LWS_RTP_MTU_DEFAULT, rtp_packet_tx_cb, media);
+					media->last_sps_pps_ts = now;
 				}
 			}
 
-			lws_rtp_h264_packetize(&pss->rtp_ctx_video, nal_start, nal_len, last, LWS_RTP_MTU_DEFAULT, rtp_packet_tx_cb_tracker, &tracker);
+			lws_rtp_h264_packetize(&media->rtp_ctx_video, nal_start, nal_len, last, LWS_RTP_MTU_DEFAULT, rtp_packet_tx_cb, media);
 
 			if (next_nal)
 				p = next_nal;
@@ -377,53 +400,52 @@ lws_webrtc_send_video(struct pss_webrtc *pss, const uint8_t *buf, size_t len, in
 	}
 
 	/* Increment timestamp: 90000Hz / 30fps = 3000 (Global for all codecs) */
-	pss->rtp_ctx_video.ts += 3000;
+	media->rtp_ctx_video.ts += 3000;
 
-	// if (pss->sent_first_video < 20) {
+	// if (media->sent_first_video < 20) {
 	//	lwsl_notice("%s: Sent frame (len %zu, packets %d, Codec %d, PT %u, TS %u)\n",
-	//		__func__, len, tracker.count, codec, pss->rtp_ctx_video.pt, pss->rtp_ctx_video.ts);
+	//		__func__, len, tracker.count, codec, media->rtp_ctx_video.pt, media->rtp_ctx_video.ts);
 	// }
 
-	pss->sent_first_video++;
-	if (pss->sent_first_video > 1000) pss->sent_first_video = 100; /* throttle but stay tracking */
+	media->sent_first_video++;
+	if (media->sent_first_video > 1000) media->sent_first_video = 100; /* throttle but stay tracking */
+
+	pthread_mutex_unlock(&media->lock_tx);
 
 	return 0;
 }
 
 static int
-lws_webrtc_send_audio(struct pss_webrtc *pss, const uint8_t *buf, size_t len, uint32_t timestamp)
+lws_webrtc_send_audio(struct lws_webrtc_peer_media *media, const uint8_t *buf, size_t len, uint32_t timestamp)
 {
 	uint8_t pkt[1514 + LWS_PRE];
 	uint8_t *p = pkt + LWS_PRE;
 	size_t pkt_len = LWS_RTP_HEADER_LEN + len;
 
-	if (!pss->handshake_done)
+	if (!media || !media->handshake_done)
 		return 0;
 
+	pthread_mutex_lock(&media->lock_tx);
+
 	if (timestamp != 0) {
-		if (!pss->rtp_ts_audio_offset_set) {
-			pss->rtp_ts_audio_offset = pss->rtp_ctx_audio.ts - timestamp;
-			pss->rtp_ts_audio_offset_set = 1;
+		if (!media->rtp_ts_audio_offset_set) {
+			media->rtp_ts_audio_offset = media->rtp_ctx_audio.ts - timestamp;
+			media->rtp_ts_audio_offset_set = 1;
 		}
-		pss->rtp_ctx_audio.ts = timestamp + pss->rtp_ts_audio_offset;
+		media->rtp_ctx_audio.ts = timestamp + media->rtp_ts_audio_offset;
 	}
 
-	lws_rtp_write_header(&pss->rtp_ctx_audio, p, 0); /* Marker=0 for audio */
+	lws_rtp_write_header(&media->rtp_ctx_audio, p, 0); /* Marker=0 for audio */
 	memcpy(p + LWS_RTP_HEADER_LEN, buf, len);
 
 	if (timestamp == 0)
-		pss->rtp_ctx_audio.ts += 960; /* Use fallback for 20ms if PTS omitted */
+		media->rtp_ctx_audio.ts += 960; /* Use fallback for 20ms if PTS omitted */
 
-	if (lws_srtp_protect(&pss->srtp_ctx_tx, p, &pkt_len, 1514) == 0) {
-		if (!pss->sent_first_audio) {
-			lwsl_notice("%s: Sent FIRST Audio RTP packet to peer (PT %u, SSRC %u, len %zu)\n",
-					__func__, pss->rtp_ctx_audio.pt, pss->rtp_ctx_audio.ssrc, pkt_len);
-			pss->sent_first_audio = 1;
-		}
-		sendto(lws_get_socket_fd(pss->wsi_udp), (const char *)p, LWS_POSIX_LENGTH_CAST(pkt_len), 0,
-				(const struct sockaddr *)&pss->peer_sin, sizeof(pss->peer_sin));
-		return 0;
-	}
+	rtp_packet_tx_cb(media, p, pkt_len, 0);
+
+	media->sent_first_audio = 1;
+
+	pthread_mutex_unlock(&media->lock_tx);
 
 	return 0;
 }
@@ -442,25 +464,33 @@ lws_webrtc_send_text(struct pss_webrtc *pss, const char *buf, size_t len)
 static int
 lws_webrtc_send_pli(struct pss_webrtc *pss)
 {
+	struct lws_webrtc_peer_media *media = pss ? pss->media : NULL;
 	uint8_t pli[128 + LWS_PRE];
 	uint8_t *p = pli + LWS_PRE;
 
-	if (!pss->ssrc_peer_video) return 0;
+	if (!media || !media->handshake_done)
+		return 0;
+
+	if (!media->ssrc_peer_video) return 0;
 
 	/* RTCP PLI: Vers=2, P=0, FMT=1, PT=206, Len=2 (12 bytes) */
 	p[0] = 0x81; p[1] = 206; p[2] = 0; p[3] = 2;
 	/* SSRC of sender */
-	p[4] = (uint8_t)(pss->ssrc_video >> 24); p[5] = (uint8_t)(pss->ssrc_video >> 16);
-	p[6] = (uint8_t)(pss->ssrc_video >> 8);  p[7] = (uint8_t)pss->ssrc_video;
+	p[4] = (uint8_t)(media->ssrc_video >> 24); p[5] = (uint8_t)(media->ssrc_video >> 16);
+	p[6] = (uint8_t)(media->ssrc_video >> 8);  p[7] = (uint8_t)media->ssrc_video;
 	/* SSRC of media source (browser) */
-	p[8] = (uint8_t)(pss->ssrc_peer_video >> 24); p[9] = (uint8_t)(pss->ssrc_peer_video >> 16);
-	p[10] = (uint8_t)(pss->ssrc_peer_video >> 8); p[11] = (uint8_t)pss->ssrc_peer_video;
+	p[8] = (uint8_t)(media->ssrc_peer_video >> 24); p[9] = (uint8_t)(media->ssrc_peer_video >> 16);
+	p[10] = (uint8_t)(media->ssrc_peer_video >> 8); p[11] = (uint8_t)media->ssrc_peer_video;
 
 	size_t len = 12;
-	if (lws_srtp_protect_rtcp(&pss->srtp_ctx_tx, p, &len, sizeof(pli) - LWS_PRE) == 0) {
-		lwsl_notice("%s: Sending PLI request for SSRC %u\n", __func__, pss->ssrc_peer_video);
-		sendto(lws_get_socket_fd(pss->wsi_udp), (const char *)p, LWS_POSIX_LENGTH_CAST(len), 0, (const struct sockaddr *)&pss->peer_sin, sizeof(pss->peer_sin));
+
+	pthread_mutex_lock(&media->lock_tx);
+	if (lws_srtp_protect_rtcp(&media->srtp_ctx_tx, p, &len, sizeof(pli) - LWS_PRE) == 0) {
+		lwsl_notice("%s: Sending PLI request for SSRC %u\n", __func__, media->ssrc_peer_video);
+		sendto(lws_get_socket_fd(media->wsi_udp), (const char *)p, LWS_POSIX_LENGTH_CAST(len), 0, (const struct sockaddr *)&media->peer_sin, sizeof(media->peer_sin));
 	}
+	pthread_mutex_unlock(&media->lock_tx);
+
 	return 0;
 }
 
@@ -490,22 +520,21 @@ lws_webrtc_create_offer(struct pss_webrtc *pss)
 		if (lws_gendtls_create(&pss->dtls_ctx, &ci)) return -1;
 		lws_gendtls_set_cert_mem(&pss->dtls_ctx, vhd->cert_mem, vhd->cert_len);
 		lws_gendtls_set_key_mem(&pss->dtls_ctx, vhd->key_mem, vhd->key_len);
+		pss->media->wsi_udp = vhd->wsi_udp;
 		pss->handshake_started = 1;
-		pss->wsi_udp = vhd->wsi_udp;
 	}
 
 	/* Default PTs for Offer */
-	pss->pt_audio = 111;
-	pss->pt_video = 100; /* VP8? No, let's use dynamic */
-	pss->pt_video_h264 = 102;
-	pss->pt_video_av1 = 104;
-	pss->pt_video = pss->pt_video_h264; /* Default to H264 */
+	pss->media->pt_audio = 111;
+	pss->media->pt_video_h264 = 102;
+	pss->media->pt_video_av1 = 104;
+	pss->media->pt_video = pss->media->pt_video_h264; /* Default to H264 */
 
-	pss->rtp_ctx_video.ts = (uint32_t)(lws_now_usecs() * 9 / 100);
-	pss->rtp_ctx_audio.ts = (uint32_t)(lws_now_usecs() * 48 / 1000);
+	pss->media->rtp_ctx_video.ts = (uint32_t)(lws_now_usecs() * 9 / 100);
+	pss->media->rtp_ctx_audio.ts = (uint32_t)(lws_now_usecs() * 48 / 1000);
 
-	lws_rtp_init(&pss->rtp_ctx_video, pss->ssrc_video, pss->pt_video);
-	lws_rtp_init(&pss->rtp_ctx_audio, pss->ssrc_audio, pss->pt_audio);
+	lws_rtp_init(&pss->media->rtp_ctx_video, pss->media->ssrc_video, pss->media->pt_video);
+	lws_rtp_init(&pss->media->rtp_ctx_audio, pss->media->ssrc_audio, pss->media->pt_audio);
 
 	/* Candidates */
 	if (vhd->external_ip[0]) {
@@ -542,13 +571,13 @@ lws_webrtc_create_offer(struct pss_webrtc *pss)
 			"a=ssrc:%u msid:lws-stream lws-track-video\\r\\n"
 			"%s"
 			"a=end-of-candidates\\r\\n",
-		vhd->udp_port, pss->pt_video_h264, pss->pt_video_av1,
+		vhd->udp_port, pss->media->pt_video_h264, pss->media->pt_video_av1,
 		pss->ice_ufrag, pss->ice_pwd, vhd->fingerprint,
-		pss->pt_video_h264, pss->pt_video_h264,
-		pss->pt_video_av1, pss->pt_video_av1,
-		pss->pt_video_h264, pss->pt_video_h264,
-		pss->pt_video_av1, pss->pt_video_av1,
-		pss->ssrc_video, pss->ssrc_video, candidates);
+		pss->media->pt_video_h264, pss->media->pt_video_h264,
+		pss->media->pt_video_av1, pss->media->pt_video_av1,
+		pss->media->pt_video_h264, pss->media->pt_video_h264,
+		pss->media->pt_video_av1, pss->media->pt_video_av1,
+		pss->media->ssrc_video, pss->media->ssrc_video, candidates);
 
 	/* Audio Section */
 	lws_snprintf(audio_m, sizeof(audio_m),
@@ -568,10 +597,10 @@ lws_webrtc_create_offer(struct pss_webrtc *pss)
 			"a=ssrc:%u msid:lws-stream lws-track-audio\\r\\n"
 			"%s"
 			"a=end-of-candidates\\r\\n",
-			vhd->udp_port, pss->pt_audio,
+			vhd->udp_port, pss->media->pt_audio,
 			pss->ice_ufrag, pss->ice_pwd, vhd->fingerprint,
-			pss->pt_audio, pss->pt_audio,
-			pss->ssrc_audio, pss->ssrc_audio, candidates);
+			pss->media->pt_audio, pss->media->pt_audio,
+			pss->media->ssrc_audio, pss->media->ssrc_audio, candidates);
 
 	n_sdp = (size_t)lws_snprintf(p, 8192,
 			"{\"type\":\"offer\",\"sdp\":\"v=0\\r\\no=- 123456 2 IN IP4 %s\\r\\ns=-\\r\\nt=0 0\\r\\na=msid-semantic: WMS lws-stream\\r\\na=ice-lite\\r\\na=group:BUNDLE 0 1\\r\\n%s%s\"}",
@@ -685,8 +714,9 @@ handle_candidate(struct pss_webrtc *pss, struct vhd_webrtc *vhd, const char *can
 	 * We need to handle "candidate:1" or "candidate" "1" depending on tokenizer.
 	 * Let's just look for "UDP" then take the next 3 tokens: priority, IP, port.
 	 */
-	lws_tokenize_init(&ts, cand, LWS_TOKENIZE_F_NO_FLOATS | LWS_TOKENIZE_F_MINUS_NONTERM | LWS_TOKENIZE_F_DOT_NONTERM);
+	memset(&ts, 0, sizeof(ts));
 	ts.len = strlen(cand);
+	lws_tokenize_init(&ts, cand, LWS_TOKENIZE_F_NO_FLOATS | LWS_TOKENIZE_F_MINUS_NONTERM | LWS_TOKENIZE_F_DOT_NONTERM);
 
 	int state = 0;
 
@@ -716,30 +746,43 @@ handle_candidate(struct pss_webrtc *pss, struct vhd_webrtc *vhd, const char *can
 	if (state == 5 && port > 0) {
 		lwsl_notice("%s: Found Candidate: %s:%d\n", __func__, ip_str, port);
 
-		memset(&pss->peer_sin, 0, sizeof(pss->peer_sin));
-		pss->peer_sin.sin_family = AF_INET;
-		pss->peer_sin.sin_port = htons((uint16_t)port);
-		inet_pton(AF_INET, ip_str, &pss->peer_sin.sin_addr);
-		pss->has_peer_sin = 1;
+		memset(&pss->media->peer_sin, 0, sizeof(pss->media->peer_sin));
+		pss->media->peer_sin.sin_family = AF_INET;
+		pss->media->peer_sin.sin_port = htons((uint16_t)port);
+		inet_pton(AF_INET, ip_str, &pss->media->peer_sin.sin_addr);
+		pss->media->has_peer_sin = 1;
 
 		/* Send STUN Binding Request to punch hole */
 		uint8_t stun[2048];
 		uint8_t tid[12];
 
-		if (!pss->wsi_udp) {
-			lwsl_err("%s: Error: pss->wsi_udp is NULL!\n", __func__);
+		if (!pss->media->wsi_udp) {
+			lwsl_err("%s: Error: pss->media->wsi_udp is NULL!\n", __func__);
 			return -1;
 		}
 
 		lws_get_random(vhd->context, tid, 12);
 		int n = lws_webrtc_stun_req_pack(pss, stun, sizeof(stun), tid);
 		if (n > 0) {
-			sendto(lws_get_socket_fd(pss->wsi_udp), (const char *)stun, (size_t)n, 0,
-					(const struct sockaddr *)&pss->peer_sin, sizeof(pss->peer_sin));
+			sendto(lws_get_socket_fd(pss->media->wsi_udp), (const char *)stun, (size_t)n, 0,
+					(const struct sockaddr *)&pss->media->peer_sin, sizeof(pss->media->peer_sin));
 			lwsl_notice("%s: Sent STUN Binding Request to %s:%d\n", __func__, ip_str, port);
 		} else {
 			lwsl_err("%s: lws_stun_req_pack failed: %d\n", __func__, n);
 		}
+
+		/* Trigger DTLS Client Hello if we were waiting for peer sin */
+		if (pss->is_client && pss->handshake_started && !pss->media->handshake_done) {
+			uint8_t dummy;
+			lws_gendtls_get_rx(&pss->dtls_ctx, &dummy, 1);
+			uint8_t out[2048];
+			int _tx_len;
+			while ((_tx_len = lws_gendtls_get_tx(&pss->dtls_ctx, out, sizeof(out))) > 0) {
+				lwsl_notice("%s: Sending Initial DTLS ClientHello after ICE (%d bytes)\n", __func__, _tx_len);
+				sendto(lws_get_socket_fd(pss->media->wsi_udp), (const char *)out, (size_t)_tx_len, 0, (const struct sockaddr *)&pss->media->peer_sin, sizeof(pss->media->peer_sin));
+			}
+		}
+
 		return 0;
 	}
 
@@ -750,10 +793,10 @@ static void
 lws_webrtc_parse_sdp_codecs(struct pss_webrtc *pss, const char *sdp_clean)
 {
 	/* Reset PSS PTs */
-	pss->pt_audio = 0;
-	pss->pt_video_h264 = 0;
-	pss->pt_video_av1 = 0;
-	pss->pt_video = 0;
+	pss->media->pt_audio = 0;
+	pss->media->pt_video_h264 = 0;
+	pss->media->pt_video_av1 = 0;
+	pss->media->pt_video = 0;
 
 	char mid_audio[32] = "0", mid_video[32] = "1";
 	int audio_first = 0;
@@ -861,10 +904,10 @@ lws_webrtc_parse_sdp_codecs(struct pss_webrtc *pss, const char *sdp_clean)
 						if (!strncasecmp(ts.token, "H264/90000", 10)) {
 							/* We found H264. Map already populated in Pass 1. */
 						} else if (!strncasecmp(ts.token, "AV1/90000", 9)) {
-							pss->pt_video_av1 = (uint8_t)pt;
+							pss->media->pt_video_av1 = (uint8_t)pt;
 						} else if (!strncasecmp(ts.token, "VP9/90000", 9)) {
 						} else if (!strncasecmp(ts.token, "opus/48000", 10)) {
-							pss->pt_audio = (uint8_t)pt;
+							pss->media->pt_audio = (uint8_t)pt;
 						}
 					}
 				}
@@ -887,7 +930,7 @@ lws_webrtc_parse_sdp_codecs(struct pss_webrtc *pss, const char *sdp_clean)
 
 				if (pt != -1) {
 					/* Check if this is H264 Mode 1 */
-					if (!pss->pt_video_h264) {
+					if (!pss->media->pt_video_h264) {
 						int is_mode_1 = 0;
 						while (lws_tokenize(&ts) != LWS_TOKZE_ENDED) {
 							if (ts.token_len == 18 && !strncmp(ts.token, "packetization-mode", 18)) {
@@ -901,32 +944,32 @@ lws_webrtc_parse_sdp_codecs(struct pss_webrtc *pss, const char *sdp_clean)
 						}
 
 						if (is_mode_1) {
-							pss->pt_video_h264 = (uint8_t)pt;
+							pss->media->pt_video_h264 = (uint8_t)pt;
 						} else {
 							/* Only accept if we verified it is H264 via rtpmap */
 							if (pt < 128 && h264_pt_map[pt]) {
 								/* If we haven't found a better one (Mode 1), use this */
-								if (!pss->pt_video_h264)
-									pss->pt_video_h264 = (uint8_t)pt;
+								if (!pss->media->pt_video_h264)
+									pss->media->pt_video_h264 = (uint8_t)pt;
 							}
 						}
 					}
 
 					/* Capture FMTP for Audio/Video */
-					if (pt == pss->pt_audio) {
+					if (pt == pss->media->pt_audio) {
 						if (strlen(line) - 7 > 0) {
 							const char *fmtp_val = strchr(line, ' '); /* Skip a=fmtp:<pt> */
 							if (fmtp_val) {
 								while (*fmtp_val == ' ') fmtp_val++;
-								lws_strncpy(pss->fmtp_audio, fmtp_val, sizeof(pss->fmtp_audio));
+								lws_strncpy(pss->media->fmtp_audio, fmtp_val, sizeof(pss->media->fmtp_audio));
 							}
 						}
-					} else if (pt == pss->pt_video_av1 || pt == pss->pt_video_h264) {
+					} else if (pt == pss->media->pt_video_av1 || pt == pss->media->pt_video_h264) {
 						if (strlen(line) - 7 > 0) {
 							const char *fmtp_val = strchr(line, ' ');
 							if (fmtp_val) {
 								while (*fmtp_val == ' ') fmtp_val++;
-								lws_strncpy(pss->fmtp_video, fmtp_val, sizeof(pss->fmtp_video));
+								lws_strncpy(pss->media->fmtp_video, fmtp_val, sizeof(pss->media->fmtp_video));
 							}
 						}
 					}
@@ -939,15 +982,15 @@ lws_webrtc_parse_sdp_codecs(struct pss_webrtc *pss, const char *sdp_clean)
 	}
 
 	/* Defaults */
-	if (pss->pt_audio == 0) pss->pt_audio = 111;
-	if (pss->pt_video_h264 == 0) pss->pt_video_h264 = 0; /* No H264 found */
+	if (pss->media->pt_audio == 0) pss->media->pt_audio = 111;
+	if (pss->media->pt_video_h264 == 0) pss->media->pt_video_h264 = 0; /* No H264 found */
 
 	/* Preference: H264 > AV1 */
-	pss->pt_video = pss->pt_video_h264 ? pss->pt_video_h264 : pss->pt_video_av1;
-	if (pss->pt_video == 0) pss->pt_video = 126; /* Fallback? */
+	pss->media->pt_video = pss->media->pt_video_h264 ? pss->media->pt_video_h264 : pss->media->pt_video_av1;
+	if (pss->media->pt_video == 0) pss->media->pt_video = 126; /* Fallback? */
 
 	lwsl_notice("%s: Negotiated PTs: Audio=%u, Video=%u (H264=%u, AV1=%u)\n",
-			__func__, pss->pt_audio, pss->pt_video, pss->pt_video_h264, pss->pt_video_av1);
+			__func__, pss->media->pt_audio, pss->media->pt_video, pss->media->pt_video_h264, pss->media->pt_video_av1);
 }
 
 static int
@@ -1020,15 +1063,15 @@ handle_answer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, c
 	free(sdp_clean);
 
 	/* Trigger DTLS Client Hello */
-	lwsl_notice("%s: Checking DTLS Cond: started %d, done %d, peer %d\n", __func__, pss->handshake_started, pss->handshake_done, pss->has_peer_sin);
-	if (pss->handshake_started && !pss->handshake_done && pss->has_peer_sin) {
+	lwsl_notice("%s: Checking DTLS Cond: started %d, done %d, peer %d\n", __func__, pss->handshake_started, pss->media ? pss->media->handshake_done : 0, pss->media ? pss->media->has_peer_sin : 0);
+	if (pss->media && pss->handshake_started && !pss->media->handshake_done && pss->media->has_peer_sin) {
 		uint8_t dummy;
 		lws_gendtls_get_rx(&pss->dtls_ctx, &dummy, 1);
 		uint8_t out[2048];
 		int _tx_len;
 		while ((_tx_len = lws_gendtls_get_tx(&pss->dtls_ctx, out, sizeof(out))) > 0) {
 			lwsl_notice("%s: Sending Initial DTLS ClientHello (%d bytes)\n", __func__, _tx_len);
-			sendto(lws_get_socket_fd(pss->wsi_udp), (const char *)out, (size_t)_tx_len, 0, (const struct sockaddr *)&pss->peer_sin, sizeof(pss->peer_sin));
+			sendto(lws_get_socket_fd(pss->media->wsi_udp), (const char *)out, (size_t)_tx_len, 0, (const struct sockaddr *)&pss->media->peer_sin, sizeof(pss->media->peer_sin));
 		}
 	}
 
@@ -1067,10 +1110,13 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 	write(2, sdp_clean, strlen(sdp_clean));
 
 	/* Reset PSS PTs */
-	pss->pt_audio = 0;
-	pss->pt_video_h264 = 0;
-	pss->pt_video_av1 = 0;
-	pss->pt_video = 0;
+	if (!pss->media)
+		pss->media = calloc(1, sizeof(struct lws_webrtc_peer_media));
+
+	pss->media->pt_audio = 0;
+	pss->media->pt_video_h264 = 0;
+	pss->media->pt_video_av1 = 0;
+	pss->media->pt_video = 0;
 
 	char mid_audio[32] = "0", mid_video[32] = "1";
 	int audio_first = 0;
@@ -1181,12 +1227,12 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 						if (!strncasecmp(ts.token, "H264/90000", 10)) {
 							/* We found H264. Map already populated in Pass 1. */
 						} else if (!strncasecmp(ts.token, "AV1/90000", 9)) {
-							pss->pt_video_av1 = (uint8_t)pt;
+							pss->media->pt_video_av1 = (uint8_t)pt;
 							lwsl_info("  Found AV1 PT: %d\n", pt);
 						} else if (!strncasecmp(ts.token, "VP9/90000", 9)) {
 							lwsl_warn("  Found VP9 PT: %d. We DO NOT support VP9! Please use H264 or AV1.\n", pt);
 						} else if (!strncasecmp(ts.token, "opus/48000", 10)) {
-							pss->pt_audio = (uint8_t)pt;
+							pss->media->pt_audio = (uint8_t)pt;
 							lwsl_info("  Found Opus PT: %d\n", pt);
 						}
 					}
@@ -1210,7 +1256,7 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 
 				if (pt != -1) {
 					/* Check if this is H264 Mode 1 */
-					if (!pss->pt_video_h264) {
+					if (!pss->media->pt_video_h264) {
 						int is_mode_1 = 0;
 						while (lws_tokenize(&ts) != LWS_TOKZE_ENDED) {
 							if (ts.token_len == 18 && !strncmp(ts.token, "packetization-mode", 18)) {
@@ -1224,34 +1270,34 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 						}
 
 						if (is_mode_1) {
-							pss->pt_video_h264 = (uint8_t)pt;
+							pss->media->pt_video_h264 = (uint8_t)pt;
 							lwsl_info("  Found H264 PT %d (Mode 1)\n", pt);
 						} else {
 							/* Only accept if we verified it is H264 via rtpmap */
 							if (pt < 128 && h264_pt_map[pt]) {
 								lwsl_warn("  Found H264 PT %d (Mode 0 / Implicit). Accepting.\n", pt);
 								/* If we haven't found a better one (Mode 1), use this */
-								if (!pss->pt_video_h264)
-									pss->pt_video_h264 = (uint8_t)pt;
+								if (!pss->media->pt_video_h264)
+									pss->media->pt_video_h264 = (uint8_t)pt;
 							}
 						}
 					}
 
 					/* Capture FMTP for Audio/Video */
-					if (pt == pss->pt_audio) {
+					if (pt == pss->media->pt_audio) {
 						if (strlen(line) - 7 > 0) {
 							const char *fmtp_val = strchr(line, ' '); /* Skip a=fmtp:<pt> */
 							if (fmtp_val) {
 								while (*fmtp_val == ' ') fmtp_val++;
-								lws_strncpy(pss->fmtp_audio, fmtp_val, sizeof(pss->fmtp_audio));
+								lws_strncpy(pss->media->fmtp_audio, fmtp_val, sizeof(pss->media->fmtp_audio));
 							}
 						}
-					} else if (pt == pss->pt_video_av1 || pt == pss->pt_video_h264) {
+					} else if (pt == pss->media->pt_video_av1 || pt == pss->media->pt_video_h264) {
 						if (strlen(line) - 7 > 0) {
 							const char *fmtp_val = strchr(line, ' ');
 							if (fmtp_val) {
 								while (*fmtp_val == ' ') fmtp_val++;
-								lws_strncpy(pss->fmtp_video, fmtp_val, sizeof(pss->fmtp_video));
+								lws_strncpy(pss->media->fmtp_video, fmtp_val, sizeof(pss->media->fmtp_video));
 							}
 						}
 					}
@@ -1266,28 +1312,28 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 	lwsl_notice("%s: Extracted MIDs: Audio='%s', Video='%s'\n", __func__, mid_audio, mid_video);
 
 	/* Defaults */
-	if (pss->pt_audio == 0) pss->pt_audio = 111;
-	if (pss->pt_video_h264 == 0) pss->pt_video_h264 = 0; /* No H264 found */
+	if (pss->media->pt_audio == 0) pss->media->pt_audio = 111;
+	if (pss->media->pt_video_h264 == 0) pss->media->pt_video_h264 = 0; /* No H264 found */
 
 	/* Preference: H264 > AV1 */
-	pss->pt_video = pss->pt_video_h264 ? pss->pt_video_h264 : pss->pt_video_av1;
-	if (pss->pt_video == 0) pss->pt_video = 126; /* Fallback? */
+	pss->media->pt_video = pss->media->pt_video_h264 ? pss->media->pt_video_h264 : pss->media->pt_video_av1;
+	if (pss->media->pt_video == 0) pss->media->pt_video = 126; /* Fallback? */
 
 	lwsl_notice("%s: Negotiated PTs: Audio=%u, Video=%u (H264=%u, AV1=%u)\n",
-			__func__, pss->pt_audio, pss->pt_video, pss->pt_video_h264, pss->pt_video_av1);
+			__func__, pss->media->pt_audio, pss->media->pt_video, pss->media->pt_video_h264, pss->media->pt_video_av1);
 
 	free(sdp_clean);
 
 	/* Sync RTP contexts */
-	lws_rtp_init(&pss->rtp_ctx_video, pss->ssrc_video, pss->pt_video);
-	lws_rtp_init(&pss->rtp_ctx_audio, pss->ssrc_audio, pss->pt_audio);
+	lws_rtp_init(&pss->media->rtp_ctx_video, pss->media->ssrc_video, pss->media->pt_video);
+	lws_rtp_init(&pss->media->rtp_ctx_audio, pss->media->ssrc_audio, pss->media->pt_audio);
 
 	/* Reset DTLS if needed */
 	if (pss->handshake_started) {
 		lwsl_notice("%s: Existing handshake detected on Offer. Resetting DTLS state.\n", __func__);
 		lws_gendtls_destroy(&pss->dtls_ctx);
 		pss->handshake_started = 0;
-		pss->handshake_done = 0;
+		if (pss->media) pss->media->handshake_done = 0;
 	}
 
 	if (!pss->handshake_started) {
@@ -1301,7 +1347,7 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 		lws_gendtls_set_cert_mem(&pss->dtls_ctx, vhd->cert_mem, vhd->cert_len);
 		lws_gendtls_set_key_mem(&pss->dtls_ctx, vhd->key_mem, vhd->key_len);
 		pss->handshake_started = 1;
-		pss->wsi_udp = vhd->wsi_udp;
+		pss->media->wsi_udp = vhd->wsi_udp;
 	}
 
 	/* Generate Answer */
@@ -1355,36 +1401,36 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 	char pt_list[64] = "";
 	char rtpmap_lines[512] = "";
 
-	if (pss->pt_video_h264) {
+	if (pss->media->pt_video_h264) {
 		char b[16], c[256];
-		lws_snprintf(b, sizeof(b), "%u ", pss->pt_video_h264);
+		lws_snprintf(b, sizeof(b), "%u ", pss->media->pt_video_h264);
 		strncat(pt_list, b, sizeof(pt_list) - strlen(pt_list) - 1);
 
-		lws_snprintf(c, sizeof(c), "a=rtpmap:%u H264/90000\\r\\n", pss->pt_video_h264);
+		lws_snprintf(c, sizeof(c), "a=rtpmap:%u H264/90000\\r\\n", pss->media->pt_video_h264);
 		strncat(rtpmap_lines, c, sizeof(rtpmap_lines) - strlen(rtpmap_lines) - 1);
 
-		if (pss->fmtp_video[0])
-			lws_snprintf(c, sizeof(c), "a=fmtp:%u %s\\r\\n", pss->pt_video_h264, pss->fmtp_video);
+		if (pss->media->fmtp_video[0])
+			lws_snprintf(c, sizeof(c), "a=fmtp:%u %s\\r\\n", pss->media->pt_video_h264, pss->media->fmtp_video);
 		else
-			lws_snprintf(c, sizeof(c), "a=fmtp:%u level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42c01f\\r\\n", pss->pt_video_h264);
+			lws_snprintf(c, sizeof(c), "a=fmtp:%u level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42c01f\\r\\n", pss->media->pt_video_h264);
 		strncat(rtpmap_lines, c, sizeof(rtpmap_lines) - strlen(rtpmap_lines) - 1);
 
-		lws_snprintf(c, sizeof(c), "a=rtcp-fb:%u nack\\r\\na=rtcp-fb:%u nack pli\\r\\n", pss->pt_video_h264, pss->pt_video_h264);
+		lws_snprintf(c, sizeof(c), "a=rtcp-fb:%u nack\\r\\na=rtcp-fb:%u nack pli\\r\\n", pss->media->pt_video_h264, pss->media->pt_video_h264);
 		strncat(rtpmap_lines, c, sizeof(rtpmap_lines) - strlen(rtpmap_lines) - 1);
 	}
 
-	if (pss->pt_video_av1) {
+	if (pss->media->pt_video_av1) {
 		char b[16], c[256];
-		lws_snprintf(b, sizeof(b), "%u ", pss->pt_video_av1);
+		lws_snprintf(b, sizeof(b), "%u ", pss->media->pt_video_av1);
 		strncat(pt_list, b, sizeof(pt_list) - strlen(pt_list) - 1);
 
-		lws_snprintf(c, sizeof(c), "a=rtpmap:%u AV1/90000\\r\\n", pss->pt_video_av1);
+		lws_snprintf(c, sizeof(c), "a=rtpmap:%u AV1/90000\\r\\n", pss->media->pt_video_av1);
 		strncat(rtpmap_lines, c, sizeof(rtpmap_lines) - strlen(rtpmap_lines) - 1);
 
-		lws_snprintf(c, sizeof(c), "a=fmtp:%u profile=0;level-idx=5;tier=0\\r\\n", pss->pt_video_av1);
+		lws_snprintf(c, sizeof(c), "a=fmtp:%u profile=0;level-idx=5;tier=0\\r\\n", pss->media->pt_video_av1);
 		strncat(rtpmap_lines, c, sizeof(rtpmap_lines) - strlen(rtpmap_lines) - 1);
 
-		lws_snprintf(c, sizeof(c), "a=rtcp-fb:%u nack\\r\\na=rtcp-fb:%u nack pli\\r\\n", pss->pt_video_av1, pss->pt_video_av1);
+		lws_snprintf(c, sizeof(c), "a=rtcp-fb:%u nack\\r\\na=rtcp-fb:%u nack pli\\r\\n", pss->media->pt_video_av1, pss->media->pt_video_av1);
 		strncat(rtpmap_lines, c, sizeof(rtpmap_lines) - strlen(rtpmap_lines) - 1);
 	}
 
@@ -1414,14 +1460,14 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 		pss->ice_ufrag, pss->ice_pwd, vhd->fingerprint,
 		mid_video, 
 		rtpmap_lines,
-		pss->ssrc_video, pss->ssrc_video, candidates, candidates);
+		pss->media->ssrc_video, pss->media->ssrc_video, candidates, candidates);
 
 	/* Prepare Audio FMTP */
 	char fmtp_audio[256] = "";
-	if (pss->fmtp_audio[0]) {
-		lws_snprintf(fmtp_audio, sizeof(fmtp_audio), "a=fmtp:%u %s;stereo=1;sprop-stereo=1;useinbandfec=1;maxplaybackrate=48000\\r\\n", pss->pt_audio, pss->fmtp_audio);
+	if (pss->media->fmtp_audio[0]) {
+		lws_snprintf(fmtp_audio, sizeof(fmtp_audio), "a=fmtp:%u %s;stereo=1;sprop-stereo=1;useinbandfec=1;maxplaybackrate=48000\\r\\n", pss->media->pt_audio, pss->media->fmtp_audio);
 	} else {
-		lws_snprintf(fmtp_audio, sizeof(fmtp_audio), "a=fmtp:%u maxplaybackrate=48000;sprop-stereo=1;stereo=1;useinbandfec=1;maxaveragebitrate=24000\\r\\n", pss->pt_audio);
+		lws_snprintf(fmtp_audio, sizeof(fmtp_audio), "a=fmtp:%u maxplaybackrate=48000;sprop-stereo=1;stereo=1;useinbandfec=1;maxaveragebitrate=24000\\r\\n", pss->media->pt_audio);
 	}
 
 	lws_snprintf(audio_m, sizeof(audio_m),
@@ -1442,12 +1488,12 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 			"%s"
 			"%s"
 			"a=end-of-candidates\\r\\n",
-			vhd->udp_port, pss->pt_audio, vhd->external_ip[0] ? vhd->external_ip : "127.0.0.1", pss->ice_ufrag, pss->ice_pwd, vhd->fingerprint,
-			mid_audio, pss->pt_audio,
+			vhd->udp_port, pss->media->pt_audio, vhd->external_ip[0] ? vhd->external_ip : "127.0.0.1", pss->ice_ufrag, pss->ice_pwd, vhd->fingerprint,
+			mid_audio, pss->media->pt_audio,
 			fmtp_audio,
-			pss->ssrc_audio, pss->ssrc_audio, candidates, candidates);
+			pss->media->ssrc_audio, pss->media->ssrc_audio, candidates, candidates);
 
-	lwsl_notice("%s: Generated Audio FMTP for PT %u\n", __func__, pss->pt_audio);
+	lwsl_notice("%s: Generated Audio FMTP for PT %u\n", __func__, pss->media->pt_audio);
 	char local_ip[46];
 	struct sockaddr_storage ss;
 	socklen_t slen = sizeof(ss);
@@ -1528,6 +1574,9 @@ lws_shared_webrtc_callback(struct lws *wsi, enum lws_callback_reasons reason,
 						ops->send_video         = lws_webrtc_send_video;
 						ops->send_audio         = lws_webrtc_send_audio;
 						ops->send_text          = lws_webrtc_send_text;
+						ops->media_ref          = lws_webrtc_media_ref;
+						ops->media_unref        = lws_webrtc_media_unref;
+						ops->get_media          = lws_webrtc_get_media;
 						ops->send_pli           = lws_webrtc_send_pli;
 						ops->foreach_session    = lws_webrtc_foreach_session;
 						ops->shared_callback    = lws_shared_webrtc_callback;
@@ -1588,16 +1637,22 @@ lws_shared_webrtc_callback(struct lws *wsi, enum lws_callback_reasons reason,
 		case LWS_CALLBACK_CLIENT_ESTABLISHED:
 		case LWS_CALLBACK_ESTABLISHED:
 			pss->wsi_ws = wsi;
-			pss->wsi_udp = vhd->wsi_udp; /* Critical: Session needs UDP handle */
+			if (!pss->media) {
+				pss->media = calloc(1, sizeof(struct lws_webrtc_peer_media));
+				if (!pss->media) return -1;
+				pss->media->refcount = 1; /* PSS owns one reference */
+				pthread_mutex_init(&pss->media->lock_tx, NULL);
+			}
+			pss->media->wsi_udp = vhd->wsi_udp; /* Critical: Session needs UDP handle */
 			if (reason == LWS_CALLBACK_CLIENT_ESTABLISHED)
 				pss->is_client = 1;
 			lws_dll2_clear(&pss->list);
 			lws_dll2_add_tail(&pss->list, &vhd->sessions);
-			pss->ssrc_video = (uint32_t)lws_now_usecs();
-			pss->ssrc_audio = pss->ssrc_video ^ 0xFFFFFFFF;
+			pss->media->ssrc_video = (uint32_t)lws_now_usecs();
+			pss->media->ssrc_audio = pss->media->ssrc_video ^ 0xFFFFFFFF;
 			pss->last_tu_id = -1;
-			pss->pt_audio = 111;
-			pss->sent_first_audio = 0;
+			pss->media->pt_audio = 111;
+			pss->media->sent_first_audio = 0;
 
 			{
 				uint8_t rand[16];
@@ -1725,9 +1780,9 @@ webrtc_find_session(struct vhd_webrtc *vhd, const struct sockaddr_in *sin)
 {
 	lws_start_foreach_dll(struct lws_dll2 *, d, vhd->sessions.head) {
 		struct pss_webrtc *s = lws_container_of(d, struct pss_webrtc, list);
-		if (s->has_peer_sin &&
-				s->peer_sin.sin_addr.s_addr == sin->sin_addr.s_addr &&
-				s->peer_sin.sin_port == sin->sin_port) {
+		if (s->media && s->media->has_peer_sin &&
+				s->media->peer_sin.sin_addr.s_addr == sin->sin_addr.s_addr &&
+				s->media->peer_sin.sin_port == sin->sin_port) {
 			return s;
 		}
 	} lws_end_foreach_dll(d);
@@ -1787,8 +1842,10 @@ webrtc_handle_stun(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrtc **
 							lwsl_notice("%s: Found PSS %p via STUN Username '%s:%s' (Peer IP update)\n",
 									__func__, s, u_dest, u_src);
 							pss = s;
-							pss->peer_sin = *sin;
-							pss->has_peer_sin = 1;
+							if (pss->media) {
+								pss->media->peer_sin = *sin;
+								pss->media->has_peer_sin = 1;
+							}
 							*ppss = s;
 							break;
 						}
@@ -1836,29 +1893,29 @@ webrtc_handle_dtls(struct lws *wsi, struct pss_webrtc *pss, const struct sockadd
 			sendto(lws_get_socket_fd(wsi), (const char *)out, (size_t)_tx_len, 0, (const struct sockaddr *)sin, sizeof(*sin));
 		}
 
-		if (!pss->handshake_done && lws_gendtls_handshake_done(&pss->dtls_ctx)) {
-			pss->handshake_done = 1;
+		if (!pss->media->handshake_done && lws_gendtls_handshake_done(&pss->dtls_ctx)) {
+			pss->media->handshake_done = 1;
 			lwsl_notice("%s: DTLS Handshake DONE! Cipher: %s\n", __func__, lws_gendtls_get_srtp_profile(&pss->dtls_ctx));
 
 			/* Initialize SRTP */
 			uint8_t k[60];
-			if (lws_gendtls_export_keying_material(&pss->dtls_ctx, "EXTRACTOR-dtls_srtp", 19, NULL, 0, k, 60) == 0) {
+			if (lws_gendtls_export_keying_material(&pss->dtls_ctx, "EXTRACTOR-dtls_srtp", 19, NULL, 0, k, 60) == 0 && pss->media) {
 				if (pss->is_client) {
 					/* Client Mode: TX using Client Keys (0/32), RX using Server Keys (16/46) */
 					lwsl_notice("%s: SRTP Client Mode: TX=Client keys, RX=Server keys\n", __func__);
-					lws_srtp_init(&pss->srtp_ctx_tx, LWS_SRTP_PROFILE_AES128_CM_HMAC_SHA1_80, k + 0, k + 32);
-					lws_srtp_init(&pss->srtp_ctx_rx, LWS_SRTP_PROFILE_AES128_CM_HMAC_SHA1_80, k + 16, k + 46);
+					lws_srtp_init(&pss->media->srtp_ctx_tx, LWS_SRTP_PROFILE_AES128_CM_HMAC_SHA1_80, k + 0, k + 32);
+					lws_srtp_init(&pss->media->srtp_ctx_rx, LWS_SRTP_PROFILE_AES128_CM_HMAC_SHA1_80, k + 16, k + 46);
 				} else {
 					/* Server Mode: TX using Server Keys (16/46), RX using Client Keys (0/32) */
 					lwsl_notice("%s: SRTP Server Mode: TX=Server keys, RX=Client keys\n", __func__);
-					lws_srtp_init(&pss->srtp_ctx_tx, LWS_SRTP_PROFILE_AES128_CM_HMAC_SHA1_80, k + 16, k + 46);
-					lws_srtp_init(&pss->srtp_ctx_rx, LWS_SRTP_PROFILE_AES128_CM_HMAC_SHA1_80, k + 0, k + 32);
+					lws_srtp_init(&pss->media->srtp_ctx_tx, LWS_SRTP_PROFILE_AES128_CM_HMAC_SHA1_80, k + 16, k + 46);
+					lws_srtp_init(&pss->media->srtp_ctx_rx, LWS_SRTP_PROFILE_AES128_CM_HMAC_SHA1_80, k + 0, k + 32);
 				}
 
-				lws_rtp_init(&pss->rtp_ctx_video, pss->ssrc_video, pss->pt_video);
-				lws_rtp_init(&pss->rtp_ctx_audio, pss->ssrc_audio, pss->pt_audio);
+				lws_rtp_init(&pss->media->rtp_ctx_video, pss->media->ssrc_video, pss->media->pt_video);
+				lws_rtp_init(&pss->media->rtp_ctx_audio, pss->media->ssrc_audio, pss->media->pt_audio);
 				lwsl_notice("%s: SRTP/RTP contexts initialized: Video SSRC %u (PT %u), Audio SSRC %u (PT %u)\n",
-						__func__, pss->ssrc_video, pss->pt_video, pss->ssrc_audio, pss->pt_audio);
+						__func__, pss->media->ssrc_video, pss->media->pt_video, pss->media->ssrc_audio, pss->media->pt_audio);
 			}
 		}
 	} else {
@@ -1876,7 +1933,7 @@ webrtc_handle_rtp_rtcp(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrt
 	(void)wsi; (void)sin;
 	uint8_t *p = (uint8_t *)in;
 
-	if (!pss || !pss->handshake_done) return 0;
+	if (!pss || !pss->media || !pss->media->handshake_done) return 0;
 
 	uint8_t pt_raw = p[1];
 
@@ -1889,10 +1946,10 @@ webrtc_handle_rtp_rtcp(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrt
 	 */
 	if (pt_raw >= 200 && pt_raw <= 215) { /* RTCP */
 		size_t rtcp_len = len;
-		lws_srtp_unprotect_rtcp(&pss->srtp_ctx_rx, (uint8_t *)in, &rtcp_len);
+		lws_srtp_unprotect_rtcp(&pss->media->srtp_ctx_rx, (uint8_t *)in, &rtcp_len);
 	} else { /* RTP */
 		size_t rtp_len = len;
-		int ret = lws_srtp_unprotect_rtp(&pss->srtp_ctx_rx, (uint8_t *)in, &rtp_len);
+		int ret = lws_srtp_unprotect_rtp(&pss->media->srtp_ctx_rx, (uint8_t *)in, &rtp_len);
 		if (ret == 0 && vhd->on_media) {
 			uint32_t ssrc = (uint32_t)((p[8] << 24) | (p[9] << 16) | (p[10] << 8) | p[11]);
 			uint8_t pkt_pt = pt_raw & 0x7f;
@@ -1900,15 +1957,15 @@ webrtc_handle_rtp_rtcp(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrt
 			/* Log incoming packet types intermittently */
 			if ((p[2] << 8 | p[3]) % 100 == 0) {
 				lwsl_notice("%s: Inbound RTP pkt_pt=%u (Expected Audio=%u, Video=%u, vH264=%u, vAV1=%u)\n",
-						__func__, pkt_pt, pss->pt_audio, pss->pt_video, pss->pt_video_h264, pss->pt_video_av1);
+						__func__, pkt_pt, pss->media->pt_audio, pss->media->pt_video, pss->media->pt_video_h264, pss->media->pt_video_av1);
 			}
 #endif
 
 			/* Check for sequence number gaps on video tracks */
-			if (pkt_pt == pss->pt_video || pkt_pt == pss->pt_video_h264 || pkt_pt == pss->pt_video_av1) {
+			if (pkt_pt == pss->media->pt_video || pkt_pt == pss->media->pt_video_h264 || pkt_pt == pss->media->pt_video_av1) {
 				uint16_t seq = (uint16_t)((p[2] << 8) | p[3]);
-				if (pss->seq_valid_video) {
-					uint16_t expected = (uint16_t)(pss->last_seq_video + 1);
+				if (pss->media->seq_valid_video) {
+					uint16_t expected = (uint16_t)(pss->media->last_seq_video + 1);
 					if (seq != expected) {
 						if (lws_now_usecs() - pss->last_pli_req_time > 200000) {
 							lwsl_notice("%s: RTP Drop (Video): Got %u, Expected %u. Requesting PLI.\n", __func__, seq, expected);
@@ -1917,32 +1974,32 @@ webrtc_handle_rtp_rtcp(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrt
 						}
 					}
 				}
-				pss->last_seq_video = seq;
-				pss->seq_valid_video = 1;
+				pss->media->last_seq_video = seq;
+				pss->media->seq_valid_video = 1;
 			}
 
 			/* Check for sequence number gaps on audio tracks */
-			if (pkt_pt == pss->pt_audio) {
+			if (pkt_pt == pss->media->pt_audio) {
 				uint16_t seq = (uint16_t)((p[2] << 8) | p[3]);
-				if (pss->seq_valid_audio) {
-					uint16_t expected = (uint16_t)(pss->last_seq_audio + 1);
+				if (pss->media->seq_valid_audio) {
+					uint16_t expected = (uint16_t)(pss->media->last_seq_audio + 1);
 					if (seq != expected) {
 						lwsl_warn("%s: RTP Drop (Audio): Got %u, Expected %u (Gap %d)\n",
 								__func__, seq, expected, seq - expected);
 					}
 				}
-				pss->last_seq_audio = seq;
-				pss->seq_valid_audio = 1;
+				pss->media->last_seq_audio = seq;
+				pss->media->seq_valid_audio = 1;
 			}
 
 			// Logic from old block for PLI/header culling...
 			size_t offset = LWS_RTP_HEADER_LEN;
 			uint8_t cc = p[0] & 0x0f;
 
-			if (!pss->ssrc_peer_video && pkt_pt != pss->pt_audio) {
-				if (pkt_pt != pss->pt_video)
-					lwsl_notice("%s: PT mismatch (Expected Video %u, got %u), but taking SSRC %u anyway\n", __func__, pss->pt_video, pkt_pt, ssrc);
-				pss->ssrc_peer_video = ssrc;
+			if (!pss->media->ssrc_peer_video && pkt_pt != pss->media->pt_audio) {
+				if (pkt_pt != pss->media->pt_video)
+					lwsl_notice("%s: PT mismatch (Expected Video %u, got %u), but taking SSRC %u anyway\n", __func__, pss->media->pt_video, pkt_pt, ssrc);
+				pss->media->ssrc_peer_video = ssrc;
 				lwsl_notice("%s: Discovered peer Video SSRC %u, triggering PLI\n", __func__, ssrc);
 				lws_webrtc_send_pli(pss);
 			}
@@ -2098,7 +2155,10 @@ static const struct lws_webrtc_ops webrtc_ops = {
 	.send_video		= lws_webrtc_send_video,
 	.send_audio		= lws_webrtc_send_audio,
 	.send_text		= lws_webrtc_send_text,
+	.media_ref      = lws_webrtc_media_ref,
+	.media_unref    = lws_webrtc_media_unref,
 	.foreach_session	= lws_webrtc_foreach_session,
+	.get_media      = lws_webrtc_get_media,
 	.shared_callback	= lws_shared_webrtc_callback,
 	.get_user_data		= lws_webrtc_get_user_data,
 	.set_user_data		= lws_webrtc_set_user_data,

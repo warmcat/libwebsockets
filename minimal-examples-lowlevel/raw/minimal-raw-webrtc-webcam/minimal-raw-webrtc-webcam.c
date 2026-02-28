@@ -34,10 +34,10 @@ relay_to_session(struct pss_webrtc *pss, void *user)
 
 	if (rd->is_video) {
 		uint32_t pts = (uint32_t)(lws_now_usecs() * 9 / 100);
-		return we_ops->send_video(pss, rd->buf, rd->len, LWS_WEBRTC_CODEC_H264, pts);
+		return we_ops->send_video(we_ops->get_media(pss), rd->buf, rd->len, LWS_WEBRTC_CODEC_H264, pts);
 	}
 
-	return we_ops->send_audio(pss, rd->buf, rd->len, 0);
+	return we_ops->send_audio(we_ops->get_media(pss), rd->buf, rd->len, 0);
 }
 
 static int

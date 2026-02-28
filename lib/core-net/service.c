@@ -41,7 +41,81 @@ lws_service_assert_loop_thread(struct lws_context *cx, int tsi)
 	 * lws_cancel_service().  If you look at the assert backtrace, you
 	 * should see you're illegally calling an lws api from another thread.
 	 */
-	assert(0);
+}
+#endif
+
+#if defined(LWS_WITH_ASYNC_QUEUE)
+void *
+lws_async_worker_worker(void *d)
+{
+	struct lws_context *cx = (struct lws_context *)d;
+	struct lws_async_job *job;
+	struct lws_dll2 *d2;
+
+	pthread_mutex_lock(&cx->async_worker_mutex);
+	while (!cx->being_destroyed) {
+		d2 = lws_dll2_get_head(&cx->async_worker_waiting);
+		if (!d2) {
+			/* Wait until work arrives or destruction */
+			pthread_cond_wait(&cx->async_worker_cond, &cx->async_worker_mutex);
+			continue;
+		}
+
+		job = lws_container_of(d2, struct lws_async_job, list);
+		lws_dll2_remove(&job->list);
+		pthread_mutex_unlock(&cx->async_worker_mutex);
+
+		/* Do the blocking I/O */
+		if (job->wsi) {
+			switch (job->type) {
+			case LWS_AQ_FILE_READ:
+				job->u.fs.amount = 0;
+				if (lws_vfs_file_read(job->u.fs.fop_fd, &job->u.fs.amount, job->u.fs.buf, job->u.fs.len) < 0) {
+					job->u.fs.amount = (lws_filepos_t)-1; /* Error */
+				}
+				break;
+			case LWS_AQ_SSL_ACCEPT:
+#if defined(LWS_WITH_TLS)
+				// lwsl_notice("worker handling LWS_AQ_SSL_ACCEPT for wsi %s\n", lws_wsi_tag(job->wsi));
+				job->wsi->tls.ssl_accept_in_bg = 1;
+				job->u.ssl.status = lws_tls_server_accept(job->wsi);
+				job->wsi->tls.ssl_accept_in_bg = 0;
+				// lwsl_notice("worker finished LWS_AQ_SSL_ACCEPT, st %d\n", job->u.ssl.status);
+#endif
+				break;
+			default:
+				break;
+			}
+		} else {
+			/* WSI is gone, we don't care about the result, but still cleanly finish if we were already reading */
+			if (job->type == LWS_AQ_FILE_READ)
+				job->u.fs.amount = (lws_filepos_t)-1;
+		}
+
+		/* Done reading, re-acquire to post result or cleanup */
+		pthread_mutex_lock(&cx->async_worker_mutex);
+
+		if (!job->wsi) {
+			/* The connection was closed while we were reading or waiting */
+			lws_free(job);
+		} else {
+			/* The WSI still exists! Wake the event loop using cancel service */
+			lws_dll2_add_tail(&job->list, &cx->async_worker_finished);
+			lws_cancel_service(cx);
+		}
+
+		/* Scale down if we have multiple threads but no waiting work */
+		if (cx->async_worker_waiting.count == 0 && cx->async_worker_threads_active > 1) {
+			/* Leave at least one thread alive if work was recently done to avoid thrashing,
+			   but since we are empty, let's just exit this one. */
+			break;
+		}
+	}
+
+	cx->async_worker_threads_active--;
+	pthread_mutex_unlock(&cx->async_worker_mutex);
+
+	return NULL;
 }
 #endif
 
@@ -363,8 +437,10 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 		struct lws *wsi = lws_container_of(d, struct lws, dll_buflist);
 
 		if (!lws_is_flowcontrolled(wsi) &&
-		     lwsi_state(wsi) != LRS_DEFERRING_ACTION)
+		     lwsi_state(wsi) != LRS_DEFERRING_ACTION &&
+		     lwsi_state(wsi) != LRS_AWAITING_FILE_READ) {
 			return 0;
+		}
 
 	/*
 	 * 5) If any guys with http compression to spill, we shouldn't wait in
@@ -587,7 +663,9 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 		struct lws *wsi = lws_container_of(d, struct lws, dll_buflist);
 
 		if (!lws_is_flowcontrolled(wsi) &&
-		     lwsi_state(wsi) != LRS_DEFERRING_ACTION) {
+		     lwsi_state(wsi) != LRS_DEFERRING_ACTION &&
+		     lwsi_state(wsi) != LRS_AWAITING_FILE_READ &&
+		     lwsi_state(wsi) != LRS_AWAITING_SSL_ACCEPT) {
 			forced = 1;
 			break;
 		}
@@ -738,14 +816,33 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 #if defined(LWS_WITH_TLS)
 	if (lwsi_state(wsi) == LRS_SHUTDOWN &&
 	    lws_is_ssl(wsi) && wsi->tls.ssl) {
+
+#if defined(LWS_WITH_LATENCY)
+		lws_usec_t _tls_shut_start = lws_now_usecs();
+#endif
+
 		switch (__lws_tls_shutdown(wsi)) {
 		case LWS_SSL_CAPABLE_DONE:
 		case LWS_SSL_CAPABLE_ERROR:
+#if defined(LWS_WITH_LATENCY)
+		{
+			unsigned int ms = (unsigned int)((lws_now_usecs() - _tls_shut_start) / 1000);
+			if (ms > 2)
+				lws_latency_note(pt, _tls_shut_start, 2000, "tls_shut:%dms", ms);
+		}
+#endif
 			goto close_and_handled;
 
 		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
 		case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
 		case LWS_SSL_CAPABLE_MORE_SERVICE:
+#if defined(LWS_WITH_LATENCY)
+		{
+			unsigned int ms = (unsigned int)((lws_now_usecs() - _tls_shut_start) / 1000);
+			if (ms > 2)
+				lws_latency_note(pt, _tls_shut_start, 2000, "tls_shut_more:%dms", ms);
+		}
+#endif
 			goto handled;
 		}
 	}
@@ -776,6 +873,10 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 
 	// lwsl_notice("%s: %s: wsistate 0x%x\n", __func__, wsi->role_ops->name,
 	//	    wsi->wsistate);
+
+#if defined(LWS_WITH_LATENCY)
+	lws_usec_t _role_start = lws_now_usecs();
+#endif
 
 	switch (lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_handle_POLLIN).
 					       handle_POLLIN(pt, wsi, pollfd)) {
@@ -816,12 +917,31 @@ close_and_handled:
 	default:
 		assert(0);
 	}
+
+#if defined(LWS_WITH_LATENCY)
+	{
+		unsigned int ms = (unsigned int)((lws_now_usecs() - _role_start) / 1000);
+		if (ms > 2)
+			lws_latency_note(pt, _role_start, 2000, "pollin:%dms", ms);
+	}
+#endif
+
 #if defined(LWS_WITH_TLS)
 handled:
 #endif
 	pollfd->revents = 0;
+#if defined(LWS_WITH_LATENCY)
+	lws_usec_t _role_out_start = lws_now_usecs();
+#endif
 	if (cow)
 		lws_callback_on_writable(wsi);
+#if defined(LWS_WITH_LATENCY)
+	{
+		unsigned int ms = (unsigned int)((lws_now_usecs() - _role_out_start) / 1000);
+		if (ms > 2)
+			lws_latency_note(pt, _role_out_start, 2000, "pollout:%dms", ms);
+	}
+#endif
 	pt->inside_lws_service = 0;
 
 	return 0;
@@ -835,13 +955,19 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	const char *pn = "unknown";
 	struct lws *wsi;
+	(void)pt;
+	(void)pn;
 
 	if (!pollfd)
 		return -1;
 
 	wsi = wsi_from_fd(context, pollfd->fd);
-	if (wsi && wsi->a.protocol && wsi->a.protocol->name)
-		pn = wsi->a.protocol->name;
+	if (wsi) {
+		if (wsi->a.protocol && wsi->a.protocol->name)
+			pn = wsi->a.protocol->name;
+		else if (wsi->role_ops && wsi->role_ops->name)
+			pn = wsi->role_ops->name;
+	}
 
 #if defined(LWS_WITH_LATENCY)
 	lws_latency_cb_start(pt);

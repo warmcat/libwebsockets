@@ -402,9 +402,7 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 			we_ops->set_on_media(vhd->vhd, mixer_on_media);
 
 			/* Initialize Worker Threading */
-			lws_mutex_init(vhd->mutex_tx);
 			lws_mutex_init(vhd->mutex_rx);
-			vhd->ring_tx = lws_ring_create(sizeof(struct mixer_msg), 256, NULL);
 			vhd->ring_rx = lws_ring_create(sizeof(struct mixer_msg), 64, NULL);
 
 			vhd->worker_running = 1;
@@ -422,9 +420,7 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 			if (vhd && vhd->worker_running) {
 				vhd->worker_running = 0;
 				pthread_join(vhd->worker_thread, NULL);
-				lws_mutex_destroy(vhd->mutex_tx);
 				lws_mutex_destroy(vhd->mutex_rx);
-				lws_ring_destroy(vhd->ring_tx);
 				lws_ring_destroy(vhd->ring_rx);
 			}
 
@@ -468,6 +464,11 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 
 				/* Create Shared Session */
 				p->session = mixer_media_session_create(vhd, p);
+				if (p->session && we_ops && we_ops->get_media) {
+					p->session->media = we_ops->get_media(p->pss);
+					if (p->session->media && we_ops->media_ref)
+						we_ops->media_ref(p->session->media);
+				}
 				if (!p->session) {
 					lwsl_err("%s: Failed to create media session\n",
 							__func__);
@@ -762,6 +763,11 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 						if (!p->session) {
 							lwsl_notice("%s: Recreating media session for re-joiner '%s'\n", __func__, p->name);
 							p->session = mixer_media_session_create(p->room->vhd, p);
+							if (p->session && we_ops && we_ops->get_media) {
+								p->session->media = we_ops->get_media(p->pss);
+								if (p->session->media && we_ops->media_ref)
+									we_ops->media_ref(p->session->media);
+							}
 							if (p->session) {
 								struct mixer_msg msg;
 								memset(&msg, 0, sizeof(msg));
@@ -1037,44 +1043,8 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 
 		case LWS_CALLBACK_EVENT_WAIT_CANCELLED:
-			if (!vhd || !vhd->ring_tx)
+			if (!vhd)
 				break;
-
-			lws_mutex_lock(vhd->mutex_tx);
-			while (lws_ring_get_count_waiting_elements(vhd->ring_tx, &vhd->ring_tx_tail) > 0) {
-				struct mixer_msg *msg = (struct mixer_msg *)lws_ring_get_element(vhd->ring_tx, &vhd->ring_tx_tail);
-				if (msg) {
-					if (msg->type == MSG_VIDEO_FRAME && msg->session && msg->session->parent_p) {
-						struct participant *p = (struct participant *)msg->session->parent_p;
-						if (p->pss && we_ops && we_ops->send_video) {
-							we_ops->send_video(p->pss, msg->payload, msg->len, msg->codec, msg->timestamp);
-						}
-					} else if (msg->type == MSG_AUDIO_FRAME && msg->session && msg->session->parent_p) {
-						struct participant *p = (struct participant *)msg->session->parent_p;
-						if (p->pss && we_ops && we_ops->send_audio) {
-							we_ops->send_audio(p->pss, msg->payload, (size_t)msg->len, msg->timestamp);
-						}
-					}
-					if (msg->payload) free(msg->payload);
-					if (msg->session) {
-						struct mixer_msg umsg;
-						memset(&umsg, 0, sizeof(umsg));
-						umsg.type = MSG_UNREF_SESSION;
-						umsg.session = msg->session;
-
-						lws_mutex_lock(vhd->mutex_rx);
-						if (lws_ring_insert(vhd->ring_rx, &umsg, 1) != 1) {
-							/* Fallback: if ring is full, worker will eventually leak it or we could unref here,
-							 * but unreffing here risks thread-race again. Leaking 1 session is better than segfault. */
-							lwsl_notice("ring_rx full on UNREF, leaking session memory to protect worker!\n");
-						}
-						lws_mutex_unlock(vhd->mutex_rx);
-					}
-				}
-				lws_ring_consume(vhd->ring_tx, &vhd->ring_tx_tail, NULL, 1);
-				lws_ring_update_oldest_tail(vhd->ring_tx, vhd->ring_tx_tail);
-			}
-			lws_mutex_unlock(vhd->mutex_tx);
 
 			/* Also let shared webrtc handle its own service cancellations */
 			if (vhd->vhd && we_ops && we_ops->shared_callback)
