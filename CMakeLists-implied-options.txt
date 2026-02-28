@@ -426,6 +426,11 @@ if (LWS_WITH_AUTHORITATIVE_DNS)
 	set(LWS_WITH_JOSE 1)
 endif()
 
+if (LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
+	set(LWS_WITH_SYS_ASYNC_DNS 1)
+	set(LWS_WITH_GENCRYPTO 1)
+endif()
+
 # using any abstract protocol enables LWS_WITH_ABSTRACT
 
 #if (LWS_WITH_SMTP)

@@ -232,6 +232,14 @@ typedef struct lws_system_ops {
 	uint32_t		wake_latency_us;
 	/**< time taken for this device to wake from suspend, in us
 	 */
+
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+	uint8_t			async_dns_dnssec_mode;
+	/**< 0: OFF, 1: REQUIRE, 2: TOLERATE */
+
+	const char		*async_dns_dnssec_trust_anchor;
+	/**< base64 DS record string serving as the root trust anchor */
+#endif
 } lws_system_ops_t;
 
 #if defined(LWS_WITH_SYS_STATE)

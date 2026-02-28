@@ -965,6 +965,7 @@ struct lws_context_creation_info {
 	 * server to forcibly add.  If given, the list of strings must be
 	 * terminated with a NULL.
 	 */
+
 #endif
 
 #if defined(WIN32)

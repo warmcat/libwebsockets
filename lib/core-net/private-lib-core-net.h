@@ -266,6 +266,8 @@ typedef struct lws_async_dns {
 	lws_dll2_owner_t	cached;
 
 	struct lws_context	*cx;
+
+	uint8_t			dnssec_mode; /* lws_async_dns_dnssec_mode_t */
 } lws_async_dns_t;
 
 #define lws_async_dns_from_server(_s) ((lws_async_dns_t *)_s->list.owner)

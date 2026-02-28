@@ -657,7 +657,10 @@ lws_genecdsa_hash_sig_verify_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
 	n = ECDSA_do_verify(in, SSL_SIZE_CAST(hlen), ecsig, eckey);
 	EC_KEY_free(eckey);
 	if (n != 1) {
-		lwsl_err("%s: ECDSA_do_verify fail, hlen %d\n", __func__, (int)hlen);
+		unsigned long err = ERR_get_error();
+		char buf[256];
+		ERR_error_string_n(err, buf, sizeof(buf));
+		lwsl_err("%s: ECDSA_do_verify fail, n=%d, hlen %d, err=%lu (%s)\n", __func__, n, (int)hlen, err, buf);
 		lws_tls_err_describe_clear();
 		goto bail;
 	}
