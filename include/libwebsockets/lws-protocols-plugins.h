@@ -351,6 +351,7 @@ lws_plugins_destroy(struct lws_plugin **pplugin, each_plugin_cb_t each,
 
 struct pss_webrtc;
 struct vhd_webrtc;
+struct lws_webrtc_peer_media;
 
 typedef void (*lws_webrtc_on_media_cb)(struct lws *wsi_ws, int tid, const uint8_t *buf, size_t len, int marker, uint32_t timestamp);
 
@@ -366,11 +367,14 @@ enum lws_webrtc_codec {
 struct lws_webrtc_ops {
 	uint32_t abi_version;
 
-	int (*send_video)(struct pss_webrtc *pss, const uint8_t *buf, size_t len, int codec, uint32_t pts);
-	int (*send_audio)(struct pss_webrtc *pss, const uint8_t *buf, size_t len, uint32_t timestamp);
+	int (*send_video)(struct lws_webrtc_peer_media *media, const uint8_t *buf, size_t len, int codec, uint32_t pts);
+	int (*send_audio)(struct lws_webrtc_peer_media *media, const uint8_t *buf, size_t len, uint32_t timestamp);
 	int (*send_text)(struct pss_webrtc *pss, const char *buf, size_t len);
 	int (*send_pli)(struct pss_webrtc *pss);
+	void (*media_ref)(struct lws_webrtc_peer_media *media);
+	void (*media_unref)(struct lws_webrtc_peer_media **pmedia);
 	int (*foreach_session)(struct vhd_webrtc *vhd, lws_webrtc_session_iter_cb cb, void *user);
+	struct lws_webrtc_peer_media *(*get_media)(struct pss_webrtc *pss);
 	int (*shared_callback)(struct lws *wsi, enum lws_callback_reasons reason, void *user, void *in, size_t len, struct vhd_webrtc *vhd);
 
 	void *(*get_user_data)(struct pss_webrtc *pss);

@@ -86,6 +86,9 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 #endif
 	struct lws_tokens ebuf;
 	int n = 0, buffered = 0;
+#if defined(LWS_WITH_LATENCY)
+	lws_usec_t _raw_skt_start = lws_now_usecs();
+#endif
 
 	/* pending truncated sends have uber priority */
 
@@ -264,6 +267,14 @@ try_pollout:
 		lwsl_info("writeable_fail\n");
 		goto fail;
 	}
+
+#if defined(LWS_WITH_LATENCY)
+		{
+			unsigned int ms = (unsigned int)((lws_now_usecs() - _raw_skt_start) / 1000);
+			if (ms > 2)
+				lws_latency_note(pt, _raw_skt_start, 2000, "rawskt:%dms", ms);
+		}
+#endif
 
 	return LWS_HPI_RET_HANDLED;
 

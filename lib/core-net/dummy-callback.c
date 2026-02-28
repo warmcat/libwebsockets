@@ -440,6 +440,10 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			if (!lws_get_child(wsi))
 				break;
 
+#if defined(LWS_WITH_LATENCY)
+			lws_usec_t _proxy_rd_start = lws_now_usecs();
+#endif
+
 			/* this causes LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ */
 			if (lws_http_client_read(lws_get_child(wsi), &px,
 						 &lenx) < 0) {
@@ -450,6 +454,16 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 
 				return -1;
 			}
+
+#if defined(LWS_WITH_LATENCY)
+			{
+				unsigned int ms = (unsigned int)((lws_now_usecs() - _proxy_rd_start) / 1000);
+				if (ms > 2) {
+					struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+					lws_latency_note(pt, _proxy_rd_start, 2000, "proxyrd:%dms", ms);
+				}
+			}
+#endif
 			break;
 		}
 
@@ -465,6 +479,14 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 				return -1;
 		}
 #endif
+		if (wsi->http.deferred_transaction_completed) {
+			uint8_t zero = 0;
+			lws_write(wsi, &zero, 0, LWS_WRITE_HTTP_FINAL);
+			if (lws_http_transaction_completed(wsi))
+				return -1;
+			return 0;
+		}
+
 		break;
 
 #if defined(LWS_WITH_HTTP_PROXY)
@@ -480,6 +502,10 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		char *out = buf + LWS_PRE;
 
 		assert(lws_get_parent(wsi));
+
+#if defined(LWS_WITH_LATENCY)
+		lws_usec_t _proxy_wr_start = lws_now_usecs();
+#endif
 
 		if (wsi->http.proxy_parent_chunked) {
 
@@ -506,6 +532,17 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		} else
 			n = lws_write(lws_get_parent(wsi), (unsigned char *)in,
 				      len, LWS_WRITE_HTTP);
+
+#if defined(LWS_WITH_LATENCY)
+		{
+			unsigned int ms = (unsigned int)((lws_now_usecs() - _proxy_wr_start) / 1000);
+			if (ms > 2) {
+				struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+				lws_latency_note(pt, _proxy_wr_start, 2000, "proxywr:%dms", ms);
+			}
+		}
+#endif
+
 		if (n < 0)
 			return -1;
 		break; }

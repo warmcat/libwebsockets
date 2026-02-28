@@ -561,8 +561,22 @@ ads_known:
 		m = -1;
 	else
 #endif
+#if defined(LWS_WITH_LATENCY)
+		lws_usec_t _conn_start = lws_now_usecs();
+#endif
+
 		m = connect(wsi->desc.sockfd, (const struct sockaddr *)psa,
 			    (socklen_t)n);
+
+#if defined(LWS_WITH_LATENCY)
+		{
+			unsigned int ms = (unsigned int)((lws_now_usecs() - _conn_start) / 1000);
+			if (ms > 2) {
+				struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+				lws_latency_note(pt, _conn_start, 2000, "connect:%dms", ms);
+			}
+		}
+#endif
 
 #if defined(LWS_WITH_CONMON)
 	wsi->conmon_datum = lws_now_usecs();

@@ -660,7 +660,20 @@ lws_tls_server_accept(struct lws *wsi)
 
 	errno = 0;
 	ERR_clear_error();
+
+#if defined(LWS_WITH_LATENCY)
+	lws_usec_t _o_ssl_acc_start = lws_now_usecs();
+#endif
+
 	n = SSL_accept(wsi->tls.ssl);
+
+#if defined(LWS_WITH_LATENCY)
+	{
+		unsigned int ms = (unsigned int)((lws_now_usecs() - _o_ssl_acc_start) / 1000);
+		if (ms > 2 && !wsi->tls.ssl_accept_in_bg)
+			lws_latency_note(pt, _o_ssl_acc_start, 2000, "ssl_accept:%dms", ms);
+	}
+#endif
 
 	wsi->skip_fallback = 1;
 
@@ -676,9 +689,12 @@ lws_tls_server_accept(struct lws *wsi)
 		lws_openssl_describe_cipher(wsi);
 
 		if (SSL_pending(wsi->tls.ssl) &&
-		    lws_dll2_is_detached(&wsi->tls.dll_pending_tls))
-			lws_dll2_add_head(&wsi->tls.dll_pending_tls,
-					  &pt->tls.dll_pending_tls_owner);
+		    lws_dll2_is_detached(&wsi->tls.dll_pending_tls)) {
+			if (!wsi->tls.ssl_accept_in_bg) {
+				lws_dll2_add_head(&wsi->tls.dll_pending_tls,
+						  &pt->tls.dll_pending_tls_owner);
+			}
+		}
 
 		return LWS_SSL_CAPABLE_DONE;
 	}
@@ -691,7 +707,7 @@ lws_tls_server_accept(struct lws *wsi)
 
 	if (m == SSL_ERROR_WANT_READ ||
 	    (m != SSL_ERROR_ZERO_RETURN && SSL_want_read(wsi->tls.ssl))) {
-		if (lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
+		if (!wsi->tls.ssl_accept_in_bg && lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
 			lwsl_info("%s: WANT_READ change_pollfd failed\n",
 				  __func__);
 			return LWS_SSL_CAPABLE_ERROR;
@@ -703,7 +719,7 @@ lws_tls_server_accept(struct lws *wsi)
 	if (m == SSL_ERROR_WANT_WRITE || SSL_want_write(wsi->tls.ssl)) {
 		lwsl_debug("%s: WANT_WRITE\n", __func__);
 
-		if (lws_change_pollfd(wsi, 0, LWS_POLLOUT)) {
+		if (!wsi->tls.ssl_accept_in_bg && lws_change_pollfd(wsi, 0, LWS_POLLOUT)) {
 			lwsl_info("%s: WANT_WRITE change_pollfd failed\n",
 				  __func__);
 			return LWS_SSL_CAPABLE_ERROR;

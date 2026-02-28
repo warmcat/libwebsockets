@@ -230,9 +230,19 @@ read:
 		int scr_ret;
 
 		ebuf.token = pt->serv_buf;
+#if defined(LWS_WITH_LATENCY)
+		lws_usec_t _h2_cap_read_start = lws_now_usecs();
+#endif
 		scr_ret = lws_ssl_capable_read(wsi,
 					ebuf.token,
 					wsi->a.context->pt_serv_buf_size);
+#if defined(LWS_WITH_LATENCY)
+		{
+			unsigned int ms = (unsigned int)((lws_now_usecs() - _h2_cap_read_start) / 1000);
+			if (ms > 2)
+				lws_latency_note(pt, _h2_cap_read_start, 2000, "h2capread:%dms", ms);
+		}
+#endif
 		switch (scr_ret) {
 		case 0:
 			lwsl_info("%s: zero length read\n", __func__);
@@ -306,11 +316,21 @@ drain:
 
 	if (ebuf.len) {
 		n = 0;
+#if defined(LWS_WITH_LATENCY)
+		lws_usec_t _h2_read_start = lws_now_usecs();
+#endif
 		if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY &&
 		    lwsi_state(wsi) != LRS_DISCARD_BODY)
 			n = lws_read_h2(wsi, ebuf.token, (unsigned int)ebuf.len);
 		else
 			n = lws_read_h1(wsi, ebuf.token, (unsigned int)ebuf.len);
+#if defined(LWS_WITH_LATENCY)
+		{
+			unsigned int ms = (unsigned int)((lws_now_usecs() - _h2_read_start) / 1000);
+			if (ms > 2)
+				lws_latency_note(pt, _h2_read_start, 2000, "h2read:%dms", ms);
+		}
+#endif
 
 		if (n < 0) {
 			/* we closed wsi */
@@ -383,6 +403,10 @@ rops_handle_POLLOUT_h2(struct lws *wsi)
 
 	if (lwsi_state(wsi) == LRS_ISSUE_HTTP_BODY)
 		return LWS_HP_RET_USER_SERVICE;
+
+	if (lwsi_state(wsi) == LRS_AWAITING_FILE_READ) {
+		return LWS_HP_RET_DROP_POLLOUT;
+	}
 
 	/*
 	 * Priority 1: H2 protocol packets

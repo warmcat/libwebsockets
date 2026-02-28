@@ -291,7 +291,19 @@ lws_tls_server_accept(struct lws *wsi)
 	union lws_tls_cert_info_results ir;
 	int m, n;
 
+#if defined(LWS_WITH_LATENCY)
+	lws_usec_t _o_mbed_ssl_acc_start = lws_now_usecs();
+#endif
+
 	n = SSL_accept(wsi->tls.ssl);
+
+#if defined(LWS_WITH_LATENCY)
+	{
+		unsigned int ms = (unsigned int)((lws_now_usecs() - _o_mbed_ssl_acc_start) / 1000);
+		if (ms > 2 && !wsi->tls.ssl_accept_in_bg)
+			lws_latency_note(&wsi->a.context->pt[(int)wsi->tsi], _o_mbed_ssl_acc_start, 2000, "ssl_accept:%dms", ms);
+	}
+#endif
 
 	wsi->skip_fallback = 1;
 	if (n == 1) {
@@ -336,7 +348,7 @@ lws_tls_server_accept(struct lws *wsi)
 		return LWS_SSL_CAPABLE_ERROR;
 
 	if (m == SSL_ERROR_WANT_READ || SSL_want_read(wsi->tls.ssl)) {
-		if (lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
+		if (!wsi->tls.ssl_accept_in_bg && lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
 			lwsl_info("%s: WANT_READ change_pollfd failed\n",
 				  __func__);
 			return LWS_SSL_CAPABLE_ERROR;
@@ -348,7 +360,7 @@ lws_tls_server_accept(struct lws *wsi)
 	if (m == SSL_ERROR_WANT_WRITE || SSL_want_write(wsi->tls.ssl)) {
 		lwsl_debug("%s: WANT_WRITE\n", __func__);
 
-		if (lws_change_pollfd(wsi, 0, LWS_POLLOUT)) {
+		if (!wsi->tls.ssl_accept_in_bg && lws_change_pollfd(wsi, 0, LWS_POLLOUT)) {
 			lwsl_info("%s: WANT_WRITE change_pollfd failed\n",
 				  __func__);
 			return LWS_SSL_CAPABLE_ERROR;

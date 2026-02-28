@@ -474,3 +474,6 @@ if (WIN32 AND NOT LWS_EXT_PTHREAD_LIBRARIES)
         set(LWS_WITH_SYS_SMD 0)
 endif()
 
+if (LWS_WITH_ASYNC_QUEUE)
+	set(LWS_ROLE_H1 1)
+endif()

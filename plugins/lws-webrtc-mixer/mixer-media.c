@@ -88,6 +88,10 @@ mixer_media_session_destroy(struct mixer_media_session *s)
 {
 	if (!s) return;
 
+	if (s->media && we_ops && we_ops->media_unref) {
+		we_ops->media_unref(&s->media);
+	}
+
     /* Resources */
 	if (s->ring_pcm) lws_ring_destroy(s->ring_pcm);
 	if (s->ring_buffer) free(s->ring_buffer);
@@ -822,24 +826,9 @@ process_room_mix(struct vhd_mixer *vhd, struct mixer_room *r, lws_usec_t deadlin
 			}
 
 			if (ret > 0) {
-				/* Create TX Message */
-				struct mixer_msg tx;
-				memset(&tx, 0, sizeof(tx));
-				tx.type = MSG_AUDIO_FRAME;
-				tx.session = s;
-				tx.payload = malloc((size_t)ret);
-				memcpy(tx.payload, opus, (size_t)ret);
-				tx.len = (size_t)ret;
-				tx.timestamp = (uint32_t)(r->master_pts * 960);
-
-				mixer_media_session_ref(s); /* +1 for ring_tx */
-
-				lws_mutex_lock(vhd->mutex_tx);
-				if (lws_ring_insert(vhd->ring_tx, &tx, 1) != 1) {
-					free(tx.payload);
-					mixer_media_session_unref(s);
+				if (s->media && we_ops && we_ops->send_audio) {
+					we_ops->send_audio(s->media, opus, (size_t)ret, (uint32_t)(r->master_pts * 960));
 				}
-				lws_mutex_unlock(vhd->mutex_tx);
 			}
 		}
 	} lws_end_foreach_dll(d);
@@ -859,24 +848,9 @@ process_room_mix(struct vhd_mixer *vhd, struct mixer_room *r, lws_usec_t deadlin
 				struct mixer_media_session *s = lws_container_of(d, struct mixer_media_session, list);
 				if (strcmp(s->room_name, r->name)) goto next_tx_h264;
 				if (s->can_rx_h264) {
-					struct mixer_msg tx;
-					memset(&tx, 0, sizeof(tx));
-					tx.type = MSG_VIDEO_FRAME;
-					tx.session = s;
-					tx.payload = malloc(len);
-					memcpy(tx.payload, buf, len);
-					tx.len = len;
-					tx.codec = LWS_CODEC_H264;
-					tx.timestamp = rtp_ts;
-
-					mixer_media_session_ref(s);
-
-					lws_mutex_lock(vhd->mutex_tx);
-					if (lws_ring_insert(vhd->ring_tx, &tx, 1) != 1) {
-						free(tx.payload);
-						mixer_media_session_unref(s);
+					if (s->media && we_ops && we_ops->send_video) {
+						we_ops->send_video(s->media, buf, len, LWS_CODEC_H264, rtp_ts);
 					}
-					lws_mutex_unlock(vhd->mutex_tx);
 				}
 next_tx_h264:;
 			} lws_end_foreach_dll(d);
@@ -895,24 +869,9 @@ next_tx_h264:;
 				struct mixer_media_session *s = lws_container_of(d, struct mixer_media_session, list);
 				if (strcmp(s->room_name, r->name)) goto next_tx_av1;
 				if (s->can_rx_av1) {
-					struct mixer_msg tx;
-					memset(&tx, 0, sizeof(tx));
-					tx.type = MSG_VIDEO_FRAME;
-					tx.session = s;
-					tx.payload = malloc(len);
-					memcpy(tx.payload, buf, len);
-					tx.len = len;
-					tx.codec = LWS_CODEC_AV1;
-					tx.timestamp = rtp_ts;
-
-					mixer_media_session_ref(s);
-
-					lws_mutex_lock(vhd->mutex_tx);
-					if (lws_ring_insert(vhd->ring_tx, &tx, 1) != 1) {
-						free(tx.payload);
-						mixer_media_session_unref(s);
+					if (s->media && we_ops && we_ops->send_video) {
+						we_ops->send_video(s->media, buf, len, LWS_CODEC_AV1, rtp_ts);
 					}
-					lws_mutex_unlock(vhd->mutex_tx);
 				}
 next_tx_av1:;
 			} lws_end_foreach_dll(d);
@@ -939,29 +898,34 @@ next_tx_av1:;
 
 		lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->sessions)) {
 			struct mixer_media_session *s = lws_container_of(d, struct mixer_media_session, list);
-			if (strcmp(s->room_name, r->name)) goto next_codec_count;
+			if (strcmp(s->room_name, r->name))
+                                goto next_codec_count;
 
-			if (s->joined) count_joined_total++;
+			if (s->joined)
+                                count_joined_total++;
 
-			static int pass_log = 0;
-			if (pass_log++ % 200 == 0) {
-				lwsl_notice("%s: DIAGNOSTIC pass s->joined=%d, out_only=%d, can_h264=%d, can_av1=%d (frames %llu) for peer in room\n",
-					__func__, s->joined, s->out_only, s->can_rx_h264, s->can_rx_av1, (unsigned long long)s->decoded_frames);
-			}
+			// static int pass_log = 0;
+			// if (pass_log++ % 200 == 0) {
+			//	lwsl_notice("%s: DIAGNOSTIC pass s->joined=%d, out_only=%d, can_h264=%d, can_av1=%d (frames %llu) for peer in room\n",
+			//		__func__, s->joined, s->out_only, s->can_rx_h264, s->can_rx_av1, (unsigned long long)s->decoded_frames);
+			//}
 
-			if (!s->joined && !s->out_only) goto next_codec_count;
+			if (!s->joined && !s->out_only)
+                                goto next_codec_count;
 
-			if (s->can_rx_h264) count_h264++;
-			if (s->can_rx_av1) count_av1++;
+			if (s->can_rx_h264)
+                                count_h264++;
+			if (s->can_rx_av1)
+                                count_av1++;
 
 next_codec_count:;
 		} lws_end_foreach_dll(d);
 
-		static int mix_log = 0;
-		if (mix_log++ % 200 == 0) {
-			lwsl_notice("%s: DIAGNOSTIC room '%s' joined_total=%d, active_h264=%d, active_av1=%d\n",
-					__func__, r->name, count_joined_total, count_h264, count_av1);
-		}
+		// static int mix_log = 0;
+		// if (mix_log++ % 200 == 0) {
+		//	lwsl_notice("%s: DIAGNOSTIC room '%s' joined_total=%d, active_h264=%d, active_av1=%d\n",
+		//			__func__, r->name, count_joined_total, count_h264, count_av1);
+		//}
 
 		if (count_h264 > 0 || count_av1 > 0) {
 			/* Ensure Encoders */
@@ -974,7 +938,8 @@ next_codec_count:;
 			uint8_t **m_data = lws_transcode_frame_get_data(r->master_frame);
 			int *m_ls = lws_transcode_frame_get_linesize(r->master_frame);
 			int m_h = lws_transcode_frame_get_height(r->master_frame);
-			memset(m_data[0], 0, (size_t)m_ls[0] * (size_t)m_h);
+
+                        memset(m_data[0], 0, (size_t)m_ls[0] * (size_t)m_h);
 			memset(m_data[1], 128, (size_t)m_ls[1] * (size_t)m_h / 2);
 			memset(m_data[2], 128, (size_t)m_ls[2] * (size_t)m_h / 2);
 
@@ -1100,7 +1065,7 @@ media_worker_thread(void *d)
 		}
 
 		/* Catch up if way behind (e.g. debugger paused), jump to now to avoid massive bursts */
-		if (now > next_frame_time && now - next_frame_time > 2000000)
+		if (now > next_frame_time && now - next_frame_time > 100000)
 			next_frame_time = now;
 
 		next_frame_time += 20000;
@@ -1115,6 +1080,10 @@ media_worker_thread(void *d)
         }
         lws_mutex_unlock(vhd->mutex_rx);
 
+        /* Fast path: if there are no participants, don't waste CPU decoding/mixing */
+        if (!lws_dll2_get_head(&vhd->sessions))
+              continue;
+
         /* 2. Process Session Media (Decode) */
         lws_start_foreach_dll(struct lws_dll2 *, d_s, lws_dll2_get_head(&vhd->sessions)) {
              struct mixer_media_session *s = lws_container_of(d_s, struct mixer_media_session, list);
@@ -1126,9 +1095,6 @@ media_worker_thread(void *d)
             struct mixer_room *r = lws_container_of(d_r, struct mixer_room, list);
             process_room_mix(vhd, r, next_frame_time);
         } lws_end_foreach_dll(d_r);
-
-        /* Signal LWS to consume TX ring */
-        lws_cancel_service(we_ops->get_context(vhd->vhd));
 	}
 
 	lwsl_user("%s: Worker Thread Exiting\n", __func__);
