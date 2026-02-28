@@ -52,6 +52,8 @@
 
 /* We're just tokenizing a chunk, don't treat running out of input as final */
 #define LWS_TOKENIZE_F_EXPECT_MORE	(1 << 12)
+/* Do not treat + as a terminal character, so "a+b" is one token */
+#define LWS_TOKENIZE_F_PLUS_NONTERM	(1 << 13)
 
 typedef enum {
 

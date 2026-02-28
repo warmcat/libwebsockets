@@ -940,7 +940,7 @@ lws_tokenize(struct lws_tokenize *ts)
 {
 	const char *rfc7230_delims = "(),/:;<=>?@[\\]{}";
 	char c, flo = 0, d_minus = '-', d_dot = '.', d_star = '*', s_minus = '\0',
-	     s_dot = '\0', s_star = '\0', d_eq = '=', s_eq = '\0', skipping = 0;
+	     s_dot = '\0', s_star = '\0', d_eq = '=', s_eq = '\0', d_plus = '+', s_plus = '\0', skipping = 0;
 	signed char num = (ts->flags & LWS_TOKENIZE_F_NO_INTEGERS) ? 0 : -1;
 	int utf8 = 0;
 
@@ -961,6 +961,10 @@ lws_tokenize(struct lws_tokenize *ts)
 	if (ts->flags & LWS_TOKENIZE_F_EQUALS_NONTERM) {
 		d_eq = '\0';
 		s_eq = '=';
+	}
+	if (ts->flags & LWS_TOKENIZE_F_PLUS_NONTERM) {
+		d_plus = '\0';
+		s_plus = '+';
 	}
 
 	if (!ts->dry)
@@ -1029,6 +1033,13 @@ lws_tokenize(struct lws_tokenize *ts)
 		/* quoted string */
 
 		if (c == '\"') {
+			if (ts->state == LWS_TOKZS_TOKEN_POST_TERMINAL) {
+				/* report the pending token next time */
+				ts->start--;
+				ts->len++;
+				goto token_or_numeric;
+			}
+
 			if (ts->state == LWS_TOKZS_QUOTED_STRING) {
 				ts->reset_token = 1;
 
@@ -1107,11 +1118,12 @@ lws_tokenize(struct lws_tokenize *ts)
 		       ((!(ts->flags & LWS_TOKENIZE_F_RFC7230_DELIMS) &&
 		        (c < '0' || c > '9') && (c < 'A' || c > 'Z') &&
 		        (c < 'a' || c > 'z') && c != '_') &&
-		        c != s_minus && c != s_dot && c != s_star && c != s_eq) ||
+		        c != s_minus && c != s_dot && c != s_star && c != s_eq && c != s_plus) ||
 		        c == d_minus ||
 			c == d_dot ||
 			c == d_star ||
-			c == d_eq
+			c == d_eq ||
+			c == d_plus
 		    ) &&
 		    !((ts->flags & LWS_TOKENIZE_F_COLON_NONTERM) && c == ':') &&
 		    !((ts->flags & LWS_TOKENIZE_F_SLASH_NONTERM) && c == '/')) {
