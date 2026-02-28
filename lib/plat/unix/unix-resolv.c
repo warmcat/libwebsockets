@@ -25,29 +25,24 @@
 #include "private-lib-core.h"
 #include "private-lib-async-dns.h"
 
-lws_async_dns_server_check_t
-lws_plat_asyncdns_init(struct lws_context *context, lws_async_dns_t *dns)
+int
+lws_plat_asyncdns_get_server(struct lws_context *context, int index,
+			     lws_sockaddr46 *sa46)
 {
-	lws_async_dns_server_check_t s = LADNS_CONF_SERVER_SAME;
-	lws_async_dns_server_t *dsrv;
-	lws_sockaddr46 sa46t;
 	lws_tokenize_t ts;
 	char ads[48], *r;
-	int fd, ns = 0;
+	int fd, ns = 0, current = 0;
 	ssize_t n;
 
 	r = (char *)context->pt[0].serv_buf;
-
-	/* grab the first chunk of /etc/resolv.conf */
-
 	fd = open("/etc/resolv.conf", LWS_O_RDONLY);
 	if (fd < 0)
-		return LADNS_CONF_SERVER_UNKNOWN;
+		return -1;
 
 	n = read(fd, r, context->pt_serv_buf_size - 1);
 	close(fd);
 	if (n < 0)
-		return LADNS_CONF_SERVER_UNKNOWN;
+		return -1;
 
 	r[n] = '\0';
 	lws_tokenize_init(&ts, r, LWS_TOKENIZE_F_DOT_NONTERM |
@@ -77,16 +72,32 @@ lws_plat_asyncdns_init(struct lws_context *context, lws_async_dns_t *dns)
 
 		memcpy(ads, ts.token, ts.token_len);
 		ads[ts.token_len] = '\0';
-		if (lws_sa46_parse_numeric_address(ads, &sa46t) < 0)
+		if (lws_sa46_parse_numeric_address(ads, sa46) < 0)
 			continue;
 
+		if (current++ == index)
+			return 0;
+
+	} while (ts.e > 0);
+
+	return -1;
+}
+
+lws_async_dns_server_check_t
+lws_plat_asyncdns_init(struct lws_context *context, lws_async_dns_t *dns)
+{
+	lws_async_dns_server_check_t s = LADNS_CONF_SERVER_SAME;
+	lws_async_dns_server_t *dsrv;
+	lws_sockaddr46 sa46t;
+	int n = 0;
+
+	while (lws_plat_asyncdns_get_server(context, n++, &sa46t) == 0) {
 		dsrv = __lws_async_dns_server_find(dns, &sa46t);
 		if (!dsrv) {
 			__lws_async_dns_server_add(dns, &sa46t);
 			s = LADNS_CONF_SERVER_CHANGED;
 		}
-
-	} while (ts.e > 0);
+	}
 
 	return s;
 }

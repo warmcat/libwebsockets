@@ -1410,6 +1410,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->count_caps = info->count_caps;
 #endif
 
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+#endif
+
 
 #if defined(LWS_WITH_NETWORK)
 
