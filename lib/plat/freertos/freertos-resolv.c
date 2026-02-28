@@ -26,25 +26,38 @@
 #include "private-lib-async-dns.h"
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
+int
+lws_plat_asyncdns_get_server(struct lws_context *context, int index,
+			     lws_sockaddr46 *sa46)
+{
+	uint32_t ipv4;
+
+	if (index > 0)
+		return -1;
+
+	FreeRTOS_GetAddressConfiguration(NULL, NULL, NULL, &ipv4);
+
+	memset(sa46, 0, sizeof(*sa46));
+	sa46->sa4.sin_family = AF_INET;
+	sa46->sa4.sin_addr.s_addr = ipv4;
+
+	return 0;
+}
+
 lws_async_dns_server_check_t
 lws_plat_asyncdns_init(struct lws_context *context, lws_async_dns_t *dns)
 {
 	lws_sockaddr46 sa46t;
-	uint32_t ipv4;
 	lws_async_dns_server_check_t s = LADNS_CONF_SERVER_SAME;
 	lws_async_dns_server_t *dsrv;
+	int n = 0;
 
-	FreeRTOS_GetAddressConfiguration(NULL, NULL, NULL, &ipv4);
-
-	memset(&sa46t, 0, sizeof(sa46t));
-
-	sa46t.sa4.sin_family = AF_INET;
-	sa46t.sa4.sin_addr.s_addr = ipv4;
-
-	dsrv = __lws_async_dns_server_find(dns, &sa46t);
-	if (!dsrv) {
-		__lws_async_dns_server_add(dns, &sa46t);
-		s = LADNS_CONF_SERVER_CHANGED;
+	while (lws_plat_asyncdns_get_server(context, n++, &sa46t) == 0) {
+		dsrv = __lws_async_dns_server_find(dns, &sa46t);
+		if (!dsrv) {
+			__lws_async_dns_server_add(dns, &sa46t);
+			s = LADNS_CONF_SERVER_CHANGED;
+		}
 	}
 
 	return s;

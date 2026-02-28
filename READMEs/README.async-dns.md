@@ -97,4 +97,17 @@ and restarts it.  It allows this to happen for 3 CNAME deep.
 At the end, either way, the cached result is set using the original
 query name and the results from the last CNAME in the chain.
 
+## DNSSEC Support
+
+Async DNS supports DNSSEC validation of responses. This is optional and provides robust protection against DNS spoofing or injection of forged results.
+
+To enable DNSSEC features, build with `-DLWS_WITH_SYS_ASYNC_DNS_DNSSEC=1` in CMake. This will automatically enable the `LWS_WITH_GENCRYPTO` required dependency.
+
+Once enabled, clients can strictly enforce DNSSEC validation globally via the config struct or explicitly over context:
+```c
+lws_async_dns_dnssec_set_mode(context, LWS_ADNS_DNSSEC_REQUIRE);
+```
+
+When validation is set to `LWS_ADNS_DNSSEC_REQUIRE`, queries failing to authenticate computationally with upstream Trust Anchors (or those lacking RRSIG/DNSKEY records entirely) will be explicitly rejected by the resolver and not propagate to callbacks or connections. But some domains inherently lack DNSSEC. For situations where strict DNSSEC is globally mandated, but a small handful of known-unsigned destinations must be reached, clients can explicitly set the `LWS_ADNS_INDICATE_LACKS_DNSSEC` bitflag natively on integer `qtype` lookups. This allows the resolver to tolerate missing records explicitly for that singular lookup, while strictly required globally.
+
 

@@ -28,7 +28,7 @@
 
 /* updates *dest, returns chars used from ls directly, else -1 for fail */
 
-static int
+int
 lws_adns_parse_label(const uint8_t *pkt, int len, const uint8_t *ls, int budget,
 		     char **dest, size_t dl)
 {
@@ -150,9 +150,6 @@ again1:
 	return lws_ptr_diff(ls, ols);
 }
 
-typedef int (*lws_async_dns_find_t)(const char *name, void *opaque,
-				    uint32_t ttl, adns_query_type_t type,
-				    const uint8_t *payload);
 
 /* locally query the response packet */
 
@@ -173,7 +170,7 @@ struct label_stack {
  *         1: didn't find anything matching
  */
 
-static int
+int
 lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
 		 const char *expname, lws_async_dns_find_t cb, void *opaque)
 {
@@ -230,7 +227,7 @@ start:
 
 		/* while we have more labels */
 
-		n = lws_adns_parse_label(pkt, len, p, len - DHO_SIZEOF, &sp,
+		n = lws_adns_parse_label(pkt, len, p, lws_ptr_diff(e, p), &sp,
 					 sizeof(stack[0].name) -
 					 lws_ptr_diff_size_t(sp, stack[0].name));
 		if (n < 0)
@@ -290,8 +287,8 @@ start:
 
 		if (n < 1 || n != m ||
 		    strncmp(stack[0].name, stack[stp].name, (unsigned int)n)) {
-			//lwsl_notice("%s: skipping %s vs %s\n", __func__,
-			//		stack[0].name, stack[stp].name);
+			lwsl_notice("%s: skipping %s vs %s\n", __func__,
+			stack[0].name, stack[stp].name);
 			goto skip;
 		}
 
@@ -333,7 +330,7 @@ start:
 #if defined(LWS_WITH_IPV6)
 do_cb:
 #endif
-			cb(stack[0].name, opaque, ttl, rrtype, p);
+			cb(stack[0].name, opaque, ttl, rrtype, rrpaylen, p);
 			break;
 
 		case LWS_ADNS_RECORD_CNAME:
@@ -387,7 +384,20 @@ do_cb:
 			stack[stp].p = pay + rrpaylen;
 			goto start;
 
+		case LWS_ADNS_RECORD_RRSIG:
+		case LWS_ADNS_RECORD_DNSKEY:
+		case LWS_ADNS_RECORD_DS:
+		case LWS_ADNS_RECORD_NSEC:
+		case LWS_ADNS_RECORD_NSEC3:
+			/* We pass these DNSSEC-related records to the callback so
+			 * it can store/evaluate them.
+			 */
+			lwsl_notice("lws_adns_iterate: Calling CB for DNSSEC RR %d (len %d)\n", rrtype, rrpaylen);
+			cb(stack[0].name, opaque, ttl, rrtype, rrpaylen, p);
+			break;
+
 		default:
+			lwsl_notice("lws_adns_iterate: IGNORING UNKNOWN RR %d\n", rrtype);
 			break;
 		}
 
@@ -459,7 +469,7 @@ skip:
 
 int
 lws_async_dns_estimate(const char *name, void *opaque, uint32_t ttl,
-			adns_query_type_t type, const uint8_t *payload)
+			adns_query_type_t type, uint16_t rrpaylen, const uint8_t *payload)
 {
 	size_t *est = (size_t *)opaque, my;
 
@@ -468,6 +478,17 @@ lws_async_dns_estimate(const char *name, void *opaque, uint32_t ttl,
 		my += sizeof(struct sockaddr_in6);
 	else
 		my += sizeof(struct sockaddr_in);
+
+	/* DNSSEC records don't produce addrinfos, but need storage if we cache them
+	 * or pass them inside lws. Often we just evaluate them inline. But if
+	 * we need to stash them, we should do so.
+	 */
+	if (type == LWS_ADNS_RECORD_DNSKEY || type == LWS_ADNS_RECORD_RRSIG ||
+	    type == LWS_ADNS_RECORD_DS || type == LWS_ADNS_RECORD_NSEC ||
+	    type == LWS_ADNS_RECORD_NSEC3) {
+		/* We'll stash them as lws_adns_rr_t directly after the A records */
+		my += sizeof(lws_adns_rr_t) + rrpaylen;
+	}
 
 	*est += my;
 
@@ -478,6 +499,8 @@ struct adstore {
 	const char *name;
 	struct addrinfo *pos;
 	struct addrinfo *prev;
+	lws_adns_rr_t *rr_first;
+	lws_adns_rr_t *rr_pos;
 	int ctr;
 	uint32_t smallest_ttl;
 	uint8_t flags;
@@ -489,13 +512,40 @@ struct adstore {
  */
 int
 lws_async_dns_store(const char *name, void *opaque, uint32_t ttl,
-		    adns_query_type_t type, const uint8_t *payload)
+		    adns_query_type_t type, uint16_t rrpaylen,
+		    const uint8_t *payload)
 {
 	struct adstore *adst = (struct adstore *)opaque;
 #if defined(_DEBUG)
 	char buf[48];
 #endif
 	size_t i;
+
+	/*
+	 * DNSSEC records do not produce IPv4/IPv6 address entries.
+	 * We stash them into lws_adns_rr_t linked list.
+	 */
+	if (type == LWS_ADNS_RECORD_RRSIG || type == LWS_ADNS_RECORD_DNSKEY ||
+	    type == LWS_ADNS_RECORD_DS || type == LWS_ADNS_RECORD_NSEC ||
+	    type == LWS_ADNS_RECORD_NSEC3) {
+		lws_adns_rr_t *rr = (lws_adns_rr_t *)adst->pos;
+
+		rr->next = NULL;
+		rr->type = type;
+		rr->paylen = rrpaylen;
+		memcpy(&rr[1], payload, rrpaylen);
+
+		if (!adst->rr_first)
+			adst->rr_first = rr;
+		else
+			adst->rr_pos->next = rr;
+		adst->rr_pos = rr;
+
+		/* Advance the generic allocation pointer for the next item */
+		adst->pos = (struct addrinfo *)((uint8_t *)adst->pos +
+					sizeof(lws_adns_rr_t) + rrpaylen);
+		return 0;
+	}
 
 	if (ttl < adst->smallest_ttl || !adst->ctr)
 		adst->smallest_ttl = ttl;
@@ -566,7 +616,7 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 	int n;
 	size_t est;
 
-	// lwsl_hexdump_notice(pkt, len);
+	lwsl_hexdump_notice(pkt, len);
 
 	/* we have to at least have the header */
 
@@ -609,7 +659,7 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 	if ((lws_ser_ru16be(pkt + DHO_FLAGS) & 0x0200) && !q->is_tcp) {
 		lwsl_notice("%s: ADNS truncated, falling back to TCP for %s\n",
 			    __func__, ((const char *)&q[1]) + DNS_MAX);
-		
+
 		q->responded = (uint8_t)(q->responded & ~n);
 		q->asked = 0;
 		q->sent[0] = 0;
@@ -674,6 +724,8 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 
 	adst.pos = (struct addrinfo *)&c[1];
 	adst.prev = NULL;
+	adst.rr_first = NULL;
+	adst.rr_pos = NULL;
 	adst.ctr = 0;
 	adst.smallest_ttl = 3600;
 	adst.flags = 0;
@@ -691,6 +743,8 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 
 	if (lws_ser_ru16be(pkt + DHO_NANSWERS)) {
 		c->results = (struct addrinfo *)&c[1];
+		c->rr_results = adst.rr_first;
+
 		if (q->last) /* chain the second one on */
 			*q->last = c->results;
 		else /* first one had no results, set first guy's c->results */
@@ -732,8 +786,35 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 				 (adst.smallest_ttl * LWS_US_PER_SEC));
 	}
 
+#if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
+	if ((q->dns->dnssec_mode == LWS_ADNS_DNSSEC_REQUIRE) && !q->lacks_dnssec) {
+		if (lws_ser_ru16be(pkt + DHO_NANSWERS) > 0 || q->responded == q->asked) {
+			if (!q->dnssec_valid && !q->dnssec_verify_rrsig) {
+				n = lws_adns_dnssec_verify(q, pkt, len);
+				if (n < 0) {
+					q->go_nogo = METRES_NOGO;
+					goto fail_out;
+				}
+				if (n == 0)
+					q->dnssec_valid = 1;
+			}
+		}
+	} else {
+		q->dnssec_valid = 1;
+	}
+#endif
+
 	if (q->responded != q->asked)
 		return;
+
+#if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
+	if (q->dnssec_verify_rrsig)
+		return;
+	if (!q->dnssec_valid) {
+		q->go_nogo = METRES_NOGO;
+		goto fail_out;
+	}
+#endif
 
 	/*
 	 * Now we captured everything into the new object, return the
@@ -750,8 +831,13 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 	 */
 
 fail_out:
-	if (q->go_nogo != METRES_GO)
+	if (q->go_nogo != METRES_GO) {
 		lws_async_dns_complete(q, NULL);
+		if (q->firstcache) {
+			lws_adns_cache_destroy(q->firstcache);
+			q->firstcache = NULL;
+		}
+	}
 	lws_adns_q_destroy(q);
 }
 

@@ -28,7 +28,13 @@ typedef enum dns_query_type {
 	LWS_ADNS_RECORD_A					= 0x01,
 	LWS_ADNS_RECORD_CNAME					= 0x05,
 	LWS_ADNS_RECORD_MX					= 0x0f,
+	LWS_ADNS_RECORD_TXT					= 0x10,
 	LWS_ADNS_RECORD_AAAA					= 0x1c,
+	LWS_ADNS_RECORD_DS					= 0x2b,
+	LWS_ADNS_RECORD_RRSIG					= 0x2e,
+	LWS_ADNS_RECORD_NSEC					= 0x2f,
+	LWS_ADNS_RECORD_DNSKEY					= 0x30,
+	LWS_ADNS_RECORD_NSEC3					= 0x32,
 } adns_query_type_t;
 
 typedef enum {
@@ -40,8 +46,18 @@ typedef enum {
 	LADNS_RET_CONTINUING
 } lws_async_dns_retcode_t;
 
+typedef enum {
+	LWS_ADNS_DNSSEC_OFF = 0,
+	LWS_ADNS_DNSSEC_TOLERATE,
+	LWS_ADNS_DNSSEC_REQUIRE,
+} lws_async_dns_dnssec_mode_t;
+
+#define LWS_ADNS_DNSSEC_VALID	(1 << 8)
+#define LWS_ADNS_DNSSEC_INVALID	(1 << 9)
+
 #define LWS_ADNS_SYNTHETIC	0x10000	/* don't send, synthetic response will
 					 * be injected for testing */
+#define LWS_ADNS_INDICATE_LACKS_DNSSEC	0x20000 /* tolerate missing DNSSEC on this specific lookup */
 
 struct addrinfo;
 
@@ -126,5 +142,32 @@ lws_adns_get_async_dns(struct lws_adns_q *q);
 
 LWS_VISIBLE LWS_EXTERN void
 lws_adns_parse_udp(struct lws_async_dns *dns, const uint8_t *pkt, size_t len);
+
+/**
+ * lws_plat_asyncdns_get_server() - Get system DNS server address
+ *
+ * \param context: the lws_context
+ * \param n: the zero-based index of the server to get
+ * \param sa46: pointer to lws_sockaddr46 to receive the server address
+ *
+ * This platform-specific primitive allows retrieving the system's DNS
+ * configuration. It returns 0 if the `n`th nameserver is written to `sa46`,
+ * or < 0 if there is no `n`th nameserver available.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_plat_asyncdns_get_server(struct lws_context *context, int n,
+			     lws_sockaddr46 *sa46);
+
+
+/**
+ * lws_async_dns_dnssec_set_mode() - Set the system-wide DNSSEC mode
+ *
+ * \param context: the lws_context
+ * \param mode: the requested DNSSEC mode (off, tolerate, or require)
+ *
+ * Configures how the asynchronous DNS handles DNSSEC validation.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_async_dns_dnssec_set_mode(struct lws_context *context, lws_async_dns_dnssec_mode_t mode);
 
 #endif
