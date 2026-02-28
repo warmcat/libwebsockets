@@ -231,7 +231,18 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
   WSASetLastError(0);
 #endif
 	ERR_clear_error();
+#if defined(LWS_WITH_LATENCY)
+	lws_usec_t _lws_start = lws_now_usecs();
+#endif
 	n = SSL_read(wsi->tls.ssl, buf, (int)(ssize_t)len);
+#if defined(LWS_WITH_LATENCY)
+	{
+		unsigned int ms = (unsigned int)((lws_now_usecs() - _lws_start) / 1000);
+		if (ms > 2) {
+			lws_latency_note(&wsi->a.context->pt[(int)wsi->tsi], _lws_start, 2000, "SSL_read:%dms", ms);
+		}
+	}
+#endif
 #if defined(LWS_PLAT_FREERTOS)
 	if (!n && errno == LWS_ENOTCONN) {
 		lwsl_debug("%s: SSL_read ENOTCONN\n", lws_wsi_tag(wsi));
@@ -380,7 +391,18 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 
 	errno = 0;
 	ERR_clear_error();
+#if defined(LWS_WITH_LATENCY)
+	{
+		lws_usec_t _lws_start = lws_now_usecs();
+		n = SSL_write(wsi->tls.ssl, buf, (int)(ssize_t)len);
+		unsigned int ms = (unsigned int)((lws_now_usecs() - _lws_start) / 1000);
+		if (ms > 2) {
+			lws_latency_note(&wsi->a.context->pt[(int)wsi->tsi], _lws_start, 2000, "SSL_write:%dms", ms);
+		}
+	}
+#else
 	n = SSL_write(wsi->tls.ssl, buf, (int)(ssize_t)len);
+#endif
 	if (n > 0) {
 #if defined(LWS_WITH_SYS_METRICS)
 		if (wsi->a.vhost)

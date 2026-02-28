@@ -28,6 +28,9 @@ static lws_handling_result_t
 rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 			struct lws_pollfd *pollfd)
 {
+#if defined(LWS_WITH_LATENCY)
+	lws_usec_t _pipe_start = lws_now_usecs();
+#endif
 #if defined(LWS_HAVE_EVENTFD)
 	eventfd_t value;
 	int n;
@@ -71,6 +74,80 @@ rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 	lws_threadpool_tsi_context(pt->context, pt->tid);
 #endif
 
+#if defined(LWS_WITH_ASYNC_QUEUE)
+	{
+		struct lws_dll2_owner handled;
+
+		lws_dll2_owner_clear(&handled);
+		pthread_mutex_lock(&pt->context->async_worker_mutex);
+		if (pt->context->async_worker_finished.count) {
+			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&pt->context->async_worker_finished)) {
+				struct lws_async_job *job = lws_container_of(d, struct lws_async_job, list);
+
+				if (!job->wsi) {
+					lws_dll2_remove(d);
+					if (job->type != LWS_AQ_FILE_READ)
+						lws_free(job); /* file read frees itself */
+					continue;
+				}
+
+				if (job->wsi->tsi == pt->tid) {
+					job->handled_by_main = 1;
+					lws_dll2_remove(d);
+					lws_dll2_add_tail(d, &handled);
+				}
+			} lws_end_foreach_dll_safe(d, d1);
+		}
+		pthread_mutex_unlock(&pt->context->async_worker_mutex);
+
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&handled)) {
+			struct lws_async_job *job = lws_container_of(d, struct lws_async_job, list);
+
+			lws_dll2_remove(d);
+			if (job->type == LWS_AQ_FILE_READ) {
+				lwsi_set_state(job->wsi, LRS_ISSUING_FILE);
+				lws_callback_on_writable(job->wsi);
+			}
+#if defined(LWS_WITH_TLS)
+			else if (job->type == LWS_AQ_SSL_ACCEPT) {
+				job->wsi->async_worker_job = NULL;
+
+				if (lws_tls_server_accept_completed(job->wsi, job->u.ssl.status)) {
+					lws_close_free_wsi(job->wsi, LWS_CLOSE_STATUS_NOSTATUS, "ssl accept failed");
+				} else if (lwsi_state(job->wsi) != LRS_SSL_ACK_PENDING) {
+
+					/* restore POLLIN which was stripped before entering async worker queue */
+					if (lws_change_pollfd(job->wsi, 0, LWS_POLLIN)) {
+						lws_close_free_wsi(job->wsi, LWS_CLOSE_STATUS_NOSTATUS, "ssl accept pollin failed");
+					} else {
+						if (lws_server_socket_service_ssl(job->wsi, job->wsi->desc.sockfd, 0))
+							lwsl_notice("OOB ssl success path failed\n");
+
+						/*
+						 * OpenSSL background accept might have slurped the HTTP/2 preface
+						 * into its internal BIO without generating a kernel POLLIN.
+						 * Force a fake POLLIN by adding to the pending list once, but ONLY if
+						 * it actually has decoded bytes. If not, it will spin WANT_READ endlessly.
+						 */
+						if (lws_ssl_pending(job->wsi)) {
+							lws_pt_lock(pt, __func__);
+							if (lws_dll2_is_detached(&job->wsi->tls.dll_pending_tls)) {
+								lws_dll2_add_head(&job->wsi->tls.dll_pending_tls,
+										  &pt->tls.dll_pending_tls_owner);
+								lwsl_notice("ops-pipe added %s to pending tls list, pos=%d\n", lws_wsi_tag(job->wsi), job->wsi->position_in_fds_table);
+							}
+							lws_pt_unlock(pt);
+						}
+					}
+				}
+			}
+#endif
+			if (job->type != LWS_AQ_FILE_READ)
+				lws_free(job);
+		} lws_end_foreach_dll_safe(d, d1);
+	}
+#endif
+
 #if LWS_MAX_SMP > 1
 
 	/*
@@ -112,6 +189,14 @@ rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 		lwsl_info("closed in event cancel\n");
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 	}
+
+#if defined(LWS_WITH_LATENCY)
+	{
+		unsigned int ms = (unsigned int)((lws_now_usecs() - _pipe_start) / 1000);
+		if (ms > 2)
+			lws_latency_note(pt, _pipe_start, 2000, "pipe:%dms", ms);
+	}
+#endif
 
 	return LWS_HPI_RET_HANDLED;
 }

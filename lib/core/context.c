@@ -1217,6 +1217,12 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->default_retry.secs_since_valid_ping = 40;
 	context->default_retry.secs_since_valid_hangup = 50;
 
+#if defined(LWS_WITH_ASYNC_QUEUE)
+	pthread_mutex_init(&context->async_worker_mutex, NULL);
+	pthread_cond_init(&context->async_worker_cond, NULL);
+	context->count_async_threads = info->count_async_threads ? info->count_async_threads : 1;
+#endif
+
 	if (info->retry_and_idle_policy &&
 	    info->retry_and_idle_policy->secs_since_valid_ping) {
 		context->default_retry.secs_since_valid_ping =
@@ -2458,6 +2464,19 @@ next:
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 		lws_fi_destroy(&context->fic);
+#endif
+
+#if defined(LWS_WITH_ASYNC_QUEUE)
+		/* Ensure no threads are running before destroying */
+		pthread_mutex_lock(&context->async_worker_mutex);
+		pthread_cond_broadcast(&context->async_worker_cond);
+		pthread_mutex_unlock(&context->async_worker_mutex);
+
+		while (context->async_worker_threads_active > 0)
+			usleep(1000);
+
+		pthread_mutex_destroy(&context->async_worker_mutex);
+		pthread_cond_destroy(&context->async_worker_cond);
 #endif
 
 		lwsl_refcount_cx(context->log_cx, -1);

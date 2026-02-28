@@ -108,21 +108,36 @@ lws_tls_server_accept(struct lws *wsi)
 {
 	int n;
 
+#if defined(LWS_WITH_LATENCY)
+	lws_usec_t _g_ssl_acc_start = lws_now_usecs();
+#endif
+
 	n = gnutls_handshake((gnutls_session_t)wsi->tls.ssl);
 	lwsl_debug("%s: gnutls_handshake returned %d\n", __func__, n);
+
+#if defined(LWS_WITH_LATENCY)
+	{
+		unsigned int ms = (unsigned int)((lws_now_usecs() - _g_ssl_acc_start) / 1000);
+		if (ms > 2 && !wsi->tls.ssl_accept_in_bg)
+			lws_latency_note(&wsi->a.context->pt[(int)wsi->tsi], _g_ssl_acc_start, 2000, "ssl_accept:%dms", ms);
+	}
+#endif
+
 	if (n == GNUTLS_E_SUCCESS)
 		return LWS_SSL_CAPABLE_DONE;
 
 	if (n == GNUTLS_E_AGAIN || n == GNUTLS_E_INTERRUPTED) {
 		if (gnutls_record_get_direction((gnutls_session_t)wsi->tls.ssl) == 0) {
-			if (lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN))
+			if (!wsi->tls.ssl_accept_in_bg && lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN))
 				lwsl_notice("%s: lws_change_pollfd failed\n", __func__);
-		} else {
-			if (lws_change_pollfd(wsi, LWS_POLLIN, LWS_POLLOUT))
-				lwsl_notice("%s: lws_change_pollfd failed\n", __func__);
-		}
 
-		return LWS_SSL_CAPABLE_MORE_SERVICE;
+			return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
+		} else {
+			if (!wsi->tls.ssl_accept_in_bg && lws_change_pollfd(wsi, LWS_POLLIN, LWS_POLLOUT))
+				lwsl_notice("%s: lws_change_pollfd failed\n", __func__);
+
+			return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
+		}
 	}
 
 	lwsl_info("gnutls_handshake (server) failed: %s (%d)\n", gnutls_strerror(n), n);

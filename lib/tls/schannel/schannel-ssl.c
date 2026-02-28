@@ -403,9 +403,22 @@ lws_tls_server_accept(struct lws *wsi)
 	out_desc.pBuffers = out_buf;
 	out_desc.ulVersion = SECBUFFER_VERSION;
 
+#if defined(LWS_WITH_LATENCY)
+	lws_usec_t _sch_ssl_acc_start = lws_now_usecs();
+#endif
+
 	status = AcceptSecurityContext(&ctx->cred, conn->f_context_init ? &conn->ctxt : NULL,
 			&in_desc, req_attrs, 0, &conn->ctxt,
 			&out_desc, &ret_attrs, NULL);
+
+#if defined(LWS_WITH_LATENCY)
+	{
+		unsigned int ms = (unsigned int)((lws_now_usecs() - _sch_ssl_acc_start) / 1000);
+		if (ms > 2 && !wsi->tls.ssl_accept_in_bg)
+			lws_latency_note(&wsi->a.context->pt[(int)wsi->tsi], _sch_ssl_acc_start, 2000, "ssl_accept:%dms", ms);
+	}
+#endif
+
 	conn->f_context_init = 1;
 
     lwsl_info("%s: AcceptSecurityContext status 0x%x\n", __func__, (int)status);

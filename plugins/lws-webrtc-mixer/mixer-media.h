@@ -49,6 +49,7 @@ enum mixer_msg_type {
 	MSG_UNREF_SESSION,
 };
 
+struct lws_webrtc_peer_media;
 struct mixer_media_session;
 
 struct mixer_msg {
@@ -72,6 +73,7 @@ struct mixer_media_session {
 	lws_mutex_t             mutex;
 	int                     ref_count;
 
+	struct lws_webrtc_peer_media *media;
 	void                    *parent_p; /* Back-pointer to participant (Access only with Mutex) */
 	char                    room_name[64];
 	int                     joined;

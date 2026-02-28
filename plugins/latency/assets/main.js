@@ -49,7 +49,7 @@ function connect() {
                     if (b.wrst > 0) {
                         let exists = worstLatencies.find(w => w.time === b.start);
                         if (!exists) {
-                            worstLatencies.push({time: b.start, worst: b.wrst, proto: b.proto, ts: b.ts});
+                            worstLatencies.push({time: b.start, worst: b.wrst, proto: b.proto, ts: b.ts, req_info: b.req_info, anno: b.anno});
                             worstLatencies.sort((a, b) => b.worst - a.worst);
                             if (worstLatencies.length > 50) worstLatencies.pop();
                         }
@@ -178,9 +178,18 @@ function renderTable() {
         const tdProtocol = document.createElement('td');
         tdProtocol.textContent = lat.proto || '-';
 
+        const tdAnnotation = document.createElement('td');
+        let combinedAnnotation = lat.req_info || '';
+        if (lat.anno) {
+            if (combinedAnnotation) combinedAnnotation += ' | ';
+            combinedAnnotation += lat.anno;
+        }
+        tdAnnotation.textContent = combinedAnnotation || '-';
+
         tr.appendChild(tdTime);
         tr.appendChild(tdWorst);
         tr.appendChild(tdProtocol);
+        tr.appendChild(tdAnnotation);
 
         tbody.appendChild(tr);
     });

@@ -177,7 +177,7 @@ strip_done:
 		/* Sanity check: If logic above failed or user wants passthrough */
 		if (is_h264 || (!is_h264 && len != pss->width * pss->height && len != pss->width * pss->height * 2)) {
 			if (we_ops && we_ops->send_video) {
-				we_ops->send_video((struct pss_webrtc *)pss->pss, start, len, LWS_WEBRTC_CODEC_H264, (uint32_t)(lws_now_usecs() * 9 / 100));
+				we_ops->send_video(we_ops->get_media((struct pss_webrtc *)pss->pss), start, len, LWS_WEBRTC_CODEC_H264, (uint32_t)(lws_now_usecs() * 9 / 100));
 				pss->packets_sent++;
 			}
 			return 0;
@@ -208,14 +208,14 @@ strip_done:
 		lws_transcode_scale(pss->sws_ctx, pss->avframe, pss->avframe_scaled);
 		if (lws_transcode_encode(pss->tcc_enc, pss->avframe_scaled, &buf, &out_len) >= 0) {
 			if (we_ops && we_ops->send_video) {
-				we_ops->send_video((struct pss_webrtc *)pss->pss, buf, out_len, codec, (uint32_t)(lws_now_usecs() * 9 / 100));
+				we_ops->send_video(we_ops->get_media((struct pss_webrtc *)pss->pss), buf, out_len, codec, (uint32_t)(lws_now_usecs() * 9 / 100));
 				pss->packets_sent++;
 			}
 		}
 	} else {
 		if (lws_transcode_encode(pss->tcc_enc, pss->avframe, &buf, &out_len) >= 0) {
 			if (we_ops && we_ops->send_video) {
-				we_ops->send_video((struct pss_webrtc *)pss->pss, buf, out_len, codec, (uint32_t)(lws_now_usecs() * 9 / 100));
+				we_ops->send_video(we_ops->get_media((struct pss_webrtc *)pss->pss), buf, out_len, codec, (uint32_t)(lws_now_usecs() * 9 / 100));
 				pss->packets_sent++;
 			}
 		}

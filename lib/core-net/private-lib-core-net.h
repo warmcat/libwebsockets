@@ -416,9 +416,38 @@ LWS_EXTERN LWS_VISIBLE void
 lws_latency_cb_start(struct lws_context_per_thread *pt);
 LWS_EXTERN LWS_VISIBLE void
 lws_latency_cb_end(struct lws_context_per_thread *pt, const char *pn);
+
+#define lws_latency_note(_pt, _start, _thresh, ...) do { \
+	if ((lws_now_usecs() - (_start)) > (_thresh)) { \
+		int _slen = (int)strlen((_pt)->latency_ring[(_pt)->latency_idx].req_info); \
+		if (_slen < (int)sizeof((_pt)->latency_ring[0].req_info) - 1) { \
+			if (_slen && _slen < (int)sizeof((_pt)->latency_ring[0].req_info) - 2) { \
+				(_pt)->latency_ring[(_pt)->latency_idx].req_info[_slen++] = ' '; \
+				(_pt)->latency_ring[(_pt)->latency_idx].req_info[_slen] = '\0'; \
+			} \
+			lws_snprintf((_pt)->latency_ring[(_pt)->latency_idx].req_info + _slen, \
+				(size_t)((int)sizeof((_pt)->latency_ring[0].req_info) - _slen), __VA_ARGS__); \
+		} \
+	} \
+} while(0)
+
+#define lws_latency_append_annotation(_pt, ...) do { \
+	int _slen = (int)strlen((_pt)->latency_ring[(_pt)->latency_idx].annotation); \
+	if (_slen < (int)sizeof((_pt)->latency_ring[0].annotation) - 1) { \
+		if (_slen && _slen < (int)sizeof((_pt)->latency_ring[0].annotation) - 2) { \
+			(_pt)->latency_ring[(_pt)->latency_idx].annotation[_slen++] = ' '; \
+			(_pt)->latency_ring[(_pt)->latency_idx].annotation[_slen] = '\0'; \
+		} \
+		lws_snprintf((_pt)->latency_ring[(_pt)->latency_idx].annotation + _slen, \
+			(size_t)((int)sizeof((_pt)->latency_ring[0].annotation) - _slen), __VA_ARGS__); \
+	} \
+} while(0)
+
 #else
 #define lws_latency_cb_start(_pt)
 #define lws_latency_cb_end(_pt, _pn)
+#define lws_latency_note(_pt, _start, _thresh, ...)
+#define lws_latency_append_annotation(_pt, ...)
 #endif
 
 /*
@@ -610,6 +639,39 @@ lws_wsi_mux_apply_queue(struct lws *wsi);
  * struct lws
  */
 
+#if defined(LWS_WITH_ASYNC_QUEUE)
+enum lws_async_job_type {
+	LWS_AQ_FILE_READ,
+	LWS_AQ_SSL_ACCEPT,
+};
+
+struct lws_async_job {
+	lws_dll2_t		list;
+	struct lws		*wsi;
+	enum lws_async_job_type	type;
+	uint8_t			handled_by_main;
+
+	union {
+		struct {
+			lws_fop_fd_t		fop_fd;
+			uint8_t			*buf;
+			lws_filepos_t		len;
+			lws_filepos_t		amount;
+		} fs;
+#if defined(LWS_WITH_TLS)
+		struct {
+			void *ssl;
+			enum lws_ssl_capable_status status;
+		} ssl;
+#endif
+	} u;
+};
+
+void *
+lws_async_worker_worker(void *d);
+
+#endif
+
 /*
  * These pieces are very commonly used (via accessors) in user protocol handlers
  * and have to be valid, even in the case no real wsi is available for the cb.
@@ -738,6 +800,10 @@ struct lws {
 	lws_sockaddr46			sa46_peer;
 
 	/* pointers */
+
+#if defined(LWS_WITH_ASYNC_QUEUE)
+	struct lws_async_job		*async_worker_job;
+#endif
 
 	struct lws			*parent; /* points to parent, if any */
 	struct lws			*child_list; /* points to first child */

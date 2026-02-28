@@ -35,6 +35,8 @@ typedef struct lws_latency_bucket {
 	uint32_t	lat_us;
 	uint32_t	worst_lat_us;
 	uint32_t	events;
+	char		req_info[64];
+	char		annotation[64];
 	char		worst_protocol[32];
 	char		worst_time[32];
 } lws_latency_bucket_t;

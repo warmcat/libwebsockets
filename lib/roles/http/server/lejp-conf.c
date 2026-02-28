@@ -37,6 +37,7 @@ static const char * const paths_global[] = {
 	"global.username",
 	"global.groupname",
 	"global.count-threads",
+	"global.count-async-threads",
 	"global.init-ssl",
 	"global.server-string",
 	"global.plugin-dir",
@@ -56,6 +57,7 @@ enum lejp_global_paths {
 	LEJPGP_USERNAME,
 	LEJPGP_GROUPNAME,
 	LEJPGP_COUNT_THREADS,
+	LEJPGP_COUNT_ASYNC_THREADS,
 	LWJPGP_INIT_SSL,
 	LEJPGP_SERVER_STRING,
 	LEJPGP_PLUGIN_DIR,
@@ -346,6 +348,11 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 		break;
 	case LEJPGP_COUNT_THREADS:
 		a->info->count_threads = (unsigned int)atoi(ctx->buf);
+		return 0;
+	case LEJPGP_COUNT_ASYNC_THREADS:
+#if defined(LWS_WITH_ASYNC_QUEUE)
+		a->info->count_async_threads = (uint8_t)atoi(ctx->buf);
+#endif
 		return 0;
 	case LWJPGP_INIT_SSL:
 		if (arg_to_bool(ctx->buf))

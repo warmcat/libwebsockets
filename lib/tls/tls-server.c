@@ -125,11 +125,71 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 #endif
 
 int
+lws_tls_server_accept_completed(struct lws *wsi, int n)
+{
+	struct lws_context *context = wsi->a.context;
+	struct lws_vhost *vh;
+
+	lwsl_info("SSL_accept says %d\n", n);
+	switch (n) {
+	case LWS_SSL_CAPABLE_DONE:
+		lws_tls_restrict_return_handshake(wsi);
+		break;
+	case LWS_SSL_CAPABLE_ERROR:
+		lws_tls_restrict_return_handshake(wsi);
+		lwsl_info("%s: SSL_accept failed socket %u: %d\n",
+				__func__, wsi->desc.sockfd, n);
+		wsi->socket_is_permanently_unusable = 1;
+		return 1;
+
+	default: /* MORE_SERVICE */
+		// lwsl_notice("%s: %s: MORE_SERVICE (%d), setting LRS_SSL_ACK_PENDING\n", __func__, lws_wsi_tag(wsi), n);
+		if (n == LWS_SSL_CAPABLE_MORE_SERVICE_READ) {
+			if (lws_change_pollfd(wsi, 0, LWS_POLLIN))
+				return 1;
+		} else if (n == LWS_SSL_CAPABLE_MORE_SERVICE_WRITE) {
+			if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
+				return 1;
+		}
+		lwsi_set_state(wsi, LRS_SSL_ACK_PENDING);
+		return 0;
+	}
+
+	/* adapt our vhost to match the SNI SSL_CTX that was chosen */
+	vh = context->vhost_list;
+	while (vh) {
+		if (!vh->being_destroyed && wsi->tls.ssl &&
+		    vh->tls.ssl_ctx == lws_tls_ctx_from_wsi(wsi)) {
+			lwsl_info("setting wsi to vh %s\n", vh->name);
+			lws_vhost_bind_wsi(vh, wsi);
+			break;
+		}
+		vh = vh->vhost_next;
+	}
+
+	/* OK, we are accepted... give him some time to negotiate */
+	lws_set_timeout(wsi, PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
+			(int)context->timeout_secs);
+
+	lwsi_set_state(wsi, LRS_ESTABLISHED);
+	if (lws_tls_server_conn_alpn(wsi)) {
+		lwsl_warn("%s: fail on alpn\n", __func__);
+		return 1; /* fail */
+	}
+	lwsl_debug("accepted new SSL conn\n");
+
+
+	/* continue establishment */
+	wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
+
+	return 0;
+}
+
+int
 lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char from_pollin)
 {
 	struct lws_context *context = wsi->a.context;
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
-	struct lws_vhost *vh;
 	ssize_t s;
 	int n;
 
@@ -149,6 +209,10 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 			return 1;
 		}
 
+#if defined(LWS_WITH_LATENCY)
+		lws_usec_t _ssl_new_start = lws_now_usecs();
+#endif
+
 		if (lws_tls_server_new_nonblocking(wsi, accept_fd)) {
 			lwsl_err("%s: failed on lws_tls_server_new_nonblocking\n", __func__);
 			if (accept_fd != LWS_SOCK_INVALID)
@@ -156,6 +220,14 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 			lws_tls_restrict_return(wsi);
 			goto fail;
 		}
+
+#if defined(LWS_WITH_LATENCY)
+		{
+			unsigned int ms = (unsigned int)((lws_now_usecs() - _ssl_new_start) / 1000);
+			if (ms > 2)
+				lws_latency_note(pt, _ssl_new_start, 2000, "sslnew:%dms", ms);
+		}
+#endif
 
 		/*
 		 * we are not accepted yet, but we need to enter ourselves
@@ -179,6 +251,8 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 		/* fallthru */
 
 	case LRS_SSL_ACK_PENDING:
+
+		// lwsl_notice("%s: %s: entering LRS_SSL_ACK_PENDING, from_pollin=%d\n", __func__, lws_wsi_tag(wsi), from_pollin);
 
 		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
 			lwsl_err("%s: lws_change_pollfd failed\n", __func__);
@@ -302,6 +376,7 @@ punt:
 				 * to come and give us a hint, or timeout the
 				 * connection.
 				 */
+				// lwsl_notice("%s: %s: punting (no data peeked), adding POLLIN\n", __func__, lws_wsi_tag(wsi));
 				if (lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
 					lwsl_err("%s: change_pollfd failed\n",
 						  __func__);
@@ -315,46 +390,68 @@ punt:
 
 		/* normal SSL connection processing path */
 
-		errno = 0;
-		n = lws_tls_server_accept(wsi);
-		lwsl_info("SSL_accept says %d\n", n);
-		switch (n) {
-		case LWS_SSL_CAPABLE_DONE:
-			lws_tls_restrict_return_handshake(wsi);
-			break;
-		case LWS_SSL_CAPABLE_ERROR:
-			lws_tls_restrict_return_handshake(wsi);
-	                lwsl_info("%s: SSL_accept failed socket %u: %d\n",
-	                		__func__, wsi->desc.sockfd, n);
-			wsi->socket_is_permanently_unusable = 1;
-			goto fail;
+#if defined(LWS_WITH_ASYNC_QUEUE)
+		if (lwsi_state(wsi) != LRS_AWAITING_SSL_ACCEPT && context->count_async_threads) {
+			struct lws_async_job *job;
 
-		default: /* MORE_SERVICE */
+			if (lws_change_pollfd(wsi, LWS_POLLIN | LWS_POLLOUT, 0)) {
+				lwsl_err("%s: lws_change_pollfd failed\n", __func__);
+				goto fail;
+			}
+
+			job = lws_zalloc(sizeof(*job), "async ssl job");
+			if (!job)
+				goto fail;
+
+			job->wsi = wsi;
+			wsi->async_worker_job = job;
+			job->type = LWS_AQ_SSL_ACCEPT;
+
+			//lwsl_notice("%s: %s: QUEUING LWS_AQ_SSL_ACCEPT\n", __func__, lws_wsi_tag(wsi));
+
+			pthread_mutex_lock(&context->async_worker_mutex);
+			lws_dll2_add_tail(&job->list, &context->async_worker_waiting);
+
+			if (context->async_worker_waiting.count > context->async_worker_threads_active &&
+			    context->async_worker_threads_active < context->count_async_threads) {
+				pthread_t pt_th;
+				context->async_worker_threads_active++;
+				if (pthread_create(&pt_th, NULL, lws_async_worker_worker, context) == 0)
+					pthread_detach(pt_th);
+				else
+					context->async_worker_threads_active--;
+			}
+
+			/* wake up any idle worker threads */
+			pthread_cond_signal(&context->async_worker_cond);
+
+			pthread_mutex_unlock(&context->async_worker_mutex);
+
+			lwsi_set_state(wsi, LRS_AWAITING_SSL_ACCEPT);
 			return 0;
 		}
+#endif
 
-		/* adapt our vhost to match the SNI SSL_CTX that was chosen */
-		vh = context->vhost_list;
-		while (vh) {
-			if (!vh->being_destroyed && wsi->tls.ssl &&
-			    vh->tls.ssl_ctx == lws_tls_ctx_from_wsi(wsi)) {
-				lwsl_info("setting wsi to vh %s\n", vh->name);
-				lws_vhost_bind_wsi(vh, wsi);
-				break;
-			}
-			vh = vh->vhost_next;
+		errno = 0;
+#if defined(LWS_WITH_LATENCY)
+		lws_usec_t _ssl_acc_start = lws_now_usecs();
+#endif
+		n = lws_tls_server_accept(wsi);
+
+#if defined(LWS_WITH_LATENCY)
+		{
+			unsigned int ms = (unsigned int)((lws_now_usecs() - _ssl_acc_start) / 1000);
+			if (ms > 2)
+				lws_latency_note(pt, _ssl_acc_start, 2000, "sslacc:%dms", ms);
 		}
+#endif
 
-		/* OK, we are accepted... give him some time to negotiate */
-		lws_set_timeout(wsi, PENDING_TIMEOUT_ESTABLISH_WITH_SERVER,
-				(int)context->timeout_secs);
-
-		lwsi_set_state(wsi, LRS_ESTABLISHED);
-		if (lws_tls_server_conn_alpn(wsi)) {
-			lwsl_warn("%s: fail on alpn\n", __func__);
+		if (lws_tls_server_accept_completed(wsi, n))
 			goto fail;
-		}
-		lwsl_debug("accepted new SSL conn\n");
+
+		if (lwsi_state(wsi) != LRS_ESTABLISHED)
+			return 0;
+
 		break;
 
 	default:
