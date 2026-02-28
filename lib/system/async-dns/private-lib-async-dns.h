@@ -32,11 +32,38 @@
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 
+/* RFC 4034, 5702, 6605, etc DNSSEC Algorithm Numbers */
+typedef enum {
+	LWS_ADNS_DSA_RSA_MD5			= 1,  /* RFC 2537 */
+	LWS_ADNS_DSA_DH				= 2,  /* RFC 2539 */
+	LWS_ADNS_DSA_DSA			= 3,  /* RFC 2536 */
+	LWS_ADNS_DSA_ECC			= 4,  /* RFC 2536 */
+	LWS_ADNS_DSA_RSA_SHA1			= 5,  /* RFC 3110 */
+	LWS_ADNS_DSA_DSA_NSEC3_SHA1		= 6,  /* RFC 5155 */
+	LWS_ADNS_DSA_RSA_SHA1_NSEC3_SHA1	= 7,  /* RFC 5155 */
+	LWS_ADNS_DSA_RSA_SHA256			= 8,  /* RFC 5702 */
+	LWS_ADNS_DSA_RSA_SHA512			= 10, /* RFC 5702 */
+	LWS_ADNS_DSA_ECC_GOST			= 12, /* RFC 5933 */
+	LWS_ADNS_DSA_ECDSAP256SHA256		= 13, /* RFC 6605 */
+	LWS_ADNS_DSA_ECDSAP384SHA384		= 14, /* RFC 6605 */
+	LWS_ADNS_DSA_ED25519			= 15, /* RFC 8080 */
+	LWS_ADNS_DSA_ED448			= 16, /* RFC 8080 */
+} lws_dnssec_algo_t;
+
+/* RFC 4034 DNSKEY Protocol Field */
+#define LWS_ADNS_DNSKEY_PROTOCOL_DNSSEC	3
+
 /*
  * ... when we completed a query then the query object is destroyed and a
- * cache object below is created with the results in getaddrinfo format
  * appended to the allocation
  */
+
+typedef struct lws_adns_rr {
+	struct lws_adns_rr	*next;
+	adns_query_type_t	type;
+	uint16_t		paylen;
+	/* payload follows */
+} lws_adns_rr_t;
 
 typedef struct lws_adns_cache {
 	lws_sorted_usec_list_t	sul;	/* for cache TTL management */
@@ -45,6 +72,7 @@ typedef struct lws_adns_cache {
 	struct lws_adns_cache	*firstcache;
 	struct lws_adns_cache	*chain;
 	struct addrinfo		*results;
+	struct lws_adns_rr	*rr_results; /* For DNSKEY, DS, RRSIG, etc. */
 	const char		*name;
 	uint8_t			flags;	/* b0 = has ipv4, b1 = has ipv6 */
 	char			refcount;
@@ -55,6 +83,10 @@ typedef struct lws_adns_cache {
 /*
  * these objects are used while a query is ongoing...
  */
+
+typedef int (*lws_async_dns_find_t)(const char *name, void *opaque,
+		uint32_t ttl, adns_query_type_t type, uint16_t rrpaylen,
+		const uint8_t *payload);
 
 typedef struct lws_adns_q {
 	lws_sorted_usec_list_t	sul;	/* per-query write retry timer */
@@ -95,6 +127,12 @@ typedef struct lws_adns_q {
 	uint8_t			is_synthetic:1; /* test will deliver canned */
 	uint8_t			is_tcp:1;
 	uint8_t			has_tcp_len:1;
+#if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
+	uint8_t			dnssec_valid:1;  /* results are verified */
+	uint8_t			dnssec_chk_cname:1; /* currently checking a CNAME */
+	uint8_t			dnssec_verify_rrsig:1; /* waiting on RRSIG verify */
+	uint8_t			lacks_dnssec:1; /* per-query DNSSEC override */
+#endif
 
 	struct lws		*wsi_tcp;
 	uint8_t			*tcp_rx_buf;
@@ -105,7 +143,7 @@ typedef struct lws_adns_q {
 } lws_adns_q_t;
 
 #define LADNS_MOST_RECENT_TID(_q) \
-		q->tid[(int)(_q->tids - 1) % (int)LWS_ARRAY_SIZE(q->tid)]
+		_q->tid[_q->tids ? ((int)(_q->tids - 1) % (int)LWS_ARRAY_SIZE(_q->tid)) : 0]
 
 enum {
 	DHO_TID,
@@ -163,6 +201,18 @@ __lws_async_dns_server_add(lws_async_dns_t *dns, const lws_sockaddr46 *sa46);
 void
 __lws_async_dns_server_remove(lws_async_dns_t *dns, const lws_sockaddr46 *sa46);
 
+#if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
+int
+lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len);
+#endif
+
+int
+lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
+		 const char *expname, lws_async_dns_find_t cb, void *opaque);
+
+int
+lws_adns_parse_label(const uint8_t *pkt, int len, const uint8_t *ls, int budget,
+		     char **dest, size_t dl);
 
 #if defined(_DEBUG)
 void
@@ -170,6 +220,22 @@ lws_adns_dump(lws_async_dns_t *dns);
 #else
 #define lws_adns_dump(_d)
 #endif
+
+/*
+ * Hardcoded root DS records for Unbound-like trust anchor bootstrapping.
+ * These are the current ICANN root zone KSK DS records.
+ */
+static const struct {
+	uint16_t keytag;
+	uint8_t algo;
+	uint8_t digest_type;
+	const char *digest_hex;
+} lws_adns_root_ds[] = {
+	/* Key tag 20326 (KSK-2017) */
+	{ 20326, 8, 2, "e06d44b80b8f1d39a95c0b0d7c65d08458e880409bbc683457104237c7f8ec8d" },
+	/* Key tag 38696 (KSK-2024) */
+	{ 38696, 8, 2, "683d2d0acb8c9b712a1948b27f741219298d0a450d612c483af444a4c0fb2afe" }
+};
 
 #endif
 

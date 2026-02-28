@@ -67,6 +67,7 @@
 #cmakedefine LWS_HAVE_MALLOC_TRIM
 #cmakedefine LWS_HAVE_MALLOC_USABLE_SIZE
 #cmakedefine LWS_HAVE_mbedtls_md_setup
+#cmakedefine LWS_HAVE_mbedtls_ssl_export_keying_material
 #cmakedefine LWS_HAVE_mbedtls_net_init
 #cmakedefine LWS_HAVE_mbedtls_rsa_complete
 #cmakedefine LWS_HAVE_mbedtls_internal_aes_encrypt
@@ -154,6 +155,7 @@
 #cmakedefine LWS_WITH_ALLOC_METADATA_LWS
 #cmakedefine LWS_WITH_ALSA
 #cmakedefine LWS_WITH_SYS_ASYNC_DNS
+#cmakedefine LWS_WITH_SYS_ASYNC_DNS_DNSSEC
 #cmakedefine LWS_WITH_AUTHORITATIVE_DNS
 #cmakedefine LWS_WITH_BORINGSSL
 #cmakedefine LWS_WITH_AWSLC

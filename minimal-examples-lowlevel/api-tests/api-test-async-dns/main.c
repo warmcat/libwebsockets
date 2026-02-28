@@ -12,7 +12,8 @@
 #include <libwebsockets.h>
 #include <signal.h>
 
-static int interrupted, dtest, ok, fail, _exp = 38;
+static int interrupted, dtest, ok, fail, _exp = 18;
+static uint32_t fail_mask;
 struct lws_context *context;
 
 /*
@@ -75,10 +76,10 @@ static struct async_dns_tests {
 	int addrlen;
 	uint8_t ads[16];
 } adt[] = {
-	{ "warmcat.com", LWS_ADNS_RECORD_A, 4,
+	{ "ml.warmcat.com", LWS_ADNS_RECORD_A, 4,
 		{ 46, 105, 127, 147, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 		/* test coming from cache */
-	{ "warmcat.com", LWS_ADNS_RECORD_A, 4,
+	{ "ml.warmcat.com", LWS_ADNS_RECORD_A, 4,
 		{ 46, 105, 127, 147, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 	{ "libwebsockets.org", LWS_ADNS_RECORD_A, 4,
 		{ 46, 105, 127, 147, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
@@ -99,35 +100,38 @@ static struct async_dns_tests {
 				0x02, 0x08, 0xa2, 0xff, 0xfe, 0x0c, 0x72, 0xce, } },
 #endif
 //	{ "c.msn.com", TEST_FLAG_NOCHECK_RESULT_IP |
-//		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 4,
+//		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A | LWS_ADNS_INDICATE_LACKS_DNSSEC, 4,
 //		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
+	{ "c.msn.com", TEST_FLAG_NOCHECK_RESULT_IP |
+		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A | LWS_ADNS_INDICATE_LACKS_DNSSEC, 0,
+		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 	{ "assets.msn.com", TEST_FLAG_NOCHECK_RESULT_IP |
-		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 4,
+		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A | LWS_ADNS_INDICATE_LACKS_DNSSEC, 4,
 		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 	{ "e28578.d.akamaiedge.net", TEST_FLAG_NOCHECK_RESULT_IP |
-		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 0,
+		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A | LWS_ADNS_INDICATE_LACKS_DNSSEC, 0,
 		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 	{ "a-0003.a-msedge.net", TEST_FLAG_NOCHECK_RESULT_IP |
-		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 0,
+		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A | LWS_ADNS_INDICATE_LACKS_DNSSEC, 0,
 		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 //	{ "c-msn-com-europe-vip.trafficmanager.net", TEST_FLAG_NOCHECK_RESULT_IP |
-//		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 0,
+//		       LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A | LWS_ADNS_INDICATE_LACKS_DNSSEC, 0,
 //		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
-	{ "tcp-fallback.libwebsockets.org", LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A, 0,
+	{ "tcp-fallback.libwebsockets.org", LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A | LWS_ADNS_INDICATE_LACKS_DNSSEC, 0,
 		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
-	{ "mudpuddle.shwaine.com", LWS_ADNS_RECORD_A, 4,
+	{ "mudpuddle.shwaine.com", LWS_ADNS_RECORD_A | LWS_ADNS_INDICATE_LACKS_DNSSEC, 4,
 		{ 174, 134, 58, 54, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
-	{ "awsrealm.majicrealm.com", LWS_ADNS_RECORD_A, 4,
+	{ "awsrealm.majicrealm.com", LWS_ADNS_RECORD_A | LWS_ADNS_INDICATE_LACKS_DNSSEC, 4,
 		{ 35, 88, 197, 177, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
-	{ "lwsbiglongtesthostname.lociterm.com", LWS_ADNS_RECORD_A, 4,
+	{ "lwsbiglongtesthostname.lociterm.com", LWS_ADNS_RECORD_A | LWS_ADNS_INDICATE_LACKS_DNSSEC, 4,
 		{ 127, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
-	{ "game.addictmud.org", LWS_ADNS_RECORD_A, 4,
+	{ "game.addictmud.org", LWS_ADNS_RECORD_A | LWS_ADNS_INDICATE_LACKS_DNSSEC, 4,
 		{ 167, 172, 227, 42, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
-	{ "grow.lociterm.com", LWS_ADNS_RECORD_A, 4,
+	{ "grow.lociterm.com", LWS_ADNS_RECORD_A | LWS_ADNS_INDICATE_LACKS_DNSSEC, 4,
 		{ 127, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
-	{ "letsgobigorgohome.lociterm.com", LWS_ADNS_RECORD_A, 4,
+	{ "letsgobigorgohome.lociterm.com", LWS_ADNS_RECORD_A | LWS_ADNS_INDICATE_LACKS_DNSSEC, 4,
 		{ 127, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
-	{ "terrafirma.terra.mud.org", LWS_ADNS_RECORD_A, 4,
+	{ "terrafirma.terra.mud.org", LWS_ADNS_RECORD_A | LWS_ADNS_INDICATE_LACKS_DNSSEC, 4,
 		{ 92,205,179,40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 };
 
@@ -216,6 +220,7 @@ next_test_cb(lws_sorted_usec_list_t *sul)
 	struct lws_adns_q *q;
 	int m;
 
+	lwsl_user("*** Start of subtest %d\n", dtest + 1);
 	lwsl_notice("%s: querying %s\n", __func__, adt[dtest].dns_name);
 
 	m = lws_async_dns_query(context, 0,
@@ -287,14 +292,17 @@ cb1(struct lws *wsi_unused, const char *ads, const struct addrinfo *a, int n,
     void *opaque)
 {
 	const struct addrinfo *ac = a;
-	int ctr = 0, alen = 0;
+#if (_LWS_ENABLED_LOGS & LLL_DEBUG)
+	int ctr = 0;
+#endif
+	int alen = 0;
 	uint8_t *addr = NULL;
 	char buf[64];
 
 	dtest++;
 
 	if (!ac)
-		lwsl_warn("%s: no results\n", __func__);
+		lwsl_debug("%s: no results\n", __func__);
 
 	/* dump the results */
 
@@ -311,7 +319,7 @@ cb1(struct lws *wsi_unused, const char *ads, const struct addrinfo *a, int n,
 		strcpy(buf, "unknown");
 		lws_write_numeric_address(addr, alen, buf, sizeof(buf));
 
-		lwsl_warn("%s: %d: %s %d %s\n", __func__, ctr++, ads, alen, buf);
+		lwsl_debug("%s: %d: %s %d %s\n", __func__, ctr++, ads, alen, buf);
 
 		ac = ac->ai_next;
 	}
@@ -351,10 +359,12 @@ again:
 	}
 
 	lwsl_err("%s: dns test %d: no match\n", __func__, dtest);
-	lwsl_hexdump_notice(adt[dtest - 1].ads, (size_t)alen);
+	/* lwsl_hexdump_notice(adt[dtest - 1].ads, (size_t)alen);
 	if (addr)
-		lwsl_hexdump_notice(addr, (size_t)alen);
+		lwsl_hexdump_notice(addr, (size_t)alen); */
+	lwsl_user("*** SUBTEST FAILED\n");
 	fail++;
+	fail_mask |= (1u << (dtest - 1));
 
 next:
 	lws_async_dns_freeaddrinfo(&a);
@@ -392,7 +402,7 @@ sul_retry_l(struct lws_sorted_usec_list *sul)
 
 	lwsl_user("%s: starting new query\n", __func__);
 
-	m = lws_async_dns_query(context, 0, "warmcat.com",
+	m = lws_async_dns_query(context, 0, "ml.warmcat.com",
 				    (adns_query_type_t)LWS_ADNS_RECORD_A,
 				    cb_loop, NULL, context, NULL);
 	switch (m) {
@@ -458,7 +468,7 @@ fixup(int idx)
 int
 main(int argc, const char **argv)
 {
-	int n = 1, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+	int n = 1, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE | LLL_INFO;
 	struct lws_context_creation_info info;
 	uint8_t mac[6];
 	const char *p;
@@ -467,7 +477,13 @@ main(int argc, const char **argv)
 
 	fixup(0);
 	fixup(1);
-	fixup(2);
+	/*
+	 * On l2/LAN, libwebsockets.org incorrectly evaluates locally to
+	 * 10.199.0.10 via split-horizon DNS, which fails against Google DNS.
+	 * We instead copy the DDNS public IP dynamically fetched from
+	 * ml.warmcat.com via fixup(0) to successfully match what 8.8.8.8 finds.
+	 */
+	memcpy(adt[2].ads, adt[0].ads, 4);
 	fixup(5);
 	fixup(6);
 
@@ -481,14 +497,33 @@ main(int argc, const char **argv)
 	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS API selftest: Async DNS\n");
 
+	static const char *dns[] = { "8.8.8.8", NULL };
+
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+	lws_system_ops_t ops;
+	memset(&ops, 0, sizeof ops);
+	ops.async_dns_dnssec_mode = LWS_ADNS_DNSSEC_REQUIRE;
+	info.system_ops = &ops;
+	info.async_dns_servers = dns;
 
 	context = lws_create_context(&info);
 	if (!context) {
 		lwsl_err("lws init failed\n");
 		return 1;
+	}
+
+	{
+		lws_sockaddr46 sa46;
+		int index = 0;
+
+		while (!lws_plat_asyncdns_get_server(context, index++, &sa46)) {
+			char buf[64];
+			lws_sa46_write_numeric_address(&sa46, buf, sizeof(buf));
+			lwsl_user("REMOVING SYSTEM DNS: %s\n", buf);
+			lws_async_dns_server_remove(context, &sa46);
+		}
 	}
 
 	if (lws_cmdline_option(argc, argv, "-l")) {
@@ -605,10 +640,15 @@ evloop:
 
 	lws_context_destroy(context);
 
-	if (fail || ok != _exp)
+	_exp += (int)LWS_ARRAY_SIZE(adt);
+
+	if (fail || ok != _exp) {
 		lwsl_user("Completed: PASS: %d / %d, FAIL: %d\n", ok, _exp,
 				fail);
-	else
+		for (n = 0; n < (int)LWS_ARRAY_SIZE(adt); n++)
+			if (fail_mask & (1ul << n))
+				lwsl_user("  Subtest %d (%s) failed\n", n + 1, adt[n].dns_name);
+	} else
 		lwsl_user("Completed: ALL PASS: %d / %d\n", ok, _exp);
 
 	return !(ok == _exp && !fail);

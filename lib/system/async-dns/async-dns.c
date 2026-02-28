@@ -130,10 +130,12 @@ lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c)
 			c->refcount++;
 		}
 		lws_set_timeout(w, NO_PENDING_TIMEOUT, 0);
-		/*
-		 * This may decide to close / delete w
-		 */
-		if (w->adns_cb(w, (const char *)&q[1], c ? c->results : NULL, 0,
+		if (w->adns_cb(w, (const char *)&q[1], c ? c->results : NULL,
+#if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
+				0 | (q->dnssec_valid ? LWS_ADNS_DNSSEC_VALID : 0),
+#else
+				0,
+#endif
 				q->opaque) == NULL) {
 			lwsl_info("%s: failed\n", __func__);
 			ret = LADNS_RET_FAILED_WSI_CLOSED;
@@ -146,7 +148,13 @@ lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c)
 			c->refcount++;
 
 		if (q->standalone_cb(NULL, (const char *)&q[1],
-				 c ? c->results : NULL, 0, q->opaque) == NULL)
+				 c ? c->results : NULL,
+#if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
+				 0 | (q->dnssec_valid ? LWS_ADNS_DNSSEC_VALID : 0),
+#else
+				 0,
+#endif
+				 q->opaque) == NULL)
 			ret = LADNS_RET_FAILED_WSI_CLOSED;
 	}
 
@@ -247,6 +255,10 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 					LADNS_MOST_RECENT_TID(q));
 	lws_ser_wu16be(&p[DHO_FLAGS], (1 << 8));
 	lws_ser_wu16be(&p[DHO_NQUERIES], 1);
+#if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
+	if (q->dns->dnssec_mode)
+		lws_ser_wu16be(&p[DHO_NOTHER], 1); /* 1 additional record (EDNS0 OPT) */
+#endif
 
 	p += DHO_SIZEOF;
 
@@ -256,7 +268,14 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 
 	do {
 		if (*name == '.' || !*name) {
-			*pl = (uint8_t)(unsigned int)lws_ptr_diff(p, pl + 1);
+			int l = (int)lws_ptr_diff(p, pl + 1);
+			if (l == 0) {
+				/* skip empty label (e.g. trailing dot) */
+				if (!*name++)
+					break;
+				continue;
+			}
+			*pl = (uint8_t)l;
 			pl = p;
 			*p++ = 0; /* also serves as terminal length */
 			if (!*name++)
@@ -271,11 +290,31 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 		goto qfail;
 	}
 
-	lws_ser_wu16be(p, which ? LWS_ADNS_RECORD_AAAA : LWS_ADNS_RECORD_A);
+	if (q->qtype == LWS_ADNS_RECORD_A || q->qtype == LWS_ADNS_RECORD_AAAA)
+		lws_ser_wu16be(p, which ? LWS_ADNS_RECORD_AAAA : LWS_ADNS_RECORD_A);
+	else
+		lws_ser_wu16be(p, q->qtype);
 	p += 2;
 
 	lws_ser_wu16be(p, 1); /* IN class */
 	p += 2;
+
+#if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
+	if (q->dns->dnssec_mode) {
+		/* Append EDNS0 OPT record with DO (DNSSEC-OK) bit */
+		*p++ = 0; /* Name: root */
+		lws_ser_wu16be(p, 41); /* Type: OPT (41) */
+		p += 2;
+		lws_ser_wu16be(p, LWS_PRE + DNS_PACKET_LEN); /* UDP payload size */
+		p += 2;
+		*p++ = 0; /* Extended RCODE */
+		*p++ = 0; /* Version */
+		lws_ser_wu16be(p, 0x8000); /* Flags: DO bit (bit 0 of 16-bit flags) */
+		p += 2;
+		lws_ser_wu16be(p, 0); /* RDLEN: 0 */
+		p += 2;
+	}
+#endif
 
 	assert(p < pkt + sizeof(pkt) - LWS_PRE);
 	n = lws_ptr_diff(p, pkt + LWS_PRE);
@@ -448,7 +487,7 @@ __lws_async_dns_server_find(lws_async_dns_t *dns, const lws_sockaddr46 *sa46)
 		lws_async_dns_server_t *s = lws_container_of(d,
 						lws_async_dns_server_t, list);
 
-		if (lws_sa46_compare_ads(sa46, &s->sa46))
+		if (!lws_sa46_compare_ads(sa46, &s->sa46))
 			return s;
 	} lws_end_foreach_dll(d);
 
@@ -605,6 +644,12 @@ lws_async_dns_init(struct lws_context *context)
 	int n;
 
 	dns->cx = context;
+	const lws_system_ops_t *ops = lws_system_get_ops(context);
+	if (ops) {
+		dns->dnssec_mode = ops->async_dns_dnssec_mode;
+	} else {
+		dns->dnssec_mode = 0;
+	}
 
 	n = lws_plat_asyncdns_init(context, dns);
 	if (n < 0 && !dns->nameservers.count) {
@@ -1251,6 +1296,10 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	q->qtype = (uint16_t)qtype;
 	if (qtype & LWS_ADNS_SYNTHETIC)
 		q->is_synthetic = 1;
+#if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
+	if (qtype & LWS_ADNS_INDICATE_LACKS_DNSSEC)
+		q->lacks_dnssec = 1;
+#endif
 
 	q->context = context;
 	q->tsi = (uint8_t)tsi;
@@ -1345,4 +1394,11 @@ lws_async_dns_create_tcp_wsi(lws_adns_q_t *q)
 	}
 
 	return 0;
+}
+
+void
+lws_async_dns_dnssec_set_mode(struct lws_context *context,
+			      lws_async_dns_dnssec_mode_t mode)
+{
+	context->async_dns.dnssec_mode = (uint8_t)mode;
 }
