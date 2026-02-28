@@ -2888,8 +2888,18 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 	if (!wsi->http.fop_fd) {
 		fops = lws_vfs_select_fops(wsi->a.context->fops, file, &vpath);
 		fflags |= lws_vfs_prepare_flags(wsi);
+#if defined(LWS_WITH_LATENCY)
+		lws_usec_t _lws_start = lws_now_usecs();
+#endif
 		wsi->http.fop_fd = fops->LWS_FOP_OPEN(fops, wsi->a.context->fops,
 							file, vpath, &fflags);
+#if defined(LWS_WITH_LATENCY)
+		if ((lws_now_usecs() - _lws_start) > 500) {
+			lws_latency_note(pt, _lws_start, 500, "open:%uus ",
+				(unsigned int)(lws_now_usecs() - _lws_start));
+			lws_latency_append_annotation(pt, "file:%s ", file);
+		}
+#endif
 		if (!wsi->http.fop_fd) {
 			lwsl_info("%s: Unable to open: '%s': errno %d\n",
 				  __func__, file, errno);
@@ -2904,7 +2914,21 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 	 * Caution... wsi->http.fop_fd is live from here
 	 */
 
-	wsi->http.filelen = lws_vfs_get_length(wsi->http.fop_fd);
+#if defined(LWS_WITH_LATENCY)
+	{
+		lws_usec_t _lws_start = lws_now_usecs();
+		wsi->http.filelen = lws_vfs_get_length(wsi->http.fop_fd);
+		if ((lws_now_usecs() - _lws_start) > 500) {
+			lws_latency_note(pt, _lws_start, 500, "fstat:%uus ",
+				(unsigned int)(lws_now_usecs() - _lws_start));
+			lws_latency_append_annotation(pt, "file:%s ", file);
+		}
+	}
+#else
+	{
+		wsi->http.filelen = lws_vfs_get_length(wsi->http.fop_fd);
+	}
+#endif
 	total_content_length = wsi->http.filelen;
 
 #if defined(LWS_WITH_RANGES)
@@ -3319,9 +3343,71 @@ int lws_serve_http_file_fragment(struct lws *wsi)
 			poss -= 10 + 128;
 		}
 
-		amount = 0;
-		if (lws_vfs_file_read(wsi->http.fop_fd, &amount, p, poss) < 0)
-			goto file_had_it; /* caller will close */
+#if defined(LWS_WITH_ASYNC_QUEUE)
+		if (wsi->async_worker_job == NULL &&
+		    wsi->http.fop_fd->fops == wsi->a.context->fops) {
+			/* Do the read asynchronously instead of blocking */
+			struct lws_async_job *job = lws_malloc(sizeof(*job) + poss, "async_fs");
+			if (!job)
+				goto file_had_it;
+			memset(job, 0, sizeof(*job));
+			wsi->async_worker_job = job;
+			job->wsi = wsi;
+			job->type = LWS_AQ_FILE_READ;
+			job->u.fs.fop_fd = wsi->http.fop_fd;
+			job->u.fs.buf = (uint8_t *)&job[1];
+			job->u.fs.len = poss;
+
+			/* enqueue */
+			pthread_mutex_lock(&wsi->a.context->async_worker_mutex);
+			lws_dll2_add_tail(&job->list, &wsi->a.context->async_worker_waiting);
+
+			/* Scale threads up to limit if needed */
+			if (wsi->a.context->async_worker_waiting.count > wsi->a.context->async_worker_threads_active &&
+			    wsi->a.context->async_worker_threads_active < wsi->a.context->count_async_threads) {
+				pthread_t pt;
+				wsi->a.context->async_worker_threads_active++;
+				if (pthread_create(&pt, NULL, lws_async_worker_worker, wsi->a.context) == 0)
+					pthread_detach(pt);
+				else
+					wsi->a.context->async_worker_threads_active--;
+			}
+
+			pthread_cond_signal(&wsi->a.context->async_worker_cond);
+			pthread_mutex_unlock(&wsi->a.context->async_worker_mutex);
+			lwsi_set_state(wsi, LRS_AWAITING_FILE_READ);
+			return 0; // go back to event loop, wait for worker
+		}
+
+		/* We are returning from async read logic here, amount would be pre-filled */
+		if (wsi->async_worker_job == NULL) {
+#endif
+			amount = 0;
+#if defined(LWS_WITH_LATENCY)
+			{
+				lws_usec_t _lws_start = lws_now_usecs();
+#endif
+			if (lws_vfs_file_read(wsi->http.fop_fd, &amount, p, poss) < 0)
+				goto file_had_it; /* caller will close */
+#if defined(LWS_WITH_LATENCY)
+				lws_latency_note(pt, _lws_start, 500, "read:%uus ",
+					(unsigned int)(lws_now_usecs() - _lws_start));
+			}
+#endif
+#if defined(LWS_WITH_ASYNC_QUEUE)
+		} else {
+			amount = wsi->async_worker_job->u.fs.amount;
+			if ((int)amount < 0) {
+				goto file_had_it;
+			}
+			memcpy(p, wsi->async_worker_job->u.fs.buf, amount);
+
+			/* Clean up job */
+			wsi->async_worker_job->wsi = NULL;
+			lws_free(wsi->async_worker_job);
+			wsi->async_worker_job = NULL;
+		}
+#endif
 
 		if (wsi->sending_chunked)
 			n = (int)amount;
@@ -3585,3 +3671,4 @@ skip:
 
 	return 0;
 }
+//#endif

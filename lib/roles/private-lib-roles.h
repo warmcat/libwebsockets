@@ -127,6 +127,8 @@ enum lwsi_state {
 	LRS_BODY				= 23,
 	LRS_DISCARD_BODY			= 24,
 	LRS_ESTABLISHED				= LWSIFS_POCB | 25,
+	LRS_AWAITING_FILE_READ			= LWSIFS_POCB | 35,
+	LRS_AWAITING_SSL_ACCEPT			= LWSIFS_POCB | 36,
 
 	/* we are established, but we have embarked on serving a single
 	 * transaction.  Other transaction input may be pending, but we will

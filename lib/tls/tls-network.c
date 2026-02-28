@@ -56,6 +56,8 @@ lws_tls_fake_POLLIN_for_buffered(struct lws_context_per_thread *pt)
 					(pt->fds[wsi->position_in_fds_table].revents |
 					 (pt->fds[wsi->position_in_fds_table].events & LWS_POLLIN));
 				ret |= pt->fds[wsi->position_in_fds_table].revents & LWS_POLLIN;
+
+				lwsl_notice("%s: faked POLLIN for %s, revents=0x%x\n", __func__, lws_wsi_tag(wsi), pt->fds[wsi->position_in_fds_table].revents);
 			}
 		}
 

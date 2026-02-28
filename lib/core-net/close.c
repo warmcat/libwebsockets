@@ -354,6 +354,40 @@ lws_addrinfo_clean(struct lws *wsi)
 #endif
 }
 
+#if defined(LWS_WITH_ASYNC_QUEUE)
+static void
+lws_async_worker_wait_and_reap(struct lws *wsi)
+{
+	if (!wsi->async_worker_job)
+		return;
+
+	while (1) {
+		pthread_mutex_lock(&wsi->a.context->async_worker_mutex);
+		if (!wsi->async_worker_job) {
+			pthread_mutex_unlock(&wsi->a.context->async_worker_mutex);
+			break;
+		}
+		struct lws_async_job *job = wsi->async_worker_job;
+		if (job->list.owner == &wsi->a.context->async_worker_waiting ||
+		    job->list.owner == &wsi->a.context->async_worker_finished ||
+		    job->handled_by_main) {
+			/* Not actively running. We can safely detach it and reap it. */
+			wsi->async_worker_job = NULL;
+			lws_dll2_remove(&job->list);
+			lws_free(job);
+			pthread_mutex_unlock(&wsi->a.context->async_worker_mutex);
+			break;
+		}
+		pthread_mutex_unlock(&wsi->a.context->async_worker_mutex);
+		/* The background thread is actively modifying this WSI or its SSL contexts.
+		 * It is catastrophic to continue closing or freeing this WSI until it is done.
+		 * Because this happens very infrequently (shutdown collisions), we briefly yield.
+		 */
+		usleep(1000);
+	}
+}
+#endif
+
 /* requires cx and pt lock */
 
 void
@@ -498,6 +532,10 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 		lws_free_set_NULL(wsi->stash);
 #endif
 
+#if defined(LWS_WITH_ASYNC_QUEUE)
+	lws_async_worker_wait_and_reap(wsi);
+#endif
+
 	if (wsi->role_ops == &role_ops_raw_skt) {
 		wsi->socket_is_permanently_unusable = 1;
 		goto just_kill_connection;
@@ -596,6 +634,7 @@ just_kill_connection:
 #if defined(LWS_WITH_THREADPOOL) && defined(LWS_HAVE_PTHREAD_H)
 	lws_threadpool_wsi_closing(wsi);
 #endif
+
 
 #if defined(LWS_WITH_FILE_OPS) && (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2))
 	if (lwsi_role_http(wsi) && lwsi_role_server(wsi) &&
@@ -916,6 +955,10 @@ void
 __lws_close_free_wsi_final(struct lws *wsi)
 {
 	int n;
+
+#if defined(LWS_WITH_ASYNC_QUEUE)
+	lws_async_worker_wait_and_reap(wsi);
+#endif
 
 	if (!wsi->shadow &&
 	    lws_socket_is_valid(wsi->desc.sockfd) && !lws_ssl_close(wsi)) {

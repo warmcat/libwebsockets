@@ -1189,9 +1189,22 @@ read:
 		if ((int)pending > ebuf.len)
 			pending = (unsigned int)ebuf.len;
 
+#if defined(LWS_WITH_LATENCY)
+		lws_usec_t _ws_capread_start = lws_now_usecs();
+#endif
+
 		ebuf.len = lws_ssl_capable_read(wsi, ebuf.token,
 						(size_t)(pending ? pending :
 						(unsigned int)ebuf.len));
+
+#if defined(LWS_WITH_LATENCY)
+		{
+			unsigned int ms = (unsigned int)((lws_now_usecs() - _ws_capread_start) / 1000);
+			if (ms > 2)
+				lws_latency_note(pt, _ws_capread_start, 2000, "wscaprd:%dms", ms);
+		}
+#endif
+
 		switch (ebuf.len) {
 		case 0:
 			lwsl_info("%s: zero length read\n",
@@ -1232,6 +1245,9 @@ drain:
 		/* service incoming data */
 		//lws_buflist_describe(&wsi->buflist, wsi, __func__);
 		if (ebuf.len > 0) {
+#if defined(LWS_WITH_LATENCY)
+			lws_usec_t _ws_read_start = lws_now_usecs();
+#endif
 #if defined(LWS_ROLE_H2)
 			if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY &&
 			    lwsi_state(wsi) != LRS_DISCARD_BODY)
@@ -1241,6 +1257,14 @@ drain:
 #endif
 				n = lws_read_h1(wsi, ebuf.token,
 					     (unsigned int)ebuf.len);
+
+#if defined(LWS_WITH_LATENCY)
+			{
+				unsigned int ms = (unsigned int)((lws_now_usecs() - _ws_read_start) / 1000);
+				if (ms > 2)
+					lws_latency_note(pt, _ws_read_start, 2000, "wsrd:%dms", ms);
+			}
+#endif
 
 			if (n < 0) {
 				/* we closed wsi */

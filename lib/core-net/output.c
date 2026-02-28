@@ -249,6 +249,11 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 	int n = 0, en;
 
 	errno = 0;
+
+#if defined(LWS_WITH_LATENCY)
+	lws_usec_t _lws_start = lws_now_usecs();
+#endif
+
 #if defined(LWS_WITH_UDP)
 	if (lws_wsi_is_udp(wsi)) {
 		socklen_t slt = sizeof(wsi->udp->sa46);
@@ -266,6 +271,16 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 				(int)
 #endif
 				len, 0);
+
+#if defined(LWS_WITH_LATENCY)
+	{
+		unsigned int ms = (unsigned int)((lws_now_usecs() - _lws_start) / 1000);
+		if (ms > 2) {
+			lws_latency_note(&wsi->a.context->pt[(int)wsi->tsi], _lws_start, 2000, "recv:%dms", ms);
+		}
+	}
+#endif
+
 	en = LWS_ERRNO;
 	if (n >= 0) {
 
@@ -312,6 +327,10 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 	ssize_t send(int sockfd, const void *buf, size_t len, int flags);
 #endif
 
+#if defined(LWS_WITH_LATENCY)
+	lws_usec_t _lws_start = lws_now_usecs();
+#endif
+
 #if defined(LWS_WITH_UDP)
 	if (lws_wsi_is_udp(wsi)) {
 
@@ -350,6 +369,15 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 #endif
 					len, MSG_NOSIGNAL);
 //	lwsl_info("%s: sent len %d result %d", __func__, len, n);
+
+#if defined(LWS_WITH_LATENCY)
+	{
+		unsigned int ms = (unsigned int)((lws_now_usecs() - _lws_start) / 1000);
+		if (ms > 2) {
+			lws_latency_note(&wsi->a.context->pt[(int)wsi->tsi], _lws_start, 2000, "send:%dms", ms);
+		}
+	}
+#endif
 
 #if defined(LWS_WITH_UDP)
 post_send:

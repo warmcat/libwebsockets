@@ -28,6 +28,9 @@ static lws_handling_result_t
 rops_handle_POLLIN_raw_proxy(struct lws_context_per_thread *pt, struct lws *wsi,
 			     struct lws_pollfd *pollfd)
 {
+#if defined(LWS_WITH_LATENCY)
+	lws_usec_t _rproxy_start = lws_now_usecs();
+#endif
 	struct lws_tokens ebuf;
 	int n, buffered;
 
@@ -116,6 +119,14 @@ try_pollout:
 #if defined(LWS_WITH_CLIENT)
 	if (lws_http_client_socket_service(wsi, pollfd))
 		return LWS_HPI_RET_WSI_ALREADY_DIED;
+#endif
+
+#if defined(LWS_WITH_LATENCY)
+		{
+			unsigned int ms = (unsigned int)((lws_now_usecs() - _rproxy_start) / 1000);
+			if (ms > 2)
+				lws_latency_note(pt, _rproxy_start, 2000, "rproxy:%dms", ms);
+		}
 #endif
 
 	return LWS_HPI_RET_HANDLED;

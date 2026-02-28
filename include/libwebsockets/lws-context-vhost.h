@@ -1002,6 +1002,14 @@ struct lws_context_creation_info {
 	/**< CONTEXT: optionally pass the app commandline to the context, so we can use it
 	 * as part of lws_cmdline_option_cx() */
 
+#if defined(LWS_WITH_ASYNC_QUEUE)
+	uint8_t			count_async_threads;
+	/**< CONTEXT: Max number of separate worker threads allowed
+	 *   to be spawned for async operations like TLS accept and
+	 *   file serving.  0 means 1 thread maximum if the feature
+	 *   is enabled. */
+#endif
+
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
 	 *

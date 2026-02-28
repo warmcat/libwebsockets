@@ -88,6 +88,7 @@ struct lws_lws_tls {
 	char			err_helper[64];
 	unsigned int		use_ssl;
 	unsigned int		redirect_to_https:1;
+	unsigned int		ssl_accept_in_bg:1;
 };
 
 
@@ -166,6 +167,9 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd);
 
 enum lws_ssl_capable_status
 lws_tls_server_accept(struct lws *wsi);
+
+int
+lws_tls_server_accept_completed(struct lws *wsi, int n);
 
 enum lws_ssl_capable_status
 lws_tls_server_abort_connection(struct lws *wsi);
