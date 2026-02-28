@@ -55,7 +55,7 @@ again1:
 			return -1;
 		/* pointer into message pkt to name to actually use */
 		n = lws_ser_ru16be(ls) & 0x3fff;
-		if (n >= len) {
+               if (n < DHO_SIZEOF || n >= len) {
 			lwsl_notice("%s: illegal name pointer\n", __func__);
 
 			return -1;
