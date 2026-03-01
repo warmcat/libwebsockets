@@ -202,9 +202,7 @@ lws_jwe_encrypt_ecdh(struct lws_jwe *jwe, char *temp, int *temp_len,
 	uint8_t shared_secret[LWS_JWE_LIMIT_KEY_ELEMENT_BYTES],
 		derived[LWS_JWE_LIMIT_KEY_ELEMENT_BYTES];
 	int m, n, ret = -1, ot = *temp_len, ss_len = sizeof(shared_secret),
-	  //  kw_hlen = lws_genhash_size(jwe->jose.alg->hash_type),
-	    enc_hlen = (int)lws_genhmac_size(jwe->jose.enc_alg->hmac_type),
-	    ekbytes = 32; //jwe->jose.alg->keybits_fixed / 8;
+	    enc_hlen = (int)lws_genhmac_size(jwe->jose.enc_alg->hmac_type);
 	struct lws_genec_ctx ecctx;
 	struct lws_jwk *ephem = &jwe->jose.recipient[jwe->recip].jwk_ephemeral;
 
@@ -219,14 +217,18 @@ lws_jwe_encrypt_ecdh(struct lws_jwe *jwe, char *temp, int *temp_len,
 
 	/* Generate jose.jwk_ephemeral on the peer public key curve */
 
-	if (lws_genecdh_create(&ecctx, jwe->jws.context, NULL))
+	if (lws_genecdh_create(&ecctx, jwe->jws.context, NULL)) {
+		lwsl_err("%s: lws_genecdh_create failed\n", __func__);
 		goto bail;
+	}
 
 	/* ephemeral context gets random key on same curve as recip pubkey */
 	if (lws_genecdh_new_keypair(&ecctx, LDHS_OURS, (const char *)
 				jwe->jws.jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf,
-				ephem->e))
+				ephem->e)) {
+		lwsl_err("%s: lws_genecdh_new_keypair failed\n", __func__);
 		goto bail;
+	}
 
 	/* peer context gets js->jwk key */
 	if (lws_genecdh_set_key(&ecctx, jwe->jws.jwk->e, LDHS_THEIRS)) {
@@ -235,6 +237,7 @@ lws_jwe_encrypt_ecdh(struct lws_jwe *jwe, char *temp, int *temp_len,
 	}
 
 	/* combine our ephemeral key and the peer pubkey to get the secret */
+	ss_len = (int)jwe->jws.jwk->e[LWS_GENCRYPTO_EC_KEYEL_X].len;
 
 	if (lws_genecdh_compute_shared_secret(&ecctx, shared_secret, &ss_len)) {
 		lwsl_notice("%s: lws_genecdh_compute_shared_secret failed\n",
@@ -302,7 +305,7 @@ lws_jwe_encrypt_ecdh(struct lws_jwe *jwe, char *temp, int *temp_len,
 		/* wrap with the derived key */
 
 		el.buf = derived;
-		el.len = (unsigned int)enc_hlen / 2;
+		el.len = (unsigned int)jwe->jose.alg->keybits_fixed / 8;
 
 		if (lws_genaes_create(&aesctx, LWS_GAESO_ENC, LWS_GAESM_KW, &el,
 					1, NULL)) {
@@ -368,8 +371,8 @@ bail:
 	lws_genec_destroy(&ecctx);
 
 	/* cleanse the shared secret (watch out for cek at parent too) */
-	lws_explicit_bzero(shared_secret, (unsigned int)ekbytes);
-	lws_explicit_bzero(derived, (unsigned int)ekbytes);
+	lws_explicit_bzero(shared_secret, sizeof(shared_secret));
+	lws_explicit_bzero(derived, sizeof(derived));
 
 	return ret;
 }
@@ -380,7 +383,8 @@ lws_jwe_encrypt_ecdh_cbc_hs(struct lws_jwe *jwe, char *temp, int *temp_len)
 	int ss_len, // kw_hlen = lws_genhash_size(jwe->jose.alg->hash_type),
 	    enc_hlen = (int)lws_genhmac_size(jwe->jose.enc_alg->hmac_type);
 	uint8_t cek[LWS_JWE_LIMIT_KEY_ELEMENT_BYTES];
-	int ekbytes = jwe->jose.alg->keybits_fixed / 8;
+	int ekbytes = jwe->jose.alg->keybits_fixed ?
+			jwe->jose.alg->keybits_fixed / 8 : enc_hlen;
 	int n, ot = *temp_len, ret = -1;
 
 	/* if we will produce an EKEY, make space for it */
@@ -454,8 +458,9 @@ lws_jwe_auth_and_decrypt_ecdh(struct lws_jwe *jwe)
 {
 	uint8_t shared_secret[LWS_JWE_LIMIT_KEY_ELEMENT_BYTES],
 		derived[LWS_JWE_LIMIT_KEY_ELEMENT_BYTES];
-	int ekbytes = jwe->jose.enc_alg->keybits_fixed / 8,
-		      enc_hlen = (int)lws_genhmac_size(jwe->jose.enc_alg->hmac_type);
+	int enc_hlen = (int)lws_genhmac_size(jwe->jose.enc_alg->hmac_type);
+	int ekbytes = jwe->jose.enc_alg->keybits_fixed ?
+			jwe->jose.enc_alg->keybits_fixed / 8 : enc_hlen;
 	struct lws_genec_ctx ecctx;
 	int n, ret = -1, ss_len = sizeof(shared_secret);
 
@@ -501,6 +506,7 @@ lws_jwe_auth_and_decrypt_ecdh(struct lws_jwe *jwe)
 	}
 
 	/* combine their ephemeral key and our private key to get the secret */
+	ss_len = (int)jwe->jws.jwk->e[LWS_GENCRYPTO_EC_KEYEL_X].len;
 
 	if (lws_genecdh_compute_shared_secret(&ecctx, shared_secret, &ss_len)) {
 		lwsl_notice("%s: lws_genecdh_compute_shared_secret failed\n",
@@ -551,7 +557,7 @@ lws_jwe_auth_and_decrypt_ecdh(struct lws_jwe *jwe)
 		/* unwrap with the KEK we derived */
 
 		el.buf = derived;
-		el.len = (unsigned int)enc_hlen / 2;
+		el.len = (unsigned int)jwe->jose.alg->keybits_fixed / 8;
 
 		if (lws_genaes_create(&aesctx, LWS_GAESO_DEC, LWS_GAESM_KW,
 				      &el, 1, NULL)) {

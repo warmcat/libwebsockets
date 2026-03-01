@@ -111,9 +111,17 @@ lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	v_in.data = (uint8_t *)in;
 	v_in.size = (unsigned int)in_len;
 
-	n = gnutls_pubkey_encrypt_data(ctx->pub, 0, &v_in, &v_out);
-	if (n < 0)
+	if (ctx->mode == LGRSAM_PKCS1_OAEP_PSS) {
+		lwsl_err("%s: GnuTLS does not support RSA OAEP\n", __func__);
 		return -1;
+	}
+
+	n = gnutls_pubkey_encrypt_data(ctx->pub, 0, &v_in, &v_out);
+
+	if (n < 0) {
+		lwsl_err("%s: gnutls_pubkey_encrypt_data failed: %s\n", __func__, gnutls_strerror(n));
+		return -1;
+	}
 
 	memcpy(out, v_out.data, v_out.size);
 	n = (int)v_out.size;
@@ -132,9 +140,17 @@ lws_genrsa_private_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	v_in.data = (uint8_t *)in;
 	v_in.size = (unsigned int)in_len;
 
-	n = gnutls_privkey_decrypt_data(ctx->priv, 0, &v_in, &v_out);
-	if (n < 0)
+	if (ctx->mode == LGRSAM_PKCS1_OAEP_PSS) {
+		lwsl_err("%s: GnuTLS does not support RSA OAEP\n", __func__);
 		return -1;
+	}
+
+	n = gnutls_privkey_decrypt_data(ctx->priv, 0, &v_in, &v_out);
+
+	if (n < 0) {
+		lwsl_err("%s: gnutls_privkey_decrypt_data failed: %s\n", __func__, gnutls_strerror(n));
+		return -1;
+	}
 
 	if (v_out.size > out_max) {
 		gnutls_free(v_out.data);
