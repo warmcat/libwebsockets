@@ -34,6 +34,10 @@ struct lws_tls_gnutls_ctx {
 	gnutls_priority_t priority;
 };
 
+struct lws_x509_cert {
+	gnutls_x509_crt_t cert;
+};
+
 /* Connection is just the session pointer itself to match SSL* return of lws_get_ssl */
 typedef SSL lws_tls_conn;
 typedef SSL_CTX lws_tls_ctx;

@@ -212,10 +212,16 @@ lws_jwa_concat_kdf(struct lws_jwe *jwe, int direct, uint8_t *out,
 	int hlen = (int)lws_genhash_size(LWS_GENHASH_TYPE_SHA256), aidlen;
 	struct lws_genhash_ctx hash_ctx;
 	uint32_t ctr = 1, t;
+	uint32_t out_bits;
+	uint32_t out_bytes;
 	const char *aid;
 
 	if (!jwe->jose.enc_alg || !jwe->jose.alg)
 		return -1;
+
+	out_bits = direct ? jwe->jose.enc_alg->keybits_fixed :
+			    jwe->jose.alg->keybits_fixed;
+	out_bytes = out_bits / 8;
 
 	/*
 	 * Hash
@@ -268,7 +274,7 @@ lws_jwa_concat_kdf(struct lws_jwe *jwe, int direct, uint8_t *out,
 	 *    one hash output size (256b for SHA-256)
 	 */
 
-	while (ctr <= (uint32_t)((jwe->jose.enc_alg->keybits_fixed + (hlen - 1)) / hlen)) {
+	while (ctr <= (uint32_t)((out_bytes + ((unsigned int)hlen - 1)) / (unsigned int)hlen)) {
 
 		/*
 		 * Key derivation is performed using the Concat KDF, as defined
@@ -295,8 +301,7 @@ lws_jwa_concat_kdf(struct lws_jwe *jwe, int direct, uint8_t *out,
 		    lws_genhash_update(&hash_ctx, jwe->jose.e[LJJHI_APV].buf,
 						  jwe->jose.e[LJJHI_APV].len) ||
 		    lws_genhash_update(&hash_ctx,
-				       be32(jwe->jose.enc_alg->keybits_fixed, &t),
-					    4) ||
+				       be32(out_bits, &t), 4) ||
 		    lws_genhash_destroy(&hash_ctx, out)) {
 			lwsl_err("%s: fail\n", __func__);
 			lws_genhash_destroy(&hash_ctx, NULL);
