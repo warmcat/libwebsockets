@@ -90,6 +90,7 @@ struct lws_genaes_ctx {
 	} u;
 #elif defined(LWS_WITH_GNUTLS)
 	gnutls_cipher_hd_t ctx;
+	int gnutls_gcm_initialized;
 #else
 	EVP_CIPHER_CTX *ctx;
 	const EVP_CIPHER *cipher;
@@ -103,6 +104,10 @@ struct lws_genaes_ctx {
 	enum enum_aes_padding padding;
 	int taglen;
 	char underway;
+#if !defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_OPENSSL)
+	unsigned char buf[16]; /* partial block */
+	int buf_len; /* length of partial block */
+#endif
 };
 
 /** lws_genaes_create() - Create genaes AES context
