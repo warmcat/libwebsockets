@@ -1,6 +1,6 @@
 if (LWS_WITH_ALSA)
 	set(SRCS alsa.c)
 	add_library(alsa STATIC ${SRCS})
-	target_include_directories(alsa PRIVATE ${LWS_LIB_BUILD_INC_PATHS})
+	target_include_directories(alsa PRIVATE ${LWS_LIB_BUILD_INC_PATHS} ${LWS_LIB_BUILD_INC_PATHS_TEMP})
 	target_link_libraries(alsa websockets asound)
 endif()
