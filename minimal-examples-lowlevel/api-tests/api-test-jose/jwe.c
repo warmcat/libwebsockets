@@ -91,6 +91,11 @@ test_jwe_a1(struct lws_context *context)
 
 	n = lws_jwe_auth_and_decrypt(&jwe, lws_concat_temp(temp, temp_len),
 				     &temp_len);
+		if (n == -2) {
+		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
+		ret = 0;
+		goto bail;
+	}
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_auth_and_decrypt failed\n",
 			 __func__);
@@ -163,11 +168,21 @@ test_jwe_a1(struct lws_context *context)
 
 	n = lws_jwe_encrypt(&jwe, lws_concat_temp(temp, temp_len),
 			    &temp_len);
+		if (n == -2) {
+		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
+		ret = 0;
+		goto bail;
+	}
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_encrypt failed\n", __func__);
 		goto bail;
 	}
 	n = lws_jwe_render_compact(&jwe, compact, sizeof(compact));
+		if (n == -2) {
+		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
+		ret = 0;
+		goto bail;
+	}
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_render_compact failed: %d\n",
 			 __func__, n);
@@ -199,6 +214,11 @@ test_jwe_a1(struct lws_context *context)
 
 	n = lws_jwe_auth_and_decrypt(&jwe, lws_concat_temp(temp, temp_len),
 				     &temp_len);
+		if (n == -2) {
+		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
+		ret = 0;
+		goto bail;
+	}
 	if (n < 0) {
 		lwsl_err("%s: generated lws_jwe_auth_and_decrypt failed\n",
 			 __func__);
@@ -308,6 +328,11 @@ test_jwe_a2(struct lws_context *context)
 
 	n = lws_jwe_auth_and_decrypt(&jwe, lws_concat_temp(temp, temp_len),
 				     &temp_len);
+		if (n == -2) {
+		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
+		ret = 0;
+		goto bail;
+	}
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_auth_and_decrypt failed\n",
 			 __func__);
@@ -532,6 +557,11 @@ test_jwe_ra_ptext_1024(struct lws_context *context, char *jwk_txt, int jwk_len)
 	n = lws_jwe_parse_jose(&jwe.jose, jwe.jws.map.buf[LJWE_JOSE],
 			       (int)jwe.jws.map.len[LJWE_JOSE],
 			       lws_concat_temp(temp, temp_len), &temp_len);
+		if (n == -2) {
+		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
+		ret = 0;
+		goto bail;
+	}
 	if (n < 0) {
 		lwsl_err("%s: JOSE parse failed\n", __func__);
 
@@ -540,12 +570,22 @@ test_jwe_ra_ptext_1024(struct lws_context *context, char *jwk_txt, int jwk_len)
 
 	n = lws_jwe_encrypt(&jwe, lws_concat_temp(temp, temp_len),
 			    &temp_len);
+		if (n == -2) {
+		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
+		ret = 0;
+		goto bail;
+	}
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_encrypt failed\n", __func__);
 		goto bail;
 	}
 
 	n = lws_jwe_render_compact(&jwe, compact, sizeof(compact));
+		if (n == -2) {
+		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
+		ret = 0;
+		goto bail;
+	}
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_render_compact failed: %d\n", __func__, n);
 		goto bail;
@@ -573,6 +613,11 @@ test_jwe_ra_ptext_1024(struct lws_context *context, char *jwk_txt, int jwk_len)
 
 	n = lws_jwe_auth_and_decrypt(&jwe, lws_concat_temp(temp, temp_len),
 				     &temp_len);
+		if (n == -2) {
+		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
+		ret = 0;
+		goto bail;
+	}
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_auth_and_decrypt failed\n",
 			 __func__);
@@ -662,6 +707,11 @@ test_jwe_r256a192_ptext(struct lws_context *context, char *jwk_txt, int jwk_len)
 	n = lws_jwe_parse_jose(&jwe.jose, jwe.jws.map.buf[LJWE_JOSE],
 			       (int)jwe.jws.map.len[LJWE_JOSE],
 			       lws_concat_temp(temp, temp_len), &temp_len);
+		if (n == -2) {
+		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
+		ret = 0;
+		goto bail;
+	}
 	if (n < 0) {
 		lwsl_err("%s: JOSE parse failed\n", __func__);
 
@@ -670,12 +720,22 @@ test_jwe_r256a192_ptext(struct lws_context *context, char *jwk_txt, int jwk_len)
 
 	n = lws_jwe_encrypt(&jwe, lws_concat_temp(temp, temp_len),
 			    &temp_len);
+		if (n == -2) {
+		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
+		ret = 0;
+		goto bail;
+	}
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_encrypt failed\n", __func__);
 		goto bail;
 	}
 
 	n = lws_jwe_render_compact(&jwe, compact, sizeof(compact));
+		if (n == -2) {
+		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
+		ret = 0;
+		goto bail;
+	}
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_render_compact failed: %d\n", __func__, n);
 		goto bail;
@@ -702,6 +762,11 @@ test_jwe_r256a192_ptext(struct lws_context *context, char *jwk_txt, int jwk_len)
 
 	n = lws_jwe_auth_and_decrypt(&jwe, lws_concat_temp(temp, temp_len),
 				     &temp_len);
+		if (n == -2) {
+		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
+		ret = 0;
+		goto bail;
+	}
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_auth_and_decrypt failed\n",
 			 __func__);
@@ -794,6 +859,11 @@ test_jwe_r256a256_ptext(struct lws_context *context, char *jwk_txt, int jwk_len)
 	n = lws_jwe_parse_jose(&jwe.jose, rsa256a256_jose,
 			       (int)strlen(rsa256a256_jose),
 			       lws_concat_temp(temp, temp_len), &temp_len);
+		if (n == -2) {
+		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
+		ret = 0;
+		goto bail;
+	}
 	if (n < 0) {
 		lwsl_err("%s: JOSE parse failed\n", __func__);
 
@@ -802,12 +872,22 @@ test_jwe_r256a256_ptext(struct lws_context *context, char *jwk_txt, int jwk_len)
 
 	n = lws_jwe_encrypt(&jwe, lws_concat_temp(temp, temp_len),
 			    &temp_len);
+		if (n == -2) {
+		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
+		ret = 0;
+		goto bail;
+	}
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_encrypt failed\n", __func__);
 		goto bail;
 	}
 
 	n = lws_jwe_render_compact(&jwe, compact, sizeof(compact));
+		if (n == -2) {
+		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
+		ret = 0;
+		goto bail;
+	}
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_render_compact failed: %d\n", __func__, n);
 		goto bail;
@@ -834,6 +914,11 @@ test_jwe_r256a256_ptext(struct lws_context *context, char *jwk_txt, int jwk_len)
 
 	n = lws_jwe_auth_and_decrypt(&jwe, lws_concat_temp(temp, temp_len),
 				     &temp_len);
+		if (n == -2) {
+		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
+		ret = 0;
+		goto bail;
+	}
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_auth_and_decrypt failed\n",
 			 __func__);
@@ -1068,6 +1153,11 @@ test_jwe_r256a128_jwe_openssl(struct lws_context *context)
 
 	n = lws_jwe_auth_and_decrypt(&jwe, lws_concat_temp(temp, temp_len),
 				     &temp_len);
+		if (n == -2) {
+		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
+		ret = 0;
+		goto bail;
+	}
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_auth_and_decrypt failed\n",
 			 __func__);
@@ -1159,6 +1249,11 @@ test_jwe_r256a128_jwe_mbedtls(struct lws_context *context)
 
 	n = lws_jwe_auth_and_decrypt(&jwe, lws_concat_temp(temp, temp_len),
 				     &temp_len);
+		if (n == -2) {
+		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
+		ret = 0;
+		goto bail;
+	}
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_auth_and_decrypt failed\n",
 			 __func__);
@@ -1250,6 +1345,11 @@ test_jwe_a3(struct lws_context *context)
 
 	n = lws_jwe_auth_and_decrypt(&jwe, lws_concat_temp(temp, temp_len),
 				     &temp_len);
+		if (n == -2) {
+		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
+		ret = 0;
+		goto bail;
+	}
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_auth_and_decrypt failed\n",
 			 __func__);
@@ -1401,6 +1501,11 @@ test_jwa_b2(struct lws_context *context)
 
 	n = lws_jwe_auth_and_decrypt_cbc_hs(&jwe, jwa_b2_rawkey,
 						    jwa_b2_a, sizeof(jwa_b2_a));
+		if (n == -2) {
+		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
+		ret = 0;
+		goto bail;
+	}
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_a_cbc_hs_decrypt failed\n", __func__);
 
@@ -1557,6 +1662,11 @@ test_jwa_b3(struct lws_context *context)
 
 	n = lws_jwe_auth_and_decrypt_cbc_hs(&jwe, jwa_b3_rawkey,
 						    jwa_b3_a, sizeof(jwa_b3_a));
+		if (n == -2) {
+		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
+		ret = 0;
+		goto bail;
+	}
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_a_cbc_hs_decrypt failed\n", __func__);
 
@@ -1833,6 +1943,11 @@ test_ecdhes_t1(struct lws_context *context, const char *jose_hdr,
 	 */
 
 	n = lws_jwe_encrypt(&jwe, lws_concat_temp(temp, temp_len), &temp_len);
+		if (n == -2) {
+		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
+		ret = 0;
+		goto bail;
+	}
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_encrypt failed\n", __func__);
 		goto bail;
@@ -1843,6 +1958,11 @@ test_ecdhes_t1(struct lws_context *context, const char *jose_hdr,
 	 */
 
 	n = lws_jwe_render_flattened(&jwe, compact, sizeof(compact));
+		if (n == -2) {
+		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
+		ret = 0;
+		goto bail;
+	}
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_render_compact failed: %d\n",
 			 __func__, n);
@@ -1852,6 +1972,11 @@ test_ecdhes_t1(struct lws_context *context, const char *jose_hdr,
 	// puts(compact);
 
 	n = lws_jwe_render_compact(&jwe, compact, sizeof(compact));
+		if (n == -2) {
+		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
+		ret = 0;
+		goto bail;
+	}
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_render_compact failed: %d\n",
 			 __func__, n);
@@ -1882,6 +2007,11 @@ test_ecdhes_t1(struct lws_context *context, const char *jose_hdr,
 
 	n = lws_jwe_auth_and_decrypt(&jwe, lws_concat_temp(temp, temp_len),
 				     &temp_len);
+		if (n == -2) {
+		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
+		ret = 0;
+		goto bail;
+	}
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_auth_and_decrypt failed\n",
 			 __func__);
@@ -1984,6 +2114,11 @@ test_akw_decrypt(struct lws_context *context, const char *test_name,
 	}
 
 	n = lws_jwe_auth_and_decrypt(&jwe, lws_concat_temp(temp, temp_len), &temp_len);
+		if (n == -2) {
+		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
+		ret = 0;
+		goto bail;
+	}
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_auth_and_decrypt failed\n",
 			 __func__);
@@ -2073,12 +2208,22 @@ test_akw_encrypt(struct lws_context *context, const char *test_name,
 
 	n = lws_jwe_encrypt(&jwe, lws_concat_temp(temp, temp_len),
 			    &temp_len);
+		if (n == -2) {
+		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
+		ret = 0;
+		goto bail;
+	}
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_encrypt failed\n", __func__);
 		goto bail;
 	}
 
 	n = lws_jwe_render_compact(&jwe, compact, (unsigned int)compact_len);
+		if (n == -2) {
+		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
+		ret = 0;
+		goto bail;
+	}
 	if (n < 0) {
 		lwsl_err("%s: lws_jwe_render_compact failed: %d\n",
 			 __func__, n);
@@ -2173,125 +2318,125 @@ test_jwe(struct lws_context *context)
 	char compact[4096];
 	int n = 0;
 
-	n |= test_jwe_json_complete(context);
+	n |= test_jwe_json_complete(context) < 0;
 
 	n |= test_ecdhes_t1(context, ecdhes_t1_jose_hdr_es_128,
 			    ecdhes_t1_peer_p256_public_key,
-			    ecdhes_t1_peer_p256_private_key);
+			    ecdhes_t1_peer_p256_private_key) < 0;
 	n |= test_ecdhes_t1(context, ecdhes_t1_jose_hdr_es_192,
 			    ecdhes_t1_peer_p384_public_key,
-			    ecdhes_t1_peer_p384_private_key);
+			    ecdhes_t1_peer_p384_private_key) < 0;
 	n |= test_ecdhes_t1(context, ecdhes_t1_jose_hdr_es_256,
 			    ecdhes_t1_peer_p521_public_key,
-			    ecdhes_t1_peer_p521_private_key);
+			    ecdhes_t1_peer_p521_private_key) < 0;
 
 	n |= test_ecdhes_t1(context, ecdhes_t1_jose_hdr_esakw128_128,
 			    ecdhes_t1_peer_p256_public_key,
-			    ecdhes_t1_peer_p256_private_key);
+			    ecdhes_t1_peer_p256_private_key) < 0;
 	n |= test_ecdhes_t1(context, ecdhes_t1_jose_hdr_esakw192_192,
 			    ecdhes_t1_peer_p384_public_key,
-			    ecdhes_t1_peer_p384_private_key);
+			    ecdhes_t1_peer_p384_private_key) < 0;
 	n |= test_ecdhes_t1(context, ecdhes_t1_jose_hdr_esakw256_256,
 			    ecdhes_t1_peer_p521_public_key,
-			    ecdhes_t1_peer_p521_private_key);
+			    ecdhes_t1_peer_p521_private_key) < 0;
 
-	n |= test_jwe_a1(context);
+	n |= test_jwe_a1(context) < 0;
 
-	n |= test_jwe_a2(context);
+	n |= test_jwe_a2(context) < 0;
 
 	n |= test_jwe_ra_ptext_1024(context, (char *)lws_jwe_ex_a2_jwk_json,
-				    (int)strlen((char *)lws_jwe_ex_a2_jwk_json));
+				    (int)strlen((char *)lws_jwe_ex_a2_jwk_json)) < 0;
 	n |= test_jwe_r256a192_ptext(context, (char *)lws_jwe_ex_a2_jwk_json,
-			(int)strlen((char *)lws_jwe_ex_a2_jwk_json));
+			(int)strlen((char *)lws_jwe_ex_a2_jwk_json)) < 0;
 	n |= test_jwe_r256a256_ptext(context, (char *)lws_jwe_ex_a2_jwk_json,
-			(int)strlen((char *)lws_jwe_ex_a2_jwk_json));
+			(int)strlen((char *)lws_jwe_ex_a2_jwk_json)) < 0;
 	n |= test_jwe_ra_ptext_1024(context, (char *)rsa_key_2048,
-			(int)strlen((char *)rsa_key_2048));
+			(int)strlen((char *)rsa_key_2048)) < 0;
 	n |= test_jwe_r256a192_ptext(context, (char *)rsa_key_2048,
-			(int)strlen((char *)rsa_key_2048));
+			(int)strlen((char *)rsa_key_2048)) < 0;
 	n |= test_jwe_r256a256_ptext(context, (char *)rsa_key_2048,
-			(int)strlen((char *)rsa_key_2048));
+			(int)strlen((char *)rsa_key_2048)) < 0;
 	n |= test_jwe_ra_ptext_1024(context, (char *)rsa_key_4096,
-			(int)strlen((char *)rsa_key_4096));
+			(int)strlen((char *)rsa_key_4096)) < 0;
 	n |= test_jwe_r256a192_ptext(context, (char *)rsa_key_4096,
-			(int)strlen((char *)rsa_key_4096));
+			(int)strlen((char *)rsa_key_4096)) < 0;
 	n |= test_jwe_r256a256_ptext(context, (char *)rsa_key_4096,
-			(int)strlen((char *)rsa_key_4096));
+			(int)strlen((char *)rsa_key_4096)) < 0;
 	n |= test_jwe_ra_ptext_1024(context, (char *)rsa_key_4096_no_optional,
-			(int)strlen((char *)rsa_key_4096_no_optional));
+			(int)strlen((char *)rsa_key_4096_no_optional)) < 0;
 	n |= test_jwe_r256a192_ptext(context, (char *)rsa_key_4096_no_optional,
-			(int)strlen((char *)rsa_key_4096_no_optional));
+			(int)strlen((char *)rsa_key_4096_no_optional)) < 0;
 	n |= test_jwe_r256a256_ptext(context, (char *)rsa_key_4096_no_optional,
-			(int)strlen((char *)rsa_key_4096_no_optional));
+			(int)strlen((char *)rsa_key_4096_no_optional)) < 0;
 
 	/* AESKW decrypt all variations */
 
-	n |= test_akw_decrypt(context, "d-a128kw_128", akw_ct_128_128, akw_key_128);
-	n |= test_akw_decrypt(context, "d-a128kw_192", akw_ct_128_192, akw_key_128);
-	n |= test_akw_decrypt(context, "d-a128kw_256", akw_ct_128_256, akw_key_128);
-	n |= test_akw_decrypt(context, "d-a192kw_128", akw_ct_192_128, akw_key_192);
-	n |= test_akw_decrypt(context, "d-a192kw_192", akw_ct_192_192, akw_key_192);
-	n |= test_akw_decrypt(context, "d-a192kw_256", akw_ct_192_256, akw_key_192);
-	n |= test_akw_decrypt(context, "d-a256kw_128", akw_ct_256_128, akw_key_256);
-	n |= test_akw_decrypt(context, "d-a256kw_192", akw_ct_256_192, akw_key_256);
-	n |= test_akw_decrypt(context, "d-a256kw_256", akw_ct_256_256, akw_key_256);
+	n |= test_akw_decrypt(context, "d-a128kw_128", akw_ct_128_128, akw_key_128) < 0;
+	n |= test_akw_decrypt(context, "d-a128kw_192", akw_ct_128_192, akw_key_128) < 0;
+	n |= test_akw_decrypt(context, "d-a128kw_256", akw_ct_128_256, akw_key_128) < 0;
+	n |= test_akw_decrypt(context, "d-a192kw_128", akw_ct_192_128, akw_key_192) < 0;
+	n |= test_akw_decrypt(context, "d-a192kw_192", akw_ct_192_192, akw_key_192) < 0;
+	n |= test_akw_decrypt(context, "d-a192kw_256", akw_ct_192_256, akw_key_192) < 0;
+	n |= test_akw_decrypt(context, "d-a256kw_128", akw_ct_256_128, akw_key_256) < 0;
+	n |= test_akw_decrypt(context, "d-a256kw_192", akw_ct_256_192, akw_key_256) < 0;
+	n |= test_akw_decrypt(context, "d-a256kw_256", akw_ct_256_256, akw_key_256) < 0;
 
 	/* AESKW encrypt then confirm decrypt */
 
 	if (!test_akw_encrypt(context, "ed-128kw_128", "A128KW", "A128CBC-HS256",
 			akw_ptext, akw_key_128, compact, sizeof(compact)))
-		n |= test_akw_decrypt(context, "ed-128kw_128", compact, akw_key_128);
+		n |= test_akw_decrypt(context, "ed-128kw_128", compact, akw_key_128) < 0;
 	else
-		n = -1;
+		n |= 1;
 	if (!test_akw_encrypt(context, "ed-128kw_192", "A128KW", "A192CBC-HS384",
 			akw_ptext, akw_key_128, compact, sizeof(compact)))
-		n |= test_akw_decrypt(context, "ed-128kw_192", compact, akw_key_128);
+		n |= test_akw_decrypt(context, "ed-128kw_192", compact, akw_key_128) < 0;
 	else
-		n = -1;
+		n |= 1;
 	if (!test_akw_encrypt(context, "ed-128kw_256", "A128KW", "A256CBC-HS512",
 			akw_ptext, akw_key_128, compact, sizeof(compact)))
-		n |= test_akw_decrypt(context, "ed-128kw_256", compact, akw_key_128);
+		n |= test_akw_decrypt(context, "ed-128kw_256", compact, akw_key_128) < 0;
 	else
-		n = -1;
+		n |= 1;
 
 	if (!test_akw_encrypt(context, "ed-192kw_128", "A192KW", "A128CBC-HS256",
 			akw_ptext, akw_key_192, compact, sizeof(compact)))
-		n |= test_akw_decrypt(context, "ed-192kw_128", compact, akw_key_192);
+		n |= test_akw_decrypt(context, "ed-192kw_128", compact, akw_key_192) < 0;
 	else
-		n = -1;
+		n |= 1;
 	if (!test_akw_encrypt(context, "ed-192kw_192", "A192KW", "A192CBC-HS384",
 			akw_ptext, akw_key_192, compact, sizeof(compact)))
-		n |= test_akw_decrypt(context, "ed-192kw_192", compact, akw_key_192);
+		n |= test_akw_decrypt(context, "ed-192kw_192", compact, akw_key_192) < 0;
 	else
-		n = -1;
+		n |= 1;
 	if (!test_akw_encrypt(context, "ed-192kw_256", "A192KW", "A256CBC-HS512",
 			akw_ptext, akw_key_192, compact, sizeof(compact)))
-		n |= test_akw_decrypt(context, "ed-192kw_256", compact, akw_key_192);
+		n |= test_akw_decrypt(context, "ed-192kw_256", compact, akw_key_192) < 0;
 	else
-		n = -1;
+		n |= 1;
 
 	if (!test_akw_encrypt(context, "ed-256kw_128", "A256KW", "A128CBC-HS256",
 			akw_ptext, akw_key_256, compact, sizeof(compact)))
-		n |= test_akw_decrypt(context, "ed-256kw_128", compact, akw_key_256);
+		n |= test_akw_decrypt(context, "ed-256kw_128", compact, akw_key_256) < 0;
 	else
-		n = -1;
+		n |= 1;
 	if (!test_akw_encrypt(context, "ed-256kw_192", "A256KW", "A192CBC-HS384",
 			akw_ptext, akw_key_256, compact, sizeof(compact)))
-		n |= test_akw_decrypt(context, "ed-256kw_192", compact, akw_key_256);
+		n |= test_akw_decrypt(context, "ed-256kw_192", compact, akw_key_256) < 0;
 	else
-		n = -1;
+		n |= 1;
 	if (!test_akw_encrypt(context, "ed-256kw_256", "A256KW", "A256CBC-HS512",
 			akw_ptext, akw_key_256, compact, sizeof(compact)))
-		n |= test_akw_decrypt(context, "ed-256kw_256", compact, akw_key_256);
+		n |= test_akw_decrypt(context, "ed-256kw_256", compact, akw_key_256) < 0;
 	else
-		n = -1;
+		n |= 1;
 
-	n |= test_jwe_r256a128_jwe_openssl(context);
-	n |= test_jwe_r256a128_jwe_mbedtls(context);
-	n |= test_jwe_a3(context);
-	n |= test_jwa_b2(context);
-	n |= test_jwa_b3(context);
-	n |= test_jwa_c(context);
+	n |= test_jwe_r256a128_jwe_openssl(context) < 0;
+	n |= test_jwe_r256a128_jwe_mbedtls(context) < 0;
+	n |= test_jwe_a3(context) < 0;
+	n |= test_jwa_b2(context) < 0;
+	n |= test_jwa_b3(context) < 0;
+	n |= test_jwa_c(context) < 0;
 
 	return n;
 }

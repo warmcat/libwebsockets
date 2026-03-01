@@ -97,13 +97,14 @@ lws_jwe_encrypt_rsa_aes_cbc_hs(struct lws_jwe *jwe,
 		return -1;
 	}
 
-	if (lws_genrsa_create(&rsactx, jwe->jws.jwk->e, jwe->jws.context,
+	int res = lws_genrsa_create(&rsactx, jwe->jws.jwk->e, jwe->jws.context,
 			!strcmp(jwe->jose.alg->alg,   "RSA-OAEP") ?
 					LGRSAM_PKCS1_OAEP_PSS : LGRSAM_PKCS1_1_5,
-					LWS_GENHASH_TYPE_UNKNOWN)) {
+					LWS_GENHASH_TYPE_UNKNOWN);
+	if (res) {
 		lwsl_notice("%s: lws_genrsa_create\n",
 			    __func__);
-		return -1;
+		return res < -1 ? res : -1;
 	}
 
 	/* encrypt the CEK using RSA, mbedtls can't handle both in and out are
@@ -117,7 +118,7 @@ lws_jwe_encrypt_rsa_aes_cbc_hs(struct lws_jwe *jwe,
 	lws_explicit_bzero(ekey, (unsigned int)hlen); /* cleanse the temp CEK copy */
 	if (n < 0) {
 		lwsl_err("%s: encrypt cek fail\n", __func__);
-		return -1;
+		return n < -1 ? n : -1;
 	}
 	jwe->jws.map.len[LJWE_EKEY] = (unsigned int)n; /* update to encrypted EKEY size */
 
@@ -151,13 +152,14 @@ lws_jwe_auth_and_decrypt_rsa_aes_cbc_hs(struct lws_jwe *jwe)
 
 	/* Decrypt the JWE Encrypted Key to get the raw MAC || CEK */
 
-	if (lws_genrsa_create(&rsactx, jwe->jws.jwk->e, jwe->jws.context,
+	int res = lws_genrsa_create(&rsactx, jwe->jws.jwk->e, jwe->jws.context,
 			!strcmp(jwe->jose.alg->alg,   "RSA-OAEP") ?
 				LGRSAM_PKCS1_OAEP_PSS : LGRSAM_PKCS1_1_5,
-				LWS_GENHASH_TYPE_UNKNOWN)) {
+				LWS_GENHASH_TYPE_UNKNOWN);
+	if (res) {
 		lwsl_notice("%s: lws_genrsa_public_decrypt_create\n",
 			    __func__);
-		return -1;
+		return res < -1 ? res : -1;
 	}
 
 	n = lws_genrsa_private_decrypt(&rsactx,
@@ -167,7 +169,7 @@ lws_jwe_auth_and_decrypt_rsa_aes_cbc_hs(struct lws_jwe *jwe)
 	lws_genrsa_destroy(&rsactx);
 	if (n < 0) {
 		lwsl_err("%s: decrypt cek fail: \n", __func__);
-		return -1;
+		return n < -1 ? n : -1;
 	}
 
 	n = lws_jwe_auth_and_decrypt_cbc_hs(jwe, enc_cek,

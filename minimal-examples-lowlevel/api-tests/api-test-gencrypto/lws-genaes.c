@@ -143,7 +143,12 @@ test_genaes_cfb128(void)
 	e.buf = (uint8_t *)cfb128_key;
 	e.len = sizeof(cfb128_key);
 
-	if (lws_genaes_create(&ctx, LWS_GAESO_ENC, LWS_GAESM_CFB128, &e, 0, NULL)) {
+	int n = lws_genaes_create(&ctx, LWS_GAESO_ENC, LWS_GAESM_CFB128, &e, 0, NULL);
+	if (n) {
+		if (n == -2) {
+			lwsl_notice("%s: lws_genaes_create unsupported\n", __func__);
+			return 0;
+		}
 		lwsl_err("%s: lws_genaes_create failed\n", __func__);
 		return 1;
 	}

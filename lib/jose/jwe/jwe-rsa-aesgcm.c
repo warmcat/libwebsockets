@@ -93,12 +93,14 @@ lws_jwe_encrypt_rsa_aes_gcm(struct lws_jwe *jwe, char *temp, int *temp_len)
 
 	/* Encrypt the CEK into EKEY to make the JWE Encrypted Key */
 
-	if (lws_genrsa_create(&rsactx, jwe->jws.jwk->e, jwe->jws.context,
+	int res = lws_genrsa_create(&rsactx, jwe->jws.jwk->e, jwe->jws.context,
 			!strcmp(jwe->jose.alg->alg,   "RSA-OAEP") ?
 				LGRSAM_PKCS1_OAEP_PSS : LGRSAM_PKCS1_1_5,
-			LWS_GENHASH_TYPE_SHA1 /* !!! */)) {
+			LWS_GENHASH_TYPE_SHA1 /* !!! */);
+	if (res) {
 		lwsl_notice("%s: lws_genrsa_public_decrypt_create\n",
 			    __func__);
+		ret = res < -1 ? res : -1;
 		goto bail;
 	}
 
@@ -107,6 +109,7 @@ lws_jwe_encrypt_rsa_aes_gcm(struct lws_jwe *jwe, char *temp, int *temp_len)
 	lws_genrsa_destroy(&rsactx);
 	if (n < 0) {
 		lwsl_err("%s: encrypt cek fail: \n", __func__);
+		ret = n < -1 ? n : -1;
 		goto bail;
 	}
 
@@ -142,13 +145,14 @@ lws_jwe_auth_and_decrypt_rsa_aes_gcm(struct lws_jwe *jwe)
 
 	/* Decrypt the JWE Encrypted Key to get the direct CEK */
 
-	if (lws_genrsa_create(&rsactx, jwe->jws.jwk->e, jwe->jws.context,
+	int res = lws_genrsa_create(&rsactx, jwe->jws.jwk->e, jwe->jws.context,
 			!strcmp(jwe->jose.alg->alg,   "RSA-OAEP") ?
 				LGRSAM_PKCS1_OAEP_PSS : LGRSAM_PKCS1_1_5,
-			LWS_GENHASH_TYPE_SHA1 /* !!! */)) {
+			LWS_GENHASH_TYPE_SHA1 /* !!! */);
+	if (res) {
 		lwsl_notice("%s: lws_genrsa_public_decrypt_create\n",
 			    __func__);
-		return -1;
+		return res < -1 ? res : -1;
 	}
 
 	n = lws_genrsa_private_decrypt(&rsactx,
@@ -158,7 +162,7 @@ lws_jwe_auth_and_decrypt_rsa_aes_gcm(struct lws_jwe *jwe)
 	lws_genrsa_destroy(&rsactx);
 	if (n < 0) {
 		lwsl_err("%s: decrypt cek fail: \n", __func__);
-		return -1;
+		return n < -1 ? n : -1;
 	}
 
 	n = lws_jwe_auth_and_decrypt_gcm(jwe, enc_cek,

@@ -70,7 +70,7 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 		break;
 	default:
 		lwsl_err("%s: unsupported mode %d\n", __func__, mode);
-		return 1;
+		return -2;
 	}
 
 	if (alg == GNUTLS_CIPHER_UNKNOWN)
@@ -183,7 +183,11 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 	}
 
 	if (iv_or_nonce_ctr_or_data_unit_16) {
-		gnutls_cipher_set_iv(ctx->ctx, iv_or_nonce_ctr_or_data_unit_16, 16);
+		if (ctx->mode != LWS_GAESM_GCM || !ctx->gnutls_gcm_initialized) {
+			size_t iv_len = (nc_or_iv_off && *nc_or_iv_off) ? *nc_or_iv_off : 16;
+			gnutls_cipher_set_iv(ctx->ctx, iv_or_nonce_ctr_or_data_unit_16, iv_len);
+			ctx->gnutls_gcm_initialized = 1;
+		}
 	}
 
 	if (ctx->op == LWS_GAESO_ENC) {
@@ -218,15 +222,22 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 				ctx->buf_len += (int)left;
 			}
 		} else {
-			if (gnutls_cipher_encrypt2(ctx->ctx, in, len, out, len) < 0)
-				return 1;
-			if (ctx->mode == LWS_GAESM_GCM && stream_block_16) {
-				gnutls_cipher_tag(ctx->ctx, stream_block_16, (size_t)taglen);
+			if (!out && ctx->mode == LWS_GAESM_GCM) {
+				if (gnutls_cipher_add_auth(ctx->ctx, in, len) < 0)
+					return 1;
+			} else {
+				if (gnutls_cipher_encrypt2(ctx->ctx, in, len, out, len) < 0)
+					return 1;
 			}
 		}
 	} else {
-		if (gnutls_cipher_decrypt2(ctx->ctx, in, len, out, len) < 0)
-			return 1;
+		if (!out && ctx->mode == LWS_GAESM_GCM) {
+			if (gnutls_cipher_add_auth(ctx->ctx, in, len) < 0)
+				return 1;
+		} else {
+			if (gnutls_cipher_decrypt2(ctx->ctx, in, len, out, len) < 0)
+				return 1;
+		}
 	}
 
 	return 0;
