@@ -139,9 +139,12 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			if (!strncmp(vhd->asset_dir, "file://", 7))
 				vhd->asset_dir += 7;
 
-		lws_pvo_get_str(in, "jwt-issuer", &vhd->jwt_issuer);
-		lws_pvo_get_str(in, "jwt-audience", &vhd->jwt_audience);
-		lws_pvo_get_str(in, "cookie-name", &vhd->cookie_name);
+		if (lws_pvo_get_str(in, "jwt-issuer", &vhd->jwt_issuer))
+			lwsl_info("%s: default jwt-issuer\n", __func__);
+		if (lws_pvo_get_str(in, "jwt-audience", &vhd->jwt_audience))
+			lwsl_info("%s: default jwt-audience\n", __func__);
+		if (lws_pvo_get_str(in, "cookie-name", &vhd->cookie_name))
+			lwsl_info("%s: default cookie-name\n", __func__);
 		if (!lws_pvo_get_str(in, "jwt-alg", &cp))
 			lws_strncpy(vhd->jwt_alg, cp, sizeof(vhd->jwt_alg));
 		if (!lws_pvo_get_str(in, "jwt-expiry", &cp))
@@ -293,10 +296,10 @@ LWS_VISIBLE const struct lws_protocols protocols[] = {
 
 LWS_VISIBLE const lws_plugin_protocol_t lws_login = {
 	.hdr = {
-		"lws login",
-		"lws_protocol_plugin",
-		LWS_BUILD_HASH,
-		LWS_PLUGIN_API_MAGIC
+		.name = "lws login",
+		._class = "lws_protocol_plugin",
+		.lws_build_hash = LWS_BUILD_HASH,
+		.api_magic = LWS_PLUGIN_API_MAGIC
 	},
 
 	.protocols = protocols,

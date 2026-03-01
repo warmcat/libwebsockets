@@ -113,10 +113,10 @@ LWS_VISIBLE const struct lws_protocols lws_latency_protocols[] = {
 
 LWS_VISIBLE const lws_plugin_protocol_t lws_latency = {
 	.hdr = {
-		"lws latency",
-		"lws_protocol_plugin",
-		LWS_BUILD_HASH,
-		LWS_PLUGIN_API_MAGIC
+		.name = "lws latency",
+		._class = "lws_protocol_plugin",
+		.lws_build_hash = LWS_BUILD_HASH,
+		.api_magic = LWS_PLUGIN_API_MAGIC
 	},
 
 	.protocols = lws_latency_protocols,
