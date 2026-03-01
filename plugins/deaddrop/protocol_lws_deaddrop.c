@@ -955,10 +955,10 @@ LWS_VISIBLE const struct lws_protocols deaddrop_protocols[] = {
 
 LWS_VISIBLE const lws_plugin_protocol_t deaddrop = {
 	.hdr = {
-		"deaddrop",
-		"lws_protocol_plugin",
-		LWS_BUILD_HASH,
-		LWS_PLUGIN_API_MAGIC
+		.name = "deaddrop",
+		._class = "lws_protocol_plugin",
+		.lws_build_hash = LWS_BUILD_HASH,
+		.api_magic = LWS_PLUGIN_API_MAGIC
 	},
 
 	.protocols = deaddrop_protocols,

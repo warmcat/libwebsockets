@@ -52,10 +52,10 @@ struct lws_event_loop_ops event_loop_ops_poll = {
 
 const lws_plugin_evlib_t evlib_poll = {
 	.hdr = {
-		"poll",
-		"lws_evlib_plugin",
-		"n/a",
-		LWS_PLUGIN_API_MAGIC
+		.name = "poll",
+		._class = "lws_evlib_plugin",
+		.lws_build_hash = "n/a",
+		.api_magic = LWS_PLUGIN_API_MAGIC
 	},
 
 	.ops	= &event_loop_ops_poll
