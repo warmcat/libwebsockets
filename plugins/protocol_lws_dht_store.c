@@ -104,7 +104,8 @@ callback_lws_dht_store(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!lws_pvo_get_str(in, "dht-port", &pvo_val))
 			vhd->dht_port = atoi(pvo_val);
 
-		lws_pvo_get_str(in, "dht-iface", &vhd->dht_iface);
+		if (lws_pvo_get_str(in, "dht-iface", &vhd->dht_iface))
+			lwsl_info("no pvo for dht-iface\n");
 
 		lwsl_user("%s: init: path '%s', port %d\n", __func__,
 				vhd->storage_path, vhd->dht_port);
@@ -149,10 +150,10 @@ static const struct lws_protocols protocols[] = {
 
 LWS_VISIBLE const lws_plugin_protocol_t lws_dht_store = {
 	.hdr = {
-		"lws dht store",
-		"lws_protocol_plugin",
-		LWS_BUILD_HASH,
-		LWS_PLUGIN_API_MAGIC
+		.name = "lws dht store",
+		._class = "lws_protocol_plugin",
+		.lws_build_hash = LWS_BUILD_HASH,
+		.api_magic = LWS_PLUGIN_API_MAGIC
 	},
 
 	.protocols = protocols,

@@ -127,10 +127,10 @@ LWS_VISIBLE const struct lws_protocols dumb_increment_protocols[] = {
 
 LWS_VISIBLE const lws_plugin_protocol_t dumb_increment = {
 	.hdr = {
-		"dumb increment",
-		"lws_protocol_plugin",
-		LWS_BUILD_HASH,
-		LWS_PLUGIN_API_MAGIC
+		.name = "dumb increment",
+		._class = "lws_protocol_plugin",
+		.lws_build_hash = LWS_BUILD_HASH,
+		.api_magic = LWS_PLUGIN_API_MAGIC
 	},
 
 	.protocols = dumb_increment_protocols,

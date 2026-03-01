@@ -27,7 +27,10 @@
 #include <string.h>
 #include <unistd.h>
 
+#ifndef _WIN32
 #include <arpa/inet.h>
+#endif
+#include <errno.h>
 #include <sys/stat.h>
 
 #define LWS_DHT_FRAGMENT_SIZE		(1024 * 1024)
@@ -598,10 +601,10 @@ LWS_VISIBLE const struct lws_protocols lws_dht_object_store_protocols[] = {
 
 LWS_VISIBLE const lws_plugin_protocol_t protocol_lws_dht_object_store = {
 	.hdr = {
-		"lws dht object store",
-		"lws_protocol_plugin",
-		LWS_BUILD_HASH,
-		LWS_PLUGIN_API_MAGIC
+		.name = "lws dht object store",
+		._class = "lws_protocol_plugin",
+		.lws_build_hash = LWS_BUILD_HASH,
+		.api_magic = LWS_PLUGIN_API_MAGIC
 	},
 	.protocols = lws_dht_object_store_protocols,
 	.count_protocols = LWS_ARRAY_SIZE(lws_dht_object_store_protocols) - 1,
