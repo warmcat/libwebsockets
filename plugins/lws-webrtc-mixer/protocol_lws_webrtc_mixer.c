@@ -1118,13 +1118,12 @@ LWS_VISIBLE const struct lws_protocols mixer_protocols[] = {
 };
 
 LWS_VISIBLE const lws_plugin_protocol_t lws_webrtc_mixer = {
-	.hdr =
-	{
-		"lws webrtc mixer",
-		"lws_protocol_plugin",
-		LWS_BUILD_HASH,
-		LWS_PLUGIN_API_MAGIC,
-		90, /* priority */
+	.hdr = {
+		.name = "lws webrtc mixer",
+		._class = "lws_protocol_plugin",
+		.lws_build_hash = LWS_BUILD_HASH,
+		.api_magic = LWS_PLUGIN_API_MAGIC,
+		.priority = 90,
 	},
 	.protocols = mixer_protocols,
 	.count_protocols = LWS_ARRAY_SIZE(mixer_protocols),
