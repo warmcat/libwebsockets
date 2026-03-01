@@ -58,6 +58,11 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 	u.size = el[LWS_GENCRYPTO_RSA_KEYEL_QI].len;
 
 	if (d.data) {
+		if (!p.data || !q.data || !e1.data || !e2.data || !u.data) {
+			lwsl_notice("GnuTLS requires all private key params, skipping\n");
+			return -2;
+		}
+
 		if (gnutls_privkey_init(&ctx->priv) < 0)
 			return 1;
 
@@ -80,13 +85,77 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 	return 0;
 }
 
+static int
+copy_elem(gnutls_datum_t *in, struct lws_gencrypto_keyelem *e)
+{
+	e->len = in->size;
+	if (e->len == 0) return 0;
+	e->buf = lws_zalloc(e->len, "genrsakey");
+	if (!e->buf) return -1;
+	memcpy(e->buf, in->data, e->len);
+	return 0;
+}
+
 int
 lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 		       enum enum_genrsa_mode mode, struct lws_gencrypto_keyelem *el,
 		       int bits)
 {
-	/* TODO: Implement RSA key generation via gnutls_x509_privkey_generate */
-	return 1;
+	gnutls_datum_t m, e, d, p, q, u, e1, e2;
+	int ret = -1;
+
+	memset(ctx, 0, sizeof(*ctx));
+	ctx->context = context;
+	ctx->mode = mode;
+
+	if (gnutls_privkey_init(&ctx->priv) < 0)
+		return -1;
+
+	if (gnutls_privkey_generate(ctx->priv, GNUTLS_PK_RSA, (unsigned int)bits, 0) < 0) {
+		lwsl_err("%s: gnutls_privkey_generate failed\n", __func__);
+		goto bail;
+	}
+
+	if (gnutls_privkey_export_rsa_raw(ctx->priv, &m, &e, &d, &p, &q, &u, &e1, &e2) < 0) {
+		lwsl_err("%s: export failed\n", __func__);
+		goto bail;
+	}
+
+	if (copy_elem(&m, &el[LWS_GENCRYPTO_RSA_KEYEL_N]) ||
+	    copy_elem(&e, &el[LWS_GENCRYPTO_RSA_KEYEL_E]) ||
+	    copy_elem(&d, &el[LWS_GENCRYPTO_RSA_KEYEL_D]) ||
+	    copy_elem(&p, &el[LWS_GENCRYPTO_RSA_KEYEL_P]) ||
+	    copy_elem(&q, &el[LWS_GENCRYPTO_RSA_KEYEL_Q]) ||
+	    copy_elem(&e1, &el[LWS_GENCRYPTO_RSA_KEYEL_DP]) ||
+	    copy_elem(&e2, &el[LWS_GENCRYPTO_RSA_KEYEL_DQ]) ||
+	    copy_elem(&u, &el[LWS_GENCRYPTO_RSA_KEYEL_QI])) {
+		/* It failed halfway, caller will call destroy */
+		gnutls_free(m.data);
+		gnutls_free(e.data);
+		gnutls_free(d.data);
+		gnutls_free(p.data);
+		gnutls_free(q.data);
+		gnutls_free(u.data);
+		gnutls_free(e1.data);
+		gnutls_free(e2.data);
+		goto bail;
+	}
+
+	gnutls_free(m.data);
+	gnutls_free(e.data);
+	gnutls_free(d.data);
+	gnutls_free(p.data);
+	gnutls_free(q.data);
+	gnutls_free(u.data);
+	gnutls_free(e1.data);
+	gnutls_free(e2.data);
+
+	ret = 0;
+
+bail:
+	if (ret)
+		gnutls_privkey_deinit(ctx->priv);
+	return ret;
 }
 
 int
@@ -111,9 +180,23 @@ lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	v_in.data = (uint8_t *)in;
 	v_in.size = (unsigned int)in_len;
 
+	if (ctx->mode == LGRSAM_PKCS1_OAEP_PSS) {
+		lwsl_err("%s: GnuTLS does not support RSA OAEP\n", __func__);
+		return -2;
+	}
+
 	n = gnutls_pubkey_encrypt_data(ctx->pub, 0, &v_in, &v_out);
-	if (n < 0)
+
+	if (n < 0) {
+		if (
+#if defined(GNUTLS_E_UNSUPPORTED_ENCRYPTION_ALGORITHM)
+		    n == GNUTLS_E_UNSUPPORTED_ENCRYPTION_ALGORITHM ||
+#endif
+		    0)
+			return -2;
+		lwsl_err("%s: gnutls_pubkey_encrypt_data failed: %s\n", __func__, gnutls_strerror(n));
 		return -1;
+	}
 
 	memcpy(out, v_out.data, v_out.size);
 	n = (int)v_out.size;
@@ -132,9 +215,23 @@ lws_genrsa_private_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	v_in.data = (uint8_t *)in;
 	v_in.size = (unsigned int)in_len;
 
+	if (ctx->mode == LGRSAM_PKCS1_OAEP_PSS) {
+		lwsl_err("%s: GnuTLS does not support RSA OAEP\n", __func__);
+		return -2;
+	}
+
 	n = gnutls_privkey_decrypt_data(ctx->priv, 0, &v_in, &v_out);
-	if (n < 0)
+
+	if (n < 0) {
+		if (
+#if defined(GNUTLS_E_UNSUPPORTED_ENCRYPTION_ALGORITHM)
+		    n == GNUTLS_E_UNSUPPORTED_ENCRYPTION_ALGORITHM ||
+#endif
+		    n == GNUTLS_E_DECRYPTION_FAILED)
+			return -2;
+		lwsl_err("%s: gnutls_privkey_decrypt_data failed: %s\n", __func__, gnutls_strerror(n));
 		return -1;
+	}
 
 	if (v_out.size > out_max) {
 		gnutls_free(v_out.data);
