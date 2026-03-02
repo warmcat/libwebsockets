@@ -143,7 +143,12 @@ test_genaes_cfb128(void)
 	e.buf = (uint8_t *)cfb128_key;
 	e.len = sizeof(cfb128_key);
 
-	if (lws_genaes_create(&ctx, LWS_GAESO_ENC, LWS_GAESM_CFB128, &e, 0, NULL)) {
+	int n = lws_genaes_create(&ctx, LWS_GAESO_ENC, LWS_GAESM_CFB128, &e, 0, NULL);
+	if (n) {
+		if (n == -2) {
+			lwsl_notice("%s: lws_genaes_create unsupported\n", __func__);
+			return 0;
+		}
 		lwsl_err("%s: lws_genaes_create failed\n", __func__);
 		return 1;
 	}
@@ -320,13 +325,20 @@ test_genaes_ctr(void)
 	uint8_t res[32], res1[32];
 	size_t nc_off = 0;
 
+	int n;
+
 	e.buf = (uint8_t *)ctr_key;
 	e.len = sizeof(ctr_key);
 
 	memset(sb, 0, sizeof(nonce_counter));
 	memcpy(nonce_counter, ctr_iv, sizeof(ctr_iv));
 
-	if (lws_genaes_create(&ctx, LWS_GAESO_ENC, LWS_GAESM_CTR, &e, 0, NULL)) {
+	n = lws_genaes_create(&ctx, LWS_GAESO_ENC, LWS_GAESM_CTR, &e, 0, NULL);
+	if (n) {
+		if (n == -2) {
+			lwsl_notice("%s: lws_genaes_create unsupported\n", __func__);
+			return 0;
+		}
 		lwsl_err("%s: lws_genaes_create failed\n", __func__);
 		return 1;
 	}
@@ -417,10 +429,17 @@ test_genaes_ecb(void)
 	 * As part of a jwk, these are allocated.  But here we just use one as
 	 * a wrapper on a static binary key.
 	 */
+	int n;
+
 	e.buf = (uint8_t *)ecb_key;
 	e.len = sizeof(ecb_key);
 
-	if (lws_genaes_create(&ctx, LWS_GAESO_ENC, LWS_GAESM_ECB, &e, 0, NULL)) {
+	n = lws_genaes_create(&ctx, LWS_GAESO_ENC, LWS_GAESM_ECB, &e, 0, NULL);
+	if (n) {
+		if (n == -2) {
+			lwsl_notice("%s: lws_genaes_create unsupported\n", __func__);
+			return 0;
+		}
 		lwsl_err("%s: lws_genaes_create failed\n", __func__);
 		return 1;
 	}
@@ -509,10 +528,17 @@ test_genaes_ofb(void)
 	uint8_t res[32], res1[32];
 	size_t iv_off = 0;
 
+	int n;
+
 	e.buf = (uint8_t *)ofb_key;
 	e.len = sizeof(ofb_key);
 
-	if (lws_genaes_create(&ctx, LWS_GAESO_ENC, LWS_GAESM_OFB, &e, 0, NULL)) {
+	n = lws_genaes_create(&ctx, LWS_GAESO_ENC, LWS_GAESM_OFB, &e, 0, NULL);
+	if (n) {
+		if (n == -2) {
+			lwsl_notice("%s: lws_genaes_create unsupported\n", __func__);
+			return 0;
+		}
 		lwsl_err("%s: lws_genaes_create failed\n", __func__);
 		return 1;
 	}
@@ -604,10 +630,17 @@ test_genaes_xts(void)
 
 	memset(data_unit, 0, sizeof(data_unit));
 
+	int n;
+
 	e.buf = (uint8_t *)xts_key;
 	e.len = sizeof(xts_key);
 
-	if (lws_genaes_create(&ctx, LWS_GAESO_ENC, LWS_GAESM_XTS, &e, 0, NULL)) {
+	n = lws_genaes_create(&ctx, LWS_GAESO_ENC, LWS_GAESM_XTS, &e, 0, NULL);
+	if (n) {
+		if (n == -2) {
+			lwsl_notice("%s: lws_genaes_create unsupported\n", __func__);
+			return 0;
+		}
 		lwsl_err("%s: lws_genaes_create failed\n", __func__);
 		return 1;
 	}
@@ -696,12 +729,19 @@ test_genaes_gcm(void)
 	struct lws_gencrypto_keyelem e;
 	size_t iv_off = 0;
 
+	int n;
+
 	e.buf = (uint8_t *)gcm_key;
 	e.len = sizeof(gcm_key);
 
 	/* Encrypt */
 
-	if (lws_genaes_create(&ctx, LWS_GAESO_ENC, LWS_GAESM_GCM, &e, 0, NULL)) {
+	n = lws_genaes_create(&ctx, LWS_GAESO_ENC, LWS_GAESM_GCM, &e, 0, NULL);
+	if (n) {
+		if (n == -2) {
+			lwsl_notice("%s: lws_genaes_create unsupported\n", __func__);
+			return 0;
+		}
 		lwsl_err("%s: lws_genaes_create failed\n", __func__);
 		return 1;
 	}

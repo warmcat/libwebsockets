@@ -358,9 +358,6 @@ lws_addrinfo_clean(struct lws *wsi)
 static void
 lws_async_worker_wait_and_reap(struct lws *wsi)
 {
-	if (!wsi->async_worker_job)
-		return;
-
 	while (1) {
 		pthread_mutex_lock(&wsi->a.context->async_worker_mutex);
 		if (!wsi->async_worker_job) {
@@ -653,15 +650,6 @@ just_kill_connection:
 #if defined(LWS_WITH_HTTP_PROXY)
 	if (wsi->http.buflist_post_body)
 		lws_buflist_destroy_all_segments(&wsi->http.buflist_post_body);
-#endif
-#if defined(LWS_WITH_UDP)
-	if (wsi->udp) {
-		/* confirm no sul left scheduled in wsi->udp itself */
-		lws_sul_debug_zombies(wsi->a.context, wsi->udp,
-					sizeof(*wsi->udp), "close udp wsi");
-
-		lws_free_set_NULL(wsi->udp);
-	}
 #endif
 
 	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_close_kill_connection))

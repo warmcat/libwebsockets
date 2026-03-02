@@ -146,7 +146,7 @@ lws_adapt_report(struct lws_adapt *a, int success, lws_usec_t us)
 	if (l->ewma_short < LWS_ADAPT_DOWNGRADE_THRESHOLD && a->active_level < a->num_levels - 1) {
 		lwsl_notice("%s: Downgrading level %d -> %d (Score: %u/%u)\n",
 			__func__, a->active_level, a->active_level + 1,
-			l->ewma_short, LWS_ADAPT_MAX_SCORE);
+			(unsigned int)l->ewma_short, (unsigned int)LWS_ADAPT_MAX_SCORE);
 
 		a->active_level++;
 		a->last_downgrade_us = us;
@@ -167,7 +167,7 @@ lws_adapt_report(struct lws_adapt *a, int success, lws_usec_t us)
 			if (a->backoff_multiplier < 1)
 				a->backoff_multiplier = 1;
 			a->last_downgrade_us = us; /* Reset the clock for the next forgiveness tier */
-			lwsl_notice("%s: Sustained stability! Reducing backoff multiplier to %u\n", __func__, a->backoff_multiplier);
+			lwsl_notice("%s: Sustained stability! Reducing backoff multiplier to %u\n", __func__, (unsigned int)a->backoff_multiplier);
 		}
 	}
 }
@@ -192,7 +192,7 @@ lws_adapt_get_level(struct lws_adapt *a)
 			if (now > a->last_downgrade_us + backoff_required) {
 				lwsl_notice("%s: Upgrading level %d -> %d (Stable for %u us)\n",
 					__func__, a->active_level, a->active_level - 1,
-					(uint32_t)(now - a->last_downgrade_us));
+					(unsigned int)(now - a->last_downgrade_us));
 
 				a->active_level--;
 				a->last_downgrade_us = now; /* So we measure forgiveness from the moment of success */

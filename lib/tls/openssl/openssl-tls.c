@@ -43,7 +43,7 @@ lws_tls_err_describe_clear(void)
 		if (!l)
 			break;
 
-		ERR_error_string_n(ERR_get_error(), buf, sizeof(buf));
+		ERR_error_string_n(LWS_TLS_ERR_CAST(ERR_get_error()), buf, sizeof(buf));
 		lwsl_info("   openssl error: %s\n", buf);
 	} while (l);
 	lwsl_info("\n");

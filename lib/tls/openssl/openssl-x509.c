@@ -276,8 +276,8 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 			if (!cv)
 				goto bail_ak;
 
-		        for (j = 0; j < OPENSSL_sk_num((const OPENSSL_STACK *)&cv); j++) {
-		            CONF_VALUE *nval = OPENSSL_sk_value((const OPENSSL_STACK *)&cv, j);
+		        for (j = 0; j < OPENSSL_sk_num((const OPENSSL_STACK *)cv); j++) {
+		            CONF_VALUE *nval = OPENSSL_sk_value((const OPENSSL_STACK *)cv, j);
 		            size_t ln = (nval->name ? strlen(nval->name) : 0),
 		        	   lv = (nval->value ? strlen(nval->value) : 0),
 		        	   l = ln + lv;
@@ -788,10 +788,10 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 		/* then check that n & e match what we got from the cert */
 
 		dummy[2] = BN_bin2bn(jwk->e[LWS_GENCRYPTO_RSA_KEYEL_N].buf,
-				     SSL_SIZE_CAST(jwk->e[LWS_GENCRYPTO_RSA_KEYEL_N].len),
+				     SSL_SIZE_T_CAST(jwk->e[LWS_GENCRYPTO_RSA_KEYEL_N].len),
 				     NULL);
 		dummy[3] = BN_bin2bn(jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].buf,
-				     SSL_SIZE_CAST(jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].len),
+				     SSL_SIZE_T_CAST(jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].len),
 				     NULL);
 
 		m = BN_cmp(dummy[2], dummy[0]) | BN_cmp(dummy[3], dummy[1]);
@@ -866,6 +866,13 @@ lws_x509_destroy(struct lws_x509_cert **x509)
 	lws_free_set_NULL(*x509);
 }
 
+#if defined(LWS_WITH_BORINGSSL) || defined(LWS_WITH_AWSLC)
+#ifndef X509V3_EXT_conf_nid
+#define X509V3_EXT_conf_nid	X509V3_EXT_nconf_nid
+#endif
+#endif
+
+#if !defined(USE_WOLFSSL)
 static int
 X509_extension_helper(X509 *x, X509V3_CTX *ctx, int nid, const char *value)
 {
@@ -880,6 +887,7 @@ X509_extension_helper(X509 *x, X509V3_CTX *ctx, int nid, const char *value)
 
 	return 0;
 }
+#endif
 
 int
 lws_x509_create_self_signed(struct lws_context *context,
@@ -887,6 +895,11 @@ lws_x509_create_self_signed(struct lws_context *context,
 			    uint8_t **key_buf, size_t *key_len,
 			    const char *san, int key_bits)
 {
+#if defined(USE_WOLFSSL)
+	lwsl_err("%s: not supported on wolfssl\n", __func__);
+
+	return 1;
+#else
 	EVP_PKEY *pkey = EVP_PKEY_new();
 	X509 *x509 = NULL;
 	X509_NAME *name;
@@ -998,4 +1011,5 @@ bail:
 	if (pkey) EVP_PKEY_free(pkey);
 
 	return ret;
+#endif
 }

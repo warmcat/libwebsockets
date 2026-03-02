@@ -28,6 +28,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <libwebsockets/lws-genhash.h>
 
 /*! \defgroup dht Distributed Hash Table
  * ## Distributed Hash Table (DHT) API
