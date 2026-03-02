@@ -622,9 +622,6 @@ main(int argc, const char **argv)
 		fail++;
 	}
 
-#if !defined(LWS_WITH_IPV6)
-	_exp -= 2;
-#endif
 
 	/* kick off the async dns tests */
 

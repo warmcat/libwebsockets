@@ -176,7 +176,10 @@ verb_put_handler(struct lws_dht_ctx *ctx, const struct lws_dht_msg *msg,
 		lws_dll2_add_tail(&frag->list, &vhd->fragments);
 		
 		lws_snprintf(path, sizeof(path), "%s/%s", vhd->storage_path, frag->safe_hash);
-		mkdir(vhd->storage_path, 0777);
+		if (mkdir(vhd->storage_path, 0777) < 0 && errno != EEXIST) {
+			lwsl_err("%s: Failed to create storage dir %s\n", __func__,
+				 vhd->storage_path);
+		}
 		frag->fd = open(path, O_RDWR | O_CREAT | O_TRUNC, 0666);
 		if (frag->fd < 0) {
 			lwsl_err("%s: Failed to open %s\n", __func__, path);
@@ -357,9 +360,6 @@ verb_sign_req_handler(struct lws_dht_ctx *ctx, const struct lws_dht_msg *msg,
 	return 0;
 }
 
-	return 0;
-}
-
 /* --- Core Callback --- */
 
 static void
@@ -412,7 +412,13 @@ sul_put_cb(void *v)
 			vhd->cb_completion(vhd->cb_closure, 1);
 		return;
 	}
-	fstat(fd, &st);
+	if (fstat(fd, &st) < 0) {
+		lwsl_err("Cannot stat %s\n", vhd->cli_put_file);
+		close(fd);
+		if (vhd->cb_completion)
+			vhd->cb_completion(vhd->cb_closure, 1);
+		return;
+	}
 	n = (int)read(fd, buf + 256, 1024);
 	close(fd);
 
@@ -507,10 +513,13 @@ callback_dht_object_store(struct lws* wsi, enum lws_callback_reasons reason,
 		vhd->storage_path = "./dht-store";
 
 		/* Override from PVOs */
-		lws_pvo_get_str(in, "dht-storage-path", &vhd->storage_path);
+		if (lws_pvo_get_str(in, "dht-storage-path", &vhd->storage_path))
+			lwsl_info("no pvo for dht-storage-path\n");
 		if ((pvo = lws_pvo_search(in, "dht-port"))) vhd->dht_port = atoi(pvo->value);
-		lws_pvo_get_str(in, "dht-iface", &vhd->dht_iface);
-		lws_pvo_get_str(in, "target-ip", &vhd->target_ip);
+		if (lws_pvo_get_str(in, "dht-iface", &vhd->dht_iface))
+			lwsl_info("no pvo for dht-iface\n");
+		if (lws_pvo_get_str(in, "target-ip", &vhd->target_ip))
+			lwsl_info("no pvo for target-ip\n");
 		if ((pvo = lws_pvo_search(in, "target-port")) && pvo->value && pvo->value[0]) vhd->target_port = atoi(pvo->value);
 		if (!lws_pvo_get_str(in, "put-file", &p) && p && p[0]) vhd->cli_put_file = p;
 		if (!lws_pvo_get_str(in, "get-hash", &p) && p && p[0]) vhd->cli_get_hash = p;
@@ -564,6 +573,7 @@ callback_dht_object_store(struct lws* wsi, enum lws_callback_reasons reason,
 			sul_get_cb(vhd);
 		}
 		break;
+	}
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
 		if (vhd) {

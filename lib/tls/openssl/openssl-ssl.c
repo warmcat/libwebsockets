@@ -64,11 +64,7 @@ int lws_ssl_get_error(struct lws *wsi, int n)
 			/* Append first error for clarity */
 			l = ERR_get_error();
 			if (l) {
-				ERR_error_string_n(
-#if defined(LWS_WITH_BORINGSSL) || defined(LWS_WITH_AWSLC)
-					(uint32_t)
-#endif
-					l, buf, sizeof(buf) - 1);
+				ERR_error_string_n(LWS_TLS_ERR_CAST(l), buf, sizeof(buf) - 1);
 				buf[sizeof(buf) - 1] = '\0';
 				lws_strncpy(wsi->tls.err_helper, buf,
 					    sizeof(wsi->tls.err_helper));
@@ -429,7 +425,7 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 		}
 	}
 
-	lwsl_debug("%s failed: %s\n",__func__, ERR_error_string((unsigned int)m, NULL));
+	lwsl_debug("%s failed: %s\n",__func__, ERR_error_string(LWS_TLS_ERR_CAST(m), NULL));
 	lws_tls_err_describe_clear();
 
 	wsi->socket_is_permanently_unusable = 1;

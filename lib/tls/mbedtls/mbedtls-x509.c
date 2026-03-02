@@ -584,9 +584,17 @@ lws_x509_create_self_signed(struct lws_context *context,
 	mbedtls_x509write_crt_set_subject_key(&crt, &key);
 	mbedtls_x509write_crt_set_issuer_key(&crt, &key);
 
+#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
+	{
+		uint8_t serial_val[] = { 1 };
+		if (mbedtls_x509write_crt_set_serial_raw(&crt, serial_val, sizeof(serial_val)))
+			goto bail;
+	}
+#else
 	if (mbedtls_mpi_read_string(&serial, 10, "1"))
 		goto bail;
 	mbedtls_x509write_crt_set_serial(&crt, &serial);
+#endif
 
 	lws_snprintf(name, sizeof(name), "CN=%s", san ? san : "localhost");
 	if (mbedtls_x509write_crt_set_subject_name(&crt, name))

@@ -138,13 +138,13 @@ lws_genec_eckey_import(int nid, EVP_PKEY *pkey,
 	 */
 
 	bn_x = BN_bin2bn(el[LWS_GENCRYPTO_EC_KEYEL_X].buf,
-					SSL_SIZE_CAST(el[LWS_GENCRYPTO_EC_KEYEL_X].len), NULL);
+					SSL_SIZE_T_CAST(el[LWS_GENCRYPTO_EC_KEYEL_X].len), NULL);
 	if (!bn_x) {
 		lwsl_err("%s: BN_bin2bn (x) fail\n", __func__);
 		goto bail;
 	}
 	bn_y = BN_bin2bn(el[LWS_GENCRYPTO_EC_KEYEL_Y].buf,
-					SSL_SIZE_CAST(el[LWS_GENCRYPTO_EC_KEYEL_Y].len), NULL);
+					SSL_SIZE_T_CAST(el[LWS_GENCRYPTO_EC_KEYEL_Y].len), NULL);
 	if (!bn_y) {
 		lwsl_err("%s: BN_bin2bn (y) fail\n", __func__);
 		goto bail1;
@@ -177,7 +177,7 @@ lws_genec_eckey_import(int nid, EVP_PKEY *pkey,
 
 	if (el[LWS_GENCRYPTO_EC_KEYEL_D].len) {
 		bn_d = BN_bin2bn(el[LWS_GENCRYPTO_EC_KEYEL_D].buf,
-					SSL_SIZE_CAST(el[LWS_GENCRYPTO_EC_KEYEL_D].len), NULL);
+					SSL_SIZE_T_CAST(el[LWS_GENCRYPTO_EC_KEYEL_D].len), NULL);
 		if (!bn_d) {
 			lwsl_err("%s: BN_bin2bn (d) fail\n", __func__);
 			goto bail;
@@ -562,7 +562,7 @@ lws_genecdsa_hash_sign_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
 	 * 4.  The resulting 64-octet sequence is the JWS Signature value.
 	 */
 
-	ecdsasig = ECDSA_do_sign(in, SSL_SIZE_CAST(hs), eckey);
+	ecdsasig = ECDSA_do_sign(in, SSL_SIZE_T_CAST(hs), eckey);
 	EC_KEY_free(eckey);
 	if (!ecdsasig) {
 		lwsl_notice("%s: ECDSA_do_sign fail\n", __func__);
@@ -635,13 +635,13 @@ lws_genecdsa_hash_sig_verify_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
 	 *     the ECDSA P-256 SHA-256 validator.
 	 */
 
-	r = BN_bin2bn(sig, SSL_SIZE_CAST(keybytes), NULL);
+	r = BN_bin2bn(sig, SSL_SIZE_T_CAST(keybytes), NULL);
 	if (!r) {
 		lwsl_err("%s: BN_bin2bn (r) fail\n", __func__);
 		goto bail;
 	}
 
-	s = BN_bin2bn(sig + keybytes, SSL_SIZE_CAST(keybytes), NULL);
+	s = BN_bin2bn(sig + keybytes, SSL_SIZE_T_CAST(keybytes), NULL);
 	if (!s) {
 		lwsl_err("%s: BN_bin2bn (s) fail\n", __func__);
 		goto bail1;
@@ -654,12 +654,12 @@ lws_genecdsa_hash_sig_verify_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
 
 	eckey = EVP_PKEY_get1_EC_KEY(EVP_PKEY_CTX_get0_pkey(ctx->ctx[0]));
 
-	n = ECDSA_do_verify(in, SSL_SIZE_CAST(hlen), ecsig, eckey);
+	n = ECDSA_do_verify(in, SSL_SIZE_T_CAST(hlen), ecsig, eckey);
 	EC_KEY_free(eckey);
 	if (n != 1) {
 		unsigned long err = ERR_get_error();
 		char buf[256];
-		ERR_error_string_n(err, buf, sizeof(buf));
+		ERR_error_string_n(LWS_TLS_ERR_CAST(err), buf, sizeof(buf));
 		lwsl_err("%s: ECDSA_do_verify fail, n=%d, hlen %d, err=%lu (%s)\n", __func__, n, (int)hlen, err, buf);
 		lws_tls_err_describe_clear();
 		goto bail;
