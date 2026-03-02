@@ -175,6 +175,16 @@ typedef int suseconds_t;
 #include <unistd.h>
 
 #if defined (LWS_PLAT_FREERTOS)
+#if defined(LWS_AMAZON_RTOS)
+#include <FreeRTOS.h>
+#include <semphr.h>
+#include <task.h>
+#else
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+#include <freertos/task.h>
+#endif
+
 typedef SemaphoreHandle_t lws_mutex_t;
 #define lws_mutex_init(x)	x = xSemaphoreCreateMutex()
 #define lws_mutex_destroy(x)	vSemaphoreDelete(x)

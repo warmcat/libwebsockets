@@ -1211,8 +1211,24 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			wsi->http.ah->frags[wsi->http.ah->frag_index[_WSI_TOKEN_CLIENT_URI]].offset = wsi->http.ah->pos;
 			wsi->http.ah->frags[wsi->http.ah->frag_index[_WSI_TOKEN_CLIENT_URI]].len = (uint16_t)(pl + 1u);
 
-			if (wsi->stash)
-				wsi->stash->cis[CIS_PATH] = wsi->http.ah->data + wsi->http.ah->pos;
+			if (wsi->stash) {
+				struct client_info_stash *ostash = wsi->stash;
+				const char *cisin[CIS_COUNT];
+				int m;
+
+				wsi->stash = NULL;
+				for (m = 0; m < CIS_COUNT; m++)
+					cisin[m] = ostash->cis[m];
+				cisin[CIS_PATH] = wsi->http.ah->data + wsi->http.ah->pos;
+				
+				if (lws_client_stash_create(wsi, cisin)) {
+					lwsl_err("%s: failed to realloc stash for redirect\n", __func__);
+					lws_free(ostash);
+					cce = "HS: stash realloc failed";
+					goto bail3;
+				}
+				lws_free(ostash);
+			}
 
 			wsi->http.ah->pos += pl + 1u;
 		}

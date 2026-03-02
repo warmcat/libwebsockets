@@ -279,12 +279,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	wsi->tls.ssl = SSL_new(wsi->a.vhost->tls.ssl_client_ctx);
 	if (!wsi->tls.ssl) {
 		const char *es = ERR_error_string(
-#if defined(LWS_WITH_BORINGSSL) || defined(LWS_WITH_AWSLC)
-	(uint32_t)
-#else
-	(unsigned long)
-#endif
-	lws_ssl_get_error(wsi, 0), NULL);
+			LWS_TLS_ERR_CAST(lws_ssl_get_error(wsi, 0)), NULL);
 		lwsl_err("SSL_new failed: %s\n", es);
 		lws_tls_err_describe_clear();
 		return -1;
@@ -436,7 +431,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 			goto no_client_cert;
 
 		if (SSL_use_certificate_ASN1(wsi->tls.ssl, SSL_DATA_CAST(data),
-			SSL_SIZE_CAST(size)) != 1) {
+			SSL_SIZE_T_CAST(size)) != 1) {
 			lwsl_err("%s: use_certificate failed\n", __func__);
 			lws_tls_err_describe_clear();
 			goto no_client_cert;
@@ -456,9 +451,9 @@ lws_ssl_client_bio_create(struct lws *wsi)
 			goto no_client_cert;
 
 		if (SSL_use_PrivateKey_ASN1(EVP_PKEY_RSA, wsi->tls.ssl, SSL_DATA_CAST(data),
-			SSL_SIZE_CAST(size)) != 1 &&
+			SSL_SIZE_T_CAST(size)) != 1 &&
 		    SSL_use_PrivateKey_ASN1(EVP_PKEY_EC, wsi->tls.ssl, SSL_DATA_CAST(data),
-			SSL_SIZE_CAST(size)) != 1) {
+			SSL_SIZE_T_CAST(size)) != 1) {
 
 			lwsl_err("%s: use_privkey failed\n", __func__);
 			lws_tls_err_describe_clear();
@@ -522,7 +517,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 		l = ERR_get_error();
 		n = lws_snprintf(errbuf, elen, "tls: %s", wsi->tls.err_helper);
 		if (!wsi->tls.err_helper[0])
-			ERR_error_string_n((unsigned int)l, errbuf + n, (elen - (unsigned int)n));
+			ERR_error_string_n(LWS_TLS_ERR_CAST(l), errbuf + n, (elen - (unsigned int)n));
 		return LWS_SSL_CAPABLE_ERROR;
 	}
 
@@ -632,13 +627,7 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 		return 0;
 	}
 
-	es = ERR_error_string(
-	#if defined(LWS_WITH_BORINGSSL) || defined(LWS_WITH_AWSLC)
-					 (uint32_t)
-	#else
-					 (unsigned long)
-	#endif
-					 n, sb);
+	es = ERR_error_string(LWS_TLS_ERR_CAST(n), sb);
 	lws_snprintf(ebuf, ebuf_len,
 		"server's cert didn't look good, %s X509_V_ERR = %ld: %s\n",
 		 type, n, es);
@@ -727,7 +716,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		const char *es;
 
 		error = ERR_peek_error();
-		es = ERR_error_string(ERR_get_error(), (char *)vh->context->pt[0].serv_buf);
+		es = ERR_error_string(LWS_TLS_ERR_CAST(ERR_get_error()), (char *)vh->context->pt[0].serv_buf);
 		lwsl_err("problem creating ssl method %lu: %s\n",
 			error, es);
 		return 1;
@@ -829,7 +818,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		const char *es;
 
 		error = ERR_peek_error();
-		es = ERR_error_string(ERR_get_error(), (char *)vh->context->pt[0].serv_buf);
+		es = ERR_error_string(LWS_TLS_ERR_CAST(ERR_get_error()), (char *)vh->context->pt[0].serv_buf);
 		lwsl_err("problem creating ssl context %lu: %s\n",
 			error, es);
 		return 1;
@@ -1020,7 +1009,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 			return 1;
 		}
 
-		n = SSL_CTX_use_certificate_ASN1(vh->tls.ssl_client_ctx, SSL_SIZE_CAST(flen), p);
+		n = SSL_CTX_use_certificate_ASN1(vh->tls.ssl_client_ctx, SSL_SIZE_T_CAST(flen), p);
 
 		if (n < 1) {
 			lwsl_err("%s: problem interpreting client cert\n",  __func__);

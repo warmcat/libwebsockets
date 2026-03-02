@@ -867,7 +867,6 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	}
 
 	wsi->could_have_pending = 0; /* clear back-to-back write detection */
-	pt->inside_lws_service = 1;
 
 	/* okay, what we came here to do... */
 
@@ -884,7 +883,6 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	switch (lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_handle_POLLIN).
 					       handle_POLLIN(pt, wsi, pollfd)) {
 	case LWS_HPI_RET_WSI_ALREADY_DIED:
-		pt->inside_lws_service = 0;
 #if defined (_WIN32)
 		break;
 #else
@@ -915,7 +913,6 @@ close_and_handled:
 		 * we can't clear revents now because it'd be the wrong guy's
 		 * revents
 		 */
-		pt->inside_lws_service = 0;
 		return 1;
 	default:
 		assert(0);
@@ -945,8 +942,6 @@ handled:
 			lws_latency_note(pt, _role_out_start, 2000, "pollout:%dms", ms);
 	}
 #endif
-	pt->inside_lws_service = 0;
-
 	return 0;
 }
 
@@ -976,7 +971,9 @@ lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	lws_latency_cb_start(pt);
 #endif
 
+	pt->inside_lws_service = 1;
 	ret = _lws_service_fd_tsi(context, pollfd, tsi);
+	pt->inside_lws_service = 0;
 
 #if defined(LWS_WITH_LATENCY)
 	lws_latency_cb_end(pt, pn);

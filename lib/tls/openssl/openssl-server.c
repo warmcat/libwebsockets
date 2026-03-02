@@ -217,7 +217,7 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 		if (m != 1) {
 			const char *s;
 			error = ERR_peek_error();
-			s = ERR_error_string(ERR_get_error(), (char *)vhost->context->pt[0].serv_buf);
+			s = ERR_error_string(LWS_TLS_ERR_CAST(ERR_get_error()), (char *)vhost->context->pt[0].serv_buf);
 
 			lwsl_err("problem getting cert '%s' %lu: %s\n",
 				 cert, error, s);
@@ -234,7 +234,7 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 							SSL_FILETYPE_PEM) != 1) {
 				const char *s;
 				error = ERR_peek_error();
-				s = ERR_error_string(ERR_get_error(), (char *)vhost->context->pt[0].serv_buf);
+				s = ERR_error_string(LWS_TLS_ERR_CAST(ERR_get_error()), (char *)vhost->context->pt[0].serv_buf);
 				lwsl_err("ssl problem getting key '%s' %lu: %s\n",
 					 private_key, error, s);
 				return 1;
@@ -254,7 +254,7 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 	}
 
 #if !defined(USE_WOLFSSL)
-	ret = SSL_CTX_use_certificate_ASN1(vhost->tls.ssl_ctx, SSL_SIZE_CAST(flen), p);
+	ret = SSL_CTX_use_certificate_ASN1(vhost->tls.ssl_ctx, SSL_SIZE_T_CAST(flen), p);
 #else
 	ret = wolfSSL_CTX_use_certificate_buffer(vhost->tls.ssl_ctx,
 						 (uint8_t *)p, (int)flen,
@@ -364,7 +364,7 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 	if (m != 1) {
 		error = ERR_get_error();
 		lwsl_err("problem getting cert '%s' %lu: %s\n",
-			 cert, error, ERR_error_string(error,
+			 cert, error, ERR_error_string(LWS_TLS_ERR_CAST(error),
 			       (char *)vhost->context->pt[0].serv_buf));
 
 		return 1;
@@ -380,7 +380,7 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 			error = ERR_get_error();
 			lwsl_err("ssl problem getting key '%s' %lu: %s\n",
 				 private_key, error,
-				 ERR_error_string(error,
+				 ERR_error_string(LWS_TLS_ERR_CAST(error),
 				      (char *)vhost->context->pt[0].serv_buf));
 			return 1;
 		}
@@ -489,7 +489,7 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 	if (!method) {
 		const char *s;
 		error = ERR_peek_error();
-		s = ERR_error_string(ERR_get_error(), (char *)vhost->context->pt[0].serv_buf);
+		s = ERR_error_string(LWS_TLS_ERR_CAST(ERR_get_error()), (char *)vhost->context->pt[0].serv_buf);
 
 		lwsl_err("problem creating ssl method %lu: %s\n",
 				error, s);
@@ -500,7 +500,7 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 		const char *s;
 
 		error = ERR_peek_error();
-		s = ERR_error_string(ERR_get_error(), (char *)vhost->context->pt[0].serv_buf);
+		s = ERR_error_string(LWS_TLS_ERR_CAST(ERR_get_error()), (char *)vhost->context->pt[0].serv_buf);
 		lwsl_err("problem creating ssl context %lu: %s\n",
 				error, s);
 		return 1;

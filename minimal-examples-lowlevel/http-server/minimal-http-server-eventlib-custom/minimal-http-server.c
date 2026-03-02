@@ -257,10 +257,10 @@ static const struct lws_event_loop_ops event_loop_ops_custom = {
 
 static const lws_plugin_evlib_t evlib_custom = {
 	.hdr = {
-		"custom event loop",
-		"lws_evlib_plugin",
-		LWS_BUILD_HASH,
-		LWS_PLUGIN_API_MAGIC
+		.name = "custom event loop",
+		._class = "lws_evlib_plugin",
+		.lws_build_hash = LWS_BUILD_HASH,
+		.api_magic = LWS_PLUGIN_API_MAGIC
 	},
 
 	.ops	= &event_loop_ops_custom
