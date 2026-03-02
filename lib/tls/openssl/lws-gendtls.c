@@ -222,7 +222,7 @@ lws_gendtls_get_rx(struct lws_gendtls_ctx *ctx, uint8_t *out, size_t max_len)
 		int err = SSL_get_error(ssl, n);
 		if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE)
 			return 0; /* No data available yet */
-		lwsl_notice("%s: SSL_read error %d (%s)\n", __func__, err, ERR_error_string(ERR_get_error(), NULL));
+		lwsl_notice("%s: SSL_read error %d (%s)\n", __func__, err, ERR_error_string(LWS_TLS_ERR_CAST(ERR_get_error()), NULL));
 		return -1;
 	}
 

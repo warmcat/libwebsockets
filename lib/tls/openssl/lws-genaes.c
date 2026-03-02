@@ -323,7 +323,7 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx,
 
 	if (!ctx->init) {
 
-		EVP_CIPHER_CTX_set_key_length(ctx->ctx, SSL_SIZE_CAST(ctx->k->len));
+		EVP_CIPHER_CTX_set_key_length(ctx->ctx, SSL_UINT_CAST(ctx->k->len));
 
 		if (ctx->mode == LWS_GAESM_GCM) {
 			n = EVP_CIPHER_CTX_ctrl(ctx->ctx, EVP_CTRL_GCM_SET_IVLEN,

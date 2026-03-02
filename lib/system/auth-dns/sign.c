@@ -23,7 +23,9 @@
  */
 
 #include "private-lib-system-auth-dns.h"
+#ifndef _WIN32
 #include <arpa/inet.h>
+#endif
 
 #if defined(LWS_WITH_AUTHORITATIVE_DNS)
 

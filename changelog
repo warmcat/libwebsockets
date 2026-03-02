@@ -1,9 +1,49 @@
 Changelog
 ---------
 
+Development
+===========
+
+ - Async DNS: support DNSSEC
+ - Async DNS: support tcp fallback
+ - Support authoritative DNS server, like nsd, using own-signed zone files
+ - Support authoritative DNS signing (zone file -> DNSSEC ready signed zone
+ file)
+ - LWS_WITH_ASYNC_QUEUE: Makes slow tls negotiation and read / write happen
+ via a queue + worker threads, instead of on the main event loop.  This
+ reduces the amount of blocking events delaying the event loop
+ - LWS_WITH_LATENCY: support detailed event loop blocking measurements and a
+ plugin to monitor event loop performace dynamically; lists worst blockers by
+ protocol and actual delays
+ - Support a headless camera participant to WebRTC conference
+ - Support WebRTC conferencing serving / mixing over h.264 up to 1080p
+ (and if supported in hw, AV1)
+ - TLS: Support DTLS accross all the libraries
+ - LWS_WITH_MNEMONIC support for mnemonic key backup
+ - CRC32 is now provided
+ - Generic HMAC now supports SHA-1
+ - vhost: protocols from plugins are instantiated first, and protocols now
+ have a priority field to control who gets instantiated before who
+ additionally.  This simplifies basing on plugin protocols.
+ - lws_mutex is now public, platform-independent defines
+ - Client: improve connect retries by iterating through DNS results
+ - Contributors: AI isn't necessarily a problem, but we want to know which AI
+ - ipv6: now built by default
+ - TLS: LWS_WITH_GNUTLS: Support building against GnuTLS for tls + gencrypto
+ - LWS_WITH_DHT: generic Kademlia DHT with pluggable additional verbs and lws
+ UDP integratin
+ - lws_captcha_ratelimit plugin can force generic captcha by introducing
+ multiple mount order on same mounpoint, supports whitelisting netblocks
+ - Context creation: Sumarize OpenSSL library version available if in use
+ - JWS: support LWS_JOSE_ENCTYPE_NONE
+ - TLS: LWS_WITH_SCHANNEL: Support building against Schannel, the windows
+ native tls library for tls and gencrypto
+ - SS: Support urlargs on server side
+ - lhp: various improvements (still not very usable)
+
 v4.5.0
 ======
-
+ 
  - fixes from coverity and Nozomi Networks
  - fix for mountpoint headers being sticky for all following mounts too
  - b64 apis: fixes and new api tests

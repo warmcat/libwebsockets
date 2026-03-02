@@ -24,6 +24,15 @@
 
 #include <private-lib-core.h>
 
+static void
+lws_accept_pause_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws *wsi = lws_container_of(sul, struct lws, sul_validity);
+
+	if (lws_change_pollfd(wsi, 0, LWS_POLLIN))
+		lwsl_wsi_info(wsi, "fail");
+}
+
 static lws_handling_result_t
 rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 			  struct lws_pollfd *pollfd)
@@ -101,11 +110,33 @@ rops_handle_POLLIN_listen(struct lws_context_per_thread *pt, struct lws *wsi,
 		}
 #endif
 		if (filt.accept_fd == LWS_SOCK_INVALID) {
-			if (LWS_ERRNO == LWS_EAGAIN ||
-			    LWS_ERRNO == LWS_EWOULDBLOCK) {
+			int m = LWS_ERRNO;
+
+			if (m == LWS_EAGAIN ||
+			    m == LWS_EWOULDBLOCK) {
 				break;
 			}
-			lwsl_err("accept: errno %d\n", LWS_ERRNO);
+			lwsl_err("accept: errno %d\n", m);
+
+			if (
+#if defined(WSAEMFILE)
+			    m == WSAEMFILE ||
+#endif
+#if defined(EMFILE)
+			    m == EMFILE ||
+#endif
+#if defined(ENFILE)
+			    m == ENFILE ||
+#endif
+			    0) {
+				if (lws_change_pollfd(wsi, LWS_POLLIN, 0))
+					lwsl_wsi_info(wsi, "failed disable POLLIN");
+
+				lws_sul_schedule(context, 0, &wsi->sul_validity,
+						 lws_accept_pause_cb,
+						 100 * LWS_US_PER_MS);
+				break;
+			}
 
 			return LWS_HPI_RET_HANDLED;
 		}

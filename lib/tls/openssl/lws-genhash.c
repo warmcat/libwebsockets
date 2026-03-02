@@ -25,6 +25,7 @@
  *  same whether you are using openssl or mbedtls hash functions underneath.
  */
 #include <private-lib-core.h>
+#include "private-lib-tls-openssl.h"
 #include <openssl/obj_mac.h>
 #include <openssl/opensslv.h>
 /*
@@ -210,14 +211,9 @@ lws_genhmac_init(struct lws_genhmac_ctx *ctx, enum lws_genhmac_types type,
 
 #if defined(LWS_HAVE_HMAC_CTX_new)
         if (HMAC_Init_ex(ctx->ctx, key, 
-#if defined(LWS_WITH_BORINGSSL)
-				(size_t)
+				SSL_SIZE_T_CAST(key_len), ctx->evp_type, NULL) != 1)
 #else
-				(int)
-#endif
-				key_len, ctx->evp_type, NULL) != 1)
-#else
-        if (HMAC_Init_ex(&ctx->ctx, key, (int)key_len, ctx->evp_type, NULL) != 1)
+        if (HMAC_Init_ex(&ctx->ctx, key, SSL_SIZE_T_CAST(key_len), ctx->evp_type, NULL) != 1)
 #endif
         	goto bail;
 
@@ -238,13 +234,7 @@ lws_genhmac_update(struct lws_genhmac_ctx *ctx, const void *in, size_t len)
 #if defined(LIBRESSL_VERSION_NUMBER)
 	if (HMAC_Update(ctx->ctx, in, len) != 1)
 #else
-	if (HMAC_Update(ctx->ctx, in,
-	#if defined(LWS_WITH_BORINGSSL)
-				(size_t)
-#else
-				(int)
-#endif
-				len) != 1)
+	if (HMAC_Update(ctx->ctx, in, SSL_SIZE_T_CAST(len)) != 1)
 #endif
 #else /* HMAC_CTX_new */
 	if (HMAC_Update(&ctx->ctx, in, len) != 1)
