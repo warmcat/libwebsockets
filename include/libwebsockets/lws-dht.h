@@ -63,6 +63,8 @@ enum {
 	LWS_DHT_HASH_TYPE_BLAKE3	= 0x1e, /* 32 bytes */
 };
 
+#define LWS_DHT_SHA1_HASH_LEN 20
+
 /**
  * lws_dht_hash_create() - Create a DHT hash from data
  *

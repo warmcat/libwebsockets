@@ -29,6 +29,7 @@ int interrupted;
 int use_stdin;
 char port_buf[16];
 const char *storage_path = "./dht-store";
+static struct lws_context *cx;
 
 static lws_state_notify_link_t *const app_notifier_list[] = {&nl, NULL};
 extern const struct lws_protocols lws_dht_object_store_protocols[];
@@ -44,6 +45,8 @@ dht_completion_cb(void *closure, int result)
 
 	if (!result)
 		retcode = 0;
+
+	lws_cancel_service(cx);
 }
 
 struct lws_protocol_vhost_options pvos[] = {
@@ -190,7 +193,6 @@ void sigint_handler(int sig)
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	struct lws_context *cx;
 	const char *p;
 	int dht_port = 5000;
 	int n = 0;
