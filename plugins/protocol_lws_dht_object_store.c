@@ -88,6 +88,7 @@ struct vhd_dht_store {
 	char				pending_nonce[16];
 	uint64_t			pending_nonce_time;
 	int				test_handshake;
+	int				cli_receiver;
 };
 
 struct dht_fragment {
@@ -219,8 +220,12 @@ verb_put_handler(struct lws_dht_ctx *ctx, const struct lws_dht_msg *msg,
 		close(frag->fd);
 		frag->fd = -1;
 
-		if (vhd->cb_completion)
+		if ((vhd->cli_put_file || vhd->cli_get_hash || vhd->cli_bulk || vhd->gen_manifest || vhd->cli_receiver) &&
+		    vhd->cb_completion)
 			vhd->cb_completion(vhd->cb_closure, 0);
+
+		lws_dll2_remove(&frag->list);
+		free(frag);
 	}
 
 	/* Send ACK */
@@ -241,6 +246,7 @@ verb_get_handler(struct lws_dht_ctx *ctx, const struct lws_dht_msg *msg,
 	char path[256], *buf;
 	int fd, n;
 	size_t blen = 1024 + 1024;
+	int hlen;
 
 	lwsl_user("%s: GET %s offset %llu len %llu\n", __func__, msg->hash, msg->offset, msg->len);
 
@@ -261,8 +267,10 @@ verb_get_handler(struct lws_dht_ctx *ctx, const struct lws_dht_msg *msg,
 	n = (int)read(fd, buf + 1024, 1024);
 	if (n < 0) goto fail;
 
-	lws_dht_msg_gen(buf, 1024, "RSP", msg->hash, msg->offset, (unsigned long long)n);
-	lws_dht_send_data(ctx, from, buf, 1024 + (size_t)n);
+	hlen = lws_dht_msg_gen(buf, 1024, "RSP", msg->hash, msg->offset, (unsigned long long)n);
+	if (hlen < 0) goto fail;
+	memmove((uint8_t *)buf + hlen, (uint8_t *)buf + 1024, (size_t)n);
+	lws_dht_send_data(ctx, from, buf, (size_t)hlen + (size_t)n);
 
 	free(buf);
 	close(fd);
@@ -289,6 +297,15 @@ verb_ack_handler(struct lws_dht_ctx *ctx, const struct lws_dht_msg *msg,
 		} else {
 			sul_put_cb(vhd);
 		}
+	} else if (vhd->cli_bulk || vhd->gen_manifest) {
+		lwsl_user("BULK mock PUT complete\n");
+		if (vhd->gen_manifest) {
+			/* Write the hash to stdout so the receiver test can read it */
+			printf("%s\n", msg->hash);
+			fflush(stdout);
+		}
+		if (vhd->cb_completion)
+			vhd->cb_completion(vhd->cb_closure, 0);
 	}
 	return 0;
 }
@@ -458,6 +475,77 @@ sul_get_cb(void *v)
 	lws_dht_send_data(vhd->dht, (struct sockaddr *)&sin, buf, strlen(buf));
 }
 
+static void
+sul_bulk_cb(void *v)
+{
+	struct vhd_dht_store *vhd = (struct vhd_dht_store *)v;
+	char hash_hex[LWS_GENHASH_LARGEST * 2 + 1], header[256], packet[1500];
+	uint8_t hash[LWS_GENHASH_LARGEST];
+	struct lws_genhash_ctx ctx;
+	struct sockaddr_in sin;
+	int hlen;
+	char buf[1024];
+
+	memset(&sin, 0, sizeof(sin));
+	sin.sin_family = AF_INET;
+	sin.sin_port = htons((uint16_t)vhd->target_port);
+	inet_pton(AF_INET, vhd->target_ip, &sin.sin_addr);
+
+	lwsl_user("Sending mock bulk data to %s:%d\n", vhd->target_ip, vhd->target_port);
+
+	memset(buf, 0x42, sizeof(buf));
+
+	if (lws_genhash_init(&ctx, LWS_DHT_STORE_GENHASH) ||
+	    lws_genhash_update(&ctx, buf, sizeof(buf)) ||
+	    lws_genhash_destroy(&ctx, hash)) {
+		lwsl_err("Hash calculation failed\n");
+		if (vhd->cb_completion)
+			vhd->cb_completion(vhd->cb_closure, 1);
+		return;
+	}
+	lws_hex_from_byte_array(hash, (size_t)lws_genhash_size(LWS_DHT_STORE_GENHASH), hash_hex, sizeof(hash_hex));
+
+	if (vhd->gen_manifest) {
+		printf("%s\n", hash_hex);
+		fflush(stdout);
+	}
+
+	hlen = lws_dht_msg_gen((char *)header, sizeof(header), "PUT",
+			hash_hex, 0, sizeof(buf));
+	if (hlen < 0) {
+		if (vhd->cb_completion)
+			vhd->cb_completion(vhd->cb_closure, 1);
+		return;
+	}
+	memcpy(packet, header, (size_t)hlen);
+	memcpy(packet + hlen, buf, sizeof(buf));
+
+	lws_dht_send_data(vhd->dht, (struct sockaddr *)&sin, packet, (size_t)hlen + sizeof(buf));
+}
+
+static void
+sul_manifest_rcv_cb(void *v)
+{
+	struct vhd_dht_store *vhd = (struct vhd_dht_store *)v;
+	char buf[128], *p;
+
+	if (!fgets(buf, sizeof(buf), stdin)) {
+		lwsl_err("Failed to read manifest from stdin\n");
+		if (vhd->cb_completion)
+			vhd->cb_completion(vhd->cb_closure, 1);
+		return;
+	}
+
+	p = strchr(buf, '\n');
+	if (p) *p = 0;
+
+	lws_strncpy(vhd->manifest_hashes[0], buf, sizeof(vhd->manifest_hashes[0]));
+	vhd->cli_get_hash = vhd->manifest_hashes[0];
+	lwsl_user("Receiver parsed hash: %s\n", vhd->cli_get_hash);
+
+	sul_get_cb(vhd);
+}
+
 /* --- Protocol Handler --- */
 
 static int
@@ -529,6 +617,7 @@ callback_dht_object_store(struct lws* wsi, enum lws_callback_reasons reason,
 		if (!lws_pvo_get_str(in, "dht-policy-allow", &p) && p && p[0]) vhd->policy_allow = p;
 		if (!lws_pvo_get_str(in, "dht-policy-deny", &p) && p && p[0]) vhd->policy_deny = p;
 		if (!lws_pvo_get_str(in, "dht-test-handshake", &p) && p && p[0]) vhd->test_handshake = 1;
+		if (!lws_pvo_get_str(in, "receiver", &p) && p && p[0]) vhd->cli_receiver = 1;
 
 		if ((pvo = lws_pvo_search(in, "completion-cb"))) vhd->cb_completion = (lws_dht_store_completion_cb_t)(void *)pvo->value;
 		if ((pvo = lws_pvo_search(in, "completion-cb-arg"))) vhd->cb_closure = (void *)pvo->value;
@@ -568,9 +657,12 @@ callback_dht_object_store(struct lws* wsi, enum lws_callback_reasons reason,
 		} else if (vhd->cli_put_file) {
 			lwsl_user("%s: Starting PUT task\n", __func__);
 			sul_put_cb(vhd);
-		} else if (vhd->cli_get_hash) {
-			lwsl_user("%s: Starting GET task\n", __func__);
-			sul_get_cb(vhd);
+		} else if (vhd->cli_bulk || vhd->gen_manifest) {
+			lwsl_user("%s: Starting BULK task\n", __func__);
+			sul_bulk_cb(vhd);
+		} else if (vhd->cli_receiver) {
+			lwsl_user("%s: Starting RECEIVER task\n", __func__);
+			sul_manifest_rcv_cb(vhd);
 		}
 		break;
 	}
@@ -590,10 +682,12 @@ callback_dht_object_store(struct lws* wsi, enum lws_callback_reasons reason,
 				lws_dll2_remove(&frag->list);
 				free(frag);
 			} lws_end_foreach_dll_safe(d, d1);
-			if (vhd->dht)
-				lws_dht_destroy(&vhd->dht);
-			if (vhd->bulk_fd >= 0)
+			/* vhd->dht is already torn down by lws_vhost_destroy2() */
+			vhd->dht = NULL;
+			if (vhd->bulk_fd >= 0) {
 				close(vhd->bulk_fd);
+				vhd->bulk_fd = -1;
+			}
 		}
 		break;
 

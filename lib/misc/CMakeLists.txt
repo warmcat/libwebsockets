@@ -76,7 +76,13 @@ if (LWS_WITH_JPEG)
 endif()
 if (LWS_WITH_DHT)
 	list(APPEND SOURCES
-		misc/dht.c)
+		misc/dht.c
+		misc/dht-id.c
+		misc/dht-bucket.c
+		misc/dht-search.c
+		misc/dht-storage.c
+		misc/dht-bencode.c
+		misc/dht-rpc.c)
 endif()
 
 
