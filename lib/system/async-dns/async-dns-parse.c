@@ -230,7 +230,7 @@ start:
 
 		/* while we have more labels */
 
-		n = lws_adns_parse_label(pkt, len, p, len - DHO_SIZEOF, &sp,
+		n = lws_adns_parse_label(pkt, len, p, lws_ptr_diff(e, p), &sp,
 					 sizeof(stack[0].name) -
 					 lws_ptr_diff_size_t(sp, stack[0].name));
 		if (n < 0)
