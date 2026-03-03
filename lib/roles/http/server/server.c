@@ -344,14 +344,12 @@ done_list:
 		wsi->af = (uint8_t)a->af;
 
 #ifdef LWS_WITH_UNIX_SOCK
-		if (!LWS_UNIX_SOCK_ENABLED(a->vhost))
-#endif
-		{
+		if (LWS_UNIX_SOCK_ENABLED(a->vhost))
 			wsi->unix_skt = 1;
-			a->vhost->listen_port = is;
+#endif
 
-			lwsl_debug("%s: lws_socket_bind says %d\n", __func__, is);
-		}
+		a->vhost->listen_port = is;
+		lwsl_debug("%s: lws_socket_bind says %d\n", __func__, is);
 
 		wsi->desc.sockfd = sockfd;
 		wsi->a.protocol = a->vhost->protocols;
