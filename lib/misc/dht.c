@@ -617,7 +617,7 @@ bucket_middle(struct bucket *b, lws_dht_hash_t *id_return)
 	int bit1 = lowbit(b->first);
 	int bit2 = b->next ? lowbit(b->next->first) : -1;
 	int bit = MAX(bit1, bit2) + 1;
-	if (bit >= id_return->len * 8)
+	if (bit < 0 || bit >= id_return->len * 8)
 		return -1;
 
 	memcpy(id_return->id, b->first->id, b->first->len);
@@ -635,7 +635,7 @@ bucket_random(struct lws_dht_ctx *ctx, struct bucket *b, lws_dht_hash_t *id_retu
 	int bit = MAX(bit1, bit2) + 1;
 	int i;
 
-	if (bit >= id_return->len * 8) {
+	if (bit < 0 || bit >= id_return->len * 8) {
 		memcpy(id_return->id, b->first->id, b->first->len);
 		return 1;
 	}
@@ -2156,18 +2156,20 @@ send_find_node(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
 		if (ctx->myid->len >= 20)
 			COPY(buf, i, ctx->myid->id, 20, sizeof(buf));
 		else {
+			CHECK(i, 20, sizeof(buf));
 			memset(buf + i, 0, 20);
 			memcpy(buf + i, ctx->myid->id, ctx->myid->len);
 			i += 20;
 		}
 	} else {
+		CHECK(i, 2 + ctx->myid->len, sizeof(buf));
 		buf[i++] = (char)ctx->myid->type;
 		buf[i++] = (char)ctx->myid->len;
-		CHECK(i, ctx->myid->len, sizeof(buf));
 		memcpy(buf + i, ctx->myid->id, ctx->myid->len);
 		i += ctx->myid->len;
 	}
 
+	CHECK(i, 1, sizeof(buf));
 	rc = lws_snprintf(buf + i, sizeof(buf) - i, "6:target%d:", (int)(ctx->legacy ? 20 : (2 + target->len)));
 	INC(i, rc, sizeof(buf));
 
@@ -2315,7 +2317,7 @@ neighbourhood_maintenance(struct lws_dht_ctx *ctx, int af)
 	q = b;
 	if (q->next && (q->count == 0 || ((lws_get_random(ctx->vhost->context, &id->id[0], 1), id->id[0]) & 7) == 0))
 		q = b->next;
-	if (q->count == 0 || ((lws_get_random(ctx->vhost->context, &id->id[0], 1), id->id[0]) & 7) == 0) {
+	if (!q || q->count == 0 || ((lws_get_random(ctx->vhost->context, &id->id[0], 1), id->id[0]) & 7) == 0) {
 		struct bucket *r;
 		r = previous_bucket(ctx, b);
 		if (r && r->count > 0)
@@ -2510,13 +2512,14 @@ dht_tx_chunk(struct lws_transport_sequencer *ts, uint64_t offset,
 			i += 20;
 		}
 	} else {
+		CHECK(i, 2 + dts->ctx->myid->len, sizeof(pkt));
 		pkt[i++] = (char)dts->ctx->myid->type;
 		pkt[i++] = (char)dts->ctx->myid->len;
-		CHECK(i, dts->ctx->myid->len, sizeof(pkt));
 		memcpy(pkt + i, dts->ctx->myid->id, dts->ctx->myid->len);
 		i += dts->ctx->myid->len;
 	}
 
+	CHECK(i, 1, sizeof(pkt));
 	rc = lws_snprintf(pkt + i, sizeof(pkt) - i, "3:leni%llue6:offseti%llue",
 			 (unsigned long long)len, (unsigned long long)offset);
 	INC(i, rc, sizeof(pkt));
@@ -2779,14 +2782,15 @@ send_nodes_peers(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t sale
 		if (ctx->myid->len >= 20)
 			COPY(buf, i, ctx->myid->id, 20, sizeof(buf));
 		else {
+			CHECK(i, 20, sizeof(buf));
 			memset(buf + i, 0, 20);
 			memcpy(buf + i, ctx->myid->id, ctx->myid->len);
 			i += 20;
 		}
 	} else {
+		CHECK(i, 2 + ctx->myid->len, sizeof(buf));
 		buf[i++] = (char)ctx->myid->type;
 		buf[i++] = (char)ctx->myid->len;
-		CHECK(i, ctx->myid->len, sizeof(buf));
 		memcpy(buf + i, ctx->myid->id, ctx->myid->len);
 		i += ctx->myid->len;
 	}
@@ -2799,6 +2803,7 @@ send_nodes_peers(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t sale
 			else nodes_len += (size_t)(2 + nodes[n_idx]->id->len + 6);
 		}
 
+		CHECK(i, 1, sizeof(buf));
 		rc = lws_snprintf(buf + i, sizeof(buf) - i, "5:nodes%d:", (int)nodes_len);
 		INC(i, rc, sizeof(buf));
 
@@ -2835,6 +2840,7 @@ send_nodes_peers(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t sale
 				nodes6_len += (size_t)(2 + nodes6[n_idx]->id->len + 18);
 		}
 
+		CHECK(i, 1, sizeof(buf));
 		rc = lws_snprintf(buf + i, sizeof(buf) - i, "6:nodes6%d:", (int)nodes6_len);
 		INC(i, rc, sizeof(buf));
 
