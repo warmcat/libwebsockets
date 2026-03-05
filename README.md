@@ -2,7 +2,7 @@
 
 # Libwebsockets
 
-Current tag on v4.3-stable: v4.3.8
+Current tag on v4.3-stable: v4.3.9
 
 Libwebsockets is a simple-to-use, MIT-license, pure C library providing client and server
 for **http/1**, **http/2**, **websockets**, **MQTT** and other protocols in a security-minded,
