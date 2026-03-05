@@ -297,7 +297,7 @@ callback_jwt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				if (pss->spa)
 					lws_spa_finalize(pss->spa);
 
-				if (pss->spa_failed) {
+				if (!pss->spa || pss->spa_failed) {
 					lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, NULL);
 					goto spa_cleanup;
 				}
