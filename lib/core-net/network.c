@@ -105,7 +105,8 @@ lws_get_addresses(struct lws_vhost *vh, void *ads, char *name,
 	struct sockaddr_in addr4;
 
 	rip[0] = '\0';
-	name[0] = '\0';
+	if (name)
+		name[0] = '\0';
 	addr4.sin_family = AF_UNSPEC;
 
 #ifdef LWS_WITH_IPV6
