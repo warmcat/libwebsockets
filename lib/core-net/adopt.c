@@ -799,10 +799,9 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		if (wsi->do_bind &&
 		    bind(sock.sockfd, sa46_sockaddr(&s->dest),
 #if defined(_WIN32)
-			 (int)sa46_socklen(&s->dest)
-#else
-			 sizeof(struct sockaddr)
+			 (int)
 #endif
+			 sa46_socklen(&s->dest)
 		) == -1) {
 			lwsl_err("%s: bind failed\n", __func__);
 			goto resume;
