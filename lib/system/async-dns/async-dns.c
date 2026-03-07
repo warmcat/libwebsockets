@@ -1402,3 +1402,30 @@ lws_async_dns_dnssec_set_mode(struct lws_context *context,
 {
 	context->async_dns.dnssec_mode = (uint8_t)mode;
 }
+
+const uint8_t *
+lws_async_dns_get_rr_cache(struct lws_context *context, const char *name,
+			   adns_query_type_t qtype, uint16_t *paylen)
+{
+	lws_adns_cache_t *c;
+	lws_adns_rr_t *rr;
+
+	if (!context || !name)
+		return NULL;
+
+	c = lws_adns_get_cache(&context->async_dns, name);
+	if (!c || !c->rr_results)
+		return NULL;
+
+	rr = c->rr_results;
+	while (rr) {
+		if (rr->type == qtype) {
+			if (paylen)
+				*paylen = rr->paylen;
+			return (const uint8_t *)&rr[1];
+		}
+		rr = rr->next;
+	}
+
+	return NULL;
+}

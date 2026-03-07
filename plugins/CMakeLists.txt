@@ -164,6 +164,14 @@ if (LWS_ROLE_WS)
 			target_compile_definitions(protocol_lws_status PRIVATE LWS_BUILDING_SHARED)
 		endif()
 
+		if (LWS_WITH_DHT)
+			create_plugin(protocol_lws_dht_stats ""
+				      "dht_stats/protocol_lws_dht_stats.c" "" "")
+			if (NOT LWS_WITH_PLUGINS_BUILTIN)
+				target_compile_definitions(protocol_lws_dht_stats PRIVATE LWS_BUILDING_SHARED)
+			endif()
+		endif()
+
 		if (NOT WIN32)
 			create_plugin(protocol_lws_raw_test ""
 			      "protocol_lws_raw_test.c" "" "")
@@ -277,6 +285,12 @@ if (LWS_WITH_DHT)
 	if (NOT LWS_WITH_PLUGINS_BUILTIN)
 		target_compile_definitions(protocol_lws_dht_object_store PRIVATE LWS_BUILDING_SHARED)
 	endif()
+
+	create_plugin(protocol_lws_dht_dnssec ""
+		      "protocol_lws_dht_dnssec/protocol_lws_dht_dnssec.c" "" "")
+	if (NOT LWS_WITH_PLUGINS_BUILTIN)
+		target_compile_definitions(protocol_lws_dht_dnssec PRIVATE LWS_BUILDING_SHARED)
+	endif()
 endif()
 
 # create_plugin(protocol_lws_webrtc ""
@@ -339,6 +353,11 @@ if (LWS_WITH_PLUGINS AND NOT LWS_WITH_PLUGINS_BUILTIN)
 		if (LWS_WITH_LATENCY)
 			install(DIRECTORY latency/assets/
 				DESTINATION share/libwebsockets-test-server/lws-latency
+				COMPONENT plugins)
+		endif()
+		if (LWS_WITH_DHT)
+			install(DIRECTORY dht_stats/assets/
+				DESTINATION share/libwebsockets-test-server/lws-dht-stats
 				COMPONENT plugins)
 		endif()
 	endif()

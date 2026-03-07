@@ -8,7 +8,7 @@
  *
  * This demonstrates a minimal DHT node that can store and retrieve data/files
  * using the lws-dht UDP data transport, by instantiating the
- * lws-dht-object-store plugin.
+ * lws-dht-dnssec plugin.
  */
 
 #include <libwebsockets.h>
@@ -16,6 +16,7 @@
 #include <signal.h>
 #include <string.h>
 #include <stdlib.h>
+#include <fcntl.h>
 
 #include <sys/stat.h>
 #if defined(WIN32)
@@ -32,8 +33,7 @@ const char *storage_path = "./dht-store";
 static struct lws_context *cx;
 
 static lws_state_notify_link_t *const app_notifier_list[] = {&nl, NULL};
-extern const struct lws_protocols lws_dht_object_store_protocols[];
-extern const struct lws_protocols lws_dht_stats_protocols[];
+extern const struct lws_protocols lws_dht_dnssec_protocols[];
 
 static void
 dht_completion_cb(void *closure, int result)
@@ -54,7 +54,7 @@ struct lws_protocol_vhost_options pvos[] = {
 	{
 		.options	= &pvos[1],
 		.next		= NULL,
-		.name		= "lws-dht-object-store",
+		.name		= "lws-dht-dnssec",
 		.value		= "ok"
 	},
 	{
@@ -149,21 +149,118 @@ struct lws_protocol_vhost_options pvos[] = {
 	},
 	{
 		.options	= NULL,
-		.next		= NULL,
+		.next		= &pvos[17],
 		.name		= "dht-test-handshake",
+		.value		= ""
+	},
+	{
+		.options	= NULL,
+		.next		= NULL,
+		.name		= "domain",
 		.value		= ""
 	},
 };
 
-static const struct lws_http_mount mount_stats = {
-	.mountpoint		= "/",
-	.origin			= "../../../plugins/dht_stats/assets",
-	.def			= "index.html",
-	.origin_protocol	= LWSMPRO_FILE,
-	.mountpoint_len		= 1,
-};
+static int
+create_signed_jws(struct lws_context *cx, const char *in_path, const char *jwk_path, const char *out_path)
+{
+	char temp[4096 * 4], *in_buf;
+	int temp_len = sizeof(temp);
+	struct lws_jws jws;
+	struct lws_jwk jwk;
+	struct lws_jose jose;
+	int fd, n, r = 1;
+	struct stat st;
 
-static struct lws_protocols app_protocols[4];
+	lws_jose_init(&jose);
+	lws_jws_init(&jws, &jwk, cx);
+
+	if (lws_jwk_load(&jwk, jwk_path, NULL, NULL)) {
+		lwsl_err("%s: failed to load %s\n", __func__, jwk_path);
+		goto bail;
+	}
+
+	if (lws_gencrypto_jws_alg_to_definition("ES256", &jose.alg)) {
+		lwsl_err("%s: alg unknown\n", __func__);
+		goto bail;
+	}
+
+	fd = open(in_path, O_RDONLY);
+	if (fd < 0 || fstat(fd, &st) < 0) {
+		if (fd >= 0) close(fd);
+		lwsl_err("%s: failed to open %s\n", __func__, in_path);
+		goto bail;
+	}
+
+	in_buf = malloc((size_t)st.st_size + 1);
+	if (!in_buf) {
+		close(fd);
+		goto bail;
+	}
+	n = (int)read(fd, in_buf, (size_t)st.st_size);
+	close(fd);
+
+	if (n != st.st_size) {
+		free(in_buf);
+		goto bail;
+	}
+
+	if (lws_jws_alloc_element(&jws.map, LJWS_JOSE, lws_concat_temp(temp, temp_len),
+				  &temp_len, 20, 0)) goto bail2;
+
+	jws.map.len[LJWS_JOSE] = (uint32_t)lws_snprintf((char *)jws.map.buf[LJWS_JOSE],
+							(unsigned int)temp_len, "{\"alg\":\"ES256\"}");
+
+	jws.map.buf[LJWS_PYLD] = in_buf;
+	jws.map.len[LJWS_PYLD] = (unsigned int)n;
+
+	if (lws_jws_encode_b64_element(&jws.map_b64, LJWS_PYLD, lws_concat_temp(temp, temp_len),
+				       &temp_len, jws.map.buf[LJWS_PYLD], jws.map.len[LJWS_PYLD])) goto bail2;
+
+	if (lws_jws_encode_b64_element(&jws.map_b64, LJWS_JOSE, lws_concat_temp(temp, temp_len),
+				       &temp_len, jws.map.buf[LJWS_JOSE], jws.map.len[LJWS_JOSE])) goto bail2;
+
+	if (lws_jws_alloc_element(&jws.map_b64, LJWS_SIG, lws_concat_temp(temp, temp_len),
+				  &temp_len, (unsigned int)lws_base64_size(LWS_JWE_LIMIT_KEY_ELEMENT_BYTES), 0)) goto bail2;
+
+	n = lws_jws_sign_from_b64(&jose, &jws, (char *)jws.map_b64.buf[LJWS_SIG], jws.map_b64.len[LJWS_SIG]);
+	if (n < 0) {
+		lwsl_err("%s: sign failed\n", __func__);
+		goto bail2;
+	}
+	jws.map_b64.len[LJWS_SIG] = (uint32_t)n;
+
+	char *compact = malloc((size_t)st.st_size + 4096);
+	if (!compact) goto bail2;
+
+	n = lws_jws_write_flattened_json(&jws, compact, (size_t)st.st_size + 4096);
+	if (n < 0) {
+		free(compact);
+		goto bail2;
+	}
+
+	fd = open(out_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	if (fd < 0) {
+		free(compact);
+		goto bail2;
+	}
+	if (write(fd, compact, (size_t)n) != n) {
+		close(fd);
+		free(compact);
+		goto bail2;
+	}
+	close(fd);
+	free(compact);
+
+	r = 0;
+bail2:
+	free(in_buf);
+bail:
+	lws_jws_destroy(&jws);
+	lws_jwk_destroy(&jwk);
+	lws_jose_destroy(&jose);
+	return r;
+}
 
 static int
 app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
@@ -179,18 +276,6 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
                         break;
 
 		lwsl_user("%s: OPERATIONAL->creating vhost\n", __func__);
-
-		memset(&info, 0, sizeof(info));
-                info.vhost_name = "http";
-                info.port = 8080;
-                info.protocols = app_protocols;
-                info.mounts = &mount_stats;
-                info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-                vh = lws_create_vhost(cx, &info);
-                if (!vh) {
-			lwsl_err("http vhost creation failed\n");
-			return 0;
-		}
 
 		memset(&info, 0, sizeof(info));
                 info.vhost_name = "dht";
@@ -224,7 +309,7 @@ int main(int argc, const char **argv)
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 	signal(SIGINT, sigint_handler);
 
-	lwsl_user("LWS minimal raw DHT | DHT protocol plugin refactor\n");
+	lwsl_user("LWS minimal raw DHT DNSSEC client\n");
 
 	if ((p = lws_cmdline_option(argc, argv, "-s")))
 		storage_path = p;
@@ -276,16 +361,14 @@ int main(int argc, const char **argv)
 	if (lws_cmdline_option(argc, argv, "--test-handshake"))
 		pvos[16].value = "1";
 
+	if ((p = lws_cmdline_option(argc, argv, "--domain")))
+		pvos[17].value = p;
 
-	app_protocols[0].name = "http";
-	app_protocols[0].callback = lws_callback_http_dummy;
-	app_protocols[1] = lws_dht_stats_protocols[0];
-	app_protocols[2] = lws_dht_object_store_protocols[0];
 
 	info.port				= CONTEXT_PORT_NO_LISTEN;
 	info.options				= LWS_SERVER_OPTION_EXPLICIT_VHOSTS | LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.pvo				= pvos;
-	info.protocols				= app_protocols;
+	info.protocols				= lws_dht_dnssec_protocols;
 	info.fd_limit_per_thread		= 100;
 
         nl.name					= "app";
@@ -296,6 +379,18 @@ int main(int argc, const char **argv)
 	if (!cx) {
 		lwsl_err("lws init failed\n");
 		return 1;
+	}
+
+	if (pvos[7].value && pvos[7].value[0]) {
+		const char *jwk_path = pvos[13].value;
+		if (!jwk_path[0]) jwk_path = "dht.jwk";
+
+		lwsl_user("Loading %s, signing, and preparing upload...\n", pvos[7].value);
+		if (create_signed_jws(cx, pvos[7].value, jwk_path, "/tmp/signed-zone.jws.tmp")) {
+			lwsl_err("Failed to sign JWS\n");
+			return 1;
+		}
+		pvos[7].value = "/tmp/signed-zone.jws.tmp";
 	}
 
 	while (n >= 0 && !interrupted)

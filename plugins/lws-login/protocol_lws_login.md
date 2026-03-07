@@ -18,3 +18,30 @@ This plugin handles several PVO options to control SQLite3 access logic and the 
 | `jwt-expiry` | Expected validity duration for the session token in seconds. Defaults to `3600`. |
 | `cookie-name` | Custom name emitted for tracking the browser cookie containing the session token. Defaults to `"lws_login_jwt"`. |
 | `jwt-jwk` | **Required.** A JSON Web Key string used to establish signing criteria for the generated tokens. |
+
+You can produce a suitable JWK using the `lws-crypto-jwk` tool: `./bin/lws-crypto-jwk -t EC -v P-521`.  You'll need to escape the quotes in the key JWK if embedding it in JSON conf.
+
+## SQLite3 Database Setup
+
+The `lws-login` plugin expects a SQLite3 database containing a `users` table with `username` and `password` columns. The plugin will attempt to create this table automatically if it doesn't exist, but you must manually insert your users.
+
+To initialize the schema and insert an example user (e.g., username `admin`, password `password123`), use the `sqlite3` command-line tool on your configured `db-path` (for example, `/var/lib/lwsws/login.sqlite`):
+
+```bash
+# Open the SQLite3 shell for your database payload
+sqlite3 /var/lib/lwsws/login.sqlite
+```
+
+Then, run the following SQL commands:
+
+```sql
+CREATE TABLE IF NOT EXISTS users (
+    username VARCHAR(32) PRIMARY KEY,
+    password VARCHAR(64)
+);
+
+INSERT INTO users (username, password) VALUES ('admin', 'password123');
+.exit
+```
+
+After creating the file, ensure that the system user running `lwsws` (e.g., `apache` or `nobody`) has read and write permissions to both the `login.sqlite` file and its parent directory.

@@ -609,9 +609,12 @@ lws_webrtc_create_offer(struct pss_webrtc *pss)
 			vhd->external_ip[0] ? vhd->external_ip : "127.0.0.1", audio_m, video_m);
 
 	lwsl_notice("%s: Generated OFFER (%zu bytes)\n", __func__, n_sdp);
-	write(2, "\n--- START SDP OFFER ---\n", 25);
-	write(2, p, n_sdp);
-	write(2, "\n--- END SDP OFFER ---\n\n", 25);
+	if (write(2, "\n--- START SDP OFFER ---\n", 25) < 0 ||
+	    write(2, p, n_sdp) < 0 ||
+	    write(2, "\n--- END SDP OFFER ---\n\n", 25) < 0) {
+		lwsl_err("%s: Failed writing SDP offer to stderr\n", __func__);
+		return -1;
+	}
 
 	if (lws_buflist_append_segment(&pss->buflist, (const uint8_t *)p, n_sdp) < 0)
 		return -1;
@@ -1109,7 +1112,11 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 	}
 	*dst = '\0';
 
-	write(2, sdp_clean, strlen(sdp_clean));
+	if (write(2, sdp_clean, strlen(sdp_clean)) < 0) {
+		lwsl_err("%s: Failed writing SDP offer to stderr\n", __func__);
+		free(sdp_clean);
+		return -1;
+	}
 
 	/* Reset PSS PTs */
 	if (!pss->media)
@@ -1518,9 +1525,13 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 			audio_first ? mid_audio : mid_video, audio_first ? mid_video : mid_audio,
 			audio_first ? audio_m : video_m, audio_first ? video_m : audio_m);
 
-	write(2, "\n--- START SDP ANSWER ---\n", 26);
-	write(2, p, n_sdp);
-	write(2, "\n--- END SDP ANSWER ---\n\n", 25);
+	if (write(2, "\n--- START SDP ANSWER ---\n", 26) < 0 ||
+	    write(2, p, n_sdp) < 0 ||
+	    write(2, "\n--- END SDP ANSWER ---\n\n", 25) < 0) {
+		lwsl_err("%s: Failed writing SDP answer to stderr\n", __func__);
+		free(json_out);
+		return -1;
+	}
 
 	if (lws_buflist_append_segment(&pss->buflist, (const uint8_t *)p, n_sdp) < 0) {
 		free(json_out);
@@ -1558,10 +1569,8 @@ lws_shared_webrtc_callback(struct lws *wsi, enum lws_callback_reasons reason,
 			if (!vhd->vhost) vhd->vhost = lws_get_vhost(wsi);
 			if (!vhd->udp_port) vhd->udp_port = 7682;
 
-			if (!pvo) {
-				lwsl_vhost_warn(vhd->vhost, "lws-webrtc: No PVOs provided");
-				return -1;
-			}
+			if (!pvo)
+				return 0;
 
 			while (pvo) {
 				lwsl_notice("%s: Received PVO '%s' = '%s'\n", __func__, pvo->name, pvo->value ? pvo->value : "(null)");
@@ -2181,6 +2190,11 @@ LWS_VISIBLE const struct lws_protocols webrtc_protocols[] = {
 };
 
 #if !defined (LWS_WITH_PLUGINS_BUILTIN)
+/*
+ * The exported lws_plugin_protocol_t struct MUST be named EXACTLY the same as
+ * your plugin's shared object suffix (after removing 'libprotocol_').
+ * lwsws uses this exact string directly in its dlsym() lookup on startup.
+ */
 LWS_VISIBLE const lws_plugin_protocol_t lws_webrtc = {
 	.hdr = {
 		.name = "lws webrtc",
