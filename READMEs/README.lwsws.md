@@ -18,6 +18,10 @@ Just enable -DLWS_WITH_LWSWS=1 at cmake-time.
 
 It enables libuv and plugin support automatically.
 
+## Special user for lwsws
+
+You can specify a user and group for lwsws to run as in the global section of the config file.  Here, I use user 48 ("apache") to run lwsws itself.  You can create such a user with `sudo useradd -u 48 -M -r apache`.
+
 ## Lwsws Configuration
 
 lwsws uses JSON config files, they're pure JSON except:
@@ -452,6 +456,32 @@ a particular vhost by requiring the http part can authenticate using Basic
 Auth before the ws upgrade, this is also possible.  In this case, the
 "basic-auth": and filepath to the credentials file is passed as a pvo in the
 "ws-protocols" section of the vhost definition.
+
+## Using mount interception
+
+The mounts in lws allow you to stack up other plugins that run "before" the main mountpoint.
+There are two "interceptor plugins" provided which can be useful for this,
+`lws_login` and `lws_captcha_ratelimit`
+
+To indicate you want to use an interceptor plugin for a mount, you add an
+"interceptor-path" entry to the original mount definition, pointing to the
+mountpoint of the interceptor plugin, like this
+
+```
+{
+        "mountpoint": "/",
+        "origin": "file:///var/www/mysite.com",
+        "interceptor-path": "/lws-login"
+},
+{
+        "mountpoint": "/lws-login",
+        "origin": "callback://lws-login"
+}
+```
+
+With this arrangement, the original mountpoint will only be visible once
+the intercepting protocol is satisfied, either by a correct login for the
+login one, or by the captcha / ratelimit one being satisfied.
 
 ## Requiring a Client Cert on a vhost
 

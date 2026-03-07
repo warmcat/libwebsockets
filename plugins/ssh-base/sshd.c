@@ -2612,6 +2612,11 @@ LWS_VISIBLE const struct lws_protocols lws_ssh_base_protocols[] = {
 	{ NULL, NULL, 0, 0, 0, NULL, 0 } /* terminator */
 };
 
+/*
+ * The exported lws_plugin_protocol_t struct MUST be named EXACTLY the same as
+ * your plugin's shared object suffix (after removing 'libprotocol_').
+ * lwsws uses this exact string directly in its dlsym() lookup on startup.
+ */
 LWS_VISIBLE const lws_plugin_protocol_t lws_ssh_base = {
 	.hdr = {
 		.name = "ssh base",

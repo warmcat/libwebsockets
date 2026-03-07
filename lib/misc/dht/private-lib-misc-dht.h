@@ -109,6 +109,8 @@ typedef enum {
 #define MIN(x, y) ((x) <= (y) ? (x) : (y))
 #endif
 
+#if defined(LWS_WITH_DHT_BACKEND)
+
 struct node {
 	lws_dht_hash_t          *id;
 	struct sockaddr_storage ss;
@@ -170,6 +172,8 @@ struct storage {
 	struct storage          *next;
 };
 
+#endif
+
 struct lws_dht_verb_list {
 	lws_dll2_t		list;
 	struct lws_dht_verb	v;
@@ -187,6 +191,7 @@ struct lws_dht_ctx {
 
 	lws_dht_hash_t		*myid;
 
+#if defined(LWS_WITH_DHT_BACKEND)
 	struct bucket		*buckets;
 	struct bucket		*buckets6;
 	struct storage		*storage;
@@ -195,6 +200,7 @@ struct lws_dht_ctx {
 	struct search		*searches;
 	int			numsearches;
 	unsigned short		search_id;
+#endif
 
 	struct sockaddr_storage blacklist[DHT_MAX_BLACKLISTED];
 	int			next_blacklisted;
@@ -208,6 +214,7 @@ struct lws_dht_ctx {
 	int			num_reported_ads;
 	int			external_ads_set;
 
+#if defined(LWS_WITH_DHT_BACKEND)
 	time_t			search_time;
 	time_t			confirm_nodes_time;
 	time_t			rotate_secrets_time;
@@ -217,6 +224,12 @@ struct lws_dht_ctx {
 
 	time_t			token_bucket_time;
 	int			token_bucket_tokens;
+#endif
+
+	struct lws_dht_stats	stats_history[LWS_DHT_STAT_BUCKETS];
+	struct lws_dht_stats	stats_current;
+	int			stats_history_head;
+	lws_sorted_usec_list_t	sul_stats;
 
 	struct timeval		now;
 
@@ -290,6 +303,7 @@ int id_cmp(const lws_dht_hash_t *restrict id1, const lws_dht_hash_t *restrict id
 int xorcmp(const lws_dht_hash_t *id1, const lws_dht_hash_t *id2, const lws_dht_hash_t *ref);
 int lowbit(const lws_dht_hash_t *id);
 int common_bits(const lws_dht_hash_t *id1, const lws_dht_hash_t *id2);
+#if defined(LWS_WITH_DHT_BACKEND)
 struct bucket * find_bucket(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, int af);
 struct bucket * previous_bucket(struct lws_dht_ctx *ctx, struct bucket *b);
 struct node * find_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, int af);
@@ -308,12 +322,16 @@ void search_step(struct lws_dht_ctx *ctx, struct search *sr, lws_dht_callback_t 
 struct storage * find_storage(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id);
 int storage_store(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, const struct sockaddr *sa, unsigned short port);
 int expire_storage(struct lws_dht_ctx *ctx);
+void lws_dht_periodic_cb(lws_sorted_usec_list_t *sul);
+#endif
 int lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen, const struct sockaddr *from, size_t fromlen);
 int dht_tx_check(size_t size, size_t offset, size_t delta);
 int dht_tx_skip(size_t *offset, size_t size, size_t delta);
 int dht_tx_id_len(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id);
 void * dht_memmem(const void *haystack, size_t haystacklen, const void *needle, size_t needlelen);
 int dht_tx_copy__advance_offset(char *buf, size_t *offset, size_t size, const void *src, size_t delta);
+int dht_tx_add_v(char *buf, size_t *offset, size_t size, struct lws_dht_ctx *ctx);
+int dht_tx_add_ip(char *buf, size_t *offset, size_t size, const struct sockaddr *sa);
 int dht_put_id__advance_offset(struct lws_dht_ctx *ctx, char *buf, size_t *offset, size_t size, const lws_dht_hash_t *id);
 void make_tid(uint8_t *tid_return, const char *prefix, unsigned short seqno);
 int tid_match(const uint8_t *tid, const char *prefix, unsigned short *seqno_return);
@@ -321,6 +339,7 @@ int node_blacklisted(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t 
 int dht_send(struct lws_dht_ctx *ctx, const void *buf, size_t len, const struct sockaddr *sa, size_t salen);
 int send_ping(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen, const uint8_t *tid, size_t tid_len);
 int send_pong(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen, const uint8_t *tid, size_t tid_len);
+#if defined(LWS_WITH_DHT_BACKEND)
 int send_cached_ping(struct lws_dht_ctx *ctx, struct bucket *b);
 void mark_as_pinged(struct lws_dht_ctx *ctx, struct node *n, struct bucket *b);
 void flush_search_node(struct search_node *n, struct search *sr);
@@ -335,6 +354,7 @@ int send_error(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
 int send_peer_announced(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen, const uint8_t *tid, size_t tid_len);
 int token_bucket(struct lws_dht_ctx *ctx);
 void lws_dht_capture_announce(struct lws_dht_ctx *ctx, lws_dht_hash_t *hash, const struct sockaddr *fromaddr, unsigned short prt);
+#endif
 int is_martian(const struct sockaddr *sa);
 int lws_dht_get_external_addr(struct lws_dht_ctx *ctx, struct sockaddr_storage *ss, size_t *sslen);
 struct lws_dht_ctx * lws_dht_create(const lws_dht_info_t *info);

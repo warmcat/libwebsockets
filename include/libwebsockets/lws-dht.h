@@ -110,11 +110,59 @@ struct lws_dht_msg {
 	size_t payload_len;
 };
 
+typedef enum {
+	LWS_DHT_VERB_RESULT_PROCEED = 0,
+	LWS_DHT_VERB_RESULT_DROP_OLDER = 1,    /* The incoming object is older than what we have; reject it. */
+	LWS_DHT_VERB_RESULT_REPLACE_OLDER = 2, /* The incoming object is newer; accept and replace. */
+	LWS_DHT_VERB_RESULT_PENDING_ASYNC = 3, /* Validation is asynchronous; hold off on core DHT actions. */
+	LWS_DHT_VERB_RESULT_ERROR = -1
+} lws_dht_verb_result_t;
+
+#define LWS_DHT_STAT_BUCKETS 48
+
+/**
+ * struct lws_dht_stats - tracking metrics for DHT operation volumes
+ */
+struct lws_dht_stats {
+	uint32_t tx_ping;
+	uint32_t tx_pong;
+	uint32_t tx_find_node;
+	uint32_t tx_get_peers;
+	uint32_t tx_announce_peer;
+	uint32_t tx_put;
+	uint32_t tx_get;
+
+	uint32_t rx_ping;
+	uint32_t rx_pong;
+	uint32_t rx_find_node;
+	uint32_t rx_get_peers;
+	uint32_t rx_announce_peer;
+	uint32_t rx_put;
+	uint32_t rx_get;
+
+	uint32_t rx_drops;
+	uint32_t peer_count;
+};
+
+/**
+ * lws_dht_get_stats() - Retrieve current and historical DHT metrics
+ *
+ * \param ctx: DHT context
+ * \param current: Pointer to store current un-rotated metrics, or NULL
+ * \param history: Pointer to receive the internal history array pointer
+ * \param head: Receives the index of the oldest history frame (next to be overwritten)
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dht_get_stats(struct lws_vhost *vh, struct lws_dht_stats *current,
+		  const struct lws_dht_stats **history, int *head);
+
 struct lws_dht_verb_dispatch_args {
 	struct lws_dht_ctx *ctx;
 	const struct lws_dht_msg *msg;
 	const struct sockaddr *from;
 	size_t fromlen;
+
+	lws_dht_verb_result_t out_precedence;
 };
 
 struct lws_dht_verb {

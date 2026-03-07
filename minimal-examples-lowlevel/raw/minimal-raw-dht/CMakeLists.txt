@@ -8,11 +8,12 @@ include(CheckCSourceCompiles)
 include(LwsCheckRequirements)
 
 set(SAMP lws-minimal-raw-dht)
-set(SRCS minimal-raw-dht.c ../../../../plugins/protocol_lws_dht_object_store.c)
+set(SRCS minimal-raw-dht.c ../../../../plugins/protocol_lws_dht_object_store.c ../../../../plugins/dht_stats/protocol_lws_dht_stats.c)
 
 set(requirements 1)
 require_lws_config(LWS_WITH_DHT 1 requirements)
 require_lws_config(LWS_WITH_JOSE 1 requirements)
+require_lws_config(LWS_WITH_DHT_BACKEND 1 requirements)
 
 include_directories(${CMAKE_SOURCE_DIR}/plugins)
 
