@@ -71,128 +71,7 @@ is_martian(const struct sockaddr *sa)
 	return 0;
 }
 
-LWS_VISIBLE int
-lws_dht_nodes(struct lws_dht_ctx *ctx, int af, int *good_return, int *dubious_return, int *cached_return,
-		int *incoming_return)
-{
-	int good = 0, dubious = 0, cached = 0, incoming = 0;
-	struct bucket *b = af == AF_INET ? ctx->buckets : ctx->buckets6;
 
-	while (b) {
-		struct node *n = b->nodes;
-
-		while (n) {
-			if (node_good(ctx, n)) {
-				good++;
-				if (n->time > n->reply_time)
-					incoming++;
-			} else
-				dubious++;
-
-			n = n->next;
-		}
-
-		if (b->cached.ss_family > 0)
-			cached++;
-		b = b->next;
-	}
-	if (good_return)
-		*good_return = good;
-	if (dubious_return)
-		*dubious_return = dubious;
-	if (cached_return)
-		*cached_return = cached;
-	if (incoming_return)
-		*incoming_return = incoming;
-
-	return good + dubious;
-}
-
-void
-lws_dht_periodic_cb(lws_sorted_usec_list_t *sul)
-{
-	struct lws_dht_ctx *ctx = lws_container_of(sul, struct lws_dht_ctx, sul);
-	time_t tosleep = 10;
-
-	ctx->now.tv_sec = (time_t)lws_now_secs();
-
-	if (ctx->now.tv_sec >= ctx->rotate_secrets_time)
-		rotate_secrets(ctx);
-
-	if (ctx->now.tv_sec >= ctx->expire_stuff_time) {
-		int soon = 0;
-
-		expire_buckets(ctx, ctx->buckets);
-		expire_buckets(ctx, ctx->buckets6);
-		expire_storage(ctx);
-		expire_searches(ctx);
-
-		soon |= bucket_maintenance(ctx, AF_INET);
-		soon |= bucket_maintenance(ctx, AF_INET6);
-		ctx->expire_stuff_time = ctx->now.tv_sec + LWS_DHT_IDLE_EXPIRE_SECS;
-		if (soon) {
-			if (ctx->confirm_nodes_time == 0 ||
-			    ctx->confirm_nodes_time > ctx->now.tv_sec + 2)
-				ctx->confirm_nodes_time = ctx->now.tv_sec + 2;
-		}
-	}
-
-	if (ctx->search_time > 0 && ctx->now.tv_sec >= ctx->search_time) {
-		struct search *sr;
-
-		sr = ctx->searches;
-		while (sr) {
-			if (!sr->done && sr->step_time + 5 <= ctx->now.tv_sec) {
-				search_step(ctx, sr, ctx->cb, ctx->closure);
-			}
-			sr = sr->next;
-		}
-
-		ctx->search_time = 0;
-
-		sr = ctx->searches;
-		while (sr) {
-			if (!sr->done) {
-				time_t tm = sr->step_time + LWS_DHT_PING_TIMEOUT_SECS + ((lws_get_random(ctx->vhost->context, &tm, sizeof(tm)), tm) % 10);
-				if (ctx->search_time == 0 || ctx->search_time > tm)
-					ctx->search_time = tm;
-			}
-			sr = sr->next;
-		}
-	}
-
-	if (ctx->confirm_nodes_time > 0 && ctx->now.tv_sec >= ctx->confirm_nodes_time) {
-		int soon = neighbourhood_maintenance(ctx, AF_INET) |
-			   neighbourhood_maintenance(ctx, AF_INET6);
-
-		if (!soon) {
-			if (ctx->mybucket_grow_time >= ctx->now.tv_sec - 150)
-				soon |= neighbourhood_maintenance(ctx, AF_INET);
-			if (ctx->mybucket6_grow_time >= ctx->now.tv_sec - 150)
-				soon |= neighbourhood_maintenance(ctx, AF_INET6);
-		}
-
-		if (soon)
-			ctx->confirm_nodes_time = ctx->now.tv_sec + 5 + ((lws_get_random(ctx->vhost->context, &soon, sizeof(soon)), soon) % 20);
-		else
-			ctx->confirm_nodes_time = ctx->now.tv_sec + 60 + ((lws_get_random(ctx->vhost->context, &soon, sizeof(soon)), soon) % 120);
-	}
-
-	if (ctx->confirm_nodes_time > ctx->now.tv_sec)
-		tosleep = ctx->confirm_nodes_time - ctx->now.tv_sec;
-	else
-		tosleep = 0;
-
-	if (ctx->search_time > 0) {
-		if (ctx->search_time <= ctx->now.tv_sec)
-			tosleep = 0;
-		else if (tosleep > ctx->search_time - ctx->now.tv_sec)
-			tosleep = ctx->search_time - ctx->now.tv_sec;
-	}
-
-	lws_sul_schedule(ctx->vhost->context, 0, &ctx->sul,
-			 lws_dht_periodic_cb, tosleep * LWS_US_PER_SEC);
-}
 
 int
 dht_tx_chunk(struct lws_transport_sequencer *ts, uint64_t offset,
@@ -310,6 +189,11 @@ dht_on_rx_data(struct lws_transport_sequencer *ts, uint64_t offset,
 				struct lws_a a;
 				int n;
 
+				if (!strcmp(msg.verb, "PUT"))
+					dts->ctx->stats_current.rx_put++;
+				else if (!strcmp(msg.verb, "GET"))
+					dts->ctx->stats_current.rx_get++;
+
 				args.ctx = dts->ctx;
 				args.msg = &msg;
 				args.from = (const struct sockaddr *)&dts->sa;
@@ -321,9 +205,24 @@ dht_on_rx_data(struct lws_transport_sequencer *ts, uint64_t offset,
 				a.vhost = dts->ctx->vhost;
 				a.protocol = vl->v.protocol;
 
+				args.out_precedence = LWS_DHT_VERB_RESULT_PROCEED;
+
 				n = vl->v.protocol->callback((struct lws *)&a, LWS_CALLBACK_DHT_VERB_DISPATCH,
 							lws_protocol_vh_priv_get(dts->ctx->vhost, vl->v.protocol),
 							&args, 0);
+				
+				if (n < 0 || args.out_precedence == LWS_DHT_VERB_RESULT_DROP_OLDER || args.out_precedence == LWS_DHT_VERB_RESULT_ERROR)
+					return -1;
+
+				if (args.out_precedence == LWS_DHT_VERB_RESULT_PENDING_ASYNC) {
+					/* The plugin will handle validation asynchronously and ACK later. 
+					 * We just return 0 to keep the sequencer alive but don't ACK here.
+					 * The object store plugin currently manually ACKs via its own verb handler logic anyway,
+					 * but this formally signals the core that the chunk was 'accepted' for now.
+					 */
+					return 0;
+				}
+
 				return n;
 			}
 		} lws_end_foreach_dll(d);
@@ -473,6 +372,77 @@ lws_callback_dht(struct lws *wsi, enum lws_callback_reasons reason,
 LWS_VISIBLE const struct lws_protocols lws_dht_protocol =
 	{ "lws-dht", lws_callback_dht, sizeof(struct lws_dht_ctx *), 0, 0, NULL, 0 };
 
+static void
+lws_dht_stats_periodic(lws_sorted_usec_list_t *sul)
+{
+	struct lws_dht_ctx *ctx = lws_container_of(sul, struct lws_dht_ctx, sul_stats);
+	uint32_t active_peers = 0;
+
+#if defined(LWS_WITH_DHT_BACKEND)
+	struct bucket *b;
+	struct node *n;
+
+	b = ctx->buckets;
+	while (b) {
+		n = b->nodes;
+		while (n) {
+			if (node_good(ctx, n))
+				active_peers++;
+			n = n->next;
+		}
+		b = b->next;
+	}
+
+	b = ctx->buckets6;
+	while (b) {
+		n = b->nodes;
+		while (n) {
+			if (node_good(ctx, n))
+				active_peers++;
+			n = n->next;
+		}
+		b = b->next;
+	}
+#endif
+
+	ctx->stats_current.peer_count = active_peers;
+
+	/* Save current to history */
+	ctx->stats_history[ctx->stats_history_head] = ctx->stats_current;
+
+	/* Reset current counters (except peer_count which we just sampled) */
+	memset(&ctx->stats_current, 0, sizeof(ctx->stats_current));
+	ctx->stats_current.peer_count = active_peers;
+
+	/* Advance head */
+	ctx->stats_history_head = (ctx->stats_history_head + 1) % LWS_DHT_STAT_BUCKETS;
+
+	/* Reschedule: 10 minutes */
+	lws_sul_schedule(ctx->vhost->context, 0, &ctx->sul_stats,
+			 lws_dht_stats_periodic, 600 * LWS_US_PER_SEC);
+}
+
+int
+lws_dht_get_stats(struct lws_vhost *vh, struct lws_dht_stats *current,
+		  const struct lws_dht_stats **history, int *head)
+{
+	struct lws_dht_ctx *ctx;
+
+	if (!vh || !vh->dht_owner.head)
+		return 1;
+
+	ctx = lws_container_of(vh->dht_owner.head, struct lws_dht_ctx, list);
+
+	if (current)
+		*current = ctx->stats_current;
+	if (history)
+		*history = ctx->stats_history;
+	if (head)
+		*head = ctx->stats_history_head;
+
+	return 0;
+}
+
 int
 lws_dht_get_external_addr(struct lws_dht_ctx *ctx, struct sockaddr_storage *ss,
 			  size_t *sslen)
@@ -499,6 +469,7 @@ lws_dht_create(const lws_dht_info_t *info)
 {
 	struct lws_dht_ctx *ctx = lws_zalloc(sizeof(*ctx), "dht ctx");
 	int rc;
+	(void)rc;
 
 	if (!ctx) {
 		lwsl_err("lws_zalloc failed\n");
@@ -546,26 +517,32 @@ lws_dht_create(const lws_dht_info_t *info)
 
 	ctx->now.tv_sec			= (time_t)lws_now_secs();
 
+#if defined(LWS_WITH_DHT_BACKEND)
 	ctx->mybucket_grow_time		= ctx->now.tv_sec;
 	ctx->mybucket6_grow_time	= ctx->now.tv_sec;
 	ctx->confirm_nodes_time		= ctx->now.tv_sec + ((lws_get_random(ctx->vhost->context, &rc, sizeof(rc)), rc) % 3);
 
 	ctx->search_id			= (unsigned short)((lws_get_random(ctx->vhost->context, &rc, sizeof(rc)), rc) & 0xFFFF);
 	ctx->search_time		= 0;
+#endif
 
 	ctx->next_blacklisted		= 0;
 
+#if defined(LWS_WITH_DHT_BACKEND)
 	ctx->token_bucket_time		= ctx->now.tv_sec;
 	ctx->token_bucket_tokens	= MAX_TOKEN_BUCKET_TOKENS;
+#endif
 
 	ctx->iface = info->iface;
 
+#if defined(LWS_WITH_DHT_BACKEND)
 	memset(ctx->secret, 0, sizeof(ctx->secret));
 	rc = rotate_secrets(ctx);
 	if (rc < 0) {
 		lwsl_err("rotate_secrets failed\n");
 		goto fail;
 	}
+#endif
 
 	if (info->port) {
 		const char *v4ads = ctx->iface;
@@ -592,6 +569,7 @@ lws_dht_create(const lws_dht_info_t *info)
 		}
 	}
 
+#if defined(LWS_WITH_DHT_BACKEND)
 	ctx->buckets = lws_zalloc(sizeof(struct bucket), __func__);
 	if (ctx->buckets) {
 		ctx->buckets->af = AF_INET;
@@ -621,6 +599,10 @@ lws_dht_create(const lws_dht_info_t *info)
 
 	expire_buckets(ctx, ctx->buckets);
 	expire_buckets(ctx, ctx->buckets6);
+#endif
+
+	lws_sul_schedule(ctx->vhost->context, 0, &ctx->sul_stats,
+			 lws_dht_stats_periodic, 600 * LWS_US_PER_SEC);
 
 	lws_dll2_add_tail(&ctx->list, &ctx->vhost->dht_owner);
 
@@ -651,9 +633,11 @@ lws_dht_destroy(struct lws_dht_ctx **pctx)
 		lws_free(ctx->name);
 
 	lws_sul_cancel(&ctx->sul);
+	lws_sul_cancel(&ctx->sul_stats);
 
 	lws_dht_hash_destroy(&ctx->myid);
 
+#if defined(LWS_WITH_DHT_BACKEND)
 	while (ctx->buckets) {
 		struct bucket *b = ctx->buckets;
 
@@ -700,6 +684,7 @@ lws_dht_destroy(struct lws_dht_ctx **pctx)
 			lws_dht_hash_destroy(&sr->nodes[i].id);
 		lws_free(sr);
 	}
+#endif
 
 	lws_dll2_t *d = lws_dll2_get_head(&ctx->ts_owner);
 	while (d) {
@@ -723,120 +708,7 @@ lws_dht_destroy(struct lws_dht_ctx **pctx)
 	*pctx = NULL;
 }
 
-int
-lws_dht_get_nodes(struct lws_dht_ctx *ctx, struct sockaddr_in *sin, int *num,
-		  struct sockaddr_in6 *sin6, int *num6)
-{
-	int i, j;
-	struct bucket *b;
-	struct node *n;
 
-	i = 0;
-
-	/*
-	 * For restoring to work without discarding too many nodes, the list
-	 * must start with the contents of our bucket.
-	 */
-	b = find_bucket(ctx, ctx->myid, AF_INET);
-	if (b == NULL)
-		goto no_ipv4;
-
-	n = b->nodes;
-	while (n && i < *num) {
-		if (node_good(ctx, n)) {
-			sin[i] = *(struct sockaddr_in*)&n->ss;
-			i++;
-		}
-		n = n->next;
-	}
-
-	b = ctx->buckets;
-	while (b && i < *num) {
-		if (id_cmp(b->first, ctx->myid) <= 0 &&
-				(b->next == NULL || id_cmp(ctx->myid, b->next->first) < 0))
-		{
-			/* skip, handled above */
-		} else {
-			n = b->nodes;
-			while (n && i < *num) {
-				if (node_good(ctx, n)) {
-					sin[i] = *(struct sockaddr_in*)&n->ss;
-					i++;
-				}
-				n = n->next;
-			}
-		}
-		b = b->next;
-	}
-
-no_ipv4:
-
-	j = 0;
-
-	b = find_bucket(ctx, ctx->myid, AF_INET6);
-	if (b == NULL)
-		goto no_ipv6;
-
-	n = b->nodes;
-	while (n && j < *num6) {
-		if (node_good(ctx, n)) {
-			sin6[j] = *(struct sockaddr_in6*)&n->ss;
-			j++;
-		}
-		n = n->next;
-	}
-
-	b = ctx->buckets6;
-	while (b && j < *num6) {
-		if (id_cmp(b->first, ctx->myid) <= 0 &&
-		    (b->next == NULL || id_cmp(ctx->myid, b->next->first) < 0))
-		{
-			/* skip */
-		} else {
-			n = b->nodes;
-			while (n && j < *num6) {
-				if (node_good(ctx, n)) {
-					sin6[j] = *(struct sockaddr_in6*)&n->ss;
-					j++;
-				}
-				n = n->next;
-			}
-		}
-		b = b->next;
-	}
-
-no_ipv6:
-
-	*num = i;
-	*num6 = j;
-
-	return i + j;
-}
-
-int
-lws_dht_insert_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
-		    struct sockaddr *sa, size_t salen)
-{
-	struct node *node;
-
-	switch (sa->sa_family) {
-	case AF_INET:
-	case AF_INET6:
-		/*
-		 * confirm=1 means we treat it as if we just heard from it, so it
-		 * gets a timestamp and isn't immediately expired.
-		 */
-		node = maybe_new_node(ctx, id, sa, salen, 1);
-
-		return !!node;
-	default:
-		break;
-	}
-
-	errno = EAFNOSUPPORT;
-
-	return -1;
-}
 
 int
 lws_dht_ping_node(struct lws_dht_ctx *ctx, struct sockaddr *sa, size_t salen)
@@ -855,6 +727,11 @@ lws_dht_send_data(struct lws_dht_ctx *ctx, const struct sockaddr *dest, const vo
 {
 	struct lws_transport_sequencer *ts;
 	size_t salen;
+
+	if (len >= 4 && !memcmp(data, "PUT ", 4))
+		ctx->stats_current.tx_put++;
+	else if (len >= 4 && !memcmp(data, "GET ", 4))
+		ctx->stats_current.tx_get++;
 
 	switch (dest->sa_family) {
 	case AF_INET:

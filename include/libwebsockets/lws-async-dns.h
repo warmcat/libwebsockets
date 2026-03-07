@@ -107,6 +107,22 @@ LWS_VISIBLE LWS_EXTERN void
 lws_async_dns_freeaddrinfo(const struct addrinfo **ai);
 
 /**
+ * lws_async_dns_get_rr_cache() - get a stashed DNSSEC/raw record from the cache
+ *
+ * \param context: the lws_context
+ * \param name: the DNS name
+ * \param qtype: the query type of the record to find (e.g. LWS_ADNS_RECORD_DS)
+ * \param paylen: set to the payload length if found
+ *
+ * Retrieves a pointer to the payload of a cached DNS record that doesn't 
+ * normally result in an addrinfo (like DS, DNSKEY, TXT).
+ * Returns NULL if not found or no cache entry exists.
+ */
+LWS_VISIBLE LWS_EXTERN const uint8_t *
+lws_async_dns_get_rr_cache(struct lws_context *context, const char *name,
+			   adns_query_type_t qtype, uint16_t *paylen);
+
+/**
  * lws_async_dns_server_add() - add a DNS server to the lws async DNS list
  *
  * \param cx: the lws_context

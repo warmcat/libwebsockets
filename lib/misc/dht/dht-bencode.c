@@ -486,7 +486,9 @@ lws_dht_reply_pong(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 		   const struct sockaddr *from, size_t fromlen)
 {
 	lwsl_dht_rx("%s: Pong!\n", __func__);
+#if defined(LWS_WITH_DHT_BACKEND)
 	maybe_new_node(ctx, mp->id, from, fromlen, 2);
+#endif
 }
 
 static void
@@ -494,13 +496,17 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 		    const struct sockaddr *from, size_t fromlen)
 {
 	int gp = 0;
+#if defined(LWS_WITH_DHT_BACKEND)
 	struct search *sr = NULL;
+#endif
 	unsigned short ttid;
 	size_t offset;
 
 	if (tid_match(mp->tid, "gp", &ttid)) {
 		gp = 1;
+#if defined(LWS_WITH_DHT_BACKEND)
 		sr = find_search(ctx, ttid, from->sa_family);
+#endif
 	}
 
 	lwsl_dht_rx("%s: Nodes found (%d+%d)%s\n", __func__, (int)(mp->nodes_len / LWS_DHT_NODE_INFO_LEGACY_IP4_VLEN),
@@ -510,7 +516,9 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 	if (ctx->legacy && (mp->nodes_len % LWS_DHT_NODE_INFO_LEGACY_IP4_VLEN != 0 ||
 			    mp->nodes6_len % LWS_DHT_NODE_INFO_LEGACY_IP6_VLEN != 0)) {
 		lwsl_dht_rx_warn("%s: Unexpected length for node info\n", __func__);
+#if defined(LWS_WITH_DHT_BACKEND)
 		blacklist_node(ctx, mp->id, from, fromlen);
+#endif
 		return;
 	}
 
@@ -553,9 +561,11 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 					memcpy(&sin.sin_addr, ni + LWS_DHT_NODE_INFO_HASH_HDR_VLEN + hash_len, LWS_DHT_IPV4_VLEN);
 					memcpy(&sin.sin_port, ni + LWS_DHT_NODE_INFO_HASH_HDR_VLEN + hash_len + LWS_DHT_IPV4_VLEN, LWS_DHT_PORT_VLEN);
 				}
+#if defined(LWS_WITH_DHT_BACKEND)
 				maybe_new_node(ctx, node_id, (struct sockaddr*)&sin, sizeof(sin), 0);
 				if (sr && sr->af == AF_INET)
 					insert_search_node(ctx, node_id, (struct sockaddr*)&sin, sizeof(sin), sr, 0, NULL, 0);
+#endif
 
 			}
 			lws_dht_hash_destroy(&node_id);
@@ -606,11 +616,12 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 					memcpy(&sin6.sin6_port, ni + LWS_DHT_NODE_INFO_HASH_HDR_VLEN + hash_len + LWS_DHT_IPV6_VLEN, LWS_DHT_PORT_VLEN);
 				}
 
+#if defined(LWS_WITH_DHT_BACKEND)
 				maybe_new_node(ctx, node_id, (struct sockaddr*)&sin6, sizeof(sin6), 0);
-
 				if (sr && sr->af == AF_INET6)
-					insert_search_node(ctx, node_id, (struct sockaddr*)&sin6,
-							sizeof(sin6), sr, 0, NULL, 0);
+					insert_search_node(ctx, node_id, (struct sockaddr*)&sin6, sizeof(sin6), sr, 0, NULL, 0);
+#endif
+
 			}
 			lws_dht_hash_destroy(&node_id);
 		}
@@ -618,43 +629,63 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 		offset += step;
 	}
 
+#if defined(LWS_WITH_DHT_BACKEND)
 	if (sr) {
 		insert_search_node(ctx, mp->id, from, fromlen, sr, 1, mp->token, mp->token_len);
+	}
+#endif
 
-		if (mp->values_len > 0 || mp->values6_len > 0) {
-			lwsl_dht_rx("%s: Got values (%d+%d)\n", __func__, (int)(mp->values_len / LWS_DHT_NODE_INFO_IP4_VLEN), (int)(mp->values6_len / LWS_DHT_NODE_INFO_IP6_VLEN));
-			if (ctx->cb) {
-				int j;
-
+	if (mp->values_len > 0 || mp->values6_len > 0) {
+		lwsl_dht_rx("%s: Got values (%d+%d)\n", __func__, (int)(mp->values_len / LWS_DHT_NODE_INFO_IP4_VLEN), (int)(mp->values6_len / LWS_DHT_NODE_INFO_IP6_VLEN));
+		if (ctx->cb) {
+#if defined(LWS_WITH_DHT_BACKEND)
+			if (sr) {
+				int j, j6;
 				for (j = 0; j < (int)mp->values_len; j += LWS_DHT_NODE_INFO_IP4_VLEN)
 					(*ctx->cb)(ctx->closure, LWS_DHT_EVENT_VALUES, sr->id, mp->values + j, LWS_DHT_NODE_INFO_IP4_VLEN, from, fromlen);
-				for (j = 0; j < (int)mp->values6_len; j += LWS_DHT_NODE_INFO_IP6_VLEN)
-					(*ctx->cb)(ctx->closure, LWS_DHT_EVENT_VALUES6, sr->id, mp->values6 + j, LWS_DHT_NODE_INFO_IP6_VLEN, from, fromlen);
+				for (j6 = 0; j6 < (int)mp->values6_len; j6 += LWS_DHT_NODE_INFO_IP6_VLEN)
+					(*ctx->cb)(ctx->closure, LWS_DHT_EVENT_VALUES6, sr->id, mp->values6 + j6, LWS_DHT_NODE_INFO_IP6_VLEN, from, fromlen);
 			}
+#else
+			int j, j6;
+			for (j = 0; j < (int)mp->values_len; j += LWS_DHT_NODE_INFO_IP4_VLEN)
+				(*ctx->cb)(ctx->closure, LWS_DHT_EVENT_VALUES, NULL, mp->values + j, LWS_DHT_NODE_INFO_IP4_VLEN, from, fromlen);
+			for (j6 = 0; j6 < (int)mp->values6_len; j6 += LWS_DHT_NODE_INFO_IP6_VLEN)
+				(*ctx->cb)(ctx->closure, LWS_DHT_EVENT_VALUES6, NULL, mp->values6 + j6, LWS_DHT_NODE_INFO_IP6_VLEN, from, fromlen);
+#endif
 		}
-		search_send_get_peers(ctx, sr, NULL);
 	}
+
+#if defined(LWS_WITH_DHT_BACKEND)
+	if (sr)
+		search_send_get_peers(ctx, sr, NULL);
+#endif
+
+#if defined(LWS_WITH_DHT_BACKEND)
+	if (0) {
+	}
+#endif
 }
 
+#if defined(LWS_WITH_DHT_BACKEND)
 static void
 lws_dht_reply_announce(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 		       const struct sockaddr *from, size_t fromlen)
 {
-	unsigned short ttid;
 	struct search *sr;
+	unsigned short ttid;
 	size_t i;
-
-	lwsl_dht_rx("%s: Got reply to announce_peer\n", __func__);
 
 	if (!tid_match(mp->tid, "ap", &ttid))
 		return;
 
 	sr = find_search(ctx, ttid, from->sa_family);
 	if (!sr) {
-		lwsl_dht_warn("%s: Unknown search!\n", __func__);
-		maybe_new_node(ctx, mp->id, from, fromlen, 1);
+		lwsl_dht_rx_warn("%s: Unknown announce reply!\n", __func__);
 		return;
 	}
+
+	lwsl_dht_rx("%s: Announce peer reply!\n", __func__);
 
 	maybe_new_node(ctx, mp->id, from, fromlen, 2);
 
@@ -669,6 +700,7 @@ lws_dht_reply_announce(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 
 	search_send_get_peers(ctx, sr, NULL);
 }
+#endif
 
 int
 lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
@@ -699,6 +731,7 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 
 	message = parse_message(buf, buflen, &mp);
 	if (message < 0 || message == DHT_ERROR || lws_dht_hash_is_zero(mp.id)) {
+		ctx->stats_current.rx_drops++;
 		lwsl_dht_rx_warn("%s: Unparseable message. msg=%d id_ptr=%p\n", __func__, message, mp.id);
 		goto done;
 	}
@@ -710,10 +743,13 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 
 	if (message > DHT_REPLY && message != DHT_DATA) {
 		/* Rate limit requests. */
+#if defined(LWS_WITH_DHT_BACKEND)
 		if (!token_bucket(ctx)) {
+			ctx->stats_current.rx_drops++;
 			lwsl_dht_warn("%s: Dropping request due to rate limiting\n", __func__);
 			goto done;
 		}
+#endif
 	} else if (message == DHT_REPLY && mp.sender_ip_len) {
 		/* Track reported external address */
 		struct sockaddr_storage ss;
@@ -765,10 +801,13 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 	case DHT_REPLY:
 		if (mp.tid_len != 4) {
 			lwsl_dht_rx_warn("%s: Broken node truncates transaction ids\n", __func__);
+#if defined(LWS_WITH_DHT_BACKEND)
 			blacklist_node(ctx, mp.id, from, fromlen);
+#endif
 			break;
 		}
 		if (tid_match(mp.tid, "pn", NULL)) {
+			ctx->stats_current.rx_pong++;
 			lws_dht_reply_pong(ctx, &mp, from, fromlen);
 			break;
 		}
@@ -776,10 +815,12 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 			lws_dht_reply_nodes(ctx, &mp, from, fromlen);
 			break;
 		}
+#if defined(LWS_WITH_DHT_BACKEND)
 		if (tid_match(mp.tid, "ap", NULL)) {
 			lws_dht_reply_announce(ctx, &mp, from, fromlen);
 			break;
 		}
+#endif
 
 		if (tid_match(mp.tid, "da", NULL) || tid_match(mp.tid, "sqnc", NULL)) {
 			struct lws_transport_sequencer *ts;
@@ -798,48 +839,56 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 
 
 		lwsl_dht_rx_warn("%s: Unexpected reply\n", __func__);
+#if defined(LWS_WITH_DHT_BACKEND)
 		blacklist_node(ctx, mp.id, from, fromlen);
+#endif
 		break;
 
 	case DHT_PING:
+		ctx->stats_current.rx_ping++;
 		lwsl_dht_rx("%s: Ping (%d)!\n", __func__, (int)mp.tid_len);
+#if defined(LWS_WITH_DHT_BACKEND)
 		maybe_new_node(ctx, mp.id, from, fromlen, 1);
 		lwsl_dht_rx("%s: Sending pong\n", __func__);
 		send_pong(ctx, from, fromlen, mp.tid, mp.tid_len);
+#endif
 		break;
 
 	case DHT_FIND_NODE:
+		ctx->stats_current.rx_find_node++;
 		lwsl_dht_rx("%s: Find node!\n", __func__);
+#if defined(LWS_WITH_DHT_BACKEND)
 		maybe_new_node(ctx, mp.id, from, fromlen, 1);
+#endif
 		lwsl_dht_rx("%s: Sending closest nodes (%d)\n", __func__, mp.want);
+#if defined(LWS_WITH_DHT_BACKEND)
 		send_closest_nodes(ctx, from, fromlen, &mp, mp.target, 0, NULL);
+#endif
 		break;
 
 	case DHT_GET_PEERS:
-		lwsl_dht_rx("%s: Get_peers!\n", __func__);
-		maybe_new_node(ctx, mp.id, from, fromlen, 1);
-		if (lws_dht_hash_is_zero(mp.info_hash)) {
-			lwsl_dht_rx_warn("%s: Eek!  Got get_peers with no info_hash.\n", __func__);
+		ctx->stats_current.rx_get_peers++;
+#if defined(LWS_WITH_DHT_BACKEND)
+		if (!mp.info_hash) {
 			send_error(ctx, from, fromlen, mp.tid, mp.tid_len,
-					203, "Get_peers with no info_hash");
-			break;
-		} else {
-			struct storage *st = find_storage(ctx, mp.info_hash);
-
-			make_token(ctx, from, 0, mp.token);
-			mp.token_len = TOKEN_SIZE;
-
-			if (st && st->numpeers > 0) {
-				lwsl_dht_rx("%s: Sending found%s peers\n", __func__, from->sa_family == AF_INET6 ? " IPv6" : "");
-				send_closest_nodes(ctx, from, fromlen, &mp,
-						   mp.info_hash, from->sa_family, st);
-				break;
-			}
-			lwsl_dht_rx("%s: Sending nodes for get_peers\n", __func__);
-			send_closest_nodes(ctx, from, fromlen, &mp,
-					   mp.info_hash, 0, NULL);
-			break;
+				   203, "Get_peers with no info_hash");
+			goto fail;
 		}
+
+		{
+			struct storage *st = find_storage(ctx, mp.info_hash);
+			
+			make_token(ctx, from, 0, mp.token);
+
+			/* Has it? */
+			if (st && st->numpeers > 0) {
+				send_closest_nodes(ctx, from, fromlen,
+						   &mp, mp.info_hash, 1, st);
+			} else
+				send_closest_nodes(ctx, from, fromlen,
+						   &mp, mp.info_hash, 0, NULL);
+		}
+#endif
 		break;
 
 	case DHT_DATA:
@@ -853,67 +902,46 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 		}
 		break;
 	case DHT_ANNOUNCE_PEER:
-		lwsl_dht_rx("%s: Announce peer!\n", __func__);
-		maybe_new_node(ctx, mp.id, from, fromlen, 1);
-		{
-			int is_zero = 1;
-			int i;
-			for (i = 0; i < mp.info_hash->len; i++)
-				if (mp.info_hash->id[i]) {
-					is_zero = 0;
-					break;
-				}
-			if (is_zero) {
-				lwsl_dht_rx_warn("%s: Announce_peer with no info_hash\n", __func__);
-				send_error(ctx, from, fromlen, mp.tid, mp.tid_len,
-						203, "Announce_peer with no info_hash");
-				break;
-			}
-		}
-		if (!token_match(ctx, mp.token, mp.token_len, from)) {
-			lwsl_dht_rx_warn("%s: Incorrect token for announce_peer\n", __func__);
+		ctx->stats_current.rx_announce_peer++;
+#if defined(LWS_WITH_DHT_BACKEND)
+		if (!mp.info_hash) {
 			send_error(ctx, from, fromlen, mp.tid, mp.tid_len,
-					   203, "Announce_peer with bad token");
-			break;
+				   203, "Announce_peer with no info_hash");
+			goto fail;
 		}
 
+		if (!token_match(ctx, mp.token, mp.token_len, from)) {
+			/*lwsl_dht_rx_info( "token match failed\n");*/
+			goto fail;
+		}
 
+		/* lwsl_info("%s: Announce peer\n", __func__); */
 
 		lws_dht_capture_announce(ctx, mp.info_hash, from, mp.port ? mp.port : mp.sender_port);
-		lws_dht_reply_announce(ctx, &mp, from, fromlen);
 
-		if (mp.port == 0) {
-			lwsl_dht_rx_warn("%s: Announce with forbidden port %d\n", __func__, mp.port);
-			send_error(ctx, from, fromlen, mp.tid, mp.tid_len,
-					203, "Announce_peer with forbidden port number");
-			break;
-		}
-		if (mp.port == 1) {
-			lwsl_dht_rx("%s: Announce with implied port. Using from port\n", __func__);
-			if (from->sa_family == AF_INET) {
-				struct sockaddr_in *temp_sin = (struct sockaddr_in*)from;
-				mp.port = ntohs(temp_sin->sin_port);
-			}
-			else {
-				struct sockaddr_in6 *temp_sin6 = (struct sockaddr_in6*)from;
-				mp.port = ntohs(temp_sin6->sin6_port);
-			}
-		}
+		/*
+		 * We have a 'values' request
+		 *
+		 * In theory, the node must be inserted in the routing table, but
+		 * this is vulnerable to spam so we just insert the node if it's
+		 * pingable.
+		 */
 
 		storage_store(ctx, mp.info_hash, from, mp.port);
 
 		/*
-		* Note that if storage_store failed, we lie to the requestor.
-		* This is to prevent them from backtracking, and hence
-		* polluting the DHT.
-		*/
+		 * we just drop it if we didn't add it.
+		 */
 
-		lws_dht_capture_announce(ctx, mp.info_hash, from, mp.port);
-
-		lwsl_dht_rx("%s: Sending peer announced\n", __func__);
+		/* if we add it, we should reply */
 		send_peer_announced(ctx, from, fromlen, mp.tid, mp.tid_len);
+#endif
 		break;
 	}
+#if defined(LWS_WITH_DHT_BACKEND)
+fail:
+	/*lwsl_dht_warn("lws_dht_process_packet: fail\n");*/
+#endif
 done:
 	lws_dht_hash_destroy(&mp.id);
 	lws_dht_hash_destroy(&mp.info_hash);

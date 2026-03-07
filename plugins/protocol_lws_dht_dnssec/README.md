@@ -1,0 +1,46 @@
+# lws-dht-dnssec Plugin
+
+This plugin extends the core libwebsockets Distributed Hash Table (DHT) framework to provide a secure, decentralized storage layer specifically designed for DNSSEC zone files. 
+
+It works by intercepting DHT `PUT` requests, requiring client-side JSON Web Signatures (JWS) enclosing the zone files, which the plugin subsequently validates asynchronously against the authoritative Domain Name System (DNS) `DS` records.
+
+## Features
+- Validates the signatures on uploaded payload against the public keys verified by DNS `DS`.
+- Stores payloads securely with an automatic domain-hashed derivation (`lws-dnssec-dht-<domain>`).
+- Supports the protocol-level version precedence mechanics resolving replacing states.
+- Re-uses LWS JSON Object Signing and Encryption (`lws-jose`) routines and asynchronous DNS resolution natively.
+
+## CMake Configuration
+To enable the underlying requirements so out-of-the-box DHT plugins and the `lws-dht-dnssec` node work, your `libwebsockets` CMake build requires the following options:
+
+```cmake
+-DLWS_WITH_DHT=1
+-DLWS_WITH_JOSE=1
+-DLWS_WITH_SYS_ASYNC_DNS=1
+-DLWS_WITH_GENCRYPTO=1 
+-DLWS_WITH_SYS_ASYNC_DNS_DNSSEC=1
+-DLWS_ROLE_RAW_FILE=1
+-DLWS_WITH_PLUGINS=1
+```
+
+## Per-vhost Options
+The plugin operates under the standard `lws` plugin model using per-vhost options (pvos) to configure its behaviors. The available options include:
+
+| Option Name      | Description                                                                                                                                              | Default Value           |
+|------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------|
+| `storage`        | The directory on the filesystem where validated DHT fragments (zone files) should be written to and served from.                                         | `/tmp/lws-dht-store`    |
+| `jwk`            | Path to a JSON Web Key (JWK) representing the trusted node key for secure communication/authorization. If it isn't found, one is automatically generated.| `dht.jwk`               |
+| `allow` / `deny` | Optional filesystem paths to list specific rules/access lists based on public keys or identifiers, restricting who can access or modify DHT records.     | `NULL`                  |
+| `test_handshake` | Boolean flag (`1` or `0`) to place the node in testing mode, generating synthetic responses to trace handshake mechanics during development.             | `0`                     |
+| `cli_receiver`   | Boolean flag (`1` or `0`) intended for the `minimal-raw-dht-zone-client` CLI application to tell the plugin context it is acting as an active receiver.  | `0`                     |
+
+## Example Client Usage
+When using the accompanying `minimal-raw-dht-zone-client`, the CLI dynamically injects these PVOs on instantiation. For example, to sign your local file and instruct the context to forward it with the domain context:
+
+```bash
+./lws-minimal-raw-dht-zone-client \
+    --domain example.com \
+    --jwk my-domain.jwk \
+    --target-ip 127.0.0.1 \
+    --put /tmp/zone.txt
+```

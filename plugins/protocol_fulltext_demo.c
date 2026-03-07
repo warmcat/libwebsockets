@@ -272,6 +272,11 @@ LWS_VISIBLE const struct lws_protocols fulltext_demo_protocols[] = {
 	LWS_PLUGIN_PROTOCOL_FULLTEXT_DEMO
 };
 
+/*
+ * The exported lws_plugin_protocol_t struct MUST be named EXACTLY the same as
+ * your plugin's shared object suffix (after removing 'libprotocol_').
+ * lwsws uses this exact string directly in its dlsym() lookup on startup.
+ */
 LWS_VISIBLE const lws_plugin_protocol_t fulltext_demo = {
 	.hdr = {
 		.name = "fulltext demo",

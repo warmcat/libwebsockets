@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DHT Network Pulse</title>
+    <link rel="stylesheet" href="main.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>DHT Pulse Dashboard</h1>
+            <div id="status" class="status disconnected">Disconnected</div>
+        </header>
+
+        <div class="metrics">
+            <div class="metric-card">
+                <h3>Live Peers</h3>
+                <div class="value" id="peers-val">0</div>
+            </div>
+            <div class="metric-card">
+                <h3>Packets TX (Current)</h3>
+                <div class="value" id="tx-val">0</div>
+            </div>
+            <div class="metric-card">
+                <h3>Packets RX (Current)</h3>
+                <div class="value" id="rx-val">0</div>
+            </div>
+            <div class="metric-card">
+                <h3>Dropped (Current)</h3>
+                <div class="value" id="drop-val">0</div>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <h3>Recent Network Requests</h3>
+            <canvas id="dhtChart"></canvas>
+        </div>
+
+        <div class="table-container">
+            <h2>Current Window Breakdown</h2>
+            <table class="dht-table">
+                <thead>
+                    <tr>
+                        <th>Metric</th>
+                        <th>TX Count</th>
+                        <th>RX Count</th>
+                    </tr>
+                </thead>
+                <tbody id="stats-current-body">
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script src="main.js"></script>
+</body>
+</html>

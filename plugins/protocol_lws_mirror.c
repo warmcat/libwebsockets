@@ -488,6 +488,11 @@ LWS_VISIBLE const struct lws_protocols lws_mirror_protocols[] = {
 	LWS_PLUGIN_PROTOCOL_MIRROR
 };
 
+/*
+ * The exported lws_plugin_protocol_t struct MUST be named EXACTLY the same as
+ * your plugin's shared object suffix (after removing 'libprotocol_').
+ * lwsws uses this exact string directly in its dlsym() lookup on startup.
+ */
 LWS_VISIBLE const lws_plugin_protocol_t lws_mirror = {
 	.hdr = {
 		.name = "lws mirror",
