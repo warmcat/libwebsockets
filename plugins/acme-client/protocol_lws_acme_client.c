@@ -66,13 +66,13 @@ struct acme_connection {
 	char key_auth[256];
 	char http01_mountpoint[256];
 	struct lws_http_mount mount;
-	char urls[6][100]; /* directory contents */
-	char active_url[100];
-	char authz_url[100];
-	char order_url[100];
-	char finalize_url[100];
-	char cert_url[100];
-	char acct_id[100];
+	char urls[6][256]; /* directory contents */
+	char active_url[256];
+	char authz_url[256];
+	char order_url[256];
+	char finalize_url[256];
+	char cert_url[256];
+	char acct_id[256];
 	char *kid;
 	lws_acme_state state;
 	struct lws_client_connect_info i;
@@ -1045,7 +1045,7 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 				",\"contact\": [\"mailto:%s\"]}",
 				vhd->pvop_active[LWS_TLS_REQ_ELEMENT_EMAIL]);
 
-			strcpy(ac->active_url, ac->urls[JAD_NEW_ACCOUNT_URL]);
+			lws_strncpy(ac->active_url, ac->urls[JAD_NEW_ACCOUNT_URL], sizeof(ac->active_url));
 pkt_add_hdrs:
 			if (lws_gencrypto_jwe_alg_to_definition("RSA1_5",
 						&jwe.jose.alg)) {
@@ -1105,11 +1105,11 @@ pkt_add_hdrs:
 					"}",
 			vhd->pvop_active[LWS_TLS_REQ_ELEMENT_COMMON_NAME]);
 
-			strcpy(ac->active_url, ac->urls[JAD_NEW_ORDER_URL]);
+			lws_strncpy(ac->active_url, ac->urls[JAD_NEW_ORDER_URL], sizeof(ac->active_url));
 			goto pkt_add_hdrs;
 
 		case ACME_STATE_AUTHZ:
-			strcpy(ac->active_url, ac->authz_url);
+			lws_strncpy(ac->active_url, ac->authz_url, sizeof(ac->active_url));
 			goto pkt_add_hdrs;
 
 		case ACME_STATE_START_CHALL:
@@ -1117,16 +1117,16 @@ pkt_add_hdrs:
 			end = &buf[sizeof(buf) - 1];
 
 			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{}");
-			strcpy(ac->active_url, ac->challenge_uri);
+			lws_strncpy(ac->active_url, ac->challenge_uri, sizeof(ac->active_url));
 			goto pkt_add_hdrs;
 
 		case ACME_STATE_POLLING:
-			strcpy(ac->active_url, ac->order_url);
+			lws_strncpy(ac->active_url, ac->order_url, sizeof(ac->active_url));
 			goto pkt_add_hdrs;
 
 		case ACME_STATE_POLLING_CSR:
 			if (ac->goes_around) {
-				strcpy(ac->active_url, ac->order_url);
+				lws_strncpy(ac->active_url, ac->order_url, sizeof(ac->active_url));
 				goto pkt_add_hdrs;
 			}
 			lwsl_vhost_notice(vhd->vhost, "Generating ACME CSR... may take a little while");
@@ -1142,11 +1142,11 @@ pkt_add_hdrs:
 			}
 			p += n;
 			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\"}");
-			strcpy(ac->active_url, ac->finalize_url);
+			lws_strncpy(ac->active_url, ac->finalize_url, sizeof(ac->active_url));
 			goto pkt_add_hdrs;
 
 		case ACME_STATE_DOWNLOAD_CERT:
-			strcpy(ac->active_url, ac->cert_url);
+			lws_strncpy(ac->active_url, ac->cert_url, sizeof(ac->active_url));
 			goto pkt_add_hdrs;
 			break;
 
