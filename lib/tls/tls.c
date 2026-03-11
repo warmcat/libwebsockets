@@ -620,3 +620,43 @@ lws_tls_use_any_upgrade_check_extant(const char *name)
 #endif
 	return LWS_TLS_EXTANT_YES;
 }
+
+LWS_VISIBLE int
+lws_tls_cert_get_x509_remaining(struct lws_context *context, const char *filepath, int *days_left, int *total_days)
+{
+	struct lws_x509_cert *x = NULL;
+	union lws_tls_cert_info_results cri, cri1;
+	uint8_t *p;
+	lws_filepos_t amount;
+	int res = -1;
+
+	*days_left = 0;
+	*total_days = 0;
+
+	if (alloc_file(context, filepath, &p, &amount))
+		return 1;
+
+	p[amount] = '\0';
+
+	if (lws_x509_create(&x))
+		goto bail;
+
+	if (lws_x509_parse_from_pem(x, p, (size_t)amount))
+		goto bail_destroy;
+
+	if (!lws_x509_info(x, LWS_TLS_CERT_INFO_VALIDITY_FROM, &cri, 0) &&
+	    !lws_x509_info(x, LWS_TLS_CERT_INFO_VALIDITY_TO, &cri1, 0)) {
+		time_t now = time(NULL);
+
+		*days_left = (int)((cri1.time - now) / (24 * 3600));
+		*total_days = (int)((cri1.time - cri.time) / (24 * 3600));
+		res = 0;
+	}
+
+bail_destroy:
+	lws_x509_destroy(&x);
+bail:
+	lws_free(p);
+
+	return res;
+}
