@@ -57,6 +57,7 @@ struct vhd_dht_dnssec {
 	uint64_t			manifest_next_offset;
 
 	uint8_t				bulk_fragment_checking:1;
+	lws_dll2_owner_t		owner_domains; /* tracking our lws_dht_dnssec_domain structures */
 	uint8_t				cli_bulk:1;
 	uint8_t				gen_manifest:1;
 	int				bulk_fragment_check_retries;
@@ -124,6 +125,24 @@ struct dht_fragment {
 	
 	uint8_t				ds_digest[64];
 	uint8_t				ds_digest_len;
+};
+
+struct lws_dht_dnssec_domain;
+
+/* Represents a single ACME temporary zone string for a given domain */
+struct lws_dht_dnssec_temp_record {
+	lws_dll2_t				list;
+	struct lws_dht_dnssec_domain		*domain;
+	lws_sorted_usec_list_t			sul_ttl;
+	char					*zone_str;
+};
+
+/* Represents a domain that has one or more temporary ACME strings active */
+struct lws_dht_dnssec_domain {
+	lws_dll2_t				list;
+	struct vhd_dht_dnssec			*vhd;
+	lws_dll2_owner_t			owner_temp_records;
+	char					domain_name[128];
 };
 
 typedef struct lws_dht_ts {
@@ -1175,7 +1194,11 @@ dht_dnssec_sul_timeout_cb(struct lws_sorted_usec_list *sul)
 	lwsl_user("%s: UDP timeout, initiating retry %d/3\n", __func__, vhd->put_retries);
 	
 	if (vhd->cli_get_hash || vhd->cli_get_domain) {
-		struct dht_fragment *frag = dht_dnssec_find_fragment(vhd, vhd->cli_get_hash);
+		struct dht_fragment *frag = NULL;
+		
+		if (vhd->cli_get_hash)
+			frag = dht_dnssec_find_fragment(vhd, vhd->cli_get_hash);
+			
 		if (frag) {
 			/* Retry next chunk specifically */
 			struct sockaddr_in sin;
@@ -1490,6 +1513,34 @@ dht_dnssec_sul_manifest_rcv_cb(struct lws_sorted_usec_list *sul)
 /* --- Protocol Handler --- */
 
 static int
+lws_dht_dnssec_temp_record_destroy(struct lws_dll2 *d, void *user)
+{
+	struct lws_dht_dnssec_temp_record *rec =
+		lws_container_of(d, struct lws_dht_dnssec_temp_record, list);
+
+	lws_sul_cancel(&rec->sul_ttl);
+	lws_dll2_remove(&rec->list);
+	if (rec->zone_str)
+		free(rec->zone_str);
+	free(rec);
+
+	return 0;
+}
+
+static int
+lws_dht_dnssec_domain_destroy(struct lws_dll2 *d, void *user)
+{
+	struct lws_dht_dnssec_domain *dom =
+		lws_container_of(d, struct lws_dht_dnssec_domain, list);
+
+	lws_dll2_foreach_safe(&dom->owner_temp_records, NULL, lws_dht_dnssec_temp_record_destroy);
+	lws_dll2_remove(&dom->list);
+	free(dom);
+
+	return 0;
+}
+
+static int
 callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 	void* user, void* in, size_t len)
 {
@@ -1566,7 +1617,8 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 		if ((pvo = lws_pvo_search(in, "dht-port"))) vhd->dht_port = atoi(pvo->value);
 		if (lws_pvo_get_str(in, "dht-iface", &vhd->dht_iface))
 			lwsl_info("no pvo for dht-iface\n");
-		lws_pvo_get_str(in, "dht-fallback-nodes", &fallback_nodes_path);
+		if (lws_pvo_get_str(in, "dht-fallback-nodes", &fallback_nodes_path))
+			lwsl_info("no pvo for dht-fallback-nodes\n");
 		if (lws_pvo_get_str(in, "target-ip", &vhd->target_ip) || !vhd->target_ip || !vhd->target_ip[0]) {
 			/* No CLI-supplied target-ip, try reading the shared fallback nodes list */
 			static char fallback_ip[64];
@@ -1650,6 +1702,7 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 		} else if (vhd->cli_receiver) {
 			lwsl_user("%s: Starting RECEIVER task\n", __func__);
 			lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_manifest_rcv_cb, 10);
+			lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_manifest_rcv_cb, 10);
 		}
 		break;
 	}
@@ -1663,6 +1716,8 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 		lws_sul_cancel(&vhd->sul_bulk);
 		lws_sul_cancel(&vhd->sul_timeout);
 		lws_jwk_destroy(&vhd->jwk);
+
+		lws_dll2_foreach_safe(&vhd->owner_domains, NULL, lws_dht_dnssec_domain_destroy);
 
 		lws_start_foreach_dll_safe(struct lws_dll2*, d, d1, lws_dll2_get_head(&vhd->fragments)) {
 			struct dht_fragment* frag = lws_container_of(d, struct dht_fragment, list);
@@ -1689,46 +1744,19 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 	return 0;
 }
 
-enum {
-	LWS_SW_CURVE,
-	LWS_SW_DURATION,
-	LWS_SW_HASH,
-	LWS_SW_KSK,
-	LWS_SW_ZSK,
-	LWS_SW_D,
-	LWS_SW_HELP,
-};
-
-static const struct lws_switches switches[] = {
-	[LWS_SW_CURVE]	= { "--curve",         "Enable --curve feature" },
-	[LWS_SW_DURATION]	= { "--duration",      "Enable --duration feature" },
-	[LWS_SW_HASH]	= { "--hash",          "Enable --hash feature" },
-	[LWS_SW_KSK]	= { "--ksk",           "Enable --ksk feature" },
-	[LWS_SW_ZSK]	= { "--zsk",           "Enable --zsk feature" },
-	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
-	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
-};
-
 static int
-do_keygen(struct lws_context *context, int argc, const char **argv)
+do_keygen(struct lws_context *context, struct lws_dht_dnssec_keygen_args *args)
 {
 	enum lws_gencrypto_kty kty = LWS_GENCRYPTO_KTY_EC;
-	const char *curve = "P-256", *domain = NULL;
-	const char *p;
+	const char *curve = args->curve ? args->curve : "P-256";
+	const char *domain = args->domain;
 	struct lws_jwk jwk;
-	int is_ksk = 0;
+	int is_ksk = args->is_ksk;
 	char key[32768];
 	int vl = sizeof(key);
 
-	if (lws_cmdline_option(argc, argv, switches[LWS_SW_KSK].sw))
-		is_ksk = 1;
-
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_CURVE].sw)))
-		curve = p;
-
-	domain = argv[argc - 1];
-	if (!domain || domain[0] == '-') {
-		lwsl_err("keygen requires a domain name as the final argument\n");
+	if (!domain || domain[0] == '\0') {
+		lwsl_err("keygen requires a domain name\n");
 		return 1;
 	}
 
@@ -1834,23 +1862,22 @@ calc_keytag(const uint8_t *rdata, int rdata_len)
 }
 
 static int
-do_dsfromkey(struct lws_context *context, int argc, const char **argv)
+do_dsfromkey(struct lws_context *context, struct lws_dht_dnssec_dsfromkey_args *args)
 {
-	const char *key_file = argv[argc - 1];
+	const char *key_file = args->key_file;
 	enum lws_genhash_types hash_idx = LWS_GENHASH_TYPE_SHA256;
 	int digest_type = 2; // SHA-256
-	const char *p;
 
-	if (!key_file || key_file[0] == '-') {
+	if (!key_file || key_file[0] == '\0') {
 		lwsl_err("dsfromkey requires a .key file\n");
 		return 1;
 	}
 
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_HASH].sw))) {
-		if (!strcmp(p, "SHA384")) {
+	if (args->hash) {
+		if (!strcmp(args->hash, "SHA384")) {
 			hash_idx = LWS_GENHASH_TYPE_SHA384;
 			digest_type = 4;
-		} else if (!strcmp(p, "SHA512")) {
+		} else if (!strcmp(args->hash, "SHA512")) {
 			hash_idx = LWS_GENHASH_TYPE_SHA512;
 			digest_type = 4; // BIND maps 384 as type 4. 512 has no standard IANA DS digest type yet, using 4.
 		}
@@ -1888,13 +1915,13 @@ do_dsfromkey(struct lws_context *context, int argc, const char **argv)
 		return 1;
 	}
 
-	int rdata_len = 4 + pub_len;
-	uint16_t keytag = calc_keytag(rdata, rdata_len);
+	size_t rdata_len = 4 + (size_t)pub_len;
+	uint16_t keytag = calc_keytag(rdata, (int)rdata_len);
 
 	uint8_t payload[8192];
 	int name_len = name_to_wire(domain, payload);
 	memcpy(payload + name_len, rdata, (size_t)rdata_len);
-	int payload_len = name_len + rdata_len;
+	size_t payload_len = (size_t)name_len + rdata_len;
 
 	struct lws_genhash_ctx hash_ctx;
 	uint8_t digest[64];
@@ -1922,41 +1949,105 @@ do_dsfromkey(struct lws_context *context, int argc, const char **argv)
 }
 
 static int
-do_signzone(struct lws_context *context, int argc, const char **argv)
+do_signzone(struct lws_context *context, struct lws_dht_dnssec_signzone_args *args)
 {
 #if defined(LWS_WITH_AUTHORITATIVE_DNS)
 	struct lws_auth_dns_sign_info info;
-	const char *p;
 
 	memset(&info, 0, sizeof(info));
 	info.cx = context;
 
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_ZSK].sw)))
-		info.zsk_jwk_filepath = p;
+	if (args->zsk_jwk_filepath)
+		info.zsk_jwk_filepath = args->zsk_jwk_filepath;
 	else {
-		lwsl_err("signzone requires --zsk myzone.zsk.private.jwk\n");
+		lwsl_err("signzone requires zsk_jwk_filepath\n");
 		return 1;
 	}
 
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_KSK].sw)))
-		info.ksk_jwk_filepath = p;
+	if (args->ksk_jwk_filepath)
+		info.ksk_jwk_filepath = args->ksk_jwk_filepath;
 
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_DURATION].sw)))
-		info.sign_validity_duration = (uint32_t)atoi(p);
+	if (args->sign_validity_duration)
+		info.sign_validity_duration = args->sign_validity_duration;
 
-	if (argc < 4 || argv[argc - 3][0] == '-' || argv[argc - 2][0] == '-' || argv[argc - 1][0] == '-') {
-		lwsl_err("Usage: signzone --zsk ... <in.zone> <out.zone> <out.jws>\n");
+	if (!args->input_filepath || !args->output_filepath || !args->jws_filepath) {
+		lwsl_err("signzone requires input, output, and jws filepaths\n");
 		return 1;
 	}
 
-	info.input_filepath = argv[argc - 3];
-	info.output_filepath = argv[argc - 2];
-	info.jws_filepath = argv[argc - 1];
+	info.input_filepath = args->input_filepath;
+	info.output_filepath = args->output_filepath;
+	info.jws_filepath = args->jws_filepath;
+
+	/* Create temporary merged zonefile if there are active ACME records */
+	struct vhd_dht_dnssec *v = (struct vhd_dht_dnssec *)lws_protocol_vh_priv_get(
+				lws_get_vhost_by_name(context, "default"),
+				lws_vhost_name_to_protocol(lws_get_vhost_by_name(context, "default"), "lws-dht-dnssec"));
+	char withacme_path[256];
+	int fd_in, fd_out;
+	ssize_t n;
+	char buf[4096];
+
+	if (v && args->domain) {
+		lws_dll2_t *d, *d2;
+		struct lws_dht_dnssec_domain *dom = NULL;
+
+		for (d = v->owner_domains.head; d; d = d->next) {
+			struct lws_dht_dnssec_domain *td = lws_container_of(d, struct lws_dht_dnssec_domain, list);
+			if (!strcmp(td->domain_name, args->domain)) {
+				dom = td;
+				break;
+			}
+		}
+
+		if (dom && dom->owner_temp_records.count > 0) {
+			lws_snprintf(withacme_path, sizeof(withacme_path), "%s.withacme", args->input_filepath);
+			lwsl_notice("%s: Merging %d ACME temp zones into %s\n", __func__, dom->owner_temp_records.count, withacme_path);
+
+			fd_in = open(args->input_filepath, O_RDONLY);
+			if (fd_in >= 0) {
+				fd_out = open(withacme_path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+				if (fd_out >= 0) {
+					/* Copy original zonefile */
+					while ((n = read(fd_in, buf, sizeof(buf))) > 0) {
+						if (write(fd_out, buf, (size_t)n) != n) {
+							lwsl_err("Failed to write to %s\n", withacme_path);
+							break;
+						}
+					}
+					
+					/* Append ACME temp zones */
+					for (d2 = dom->owner_temp_records.head; d2; d2 = d2->next) {
+						struct lws_dht_dnssec_temp_record *rec =
+							lws_container_of(d2, struct lws_dht_dnssec_temp_record, list);
+						if (rec->zone_str) {
+							write(fd_out, "\n", 1);
+							write(fd_out, rec->zone_str, strlen(rec->zone_str));
+							write(fd_out, "\n", 1);
+						}
+					}
+					
+					close(fd_out);
+					info.input_filepath = withacme_path; /* Use merged file for signing */
+				} else {
+					lwsl_err("Failed to open %s for writing\n", withacme_path);
+				}
+				close(fd_in);
+			} else {
+				lwsl_err("Failed to open %s for reading\n", args->input_filepath);
+			}
+		}
+	}
 
 	if (lws_auth_dns_sign_zone(&info)) {
 		lwsl_err("lws_auth_dns_sign_zone failed\n");
+		if (info.input_filepath == withacme_path)
+			unlink(withacme_path);
 		return 1;
 	}
+
+	if (info.input_filepath == withacme_path)
+		unlink(withacme_path);
 
 	return 0;
 #else
@@ -1965,10 +2056,84 @@ do_signzone(struct lws_context *context, int argc, const char **argv)
 #endif
 }
 
+static void
+cb_temp_record_ttl(lws_sorted_usec_list_t *sul)
+{
+	struct lws_dht_dnssec_temp_record *rec =
+		lws_container_of(sul, struct lws_dht_dnssec_temp_record, sul_ttl);
+
+	lwsl_notice("%s: ACME temp zone TTL expired for %s\n", __func__, rec->domain->domain_name);
+	
+	lws_dll2_remove(&rec->list);
+	if (rec->zone_str)
+		free(rec->zone_str);
+	free(rec);
+}
+
+static int
+do_add_temp_zone(struct lws_context *context, const char *domain, const char *zone_str, int ttl_secs)
+{
+	struct vhd_dht_dnssec *v = (struct vhd_dht_dnssec *)lws_protocol_vh_priv_get(
+				lws_get_vhost_by_name(context, "default"),
+				lws_vhost_name_to_protocol(lws_get_vhost_by_name(context, "default"), "lws-dht-dnssec"));
+	struct lws_dht_dnssec_domain *dom = NULL;
+	struct lws_dht_dnssec_temp_record *rec;
+	lws_dll2_t *d;
+
+	if (!v) {
+		lwsl_err("%s: no vhd found\n", __func__);
+		return 1;
+	}
+	
+	for (d = v->owner_domains.head; d; d = d->next) {
+		struct lws_dht_dnssec_domain *td = lws_container_of(d, struct lws_dht_dnssec_domain, list);
+		if (!strcmp(td->domain_name, domain)) {
+			dom = td;
+			break;
+		}
+	}
+
+	if (!dom) {
+		dom = malloc(sizeof(*dom));
+		if (!dom) return 1;
+		memset(dom, 0, sizeof(*dom));
+		lws_strncpy(dom->domain_name, domain, sizeof(dom->domain_name));
+		dom->vhd = v;
+		lws_dll2_add_tail(&dom->list, &v->owner_domains);
+	}
+
+	/* Create the new temporary zone record */
+	rec = malloc(sizeof(*rec));
+	if (!rec) return 1;
+	memset(rec, 0, sizeof(*rec));
+
+	rec->zone_str = strdup(zone_str);
+	if (!rec->zone_str) {
+		free(rec);
+		return 1;
+	}
+	rec->domain = dom;
+
+	lws_dll2_add_tail(&rec->list, &dom->owner_temp_records);
+	lws_sul_schedule(context, 0, &rec->sul_ttl, cb_temp_record_ttl, ttl_secs * LWS_US_PER_SEC);
+
+	lwsl_notice("%s: added temp zone for %s (ttl %ds)\n", __func__, domain, ttl_secs);
+	return 0;
+}
+
+static int
+do_publish_jws(struct lws_context *context, const char *jws_filepath)
+{
+	lwsl_notice("%s: stub implementation (publish %s)\n", __func__, jws_filepath);
+	return 0; // TODO in later phases
+}
+
 static const struct lws_dht_dnssec_ops ops = {
 	.keygen = do_keygen,
 	.dsfromkey = do_dsfromkey,
 	.signzone = do_signzone,
+	.add_temp_zone = do_add_temp_zone,
+	.publish_jws = do_publish_jws,
 };
 
 LWS_VISIBLE const struct lws_protocols lws_dht_dnssec_protocols[] = {

@@ -106,11 +106,44 @@ int main(int argc, const char **argv)
 	const char *mode = argv[1];
 
 	if (!strcmp(mode, "keygen")) {
-		if (ops->keygen) result = ops->keygen(context, argc, argv);
+		struct lws_dht_dnssec_keygen_args kg_args;
+		memset(&kg_args, 0, sizeof(kg_args));
+		
+		if (lws_cmdline_option(argc, argv, switches[LWS_SW_KSK].sw))
+			kg_args.is_ksk = 1;
+		if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_CURVE].sw)))
+			kg_args.curve = p;
+		
+		kg_args.domain = argv[argc - 1];
+
+		if (ops->keygen) result = ops->keygen(context, &kg_args);
 	} else if (!strcmp(mode, "dsfromkey")) {
-		if (ops->dsfromkey) result = ops->dsfromkey(context, argc, argv);
+		struct lws_dht_dnssec_dsfromkey_args ds_args;
+		memset(&ds_args, 0, sizeof(ds_args));
+
+		ds_args.key_file = argv[argc - 1];
+		if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_HASH].sw)))
+			ds_args.hash = p;
+
+		if (ops->dsfromkey) result = ops->dsfromkey(context, &ds_args);
 	} else if (!strcmp(mode, "signzone")) {
-		if (ops->signzone) result = ops->signzone(context, argc, argv);
+		struct lws_dht_dnssec_signzone_args sz_args;
+		memset(&sz_args, 0, sizeof(sz_args));
+
+		if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_ZSK].sw)))
+			sz_args.zsk_jwk_filepath = p;
+		if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_KSK].sw)))
+			sz_args.ksk_jwk_filepath = p;
+		if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_DURATION].sw)))
+			sz_args.sign_validity_duration = (uint32_t)atoi(p);
+
+		if (argc >= 4 && argv[argc - 3][0] != '-' && argv[argc - 2][0] != '-' && argv[argc - 1][0] != '-') {
+			sz_args.input_filepath = argv[argc - 3];
+			sz_args.output_filepath = argv[argc - 2];
+			sz_args.jws_filepath = argv[argc - 1];
+		}
+
+		if (ops->signzone) result = ops->signzone(context, &sz_args);
 	} else {
 		lwsl_err("Unknown mode: %s. Use keygen, dsfromkey, or signzone.\n", mode);
 		result = 1;
