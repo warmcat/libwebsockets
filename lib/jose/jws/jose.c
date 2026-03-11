@@ -164,11 +164,12 @@ lws_jws_jose_cb(struct lejp_ctx *ctx, char reason)
 	/*
 	 * In JOSE JSON, the element "epk" contains a fully-formed JWK.
 	 *
-	 * For JOSE paths beginning "epk.", we pass them through to a JWK
+	 * For JOSE paths beginning "epk." or "jwk.", we pass them through to a JWK
 	 * LEJP subcontext to parse using the JWK parser directly.
 	 */
 
-	if (args->is_jwe && !strncmp(ctx->path, "epk.", 4)) {
+	if ((args->is_jwe && !strncmp(ctx->path, "epk.", 4)) ||
+	    !strncmp(ctx->path, "jwk.", 4)) {
 		memcpy(args->jwk_jctx.path, ctx->path + 4,
 		       sizeof(ctx->path) - 4);
 		memcpy(args->jwk_jctx.buf, ctx->buf, ctx->npos);
@@ -181,6 +182,8 @@ lws_jws_jose_cb(struct lejp_ctx *ctx, char reason)
 		if (args->jwk_jctx.path_match)
 			args->jwk_jctx.pst[args->jwk_jctx.pst_sp].
 				callback(&args->jwk_jctx, reason);
+
+		return 0;
 	}
 
 	// lwsl_notice("%s: %s %d (%d)\n", __func__, ctx->path, reason, ctx->sp);
@@ -421,9 +424,14 @@ lws_jose_parse(struct lws_jose *jose, const uint8_t *buf, int n,
 		lws_jwk_init_jps(&args.jps,
 				 &jose->recipient[jose->recipients].jwk_ephemeral,
 				 NULL, NULL);
-		lejp_construct(&args.jwk_jctx, cb_jwk, &args.jps,
-				jwk_tok, LWS_ARRAY_SIZE(jwk_tok));
+	} else {
+		/* prepare a context for JOSE jwk embedded public key parsing */
+		lws_jwk_init_jps(&args.jps,
+				 &jose->recipient[jose->recipients].jwk,
+				 NULL, NULL);
 	}
+	lejp_construct(&args.jwk_jctx, cb_jwk, &args.jps,
+			jwk_tok, LWS_ARRAY_SIZE(jwk_tok));
 
 	args.is_jwe		= (unsigned int)is_jwe;
 	args.temp		= temp;

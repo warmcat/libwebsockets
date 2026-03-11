@@ -33,3 +33,4 @@ You can deploy the plugin using the `lwsws` JSON configuration format within a v
 | `dht-storage-path` | **Required** | The filesystem directory path where the node should operate its logical data store |
 | `dht-port` | Yes | The UDP port the underlying DHT node will establish on (default: `5000`) |
 | `dht-iface` | Yes | The specific network interface to bind the DHT socket (default: binds to all available if undefined) |
+| `dht-fallback-nodes` | Yes | The filesystem path to the fallback nodes list text file (default: `${LWS_INSTALL_DATADIR}/libwebsockets/libwebsockets-dht-nodes.txt`) |

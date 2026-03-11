@@ -174,6 +174,11 @@ struct storage {
 
 #endif
 
+struct lws_dht_verb {
+	const char *name;
+	const struct lws_protocols *protocol;
+};
+
 struct lws_dht_verb_list {
 	lws_dll2_t		list;
 	struct lws_dht_verb	v;
@@ -241,6 +246,7 @@ struct lws_dht_ctx {
 	uint8_t			have_v:1;
 	uint8_t			legacy:1;
 
+	const char		*fallback_nodes_path;
 	const char		*iface;
 	lws_dht_blacklist_cb_t	*blacklist_cb;
 	lws_dht_hash_cb_t	*hash_cb;
@@ -366,5 +372,6 @@ int lws_dht_ping_node(struct lws_dht_ctx *ctx, struct sockaddr *sa, size_t salen
 int lws_dht_send_data_at(struct lws_dht_ctx *ctx, const struct sockaddr *dest, uint64_t offset, const void *data, size_t len);
 int lws_dht_msg_gen(char *out, size_t len, const char *verb, const char *hash, unsigned long long offset, unsigned long long len_val);
 int lws_dht_msg_parse(const char *in, size_t len, struct lws_dht_msg *out);
-int lws_dht_register_verbs(struct lws_dht_ctx *ctx, const struct lws_dht_verb *verbs, int count);
+int
+lws_dht_register_verbs(struct lws_dht_ctx *ctx, const char **verbs, int count, const struct lws_protocols *protocol);
 struct lws_dht_ctx * lws_dht_get_by_name(struct lws_vhost *vhost, const char *name);

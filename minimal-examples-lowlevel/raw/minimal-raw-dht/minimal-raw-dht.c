@@ -34,6 +34,7 @@ static struct lws_context *cx;
 static lws_state_notify_link_t *const app_notifier_list[] = {&nl, NULL};
 extern const struct lws_protocols lws_dht_object_store_protocols[];
 extern const struct lws_protocols lws_dht_stats_protocols[];
+extern const struct lws_protocols lws_dht_dnssec_protocols[];
 
 static void
 dht_completion_cb(void *closure, int result)
@@ -42,7 +43,7 @@ dht_completion_cb(void *closure, int result)
 
 	*p_interrupted = 1;
 
-	lwsl_user("dht_completion_cb called! result: %d\n", result);
+	// lwsl_user("dht_completion_cb called! result: %d\n", result);
 
 	if (!result)
 		retcode = 0;
@@ -53,7 +54,7 @@ dht_completion_cb(void *closure, int result)
 struct lws_protocol_vhost_options pvos[] = {
 	{
 		.options	= &pvos[1],
-		.next		= NULL,
+		.next		= &pvos[17],
 		.name		= "lws-dht-object-store",
 		.value		= "ok"
 	},
@@ -127,7 +128,7 @@ struct lws_protocol_vhost_options pvos[] = {
 		.options	= NULL,
 		.next		= &pvos[13],
 		.name		= "dht-iface",
-		.value		= "127.0.0.1"
+		.value		= "0.0.0.0"
 	},
 	{
 		.options	= NULL,
@@ -153,6 +154,12 @@ struct lws_protocol_vhost_options pvos[] = {
 		.name		= "dht-test-handshake",
 		.value		= ""
 	},
+	{
+		.options	= &pvos[1],
+		.next		= NULL,
+		.name		= "lws-dht-dnssec",
+		.value		= ""
+	},
 };
 
 static const struct lws_http_mount mount_stats = {
@@ -163,7 +170,7 @@ static const struct lws_http_mount mount_stats = {
 	.mountpoint_len		= 1,
 };
 
-static struct lws_protocols app_protocols[4];
+static struct lws_protocols app_protocols[5];
 
 static int
 app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
@@ -181,24 +188,40 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		lwsl_user("%s: OPERATIONAL->creating vhost\n", __func__);
 
 		memset(&info, 0, sizeof(info));
-                info.vhost_name = "http";
-                info.port = 8080;
-                info.protocols = app_protocols;
-                info.mounts = &mount_stats;
-                info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+                info.vhost_name		= "http";
+                info.port		= 8080;
+                info.protocols		= app_protocols;
+                info.mounts		= &mount_stats;
+                info.options		= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
                 vh = lws_create_vhost(cx, &info);
                 if (!vh) {
 			lwsl_err("http vhost creation failed\n");
 			return 0;
 		}
 
+		if (!lws_vhost_name_to_protocol(vh, "lws-dht-stats")) {
+			lwsl_err("dht-stats protocol plugin not found\n");
+			return 0;
+		}
+
 		memset(&info, 0, sizeof(info));
-                info.vhost_name = "dht";
-                info.pvo = pvos;
-                info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+                info.vhost_name		= "dht";
+                info.pvo		= pvos;
+		info.port		= atoi(port_buf);
+		info.protocols		= app_protocols;
+                info.options		= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
                 vh = lws_create_vhost(cx, &info);
                 if (!vh) {
 			lwsl_err("vhost creation failed\n");
+			return 0;
+		}
+
+		if (!lws_vhost_name_to_protocol(vh, "lws-dht-dnssec")) {
+			lwsl_err("dht-dnssec protocol plugin not found\n");
+			return 0;
+		}
+		if (!lws_vhost_name_to_protocol(vh, "lws-dht-object-store")) {
+			lwsl_err("dht-object-store protocol plugin not found\n");
 			return 0;
 		}
 
@@ -277,15 +300,18 @@ int main(int argc, const char **argv)
 		pvos[16].value = "1";
 
 
+	static const char * const d_plugin_dirs[] = { NULL };
+
 	app_protocols[0].name = "http";
 	app_protocols[0].callback = lws_callback_http_dummy;
-	app_protocols[1] = lws_dht_stats_protocols[0];
-	app_protocols[2] = lws_dht_object_store_protocols[0];
+	app_protocols[1].name = NULL;
+	app_protocols[1].callback = NULL;
 
 	info.port				= CONTEXT_PORT_NO_LISTEN;
 	info.options				= LWS_SERVER_OPTION_EXPLICIT_VHOSTS | LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.pvo				= pvos;
 	info.protocols				= app_protocols;
+	info.plugin_dirs			= d_plugin_dirs;
 	info.fd_limit_per_thread		= 100;
 
         nl.name					= "app";

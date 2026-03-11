@@ -115,6 +115,7 @@ typedef enum {
 	LWS_DHT_VERB_RESULT_DROP_OLDER = 1,    /* The incoming object is older than what we have; reject it. */
 	LWS_DHT_VERB_RESULT_REPLACE_OLDER = 2, /* The incoming object is newer; accept and replace. */
 	LWS_DHT_VERB_RESULT_PENDING_ASYNC = 3, /* Validation is asynchronous; hold off on core DHT actions. */
+	LWS_DHT_VERB_RESULT_PASS = 4,          /* Pass to the next registered plugin handler */
 	LWS_DHT_VERB_RESULT_ERROR = -1
 } lws_dht_verb_result_t;
 
@@ -165,10 +166,7 @@ struct lws_dht_verb_dispatch_args {
 	lws_dht_verb_result_t out_precedence;
 };
 
-struct lws_dht_verb {
-	const char *name;
-	const struct lws_protocols *protocol;
-};
+
 
 /**
  * lws_dht_msg_parse() - Parse a raw DHT message
@@ -202,13 +200,14 @@ lws_dht_msg_gen(char *out, size_t len, const char *verb, const char *hash, unsig
  * lws_dht_register_verbs() - Register custom verb handlers
  *
  * \param ctx: DHT context
- * \param verbs: array of lws_dht_verb_t
+ * \param verbs: array of verb string names
  * \param count: number of verbs in array
+ * \param protocol: the unified protocol handler owning these verbs
  *
  * \return 0 on success, non-zero on error
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_dht_register_verbs(struct lws_dht_ctx *ctx, const struct lws_dht_verb *verbs, int count);
+lws_dht_register_verbs(struct lws_dht_ctx *ctx, const char **verbs, int count, const struct lws_protocols *protocol);
 
 /**
  * lws_dht_blacklist_cb_t() - DHT blacklist check callback
@@ -310,6 +309,7 @@ typedef struct lws_dht_info {
 	uint8_t				legacy:1;
 	uint8_t				aux;
 	const char			*iface;
+	const char			*fallback_nodes_path;
 	lws_dht_blacklist_cb_t		*blacklist_cb;
 	lws_dht_hash_cb_t		*hash_cb;
 	lws_dht_capture_announce_cb_t	*capture_announce_cb;
@@ -334,6 +334,16 @@ lws_dht_create(const lws_dht_info_t *info);
  */
 LWS_VISIBLE LWS_EXTERN void *
 lws_dht_get_closure(struct lws_dht_ctx *ctx);
+
+/**
+ * lws_dht_get_myid() - Get the local node's DHT ID hash
+ *
+ * \param ctx: DHT context
+ *
+ * \return the local node's ID hash
+ */
+LWS_VISIBLE LWS_EXTERN const lws_dht_hash_t *
+lws_dht_get_myid(struct lws_dht_ctx *ctx);
 
 /**
  * lws_dht_destroy() - Destroy a DHT context
@@ -465,6 +475,18 @@ lws_dht_get_nodes(struct lws_dht_ctx *ctx, struct sockaddr_in *sin, int *num,
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_dht_get_external_addr(struct lws_dht_ctx *ctx, struct sockaddr_storage *ss, size_t *sslen);
+
+/**
+ * lws_dht_get_fallback_node() - Retrieves a default DHT node from the system installation
+ *
+ * \param cx: lws_context to seed the randomizer
+ * \param result: buffer to write the randomly chosen fallback node IP:port
+ * \param result_len: size of the output buffer
+ *
+ * \return 0 on success, or -1 if the fallback file could not be read.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dht_get_fallback_node(struct lws_context *cx, const char *custom_path, char *result, size_t result_len);
 
 #endif /* __LWS_DHT_H__ */
 

@@ -1,12 +1,11 @@
 project(lws-minimal-raw-dht-zone-client C)
-cmake_minimum_required(VERSION 2.8.12)
+cmake_minimum_required(VERSION 3.10)
 find_package(libwebsockets CONFIG REQUIRED)
-list(APPEND CMAKE_MODULE_PATH ${LWS_CMAKE_DIR})
 include(CheckCSourceCompiles)
 include(LwsCheckRequirements)
 
 set(SAMP lws-minimal-raw-dht-zone-client)
-set(SRCS minimal-raw-dht-zone-client.c ../../../../plugins/protocol_lws_dht_dnssec/protocol_lws_dht_dnssec.c)
+set(SRCS minimal-raw-dht-zone-client.c )
 
 set(requirements 1)
 require_lws_config(LWS_WITH_DHT 1 requirements)
@@ -31,4 +30,9 @@ if (requirements)
 		# Link against the plugin so it can instantiate lws-dht-dnssec
 		add_dependencies(${SAMP} protocol_lws_dht_dnssec)
 	endif()
+
+	install(TARGETS ${SAMP}
+		RUNTIME DESTINATION ${LWS_INSTALL_BIN_DIR}
+		COMPONENT core)
+
 endif()
