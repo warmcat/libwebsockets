@@ -291,6 +291,12 @@ if (LWS_WITH_DHT)
 	if (NOT LWS_WITH_PLUGINS_BUILTIN)
 		target_compile_definitions(protocol_lws_dht_dnssec PRIVATE LWS_BUILDING_SHARED)
 	endif()
+
+	create_plugin(protocol_lws_dht_dnssec_monitor ""
+		      "protocol_lws_dht_dnssec_monitor/protocol_lws_dht_dnssec_monitor.c" "" "")
+	if (NOT LWS_WITH_PLUGINS_BUILTIN)
+		target_compile_definitions(protocol_lws_dht_dnssec_monitor PRIVATE LWS_BUILDING_SHARED)
+	endif()
 endif()
 
 # create_plugin(protocol_lws_webrtc ""

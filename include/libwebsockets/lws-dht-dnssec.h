@@ -27,10 +27,34 @@
 
 struct lws_context;
 
+struct lws_dht_dnssec_keygen_args {
+	const char *domain;
+	const char *curve;
+	int is_ksk;
+};
+
+struct lws_dht_dnssec_dsfromkey_args {
+	const char *key_file;
+	const char *hash;   /* E.g., "SHA256" */
+};
+
+struct lws_dht_dnssec_signzone_args {
+	const char *domain;
+	const char *input_filepath;
+	const char *output_filepath;
+	const char *jws_filepath;
+	const char *zsk_jwk_filepath;
+	const char *ksk_jwk_filepath;
+	uint32_t sign_validity_duration;
+};
+
 struct lws_dht_dnssec_ops {
-	int (*keygen)(struct lws_context *context, int argc, const char **argv);
-	int (*dsfromkey)(struct lws_context *context, int argc, const char **argv);
-	int (*signzone)(struct lws_context *context, int argc, const char **argv);
+	int (*keygen)(struct lws_context *context, struct lws_dht_dnssec_keygen_args *args);
+	int (*dsfromkey)(struct lws_context *context, struct lws_dht_dnssec_dsfromkey_args *args);
+	int (*signzone)(struct lws_context *context, struct lws_dht_dnssec_signzone_args *args);
+
+	int (*add_temp_zone)(struct lws_context *context, const char *domain, const char *zone_str, int ttl_secs);
+	int (*publish_jws)(struct lws_context *context, const char *jws_filepath);
 };
 
 #endif
