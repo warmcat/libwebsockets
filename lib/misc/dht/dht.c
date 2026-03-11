@@ -102,7 +102,7 @@ dht_tx_chunk(struct lws_transport_sequencer *ts, uint64_t offset,
 			i += 20;
 		}
 	} else {
-		if (dht_tx_check(sizeof(pkt), i, 2 + dts->ctx->myid->len)) goto fail;
+		if (dht_tx_check(sizeof(pkt), i, (size_t)(2 + dts->ctx->myid->len))) goto fail;
 		pkt[i++] = (char)dts->ctx->myid->type;
 		pkt[i++] = (char)dts->ctx->myid->len;
 		memcpy(pkt + i, dts->ctx->myid->id, dts->ctx->myid->len);
@@ -180,7 +180,52 @@ dht_on_rx_data(struct lws_transport_sequencer *ts, uint64_t offset,
 	lws_dht_ts_t *dts = (lws_dht_ts_t *)lws_transport_sequencer_get_info(ts)->user_data;
 	struct lws_dht_msg msg;
 
-	if (!lws_dht_msg_parse((const char *)buf, len, &msg)) {
+	lwsl_user("%s: [DEBUG] Received raw UDP packet on sequencer: offset=%llu len=%zu\n", __func__, (unsigned long long)offset, len);
+
+	int parse_ret = lws_dht_msg_parse((const char *)buf, len, &msg);
+	if (!parse_ret) {
+		if (!strcmp(msg.verb, "CAP_REQ")) {
+			char ack[512], json[384];
+			int n = lws_snprintf(json, sizeof(json), "{\"protocols\":[");
+			int first = 1;
+			const char *last_proto = NULL;
+			
+			/* Gather protocols (dumb uniqueness since they are added consecutively by register_verbs) */
+			lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&dts->ctx->verb_owner)) {
+				struct lws_dht_verb_list *vl = lws_container_of(d, struct lws_dht_verb_list, list);
+				
+				lwsl_user("CAP_REQ Generator Iteration: verb=%s, protocol=%s\n", 
+					vl->v.name ? vl->v.name : "null", 
+					(vl->v.protocol && vl->v.protocol->name) ? vl->v.protocol->name : "null");
+				
+				if (vl->v.protocol && (!last_proto || strcmp(vl->v.protocol->name, last_proto) != 0)) {
+					n += lws_snprintf(json + n, sizeof(json) - (size_t)n, "%s\"%s\"", first ? "" : ",", vl->v.protocol->name);
+					last_proto = vl->v.protocol->name;
+					first = 0;
+				}
+			} lws_end_foreach_dll(d);
+			
+			/* Also return the peer's perceived public IP/port */
+			if (dts->sa.ss_family == AF_INET) {
+				struct sockaddr_in *sin = (struct sockaddr_in *)&dts->sa;
+				char ip[64];
+				inet_ntop(AF_INET, &sin->sin_addr, ip, sizeof(ip));
+				lws_snprintf(json + n, sizeof(json) - (size_t)n, "],\"peer_ip\":\"%s\",\"peer_port\":%d}", ip, ntohs(sin->sin_port));
+			} else {
+				struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)&dts->sa;
+				char ip[64];
+				inet_ntop(AF_INET6, &sin6->sin6_addr, ip, sizeof(ip));
+				lws_snprintf(json + n, sizeof(json) - (size_t)n, "],\"peer_ip\":\"%s\",\"peer_port\":%d}", ip, ntohs(sin6->sin6_port));
+			}
+			
+			n = lws_dht_msg_gen(ack, sizeof(ack), "CAP_RSP", msg.hash, 0, (unsigned long long)strlen(json));
+			if (n > 0 && (size_t)n + strlen(json) < sizeof(ack)) {
+				memcpy(ack + n, json, strlen(json));
+				lws_dht_send_data(dts->ctx, (const struct sockaddr *)&dts->sa, ack, (size_t)n + strlen(json));
+			}
+			return 0;
+		}
+
 		lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&dts->ctx->verb_owner)) {
 			struct lws_dht_verb_list *vl = lws_container_of(d, struct lws_dht_verb_list, list);
 
@@ -213,6 +258,13 @@ dht_on_rx_data(struct lws_transport_sequencer *ts, uint64_t offset,
 				
 				if (n < 0 || args.out_precedence == LWS_DHT_VERB_RESULT_DROP_OLDER || args.out_precedence == LWS_DHT_VERB_RESULT_ERROR)
 					return -1;
+
+				if (args.out_precedence == LWS_DHT_VERB_RESULT_PASS)
+					/* 
+					 * The plugin actively declined to handle this payload and delegated it
+					 * to the next plugin in the chain. Let's continue traversing the list!
+					 */
+					continue;
 
 				if (args.out_precedence == LWS_DHT_VERB_RESULT_PENDING_ASYNC) {
 					/* The plugin will handle validation asynchronously and ACK later. 
@@ -467,8 +519,14 @@ lws_dht_get_external_addr(struct lws_dht_ctx *ctx, struct sockaddr_storage *ss,
 struct lws_dht_ctx *
 lws_dht_create(const lws_dht_info_t *info)
 {
-	struct lws_dht_ctx *ctx = lws_zalloc(sizeof(*ctx), "dht ctx");
+	struct lws_dht_ctx *ctx;
 	int rc;
+
+	if (info->vhost && info->vhost->dht_owner.head) {
+		return lws_container_of(info->vhost->dht_owner.head, struct lws_dht_ctx, list);
+	}
+
+	ctx = lws_zalloc(sizeof(*ctx), "dht ctx");
 	(void)rc;
 
 	if (!ctx) {
@@ -476,11 +534,17 @@ lws_dht_create(const lws_dht_info_t *info)
 		return NULL;
 	}
 
-	ctx->vhost			= info->vhost;
-	ctx->cb				= info->cb;
-	ctx->closure			= info->closure;
-	ctx->legacy			= info->legacy;
-	ctx->iface			= info->iface;
+	if (!info->vhost) {
+		lws_free(ctx);
+		return NULL;
+	}
+
+	ctx->vhost = info->vhost;
+	ctx->cb = info->cb;
+	ctx->closure = info->closure;
+	ctx->iface = info->iface;
+	ctx->fallback_nodes_path = info->fallback_nodes_path;
+	ctx->blacklist_cb = info->blacklist_cb;
 	if (info->name) {
 		ctx->name = lws_strdup(info->name);
 		if (!ctx->name) {
@@ -488,7 +552,6 @@ lws_dht_create(const lws_dht_info_t *info)
 			goto fail;
 		}
 	}
-	ctx->blacklist_cb		= info->blacklist_cb;
 	ctx->hash_cb			= info->hash_cb;
 	ctx->capture_announce_cb	= info->capture_announce_cb;
 	lws_dll2_owner_clear(&ctx->ts_owner);
@@ -544,7 +607,7 @@ lws_dht_create(const lws_dht_info_t *info)
 	}
 #endif
 
-	if (info->port) {
+	if (info->port >= 0) {
 		const char *v4ads = ctx->iface;
 		if (!v4ads)
 			v4ads = "0.0.0.0";
@@ -616,7 +679,14 @@ fail:
 void *
 lws_dht_get_closure(struct lws_dht_ctx *ctx)
 {
+	if (!ctx) return NULL;
 	return ctx->closure;
+}
+
+const lws_dht_hash_t *
+lws_dht_get_myid(struct lws_dht_ctx *ctx)
+{
+	return ctx->myid;
 }
 
 void
@@ -795,9 +865,6 @@ lws_dht_msg_gen(char *out, size_t len, const char *verb, const char *hash, unsig
 int
 lws_dht_msg_parse(const char *in, size_t len, struct lws_dht_msg *out)
 {
-	struct lws_tokenize ts;
-	lws_tokenize_elem e;
-	char tmp[32];
 	int step = 0;
 
 	if (!in || !out || len < 10)
@@ -805,54 +872,61 @@ lws_dht_msg_parse(const char *in, size_t len, struct lws_dht_msg *out)
 
 	memset(out, 0, sizeof(*out));
 
-	lws_tokenize_init(&ts, in, LWS_TOKENIZE_F_MINUS_NONTERM |
-				   LWS_TOKENIZE_F_DOT_NONTERM |
-				   LWS_TOKENIZE_F_SLASH_NONTERM);
-	ts.len = len;
+	/* Print the top level header for debug */
+	if (len > 32) {
+		char dbg[128];
+		lws_strncpy(dbg, in, sizeof(dbg));
+		lwsl_user("lws_dht_msg_parse: len=%zu header='%s'\n", len, dbg);
+	}
 
-	do {
-		e = lws_tokenize(&ts);
+	const char *p = in;
+	const char *end = in + len;
 
-		if (e < 0)
-			break;
+	/* Parse 4 space-delimited tokens */
+	while (p < end && step < 4) {
+		const char *token_start = p;
+		while (p < end && *p != ' ') p++;
+		size_t tlen = (size_t)(p - token_start);
 
-		if (e == LWS_TOKZE_TOKEN || e == LWS_TOKZE_INTEGER || e == LWS_TOKZE_FLOAT) {
-			switch (step) {
-			case 0:
-				lws_tokenize_cstr(&ts, out->verb, sizeof(out->verb));
-				break;
-			case 1:
-				lws_tokenize_cstr(&ts, out->hash, sizeof(out->hash));
-				break;
-			case 2:
-				if (!lws_tokenize_cstr(&ts, tmp, sizeof(tmp)))
-					out->offset = (unsigned long long)strtoull(tmp, NULL, 10);
-				break;
-			case 3:
-				if (!lws_tokenize_cstr(&ts, tmp, sizeof(tmp)))
-					out->len = (unsigned long long)strtoull(tmp, NULL, 10);
-				
-				/* Payload begins immediately after this token, skipping a space */
-				if (ts.token + ts.token_len < in + len) {
-					const char *pay = ts.token + ts.token_len;
-					if (pay < in + len && *pay == ' ')
-						pay++;
-					if (pay < in + len) {
-						out->payload = pay;
-						out->payload_len = len - lws_ptr_diff_size_t(pay, in);
-					}
-				}
-				return 0;
-			}
-			step++;
+		if (step == 0) {
+			if (tlen >= sizeof(out->verb)) tlen = sizeof(out->verb) - 1;
+			lws_strncpy(out->verb, token_start, tlen + 1);
+		} else if (step == 1) {
+			if (tlen >= sizeof(out->hash)) tlen = sizeof(out->hash) - 1;
+			lws_strncpy(out->hash, token_start, tlen + 1);
+		} else if (step == 2) {
+			char tmp[32];
+			if (tlen >= sizeof(tmp)) tlen = sizeof(tmp) - 1;
+			lws_strncpy(tmp, token_start, tlen + 1);
+			out->offset = (unsigned long long)strtoull(tmp, NULL, 10);
+		} else if (step == 3) {
+			char tmp[32];
+			if (tlen >= sizeof(tmp)) tlen = sizeof(tmp) - 1;
+			lws_strncpy(tmp, token_start, tlen + 1);
+			out->len = (unsigned long long)strtoull(tmp, NULL, 10);
 		}
-	} while (e > 0);
+
+		/* skip space */
+		if (p < end && *p == ' ') p++;
+		step++;
+	}
+
+	if (step == 4) {
+		if (p < end) {
+			out->payload = p;
+			out->payload_len = (size_t)(end - p);
+		} else {
+			out->payload = NULL;
+			out->payload_len = 0;
+		}
+		return 0;
+	}
 
 	return -1;
 }
 
 int
-lws_dht_register_verbs(struct lws_dht_ctx *ctx, const struct lws_dht_verb *verbs, int count)
+lws_dht_register_verbs(struct lws_dht_ctx *ctx, const char **verbs, int count, const struct lws_protocols *protocol)
 {
 	int i;
 
@@ -862,7 +936,8 @@ lws_dht_register_verbs(struct lws_dht_ctx *ctx, const struct lws_dht_verb *verbs
 		if (!vl)
 			return -1;
 
-		vl->v = verbs[i];
+		vl->v.name = verbs[i];
+		vl->v.protocol = protocol;
 		lws_dll2_add_tail(&vl->list, &ctx->verb_owner);
 	}
 
@@ -892,4 +967,93 @@ lws_dht_destroy_all_on_vhost(struct lws_vhost *vh)
 
 		lws_dht_destroy(&ctx);
 	}
+}
+
+LWS_VISIBLE LWS_EXTERN int
+lws_dht_get_fallback_node(struct lws_context *cx, const char *custom_path, char *result, size_t result_len)
+{
+	int fd;
+	char buf[256];
+	ssize_t n;
+	const char *default_paths[] = {
+		LWS_INSTALL_DATADIR"/libwebsockets/libwebsockets-dht-nodes.txt",
+		"./libwebsockets-dht-nodes.txt",
+		"../libwebsockets-dht-nodes.txt",
+		NULL
+	};
+	const char *path = NULL;
+	int total_lines = 0, target_line, current_line = 0;
+	char *p, *start;
+	uint32_t random_val;
+	int i = 0;
+
+	if (custom_path) {
+		fd = open(custom_path, O_RDONLY);
+		if (fd >= 0)
+			path = custom_path;
+	} else {
+		while (default_paths[i]) {
+			fd = open(default_paths[i], O_RDONLY);
+			if (fd >= 0) {
+				path = default_paths[i];
+				break;
+			}
+			i++;
+		}
+	}
+
+	if (fd < 0 || !path) {
+		lwsl_err("%s: Unable to open fallback file\n", __func__);
+		return 1;
+	}
+
+	n = read(fd, buf, sizeof(buf) - 1);
+	if (n <= 0) {
+		close(fd);
+		return 1;
+	}
+	buf[n] = '\0';
+	
+	/* Count lines */
+	p = buf;
+	while (*p) {
+		if (*p == '\n') total_lines++;
+		p++;
+	}
+	if (*(p - 1) != '\n') total_lines++; /* file might lack trailing newline */
+
+	if (total_lines == 0) {
+		close(fd);
+		return 1;
+	}
+
+	lws_get_random(cx, &random_val, sizeof(random_val));
+	target_line = (int)(random_val % (uint32_t)total_lines);
+
+	/* Pick specific line */
+	p = buf;
+	start = p;
+	while (*p) {
+		if (*p == '\n' || *(p + 1) == '\0') {
+			if (current_line == target_line) {
+				size_t len;
+				if (*p == '\n')
+					*p = '\0';
+				
+				len = (size_t)(p - start);
+				if (*start && len > 0) {
+					lws_strncpy(result, start, result_len);
+					close(fd);
+					return 0;
+				}
+				break;
+			}
+			current_line++;
+			start = p + 1;
+		}
+		p++;
+	}
+
+	close(fd);
+	return 1;
 }

@@ -146,6 +146,9 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	switch (reason) {
 	case LWS_CALLBACK_PROTOCOL_INIT:
+		if (!in)
+			return 0;
+
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 				lws_get_protocol(wsi),
 				sizeof(struct per_vhost_data__auth_dns));
@@ -206,11 +209,11 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		lwsl_notice("LWS_CALLBACK_RAW_RX len %ld, is_tcp=%d\n", (long)len, is_tcp);
 
 		if (is_tcp) {
-			if (pss->rx_len + len > sizeof(pss->rx_buf)) { lwsl_notice("tcp req too large\n"); return -1; }
+			if ((size_t)pss->rx_len + len > sizeof(pss->rx_buf)) { lwsl_notice("tcp req too large\n"); return -1; }
 			memcpy(pss->rx_buf + pss->rx_len, in, len);
 			pss->rx_len += (int)len;
 			if (pss->rx_len < 2) return 0;
-			req_len = (pss->rx_buf[0] << 8) | pss->rx_buf[1];
+			req_len = (uint16_t)((pss->rx_buf[0] << 8) | pss->rx_buf[1]);
 			if (req_len > pss->rx_len - 2) return 0;
 			p = pss->rx_buf + 2;
 			end = pss->rx_buf + 2 + req_len;
@@ -218,9 +221,9 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		if (p + 12 > end) { lwsl_notice("short header\n"); goto done; }
 
-		uint16_t id = (p[0] << 8) | p[1];
-		uint16_t flags = (p[2] << 8) | p[3];
-		uint16_t qdcount = (p[4] << 8) | p[5];
+		uint16_t id = (uint16_t)((p[0] << 8) | p[1]);
+		uint16_t flags = (uint16_t)((p[2] << 8) | p[3]);
+		uint16_t qdcount = (uint16_t)((p[4] << 8) | p[5]);
 
 		lwsl_notice("DNS id %04x flags %04x qdcount %d\n", id, flags, qdcount);
 

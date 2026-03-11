@@ -194,6 +194,7 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, int fd, int unix_skt)
 	return lws_plat_set_nonblocking(fd);
 }
 
+#if 0
 #if !defined(__NuttX__)
 static const int ip_opt_lws_flags[] = {
 	LCCSCF_IP_LOW_LATENCY, LCCSCF_IP_HIGH_THROUGHPUT
@@ -218,11 +219,12 @@ static const char *ip_opt_names[] = {
 };
 #endif
 #endif
+#endif
 
 int
 lws_plat_set_socket_options_ip(lws_sockfd_type fd, uint8_t pri, int lws_flags)
 {
-	int optval = (int)pri, ret = 0, n;
+	int optval = (int)pri, ret = 0;
 	socklen_t optlen = sizeof(optval);
 #if (_LWS_ENABLED_LOGS & LLL_WARN)
 	int en;
@@ -301,6 +303,12 @@ lws_plat_set_socket_options_ip(lws_sockfd_type fd, uint8_t pri, int lws_flags)
 
 #if !defined(__NuttX__)
 	/* array size differs by platform */
+	/* 
+	 * AG: Disabled for DHT routing fixes on strict custom Linux router kernels.
+	 * UDP sendto() throws EINVAL if IP_TOS flags conflict with internal strict
+	 * routing table validation!
+	 */
+#if 0
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(ip_opt_lws_flags); n++) {
 		if (!(lws_flags & ip_opt_lws_flags[n]))
 			continue;
@@ -318,6 +326,7 @@ lws_plat_set_socket_options_ip(lws_sockfd_type fd, uint8_t pri, int lws_flags)
 			lwsl_notice("%s: set ip flag %s\n", __func__,
 				    ip_opt_names[n]);
 	}
+#endif
 #endif
 
 	return ret;
