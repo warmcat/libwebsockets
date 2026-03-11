@@ -69,15 +69,24 @@ lws_adns_get_query_srv(lws_async_dns_server_t *dsrv, adns_query_type_t qtype,
 		int n = 0, nmax = q->tids >= LWS_ARRAY_SIZE(q->tid) ?
 				  LWS_ARRAY_SIZE(q->tid) : q->tids;
 
-		if (!name)
-			for (n = 0; n < nmax; n++)
+		if (!name) {
+			for (n = 0; n < nmax; n++) {
+				// lwsl_notice("%s: checking q %p tid[%d]=0x%x against 0x%x\n", __func__, q, n, q->tid[n], tid);
 				if ((tid & 0xfffe) == (q->tid[n] & 0xfffe))
 					return q;
+			}
+		}
 
-		if (name && q->qtype == ((tid & 1) ? LWS_ADNS_RECORD_AAAA :
-						     LWS_ADNS_RECORD_A) &&
-		    !strcasecmp(name, (const char *)&q[1]))
-			return q;
+		if (name) {
+			int type_match = 0;
+			if (q->qtype == LWS_ADNS_RECORD_A || q->qtype == LWS_ADNS_RECORD_AAAA)
+				type_match = (q->qtype == ((tid & 1) ? LWS_ADNS_RECORD_AAAA : LWS_ADNS_RECORD_A));
+			else
+				type_match = (q->qtype == qtype) || (qtype == 0);
+
+			if (type_match && !strcasecmp(name, (const char *)&q[1]))
+				return q;
+		}
 
 	} lws_end_foreach_dll_safe(d, d1);
 
@@ -232,7 +241,12 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 	memset(p, 0, DHO_SIZEOF);
 
 #if defined(LWS_WITH_IPV6)
-	if (!q->responded) {
+	if (q->qtype != LWS_ADNS_RECORD_A && q->qtype != LWS_ADNS_RECORD_AAAA) {
+		which = 0;
+		q->sent[0]++;
+		q->sent[1]++; /* match states to avoid ipv6 duplicate writeable loop */
+		q->asked = 1;
+	} else if (!q->responded) {
 		/* must pick between ipv6 and ipv4 */
 		which = q->sent[0] >= q->sent[1];
 		q->sent[which]++;
@@ -253,7 +267,13 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 			which ? (LADNS_MOST_RECENT_TID(q) | 1) :
 #endif
 					LADNS_MOST_RECENT_TID(q));
+
+#if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
+	lws_ser_wu16be(&p[DHO_FLAGS], (1 << 8) | (1 << 4)); /* RD + CD */
+#else
 	lws_ser_wu16be(&p[DHO_FLAGS], (1 << 8));
+#endif
+
 	lws_ser_wu16be(&p[DHO_NQUERIES], 1);
 #if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
 	if (q->dns->dnssec_mode)
@@ -1131,6 +1151,23 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	/* there's a done, cached query we can just reuse? */
 
 	c = lws_adns_get_cache(dns, name);
+	if (c && qtype != LWS_ADNS_RECORD_A && qtype != LWS_ADNS_RECORD_AAAA) {
+		lws_adns_rr_t *rr = c->rr_results;
+		int found = 0;
+		while (rr) {
+			if (rr->type == qtype) {
+				found = 1;
+				break;
+			}
+			rr = rr->next;
+		}
+		if (!found) {
+			lwsl_cx_info(context, "%s: cached but missing 0x%x, bypassing", name, qtype);
+			lws_dll2_remove(&c->list); /* Remove from cache list, let sul expire it */
+			c = NULL;
+		}
+	}
+
 	if (c) {
 		lwsl_cx_info(context, "%s: using cached, c->results %p",
 			  name, c->results);

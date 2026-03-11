@@ -679,7 +679,7 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 
 						/* Compute keytag (RFC4034 Appendix B) */
 						uint32_t ac = 0;
-						for (size_t i = 0; i < wl; ++i) ac += (i & 1) ? wire[i] : wire[i] << 8;
+						for (size_t i = 0; i < wl; ++i) ac += (i & 1) ? (uint32_t)wire[i] : (uint32_t)wire[i] << 8;
 						ac += (ac >> 16) & 0xffff;
 						keytag_ksk = (uint16_t)(ac & 0xffff);
 
@@ -689,15 +689,14 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 
 						struct lws_genhash_ctx hctx;
 						uint8_t hash[64];
-						int hash_type = (digest_type == 4) ? LWS_GENHASH_TYPE_SHA384 : LWS_GENHASH_TYPE_SHA256;
+						enum lws_genhash_types hash_type = (digest_type == 4) ? LWS_GENHASH_TYPE_SHA384 : LWS_GENHASH_TYPE_SHA256;
 						int hash_len = (digest_type == 4) ? 48 : 32;
 
 						if (lws_genhash_init(&hctx, hash_type) == 0) {
-							/* To compute DS, hash the wire format: owner + class + type + key data */
+							lwsl_notice("!!! USING PATCHED SIGNZONE HASHING !!!\n");
+							/* To compute DS, hash the wire format: owner + key data */
 							uint8_t dspre[512]; size_t dl = 0; size_t al = sizeof(dspre);
 							name_to_wire(z->origin, "", dspre, &al); dl += al;
-							dspre[dl++] = (uint8_t)(48 >> 8); dspre[dl++] = (uint8_t)(48 & 0xff); /* DNSKEY */
-							dspre[dl++] = (uint8_t)(1 >> 8);  dspre[dl++] = (uint8_t)(1 & 0xff);  /* IN */
 							if (lws_genhash_update(&hctx, dspre, dl) == 0 &&
 								lws_genhash_update(&hctx, wire, wl) == 0) {
 								lws_genhash_destroy(&hctx, hash);
@@ -751,7 +750,7 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 										wl_zsk += zsk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len;
 
 										uint32_t ac_zsk = 0;
-										for (size_t i = 0; i < wl_zsk; ++i) ac_zsk += (i & 1) ? wire_zsk[i] : wire_zsk[i] << 8;
+										for (size_t i = 0; i < wl_zsk; ++i) ac_zsk += (i & 1) ? (uint32_t)wire_zsk[i] : (uint32_t)wire_zsk[i] << 8;
 										ac_zsk += (ac_zsk >> 16) & 0xffff;
 										keytag_zsk = (uint16_t)(ac_zsk & 0xffff);
 
@@ -811,7 +810,7 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 
 											struct lws_genhash_ctx hctx;
 											uint8_t hash[64];
-											int hash_type = ((rs->type == 48 && has_ksk) ? dnssec_alg : zsk_alg) == 13 ? LWS_GENHASH_TYPE_SHA256 : LWS_GENHASH_TYPE_SHA384;
+											enum lws_genhash_types hash_type = ((rs->type == 48 && has_ksk) ? dnssec_alg : zsk_alg) == 13 ? LWS_GENHASH_TYPE_SHA256 : LWS_GENHASH_TYPE_SHA384;
 											// int hash_len = (hash_type == LWS_GENHASH_TYPE_SHA256) ? 32 : 48;
 
 											if (lws_genhash_init(&hctx, hash_type) || lws_genhash_update(&hctx, pre, pl)) {
@@ -1050,7 +1049,7 @@ lws_auth_dns_verify_zone(struct lws_auth_dns_sign_info *info)
 
 						struct lws_genhash_ctx hctx;
 						uint8_t hash[64];
-						int hash_type = (sig_alg == 14 || sig_alg == 15) ? LWS_GENHASH_TYPE_SHA384 : LWS_GENHASH_TYPE_SHA256;
+						enum lws_genhash_types hash_type = (sig_alg == 14 || sig_alg == 15) ? LWS_GENHASH_TYPE_SHA384 : LWS_GENHASH_TYPE_SHA256;
 						//int hash_len = (hash_type == LWS_GENHASH_TYPE_SHA256) ? 32 : 48;
 
 						if (lws_genhash_init(&hctx, hash_type) || lws_genhash_update(&hctx, pre, pl)) {

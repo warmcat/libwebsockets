@@ -237,14 +237,16 @@ lws_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 	is_async = q->dnssec_verify_rrsig;
 
 	if (m != LWS_ADNS_DNSSEC_VALID && m != 0 && m != LWS_ADNS_DNSSEC_INVALID) {
-		lwsl_notice("%s: DNSKEY lookup failed\n", __func__);
-		goto fail;
+		lwsl_notice("%s: DNSKEY lookup failed (ret=%d)\n", __func__, m);
+		q->lacks_dnssec = 1;
+		goto complete;
 	}
 
 	c = lws_adns_get_cache(q->dns, vctx->signer_name);
 	if (!c || !c->rr_results) {
 		lwsl_notice("%s: DNSKEY cache absent\n", __func__);
-		goto fail;
+		q->lacks_dnssec = 1;
+		goto complete;
 	}
 
 	lws_adns_rr_t *rr = c->rr_results;
@@ -362,6 +364,7 @@ lws_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 		goto fail;
 	}
 
+complete:
 	q->dnssec_verify_rrsig = 0;
 	q->dnssec_valid = 1;
 

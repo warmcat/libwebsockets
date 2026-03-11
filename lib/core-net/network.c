@@ -477,13 +477,15 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 		}
 #endif
 
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 		{
 			char buf[72];
 			lws_sa46_write_numeric_address((lws_sockaddr46 *)psin,
 							buf, sizeof(buf));
 
-			lwsl_vhost_notice(vhost, "source ads %s", buf);
+			lwsl_vhost_info(vhost, "source ads %s", buf);
 		}
+#endif
 
 	return port;
 }

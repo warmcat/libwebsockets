@@ -77,9 +77,6 @@ lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *z
 	int in_parens = 0;
 	int in_comment = 0;
 
-	memset(zone, 0, sizeof(*zone));
-	last_name[0] = '\0';
-
 	char line_accum[4096];
 	size_t lptr = 0;
 	int loop_cycles = 0;
@@ -307,8 +304,8 @@ lws_auth_dns_free_zone(struct auth_dns_zone *z)
 int
 lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 {
-	char temp[16384], compact[16384], obuf[2048]; /* simple large enough buffer for test */
-	int fd, n, ofd = -1, n_alg, res_wr, temp_len = sizeof(temp);
+	char obuf[2048]; /* simple large enough buffer for test */
+	int fd, n, ofd = -1, res_wr, temp_len = 0, temp_max = 0;
 	size_t uin = 0, uout = 0;
 	lws_strexp_t exp;
 	struct stat st;
@@ -419,15 +416,15 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 	close(fd);
 	lwsl_info("lws_auth_dns_sign_zone succeeded! Wrote to %s\n", info->output_filepath ? info->output_filepath : "signed.zone");
 
-	if (!info->jws_filepath || !info->zsk_jwk_filepath) {
-		lwsl_err("Missing jws_filepath or zsk_jwk_filepath\n");
+	if (!info->jws_filepath || !info->ksk_jwk_filepath) {
+		lwsl_err("Missing jws_filepath or ksk_jwk_filepath\n");
 		goto bail_jws;
 	}
 
-	lwsl_info("Starting JWS generation for %s\n", info->jws_filepath);
+	lwsl_info("Starting JWS generation for %s (using KSK)\n", info->jws_filepath);
 
-	if (lws_jwk_load(&jwk, info->zsk_jwk_filepath, NULL, NULL)) {
-		lwsl_err("Failed loading jwk\n");
+	if (lws_jwk_load(&jwk, info->ksk_jwk_filepath, NULL, NULL)) {
+		lwsl_err("Failed loading KSK jwk\n");
 		goto bail_jws;
 	}
 
@@ -443,32 +440,71 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 		goto bail_ofd;
 	}
 
+	char *compact = NULL;
+	char *temp = NULL;
+
+	compact = lws_malloc((size_t)ost.st_size * 2 + 1024, "jws_compact");
+	if (!compact) {
+		lwsl_err("Failed alloc compact\n");
+		goto bail_ofd;
+	}
+
+	temp_max = temp_len = (int)(ost.st_size * 2 + 4096);
+	temp = lws_malloc((size_t)temp_len, "jws_temp");
+	if (!temp) {
+		lwsl_err("Failed alloc temp\n");
+		goto bail_ofd;
+	}
+
 	lws_jws_init(&jws, &jwk, info->cx);
 	lws_jose_init(&jose);
 
-	if (lws_jws_alloc_element(&jws.map, LJWS_JOSE, lws_concat_temp(temp, temp_len), &temp_len, 256, 0)) {
+	if (lws_jws_alloc_element(&jws.map, LJWS_JOSE, (temp + temp_max - temp_len), &temp_len, 2048, 0)) {
 		lwsl_err("Failed JWS alloc JOSE\n");
 		goto bail_jose;
 	}
 
-	n_alg = lws_snprintf((char *)jws.map.buf[LJWS_JOSE], 256, "{\"alg\":\"ES256\"}");
-	jws.map.len[LJWS_JOSE] = (uint32_t)n_alg;
+	const char *alg = "ES256";
+	if (jwk.kty == LWS_GENCRYPTO_KTY_EC) {
+		if (jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len == 48) alg = "ES384";
+		else if (jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len == 66) alg = "ES512";
+	}
+
+	{
+		char jwk_pub[1024];
+		int jwk_pub_len = sizeof(jwk_pub);
+
+		if (lws_jwk_export(&jwk, LWSJWKF_EXPORT_NOCRLF /* pure public components without newlines */, jwk_pub, &jwk_pub_len) < 0) {
+			lwsl_err("Failed to export public JWK for JWS header\n");
+			goto bail_jose;
+		}
+
+		/* Write both alg and the fully exported JSON Web Key into the JOSE header */
+		int n = lws_snprintf((char *)jws.map.buf[LJWS_JOSE], 2048, "{\"alg\":\"%s\",\"jwk\":%s}", alg, jwk_pub);
+		if (n >= 2048) {
+			lwsl_err("JWS JOSE header exceeded maximum length\n");
+			goto bail_jose;
+		}
+		jws.map.len[LJWS_JOSE] = (uint32_t)n;
+	}
 
 	jws.map.buf[LJWS_PYLD] = (const char *)outbuf;
 	jws.map.len[LJWS_PYLD] = (uint32_t)ost.st_size;
 
-	if (lws_jws_encode_b64_element(&jws.map_b64, LJWS_PYLD, lws_concat_temp(temp, temp_len), &temp_len, jws.map.buf[LJWS_PYLD], jws.map.len[LJWS_PYLD]) ||
-		lws_jws_encode_b64_element(&jws.map_b64, LJWS_JOSE, lws_concat_temp(temp, temp_len), &temp_len, jws.map.buf[LJWS_JOSE], jws.map.len[LJWS_JOSE])) {
+	if (lws_jws_encode_b64_element(&jws.map_b64, LJWS_PYLD, (temp + temp_max - temp_len), &temp_len, jws.map.buf[LJWS_PYLD], jws.map.len[LJWS_PYLD]) ||
+		lws_jws_encode_b64_element(&jws.map_b64, LJWS_JOSE, (temp + temp_max - temp_len), &temp_len, jws.map.buf[LJWS_JOSE], jws.map.len[LJWS_JOSE])) {
 		lwsl_err("Failed JWS b64 encode\n");
 		goto bail_jose;
 	}
 
-	if (lws_jws_parse_jose(&jose, (const char *)jws.map.buf[LJWS_JOSE], (int)jws.map.len[LJWS_JOSE], lws_concat_temp(temp, temp_len), &temp_len) < 0) {
+	lwsl_notice("JWS Header String: '%s'\n", (const char *)jws.map.buf[LJWS_JOSE]);
+
+	if (lws_jws_parse_jose(&jose, (const char *)jws.map.buf[LJWS_JOSE], (int)jws.map.len[LJWS_JOSE], (temp + temp_max - temp_len), &temp_len) < 0) {
 		lwsl_err("Failed JWS parse JOSE\n");
 		goto bail_jose;
 	}
 
-	if (lws_jws_alloc_element(&jws.map_b64, LJWS_SIG, lws_concat_temp(temp, temp_len), &temp_len, 256, 0)) {
+	if (lws_jws_alloc_element(&jws.map_b64, LJWS_SIG, (temp + temp_max - temp_len), &temp_len, 512, 0)) {
 		lwsl_err("Failed JWS alloc SIG\n");
 		goto bail_jose;
 	}
@@ -480,7 +516,7 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 	}
 
 	jws.map_b64.len[LJWS_SIG] = (uint32_t)n;
-	res_wr = lws_jws_write_compact(&jws, compact, sizeof(compact));
+	res_wr = lws_jws_write_compact(&jws, compact, (size_t)ost.st_size * 2 + 1024);
 	if (res_wr) {
 		lwsl_err("Failed JWS compact write\n");
 		goto bail_jose;
@@ -497,6 +533,9 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 			lwsl_err("Failed opening JWS output file\n");
 		}
 	}
+
+	lws_free(compact);
+	lws_free(temp);
 
 bail_jose:
 	lws_jose_destroy(&jose);

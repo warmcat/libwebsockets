@@ -75,7 +75,7 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 			lwsl_notice(" SSL ciphers: '%s'\n",
 						info->ssl_cipher_list);
 
-		lwsl_notice(" Vhost '%s' using %sTLS mode\n",
+		lwsl_info(" Vhost '%s' using %sTLS mode\n",
 			    vhost->name, vhost->tls.use_ssl ? "" : "non-");
 	}
 
