@@ -874,7 +874,7 @@ int
 lws_finalize_startup(struct lws_context *context)
 {
 	if (lws_check_opt(context->options, LWS_SERVER_OPTION_EXPLICIT_VHOSTS)) {
-		lwsl_user("%s: dropping app privs\n", __func__);
+		lwsl_info("%s: dropping app privs: %s\n", __func__, where);
 #if defined(LWS_WITH_SYS_STATE) && defined(LWS_WITH_NETWORK)
 		lws_state_transition(&context->mgr_system, LWS_SYSTATE_PRE_PRIV_DROP);
 #endif
@@ -1559,6 +1559,21 @@ lws_mutex_refcount_assert_held(struct lws_mutex_refcount *mr)
 #endif /* SMP */
 
 #if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_BAREMETAL)
+
+void
+lws_switches_print_help(const char *prog, const struct lws_switches *switches,
+			 size_t count)
+{
+	size_t i;
+
+	lwsl_user("\nUsage: %s [options]\n", prog);
+	lwsl_user("\n");
+
+	for (i = 0; i < count; i++)
+		lwsl_user("  %-20s %s\n", switches[i].sw, switches[i].doc);
+
+	lwsl_user("\n");
+}
 
 const char *
 lws_cmdline_options(int argc, const char * const *argv, const char *val, const char *last)
