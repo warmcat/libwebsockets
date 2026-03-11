@@ -196,6 +196,9 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 int
 lws_tls_check_all_cert_lifetimes(struct lws_context *context);
 
+LWS_VISIBLE int
+lws_tls_cert_get_x509_remaining(struct lws_context *context, const char *filepath, int *days_left, int *total_days);
+
 int
 lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 			      const char *inbuf, lws_filepos_t inlen,

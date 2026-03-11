@@ -934,6 +934,7 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 #if defined(LWS_WITH_NETWORK)
 #include <libwebsockets/lws-netdev.h>
 #include "libwebsockets/lws-dht.h"
+#include "libwebsockets/lws-dht-dnssec.h"
 #if defined(LWS_WITH_TRANSCODE)
 #include <libwebsockets/lws-transcode.h>
 #endif
