@@ -608,6 +608,16 @@ lws_set_wsi_user(struct lws *wsi, void *user);
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_parse_uri(char *p, const char **prot, const char **ads, int *port,
 	      const char **path);
+
+struct lws_switches {
+	const char *sw;
+	const char *doc;
+};
+
+LWS_VISIBLE LWS_EXTERN void
+lws_switches_print_help(const char *prog, const struct lws_switches *switches, size_t count);
+
+
 /**
  * lws_cmdline_option():	simple commandline parser
  *
