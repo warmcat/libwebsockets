@@ -105,7 +105,7 @@ int main(int argc, const char **argv)
 		buf[st.st_size] = '\0';
 		close(fd);
 		
-		if (lws_jwk_load(&jwk, info.zsk_jwk_filepath, NULL, NULL)) {
+		if (lws_jwk_load(&jwk, info.ksk_jwk_filepath, NULL, NULL)) {
 			free(buf);
 			lwsl_err("Failed to load JWK for verification\n");
 			goto bail;

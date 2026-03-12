@@ -55,23 +55,20 @@ lws_adns_q_destroy(lws_adns_q_t *q)
 		q->firstcache->refcount--;
 		q->firstcache = NULL;
 	}
-
-	lws_free(q);
 }
 
 lws_adns_q_t *
-lws_adns_get_query_srv(lws_async_dns_server_t *dsrv, adns_query_type_t qtype,
-		       uint16_t tid, const char *name)
+lws_adns_get_query(lws_async_dns_t *dns, adns_query_type_t qtype,
+		   uint16_t tid, const char *name)
 {
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				   lws_dll2_get_head(&dsrv->waiting)) {
+				   lws_dll2_get_head(&dns->waiting)) {
 		lws_adns_q_t *q = lws_container_of(d, lws_adns_q_t, list);
 		int n = 0, nmax = q->tids >= LWS_ARRAY_SIZE(q->tid) ?
 				  LWS_ARRAY_SIZE(q->tid) : q->tids;
 
 		if (!name) {
 			for (n = 0; n < nmax; n++) {
-				// lwsl_notice("%s: checking q %p tid[%d]=0x%x against 0x%x\n", __func__, q, n, q->tid[n], tid);
 				if ((tid & 0xfffe) == (q->tid[n] & 0xfffe))
 					return q;
 			}
@@ -87,24 +84,6 @@ lws_adns_get_query_srv(lws_async_dns_server_t *dsrv, adns_query_type_t qtype,
 			if (type_match && !strcasecmp(name, (const char *)&q[1]))
 				return q;
 		}
-
-	} lws_end_foreach_dll_safe(d, d1);
-
-	return NULL;
-}
-
-lws_adns_q_t *
-lws_adns_get_query(lws_async_dns_t *dns, adns_query_type_t qtype,
-		   uint16_t tid, const char *name)
-{
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				   lws_dll2_get_head(&dns->nameservers)) {
-		lws_async_dns_server_t *dsrv = lws_container_of(d,
-						lws_async_dns_server_t, list);
-		lws_adns_q_t *q = lws_adns_get_query_srv(dsrv, qtype, tid, name);
-
-		if (q)
-			return q;
 
 	} lws_end_foreach_dll_safe(d, d1);
 
@@ -339,11 +318,30 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 	assert(p < pkt + sizeof(pkt) - LWS_PRE);
 	n = lws_ptr_diff(p, pkt + LWS_PRE);
 
-	if (!wsi->udp) {
-		lws_ser_wu16be(pkt + LWS_PRE - 2, (uint16_t)n);
-		m = lws_write(wsi, pkt + LWS_PRE - 2, (unsigned int)n + 2, 0);
-	} else
-		m = lws_write(wsi, pkt + LWS_PRE, (unsigned int)n, 0);
+	if (q->broadsiding) {
+		m = wsi->udp ? n : n + 2; /* assume success unless primary fails */
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&q->dns->nameservers)) {
+			lws_async_dns_server_t *s = lws_container_of(d, lws_async_dns_server_t, list);
+			if (s->wsi) {
+				int m2;
+				if (!s->wsi->udp) {
+					lws_ser_wu16be(pkt + LWS_PRE - 2, (uint16_t)n);
+					m2 = lws_write(s->wsi, pkt + LWS_PRE - 2, (unsigned int)n + 2, 0);
+				} else
+					m2 = lws_write(s->wsi, pkt + LWS_PRE, (unsigned int)n, 0);
+					
+				if (s->wsi == wsi)
+					m = m2;
+			}
+		} lws_end_foreach_dll_safe(d, d1);
+	} else {
+		if (!wsi->udp) {
+			lws_ser_wu16be(pkt + LWS_PRE - 2, (uint16_t)n);
+			m = lws_write(wsi, pkt + LWS_PRE - 2, (unsigned int)n + 2, 0);
+		} else
+			m = lws_write(wsi, pkt + LWS_PRE, (unsigned int)n, 0);
+	}
 
 	if (m != (wsi->udp ? n : n + 2)) {
 		lwsl_wsi_notice(wsi, "dns write failed %d %d errno %d",
@@ -435,7 +433,7 @@ callback_async_dns(struct lws *wsi, enum lws_callback_reasons reason,
 
 				if (q->tcp_rx_pos == q->tcp_rx_len) {
 					/* we have the whole message */
-					lws_adns_parse_udp(dns, q->tcp_rx_buf, q->tcp_rx_len);
+					lws_adns_parse_udp(dns, q->tcp_rx_buf, q->tcp_rx_len, q->dsrv);
 					/* TCP connection is done */
 					return -1;
 				}
@@ -474,20 +472,21 @@ callback_async_dns(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RAW_RX:
 		//lwsl_wsi_user(wsi, "LWS_CALLBACK_RAW_RX (%d)", (int)len);
 		// lwsl_hexdump_wsi_notice(wsi, in, len);
-		lws_adns_parse_udp(dns, in, len);
+		lws_adns_parse_udp(dns, in, len, dsrv);
 		break;
 
 	case LWS_CALLBACK_RAW_WRITEABLE:
 		//lwsl_wsi_user(wsi, "LWS_CALLBACK_RAW_WRITEABLE");
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-					   dsrv->waiting.head) {
+					   dns->waiting.head) {
 			lws_adns_q_t *q = lws_container_of(d, lws_adns_q_t,
 							   list);
 
 			if (//lws_dll2_is_detached(&q->sul.list) &&
-			    !q->is_synthetic &&
-			    (!q->asked || q->responded != q->asked) && !q->is_tcp)
+			    !q->is_synthetic && q->dsrv == dsrv &&
+			    (!q->asked || q->responded != q->asked) && !q->is_tcp) {
 				lws_async_dns_writeable(wsi, q);
+			}
 		} lws_end_foreach_dll_safe(d, d1);
 		break;
 
@@ -501,20 +500,6 @@ callback_async_dns(struct lws *wsi, enum lws_callback_reasons reason,
 /* require: context lock */
 
 lws_async_dns_server_t *
-__lws_async_dns_server_find(lws_async_dns_t *dns, const lws_sockaddr46 *sa46)
-{
-	lws_start_foreach_dll(struct lws_dll2 *, d, dns->nameservers.head) {
-		lws_async_dns_server_t *s = lws_container_of(d,
-						lws_async_dns_server_t, list);
-
-		if (!lws_sa46_compare_ads(sa46, &s->sa46))
-			return s;
-	} lws_end_foreach_dll(d);
-
-	return NULL;
-}
-
-lws_async_dns_server_t *
 __lws_async_dns_server_find_wsi(lws_async_dns_t *dns, struct lws *wsi)
 {
 	lws_start_foreach_dll(struct lws_dll2 *, d, dns->nameservers.head) {
@@ -522,6 +507,20 @@ __lws_async_dns_server_find_wsi(lws_async_dns_t *dns, struct lws *wsi)
 						lws_async_dns_server_t, list);
 
 		if (s->wsi == wsi)
+			return s;
+	} lws_end_foreach_dll(d);
+
+	return NULL;
+}
+
+lws_async_dns_server_t *
+__lws_async_dns_server_find(lws_async_dns_t *dns, const lws_sockaddr46 *sa46)
+{
+	lws_start_foreach_dll(struct lws_dll2 *, d, dns->nameservers.head) {
+		lws_async_dns_server_t *s = lws_container_of(d,
+						lws_async_dns_server_t, list);
+
+		if (!lws_sa46_compare_ads(sa46, &s->sa46))
 			return s;
 	} lws_end_foreach_dll(d);
 
@@ -547,6 +546,8 @@ __lws_async_dns_server_add(lws_async_dns_t *dns, const lws_sockaddr46 *sa46)
 		s->sa46 = *sa46;
 		lws_dll2_add_tail(&s->list, &dns->nameservers);
 		s->refcount++;
+		/* 1 level (just tracking values), 5s short decay, 60s long decay */
+		s->adapt = lws_adapt_create(1, 5 * LWS_US_PER_SEC, 60 * LWS_US_PER_SEC);
 	}
 
 	return s;
@@ -565,6 +566,9 @@ __lws_async_dns_server_destroy(lws_async_dns_server_t *dsrv)
 		return;
 
 	lws_dll2_remove(&dsrv->list);
+
+	if (dsrv->adapt)
+		lws_adapt_destroy(&dsrv->adapt);
 
 	if (dsrv->dns_server_set && dsrv->wsi && !dsrv->dns_server_connected) {
 		lwsl_wsi_notice(dsrv->wsi, "late free of incomplete dns wsi");
@@ -723,15 +727,15 @@ lws_adns_server_dump(lws_async_dns_server_t *dsrv)
 	char ads[64];
 
 	lws_sa46_write_numeric_address(&dsrv->sa46, ads, sizeof(ads));
-	lwsl_cx_info(dns->cx, "nameserver: '%s', %d waiting",
-				ads, dsrv->waiting.count);
+	lwsl_cx_info(dns->cx, "nameserver: '%s'", ads);
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
-				   lws_dll2_get_head(&dsrv->waiting)) {
+				   lws_dll2_get_head(&dns->waiting)) {
 		lws_adns_q_t *q = lws_container_of(d, lws_adns_q_t, list);
-
-		lwsl_wsi_info(dsrv->wsi, "q: '%s', sent %d, resp %d",
-			      (const char *)&q[1], q->sent[0], q->responded);
+		if (q->dsrv == dsrv || q->broadsiding)
+			lwsl_wsi_info(dsrv->wsi, "q: '%s', sent %d, resp %d%s",
+				      (const char *)&q[1], q->sent[0], q->responded,
+				      q->broadsiding ? " (broadsiding)" : "");
 	} lws_end_foreach_dll(d);
 }
 
@@ -876,8 +880,16 @@ ns_clean(struct lws_dll2 *d, void *user)
 {
 	lws_async_dns_server_t *dsrv = lws_container_of(d,
 					lws_async_dns_server_t, list);
+	lws_async_dns_t *dns = (lws_async_dns_t *)dsrv->list.owner;
 
-	lws_dll2_foreach_safe(&dsrv->waiting, NULL, clean);
+	/* Since waiting queue is now on dns, we can't iterate dsrv->waiting. We should just let dns deinit handle the global queue. But we can clean up any queries specifically bound to this server if not broadsiding. */
+	lws_start_foreach_dll_safe(struct lws_dll2 *, dwait, dwait1,
+				   lws_dll2_get_head(&dns->waiting)) {
+		lws_adns_q_t *q = lws_container_of(dwait, lws_adns_q_t, list);
+		if (q->dsrv == dsrv && !q->broadsiding) {
+			clean(dwait, user);
+		}
+	} lws_end_foreach_dll_safe(dwait, dwait1);
 
 	if (dsrv->wsi && !dsrv->dns_server_connected) {
 		lwsl_wsi_notice(dsrv->wsi, "late free of incomplete dns wsi");
@@ -897,6 +909,7 @@ ns_clean(struct lws_dll2 *d, void *user)
 void
 lws_async_dns_deinit(lws_async_dns_t *dns)
 {
+	lws_dll2_foreach_safe(&dns->waiting, NULL, clean);
 	lws_dll2_foreach_safe(&dns->nameservers, NULL, ns_clean);
 	lws_dll2_foreach_safe(&dns->cached, NULL, cache_clean);
 }
@@ -940,22 +953,10 @@ cancel(struct lws_dll2 *d, void *user)
  * is involved in, and destroying the query if that was the only consumer.
  */
 
-static int
-ns_cancel(struct lws_dll2 *d, void *user)
-{
-	lws_async_dns_server_t *dsrv =
-			lws_container_of(d, lws_async_dns_server_t, list);
-
-	lws_dll2_foreach_safe(&dsrv->waiting, user, cancel);
-
-	return 0;
-}
-
 void
 lws_async_dns_cancel(struct lws *wsi)
 {
-	lws_dll2_foreach_safe(&wsi->a.context->async_dns.nameservers,
-			      wsi, ns_cancel);
+	lws_dll2_foreach_safe(&wsi->a.context->async_dns.waiting, wsi, cancel);
 }
 
 
@@ -990,7 +991,7 @@ lws_async_dns_get_new_tid(struct lws_context *context, lws_adns_q_t *q)
 		if (lws_get_random(context, &tid, 2) != 2)
 			return -1;
 
-		if (lws_dll2_foreach_safe(&q->dsrv->waiting,
+		if (lws_dll2_foreach_safe(&q->dns->waiting,
 					  (void *)(intptr_t)tid, check_tid))
 			continue;
 
@@ -1102,6 +1103,12 @@ struct lws_async_dns *
 lws_adns_get_async_dns(struct lws_adns_q *q)
 {
 	return q->dns;
+}
+
+struct lws_async_dns_server *
+lws_adns_get_server(struct lws_adns_q *q)
+{
+	return q->dsrv;
 }
 
 struct temp_q {
@@ -1296,36 +1303,11 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 		return LADNS_RET_CONTINUING;
 	}
 
-	/* !!! for now, we only use the head guy in the nameservers list */
-
-	dsrv = lws_container_of(context->async_dns.nameservers.head,
-			       lws_async_dns_server_t, list);
-
-	/*
-	 * Allocate new query / queries... this is a bit complicated because
-	 * multiple queries in one packet are not supported properly in DNS
-	 * itself, and there's no reliable other way to get both ipv6 and ipv4
-	 * (AAAA and A) responses in one hit.
-	 *
-	 * If we don't support ipv6, it's simple, we just ask for A and that's
-	 * it.  But if we do support ipv6, we need to ask twice, once for A
-	 * and in a separate query, again for AAAA.
-	 *
-	 * For ipv6, A / ipv4 is routable over ipv6.  So we always ask for A
-	 * first and then if ipv6, AAAA separately.
-	 *
-	 * Allocate for DNS_MAX, because we may recurse and alter what we're
-	 * looking for.
-	 *
-	 * 0             sizeof(*q)                  sizeof(*q) + DNS_MAX
-	 * [lws_adns_q_t][ name (DNS_MAX reserved) ] [ name \0 ]
-	 */
-
-	q = (lws_adns_q_t *)lws_malloc(sizeof(*q) + DNS_MAX + nlen + 1,
-					__func__);
-	if (!q)
+	q = lws_zalloc(sizeof(*q) + nlen + 1 + DNS_MAX + 1, "adns-q");
+	if (!q) {
+		lwsl_cx_err(context, "OOM");
 		goto failed;
-	memset(q, 0, sizeof(*q));
+	}
 
 	if (wsi)
 		lws_dll2_add_head(&wsi->adns, &q->wsi_adns);
@@ -1342,7 +1324,41 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	q->tsi = (uint8_t)tsi;
 	q->opaque = opaque;
 	q->dns = dns;
-	q->dsrv = dsrv;
+	
+	/* Evaluate the optimal server */
+	{
+		lws_async_dns_server_t *best_dsrv = NULL;
+		uint64_t best_rtt = ~(uint64_t)0;
+
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&dns->nameservers)) {
+			lws_async_dns_server_t *s = lws_container_of(d, lws_async_dns_server_t, list);
+			uint64_t v = lws_adapt_get_val(s->adapt, 0, 1);
+			/* 10 seconds means virtually down or unknown */
+			if (!v || v > 10000000) {
+				q->broadsiding = 1;
+				break;
+			}
+			if (v < best_rtt) {
+				best_rtt = v;
+				best_dsrv = s;
+			}
+		} lws_end_foreach_dll_safe(d, d1);
+
+		if (q->broadsiding)
+			/* Just peg it to the first for tracking purposes, but it will be skipped visually */
+			dsrv = lws_container_of(context->async_dns.nameservers.head, lws_async_dns_server_t, list);
+		else if (best_dsrv)
+			/* Pick servers near the 'best' round-robin style maybe, or just pick the best. For simplicity: best one */
+			dsrv = best_dsrv;
+		else
+			dsrv = lws_container_of(context->async_dns.nameservers.head, lws_async_dns_server_t, list);
+
+
+		q->dsrv = dsrv;
+	}
+
+	q->issue_time = lws_now_usecs();
 
 	if (lws_async_dns_get_new_tid(context, q)) {
 		lwsl_cx_err(context, "tid fail");
@@ -1381,7 +1397,8 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 
 	lws_callback_on_writable(dsrv->wsi);
 
-	lws_dll2_add_head(&q->list, &dsrv->waiting);
+
+	lws_dll2_add_head(&q->list, &dns->waiting);
 
 	lws_metrics_caliper_bind(q->metcal, context->mt_conn_dns);
 	q->go_nogo = METRES_NOGO;

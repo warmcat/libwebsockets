@@ -134,7 +134,7 @@ again1:
 		 * it has no 00 terminator afterwards
 		 */
 
-		 return consumed;
+		return consumed;
 	}
 
 
@@ -607,7 +607,8 @@ lws_async_dns_store(const char *name, void *opaque, uint32_t ttl,
  */
 
 void
-lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
+lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
+		   lws_async_dns_server_t *dsrv)
 {
 	const char *nm, *nmcname;
 	lws_adns_cache_t *c;
@@ -663,6 +664,14 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 	if (q->responded & n) {
 		lwsl_notice("%s: dup\n", __func__);
 		return;
+	}
+
+	if (dsrv && q->broadsiding && q->issue_time) {
+		/* Record response time for the server that won the race! */
+		lws_adapt_report_val(dsrv->adapt, (uint64_t)(lws_now_usecs() - q->issue_time), lws_now_usecs());
+	} else if (q->dsrv && q->issue_time) {
+		/* Record response time for the pre-selected server */
+		lws_adapt_report_val(q->dsrv->adapt, (uint64_t)(lws_now_usecs() - q->issue_time), lws_now_usecs());
 	}
 
 	q->responded = (uint8_t)(q->responded | n);
@@ -834,6 +843,7 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len)
 	 * addrinfo results, if any, to all interested wsi, if any...
 	 */
 
+	lwsl_notice("%s: Calling lws_async_dns_complete for %s\n", __func__, q->firstcache ? q->firstcache->name : "NULL");
 	c->incomplete = 0;
 	lws_async_dns_complete(q, q->firstcache);
 

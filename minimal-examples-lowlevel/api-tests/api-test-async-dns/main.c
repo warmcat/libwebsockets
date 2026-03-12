@@ -254,7 +254,7 @@ next_test_cb(lws_sorted_usec_list_t *sul)
 			canned_c_msn_com[1] = (uint8_t)lws_adns_get_tid(q);
 			lws_adns_parse_udp(lws_adns_get_async_dns(q),
 					   canned_c_msn_com,
-					   sizeof(canned_c_msn_com));
+					   sizeof(canned_c_msn_com), lws_adns_get_server(q));
 		}
 
 		if (!strcmp(adt[dtest].dns_name, "assets.msn.com")) {
@@ -262,7 +262,7 @@ next_test_cb(lws_sorted_usec_list_t *sul)
 			canned_assets_msn_com[1] = (uint8_t)lws_adns_get_tid(q);
 			lws_adns_parse_udp(lws_adns_get_async_dns(q),
 					   canned_assets_msn_com,
-					   sizeof(canned_assets_msn_com));
+					   sizeof(canned_assets_msn_com), lws_adns_get_server(q));
 		}
 
 		if (!strcmp(adt[dtest].dns_name, "e28578.d.akamaiedge.net")) {
@@ -270,14 +270,14 @@ next_test_cb(lws_sorted_usec_list_t *sul)
 			canned_e28578_d_akamaiedge_net[1] = (uint8_t)lws_adns_get_tid(q);
 			lws_adns_parse_udp(lws_adns_get_async_dns(q),
 					canned_e28578_d_akamaiedge_net,
-					   sizeof(canned_e28578_d_akamaiedge_net));
+					   sizeof(canned_e28578_d_akamaiedge_net), lws_adns_get_server(q));
 		}
 		if (!strcmp(adt[dtest].dns_name, "a-0003.a-msedge.net")) {
 			canned_a_0003_a_msedge_net[0] = (uint8_t)(lws_adns_get_tid(q) >> 8);
 			canned_a_0003_a_msedge_net[1] = (uint8_t)lws_adns_get_tid(q);
 			lws_adns_parse_udp(lws_adns_get_async_dns(q),
 					canned_a_0003_a_msedge_net,
-					   sizeof(canned_a_0003_a_msedge_net));
+					   sizeof(canned_a_0003_a_msedge_net), lws_adns_get_server(q));
 		}
 		if (first &&
 		    !strcmp(adt[dtest].dns_name, "c-msn-com-europe-vip.trafficmanager.net")) {
@@ -288,14 +288,14 @@ next_test_cb(lws_sorted_usec_list_t *sul)
 					(uint8_t)lws_adns_get_tid(q);
 			lws_adns_parse_udp(lws_adns_get_async_dns(q),
 				canned_c_msn_com_europe_vip_trafficmanager_net,
-				sizeof(canned_c_msn_com_europe_vip_trafficmanager_net));
+				sizeof(canned_c_msn_com_europe_vip_trafficmanager_net), lws_adns_get_server(q));
 		}
 		if (!strcmp(adt[dtest].dns_name, "tcp-fallback.libwebsockets.org")) {
 			canned_tc_libwebsockets_org[0] = (uint8_t)(lws_adns_get_tid(q) >> 8);
 			canned_tc_libwebsockets_org[1] = (uint8_t)lws_adns_get_tid(q);
 			lws_adns_parse_udp(lws_adns_get_async_dns(q),
 					canned_tc_libwebsockets_org,
-					sizeof(canned_tc_libwebsockets_org));
+					sizeof(canned_tc_libwebsockets_org), lws_adns_get_server(q));
 		}
 	}
 }

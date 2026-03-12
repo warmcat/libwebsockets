@@ -38,6 +38,10 @@ Other features
  - Uses CNAME resolution inside the same response if present, otherwise
    recurses to resolve the CNAME (up to 3 deep)
  - ipv6 pieces only built if cmake `LWS_IPV6` enabled
+ - **Multi-server support**: automatically parses multiple nameservers from `/etc/resolv.conf`.
+ - **Adaptive server selection**: tracks DNS server response latencies using exponential weighted moving averages.
+ - **Parallel broadsiding**: initially sends queries to all configured servers simultaneously to determine the fastest responder.
+ - **Round-robin fallback**: utilizes the fastest server for subsequent queries or round-robins between equally performant servers.
 
 ## Api
 
