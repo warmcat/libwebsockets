@@ -8,6 +8,21 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_HELP,
+	LWS_SW_IP,
+	LWS_SW_MOUNT_ORIGIN,
+	LWS_SW_VIDEO_DEVICE,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_HELP]	= { "--help",          "Show this help information" },
+	[LWS_SW_IP]	= { "--ip",            "Enable --ip feature" },
+	[LWS_SW_MOUNT_ORIGIN]	= { "--mount-origin",  "Enable --mount-origin feature" },
+	[LWS_SW_VIDEO_DEVICE]	= { "--video-device",  "Enable --video-device feature" },
+};
+
 #include <string.h>
 #include <signal.h>
 #include <stdlib.h>
@@ -439,9 +454,16 @@ main(int argc, const char **argv)
 	const char *opt;
 
         lws_context_info_defaults(&info, NULL);
+	(void)switches;
+
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
         lws_cmdline_option_handle_builtin(argc, argv, &info);
 
-	if (lws_cmdline_option(argc, argv, "--help")) {
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
 		printf("Usage: %s [options]\n", argv[0]);
 		printf("Options:\n");
 		printf("  --help		Show this help message\n");
@@ -466,11 +488,11 @@ main(int argc, const char **argv)
         nl.notify_cb			= app_system_state_nf;
         info.register_notifier_list	= app_notifier_list;
 
-        if ((opt = lws_cmdline_option(argc, argv, "--ip")))
+        if ((opt = lws_cmdline_option(argc, argv, switches[LWS_SW_IP].sw)))
                 pvos[1].value = opt;
-        if ((opt = lws_cmdline_option(argc, argv, "--video-device")))
+        if ((opt = lws_cmdline_option(argc, argv, switches[LWS_SW_VIDEO_DEVICE].sw)))
                 pvos[2].value = opt;
-	if ((opt = lws_cmdline_option(argc, argv, "--mount-origin")))
+	if ((opt = lws_cmdline_option(argc, argv, switches[LWS_SW_MOUNT_ORIGIN].sw)))
                 mount.origin = opt;
 
         cx = lws_create_context(&info);

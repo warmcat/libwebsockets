@@ -8,6 +8,23 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_D,
+	LWS_SW_F,
+	LWS_SW_K,
+	LWS_SW_S,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
+	[LWS_SW_F]	= { "-f",              "Enable -f feature" },
+	[LWS_SW_K]	= { "-k",              "Key or cert path" },
+	[LWS_SW_S]	= { "-s",              "Use TLS / https" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <sys/types.h>
 #include <fcntl.h>
 
@@ -27,8 +44,15 @@ int main(int argc, const char **argv)
 	struct lws_jwk jwk;
 	struct lws_jws jws;
 	const char *p;
+	(void)switches;
 
-	if ((p = lws_cmdline_option(argc, argv, "-d")))
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
+
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);
@@ -51,7 +75,7 @@ int main(int argc, const char **argv)
 
 	/* if signing, set the ciphers */
 
-	if ((p = lws_cmdline_option(argc, argv, "-s"))) {
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_S].sw))) {
 
 		if (lws_gencrypto_jws_alg_to_definition(p, &jose.alg)) {
 			lwsl_err("format: -s \"<jws cipher alg>\", eg, "
@@ -85,7 +109,7 @@ int main(int argc, const char **argv)
 
 	/* grab the key */
 
-	if ((p = lws_cmdline_option(argc, argv, "-k"))) {
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_K].sw))) {
 		if (lws_jwk_load(&jwk, p, NULL, NULL)) {
 			lwsl_err("%s: problem loading JWK %s\n", __func__, p);
 
@@ -141,7 +165,7 @@ int main(int argc, const char **argv)
 		/* set the actual b64 signature size */
 		jws.map_b64.len[LJWS_SIG] = (uint32_t)n;
 
-		if (lws_cmdline_option(argc, argv, "-f"))
+		if (lws_cmdline_option(argc, argv, switches[LWS_SW_F].sw))
 			/* create the flattened representation */
 			n = lws_jws_write_flattened_json(&jws, compact, sizeof(compact));
 		else
@@ -166,7 +190,7 @@ int main(int argc, const char **argv)
 	} else {
 		/* perform the verify directly on the compact representation */
 
-		if (lws_cmdline_option(argc, argv, "-f")) {
+		if (lws_cmdline_option(argc, argv, switches[LWS_SW_F].sw)) {
 			if (lws_jws_sig_confirm_json(in, (unsigned int)n, &jws, &jwk, context,
 					lws_concat_temp(temp, temp_len),
 					&temp_len) < 0) {

@@ -13,6 +13,17 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_EXPECTED_EXIT,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_EXPECTED_EXIT]	= { "--expected-exit", "Enable --expected-exit feature" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <string.h>
 #include <signal.h>
 
@@ -455,7 +466,7 @@ int main(int argc, const char **argv)
 	lws_context_destroy(context);
 
 bail:
-	if ((p = lws_cmdline_option(argc, argv, "--expected-exit")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_EXPECTED_EXIT].sw)))
 		expected = atoi(p);
 
 	if (bad == expected) {

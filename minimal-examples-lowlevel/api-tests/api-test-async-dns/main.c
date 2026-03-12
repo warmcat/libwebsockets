@@ -10,6 +10,19 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_D,
+	LWS_SW_L,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
+	[LWS_SW_L]	= { "-l",              "Enable -l feature" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <signal.h>
 
 static int interrupted, dtest, ok, fail, _exp = 18;
@@ -488,10 +501,17 @@ main(int argc, const char **argv)
 	fixup(6);
 
 	/* the normal lws init */
+	(void)switches;
+
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
 
 	signal(SIGINT, sigint_handler);
 
-	if ((p = lws_cmdline_option(argc, argv, "-d")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);
@@ -526,7 +546,7 @@ main(int argc, const char **argv)
 		}
 	}
 
-	if (lws_cmdline_option(argc, argv, "-l")) {
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_L].sw)) {
 		lws_sul_schedule(context, 0, &sul_l, sul_retry_l, LWS_US_PER_SEC);
 		goto evloop;
 	}

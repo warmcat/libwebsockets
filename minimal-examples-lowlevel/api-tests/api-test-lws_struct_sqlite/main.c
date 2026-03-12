@@ -16,6 +16,17 @@
 
 #include <libwebsockets.h>
 
+
+enum {
+	LWS_SW_D,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 typedef struct teststruct {
 	lws_dll2_t		list; /* not directly serialized */
 
@@ -79,8 +90,15 @@ int main(int argc, const char **argv)
 	teststruct_t ts, *pts;
 	const char *p;
 	sqlite3 *db;
+	(void)switches;
 
-	if ((p = lws_cmdline_option(argc, argv, "-d")))
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
+
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);

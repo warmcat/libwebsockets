@@ -8,6 +8,19 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_STDIN,
+	LWS_SW_D,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_STDIN]	= { "--stdin",         "Enable --stdin feature" },
+	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <fcntl.h>
@@ -29,13 +42,20 @@ main(int argc, const char **argv)
 	ssize_t s = 0;
 	size_t l = 0;
 	uint16_t san;
+	(void)switches;
 
-	if ((p = lws_cmdline_option(argc, argv, "-d")))
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
+
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);
 
-	if ((p = lws_cmdline_option(argc, argv, "--stdin"))) {
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_STDIN].sw))) {
 		fdin = open(p, LWS_O_RDONLY, 0);
 		if (fdin < 0) {
 			result = 1;

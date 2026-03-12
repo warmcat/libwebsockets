@@ -10,6 +10,27 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_CURVE,
+	LWS_SW_DURATION,
+	LWS_SW_HASH,
+	LWS_SW_KSK,
+	LWS_SW_ZSK,
+	LWS_SW_D,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_CURVE]	= { "--curve",         "Enable --curve feature" },
+	[LWS_SW_DURATION]	= { "--duration",      "Enable --duration feature" },
+	[LWS_SW_HASH]	= { "--hash",          "Enable --hash feature" },
+	[LWS_SW_KSK]	= { "--ksk",           "Enable --ksk feature" },
+	[LWS_SW_ZSK]	= { "--zsk",           "Enable --zsk feature" },
+	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <string.h>
 #include <stdlib.h>
 #include <fcntl.h>
@@ -25,10 +46,10 @@ do_keygen(struct lws_context *context, int argc, const char **argv)
 	char key[32768];
 	int vl = sizeof(key);
 
-	if (lws_cmdline_option(argc, argv, "--ksk"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_KSK].sw))
 		is_ksk = 1;
 
-	if ((p = lws_cmdline_option(argc, argv, "--curve")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_CURVE].sw)))
 		curve = p;
 
 	domain = argv[argc - 1];
@@ -151,7 +172,7 @@ do_dsfromkey(struct lws_context *context, int argc, const char **argv)
 		return 1;
 	}
 
-	if ((p = lws_cmdline_option(argc, argv, "--hash"))) {
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_HASH].sw))) {
 		if (!strcmp(p, "SHA384")) {
 			hash_idx = LWS_GENHASH_TYPE_SHA384;
 			digest_type = 4;
@@ -235,17 +256,17 @@ do_signzone(struct lws_context *context, int argc, const char **argv)
 	memset(&info, 0, sizeof(info));
 	info.cx = context;
 
-	if ((p = lws_cmdline_option(argc, argv, "--zsk")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_ZSK].sw)))
 		info.zsk_jwk_filepath = p;
 	else {
 		lwsl_err("signzone requires --zsk myzone.zsk.private.jwk\n");
 		return 1;
 	}
 
-	if ((p = lws_cmdline_option(argc, argv, "--ksk")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_KSK].sw)))
 		info.ksk_jwk_filepath = p;
 
-	if ((p = lws_cmdline_option(argc, argv, "--duration")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_DURATION].sw)))
 		info.sign_validity_duration = (uint32_t)atoi(p);
 
 	if (argc < 4 || argv[argc - 3][0] == '-' || argv[argc - 2][0] == '-' || argv[argc - 1][0] == '-') {
@@ -271,8 +292,15 @@ int main(int argc, const char **argv)
 	struct lws_context_creation_info info;
 	struct lws_context *context;
 	const char *p;
+	(void)switches;
 
-	if ((p = lws_cmdline_option(argc, argv, "-d")))
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
+
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);

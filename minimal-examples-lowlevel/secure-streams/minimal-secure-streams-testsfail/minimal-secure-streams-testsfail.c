@@ -15,6 +15,23 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_AMOUNT,
+	LWS_SW_A,
+	LWS_SW_I,
+	LWS_SW_P,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_AMOUNT]	= { "--amount",        "Amount of something" },
+	[LWS_SW_A]	= { "-a",              "Enable -a feature" },
+	[LWS_SW_I]	= { "-i",              "Interface to bind to" },
+	[LWS_SW_P]	= { "-p",              "Port number to listen or connect on" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <string.h>
 #include <signal.h>
 
@@ -880,13 +897,20 @@ main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	const char *pp;
+	(void)switches;
+
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
 
 	signal(SIGINT, sigint_handler);
 
 	memset(&info, 0, sizeof info);
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 
-	if ((pp = lws_cmdline_option(argc, argv, "--amount")))
+	if ((pp = lws_cmdline_option(argc, argv, switches[LWS_SW_AMOUNT].sw)))
 		amount = (size_t)atoi(pp);
 
 	/* set the expected payload for the bulk-related tests to amount */
@@ -910,17 +934,17 @@ main(int argc, const char **argv)
 
 		/* connect to ssproxy via UDS by default, else via
 		 * tcp connection to this port */
-		if ((p = lws_cmdline_option(argc, argv, "-p")))
+		if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_P].sw)))
 			info.ss_proxy_port = (uint16_t)atoi(p);
 
 		/* UDS "proxy.ss.lws" in abstract namespace, else this socket
 		 * path; when -p given this can specify the network interface
 		 * to bind to */
-		if ((p = lws_cmdline_option(argc, argv, "-i")))
+		if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_I].sw)))
 			info.ss_proxy_bind = p;
 
 		/* if -p given, -a specifies the proxy address to connect to */
-		if ((p = lws_cmdline_option(argc, argv, "-a")))
+		if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_A].sw)))
 			info.ss_proxy_address = p;
 	}
 #else

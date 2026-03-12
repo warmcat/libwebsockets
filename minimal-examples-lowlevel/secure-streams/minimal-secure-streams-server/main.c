@@ -8,6 +8,17 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_M,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_M]	= { "-m",              "Enable -m feature" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <string.h>
 #include <signal.h>
 
@@ -267,13 +278,20 @@ int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	int n = 0;
+	(void)switches;
+
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
 
 	signal(SIGINT, sigint_handler);
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 
-	if (lws_cmdline_option(argc, argv, "-m"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_M].sw))
 		multipart = 1;
 
 	lwsl_user("LWS Secure Streams Server\n");

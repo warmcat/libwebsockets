@@ -22,6 +22,17 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_URL,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_URL]	= { "--url",           "Enable --url feature" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <signal.h>
 
 int test_result = 3; /* b0: clr when peer ACKed request, b1: clr when rx done */
@@ -42,10 +53,17 @@ main(int argc, const char **argv)
 	struct lws_ss_handle *h;
 
 	lws_context_info_defaults(&info, NULL /* default policy */);
+	(void)switches;
+
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 	signal(SIGINT, sigint_handler);
 
-	p = lws_cmdline_option(argc, argv, "--url");
+	p = lws_cmdline_option(argc, argv, switches[LWS_SW_URL].sw);
 	if (p)
 		url = p;
 

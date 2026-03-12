@@ -8,6 +8,41 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_ALG,
+	LWS_SW_COSE_MAC,
+	LWS_SW_COSE_MAC0,
+	LWS_SW_COSE_SIGN,
+	LWS_SW_COSE_SIGN1,
+	LWS_SW_EXTRA,
+	LWS_SW_KID,
+	LWS_SW_KID_HEX,
+	LWS_SW_STDIN,
+	LWS_SW_STDOUT,
+	LWS_SW_D,
+	LWS_SW_K,
+	LWS_SW_S,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_ALG]	= { "--alg",           "Enable --alg feature" },
+	[LWS_SW_COSE_MAC]	= { "--cose-mac",      "Enable --cose-mac feature" },
+	[LWS_SW_COSE_MAC0]	= { "--cose-mac0",     "Enable --cose-mac0 feature" },
+	[LWS_SW_COSE_SIGN]	= { "--cose-sign",     "Enable --cose-sign feature" },
+	[LWS_SW_COSE_SIGN1]	= { "--cose-sign1",    "Enable --cose-sign1 feature" },
+	[LWS_SW_EXTRA]	= { "--extra",         "Enable --extra feature" },
+	[LWS_SW_KID]	= { "--kid",           "Enable --kid feature" },
+	[LWS_SW_KID_HEX]	= { "--kid-hex",       "Enable --kid-hex feature" },
+	[LWS_SW_STDIN]	= { "--stdin",         "Enable --stdin feature" },
+	[LWS_SW_STDOUT]	= { "--stdout",        "Enable --stdout feature" },
+	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
+	[LWS_SW_K]	= { "-k",              "Key or cert path" },
+	[LWS_SW_S]	= { "-s",              "Use TLS / https" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <sys/types.h>
 #include <fcntl.h>
 
@@ -109,8 +144,15 @@ int main(int argc, const char **argv)
 	lws_lec_pctx_t lec;
 	cose_param_t alg;
 	const char *p;
+	(void)switches;
 
-	if ((p = lws_cmdline_option(argc, argv, "-d")))
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
+
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);
@@ -128,7 +170,7 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	if ((p = lws_cmdline_option(argc, argv, "--stdin"))) {
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_STDIN].sw))) {
 		fdin = open(p, LWS_O_RDONLY, 0);
 		if (fdin < 0) {
 			lwsl_err("%s: unable to open stdin file\n", __func__);
@@ -136,7 +178,7 @@ int main(int argc, const char **argv)
 		}
 	}
 
-	if ((p = lws_cmdline_option(argc, argv, "--stdout"))) {
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_STDOUT].sw))) {
 		fdout = open(p, LWS_O_WRONLY | LWS_O_CREAT | LWS_O_TRUNC, 0600);
 		if (fdout < 0) {
 			lwsl_err("%s: unable to open stdout file\n", __func__);
@@ -149,35 +191,35 @@ int main(int argc, const char **argv)
 	 * use the tag to select the right type without these
 	 */
 
-	if (lws_cmdline_option(argc, argv, "--cose-sign"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_COSE_SIGN].sw))
 		sigtype = SIGTYPE_MULTI;
 
-	if (lws_cmdline_option(argc, argv, "--cose-sign1"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_COSE_SIGN1].sw))
 		sigtype = SIGTYPE_SINGLE;
 
-	if (lws_cmdline_option(argc, argv, "--cose-mac"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_COSE_MAC].sw))
 		sigtype = SIGTYPE_MAC;
 
-	if (lws_cmdline_option(argc, argv, "--cose-mac0"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_COSE_MAC0].sw))
 		sigtype = SIGTYPE_MAC0;
 
 	/* if signing, set the ciphers */
 
-	if (lws_cmdline_option(argc, argv, "-s"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_S].sw))
 		sign = 1;
 
-	if ((p = lws_cmdline_option(argc, argv, "--kid"))) {
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_KID].sw))) {
 		kid = (uint8_t *)p;
 		kid_len = strlen(p);
 		//lwsl_hexdump_notice(kid, kid_len);
 	}
 
-	if ((p = lws_cmdline_option(argc, argv, "--kid-hex"))) {
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_KID_HEX].sw))) {
 		kid_len = (size_t)lws_hex_to_byte_array(p, ktmp, sizeof(ktmp));
 		kid = (uint8_t *)ktmp;
 	}
 
-	if ((p = lws_cmdline_option(argc, argv, "--extra"))) {
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_EXTRA].sw))) {
 		ext_len = (size_t)lws_hex_to_byte_array(p, extra, sizeof(extra));
 		lwsl_notice("%llu\n", (unsigned long long)ext_len);
 		if (ext_len == (size_t)-1ll)
@@ -186,7 +228,7 @@ int main(int argc, const char **argv)
 
 	/* grab the key */
 
-	if (!(p = lws_cmdline_option(argc, argv, "-k"))) {
+	if (!(p = lws_cmdline_option(argc, argv, switches[LWS_SW_K].sw))) {
 		lwsl_err("-k <key set file> is required\n");
 		goto bail;
 	}
@@ -227,7 +269,7 @@ int main(int argc, const char **argv)
 		uint8_t *ppay;
 		size_t s;
 
-		p = lws_cmdline_option(argc, argv, "--alg");
+		p = lws_cmdline_option(argc, argv, switches[LWS_SW_ALG].sw);
 		if (!p) {
 			lwsl_err("%s: need to specify alg (eg, ES256) "
 				 "when signing\n", __func__);

@@ -8,6 +8,31 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_BITS,
+	LWS_SW_CURVE,
+	LWS_SW_KID,
+	LWS_SW_KID_HEX,
+	LWS_SW_KTY,
+	LWS_SW_STDIN,
+	LWS_SW_STDOUT,
+	LWS_SW_D,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_BITS]	= { "--bits",          "Enable --bits feature" },
+	[LWS_SW_CURVE]	= { "--curve",         "Enable --curve feature" },
+	[LWS_SW_KID]	= { "--kid",           "Enable --kid feature" },
+	[LWS_SW_KID_HEX]	= { "--kid-hex",       "Enable --kid-hex feature" },
+	[LWS_SW_KTY]	= { "--kty",           "Enable --kty feature" },
+	[LWS_SW_STDIN]	= { "--stdin",         "Enable --stdin feature" },
+	[LWS_SW_STDOUT]	= { "--stdout",        "Enable --stdout feature" },
+	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <sys/select.h>
 #include <sys/types.h>
 #include <stdlib.h>
@@ -120,8 +145,15 @@ int main(int argc, const char **argv)
 	lws_dll2_owner_t set;
 	const char *p, *crv;
 	lws_lec_pctx_t lec;
+	(void)switches;
 
-	if ((p = lws_cmdline_option(argc, argv, "-d")))
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
+
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);
@@ -139,7 +171,7 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	if ((p = lws_cmdline_option(argc, argv, "--stdin"))) {
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_STDIN].sw))) {
 		fdin = open(p, LWS_O_RDONLY, 0);
 		if (fdin < 0) {
 			lwsl_err("%s: unable to open stdin file\n", __func__);
@@ -147,7 +179,7 @@ int main(int argc, const char **argv)
 		}
 	}
 
-	if ((p = lws_cmdline_option(argc, argv, "--stdout"))) {
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_STDOUT].sw))) {
 		fdout = open(p, LWS_O_WRONLY | LWS_O_CREAT | LWS_O_TRUNC, 0600);
 		if (fdout < 0) {
 			lwsl_err("%s: unable to open stdout file\n", __func__);
@@ -155,13 +187,13 @@ int main(int argc, const char **argv)
 		}
 	}
 
-	if ((p = lws_cmdline_option(argc, argv, "--kid"))) {
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_KID].sw))) {
 		kid = (uint8_t *)p;
 		kid_len = strlen(p);
 		//lwsl_hexdump_notice(kid, kid_len);
 	}
 
-	if ((p = lws_cmdline_option(argc, argv, "--kid-hex"))) {
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_KID_HEX].sw))) {
 		kid_len = (size_t)lws_hex_to_byte_array(p, ktmp, sizeof(ktmp));
 		kid = (uint8_t *)ktmp;
 	}
@@ -247,7 +279,7 @@ no_stdin:
 	 *
 	 */
 
-	p = lws_cmdline_option(argc, argv, "--kty");
+	p = lws_cmdline_option(argc, argv, switches[LWS_SW_KTY].sw);
 	if (!p) {
 		lwsl_err("%s: use --kty OKP|EC2|RSA|SYMMETRIC\n",
 					__func__);
@@ -272,14 +304,14 @@ no_stdin:
 	crv = NULL;
 	if (cose_kty == LWSCOSE_WKKTV_OKP ||
 	    cose_kty == LWSCOSE_WKKTV_EC2) {
-		crv = lws_cmdline_option(argc, argv, "--curve");
+		crv = lws_cmdline_option(argc, argv, switches[LWS_SW_CURVE].sw);
 		if (!crv) {
 			lwsl_err("%s: use --curve P-256 etc\n", __func__);
 			goto bail;
 		}
 	}
 
-	p = lws_cmdline_option(argc, argv, "--bits");
+	p = lws_cmdline_option(argc, argv, switches[LWS_SW_BITS].sw);
 	if (p)
 		bits = atoi(p);
 

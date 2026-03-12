@@ -11,6 +11,23 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_D,
+	LWS_SW_N,
+	LWS_SW_O,
+	LWS_SW_P,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
+	[LWS_SW_N]	= { "-n",              "Enable -n feature" },
+	[LWS_SW_O]	= { "-o",              "Enable -o feature" },
+	[LWS_SW_P]	= { "-p",              "Port number to listen or connect on" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <string.h>
 #include <signal.h>
 
@@ -74,10 +91,17 @@ int main(int argc, const char **argv)
 			/* | LLL_INFO */ /* | LLL_PARSER */ /* | LLL_HEADER */
 			/* | LLL_EXT */ /* | LLL_CLIENT */ /* | LLL_LATENCY */
 			/* | LLL_DEBUG */;
+	(void)switches;
+
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
 
 	signal(SIGINT, sigint_handler);
 
-	if ((p = lws_cmdline_option(argc, argv, "-d")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);
@@ -85,17 +109,17 @@ int main(int argc, const char **argv)
 	lwsl_user("   lws-minimal-ws-client-echo [-n (no exts)] [-p port] [-o (once)]\n");
 
 
-	if ((p = lws_cmdline_option(argc, argv, "-p")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_P].sw)))
 		port = atoi(p);
 
-	if (lws_cmdline_option(argc, argv, "-o"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_O].sw))
 		options |= 1;
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.port = port;
 	info.protocols = protocols;
 	info.pvo = &pvo;
-	if (!lws_cmdline_option(argc, argv, "-n"))
+	if (!lws_cmdline_option(argc, argv, switches[LWS_SW_N].sw))
 		info.extensions = extensions;
 	info.pt_serv_buf_size = 32 * 1024;
 	info.options = LWS_SERVER_OPTION_VALIDATE_UTF8 |

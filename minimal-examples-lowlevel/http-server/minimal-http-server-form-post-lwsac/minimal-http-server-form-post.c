@@ -12,6 +12,19 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_D,
+	LWS_SW_S,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
+	[LWS_SW_S]	= { "-s",              "Use TLS / https" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <string.h>
 #include <signal.h>
 
@@ -171,10 +184,17 @@ int main(int argc, const char **argv)
 			/* | LLL_INFO */ /* | LLL_PARSER */ /* | LLL_HEADER */
 			/* | LLL_EXT */ /* | LLL_CLIENT */ /* | LLL_LATENCY */
 			/* | LLL_DEBUG */;
+	(void)switches;
+
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
 
 	signal(SIGINT, sigint_handler);
 
-	if ((p = lws_cmdline_option(argc, argv, "-d")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);
@@ -187,7 +207,7 @@ int main(int argc, const char **argv)
 	info.options =
 		LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE;
 
-	if (lws_cmdline_option(argc, argv, "-s")) {
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_S].sw)) {
 		info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 #if defined(LWS_WITH_TLS)
 		info.ssl_cert_filepath = "localhost-100y.cert";

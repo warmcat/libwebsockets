@@ -8,6 +8,25 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_ALG,
+	LWS_SW_C,
+	LWS_SW_D,
+	LWS_SW_P,
+	LWS_SW_T,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_ALG]	= { "--alg",           "Enable --alg feature" },
+	[LWS_SW_C]	= { "-c",              "Client connections" },
+	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
+	[LWS_SW_P]	= { "-p",              "Port number to listen or connect on" },
+	[LWS_SW_T]	= { "-t",              "Test flag" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <sys/types.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -63,10 +82,17 @@ int main(int argc, const char **argv)
 	struct lws_jwk jwk;
 	char pembuf[6144];
 	const char *p;
+	(void)switches;
+
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
 
 	memset(&jwk, 0, sizeof(jwk));
 
-	if ((p = lws_cmdline_option(argc, argv, "-d")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);
@@ -85,7 +111,7 @@ int main(int argc, const char **argv)
 	}
 
 
-	p = lws_cmdline_option(argc, argv, "-c");
+	p = lws_cmdline_option(argc, argv, switches[LWS_SW_C].sw);
 	if (!p) {
 		lwsl_err("%s: missing -c <cert pem file>\n", __func__);
 		goto bail;
@@ -96,7 +122,7 @@ int main(int argc, const char **argv)
 		goto bail;
 	}
 
-	p = lws_cmdline_option(argc, argv, "-t");
+	p = lws_cmdline_option(argc, argv, switches[LWS_SW_T].sw);
 	if (p) {
 
 		if (read_pem_c509_cert(&x509_trusted, p, pembuf,
@@ -128,7 +154,7 @@ int main(int argc, const char **argv)
 			goto bail2;
 		}
 
-		if ((p = lws_cmdline_option(argc, argv, "--alg")))
+		if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_ALG].sw)))
 			lws_jwk_strdup_meta(&jwk, JWK_META_ALG, p, (int)strlen(p));
 
 		lwsl_info("JWK version of trusted cert:\n");
@@ -145,12 +171,12 @@ int main(int argc, const char **argv)
 	}
 	lwsl_info("JWK version of cert:\n");
 
-	if ((p = lws_cmdline_option(argc, argv, "--alg")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_ALG].sw)))
 		lws_jwk_strdup_meta(&jwk, JWK_META_ALG, p, (int)strlen(p));
 
 	lws_jwk_dump(&jwk);
 	/* only print public if he doesn't provide private */
-	if (!lws_cmdline_option(argc, argv, "-p")) {
+	if (!lws_cmdline_option(argc, argv, switches[LWS_SW_P].sw)) {
 		lwsl_notice("Issuing Cert Public JWK on stdout\n");
 		n = sizeof(pembuf);
 		if (lws_jwk_export(&jwk, 0, pembuf, &n))
@@ -159,7 +185,7 @@ int main(int argc, const char **argv)
 
 	/* if we know where the cert private key is, add that to the cert JWK */
 
-	p = lws_cmdline_option(argc, argv, "-p");
+	p = lws_cmdline_option(argc, argv, switches[LWS_SW_P].sw);
 	if (p) {
 		n = read_pem(p, pembuf, sizeof(pembuf));
 		if (n < 0) {
@@ -175,7 +201,7 @@ int main(int argc, const char **argv)
 			goto bail3;
 		}
 
-		if ((p = lws_cmdline_option(argc, argv, "--alg")))
+		if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_ALG].sw)))
 			lws_jwk_strdup_meta(&jwk, JWK_META_ALG, p, (int)strlen(p));
 
 		lwsl_info("JWK version of cert + privkey:\n");

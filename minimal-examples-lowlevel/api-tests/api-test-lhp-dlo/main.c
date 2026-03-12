@@ -8,6 +8,17 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_BMP,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_BMP]	= { "--bmp",           "Enable --bmp feature" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <fcntl.h>
@@ -244,6 +255,13 @@ main(int argc, const char **argv)
 	struct lws_context_creation_info info;
 	int result = 0;
 	const char *p;
+	(void)switches;
+
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
 
 	signal(SIGINT, sigint_handler);
 
@@ -252,7 +270,7 @@ main(int argc, const char **argv)
 
 	lwsl_user("LWS LHP DLO test tool - %s https://site.com [--bmp file.bmp]\n", argv[0]);
 
-	if ((p = lws_cmdline_option(argc, argv, "--bmp"))) {
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_BMP].sw))) {
 		fdout = open(p, LWS_O_WRONLY | LWS_O_CREAT | LWS_O_TRUNC, 0600);
 		if (fdout < 0) {
 			result = 1;

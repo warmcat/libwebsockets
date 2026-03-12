@@ -14,6 +14,19 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_L,
+	LWS_SW_M,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_L]	= { "-l",              "Enable -l feature" },
+	[LWS_SW_M]	= { "-m",              "Enable -m feature" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <string.h>
 #include <signal.h>
 
@@ -260,6 +273,13 @@ int main(int argc, const char **argv)
 	struct lws_context_creation_info info;
 	struct lws_context *context;
 	int n = 0;
+	(void)switches;
+
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
 
 	signal(SIGINT, sigint_handler);
 
@@ -267,7 +287,7 @@ int main(int argc, const char **argv)
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 	lwsl_user("LWS minimal http client - POST [-d<verbosity>] [-l] [--h1] https://libwebsockets.org/testserver/formtest\n");
 
-	if (lws_cmdline_option(argc, argv, "-m"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_M].sw))
 		count_clients = LWS_ARRAY_SIZE(client_wsi);
 
 	info.options			= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
@@ -293,7 +313,7 @@ int main(int argc, const char **argv)
 	 * OpenSSL uses the system trust store.  mbedTLS has to be told which
 	 * CA to trust explicitly.
 	 */
-	if (!lws_cmdline_option(argc, argv, "-l"))
+	if (!lws_cmdline_option(argc, argv, switches[LWS_SW_L].sw))
 		info.client_ssl_ca_filepath = "./libwebsockets.org.cer";
 #endif
 

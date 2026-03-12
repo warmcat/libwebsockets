@@ -11,6 +11,17 @@
 
 #include <libwebsockets.h>
 
+
+enum {
+	LWS_SW_D,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #if defined(LWS_WITH_CBOR_FLOAT)
 #include <math.h>
 #endif
@@ -4611,8 +4622,15 @@ int main(int argc, const char **argv)
 					33 /* <-- how many write tests */;
 	struct lecp_ctx ctx;
 	const char *p;
+	(void)switches;
 
-	if ((p = lws_cmdline_option(argc, argv, "-d")))
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
+
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);
