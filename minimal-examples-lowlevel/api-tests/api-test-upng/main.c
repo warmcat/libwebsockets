@@ -8,6 +8,21 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_STDIN,
+	LWS_SW_STDOUT,
+	LWS_SW_D,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_STDIN]	= { "--stdin",         "Enable --stdin feature" },
+	[LWS_SW_STDOUT]	= { "--stdout",        "Enable --stdout feature" },
+	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <fcntl.h>
@@ -22,14 +37,21 @@ main(int argc, const char **argv)
 	lws_stateful_ret_t r = LWS_SRET_WANT_INPUT;
 	const char *p;
 	lws_upng_t *u;
+	(void)switches;
 
-	if ((p = lws_cmdline_option(argc, argv, "-d")))
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
+
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS UPNG test tool\n");
 
-	if ((p = lws_cmdline_option(argc, argv, "--stdin"))) {
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_STDIN].sw))) {
 		fdin = open(p, LWS_O_RDONLY, 0);
 		if (fdin < 0) {
 			result = 1;
@@ -38,7 +60,7 @@ main(int argc, const char **argv)
 		}
 	}
 
-	if ((p = lws_cmdline_option(argc, argv, "--stdout"))) {
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_STDOUT].sw))) {
 		fdout = open(p, LWS_O_WRONLY | LWS_O_CREAT | LWS_O_TRUNC, 0600);
 		if (fdout < 0) {
 			result = 1;

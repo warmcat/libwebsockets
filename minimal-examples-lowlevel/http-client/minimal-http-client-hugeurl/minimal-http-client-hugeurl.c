@@ -13,6 +13,19 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_H1,
+	LWS_SW_L,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_H1]	= { "--h1",            "Enable --h1 feature" },
+	[LWS_SW_L]	= { "-l",              "Enable -l feature" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <string.h>
 #include <signal.h>
 
@@ -149,6 +162,13 @@ int main(int argc, const char **argv)
 	struct lws_client_connect_info i;
 	struct lws_context *context;
 	int n = 0;
+	(void)switches;
+
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
 
 	signal(SIGINT, sigint_handler);
 
@@ -190,7 +210,7 @@ int main(int argc, const char **argv)
 	i.context = context;
 	i.ssl_connection = LCCSCF_USE_SSL;
 
-	if (lws_cmdline_option(argc, argv, "-l")) {
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_L].sw)) {
 		i.port = 7681;
 		i.address = "localhost";
 		i.ssl_connection |= LCCSCF_ALLOW_SELFSIGNED;
@@ -199,7 +219,7 @@ int main(int argc, const char **argv)
 		i.address = "warmcat.com";
 	}
 
-	if (lws_cmdline_option(argc, argv, "--h1"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_H1].sw))
 		i.alpn = "http/1.1";
 
 	i.path = uri;

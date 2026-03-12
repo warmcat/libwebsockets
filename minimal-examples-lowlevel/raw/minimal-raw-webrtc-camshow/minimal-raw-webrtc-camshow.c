@@ -10,6 +10,25 @@
 #define LWS_DLL
 #define _GNU_SOURCE
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_HEIGHT,
+	LWS_SW_NAME,
+	LWS_SW_URL,
+	LWS_SW_VIDEO_DEVICE,
+	LWS_SW_WIDTH,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_HEIGHT]	= { "--height",        "Enable --height feature" },
+	[LWS_SW_NAME]	= { "--name",          "Enable --name feature" },
+	[LWS_SW_URL]	= { "--url",           "Enable --url feature" },
+	[LWS_SW_VIDEO_DEVICE]	= { "--video-device",  "Enable --video-device feature" },
+	[LWS_SW_WIDTH]	= { "--width",         "Enable --width feature" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <string.h>
 #include <signal.h>
 #include <stdlib.h>
@@ -624,6 +643,13 @@ main(int argc, const char **argv)
 	const char *opt;
 
 	lws_context_info_defaults(&info, NULL);
+	(void)switches;
+
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 
 	info.port = CONTEXT_PORT_NO_LISTEN; /* Client only */
@@ -635,25 +661,25 @@ main(int argc, const char **argv)
 
 	/* Config parsing */
 	/* Config parsing */
-	if ((opt = lws_cmdline_option(argc, argv, "--url"))) {
+	if ((opt = lws_cmdline_option(argc, argv, switches[LWS_SW_URL].sw))) {
 		url = opt;
 	}
 
 	/* Parse devices */
-	if ((opt = lws_cmdline_option(argc, argv, "--video-device"))) {
+	if ((opt = lws_cmdline_option(argc, argv, switches[LWS_SW_VIDEO_DEVICE].sw))) {
 		devs_list = opt;
 	}
 
 	/* Parse name */
-	if ((opt = lws_cmdline_option(argc, argv, "--name"))) {
+	if ((opt = lws_cmdline_option(argc, argv, switches[LWS_SW_NAME].sw))) {
 		client_name = opt;
 	}
 
 	/* Parse resolution */
-	if ((opt = lws_cmdline_option(argc, argv, "--width"))) {
+	if ((opt = lws_cmdline_option(argc, argv, switches[LWS_SW_WIDTH].sw))) {
 		app_width = (uint32_t)atoi(opt);
 	}
-	if ((opt = lws_cmdline_option(argc, argv, "--height"))) {
+	if ((opt = lws_cmdline_option(argc, argv, switches[LWS_SW_HEIGHT].sw))) {
 		app_height = (uint32_t)atoi(opt);
 	}
 

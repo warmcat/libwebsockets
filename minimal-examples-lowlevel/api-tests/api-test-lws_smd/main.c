@@ -10,6 +10,21 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_COUNT,
+	LWS_SW_INTERVAL,
+	LWS_SW_D,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_COUNT]	= { "--count",         "Enable --count feature" },
+	[LWS_SW_INTERVAL]	= { "--interval",      "Enable --interval feature" },
+	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #define HAVE_STRUCT_TIMESPEC
 #include <pthread.h>
 #include <signal.h>
@@ -195,15 +210,15 @@ main(int argc, const char **argv)
 
 	signal(SIGINT, sigint_handler);
 
-	if ((p = lws_cmdline_option(argc, argv, "-d")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
 		logs = atoi(p);
 
-	if ((p = lws_cmdline_option(argc, argv, "--count")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_COUNT].sw)))
 		how_many_msg = (unsigned int)atol(p);
 
 	_exp = (2 * how_many_msg * THRESHOLD_PC) / 100;
 
-	if ((p = lws_cmdline_option(argc, argv, "--interval")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_INTERVAL].sw)))
 		usec_interval = (unsigned int)atol(p);
 
 	lws_set_log_level(logs, NULL);

@@ -14,6 +14,19 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_EXPECTED_EXIT,
+	LWS_SW_NONTLS,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_EXPECTED_EXIT]	= { "--expected-exit", "Enable --expected-exit feature" },
+	[LWS_SW_NONTLS]	= { "--nontls",        "Enable --nontls feature" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <string.h>
 #include <signal.h>
 
@@ -468,6 +481,13 @@ int main(int argc, const char **argv)
 	struct lws_context *context;
 	int n = 0, expected = 0;
 	const char *p;
+	(void)switches;
+
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
 
 	signal(SIGINT, sigint_handler);
 
@@ -477,7 +497,7 @@ int main(int argc, const char **argv)
 	lwsl_user("LWS secure streams mqtt test client [-d<verb>]\n");
 
 	/* these options are mutually exclusive if given */
-	if (lws_cmdline_option(argc, argv, "--nontls"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_NONTLS].sw))
 		test_nontls = 1;
 
 	info.fd_limit_per_thread = 1 + 6 + 1;
@@ -530,7 +550,7 @@ int main(int argc, const char **argv)
 	lws_context_destroy(context);
 
 bail:
-	if ((p = lws_cmdline_option(argc, argv, "--expected-exit")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_EXPECTED_EXIT].sw)))
 		expected = atoi(p);
 
 	if (bad == expected) {

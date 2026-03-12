@@ -11,6 +11,25 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_H1,
+	LWS_SW_A,
+	LWS_SW_H,
+	LWS_SW_I,
+	LWS_SW_P,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_H1]	= { "--h1",            "Enable --h1 feature" },
+	[LWS_SW_A]	= { "-a",              "Enable -a feature" },
+	[LWS_SW_H]	= { "-h",              "Strict Host Check / Help" },
+	[LWS_SW_I]	= { "-i",              "Interface to bind to" },
+	[LWS_SW_P]	= { "-p",              "Port number to listen or connect on" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <string.h>
 #include <signal.h>
 
@@ -339,6 +358,13 @@ int main(int argc, const char **argv)
 	struct lws_context *context;
 	const char *p;
 	int n = 0;
+	(void)switches;
+
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
 
 	signal(SIGINT, sigint_handler);
 
@@ -354,17 +380,17 @@ int main(int argc, const char **argv)
 
 	/* connect to ssproxy via UDS by default, else via
 	 * tcp connection to this port */
-	if ((p = lws_cmdline_option(argc, argv, "-p")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_P].sw)))
 		info.ss_proxy_port = (uint16_t)atoi(p);
 
 	/* UDS "proxy.ss.lws" in abstract namespace, else this socket
 	 * path; when -p given this can specify the network interface
 	 * to bind to */
-	if ((p = lws_cmdline_option(argc, argv, "-i")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_I].sw)))
 		info.ss_proxy_bind = p;
 
 	/* if -p given, -a specifies the proxy address to connect to */
-	if ((p = lws_cmdline_option(argc, argv, "-a")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_A].sw)))
 		info.ss_proxy_address = p;
 #else
 	info.pss_policies_json = default_ss_policy;
@@ -375,10 +401,10 @@ int main(int argc, const char **argv)
 	info.connect_timeout_secs = 15;
 	info.timeout_secs = 10;
 
-	if (lws_cmdline_option(argc, argv, "--h1"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_H1].sw))
 		h1 = 1;
 
-	if ((p = lws_cmdline_option(argc, argv, "-h")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_H].sw)))
 		hugeurl_size = (size_t)atol(p);
 
 	if (hugeurl_size < 1 || hugeurl_size > 16384) {

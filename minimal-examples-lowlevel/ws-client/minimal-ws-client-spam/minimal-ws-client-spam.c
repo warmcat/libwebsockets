@@ -11,6 +11,27 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_PORT,
+	LWS_SW_SERVER,
+	LWS_SW_C,
+	LWS_SW_D,
+	LWS_SW_L,
+	LWS_SW_N,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_PORT]	= { "--port",          "Port to connect or listen on" },
+	[LWS_SW_SERVER]	= { "--server",        "Server address to connect to" },
+	[LWS_SW_C]	= { "-c",              "Client connections" },
+	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
+	[LWS_SW_L]	= { "-l",              "Enable -l feature" },
+	[LWS_SW_N]	= { "-n",              "Enable -n feature" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <string.h>
 #include <signal.h>
 #if defined(WIN32)
@@ -197,10 +218,17 @@ int main(int argc, const char **argv)
 			/* | LLL_INFO */ /* | LLL_PARSER */ /* | LLL_HEADER */
 			/* | LLL_EXT */ /* | LLL_CLIENT */ /* | LLL_LATENCY */
 			/* | LLL_DEBUG */;
+	(void)switches;
+
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
 
 	signal(SIGINT, sigint_handler);
 
-	if ((p = lws_cmdline_option(argc, argv, "-d")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);
@@ -219,21 +247,21 @@ int main(int argc, const char **argv)
 	info.client_ssl_ca_filepath = "./libwebsockets.org.cer";
 #endif
 
-	if ((p = lws_cmdline_option(argc, argv, "--server"))) {
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_SERVER].sw))) {
 		server_address = p;
 		ssl_connection |= LCCSCF_ALLOW_SELFSIGNED;
 	}
 
-	if ((p = lws_cmdline_option(argc, argv, "--port")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PORT].sw)))
 		port = atoi(p);
 
-	if ((p = lws_cmdline_option(argc, argv, "-l")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_L].sw)))
 		limit = atoi(p);
 
-	if ((p = lws_cmdline_option(argc, argv, "-c")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_C].sw)))
 		concurrent = atoi(p);
 
-	if (lws_cmdline_option(argc, argv, "-n")) {
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_N].sw)) {
 		ssl_connection = 0;
 		info.options = 0;
 	}

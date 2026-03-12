@@ -9,6 +9,23 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_C,
+	LWS_SW_I,
+	LWS_SW_P,
+	LWS_SW_S,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_C]	= { "-c",              "Client connections" },
+	[LWS_SW_I]	= { "-i",              "Interface to bind to" },
+	[LWS_SW_P]	= { "-p",              "Port number to listen or connect on" },
+	[LWS_SW_S]	= { "-s",              "Use TLS / https" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <string.h>
 #include <signal.h>
 #if defined(WIN32)
@@ -394,17 +411,17 @@ int main(int argc, const char **argv)
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 
-	do_ssl = !!lws_cmdline_option(argc, argv, "-s");
+	do_ssl = !!lws_cmdline_option(argc, argv, switches[LWS_SW_S].sw);
 	if (do_ssl)
 		info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 
-	if (lws_cmdline_option(argc, argv, "-p"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_P].sw))
 		pipeline = 1;
 
-	if ((p = lws_cmdline_option(argc, argv, "-i")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_I].sw)))
 		stagger_us = atoi(p);
 
-	if ((p = lws_cmdline_option(argc, argv, "-c")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_C].sw)))
 		count = atoi(p);
 
 	if (count > COUNT) {

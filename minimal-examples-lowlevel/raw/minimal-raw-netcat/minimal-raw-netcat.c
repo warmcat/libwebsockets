@@ -14,6 +14,23 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_PORT,
+	LWS_SW_SERVER,
+	LWS_SW_D,
+	LWS_SW_W,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_PORT]	= { "--port",          "Port to connect or listen on" },
+	[LWS_SW_SERVER]	= { "--server",        "Server address to connect to" },
+	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
+	[LWS_SW_W]	= { "-w",              "Enable -w feature" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <string.h>
 #include <signal.h>
 #if !defined(WIN32)
@@ -146,10 +163,17 @@ int main(int argc, const char **argv)
 	struct lws_vhost *vhost;
 	const char *p;
 	int n = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+	(void)switches;
+
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
 
 	signal(SIGINT, sigint_handler);
 
-	if ((p = lws_cmdline_option(argc, argv, "-d")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);
@@ -187,13 +211,13 @@ int main(int argc, const char **argv)
 	h.ai_socktype = SOCK_STREAM;
 	h.ai_protocol = IPPROTO_TCP;
 
-	if ((p = lws_cmdline_option(argc, argv, "--port")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PORT].sw)))
 		port = p;
 
-	if ((p = lws_cmdline_option(argc, argv, "--server")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_SERVER].sw)))
 		server = p;
 
-	if ((p = lws_cmdline_option(argc, argv, "-w")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_W].sw)))
 		us_wait_after_input_close = 1000 * atoi(p);
 
 	n = getaddrinfo(server, port, &h, &r);

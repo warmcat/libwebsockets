@@ -14,6 +14,21 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_DIE_AFTER_VHOST,
+	LWS_SW_KILL_7682,
+	LWS_SW_D,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_DIE_AFTER_VHOST]	= { "--die-after-vhost", "Enable --die-after-vhost feature" },
+	[LWS_SW_KILL_7682]	= { "--kill-7682",     "Enable --kill-7682 feature" },
+	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <string.h>
 #include <signal.h>
 
@@ -62,8 +77,15 @@ int main(int argc, const char **argv)
 			/* | LLL_INFO */ /* | LLL_PARSER */ /* | LLL_HEADER */
 			/* | LLL_EXT */ /* | LLL_CLIENT */ /* | LLL_LATENCY */
 			/* | LLL_DEBUG */;
+	(void)switches;
 
-	if ((p = lws_cmdline_option(argc, argv, "-d")))
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
+
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);
@@ -112,7 +134,7 @@ int main(int argc, const char **argv)
 	info.error_document_404 = "/404.html";
 	info.vhost_name = "localhost2";
 
-	if (!lws_cmdline_option(argc, argv, "--kill-7682")) {
+	if (!lws_cmdline_option(argc, argv, switches[LWS_SW_KILL_7682].sw)) {
 
 		if (!lws_create_vhost(context, &info)) {
 			lwsl_err("Failed to create second vhost\n");
@@ -133,10 +155,10 @@ int main(int argc, const char **argv)
 		goto bail;
 	}
 
-	if (lws_cmdline_option(argc, argv, "--kill-7682"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_KILL_7682].sw))
 		lws_vhost_destroy(new_vhost);
 
-	if (lws_cmdline_option(argc, argv, "--die-after-vhost")) {
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_DIE_AFTER_VHOST].sw)) {
 		lwsl_warn("bailing after creating vhosts\n");
 		goto bail;
 	}

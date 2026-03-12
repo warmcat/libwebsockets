@@ -17,6 +17,19 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_PORT,
+	LWS_SW_H,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_PORT]	= { "--port",          "Port to connect or listen on" },
+	[LWS_SW_H]	= { "-h",              "Strict Host Check / Help" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <string.h>
 #include <signal.h>
 #include <errno.h>
@@ -78,6 +91,13 @@ int main(int argc, const char **argv)
 	int n = 0;
 
 #if !defined(WIN32)
+	(void)switches;
+
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
 	memset(&siga, 0, sizeof(siga));
 	siga.sa_sigaction = sigint_handler;
 	siga.sa_flags |= SA_SIGINFO; // get detail info
@@ -95,7 +115,7 @@ int main(int argc, const char **argv)
 	lwsl_user("LWS minimal http server TLS | visit https://localhost:7681\n");
 
 	info.port = 7681;
-	if ((p = lws_cmdline_option(argc, argv, "--port")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PORT].sw)))
 		info.port = atoi(p);
 	info.mounts = &mount;
 	info.error_document_404 = "/404.html";
@@ -109,7 +129,7 @@ int main(int argc, const char **argv)
 	info.plugin_dirs = plugin_dirs;
 #endif
 
-	if (lws_cmdline_option(argc, argv, "-h"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_H].sw))
 		info.options |= LWS_SERVER_OPTION_VHOST_UPG_STRICT_HOST_CHECK;
 
 	context = lws_create_context(&info);

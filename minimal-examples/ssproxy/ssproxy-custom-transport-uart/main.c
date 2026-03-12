@@ -12,6 +12,19 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_I,
+	LWS_SW_P,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_I]	= { "-i",              "Interface to bind to" },
+	[LWS_SW_P]	= { "-p",              "Port number to listen or connect on" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <string.h>
 #include <signal.h>
 
@@ -180,16 +193,23 @@ int main(int argc, const char **argv)
 	const char *p;
 
 	lws_context_info_defaults(&info, default_ss_policy);
+	(void)switches;
+
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 	signal(SIGINT, sigint_handler);
 
 	/* connect to ssproxy via UDS by default, else via tcp with this port */
-	if ((p = lws_cmdline_option(argc, argv, "-p")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_P].sw)))
 		port = atoi(p);
 
 	/* UDS "proxy.ss.lws" in abstract namespace, else this socket path;
 	 * when -p given this can specify the network interface to bind to */
-	if ((p = lws_cmdline_option(argc, argv, "-i")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_I].sw)))
 		ibind = p;
 
 	lwsl_user("LWS secure streams Proxy [-d<verb>]\n");

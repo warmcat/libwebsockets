@@ -13,6 +13,41 @@
 
 #include <libwebsockets.h>
 
+
+enum {
+	LWS_SW_BULK,
+	LWS_SW_GEN_MANIFEST,
+	LWS_SW_GET,
+	LWS_SW_JWK,
+	LWS_SW_POLICY_ALLOW,
+	LWS_SW_POLICY_DENY,
+	LWS_SW_PUT,
+	LWS_SW_RECEIVER,
+	LWS_SW_TARGET_IP,
+	LWS_SW_TARGET_PORT,
+	LWS_SW_TEST_HANDSHAKE,
+	LWS_SW_P,
+	LWS_SW_S,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_BULK]	= { "--bulk",          "Enable --bulk feature" },
+	[LWS_SW_GEN_MANIFEST]	= { "--gen-manifest",  "Enable --gen-manifest feature" },
+	[LWS_SW_GET]	= { "--get",           "Enable --get feature" },
+	[LWS_SW_JWK]	= { "--jwk",           "Enable --jwk feature" },
+	[LWS_SW_POLICY_ALLOW]	= { "--policy-allow",  "Enable --policy-allow feature" },
+	[LWS_SW_POLICY_DENY]	= { "--policy-deny",   "Enable --policy-deny feature" },
+	[LWS_SW_PUT]	= { "--put",           "Chunk, wrap, and distribute a payload object to the network" },
+	[LWS_SW_RECEIVER]	= { "--receiver",      "Enable --receiver feature" },
+	[LWS_SW_TARGET_IP]	= { "--target-ip",     "Bootstrapping UDP network node target IP" },
+	[LWS_SW_TARGET_PORT]	= { "--target-port",   "Bootstrapping UDP network node target port" },
+	[LWS_SW_TEST_HANDSHAKE]	= { "--test-handshake", "Enable --test-handshake feature" },
+	[LWS_SW_P]	= { "-p",              "Port number to listen or connect on" },
+	[LWS_SW_S]	= { "-s",              "Use TLS / https" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <signal.h>
 #include <string.h>
 #include <stdlib.h>
@@ -244,59 +279,66 @@ int main(int argc, const char **argv)
 	int n = 0;
 
 	lws_context_info_defaults(&info, NULL);
+	(void)switches;
+
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 	signal(SIGINT, sigint_handler);
 
 	lwsl_user("LWS minimal raw DHT | DHT protocol plugin refactor\n");
 
-	if ((p = lws_cmdline_option(argc, argv, "-s")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_S].sw)))
 		storage_path = p;
 
 	mkdir(storage_path, 0700);
 	pvos[1].value = storage_path;
 
-	if ((p = lws_cmdline_option(argc, argv, "-p")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_P].sw)))
 		dht_port = atoi(p);
 
 	lws_snprintf(port_buf, sizeof(port_buf), "%d", dht_port);
 
-	if ((p = lws_cmdline_option(argc, argv, "--target-ip")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_TARGET_IP].sw)))
 		pvos[5].value = p;
 
-	if ((p = lws_cmdline_option(argc, argv, "--target-port")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_TARGET_PORT].sw)))
 		pvos[6].value = p;
 
-	if ((p = lws_cmdline_option(argc, argv, "--put"))) {
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PUT].sw))) {
 		pvos[7].value = p;
 		use_stdin = 1;
 	}
 
-	if ((p = lws_cmdline_option(argc, argv, "--get"))) {
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_GET].sw))) {
 		pvos[8].value = p;
 		use_stdin = 1;
 	}
 
-	if (lws_cmdline_option(argc, argv, "--bulk")) {
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_BULK].sw)) {
 		pvos[9].value = "1";
 		use_stdin = 1;
 	}
 
-	if (lws_cmdline_option(argc, argv, "--gen-manifest"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_GEN_MANIFEST].sw))
 		pvos[10].value = "1";
 
-	if (lws_cmdline_option(argc, argv, "--receiver"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_RECEIVER].sw))
 		pvos[11].value = "1";
 
-	if ((p = lws_cmdline_option(argc, argv, "--jwk")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_JWK].sw)))
 		pvos[13].value = p;
 
-	if ((p = lws_cmdline_option(argc, argv, "--policy-allow")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_POLICY_ALLOW].sw)))
 		pvos[14].value = p;
 
-	if ((p = lws_cmdline_option(argc, argv, "--policy-deny")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_POLICY_DENY].sw)))
 		pvos[15].value = p;
 
-	if (lws_cmdline_option(argc, argv, "--test-handshake"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_TEST_HANDSHAKE].sw))
 		pvos[16].value = "1";
 
 
