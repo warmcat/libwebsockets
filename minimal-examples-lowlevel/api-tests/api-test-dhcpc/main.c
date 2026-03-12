@@ -8,6 +8,17 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_I,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_I]	= { "-i",              "Interface to bind to" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <signal.h>
 
 static int interrupted, ok, fail, exp = 1;
@@ -56,6 +67,13 @@ main(int argc, const char **argv)
 	const char *p;
 #endif
 	int n = 1;
+	(void)switches;
+
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
 
 	signal(SIGINT, sigint_handler);
 
@@ -67,7 +85,7 @@ main(int argc, const char **argv)
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 
 #if !defined(__COVERITY__)
-	if ((p = lws_cmdline_option(argc, argv, "-i")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_I].sw)))
 		nif = p;
 #endif
 

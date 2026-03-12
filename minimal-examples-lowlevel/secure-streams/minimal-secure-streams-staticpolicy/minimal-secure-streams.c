@@ -21,6 +21,25 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_FORCE_NO_INTERNET,
+	LWS_SW_FORCE_PORTAL,
+	LWS_SW_A,
+	LWS_SW_I,
+	LWS_SW_P,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_FORCE_NO_INTERNET]	= { "--force-no-internet", "Enable --force-no-internet feature" },
+	[LWS_SW_FORCE_PORTAL]	= { "--force-portal",  "Enable --force-portal feature" },
+	[LWS_SW_A]	= { "-a",              "Enable -a feature" },
+	[LWS_SW_I]	= { "-i",              "Interface to bind to" },
+	[LWS_SW_P]	= { "-p",              "Port number to listen or connect on" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <string.h>
 #include <signal.h>
 
@@ -189,6 +208,13 @@ int main(int argc, const char **argv)
 	struct lws_context_creation_info info;
 	struct lws_context *context;
 	int n = 0;
+	(void)switches;
+
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
 
 	signal(SIGINT, sigint_handler);
 
@@ -199,10 +225,10 @@ int main(int argc, const char **argv)
 
 	/* these options are mutually exclusive if given */
 
-	if (lws_cmdline_option(argc, argv, "--force-portal"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_FORCE_PORTAL].sw))
 		force_cpd_fail_portal = 1;
 
-	if (lws_cmdline_option(argc, argv, "--force-no-internet"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_FORCE_NO_INTERNET].sw))
 		force_cpd_fail_no_internet = 1;
 
 	info.fd_limit_per_thread = 1 + 6 + 1;
@@ -214,17 +240,17 @@ int main(int argc, const char **argv)
 
 		/* connect to ssproxy via UDS by default, else via
 		 * tcp connection to this port */
-		if ((p = lws_cmdline_option(argc, argv, "-p")))
+		if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_P].sw)))
 			info.ss_proxy_port = atoi(p);
 
 		/* UDS "proxy.ss.lws" in abstract namespace, else this socket
 		 * path; when -p given this can specify the network interface
 		 * to bind to */
-		if ((p = lws_cmdline_option(argc, argv, "-i")))
+		if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_I].sw)))
 			info.ss_proxy_bind = p;
 
 		/* if -p given, -a specifies the proxy address to connect to */
-		if ((p = lws_cmdline_option(argc, argv, "-a")))
+		if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_A].sw)))
 			info.ss_proxy_address = p;
 	}
 #else

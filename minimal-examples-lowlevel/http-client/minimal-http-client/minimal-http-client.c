@@ -13,6 +13,23 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_COS,
+	LWS_SW_EXPECTED_EXIT,
+	LWS_SW_C,
+	LWS_SW_W,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_COS]	= { "--cos",           "Enable --cos feature" },
+	[LWS_SW_EXPECTED_EXIT]	= { "--expected-exit", "Enable --expected-exit feature" },
+	[LWS_SW_C]	= { "-c",              "Client connections" },
+	[LWS_SW_W]	= { "-w",              "Enable -w feature" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <string.h>
 #include <signal.h>
 
@@ -374,7 +391,7 @@ int main(int argc, const char **argv)
 
 #if defined(LWS_WITH_CACHE_NSCOOKIEJAR)
 	info.http_nsc_filepath = "./cookies.txt";
-	if ((p = lws_cmdline_option(argc, argv, "-c")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_C].sw)))
 		info.http_nsc_filepath = p;
 #endif
 
@@ -387,7 +404,7 @@ int main(int argc, const char **argv)
 	 */
 	info.fd_limit_per_thread = 1 + 1 + 1;
 
-	if (lws_cmdline_option(argc, argv, "--cos"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_COS].sw))
 		close_after_start = 1;
 
 #if defined(LWS_WITH_MBEDTLS) || defined(USE_WOLFSSL)
@@ -395,7 +412,7 @@ int main(int argc, const char **argv)
 	 * OpenSSL uses the system trust store.  mbedTLS has to be told which
 	 * CA to trust explicitly.
 	 */
-	if (lws_cmdline_option(argc, argv, "-w"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_W].sw))
 		/* option to confirm we are validating against the right cert */
 		info.client_ssl_ca_filepath = "./wrong.cer";
 	else
@@ -424,7 +441,7 @@ int main(int argc, const char **argv)
 	lws_context_destroy(context);
 
 bail:
-	if ((p = lws_cmdline_option(argc, argv, "--expected-exit")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_EXPECTED_EXIT].sw)))
 		expected = atoi(p);
 
 	if (bad == expected) {

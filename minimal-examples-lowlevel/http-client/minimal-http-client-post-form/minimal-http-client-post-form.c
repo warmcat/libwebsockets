@@ -11,6 +11,17 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_L,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_L]	= { "-l",              "Enable -l feature" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <string.h>
 #include <signal.h>
 
@@ -247,6 +258,13 @@ int main(int argc, const char **argv)
 	struct lws_context_creation_info info;
 	struct lws_context *context;
 	int n = 0;
+	(void)switches;
+
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
 
 	signal(SIGINT, sigint_handler);
 
@@ -269,7 +287,7 @@ int main(int argc, const char **argv)
 	 * OpenSSL uses the system trust store.  mbedTLS has to be told which
 	 * CA to trust explicitly.
 	 */
-	if (!lws_cmdline_option(argc, argv, "-l"))
+	if (!lws_cmdline_option(argc, argv, switches[LWS_SW_L].sw))
 		info.client_ssl_ca_filepath = "./libwebsockets.org.cer";
 #endif
 

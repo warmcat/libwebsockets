@@ -8,6 +8,19 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_PORT,
+	LWS_SW_UDP,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_PORT]	= { "--port",          "Port to connect or listen on" },
+	[LWS_SW_UDP]	= { "--udp",           "Enable --udp feature" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <string.h>
 #if defined(WIN32) || defined(_WIN32)
 #include <winsock2.h>
@@ -80,8 +93,15 @@ int main(int argc, const char **argv)
 	size_t cert_len = 0, key_len = 0;
     int n, m, ok = 0;
     int use_udp = 0;
+	(void)switches;
 
-    if (lws_cmdline_option(argc, (const char **)argv, "--udp")) {
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
+
+    if (lws_cmdline_option(argc, (const char **)argv, switches[LWS_SW_UDP].sw)) {
         use_udp = 1;
     }
 
@@ -163,7 +183,7 @@ int main(int argc, const char **argv)
     int port = 7890;
     const char *p;
 
-    if ((p = lws_cmdline_option(argc, (const char **)argv, "--port"))) {
+    if ((p = lws_cmdline_option(argc, (const char **)argv, switches[LWS_SW_PORT].sw))) {
         port = atoi(p);
     }
 

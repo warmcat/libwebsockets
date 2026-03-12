@@ -35,6 +35,53 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_CONMON,
+	LWS_SW_EV,
+	LWS_SW_EVENT,
+	LWS_SW_GLIB,
+	LWS_SW_H1,
+	LWS_SW_LIMIT,
+	LWS_SW_NO_TLS,
+	LWS_SW_NO_TLS_SESSION_REUSE,
+	LWS_SW_PATH,
+	LWS_SW_PORT,
+	LWS_SW_POST,
+	LWS_SW_SERVER,
+	LWS_SW_SSL_HANDSHAKE_SERIALIZE,
+	LWS_SW_UV,
+	LWS_SW_C,
+	LWS_SW_L,
+	LWS_SW_N,
+	LWS_SW_P,
+	LWS_SW_S,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_CONMON]	= { "--conmon",        "Enable --conmon feature" },
+	[LWS_SW_EV]	= { "--ev",            "Enable --ev feature" },
+	[LWS_SW_EVENT]	= { "--event",         "Enable --event feature" },
+	[LWS_SW_GLIB]	= { "--glib",          "Enable --glib feature" },
+	[LWS_SW_H1]	= { "--h1",            "Enable --h1 feature" },
+	[LWS_SW_LIMIT]	= { "--limit",         "Enable --limit feature" },
+	[LWS_SW_NO_TLS]	= { "--no-tls",        "Enable --no-tls feature" },
+	[LWS_SW_NO_TLS_SESSION_REUSE]	= { "--no-tls-session-reuse", "Enable --no-tls-session-reuse feature" },
+	[LWS_SW_PATH]	= { "--path",          "Enable --path feature" },
+	[LWS_SW_PORT]	= { "--port",          "Port to connect or listen on" },
+	[LWS_SW_POST]	= { "--post",          "Enable --post feature" },
+	[LWS_SW_SERVER]	= { "--server",        "Server address to connect to" },
+	[LWS_SW_SSL_HANDSHAKE_SERIALIZE]	= { "--ssl-handshake-serialize", "Enable --ssl-handshake-serialize feature" },
+	[LWS_SW_UV]	= { "--uv",            "Enable --uv feature" },
+	[LWS_SW_C]	= { "-c",              "Client connections" },
+	[LWS_SW_L]	= { "-l",              "Enable -l feature" },
+	[LWS_SW_N]	= { "-n",              "Enable -n feature" },
+	[LWS_SW_P]	= { "-p",              "Port number to listen or connect on" },
+	[LWS_SW_S]	= { "-s",              "Use TLS / https" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <string.h>
 #include <signal.h>
 #include <assert.h>
@@ -533,21 +580,21 @@ int main(int argc, const char **argv)
 	info.signal_cb = signal_cb;
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 
-	if (lws_cmdline_option(argc, argv, "--uv"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_UV].sw))
 		info.options |= LWS_SERVER_OPTION_LIBUV;
 	else
-		if (lws_cmdline_option(argc, argv, "--event"))
+		if (lws_cmdline_option(argc, argv, switches[LWS_SW_EVENT].sw))
 			info.options |= LWS_SERVER_OPTION_LIBEVENT;
 		else
-			if (lws_cmdline_option(argc, argv, "--ev"))
+			if (lws_cmdline_option(argc, argv, switches[LWS_SW_EV].sw))
 				info.options |= LWS_SERVER_OPTION_LIBEV;
 			else
-				if (lws_cmdline_option(argc, argv, "--glib"))
+				if (lws_cmdline_option(argc, argv, switches[LWS_SW_GLIB].sw))
 					info.options |= LWS_SERVER_OPTION_GLIB;
 				else
 					signal(SIGINT, sigint_handler);
 
-	staggered = !!lws_cmdline_option(argc, argv, "-s");
+	staggered = !!lws_cmdline_option(argc, argv, switches[LWS_SW_S].sw);
 
 	lwsl_user("LWS minimal http client [-s (staggered)] [-p (pipeline)]\n");
 	lwsl_user("   [--h1 (http/1 only)] [-l (localhost)] [-d <logs>]\n");
@@ -580,13 +627,13 @@ int main(int argc, const char **argv)
 
 	/* vhost option allowing tls session reuse, requires
 	 * LWS_WITH_TLS_SESSIONS build option */
-	if (lws_cmdline_option(argc, argv, "--no-tls-session-reuse"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_NO_TLS_SESSION_REUSE].sw))
 		info.options |= LWS_SERVER_OPTION_DISABLE_TLS_SESSION_CACHE;
 
-	if ((p = lws_cmdline_option(argc, argv, "--limit")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_LIMIT].sw)))
 		info.simultaneous_ssl_restriction = atoi(p);
 
-	if ((p = lws_cmdline_option(argc, argv, "--ssl-handshake-serialize")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_SSL_HANDSHAKE_SERIALIZE].sw)))
 		/* We only consider simultaneous_ssl_restriction > 1 use cases.
 		 * If ssl isn't limited or only 1 is allowed, we don't care.
 		 */
@@ -611,7 +658,7 @@ int main(int argc, const char **argv)
 			   LCCSCF_H2_QUIRK_OVERFLOWS_TXCR |
 			   LCCSCF_H2_QUIRK_NGHTTP2_END_STREAM;
 
-	if (lws_cmdline_option(argc, argv, "--post")) {
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_POST].sw)) {
 		posting = 1;
 		i.method = "POST";
 		i.ssl_connection |= LCCSCF_HTTP_MULTIPART_MIME;
@@ -619,7 +666,7 @@ int main(int argc, const char **argv)
 		i.method = "GET";
 
 	/* enables h1 or h2 connection sharing */
-	if (lws_cmdline_option(argc, argv, "-p")) {
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_P].sw)) {
 		i.ssl_connection |= LCCSCF_PIPELINE;
 #if defined(LWS_WITH_TLS_SESSIONS)
 		pl = 1;
@@ -627,17 +674,17 @@ int main(int argc, const char **argv)
 	}
 
 #if defined(LWS_WITH_CONMON)
-	if (lws_cmdline_option(argc, argv, "--conmon"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_CONMON].sw))
 		i.ssl_connection |= LCCSCF_CONMON;
 #endif
 
 	/* force h1 even if h2 available */
-	if (lws_cmdline_option(argc, argv, "--h1"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_H1].sw))
 		i.alpn = "http/1.1";
 
 	strcpy(urlpath, "/");
 
-	if (lws_cmdline_option(argc, argv, "-l")) {
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_L].sw)) {
 		i.port = 7681;
 		i.address = "localhost";
 		i.ssl_connection |= LCCSCF_ALLOW_SELFSIGNED;
@@ -650,22 +697,22 @@ int main(int argc, const char **argv)
 			strcpy(urlpath, "/testserver/formtest");
 	}
 
-	if (lws_cmdline_option(argc, argv, "--no-tls"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_NO_TLS].sw))
 		i.ssl_connection &= ~(LCCSCF_USE_SSL);
 
-	if (lws_cmdline_option(argc, argv, "-n"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_N].sw))
 		numbered = 1;
 
-	if ((p = lws_cmdline_option(argc, argv, "--server")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_SERVER].sw)))
 		i.address = p;
 
-	if ((p = lws_cmdline_option(argc, argv, "--port")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PORT].sw)))
 		i.port = atoi(p);
 
-	if ((p = lws_cmdline_option(argc, argv, "--path")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PATH].sw)))
 		lws_strncpy(urlpath, p, sizeof(urlpath));
 
-	if ((p = lws_cmdline_option(argc, argv, "-c")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_C].sw)))
 		if (atoi(p) <= COUNT && atoi(p))
 			count = atoi(p);
 

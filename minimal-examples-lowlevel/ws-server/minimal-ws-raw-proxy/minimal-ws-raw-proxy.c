@@ -21,6 +21,23 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_D,
+	LWS_SW_H,
+	LWS_SW_S,
+	LWS_SW_V,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
+	[LWS_SW_H]	= { "-h",              "Strict Host Check / Help" },
+	[LWS_SW_S]	= { "-s",              "Use TLS / https" },
+	[LWS_SW_V]	= { "-v",              "Set retry and idle policy" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <string.h>
 #include <signal.h>
 #include <string.h>
@@ -400,10 +417,17 @@ int main(int argc, const char **argv)
 			/* | LLL_INFO */ /* | LLL_PARSER */ /* | LLL_HEADER */
 			/* | LLL_EXT */ /* | LLL_CLIENT */ /* | LLL_LATENCY */
 			/* | LLL_DEBUG */;
+	(void)switches;
+
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
 
 	signal(SIGINT, sigint_handler);
 
-	if ((p = lws_cmdline_option(argc, argv, "-d")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);
@@ -418,7 +442,7 @@ int main(int argc, const char **argv)
 		LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE;
 
 #if defined(LWS_WITH_TLS)
-	if (lws_cmdline_option(argc, argv, "-s")) {
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_S].sw)) {
 		lwsl_user("Server using TLS\n");
 		info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 		info.ssl_cert_filepath = "localhost-100y.cert";
@@ -426,10 +450,10 @@ int main(int argc, const char **argv)
 	}
 #endif
 
-	if (lws_cmdline_option(argc, argv, "-h"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_H].sw))
 		info.options |= LWS_SERVER_OPTION_VHOST_UPG_STRICT_HOST_CHECK;
 
-	if (lws_cmdline_option(argc, argv, "-v"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_V].sw))
 		info.retry_and_idle_policy = &retry;
 
 	context = lws_create_context(&info);

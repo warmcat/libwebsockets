@@ -11,6 +11,33 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_LIBUV,
+	LWS_SW_SSL,
+	LWS_SW_D,
+	LWS_SW_I,
+	LWS_SW_N,
+	LWS_SW_O,
+	LWS_SW_P,
+	LWS_SW_S,
+	LWS_SW_U,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_LIBUV]	= { "--libuv",         "Enable --libuv feature" },
+	[LWS_SW_SSL]	= { "--ssl",           "Enable SSL" },
+	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
+	[LWS_SW_I]	= { "-i",              "Interface to bind to" },
+	[LWS_SW_N]	= { "-n",              "Enable -n feature" },
+	[LWS_SW_O]	= { "-o",              "Enable -o feature" },
+	[LWS_SW_P]	= { "-p",              "Port number to listen or connect on" },
+	[LWS_SW_S]	= { "-s",              "Use TLS / https" },
+	[LWS_SW_U]	= { "-u",              "URL to connect to" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <string.h>
 #include <signal.h>
 
@@ -103,30 +130,37 @@ int main(int argc, const char **argv)
 			/* | LLL_INFO */ /* | LLL_PARSER */ /* | LLL_HEADER */
 			/* | LLL_EXT */ /* | LLL_CLIENT */ /* | LLL_LATENCY */
 			/* | LLL_DEBUG */;
+	(void)switches;
 
-	if ((p = lws_cmdline_option(argc, argv, "-d")))
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
+
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS minimal ws client echo + permessage-deflate + multifragment bulk message\n");
 	lwsl_user("   lws-minimal-ws-client-echo [-n (no exts)] [-u url] [-p port] [-o (once)]\n");
 
-	if ((p = lws_cmdline_option(argc, argv, "-u")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_U].sw)))
 		url = p;
 
-	if ((p = lws_cmdline_option(argc, argv, "-p")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_P].sw)))
 		port = atoi(p);
 
-	if (lws_cmdline_option(argc, argv, "-o"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_O].sw))
 		options |= 1;
 
-	if (lws_cmdline_option(argc, argv, "--ssl"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_SSL].sw))
 		options |= 2;
 
-	if ((p = lws_cmdline_option(argc, argv, "-s")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_S].sw)))
 		ads = p;
 
-	if ((p = lws_cmdline_option(argc, argv, "-i")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_I].sw)))
 		iface = p;
 
 	lwsl_user("options %d, ads %s\n", options, ads);
@@ -135,7 +169,7 @@ int main(int argc, const char **argv)
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.protocols = protocols;
 	info.pvo = &pvo;
-	if (!lws_cmdline_option(argc, argv, "-n"))
+	if (!lws_cmdline_option(argc, argv, switches[LWS_SW_N].sw))
 		info.extensions = extensions;
 	info.pt_serv_buf_size = 32 * 1024;
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
@@ -149,7 +183,7 @@ int main(int argc, const char **argv)
 	 */
 	info.fd_limit_per_thread = 1 + 1 + 1;
 
-	if (lws_cmdline_option(argc, argv, "--libuv"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_LIBUV].sw))
 		info.options |= LWS_SERVER_OPTION_LIBUV;
 	else
 		signal(SIGINT, sigint_handler);

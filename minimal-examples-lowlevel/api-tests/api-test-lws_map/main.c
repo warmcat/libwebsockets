@@ -11,6 +11,17 @@
 
 #include <libwebsockets.h>
 
+
+enum {
+	LWS_SW_D,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 typedef struct lws_map_item lws_map_item_t;
 
 /* custom key and comparator for test 3 */
@@ -39,7 +50,7 @@ int main(int argc, const char **argv)
 	lws_map_t *map;
 	const char *p;
 
-	if ((p = lws_cmdline_option(argc, argv, "-d")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);

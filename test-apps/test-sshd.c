@@ -43,6 +43,17 @@
 
 #include <libwebsockets.h>
 
+
+enum {
+	LWS_SW_D,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #if !defined(LWS_WITH_PLUGINS_BUILTIN)
 /* import the whole of lws-plugin-sshd-base statically */
 #include <lws-plugin-sshd-static-build-includes.h>
@@ -765,9 +776,16 @@ main(int argc, const char **argv)
 	const char *p;
 
 	/* info is on the stack, it must be cleared down before use */
+	(void)switches;
+
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
 	memset(&info, 0, sizeof(info));
 
-	if ((p = lws_cmdline_option(argc, argv, "-d")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);

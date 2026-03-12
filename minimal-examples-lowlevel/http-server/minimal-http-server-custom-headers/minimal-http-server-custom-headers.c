@@ -16,6 +16,19 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_AH1,
+	LWS_SW_D,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_AH1]	= { "--ah1",           "Enable --ah1 feature" },
+	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <string.h>
 #include <signal.h>
 #include <time.h>
@@ -138,10 +151,17 @@ int main(int argc, const char **argv)
 	struct lws_context *context;
 	const char *p;
 	int n = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+	(void)switches;
+
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
 
 	signal(SIGINT, sigint_handler);
 
-	if ((p = lws_cmdline_option(argc, argv, "-d")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);
@@ -153,7 +173,7 @@ int main(int argc, const char **argv)
 		LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE;
 
 	/* for testing ah queue, not useful in real world */
-	if (lws_cmdline_option(argc, argv, "--ah1"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_AH1].sw))
 		info.max_http_header_pool = 1;
 
 	context = lws_create_context(&info);

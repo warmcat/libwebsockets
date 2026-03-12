@@ -1,4 +1,27 @@
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_C,
+	LWS_SW_D,
+	LWS_SW_H,
+	LWS_SW_M,
+	LWS_SW_N,
+	LWS_SW_P,
+	LWS_SW_S,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_C]	= { "-c",              "Client connections" },
+	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
+	[LWS_SW_H]	= { "-h",              "Strict Host Check / Help" },
+	[LWS_SW_M]	= { "-m",              "Enable -m feature" },
+	[LWS_SW_N]	= { "-n",              "Enable -n feature" },
+	[LWS_SW_P]	= { "-p",              "Port number to listen or connect on" },
+	[LWS_SW_S]	= { "-s",              "Use TLS / https" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <string.h>
 #include <signal.h>
 #include <time.h>
@@ -147,12 +170,19 @@ int main(int argc, const char **argv)
 #ifndef WIN32
 	srandom((unsigned int)time(0));
 #endif
+	(void)switches;
+
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
 
 	memset(msg, 'x', sizeof(msg));
 
 	signal(SIGINT, sigint_handler);
 
-	if (lws_cmdline_option(argc, argv, "-d"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw))
 		logs |= LLL_INFO | LLL_DEBUG;
 
 	lws_set_log_level(logs, NULL);
@@ -169,24 +199,24 @@ int main(int argc, const char **argv)
 	info.client_ssl_ca_filepath = "./libwebsockets.org.cer";
 #endif
 
-	if ((p = lws_cmdline_option(argc, argv, "-h"))) {
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_H].sw))) {
 		server_address = p;
 	}
 
-	if ((p = lws_cmdline_option(argc, argv, "-s"))) {
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_S].sw))) {
 		ssl_connection |=
 				LCCSCF_USE_SSL |
 				LCCSCF_ALLOW_SELFSIGNED |
 				LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
 	}
 
-	if ((p = lws_cmdline_option(argc, argv, "-p"))) {
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_P].sw))) {
 		port = atoi(p);
 		if (port > 65535 || port < 0)
 			return 1;
 	}
 
-	if ((p = lws_cmdline_option(argc, argv, "-n"))) {
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_N].sw))) {
 		n = atoi(p);
 		if (n < 1)
 			n = 1;
@@ -197,12 +227,12 @@ int main(int argc, const char **argv)
 		lwsl_notice("Start test clients: %d\n", nclients);
 	}
 
-	if ((p = lws_cmdline_option(argc, argv, "-c"))) {
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_C].sw))) {
 		connection_delay = atoi(p);
 		lwsl_notice("Connection delay: %d\n", connection_delay);
 	}
 
-	if ((p = lws_cmdline_option(argc, argv, "-m"))) {
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_M].sw))) {
 		message_delay = atoi(p);
 		lwsl_notice("Message delay: %d\n", connection_delay);
 	}

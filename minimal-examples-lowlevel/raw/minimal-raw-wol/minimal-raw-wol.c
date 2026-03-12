@@ -11,6 +11,19 @@
 
 #include <libwebsockets.h>
 
+
+enum {
+	LWS_SW_I,
+	LWS_SW_IP,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_I]	= { "-i",              "Interface to bind to" },
+	[LWS_SW_IP]	= { "-ip",             "Enable -ip feature" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 int main(int argc, const char **argv)
 {
        struct lws_context_creation_info info;
@@ -18,14 +31,21 @@ int main(int argc, const char **argv)
        const char *p, *ip = NULL, *wol_if = NULL;
        uint8_t mac[LWS_ETHER_ADDR_LEN];
        int ret = 1;
+	(void)switches;
+
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
 
 	memset(&info, 0, sizeof info);
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 
-	if ((p = lws_cmdline_option(argc, argv, "-ip")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_IP].sw)))
 		ip = p;
 
-	if ((p = lws_cmdline_option(argc, argv, "-i")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_I].sw)))
 		wol_if = p;
 
 

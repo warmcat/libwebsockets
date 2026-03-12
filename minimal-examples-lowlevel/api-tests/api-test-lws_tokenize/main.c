@@ -14,6 +14,21 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_D,
+	LWS_SW_F,
+	LWS_SW_S,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
+	[LWS_SW_F]	= { "-f",              "Enable -f feature" },
+	[LWS_SW_S]	= { "-s",              "Use TLS / https" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <string.h>
 #include <stdio.h>
 
@@ -339,14 +354,21 @@ int main(int argc, const char **argv)
 			/* | LLL_DEBUG */;
 	int fail = 0, ok = 0, flags = 0;
 	char dotstar[512];
+	(void)switches;
 
-	if ((p = lws_cmdline_option(argc, argv, "-d")))
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
+
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS API selftest: lws_tokenize\n");
 
-	if ((p = lws_cmdline_option(argc, argv, "-f")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_F].sw)))
 		flags = atoi(p);
 
 
@@ -926,7 +948,7 @@ int main(int argc, const char **argv)
 		}
 	}
 
-	p = lws_cmdline_option(argc, argv, "-s");
+	p = lws_cmdline_option(argc, argv, switches[LWS_SW_S].sw);
 
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(tests); n++) {
 		int m = 0, in_fail = fail;

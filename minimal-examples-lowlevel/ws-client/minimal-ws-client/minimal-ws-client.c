@@ -11,6 +11,31 @@
  */
 
 #include <libwebsockets.h>
+
+enum {
+	LWS_SW_PROTOCOL,
+	LWS_SW_E,
+	LWS_SW_J,
+	LWS_SW_K,
+	LWS_SW_M,
+	LWS_SW_N,
+	LWS_SW_P,
+	LWS_SW_S,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_PROTOCOL]	= { "--protocol",      "Enable --protocol feature" },
+	[LWS_SW_E]	= { "-e",              "Enable -e feature" },
+	[LWS_SW_J]	= { "-j",              "JSON flag" },
+	[LWS_SW_K]	= { "-k",              "Key or cert path" },
+	[LWS_SW_M]	= { "-m",              "Enable -m feature" },
+	[LWS_SW_N]	= { "-n",              "Enable -n feature" },
+	[LWS_SW_P]	= { "-p",              "Port number to listen or connect on" },
+	[LWS_SW_S]	= { "-s",              "Use TLS / https" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 #include <string.h>
 #include <signal.h>
 
@@ -152,6 +177,13 @@ int main(int argc, const char **argv)
 	struct lws_context_creation_info info;
 	const char *p;
 	int n = 0;
+	(void)switches;
+
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
 
 	signal(SIGINT, sigint_handler);
 	memset(&info, 0, sizeof info);
@@ -171,28 +203,28 @@ int main(int argc, const char **argv)
 	info.client_ssl_ca_filepath = "./libwebsockets.org.cer";
 #endif
 
-	if ((p = lws_cmdline_option(argc, argv, "--protocol")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PROTOCOL].sw)))
 		pro = p;
 
-	if ((p = lws_cmdline_option(argc, argv, "-s")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_S].sw)))
 		server_address = p;
 
-	if ((p = lws_cmdline_option(argc, argv, "-p")))
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_P].sw)))
 		port = atoi(p);
 
-	if (lws_cmdline_option(argc, argv, "-n"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_N].sw))
 		ssl_connection &= ~LCCSCF_USE_SSL;
 
-	if (lws_cmdline_option(argc, argv, "-j"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_J].sw))
 		ssl_connection |= LCCSCF_ALLOW_SELFSIGNED;
 
-	if (lws_cmdline_option(argc, argv, "-k"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_K].sw))
 		ssl_connection |= LCCSCF_ALLOW_INSECURE;
 
-	if (lws_cmdline_option(argc, argv, "-m"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_M].sw))
 		ssl_connection |= LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
 
-	if (lws_cmdline_option(argc, argv, "-e"))
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_E].sw))
 		ssl_connection |= LCCSCF_ALLOW_EXPIRED;
 
 	info.fd_limit_per_thread = 1 + 1 + 1;
