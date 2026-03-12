@@ -65,6 +65,18 @@ LWS_VISIBLE LWS_EXTERN void
 lws_adapt_report(struct lws_adapt *adapt, int success, lws_usec_t us);
 
 /**
+ * lws_adapt_report_val() - Report an arbitrary value tracker for the current capability cycle
+ *
+ * \param adapt: The adaptation context
+ * \param val: The arbitrary value to track via EWMA (e.g., ping duration)
+ * \param us: Current timestamp in microseconds (e.g. from lws_now_usecs())
+ *
+ * Records a data point tracking an arbitrary value.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_adapt_report_val(struct lws_adapt *adapt, uint64_t val, lws_usec_t us);
+
+/**
  * lws_adapt_get_level() - Query the recommended capability tier
  *
  * \param adapt: The adaptation context
@@ -77,5 +89,17 @@ lws_adapt_report(struct lws_adapt *adapt, int success, lws_usec_t us);
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_adapt_get_level(struct lws_adapt *adapt);
+
+/**
+ * lws_adapt_get_val() - Query the EWMA value for a given level
+ *
+ * \param adapt: The adaptation context
+ * \param level: The level to query
+ * \param is_short: 1 to query the short term EWMA, 0 for the long term EWMA
+ *
+ * Returns the currently tracked EWMA value for a specific level.
+ */
+LWS_VISIBLE LWS_EXTERN uint64_t
+lws_adapt_get_val(struct lws_adapt *adapt, int level, int is_short);
 
 #endif
