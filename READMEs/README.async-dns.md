@@ -38,6 +38,10 @@ Other features
  - Uses CNAME resolution inside the same response if present, otherwise
    recurses to resolve the CNAME (up to 3 deep)
  - ipv6 pieces only built if cmake `LWS_IPV6` enabled
+ - **Multi-server support**: automatically parses multiple nameservers from `/etc/resolv.conf`.
+ - **Adaptive server selection**: tracks DNS server response latencies using exponential weighted moving averages.
+ - **Parallel broadsiding**: initially sends queries to all configured servers simultaneously to determine the fastest responder.
+ - **Round-robin fallback**: utilizes the fastest server for subsequent queries or round-robins between equally performant servers.
 
 ## Api
 
@@ -110,3 +114,18 @@ lws_async_dns_dnssec_set_mode(context, LWS_ADNS_DNSSEC_REQUIRE);
 
 When validation is set to `LWS_ADNS_DNSSEC_REQUIRE`, queries failing to authenticate computationally with upstream Trust Anchors (or those lacking RRSIG/DNSKEY records entirely) will be explicitly rejected by the resolver and not propagate to callbacks or connections. But some domains inherently lack DNSSEC. For situations where strict DNSSEC is globally mandated, but a small handful of known-unsigned destinations must be reached, clients can explicitly set the `LWS_ADNS_INDICATE_LACKS_DNSSEC` bitflag natively on integer `qtype` lookups. This allows the resolver to tolerate missing records explicitly for that singular lookup, while strictly required globally.
 
+## Network configuration changes and failover
+
+Since lws async DNS natively talks to the DNS servers over UDP, it doesn't automatically adapt when the OS routing table or network configuration changes (e.g., when a mobile device moves from WiFi to a cellular network and loses access to the previous local DNS server).
+
+To handle this gracefully, there are three mechanisms:
+
+1. **Reactive Failover**: The adaptive server selection tracks response latencies using `lws_adapt`. If all active DNS servers consecutively fail to respond or experience severe timeouts (e.g. >10s tracking averages), the lws async DNS system will infer the network configuration has changed and will automatically flush its active nameserver list. It then re-queries the system (e.g., via `GetNetworkParams` on Windows or `__system_property_get` on Android) to learn the new servers. This occurs automatically.
+2. **File Monitoring (POSIX)**: On POSIX systems (Linux, macOS, etc.), lws async DNS automatically checks the modification time of `/etc/resolv.conf` before making new queries. If the file has changed since the last check, it transparently reloads the DNS servers.
+3. **Explicit API**: Applications can explicitly tell lws to drop its currently tracked DNS servers and refresh its understanding of the network environment by calling the public API:
+
+```c
+lws_async_dns_server_reload(context);
+```
+
+This is particularly useful on Android, where native C code cannot easily hook onto Java `ConnectivityManager` link change broadcasts. Android applications can listen to `onLinkPropertiesChanged()` natively in Kotlin/Java and call a JNI function that executes `lws_async_dns_server_reload()` out-of-band to proactively trigger the failover.

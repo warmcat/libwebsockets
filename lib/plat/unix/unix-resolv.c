@@ -83,21 +83,3 @@ lws_plat_asyncdns_get_server(struct lws_context *context, int index,
 	return -1;
 }
 
-lws_async_dns_server_check_t
-lws_plat_asyncdns_init(struct lws_context *context, lws_async_dns_t *dns)
-{
-	lws_async_dns_server_check_t s = LADNS_CONF_SERVER_SAME;
-	lws_async_dns_server_t *dsrv;
-	lws_sockaddr46 sa46t;
-	int n = 0;
-
-	while (lws_plat_asyncdns_get_server(context, n++, &sa46t) == 0) {
-		dsrv = __lws_async_dns_server_find(dns, &sa46t);
-		if (!dsrv) {
-			__lws_async_dns_server_add(dns, &sa46t);
-			s = LADNS_CONF_SERVER_CHANGED;
-		}
-	}
-
-	return s;
-}
