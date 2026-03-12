@@ -66,6 +66,7 @@ typedef struct lws * (*lws_async_dns_cb_t)(struct lws *wsi, const char *ads,
 
 struct lws_adns_q;
 struct lws_async_dns;
+struct lws_async_dns_server;
 
 /**
  * lws_async_dns_query() - perform a dns lookup using async dns
@@ -156,8 +157,12 @@ lws_adns_get_tid(struct lws_adns_q *q);
 LWS_VISIBLE LWS_EXTERN struct lws_async_dns *
 lws_adns_get_async_dns(struct lws_adns_q *q);
 
+LWS_VISIBLE LWS_EXTERN struct lws_async_dns_server *
+lws_adns_get_server(struct lws_adns_q *q);
+
 LWS_VISIBLE LWS_EXTERN void
-lws_adns_parse_udp(struct lws_async_dns *dns, const uint8_t *pkt, size_t len);
+lws_adns_parse_udp(struct lws_async_dns *dns, const uint8_t *pkt, size_t len,
+		   struct lws_async_dns_server *dsrv);
 
 /**
  * lws_plat_asyncdns_get_server() - Get system DNS server address
@@ -173,6 +178,17 @@ lws_adns_parse_udp(struct lws_async_dns *dns, const uint8_t *pkt, size_t len);
 LWS_VISIBLE LWS_EXTERN int
 lws_plat_asyncdns_get_server(struct lws_context *context, int n,
 			     lws_sockaddr46 *sa46);
+
+/**
+ * lws_async_dns_server_reload() - reload the OS assigned DNS servers
+ *
+ * \param context: the lws_context
+ *
+ * This forces LWS to re-check the OS for assigned DNS servers.
+ * It is useful when the device has changed networks.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_async_dns_server_reload(struct lws_context *context);
 
 
 /**

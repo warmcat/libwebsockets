@@ -139,6 +139,9 @@ typedef struct lws_adns_q {
 	uint16_t		tcp_rx_len;
 	uint16_t		tcp_rx_pos;
 
+	lws_usec_t		issue_time;
+	uint8_t			broadsiding;
+
 	/* name overallocated here */
 } lws_adns_q_t;
 
@@ -175,10 +178,6 @@ lws_adns_q_t *
 lws_adns_get_query(lws_async_dns_t *dns, adns_query_type_t qtype,
 		   uint16_t tid, const char *name);
 
-lws_adns_q_t *
-lws_adns_get_query_srv(lws_async_dns_server_t *dsrv, adns_query_type_t qtype,
-		       uint16_t tid, const char *name);
-
 void
 lws_async_dns_trim_cache(lws_async_dns_t *dns);
 
@@ -209,6 +208,10 @@ lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len);
 int
 lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
 		 const char *expname, lws_async_dns_find_t cb, void *opaque);
+
+void
+lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
+		   lws_async_dns_server_t *dsrv);
 
 int
 lws_adns_parse_label(const uint8_t *pkt, int len, const uint8_t *ls, int budget,

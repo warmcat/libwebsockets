@@ -251,7 +251,9 @@ typedef struct lws_async_dns_server {
 	lws_dll2_t		list;
 	lws_sockaddr46 		sa46; /* nameserver */
 
-	lws_dll2_owner_t	waiting;
+	struct lws_adapt	*adapt; /* tracks ping latency */
+	lws_usec_t		last_queried_us;
+	lws_usec_t		last_responded_us;
 
 	int			refcount;
 
@@ -259,13 +261,18 @@ typedef struct lws_async_dns_server {
 	time_t			time_set_server;
 	uint8_t			dns_server_set:1;
 	uint8_t			dns_server_connected:1;
+	uint8_t			seen:1;
 } lws_async_dns_server_t;
 
 typedef struct lws_async_dns {
 	lws_dll2_owner_t	nameservers; /* lws_async_dns_server_t */
 	lws_dll2_owner_t	cached;
+	lws_dll2_owner_t	waiting; /* queries waiting for a server */
 
 	struct lws_context	*cx;
+
+	time_t			time_resolv_check;
+	lws_usec_t		time_last_reload;
 
 	uint8_t			dnssec_mode; /* lws_async_dns_dnssec_mode_t */
 } lws_async_dns_t;

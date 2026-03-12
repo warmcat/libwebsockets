@@ -404,7 +404,6 @@ lws_genecdsa_hash_sign_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
 	int n, keybytes = lws_gencrypto_bits_to_bytes(keybits);
 	size_t hlen = lws_genhash_size(hash_type);
 	mbedtls_mpi mpi_r, mpi_s;
-	size_t slen = sig_len;
 
 	if (ctx->genec_alg != LEGENEC_ECDSA)
 		return -1;
@@ -448,7 +447,7 @@ lws_genecdsa_hash_sign_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
 		goto bail1;
 	mbedtls_mpi_free(&mpi_s);
 
-	return (int)slen;
+	return 0;
 
 bail2:
 	mbedtls_mpi_free(&mpi_r);
