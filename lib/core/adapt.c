@@ -25,8 +25,8 @@
 #include "private-lib-core.h"
 
 struct lws_adapt_level {
-	uint32_t ewma_short; /* 0-10000 (0 = Total Fail, 10000 = Total Success) */
-	uint32_t ewma_long;  /* 0-10000 */
+	uint64_t ewma_short; /* generic tracker (e.g., latency, or 0-10000 score) */
+	uint64_t ewma_long;
 	lws_usec_t last_update;
 };
 
@@ -49,11 +49,11 @@ struct lws_adapt {
 #define LWS_ADAPT_UPGRADE_THRESHOLD 9800   /* If BOTH short & long are >98% success */
 #define LWS_ADAPT_BASE_BACKOFF_US (30ll * LWS_US_PER_SEC) /* Base 30s wait before retry */
 
-static uint32_t
-ewma_update(uint32_t current_score, int success, lws_usec_t elapsed_us, uint32_t halflife_us)
+static uint64_t
+ewma_update(uint64_t current_score, uint64_t target_score, lws_usec_t elapsed_us, uint32_t halflife_us)
 {
 	if (halflife_us == 0)
-		return success ? LWS_ADAPT_MAX_SCORE : 0;
+		return target_score;
 
 	/* Rough decay. Alpha = 1.0 - exp(-(elapsed/halflife) * ln(2)) */
 	/* For speed on embedded without math.h: simple linear approx for small elapsed */
@@ -66,10 +66,8 @@ ewma_update(uint32_t current_score, int success, lws_usec_t elapsed_us, uint32_t
 	uint64_t alpha = ((uint64_t)elapsed_us * 100000ull) / halflife_us;
 	if (alpha > 100000) alpha = 100000;
 
-	uint32_t target_score = success ? LWS_ADAPT_MAX_SCORE : 0;
-
 	/* score = current * (1 - alpha) + target * alpha */
-	uint32_t new_score = (uint32_t)(((uint64_t)current_score * (100000ll - alpha) +
+	uint64_t new_score = (uint64_t)(((uint64_t)current_score * (100000ll - alpha) +
 					 (uint64_t)target_score * alpha) / 100000ll);
 	return new_score;
 }
@@ -139,8 +137,8 @@ lws_adapt_report(struct lws_adapt *a, int success, lws_usec_t us)
 	lws_usec_t elapsed_us = us - l->last_update;
 	l->last_update = us;
 
-	l->ewma_short = ewma_update(l->ewma_short, success, elapsed_us, a->hl_short_us);
-	l->ewma_long = ewma_update(l->ewma_long, success, elapsed_us, a->hl_long_us);
+	l->ewma_short = ewma_update(l->ewma_short, success ? LWS_ADAPT_MAX_SCORE : 0, elapsed_us, a->hl_short_us);
+	l->ewma_long = ewma_update(l->ewma_long, success ? LWS_ADAPT_MAX_SCORE : 0, elapsed_us, a->hl_long_us);
 
 	/* Check for immediate downgrade flag within report cycle */
 	if (l->ewma_short < LWS_ADAPT_DOWNGRADE_THRESHOLD && a->active_level < a->num_levels - 1) {
@@ -170,6 +168,29 @@ lws_adapt_report(struct lws_adapt *a, int success, lws_usec_t us)
 			lwsl_notice("%s: Sustained stability! Reducing backoff multiplier to %u\n", __func__, (unsigned int)a->backoff_multiplier);
 		}
 	}
+}
+
+void
+lws_adapt_report_val(struct lws_adapt *a, uint64_t val, lws_usec_t us)
+{
+	if (!a || a->active_level < 0 || a->active_level >= a->num_levels)
+		return;
+
+	struct lws_adapt_level *l = &a->levels[a->active_level];
+
+	if (l->last_update == 0 || us < l->last_update) {
+		/* Initial prime */
+		l->ewma_short = val;
+		l->ewma_long = val;
+		l->last_update = us;
+		return;
+	}
+
+	lws_usec_t elapsed_us = us - l->last_update;
+	l->last_update = us;
+
+	l->ewma_short = ewma_update(l->ewma_short, val, elapsed_us, a->hl_short_us);
+	l->ewma_long = ewma_update(l->ewma_long, val, elapsed_us, a->hl_long_us);
 }
 
 int
@@ -210,4 +231,14 @@ lws_adapt_get_level(struct lws_adapt *a)
 	}
 
 	return a->active_level;
+}
+
+uint64_t
+lws_adapt_get_val(struct lws_adapt *a, int level, int is_short)
+{
+	if (!a || level < 0 || level >= a->num_levels)
+		return 0;
+
+	struct lws_adapt_level *l = &a->levels[level];
+	return is_short ? l->ewma_short : l->ewma_long;
 }
