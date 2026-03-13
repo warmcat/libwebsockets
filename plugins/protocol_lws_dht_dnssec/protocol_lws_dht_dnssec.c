@@ -125,6 +125,7 @@ struct dht_fragment {
 	
 	uint8_t				ds_digest[64];
 	uint8_t				ds_digest_len;
+	uint8_t				payload_hash[32];
 };
 
 struct lws_dht_dnssec_domain;
@@ -453,6 +454,11 @@ dht_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 									if (write(pfd, map.buf[LJWS_PYLD], (size_t)map.len[LJWS_PYLD]) != (ssize_t)map.len[LJWS_PYLD]) {
 										lwsl_err("%s: Failed to write payload\n", __func__);
 									} else {
+										struct lws_genhash_ctx pctx;
+										if (!lws_genhash_init(&pctx, LWS_GENHASH_TYPE_SHA256)) {
+											if (lws_genhash_update(&pctx, map.buf[LJWS_PYLD], (size_t)map.len[LJWS_PYLD]) == 0)
+												lws_genhash_destroy(&pctx, frag->payload_hash);
+										}
 										lwsl_user("SUCCESS: Validated offline zonefile successfully unwrapped locally to %s\n", tmp_ppath);
 									}
 									close(pfd);
@@ -501,7 +507,36 @@ dht_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 		close(frag->fd);
 		frag->fd = -1;
 	}
+
+	/* Also, as a client, we should now send a native DHT SUBSCRIBE to the target node 
+	   so we get notified if this zonefile ever changes! */
+	if (frag->dht_ctx) {
+		uint8_t tid[4];
+		lws_get_random(vhd->context, tid, sizeof(tid));
+		
+		uint8_t raw_hash[20];
+		if (!lws_hex_to_byte_array(frag->safe_hash, raw_hash, sizeof(raw_hash))) {
+			lws_dht_hash_t *id = lws_dht_hash_create(LWS_DHT_HASH_TYPE_SHA1, 20, raw_hash);
+			if (id) {
+				lwsl_user("%s: Sending native DHT SUBSCRIBE to establish long-poll\n", __func__);
+				lws_dht_send_subscribe(frag->dht_ctx, (struct sockaddr *)&frag->from_sa, frag->from_salen, tid, sizeof(tid), id, 0, 0);
+				lws_dht_hash_destroy(&id);
+			}
+		}
+	}
 	
+	/* Notify anyone tracking this hash BEFORE we rename the tmp payload, just in case */
+	{
+		uint8_t raw_hash[20];
+		if (!lws_hex_to_byte_array(frag->safe_hash, raw_hash, sizeof(raw_hash))) {
+			lws_dht_hash_t *id = lws_dht_hash_create(LWS_DHT_HASH_TYPE_SHA1, 20, raw_hash);
+			if (id) {
+				lws_dht_notify_subscribers(frag->dht_ctx, id, frag->payload_hash);
+				lws_dht_hash_destroy(&id);
+			}
+		}
+	}
+
 	{
 		char tmp_path[256], dir1[256], dir2[256], final_path[256];
 		char tmp_ppath[256], final_ppath[256];
@@ -1160,6 +1195,73 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 	case LWS_DHT_EVENT_DATA:
 		/* Already handled by verbs if it was a verb-based message */
 		break;
+	case LWS_DHT_EVENT_NOTIFY: {
+		struct vhd_dht_dnssec *vhd = (struct vhd_dht_dnssec *)closure;
+		lwsl_notice("%s: Received NOTIFY for domain hash!\n", __func__);
+		
+		/* Send ACK back for reliable delivery */
+		if (vhd->dht) {
+			lws_dht_send_ack(vhd->dht, from, fromlen, data, data_len);
+		}
+
+		if (vhd->cli_get_domain || vhd->cli_get_hash) {
+			lwsl_user("Re-fetching the zonefile due to NOTIFY!\n");
+			/* Cancel any pending timeout/retries and restart the fetch */
+			lws_sul_cancel(&vhd->sul_timeout);
+			vhd->put_retries = 0;
+			
+			if (vhd->cli_get_hash) {
+				struct dht_fragment *frag = dht_dnssec_find_fragment(vhd, vhd->cli_get_hash);
+				if (frag) {
+					lws_dll2_remove(&frag->list);
+					if (frag->fd >= 0) close(frag->fd);
+					free(frag);
+				}
+			}
+			dht_dnssec_sul_get_cb(&vhd->sul_bulk);
+		}
+		break;
+	}
+	case LWS_DHT_EVENT_TOKEN: {
+		struct vhd_dht_dnssec *vhd = (struct vhd_dht_dnssec *)closure;
+		struct dht_fragment *frag;
+		uint8_t tid[16];
+		char computed_hash_hex[LWS_GENHASH_LARGEST * 2 + 1];
+		const char *get_hash = vhd->cli_get_hash;
+		struct lws_genhash_ctx pctx;
+		uint8_t hash[LWS_GENHASH_LARGEST];
+
+		lwsl_user("%s: Received SUBSCRIBE token, generating SUBSCRIBE_CONFIRM!\n", __func__);
+
+		lws_get_random(vhd->context, tid, sizeof(tid));
+
+		if (!get_hash && vhd->cli_get_domain) {
+			char domain_str[256];
+			int dom_len = lws_snprintf(domain_str, sizeof(domain_str), "lws-dnssec-dht-%s", vhd->cli_get_domain);
+			if (!lws_genhash_init(&pctx, LWS_DHT_STORE_GENHASH) &&
+			    !lws_genhash_update(&pctx, domain_str, (size_t)dom_len) &&
+			    !lws_genhash_destroy(&pctx, hash)) {
+				lws_hex_from_byte_array(hash, (size_t)lws_genhash_size(LWS_DHT_STORE_GENHASH), computed_hash_hex, sizeof(computed_hash_hex));
+				get_hash = computed_hash_hex;
+			}
+		}
+
+		if (get_hash && vhd->dht) {
+			lws_dht_hash_t hash_obj;
+			hash_obj.type = LWS_DHT_STORE_GENHASH;
+			hash_obj.len = (uint8_t)lws_genhash_size(LWS_DHT_STORE_GENHASH);
+			if (!lws_hex_to_byte_array(get_hash, hash_obj.id, hash_obj.len)) {
+				frag = dht_dnssec_find_fragment(vhd, get_hash);
+				uint8_t current_payload_hash[32] = {0};
+				if (frag) {
+					memcpy(current_payload_hash, frag->payload_hash, sizeof(current_payload_hash));
+				}
+				lws_dht_send_subscribe_confirm(vhd->dht, from, fromlen, tid, sizeof(tid), &hash_obj, (uint8_t *)data, data_len, current_payload_hash, 1);
+				lwsl_user("Sent SUBSCRIBE_CONFIRM to the target DHT node.\n");
+			}
+		}
+		break;
+	}
 	default:
 		break;
 	}
@@ -1568,6 +1670,10 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 		if (!strcmp(args->msg->verb, "SIGN_REQ")) return verb_sign_req_handler(args->ctx, args->msg, args->from, args->fromlen);
 		if (!strcmp(args->msg->verb, "ERR")) return verb_err_handler(args->ctx, args->msg, args->from, args->fromlen);
 		
+		/* We'll handle notification subscription confirmation here, empty for now */
+		if (!strcmp(args->msg->verb, "SUBSCRIBE_CONFIRM")) return 0;
+		if (!strcmp(args->msg->verb, "NOTIFY")) return 0;
+
 		return -1;
 	}
 
@@ -1582,6 +1688,8 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 			"NONC_RSP",
 			"SIGN_REQ",
 			"ERR",
+			"SUBSCRIBE_CONFIRM",
+			"NOTIFY",
 		};
 		if (!in)
 			return 0;

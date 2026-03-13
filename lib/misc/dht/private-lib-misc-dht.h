@@ -83,17 +83,19 @@
 #endif
 #endif
 
-typedef enum {
-	DHT_ERROR,
-	DHT_REPLY,
-	DHT_PING,
-	DHT_FIND_NODE,
-	DHT_GET_PEERS,
-	DHT_ANNOUNCE_PEER,
-	DHT_PEER_ANNOUNCED,
-	DHT_DATA,
-} lws_dht_message_type_t;
+#define DHT_FIND_NODE	1
+#define DHT_GET_PEERS	2
+#define DHT_ANNOUNCE_PEER 3
+#define DHT_SUBSCRIBE	 4
+#define DHT_SUBSCRIBE_CONFIRM 5
+#define DHT_NOTIFY       6
+#define DHT_DATA         7
+#define DHT_REPLY        8
+#define DHT_ERROR        9
+#define DHT_PING        10
+#define DHT_PEER_ANNOUNCED 11
 
+#define DHT_MSG_TYPE_MASK	0x0f
 #define WANT4				1
 #define WANT6				2
 
@@ -165,10 +167,25 @@ struct peer {
 	unsigned short          port;
 };
 
+struct subscriber {
+	struct subscriber       *next;
+	struct sockaddr_storage ss;
+	size_t                  sslen;
+	uint8_t                 tid[16];
+	size_t                  tid_len;
+	time_t                  expire;
+	uint8_t                 current_sha256[32];
+	int                     pending_notify;
+	int                     notify_retries;
+	time_t                  last_notify;
+	uint8_t                 pending_sha256[32];
+};
+
 struct storage {
 	lws_dht_hash_t          *id;
 	int                     numpeers, maxpeers;
 	struct peer             *peers;
+	struct subscriber       *subscribers;
 	struct storage          *next;
 };
 
@@ -278,6 +295,7 @@ struct lws_dht_mparams {
 	size_t			token_len;
 	size_t			values_len;
 	size_t			values6_len;
+	uint8_t			sha256[32];
 	lws_dht_hash_t		*id;
 	lws_dht_hash_t		*info_hash;
 	lws_dht_hash_t		*target;
@@ -350,6 +368,7 @@ int send_cached_ping(struct lws_dht_ctx *ctx, struct bucket *b);
 void mark_as_pinged(struct lws_dht_ctx *ctx, struct node *n, struct bucket *b);
 void flush_search_node(struct search_node *n, struct search *sr);
 int send_get_peers(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen, uint8_t *tid, size_t tid_len, const lws_dht_hash_t *infohash, int want, int confirm);
+int send_notify(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen, const uint8_t *tid, size_t tid_len, const lws_dht_hash_t *infohash, const uint8_t *sha256);
 int send_announce_peer(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen, uint8_t *tid, size_t tid_len, const lws_dht_hash_t *infohash, unsigned short port, uint8_t *token, size_t token_len, int confirm);
 int rotate_secrets(struct lws_dht_ctx *ctx);
 void make_token(struct lws_dht_ctx *ctx, const struct sockaddr *sa, int old, uint8_t *token_return);
@@ -357,7 +376,7 @@ int token_match(struct lws_dht_ctx *ctx, const uint8_t *token, size_t token_len,
 int send_find_node(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen, const uint8_t *tid, size_t tid_len, const lws_dht_hash_t *target, int want, int confirm);
 int send_closest_nodes(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen, struct lws_dht_mparams *mp, const lws_dht_hash_t *id, int af, struct storage *st);
 int send_error(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen, const uint8_t *tid, size_t tid_len, int code, const char *message);
-int send_peer_announced(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen, const uint8_t *tid, size_t tid_len);
+void lws_dht_clear_pending_notify(struct lws_dht_ctx *ctx, const uint8_t *tid, size_t tid_len);
 int token_bucket(struct lws_dht_ctx *ctx);
 void lws_dht_capture_announce(struct lws_dht_ctx *ctx, lws_dht_hash_t *hash, const struct sockaddr *fromaddr, unsigned short prt);
 #endif

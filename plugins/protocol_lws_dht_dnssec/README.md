@@ -10,6 +10,12 @@ It works by intercepting DHT `PUT` requests, requiring client-side JSON Web Sign
 - Supports the protocol-level version precedence mechanics resolving replacing states.
 - Re-uses LWS JSON Object Signing and Encryption (`lws-jose`) routines and asynchronous DNS resolution natively.
 
+## Active Change Notifications
+The plugin actively utilizes the `SUBSCRIBE`, `SUBSCRIBE_CONFIRM` and `NOTIFY` DHT verbs to monitor downloaded zone files for changes:
+- When a zone is successfully downloaded and validated, the plugin automatically issues a `SUBSCRIBE` request to the original DHT node.
+- The subscription is finalized with a cryptographically secure `SUBSCRIBE_CONFIRM` challenge containing a local ID and the current payload's SHA256 hash.
+- If the authoritative DNS node updates the zone file, it will broadcast a `NOTIFY` to all active long-poll subscribers. The plugin will instantly acknowledge the notification (via `lws_dht_send_ack`) and re-fetch the updated zone asynchronously.
+
 ## CMake Configuration
 To enable the underlying requirements so out-of-the-box DHT plugins and the `lws-dht-dnssec` node work, your `libwebsockets` CMake build requires the following options:
 

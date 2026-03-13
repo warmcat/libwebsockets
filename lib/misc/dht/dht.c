@@ -926,6 +926,74 @@ lws_dht_msg_parse(const char *in, size_t len, struct lws_dht_msg *out)
 }
 
 int
+lws_dht_notify_subscribers(struct lws_dht_ctx *ctx, const lws_dht_hash_t *hash, const uint8_t *sha256)
+{
+#if defined(LWS_WITH_DHT_BACKEND)
+	struct storage *st;
+	struct subscriber *sub;
+	int count = 0;
+
+	if (!ctx || !hash || !sha256)
+		return -1;
+
+	st = find_storage(ctx, hash);
+	if (!st)
+		return 0; /* no subscribers */
+
+	sub = st->subscribers;
+	while (sub) {
+		/* Don't notify if the TTL expired */
+		if (ctx->now.tv_sec <= sub->expire) {
+			/* Only notify if the content actually changed from what they have */
+			if (memcmp(sub->current_sha256, sha256, 32)) {
+				send_notify(ctx, (struct sockaddr *)&sub->ss, sub->sslen, sub->tid, sub->tid_len, hash, sha256);
+				
+				/* Queue up reliable delivery retry state */
+				sub->pending_notify = 1;
+				sub->notify_retries = 0;
+				sub->last_notify = ctx->now.tv_sec;
+				memcpy(sub->pending_sha256, sha256, 32);
+				
+				count++;
+			}
+		}
+		sub = sub->next;
+	}
+
+	return count;
+}
+
+void
+lws_dht_clear_pending_notify(struct lws_dht_ctx *ctx, const uint8_t *tid, size_t tid_len)
+{
+	struct storage *st = ctx->storage;
+	
+	if (!ctx || !tid || tid_len != 16)
+		return;
+
+	while (st) {
+		struct subscriber *sub = st->subscribers;
+		while (sub) {
+			if (sub->pending_notify && sub->tid_len == tid_len && 
+			    !memcmp(sub->tid, tid, tid_len)) {
+				/* ACK received! */
+				sub->pending_notify = 0;
+				sub->notify_retries = 0;
+				/* Commit the sha256 */
+				memcpy(sub->current_sha256, sub->pending_sha256, 32);
+				return;
+			}
+			sub = sub->next;
+		}
+		st = st->next;
+	}
+}
+#else
+	return -1;
+#endif
+}
+
+int
 lws_dht_register_verbs(struct lws_dht_ctx *ctx, const char **verbs, int count, const struct lws_protocols *protocol)
 {
 	int i;
