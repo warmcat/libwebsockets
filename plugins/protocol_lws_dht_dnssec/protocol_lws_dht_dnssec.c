@@ -29,7 +29,6 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #endif
-#include <errno.h>
 #include <sys/stat.h>
 
 #define LWS_DHT_FRAGMENT_SIZE		(1024 * 1024)
@@ -95,6 +94,7 @@ struct vhd_dht_dnssec {
 	uint64_t			pending_nonce_time;
 	int				test_handshake;
 	int				cli_receiver;
+	lws_dll2_owner_t		fetch_reqs;
 };
 
 struct dht_fragment {
@@ -126,6 +126,17 @@ struct dht_fragment {
 	uint8_t				ds_digest[64];
 	uint8_t				ds_digest_len;
 	uint8_t				payload_hash[32];
+};
+
+struct lws_dht_dnssec_fetch_req {
+	lws_dll2_t			list;
+	char				domain[256];
+	char				cache_dir[512];
+	lws_dht_dnssec_fetch_cb_t	cb;
+	void				*opaque;
+	char				target_hash[65];
+	int				retries;
+	lws_sorted_usec_list_t		sul_timeout;
 };
 
 struct lws_dht_dnssec_domain;
@@ -564,6 +575,40 @@ dht_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 				unlink(tmp_ppath);
 			} else {
 				lwsl_user("%s: Atomically moved decoded payload to %s\n", __func__, final_ppath);
+
+				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->fetch_reqs.head) {
+					struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
+					if (!strcmp(req->target_hash, frag->safe_hash)) {
+						if (req->cache_dir[0]) {
+							char cpath[1024];
+							lws_snprintf(cpath, sizeof(cpath), "%s/%s.zone", req->cache_dir, req->domain);
+							int fpin = open(final_ppath, O_RDONLY);
+							if (fpin >= 0) {
+								if (mkdir(req->cache_dir, 0777) < 0 && errno != EEXIST)
+									lwsl_err("%s: Failed to create cache directory %s\n", __func__, req->cache_dir);
+								int fpout = open(cpath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+								if (fpout >= 0) {
+									char cbuf[4096];
+									ssize_t cn;
+									while ((cn = read(fpin, cbuf, sizeof(cbuf))) > 0)
+										if (write(fpout, cbuf, (size_t)cn) < 0) break;
+									close(fpout);
+									lwsl_user("%s: Copied fetched zone to cache %s\n", __func__, cpath);
+								} else {
+									lwsl_err("%s: Failed to open %s for caching\n", __func__, cpath);
+								}
+								close(fpin);
+							}
+						}
+
+						if (req->cb)
+							req->cb(req->opaque, req->domain, 1);
+
+						lws_sul_cancel(&req->sul_timeout);
+						lws_dll2_remove(d);
+						free(req);
+					}
+				} lws_end_foreach_dll_safe(d, d1);
 			}
 		}
 	}
@@ -601,6 +646,16 @@ drop:
 		lwsl_user("%s: Cancelling stalled context via completion cb\n", __func__);
 		vhd->cb_completion(vhd->cb_closure, 1);
 	}
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->fetch_reqs.head) {
+		struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
+		if (!strcmp(req->target_hash, frag->safe_hash)) {
+			if (req->cb) req->cb(req->opaque, req->domain, 0);
+			lws_sul_cancel(&req->sul_timeout);
+			lws_dll2_remove(d);
+			free(req);
+		}
+	} lws_end_foreach_dll_safe(d, d1);
 
 	lws_dll2_remove(&frag->list);
 	free(frag);
@@ -683,6 +738,16 @@ drop:
 	if (frag->vhd->cb_completion && !frag->vhd->cli_put_file)
 		frag->vhd->cb_completion(frag->vhd->cb_closure, 1);
 
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, frag->vhd->fetch_reqs.head) {
+		struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
+		if (!strcmp(req->target_hash, frag->safe_hash)) {
+			if (req->cb) req->cb(req->opaque, req->domain, 0);
+			lws_sul_cancel(&req->sul_timeout);
+			lws_dll2_remove(d);
+			free(req);
+		}
+	} lws_end_foreach_dll_safe(d, d1);
+
 	lws_dll2_remove(&frag->list);
 	free(frag);
 	if (result) lws_async_dns_freeaddrinfo(&result);
@@ -746,31 +811,132 @@ dht_dnssec_trigger_validation(struct lws_dht_ctx *ctx, struct vhd_dht_dnssec *vh
 			return -1;
 		}
 
-		/* Extract domain dynamically from the decoded zone file payload! */
-		char *soa = strstr(temp, "SOA");
-		if (soa && soa > temp) {
-			char *line_start = soa;
-			while (line_start > temp && *line_start != '\n') line_start--;
-			if (*line_start == '\n') line_start++;
+		/* Extract domain dynamically and strictly validate the syntax of the decoded zone file payload! */
+		struct auth_dns_zone parsed_zone;
+		memset(&parsed_zone, 0, sizeof(parsed_zone));
 
-			char *end = line_start;
-			while (end < soa && *end != ' ' && *end != '\t') end++;
+		if (lws_auth_dns_parse_zone_buf((const char *)map.buf[LJWS_PYLD], map.len[LJWS_PYLD], &parsed_zone)) {
+			lwsl_err("%s: Failed to syntax validate zonefile!\n", __func__);
+			free(temp);
+			free(buf);
+			return -1;
+		}
 
-			size_t dlen = (size_t)(end - line_start);
-			if (dlen >= sizeof(frag->domain)) dlen = sizeof(frag->domain) - 1;
-			lws_strncpy(frag->domain, line_start, dlen + 1);
-
+		/* Find SOA record to extract domain and serial */
+		frag->domain[0] = '\0';
+		frag->soa_serial = 0;
+		if (parsed_zone.origin[0]) {
+			lws_strncpy(frag->domain, parsed_zone.origin, sizeof(frag->domain));
 			int dlen_i = (int)strlen(frag->domain);
 			if (dlen_i > 0 && frag->domain[dlen_i - 1] == '.')
 				frag->domain[dlen_i - 1] = '\0';
-		} else if (vhd->cli_get_domain) {
-			lws_strncpy(frag->domain, vhd->cli_get_domain, sizeof(frag->domain));
-		} else {
-			lws_strncpy(frag->domain, "example.com", sizeof(frag->domain));
 		}
-		frag->soa_serial = 2026030701;
 
-		lwsl_user("%s: Extracted domain %s, serial %u. Starting DS query.\n",
+		lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&parsed_zone.rrset_list)) {
+			struct auth_dns_rrset *rs = lws_container_of(d, struct auth_dns_rrset, list);
+			if (rs->type == 6 /* SOA */) {
+				if (!frag->domain[0]) {
+					lws_strncpy(frag->domain, rs->name, sizeof(frag->domain));
+				}
+				struct auth_dns_rr *rr = lws_container_of(lws_dll2_get_head(&rs->rr_list), struct auth_dns_rr, list);
+				if (rr && rr->rdata) {
+					/* Parse SOA rdata: MNAME RNAME SERIAL ... */
+					lws_tokenize_t ts;
+					lws_tokenize_elem e;
+					int toks = 0;
+
+					lws_tokenize_init(&ts, rr->rdata, LWS_TOKENIZE_F_NO_FLOATS | LWS_TOKENIZE_F_MINUS_NONTERM | LWS_TOKENIZE_F_SLASH_NONTERM | LWS_TOKENIZE_F_COLON_NONTERM | LWS_TOKENIZE_F_EQUALS_NONTERM | LWS_TOKENIZE_F_PLUS_NONTERM | LWS_TOKENIZE_F_DOT_NONTERM);
+					do {
+						e = lws_tokenize(&ts);
+						if (e == LWS_TOKZE_TOKEN || e == LWS_TOKZE_INTEGER) {
+							toks++;
+							if (toks == 3) { /* SERIAL */
+								frag->soa_serial = (uint32_t)atoll(ts.token);
+								break;
+							}
+						}
+					} while (e > 0);
+				}
+			}
+		} lws_end_foreach_dll(d);
+
+		lws_auth_dns_free_zone(&parsed_zone);
+
+		if (!frag->domain[0]) {
+			if (vhd->cli_get_domain) {
+				lws_strncpy(frag->domain, vhd->cli_get_domain, sizeof(frag->domain));
+			} else {
+				lwsl_err("%s: Could not extract authoritative domain from parsed zone\n", __func__);
+				free(temp);
+				free(buf);
+				return -1;
+			}
+		}
+
+		if (!frag->soa_serial) {
+			lwsl_err("%s: Missing or invalid SOA serial in zonefile\n", __func__);
+			free(temp);
+			free(buf);
+			return -1;
+		}
+
+		/* Check for existing zonefile and compare SOA serials to prevent replay attacks */
+		char ex_path[256];
+		lws_snprintf(ex_path, sizeof(ex_path), "%s/%.2s/%.2s/%s.payload", vhd->storage_path, frag->safe_hash, frag->safe_hash + 2, frag->safe_hash);
+
+		int ex_fd = open(ex_path, O_RDONLY);
+		if (ex_fd >= 0) {
+			struct stat ex_st;
+			if (fstat(ex_fd, &ex_st) == 0 && ex_st.st_size > 0 && ex_st.st_size <= 131072) {
+				char *ex_buf = malloc((size_t)ex_st.st_size + 1);
+				if (ex_buf) {
+					if (read(ex_fd, ex_buf, (size_t)ex_st.st_size) == ex_st.st_size) {
+						ex_buf[ex_st.st_size] = '\0';
+
+						struct auth_dns_zone ex_zone;
+						memset(&ex_zone, 0, sizeof(ex_zone));
+						if (!lws_auth_dns_parse_zone_buf(ex_buf, (size_t)ex_st.st_size, &ex_zone)) {
+							uint32_t ex_serial = 0;
+							lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&ex_zone.rrset_list)) {
+								struct auth_dns_rrset *rs = lws_container_of(d, struct auth_dns_rrset, list);
+								if (rs->type == 6 /* SOA */) {
+									struct auth_dns_rr *rr = lws_container_of(lws_dll2_get_head(&rs->rr_list), struct auth_dns_rr, list);
+									if (rr && rr->rdata) {
+										lws_tokenize_t ts;
+										lws_tokenize_elem e;
+										int toks = 0;
+										lws_tokenize_init(&ts, rr->rdata, LWS_TOKENIZE_F_NO_FLOATS | LWS_TOKENIZE_F_MINUS_NONTERM | LWS_TOKENIZE_F_SLASH_NONTERM | LWS_TOKENIZE_F_COLON_NONTERM | LWS_TOKENIZE_F_EQUALS_NONTERM | LWS_TOKENIZE_F_PLUS_NONTERM | LWS_TOKENIZE_F_DOT_NONTERM);
+										do {
+											e = lws_tokenize(&ts);
+											if (e == LWS_TOKZE_TOKEN || e == LWS_TOKZE_INTEGER) {
+												if (++toks == 3) {
+													ex_serial = (uint32_t)atoll(ts.token);
+													break;
+												}
+											}
+										} while (e > 0);
+									}
+								}
+							} lws_end_foreach_dll(d);
+							lws_auth_dns_free_zone(&ex_zone);
+
+							if (ex_serial && frag->soa_serial <= ex_serial) {
+								lwsl_err("%s: Rejecting replay! New serial %u <= existing serial %u\n", __func__, frag->soa_serial, ex_serial);
+								free(ex_buf);
+								close(ex_fd);
+								free(temp);
+								free(buf);
+								return -1;
+							}
+						}
+					}
+					free(ex_buf);
+				}
+			}
+			close(ex_fd);
+		}
+
+		lwsl_user("%s: Syntactically checked zonefile! Extracted domain %s, serial %u. Starting DS query.\n",
 			__func__, frag->domain, frag->soa_serial);
 
 		/* Keep a reference to the vhost context and sender address in frag for the async callback */
@@ -814,6 +980,12 @@ verb_put_handler(struct lws_dht_ctx *ctx, const struct lws_dht_msg *msg,
 	 * If the payload is empty (common for initial connection PUT checks),
 	 * or it doesn't look like JWS, we PASS it to the generic object store.
 	 */
+	if (msg->len > 131072) {
+		lwsl_user("%s: Rejecting payload exceeding 131072 bytes (declared %llu)\n", __func__, msg->len);
+		args->out_precedence = LWS_DHT_VERB_RESULT_PASS;
+		return 0;
+	}
+
 	if (msg->offset == 0) {
 		if (msg->payload_len == 0) {
 			lwsl_user("%s: Empty initial payload. Passing to generic object store.\n", __func__);
@@ -917,6 +1089,17 @@ drop:
 		lws_dht_msg_gen(err, sizeof(err), "ERR", frag->safe_hash, frag->last_offset, 0);
 		lws_dht_send_data(ctx, from, err, strlen(err));
 	}
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->fetch_reqs.head) {
+		struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
+		if (!strcmp(req->target_hash, frag->safe_hash)) {
+			if (req->cb) req->cb(req->opaque, req->domain, 0);
+			lws_sul_cancel(&req->sul_timeout);
+			lws_dll2_remove(d);
+			free(req);
+		}
+	} lws_end_foreach_dll_safe(d, d1);
+
 	lws_dll2_remove(&frag->list);
 	free(frag);
 	return -1;
@@ -1025,6 +1208,13 @@ verb_rsp_handler(struct lws_dht_ctx *ctx, const struct lws_dht_msg *msg,
 
 	lwsl_user("%s: RSP for %s offset %llu len %llu payload %zu\n", __func__, msg->hash, msg->offset, msg->len, msg->payload_len);
 
+	if (msg->len > 131072) {
+		lwsl_err("%s: Rejecting RSP payload exceeding 131072 bytes (declared %llu)\n", __func__, msg->len);
+		if (vhd->cb_completion && !vhd->cli_put_file)
+			vhd->cb_completion(vhd->cb_closure, 1);
+		return -1;
+	}
+
 	frag = dht_dnssec_find_fragment(vhd, msg->hash);
 	if (!frag) {
 		frag = calloc(1, sizeof(*frag));
@@ -1094,6 +1284,16 @@ drop:
 	}
 	if (vhd->cb_completion && !vhd->cli_put_file)
 		vhd->cb_completion(vhd->cb_closure, 1);
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->fetch_reqs.head) {
+		struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
+		if (!strcmp(req->target_hash, frag->safe_hash)) {
+			if (req->cb) req->cb(req->opaque, req->domain, 0);
+			lws_sul_cancel(&req->sul_timeout);
+			lws_dll2_remove(d);
+			free(req);
+		}
+	} lws_end_foreach_dll_safe(d, d1);
 
 	lws_dll2_remove(&frag->list);
 	free(frag);
@@ -1184,6 +1384,51 @@ verb_sign_req_handler(struct lws_dht_ctx *ctx, const struct lws_dht_msg *msg,
 }
 
 /* --- Core Callback --- */
+
+static void
+dht_dnssec_sul_bootstrap_cb(struct lws_sorted_usec_list *sul)
+{
+	struct vhd_dht_dnssec *vhd = lws_container_of(sul, struct vhd_dht_dnssec, sul_bulk);
+	int good = 0, dubious = 0;
+
+	if (!vhd->dht)
+		return;
+
+	/* Check if the routing table is still entirely empty */
+	lws_dht_nodes(vhd->dht, AF_INET, &good, &dubious, NULL, NULL);
+
+	if (good == 0 && dubious == 0) {
+		struct sockaddr_in sin;
+		memset(&sin, 0, sizeof(sin));
+		sin.sin_family = AF_INET;
+		sin.sin_port = htons((uint16_t)vhd->target_port);
+
+		if (inet_pton(AF_INET, vhd->target_ip, &sin.sin_addr) <= 0) {
+			struct addrinfo hints, *result;
+			memset(&hints, 0, sizeof(hints));
+			hints.ai_family = AF_INET;
+
+			if (getaddrinfo(vhd->target_ip, NULL, &hints, &result) == 0 && result) {
+				struct sockaddr_in *sa = (struct sockaddr_in *)result->ai_addr;
+				sin.sin_addr = sa->sin_addr;
+				freeaddrinfo(result);
+			} else {
+				lwsl_err("Failed to resolve target-ip: %s\n", vhd->target_ip);
+				/* Retry resolving in 5s */
+				lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_bootstrap_cb, 5 * LWS_US_PER_SEC);
+				return;
+			}
+		}
+
+		lwsl_notice("%s: Bootstrapping DHT against target node %s:%d\n", __func__, vhd->target_ip, vhd->target_port);
+		lws_dht_ping_node(vhd->dht, (struct sockaddr *)&sin, sizeof(sin));
+
+		/* Schedule another ping in 3 seconds if we still haven't found nodes */
+		lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_bootstrap_cb, 3 * LWS_US_PER_SEC);
+	} else {
+		lwsl_notice("%s: DHT bootstrapped successfully, routing table contains %d good nodes\n", __func__, good);
+	}
+}
 
 static void
 cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
@@ -1501,6 +1746,7 @@ dht_dnssec_sul_get_cb(struct lws_sorted_usec_list *sul)
 	sin.sin_family = AF_INET;
 	sin.sin_port = htons((uint16_t)vhd->target_port);
 
+
 	if (inet_pton(AF_INET, vhd->target_ip, &sin.sin_addr) <= 0) {
 		struct addrinfo hints, *result;
 		memset(&hints, 0, sizeof(hints));
@@ -1710,6 +1956,7 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 		vhd->context = lws_get_context(wsi);
 		vhd->vhost = vhost;
 		lws_dll2_owner_clear(&vhd->fragments);
+		lws_dll2_owner_clear(&vhd->fetch_reqs);
 		vhd->bulk_fd = -1;
 		vhd->main_result = 1;
 
@@ -1811,6 +2058,8 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 			lwsl_user("%s: Starting RECEIVER task\n", __func__);
 			lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_manifest_rcv_cb, 10);
 			lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_manifest_rcv_cb, 10);
+		} else if (vhd->target_ip && vhd->target_ip[0] && vhd->target_port > 0) {
+			lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_bootstrap_cb, 10);
 		}
 		break;
 	}
@@ -2236,12 +2485,137 @@ do_publish_jws(struct lws_context *context, const char *jws_filepath)
 	return 0; // TODO in later phases
 }
 
+static void dht_dnssec_sul_fetch_req_timeout(struct lws_sorted_usec_list *sul)
+{
+	struct lws_dht_dnssec_fetch_req *req = lws_container_of(sul, struct lws_dht_dnssec_fetch_req, sul_timeout);
+
+	lwsl_err("%s: Fetch req for %s fully timed out\n", __func__, req->domain);
+	if (req->cb) req->cb(req->opaque, req->domain, 0);
+	lws_dll2_remove(&req->list);
+	free(req);
+}
+
+static int
+do_fetch_zone(struct lws_context *context, struct lws_dht_dnssec_fetch_zone_args *args)
+{
+	struct lws_vhost *vhost = args->vhost;
+	if (!vhost) vhost = lws_get_vhost_by_name(context, "default");
+	if (!vhost) return 1;
+
+	struct vhd_dht_dnssec *v = (struct vhd_dht_dnssec *)lws_protocol_vh_priv_get(
+				vhost, lws_vhost_name_to_protocol(vhost, "lws-dht-dnssec"));
+	if (!v || !args->domain) return 1;
+
+	if (args->is_cancel) {
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, v->fetch_reqs.head) {
+			struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
+			if (!strcmp(req->domain, args->domain) && req->opaque == args->opaque) {
+				lws_sul_cancel(&req->sul_timeout);
+				lws_dll2_remove(d);
+				free(req);
+			}
+		} lws_end_foreach_dll_safe(d, d1);
+		return 0;
+	}
+
+	char domain_str[256];
+	int dom_len = lws_snprintf(domain_str, sizeof(domain_str), "lws-dnssec-dht-%s", args->domain);
+
+	struct lws_genhash_ctx ctx;
+	uint8_t hash[LWS_GENHASH_LARGEST];
+	char hex[65];
+
+	if (lws_genhash_init(&ctx, LWS_DHT_STORE_GENHASH) ||
+	    lws_genhash_update(&ctx, domain_str, (size_t)dom_len) ||
+	    lws_genhash_destroy(&ctx, hash)) {
+		return 1;
+	}
+	lws_hex_from_byte_array(hash, (size_t)lws_genhash_size(LWS_DHT_STORE_GENHASH), hex, sizeof(hex));
+
+	char ppath[256];
+	lws_snprintf(ppath, sizeof(ppath), "%s/%.2s/%.2s/%s.payload", v->storage_path, hex, hex + 2, hex);
+	int fpin = open(ppath, O_RDONLY);
+	if (fpin >= 0) {
+		/* We already have it completely validated locally! */
+		if (args->cache_dir) {
+			char cpath[1024];
+			lws_snprintf(cpath, sizeof(cpath), "%s/%s.zone", args->cache_dir, args->domain);
+			if (mkdir(args->cache_dir, 0777) < 0 && errno != EEXIST)
+				lwsl_err("%s: Failed to create cache directory %s\n", __func__, args->cache_dir);
+			int fpout = open(cpath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+			if (fpout >= 0) {
+				char cbuf[4096];
+				ssize_t cn;
+				while ((cn = read(fpin, cbuf, sizeof(cbuf))) > 0)
+					if (write(fpout, cbuf, (size_t)cn) < 0) break;
+				close(fpout);
+				lwsl_user("%s: Copied existing fetched zone to cache %s\n", __func__, cpath);
+			} else {
+				lwsl_err("%s: Failed to open %s for caching\n", __func__, cpath);
+			}
+		}
+		close(fpin);
+
+		if (args->cb)
+			args->cb(args->opaque, args->domain, 1);
+
+		return 0;
+	}
+
+	int already = 0;
+	lws_start_foreach_dll(struct lws_dll2 *, d, v->fetch_reqs.head) {
+		struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
+		if (!strcmp(req->domain, args->domain) && req->opaque == args->opaque) {
+			already = 1;
+			break;
+		}
+	} lws_end_foreach_dll(d);
+
+	if (!already) {
+		struct lws_dht_dnssec_fetch_req *req = calloc(1, sizeof(*req));
+		if (!req) return 1;
+		lws_strncpy(req->domain, args->domain, sizeof(req->domain));
+		if (args->cache_dir)
+			lws_strncpy(req->cache_dir, args->cache_dir, sizeof(req->cache_dir));
+		req->cb = args->cb;
+		req->opaque = args->opaque;
+		lws_strncpy(req->target_hash, hex, sizeof(req->target_hash));
+		lws_dll2_add_tail(&req->list, &v->fetch_reqs);
+
+		lws_sul_schedule(context, 0, &req->sul_timeout, dht_dnssec_sul_fetch_req_timeout, 15 * LWS_US_PER_SEC);
+	}
+
+	struct sockaddr_in sin;
+	char buf[256];
+	memset(&sin, 0, sizeof(sin));
+	sin.sin_family = AF_INET;
+	sin.sin_port = htons((uint16_t)v->target_port);
+
+	if (inet_pton(AF_INET, v->target_ip, &sin.sin_addr) <= 0) {
+		struct addrinfo hints, *result;
+		memset(&hints, 0, sizeof(hints));
+		hints.ai_family = AF_INET;
+		if (getaddrinfo(v->target_ip, NULL, &hints, &result) == 0 && result) {
+			struct sockaddr_in *sa = (struct sockaddr_in *)result->ai_addr;
+			sin.sin_addr = sa->sin_addr;
+			freeaddrinfo(result);
+		} else {
+			return 1;
+		}
+	}
+	lws_dht_msg_gen(buf, sizeof(buf), "GET", hex, 0, 1024);
+	lws_dht_send_data(v->dht, (struct sockaddr *)&sin, buf, strlen(buf));
+
+	return 0;
+}
+
 static const struct lws_dht_dnssec_ops ops = {
 	.keygen = do_keygen,
 	.dsfromkey = do_dsfromkey,
 	.signzone = do_signzone,
 	.add_temp_zone = do_add_temp_zone,
 	.publish_jws = do_publish_jws,
+	.fetch_zone = do_fetch_zone,
 };
 
 LWS_VISIBLE const struct lws_protocols lws_dht_dnssec_protocols[] = {

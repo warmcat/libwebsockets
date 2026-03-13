@@ -49,9 +49,15 @@ send_pong(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
 	rc = lws_snprintf(buf + i, sizeof(buf) - i, "1:y1:re");
 	if (dht_tx_skip(&i, sizeof(buf), (size_t)(rc))) goto fail;
 
-	return dht_send(ctx, buf, i, sa, salen);
+	lwsl_warn("%s: generated pong of length %zu\n", __func__, i);
+	lwsl_hexdump_warn(buf, i);
+
+	rc = dht_send(ctx, buf, i, sa, salen);
+	lwsl_warn("%s: dht_send returned %d\n", __func__, rc);
+	return rc;
 
 fail:
+	lwsl_warn("%s: failed to generate pong, i=%zu\n", __func__, i);
 	errno = ENOSPC;
 	return -1;
 }
@@ -399,7 +405,7 @@ fail:
 	return -1;
 }
 
-int
+LWS_VISIBLE LWS_EXTERN int
 lws_dht_send_ack(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
 		const uint8_t *tid, size_t tid_len)
 {

@@ -4,7 +4,7 @@ This plugin implements a lightweight, basic libwebsockets DHT (Distributed Hash 
 
 ## Building
 
-This plugin requires `LWS_WITH_DHT=1` and `LWS_WITH_PLUGINS=1`.
+This plugin requires `LWS_WITH_DHT=1`, `LWS_WITH_DHT_BACKEND=1`, and `LWS_WITH_PLUGINS=1`.
 
 ## Using with lwsws
 

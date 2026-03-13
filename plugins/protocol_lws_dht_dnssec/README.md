@@ -16,11 +16,17 @@ The plugin actively utilizes the `SUBSCRIBE`, `SUBSCRIBE_CONFIRM` and `NOTIFY` D
 - The subscription is finalized with a cryptographically secure `SUBSCRIBE_CONFIRM` challenge containing a local ID and the current payload's SHA256 hash.
 - If the authoritative DNS node updates the zone file, it will broadcast a `NOTIFY` to all active long-poll subscribers. The plugin will instantly acknowledge the notification (via `lws_dht_send_ack`) and re-fetch the updated zone asynchronously.
 
+## Zonefile Security Validation
+To prevent abuse from malicious peers or compromised routing, the plugin enforces strict boundaries on incoming zonefiles before they are committed to the local cache:
+1. **Size Limits**: `PUT` and `GET` chunk sequences have a hard limit of 128KB (`131072` bytes). Payloads exceeding this size are aggressively dropped, preventing disk and memory exhaustion attacks.
+2. **Syntax Parsing checks**: Following JWS signature unwrapping, the plugin actively parses the payload using `lws_auth_dns_parse_zone_buf`. This guarantees the incoming file is a syntactically correct DNS zonefile.
+3. **SOA Serial Replay Protection**: To stop attackers from replaying older, but validly signed zonefiles, the plugin extracts the `SOA` serial number from the parsed zone and mandates that it be sequentially newer than any existing copy of the zonefile in the cache.
 ## CMake Configuration
 To enable the underlying requirements so out-of-the-box DHT plugins and the `lws-dht-dnssec` node work, your `libwebsockets` CMake build requires the following options:
 
 ```cmake
 -DLWS_WITH_DHT=1
+-DLWS_WITH_DHT_BACKEND=1
 -DLWS_WITH_JOSE=1
 -DLWS_WITH_SYS_ASYNC_DNS=1
 -DLWS_WITH_GENCRYPTO=1

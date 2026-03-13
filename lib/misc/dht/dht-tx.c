@@ -137,22 +137,32 @@ dht_tx_add_ip(char *buf, size_t *offset, size_t size, const struct sockaddr *sa)
 	char tmp[32];
 	int rc;
 
+	if (!sa) {
+		lwsl_dht_warn("%s: sa is NULL\n", __func__);
+		return -1;
+	}
+
 	switch (sa->sa_family) {
 	case AF_INET:
 		rc = lws_snprintf(tmp, sizeof(tmp), "2:ip6:");
 		if (dht_tx_copy__advance_offset(buf, offset, size, tmp, (size_t)rc) ||
 		    dht_tx_copy__advance_offset(buf, offset, size, &sin->sin_addr, sizeof(sin->sin_addr)) ||
-		    dht_tx_copy__advance_offset(buf, offset, size, &sin->sin_port, sizeof(sin->sin_port)))
+		    dht_tx_copy__advance_offset(buf, offset, size, &sin->sin_port, sizeof(sin->sin_port))) {
+			lwsl_dht_warn("%s: AF_INET copy failed\n", __func__);
 			break;
+		}
 		return 0;
 	case AF_INET6:
 		rc = lws_snprintf(tmp, sizeof(tmp), "2:ip18:");
 		if (dht_tx_copy__advance_offset(buf, offset, size, tmp, (size_t)rc) ||
 		    dht_tx_copy__advance_offset(buf, offset, size, &sin6->sin6_addr, sizeof(sin6->sin6_addr)) ||
-		    dht_tx_copy__advance_offset(buf, offset, size, &sin6->sin6_port, sizeof(sin6->sin6_port)))
+		    dht_tx_copy__advance_offset(buf, offset, size, &sin6->sin6_port, sizeof(sin6->sin6_port))) {
+			lwsl_dht_warn("%s: AF_INET6 copy failed\n", __func__);
 			break;
+		}
 		return 0;
 	default:
+		lwsl_dht_warn("%s: unknown sa_family %d\n", __func__, sa->sa_family);
 		break;
 	}
 

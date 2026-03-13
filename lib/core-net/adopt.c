@@ -729,14 +729,39 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		goto bail;
 	}
 
-	m = lws_sort_dns(wsi, r);
+	if (r) {
+		m = lws_sort_dns(wsi, r);
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
-	lws_async_dns_freeaddrinfo(&r);
+		lws_async_dns_freeaddrinfo(&r);
 #else
-	freeaddrinfo((struct addrinfo *)r);
+		freeaddrinfo((struct addrinfo *)r);
 #endif
-	if (m)
-		goto bail;
+		if (m)
+			goto bail;
+	} else {
+		/*
+		 * If we get here with r == NULL, it's because ads == NULL and
+		 * we're using ASYNC_DNS, taking the fast path because no lookup
+		 * is needed for INADDR_ANY. Synthesize a result.
+		 */
+		lws_dns_sort_t *s = lws_zalloc(sizeof(*s), __func__);
+		if (!s)
+			goto bail;
+
+#if defined(LWS_WITH_IPV6)
+		if (!lws_check_opt(wsi->a.context->options,
+				   LWS_SERVER_OPTION_DISABLE_IPV6)) {
+			s->dest.sa6.sin6_family = AF_INET6;
+			s->af = AF_INET6;
+		} else
+#endif
+		{
+			s->dest.sa4.sin_family = AF_INET;
+			s->dest.sa4.sin_addr.s_addr = INADDR_ANY;
+			s->af = AF_INET;
+		}
+		lws_dll2_add_tail(&s->list, &wsi->dns_sorted_list);
+	}
 
 	while (lws_dll2_get_head(&wsi->dns_sorted_list)) {
 		lws_dns_sort_t *s = lws_container_of(

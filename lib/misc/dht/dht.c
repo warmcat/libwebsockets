@@ -411,6 +411,18 @@ lws_callback_dht(struct lws *wsi, enum lws_callback_reasons reason,
 				       sa46_socklen(&wsi->udp->sa46));
 		break;
 
+	case LWS_CALLBACK_RAW_CLOSE:
+		if (!user)
+			break;
+		ctx = *((struct lws_dht_ctx **)user);
+		if (ctx) {
+			if (ctx->wsi_v4 == wsi)
+				ctx->wsi_v4 = NULL;
+			if (ctx->wsi_v6 == wsi)
+				ctx->wsi_v6 = NULL;
+		}
+		break;
+
 	case LWS_CALLBACK_RAW_ADOPT:
 		break;
 
@@ -608,12 +620,8 @@ lws_dht_create(const lws_dht_info_t *info)
 #endif
 
 	if (info->port >= 0) {
-		const char *v4ads = ctx->iface;
-		if (!v4ads)
-			v4ads = "0.0.0.0";
-
-		ctx->wsi_v4 = lws_create_adopt_udp(ctx->vhost, v4ads, info->port, LWS_CAUDP_BIND,
-						   lws_dht_protocol.name, NULL, NULL, ctx, NULL, "dht-v4");
+		ctx->wsi_v4 = lws_create_adopt_udp(ctx->vhost, "0.0.0.0", info->port, LWS_CAUDP_BIND,
+						   lws_dht_protocol.name, ctx->iface, NULL, ctx, NULL, "dht-v4");
 		if (!ctx->wsi_v4) {
 			lwsl_err("lws_create_adopt_udp v4 failed for port %d\n", info->port);
 			goto fail;
@@ -621,11 +629,8 @@ lws_dht_create(const lws_dht_info_t *info)
 		*((struct lws_dht_ctx **)lws_wsi_user(ctx->wsi_v4)) = ctx;
 
 		if (info->ipv6) {
-			const char *v6ads = ctx->iface;
-			if (!v6ads)
-				v6ads = "::";
-			ctx->wsi_v6 = lws_create_adopt_udp(ctx->vhost, v6ads, info->port, LWS_CAUDP_BIND,
-							   lws_dht_protocol.name, NULL, NULL, ctx, NULL, "dht-v6");
+			ctx->wsi_v6 = lws_create_adopt_udp(ctx->vhost, "::", info->port, LWS_CAUDP_BIND,
+							   lws_dht_protocol.name, ctx->iface, NULL, ctx, NULL, "dht-v6");
 			if (ctx->wsi_v6)
 				*((struct lws_dht_ctx **)lws_wsi_user(ctx->wsi_v6)) = ctx;
 			/* It's OK if IPv6 fails if not supported */
@@ -961,11 +966,15 @@ lws_dht_notify_subscribers(struct lws_dht_ctx *ctx, const lws_dht_hash_t *hash, 
 	}
 
 	return count;
+#else
+	return -1;
+#endif
 }
 
 void
 lws_dht_clear_pending_notify(struct lws_dht_ctx *ctx, const uint8_t *tid, size_t tid_len)
 {
+#if defined(LWS_WITH_DHT_BACKEND)
 	struct storage *st = ctx->storage;
 
 	if (!ctx || !tid || tid_len != 16)
@@ -987,9 +996,6 @@ lws_dht_clear_pending_notify(struct lws_dht_ctx *ctx, const uint8_t *tid, size_t
 		}
 		st = st->next;
 	}
-}
-#else
-	return -1;
 #endif
 }
 

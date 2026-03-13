@@ -373,7 +373,7 @@ parse_message(const uint8_t *buf, size_t buflen, struct lws_dht_mparams *mp)
 		mp->offset = dht_bencode_get_int(meta, meta_end, "offset");
 		lwsl_debug("%s: Parsed offset %llu\n", __func__, (unsigned long long)mp->offset);
 	} else
-		lwsl_notice("%s: offset key NOT FOUND in reply\n", __func__);
+		lwsl_debug("%s: offset key NOT FOUND in reply\n", __func__);
 
 	if (dht_bencode_find_key(meta, meta_end, "len", NULL))
 		mp->len = dht_bencode_get_int(meta, meta_end, "len");
