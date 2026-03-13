@@ -38,6 +38,9 @@ A typical DHT client needs to formulate queries and dispatch them:
 *   `lws_dht_send_find_node(...)`: Requests closest nodes to a specified target ID from an external peer.
 *   `lws_dht_send_get_peers(...)`: Queries peers holding specific metadata/values matching an `info_hash`.
 *   `lws_dht_send_announce_peer(...)`: Announces to peers that your node is currently serving a resource corresponding to an `info_hash`.
+*   `lws_dht_send_subscribe(...)`: Initiates a long-poll request to be notified when a value at a given `info_hash` is modified or deleted.
+*   `lws_dht_send_subscribe_confirm(...)`: Formulates a valid challenge-response to complete a subscription utilizing a generated security token securely fetched from the target.
+*   `lws_dht_send_ack(...)`: Dispatches an empty `DHT_REPLY` back to a sender matching a 16-byte tracking cookie, commonly used to acknowledge asynchronous notification updates.
 
 ## Handling Events and Verb Handlers
 

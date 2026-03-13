@@ -230,6 +230,18 @@ verb_put_handler(struct lws_dht_ctx *ctx, const struct lws_dht_msg *msg,
 		lws_hex_from_byte_array(hash, (size_t)lws_genhash_size(LWS_DHT_STORE_GENHASH), hex, sizeof(hex));
 		lwsl_user("%s: PUT COMPLETION Finished: File completely written %s, Final validation hash %s\n", __func__, frag->safe_hash, hex);
 
+		/* Notify anyone tracking this hash */
+		{
+			uint8_t raw_hash[20];
+			if (!lws_hex_to_byte_array(frag->safe_hash, raw_hash, sizeof(raw_hash))) {
+				lws_dht_hash_t *id = lws_dht_hash_create(LWS_DHT_HASH_TYPE_SHA1, 20, raw_hash);
+				if (id) {
+					lws_dht_notify_subscribers(ctx, id, hash);
+					lws_dht_hash_destroy(&id);
+				}
+			}
+		}
+
 		close(frag->fd);
 		frag->fd = -1;
 

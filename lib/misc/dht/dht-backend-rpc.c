@@ -400,7 +400,7 @@ fail:
 }
 
 int
-send_peer_announced(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
+lws_dht_send_ack(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
 		const uint8_t *tid, size_t tid_len)
 {
 	char buf[512];

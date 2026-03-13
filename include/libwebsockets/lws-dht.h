@@ -166,6 +166,20 @@ struct lws_dht_verb_dispatch_args {
 	lws_dht_verb_result_t out_precedence;
 };
 
+LWS_VISIBLE LWS_EXTERN int
+lws_dht_send_subscribe(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
+		       uint8_t *tid, size_t tid_len, const lws_dht_hash_t *infohash,
+		       int want, int confirm);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_dht_send_subscribe_confirm(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
+		               uint8_t *tid, size_t tid_len, const lws_dht_hash_t *infohash,
+		               uint8_t *token, size_t token_len, const uint8_t *sha256, int confirm);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_dht_send_ack(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
+		 const uint8_t *tid, size_t tid_len);
+
 
 
 /**
@@ -208,6 +222,18 @@ lws_dht_msg_gen(char *out, size_t len, const char *verb, const char *hash, unsig
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_dht_register_verbs(struct lws_dht_ctx *ctx, const char **verbs, int count, const struct lws_protocols *protocol);
+
+/**
+ * lws_dht_notify_subscribers() - Notify subscribers of a hash change
+ *
+ * \param ctx: DHT context
+ * \param hash: the hash that changed
+ * \param sha256: the new sha256 of the content
+ *
+ * \return number of subscribers notified, or negative on error
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dht_notify_subscribers(struct lws_dht_ctx *ctx, const lws_dht_hash_t *hash, const uint8_t *sha256);
 
 /**
  * lws_dht_blacklist_cb_t() - DHT blacklist check callback
@@ -277,6 +303,8 @@ typedef enum {
 	LWS_DHT_EVENT_DATA,		/**< Arbitrary data payload received */
 	LWS_DHT_EVENT_WRITE_COMPLETED,	/**< Reliable write successful */
 	LWS_DHT_EVENT_WRITE_FAILED,	/**< Reliable write failed */
+	LWS_DHT_EVENT_NOTIFY,		/**< Notification received */
+	LWS_DHT_EVENT_TOKEN,		/**< Security token received from a peer */
 } lws_dht_event_t;
 
 

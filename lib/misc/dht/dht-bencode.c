@@ -284,6 +284,12 @@ parse_message(const uint8_t *buf, size_t buflen, struct lws_dht_mparams *mp)
 			message = DHT_FIND_NODE;
 		else if (l == 9 && !memcmp(q_ptr, "get_peers", 9))
 			message = DHT_GET_PEERS;
+		else if (l == 9 && !memcmp(q_ptr, "subscribe", 9))
+			message = DHT_SUBSCRIBE;
+		else if (l == 17 && !memcmp(q_ptr, "subscribe_confirm", 17))
+			message = DHT_SUBSCRIBE_CONFIRM;
+		else if (l == 6 && !memcmp(q_ptr, "notify", 6))
+			message = DHT_NOTIFY;
 		else if (l == 13 && !memcmp(q_ptr, "announce_peer", 13))
 			message = DHT_ANNOUNCE_PEER;
 		else if (l == 4 && !memcmp(q_ptr, "data", 4))
@@ -335,6 +341,11 @@ parse_message(const uint8_t *buf, size_t buflen, struct lws_dht_mparams *mp)
 		mp->token_len = l;
 	} else
 		mp->token_len = 0;
+
+	p = dht_bencode_get_string(meta, meta_end, "sha256", &l);
+	if (p && l == 32) {
+		memcpy(mp->sha256, p, 32);
+	}
 
 	p = dht_bencode_get_string(meta, meta_end, "nodes", &l);
 	if (p && l > 0 && l < sizeof(mp->nodes)) {
@@ -635,6 +646,12 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 	}
 #endif
 
+	if (mp->token_len > 0) {
+		if (ctx->cb) {
+			(*ctx->cb)(ctx->closure, LWS_DHT_EVENT_TOKEN, mp->id, mp->token, mp->token_len, from, fromlen);
+		}
+	}
+
 	if (mp->values_len > 0 || mp->values6_len > 0) {
 		lwsl_dht_rx("%s: Got values (%d+%d)\n", __func__, (int)(mp->values_len / LWS_DHT_NODE_INFO_IP4_VLEN), (int)(mp->values6_len / LWS_DHT_NODE_INFO_IP6_VLEN));
 		if (ctx->cb) {
@@ -799,10 +816,16 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 
 	switch(message) {
 	case DHT_REPLY:
-		if (mp.tid_len != 4) {
+		if (mp.tid_len != 4 && mp.tid_len != 16) {
 			lwsl_dht_rx_warn("%s: Broken node truncates transaction ids\n", __func__);
 #if defined(LWS_WITH_DHT_BACKEND)
 			blacklist_node(ctx, mp.id, from, fromlen);
+#endif
+			break;
+		}
+		if (mp.tid_len == 16) {
+#if defined(LWS_WITH_DHT_BACKEND)
+			lws_dht_clear_pending_notify(ctx, mp.tid, mp.tid_len);
 #endif
 			break;
 		}
@@ -867,11 +890,13 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 		break;
 
 	case DHT_GET_PEERS:
-		ctx->stats_current.rx_get_peers++;
+	case DHT_SUBSCRIBE:
+		if (message == DHT_GET_PEERS)
+			ctx->stats_current.rx_get_peers++;
 #if defined(LWS_WITH_DHT_BACKEND)
 		if (!mp.info_hash) {
 			send_error(ctx, from, fromlen, mp.tid, mp.tid_len,
-				   203, "Get_peers with no info_hash");
+				   203, "Get_peers/Subscribe with no info_hash");
 			goto fail;
 		}
 
@@ -889,6 +914,73 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 						   &mp, mp.info_hash, 0, NULL);
 		}
 #endif
+		break;
+
+	case DHT_SUBSCRIBE_CONFIRM:
+#if defined(LWS_WITH_DHT_BACKEND)
+		if (!mp.info_hash) {
+			send_error(ctx, from, fromlen, mp.tid, mp.tid_len,
+				   203, "Subscribe_confirm with no info_hash");
+			goto fail;
+		}
+
+		if (!token_match(ctx, mp.token, mp.token_len, from)) {
+			goto fail;
+		}
+
+		/* Validation passed, register the subscriber */
+		{
+			struct storage *st = find_storage(ctx, mp.info_hash);
+			struct subscriber *sub;
+			int found = 0;
+
+			if (!st) {
+				st = lws_zalloc(sizeof(*st), "dht storage");
+				if (!st) goto fail;
+				st->id = lws_dht_hash_dup(mp.info_hash);
+				st->next = ctx->storage;
+				ctx->storage = st;
+			}
+
+			sub = st->subscribers;
+			while (sub) {
+				if (sub->sslen == fromlen && !memcmp(&sub->ss, from, fromlen) &&
+				    sub->tid_len == mp.tid_len && !memcmp(sub->tid, mp.tid, mp.tid_len)) {
+					found = 1;
+					break;
+				}
+				sub = sub->next;
+			}
+
+			if (!found) {
+				sub = lws_zalloc(sizeof(*sub), "dht subscriber");
+				if (!sub) goto fail;
+				memcpy(&sub->ss, from, fromlen);
+				sub->sslen = fromlen;
+				memcpy(sub->tid, mp.tid, mp.tid_len);
+				sub->tid_len = mp.tid_len;
+				sub->next = st->subscribers;
+				st->subscribers = sub;
+			}
+
+			sub->expire = ctx->now.tv_sec + 3600; /* 1 hour TTL */
+			memcpy(sub->current_sha256, mp.sha256, 32);
+
+			/* Acknowledge */
+			lws_dht_send_ack(ctx, from, fromlen, mp.tid, mp.tid_len);
+		}
+#endif
+		break;
+
+	case DHT_NOTIFY:
+		if (!mp.info_hash) {
+			lwsl_dht_rx_warn("%s: NOTIFY with no info_hash\n", __func__);
+			goto done;
+		}
+
+		if (ctx->cb) {
+			(*ctx->cb)(ctx->closure, LWS_DHT_EVENT_NOTIFY, mp.info_hash, mp.tid, mp.tid_len, from, fromlen);
+		}
 		break;
 
 	case DHT_DATA:
@@ -934,7 +1026,7 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 		 */
 
 		/* if we add it, we should reply */
-		send_peer_announced(ctx, from, fromlen, mp.tid, mp.tid_len);
+		lws_dht_send_ack(ctx, from, fromlen, mp.tid, mp.tid_len);
 #endif
 		break;
 	}

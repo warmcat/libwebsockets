@@ -63,6 +63,40 @@ lws_dht_nodes(struct lws_dht_ctx *ctx, int af, int *good_return, int *dubious_re
 	return good + dubious;
 }
 
+static int
+check_pending_notifications(struct lws_dht_ctx *ctx)
+{
+	int soon = 0;
+	struct storage *st = ctx->storage;
+
+	while (st) {
+		struct subscriber *sub = st->subscribers;
+		struct subscriber **psub = &st->subscribers;
+		while (sub) {
+			if (sub->pending_notify) {
+				if (ctx->now.tv_sec >= sub->last_notify + 3) {
+					if (sub->notify_retries >= 5) {
+						struct subscriber *drop = sub;
+						*psub = sub->next;
+						sub = sub->next;
+						lws_free(drop);
+						continue;
+					} else {
+						send_notify(ctx, (struct sockaddr *)&sub->ss, sub->sslen, sub->tid, sub->tid_len, st->id, sub->pending_sha256);
+						sub->last_notify = ctx->now.tv_sec;
+						sub->notify_retries++;
+					}
+				}
+				soon = 1;
+			}
+			psub = &sub->next;
+			sub = sub->next;
+		}
+		st = st->next;
+	}
+	return soon;
+}
+
 void
 lws_dht_periodic_cb(lws_sorted_usec_list_t *sul)
 {
@@ -137,6 +171,11 @@ lws_dht_periodic_cb(lws_sorted_usec_list_t *sul)
 		tosleep = ctx->confirm_nodes_time - ctx->now.tv_sec;
 	else
 		tosleep = 0;
+
+	if (check_pending_notifications(ctx)) {
+		if (tosleep > 3 || tosleep == 0)
+			tosleep = 3;
+	}
 
 	if (ctx->search_time > 0) {
 		if (ctx->search_time <= ctx->now.tv_sec)
