@@ -48,6 +48,17 @@ struct lws_dht_dnssec_signzone_args {
 	uint32_t sign_validity_duration;
 };
 
+typedef void (*lws_dht_dnssec_fetch_cb_t)(void *opaque, const char *domain, int status);
+
+struct lws_dht_dnssec_fetch_zone_args {
+	struct lws_vhost *vhost;
+	const char *domain;
+	const char *cache_dir;
+	lws_dht_dnssec_fetch_cb_t cb;
+	void *opaque;
+	int is_cancel; /* If 1, cancel an ongoing fetch for this domain/opaque pair */
+};
+
 struct lws_dht_dnssec_ops {
 	int (*keygen)(struct lws_context *context, struct lws_dht_dnssec_keygen_args *args);
 	int (*dsfromkey)(struct lws_context *context, struct lws_dht_dnssec_dsfromkey_args *args);
@@ -55,6 +66,7 @@ struct lws_dht_dnssec_ops {
 
 	int (*add_temp_zone)(struct lws_context *context, const char *domain, const char *zone_str, int ttl_secs);
 	int (*publish_jws)(struct lws_context *context, const char *jws_filepath);
+	int (*fetch_zone)(struct lws_context *context, struct lws_dht_dnssec_fetch_zone_args *args);
 };
 
 #endif

@@ -4,7 +4,7 @@ This plugin implements an advanced libwebsockets DHT (Distributed Hash Table) ob
 
 ## Building
 
-This plugin requires `LWS_WITH_DHT=1`, `LWS_WITH_JOSE=1` (for JWK and JSON processing) and `LWS_WITH_PLUGINS=1`.
+This plugin requires `LWS_WITH_DHT=1`, `LWS_WITH_DHT_BACKEND=1`, `LWS_WITH_JOSE=1` (for JWK and JSON processing) and `LWS_WITH_PLUGINS=1`.
 
 ## Using with lwsws
 

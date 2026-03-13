@@ -73,7 +73,7 @@ int
 lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *zone)
 {
 	const char *p = buf, *end = buf + len;
-	char last_name[256];
+	char last_name[256] = "";
 	int in_parens = 0;
 	int in_comment = 0;
 	
@@ -95,7 +95,7 @@ lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *z
 			in_comment = 1;
 
 		/* if newline and we're not inside parenthesis, we have a logical line */
-		if (*p == '\n')
+		if (p < end && *p == '\n')
 			in_comment = 0;
 
 		if (p == end || (*p == '\n' && !in_parens)) {
@@ -468,6 +468,10 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 	if (jwk.kty == LWS_GENCRYPTO_KTY_EC) {
 		if (jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len == 48) alg = "ES384";
 		else if (jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len == 66) alg = "ES512";
+	} else if (jwk.kty == LWS_GENCRYPTO_KTY_RSA) {
+		if (jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].len <= 256) alg = "RS256";
+		else if (jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].len <= 384) alg = "RS384";
+		else alg = "RS512";
 	}
 
 	{
