@@ -159,17 +159,8 @@ scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 			/* Assume ES256 fallback if unspecified (or whatever dnssec module defaults to) */
 			kargs.curve = "P-256"; 
 
-			if (!has_ksk) { /* Bugfix: we'll run KSK specifically */
-				kargs.is_ksk = 1;
-				if (vhd->ops->keygen(vhd->context, &kargs))
-					lwsl_err("%s: Failed to generate KSK for %s\n", __func__, pc.common_name);
-			}
-
-			if (!has_zsk) {
-				kargs.is_ksk = 0;
-				if (vhd->ops->keygen(vhd->context, &kargs))
-					lwsl_err("%s: Failed to generate ZSK for %s\n", __func__, pc.common_name);
-			}
+			if (vhd->ops->keygen(vhd->context, &kargs))
+				lwsl_err("%s: Failed to generate keys for %s\n", __func__, pc.common_name);
 		}
 
 		/* Check resign triggers */
@@ -208,11 +199,6 @@ scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 			struct lws_dht_dnssec_signzone_args sargs;
 			memset(&sargs, 0, sizeof(sargs));
 			sargs.domain = pc.common_name;
-			sargs.input_filepath = input_path;
-			sargs.output_filepath = output_path;
-			sargs.jws_filepath = jws_path;
-			sargs.zsk_jwk_filepath = zsk_path;
-			sargs.ksk_jwk_filepath = ksk_path;
 			sargs.sign_validity_duration = vhd->signature_duration;
 
 			if (vhd->ops->signzone(vhd->context, &sargs)) {

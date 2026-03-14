@@ -22,15 +22,15 @@ enum {
 };
 
 static const struct lws_switches switches[] = {
-	[LWS_SW_BITS]	= { "--bits",          "Enable --bits feature" },
-	[LWS_SW_CURVE]	= { "--curve",         "Enable --curve feature" },
-	[LWS_SW_KID]	= { "--kid",           "Enable --kid feature" },
-	[LWS_SW_KID_HEX]	= { "--kid-hex",       "Enable --kid-hex feature" },
-	[LWS_SW_KTY]	= { "--kty",           "Enable --kty feature" },
-	[LWS_SW_STDIN]	= { "--stdin",         "Enable --stdin feature" },
-	[LWS_SW_STDOUT]	= { "--stdout",        "Enable --stdout feature" },
+	[LWS_SW_BITS]	= { "--bits",          "Number of bits for the generated key (e.g. 2048)" },
+	[LWS_SW_CURVE]	= { "--curve",         "EC algorithm curve (e.g. P-256)" },
+	[LWS_SW_KID]	= { "--kid",           "Apply Key ID text format string" },
+	[LWS_SW_KID_HEX]	= { "--kid-hex",       "Apply Key ID in hex format" },
+	[LWS_SW_KTY]	= { "--kty",           "Key type (OKP, EC2, RSA, SYMMETRIC)" },
+	[LWS_SW_STDIN]	= { "--stdin",         "Take input from standard input" },
+	[LWS_SW_STDOUT]	= { "--stdout",        "Output to standard output" },
 	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
-	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information (-h, --help)" },
 };
 
 #include <sys/select.h>
@@ -147,7 +147,7 @@ int main(int argc, const char **argv)
 	lws_lec_pctx_t lec;
 	(void)switches;
 
-	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+	if ((argc == 1) || lws_cmdline_option(argc, argv, "-h") || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
 		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
 		return 0;
 	}
