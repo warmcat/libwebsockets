@@ -33,7 +33,8 @@ enum lws_gencrypto_kty {
 
 	LWS_GENCRYPTO_KTY_OCT,
 	LWS_GENCRYPTO_KTY_RSA,
-	LWS_GENCRYPTO_KTY_EC
+	LWS_GENCRYPTO_KTY_EC,
+	LWS_GENCRYPTO_KTY_OKP
 };
 
 /*
@@ -84,6 +85,15 @@ enum lws_gencrypto_aes_tok {
 	LWS_GENCRYPTO_AES_KEYEL_K = LWS_GENCRYPTO_OCT_KEYEL_K,
 
 	LWS_GENCRYPTO_AES_KEYEL_COUNT
+};
+
+enum lws_gencrypto_okp_tok {
+	LWS_GENCRYPTO_OKP_KEYEL_CRV,
+	LWS_GENCRYPTO_OKP_KEYEL_X,
+	/* note... same offset as RSA D */
+	LWS_GENCRYPTO_OKP_KEYEL_D = LWS_GENCRYPTO_RSA_KEYEL_D,
+
+	LWS_GENCRYPTO_OKP_KEYEL_COUNT
 };
 
 /* largest number of key elements for any algorithm */

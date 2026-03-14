@@ -15,9 +15,9 @@ also supported.
 
 |type|operations|algs|
 |---|---|---|
-|lws_cose_key_t|import, export, generation|EC / RSA / SYMMETRIC|
-|cose_sign1|sign, validate|ES256/384/512, RS256/384/512|
-|cose_sign|sign, validate|ES256/384/512, RS256/384/512|
+|lws_cose_key_t|import, export, generation|EC / RSA / SYMMETRIC / OKP|
+|cose_sign1|sign, validate|ES256/384/512, RS256/384/512, EdDSA|
+|cose_sign|sign, validate|ES256/384/512, RS256/384/512, EdDSA|
 |cose_mac0|sign, validate|HS256/HS256_64/384/512|
 |cose_mac|validate only|HS256/HS256_64/384/512|
 
@@ -29,7 +29,7 @@ An increasing number of higher-level IETF specifications use COSE underneath.
 ## cose_key and sets
 
 Lws provides an `lws_cose_key_t` object to contain a single key's metadata and
-key material for EC, RSA and SYMMETRIC key types.
+key material for EC, RSA, SYMMETRIC and OKP key types.
 
 There is a commandline tool wrapping the key dumping and generation apis
 available at `./minimal-examples/crypto/lws-crypto-cose-key`
@@ -77,7 +77,7 @@ it and returns a pointer to it.
 
 `cose_kty` is one of `LWSCOSE_WKKTV_OKP`, `LWSCOSE_WKKTV_EC2`, `LWSCOSE_WKKTV_RSA`,
 or `LWSCOSE_WKKTV_SYMMETRIC`.  `bits` is valid for RSA keys and for EC keys,
-`curve` should be a well-known curve name, one of `P-256`, `P-384` and `P-521`
+`curve` should be a well-known curve name, one of `P-256`, `P-384`, `P-521`, `Ed25519` or `Ed448`
 currently.  `use_mask` is a bitfield made up of  (1 << LWSCOSE_WKKO_...) set to
 enable the usage on the key.
 

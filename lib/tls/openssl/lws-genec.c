@@ -721,3 +721,202 @@ lws_genecdh_compute_shared_secret(struct lws_genec_ctx *ctx, uint8_t *ss,
 
 	return ret;
 }
+
+int
+lws_geneddsa_create(struct lws_genec_ctx *ctx, struct lws_context *context,
+		    const struct lws_ec_curves *curve_table)
+{
+	ctx->context = context;
+	ctx->ctx[0] = NULL;
+	ctx->ctx[1] = NULL;
+	ctx->curve_table = curve_table;
+	ctx->genec_alg = LEGENEC_EDDSA;
+
+	return 0;
+}
+
+int
+lws_geneddsa_set_key(struct lws_genec_ctx *ctx,
+		     const struct lws_gencrypto_keyelem *el)
+{
+#if defined(EVP_PKEY_ED25519)
+	EVP_PKEY *pkey = NULL;
+	int nid = NID_undef;
+
+	if (ctx->genec_alg != LEGENEC_EDDSA)
+		return -1;
+
+	if ((el[LWS_GENCRYPTO_OKP_KEYEL_CRV].len == 7 || el[LWS_GENCRYPTO_OKP_KEYEL_CRV].len == 8) &&
+	    !strncmp((const char *)el[LWS_GENCRYPTO_OKP_KEYEL_CRV].buf, "Ed25519", 7))
+		nid = EVP_PKEY_ED25519;
+	else if ((el[LWS_GENCRYPTO_OKP_KEYEL_CRV].len == 5 || el[LWS_GENCRYPTO_OKP_KEYEL_CRV].len == 6) &&
+		 !strncmp((const char *)el[LWS_GENCRYPTO_OKP_KEYEL_CRV].buf, "Ed448", 5))
+		nid = EVP_PKEY_ED448;
+	else
+		return -1;
+
+	if (el[LWS_GENCRYPTO_OKP_KEYEL_D].len) {
+		pkey = EVP_PKEY_new_raw_private_key(nid, NULL,
+				el[LWS_GENCRYPTO_OKP_KEYEL_D].buf,
+				el[LWS_GENCRYPTO_OKP_KEYEL_D].len);
+		ctx->has_private = 1;
+	} else if (el[LWS_GENCRYPTO_OKP_KEYEL_X].len) {
+		pkey = EVP_PKEY_new_raw_public_key(nid, NULL,
+				el[LWS_GENCRYPTO_OKP_KEYEL_X].buf,
+				el[LWS_GENCRYPTO_OKP_KEYEL_X].len);
+		ctx->has_private = 0;
+	} else
+		return -1;
+
+	if (!pkey) {
+		lwsl_err("%s: EVP_PKEY_new_raw fail\n", __func__);
+		return -1;
+	}
+
+	ctx->ctx[0] = EVP_PKEY_CTX_new(pkey, NULL);
+	EVP_PKEY_free(pkey);
+
+	if (!ctx->ctx[0]) {
+		lwsl_err("%s: EVP_PKEY_CTX_new fail\n", __func__);
+		return -1;
+	}
+
+	return 0;
+#else
+	return -1;
+#endif
+}
+
+int
+lws_geneddsa_new_keypair(struct lws_genec_ctx *ctx, const char *curve_name,
+			 struct lws_gencrypto_keyelem *el)
+{
+#if defined(EVP_PKEY_ED25519)
+	EVP_PKEY *pkey = NULL;
+	EVP_PKEY_CTX *pctx = NULL;
+	int nid = NID_undef;
+	size_t len;
+
+	if (ctx->genec_alg != LEGENEC_EDDSA)
+		return -1;
+
+	if (!strcmp(curve_name, "Ed25519"))
+		nid = EVP_PKEY_ED25519;
+	else if (!strcmp(curve_name, "Ed448"))
+		nid = EVP_PKEY_ED448;
+	else
+		return -1;
+
+	/* generate */
+	pctx = EVP_PKEY_CTX_new_id(nid, NULL);
+	if (!pctx)
+		return -1;
+
+	if (EVP_PKEY_keygen_init(pctx) <= 0)
+		goto bail;
+
+	if (EVP_PKEY_keygen(pctx, &pkey) <= 0)
+		goto bail;
+
+	EVP_PKEY_CTX_free(pctx);
+	pctx = NULL;
+
+	ctx->ctx[0] = EVP_PKEY_CTX_new(pkey, NULL);
+
+	/* extract X and D */
+	el[LWS_GENCRYPTO_OKP_KEYEL_CRV].len = (uint32_t)strlen(curve_name) + 1;
+	el[LWS_GENCRYPTO_OKP_KEYEL_CRV].buf =
+			lws_malloc(el[LWS_GENCRYPTO_OKP_KEYEL_CRV].len, "okp");
+	strcpy((char *)el[LWS_GENCRYPTO_OKP_KEYEL_CRV].buf, curve_name);
+
+	/* OpenSSL EVP_PKEY_get_raw_public_key / private_key */
+	if (EVP_PKEY_get_raw_public_key(pkey, NULL, &len) == 1) {
+		el[LWS_GENCRYPTO_OKP_KEYEL_X].len = (uint32_t)len;
+		el[LWS_GENCRYPTO_OKP_KEYEL_X].buf = lws_malloc((uint32_t)len, "okpx");
+		EVP_PKEY_get_raw_public_key(pkey, el[LWS_GENCRYPTO_OKP_KEYEL_X].buf, &len);
+	}
+
+	if (EVP_PKEY_get_raw_private_key(pkey, NULL, &len) == 1) {
+		el[LWS_GENCRYPTO_OKP_KEYEL_D].len = (uint32_t)len;
+		el[LWS_GENCRYPTO_OKP_KEYEL_D].buf = lws_malloc((uint32_t)len, "okpd");
+		EVP_PKEY_get_raw_private_key(pkey, el[LWS_GENCRYPTO_OKP_KEYEL_D].buf, &len);
+	}
+	EVP_PKEY_free(pkey);
+	ctx->has_private = 1;
+	return 0;
+bail:
+	if (pctx)
+		EVP_PKEY_CTX_free(pctx);
+	if (pkey)
+		EVP_PKEY_free(pkey);
+	return -1;
+#else
+	return -1;
+#endif
+}
+
+int
+lws_geneddsa_hash_sig_verify_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
+				 size_t in_len, const uint8_t *sig, size_t sig_len)
+{
+#if defined(EVP_PKEY_ED25519)
+	EVP_MD_CTX *mdctx = NULL;
+	int ret = -1;
+
+	if (ctx->genec_alg != LEGENEC_EDDSA)
+		return -1;
+
+	mdctx = EVP_MD_CTX_create();
+	if (!mdctx)
+		return -1;
+
+	if (EVP_DigestVerifyInit(mdctx, NULL, NULL, NULL,
+				 EVP_PKEY_CTX_get0_pkey(ctx->ctx[0])) <= 0)
+		goto bail;
+
+	if (EVP_DigestVerify(mdctx, sig, sig_len, in, in_len) == 1)
+		ret = 0;
+
+bail:
+	EVP_MD_CTX_free(mdctx);
+	return ret;
+#else
+	return -1;
+#endif
+}
+
+int
+lws_geneddsa_hash_sign_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
+			   size_t in_len, uint8_t *sig, size_t sig_len)
+{
+#if defined(EVP_PKEY_ED25519)
+	EVP_MD_CTX *mdctx = NULL;
+
+	if (ctx->genec_alg != LEGENEC_EDDSA)
+		return -1;
+
+	if (!ctx->has_private)
+		return -1;
+
+	mdctx = EVP_MD_CTX_create();
+	if (!mdctx)
+		return -1;
+
+	if (EVP_DigestSignInit(mdctx, NULL, NULL, NULL,
+			       EVP_PKEY_CTX_get0_pkey(ctx->ctx[0])) <= 0)
+		goto bail;
+
+	if (EVP_DigestSign(mdctx, sig, &sig_len, in, in_len) != 1)
+		goto bail;
+
+	EVP_MD_CTX_free(mdctx);
+
+	return (int)sig_len;
+
+bail:
+	EVP_MD_CTX_free(mdctx);
+	return -1;
+#else
+	return -1;
+#endif
+}

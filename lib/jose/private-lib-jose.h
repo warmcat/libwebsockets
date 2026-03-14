@@ -31,6 +31,7 @@
 #define F_RSA	(1 << 13)	/* RSA key */
 #define F_EC	(1 << 14)	/* Elliptic curve key */
 #define F_OCT	(1 << 15)	/* octet key */
+#define F_OKP	(1 << 16)	/* OKP key */
 
 void
 lws_jwk_destroy_elements(struct lws_gencrypto_keyelem *el, int m);

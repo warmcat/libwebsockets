@@ -322,3 +322,38 @@ lws_genec_destroy_elements(struct lws_gencrypto_keyelem *el)
 	lws_gencrypto_destroy_elements(el, LWS_GENCRYPTO_EC_KEYEL_COUNT);
 }
 */
+
+int
+lws_geneddsa_create(struct lws_genec_ctx *ctx, struct lws_context *context,
+		    const struct lws_ec_curves *curve_table)
+{
+	return -1;
+}
+
+int
+lws_geneddsa_set_key(struct lws_genec_ctx *ctx,
+		     const struct lws_gencrypto_keyelem *el)
+{
+	return -1;
+}
+
+int
+lws_geneddsa_new_keypair(struct lws_genec_ctx *ctx, const char *curve_name,
+			 struct lws_gencrypto_keyelem *el)
+{
+	return -1;
+}
+
+int
+lws_geneddsa_hash_sig_verify_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
+				 size_t in_len, const uint8_t *sig, size_t sig_len)
+{
+	return -1;
+}
+
+int
+lws_geneddsa_hash_sign_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
+			   size_t in_len, uint8_t *sig, size_t sig_len)
+{
+	return -1;
+}

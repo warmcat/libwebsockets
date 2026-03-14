@@ -104,6 +104,10 @@ lws_cose_key_dump(const struct lws_cose_key *ck)
 		elems = LWS_GENCRYPTO_EC_KEYEL_COUNT;
 		enames = ec_names;
 		break;
+	case LWS_GENCRYPTO_KTY_OKP:
+		elems = LWS_GENCRYPTO_OKP_KEYEL_COUNT;
+		enames = ec_names; /* okp uses same names as ec basically, crv, x, d */
+		break;
 
 	default:
 		lwsl_err("%s: jwk %p: unknown type\n", __func__, ck);
@@ -217,7 +221,10 @@ lws_cose_key_checks(const lws_cose_key_t *key, int64_t kty, cose_param_t alg,
 	 */
 
 	if (kty == LWSCOSE_WKKTV_OKP || kty == LWSCOSE_WKKTV_EC2) {
-		ke = &key->e[LWS_GENCRYPTO_EC_KEYEL_CRV];
+		if (kty == LWSCOSE_WKKTV_OKP)
+			ke = &key->e[LWS_GENCRYPTO_OKP_KEYEL_CRV];
+		else
+			ke = &key->e[LWS_GENCRYPTO_EC_KEYEL_CRV];
 
 		if (!ke->buf)
 			goto bail;
@@ -372,7 +379,7 @@ cb_cose_key(struct lecp_ctx *ctx, char reason)
 				switch (ctx->item.u.u64) {
 				case LWSCOSE_WKKTV_OKP:
 					cps->ck->gencrypto_kty =
-							LWS_GENCRYPTO_KTY_EC;
+							LWS_GENCRYPTO_KTY_OKP;
 					kty_str = "OKP";
 					break;
 				case LWSCOSE_WKKTV_EC2:
@@ -499,11 +506,11 @@ cb_cose_key(struct lecp_ctx *ctx, char reason)
 					break;
 				case LWSCOSE_WKOKP_X:
 					cps->gencrypto_eidx =
-						LWS_GENCRYPTO_EC_KEYEL_X;
+						LWS_GENCRYPTO_OKP_KEYEL_X;
 					break;
 				case LWSCOSE_WKOKP_D:
 					cps->gencrypto_eidx =
-						LWS_GENCRYPTO_EC_KEYEL_D;
+						LWS_GENCRYPTO_OKP_KEYEL_D;
 					break;
 				default:
 					goto bail;
@@ -665,7 +672,10 @@ cb_cose_key(struct lecp_ctx *ctx, char reason)
 	case LECPCB_VAL_STR_END:
 		if (cps->cose_state == LWSCOSE_WKOKP_CRV) {
 			cps->ck->cose_curve = lws_cose_curve_name_to_id(ctx->buf);
-			ke = &cps->ck->e[LWS_GENCRYPTO_EC_KEYEL_CRV];
+			if (cps->ck->kty == LWSCOSE_WKKTV_OKP)
+				ke = &cps->ck->e[LWS_GENCRYPTO_OKP_KEYEL_CRV];
+			else
+				ke = &cps->ck->e[LWS_GENCRYPTO_EC_KEYEL_CRV];
 			ke->len = ctx->npos;
 			ke->buf = lws_malloc(ctx->npos, __func__);
 			if (!ke->buf)
@@ -865,7 +875,10 @@ lws_cose_key_generate(struct lws_context *context, cose_param_t cose_kty,
 	{
 		struct lws_genec_ctx ctx;
 
-		ck->gencrypto_kty = LWS_GENCRYPTO_KTY_EC;
+		if (cose_kty == LWSCOSE_WKKTV_OKP)
+			ck->gencrypto_kty = LWS_GENCRYPTO_KTY_OKP;
+		else
+			ck->gencrypto_kty = LWS_GENCRYPTO_KTY_EC;
 
 		if (!curve) {
 			lwsl_err("%s: must have a named curve\n", __func__);
@@ -873,21 +886,32 @@ lws_cose_key_generate(struct lws_context *context, cose_param_t cose_kty,
 			goto fail;
 		}
 
-		if (lws_genecdsa_create(&ctx, context, NULL))
-			goto fail;
-
-		ctx.genec_alg = LEGENEC_ECDSA;
-		lwsl_notice("%s: generating ECDSA key on curve %s\n", __func__,
-				curve);
-
-		n = lws_genecdsa_new_keypair(&ctx, curve, ck->e);
-		lws_genec_destroy(&ctx);
-		if (n) {
-			lwsl_err("%s: problem generating ECDSA key\n", __func__);
-			goto fail;
+		if (cose_kty == LWSCOSE_WKKTV_OKP) {
+			if (lws_geneddsa_create(&ctx, context, NULL))
+				goto fail;
+			lwsl_notice("%s: generating EdDSA key on curve %s\n", __func__,
+					curve);
+			n = lws_geneddsa_new_keypair(&ctx, curve, ck->e);
+			lws_genec_destroy(&ctx);
+			if (n) {
+				lwsl_err("%s: problem generating EdDSA key\n", __func__);
+				goto fail;
+			}
+			ck->e[LWS_GENCRYPTO_OKP_KEYEL_CRV].len = (uint32_t)strlen(curve);
+		} else {
+			if (lws_genecdsa_create(&ctx, context, NULL))
+				goto fail;
+			ctx.genec_alg = LEGENEC_ECDSA;
+			lwsl_notice("%s: generating ECDSA key on curve %s\n", __func__,
+					curve);
+			n = lws_genecdsa_new_keypair(&ctx, curve, ck->e);
+			lws_genec_destroy(&ctx);
+			if (n) {
+				lwsl_err("%s: problem generating ECDSA key\n", __func__);
+				goto fail;
+			}
+			ck->e[LWS_GENCRYPTO_EC_KEYEL_CRV].len = (uint32_t)strlen(curve);
 		}
-		/* trim the trailing NUL */
-		ck->e[LWS_GENCRYPTO_EC_KEYEL_CRV].len = (uint32_t)strlen(curve);
 	}
 		break;
 
@@ -948,7 +972,7 @@ bail:
 
 /* gencrypto element orering -> cose key parameters */
 
-static const signed char ckp[3][12] = {
+static const signed char ckp[4][12] = {
 	{ /* LWS_GENCRYPTO_KTY_OCT (1) */
 		/* LWS_GENCRYPTO_OCT_KEYEL_K */ LWSCOSE_WKSYMKP_KEY_VALUE,
 	},
@@ -971,6 +995,11 @@ static const signed char ckp[3][12] = {
 		/* LWS_GENCRYPTO_EC_KEYEL_X */   LWSCOSE_WKECKP_X,
 		/* LWS_GENCRYPTO_EC_KEYEL_D */   LWSCOSE_WKECKP_D,
 		/* LWS_GENCRYPTO_EC_KEYEL_Y */   LWSCOSE_WKECKP_Y,
+	},
+	{ /* LWS_GENCRYPTO_KTY_OKP (4) */
+		/* LWS_GENCRYPTO_OKP_KEYEL_CRV */ LWSCOSE_WKOKP_CRV,
+		/* LWS_GENCRYPTO_OKP_KEYEL_X */   LWSCOSE_WKOKP_X,
+		/* LWS_GENCRYPTO_OKP_KEYEL_D */   LWSCOSE_WKOKP_D,
 	}
 };
 
@@ -998,6 +1027,9 @@ lws_cose_key_export(lws_cose_key_t *ck, lws_lec_pctx_t *ctx, int flags)
 		case LWS_GENCRYPTO_KTY_EC:
 			ctx->opaque[2] = (1 << LWS_GENCRYPTO_EC_KEYEL_X) |
 					 (1 << LWS_GENCRYPTO_EC_KEYEL_Y);
+			break;
+		case LWS_GENCRYPTO_KTY_OKP:
+			ctx->opaque[2] = (1 << LWS_GENCRYPTO_OKP_KEYEL_X);
 			break;
 		default:
 			goto fail;
@@ -1035,12 +1067,15 @@ lws_cose_key_export(lws_cose_key_t *ck, lws_lec_pctx_t *ctx, int flags)
 		lws_lec_signed(ctx, LWSCOSE_WKK_KTY);
 		lws_lec_signed(ctx, (int64_t)ck->kty);
 
-		if (ck->gencrypto_kty == LWS_GENCRYPTO_KTY_EC) {
-			struct lws_gencrypto_keyelem *ke =
-					&ck->e[LWS_GENCRYPTO_EC_KEYEL_CRV];
+		if (ck->gencrypto_kty == LWS_GENCRYPTO_KTY_EC || ck->gencrypto_kty == LWS_GENCRYPTO_KTY_OKP) {
+			struct lws_gencrypto_keyelem *ke;
+			
+			if (ck->gencrypto_kty == LWS_GENCRYPTO_KTY_OKP)
+				ke = &ck->e[LWS_GENCRYPTO_OKP_KEYEL_CRV];
+			else
+				ke = &ck->e[LWS_GENCRYPTO_EC_KEYEL_CRV];
 
-			if (!ke->buf ||
-			    ck->e[LWS_GENCRYPTO_EC_KEYEL_CRV].len > 10) {
+			if (!ke->buf || ke->len > 10) {
 				lwsl_err("%s: no curve type\n", __func__);
 				goto fail;
 			}
@@ -1076,8 +1111,9 @@ lws_cose_key_export(lws_cose_key_t *ck, lws_lec_pctx_t *ctx, int flags)
 		if (ctx->opaque[1] >= LWS_COUNT_COSE_KEY_ELEMENTS) {
 			n = ctx->opaque[1] - LWS_COUNT_COSE_KEY_ELEMENTS;
 
-			if (ck->gencrypto_kty != LWS_GENCRYPTO_KTY_EC ||
-			    n != LWS_GENCRYPTO_EC_KEYEL_CRV) {
+			if ((ck->gencrypto_kty != LWS_GENCRYPTO_KTY_EC &&
+			     ck->gencrypto_kty != LWS_GENCRYPTO_KTY_OKP) ||
+			    n != LWS_GENCRYPTO_EC_KEYEL_CRV) { /* CRV has 0 index for both */
 				/* we didn't already encode his curve */
 
 				if ((ctx->opaque[2] & (1 << n)) &&

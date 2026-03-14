@@ -918,7 +918,14 @@ test_cose_keys(struct lws_context *context)
 	if (!ck)
 		return 1;
 
-	// lws_cose_key_dump(ck);
+	lws_cose_key_destroy(&ck);
+
+	ck = lws_cose_key_generate(context, LWSCOSE_WKKTV_OKP,
+				   (1 << LWSCOSE_WKKO_SIGN) |
+				   (1 << LWSCOSE_WKKO_VERIFY),
+				   0, "Ed25519", (const uint8_t *)"ed-keyid", 8);
+	if (!ck)
+		return 1;
 
 	lws_cose_key_destroy(&ck);
 

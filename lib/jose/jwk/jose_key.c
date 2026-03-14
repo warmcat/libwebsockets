@@ -35,7 +35,8 @@ static const char * const kty_names[] = {
 	"unknown",	/* LWS_GENCRYPTO_KTY_UNKNOWN */
 	"oct",		/* LWS_GENCRYPTO_KTY_OCT */
 	"RSA",		/* LWS_GENCRYPTO_KTY_RSA */
-	"EC"		/* LWS_GENCRYPTO_KTY_EC */
+	"EC",		/* LWS_GENCRYPTO_KTY_EC */
+	"OKP"		/* LWS_GENCRYPTO_KTY_OKP */
 };
 
 /*
@@ -69,30 +70,30 @@ const char * const jwk_tok[] = {
 	"keys[].x5c", "keys[].alg"
 };
 
-static unsigned short tok_map[] = {
-	F_RSA | F_EC | F_OCT | F_META |		 0xff,
+static unsigned int tok_map[] = {
+	F_RSA | F_EC | F_OCT | F_OKP | F_META |		 0xff,
 	F_RSA |				F_B64U | F_M | LWS_GENCRYPTO_RSA_KEYEL_E,
 	F_RSA |				F_B64U | F_M | LWS_GENCRYPTO_RSA_KEYEL_N,
-	F_RSA | F_EC |			F_B64U |       LWS_GENCRYPTO_RSA_KEYEL_D,
+	F_RSA | F_EC | F_OKP |		F_B64U |       LWS_GENCRYPTO_RSA_KEYEL_D,
 	F_RSA |				F_B64U |       LWS_GENCRYPTO_RSA_KEYEL_P,
 	F_RSA |				F_B64U |       LWS_GENCRYPTO_RSA_KEYEL_Q,
 	F_RSA |				F_B64U |       LWS_GENCRYPTO_RSA_KEYEL_DP,
 	F_RSA |				F_B64U |       LWS_GENCRYPTO_RSA_KEYEL_DQ,
 	F_RSA |				F_B64U |       LWS_GENCRYPTO_RSA_KEYEL_QI,
 
-	F_RSA | F_EC | F_OCT | F_META |		 F_M | JWK_META_KTY,
+	F_RSA | F_EC | F_OCT | F_OKP | F_META |		 F_M | JWK_META_KTY,
 		       F_OCT |		F_B64U | F_M | LWS_GENCRYPTO_OCT_KEYEL_K,
 
-		F_EC |				 F_M | LWS_GENCRYPTO_EC_KEYEL_CRV,
-		F_EC |			F_B64U | F_M | LWS_GENCRYPTO_EC_KEYEL_X,
+		F_EC | F_OKP |				 F_M | LWS_GENCRYPTO_EC_KEYEL_CRV,
+		F_EC | F_OKP |		F_B64U | F_M | LWS_GENCRYPTO_EC_KEYEL_X,
 		F_EC |			F_B64U | F_M | LWS_GENCRYPTO_EC_KEYEL_Y,
 
-	F_RSA | F_EC | F_OCT | F_META |		       JWK_META_KID,
-	F_RSA | F_EC | F_OCT | F_META |		       JWK_META_USE,
+	F_RSA | F_EC | F_OCT | F_OKP | F_META |		       JWK_META_KID,
+	F_RSA | F_EC | F_OCT | F_OKP | F_META |		       JWK_META_USE,
 
-	F_RSA | F_EC | F_OCT | F_META |		       JWK_META_KEY_OPS,
-	F_RSA | F_EC | F_OCT | F_META | F_B64 |	       JWK_META_X5C,
-	F_RSA | F_EC | F_OCT | F_META |		       JWK_META_ALG,
+	F_RSA | F_EC | F_OCT | F_OKP | F_META |		       JWK_META_KEY_OPS,
+	F_RSA | F_EC | F_OCT | F_OKP | F_META | F_B64 |	       JWK_META_X5C,
+	F_RSA | F_EC | F_OCT | F_OKP | F_META |		       JWK_META_ALG,
 };
 
 struct lexico {
@@ -110,6 +111,16 @@ struct lexico {
 	{ "x",		LWS_GENCRYPTO_EC_KEYEL_X,	0 },
 	{ "x5c",	JWK_META_X5C,			1 },
 	{ "y",		LWS_GENCRYPTO_EC_KEYEL_Y,	0 }
+}, lexico_okp[] =  {
+	{ "alg",	JWK_META_ALG,			1 },
+	{ "crv",	LWS_GENCRYPTO_OKP_KEYEL_CRV,	0 },
+	{ "d",		LWS_GENCRYPTO_OKP_KEYEL_D,	2 | 0 },
+	{ "key_ops",	JWK_META_KEY_OPS,		1 },
+	{ "kid",	JWK_META_KID,			1 },
+	{ "kty",	JWK_META_KTY,			1 },
+	{ "use",	JWK_META_USE,			1 },
+	{ "x",		LWS_GENCRYPTO_OKP_KEYEL_X,	0 },
+	{ "x5c",	JWK_META_X5C,			1 }
 }, lexico_oct[] =  {
 	{ "alg",	JWK_META_ALG,			1 },
 	{ "k",		LWS_GENCRYPTO_OCT_KEYEL_K,	0 },
@@ -182,7 +193,7 @@ cb_jwk(struct lejp_ctx *ctx, char reason)
 	struct lws_jwk_parse_state *jps = (struct lws_jwk_parse_state *)ctx->user;
 	struct lws_jwk *jwk = jps->jwk;
 	unsigned int idx, n;
-	unsigned short poss;
+	unsigned int poss;
 	char dotstar[64];
 
 	if (reason == LEJPCB_VAL_STR_START)
@@ -197,7 +208,7 @@ cb_jwk(struct lejp_ctx *ctx, char reason)
 		 * ACME specifies the keys must be ordered in lexographic
 		 * order - where kty is not first.
 		 */
-		jps->possible = F_RSA | F_EC | F_OCT;
+		jps->possible = F_RSA | F_EC | F_OCT | F_OKP;
 
 	if (reason == LEJPCB_OBJECT_END && ctx->path_match == 0 + 1) {
 		/* we completed parsing a key */
@@ -299,7 +310,8 @@ cb_jwk(struct lejp_ctx *ctx, char reason)
 		}
 
 		if ((jwk->kty == LWS_GENCRYPTO_KTY_RSA ||
-		     jwk->kty == LWS_GENCRYPTO_KTY_EC) &&
+		     jwk->kty == LWS_GENCRYPTO_KTY_EC ||
+		     jwk->kty == LWS_GENCRYPTO_KTY_OKP) &&
 		    jwk->e[LWS_GENCRYPTO_RSA_KEYEL_D].buf)
 		jwk->private_key = 1;
 	}
@@ -321,7 +333,7 @@ cb_jwk(struct lejp_ctx *ctx, char reason)
 	 * not trying to tell us that it'jwk RSA now when we saw a "crv"
 	 * earlier) and then reduce the possibilities to just the one that
 	 * kty told. */
-	case F_RSA | F_EC | F_OCT | F_META | F_M | JWK_META_KTY:
+	case F_RSA | F_EC | F_OCT | F_OKP | F_META | F_M | JWK_META_KTY:
 
 		if (ctx->npos == 3 && !strncmp(ctx->buf, "oct", 3)) {
 			if (!(jps->possible & F_OCT))
@@ -344,6 +356,13 @@ cb_jwk(struct lejp_ctx *ctx, char reason)
 			jps->possible = F_EC;
 			goto cont;
 		}
+		if (ctx->npos == 3 && !strncmp(ctx->buf, "OKP", 3)) {
+			if (!(jps->possible & F_OKP))
+				goto elements_mismatch;
+			jwk->kty = LWS_GENCRYPTO_KTY_OKP;
+			jps->possible = F_OKP;
+			goto cont;
+		}
 		lws_strnncpy(dotstar, ctx->buf, ctx->npos, sizeof(dotstar));
 		lwsl_err("%s: Unknown KTY '%s'\n", __func__, dotstar);
 		return -1;
@@ -361,7 +380,7 @@ cont:
 
 		/* chunking has been collated */
 
-		poss = idx & (F_RSA | F_EC | F_OCT);
+		poss = idx & (F_RSA | F_EC | F_OCT | F_OKP);
 		jps->possible &= poss;
 		if (!jps->possible)
 			goto elements_mismatch;
@@ -481,6 +500,11 @@ lws_jwk_export(struct lws_jwk *jwk, int flags, char *p, int *len)
 		limit = LWS_ARRAY_SIZE(lexico_ec);
 		asym = 1;
 		break;
+	case LWS_GENCRYPTO_KTY_OKP:
+		l = lexico_okp;
+		limit = LWS_ARRAY_SIZE(lexico_okp);
+		asym = 1;
+		break;
 	default:
 		lwsl_err("%s: unknown kty %d\n", __func__, jwk->kty);
 		return -1;
@@ -567,7 +591,8 @@ lws_jwk_export(struct lws_jwk *jwk, int flags, char *p, int *len)
 
 			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\"%s\":\"", l->name);
 
-			if (jwk->kty == LWS_GENCRYPTO_KTY_EC &&
+			if ((jwk->kty == LWS_GENCRYPTO_KTY_EC ||
+			     jwk->kty == LWS_GENCRYPTO_KTY_OKP) &&
 			    l->idx == (int)LWS_GENCRYPTO_EC_KEYEL_CRV) {
 				lws_strnncpy(p,
 					     (const char *)jwk->e[l->idx].buf,

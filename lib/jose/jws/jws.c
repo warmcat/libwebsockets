@@ -588,6 +588,53 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 
 		break;
 
+	case LWS_JOSE_ENCTYPE_EDDSA:
+	{
+		uint8_t *in;
+		size_t in_len;
+
+		if (jwk->kty != LWS_GENCRYPTO_KTY_OKP)
+			return -1;
+
+		if (!jwk->e[LWS_GENCRYPTO_OKP_KEYEL_CRV].buf)
+			return -1;
+
+		if (lws_geneddsa_create(&ecdsactx, context, NULL)) {
+			lwsl_notice("%s: lws_geneddsa_create\n", __func__);
+			return -1;
+		}
+
+		if (lws_geneddsa_set_key(&ecdsactx, jwk->e)) {
+			lws_genec_destroy(&ecdsactx);
+			lwsl_notice("%s: eddsa key import fail\n", __func__);
+			return -1;
+		}
+
+		in_len = map_b64->len[LJWS_JOSE] + 1 + map_b64->len[LJWS_PYLD];
+		in = lws_malloc(in_len, "jws eddsa in");
+		if (!in) {
+			lws_genec_destroy(&ecdsactx);
+			return -1;
+		}
+
+		memcpy(in, map_b64->buf[LJWS_JOSE], map_b64->len[LJWS_JOSE]);
+		in[map_b64->len[LJWS_JOSE]] = '.';
+		memcpy(in + map_b64->len[LJWS_JOSE] + 1, map_b64->buf[LJWS_PYLD], map_b64->len[LJWS_PYLD]);
+
+		n = lws_geneddsa_hash_sig_verify_jws(&ecdsactx, in, in_len,
+						  (uint8_t *)map->buf[LJWS_SIG],
+						     map->len[LJWS_SIG]);
+		lws_genec_destroy(&ecdsactx);
+		lws_free(in);
+
+		if (n < 0) {
+			lwsl_notice("%s: verify fail\n", __func__);
+			return -1;
+		}
+
+		break;
+	}
+
 	case LWS_JOSE_ENCTYPE_ECDSA:
 
 		/* ECDSA using SHA-256/384/512 */
@@ -789,13 +836,14 @@ lws_jws_sign_from_b64(struct lws_jose *jose, struct lws_jws *jws,
 					  b64_sig, sig_len);
 	}
 
-	if (lws_genhash_init(&hash_ctx, jose->alg->hash_type) ||
-	    lws_genhash_update(&hash_ctx, jws->map_b64.buf[LJWS_JOSE],
+	if (jose->alg->algtype_signing != LWS_JOSE_ENCTYPE_EDDSA &&
+	    (lws_genhash_init(&hash_ctx, jose->alg->hash_type) ||
+	     lws_genhash_update(&hash_ctx, jws->map_b64.buf[LJWS_JOSE],
 					  jws->map_b64.len[LJWS_JOSE]) ||
-	    lws_genhash_update(&hash_ctx, ".", 1) ||
-	    lws_genhash_update(&hash_ctx, jws->map_b64.buf[LJWS_PYLD],
+	     lws_genhash_update(&hash_ctx, ".", 1) ||
+	     lws_genhash_update(&hash_ctx, jws->map_b64.buf[LJWS_PYLD],
 					  jws->map_b64.len[LJWS_PYLD]) ||
-	    lws_genhash_destroy(&hash_ctx, digest)) {
+	     lws_genhash_destroy(&hash_ctx, digest))) {
 		lws_genhash_destroy(&hash_ctx, NULL);
 
 		return -1;
@@ -840,6 +888,68 @@ lws_jws_sign_from_b64(struct lws_jose *jose, struct lws_jws *jws,
 		}
 
 		return n;
+
+	case LWS_JOSE_ENCTYPE_EDDSA:
+	{
+		uint8_t *in;
+		size_t in_len;
+
+		if (jws->jwk->kty != LWS_GENCRYPTO_KTY_OKP)
+			return -1;
+
+		if (!jws->jwk->e[LWS_GENCRYPTO_OKP_KEYEL_CRV].buf)
+			return -1;
+
+		if (!jws->jwk->e[LWS_GENCRYPTO_OKP_KEYEL_X].buf ||
+		    !jws->jwk->e[LWS_GENCRYPTO_OKP_KEYEL_D].buf)
+			return -1;
+
+		if (lws_geneddsa_create(&ecdsactx, jws->context, NULL)) {
+			lwsl_notice("%s: lws_geneddsa_create\n", __func__);
+			return -1;
+		}
+
+		if (lws_geneddsa_set_key(&ecdsactx, jws->jwk->e)) {
+			lws_genec_destroy(&ecdsactx);
+			lwsl_notice("%s: eddsa key import fail\n", __func__);
+			return -1;
+		}
+
+		in_len = jws->map_b64.len[LJWS_JOSE] + 1 + jws->map_b64.len[LJWS_PYLD];
+		in = lws_malloc(in_len, "jws eddsa in");
+		if (!in) {
+			lws_genec_destroy(&ecdsactx);
+			return -1;
+		}
+
+		memcpy(in, jws->map_b64.buf[LJWS_JOSE], jws->map_b64.len[LJWS_JOSE]);
+		in[jws->map_b64.len[LJWS_JOSE]] = '.';
+		memcpy(in + jws->map_b64.len[LJWS_JOSE] + 1, jws->map_b64.buf[LJWS_PYLD], jws->map_b64.len[LJWS_PYLD]);
+
+		/* exact size doesn't matter as long as it handles max (114 for ed448, 64 for ed25519) */
+		m = 128;
+		buf = lws_malloc((unsigned int)m, "jws eddsa sign");
+		if (!buf) {
+			lws_genec_destroy(&ecdsactx);
+			lws_free(in);
+			return -1;
+		}
+
+		n = lws_geneddsa_hash_sign_jws(&ecdsactx, in, (size_t)in_len, buf, (size_t)m);
+		lws_genec_destroy(&ecdsactx);
+		lws_free(in);
+
+		if (n < 0) {
+			lws_free(buf);
+			lwsl_notice("%s: lws_geneddsa_hash_sign_jws fail\n", __func__);
+			return -1;
+		}
+
+		n = lws_jws_base64_enc((char *)buf, (unsigned int)n, b64_sig, sig_len);
+		lws_free(buf);
+
+		return n;
+	}
 
 	case LWS_JOSE_ENCTYPE_ECDSA:
 		/* ECDSA using SHA-256/384/512 */
