@@ -1103,7 +1103,7 @@ lws_auth_dns_verify_zone(struct lws_auth_dns_sign_info *info)
 							wl_ksk += ksk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len;
 
 							uint32_t ac_ksk = 0;
-							for (size_t i = 0; i < wl_ksk; ++i) ac_ksk += (i & 1) ? wire_ksk[i] : wire_ksk[i] << 8;
+							for (size_t i = 0; i < wl_ksk; ++i) ac_ksk += (i & 1) ? (uint32_t)wire_ksk[i] : (uint32_t)wire_ksk[i] << 8;
 							ac_ksk += (ac_ksk >> 16) & 0xffff;
 							uint16_t ver_keytag_ksk = (uint16_t)(ac_ksk & 0xffff);
 							

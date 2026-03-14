@@ -13,6 +13,7 @@ require_lws_config(LWS_WITH_JOSE 1 requirements)
 require_lws_config(LWS_WITH_GENCRYPTO 1 requirements)
 require_lws_config(LWS_WITH_SYS_ASYNC_DNS_DNSSEC 1 requirements)
 require_lws_config(LWS_WITH_AUTHORITATIVE_DNS 1 requirements)
+require_lws_config(LWS_WITH_DHT 1 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
