@@ -66,7 +66,7 @@ struct lws_jwk_parse_state {
 	int pos;
 	int cose_state;
 	int seen;
-	unsigned short possible;
+	unsigned int possible;
 };
 
 /** lws_jwk_import() - Create a JSON Web key from the textual representation

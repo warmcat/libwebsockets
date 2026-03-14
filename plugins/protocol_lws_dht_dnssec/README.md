@@ -69,6 +69,14 @@ Keys generated are RSA `RSASHA256` (DNSSEC Type 8) by default if `--type RSA` is
 # Outputs: example.com.ksk.key, example.com.ksk.private.jwk, example.com.zsk.key, and example.com.zsk.private.jwk
 ```
 
+### NSD Key Import (`importnsd`)
+To migrate preexisting domains utilizing keys from standard BIND utilities without rotating them, you can ingest the raw configuration files natively:
+```bash
+./lws-crypto-dnssec importnsd example.com Kexample.com.+013+12345 Kexample.com.+013+67890
+# Parses the .private and .key parameters implicitly based on the DNSKEY flags.
+# Outputs: example.com.ksk.key, example.com.ksk.private.jwk, example.com.dnssec.txt, etc.
+```
+
 ### Delegation Signer Record (DS) Extract
 You can grab the Base64 DS fingerprint required for your domain's registrar directly from the `.key` public component:
 ```bash

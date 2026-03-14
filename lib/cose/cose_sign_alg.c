@@ -83,6 +83,19 @@ ecdsa:
 
 		break;
 
+	case LWSCOSE_WKAEDDSA_ALG_EDDSA:
+		if (lws_cose_key_checks(ck, LWSCOSE_WKKTV_OKP, cose_alg, op, NULL))
+			goto bail_ecdsa;
+
+		if (lws_geneddsa_create(&alg->u.ecdsactx, cx, lws_ec_curves))
+			goto bail_ecdsa1;
+
+		if (lws_geneddsa_set_key(&alg->u.ecdsactx, ck->e))
+			goto bail_ecdsa2;
+
+		break;
+
+
 	/* HMAC algs */
 
 	case LWSCOSE_WKAHMAC_256_64:
@@ -179,6 +192,18 @@ lws_cose_sign_alg_hash(lws_cose_sig_alg_t *alg, const uint8_t *in, size_t in_len
 	case LWSCOSE_WKAHMAC_384_384:
 	case LWSCOSE_WKAHMAC_512_512:
 		return lws_genhmac_update(&alg->u.hmacctx, in, in_len);
+
+	case LWSCOSE_WKAEDDSA_ALG_EDDSA:
+	{
+		uint8_t *n;
+		n = lws_realloc(alg->eddsa_in, alg->eddsa_in_len + in_len, "eddsa sigin");
+		if (!n)
+			return -1;
+		alg->eddsa_in = n;
+		memcpy(alg->eddsa_in + alg->eddsa_in_len, in, in_len);
+		alg->eddsa_in_len += in_len;
+		return 0;
+	}
 	}
 
 	/* EC, rsa are just making the hash before signing */
@@ -224,6 +249,22 @@ lws_cose_sign_alg_complete(lws_cose_sig_alg_t *alg)
 		lws_genec_destroy(&alg->u.ecdsactx);
 		break;
 
+	case LWSCOSE_WKAEDDSA_ALG_EDDSA:
+	{
+		int len;
+		if (!alg->failed &&
+		    (len = lws_geneddsa_hash_sign_jws(&alg->u.ecdsactx, alg->eddsa_in,
+						alg->eddsa_in_len, alg->rhash,
+						sizeof(alg->rhash))) >= 0)
+			alg->rhash_len = len;
+		else
+			alg->failed = 1;
+
+		lws_genec_destroy(&alg->u.ecdsactx);
+		lws_free_set_NULL(alg->eddsa_in);
+		break;
+	}
+
 	case LWSCOSE_WKAHMAC_256_64:
 	case LWSCOSE_WKAHMAC_256_256:
 	case LWSCOSE_WKAHMAC_384_384:
@@ -267,5 +308,7 @@ lws_cose_sign_alg_destroy(lws_cose_sig_alg_t **_alg)
 {
 	lws_dll2_remove(&(*_alg)->list);
 	lws_cose_sign_alg_complete(*_alg);
+	if ((*_alg)->eddsa_in)
+		lws_free_set_NULL((*_alg)->eddsa_in);
 	lws_free_set_NULL(*_alg);
 }

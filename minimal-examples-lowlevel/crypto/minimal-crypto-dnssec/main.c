@@ -52,9 +52,12 @@ int main(int argc, const char **argv)
 	lws_set_log_level(logs, NULL);
 
 	if ((argc == 1) || lws_cmdline_option(argc, argv, "-h") || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
-		lwsl_user("Usage: %s <keygen|dsfromkey|signzone> [args...]\n\n", argv[0]);
+		lwsl_user("Usage: %s <keygen|importnsd|dsfromkey|signzone> [args...]\n\n", argv[0]);
 		lwsl_user("  keygen    [--type <RSA|EC>] [--bits <size>] [--curve <curve>] <domain>\n");
 		lwsl_user("            Outputs: <domain>.[ksk|zsk].key & <domain>.[ksk|zsk].private.jwk\n");
+		lwsl_user("  importnsd <domain> <key1-prefix> [key2-prefix]\n");
+		lwsl_user("            Inputs : <prefix>.private, <prefix>.key\n");
+		lwsl_user("            Outputs: <domain>.[ksk|zsk].key, <domain>.[ksk|zsk].private.jwk, <domain>.dnssec.txt\n");
 		lwsl_user("  dsfromkey [--hash <hash>] <domain>\n");
 		lwsl_user("            Inputs : <domain>.ksk.key  Outputs: Base64 DS Record to stdout\n");
 		lwsl_user("  signzone  [--duration <hours>] <domain>\n");
@@ -67,7 +70,7 @@ int main(int argc, const char **argv)
 	lwsl_user("LWS DNSSEC Crypto Utility (DHT Plugin Wrapper)\n");
 
 	if (argc < 2) {
-		lwsl_err("Usage: lws-crypto-dnssec <keygen|dsfromkey|signzone> [args...]\n");
+		lwsl_err("Usage: lws-crypto-dnssec <keygen|importnsd|dsfromkey|signzone> [args...]\n");
 		return 1;
 	}
 
@@ -174,8 +177,30 @@ int main(int argc, const char **argv)
 		sz_args.domain = argv[n];
 
 		if (ops->signzone) result = ops->signzone(context, &sz_args);
+	} else if (!strcmp(mode, "importnsd")) {
+		struct lws_dht_dnssec_importnsd_args i_args;
+		memset(&i_args, 0, sizeof(i_args));
+
+		if (n < 3) {
+			lwsl_err("importnsd requires at least <domain> <key1-prefix>\n");
+			result = 1;
+		} else {
+			i_args.domain = argv[n - 1];
+			int p_idx = 2;
+			while (p_idx < argc && argv[p_idx][0] == '-') { p_idx += 2; }
+			i_args.domain = argv[p_idx++];
+			if (p_idx < argc) i_args.key1_prefix = argv[p_idx++];
+			if (p_idx < argc) i_args.key2_prefix = argv[p_idx++];
+
+			if (!i_args.key1_prefix) {
+				lwsl_err("importnsd requires <domain> and at least 1 key prefix.\n");
+				result = 1;
+			} else {
+				if (ops->importnsd) result = ops->importnsd(context, &i_args);
+			}
+		}
 	} else {
-		lwsl_err("Unknown mode: %s. Use keygen, dsfromkey, or signzone.\n", mode);
+		lwsl_err("Unknown mode: %s. Use keygen, importnsd, dsfromkey, or signzone.\n", mode);
 		result = 1;
 	}
 

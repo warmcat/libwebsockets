@@ -55,6 +55,8 @@ typedef struct lws_cose_sig_alg {
 		struct lws_genrsa_ctx	rsactx;
 		struct lws_genhmac_ctx	hmacctx;
 	} u;
+	uint8_t				*eddsa_in;
+	size_t				eddsa_in_len;
 	cose_param_t			cose_alg;
 	int				keybits;
 	int				rhash_len;

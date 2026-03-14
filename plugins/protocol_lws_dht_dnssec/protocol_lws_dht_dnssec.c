@@ -2773,10 +2773,229 @@ do_fetch_zone(struct lws_context *context, struct lws_dht_dnssec_fetch_zone_args
 	return 0;
 }
 
+static int
+do_importnsd(struct lws_context *context, struct lws_dht_dnssec_importnsd_args *args)
+{
+	const char *domain = args->domain;
+	const char *prefs[2] = { args->key1_prefix, args->key2_prefix };
+
+	if (!domain || !domain[0]) {
+		lwsl_err("%s: requires a domain name\n", __func__);
+		return 1;
+	}
+
+	for (int k = 0; k < 2; k++) {
+		if (!prefs[k]) continue;
+
+		char p_key[256], p_priv[256];
+		lws_snprintf(p_key, sizeof(p_key), "%s.key", prefs[k]);
+		lws_snprintf(p_priv, sizeof(p_priv), "%s.private", prefs[k]);
+
+		/* 1. Parse .key file */
+		int fd = open(p_key, O_RDONLY);
+		if (fd < 0) {
+			lwsl_err("%s: Failed to open %s\n", __func__, p_key);
+			return 1;
+		}
+
+		char buf[8192];
+		int n = (int)read(fd, buf, sizeof(buf) - 1);
+		close(fd);
+		if (n <= 0) return 1;
+		buf[n] = '\0';
+
+		char parsed_domain[256] = {0};
+		int flags = 0, proto = 0, alg = 0;
+		char b64[8192];
+		if (sscanf(buf, "%255s IN DNSKEY %d %d %d %8191s", parsed_domain, &flags, &proto, &alg, b64) != 5) {
+			lwsl_err("%s: Failed to parse %s\n", __func__, p_key);
+			return 1;
+		}
+
+		int is_ksk = (flags == 257);
+		int is_rsa = (alg == 8); // RSASHA256
+
+		/* decode public key */
+		uint8_t pub_bin[4096];
+		int pub_len = lws_b64_decode_string_len(b64, (int)strlen(b64), (char *)pub_bin, sizeof(pub_bin));
+		if (pub_len <= 0) return 1;
+
+		/* 2. Parse .private file */
+		fd = open(p_priv, O_RDONLY);
+		if (fd < 0) {
+			lwsl_err("%s: Failed to open %s\n", __func__, p_priv);
+			return 1;
+		}
+
+		char priv_buf[8192];
+		n = (int)read(fd, priv_buf, sizeof(priv_buf) - 1);
+		close(fd);
+		if (n <= 0) return 1;
+		priv_buf[n] = '\0';
+
+		struct lws_jwk jwk;
+		memset(&jwk, 0, sizeof(jwk));
+		jwk.kty = is_rsa ? LWS_GENCRYPTO_KTY_RSA : LWS_GENCRYPTO_KTY_EC;
+
+		if (is_rsa) {
+			char *p = priv_buf;
+			const char *fields[] = { "Modulus:", "PublicExponent:", "PrivateExponent:", "Prime1:", "Prime2:", "Exponent1:", "Exponent2:", "Coefficient:" };
+			const int field_idx[] = { LWS_GENCRYPTO_RSA_KEYEL_N, LWS_GENCRYPTO_RSA_KEYEL_E, LWS_GENCRYPTO_RSA_KEYEL_D, LWS_GENCRYPTO_RSA_KEYEL_P, LWS_GENCRYPTO_RSA_KEYEL_Q, LWS_GENCRYPTO_RSA_KEYEL_DP, LWS_GENCRYPTO_RSA_KEYEL_DQ, LWS_GENCRYPTO_RSA_KEYEL_QI };
+
+			for (int f = 0; f < 8; f++) {
+				char *m = strstr(p, fields[f]);
+				if (!m) { lwsl_err("Missing %s in RSA\n", fields[f]); return 1; }
+				m += strlen(fields[f]);
+				while (*m == ' ' || *m == '\r' || *m == '\n') m++;
+				char *e = m;
+				while (*e && *e != '\n' && *e != '\r') e++;
+				char b64_ele[4096];
+				int elen = (int)(e - m);
+				if (elen > (int)sizeof(b64_ele) - 1) return 1;
+				memcpy(b64_ele, m, (size_t)elen);
+				b64_ele[elen] = '\0';
+
+				uint8_t bin_ele[4096];
+				int bin_len = lws_b64_decode_string_len(b64_ele, (int)strlen(b64_ele), (char *)bin_ele, sizeof(bin_ele));
+				if (bin_len <= 0) return 1;
+
+				jwk.e[field_idx[f]].buf = malloc((size_t)bin_len);
+				if (!jwk.e[field_idx[f]].buf) return 1;
+				memcpy(jwk.e[field_idx[f]].buf, bin_ele, (size_t)bin_len);
+				jwk.e[field_idx[f]].len = (uint32_t)bin_len;
+			}
+		} else { /* ECDSA */
+			size_t half = ((size_t)pub_len) / 2;
+			jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].buf = malloc(half);
+			jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].buf = malloc(half);
+			if (!jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].buf || !jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].buf) return 1;
+			memcpy(jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].buf, pub_bin, half);
+			jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len = (uint32_t)half;
+			memcpy(jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].buf, pub_bin + half, half);
+			jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len = (uint32_t)half;
+
+			const char *curve_name = "P-256";
+			if (alg == 14) curve_name = "P-384";
+			jwk.e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf = malloc(strlen(curve_name));
+			if (!jwk.e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf) return 1;
+			memcpy(jwk.e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf, curve_name, strlen(curve_name));
+			jwk.e[LWS_GENCRYPTO_EC_KEYEL_CRV].len = (uint32_t)strlen(curve_name);
+
+			char *m = strstr(priv_buf, "PrivateKey:");
+			if (!m) { lwsl_err("Missing PrivateKey in ECDSA\n"); return 1; }
+			m += 11;
+			while (*m == ' ' || *m == '\r' || *m == '\n') m++;
+			char *e = m;
+			while (*e && *e != '\n' && *e != '\r') e++;
+			char b64_ele[4096];
+			int elen = (int)(e - m);
+			if (elen > (int)sizeof(b64_ele) - 1) return 1;
+			memcpy(b64_ele, m, (size_t)elen);
+			b64_ele[elen] = '\0';
+
+			uint8_t bin_ele[4096];
+			int bin_len = lws_b64_decode_string_len(b64_ele, (int)strlen(b64_ele), (char *)bin_ele, sizeof(bin_ele));
+			if (bin_len <= 0) return 1;
+			jwk.e[LWS_GENCRYPTO_EC_KEYEL_D].buf = malloc((size_t)bin_len);
+			if (!jwk.e[LWS_GENCRYPTO_EC_KEYEL_D].buf) return 1;
+			memcpy(jwk.e[LWS_GENCRYPTO_EC_KEYEL_D].buf, bin_ele, (size_t)bin_len);
+			jwk.e[LWS_GENCRYPTO_EC_KEYEL_D].len = (uint32_t)bin_len;
+		}
+
+		/* Re-serialize into JWK format and our structured public key */
+		lws_jwk_strdup_meta(&jwk, JWK_META_KTY, is_rsa ? "RSA" : "EC", is_rsa ? 3 : 2);
+		lws_jwk_strdup_meta(&jwk, JWK_META_USE, "sig", 3);
+		if (is_rsa)
+			lws_jwk_strdup_meta(&jwk, JWK_META_ALG, "RS256", 5);
+
+		char key[65536];
+		int vl = sizeof(key);
+		if (lws_jwk_export(&jwk, LWSJWKF_EXPORT_NOCRLF | LWSJWKF_EXPORT_PRIVATE, key, &vl) < 0) {
+			lws_jwk_destroy(&jwk);
+			return 1;
+		}
+
+		char priv_filename[256];
+		lws_snprintf(priv_filename, sizeof(priv_filename), "%s.%s.private.jwk", domain, is_ksk ? "ksk" : "zsk");
+		fd = open(priv_filename, LWS_O_CREAT | LWS_O_TRUNC | LWS_O_WRONLY, 0600);
+		if (fd >= 0) {
+			write(fd, key, (size_t)strlen(key));
+			close(fd);
+			lwsl_notice("Wrote imported private JWK to %s\n", priv_filename);
+		}
+
+		char pub_filename[256];
+		lws_snprintf(pub_filename, sizeof(pub_filename), "%s.%s.key", domain, is_ksk ? "ksk" : "zsk");
+		fd = open(pub_filename, LWS_O_CREAT | LWS_O_TRUNC | LWS_O_WRONLY, 0644);
+		if (fd >= 0) {
+			char outbuf[16384]; // large for RSA keys
+			int rn = lws_snprintf(outbuf, sizeof(outbuf), "%s IN DNSKEY %d 3 %d %s\n", parsed_domain, flags, alg, b64);
+			write(fd, outbuf, (size_t)rn);
+			close(fd);
+			lwsl_notice("Created public %s\n", pub_filename);
+		}
+
+		/* Reproduce DS hashes for KSK to ensure smooth migration */
+		if (is_ksk) {
+			char ds_filename[256];
+			lws_snprintf(ds_filename, sizeof(ds_filename), "%s.dnssec.txt", domain);
+
+			uint8_t rdata[4096];
+			rdata[0] = (uint8_t)((flags >> 8) & 0xff);
+			rdata[1] = (uint8_t)(flags & 0xff);
+			rdata[2] = 3;
+			rdata[3] = (uint8_t)alg;
+			memcpy(rdata + 4, pub_bin, (size_t)pub_len);
+
+			size_t rdata_len = 4 + (size_t)pub_len;
+			uint16_t keytag = calc_keytag(rdata, (int)rdata_len);
+
+			uint8_t payload[8192];
+			int name_len = name_to_wire(domain, payload);
+			memcpy(payload + name_len, rdata, rdata_len);
+
+			struct lws_genhash_ctx hash_ctx;
+			uint8_t digest[32];
+
+			if (!lws_genhash_init(&hash_ctx, LWS_GENHASH_TYPE_SHA256)) {
+				if (!lws_genhash_update(&hash_ctx, payload, (size_t)name_len + rdata_len)) {
+					lws_genhash_destroy(&hash_ctx, digest);
+
+					int ds_fd = open(ds_filename, LWS_O_CREAT | LWS_O_TRUNC | LWS_O_WRONLY, 0644);
+					if (ds_fd >= 0) {
+						char ds_summary[1024];
+						char thex[128];
+						thex[0] = '\0';
+						for (int i = 0; i < 32; i++) {
+							lws_snprintf(thex + strlen(thex), sizeof(thex) - strlen(thex), "%02X", digest[i]);
+						}
+						int summary_len = lws_snprintf(ds_summary, sizeof(ds_summary),
+							";; IMPORTED DS Record summary for %s registrar\n"
+							"%s. IN DS %u %d 2 %s\n", domain, domain, keytag, alg, thex);
+
+						write(ds_fd, ds_summary, (size_t)summary_len);
+						close(ds_fd);
+
+						fprintf(stderr, "\n=========== DNSSEC MIGRATION SUMMARY ===========\n");
+						fprintf(stderr, "%s", ds_summary);
+						fprintf(stderr, "================================================\n\n");
+					}
+				} else {
+					lws_genhash_destroy(&hash_ctx, NULL);
+				}
+			}
+		}
+
+		lws_jwk_destroy(&jwk);
+	}
+	return 0;
+}
+
 static const struct lws_dht_dnssec_ops ops = {
 	.keygen = do_keygen,
 	.dsfromkey = do_dsfromkey,
 	.signzone = do_signzone,
+	.importnsd = do_importnsd,
 	.add_temp_zone = do_add_temp_zone,
 	.publish_jws = do_publish_jws,
 	.fetch_zone = do_fetch_zone,

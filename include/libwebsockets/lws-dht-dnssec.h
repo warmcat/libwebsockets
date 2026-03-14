@@ -44,6 +44,12 @@ struct lws_dht_dnssec_signzone_args {
 	uint32_t sign_validity_duration;
 };
 
+struct lws_dht_dnssec_importnsd_args {
+	const char *domain;
+	const char *key1_prefix;
+	const char *key2_prefix; /* optional if only importing 1 key */
+};
+
 typedef void (*lws_dht_dnssec_fetch_cb_t)(void *opaque, const char *domain, int status);
 
 struct lws_dht_dnssec_fetch_zone_args {
@@ -59,6 +65,7 @@ struct lws_dht_dnssec_ops {
 	int (*keygen)(struct lws_context *context, struct lws_dht_dnssec_keygen_args *args);
 	int (*dsfromkey)(struct lws_context *context, struct lws_dht_dnssec_dsfromkey_args *args);
 	int (*signzone)(struct lws_context *context, struct lws_dht_dnssec_signzone_args *args);
+	int (*importnsd)(struct lws_context *context, struct lws_dht_dnssec_importnsd_args *args);
 
 	int (*add_temp_zone)(struct lws_context *context, const char *domain, const char *zone_str, int ttl_secs);
 	int (*publish_jws)(struct lws_context *context, const char *jws_filepath);

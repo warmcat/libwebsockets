@@ -737,6 +737,128 @@ bail:
 	return ret;
 }
 
+static const char
+	*eddsa_jose = "{\"alg\":\"EdDSA\"}",
+	*eddsa_payload	= "Example of Ed25519 signing",
+	*eddsa_cser =
+	     "eyJhbGciOiJFZERTQSJ9"
+	     "."
+	     "RXhhbXBsZSBvZiBFZDI1NTE5IHNpZ25pbmc"
+	     "."
+	     "hgyY0il_MGCjP0JzlnLWG1PPOt7-09PGcvMg3AIbQR6dWbhijcNR4ki4iylGjg5BhVsPt9g7sVvpAr_MuM0KAg",
+	*eddsa_jwk =
+	   "{"
+	      "\"kty\":\"OKP\","
+	      "\"crv\":\"Ed25519\","
+	      "\"d\":\"nWGxne_9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A\","
+	      "\"x\":\"11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo\""
+	   "}"
+;
+
+int
+test_jws_EdDSA(struct lws_context *context)
+{
+	struct lws_jws_map map;
+	struct lws_jose jose;
+	struct lws_jwk jwk;
+	struct lws_jws jws;
+	char temp[2048], *p;
+	int ret = -1, l, n, temp_len = sizeof(temp);
+
+	lws_jose_init(&jose);
+
+	/* decode the b64.b64[.b64] compact serialization blocks */
+	if (lws_jws_compact_decode(eddsa_cser, (int)strlen(eddsa_cser),
+				   &jws.map, &jws.map_b64, temp,
+				   &temp_len) != 3) {
+		lwsl_err("%s: concat_map failed\n", __func__);
+		goto bail;
+	}
+
+	if (jws.map.len[LJWS_JOSE] != strlen(eddsa_jose) ||
+	    strncmp(eddsa_jose, jws.map.buf[LJWS_JOSE],
+			        jws.map.len[LJWS_JOSE])) {
+		lwsl_err("%s: jose b64 decode wrong\n", __func__);
+		goto bail;
+	}
+
+	if (jws.map.len[LJWS_PYLD] != strlen(eddsa_payload) ||
+	    strncmp(eddsa_payload, jws.map.buf[LJWS_PYLD],
+				   jws.map.len[LJWS_PYLD])) {
+		lwsl_err("%s: payload b64 decode wrong\n", __func__);
+		goto bail;
+	}
+
+	if (lws_jws_parse_jose(&jose, jws.map.buf[LJWS_JOSE],
+			      (int)jws.map.len[LJWS_JOSE],
+			      lws_concat_temp(temp, temp_len), &temp_len) < 0) {
+		lwsl_err("%s: JOSE parse failed\n", __func__);
+		goto bail;
+	}
+
+	if (strcmp(jose.alg->alg, "EdDSA")) {
+		lwsl_err("%s: JOSE header has wrong alg\n", __func__);
+		goto bail;
+	}
+
+	jws.jwk = &jwk;
+	jws.context = context;
+
+	if (lws_jwk_import(&jwk, NULL, NULL, eddsa_jwk, strlen(eddsa_jwk))) {
+		lwsl_notice("%s: Failed to read JWK key\n", __func__);
+		goto bail;
+	}
+
+	if (jwk.kty != LWS_GENCRYPTO_KTY_OKP) {
+		lwsl_err("%s: kty: %d instead of OKP\n",
+				__func__, jwk.kty);
+		goto bail1;
+	}
+
+	if (lws_jws_sig_confirm(&jws.map_b64, &jws.map, &jwk, context) < 0) {
+		lwsl_notice("%s: confirm EdDSA sig failed\n", __func__);
+		goto bail1;
+	}
+
+	l = (int)strlen(eddsa_cser);
+	if (temp_len < l)
+		goto bail1;
+	p = lws_concat_temp(temp, temp_len);
+	memcpy(p, eddsa_cser, (unsigned int)l + 1);
+	temp_len -= (l + 1);
+
+	if (lws_jws_b64_compact_map(p, l, &jws.map_b64) != 3)
+		goto bail1;
+
+	/* bypass hashing - sign straight from b64 */
+	n = lws_jws_sign_from_b64(&jose, &jws,
+				  (char *)jws.map_b64.buf[LJWS_SIG], 1024);
+	if (n < 0) {
+		lwsl_err("%s: failed signing test packet\n", __func__);
+		goto bail1;
+	}
+	jws.map_b64.len[LJWS_SIG] = (unsigned int)n;
+
+	p[l] = '\0';
+
+	if (lws_jws_sig_confirm_compact_b64(p, (unsigned int)l, &map, &jwk, context,
+			lws_concat_temp(temp, temp_len), &temp_len) < 0) {
+		lwsl_notice("%s: confirm our EdDSA sig failed\n", __func__);
+		goto bail1;
+	}
+
+	ret =  0;
+
+bail1:
+	lws_jwk_destroy(&jwk);
+	lws_jose_destroy(&jose);
+
+bail:
+	lwsl_notice("%s: selftest %s\n", __func__, ret ? "FAIL" : "OK");
+
+	return ret;
+}
+
 static char
 	rsa_cert[] = "-----BEGIN CERTIFICATE-----\n"
 	     "MIIF5jCCA86gAwIBAgIJANq50IuwPFKgMA0GCSqGSIb3DQEBCwUAMIGGMQswCQYD\n"
@@ -956,6 +1078,7 @@ test_jws(struct lws_context *context)
 	n |= test_jws_RS256(context);
 	n |= test_jws_ES256(context);
 	n |= test_jws_ES512(context);
+	n |= test_jws_EdDSA(context);
 	n |= test_jwt_RS256(context);
 
 	return n;

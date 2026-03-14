@@ -65,6 +65,18 @@ This generates:
 
 *Note: You can specify other curves such as `P-384` or `P-521` using the `--curve` argument.*
 
+### Step 2.5: Importing Existing NSD/BIND Keys (Optional)
+
+If you are migrating an existing domain from standard BIND or NSD setups, you can import your existing DNSSEC keys directly into the `lws` JWK format without generating new ones.
+
+The `importnsd` command takes your domain and the file prefixes of your existing `.private` and `.key` files (usually named like `Kmydomain.com.+013+12345`).
+
+```bash
+lws-crypto-dnssec importnsd mydomain.com Kmydomain.com.+013+12345 Kmydomain.com.+013+67890
+```
+
+The utility automatically parses the `DNSKEY` flags (256 for ZSK, 257 for KSK) to assign the correct roles, extracts the cryptographic parameters, and exports standard `mydomain.com.ksk.private.jwk` and `mydomain.com.zsk.private.jwk` files. It also generates a `mydomain.com.dnssec.txt` summarizing your DS records.
+
 ### Step 3: Extract DS Information for the Registrar
 
 To establish the chain of trust, the parent zone (e.g., the `.com` registry) must publish a Delegation Signer (DS) record containing a cryptographic hash of your public KSK.
