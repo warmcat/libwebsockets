@@ -2101,84 +2101,246 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 	return 0;
 }
 
+static int name_to_wire(const char *name, uint8_t *wire);
+static uint16_t calc_keytag(const uint8_t *rdata, int rdata_len);
+
 static int
 do_keygen(struct lws_context *context, struct lws_dht_dnssec_keygen_args *args)
 {
-	enum lws_gencrypto_kty kty = LWS_GENCRYPTO_KTY_EC;
+	int is_rsa = (args->type && !strcmp(args->type, "RSA"));
+	enum lws_gencrypto_kty kty = is_rsa ? LWS_GENCRYPTO_KTY_RSA : LWS_GENCRYPTO_KTY_EC;
 	const char *curve = args->curve ? args->curve : "P-256";
+	int bits = args->bits ? args->bits : 2048;
 	const char *domain = args->domain;
-	struct lws_jwk jwk;
-	int is_ksk = args->is_ksk;
-	char key[32768];
-	int vl = sizeof(key);
 
 	if (!domain || domain[0] == '\0') {
 		lwsl_err("keygen requires a domain name\n");
 		return 1;
 	}
 
-	lwsl_user("Generating %s for %s (Curve: %s)\n", is_ksk ? "KSK" : "ZSK", domain, curve);
+	for (int is_ksk = 1; is_ksk >= 0; is_ksk--) {
+		struct lws_jwk jwk;
+		char key[65536];
+		int vl = sizeof(key);
 
-	if (lws_jwk_generate(context, &jwk, kty, 0, curve)) {
-		lwsl_err("lws_jwk_generate failed\n");
-		return 1;
-	}
+		if (is_rsa)
+			lwsl_user("Generating %s for %s (RSA %d bits)\n", is_ksk ? "KSK" : "ZSK", domain, bits);
+		else
+			lwsl_user("Generating %s for %s (Curve: %s)\n", is_ksk ? "KSK" : "ZSK", domain, curve);
 
-	/* Force JWK metadata for easy reuse in lws-minimal-raw-dht-zone-client */
-	lws_jwk_strdup_meta(&jwk, JWK_META_KTY, "EC", 2);
-	lws_jwk_strdup_meta(&jwk, JWK_META_USE, "sig", 3);
-
-	if (lws_jwk_export(&jwk, LWSJWKF_EXPORT_NOCRLF | LWSJWKF_EXPORT_PRIVATE, key, &vl) < 0) {
-		lwsl_err("lws_jwk_export failed\n");
-		lws_jwk_destroy(&jwk);
-		return 1;
-	}
-
-	char priv_filename[256];
-	lws_snprintf(priv_filename, sizeof(priv_filename), "%s.%s.private.jwk", domain, is_ksk ? "ksk" : "zsk");
-
-	int fd = open(priv_filename, LWS_O_CREAT | LWS_O_TRUNC | LWS_O_WRONLY, 0600);
-	if (fd >= 0) {
-		write(fd, key, (size_t)strlen(key));
-		close(fd);
-		lwsl_notice("Wrote private JWK to %s\n", priv_filename);
-	}
-
-	/* Export standardized DNSKEY format for zone file inclusion */
-	int alg = 13; /* ECDSAP256SHA256 */
-	if (!strcmp(curve, "P-384")) alg = 14; /* ECDSAP384SHA384 */
-
-	int flags = is_ksk ? 257 : 256;
-	int x_len = (int)jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len;
-	int y_len = (int)jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len;
-
-	uint8_t *raw_key = malloc((size_t)(x_len + y_len));
-	if (raw_key) {
-		memcpy(raw_key, jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].buf, (size_t)x_len);
-		memcpy(raw_key + x_len, jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].buf, (size_t)y_len);
-
-		int b64_len = lws_base64_size((x_len + y_len));
-		char *b64_key = malloc((size_t)b64_len + 1);
-		if (b64_key) {
-			lws_b64_encode_string((const char *)raw_key, x_len + y_len, b64_key, b64_len);
-
-			char pub_filename[256];
-			lws_snprintf(pub_filename, sizeof(pub_filename), "%s.%s.key", domain, is_ksk ? "ksk" : "zsk");
-
-			fd = open(pub_filename, LWS_O_CREAT | LWS_O_TRUNC | LWS_O_WRONLY, 0644);
-			if (fd >= 0) {
-				char outbuf[1024];
-				int n = lws_snprintf(outbuf, sizeof(outbuf), "%s. IN DNSKEY %d 3 %d %s\n", domain, flags, alg, b64_key);
-				write(fd, outbuf, (size_t)n);
-				close(fd);
-				lwsl_notice("Wrote public DNSKEY to %s\n", pub_filename);
-			}
-			free(b64_key);
+		if (lws_jwk_generate(context, &jwk, kty, is_rsa ? bits : 0, is_rsa ? NULL : curve)) {
+			lwsl_err("lws_jwk_generate failed\n");
+			return 1;
 		}
-		free(raw_key);
-	}
 
-	lws_jwk_destroy(&jwk);
+		/* Force JWK metadata for easy reuse in lws-minimal-raw-dht-zone-client */
+		lws_jwk_strdup_meta(&jwk, JWK_META_KTY, is_rsa ? "RSA" : "EC", is_rsa ? 3 : 2);
+		lws_jwk_strdup_meta(&jwk, JWK_META_USE, "sig", 3);
+		if (is_rsa)
+			lws_jwk_strdup_meta(&jwk, JWK_META_ALG, "RS256", 5);
+
+		if (lws_jwk_export(&jwk, LWSJWKF_EXPORT_NOCRLF | LWSJWKF_EXPORT_PRIVATE, key, &vl) < 0) {
+			lwsl_err("lws_jwk_export failed\n");
+			lws_jwk_destroy(&jwk);
+			return 1;
+		}
+
+		char priv_filename[256];
+		lws_snprintf(priv_filename, sizeof(priv_filename), "%s.%s.private.jwk", domain, is_ksk ? "ksk" : "zsk");
+
+		int fd = open(priv_filename, LWS_O_CREAT | LWS_O_TRUNC | LWS_O_WRONLY, 0600);
+		if (fd >= 0) {
+			write(fd, key, (size_t)strlen(key));
+			close(fd);
+			lwsl_notice("Wrote private JWK to %s\n", priv_filename);
+		}
+
+		/* Export standardized DNSKEY format for zone file inclusion */
+		int alg = is_rsa ? 8 : 13; /* RSASHA256 vs ECDSAP256SHA256 */
+		if (!is_rsa && !strcmp(curve, "P-384")) alg = 14; /* ECDSAP384SHA384 */
+
+		int flags = is_ksk ? 257 : 256;
+
+		if (is_rsa) {
+			int e_len = (int)jwk.e[LWS_GENCRYPTO_RSA_KEYEL_E].len;
+			int n_len = (int)jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].len;
+
+			int exp_len_bytes = (e_len > 255) ? 3 : 1;
+			int raw_len = exp_len_bytes + e_len + n_len;
+
+			uint8_t *raw_key = malloc((size_t)raw_len);
+			if (raw_key) {
+				if (e_len > 255) {
+					raw_key[0] = 0;
+					raw_key[1] = (uint8_t)((e_len >> 8) & 0xff);
+					raw_key[2] = (uint8_t)(e_len & 0xff);
+					memcpy(raw_key + 3, jwk.e[LWS_GENCRYPTO_RSA_KEYEL_E].buf, (size_t)e_len);
+					memcpy(raw_key + 3 + e_len, jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].buf, (size_t)n_len);
+				} else {
+					raw_key[0] = (uint8_t)e_len;
+					memcpy(raw_key + 1, jwk.e[LWS_GENCRYPTO_RSA_KEYEL_E].buf, (size_t)e_len);
+					memcpy(raw_key + 1 + e_len, jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].buf, (size_t)n_len);
+				}
+
+				int b64_len = lws_base64_size(raw_len);
+				char *b64_key = malloc((size_t)b64_len + 1);
+				if (b64_key) {
+					lws_b64_encode_string((const char *)raw_key, raw_len, b64_key, b64_len);
+
+					char pub_filename[256];
+					lws_snprintf(pub_filename, sizeof(pub_filename), "%s.%s.key", domain, is_ksk ? "ksk" : "zsk");
+
+					fd = open(pub_filename, LWS_O_CREAT | LWS_O_TRUNC | LWS_O_WRONLY, 0644);
+					if (fd >= 0) {
+						char outbuf[4096];
+						int n = lws_snprintf(outbuf, sizeof(outbuf), "%s. IN DNSKEY %d 3 %d %s\n", domain, flags, alg, b64_key);
+						write(fd, outbuf, (size_t)n);
+						close(fd);
+						lwsl_notice("Wrote public DNSKEY to %s\n", pub_filename);
+					}
+					if (is_ksk) {
+						char ds_filename[256];
+						lws_snprintf(ds_filename, sizeof(ds_filename), "%s.dnssec.txt", domain);
+
+						size_t rdata_len = 4 + (size_t)raw_len;
+						uint8_t *rdata = malloc(rdata_len);
+						if (rdata) {
+							rdata[0] = (uint8_t)((flags >> 8) & 0xff);
+							rdata[1] = (uint8_t)(flags & 0xff);
+							rdata[2] = 3; /* Protocol */
+							rdata[3] = (uint8_t)alg;
+							memcpy(rdata + 4, raw_key, (size_t)raw_len);
+
+							uint16_t keytag = calc_keytag(rdata, (int)rdata_len);
+
+							uint8_t payload[8192];
+							int name_len = name_to_wire(domain, payload);
+							memcpy(payload + name_len, rdata, rdata_len);
+
+							struct lws_genhash_ctx hash_ctx;
+							uint8_t digest[32];
+
+							if (!lws_genhash_init(&hash_ctx, LWS_GENHASH_TYPE_SHA256)) {
+								if (!lws_genhash_update(&hash_ctx, payload, (size_t)name_len + rdata_len)) {
+									lws_genhash_destroy(&hash_ctx, digest);
+
+									int ds_fd = open(ds_filename, LWS_O_CREAT | LWS_O_TRUNC | LWS_O_WRONLY, 0644);
+									if (ds_fd >= 0) {
+										char ds_summary[1024];
+										char hex[128];
+										hex[0] = '\0';
+										for (int i = 0; i < 32; i++) {
+											lws_snprintf(hex + strlen(hex), sizeof(hex) - strlen(hex), "%02X", digest[i]);
+										}
+										int summary_len = lws_snprintf(ds_summary, sizeof(ds_summary),
+											";; DS Record summary for %s registrar\n"
+											"%s. IN DS %u %d 2 %s\n", domain, domain, keytag, alg, hex);
+
+										write(ds_fd, ds_summary, (size_t)summary_len);
+										close(ds_fd);
+
+										fprintf(stderr, "\n=========== DNSSEC REGISTRAR SUMMARY ===========\n");
+										fprintf(stderr, "%s", ds_summary);
+										fprintf(stderr, "================================================\n\n");
+									}
+								} else {
+									lws_genhash_destroy(&hash_ctx, NULL);
+								}
+							}
+							free(rdata);
+						}
+					}
+					free(b64_key);
+				}
+				free(raw_key);
+			}
+		} else {
+			int x_len = (int)jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len;
+			int y_len = (int)jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len;
+
+			uint8_t *raw_key = malloc((size_t)(x_len + y_len));
+			if (raw_key) {
+				memcpy(raw_key, jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].buf, (size_t)x_len);
+				memcpy(raw_key + x_len, jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].buf, (size_t)y_len);
+
+				int b64_len = lws_base64_size((x_len + y_len));
+				char *b64_key = malloc((size_t)b64_len + 1);
+				if (b64_key) {
+					lws_b64_encode_string((const char *)raw_key, x_len + y_len, b64_key, b64_len);
+
+					char pub_filename[256];
+					lws_snprintf(pub_filename, sizeof(pub_filename), "%s.%s.key", domain, is_ksk ? "ksk" : "zsk");
+
+					fd = open(pub_filename, LWS_O_CREAT | LWS_O_TRUNC | LWS_O_WRONLY, 0644);
+					if (fd >= 0) {
+						char outbuf[1024];
+						int n = lws_snprintf(outbuf, sizeof(outbuf), "%s. IN DNSKEY %d 3 %d %s\n", domain, flags, alg, b64_key);
+						write(fd, outbuf, (size_t)n);
+						close(fd);
+						lwsl_notice("Wrote public DNSKEY to %s\n", pub_filename);
+					}
+
+					if (is_ksk) {
+						char ds_filename[256];
+						lws_snprintf(ds_filename, sizeof(ds_filename), "%s.dnssec.txt", domain);
+
+						size_t raw_len = (size_t)x_len + (size_t)y_len;
+						size_t rdata_len = 4 + raw_len;
+						uint8_t *rdata = malloc(rdata_len);
+						if (rdata) {
+							rdata[0] = (uint8_t)((flags >> 8) & 0xff);
+							rdata[1] = (uint8_t)(flags & 0xff);
+							rdata[2] = 3; /* Protocol */
+							rdata[3] = (uint8_t)alg;
+							memcpy(rdata + 4, raw_key, raw_len);
+
+							uint16_t keytag = calc_keytag(rdata, (int)rdata_len);
+
+							uint8_t payload[8192];
+							int name_len = name_to_wire(domain, payload);
+							memcpy(payload + name_len, rdata, rdata_len);
+
+							struct lws_genhash_ctx hash_ctx;
+							uint8_t digest[32];
+
+							if (!lws_genhash_init(&hash_ctx, LWS_GENHASH_TYPE_SHA256)) {
+								if (!lws_genhash_update(&hash_ctx, payload, (size_t)name_len + rdata_len)) {
+									lws_genhash_destroy(&hash_ctx, digest);
+
+									int ds_fd = open(ds_filename, LWS_O_CREAT | LWS_O_TRUNC | LWS_O_WRONLY, 0644);
+									if (ds_fd >= 0) {
+										char ds_summary[1024];
+										char hex[128];
+										hex[0] = '\0';
+										for (int i = 0; i < 32; i++) {
+											lws_snprintf(hex + strlen(hex), sizeof(hex) - strlen(hex), "%02X", digest[i]);
+										}
+										int summary_len = lws_snprintf(ds_summary, sizeof(ds_summary),
+											";; DS Record summary for %s registrar\n"
+											"%s. IN DS %u %d 2 %s\n", domain, domain, keytag, alg, hex);
+
+										write(ds_fd, ds_summary, (size_t)summary_len);
+										close(ds_fd);
+
+										fprintf(stderr, "\n=========== DNSSEC REGISTRAR SUMMARY ===========\n");
+										fprintf(stderr, "%s", ds_summary);
+										fprintf(stderr, "================================================\n\n");
+									}
+								} else {
+									lws_genhash_destroy(&hash_ctx, NULL);
+								}
+							}
+							free(rdata);
+						}
+					}
+					free(b64_key);
+				}
+				free(raw_key);
+			}
+		}
+
+		lws_jwk_destroy(&jwk);
+	}
 	return 0;
 }
 
@@ -2221,14 +2383,17 @@ calc_keytag(const uint8_t *rdata, int rdata_len)
 static int
 do_dsfromkey(struct lws_context *context, struct lws_dht_dnssec_dsfromkey_args *args)
 {
-	const char *key_file = args->key_file;
+	const char *domain = args->domain;
+	char key_file[256];
 	enum lws_genhash_types hash_idx = LWS_GENHASH_TYPE_SHA256;
 	int digest_type = 2; // SHA-256
 
-	if (!key_file || key_file[0] == '\0') {
-		lwsl_err("dsfromkey requires a .key file\n");
+	if (!domain || domain[0] == '\0') {
+		lwsl_err("dsfromkey requires a domain name\n");
 		return 1;
 	}
+
+	lws_snprintf(key_file, sizeof(key_file), "%s.ksk.key", domain);
 
 	if (args->hash) {
 		if (!strcmp(args->hash, "SHA384")) {
@@ -2252,10 +2417,10 @@ do_dsfromkey(struct lws_context *context, struct lws_dht_dnssec_dsfromkey_args *
 	if (n <= 0) return 1;
 	buf[n] = '\0';
 
-	char domain[256] = {0};
+	char parsed_domain[256] = {0};
 	int flags = 0, proto = 0, alg = 0;
 	char b64[8192];
-	if (sscanf(buf, "%255s IN DNSKEY %d %d %d %8191s", domain, &flags, &proto, &alg, b64) != 5) {
+	if (sscanf(buf, "%255s IN DNSKEY %d %d %d %8191s", parsed_domain, &flags, &proto, &alg, b64) != 5) {
 		lwsl_err("Failed to parse DNSKEY record\n");
 		return 1;
 	}
@@ -2276,7 +2441,7 @@ do_dsfromkey(struct lws_context *context, struct lws_dht_dnssec_dsfromkey_args *
 	uint16_t keytag = calc_keytag(rdata, (int)rdata_len);
 
 	uint8_t payload[8192];
-	int name_len = name_to_wire(domain, payload);
+	int name_len = name_to_wire(parsed_domain, payload);
 	memcpy(payload + name_len, rdata, (size_t)rdata_len);
 	size_t payload_len = (size_t)name_len + rdata_len;
 
@@ -2296,7 +2461,7 @@ do_dsfromkey(struct lws_context *context, struct lws_dht_dnssec_dsfromkey_args *
 
 	int d_len = (int)lws_genhash_size(hash_idx);
 
-	printf("%s IN DS %u %d %d ", domain, keytag, alg, digest_type);
+	printf("%s IN DS %u %d %d ", parsed_domain, keytag, alg, digest_type);
 	for (int i = 0; i < d_len; i++) {
 		printf("%02X", digest[i]);
 	}
@@ -2310,31 +2475,30 @@ do_signzone(struct lws_context *context, struct lws_dht_dnssec_signzone_args *ar
 {
 #if defined(LWS_WITH_AUTHORITATIVE_DNS)
 	struct lws_auth_dns_sign_info info;
+	char zsk_jwk[256], ksk_jwk[256], zone_in[256], zone_out[256], jws_out[256];
 
 	memset(&info, 0, sizeof(info));
 	info.cx = context;
 
-	if (args->zsk_jwk_filepath)
-		info.zsk_jwk_filepath = args->zsk_jwk_filepath;
-	else {
-		lwsl_err("signzone requires zsk_jwk_filepath\n");
+	if (!args->domain || args->domain[0] == '\0') {
+		lwsl_err("signzone requires a domain name\n");
 		return 1;
 	}
 
-	if (args->ksk_jwk_filepath)
-		info.ksk_jwk_filepath = args->ksk_jwk_filepath;
+	lws_snprintf(zsk_jwk, sizeof(zsk_jwk), "%s.zsk.private.jwk", args->domain);
+	lws_snprintf(ksk_jwk, sizeof(ksk_jwk), "%s.ksk.private.jwk", args->domain);
+	lws_snprintf(zone_in, sizeof(zone_in), "%s.zone", args->domain);
+	lws_snprintf(zone_out, sizeof(zone_out), "%s.zone.signed", args->domain);
+	lws_snprintf(jws_out, sizeof(jws_out), "%s.zone.signed.jws", args->domain);
+
+	info.zsk_jwk_filepath = zsk_jwk;
+	info.ksk_jwk_filepath = ksk_jwk;
+	info.input_filepath = zone_in;
+	info.output_filepath = zone_out;
+	info.jws_filepath = jws_out;
 
 	if (args->sign_validity_duration)
 		info.sign_validity_duration = args->sign_validity_duration;
-
-	if (!args->input_filepath || !args->output_filepath || !args->jws_filepath) {
-		lwsl_err("signzone requires input, output, and jws filepaths\n");
-		return 1;
-	}
-
-	info.input_filepath = args->input_filepath;
-	info.output_filepath = args->output_filepath;
-	info.jws_filepath = args->jws_filepath;
 
 	/* Create temporary merged zonefile if there are active ACME records */
 	struct vhd_dht_dnssec *v = (struct vhd_dht_dnssec *)lws_protocol_vh_priv_get(
@@ -2358,10 +2522,10 @@ do_signzone(struct lws_context *context, struct lws_dht_dnssec_signzone_args *ar
 		}
 
 		if (dom && dom->owner_temp_records.count > 0) {
-			lws_snprintf(withacme_path, sizeof(withacme_path), "%s.withacme", args->input_filepath);
+			lws_snprintf(withacme_path, sizeof(withacme_path), "%s.withacme", zone_in);
 			lwsl_notice("%s: Merging %d ACME temp zones into %s\n", __func__, dom->owner_temp_records.count, withacme_path);
 
-			fd_in = open(args->input_filepath, O_RDONLY);
+			fd_in = open(zone_in, O_RDONLY);
 			if (fd_in >= 0) {
 				fd_out = open(withacme_path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
 				if (fd_out >= 0) {
@@ -2391,7 +2555,7 @@ do_signzone(struct lws_context *context, struct lws_dht_dnssec_signzone_args *ar
 				}
 				close(fd_in);
 			} else {
-				lwsl_err("Failed to open %s for reading\n", args->input_filepath);
+				lwsl_err("Failed to open %s for reading\n", zone_in);
 			}
 		}
 	}

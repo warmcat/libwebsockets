@@ -19,12 +19,12 @@ enum {
 };
 
 static const struct lws_switches switches[] = {
-	[LWS_SW_ALG]	= { "--alg",           "Enable --alg feature" },
-	[LWS_SW_C]	= { "-c",              "Client connections" },
+	[LWS_SW_ALG]	= { "--alg",           "Set custom 'alg' parameter in output JWK" },
+	[LWS_SW_C]	= { "-c",              "Path to the X.509 certificate PEM file" },
 	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
-	[LWS_SW_P]	= { "-p",              "Port number to listen or connect on" },
-	[LWS_SW_T]	= { "-t",              "Test flag" },
-	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+	[LWS_SW_P]	= { "-p",              "Path to the matching private key PEM file" },
+	[LWS_SW_T]	= { "-t",              "Path to a trusted root CA certificate for verification" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information (-h, --help)" },
 };
 
 #include <sys/types.h>
@@ -84,7 +84,7 @@ int main(int argc, const char **argv)
 	const char *p;
 	(void)switches;
 
-	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+	if ((argc == 1) || lws_cmdline_option(argc, argv, "-h") || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
 		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
 		return 0;
 	}

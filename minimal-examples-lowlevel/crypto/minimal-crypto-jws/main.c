@@ -19,10 +19,10 @@ enum {
 
 static const struct lws_switches switches[] = {
 	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
-	[LWS_SW_F]	= { "-f",              "Enable -f feature" },
-	[LWS_SW_K]	= { "-k",              "Key or cert path" },
-	[LWS_SW_S]	= { "-s",              "Use TLS / https" },
-	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+	[LWS_SW_F]	= { "-f",              "Output JWS in flattened format" },
+	[LWS_SW_K]	= { "-k",              "Path to the JWK key file" },
+	[LWS_SW_S]	= { "-s",              "Sign plaintext from stdin using provided algorithm (e.g. RS256)" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information (-h, --help)" },
 };
 
 #include <sys/types.h>
@@ -46,7 +46,7 @@ int main(int argc, const char **argv)
 	const char *p;
 	(void)switches;
 
-	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+	if ((argc == 1) || lws_cmdline_option(argc, argv, "-h") || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
 		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
 		return 0;
 	}

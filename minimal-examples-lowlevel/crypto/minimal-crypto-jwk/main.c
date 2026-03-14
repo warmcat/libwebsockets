@@ -25,18 +25,18 @@ enum {
 };
 
 static const struct lws_switches switches[] = {
-	[LWS_SW_ALG]	= { "--alg",           "Enable --alg feature" },
-	[LWS_SW_CURVE]	= { "--curve",         "Enable --curve feature" },
-	[LWS_SW_KEY_OPS]	= { "--key-ops",       "Enable --key-ops feature" },
-	[LWS_SW_KID]	= { "--kid",           "Enable --kid feature" },
-	[LWS_SW_PUBLIC]	= { "--public",        "Enable --public feature" },
-	[LWS_SW_USE]	= { "--use",           "Enable --use feature" },
-	[LWS_SW_B]	= { "-b",              "Enable -b feature" },
-	[LWS_SW_C]	= { "-c",              "Client connections" },
+	[LWS_SW_ALG]	= { "--alg",           "Set the 'alg' JWS algorithm (e.g. RS256)" },
+	[LWS_SW_CURVE]	= { "--curve",         "Set the EC curve (e.g. P-256)" },
+	[LWS_SW_KEY_OPS]	= { "--key-ops",       "Set the 'key_ops' (e.g. sign, verify)" },
+	[LWS_SW_KID]	= { "--kid",           "Set the 'kid' Key ID" },
+	[LWS_SW_PUBLIC]	= { "--public",        "Output public key only to specified file" },
+	[LWS_SW_USE]	= { "--use",           "Set the 'use' intended usage (e.g. sig)" },
+	[LWS_SW_B]	= { "-b",              "Number of bits to generate (e.g. 2048, 4096)" },
+	[LWS_SW_C]	= { "-c",              "Format output as C array for header files" },
 	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
-	[LWS_SW_T]	= { "-t",              "Test flag" },
-	[LWS_SW_V]	= { "-v",              "Set retry and idle policy" },
-	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+	[LWS_SW_T]	= { "-t",              "Key type to generate (RSA, EC, OCT)" },
+	[LWS_SW_V]	= { "-v",              "Alias for --curve" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information (-h, --help)" },
 };
 
 #include <sys/types.h>
@@ -109,7 +109,7 @@ int main(int argc, const char **argv)
 	int vl = sizeof(key);
 	(void)switches;
 
-	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+	if ((argc == 1) || lws_cmdline_option(argc, argv, "-h") || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
 		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
 		return 0;
 	}

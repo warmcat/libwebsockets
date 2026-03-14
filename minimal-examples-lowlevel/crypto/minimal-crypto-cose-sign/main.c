@@ -27,20 +27,20 @@ enum {
 };
 
 static const struct lws_switches switches[] = {
-	[LWS_SW_ALG]	= { "--alg",           "Enable --alg feature" },
-	[LWS_SW_COSE_MAC]	= { "--cose-mac",      "Enable --cose-mac feature" },
-	[LWS_SW_COSE_MAC0]	= { "--cose-mac0",     "Enable --cose-mac0 feature" },
-	[LWS_SW_COSE_SIGN]	= { "--cose-sign",     "Enable --cose-sign feature" },
-	[LWS_SW_COSE_SIGN1]	= { "--cose-sign1",    "Enable --cose-sign1 feature" },
-	[LWS_SW_EXTRA]	= { "--extra",         "Enable --extra feature" },
-	[LWS_SW_KID]	= { "--kid",           "Enable --kid feature" },
-	[LWS_SW_KID_HEX]	= { "--kid-hex",       "Enable --kid-hex feature" },
-	[LWS_SW_STDIN]	= { "--stdin",         "Enable --stdin feature" },
-	[LWS_SW_STDOUT]	= { "--stdout",        "Enable --stdout feature" },
+	[LWS_SW_ALG]	= { "--alg",           "COSE alg to use for signing (e.g. ES256)" },
+	[LWS_SW_COSE_MAC]	= { "--cose-mac",      "Emit a COSE_Mac message" },
+	[LWS_SW_COSE_MAC0]	= { "--cose-mac0",     "Emit a COSE_Mac0 message" },
+	[LWS_SW_COSE_SIGN]	= { "--cose-sign",     "Emit a COSE_Sign message (multi-signature)" },
+	[LWS_SW_COSE_SIGN1]	= { "--cose-sign1",    "Emit a COSE_Sign1 message (single signature)" },
+	[LWS_SW_EXTRA]	= { "--extra",         "Extra application data appended to signature (hex)" },
+	[LWS_SW_KID]	= { "--kid",           "String specifying the kid to filter keys from keyset" },
+	[LWS_SW_KID_HEX]	= { "--kid-hex",       "Hex string specifying the kid to filter keys from keyset" },
+	[LWS_SW_STDIN]	= { "--stdin",         "Path to file to use as stdin (if not piping)" },
+	[LWS_SW_STDOUT]	= { "--stdout",        "Path to file to write to stdout (if not piping)" },
 	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
-	[LWS_SW_K]	= { "-k",              "Key or cert path" },
-	[LWS_SW_S]	= { "-s",              "Use TLS / https" },
-	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+	[LWS_SW_K]	= { "-k",              "Path to keyset file to use" },
+	[LWS_SW_S]	= { "-s",              "Sign instead of verify" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information (-h, --help)" },
 };
 
 #include <sys/types.h>
@@ -146,7 +146,7 @@ int main(int argc, const char **argv)
 	const char *p;
 	(void)switches;
 
-	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+	if ((argc == 1) || lws_cmdline_option(argc, argv, "-h") || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
 		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
 		return 0;
 	}

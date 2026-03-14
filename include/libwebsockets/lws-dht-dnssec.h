@@ -29,22 +29,18 @@ struct lws_context;
 
 struct lws_dht_dnssec_keygen_args {
 	const char *domain;
+	const char *type;   /* e.g. "EC" or "RSA" */
 	const char *curve;
-	int is_ksk;
+	int bits;
 };
 
 struct lws_dht_dnssec_dsfromkey_args {
-	const char *key_file;
+	const char *domain;
 	const char *hash;   /* E.g., "SHA256" */
 };
 
 struct lws_dht_dnssec_signzone_args {
 	const char *domain;
-	const char *input_filepath;
-	const char *output_filepath;
-	const char *jws_filepath;
-	const char *zsk_jwk_filepath;
-	const char *ksk_jwk_filepath;
 	uint32_t sign_validity_duration;
 };
 

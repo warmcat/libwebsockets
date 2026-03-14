@@ -16,22 +16,24 @@
 
 enum {
 	LWS_SW_CURVE,
+	LWS_SW_TYPE,
+	LWS_SW_BITS,
 	LWS_SW_DURATION,
 	LWS_SW_HASH,
-	LWS_SW_KSK,
-	LWS_SW_ZSK,
 	LWS_SW_D,
+	LWS_SW_P,
 	LWS_SW_HELP,
 };
 
 static const struct lws_switches switches[] = {
-	[LWS_SW_CURVE]	= { "--curve",         "Enable --curve feature" },
-	[LWS_SW_DURATION]	= { "--duration",      "Enable --duration feature" },
-	[LWS_SW_HASH]	= { "--hash",          "Enable --hash feature" },
-	[LWS_SW_KSK]	= { "--ksk",           "Enable --ksk feature" },
-	[LWS_SW_ZSK]	= { "--zsk",           "Enable --zsk feature" },
+	[LWS_SW_CURVE]	= { "--curve",         "Set crypto curve for EC keygen (e.g. P-256)" },
+	[LWS_SW_TYPE]	= { "--type",          "Set key type (EC or RSA, default EC)" },
+	[LWS_SW_BITS]	= { "--bits",          "Set key size for RSA keygen (e.g. 2048)" },
+	[LWS_SW_DURATION]	= { "--duration",      "Set signature validity duration in hours" },
+	[LWS_SW_HASH]	= { "--hash",          "Set hash type for DS record (e.g. SHA256)" },
 	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
-	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+	[LWS_SW_P]	= { "-p",              "Extra plugin dir" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information (-h, --help)" },
 };
 
 int main(int argc, const char **argv)
@@ -44,15 +46,24 @@ int main(int argc, const char **argv)
 	const struct lws_dht_dnssec_ops *ops;
 	struct lws_vhost *vh;
 
-	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
-		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
-		return 0;
-	}
-
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);
+
+	if ((argc == 1) || lws_cmdline_option(argc, argv, "-h") || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lwsl_user("Usage: %s <keygen|dsfromkey|signzone> [args...]\n\n", argv[0]);
+		lwsl_user("  keygen    [--type <RSA|EC>] [--bits <size>] [--curve <curve>] <domain>\n");
+		lwsl_user("            Outputs: <domain>.[ksk|zsk].key & <domain>.[ksk|zsk].private.jwk\n");
+		lwsl_user("  dsfromkey [--hash <hash>] <domain>\n");
+		lwsl_user("            Inputs : <domain>.ksk.key  Outputs: Base64 DS Record to stdout\n");
+		lwsl_user("  signzone  [--duration <hours>] <domain>\n");
+		lwsl_user("            Inputs : <domain>.zone, <domain>.ksk.private.jwk, <domain>.zsk.private.jwk\n");
+		lwsl_user("            Outputs: <domain>.zone.signed and <domain>.zone.signed.jws\n\n");
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
+
 	lwsl_user("LWS DNSSEC Crypto Utility (DHT Plugin Wrapper)\n");
 
 	if (argc < 2) {
@@ -60,21 +71,35 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
+#if 0
 	static const char * const pdirs[] = {
 		"./lib",
 		"../lib",
+		"./plugins",
+		"../plugins",
 		"./build/lib",
 		"../build/lib",
 		"../../lib",
 		NULL
 	};
+	static const char * dynamic_pdirs[3];
+#endif
 
 	memset(&info, 0, sizeof info);
 #if defined(LWS_WITH_NETWORK)
 	info.port = CONTEXT_PORT_NO_LISTEN;
 #endif
 	info.options = 0;
-	info.plugin_dirs = pdirs;
+
+#if 0
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_P].sw))) {
+		dynamic_pdirs[0] = p;
+		dynamic_pdirs[1] = NULL;
+		info.plugin_dirs = dynamic_pdirs;
+	} else {
+		info.plugin_dirs = pdirs;
+	}
+#endif
 
 	context = lws_create_context(&info);
 	if (!context) {
@@ -104,24 +129,37 @@ int main(int argc, const char **argv)
 	}
 
 	const char *mode = argv[1];
+	int n = argc - 1;
+
+	/* move back 1 arg each time the candidate begins with '-' */
+	while (n > 1 && argv[n][0] == '-')
+		n--;
+
+	if (n < 2) {
+		lwsl_err("Missing domain argument\n");
+		lws_context_destroy(context);
+		return 1;
+	}
 
 	if (!strcmp(mode, "keygen")) {
 		struct lws_dht_dnssec_keygen_args kg_args;
 		memset(&kg_args, 0, sizeof(kg_args));
 
-		if (lws_cmdline_option(argc, argv, switches[LWS_SW_KSK].sw))
-			kg_args.is_ksk = 1;
 		if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_CURVE].sw)))
 			kg_args.curve = p;
+		if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_TYPE].sw)))
+			kg_args.type = p;
+		if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_BITS].sw)))
+			kg_args.bits = atoi(p);
 
-		kg_args.domain = argv[argc - 1];
+		kg_args.domain = argv[n];
 
 		if (ops->keygen) result = ops->keygen(context, &kg_args);
 	} else if (!strcmp(mode, "dsfromkey")) {
 		struct lws_dht_dnssec_dsfromkey_args ds_args;
 		memset(&ds_args, 0, sizeof(ds_args));
 
-		ds_args.key_file = argv[argc - 1];
+		ds_args.domain = argv[n];
 		if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_HASH].sw)))
 			ds_args.hash = p;
 
@@ -130,18 +168,10 @@ int main(int argc, const char **argv)
 		struct lws_dht_dnssec_signzone_args sz_args;
 		memset(&sz_args, 0, sizeof(sz_args));
 
-		if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_ZSK].sw)))
-			sz_args.zsk_jwk_filepath = p;
-		if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_KSK].sw)))
-			sz_args.ksk_jwk_filepath = p;
 		if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_DURATION].sw)))
 			sz_args.sign_validity_duration = (uint32_t)atoi(p);
 
-		if (argc >= 4 && argv[argc - 3][0] != '-' && argv[argc - 2][0] != '-' && argv[argc - 1][0] != '-') {
-			sz_args.input_filepath = argv[argc - 3];
-			sz_args.output_filepath = argv[argc - 2];
-			sz_args.jws_filepath = argv[argc - 1];
-		}
+		sz_args.domain = argv[n];
 
 		if (ops->signzone) result = ops->signzone(context, &sz_args);
 	} else {

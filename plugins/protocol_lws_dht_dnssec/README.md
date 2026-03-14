@@ -56,3 +56,29 @@ When using the accompanying `minimal-raw-dht-zone-client`, the CLI dynamically i
     --target-ip 127.0.0.1 \
     --put /tmp/zone.txt
 ```
+
+## `lws-crypto-dnssec` Utility
+Libwebsockets provides the `<build-dir>/bin/lws-crypto-dnssec` standalone utility that interfaces dynamically using the `lws-dht-dnssec` plugin.
+
+To manage keys and signatures efficiently, the utility relies entirely on the `<domain>` to implicitly determine corresponding JSON Web Key (JWK) paths:
+
+### Key Generation Configuration
+Keys generated are RSA `RSASHA256` (DNSSEC Type 8) by default if `--type RSA` is requested. Generating both a KSK and ZSK at once:
+```bash
+./lws-crypto-dnssec keygen --type RSA --bits 1024 example.com
+# Outputs: example.com.ksk.key, example.com.ksk.private.jwk, example.com.zsk.key, and example.com.zsk.private.jwk
+```
+
+### Delegation Signer Record (DS) Extract
+You can grab the Base64 DS fingerprint required for your domain's registrar directly from the `.key` public component:
+```bash
+./lws-crypto-dnssec dsfromkey example.com
+# Derives from naturally existing example.com.ksk.key within the path
+```
+
+### Zonefile Signature Wrap
+After validating your configurations inside `example.com.zone`, it can rapidly wrap it in the required signature headers by locating your `.private.jwk` elements:
+```bash
+./lws-crypto-dnssec signzone example.com
+# Generates example.com.zone.signed and example.com.zone.signed.jws
+```
