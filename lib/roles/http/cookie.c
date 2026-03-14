@@ -606,8 +606,11 @@ lws_parse_set_cookie(struct lws *wsi)
 			 * WS and DQ for value
 			 */
 
-			dl = memchr(tk_head, '=', lws_ptr_diff_size_t(tk_end,
-							tk_head + 1));
+			if (tk_end < tk_head)
+				return -1;
+
+			dl = memchr(tk_head, '=',
+				    lws_ptr_diff_size_t(tk_end, tk_head) + 1);
 			if (!dl || dl == tk_head)
 				return -1;
 
