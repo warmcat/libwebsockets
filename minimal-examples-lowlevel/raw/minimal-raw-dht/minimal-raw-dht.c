@@ -342,7 +342,9 @@ int main(int argc, const char **argv)
 		pvos[16].value = "1";
 
 
+#if defined(LWS_WITH_PLUGINS)
 	static const char * const d_plugin_dirs[] = { NULL };
+#endif
 
 	app_protocols[0].name = "http";
 	app_protocols[0].callback = lws_callback_http_dummy;
@@ -353,7 +355,9 @@ int main(int argc, const char **argv)
 	info.options				= LWS_SERVER_OPTION_EXPLICIT_VHOSTS | LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.pvo				= pvos;
 	info.protocols				= app_protocols;
+#if defined(LWS_WITH_PLUGINS)
 	info.plugin_dirs			= d_plugin_dirs;
+#endif
 	info.fd_limit_per_thread		= 100;
 
         nl.name					= "app";
