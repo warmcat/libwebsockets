@@ -195,6 +195,13 @@ static const struct lws_jose_jwe_alg lws_gencrypto_jws_alg_map[] = {
 		LWS_JOSE_ENCTYPE_NONE,
 		"ES512", "P-521", 521, 521, 0
 	},
+	{	/* Recommended+: EdDSA using Ed25519 and Ed448 */
+		LWS_GENHASH_TYPE_UNKNOWN,
+		LWS_GENHMAC_TYPE_UNKNOWN,
+		LWS_JOSE_ENCTYPE_EDDSA,
+		LWS_JOSE_ENCTYPE_NONE,
+		"EdDSA", NULL, 0, 0, 0
+	},
 #if 0
 	Not yet supported
 

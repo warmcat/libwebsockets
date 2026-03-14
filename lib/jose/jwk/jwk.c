@@ -48,6 +48,11 @@ static const char *ec_names[] = {
 };
 static const char ec_b64[] = { 0, 1, 1, 1 };
 
+static const char *okp_names[] = {
+	"crv", "x", "d",
+};
+static const char okp_b64[] = { 0, 1, 1 };
+
 int
 lws_jwk_dump(struct lws_jwk *jwk)
 {
@@ -78,6 +83,11 @@ lws_jwk_dump(struct lws_jwk *jwk)
 		elems = LWS_GENCRYPTO_EC_KEYEL_COUNT;
 		enames = ec_names;
 		b64 = ec_b64;
+		break;
+	case LWS_GENCRYPTO_KTY_OKP:
+		elems = LWS_GENCRYPTO_OKP_KEYEL_COUNT;
+		enames = okp_names;
+		b64 = okp_b64;
 		break;
 	}
 
@@ -149,7 +159,7 @@ lws_jwk_init_jps(struct lws_jwk_parse_state *jps,
 		memset(jwk, 0, sizeof(*jwk));
 
 	jps->jwk		= jwk;
-	jps->possible		= F_RSA | F_EC | F_OCT;
+	jps->possible		= F_RSA | F_EC | F_OCT | F_OKP;
 	jps->per_key_cb		= cb;
 	jps->user		= user;
 	jps->pos		= 0;
@@ -233,6 +243,31 @@ lws_jwk_generate(struct lws_context *context, struct lws_jwk *jwk,
 		lws_genec_destroy(&ctx);
 		if (n) {
 			lwsl_err("%s: problem generating ECDSA key\n", __func__);
+			return 1;
+		}
+	}
+		break;
+
+	case LWS_GENCRYPTO_KTY_OKP:
+	{
+		struct lws_genec_ctx ctx;
+
+		if (!curve) {
+			lwsl_err("%s: must have a named curve\n", __func__);
+
+			return 1;
+		}
+
+		if (lws_geneddsa_create(&ctx, context, NULL))
+			return 1;
+
+		lwsl_notice("%s: generating EdDSA key on curve %s\n", __func__,
+				curve);
+
+		n = lws_geneddsa_new_keypair(&ctx, curve, jwk->e);
+		lws_genec_destroy(&ctx);
+		if (n) {
+			lwsl_err("%s: problem generating EdDSA key\n", __func__);
 			return 1;
 		}
 	}

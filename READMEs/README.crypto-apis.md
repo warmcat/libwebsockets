@@ -64,7 +64,9 @@ combinations are acceptable by querying the parsed JW structs).
 
  - ECDH
  - ECDSA
+ - EdDSA (requires building with OpenSSL `LWS_WITH_OPENSSL`)
  - P256 / P384 / P521 (sic) curves
+ - Ed25519 / Ed448 curves (requires building with OpenSSL `LWS_WITH_OPENSSL`)
 
 ## Using the generic layer
 
@@ -94,6 +96,7 @@ length of the array is defined by the cipher... it's one of
 |`LWS_COUNT_OCT_KEY_ELEMENTS`|1|
 |`LWS_COUNT_RSA_KEY_ELEMENTS`|8|
 |`LWS_COUNT_EC_KEY_ELEMENTS`|4|
+|`LWS_COUNT_OKP_KEY_ELEMENTS`|4|
 |`LWS_COUNT_AES_KEY_ELEMENTS`|1|
 
 `struct lws_jwk_elements` is a simple pointer / length combination used to
@@ -145,6 +148,7 @@ The JOSE RFCs define specific short names for different algorithms
 ---|---|---
 |RS256, RS384, RS512|SHA256/384/512|RSA
 |ES256, ES384, ES521|SHA256/384/512|EC
+|EdDSA|None|Ed25519 or Ed448 (Requires OpenSSL)
 
 ### JWE
 

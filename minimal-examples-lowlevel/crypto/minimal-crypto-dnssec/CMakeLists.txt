@@ -6,7 +6,7 @@ include(CheckCSourceCompiles)
 include(LwsCheckRequirements)
 
 set(SAMP lws-crypto-dnssec)
-set(SRCS main.c)
+set(SRCS main.c ../../../plugins/protocol_lws_dht_dnssec/protocol_lws_dht_dnssec.c)
 
 set(requirements 1)
 require_lws_config(LWS_WITH_JOSE 1 requirements)
