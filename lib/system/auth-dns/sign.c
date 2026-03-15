@@ -96,7 +96,7 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 
 	lws_tokenize_t ts;
 	lws_tokenize_elem e;
-	char toks[16][1024];
+	char toks[64][1024];
 	int num_toks = 0, n;
 
 	memset(toks, 0, sizeof(toks));
@@ -107,12 +107,12 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 	int tok_ofs = 0;
 	do {
 		e = lws_tokenize(&ts);
-		if (e == LWS_TOKZE_ENDED || ++max_tokens > 256)
+		if (e == LWS_TOKZE_ENDED || ++max_tokens > 2048)
 			break;
 
 		if (e == LWS_TOKZE_TOKEN || e == LWS_TOKZE_QUOTED_STRING || e == LWS_TOKZE_INTEGER ||
 		    e == LWS_TOKZE_TOKEN_CHUNK || e == LWS_TOKZE_QUOTED_STRING_CHUNK) {
-			if (num_toks < 16) {
+			if (num_toks < 64) {
 				n = (int)ts.token_len;
 				if (tok_ofs + n > (int)sizeof(toks[0]) - 1)
 					n = (int)sizeof(toks[0]) - 1 - tok_ofs;
@@ -213,18 +213,72 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		w[wl++] = (uint8_t)atoi(toks[1]);
 		w[wl++] = (uint8_t)atoi(toks[2]);
 
+		/* The remaining toks are fragments of the base64 key due to chunking/whitespace. Reassemble them first. */
+		char b64_accum[4096] = "";
+		for (int i = 3; i < num_toks; i++) {
+			strncat(b64_accum, toks[i], sizeof(b64_accum) - strlen(b64_accum) - 1);
+		}
+
 		int b64_len = 0;
-		if (lws_b64_decode_string(toks[3], (char *)w + wl, 2048 - (int)wl) > 0) {
-			b64_len = lws_b64_decode_string(toks[3], (char *)w + wl, 2048 - (int)wl);
+		if (lws_b64_decode_string(b64_accum, (char *)w + wl, 4096 - (int)wl) > 0) {
+			b64_len = lws_b64_decode_string(b64_accum, (char *)w + wl, 4096 - (int)wl);
 			wl += (size_t)b64_len;
 		} else {
-			lwsl_err("RDATA_TO_WIRE: DNSKEY string decoding Failed. b64='%s'\n", toks[3]);
+			lwsl_err("RDATA_TO_WIRE: DNSKEY string decoding Failed. b64='%s'\n", b64_accum);
 			{ lwsl_err("FAIL on rdata: %s (toks[0]: %s)", rr->rdata, toks[0]); goto fail; }
 		}
-	} else if (type == 46) { // RRSIG
-		/* RRSIG wire representation isn't explicitly used for hash coverage since hashes cover
-		   only the RRs matching the type covered, meaning we can skip RRSIG parsing here safely
-		   and parse it on-the-fly during validation natively! */
+	} else if (type == 46 && num_toks >= 9) { // RRSIG
+		/* Type Covered */
+		uint16_t tc = 0;
+		if (!strcmp(toks[0], "A")) tc = 1;
+		else if (!strcmp(toks[0], "NS")) tc = 2;
+		else if (!strcmp(toks[0], "SOA")) tc = 6;
+		else if (!strcmp(toks[0], "MX")) tc = 15;
+		else if (!strcmp(toks[0], "TXT")) tc = 16;
+		else if (!strcmp(toks[0], "AAAA")) tc = 28;
+		else if (!strcmp(toks[0], "DNSKEY")) tc = 48;
+		else if (!strcmp(toks[0], "NSEC3")) tc = 50;
+		else if (!strcmp(toks[0], "NSEC3PARAM")) tc = 51;
+		else tc = (uint16_t)atoi(toks[0]);
+
+		w[wl++] = (uint8_t)(tc >> 8); w[wl++] = (uint8_t)(tc & 0xff);
+		w[wl++] = (uint8_t)atoi(toks[1]); /* Algorithm */
+		w[wl++] = (uint8_t)atoi(toks[2]); /* Labels */
+
+		uint32_t o_ttl = (uint32_t)atoll(toks[3]);
+		w[wl++] = (uint8_t)(o_ttl >> 24); w[wl++] = (uint8_t)(o_ttl >> 16); w[wl++] = (uint8_t)(o_ttl >> 8); w[wl++] = (uint8_t)(o_ttl & 0xff);
+
+		/* Expiration & Inception: YYYYMMDDHHMMSS -> Unix timestamp */
+		struct tm tm;
+		memset(&tm, 0, sizeof(tm));
+		if (strlen(toks[4]) == 14 && sscanf(toks[4], "%4d%2d%2d%2d%2d%2d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday, &tm.tm_hour, &tm.tm_min, &tm.tm_sec) == 6) {
+			tm.tm_year -= 1900; tm.tm_mon -= 1;
+			uint32_t exp = (uint32_t)timegm(&tm);
+			w[wl++] = (uint8_t)(exp >> 24); w[wl++] = (uint8_t)(exp >> 16); w[wl++] = (uint8_t)(exp >> 8); w[wl++] = (uint8_t)(exp & 0xff);
+		} else goto fail;
+
+		memset(&tm, 0, sizeof(tm));
+		if (strlen(toks[5]) == 14 && sscanf(toks[5], "%4d%2d%2d%2d%2d%2d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday, &tm.tm_hour, &tm.tm_min, &tm.tm_sec) == 6) {
+			tm.tm_year -= 1900; tm.tm_mon -= 1;
+			uint32_t inc = (uint32_t)timegm(&tm);
+			w[wl++] = (uint8_t)(inc >> 24); w[wl++] = (uint8_t)(inc >> 16); w[wl++] = (uint8_t)(inc >> 8); w[wl++] = (uint8_t)(inc & 0xff);
+		} else goto fail;
+
+		uint16_t kt = (uint16_t)atoi(toks[6]);
+		w[wl++] = (uint8_t)(kt >> 8); w[wl++] = (uint8_t)(kt & 0xff);
+
+		size_t av = 512;
+		if (name_to_wire(toks[7], z->origin, w + wl, &av)) goto fail;
+		wl += av;
+
+		char b64_accum[4096] = "";
+		for (int i = 8; i < num_toks; i++) {
+			strncat(b64_accum, toks[i], sizeof(b64_accum) - strlen(b64_accum) - 1);
+		}
+
+		if (lws_b64_decode_string(b64_accum, (char *)w + wl, 4096 - (int)wl) > 0) {
+			wl += (size_t)lws_b64_decode_string(b64_accum, (char *)w + wl, 4096 - (int)wl);
+		} else goto fail;
 	} else {
 		{ lwsl_err("FAIL on rdata: %s (toks[0]: %s)", rr->rdata, toks[0]); goto fail; }
 	}

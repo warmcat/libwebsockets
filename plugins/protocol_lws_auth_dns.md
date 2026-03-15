@@ -17,6 +17,7 @@ The plugin behavior is controlled by providing the following Per-Vhost Options (
 | `zone-dir` | Optional if `dht-zone-dir` is provided. Specifies the absolute or relative directory path containing the `.zone` authoritative DNS files to parse and serve. The plugin will scan this directory once during vhost initialization and load valid DNS zone files matching the `*.zone` extension. |
 | `dht-zone-dir` | Optional. Specifies a directory to cache securely fetched DHT zone files. If a DNS query does not match an existing zone, and this PVO is active alongside the `lws-dht-dnssec` plugin, the `lws-auth-dns` plugin will pause processing the query, dynamically lookup and validate the corresponding JWS-signed zonefile via the DHT, cache it here, load it into memory, and resume processing the suspended DNS queries. |
 | `dht-max-pending` | Optional. Limits the number of pending network DNS queries (UDP and TCP) queued per vhost waiting for a DHT fetch to resolve. Defaults to 16. When the limit is reached, entirely new queries requiring a DHT fetch are immediately rejected with a `REFUSED` response to prevent memory exhaustion DoS attacks. |
+| `dnsbl` | Optional. A comma-separated list of DNSBL domains (e.g. `zen.spamhaus.org,test.local`). When provided, the plugin performs asynchronous validation of both the queried domain and the target IPs against all configured DNSBL servers before returning the authoritative DNS response. Positive responses (drops) are cached for 5 minutes. |
 
 ## Example `lwsws` Configuration
 
@@ -35,7 +36,8 @@ The following is an example of how to enable and configure the plugin on a vhost
 				"status": "ok",
 				"zone-dir": "/etc/lws-auth-dns/zones",
 				"dht-zone-dir": "/tmp/lws-dht-zones",
-				"dht-max-pending": "16"
+				"dht-max-pending": "16",
+				"dnsbl": "zen.spamhaus.org,test.local"
 			}
 		}]
 	}]

@@ -175,7 +175,7 @@ int main(int argc, const char **argv)
 		memset(&sz_args, 0, sizeof(sz_args));
 
 		if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_DURATION].sw)))
-			sz_args.sign_validity_duration = (uint32_t)atoi(p);
+			sz_args.sign_validity_duration = (uint32_t)atoi(p) * 3600;
 
 		sz_args.domain = argv[n];
 

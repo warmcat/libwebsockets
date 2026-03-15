@@ -73,6 +73,9 @@ struct lws_dht_dnssec_ops {
 	int (*add_temp_zone)(struct lws_context *context, const char *domain, const char *zone_str, int ttl_secs);
 	int (*publish_jws)(struct lws_context *context, const char *jws_filepath);
 	int (*fetch_zone)(struct lws_context *context, struct lws_dht_dnssec_fetch_zone_args *args);
+
+	void (*register_auth_cb)(struct lws_vhost *vh, void (*cb)(void *opaque, const char *domain, const char *payload_path), void *opaque);
 };
+
 
 #endif

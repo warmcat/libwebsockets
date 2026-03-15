@@ -86,6 +86,9 @@ struct vhd_dht_dnssec {
 	lws_dht_store_completion_cb_t	cb_completion;
 	void				*cb_closure;
 
+	void (*auth_cb)(void *opaque, const char *domain, const char *payload_path);
+	void *auth_cb_opaque;
+
 	struct lws_jwk			jwk;
 	struct lws_jwk			*trusted_keys;
 	const char			*policy_allow;
@@ -372,7 +375,7 @@ dht_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 						else hashtype = (enum lws_genhash_types)0;
 
 						if (hashtype != (enum lws_genhash_types)0 && !lws_genhash_init(&hash_ctx, hashtype)) {
-							uint8_t key_data[512];
+							uint8_t key_data[1024];
 							size_t key_len = 0;
 
 							key_data[key_len++] = 257 >> 8; /* Flags (KSK) */
@@ -385,6 +388,37 @@ dht_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 								key_len += jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len;
 								memcpy(key_data + key_len, jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].buf, jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len);
 								key_len += jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len;
+							} else if (jwk.kty == LWS_GENCRYPTO_KTY_RSA) {
+								uint8_t *e_buf = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_E].buf;
+								size_t e_len = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_E].len;
+
+								/* Remove leading zero bytes from E if any */
+								while (e_len > 1 && *e_buf == 0) {
+									e_buf++;
+									e_len--;
+								}
+
+								if (e_len <= 255) {
+									key_data[key_len++] = (uint8_t)e_len;
+								} else {
+									key_data[key_len++] = 0;
+									key_data[key_len++] = (uint8_t)(e_len >> 8);
+									key_data[key_len++] = (uint8_t)(e_len & 0xff);
+								}
+								memcpy(key_data + key_len, e_buf, e_len);
+								key_len += e_len;
+
+								uint8_t *n_buf = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].buf;
+								size_t n_len = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].len;
+
+								/* Remove leading zero bytes from N if any */
+								while (n_len > 1 && *n_buf == 0) {
+									n_buf++;
+									n_len--;
+								}
+
+								memcpy(key_data + key_len, n_buf, n_len);
+								key_len += n_len;
 							}
 
 							if (lws_genhash_update(&hash_ctx, wire, (size_t)wire_len) == 0 &&
@@ -435,6 +469,31 @@ dht_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 									if (jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len + jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len == (uint32_t)kdata_len) {
 										if (memcmp(kdata, jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].buf, jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len) == 0 &&
 											memcmp(kdata + jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len, jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].buf, jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len) == 0) {
+											live_zsk_match = 1;
+										}
+									}
+								} else if (jwk.kty == LWS_GENCRYPTO_KTY_RSA) {
+									const uint8_t *kdata = &kn[4];
+									int kdata_len = paylen - 4;
+
+									uint32_t e_len_wire = kdata[0];
+									int e_offset = 1;
+									if (e_len_wire == 0 && kdata_len >= 3) {
+										e_len_wire = (uint32_t)((kdata[1] << 8) | kdata[2]);
+										e_offset = 3;
+									}
+
+									uint8_t *e_buf = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_E].buf;
+									size_t e_len = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_E].len;
+									while (e_len > 1 && *e_buf == 0) { e_buf++; e_len--; }
+
+									uint8_t *n_buf = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].buf;
+									size_t n_len = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].len;
+									while (n_len > 1 && *n_buf == 0) { n_buf++; n_len--; }
+
+									if ((uint32_t)e_len == e_len_wire && kdata_len >= e_offset + (int)e_len_wire && (uint32_t)n_len == (uint32_t)kdata_len - (uint32_t)e_offset - e_len_wire) {
+										if (memcmp(kdata + e_offset, e_buf, e_len) == 0 &&
+											memcmp(kdata + e_offset + e_len, n_buf, n_len) == 0) {
 											live_zsk_match = 1;
 										}
 									}
@@ -577,6 +636,10 @@ dht_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 				unlink(tmp_ppath);
 			} else {
 				lwsl_user("%s: Atomically moved decoded payload to %s\n", __func__, final_ppath);
+
+				if (vhd->auth_cb) {
+					vhd->auth_cb(vhd->auth_cb_opaque, frag->domain, final_ppath);
+				}
 
 				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->fetch_reqs.head) {
 					struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
@@ -3032,6 +3095,21 @@ do_importnsd(struct lws_context *context, struct lws_dht_dnssec_importnsd_args *
 	return 0;
 }
 
+static void dht_dnssec_register_auth_cb(struct lws_vhost *vh, void (*cb)(void *opaque, const char *domain, const char *payload_path), void *opaque)
+{
+	if (vh) {
+		const struct lws_protocols *prot = lws_vhost_name_to_protocol(vh, "lws-dht-dnssec");
+		if (prot) {
+			struct vhd_dht_dnssec *vhd = (struct vhd_dht_dnssec *)lws_protocol_vh_priv_get(vh, prot);
+			if (vhd) {
+				vhd->auth_cb = cb;
+				vhd->auth_cb_opaque = opaque;
+				lwsl_notice("%s: Registered local zone auth cb\n", __func__);
+			}
+		}
+	}
+}
+
 static const struct lws_dht_dnssec_ops ops = {
 	.keygen = do_keygen,
 	.dsfromkey = do_dsfromkey,
@@ -3040,6 +3118,7 @@ static const struct lws_dht_dnssec_ops ops = {
 	.add_temp_zone = do_add_temp_zone,
 	.publish_jws = do_publish_jws,
 	.fetch_zone = do_fetch_zone,
+	.register_auth_cb = dht_dnssec_register_auth_cb,
 };
 
 LWS_VISIBLE const struct lws_protocols lws_dht_dnssec_protocols[] = {
