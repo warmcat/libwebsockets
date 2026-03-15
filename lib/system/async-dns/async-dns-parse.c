@@ -763,12 +763,12 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 	}
 
 	if (lws_ser_ru16be(pkt + DHO_NANSWERS)) {
-		c->results = (struct addrinfo *)&c[1];
+		c->results = adst.ctr ? (struct addrinfo *)&c[1] : NULL;
 		c->rr_results = adst.rr_first;
 
-		if (q->last) /* chain the second one on */
+		if (q->last && c->results) /* chain the second one on */
 			*q->last = c->results;
-		else /* first one had no results, set first guy's c->results */
+		else if (c->results) /* first one had no results, set first guy's c->results */
 			if (q->firstcache)
 				q->firstcache->results = c->results;
 	}

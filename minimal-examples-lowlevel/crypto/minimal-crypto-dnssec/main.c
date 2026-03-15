@@ -104,6 +104,9 @@ int main(int argc, const char **argv)
 	}
 #endif
 
+	info.argc = (int)argc;
+	info.argv = argv;
+
 	context = lws_create_context(&info);
 	if (!context) {
 		lwsl_err("lws init failed\n");

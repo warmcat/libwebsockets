@@ -29,6 +29,7 @@ struct lws_context;
 
 struct lws_dht_dnssec_keygen_args {
 	const char *domain;
+	const char *workdir;
 	const char *type;   /* e.g. "EC" or "RSA" */
 	const char *curve;
 	int bits;
@@ -36,11 +37,13 @@ struct lws_dht_dnssec_keygen_args {
 
 struct lws_dht_dnssec_dsfromkey_args {
 	const char *domain;
+	const char *workdir;
 	const char *hash;   /* E.g., "SHA256" */
 };
 
 struct lws_dht_dnssec_signzone_args {
 	const char *domain;
+	const char *workdir;
 	uint32_t sign_validity_duration;
 };
 

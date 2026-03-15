@@ -121,9 +121,9 @@ lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c)
 		lws_set_timeout(w, NO_PENDING_TIMEOUT, 0);
 		if (w->adns_cb(w, (const char *)&q[1], c ? c->results : NULL,
 #if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
-				0 | (q->dnssec_valid ? LWS_ADNS_DNSSEC_VALID : 0),
+				(c ? 0 : LADNS_RET_FAILED) | (q->dnssec_valid ? LWS_ADNS_DNSSEC_VALID : 0),
 #else
-				0,
+				(c ? 0 : LADNS_RET_FAILED),
 #endif
 				q->opaque) == NULL) {
 			lwsl_info("%s: failed\n", __func__);
@@ -139,9 +139,9 @@ lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c)
 		if (q->standalone_cb(NULL, (const char *)&q[1],
 				 c ? c->results : NULL,
 #if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
-				 0 | (q->dnssec_valid ? LWS_ADNS_DNSSEC_VALID : 0),
+				 (c ? 0 : LADNS_RET_FAILED) | (q->dnssec_valid ? LWS_ADNS_DNSSEC_VALID : 0),
 #else
-				 0,
+				 (c ? 0 : LADNS_RET_FAILED),
 #endif
 				 q->opaque) == NULL)
 			ret = LADNS_RET_FAILED_WSI_CLOSED;

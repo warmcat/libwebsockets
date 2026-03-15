@@ -428,6 +428,11 @@ endif()
 if (LWS_WITH_AUTHORITATIVE_DNS)
 	set(LWS_WITH_GENCRYPTO 1)
 	set(LWS_WITH_JOSE 1)
+	if (LWS_WITH_DHT)
+		# dht_dnssec_monitor plugin requires these
+		set(LWS_WITH_DIR 1)
+		set(LWS_WITH_SPAWN 1)
+	endif()
 endif()
 
 if (LWS_WITH_SYS_ASYNC_DNS_DNSSEC)

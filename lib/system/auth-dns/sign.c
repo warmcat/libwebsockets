@@ -100,24 +100,33 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 	int num_toks = 0, n;
 
 	memset(toks, 0, sizeof(toks));
-	lws_tokenize_init(&ts, rr->rdata, LWS_TOKENIZE_F_HASH_COMMENT | LWS_TOKENIZE_F_DOT_NONTERM | LWS_TOKENIZE_F_NO_FLOATS | LWS_TOKENIZE_F_MINUS_NONTERM | LWS_TOKENIZE_F_SLASH_NONTERM | LWS_TOKENIZE_F_COLON_NONTERM | LWS_TOKENIZE_F_EQUALS_NONTERM | LWS_TOKENIZE_F_PLUS_NONTERM);
+	lws_tokenize_init(&ts, rr->rdata, LWS_TOKENIZE_F_HASH_COMMENT | LWS_TOKENIZE_F_DOT_NONTERM | LWS_TOKENIZE_F_NO_FLOATS | LWS_TOKENIZE_F_MINUS_NONTERM | LWS_TOKENIZE_F_SLASH_NONTERM | LWS_TOKENIZE_F_COLON_NONTERM | LWS_TOKENIZE_F_EQUALS_NONTERM | LWS_TOKENIZE_F_PLUS_NONTERM | LWS_TOKENIZE_F_CHUNK);
 	ts.len = strlen(rr->rdata);
 
 	int max_tokens = 0;
+	int tok_ofs = 0;
 	do {
 		e = lws_tokenize(&ts);
 		if (e == LWS_TOKZE_ENDED || ++max_tokens > 256)
 			break;
 
-		if (e == LWS_TOKZE_TOKEN || e == LWS_TOKZE_QUOTED_STRING || e == LWS_TOKZE_INTEGER) {
+		if (e == LWS_TOKZE_TOKEN || e == LWS_TOKZE_QUOTED_STRING || e == LWS_TOKZE_INTEGER ||
+		    e == LWS_TOKZE_TOKEN_CHUNK || e == LWS_TOKZE_QUOTED_STRING_CHUNK) {
 			if (num_toks < 16) {
 				n = (int)ts.token_len;
-				if (n > (int)sizeof(toks[0]) - 1)
-					n = sizeof(toks[0]) - 1;
-				memcpy(toks[num_toks], ts.token, (size_t)n);
-				toks[num_toks][n] = '\0';
+				if (tok_ofs + n > (int)sizeof(toks[0]) - 1)
+					n = (int)sizeof(toks[0]) - 1 - tok_ofs;
+				if (n > 0) {
+					memcpy(toks[num_toks] + tok_ofs, ts.token, (size_t)n);
+					toks[num_toks][tok_ofs + n] = '\0';
+					tok_ofs += n;
+				}
 			}
-			num_toks++;
+
+			if (e == LWS_TOKZE_TOKEN || e == LWS_TOKZE_QUOTED_STRING || e == LWS_TOKZE_INTEGER) {
+				num_toks++;
+				tok_ofs = 0;
+			}
 		}
 	} while (e > 0);
 
@@ -347,10 +356,14 @@ lws_auth_dns_add_dnskey(struct auth_dns_zone *z, const char *jwk_path, int flags
 		return 0;
 
 	fd = open(jwk_path, LWS_O_RDONLY);
-	if (fd < 0) return 1;
+	if (fd < 0) {
+		lwsl_err("%s: Failed to open JWK file at '%s'\n", __func__, jwk_path);
+		return 1;
+	}
 
 	if (fstat(fd, &st) < 0) {
 		close(fd);
+		lwsl_err("%s: Failed fstat on %s\n", __func__, jwk_path);
 		return 1;
 	}
 
@@ -363,16 +376,21 @@ lws_auth_dns_add_dnskey(struct auth_dns_zone *z, const char *jwk_path, int flags
 	n = read(fd, buf, (unsigned int)st.st_size);
 	close(fd);
 
-	if (n != st.st_size)
+	if (n != st.st_size) {
+		lwsl_err("%s: Read size mismatch on %s\n", __func__, jwk_path);
 		goto bail;
+	}
 	buf[st.st_size] = '\0';
 
-	if (lws_jwk_import(&jwk, NULL, NULL, buf, (size_t)st.st_size))
+	if (lws_jwk_import(&jwk, NULL, NULL, buf, (size_t)st.st_size)) {
+		lwsl_err("%s: Failed to import JWK from %s\n", __func__, jwk_path);
 		goto bail;
+	}
 
-	if (jwk.kty != LWS_GENCRYPTO_KTY_EC) {
+	if (jwk.kty != LWS_GENCRYPTO_KTY_EC && jwk.kty != LWS_GENCRYPTO_KTY_RSA) {
+		lwsl_err("%s: Unsupported key type %d\n", __func__, jwk.kty);
 		lws_jwk_destroy(&jwk);
-		goto bail; /* Currently testing EC only */
+		goto bail;
 	}
 
 	/* Flags: 256 for ZSK, 257 for KSK */
@@ -382,25 +400,62 @@ lws_auth_dns_add_dnskey(struct auth_dns_zone *z, const char *jwk_path, int flags
 	/* Protocol = 3 */
 	wire[wl++] = 3;
 
-	/* Determine DNSSEC Algorithm from the JWK Curve */
-	int dnssec_alg = 13; /* Default ECDSAP256SHA256 */
-	if (jwk.e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf) {
-		const char *crv = (const char *)jwk.e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf;
-		if (!strncmp(crv, "P-384", 5)) dnssec_alg = 14;
-		else if (!strncmp(crv, "P-521", 5)) dnssec_alg = 15;
+	int dnssec_alg = 8; /* RSASHA256 Default */
+
+	if (jwk.kty == LWS_GENCRYPTO_KTY_EC) {
+		dnssec_alg = 13; /* ECDSAP256SHA256 Default */
+		if (jwk.e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf) {
+			const char *crv = (const char *)jwk.e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf;
+			if (!strncmp(crv, "P-384", 5)) dnssec_alg = 14;
+			else if (!strncmp(crv, "P-521", 5)) dnssec_alg = 15;
+		}
 	}
 
 	/* Algorithm */
 	wire[wl++] = (uint8_t)dnssec_alg;
 
-	/* Append X and Y */
-	memcpy(wire + wl, jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].buf,
-		   jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len);
-	wl += jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len;
+	if (jwk.kty == LWS_GENCRYPTO_KTY_EC) {
+		/* Append X and Y */
+		memcpy(wire + wl, jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].buf,
+			   jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len);
+		wl += jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len;
 
-	memcpy(wire + wl, jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].buf,
-		   jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len);
-	wl += jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len;
+		memcpy(wire + wl, jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].buf,
+			   jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len);
+		wl += jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len;
+	} else if (jwk.kty == LWS_GENCRYPTO_KTY_RSA) {
+		/* RFC 3110 RSA Public Key Format */
+		uint8_t *e_buf = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_E].buf;
+		size_t e_len = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_E].len;
+
+		/* Remove leading zero bytes from E if any */
+		while (e_len > 1 && *e_buf == 0) {
+			e_buf++;
+			e_len--;
+		}
+
+		if (e_len <= 255) {
+			wire[wl++] = (uint8_t)e_len;
+		} else {
+			wire[wl++] = 0;
+			wire[wl++] = (uint8_t)(e_len >> 8);
+			wire[wl++] = (uint8_t)(e_len & 0xff);
+		}
+		memcpy(wire + wl, e_buf, e_len);
+		wl += e_len;
+
+		uint8_t *n_buf = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].buf;
+		size_t n_len = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].len;
+
+		/* Remove leading zero bytes from N if any */
+		while (n_len > 1 && *n_buf == 0) {
+			n_buf++;
+			n_len--;
+		}
+
+		memcpy(wire + wl, n_buf, n_len);
+		wl += n_len;
+	}
 
 	/* find existing rrset */
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&z->rrset_list)) {
@@ -635,6 +690,7 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 		uint16_t keytag_ksk = 0, keytag_zsk = 0;
 		(void)keytag_zsk; /* Silences unused variable warnings when loops branch differently */
 		struct lws_genec_ctx genec_zsk, genec_ksk;
+		struct lws_genrsa_ctx genrsa_zsk, genrsa_ksk;
 		int dnssec_alg = 13; /* Default ECDSAP256SHA256 */
 
 		if (info->ksk_jwk_filepath) {
@@ -644,25 +700,39 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 				if (buf_ksk && read(fd_ksk, buf_ksk, (unsigned int)st_ksk.st_size) == st_ksk.st_size) {
 					buf_ksk[st_ksk.st_size] = '\0';
 					if (lws_jwk_import(&ksk, NULL, NULL, buf_ksk, (size_t)st_ksk.st_size) == 0 &&
-						ksk.kty == LWS_GENCRYPTO_KTY_EC &&
-						lws_genecdsa_create(&genec_ksk, info->cx, NULL) == 0 &&
-						lws_genecdsa_set_key(&genec_ksk, ksk.e) == 0) {
-						has_ksk = 1;
+						(ksk.kty == LWS_GENCRYPTO_KTY_EC || ksk.kty == LWS_GENCRYPTO_KTY_RSA)) {
 
+						if (ksk.kty == LWS_GENCRYPTO_KTY_EC) {
+							if (lws_genecdsa_create(&genec_ksk, info->cx, NULL) == 0 && lws_genecdsa_set_key(&genec_ksk, ksk.e) == 0) {
+								has_ksk = 1;
+							}
+						} else if (ksk.kty == LWS_GENCRYPTO_KTY_RSA) {
+							if (lws_genrsa_create(&genrsa_ksk, ksk.e, info->cx, LGRSAM_PKCS1_1_5, LWS_GENHASH_TYPE_UNKNOWN) == 0) {
+								has_ksk = 1;
+							}
+						}
+
+						if (has_ksk) {
 						/* Determine DNSSEC Algorithm from the JWK Curve */
 						int digest_type = 2; /* SHA256 */
 						const char *alg_name = "ECDSAP256SHA256";
 						const char *digest_name = "SHA256";
-						if (ksk.e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf) {
-							const char *crv = (const char *)ksk.e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf;
-							if (!strncmp(crv, "P-384", 5)) {
-								dnssec_alg = 14; digest_type = 4;
-								alg_name = "ECDSAP384SHA384"; digest_name = "SHA384";
+						dnssec_alg = 13;
+						if (ksk.kty == LWS_GENCRYPTO_KTY_EC) {
+							if (ksk.e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf) {
+								const char *crv = (const char *)ksk.e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf;
+								if (!strncmp(crv, "P-384", 5)) {
+									dnssec_alg = 14; digest_type = 4;
+									alg_name = "ECDSAP384SHA384"; digest_name = "SHA384";
+								}
+								else if (!strncmp(crv, "P-521", 5)) {
+									dnssec_alg = 15; digest_type = 4; /* SHA384 used for P-521 per RFC 6605 */
+									alg_name = "ECDSAP521SHA512";
+								}
 							}
-							else if (!strncmp(crv, "P-521", 5)) {
-								dnssec_alg = 15; digest_type = 4; /* SHA384 used for P-521 per RFC 6605 */
-								alg_name = "ECDSAP521SHA512";
-							}
+						} else {
+							dnssec_alg = 8; /* RSASHA256 */
+							alg_name = "RSASHA256"; digest_name = "SHA256";
 						}
 
 						/* Create the wire format of the KSK to compute Keytag and DS hash */
@@ -672,10 +742,26 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 						wire[wl++] = 257 & 0xff;
 						wire[wl++] = 3; /* Protocol */
 						wire[wl++] = (uint8_t)dnssec_alg; /* Algorithm */
-						memcpy(wire + wl, ksk.e[LWS_GENCRYPTO_EC_KEYEL_X].buf, ksk.e[LWS_GENCRYPTO_EC_KEYEL_X].len);
-						wl += ksk.e[LWS_GENCRYPTO_EC_KEYEL_X].len;
-						memcpy(wire + wl, ksk.e[LWS_GENCRYPTO_EC_KEYEL_Y].buf, ksk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len);
-						wl += ksk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len;
+						if (ksk.kty == LWS_GENCRYPTO_KTY_EC) {
+							memcpy(wire + wl, ksk.e[LWS_GENCRYPTO_EC_KEYEL_X].buf, ksk.e[LWS_GENCRYPTO_EC_KEYEL_X].len);
+							wl += ksk.e[LWS_GENCRYPTO_EC_KEYEL_X].len;
+							memcpy(wire + wl, ksk.e[LWS_GENCRYPTO_EC_KEYEL_Y].buf, ksk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len);
+							wl += ksk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len;
+						} else {
+							uint8_t *e_buf = ksk.e[LWS_GENCRYPTO_RSA_KEYEL_E].buf;
+							size_t e_len = ksk.e[LWS_GENCRYPTO_RSA_KEYEL_E].len;
+							while (e_len > 1 && *e_buf == 0) { e_buf++; e_len--; }
+							if (e_len <= 255) {
+								wire[wl++] = (uint8_t)e_len;
+							} else {
+								wire[wl++] = 0; wire[wl++] = (uint8_t)(e_len >> 8); wire[wl++] = (uint8_t)(e_len & 0xff);
+							}
+							memcpy(wire + wl, e_buf, e_len); wl += e_len;
+							uint8_t *n_buf = ksk.e[LWS_GENCRYPTO_RSA_KEYEL_N].buf;
+							size_t n_len = ksk.e[LWS_GENCRYPTO_RSA_KEYEL_N].len;
+							while (n_len > 1 && *n_buf == 0) { n_buf++; n_len--; }
+							memcpy(wire + wl, n_buf, n_len); wl += n_len;
+						}
 
 						/* Compute keytag (RFC4034 Appendix B) */
 						uint32_t ac = 0;
@@ -693,7 +779,6 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 						int hash_len = (digest_type == 4) ? 48 : 32;
 
 						if (lws_genhash_init(&hctx, hash_type) == 0) {
-							lwsl_notice("!!! USING PATCHED SIGNZONE HASHING !!!\n");
 							/* To compute DS, hash the wire format: owner + key data */
 							uint8_t dspre[512]; size_t dl = 0; size_t al = sizeof(dspre);
 							name_to_wire(z->origin, "", dspre, &al); dl += al;
@@ -710,8 +795,9 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 							}
 						}
 					}
-				}
-				if (buf_ksk) lws_free(buf_ksk);
+					if (buf_ksk) lws_free(buf_ksk);
+			} else {
+				lwsl_err("%s: Failed to open or fstat KSK at %s\n", __func__, info->ksk_jwk_filepath);
 			}
 			if (fd_ksk >= 0) close(fd_ksk);
 		}
@@ -724,35 +810,67 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 					n = read(fd_zsk, buf_zsk, (unsigned int)st_zsk.st_size);
 					if (n == st_zsk.st_size) {
 						buf_zsk[st_zsk.st_size] = '\0';
-						if (lws_jwk_import(&zsk, NULL, NULL, buf_zsk, (size_t)st_zsk.st_size) == 0) {
+						if (lws_jwk_import(&zsk, NULL, NULL, buf_zsk, (size_t)st_zsk.st_size) == 0 &&
+							(zsk.kty == LWS_GENCRYPTO_KTY_EC || zsk.kty == LWS_GENCRYPTO_KTY_RSA)) {
+							int zsk_ready = 0;
+
 							if (zsk.kty == LWS_GENCRYPTO_KTY_EC) {
-								if (lws_genecdsa_create(&genec_zsk, info->cx, NULL) == 0) {
-									if (lws_genecdsa_set_key(&genec_zsk, zsk.e) == 0) {
-										/* Determine DNSSEC Algorithm from the ZSK Curve */
-										int zsk_alg = 13; /* Default */
-										if (zsk.e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf) {
-											const char *crv = (const char *)zsk.e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf;
-											if (!strncmp(crv, "P-384", 5)) zsk_alg = 14;
-											else if (!strncmp(crv, "P-521", 5)) zsk_alg = 15;
-										}
+								if (lws_genecdsa_create(&genec_zsk, info->cx, NULL) == 0 &&
+									lws_genecdsa_set_key(&genec_zsk, zsk.e) == 0) {
+									zsk_ready = 1;
+								}
+							} else if (zsk.kty == LWS_GENCRYPTO_KTY_RSA) {
+								if (lws_genrsa_create(&genrsa_zsk, zsk.e, info->cx, LGRSAM_PKCS1_1_5, LWS_GENHASH_TYPE_UNKNOWN) == 0) {
+									zsk_ready = 1;
+								}
+							}
 
-										/* Compute ZSK Keytag dynamically */
-										uint16_t keytag_zsk = 0;
-										uint8_t wire_zsk[512];
-										size_t wl_zsk = 0;
-										wire_zsk[wl_zsk++] = 256 >> 8; /* Flags: 256 for ZSK */
-										wire_zsk[wl_zsk++] = 256 & 0xff;
-										wire_zsk[wl_zsk++] = 3; /* Protocol */
-										wire_zsk[wl_zsk++] = (uint8_t)zsk_alg; /* Algorithm */
-										memcpy(wire_zsk + wl_zsk, zsk.e[LWS_GENCRYPTO_EC_KEYEL_X].buf, zsk.e[LWS_GENCRYPTO_EC_KEYEL_X].len);
-										wl_zsk += zsk.e[LWS_GENCRYPTO_EC_KEYEL_X].len;
-										memcpy(wire_zsk + wl_zsk, zsk.e[LWS_GENCRYPTO_EC_KEYEL_Y].buf, zsk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len);
-										wl_zsk += zsk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len;
+							if (zsk_ready) {
+								/* Determine DNSSEC Algorithm from the ZSK Curve */
+								int zsk_alg = 13; /* Default */
+								if (zsk.kty == LWS_GENCRYPTO_KTY_EC) {
+									if (zsk.e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf) {
+										const char *crv = (const char *)zsk.e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf;
+										if (!strncmp(crv, "P-384", 5)) zsk_alg = 14;
+										else if (!strncmp(crv, "P-521", 5)) zsk_alg = 15;
+									}
+								} else {
+									zsk_alg = 8; /* RSASHA256 */
+								}
 
-										uint32_t ac_zsk = 0;
-										for (size_t i = 0; i < wl_zsk; ++i) ac_zsk += (i & 1) ? (uint32_t)wire_zsk[i] : (uint32_t)wire_zsk[i] << 8;
-										ac_zsk += (ac_zsk >> 16) & 0xffff;
-										keytag_zsk = (uint16_t)(ac_zsk & 0xffff);
+								/* Compute ZSK Keytag dynamically */
+								uint16_t keytag_zsk = 0;
+								uint8_t wire_zsk[512];
+								size_t wl_zsk = 0;
+								wire_zsk[wl_zsk++] = 256 >> 8; /* Flags: 256 for ZSK */
+								wire_zsk[wl_zsk++] = 256 & 0xff;
+								wire_zsk[wl_zsk++] = 3; /* Protocol */
+								wire_zsk[wl_zsk++] = (uint8_t)zsk_alg; /* Algorithm */
+								if (zsk.kty == LWS_GENCRYPTO_KTY_EC) {
+									memcpy(wire_zsk + wl_zsk, zsk.e[LWS_GENCRYPTO_EC_KEYEL_X].buf, zsk.e[LWS_GENCRYPTO_EC_KEYEL_X].len);
+									wl_zsk += zsk.e[LWS_GENCRYPTO_EC_KEYEL_X].len;
+									memcpy(wire_zsk + wl_zsk, zsk.e[LWS_GENCRYPTO_EC_KEYEL_Y].buf, zsk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len);
+									wl_zsk += zsk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len;
+								} else {
+									uint8_t *e_buf = zsk.e[LWS_GENCRYPTO_RSA_KEYEL_E].buf;
+									size_t e_len = zsk.e[LWS_GENCRYPTO_RSA_KEYEL_E].len;
+									while (e_len > 1 && *e_buf == 0) { e_buf++; e_len--; }
+									if (e_len <= 255) {
+										wire_zsk[wl_zsk++] = (uint8_t)e_len;
+									} else {
+										wire_zsk[wl_zsk++] = 0; wire_zsk[wl_zsk++] = (uint8_t)(e_len >> 8); wire_zsk[wl_zsk++] = (uint8_t)(e_len & 0xff);
+									}
+									memcpy(wire_zsk + wl_zsk, e_buf, e_len); wl_zsk += e_len;
+									uint8_t *n_buf = zsk.e[LWS_GENCRYPTO_RSA_KEYEL_N].buf;
+									size_t n_len = zsk.e[LWS_GENCRYPTO_RSA_KEYEL_N].len;
+									while (n_len > 1 && *n_buf == 0) { n_buf++; n_len--; }
+									memcpy(wire_zsk + wl_zsk, n_buf, n_len); wl_zsk += n_len;
+								}
+
+								uint32_t ac_zsk = 0;
+								for (size_t i = 0; i < wl_zsk; ++i) ac_zsk += (i & 1) ? (uint32_t)wire_zsk[i] : (uint32_t)wire_zsk[i] << 8;
+								ac_zsk += (ac_zsk >> 16) & 0xffff;
+								keytag_zsk = (uint16_t)(ac_zsk & 0xffff);
 
 										/* For each RRset, compute signature over canonical form */
 										lws_start_foreach_dll_safe(struct lws_dll2 *, d4, d6, lws_dll2_get_head(&z->rrset_list)) {
@@ -837,8 +955,6 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 												lwsl_user("SIGN HASH DNSKEY %s => %s\n", rs->name, hex);
 											}
 #endif
-											uint8_t sig[256];
-											struct lws_genec_ctx *active_genec = (rs->type == 48) ? &genec_ksk : &genec_zsk;
 											int active_alg = (rs->type == 48 && has_ksk) ? dnssec_alg : zsk_alg;
 											int keybits = 256;
 
@@ -847,15 +963,34 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 
 											/* lws_genecdsa_hash_sign_jws expects the exact signature size based on the keybits, which is (keybits rounded to bytes) * 2 */
 											int exp_sig_len = lws_gencrypto_bits_to_bytes(keybits) * 2;
+											if (active_alg == 8) exp_sig_len = 256; /* 2048-bit RSA */
 
-											/* lws_genecdsa_hash_sign_jws returns 0 on success, unlike typical length-returning APIs */
-											if (lws_genecdsa_hash_sign_jws(active_genec, hash, hash_type, keybits, sig, (size_t)exp_sig_len) == 0) {
-												struct auth_dns_rr *rr = lws_zalloc(sizeof(*rr), "rrsig");
+											/* Compute signature based on algorithm */
+											uint8_t sig[1024];
+											int sig_ret = -1;
+											struct auth_dns_rr *rr = NULL;
+
+											if (rs->type == 48 && has_ksk) {
+												if (active_alg == 8) {
+													sig_ret = lws_genrsa_hash_sign(&genrsa_ksk, hash, hash_type, sig, (size_t)exp_sig_len);
+												} else {
+													sig_ret = lws_genecdsa_hash_sign_jws(&genec_ksk, hash, hash_type, keybits, sig, (size_t)exp_sig_len);
+												}
+											} else {
+												if (active_alg == 8) {
+													sig_ret = lws_genrsa_hash_sign(&genrsa_zsk, hash, hash_type, sig, (size_t)exp_sig_len);
+												} else {
+													sig_ret = lws_genecdsa_hash_sign_jws(&genec_zsk, hash, hash_type, keybits, sig, (size_t)exp_sig_len);
+												}
+											}
+
+											if (sig_ret >= 0 || (active_alg != 8 && sig_ret == 0)) {
+												rr = lws_zalloc(sizeof(*rr), "rrsig");
 												if (rr) {
-													int sig_len = exp_sig_len;
-													char b64[512];
+													int sig_len = (active_alg == 8) ? sig_ret : exp_sig_len;
+													char b64[1024]; /* Ensure large enough for 2048-bit RSA sigs */
 													lws_b64_encode_string((const char *)sig, sig_len, b64, sizeof(b64));
-													char tb[512], exp_str[32], inc_str[32];
+													char tb[2048], exp_str[32], inc_str[32];
 													time_t exp_t = (time_t)exp, inc_t = (time_t)inc;
 													struct tm *tm_info = gmtime(&exp_t);
 													if (tm_info) strftime(exp_str, sizeof(exp_str), "%Y%m%d%H%M%S", tm_info); else lws_strncpy(exp_str, "ERROR", sizeof(exp_str));
@@ -873,14 +1008,15 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 													} else lws_free(rr);
 												}
 											} else {
-												lwsl_err("SIGN: lws_genecdsa_hash_sign_jws failed for %s type %d! (hash_type %d keybits %d)\n", rs->name, rs->type, hash_type, keybits);
+												lwsl_err("SIGN: Signing failed for %s type %d! (hash_type %d keybits %d alg %d)\n", rs->name, rs->type, hash_type, keybits, active_alg);
 											}
 
 next_rrset:
 											;
 										} lws_end_foreach_dll_safe(d4, d6);
 									}
-									lws_genec_destroy(&genec_zsk);
+									if (zsk_ready && zsk.kty == LWS_GENCRYPTO_KTY_EC) lws_genec_destroy(&genec_zsk);
+									if (zsk_ready && zsk.kty == LWS_GENCRYPTO_KTY_RSA) lws_genrsa_destroy(&genrsa_zsk);
 								}
 							}
 							lws_jwk_destroy(&zsk);
@@ -890,9 +1026,12 @@ next_rrset:
 				}
 			}
 			close(fd_zsk);
+		} else {
+			lwsl_err("%s: Failed to open ZSK at %s\n", __func__, info->zsk_jwk_filepath);
 		}
 		if (has_ksk) {
-			lws_genec_destroy(&genec_ksk);
+			if (ksk.kty == LWS_GENCRYPTO_KTY_EC) lws_genec_destroy(&genec_ksk);
+			if (ksk.kty == LWS_GENCRYPTO_KTY_RSA) lws_genrsa_destroy(&genrsa_ksk);
 			lws_jwk_destroy(&ksk);
 		}
 	}

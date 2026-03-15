@@ -54,6 +54,8 @@
 #define LWS_TOKENIZE_F_EXPECT_MORE	(1 << 12)
 /* Do not treat + as a terminal character, so "a+b" is one token */
 #define LWS_TOKENIZE_F_PLUS_NONTERM	(1 << 13)
+/* Emit chunks for tokens that exceed the collection max limit */
+#define LWS_TOKENIZE_F_CHUNK		(1 << 14)
 
 typedef enum {
 
@@ -79,6 +81,8 @@ typedef enum {
 	LWS_TOKZE_TOKEN_NAME_COLON,	/* token [whitespace] : (only with
 					   LWS_TOKENIZE_F_AGG_COLON flag) */
 	LWS_TOKZE_QUOTED_STRING,	/* "*", where * may have any char */
+	LWS_TOKZE_TOKEN_CHUNK,		/* a token chunk appeared */
+	LWS_TOKZE_QUOTED_STRING_CHUNK,  /* a quoted string chunk appeared */
 
 } lws_tokenize_elem;
 

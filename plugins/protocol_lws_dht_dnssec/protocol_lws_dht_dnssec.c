@@ -28,6 +28,7 @@
 #ifndef _WIN32
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <ifaddrs.h>
 #endif
 #include <sys/stat.h>
 
@@ -95,6 +96,7 @@ struct vhd_dht_dnssec {
 	int				test_handshake;
 	int				cli_receiver;
 	lws_dll2_owner_t		fetch_reqs;
+	uint8_t				bootstrap_retries;
 };
 
 struct dht_fragment {
@@ -1398,6 +1400,12 @@ dht_dnssec_sul_bootstrap_cb(struct lws_sorted_usec_list *sul)
 	lws_dht_nodes(vhd->dht, AF_INET, &good, &dubious, NULL, NULL);
 
 	if (good == 0 && dubious == 0) {
+		if (vhd->bootstrap_retries > 5) {
+			lwsl_notice("%s: Giving up active bootstrapping after 5 retries. Remaining passive.\n", __func__);
+			return;
+		}
+		vhd->bootstrap_retries++;
+
 		struct sockaddr_in sin;
 		memset(&sin, 0, sizeof(sin));
 		sin.sin_family = AF_INET;
@@ -1420,11 +1428,41 @@ dht_dnssec_sul_bootstrap_cb(struct lws_sorted_usec_list *sul)
 			}
 		}
 
+		int is_self = 0;
+		if (vhd->target_port == vhd->dht_port && sin.sin_family == AF_INET) {
+			if (sin.sin_addr.s_addr == htonl(INADDR_LOOPBACK))
+				is_self = 1;
+#ifndef _WIN32
+			else {
+				struct ifaddrs *ifaddr, *ifa;
+				if (getifaddrs(&ifaddr) == 0) {
+					for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
+						if (ifa->ifa_addr == NULL) continue;
+						if (ifa->ifa_addr->sa_family == AF_INET) {
+							struct sockaddr_in *p_addr = (struct sockaddr_in *)ifa->ifa_addr;
+							if (p_addr->sin_addr.s_addr == sin.sin_addr.s_addr) {
+								is_self = 1;
+								break;
+							}
+						}
+					}
+					freeifaddrs(ifaddr);
+				}
+			}
+#endif
+		}
+
+		if (is_self) {
+			/* Target is ourselves. We quietly remain completely passive until another node contacts as the genesis point. */
+			lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_bootstrap_cb, 5 * LWS_US_PER_SEC);
+			return;
+		}
+
 		lwsl_notice("%s: Bootstrapping DHT against target node %s:%d\n", __func__, vhd->target_ip, vhd->target_port);
 		lws_dht_ping_node(vhd->dht, (struct sockaddr *)&sin, sizeof(sin));
 
-		/* Schedule another ping in 3 seconds if we still haven't found nodes */
-		lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_bootstrap_cb, 3 * LWS_US_PER_SEC);
+		/* Schedule another check in 5 seconds if we still haven't found nodes */
+		lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_bootstrap_cb, 5 * LWS_US_PER_SEC);
 	} else {
 		lwsl_notice("%s: DHT bootstrapped successfully, routing table contains %d good nodes\n", __func__, good);
 	}
@@ -2145,8 +2183,9 @@ do_keygen(struct lws_context *context, struct lws_dht_dnssec_keygen_args *args)
 			return 1;
 		}
 
+		const char *wd = args->workdir ? args->workdir : ".";
 		char priv_filename[256];
-		lws_snprintf(priv_filename, sizeof(priv_filename), "%s.%s.private.jwk", domain, is_ksk ? "ksk" : "zsk");
+		lws_snprintf(priv_filename, sizeof(priv_filename), "%s/%s.%s.private.jwk", wd, domain, is_ksk ? "ksk" : "zsk");
 
 		int fd = open(priv_filename, LWS_O_CREAT | LWS_O_TRUNC | LWS_O_WRONLY, 0600);
 		if (fd >= 0) {
@@ -2188,7 +2227,7 @@ do_keygen(struct lws_context *context, struct lws_dht_dnssec_keygen_args *args)
 					lws_b64_encode_string((const char *)raw_key, raw_len, b64_key, b64_len);
 
 					char pub_filename[256];
-					lws_snprintf(pub_filename, sizeof(pub_filename), "%s.%s.key", domain, is_ksk ? "ksk" : "zsk");
+					lws_snprintf(pub_filename, sizeof(pub_filename), "%s/%s.%s.key", wd, domain, is_ksk ? "ksk" : "zsk");
 
 					fd = open(pub_filename, LWS_O_CREAT | LWS_O_TRUNC | LWS_O_WRONLY, 0644);
 					if (fd >= 0) {
@@ -2200,7 +2239,7 @@ do_keygen(struct lws_context *context, struct lws_dht_dnssec_keygen_args *args)
 					}
 					if (is_ksk) {
 						char ds_filename[256];
-						lws_snprintf(ds_filename, sizeof(ds_filename), "%s.dnssec.txt", domain);
+						lws_snprintf(ds_filename, sizeof(ds_filename), "%s/%s.dnssec.txt", wd, domain);
 
 						size_t rdata_len = 4 + (size_t)raw_len;
 						uint8_t *rdata = malloc(rdata_len);
@@ -2269,7 +2308,7 @@ do_keygen(struct lws_context *context, struct lws_dht_dnssec_keygen_args *args)
 					lws_b64_encode_string((const char *)raw_key, x_len + y_len, b64_key, b64_len);
 
 					char pub_filename[256];
-					lws_snprintf(pub_filename, sizeof(pub_filename), "%s.%s.key", domain, is_ksk ? "ksk" : "zsk");
+					lws_snprintf(pub_filename, sizeof(pub_filename), "%s/%s.%s.key", wd, domain, is_ksk ? "ksk" : "zsk");
 
 					fd = open(pub_filename, LWS_O_CREAT | LWS_O_TRUNC | LWS_O_WRONLY, 0644);
 					if (fd >= 0) {
@@ -2282,7 +2321,7 @@ do_keygen(struct lws_context *context, struct lws_dht_dnssec_keygen_args *args)
 
 					if (is_ksk) {
 						char ds_filename[256];
-						lws_snprintf(ds_filename, sizeof(ds_filename), "%s.dnssec.txt", domain);
+						lws_snprintf(ds_filename, sizeof(ds_filename), "%s/%s.dnssec.txt", wd, domain);
 
 						size_t raw_len = (size_t)x_len + (size_t)y_len;
 						size_t rdata_len = 4 + raw_len;
@@ -2393,7 +2432,8 @@ do_dsfromkey(struct lws_context *context, struct lws_dht_dnssec_dsfromkey_args *
 		return 1;
 	}
 
-	lws_snprintf(key_file, sizeof(key_file), "%s.ksk.key", domain);
+	const char *wd = args->workdir ? args->workdir : ".";
+	lws_snprintf(key_file, sizeof(key_file), "%s/%s.ksk.key", wd, domain);
 
 	if (args->hash) {
 		if (!strcmp(args->hash, "SHA384")) {
@@ -2485,11 +2525,12 @@ do_signzone(struct lws_context *context, struct lws_dht_dnssec_signzone_args *ar
 		return 1;
 	}
 
-	lws_snprintf(zsk_jwk, sizeof(zsk_jwk), "%s.zsk.private.jwk", args->domain);
-	lws_snprintf(ksk_jwk, sizeof(ksk_jwk), "%s.ksk.private.jwk", args->domain);
-	lws_snprintf(zone_in, sizeof(zone_in), "%s.zone", args->domain);
-	lws_snprintf(zone_out, sizeof(zone_out), "%s.zone.signed", args->domain);
-	lws_snprintf(jws_out, sizeof(jws_out), "%s.zone.signed.jws", args->domain);
+	const char *wd = args->workdir ? args->workdir : ".";
+	lws_snprintf(zsk_jwk, sizeof(zsk_jwk), "%s/%s.zsk.private.jwk", wd, args->domain);
+	lws_snprintf(ksk_jwk, sizeof(ksk_jwk), "%s/%s.ksk.private.jwk", wd, args->domain);
+	lws_snprintf(zone_in, sizeof(zone_in), "%s/%s.zone", wd, args->domain);
+	lws_snprintf(zone_out, sizeof(zone_out), "%s/%s.zone.signed", wd, args->domain);
+	lws_snprintf(jws_out, sizeof(jws_out), "%s/%s.zone.signed.jws", wd, args->domain);
 
 	info.zsk_jwk_filepath = zsk_jwk;
 	info.ksk_jwk_filepath = ksk_jwk;
