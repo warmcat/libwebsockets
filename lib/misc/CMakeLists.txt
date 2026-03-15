@@ -153,6 +153,10 @@ if (LWS_WITH_DIR AND NOT LWS_PLAT_BAREMETAL)
 	list(APPEND SOURCES misc/dir.c)
 endif()
 
+if (LWS_WITH_DIR AND NOT LWS_PLAT_BAREMETAL)
+	list(APPEND SOURCES misc/dir-notify/dir-notify.c)
+endif()
+
 if (LWS_WITH_THREADPOOL AND LWS_HAVE_PTHREAD_H)
 	list(APPEND SOURCES misc/threadpool/threadpool.c)
 endif()

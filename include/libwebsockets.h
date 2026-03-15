@@ -951,6 +951,10 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 
 #include <libwebsockets/lws-html.h>
 
+#if defined(LWS_WITH_DIR)
+#include <libwebsockets/lws-dir-notify.h>
+#endif
+
 #ifdef __cplusplus
 }
 #endif

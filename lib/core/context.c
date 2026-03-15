@@ -1422,7 +1422,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 		 */
 
 		struct lws_context_creation_info ii;
-		const struct lws_protocols *pp[6], *ccop;
+		const struct lws_protocols *pp[7], *ccop;
 		struct lws_vhost *vh;
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 		extern const struct lws_protocols lws_async_dns_protocol;
@@ -1435,6 +1435,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 #if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_BAREMETAL) && !defined(LWS_PLAT_ANDROID) && defined(LWS_WITH_NETWORK)
 		extern const struct lws_protocols lws_system_protocol_stdin;
+#endif
+#if defined(LWS_WITH_DIR)
+		extern const struct lws_protocols protocol_lws_dir_notify;
 #endif
 
 		n = 0;
@@ -1449,6 +1452,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 #if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_BAREMETAL) && !defined(LWS_PLAT_ANDROID) && defined(LWS_WITH_NETWORK)
 		pp[n++] = &lws_system_protocol_stdin;
+#endif
+#if defined(LWS_WITH_DIR)
+		pp[n++] = &protocol_lws_dir_notify;
 #endif
 		pp[n] = NULL;
 
