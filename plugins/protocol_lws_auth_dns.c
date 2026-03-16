@@ -42,9 +42,13 @@
 
 #if defined(LWS_WITH_AUTHORITATIVE_DNS)
 
-struct auth_dns_zone_list {
-	struct auth_dns_zone_list *next;
+struct auth_dns_cache_entry {
+	lws_dll2_t list;
 	struct auth_dns_zone zone;
+	time_t ttl_expiry;
+	time_t sig_expiry;
+	uint64_t serial;
+	char filename[256];
 };
 
 struct per_vhost_data__auth_dns {
@@ -52,11 +56,12 @@ struct per_vhost_data__auth_dns {
 	struct lws_vhost *vhost;
 	const struct lws_protocols *protocol;
 	char zone_dir[1024];
-	char dht_zone_dir[1024];
 	uint32_t dht_max_pending;
+	uint32_t cache_max_zones;
 	const struct lws_dht_dnssec_ops *dht_ops;
-	struct auth_dns_zone_list *zones;
+	lws_dll2_owner_t zones;
 	lws_dll2_owner_t pending_queries;
+	lws_sorted_usec_list_t sul_evict;
 
 	/* DNSBL tracking */
 	int has_dnsbl;                     /* 1 if we have any DNSBLs configured */
@@ -145,7 +150,7 @@ auth_dns_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	int fd;
 	size_t len;
 	char *buf;
-	struct auth_dns_zone_list *zl;
+	struct auth_dns_cache_entry *ce;
 	struct stat st;
 
 	lwsl_notice("%s: check %s (type %d)\n", __func__, lde->name, lde->type);
@@ -154,8 +159,8 @@ auth_dns_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		return 0;
 
 	len = strlen(lde->name);
-	if (len < 5 || strcmp(&lde->name[len - 5], ".zone"))
-		return 0;
+	if (len < 6 || strcmp(&lde->name[len - 5], ".zone"))
+			/* With DHT integration we don't try to sync initial loads since it comes ad-hoc */{ lwsl_notice("open failed\n"); return 0; }
 
 	lws_snprintf(filepath, sizeof(filepath), "%s/%s", dirpath, lde->name);
 
@@ -185,25 +190,66 @@ auth_dns_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 
 	lwsl_notice("read zone file %s size %d\n", filepath, (int)st.st_size);
 
-	zl = malloc(sizeof(*zl));
-	if (!zl) {
+	ce = malloc(sizeof(*ce));
+	if (!ce) {
 		free(buf);
 		return 0;
 	}
-	memset(zl, 0, sizeof(*zl));
+	memset(ce, 0, sizeof(*ce));
+	lws_strncpy(ce->filename, lde->name, sizeof(ce->filename));
 
-	if (lws_auth_dns_parse_zone_buf(buf, (size_t)st.st_size, &zl->zone)) {
+	/* Parse suffix format: domain_ttl_sig_serial.zone */
+	{
+		char *p = ce->filename + (len - 5);
+		while (p > ce->filename && *(p - 1) != '_') p--;
+		if (p > ce->filename) {
+			ce->serial = strtoull(p, NULL, 10);
+			p--;
+			while (p > ce->filename && *(p - 1) != '_') p--;
+			if (p > ce->filename) {
+				ce->sig_expiry = (time_t)strtoull(p, NULL, 10);
+				p--;
+				while (p > ce->filename && *(p - 1) != '_') p--;
+				if (p > ce->filename)
+					ce->ttl_expiry = (time_t)strtoull(p, NULL, 10);
+			}
+		}
+	}
+
+	time_t now = time(NULL);
+	if ((ce->ttl_expiry && now >= ce->ttl_expiry) ||
+	    (ce->sig_expiry && now >= ce->sig_expiry)) {
+		lwsl_notice("%s: zone %s expired logically, unlinking\n", __func__, lde->name);
+		unlink(filepath);
+		free(ce);
+		free(buf);
+		return 0;
+	}
+
+	if (lws_auth_dns_parse_zone_buf(buf, (size_t)st.st_size, &ce->zone)) {
 		lwsl_notice("parse failed\n");
-		free(zl);
+		free(ce);
 		free(buf);
 		return 0;
 	}
 	free(buf);
 
-	zl->next = vhd->zones;
-	vhd->zones = zl;
+	/* Limit cache */
+	while ((uint32_t)vhd->zones.count >= vhd->cache_max_zones) {
+		struct auth_dns_cache_entry *old = lws_container_of(vhd->zones.tail, struct auth_dns_cache_entry, list);
+		char dpath[1024];
+		lws_snprintf(dpath, sizeof(dpath), "%s/%s", dirpath, old->filename);
+		unlink(dpath);
+		lws_auth_dns_free_zone(&old->zone);
+		lws_dll2_remove(&old->list);
+		free(old);
+	}
 
-	lwsl_info("Parsed zone %s from %s\n", zl->zone.origin, filepath);
+	lws_dll2_add_head(&ce->list, &vhd->zones);
+
+	lwsl_info("Parsed zone %s from %s (serial %llu, ttl_exp %llu, sig_exp %llu)\n",
+		ce->zone.origin, filepath, (unsigned long long)ce->serial,
+		(unsigned long long)ce->ttl_expiry, (unsigned long long)ce->sig_expiry);
 
 	return 0;
 }
@@ -215,39 +261,111 @@ auth_dns_local_zone_cb(void *opaque, const char *domain, const char *payload_pat
 	char tzdir[1024];
 
 	/* Prefer dht_zone_dir if available, otherwise zone_dir */
-	if (vhd->dht_zone_dir[0])
-		lws_strncpy(tzdir, vhd->dht_zone_dir, sizeof(tzdir));
-	else if (vhd->zone_dir[0])
+	if (vhd->zone_dir[0])
 		lws_strncpy(tzdir, vhd->zone_dir, sizeof(tzdir));
 	else
 		return;
 
-	char cpath[1024];
-	lws_snprintf(cpath, sizeof(cpath), "%s/%s.zone", tzdir, domain);
-
 	int fpin = open(payload_path, O_RDONLY);
 	if (fpin >= 0) {
-		if (mkdir(tzdir, 0777) < 0 && errno != EEXIST)
-			lwsl_err("%s: Failed to create dir %s\n", __func__, tzdir);
+		struct stat st;
+		if (fstat(fpin, &st) == 0 && st.st_size > 0 && st.st_size < 1024 * 1024) {
+			char *buf = malloc((size_t)st.st_size + 1);
+			if (buf && read(fpin, buf, (size_t)st.st_size) == st.st_size) {
+				buf[st.st_size] = '\0';
 
-		int fpout = open(cpath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-		if (fpout >= 0) {
-			char cbuf[4096];
-			ssize_t cn;
-			while ((cn = read(fpin, cbuf, sizeof(cbuf))) > 0)
-				if (write(fpout, cbuf, (size_t)cn) < 0) break;
-			close(fpout);
-			lwsl_notice("%s: Copied local updated zone to %s\n", __func__, cpath);
+				struct auth_dns_zone z;
+				memset(&z, 0, sizeof(z));
+				uint64_t serial = 0;
+				time_t sig_expiry = 0;
+				time_t default_ttl = 3600;
 
-			struct lws_dir_entry lde;
-			char namebuf[256];
-			memset(&lde, 0, sizeof(lde));
-			lde.type = LDOT_FILE;
-			lws_snprintf(namebuf, sizeof(namebuf), "%s.zone", domain);
-			lde.name = namebuf;
-			auth_dns_dir_cb(tzdir, vhd, &lde);
-		} else {
-			lwsl_err("%s: Failed to open %s for local copy\n", __func__, cpath);
+				if (!lws_auth_dns_parse_zone_buf(buf, (size_t)st.st_size, &z)) {
+					if (z.default_ttl[0]) default_ttl = (time_t)atoi(z.default_ttl);
+
+					lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&z.rrset_list)) {
+						struct auth_dns_rrset *rs = lws_container_of(d, struct auth_dns_rrset, list);
+						if (rs->type == 6) { /* SOA */
+							lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&rs->rr_list)) {
+								struct auth_dns_rr *rr = lws_container_of(d2, struct auth_dns_rr, list);
+								/* extremely basic wire parse to get serial, which is 5th 32bit int after names */
+								int p2 = 0;
+								while (p2 < (int)rr->wire_rdata_len && rr->wire_rdata[p2]) {
+									p2 += rr->wire_rdata[p2] + 1;
+								}
+								p2++;
+								while (p2 < (int)rr->wire_rdata_len && rr->wire_rdata[p2]) {
+									p2 += rr->wire_rdata[p2] + 1;
+								}
+								p2++;
+								if (p2 + 4 <= (int)rr->wire_rdata_len) {
+									serial = ((uint64_t)rr->wire_rdata[p2] << 24) |
+											 ((uint64_t)rr->wire_rdata[p2+1] << 16) |
+											 ((uint64_t)rr->wire_rdata[p2+2] << 8) |
+											 (uint64_t)rr->wire_rdata[p2+3];
+								}
+								break;
+							} lws_end_foreach_dll(d2);
+						} else if (rs->type == 46) { /* RRSIG */
+							lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&rs->rr_list)) {
+								struct auth_dns_rr *rr = lws_container_of(d2, struct auth_dns_rr, list);
+								if (rr->wire_rdata_len >= 13) {
+									/* Expiry is 4 bytes at offset 8 */
+									time_t e = ((time_t)rr->wire_rdata[8] << 24) |
+											   ((time_t)rr->wire_rdata[9] << 16) |
+											   ((time_t)rr->wire_rdata[10] << 8) |
+											   (time_t)rr->wire_rdata[11];
+									if (sig_expiry == 0 || e < sig_expiry)
+										sig_expiry = e;
+								}
+							} lws_end_foreach_dll(d2);
+						}
+					} lws_end_foreach_dll(d);
+					lws_auth_dns_free_zone(&z);
+				}
+
+				time_t ttl_expiry = time(NULL) + default_ttl;
+				if (sig_expiry == 0) sig_expiry = ttl_expiry + 86400 * 30; /* Fake if no RRSIG */
+
+				char cpath[1024], fname[256];
+				lws_snprintf(fname, sizeof(fname), "%s_%llu_%llu_%llu.zone", domain,
+					(unsigned long long)ttl_expiry, (unsigned long long)sig_expiry, (unsigned long long)serial);
+				lws_snprintf(cpath, sizeof(cpath), "%s/%s", tzdir, fname);
+
+				if (mkdir(tzdir, 0777) < 0 && errno != EEXIST)
+					lwsl_err("%s: Failed to create dir %s\n", __func__, tzdir);
+
+				int fpout = open(cpath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+				if (fpout >= 0) {
+					if (write(fpout, buf, (size_t)st.st_size) < 0)
+						lwsl_err("write failed\n");
+					close(fpout);
+					lwsl_notice("%s: Copied local updated zone to %s\n", __func__, cpath);
+
+					/* Remove old versions from memory and disk cache */
+					lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->zones.head) {
+						struct auth_dns_cache_entry *old = lws_container_of(d, struct auth_dns_cache_entry, list);
+						size_t ol = strlen(domain);
+						if (!strncmp(old->filename, domain, ol) && old->filename[ol] == '_') {
+							char dpath[1024];
+							lws_snprintf(dpath, sizeof(dpath), "%s/%s", tzdir, old->filename);
+							unlink(dpath);
+							lws_auth_dns_free_zone(&old->zone);
+							lws_dll2_remove(&old->list);
+							free(old);
+						}
+					} lws_end_foreach_dll_safe(d, d1);
+
+					struct lws_dir_entry lde;
+					memset(&lde, 0, sizeof(lde));
+					lde.type = LDOT_FILE;
+					lde.name = fname;
+					auth_dns_dir_cb(tzdir, vhd, &lde);
+				} else {
+					lwsl_err("%s: Failed to open %s for local copy\n", __func__, cpath);
+				}
+			}
+			if (buf) free(buf);
 		}
 		close(fpin);
 	} else {
@@ -260,15 +378,11 @@ auth_dns_fetch_cb(void *opaque, const char *domain, int status)
 {
 	struct per_vhost_data__auth_dns *vhd = (struct per_vhost_data__auth_dns *)opaque;
 
-	if (status == 1 && vhd->dht_zone_dir[0]) {
-		struct lws_dir_entry lde;
-		char namebuf[256];
-		memset(&lde, 0, sizeof(lde));
-		lde.type = LDOT_FILE;
-		lws_snprintf(namebuf, sizeof(namebuf), "%s.zone", domain);
-		lde.name = namebuf;
-		/* We call auth_dns_dir_cb directly for the single new file */
-		auth_dns_dir_cb(vhd->dht_zone_dir, vhd, &lde);
+	if (status == 1) {
+		/* Search latest file via dir callback?
+		 * Actually, auth_dns_local_zone_cb is already called and creates the file.
+		 * So no need to call auth_dns_dir_cb here, it would be redundant.
+		 */
 	}
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->pending_queries.head) {
@@ -346,9 +460,52 @@ dnsbl_cache_lookup(struct per_vhost_data__auth_dns *vhd, const char *target, int
 	return 0; /* Not found */
 }
 
+static void
+auth_dns_evict_cb(lws_sorted_usec_list_t *sul)
+{
+	struct per_vhost_data__auth_dns *vhd = lws_container_of(sul, struct per_vhost_data__auth_dns, sul_evict);
+	time_t now = time(NULL);
+	char tzdir[1024];
+
+	if (vhd->zone_dir[0])
+		lws_strncpy(tzdir, vhd->zone_dir, sizeof(tzdir));
+	else
+		return;
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->zones.head) {
+		struct auth_dns_cache_entry *ce = lws_container_of(d, struct auth_dns_cache_entry, list);
+		if ((ce->ttl_expiry && now >= ce->ttl_expiry) ||
+		    (ce->sig_expiry && now >= ce->sig_expiry)) {
+			char dpath[1024];
+			lws_snprintf(dpath, sizeof(dpath), "%s/%s", tzdir, ce->filename);
+			lwsl_notice("%s: Evicting expired zone %s from disk and memory\n", __func__, ce->filename);
+			unlink(dpath);
+			lws_auth_dns_free_zone(&ce->zone);
+			lws_dll2_remove(&ce->list);
+			free(ce);
+		}
+	} lws_end_foreach_dll_safe(d, d1);
+
+	lws_sul_schedule(vhd->context, 0, &vhd->sul_evict, auth_dns_evict_cb, 5 * 60 * LWS_US_PER_SEC);
+}
+
 static int
 callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		  void *in, size_t len);
+
+static void
+pending_query_timeout_cb(lws_sorted_usec_list_t *sul)
+{
+	struct pending_dns_query *q = lws_container_of(sul, struct pending_dns_query, sul_timeout);
+	lwsl_info("%s: timeout for query\n", __func__);
+	if (q->wsi) {
+		const struct lws_protocols *prot = lws_get_protocol(q->wsi);
+		if (prot && prot->callback)
+			prot->callback(q->wsi, LWS_CALLBACK_USER, lws_wsi_user(q->wsi), q, 0);
+	}
+	lws_dll2_remove(&q->list);
+	free(q);
+}
 
 static void
 dnsbl_timeout_cb(lws_sorted_usec_list_t *sul)
@@ -435,6 +592,7 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		vhd->protocol = lws_get_protocol(wsi);
 		vhd->vhost = lws_get_vhost(wsi);
 		vhd->dht_max_pending = 16;
+		vhd->cache_max_zones = 1000;
 
 		{
 			const struct lws_protocol_vhost_options *pvo =
@@ -443,15 +601,14 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			lwsl_notice("%s: INIT pvo is %p\n", __func__, pvo);
 			while (pvo) {
 				lwsl_notice("%s: pvo name '%s', value '%s'\n", __func__, pvo->name, pvo->value);
-				if (!strcmp(pvo->name, "zone-dir"))
+				if (!strcmp(pvo->name, "zone-dir")) {
 					lws_strncpy(vhd->zone_dir, pvo->value,
 							sizeof(vhd->zone_dir));
-				if (!strcmp(pvo->name, "dht-zone-dir"))
-					lws_strncpy(vhd->dht_zone_dir, pvo->value,
-							sizeof(vhd->dht_zone_dir));
-				if (!strcmp(pvo->name, "dht-max-pending"))
+				} else if (!strcmp(pvo->name, "dht-max-pending")) {
 					vhd->dht_max_pending = (uint32_t)atoi(pvo->value);
-				if (!strcmp(pvo->name, "dnsbl")) {
+				} else if (!strcmp(pvo->name, "cache-max-zones")) {
+					vhd->cache_max_zones = (uint32_t)atoi(pvo->value);
+				} else if (!strcmp(pvo->name, "dnsbl")) {
 					lws_strncpy(vhd->dnsbl_list, pvo->value, sizeof(vhd->dnsbl_list));
 					char *p = vhd->dnsbl_list;
 					vhd->has_dnsbl = 1;
@@ -468,8 +625,8 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				}
 				pvo = pvo->next;
 			}
-			if (vhd->zone_dir[0] == '\0' && vhd->dht_zone_dir[0] == '\0') {
-				lwsl_vhost_warn(vhd->vhost, "%s: Missing pvo \"zone-dir\" and \"dht-zone-dir\"",
+			if (vhd->zone_dir[0] == '\0') {
+				lwsl_vhost_warn(vhd->vhost, "%s: Missing pvo \"zone-dir\"",
 					 __func__);
 				break;
 			}
@@ -483,7 +640,7 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		}
 
 
-		if (vhd->dht_zone_dir[0] != '\0') {
+		{
 			/* Retrieve operations from dht-dnssec plugin if present */
 			const struct lws_protocols *prot = lws_vhost_name_to_protocol(vhd->vhost, "lws-dht-dnssec");
 			if (prot && prot->user) {
@@ -491,9 +648,6 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				if (vhd->dht_ops->register_auth_cb)
 					vhd->dht_ops->register_auth_cb(vhd->vhost, auth_dns_local_zone_cb, vhd);
 			}
-
-			/* Also optionally scan cache dir on start? */
-			lws_dir(vhd->dht_zone_dir, vhd, auth_dns_dir_cb);
 		}
 
 		{
@@ -529,19 +683,21 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			}
 		}
 
+		lws_sul_schedule(vhd->context, 0, &vhd->sul_evict, auth_dns_evict_cb, 5 * 60 * LWS_US_PER_SEC);
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
 		if (!vhd)
 			break;
 		{
-			struct auth_dns_zone_list *zl = vhd->zones, *nxt;
-			while (zl) {
-				nxt = zl->next;
-				lws_auth_dns_free_zone(&zl->zone);
-				free(zl);
-				zl = nxt;
-			}
+			lws_sul_cancel(&vhd->sul_evict);
+
+			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->zones.head) {
+				struct auth_dns_cache_entry *ce = lws_container_of(d, struct auth_dns_cache_entry, list);
+				lws_auth_dns_free_zone(&ce->zone);
+				lws_dll2_remove(&ce->list);
+				free(ce);
+			} lws_end_foreach_dll_safe(d, d1);
 
 			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->pending_queries.head) {
 				struct pending_dns_query *q = lws_container_of(d, struct pending_dns_query, list);
@@ -715,43 +871,44 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		rp[0] = (uint8_t)(id >> 8); rp[1] = (uint8_t)(id & 0xff);
 		uint16_t rflags = 0x8400 | (flags & 0x0100);
 
-		struct auth_dns_zone_list *zl = vhd->zones;
+		struct auth_dns_cache_entry *matched_ce = NULL;
 		struct auth_dns_rrset *found_rs = NULL;
 
-		int q_is_blacklisted = 0;
-		if (vhd->has_dnsbl) {
-			if (dnsbl_cache_lookup(vhd, qname, &q_is_blacklisted) && q_is_blacklisted) {
-				lwsl_notice("%s: Dropping query, qname %s is blacklisted in cache\n", __func__, qname);
-				goto send_refused; /* Just refuse or drop, refuse is fine */
-			}
-		}
-
-		while (zl) {
+		lws_start_foreach_dll(struct lws_dll2 *, d, vhd->zones.head) {
+			struct auth_dns_cache_entry *ce = lws_container_of(d, struct auth_dns_cache_entry, list);
 			int ql = (int)strlen(qname);
-			int ol = (int)strlen(zl->zone.origin);
-			if (ol > 0 && zl->zone.origin[ol - 1] == '.') ol--;
+			int ol = (int)strlen(ce->zone.origin);
+			if (ol > 0 && ce->zone.origin[ol - 1] == '.') ol--;
 			if (ql >= ol) {
 				const char *tail = qname + ql - ol;
-				if ((ql == ol || *(tail - 1) == '.') && !strncmp(tail, zl->zone.origin, (size_t)ol)) {
-					lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&zl->zone.rrset_list)) {
-						struct auth_dns_rrset *rs = lws_container_of(d, struct auth_dns_rrset, list);
+				if ((ql == ol || *(tail - 1) == '.') && !strncmp(tail, ce->zone.origin, (size_t)ol)) {
+					lws_start_foreach_dll(struct lws_dll2 *, cd, lws_dll2_get_head(&ce->zone.rrset_list)) {
+						struct auth_dns_rrset *rs = lws_container_of(cd, struct auth_dns_rrset, list);
 						int rnl = (int)strlen(rs->name);
 						if (rnl > 0 && rs->name[rnl - 1] == '.') rnl--;
 						if (rnl == ql && !strncmp(rs->name, qname, (size_t)ql) && rs->type == qtype && rs->class_ == qclass) {
 							found_rs = rs;
 							break;
 						}
-					} lws_end_foreach_dll(d);
-					if (found_rs) break;
+					} lws_end_foreach_dll(cd);
+					if (found_rs) {
+						matched_ce = ce;
+						break;
+					}
 				}
 			}
-			zl = zl->next;
+		} lws_end_foreach_dll(d);
+
+		if (matched_ce && reason == LWS_CALLBACK_RAW_RX) {
+			/* MRU Promotion */
+			lws_dll2_remove(&matched_ce->list);
+			lws_dll2_add_head(&matched_ce->list, &vhd->zones);
 		}
 
 		lwsl_notice("found_rs? %p\n", found_rs);
 
 		if (!found_rs) {
-			if (vhd->dht_zone_dir[0] && vhd->dht_ops && vhd->dht_ops->fetch_zone && reason == LWS_CALLBACK_RAW_RX) {
+			if (vhd->dht_ops && vhd->dht_ops->fetch_zone && reason == LWS_CALLBACK_RAW_RX) {
 				if ((uint32_t)vhd->pending_queries.count >= vhd->dht_max_pending) {
 					lwsl_notice("dht pending queries maxed out\n");
 					goto send_refused;
@@ -759,39 +916,30 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				char base[256];
 				extract_base_domain(qname, base, sizeof(base));
 
-				/* If qname is blacklisted in cache, drop it before DHT query */
-				if (vhd->has_dnsbl) {
-					int isbl = 0;
-					if (dnsbl_cache_lookup(vhd, qname, &isbl) && isbl) {
-						lwsl_notice("%s: Base %s is blacklisted, dropping DHT fetch\n", __func__, base);
-						goto send_refused;
-					}
-				}
+				struct pending_dns_query *pq = malloc(sizeof(*pq));
+				if (!pq) goto send_refused;
+				memset(pq, 0, sizeof(*pq));
+				pq->vhd = vhd;
+				pq->wsi = wsi;
+				if (delayed_q) pq->sa46_peer = delayed_q->sa46_peer;
+				else if (!is_tcp && lws_get_udp(wsi)) pq->sa46_peer = lws_get_udp(wsi)->sa46;
+				pq->is_tcp = is_tcp;
+				lws_strncpy(pq->domain, base, sizeof(pq->domain));
+				memcpy(pq->packet, dbuf, (size_t)req_len);
+				pq->packet_len = (size_t)req_len;
 
-				struct pending_dns_query *q = calloc(1, sizeof(*q));
-				if (q) {
-					q->wsi = wsi;
-					q->vhd = vhd;
-					q->is_tcp = is_tcp;
-					if (!is_tcp) {
-						const struct lws_udp *udp = lws_get_udp(wsi);
-						if (udp) q->sa46_peer = udp->sa46;
-					}
-					lws_strncpy(q->domain, base, sizeof(q->domain));
-					q->packet_len = is_tcp ? (size_t)req_len + 2 : len;
-					if (q->packet_len <= sizeof(q->packet))
-						memcpy(q->packet, in, q->packet_len);
+				lws_dll2_add_tail(&pq->list, &vhd->pending_queries);
+				lws_sul_schedule(vhd->context, 0, &pq->sul_timeout, pending_query_timeout_cb, 5 * LWS_US_PER_SEC);
 
-					lws_dll2_add_tail(&q->list, &vhd->pending_queries);
+				struct lws_dht_dnssec_fetch_zone_args fza;
+				memset(&fza, 0, sizeof(fza));
+				fza.vhost = vhd->vhost;
+				fza.domain = base;
+				fza.cb = auth_dns_fetch_cb;
+				fza.opaque = vhd;
 
-					struct lws_dht_dnssec_fetch_zone_args args;
-					memset(&args, 0, sizeof(args));
-					args.vhost = vhd->vhost;
-					args.domain = base;
-					args.cache_dir = vhd->dht_zone_dir;
-					args.cb = auth_dns_fetch_cb;
-					args.opaque = vhd;
-					vhd->dht_ops->fetch_zone(vhd->context, &args);
+				if (vhd->dht_ops->fetch_zone(vhd->context, &fza)) {
+					lwsl_notice("dht error\n");
 				}
 				goto done;
 			}
@@ -822,8 +970,8 @@ send_refused:
 			} lws_end_foreach_dll(d);
 
 			int added_rrsig = 0;
-			if (do_bit && zl) {
-				lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&zl->zone.rrset_list)) {
+			if (do_bit && matched_ce) {
+				lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&matched_ce->zone.rrset_list)) {
 					struct auth_dns_rrset *rs = lws_container_of(d, struct auth_dns_rrset, list);
 					if (rs->type == 46 && !strcmp(rs->name, found_rs->name) && rs->class_ == qclass) {
 						lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&rs->rr_list)) {
@@ -981,9 +1129,9 @@ send_refused:
 				added++;
 			} lws_end_foreach_dll(d);
 
-			if (added_rrsig > 0 && zl) {
+			if (added_rrsig > 0 && matched_ce) {
 				int a_rssig = 0;
-				lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&zl->zone.rrset_list)) {
+				lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&matched_ce->zone.rrset_list)) {
 					struct auth_dns_rrset *rs = lws_container_of(d, struct auth_dns_rrset, list);
 					if (rs->type == 46 && !strcmp(rs->name, found_rs->name) && rs->class_ == qclass) {
 						lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&rs->rr_list)) {

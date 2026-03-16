@@ -144,6 +144,26 @@ struct lws_dht_dnssec_fetch_req {
 	lws_sorted_usec_list_t		sul_timeout;
 };
 
+struct lws_dir_args {
+	const char *prefix;
+	const char *dirpath;
+};
+
+static int
+dht_dnssec_sweep_old_payload_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
+{
+	struct lws_dir_args *a = (struct lws_dir_args *)user;
+	size_t pl = strlen(a->prefix);
+	size_t nl = strlen(lde->name);
+	if (nl > pl && !strncmp(lde->name, a->prefix, pl) && lde->name[pl] == '_' && nl > 8 && !strcmp(&lde->name[nl-8], ".payload")) {
+		char upath[1024];
+		lws_snprintf(upath, sizeof(upath), "%s/%s", dirpath, lde->name);
+		unlink(upath);
+		lwsl_notice("Swept old payload %s\n", upath);
+	}
+	return 0;
+}
+
 struct lws_dht_dnssec_domain;
 
 /* Represents a single ACME temporary zone string for a given domain */
@@ -618,12 +638,82 @@ dht_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 		lws_snprintf(dir1, sizeof(dir1), "%s/%.2s", vhd->storage_path, frag->safe_hash);
 		lws_snprintf(dir2, sizeof(dir2), "%s/%.2s/%.2s", vhd->storage_path, frag->safe_hash, frag->safe_hash + 2);
 		lws_snprintf(final_path, sizeof(final_path), "%s/%.2s/%.2s/%s", vhd->storage_path, frag->safe_hash, frag->safe_hash + 2, frag->safe_hash);
-		lws_snprintf(final_ppath, sizeof(final_ppath), "%s/%.2s/%.2s/%s.payload", vhd->storage_path, frag->safe_hash, frag->safe_hash + 2, frag->safe_hash);
+
+		/* Parse the payload to determine SOA serial, TTL and RRSIG expiry for decorated filename */
+		uint64_t serial = 0;
+		time_t sig_expiry = 0;
+		time_t default_ttl = 3600;
+#if defined(LWS_WITH_AUTHORITATIVE_DNS)
+		{
+			int fpin = open(tmp_ppath, O_RDONLY);
+			if (fpin >= 0) {
+				struct stat st;
+				if (fstat(fpin, &st) == 0 && st.st_size > 0 && st.st_size < 1024 * 1024) {
+					char *buf = malloc((size_t)st.st_size + 1);
+					if (buf && read(fpin, buf, (size_t)st.st_size) == st.st_size) {
+						buf[st.st_size] = '\0';
+						struct auth_dns_zone z;
+						memset(&z, 0, sizeof(z));
+						if (!lws_auth_dns_parse_zone_buf(buf, (size_t)st.st_size, &z)) {
+							if (z.default_ttl[0]) default_ttl = (time_t)atoi(z.default_ttl);
+							lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&z.rrset_list)) {
+								struct auth_dns_rrset *rs = lws_container_of(d, struct auth_dns_rrset, list);
+								if (rs->type == 6) { /* SOA */
+									lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&rs->rr_list)) {
+										struct auth_dns_rr *rr = lws_container_of(d2, struct auth_dns_rr, list);
+										int p2 = 0;
+										while (p2 < (int)rr->wire_rdata_len && rr->wire_rdata[p2]) p2 += rr->wire_rdata[p2] + 1;
+										p2++;
+										while (p2 < (int)rr->wire_rdata_len && rr->wire_rdata[p2]) p2 += rr->wire_rdata[p2] + 1;
+										p2++;
+										if (p2 + 4 <= (int)rr->wire_rdata_len) {
+											serial = ((uint64_t)rr->wire_rdata[p2] << 24) |
+													 ((uint64_t)rr->wire_rdata[p2+1] << 16) |
+													 ((uint64_t)rr->wire_rdata[p2+2] << 8) |
+													 (uint64_t)rr->wire_rdata[p2+3];
+										}
+										break;
+									} lws_end_foreach_dll(d2);
+								} else if (rs->type == 46) { /* RRSIG */
+									lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&rs->rr_list)) {
+										struct auth_dns_rr *rr = lws_container_of(d2, struct auth_dns_rr, list);
+										if (rr->wire_rdata_len >= 13) {
+											time_t e = ((time_t)rr->wire_rdata[8] << 24) |
+													   ((time_t)rr->wire_rdata[9] << 16) |
+													   ((time_t)rr->wire_rdata[10] << 8) |
+													   (time_t)rr->wire_rdata[11];
+											if (sig_expiry == 0 || e < sig_expiry) sig_expiry = e;
+										}
+									} lws_end_foreach_dll(d2);
+								}
+							} lws_end_foreach_dll(d);
+							lws_auth_dns_free_zone(&z);
+						}
+					}
+					if (buf) free(buf);
+				}
+				close(fpin);
+			}
+		}
+#endif
+		time_t ttl_expiry = time(NULL) + default_ttl;
+		if (sig_expiry == 0) sig_expiry = ttl_expiry + 86400 * 30; /* Fake if no RRSIG */
+
+		lws_snprintf(final_ppath, sizeof(final_ppath), "%s/%.2s/%.2s/%s_%llu_%llu_%llu.payload",
+			vhd->storage_path, frag->safe_hash, frag->safe_hash + 2, frag->safe_hash,
+			(unsigned long long)ttl_expiry, (unsigned long long)sig_expiry, (unsigned long long)serial);
 
 		if (mkdir(dir1, 0777) < 0 && errno != EEXIST)
 			lwsl_err("%s: Failed to create %s\n", __func__, dir1);
 		if (mkdir(dir2, 0777) < 0 && errno != EEXIST)
 			lwsl_err("%s: Failed to create %s\n", __func__, dir2);
+
+		/* Sweep old payload files for this hash before moving the new one in */
+		struct lws_dir_args da;
+		memset(&da, 0, sizeof(da));
+		da.prefix = frag->safe_hash;
+		da.dirpath = dir2;
+		lws_dir(dir2, &da, dht_dnssec_sweep_old_payload_cb);
 
 		if (rename(tmp_path, final_path) < 0) {
 			lwsl_err("%s: Failed to rename %s to %s (errno %d)\n", __func__, tmp_path, final_path, errno);
@@ -2746,6 +2836,26 @@ do_add_temp_zone(struct lws_context *context, const char *domain, const char *zo
 	return 0;
 }
 
+struct dht_dnssec_fetch_dir_args {
+	const char *prefix;
+	int found;
+	char found_path[1024];
+};
+
+static int
+dht_dnssec_fetch_payload_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
+{
+	struct dht_dnssec_fetch_dir_args *a = (struct dht_dnssec_fetch_dir_args *)user;
+	size_t pl = strlen(a->prefix);
+	size_t nl = strlen(lde->name);
+	if (nl > pl && !strncmp(lde->name, a->prefix, pl) && lde->name[pl] == '_' && nl > 8 && !strcmp(&lde->name[nl-8], ".payload")) {
+		a->found = 1;
+		lws_snprintf(a->found_path, sizeof(a->found_path), "%s/%s", dirpath, lde->name);
+		return 1; // stop searching
+	}
+	return 0;
+}
+
 static int
 do_publish_jws(struct lws_context *context, const char *jws_filepath)
 {
@@ -2800,29 +2910,19 @@ do_fetch_zone(struct lws_context *context, struct lws_dht_dnssec_fetch_zone_args
 	}
 	lws_hex_from_byte_array(hash, (size_t)lws_genhash_size(LWS_DHT_STORE_GENHASH), hex, sizeof(hex));
 
-	char ppath[256];
-	lws_snprintf(ppath, sizeof(ppath), "%s/%.2s/%.2s/%s.payload", v->storage_path, hex, hex + 2, hex);
-	int fpin = open(ppath, O_RDONLY);
-	if (fpin >= 0) {
+	struct dht_dnssec_fetch_dir_args fda;
+	memset(&fda, 0, sizeof(fda));
+	fda.prefix = hex;
+
+	char dir_path[256];
+	lws_snprintf(dir_path, sizeof(dir_path), "%s/%.2s/%.2s", v->storage_path, hex, hex + 2);
+	lws_dir(dir_path, &fda, dht_dnssec_fetch_payload_cb);
+
+	if (fda.found) {
 		/* We already have it completely validated locally! */
-		if (args->cache_dir) {
-			char cpath[1024];
-			lws_snprintf(cpath, sizeof(cpath), "%s/%s.zone", args->cache_dir, args->domain);
-			if (mkdir(args->cache_dir, 0777) < 0 && errno != EEXIST)
-				lwsl_err("%s: Failed to create cache directory %s\n", __func__, args->cache_dir);
-			int fpout = open(cpath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-			if (fpout >= 0) {
-				char cbuf[4096];
-				ssize_t cn;
-				while ((cn = read(fpin, cbuf, sizeof(cbuf))) > 0)
-					if (write(fpout, cbuf, (size_t)cn) < 0) break;
-				close(fpout);
-				lwsl_user("%s: Copied existing fetched zone to cache %s\n", __func__, cpath);
-			} else {
-				lwsl_err("%s: Failed to open %s for caching\n", __func__, cpath);
-			}
-		}
-		close(fpin);
+
+		/* We no longer copy it anywhere; the auth_dns caller receives the notification and parses it right out of the dht! */
+		lwsl_user("%s: Found existing fetched zone in DHT storage %s\n", __func__, fda.found_path);
 
 		if (args->cb)
 			args->cb(args->opaque, args->domain, 1);
