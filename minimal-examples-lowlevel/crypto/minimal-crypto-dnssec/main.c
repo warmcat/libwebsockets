@@ -62,7 +62,7 @@ int main(int argc, const char **argv)
 		lwsl_user("            Inputs : <domain>.ksk.key  Outputs: Base64 DS Record to stdout\n");
 		lwsl_user("  signzone  [--duration <hours>] <domain>\n");
 		lwsl_user("            Inputs : <domain>.zone, <domain>.ksk.private.jwk, <domain>.zsk.private.jwk\n");
-		lwsl_user("            Outputs: <domain>.zone.signed and <domain>.zone.signed.jws\n\n");
+		lwsl_user("            Outputs: <domain>.zone.signed and <domain>.zone.signed.jws (auto-bumps SOA serial)\n\n");
 		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
 		return 0;
 	}

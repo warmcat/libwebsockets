@@ -49,7 +49,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_P]		= { "-p",		"UDP socket port to bind to (defaults to 49100)" },
 	[LWS_SW_TARGET_IP]	= { "--target-ip",	"Bootstrapping UDP network node target IP" },
 	[LWS_SW_TARGET_PORT]	= { "--target-port",	"Bootstrapping UDP network node target port" },
-	[LWS_SW_PUT]		= { "--put",		"Chunk, wrap, and distribute a payload object to the network" },
+	[LWS_SW_PUT]		= { "--put",		"Upload a zone. Accepts [<domain>|<file>] or infers from --domain" },
 	[LWS_SW_DOMAIN]		= { "--domain",		"Download and validate a registered Domain" },
 	[LWS_SW_HELP]		= { "--help",		"Show this help information" },
 };
@@ -211,15 +211,36 @@ int main(int argc, const char **argv)
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_TARGET_PORT].sw)))
 		pvos[6].value = p;
 
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PUT].sw))) {
-		pvos[7].value = p;
-		use_stdin = 1;
-	}
+	{
+		const char *domain_arg = lws_cmdline_option(argc, argv, switches[LWS_SW_DOMAIN].sw);
+		const char *put_arg = lws_cmdline_option(argc, argv, switches[LWS_SW_PUT].sw);
+		static char auto_put_buf[256];
 
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_DOMAIN].sw))) {
-		pvos[9].value = p;  /* "domain" PVO */
-		if (!use_stdin)
-			pvos[8].value = p; /* implicitly feed it to "get-domain" if no "--put" was supplied */
+		if (domain_arg) {
+			pvos[9].value = domain_arg;  /* "domain" PVO */
+		}
+
+		if (put_arg) {
+			use_stdin = 1;
+			if (put_arg[0] == '\0') {
+				if (!domain_arg) {
+					lwsl_err("Must provide --domain if --put has no argument\n");
+					return 1;
+				}
+				lws_snprintf(auto_put_buf, sizeof(auto_put_buf), "%s.zone.signed.jws", domain_arg);
+				pvos[7].value = auto_put_buf;
+			} else if (strstr(put_arg, ".jws")) {
+				pvos[7].value = put_arg;
+			} else {
+				lws_snprintf(auto_put_buf, sizeof(auto_put_buf), "%s.zone.signed.jws", put_arg);
+				pvos[7].value = auto_put_buf;
+				if (!domain_arg) {
+					pvos[9].value = put_arg;
+				}
+			}
+		} else if (domain_arg) {
+			pvos[8].value = domain_arg; /* implicitly feed it to "get-domain" if no "--put" was supplied */
+		}
 	}
 
 	app_protocols[0].name			= "http";

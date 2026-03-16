@@ -254,8 +254,11 @@ parse_message(const uint8_t *buf, size_t buflen, struct lws_dht_mparams *mp)
 	mp->values6_len = sizeof(mp->values6);
 	mp->want = 0;
 
-	if (buflen < 2 || buf[0] != 'd')
+	if (buflen < 2 || buf[0] != 'd') {
+		lwsl_notice("%s: not a bencoded dictionary", __func__);
+		lwsl_hexdump_notice(buf, buflen);
 		return -1;
+	}
 
 	p = dht_bencode_get_string(buf, end, "t", &l);
 	if (p && l > 0 && l < sizeof(mp->tid)) {
@@ -265,8 +268,11 @@ parse_message(const uint8_t *buf, size_t buflen, struct lws_dht_mparams *mp)
 		mp->tid_len = 0;
 
 	p = dht_bencode_get_string(buf, end, "y", &l);
-	if (!p || l != 1)
+	if (!p || l != 1) {
+		lwsl_notice("%s: Missing or invalid 'y' field", __func__);
+		lwsl_hexdump_notice(buf, buflen);
 		return -1;
+	}
 
 	switch (*p) {
 	case 'r':
@@ -276,8 +282,11 @@ parse_message(const uint8_t *buf, size_t buflen, struct lws_dht_mparams *mp)
 
 	case 'q':
 		q_ptr = dht_bencode_get_string(buf, end, "q", &l);
-		if (!q_ptr)
+		if (!q_ptr) {
+			lwsl_notice("%s: Missing 'q' field in query", __func__);
+			lwsl_hexdump_notice(buf, buflen);
 			return -1;
+		}
 		if (l == 4 && !memcmp(q_ptr, "ping", 4))
 			message = DHT_PING;
 		else if (l == 9 && !memcmp(q_ptr, "find_node", 9))
@@ -294,8 +303,11 @@ parse_message(const uint8_t *buf, size_t buflen, struct lws_dht_mparams *mp)
 			message = DHT_ANNOUNCE_PEER;
 		else if (l == 4 && !memcmp(q_ptr, "data", 4))
 			message = DHT_DATA;
-		else
+		else {
+			lwsl_notice("%s: Unknown query type: %.*s", __func__, (int)l, q_ptr);
+			lwsl_hexdump_notice(buf, buflen);
 			return -1;
+		}
 
 		meta = dht_bencode_find_key(buf, end, "a", &l);
 		break;
@@ -314,15 +326,22 @@ parse_message(const uint8_t *buf, size_t buflen, struct lws_dht_mparams *mp)
 		l = dht_strtoull((char*)p + 7,
 			buflen - lws_ptr_diff_size_t(p + 7, buf), &q);
 		if (q && (uint8_t *)q < buf + buflen && *q == ':' && l > 0 && l < mp->token_len) {
-			if (l > lws_ptr_diff_size_t(end, (const uint8_t *)(q + 1))) goto fail;
+			if (l > lws_ptr_diff_size_t(end, (const uint8_t *)(q + 1))) {
+				lwsl_notice("%s: Token length invalid", __func__);
+				lwsl_hexdump_notice(buf, buflen);
+				goto fail;
+			}
 			memcpy(mp->token, q + 1, l);
 			mp->token_len = l;
 		} else
 			mp->token_len = 0;
 	}
 
-	if (!meta || *meta != 'd')
+	if (!meta || *meta != 'd') {
+		lwsl_notice("%s: Missing or invalid 'a' or 'r' dict", __func__);
+		lwsl_hexdump_notice(buf, buflen);
 		return message;
+	}
 
 	meta_end = meta + l;
 
@@ -361,7 +380,7 @@ parse_message(const uint8_t *buf, size_t buflen, struct lws_dht_mparams *mp)
 	} else
 		mp->nodes6_len = 0;
 
-	if (message == DHT_DATA) {
+	if (message == DHT_DATA || message == DHT_NOTIFY) {
 		p = dht_bencode_get_string(meta, meta_end, "data", &l);
 		if (p) {
 			mp->data = p;
@@ -448,7 +467,7 @@ parse_message(const uint8_t *buf, size_t buflen, struct lws_dht_mparams *mp)
 	} else
 		mp->sender_ip_len = 0;
 
-	if (dht_memmem(buf, buflen, "1:y1:r", 6))
+	if (dht_memmem(buf, buflen, "1:y1:r", 6) || dht_memmem(buf, buflen, "1:y1:re", 7))
 		return DHT_REPLY;
 	if (dht_memmem(buf, buflen, "1:y1:e", 6))
 		return DHT_ERROR;
@@ -480,6 +499,12 @@ parse_message(const uint8_t *buf, size_t buflen, struct lws_dht_mparams *mp)
 					return DHT_ANNOUNCE_PEER;
 				if (qlen == 4 && memcmp(p, "data", 4) == 0)
 					return DHT_DATA;
+				if (qlen == 9 && memcmp(p, "subscribe", 9) == 0)
+					return DHT_SUBSCRIBE;
+				if (qlen == 17 && memcmp(p, "subscribe_confirm", 17) == 0)
+					return DHT_SUBSCRIBE_CONFIRM;
+				if (qlen == 6 && memcmp(p, "notify", 6) == 0)
+					return DHT_NOTIFY;
 
 				lwsl_dht_rx_warn("%s: Unknown q: %.*s\n", __func__, (int)qlen, p);
 			}
@@ -523,6 +548,11 @@ lws_dht_reply_nodes(struct lws_dht_ctx *ctx, struct lws_dht_mparams *mp,
 	lwsl_dht_rx("%s: Nodes found (%d+%d)%s\n", __func__, (int)(mp->nodes_len / LWS_DHT_NODE_INFO_LEGACY_IP4_VLEN),
 			(int)(mp->nodes6_len / LWS_DHT_NODE_INFO_LEGACY_IP6_VLEN),
 			gp ? " for get_peers" : "");
+
+#if defined(LWS_WITH_DHT_BACKEND)
+	/* Credit the sender for replying so their pinged count resets to 0 */
+	maybe_new_node(ctx, mp->id, from, fromlen, 2);
+#endif
 
 	if (ctx->legacy && (mp->nodes_len % LWS_DHT_NODE_INFO_LEGACY_IP4_VLEN != 0 ||
 			    mp->nodes6_len % LWS_DHT_NODE_INFO_LEGACY_IP6_VLEN != 0)) {
@@ -754,7 +784,16 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 	}
 
 	if (id_cmp(mp.id, ctx->myid) == 0) {
-		lwsl_dht_warn("%s: Received message from self. id %02x ctx->myid %02x, ctx %p\n", __func__, mp.id->id[0], ctx->myid->id[0], ctx);
+		char ip[64] = "unknown";
+		int port = 0;
+		if (from->sa_family == AF_INET) {
+			inet_ntop(AF_INET, &((struct sockaddr_in *)from)->sin_addr, ip, sizeof(ip));
+			port = ntohs(((struct sockaddr_in *)from)->sin_port);
+		} else if (from->sa_family == AF_INET6) {
+			inet_ntop(AF_INET6, &((struct sockaddr_in6 *)from)->sin6_addr, ip, sizeof(ip));
+			port = ntohs(((struct sockaddr_in6 *)from)->sin6_port);
+		}
+		lwsl_dht_info("%s: Received message from self. from %s:%d id %02x ctx->myid %02x, ctx %p\n", __func__, ip, port, mp.id->id[0], ctx->myid->id[0], ctx);
 		goto done;
 	}
 
@@ -829,7 +868,7 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 #endif
 			break;
 		}
-		if (tid_match(mp.tid, "pn", NULL)) {
+		if (tid_match(mp.tid, "pn", NULL) || tid_match(mp.tid, "nt", NULL)) {
 			ctx->stats_current.rx_pong++;
 			lws_dht_reply_pong(ctx, &mp, from, fromlen);
 			break;
@@ -861,7 +900,8 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 		}
 
 
-		lwsl_dht_rx_warn("%s: Unexpected reply\n", __func__);
+		lwsl_dht_rx_warn("%s: Unexpected reply (tid '%.*s' len %d)\n", __func__, (int)mp.tid_len, mp.tid, (int)mp.tid_len);
+		lwsl_hexdump_dht(buf, buflen);
 #if defined(LWS_WITH_DHT_BACKEND)
 		blacklist_node(ctx, mp.id, from, fromlen);
 #endif
@@ -978,8 +1018,16 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 			goto done;
 		}
 
+		lwsl_notice("%s: Parsed NOTIFY. TID is %d bytes:\n", __func__, (int)mp.tid_len);
+		lwsl_hexdump_notice(mp.tid, mp.tid_len);
+		lwsl_notice("Original NOTIFY packet (%d bytes):\n", (int)buflen);
+		lwsl_hexdump_notice(buf, buflen);
+
+		/* Acknowledge the NOTIFY so the sender marks us as delivered */
+		lws_dht_send_ack(ctx, from, fromlen, mp.tid, mp.tid_len);
+
 		if (ctx->cb) {
-			(*ctx->cb)(ctx->closure, LWS_DHT_EVENT_NOTIFY, mp.info_hash, mp.tid, mp.tid_len, from, fromlen);
+			(*ctx->cb)(ctx->closure, LWS_DHT_EVENT_NOTIFY, mp.info_hash, mp.data, mp.data_len, from, fromlen);
 		}
 		break;
 

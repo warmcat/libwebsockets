@@ -72,7 +72,21 @@ struct lws_dht_dnssec_ops {
 
 	int (*add_temp_zone)(struct lws_context *context, const char *domain, const char *zone_str, int ttl_secs);
 	int (*publish_jws)(struct lws_context *context, const char *jws_filepath);
-	int (*fetch_zone)(struct lws_context *context, struct lws_dht_dnssec_fetch_zone_args *args);
+	int (*fetch_zone)(struct lws_context *cx,
+			struct lws_dht_dnssec_fetch_zone_args *args);
+
+	/*
+	 * Tell DHT plugin to actively subscribe to the network for changes
+	 * to this domain using LWS_DHT_EVENT_NOTIFY pub/sub.
+	 */
+	int (*subscribe_zone)(struct lws_vhost *vhost, const char *domain);
+
+	/*
+	 * Actively repair an outdated peer we encountered by firing a targeted
+	 * EVENT_NOTIFY packet at them containing the fresh SOA Serial.
+	 */
+	int (*notify_peer_outdated)(struct lws_vhost *vhost, const char *domain,
+				    const lws_sockaddr46 *sa46_peer, uint64_t newer_soa_serial);
 
 	void (*register_auth_cb)(struct lws_vhost *vh, void (*cb)(void *opaque, const char *domain, const char *payload_path), void *opaque);
 };

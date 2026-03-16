@@ -17,7 +17,7 @@ When `lws-minimal-raw-dht-zone-client` attempts to `--put` or download implicitl
 | `-s <path>` | Sets the path to the internal storage directory for caches and unwrapped keys. | Defaults to `./dht-store` |
 | `-p <port>` | The UDP socket port to bind the DHT protocol engine to on the local machine. | Defaults to `5000` |
 | `--domain <hostname>` | Triggers a download sequence of that specific registered Domain. | Acts as an alias for `--get` if `--put` is absent. |
-| `--put <file_path>` | Points the engine to actively chunk, sign, wrap, and distribute a payload object to the network. | |
+| `--put [<domain>\|<file>]`| Actively chunk, sign, wrap, and distribute a payload object to the network. | Defaults to `<domain>.zone.signed.jws` if a domain is provided explicitly or via `--domain`. |
 | `--target-ip <ip>` | Explicitly sets the bootstrapping UDP network node target. | If omitted, defaults to pulling a random node from `libwebsockets-dht-nodes.txt` installed at `${LWS_INSTALL_DATADIR}/libwebsockets` (or overridden by the `dht-fallback-nodes` PVO). |
 | `--target-port <port>`| Selects the target node port. | Usually dynamically read from the nodes list if the IP is omitted. |
 
@@ -32,7 +32,11 @@ $ ./lws-minimal-raw-dht-zone-client --domain dnssec.to -p 5005
 
 ### Uploading a Locally Signed JWS
 
-Assuming a successfully authorized `.jws` buffer path:
+Assuming a successfully authorized `.jws` buffer path, you can use the simplified syntax by providing the domain directly:
 ```bash
-$ ./lws-minimal-raw-dht-zone-client --put /etc/dht/my-domain.jws -p 5005
+$ ./lws-minimal-raw-dht-zone-client --put my-domain.com -p 5005
+```
+This automatically targets `my-domain.com.zone.signed.jws`. Alternatively, provide `--domain` and empty `--put`:
+```bash
+$ ./lws-minimal-raw-dht-zone-client --put --domain my-domain.com -p 5005
 ```

@@ -951,7 +951,7 @@ lws_dht_notify_subscribers(struct lws_dht_ctx *ctx, const lws_dht_hash_t *hash, 
 		if (ctx->now.tv_sec <= sub->expire) {
 			/* Only notify if the content actually changed from what they have */
 			if (memcmp(sub->current_sha256, sha256, 32)) {
-				send_notify(ctx, (struct sockaddr *)&sub->ss, sub->sslen, sub->tid, sub->tid_len, hash, sha256);
+				lws_dht_send_notify(ctx, (struct sockaddr *)&sub->ss, sub->sslen, sub->tid, sub->tid_len, hash, sha256, NULL, 0);
 
 				/* Queue up reliable delivery retry state */
 				sub->pending_notify = 1;

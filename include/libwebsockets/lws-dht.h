@@ -180,6 +180,11 @@ LWS_VISIBLE LWS_EXTERN int
 lws_dht_send_ack(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
 		 const uint8_t *tid, size_t tid_len);
 
+LWS_VISIBLE LWS_EXTERN int
+lws_dht_send_notify(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
+		    const uint8_t *tid, size_t tid_len,
+		    const lws_dht_hash_t *infohash, const uint8_t *sha256,
+		    const uint8_t *payload, size_t payload_len);
 
 
 /**

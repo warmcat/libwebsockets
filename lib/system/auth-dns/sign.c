@@ -945,11 +945,17 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 											pre[pl++] = (uint8_t)((rs->type == 48 && has_ksk) ? dnssec_alg : zsk_alg); /* Algorithm */
 
 											int labels = 0;
-											const char *p = rs->name;
-											while (*p) { if (*p == '.') labels++; p++; }
-											if (rs->name[0] == '\0' || !strcmp(rs->name, ".")) labels = 0;
-											else if (p > rs->name && *(p - 1) == '.') labels--;
-											if (rs->name[0] == '*') labels--;
+											if (rs->name[0] && strcmp(rs->name, ".")) {
+												labels = 1;
+												const char *p = rs->name;
+												while (*p) {
+													if (*p == '.' && *(p + 1) != '\0')
+														labels++;
+													p++;
+												}
+												if (rs->name[0] == '*' && rs->name[1] == '.')
+													labels--;
+											}
 											pre[pl++] = (uint8_t)labels;
 
 											pre[pl++] = (uint8_t)(rs->ttl >> 24); pre[pl++] = (uint8_t)(rs->ttl >> 16);
@@ -1147,19 +1153,80 @@ lws_auth_dns_verify_zone(struct lws_auth_dns_sign_info *info)
 	struct lws_genec_ctx genec_zsk, genec_ksk;
 	int has_ksk = 0;
 
-	if (lws_jwk_load(&zsk, info->zsk_jwk_filepath, NULL, NULL) == 0 && zsk.kty == LWS_GENCRYPTO_KTY_EC) {
-		if (lws_genecdsa_create(&genec_zsk, info->cx, NULL) == 0) lws_genecdsa_set_key(&genec_zsk, zsk.e);
-	} else {
-		lwsl_err("Failed loading ZSK\n");
-		return 1;
+	if (0) {
+		/* Original JWK loading code replaced by native DNSKEY extraction below */
 	}
 
-	if (info->ksk_jwk_filepath && lws_jwk_load(&ksk, info->ksk_jwk_filepath, NULL, NULL) == 0 && ksk.kty == LWS_GENCRYPTO_KTY_EC) {
-		if (lws_genecdsa_create(&genec_ksk, info->cx, NULL) == 0) {
-			lws_genecdsa_set_key(&genec_ksk, ksk.e);
-			has_ksk = 1;
+	/* Extract DNSKEY from zone */
+	lws_start_foreach_dll(struct lws_dll2 *, d1, lws_dll2_get_head(&zone.rrset_list)) {
+		struct auth_dns_rrset *rs = lws_container_of(d1, struct auth_dns_rrset, list);
+		if (rs->type == 48) { /* DNSKEY */
+			lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&rs->rr_list)) {
+				struct auth_dns_rr *rr = lws_container_of(d2, struct auth_dns_rr, list);
+				char flags_s[16], proto_s[16], alg_s[16], b64[512];
+				if (sscanf(rr->rdata, "%15s %15s %15s %511s", flags_s, proto_s, alg_s, b64) == 4) {
+					int flags = atoi(flags_s);
+					int alg = atoi(alg_s);
+					uint8_t raw[512];
+					int raw_l = lws_b64_decode_string(b64, (char *)raw, sizeof(raw));
+					if (raw_l > 0) {
+						struct lws_genec_ctx *target_genec = (flags == 257) ? &genec_ksk : &genec_zsk;
+						if (lws_genecdsa_create(target_genec, info->cx, NULL) == 0) {
+							/* We need to re-construct an ephemeral struct lws_jwk's EC elements
+							 * from the RAW ANS.1/DNSKEY export format: [flags][proto][alg][key...]
+							 * Actually for EC (alg 13/14), the raw is just X + Y concatenated.
+							 */
+							struct lws_jwk tmp;
+							memset(&tmp, 0, sizeof(tmp));
+							tmp.kty = LWS_GENCRYPTO_KTY_EC;
+							int coord_len = (alg == 14) ? 48 : 32; /* P-384 or P-256 */
+							if (raw_l == coord_len * 2) {
+								tmp.meta[JWK_META_KTY].buf = (uint8_t *)lws_strdup("EC");
+								tmp.meta[JWK_META_KTY].len = 2;
+
+								const char *crvs = (alg == 14) ? "P-384" : "P-256";
+								tmp.e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf = (uint8_t *)lws_strdup(crvs);
+								tmp.e[LWS_GENCRYPTO_EC_KEYEL_CRV].len = (uint32_t)strlen(crvs);
+
+								tmp.e[LWS_GENCRYPTO_EC_KEYEL_X].buf = lws_malloc((size_t)coord_len, "ec_x");
+								tmp.e[LWS_GENCRYPTO_EC_KEYEL_X].len = (uint32_t)coord_len;
+								memcpy(tmp.e[LWS_GENCRYPTO_EC_KEYEL_X].buf, raw, (size_t)coord_len);
+
+								tmp.e[LWS_GENCRYPTO_EC_KEYEL_Y].buf = lws_malloc((size_t)coord_len, "ec_y");
+								tmp.e[LWS_GENCRYPTO_EC_KEYEL_Y].len = (uint32_t)coord_len;
+								memcpy(tmp.e[LWS_GENCRYPTO_EC_KEYEL_Y].buf, raw + coord_len, (size_t)coord_len);
+
+								if (lws_genecdsa_set_key(target_genec, tmp.e) == 0) {
+									if (flags == 257) {
+										has_ksk = 1;
+										/* we must persist the KSK e to match keytags below */
+										ksk.kty = tmp.kty;
+										for (int i=0; i<8; i++) {
+											ksk.e[i] = tmp.e[i];
+											/* prevent destroy from freeing the buf */
+											tmp.e[i].buf = NULL;
+										}
+									} else {
+										zsk.kty = tmp.kty;
+										for (int i=0; i<8; i++) {
+											zsk.e[i] = tmp.e[i];
+											/* prevent destroy from freeing the buf */
+											tmp.e[i].buf = NULL;
+										}
+									}
+								} else {
+									lwsl_err("Failed to instantiate extracted DNSKEY in OpenSSL context\n");
+								}
+								lws_jwk_destroy(&tmp);
+							} else {
+								lws_genec_destroy(target_genec);
+							}
+						}
+					}
+				}
+			} lws_end_foreach_dll(d2);
 		}
-	}
+	} lws_end_foreach_dll(d1);
 
 	lws_start_foreach_dll(struct lws_dll2 *, d1, lws_dll2_get_head(&zone.rrset_list)) {
 		struct auth_dns_rrset *rs = lws_container_of(d1, struct auth_dns_rrset, list);

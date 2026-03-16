@@ -49,6 +49,9 @@ struct auth_dns_cache_entry {
 	time_t sig_expiry;
 	uint64_t serial;
 	char filename[256];
+
+	lws_sorted_usec_list_t sul_subscribe;
+	struct per_vhost_data__auth_dns *vhd;
 };
 
 struct per_vhost_data__auth_dns {
@@ -140,6 +143,23 @@ extract_base_domain(const char *qname, char *base, size_t max)
 	int bl = (int)strlen(base);
 	if (bl > 0 && base[bl - 1] == '.')
 		base[bl - 1] = '\0';
+
+	lwsl_notice("%s: Extracted base domain '%s' from qname '%s'\n", __func__, base, qname);
+}
+
+static void
+auth_dns_sul_subscribe_cb(lws_sorted_usec_list_t *sul)
+{
+	struct auth_dns_cache_entry *ce = lws_container_of(sul, struct auth_dns_cache_entry, sul_subscribe);
+
+	if (ce->vhd && ce->vhd->dht_ops && ce->vhd->dht_ops->subscribe_zone) {
+		lwsl_info("%s: Refreshing DHT subscription for %s\n", __func__, ce->zone.origin);
+		ce->vhd->dht_ops->subscribe_zone(ce->vhd->vhost, ce->zone.origin);
+
+		/* Reschedule for 45 mins since DHT expires them in 60 mins */
+		lws_sul_schedule(ce->vhd->context, 0, &ce->sul_subscribe,
+				 auth_dns_sul_subscribe_cb, 45 * 60 * LWS_US_PER_SEC);
+	}
 }
 
 static int
@@ -240,16 +260,25 @@ auth_dns_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		char dpath[1024];
 		lws_snprintf(dpath, sizeof(dpath), "%s/%s", dirpath, old->filename);
 		unlink(dpath);
+		lws_sul_cancel(&old->sul_subscribe);
 		lws_auth_dns_free_zone(&old->zone);
 		lws_dll2_remove(&old->list);
 		free(old);
 	}
 
+	ce->vhd = vhd;
 	lws_dll2_add_head(&ce->list, &vhd->zones);
 
 	lwsl_info("Parsed zone %s from %s (serial %llu, ttl_exp %llu, sig_exp %llu)\n",
 		ce->zone.origin, filepath, (unsigned long long)ce->serial,
 		(unsigned long long)ce->ttl_expiry, (unsigned long long)ce->sig_expiry);
+
+	if (vhd->dht_ops && vhd->dht_ops->subscribe_zone) {
+		/* Kick off initial subscription and schedule rolling updates */
+		vhd->dht_ops->subscribe_zone(vhd->vhost, ce->zone.origin);
+		lws_sul_schedule(vhd->context, 0, &ce->sul_subscribe,
+				 auth_dns_sul_subscribe_cb, 45 * 60 * LWS_US_PER_SEC);
+	}
 
 	return 0;
 }
@@ -321,51 +350,75 @@ auth_dns_local_zone_cb(void *opaque, const char *domain, const char *payload_pat
 							} lws_end_foreach_dll(d2);
 						}
 					} lws_end_foreach_dll(d);
-					lws_auth_dns_free_zone(&z);
-				}
 
-				time_t ttl_expiry = time(NULL) + default_ttl;
-				if (sig_expiry == 0) sig_expiry = ttl_expiry + 86400 * 30; /* Fake if no RRSIG */
+					time_t ttl_expiry = time(NULL) + default_ttl;
+					if (sig_expiry == 0) sig_expiry = ttl_expiry + 86400 * 30; /* Fake if no RRSIG */
 
-				char cpath[1024], fname[256];
-				lws_snprintf(fname, sizeof(fname), "%s_%llu_%llu_%llu.zone", domain,
-					(unsigned long long)ttl_expiry, (unsigned long long)sig_expiry, (unsigned long long)serial);
-				lws_snprintf(cpath, sizeof(cpath), "%s/%s", tzdir, fname);
-
-				if (mkdir(tzdir, 0777) < 0 && errno != EEXIST)
-					lwsl_err("%s: Failed to create dir %s\n", __func__, tzdir);
-
-				int fpout = open(cpath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-				if (fpout >= 0) {
-					if (write(fpout, buf, (size_t)st.st_size) < 0)
-						lwsl_err("write failed\n");
-					close(fpout);
-					lwsl_notice("%s: Copied local updated zone to %s\n", __func__, cpath);
-
-					/* Remove old versions from memory and disk cache */
+					/* Remove old versions from memory cache */
 					lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->zones.head) {
 						struct auth_dns_cache_entry *old = lws_container_of(d, struct auth_dns_cache_entry, list);
 						size_t ol = strlen(domain);
 						if (!strncmp(old->filename, domain, ol) && old->filename[ol] == '_') {
 							char dpath[1024];
-							lws_snprintf(dpath, sizeof(dpath), "%s/%s", tzdir, old->filename);
-							unlink(dpath);
+							if (tzdir[0]) {
+								lws_snprintf(dpath, sizeof(dpath), "%s/%s", tzdir, old->filename);
+								unlink(dpath);
+							}
+							lws_sul_cancel(&old->sul_subscribe);
 							lws_auth_dns_free_zone(&old->zone);
 							lws_dll2_remove(&old->list);
 							free(old);
 						}
 					} lws_end_foreach_dll_safe(d, d1);
 
-					struct lws_dir_entry lde;
-					memset(&lde, 0, sizeof(lde));
-					lde.type = LDOT_FILE;
-					lde.name = fname;
-					auth_dns_dir_cb(tzdir, vhd, &lde);
-				} else {
-					lwsl_err("%s: Failed to open %s for local copy\n", __func__, cpath);
+					/* Enforce cache limits */
+					while ((uint32_t)vhd->zones.count >= vhd->cache_max_zones) {
+						struct auth_dns_cache_entry *old = lws_container_of(vhd->zones.tail, struct auth_dns_cache_entry, list);
+						char dpath[1024];
+						if (tzdir[0]) {
+							lws_snprintf(dpath, sizeof(dpath), "%s/%s", tzdir, old->filename);
+							unlink(dpath);
+						}
+						lws_sul_cancel(&old->sul_subscribe);
+						lws_auth_dns_free_zone(&old->zone);
+						lws_dll2_remove(&old->list);
+						free(old);
+					}
+
+					struct auth_dns_cache_entry *ce = malloc(sizeof(*ce));
+					if (ce) {
+						memset(ce, 0, sizeof(*ce));
+						/* we use the filename field just as a domain label natively now */
+						lws_snprintf(ce->filename, sizeof(ce->filename), "%s_%llu_%llu_%llu.zone", domain,
+							(unsigned long long)ttl_expiry, (unsigned long long)sig_expiry, (unsigned long long)serial);
+
+						ce->serial = serial;
+						ce->sig_expiry = sig_expiry;
+						ce->ttl_expiry = ttl_expiry;
+
+						/* Transfer zone struct ownership */
+						memcpy(&ce->zone, &z, sizeof(z));
+						memset(&z, 0, sizeof(z)); /* Prevent free_zone locally */
+
+						ce->vhd = vhd;
+						lws_dll2_add_head(&ce->list, &vhd->zones);
+
+						lwsl_info("Loaded DHT payload %s from %s natively (serial %llu, ttl_exp %llu, sig_exp %llu)\n",
+							ce->zone.origin, payload_path, (unsigned long long)ce->serial,
+							(unsigned long long)ce->ttl_expiry, (unsigned long long)ce->sig_expiry);
+
+						if (vhd->dht_ops && vhd->dht_ops->subscribe_zone) {
+							vhd->dht_ops->subscribe_zone(vhd->vhost, ce->zone.origin);
+							lws_sul_schedule(vhd->context, 0, &ce->sul_subscribe,
+									 auth_dns_sul_subscribe_cb, 45 * 60 * LWS_US_PER_SEC);
+						}
+					} else {
+						lws_auth_dns_free_zone(&z);
+					}
 				}
+
+				if (buf) free(buf);
 			}
-			if (buf) free(buf);
 		}
 		close(fpin);
 	} else {
@@ -626,28 +679,27 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				pvo = pvo->next;
 			}
 			if (vhd->zone_dir[0] == '\0') {
-				lwsl_vhost_warn(vhd->vhost, "%s: Missing pvo \"zone-dir\"",
-					 __func__);
-				break;
+				lws_strncpy(vhd->zone_dir, "/tmp/lws-auth-dns", sizeof(vhd->zone_dir));
+				lwsl_vhost_warn(vhd->vhost, "%s: Missing pvo \"zone-dir\", defaulting to %s",
+					 __func__, vhd->zone_dir);
 			}
 		}
 
-		/* read zone files */
-		if (vhd->zone_dir[0] != '\0') {
-			lwsl_notice("%s: scanning directory %s\n", __func__, vhd->zone_dir);
-			int r = lws_dir(vhd->zone_dir, vhd, auth_dns_dir_cb);
-			lwsl_notice("%s: lws_dir returned %d\n", __func__, r);
-		}
-
-
 		{
-			/* Retrieve operations from dht-dnssec plugin if present */
+			/* Retrieve operations from dht-dnssec plugin if present BEFORE scanning the directory */
 			const struct lws_protocols *prot = lws_vhost_name_to_protocol(vhd->vhost, "lws-dht-dnssec");
 			if (prot && prot->user) {
 				vhd->dht_ops = (const struct lws_dht_dnssec_ops *)prot->user;
 				if (vhd->dht_ops->register_auth_cb)
 					vhd->dht_ops->register_auth_cb(vhd->vhost, auth_dns_local_zone_cb, vhd);
 			}
+		}
+
+		/* read zone files only if DHT is not taking over zone management */
+		if (vhd->zone_dir[0] != '\0' && !vhd->dht_ops) {
+			lwsl_notice("%s: scanning directory %s (local disk mode)\n", __func__, vhd->zone_dir);
+			int r = lws_dir(vhd->zone_dir, vhd, auth_dns_dir_cb);
+			lwsl_notice("%s: lws_dir returned %d\n", __func__, r);
 		}
 
 		{
@@ -773,23 +825,23 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			p = pqdht->packet;
 			end = p + pqdht->packet_len;
 			is_tcp = pqdht->is_tcp;
-			req_len = (uint16_t)(pqdht->packet_len - (is_tcp ? 2 : 0));
+			req_len = (uint16_t)pqdht->packet_len;
 
 			/* It could be delayed_q or delayed_dnsbl. For extracting packet it doesn't matter since they start identical */
 			delayed_q = pqdht;
 		} else if (is_tcp) {
-			if ((size_t)pss->rx_len + len > sizeof(pss->rx_buf)) { lwsl_notice("tcp req too large\n"); return -1; }
+			if ((size_t)pss->rx_len + len > sizeof(pss->rx_buf)) { lwsl_notice("tcp req too large (%d)\n", (int)len); return -1; }
 			memcpy(pss->rx_buf + pss->rx_len, in, len);
 			pss->rx_len += (int)len;
 			if (pss->rx_len < 2) return 0;
 			req_len = (uint16_t)((pss->rx_buf[0] << 8) | pss->rx_buf[1]);
-			if (req_len > pss->rx_len - 2) return 0;
+			if (req_len > pss->rx_len - 2) { lwsl_notice("tcp req_len %d > avail %d\n", req_len, pss->rx_len - 2); return 0; }
 			p = pss->rx_buf + 2;
 			end = pss->rx_buf + 2 + req_len;
 		}
 
 		if (p + 12 > end) {
-			if (reason == LWS_CALLBACK_RAW_RX) lwsl_notice("short header\n");
+			if (reason == LWS_CALLBACK_RAW_RX) lwsl_notice("short header (len %d)\n", (int)len);
 			goto done;
 		}
 
@@ -802,8 +854,8 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		lwsl_notice("DNS id %04x flags %04x qdcount %d arcount %d\n", id, flags, qdcount, arcount);
 
-		if (flags & 0x8000) { lwsl_notice("not a query\n"); goto done; }
-		if (qdcount != 1) { lwsl_notice("qdcount != 1\n"); goto done; }
+		if (flags & 0x8000) { lwsl_notice("not a query (flags %04x)\n", flags); goto done; }
+		if (qdcount != 1) { lwsl_notice("qdcount != 1 (%d)\n", qdcount); goto done; }
 
 		uint8_t *q = p + 12;
 		qname[0] = '\0';
@@ -811,9 +863,9 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		while (q < end && *q) {
 			if (++cycles > 128) { lwsl_notice("qname cycles %d\n", cycles); goto done; }
 			int l = *q++;
-			if (l & 0xc0) { lwsl_notice("compression ptr in query\n"); goto done; }
-			if (q + l > end) goto done;
-			if (qname_len + l + 2 > (int)sizeof(qname)) goto done;
+			if (l & 0xc0) { lwsl_notice("compression ptr in query at qname pos %d\n", qname_len); goto done; }
+			if (q + l > end) { lwsl_notice("qname label exceeds buffer\n"); goto done; }
+			if (qname_len + l + 2 > (int)sizeof(qname)) { lwsl_notice("qname too long for buffer\n"); goto done; }
 			if (qname_len) qname[qname_len++] = '.';
 			memcpy(qname + qname_len, q, (size_t)l);
 			qname_len += l;
@@ -821,12 +873,12 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			q += l;
 		}
 		if (q < end && !*q) q++;
-		else { lwsl_notice("qname no null term\n"); goto done; }
+		else { lwsl_notice("qname no null term (q %p end %p)\n", q, end); goto done; }
 
 		for (int i = 0; qname[i]; i++)
 			qname[i] = (char)tolower((unsigned char)qname[i]);
 
-		if (q + 4 > end) { lwsl_notice("no qtype/qclass\n"); goto done; }
+		if (q + 4 > end) { lwsl_notice("no qtype/qclass (q %p end %p)\n", q, end); goto done; }
 		qtype = (q[0] << 8) | q[1];
 		qclass = (q[2] << 8) | q[3];
 		q += 4;
@@ -916,6 +968,8 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				char base[256];
 				extract_base_domain(qname, base, sizeof(base));
 
+				lwsl_notice("Initiating DHT fetch for missing zone %s (qname %s)\n", base, qname);
+
 				struct pending_dns_query *pq = malloc(sizeof(*pq));
 				if (!pq) goto send_refused;
 				memset(pq, 0, sizeof(*pq));
@@ -925,8 +979,9 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				else if (!is_tcp && lws_get_udp(wsi)) pq->sa46_peer = lws_get_udp(wsi)->sa46;
 				pq->is_tcp = is_tcp;
 				lws_strncpy(pq->domain, base, sizeof(pq->domain));
-				memcpy(pq->packet, dbuf, (size_t)req_len);
-				pq->packet_len = (size_t)req_len;
+				pq->packet_len = is_tcp ? (size_t)req_len : len;
+				if (pq->packet_len <= sizeof(pq->packet))
+					memcpy(pq->packet, p, pq->packet_len);
 
 				lws_dll2_add_tail(&pq->list, &vhd->pending_queries);
 				lws_sul_schedule(vhd->context, 0, &pq->sul_timeout, pending_query_timeout_cb, 5 * LWS_US_PER_SEC);
@@ -1066,9 +1121,9 @@ send_refused:
 						const struct lws_udp *udp = lws_get_udp(wsi);
 						if (udp) q->sa46_peer = udp->sa46;
 					}
-					q->packet_len = is_tcp ? (size_t)req_len + 2 : len;
+					q->packet_len = is_tcp ? (size_t)req_len : len;
 					if (q->packet_len <= sizeof(q->packet))
-						memcpy(q->packet, in, q->packet_len);
+						memcpy(q->packet, p, q->packet_len);
 
 					lws_dll2_add_tail(&q->list, &vhd->pending_dnsbl);
 					lws_sul_schedule(vhd->context, 0, &q->sul_timeout, dnsbl_timeout_cb, 5 * LWS_US_PER_SEC);
@@ -1171,10 +1226,17 @@ send_refused:
 			lws_callback_on_writable(wsi);
 		} else {
 			if (reason == LWS_CALLBACK_USER && delayed_q) {
-				sendto(lws_get_socket_fd(wsi), (char *)dbuf, (size_t)pss->len, 0,
-					(struct sockaddr *)&delayed_q->sa46_peer,
-					delayed_q->sa46_peer.sa4.sin_family == AF_INET6 ?
-						sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in));
+				int sockfd = lws_get_socket_fd(wsi);
+				struct sockaddr *sa = (struct sockaddr *)&delayed_q->sa46_peer;
+				socklen_t salen = delayed_q->sa46_peer.sa4.sin_family == AF_INET6 ?
+						sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in);
+
+				ssize_t snt = sendto(sockfd, (char *)dbuf, (size_t)pss->len, 0, sa, salen);
+				if (snt < 0) {
+					lwsl_err("%s: sendto failed on fd %d: err %d\n", __func__, sockfd, errno);
+				} else {
+					lwsl_notice("%s: sendto succeeded %ld bytes to delayed peer on fd %d\n", __func__, (long)snt, sockfd);
+				}
 			} else {
 				lws_write(wsi, dbuf, (size_t)pss->len, LWS_WRITE_RAW);
 			}

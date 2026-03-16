@@ -34,6 +34,7 @@
 
 #define LWS_DHT_FRAGMENT_SIZE		(1024 * 1024)
 #define LWS_DHT_STORE_GENHASH		LWS_GENHASH_TYPE_SHA256
+#define LWS_DHT_STORE_HASH_TYPE		LWS_DHT_HASH_TYPE_SHA256
 
 
 struct vhd_dht_dnssec {
@@ -99,7 +100,15 @@ struct vhd_dht_dnssec {
 	int				test_handshake;
 	int				cli_receiver;
 	lws_dll2_owner_t		fetch_reqs;
-	uint8_t				bootstrap_retries;
+	lws_dll2_owner_t		subscribed_domains;
+	lws_dht_hash_t			*myid;
+};
+
+struct lws_dht_dnssec_subscribed_domain {
+	lws_dll2_t list;
+	char domain[256];
+	uint8_t hash[LWS_GENHASH_LARGEST];
+	uint8_t needs_initial_fetch;
 };
 
 struct dht_fragment {
@@ -111,6 +120,7 @@ struct dht_fragment {
 	int				fd;
 	int				hash_init_done;
 	int				retries;
+	int				validation_started;
 
 	/* DNSSEC and Validation State */
 	struct sockaddr_storage		from_sa;
@@ -140,6 +150,7 @@ struct lws_dht_dnssec_fetch_req {
 	lws_dht_dnssec_fetch_cb_t	cb;
 	void				*opaque;
 	char				target_hash[65];
+	struct vhd_dht_dnssec		*vhd;
 	int				retries;
 	lws_sorted_usec_list_t		sul_timeout;
 };
@@ -159,9 +170,47 @@ dht_dnssec_sweep_old_payload_cb(const char *dirpath, void *user, struct lws_dir_
 		char upath[1024];
 		lws_snprintf(upath, sizeof(upath), "%s/%s", dirpath, lde->name);
 		unlink(upath);
-		lwsl_notice("Swept old payload %s\n", upath);
+		lwsl_notice("%s: unlinked old payload %s\n", __func__, upath);
 	}
 	return 0;
+}
+
+static int
+do_fetch_zone(struct lws_context *cx, struct lws_dht_dnssec_fetch_zone_args *args);
+
+static int
+do_notify_peer_outdated(struct lws_vhost *vhost, const char *domain, const lws_sockaddr46 *sa46_peer, uint64_t newer_soa_serial);
+
+static void
+dht_dnssec_broadcast_notify(struct vhd_dht_dnssec *vhd, const char *domain, uint64_t soa_serial)
+{
+	struct sockaddr_in sin[32];
+	struct sockaddr_in6 sin6[32];
+	int num_v4 = 32, num_v6 = 32, i;
+
+	if (!vhd->dht) return;
+
+	/* Send an unsolicited EVENT_NOTIFY to all known DHT participants to immediately propagate new zonefiles */
+	lws_dht_get_nodes(vhd->dht, sin, &num_v4, sin6, &num_v6);
+
+	for (i = 0; i < num_v4; i++) {
+		lws_sockaddr46 sa;
+		memset(&sa, 0, sizeof(sa));
+		sa.sa4.sin_family = AF_INET;
+		sa.sa4.sin_addr = sin[i].sin_addr;
+		sa.sa4.sin_port = sin[i].sin_port;
+		do_notify_peer_outdated(vhd->vhost, domain, &sa, soa_serial);
+	}
+#if defined(LWS_WITH_IPV6)
+	for (i = 0; i < num_v6; i++) {
+		lws_sockaddr46 sa;
+		memset(&sa, 0, sizeof(sa));
+		sa.sa6.sin6_family = AF_INET6;
+		sa.sa6.sin6_addr = sin6[i].sin6_addr;
+		sa.sa6.sin6_port = sin6[i].sin6_port;
+		do_notify_peer_outdated(vhd->vhost, domain, &sa, soa_serial);
+	}
+#endif
 }
 
 struct lws_dht_dnssec_domain;
@@ -731,6 +780,10 @@ dht_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 					vhd->auth_cb(vhd->auth_cb_opaque, frag->domain, final_ppath);
 				}
 
+				/* Broadcast the newly accepted zone's SOA over the DHT to force peers to update instantly */
+				lwsl_user("%s: Broadcasting fresh SOA serial %llu for %s to DHT nodes\n", __func__, (unsigned long long)serial, frag->domain);
+				dht_dnssec_broadcast_notify(vhd, frag->domain, serial);
+
 				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->fetch_reqs.head) {
 					struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
 					if (!strcmp(req->target_hash, frag->safe_hash)) {
@@ -770,6 +823,9 @@ dht_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 
 	if (vhd->cb_completion && !vhd->cli_put_file)
 		vhd->cb_completion(vhd->cb_closure, 0);
+
+	/* The PUT or GET transaction is complete, cancel any pending timeout */
+	lws_sul_cancel(&vhd->sul_timeout);
 
 	lws_dll2_remove(&frag->list);
 	free(frag);
@@ -859,17 +915,10 @@ dht_dnssec_ds_cb(struct lws *wsi, const char *ads, const struct addrinfo *result
 			goto drop;
 		}
 
-		int ret = lws_async_dns_query(frag->vhd->context, 0, frag->domain,
-					LWS_ADNS_RECORD_DNSKEY, dht_dnssec_dnskey_cb,
-					NULL, frag, NULL);
-
-		if (ret == LADNS_RET_CONTINUING) {
-			/* Async lookup initiated */
-			lwsl_user("%s: Initiated async DNSKEY lookup for %s\n", __func__, frag->domain);
-		}
+		if (result) lws_async_dns_freeaddrinfo(&result);
+		return dht_dnssec_dnskey_cb(wsi, frag->domain, NULL, 0, frag);
 	}
 
-	if (result) lws_async_dns_freeaddrinfo(&result);
 	return wsi;
 
 drop:
@@ -1076,6 +1125,24 @@ dht_dnssec_trigger_validation(struct lws_dht_ctx *ctx, struct vhd_dht_dnssec *vh
 							lws_auth_dns_free_zone(&ex_zone);
 
 							if (ex_serial && frag->soa_serial <= ex_serial) {
+								if (frag->soa_serial < ex_serial) {
+									lws_sockaddr46 sa;
+									memset(&sa, 0, sizeof(sa));
+									if (frag->from_sa.ss_family == AF_INET) {
+										sa.sa4.sin_family = AF_INET;
+										sa.sa4.sin_addr = ((struct sockaddr_in *)&frag->from_sa)->sin_addr;
+										sa.sa4.sin_port = ((struct sockaddr_in *)&frag->from_sa)->sin_port;
+										do_notify_peer_outdated(vhd->vhost, frag->domain, &sa, ex_serial);
+									}
+#if defined(LWS_WITH_IPV6)
+									else if (frag->from_sa.ss_family == AF_INET6) {
+										sa.sa6.sin6_family = AF_INET6;
+										sa.sa6.sin6_addr = ((struct sockaddr_in6 *)&frag->from_sa)->sin6_addr;
+										sa.sa6.sin6_port = ((struct sockaddr_in6 *)&frag->from_sa)->sin6_port;
+										do_notify_peer_outdated(vhd->vhost, frag->domain, &sa, ex_serial);
+									}
+#endif
+								}
 								lwsl_err("%s: Rejecting replay! New serial %u <= existing serial %u\n", __func__, frag->soa_serial, ex_serial);
 								free(ex_buf);
 								close(ex_fd);
@@ -1187,6 +1254,11 @@ verb_put_handler(struct lws_dht_ctx *ctx, const struct lws_dht_msg *msg,
 		lwsl_user("%s: Continuing transfer for %s, already got %zu bytes\n", __func__, frag->safe_hash, frag->received_len);
 	}
 
+	if (frag->validation_started) {
+		lwsl_user("%s: Ignoring duplicate/retried chunk for %s (validation already in progress)\n", __func__, frag->safe_hash);
+		return 0;
+	}
+
 	if (lseek(frag->fd, (off_t)msg->offset, SEEK_SET) < 0) {
 		lwsl_err("%s: lseek failed (errno %d)\n", __func__, errno);
 		return -1;
@@ -1196,19 +1268,24 @@ verb_put_handler(struct lws_dht_ctx *ctx, const struct lws_dht_msg *msg,
 		lwsl_err("%s: write failed (wrote %d of expected %zu, errno %d)\n", __func__, n, msg->payload_len, errno);
 		return -1;
 	}
-	lwsl_user("%s: Wrote %d bytes successfully (Total Received: %zu/%llu)\n", __func__, n, frag->received_len + msg->payload_len, msg->len);
 
+	/* Only update received_len if we actually extended the file */
 	if (msg->offset + msg->payload_len > frag->received_len)
 		frag->received_len = msg->offset + msg->payload_len;
+
+	lwsl_user("%s: Wrote %d bytes successfully (Total Received: %zu/%llu)\n", __func__, n, frag->received_len, msg->len);
 
 	frag->last_offset = msg->offset;
 	frag->last_len = msg->payload_len;
 
 	if (frag->received_len >= frag->total_len) {
-		lwsl_user("%s: Finished receiving %s, starting validation\n", __func__, frag->safe_hash);
+		if (!frag->validation_started) {
+			frag->validation_started = 1;
+			lwsl_user("%s: Finished receiving %s, starting validation\n", __func__, frag->safe_hash);
 
-		if (dht_dnssec_trigger_validation(ctx, vhd, frag, from, fromlen))
-			goto drop;
+			if (dht_dnssec_trigger_validation(ctx, vhd, frag, from, fromlen))
+				goto drop;
+		}
 
 		/*
 		 * We return 0 here to tell the protocol layer we've consumed the chunk without errors.
@@ -1372,6 +1449,12 @@ verb_rsp_handler(struct lws_dht_ctx *ctx, const struct lws_dht_msg *msg,
 
 	frag = dht_dnssec_find_fragment(vhd, msg->hash);
 	if (!frag) {
+		if (msg->offset != 0) {
+			lwsl_notice("%s: Rejecting initial chunk for %s with non-zero offset %llu (likely trailing packets from failed transfer)\n",
+				    __func__, msg->hash, msg->offset);
+			return 0; /* Ignore it, sender will eventually time out or we wait for our next scheduled retry */
+		}
+
 		frag = calloc(1, sizeof(*frag));
 		if (!frag) return -1;
 		lws_strncpy(frag->safe_hash, msg->hash, sizeof(frag->safe_hash));
@@ -1393,6 +1476,22 @@ verb_rsp_handler(struct lws_dht_ctx *ctx, const struct lws_dht_msg *msg,
 		frag->hash_init_done = 1;
 	}
 
+	if (msg->offset < frag->received_len) {
+		lwsl_notice("%s: Ignoring duplicate/stale chunk for %s offset %llu (expected %llu)\n",
+			    __func__, msg->hash, msg->offset, (unsigned long long)frag->received_len);
+		return 0;
+	} else if (msg->offset > frag->received_len) {
+		lwsl_notice("%s: Ignoring out-of-order chunk for %s offset %llu (expected %llu)\n",
+			    __func__, msg->hash, msg->offset, (unsigned long long)frag->received_len);
+		return 0;
+	}
+
+	if (msg->offset + msg->payload_len > frag->total_len) {
+		lwsl_err("%s: Rejecting chunk for %s exceeding declared total length (offset %llu + len %zu > %llu)\n",
+			 __func__, msg->hash, msg->offset, msg->payload_len, (unsigned long long)frag->total_len);
+		goto drop;
+	}
+
 	if (lseek(frag->fd, (off_t)msg->offset, SEEK_SET) < 0) return -1;
 	if (write(frag->fd, msg->payload, msg->payload_len) < 0) return -1;
 	if (lws_genhash_update(&frag->ctx, msg->payload, msg->payload_len)) return -1;
@@ -1403,10 +1502,13 @@ verb_rsp_handler(struct lws_dht_ctx *ctx, const struct lws_dht_msg *msg,
 	vhd->put_retries = 0;
 
 	if (frag->received_len >= frag->total_len) {
-		lwsl_user("GET complete for %s\n", frag->safe_hash);
+		if (!frag->validation_started) {
+			frag->validation_started = 1;
+			lwsl_user("GET complete for %s, starting validation\n", frag->safe_hash);
 
-		if (dht_dnssec_trigger_validation(ctx, vhd, frag, from, fromlen))
-			goto drop;
+			if (dht_dnssec_trigger_validation(ctx, vhd, frag, from, fromlen))
+				goto drop;
+		}
 
 		/* Return 0 to wait for the async callbacks */
 		return 0;
@@ -1553,71 +1655,90 @@ dht_dnssec_sul_bootstrap_cb(struct lws_sorted_usec_list *sul)
 	lws_dht_nodes(vhd->dht, AF_INET, &good, &dubious, NULL, NULL);
 
 	if (good == 0 && dubious == 0) {
-		if (vhd->bootstrap_retries > 5) {
-			lwsl_notice("%s: Giving up active bootstrapping after 5 retries. Remaining passive.\n", __func__);
-			return;
-		}
-		vhd->bootstrap_retries++;
+		/* We don't have anyone in our routing table yet */
+		if (vhd->target_ip && vhd->target_ip[0] && vhd->target_port > 0) {
+			struct sockaddr_in sin;
+			memset(&sin, 0, sizeof(sin));
+			sin.sin_family = AF_INET;
+			sin.sin_port = htons((uint16_t)vhd->target_port);
 
-		struct sockaddr_in sin;
-		memset(&sin, 0, sizeof(sin));
-		sin.sin_family = AF_INET;
-		sin.sin_port = htons((uint16_t)vhd->target_port);
+			if (inet_pton(AF_INET, vhd->target_ip, &sin.sin_addr) <= 0) {
+				struct addrinfo hints, *result;
+				memset(&hints, 0, sizeof(hints));
+				hints.ai_family = AF_INET;
 
-		if (inet_pton(AF_INET, vhd->target_ip, &sin.sin_addr) <= 0) {
-			struct addrinfo hints, *result;
-			memset(&hints, 0, sizeof(hints));
-			hints.ai_family = AF_INET;
+				if (getaddrinfo(vhd->target_ip, NULL, &hints, &result) == 0 && result) {
+					struct sockaddr_in *sa = (struct sockaddr_in *)result->ai_addr;
+					sin.sin_addr = sa->sin_addr;
+					freeaddrinfo(result);
+				} else {
+					lwsl_err("Failed to resolve target-ip: %s\n", vhd->target_ip);
+					/* Retry resolving in 5s */
+					lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_bootstrap_cb, 5 * LWS_US_PER_SEC);
+					return;
+				}
+			}
 
-			if (getaddrinfo(vhd->target_ip, NULL, &hints, &result) == 0 && result) {
-				struct sockaddr_in *sa = (struct sockaddr_in *)result->ai_addr;
-				sin.sin_addr = sa->sin_addr;
-				freeaddrinfo(result);
-			} else {
-				lwsl_err("Failed to resolve target-ip: %s\n", vhd->target_ip);
-				/* Retry resolving in 5s */
+			int is_self = 0;
+			if (vhd->target_port == vhd->dht_port && sin.sin_family == AF_INET) {
+				if (sin.sin_addr.s_addr == htonl(INADDR_LOOPBACK))
+					is_self = 1;
+#ifndef _WIN32
+				else {
+					struct ifaddrs *ifaddr, *ifa;
+					if (getifaddrs(&ifaddr) == 0) {
+						for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
+							if (ifa->ifa_addr == NULL) continue;
+							if (ifa->ifa_addr->sa_family == AF_INET) {
+								struct sockaddr_in *p_addr = (struct sockaddr_in *)ifa->ifa_addr;
+								if (p_addr->sin_addr.s_addr == sin.sin_addr.s_addr) {
+									is_self = 1;
+									break;
+								}
+							}
+						}
+						freeifaddrs(ifaddr);
+					}
+				}
+#endif
+			}
+
+			if (is_self) {
+				/* Target is ourselves. We quietly remain completely passive until another node contacts as the genesis point. */
 				lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_bootstrap_cb, 5 * LWS_US_PER_SEC);
 				return;
 			}
-		}
 
-		int is_self = 0;
-		if (vhd->target_port == vhd->dht_port && sin.sin_family == AF_INET) {
-			if (sin.sin_addr.s_addr == htonl(INADDR_LOOPBACK))
-				is_self = 1;
-#ifndef _WIN32
-			else {
-				struct ifaddrs *ifaddr, *ifa;
-				if (getifaddrs(&ifaddr) == 0) {
-					for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
-						if (ifa->ifa_addr == NULL) continue;
-						if (ifa->ifa_addr->sa_family == AF_INET) {
-							struct sockaddr_in *p_addr = (struct sockaddr_in *)ifa->ifa_addr;
-							if (p_addr->sin_addr.s_addr == sin.sin_addr.s_addr) {
-								is_self = 1;
-								break;
-							}
-						}
-					}
-					freeifaddrs(ifaddr);
-				}
-			}
-#endif
+			lwsl_notice("%s: Bootstrapping DHT against target node %s:%d\n", __func__, vhd->target_ip, vhd->target_port);
+			lws_dht_ping_node(vhd->dht, (struct sockaddr *)&sin, sizeof(sin));
 		}
-
-		if (is_self) {
-			/* Target is ourselves. We quietly remain completely passive until another node contacts as the genesis point. */
-			lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_bootstrap_cb, 5 * LWS_US_PER_SEC);
-			return;
-		}
-
-		lwsl_notice("%s: Bootstrapping DHT against target node %s:%d\n", __func__, vhd->target_ip, vhd->target_port);
-		lws_dht_ping_node(vhd->dht, (struct sockaddr *)&sin, sizeof(sin));
 
 		/* Schedule another check in 5 seconds if we still haven't found nodes */
 		lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_bootstrap_cb, 5 * LWS_US_PER_SEC);
 	} else {
 		lwsl_notice("%s: DHT bootstrapped successfully, routing table contains %d good nodes\n", __func__, good);
+
+		/* Kick off fetches for any domains that were subscribed before we had a routing table */
+		lws_start_foreach_dll(struct lws_dll2 *, d, vhd->subscribed_domains.head) {
+			struct lws_dht_dnssec_subscribed_domain *sub = lws_container_of(d, struct lws_dht_dnssec_subscribed_domain, list);
+			if (sub->needs_initial_fetch) {
+				sub->needs_initial_fetch = 0;
+
+				char cache_path[1024];
+				lws_snprintf(cache_path, sizeof(cache_path), "%s/%s.zone", vhd->storage_path, sub->domain);
+
+				struct lws_dht_dnssec_fetch_zone_args args;
+				memset(&args, 0, sizeof(args));
+				args.vhost = vhd->vhost;
+				args.domain = sub->domain;
+				args.cache_dir = cache_path;
+				args.cb = NULL;
+				args.opaque = NULL;
+
+				lwsl_notice("Deferred fetch triggered for subscribed domain %s\n", sub->domain);
+				do_fetch_zone(vhd->context, &args);
+			}
+		} lws_end_foreach_dll(d);
 	}
 }
 
@@ -1633,16 +1754,39 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 		break;
 	case LWS_DHT_EVENT_NOTIFY: {
 		struct vhd_dht_dnssec *vhd = (struct vhd_dht_dnssec *)closure;
-		lwsl_notice("%s: Received NOTIFY for domain hash!\n", __func__);
 
-		/* Send ACK back for reliable delivery */
-		if (vhd->dht) {
-			lws_dht_send_ack(vhd->dht, from, fromlen, data, data_len);
+		uint64_t newer_soa = 0;
+		if (data_len >= 8) {
+			const uint8_t *p = (const uint8_t *)data;
+			newer_soa = ((uint64_t)p[0] << 56) | ((uint64_t)p[1] << 48) |
+				    ((uint64_t)p[2] << 40) | ((uint64_t)p[3] << 32) |
+				    ((uint64_t)p[4] << 24) | ((uint64_t)p[5] << 16) |
+				    ((uint64_t)p[6] << 8) | p[7];
 		}
 
+		lwsl_notice("%s: Received NOTIFY for domain hash with SOA %llu!\n", __func__, (unsigned long long)newer_soa);
+
+		/* Find the domain string from our subscribed_domains or auth_dns owner list.
+		 * Oh wait, auth-dns calls `subscribe_zone(domain_str)`. We don't keep a list of them
+		 * in dht-dnssec; we just forwarded it to `lws_dht_send_subscribe`.
+		 * But if we get a NOTIFY back, we only get the `info_hash`.
+		 * We need to iterate over known domains and match the hash. */
+
+		char target_domain[256];
+		int found = 0;
+
+		lws_start_foreach_dll(struct lws_dll2 *, d, vhd->subscribed_domains.head) {
+			struct lws_dht_dnssec_subscribed_domain *sub = lws_container_of(d, struct lws_dht_dnssec_subscribed_domain, list);
+			if (!memcmp(sub->hash, info_hash->id, info_hash->len)) {
+				lws_strncpy(target_domain, sub->domain, sizeof(target_domain));
+				found = 1;
+				break;
+			}
+		} lws_end_foreach_dll(d);
+
+		/* If this is the active CLI command, that takes priority */
 		if (vhd->cli_get_domain || vhd->cli_get_hash) {
 			lwsl_user("Re-fetching the zonefile due to NOTIFY!\n");
-			/* Cancel any pending timeout/retries and restart the fetch */
 			lws_sul_cancel(&vhd->sul_timeout);
 			vhd->put_retries = 0;
 
@@ -1655,6 +1799,25 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 				}
 			}
 			dht_dnssec_sul_get_cb(&vhd->sul_bulk);
+		} else if (found) {
+			/* Background fetch for auth-dns... */
+			lwsl_notice("%s: Mapped NOTIFY hash to subscribed domain: %s. Initiating fetch.\n", __func__, target_domain);
+
+			/* Trigger a fetch_zone. We don't have a callback to auth-dns directly, but fetch_zone
+			 * saves the validated result to the vhost's `storage_path` and `auth_dns` monitors it natively.
+			 * Actually, wait! The auth-dns relies on the `register_auth_cb` we added earlier.
+			 * But do_fetch_zone handles that automatically!
+			 */
+			struct lws_dht_dnssec_fetch_zone_args args;
+			memset(&args, 0, sizeof(args));
+			args.domain = target_domain;
+			args.cache_dir = NULL;
+			args.cb = NULL; /* Local callback */
+			args.opaque = NULL;
+
+			do_fetch_zone(vhd->context, &args);
+		} else {
+			lwsl_notice("%s: Incoming NOTIFY hash does not match any active subscriptions.\n", __func__);
 		}
 		break;
 	}
@@ -1683,16 +1846,17 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 		}
 
 		if (get_hash && vhd->dht) {
-			lws_dht_hash_t hash_obj;
-			hash_obj.type = LWS_DHT_STORE_GENHASH;
-			hash_obj.len = (uint8_t)lws_genhash_size(LWS_DHT_STORE_GENHASH);
-			if (!lws_hex_to_byte_array(get_hash, hash_obj.id, hash_obj.len)) {
+			uint8_t hbuf[sizeof(lws_dht_hash_t) + LWS_GENHASH_LARGEST];
+			lws_dht_hash_t *hash_obj = (lws_dht_hash_t *)hbuf;
+			hash_obj->type = LWS_DHT_STORE_HASH_TYPE;
+			hash_obj->len = (uint8_t)lws_genhash_size(LWS_DHT_STORE_GENHASH);
+			if (!lws_hex_to_byte_array(get_hash, hash_obj->id, hash_obj->len)) {
 				frag = dht_dnssec_find_fragment(vhd, get_hash);
 				uint8_t current_payload_hash[32] = {0};
 				if (frag) {
 					memcpy(current_payload_hash, frag->payload_hash, sizeof(current_payload_hash));
 				}
-				lws_dht_send_subscribe_confirm(vhd->dht, from, fromlen, tid, sizeof(tid), &hash_obj, (uint8_t *)data, data_len, current_payload_hash, 1);
+				lws_dht_send_subscribe_confirm(vhd->dht, from, fromlen, tid, sizeof(tid), hash_obj, (uint8_t *)data, data_len, current_payload_hash, 1);
 				lwsl_user("Sent SUBSCRIBE_CONFIRM to the target DHT node.\n");
 			}
 		}
@@ -1731,11 +1895,13 @@ dht_dnssec_sul_timeout_cb(struct lws_sorted_usec_list *sul)
 	vhd->put_retries++;
 	lwsl_user("%s: UDP timeout, initiating retry %d/3\n", __func__, vhd->put_retries);
 
-	if (vhd->cli_get_hash || vhd->cli_get_domain) {
+	if (vhd->cli_get_hash || vhd->cli_get_domain || vhd->fragments.count > 0) {
 		struct dht_fragment *frag = NULL;
 
 		if (vhd->cli_get_hash)
 			frag = dht_dnssec_find_fragment(vhd, vhd->cli_get_hash);
+		else if (vhd->fragments.count > 0)
+			frag = lws_container_of(vhd->fragments.head, struct dht_fragment, list);
 
 		if (frag) {
 			/* Retry next chunk specifically */
@@ -1778,6 +1944,7 @@ dht_dnssec_sul_cap_cb(struct lws_sorted_usec_list *sul)
 	sin.sin_port = htons((uint16_t)vhd->target_port);
 
 	if (inet_pton(AF_INET, vhd->target_ip, &sin.sin_addr) <= 0) {
+		/* Try synchronous host resolution if it's not a raw IP */
 		struct addrinfo hints, *result;
 		memset(&hints, 0, sizeof(hints));
 		hints.ai_family = AF_INET;
@@ -1900,8 +2067,12 @@ dht_dnssec_sul_put_cb(struct lws_sorted_usec_list *sul)
 
 	lws_dht_send_data(vhd->dht, (struct sockaddr *)&sin, packet, (size_t)(hlen + n));
 
-	/* Schedule UDP timeout for 3 seconds */
-	lws_sul_schedule(vhd->context, 0, &vhd->sul_timeout, dht_dnssec_sul_timeout_cb, 3 * LWS_US_PER_SEC);
+	int timeout_secs = 3;
+	if (vhd->bulk_sent + (uint64_t)n >= vhd->bulk_total)
+		timeout_secs = 45; /* Allow ample time for server to perform external DNSSEC validation over the network (DS + DNSKEY async lookups) */
+
+	/* Schedule UDP timeout */
+	lws_sul_schedule(vhd->context, 0, &vhd->sul_timeout, dht_dnssec_sul_timeout_cb, timeout_secs * LWS_US_PER_SEC);
 }
 
 static void
@@ -2200,7 +2371,28 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 
 		if (dht_dnssec_jwk_load_or_gen(vhd)) return -1;
 
+		{
+			struct lws_genhash_ctx hash_ctx;
+			uint8_t digest[20];
+
+			if (lws_genhash_init(&hash_ctx, LWS_GENHASH_TYPE_SHA1))
+				return -1;
+			if (vhd->jwk.kty == LWS_GENCRYPTO_KTY_EC) {
+				if (lws_genhash_update(&hash_ctx, vhd->jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].buf,
+						   vhd->jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len))
+					return -1;
+			} else {
+				if (lws_genhash_update(&hash_ctx, vhd->jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].buf,
+						   vhd->jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].len))
+					return -1;
+			}
+			if (lws_genhash_destroy(&hash_ctx, digest))
+				return -1;
+			vhd->myid = lws_dht_hash_create(LWS_DHT_HASH_TYPE_SHA1, 20, digest);
+		}
+
 		memset(&vdi, 0, sizeof(vdi));
+		vdi.id = vhd->myid;
 		vdi.vhost = vhost;
 		vdi.port = vhd->dht_port;
 		vdi.ipv6 = 1;
@@ -2249,7 +2441,8 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 			lwsl_user("%s: Starting RECEIVER task\n", __func__);
 			lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_manifest_rcv_cb, 10);
 			lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_manifest_rcv_cb, 10);
-		} else if (vhd->target_ip && vhd->target_ip[0] && vhd->target_port > 0) {
+		} else {
+			/* Always schedule bootstrap checking, either to actively ping target_ip OR passively wait for peers to ping us */
 			lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_bootstrap_cb, 10);
 		}
 		break;
@@ -2264,6 +2457,8 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 		lws_sul_cancel(&vhd->sul_bulk);
 		lws_sul_cancel(&vhd->sul_timeout);
 		lws_jwk_destroy(&vhd->jwk);
+		if (vhd->myid)
+			lws_dht_hash_destroy(&vhd->myid);
 
 		lws_dll2_foreach_safe(&vhd->owner_domains, NULL, lws_dht_dnssec_domain_destroy);
 
@@ -2663,6 +2858,119 @@ do_dsfromkey(struct lws_context *context, struct lws_dht_dnssec_dsfromkey_args *
 	return 0;
 }
 
+static int bump_soa_serial(const char *filepath) {
+	int fd = open(filepath, O_RDWR);
+	if (fd < 0) return -1;
+
+	struct stat st;
+	if (fstat(fd, &st) < 0) { close(fd); return -1; }
+
+	char *buf = malloc((size_t)st.st_size + 1);
+	if (!buf) { close(fd); return -1; }
+
+	if (read(fd, buf, (size_t)st.st_size) != st.st_size) {
+		free(buf); close(fd); return -1;
+	}
+	buf[st.st_size] = '\0';
+
+	char *p = buf;
+	char *serial_start = NULL;
+	char *serial_end = NULL;
+
+	while (*p) {
+		while (*p && isspace(*p)) p++;
+		if (!*p) break;
+		if (*p == ';') {
+			while (*p && *p != '\n') p++;
+			continue;
+		}
+
+		char *start = p;
+		while (*p && !isspace(*p) && *p != ';') p++;
+
+		if (p - start == 3 && !strncmp(start, "SOA", 3)) {
+			while (*p && isspace(*p)) p++;
+			while (*p && !isspace(*p) && *p != ';') p++; /* MNAME */
+			while (*p && isspace(*p)) p++;
+			while (*p && !isspace(*p) && *p != ';') p++; /* RNAME */
+			while (*p && isspace(*p)) p++;
+
+			if (*p == '(') {
+				p++;
+				while (*p && isspace(*p)) p++;
+			}
+			if (*p == ';') {
+				while (*p && *p != '\n') p++;
+				while (*p && isspace(*p)) p++;
+			}
+
+			if (isdigit(*p)) {
+				serial_start = p++;
+				while (*p && isdigit(*p)) p++;
+				serial_end = p;
+				break;
+			}
+		}
+	}
+
+	if (!serial_start) {
+		lwsl_err("SOA serial not found in %s\n", filepath);
+		free(buf); close(fd); return -1;
+	}
+
+	size_t serial_len = (size_t)(serial_end - serial_start);
+	char old_serial[32];
+	if (serial_len >= sizeof(old_serial)) serial_len = sizeof(old_serial) - 1;
+	memcpy(old_serial, serial_start, serial_len);
+	old_serial[serial_len] = '\0';
+
+	time_t t = time(NULL);
+	struct tm *tm = gmtime(&t);
+	char new_date[16];
+	lws_snprintf(new_date, sizeof(new_date), "%04d%02d%02d", tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday);
+
+	char new_serial[32];
+	if (strncmp(old_serial, new_date, 8) == 0 && serial_len >= 10) {
+		long long old_idx = atoll(old_serial + 8);
+		lws_snprintf(new_serial, sizeof(new_serial), "%s%02lld", new_date, old_idx + 1);
+	} else {
+		lws_snprintf(new_serial, sizeof(new_serial), "%s01", new_date);
+	}
+
+	if (strlen(new_serial) == serial_len) {
+		memcpy(serial_start, new_serial, serial_len);
+		lseek(fd, 0, SEEK_SET);
+		if (write(fd, buf, (size_t)st.st_size) != st.st_size) {
+			lwsl_err("Failed to write updated SOA\n");
+			free(buf); close(fd); return -1;
+		}
+	} else {
+		size_t new_size = (size_t)st.st_size - serial_len + strlen(new_serial);
+		char *new_buf = malloc(new_size + 1);
+		if (!new_buf) { free(buf); close(fd); return -1; }
+
+		size_t prefix_len = (size_t)(serial_start - buf);
+		memcpy(new_buf, buf, prefix_len);
+		memcpy(new_buf + prefix_len, new_serial, strlen(new_serial));
+		memcpy(new_buf + prefix_len + strlen(new_serial), serial_end, (size_t)st.st_size - prefix_len - serial_len);
+
+		lseek(fd, 0, SEEK_SET);
+		if (ftruncate(fd, (off_t)new_size) < 0) {
+			lwsl_err("ftruncate failed\n");
+		}
+		if (write(fd, new_buf, new_size) != (ssize_t)new_size) {
+			lwsl_err("Failed to write updated SOA\n");
+			free(new_buf); free(buf); close(fd); return -1;
+		}
+		free(new_buf);
+	}
+
+	lwsl_notice("Bumped SOA serial from %s to %s in %s\n", old_serial, new_serial, filepath);
+	free(buf);
+	close(fd);
+	return 0;
+}
+
 static int
 do_signzone(struct lws_context *context, struct lws_dht_dnssec_signzone_args *args)
 {
@@ -2690,6 +2998,9 @@ do_signzone(struct lws_context *context, struct lws_dht_dnssec_signzone_args *ar
 	info.input_filepath = zone_in;
 	info.output_filepath = zone_out;
 	info.jws_filepath = jws_out;
+
+	/* Auto-bump the SOA serial before anything else */
+	bump_soa_serial(zone_in);
 
 	if (args->sign_validity_duration)
 		info.sign_validity_duration = args->sign_validity_duration;
@@ -2863,14 +3174,36 @@ do_publish_jws(struct lws_context *context, const char *jws_filepath)
 	return 0; // TODO in later phases
 }
 
-static void dht_dnssec_sul_fetch_req_timeout(struct lws_sorted_usec_list *sul)
+static void
+dht_dnssec_sul_fetch_req_timeout(struct lws_sorted_usec_list *sul)
 {
 	struct lws_dht_dnssec_fetch_req *req = lws_container_of(sul, struct lws_dht_dnssec_fetch_req, sul_timeout);
+	struct vhd_dht_dnssec *vhd = req->vhd;
 
-	lwsl_err("%s: Fetch req for %s fully timed out\n", __func__, req->domain);
-	if (req->cb) req->cb(req->opaque, req->domain, 0);
-	lws_dll2_remove(&req->list);
-	free(req);
+	if (req->retries >= 3) {
+		lwsl_err("%s: Fetch req for %s fully timed out after 3 retries\n", __func__, req->domain);
+		if (req->cb) req->cb(req->opaque, req->domain, 0);
+		lws_dll2_remove(&req->list);
+		free(req);
+		return;
+	}
+
+	req->retries++;
+	lwsl_user("%s: Fetch req for %s timed out, retry %d/3\n", __func__, req->domain, req->retries);
+
+	if (vhd && vhd->dht) {
+		struct sockaddr_in sin;
+		char buf[256];
+		memset(&sin, 0, sizeof(sin));
+		sin.sin_family = AF_INET;
+		sin.sin_port = htons((uint16_t)vhd->target_port);
+		if (inet_pton(AF_INET, vhd->target_ip, &sin.sin_addr) > 0) {
+			lws_dht_msg_gen(buf, sizeof(buf), "GET", req->target_hash, 0, 1024);
+			lws_dht_send_data(vhd->dht, (struct sockaddr *)&sin, buf, strlen(buf));
+		}
+	}
+
+	lws_sul_schedule(vhd->context, 0, &req->sul_timeout, dht_dnssec_sul_fetch_req_timeout, 15 * LWS_US_PER_SEC);
 }
 
 static int
@@ -2924,6 +3257,9 @@ do_fetch_zone(struct lws_context *context, struct lws_dht_dnssec_fetch_zone_args
 		/* We no longer copy it anywhere; the auth_dns caller receives the notification and parses it right out of the dht! */
 		lwsl_user("%s: Found existing fetched zone in DHT storage %s\n", __func__, fda.found_path);
 
+		if (v->auth_cb)
+			v->auth_cb(v->auth_cb_opaque, args->domain, fda.found_path);
+
 		if (args->cb)
 			args->cb(args->opaque, args->domain, 1);
 
@@ -2947,32 +3283,69 @@ do_fetch_zone(struct lws_context *context, struct lws_dht_dnssec_fetch_zone_args
 			lws_strncpy(req->cache_dir, args->cache_dir, sizeof(req->cache_dir));
 		req->cb = args->cb;
 		req->opaque = args->opaque;
+		req->vhd = v;
 		lws_strncpy(req->target_hash, hex, sizeof(req->target_hash));
 		lws_dll2_add_tail(&req->list, &v->fetch_reqs);
 
 		lws_sul_schedule(context, 0, &req->sul_timeout, dht_dnssec_sul_fetch_req_timeout, 15 * LWS_US_PER_SEC);
 	}
 
-	struct sockaddr_in sin;
 	char buf[256];
-	memset(&sin, 0, sizeof(sin));
-	sin.sin_family = AF_INET;
-	sin.sin_port = htons((uint16_t)v->target_port);
+	int sent = 0;
+	lws_dht_msg_gen(buf, sizeof(buf), "GET", hex, 0, 1024);
 
-	if (inet_pton(AF_INET, v->target_ip, &sin.sin_addr) <= 0) {
-		struct addrinfo hints, *result;
-		memset(&hints, 0, sizeof(hints));
-		hints.ai_family = AF_INET;
-		if (getaddrinfo(v->target_ip, NULL, &hints, &result) == 0 && result) {
-			struct sockaddr_in *sa = (struct sockaddr_in *)result->ai_addr;
-			sin.sin_addr = sa->sin_addr;
-			freeaddrinfo(result);
-		} else {
-			return 1;
+	/* 1. Try known DHT peers from routing table (true DHT behavior) */
+	if (v->dht) {
+		struct sockaddr_in sin[32];
+		struct sockaddr_in6 sin6[32];
+		int num_v4 = 32, num_v6 = 32, i;
+
+		lws_dht_get_nodes(v->dht, sin, &num_v4, sin6, &num_v6);
+
+		for (i = 0; i < num_v4; i++) {
+			sin[i].sin_port = htons((uint16_t)v->dht_port);
+			lws_dht_send_data(v->dht, (struct sockaddr *)&sin[i], buf, strlen(buf));
+			sent++;
+		}
+#if defined(LWS_WITH_IPV6)
+		for (i = 0; i < num_v6; i++) {
+			sin6[i].sin6_port = htons((uint16_t)v->dht_port);
+			lws_dht_send_data(v->dht, (struct sockaddr *)&sin6[i], buf, strlen(buf));
+			sent++;
+		}
+#endif
+	}
+
+	/* 2. Fallback to bootstrap target_ip if configured (for clients) */
+	if (v->target_ip && v->target_ip[0] && v->target_port > 0) {
+		struct sockaddr_in sin;
+		memset(&sin, 0, sizeof(sin));
+		sin.sin_family = AF_INET;
+		sin.sin_port = htons((uint16_t)v->target_port);
+
+		if (inet_pton(AF_INET, v->target_ip, &sin.sin_addr) <= 0) {
+			struct addrinfo hints, *result;
+			memset(&hints, 0, sizeof(hints));
+			hints.ai_family = AF_INET;
+			if (getaddrinfo(v->target_ip, NULL, &hints, &result) == 0 && result) {
+				struct sockaddr_in *sa = (struct sockaddr_in *)result->ai_addr;
+				sin.sin_addr = sa->sin_addr;
+				freeaddrinfo(result);
+			}
+		}
+
+		/* Only send if we managed to resolve it and haven't sent to anyone else */
+		if (sin.sin_addr.s_addr != 0) {
+			lws_dht_send_data(v->dht, (struct sockaddr *)&sin, buf, strlen(buf));
+			sent++;
 		}
 	}
-	lws_dht_msg_gen(buf, sizeof(buf), "GET", hex, 0, 1024);
-	lws_dht_send_data(v->dht, (struct sockaddr *)&sin, buf, strlen(buf));
+
+	if (!sent) {
+		lwsl_notice("%s: Couldn't completely find routing targets for GET %s\n", __func__, args->domain);
+		/* Note: The fetch request remains active and will retry or execute when nodes appear.
+		   Returning 0 here keeps the timeout active instead of instantly failing auth-dns! */
+	}
 
 	return 0;
 }
@@ -3210,6 +3583,138 @@ static void dht_dnssec_register_auth_cb(struct lws_vhost *vh, void (*cb)(void *o
 	}
 }
 
+static int
+do_subscribe_zone(struct lws_vhost *vhost, const char *domain)
+{
+	struct vhd_dht_dnssec *vhd;
+	const struct lws_protocols *prot;
+	char domain_str[256];
+	int dom_len;
+	struct lws_genhash_ctx ctx;
+	uint8_t hash[LWS_GENHASH_LARGEST];
+
+	prot = lws_vhost_name_to_protocol(vhost, "lws-dht-dnssec");
+	if (!prot) return 1;
+	vhd = (struct vhd_dht_dnssec *)lws_protocol_vh_priv_get(vhost, prot);
+	if (!vhd || !vhd->dht) return 1;
+
+	char clean_domain[256];
+	lws_strncpy(clean_domain, domain, sizeof(clean_domain));
+	int clen = (int)strlen(clean_domain);
+	if (clen > 0 && clean_domain[clen - 1] == '.')
+		clean_domain[clen - 1] = '\0';
+
+	dom_len = lws_snprintf(domain_str, sizeof(domain_str), "lws-dnssec-dht-%s", clean_domain);
+	if (lws_genhash_init(&ctx, LWS_DHT_STORE_GENHASH) ||
+	    lws_genhash_update(&ctx, domain_str, (size_t)dom_len) ||
+	    lws_genhash_destroy(&ctx, hash)) {
+		return 1;
+	}
+
+	/* Add or update subscription tracker so we can map info_hash back to domain strings on NOTIFY */
+	int exists = 0;
+	lws_start_foreach_dll(struct lws_dll2 *, d, vhd->subscribed_domains.head) {
+		struct lws_dht_dnssec_subscribed_domain *sub = lws_container_of(d, struct lws_dht_dnssec_subscribed_domain, list);
+		if (!strcmp(sub->domain, domain)) {
+			exists = 1;
+			break;
+		}
+	} lws_end_foreach_dll(d);
+
+	if (!exists) {
+		struct lws_dht_dnssec_subscribed_domain *nsub = malloc(sizeof(*nsub));
+		if (nsub) {
+			memset(nsub, 0, sizeof(*nsub));
+			lws_strncpy(nsub->domain, domain, sizeof(nsub->domain));
+			memcpy(nsub->hash, hash, (size_t)lws_genhash_size(LWS_DHT_STORE_GENHASH));
+			nsub->needs_initial_fetch = 1;
+			lws_dll2_add_tail(&nsub->list, &vhd->subscribed_domains);
+		}
+	}
+
+	uint8_t tid[16];
+	lws_get_random(vhd->context, tid, sizeof(tid));
+
+	lwsl_notice("%s: Subscribed to domain %s (fetch deferred until DHT bootstraps)\n", __func__, domain);
+
+	/* The immediate do_fetch_zone call has been moved to dht_dnssec_sul_bootstrap_cb */
+
+	return 0;
+}
+
+static int
+do_notify_peer_outdated(struct lws_vhost *vhost, const char *domain,
+			const lws_sockaddr46 *sa46_peer, uint64_t newer_soa_serial)
+{
+	struct vhd_dht_dnssec *vhd;
+	const struct lws_protocols *prot;
+	char domain_str[256];
+	int dom_len;
+	struct lws_genhash_ctx ctx;
+	uint8_t hash[LWS_GENHASH_LARGEST];
+	uint8_t payload[32]; // Up to 32 bytes to pass the serial
+
+	prot = lws_vhost_name_to_protocol(vhost, "lws-dht-dnssec");
+	if (!prot) return 1;
+	vhd = (struct vhd_dht_dnssec *)lws_protocol_vh_priv_get(vhost, prot);
+	if (!vhd || !vhd->dht) return 1;
+
+	char clean_domain[256];
+	lws_strncpy(clean_domain, domain, sizeof(clean_domain));
+	int clen = (int)strlen(clean_domain);
+	if (clen > 0 && clean_domain[clen - 1] == '.')
+		clean_domain[clen - 1] = '\0';
+
+	dom_len = lws_snprintf(domain_str, sizeof(domain_str), "lws-dnssec-dht-%s", clean_domain);
+	if (lws_genhash_init(&ctx, LWS_DHT_STORE_GENHASH) ||
+	    lws_genhash_update(&ctx, domain_str, (size_t)dom_len) ||
+	    lws_genhash_destroy(&ctx, hash)) {
+		return 1;
+	}
+
+	/* Encode the newer serial inside the NOTIFY payload as a 64-bit Big-Endian int */
+	payload[0] = (uint8_t)(newer_soa_serial >> 56);
+	payload[1] = (uint8_t)(newer_soa_serial >> 48);
+	payload[2] = (uint8_t)(newer_soa_serial >> 40);
+	payload[3] = (uint8_t)(newer_soa_serial >> 32);
+	payload[4] = (uint8_t)(newer_soa_serial >> 24);
+	payload[5] = (uint8_t)(newer_soa_serial >> 16);
+	payload[6] = (uint8_t)(newer_soa_serial >> 8);
+	payload[7] = (uint8_t)(newer_soa_serial & 0xff);
+
+	uint8_t tid[4];
+	tid[0] = 'n';
+	tid[1] = 't';
+	lws_get_random(vhd->context, tid + 2, 2);
+
+	lwsl_notice("%s: Actively repairing outdated peer with new SOA %llu for %s\n",
+		    __func__, (unsigned long long)newer_soa_serial, domain);
+
+	uint8_t hbuf[sizeof(lws_dht_hash_t) + LWS_GENHASH_LARGEST];
+	lws_dht_hash_t *proper_hash = (lws_dht_hash_t *)hbuf;
+	proper_hash->type = LWS_DHT_STORE_HASH_TYPE;
+	proper_hash->len = (uint8_t)lws_genhash_size(LWS_DHT_STORE_GENHASH);
+	memcpy(proper_hash->id, hash, proper_hash->len);
+
+	/* Send a targeted NOTIFY to the out-of-date peer using its sockaddr */
+	if (sa46_peer->sa4.sin_family == AF_INET) {
+		lws_dht_send_notify(vhd->dht, (const struct sockaddr *)&sa46_peer->sa4, sizeof(sa46_peer->sa4),
+				    tid, sizeof(tid),
+				    proper_hash, NULL,
+				    payload, 8);
+	}
+#if defined(LWS_WITH_IPV6)
+	else if (sa46_peer->sa6.sin6_family == AF_INET6) {
+		lws_dht_send_notify(vhd->dht, (const struct sockaddr *)&sa46_peer->sa6, sizeof(sa46_peer->sa6),
+				    tid, sizeof(tid),
+				    proper_hash, NULL,
+				    payload, 8);
+	}
+#endif
+
+	return 0;
+}
+
 static const struct lws_dht_dnssec_ops ops = {
 	.keygen = do_keygen,
 	.dsfromkey = do_dsfromkey,
@@ -3218,6 +3723,8 @@ static const struct lws_dht_dnssec_ops ops = {
 	.add_temp_zone = do_add_temp_zone,
 	.publish_jws = do_publish_jws,
 	.fetch_zone = do_fetch_zone,
+	.subscribe_zone = do_subscribe_zone,
+	.notify_peer_outdated = do_notify_peer_outdated,
 	.register_auth_cb = dht_dnssec_register_auth_cb,
 };
 

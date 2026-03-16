@@ -511,11 +511,12 @@ fail:
 }
 
 int
-send_notify(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
+lws_dht_send_notify(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
 		const uint8_t *tid, size_t tid_len,
-		const lws_dht_hash_t *infohash, const uint8_t *sha256)
+		const lws_dht_hash_t *infohash, const uint8_t *sha256,
+		const uint8_t *payload, size_t payload_len)
 {
-	char buf[512];
+	char buf[1024]; /* Increased size to allow for payload */
 	size_t i = 0;
 	int rc;
 
@@ -529,9 +530,17 @@ send_notify(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
 
 	if (dht_put_id__advance_offset(ctx, buf, &i, sizeof(buf), infohash)) goto fail;
 
-	rc = lws_snprintf(buf + i, sizeof(buf) - i, "6:sha25632:");
-	if (dht_tx_skip(&i, sizeof(buf), (size_t)(rc))) goto fail;
-	if (dht_tx_copy__advance_offset(buf, &i, sizeof(buf), sha256, 32)) goto fail;
+	if (sha256) {
+		rc = lws_snprintf(buf + i, sizeof(buf) - i, "6:sha25632:");
+		if (dht_tx_skip(&i, sizeof(buf), (size_t)(rc))) goto fail;
+		if (dht_tx_copy__advance_offset(buf, &i, sizeof(buf), sha256, 32)) goto fail;
+	}
+
+	if (payload && payload_len > 0) {
+		rc = lws_snprintf(buf + i, sizeof(buf) - i, "4:data%u:", (unsigned int)payload_len);
+		if (dht_tx_skip(&i, sizeof(buf), (size_t)(rc))) goto fail;
+		if (dht_tx_copy__advance_offset(buf, &i, sizeof(buf), payload, payload_len)) goto fail;
+	}
 
 	rc = lws_snprintf(buf + i, sizeof(buf) - i, "e1:q6:notify1:t%d:", (int)tid_len);
 	if (dht_tx_skip(&i, sizeof(buf), (size_t)(rc))) goto fail;

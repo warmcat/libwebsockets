@@ -82,7 +82,7 @@ check_pending_notifications(struct lws_dht_ctx *ctx)
 						lws_free(drop);
 						continue;
 					} else {
-						send_notify(ctx, (struct sockaddr *)&sub->ss, sub->sslen, sub->tid, sub->tid_len, st->id, sub->pending_sha256);
+						lws_dht_send_notify(ctx, (struct sockaddr *)&sub->ss, sub->sslen, sub->tid, sub->tid_len, st->id, sub->pending_sha256, NULL, 0);
 						sub->last_notify = ctx->now.tv_sec;
 						sub->notify_retries++;
 					}

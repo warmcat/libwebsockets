@@ -1234,10 +1234,14 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	}
 
 	if (c) {
-		lwsl_cx_info(context, "%s: using cached, c->results %p",
-			  name, c->results);
-		m = c->results ? LADNS_RET_FOUND : LADNS_RET_FAILED;
+		lwsl_cx_info(context, "%s: using cached, c->results %p, c->rr_results %p",
+			  name, c->results, c->rr_results);
+		m = (c->results || c->rr_results) ? LADNS_RET_FOUND : LADNS_RET_FAILED;
 		if (c->results)
+			c->refcount++;
+		/* Note: c->rr_results relies on the same cache refcount, but to be
+		   consistent, we'll bump the refcount if rr_results exists too! */
+		else if (c->rr_results)
 			c->refcount++;
 
 #if defined(LWS_WITH_SYS_METRICS)
