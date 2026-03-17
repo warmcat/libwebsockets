@@ -1177,6 +1177,14 @@ lws_create_vhost(struct lws_context *context,
 LWS_VISIBLE LWS_EXTERN void
 lws_vhost_destroy(struct lws_vhost *vh);
 
+/* This API allows the user to disable SSL key logging. */
+LWS_VISIBLE LWS_EXTERN void
+lws_reset_keylog_file(struct lws *wsi);
+
+/* This API allows the user to enable SSL key logging. */
+LWS_VISIBLE LWS_EXTERN void
+lws_set_keylog_file(struct lws *wsi, char *sslkeyfilepath);
+
 /**
  * lwsws_get_config_globals() - Parse a JSON server config file
  * \param info:		pointer to struct with parameters
