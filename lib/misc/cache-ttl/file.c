@@ -685,6 +685,17 @@ nsc_regen(lws_cache_nscookiejar_t *cache, const char *wc_delete,
 	close(ctx.fdt);
 	ctx.fdt = -1;
 
+#if defined(WIN32)
+	/*
+	 * On Windows, unlink / rename fail while fd holds the original
+	 * file open for reading.  Close it first so the replace can
+	 * succeed.  nsc_backing_close_unlock() checks fd >= 0, so
+	 * setting it to -1 makes the later close a safe no-op.
+	 */
+	close(fd);
+	fd = -1;
+#endif
+
 	if (unlink(cache->cache.info.u.nscookiejar.filepath) == -1)
 		lwsl_info("%s: unlink %s failed\n", __func__,
 			  cache->cache.info.u.nscookiejar.filepath);
