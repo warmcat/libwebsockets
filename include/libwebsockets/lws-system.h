@@ -156,6 +156,24 @@ typedef enum { /* keep system_state_names[] in sync in context.c */
 
 /* Captive Portal Detect -related */
 
+typedef struct lws_system_seed {
+	lws_dll2_t list;
+	char hostname[128];
+} lws_system_seed_t;
+
+typedef struct lws_system_policy {
+	char dns_base_dir[128];
+	lws_dll2_owner_t seeds;
+} lws_system_policy_t;
+
+LWS_EXTERN LWS_VISIBLE int
+lws_system_parse_policy(struct lws_context *cx, const char *filepath,
+			lws_system_policy_t **_policy);
+
+LWS_EXTERN LWS_VISIBLE void
+lws_system_policy_free(lws_system_policy_t *policy);
+
+
 typedef enum {
 	LWS_CPD_UNKNOWN = 0,	/* test didn't happen ince last DHCP acq yet */
 	LWS_CPD_INTERNET_OK,	/* no captive portal: our CPD test passed OK,
@@ -239,6 +257,11 @@ typedef struct lws_system_ops {
 
 	const char		*async_dns_dnssec_trust_anchor;
 	/**< base64 DS record string serving as the root trust anchor */
+#endif
+
+#if defined(LWS_WITH_DHT)
+	void (*dht_external_ip_cb)(struct lws_context *cx, const lws_sockaddr46 *sa46, int af, int status, const lws_sockaddr46 *peers, int num_peers);
+	/**< 0 = initial IP consensus, 1 = validated IP change */
 #endif
 } lws_system_ops_t;
 

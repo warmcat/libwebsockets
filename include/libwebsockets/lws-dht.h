@@ -312,6 +312,15 @@ typedef enum {
 	LWS_DHT_EVENT_TOKEN,		/**< Security token received from a peer */
 } lws_dht_event_t;
 
+/**
+ * struct lws_dht_consensus_info - Passed as `data` for LWS_DHT_EVENT_EXTERNAL_ADDR(6)
+ */
+struct lws_dht_consensus_info {
+	struct sockaddr_storage ss;
+	size_t sslen;
+	int num_peers;
+	struct sockaddr_storage peer_ss[8];
+};
 
 /**
  * struct lws_dht_info - Initialization parameters for DHT
@@ -422,6 +431,14 @@ lws_dht_insert_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_dht_ping_node(struct lws_dht_ctx *ctx, struct sockaddr *sa, size_t salen);
+
+/**
+ * lws_dht_test_external_ips() - actively trigger IP verification probes to routing table
+ *
+ * \param ctx: the dht context
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_dht_test_external_ips(struct lws_dht_ctx *ctx);
 
 LWS_VISIBLE LWS_EXTERN int
 lws_dht_send_data(struct lws_dht_ctx *ctx, const struct sockaddr *dest, const void *data, size_t len);

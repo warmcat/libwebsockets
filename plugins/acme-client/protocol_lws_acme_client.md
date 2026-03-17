@@ -13,20 +13,18 @@ The ACME logic is modularized into three separate protocol plugins:
 
 ## Per-Vhost Options (PVOs)
 
-To enable the plugin, attach it to a vhost and provide the core configuration PVOs. The plugin requires the following PVOs on the vhost:
-
-| PVO Name | Description |
-|---|---|
-| `conf-dir` | Absolute path to the directory containing JSON configuration files for each managed certificate (e.g., `/etc/lws-certs/conf.d`). Files must end in `.json`. |
-| `root-dir` | Absolute path to the directory where the certificates and keys will be stored (e.g., `/etc/lws-certs`). If omitted, defaults to `/etc/lws-certs`. |
+The `lws-acme-client` suite automatically reads the system global policy `/etc/lwsws/policy` during initialization to determine the `dns_base_dir`. You do not need to configure any PVOs for `conf-dir` or `root-dir`.
 
 ## Certificate JSON Configuration
 
-Each certificate you want to manage should have its own `.json` file in the `conf-dir`. The JSON files map directly to the configuration options for that certificate.
+Each certificate you want to manage should have its own `.json` file. These files must be placed within the domain-specific configuration directory: `$dns_base_dir/domains/<domain-name>/conf.d/`.
+
+For example, config for `example.com` and its subdomains goes in `$dns_base_dir/domains/example.com/conf.d/`.
 
 | JSON Key | Description |
 |---|---|
 | `common-name` | CSR Subject: The primary domain being certified (e.g. `example.com`). **Required** to start acquisition. |
+| `challenge-type` | The ACME challenge to use: either `"http-01"` or `"dns-01"`. Defaults to `"http-01"`. |
 | `email` | Registration email for ACME account (used for expiry notifications by the CA). |
 | `acme` | A nested JSON object containing ACME-specific properties for this certificate. |
 
@@ -39,18 +37,16 @@ Each certificate you want to manage should have its own `.json` file in the `con
 | `locality` | CSR Subject: Locality or geographic name. |
 | `organization` | CSR Subject: Organization name. |
 | `directory-url` | The initial ACME CA directory URL (e.g., Let's Encrypt staging or production URL). |
-| `update_script` | **(dns-01 only)** The script executed to add/remove the TXT challenge record. |
 
-*Note: If `update_script` is present in the JSON configuration, the plugin will automatically use the `dns-01` challenge. Otherwise, it will default to `http-01`.*
+*Note: The plugin automatically writes the Let's Encrypt `_acme-challenge` TXT record into `$dns_base_dir/domains/<domain-name>/dns/<domain-name>.zone.acme`. The `lws-dht-dnssec-monitor` automatically detects this drop-in file, securely merges it, and signs the updated payload.*
 
 ### Dynamic Path Generation
 
-The plugin dynamically generates paths for your authentication keys, certificates, and private keys. You do **not** specify `auth-path`, `cert-path`, or `key-path` in the JSON.
-Instead, they are generated using the `root-dir` (from the vhost PVOs) and the `common-name` from your JSON configuration:
+The plugin dynamically generates paths for your authentication keys, certificates, and private keys within the domain's standardized directory structure based on the `dns_base_dir`. You do **not** specify `auth-path`, `cert-path`, or `key-path` in the JSON.
 
-* **Format:** `${root-dir}/${common-name}/${common-name}-${datetime}.[jwk|crt|key]`
+* **Format:** `$dns_base_dir/domains/<domain-name>/certs/{crt,key}/<common-name>-[latest|date].[crt|key]`
 
-The plugin creates versioned files with timestamps and maintains a `-latest` symlink pointing to the most recently generated file for easy references by the web server (e.g., `${root-dir}/${common-name}/${common-name}-latest.crt`).
+The plugin creates versioned files with timestamps and maintains a `-latest` symlink pointing to the most recently generated file for easy references by the web server (e.g., `$dns_base_dir/domains/<domain-name>/certs/crt/<common-name>-latest.crt`).
 
 ## Example `lwsws` JSON Configuration
 
@@ -60,14 +56,30 @@ Here is an example of configuring `lwsws` to enable the ACME client plugin on a 
 {
   "vhosts": [
     {
-      "name": "acme-manager",
+      "name": "dnssec-management",
       "port": "443",
       "host-ssl": "1",
       "ws-protocols": [
         {
+          "lws-dht-dnssec": {
+            "status": "ok",
+             "dht-storage-path": "/var/lib/lws-dht"
+          }
+        },
+        {
+          "lws-dht-dnssec-monitor": {
+            "status": "ok",
+            "uds-path": "/var/run/dnssec.sock"
+          }
+        },
+        {
+          "lws-acme-client-core": {
+            "status": "ok"
+          }
+        },
+        {
           "lws-acme-client-dns": {
-            "conf-dir": "/etc/lws-certs/conf.d",
-            "root-dir": "/etc/lws-certs"
+            "status": "ok"
           }
         }
       ]
@@ -76,34 +88,37 @@ Here is an example of configuring `lwsws` to enable the ACME client plugin on a 
 }
 ```
 
-## Example Certificate JSON Configurations (`conf.d/*.json`)
+*Note: The acquisition sequence triggers automatically when `lws-acme-client-core` receives the `LWS_CALLBACK_VHOST_CERT_AGING` event on startup or when the certificate gets close to expiration. There is no manual trigger command required.*
+
+## Example Certificate JSON Configurations (`$dns_base_dir/domains/<domain-name>/conf.d/*.json`)
 
 ### Example: DNS-01 Challenge
 
-Place this file in your `conf-dir` (e.g., `/etc/lws-certs/conf.d/example.com.json`):
+Place this file in your domain's config directory (e.g., `/etc/dnssec/domains/example.com/conf.d/example.com.json`):
 
 ```json
 {
   "common-name": "example.com",
+  "challenge-type": "dns-01",
   "email": "admin@example.com",
   "acme": {
     "country": "GB",
     "state": "London",
     "locality": "London",
     "organization": "My Organization",
-    "directory-url": "https://acme-staging-v02.api.letsencrypt.org/directory",
-    "update_script": "/etc/lws-certs/update-dns.sh"
+    "directory-url": "https://acme-staging-v02.api.letsencrypt.org/directory"
   }
 }
 ```
 
 ### Example: HTTP-01 Challenge
 
-Place this file in your `conf-dir` (e.g., `/etc/lws-certs/conf.d/my-other-domain.com.json`):
+Place this file for another domain (e.g., `/etc/dnssec/domains/my-other-domain.com/conf.d/my-other-domain.com.json`):
 
 ```json
 {
   "common-name": "my-other-domain.com",
+  "challenge-type": "http-01",
   "email": "admin@my-other-domain.com",
   "acme": {
     "country": "US",

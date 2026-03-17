@@ -246,7 +246,7 @@ auth_dns_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		return 0;
 	}
 
-	if (lws_auth_dns_parse_zone_buf(buf, (size_t)st.st_size, &ce->zone)) {
+	if (lws_auth_dns_parse_zone_buf(buf, (size_t)st.st_size, &ce->zone, NULL, NULL)) {
 		lwsl_notice("parse failed\n");
 		free(ce);
 		free(buf);
@@ -309,7 +309,7 @@ auth_dns_local_zone_cb(void *opaque, const char *domain, const char *payload_pat
 				time_t sig_expiry = 0;
 				time_t default_ttl = 3600;
 
-				if (!lws_auth_dns_parse_zone_buf(buf, (size_t)st.st_size, &z)) {
+				if (!lws_auth_dns_parse_zone_buf(buf, (size_t)st.st_size, &z, NULL, NULL)) {
 					if (z.default_ttl[0]) default_ttl = (time_t)atoi(z.default_ttl);
 
 					lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&z.rrset_list)) {
@@ -802,9 +802,8 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		int qtype = 0, qclass = 0;
 		char qname[256];
 		int qname_len = 0;
+		char peer_ip[64] = "unknown";
 		struct pending_dns_query *delayed_q = NULL;
-
-		lwsl_notice("LWS_CALLBACK_RAW_RX len %ld, reason %d, is_tcp=%d\n", (long)len, reason, is_tcp);
 
 		if (reason == LWS_CALLBACK_USER) {
 			/* Either returning from DHT or from DNSBL */
@@ -829,16 +828,23 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 			/* It could be delayed_q or delayed_dnsbl. For extracting packet it doesn't matter since they start identical */
 			delayed_q = pqdht;
-		} else if (is_tcp) {
-			if ((size_t)pss->rx_len + len > sizeof(pss->rx_buf)) { lwsl_notice("tcp req too large (%d)\n", (int)len); return -1; }
-			memcpy(pss->rx_buf + pss->rx_len, in, len);
-			pss->rx_len += (int)len;
-			if (pss->rx_len < 2) return 0;
-			req_len = (uint16_t)((pss->rx_buf[0] << 8) | pss->rx_buf[1]);
-			if (req_len > pss->rx_len - 2) { lwsl_notice("tcp req_len %d > avail %d\n", req_len, pss->rx_len - 2); return 0; }
-			p = pss->rx_buf + 2;
-			end = pss->rx_buf + 2 + req_len;
+			lws_sa46_write_numeric_address(&delayed_q->sa46_peer, peer_ip, sizeof(peer_ip));
+		} else {
+			if (wsi)
+				lws_get_peer_simple(wsi, peer_ip, sizeof(peer_ip));
+			if (is_tcp) {
+				if ((size_t)pss->rx_len + len > sizeof(pss->rx_buf)) { lwsl_notice("tcp req too large (%d)\n", (int)len); return -1; }
+				memcpy(pss->rx_buf + pss->rx_len, in, len);
+				pss->rx_len += (int)len;
+				if (pss->rx_len < 2) return 0;
+				req_len = (uint16_t)((pss->rx_buf[0] << 8) | pss->rx_buf[1]);
+				if (req_len > pss->rx_len - 2) { lwsl_notice("tcp req_len %d > avail %d\n", req_len, pss->rx_len - 2); return 0; }
+				p = pss->rx_buf + 2;
+				end = pss->rx_buf + 2 + req_len;
+			}
 		}
+
+		lwsl_notice("LWS_CALLBACK_RAW_RX len %ld, reason %d, is_tcp=%d, peer=%s\n", (long)len, reason, is_tcp, peer_ip);
 
 		if (p + 12 > end) {
 			if (reason == LWS_CALLBACK_RAW_RX) lwsl_notice("short header (len %d)\n", (int)len);
@@ -852,7 +858,7 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		uint16_t nscount = (uint16_t)((p[8] << 8) | p[9]);
 		uint16_t arcount = (uint16_t)((p[10] << 8) | p[11]);
 
-		lwsl_notice("DNS id %04x flags %04x qdcount %d arcount %d\n", id, flags, qdcount, arcount);
+		lwsl_notice("DNS id %04x flags %04x qdcount %d arcount %d (from %s)\n", id, flags, qdcount, arcount, peer_ip);
 
 		if (flags & 0x8000) { lwsl_notice("not a query (flags %04x)\n", flags); goto done; }
 		if (qdcount != 1) { lwsl_notice("qdcount != 1 (%d)\n", qdcount); goto done; }

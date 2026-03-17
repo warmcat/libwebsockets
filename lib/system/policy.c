@@ -1,0 +1,134 @@
+/*
+ * libwebsockets - small server side websockets and web server implementation
+ *
+ * Copyright (C) 2010 - 2026 Andy Green <andy@warmcat.com>
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to
+ * deal in the Software without restriction, including without limitation the
+ * rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+ * sell copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+ * IN THE SOFTWARE.
+ */
+
+#include <private-lib-core.h>
+
+#if defined(LWS_WITH_NETWORK)
+
+static const char * const policy_paths[] = {
+	"dns_base_dir",
+	"seeds[]",
+};
+
+enum lejp_policy_paths {
+	LEJP_PLCY_DNS_BASE_DIR,
+	LEJP_PLCY_SEEDS,
+};
+
+struct policy_parse_ctx {
+	lws_system_policy_t *p;
+};
+
+static signed char
+policy_cb(struct lejp_ctx *ctx, char reason)
+{
+	struct policy_parse_ctx *pctx = (struct policy_parse_ctx *)ctx->user;
+	lws_system_seed_t *s;
+
+	if (reason == LEJPCB_VAL_STR_END) {
+		switch (ctx->path_match - 1) {
+		case LEJP_PLCY_DNS_BASE_DIR:
+			lws_strncpy(pctx->p->dns_base_dir, ctx->buf, sizeof(pctx->p->dns_base_dir));
+			break;
+		case LEJP_PLCY_SEEDS:
+			s = lws_zalloc(sizeof(*s), "policy seed");
+			if (!s)
+				return -1;
+			lws_strncpy(s->hostname, ctx->buf, sizeof(s->hostname));
+			lws_dll2_add_tail(&s->list, &pctx->p->seeds);
+			break;
+		}
+	}
+
+	return 0;
+}
+
+int
+lws_system_parse_policy(struct lws_context *cx, const char *filepath, lws_system_policy_t **_policy)
+{
+	struct policy_parse_ctx pctx;
+	struct lejp_ctx ctx;
+	lws_system_policy_t *p;
+	int fd, n, m;
+	uint8_t buf[256];
+
+	*_policy = NULL;
+
+	fd = lws_open(filepath, O_RDONLY);
+	if (fd < 0)
+		return 1;
+
+	p = lws_zalloc(sizeof(*p), "policy");
+	if (!p) {
+		close(fd);
+		return 1;
+	}
+
+	pctx.p = p;
+	lejp_construct(&ctx, policy_cb, &pctx, policy_paths, LWS_ARRAY_SIZE(policy_paths));
+
+	do {
+		n = (int)read(fd, buf, sizeof(buf));
+		if (n == 0)
+			break;
+		if (n < 0)
+			goto bail;
+
+		m = lejp_parse(&ctx, buf, n);
+		if (m < 0 && m != LEJP_CONTINUE)
+			goto bail;
+
+	} while (1);
+
+	close(fd);
+	lejp_destruct(&ctx);
+
+	*_policy = p;
+	return 0;
+
+bail:
+	close(fd);
+	lejp_destruct(&ctx);
+	lws_system_policy_free(p);
+	return 1;
+}
+
+void
+lws_system_policy_free(lws_system_policy_t *policy)
+{
+	if (!policy)
+		return;
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&policy->seeds)) {
+		lws_system_seed_t *s = lws_container_of(d, lws_system_seed_t, list);
+
+		lws_dll2_remove(d);
+		lws_free(s);
+	} lws_end_foreach_dll_safe(d, d1);
+
+	lws_free(policy);
+}
+
+#endif

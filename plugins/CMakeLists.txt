@@ -266,10 +266,24 @@ endif()
 
 
 if (LWS_WITH_ACME)
-	create_plugin(protocol_lws_acme_client ""
-		      "acme-client/protocol_lws_acme_client.c" "" "")
+	create_plugin(protocol_lws_acme_client_core ""
+		      "acme-client/protocol_lws_acme_client_core.c" "" "")
 	if (NOT LWS_WITH_PLUGINS_BUILTIN)
-		target_compile_definitions(protocol_lws_acme_client PRIVATE LWS_BUILDING_SHARED)
+		target_compile_definitions(protocol_lws_acme_client_core PRIVATE LWS_BUILDING_SHARED)
+	endif()
+
+	if (LWS_ROLE_WS)
+		create_plugin(protocol_lws_acme_client_dns ""
+				  "acme-client/protocol_lws_acme_client_dns.c" "" "")
+		if (NOT LWS_WITH_PLUGINS_BUILTIN)
+			target_compile_definitions(protocol_lws_acme_client_dns PRIVATE LWS_BUILDING_SHARED)
+		endif()
+	endif()
+
+	create_plugin(protocol_lws_acme_client_http ""
+		      "acme-client/protocol_lws_acme_client_http.c" "" "")
+	if (NOT LWS_WITH_PLUGINS_BUILTIN)
+		target_compile_definitions(protocol_lws_acme_client_http PRIVATE LWS_BUILDING_SHARED)
 	endif()
 endif()
 

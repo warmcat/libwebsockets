@@ -28,7 +28,7 @@
 #include "private-lib-core.h"
 
 int
-lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint16_t type);
+lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint16_t type, const char *ipv4, const char *ipv6);
 
 void
 lws_auth_dns_inject_mock_keys(struct lws_auth_dns_sign_info *info, struct auth_dns_zone *z);
@@ -43,6 +43,6 @@ void
 lws_auth_dns_free_zone(struct auth_dns_zone *z);
 
 int
-lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *zone);
+lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *zone, const char *ipv4, const char *ipv6);
 
 #endif

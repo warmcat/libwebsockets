@@ -486,6 +486,60 @@ lws_dht_stats_periodic(lws_sorted_usec_list_t *sul)
 			 lws_dht_stats_periodic, 600 * LWS_US_PER_SEC);
 }
 
+#if defined(LWS_WITH_DHT_BACKEND)
+static void
+lws_dht_sul_ip_monitor_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws_dht_ctx *ctx = lws_container_of(sul, struct lws_dht_ctx, sul_ip_monitor);
+	struct bucket *b;
+	struct node *n;
+	int sent = 0;
+	uint8_t tid[4];
+
+	ctx->ip_monitor_seqno++;
+	tid[0] = 'i';
+	tid[1] = 'p';
+	memcpy(tid + 2, &ctx->ip_monitor_seqno, 2);
+
+	b = ctx->buckets;
+	while (b && sent < 8) {
+		n = b->nodes;
+		while (n && sent < 8) {
+			if (node_good(ctx, n)) {
+				send_ping(ctx, (struct sockaddr *)&n->ss, n->sslen, tid, 4);
+				sent++;
+			}
+			n = n->next;
+		}
+		b = b->next;
+	}
+
+	sent = 0;
+	b = ctx->buckets6;
+	while (b && sent < 8) {
+		n = b->nodes;
+		while (n && sent < 8) {
+			if (node_good(ctx, n)) {
+				send_ping(ctx, (struct sockaddr *)&n->ss, n->sslen, tid, 4);
+				sent++;
+			}
+			n = n->next;
+		}
+		b = b->next;
+	}
+
+	lws_sul_schedule(ctx->vhost->context, 0, &ctx->sul_ip_monitor,
+			 lws_dht_sul_ip_monitor_cb, 600 * LWS_US_PER_SEC);
+}
+
+LWS_VISIBLE LWS_EXTERN void
+lws_dht_test_external_ips(struct lws_dht_ctx *ctx)
+{
+	lws_sul_schedule(ctx->vhost->context, 0, &ctx->sul_ip_monitor,
+			 lws_dht_sul_ip_monitor_cb, 1);
+}
+#endif
+
 int
 lws_dht_get_stats(struct lws_vhost *vh, struct lws_dht_stats *current,
 		  const struct lws_dht_stats **history, int *head)
@@ -667,6 +721,9 @@ lws_dht_create(const lws_dht_info_t *info)
 
 	expire_buckets(ctx, ctx->buckets);
 	expire_buckets(ctx, ctx->buckets6);
+
+	lws_sul_schedule(ctx->vhost->context, 0, &ctx->sul_ip_monitor,
+			 lws_dht_sul_ip_monitor_cb, 5 * LWS_US_PER_SEC);
 #endif
 
 	lws_sul_schedule(ctx->vhost->context, 0, &ctx->sul_stats,
@@ -709,6 +766,7 @@ lws_dht_destroy(struct lws_dht_ctx **pctx)
 
 	lws_sul_cancel(&ctx->sul);
 	lws_sul_cancel(&ctx->sul_stats);
+	lws_sul_cancel(&ctx->sul_ip_monitor);
 
 	lws_dht_hash_destroy(&ctx->myid);
 
@@ -1046,88 +1104,37 @@ lws_dht_destroy_all_on_vhost(struct lws_vhost *vh)
 LWS_VISIBLE LWS_EXTERN int
 lws_dht_get_fallback_node(struct lws_context *cx, const char *custom_path, char *result, size_t result_len)
 {
-	int fd;
-	char buf[256];
-	ssize_t n;
-	const char *default_paths[] = {
-		LWS_INSTALL_DATADIR"/libwebsockets/libwebsockets-dht-nodes.txt",
-		"./libwebsockets-dht-nodes.txt",
-		"../libwebsockets-dht-nodes.txt",
-		NULL
-	};
-	const char *path = NULL;
-	int total_lines = 0, target_line, current_line = 0;
-	char *p, *start;
+	lws_system_policy_t *policy;
+	const char *path = "/etc/lwsws/policy";
 	uint32_t random_val;
-	int i = 0;
+	int target_idx, current_idx = 0;
 
-	if (custom_path) {
-		fd = open(custom_path, O_RDONLY);
-		if (fd >= 0)
-			path = custom_path;
-	} else {
-		while (default_paths[i]) {
-			fd = open(default_paths[i], O_RDONLY);
-			if (fd >= 0) {
-				path = default_paths[i];
-				break;
-			}
-			i++;
-		}
-	}
+	if (custom_path)
+		path = custom_path;
 
-	if (fd < 0 || !path) {
-		lwsl_err("%s: Unable to open fallback file\n", __func__);
+	if (lws_system_parse_policy(cx, path, &policy)) {
+		lwsl_err("%s: Unable to parse policy %s\n", __func__, path);
 		return 1;
 	}
 
-	n = read(fd, buf, sizeof(buf) - 1);
-	if (n <= 0) {
-		close(fd);
-		return 1;
-	}
-	buf[n] = '\0';
-
-	/* Count lines */
-	p = buf;
-	while (*p) {
-		if (*p == '\n') total_lines++;
-		p++;
-	}
-	if (*(p - 1) != '\n') total_lines++; /* file might lack trailing newline */
-
-	if (total_lines == 0) {
-		close(fd);
+	if (!policy->seeds.count) {
+		lwsl_err("%s: No seeds in policy\n", __func__);
+		lws_system_policy_free(policy);
 		return 1;
 	}
 
 	lws_get_random(cx, &random_val, sizeof(random_val));
-	target_line = (int)(random_val % (uint32_t)total_lines);
+	target_idx = (int)(random_val % policy->seeds.count);
 
-	/* Pick specific line */
-	p = buf;
-	start = p;
-	while (*p) {
-		if (*p == '\n' || *(p + 1) == '\0') {
-			if (current_line == target_line) {
-				size_t len;
-				if (*p == '\n')
-					*p = '\0';
-
-				len = (size_t)(p - start);
-				if (*start && len > 0) {
-					lws_strncpy(result, start, result_len);
-					close(fd);
-					return 0;
-				}
-				break;
-			}
-			current_line++;
-			start = p + 1;
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&policy->seeds)) {
+		if (current_idx++ == target_idx) {
+			lws_system_seed_t *s = lws_container_of(d, lws_system_seed_t, list);
+			lws_strncpy(result, s->hostname, result_len);
+			lws_system_policy_free(policy);
+			return 0;
 		}
-		p++;
-	}
+	} lws_end_foreach_dll(d);
 
-	close(fd);
+	lws_system_policy_free(policy);
 	return 1;
 }

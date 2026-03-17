@@ -231,6 +231,8 @@ struct lws_dht_ctx {
 		struct sockaddr_storage ss;
 		size_t			sslen;
 		int			count;
+		int			num_peers;
+		struct sockaddr_storage peer_ss[8];
 	} reported_ads[8];
 
 	int			num_reported_ads;
@@ -252,6 +254,8 @@ struct lws_dht_ctx {
 	struct lws_dht_stats	stats_current;
 	int			stats_history_head;
 	lws_sorted_usec_list_t	sul_stats;
+	lws_sorted_usec_list_t	sul_ip_monitor;
+	uint16_t		ip_monitor_seqno;
 
 	struct timeval		now;
 

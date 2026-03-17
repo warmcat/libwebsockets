@@ -45,6 +45,8 @@ struct lws_dht_dnssec_signzone_args {
 	const char *domain;
 	const char *workdir;
 	uint32_t sign_validity_duration;
+	char ipv4[64];
+	char ipv6[64];
 };
 
 struct lws_dht_dnssec_importnsd_args {
@@ -71,7 +73,7 @@ struct lws_dht_dnssec_ops {
 	int (*importnsd)(struct lws_context *context, struct lws_dht_dnssec_importnsd_args *args);
 
 	int (*add_temp_zone)(struct lws_context *context, const char *domain, const char *zone_str, int ttl_secs);
-	int (*publish_jws)(struct lws_context *context, const char *jws_filepath);
+	int (*publish_jws)(struct lws_vhost *vhost, const char *jws_filepath);
 	int (*fetch_zone)(struct lws_context *cx,
 			struct lws_dht_dnssec_fetch_zone_args *args);
 

@@ -37,7 +37,8 @@ endif()
 
 if (NOT LWS_ONLY_SSPC)
 	list(APPEND SOURCES
-		system/system.c)
+		system/system.c
+		system/policy.c)
 endif()
 	
 if (LWS_WITH_NETWORK)

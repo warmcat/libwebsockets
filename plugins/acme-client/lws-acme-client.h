@@ -43,20 +43,19 @@ struct lws_acme_cert_config_acme {
 	const char *locality;
 	const char *organization;
 	const char *directory_url;
-	const char *update_script;
 };
 
 struct lws_acme_cert_config {
     lws_dll2_t list;
 
     const char *pvop[LWS_TLS_TOTAL_COUNT];
-    const char *update_script;
 
     lws_acme_challenge_type challenge_type;
 
     /* Top level JSON parsed fields */
 	const char *common_name;
 	const char *email;
+	const char *challenge_type_str;
 	struct lws_acme_cert_config_acme *acme;
 };
 

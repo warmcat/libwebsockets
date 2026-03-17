@@ -70,7 +70,7 @@ strexp_cb(void *priv, const char *name, char *out, size_t *pos,
 }
 
 int
-lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *zone)
+lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *zone, const char *ipv4, const char *ipv6)
 {
 	const char *p = buf, *end = buf + len;
 	char last_name[256] = "";
@@ -260,7 +260,7 @@ lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *z
 						}
 
 						lws_dll2_add_tail(&rr->list, &rrset->rr_list);
-						if (lws_auth_dns_rdata_to_wire(zone, rr, rrset->type))
+						if (lws_auth_dns_rdata_to_wire(zone, rr, rrset->type, ipv4, ipv6))
 							lwsl_err("Failed to wire-encode rdata for %s\n", rrset->name);
 
 						lwsl_info("Parsed RR: name=%s type=%d ttl=%u rdata=%s\n", rrset->name, rrset->type, rrset->ttl, rr->rdata ? rr->rdata : "");
@@ -366,7 +366,7 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 	struct auth_dns_zone zone;
 	memset(&zone, 0, sizeof(zone));
 
-	if (lws_auth_dns_parse_zone_buf(expbuf, uout, &zone)) {
+	if (lws_auth_dns_parse_zone_buf(expbuf, uout, &zone, info->ipv4, info->ipv6)) {
 		lwsl_err("Failed to parse zone\n");
 		goto bail;
 	}

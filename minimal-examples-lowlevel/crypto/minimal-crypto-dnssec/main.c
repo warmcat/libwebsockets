@@ -20,6 +20,10 @@ enum {
 	LWS_SW_BITS,
 	LWS_SW_DURATION,
 	LWS_SW_HASH,
+	LWS_SW_WORKDIR,
+	LWS_SW_TARGET_IP,
+	LWS_SW_TARGET_PORT,
+	LWS_SW_DHT_PORT,
 	LWS_SW_D,
 	LWS_SW_P,
 	LWS_SW_HELP,
@@ -31,10 +35,40 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_BITS]	= { "--bits",          "Set key size for RSA keygen (e.g. 2048)" },
 	[LWS_SW_DURATION]	= { "--duration",      "Set signature validity duration in hours" },
 	[LWS_SW_HASH]	= { "--hash",          "Set hash type for DS record (e.g. SHA256)" },
+	[LWS_SW_WORKDIR]	= { "--workdir",       "Working directory for keys/zones" },
+	[LWS_SW_TARGET_IP]	= { "--target-ip",	   "IP to bootstrap from (e.g., local lwsws)" },
+	[LWS_SW_TARGET_PORT]= { "--target-port",   "Port to bootstrap from (e.g., 49100)" },
+	[LWS_SW_DHT_PORT]	= { "--dht-port",	   "Port to listen on (default 0 for ephemeral)" },
 	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
 	[LWS_SW_P]	= { "-p",              "Extra plugin dir" },
 	[LWS_SW_HELP]	= { "--help",		"Show this help information (-h, --help)" },
 };
+
+static int ip_consensus_reached = 0;
+static char glb_ipv4[64] = {0};
+static char glb_ipv6[64] = {0};
+
+static void
+ops_dht_external_ip_cb(struct lws_context *cx, const lws_sockaddr46 *sa46, int af, int status, const lws_sockaddr46 *peers, int num_peers)
+{
+	int i;
+	char pbuf[64];
+
+	if (af == AF_INET) {
+		lws_sa46_write_numeric_address((lws_sockaddr46 *)sa46, glb_ipv4, sizeof(glb_ipv4));
+		ip_consensus_reached |= 1;
+		lwsl_notice("  IPv4 Consensus %s supported by %d peers:\n", glb_ipv4, num_peers);
+	} else if (af == AF_INET6) {
+		lws_sa46_write_numeric_address((lws_sockaddr46 *)sa46, glb_ipv6, sizeof(glb_ipv6));
+		ip_consensus_reached |= 2;
+		lwsl_notice("  IPv6 Consensus %s supported by %d peers:\n", glb_ipv6, num_peers);
+	}
+
+	for (i = 0; i < num_peers; i++) {
+		lws_sa46_write_numeric_address((lws_sockaddr46 *)&peers[i], pbuf, sizeof(pbuf));
+		lwsl_notice("    - %s\n", pbuf);
+	}
+}
 
 int main(int argc, const char **argv)
 {
@@ -44,6 +78,7 @@ int main(int argc, const char **argv)
 	const char *p;
 	const struct lws_protocols *prot;
 	const struct lws_dht_dnssec_ops *ops;
+	struct lws_system_ops system_ops;
 	struct lws_vhost *vh;
 
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
@@ -93,6 +128,42 @@ int main(int argc, const char **argv)
 	info.port = CONTEXT_PORT_NO_LISTEN;
 #endif
 	info.options = 0;
+
+	memset(&system_ops, 0, sizeof(system_ops));
+#if defined(LWS_WITH_DHT)
+	system_ops.dht_external_ip_cb = ops_dht_external_ip_cb;
+#endif
+	info.system_ops = &system_ops;
+
+	static struct lws_protocol_vhost_options pvos[4];
+	static struct lws_protocol_vhost_options pvo_wrapper = { NULL, pvos, "lws-dht-dnssec", "" };
+
+	const char *target_ip = lws_cmdline_option(argc, argv, switches[LWS_SW_TARGET_IP].sw);
+	if (!target_ip) target_ip = "";
+
+	const char *target_port = lws_cmdline_option(argc, argv, switches[LWS_SW_TARGET_PORT].sw);
+	if (!target_port) {
+		if (target_ip[0]) target_port = "49100";
+		else target_port = "";
+	}
+
+	const char *dht_port = lws_cmdline_option(argc, argv, switches[LWS_SW_DHT_PORT].sw);
+	if (!dht_port) dht_port = "0";
+
+	memset(pvos, 0, sizeof(pvos));
+	pvos[0].name = "dht-storage-path";
+	pvos[0].value = "/tmp";
+	pvos[0].next = &pvos[1];
+	pvos[1].name = "target-ip";
+	pvos[1].value = target_ip;
+	pvos[1].next = &pvos[2];
+	pvos[2].name = "target-port";
+	pvos[2].value = target_port;
+	pvos[2].next = &pvos[3];
+	pvos[3].name = "dht-port";
+	pvos[3].value = dht_port;
+
+	info.pvo = &pvo_wrapper;
 
 #if 0
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_P].sw))) {
@@ -159,6 +230,7 @@ int main(int argc, const char **argv)
 			kg_args.bits = atoi(p);
 
 		kg_args.domain = argv[n];
+		kg_args.workdir = lws_cmdline_option(argc, argv, switches[LWS_SW_WORKDIR].sw);
 
 		if (ops->keygen) result = ops->keygen(context, &kg_args);
 	} else if (!strcmp(mode, "dsfromkey")) {
@@ -169,6 +241,8 @@ int main(int argc, const char **argv)
 		if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_HASH].sw)))
 			ds_args.hash = p;
 
+		ds_args.workdir = lws_cmdline_option(argc, argv, switches[LWS_SW_WORKDIR].sw);
+
 		if (ops->dsfromkey) result = ops->dsfromkey(context, &ds_args);
 	} else if (!strcmp(mode, "signzone")) {
 		struct lws_dht_dnssec_signzone_args sz_args;
@@ -178,6 +252,32 @@ int main(int argc, const char **argv)
 			sz_args.sign_validity_duration = (uint32_t)atoi(p) * 3600;
 
 		sz_args.domain = argv[n];
+		sz_args.workdir = lws_cmdline_option(argc, argv, switches[LWS_SW_WORKDIR].sw);
+		sz_args.ipv4[0] = '\0';
+		sz_args.ipv6[0] = '\0';
+
+		lwsl_notice("Waiting for DHT to reach IP Consensus (press Ctrl-C to abort)...\n");
+		lws_usec_t first_ip_time = 0;
+		while (!lws_service(context, 0)) {
+			if (ip_consensus_reached == 3)
+				break;
+			if (ip_consensus_reached > 0) {
+				if (!first_ip_time)
+					first_ip_time = lws_now_usecs();
+				else if (lws_now_usecs() - first_ip_time > 5000000)
+					break;
+			}
+		}
+
+		if (ip_consensus_reached > 0) {
+			lws_strncpy(sz_args.ipv4, glb_ipv4, sizeof(sz_args.ipv4));
+			lws_strncpy(sz_args.ipv6, glb_ipv6, sizeof(sz_args.ipv6));
+			lwsl_notice("IP Consensus Acquired -> IPv4: %s, IPv6: %s\n", sz_args.ipv4, sz_args.ipv6);
+		} else {
+			lwsl_err("Failed to reach IP Consensus.\n");
+			result = 1;
+			goto done;
+		}
 
 		if (ops->signzone) result = ops->signzone(context, &sz_args);
 	} else if (!strcmp(mode, "importnsd")) {
@@ -207,6 +307,7 @@ int main(int argc, const char **argv)
 		result = 1;
 	}
 
+done:
 	lws_context_destroy(context);
 	return result;
 }

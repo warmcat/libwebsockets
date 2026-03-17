@@ -1322,8 +1322,14 @@ install(DIRECTORY include/libwebsockets
 	DESTINATION "${LWS_INSTALL_INCLUDE_DIR}" COMPONENT dev)
 install(FILES ${PROJECT_BINARY_DIR}/include/libwebsockets.h ${PROJECT_BINARY_DIR}/include/lws_config.h
 	DESTINATION "${LWS_INSTALL_INCLUDE_DIR}" COMPONENT dev)
-install(FILES ${PROJECT_SOURCE_DIR}/assets/libwebsockets-dht-nodes.txt
-	DESTINATION share/libwebsockets COMPONENT dev)
+install(CODE "
+	execute_process(COMMAND useradd -r -M lwsws-priv ERROR_QUIET)
+	execute_process(COMMAND useradd -r -M lwsws ERROR_QUIET)
+	if (NOT EXISTS /etc/lwsws/policy)
+		execute_process(COMMAND mkdir -p /etc/lwsws ERROR_QUIET)
+		file(WRITE /etc/lwsws/policy \"{\\n    \\\"dns_base_dir\\\": \\\"/etc/dnssec\\\",\\n    \\\"seeds\\\": [ \\\"selfdns.org\\\", \\\"uk1.selfdns.org\\\", \\\"asia1.selfdns.org\\\" ]\\n}\\n\")
+	endif()
+")
 
 # Generate the config file for the installation tree.
 get_filename_component(LWS_ABSOLUTE_INSTALL_CMAKE_DIR ${LWS_INSTALL_CMAKE_DIR} ABSOLUTE)

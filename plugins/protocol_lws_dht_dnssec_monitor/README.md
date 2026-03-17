@@ -22,19 +22,18 @@ To enable the plugin, attach it to your configuration and provide the following 
 
 | PVO Name | Description | Default |
 |---|---|---|
-| `base-dir` | Absolute path to the central state directory where domain configurations and zones are stored. (e.g. `/var/lib/lws-certs`) | **Required** |
 | `uds-path` | Absolute path for the Unix Domain Socket where the root process will listen for proxy UI commands. | `/var/run/lws-dnssec-monitor.sock` |
 | `exe-path` | Path to the Libwebsockets host application (e.g. `lwsws`) used to spawn the root process variant. | `/usr/local/bin/lwsws` |
 | `uid` | User ID to drop privileges to in the spawned process (if standard POSIX). | `0` (do not drop) |
 | `gid` | Group ID to drop privileges to in the spawned process (if standard POSIX). | `0` (do not drop) |
 | `signature-duration` | The duration in seconds for which the newly generated DNSSEC signatures should remain valid. | 31536000 (1 year) |
 
-## Domain JSON Configuration (`<base-dir>/domains`)
+## Domain JSON Configuration (`$dns_base_dir/domains`)
 
-This plugin shares the exact same JSON format parsed by the [lws-acme-client](../acme-client/protocol_lws_acme_client.md). For every `.json` file inside `<base-dir>/domains`:
+This plugin shares the exact same JSON format parsed by the [lws-acme-client](../acme-client/protocol_lws_acme_client.md). For every `<domain>` directory inside `$dns_base_dir/domains`:
 
-1. The monitor extracts `common-name`.
-2. It looks inside `<base-dir>/domains/${common-name}/dns/` for the respective `${common-name}.zone` base file.
+1. The monitor looks for `$dns_base_dir/domains/<domain>/conf.d/<domain>.json` and extracts `common-name`.
+2. It looks inside `$dns_base_dir/domains/<domain>/dns/` for the respective `<domain>.zone` base file.
 3. It validates whether `${common-name}.zsk.private.jwk` and `${common-name}.ksk.private.jwk` exist inside that directory.
 
 You do **not** need to declare separate configuration files for ACME vs DNSSEC. A single `example.com.json` specifying `"common-name": "example.com"` is sufficient for both plugins to target the domain effectively.
@@ -57,7 +56,6 @@ Here is an example configuring `lwsws` to enable the monitor alongside the DHT i
         },
         {
           "lws-dht-dnssec-monitor": {
-            "base-dir": "/var/lib/lws-certs",
             "uds-path": "/var/lib/lws-certs/dnssec.sock",
             "uid": "1000",
             "gid": "1000",
@@ -72,12 +70,13 @@ Here is an example configuring `lwsws` to enable the monitor alongside the DHT i
 
 ## Directory Structure Expectations
 
-Based on the `<base-dir>` usage, assuming a domain `example.com`, the plugin expects the directory structure to be populated like this:
+Based on the global `/etc/lwsws/policy` `dns_base_dir` usage (e.g. `/var/lib/lws-certs`), assuming a domain `example.com`, the plugin expects the directory structure to be populated like this:
 
 ```
 /var/lib/lws-certs/domains/
-├── example.com.json                <-- Your JSON configuration here
 └── example.com/
+    ├── conf.d/
+    │   └── example.com.json            <-- Your JSON configuration here
     └── dns/
         ├── example.com.zone            <-- The raw unsigned DNS zone file
         ├── example.com.signed          <-- (Generated automatically)
