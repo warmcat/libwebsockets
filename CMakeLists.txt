@@ -412,6 +412,17 @@ set(CPACK_PACKAGE_VERSION_MAJOR "4")
 set(CPACK_PACKAGE_VERSION_MINOR "3")
 set(CPACK_PACKAGE_VERSION_PATCH_NUMBER "5")
 
+# Override version components from git tag if available (e.g. v4.3.7 or v4.3.7-5-gabcdef)
+if(GIT_HASH)
+    string(REGEX MATCH "^v?([0-9]+)\\.([0-9]+)\\.([0-9]+)" _GIT_VER_MATCH "${GIT_HASH}")
+    if(_GIT_VER_MATCH)
+        set(CPACK_PACKAGE_VERSION_MAJOR "${CMAKE_MATCH_1}")
+        set(CPACK_PACKAGE_VERSION_MINOR "${CMAKE_MATCH_2}")
+        set(CPACK_PACKAGE_VERSION_PATCH_NUMBER "${CMAKE_MATCH_3}")
+        message("Version overridden from git tag: ${CPACK_PACKAGE_VERSION_MAJOR}.${CPACK_PACKAGE_VERSION_MINOR}.${CPACK_PACKAGE_VERSION_PATCH_NUMBER}")
+    endif()
+endif()
+
 set(CPACK_PACKAGE_VERSION_PATCH "${CPACK_PACKAGE_VERSION_PATCH_NUMBER}-${LWS_BUILD_HASH}")
 set(CPACK_PACKAGE_RELEASE 1)
 
