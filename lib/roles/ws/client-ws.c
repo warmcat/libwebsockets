@@ -500,6 +500,12 @@ check_extensions:
 			n = 1;
 			lwsl_wsi_notice(wsi, "instantiating client ext %s", ext_name);
 
+			if (wsi->ws->count_act_ext >= LWS_MAX_EXTENSIONS_ACTIVE) {
+				lwsl_wsi_notice(wsi, "too many extensions");
+				*cce = "HS: EXT: too many extensions";
+				goto bail2;
+			}
+
 			/* instantiate the extension on this conn */
 
 			wsi->ws->active_extensions[wsi->ws->count_act_ext] = ext;

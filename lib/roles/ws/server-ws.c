@@ -149,6 +149,11 @@ lws_extension_server_handshake(struct lws *wsi, char **p, int budget)
 				continue;
 			}
 
+			if (wsi->ws->count_act_ext >= LWS_MAX_EXTENSIONS_ACTIVE) {
+				lwsl_info("too many extensions\n");
+				return 1;
+			}
+
 			/* apply it */
 
 			ext_count++;
