@@ -252,12 +252,12 @@ saib_stay_init(void)
 
 	if (lws_ss_create(builder.context, 0, &ssi_saib_power_stay_t,
 			  NULL, &builder.ss_stay, NULL, NULL)) {
-		lwsl_err("%s: failed to create sai-power-stay ss\n", __func__);
-		return 1;
+		lwsl_err("%s: failed to create sai-power-stay ss (ignoring)\n", __func__);
+		return 0;
 	}
 
 	if (!builder.url_sai_power)
-		return 1;
+		return 0;
 
 	if (!suspender_exists)
 		return LWSSSSRET_OK;

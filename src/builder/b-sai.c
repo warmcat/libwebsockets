@@ -323,16 +323,51 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 	 */
 	switch (target) {
 
+	case LWS_SYSTATE_CONTEXT_CREATED:
+	{
+		struct lws_context_creation_info info;
+
+		builder.context = mgr->context;
+		
+		/*
+		 * We have the context, but we haven't dropped privs yet.
+		 * 
+		 * We need to init the builder vhost, which has the pipes for
+		 * the suspender and the metrics client on it, and the
+		 * suspender itself.
+		 */
+		 
+		memset(&info, 0, sizeof(info));
+		pvo1a.value = builder.metrics_uri;
+		pvo1b.value = builder.metrics_path;
+		pvo1c.value = builder.metrics_secret;
+		info.pvo = &pvo1;
+		info.pprotocols = pprotocols;
+
+		builder.vhost = lws_create_vhost(builder.context, &info);
+		if (!builder.vhost) {
+			lwsl_err("Failed to create tls vhost\n");
+			return 1;
+		}
+
+		saib_power_init();
+
+#if defined(__linux__) || defined(__NetBSD__) || defined(__APPLE__)
+		if (saib_suspender_fork(argv0))
+			return 1;
+#endif
+		break;
+	}
+
 	case LWS_SYSTATE_OPERATIONAL:
 		if (current != LWS_SYSTATE_OPERATIONAL)
 			break;
 
 		if (saib_deletion_init(argv0))
 			return 1;
-#if defined(__APPLE__)
-		if (saib_suspender_fork(argv0))
+		if (saib_deletion_init(argv0))
 			return 1;
-#endif
+
 
 		/*
 		 * The builder JSON conf listed servers we want to connect to,
@@ -377,11 +412,13 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 
 		} lws_end_foreach_dll(pxx);
 
+		lwsl_info("%s: platform config completed, calling saib_stay_init\n", __func__);
 		if (saib_stay_init())
 			return 1;
 
+		lwsl_info("%s: scheduling initial cleanup in 100ms\n", __func__);
 		lws_sul_schedule(builder.context, 0, &builder.sul_cleanup_jobs,
-			 sul_cleanup_jobs_cb, SAI_CLEANUP_JOBS_INTERVAL_US);
+			 sul_cleanup_jobs_cb, 100 * LWS_US_PER_MS);
 
 		/* let's sample the best possible free RAM + disk situation,
 		 * we will derate it a bit when using it */
@@ -566,8 +603,11 @@ saib_app_run(int argc, const char **argv)
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.pprotocols = pprotocols;
 
+	info.pprotocols = pprotocols;
+
 	info.uid = sb.st_uid;
 	info.gid = sb.st_gid;
+
 
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)
@@ -601,36 +641,19 @@ saib_app_run(int argc, const char **argv)
 
 	/* ... and our vhost... */
 
-	pvo1a.value = builder.metrics_uri;
-	pvo1b.value = builder.metrics_path;
-	pvo1c.value = builder.metrics_secret;
-	info.pvo = &pvo1;
-
-	builder.vhost = lws_create_vhost(builder.context, &info);
-	if (!builder.vhost) {
-		lwsl_err("Failed to create tls vhost\n");
-		goto bail;
+	builder.context = lws_create_context(&info);
+	if (!builder.context) {
+		lwsl_err("lws init failed\n");
+		return 1;
 	}
 
-	saib_power_init();
-
-#if defined(__linux__)
-	if (//builder.power_off_type &&
-	    //!strcmp(builder.power_off_type, "suspend") &&
-	    saib_suspender_fork(argv[0]))
-		return 1;
-#endif
-
-#if defined(__NetBSD__)
-	if (saib_suspender_fork(argv[0]))
-		return 1;
-#endif
+	/* ... and our vhost... */
 
 	while (!lws_service(builder.context, 0) && !interrupted)
 		;
 
-bail:
 	suspender_destroy();
+
 
 	/* destroy the unique servers */
 

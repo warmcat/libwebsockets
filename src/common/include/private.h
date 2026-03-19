@@ -21,6 +21,9 @@
  * structs common across the various different sai daemons and tools
  */
 
+#include <libwebsockets.h>
+#include <sqlite3.h>
+
 #if defined(WIN32)
 #define HAVE_STRUCT_TIMESPEC
 #endif
@@ -53,6 +56,7 @@ typedef enum {
 
 	SAIES_NOT_READY_FOR_BUILD		= 8,
 	SAIES_STEP_SUCCESS			= 9,
+	SAIES_PAUSED				= 10,
 } sai_event_state_t;
 
 enum {
@@ -192,7 +196,9 @@ struct sai_nspawn {
 	struct saib_opaque_spawn	*op;
 	sai_task_t			*task;
 
+#if defined(LWS_WITH_SPAWN)
 	lws_spawn_resource_us_t		res;
+#endif
 
 	lws_sorted_usec_list_t		sul_cleaner;
 	lws_sorted_usec_list_t		sul_mirror;
@@ -597,6 +603,7 @@ typedef struct sai_build_metric {
 typedef struct sai_stay {
 	lws_dll2_t			list;
 	char				builder_name[64];
+	char				pcon_name[64];
 	char				stay_on; /* 0 = release, 1 = set */
 } sai_stay_t;
 
@@ -687,7 +694,7 @@ typedef struct sai_pcon_control {
  */
 
 extern const lws_struct_map_t
-	lsm_stay[2],
+	lsm_stay[3],
 	lsm_schema_stay[1],
 	lsm_power_managed_builder[2],
 	lsm_power_managed_builders_list[2],

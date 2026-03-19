@@ -142,7 +142,7 @@ sai_ss_serialize_queue_helper(struct lws_ss_handle *h,
 		r = lws_struct_json_serialize(js, buf + LWS_PRE,
 					      sizeof(buf) - LWS_PRE, &w);
 
-		lwsl_hexdump_err(buf + LWS_PRE, w);
+		// lwsl_hexdump_err(buf + LWS_PRE, w);
 
 		sai_ss_queue_frag_on_buflist_REQUIRES_LWS_PRE(h, buflist,
 				   buf + LWS_PRE, w, (unsigned int)((fi ? LWSSS_FLAG_SOM : 0) |
@@ -177,6 +177,9 @@ sai_ss_tx_from_buflist_helper(struct lws_ss_handle *ss, struct lws_buflist **buf
 	}
 	if (!(depi & LWSSS_FLAG_SOM))
 		som = 0;
+
+	if (*len > fsl)
+		*len = fsl;
 
 	used = (size_t)lws_buflist_fragment_use(buflist, (uint8_t *)buf, *len, &som1, &eom);
 	if (!used)

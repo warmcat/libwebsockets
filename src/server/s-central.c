@@ -25,9 +25,7 @@
  */
 
 #include <libwebsockets.h>
-#include <string.h>
-#include <signal.h>
-#include <time.h>
+
 
 #include "s-private.h"
 
@@ -202,6 +200,13 @@ sais_central_cb(lws_sorted_usec_list_t *sul)
 
 		vhd->last_check_abandoned_tasks = lws_now_usecs();
 	}
+
+	/*
+	 * Wake up builders if there are new tasks that just became mature enough
+	 * (older than 10s)
+	 */
+	sais_prune_inflight_list(vhd);
+	sais_platforms_with_tasks_pending(vhd);
 
 	/* check again in 1s */
 

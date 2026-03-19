@@ -63,10 +63,40 @@ void
 saip_switch(saip_pcon_t *pc, int on)
 {
 	struct lws_ss_handle *h = on ? pc->ss_tasmota_on : pc->ss_tasmota_off;
+	int wol_fired = 0;
+
+	if (on && pc->mac) {
+		char buf[64];
+		size_t n = (size_t)lws_snprintf(buf, sizeof(buf), "%s\n", pc->mac);
+
+		if (write(lws_spawn_get_fd_stdxxx(lsp_wol, 0),
+			      buf, n) != (ssize_t)n)
+			lwsl_err("%s: Write to resume %s failed %d\n",
+					__func__, pc->name, errno);
+		else {
+			lwsl_notice("%s: Resumed %s via WOL\n",
+					__func__, pc->name);
+			wol_fired = 1;
+		}
+	}
 
 	if (!h) {
-		lwsl_err("%s: %s: no ss handle for %s\n", __func__,
-			 pc->name, on ? "ON" : "OFF");
+		if (!wol_fired) {
+			if (pc->type && !strcmp(pc->type, "wol")) {
+				if (on && !pc->mac)
+					lwsl_err("%s: %s: WOL type but no MAC configured\n",
+						 __func__, pc->name);
+				else
+					if (!on)
+						lwsl_info("%s: %s: WOL pcon ignoring OFF\n",
+							  __func__, pc->name);
+			} else {
+				lwsl_err("%s: %s: no ss handle for %s (type: %s, mac: %s)\n",
+					 __func__, pc->name, on ? "ON" : "OFF",
+					 pc->type ? pc->type : "null",
+					 pc->mac ? pc->mac : "null");
+			}
+		}
 		return;
 	}
 

@@ -37,10 +37,29 @@
 
 #include "s-private.h"
 
+#if 0
 /*
  * (Structs and maps removed - now in common/include/private.h and common/struct-metadata.c)
  */
 
+static int
+sais_get_pcon_for_builder(struct vhd *vhd, const char *builder_name,
+			  char *pcon_buf, size_t len)
+{
+	char q[256], esc[96];
+	int r;
+
+	lws_sql_purify(esc, builder_name, sizeof(esc));
+
+	lws_snprintf(q, sizeof(q),
+		     "SELECT pcon_name FROM pcon_builders WHERE builder_name = '%s'",
+		     esc);
+
+	r = sqlite3_exec(vhd->server.pdb, q, sql3_get_string_cb, pcon_buf, NULL);
+
+	return r == SQLITE_OK;
+}
+#endif 
 int
 sais_power_rx(struct vhd *vhd, struct pss *pss, uint8_t *buf,
 	      size_t bl, unsigned int ss_flags)
@@ -194,7 +213,15 @@ passthru:
 		 * We want to broadcast it to all connected web interfaces (sai-web).
 		 * We have been buffering in pss->power_rx_cache until we identified the schema.
 		 * Now we forward whatever is in the cache (which includes the current 'buf').
+		 *
+		 * Notice we wait until we have the WHOLE message in the cache before
+		 * broadcasting it.  Since there is only one websrv channel, we can't
+		 * allow interleaved fragments from different sources on it.
 		 */
+
+		if (!(ss_flags & LWSSS_FLAG_EOM))
+			return 0;
+
 		{
 			lws_wsmsg_info_t info;
 			uint8_t *p, *lin;
@@ -231,122 +258,7 @@ passthru:
 			info.private_source_idx = SAI_WEBSRV_PB__GENERATED;
 			info.buf = p + LWS_PRE;
 			info.len = tlen;
-			info.ss_flags = LWSSS_FLAG_SOM; /* We always send what we have as a start */
-
-			if (ss_flags & LWSSS_FLAG_EOM)
-				info.ss_flags |= LWSSS_FLAG_EOM;
-
-			/*
-			 * If we are continuing (n == LEJP_CONTINUE), we flushed the buffer
-			 * so subsequent calls will append new data to empty buflist and flush it immediately.
-			 * However, sais_websrv_broadcast expects SOM/EOM to be correct for the whole message.
-			 *
-			 * If we buffered the START of the message, we set SOM.
-			 * If the incoming chunk was EOM, we set EOM.
-			 *
-			 * What if we have intermediate chunks?
-			 *
-			 * If we are in passthru, we cleared the cache above.
-			 *
-			 * Wait, if we are in passthru state, we shouldn't re-set SOM for every chunk.
-			 * We need to track if we already sent SOM.
-			 *
-			 * But here we only enter `passthru` if `top_schema_index` matches.
-			 * This happens for the FIRST chunk (once schema matches) AND subsequent chunks.
-			 *
-			 * Problem: `top_schema_index` remains 3 for subsequent chunks.
-			 *
-			 * So we need to know if we are flushing the FIRST part (SOM) or a later part.
-			 *
-			 * `ss_flags & LWSSS_FLAG_SOM` tells us if the CURRENT chunk was the start of the message.
-			 *
-			 * If `ss_flags & SOM`, then `info.ss_flags |= SOM`.
-			 * If `ss_flags & EOM`, then `info.ss_flags |= EOM`.
-			 *
-			 * This seems correct because we are effectively delaying the processing.
-			 * If we buffered chunks 1 and 2, and now processing chunk 2 (which made schema valid),
-			 * chunk 1 had SOM. `pss->power_rx_cache` contains chunk 1 + chunk 2.
-			 * So the aggregate buffer DOES start with SOM content.
-			 *
-			 * If we are processing chunk 3 (schema already known), we append to cache, then flush.
-			 * Cache contains just chunk 3.
-			 * Chunk 3 does NOT have SOM.
-			 * So we shouldn't set SOM.
-			 *
-			 * BUT `ss_flags` belongs to the current `buf` (chunk 3).
-			 * If `ss_flags` has SOM, then our buffer starts with SOM.
-			 *
-			 * So `info.ss_flags = ss_flags` is ALMOST correct, except that we might have accumulated
-			 * previous chunks which HAD SOM, even if the current chunk doesn't.
-			 *
-			 * If `fragment_cache` was non-empty before we appended `buf`, then we are continuing a buffer.
-			 * Wait, we appended `buf` to `cache` at the top of the function.
-			 *
-			 * If `ss_flags` has SOM, then the cache definitely starts with SOM.
-			 *
-			 * If `ss_flags` does NOT have SOM, but we have older data in cache?
-			 * That older data MUST be the start of the message (because we flush on schema detection).
-			 *
-			 * Wait, if we flush on schema detection, we flush the START.
-			 * Subsequent chunks will be appended to EMPTY cache, then flushed.
-			 *
-			 * So if cache has data, and we are flushing...
-			 *
-			 * Case 1: First chunk(s). Schema found. `ss_flags` might be SOM (if single chunk) or NOT (if 2nd chunk).
-			 * If 2nd chunk triggers match, `ss_flags` is !SOM. But cache contains Chunk 1 (SOM) + Chunk 2.
-			 * So we must set SOM if the *cache* contains the start.
-			 *
-			 * We can track `pss->power_rx_cache_had_som`.
-			 * Or we can just rely on `a->top_schema_index == -1` -> we are at start.
-			 * Once matched, we are flushing the start.
-			 *
-			 * Actually, simpler:
-			 * We only buffer if we DON'T know the schema.
-			 *
-			 * If we know the schema (3), we are in passthru mode.
-			 *
-			 * If we just transitioned to schema 3 (match occurred in this chunk), we flush everything. This flush INCLUDES the start. So send SOM.
-			 *
-			 * If we were ALREADY in schema 3 (subsequent chunks), we just forward `buf`.
-			 *
-			 * But wait, my logic "always append to cache" means `buf` is in cache.
-			 *
-			 * If I flush cache every time `passthru` is hit:
-			 * - First time (match): Cache has Start + ... + Current. Flush. Send SOM.
-			 * - Next time: Cache has Next Chunk. Flush. Send !SOM.
-			 *
-			 * How do I know if it's the "First time"?
-			 * `a->top_schema_index` is persistent in `pss`.
-			 *
-			 * Valid point: `lws_struct` parser state persists.
-			 *
-			 * Issue: `lejp` doesn't tell me "I just matched schema".
-			 *
-			 * But I can check if `pss->power_rx_cache` contains more than `bl`.
-			 * If `total_len > bl`, then we have buffered data -> We are sending the start -> SOM.
-			 *
-			 * Exception: What if `buf` is the FIRST chunk and it matched?
-			 * `total_len == bl`. But `ss_flags` has SOM.
-			 *
-			 * So logic:
-			 * `info.ss_flags = (ss_flags & LWSSS_FLAG_EOM);`
-			 * `if (total_len > bl || (ss_flags & LWSSS_FLAG_SOM)) info.ss_flags |= LWSSS_FLAG_SOM;`
-			 *
-			 * This handles:
-			 * - Single chunk (SOM+EOM): len==bl, flags=SOM. Result: SOM+EOM.
-			 * - Multi chunk, 1st (match): len==bl, flags=SOM. Result: SOM.
-			 * - Multi chunk, 2nd (match): len > bl, flags=!SOM. Result: SOM. (Correct, as it contains start).
-			 * - Multi chunk, 3rd (already matched):
-			 *   Wait, if already matched, we still append and flush?
-			 *   If we flush every time, cache is empty between calls.
-			 *   So for 3rd chunk, `total_len == bl`. `flags`=!SOM. Result: !SOM. Correct.
-			 *
-			 */
-
-			if (tlen > bl || (ss_flags & LWSSS_FLAG_SOM))
-				info.ss_flags |= LWSSS_FLAG_SOM;
-			else
-				info.ss_flags &= (unsigned int)~LWSSS_FLAG_SOM;
+			info.ss_flags = LWSSS_FLAG_SOM | LWSSS_FLAG_EOM;
 
 			/* Broadcast to all websrv connections (i.e. all sai-web instances) */
 			sais_websrv_broadcast_REQUIRES_LWS_PRE(vhd->h_ss_websrv, &info);
@@ -375,14 +287,44 @@ bail:
  * (Structs and maps removed - now in common/include/private.h and common/struct-metadata.c)
  */
 
+struct pcon_lookup_ctx {
+	char *p;
+	const char *end;
+	int *n;
+};
+
+static int
+cb_lookup_pcon(void *user, int cols, char **values, char **name)
+{
+	struct pcon_lookup_ctx *ctx = (struct pcon_lookup_ctx *)user;
+	size_t m;
+
+	if (cols < 1 || !values[0])
+		return 0;
+
+	m = strlen(values[0]);
+
+	if (*ctx->n)
+		*ctx->p++ = ',';
+
+	if (lws_ptr_diff_size_t(ctx->end, ctx->p) < m + 2)
+		return 1; /* abort */
+
+	memcpy(ctx->p, values[0], m);
+	ctx->p += m;
+	*ctx->p = '\0';
+	*ctx->n = 1;
+
+	return 0;
+}
+
 int
 sais_power_tx(struct vhd *vhd, struct pss *pss, uint8_t *buf, size_t bl)
 {
 	uint8_t *start = buf + LWS_PRE, *p = start, *end = p + bl - LWS_PRE - 1;
 	enum lws_write_protocol flags;
-	char diff = 0;
 	size_t w;
-	int n;
+	int n, diff = 0;
 
 	if (pss->stay_owner.head) {
 		/*
@@ -453,39 +395,58 @@ sais_power_tx(struct vhd *vhd, struct pss *pss, uint8_t *buf, size_t bl)
 	n = 0;
 	lws_start_foreach_dll(struct lws_dll2 *, px, vhd->pending_plats.head) {
 		sais_plat_t *pl = lws_container_of(px, sais_plat_t, list);
-		size_t m;
+		struct pcon_lookup_ctx ctx;
+		char q[256], query[256];
+		int r;
 
-		if (n)
-			*p++ = ',';
-		m = strlen(pl->plat);
-		if (lws_ptr_diff_size_t(end, p) < m + 2)
+		ctx.p = (char *)p;
+		ctx.end = (const char *)end;
+		ctx.n = &n;
+
+		lws_sql_purify(q, pl->plat, sizeof(q));
+		lws_snprintf(query, sizeof(query),
+			     "SELECT DISTINCT pcon FROM builders WHERE platform = '%s'",
+			     q);
+
+		r = sqlite3_exec(vhd->server.pdb, query, cb_lookup_pcon, &ctx, NULL);
+
+		lwsl_notice("%s: platform '%s' -> pcon query '%s': result %d\n",
+			    __func__, pl->plat, query, r);
+
+		if (r != SQLITE_OK)
+			lwsl_err("%s: sqlite3 error: %s\n", __func__, sqlite3_errmsg(vhd->server.pdb));
+
+		p = (uint8_t *)ctx.p;
+		if (p >= (uint8_t *)end) /* buffer full */
 			break;
-		memcpy(p, pl->plat, m);
-		p += m;
-		*p = '\0';
-		n = 1;
 
 	} lws_end_foreach_dll(px);
+
+	lwsl_notice("%s: final pcon list: '%.*s'\n", __func__,
+		    (int)lws_ptr_diff_size_t(p, start), start);
 
 	/*
 	 * Don't resend the same status over and over
 	 */
 
 	if (strncmp(pss->last_power_report, (const char *)start, lws_ptr_diff_size_t(p, start) + 1)) {
-		diff = 1;
+		lwsl_notice("%s: pending plats changed: '%s' -> '%.*s'\n", __func__,
+			    pss->last_power_report, (int)lws_ptr_diff_size_t(p, start), start);
+
 		memcpy(pss->last_power_report, start, lws_ptr_diff_size_t(p, start) + 1);
-	}
+                diff = 1;
+        }
 
-	if (diff /* && start != p */) {
-		lwsl_notice("%s: detected jobs for %.*s\n", __func__,
-				(int)lws_ptr_diff_size_t(p, start), start);
+        if (diff) {
+                lwsl_notice("%s: ************* detected jobs for %.*s\n", __func__,
+                                (int)lws_ptr_diff_size_t(p, start), start);
 
-		if (lws_write(pss->wsi, start, lws_ptr_diff_size_t(p, start),
-				LWS_WRITE_TEXT) < 0)
-			return -1;
+                if (lws_write(pss->wsi, start, lws_ptr_diff_size_t(p, start),
+                                LWS_WRITE_TEXT) < 0)
+                        return -1;
 
-		lws_callback_on_writable(pss->wsi);
-	}
+                lws_callback_on_writable(pss->wsi);
+        }
 
 	return 0;
 }

@@ -98,6 +98,7 @@ struct pss {
 	int			log_cache_size;
 	int			authorized;
 	int			specificity;
+	int			segment_flags;
 	unsigned int		js_api_version;
 	unsigned long		expiry_unix_time;
 
@@ -133,6 +134,9 @@ struct vhd {
 
 	struct lws_dll2_owner		builders_owner;
 	struct lwsac			*builders;
+
+	struct lws_dll2_owner		pcons_owner;
+	struct lwsac			*pcons;
 
 	/* our keys */
 	struct lws_jwk			jwt_jwk_auth;
@@ -239,5 +243,7 @@ saiw_browser_queue_overview(struct vhd *vhd, struct pss *pss);
 
 int
 saiw_browser_broadcast_queue_builders(struct vhd *vhd, struct pss *pss);
+int
+saiw_browser_broadcast_queue_pcons(struct vhd *vhd, struct pss *pss);
 
 

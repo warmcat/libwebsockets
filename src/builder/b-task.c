@@ -20,8 +20,6 @@
  */
 
 #include <libwebsockets.h>
-#include <string.h>
-#include <signal.h>
 #include <sys/stat.h>
 #include <assert.h>
 #include <fcntl.h>
@@ -409,12 +407,36 @@ saib_sub_cleaner_cb(lws_sorted_usec_list_t *sul)
 
 
 	if (ns->op && ns->op->lsp) {
-		lwsl_notice("%s: +++++++++++ killing child process\n", __func__);
+		lwsl_notice("%s: +++++++++++ killing child process (budget %d)\n", __func__, ns->term_budget);
 		lws_spawn_piped_kill_child_process(ns->op->lsp);
-	} else {
-		lwsl_err("%s: ============= unable to kill child process -> destroying ns\n", __func__);
-		saib_task_destroy(ns);
+
+		if (!ns->term_budget)
+			ns->term_budget = 10;
+
+		/* give it a few goes to react to the signal */
+		if (--ns->term_budget) {
+			lws_sul_schedule(builder.context, 0, &ns->sul_cleaner,
+					 saib_sub_cleaner_cb, 250 * LWS_US_PER_MS);
+			return;
+		}
+
+		lwsl_err("%s: ============= unable to kill child process -> destroying ns forcibly\n", __func__);
+		/*
+		 * It refused to die after a few seconds... we are giving up on it.
+		 * Break the link between the op and the ns, so if the op and its
+		 * process ever do die, the reap callback will see ns is NULL and
+		 * just free the op.
+		 */
+		ns->op->ns = NULL;
+		/*
+		 * And lose our link to the op, so saib_task_destroy() doesn't
+		 * try to kill it again.  Because op->ns is NULL, we are leaving
+		 * responsibility for freeing op to the eventual reap action.
+		 */
+		ns->op = NULL;
 	}
+
+	saib_task_destroy(ns);
 }
 
 void
@@ -720,7 +742,8 @@ saib_consider_allocating_task(struct sai_plat_server *spm, lws_struct_args_t *a,
 		struct sai_nspawn *xns = lws_container_of(d, struct sai_nspawn, list);
 
 		if (xns->task && !strcmp(xns->task->uuid, task->uuid)) {
-			lwsl_warn("%s: server offered task that's already running\n", __func__);
+			lwsl_warn("%s: server offered task that's already running. State %d, artifacts %d, op %p\n",
+				__func__, xns->state, xns->count_artifacts, xns->op);
 			saib_queue_task_status_update(sp, spm, task->uuid, 0,
 						      SAI_TASK_REASON_DUPE);
 			saib_reassess_idle_situation();

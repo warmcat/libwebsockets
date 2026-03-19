@@ -583,6 +583,7 @@ next_plat: ;
 				pss->sn.t.repo_name	= pss->sn.e.repo_name;
 				pss->sn.t.git_ref	= sn->e.ref;
 				pss->sn.t.git_hash	= sn->e.hash;
+				pss->sn.t.parallel	= 2;
 
 				lws_dll2_clear(&pss->sn.t.list);
 				lws_dll2_owner_clear(&owner);

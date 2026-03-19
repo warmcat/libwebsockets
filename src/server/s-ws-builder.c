@@ -28,7 +28,7 @@
 
 #include <libwebsockets.h>
 #include <string.h>
-#include <signal.h>
+
 #include <assert.h>
 #include <time.h>
 
@@ -550,6 +550,10 @@ sais_process_rej(struct vhd *vhd, struct pss *pss,
 			break;
 
 		/* leave the uuid listed as inflight until step completed */
+		if (sais_is_task_inflight(vhd, sp, rej->task_uuid, &ul)) {
+			// lwsl_notice("%s: setting inflight started to 1 for %s\n", __func__, rej->task_uuid);
+			ul->started = 1;
+		}
 		break;
 
 	case SAI_TASK_REASON_DUPE:

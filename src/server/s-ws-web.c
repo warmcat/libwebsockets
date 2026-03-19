@@ -100,7 +100,11 @@ static const lws_struct_map_t lsm_schema_json_map[] = {
 	LSM_SCHEMA	(sai_pcon_control_t,	 NULL, lsm_pcon_control,
 			/* shares struct */   "com.warmcat.sai.pcon_control"),
 	LSM_SCHEMA	(sai_browse_rx_taskinfo_t, NULL, lsm_browser_taskinfo,
-						"com.warmcat.sai.taskinfo")
+						"com.warmcat.sai.taskinfo"),
+	LSM_SCHEMA	(sai_browse_rx_evinfo_t, NULL, lsm_browser_taskreset,
+			/* shares struct */   "com.warmcat.sai.taskpause"),
+	LSM_SCHEMA	(sai_browse_rx_evinfo_t, NULL, lsm_browser_taskreset,
+			/* shares struct */   "com.warmcat.sai.taskresume")
 };
 
 enum {
@@ -115,6 +119,8 @@ enum {
 	SAIS_WS_WEBSRV_RX_STAY,
 	SAIS_WS_WEBSRV_RX_PCON_CONTROL,
 	SAIS_WS_WEBSRV_RX_TASKINFO,
+	SAIS_WS_WEBSRV_RX_TASKPAUSE,
+	SAIS_WS_WEBSRV_RX_TASKRESUME,
 };
 
 static int
@@ -440,6 +446,28 @@ websrvss_ws_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 		lwsl_ss_warn(m->ss, "SAIS_WS_WEBSRV_RX_TASKRESET: %s: received", ei->event_hash);
 		if (sais_task_clear_build_and_logs(m->vhd, ei->event_hash, 0))
 			lwsl_ss_err(m->ss, "taskreset failed");
+		break;
+
+	case SAIS_WS_WEBSRV_RX_TASKPAUSE:
+		ei = (sai_browse_rx_evinfo_t *)a.dest;
+		if (sais_validate_id(ei->event_hash, SAI_TASKID_LEN))
+			goto soft_error;
+
+		lwsl_ss_warn(m->ss, "SAIS_WS_WEBSRV_RX_TASKPAUSE: %s: received", ei->event_hash);
+		if (sais_task_pause(m->vhd, ei->event_hash))
+			lwsl_ss_err(m->ss, "taskpause failed");
+		break;
+
+	case SAIS_WS_WEBSRV_RX_TASKRESUME:
+		ei = (sai_browse_rx_evinfo_t *)a.dest;
+		if (sais_validate_id(ei->event_hash, SAI_TASKID_LEN))
+			goto soft_error;
+
+		lwsl_ss_warn(m->ss, "SAIS_WS_WEBSRV_RX_TASKRESUME: %s: received", ei->event_hash);
+		if (sais_set_task_state(m->vhd, ei->event_hash, SAIES_WAITING, 0, 0))
+			lwsl_ss_err(m->ss, "taskresume failed");
+		else
+			sais_platforms_with_tasks_pending(m->vhd);
 		break;
 
 	case SAIS_WS_WEBSRV_RX_TASKREBUILDLASTSTEP:

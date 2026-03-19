@@ -77,7 +77,9 @@ int getpid(void) { return 0; }
 static const char *config_dir = "/etc/sai/power";
 static int interrupted;
 static lws_state_notify_link_t nl;
+#if defined(LWS_WITH_SPAWN)
 struct lws_spawn_piped *lsp_wol;
+#endif
 
 struct sai_power power;
 
@@ -211,18 +213,18 @@ sul_pcon_check_cb(lws_sorted_usec_list_t *sul)
 		}
 
 		/* Rule 2: User Keep On -> Turn ON */
-		if (pc->user_keep_on) {
+		if (pc->flags & SAIP_PCON_F_MANUAL_STAY) {
 			target_on = 1;
 			lwsl_warn("%s: PCON %s has user keep on -> Force ON\n", __func__, pc->name);
 		}
 		/* Rule 3: Server Requested -> Turn ON */
-		else if (pc->server_requested_on) {
+		else if (pc->flags & SAIP_PCON_F_NEEDED) {
 			target_on = 1;
 			lwsl_warn("%s: PCON %s has server request -> Force ON\n", __func__, pc->name);
 		}
 
-		lwsl_info("%s: PCON %s check: target=%d, current=%d (user=%d, srv=%d)\n",
-			  __func__, pc->name, target_on, pc->on, pc->user_keep_on, pc->server_requested_on);
+		lwsl_info("%s: PCON %s check: target=%d, current=%d (flags=0x%x)\n",
+			  __func__, pc->name, target_on, pc->on, pc->flags);
 
 		/* If we decide it should be ON, trigger it */
 		if (target_on && !pc->on) {
@@ -271,10 +273,10 @@ sul_broadcast_energy_cb(lws_sorted_usec_list_t *sul)
 			/* SS request triggers the HTTP GET */
 			if (lws_ss_request_tx(pc->ss_tasmota_monitor))
 				lwsl_warn("%s: Failed to trigger monitor request for %s\n", __func__, pc->name);
-			else
-				lwsl_notice("%s: Triggered polling for %s\n", __func__, pc->name);
-		} else {
-			lwsl_warn("%s: PCON %s has no monitor SS\n", __func__, pc->name);
+			// else
+			//	lwsl_notice("%s: Triggered polling for %s\n", __func__, pc->name);
+		//} else {
+		//	lwsl_warn("%s: PCON %s has no monitor SS\n", __func__, pc->name);
 		}
 
 	} lws_end_foreach_dll(p);
@@ -289,7 +291,7 @@ sul_broadcast_energy_cb(lws_sorted_usec_list_t *sul)
 		saip_server_t *sps = lws_container_of(mp, struct saip_server, list);
 		int queued = saip_queue_energy_report(sps);
 		if (queued) {
-			lwsl_notice("%s: Queued energy report for server\n", __func__);
+			// lwsl_notice("%s: Queued energy report for server\n", __func__);
 			if (lws_ss_request_tx(sps->ss)) /* Request write to send the report */
 				lwsl_warn("%s: failed to request tx\n", __func__);
 		}
@@ -532,6 +534,7 @@ int main(int argc, const char **argv)
 
 	saip_ss_create_tasmota();
 
+#if defined(LWS_WITH_SPAWN)
 	{
 		struct lws_spawn_piped_info info;
 		char rpath[PATH_MAX];
@@ -550,8 +553,9 @@ int main(int argc, const char **argv)
 		if (!lsp_wol)
 			lwsl_err("%s: wol spawn failed\n", __func__);
 	}
+#endif
 
-       lws_finalize_startup(power.context);
+       lws_finalize_startup(power.context, "sai-power");
 
 
 	while (!lws_service(power.context, 0) && !interrupted)

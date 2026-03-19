@@ -194,7 +194,7 @@ span.tty1 {
 
 
 span.noscript {
-	text-size:200%;
+	font-size: 200%;
 }
 
 span.nowrap {
@@ -371,6 +371,13 @@ img.bico {
 	transition: background-color 500ms linear;
 }
 
+.taskstate10 {
+	background:#ffdc00;
+	color:#302000;
+	opacity:1;
+	transition: background-color 500ms linear;
+}
+
 div.stats_hidden {
 	display: none;
 }
@@ -472,7 +479,6 @@ div.sai_arts {
 span.ti1 {
 	font-weight: normal;
 	font-size: 9pt;
-	//background:#d0c0b0;
 	color:#000000;
 	padding:3px;
 	border-radius:3px;
@@ -654,6 +660,10 @@ div.ibuil {
 	-webkit-user-select: none;
 	cursor: pointer;
        width: 80px;
+}
+
+div.ibuil table {
+	table-layout: fixed;
 }
 
 div.ibuil.power-unmanaged {
@@ -839,6 +849,15 @@ img.branch {
 
 .context-menu li:hover {
 	background-color: #f2f2f2;
+}
+
+.context-menu li.read-only {
+    cursor: default;
+    color: #888;
+}
+
+.context-menu li.read-only:hover {
+    background-color: inherit;
 }
 
 .float-right {
@@ -1088,8 +1107,8 @@ body.overlay-active {
 
 .pcon-header {
     font-weight: bold;
-    font-size: 1.0em;
-    padding: 4px;
+    font-size: 0.5em;
+    padding: 2px;
     background-color: #e0e0e0;
     border-radius: 3px;
     display: flex;
@@ -1121,4 +1140,28 @@ body.overlay-active {
 
 .pcon-orphans .pcon-header {
     background-color: #ffe0e0;
+}
+
+.builder-name-row {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	width: 100%;
+	margin-bottom: 2px;
+}
+
+.builder-short-name {
+	font-weight: bold;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	flex-grow: 1;
+	text-align: left;
+	min-width: 0;
+}
+
+.builder-icons {
+	display: flex;
+	align-items: center;
+	flex-shrink: 0;
 }

@@ -312,6 +312,9 @@ sais_set_task_state(struct vhd *vhd, const char *task_uuid, sai_event_state_t st
 		    uint64_t started, uint64_t duration);
 
 int
+sais_task_pause(struct vhd *vhd, const char *task_uuid);
+
+int
 sais_bind_task_to_builder(struct vhd *vhd, const char *builder_name,
 			  const char *builder_uuid, const char *task_uuid);
 

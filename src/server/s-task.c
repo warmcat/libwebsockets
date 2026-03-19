@@ -21,8 +21,7 @@
 
 #include <libwebsockets.h>
 #include <string.h>
-#include <signal.h>
-#include <time.h>
+
 #include <assert.h>
 
 #include "s-private.h"
@@ -156,7 +155,7 @@ sais_prune_inflight_list(struct vhd *vhd)
 		lws_start_foreach_dll_safe(struct lws_dll2 *, p1, p2, sp->inflight_owner.head) {
 			sai_uuid_list_t *u = lws_container_of(p1, sai_uuid_list_t, list);
 
-			if (!u->started && (t - u->us_time_listed) > 5 * 1000 * 1000)
+			if (!u->started && (t - u->us_time_listed) > 3 * 1000 * 1000)
 				sais_inflight_entry_destroy(u);
 
 		} lws_end_foreach_dll_safe(p1, p2);
@@ -504,7 +503,8 @@ sais_platforms_with_tasks_pending(struct vhd *vhd)
 	 * Collect a list of *events* (not tasks) that still have any open tasks
 	 */
 
-	lws_snprintf(pf, sizeof(pf)," and (state != 3 and state != 5)");
+	lws_snprintf(pf, sizeof(pf)," and (state != 3 and state != 5) and (created < %llu)",
+			(unsigned long long)(lws_now_secs() - 10));
 
 	n = lws_struct_sq3_deserialize(vhd->server.pdb, pf, "created desc ",
 				       lsm_schema_sq3_map_event, &o, &ac, 0, 20);
@@ -563,6 +563,17 @@ sais_platforms_with_tasks_pending(struct vhd *vhd)
 	} lws_end_foreach_dll(p);
 
 	sais_notify_all_sai_power(vhd);
+
+	/*
+	 * Wake up any builders that are slacking, since there are new tasks
+	 */
+	lws_start_foreach_dll(struct lws_dll2 *, p, vhd->server.builder_owner.head) {
+		sai_plat_t *sp = lws_container_of(p, sai_plat_t, sai_plat_list);
+
+		if (!sp->busy)
+			sais_plat_busy(sp, 0);
+
+	} lws_end_foreach_dll(p);
 
 	lwsac_free(&ac);
 
@@ -749,7 +760,7 @@ nope:
 		info.private_source_idx		= SAI_WEBSRV_PB__ACTIVITY;
 		info.buf			= (uint8_t *)start;
 		info.len			= lws_ptr_diff_size_t(p, start);
-		info.ss_flags			= LWSSS_FLAG_EOM;
+		info.ss_flags			= (unsigned int)((s ? LWSSS_FLAG_SOM : 0) | LWSSS_FLAG_EOM);
 		sais_websrv_broadcast_REQUIRES_LWS_PRE(vhd->h_ss_websrv, &info);
 
 		lws_sul_schedule(vhd->context, 0, &vhd->sul_activity,

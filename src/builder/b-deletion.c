@@ -105,21 +105,31 @@ sai_deletion_worker(const char *home_dir)
 			if (!p)
 				continue;
 
+			lwsl_info("%s: received delete request for '%s'\n", __func__, line);
+
 			{
 				struct lws_dir_info di;
 				char full_path[PATH_MAX];
+				struct stat st;
 
-				memset(&di, 0, sizeof(di));
 				lws_snprintf(full_path, sizeof(full_path),
 					     "%s/jobs/%s", home_dir, line);
 
+				if (stat(full_path, &st)) {
+					// lwsl_notice("%s: %s already gone or inaccessible\n", __func__, full_path);
+					continue;
+				}
+
+				memset(&di, 0, sizeof(di));
 				di.dirpath = full_path;
 				di.cb = lws_dir_rm_rf_cb;
 				di.do_toplevel_cb = 1;
 
+				lwsl_info("%s: performing rm -rf %s\n", __func__, full_path);
+
 				if (lws_dir_via_info(&di))
-					lwsl_err("%s: failed to delete %s\n",
-						 __func__, full_path);
+					lwsl_err("%s: failed to delete %s: %s\n",
+						 __func__, full_path, strerror(errno));
 			}
 		} while (1);
 
@@ -154,21 +164,30 @@ scan_jobs_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	char path[512];
 	struct stat sb;
 
-	if (lde->type != LDOT_DIR || lde->name[0] == '.')
+	if (lde->name[0] == '.')
 		return 0;
 
 	lws_start_foreach_dll(struct lws_dll2 *, p, active->owner.head) {
 		struct active_job_uuid *aj = lws_container_of(p, struct active_job_uuid, list);
 
-		if (!strcmp(aj->uuid, lde->name))
+		if (!strcmp(aj->uuid, lde->name)) {
 			/* it's an active job, leave it alone */
+			lwsl_info("%s: %s is active\n", __func__, lde->name);
 			return 0;
+		}
 
 	} lws_end_foreach_dll(p);
 
 	lws_snprintf(path, sizeof(path), "%s/%s", dirpath, lde->name);
-	if (stat(path, &sb))
+	if (stat(path, &sb)) {
+		lwsl_notice("%s: stat failed %s\n", __func__, path);
 		return 0;
+	}
+
+	if (!S_ISDIR(sb.st_mode)) {
+		lwsl_notice("%s: %s is not a dir\n", __func__, path);
+		return 0;
+	}
 
 	/* older than 24h? */
 
@@ -179,8 +198,9 @@ scan_jobs_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		DWORD written;
 #endif
 
-		lwsl_notice("%s: requesting removal of old job dir %s\n",
-			    __func__, path);
+		lwsl_info("%s: requesting removal of old job dir %s (age %llus)\n",
+			    __func__, path, (unsigned long long)
+			    ((uint64_t)lws_now_secs() - (uint64_t)sb.st_mtime));
 
 #if !defined(WIN32)
 		if (write(builder.pipe_master_wr, temp, LWS_POSIX_LENGTH_CAST(len)) != (ssize_t)len)
@@ -190,6 +210,10 @@ scan_jobs_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 #endif
 			lwsl_err("%s: failed to write to deletion worker\n",
 			 __func__);
+	} else {
+		lwsl_info("%s: %s is only %llus old\n", __func__, path,
+			    (unsigned long long)
+			    ((uint64_t)lws_now_secs() - (uint64_t)sb.st_mtime));
 	}
 
 	return 0;
@@ -203,6 +227,8 @@ sul_cleanup_jobs_cb(lws_sorted_usec_list_t *sul)
 	struct active_job_uuids active;
 	struct lwsac *ac = NULL;
 	char path[256];
+
+	lwsl_info("%s: starting periodic cleanup\n", __func__);
 
 	memset(&active, 0, sizeof(active));
 

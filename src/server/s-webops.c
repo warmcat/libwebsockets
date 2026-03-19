@@ -22,7 +22,6 @@
 
 #include <libwebsockets.h>
 #include <string.h>
-#include <signal.h>
 #include <time.h>
 #include <assert.h>
 
@@ -55,16 +54,15 @@ static void
 _sais_websrv_broadcast(struct lws_ss_handle *h, void *arg)
 {
 	websrvss_srv_t *m	   = (websrvss_srv_t *)lws_ss_to_user_object(h);
-	lws_wsmsg_info_t *info	   = (lws_wsmsg_info_t *)arg;
-	unsigned int *pi	   = (unsigned int *)((const char *)info->buf - sizeof(int));
+	lws_wsmsg_info_t *info_in  = (lws_wsmsg_info_t *)arg;
+	lws_wsmsg_info_t info	   = *info_in;
+	unsigned int *pi	   = (unsigned int *)((const char *)info.buf - sizeof(int));
 
-	info->head_upstream		= &m->bl_srv_to_web;
-	info->private_heads		= m->private_heads;
+	info.head_upstream		= &m->bl_srv_to_web;
+	info.private_heads		= m->private_heads;
 
 	// lwsl_ss_notice(h, "Queueing %u bytes, ridx %d, ff_flags: %u",
-	//	       (unsigned int)info->len, info->private_source_idx, info->ss_flags);
-
-	*pi = info->ss_flags;
+	//	       (unsigned int)info.len, info.private_source_idx, info.ss_flags);
 
 	/* sai-web might not be taking it.. */
 
@@ -76,10 +74,12 @@ _sais_websrv_broadcast(struct lws_ss_handle *h, void *arg)
 		return;
 	}
 
-	info->buf	= info->buf - sizeof(int);
-	info->len	= info->len + sizeof(int);
+	*pi = info.ss_flags;
 
-	if (lws_wsmsg_append(info) < 0)
+	info.buf	= info.buf - sizeof(int);
+	info.len	= info.len + sizeof(int);
+
+	if (lws_wsmsg_append(&info) < 0)
 		lwsl_ss_err(h, "failed to append"); /* still ask to drain */
 
 	if (lws_ss_request_tx(h))
@@ -97,21 +97,6 @@ sais_websrv_broadcast_REQUIRES_LWS_PRE(struct lws_ss_handle *hsrv,
 }
 
 
-struct sai_bl_args {
-	uint8_t		*buf;
-	size_t		len;
-};
-
-static void
-_sais_websrv_broadcast_buflist(struct lws_ss_handle *h, void *arg)
-{
-	websrvss_srv_t *m	   = (websrvss_srv_t *)lws_ss_to_user_object(h);
-	struct sai_bl_args *sbba   = (struct sai_bl_args *)arg;
-
-	if (lws_buflist_append_segment(&m->bl_srv_to_web, sbba->buf, sbba->len) < 0)
-		lwsl_notice("%s: failed to store buflist segment\n", __func__);
-}
-
 /*
  * We will copy the buflist bl on to every sai-web client connected to our
  * sai-server server, then empty bl.
@@ -120,18 +105,58 @@ _sais_websrv_broadcast_buflist(struct lws_ss_handle *h, void *arg)
 void
 sais_websrv_broadcast_buflist(struct lws_ss_handle *hsrv, struct lws_buflist **bl)
 {
-	while (*bl) {
-		struct sai_bl_args sbba;
+	size_t total = 0, max_len;
+	uint8_t *flat;
+	lws_wsmsg_info_t info;
 
-		sbba.len = lws_buflist_next_segment_len(bl, &sbba.buf);
+	if (!bl || !*bl)
+		return;
 
-		lws_ss_server_foreach_client(hsrv,
-					     _sais_websrv_broadcast_buflist,
-					     (void *)&sbba);
-
-		lws_buflist_use_segment(bl, sbba.len);
+	max_len = lws_buflist_total_len(bl);
+	if (!max_len) {
+		lws_buflist_destroy_all_segments(bl);
+		return;
 	}
-	lws_buflist_destroy_all_segments(bl);
+
+	/*
+	 * We flatten it into a single contiguous buffer so we can broadcast
+	 * it as a single SOM | EOM message, which prevents other messages
+	 * getting interleaved in the middle of it in the upstream buflist.
+	 */
+
+	flat = malloc(LWS_PRE + sizeof(int) + max_len);
+	if (!flat) {
+		lwsl_err("%s: OOM\n", __func__);
+		lws_buflist_destroy_all_segments(bl);
+		return;
+	}
+
+	while (*bl) {
+		uint8_t *frag;
+		size_t flen = lws_buflist_next_segment_len(bl, &frag);
+
+		if (flen > sizeof(int)) {
+			memcpy(flat + LWS_PRE + sizeof(int) + total,
+			       frag + sizeof(int), flen - sizeof(int));
+			total += flen - sizeof(int);
+		}
+		lws_buflist_use_segment(bl, flen);
+	}
+
+	if (!total) {
+		free(flat);
+		return;
+	}
+
+	memset(&info, 0, sizeof(info));
+	info.private_source_idx = SAI_WEBSRV_PB__PROXIED_FROM_BUILDER_LR;
+	info.buf = flat + LWS_PRE + sizeof(int);
+	info.len = total;
+	info.ss_flags = LWSSS_FLAG_SOM | LWSSS_FLAG_EOM;
+
+	lws_ss_server_foreach_client(hsrv, _sais_websrv_broadcast, &info);
+
+	free(flat);
 }
 
 
@@ -321,6 +346,12 @@ sais_event_delete(struct vhd *vhd, const char *event_uuid)
 		lwsl_err("%s: unable to broadcast\n", __func__);
 		return SAI_DB_RESULT_ERROR;
 	}
+
+	/*
+	 * Recompute startable task platforms and broadcast to all sai-power,
+	 * after there has been a change in tasks
+	 */
+	sais_platforms_with_tasks_pending(vhd);
 
 	return SAI_DB_RESULT_OK;
 }

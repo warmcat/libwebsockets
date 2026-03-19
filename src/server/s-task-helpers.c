@@ -215,6 +215,12 @@ sais_set_task_state(struct vhd *vhd, const char *task_uuid,
 		goto bail;
 	}
 
+	if (task_ostate == SAIES_PAUSED &&
+	    (state == SAIES_BEING_BUILT || state == SAIES_PASSED_TO_BUILDER ||
+	     state == SAIES_STEP_SUCCESS || state == SAIES_FAIL ||
+	     state == SAIES_CANCELLED || state == SAIES_SUCCESS))
+		state = SAIES_PAUSED;
+
 	if (started) {
 		if (started == 1)
 			lws_snprintf(esc3, sizeof(esc3), ",started=0");
@@ -361,6 +367,54 @@ bail:
 	lwsac_free(&ac);
 
 	return 1;
+}
+
+int
+sais_task_pause(struct vhd *vhd, const char *task_uuid)
+{
+	char event_uuid[33], esc_uuid[129], q[128];
+	int build_step = -1, state = -1;
+	sqlite3 *pdb = NULL;
+
+	sai_task_uuid_to_event_uuid(event_uuid, task_uuid);
+	if (sai_event_db_ensure_open(vhd->context, &vhd->sqlite3_cache,
+			      vhd->sqlite3_path_lhs, event_uuid, 0, &pdb)) {
+		lwsl_err("%s: unable to open db for event %s\n", __func__, event_uuid);
+		return -1;
+	}
+
+	lws_sql_purify(esc_uuid, task_uuid, sizeof(esc_uuid));
+	lws_snprintf(q, sizeof(q),
+		     "select build_step,state from tasks where uuid='%s'",
+		     esc_uuid);
+
+	if (sqlite3_exec(pdb, q, sql3_get_integer_cb, &build_step,
+			 NULL) != SQLITE_OK)
+		build_step = -1;
+	/* sql3_get_integer_cb will put the last column in there */
+	if (sqlite3_exec(pdb, q, sql3_get_integer_cb, &state,
+			 NULL) != SQLITE_OK)
+		state = -1;
+
+	if (state == SAIES_PASSED_TO_BUILDER || state == SAIES_BEING_BUILT) {
+		/*
+		 * If it's already building, we need to cancel it on the
+		 * builder and decrement the step so it restarts this step
+		 * on resume
+		 */
+		if (build_step > 0) {
+			build_step--;
+			lws_snprintf(q, sizeof(q),
+				     "update tasks set build_step=%d where uuid='%s'",
+				     build_step, esc_uuid);
+			sqlite3_exec(pdb, q, NULL, NULL, NULL);
+		}
+		sais_task_stop_on_builders(vhd, task_uuid);
+	}
+
+	sai_event_db_close(&vhd->sqlite3_cache, &pdb);
+
+	return sais_set_task_state(vhd, task_uuid, SAIES_PAUSED, 0, 0);
 }
 
 int

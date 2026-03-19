@@ -302,6 +302,7 @@ const lws_struct_map_t lsm_schema_sq3_map_artifact[] = {
 
 const lws_struct_map_t lsm_stay[] = {
 	LSM_CARRAY(sai_stay_t, builder_name,			"builder_name"),
+	LSM_CARRAY(sai_stay_t, pcon_name,			"pcon_name"),
 	LSM_UNSIGNED(sai_stay_t, stay_on,			"stay_on"),
 };
 

@@ -821,6 +821,12 @@ saiw_broadcast_logs_batch(struct vhd *vhd, struct pss *pss)
 	if (!pss->subs_list.owner)
 		return 0;
 
+	if (lws_buflist_total_len(&pss->raw_tx) > 100 * 1024) {
+		lws_sul_schedule(vhd->context, 0, &pss->sul_logcache,
+				 saiw_retry_logs, 250 * LWS_US_PER_MS);
+		return 0;
+	}
+
 	/*
 	 * For efficiency, let's try to grab the next 100 at
 	 * once from sqlite and work our way through sending
@@ -1027,40 +1033,53 @@ saiw_browser_queue_overview(struct vhd *vhd, struct pss *pss)
 			lwsl_err("%s: json ser fail\n", __func__);
 			return 1;
 		}
+		if (lws_ptr_diff_size_t(end, p) < 128) {
+			saiw_ws_browser_queue_REQUIRES_LWS_PRE(pss, start,
+							       lws_ptr_diff_size_t(p, start),
+							       lws_write_ws_flags(LWS_WRITE_TEXT, 0, 0));
+			p = start;
+		}
+
 		if (subsequent)
 			*p++ = ',';
 		subsequent = 1;
 
 		p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "{\"e\":");
 
-		if (lws_ptr_diff_size_t(end, p) < 256) {
+
+		do {
+			n = (int)lws_struct_json_serialize(js, (uint8_t *)p, lws_ptr_diff_size_t(end, p), &w);
+			switch (n) {
+			case LSJS_RESULT_ERROR:
+				lwsl_err("%s: json ser error\n", __func__);
+				lws_struct_json_serialize_destroy(&js);
+				return 1;
+
+			case LSJS_RESULT_FINISH:
+				lws_struct_json_serialize_destroy(&js);
+				p += w;
+				break;
+
+			case LSJS_RESULT_CONTINUE:
+				p += w;
+				saiw_ws_browser_queue_REQUIRES_LWS_PRE(pss, start,
+								       lws_ptr_diff_size_t(p, start),
+								       lws_write_ws_flags(LWS_WRITE_TEXT, 0, 0));
+				p = start;
+				break;
+			}
+		} while (n == LSJS_RESULT_CONTINUE);
+
+		if (lws_ptr_diff_size_t(end, p) < 128) {
 			saiw_ws_browser_queue_REQUIRES_LWS_PRE(pss, start,
 							       lws_ptr_diff_size_t(p, start),
 							       lws_write_ws_flags(LWS_WRITE_TEXT, 0, 0));
 			p = start;
 		}
 
-		n = (int)lws_struct_json_serialize(js, (uint8_t *)p, lws_ptr_diff_size_t(end, p), &w);
-		lws_struct_json_serialize_destroy(&js);
-		switch (n) {
-		case LSJS_RESULT_ERROR:
-			lwsl_err("%s: json ser error\n", __func__);
-			return 1;
+		task_index = 0;
+		p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), ", \"t\":[");
 
-		case LSJS_RESULT_FINISH:
-		case LSJS_RESULT_CONTINUE:
-			p += w;
-			task_index = 0;
-			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), ", \"t\":[");
-			break;
-		}
-
-		if (lws_ptr_diff_size_t(end, p) < 2560) {
-			saiw_ws_browser_queue_REQUIRES_LWS_PRE(pss, start,
-							       lws_ptr_diff_size_t(p, start),
-							       lws_write_ws_flags(LWS_WRITE_TEXT, 0, 0));
-			p = start;
-		}
 
 		/*
 		 * Enumerate the tasks associated with this event...
@@ -1124,22 +1143,38 @@ saiw_browser_queue_overview(struct vhd *vhd, struct pss *pss)
 				LWS_ARRAY_SIZE(lsm_schema_json_map_task), 0, t);
 
 			t->build[0] = '\0';
-			n = (int)lws_struct_json_serialize(js, (uint8_t *)p, lws_ptr_diff_size_t(end, p), &w);
-			lws_struct_json_serialize_destroy(&js);
-			lwsac_free(&task_ac);
-			p += w;
 
-			if (lws_ptr_diff_size_t(end, p) < 2560) {
-				saiw_ws_browser_queue_REQUIRES_LWS_PRE(pss, start,
-								       lws_ptr_diff_size_t(p, start),
-								       lws_write_ws_flags(LWS_WRITE_TEXT, 0, 0));
-				p = start;
-			}
+			do {
+				n = (int)lws_struct_json_serialize(js, (uint8_t *)p, lws_ptr_diff_size_t(end, p), &w);
+				switch (n) {
+				case LSJS_RESULT_FINISH:
+					lws_struct_json_serialize_destroy(&js);
+					p += w;
+					break;
+
+				case LSJS_RESULT_CONTINUE:
+					p += w;
+					saiw_ws_browser_queue_REQUIRES_LWS_PRE(pss, start,
+									       lws_ptr_diff_size_t(p, start),
+									       lws_write_ws_flags(LWS_WRITE_TEXT, 0, 0));
+					p = start;
+					break;
+				}
+			} while (n == LSJS_RESULT_CONTINUE);
+
+			lwsac_free(&task_ac);
 
 			task_index++;
 		} while (1);
 
 		/* none left to do, go back up a level */
+
+		if (lws_ptr_diff_size_t(end, p) < 128) {
+			saiw_ws_browser_queue_REQUIRES_LWS_PRE(pss, start,
+							       lws_ptr_diff_size_t(p, start),
+							       lws_write_ws_flags(LWS_WRITE_TEXT, 0, 0));
+			p = start;
+		}
 
 		p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "]}");
 
@@ -1153,6 +1188,13 @@ saiw_browser_queue_overview(struct vhd *vhd, struct pss *pss)
 	}
 
 so_finish:
+	if (lws_ptr_diff_size_t(end, p) < 16) {
+		saiw_ws_browser_queue_REQUIRES_LWS_PRE(pss, start,
+						       lws_ptr_diff_size_t(p, start),
+						       lws_write_ws_flags(LWS_WRITE_TEXT, 0, 0));
+		p = start;
+	}
+
 	p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "]}");
 
 	saiw_ws_browser_queue_REQUIRES_LWS_PRE(pss, start,
@@ -1163,8 +1205,58 @@ so_finish:
 }
 
 int
+saiw_browser_broadcast_queue_pcons(struct vhd *vhd, struct pss *pss)
+{
+	char buf[4096 + LWS_PRE], *start = buf + LWS_PRE, *p = start,
+	     *end = buf + sizeof(buf);
+	lws_struct_serialize_t *js;
+	sai_power_managed_builders_t pmb;
+	lws_struct_json_serialize_result_t r;
+	size_t w;
+	char fi = 1;
+
+	if (!vhd || !vhd->pcons)
+		return 0;
+
+	memset(&pmb, 0, sizeof(pmb));
+	pmb.power_controllers = vhd->pcons_owner;
+
+	js = lws_struct_json_serialize_create(
+		lsm_schema_power_managed_builders,
+		LWS_ARRAY_SIZE(lsm_schema_power_managed_builders),
+		0, &pmb);
+	if (!js)
+		return 1;
+
+	do {
+		r = lws_struct_json_serialize(js, (uint8_t *)p,
+					      lws_ptr_diff_size_t(end, p), &w);
+		p += w;
+
+		switch (r) {
+		case LSJS_RESULT_FINISH:
+		case LSJS_RESULT_CONTINUE:
+			saiw_ws_browser_queue_REQUIRES_LWS_PRE(pss, start,
+								    lws_ptr_diff_size_t(p, start),
+								    lws_write_ws_flags(LWS_WRITE_TEXT, fi, r == LSJS_RESULT_FINISH));
+			fi = 0;
+			p = start;
+			break;
+		case LSJS_RESULT_ERROR:
+			lws_struct_json_serialize_destroy(&js);
+			return 1;
+		}
+	} while (r == LSJS_RESULT_CONTINUE);
+
+	lws_struct_json_serialize_destroy(&js);
+
+	return 0;
+}
+
+int
 saiw_browser_broadcast_queue_builders(struct vhd *vhd, struct pss *pss)
 {
+	saiw_browser_broadcast_queue_pcons(vhd, pss);
 	char buf[4096 + LWS_PRE], *start = buf + LWS_PRE, *p = start,
 	     *end = buf + sizeof(buf);
 	lws_struct_serialize_t *js;
@@ -1192,6 +1284,10 @@ saiw_browser_broadcast_queue_builders(struct vhd *vhd, struct pss *pss)
 
 	while (walk) {
 		sai_plat_t *b = lws_container_of(walk, sai_plat_t, sai_plat_list);
+		lws_struct_json_serialize_result_t r;
+		char start_of_this_builder = 1;
+
+		lwsl_notice("%s: processing builder '%s' (online %d)\n", __func__, b->name, b->online);
 
 		js = lws_struct_json_serialize_create(
 			lsm_schema_map_plat_simple,
@@ -1201,38 +1297,63 @@ saiw_browser_broadcast_queue_builders(struct vhd *vhd, struct pss *pss)
 			lwsac_unreference(&vhd->builders);
 			return 1;
 		}
-		if (subsequent)
-			*p++ = ',';
-		subsequent = 1;
 
-		switch (lws_struct_json_serialize(js, (uint8_t *)p, lws_ptr_diff_size_t(end, p), &w)) {
-		case LSJS_RESULT_ERROR:
-			lws_struct_json_serialize_destroy(&js);
-			return 1;
+		do {
+			if (subsequent && start_of_this_builder) {
+				*p++ = ',';
+				start_of_this_builder = 0;
+			}
 
-		case LSJS_RESULT_FINISH:
-			lws_struct_json_serialize_destroy(&js);
-			/* fallthru */
-		case LSJS_RESULT_CONTINUE:
+			r = lws_struct_json_serialize(js, (uint8_t *)p, lws_ptr_diff_size_t(end, p) - 2, &w);
 			p += w;
-			walk = walk->next;
-			break;
-		}
 
-		if (lws_ptr_diff_size_t(end, p) < 256) {
-			saiw_ws_browser_queue_REQUIRES_LWS_PRE(pss, start,
+			switch (r) {
+			case LSJS_RESULT_CONTINUE:
+				saiw_ws_browser_queue_REQUIRES_LWS_PRE(pss, start,
 								    lws_ptr_diff_size_t(p, start),
 								    lws_write_ws_flags(LWS_WRITE_TEXT, fi, 0));
+				fi = 0;
+				p = start;
+				break;
+			case LSJS_RESULT_ERROR:
+				lws_struct_json_serialize_destroy(&js);
+				lwsac_unreference(&vhd->builders);
+				return 1;
+			case LSJS_RESULT_FINISH:
+				lws_struct_json_serialize_destroy(&js);
+				break;
+			}
+		} while (r == LSJS_RESULT_CONTINUE);
+
+		subsequent = 1;
+		walk = walk->next;
+
+		if (walk && lws_ptr_diff_size_t(end, p) < 512) {
+			/* No room for another builder, fragment now */
+			saiw_ws_browser_queue_REQUIRES_LWS_PRE(pss, start,
+							    lws_ptr_diff_size_t(p, start),
+							    lws_write_ws_flags(LWS_WRITE_TEXT, fi, 0));
 			fi = 0;
 			p = start;
 		}
 	}
 
-	p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "]}");
+	if (lws_ptr_diff_size_t(end, p) < 16) {
+		saiw_ws_browser_queue_REQUIRES_LWS_PRE(pss, start,
+						       lws_ptr_diff_size_t(p, start),
+						       lws_write_ws_flags(LWS_WRITE_TEXT, fi, 0));
+		fi = 0;
+		p = start;
+	}
+
+	p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), " \n]}");
 
 	saiw_ws_browser_queue_REQUIRES_LWS_PRE(pss, start,
-						    lws_ptr_diff_size_t(p, start),
-						    lws_write_ws_flags(LWS_WRITE_TEXT, fi, 1));
+					       lws_ptr_diff_size_t(p, start),
+					       lws_write_ws_flags(LWS_WRITE_TEXT, fi, 1));
+
+	lwsac_unreference(&vhd->builders);
+
 	return 0;
 }
 

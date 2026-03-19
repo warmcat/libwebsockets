@@ -24,7 +24,6 @@
 #include <libwebsockets.h>
 
 #include <string.h>
-#include <signal.h>
 
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -171,6 +170,16 @@ sai_lsp_reap_cb(void *opaque, const lws_spawn_resource_us_t *res, siginfo_t *si,
 	int exit_code = -1;
 	char s[256];
 	int n;
+
+	if (!ns) {
+		if (op) {
+			lwsl_warn("%s: op %p has no ns (orphaned), freeing op\n", __func__, op);
+			if (op->spawn)
+				free(op->spawn);
+			free(op);
+		}
+		return;
+	}
 
 	saib_log_chunk_create(ns, ">saib> <=== Reaping build process\n", 34, 3);
 

@@ -39,7 +39,9 @@
 
 #include "p-private.h"
 
+#if defined(LWS_WITH_SPAWN)
 extern struct lws_spawn_piped *lsp_wol;
+#endif
 
 extern struct sai_power power;
 
@@ -71,7 +73,7 @@ find_pcon_by_builder_name(struct sai_power *pwr, const char *builder_name)
 		lws_start_foreach_dll(struct lws_dll2 *, b_node, pc->registered_builders_owner.head) {
 			saip_builder_t *sb = lws_container_of(b_node, saip_builder_t, list);
 
-			lwsl_notice("%s: %s %s\n", __func__, sb->name, builder_name);
+//			lwsl_notice("%s: %s %s\n", __func__, sb->name, builder_name);
 
 			if (!strcmp(sb->name, builder_name))
 				return pc;
@@ -97,8 +99,10 @@ saip_builder_bringup(saip_server_t *sps, saip_pcon_t *pc)
 	if (pc->type && !strcmp(pc->type, "wol")) {
 		if (pc->mac) {
 			lwsl_notice("%s:   triggering WOL for %s\n", __func__, pc->name);
+#if defined(LWS_WITH_SPAWN)
 			write(lws_spawn_get_fd_stdxxx(lsp_wol, 0),
 			      pc->mac, strlen(pc->mac));
+#endif
 		} else {
 			lwsl_err("%s: WOL type but no MAC for %s\n", __func__, pc->name);
 		}
@@ -149,6 +153,7 @@ saip_set_stay(const char *builder_name, int stay_on)
 	saip_pcon_t *pc = find_pcon_by_builder_name(&power, builder_name);
 	/* saip_server_link_t *pss; */ /* Unused? */
 	saip_server_t *sps;
+	int effective;
 
 	if (!pc) {
 		lwsl_warn("%s: Unknown builder %s\n", __func__, builder_name);
@@ -158,13 +163,19 @@ saip_set_stay(const char *builder_name, int stay_on)
 	sps = lws_container_of(power.sai_server_owner.head, saip_server_t, list);
 	/* pss = (saip_server_link_t *)lws_ss_to_user_object(sps->ss); */
 
-	pc->user_keep_on = (char)stay_on;
-	saip_notify_server_stay_state(builder_name, stay_on | pc->needed);
+	if (stay_on)
+		pc->flags |= SAIP_PCON_F_MANUAL_STAY;
+	else
+		pc->flags &= (uint8_t)~SAIP_PCON_F_MANUAL_STAY;
+
+	effective = !!(pc->flags & (SAIP_PCON_F_MANUAL_STAY | SAIP_PCON_F_NEEDED));
+
+	saip_notify_server_stay_state(builder_name, effective);
 
 	/* Trigger state re-eval */
 	saip_pcon_start_check();
 
-	if (stay_on | pc->needed) {
+	if (effective) {
 		/* Ensure it's on immediately if needed */
 		saip_builder_bringup(sps, pc);
 	} else {
@@ -405,7 +416,7 @@ local_srv_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 			if (pc)
 				g->size = (size_t)lws_snprintf(g->payload, sizeof(g->payload),
-								"%c", '0' + (pc->user_keep_on | pc->needed));
+								"%c", '0' + !!(pc->flags & (SAIP_PCON_F_MANUAL_STAY | SAIP_PCON_F_NEEDED)));
 			else
 				g->size = (size_t)lws_snprintf(g->payload, sizeof(g->payload),
 								"unknown builder %s", pn);
@@ -429,6 +440,7 @@ local_srv_state(void *userobj, void *sh, lws_ss_constate_t state,
 			saip_notify_server_power_state(pc->name, 1, 0);
 
 			if (pc->mac) {
+#if defined(LWS_WITH_SPAWN)
 				if (write(lws_spawn_get_fd_stdxxx(lsp_wol, 0),
 					      pc->mac, strlen(pc->mac)) !=
 						(ssize_t)strlen(pc->mac))
@@ -437,7 +449,8 @@ local_srv_state(void *userobj, void *sh, lws_ss_constate_t state,
 				else
 					g->size = (size_t)lws_snprintf(g->payload, sizeof(g->payload),
 						"Resumed %s with stay", pn);
-				pc->user_keep_on = 1;
+#endif
+				pc->flags |= SAIP_PCON_F_MANUAL_STAY;
 				goto bail;
 			}
 
@@ -456,7 +469,7 @@ local_srv_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 			lwsl_warn("%s: powered on %s\n", __func__, pc->name);
 
-			pc->user_keep_on = 1; /* so builder can understand it's manual */
+			pc->flags |= SAIP_PCON_F_MANUAL_STAY; /* so builder can understand it's manual */
 			saip_notify_server_power_state(pc->name, 1, 0);
 
 			sps = lws_container_of(power.sai_server_owner.head,
@@ -528,11 +541,11 @@ power_off:
 				} lws_end_foreach_dll(px1);
 				*/
 
-				if (needs[0] || pc->needed) {
+				if (needs[0] || (pc->flags & SAIP_PCON_F_NEEDED)) {
 					g->size = (size_t)lws_snprintf(g->payload,
 						sizeof(g->payload),
 						"NAK: %s needed: %d, deps needed: '%s'",
-						pn, pc->needed, needs);
+						pn, !!(pc->flags & SAIP_PCON_F_NEEDED), needs);
 					goto bail;
 				}
 			}
@@ -554,7 +567,7 @@ power_off:
 				pc->name,
 				(int)(SAI_POWERDOWN_HOLDOFF_US / LWS_USEC_PER_SEC));
 
-			pc->user_keep_on = 0; /* reset any manual power up */
+			pc->flags &= (uint8_t)~SAIP_PCON_F_MANUAL_STAY; /* reset any manual power up */
 		}
 
 bail:

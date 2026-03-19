@@ -918,21 +918,40 @@ clean_spa:
 			break;
 
 		{
-			int *pi = (int *)lws_buflist_get_frag_start_or_NULL(&pss->raw_tx), depi = *pi;
 			char som, eom, rb[1200];
 			int used, final = 1;
 			size_t fsl = lws_buflist_next_segment_len(&pss->raw_tx, NULL);
 
-			/* this is the only buflist user on pss->raw_tx */
-			used = lws_buflist_fragment_use(&pss->raw_tx, (uint8_t *)rb, sizeof(rb), &som, &eom);
-			if (!used)
+			/*
+			 * Each segment has a header containing the flags.
+			 * We MUST only read it if we are at the start of the segment.
+			 * If we are mid-segment, we use the cached flags.
+			 */
+			if (lws_buflist_get_frag_start_or_NULL(&pss->raw_tx)) {
+				/* This is just a peek to see if we HAVE a segment */
+				int *pi = (int *)lws_buflist_get_frag_start_or_NULL(&pss->raw_tx);
+				int flags = *pi;
+				
+				/*
+				 * fragment_use sets 'som' to true if we are at
+				 * the segment start.
+				 */
+				used = lws_buflist_fragment_use(&pss->raw_tx, (uint8_t *)rb, sizeof(rb), &som, &eom);
+				if (!used)
+					return 0;
+
+				if (som)
+					pss->segment_flags = flags;
+			} else
 				return 0;
-			if (used < (int)fsl || (depi & LWS_WRITE_NO_FIN))
+
+			if (used < (int)fsl || (pss->segment_flags & LWS_WRITE_NO_FIN))
 				final = 0;
 
 			if (lws_write(pss->wsi, (uint8_t *)rb + ((size_t)som * sizeof(int)),
 						(size_t)used  - ((size_t)som * sizeof(int)),
-						(lws_ws_sending_multifragment(pss->wsi) ? LWS_WRITE_CONTINUATION : LWS_WRITE_TEXT) |
+						(lws_ws_sending_multifragment(pss->wsi) ?
+								LWS_WRITE_CONTINUATION : LWS_WRITE_TEXT) |
 							(!final * LWS_WRITE_NO_FIN)) < 0) {
 				lwsl_wsi_err(pss->wsi, "attempt to write %d failed", (int)used - (int)sizeof(int));
 

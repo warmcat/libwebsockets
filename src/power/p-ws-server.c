@@ -44,10 +44,6 @@ static const lws_struct_map_t lsm_saip_rx_map[] = {
 		   "com.warmcat.sai.pcon_control"),
 };
 
-/*
- * (Structs and maps removed - now in common/include/private.h and common/struct-metadata.c)
- */
-
 int
 saip_queue_energy_report(saip_server_t *sps)
 {
@@ -82,13 +78,13 @@ saip_queue_energy_report(saip_server_t *sps)
 		} else {
 			if (pc->last_monitor_time)
 				lwsl_notice("%s: Stale monitor data for %s (age %llus)\n", __func__, pc->name, (unsigned long long)(lws_now_usecs() - pc->last_monitor_time) / LWS_US_PER_SEC);
-			else
-				lwsl_notice("%s: No monitor data for %s\n", __func__, pc->name);
+			// else
+			//	lwsl_notice("%s: No monitor data for %s\n", __func__, pc->name);
 		}
 	} lws_end_foreach_dll(p);
 
 	if (count) {
-		lwsl_notice("%s: Queuing energy report with %d items\n", __func__, count);
+		// lwsl_notice("%s: Queuing energy report with %d items\n", __func__, count);
 		r = sai_ss_serialize_queue_helper(sps->ss, &m->bl_pwr_to_srv,
 						  lsm_schema_pcon_energy,
 						  LWS_ARRAY_SIZE(lsm_schema_pcon_energy),
@@ -201,9 +197,8 @@ saip_m_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 	lws_struct_args_t a;
 	struct lejp_ctx ctx;
 
-	lwsl_notice("%s: len %d, flags: %d (saip_server_t %p)\n", __func__, (int)len, flags, (void *)sps);
+	lwsl_notice("%s: PPPPPPPP len %d, flags: %d (saip_server_t %p)\n", __func__, (int)len, flags, (void *)sps);
 	lwsl_hexdump_notice(buf, len);
-	/* lwsl_hexdump_notice(buf, len); */
 
 	memset(&a, 0, sizeof(a));
 	a.map_st[0] = lsm_saip_rx_map;
@@ -221,12 +216,14 @@ saip_m_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 			lwsl_warn("%s: RX PCON Control '%s' -> %d\n", __func__, ctl->pcon_name, ctl->on);
 
 			if (pc) {
-				lwsl_warn("%s: Applying PCON Control '%s' -> %d (prev user_keep_on=%d)\n",
-					  __func__, pc->name, ctl->on, pc->user_keep_on);
-				pc->user_keep_on = ctl->on;
+				lwsl_warn("%s: Applying PCON Control '%s' -> %d (prev flags=0x%x)\n",
+					  __func__, pc->name, ctl->on, pc->flags);
+
 				if (ctl->on) {
+					pc->flags |= SAIP_PCON_F_MANUAL_STAY;
 					saip_switch(pc, 1);
 				} else {
+					pc->flags &= (uint8_t)~SAIP_PCON_F_MANUAL_STAY;
 					saip_pcon_start_check();
 				}
 			} else {
@@ -235,6 +232,7 @@ saip_m_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 		} else {
 			/* Stay */
 			sai_stay_t *stay = (sai_stay_t *)a.dest;
+			saip_pcon_t *pc;
 
 			// {"schema":"com.warmcat.sai.power.stay","builder_name":"ubuntu_rpi4","stay_on":1}
 
@@ -247,22 +245,42 @@ saip_m_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 			 * We should map this back to the PCON.
 			 */
 
+			if (stay->pcon_name[0]) {
+				pc = saip_pcon_by_name(&power, stay->pcon_name);
+				if (pc) {
+					lwsl_notice("%s: Direct map stay for PCON '%s'\n",
+						    __func__, pc->name);
+					/* Update PCON stay state */
+
+					if (stay->stay_on) {
+						pc->flags |= SAIP_PCON_F_MANUAL_STAY;
+						/* If stay is set, ensure it is on immediately */
+						saip_switch(pc, 1);
+					} else {
+						pc->flags &= (uint8_t)~SAIP_PCON_F_MANUAL_STAY;
+						/* If stay is cleared, schedule power off check */
+						saip_pcon_start_check();
+					}
+					goto found;
+				}
+			}
+
 			lws_start_foreach_dll(struct lws_dll2 *, p, power.sai_pcon_owner.head) {
-				saip_pcon_t *pc = lws_container_of(p, saip_pcon_t, list);
+				pc = lws_container_of(p, saip_pcon_t, list);
 				lws_start_foreach_dll(struct lws_dll2 *, b_node, pc->registered_builders_owner.head) {
 					saip_builder_t *sb = lws_container_of(b_node, saip_builder_t, list);
 					if (!strcmp(sb->name, stay->builder_name)) {
 						lwsl_notice("%s: Mapping stay for builder '%s' to PCON '%s'\n",
 							    __func__, sb->name, pc->name);
 						/* Update PCON stay state */
-						pc->server_requested_on = stay->stay_on;
-
-						/* If stay is cleared, schedule power off check */
-						if (!stay->stay_on)
-							saip_pcon_start_check();
-						else {
+						if (stay->stay_on) {
+							pc->flags |= SAIP_PCON_F_MANUAL_STAY;
 							/* If stay is set, ensure it is on immediately */
 							saip_switch(pc, 1);
+						} else {
+							pc->flags &= (uint8_t)~SAIP_PCON_F_MANUAL_STAY;
+							/* If stay is cleared, schedule power off check */
+							saip_pcon_start_check();
 						}
 						goto found;
 					}
@@ -277,14 +295,85 @@ found:
 	lwsac_free(&a.ac);
 
 	/*
-	 * The old logic parsed comma-separated platform names to determine needed state.
-	 * We are moving away from that. Sai-server should explicitly request power state
-	 * or we should rely on the builder being "needed" implies PCON on.
-	 * Actually, the requirement said: "You can no longer ask that a platform stays on, instead, you ask that the power controller stays on"
-	 * So sai-server might send stay requests for PCONs directly if we update the UI.
-	 * But for now, sai-server logic (s-power.c) sends stay for *builders*.
-	 * So the mapping logic above is correct for transition.
+	 * It wasn't a JSON message... it's the comma-separated list of needed
+	 * platforms then
 	 */
+
+	lwsl_err("%s: ************* Received comma-separated list of needed platforms\n", __func__);
+	sai_dump_stderr(buf, len);
+
+	lws_start_foreach_dll(struct lws_dll2 *, p, power.sai_pcon_owner.head) {
+		saip_pcon_t *pc = lws_container_of(p, saip_pcon_t, list);
+
+		pc->flags &= (uint8_t)~SAIP_PCON_F_NEEDED;
+	} lws_end_foreach_dll(p);
+
+	if (len) {
+		const char *cp = (const char *)buf;
+		const char *end = cp + len;
+
+		while (cp < end) {
+			const char *comma = memchr(cp, ',', lws_ptr_diff_size_t(end, cp));
+			size_t token_len;
+
+			if (comma)
+				token_len = lws_ptr_diff_size_t(comma, cp);
+			else
+				token_len = lws_ptr_diff_size_t(end, cp);
+
+			if (token_len) {
+				char pcon[64];
+				saip_pcon_t *pc;
+
+				lws_strnncpy(pcon, cp, token_len, sizeof(pcon));
+				pc = saip_pcon_by_name(&power, pcon);
+				if (pc)
+					pc->flags |= SAIP_PCON_F_NEEDED;
+				else
+					lwsl_notice("%s: unknown pcon '%.*s' needed\n",
+						    __func__, (int)token_len, cp);
+			}
+
+			cp += token_len;
+			if (cp < end && *cp == ',')
+				cp++;
+		}
+	}
+
+	/*
+	 * Propagate needed state up the dependency tree
+	 *
+	 * If a PCON is needed, and it depends on another PCON, that parent PCON
+	 * is also needed.
+	 */
+	{
+		int changed;
+
+		do {
+			changed = 0;
+			lws_start_foreach_dll(struct lws_dll2 *, p,
+					      power.sai_pcon_owner.head) {
+				saip_pcon_t *pc = lws_container_of(p,
+						saip_pcon_t, list);
+
+				if (pc->flags & SAIP_PCON_F_NEEDED) {
+					/* check if this PCON depends on another */
+					if (pc->depends_on) {
+						saip_pcon_t *parent = saip_pcon_by_name(&power,
+									pc->depends_on);
+						if (parent && !(parent->flags & SAIP_PCON_F_NEEDED)) {
+							parent->flags |= SAIP_PCON_F_NEEDED;
+							changed = 1;
+							lwsl_notice("%s: PCON %s needed by dep %s\n",
+								    __func__, parent->name, pc->name);
+						}
+					}
+				}
+			} lws_end_foreach_dll(p);
+		} while (changed);
+	}
+
+	saip_pcon_start_check();
 
 	return 0;
 }
