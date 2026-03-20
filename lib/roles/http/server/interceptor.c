@@ -203,14 +203,17 @@ lws_interceptor_issue_cookie(struct lws *wsi)
 		space = (int)sizeof(uri) - n - 1;
 
 		if (args_len > 0) {
-			*p2++ = '?';
-			n = lws_hdr_copy(wsi, p2, space, WSI_TOKEN_HTTP_URI_ARGS);
-			if (n > 0) {
-				p2 += n;
-				*p2++ = '&';
-				strcpy(p2, "lws_interceptor_ok=1");
+			if (space >= 22) {
+				*p2++ = '?';
+				space--;
+				n = lws_hdr_copy(wsi, p2, space - 20, WSI_TOKEN_HTTP_URI_ARGS);
+				if (n > 0) {
+					p2 += n;
+					*p2++ = '&';
+					strcpy(p2, "lws_interceptor_ok=1");
+				}
 			}
-		} else
+		} else if (space >= 21)
 			strcpy(p2, "?lws_interceptor_ok=1");
 
 		if (lws_add_http_header_by_token(
@@ -367,16 +370,21 @@ lws_interceptor_handle_http(struct lws *wsi, void *user, const struct lws_interc
 
 
 	if (lws_get_urlarg_by_name(wsi, "lws_interceptor_ok", junk, sizeof(junk))) {
+		int space = (int)sizeof(uri) - n - 1;
 		p2 = uri + n;
 
 		while (lws_hdr_copy_fragment(wsi, argbuf, sizeof(argbuf),
 					     WSI_TOKEN_HTTP_URI_ARGS, frag++) >= 0) {
+			int al = (int)strlen(argbuf);
 			if (!strncmp(argbuf, "lws_interceptor_ok", 18))
 				continue;
+			if (space < 1 + al)
+				break;
 			*p2++ = first ? '?' : '&';
 			first = 0;
 			strcpy(p2, argbuf);
-			p2 += strlen(argbuf);
+			p2 += al;
+			space -= 1 + al;
 		}
 		*p2 = '\0';
 
