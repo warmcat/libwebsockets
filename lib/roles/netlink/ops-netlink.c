@@ -35,6 +35,7 @@
 #include <sys/socket.h>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
+#include <linux/version.h>
 
 //#define lwsl_netlink lwsl_notice
 #define lwsl_cx_netlink		lwsl_cx_info
@@ -207,10 +208,12 @@ rops_handle_POLLIN_netlink(struct lws_context_per_thread *pt, struct lws *wsi,
 					lws_sa46_write_numeric_address(&robj.dest, buf, sizeof(buf));
 					lwsl_cx_netlink_debug(cx, "IFA_ADDRESS: %s/%d", buf, robj.dest_len);
 					break;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0)
 				case IFA_FLAGS:
 					lwsl_cx_netlink_debug(cx, "IFA_FLAGS: 0x%x (not handled)",
 							*(unsigned int*)RTA_DATA(ra));
 					break;
+#endif
 				case IFA_BROADCAST:
 					lwsl_cx_netlink_debug(cx, "IFA_BROADCAST (not handled)");
 					break;
