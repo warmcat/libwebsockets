@@ -42,6 +42,58 @@
 
 #if defined(LWS_WITH_AUTHORITATIVE_DNS)
 
+static int
+name_to_wire(const char *name, const char *origin, uint8_t *wire, size_t *wire_len)
+{
+	char f[256];
+	const char *p;
+	size_t wl = 0, l;
+
+	if (!strcmp(name, "@") && origin[0]) {
+		lws_strncpy(f, origin, sizeof(f));
+	} else if (name[0] && name[strlen(name) - 1] != '.' && origin && origin[0]) {
+		lws_snprintf(f, sizeof(f), "%s.%s", name, origin);
+	} else {
+		lws_strncpy(f, name, sizeof(f));
+	}
+
+	int cycles = 0;
+	p = f;
+	while (*p) {
+		if (++cycles > 128)
+			return 1;
+		const char *dot = strchr(p, '.');
+		if (!dot)
+			l = strlen(p);
+		else
+			l = lws_ptr_diff_size_t(dot, p);
+
+		if (l > 63 || wl + 1 + l >= *wire_len)
+			return 1;
+
+		wire[wl++] = (uint8_t)l;
+		if (l) {
+			memcpy(&wire[wl], p, l);
+			for (size_t n = 0; n < l; n++)
+				wire[wl + n] = (uint8_t)tolower(wire[wl + n]);
+			wl += l;
+		}
+
+		if (!dot)
+			break;
+		p = dot + 1;
+	}
+
+	if (wl == 0 || wire[wl - 1] != 0) {
+		if (wl >= *wire_len)
+			return 1;
+		wire[wl++] = 0;
+	}
+
+	*wire_len = wl;
+	return 0;
+}
+
 struct auth_dns_cache_entry {
 	lws_dll2_t list;
 	struct auth_dns_zone zone;
@@ -354,16 +406,23 @@ auth_dns_local_zone_cb(void *opaque, const char *domain, const char *payload_pat
 					time_t ttl_expiry = time(NULL) + default_ttl;
 					if (sig_expiry == 0) sig_expiry = ttl_expiry + 86400 * 30; /* Fake if no RRSIG */
 
+					char clean_origin[256];
+					lws_strncpy(clean_origin, z.origin, sizeof(clean_origin));
+					int col = (int)strlen(clean_origin);
+					if (col > 0 && clean_origin[col - 1] == '.') {
+						clean_origin[col - 1] = '\0';
+						col--;
+					}
+
 					int serial_is_newer = 1;
 
 					/* Remove old versions from memory cache */
 					lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->zones.head) {
 						struct auth_dns_cache_entry *old = lws_container_of(d, struct auth_dns_cache_entry, list);
-						size_t ol = strlen(domain);
-						if (!strncmp(old->filename, domain, ol) && old->filename[ol] == '_') {
+						if (!strncmp(old->filename, clean_origin, (size_t)col) && old->filename[col] == '_') {
 							if ((int32_t)((uint32_t)serial - (uint32_t)old->serial) <= 0) {
 								lwsl_notice("%s: Rejecting zone update for %s: serial %u is not newer than %u\n",
-											__func__, domain, (uint32_t)serial, (uint32_t)old->serial);
+											__func__, clean_origin, (uint32_t)serial, (uint32_t)old->serial);
 								serial_is_newer = 0;
 								break;
 							}
@@ -404,7 +463,7 @@ auth_dns_local_zone_cb(void *opaque, const char *domain, const char *payload_pat
 					if (ce) {
 						memset(ce, 0, sizeof(*ce));
 						/* we use the filename field just as a domain label natively now */
-						lws_snprintf(ce->filename, sizeof(ce->filename), "%s_%llu_%llu_%llu.zone", domain,
+						lws_snprintf(ce->filename, sizeof(ce->filename), "%s_%llu_%llu_%llu.zone", clean_origin,
 							(unsigned long long)ttl_expiry, (unsigned long long)sig_expiry, (unsigned long long)serial);
 
 						ce->serial = serial;
@@ -1042,8 +1101,26 @@ send_refused:
 			goto send_out;
 
 send_nxdomain:
-			rflags |= 3; /* NXDOMAIN */
-			/* Add SOA into Authority section so resolver caches the negative response! */
+			{
+				int domain_exists = 0;
+				if (matched_ce) {
+					int qln = (int)strlen(qname);
+					lws_start_foreach_dll(struct lws_dll2 *, cd, lws_dll2_get_head(&matched_ce->zone.rrset_list)) {
+						struct auth_dns_rrset *rs = lws_container_of(cd, struct auth_dns_rrset, list);
+						int rnl = (int)strlen(rs->name);
+						if (rnl > 0 && rs->name[rnl - 1] == '.') rnl--;
+						if (rnl == qln && !strncmp(rs->name, qname, (size_t)rnl)) {
+							domain_exists = 1;
+							break;
+						}
+					} lws_end_foreach_dll(cd);
+				}
+
+				if (!domain_exists)
+					rflags |= 3; /* NXDOMAIN */
+			}
+			/* Add SOA and NSEC3 into Authority section */
+			int added_auth = 0;
 			if (matched_ce) {
 				struct auth_dns_rrset *soa_rs = NULL;
 				lws_start_foreach_dll(struct lws_dll2 *, cd, lws_dll2_get_head(&matched_ce->zone.rrset_list)) {
@@ -1054,45 +1131,86 @@ send_nxdomain:
 					}
 				} lws_end_foreach_dll(cd);
 
+				size_t max_buf = sizeof(pss->buf) - LWS_PRE;
+
+				rp[2] = (uint8_t)(rflags >> 8); rp[3] = (uint8_t)(rflags & 0xff);
+				rp[4] = 0; rp[5] = 1; /* QDCOUNT = 1 */
+				rp[6] = 0; rp[7] = 0; /* ANCOUNT = 0 */
+
+				/* Write standard DNS Question */
+				uint8_t *rp_auth_count = rp + 8; /* Save pointer to NSCOUNT */
+				rp[8] = 0; rp[9] = 0; /* NSCOUNT */
+				rp[10] = 0; rp[11] = 0; /* ARCOUNT = 0 */
+				rp += 12;
+
+				int qlen = (int)(q - (p + 12));
+				memcpy(rp, p + 12, (size_t)qlen);
+				rp += qlen;
+
+				/* Serialize SOA */
 				if (soa_rs && soa_rs->rr_list.head) {
 					struct auth_dns_rr *soa_rr = lws_container_of(soa_rs->rr_list.head, struct auth_dns_rr, list);
+					if ((size_t)(rp - dbuf) + 16 + soa_rr->wire_rdata_len <= max_buf) {
+						int ql = (int)strlen(qname);
+						int ol = (int)strlen(matched_ce->zone.origin);
+						if (ol > 0 && matched_ce->zone.origin[ol - 1] == '.') ol--;
+						uint16_t name_ptr = (uint16_t)(0xc000 | (0x0c + (ql > ol ? ql - ol : 0)));
+						*rp++ = (uint8_t)(name_ptr >> 8); *rp++ = (uint8_t)(name_ptr & 0xff);
 
-					rp[2] = (uint8_t)(rflags >> 8); rp[3] = (uint8_t)(rflags & 0xff);
-					rp[4] = 0; rp[5] = 1; /* QDCOUNT = 1 */
-					rp[6] = 0; rp[7] = 0; /* ANCOUNT = 0 */
-					rp[8] = 0; rp[9] = 1; /* NSCOUNT = 1 */
-					rp[10] = 0; rp[11] = 0; /* ARCOUNT = 0 */
-					rp += 12;
-
-					int qlen = (int)(q - (p + 12));
-					memcpy(rp, p + 12, (size_t)qlen);
-					rp += qlen;
-
-					/* Name (pointer to zone origin within question) */
-					size_t max_buf = sizeof(pss->buf) - LWS_PRE;
-					if ((size_t)(rp - dbuf) + 16 > max_buf) goto after_refused;
-					int ql = (int)strlen(qname);
-					int ol = (int)strlen(matched_ce->zone.origin);
-					if (ol > 0 && matched_ce->zone.origin[ol - 1] == '.') ol--;
-					uint16_t name_ptr = (uint16_t)(0xc000 | (0x0c + (ql > ol ? ql - ol : 0)));
-					*rp++ = (uint8_t)(name_ptr >> 8); *rp++ = (uint8_t)(name_ptr & 0xff);
-
-					/* Type SOA (6) */
-					*rp++ = 0x00; *rp++ = 0x06;
-					/* Class IN (1) */
-					*rp++ = 0x00; *rp++ = 0x01;
-					/* TTL */
-					*rp++ = (uint8_t)(soa_rs->ttl >> 24); *rp++ = (uint8_t)(soa_rs->ttl >> 16);
-					*rp++ = (uint8_t)(soa_rs->ttl >> 8); *rp++ = (uint8_t)(soa_rs->ttl);
-
-					/* RDLENGTH */
-					*rp++ = (uint8_t)(soa_rr->wire_rdata_len >> 8); *rp++ = (uint8_t)(soa_rr->wire_rdata_len);
-					if ((size_t)(rp - dbuf) + soa_rr->wire_rdata_len > max_buf) goto after_refused;
-					memcpy(rp, soa_rr->wire_rdata, soa_rr->wire_rdata_len);
-					rp += soa_rr->wire_rdata_len;
-
-					goto after_refused;
+						*rp++ = 0x00; *rp++ = 0x06; /* Type SOA */
+						*rp++ = 0x00; *rp++ = 0x01; /* Class IN */
+						*rp++ = (uint8_t)(soa_rs->ttl >> 24); *rp++ = (uint8_t)(soa_rs->ttl >> 16);
+						*rp++ = (uint8_t)(soa_rs->ttl >> 8); *rp++ = (uint8_t)(soa_rs->ttl);
+						*rp++ = (uint8_t)(soa_rr->wire_rdata_len >> 8); *rp++ = (uint8_t)(soa_rr->wire_rdata_len);
+						memcpy(rp, soa_rr->wire_rdata, soa_rr->wire_rdata_len);
+						rp += soa_rr->wire_rdata_len;
+						added_auth++;
+					}
 				}
+
+				/* Serialize NSEC3 and their RRSIGs if requested */
+				if (do_bit) {
+					lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&matched_ce->zone.rrset_list)) {
+						struct auth_dns_rrset *rs = lws_container_of(d, struct auth_dns_rrset, list);
+						if (rs->type == 50 || (rs->type == 46)) {
+							/* check if it's an RRSIG for NSEC3 */
+							int is_nsec3_rrsig = 0;
+							if (rs->type == 46) {
+								if (rs->rr_list.head) {
+									struct auth_dns_rr *rr = lws_container_of(rs->rr_list.head, struct auth_dns_rr, list);
+									if (rr->wire_rdata_len >= 2 && ((rr->wire_rdata[0] << 8) | rr->wire_rdata[1]) == 50)
+										is_nsec3_rrsig = 1;
+								}
+								if (!is_nsec3_rrsig) continue;
+							}
+
+							lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&rs->rr_list)) {
+								struct auth_dns_rr *rr = lws_container_of(d2, struct auth_dns_rr, list);
+								size_t nlen = strlen(rs->name);
+								if ((size_t)(rp - dbuf) + 12 + nlen + 1 + rr->wire_rdata_len <= max_buf) {
+									if (name_to_wire(rs->name, matched_ce->zone.origin, rp, &max_buf) == 0) {
+										size_t written_len = strlen((char *)rp) + 1; /* Name length including root dot */
+										rp += written_len;
+										*rp++ = (uint8_t)(rs->type >> 8); *rp++ = (uint8_t)(rs->type & 0xff);
+										*rp++ = (uint8_t)(rs->class_ >> 8); *rp++ = (uint8_t)(rs->class_ & 0xff);
+										*rp++ = (uint8_t)(rs->ttl >> 24); *rp++ = (uint8_t)(rs->ttl >> 16);
+										*rp++ = (uint8_t)(rs->ttl >> 8); *rp++ = (uint8_t)(rs->ttl);
+										*rp++ = (uint8_t)(rr->wire_rdata_len >> 8); *rp++ = (uint8_t)(rr->wire_rdata_len);
+										memcpy(rp, rr->wire_rdata, rr->wire_rdata_len);
+										rp += rr->wire_rdata_len;
+										added_auth++;
+									}
+								}
+							} lws_end_foreach_dll(d2);
+						}
+					} lws_end_foreach_dll(d);
+				}
+
+				/* Update Authority Count dynamically */
+				rp_auth_count[0] = (uint8_t)(added_auth >> 8);
+				rp_auth_count[1] = (uint8_t)(added_auth & 0xff);
+
+				goto after_refused;
 			}
 
 send_out:

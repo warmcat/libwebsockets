@@ -158,10 +158,9 @@ dht_obj_store_jwk_load_or_gen(struct vhd_dht_store *vhd)
 /* --- Verb Handlers --- */
 
 static int
-verb_put_handler(struct lws_dht_ctx *ctx, const struct lws_dht_msg *msg,
+verb_put_handler(struct lws_dht_ctx *ctx, struct vhd_dht_store *vhd, const struct lws_dht_msg *msg,
 		 const struct sockaddr *from, size_t fromlen)
 {
-	struct vhd_dht_store *vhd = (struct vhd_dht_store *)lws_dht_get_closure(ctx);
 	struct dht_fragment *frag;
 	char path[256];
 	int n;
@@ -265,10 +264,9 @@ verb_put_handler(struct lws_dht_ctx *ctx, const struct lws_dht_msg *msg,
 }
 
 static int
-verb_get_handler(struct lws_dht_ctx *ctx, const struct lws_dht_msg *msg,
+verb_get_handler(struct lws_dht_ctx *ctx, struct vhd_dht_store *vhd, const struct lws_dht_msg *msg,
 		 const struct sockaddr *from, size_t fromlen)
 {
-	struct vhd_dht_store *vhd = (struct vhd_dht_store *)lws_dht_get_closure(ctx);
 	char path[256], *buf;
 	int fd, n;
 	size_t blen = 1024 + 1024;
@@ -309,10 +307,9 @@ fail:
 }
 
 static int
-verb_ack_handler(struct lws_dht_ctx *ctx, const struct lws_dht_msg *msg,
+verb_ack_handler(struct lws_dht_ctx *ctx, struct vhd_dht_store *vhd, const struct lws_dht_msg *msg,
 		 const struct sockaddr *from, size_t fromlen)
 {
-	struct vhd_dht_store *vhd = (struct vhd_dht_store *)lws_dht_get_closure(ctx);
 	lwsl_user("%s: ACK for %s offset %llu\n", __func__, msg->hash, msg->offset);
 	if (vhd->cli_put_file) {
 		vhd->bulk_sent += msg->len;
@@ -337,10 +334,9 @@ verb_ack_handler(struct lws_dht_ctx *ctx, const struct lws_dht_msg *msg,
 }
 
 static int
-verb_rsp_handler(struct lws_dht_ctx *ctx, const struct lws_dht_msg *msg,
+verb_rsp_handler(struct lws_dht_ctx *ctx, struct vhd_dht_store *vhd, const struct lws_dht_msg *msg,
 		 const struct sockaddr *from, size_t fromlen)
 {
-	struct vhd_dht_store *vhd = (struct vhd_dht_store *)lws_dht_get_closure(ctx);
 	struct dht_fragment *frag;
 
 	lwsl_user("%s: RSP for %s offset %llu len %llu payload %zu\n", __func__, msg->hash, msg->offset, msg->len, msg->payload_len);
@@ -374,10 +370,9 @@ verb_rsp_handler(struct lws_dht_ctx *ctx, const struct lws_dht_msg *msg,
 }
 
 static int
-verb_nonce_req_handler(struct lws_dht_ctx *ctx, const struct lws_dht_msg *msg,
+verb_nonce_req_handler(struct lws_dht_ctx *ctx, struct vhd_dht_store *vhd, const struct lws_dht_msg *msg,
 		       const struct sockaddr *from, size_t fromlen)
 {
-	struct vhd_dht_store *vhd = (struct vhd_dht_store *)lws_dht_get_closure(ctx);
 	char buf[128];
 
 	lwsl_user("%s\n", __func__);
@@ -388,7 +383,7 @@ verb_nonce_req_handler(struct lws_dht_ctx *ctx, const struct lws_dht_msg *msg,
 }
 
 static int
-verb_nonce_rsp_handler(struct lws_dht_ctx *ctx, const struct lws_dht_msg *msg,
+verb_nonce_rsp_handler(struct lws_dht_ctx *ctx, struct vhd_dht_store *vhd, const struct lws_dht_msg *msg,
 		       const struct sockaddr *from, size_t fromlen)
 {
 	lwsl_user("%s\n", __func__);
@@ -396,7 +391,7 @@ verb_nonce_rsp_handler(struct lws_dht_ctx *ctx, const struct lws_dht_msg *msg,
 }
 
 static int
-verb_sign_req_handler(struct lws_dht_ctx *ctx, const struct lws_dht_msg *msg,
+verb_sign_req_handler(struct lws_dht_ctx *ctx, struct vhd_dht_store *vhd, const struct lws_dht_msg *msg,
 		      const struct sockaddr *from, size_t fromlen)
 {
 	lwsl_user("%s\n", __func__);
@@ -592,13 +587,13 @@ callback_dht_object_store(struct lws* wsi, enum lws_callback_reasons reason,
 		struct lws_dht_verb_dispatch_args *args =
 			(struct lws_dht_verb_dispatch_args *)in;
 
-		if (!strcmp(args->msg->verb, "PUT")) return verb_put_handler(args->ctx, args->msg, args->from, args->fromlen);
-		if (!strcmp(args->msg->verb, "GET")) return verb_get_handler(args->ctx, args->msg, args->from, args->fromlen);
-		if (!strcmp(args->msg->verb, "ACK")) return verb_ack_handler(args->ctx, args->msg, args->from, args->fromlen);
-		if (!strcmp(args->msg->verb, "RSP")) return verb_rsp_handler(args->ctx, args->msg, args->from, args->fromlen);
-		if (!strcmp(args->msg->verb, "NONC_REQ")) return verb_nonce_req_handler(args->ctx, args->msg, args->from, args->fromlen);
-		if (!strcmp(args->msg->verb, "NONC_RSP")) return verb_nonce_rsp_handler(args->ctx, args->msg, args->from, args->fromlen);
-		if (!strcmp(args->msg->verb, "SIGN_REQ")) return verb_sign_req_handler(args->ctx, args->msg, args->from, args->fromlen);
+		if (!strcmp(args->msg->verb, "PUT")) return verb_put_handler(args->ctx, vhd, args->msg, args->from, args->fromlen);
+		if (!strcmp(args->msg->verb, "GET")) return verb_get_handler(args->ctx, vhd, args->msg, args->from, args->fromlen);
+		if (!strcmp(args->msg->verb, "ACK")) return verb_ack_handler(args->ctx, vhd, args->msg, args->from, args->fromlen);
+		if (!strcmp(args->msg->verb, "RSP")) return verb_rsp_handler(args->ctx, vhd, args->msg, args->from, args->fromlen);
+		if (!strcmp(args->msg->verb, "NONC_REQ")) return verb_nonce_req_handler(args->ctx, vhd, args->msg, args->from, args->fromlen);
+		if (!strcmp(args->msg->verb, "NONC_RSP")) return verb_nonce_rsp_handler(args->ctx, vhd, args->msg, args->from, args->fromlen);
+		if (!strcmp(args->msg->verb, "SIGN_REQ")) return verb_sign_req_handler(args->ctx, vhd, args->msg, args->from, args->fromlen);
 
 		return -1;
 	}

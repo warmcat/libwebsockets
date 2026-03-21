@@ -219,6 +219,7 @@ lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *z
 							else if (!strcmp(toks[type_idx], "NSEC3")) type = 50;
 							else if (!strcmp(toks[type_idx], "NSEC3PARAM")) type = 51;
 							else if (!strcmp(toks[type_idx], "TLSA")) type = 52;
+							else if (!strcmp(toks[type_idx], "CAA")) type = 257;
 							else type = 0; /* unknown */
 							type_idx++;
 						}
@@ -253,9 +254,18 @@ lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *z
 							if (rd) {
 								rd += strlen(toks[type_idx - 1]);
 								while (*rd == ' ' || *rd == '\t') rd++;
+
+								/* Strip surrounding quotes if present (TXT records) */
+								size_t rdlen = strlen(rd);
+								if (rdlen >= 2 && rd[0] == '"' && rd[rdlen - 1] == '"') {
+									rd[rdlen - 1] = '\0';
+									rdlen -= 2;
+									rd++;
+								}
+
 								rr->rdata = lws_strdup(rd);
 								if (rr->rdata)
-									rr->rdata_len = strlen(rr->rdata);
+									rr->rdata_len = rdlen;
 							}
 						}
 
@@ -403,6 +413,7 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 			case 48: ts = "DNSKEY"; break;
 			case 50: ts = "NSEC3"; break;
 			case 51: ts = "NSEC3PARAM"; break;
+			case 257: ts = "CAA"; break;
 		}
 
 		lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&rs->rr_list)) {

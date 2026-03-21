@@ -283,6 +283,24 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		if (lws_b64_decode_string(b64_accum, (char *)w + wl, 4096 - (int)wl) > 0) {
 			wl += (size_t)lws_b64_decode_string(b64_accum, (char *)w + wl, 4096 - (int)wl);
 		} else goto fail;
+	} else if (type == 257 && num_toks >= 3) { // CAA
+		/* Flags */
+		w[wl++] = (uint8_t)atoi(toks[0]);
+		/* Tag Length + Tag */
+		int tag_len = (int)strlen(toks[1]);
+		w[wl++] = (uint8_t)tag_len;
+		memcpy(w + wl, toks[1], (size_t)tag_len);
+		wl += (size_t)tag_len;
+		/* Value */
+		int val_len = (int)strlen(toks[2]);
+		/* The value might be enclosed in quotes like "letsencrypt.org", if so strip them */
+		if (val_len >= 2 && toks[2][0] == '"' && toks[2][val_len - 1] == '"') {
+			memcpy(w + wl, toks[2] + 1, (size_t)(val_len - 2));
+			wl += (size_t)(val_len - 2);
+		} else {
+			memcpy(w + wl, toks[2], (size_t)val_len);
+			wl += (size_t)val_len;
+		}
 	} else {
 		{ lwsl_err("FAIL on rdata: %s (toks[0]: %s)", rr->rdata, toks[0]); goto fail; }
 	}

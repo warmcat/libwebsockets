@@ -34,6 +34,8 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <fcntl.h>
+
 #include "lws-acme-client.h"
 
 struct vhd_acme_dns {
@@ -76,14 +78,36 @@ challenge_start_dns(struct lws_vhost *vh, void *priv, const char *token,
 
 	lws_snprintf(path, sizeof(path), "%s/domains/%s/dns/%s.zone.acme", ad->base_dir, domain, domain);
 
-	fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	fd = open(path, LWS_O_WRONLY | LWS_O_CREAT | LWS_O_TRUNC, 0644);
 	if (fd < 0) {
 		lwsl_vhost_err(vh, "failed to create acme zone file %s", path);
 		return 1;
 	}
 
-	char line[256];
-	n = (size_t)lws_snprintf(line, sizeof(line), "_acme-challenge\tIN\tTXT\t\"%s\"\n", key_auth);
+	uint8_t digest[32];
+	struct lws_genhash_ctx hash_ctx;
+	char b64[128];
+	int b64_len;
+
+	if (lws_genhash_init(&hash_ctx, LWS_GENHASH_TYPE_SHA256) ||
+	    lws_genhash_update(&hash_ctx, (const uint8_t *)key_auth, strlen(key_auth)) ||
+	    lws_genhash_destroy(&hash_ctx, digest)) {
+		lwsl_vhost_err(vh, "failed to compute SHA-256 digest of key_auth");
+		close(fd);
+		return 1;
+	}
+
+	b64_len = lws_jws_base64_enc((const char *)digest, 32, b64, sizeof(b64));
+	if (b64_len < 0) {
+		lwsl_vhost_err(vh, "failed to base64url encode digest");
+		close(fd);
+		return 1;
+	}
+
+	char line[512];
+	n = (size_t)lws_snprintf(line, sizeof(line),
+		"_acme-challenge\t1\tIN\tTXT\t\"%s\"\n"
+		"%s.\t1\tIN\tCAA\t0 issue \"letsencrypt.org\"\n", b64, domain);
 	if (write(fd, line, n) != (ssize_t)n) {
 		close(fd);
 		lwsl_vhost_err(vh, "failed writing to acme zone file %s", path);
@@ -92,7 +116,7 @@ challenge_start_dns(struct lws_vhost *vh, void *priv, const char *token,
 	close(fd);
 
 	/* Remove the signed zone file to force the monitor to resign with the acme TXT */
-	lws_snprintf(zone_path, sizeof(zone_path), "%s/domains/%s/dns/%s.signed", ad->base_dir, domain, domain);
+	lws_snprintf(zone_path, sizeof(zone_path), "%s/domains/%s/dns/%s.zone.signed", ad->base_dir, domain, domain);
 	if (unlink(zone_path) < 0 && errno != ENOENT) {
 		lwsl_user("%s: CRITICAL ERROR - unlink failed on %s! (errno %d)\n", __func__, zone_path, errno);
 	} else {
@@ -102,7 +126,7 @@ challenge_start_dns(struct lws_vhost *vh, void *priv, const char *token,
 	/* Wake up the non-recursive inotify watcher reliably by creating and unlinking a file in the watched directory */
 	char domain_dir[512];
 	lws_snprintf(domain_dir, sizeof(domain_dir), "%s/domains/.acme_trigger_%s", ad->base_dir, domain);
-	int trigger_fd = open(domain_dir, O_CREAT | O_WRONLY, 0600);
+	int trigger_fd = open(domain_dir, LWS_O_CREAT | LWS_O_WRONLY, 0600);
 	if (trigger_fd >= 0) close(trigger_fd);
 	unlink(domain_dir);
 
@@ -123,7 +147,7 @@ challenge_cleanup_dns(struct lws_vhost *vh, void *priv)
 		unlink(path);
 
 		/* Remove the signed zone file to force the monitor to resign without the acme TXT */
-		lws_snprintf(zone_path, sizeof(zone_path), "%s/domains/%s/dns/%s.signed", ad->base_dir, ad->active_domain, ad->active_domain);
+		lws_snprintf(zone_path, sizeof(zone_path), "%s/domains/%s/dns/%s.zone.signed", ad->base_dir, ad->active_domain, ad->active_domain);
 		if (unlink(zone_path) < 0 && errno != ENOENT) {
 			lwsl_user("%s: CRITICAL ERROR - cleanup unlink failed on %s! (errno %d)\n", __func__, zone_path, errno);
 		} else {

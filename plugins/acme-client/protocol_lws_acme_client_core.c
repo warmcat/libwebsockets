@@ -1352,6 +1352,7 @@ pkt_add_hdrs:
 		case ACME_STATE_NEW_ORDER:
 		case ACME_STATE_DIRECTORY:
 
+			lwsl_notice("ACME JSON: %.*s\n", (int)len, (const char *)in);
 			m = lejp_parse(&ac->jctx, (uint8_t *)in, (int)len);
 			if (m < 0 && m != LEJP_CONTINUE) {
 				lwsl_notice("lejp parse failed %d\n", m);
@@ -1722,14 +1723,16 @@ poll_again:
 			 * ACME 2.0 can send certs chain with 3 certs, we need save only first
 			 */
 			{
-				char cert_ts[256], key_ts[256];
+				char cert_ts[256], key_ts[256], full_ts[256];
 				const char *cert_latest = vhd->active_cert->pvop[LWS_TLS_SET_CERT_PATH];
 				const char *key_latest = vhd->active_cert->pvop[LWS_TLS_SET_KEY_PATH];
+				char full_latest[256];
 				char timebuf[64];
 				time_t t;
 				struct tm *tm;
-				int fd_cert = -1, fd_key = -1;
+				int fd_cert = -1, fd_key = -1, fd_full = -1;
 				char *p;
+				int cpos_fullchain = ac->cpos;
 
 				char *end_cert = strstr(ac->buf, "END CERTIFICATE-----");
 
@@ -1749,6 +1752,16 @@ poll_again:
 				p = strstr(cert_ts, "-latest.crt");
 				if (p)
 					lws_snprintf(p, sizeof(cert_ts) - (size_t)(p - cert_ts), "-%s.crt", timebuf);
+
+				lws_strncpy(full_latest, cert_latest, sizeof(full_latest));
+				p = strstr(full_latest, "-latest.crt");
+				if (p)
+					lws_snprintf(p, sizeof(full_latest) - (size_t)(p - full_latest), "-latest-fullchain.crt");
+
+				lws_strncpy(full_ts, full_latest, sizeof(full_ts));
+				p = strstr(full_ts, "-latest-fullchain.crt");
+				if (p)
+					lws_snprintf(p, sizeof(full_ts) - (size_t)(p - full_ts), "-%s-fullchain.crt", timebuf);
 
 				lws_strncpy(key_ts, key_latest, sizeof(key_ts));
 				p = strstr(key_ts, "-latest.key");
@@ -1790,10 +1803,22 @@ poll_again:
 					goto failed;
 				}
 
+				fd_full = lws_open(full_ts, LWS_O_WRONLY | LWS_O_CREAT | LWS_O_TRUNC
+#ifdef WIN32
+					| O_BINARY
+#endif
+					, 0600);
+				if (fd_full >= 0) {
+					n = lws_plat_write_cert(vhd->vhost, 0, fd_full, ac->buf, (size_t)cpos_fullchain);
+					close(fd_full);
+				}
+
 				/* Symlink update */
 				unlink(cert_latest);
+				unlink(full_latest);
 #if !defined(WIN32)
 				symlink(strrchr(cert_ts, '/') ? strrchr(cert_ts, '/') + 1 : cert_ts, cert_latest);
+				symlink(strrchr(full_ts, '/') ? strrchr(full_ts, '/') + 1 : full_ts, full_latest);
 #endif
 
 				unlink(key_latest);

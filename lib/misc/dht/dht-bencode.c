@@ -246,12 +246,6 @@ parse_message(const uint8_t *buf, size_t buflen, struct lws_dht_mparams *mp)
 	const uint8_t *q_ptr;
 
 	memset(mp, 0, sizeof(*mp));
-	mp->tid_len = sizeof(mp->tid);
-	mp->token_len = sizeof(mp->token);
-	mp->nodes_len = sizeof(mp->nodes);
-	mp->nodes6_len = sizeof(mp->nodes6);
-	mp->values_len = sizeof(mp->values);
-	mp->values6_len = sizeof(mp->values6);
 	mp->want = 0;
 
 	if (buflen < 2 || buf[0] != 'd') {
@@ -759,13 +753,6 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 	memset(&mp, 0, sizeof(mp));
 	mp.offset = (uint64_t)-1;
 
-	mp.tid_len = sizeof(mp.tid);
-	mp.token_len = sizeof(mp.token);
-	mp.nodes_len = sizeof(mp.nodes);
-	mp.nodes6_len = sizeof(mp.nodes6);
-	mp.values_len = sizeof(mp.values);
-	mp.values6_len = sizeof(mp.values6);
-
 	ctx->now.tv_sec = (time_t)lws_now_secs();
 
 	if (is_martian(from))
@@ -1024,7 +1011,7 @@ skip_ip_tracking:
 #endif
 		lwsl_dht_rx("%s: Sending closest nodes (%d)\n", __func__, mp.want);
 #if defined(LWS_WITH_DHT_BACKEND)
-		send_closest_nodes(ctx, from, fromlen, &mp, mp.target, 0, NULL);
+		send_closest_nodes(ctx, from, fromlen, &mp, mp.target, from->sa_family, NULL);
 #endif
 		break;
 
@@ -1047,10 +1034,10 @@ skip_ip_tracking:
 			/* Has it? */
 			if (st && st->numpeers > 0) {
 				send_closest_nodes(ctx, from, fromlen,
-						   &mp, mp.info_hash, 1, st);
+						   &mp, mp.info_hash, from->sa_family, st);
 			} else
 				send_closest_nodes(ctx, from, fromlen,
-						   &mp, mp.info_hash, 0, NULL);
+						   &mp, mp.info_hash, from->sa_family, NULL);
 		}
 #endif
 		break;
@@ -1117,10 +1104,16 @@ skip_ip_tracking:
 			goto done;
 		}
 
-		lwsl_notice("%s: Parsed NOTIFY. TID is %d bytes:\n", __func__, (int)mp.tid_len);
-		lwsl_hexdump_notice(mp.tid, mp.tid_len);
-		lwsl_notice("Original NOTIFY packet (%d bytes):\n", (int)buflen);
-		lwsl_hexdump_notice(buf, buflen);
+		{
+			char peer_ip[64];
+			lws_sa46_write_numeric_address((lws_sockaddr46 *)from, peer_ip, sizeof(peer_ip));
+			int peer_port = from->sa_family == AF_INET ? ntohs(((struct sockaddr_in *)from)->sin_port) : ntohs(((struct sockaddr_in6 *)from)->sin6_port);
+			lwsl_notice("%s: Parsed NOTIFY from %s:%d. TID is %d bytes:\n", __func__, peer_ip, peer_port, (int)mp.tid_len);
+		}
+		/* Disable hexdump on rx as it is a bit noisy unless debugging, keeping structural logs: */
+		/* lwsl_hexdump_notice(mp.tid, mp.tid_len); */
+		/* lwsl_notice("Original NOTIFY packet (%d bytes):\n", (int)buflen); */
+		/* lwsl_hexdump_notice(buf, buflen); */
 
 		/* Acknowledge the NOTIFY so the sender marks us as delivered */
 		lws_dht_send_ack(ctx, from, fromlen, mp.tid, mp.tid_len);

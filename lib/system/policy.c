@@ -70,6 +70,12 @@ policy_cb(struct lejp_ctx *ctx, char reason)
 	return 0;
 }
 
+static const char *default_policy =
+	"{\n"
+	"    \"dns_base_dir\": \"/etc/dnssec\",\n"
+	"    \"seeds\": [ \"selfdns.org\", \"uk1.selfdns.org\", \"asia1.selfdns.org\" ]\n"
+	"}\n";
+
 int
 lws_system_parse_policy(struct lws_context *cx, const char *filepath, lws_system_policy_t **_policy)
 {
@@ -82,17 +88,42 @@ lws_system_parse_policy(struct lws_context *cx, const char *filepath, lws_system
 	*_policy = NULL;
 
 	fd = lws_open(filepath, O_RDONLY);
-	if (fd < 0)
-		return 1;
+	if (fd < 0) {
+#if !defined(_WIN32)
+		const char *pt = strrchr(filepath, '/');
+		if (pt) {
+			char dir[256];
+			lws_strncpy(dir, filepath, sizeof(dir));
+			dir[pt - filepath] = '\0';
+			mkdir(dir, 0755);
+		}
+#endif
+		fd = lws_open(filepath, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+		if (fd >= 0) {
+			n = (int)write(fd, default_policy, strlen(default_policy));
+			close(fd);
+			if (n == (int)strlen(default_policy))
+				fd = lws_open(filepath, O_RDONLY);
+		}
+	}
 
 	p = lws_zalloc(sizeof(*p), "policy");
 	if (!p) {
-		close(fd);
+		if (fd >= 0)
+			close(fd);
 		return 1;
 	}
 
 	pctx.p = p;
 	lejp_construct(&ctx, policy_cb, &pctx, policy_paths, LWS_ARRAY_SIZE(policy_paths));
+
+	if (fd < 0) {
+		/* Fallback: parse from memory if we failed to open and failed to create */
+		m = lejp_parse(&ctx, (uint8_t *)default_policy, (int)strlen(default_policy));
+		if (m < 0 && m != LEJP_CONTINUE)
+			goto bail;
+		goto done;
+	}
 
 	do {
 		n = (int)read(fd, buf, sizeof(buf));
@@ -107,14 +138,17 @@ lws_system_parse_policy(struct lws_context *cx, const char *filepath, lws_system
 
 	} while (1);
 
-	close(fd);
+done:
+	if (fd >= 0)
+		close(fd);
 	lejp_destruct(&ctx);
 
 	*_policy = p;
 	return 0;
 
 bail:
-	close(fd);
+	if (fd >= 0)
+		close(fd);
 	lejp_destruct(&ctx);
 	lws_system_policy_free(p);
 	return 1;

@@ -260,6 +260,8 @@ dht_on_rx_data(struct lws_transport_sequencer *ts, uint64_t offset,
 
 				args.out_precedence = LWS_DHT_VERB_RESULT_PROCEED;
 
+				lwsl_user("DISPATCHING %s to protocol %s\n", msg.verb, vl->v.protocol->name);
+
 				n = vl->v.protocol->callback((struct lws *)&a, LWS_CALLBACK_DHT_VERB_DISPATCH,
 							lws_protocol_vh_priv_get(dts->ctx->vhost, vl->v.protocol),
 							&args, 0);
@@ -272,7 +274,7 @@ dht_on_rx_data(struct lws_transport_sequencer *ts, uint64_t offset,
 					 * The plugin actively declined to handle this payload and delegated it
 					 * to the next plugin in the chain. Let's continue traversing the list!
 					 */
-					continue;
+					goto pass;
 
 				if (args.out_precedence == LWS_DHT_VERB_RESULT_PENDING_ASYNC) {
 					/* The plugin will handle validation asynchronously and ACK later.
@@ -284,6 +286,9 @@ dht_on_rx_data(struct lws_transport_sequencer *ts, uint64_t offset,
 				}
 
 				return n;
+
+pass:
+				;
 			}
 		} lws_end_foreach_dll(d);
 	}
@@ -300,14 +305,15 @@ dht_on_state_change(struct lws_transport_sequencer *ts, int state, int status)
 {
 	lws_dht_ts_t *dts = (lws_dht_ts_t *)lws_transport_sequencer_get_info(ts)->user_data;
 
-	if (!dts->ctx->cb)
-		return;
+	if (dts->ctx->cb)
+		dts->ctx->cb(dts->ctx->closure,
+			     state == 0 ? LWS_DHT_EVENT_WRITE_COMPLETED :
+					  LWS_DHT_EVENT_WRITE_FAILED,
+			     NULL, (void *)(intptr_t)status, 0,
+			     (struct sockaddr *)&dts->sa, dts->salen);
 
-	dts->ctx->cb(dts->ctx->closure,
-		     state == 0 ? LWS_DHT_EVENT_WRITE_COMPLETED :
-				  LWS_DHT_EVENT_WRITE_FAILED,
-		     NULL, (void *)(intptr_t)status, 0,
-		     (struct sockaddr *)&dts->sa, dts->salen);
+	lws_dll2_remove(&dts->list);
+	lws_free(dts);
 }
 
 static const lws_transport_sequencer_ops_t dht_seq_ops = {
@@ -766,6 +772,18 @@ lws_dht_destroy(struct lws_dht_ctx **pctx)
 
 	if (!ctx)
 		return;
+
+	if (ctx->wsi_v4) {
+		*((struct lws_dht_ctx **)lws_wsi_user(ctx->wsi_v4)) = NULL;
+		lws_set_timeout(ctx->wsi_v4, 1, LWS_TO_KILL_ASYNC);
+		ctx->wsi_v4 = NULL;
+	}
+
+	if (ctx->wsi_v6) {
+		*((struct lws_dht_ctx **)lws_wsi_user(ctx->wsi_v6)) = NULL;
+		lws_set_timeout(ctx->wsi_v6, 1, LWS_TO_KILL_ASYNC);
+		ctx->wsi_v6 = NULL;
+	}
 
 	lws_dll2_remove(&ctx->list);
 

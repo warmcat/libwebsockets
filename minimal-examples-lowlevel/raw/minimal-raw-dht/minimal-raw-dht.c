@@ -16,6 +16,7 @@
 
 enum {
 	LWS_SW_BULK,
+	LWS_SW_DOMAIN,
 	LWS_SW_GEN_MANIFEST,
 	LWS_SW_GET,
 	LWS_SW_JWK,
@@ -33,6 +34,7 @@ enum {
 
 static const struct lws_switches switches[] = {
 	[LWS_SW_BULK]	= { "--bulk",          "Enable --bulk feature" },
+	[LWS_SW_DOMAIN]	= { "--domain",        "Specify the DNS target domain" },
 	[LWS_SW_GEN_MANIFEST]	= { "--gen-manifest",  "Enable --gen-manifest feature" },
 	[LWS_SW_GET]	= { "--get",           "Enable --get feature" },
 	[LWS_SW_JWK]	= { "--jwk",           "Enable --jwk feature" },
@@ -163,7 +165,7 @@ struct lws_protocol_vhost_options pvos[] = {
 		.options	= NULL,
 		.next		= &pvos[13],
 		.name		= "dht-iface",
-		.value		= "0.0.0.0"
+		.value		= ""
 	},
 	{
 		.options	= NULL,
@@ -185,7 +187,7 @@ struct lws_protocol_vhost_options pvos[] = {
 	},
 	{
 		.options	= NULL,
-		.next		= NULL,
+		.next		= &pvos[18],
 		.name		= "dht-test-handshake",
 		.value		= ""
 	},
@@ -193,6 +195,12 @@ struct lws_protocol_vhost_options pvos[] = {
 		.options	= &pvos[1],
 		.next		= NULL,
 		.name		= "lws-dht-dnssec",
+		.value		= ""
+	},
+	{
+		.options	= NULL,
+		.next		= NULL,
+		.name		= "domain",
 		.value		= ""
 	},
 };
@@ -222,11 +230,16 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 
 		lwsl_user("%s: OPERATIONAL->creating vhost\n", __func__);
 
+		static const struct lws_protocol_vhost_options pvo_stats = {
+			NULL, NULL, "lws-dht-stats", ""
+		};
+
 		memset(&info, 0, sizeof(info));
                 info.vhost_name		= "http";
-                info.port		= 8080;
+                info.port		= atoi(port_buf) + 100;
                 info.protocols		= app_protocols;
                 info.mounts		= &mount_stats;
+                info.pvo		= &pvo_stats;
                 info.options		= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
                 vh = lws_create_vhost(cx, &info);
                 if (!vh) {
@@ -322,6 +335,9 @@ int main(int argc, const char **argv)
 		pvos[9].value = "1";
 		use_stdin = 1;
 	}
+
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_DOMAIN].sw)))
+		pvos[18].value = p;
 
 	if (lws_cmdline_option(argc, argv, switches[LWS_SW_GEN_MANIFEST].sw))
 		pvos[10].value = "1";

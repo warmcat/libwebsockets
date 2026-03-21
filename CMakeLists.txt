@@ -1325,10 +1325,6 @@ install(FILES ${PROJECT_BINARY_DIR}/include/libwebsockets.h ${PROJECT_BINARY_DIR
 install(CODE "
 	execute_process(COMMAND useradd -r -M lwsws-priv ERROR_QUIET)
 	execute_process(COMMAND useradd -r -M lwsws ERROR_QUIET)
-	if (NOT EXISTS /etc/lwsws/policy)
-		execute_process(COMMAND mkdir -p /etc/lwsws ERROR_QUIET)
-		file(WRITE /etc/lwsws/policy \"{\\n    \\\"dns_base_dir\\\": \\\"/etc/dnssec\\\",\\n    \\\"seeds\\\": [ \\\"selfdns.org\\\", \\\"uk1.selfdns.org\\\", \\\"asia1.selfdns.org\\\" ]\\n}\\n\")
-	endif()
 ")
 
 # Generate the config file for the installation tree.

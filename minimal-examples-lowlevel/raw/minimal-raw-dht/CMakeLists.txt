@@ -37,12 +37,12 @@ if (requirements)
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 			raw_dht_srv
 			$<TARGET_FILE:lws-minimal-raw-dht>
-			-s dht-store-srv -p ${PORT_DHT_SRV})
+			-d 1039 -s dht-store-srv -p ${PORT_DHT_SRV})
 		set_tests_properties(st_raw_dht_srv PROPERTIES
 			WORKING_DIRECTORY .
 			FIXTURES_SETUP raw_dht_srv
 			TIMEOUT 800
-			ENVIRONMENT "SAI_LIST_PORT=${PORT_DHT_SRV}")
+			ENVIRONMENT "SAI_LIST_PORT=${PORT_DHT_SRV};LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/lib")
 
 		add_test(NAME ki_raw_dht_srv COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
@@ -57,33 +57,35 @@ if (requirements)
 
 		add_test(NAME raw_dht_cli COMMAND
 			$<TARGET_FILE:lws-minimal-raw-dht>
-			-s dht-store-cli -p 15001 --put test-data.txt --target-ip 127.0.0.1 --target-port ${PORT_DHT_SRV})
+			-s dht-store-cli -p 15001 --put test-data.txt --target-ip 127.0.0.1 --target-port ${PORT_DHT_SRV} --domain test.com)
 
 		set_tests_properties(raw_dht_cli PROPERTIES
 			FIXTURES_REQUIRED "raw_dht_srv"
 			WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-			TIMEOUT 20)
+			TIMEOUT 20
+			ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/lib")
 
 		add_test(NAME raw_dht_bulk COMMAND
 			$<TARGET_FILE:lws-minimal-raw-dht>
-			-s dht-store-bulk -p 15002 --bulk --target-ip 127.0.0.1 --target-port ${PORT_DHT_SRV})
+			-s dht-store-bulk -p 15002 --bulk --target-ip 127.0.0.1 --target-port ${PORT_DHT_SRV} --domain test.com)
 
 		set_tests_properties(raw_dht_bulk PROPERTIES
 			FIXTURES_REQUIRED "raw_dht_srv"
 			WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-			TIMEOUT 60)
+			TIMEOUT 60
+			ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/lib")
 
 		# 1. Generate Manifest (Sender)
 		add_test(NAME raw_dht_gen_manifest COMMAND
 			${CMAKE_COMMAND}
-			"-DCMD=$<TARGET_FILE:lws-minimal-raw-dht>;-s;dht-store-upl;-p;15003;--bulk;--gen-manifest;--target-ip;127.0.0.1;--target-port;${PORT_DHT_SRV}"
+			"-DCMD=$<TARGET_FILE:lws-minimal-raw-dht>;-s;dht-store-upl;-p;15003;--bulk;--gen-manifest;--target-ip;127.0.0.1;--target-port;${PORT_DHT_SRV};--domain;test.com"
 			"-DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/manifest.txt"
 			-P "${CMAKE_SOURCE_DIR}/scripts/ctest-redirect.cmake")
 
 		# 2. Consume Manifest (Receiver)
 		add_test(NAME raw_dht_manifest COMMAND
 			${CMAKE_COMMAND}
-			"-DCMD=$<TARGET_FILE:lws-minimal-raw-dht>;-s;dht-store-man;-p;15004;--receiver;--target-ip;127.0.0.1;--target-port;${PORT_DHT_SRV}"
+			"-DCMD=$<TARGET_FILE:lws-minimal-raw-dht>;-s;dht-store-man;-p;15004;--receiver;--target-ip;127.0.0.1;--target-port;${PORT_DHT_SRV};--domain;test.com"
 			"-DINPUT=${CMAKE_CURRENT_BINARY_DIR}/manifest.txt"
 			-P "${CMAKE_SOURCE_DIR}/scripts/ctest-redirect.cmake")
 
@@ -91,11 +93,13 @@ if (requirements)
 			FIXTURES_SETUP "raw_dht_gen"
 			FIXTURES_REQUIRED "raw_dht_srv"
 			WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-			TIMEOUT 60)
+			TIMEOUT 60
+			ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/lib")
 
 		set_tests_properties(raw_dht_manifest PROPERTIES
 			FIXTURES_REQUIRED "raw_dht_gen;raw_dht_srv"
 			WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-			TIMEOUT 20)
+			TIMEOUT 20
+			ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/lib")
 	endif()
 endif()

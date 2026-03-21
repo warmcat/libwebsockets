@@ -117,6 +117,18 @@ if(LWS_WITH_DISTRO_RECOMMENDED)
 	set(LWS_WITH_SECURE_STREAMS 1)			# selfcontained
 	set(LWS_WITH_SECURE_STREAMS_PROXY_API 1)	# selfcontained
 	set(LWS_WITH_DIR 1)				# selfcontained
+	set(LWS_WITH_SELFDNS 1)				# selfcontained
+endif()
+
+if (LWS_WITH_SELFDNS)
+	set(LWS_WITH_DHT 1)
+	set(LWS_WITH_AUTHORITATIVE_DNS 1)
+	set(LWS_WITH_DHT_BACKEND 1)
+	set(LWS_WITH_ACME 1)
+	set(LWS_WITH_DIR 1)
+	set(LWS_WITH_TRANSPORT_SEQUENCER 1)
+	set(LWS_WITH_SYS_ASYNC_DNS 1)
+	set(LWS_WITH_SYS_ASYNC_DNS_DNSSEC 1)
 endif()
 
 # LWS_WITH_EVENT_LIBS is set if any event lib selected
