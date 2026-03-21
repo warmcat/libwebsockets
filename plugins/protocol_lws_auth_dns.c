@@ -354,11 +354,19 @@ auth_dns_local_zone_cb(void *opaque, const char *domain, const char *payload_pat
 					time_t ttl_expiry = time(NULL) + default_ttl;
 					if (sig_expiry == 0) sig_expiry = ttl_expiry + 86400 * 30; /* Fake if no RRSIG */
 
+					int serial_is_newer = 1;
+
 					/* Remove old versions from memory cache */
 					lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->zones.head) {
 						struct auth_dns_cache_entry *old = lws_container_of(d, struct auth_dns_cache_entry, list);
 						size_t ol = strlen(domain);
 						if (!strncmp(old->filename, domain, ol) && old->filename[ol] == '_') {
+							if ((int32_t)((uint32_t)serial - (uint32_t)old->serial) <= 0) {
+								lwsl_notice("%s: Rejecting zone update for %s: serial %u is not newer than %u\n",
+											__func__, domain, (uint32_t)serial, (uint32_t)old->serial);
+								serial_is_newer = 0;
+								break;
+							}
 							char dpath[1024];
 							if (tzdir[0]) {
 								lws_snprintf(dpath, sizeof(dpath), "%s/%s", tzdir, old->filename);
@@ -370,6 +378,13 @@ auth_dns_local_zone_cb(void *opaque, const char *domain, const char *payload_pat
 							free(old);
 						}
 					} lws_end_foreach_dll_safe(d, d1);
+
+					if (!serial_is_newer) {
+						lws_auth_dns_free_zone(&z);
+						if (buf) free(buf);
+						close(fpin);
+						return;
+					}
 
 					/* Enforce cache limits */
 					while ((uint32_t)vhd->zones.count >= vhd->cache_max_zones) {
@@ -399,6 +414,11 @@ auth_dns_local_zone_cb(void *opaque, const char *domain, const char *payload_pat
 						/* Transfer zone struct ownership */
 						memcpy(&ce->zone, &z, sizeof(z));
 						memset(&z, 0, sizeof(z)); /* Prevent free_zone locally */
+
+						/* Safely repoint all child elements to the new heap owner instead of the original stack address */
+						lws_start_foreach_dll(struct lws_dll2 *, d, ce->zone.rrset_list.head) {
+							d->owner = &ce->zone.rrset_list;
+						} lws_end_foreach_dll(d);
 
 						ce->vhd = vhd;
 						lws_dll2_add_head(&ce->list, &vhd->zones);
@@ -444,10 +464,10 @@ auth_dns_fetch_cb(void *opaque, const char *domain, int status)
 			lws_sul_cancel(&q->sul_timeout);
 			lws_dll2_remove(&q->list);
 
-			if (status == 1 && q->wsi) {
+			if (q->wsi) {
 				const struct lws_protocols *prot = lws_get_protocol(q->wsi);
 				if (prot && prot->callback) {
-					/* Replay the query with the newly loaded zone */
+					/* Replay the query with the newly loaded zone or same old zone */
 					prot->callback(q->wsi, LWS_CALLBACK_USER,
 						lws_wsi_user(q->wsi), q, 0);
 				}
@@ -533,6 +553,7 @@ auth_dns_evict_cb(lws_sorted_usec_list_t *sul)
 			lws_snprintf(dpath, sizeof(dpath), "%s/%s", tzdir, ce->filename);
 			lwsl_notice("%s: Evicting expired zone %s from disk and memory\n", __func__, ce->filename);
 			unlink(dpath);
+			lws_sul_cancel(&ce->sul_subscribe);
 			lws_auth_dns_free_zone(&ce->zone);
 			lws_dll2_remove(&ce->list);
 			free(ce);
@@ -680,8 +701,9 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			}
 			if (vhd->zone_dir[0] == '\0') {
 				lws_strncpy(vhd->zone_dir, "/tmp/lws-auth-dns", sizeof(vhd->zone_dir));
-				lwsl_vhost_warn(vhd->vhost, "%s: Missing pvo \"zone-dir\", defaulting to %s",
-					 __func__, vhd->zone_dir);
+				if (!lws_vhost_name_to_protocol(vhd->vhost, "lws-dht-dnssec"))
+					lwsl_vhost_warn(vhd->vhost, "%s: Missing pvo \"zone-dir\", defaulting to %s",
+						 __func__, vhd->zone_dir);
 			}
 		}
 
@@ -746,6 +768,7 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->zones.head) {
 				struct auth_dns_cache_entry *ce = lws_container_of(d, struct auth_dns_cache_entry, list);
+				lws_sul_cancel(&ce->sul_subscribe);
 				lws_auth_dns_free_zone(&ce->zone);
 				lws_dll2_remove(&ce->list);
 				free(ce);
@@ -830,8 +853,13 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			delayed_q = pqdht;
 			lws_sa46_write_numeric_address(&delayed_q->sa46_peer, peer_ip, sizeof(peer_ip));
 		} else {
-			if (wsi)
-				lws_get_peer_simple(wsi, peer_ip, sizeof(peer_ip));
+			if (wsi) {
+				const struct lws_udp *udp = lws_get_udp(wsi);
+				if (!is_tcp && udp)
+					lws_sa46_write_numeric_address((lws_sockaddr46 *)&udp->sa46, peer_ip, sizeof(peer_ip));
+				else
+					lws_get_peer_simple(wsi, peer_ip, sizeof(peer_ip));
+			}
 			if (is_tcp) {
 				if ((size_t)pss->rx_len + len > sizeof(pss->rx_buf)) { lwsl_notice("tcp req too large (%d)\n", (int)len); return -1; }
 				memcpy(pss->rx_buf + pss->rx_len, in, len);
@@ -858,7 +886,7 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		uint16_t nscount = (uint16_t)((p[8] << 8) | p[9]);
 		uint16_t arcount = (uint16_t)((p[10] << 8) | p[11]);
 
-		lwsl_notice("DNS id %04x flags %04x qdcount %d arcount %d (from %s)\n", id, flags, qdcount, arcount, peer_ip);
+		lwsl_info("DNS id %04x flags %04x qdcount %d arcount %d (from %s)\n", id, flags, qdcount, arcount, peer_ip);
 
 		if (flags & 0x8000) { lwsl_notice("not a query (flags %04x)\n", flags); goto done; }
 		if (qdcount != 1) { lwsl_notice("qdcount != 1 (%d)\n", qdcount); goto done; }
@@ -889,7 +917,7 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		qclass = (q[2] << 8) | q[3];
 		q += 4;
 
-		lwsl_notice("DNS qname '%s' type %d class %d\n", qname, qtype, qclass);
+		lwsl_info("DNS qname '%s' type %d class %d\n", qname, qtype, qclass);
 
 		int do_bit = 0;
 		if (ancount == 0 && nscount == 0 && arcount > 0) {
@@ -940,6 +968,7 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			if (ql >= ol) {
 				const char *tail = qname + ql - ol;
 				if ((ql == ol || *(tail - 1) == '.') && !strncmp(tail, ce->zone.origin, (size_t)ol)) {
+					matched_ce = ce; /* We have the zone */
 					lws_start_foreach_dll(struct lws_dll2 *, cd, lws_dll2_get_head(&ce->zone.rrset_list)) {
 						struct auth_dns_rrset *rs = lws_container_of(cd, struct auth_dns_rrset, list);
 						int rnl = (int)strlen(rs->name);
@@ -950,7 +979,6 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 						}
 					} lws_end_foreach_dll(cd);
 					if (found_rs) {
-						matched_ce = ce;
 						break;
 					}
 				}
@@ -963,9 +991,13 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			lws_dll2_add_head(&matched_ce->list, &vhd->zones);
 		}
 
-		lwsl_notice("found_rs? %p\n", found_rs);
+		lwsl_info("found_rs? %p\n", found_rs);
 
 		if (!found_rs) {
+			if (matched_ce) {
+				/* We have the zone but the record doesn't exist. Send NXDOMAIN. */
+				goto send_nxdomain;
+			}
 			if (vhd->dht_ops && vhd->dht_ops->fetch_zone && reason == LWS_CALLBACK_RAW_RX) {
 				if ((uint32_t)vhd->pending_queries.count >= vhd->dht_max_pending) {
 					lwsl_notice("dht pending queries maxed out\n");
@@ -1007,15 +1039,75 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 send_refused:
 			rflags |= 5; /* REFUSED */
+			goto send_out;
+
+send_nxdomain:
+			rflags |= 3; /* NXDOMAIN */
+			/* Add SOA into Authority section so resolver caches the negative response! */
+			if (matched_ce) {
+				struct auth_dns_rrset *soa_rs = NULL;
+				lws_start_foreach_dll(struct lws_dll2 *, cd, lws_dll2_get_head(&matched_ce->zone.rrset_list)) {
+					struct auth_dns_rrset *rs = lws_container_of(cd, struct auth_dns_rrset, list);
+					if (rs->type == 6) { /* SOA */
+						soa_rs = rs;
+						break;
+					}
+				} lws_end_foreach_dll(cd);
+
+				if (soa_rs && soa_rs->rr_list.head) {
+					struct auth_dns_rr *soa_rr = lws_container_of(soa_rs->rr_list.head, struct auth_dns_rr, list);
+
+					rp[2] = (uint8_t)(rflags >> 8); rp[3] = (uint8_t)(rflags & 0xff);
+					rp[4] = 0; rp[5] = 1; /* QDCOUNT = 1 */
+					rp[6] = 0; rp[7] = 0; /* ANCOUNT = 0 */
+					rp[8] = 0; rp[9] = 1; /* NSCOUNT = 1 */
+					rp[10] = 0; rp[11] = 0; /* ARCOUNT = 0 */
+					rp += 12;
+
+					int qlen = (int)(q - (p + 12));
+					memcpy(rp, p + 12, (size_t)qlen);
+					rp += qlen;
+
+					/* Name (pointer to zone origin within question) */
+					size_t max_buf = sizeof(pss->buf) - LWS_PRE;
+					if ((size_t)(rp - dbuf) + 16 > max_buf) goto after_refused;
+					int ql = (int)strlen(qname);
+					int ol = (int)strlen(matched_ce->zone.origin);
+					if (ol > 0 && matched_ce->zone.origin[ol - 1] == '.') ol--;
+					uint16_t name_ptr = (uint16_t)(0xc000 | (0x0c + (ql > ol ? ql - ol : 0)));
+					*rp++ = (uint8_t)(name_ptr >> 8); *rp++ = (uint8_t)(name_ptr & 0xff);
+
+					/* Type SOA (6) */
+					*rp++ = 0x00; *rp++ = 0x06;
+					/* Class IN (1) */
+					*rp++ = 0x00; *rp++ = 0x01;
+					/* TTL */
+					*rp++ = (uint8_t)(soa_rs->ttl >> 24); *rp++ = (uint8_t)(soa_rs->ttl >> 16);
+					*rp++ = (uint8_t)(soa_rs->ttl >> 8); *rp++ = (uint8_t)(soa_rs->ttl);
+
+					/* RDLENGTH */
+					*rp++ = (uint8_t)(soa_rr->wire_rdata_len >> 8); *rp++ = (uint8_t)(soa_rr->wire_rdata_len);
+					if ((size_t)(rp - dbuf) + soa_rr->wire_rdata_len > max_buf) goto after_refused;
+					memcpy(rp, soa_rr->wire_rdata, soa_rr->wire_rdata_len);
+					rp += soa_rr->wire_rdata_len;
+
+					goto after_refused;
+				}
+			}
+
+send_out:
 			rp[2] = (uint8_t)(rflags >> 8); rp[3] = (uint8_t)(rflags & 0xff);
-			rp[4] = 0; rp[5] = 1;
-			rp[6] = 0; rp[7] = 0;
-			rp[8] = 0; rp[9] = 0;
-			rp[10] = 0; rp[11] = 0;
+			rp[4] = 0; rp[5] = 1; /* QDCOUNT = 1 */
+			rp[6] = 0; rp[7] = 0; /* ANCOUNT = 0 */
+			rp[8] = 0; rp[9] = 0; /* NSCOUNT = 0 */
+			rp[10] = 0; rp[11] = 0; /* ARCOUNT = 0 */
 			rp += 12;
 			int qlen = (int)(q - (p + 12));
 			memcpy(rp, p + 12, (size_t)qlen);
 			rp += qlen;
+
+after_refused:
+			;
 		} else {
 			int anc = 0;
 			size_t max_buf = sizeof(pss->buf) - LWS_PRE;

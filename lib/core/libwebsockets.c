@@ -1663,6 +1663,18 @@ lws_cmdline_option_cx(const struct lws_context *cx, const char *val)
 	return lws_cmdline_options_cx(cx, val, NULL);
 }
 
+const char *
+lws_cmdline_option_cx_argv0(const struct lws_context *cx)
+{
+	if (!cx->argc || !cx->argv)
+		return NULL;
+
+	if (!cx->stdin_argc)
+		return cx->argv[0];
+
+	return cx->stdin_argv[0];
+}
+
 
 const char *
 lws_cmdline_option(int argc, const char **argv, const char *val)

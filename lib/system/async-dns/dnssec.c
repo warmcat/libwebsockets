@@ -530,8 +530,14 @@ lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len)
 		vctx->key_tag		= s.key_tag;
 
 		vctx->sig_len = (uint16_t)sig_len;
-		if (sig_len <= (int)sizeof(vctx->sig_buf))
+		if (sig_len <= (int)sizeof(vctx->sig_buf)) {
 			memcpy(vctx->sig_buf, s.rrsig_payload + rrsig_rdata_up_to_sig_len, (size_t)sig_len);
+		} else {
+			lwsl_err("%s: signature too large for buffer\n", __func__);
+			lws_free(vctx);
+			lws_genhash_destroy(&hash_ctx, NULL);
+			return -1;
+		}
 
 		lws_strncpy(vctx->signer_name, s.signer_name, sizeof(vctx->signer_name));
 
@@ -547,6 +553,12 @@ lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len)
 			/* Async lookup initiated */
 			q->dnssec_verify_rrsig = 1;
 			return 1;
+		}
+
+		if (ret < 0) {
+			/* Query failed to initiate synchronously */
+			lws_free(vctx);
+			return -1;
 		}
 
 		/* Synchronous result from cache. The callback was already executed! */

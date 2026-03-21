@@ -180,7 +180,15 @@ dht_on_rx_data(struct lws_transport_sequencer *ts, uint64_t offset,
 	lws_dht_ts_t *dts = (lws_dht_ts_t *)lws_transport_sequencer_get_info(ts)->user_data;
 	struct lws_dht_msg msg;
 
-	lwsl_user("%s: [DEBUG] Received raw UDP packet on sequencer: offset=%llu len=%zu\n", __func__, (unsigned long long)offset, len);
+	char buf_ip[64] = "unknown";
+	if (dts->sa.ss_family == AF_INET) {
+		struct sockaddr_in *s = (struct sockaddr_in *)&dts->sa;
+		inet_ntop(AF_INET, &s->sin_addr, buf_ip, sizeof(buf_ip));
+	} else if (dts->sa.ss_family == AF_INET6) {
+		struct sockaddr_in6 *s = (struct sockaddr_in6 *)&dts->sa;
+		inet_ntop(AF_INET6, &s->sin6_addr, buf_ip, sizeof(buf_ip));
+	}
+	lwsl_user("%s: [DEBUG] Received raw UDP packet from %s on sequencer: offset=%llu len=%zu\n", __func__, buf_ip, (unsigned long long)offset, len);
 
 	int parse_ret = lws_dht_msg_parse((const char *)buf, len, &msg);
 	if (!parse_ret) {

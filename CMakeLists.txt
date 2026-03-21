@@ -196,19 +196,6 @@ option(LWS_WITH_TRANSCODE "Enable video transcoding support (requires ffmpeg)" O
 option(LWS_WITH_V4L2 "Enable V4L2 support (Linux only)" OFF)
 option(LWS_WITH_LIBV4L2 "Link against libv4l2 if available" OFF)
 
-if (LWS_WITH_LIBV4L2)
-    find_library(LIBV4L2_LIBRARIES NAMES v4l2)
-    find_path(LIBV4L2_INCLUDE_DIRS NAMES libv4l2.h)
-    if (LIBV4L2_LIBRARIES AND LIBV4L2_INCLUDE_DIRS)
-        set(LWS_HAVE_LIBV4L2 1)
-        include_directories("${LIBV4L2_INCLUDE_DIRS}")
-        list(APPEND LIB_LIST_AT_END ${LIBV4L2_LIBRARIES})
-        list(APPEND LIB_LIST ${LIBV4L2_LIBRARIES})
-    else()
-        message(FATAL_ERROR "LWS_WITH_LIBV4L2 enabled but libv4l2 not found")
-    endif()
-endif()
-
 #
 # Secure Streams
 #
@@ -878,6 +865,19 @@ if (LWS_WITH_V4L2)
 	if (NOT LWS_HAVE_LINUX_VIDEODEV2_H)
 		message(FATAL_ERROR "LWS_WITH_V4L2 is set but linux/videodev2.h not found")
 	endif()
+endif()
+
+if (LWS_WITH_LIBV4L2)
+    find_library(LIBV4L2_LIBRARIES NAMES v4l2)
+    find_path(LIBV4L2_INCLUDE_DIRS NAMES libv4l2.h)
+    if (LIBV4L2_LIBRARIES AND LIBV4L2_INCLUDE_DIRS)
+        set(LWS_HAVE_LIBV4L2 1)
+        include_directories("${LIBV4L2_INCLUDE_DIRS}")
+        list(APPEND LIB_LIST_AT_END ${LIBV4L2_LIBRARIES})
+        list(APPEND LIB_LIST ${LIBV4L2_LIBRARIES})
+    else()
+        message(FATAL_ERROR "LWS_WITH_LIBV4L2 enabled but libv4l2 not found")
+    endif()
 endif()
 
 

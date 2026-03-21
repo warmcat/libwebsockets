@@ -304,7 +304,7 @@ lws_auth_dns_free_zone(struct auth_dns_zone *z)
 int
 lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 {
-	char obuf[2048]; /* simple large enough buffer for test */
+	char obuf[8192]; /* simple large enough buffer for test */
 	int fd, n, ofd = -1, res_wr, temp_len = 0, temp_max = 0;
 	size_t uin = 0, uout = 0;
 	lws_strexp_t exp;
@@ -384,6 +384,8 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 
 	/* Write generic setup string at top */
 	n = lws_snprintf(obuf, sizeof(obuf), "$ORIGIN %s\n$TTL %u\n\n", zone.origin, atoi(zone.default_ttl) ? atoi(zone.default_ttl) : 3600);
+	if (n > (int)sizeof(obuf) - 1)
+		n = (int)sizeof(obuf) - 1;
 	(void)write(fd, obuf, (unsigned int)n);
 
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&zone.rrset_list)) {
@@ -408,6 +410,8 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 
 			n = lws_snprintf(obuf, sizeof(obuf), "%-30s\t%u\tIN\t%s\t%s\n",
 				rs->name, rs->ttl, ts, rr->rdata ? rr->rdata : "");
+			if (n > (int)sizeof(obuf) - 1)
+				n = (int)sizeof(obuf) - 1;
 			(void)write(fd, obuf, (unsigned int)n);
 		} lws_end_foreach_dll(d2);
 	} lws_end_foreach_dll(d);

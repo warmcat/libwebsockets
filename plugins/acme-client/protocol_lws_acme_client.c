@@ -788,6 +788,14 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_PROTOCOL_INIT:
 		if (vhd || !in)
 			return 0;
+
+		/*
+		 * Don't run ACME certificate acquisition inside the root-monitor
+		 * spawned process to avoid duplicated challenges.
+		 */
+		if (lws_cmdline_option_cx(lws_get_context(wsi), "--lws-dht-dnssec-monitor-root"))
+			return 0;
+
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 				lws_get_protocol(wsi),
 				sizeof(struct per_vhost_data__lws_acme_client));

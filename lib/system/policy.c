@@ -47,7 +47,13 @@ policy_cb(struct lejp_ctx *ctx, char reason)
 	lws_system_seed_t *s;
 
 	if (reason == LEJPCB_VAL_STR_END) {
-		switch (ctx->path_match - 1) {
+        int match = ctx->path_match - 1;
+        if (match < 0) {
+            if (!strcmp(ctx->path, "dns_base_dir")) match = LEJP_PLCY_DNS_BASE_DIR;
+            else if (!strcmp(ctx->path, "seeds[]")) match = LEJP_PLCY_SEEDS;
+        }
+
+		switch (match) {
 		case LEJP_PLCY_DNS_BASE_DIR:
 			lws_strncpy(pctx->p->dns_base_dir, ctx->buf, sizeof(pctx->p->dns_base_dir));
 			break;

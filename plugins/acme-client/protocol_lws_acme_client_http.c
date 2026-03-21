@@ -194,6 +194,13 @@ callback_lws_acme_client_http(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!in)
 			return 0;
 
+		/*
+		 * Don't run ACME certificate acquisition inside the root-monitor
+		 * spawned process to avoid duplicated challenges.
+		 */
+		if (lws_cmdline_option_cx(lws_get_context(wsi), "--lws-dht-dnssec-monitor-root"))
+			return 0;
+
 		ah = lws_protocol_vh_priv_zalloc(vh, lws_get_protocol(wsi),
 						 sizeof(struct vhd_acme_http));
 		if (!ah)
@@ -224,7 +231,8 @@ callback_lws_acme_client_http(struct lws *wsi, enum lws_callback_reasons reason,
 		if (ah && ah->core_ops && ah->core_ops->destroy_vhost) {
 			ah->core_ops->destroy_vhost(ah->core_vhd);
 		}
-		challenge_cleanup_http(vh, ah);
+		if (ah)
+			challenge_cleanup_http(vh, ah);
 		break;
 
 	case LWS_CALLBACK_VHOST_CERT_AGING:

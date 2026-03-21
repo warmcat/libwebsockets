@@ -132,7 +132,7 @@ lwsws_min(lws_sorted_usec_list_t *sul)
 }
 
 static int
-context_creation(void)
+context_creation(int argc, const char **argv)
 {
 	int cs_len = LWSWS_CONFIG_STRING_SIZE - 1;
 	struct lws_context_creation_info info;
@@ -168,6 +168,8 @@ context_creation(void)
 	foreign_loops[0] = &loop;
 	info.foreign_loops = foreign_loops;
 	info.pcontext = &context;
+	info.argc = argc;
+	info.argv = argv;
 
 	context = lws_create_context(&info);
 	if (context == NULL) {
@@ -244,6 +246,8 @@ int main(int argc, char **argv)
 #endif
 
 	strcpy(config_dir, "/etc/lwsws");
+	extern int opterr;
+	opterr = 0;
 	while (n >= 0) {
 #if defined(LWS_HAS_GETOPT_LONG) || defined(WIN32)
 		n = getopt_long(argc, argv, "hd:c:n", options, NULL);
@@ -331,7 +335,7 @@ int main(int argc, char **argv)
 	uv_signal_init(&loop, &signal_outer[1]);
 	uv_signal_start(&signal_outer[1], signal_cb, SIGHUP);
 
-	if (context_creation()) {
+	if (context_creation(argc, (const char **)argv)) {
 		lwsl_err("Context creation failed\n");
 		return 1;
 	}

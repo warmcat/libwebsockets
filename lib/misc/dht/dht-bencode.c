@@ -813,17 +813,6 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 		int found = 0, j;
 		int is_nonce_validated = 0;
 
-		if (tid_match(mp.tid, "ip", NULL)) {
-			uint16_t decoded_seq;
-			memcpy(&decoded_seq, mp.tid + 2, 2);
-			if (decoded_seq == ctx->ip_monitor_seqno) {
-				is_nonce_validated = 1;
-				lwsl_notice("%s: IP Challenge matched sequence %u from %s!\n", __func__, decoded_seq, (ss.ss_family == AF_INET ? "IPv4" : "IPv6"));
-			} else {
-				lwsl_dht_warn("%s: Spurious IP tracking reply dropped!\n", __func__);
-			}
-		}
-
 		memset(&ss, 0, sizeof(ss));
 		if (mp.sender_ip_len == 4) {
 			struct sockaddr_in *sin = (struct sockaddr_in *)&ss;
@@ -837,6 +826,17 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 			memcpy(&sin6->sin6_addr, mp.sender_ip, 16);
 			sin6->sin6_port = htons(mp.sender_port);
 			sslen = sizeof(*sin6);
+		}
+
+		if (tid_match(mp.tid, "ip", NULL)) {
+			uint16_t decoded_seq;
+			memcpy(&decoded_seq, mp.tid + 2, 2);
+			if (decoded_seq == ctx->ip_monitor_seqno) {
+				is_nonce_validated = 1;
+				lwsl_notice("%s: IP Challenge matched sequence %u from %s!\n", __func__, decoded_seq, (ss.ss_family == AF_INET ? "IPv4" : "IPv6"));
+			} else {
+				lwsl_dht_warn("%s: Spurious IP tracking reply dropped!\n", __func__);
+			}
 		}
 
 		if (!is_nonce_validated)
@@ -981,7 +981,19 @@ skip_ip_tracking:
 			} else {
 				char ads[64];
 				lws_sa46_write_numeric_address((lws_sockaddr46 *)from, ads, sizeof(ads));
-				lwsl_warn("%s: ACK received from %s (len %d) but no sequencer found!\n", __func__, ads, (int)fromlen);
+
+                int p2 = 0;
+                if (from->sa_family == AF_INET) p2 = ntohs(((struct sockaddr_in *)from)->sin_port);
+				lwsl_err("%s: ACK received from %s:%d (len %d) but no sequencer found!\n", __func__, ads, p2, (int)fromlen);
+
+                lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&ctx->ts_owner)) {
+                    lws_dht_ts_t *dts = lws_container_of(d, lws_dht_ts_t, list);
+                    char d_ads[64];
+                    lws_sa46_write_numeric_address((lws_sockaddr46 *)&dts->sa, d_ads, sizeof(d_ads));
+                    int p1 = 0;
+                    if (dts->sa.ss_family == AF_INET) p1 = ntohs(((struct sockaddr_in *)&dts->sa)->sin_port);
+                    lwsl_err("   ... Active Sequencer in pool: dest %s:%d (family %d vs %d)\n", d_ads, p1, dts->sa.ss_family, from->sa_family);
+                } lws_end_foreach_dll(d);
 			}
 			break;
 		}

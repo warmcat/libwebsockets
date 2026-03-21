@@ -179,7 +179,12 @@ scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	}
 
 	if (pc.common_name[0]) {
-		lwsl_notice("%s: Parsed domain %s from %s\n", __func__, pc.common_name, filepath);
+		if (strchr(pc.common_name, '/') || strstr(pc.common_name, "..")) {
+			lwsl_err("%s: Invalid common-name containing path traversal characters: %s\n", __func__, pc.common_name);
+			return 0;
+		}
+
+		lwsl_info("%s: Parsed domain %s from %s\n", __func__, pc.common_name, filepath);
 
 		/* Directory format requires <base_dir>/domains/<common_name>/dns/ */
 		char key_path[1024];
@@ -217,10 +222,15 @@ scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		char ksk_path[1024];
 
 		lws_snprintf(input_path, sizeof(input_path), "%s/domains/%s/dns/%s.zone", vhd->base_dir, pc.common_name, pc.common_name);
-		lws_snprintf(output_path, sizeof(output_path), "%s/domains/%s/dns/%s.signed", vhd->base_dir, pc.common_name, pc.common_name);
-		lws_snprintf(jws_path, sizeof(jws_path), "%s/domains/%s/dns/%s.jws", vhd->base_dir, pc.common_name, pc.common_name);
+		lws_snprintf(output_path, sizeof(output_path), "%s/domains/%s/dns/%s.zone.signed", vhd->base_dir, pc.common_name, pc.common_name);
+		lws_snprintf(jws_path, sizeof(jws_path), "%s/domains/%s/dns/%s.zone.signed.jws", vhd->base_dir, pc.common_name, pc.common_name);
 		lws_snprintf(zsk_path, sizeof(zsk_path), "%s/domains/%s/dns/%s.zsk.private.jwk", vhd->base_dir, pc.common_name, pc.common_name);
 		lws_snprintf(ksk_path, sizeof(ksk_path), "%s/domains/%s/dns/%s.ksk.private.jwk", vhd->base_dir, pc.common_name, pc.common_name);
+
+		char acme_path[1024];
+		lws_snprintf(acme_path, sizeof(acme_path), "%s.acme", input_path);
+		struct stat st_acme;
+		int has_acme = (stat(acme_path, &st_acme) == 0);
 
 		int needs_resign = 0;
 		struct stat st_in, st_out;
@@ -235,8 +245,11 @@ scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 					/* unsigned zone is newer than signed zone */
 					lwsl_user("dnssec-monitor: unsigned zone %s (mtime %lu) is newer than signed zone %s (mtime %lu)! Triggering resign!\n", input_path, (unsigned long)st_in.st_mtime, output_path, (unsigned long)st_out.st_mtime);
 					needs_resign = 1;
+				} else if (has_acme && st_acme.st_mtime > st_out.st_mtime) {
+					lwsl_user("dnssec-monitor: .acme challenge file %s (mtime %lu) is newer than signed zone %s (mtime %lu)! Triggering resign!\n", acme_path, (unsigned long)st_acme.st_mtime, output_path, (unsigned long)st_out.st_mtime);
+					needs_resign = 1;
 				} else {
-					lwsl_user("dnssec-monitor: unsigned zone %s (mtime %lu) is NOT newer than signed zone %s (mtime %lu), skipping resign.\n", input_path, (unsigned long)st_in.st_mtime, output_path, (unsigned long)st_out.st_mtime);
+					lwsl_info("dnssec-monitor: unsigned zone %s (mtime %lu) is NOT newer than signed zone %s (mtime %lu), skipping resign.\n", input_path, (unsigned long)st_in.st_mtime, output_path, (unsigned long)st_out.st_mtime);
 				}
 				/* TODO: 75% lifetime exhaustion check, but requires parsing the signature. */
 			}
@@ -258,12 +271,7 @@ scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 			if (vhd->ops->signzone(vhd->context, &sargs)) {
 				lwsl_user("%s: Failed signing zone for %s\n", __func__, pc.common_name);
 			} else {
-				lwsl_user("%s: Successfully signed zone for %s, publishing...\n", __func__, pc.common_name);
-				if (vhd->ops->publish_jws) {
-					vhd->ops->publish_jws(vhd->vhost, jws_path);
-				} else {
-					lwsl_user("%s: CRITICAL ERROR: vhd->ops->publish_jws is NULL!\n", __func__);
-				}
+				lwsl_user("%s: Successfully signed zone for %s\n", __func__, pc.common_name);
 			}
 		}
 	}
@@ -286,11 +294,50 @@ dir_notify_cb(const char *path, int is_file, void *user)
 }
 #endif
 
+static int
+parent_scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
+{
+	struct vhd *vhd = (struct vhd *)user;
+	if (lde->type != LDOT_DIR || lde->name[0] == '.') return 0;
+
+	char jws_path[1024], pub_path[1024];
+	lws_snprintf(jws_path, sizeof(jws_path), "%s/domains/%s/dns/%s.zone.signed.jws", vhd->base_dir, lde->name, lde->name);
+	lws_snprintf(pub_path, sizeof(pub_path), "%s.published", jws_path);
+
+	struct stat st_jws, st_pub;
+	if (stat(jws_path, &st_jws) == 0) {
+		if (stat(pub_path, &st_pub) != 0 || st_jws.st_mtime > st_pub.st_mtime) {
+			lwsl_notice("%s: Parent detected new JWS for %s! Triggering DHT publication loop.\n", __func__, lde->name);
+			if (vhd->ops && vhd->ops->publish_jws) {
+				vhd->ops->publish_jws(vhd->vhost, jws_path);
+				int fd = open(pub_path, O_CREAT|O_WRONLY|O_TRUNC, 0666);
+				if (fd >= 0) close(fd);
+			}
+		}
+	}
+	return 0;
+}
+
+static void
+parent_dnssec_monitor_timer_cb(struct lws_sorted_usec_list *sul)
+{
+	struct vhd *vhd = lws_container_of(sul, struct vhd, sul_timer);
+	char scan_path[1024];
+
+	// lwsl_notice("%s: Parent timer fired!\n", __func__);
+
+	lws_snprintf(scan_path, sizeof(scan_path), "%s/domains", vhd->base_dir);
+	lws_dir(scan_path, vhd, parent_scan_dir_cb);
+	lws_sul_schedule(vhd->context, 0, &vhd->sul_timer, parent_dnssec_monitor_timer_cb, 5 * LWS_US_PER_SEC);
+}
+
 static void
 dnssec_monitor_timer_cb(struct lws_sorted_usec_list *sul)
 {
 	struct vhd *vhd = lws_container_of(sul, struct vhd, sul_timer);
 	char scan_path[1024];
+
+	// lwsl_notice("%s: Child timer fired!\n", __func__);
 
 	lws_snprintf(scan_path, sizeof(scan_path), "%s/domains", vhd->base_dir);
 	lws_dir(scan_path, vhd, scan_dir_cb);
@@ -315,6 +362,11 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 		{
 			struct lws_context *cx = lws_get_context(wsi);
 			const char *p = lws_cmdline_option_cx(cx, "--lws-dht-dnssec-monitor-root");
+
+			if (!in)
+				return 0;
+
+			/* Root monitor spawned proxy branch */
 			if (p) {
 				/* Yes, we are the root spawned UDS process! */
 				lwsl_notice("%s: Started as UDS root monitor\n", __func__);
@@ -347,63 +399,81 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 				info.port = 0; /* raw socket UDS */
 				info.options = LWS_SERVER_OPTION_UNIX_SOCK | LWS_SERVER_OPTION_ONLY_RAW;
 				info.iface = uds_path;
-				// We only want this protocol to run on the UDS
-				info.protocols = lws_dht_dnssec_monitor_protocols;
+
+				/* We only want this protocol to run on the UDS */
+				static const struct lws_protocols *pprotocols[] = {
+					&lws_dht_dnssec_monitor_protocols[0],
+					&lws_dht_dnssec_monitor_protocols[1],
+					NULL
+				};
+				info.pprotocols = pprotocols;
 
 				/* We need to ensure we don't loop indefinitely creating vhosts.
 				 * If lws_get_vhost_by_name finds our vhost, we don't create it again.
 				 */
-				if (!lws_get_vhost_by_name(cx, info.vhost_name)) {
+				struct lws_vhost *vh = lws_get_vhost_by_name(cx, info.vhost_name);
+				if (!vh) {
 					unlink(uds_path);
-					struct lws_vhost *vh = lws_create_vhost(cx, &info);
+					vh = lws_create_vhost(cx, &info);
 					if (!vh) {
 						lwsl_err("%s: Failed to create UDS vhost on %s\n", __func__, uds_path);
 						return -1;
 					}
 					lwsl_notice("%s: Created UDS vhost on %s\n", __func__, uds_path);
-
-					/* Launch periodic directory loop only in the root server */
-					/* But wait, vhd is not yet instantiated here. We are before vhd = zalloc.
-					 * It's better to just proceed to allocate vhd and then schedule it. */
 				}
 
-				/* Let's construct the vhd and schedule the scanner */
-				vhd = lws_protocol_vh_priv_zalloc(vhost, protocol, sizeof(*vhd));
-				if (vhd) {
-					vhd->context = cx;
-					vhd->vhost = vhost;
+				static int timer_armed = 0;
+				if (!timer_armed) {
+					vhd = lws_protocol_vh_priv_zalloc(vhost, protocol, sizeof(*vhd));
+					if (vhd) {
+						lwsl_notice("%s: Successfully allocated vhd on %s\n", __func__, lws_get_vhost_name(vhost));
+						vhd->context = cx;
+						vhd->vhost = vhost;
 
-					{
-						lws_system_policy_t *policy;
-						if (lws_system_parse_policy(cx, "/etc/lwsws/policy", &policy)) {
-							lwsl_vhost_notice(vhost, "dnssec_monitor: couldn't parse policy.");
-							return -1;
+						{
+							lws_system_policy_t *policy;
+							if (lws_system_parse_policy(cx, "/etc/lwsws/policy", &policy)) {
+								lwsl_vhost_notice(vh, "dnssec_monitor: couldn't parse policy.");
+								return -1;
+							}
+							vhd->base_dir = strdup(policy->dns_base_dir);
+							lws_system_policy_free(policy);
 						}
-						vhd->base_dir = strdup(policy->dns_base_dir);
-						lws_system_policy_free(policy);
-					}
 
-					vhd->uds_path = uds_path;
-					vhd->signature_duration = 31536000;
+						vhd->uds_path = uds_path;
+						vhd->signature_duration = 31536000;
 
-					const struct lws_protocols *prot = lws_vhost_name_to_protocol(vhost, "lws-dht-dnssec");
-					if (prot && prot->user)
-						vhd->ops = (const struct lws_dht_dnssec_ops *)prot->user;
+						/* Borrow ops from the invoking vhost that originally had it configured */
+						const struct lws_protocols *prot = lws_vhost_name_to_protocol(vhost, "lws-dht-dnssec");
+						if (!prot) {
+							struct lws_vhost *vhdflt = lws_get_vhost_by_name(cx, "default");
+							if (vhdflt)
+								prot = lws_vhost_name_to_protocol(vhdflt, "lws-dht-dnssec");
+						}
+						if (prot && prot->user)
+							vhd->ops = (const struct lws_dht_dnssec_ops *)prot->user;
 
-					char scan_path[1024];
-					lws_snprintf(scan_path, sizeof(scan_path), "%s/domains", vhd->base_dir);
+						if (vhd->ops) {
+							char scan_path[1024];
+							lws_snprintf(scan_path, sizeof(scan_path), "%s/domains", vhd->base_dir);
 
-					lwsl_notice("dnssec_monitor: Scanning base domains dir %s\n", scan_path);
-					lws_dir(scan_path, vhd, scan_dir_cb);
-
-					/* Guarantee absolute discovery independently of Unix kernel notify boundaries */
-					lws_sul_schedule(vhd->context, 0, &vhd->sul_timer, dnssec_monitor_timer_cb, 5 * LWS_US_PER_SEC);
+							/* Guarantee absolute discovery independently of Unix kernel notify boundaries */
+							/* Deferred to cleanly drop execution permissions naturally inside the loop */
+							lws_sul_schedule(vhd->context, 0, &vhd->sul_timer, dnssec_monitor_timer_cb, 1 * LWS_US_PER_SEC);
+							timer_armed = 1;
 
 #if defined(LWS_WITH_DIR)
-					vhd->dn = lws_dir_notify_create(cx, scan_path, dir_notify_cb, vhd);
-					if (!vhd->dn)
-						lwsl_err("%s: Failed to attach lws_dir_notify to %s\n", __func__, scan_path);
+							vhd->dn = lws_dir_notify_create(cx, scan_path, dir_notify_cb, vhd);
+							if (!vhd->dn)
+								lwsl_err("%s: Failed to attach lws_dir_notify to %s\n", __func__, scan_path);
 #endif
+						} else {
+							lwsl_err("%s: Skipped scheduling timer on %s because vhd->ops is NULL!\n", __func__, lws_get_vhost_name(vhost));
+							/* It will organically retry when the next vhost runs PROTOCOL_INIT */
+						}
+					} else {
+						lwsl_err("%s: FAILED to allocate vhd on %s\n", __func__, lws_get_vhost_name(vhost));
+					}
 				}
 
 				return 0;
@@ -467,34 +537,71 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 			struct lws_spawn_piped_info spawn_info;
 			memset(&spawn_info, 0, sizeof(spawn_info));
 
-			const char *exec_array[11];
-			/* In lws context, argv is not directly accessible like this.
-			   However, we can get the executable path using lws_cmdline_option_cx on something else,
-			   or just rely on the host application name. For now, we will assume "lwsws". */
-			/* Actually, lws_cmdline_option_cx can't give us argv[0].
-			 * We'll need another way to find the executable path.
-			 * Or we pass it via a PVO. Let's add an exe-path PVO. */
-			const char *exe_path = "/usr/local/bin/lwsws";
+			const char *exec_array[15];
+			char arg_uds[1024];
+			char arg_uid[128];
+			char arg_gid[128];
+			int n = 0;
+			/* Rely on the original host application executable context path instead of
+			 * guessing paths. `argv[0]` guarantees relative/absolute execution fidelity. */
+			char plat_exe_buf[256];
+			const char *exe_path = lws_cmdline_option_cx_argv0(vhd->context);
+
+			if (!exe_path || exe_path[0] != '/') {
+#if defined(__linux__)
+				int m = (int)readlink("/proc/self/exe", plat_exe_buf, sizeof(plat_exe_buf) - 1);
+				if (m > 0) {
+					plat_exe_buf[m] = '\0';
+					exe_path = plat_exe_buf;
+				} else
+#endif
+				{
+					exe_path = "/usr/local/bin/lwsws";
+				}
+			}
+
 			if ((pvo = lws_pvo_search(in, "exe-path")))
 				exe_path = pvo->value;
 
-			exec_array[0] = exe_path;
-			exec_array[1] = "--lws-dht-dnssec-monitor-root";
+			exec_array[n++] = exe_path;
+			exec_array[n++] = "--lws-dht-dnssec-monitor-root";
+
+			const char *conf_dir = lws_cmdline_option_cx(vhd->context, "-c");
+			if (conf_dir) {
+				exec_array[n++] = "-c";
+				exec_array[n++] = conf_dir;
+			}
+
+			const char *debug_lvl = lws_cmdline_option_cx(vhd->context, "-d");
+			if (debug_lvl) {
+				exec_array[n++] = "-d";
+				exec_array[n++] = debug_lvl;
+			}
+
 			/* no --base-dir needed since the root spawnee will look up the policy itself! */
-			exec_array[2] = "--uds-path";
-			exec_array[3] = vhd->uds_path;
-			exec_array[4] = "--uid";
-			exec_array[5] = uid;
-			exec_array[6] = "--gid";
-			exec_array[7] = gid;
-			exec_array[8] = NULL;
+			if (vhd->uds_path) {
+				lws_snprintf(arg_uds, sizeof(arg_uds), "--uds-path=%s", vhd->uds_path);
+				exec_array[n++] = arg_uds;
+			}
+			if (uid) {
+				lws_snprintf(arg_uid, sizeof(arg_uid), "--uid=%s", uid);
+				exec_array[n++] = arg_uid;
+			}
+			if (gid) {
+				lws_snprintf(arg_gid, sizeof(arg_gid), "--gid=%s", gid);
+				exec_array[n++] = arg_gid;
+			}
+			exec_array[n++] = NULL;
+
+			for (int i = 0; i < n; i++)
+				lwsl_notice("%s: exec_array[%d]: '%s'\n", __func__, i, exec_array[i]);
 
 			if (exec_array[0]) {
 				spawn_info.exec_array = exec_array;
 				spawn_info.timeout_us = 0; /* runs forever */
 				spawn_info.plsp = &vhd->lsp;
-				spawn_info.opaque = vhd;
 				spawn_info.reap_cb = lws_dht_dnssec_monitor_reap_cb;
+				spawn_info.protocol_name = "lws-dht-dnssec-stdwsi";
 				spawn_info.vh = vhd->vhost;
 
 				lwsl_notice("dnssec_monitor: Executing root process: %s\n", exec_array[0]);
@@ -506,6 +613,9 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 				}
 				vhd->root_process_active = 1;
 				lwsl_notice("%s: Spawned root monitor process successfully\n", __func__);
+
+				/* Engage parent monitor to execute DHT publications off completed JWS child drops cleanly */
+				lws_sul_schedule(vhd->context, 0, &vhd->sul_timer, parent_dnssec_monitor_timer_cb, 1 * LWS_US_PER_SEC);
 			} else {
 				lwsl_err("%s: Cannot spawn argv[0] because it is NULL\n", __func__);
 			}
@@ -686,9 +796,43 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 	return 0;
 }
 
+static int
+callback_monitor_stdwsi(struct lws *wsi, enum lws_callback_reasons reason,
+                    void *user, void *in, size_t len)
+{
+        uint8_t buf[2048];
+        int ilen;
+
+        switch (reason) {
+        case LWS_CALLBACK_RAW_CLOSE_FILE:
+                break;
+
+        case LWS_CALLBACK_RAW_RX_FILE:
+                ilen = (int)read((int)(intptr_t)lws_get_socket_fd(wsi), buf, sizeof(buf) - 1);
+                if (ilen < 1) {
+                        return -1;
+                }
+                buf[ilen] = '\0';
+                lwsl_notice("root-monitor: %s", buf);
+                return 0;
+
+        default:
+                break;
+        }
+
+        return 0;
+}
+
 LWS_VISIBLE const struct lws_protocols lws_dht_dnssec_monitor_protocols[] = {
-	{ "lws-dht-dnssec-monitor", callback_dht_dnssec_monitor, sizeof(struct pss), 0, 0, NULL, 0 },
-	LWS_PROTOCOL_LIST_TERM
+	{
+		.name = "lws-dht-dnssec-stdwsi",
+		.callback = callback_monitor_stdwsi,
+	},
+	{
+		.name = "lws-dht-dnssec-monitor",
+		.callback = callback_dht_dnssec_monitor,
+		.per_session_data_size = sizeof(struct pss),
+	},
 };
 LWS_VISIBLE const lws_plugin_protocol_t lws_dht_dnssec_monitor = {
 	.hdr = {

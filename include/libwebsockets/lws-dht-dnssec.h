@@ -64,6 +64,7 @@ struct lws_dht_dnssec_fetch_zone_args {
 	lws_dht_dnssec_fetch_cb_t cb;
 	void *opaque;
 	int is_cancel; /* If 1, cancel an ongoing fetch for this domain/opaque pair */
+	int force_network; /* If 1, bypass local cache and query network directly */
 };
 
 struct lws_dht_dnssec_ops {

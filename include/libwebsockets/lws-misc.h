@@ -732,6 +732,17 @@ LWS_VISIBLE LWS_EXTERN const char *
 lws_cmdline_option_cx(const struct lws_context *cx, const char *val);
 
 /**
+ * lws_cmdline_option_cx_argv0(): return argv[0] from the context creation
+ *
+ * \param cx:		the lws_context
+ *
+ * Returns the original process executable path (argv[0]) provided during
+ * context creation, or NULL if unavailable.
+ */
+LWS_VISIBLE LWS_EXTERN const char *
+lws_cmdline_option_cx_argv0(const struct lws_context *cx);
+
+/**
  * lws_cmdline_option_handle_builtin(): apply standard cmdline options
  *
  * \param argc:		count of argument strings

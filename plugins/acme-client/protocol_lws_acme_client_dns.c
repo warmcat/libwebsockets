@@ -91,12 +91,12 @@ challenge_start_dns(struct lws_vhost *vh, void *priv, const char *token,
 	}
 	close(fd);
 
-	/* Touch the main zone file so the monitor detects a modification timestamp change */
-	lws_snprintf(zone_path, sizeof(zone_path), "%s/domains/%s/dns/%s.zone", ad->base_dir, domain, domain);
-	if (utimes(zone_path, NULL) < 0) {
-		lwsl_user("%s: CRITICAL ERROR - utimes failed on %s! (errno %d)\n", __func__, zone_path, errno);
+	/* Remove the signed zone file to force the monitor to resign with the acme TXT */
+	lws_snprintf(zone_path, sizeof(zone_path), "%s/domains/%s/dns/%s.signed", ad->base_dir, domain, domain);
+	if (unlink(zone_path) < 0 && errno != ENOENT) {
+		lwsl_user("%s: CRITICAL ERROR - unlink failed on %s! (errno %d)\n", __func__, zone_path, errno);
 	} else {
-		lwsl_user("%s: Successfully updated modification time of %s\n", __func__, zone_path);
+		lwsl_user("%s: Successfully unlinked %s to force resign\n", __func__, zone_path);
 	}
 
 	/* Wake up the non-recursive inotify watcher reliably by creating and unlinking a file in the watched directory */
@@ -122,12 +122,12 @@ challenge_cleanup_dns(struct lws_vhost *vh, void *priv)
 		lws_snprintf(path, sizeof(path), "%s/domains/%s/dns/%s.zone.acme", ad->base_dir, ad->active_domain, ad->active_domain);
 		unlink(path);
 
-		/* Touch the main zone file to notify monitor to remove the acme TXT from the DHT */
-		lws_snprintf(zone_path, sizeof(zone_path), "%s/domains/%s/dns/%s.zone", ad->base_dir, ad->active_domain, ad->active_domain);
-		if (utimes(zone_path, NULL) < 0) {
-			lwsl_user("%s: CRITICAL ERROR - cleanup utimes failed on %s! (errno %d)\n", __func__, zone_path, errno);
+		/* Remove the signed zone file to force the monitor to resign without the acme TXT */
+		lws_snprintf(zone_path, sizeof(zone_path), "%s/domains/%s/dns/%s.signed", ad->base_dir, ad->active_domain, ad->active_domain);
+		if (unlink(zone_path) < 0 && errno != ENOENT) {
+			lwsl_user("%s: CRITICAL ERROR - cleanup unlink failed on %s! (errno %d)\n", __func__, zone_path, errno);
 		} else {
-			lwsl_user("%s: Successfully updated modification time of %s\n", __func__, zone_path);
+			lwsl_user("%s: Successfully unlinked %s to force resign\n", __func__, zone_path);
 		}
 
 		/* Wake up the non-recursive inotify watcher reliably by creating and unlinking a file in the watched directory */
@@ -165,6 +165,13 @@ callback_lws_acme_client_dns(struct lws *wsi, enum lws_callback_reasons reason,
 			lwsl_notice("acme_dns: ignoring INIT (ad=%p, in=%p)\n", ad, in);
 			return 0;
 		}
+
+		/*
+		 * Don't run ACME certificate acquisition inside the root-monitor
+		 * spawned process to avoid duplicated challenges.
+		 */
+		if (lws_cmdline_option_cx(lws_get_context(wsi), "--lws-dht-dnssec-monitor-root"))
+			return 0;
 
 		ad = lws_protocol_vh_priv_zalloc(vh, lws_get_protocol(wsi),
 						 sizeof(struct vhd_acme_dns));

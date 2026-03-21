@@ -43,7 +43,7 @@ static int
 lws_dir_notify_rx(struct lws *wsi, enum lws_callback_reasons reason,
 		  void *user, void *in, size_t len)
 {
-	struct lws_dir_notify *dn = (struct lws_dir_notify *)user;
+	struct lws_dir_notify *dn = (struct lws_dir_notify *)lws_get_opaque_user_data(wsi);
 	if (reason == LWS_CALLBACK_RAW_RX_FILE) {
 		char buf[4096] __attribute__ ((aligned(__alignof__(struct inotify_event))));
 		const struct inotify_event *event;
@@ -158,7 +158,7 @@ static int
 lws_dir_notify_rx(struct lws *wsi, enum lws_callback_reasons reason,
 		  void *user, void *in, size_t len)
 {
-	struct lws_dir_notify *dn = (struct lws_dir_notify *)user;
+	struct lws_dir_notify *dn = (struct lws_dir_notify *)lws_get_opaque_user_data(wsi);
 	if (reason == LWS_CALLBACK_RAW_RX_FILE) {
 		struct kevent kev;
 		struct timespec ts = {0, 0};
