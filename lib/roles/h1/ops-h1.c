@@ -974,8 +974,10 @@ static const char * const http_methods[] = {
 int
 _lws_is_http_method(const char *method)
 {
+	int n;
+
 	if (method)
-		for (int n = 0; n < (int)LWS_ARRAY_SIZE(http_methods); n++)
+		for (n = 0; n < (int)LWS_ARRAY_SIZE(http_methods); n++)
 			if (!strcmp(method, http_methods[n]))
 				return 1;
 
