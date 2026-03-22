@@ -221,6 +221,12 @@ if (NOT WIN32 AND NOT LWS_WITHOUT_DAEMONIZE)
 endif()
 
 endif()
+
+if (LWS_WITH_QRCODEGEN)
+	list(APPEND SOURCES
+		misc/qrcodegen.c)
+endif()
+
 #
 # Keep explicit parent scope exports at end
 #

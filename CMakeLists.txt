@@ -192,9 +192,13 @@ option(LWS_WITH_UPNG "Enable stateful PNG stream decoder" ON)
 option(LWS_WITH_GZINFLATE "Enable internal minimal gzip inflator" ON)
 option(LWS_WITH_JPEG "Enable stateful JPEG stream decoder" ON)
 option(LWS_WITH_DLO "Enable Display List Objects" ON)
+option(LWS_WITH_WEBRTC "Enable WebRTC" OFF)
 option(LWS_WITH_TRANSCODE "Enable video transcoding support (requires ffmpeg)" OFF)
 option(LWS_WITH_V4L2 "Enable V4L2 support (Linux only)" OFF)
 option(LWS_WITH_LIBV4L2 "Link against libv4l2 if available" OFF)
+option(LWS_WITH_AUTH_SERVER "Include auth server plugin and its assets" OFF)
+option(LWS_WITH_EMAIL "Include async SMTP client plugin" OFF)
+option(LWS_WITH_QRCODEGEN "Include qrcodegen library natively" OFF)
 
 #
 # Secure Streams

@@ -250,6 +250,133 @@ lws_b64_decode_string_len(const char *in, int in_len, char *out, int out_size)
 	return !s ? -1 : (int)s;
 }
 
+static const char encode_b32[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+
+int
+lws_b32_encode_string(const char *in, int in_len, char *out, int out_size)
+{
+	unsigned char buf[5];
+	int i, done = 0;
+
+	while (in_len) {
+		int len = 0;
+		for (i = 0; i < 5; i++) {
+			if (in_len) {
+				buf[i] = (unsigned char)*in++;
+				len++;
+				in_len--;
+			} else
+				buf[i] = 0;
+		}
+
+		if (done + 8 >= out_size)
+			return -1;
+
+		out[0] = encode_b32[buf[0] >> 3];
+		out[1] = encode_b32[((buf[0] & 0x07) << 2) | (buf[1] >> 6)];
+		out[2] = len > 1 ? encode_b32[((buf[1] & 0x3e) >> 1)] : '=';
+		out[3] = len > 1 ? encode_b32[((buf[1] & 0x01) << 4) | (buf[2] >> 4)] : '=';
+		out[4] = len > 2 ? encode_b32[((buf[2] & 0x0f) << 1) | (buf[3] >> 7)] : '=';
+		out[5] = len > 3 ? encode_b32[((buf[3] & 0x7c) >> 2)] : '=';
+		out[6] = len > 3 ? encode_b32[((buf[3] & 0x03) << 3) | (buf[4] >> 5)] : '=';
+		out[7] = len > 4 ? encode_b32[(buf[4] & 0x1f)] : '=';
+
+		out += 8;
+		done += 8;
+	}
+
+	if (done + 1 >= out_size)
+		return -1;
+
+	*out++ = '\0';
+
+	return done;
+}
+
+static const int8_t decode_b32[256] = {
+	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+	-1,-1,26,27,28,29,30,31,-1,-1,-1,-1,-1,-1,-1,-1,
+	-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,
+	15,16,17,18,19,20,21,22,23,24,25,-1,-1,-1,-1,-1,
+	-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,
+	15,16,17,18,19,20,21,22,23,24,25,-1,-1,-1,-1,-1,
+	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+};
+
+int
+lws_b32_decode_string_len(const char *in, int in_len, char *out, int out_size)
+{
+	int done = 0;
+	int buf[8] = {0};
+	int i;
+
+	if (in_len == -1)
+		in_len = (int)strlen(in);
+
+	while (in_len > 0) {
+		int len = 0;
+		for (i = 0; i < 8; i++) {
+			while (in_len > 0 && (*in == ' ' || *in == '\t' || *in == '\n' || *in == '\r')) {
+				in++;
+				in_len--;
+			}
+			if (in_len > 0) {
+				char c = *in++;
+				in_len--;
+				if (c == '=') {
+					buf[i] = 0;
+				} else {
+					int8_t v = decode_b32[(unsigned char)c];
+					if (v < 0) return -1;
+					buf[i] = v;
+					len++;
+				}
+			} else {
+				buf[i] = 0;
+			}
+		}
+
+		if (len == 0) break;
+
+		if (done + 5 > out_size) return -1;
+
+		out[0] = (char)((buf[0] << 3) | (buf[1] >> 2));
+		out[1] = (char)(((buf[1] & 0x03) << 6) | (buf[2] << 1) | (buf[3] >> 4));
+		out[2] = (char)(((buf[3] & 0x0f) << 4) | (buf[4] >> 1));
+		out[3] = (char)(((buf[4] & 0x01) << 7) | (buf[5] << 2) | (buf[6] >> 3));
+		out[4] = (char)(((buf[6] & 0x07) << 5) | buf[7]);
+
+		if (len == 2) done += 1;
+		else if (len == 4) done += 2;
+		else if (len == 5) done += 3;
+		else if (len == 7) done += 4;
+		else if (len == 8) done += 5;
+		else return -1; /* invalid base32 chunk */
+
+		out += 5;
+	}
+
+	if (done < out_size)
+		*out = '\0';
+
+	return done;
+}
+
+int
+lws_b32_decode_string(const char *in, char *out, int out_size)
+{
+	return lws_b32_decode_string_len(in, -1, out, out_size);
+}
+
 #if 0
 static const char * const plaintext[] = {
 	"any carnal pleasure.",

@@ -95,6 +95,48 @@ lws_b64_decode_string(const char *in, char *out, int out_size);
 LWS_VISIBLE LWS_EXTERN int
 lws_b64_decode_string_len(const char *in, int in_len, char *out, int out_size);
 
+/**
+ * lws_b32_encode_string(): encode a string into base 32
+ *
+ * \param in: incoming buffer
+ * \param in_len: length of incoming buffer
+ * \param out: result buffer
+ * \param out_size: length of result buffer
+ *
+ * Encodes a string using b32
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_b32_encode_string(const char *in, int in_len, char *out, int out_size);
+
+/**
+ * lws_b32_decode_string(): decode a string from base 32
+ *
+ * \param in: incoming buffer
+ * \param out: result buffer
+ * \param out_size: length of result buffer
+ *
+ * Decodes a NUL-terminated string using b32
+ *
+ * Returns used length of output buffer
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_b32_decode_string(const char *in, char *out, int out_size);
+
+/**
+ * lws_b32_decode_string_len(): decode a string from base 32
+ *
+ * \param in: incoming buffer
+ * \param in_len: length of incoming buffer
+ * \param out: result buffer
+ * \param out_size: length of result buffer
+ *
+ * Decodes a range of chars using b32
+ *
+ * Returns used length of output buffer
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_b32_decode_string_len(const char *in, int in_len, char *out, int out_size);
+
 struct lws_b64state {
 	unsigned char quad[4];
 	size_t done;

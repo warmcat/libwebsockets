@@ -1245,3 +1245,19 @@ lws_parse_cidr(const char *cidr, lws_sockaddr46 *sa46, int *len)
 
 	return 0;
 }
+
+int
+lws_is_local_address(const char *ads)
+{
+	if (!ads)
+		return 0;
+
+	if (!strcmp(ads, "127.0.0.1") ||
+	    !strcmp(ads, "::1") ||
+	    !strcmp(ads, "localhost") ||
+	    !strcmp(ads, "localhost4") ||
+	    !strcmp(ads, "localhost6"))
+		return 1;
+
+	return 0;
+}

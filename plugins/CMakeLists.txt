@@ -213,6 +213,23 @@ if (NOT LWS_WITHOUT_SERVER AND LWS_WITH_JOSE)
 	add_subdirectory(lws-login)
 endif()
 
+if (NOT LWS_WITHOUT_SERVER AND LWS_WITH_JOSE AND LWS_WITH_STRUCT_SQLITE3 AND LWS_WITH_AUTH_SERVER)
+	create_plugin(protocol_lws_auth_server ""
+		      "auth-server/protocol_lws_auth_server.c" "" "")
+	if (NOT LWS_WITH_PLUGINS_BUILTIN)
+		target_compile_definitions(protocol_lws_auth_server PRIVATE LWS_BUILDING_SHARED)
+	endif()
+endif()
+
+if (LWS_WITH_EMAIL)
+	create_plugin(protocol_lws_smtp_client ""
+		      "email/protocol_lws_smtp_client.c" "" "")
+	if (NOT LWS_WITH_PLUGINS_BUILTIN)
+		target_compile_definitions(protocol_lws_smtp_client PRIVATE LWS_BUILDING_SHARED)
+	endif()
+endif()
+
+
 
 if (NOT LWS_WITHOUT_SERVER)
 	create_plugin(protocol_urlarg ""
@@ -315,11 +332,12 @@ if (LWS_WITH_DHT)
 	endif()
 endif()
 
-# create_plugin(protocol_lws_webrtc ""
-# 	      "protocol_lws_webrtc.c" "" "")
-# if (NOT LWS_WITH_PLUGINS_BUILTIN)
-# 	target_compile_definitions(protocol_lws_webrtc PRIVATE LWS_BUILDING_SHARED)
-# endif()
+if (LWS_WITH_WEBRTC)
+	create_plugin(protocol_lws_webrtc "" "protocol_lws_webrtc.c" "" "")
+	if (NOT LWS_WITH_PLUGINS_BUILTIN)
+		target_compile_definitions(protocol_lws_webrtc PRIVATE LWS_BUILDING_SHARED)
+	endif()
+endif()
 
 if (LWS_WITH_TRANSCODE)
 	create_plugin(protocol_lws_webrtc_mixer ""
@@ -382,6 +400,12 @@ if (LWS_WITH_PLUGINS AND NOT LWS_WITH_PLUGINS_BUILTIN)
 				DESTINATION share/libwebsockets-test-server/lws-dht-stats
 				COMPONENT plugins)
 		endif()
+		if (LWS_WITH_AUTH_SERVER)
+			install(DIRECTORY auth-server/assets/
+				DESTINATION share/libwebsockets-test-server/auth-server
+				COMPONENT plugins)
+		endif()
+
 	endif()
 
 
