@@ -352,6 +352,11 @@ if (LWS_IPV6)
 	set(LWS_WITH_IPV6 1)
 endif()
 
+if (LWS_HAVE_LINUX_IPV6_H AND NOT LWS_INCLUDE_LINUX_IPV6_H)
+	message(STATUS "Found linux/ipv6.h but not including it.")
+	set(LWS_HAVE_LINUX_IPV6_H 0)
+endif()
+
 if (LWS_UNIX_SOCK)
     set(LWS_WITH_UNIX_SOCK 1)
 endif()
