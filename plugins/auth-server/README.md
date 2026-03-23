@@ -8,7 +8,13 @@ It acts as a central identity provider and issues time-limited JWTs to outsource
 - **SQLite Backend**: Centrally stores identity information (using `lws_struct`).
 - **Flexible Metadata**: Maps decoupled user identities to services and specific grant levels.
 - **Base32 & TOTP**: Integrated HMAC-SHA1 to natively verify 6-digit authenticator codes.
+- **OAuth2 Authorization Code Grant**: Natively supports full stateful OAuth2 flows, including `/authorize` endpoints, short-lived session cookies, PKCE validation (SHA-256 base64url), and `/token` exchange for JWT emission.
 - **JWT Issuance**: Built-in `lws_jose` and `lws-genjwt` to issue cryptographically signed JWTs.
+- **Double Submit Cookie CSRF**: Natively protects the SPA API endpoints via a stateless `csrf_token` form payload and transparent `HttpOnly` validation pairing.
+- **Autonomous IP Rate Limiting**: Employs an internal LRU cache to natively track authentication strikes, issuing global 24-hour network bans dynamically to throttle arbitrary SMTP execution scripts or registration bot floods.
+- **Single-Use Verification Pipeline**: Ephemeral registration hashes securely operate as absolute one-time read tokens for extracting the generated TOTP graphics (`/totp_svg`), passively reaping unused records natively.
+- **Decoupled SMTP Templating**: Administratively definable PVO overlays (`email-subject`, `email-body`) instantly decouple arbitrary verification alerts natively.
+- **Mobile Authenticator Deep-Linking**: Implicitly wraps the generated TOTP vector graphic explicitly into a tappable `otpauth://` deep-link anchor to seamlessly trigger iOS/Android 2FA applications organically.
 
 ## Configuration (PVOs)
 
@@ -20,6 +26,8 @@ The plugin can be enabled on any vhost. Its behavior is customized using Per-Vho
 | `auth_domain` | Required: The authorizing domain context for this instance. It binds identities conceptually as `name@domain`, avoiding arbitrary collisions if tokens are exported. | `auth.warmcat.com` |
 | `jwk_path` | Required: Absolute path to the JSON Web Key (JWK) for JWT signing. If missing, an EC P-256 key is generated and saved here automatically. | `/var/db/lws-auth.jwk` |
 | `jwt_alg` | Optional: The JWS signing algorithm to use for issued tokens. Defaults to `ES256`. | `RS256` |
+| `cookie-name` | Optional: Name of the HTTP cookie that the server should natively emit containing the JWT payload upon successful non-OAuth2 login. Empty by default (no cookie). | `auth_token` |
+| `jwt-validity-secs` | Optional: Time-to-live for the signed JWT in seconds. Defaults to `86400` (24 hours). | `3600` |
 | `registration_ui` | Optional. If `1` or `true`, exposes public web UI endpoints. Useful for general signups. Defaults to `0` or false. | `true` |
 | `email-from` | Optional: The sender email address for outgoing SMTP verification emails. Defaults to `noreply@warmcat.com`. | `noreply@example.com` |
 | `email-subject` | Optional: The subject line for the verification email. Defaults to `Complete your registration`. | `Please confirm your ExampleApp account` |
@@ -74,10 +82,12 @@ The first user created via this localhost bootstrap method is automatically gran
 
 ## Database Schema
 
-The plugin maintains three main tables:
+The plugin maintains several core tables natively initialized within SQLite:
 1. `users`: Stores core credentials (`uid`, `username`, `password_hash`, `totp_secret`).
-2. `services`: An inventory of consuming endpoints/services (`service_id`, `name`).
-3. `grants`: A join table that gives `uid` a specific `grant_level` for a given `service_id`.
+2. `services` & `grants`: Inventory of consuming endpoints/services and join tables that give a `uid` a specific `grant_level` for a given `service_id`.
+3. `oauth_clients`: Stores registered OAuth2 consumers (`client_id`, `client_secret_hash`, `redirect_uris`, `name`).
+4. `oauth_codes`: Tracks ephemeral authorization codes during the OAuth2 exchange, including structural PKCE challenges (`code`, `client_id`, `uid`, `redirect_uri`, `expires`, `code_challenge`, `code_challenge_method`).
+5. `auth_sessions`: Maintains short-lived stateless HttpOnly cookies allowing transparent redirect resolutions (`session_id`, `uid`, `expires`).
 
 ## Front-end Assets
 

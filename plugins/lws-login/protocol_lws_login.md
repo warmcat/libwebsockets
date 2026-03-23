@@ -1,47 +1,40 @@
-# lws-login
+# lws-login / JWT Auth Bouncer
 
 ## Introduction
 
-The `lws-login` plugin is a mount-based interceptor handler that securely guards pages behind SQLite3-based credentials. Unauthenticated requests are intercepted and served the login portal pages in the configured asset directory. A completed login will sign an authentication validation cookie (JWT) which guarantees future visits transparent HTTP access without login prompts.
+The `lws-login` plugin is a mount-based interceptor handler that securely guards pages by explicitly requiring a verified JSON Web Token (JWT) session.
+
+Instead of maintaining its own database, it acts as a lightweight, proactive **bouncer**, completely reliant on the core `lws_jwt_auth` helper API. Unauthenticated requests—or requests with a valid JWT but lacking the required `grants` privileges—are swiftly intercepted and redirected via HTTP 302 to a central Auth Server portal matching the configured PVOs. Once a user procures a valid session cookie from the Auth Server, the bouncer transparently allows traffic to pass through to the underlying application mount.
+
+Furthermore, `lws-login` natively maintains an `lws_sorted_usec_list` (SUL) expiration timer tracking the exact token `exp` boundary. Even if a WebSocket successfully upgrades over the protected mount, the connection will be gracefully terminated the exact moment the active authorization token naturally expires!
 
 ## Per-Vhost Options (PVOs)
 
-This plugin handles several PVO options to control SQLite3 access logic and the properties of the resulting JWT session cookie generated:
+This plugin handles several PVO options to control the redirection routing and the properties of the required JWT session cookie:
 
 | PVO Name | Description |
 |---|---|
-| `db-path` | **Required.** An absolute file path pointing to the SQLite3 database file holding user credentials schema. |
-| `asset-dir` | Directory path containing static web assets shown for login portals (e.g. `index.html`.) Set to `.` by default. Prefix with `file://` if desired. |
-| `jwt-issuer` | Name to define inside the JWT issuer flag. Defaults to `"lws"`. |
-| `jwt-audience` | Audience restriction string embedded in the JWT. Defaults to `"lws"`. |
-| `jwt-alg` | The JWT signing/validation algorithmic string. Defaults to `"HS256"`. |
-| `jwt-expiry` | Expected validity duration for the session token in seconds. Defaults to `3600`. |
-| `cookie-name` | Custom name emitted for tracking the browser cookie containing the session token. Defaults to `"lws_login_jwt"`. |
-| `jwt-jwk` | **Required.** A JSON Web Key string used to establish signing criteria for the generated tokens. |
+| `auth-server-url` | **Required.** The base URI of the central auth server portal to redirect unauthenticated users to (e.g. `https://auth.warmcat.com/login`). |
+| `jwt-jwk` | **Required.** A JSON Web Key string used to establish signing criteria for verifying the token signature. Must match the public key the central server uses to sign tokens. |
 
-You can produce a suitable JWK using the `lws-crypto-jwk` tool: `./bin/lws-crypto-jwk -t EC -v P-521`.  You'll need to escape the quotes in the key JWK if embedding it in JSON conf.
+**Where does the JWK come from?**
+The central `auth-server` plugin automatically generates an Elliptic Curve (EC P-256) keypair upon its first startup and saves it to its configured `jwk_path` (e.g., `/var/db/lws-auth.jwk`). To configure the `jwt-jwk` PVO for this bouncer mount, you simply take the contents of that generated file.
 
-## SQLite3 Database Setup
+Because the JWT validator only strictly requires the public key components to verify the signature, you can either:
+1. Provide the exact literal JSON string from the Auth Server's generated JWK file.
+2. Read the literal string dynamically into the PVO when configuring your mount from your application.
 
-The `lws-login` plugin expects a SQLite3 database containing a `users` table with `username` and `password` columns. The plugin will attempt to create this table automatically if it doesn't exist, but you must manually insert your users.
+*(Note: While passing the full keypair including the private key into the bouncer works, it is best practice to strip the private component `d` from the JSON if the bouncer is operating on an entirely different physical server).*
 
-To initialize the schema and insert an example user (e.g., username `admin`, password `password123`), use the `sqlite3` command-line tool on your configured `db-path` (for example, `/var/lib/lwsws/login.sqlite`):
+| `cookie-name` | Custom name emitted for tracking the browser cookie containing the session token. Defaults to `"auth_session"`. |
+| `service-name` | The explicitly required grant category strictly checked against the JWT privileges array. Defaults to `"default-service"`. |
+| `min-grant-level` | The strict integer threshold allowing passage for the given service name within the token. Defaults to `1`. |
 
-```bash
-# Open the SQLite3 shell for your database payload
-sqlite3 /var/lib/lwsws/login.sqlite
-```
+## Redirection Behavior
 
-Then, run the following SQL commands:
+If a visiting client lacks the required `cookie-name` or their validated token does not meet the `<service-name>:<min-grant-level>` threshold, the plugin calculates the `redirect_uri` based on the exact path they were attempting to reach.
 
-```sql
-CREATE TABLE IF NOT EXISTS users (
-    username VARCHAR(32) PRIMARY KEY,
-    password VARCHAR(64)
-);
+It intercepts the connection and issues a standard `HTTP 302 Found` bouncing them dynamically to:
+`%auth-server-url%?service_name=%service-name%&redirect_uri=%url_encoded_path%`
 
-INSERT INTO users (username, password) VALUES ('admin', 'password123');
-.exit
-```
-
-After creating the file, ensure that the system user running `lwsws` (e.g., `apache` or `nobody`) has read and write permissions to both the `login.sqlite` file and its parent directory.
+The central Auth Server portal is expected to natively intercept these parameters, inform the user they are authenticating for `%service-name%`, and return them safely to `%url_encoded_path%` upon success!

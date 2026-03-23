@@ -903,6 +903,7 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 #include <libwebsockets/lws-jose.h>
 #include <libwebsockets/lws-jws.h>
 #include <libwebsockets/lws-jwe.h>
+#include <libwebsockets/lws-jwt-auth.h>
 
 #endif
 

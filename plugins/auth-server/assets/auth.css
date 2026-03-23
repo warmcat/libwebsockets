@@ -241,6 +241,11 @@ input:focus {
 .qrcode-container {
     background: white; padding: 10px; border-radius: 8px; display: inline-block; margin: 15px 0;
 }
+.qrcode-container img {
+    width: 200px;
+    height: 200px;
+    display: block;
+}
 .totp-secret-text {
     font-family: monospace; letter-spacing: 2px; font-weight: bold; margin-bottom: 20px;
 }

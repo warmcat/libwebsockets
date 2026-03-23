@@ -18,12 +18,36 @@ document.addEventListener('DOMContentLoaded', () => {
     let isRegistrationMode = false;
     let totpRequired = false;
 
+    const urlParams = new URLSearchParams(window.location.search);
+    const clientId = urlParams.get('client_id');
+    const redirectUri = urlParams.get('redirect_uri');
+    const state = urlParams.get('state');
+    const codeChallenge = urlParams.get('code_challenge');
+    const codeChallengeMethod = urlParams.get('code_challenge_method');
+    const serviceName = urlParams.get('service_name');
+
     // Check backend status automatically
     async function checkServerStatus() {
         try {
-            const response = await fetch('/auth/api/status');
+            const response = await fetch('/api/status');
             if (response.ok) {
                 const data = await response.json();
+                if (data.csrf_token) window.csrf_token = data.csrf_token;
+
+                if (data.logged_in) {
+                    if (clientId && redirectUri) {
+                        window.location.href = `/api/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state||'')}&response_type=code` + (codeChallenge ? `&code_challenge=${encodeURIComponent(codeChallenge)}` : '') + (codeChallengeMethod ? `&code_challenge_method=${encodeURIComponent(codeChallengeMethod)}` : '');
+                        return;
+                    } else if (redirectUri) {
+                        window.location.href = redirectUri;
+                        return;
+                    } else {
+                        loginForm.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 2rem;"><p>Active session detected. You are securely authenticated.</p></div>`;
+                        subtitle.innerText = "Authentication Successful";
+                        return;
+                    }
+                }
+
                 if (data.users_empty) {
                     isRegistrationMode = true;
                     loginForm.classList.add('hidden');
@@ -58,9 +82,13 @@ document.addEventListener('DOMContentLoaded', () => {
         loginForm.classList.remove('hidden');
         logToggleBox.classList.add('hidden');
         regToggleBox.classList.remove('hidden');
-        subtitle.innerText = "Authenticate your session to continue";
+        subtitle.innerText = serviceName ? "Authenticate to access " + serviceName : "Authenticate your session to continue";
         hideNotif();
     });
+
+    if (serviceName && !isRegistrationMode) {
+        subtitle.innerText = "Authenticate to access " + serviceName;
+    }
 
     // Form Submissions
     loginForm.addEventListener('submit', async (e) => {
@@ -70,13 +98,21 @@ document.addEventListener('DOMContentLoaded', () => {
         hideNotif();
 
         const formData = new FormData(loginForm);
-        const payload = Object.fromEntries(formData.entries());
+        formData.append("csrf_token", window.csrf_token || "");
+
+        if (clientId) formData.append("client_id", clientId);
+        if (redirectUri) formData.append("redirect_uri", redirectUri);
+        if (state) formData.append("state", state);
+        if (codeChallenge) formData.append("code_challenge", codeChallenge);
+        if (codeChallengeMethod) formData.append("code_challenge_method", codeChallengeMethod);
 
         try {
             // Send to auth plugin endpoint handled by LWS
-            const response = await fetch('/auth/api/login', {
+            const response = await fetch('/api/login', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
                 body: new URLSearchParams(formData).toString()
             });
 
@@ -97,8 +133,11 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (response.ok) {
                 const data = await response.json();
                 showNotif('success', 'Clearance accepted. Welcome.');
-                // Usually LWS sets cookie, but we can also store token in memory if preferred
-                setTimeout(() => window.location.href = '/', 1000);
+                if (data.redirect) {
+                    setTimeout(() => window.location.href = data.redirect, 1000);
+                } else {
+                    setTimeout(() => window.location.href = '/', 1000);
+                }
             } else {
                 showNotif('error', 'Server anomaly detected.');
             }
@@ -116,12 +155,15 @@ document.addEventListener('DOMContentLoaded', () => {
         hideNotif();
 
         const formData = new FormData(registerForm);
+        formData.append("csrf_token", window.csrf_token || "");
         const payload = Object.fromEntries(formData.entries());
 
         try {
-            const response = await fetch('/auth/api/register', {
+            const response = await fetch('/api/register', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
                 body: new URLSearchParams(formData).toString()
             });
 

@@ -37,6 +37,7 @@ if (LWS_WITH_JOSE)
 		jose/jwe/jwe-rsa-aescbc.c
 		jose/jwe/jwe-rsa-aesgcm.c
 		jose/jwe/jwe-ecdh-es-aeskw.c
+		jose/jws/jwt-auth.c
 		)
 endif()
 
