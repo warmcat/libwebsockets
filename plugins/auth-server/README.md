@@ -21,6 +21,9 @@ The plugin can be enabled on any vhost. Its behavior is customized using Per-Vho
 | `jwk_path` | Required: Absolute path to the JSON Web Key (JWK) for JWT signing. If missing, an EC P-256 key is generated and saved here automatically. | `/var/db/lws-auth.jwk` |
 | `jwt_alg` | Optional: The JWS signing algorithm to use for issued tokens. Defaults to `ES256`. | `RS256` |
 | `registration_ui` | Optional. If `1` or `true`, exposes public web UI endpoints. Useful for general signups. Defaults to `0` or false. | `true` |
+| `email-from` | Optional: The sender email address for outgoing SMTP verification emails. Defaults to `noreply@warmcat.com`. | `noreply@example.com` |
+| `email-subject` | Optional: The subject line for the verification email. Defaults to `Complete your registration`. | `Please confirm your ExampleApp account` |
+| `email-body` | Optional: The template string for the email body. It must include exactly one `%s` token which will be dynamically replaced by the confirmation URL. | `Click here:\n\n%s` |
 
 ## Example JSON Configuration
 
@@ -42,13 +45,19 @@ This example mounts the front-end UI at `/auth` and configures the `lws-auth-ser
       "default": "index.html"
     }],
     "ws-protocols": [{
+      "lws-smtp-client": {
+        "status": "ok"
+      },
       "lws-auth-server": {
         "status": "ok",
         "db_path": "/var/db/lws-auth.sqlite3",
         "auth_domain": "auth.warmcat.com",
         "jwk_path": "/var/db/lws-auth.jwk",
         "jwt_alg": "ES256",
-        "registration_ui": "1"
+        "registration_ui": "1",
+        "email-from": "admin@auth.warmcat.com",
+        "email-subject": "Welcome! Please verify",
+        "email-body": "Hello,\n\nPlease verify your account by clicking the following link:\n\n%s\n\nThanks!"
       }
     }]
   }]
@@ -59,7 +68,7 @@ This example mounts the front-end UI at `/auth` and configures the `lws-auth-ser
 
 By default, the `registration_ui` option is disabled (`false` or `0`) to prevent public sign-ups in purely administrative environments.
 
-However, if the `users` table in your SQLite database is completely empty, the system will temporarily permit registration of your initial administrative user through the normal web UI **if and only if** you are connecting from localhost (`127.0.0.1`, `::1`, or `localhost`).
+However, if the `users` table in your SQLite database is completely empty, the system will temporarily permit registration of your initial administrative user through the normal web UI **if and only if** you are connecting from localhost (`127.0.0.1`, `::1`, or `localhost`) or an unroutable private LAN address (e.g. `10.x.x.x`, `192.168.x.x`).
 
 The first user created via this localhost bootstrap method is automatically granted full admin privileges (`grant_level` 2) for the `auth_server` service.
 

@@ -50,7 +50,7 @@ lws_plat_dlopen(struct lws_plugin **pplugin, const char *libpath,
 
 	l = dlopen(libpath, RTLD_NOW);
 	if (!l) {
-		lwsl_info("%s: Error loading DSO: %s\n", __func__, dlerror());
+		lwsl_warn("%s: Error loading DSO: %s\n", __func__, dlerror());
 
 		return NULL;
 	}
@@ -71,19 +71,19 @@ lws_plat_dlopen(struct lws_plugin **pplugin, const char *libpath,
 
 	if (hdr->api_magic != LWS_PLUGIN_API_MAGIC &&
 	    hdr->api_magic != 191) {
-		lwsl_info("%s: plugin %s has outdated api %d (vs %d)\n",
+		lwsl_warn("%s: plugin %s has outdated api %d (vs %d)\n",
 			 __func__, libpath, hdr->api_magic,
 			 LWS_PLUGIN_API_MAGIC);
 		goto bail;
 	}
 
 	if (strcmp(hdr->lws_build_hash, LWS_BUILD_HASH)) {
-		lwsl_info("%s: build hash mismatch\n", __func__);
+		lwsl_warn("%s: build hash mismatch\n", __func__);
 		goto bail;
 	}
 
 	if (strcmp(hdr->_class, _class)) {
-		lwsl_info("%s: class mismatch\n", __func__);
+		lwsl_warn("%s: class mismatch\n", __func__);
 		goto bail;
 	}
 

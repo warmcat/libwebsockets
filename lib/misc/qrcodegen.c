@@ -25,6 +25,7 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
+#include <libwebsockets.h>
 #include <libwebsockets/qrcodegen.h>
 
 #ifndef QRCODEGEN_TEST
@@ -129,7 +130,7 @@ static const int PENALTY_N4 = 10;
 /*---- High-level QR Code encoding functions ----*/
 
 // Public function - see documentation comment in header file.
-bool qrcodegen_encodeText(const char *text, uint8_t tempBuffer[], uint8_t qrcode[],
+LWS_VISIBLE bool qrcodegen_encodeText(const char *text, uint8_t tempBuffer[], uint8_t qrcode[],
 		enum qrcodegen_Ecc ecl, int minVersion, int maxVersion, enum qrcodegen_Mask mask, bool boostEcl) {
 
 	size_t textLen = strlen(text);
@@ -167,7 +168,7 @@ fail:
 
 
 // Public function - see documentation comment in header file.
-bool qrcodegen_encodeBinary(uint8_t dataAndTemp[], size_t dataLen, uint8_t qrcode[],
+LWS_VISIBLE bool qrcodegen_encodeBinary(uint8_t dataAndTemp[], size_t dataLen, uint8_t qrcode[],
 		enum qrcodegen_Ecc ecl, int minVersion, int maxVersion, enum qrcodegen_Mask mask, bool boostEcl) {
 
 	struct qrcodegen_Segment seg;
@@ -196,7 +197,7 @@ testable void appendBitsToBuffer(unsigned int val, int numBits, uint8_t buffer[]
 /*---- Low-level QR Code encoding functions ----*/
 
 // Public function - see documentation comment in header file.
-bool qrcodegen_encodeSegments(const struct qrcodegen_Segment segs[], size_t len,
+LWS_VISIBLE bool qrcodegen_encodeSegments(const struct qrcodegen_Segment segs[], size_t len,
 		enum qrcodegen_Ecc ecl, uint8_t tempBuffer[], uint8_t qrcode[]) {
 	return qrcodegen_encodeSegmentsAdvanced(segs, len, ecl,
 		qrcodegen_VERSION_MIN, qrcodegen_VERSION_MAX, qrcodegen_Mask_AUTO, true, tempBuffer, qrcode);
@@ -204,7 +205,7 @@ bool qrcodegen_encodeSegments(const struct qrcodegen_Segment segs[], size_t len,
 
 
 // Public function - see documentation comment in header file.
-bool qrcodegen_encodeSegmentsAdvanced(const struct qrcodegen_Segment segs[], size_t len, enum qrcodegen_Ecc ecl,
+LWS_VISIBLE bool qrcodegen_encodeSegmentsAdvanced(const struct qrcodegen_Segment segs[], size_t len, enum qrcodegen_Ecc ecl,
 		int minVersion, int maxVersion, enum qrcodegen_Mask mask, bool boostEcl, uint8_t tempBuffer[], uint8_t qrcode[]) {
 	assert(segs != NULL || len == 0);
 	assert(qrcodegen_VERSION_MIN <= minVersion && minVersion <= maxVersion && maxVersion <= qrcodegen_VERSION_MAX);
@@ -751,7 +752,7 @@ static void finderPenaltyAddHistory(int currentRunLength, int runHistory[7], int
 /*---- Basic QR Code information ----*/
 
 // Public function - see documentation comment in header file.
-int qrcodegen_getSize(const uint8_t qrcode[]) {
+LWS_VISIBLE int qrcodegen_getSize(const uint8_t qrcode[]) {
 	assert(qrcode != NULL);
 	int result = qrcode[0];
 	assert((qrcodegen_VERSION_MIN * 4 + 17) <= result
@@ -761,7 +762,7 @@ int qrcodegen_getSize(const uint8_t qrcode[]) {
 
 
 // Public function - see documentation comment in header file.
-bool qrcodegen_getModule(const uint8_t qrcode[], int x, int y) {
+LWS_VISIBLE bool qrcodegen_getModule(const uint8_t qrcode[], int x, int y) {
 	assert(qrcode != NULL);
 	int qrsize = qrcode[0];
 	return (0 <= x && x < qrsize && 0 <= y && y < qrsize) && getModuleBounded(qrcode, x, y);
@@ -809,7 +810,7 @@ static bool getBit(int x, int i) {
 /*---- Segment handling ----*/
 
 // Public function - see documentation comment in header file.
-bool qrcodegen_isNumeric(const char *text) {
+LWS_VISIBLE bool qrcodegen_isNumeric(const char *text) {
 	assert(text != NULL);
 	for (; *text != '\0'; text++) {
 		if (*text < '0' || *text > '9')
@@ -820,7 +821,7 @@ bool qrcodegen_isNumeric(const char *text) {
 
 
 // Public function - see documentation comment in header file.
-bool qrcodegen_isAlphanumeric(const char *text) {
+LWS_VISIBLE bool qrcodegen_isAlphanumeric(const char *text) {
 	assert(text != NULL);
 	for (; *text != '\0'; text++) {
 		if (strchr(ALPHANUMERIC_CHARSET, *text) == NULL)
@@ -831,7 +832,7 @@ bool qrcodegen_isAlphanumeric(const char *text) {
 
 
 // Public function - see documentation comment in header file.
-size_t qrcodegen_calcSegmentBufferSize(enum qrcodegen_Mode mode, size_t numChars) {
+LWS_VISIBLE size_t qrcodegen_calcSegmentBufferSize(enum qrcodegen_Mode mode, size_t numChars) {
 	int temp = calcSegmentBitLength(mode, numChars);
 	if (temp == LENGTH_OVERFLOW)
 		return SIZE_MAX;
@@ -875,7 +876,7 @@ testable int calcSegmentBitLength(enum qrcodegen_Mode mode, size_t numChars) {
 
 
 // Public function - see documentation comment in header file.
-struct qrcodegen_Segment qrcodegen_makeBytes(const uint8_t data[], size_t len, uint8_t buf[]) {
+LWS_VISIBLE struct qrcodegen_Segment qrcodegen_makeBytes(const uint8_t data[], size_t len, uint8_t buf[]) {
 	assert(data != NULL || len == 0);
 	struct qrcodegen_Segment result;
 	result.mode = qrcodegen_Mode_BYTE;
@@ -890,7 +891,7 @@ struct qrcodegen_Segment qrcodegen_makeBytes(const uint8_t data[], size_t len, u
 
 
 // Public function - see documentation comment in header file.
-struct qrcodegen_Segment qrcodegen_makeNumeric(const char *digits, uint8_t buf[]) {
+LWS_VISIBLE struct qrcodegen_Segment qrcodegen_makeNumeric(const char *digits, uint8_t buf[]) {
 	assert(digits != NULL);
 	struct qrcodegen_Segment result;
 	size_t len = strlen(digits);
@@ -924,7 +925,7 @@ struct qrcodegen_Segment qrcodegen_makeNumeric(const char *digits, uint8_t buf[]
 
 
 // Public function - see documentation comment in header file.
-struct qrcodegen_Segment qrcodegen_makeAlphanumeric(const char *text, uint8_t buf[]) {
+LWS_VISIBLE struct qrcodegen_Segment qrcodegen_makeAlphanumeric(const char *text, uint8_t buf[]) {
 	assert(text != NULL);
 	struct qrcodegen_Segment result;
 	size_t len = strlen(text);
@@ -958,7 +959,7 @@ struct qrcodegen_Segment qrcodegen_makeAlphanumeric(const char *text, uint8_t bu
 
 
 // Public function - see documentation comment in header file.
-struct qrcodegen_Segment qrcodegen_makeEci(long assignVal, uint8_t buf[]) {
+LWS_VISIBLE struct qrcodegen_Segment qrcodegen_makeEci(long assignVal, uint8_t buf[]) {
 	struct qrcodegen_Segment result;
 	result.mode = qrcodegen_Mode_ECI;
 	result.numChars = 0;

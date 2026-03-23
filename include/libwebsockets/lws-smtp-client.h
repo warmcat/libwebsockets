@@ -17,8 +17,16 @@
 #ifndef _LWS_SMTP_CLIENT_H
 #define _LWS_SMTP_CLIENT_H
 
+typedef struct lws_smtp_email {
+	void *data;
+	const char *from;
+	const char *to;
+	const char *subject;
+	const char *body;
+} lws_smtp_email_t;
+
 typedef struct lws_smtp_client_ops {
-	int (*send_email)(struct lws_context *cx, struct lws_vhost *vh, const char *to, const char *url);
+	int (*send_email)(struct lws_context *cx, struct lws_vhost *vh, const lws_smtp_email_t *email);
 } lws_smtp_client_ops_t;
 
 #endif

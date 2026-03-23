@@ -49,6 +49,9 @@ struct per_vhost_data__auth_server {
 	char				jwt_alg[16];
 	struct lws_jwk			jwk;
 	int				registration_ui;
+	char				email_from[128];
+	char				email_subject[256];
+	char				email_body[1024];
 	const lws_smtp_client_ops_t	*smtp;
 	lws_dll2_owner_t		ip_strikes;
 	lws_dll2_owner_t		ip_bans;
@@ -100,49 +103,13 @@ typedef struct lws_auth_registration {
 	unsigned long long		expires;
 } lws_auth_registration_t;
 
-#if 0
-static const lws_struct_map_t lsm_users[] = {
-	LSM_UNSIGNED	(lws_auth_user_t, uid,				"uid"),
-	LSM_STRING_PTR	(lws_auth_user_t, username,			"username"),
-	LSM_STRING_PTR	(lws_auth_user_t, password_hash,		"password_hash"),
-	LSM_STRING_PTR	(lws_auth_user_t, salt,				"salt"),
-	LSM_STRING_PTR	(lws_auth_user_t, totp_secret,			"totp_secret"),
+struct per_session_data__auth_server {
+	struct lws_spa                  *spa;
+	char                            requesting_url[64];
+	unsigned int                    http_response_code;
+	int                             totp_required;
+	struct lws_buflist              *tx_buflist;
 };
-
-static const lws_struct_map_t lsm_services[] = {
-	LSM_UNSIGNED	(lws_auth_service_t, service_id,		"service_id"),
-	LSM_STRING_PTR	(lws_auth_service_t, name,			"name"),
-};
-
-static const lws_struct_map_t lsm_grants[] = {
-	LSM_UNSIGNED	(lws_auth_grant_t, grant_id,			"grant_id"),
-	LSM_UNSIGNED	(lws_auth_grant_t, uid,				"uid"),
-	LSM_UNSIGNED	(lws_auth_grant_t, service_id,			"service_id"),
-	LSM_UNSIGNED	(lws_auth_grant_t, grant_level,			"grant_level"),
-};
-
-static const lws_struct_map_t lsm_registrations[] = {
-	LSM_STRING_PTR	(lws_auth_registration_t, email,		"email"),
-	LSM_STRING_PTR	(lws_auth_registration_t, password_hash,	"password_hash"),
-	LSM_STRING_PTR	(lws_auth_registration_t, salt,			"salt"),
-	LSM_STRING_PTR	(lws_auth_registration_t, totp_secret,		"totp_secret"),
-	LSM_STRING_PTR	(lws_auth_registration_t, verify_hash,		"verify_hash"),
-	LSM_UNSIGNED	(lws_auth_registration_t, expires,		"expires"),
-};
-
-static const lws_struct_map_t lsm_bans[] = {
-	LSM_STRING_PTR	(auth_server_ban_t, ip,				"ip"),
-	LSM_UNSIGNED	(auth_server_ban_t, banned_until,		"banned_until"),
-};
-
-static const lws_struct_map_t lsm_schema_auth_server[] = {
-	LSM_SCHEMA_DLL2	(lws_auth_user_t, list, NULL, lsm_users,	"users"),
-	LSM_SCHEMA_DLL2	(lws_auth_service_t, list, NULL, lsm_services,	"services"),
-	LSM_SCHEMA_DLL2	(lws_auth_grant_t, list, NULL, lsm_grants,	"grants"),
-	LSM_SCHEMA_DLL2	(lws_auth_registration_t, list, NULL, lsm_registrations, "registrations"),
-	LSM_SCHEMA_DLL2	(auth_server_ban_t, list, NULL, lsm_bans,	"bans"),
-};
-#endif
 
 static const char *schema_init =
 
@@ -176,13 +143,6 @@ static const char *schema_init =
 	"  ip TEXT UNIQUE PRIMARY KEY,"
 	"  banned_until INTEGER"
 	");";
-
-struct per_session_data__auth_server {
-	struct		lws_spa *spa;
-	char		result[8192];
-	int		result_len;
-	char		requesting_url[64];
-};
 
 static int
 lws_auth_totp_compute(const char *secret_b32, uint64_t t, uint32_t *code)
@@ -228,10 +188,9 @@ lws_auth_totp_verify(const char *secret_b32, uint32_t code)
 
 	/* check current, previous, and next window to allow for clock drift */
 	for (i = -1; i <= 1; i++)
-		if (!lws_auth_totp_compute(secret_b32, (uint64_t)((int64_t)t + i), &c)) {
-			if (c == code)
-				return 0;
-		}
+		if (!lws_auth_totp_compute(secret_b32, (uint64_t)((int64_t)t + i), &c) &&
+		    c == code)
+			return 0;
 
 	return -1;
 }
@@ -311,8 +270,7 @@ lws_auth_check_credentials(struct per_vhost_data__auth_server *vhd,
 {
 	sqlite3_stmt *stmt;
 	const char *query = "SELECT uid, password_hash, salt FROM users WHERE username = ?";
-        const char *stored_hash;
-        const char *salt;
+        const char *stored_hash, *salt;
         struct lws_genhash_ctx ctx;
         uint8_t hash[64]; /* SHA-512 outputs 64 bytes */
 	char hex[129]; /* 64 * 2 + 1 */
@@ -421,38 +379,94 @@ auth_record_strike(struct per_vhost_data__auth_server *vhd, const char *ip)
 }
 
 static int
+send_auth_headers(struct lws *wsi, struct per_session_data__auth_server *pss, const char *content_type)
+{
+	uint8_t buf[2048 + LWS_PRE], *start = &buf[LWS_PRE], *p = start, *end = &buf[sizeof(buf) - 1], *pq;
+	unsigned int resp_code = pss->http_response_code ? pss->http_response_code : HTTP_STATUS_OK;
+        size_t amount = (size_t)lws_buflist_next_segment_len(&pss->tx_buflist, &pq);
+
+        if (lws_add_http_common_headers(wsi, resp_code, content_type,
+                                        (unsigned int)(amount ? amount - LWS_PRE: LWS_ILLEGAL_HTTP_CONTENT_LEN), &p,
+                                        end)) {
+                lwsl_user("[AUTH-TRX] send_auth_headers custom hdr err\n");
+
+                return -1;
+        }
+        if (pss->totp_required &&
+            lws_add_http_header_by_name(wsi, (unsigned char *)"X-Requires-TOTP:", (unsigned char *)"1", 1, &p, end)) {
+                lwsl_user("[AUTH-TRX] send_auth_headers custom hdr err\n");
+
+                return -1;
+        }
+	if (lws_finalize_write_http_header(wsi, start, &p, end)) {
+		lwsl_user("[AUTH-TRX] send_auth_headers final hdr err\n");
+		return -1;
+	}
+
+        if (pss->tx_buflist)
+                lws_callback_on_writable(wsi);
+        else
+                return lws_http_transaction_completed(wsi);
+
+        return 0;
+}
+
+static int
 lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		   struct per_session_data__auth_server *pss)
 {
-	char peer[64];
-	lws_get_peer_simple(wsi, peer, sizeof(peer));
-
+	char peer[64], jwt[1024], pl[1024 + LWS_PRE];
 	const char *user = lws_spa_get_string(pss->spa, EP_USER);
 	const char *pass = lws_spa_get_string(pss->spa, EP_PASS);
 	const char *totp_code_str = lws_spa_get_string(pss->spa, EP_TOTP);
-	uint32_t uid = 0;
-	char jwt[1024];
-	size_t jwt_len = sizeof(jwt);
+        sqlite3_stmt *stmt_chk, *stmt;
+        size_t jwt_len = sizeof(jwt);
+        char totp_secret[64] = {0};
+        int len, users_empty = 0;
+        uint32_t uid = 0;
+
+        lws_get_peer_simple(wsi, peer, sizeof(peer));
+
+        if (sqlite3_prepare_v2(vhd->db, "SELECT COUNT(*) FROM users", -1,
+				   &stmt_chk, NULL) == SQLITE_OK) {
+		if (sqlite3_step(stmt_chk) == SQLITE_ROW &&
+			sqlite3_column_int(stmt_chk, 0) == 0) {
+			users_empty = 1;
+		}
+		sqlite3_finalize(stmt_chk);
+	}
+
+	if (users_empty) {
+		lwsl_user("[AUTH-TRX] login rejected (database completely empty)\n");
+		auth_record_strike(vhd, peer);
+		pss->http_response_code = HTTP_STATUS_UNAUTHORIZED;
+                len = lws_snprintf(
+                    pl + LWS_PRE, sizeof(pl) - LWS_PRE,
+                    "{\"error\":\"Network uninitialized. Click 'Register here' "
+                    "below to bootstrap the Administrator account.\"}");
+                goto send;
+        }
 
 	if (!user || !pass) {
 		lwsl_err("%s: Missing user or pass parameter\n", __func__);
 		auth_record_strike(vhd, peer);
-		lws_return_http_status(wsi, HTTP_STATUS_UNAUTHORIZED, NULL);
-		return lws_http_transaction_completed(wsi);
+		pss->http_response_code = HTTP_STATUS_UNAUTHORIZED;
+		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Missing parameter\"}");
+		goto send;
 	}
 
 	if (lws_auth_check_credentials(vhd, user, pass, &uid)) {
 		lwsl_err("%s: Validation failed for user '%s'\n", __func__, user);
+		lwsl_user("[AUTH-TRX] login bad credentials\n");
 		auth_record_strike(vhd, peer);
-		lws_return_http_status(wsi, HTTP_STATUS_UNAUTHORIZED, NULL);
-		return lws_http_transaction_completed(wsi);
+		pss->http_response_code = HTTP_STATUS_UNAUTHORIZED;
+		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Validation failed\"}");
+		goto send;
 	}
 
 	lwsl_user("%s: User '%s' validated successfully (uid %u)\n", __func__, user, uid);
 
-	sqlite3_stmt *stmt;
 	const char *query = "SELECT totp_secret FROM users WHERE uid = ?";
-	char totp_secret[64] = {0};
 
 	if (sqlite3_prepare_v2(vhd->db, query, -1, &stmt, NULL) == SQLITE_OK) {
 		sqlite3_bind_int(stmt, 1, (int)uid);
@@ -466,71 +480,79 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 
 	if (totp_secret[0]) {
 		if (!totp_code_str || !totp_code_str[0]) {
-			uint8_t buf[1024 + LWS_PRE];
-			uint8_t *start = &buf[LWS_PRE], *p = start, *end = &buf[sizeof(buf) - 1];
-
-			if (lws_add_http_common_headers(wsi, HTTP_STATUS_UNAUTHORIZED, "application/json", 0, &p, end))
-				return -1;
-			if (lws_add_http_header_by_name(wsi, (unsigned char *)"x-requires-totp:", (unsigned char *)"1", 1, &p, end))
-				return -1;
-			if (lws_finalize_write_http_header(wsi, start, &p, end))
-				return -1;
-
-			lws_write(wsi, start, lws_ptr_diff_size_t(p, start), LWS_WRITE_HTTP_HEADERS | LWS_WRITE_H2_STREAM_END);
-			return -1;
+			lwsl_user("[AUTH-TRX] login missing TOTP\n");
+			pss->http_response_code = HTTP_STATUS_UNAUTHORIZED;
+			pss->totp_required = 1;
+			len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Authenticator Code Required\"}");
+			goto send;
 		}
 
 		uint32_t code = (uint32_t)atoi(totp_code_str);
 		if (lws_auth_totp_verify(totp_secret, code)) {
 			auth_record_strike(vhd, peer);
-			lws_return_http_status(wsi, HTTP_STATUS_UNAUTHORIZED, "Invalid Authenticator Code.");
-			return lws_http_transaction_completed(wsi);
+			lwsl_user("[AUTH-TRX] login bad TOTP\n");
+			pss->http_response_code = HTTP_STATUS_UNAUTHORIZED;
+			len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Invalid Authenticator Code\"}");
+			goto send;
 		}
 	}
 
 	if (!lws_auth_generate_token(vhd, user, uid, jwt, &jwt_len)) {
-		pss->result_len = lws_snprintf(pss->result, sizeof(pss->result), "{\"token\":\"%s\"}", jwt);
-		lws_callback_on_writable(wsi);
-                return 0;
+		pss->http_response_code = HTTP_STATUS_OK;
+		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"token\":\"%s\"}", jwt);
+		goto send;
         }
 
-	lws_return_http_status(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR, NULL);
+	lwsl_user("[AUTH-TRX] login token generation failed, dropping conn.\n");
+	pss->http_response_code = HTTP_STATUS_INTERNAL_SERVER_ERROR;
+	len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Internal Error\"}");
 
-	return -1;
+send:
+	if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)pl, (size_t)len + LWS_PRE) < 0)
+		return -1;
+
+	return send_auth_headers(wsi, pss, "application/json");
 }
 
 static int
 lws_auth_api_register(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		      struct per_session_data__auth_server *pss)
 {
-	int users_empty = 0, is_local;
-	sqlite3_stmt *stmt_chk;
+	char pl[1024 + LWS_PRE], peer[64], auto_salt[64] = {0}, hex[129] = {0}, totp_b32[64] = {0}, verify_hash[64] = {0};
+        uint8_t salt_raw[16], hash[64], totp_bytes[10], vhash_raw[16];
+        sqlite3_stmt *stmt_chk, *stmt;
+        struct lws_genhash_ctx ctx;
+        int len, users_empty = 0;
         const char *user, *pass;
-        char peer[64];
 
         if (sqlite3_prepare_v2(vhd->db, "SELECT COUNT(*) FROM users", -1,
-                                   &stmt_chk, NULL) == SQLITE_OK &&
-            sqlite3_step(stmt_chk) == SQLITE_ROW &&
-            sqlite3_column_int(stmt_chk, 0) == 0) {
+                                   &stmt_chk, NULL) == SQLITE_OK) {
+            if (sqlite3_step(stmt_chk) == SQLITE_ROW &&
+                sqlite3_column_int(stmt_chk, 0) == 0) {
                 users_empty = 1;
-                sqlite3_finalize(stmt_chk);
+            }
+            sqlite3_finalize(stmt_chk);
         }
 
         lws_get_peer_simple(wsi, peer, sizeof(peer));
-	is_local = lws_is_local_address(peer);
 
 	if (users_empty) {
-		if (!is_local) {
-			lws_return_http_status(wsi, HTTP_STATUS_SERVICE_UNAVAILABLE, "Please try again after this service has been configured by the administrator");
-			return lws_http_transaction_completed(wsi);
+		if (!lws_is_local_address(peer) && !lws_is_lan_address(peer)) {
+			lwsl_user("[AUTH-TRX] reg denied (admin local/lan only)\n");
+			pss->http_response_code = HTTP_STATUS_SERVICE_UNAVAILABLE;
+			len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Please try again after this service has been configured by the administrator\"}");
+			goto send;
 		}
-		/* Allow localhost admin bootstrap regardless of registration_ui */
-	} else
+		/* Allow localhost/LAN admin bootstrap regardless of registration_ui */
+	} else {
 		/* Not empty: enforce public registration policy */
 		if (!vhd->registration_ui) {
-			lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, "Registration Disabled");
-			return lws_http_transaction_completed(wsi);
+			lwsl_user("[AUTH-TRX] reg denied (ui disabled)\n");
+			pss->http_response_code = HTTP_STATUS_FORBIDDEN;
+			len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Registration Disabled\"}");
+			goto send;
 		}
+	}
 
 	user = lws_spa_get_string(pss->spa, EP_USER);
 	pass = lws_spa_get_string(pss->spa, EP_PASS);
@@ -539,14 +561,18 @@ lws_auth_api_register(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 
 	if (!user || !pass) {
 		lwsl_err("%s: Missing credentials in POST\n", __func__);
-		lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, "Missing Credentials");
-		return lws_http_transaction_completed(wsi);
+		lwsl_user("[AUTH-TRX] reg missing credentials POST\n");
+		pss->http_response_code = HTTP_STATUS_BAD_REQUEST;
+		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Missing Credentials\"}");
+		goto send;
 	}
 
 	int user_len = (int)strlen(user);
 	if (user_len < 3 || user_len > 64) {
-		lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, "Invalid Username length");
-		return lws_http_transaction_completed(wsi);
+		lwsl_user("[AUTH-TRX] reg invalid username length\n");
+		pss->http_response_code = HTTP_STATUS_BAD_REQUEST;
+		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Invalid Username length\"}");
+		goto send;
 	}
 
 	for (int i = 0; i < user_len; i++) {
@@ -554,29 +580,19 @@ lws_auth_api_register(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
 		      (c >= '0' && c <= '9') || c == '@' || c == '.' ||
 		      c == '-' || c == '_' || c == '+')) {
-			lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, "Invalid Username characters");
-			return lws_http_transaction_completed(wsi);
+			lwsl_user("[AUTH-TRX] reg invalid charset\n");
+			pss->http_response_code = HTTP_STATUS_BAD_REQUEST;
+			len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Invalid Username characters\"}");
+			goto send;
 		}
 	}
 
-	sqlite3_stmt *stmt;
 	const char *query = "INSERT OR REPLACE INTO registrations (email, password_hash, salt, totp_secret, verify_hash, expires) VALUES (?, ?, ?, ?, ?, ?)";
-	struct lws_genhash_ctx ctx;
-	uint8_t hash[64];
-	char hex[129];
 
-	uint8_t salt_raw[16];
-	char auto_salt[32];
 	lws_get_random(vhd->context, salt_raw, sizeof(salt_raw));
 	lws_b32_encode_string((const char *)salt_raw, sizeof(salt_raw), auto_salt, sizeof(auto_salt));
-
-	uint8_t totp_bytes[10];
-	char totp_b32[20];
 	lws_get_random(vhd->context, totp_bytes, sizeof(totp_bytes));
 	lws_b32_encode_string((const char *)totp_bytes, sizeof(totp_bytes), totp_b32, sizeof(totp_b32));
-
-	uint8_t vhash_raw[16];
-	char verify_hash[33];
 	lws_get_random(vhd->context, vhash_raw, sizeof(vhash_raw));
 	lws_hex_from_byte_array(vhash_raw, sizeof(vhash_raw), verify_hash, sizeof(verify_hash));
 
@@ -588,36 +604,67 @@ lws_auth_api_register(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	    !lws_genhash_destroy(&ctx, hash)) {
 		lws_genhash_render(LWS_GENHASH_TYPE_SHA512, hash, hex, sizeof(hex));
 
-		if (sqlite3_prepare_v2(vhd->db, query, -1, &stmt, NULL) == SQLITE_OK) {
-			sqlite3_bind_text(stmt, 1, user, -1, SQLITE_STATIC);
-			sqlite3_bind_text(stmt, 2, hex, -1, SQLITE_STATIC);
-			sqlite3_bind_text(stmt, 3, auto_salt, -1, SQLITE_STATIC);
-			sqlite3_bind_text(stmt, 4, totp_b32, -1, SQLITE_STATIC);
-			sqlite3_bind_text(stmt, 5, verify_hash, -1, SQLITE_STATIC);
-                        sqlite3_bind_int64(stmt, 6, (sqlite_int64)expires);
-                        if (sqlite3_step(stmt) == SQLITE_DONE) {
+		if (sqlite3_prepare_v2(vhd->db, query, -1, &stmt, NULL) != SQLITE_OK)
+                        goto fail;
 
-				if (vhd->smtp && vhd->smtp->send_email) {
-					char url[512];
-					lws_snprintf(url, sizeof(url), "https://%s/auth/api/verify?h=%s", vhd->auth_domain, verify_hash);
-					vhd->smtp->send_email(vhd->context, vhd->vhost, user, url);
-				}
+                sqlite3_bind_text(stmt, 1, user, -1, SQLITE_STATIC);
+                sqlite3_bind_text(stmt, 2, hex, -1, SQLITE_STATIC);
+                sqlite3_bind_text(stmt, 3, auto_salt, -1, SQLITE_STATIC);
+                sqlite3_bind_text(stmt, 4, totp_b32, -1, SQLITE_STATIC);
+                sqlite3_bind_text(stmt, 5, verify_hash, -1, SQLITE_STATIC);
+                sqlite3_bind_int64(stmt, 6, (sqlite_int64)expires);
+                int sr = sqlite3_step(stmt);
+                sqlite3_finalize(stmt);
 
-				pss->result_len = lws_snprintf(pss->result, sizeof(pss->result), "{\"status\":\"Please check your email\"}");
-				lws_callback_on_writable(wsi);
-			} else {
-				auth_record_strike(vhd, peer);
-				lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, "User creation failed");
-				sqlite3_finalize(stmt);
-				return lws_http_transaction_completed(wsi);
-			}
-			sqlite3_finalize(stmt);
-			return 0;
-		}
+                if (sr != SQLITE_DONE) {
+                        lwsl_err("[AUTH-TRX] DB insert failed: %s\n", sqlite3_errmsg(vhd->db));
+                        auth_record_strike(vhd, peer);
+                        pss->http_response_code = HTTP_STATUS_BAD_REQUEST;
+                        len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"User creation failed\"}");
+                        goto send;
+                }
+
+                if (vhd->smtp && vhd->smtp->send_email) {
+                        char url[512], mbody[1024];
+
+                        lws_snprintf(url, sizeof(url), "https://%s/auth/api/verify?h=%s",
+                                        lws_get_vhost_name(vhd->vhost), verify_hash);
+                        lws_snprintf(mbody, sizeof(mbody), vhd->email_body, url);
+
+                        lws_smtp_email_t payload;
+                        memset(&payload, 0, sizeof(payload));
+                        payload.from = vhd->email_from;
+                        payload.to = user;
+                        payload.subject = vhd->email_subject;
+                        payload.body = mbody;
+
+                        if (vhd->smtp->send_email(vhd->context, vhd->vhost, &payload)) {
+                                lwsl_err("Failed to queue verification email\n");
+                                pss->http_response_code = HTTP_STATUS_INTERNAL_SERVER_ERROR;
+                                len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Email Delivery Failed\"}");
+
+                                goto send;
+                        }
+                }
+
+                pss->http_response_code = HTTP_STATUS_OK;
+                len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"status\":\"Verification dispatched\"}");
+                lwsl_user("[AUTH-TRX] reg successful, dispatched verification.\n");
+
+                goto send;
+
 	}
+fail:
+	lwsl_user("[AUTH-TRX] reg hash generation or DB query failed\n");
 	auth_record_strike(vhd, peer);
-	lws_return_http_status(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR, NULL);
-	return lws_http_transaction_completed(wsi);
+	pss->http_response_code = HTTP_STATUS_INTERNAL_SERVER_ERROR;
+	len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Internal Error\"}");
+
+send:
+	if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)pl, (size_t)len + LWS_PRE) < 0)
+		return -1;
+
+	return send_auth_headers(wsi, pss, "application/json");
 }
 
 static int
@@ -631,8 +678,11 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 					lws_get_protocol(wsi));
 	const struct lws_protocol_vhost_options *pvo;
+        uint8_t tempBuffer[qrcodegen_BUFFER_LEN_MAX];
+        uint8_t qrcode[qrcodegen_BUFFER_LEN_MAX];
+        char uri[256];
 
-	switch (reason) {
+        switch (reason) {
 	case LWS_CALLBACK_PROTOCOL_INIT:
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 				lws_get_protocol(wsi),
@@ -667,6 +717,27 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			(const struct lws_protocol_vhost_options *)in, "registration_ui");
 		if (pvo)
 			vhd->registration_ui = !strcmp(pvo->value, "1") || !strcmp(pvo->value, "true");
+
+		pvo = lws_pvo_search(
+			(const struct lws_protocol_vhost_options *)in, "email-from");
+		if (pvo)
+			lws_strncpy(vhd->email_from, pvo->value, sizeof(vhd->email_from));
+		else
+			lws_strncpy(vhd->email_from, "noreply@warmcat.com", sizeof(vhd->email_from));
+
+		pvo = lws_pvo_search(
+			(const struct lws_protocol_vhost_options *)in, "email-subject");
+		if (pvo)
+			lws_strncpy(vhd->email_subject, pvo->value, sizeof(vhd->email_subject));
+		else
+			lws_strncpy(vhd->email_subject, "Complete your registration", sizeof(vhd->email_subject));
+
+		pvo = lws_pvo_search(
+			(const struct lws_protocol_vhost_options *)in, "email-body");
+		if (pvo)
+			lws_strncpy(vhd->email_body, pvo->value, sizeof(vhd->email_body));
+		else
+			lws_strncpy(vhd->email_body, "Please visit the following link to confirm your account securely:\r\n%s", sizeof(vhd->email_body));
 
 		pvo = lws_pvo_search(
 			(const struct lws_protocol_vhost_options *)in, "jwt_alg");
@@ -754,6 +825,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_HTTP:
+		lwsl_user("[AUTH-TRX] HTTP: path='%s'\n", in ? (const char *)in : "NULL");
 		{
 			char peer[64];
 			lws_get_peer_simple(wsi, peer, sizeof(peer));
@@ -788,9 +860,124 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 		}
 
-		if (!strncmp((const char *)in, "/verify", 7) || !strncmp((const char *)in, "verify", 6)) {
+		if (in && (!strncmp((const char *)in, "/status", 7))) {
+			int users_empty = 0;
+			sqlite3_stmt *stmt;
+			if (sqlite3_prepare_v2(vhd->db, "SELECT COUNT(*) FROM users", -1, &stmt, NULL) == SQLITE_OK) {
+				if (sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_int(stmt, 0) == 0)
+					users_empty = 1;
+				sqlite3_finalize(stmt);
+			}
+
+			struct per_session_data__auth_server *pss =
+				(struct per_session_data__auth_server *)user;
+
+			if (pss) {
+				lwsl_user("[AUTH-TRX] /status API endpoint returning users_empty=%d\n", users_empty);
+				pss->http_response_code = HTTP_STATUS_OK;
+				char pl[1024 + LWS_PRE];
+		                int len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"users_empty\":%d}", users_empty);
+				if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)pl, (size_t)len + LWS_PRE) < 0)
+					return -1;
+				return send_auth_headers(wsi, pss, "application/json");
+			}
+
+                        return 0;
+		}
+
+		if (!strncmp((const char *)in, "/totp_svg", 9)) {
+			char hbuf[128];
+			if (lws_get_urlarg_by_name_safe(wsi, "h=", hbuf, sizeof(hbuf)) < 0) {
+				lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, "Missing Hash");
+				return lws_http_transaction_completed(wsi);
+			}
+
+			sqlite3_stmt *stmt;
+			int found = 0;
+			char totp[64];
+			char email[128];
+
+			if (sqlite3_prepare_v2(vhd->db, "SELECT email, totp_secret FROM registrations WHERE verify_hash = ?", -1, &stmt, NULL) == SQLITE_OK) {
+				sqlite3_bind_text(stmt, 1, hbuf, -1, SQLITE_TRANSIENT);
+				if (sqlite3_step(stmt) == SQLITE_ROW) {
+					found = 1;
+					lws_strncpy(email, (const char *)sqlite3_column_text(stmt, 0), sizeof(email));
+					lws_strncpy(totp, (const char *)sqlite3_column_text(stmt, 1), sizeof(totp));
+				}
+				sqlite3_finalize(stmt);
+			}
+
+			if (!found) {
+				lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, "Not Found");
+				return lws_http_transaction_completed(wsi);
+			}
+
+			/* Keep the registration alive so duplicate img fetches don't randomly 404 */
+
+			size_t alloc_size = 16384 + LWS_PRE;
+			uint8_t *buf = malloc(alloc_size);
+			if (!buf) return -1;
+			uint8_t *body_start = buf + LWS_PRE;
+			uint8_t *body_end = buf + alloc_size - 1;
+			uint8_t *p = body_start;
+
+			char uri[256];
+			uint8_t tempBuffer[qrcodegen_BUFFER_LEN_MAX];
+			uint8_t qrcode[qrcodegen_BUFFER_LEN_MAX];
+
+			lws_snprintf(uri, sizeof(uri), "otpauth://totp/%s:%s?secret=%s&issuer=%s",
+				vhd->auth_domain, email, totp, vhd->auth_domain);
+
+			qrcodegen_encodeText(uri, tempBuffer, qrcode, qrcodegen_Ecc_MEDIUM,
+				qrcodegen_VERSION_MIN, qrcodegen_VERSION_MAX, qrcodegen_Mask_AUTO, true);
+
+			int size = qrcodegen_getSize(qrcode);
+			int border = 4;
+
+			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(body_end, p),
+				"<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" viewBox=\"0 0 %d %d\" stroke=\"none\">"
+				"<rect width=\"100%%\" height=\"100%%\" fill=\"#FFFFFF\"/><path d=\"",
+				size + 8, size + 8);
+
+			for (int y = 0; y < size; y++)
+				for (int x = 0; x < size; x++)
+					if (qrcodegen_getModule(qrcode, x, y)) {
+						int run = 1;
+						while (x + run < size && qrcodegen_getModule(qrcode, x + run, y))
+							run++;
+						int w = lws_snprintf((char *)p, lws_ptr_diff_size_t(body_end, p), "M%d,%dh%dv1h-%dz ", x + border, y + border, run, run);
+						if (w > 0 && (size_t)w < lws_ptr_diff_size_t(body_end, p))
+							p += w;
+						x += run - 1;
+					}
+
+                        p--;
+			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(body_end, p), "\" fill=\"#000000\"/></svg>");
+
+			size_t body_len = lws_ptr_diff_size_t(p, body_start);
+
+			uint8_t hdr_buf[8192 + LWS_PRE];
+			uint8_t *h_start = hdr_buf + LWS_PRE;
+			uint8_t *h_p = h_start;
+			uint8_t *h_end = hdr_buf + sizeof(hdr_buf) - 1;
+			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "image/svg+xml", (lws_filepos_t)body_len, &h_p, h_end)) { free(buf); return lws_http_transaction_completed(wsi); }
+			if (lws_finalize_write_http_header(wsi, h_start, &h_p, h_end)) { free(buf); return lws_http_transaction_completed(wsi); }
+
+			struct per_session_data__auth_server *pss = (struct per_session_data__auth_server *)user;
+			if (pss) {
+				if (lws_buflist_append_segment(&pss->tx_buflist, buf, body_len + LWS_PRE) < 0) {
+					free(buf);
+					return -1;
+				}
+				lws_callback_on_writable(wsi);
+			}
+			free(buf);
+			return 0;
+		}
+
+		if (!strncmp((const char *)in, "/verify", 7)) {
 			char hbuf[64];
-			if (!lws_get_urlarg_by_name(wsi, "h=", hbuf, sizeof(hbuf))) {
+			if (lws_get_urlarg_by_name_safe(wsi, "h=", hbuf, sizeof(hbuf)) < 0) {
 				lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, "Missing Hash");
 				return lws_http_transaction_completed(wsi);
 			}
@@ -800,27 +987,38 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			uint64_t now = (uint64_t)time(NULL);
 			char email[128], pass[129], salt[32], totp[64];
 
+			lwsl_user("[AUTH-TRX] verify: looking for hash='%s'\n", hbuf);
+
 			if (sqlite3_prepare_v2(vhd->db, "SELECT email, password_hash, salt, totp_secret, expires FROM registrations WHERE verify_hash = ?", -1, &stmt, NULL) == SQLITE_OK) {
-				sqlite3_bind_text(stmt, 1, hbuf, -1, SQLITE_STATIC);
-				if (sqlite3_step(stmt) == SQLITE_ROW) {
+				sqlite3_bind_text(stmt, 1, hbuf, -1, SQLITE_TRANSIENT);
+				int s_res = sqlite3_step(stmt);
+				if (s_res == SQLITE_ROW) {
 					uint64_t exp = (uint64_t)sqlite3_column_int64(stmt, 4);
 					if (now <= exp) {
 						found = 1;
 						lws_strncpy(email, (const char *)sqlite3_column_text(stmt, 0), sizeof(email));
-						lws_strncpy(pass, (const char *)sqlite3_column_text(stmt, 1), sizeof(pass));
-						lws_strncpy(salt, (const char *)sqlite3_column_text(stmt, 2), sizeof(salt));
-						lws_strncpy(totp, (const char *)sqlite3_column_text(stmt, 3), sizeof(totp));
+						lws_strncpy(pass,  (const char *)sqlite3_column_text(stmt, 1), sizeof(pass));
+						lws_strncpy(salt,  (const char *)sqlite3_column_text(stmt, 2), sizeof(salt));
+						lws_strncpy(totp,  (const char *)sqlite3_column_text(stmt, 3), sizeof(totp));
+					} else {
+						lwsl_user("[AUTH-TRX] verify: link expired! now=%llu, exp=%llu\n", (unsigned long long)now, (unsigned long long)exp);
 					}
+				} else {
+					lwsl_user("[AUTH-TRX] verify: db step failed or no row: %d %s\n", s_res, sqlite3_errmsg(vhd->db));
 				}
 				sqlite3_finalize(stmt);
+			} else {
+				lwsl_err("[AUTH-TRX] verify: db prepare failed: %s\n", sqlite3_errmsg(vhd->db));
 			}
 
 			if (!found) {
 				char peer[64];
+
 				lws_get_peer_simple(wsi, peer, sizeof(peer));
 				auth_record_strike(vhd, peer);
 
 				lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, "Invalid or Expired Link");
+
 				return lws_http_transaction_completed(wsi);
 			}
 
@@ -833,11 +1031,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				sqlite3_finalize(stmt);
 			}
 
-			if (sqlite3_prepare_v2(vhd->db, "DELETE FROM registrations WHERE email = ?", -1, &stmt, NULL) == SQLITE_OK) {
-				sqlite3_bind_text(stmt, 1, email, -1, SQLITE_STATIC);
-				sqlite3_step(stmt);
-				sqlite3_finalize(stmt);
-			}
+
 
 			int users_count = 0;
 			if (sqlite3_prepare_v2(vhd->db, "SELECT COUNT(*) FROM users", -1, &stmt, NULL) == SQLITE_OK) {
@@ -851,58 +1045,56 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				sqlite3_exec(vhd->db, grant_query, NULL, NULL, NULL);
 			}
 
-			char uri[256];
-			uint8_t qrcode[qrcodegen_BUFFER_LEN_MAX];
-			uint8_t tempBuffer[qrcodegen_BUFFER_LEN_MAX];
-
 			lws_snprintf(uri, sizeof(uri), "otpauth://totp/%s:%s?secret=%s&issuer=%s",
 				vhd->auth_domain, email, totp, vhd->auth_domain);
 
 			qrcodegen_encodeText(uri, tempBuffer, qrcode, qrcodegen_Ecc_MEDIUM,
 				qrcodegen_VERSION_MIN, qrcodegen_VERSION_MAX, qrcodegen_Mask_AUTO, true);
 
-			size_t alloc_size = 65536 + LWS_PRE;
+			size_t alloc_size = 16384 + LWS_PRE;  /* Plenty for verify HTML */
 			uint8_t *buf = malloc(alloc_size);
 			if (!buf) {
+				lwsl_user("[AUTH-TRX] verify OOM for HTML buffer\n");
 				lws_return_http_status(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR, "OOM");
 				return lws_http_transaction_completed(wsi);
 			}
-			uint8_t *start = &buf[LWS_PRE], *p = start, *end = &buf[alloc_size - 1];
 
-			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "text/html", 0, &p, end)) { free(buf); return lws_http_transaction_completed(wsi); }
-			if (lws_finalize_write_http_header(wsi, start, &p, end)) { free(buf); return lws_http_transaction_completed(wsi); }
-			lws_write(wsi, start, lws_ptr_diff_size_t(p, start), LWS_WRITE_HTTP_HEADERS);
+			uint8_t *body_start = buf + LWS_PRE;
+			uint8_t *body_end = buf + alloc_size - LWS_PRE - 1;
+			uint8_t *p = body_start;
 
-			p = start;
-			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
-				"<html><body style='font-family:sans-serif;text-align:center;background:#1e293b;color:white;padding:50px;'>"
-				"<h2>Account Confirmed</h2><p>Please scan this into your Authenticator app within 5 minutes!</p>"
-				"<div style='background:white;padding:20px;display:inline-block;border-radius:10px;margin:20px;'><svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" viewBox=\"0 0 %d %d\" stroke=\"none\"><rect width=\"100%%\" height=\"100%%\" fill=\"#FFFFFF\"/><path d=\"",
-				qrcodegen_getSize(qrcode) + 8, qrcodegen_getSize(qrcode) + 8);
+			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(body_end, p),
+				"<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Account Confirmed</title>"
+				"<link rel=\"stylesheet\" href=\"/auth/auth.css\">"
+				"<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"></head>"
+				"<body><div class=\"background-elements\"><div class=\"orb orb-1\"></div><div class=\"orb orb-2\"></div><div class=\"orb orb-3\"></div></div>"
+				"<div class=\"auth-container\"><div class=\"glass-panel totp-setup-box\"><div class=\"panel-header\"><h1>Account Confirmed</h1>"
+				"<p>Scan this into your Authenticator app within 5 minutes!</p></div>"
+				"<div class=\"qrcode-container\"><img src=\"/auth/api/totp_svg?h=%s\" alt=\"TOTP Setup QR\"></div>"
+				"<p class=\"totp-secret-text\">%s</p>"
+				"<div class=\"panel-footer\"><a href=\"/auth\" class=\"btn-link\">Proceed to Login</a></div>"
+				"</div></div></body></html>", hbuf, totp);
 
-			int size = qrcodegen_getSize(qrcode);
-			int border = 4;
-			for (int y = 0; y < size; y++) {
-				for (int x = 0; x < size; x++) {
-					if (qrcodegen_getModule(qrcode, x, y)) {
-						int run = 1;
-						while (x + run < size && qrcodegen_getModule(qrcode, x + run, y))
-							run++;
-						int w = lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "M%d,%dh%dv1h-%dz ", x + border, y + border, run, run);
-						if (w > 0 && (size_t)w < lws_ptr_diff_size_t(end, p))
-							p += w;
-						x += run - 1;
-					}
+			size_t body_len = lws_ptr_diff_size_t(p, body_start);
+
+			uint8_t hdr_buf[8192 + LWS_PRE];
+			uint8_t *h_start = hdr_buf + LWS_PRE;
+			uint8_t *h_p = h_start;
+			uint8_t *h_end = hdr_buf + sizeof(hdr_buf) - 1;
+			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "text/html", (lws_filepos_t)body_len, &h_p, h_end)) { free(buf); return lws_http_transaction_completed(wsi); }
+			if (lws_finalize_write_http_header(wsi, h_start, &h_p, h_end)) { free(buf); return lws_http_transaction_completed(wsi); }
+
+			// Append entire body array block onto buflist queue natively!
+			struct per_session_data__auth_server *pss = (struct per_session_data__auth_server *)user;
+			if (pss) {
+				if (lws_buflist_append_segment(&pss->tx_buflist, buf, body_len + LWS_PRE) < 0) {
+					free(buf);
+					return -1;
 				}
+				lws_callback_on_writable(wsi);
 			}
-
-			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "\" fill=\"#000000\"/></svg></div>"
-				"<p style='font-family:monospace;letter-spacing:2px;'>%s</p>"
-				"<p><a href='/' style='color:#a855f7;'>Proceed to Login</a></p></body></html>", totp);
-
-			lws_write(wsi, start, lws_ptr_diff_size_t(p, start), LWS_WRITE_HTTP_FINAL);
 			free(buf);
-			return lws_http_transaction_completed(wsi);
+			return 0;
 		}
 
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)) {
@@ -920,29 +1112,36 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				pss->spa = lws_spa_create_via_info(wsi, &i);
 				if (!pss->spa) {
 					lwsl_err("%s: lws_spa_create_via_info failed\n", __func__);
+
 					return -1;
 				}
+				lwsl_user("[AUTH-TRX] HTTP POST SPA successfully initialized\n");
 				return 0;
 			}
 		}
+		lwsl_user("[AUTH-TRX] HTTP Request unaccounted for, breaking loop\n");
 		break;
 
 	case LWS_CALLBACK_HTTP_BODY:
 		if (pss->spa) {
-			if (lws_spa_process(pss->spa, in, (int)len))
+			if (lws_spa_process(pss->spa, in, (int)len)) {
+				lwsl_user("[AUTH-TRX] HTTP_BODY spa_process failed\n");
 				return -1;
+			}
 			return 0;
 		}
 		break;
 
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
+		lwsl_user("[AUTH-TRX] HTTP_BODY_COMPLETION: pss->spa=%p resolving "
+			  "for '%s'\n", pss->spa, pss->requesting_url);
 		if (!pss->spa) {
-			lwsl_err("%s: LWS_CALLBACK_HTTP_BODY_COMPLETION called but pss->spa is NULL\n", __func__);
+			lwsl_err("%s: LWS_CALLBACK_HTTP_BODY_COMPLETION called but "
+				 "pss->spa is NULL\n", __func__);
+
 			break;
 		}
 		lws_spa_finalize(pss->spa);
-
-		lwsl_user("%s: HTTP_BODY_COMPLETION for '%s'\n", __func__, pss->requesting_url);
 
 		if (strstr(pss->requesting_url, "login"))
 			return lws_auth_api_login(wsi, vhd, pss);
@@ -953,34 +1152,45 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
-		if (pss->result_len > 0) {
-			uint8_t buf[2048 + LWS_PRE];
-			uint8_t *start = &buf[LWS_PRE], *p = start,
-				*end = &buf[sizeof(buf) - 1];
+		if (!pss->tx_buflist) /* nothing to write */
+                        break;
 
-			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
-					"application/json", (unsigned int)pss->result_len,
-					&p, end))
-				return lws_http_transaction_completed(wsi);
-			if (lws_finalize_write_http_header(wsi, start, &p, end))
-				return lws_http_transaction_completed(wsi);
-			lws_write(wsi, start, lws_ptr_diff_size_t(p, start), LWS_WRITE_HTTP_HEADERS | LWS_WRITE_H2_STREAM_END);
-			lws_write(wsi, (uint8_t *)pss->result, (unsigned int)pss->result_len, LWS_WRITE_HTTP_FINAL);
-			pss->result_len = 0;
-			return lws_http_transaction_completed(wsi);
-		}
-		break;
+                uint8_t *p;
+                size_t bytes = lws_buflist_next_segment_len(&pss->tx_buflist, &p);
+                if (bytes <= 0)
+                        break;
+
+                int m = lws_write(wsi, p + LWS_PRE, (unsigned int)(bytes - LWS_PRE), LWS_WRITE_HTTP_FINAL);
+                if (m < 0)
+                        return -1;
+
+                size_t consume = (size_t)m;
+                if ((size_t)m == bytes - LWS_PRE) {
+                        consume = bytes;
+                }
+
+                lws_buflist_use_segment(&pss->tx_buflist, consume);
+
+                if (lws_buflist_next_segment_len(&pss->tx_buflist, &p)) {
+                        lws_callback_on_writable(wsi);
+                        return 0;
+                }
+
+                return lws_http_transaction_completed(wsi);
 
 	case LWS_CALLBACK_CLOSED_HTTP:
+		lwsl_user("[AUTH-TRX] CLOSED_HTTP wsi=%p\n", wsi);
 		if (pss && pss->spa)
 			lws_spa_destroy(pss->spa);
+		if (pss && pss->tx_buflist)
+			lws_buflist_destroy_all_segments(&pss->tx_buflist);
 		break;
 
         default:
 		break;
 	}
 
-	return 0;
+        return lws_callback_http_dummy(wsi, reason, user, in, len);
 }
 
 #define LWS_PLUGIN_PROTOCOL_AUTH_SERVER \
@@ -1000,7 +1210,7 @@ static const struct lws_protocols protocols[] = {
 LWS_VISIBLE const lws_plugin_protocol_t lws_auth_server = {
 	.hdr = {
 		"LWS Auth Server API",
-		"lws_plugin",
+		"lws_protocol_plugin",
 		LWS_BUILD_HASH,
 		LWS_PLUGIN_API_MAGIC
 	},

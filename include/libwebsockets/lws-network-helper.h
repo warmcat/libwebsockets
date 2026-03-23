@@ -285,4 +285,14 @@ lws_is_lan_address(const char *ads);
 LWS_VISIBLE LWS_EXTERN int
 lws_is_local_address(const char *ads);
 
+/**
+ * lws_is_lan_address() - checks if the given string represents a LAN address
+ *
+ * \param ads: The address string
+ *
+ * Returns 1 if the address is a local/LAN unroutable address
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_is_lan_address(const char *ads);
+
 ///@}

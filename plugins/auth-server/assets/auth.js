@@ -18,6 +18,29 @@ document.addEventListener('DOMContentLoaded', () => {
     let isRegistrationMode = false;
     let totpRequired = false;
 
+    // Check backend status automatically
+    async function checkServerStatus() {
+        try {
+            const response = await fetch('/auth/api/status');
+            if (response.ok) {
+                const data = await response.json();
+                if (data.users_empty) {
+                    isRegistrationMode = true;
+                    loginForm.classList.add('hidden');
+                    registerForm.classList.remove('hidden');
+                    regToggleBox.classList.add('hidden');
+                    logToggleBox.classList.add('hidden'); // Drop the login escape hatch
+
+                    subtitle.innerText = "Initial Network Registration (Admin Bootstrap)";
+                }
+            }
+        } catch (e) {
+            console.error("Status polling failed", e);
+        }
+    }
+
+    checkServerStatus();
+
     // View Switching
     switchRegBtn.addEventListener('click', () => {
         isRegistrationMode = true;
@@ -64,7 +87,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     totpGroup.classList.remove('hidden');
                     showNotif('error', 'Authenticator code required.');
                 } else {
-                    showNotif('error', 'Invalid security credentials.');
+                    let errMsg = 'Invalid security credentials.';
+                    try {
+                        const data = await response.json();
+                        if (data && data.error) errMsg = data.error;
+                    } catch (e) {}
+                    showNotif('error', errMsg);
                 }
             } else if (response.ok) {
                 const data = await response.json();
@@ -75,7 +103,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 showNotif('error', 'Server anomaly detected.');
             }
         } catch (err) {
-            showNotif('error', 'Network communication failed.');
+            showNotif('error', 'Network communication failed.' + err.message);
         } finally {
             btn.classList.remove('loading');
         }
@@ -103,7 +131,12 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (response.status === 403) {
                 showNotif('error', 'Registration UI is administratively locked.');
             } else {
-                showNotif('error', 'User formation failed or exists.');
+                let errMsg = 'User formation failed or exists.';
+                try {
+                    const data = await response.json();
+                    if (data && data.error) errMsg = data.error;
+                } catch (e) {}
+                showNotif('error', errMsg);
             }
         } catch (err) {
             showNotif('error', 'Network communication failed.');

@@ -25,8 +25,10 @@
 
 struct smtp_email {
 	lws_dll2_t list;
-	char to[128];
-	char url[256];
+	char *from;
+	char *to;
+	char *subject;
+	char *body;
 };
 
 struct per_vhost_data__smtp_client {
@@ -38,6 +40,7 @@ struct per_vhost_data__smtp_client {
 
 enum smtp_state {
 	SMTP_STATE_CONNECTING = 0,
+	SMTP_STATE_GREETING,
 	SMTP_STATE_HELO,
 	SMTP_STATE_MAIL_FROM,
 	SMTP_STATE_RCPT_TO,
@@ -77,30 +80,25 @@ trigger_smtp_if_needed(struct per_vhost_data__smtp_client *vhd)
 }
 
 static int
-lws_smtp_client_send_email(struct lws_context *cx, struct lws_vhost *vh, const char *to, const char *url)
+lws_smtp_client_send_email(struct lws_context *cx, struct lws_vhost *vh, const lws_smtp_email_t *email)
 {
 	const struct lws_protocols *pp = lws_vhost_name_to_protocol(vh, "lws-smtp-client");
 	struct per_vhost_data__smtp_client *vhd;
 	struct smtp_email *e;
 	int i, to_len;
 
-	if (!pp || !to || !url)
+	if (!pp || !email || !email->to || !email->from || !email->subject || !email->body)
 		return -1;
 
-	to_len = (int)strlen(to);
+	to_len = (int)strlen(email->to);
 	if (to_len < 3 || to_len > 127)
 		return -1;
 
 	for (i = 0; i < to_len; i++) {
-		char c = to[i];
+		char c = email->to[i];
 		if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
 		      (c >= '0' && c <= '9') || c == '@' || c == '.' ||
 		      c == '-' || c == '_' || c == '+'))
-			return -1;
-	}
-
-	for (i = 0; url[i]; i++) {
-		if (url[i] == '\r' || url[i] == '\n')
 			return -1;
 	}
 
@@ -110,8 +108,20 @@ lws_smtp_client_send_email(struct lws_context *cx, struct lws_vhost *vh, const c
 	e = malloc(sizeof(*e));
 	if (!e) return -1;
 	memset(e, 0, sizeof(*e));
-	lws_strncpy(e->to, to, sizeof(e->to));
-	lws_strncpy(e->url, url, sizeof(e->url));
+
+	e->from = strdup(email->from);
+	e->to = strdup(email->to);
+	e->subject = strdup(email->subject);
+	e->body = strdup(email->body);
+
+	if (!e->from || !e->to || !e->subject || !e->body) {
+		if (e->from) free(e->from);
+		if (e->to) free(e->to);
+		if (e->subject) free(e->subject);
+		if (e->body) free(e->body);
+		free(e);
+		return -1;
+	}
 
 	lws_dll2_add_tail(&e->list, &vhd->emails_ready);
 
@@ -148,12 +158,16 @@ callback_smtp_client(struct lws *wsi, enum lws_callback_reasons reason,
 					   vhd->emails_ready.head) {
 			struct smtp_email *e = lws_container_of(d, struct smtp_email, list);
 			lws_dll2_remove(&e->list);
+			free(e->from);
+			free(e->to);
+			free(e->subject);
+			free(e->body);
 			free(e);
 		} lws_end_foreach_dll_safe(d, d1);
 		break;
 
 	case LWS_CALLBACK_RAW_CONNECTED:
-		pss->state = SMTP_STATE_HELO;
+		pss->state = SMTP_STATE_GREETING;
 		if (vhd->emails_ready.head) {
 			pss->email = lws_container_of(vhd->emails_ready.head, struct smtp_email, list);
 		} else {
@@ -164,13 +178,28 @@ callback_smtp_client(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RAW_RX:
 		{
 			char *resp = (char *)in;
-			int code = atoi(resp);
+			char *last_line = resp;
+
+			for (size_t i = 0; i < len; i++) {
+				if (resp[i] == '\n' && i + 1 < len)
+					last_line = &resp[i + 1];
+			}
+
+			int code = atoi(last_line);
 			if (code >= 400) {
-				lwsl_err("SMTP error: %s\n", resp);
+				lwsl_err("SMTP error: %.*s\n", (int)len, resp);
 				return -1;
 			}
+
+			if ((resp + len) - last_line < 4 || last_line[3] != ' ') {
+				return 0; /* Wait for more data, either incomplete or continuation */
+			}
+
 			if (pss->state == SMTP_STATE_IDLE)
 				return -1;
+
+			if (pss->state == SMTP_STATE_GREETING)
+				pss->state = SMTP_STATE_HELO;
 
 			lws_callback_on_writable(wsi);
 		}
@@ -178,7 +207,7 @@ callback_smtp_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RAW_WRITEABLE:
 		{
-			char buf[1024 + LWS_PRE];
+			char buf[2048 + LWS_PRE];
 			char *p = (char *)&buf[LWS_PRE];
 			int n = 0;
 
@@ -187,12 +216,14 @@ callback_smtp_client(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 
 			switch (pss->state) {
+			case SMTP_STATE_GREETING:
+				return 0;
 			case SMTP_STATE_HELO:
 				n = lws_snprintf(p, 1024, "HELO localhost\r\n");
 				pss->state = SMTP_STATE_MAIL_FROM;
 				break;
 			case SMTP_STATE_MAIL_FROM:
-				n = lws_snprintf(p, 1024, "MAIL FROM:<noreply@auth.warmcat.com>\r\n");
+				n = lws_snprintf(p, 1024, "MAIL FROM:<%s>\r\n", pss->email->from);
 				pss->state = SMTP_STATE_RCPT_TO;
 				break;
 			case SMTP_STATE_RCPT_TO:
@@ -204,16 +235,19 @@ callback_smtp_client(struct lws *wsi, enum lws_callback_reasons reason,
 				pss->state = SMTP_STATE_BODY;
 				break;
 			case SMTP_STATE_BODY:
-				n = lws_snprintf(p, 1024,
-					"Subject: Complete your registration\r\n"
+				n = lws_snprintf(p, 2048,
+					"Subject: %s\r\n"
 					"To: %s\r\n\r\n"
-					"Please visit the following link to confirm your account securely:\r\n"
 					"%s\r\n"
 					".\r\n",
-					pss->email->to, pss->email->url);
+					pss->email->subject, pss->email->to, pss->email->body);
 				pss->state = SMTP_STATE_QUIT;
 
 				lws_dll2_remove(&pss->email->list);
+				free(pss->email->from);
+				free(pss->email->to);
+				free(pss->email->subject);
+				free(pss->email->body);
 				free(pss->email);
 				pss->email = NULL;
 				break;
@@ -257,7 +291,7 @@ static const struct lws_protocols protocols[] = {
 LWS_VISIBLE const lws_plugin_protocol_t lws_smtp_client = {
 	.hdr = {
 		"SMTP Client API",
-		"lws_plugin",
+		"lws_protocol_plugin",
 		LWS_BUILD_HASH,
 		LWS_PLUGIN_API_MAGIC
 	},
