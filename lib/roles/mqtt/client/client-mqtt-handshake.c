@@ -32,8 +32,9 @@ lws_mqtt_client_send_connect(struct lws *wsi)
 {
 	/* static int */
 	/* 	lws_mqttc_abs_writeable(lws_abs_protocol_inst_t *api, size_t budget) */
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	const lws_mqttc_t *c = &wsi->mqtt->client;
-	uint8_t b[256 + LWS_PRE], *start = b + LWS_PRE, *p = start;
+	uint8_t *b = (uint8_t *)pt->serv_buf, *start = b + LWS_PRE, *p = start;
 	unsigned int len = MQTT_CONNECT_MSG_BASE_LEN;
 
 	switch (lwsi_state(wsi)) {
@@ -64,6 +65,11 @@ lws_mqtt_client_send_connect(struct lws *wsi)
 			len = len + (unsigned int)c->will.topic->len + 2;
 			len += (c->will.message ? c->will.message->len : 0) + 2u;
 		}
+		if (len + 16 > wsi->a.context->pt_serv_buf_size) {
+			lwsl_err("%s: CONNECT pkt too big\n", __func__);
+			return NULL;
+		}
+
 		p += lws_mqtt_vbi_encode(len, p);
 
 		/*
@@ -167,7 +173,7 @@ lws_mqtt_client_send_connect(struct lws *wsi)
 	/*
 	 * Perform the actual write
 	 */
-	if (lws_write(wsi, (unsigned char *)&b[LWS_PRE], lws_ptr_diff_size_t(p, start),
+	if (lws_write(wsi, start, lws_ptr_diff_size_t(p, start),
 		  LWS_WRITE_BINARY) != lws_ptr_diff(p, start)) {
 		lwsl_notice("%s: write failed\n", __func__);
 
@@ -180,7 +186,8 @@ lws_mqtt_client_send_connect(struct lws *wsi)
 struct lws *
 lws_mqtt_client_send_disconnect(struct lws *wsi)
 {
-	uint8_t b[256 + LWS_PRE], *start = b + LWS_PRE, *p = start;
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	uint8_t *b = (uint8_t *)pt->serv_buf, *start = b + LWS_PRE, *p = start;
 
 	/* 1. Fixed Headers */
 	if (lws_mqtt_fill_fixed_header(p++, LMQCP_DISCONNECT, 0, 0, 0))
@@ -189,7 +196,7 @@ lws_mqtt_client_send_disconnect(struct lws *wsi)
 		return NULL;
 	}
 	*p++ = 0;
-	if (lws_write(wsi, (unsigned char *)&b[LWS_PRE], lws_ptr_diff_size_t(p, start),
+	if (lws_write(wsi, start, lws_ptr_diff_size_t(p, start),
 				LWS_WRITE_BINARY) != lws_ptr_diff(p, start)) {
 		lwsl_err("%s: write failed\n", __func__);
 
