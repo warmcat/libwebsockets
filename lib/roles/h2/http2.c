@@ -2802,6 +2802,19 @@ lws_h2_ws_handshake(struct lws *wsi)
                return -1;
 #endif
 
+	{
+		struct lws_process_html_args args;
+
+		args.p = (char *)p;
+		args.max_len = lws_ptr_diff(end, p);
+		if (user_callback_handle_rxflow(wsi->a.protocol->callback, wsi,
+						LWS_CALLBACK_ADD_HEADERS,
+						wsi->user_space, &args, 0))
+			return -1;
+
+		p = (uint8_t *)args.p;
+	}
+
 	if (lws_finalize_http_header(wsi, &p, end))
 		return -1;
 
