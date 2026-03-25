@@ -283,7 +283,32 @@ static int ssl_pm_reload_crt(SSL *ssl)
         ret = -1;
     }
 
+    /* if the SSL_CTX has a ciphersuite list, apply it to this config */
+#if defined(LWS_HAVE_mbedtls_ssl_conf_ciphersuites)
+    if (ssl->ctx && ssl->ctx->ciphersuites) {
+        mbedtls_ssl_conf_ciphersuites(&ssl_pm->conf, ssl->ctx->ciphersuites);
+    }
+#endif
+
     return ret;
+}
+
+/*
+ * Set ciphersuites on an existing SSL connection
+ */
+int ssl_pm_set_ciphersuites(SSL *ssl, const int *ciphersuites)
+{
+    struct ssl_pm *ssl_pm = (struct ssl_pm *)ssl->ssl_pm;
+
+    if (!ssl || !ssl_pm || !ciphersuites)
+        return 0;
+
+#if defined(LWS_HAVE_mbedtls_ssl_conf_ciphersuites)
+    mbedtls_ssl_conf_ciphersuites(&ssl_pm->conf, ciphersuites);
+    return 1;
+#else
+    return 0;
+#endif
 }
 
 /*

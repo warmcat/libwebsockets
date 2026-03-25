@@ -195,6 +195,9 @@ struct ssl_ctx_st
 
     int read_buffer_len;
 
+    /* optional list of mbedTLS ciphersuite ids, terminated by 0 */
+    int *ciphersuites;
+
     X509_VERIFY_PARAM param;
 
     void *rngctx;

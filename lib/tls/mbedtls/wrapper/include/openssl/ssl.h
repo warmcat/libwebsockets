@@ -773,18 +773,6 @@ long SSL_CTX_get_timeout(const SSL_CTX *ctx);
 int SSL_CTX_set_cipher_list(SSL_CTX *ctx, const char *str);
 
 /**
- * @brief set the SSL cipher through the list string
- *
- * @param ssl - SSL point
- * @param str - cipher controller list string
- *
- * @return result
- *     1 : OK
- *     0 : failed
- */
-int SSL_set_cipher_list(SSL *ssl, const char *str);
-
-/**
  * @brief get the SSL cipher list string
  *
  * @param ssl - SSL point
