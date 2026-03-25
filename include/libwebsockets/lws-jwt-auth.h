@@ -69,6 +69,24 @@ LWS_VISIBLE LWS_EXTERN const char *
 lws_jwt_auth_get_sub(struct lws_jwt_auth *ja);
 
 /**
+ * lws_jwt_auth_get_uid() - Extract the native uid integer
+ *
+ * \param ja: The opaque helper object
+ *
+ * \return the integer UID natively parsed out of the token, or 0 if missing.
+ */
+LWS_VISIBLE LWS_EXTERN uint32_t
+lws_jwt_auth_get_uid(struct lws_jwt_auth *ja);
+
+/**
+ * lws_jwt_auth_count_grants() - Return the scalar count of active parsed grants
+ *
+ * \param ja: The opaque helper object
+ */
+LWS_VISIBLE LWS_EXTERN uint32_t
+lws_jwt_auth_count_grants(struct lws_jwt_auth *ja);
+
+/**
  * lws_jwt_auth_update() - Applies a refreshed JWT to the existing structure
  *
  * \param ja: The opaque helper object

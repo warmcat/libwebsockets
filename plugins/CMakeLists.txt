@@ -406,6 +406,12 @@ if (LWS_WITH_PLUGINS AND NOT LWS_WITH_PLUGINS_BUILTIN)
 				COMPONENT plugins)
 		endif()
 
+		if (LWS_WITH_AUTHORITATIVE_DNS)
+			install(DIRECTORY protocol_lws_dht_dnssec_monitor/assets/
+				DESTINATION share/libwebsockets-test-server/lws-dht-dnssec-monitor/assets
+				COMPONENT plugins)
+		endif()
+
 	endif()
 
 

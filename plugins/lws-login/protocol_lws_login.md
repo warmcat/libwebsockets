@@ -27,14 +27,15 @@ Because the JWT validator only strictly requires the public key components to ve
 *(Note: While passing the full keypair including the private key into the bouncer works, it is best practice to strip the private component `d` from the JSON if the bouncer is operating on an entirely different physical server).*
 
 | `cookie-name` | Custom name emitted for tracking the browser cookie containing the session token. Defaults to `"auth_session"`. |
-| `service-name` | The explicitly required grant category strictly checked against the JWT privileges array. Defaults to `"default-service"`. |
+| `service-name` | The explicitly required grant category strictly checked against the JWT privileges array. Defaults to `"default-service"`. *Note: Any authenticated user holding a wildcard (`*`) assignment in their JWT grants array will automatically bypass this constraint, acting as an administrator for any requested service.* |
 | `min-grant-level` | The strict integer threshold allowing passage for the given service name within the token. Defaults to `1`. |
+| `whitelist` | Optional array of CIDR netblock strings (e.g. `10.0.0.0/8`, `192.168.1.0/24`). If any are provided, the connecting peer must match at least one explicitly or they will uniformly receive a `403 Forbidden` bypass, regardless of login state. |
 
 ## Redirection Behavior
 
-If a visiting client lacks the required `cookie-name` or their validated token does not meet the `<service-name>:<min-grant-level>` threshold, the plugin calculates the `redirect_uri` based on the exact path they were attempting to reach.
+If a visiting client lacks the required `cookie-name`, or their validated token does not meet the `<service-name>:<min-grant-level>` threshold (and they do not hold a `*` administrative wildcard), the plugin calculates the `redirect_uri` based on the exact path they were attempting to reach.
 
 It intercepts the connection and issues a standard `HTTP 302 Found` bouncing them dynamically to:
 `%auth-server-url%?service_name=%service-name%&redirect_uri=%url_encoded_path%`
 
-The central Auth Server portal is expected to natively intercept these parameters, inform the user they are authenticating for `%service-name%`, and return them safely to `%url_encoded_path%` upon success!
+The central Auth Server portal will parse these parameters. If the user is unauthenticated, they will be prompted to log in. However, if the user successfully authenticates but strictly lacks the necessary `%service-name%` privilege assignment, the central Auth Server will cleanly deny them with an `Access Denied` status to prevent endless redirect looping between the two nodes!

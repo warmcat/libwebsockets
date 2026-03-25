@@ -29,12 +29,18 @@ document.addEventListener('DOMContentLoaded', () => {
     // Check backend status automatically
     async function checkServerStatus() {
         try {
-            const response = await fetch('/api/status');
+            const statusUrl = serviceName ? `/api/status?service_name=${encodeURIComponent(serviceName)}` : '/api/status';
+            const response = await fetch(statusUrl);
             if (response.ok) {
                 const data = await response.json();
                 if (data.csrf_token) window.csrf_token = data.csrf_token;
 
                 if (data.logged_in) {
+                    if (data.lacks_grant) {
+                        loginForm.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 2rem;"><p>You do not have the necessary privileges to access this service.</p></div>`;
+                        subtitle.innerText = "Access Denied";
+                        return;
+                    }
                     if (clientId && redirectUri) {
                         window.location.href = `/api/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state||'')}&response_type=code` + (codeChallenge ? `&code_challenge=${encodeURIComponent(codeChallenge)}` : '') + (codeChallengeMethod ? `&code_challenge_method=${encodeURIComponent(codeChallengeMethod)}` : '');
                         return;
@@ -42,8 +48,15 @@ document.addEventListener('DOMContentLoaded', () => {
                         window.location.href = redirectUri;
                         return;
                     } else {
-                        loginForm.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 2rem;"><p>Active session detected. You are securely authenticated.</p></div>`;
-                        subtitle.innerText = "Authentication Successful";
+                        let grantsHtml = Object.keys(data.grants || {}).length ? '<div style="margin-bottom: 20px;">' + Object.keys(data.grants).map(k => `<span style="background:rgba(255,255,255,0.1);padding:4px 8px;border-radius:6px;margin-right:5px;font-size:0.85em;border:1px solid rgba(255,255,255,0.2);">${k} (L${data.grants[k]})</span>`).join('') + '</div>' : '<div style="margin-bottom: 20px; font-size: 0.9em; color: var(--text-muted);">No Active Grants</div>';
+
+                        loginForm.innerHTML = `<div style="text-align: center; color: var(--text-main); padding: 1rem;">
+                            <p style="font-size: 1.1em; color: #fff; margin-bottom: 5px;">Authenticated as</p>
+                            <p style="font-weight: 600; color: var(--acc-secondary); margin-bottom: 15px; word-break: break-all;">${data.email || 'Unknown User'}</p>
+                            ${grantsHtml}
+                            <button type="button" class="btn primary-btn" onclick="javascript:document.cookie='auth_session=; Max-Age=0; path=/'; window.location.reload();">Destroy Session</button>
+                        </div>`;
+                        subtitle.innerText = "Active Session";
                         return;
                     }
                 }
@@ -105,6 +118,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (state) formData.append("state", state);
         if (codeChallenge) formData.append("code_challenge", codeChallenge);
         if (codeChallengeMethod) formData.append("code_challenge_method", codeChallengeMethod);
+        if (serviceName) formData.append("service_name", serviceName);
 
         try {
             // Send to auth plugin endpoint handled by LWS
@@ -130,6 +144,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     } catch (e) {}
                     showNotif('error', errMsg);
                 }
+            } else if (response.status === 403) {
+                let errMsg = 'Insufficient Privileges.';
+                try {
+                    const data = await response.json();
+                    if (data && data.error) errMsg = data.error;
+                } catch (e) {}
+                showNotif('error', errMsg);
             } else if (response.ok) {
                 const data = await response.json();
                 showNotif('success', 'Clearance accepted. Welcome.');
@@ -139,7 +160,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     setTimeout(() => window.location.href = '/', 1000);
                 }
             } else {
-                showNotif('error', 'Server anomaly detected.');
+                let errMsg = 'Server anomaly detected.';
+                try {
+                    const data = await response.json();
+                    if (data && data.error) errMsg = data.error;
+                } catch (e) {}
+                showNotif('error', errMsg);
             }
         } catch (err) {
             showNotif('error', 'Network communication failed.' + err.message);

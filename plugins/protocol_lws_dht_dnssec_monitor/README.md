@@ -12,6 +12,11 @@ The `lws-dht-dnssec-monitor` plugin automates the tracking, signing, and uploadi
 
 This monitor is designed specifically to work in tandem with the [lws-acme-client](../acme-client/protocol_lws_acme_client.md) using the centralized multi-certificate management flow, allowing your LAN servers to handle thousands of domains securely.
 
+### Web UI
+The plugin includes a set of HTML/JS/CSS assets for a modern, Web-based management UI that interfaces securely with the backend JSON WS proxy using stateless `lws_jwt_auth` API verification.
+
+These UI assets do not contain any inline scripts or styles, ensuring they are strictly Content-Security-Policy (CSP) compliant. The `assets/` directory must be manually mounted by the administrator in the `lwsws` JSON configuration if Web UI management is desired. To prevent unauthenticated users from even loading the UI files, configure the mount to use the `lws-login` interceptor protocol, requiring the `domain-admin` service grant (which aligns identically with the WebSocket backend verification).
+
 ## Prerequisite: lws-dht-dnssec
 
 This plugin is a high-level orchestrator; it relies on `protocol_lws_dht_dnssec` being loaded into the application (via `LWS_WITH_DHT` / `LWS_WITH_AUTHORITATIVE_DNS`). Ensure that the `lws-dht-dnssec` plugin is initialized prior to this monitor (which defaults to a later initialization priority).
@@ -55,12 +60,43 @@ Here is an example configuring `lwsws` to enable the monitor alongside the DHT i
           }
         },
         {
+          "lws-login": {
+            "status": "ok",
+            "auth-server-url": "https://auth.warmcat.com/login",
+            "jwt-jwk": "/var/db/lws-auth.jwk",
+            "service-name": "domain-admin"
+          }
+        },
+        {
           "lws-dht-dnssec-monitor": {
             "uds-path": "/var/lib/lws-certs/dnssec.sock",
             "uid": "1000",
             "gid": "1000",
             "signature-duration": "2592000"
           }
+        }
+      ],
+      "mounts": [
+        {
+          "protocol": "lws-dht-dnssec-monitor",
+          "mountpoint": "/dnssec-monitor",
+          "origin": "file://_lws_ddir_/libwebsockets-test-server/lws-dht-dnssec-monitor/assets",
+          "default": "index.html",
+          "interceptor-path": "/lws-login"
+
+          "extra-mimetypes": {
+             ".css": "text/css"
+          },
+          "headers": [
+            {
+               "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self';"
+            }
+          ]
+        },
+        {
+          "mountpoint": "/lws-login",
+          "origin": "callback://lws-login",
+          "protocol": "lws-login"
         }
       ]
     }

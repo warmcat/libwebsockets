@@ -38,7 +38,8 @@ static const char * const param_names[] = {
 	"grant_type",
 	"code",
 	"client_secret",
-	"code_verifier"
+	"code_verifier",
+	"service_name"
 };
 
 enum enum_param_names {
@@ -55,6 +56,7 @@ enum enum_param_names {
         EP_CODE,
         EP_CLIENT_SECRET,
         EP_CODE_VERIFIER,
+        EP_SERVICE_NAME,
         EP_COUNT
 };
 
@@ -605,24 +607,25 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		}
 	}
 
-	/* Login successful: Establish an auth_session */
-	uint8_t s_rnd[32];
-	char s_id[65];
-	uint64_t now = (uint64_t)time(NULL);
-	uint64_t s_expires = now + (24 * 3600); /* 24 hr session */
+	/* Legacy stateful sessions were deprecated in favor of native JWT verification. */
 
-	lws_get_random(vhd->context, s_rnd, 32);
-	lws_hex_from_byte_array(s_rnd, 32, s_id, 65);
-
-	if (sqlite3_prepare_v2(vhd->db, "INSERT INTO auth_sessions (session_id, uid, expires) VALUES (?, ?, ?)", -1, &stmt, NULL) == SQLITE_OK) {
-		sqlite3_bind_text(stmt, 1, s_id, -1, SQLITE_STATIC);
-		sqlite3_bind_int(stmt, 2, (int)uid);
-		sqlite3_bind_int64(stmt, 3, (sqlite_int64)s_expires);
-		sqlite3_step(stmt);
-		sqlite3_finalize(stmt);
-
-		lws_snprintf(cookie_hdr, sizeof(cookie_hdr),
-			"auth_session=%s; Path=/; Max-Age=86400; HttpOnly; SameSite=Lax", s_id);
+	const char *service_name = lws_spa_get_string(pss->spa, EP_SERVICE_NAME);
+	if (service_name && service_name[0]) {
+		int level = -1;
+		if (sqlite3_prepare_v2(vhd->db, "SELECT MAX(g.grant_level) FROM grants g JOIN services s ON g.service_id = s.service_id WHERE g.uid = ? AND s.name IN (?, '*')", -1, &stmt, NULL) == SQLITE_OK) {
+			sqlite3_bind_int(stmt, 1, (int)uid);
+			sqlite3_bind_text(stmt, 2, service_name, -1, SQLITE_STATIC);
+			if (sqlite3_step(stmt) == SQLITE_ROW) {
+				level = sqlite3_column_int(stmt, 0);
+			}
+			sqlite3_finalize(stmt);
+		}
+		if (level < 1) {
+			lwsl_user("[AUTH-TRX] login lacks mandatory grant for %s\n", service_name);
+			pss->http_response_code = HTTP_STATUS_FORBIDDEN;
+			len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Insufficient Privileges\"}");
+			goto send;
+		}
 	}
 
 	/* If this is an OAuth2 delegate login (i.e. has client_id/redirect_uri) */
@@ -648,6 +651,7 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 
 		uint8_t c_rnd[32];
 		char code[65];
+		uint64_t now = (uint64_t)time(NULL);
 		uint64_t c_expires = now + 60;
 		lws_get_random(vhd->context, c_rnd, 32);
 		lws_hex_from_byte_array(c_rnd, 32, code, 65);
@@ -678,15 +682,9 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		pss->http_response_code = HTTP_STATUS_OK;
 		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"token\":\"%s\"}", jwt);
 		if (vhd->cookie_name[0]) {
-			char temp_ck[768];
-			if (cookie_hdr[0]) {
-				lws_snprintf(temp_ck, sizeof(temp_ck), "%s\x0d\x0aSet-Cookie: %s=%s; Path=/; Max-Age=%llu; HttpOnly; SameSite=Lax",
-					cookie_hdr, vhd->cookie_name, jwt, vhd->jwt_validity_secs);
-			} else {
-				lws_snprintf(temp_ck, sizeof(temp_ck), "%s=%s; Path=/; Max-Age=%llu; HttpOnly; SameSite=Lax",
-					vhd->cookie_name, jwt, vhd->jwt_validity_secs);
-			}
-			lws_strncpy(cookie_hdr, temp_ck, sizeof(cookie_hdr));
+			lws_snprintf(cookie_hdr, sizeof(cookie_hdr),
+				"%s=%s; Path=/; Max-Age=%llu; HttpOnly; SameSite=Lax",
+				vhd->cookie_name, jwt, vhd->jwt_validity_secs);
 		}
 		goto send;
         }
@@ -864,13 +862,7 @@ lws_auth_api_register(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
         lws_get_peer_simple(wsi, peer, sizeof(peer));
 
 	if (users_empty) {
-		if (!lws_is_local_address(peer) && !lws_is_lan_address(peer)) {
-			lwsl_user("[AUTH-TRX] reg denied (admin local/lan only)\n");
-			pss->http_response_code = HTTP_STATUS_SERVICE_UNAVAILABLE;
-			len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Please try again after this service has been configured by the administrator\"}");
-			goto send;
-		}
-		/* Allow localhost/LAN admin bootstrap regardless of registration_ui */
+		/* Allow initial TOFU admin bootstrap globally across interfaces without IP restriction */
 	} else {
 		/* Not empty: enforce public registration policy */
 		if (!vhd->registration_ui) {
@@ -1064,7 +1056,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_strncpy(vhd->auth_domain, "auth.warmcat.com", sizeof(vhd->auth_domain));
 		lws_strncpy(vhd->jwk_path, "/var/db/lws-auth.jwk", sizeof(vhd->jwk_path));
 		lws_strncpy(vhd->jwt_alg, "ES256", sizeof(vhd->jwt_alg));
-		vhd->cookie_name[0] = '\0';
+		lws_strncpy(vhd->cookie_name, "auth_session", sizeof(vhd->cookie_name));
 		vhd->jwt_validity_secs = 86400; // 24 hours
 		vhd->registration_ui = 0;
 
@@ -1271,6 +1263,51 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 		}
 
+		if (in && (!strcmp((const char *)in, "/admin"))) {
+			struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL);
+			if (!ja || lws_jwt_auth_query_grant(ja, "*") < 1) {
+				if (ja) lws_jwt_auth_destroy(&ja);
+				lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, "Forbidden");
+				return lws_http_transaction_completed(wsi);
+			}
+			lws_jwt_auth_destroy(&ja);
+
+			const char *html = "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"UTF-8\">"
+				"<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">"
+				"<title>Auth Server Admin</title>"
+				"<link rel=\"stylesheet\" href=\"../admin.css\">"
+				"</head><body><div class=\"container\">"
+				"<h1>User Administration</h1><table id=\"usersTable\"><thead>"
+				"<tr><th>UID</th><th>Username</th><th>Active Grants</th><th>Actions</th></tr>"
+				"</thead><tbody></tbody></table></div>"
+				"<div id=\"modal\"><div class=\"modal-content\"><h3 id=\"modalTitle\">Edit Grants</h3>"
+				"<p>Enter grants as comma-separated <code>service:level</code>.</p>"
+				"<div class=\"form-group\"><input type=\"text\" id=\"grantsInput\" placeholder=\"service:level\"></div>"
+				"<button id=\"saveBtn\">Save Changes</button>"
+				"<button id=\"cancelBtn\" style=\"background:#30363d\">Cancel</button>"
+				"</div></div>"
+				"<script src=\"../admin.js\"></script>"
+				"</body></html>";
+
+			uint8_t *b = malloc(4096 + LWS_PRE);
+			if (!b) return -1;
+			uint8_t *p = b + LWS_PRE, *end = b + 4096 + LWS_PRE - 1;
+
+			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "text/html", (lws_filepos_t)strlen(html), &p, end)) {
+				free(b);
+				return 1;
+			}
+			if (lws_finalize_http_header(wsi, &p, end)) {
+				free(b);
+				return 1;
+			}
+
+			lws_write(wsi, b + LWS_PRE, lws_ptr_diff_size_t(p, b + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
+			lws_write(wsi, (uint8_t *)html, strlen(html), LWS_WRITE_HTTP_FINAL);
+			free(b);
+			return lws_http_transaction_completed(wsi);
+		}
+
 		if (in && (!strcmp((const char *)in, "/.well-known/jwks.json") ||
 				   !strcmp((const char *)in, "/jwks.json"))) {
 			char buf[1024 + LWS_PRE];
@@ -1323,41 +1360,54 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				}
 
 				int logged_in = 0;
+				int lacks_grant = 0;
+				char sname[128] = {0};
+				char user_email[128] = {0};
+				char grants[256] = {0};
+				char *gp = grants, *gend = grants + sizeof(grants);
+				lws_get_urlarg_by_name_safe(wsi, "service_name=", sname, sizeof(sname));
 
 				if (vhd->cookie_name[0]) {
 					struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL);
 					if (ja) {
 						logged_in = 1;
+						uint32_t suid = lws_jwt_auth_get_uid(ja);
+
+						sqlite3_stmt *stmt_u;
+						if (sqlite3_prepare_v2(vhd->db, "SELECT username FROM users WHERE uid = ?", -1, &stmt_u, NULL) == SQLITE_OK) {
+							sqlite3_bind_int(stmt_u, 1, (int)suid);
+							if (sqlite3_step(stmt_u) == SQLITE_ROW)
+								lws_strncpy(user_email, (const char *)sqlite3_column_text(stmt_u, 0), sizeof(user_email));
+							sqlite3_finalize(stmt_u);
+						}
+
+						/* Fetch grants for debugging output */
+						int first = 1;
+						if (sqlite3_prepare_v2(vhd->db, "SELECT s.name, g.grant_level FROM grants g JOIN services s ON g.service_id = s.service_id WHERE g.uid = ?", -1, &stmt_u, NULL) == SQLITE_OK) {
+							sqlite3_bind_int(stmt_u, 1, (int)suid);
+							while (sqlite3_step(stmt_u) == SQLITE_ROW) {
+								if (!first) gp += lws_snprintf(gp, lws_ptr_diff_size_t(gend, gp), ", ");
+								first = 0;
+								gp += lws_snprintf(gp, lws_ptr_diff_size_t(gend, gp), "\"%s\": %d",
+									(const char *)sqlite3_column_text(stmt_u, 0),
+									sqlite3_column_int(stmt_u, 1));
+							}
+							sqlite3_finalize(stmt_u);
+						}
+
+						if (sname[0] && lws_jwt_auth_query_grant(ja, sname) < 1)
+							lacks_grant = 1;
+
 						lws_jwt_auth_destroy(&ja);
 					}
 				}
 
-				if (!logged_in && cookies[0]) {
-					const char *p_sess = strstr(cookies, "auth_session=");
-					if (p_sess) {
-						char sess[65];
-						int j = 0;
-						p_sess += 13;
-						while (*p_sess && *p_sess != ';' && j < 64)
-							sess[j++] = *p_sess++;
-						sess[j] = 0;
-						uint64_t now = (uint64_t)time(NULL);
-						sqlite3_stmt *stmt2;
-						if (sqlite3_prepare_v2(vhd->db, "SELECT expires FROM auth_sessions WHERE session_id = ?", -1, &stmt2, NULL) == SQLITE_OK) {
-							sqlite3_bind_text(stmt2, 1, sess, -1, SQLITE_STATIC);
-							if (sqlite3_step(stmt2) == SQLITE_ROW) {
-								if (now < (uint64_t)sqlite3_column_int64(stmt2, 0))
-									logged_in = 1;
-							}
-							sqlite3_finalize(stmt2);
-						}
-					}
-				}
-
-				lwsl_user("[AUTH-TRX] /status API endpoint returning users_empty=%d, logged_in=%d\n", users_empty, logged_in);
+				lwsl_user("[AUTH-TRX] /status API endpoint returning users_empty=%d, logged_in=%d lacks_grant=%d\n", users_empty, logged_in, lacks_grant);
 				pss->http_response_code = HTTP_STATUS_OK;
 				char pl[1024 + LWS_PRE];
-		                int len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"users_empty\":%d, \"csrf_token\":\"%s\", \"logged_in\":%d}", users_empty, csrf, logged_in);
+		                int len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE,
+					"{\"users_empty\":%d, \"csrf_token\":\"%s\", \"logged_in\":%d, \"lacks_grant\":%d, \"email\":\"%s\", \"grants\":{%s}}",
+					users_empty, csrf, logged_in, lacks_grant, user_email, grants);
 				if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)pl, (size_t)len + LWS_PRE) < 0)
 					return -1;
 
@@ -1371,6 +1421,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 
                         return 0;
+		}
 		}
 
 		if (!strncmp((const char *)in, "/totp_svg", 9)) {
@@ -1482,11 +1533,6 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			int found = 0;
 			uint64_t now = (uint64_t)time(NULL);
 			char email[129], pass[129], salt[33], totp[65];
-<<<<<<< current
-
-=======
-
->>>>>>> patched
 			lwsl_user("[AUTH-TRX] verify: looking for hash='%s'\n", hbuf);
 
 			if (sqlite3_prepare_v2(vhd->db, "SELECT email, password_hash, salt, totp_secret, expires FROM registrations WHERE verify_hash = ?", -1, &stmt, NULL) == SQLITE_OK) {
@@ -1539,7 +1585,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				sqlite3_finalize(stmt);
 			}
 			if (users_count == 1) {
-				sqlite3_exec(vhd->db, "INSERT OR IGNORE INTO services (service_id, name) VALUES (1, 'auth_server')", NULL, NULL, NULL);
+				sqlite3_exec(vhd->db, "INSERT OR IGNORE INTO services (service_id, name) VALUES (1, '*')", NULL, NULL, NULL);
 				char grant_query[256];
 				lws_snprintf(grant_query, sizeof(grant_query), "INSERT INTO grants (uid, service_id, grant_level) VALUES ((SELECT uid FROM users WHERE username='%s'), 1, 2)", email);
 				sqlite3_exec(vhd->db, grant_query, NULL, NULL, NULL);
@@ -1565,16 +1611,16 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(body_end, p),
 				"<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Account Confirmed</title>"
-				"<link rel=\"stylesheet\" href=\"/auth/auth.css\">"
+				"<link rel=\"stylesheet\" href=\"../auth.css\">"
 				"<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"></head>"
 				"<body><div class=\"background-elements\"><div class=\"orb orb-1\"></div><div class=\"orb orb-2\"></div><div class=\"orb orb-3\"></div></div>"
 				"<div class=\"auth-container\"><div class=\"glass-panel totp-setup-box\"><div class=\"panel-header\"><h1>Account Confirmed</h1>"
 				"<p>Scan this into your Authenticator app within 5 minutes!</p>"
 				"<p style=\"font-size: 0.9em; margin-top: -10px; opacity: 0.8;\">(Or tap the QR code on mobile devices)</p></div>"
 				"<div class=\"qrcode-container\"><a href=\"%s\" title=\"Tap to open Authenticator App\">"
-				"<img src=\"/api/totp_svg?h=%s\" alt=\"TOTP Setup QR\"></a></div>"
+				"<img src=\"totp_svg?h=%s\" width=\"200\" height=\"200\" alt=\"TOTP Setup QR\"></a></div>"
 				"<p class=\"totp-secret-text\">%s</p>"
-				"<div class=\"panel-footer\"><a href=\"/auth\" class=\"btn-link\">Proceed to Login</a></div>"
+				"<div class=\"panel-footer\"><a href=\"../\" class=\"btn-link\">Proceed to Login</a></div>"
 				"</div></div></body></html>", uri, hbuf, totp);
 
 			size_t body_len = lws_ptr_diff_size_t(p, body_start);
@@ -1715,30 +1761,26 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			return lws_http_transaction_completed(wsi);
 		}
 
-		if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)) {
-			lws_strncpy(pss->requesting_url,
-				    (const char *)in, sizeof(pss->requesting_url));
+		if (in && (strstr((const char *)in, "login") || strstr((const char *)in, "register") || strstr((const char *)in, "token"))) {
+			lws_strncpy(pss->requesting_url, (const char *)in, sizeof(pss->requesting_url));
 
 			lwsl_user("%s: Processing POST to '%s'\n", __func__, pss->requesting_url);
 
-			if (strstr(pss->requesting_url, "login") || strstr(pss->requesting_url, "register") || strstr(pss->requesting_url, "token")) {
-				lws_spa_create_info_t i;
-				memset(&i, 0, sizeof(i));
-				i.param_names = param_names;
-				i.count_params = LWS_ARRAY_SIZE(param_names);
-				i.max_storage = 1024;
-				pss->spa = lws_spa_create_via_info(wsi, &i);
-				if (!pss->spa) {
-					lwsl_err("%s: lws_spa_create_via_info failed\n", __func__);
-
-					return -1;
-				}
-				lwsl_user("[AUTH-TRX] HTTP POST SPA successfully initialized\n");
-				return 0;
+			lws_spa_create_info_t i;
+			memset(&i, 0, sizeof(i));
+			i.param_names = param_names;
+			i.count_params = LWS_ARRAY_SIZE(param_names);
+			i.max_storage = 1024;
+			pss->spa = lws_spa_create_via_info(wsi, &i);
+			if (!pss->spa) {
+				lwsl_err("%s: lws_spa_create_via_info failed\n", __func__);
+				return -1;
 			}
+			lwsl_user("[AUTH-TRX] HTTP POST SPA successfully initialized\n");
+			return 0;
 		}
 		lwsl_user("[AUTH-TRX] HTTP Request unaccounted for, breaking loop\n");
-		break;
+	break;
 
 	case LWS_CALLBACK_HTTP_BODY:
 		if (pss->spa) {
@@ -1797,6 +1839,168 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
                 }
 
                 return lws_http_transaction_completed(wsi);
+
+	case LWS_CALLBACK_SERVER_WRITEABLE:
+	{
+		if (!pss->tx_buflist)
+			break;
+
+		uint8_t *txp;
+		size_t txb = lws_buflist_next_segment_len(&pss->tx_buflist, &txp);
+
+		if (txb > LWS_PRE) {
+			int m = lws_write(wsi, txp + LWS_PRE, (unsigned int)(txb - LWS_PRE), LWS_WRITE_TEXT);
+			if (m < 0) return -1;
+			lws_buflist_use_segment(&pss->tx_buflist, txb);
+		} else {
+			lws_buflist_use_segment(&pss->tx_buflist, txb);
+		}
+
+		if (lws_buflist_next_segment_len(&pss->tx_buflist, &txp))
+			lws_callback_on_writable(wsi);
+
+		return 0;
+	}
+
+	case LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION:
+	{
+		struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL);
+		if (!ja || lws_jwt_auth_query_grant(ja, "*") < 1) {
+			if (ja) lws_jwt_auth_destroy(&ja);
+			lwsl_notice("[AUTH-TRX] WS connection rejected: missing administrative wildcard grant\n");
+			return 1;
+		}
+		lws_jwt_auth_destroy(&ja);
+		return 0;
+	}
+
+	case LWS_CALLBACK_ESTABLISHED:
+		break;
+
+	case LWS_CALLBACK_RECEIVE:
+	{
+		char op[32] = {0};
+		int req_uid = -1;
+		char new_grants[512] = {0};
+
+		char *gp;
+		if ((gp = strstr((const char *)in, "\"op\":\""))) {
+			gp += 6;
+			int i = 0;
+			while (*gp && *gp != '"' && i < 31) op[i++] = *gp++;
+		}
+		if ((gp = strstr((const char *)in, "\"uid\":"))) {
+			gp += 6;
+			req_uid = atoi(gp);
+		}
+		if ((gp = strstr((const char *)in, "\"grants\":\""))) {
+			gp += 10;
+			int i = 0;
+			while (*gp && *gp != '"' && i < 511)
+				new_grants[i++] = *gp++;
+		}
+
+		if (!strcmp(op, "delete") && req_uid > 0) {
+			int has_star = 0;
+			sqlite3_stmt *s;
+			if (sqlite3_prepare_v2(vhd->db, "SELECT 1 FROM grants g JOIN services svc ON g.service_id = svc.service_id WHERE g.uid=? AND svc.name='*'", -1, &s, NULL) == SQLITE_OK) {
+				sqlite3_bind_int(s, 1, req_uid);
+				if (sqlite3_step(s) == SQLITE_ROW) has_star = 1;
+				sqlite3_finalize(s);
+			}
+			if (!has_star) {
+				char dq[256];
+				sqlite3_exec(vhd->db, "BEGIN TRANSACTION;", NULL, NULL, NULL);
+				lws_snprintf(dq, sizeof(dq), "DELETE FROM auth_sessions WHERE uid=%d", req_uid); sqlite3_exec(vhd->db, dq, NULL, NULL, NULL);
+				lws_snprintf(dq, sizeof(dq), "DELETE FROM oauth_codes WHERE uid=%d", req_uid); sqlite3_exec(vhd->db, dq, NULL, NULL, NULL);
+				lws_snprintf(dq, sizeof(dq), "DELETE FROM grants WHERE uid=%d", req_uid); sqlite3_exec(vhd->db, dq, NULL, NULL, NULL);
+				lws_snprintf(dq, sizeof(dq), "DELETE FROM users WHERE uid=%d", req_uid); sqlite3_exec(vhd->db, dq, NULL, NULL, NULL);
+				sqlite3_exec(vhd->db, "COMMIT;", NULL, NULL, NULL);
+			}
+		} else if (!strcmp(op, "edit") && req_uid > 0) {
+			sqlite3_exec(vhd->db, "BEGIN TRANSACTION;", NULL, NULL, NULL);
+			char eq[256];
+			lws_snprintf(eq, sizeof(eq), "DELETE FROM grants WHERE uid=%d", req_uid);
+			sqlite3_exec(vhd->db, eq, NULL, NULL, NULL);
+
+			char *p2 = new_grants;
+			while (*p2) {
+				char *comma = strchr(p2, ',');
+				if (comma) *comma = '\0';
+				char *colon = strchr(p2, ':');
+				if (colon) {
+					*colon = '\0';
+					const char *sn = p2;
+					int lvl = atoi(colon + 1);
+
+					if (sn[0] && lvl > 0) {
+						sqlite3_stmt *s2;
+						if (sqlite3_prepare_v2(vhd->db, "INSERT OR IGNORE INTO services (name) VALUES (?)", -1, &s2, NULL) == SQLITE_OK) {
+							sqlite3_bind_text(s2, 1, sn, -1, SQLITE_TRANSIENT);
+							sqlite3_step(s2);
+							sqlite3_finalize(s2);
+						}
+						if (sqlite3_prepare_v2(vhd->db, "INSERT INTO grants (uid, service_id, grant_level) VALUES (?, (SELECT service_id FROM services WHERE name=?), ?)", -1, &s2, NULL) == SQLITE_OK) {
+							sqlite3_bind_int(s2, 1, req_uid);
+							sqlite3_bind_text(s2, 2, sn, -1, SQLITE_TRANSIENT);
+							sqlite3_bind_int(s2, 3, lvl);
+							sqlite3_step(s2);
+							sqlite3_finalize(s2);
+						}
+					}
+				}
+				if (!comma) break;
+				p2 = comma + 1;
+			}
+			sqlite3_exec(vhd->db, "COMMIT;", NULL, NULL, NULL);
+		}
+
+		size_t alloc_sz = 65536 + LWS_PRE;
+		char *b = malloc(alloc_sz);
+		if (b) {
+			char *o = b + LWS_PRE, *end = b + alloc_sz - 1;
+			sqlite3_stmt *stmt;
+			int first = 1;
+
+			o += lws_snprintf(o, lws_ptr_diff_size_t(end, o), "{\"op\":\"list_reply\",\"users\":[");
+
+			if (sqlite3_prepare_v2(vhd->db, "SELECT uid, username FROM users", -1, &stmt, NULL) == SQLITE_OK) {
+				while (sqlite3_step(stmt) == SQLITE_ROW) {
+					int uid = sqlite3_column_int(stmt, 0);
+					const char *un = (const char *)sqlite3_column_text(stmt, 1);
+
+					if (!first) o += lws_snprintf(o, lws_ptr_diff_size_t(end, o), ",");
+					first = 0;
+
+					o += lws_snprintf(o, lws_ptr_diff_size_t(end, o), "{\"uid\":%d,\"user\":\"%s\",\"grants\":{", uid, un);
+
+					sqlite3_stmt *gstmt;
+					int gfirst = 1;
+					if (sqlite3_prepare_v2(vhd->db, "SELECT s.name, g.grant_level FROM grants g JOIN services s ON g.service_id = s.service_id WHERE g.uid=?", -1, &gstmt, NULL) == SQLITE_OK) {
+						sqlite3_bind_int(gstmt, 1, uid);
+						while (sqlite3_step(gstmt) == SQLITE_ROW) {
+							const char *sn = (const char *)sqlite3_column_text(gstmt, 0);
+							int gl = sqlite3_column_int(gstmt, 1);
+							if (!gfirst) o += lws_snprintf(o, lws_ptr_diff_size_t(end, o), ",");
+							gfirst = 0;
+							o += lws_snprintf(o, lws_ptr_diff_size_t(end, o), "\"%s\":%d", sn, gl);
+						}
+						sqlite3_finalize(gstmt);
+					}
+					o += lws_snprintf(o, lws_ptr_diff_size_t(end, o), "}}");
+				}
+				sqlite3_finalize(stmt);
+			}
+			o += lws_snprintf(o, lws_ptr_diff_size_t(end, o), "]}");
+			if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)b, (lws_ptr_diff_size_t(o, b))) < 0) {
+				free(b);
+				return -1;
+			}
+			free(b);
+			lws_callback_on_writable(wsi);
+		}
+		break;
+	}
 
 	case LWS_CALLBACK_CLOSED_HTTP:
 		lwsl_user("[AUTH-TRX] CLOSED_HTTP wsi=%p\n", wsi);

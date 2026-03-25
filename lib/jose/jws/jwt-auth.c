@@ -28,6 +28,7 @@ struct lws_jwt_auth {
 	uint64_t exp;
 	char cookie_name[64];
 	char sub[128];
+	uint32_t uid;
 };
 
 struct lws_jwt_auth_grant {
@@ -84,6 +85,7 @@ static const char * const auth_paths[] = {
 	"grants.*",
 	"sub",
 	"email",
+	"uid",
 };
 
 enum {
@@ -92,6 +94,7 @@ enum {
 	JAP_GRANTS_ANY,
 	JAP_SUB,
 	JAP_EMAIL,
+	JAP_UID,
 };
 
 static signed char
@@ -111,6 +114,8 @@ jwt_auth_lejp_cb(struct lejp_ctx *ctx, char reason)
 	if (reason == LEJPCB_VAL_NUM_INT) {
 		if (ctx->path_match == JAP_EXP + 1) {
 			pctx->ja->exp = (uint64_t)atoll(ctx->buf);
+		} else if (ctx->path_match == JAP_UID + 1) {
+			pctx->ja->uid = (uint32_t)atoi(ctx->buf);
 		} else if (ctx->path_match == JAP_GRANTS_ANY + 1 && pctx->parsing_grants) {
 			struct lws_jwt_auth_grant *g = malloc(sizeof(*g));
 			if (g) {
@@ -216,6 +221,8 @@ lws_jwt_auth_create(struct lws *wsi, struct lws_jwk *jwk,
 int
 lws_jwt_auth_query_grant(struct lws_jwt_auth *ja, const char *service_name)
 {
+	int wildcard_level = -1;
+
 	if (!ja)
 		return -1;
 
@@ -223,9 +230,11 @@ lws_jwt_auth_query_grant(struct lws_jwt_auth *ja, const char *service_name)
 		struct lws_jwt_auth_grant *g = lws_container_of(d, struct lws_jwt_auth_grant, list);
 		if (!strcmp(g->service_name, service_name))
 			return g->grant_level;
+		if (!strcmp(g->service_name, "*"))
+			wildcard_level = g->grant_level;
 	} lws_end_foreach_dll_safe(d, d1);
 
-	return -1;
+	return wildcard_level;
 }
 
 void
@@ -252,4 +261,20 @@ lws_jwt_auth_get_sub(struct lws_jwt_auth *ja)
 	if (!ja || !ja->sub[0])
 		return NULL;
 	return ja->sub;
+}
+
+uint32_t
+lws_jwt_auth_get_uid(struct lws_jwt_auth *ja)
+{
+	if (!ja)
+		return 0;
+	return ja->uid;
+}
+
+uint32_t
+lws_jwt_auth_count_grants(struct lws_jwt_auth *ja)
+{
+	if (!ja)
+		return 0;
+	return ja->grants.count;
 }

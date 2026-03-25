@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DNSSEC Monitor</title>
+    <!-- Strict CSP prevents inline styles, and using external font CDNs without explicit whitelist, so we use system fonts -->
+    <link rel="stylesheet" href="monitor.css">
+</head>
+<body>
+    <div class="app-container">
+        <header>
+            <div class="header-content">
+                <h1>DNSSEC Monitor</h1>
+                <p>Manage authoritative DNSSEC zones and ACME TLS subdomains</p>
+            </div>
+            <div class="header-status">
+                <span id="ws-status" class="status-badge connecting">Connecting...</span>
+            </div>
+        </header>
+
+        <main>
+            <section class="panel domain-panel">
+                <div class="panel-header">
+                    <h2>Domains</h2>
+                    <button id="btn-add-domain" class="btn primary">Add Domain</button>
+                </div>
+                <div class="table-container">
+                    <table id="table-domains">
+                        <thead>
+                            <tr>
+                                <th>Domain Name</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td colspan="2" class="loading">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="panel detail-panel hidden-panel" id="detail-panel">
+                <div class="panel-header">
+                    <h2 id="detail-title">Domain Details: <span>---</span></h2>
+                    <div class="actions-group">
+                        <button id="btn-edit-zone" class="btn secondary">Edit Zonefile</button>
+                        <button id="btn-add-tls" class="btn secondary">Add TLS Subdomain</button>
+                    </div>
+                </div>
+
+                <div class="table-container">
+                    <h3>TLS Subdomains</h3>
+                    <table id="table-tls">
+                        <thead>
+                            <tr>
+                                <th>Subdomain Certificate</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Populated dynamically -->
+                            <tr><td colspan="2" class="loading">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Modals -->
+    <div id="modal-zone" class="modal">
+        <div class="modal-content large">
+            <h3>Edit Zonefile: <span id="zone-domain-name"></span></h3>
+            <div class="form-group">
+                <textarea id="zone-editor" rows="20" spellcheck="false" placeholder="Enter BIND zonefile content..."></textarea>
+            </div>
+            <div class="modal-actions">
+                <button id="btn-zone-cancel" class="btn hollow">Cancel</button>
+                <button id="btn-zone-save" class="btn primary">Save Zone</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-new-domain" class="modal">
+        <div class="modal-content">
+            <h3>Add New Domain</h3>
+            <div class="form-group">
+                <label for="input-new-domain">Domain Name</label>
+                <input type="text" id="input-new-domain" placeholder="example.com">
+            </div>
+            <div class="modal-actions">
+                <button id="btn-nd-cancel" class="btn hollow">Cancel</button>
+                <button id="btn-nd-save" class="btn primary" disabled>Create</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-new-tls" class="modal">
+        <div class="modal-content">
+            <h3>Add TLS Subdomain for <span id="tls-domain-name"></span></h3>
+            <div class="form-group">
+                <label for="input-tls-subdomain">Subdomain (FQDN)<span class="req">*</span></label>
+                <input type="text" id="input-tls-subdomain" placeholder="www.example.com">
+            </div>
+            <div class="form-group">
+                <label for="input-tls-email">Account Email<span class="req">*</span></label>
+                <input type="email" id="input-tls-email" placeholder="admin@example.com">
+            </div>
+            <div class="form-group">
+                <label for="input-tls-org">Organization<span class="req">*</span></label>
+                <input type="text" id="input-tls-org" placeholder="My Organization">
+            </div>
+            <div class="form-group">
+                <label for="input-tls-dir">ACME Directory URL<span class="req">*</span></label>
+                <input type="text" id="input-tls-dir" placeholder="https://acme-v02.../directory" value="https://acme-v02.api.letsencrypt.org/directory">
+            </div>
+            <div class="modal-actions">
+                <button id="btn-nt-cancel" class="btn hollow">Cancel</button>
+                <button id="btn-nt-save" class="btn primary" disabled>Create TLS</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toast" class="toast"></div>
+
+    <script src="monitor.js"></script>
+</body>
+</html>

@@ -45,11 +45,11 @@ This example mounts the front-end UI at `/auth` and configures the `lws-auth-ser
     "name": "auth.warmcat.com",
     "port": 443,
     "mounts": [{
-      "mountpoint": "/auth/api",
+      "mountpoint": "/api",
       "origin": "callback://lws-auth-server"
     }, {
-      "mountpoint": "/auth",
-      "origin": "file:///usr/local/share/libwebsockets-test-server/auth",
+      "mountpoint": "/",
+      "origin": "file://_lws_ddir_/libwebsockets-test-server/auth",
       "default": "index.html"
     }],
     "ws-protocols": [{
@@ -78,7 +78,14 @@ By default, the `registration_ui` option is disabled (`false` or `0`) to prevent
 
 However, if the `users` table in your SQLite database is completely empty, the system will temporarily permit registration of your initial administrative user through the normal web UI **if and only if** you are connecting from localhost (`127.0.0.1`, `::1`, or `localhost`) or an unroutable private LAN address (e.g. `10.x.x.x`, `192.168.x.x`).
 
-The first user created via this localhost bootstrap method is automatically granted full admin privileges (`grant_level` 2) for the `auth_server` service.
+### The TOFU "God" Grant
+The very first user created via this localhost bootstrap method is automatically provisioned with a literal `*` wildcard grant. This specialized grant establishes total, unrestricted administrative rights (or "god mode") across all applications verifying against this system.
+
+### Web Administration Dashboard
+Users holding the `*` wildcard grant can gain access to the built-in JSON Web UI natively mounted at `/admin` **(Note: This path is relative to wherever you mounted the `callback://lws-auth-server` endpoint for the API itself, e.g. `https://auth.warmcat.com/api/admin` or `https://auth.warmcat.com/auth/api/admin`)**! This dashboard utilizes a bi-directional WebSocket backend to allow you to easily edit user grants, list accounts, or purge identities without manually writing raw SQL queries.  *(Note: For security reasons, the underlying system intrinsically prohibits anyone from deleting identities holding the `*` wildcard through the `/admin` UI to prevent irreversible lockout scenarios).*
+
+### Complete Server Wipe Recovery
+If you catastrophically lose access to the single TOFU administrator account or severely corrupt the grants table to the point of a hard lockout, you can safely trigger a pristine reboot. Stop the server, delete the SQLite `db_path` file entirely (and optionally, the `jwk_path` to forcibly rotate all deployed cryptographic signatures downstream), and restart `libwebsockets`. A brand-new database schema will be generated, and the TOFU bootstrap portal will re-open for your IP natively.
 
 ## Database Schema
 
