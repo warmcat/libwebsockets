@@ -39,6 +39,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <libwebsockets/lws-dht-dnssec.h>
+#include <errno.h>
 
 #if defined(LWS_WITH_AUTHORITATIVE_DNS)
 

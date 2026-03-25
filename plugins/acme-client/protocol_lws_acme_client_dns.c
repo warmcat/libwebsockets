@@ -37,6 +37,7 @@
 #include <fcntl.h>
 
 #include "lws-acme-client.h"
+#include <errno.h>
 
 struct vhd_acme_dns {
 	const struct lws_protocols *core_protocol;

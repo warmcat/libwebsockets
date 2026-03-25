@@ -31,6 +31,7 @@
 #include <ifaddrs.h>
 #endif
 #include <sys/stat.h>
+#include <errno.h>
 
 #define LWS_DHT_FRAGMENT_SIZE		(1024 * 1024)
 #define LWS_DHT_STORE_GENHASH		LWS_GENHASH_TYPE_SHA256

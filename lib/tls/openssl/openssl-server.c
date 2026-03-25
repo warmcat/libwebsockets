@@ -531,7 +531,22 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 	SSL_CTX_set_options(vhost->tls.ssl_ctx, SSL_OP_SINGLE_DH_USE);
 	SSL_CTX_set_options(vhost->tls.ssl_ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
 
-	if (info->ssl_cipher_list)
+	if (info->tls_ciphers_iana) {
+		char *p = lws_strdup(info->tls_ciphers_iana);
+		if (p) {
+			char *q = p;
+			while (*q) {
+				if (*q == ',')
+					*q = ':';
+				q++;
+			}
+			SSL_CTX_set_cipher_list(vhost->tls.ssl_ctx, p);
+#if defined(LWS_HAVE_SSL_CTX_set_ciphersuites)
+			SSL_CTX_set_ciphersuites(vhost->tls.ssl_ctx, p);
+#endif
+			lws_free(p);
+		}
+	} else if (info->ssl_cipher_list)
 		SSL_CTX_set_cipher_list(vhost->tls.ssl_ctx, info->ssl_cipher_list);
 
 #if defined(LWS_HAVE_SSL_CTX_set_ciphersuites)

@@ -53,7 +53,15 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 		return 1;
 	}
 
-	gnutls_priority_init(&vhost->tls.ssl_ctx->priority, "NORMAL", NULL);
+	if (gnutls_priority_init(&vhost->tls.ssl_ctx->priority,
+				 info->ssl_cipher_list ?
+				 info->ssl_cipher_list : "NORMAL", NULL) < 0) {
+		lwsl_err("%s: gnutls_priority_init failed\n", __func__);
+		gnutls_certificate_free_credentials(vhost->tls.ssl_ctx->creds);
+		lws_free(vhost->tls.ssl_ctx);
+		vhost->tls.ssl_ctx = NULL;
+		return 1;
+	}
 
 	if (!vhost->tls.use_ssl ||
 	    (!info->ssl_cert_filepath && !info->server_ssl_cert_mem))
@@ -98,7 +106,14 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		gnutls_certificate_set_x509_system_trust(vh->tls.ssl_client_ctx->creds);
 	}
 
-	gnutls_priority_init(&vh->tls.ssl_client_ctx->priority, "NORMAL", NULL);
+	if (gnutls_priority_init(&vh->tls.ssl_client_ctx->priority,
+				 cipher_list ? cipher_list : "NORMAL", NULL) < 0) {
+		lwsl_err("%s: gnutls_priority_init failed\n", __func__);
+		gnutls_certificate_free_credentials(vh->tls.ssl_client_ctx->creds);
+		lws_free(vh->tls.ssl_client_ctx);
+		vh->tls.ssl_client_ctx = NULL;
+		return 1;
+	}
 
 	return 0;
 }

@@ -754,14 +754,19 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 				 sizeof(info->ssl_client_options_clear));
 #endif
 
-	if (cipher_list)
-		EVP_DigestUpdate(mdctx, cipher_list, strlen(cipher_list));
+	if (info->client_tls_ciphers_iana)
+		EVP_DigestUpdate(mdctx, info->client_tls_ciphers_iana,
+				 strlen(info->client_tls_ciphers_iana));
+	else {
+		if (cipher_list)
+			EVP_DigestUpdate(mdctx, cipher_list, strlen(cipher_list));
 
 #if defined(LWS_HAVE_SSL_CTX_set_ciphersuites)
-	if (info->client_tls_1_3_plus_cipher_list)
-		EVP_DigestUpdate(mdctx, info->client_tls_1_3_plus_cipher_list,
-				 strlen(info->client_tls_1_3_plus_cipher_list));
+		if (info->client_tls_1_3_plus_cipher_list)
+			EVP_DigestUpdate(mdctx, info->client_tls_1_3_plus_cipher_list,
+					 strlen(info->client_tls_1_3_plus_cipher_list));
 #endif
+	}
 
 	if (!lws_check_opt(vh->options, LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS)) {
 		c = 1;
@@ -885,14 +890,31 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		SSL_CTX_clear_options(vh->tls.ssl_client_ctx, ssl_client_options_clear_value);
 #endif
 
-	if (cipher_list)
-		SSL_CTX_set_cipher_list(vh->tls.ssl_client_ctx, cipher_list);
+	if (info->client_tls_ciphers_iana) {
+		char *p = lws_strdup(info->client_tls_ciphers_iana);
+		if (p) {
+			char *q = p;
+			while (*q) {
+				if (*q == ',')
+					*q = ':';
+				q++;
+			}
+			SSL_CTX_set_cipher_list(vh->tls.ssl_client_ctx, p);
+#if defined(LWS_HAVE_SSL_CTX_set_ciphersuites)
+			SSL_CTX_set_ciphersuites(vh->tls.ssl_client_ctx, p);
+#endif
+			lws_free(p);
+		}
+	} else {
+		if (cipher_list)
+			SSL_CTX_set_cipher_list(vh->tls.ssl_client_ctx, cipher_list);
 
 #if defined(LWS_HAVE_SSL_CTX_set_ciphersuites)
-	if (info->client_tls_1_3_plus_cipher_list)
-		SSL_CTX_set_ciphersuites(vh->tls.ssl_client_ctx,
-					 info->client_tls_1_3_plus_cipher_list);
+		if (info->client_tls_1_3_plus_cipher_list)
+			SSL_CTX_set_ciphersuites(vh->tls.ssl_client_ctx,
+						 info->client_tls_1_3_plus_cipher_list);
 #endif
+	}
 
 #ifdef LWS_SSL_CLIENT_USE_OS_CA_CERTS
 	if (!lws_check_opt(vh->options, LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS))

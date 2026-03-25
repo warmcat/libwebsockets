@@ -454,6 +454,18 @@ struct lws_context_creation_info {
 	 * but it is preferred to use .client_ssl_cipher_list for that.)
 	 * SEE .tls1_3_plus_cipher_list and .client_tls_1_3_plus_cipher_list
 	 * for the equivalent for tls1.3.
+	 *
+	 * For GnuTLS, this instead takes a GnuTLS Priority String.
+	 *
+	 * RECOMMENDATION: For OpenSSL and mbedTLS, it's recommended to use
+	 * .tls_ciphers_iana instead. If .tls_ciphers_iana is provided, this
+	 * field is ignored for those backends.
+	 */
+	const char *tls_ciphers_iana;
+	/**< VHOST: Strict IANA-formatted comma-separated list of ciphers to use.
+	 * If populated, this overrides ssl_cipher_list and provides cross-library
+	 * consistency. (e.g. "TLS_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384")
+	 * Note: Only supported on OpenSSL and mbedTLS backends.
 	 */
 	const char *ecdh_curve;
 	/**< VHOST: if NULL, defaults to initializing server with
@@ -464,6 +476,9 @@ struct lws_context_creation_info {
 	 * or you can leave it as NULL to get "DEFAULT".
 	 * SEE .client_tls_1_3_plus_cipher_list to do the same on the vhost
 	 * client SSL_CTX.
+	 *
+	 * RECOMMENDATION: It's recommended to use .tls_ciphers_iana instead.
+	 * If .tls_ciphers_iana is provided, this field is ignored.
 	 */
 
 	const void *server_ssl_cert_mem;
@@ -543,12 +558,28 @@ struct lws_context_creation_info {
 	const char *client_ssl_cipher_list;
 	/**< VHOST: Client SSL context init: List of valid ciphers to use (eg,
 	* "RC4-MD5:RC4-SHA:AES128-SHA:AES256-SHA:HIGH:!DSS:!aNULL"
-	* or you can leave it as NULL to get "DEFAULT" */
+	* or you can leave it as NULL to get "DEFAULT"
+	*
+	* For GnuTLS, this instead takes a GnuTLS Priority String.
+	*
+	* RECOMMENDATION: For OpenSSL and mbedTLS, it's recommended to use
+	* .client_tls_ciphers_iana instead. If .client_tls_ciphers_iana is provided,
+	* this field is ignored for those backends.
+	*/
+	const char *client_tls_ciphers_iana;
+	/**< VHOST: Strict IANA-formatted comma-separated list of ciphers to use.
+	 * If populated, this overrides client_ssl_cipher_list and provides
+	 * cross-library consistency.
+	 * Note: Only supported on OpenSSL and mbedTLS backends.
+	 */
 	const char *client_tls_1_3_plus_cipher_list;
 	/**< VHOST: List of valid ciphers to use for outgoing client connections
 	 * ON TLS1.3 AND ABOVE on this vhost (eg,
 	 * "TLS_CHACHA20_POLY1305_SHA256") or you can leave it as NULL to get
 	 * "DEFAULT".
+	 *
+	 * RECOMMENDATION: It's recommended to use .client_tls_ciphers_iana instead.
+	 * If .client_tls_ciphers_iana is provided, this field is ignored.
 	 */
 
 	long ssl_client_options_set;

@@ -250,7 +250,16 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 		return n;
 
 	/* Apply cipher list if specified */
-	if (info->ssl_cipher_list) {
+	if (info->tls_ciphers_iana) {
+		if (!SSL_CTX_set_cipher_list(vhost->tls.ssl_ctx,
+					    info->tls_ciphers_iana)) {
+			lwsl_err("SSL_CTX_set_cipher_list(%s) failed\n",
+				 info->tls_ciphers_iana);
+			return 1;
+		}
+		lwsl_notice("%s: vh %s: applied IANA cipher list: %s\n", __func__,
+			    vhost->name, info->tls_ciphers_iana);
+	} else if (info->ssl_cipher_list) {
 		if (!SSL_CTX_set_cipher_list(vhost->tls.ssl_ctx,
 					    info->ssl_cipher_list)) {
 			lwsl_err("SSL_CTX_set_cipher_list(%s) failed\n",

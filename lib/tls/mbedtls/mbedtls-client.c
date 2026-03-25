@@ -545,6 +545,27 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 			    __func__, key_mem_len);
 
 	}
+
+	if (info->client_tls_ciphers_iana) {
+		if (!SSL_CTX_set_cipher_list(vh->tls.ssl_client_ctx,
+					    info->client_tls_ciphers_iana)) {
+			lwsl_err("SSL_CTX_set_cipher_list(%s) failed\n",
+				 info->client_tls_ciphers_iana);
+			return 1;
+		}
+		lwsl_notice("%s: client vh %s: applied IANA cipher list: %s\n",
+			    __func__, vh->name, info->client_tls_ciphers_iana);
+	} else if (info->client_ssl_cipher_list) {
+		if (!SSL_CTX_set_cipher_list(vh->tls.ssl_client_ctx,
+					    info->client_ssl_cipher_list)) {
+			lwsl_err("SSL_CTX_set_cipher_list(%s) failed\n",
+				 info->client_ssl_cipher_list);
+			return 1;
+		}
+		lwsl_notice("%s: client vh %s: applied cipher list: %s\n",
+			    __func__, vh->name, info->client_ssl_cipher_list);
+	}
+
 	return 0;
 }
 
