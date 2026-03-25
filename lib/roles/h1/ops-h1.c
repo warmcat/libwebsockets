@@ -334,7 +334,8 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 	struct lws_tokens ebuf;
 	int n, buffered;
 
-	if (lwsi_state(wsi) == LRS_DEFERRING_ACTION)
+	if (lwsi_state(wsi) == LRS_DEFERRING_ACTION ||
+	    wsi->http.deferred_transaction_completed)
 		goto try_pollout;
 
 	/* any incoming data ready? */
