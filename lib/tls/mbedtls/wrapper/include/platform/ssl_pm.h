@@ -42,6 +42,7 @@ int ssl_pm_get_fd(const SSL *ssl, int mode);
 OSSL_HANDSHAKE_STATE ssl_pm_get_state(const SSL *ssl);
 
 void ssl_pm_set_bufflen(SSL *ssl, int len);
+int ssl_pm_set_ciphersuites(SSL *ssl, const int *ciphersuites);
 
 int x509_pm_show_info(X509 *x);
 int x509_pm_new(X509 *x, X509 *m_x);
