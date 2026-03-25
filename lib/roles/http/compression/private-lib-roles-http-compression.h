@@ -51,6 +51,7 @@ typedef struct lws_compression_ctx {
 	} u;
 
 	struct lws_buflist *buflist_comp;
+	struct lws *wsi;
 
 	unsigned int is_decompression:1;
 	unsigned int final_on_input_side:1;

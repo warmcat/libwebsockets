@@ -68,13 +68,15 @@ lcs_process_brotli(lws_comp_ctx_t *ctx, const void *in, size_t *ilen_iused,
 		}
 
 		n = BROTLI_OPERATION_PROCESS;
-		if (ctx->final_on_input_side && !ctx->buflist_comp && !a_in)
+		if (ctx->final_on_input_side && !ctx->buflist_comp)
 			n = BROTLI_OPERATION_FINISH;
 
 		if (BrotliEncoderCompressStream(ctx->u.br_en, n, &a_in, &n_in,
 						&a_out, &n_out, &t_out) ==
 		    BROTLI_FALSE) {
-			lwsl_err("brotli encode failed\n");
+			lwsl_wsi_err(ctx->wsi, "%s: brotli encode failed: op %d, in %u, out %u\n",
+				 __func__, n, (unsigned int)a_in,
+				 (unsigned int)a_out);
 
 			return -1;
 		}
@@ -87,7 +89,12 @@ lcs_process_brotli(lws_comp_ctx_t *ctx, const void *in, size_t *ilen_iused,
 
 		switch (n) {
 		case BROTLI_DECODER_RESULT_ERROR:
-			lwsl_err("brotli decoder error\n");
+			lwsl_wsi_err(ctx->wsi, "%s: brotli decoder error: (code %d) %s, in %u, out %u\n",
+				 __func__,
+				 (int)BrotliDecoderGetErrorCode(ctx->u.br_de),
+				 BrotliDecoderErrorString(BrotliDecoderGetErrorCode(ctx->u.br_de)),
+				 (unsigned int)a_in,
+				 (unsigned int)a_out);
 			return -1;
 		}
 	}
