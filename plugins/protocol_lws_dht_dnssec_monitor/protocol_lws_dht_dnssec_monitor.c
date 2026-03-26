@@ -892,6 +892,10 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 			if (lws_protocol_vh_priv_get(vhost, protocol))
 				return 0;
 
+			/* Do not spawn root monitor if no pvos restrict it */
+			if (!in)
+				return 0;
+
 			vhd = lws_protocol_vh_priv_zalloc(vhost, protocol, sizeof(*vhd));
 			if (!vhd)
 				return -1;
