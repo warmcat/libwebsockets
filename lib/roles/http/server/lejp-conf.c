@@ -1312,6 +1312,25 @@ lwsws_get_config_vhosts(struct lws_context *context,
 	struct jpargs a;
 	char dd[128];
 
+	if (lws_cmdline_option_cx(context, "--lws-dht-dnssec-monitor-root")) {
+		struct lws_context_creation_info i;
+
+		lwsl_notice("%s: monitor process: skipping vhost parsing\n", __func__);
+		memset(&i, 0, sizeof(i));
+		i.vhost_name = "root-monitor-dummy";
+		i.port = CONTEXT_PORT_NO_LISTEN;
+		i.options = info->options;
+		i.protocols = info->protocols;
+		i.pprotocols = info->pprotocols;
+#if defined(LWS_ROLE_WS)
+		i.extensions = info->extensions;
+#endif
+		if (!lws_create_vhost(context, &i))
+			return 1;
+
+		return 0;
+	}
+
 	memset(&a, 0, sizeof(a));
 
 	a.info = info;

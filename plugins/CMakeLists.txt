@@ -211,6 +211,7 @@ endif(LWS_ROLE_WS)
 if (NOT LWS_WITHOUT_SERVER AND LWS_WITH_JOSE)
 	add_subdirectory(captcha-ratelimit)
 	add_subdirectory(lws-login)
+	add_subdirectory(lws-oauth2-client)
 endif()
 
 if (NOT LWS_WITHOUT_SERVER AND LWS_WITH_JOSE AND LWS_WITH_STRUCT_SQLITE3 AND LWS_WITH_AUTH_SERVER)

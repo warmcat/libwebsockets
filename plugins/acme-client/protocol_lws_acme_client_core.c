@@ -1955,7 +1955,7 @@ lws_acme_core_cert_aging(struct per_vhost_data__lws_acme_client *vhd,
         cfg = lws_container_of(d, struct lws_acme_cert_config, list);
 
         if (!cfg->pvop[LWS_TLS_SET_CERT_PATH] || !cfg->pvop[LWS_TLS_SET_KEY_PATH])
-            continue;
+            goto next_cert;
 
         /* Check if cert needs renewing based on 25% remaining validity */
         if (!lws_tls_cert_get_x509_remaining(vhd->context,
@@ -1965,7 +1965,7 @@ lws_acme_core_cert_aging(struct per_vhost_data__lws_acme_client *vhd,
                 cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], days_left, total_days);
 
              if (total_days && days_left > (total_days / 4))
-                 continue; /* Still active! */
+                 goto next_cert; /* Still active! */
         }
 
         /* Activate this cert and configure it for acquisition! */
@@ -1982,6 +1982,9 @@ lws_acme_core_cert_aging(struct per_vhost_data__lws_acme_client *vhd,
 
         lws_acme_start_acquisition(vhd, vhd->vhost);
         return 0; /* Wait for this cert to finish before kicking off the next! */
+
+next_cert:
+		;
     } lws_end_foreach_dll(d);
 
 	return 0;
