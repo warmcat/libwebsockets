@@ -627,8 +627,10 @@ This may be given multiple times.
 You may send lwsws a `HUP` signal, by, eg
 
 ```
-$ sudo killall -HUP lwsws
+$ sudo systemctl reload lwsws
 ```
+
+or by sending it to the specific `lwsws` PID `kill -HUP <pid>`
 
 This causes lwsws to "deprecate" the existing lwsws process, and remove and close all of
 its listen sockets, but otherwise allowing it to continue to run, until all
@@ -675,14 +677,15 @@ After=syslog.target
 
 [Service]
 ExecStart=/usr/local/bin/lwsws 
-ExecReload=/usr/bin/killall -s SIGHUP lwsws ; sleep 1 ; /usr/local/bin/lwsws
-StandardError=null
+ExecReload=/usr/bin/kill -HUP $MAINPID
 
 [Install]
 WantedBy=multi-user.target
 ```
 
 You can find this prepared in `./lwsws/usr-lib-systemd-system-lwsws.service`
+
+Note that `lwsws` natively handles `SIGTERM`, which systemd sends by default when stopping a service. This enables graceful isolated shutdown of individual `lwsws` configurations in their own control groups without requiring any manual `ExecStop` commands.
 
 
 ## Lwsws Integration with logrotate

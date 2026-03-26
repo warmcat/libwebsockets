@@ -60,7 +60,7 @@ static lws_sorted_usec_list_t sul_lwsws;
 static char config_dir[128], default_plugin_path = 1;
 static int opts = 0, do_reload = 1;
 static uv_loop_t loop;
-static uv_signal_t signal_outer[2];
+static uv_signal_t signal_outer[3];
 static int pids[32];
 void lwsl_emit_stderr(int level, const char *line);
 
@@ -285,6 +285,7 @@ int main(int argc, char **argv)
 	signal(SIGPIPE, SIG_IGN);
 	signal(SIGHUP, reload_handler);
 	signal(SIGINT, reload_handler);
+	signal(SIGTERM, reload_handler);
 
 	fprintf(stderr, "Root process is %u\n", (unsigned int)getpid());
 
@@ -334,6 +335,8 @@ int main(int argc, char **argv)
 	uv_signal_start(&signal_outer[0], signal_cb, SIGINT);
 	uv_signal_init(&loop, &signal_outer[1]);
 	uv_signal_start(&signal_outer[1], signal_cb, SIGHUP);
+	uv_signal_init(&loop, &signal_outer[2]);
+	uv_signal_start(&signal_outer[2], signal_cb, SIGTERM);
 
 	if (context_creation(argc, (const char **)argv)) {
 		lwsl_err("Context creation failed\n");
@@ -344,7 +347,7 @@ int main(int argc, char **argv)
 
 	lwsl_err("%s: closing\n", __func__);
 
-	for (n = 0; n < 2; n++) {
+	for (n = 0; n < 3; n++) {
 		uv_signal_stop(&signal_outer[n]);
 		uv_close((uv_handle_t *)&signal_outer[n], NULL);
 	}
