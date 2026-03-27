@@ -418,10 +418,11 @@ static const struct lws_protocols protocols[] = {
 
 LWS_VISIBLE const lws_plugin_protocol_t lws_oauth2_client = {
 	.hdr = {
-		"OAuth2 Client",
-		"lws_protocol_plugin",
-		LWS_BUILD_HASH,
-		LWS_PLUGIN_API_MAGIC
+		.name = "OAuth2 Client",
+		._class = "lws_protocol_plugin",
+		.lws_build_hash = LWS_BUILD_HASH,
+		.api_magic = LWS_PLUGIN_API_MAGIC,
+		.priority = 0,
 	},
 	.protocols = protocols,
 	.count_protocols = LWS_ARRAY_SIZE(protocols)

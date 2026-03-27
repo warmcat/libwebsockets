@@ -681,6 +681,59 @@ handle_req_delete_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
 }
 
+static void
+handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a, const char *dir_suffix)
+{
+	char *tx = (char *)&root_pss->tx[LWS_PRE];
+	char *tx_end = tx + 65536 - 1;
+	char d_path[1024];
+
+	if (!a->zone_buf || !a->domain[0] || !a->subdomain[0]) {
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Missing payload, domain, or filename\"}\n", a->req);
+		goto done;
+	}
+
+	if (strchr(a->domain, '/') || strstr(a->domain, "..") || strchr(a->domain, '\\') ||
+	    strchr(a->subdomain, '/') || strstr(a->subdomain, "..") || strchr(a->subdomain, '\\')) {
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Path traversal\"}\n", a->req);
+		goto done;
+	}
+
+	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/%s/%s", vhd->base_dir, a->domain, dir_suffix, a->subdomain);
+
+	int fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+	if (fd >= 0) {
+		if (write(fd, a->zone_buf, (size_t)a->zone_len) == (ssize_t)a->zone_len) {
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
+		} else {
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Partial write failure\"}\n", a->req);
+		}
+		close(fd);
+	} else {
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Could not open file for writing\"}\n", a->req);
+	}
+done:
+	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
+}
+
+static void
+handle_req_save_auth_key(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
+{
+	handle_req_save_acme_file(vhd, root_pss, a, "");
+}
+
+static void
+handle_req_save_cert(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
+{
+	handle_req_save_acme_file(vhd, root_pss, a, "certs/crt");
+}
+
+static void
+handle_req_save_key(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
+{
+	handle_req_save_acme_file(vhd, root_pss, a, "certs/key");
+}
+
 typedef void (*monitor_req_handler_t)(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a);
 
 static const struct monitor_req_map {
@@ -695,7 +748,10 @@ static const struct monitor_req_map {
 	{ "update_zone", handle_req_update_zone },
 	{ "get_tls", handle_req_get_tls },
 	{ "create_tls", handle_req_create_tls },
-	{ "delete_tls", handle_req_delete_tls }
+	{ "delete_tls", handle_req_delete_tls },
+	{ "save_auth_key", handle_req_save_auth_key },
+	{ "save_cert", handle_req_save_cert },
+	{ "save_key", handle_req_save_key }
 };
 
 static void
@@ -1273,11 +1329,11 @@ LWS_VISIBLE const struct lws_protocols lws_dht_dnssec_monitor_protocols[] = {
 };
 LWS_VISIBLE const lws_plugin_protocol_t lws_dht_dnssec_monitor = {
 	.hdr = {
-		"dht dnssec monitor",
-		"lws_protocol_plugin",
-		LWS_BUILD_HASH,
-		LWS_PLUGIN_API_MAGIC,
-		10 /* priority */
+		.name = "dht dnssec monitor",
+		._class = "lws_protocol_plugin",
+		.lws_build_hash = LWS_BUILD_HASH,
+		.api_magic = LWS_PLUGIN_API_MAGIC,
+		.priority = 10 /* priority */
 	},
 	.protocols = lws_dht_dnssec_monitor_protocols,
 	.count_protocols = LWS_ARRAY_SIZE(lws_dht_dnssec_monitor_protocols),
