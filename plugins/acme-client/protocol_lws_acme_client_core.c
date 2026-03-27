@@ -46,6 +46,51 @@
 #include <fcntl.h>
 #include "lws-acme-client.h"
 
+#if !defined(WIN32)
+#include <sys/socket.h>
+#include <sys/un.h>
+
+static int
+acme_ipc_save_payload(const char *uds_path, const char *req, const char *domain, const char *filename, const char *payload, size_t payload_len)
+{
+	int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+	if (fd < 0) return 1;
+	struct sockaddr_un addr;
+	memset(&addr, 0, sizeof(addr));
+	addr.sun_family = AF_UNIX;
+	strncpy(addr.sun_path, uds_path, sizeof(addr.sun_path) - 1);
+	if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+		close(fd);
+		return 1;
+	}
+
+	char header[512];
+	int hlen = lws_snprintf(header, sizeof(header), "{\"req\":\"%s\",\"domain\":\"%s\",\"subdomain\":\"%s\",\"zone\":\"", req, domain, filename);
+	write(fd, header, (size_t)hlen);
+
+	for (size_t i = 0; i < payload_len; i++) {
+        char c = payload[i];
+        if (c == '\n') { write(fd, "\\n", 2); }
+        else if (c == '\r') { write(fd, "\\r", 2); }
+        else if (c == '"') { write(fd, "\\\"", 2); }
+        else if (c == '\\') { write(fd, "\\\\", 2); }
+        else { write(fd, &c, 1); }
+    }
+	write(fd, "\"}\n", 3);
+
+	char resp[256];
+	read(fd, resp, sizeof(resp));
+	close(fd);
+	return 0;
+}
+#else
+static int
+acme_ipc_save_payload(const char *uds_path, const char *req, const char *domain, const char *filename, const char *payload, size_t payload_len)
+{
+	return 1;
+}
+#endif
+
 typedef enum {
 	ACME_STATE_DIRECTORY,	/* get the directory JSON using GET + parse */
 	ACME_STATE_NEW_NONCE,	/* get the replay nonce */
@@ -706,9 +751,42 @@ lws_acme_load_create_auth_keys(struct per_vhost_data__lws_acme_client *vhd,
 	lwsl_notice("...keypair generated\n");
 
 	if (lws_jwk_save(&vhd->jwk, vhd->active_cert->pvop[LWS_TLS_SET_AUTH_PATH])) {
-		lwsl_vhost_warn(vhd->vhost, "unable to save %s",
-				vhd->active_cert->pvop[LWS_TLS_SET_AUTH_PATH]);
-		return 1;
+        lwsl_vhost_notice(vhd->vhost, "falling back to ACME footprint IPC to save %s", vhd->active_cert->pvop[LWS_TLS_SET_AUTH_PATH]);
+        char tmp_path[256];
+        lws_snprintf(tmp_path, sizeof(tmp_path), "/tmp/lws-acme-auth-%d.jwk", getpid());
+        if (!lws_jwk_save(&vhd->jwk, tmp_path)) {
+            int fd = open(tmp_path, O_RDONLY);
+            int success = 0;
+            if (fd >= 0) {
+                struct stat st;
+                if (!fstat(fd, &st) && st.st_size > 0) {
+                    char *buf = malloc((size_t)st.st_size);
+                    if (buf && read(fd, buf, (size_t)st.st_size) == st.st_size) {
+                        const char *fp = vhd->active_cert->pvop[LWS_TLS_SET_AUTH_PATH];
+                        const char *fn = strrchr(fp, '/');
+                        if (fn) fn++; else fn = fp;
+                        int r = acme_ipc_save_payload("/var/run/lws-dnssec-monitor.sock",
+                            "save_auth_key",
+                            vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME],
+                            fn,
+                            buf, (size_t)st.st_size);
+                        if (!r) success = 1;
+                    }
+                    if (buf) free(buf);
+                }
+                close(fd);
+            }
+            unlink(tmp_path);
+            if (!success) {
+                lwsl_vhost_warn(vhd->vhost, "unable to save %s via footprint IPC",
+                        vhd->active_cert->pvop[LWS_TLS_SET_AUTH_PATH]);
+                return 1;
+            }
+        } else {
+            lwsl_vhost_warn(vhd->vhost, "unable to save %s",
+                    vhd->active_cert->pvop[LWS_TLS_SET_AUTH_PATH]);
+            return 1;
+        }
 	}
 
 	return 0;
@@ -1775,15 +1853,21 @@ poll_again:
 #endif
 					, 0600);
 				if (fd_cert < 0) {
-					lwsl_vhost_err(vhd->vhost, "unable to create cert file %s", cert_ts);
-					goto failed;
-				}
-
-				n = lws_plat_write_cert(vhd->vhost, 0, fd_cert, ac->buf, (size_t)ac->cpos);
-				close(fd_cert);
-				if (n) {
-					lwsl_vhost_err(vhd->vhost, "unable to write ACME cert!");
-					goto failed;
+					lwsl_vhost_notice(vhd->vhost, "falling back to IPC footprint to save %s", cert_ts);
+                    const char *fn = strrchr(cert_ts, '/');
+                    if (fn) fn++; else fn = cert_ts;
+					int r = acme_ipc_save_payload("/var/run/lws-dnssec-monitor.sock", "save_cert", vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], fn, ac->buf, (size_t)ac->cpos);
+					if (r) {
+						lwsl_vhost_err(vhd->vhost, "unable to create cert file %s", cert_ts);
+						goto failed;
+					}
+				} else {
+					n = lws_plat_write_cert(vhd->vhost, 0, fd_cert, ac->buf, (size_t)ac->cpos);
+					close(fd_cert);
+					if (n) {
+						lwsl_vhost_err(vhd->vhost, "unable to write ACME cert!");
+						goto failed;
+					}
 				}
 
 				fd_key = lws_open(key_ts, LWS_O_WRONLY | LWS_O_CREAT | LWS_O_TRUNC
@@ -1792,15 +1876,21 @@ poll_again:
 #endif
 					, 0600);
 				if (fd_key < 0) {
-					lwsl_vhost_err(vhd->vhost, "unable to create key file %s", key_ts);
-					goto failed;
-				}
-
-				n = lws_plat_write_cert(vhd->vhost, 1, fd_key, ac->alloc_privkey_pem, ac->len_privkey_pem);
-				close(fd_key);
-				if (n) {
-					lwsl_vhost_err(vhd->vhost, "unable to write ACME key!");
-					goto failed;
+					lwsl_vhost_notice(vhd->vhost, "falling back to IPC footprint to save %s", key_ts);
+                    const char *fn = strrchr(key_ts, '/');
+                    if (fn) fn++; else fn = key_ts;
+					int r = acme_ipc_save_payload("/var/run/lws-dnssec-monitor.sock", "save_key", vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], fn, ac->alloc_privkey_pem, ac->len_privkey_pem);
+					if (r) {
+						lwsl_vhost_err(vhd->vhost, "unable to create key file %s", key_ts);
+						goto failed;
+					}
+				} else {
+					n = lws_plat_write_cert(vhd->vhost, 1, fd_key, ac->alloc_privkey_pem, ac->len_privkey_pem);
+					close(fd_key);
+					if (n) {
+						lwsl_vhost_err(vhd->vhost, "unable to write ACME key!");
+						goto failed;
+					}
 				}
 
 				fd_full = lws_open(full_ts, LWS_O_WRONLY | LWS_O_CREAT | LWS_O_TRUNC
@@ -1808,9 +1898,20 @@ poll_again:
 					| O_BINARY
 #endif
 					, 0600);
-				if (fd_full >= 0) {
+				if (fd_full < 0) {
+					lwsl_vhost_notice(vhd->vhost, "falling back to IPC footprint to save %s", full_ts);
+                    const char *fn = strrchr(full_ts, '/');
+                    if (fn) fn++; else fn = full_ts;
+					int r = acme_ipc_save_payload("/var/run/lws-dnssec-monitor.sock", "save_cert", vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], fn, ac->buf, (size_t)cpos_fullchain);
+					if (r) {
+						lwsl_vhost_err(vhd->vhost, "unable to create fullchain file %s", full_ts);
+					}
+				} else {
 					n = lws_plat_write_cert(vhd->vhost, 0, fd_full, ac->buf, (size_t)cpos_fullchain);
 					close(fd_full);
+					if (n) {
+						lwsl_vhost_err(vhd->vhost, "unable to write ACME fullchain cert!");
+					}
 				}
 
 				/* Symlink update */
