@@ -330,6 +330,11 @@ lws_ss_proxy_deserialize_parse(struct lws_ss_serialization_parser *par,
 			par->ps++;
 			if (par->rem-- < par->slen)
 				goto hangup;
+			if (par->slen >= sizeof(par->rideshare)) {
+				lwsl_err("%s: rideshare slen %d >= buffer %zu\n",
+					 __func__, (unsigned)par->slen, sizeof(par->rideshare));
+				goto hangup;
+			}
 			break;
 
 		case RPAR_PERF:
