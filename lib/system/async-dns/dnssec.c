@@ -339,6 +339,7 @@ lws_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 							el[LWS_GENCRYPTO_RSA_KEYEL_E].buf = (uint8_t *)exp;
 							el[LWS_GENCRYPTO_RSA_KEYEL_E].len = (uint32_t)explen;
 							el[LWS_GENCRYPTO_RSA_KEYEL_N].buf = (uint8_t *)mod;
+							el[LWS_GENCRYPTO_RSA_KEYEL_N].len = (uint32_t)modlen;
 							if (lws_genrsa_create(&ctx, el, q->context, LGRSAM_PKCS1_1_5, hashtype) == 0) {
 								int res = lws_genrsa_hash_sig_verify(&ctx, vctx->hash, hashtype, vctx->sig_buf, (size_t)vctx->sig_len);
 								if (res == 0) {
