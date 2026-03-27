@@ -602,6 +602,11 @@ lws_hpack_dynamic_size(struct lws *wsi, int size)
 		lws_hpack_destroy_dynamic_header(wsi);
 	}
 
+	if (size < 0) {
+		lwsl_err("%s: negative size %d\n", __func__, size);
+		goto bail;
+	}
+
 	if (size > (int)nwsi->a.vhost->h2.set.s[H2SET_HEADER_TABLE_SIZE]) {
 		lwsl_info("rejecting hpack dyn size %u vs %u\n", size,
 			  (unsigned int)nwsi->a.vhost->h2.set.s[H2SET_HEADER_TABLE_SIZE]);
@@ -993,8 +998,14 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 		break;
 
 	case HPKS_IDX_EXT:
+		if (h2n->ext_count > 24) {
+			lwsl_notice("%s: HPACK integer overflow\n", __func__);
+			lws_h2_goaway(nwsi, H2_ERR_COMPRESSION_ERROR,
+				      "HPACK integer exceeds uint32 range");
+			return 1;
+		}
 		h2n->hpack_len = (uint32_t)((unsigned int)h2n->hpack_len |
-				(unsigned int)((c & 0x7f) << h2n->ext_count));
+				(((unsigned int)(c & 0x7f)) << h2n->ext_count));
 		h2n->ext_count = (uint8_t)(h2n->ext_count + 7);
 		if (c & 0x80) /* extended int not complete yet */
 			break;
