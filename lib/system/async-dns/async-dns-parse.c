@@ -281,11 +281,11 @@ start:
 		 */
 
 		n = lws_ptr_diff(sp, stack[0].name);
-		if (stack[0].name[n - 1] == '.')
+		if (n > 0 && stack[0].name[n - 1] == '.')
 			n--;
 
 		m = stack[stp].enl;
-		if (stack[stp].name[m - 1] == '.')
+		if (m > 0 && stack[stp].name[m - 1] == '.')
 			m--;
 
 		if (n < 1 || n != m ||
@@ -337,6 +337,10 @@ do_cb:
 			break;
 
 		case LWS_ADNS_RECORD_CNAME:
+			if (rrpaylen == 0) {
+				lwsl_notice("%s: CNAME with empty RDATA, skipping\n", __func__);
+				goto skip;
+			}
 			/*
 			 * The name the CNAME refers to MAY itself be
 			 * included elsewhere in the response packet.
