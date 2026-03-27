@@ -419,8 +419,9 @@ handler_server_protocol_init(struct lws *wsi, void *in)
 	 * lws event loop on our vhost, so we can be told about
 	 * external changes to the dir contents
 	 */
-	vhd->inotify_fd = inotify_init1(IN_NONBLOCK);
+	vhd->inotify_fd = inotify_init();
 	if (vhd->inotify_fd >= 0) {
+		fcntl(vhd->inotify_fd, F_SETFL, O_NONBLOCK);
 		if (inotify_add_watch(vhd->inotify_fd, vhd->upload_dir,
 				      IN_CLOSE_WRITE | IN_DELETE |
 				      IN_MOVED_FROM | IN_MOVED_TO) >= 0)
