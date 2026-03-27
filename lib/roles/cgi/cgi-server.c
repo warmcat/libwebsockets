@@ -85,6 +85,34 @@ lws_cgi_grace(lws_sorted_usec_list_t *sul)
 }
 
 
+static int
+lws_cgi_env_add(char **e_array, int *n, int max_n, char **p, char *end,
+		const char *fmt, ...)
+{
+	va_list ap;
+	int space, len;
+
+	if (*n >= max_n - 1)
+		return -1;
+
+	space = lws_ptr_diff(end, *p);
+	if (space < 1)
+		return -1;
+
+	e_array[(*n)++] = *p;
+
+	va_start(ap, fmt);
+	len = vsnprintf(*p, (size_t)space, fmt, ap);
+	va_end(ap);
+
+	if (len >= space)
+		return -1;
+
+	*p += len + 1;
+
+	return 0;
+}
+
 static void
 lws_cgi_reap_cb(void *opaque, const struct lws_spawn_resource_us *res, siginfo_t *si,
 		 int we_killed_him)
@@ -175,9 +203,9 @@ lws_cgi_via_info(struct lws_cgi_info * cgiinfo)
 	n = 0;
 
 	if (lws_is_ssl(cgiinfo->wsi)) {
-		env_array[n++] = p;
-		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "HTTPS=ON");
-		p++;
+		if (lws_cgi_env_add(env_array, &n, (int)LWS_ARRAY_SIZE(env_array),
+				    &p, end, "HTTPS=ON"))
+			goto bail;
 	}
 
 	if (cgiinfo->wsi->http.ah) {
@@ -218,32 +246,37 @@ lws_cgi_via_info(struct lws_cgi_info * cgiinfo)
 //			uritok = 0;
 
 		if (m < (int)LWS_ARRAY_SIZE(meths)) {
-			env_array[n++] = p;
 			if (m < (int)LWS_ARRAY_SIZE(meths) - 1) { /* not the final, PATH one */
-				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+				if (lws_cgi_env_add(env_array, &n, (int)LWS_ARRAY_SIZE(env_array), &p, end,
 						  "REQUEST_METHOD=%s",
-						  meth_names[m]);
+						  meth_names[m]))
+					goto bail;
 				sum += lws_snprintf(sum, lws_ptr_diff_size_t(sumend, sum), "%s ",
 						    meth_names[m]);
 #if defined(LWS_ROLE_H2)
 			} else {
-				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+				if (lws_cgi_env_add(env_array, &n, (int)LWS_ARRAY_SIZE(env_array), &p, end,
 						  "REQUEST_METHOD=%s",
-				lws_hdr_simple_ptr(cgiinfo->wsi, WSI_TOKEN_HTTP_COLON_METHOD));
+				lws_hdr_simple_ptr(cgiinfo->wsi, WSI_TOKEN_HTTP_COLON_METHOD)))
+					goto bail;
 				sum += lws_snprintf(sum, lws_ptr_diff_size_t(sumend, sum), "%s ",
 					lws_hdr_simple_ptr(cgiinfo->wsi,
 						  WSI_TOKEN_HTTP_COLON_METHOD));
 #endif
 			}
-			p++;
 		}
 
 		if (uritok >= 0)
 			sum += lws_snprintf(sum, lws_ptr_diff_size_t(sumend, sum), "%s ",
 					    lws_hdr_simple_ptr(cgiinfo->wsi, (enum lws_token_indexes)uritok));
 
+		if (n >= (int)LWS_ARRAY_SIZE(env_array) - 1)
+			goto bail;
 		env_array[n++] = p;
-		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "QUERY_STRING=");
+		i = lws_snprintf(p, lws_ptr_diff_size_t(end, p), "QUERY_STRING=");
+		if (i >= lws_ptr_diff(end, p))
+			goto bail;
+		p += i;
 		/* dump the individual URI Arg parameters */
 		m = 0;
 		while (cgiinfo->script_uri_path_len >= 0) {
@@ -259,12 +292,15 @@ lws_cgi_via_info(struct lws_cgi_info * cgiinfo)
 			i = urlencode(t, i - lws_ptr_diff(t, tok), p, lws_ptr_diff(end, p));
 			if (i >= 0) {
 				p += i;
-				*p++ = '&';
+				if (p < end - 1)
+					*p++ = '&';
 			}
 			m++;
 		}
 		if (m)
 			p--;
+		if (p >= end)
+			goto bail;
 		*p++ = '\0';
 
 		if (uritok >= 0) {
@@ -275,88 +311,98 @@ lws_cgi_via_info(struct lws_cgi_info * cgiinfo)
 				goto bail;
 
 			cgi_path[sizeof(cgi_path) - 1] = '\0';
+			if (n >= (int)LWS_ARRAY_SIZE(env_array) - 1)
+				goto bail;
 			env_array[n++] = cgi_path;
 		}
 
 		sum += lws_snprintf(sum, lws_ptr_diff_size_t(sumend, sum), "%s", env_array[n - 1]);
 
 		if (cgiinfo->script_uri_path_len >= 0) {
-			env_array[n++] = p;
-			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "PATH_INFO=%s",
-				      cgi_path + 12 + cgiinfo->script_uri_path_len);
-			p++;
+			if (lws_cgi_env_add(env_array, &n, (int)LWS_ARRAY_SIZE(env_array), &p, end,
+					  "PATH_INFO=%s",
+				      cgi_path + 12 + cgiinfo->script_uri_path_len))
+				goto bail;
 		}
 	}
 #if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
 	if (cgiinfo->script_uri_path_len >= 0 &&
 	    lws_hdr_total_length(cgiinfo->wsi, WSI_TOKEN_HTTP_REFERER)) {
-		env_array[n++] = p;
-		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "HTTP_REFERER=%s",
-			      lws_hdr_simple_ptr(cgiinfo->wsi, WSI_TOKEN_HTTP_REFERER));
-		p++;
+		if (lws_cgi_env_add(env_array, &n, (int)LWS_ARRAY_SIZE(env_array), &p, end,
+				  "HTTP_REFERER=%s",
+			      lws_hdr_simple_ptr(cgiinfo->wsi, WSI_TOKEN_HTTP_REFERER)))
+			goto bail;
 	}
 #endif
 	if (cgiinfo->script_uri_path_len >= 0 &&
 	    lws_hdr_total_length(cgiinfo->wsi, WSI_TOKEN_HOST)) {
-		env_array[n++] = p;
-		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "HTTP_HOST=%s",
-			      lws_hdr_simple_ptr(cgiinfo->wsi, WSI_TOKEN_HOST));
-		p++;
+		if (lws_cgi_env_add(env_array, &n, (int)LWS_ARRAY_SIZE(env_array), &p, end,
+				  "HTTP_HOST=%s",
+			      lws_hdr_simple_ptr(cgiinfo->wsi, WSI_TOKEN_HOST)))
+			goto bail;
 	}
 	if (cgiinfo->script_uri_path_len >= 0 &&
 	    lws_hdr_total_length(cgiinfo->wsi, WSI_TOKEN_HTTP_COOKIE)) {
+		if (n >= (int)LWS_ARRAY_SIZE(env_array) - 1)
+			goto bail;
 		env_array[n++] = p;
-		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "HTTP_COOKIE=");
+		i = lws_snprintf(p, lws_ptr_diff_size_t(end, p), "HTTP_COOKIE=");
+		if (i >= lws_ptr_diff(end, p))
+			goto bail;
+		p += i;
 		m = lws_hdr_copy(cgiinfo->wsi, p, lws_ptr_diff(end, p), WSI_TOKEN_HTTP_COOKIE);
-		if (m > 0)
-			p += lws_hdr_total_length(cgiinfo->wsi, WSI_TOKEN_HTTP_COOKIE);
+		if (m > 0) {
+			p += m;
+			if (p >= end)
+				goto bail;
+		}
 		*p++ = '\0';
 	}
 #if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
 	if (cgiinfo->script_uri_path_len >= 0 &&
 	    lws_hdr_total_length(cgiinfo->wsi, WSI_TOKEN_HTTP_USER_AGENT)) {
-		env_array[n++] = p;
-		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "HTTP_USER_AGENT=%s",
-			    lws_hdr_simple_ptr(cgiinfo->wsi, WSI_TOKEN_HTTP_USER_AGENT));
-		p++;
+		if (lws_cgi_env_add(env_array, &n, (int)LWS_ARRAY_SIZE(env_array), &p, end,
+				  "HTTP_USER_AGENT=%s",
+			    lws_hdr_simple_ptr(cgiinfo->wsi, WSI_TOKEN_HTTP_USER_AGENT)))
+			goto bail;
 	}
 #endif
 	if (cgiinfo->script_uri_path_len >= 0 &&
 	    lws_hdr_total_length(cgiinfo->wsi, WSI_TOKEN_HTTP_CONTENT_ENCODING)) {
-		env_array[n++] = p;
-		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "HTTP_CONTENT_ENCODING=%s",
-		      lws_hdr_simple_ptr(cgiinfo->wsi, WSI_TOKEN_HTTP_CONTENT_ENCODING));
-		p++;
+		if (lws_cgi_env_add(env_array, &n, (int)LWS_ARRAY_SIZE(env_array), &p, end,
+				  "HTTP_CONTENT_ENCODING=%s",
+		      lws_hdr_simple_ptr(cgiinfo->wsi, WSI_TOKEN_HTTP_CONTENT_ENCODING)))
+			goto bail;
 	}
 	if (cgiinfo->script_uri_path_len >= 0 &&
 	    lws_hdr_total_length(cgiinfo->wsi, WSI_TOKEN_HTTP_ACCEPT)) {
-		env_array[n++] = p;
-		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "HTTP_ACCEPT=%s",
-			      lws_hdr_simple_ptr(cgiinfo->wsi, WSI_TOKEN_HTTP_ACCEPT));
-		p++;
+		if (lws_cgi_env_add(env_array, &n, (int)LWS_ARRAY_SIZE(env_array), &p, end,
+				  "HTTP_ACCEPT=%s",
+			      lws_hdr_simple_ptr(cgiinfo->wsi, WSI_TOKEN_HTTP_ACCEPT)))
+			goto bail;
 	}
 	if (cgiinfo->script_uri_path_len >= 0 &&
 	    lws_hdr_total_length(cgiinfo->wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING)) {
-		env_array[n++] = p;
-		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "HTTP_ACCEPT_ENCODING=%s",
-		      lws_hdr_simple_ptr(cgiinfo->wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING));
-		p++;
+		if (lws_cgi_env_add(env_array, &n, (int)LWS_ARRAY_SIZE(env_array), &p, end,
+				  "HTTP_ACCEPT_ENCODING=%s",
+		      lws_hdr_simple_ptr(cgiinfo->wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING)))
+			goto bail;
 	}
 	if (cgiinfo->script_uri_path_len >= 0 &&
 	    uritok == WSI_TOKEN_POST_URI) {
 		if (lws_hdr_total_length(cgiinfo->wsi, WSI_TOKEN_HTTP_CONTENT_TYPE)) {
-			env_array[n++] = p;
-			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "CONTENT_TYPE=%s",
-			  lws_hdr_simple_ptr(cgiinfo->wsi, WSI_TOKEN_HTTP_CONTENT_TYPE));
-			p++;
+			if (lws_cgi_env_add(env_array, &n, (int)LWS_ARRAY_SIZE(env_array), &p, end,
+					  "CONTENT_TYPE=%s",
+			  lws_hdr_simple_ptr(cgiinfo->wsi, WSI_TOKEN_HTTP_CONTENT_TYPE)))
+				goto bail;
 		}
 		if (!cgiinfo->wsi->http.cgi->gzip_inflate &&
 		    lws_hdr_total_length(cgiinfo->wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
-			env_array[n++] = p;
-			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "CONTENT_LENGTH=%s",
+			if (lws_cgi_env_add(env_array, &n, (int)LWS_ARRAY_SIZE(env_array), &p, end,
+					  "CONTENT_LENGTH=%s",
 					  lws_hdr_simple_ptr(cgiinfo->wsi,
-					  WSI_TOKEN_HTTP_CONTENT_LENGTH));
-			p++;
+					  WSI_TOKEN_HTTP_CONTENT_LENGTH)))
+				goto bail;
 		}
 
 		if (lws_hdr_total_length(cgiinfo->wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH))
@@ -366,31 +412,31 @@ lws_cgi_via_info(struct lws_cgi_info * cgiinfo)
 	}
 
 
-	env_array[n++] = p;
-	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "PATH=/bin:/usr/bin:/usr/local/bin:/var/www/cgi-bin");
-	p++;
+	if (lws_cgi_env_add(env_array, &n, (int)LWS_ARRAY_SIZE(env_array), &p, end,
+			  "PATH=/bin:/usr/bin:/usr/local/bin:/var/www/cgi-bin"))
+		goto bail;
 
-	env_array[n++] = p;
-	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "SCRIPT_PATH=%s", cgiinfo->exec_array[0]);
-	p++;
+	if (lws_cgi_env_add(env_array, &n, (int)LWS_ARRAY_SIZE(env_array), &p, end,
+			  "SCRIPT_PATH=%s", cgiinfo->exec_array[0]))
+		goto bail;
 
 	while (mp_cgienv) {
-		env_array[n++] = p;
-		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "%s=%s", mp_cgienv->name,
-			      mp_cgienv->value);
+		if (lws_cgi_env_add(env_array, &n, (int)LWS_ARRAY_SIZE(env_array), &p, end,
+				  "%s=%s", mp_cgienv->name, mp_cgienv->value))
+			goto bail;
+
 		if (!strcmp(mp_cgienv->name, "GIT_PROJECT_ROOT")) {
 			cgiinfo->wsi->http.cgi->implied_chunked = 1;
 			cgiinfo->wsi->http.cgi->explicitly_chunked = 1;
 		}
 		lwsl_info("   Applying mount-specific cgi env '%s'\n",
 			   env_array[n - 1]);
-		p++;
 		mp_cgienv = mp_cgienv->next;
 	}
 
-	env_array[n++] = p;
-	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "SERVER_SOFTWARE=lws");
-	p++;
+	if (lws_cgi_env_add(env_array, &n, (int)LWS_ARRAY_SIZE(env_array), &p, end,
+			  "SERVER_SOFTWARE=lws"))
+		goto bail;
 
 	env_array[n] = NULL;
 
