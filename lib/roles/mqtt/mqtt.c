@@ -1755,7 +1755,7 @@ bail1:
 				 lws_mqtt_str_init(&par->s_temp, NULL, 0, 0);
 
 				/* property arg state enums are so encoded */
-				par->state = 0x100 | par->vbit.value;
+				par->state = 0x100 | par->prop_id;
 				break;
 			default:
 				lwsl_notice("%s: prop id bad vbi\n", __func__);
@@ -1868,6 +1868,10 @@ bail1:
 			lwsl_err("%s: Unimplemented packet state 0x%x\n",
 					__func__, par->state);
 			return -1;
+
+		default:
+			lwsl_notice("%s: unhandled state 0x%x\n", __func__, par->state);
+			goto send_protocol_error_and_close;
 		}
 	}
 
