@@ -872,7 +872,7 @@ payload_ff:
 			if (*cp == ',') {
 				cp++;
 				h->rideshare_list[par->rsl_pos++] = '\0';
-				if (par->rsl_idx == LWS_ARRAY_SIZE(h->rideshare_ofs)) {
+				if (par->rsl_idx + 1 >= (int)LWS_ARRAY_SIZE(h->rideshare_ofs)) {
 					lwsl_info("CDSH5\n");
 					goto hangup;
 				}
