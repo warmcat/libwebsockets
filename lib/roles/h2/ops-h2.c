@@ -751,6 +751,12 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 #endif
 			wsi->mux_substream) &&
 	     wsi->mux.parent_wsi) {
+
+		if (wsi->mux.parent_wsi->h2.h2n &&
+		    wsi->mux.parent_wsi->h2.h2n->swsi == wsi) {
+			wsi->mux.parent_wsi->h2.h2n->swsi = NULL;
+		}
+
 		lws_wsi_mux_sibling_disconnect(wsi);
 		if (wsi->h2.pending_status_body)
 			lws_free_set_NULL(wsi->h2.pending_status_body);
