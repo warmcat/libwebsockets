@@ -1312,7 +1312,12 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		if (!simp)
 			goto bail2;
 
-		wsi->http.rx_content_length = (lws_filepos_t)atoll(simp);
+		{
+			long long cl_val = atoll(simp);
+			if (cl_val < 0)
+				goto bail2;
+			wsi->http.rx_content_length = (lws_filepos_t)cl_val;
+		}
 		lwsl_info("%s: incoming content length %llu\n",
 			    __func__, (unsigned long long)
 				    wsi->http.rx_content_length);
