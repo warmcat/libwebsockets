@@ -1257,6 +1257,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		goto update_end_headers;
 
 	case LWS_H2_FRAME_TYPE_HEADERS:
+		h2n->hpack_total_hdr_len = 0;
 		lwsl_info("HEADERS: frame header: sid = %u\n",
 				(unsigned int)h2n->sid);
 		if (!h2n->sid) {
