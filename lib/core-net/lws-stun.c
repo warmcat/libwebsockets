@@ -57,7 +57,14 @@ lws_stun_validate_and_reply(struct lws *wsi, uint8_t *in, size_t in_len,
 		attr_type = (uint16_t)((in[i] << 8) | in[i + 1]);
 		attr_len = (uint16_t)((in[i + 2] << 8) | in[i + 3]);
 
+		if ((size_t)(i + 4 + attr_len) > in_len) {
+			lwsl_notice("STUN attribute truncated\n");
+			break;
+		}
+
 		if (attr_type == 0x0008) { /* MESSAGE-INTEGRITY */
+			if (attr_len < 20)
+				return 0;
 			mi_ptr = &in[i + 4];
 			mi_offset = i;
 		}
