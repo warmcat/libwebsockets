@@ -747,6 +747,13 @@ post_hpack_recode:
 			}
 		}
 
+		if (wsi->http.cgi->headers_pos >=
+		    wsi->http.cgi->headers_end - 4) {
+			lwsl_wsi_notice(wsi, "CGI hdrs > buf size");
+
+			return -1;
+		}
+
 		n = lws_get_socket_fd(wsi->http.cgi->lsp->stdwsi[LWS_STDOUT]);
 		if (n < 0)
 			return -1;
@@ -758,13 +765,6 @@ post_hpack_recode:
 			}
 			else
 				n = 0;
-
-			if (wsi->http.cgi->headers_pos >=
-					wsi->http.cgi->headers_end - 4) {
-				lwsl_wsi_notice(wsi, "CGI hdrs > buf size");
-
-				return -1;
-			}
 		}
 		if (!n)
 			goto agin;
