@@ -833,6 +833,14 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 	if (!h2n)
 		return -1;
 
+	h2n->hpack_total_hdr_len++;
+	if (h2n->hpack_total_hdr_len >
+	    h2n->our_set.s[H2SET_MAX_HEADER_LIST_SIZE]) {
+		lws_h2_goaway(nwsi, H2_ERR_ENHANCE_YOUR_CALM,
+			      "Header list size limit exceeded");
+		return 1;
+	}
+
 	/*
 	 * HPKT_INDEXED_HDR_7		  1xxxxxxx: just "header field"
 	 * HPKT_INDEXED_HDR_6_VALUE_INCR  01xxxxxx: NEW indexed hdr + val
