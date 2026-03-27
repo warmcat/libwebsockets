@@ -1683,7 +1683,12 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 			if (!simp) /* coverity */
 				return 1;
-			h2n->swsi->http.rx_content_length = (unsigned long long)atoll(simp);
+			{
+				long long cl_val = atoll(simp);
+				if (cl_val < 0)
+					return 1;
+				h2n->swsi->http.rx_content_length = (unsigned long long)cl_val;
+			}
 			h2n->swsi->http.rx_content_remain =
 					h2n->swsi->http.rx_content_length;
 			h2n->swsi->http.content_length_given = 1;
