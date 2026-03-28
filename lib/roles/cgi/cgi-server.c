@@ -170,7 +170,7 @@ lws_cgi_via_info(struct lws_cgi_info * cgiinfo)
 	cgi = cgiinfo->wsi->http.cgi;
 	cgi->wsi = cgiinfo->wsi; /* set cgi's owning wsi */
 	sum = cgi->summary;
-	sumend = sum + strlen(cgi->summary) - 1;
+	sumend = sum + sizeof(cgi->summary) - 1;
 
 	if (cgiinfo->timeout_secs)
 		lws_set_timeout(cgiinfo->wsi, PENDING_TIMEOUT_CGI, cgiinfo->timeout_secs);
@@ -314,15 +314,15 @@ lws_cgi_via_info(struct lws_cgi_info * cgiinfo)
 			if (n >= (int)LWS_ARRAY_SIZE(env_array) - 1)
 				goto bail;
 			env_array[n++] = cgi_path;
-		}
 
-		sum += lws_snprintf(sum, lws_ptr_diff_size_t(sumend, sum), "%s", env_array[n - 1]);
+			sum += lws_snprintf(sum, lws_ptr_diff_size_t(sumend, sum), "%s", env_array[n - 1]);
 
-		if (cgiinfo->script_uri_path_len >= 0) {
-			if (lws_cgi_env_add(env_array, &n, (int)LWS_ARRAY_SIZE(env_array), &p, end,
-					  "PATH_INFO=%s",
-				      cgi_path + 12 + cgiinfo->script_uri_path_len))
-				goto bail;
+			if (cgiinfo->script_uri_path_len >= 0) {
+				if (lws_cgi_env_add(env_array, &n, (int)LWS_ARRAY_SIZE(env_array), &p, end,
+						  "PATH_INFO=%s",
+					      cgi_path + 12 + cgiinfo->script_uri_path_len))
+					goto bail;
+			}
 		}
 	}
 #if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
