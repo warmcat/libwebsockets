@@ -8,7 +8,7 @@
 get_filename_component(LWS_CMAKE_DIR "${CMAKE_CURRENT_LIST_FILE}" PATH)
 list(APPEND CMAKE_MODULE_PATH ${libwebsockets_DIR})
 
-set(LIBWEBSOCKETS_INCLUDE_DIRS "@LWS__INCLUDE_DIRS@" "@LWS_PUBLIC_INCLUDES@")
+set(LIBWEBSOCKETS_INCLUDE_DIRS "@LWS__INCLUDE_DIRS@")
 
 # Include the project Targets file, this contains definitions for IMPORTED targets.
 if (LIB_LIST_AT_END)
