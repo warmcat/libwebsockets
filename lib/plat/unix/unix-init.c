@@ -208,7 +208,7 @@ lws_plat_init(struct lws_context *context,
 		}
 
 		if (n < (int)LWS_ARRAY_SIZE(pp) - 1)
-			pp[n++] = LWS_INSTALL_DATADIR"/libwebsockets-test-server/plugins";
+			pp[n++] = LWS_PLUGIN_DIR;
 
 		pp[n] = NULL;
 
