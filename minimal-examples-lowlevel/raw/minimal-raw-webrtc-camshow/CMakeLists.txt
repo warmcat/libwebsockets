@@ -6,8 +6,6 @@ include(CheckCSourceCompiles)
 include(CheckLibraryExists)
 include(LwsCheckRequirements)
 
-option(LWS_WITH_MEDIA_RK_MPI "Compile with Rockchip MPI hardware pipelines" OFF)
-
 set(SAMP lws-minimal-raw-webrtc-camshow)
 if (LWS_WITH_MEDIA_RK_MPI)
 	set(SRCS minimal-raw-webrtc-camshow.c media-rkmpi.c)
