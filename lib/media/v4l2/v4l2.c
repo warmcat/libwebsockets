@@ -343,7 +343,7 @@ lws_v4l2_set_control(struct lws_v4l2_ctx *ctx, uint32_t id, int32_t val)
 	return 0;
  }
 
-int
+LWS_VISIBLE int
 lws_v4l2_native_ioctl(struct lws_v4l2_ctx *ctx, unsigned long request, void *arg)
 {
     if (!ctx) return -1;

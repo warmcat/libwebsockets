@@ -66,6 +66,9 @@ LWS_VISIBLE LWS_EXTERN int
 lws_v4l2_enum_controls(struct lws_v4l2_ctx *ctx, lws_v4l2_control_cb cb, void *user);
 
 LWS_VISIBLE LWS_EXTERN int
+lws_v4l2_native_ioctl(struct lws_v4l2_ctx *ctx, unsigned long request, void *arg);
+
+LWS_VISIBLE LWS_EXTERN int
 lws_v4l2_set_control(struct lws_v4l2_ctx *ctx, uint32_t id, int32_t val);
 
 #endif

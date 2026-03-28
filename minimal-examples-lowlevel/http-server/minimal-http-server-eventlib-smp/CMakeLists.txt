@@ -19,7 +19,7 @@ if (requirements)
 
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared ${PTHREAD_LIB} ${LIBWEBSOCKETS_DEP_LIBS})
-		add_dependencies(${SAMP} websockets_shared ${PTHREAD_LIB})
+		add_dependencies(${SAMP} websockets_shared)
 	else()
 		target_link_libraries(${SAMP} websockets ${PTHREAD_LIB} ${LIBWEBSOCKETS_DEP_LIBS})
 	endif()

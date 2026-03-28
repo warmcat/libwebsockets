@@ -20,6 +20,7 @@ extern const struct lws_webrtc_ops *we_ops;
 int
 media_update_scaler(struct pss_camshow *pss)
 {
+#if defined(LWS_WITH_TRANSCODE)
 	if (pss->sws_ctx)
 		lws_transcode_scaler_destroy(&pss->sws_ctx);
 
@@ -45,6 +46,7 @@ media_update_scaler(struct pss_camshow *pss)
 
 		pss->tcc_enc = lws_transcode_encoder_create(&info);
 	}
+#endif
 
 	return 0;
 }
@@ -73,6 +75,7 @@ media_init(struct pss_camshow *pss)
 		return 0;
 	}
 
+#if defined(LWS_WITH_TRANSCODE)
 	pss->tcc_enc = lws_transcode_encoder_create(&info);
 	if (!pss->tcc_enc)
 		return -1;
@@ -82,24 +85,27 @@ media_init(struct pss_camshow *pss)
 		return -1;
 
 	return 0;
+#else
+	lwsl_err("%s: Non-H264 formats require LWS_WITH_TRANSCODE\n", __func__);
+	return -1;
+#endif
 }
 
 void
 media_deinit(struct pss_camshow *pss)
 {
+#if defined(LWS_WITH_TRANSCODE)
 	if (pss->tcc_enc) lws_transcode_destroy(&pss->tcc_enc);
 	if (pss->avframe) lws_transcode_frame_free(&pss->avframe);
 	if (pss->avframe_scaled) lws_transcode_frame_free(&pss->avframe_scaled);
 	if (pss->sws_ctx) lws_transcode_scaler_destroy(&pss->sws_ctx);
+#endif
 }
 
 int
 media_process_video_frame(struct pss_camshow *pss, int index, size_t len)
 {
 	void *start;
-	uint8_t *buf;
-	size_t out_len;
-	enum lws_webrtc_codec codec = pss->force_av1 ? LWS_WEBRTC_CODEC_AV1 : LWS_WEBRTC_CODEC_H264;
 
 	/*
 	 * We passed the actual payload length (bytesused) in 'len'.
@@ -184,6 +190,11 @@ strip_done:
 		}
 	}
 
+#if defined(LWS_WITH_TRANSCODE)
+	uint8_t *buf;
+	size_t out_len;
+	enum lws_webrtc_codec codec = pss->force_av1 ? LWS_WEBRTC_CODEC_AV1 : LWS_WEBRTC_CODEC_H264;
+
 	/* If we skipped transcoder allocation for native H.264 but somehow reached here, abort */
 	if (!pss->tcc_enc || !pss->avframe) {
 		lwsl_err("%s: Missing transcoder allocation for non-native H.264 frame!\n", __func__);
@@ -222,4 +233,8 @@ strip_done:
 	}
 
 	return 0;
+#else
+	lwsl_err("%s: Transcoding disabled but received non-H264 passthrough frame!\n", __func__);
+	return -1;
+#endif
 }

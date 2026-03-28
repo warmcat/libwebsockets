@@ -42,10 +42,12 @@ struct pss_camshow {
 	uint8_t                 *yuv_frame;
 	size_t                  yuv_size;
 
+#if defined(LWS_WITH_TRANSCODE)
 	struct lws_transcode_ctx *tcc_enc;
 	void                    *avframe;      /* Managed by lws_transcode */
 	void                    *avframe_scaled; /* Managed by lws_transcode */
 	void                    *sws_ctx;      /* struct SwsContext * */
+#endif
 
 	lws_jpeg_t              *jpeg_dec;     /* If MJPEG source */
 

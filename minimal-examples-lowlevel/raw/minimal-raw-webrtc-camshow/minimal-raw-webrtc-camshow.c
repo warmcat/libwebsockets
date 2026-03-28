@@ -65,8 +65,6 @@ static const char *client_name;
 static uint32_t app_width = 1280;
 static uint32_t app_height = 720;
 
-extern int
-lws_v4l2_native_ioctl(struct lws_v4l2_ctx *ctx, unsigned long request, void *arg);
 
 static int
 v4l2_init(struct pss_camshow *pss)

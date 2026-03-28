@@ -91,6 +91,7 @@ int main(int argc, const char **argv)
 	struct lws_gendtls_ctx client_ctx, server_ctx;
 	uint8_t buf[2048], *cert_mem = NULL, *key_mem = NULL;
 	size_t cert_len = 0, key_len = 0;
+    lws_sockfd_type client_fd = LWS_SOCK_INVALID, server_fd = LWS_SOCK_INVALID;
     int n, m, ok = 0;
     int use_udp = 0;
 	(void)switches;
@@ -177,7 +178,7 @@ int main(int argc, const char **argv)
         goto bail_server;
     }
 
-    lws_sockfd_type client_fd = LWS_SOCK_INVALID, server_fd = LWS_SOCK_INVALID;
+
     struct sockaddr_in srv_addr, cli_addr;
     socklen_t cli_len = sizeof(cli_addr);
     int port = 7890;

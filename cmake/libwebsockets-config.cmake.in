@@ -20,6 +20,10 @@ include(${LWS_CMAKE_DIR}/LwsCheckRequirements.cmake)
 # IMPORTED targets from LibwebsocketsTargets.cmake
 set(LIBWEBSOCKETS_LIBRARIES websockets websockets_shared)
 
+if (TARGET websockets_shared)
+	set(websockets_shared 1)
+endif()
+
 # These are additional include paths you will need
 foreach(item "${LIBWEBSOCKETS_INCLUDE_DIRS}")
 	include_directories(${item})
