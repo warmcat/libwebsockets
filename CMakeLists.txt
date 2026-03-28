@@ -199,6 +199,7 @@ option(LWS_WITH_LIBV4L2 "Link against libv4l2 if available" OFF)
 option(LWS_WITH_AUTH_SERVER "Include auth server plugin and its assets" OFF)
 option(LWS_WITH_EMAIL "Include async SMTP client plugin" OFF)
 option(LWS_WITH_QRCODEGEN "Include qrcodegen library natively" OFF)
+option(LWS_WITH_MEDIA_RK_MPI "Compile with Rockchip MPI hardware pipelines" OFF)
 
 #
 # Secure Streams
