@@ -348,9 +348,20 @@ endif()
 
 
 # Setup the linking for all libs.
+set(STRIPPED_LIB_LIST "")
+foreach(lib_path IN LISTS LIB_LIST)
+	if(IS_ABSOLUTE "${lib_path}" AND NOT "${lib_path}" MATCHES "^-")
+		get_filename_component(lib_name "${lib_path}" NAME_WE)
+		string(REGEX REPLACE "^lib" "" lib_name "${lib_name}")
+		list(APPEND STRIPPED_LIB_LIST "${lib_name}")
+	else()
+		list(APPEND STRIPPED_LIB_LIST "${lib_path}")
+	endif()
+endforeach()
+
 foreach (lib ${LWS_LIBRARIES})
 	#	target_link_libraries(${lib} PRIVATE ${LIB_LIST})
-	target_link_libraries(${lib} ${LIB_LIST})
+	target_link_libraries(${lib} ${STRIPPED_LIB_LIST})
 
 endforeach()
 
