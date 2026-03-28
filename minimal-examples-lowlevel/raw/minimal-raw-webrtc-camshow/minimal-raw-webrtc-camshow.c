@@ -66,128 +66,8 @@ static uint32_t app_width = 1280;
 static uint32_t app_height = 720;
 
 
-static int
-v4l2_init(struct pss_camshow *pss)
-{
-	struct lws_v4l2_info info;
-
-	memset(&info, 0, sizeof(info));
-	info.device_path = pss->video_device;
-	info.width = pss->width;
-	info.height = pss->height;
-	info.pixelformat = V4L2_PIX_FMT_H264;
-
-	pss->v4l2_ctx = lws_v4l2_create(&info);
-	if (!pss->v4l2_ctx) {
-		lwsl_err("%s: Failed to create V4L2 context for %s\n", __func__, pss->video_device);
-		return -1;
-	}
-
-	lws_v4l2_get_info(pss->v4l2_ctx, &info);
-	pss->width = info.width;
-	pss->height = info.height;
-	pss->pixelformat = info.pixelformat;
-
-	lwsl_notice("%s: V4L2 negotiated %dx%d, format 0x%x for %s\n", __func__, pss->width, pss->height, pss->pixelformat, pss->video_device);
-
-	/* Auto-detect if we need transcoding */
-	if (pss->pixelformat != V4L2_PIX_FMT_H264) {
-		lwsl_notice("%s: Device %s is not H.264 (fmt 0x%x), forcing AV1 transcoding\n", __func__, pss->video_device, pss->pixelformat);
-		pss->force_av1 = 1;
-	}
-
-	media_update_scaler(pss);
-
-	pss->yuv_size = (pss->width * pss->height * 3) / 2;
-	if (pss->yuv_frame) free(pss->yuv_frame);
-	pss->yuv_frame = malloc(pss->yuv_size);
-	if (!pss->yuv_frame)
-		goto bail;
-
-	if (media_init(pss) < 0)
-		goto bail;
-
-	return 0;
-
-bail:
-	lws_v4l2_destroy((struct lws_v4l2_ctx **)&pss->v4l2_ctx);
-	return -1;
-}
-
-static int interrupted;
-
 /* Storage for the ops provided by the plugin */
 static struct lws_webrtc_ops we_ops_storage;
-
-/*
- * We need to serialize controls into a JSON buffer.
- * Since lws_v4l2_enum_controls uses a callback, we'll pass a struct to it.
- */
-struct json_dump_ctx {
-	char		*p;
-	char		*end;
-	int		first;
-};
-
-static int
-json_control_cb(void *user, const struct lws_v4l2_control *c)
-{
-	struct json_dump_ctx *j = (struct json_dump_ctx *)user;
-	char safe_name[256];
-	int len;
-
-	lwsl_notice("%s: Found control '%s' (id %u)\n", __func__, c->name, c->id);
-
-	if (lws_ptr_diff_size_t(j->end, j->p) < 128)
-		return 1;
-
-	if (!j->first)
-		*j->p++ = ',';
-
-	j->first = 0;
-
-	lws_json_purify(safe_name, c->name, sizeof(safe_name), &len);
-
-	j->p += lws_snprintf(
-			j->p, lws_ptr_diff_size_t(j->end, j->p),
-			"{\"id\":%u,\"type\":%u,\"name\":\"%s\","
-			"\"min\":%d,\"max\":%d,\"step\":%d,\"val\":%d}",
-			c->id, c->type, safe_name, c->min, c->max, c->step, c->val);
-
-	return 0;
-}
-
-static void
-send_capabilities(struct pss_camshow *pss)
-{
-	struct v4l2_queryctrl q;
-	struct json_dump_ctx j;
-	char buf[4096];
-
-	if (!pss->v4l2_ctx) {
-		lwsl_err("%s: No v4l2_ctx, cannot send capabilities\n", __func__);
-		return;
-	}
-
-	memset(&q, 0, sizeof(q));
-	q.id            = V4L2_CTRL_FLAG_NEXT_CTRL;
-
-	j.p             = buf + LWS_PRE;
-	j.end           = &buf[sizeof(buf)];
-	j.first         = 1;
-
-	j.p += lws_snprintf(j.p, lws_ptr_diff_size_t(j.end, j.p),
-			"{\"type\":\"capabilities\",\"kind\":\"video\",\"controls\":[");
-
-	lws_v4l2_enum_controls(pss->v4l2_ctx, json_control_cb, &j);
-
-	j.p += lws_snprintf(j.p, lws_ptr_diff_size_t(j.end, j.p), "]}");
-
-	lwsl_hexdump_notice(buf + LWS_PRE, lws_ptr_diff_size_t(j.p, buf + LWS_PRE));
-
-	if (we_ops && we_ops->send_text)
-		we_ops->send_text(pss->pss, buf + LWS_PRE, lws_ptr_diff_size_t(j.p, buf + LWS_PRE));
-}
 
 static int
 callback_webrtc_camshow(struct lws *wsi, enum lws_callback_reasons reason,
@@ -268,7 +148,8 @@ callback_webrtc_camshow(struct lws *wsi, enum lws_callback_reasons reason,
 						   But `minimal-raw-webrtc-camshow` is the client connection.
 						   Safest is to set flag and request callback.
 						   But let's try calling it directly as `send_text` should queue. */
-						send_capabilities(app_state);
+						if (app_state->ops && app_state->ops->send_capabilities)
+							app_state->ops->send_capabilities(app_state);
 					}
 
 					if (lws_json_simple_find((const char *)in, len, "\"type\":\"set_control\"", &al)) {
@@ -296,8 +177,8 @@ callback_webrtc_camshow(struct lws *wsi, enum lws_callback_reasons reason,
 
 						if (id != -1) {
 							lwsl_notice("%s: Setting control ID %lld to %lld\n", __func__, id, val);
-							if (app_state->v4l2_ctx) {
-								lws_v4l2_set_control(app_state->v4l2_ctx, (uint32_t)id, (int32_t)val);
+							if (app_state->ops && app_state->ops->set_control) {
+								app_state->ops->set_control(app_state, (uint32_t)id, (int32_t)val);
 							}
 						}
 					}
@@ -335,25 +216,34 @@ callback_webrtc_camshow(struct lws *wsi, enum lws_callback_reasons reason,
 				app_state->target_width = app_width;
 				app_state->target_height = app_height;
 
-				if (v4l2_init(app_state) < 0) {
+#if defined(LWS_WITH_MEDIA_RK_MPI)
+				app_state->ops = &pipeline_rk_mpi;
+#else
+				app_state->ops = &pipeline_v4l2;
+#endif
+
+				if (app_state->ops && app_state->ops->init(app_state) < 0) {
 					free(app_state);
 					return -1;
 				}
 
 				/* We NO LONGER Initiate Offer here. We wait for {"type":"peer_ip"} from Mixer! */
 
-				/* Start Capture */
-				if (app_state->v4l2_ctx) {
-					struct lws_adopt_desc ad;
-					memset(&ad, 0, sizeof(ad));
-					ad.vh = lws_get_vhost(wsi);
-					ad.type = LWS_ADOPT_RAW_FILE_DESC;
-					ad.fd.filefd = (lws_filefd_type)(long)lws_v4l2_get_fd(app_state->v4l2_ctx);
-					ad.vh_prot_name = "lws-webrtc-camshow-v4l2"; /* Use the 0-sized PSS protocol */
-					app_state->wsi_v4l2 = lws_adopt_descriptor_vhost_via_info(&ad);
-					if (app_state->wsi_v4l2) {
-						/* Set the user data of the capture wsi to point to our APP STATE */
-						lws_set_wsi_user(app_state->wsi_v4l2, app_state);
+				/* Start Capture via ops fd */
+				if (app_state->ops) {
+					int fd = app_state->ops->get_event_fd(app_state);
+					if (fd >= 0) {
+						struct lws_adopt_desc ad;
+						memset(&ad, 0, sizeof(ad));
+						ad.vh = lws_get_vhost(wsi);
+						ad.type = LWS_ADOPT_RAW_FILE_DESC;
+						ad.fd.filefd = (lws_filefd_type)(long)fd;
+						ad.vh_prot_name = "lws-webrtc-camshow-v4l2"; /* Represents capture stream */
+						app_state->wsi_v4l2 = lws_adopt_descriptor_vhost_via_info(&ad);
+						if (app_state->wsi_v4l2) {
+							/* Set the user data of the capture wsi to point to our APP STATE */
+							lws_set_wsi_user(app_state->wsi_v4l2, app_state);
+						}
 					}
 				}
 
@@ -378,8 +268,9 @@ callback_webrtc_camshow(struct lws *wsi, enum lws_callback_reasons reason,
 					we_ops->send_text(app_state->pss, json, strlen(json));
 				app_state->join_sent = 1;
 
-				lwsl_notice("%s: Queuing send_capabilities...\n", __func__);
-				send_capabilities(app_state);
+				if (app_state->ops && app_state->ops->send_capabilities) {
+					app_state->ops->send_capabilities(app_state);
+				}
 				app_state->caps_sent = 1;
 
 				char stats_json[128];
@@ -483,11 +374,8 @@ callback_webrtc_camshow(struct lws *wsi, enum lws_callback_reasons reason,
 				struct pss_camshow *app_state = (struct pss_camshow *)we_ops->get_user_data(user);
 				if (app_state) {
 					lwsl_notice("%s: Closing connection for %s\n", __func__, app_state->video_device ? app_state->video_device : "?");
-					if (app_state->v4l2_ctx) lws_v4l2_destroy((struct lws_v4l2_ctx **)&app_state->v4l2_ctx);
-					if (app_state->jpeg_dec) lws_jpeg_free((lws_jpeg_t **)&app_state->jpeg_dec);
-					if (app_state->yuv_frame) free(app_state->yuv_frame);
-					if (app_state->video_device) free((void*)app_state->video_device);
-					media_deinit(app_state);
+					if (app_state->ops && app_state->ops->deinit)
+						app_state->ops->deinit(app_state);
 					free(app_state);
 					we_ops->set_user_data((struct pss_webrtc *)user, NULL);
 				} else {
@@ -505,19 +393,8 @@ callback_webrtc_camshow(struct lws *wsi, enum lws_callback_reasons reason,
 			{
 				struct pss_camshow *app_state = (struct pss_camshow *)user;
 				if (app_state && wsi == app_state->wsi_v4l2) {
-					struct v4l2_buffer buf_v;
-
-					memset(&buf_v, 0, sizeof(buf_v));
-					buf_v.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-					buf_v.memory = V4L2_MEMORY_MMAP;
-					if (lws_v4l2_native_ioctl(app_state->v4l2_ctx, VIDIOC_DQBUF, &buf_v) >= 0) {
-						app_state->frame_count++;
-						if (we_ops && we_ops->send_video && app_state->pss) {
-							media_process_video_frame(app_state, (int)buf_v.index, (size_t)buf_v.bytesused);
-						}
-						if (lws_v4l2_native_ioctl(app_state->v4l2_ctx, VIDIOC_QBUF, &buf_v) < 0)
-							lwsl_err("%s: VIDIOC_QBUF failed: %s\n", __func__, strerror(errno));
-					}
+					if (app_state->ops && app_state->ops->process_rx)
+						app_state->ops->process_rx(app_state);
 				}
 			}
 			break;

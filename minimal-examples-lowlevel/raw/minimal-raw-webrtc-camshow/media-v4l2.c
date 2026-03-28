@@ -238,3 +238,169 @@ strip_done:
 	return -1;
 #endif
 }
+
+/*
+ * V4L2 + FFmpeg pipeline backend implementation
+ */
+
+static int media_v4l2_init(struct pss_camshow *pss)
+{
+	struct lws_v4l2_info info;
+
+	memset(&info, 0, sizeof(info));
+	info.device_path = pss->video_device;
+	info.width = pss->width;
+	info.height = pss->height;
+	info.pixelformat = V4L2_PIX_FMT_H264;
+
+	pss->v4l2_ctx = lws_v4l2_create(&info);
+	if (!pss->v4l2_ctx) {
+		lwsl_err("%s: Failed to create V4L2 context for %s\n", __func__, pss->video_device);
+		return -1;
+	}
+
+	lws_v4l2_get_info(pss->v4l2_ctx, &info);
+	pss->width = info.width;
+	pss->height = info.height;
+	pss->pixelformat = info.pixelformat;
+
+	lwsl_notice("%s: V4L2 negotiated %dx%d, format 0x%x for %s\n", __func__, pss->width, pss->height, pss->pixelformat, pss->video_device);
+
+	if (pss->pixelformat != V4L2_PIX_FMT_H264) {
+		lwsl_notice("%s: Device %s is not H.264 (fmt 0x%x), forcing AV1 transcoding\n", __func__, pss->video_device, pss->pixelformat);
+		pss->force_av1 = 1;
+	}
+
+	media_update_scaler(pss);
+
+	pss->yuv_size = (pss->width * pss->height * 3) / 2;
+	if (pss->yuv_frame) free(pss->yuv_frame);
+	pss->yuv_frame = malloc(pss->yuv_size);
+	if (!pss->yuv_frame)
+		goto bail;
+
+	if (media_init(pss) < 0)
+		goto bail;
+
+	return 0;
+
+bail:
+	lws_v4l2_destroy((struct lws_v4l2_ctx **)&pss->v4l2_ctx);
+	return -1;
+}
+
+static int media_v4l2_get_event_fd(struct pss_camshow *pss)
+{
+	return lws_v4l2_get_fd(pss->v4l2_ctx);
+}
+
+static int media_v4l2_process_rx(struct pss_camshow *pss)
+{
+	struct v4l2_buffer buf_v;
+
+	memset(&buf_v, 0, sizeof(buf_v));
+	buf_v.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	buf_v.memory = V4L2_MEMORY_MMAP;
+	if (lws_v4l2_native_ioctl(pss->v4l2_ctx, VIDIOC_DQBUF, &buf_v) >= 0) {
+		pss->frame_count++;
+		if (we_ops && we_ops->send_video && pss->pss) {
+			media_process_video_frame(pss, (int)buf_v.index, (size_t)buf_v.bytesused);
+		}
+		if (lws_v4l2_native_ioctl(pss->v4l2_ctx, VIDIOC_QBUF, &buf_v) < 0)
+			lwsl_err("%s: VIDIOC_QBUF failed: %s\n", __func__, strerror(errno));
+	}
+	return 0;
+}
+
+struct json_dump_ctx {
+	char		*p;
+	char		*end;
+	int		first;
+};
+
+static int json_control_cb(void *user, const struct lws_v4l2_control *c)
+{
+	struct json_dump_ctx *j = (struct json_dump_ctx *)user;
+	char safe_name[256];
+	int len;
+
+	lwsl_notice("%s: Found control '%s' (id %u)\n", __func__, c->name, c->id);
+
+	if (lws_ptr_diff_size_t(j->end, j->p) < 128)
+		return 1;
+
+	if (!j->first)
+		*j->p++ = ',';
+
+	j->first = 0;
+
+	lws_json_purify(safe_name, c->name, sizeof(safe_name), &len);
+
+	j->p += lws_snprintf(
+			j->p, lws_ptr_diff_size_t(j->end, j->p),
+			"{\"id\":%u,\"type\":%u,\"name\":\"%s\","
+			"\"min\":%d,\"max\":%d,\"step\":%d,\"val\":%d}",
+			c->id, c->type, safe_name, c->min, c->max, c->step, c->val);
+
+	return 0;
+}
+
+static int media_v4l2_send_capabilities(struct pss_camshow *pss)
+{
+	struct v4l2_queryctrl q;
+	struct json_dump_ctx j;
+	char buf[4096];
+
+	if (!pss->v4l2_ctx) {
+		lwsl_err("%s: No v4l2_ctx, cannot send capabilities\n", __func__);
+		return -1;
+	}
+
+	memset(&q, 0, sizeof(q));
+	q.id            = V4L2_CTRL_FLAG_NEXT_CTRL;
+
+	j.p             = buf + LWS_PRE;
+	j.end           = &buf[sizeof(buf)];
+	j.first         = 1;
+
+	j.p += lws_snprintf(j.p, lws_ptr_diff_size_t(j.end, j.p),
+			"{\"type\":\"capabilities\",\"kind\":\"video\",\"controls\":[");
+
+	lws_v4l2_enum_controls(pss->v4l2_ctx, json_control_cb, &j);
+
+	j.p += lws_snprintf(j.p, lws_ptr_diff_size_t(j.end, j.p), "]}");
+
+	lwsl_hexdump_notice(buf + LWS_PRE, lws_ptr_diff_size_t(j.p, buf + LWS_PRE));
+
+	if (we_ops && we_ops->send_text)
+		we_ops->send_text(pss->pss, buf + LWS_PRE, lws_ptr_diff_size_t(j.p, buf + LWS_PRE));
+
+	return 0;
+}
+
+static int media_v4l2_set_control(struct pss_camshow *pss, uint32_t id, int32_t val)
+{
+	if (pss->v4l2_ctx) {
+		lws_v4l2_set_control(pss->v4l2_ctx, id, val);
+	}
+	return 0;
+}
+
+static void media_v4l2_deinit(struct pss_camshow *pss)
+{
+	if (pss->v4l2_ctx) lws_v4l2_destroy((struct lws_v4l2_ctx **)&pss->v4l2_ctx);
+	if (pss->jpeg_dec) lws_jpeg_free((lws_jpeg_t **)&pss->jpeg_dec);
+	if (pss->yuv_frame) free(pss->yuv_frame);
+	if (pss->video_device) free((void*)pss->video_device);
+	media_deinit(pss);
+}
+
+const struct lws_cam_pipeline_ops pipeline_v4l2 = {
+	.name = "v4l2_ffmpeg",
+	.init = media_v4l2_init,
+	.get_event_fd = media_v4l2_get_event_fd,
+	.process_rx = media_v4l2_process_rx,
+	.send_capabilities = media_v4l2_send_capabilities,
+	.set_control = media_v4l2_set_control,
+	.deinit = media_v4l2_deinit,
+};
