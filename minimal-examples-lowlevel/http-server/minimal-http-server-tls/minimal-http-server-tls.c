@@ -38,7 +38,7 @@ static int interrupted;
 
 #if defined(LWS_WITH_PLUGINS)
 static const char * const plugin_dirs[] = {
-	LWS_INSTALL_DATADIR"/libwebsockets-test-server/plugins/",
+	LWS_PLUGIN_DIR "/",
 	NULL
 };
 #endif

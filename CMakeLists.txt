@@ -598,6 +598,7 @@ set(LWS_INSTALL_LIB_DIR       ${CMAKE_INSTALL_LIBDIR} CACHE PATH "Installation d
 set(LWS_INSTALL_BIN_DIR       ${CMAKE_INSTALL_BINDIR} CACHE PATH "Installation directory for executables")
 set(LWS_INSTALL_INCLUDE_DIR   ${CMAKE_INSTALL_INCLUDEDIR} CACHE PATH "Installation directory for header files")
 set(LWS_INSTALL_EXAMPLES_DIR  ${CMAKE_INSTALL_BINDIR} CACHE PATH "Installation directory for example files")
+set(LWS_INSTALL_PLUGIN_DIR    "${CMAKE_INSTALL_PREFIX}/share/libwebsockets-test-server/plugins" CACHE PATH "Installation directory for plugins")
 
 # if you gave LWS_WITH_MINIZ, point to MINIZ here if not found
 # automatically
