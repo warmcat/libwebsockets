@@ -275,6 +275,13 @@ lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
 }
 
 #if defined(LWS_WITH_NETWORK)
+
+mbedtls_x509_crt *
+ssl_ctx_get_mbedtls_x509_crt(lws_tls_ctx *ssl_ctx);
+
+mbedtls_x509_crt *
+ssl_get_peer_mbedtls_x509_crt(lws_tls_conn *ssl);
+
 int
 lws_tls_vhost_cert_info(struct lws_vhost *vhost, enum lws_tls_cert_info type,
 		        union lws_tls_cert_info_results *buf, size_t len)
