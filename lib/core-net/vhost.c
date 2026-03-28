@@ -1449,6 +1449,7 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 #endif
 
 	vh->being_destroyed = 1;
+	vh->count_bound_wsi++; /* protect from opportunistic destroy */
 	lws_dll2_add_tail(&vh->vh_being_destroyed_list,
 			  &context->owner_vh_being_destroyed);
 
@@ -1536,6 +1537,7 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 	lws_sul_cancel(&vh->sul_unref);
 #endif
 
+	vh->count_bound_wsi--;
 	lws_vhost_unlock(vh); /* } vh -------------- */
 
 	for (n = 0; n < context->count_threads; n++)
@@ -1779,8 +1781,10 @@ lws_vhost_destroy(struct lws_vhost *vh)
 	/* dispose of the listen socket one way or another */
 	lws_vhost_destroy1(vh);
 
+	vh->count_bound_wsi++; /* protect from opportunistic destroy */
 	/* start async closure of all wsi on this pt thread attached to vh */
 	__lws_vhost_destroy_pt_wsi_dieback_start(vh);
+	vh->count_bound_wsi--;
 
 	lwsl_vhost_info(vh, "count_bound_wsi %d", vh->count_bound_wsi);
 
