@@ -11,6 +11,7 @@
 
 #include <libwebsockets.h>
 #include <string.h>
+#include <errno.h>
 #include <linux/videodev2.h>
 #include <libwebsockets/lws-transcode.h>
 #include <libwebsockets/lws-v4l2.h>

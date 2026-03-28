@@ -507,6 +507,8 @@ static lws_state_notify_link_t * const app_notifier_list[] = {
 	&nl, NULL
 };
 
+static int interrupted;
+
 void sigint_handler(int signum) {
     interrupted = 1;
 }
