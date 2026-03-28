@@ -1344,6 +1344,18 @@ if (DEFINED REL_INCLUDE_DIR)
     set(LWS__INCLUDE_DIRS "\${LWS_CMAKE_DIR}/${REL_INCLUDE_DIR}")
 endif()
 
+set(STRIPPED_LIB_LIST_AT_END "")
+foreach(lib_path IN LISTS LIB_LIST_AT_END)
+    if(IS_ABSOLUTE "${lib_path}" AND NOT "${lib_path}" MATCHES "^-")
+        get_filename_component(lib_name "${lib_path}" NAME_WE)
+        string(REGEX REPLACE "^lib" "" lib_name "${lib_name}")
+        list(APPEND STRIPPED_LIB_LIST_AT_END "-l${lib_name}")
+    else()
+        list(APPEND STRIPPED_LIB_LIST_AT_END "${lib_path}")
+    endif()
+endforeach()
+set(LIB_LIST_AT_END ${STRIPPED_LIB_LIST_AT_END})
+
 configure_file(${PROJECT_SOURCE_DIR}/cmake/libwebsockets-config.cmake.in
                 ${PROJECT_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/libwebsockets-config.cmake
                 @ONLY)
