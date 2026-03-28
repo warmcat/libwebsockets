@@ -27,7 +27,7 @@ if(IOS)
     set(LWS_DETECTED_PLAT_IOS 1)
 endif()
 
-if (LWS_WITH_SCHANNEL OR LWS_WITH_GNUTLS)
+if (LWS_WITH_SCHANNEL OR LWS_WITH_GNUTLS OR LWS_WITH_MBEDTLS)
        set(LWS_WITH_SSL 1)
 endif()
 
@@ -513,4 +513,15 @@ endif()
 
 if (LWS_WITH_ASYNC_QUEUE)
 	set(LWS_ROLE_H1 1)
+endif()
+
+#
+# Make sure any final implied 'with' selections reset the corresponding 'without'
+# guards so scripts checking 'NOT LWS_WITHOUT_x' correctly evaluate to true.
+#
+if (LWS_WITH_CLIENT)
+	set(LWS_WITHOUT_CLIENT 0)
+endif()
+if (LWS_WITH_SERVER)
+	set(LWS_WITHOUT_SERVER 0)
 endif()

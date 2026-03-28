@@ -592,9 +592,11 @@ if (GENCERTS)
 		endif()
 	endif()
 
-	list(APPEND TEST_SERVER_DATA 
-		"${TEST_SERVER_SSL_KEY}"
-		"${TEST_SERVER_SSL_CERT}")
+	if (NOT OPENSSL_RETURN_CODE)
+		list(APPEND TEST_SERVER_DATA
+			"${TEST_SERVER_SSL_KEY}"
+			"${TEST_SERVER_SSL_CERT}")
+	endif()
 endif()
 
 #
