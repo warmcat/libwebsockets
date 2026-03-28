@@ -1374,6 +1374,25 @@ install(FILES
 if (LWS_WITH_EXPORT_LWSTARGETS)
     install(EXPORT LibwebsocketsTargets
             DESTINATION "${LWS_INSTALL_CMAKE_DIR}" COMPONENT dev)
+
+    # CMake inherently bakes absolute SYSROOT paths into exported target configurations
+    # when INTERFACE_LINK_LIBRARIES are resolved. We scrub them here natively so downstream
+    # cross-compilation environments (like Yocto) don't flag them as buildpath QA errors.
+    if(CMAKE_SYSROOT)
+        install(CODE "
+            if(DEFINED ENV{DESTDIR})
+                set(DESTDIR \"\$ENV{DESTDIR}/\")
+            else()
+                set(DESTDIR \"\")
+            endif()
+            file(GLOB TARGET_CMAKES \"\${DESTDIR}${CMAKE_INSTALL_PREFIX}/${LWS_INSTALL_CMAKE_DIR}/LibwebsocketsTargets*.cmake\")
+            foreach(TARGET_CMAKE \${TARGET_CMAKES})
+                file(READ \"\${TARGET_CMAKE}\" TARGET_CMAKE_CONTENT)
+                string(REPLACE \"${CMAKE_SYSROOT}\" \"\" TARGET_CMAKE_CONTENT \"\${TARGET_CMAKE_CONTENT}\")
+                file(WRITE \"\${TARGET_CMAKE}\" \"\${TARGET_CMAKE_CONTENT}\")
+            endforeach()
+        " COMPONENT dev)
+    endif()
 endif()
 
 # build subdir is not part of sources
