@@ -150,11 +150,11 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 
 			r = snd_pcm_writei(vhd->pcm_playback,
 					   &vhd->simplebuf[vhd->rpos],
-					   (snd_pcm_uframes_t)((vhd->wpos - vhd->rpos) &
+					   (snd_pcm_uframes_t)(((unsigned int)(vhd->wpos - vhd->rpos)) &
 					    (sizeof(vhd->simplebuf) - 1)) / 2);
 			if (r >= 0) {
 				n = (int)r;
-				vhd->rpos = (int)((vhd->rpos + (n * 2)) &
+				vhd->rpos = (int)(((unsigned int)(vhd->rpos + (n * 2))) &
 						(sizeof(vhd->simplebuf) - 1));
 			}
 		}
@@ -169,7 +169,7 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 				lwsl_notice("LWS_CALLBACK_RAW_RX_FILE: %d samples\n", n);
 				vhd->times++;
 
-				vhd->wpos = (int)((vhd->wpos + (n * 2)) & (sizeof(vhd->simplebuf) - 1));
+				vhd->wpos = (int)(((unsigned int)(vhd->wpos + (n * 2))) & (sizeof(vhd->simplebuf) - 1));
 			}
 		}
 		break;
