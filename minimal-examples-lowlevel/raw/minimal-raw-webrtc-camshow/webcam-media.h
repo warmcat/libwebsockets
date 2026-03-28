@@ -61,21 +61,28 @@ struct pss_camshow {
 	uint64_t                packets_sent;
 	uint64_t                packets_sent_last;
 
+	/* Architecture HAL pointer */
+	const struct lws_cam_pipeline_ops *ops;
+
 	/* Parent pointer to App's PSS */
 	struct pss_webrtc       *pss;
 };
 
-int
-media_init(struct pss_camshow *pss);
+struct lws_cam_pipeline_ops {
+	const char *name;
+	int (*init)(struct pss_camshow *pss);
+	int (*get_event_fd)(struct pss_camshow *pss);
+	int (*process_rx)(struct pss_camshow *pss);
+	int (*send_capabilities)(struct pss_camshow *pss);
+	int (*set_control)(struct pss_camshow *pss, uint32_t id, int32_t val);
+	void (*deinit)(struct pss_camshow *pss);
+};
 
-void
-media_deinit(struct pss_camshow *pss);
-
-int
-media_update_scaler(struct pss_camshow *pss);
-
-int
-media_process_video_frame(struct pss_camshow *pss, int index, size_t len);
+/* Backends */
+extern const struct lws_cam_pipeline_ops pipeline_v4l2;
+#if defined(LWS_WITH_MEDIA_RK_MPI)
+extern const struct lws_cam_pipeline_ops pipeline_rk_mpi;
+#endif
 
 extern const struct lws_webrtc_ops *we_ops;
 
