@@ -278,6 +278,8 @@ lws_genhmac_init(struct lws_genhmac_ctx *ctx, enum lws_genhmac_types type,
 	if (!ctx->hmac)
 		return -1;
 
+	mbedtls_md_init(&ctx->ctx);
+
 #if defined(LWS_HAVE_mbedtls_md_setup) || \
     (defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000)
 	if (mbedtls_md_setup(&ctx->ctx, ctx->hmac, 1))
