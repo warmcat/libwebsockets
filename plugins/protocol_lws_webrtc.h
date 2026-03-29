@@ -32,8 +32,8 @@ struct lws_webrtc_peer_media {
 	pthread_mutex_t         lock_tx;
 
 	struct lws              *wsi_udp;
-	struct sockaddr_in      peer_sin;
-	int                     has_peer_sin;
+	lws_sockaddr46          peer_sa46;
+	int                     has_peer_sa46;
 
 	struct lws_rtp_ctx      rtp_ctx_video;
 	struct lws_rtp_ctx      rtp_ctx_audio;

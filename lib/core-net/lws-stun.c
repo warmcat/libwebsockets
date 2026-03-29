@@ -136,12 +136,6 @@ lws_stun_validate_and_reply(struct lws *wsi, uint8_t *in, size_t in_len,
 		*op++ = (uint8_t)(xaddr & 0xff);
 	}
 
-	/* 2. ICE-CONTROLLED (Type 0x8029, Length 8) */
-	*op++ = 0x80; *op++ = 0x29;
-	*op++ = 0x00; *op++ = 0x08;
-	lws_get_random(lws_get_context(wsi), op, 8);
-	op += 8;
-
 	/*
 	 * MESSAGE-INTEGRITY (Type 0x0008, Length 20)
 	 * RFC 5389 15.4: Length field MUST include the MI attribute itself (24 bytes).
