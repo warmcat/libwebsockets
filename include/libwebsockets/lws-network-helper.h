@@ -261,4 +261,14 @@ lws_parse_mac(const char *ads, uint8_t *result_6_bytes);
 LWS_VISIBLE LWS_EXTERN int
 lws_parse_cidr(const char *cidr, lws_sockaddr46 *sa46, int *len);
 
+/**
+ * lws_is_lan_address() - checks if the given string represents a LAN address
+ *
+ * \param ads: The address string
+ *
+ * Returns 1 if the address is a local/LAN unroutable address
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_is_lan_address(const char *ads);
+
 ///@}

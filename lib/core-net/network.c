@@ -1171,6 +1171,54 @@ lws_parse_mac(const char *ads, uint8_t *result_6_bytes)
 }
 
 int
+lws_is_lan_address(const char *ads)
+{
+	lws_sockaddr46 sa46;
+
+	if (!ads)
+		return 0;
+
+	if (lws_sa46_parse_numeric_address(ads, &sa46) < 0)
+		return 0;
+
+	if (sa46.sa4.sin_family == AF_INET) {
+		uint8_t *p = (uint8_t *)&sa46.sa4.sin_addr.s_addr;
+
+		/* 10.0.0.0/8 */
+		if (p[0] == 10)
+			return 1;
+		/* 172.16.0.0/12 */
+		if (p[0] == 172 && (p[1] >= 16 && p[1] <= 31))
+			return 1;
+		/* 192.168.0.0/16 */
+		if (p[0] == 192 && p[1] == 168)
+			return 1;
+		/* 127.0.0.0/8 */
+		if (p[0] == 127)
+			return 1;
+	} else if (sa46.sa4.sin_family == AF_INET6) {
+#if defined(LWS_WITH_IPV6)
+		uint8_t *p = (uint8_t *)&sa46.sa6.sin6_addr.s6_addr;
+
+		/* fc00::/7 */
+		if ((p[0] & 0xfe) == 0xfc)
+			return 1;
+		/* fe80::/10 */
+		if (p[0] == 0xfe && (p[1] & 0xc0) == 0x80)
+			return 1;
+		/* ::1 */
+		if (p[0] == 0 && p[1] == 0 && p[2] == 0 && p[3] == 0 &&
+		    p[4] == 0 && p[5] == 0 && p[6] == 0 && p[7] == 0 &&
+		    p[8] == 0 && p[9] == 0 && p[10] == 0 && p[11] == 0 &&
+		    p[12] == 0 && p[13] == 0 && p[14] == 0 && p[15] == 1)
+			return 1;
+#endif
+	}
+
+	return 0;
+}
+
+int
 lws_parse_cidr(const char *cidr, lws_sockaddr46 *sa46, int *len)
 {
 	char buf[64], *p;
