@@ -65,7 +65,8 @@ struct lws_webrtc_peer_media {
 	uint8_t                 seq_valid_audio;
 
 	char                    fmtp_audio[128];
-	char                    fmtp_video[256];
+	char                    fmtp_video_h264[256];
+	char                    fmtp_video_av1[256];
 
 	uint8_t                 sps[128];
 	uint8_t                 pps[64];
@@ -95,6 +96,9 @@ struct pss_webrtc {
 	struct lws_buflist      *buflist;
 
 	void                    *user_data;
+
+	char                    *connection_log;
+	size_t                  connection_log_len;
 };
 
 void lws_webrtc_media_ref(struct lws_webrtc_peer_media *media);
