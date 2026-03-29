@@ -47,6 +47,7 @@ enum mixer_msg_type {
 	MSG_VIDEO_FRAME,
 	MSG_VSYNC_TICK, /* Optional internal tick */
 	MSG_UNREF_SESSION,
+	MSG_REQ_PLI,
 };
 
 struct lws_webrtc_peer_media;
@@ -165,6 +166,11 @@ struct participant {
 	/* Audio Energy Tracking */
 	lws_usec_t              last_report_time;
 	int                     audio_energy; /* Calculated by Worker, read by LWS? Or passed via msg? */
+
+	/* Video Sequence & PLI Tracking (Main Thread) */
+	uint16_t                expect_seq;
+	int                     expect_valid;
+	lws_usec_t              last_pli_req;
 
 	struct mixer_room       *room;
 	struct pss_webrtc       *pss;

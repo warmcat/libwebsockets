@@ -32,6 +32,7 @@ let chatVisible = false;
 let unreadCount = 0;
 let lastSentJoinedState = null;
 let lastSentStats = null;
+let debugContextReason = "";
 
 // Persistence keys
 const STORAGE_VIDEO_ID = 'lws_mixer_video_id';
@@ -743,23 +744,12 @@ async function connectSignalling() {
         try {
             const msg = JSON.parse(event.data);
             if (msg.type === 'answer') {
-                // Force the browser to respect the mixer's top codec choice by pruning the m=video line
-                // This stops the browser from falling back to H.264 or other defaults if it
-                // incorrectly considers multiple codecs in the answer.
-                let sdpLines = msg.sdp.split(/\r?\n/);
-                for (let i = 0; i < sdpLines.length; i++) {
-                    if (sdpLines[i].startsWith('m=video')) {
-                        const parts = sdpLines[i].split(' ');
-                        if (parts.length > 4) {
-                            // Keep m=video, port, proto, and the FIRST payload type
-                            sdpLines[i] = parts.slice(0, 4).join(' ');
-                        }
-                    }
-                }
-                msg.sdp = sdpLines.join('\r\n');
-                if (msg.sdp && !msg.sdp.endsWith('\r\n')) {
-                    msg.sdp += '\r\n'; // ensure standard ending
-                }
+                /*
+                 * Pass the generated Answer directly to setRemoteDescription.
+                 * Previous manual SDP pruning stripped PTs from the m=video line but left
+                 * orphan a=rtpmap attributes, causing Chromium to throw "Failed to parse codecs correctly".
+                 * Codec preferences are already handled cleanly via setCodecPreferences during Offer generation.
+                 */
 
                 await pc.setRemoteDescription(new RTCSessionDescription(msg));
             } else if (msg.type === 'candidate') {
@@ -863,8 +853,27 @@ async function connectSignalling() {
                 if (inConference) {
                     appendChatMessage(msg);
                 }
+            } else if (msg.type === 'debug_log') {
+                const header = "=== BROWSER DEBUG REASON ===\n" + (debugContextReason || "Unknown / Manual trigger") + "\n============================\n\n";
+                const ta = document.getElementById('debugLogArea');
+                const modal = document.getElementById('debugModal');
+
+                if (ta && modal && modal.style.display !== 'none') {
+                    ta.value = header + msg.log + "\n\n" + ta.value;
+                } else {
+                    showDebugModal(header + msg.log);
+                }
+                debugContextReason = ""; // clear after showing
             }
-        } catch (e) {}
+        } catch (e) {
+            console.error("Signaling exception:", e);
+            log("Signaling error: " + e.message, true);
+            debugContextReason = "Frontend Exception handling signaling message: " + e.message;
+            if (e.stack) debugContextReason += "\nStack: " + e.stack;
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'request_debug_log' }));
+            }
+        }
     };
 
     ws.onclose = () => {
@@ -903,6 +912,12 @@ function createPeerConnection() {
 
     pc.oniceconnectionstatechange = () => {
         log("ICE State: " + pc.iceConnectionState);
+        if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+            debugContextReason = "ICE Connection State became: " + pc.iceConnectionState;
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'request_debug_log' }));
+            }
+        }
     };
 
     pc.onicecandidate = (event) => {
@@ -1221,6 +1236,17 @@ async function join() {
         inConference = true;
         startAdaptationLoop();
         updateView();
+
+        // Fallback 10-second timeout for the UI if WebRTC hangs in checking/new
+        setTimeout(() => {
+            if (pc && pc.iceConnectionState !== 'connected' && pc.iceConnectionState !== 'completed') {
+                log("Connection timeout after wait. Requesting logs...", true);
+                debugContextReason = "Connection timed out after 10 seconds (ICE state: " + pc.iceConnectionState + ")";
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'request_debug_log' }));
+                }
+            }
+        }, 10000);
     }).catch(e => {
         log("Join failed: " + e.message, true);
     });
@@ -1662,4 +1688,42 @@ function appendChatMessage(msg) {
              unreadBadge.classList.remove('hidden');
         }
     }
+}
+
+function showDebugModal(text) {
+    let m = document.getElementById('debugModal');
+    if (!m) {
+        m = document.createElement('div');
+        m.id = 'debugModal';
+        m.className = 'modal';
+        m.innerHTML = `
+            <div class="modal-content debug-content" style="max-width: 800px; width: 90%;">
+                <div class="modal-header">
+                    <h2 style="display: flex; align-items: center; gap: 10px; color: var(--danger);">
+                        <svg class="warn-icon" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 2L1 21h22L12 2zm1 16h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+                        Connection Failed
+                    </h2>
+                    <button class="close-btn" onclick="document.getElementById('debugModal').style.display='none'">×</button>
+                </div>
+                <div class="modal-body" style="padding: 1.5rem;">
+                    <p style="margin-bottom: 1rem; color: #cbd5e1;">WebRTC connection failed. Please copy the diagnostic log below to help us debug this issue:</p>
+                    <textarea readonly id="debugLogArea" style="width: 100%; height: 300px; background: rgba(0,0,0,0.4); color: #10b981; border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-family: monospace; font-size: 0.85em; resize: vertical;"></textarea>
+                </div>
+                <div class="modal-footer" style="padding: 1.5rem; background: rgba(15, 23, 42, 0.5); border-top: 1px solid rgba(255, 255, 255, 0.1); border-radius: 0 0 16px 16px; display: flex; justify-content: flex-end; gap: 1rem;">
+                    <button id="copyDebugBtn" style="background: var(--danger, #ef4444); color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.2s;">Copy to Clipboard</button>
+                    <button style="background: rgba(255,255,255,0.1); color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.2s;" onclick="document.getElementById('debugModal').style.display='none'">Close</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(m);
+        document.getElementById('copyDebugBtn').onclick = () => {
+            const ta = document.getElementById('debugLogArea');
+            ta.select();
+            document.execCommand('copy');
+            document.getElementById('copyDebugBtn').innerText = 'Copied!';
+            setTimeout(() => { document.getElementById('copyDebugBtn').innerText = 'Copy to Clipboard'; }, 2000);
+        };
+    }
+    document.getElementById('debugLogArea').value = text;
+    m.style.display = 'flex';
 }

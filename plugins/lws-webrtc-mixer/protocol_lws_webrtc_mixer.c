@@ -290,6 +290,18 @@ mixer_on_media(struct lws *wsi_ws, int tid, const uint8_t *buf, size_t len, int 
 	}
 #endif
 	if (msg.type == MSG_VIDEO_FRAME) {
+		msg.seq = we_ops->get_seq_video ? we_ops->get_seq_video(pss) : 0;
+		if (pss_p->expect_valid && (uint16_t)(pss_p->expect_seq) != msg.seq) {
+			lws_usec_t now = lws_now_usecs();
+			if (now - pss_p->last_pli_req > 500000) {
+				if (we_ops->send_pli)
+					we_ops->send_pli(pss);
+				pss_p->last_pli_req = now;
+			}
+		}
+		pss_p->expect_seq = msg.seq + 1;
+		pss_p->expect_valid = 1;
+
 		msg.codec = 0;
 		/* Resolve PT to Codec */
 		// We need access to negotiated PTs.
@@ -718,6 +730,33 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 						}
 					}
 
+					/* Handle request_debug_log: {"type":"request_debug_log"} */
+					if ((al >= 19 && !strncmp(v, "\"request_debug_log\"", 19)) ||
+					    (al >= 17 && !strncmp(v, "request_debug_log", 17))) {
+
+						lwsl_notice("%s: Sending debug log to '%s'\n", __func__, p->name);
+						if (p->pss && p->pss->connection_log_len > 0) {
+							size_t esc_len = (p->pss->connection_log_len * 2) + 1;
+							size_t msg_len = esc_len + 128;
+							char *msg = malloc(msg_len);
+							if (msg) {
+								char *esc_log = malloc(esc_len);
+								if (esc_log) {
+									lws_json_purify(esc_log, p->pss->connection_log, (int)esc_len, NULL);
+									int rn = lws_snprintf(msg, msg_len,
+										"{\"type\":\"debug_log\",\"log\":\"%s\"}", esc_log);
+									we_ops->send_text(p->pss, msg, (size_t)rn);
+									free(esc_log);
+								}
+								free(msg);
+							}
+						} else if (p->pss) {
+							/* Send back a guaranteed response even if connection_log_len is 0 */
+							const char *fback = "{\"type\":\"debug_log\",\"log\":\"No server connection logs were recorded prior to failure.\"}";
+							we_ops->send_text(p->pss, fback, strlen(fback));
+						}
+					}
+
 					/* Handle set_control: {"type":"set_control","target":"<name>","id":...,"val":...} */
 					/* v points to "\"set_control\"" (len 13) or just "set_control" if parser strips quotes?
 					   lws_json_simple_find通常returns the value including quotes for strings.
@@ -1114,7 +1153,7 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 }
 
 LWS_VISIBLE const struct lws_protocols mixer_protocols[] = {
-	{"lws-webrtc-mixer", callback_mixer, sizeof(struct pss_webrtc), 0, 0, NULL, 0},
+	{"lws-webrtc-mixer", callback_mixer, sizeof(struct pss_webrtc), 32768, 0, NULL, 0},
 };
 
 /*
