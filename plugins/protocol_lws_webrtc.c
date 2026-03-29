@@ -133,7 +133,7 @@ rtp_packet_tx_cb(void *priv, const uint8_t *pkt, size_t len, int marker)
 
 	(void)marker;
 
-	if (!media || !media->has_peer_sin)
+	if (!media || !media->has_peer_sa46)
 		return;
 
 	memcpy(p, pkt, len);
@@ -149,7 +149,7 @@ rtp_packet_tx_cb(void *priv, const uint8_t *pkt, size_t len, int marker)
 	 * to avoid blocking the event loop or spinning.
 	 */
 	if (sendto(lws_get_socket_fd(media->wsi_udp), (const char *)p, LWS_POSIX_LENGTH_CAST(protected_len), 0,
-				(const struct sockaddr *)&media->peer_sin, sizeof(media->peer_sin)) < (int)protected_len) {
+				(const struct sockaddr *)&media->peer_sa46, media->peer_sa46.sa4.sin_family == AF_INET6 ? sizeof(media->peer_sa46.sa6) : sizeof(media->peer_sa46.sa4)) < (int)protected_len) {
 		if (errno != EAGAIN && errno != EWOULDBLOCK && errno != ENOBUFS) {
 			lwsl_err("%s: UDP sendto failed: %d (%s)\n", __func__, errno, strerror(errno));
 		}
@@ -489,7 +489,7 @@ lws_webrtc_send_pli(struct pss_webrtc *pss)
 	pthread_mutex_lock(&media->lock_tx);
 	if (lws_srtp_protect_rtcp(&media->srtp_ctx_tx, p, &len, sizeof(pli) - LWS_PRE) == 0) {
 		lwsl_notice("%s: Sending PLI request for SSRC %u\n", __func__, media->ssrc_peer_video);
-		sendto(lws_get_socket_fd(media->wsi_udp), (const char *)p, LWS_POSIX_LENGTH_CAST(len), 0, (const struct sockaddr *)&media->peer_sin, sizeof(media->peer_sin));
+		sendto(lws_get_socket_fd(media->wsi_udp), (const char *)p, LWS_POSIX_LENGTH_CAST(len), 0, (const struct sockaddr *)&media->peer_sa46, media->peer_sa46.sa4.sin_family == AF_INET6 ? sizeof(media->peer_sa46.sa6) : sizeof(media->peer_sa46.sa4));
 	}
 	pthread_mutex_unlock(&media->lock_tx);
 
@@ -751,11 +751,11 @@ handle_candidate(struct pss_webrtc *pss, struct vhd_webrtc *vhd, const char *can
 	if (state == 5 && port > 0) {
 		lwsl_notice("%s: Found Candidate: %s:%d\n", __func__, ip_str, port);
 
-		memset(&pss->media->peer_sin, 0, sizeof(pss->media->peer_sin));
-		pss->media->peer_sin.sin_family = AF_INET;
-		pss->media->peer_sin.sin_port = htons((uint16_t)port);
-		inet_pton(AF_INET, ip_str, &pss->media->peer_sin.sin_addr);
-		pss->media->has_peer_sin = 1;
+		memset(&pss->media->peer_sa46, 0, sizeof(pss->media->peer_sa46));
+		pss->media->peer_sa46.sa4.sin_family = AF_INET;
+		pss->media->peer_sa46.sa4.sin_port = htons((uint16_t)port);
+		inet_pton(AF_INET, ip_str, &pss->media->peer_sa46.sa4.sin_addr);
+		pss->media->has_peer_sa46 = 1;
 
 		/* Send STUN Binding Request to punch hole */
 		uint8_t stun[2048];
@@ -770,7 +770,7 @@ handle_candidate(struct pss_webrtc *pss, struct vhd_webrtc *vhd, const char *can
 		int n = lws_webrtc_stun_req_pack(pss, stun, sizeof(stun), tid);
 		if (n > 0) {
 			sendto(lws_get_socket_fd(pss->media->wsi_udp), (const char *)stun, (size_t)n, 0,
-					(const struct sockaddr *)&pss->media->peer_sin, sizeof(pss->media->peer_sin));
+					(const struct sockaddr *)&pss->media->peer_sa46, pss->media->peer_sa46.sa4.sin_family == AF_INET6 ? sizeof(pss->media->peer_sa46.sa6) : sizeof(pss->media->peer_sa46.sa4));
 			lwsl_notice("%s: Sent STUN Binding Request to %s:%d\n", __func__, ip_str, port);
 		} else {
 			lwsl_err("%s: lws_stun_req_pack failed: %d\n", __func__, n);
@@ -784,7 +784,7 @@ handle_candidate(struct pss_webrtc *pss, struct vhd_webrtc *vhd, const char *can
 			int _tx_len;
 			while ((_tx_len = lws_gendtls_get_tx(&pss->dtls_ctx, out, sizeof(out))) > 0) {
 				lwsl_notice("%s: Sending Initial DTLS ClientHello after ICE (%d bytes)\n", __func__, _tx_len);
-				sendto(lws_get_socket_fd(pss->media->wsi_udp), (const char *)out, (size_t)_tx_len, 0, (const struct sockaddr *)&pss->media->peer_sin, sizeof(pss->media->peer_sin));
+				sendto(lws_get_socket_fd(pss->media->wsi_udp), (const char *)out, (size_t)_tx_len, 0, (const struct sockaddr *)&pss->media->peer_sa46, pss->media->peer_sa46.sa4.sin_family == AF_INET6 ? sizeof(pss->media->peer_sa46.sa6) : sizeof(pss->media->peer_sa46.sa4));
 			}
 		}
 
@@ -1068,15 +1068,15 @@ handle_answer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, c
 	free(sdp_clean);
 
 	/* Trigger DTLS Client Hello */
-	lwsl_notice("%s: Checking DTLS Cond: started %d, done %d, peer %d\n", __func__, pss->handshake_started, pss->media ? pss->media->handshake_done : 0, pss->media ? pss->media->has_peer_sin : 0);
-	if (pss->media && pss->handshake_started && !pss->media->handshake_done && pss->media->has_peer_sin) {
+	lwsl_notice("%s: Checking DTLS Cond: started %d, done %d, peer %d\n", __func__, pss->handshake_started, pss->media ? pss->media->handshake_done : 0, pss->media ? pss->media->has_peer_sa46 : 0);
+	if (pss->media && pss->handshake_started && !pss->media->handshake_done && pss->media->has_peer_sa46) {
 		uint8_t dummy;
 		lws_gendtls_get_rx(&pss->dtls_ctx, &dummy, 1);
 		uint8_t out[2048];
 		int _tx_len;
 		while ((_tx_len = lws_gendtls_get_tx(&pss->dtls_ctx, out, sizeof(out))) > 0) {
 			lwsl_notice("%s: Sending Initial DTLS ClientHello (%d bytes)\n", __func__, _tx_len);
-			sendto(lws_get_socket_fd(pss->media->wsi_udp), (const char *)out, (size_t)_tx_len, 0, (const struct sockaddr *)&pss->media->peer_sin, sizeof(pss->media->peer_sin));
+			sendto(lws_get_socket_fd(pss->media->wsi_udp), (const char *)out, (size_t)_tx_len, 0, (const struct sockaddr *)&pss->media->peer_sa46, pss->media->peer_sa46.sa4.sin_family == AF_INET6 ? sizeof(pss->media->peer_sa46.sa6) : sizeof(pss->media->peer_sa46.sa4));
 		}
 	}
 
@@ -1791,10 +1791,18 @@ webrtc_find_session(struct vhd_webrtc *vhd, const struct sockaddr_in *sin)
 {
 	lws_start_foreach_dll(struct lws_dll2 *, d, vhd->sessions.head) {
 		struct pss_webrtc *s = lws_container_of(d, struct pss_webrtc, list);
-		if (s->media && s->media->has_peer_sin &&
-				s->media->peer_sin.sin_addr.s_addr == sin->sin_addr.s_addr &&
-				s->media->peer_sin.sin_port == sin->sin_port) {
-			return s;
+		if (s->media && s->media->has_peer_sa46) {
+			uint32_t stored_a = 0;
+			uint16_t stored_p = 0;
+			if (s->media->peer_sa46.sa4.sin_family == AF_INET) {
+				stored_a = s->media->peer_sa46.sa4.sin_addr.s_addr;
+				stored_p = s->media->peer_sa46.sa4.sin_port;
+			} else {
+				memcpy(&stored_a, &s->media->peer_sa46.sa6.sin6_addr.s6_addr[12], 4);
+				stored_p = s->media->peer_sa46.sa6.sin6_port;
+			}
+			if (stored_a == sin->sin_addr.s_addr && stored_p == sin->sin_port)
+				return s;
 		}
 	} lws_end_foreach_dll(d);
 	return NULL;
@@ -1809,6 +1817,7 @@ webrtc_handle_stun(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrtc **
 	uint8_t *p = (uint8_t *)in;
 	uint16_t type = (uint16_t)((p[0] << 8) | p[1]);
 	char ads[64];
+	const struct lws_udp *udp_desc = lws_get_udp(wsi);
 
 	lws_sa46_write_numeric_address((lws_sockaddr46 *)sin, ads, sizeof(ads));
 
@@ -1854,8 +1863,9 @@ webrtc_handle_stun(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrtc **
 									__func__, s, u_dest, u_src);
 							pss = s;
 							if (pss->media) {
-								pss->media->peer_sin = *sin;
-								pss->media->has_peer_sin = 1;
+								/* Save original sa46 for outbound sendto */
+								pss->media->peer_sa46 = udp_desc->sa46;
+								pss->media->has_peer_sa46 = 1;
 							}
 							*ppss = s;
 							break;
@@ -1873,8 +1883,16 @@ webrtc_handle_stun(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrtc **
 	uint8_t out[512];
 	int n_stun = lws_stun_validate_and_reply(wsi, (uint8_t *)in, len, out, sizeof(out), pss ? pss->ice_pwd : NULL, sin);
 	if (n_stun > 0) {
-		// lwsl_notice("%s: Sending STUN reply (%d bytes)\n", __func__, n_stun);
-		sendto(lws_get_socket_fd(wsi), (const char *)out, (size_t)n_stun, 0, (const struct sockaddr *)sin, sizeof(*sin));
+		if (udp_desc) {
+			socklen_t slen = udp_desc->sa46.sa4.sin_family == AF_INET6 ? (socklen_t)sizeof(udp_desc->sa46.sa6) : (socklen_t)sizeof(udp_desc->sa46.sa4);
+			lwsl_notice("%s: Sending STUN reply (%d bytes)\n", __func__, n_stun);
+			ssize_t sent = sendto(lws_get_socket_fd(wsi), (const char *)out, (size_t)n_stun, 0, (const struct sockaddr *)&udp_desc->sa46, slen);
+			if (sent < 0) {
+				lwsl_err("%s: sendto failed: errno %d\n", __func__, errno);
+			} else if (sent != n_stun) {
+				lwsl_err("%s: sendto partial sent %ld instead of %d\n", __func__, (long)sent, n_stun);
+			}
+		}
 	} else {
 		lwsl_err("%s: lws_stun_validate_and_reply failed (pss %p)\n", __func__, pss);
 	}
@@ -2078,10 +2096,22 @@ lws_shared_webrtc_udp_callback(struct lws *wsi, enum lws_callback_reasons reason
 
 		case LWS_CALLBACK_RAW_RX:
 			if (!vhd || !udp_desc) return 0;
-			const struct sockaddr_in *sin = &udp_desc->sa46.sa4;
-			// char ads[64];
-			// lws_sa46_write_numeric_address((lws_sockaddr46 *)sin, ads, sizeof(ads));
-			// lwsl_notice("%s: RAW_RX %zu bytes from %s:%u\n", __func__, len, ads, ntohs(sin->sin_port));
+
+			/* Create pure IPv4 mapping for logic checks */
+			struct sockaddr_in pure_sin;
+			memset(&pure_sin, 0, sizeof(pure_sin));
+			pure_sin.sin_family = AF_INET;
+
+			if (udp_desc->sa46.sa4.sin_family == AF_INET) {
+				pure_sin.sin_addr.s_addr = udp_desc->sa46.sa4.sin_addr.s_addr;
+				pure_sin.sin_port = udp_desc->sa46.sa4.sin_port;
+			} else {
+				/* AF_INET6 IPv4-mapped address */
+				memcpy(&pure_sin.sin_addr.s_addr, &udp_desc->sa46.sa6.sin6_addr.s6_addr[12], 4);
+				pure_sin.sin_port = udp_desc->sa46.sa6.sin6_port;
+			}
+
+			const struct sockaddr_in *sin = &pure_sin;
 
 			/* Find session by address */
 			pss = webrtc_find_session(vhd, sin);
