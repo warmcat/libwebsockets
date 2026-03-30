@@ -625,6 +625,11 @@ lws_http_digest_auth(struct lws* wsi)
 	char realm[64];
 	char b64[512];
 	int m, ml, fi;
+	char algo[16];
+	enum lws_genhash_types hash_type = LWS_GENHASH_TYPE_MD5;
+
+	qop[0] = '\0';
+	lws_strncpy(algo, "MD5", sizeof(algo));
 
 	/* Did he send auth? */
 	ml = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_WWW_AUTHENTICATE);
@@ -666,18 +671,9 @@ lws_http_digest_auth(struct lws* wsi)
 		e = lws_tokenize(&ts);
 		switch (e) {
 		case LWS_TOKZE_TOKEN:
-			if (pend == 8) {
-				/* algorithm name */
+			if (pend >= 0)
+				goto str_val;
 
-				if (!strncasecmp(ts.token, "MD5", ts.token_len)) {
-					lwsl_wsi_err(wsi, "wrong alg %.*s\n",
-							(int)ts.token_len,
-							ts.token);
-					return LCBA_END_TRANSACTION;
-				}
-				pend = PEND_DELIM;
-				break;
-			}
 			if (!strncasecmp(ts.token, "Digest", ts.token_len)) {
 				seen |= 1 << 0;
 				break;
@@ -715,6 +711,7 @@ lws_http_digest_auth(struct lws* wsi)
 			break;
 
 		case LWS_TOKZE_QUOTED_STRING:
+str_val:
 			if (pend < 0)
 				return LCBA_END_TRANSACTION;
 
@@ -743,7 +740,7 @@ lws_http_digest_auth(struct lws* wsi)
 				break;
 			case 5: /* response */
 				if (ts.token_len !=
-					lws_genhash_size(LWS_GENHASH_TYPE_MD5) * 2)
+					lws_genhash_size(hash_type) * 2)
 					return LCBA_END_TRANSACTION;
 
 				if (lws_hex_len_to_byte_array(ts.token, ts.token_len,
@@ -754,11 +751,45 @@ lws_http_digest_auth(struct lws* wsi)
 			case 6: /* opaque */
 				break;
 			case 7: /* qop */
-				if (strncmp(ts.token, "auth", ts.token_len))
+				if (ts.token_len >= (int)sizeof(qop))
 					return LCBA_END_TRANSACTION;
 
 				strncpy((char *)qop, ts.token, ts.token_len);
-				qop[ts.token_len] = 0;
+				qop[ts.token_len] = '\0';
+				{
+					char *p = (char *)qop;
+					while (p) {
+						if (!strncmp(p, "auth", 4) && (p[4] == '\0' || p[4] == ',' || p[4] == ' ')) {
+							strcpy((char *)qop, "auth");
+							break;
+						}
+						p = strchr(p, ',');
+						if (p) {
+							p++;
+							while (*p == ' ') p++;
+						}
+					}
+					if (!p)
+						return LCBA_END_TRANSACTION;
+				}
+				break;
+			case 8: /* algorithm */
+				if (ts.token_len == 3 && !strncasecmp(ts.token, "MD5", 3)) {
+					hash_type = LWS_GENHASH_TYPE_MD5;
+					lws_strncpy(algo, "MD5", sizeof(algo));
+				} else if (ts.token_len == 7 && !strncasecmp(ts.token, "SHA-256", 7)) {
+					hash_type = LWS_GENHASH_TYPE_SHA256;
+					lws_strncpy(algo, "SHA-256", sizeof(algo));
+				} else if (ts.token_len == 7 && !strncasecmp(ts.token, "SHA-384", 7)) {
+					hash_type = LWS_GENHASH_TYPE_SHA384;
+					lws_strncpy(algo, "SHA-384", sizeof(algo));
+				} else if (ts.token_len == 7 && !strncasecmp(ts.token, "SHA-512", 7)) {
+					hash_type = LWS_GENHASH_TYPE_SHA512;
+					lws_strncpy(algo, "SHA-512", sizeof(algo));
+				} else {
+					lwsl_wsi_err(wsi, "wrong alg %.*s\n", (int)ts.token_len, ts.token);
+					return LCBA_END_TRANSACTION;
+				}
 				break;
 			}
 			pend = PEND_DELIM;
@@ -831,7 +862,7 @@ lws_http_digest_auth(struct lws* wsi)
 		n = lws_snprintf(tmp_digest, l, "%s:%s:%s",
 				 username, realm, password);
 
-		if (lws_genhash_init(&hc, LWS_GENHASH_TYPE_MD5) ||
+		if (lws_genhash_init(&hc, hash_type) ||
 				lws_genhash_update(&hc,
 						   tmp_digest,
 							(size_t)n) ||
@@ -842,7 +873,7 @@ lws_http_digest_auth(struct lws* wsi)
 		}
 
 		lws_hex_from_byte_array(digest,
-					lws_genhash_size(LWS_GENHASH_TYPE_MD5),
+					lws_genhash_size(hash_type),
 					a1, sizeof(a1));
 		lwsl_debug("A1: %s:%s:%s = %s\n", username, realm, password, a1);
 
@@ -855,7 +886,7 @@ lws_http_digest_auth(struct lws* wsi)
 				   wsi->stash->cis[CIS_METHOD] ?
 				   wsi->stash->cis[CIS_METHOD] : "GET", uri);
 
-		if (lws_genhash_init(&hc, LWS_GENHASH_TYPE_MD5) ||
+		if (lws_genhash_init(&hc, hash_type) ||
 				     lws_genhash_update(&hc,
 						    tmp_digest,
 						    (size_t)n) ||
@@ -866,7 +897,7 @@ lws_http_digest_auth(struct lws* wsi)
 			goto bail;
 		}
 		lws_hex_from_byte_array(digest,
-					lws_genhash_size(LWS_GENHASH_TYPE_MD5),
+					lws_genhash_size(hash_type),
 					a2, sizeof(a2));
 		lwsl_debug("A2: %s:%s = %s\n", wsi->stash->cis[CIS_METHOD],
 				uri, a2);
@@ -875,13 +906,17 @@ lws_http_digest_auth(struct lws* wsi)
 		lws_hex_from_byte_array((const uint8_t *)&ncount,
 					sizeof(ncount), nc, sizeof(nc));
 
-		n = lws_snprintf(tmp_digest, l, "%s:%s:%08x:%s:%s:%s", a1,
-				nonce, ncount, cnonce, qop, a2);
+		if (qop[0])
+			n = lws_snprintf(tmp_digest, l, "%s:%s:%08x:%s:%s:%s", a1,
+					nonce, ncount, cnonce, qop, a2);
+		else
+			n = lws_snprintf(tmp_digest, l, "%s:%s:%s", a1,
+					nonce, a2);
 
 		lwsl_wsi_debug(wsi, "digest response: %s\n", tmp_digest);
 
 
-		if (lws_genhash_init(&hc, LWS_GENHASH_TYPE_MD5) ||
+		if (lws_genhash_init(&hc, hash_type) ||
 				lws_genhash_update(&hc, tmp_digest, (size_t)n) ||
 				lws_genhash_destroy(&hc, digest)) {
 			lws_genhash_destroy(&hc, NULL);
@@ -890,17 +925,27 @@ lws_http_digest_auth(struct lws* wsi)
 			goto bail;
 		}
 		lws_hex_from_byte_array(digest,
-					lws_genhash_size(LWS_GENHASH_TYPE_MD5),
+					lws_genhash_size(hash_type),
 					(char *)response,
-					lws_genhash_size(LWS_GENHASH_TYPE_MD5) * 2 + 1);
+					lws_genhash_size(hash_type) * 2 + 1);
 
-		n = lws_snprintf(tmp_digest, l,
-				 "Digest username=\"%s\", realm=\"%s\", "
-				 "nonce=\"%s\", uri=\"%s\", qop=%s, nc=%08x, "
-				 "cnonce=\"%s\", response=\"%s\", "
-				 "algorithm=\"MD5\"",
-				 username, realm, nonce, uri, qop, ncount,
-				 cnonce, response);
+		if (qop[0]) {
+			n = lws_snprintf(tmp_digest, l,
+					 "Digest username=\"%s\", realm=\"%s\", "
+					 "nonce=\"%s\", uri=\"%s\", qop=%s, nc=%08x, "
+					 "cnonce=\"%s\", response=\"%s\", "
+					 "algorithm=\"%s\"",
+					 username, realm, nonce, uri, qop, ncount,
+					 cnonce, response, algo);
+		} else {
+			n = lws_snprintf(tmp_digest, l,
+					 "Digest username=\"%s\", realm=\"%s\", "
+					 "nonce=\"%s\", uri=\"%s\", "
+					 "response=\"%s\", "
+					 "algorithm=\"%s\"",
+					 username, realm, nonce, uri,
+					 response, algo);
+		}
 
 		lwsl_hexdump(tmp_digest, l);
 
