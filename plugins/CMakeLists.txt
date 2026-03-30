@@ -1,7 +1,7 @@
 #
 # libwebsockets - small server side websockets and web server implementation
 #
-# Copyright (C) 2010 - 2025 Andy Green <andy@warmcat.com>
+# Copyright (C) 2010 - 2026 Andy Green <andy@warmcat.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to
@@ -28,6 +28,19 @@ if (DEFINED LIB_LIST_AT_END)
 link_libraries(${LIB_LIST_AT_END})
 endif()
 
+MACRO(SUBDIRLIST result curdir)
+  FILE(GLOB children RELATIVE ${curdir} ${curdir}/*)
+  SET(dirlist "")
+
+  FOREACH(child ${children})
+    IF (IS_DIRECTORY ${curdir}/${child})
+	LIST(APPEND dirlist ${child})
+    ENDIF()
+  ENDFOREACH()
+
+  SET(${result} ${dirlist})
+ENDMACRO()
+
 if ((LWS_WITH_PLUGINS AND LWS_WITH_SHARED) OR LWS_WITH_PLUGINS_BUILTIN)
 
 	#
@@ -36,6 +49,34 @@ if ((LWS_WITH_PLUGINS AND LWS_WITH_SHARED) OR LWS_WITH_PLUGINS_BUILTIN)
 	#
 
 	macro(create_plugin PLUGIN_NAME PLUGIN_INCLUDE MAIN_SRC S2 S3)
+		set(PLUGIN_REJECTED 0)
+
+		if (NOT "${LWS_WITH_PLUGIN_FILTER_NO}" STREQUAL "")
+			string(REPLACE "," ";" NO_LIST "${LWS_WITH_PLUGIN_FILTER_NO}")
+			foreach(P ${NO_LIST})
+				if ("${PLUGIN_NAME}" MATCHES "${P}")
+					set(PLUGIN_REJECTED 1)
+				endif()
+			endforeach()
+		endif()
+
+		if (NOT PLUGIN_REJECTED AND NOT "${LWS_WITH_PLUGIN_FILTER_YES}" STREQUAL "")
+			set(FOUND_YES 0)
+			string(REPLACE "," ";" YES_LIST "${LWS_WITH_PLUGIN_FILTER_YES}")
+			foreach(P ${YES_LIST})
+				if ("${PLUGIN_NAME}" MATCHES "${P}")
+					set(FOUND_YES 1)
+				endif()
+			endforeach()
+			if (NOT FOUND_YES)
+				set(PLUGIN_REJECTED 1)
+			endif()
+		endif()
+
+		if (PLUGIN_REJECTED)
+			message(STATUS "Skipping plugin ${PLUGIN_NAME} due to filter")
+			return()
+		endif()
 
 		if (NOT LWS_WITH_PLUGINS_BUILTIN)
 			set(PLUGIN_SRCS "")
@@ -144,227 +185,14 @@ if ((LWS_WITH_PLUGINS AND LWS_WITH_SHARED) OR LWS_WITH_PLUGINS_BUILTIN)
 			set(SOURCES ${SOURCES} PARENT_SCOPE)
 		endif(NOT LWS_WITH_PLUGINS_BUILTIN)
 	endmacro()
-		
-if (LWS_ROLE_WS)
-		create_plugin(protocol_dumb_increment ""
-			      "protocol_dumb_increment.c" "" "")
-		if (NOT LWS_WITH_PLUGINS_BUILTIN)
-			target_compile_definitions(protocol_dumb_increment PRIVATE LWS_BUILDING_SHARED)
+
+	SUBDIRLIST(SUBDIRS "${CMAKE_CURRENT_SOURCE_DIR}")
+	FOREACH(subdir ${SUBDIRS})
+		if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${subdir}/CMakeLists.txt")
+			message("Processing ${CMAKE_CURRENT_SOURCE_DIR}/${subdir}")
+			add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/${subdir}")
 		endif()
-
-		create_plugin(protocol_lws_mirror ""
-			      "protocol_lws_mirror.c" "" "")
-		if (NOT LWS_WITH_PLUGINS_BUILTIN)
-			target_compile_definitions(protocol_lws_mirror PRIVATE LWS_BUILDING_SHARED)
-		endif()
-
-		create_plugin(protocol_lws_status ""
-			      "protocol_lws_status.c" "" "")
-		if (NOT LWS_WITH_PLUGINS_BUILTIN)
-			target_compile_definitions(protocol_lws_status PRIVATE LWS_BUILDING_SHARED)
-		endif()
-
-		if (LWS_WITH_DHT)
-			create_plugin(protocol_lws_dht_stats ""
-				      "dht_stats/protocol_lws_dht_stats.c" "" "")
-			if (NOT LWS_WITH_PLUGINS_BUILTIN)
-				target_compile_definitions(protocol_lws_dht_stats PRIVATE LWS_BUILDING_SHARED)
-			endif()
-		endif()
-
-		if (NOT WIN32)
-			create_plugin(protocol_lws_raw_test ""
-			      "protocol_lws_raw_test.c" "" "")
-			if (NOT LWS_WITH_PLUGINS_BUILTIN)
-				target_compile_definitions(protocol_lws_raw_test PRIVATE LWS_BUILDING_SHARED)
-			endif()
-
-
-		      if (UNIX AND LWS_HAVE_PTHREAD_H)
-				create_plugin(protocol_deaddrop ""
-				      "deaddrop/protocol_lws_deaddrop.c" "" "")
-				if (NOT LWS_WITH_PLUGINS_BUILTIN)
-					target_compile_definitions(protocol_deaddrop PRIVATE LWS_BUILDING_SHARED)
-				endif()
-			endif()
-		endif()
-
-	if (LWS_WITH_SYS_METRICS)
-			create_plugin(protocol_lws_openmetrics_export ""
-				      "protocol_lws_openmetrics_export.c" "" "")
-			if (NOT LWS_WITH_PLUGINS_BUILTIN)
-				target_compile_definitions(protocol_lws_openmetrics_export PRIVATE LWS_BUILDING_SHARED)
-			endif()
-	endif()
-
-	if (NOT LWS_WITHOUT_CLIENT)
-			create_plugin(protocol_client_loopback_test ""
-        	                      "protocol_client_loopback_test.c" "" "")
-			if (NOT LWS_WITH_PLUGINS_BUILTIN)
-				target_compile_definitions(protocol_client_loopback_test PRIVATE LWS_BUILDING_SHARED)
-			endif()
-
-	endif()
-
-endif(LWS_ROLE_WS)
-
-if (NOT LWS_WITHOUT_SERVER AND LWS_WITH_JOSE)
-	add_subdirectory(captcha-ratelimit)
-	add_subdirectory(lws-login)
-	add_subdirectory(lws-oauth2-client)
-endif()
-
-if (NOT LWS_WITHOUT_SERVER AND LWS_WITH_JOSE AND LWS_WITH_STRUCT_SQLITE3 AND LWS_WITH_AUTH_SERVER)
-	create_plugin(protocol_lws_auth_server ""
-		      "auth-server/protocol_lws_auth_server.c" "" "")
-	if (NOT LWS_WITH_PLUGINS_BUILTIN)
-		target_compile_definitions(protocol_lws_auth_server PRIVATE LWS_BUILDING_SHARED)
-	endif()
-endif()
-
-if (LWS_WITH_EMAIL)
-	create_plugin(protocol_lws_smtp_client ""
-		      "email/protocol_lws_smtp_client.c" "" "")
-	if (NOT LWS_WITH_PLUGINS_BUILTIN)
-		target_compile_definitions(protocol_lws_smtp_client PRIVATE LWS_BUILDING_SHARED)
-	endif()
-endif()
-
-
-
-if (NOT LWS_WITHOUT_SERVER)
-	create_plugin(protocol_urlarg ""
-		      "protocol_urlarg.c" "" "")
-	if (NOT LWS_WITH_PLUGINS_BUILTIN)
-		target_compile_definitions(protocol_urlarg PRIVATE LWS_BUILDING_SHARED)
-	endif()
-
-	create_plugin(protocol_post_demo ""
-		      "protocol_post_demo.c" "" "")
-	if (NOT LWS_WITH_PLUGINS_BUILTIN)
-		target_compile_definitions(protocol_post_demo PRIVATE LWS_BUILDING_SHARED)
-	endif()
-endif()
-
-
-if (LWS_ROLE_RAW_PROXY)
-	create_plugin(protocol_lws_raw_proxy ""
-		      "raw-proxy/protocol_lws_raw_proxy.c" "" "")
-	if (NOT LWS_WITH_PLUGINS_BUILTIN)
-		target_compile_definitions(protocol_lws_raw_proxy PRIVATE LWS_BUILDING_SHARED)
-	endif()
-
-endif()
-
-if (LWS_WITH_FTS)
-	create_plugin(protocol_fulltext_demo ""
-		      "protocol_fulltext_demo.c" "" "")
-	if (NOT LWS_WITH_PLUGINS_BUILTIN)
-		target_compile_definitions(protocol_fulltext_demo PRIVATE LWS_BUILDING_SHARED)
-	endif()
-
-endif()
-
-
-if (LWS_WITH_SSL)
-	create_plugin(protocol_lws_ssh_base "ssh-base/include"
-		      "ssh-base/sshd.c;ssh-base/telnet.c;ssh-base/kex-25519.c" "ssh-base/crypto/chacha.c;ssh-base/crypto/ed25519.c;ssh-base/crypto/fe25519.c;ssh-base/crypto/ge25519.c;ssh-base/crypto/poly1305.c;ssh-base/crypto/sc25519.c;ssh-base/crypto/smult_curve25519_ref.c" "")
-	if (NOT LWS_WITH_PLUGINS_BUILTIN)
-		target_compile_definitions(protocol_lws_ssh_base PRIVATE LWS_BUILDING_SHARED)
-	endif()
-
-	create_plugin(protocol_lws_sshd_demo "ssh-base/include" "protocol_lws_sshd_demo.c" "" "")
-	if (NOT LWS_WITH_PLUGINS_BUILTIN)
-		target_compile_definitions(protocol_lws_sshd_demo PRIVATE LWS_BUILDING_SHARED)
-	endif()
-
-	include_directories("${PROJECT_SOURCE_DIR}/plugins/ssh-base/include")
-endif()
-
-
-
-if (LWS_WITH_ACME)
-	create_plugin(protocol_lws_acme_client_core ""
-		      "acme-client/protocol_lws_acme_client_core.c" "" "")
-	if (NOT LWS_WITH_PLUGINS_BUILTIN)
-		target_compile_definitions(protocol_lws_acme_client_core PRIVATE LWS_BUILDING_SHARED)
-	endif()
-
-	if (LWS_ROLE_WS)
-		create_plugin(protocol_lws_acme_client_dns ""
-				  "acme-client/protocol_lws_acme_client_dns.c" "" "")
-		if (NOT LWS_WITH_PLUGINS_BUILTIN)
-			target_compile_definitions(protocol_lws_acme_client_dns PRIVATE LWS_BUILDING_SHARED)
-		endif()
-	endif()
-
-	create_plugin(protocol_lws_acme_client_http ""
-		      "acme-client/protocol_lws_acme_client_http.c" "" "")
-	if (NOT LWS_WITH_PLUGINS_BUILTIN)
-		target_compile_definitions(protocol_lws_acme_client_http PRIVATE LWS_BUILDING_SHARED)
-	endif()
-endif()
-
-if (LWS_WITH_DHT)
-	create_plugin(protocol_lws_dht_store ""
-		      "protocol_lws_dht_store.c" "" "")
-	if (NOT LWS_WITH_PLUGINS_BUILTIN)
-		target_compile_definitions(protocol_lws_dht_store PRIVATE LWS_BUILDING_SHARED)
-	endif()
-
-	create_plugin(protocol_lws_dht_object_store ""
-		      "protocol_lws_dht_object_store.c" "" "")
-	if (NOT LWS_WITH_PLUGINS_BUILTIN)
-		target_compile_definitions(protocol_lws_dht_object_store PRIVATE LWS_BUILDING_SHARED)
-	endif()
-
-	if (LWS_WITH_AUTHORITATIVE_DNS)
-		create_plugin(protocol_lws_dht_dnssec ""
-			      "protocol_lws_dht_dnssec/protocol_lws_dht_dnssec.c" "" "")
-		if (NOT LWS_WITH_PLUGINS_BUILTIN)
-			target_compile_definitions(protocol_lws_dht_dnssec PRIVATE LWS_BUILDING_SHARED)
-		endif()
-
-		create_plugin(protocol_lws_dht_dnssec_monitor ""
-			      "protocol_lws_dht_dnssec_monitor/protocol_lws_dht_dnssec_monitor.c" "" "")
-		if (NOT LWS_WITH_PLUGINS_BUILTIN)
-			target_compile_definitions(protocol_lws_dht_dnssec_monitor PRIVATE LWS_BUILDING_SHARED)
-		endif()
-	endif()
-endif()
-
-if (LWS_WITH_WEBRTC)
-	create_plugin(protocol_lws_webrtc "" "protocol_lws_webrtc.c" "" "")
-	if (NOT LWS_WITH_PLUGINS_BUILTIN)
-		target_compile_definitions(protocol_lws_webrtc PRIVATE LWS_BUILDING_SHARED)
-	endif()
-endif()
-
-if (LWS_WITH_TRANSCODE)
-	create_plugin(protocol_lws_webrtc_mixer ""
-		      "lws-webrtc-mixer/protocol_lws_webrtc_mixer.c;lws-webrtc-mixer/mixer-media.c;lws-webrtc-mixer/mixer-wav.c;lws-webrtc-mixer/layout-quad.c;lws-webrtc-mixer/layout-speaker.c" "" "")
-	if (NOT LWS_WITH_PLUGINS_BUILTIN)
-		target_compile_definitions(protocol_lws_webrtc_mixer PRIVATE LWS_BUILDING_SHARED)
-		target_include_directories(protocol_lws_webrtc_mixer PRIVATE lws-webrtc-mixer)
-	endif()
-endif()
-
-if (LWS_WITH_LATENCY)
-	create_plugin(protocol_lws_latency ""
-		      "latency/protocol_lws_latency.c" "" "")
-	if (NOT LWS_WITH_PLUGINS_BUILTIN)
-		target_compile_definitions(protocol_lws_latency PRIVATE LWS_BUILDING_SHARED)
-	endif()
-endif()
-
-if (LWS_WITH_AUTHORITATIVE_DNS)
-	create_plugin(protocol_lws_auth_dns ""
-		      "protocol_lws_auth_dns.c" "" "")
-	if (NOT LWS_WITH_PLUGINS_BUILTIN)
-		target_compile_definitions(protocol_lws_auth_dns PRIVATE LWS_BUILDING_SHARED)
-		target_include_directories(protocol_lws_auth_dns PRIVATE ../lib/core ../lib/system/auth-dns)
-	endif()
-endif()
+	ENDFOREACH()
 
 endif((LWS_WITH_PLUGINS AND LWS_WITH_SHARED) OR LWS_WITH_PLUGINS_BUILTIN)
 
@@ -372,50 +200,12 @@ endif((LWS_WITH_PLUGINS AND LWS_WITH_SHARED) OR LWS_WITH_PLUGINS_BUILTIN)
 # plugins
 
 if (LWS_WITH_PLUGINS AND NOT LWS_WITH_PLUGINS_BUILTIN)
-
-	install(TARGETS ${PLUGINS_LIST}
-		PERMISSIONS  OWNER_WRITE OWNER_EXECUTE GROUP_EXECUTE WORLD_EXECUTE OWNER_READ GROUP_READ WORLD_READ
-		DESTINATION "${LWS_INSTALL_PLUGIN_DIR}"
-		COMPONENT plugins)
-
-	if (NOT WIN32)
-		install(FILES deaddrop/assets/index.html;deaddrop/assets/deaddrop.js;deaddrop/assets/deaddrop.css;deaddrop/assets/drop.svg
-			DESTINATION share/libwebsockets-test-server/deaddrop
+	if (PLUGINS_LIST)
+		install(TARGETS ${PLUGINS_LIST}
+			PERMISSIONS  OWNER_WRITE OWNER_EXECUTE GROUP_EXECUTE WORLD_EXECUTE OWNER_READ GROUP_READ WORLD_READ
+			DESTINATION "${LWS_INSTALL_PLUGIN_DIR}"
 			COMPONENT plugins)
-
-		install(DIRECTORY lws-webrtc-mixer/assets/
-			DESTINATION share/libwebsockets-test-server/lws-webrtc-mixer
-			COMPONENT plugins)
-
-		install(DIRECTORY lws-webrtc-mixer/sounds/
-			DESTINATION share/libwebsockets-test-server/lws-webrtc-mixer/sounds
-			COMPONENT plugins)
-
-		if (LWS_WITH_LATENCY)
-			install(DIRECTORY latency/assets/
-				DESTINATION share/libwebsockets-test-server/lws-latency
-				COMPONENT plugins)
-		endif()
-		if (LWS_WITH_DHT)
-			install(DIRECTORY dht_stats/assets/
-				DESTINATION share/libwebsockets-test-server/lws-dht-stats
-				COMPONENT plugins)
-		endif()
-		if (LWS_WITH_AUTH_SERVER)
-			install(DIRECTORY auth-server/assets/
-				DESTINATION share/libwebsockets-test-server/auth-server
-				COMPONENT plugins)
-		endif()
-
-		if (LWS_WITH_AUTHORITATIVE_DNS)
-			install(DIRECTORY protocol_lws_dht_dnssec_monitor/assets/
-				DESTINATION share/libwebsockets-test-server/lws-dht-dnssec-monitor/assets
-				COMPONENT plugins)
-		endif()
-
 	endif()
-
-
 endif()
 
 export_to_parent_intermediate()

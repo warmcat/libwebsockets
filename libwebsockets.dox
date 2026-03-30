@@ -856,7 +856,7 @@ WARN_LOGFILE           =
 
 INPUT                  = include/libwebsockets.h \
                          include/libwebsockets \
-                         plugins/ssh-base/include/lws-plugin-ssh.h \
+                         plugins/protocol_lws_ssh_base/include/lws-plugin-ssh.h \
                          READMEs
 
 # This tag can be used to specify the character encoding of the source files

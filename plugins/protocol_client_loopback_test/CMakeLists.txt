@@ -1,0 +1,11 @@
+set(PLUGIN_NAME protocol_client_loopback_test)
+set(requirements 1)
+require_lws_config(LWS_ROLE_WS 1 requirements)
+require_lws_config(LWS_WITHOUT_CLIENT 0 requirements)
+
+if (requirements)
+	create_plugin(${PLUGIN_NAME} "" "protocol_client_loopback_test.c" "" "")
+	if (NOT LWS_WITH_PLUGINS_BUILTIN)
+		target_compile_definitions(${PLUGIN_NAME} PRIVATE LWS_BUILDING_SHARED)
+	endif()
+endif()

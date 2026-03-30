@@ -1,0 +1,10 @@
+set(PLUGIN_NAME protocol_lws_dht_object_store)
+set(requirements 1)
+require_lws_config(LWS_WITH_DHT 1 requirements)
+
+if (requirements)
+	create_plugin(${PLUGIN_NAME} "" "protocol_lws_dht_object_store.c" "" "")
+	if (NOT LWS_WITH_PLUGINS_BUILTIN)
+		target_compile_definitions(${PLUGIN_NAME} PRIVATE LWS_BUILDING_SHARED)
+	endif()
+endif()

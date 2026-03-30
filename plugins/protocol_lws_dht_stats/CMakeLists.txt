@@ -1,0 +1,15 @@
+set(PLUGIN_NAME protocol_lws_dht_stats)
+set(requirements 1)
+require_lws_config(LWS_ROLE_WS 1 requirements)
+require_lws_config(LWS_WITH_DHT 1 requirements)
+
+if (requirements)
+	create_plugin(${PLUGIN_NAME} "" "protocol_lws_dht_stats.c" "" "")
+	if (NOT LWS_WITH_PLUGINS_BUILTIN)
+		target_compile_definitions(${PLUGIN_NAME} PRIVATE LWS_BUILDING_SHARED)
+	endif()
+
+	if (NOT WIN32 AND LWS_WITH_PLUGINS AND NOT LWS_WITH_PLUGINS_BUILTIN)
+		install(DIRECTORY assets/ DESTINATION share/libwebsockets-test-server/lws-dht-stats COMPONENT plugins)
+	endif()
+endif()

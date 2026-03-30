@@ -1,0 +1,10 @@
+set(PLUGIN_NAME protocol_lws_ssh_base)
+set(requirements 1)
+require_lws_config(LWS_WITH_SSL 1 requirements)
+
+if (requirements)
+	create_plugin(${PLUGIN_NAME} "include" "sshd.c;telnet.c;kex-25519.c" "crypto/chacha.c;crypto/ed25519.c;crypto/fe25519.c;crypto/ge25519.c;crypto/poly1305.c;crypto/sc25519.c;crypto/smult_curve25519_ref.c" "")
+	if (NOT LWS_WITH_PLUGINS_BUILTIN)
+		target_compile_definitions(${PLUGIN_NAME} PRIVATE LWS_BUILDING_SHARED)
+	endif()
+endif()

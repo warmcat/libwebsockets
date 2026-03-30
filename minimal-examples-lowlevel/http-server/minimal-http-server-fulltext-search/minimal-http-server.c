@@ -25,7 +25,7 @@ static const struct lws_switches switches[] = {
 #include <signal.h>
 
 #define LWS_PLUGIN_STATIC
-#include <protocol_fulltext_demo.c>
+#include "../../../plugins/protocol_fulltext_demo/protocol_fulltext_demo.c"
 
 const char *index_filepath = "./lws-fts.index";
 static int interrupted;

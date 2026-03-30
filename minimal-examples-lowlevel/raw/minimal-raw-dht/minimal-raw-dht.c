@@ -207,7 +207,7 @@ struct lws_protocol_vhost_options pvos[] = {
 
 static const struct lws_http_mount mount_stats = {
 	.mountpoint		= "/",
-	.origin			= "../../../plugins/dht_stats/assets",
+	.origin			= "../../../plugins/protocol_lws_dht_stats/assets",
 	.def			= "index.html",
 	.origin_protocol	= LWSMPRO_FILE,
 	.mountpoint_len		= 1,

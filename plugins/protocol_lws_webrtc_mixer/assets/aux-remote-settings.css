@@ -1,0 +1,8 @@
+.settings-panel.remote .field > label,
+.settings-panel.remote .field > select {
+    display: none;
+}
+
+.settings-panel.remote .panel-header h2 {
+    color: #60a5fa;
+}
