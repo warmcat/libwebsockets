@@ -29,13 +29,12 @@ static const struct lws_switches switches[] = {
 #include <signal.h>
 #include <time.h>
 
-#define LWS_PLUGIN_STATIC
-#include "../plugins/deaddrop/protocol_lws_deaddrop.c"
-
-static struct lws_protocols protocols[] = {
-       LWS_PLUGIN_PROTOCOL_DEADDROP,
-       LWS_PROTOCOL_LIST_TERM
+#if defined(LWS_WITH_PLUGINS)
+static const char * const plugin_dirs[] = {
+	LWS_PLUGIN_DIR "/",
+	NULL
 };
+#endif
 
 
 static int interrupted;
@@ -137,7 +136,9 @@ int main(int argc, const char **argv)
 	info.port = 7681;
 	info.mounts = &mount;
 	info.pvo = &pvo;
-	info.protocols = protocols;
+#if defined(LWS_WITH_PLUGINS)
+	info.plugin_dirs = plugin_dirs;
+#endif
 	info.error_document_404 = "/404.html";
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
 		LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE;
@@ -149,6 +150,11 @@ int main(int argc, const char **argv)
 	context = lws_create_context(&info);
 	if (!context) {
 		lwsl_err("lws init failed\n");
+		return 1;
+	}
+
+	if (!lws_vhost_name_to_protocol(lws_get_vhost_by_name(context, "default"), "lws-deaddrop")) {
+		lwsl_err("lws-deaddrop plugin required\n");
 		return 1;
 	}
 

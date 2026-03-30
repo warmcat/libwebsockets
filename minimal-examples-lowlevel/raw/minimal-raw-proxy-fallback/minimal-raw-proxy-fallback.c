@@ -42,13 +42,12 @@ static const struct lws_switches switches[] = {
 #include <signal.h>
 #include <sys/types.h>
 
-#define LWS_PLUGIN_STATIC
-#include "../plugins/raw-proxy/protocol_lws_raw_proxy.c"
-
-static struct lws_protocols protocols[] = {
-	LWS_PLUGIN_PROTOCOL_RAW_PROXY,
-	LWS_PROTOCOL_LIST_TERM
+#if defined(LWS_WITH_PLUGINS)
+static const char * const plugin_dirs[] = {
+	LWS_PLUGIN_DIR "/",
+	NULL
 };
+#endif
 
 static const struct lws_http_mount mount = {
 	.mountpoint		= "/",			/* mountpoint URL */
@@ -110,9 +109,11 @@ int main(int argc, const char **argv)
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.port = 7681;
-	info.protocols = protocols;
 	info.pvo = &pvo;
 	info.mounts = &mount;
+#if defined(LWS_WITH_PLUGINS)
+	info.plugin_dirs = plugin_dirs;
+#endif
 	info.error_document_404 = "/404.html";
 	info.options =
 		LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE |
@@ -138,6 +139,11 @@ int main(int argc, const char **argv)
 	context = lws_create_context(&info);
 	if (!context) {
 		lwsl_err("lws init failed\n");
+		return 1;
+	}
+
+	if (!lws_vhost_name_to_protocol(lws_get_vhost_by_name(context, "default"), "raw-proxy")) {
+		lwsl_err("raw-proxy plugin required\n");
 		return 1;
 	}
 

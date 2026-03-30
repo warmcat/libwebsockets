@@ -58,13 +58,12 @@ char crl_path[1024] = "";
  * plugins, in this case by statically including them at build-time.
  */
 
-#define LWS_PLUGIN_STATIC
-#if defined(LWS_ROLE_WS)
-#include "../plugins/protocol_lws_mirror.c"
-#include "../plugins/protocol_lws_status.c"
-#include "../plugins/protocol_dumb_increment.c"
+#if defined(LWS_WITH_PLUGINS)
+static const char * const plugin_dirs[] = {
+	LWS_PLUGIN_DIR "/",
+	NULL
+};
 #endif
-#include "../plugins/protocol_post_demo.c"
 
 #if defined(LWS_WITH_EXTERNAL_POLL)
 static struct lws_pollfd *
@@ -188,12 +187,6 @@ static struct lws_protocols protocols[] = {
 	/* first protocol must always be HTTP handler */
 
 	{ "http-only", lws_callback_http, 0, 0, 0, NULL, 0 },
-#if defined(LWS_ROLE_WS)
-	LWS_PLUGIN_PROTOCOL_DUMB_INCREMENT,
-	LWS_PLUGIN_PROTOCOL_MIRROR,
-	LWS_PLUGIN_PROTOCOL_LWS_STATUS,
-#endif
-	LWS_PLUGIN_PROTOCOL_POST_DEMO,
 	LWS_PROTOCOL_LIST_TERM
 };
 
@@ -530,6 +523,9 @@ int main(int argc, char **argv)
 
 	info.iface = iface;
 	info.protocols = protocols;
+#if defined(LWS_WITH_PLUGINS)
+	info.plugin_dirs = plugin_dirs;
+#endif
 
 #if defined(LWS_WITH_TLS)
 	info.ssl_cert_filepath = NULL;

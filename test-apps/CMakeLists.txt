@@ -136,7 +136,7 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2))
 				""
 				""
 				"")
-			target_include_directories(test-sshd PRIVATE "${PROJECT_SOURCE_DIR}/plugins/ssh-base/include")
+			target_include_directories(test-sshd PRIVATE "${PROJECT_SOURCE_DIR}/plugins/protocol_lws_ssh_base/include")
 			target_compile_definitions(test-sshd PRIVATE LWS_BUILDING_SHARED)
 			endif()
 

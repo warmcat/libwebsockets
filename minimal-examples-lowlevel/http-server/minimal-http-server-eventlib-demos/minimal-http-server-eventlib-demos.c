@@ -39,11 +39,12 @@ static const struct lws_switches switches[] = {
 #include <string.h>
 #include <signal.h>
 
-#define LWS_PLUGIN_STATIC
-#include "../../../plugins/protocol_lws_mirror.c"
-#include "../../../plugins/protocol_lws_status.c"
-#include "../../../plugins/protocol_dumb_increment.c"
-#include "../../../plugins/protocol_post_demo.c"
+#if defined(LWS_WITH_PLUGINS)
+static const char * const plugin_dirs[] = {
+	LWS_PLUGIN_DIR "/",
+	NULL
+};
+#endif
 
 static struct lws_context *context;
 
@@ -51,10 +52,6 @@ static struct lws_protocols protocols[] = {
 	/* first protocol must always be HTTP handler */
 
 	{ "http-only", lws_callback_http_dummy, 0, 0, 0, NULL, 0 },
-	LWS_PLUGIN_PROTOCOL_DUMB_INCREMENT,
-	LWS_PLUGIN_PROTOCOL_MIRROR,
-	LWS_PLUGIN_PROTOCOL_LWS_STATUS,
-	LWS_PLUGIN_PROTOCOL_POST_DEMO,
 	LWS_PROTOCOL_LIST_TERM
 };
 
@@ -142,6 +139,9 @@ int main(int argc, const char **argv)
 	info.error_document_404 = "/404.html";
 	info.pcontext = &context;
 	info.protocols = protocols;
+#if defined(LWS_WITH_PLUGINS)
+	info.plugin_dirs = plugin_dirs;
+#endif
 	info.signal_cb = signal_cb;
 	info.options =
 		LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE;
@@ -171,6 +171,11 @@ int main(int argc, const char **argv)
 	context = lws_create_context(&info);
 	if (!context) {
 		lwsl_err("lws init failed\n");
+		return 1;
+	}
+
+	if (!lws_vhost_name_to_protocol(lws_get_vhost_by_name(context, "default"), "protocol-post-demo")) {
+		lwsl_err("protocol-post-demo plugin required\n");
 		return 1;
 	}
 

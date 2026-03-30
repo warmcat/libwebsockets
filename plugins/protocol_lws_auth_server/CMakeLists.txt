@@ -1,0 +1,17 @@
+set(PLUGIN_NAME protocol_lws_auth_server)
+set(requirements 1)
+require_lws_config(LWS_WITHOUT_SERVER 0 requirements)
+require_lws_config(LWS_WITH_JOSE 1 requirements)
+require_lws_config(LWS_WITH_STRUCT_SQLITE3 1 requirements)
+require_lws_config(LWS_WITH_AUTH_SERVER 1 requirements)
+
+if (requirements)
+	create_plugin(${PLUGIN_NAME} "" "protocol_lws_auth_server.c" "" "")
+	if (NOT LWS_WITH_PLUGINS_BUILTIN)
+		target_compile_definitions(${PLUGIN_NAME} PRIVATE LWS_BUILDING_SHARED)
+	endif()
+
+	if (NOT WIN32 AND LWS_WITH_PLUGINS AND NOT LWS_WITH_PLUGINS_BUILTIN)
+		install(DIRECTORY assets/ DESTINATION share/libwebsockets-test-server/auth-server COMPONENT plugins)
+	endif()
+endif()

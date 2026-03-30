@@ -127,12 +127,12 @@ the lws static include scheme.
 
 To bring in the whole of the ssh-base plugin
 into your app in one step, statically, just include
-`plugins/ssh-base/include/lws-plugin-sshd-static-build-includes.h`, you can see
+`plugins/protocol_lws_ssh_base/include/lws-plugin-sshd-static-build-includes.h`, you can see
 an example of this in `./test-apps/test-sshd.c`.
 
 ### Step 2: define your `struct lws_ssh_ops`
 
-`plugins/ssh-base/include/lws-plugin-ssh.h` defines
+`plugins/protocol_lws_ssh_base/include/lws-plugin-ssh.h` defines
 `struct lws_ssh_ops` which is used for all customization and integration
 of the plugin per vhost.  Eg,
 

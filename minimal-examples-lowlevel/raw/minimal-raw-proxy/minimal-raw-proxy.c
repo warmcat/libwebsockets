@@ -30,13 +30,12 @@ static const struct lws_switches switches[] = {
 #include <signal.h>
 #include <sys/types.h>
 
-#define LWS_PLUGIN_STATIC
-#include "../plugins/raw-proxy/protocol_lws_raw_proxy.c"
-
-static struct lws_protocols protocols[] = {
-	LWS_PLUGIN_PROTOCOL_RAW_PROXY,
-	LWS_PROTOCOL_LIST_TERM
+#if defined(LWS_WITH_PLUGINS)
+static const char * const plugin_dirs[] = {
+	LWS_PLUGIN_DIR "/",
+	NULL
 };
+#endif
 
 static int interrupted;
 
@@ -90,8 +89,10 @@ int main(int argc, const char **argv)
 
 	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.port = 7681;
-	info.protocols = protocols;
 	info.pvo = &pvo;
+#if defined(LWS_WITH_PLUGINS)
+	info.plugin_dirs = plugin_dirs;
+#endif
 	info.options = LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG;
 	info.listen_accept_role = "raw-proxy";
 	info.listen_accept_protocol = "raw-proxy";
@@ -99,6 +100,11 @@ int main(int argc, const char **argv)
 	context = lws_create_context(&info);
 	if (!context) {
 		lwsl_err("lws init failed\n");
+		return 1;
+	}
+
+	if (!lws_vhost_name_to_protocol(lws_get_vhost_by_name(context, "default"), "raw-proxy")) {
+		lwsl_err("raw-proxy plugin required\n");
 		return 1;
 	}
 

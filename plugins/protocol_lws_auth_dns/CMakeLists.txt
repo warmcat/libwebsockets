@@ -1,0 +1,11 @@
+set(PLUGIN_NAME protocol_lws_auth_dns)
+set(requirements 1)
+require_lws_config(LWS_WITH_AUTHORITATIVE_DNS 1 requirements)
+
+if (requirements)
+	create_plugin(${PLUGIN_NAME} "" "protocol_lws_auth_dns.c" "" "")
+	if (NOT LWS_WITH_PLUGINS_BUILTIN)
+		target_compile_definitions(${PLUGIN_NAME} PRIVATE LWS_BUILDING_SHARED)
+		target_include_directories(${PLUGIN_NAME} PRIVATE ../../lib/core ../../lib/system/auth-dns)
+	endif()
+endif()
