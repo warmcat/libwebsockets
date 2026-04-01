@@ -36,27 +36,93 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (data.csrf_token) window.csrf_token = data.csrf_token;
 
                 if (data.logged_in) {
+                    regToggleBox.classList.add('hidden');
+                    
                     if (data.lacks_grant) {
-                        loginForm.innerHTML = `<div class="auth-denied-box"><p>You do not have the necessary privileges to access this service.</p><div class="auth-denied-btn-box"><button type="button" id="btn-destroy-session-denied" class="btn primary-btn">Logout / Switch Accounts</button></div></div>`;
-                        document.getElementById('btn-destroy-session-denied').addEventListener('click', async function() {
+                        let grantsHtml = Object.keys(data.grants || {}).length 
+                            ? '<table class="auth-grants-table">' +
+                              '<tr><th>Service</th><th class="level-col">Level</th></tr>' +
+                              Object.keys(data.grants).map(k => `<tr><td>${k}</td><td class="level-col">L${data.grants[k]}</td></tr>`).join('') +
+                              '</table>'
+                            : '<div class="auth-grants-empty">No Active Grants</div>';
+
+                        loginForm.innerHTML = `<div class="auth-session-box">
+                            <p class="auth-session-title">Access Denied</p>
+                            <p class="auth-session-email">Your account (${data.email || 'Unknown User'}) lacks the required '${serviceName}' clearance.</p>
+                            ${grantsHtml}
+                            <button type="button" id="btn-destroy-session" class="btn primary-btn">Logout / Switch User</button>
+                        </div>`;
+                        document.getElementById('btn-destroy-session').addEventListener('click', async function() {
                             const btn = this;
-                            btn.innerText = "Destroying...";
+                            btn.innerText = "Logging out...";
                             btn.disabled = true;
                             await fetch('/api/status?destroy=1', { cache: 'no-store' });
                             window.location.reload();
                         });
-                        subtitle.innerText = "Access Denied";
+                        subtitle.innerText = "Insufficient Privileges";
+                        showNotif('error', 'You lack the required grant to access this service.');
                         return;
                     }
+
                     if (clientId && redirectUri) {
                         window.location.href = `/api/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state||'')}&response_type=code` + (codeChallenge ? `&code_challenge=${encodeURIComponent(codeChallenge)}` : '') + (codeChallengeMethod ? `&code_challenge_method=${encodeURIComponent(codeChallengeMethod)}` : '');
                         return;
                     } else if (redirectUri) {
-                        window.location.href = redirectUri;
+                        try {
+                            const res = await fetch('/api/sso_exchange', {
+                                method: 'POST',
+                                body: 'csrf_token=' + encodeURIComponent(window.csrf_token || '') + '&redirect_uri=' + encodeURIComponent(redirectUri),
+                                headers: {'Content-Type': 'application/x-www-form-urlencoded'}
+                            });
+                            if (res.ok) {
+                                const tdata = await res.json();
+                                if (tdata.token) {
+                                    let u;
+                                    try { u = new URL(redirectUri); } catch(e) {}
+                                    if (u) {
+                                        const form = document.createElement('form');
+                                        form.method = 'POST';
+                                        let path = u.pathname;
+                                        if (path.endsWith('/')) path = path.slice(0, -1);
+                                        form.action = u.origin + path + '/.lws-login-sso';
+                                        const tInput = document.createElement('input');
+                                        tInput.type = 'hidden';
+                                        tInput.name = 'token';
+                                        tInput.value = tdata.token;
+                                        form.appendChild(tInput);
+                                        const rInput = document.createElement('input');
+                                        rInput.type = 'hidden';
+                                        rInput.name = 'target';
+                                        rInput.value = redirectUri;
+                                        form.appendChild(rInput);
+                                        document.body.appendChild(form);
+                                        form.submit();
+                                        return;
+                                    }
+                                }
+                            } else {
+                                const errData = await res.json();
+                                loginForm.innerHTML = `<div class="auth-session-box">
+                                    <p class="auth-session-title">Security Violation</p>
+                                    <p class="auth-session-email">${errData.error || 'Untrusted Redirect URI'}</p>
+                                    <p style="font-size: 0.8rem; color: #94a3b8; text-align: center; margin-top: 10px;">The specified redirection target is not whitelisted by the network administrator.</p>
+                                </div>`;
+                                subtitle.innerText = "Access Blocked";
+                                showNotif('error', errData.error || 'Untrusted Redirect URI');
+                                return;
+                            }
+                        } catch (e) {
+                            console.error("SSO Exchange failed", e);
+                            showNotif('error', 'SSO Network Failure');
+                            return;
+                        }
                         return;
                     } else {
                         let grantsHtml = Object.keys(data.grants || {}).length 
-                            ? '<div class="auth-grants-box">' + Object.keys(data.grants).map(k => `<span class="auth-grant-tag">${k} (L${data.grants[k]})</span>`).join('') + '</div>' 
+                            ? '<table class="auth-grants-table">' +
+                              '<tr><th>Service</th><th class="level-col">Level</th></tr>' +
+                              Object.keys(data.grants).map(k => `<tr><td>${k}</td><td class="level-col">L${data.grants[k]}</td></tr>`).join('') +
+                              '</table>'
                             : '<div class="auth-grants-empty">No Active Grants</div>';
 
                         loginForm.innerHTML = `<div class="auth-session-box">
@@ -172,6 +238,32 @@ document.addEventListener('DOMContentLoaded', () => {
                 showNotif('success', 'Clearance accepted. Welcome.');
                 if (data.redirect) {
                     setTimeout(() => window.location.href = data.redirect, 1000);
+                } else if (redirectUri) {
+                    setTimeout(() => {
+                        let u;
+                        try { u = new URL(redirectUri); } catch(e) {}
+                        if (u) {
+                            const form = document.createElement('form');
+                            form.method = 'POST';
+                            let path = u.pathname;
+                            if (path.endsWith('/')) path = path.slice(0, -1);
+                            form.action = u.origin + path + '/.lws-login-sso';
+                            const tInput = document.createElement('input');
+                            tInput.type = 'hidden';
+                            tInput.name = 'token';
+                            tInput.value = data.token;
+                            form.appendChild(tInput);
+                            const rInput = document.createElement('input');
+                            rInput.type = 'hidden';
+                            rInput.name = 'target';
+                            rInput.value = redirectUri;
+                            form.appendChild(rInput);
+                            document.body.appendChild(form);
+                            form.submit();
+                        } else {
+                            window.location.href = redirectUri;
+                        }
+                    }, 1000);
                 } else {
                     setTimeout(() => window.location.href = '/', 1000);
                 }

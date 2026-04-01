@@ -1954,7 +1954,7 @@ webrtc_handle_stun(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrtc **
 	if (n_stun > 0) {
 		if (udp_desc) {
 			socklen_t slen = udp_desc->sa46.sa4.sin_family == AF_INET6 ? (socklen_t)sizeof(udp_desc->sa46.sa6) : (socklen_t)sizeof(udp_desc->sa46.sa4);
-			webrtc_pss_log(pss, "Sent STUN Response (%d bytes) successfully.\n", n_stun);
+			// webrtc_pss_log(pss, "Sent STUN Response (%d bytes) successfully.\n", n_stun);
 			ssize_t sent = sendto(lws_get_socket_fd(wsi), (const char *)out, (size_t)n_stun, 0, (const struct sockaddr *)&udp_desc->sa46, slen);
 			if (sent < 0) {
 				webrtc_pss_err(pss, "STUN sendto failed: errno %d\n", errno);

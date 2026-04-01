@@ -94,6 +94,7 @@ struct pss_deaddrop {
 	char				platform[32];
 	char				browser[32];
 	char				user[64];
+	char				tab_id[32];
 	unsigned long long		file_length;
 	lws_filefd_type			fd;
 	int				response_code;
@@ -728,6 +729,9 @@ handler_server_ws_filter_protocol_connection(struct vhd_deaddrop *vhd,
 		parse_user_agent(ua_buf, pss->platform,  sizeof(pss->platform),
 				 pss->browser, sizeof(pss->browser));
 				 
+	if (lws_get_urlarg_by_name_safe(wsi, "tabId=", pss->tab_id, sizeof(pss->tab_id)) < 0)
+		pss->tab_id[0] = '\0';
+		
 	return 0;
 }
 
@@ -737,6 +741,29 @@ handler_server_ws_established(struct vhd_deaddrop *vhd,
 {
 	pss->vhd		= vhd;
 	pss->wsi		= wsi;
+
+	/* 
+	 * Browsers like Chrome sometimes hold zombie WS connections on refresh.
+	 * If we detect a new connection presenting the same tab ID from the same IP
+	 * and user, unilaterally kill the zombie old connection.
+	 */
+	if (pss->tab_id[0]) {
+		char ip[46];
+		lws_get_peer_simple(wsi, ip, sizeof(ip));
+		lws_start_foreach_llp(struct pss_deaddrop **, ppss, vhd->pss_head) {
+			if ((*ppss)->wsi && (*ppss)->wsi != wsi &&
+			    !strcmp((*ppss)->tab_id, pss->tab_id) &&
+			    !strcmp((*ppss)->user, pss->user)) {
+			    char oip[46];
+			    lws_get_peer_simple((*ppss)->wsi, oip, sizeof(oip));
+			    if (!strcmp(ip, oip)) {
+					lwsl_notice("%s: killing zombie WS for tab %s\n", __func__, pss->tab_id);
+					lws_set_timeout((*ppss)->wsi, 1, LWS_TO_KILL_ASYNC);
+				}
+			}
+		} lws_end_foreach_llp(ppss, pss_list);
+	}
+
 	/* add ourselves to the list of live pss held in the vhd */
 	pss->pss_list		= vhd->pss_head;
 	vhd->pss_head		= pss;

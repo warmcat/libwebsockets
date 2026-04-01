@@ -366,11 +366,19 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 	while (headers) {
 		/*
 		 * Give mount headers the chance to individually override
-		 * each vhost header
+		 * each vhost header (case-insensitive and colon-agnostic)
 		 */
 		ho = wsi->http.mount_specific_headers;
+		int h_len = (int)strlen(headers->name);
+		if (h_len && headers->name[h_len - 1] == ':')
+			h_len--;
+
 		while (ho) {
-			if (!strcmp(ho->name, headers->name))
+			int u_len = (int)strlen(ho->name);
+			if (u_len && ho->name[u_len - 1] == ':')
+				u_len--;
+
+			if (h_len == u_len && !strncasecmp(ho->name, headers->name, (size_t)h_len))
 				break;
 			ho = ho->next;
 		}
@@ -387,16 +395,80 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 		headers = headers->next;
 	}
 
+	ho = wsi->http.mount_specific_headers;
+	while (ho) {
+		int already_provided = 0;
+		int h_len = (int)strlen(ho->name);
+		if (h_len && ho->name[h_len - 1] == ':')
+			h_len--;
+
+		headers = wsi->a.vhost->headers;
+		while (headers) {
+			int u_len = (int)strlen(headers->name);
+			if (u_len && headers->name[u_len - 1] == ':')
+				u_len--;
+
+			if (h_len == u_len && !strncasecmp(ho->name, headers->name, (size_t)h_len)) {
+				already_provided = 1;
+				break;
+			}
+			headers = headers->next;
+		}
+		if (!already_provided) {
+			if (lws_add_http_header_by_name(wsi,
+					(const unsigned char *)ho->name,
+					(unsigned char *)ho->value,
+					(int)strlen(ho->value), p, end))
+				return 1;
+		}
+		ho = ho->next;
+	}
+
 	if (wsi->a.vhost->options &
 	    LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE) {
 		headers = &pvo_hsbph[LWS_ARRAY_SIZE(pvo_hsbph) - 1];
 		while (headers) {
-			if (lws_add_http_header_by_name(wsi,
-					(const unsigned char *)headers->name,
-					(unsigned char *)headers->value,
-					(int)strlen(headers->value), p, end))
-				return 1;
+			int already_provided = 0;
+			const struct lws_protocol_vhost_options *uh = wsi->a.vhost->headers;
+			int h_len = (int)strlen(headers->name);
 
+			if (h_len && headers->name[h_len - 1] == ':')
+				h_len--;
+
+			while (uh) {
+				int u_len = (int)strlen(uh->name);
+				if (u_len && uh->name[u_len - 1] == ':')
+					u_len--;
+
+				if (h_len == u_len && !strncasecmp(uh->name, headers->name, (size_t)h_len)) {
+					already_provided = 1;
+					break;
+				}
+				uh = uh->next;
+			}
+
+			if (!already_provided) {
+				uh = wsi->http.mount_specific_headers;
+				while (uh) {
+					int u_len = (int)strlen(uh->name);
+					if (u_len && uh->name[u_len - 1] == ':')
+						u_len--;
+
+					if (h_len == u_len && !strncasecmp(uh->name, headers->name, (size_t)h_len)) {
+						already_provided = 1;
+						break;
+					}
+					uh = uh->next;
+				}
+			}
+
+			if (!already_provided) {
+				if (lws_add_http_header_by_name(wsi,
+						(const unsigned char *)headers->name,
+						(unsigned char *)headers->value,
+						(int)strlen(headers->value), p, end))
+					return 1;
+			}
 			headers = headers->next;
 		}
 	}

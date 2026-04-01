@@ -120,31 +120,19 @@
 			credentials: "same-origin" /* Tells browser to send auth header */
 		})
 		.then((e) => { /* this just means we got a response code */
-			var us = e.url.split("/"), ul = us[us.length - 1], n;
-
-			for (n = 0; n < t.rows.length; n++)
-				if (ul === lws_urlencode(
-					      t.rows[n].cells[2].textContent)) {
-					if (e.ok === true) {
-						t.deleteRow(n);
-					} else {
-						t.rows[n].cells[0].textContent =
-					"Failed " + san(e.status.toString());
-						t.rows[n].cells[0].
-							classList.add("err");
-					}
-					break;
-				}
+			if (e.ok === true) {
+				if (row && row.parentNode)
+					row.parentNode.removeChild(row);
+			} else {
+				c1.textContent = "Failed " + san(e.status.toString());
+				c1.classList.remove("working");
+				c1.classList.add("err");
+			}
 		})
 		.catch((e) => {
-			var us = e.url.split("/"), ul = us[us.length - 1], n;
-
-			for (n = 0; n < t.rows.length; n++)
-				if (ul === lws_urlencode(
-					  t.rows[n].cells[2].textContent)) {
-					t.rows[n].cells[0] = "FAIL";
-					break;
-				}
+			c1.textContent = "FAIL";
+			c1.classList.remove("working");
+			c1.classList.add("err");
 		});
 	}
 
@@ -287,6 +275,12 @@
 	const initial_reconnect_delay = 1000;
 	const max_reconnect_delay = 30000;
 	let current_reconnect_delay = initial_reconnect_delay;
+	
+	let tabId = sessionStorage.getItem('ddTabId');
+	if (!tabId) {
+		tabId = Math.random().toString(36).substring(2, 10);
+		sessionStorage.setItem('ddTabId', tabId);
+	}
 
 	document.addEventListener("DOMContentLoaded", function() {
 		console.log("deaddrop DOMContentLoaded fired. lws-login status: ", typeof renderLwsLoginStatus);
@@ -316,7 +310,7 @@
 		window.addEventListener("drop", body_drop, false);
 
 		function connect_ws() {
-			ws = new_ws(get_appropriate_ws_url(""), "lws-deaddrop");
+			ws = new_ws(get_appropriate_ws_url("?tabId=" + tabId), "lws-deaddrop");
 			try {
 				ws.onopen = function() {
 					console.log("WebSocket connection established.");

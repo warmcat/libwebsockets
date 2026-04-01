@@ -32,6 +32,10 @@ The plugin can be enabled on any vhost. Its behavior is customized using Per-Vho
 | `email-from` | Optional: The sender email address for outgoing SMTP verification emails. Defaults to `noreply@warmcat.com`. | `noreply@example.com` |
 | `email-subject` | Optional: The subject line for the verification email. Defaults to `Complete your registration`. | `Please confirm your ExampleApp account` |
 | `email-body` | Optional: The template string for the email body. It must include exactly one `%s` token which will be dynamically replaced by the confirmation URL. | `Click here:\n\n%s` |
+| `ui-title` | Optional: Overrides the default string array "Authentication Server" natively displayed on front-end portals. | `Internal SSO Portal` |
+| `ui-subtitle` | Optional: Overrides the default "Give your credentials to continue" messaging. | `Strictly authorized personnel only` |
+| `ui-new-network` | Optional: Overrides the "New to the network?" prompt for registration links. | `Access Required?` |
+| `ui-css` | Optional: Explicit path mapping to serve bespoke UI customization CSS. When defined alongside `LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE`, the system gracefully expands the underlying `style-src` CSP to permit local stylesheet injections safely. | `/admin.css` |
 
 ## Example JSON Configuration
 
@@ -50,7 +54,10 @@ This example mounts the front-end UI at `/auth` and configures the `lws-auth-ser
     }, {
       "mountpoint": "/",
       "origin": "file://_lws_ddir_/libwebsockets-test-server/auth",
-      "default": "index.html"
+      "default": "index.html",
+      "headers": [{
+        "Content-Security-Policy": "default-src 'none'; img-src 'self' data: ; script-src 'self'; font-src 'self'; style-src 'self'; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'none'; form-action 'self' https://libwebsockets.org;"
+      }]
     }],
     "ws-protocols": [{
       "lws-smtp-client": {
