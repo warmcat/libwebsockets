@@ -43,3 +43,24 @@ input[type="text"] {
     width: 100%; padding: 8px; background: #010409; color: #fff;
     border: 1px solid var(--border-color); border-radius: 4px; box-sizing: border-box;
 }
+
+/* Dynamic Toggle & Safe Styling */
+.hidden { display: none !important; }
+.flex { display: flex !important; }
+.btn-muted { background: var(--border-color) !important; }
+.btn-success { background: #238636 !important; margin-bottom: 1rem; }
+.tabs { margin-bottom: 1rem; }
+.tab-active { background: var(--primary-color) !important; margin-right: 0.5rem; }
+.tab-inactive { background: var(--border-color) !important; margin-right: 0.5rem; }
+
+.modal-backdrop {
+    display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.8); align-items: center; justify-content: center;
+    z-index: 1000;
+}
+.modal-backdrop.flex { display: flex !important; }
+
+.form-group.spaced { margin-top: 1rem; }
+.form-group.spaced.bottom { margin-bottom: 1.5rem; }
+.form-label { display: block; }
+.form-input { width: 100%; padding: 0.5rem; margin-top: 0.3rem; box-sizing: border-box; }

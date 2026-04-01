@@ -139,6 +139,10 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 			if (lws_get_urlarg_by_name_safe(wsi, "redirect_uri=", ps->redirect_uri, sizeof(ps->redirect_uri)) < 0) {
 				lws_strncpy(ps->redirect_uri, "/", sizeof(ps->redirect_uri));
+			} else {
+				/* Prevent Open Redirect by enforcing relative local paths */
+				if (ps->redirect_uri[0] != '/' || ps->redirect_uri[1] == '/')
+					lws_strncpy(ps->redirect_uri, "/", sizeof(ps->redirect_uri));
 			}
 
 			lws_get_urlarg_by_name_safe(wsi, "service_name=", sname, sizeof(sname));
@@ -175,11 +179,20 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!strcmp(uri, "/oauth/callback")) {
 			char state_in[48];
 			char code_in[256];
+			char iss_in[256];
 			struct pending_auth_state *ps = NULL;
 
 			if (lws_get_urlarg_by_name_safe(wsi, "state=", state_in, sizeof(state_in)) < 0 ||
-			    lws_get_urlarg_by_name_safe(wsi, "code=", code_in, sizeof(code_in)) < 0) {
-				lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, "Missing state or code");
+			    lws_get_urlarg_by_name_safe(wsi, "code=", code_in, sizeof(code_in)) < 0 ||
+			    lws_get_urlarg_by_name_safe(wsi, "iss=", iss_in, sizeof(iss_in)) < 0) {
+				lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, "Missing state, code, or iss");
+				return lws_http_transaction_completed(wsi);
+			}
+
+			lws_urldecode(iss_in, iss_in, sizeof(iss_in));
+			if (strncmp(iss_in, vhd->remote_auth_url, strlen(iss_in))) {
+				lwsl_err("%s: Mix-up defense blocked callback for unknown iss %s\\n", __func__, iss_in);
+				lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, "Invalid issuer parameter");
 				return lws_http_transaction_completed(wsi);
 			}
 

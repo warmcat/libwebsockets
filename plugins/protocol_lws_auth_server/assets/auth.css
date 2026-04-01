@@ -255,7 +255,11 @@ input:focus {
 .auth-session-title { font-size: 1.1em; color: #fff; margin-bottom: 5px; }
 .auth-session-email { font-weight: 600; color: var(--acc-secondary); margin-bottom: 15px; word-break: break-all; }
 .auth-grants-box { margin-bottom: 20px; }
-.auth-grant-tag { background: rgba(255,255,255,0.1); padding: 4px 8px; border-radius: 6px; margin-right: 5px; font-size: 0.85em; border: 1px solid rgba(255,255,255,0.2); }
+.auth-grants-table { width: 100%; border-collapse: collapse; margin-top: 10px; margin-bottom: 20px; text-align: left; }
+.auth-grants-table th { border-bottom: 2px solid rgba(255,255,255,0.1); padding: 8px; font-size: 0.85em; color: var(--text-muted); font-weight: 500; }
+.auth-grants-table td { padding: 8px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.9em; }
+.auth-grants-table .level-col { text-align: right; }
+.auth-grants-table td.level-col { color: var(--acc-secondary); font-weight: 600; }
 .auth-grants-empty { margin-bottom: 20px; font-size: 0.9em; color: var(--text-muted); }
 
 /* Access Denied Styles */

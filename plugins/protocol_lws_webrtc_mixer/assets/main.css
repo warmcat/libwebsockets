@@ -487,6 +487,30 @@ select:hover {
     align-items: flex-start;
 }
 
+.user-info .lws-login-status {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    align-items: flex-start;
+}
+
+.user-info .lws-login-identity {
+    font-size: 0.85rem;
+    color: #e2e8f0;
+    font-weight: 500;
+}
+
+.user-info .lws-login-btn {
+    font-size: 0.75rem;
+    color: #94a3b8;
+    text-decoration: none;
+    transition: color 0.2s;
+}
+
+.user-info .lws-login-btn:hover {
+    color: #ef4444;
+}
+
 .join-input-group {
     display: flex;
     flex-direction: column;

@@ -13,7 +13,6 @@ const closePanel = document.getElementById('closePanel');
 const videoControls = document.getElementById('videoControls');
 const audioControls = document.getElementById('audioControls');
 const audioOutputControls = document.getElementById('audioOutputControls');
-const nameInput = document.getElementById('nameInput');
 const participantList = document.getElementById('participantList');
 const overlayContainer = document.getElementById('overlayContainer');
 const chatButton = document.getElementById('chatButton');
@@ -38,8 +37,8 @@ let debugContextReason = "";
 const STORAGE_VIDEO_ID = 'lws_mixer_video_id';
 const STORAGE_AUDIO_ID = 'lws_mixer_audio_id';
 const STORAGE_OUTPUT_ID = 'lws_mixer_output_id';
-const STORAGE_NAME = 'lws_mixer_name';
 const STORAGE_CTRL_PREFIX = 'lws_mixer_ctrl_';
+let loggedInEmail = "";
 let labelTimeout;
 
 /**
@@ -224,10 +223,7 @@ function adjustOverlaySize() {
 }
 
 function updateButtonState() {
-    const name = nameInput.value.trim();
-
-    // Disable name input when in conference
-    nameInput.disabled = inConference;
+    const name = loggedInEmail;
 
     // Manage Chat Button
     if (chatButton) {
@@ -248,7 +244,7 @@ function updateButtonState() {
     } else if (!name) {
         startButton.classList.remove('leave');
         startButton.disabled = true;
-        startButton.innerText = "Fill Name to Join";
+        startButton.innerText = "Authenticating...";
     } else {
         startButton.classList.remove('leave');
         startButton.disabled = false;
@@ -1223,7 +1219,7 @@ async function join() {
     pc.createOffer().then(offer => {
         return pc.setLocalDescription(offer);
     }).then(() => {
-        const name = nameInput.value.trim() || 'Anonymous';
+        const name = loggedInEmail || 'Anonymous';
         log(`Sending offer for ${name}...`);
         ws.send(JSON.stringify({
             type: pc.localDescription.type,
@@ -1565,18 +1561,19 @@ if (audioOutputSelect) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    const savedName = localStorage.getItem(STORAGE_NAME);
-    if (savedName) {
-        nameInput.value = savedName;
+    if (typeof window.renderLwsLoginStatus === 'function') {
+        window.renderLwsLoginStatus('user-info');
     }
 
-    nameInput.addEventListener('input', () => {
-        const name = nameInput.value.trim();
-        if (name) {
-            localStorage.setItem(STORAGE_NAME, name);
-        }
-        updateButtonState();
-    });
+    fetch('.lws-login-status')
+        .then(res => res.json())
+        .then(data => {
+            if (data.logged_in) {
+                loggedInEmail = data.identity;
+                updateButtonState();
+            }
+        })
+        .catch(err => console.log('Failed to fetch login status', err));
 
     updateButtonState();
 

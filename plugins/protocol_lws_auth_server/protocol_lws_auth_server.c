@@ -523,6 +523,90 @@ auth_check_csrf(struct lws *wsi, struct per_vhost_data__auth_server *vhd, struct
 }
 
 static int
+lws_auth_api_sso_exchange(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
+			  struct per_session_data__auth_server *pss)
+{
+	char pl[1024 + LWS_PRE];
+	int len;
+
+	if (auth_check_csrf(wsi, vhd, pss)) {
+		pss->http_response_code = HTTP_STATUS_FORBIDDEN;
+		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"CSRF validation failed\"}");
+		goto send;
+	}
+
+	char cookie_val[1024] = {0};
+	if (lws_hdr_copy(wsi, cookie_val, sizeof(cookie_val), WSI_TOKEN_HTTP_COOKIE) <= 0 || !vhd->cookie_name[0]) {
+		pss->http_response_code = HTTP_STATUS_UNAUTHORIZED;
+		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"No session\"}");
+		goto send;
+	}
+
+	const char *redirect_uri = lws_spa_get_string(pss->spa, EP_REDIRECT_URI);
+	if (redirect_uri && redirect_uri[0]) {
+		int uri_valid = 0;
+		char alt_uri[512];
+		int u_len = (int)strlen(redirect_uri);
+		lws_strncpy(alt_uri, redirect_uri, sizeof(alt_uri));
+		if (u_len > 0 && alt_uri[u_len - 1] == '/')
+			alt_uri[u_len - 1] = '\0';
+		else if (u_len < (int)sizeof(alt_uri) - 2) {
+			alt_uri[u_len] = '/';
+			alt_uri[u_len + 1] = '\0';
+		}
+		sqlite3_stmt *stmt_uri;
+		if (sqlite3_prepare_v2(vhd->db, "SELECT 1 FROM oauth_clients WHERE (',' || redirect_uris || ',') LIKE ('%,' || ? || ',%') OR (',' || redirect_uris || ',') LIKE ('%,' || ? || ',%')", -1, &stmt_uri, NULL) == SQLITE_OK) {
+			sqlite3_bind_text(stmt_uri, 1, redirect_uri, -1, SQLITE_STATIC);
+			sqlite3_bind_text(stmt_uri, 2, alt_uri, -1, SQLITE_STATIC);
+			if (sqlite3_step(stmt_uri) == SQLITE_ROW)
+				uri_valid = 1;
+			sqlite3_finalize(stmt_uri);
+		}
+		if (!uri_valid) {
+			pss->http_response_code = HTTP_STATUS_BAD_REQUEST;
+			len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Untrusted redirect URI\"}");
+			goto send;
+		}
+	}
+
+	struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL);
+	if (!ja) {
+		pss->http_response_code = HTTP_STATUS_UNAUTHORIZED;
+		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Invalid session\"}");
+		goto send;
+	}
+
+	uint32_t uid = lws_jwt_auth_get_uid(ja);
+	lws_jwt_auth_destroy(&ja);
+
+	char username[128] = {0};
+	sqlite3_stmt *stmt;
+	if (sqlite3_prepare_v2(vhd->db, "SELECT username FROM users WHERE uid = ?", -1, &stmt, NULL) == SQLITE_OK) {
+		sqlite3_bind_int(stmt, 1, (int)uid);
+		if (sqlite3_step(stmt) == SQLITE_ROW)
+			lws_strncpy(username, (const char *)sqlite3_column_text(stmt, 0), sizeof(username));
+		sqlite3_finalize(stmt);
+	}
+
+	char jwt[1024];
+	size_t jwt_len = sizeof(jwt);
+	if (!lws_auth_generate_token(vhd, username, uid, jwt, &jwt_len)) {
+		pss->http_response_code = HTTP_STATUS_OK;
+		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"token\":\"%s\"}", jwt);
+		goto send;
+	}
+
+	pss->http_response_code = HTTP_STATUS_INTERNAL_SERVER_ERROR;
+	len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"server_error\"}");
+
+send:
+	if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)pl, (size_t)len + LWS_PRE) < 0)
+		return -1;
+
+	return send_auth_headers(wsi, pss, "application/json", NULL);
+}
+
+static int
 lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		   struct per_session_data__auth_server *pss)
 {
@@ -620,23 +704,28 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		}
 	}
 
-	/* Legacy stateful sessions were deprecated in favor of native JWT verification. */
-
-	const char *service_name = lws_spa_get_string(pss->spa, EP_SERVICE_NAME);
-	if (service_name && service_name[0]) {
-		int level = -1;
-		if (sqlite3_prepare_v2(vhd->db, "SELECT MAX(g.grant_level) FROM grants g JOIN services s ON g.service_id = s.service_id WHERE g.uid = ? AND s.name IN (?, '*')", -1, &stmt, NULL) == SQLITE_OK) {
-			sqlite3_bind_int(stmt, 1, (int)uid);
-			sqlite3_bind_text(stmt, 2, service_name, -1, SQLITE_STATIC);
-			if (sqlite3_step(stmt) == SQLITE_ROW) {
-				level = sqlite3_column_int(stmt, 0);
-			}
+	/* Emulate OAuth2 whitelist logic for native SSO redirect_uri requests */
+	if ((!client_id || !client_id[0]) && redirect_uri && redirect_uri[0]) {
+		int uri_valid = 0;
+		char alt_uri[512];
+		int u_len = (int)strlen(redirect_uri);
+		lws_strncpy(alt_uri, redirect_uri, sizeof(alt_uri));
+		if (u_len > 0 && alt_uri[u_len - 1] == '/')
+			alt_uri[u_len - 1] = '\0';
+		else if (u_len < (int)sizeof(alt_uri) - 2) {
+			alt_uri[u_len] = '/';
+			alt_uri[u_len + 1] = '\0';
+		}
+		if (sqlite3_prepare_v2(vhd->db, "SELECT 1 FROM oauth_clients WHERE (',' || redirect_uris || ',') LIKE ('%,' || ? || ',%') OR (',' || redirect_uris || ',') LIKE ('%,' || ? || ',%')", -1, &stmt, NULL) == SQLITE_OK) {
+			sqlite3_bind_text(stmt, 1, redirect_uri, -1, SQLITE_STATIC);
+			sqlite3_bind_text(stmt, 2, alt_uri, -1, SQLITE_STATIC);
+			if (sqlite3_step(stmt) == SQLITE_ROW)
+				uri_valid = 1;
 			sqlite3_finalize(stmt);
 		}
-		if (level < 1) {
-			lwsl_user("[AUTH-TRX] login lacks mandatory grant for %s\n", service_name);
-			pss->http_response_code = HTTP_STATUS_FORBIDDEN;
-			len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Insufficient Privileges\"}");
+		if (!uri_valid) {
+			pss->http_response_code = HTTP_STATUS_BAD_REQUEST;
+			len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Untrusted redirect URI\"}");
 			goto send;
 		}
 	}
@@ -648,9 +737,19 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		const char *code_challenge_method = lws_spa_get_string(pss->spa, EP_CODE_CHALLENGE_METHOD);
 		int client_valid = 0;
 
-		if (sqlite3_prepare_v2(vhd->db, "SELECT 1 FROM oauth_clients WHERE client_id = ? AND redirect_uris LIKE '%' || ? || '%'", -1, &stmt, NULL) == SQLITE_OK) {
+		char alt_uri[512];
+		int u_len = (int)strlen(redirect_uri);
+		lws_strncpy(alt_uri, redirect_uri, sizeof(alt_uri));
+		if (u_len > 0 && alt_uri[u_len - 1] == '/')
+			alt_uri[u_len - 1] = '\0';
+		else if (u_len < (int)sizeof(alt_uri) - 2) {
+			alt_uri[u_len] = '/';
+			alt_uri[u_len + 1] = '\0';
+		}
+		if (sqlite3_prepare_v2(vhd->db, "SELECT 1 FROM oauth_clients WHERE client_id = ? AND ((',' || redirect_uris || ',') LIKE ('%,' || ? || ',%') OR (',' || redirect_uris || ',') LIKE ('%,' || ? || ',%'))", -1, &stmt, NULL) == SQLITE_OK) {
 			sqlite3_bind_text(stmt, 1, client_id, -1, SQLITE_STATIC);
 			sqlite3_bind_text(stmt, 2, redirect_uri, -1, SQLITE_STATIC);
+			sqlite3_bind_text(stmt, 3, alt_uri, -1, SQLITE_STATIC);
 			if (sqlite3_step(stmt) == SQLITE_ROW)
 				client_valid = 1;
 			sqlite3_finalize(stmt);
@@ -682,11 +781,13 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		}
 
 		pss->http_response_code = HTTP_STATUS_OK;
+		char host[128] = {0};
+		lws_hdr_copy(wsi, host, sizeof(host), WSI_TOKEN_HOST);
 		const char *delim = strchr(redirect_uri, '?') ? "&" : "?";
-		if (state)
-			len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"redirect\":\"%s%scode=%s&state=%s\"}", redirect_uri, delim, code, state);
+		if (state && state[0])
+			len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"redirect\":\"%s%scode=%s&state=%s&iss=https%%3A%%2F%%2F%s\"}", redirect_uri, delim, code, state, host);
 		else
-			len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"redirect\":\"%s%scode=%s\"}", redirect_uri, delim, code);
+			len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"redirect\":\"%s%scode=%s&iss=https%%3A%%2F%%2F%s\"}", redirect_uri, delim, code, host);
 		goto send;
 	}
 
@@ -1334,14 +1435,35 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				"<title>Auth Server Admin</title>"
 				"<link rel=\"stylesheet\" href=\"../admin.css\">"
 				"</head><body><div class=\"container\">"
-				"<h1>User Administration</h1><table id=\"usersTable\"><thead>"
+				"<h1>Admin Console</h1>"
+				"<div class=\"tabs\">"
+				"<button id=\"tabUsers\" class=\"tab-active\">User Administration</button>"
+				"<button id=\"tabClients\" class=\"tab-inactive\">OAuth Clients</button>"
+				"</div>"
+				"<div id=\"usersView\">"
+				"<table id=\"usersTable\"><thead>"
 				"<tr><th>UID</th><th>Username</th><th>Active Grants</th><th>Actions</th></tr>"
-				"</thead><tbody></tbody></table></div>"
+				"</thead><tbody></tbody></table>"
+				"</div>"
+				"<div id=\"clientsView\" class=\"hidden\">"
+				"<button id=\"addClientBtn\" class=\"btn-success\">+ Add Client</button>"
+				"<table id=\"clientsTable\"><thead>"
+				"<tr><th>Client ID</th><th>Display Name</th><th>Allowed Redirect URIs</th><th>Actions</th></tr>"
+				"</thead><tbody></tbody></table>"
+				"</div>"
+				"</div>"
 				"<div id=\"modal\"><div class=\"modal-content\"><h3 id=\"modalTitle\">Edit Grants</h3>"
 				"<p>Enter grants as comma-separated <code>service:level</code>.</p>"
 				"<div class=\"form-group\"><input type=\"text\" id=\"grantsInput\" placeholder=\"service:level\"></div>"
-				"<button id=\"saveBtn\">Save Changes</button>"
-				"<button id=\"cancelBtn\" style=\"background:#30363d\">Cancel</button>"
+				"<button id=\"saveBtn\">Save</button> <button id=\"cancelBtn\" class=\"btn-muted\">Cancel</button>"
+				"</div></div>"
+				"<div id=\"clientModal\" class=\"modal-backdrop\">"
+				"<div class=\"modal-content\">"
+				"<h3 id=\"cmTitle\">Manage Client</h3>"
+				"<div class=\"form-group\"><label class=\"form-label\">Client ID</label><input type=\"text\" id=\"cmId\" class=\"form-input\"></div>"
+				"<div class=\"form-group spaced\"><label class=\"form-label\">Display Name</label><input type=\"text\" id=\"cmName\" class=\"form-input\"></div>"
+				"<div class=\"form-group spaced bottom\"><label class=\"form-label\">Redirect URIs (comma delim)</label><input type=\"text\" id=\"cmRedirects\" class=\"form-input\" placeholder=\"https://...\"></div>"
+				"<button id=\"cmSaveBtn\">Save</button> <button id=\"cmCancelBtn\" class=\"btn-muted\">Cancel</button>"
 				"</div></div>"
 				"<script src=\"../admin.js\"></script>"
 				"</body></html>";
@@ -1850,9 +1972,19 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			sqlite3_stmt *stmt;
 			int client_valid = 0;
 			/* Vulnerability risk if LIKE is unsanitized, but we use safe bindings */
-			if (sqlite3_prepare_v2(vhd->db, "SELECT 1 FROM oauth_clients WHERE client_id = ? AND redirect_uris LIKE '%' || ? || '%'", -1, &stmt, NULL) == SQLITE_OK) {
+			char alt_uri[512];
+			int u_len = (int)strlen(redirect_uri);
+			lws_strncpy(alt_uri, redirect_uri, sizeof(alt_uri));
+			if (u_len > 0 && alt_uri[u_len - 1] == '/')
+				alt_uri[u_len - 1] = '\0';
+			else if (u_len < (int)sizeof(alt_uri) - 2) {
+				alt_uri[u_len] = '/';
+				alt_uri[u_len + 1] = '\0';
+			}
+			if (sqlite3_prepare_v2(vhd->db, "SELECT 1 FROM oauth_clients WHERE client_id = ? AND ((',' || redirect_uris || ',') LIKE ('%,' || ? || ',%') OR (',' || redirect_uris || ',') LIKE ('%,' || ? || ',%'))", -1, &stmt, NULL) == SQLITE_OK) {
 				sqlite3_bind_text(stmt, 1, client_id, -1, SQLITE_TRANSIENT);
 				sqlite3_bind_text(stmt, 2, redirect_uri, -1, SQLITE_TRANSIENT);
+				sqlite3_bind_text(stmt, 3, alt_uri, -1, SQLITE_TRANSIENT);
 				if (sqlite3_step(stmt) == SQLITE_ROW)
 					client_valid = 1;
 				sqlite3_finalize(stmt);
@@ -1930,8 +2062,10 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 
 			char loc[1024];
+			char host[128] = {0};
+			lws_hdr_copy(wsi, host, sizeof(host), WSI_TOKEN_HOST);
 			const char *delim = strchr(redirect_uri, '?') ? "&" : "?";
-			lws_snprintf(loc, sizeof(loc), "%s%scode=%s&state=%s", redirect_uri, delim, code, state);
+			lws_snprintf(loc, sizeof(loc), "%s%scode=%s&state=%s&iss=https%%3A%%2F%%2F%s", redirect_uri, delim, code, state, host);
 
 			uint8_t hdr_buf[8192 + LWS_PRE];
 			uint8_t *h_start = hdr_buf + LWS_PRE;
@@ -2080,6 +2214,83 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			int i = 0;
 			while (*gp && *gp != '"' && i < 511)
 				new_grants[i++] = *gp++;
+		}
+
+		char client_id[64] = {0};
+		char client_name[64] = {0};
+		char redirect_uris[512] = {0};
+
+		if ((gp = strstr((const char *)in, "\"client_id\":\""))) {
+			gp += 13;
+			int i = 0;
+			while (*gp && *gp != '"' && i < 63) client_id[i++] = *gp++;
+		}
+		if ((gp = strstr((const char *)in, "\"name\":\""))) {
+			gp += 8;
+			int i = 0;
+			while (*gp && *gp != '"' && i < 63) client_name[i++] = *gp++;
+		}
+		if ((gp = strstr((const char *)in, "\"redirect_uris\":\""))) {
+			gp += 17;
+			int i = 0;
+			while (*gp && *gp != '"' && i < 511) redirect_uris[i++] = *gp++;
+		}
+
+		if (!strncmp(op, "client_", 7)) {
+			if (!strcmp(op, "client_delete") && client_id[0]) {
+				sqlite3_stmt *stmt;
+				if (sqlite3_prepare_v2(vhd->db, "DELETE FROM oauth_clients WHERE client_id=?", -1, &stmt, NULL) == SQLITE_OK) {
+					sqlite3_bind_text(stmt, 1, client_id, -1, SQLITE_TRANSIENT);
+					sqlite3_step(stmt);
+					sqlite3_finalize(stmt);
+				}
+			} else if (!strcmp(op, "client_edit") && client_id[0]) {
+				sqlite3_stmt *stmt;
+				if (sqlite3_prepare_v2(vhd->db, "UPDATE oauth_clients SET name=?, redirect_uris=? WHERE client_id=?", -1, &stmt, NULL) == SQLITE_OK) {
+					sqlite3_bind_text(stmt, 1, client_name, -1, SQLITE_TRANSIENT);
+					sqlite3_bind_text(stmt, 2, redirect_uris, -1, SQLITE_TRANSIENT);
+					sqlite3_bind_text(stmt, 3, client_id, -1, SQLITE_TRANSIENT);
+					sqlite3_step(stmt);
+					sqlite3_finalize(stmt);
+				}
+			} else if (!strcmp(op, "client_create") && client_id[0]) {
+				sqlite3_stmt *stmt;
+				if (sqlite3_prepare_v2(vhd->db, "INSERT OR IGNORE INTO oauth_clients (client_id, name, redirect_uris, client_secret_hash) VALUES (?, ?, ?, '')", -1, &stmt, NULL) == SQLITE_OK) {
+					sqlite3_bind_text(stmt, 1, client_id, -1, SQLITE_TRANSIENT);
+					sqlite3_bind_text(stmt, 2, client_name, -1, SQLITE_TRANSIENT);
+					sqlite3_bind_text(stmt, 3, redirect_uris, -1, SQLITE_TRANSIENT);
+					sqlite3_step(stmt);
+					sqlite3_finalize(stmt);
+				}
+			}
+
+			size_t alloc_sz = 16384 + LWS_PRE;
+			char *b = malloc(alloc_sz);
+			if (b) {
+				char *o = b + LWS_PRE, *end = b + alloc_sz - 1;
+				sqlite3_stmt *stmt;
+				int first = 1;
+
+				o += lws_snprintf(o, lws_ptr_diff_size_t(end, o), "{\"op\":\"clients_list_reply\",\"clients\":[");
+				if (sqlite3_prepare_v2(vhd->db, "SELECT client_id, name, redirect_uris FROM oauth_clients", -1, &stmt, NULL) == SQLITE_OK) {
+					while (sqlite3_step(stmt) == SQLITE_ROW) {
+						const char *cid = (const char *)sqlite3_column_text(stmt, 0);
+						const char *cn = (const char *)sqlite3_column_text(stmt, 1);
+						const char *ru = (const char *)sqlite3_column_text(stmt, 2);
+						if (!first) o += lws_snprintf(o, lws_ptr_diff_size_t(end, o), ",");
+						first = 0;
+						o += lws_snprintf(o, lws_ptr_diff_size_t(end, o), "{\"client_id\":\"%s\",\"name\":\"%s\",\"redirect_uris\":\"%s\"}",
+							cid ? cid : "", cn ? cn : "", ru ? ru : "");
+					}
+					sqlite3_finalize(stmt);
+				}
+				o += lws_snprintf(o, lws_ptr_diff_size_t(end, o), "]}");
+				if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)b, (lws_ptr_diff_size_t(o, b))) >= 0) {
+					lws_callback_on_writable(wsi);
+				}
+				free(b);
+			}
+			break;
 		}
 
 		if (!strcmp(op, "delete") && req_uid > 0) {

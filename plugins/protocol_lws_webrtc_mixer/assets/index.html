@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LWS WebRTC Mixer</title>
     <link rel="stylesheet" href="main.css">
+    <script src="lws-login.js"></script>
 </head>
 <body>
         <header>
@@ -13,11 +14,9 @@
                     <h1>LWS WebRTC Mixer</h1>
                     <div id="status" class="status">Disconnected</div>
                 </div>
+                <div id="user-info" class="user-info"></div>
                 <div class="join-controls">
-                    <div class="join-input-group">
-                        <input type="text" id="nameInput" placeholder="Enter name" maxlength="32">
-                        <button id="startButton" disabled>Fill Name to Join</button>
-                    </div>
+                    <button id="startButton" disabled>Join Conference</button>
 
                     <button id="muteVideoBtn" class="icon-button" title="Toggle Video">
                         <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M23 7l-7 5 7 5V7z"></path><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
