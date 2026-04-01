@@ -1402,6 +1402,45 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			return 0;
 		}
 
+		if (in && (!strncmp((const char *)in, "/logout", 7))) {
+			char redirect_uri[512] = {0};
+			char cookie_hdr[256];
+			char buf[1024 + LWS_PRE];
+			char *p = buf + LWS_PRE, *end = buf + sizeof(buf) - 1;
+
+			lws_get_urlarg_by_name_safe(wsi, "redirect_uri=", redirect_uri, sizeof(redirect_uri));
+			lws_urldecode(redirect_uri, redirect_uri, sizeof(redirect_uri));
+			if (!redirect_uri[0])
+				lws_strncpy(redirect_uri, "/", sizeof(redirect_uri));
+
+			if (vhd->cookie_domain[0]) {
+				lws_snprintf(cookie_hdr, sizeof(cookie_hdr),
+					"%s=; Path=/; Domain=%s; Max-Age=0; HttpOnly; SameSite=None; Secure",
+					vhd->cookie_name, vhd->cookie_domain);
+			} else {
+				lws_snprintf(cookie_hdr, sizeof(cookie_hdr),
+					"%s=; Path=/; Max-Age=0; HttpOnly; SameSite=None; Secure",
+					vhd->cookie_name);
+			}
+
+			if (lws_add_http_common_headers(wsi, HTTP_STATUS_SEE_OTHER, "text/html",
+							0, (unsigned char **)&p, (unsigned char *)end))
+				return 1;
+			if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:",
+							(unsigned char *)cookie_hdr, (int)strlen(cookie_hdr),
+							(unsigned char **)&p, (unsigned char *)end))
+				return 1;
+			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION,
+							 (unsigned char *)redirect_uri, (int)strlen(redirect_uri),
+							 (unsigned char **)&p, (unsigned char *)end))
+				return 1;
+			if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end))
+				return 1;
+
+			lws_write(wsi, (unsigned char *)buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS | LWS_WRITE_H2_STREAM_END);
+			return lws_http_transaction_completed(wsi);
+		}
+
 		if (in && (!strncmp((const char *)in, "/status", 7))) {
 			int users_empty = 0;
 			int rc;

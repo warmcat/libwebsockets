@@ -289,6 +289,12 @@
 	let current_reconnect_delay = initial_reconnect_delay;
 
 	document.addEventListener("DOMContentLoaded", function() {
+		console.log("deaddrop DOMContentLoaded fired. lws-login status: ", typeof renderLwsLoginStatus);
+		if (typeof renderLwsLoginStatus === 'function')
+			renderLwsLoginStatus("user-info");
+		else
+			console.log("renderLwsLoginStatus is NOT A FUNCTION!");
+
 		var da = document.getElementById("da"),
 		    fi = document.getElementById("file"),
 		    upl = document.getElementById("upl"),
@@ -336,14 +342,6 @@
 
 				username = j.user || "";
 				server_max_size = j.max_size;
-
-				if (username.length > 0) {
-					var uinfo = document.getElementById("user-info");
-					if (uinfo) {
-						var cname = j.cookie || "auth_session";
-						uinfo.innerHTML = "Logged in as <b>" + san(username) + "</b> | <a href=\"#\" onclick=\"document.cookie='" + san(cname) + "=; Max-Age=0; Path=/'; window.location.reload(); return false;\">Logout</a>";
-					}
-				}
 
 				document.getElementById("size").innerHTML =
 					"Server maximum file size " +

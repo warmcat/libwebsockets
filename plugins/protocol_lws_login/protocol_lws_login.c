@@ -57,6 +57,15 @@ struct pss_login {
 };
 
 static int
+lws_login_ends_with(const char *str, const char *suffix)
+{
+	size_t len_str = strlen(str);
+	size_t len_suffix = strlen(suffix);
+	if (len_suffix > len_str) return 0;
+	return !strcmp(str + len_str - len_suffix, suffix);
+}
+
+static int
 lws_login_jwt_auth_cb(struct lws_jwt_auth *ja, int state, void *user)
 {
 	struct lws *wsi = (struct lws *)user;
@@ -189,7 +198,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 
 		uri[0] = '\0';
 		if (lws_hdr_copy(wsi, uri, sizeof(uri), WSI_TOKEN_GET_URI) > 0) {
-			if (!strcmp(uri, "/.lws-login-status") || !strcmp(uri, "/lws-login.js"))
+			if (lws_login_ends_with(uri, "/.lws-login-status") || lws_login_ends_with(uri, "/lws-login.js"))
 				return 1;
 		}
 
@@ -431,17 +440,22 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		path[0] = '\0';
 		lws_hdr_copy(wsi, path, sizeof(path), WSI_TOKEN_GET_URI);
 
-		if (!strcmp(path, "/lws-login.js")) {
+		if (lws_login_ends_with(path, "/lws-login.js")) {
 			const char *js =
 				"window.renderLwsLoginStatus = function(divId) {\n"
+				"    console.log('renderLwsLoginStatus called for ', divId);\n"
 				"    var el = document.getElementById(divId);\n"
-				"    if (!el) return;\n"
-				"    fetch('/.lws-login-status').then(function(res) { return res.json(); }).then(function(data) {\n"
+				"    if (!el) { console.log('Element not found'); return; }\n"
+				"    fetch('.lws-login-status').then(function(res) { console.log('fetch status:', res.status); return res.json(); }).then(function(data) {\n"
+				"        console.log('json payload: ', data);\n"
 				"        if (data.logged_in) {\n"
-				"            el.innerHTML = '<span class=\"lws-login-identity\">Logged in as <b>' + data.identity + '</b></span> | <a href=\"#\" onclick=\"document.cookie=\\'' + data.cookie_name + '=; Max-Age=0; Path=/\\'; window.location.reload();\">Logout</a>';\n"
+				"            var lurl = data.auth_server_url + '/logout?redirect_uri=' + encodeURIComponent(window.location.href);\n"
+				"            el.innerHTML = 'Logged in as<br><b>' + data.identity + '</b><br><a href=\"' + lurl + '\">Logout</a>';\n"
 				"        } else {\n"
 				"            el.innerHTML = '<a href=\"' + data.login_url + '\">Login / Authenticate</a>';\n"
 				"        }\n"
+				"    }).catch(function(err) {\n"
+				"        console.log('lws-login auth fetch failed: ', err);\n"
 				"    });\n"
 				"};\n";
 
@@ -486,13 +500,13 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_snprintf(dest, sizeof(dest), "%s?service_name=%s&redirect_uri=%s",
 			vhd->auth_server_url, vhd->service_name, urlenc_path);
 
-		if (!strcmp(path, "/.lws-login-status")) {
+		if (lws_login_ends_with(path, "/.lws-login-status")) {
 			char pl[1024];
 			int len;
 			if (pss && pss->ja) {
 				const char *sub = lws_jwt_auth_get_sub(pss->ja);
-				len = lws_snprintf(pl, sizeof(pl), "{\"logged_in\":1,\"identity\":\"%s\",\"cookie_name\":\"%s\"}",
-					sub ? sub : "Unknown", vhd->cookie_name);
+				len = lws_snprintf(pl, sizeof(pl), "{\"logged_in\":1,\"identity\":\"%s\",\"auth_server_url\":\"%s\"}",
+					sub ? sub : "Unknown", vhd->auth_server_url);
 			} else {
 				len = lws_snprintf(pl, sizeof(pl), "{\"logged_in\":0,\"login_url\":\"%s\"}", dest);
 			}

@@ -257,3 +257,7 @@ input:focus {
 .auth-grants-box { margin-bottom: 20px; }
 .auth-grant-tag { background: rgba(255,255,255,0.1); padding: 4px 8px; border-radius: 6px; margin-right: 5px; font-size: 0.85em; border: 1px solid rgba(255,255,255,0.2); }
 .auth-grants-empty { margin-bottom: 20px; font-size: 0.9em; color: var(--text-muted); }
+
+/* Access Denied Styles */
+.auth-denied-box { text-align: center; color: var(--text-muted); padding: 2rem; }
+.auth-denied-btn-box { margin-top: 1rem; }
