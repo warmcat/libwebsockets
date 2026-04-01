@@ -37,7 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 if (data.logged_in) {
                     if (data.lacks_grant) {
-                        loginForm.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 2rem;"><p>You do not have the necessary privileges to access this service.</p><div style="margin-top: 1rem;"><button type="button" id="btn-destroy-session-denied" class="btn primary-btn">Logout / Switch Accounts</button></div></div>`;
+                        loginForm.innerHTML = `<div class="auth-denied-box"><p>You do not have the necessary privileges to access this service.</p><div class="auth-denied-btn-box"><button type="button" id="btn-destroy-session-denied" class="btn primary-btn">Logout / Switch Accounts</button></div></div>`;
                         document.getElementById('btn-destroy-session-denied').addEventListener('click', async function() {
                             const btn = this;
                             btn.innerText = "Destroying...";

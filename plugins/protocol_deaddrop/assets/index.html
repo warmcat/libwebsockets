@@ -1,12 +1,14 @@
-<html>
+<!DOCTYPE html>
+<html lang="en">
  <head>
   <meta charset=utf-8 http-equiv="Content-Language" content="en"/>
   <link rel="stylesheet" type="text/css" href="deaddrop.css"/>
   <script src="deaddrop.js"></script>
+  <script src="lws-login.js"></script>
  </head>
  <body>
-	 <div class="title"><img src="/docrepo.svg"><img src="/deaddrop-title.png"></div>
-	 <div id="user-info" class="user-info"></div>
+	<div class="container">
+	 <div class="title"><img src="/docrepo.svg"><div id="user-info" class="user-info"></div><img src="/deaddrop-title.png"></div>
 	<div class="uplbox">
 		<table id="ddrop">
 			<tr>
@@ -49,9 +51,11 @@
 					<div id="dd-list" class="dd-list">
 						<!-- deaddrop-list -->
 					</div>
-					<div id="connected-users-list" style="margin-top: 2em;"></div>
+					<div id="connected-users-list" class="connected-users"></div>
 				</td>
 			</tr>
 		</table>
 	</div>
+	</div>
  </body>
+</html>

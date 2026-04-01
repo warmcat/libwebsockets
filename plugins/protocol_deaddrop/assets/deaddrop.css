@@ -14,7 +14,7 @@ a { color: #007bff; text-decoration: none; }
 }
 
 a:hover { text-decoration: underline; }
-.container { max-width: 960px; margin: auto; background: white; padding: 2em; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+.container { max-width: max-content; margin: auto; background: white; padding: 2em; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
 div.title { display: flex; align-items: center; gap: .5em; text-align: left; font-family: 'Bungee Tint'; font-size: 2em; font-weight: bold; line-height:100%}
 
 div.title img { margin: 0; }
@@ -144,7 +144,11 @@ img.delbtn {
 	vertical-align: middle;
 }
 
-.user-info { text-align: right; font-size: 10pt; color: #555; margin-bottom: 8px; margin-top: -10px; }
+.user-info { text-align: center; font-family: sans-serif; font-size: 10pt; font-weight: normal; color: #555; margin: 0 auto; line-height: 1.2; }
 .user-info b { color: #333; }
 .user-info a { color: #d00; font-weight: bold; }
 .user-info a:hover { text-decoration: underline; }
+
+.connected-users {
+	margin-top: 2em;
+}
