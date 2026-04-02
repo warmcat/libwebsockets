@@ -228,6 +228,32 @@ lws_pvo_search(const struct lws_protocol_vhost_options *pvo, const char *name);
 LWS_VISIBLE LWS_EXTERN int
 lws_pvo_get_str(void *in, const char *name, const char **result);
 
+struct lws_http_mount;
+
+/**
+ * lws_pmo_search() - helper to find a named pmo in a linked-list
+ *
+ * \param mount: the mount it is associated with
+ * \param name: the name of the pmo to return if found
+ *
+ * Returns NULL, or a pointer to the named pmo in the linked-list
+ */
+LWS_VISIBLE LWS_EXTERN const struct lws_protocol_vhost_options *
+lws_pmo_search(const struct lws_http_mount *mount, const char *name);
+
+/**
+ * lws_pmo_get_str() - retreive a string pmo value
+ *
+ * \param mount: the mount it is associated with
+ * \param name: the name of the pmo to return if found
+ * \param result: pointer to a const char * to get the result if any
+ *
+ * Returns 0 if found and *result set, or nonzero if not found
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_pmo_get_str(const struct lws_http_mount *mount, const char *name,
+		const char **result);
+
 LWS_VISIBLE LWS_EXTERN int
 lws_protocol_init(struct lws_context *context);
 

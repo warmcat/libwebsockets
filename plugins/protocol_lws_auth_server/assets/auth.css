@@ -106,7 +106,7 @@ body {
 }
 
 h1 {
-    font-size: 2rem;
+    font-size: 1.5rem;
     font-weight: 700;
     letter-spacing: -0.5px;
     background: linear-gradient(to right, #fff, #a5b4fc);
@@ -242,8 +242,8 @@ input:focus {
     background: white; padding: 10px; border-radius: 8px; display: inline-block; margin: 15px 0;
 }
 .qrcode-container img {
-    width: 200px;
-    height: 200px;
+    width: 300px;
+    height: 300px;
     display: block;
 }
 .totp-secret-text {

@@ -6,7 +6,6 @@
     <meta name="description" content="Secure Authentication Server Login">
     <title>Auth Server | Secure Login</title>
     <link rel="stylesheet" href="auth.css">
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;700&display=swap" rel="stylesheet">
 </head>
 <body>
     <div class="background-elements">
@@ -18,8 +17,8 @@
     <div class="auth-container">
         <div class="glass-panel">
             <div class="panel-header">
-                <h1>Secure Gateway</h1>
-                <p id="subtitle">Authenticate your session to continue</p>
+                <h1>Authentication Server</h1>
+                <p id="subtitle">Give your credentials to continue</p>
             </div>
 
             <!-- Notification Area -->
@@ -42,7 +41,7 @@
                     <input type="text" id="login-totp" name="totp" pattern="[0-9]{6}" autocomplete="one-time-code">
                 </div>
                 <button type="submit" class="btn primary-btn" id="login-btn">
-                    <span>Initiate Session</span>
+                    <span>Login</span>
                     <div class="loader hidden"></div>
                 </button>
             </form>

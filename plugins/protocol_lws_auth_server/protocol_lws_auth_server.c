@@ -81,6 +81,10 @@ struct per_vhost_data__auth_server {
 	lws_dll2_owner_t		ip_strikes;
 	lws_dll2_owner_t		ip_bans;
 	char				jwks_json[8192];
+	char				ui_title[256];
+	char				ui_subtitle[256];
+	char				ui_new_network[256];
+	char				ui_css[256];
 };
 
 typedef struct auth_server_strike {
@@ -1180,6 +1184,10 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_strncpy(vhd->jwk_path, "/var/db/lws-auth.jwk", sizeof(vhd->jwk_path));
 		lws_strncpy(vhd->jwt_alg, "ES256", sizeof(vhd->jwt_alg));
 		lws_strncpy(vhd->cookie_name, "auth_session", sizeof(vhd->cookie_name));
+		lws_strncpy(vhd->ui_title, "Secure Gateway", sizeof(vhd->ui_title));
+		lws_strncpy(vhd->ui_subtitle, "Authenticate your session to continue", sizeof(vhd->ui_subtitle));
+		lws_strncpy(vhd->ui_new_network, "New to the network?", sizeof(vhd->ui_new_network));
+		vhd->ui_css[0] = '\0';
 		vhd->jwt_validity_secs = 86400; // 24 hours
 		vhd->registration_ui = 0;
 
@@ -1239,6 +1247,18 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			(const struct lws_protocol_vhost_options *)in, "cookie-name");
 		if (pvo)
 			lws_strncpy(vhd->cookie_name, pvo->value, sizeof(vhd->cookie_name));
+
+		pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "ui-title");
+		if (pvo) lws_strncpy(vhd->ui_title, pvo->value, sizeof(vhd->ui_title));
+
+		pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "ui-subtitle");
+		if (pvo) lws_strncpy(vhd->ui_subtitle, pvo->value, sizeof(vhd->ui_subtitle));
+
+		pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "ui-new-network");
+		if (pvo) lws_strncpy(vhd->ui_new_network, pvo->value, sizeof(vhd->ui_new_network));
+
+		pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "ui-css");
+		if (pvo) lws_strncpy(vhd->ui_css, pvo->value, sizeof(vhd->ui_css));
 
 		pvo = lws_pvo_search(
 			(const struct lws_protocol_vhost_options *)in, "jwt-validity-secs");
@@ -1430,15 +1450,16 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 			lws_jwt_auth_destroy(&ja);
 
-			const char *html = "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"UTF-8\">"
+			const char *html_fmt = "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"UTF-8\">"
 				"<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">"
 				"<title>Auth Server Admin</title>"
 				"<link rel=\"stylesheet\" href=\"../admin.css\">"
+				"%s%s%s"
 				"</head><body><div class=\"container\">"
-				"<h1>Admin Console</h1>"
+				"<div class=\"panel-header\"><h1>Admin Console</h1></div>"
 				"<div class=\"tabs\">"
 				"<button id=\"tabUsers\" class=\"tab-active\">User Administration</button>"
-				"<button id=\"tabClients\" class=\"tab-inactive\">OAuth Clients</button>"
+				"<button id=\"tabClients\" class=\"tab-inactive\">Grants</button>"
 				"</div>"
 				"<div id=\"usersView\">"
 				"<table id=\"usersTable\"><thead>"
@@ -1446,9 +1467,9 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				"</thead><tbody></tbody></table>"
 				"</div>"
 				"<div id=\"clientsView\" class=\"hidden\">"
-				"<button id=\"addClientBtn\" class=\"btn-success\">+ Add Client</button>"
+				"<button id=\"addClientBtn\" class=\"btn-success\">+ Add Grant</button>"
 				"<table id=\"clientsTable\"><thead>"
-				"<tr><th>Client ID</th><th>Display Name</th><th>Allowed Redirect URIs</th><th>Actions</th></tr>"
+				"<tr><th>Grant ID</th><th>Display Name</th><th>Allowed Redirect URIs</th><th>Actions</th></tr>"
 				"</thead><tbody></tbody></table>"
 				"</div>"
 				"</div>"
@@ -1459,8 +1480,8 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				"</div></div>"
 				"<div id=\"clientModal\" class=\"modal-backdrop\">"
 				"<div class=\"modal-content\">"
-				"<h3 id=\"cmTitle\">Manage Client</h3>"
-				"<div class=\"form-group\"><label class=\"form-label\">Client ID</label><input type=\"text\" id=\"cmId\" class=\"form-input\"></div>"
+				"<h3 id=\"cmTitle\">Manage Grant</h3>"
+				"<div class=\"form-group\"><label class=\"form-label\">Grant ID</label><input type=\"text\" id=\"cmId\" class=\"form-input\"></div>"
 				"<div class=\"form-group spaced\"><label class=\"form-label\">Display Name</label><input type=\"text\" id=\"cmName\" class=\"form-input\"></div>"
 				"<div class=\"form-group spaced bottom\"><label class=\"form-label\">Redirect URIs (comma delim)</label><input type=\"text\" id=\"cmRedirects\" class=\"form-input\" placeholder=\"https://...\"></div>"
 				"<button id=\"cmSaveBtn\">Save</button> <button id=\"cmCancelBtn\" class=\"btn-muted\">Cancel</button>"
@@ -1468,34 +1489,21 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				"<script src=\"../admin.js\"></script>"
 				"</body></html>";
 
-			uint8_t *b = malloc(4096 + LWS_PRE);
-			if (!b) return -1;
-			uint8_t *p = b + LWS_PRE, *end = b + 4096 + LWS_PRE - 1;
+			size_t max_html_len = 4096;
+			char *pl = malloc(LWS_PRE + max_html_len);
+			if (!pl) return -1;
+			size_t html_len = (size_t)lws_snprintf(pl + LWS_PRE, max_html_len, html_fmt,
+				vhd->ui_css[0] ? "<link rel=\"stylesheet\" href=\"" : "",
+				vhd->ui_css[0] ? vhd->ui_css : "",
+				vhd->ui_css[0] ? "\">" : "");
 
-			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "text/html", (lws_filepos_t)strlen(html), &p, end)) {
-				free(b);
-				return 1;
-			}
-			if (lws_finalize_write_http_header(wsi, b + LWS_PRE, &p, end)) {
-				free(b);
-				return 1;
-			}
-			
-			size_t html_len = strlen(html);
-			char *pl = malloc(LWS_PRE + html_len + 1);
-			if (pl) {
-				memcpy(pl + LWS_PRE, html, html_len);
-				if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)pl, html_len + LWS_PRE) < 0) {
-					free(pl);
-					free(b);
-					return -1;
-				}
+			if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)pl, html_len + LWS_PRE) < 0) {
 				free(pl);
+				return -1;
 			}
+			free(pl);
 
-			free(b);
-			lws_callback_on_writable(wsi);
-			return 0;
+			return send_auth_headers(wsi, pss, "text/html", NULL);
 		}
 
 		if (in && (!strcmp((const char *)in, "/.well-known/jwks.json") ||
@@ -1728,6 +1736,27 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		}
 
+		if (in && !strncmp((const char *)in, "/manifest", 9)) {
+			char pl[2048 + LWS_PRE];
+			char buf[1024 + LWS_PRE];
+			char *p = buf + LWS_PRE, *end = buf + sizeof(buf) - 1;
+
+			int json_len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE,
+				"{\"ui_title\":\"%s\", \"ui_subtitle\":\"%s\", \"ui_new_network\":\"%s\", \"ui_css\":\"%s\"}",
+				vhd->ui_title, vhd->ui_subtitle, vhd->ui_new_network, vhd->ui_css);
+
+			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "application/json",
+							(lws_filepos_t)json_len, (unsigned char **)&p, (unsigned char *)end))
+				return 1;
+			if (lws_finalize_write_http_header(wsi, (unsigned char *)buf + LWS_PRE, (unsigned char **)&p, (unsigned char *)end))
+				return 1;
+			if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)pl, (size_t)json_len + LWS_PRE) < 0)
+				return -1;
+
+			lws_callback_on_writable(wsi);
+			return 0;
+		}
+
 		if (!strncmp((const char *)in, "/totp_svg", 9)) {
 			char hbuf[128];
 			if (lws_get_urlarg_by_name_safe(wsi, "h=", hbuf, sizeof(hbuf)) < 0) {
@@ -1888,6 +1917,13 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				if (sqlite3_step(stmt) == SQLITE_ROW) users_count = sqlite3_column_int(stmt, 0);
 				sqlite3_finalize(stmt);
 			}
+			
+			/* Always add public grant to newly minted users */
+			sqlite3_exec(vhd->db, "INSERT OR IGNORE INTO services (name) VALUES ('public')", NULL, NULL, NULL);
+			char public_grant_query[256];
+			lws_snprintf(public_grant_query, sizeof(public_grant_query), "INSERT INTO grants (uid, service_id, grant_level) VALUES ((SELECT uid FROM users WHERE username='%s'), (SELECT service_id FROM services WHERE name='public'), 1)", email);
+			sqlite3_exec(vhd->db, public_grant_query, NULL, NULL, NULL);
+			
 			if (users_count == 1) {
 				sqlite3_exec(vhd->db, "INSERT OR IGNORE INTO services (service_id, name) VALUES (1, '*')", NULL, NULL, NULL);
 				char grant_query[256];
@@ -1916,6 +1952,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(body_end, p),
 				"<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Account Confirmed</title>"
 				"<link rel=\"stylesheet\" href=\"../auth.css\">"
+				"%s%s%s"
 				"<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"></head>"
 				"<body><div class=\"background-elements\"><div class=\"orb orb-1\"></div><div class=\"orb orb-2\"></div><div class=\"orb orb-3\"></div></div>"
 				"<div class=\"auth-container\"><div class=\"glass-panel totp-setup-box\"><div class=\"panel-header\"><h1>Account Confirmed</h1>"
@@ -1925,28 +1962,20 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				"<img src=\"totp_svg?h=%s\" width=\"200\" height=\"200\" alt=\"TOTP Setup QR\"></a></div>"
 				"<p class=\"totp-secret-text\">%s</p>"
 				"<div class=\"panel-footer\"><a href=\"../\" class=\"btn-link\">Proceed to Login</a></div>"
-				"</div></div></body></html>", uri, hbuf, totp);
+				"</div></div></body></html>", 
+				vhd->ui_css[0] ? "<link rel=\"stylesheet\" href=\"" : "",
+				vhd->ui_css[0] ? vhd->ui_css : "",
+				vhd->ui_css[0] ? "\">" : "",
+				uri, hbuf, totp);
 
 			size_t body_len = lws_ptr_diff_size_t(p, body_start);
-
-			uint8_t hdr_buf[8192 + LWS_PRE];
-			uint8_t *h_start = hdr_buf + LWS_PRE;
-			uint8_t *h_p = h_start;
-			uint8_t *h_end = hdr_buf + sizeof(hdr_buf) - 1;
-			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "text/html", (lws_filepos_t)body_len, &h_p, h_end)) { free(buf); return lws_http_transaction_completed(wsi); }
-			if (lws_finalize_write_http_header(wsi, h_start, &h_p, h_end)) { free(buf); return lws_http_transaction_completed(wsi); }
-
-			// Append entire body array block onto buflist queue natively!
-			struct per_session_data__auth_server *pss = (struct per_session_data__auth_server *)user;
-			if (pss) {
-				if (lws_buflist_append_segment(&pss->tx_buflist, buf, body_len + LWS_PRE) < 0) {
-					free(buf);
-					return -1;
-				}
-				lws_callback_on_writable(wsi);
+			if (lws_buflist_append_segment(&pss->tx_buflist, buf, body_len + LWS_PRE) < 0) {
+				free(buf);
+				return -1;
 			}
 			free(buf);
-			return 0;
+
+			return send_auth_headers(wsi, pss, "text/html", NULL);
 		}
 
 		if (!strncmp((const char *)in, "/authorize", 10)) {
@@ -2207,6 +2236,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		if ((gp = strstr((const char *)in, "\"uid\":"))) {
 			gp += 6;
+			while (*gp == ' ' || *gp == '"') gp++;
 			req_uid = atoi(gp);
 		}
 		if ((gp = strstr((const char *)in, "\"grants\":\""))) {
@@ -2236,7 +2266,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			while (*gp && *gp != '"' && i < 511) redirect_uris[i++] = *gp++;
 		}
 
-		if (!strncmp(op, "client_", 7)) {
+		if (!strncmp(op, "client_", 7) || !strcmp(op, "clients_list")) {
 			if (!strcmp(op, "client_delete") && client_id[0]) {
 				sqlite3_stmt *stmt;
 				if (sqlite3_prepare_v2(vhd->db, "DELETE FROM oauth_clients WHERE client_id=?", -1, &stmt, NULL) == SQLITE_OK) {

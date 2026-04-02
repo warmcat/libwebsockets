@@ -110,6 +110,7 @@ struct pss_deaddrop {
 	uint8_t				sent_body:1;
 	uint8_t				first:1;
 	uint8_t				ws_ongoing_send:1;
+	uint8_t				has_star_grant:1;
 };
 
 static const char * const param_names[] = {
@@ -702,6 +703,10 @@ handler_server_ws_filter_protocol_connection(struct vhd_deaddrop *vhd,
 									if (sub && alen < sizeof(pss->user)) {
 										lws_strncpy(pss->user, sub, alen + 1);
 									}
+									const char *grant = lws_json_simple_find(out, out_len, "\"grant\":", &alen);
+									if (grant && ((alen == 1 && grant[0] == '*') || (alen > 1 && !strncmp(grant, "*", 1)))) {
+										pss->has_star_grant = 1;
+									}
 								}
 							}
 						}
@@ -714,6 +719,10 @@ handler_server_ws_filter_protocol_connection(struct vhd_deaddrop *vhd,
 						const char *sub = lws_jwt_auth_get_sub(ja);
 						if (sub) {
 							lws_strncpy(pss->user, sub, sizeof(pss->user));
+						}
+						
+						if (lws_jwt_auth_query_grant(ja, "*") >= 1) {
+							pss->has_star_grant = 1;
 						}
 						lws_jwt_auth_destroy(&ja);
 					}
@@ -817,8 +826,8 @@ handler_server_ws_rx(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 	/* Check if the authenticated user matches the file owner prefix */
 	n = (int)(cp - (((const char *)in) + 8));
 
-	if ((int)strlen(pss->user) != n ||
-	    strncmp(pss->user, ((const char *)in) + 8, (unsigned int)n)) {
+	if (!pss->has_star_grant && ((int)strlen(pss->user) != n ||
+	    strncmp(pss->user, ((const char *)in) + 8, (unsigned int)n))) {
 		lwsl_wsi_notice(wsi, "del: auth mismatch "
 			    " user '%s' tried to delete file with "
 			    "owner '%.*s'", pss->user, n,
@@ -895,10 +904,12 @@ handler_server_ws_writeable(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 				p += lws_snprintf((char *)p,
 						  lws_ptr_diff_size_t(end, p),
 					"%c{\"user\":\"%s\", \"ip\":\"%s\", "
-					"\"platform\":\"%s\", \"browser\":\"%s\"}",
+					"\"platform\":\"%s\", \"browser\":\"%s\"%s%s}",
 					first_user ? ' ' : ',',
 					(*ppss)->user, ip, (*ppss)->platform,
-					(*ppss)->browser);
+					(*ppss)->browser,
+					(*ppss)->has_star_grant ? ", \"is_admin\":1" : "",
+					((*ppss) == pss) ? ", \"is_self\":1" : "");
 
 				first_user = 0;
 			}
@@ -911,7 +922,7 @@ handler_server_ws_writeable(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 
 	n = 5;
 	while (n-- && pss->dire) {
-		int is_yours = !strcmp(pss->user, pss->dire->user) &&
+		int is_yours = (pss->has_star_grant || !strcmp(pss->user, pss->dire->user)) &&
 			       pss->user[0];
 		const char *fname = (const char *)&pss->dire[1];
 		const char *p_fn = fname;

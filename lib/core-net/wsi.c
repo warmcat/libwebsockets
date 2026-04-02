@@ -777,6 +777,26 @@ int lws_pvo_get_str(void *in, const char *name, const char **result)
 	return 0;
 }
 
+const struct lws_protocol_vhost_options *
+lws_pmo_search(const struct lws_http_mount *mount, const char *name)
+{
+	if (!mount)
+		return NULL;
+
+	return lws_pvo_search(mount->cgienv, name);
+}
+
+int
+lws_pmo_get_str(const struct lws_http_mount *mount, const char *name,
+		const char **result)
+{
+	if (!mount)
+		return 1;
+
+	return lws_pvo_get_str((void *)mount->cgienv, name, result);
+}
+
+
 int lws_broadcast(struct lws_context_per_thread *pt, int reason, void *in,
 		size_t len) {
 	struct lws_vhost *v = pt->context->vhost_list;
