@@ -45,7 +45,7 @@ function renderClientsTable(clients) {
             document.getElementById('cmRedirects').value = e.target.getAttribute('data-redirects');
 
             isClientCreate = false;
-            document.getElementById('cmTitle').innerText = 'Edit OAuth Client';
+            document.getElementById('cmTitle').innerText = 'Edit Grant';
             document.getElementById('clientModal').classList.add('flex');
         });
     });
@@ -53,7 +53,7 @@ function renderClientsTable(clients) {
     document.querySelectorAll('.deleteClientBtn').forEach(btn => {
         btn.addEventListener('click', (e) => {
             const cid = e.target.getAttribute('data-cid');
-            if (confirm(`Are you sure you want to delete client_id '${cid}'?`)) {
+            if (confirm(`Are you sure you want to delete grant_id '${cid}'?`)) {
                 ws.send(JSON.stringify({ op: 'client_delete', client_id: cid }));
             }
         });
@@ -152,7 +152,7 @@ window.onload = () => {
         document.getElementById('cmRedirects').value = '';
 
         isClientCreate = true;
-        document.getElementById('cmTitle').innerText = 'Add New OAuth Client';
+        document.getElementById('cmTitle').innerText = 'Add New Grant';
         document.getElementById('clientModal').classList.add('flex');
     });
 
@@ -161,7 +161,7 @@ window.onload = () => {
         const nm = document.getElementById('cmName').value.trim();
         const ru = document.getElementById('cmRedirects').value.trim();
 
-        if (!cid) return alert('client_id is required');
+        if (!cid) return alert('Grant ID is required');
 
         ws.send(JSON.stringify({
             op: isClientCreate ? 'client_create' : 'client_edit',

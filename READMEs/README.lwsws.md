@@ -353,6 +353,9 @@ provide them using "pmo"
 	        }]
 	       }
 
+**Note on PMO vs. PVO:** Per-vhost options (PVOs) are provided to the protocol at `LWS_CALLBACK_PROTOCOL_INIT` time and are applied universally once per vhost. Per-mount options (PMOs), on the other hand, are strictly tied to specific mounts and are accessed dynamically during connection and request handling (such as inside `LWS_CALLBACK_HTTP`). Crucially, a protocol must explicitly choose to query the `lws_http_mount` structure using `lws_pmo_search` or `lws_pmo_get_str` to look for its specific PMO names in order to respect them, bypassing its globally cached PVO equivalents.
+
+
 2) When using a cgi:// protocol origin at a mountpoint, you may also give cgi environment variables specific to the mountpoint like this
 ```
 	       {

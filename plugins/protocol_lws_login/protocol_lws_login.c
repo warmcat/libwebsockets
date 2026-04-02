@@ -213,6 +213,8 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		int level = -1;
 		struct lws_jwt_auth *ja;
 		char uri[256];
+		const char *service_name;
+		const struct lws_http_mount *mount;
 
 		uri[0] = '\0';
 		if (lws_hdr_copy(wsi, uri, sizeof(uri), WSI_TOKEN_GET_URI) > 0 ||
@@ -227,6 +229,24 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!vhd) {
 			lwsl_info("%s: ALLOWING (vhd is NULL !!! protocol init failed?)\n", __func__);
 			return 0;
+		}
+
+		service_name = vhd->service_name;
+		if (uri[0]) {
+			mount = lws_find_mount(wsi, uri, (int)strlen(uri));
+			if (mount) {
+				if (!lws_pmo_get_str(mount, "service-name", &service_name)) {
+					lwsl_info("%s: using service_name %s from target pmo\n", __func__, service_name);
+				}
+#if defined(LWS_WITH_JOSE)
+				else if (mount->interceptor_path) {
+					const struct lws_http_mount *im;
+					im = lws_find_mount(wsi, mount->interceptor_path, (int)strlen(mount->interceptor_path));
+					if (im && !lws_pmo_get_str(im, "service-name", &service_name))
+						lwsl_info("%s: using service_name %s from interceptor pmo\n", __func__, service_name);
+				}
+#endif
+			}
 		}
 
 		if (vhd->wl.count) {
@@ -312,8 +332,37 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		char dest[512];
 		char path[256];
 		char urlenc_path[512];
-
+		const char *service_name;
+		const struct lws_http_mount *mount;
 		int whitelist_failed = 0;
+		int n;
+
+		if (!vhd)
+			return 1;
+
+		service_name = vhd->service_name;
+
+		path[0] = '\0';
+		n = lws_hdr_copy(wsi, path, sizeof(path), WSI_TOKEN_GET_URI);
+		if (n <= 0)
+			n = lws_hdr_copy(wsi, path, sizeof(path), WSI_TOKEN_POST_URI);
+		if (n > 0) {
+			mount = lws_find_mount(wsi, path, n);
+			if (mount) {
+				if (!lws_pmo_get_str(mount, "service-name", &service_name)) {
+					lwsl_info("%s: using service_name %s from target pmo\n", __func__, service_name);
+				}
+#if defined(LWS_WITH_JOSE)
+				else if (mount->interceptor_path) {
+					const struct lws_http_mount *im;
+					im = lws_find_mount(wsi, mount->interceptor_path, (int)strlen(mount->interceptor_path));
+					if (im && !lws_pmo_get_str(im, "service-name", &service_name))
+						lwsl_info("%s: using service_name %s from interceptor pmo\n", __func__, service_name);
+				}
+#endif
+			}
+		}
+
 		if (vhd->wl.count) {
 			char ip[64];
 			lws_sockaddr46 sa46;
@@ -363,7 +412,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			pss->ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, lws_login_jwt_auth_cb, wsi);
 
 		if (pss->ja) {
-			int level = lws_jwt_auth_query_grant(pss->ja, vhd->service_name);
+			int level = lws_jwt_auth_query_grant(pss->ja, service_name);
 			if (level >= vhd->min_grant_level) {
 				if (vhd->db && !pss->silent_update_jwt) {
 					uint32_t uid = lws_jwt_auth_get_uid(pss->ja);
@@ -584,7 +633,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_urlencode(urlenc_path, fq_uri, sizeof(urlenc_path));
 
 		lws_snprintf(dest, sizeof(dest), "%s?service_name=%s&redirect_uri=%s",
-			vhd->auth_server_url, vhd->service_name, urlenc_path);
+			vhd->auth_server_url, service_name, urlenc_path);
 
 		if (lws_login_ends_with(path, "/.lws-login-status")) {
 			char pl[1024];

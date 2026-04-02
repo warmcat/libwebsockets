@@ -409,7 +409,15 @@
 
 					for (n = 0; n < j.connected_users.length; n++) {
 						var u = j.connected_users[n];
-						s_users += "<tr><td>" + san(u.user) +
+						var display_user = san(u.user);
+
+						if (u.is_self)
+							display_user = "<b>" + display_user + "</b>";
+
+						if (u.is_admin)
+							display_user += " (Admin)";
+
+						s_users += "<tr><td>" + display_user +
 							"</td><td>" + san(u.ip) +
 							"</td><td>" + san(u.platform) +
 							"</td><td>" + san(u.browser) +

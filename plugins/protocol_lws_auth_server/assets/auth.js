@@ -26,6 +26,44 @@ document.addEventListener('DOMContentLoaded', () => {
     const codeChallengeMethod = urlParams.get('code_challenge_method');
     const serviceName = urlParams.get('service_name');
 
+
+    async function loadManifest() {
+        try {
+            const response = await fetch('/api/manifest', { cache: 'no-store' });
+            if (response.ok) {
+                const data = await response.json();
+
+                if (data.ui_title && data.ui_title !== "") {
+                    const h1 = document.querySelector('.panel-header h1');
+                    if (h1) h1.innerText = data.ui_title;
+                }
+
+                if (data.ui_subtitle && data.ui_subtitle !== "") {
+                    if (subtitle) subtitle.innerText = data.ui_subtitle;
+                }
+
+                if (data.ui_new_network && data.ui_new_network !== "") {
+                    // Update text node before the button without destroying the button
+                    if (regToggleBox && regToggleBox.firstElementChild) {
+                        const p = regToggleBox.firstElementChild;
+                        if (p.childNodes.length > 0 && p.childNodes[0].nodeType === Node.TEXT_NODE) {
+                            p.childNodes[0].nodeValue = data.ui_new_network + " ";
+                        }
+                    }
+                }
+
+                if (data.ui_css && data.ui_css !== "") {
+                    const link = document.createElement("link");
+                    link.rel = "stylesheet";
+                    link.href = data.ui_css;
+                    document.head.appendChild(link);
+                }
+            }
+        } catch (e) {
+            console.error("Manifest load failed", e);
+        }
+    }
+
     // Check backend status automatically
     async function checkServerStatus() {
         try {
@@ -126,14 +164,14 @@ document.addEventListener('DOMContentLoaded', () => {
                             : '<div class="auth-grants-empty">No Active Grants</div>';
 
                         loginForm.innerHTML = `<div class="auth-session-box">
-                            <p class="auth-session-title">Authenticated as</p>
+                            <p class="auth-session-title">Logged-in as</p>
                             <p class="auth-session-email">${data.email || 'Unknown User'}</p>
                             ${grantsHtml}
-                            <button type="button" id="btn-destroy-session" class="btn primary-btn">Destroy Session</button>
+                            <button type="button" id="btn-destroy-session" class="btn primary-btn">Logout</button>
                         </div>`;
                         document.getElementById('btn-destroy-session').addEventListener('click', async function() {
                             const btn = this;
-                            btn.innerText = "Destroying...";
+                            btn.innerText = "Logging out...";
                             btn.disabled = true;
                             await fetch('/api/status?destroy=1', { cache: 'no-store' });
                             window.location.reload();
@@ -158,6 +196,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    loadManifest();
     checkServerStatus();
 
     // View Switching
