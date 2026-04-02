@@ -2106,7 +2106,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			return lws_http_transaction_completed(wsi);
 		}
 
-		if (in && (strstr((const char *)in, "login") || strstr((const char *)in, "register") || strstr((const char *)in, "token"))) {
+		if (in && (strstr((const char *)in, "login") || strstr((const char *)in, "register") || strstr((const char *)in, "token") || strstr((const char *)in, "sso_exchange"))) {
 			lws_strncpy(pss->requesting_url, (const char *)in, sizeof(pss->requesting_url));
 
 			lwsl_user("%s: Processing POST to '%s'\n", __func__, pss->requesting_url);
@@ -2152,6 +2152,8 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			return lws_auth_api_token(wsi, vhd, pss);
 		else if (strstr(pss->requesting_url, "login"))
 			return lws_auth_api_login(wsi, vhd, pss);
+		else if (strstr(pss->requesting_url, "sso_exchange"))
+			return lws_auth_api_sso_exchange(wsi, vhd, pss);
 		else if (strstr(pss->requesting_url, "register"))
 			return lws_auth_api_register(wsi, vhd, pss);
 
