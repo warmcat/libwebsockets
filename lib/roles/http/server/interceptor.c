@@ -722,6 +722,11 @@ lws_callback_interceptor(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
 		return 0;
 
+	case LWS_CALLBACK_HTTP_FILE_COMPLETION:
+		if (lws_http_transaction_completed(wsi))
+			return -1;
+		break;
+
 	default:
 		break;
 	}
