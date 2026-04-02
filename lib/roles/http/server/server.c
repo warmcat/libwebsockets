@@ -2048,7 +2048,7 @@ lws_http_action(struct lws *wsi)
 		n = (unsigned int)lws_cgi_via_info(&cgiinfo);
 		if (n) {
 			lwsl_err("%s: cgi failed\n", __func__);
-			return -1;
+			goto bail_nuke_ah;
 		}
 
 		goto deal_body;
