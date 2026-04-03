@@ -534,8 +534,11 @@ lws_hdr_custom_name_foreach(struct lws *wsi, lws_hdr_custom_fe_cb_t cb, void *op
  *
  * \param wsi: the connection to check
  * \param name: the arg name, like "token" or "token="
- * \param buf: the buffer to receive the urlarg (including the name= part)
- * \param len: the length of the buffer to receive the urlarg
+ * \param buf: the buffer to receive the urlarg value only (the name= prefix is
+ *             stripped from the result via memmove); buf must be large enough
+ *             for the full "name=value" fragment plus 2 bytes, because the
+ *             check is fraglen + 1 < len
+ * \param len: the length of buf
  *
  * Returns -1 if not present, else the length of y in the urlarg name=y.  If
  * zero or greater, then buf contains a copy of the string y.  Any = after the
@@ -558,8 +561,11 @@ lws_get_urlarg_by_name_safe(struct lws *wsi, const char *name, char *buf, int le
  *
  * \param wsi: the connection to check
  * \param name: the arg name, like "token="
- * \param buf: the buffer to receive the urlarg (including the name= part)
- * \param len: the length of the buffer to receive the urlarg
+ * \param buf: the buffer to receive the urlarg value only (the name= prefix is
+ *             stripped from the result via memmove); buf must be large enough
+ *             for the full "name=value" fragment plus 2 bytes, because the
+ *             check is fraglen + 1 < len
+ * \param len: the length of buf
  *
  *     Returns NULL if not found or a pointer inside buf to just after the
  *     name= part.
