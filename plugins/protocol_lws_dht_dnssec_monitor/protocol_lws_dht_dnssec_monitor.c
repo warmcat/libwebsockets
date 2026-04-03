@@ -1360,8 +1360,10 @@ callback_monitor_stdwsi(struct lws *wsi, enum lws_callback_reasons reason,
         case LWS_CALLBACK_RAW_CLOSE_FILE:
                 break;
 
-        case LWS_CALLBACK_RAW_RX_FILE:
-                ilen = (int)read((int)(intptr_t)lws_get_socket_fd(wsi), buf, sizeof(buf) - 1);
+        case LWS_CALLBACK_RAW_RX_FILE: {
+                int _fd = (int)(intptr_t)lws_get_socket_fd(wsi);
+                if (_fd < 0) return -1;
+                ilen = (int)read(_fd, buf, sizeof(buf) - 1);
                 if (ilen < 1) {
                         return -1;
                 }
@@ -1381,6 +1383,7 @@ callback_monitor_stdwsi(struct lws *wsi, enum lws_callback_reasons reason,
                         }
                 }
                 return 0;
+        }
 
         default:
                 break;
