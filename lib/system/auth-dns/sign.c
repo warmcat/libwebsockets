@@ -1117,6 +1117,8 @@ next_rrset:
 			if (ksk.kty == LWS_GENCRYPTO_KTY_RSA) lws_genrsa_destroy(&genrsa_ksk);
 			lws_jwk_destroy(&ksk);
 		}
+		if (fd_ksk >= 0)
+			close(fd_ksk);
 	}
 }
 
