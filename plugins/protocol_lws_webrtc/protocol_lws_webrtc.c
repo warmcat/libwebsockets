@@ -188,12 +188,20 @@ rtp_packet_tx_cb(void *priv, const uint8_t *pkt, size_t len, int marker)
 	 * Non-blocking send. If we get EAGAIN/ENOBUFS, we must drop the packet
 	 * to avoid blocking the event loop or spinning.
 	 */
-	if (sendto(lws_get_socket_fd(media->wsi_udp), (const char *)p, LWS_POSIX_LENGTH_CAST(protected_len), 0,
-				(const struct sockaddr *)&media->peer_sa46, media->peer_sa46.sa4.sin_family == AF_INET6 ? (socklen_t)sizeof(media->peer_sa46.sa6) : (socklen_t)sizeof(media->peer_sa46.sa4)) < (int)protected_len) {
-		if (errno != EAGAIN && errno != EWOULDBLOCK && errno != ENOBUFS) {
-			lwsl_err("%s: UDP sendto failed: %d (%s)\n", __func__, errno, strerror(errno));
+	int fd = (int)(lws_intptr_t)lws_get_socket_fd(media->wsi_udp);
+	if (fd >= 0) {
+		if (sendto((lws_sockfd_type)(lws_intptr_t)fd, (const char *)p, LWS_POSIX_LENGTH_CAST(protected_len), 0,
+					(const struct sockaddr *)&media->peer_sa46, media->peer_sa46.sa4.sin_family == AF_INET6 ? (socklen_t)sizeof(media->peer_sa46.sa6) : (socklen_t)sizeof(media->peer_sa46.sa4)) < (int)protected_len) {
+			if (errno != EAGAIN && errno != EWOULDBLOCK && errno != ENOBUFS) {
+				lwsl_err("%s: UDP sendto failed: %d (%s)\n", __func__, errno, strerror(errno));
+			}
+			/* Else: dropped (EAGAIN/ENOBUFS) */
+		} else {
+			if (!media->sent_first_rtp) {
+				lwsl_notice("%s: Sent FIRST RTP packet to peer\n", __func__);
+				media->sent_first_rtp = 1;
+			}
 		}
-		/* Else: dropped (EAGAIN/ENOBUFS) */
 	} else {
 		if (!media->sent_first_rtp) {
 			lwsl_notice("%s: Sent FIRST RTP packet to peer\n", __func__);
@@ -528,8 +536,13 @@ lws_webrtc_send_pli(struct pss_webrtc *pss)
 
 	pthread_mutex_lock(&media->lock_tx);
 	if (lws_srtp_protect_rtcp(&media->srtp_ctx_tx, p, &len, sizeof(pli) - LWS_PRE) == 0) {
-		lwsl_notice("%s: Sending PLI request for SSRC %u\n", __func__, media->ssrc_peer_video);
-		sendto(lws_get_socket_fd(media->wsi_udp), (const char *)p, LWS_POSIX_LENGTH_CAST(len), 0, (const struct sockaddr *)&media->peer_sa46, media->peer_sa46.sa4.sin_family == AF_INET6 ? (socklen_t)sizeof(media->peer_sa46.sa6) : (socklen_t)sizeof(media->peer_sa46.sa4));
+		int fd = (int)(lws_intptr_t)lws_get_socket_fd(media->wsi_udp);
+		if (fd >= 0) {
+			lwsl_notice("%s: Sending PLI request for SSRC %u\n", __func__, media->ssrc_peer_video);
+			if (sendto((lws_sockfd_type)(lws_intptr_t)fd, (const char *)p, LWS_POSIX_LENGTH_CAST(len), 0, (const struct sockaddr *)&media->peer_sa46, media->peer_sa46.sa4.sin_family == AF_INET6 ? (socklen_t)sizeof(media->peer_sa46.sa6) : (socklen_t)sizeof(media->peer_sa46.sa4)) < 0) {
+				lwsl_err("%s: PLI sendto failed: errno %d\n", __func__, errno);
+			}
+		}
 	}
 	pthread_mutex_unlock(&media->lock_tx);
 
@@ -809,8 +822,13 @@ handle_candidate(struct pss_webrtc *pss, struct vhd_webrtc *vhd, const char *can
 		lws_get_random(vhd->context, tid, 12);
 		int n = lws_webrtc_stun_req_pack(pss, stun, sizeof(stun), tid);
 		if (n > 0) {
-			sendto(lws_get_socket_fd(pss->media->wsi_udp), (const char *)stun, (size_t)n, 0,
-					(const struct sockaddr *)&pss->media->peer_sa46, pss->media->peer_sa46.sa4.sin_family == AF_INET6 ? (socklen_t)sizeof(pss->media->peer_sa46.sa6) : (socklen_t)sizeof(pss->media->peer_sa46.sa4));
+			int fd = (int)(lws_intptr_t)lws_get_socket_fd(pss->media->wsi_udp);
+			if (fd >= 0) {
+				if (sendto((lws_sockfd_type)(lws_intptr_t)fd, (const char *)stun, (size_t)n, 0,
+						(const struct sockaddr *)&pss->media->peer_sa46, pss->media->peer_sa46.sa4.sin_family == AF_INET6 ? (socklen_t)sizeof(pss->media->peer_sa46.sa6) : (socklen_t)sizeof(pss->media->peer_sa46.sa4)) < 0) {
+					webrtc_pss_err(pss, "STUN Binding sendto failed: errno %d\n", errno);
+				}
+			}
 			webrtc_pss_log(pss, "Sent STUN Binding Request to %s:%d\n", ip_str, port);
 		} else {
 			webrtc_pss_err(pss, "STUN req pack failed: %d\n", n);
@@ -823,8 +841,13 @@ handle_candidate(struct pss_webrtc *pss, struct vhd_webrtc *vhd, const char *can
 			uint8_t out[2048];
 			int _tx_len;
 			while ((_tx_len = lws_gendtls_get_tx(&pss->dtls_ctx, out, sizeof(out))) > 0) {
-				lwsl_notice("%s: Sending Initial DTLS ClientHello after ICE (%d bytes)\n", __func__, _tx_len);
-				sendto(lws_get_socket_fd(pss->media->wsi_udp), (const char *)out, (size_t)_tx_len, 0, (const struct sockaddr *)&pss->media->peer_sa46, pss->media->peer_sa46.sa4.sin_family == AF_INET6 ? (socklen_t)sizeof(pss->media->peer_sa46.sa6) : (socklen_t)sizeof(pss->media->peer_sa46.sa4));
+				int fd = (int)(lws_intptr_t)lws_get_socket_fd(pss->media->wsi_udp);
+				if (fd >= 0) {
+					lwsl_notice("%s: Sending Initial DTLS ClientHello after ICE (%d bytes)\n", __func__, _tx_len);
+					if (sendto((lws_sockfd_type)(lws_intptr_t)fd, (const char *)out, (size_t)_tx_len, 0, (const struct sockaddr *)&pss->media->peer_sa46, pss->media->peer_sa46.sa4.sin_family == AF_INET6 ? (socklen_t)sizeof(pss->media->peer_sa46.sa6) : (socklen_t)sizeof(pss->media->peer_sa46.sa4)) < 0) {
+						webrtc_pss_err(pss, "DTLS ClientHello sendto failed: errno %d\n", errno);
+					}
+				}
 			}
 		}
 
