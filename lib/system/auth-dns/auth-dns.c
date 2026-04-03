@@ -335,7 +335,7 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 		return 1;
 	}
 
-	if (fstat(fd, &st) < 0) {
+	if (fstat(fd, &st) < 0 || st.st_size <= 0 || st.st_size > 1024 * 1024) {
 		close(fd);
 		return 1;
 	}

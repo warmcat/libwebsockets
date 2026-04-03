@@ -145,7 +145,8 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 					lws_strncpy(ps->redirect_uri, "/", sizeof(ps->redirect_uri));
 			}
 
-			lws_get_urlarg_by_name_safe(wsi, "service_name=", sname, sizeof(sname));
+			if (lws_get_urlarg_by_name_safe(wsi, "service_name=", sname, sizeof(sname)) < 0)
+				lwsl_debug("%s: no service_name bound\n", __func__);
 
 			lws_get_random(vhd->context, rand_bytes, 16);
 			lws_b64_encode_string_url((const char *)rand_bytes, 16, ps->state, sizeof(ps->state));
