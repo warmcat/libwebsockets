@@ -257,14 +257,16 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		memset(&tm, 0, sizeof(tm));
 		if (strlen(toks[4]) == 14 && sscanf(toks[4], "%4d%2d%2d%2d%2d%2d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday, &tm.tm_hour, &tm.tm_min, &tm.tm_sec) == 6) {
 			tm.tm_year -= 1900; tm.tm_mon -= 1;
-			uint32_t exp = (uint32_t)timegm(&tm);
+			uint64_t _exp64 = (uint64_t)timegm(&tm);
+			uint32_t exp = (uint32_t)_exp64;
 			w[wl++] = (uint8_t)(exp >> 24); w[wl++] = (uint8_t)(exp >> 16); w[wl++] = (uint8_t)(exp >> 8); w[wl++] = (uint8_t)(exp & 0xff);
 		} else goto fail;
 
 		memset(&tm, 0, sizeof(tm));
 		if (strlen(toks[5]) == 14 && sscanf(toks[5], "%4d%2d%2d%2d%2d%2d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday, &tm.tm_hour, &tm.tm_min, &tm.tm_sec) == 6) {
 			tm.tm_year -= 1900; tm.tm_mon -= 1;
-			uint32_t inc = (uint32_t)timegm(&tm);
+			uint64_t _inc64 = (uint64_t)timegm(&tm);
+			uint32_t inc = (uint32_t)_inc64;
 			w[wl++] = (uint8_t)(inc >> 24); w[wl++] = (uint8_t)(inc >> 16); w[wl++] = (uint8_t)(inc >> 8); w[wl++] = (uint8_t)(inc & 0xff);
 		} else goto fail;
 
