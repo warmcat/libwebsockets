@@ -1616,7 +1616,10 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 		free(json_out);
 		return -1;
 	}
-	lws_callback_on_writable(pss->wsi_ws);
+
+	if (pss->wsi_ws)
+		lws_callback_on_writable(pss->wsi_ws);
+
 	free(json_out);
 
 	return 0;
