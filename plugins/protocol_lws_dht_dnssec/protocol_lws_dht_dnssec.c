@@ -4130,7 +4130,7 @@ do_fetch_zone(struct lws_context *context, struct lws_dht_dnssec_fetch_zone_args
 	}
 
 	/* 2. Fallback to bootstrap target_ip if configured (for clients/unbootstrapped nodes) */
-	if (v->target_ip && v->target_ip[0] && v->target_port > 0) {
+	if (v->dht && v->target_ip && v->target_ip[0] && v->target_port > 0) {
 		struct sockaddr_in sin;
 		memset(&sin, 0, sizeof(sin));
 		sin.sin_family = AF_INET;
