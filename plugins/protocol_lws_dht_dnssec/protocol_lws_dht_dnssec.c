@@ -3733,7 +3733,8 @@ do_signzone(struct lws_context *context, struct lws_dht_dnssec_signzone_args *ar
 
 	char acmefile_path[256];
 	lws_snprintf(acmefile_path, sizeof(acmefile_path), "%s.acme", zone_in);
-	int has_acmefile = (access(acmefile_path, F_OK) == 0);
+	int fd_acme = open(acmefile_path, O_RDONLY);
+	int has_acmefile = (fd_acme >= 0);
 
 	struct lws_dht_dnssec_domain *dom = NULL;
 
@@ -3780,16 +3781,12 @@ do_signzone(struct lws_context *context, struct lws_dht_dnssec_signzone_args *ar
 
 				/* Append .acme file if present */
 				if (has_acmefile) {
-					int fd_acme = open(acmefile_path, O_RDONLY);
-					if (fd_acme >= 0) {
-						write(fd_out, "\n", 1);
-						while ((n = read(fd_acme, buf, sizeof(buf))) > 0) {
-							if (write(fd_out, buf, (size_t)n) != n)
-								break;
-						}
-						write(fd_out, "\n", 1);
-						close(fd_acme);
+					write(fd_out, "\n", 1);
+					while ((n = read(fd_acme, buf, sizeof(buf))) > 0) {
+						if (write(fd_out, buf, (size_t)n) != n)
+							break;
 					}
+					write(fd_out, "\n", 1);
 				}
 
 				close(fd_out);
@@ -3802,6 +3799,9 @@ do_signzone(struct lws_context *context, struct lws_dht_dnssec_signzone_args *ar
 			lwsl_err("Failed to open %s for reading\n", zone_in);
 		}
 	}
+
+	if (fd_acme >= 0)
+		close(fd_acme);
 
 	if (lws_auth_dns_sign_zone(&info)) {
 		lwsl_err("lws_auth_dns_sign_zone failed\n");
