@@ -41,6 +41,8 @@
 #include <libwebsockets/lws-dht-dnssec.h>
 #include <errno.h>
 
+#define LWS_AUTH_DNS_MAX_ZONE_SIZE (1024 * 1024)
+
 #if defined(LWS_WITH_AUTHORITATIVE_DNS)
 
 static int
@@ -240,8 +242,8 @@ auth_dns_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	fd = open(filepath, O_RDONLY);
 	if (fd < 0) { lwsl_notice("open failed\n"); return 0; }
 
-	if (fstat(fd, &st) < 0 || st.st_size == 0) {
-		lwsl_notice("fstat failed or size 0\n");
+	if (fstat(fd, &st) < 0 || st.st_size <= 0 || st.st_size >= LWS_AUTH_DNS_MAX_ZONE_SIZE) {
+		lwsl_notice("fstat failed or size invalid\n");
 		close(fd);
 		return 0;
 	}
@@ -351,7 +353,7 @@ auth_dns_local_zone_cb(void *opaque, const char *domain, const char *payload_pat
 	int fpin = open(payload_path, O_RDONLY);
 	if (fpin >= 0) {
 		struct stat st;
-		if (fstat(fpin, &st) == 0 && st.st_size > 0 && st.st_size < 1024 * 1024) {
+		if (fstat(fpin, &st) == 0 && st.st_size > 0 && st.st_size < LWS_AUTH_DNS_MAX_ZONE_SIZE) {
 			char *buf = malloc((size_t)st.st_size + 1);
 			if (buf && read(fpin, buf, (size_t)st.st_size) == st.st_size) {
 				buf[st.st_size] = '\0';
