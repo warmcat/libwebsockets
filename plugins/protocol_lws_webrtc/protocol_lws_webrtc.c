@@ -2202,12 +2202,15 @@ lws_shared_webrtc_udp_callback(struct lws *wsi, enum lws_callback_reasons reason
 			lwsl_notice("%s: RAW_ADOPT, increasing SO_SNDBUF\n", __func__);
 			{
 				int sndbuf = 8 * 1024 * 1024;
-				if (setsockopt(lws_get_socket_fd(wsi), SOL_SOCKET, SO_SNDBUF, (const char *)&sndbuf, sizeof(sndbuf)) < 0) {
-					lwsl_err("%s: Failed to scale SO_SNDBUF: %d\n", __func__, errno);
-				}
-				/* Also increase RCVBUF to handle bursty 300KB frames without drops */
-				if (setsockopt(lws_get_socket_fd(wsi), SOL_SOCKET, SO_RCVBUF, (const char *)&sndbuf, sizeof(sndbuf)) < 0) {
-					lwsl_err("%s: Failed to scale SO_RCVBUF: %d\n", __func__, errno);
+				int _fd = (int)(lws_intptr_t)lws_get_socket_fd(wsi);
+				if (_fd >= 0) {
+					if (setsockopt(_fd, SOL_SOCKET, SO_SNDBUF, (const char *)&sndbuf, sizeof(sndbuf)) < 0) {
+						lwsl_err("%s: Failed to scale SO_SNDBUF: %d\n", __func__, errno);
+					}
+					/* Also increase RCVBUF to handle bursty 300KB frames without drops */
+					if (setsockopt(_fd, SOL_SOCKET, SO_RCVBUF, (const char *)&sndbuf, sizeof(sndbuf)) < 0) {
+						lwsl_err("%s: Failed to scale SO_RCVBUF: %d\n", __func__, errno);
+					}
 				}
 			}
 			break;
