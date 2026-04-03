@@ -3636,7 +3636,10 @@ static int bump_soa_serial(const char *filepath) {
 
 	if (strlen(new_serial) == serial_len) {
 		memcpy(serial_start, new_serial, serial_len);
-		lseek(fd, 0, SEEK_SET);
+		if (lseek(fd, 0, SEEK_SET) < 0) {
+			lwsl_err("lseek failed to reset file pointer\n");
+			free(buf); close(fd); return -1;
+		}
 		if (write(fd, buf, (size_t)st.st_size) != st.st_size) {
 			lwsl_err("Failed to write updated SOA\n");
 			free(buf); close(fd); return -1;
@@ -3651,7 +3654,10 @@ static int bump_soa_serial(const char *filepath) {
 		memcpy(new_buf + prefix_len, new_serial, strlen(new_serial));
 		memcpy(new_buf + prefix_len + strlen(new_serial), serial_end, (size_t)st.st_size - prefix_len - serial_len);
 
-		lseek(fd, 0, SEEK_SET);
+		if (lseek(fd, 0, SEEK_SET) < 0) {
+			lwsl_err("lseek failed to reset file pointer\n");
+			free(new_buf); free(buf); close(fd); return -1;
+		}
 		if (ftruncate(fd, (off_t)new_size) < 0) {
 			lwsl_err("ftruncate failed\n");
 		}
