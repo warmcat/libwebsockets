@@ -1144,7 +1144,9 @@ handle_answer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, c
 			int _tx_len;
 			while ((_tx_len = lws_gendtls_get_tx(&pss->dtls_ctx, out, sizeof(out))) > 0) {
 				webrtc_pss_log(pss, "Sending Initial DTLS ClientHello (%d bytes)\n", _tx_len);
-				sendto((lws_sockfd_type)(lws_intptr_t)fd, (const char *)out, (size_t)_tx_len, 0, (const struct sockaddr *)&pss->media->peer_sa46, pss->media->peer_sa46.sa4.sin_family == AF_INET6 ? (socklen_t)sizeof(pss->media->peer_sa46.sa6) : (socklen_t)sizeof(pss->media->peer_sa46.sa4));
+				if (sendto((lws_sockfd_type)(lws_intptr_t)fd, (const char *)out, (size_t)_tx_len, 0, (const struct sockaddr *)&pss->media->peer_sa46, pss->media->peer_sa46.sa4.sin_family == AF_INET6 ? (socklen_t)sizeof(pss->media->peer_sa46.sa6) : (socklen_t)sizeof(pss->media->peer_sa46.sa4)) < 0) {
+					webrtc_pss_err(pss, "Failed to send Initial DTLS ClientHello: errno %d\n", errno);
+				}
 			}
 		}
 	}
