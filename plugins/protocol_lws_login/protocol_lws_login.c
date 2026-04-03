@@ -706,6 +706,10 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
 	{
 		char path[256];
+
+		if (!vhd)
+			return 1;
+
 		path[0] = '\0';
 		lws_hdr_copy(wsi, path, sizeof(path), WSI_TOKEN_POST_URI);
 
