@@ -758,6 +758,8 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 {
 	if (info->zsk_jwk_filepath) {
 		struct lws_jwk zsk, ksk;
+		memset(&zsk, 0, sizeof(zsk));
+		memset(&ksk, 0, sizeof(ksk));
 		char *buf_zsk = NULL, *buf_ksk = NULL;
 		struct stat st_zsk, st_ksk;
 		int fd_zsk = -1, fd_ksk = -1;
