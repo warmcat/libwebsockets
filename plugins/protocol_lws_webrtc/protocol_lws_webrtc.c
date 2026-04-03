@@ -1956,13 +1956,16 @@ webrtc_handle_stun(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrtc **
 	int n_stun = lws_stun_validate_and_reply(wsi, (uint8_t *)in, len, out, sizeof(out), pss->ice_pwd, sin);
 	if (n_stun > 0) {
 		if (udp_desc) {
-			socklen_t slen = udp_desc->sa46.sa4.sin_family == AF_INET6 ? (socklen_t)sizeof(udp_desc->sa46.sa6) : (socklen_t)sizeof(udp_desc->sa46.sa4);
-			// webrtc_pss_log(pss, "Sent STUN Response (%d bytes) successfully.\n", n_stun);
-			ssize_t sent = sendto(lws_get_socket_fd(wsi), (const char *)out, (size_t)n_stun, 0, (const struct sockaddr *)&udp_desc->sa46, slen);
-			if (sent < 0) {
-				webrtc_pss_err(pss, "STUN sendto failed: errno %d\n", errno);
-			} else if (sent != n_stun) {
-				webrtc_pss_err(pss, "STUN sendto partial %ld of %d\n", (long)sent, n_stun);
+			int fd = (int)(lws_intptr_t)lws_get_socket_fd(wsi);
+			if (fd >= 0) {
+				socklen_t slen = udp_desc->sa46.sa4.sin_family == AF_INET6 ? (socklen_t)sizeof(udp_desc->sa46.sa6) : (socklen_t)sizeof(udp_desc->sa46.sa4);
+				// webrtc_pss_log(pss, "Sent STUN Response (%d bytes) successfully.\n", n_stun);
+				ssize_t sent = sendto((lws_sockfd_type)(lws_intptr_t)fd, (const char *)out, (size_t)n_stun, 0, (const struct sockaddr *)&udp_desc->sa46, slen);
+				if (sent < 0) {
+					webrtc_pss_err(pss, "STUN sendto failed: errno %d\n", errno);
+				} else if (sent != n_stun) {
+					webrtc_pss_err(pss, "STUN sendto partial %ld of %d\n", (long)sent, n_stun);
+				}
 			}
 		}
 	} else {
