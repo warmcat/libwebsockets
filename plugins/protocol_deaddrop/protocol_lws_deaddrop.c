@@ -418,7 +418,8 @@ handler_server_protocol_init(struct lws *wsi, void *in)
 
 	if (!lws_pvo_get_str(in, "max-size", &cp))
 		vhd->max_size = (unsigned long long)atoll(cp);
-	lws_pvo_get_str(in, "cookie-name", &vhd->cookie_name);
+	if (lws_pvo_get_str(in, "cookie-name", &vhd->cookie_name))
+		lwsl_info("%s: using default cookie-name\n", __func__);
 	if (!lws_pvo_get_str(in, "jwt-jwk", &cp)) {
 		if (cp[0] == '{' || lws_jwk_load(&vhd->jwk, cp, NULL, NULL)) {
 			if (lws_jwk_import(&vhd->jwk, NULL, NULL, cp, strlen(cp))) {
