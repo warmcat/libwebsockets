@@ -1357,6 +1357,7 @@ lws_auth_dns_verify_zone(struct lws_auth_dns_sign_info *info)
 							struct auth_dns_rr *crr = lws_container_of(d4, struct auth_dns_rr, list);
 							uint8_t rpre[512]; size_t rpl = 0;
 							al = sizeof(rpre) - rpl; name_to_wire(cov_rs->name, zone.origin, rpre + rpl, &al); rpl += al;
+							if (rpl + 10 > sizeof(rpre)) break;
 							rpre[rpl++] = (uint8_t)(cov_rs->type >> 8); rpre[rpl++] = (uint8_t)(cov_rs->type & 0xff);
 							rpre[rpl++] = (uint8_t)(cov_rs->class_ >> 8); rpre[rpl++] = (uint8_t)(cov_rs->class_ & 0xff);
 							rpre[rpl++] = (uint8_t)(tttl >> 24); rpre[rpl++] = (uint8_t)(tttl >> 16);
