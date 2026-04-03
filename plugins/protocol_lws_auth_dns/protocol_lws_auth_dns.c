@@ -948,6 +948,8 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		uint16_t nscount = (uint16_t)((p[8] << 8) | p[9]);
 		uint16_t arcount = (uint16_t)((p[10] << 8) | p[11]);
 
+		if (arcount > 32) { lwsl_notice("arcount too large (%d)\n", arcount); goto done; }
+
 		lwsl_info("DNS id %04x flags %04x qdcount %d arcount %d (from %s)\n", id, flags, qdcount, arcount, peer_ip);
 
 		if (flags & 0x8000) { lwsl_notice("not a query (flags %04x)\n", flags); goto done; }
@@ -960,6 +962,7 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			if (++cycles > 128) { lwsl_notice("qname cycles %d\n", cycles); goto done; }
 			int l = *q++;
 			if (l & 0xc0) { lwsl_notice("compression ptr in query at qname pos %d\n", qname_len); goto done; }
+			if (l > 63) { lwsl_notice("qname label > 63 bytes\n"); goto done; }
 			if (q + l > end) { lwsl_notice("qname label exceeds buffer\n"); goto done; }
 			if (qname_len + l + 2 > (int)sizeof(qname)) { lwsl_notice("qname too long for buffer\n"); goto done; }
 			if (qname_len) qname[qname_len++] = '.';
