@@ -35,6 +35,30 @@ struct lws_dir_notify {
 	struct lws *wsi;
 };
 
+#if !defined(LWS_WITH_NETWORK)
+
+/* Stubs for no-network */
+const struct lws_protocols protocol_lws_dir_notify = {
+	"lws-dir-notify",
+	NULL,
+	0, 0, 0, NULL, 0
+};
+
+struct lws_dir_notify *
+lws_dir_notify_create(struct lws_context *ctx, const char *path,
+		      lws_dir_notify_cb_t cb, void *user)
+{
+	lwsl_err("%s: lws_dir_notify requires LWS_WITH_NETWORK\n", __func__);
+	return NULL;
+}
+
+void
+lws_dir_notify_destroy(struct lws_dir_notify **pdn)
+{
+}
+
+#else
+
 #if defined(__linux__) || defined(__linux)
 #include <sys/inotify.h>
 #include <limits.h>
@@ -397,5 +421,7 @@ lws_dir_notify_destroy(struct lws_dir_notify **pdn)
 {
 }
 #endif
+
+#endif /* LWS_WITH_NETWORK */
 
 #endif /* LWS_WITH_DIR_NOTIFY */

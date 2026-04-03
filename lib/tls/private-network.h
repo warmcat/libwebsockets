@@ -100,9 +100,13 @@ int LWS_WARN_UNUSED_RESULT
 lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len);
 int LWS_WARN_UNUSED_RESULT
 lws_ssl_pending(struct lws *wsi);
+#if defined(LWS_WITH_SERVER)
 int LWS_WARN_UNUSED_RESULT
 lws_server_socket_service_ssl(struct lws *new_wsi, lws_sockfd_type accept_fd,
 				char is_pollin);
+#else
+#define lws_server_socket_service_ssl(_a, _b, _c) (0)
+#endif
 
 void
 lws_sess_cache_synth_cb(lws_sorted_usec_list_t *sul);
@@ -165,14 +169,18 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 int
 lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd);
 
+#if defined(LWS_WITH_SERVER)
 enum lws_ssl_capable_status
 lws_tls_server_accept(struct lws *wsi);
-
 int
 lws_tls_server_accept_completed(struct lws *wsi, int n);
-
 enum lws_ssl_capable_status
 lws_tls_server_abort_connection(struct lws *wsi);
+#else
+#define lws_tls_server_accept(_a) (0)
+#define lws_tls_server_accept_completed(_a, _b) (0)
+#define lws_tls_server_abort_connection(_a) (0)
+#endif
 
 enum lws_ssl_capable_status
 __lws_tls_shutdown(struct lws *wsi);

@@ -348,6 +348,7 @@ endif()
 
 
 # Setup the linking for all libs.
+list(APPEND LIB_LIST ${LIB_LIST_AT_END})
 set(STRIPPED_LIB_LIST "")
 foreach(lib_path IN LISTS LIB_LIST)
 	if(IS_ABSOLUTE "${lib_path}" AND NOT "${lib_path}" MATCHES "^-")

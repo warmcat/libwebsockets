@@ -21,7 +21,7 @@ static const struct lws_switches switches[] = {
 
 #include <signal.h>
 
-static int interrupted, ok, fail, exp = 1;
+static int interrupted, ok, fail, expected = 1;
 struct lws_context *context;
 const char *nif;
 
@@ -111,11 +111,11 @@ main(int argc, const char **argv)
 
 	lws_context_destroy(context);
 
-	if (fail || ok != exp)
-		lwsl_user("Completed: PASS: %d / %d, FAIL: %d\n", ok, exp,
+	if (fail || ok != expected)
+		lwsl_user("Completed: PASS: %d / %d, FAIL: %d\n", ok, expected,
 				fail);
 	else
-		lwsl_user("Completed: ALL PASS: %d / %d\n", ok, exp);
+		lwsl_user("Completed: ALL PASS: %d / %d\n", ok, expected);
 
-	return !(ok == exp && !fail);
+	return !(ok == expected && !fail);
 }

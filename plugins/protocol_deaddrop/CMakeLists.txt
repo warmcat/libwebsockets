@@ -1,6 +1,7 @@
 set(PLUGIN_NAME protocol_deaddrop)
 set(requirements 1)
 require_lws_config(LWS_ROLE_WS 1 requirements)
+require_lws_config(LWS_WITH_JOSE 1 requirements)
 
 if (requirements)
 	if (UNIX AND LWS_HAVE_PTHREAD_H)

@@ -45,7 +45,11 @@ lws_tls_openssl_asn1time_to_unix(ASN1_TIME *as)
 {
 #if !defined(LWS_PLAT_OPTEE)
 
+#if defined(USE_WOLFSSL)
+	const char *p = (const char *)ASN1_STRING_get0_data((const WOLFSSL_ASN1_STRING *)as);
+#else
 	const char *p = (const char *)ASN1_STRING_get0_data(as);
+#endif
 	struct tm t;
 
 	/* [YY]YYMMDDHHMMSSZ */
@@ -136,7 +140,7 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 		xn = X509_get_subject_name(x509);
 		if (!xn)
 			return -1;
-		X509_NAME_oneline(xn, buf->ns.name, (int)len - 2);
+		X509_NAME_oneline((X509_NAME *)xn, buf->ns.name, (int)len - 2);
 		p = strstr(buf->ns.name, "/CN=");
 		if (p) {
 			p += 4;
@@ -155,7 +159,7 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 		xn = X509_get_issuer_name(x509);
 		if (!xn)
 			return -1;
-		X509_NAME_oneline(xn, buf->ns.name, (int)len - 1);
+		X509_NAME_oneline((X509_NAME *)xn, buf->ns.name, (int)len - 1);
 		buf->ns.len = (int)strlen(buf->ns.name);
 		return 0;
 
@@ -466,7 +470,7 @@ lws_x509_verify(struct lws_x509_cert *x509, struct lws_x509_cert *trusted,
 		const X509_NAME *xn = X509_get_subject_name(x509->cert);
 		if (!xn)
 			return -1;
-		X509_NAME_oneline(xn, c, (int)sizeof(c) - 2);
+		X509_NAME_oneline((X509_NAME *)xn, c, (int)sizeof(c) - 2);
 		p = strstr(c, "/CN=");
 		if (p)
 			p = p + 4;

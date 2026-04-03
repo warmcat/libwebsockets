@@ -82,7 +82,8 @@ lws_sul_plat_unix(lws_sorted_usec_list_t *sul)
 }
 #endif
 
-#if defined(LWS_WITH_PLUGINS)
+#if (defined(LWS_WITH_PLUGINS) && !defined(LWS_WITH_PLUGINS_BUILTIN)) || \
+    (defined(LWS_BUILTIN_PLUGIN_NAMES) && defined(LWS_WITH_PLUGINS))
 static int
 protocol_plugin_cb(struct lws_plugin *pin, void *each_user)
 {

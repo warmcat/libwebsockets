@@ -23,6 +23,7 @@
 #
 
 include_directories(.)
+include(LwsCheckRequirements)
 
 if (DEFINED LIB_LIST_AT_END)
 link_libraries(${LIB_LIST_AT_END})

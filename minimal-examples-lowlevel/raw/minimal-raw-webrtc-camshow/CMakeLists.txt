@@ -12,6 +12,7 @@ set(requirements 1)
 require_lws_config(LWS_ROLE_WS 1 requirements)
 require_lws_config(LWS_ROLE_RAW_FILE 1 requirements)
 require_lws_config(LWS_WITH_PLUGINS 1 requirements)
+require_lws_config(LWS_WITH_WEBRTC 1 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})

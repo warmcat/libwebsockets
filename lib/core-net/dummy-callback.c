@@ -391,7 +391,9 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 						   LWS_WRITE_HTTP_FINAL);
 
 			/* always close after sending it */
+#if defined(LWS_WITH_SERVER)
 			if (lws_http_transaction_completed(wsi))
+#endif
 				return -1;
 			return 0;
 		}
@@ -475,14 +477,18 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			if (stream_close(wsi))
 				return -1;
 
+#if defined(LWS_WITH_SERVER)
 			if (lws_http_transaction_completed(wsi))
+#endif
 				return -1;
 		}
 #endif
 		if (wsi->http.deferred_transaction_completed) {
 			uint8_t zero = 0;
 			lws_write(wsi, &zero, 0, LWS_WRITE_HTTP_FINAL);
+#if defined(LWS_WITH_SERVER)
 			if (lws_http_transaction_completed(wsi))
+#endif
 				return -1;
 			return 0;
 		}

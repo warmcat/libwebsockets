@@ -587,11 +587,11 @@ int /* nonzero if the transport mux has filled buf and wants to write it */
 lws_transport_mux_pending(lws_transport_mux_t *tm, uint8_t *buf, size_t *len,
 			  const lws_txp_mux_parse_cbs_t *cbs);
 
-extern const lws_transport_client_ops_t lws_transport_mux_client_ops;
-extern const lws_transport_proxy_ops_t lws_transport_mux_proxy_ops;
+LWS_VISIBLE extern const lws_transport_client_ops_t lws_transport_mux_client_ops;
+LWS_VISIBLE extern const lws_transport_proxy_ops_t lws_transport_mux_proxy_ops;
 
-extern const lws_transport_client_ops_t lws_txp_inside_sspc;
-extern const lws_transport_proxy_ops_t lws_txp_inside_proxy;
+LWS_VISIBLE extern const lws_transport_client_ops_t lws_txp_inside_sspc;
+LWS_VISIBLE extern const lws_transport_proxy_ops_t lws_txp_inside_proxy;
 
 #if defined(STANDALONE)
 #undef lws_context

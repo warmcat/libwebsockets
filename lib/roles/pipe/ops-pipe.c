@@ -108,7 +108,7 @@ rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 				lwsi_set_state(job->wsi, LRS_ISSUING_FILE);
 				lws_callback_on_writable(job->wsi);
 			}
-#if defined(LWS_WITH_TLS)
+#if defined(LWS_WITH_TLS) && defined(LWS_WITH_SERVER)
 			else if (job->type == LWS_AQ_SSL_ACCEPT) {
 				job->wsi->async_worker_job = NULL;
 

@@ -83,7 +83,7 @@ lws_async_worker_worker(void *d)
 				}
 				break;
 			case LWS_AQ_SSL_ACCEPT:
-#if defined(LWS_WITH_TLS)
+#if defined(LWS_WITH_TLS) && defined(LWS_WITH_SERVER)
 				// lwsl_notice("worker handling LWS_AQ_SSL_ACCEPT for wsi %s\n", lws_wsi_tag(job->wsi));
 				job->wsi->tls.ssl_accept_in_bg = 1;
 				job->u.ssl.status = lws_tls_server_accept(job->wsi);
