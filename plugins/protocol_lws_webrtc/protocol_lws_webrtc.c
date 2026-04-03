@@ -1638,7 +1638,7 @@ lws_shared_webrtc_callback(struct lws *wsi, enum lws_callback_reasons reason,
 	//if (reason == LWS_CALLBACK_SERVER_WRITEABLE)
 	//	lwsl_notice("%s: ENTERING (reason %d) vhd=%p, pss=%p\n", __func__, reason, vhd, pss);
 
-	if (!vhd && reason != LWS_CALLBACK_PROTOCOL_INIT && reason != LWS_CALLBACK_PROTOCOL_DESTROY)
+	if (!vhd)
 		return 0;
 	if (!pss && reason != LWS_CALLBACK_PROTOCOL_INIT && reason != LWS_CALLBACK_PROTOCOL_DESTROY)
 		return 0;
