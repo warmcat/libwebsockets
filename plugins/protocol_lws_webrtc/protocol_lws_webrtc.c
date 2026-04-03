@@ -1980,7 +1980,7 @@ webrtc_handle_stun(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrtc **
 webrtc_handle_dtls(struct lws *wsi, struct pss_webrtc *pss, const struct sockaddr_in *sin,
 		uint8_t *in, size_t len)
 {
-	if (!pss || !pss->handshake_started)
+	if (!pss || !pss->handshake_started || !pss->media)
 		return 0;
 
 	webrtc_pss_log(pss, "Incoming DTLS packet (%zu bytes)\n", len);
@@ -2003,7 +2003,7 @@ webrtc_handle_dtls(struct lws *wsi, struct pss_webrtc *pss, const struct sockadd
 
 			/* Initialize SRTP */
 			uint8_t k[60];
-			if (lws_gendtls_export_keying_material(&pss->dtls_ctx, "EXTRACTOR-dtls_srtp", 19, NULL, 0, k, 60) == 0 && pss->media) {
+			if (lws_gendtls_export_keying_material(&pss->dtls_ctx, "EXTRACTOR-dtls_srtp", 19, NULL, 0, k, 60) == 0) {
 				if (pss->is_client) {
 					/* Client Mode: TX using Client Keys (0/32), RX using Server Keys (16/46) */
 					lwsl_notice("%s: SRTP Client Mode: TX=Client keys, RX=Server keys\n", __func__);
