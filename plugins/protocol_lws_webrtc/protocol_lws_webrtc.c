@@ -1168,6 +1168,11 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 	if (!pss->media)
 		pss->media = calloc(1, sizeof(struct lws_webrtc_peer_media));
 
+	if (!pss->media) {
+		free(sdp_clean);
+		return -1;
+	}
+
 	pss->media->pt_audio = 0;
 	pss->media->pt_video_h264 = 0;
 	pss->media->pt_video_av1 = 0;
