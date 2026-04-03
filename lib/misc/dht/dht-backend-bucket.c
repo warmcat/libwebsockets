@@ -109,6 +109,10 @@ bucket_middle(struct bucket *b, lws_dht_hash_t *id_return)
 {
 	int bit1 = lowbit(b->first);
 	int bit2 = b->next ? lowbit(b->next->first) : -1;
+
+	if (bit1 >= id_return->len * 8) bit1 = id_return->len * 8 - 1;
+	if (bit2 >= id_return->len * 8) bit2 = id_return->len * 8 - 1;
+
 	int bit = MAX(bit1, bit2) + 1;
 	if (bit < 0 || bit >= id_return->len * 8)
 		return -1;
