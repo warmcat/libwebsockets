@@ -1059,10 +1059,12 @@ void
 lws_dht_clear_pending_notify(struct lws_dht_ctx *ctx, const uint8_t *tid, size_t tid_len)
 {
 #if defined(LWS_WITH_DHT_BACKEND)
-	struct storage *st = ctx->storage;
+	struct storage *st;
 
 	if (!ctx || !tid || tid_len != 16)
 		return;
+
+	st = ctx->storage;
 
 	while (st) {
 		struct subscriber *sub = st->subscribers;
