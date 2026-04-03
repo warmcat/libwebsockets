@@ -316,7 +316,7 @@ lws_auth_generate_token(struct per_vhost_data__auth_server *vhd,
 		(void)lws_b64_encode_string((const char *)vhd->jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].buf,
 							(int)vhd->jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len, pub64, sizeof(pub64));
 		lwsl_notice("auth_server issue: MATHEMATICAL PROOF -> JWK path loaded from '%s', Public X-Coord length '%d', Base64 X: '%s'\n",
-			vhd->jwk_path ? vhd->jwk_path : "NULL!!!", (int)vhd->jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len, pub64);
+			vhd->jwk_path[0] ? vhd->jwk_path : "NULL!!!", (int)vhd->jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len, pub64);
 	}
 
 	return lws_auth_issue_jwt(vhd, username, uid, claims, out, out_len);
@@ -1731,7 +1731,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 					(void)lws_b64_encode_string((const char *)vhd->jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].buf,
 										(int)vhd->jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len, pub64, sizeof(pub64));
 					lwsl_notice("auth_server status: MATHEMATICAL PROOF -> JWK path loaded from '%s', Public X-Coord length '%d', Base64 X: '%s'\n",
-						vhd->jwk_path ? vhd->jwk_path : "NULL!!!", (int)vhd->jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len, pub64);
+						vhd->jwk_path[0] ? vhd->jwk_path : "NULL!!!", (int)vhd->jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len, pub64);
 				}
 
 				lwsl_user("[AUTH-TRX] /status API endpoint returning users_empty=%d, logged_in=%d lacks_grant=%d\n", users_empty, logged_in, lacks_grant);

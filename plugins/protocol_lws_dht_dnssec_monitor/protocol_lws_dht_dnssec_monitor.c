@@ -1150,11 +1150,13 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_get_random(vhd->context, rand, sizeof(rand));
 				lws_hex_from_byte_array(rand, sizeof(rand), hex, sizeof(hex));
 
+#if defined(LWS_WITH_SECURE_STREAMS_AUTH_SIGV4)
 				lws_system_blob_t *b = lws_system_get_blob(vhd->context, LWS_SYSBLOB_TYPE_EXT_AUTH1, 0);
 				if (b) {
 					lws_system_blob_heap_empty(b);
 					lws_system_blob_heap_append(b, (const uint8_t *)hex, strlen(hex));
 				}
+#endif
 
 				/* Pass auth token directly to the child over non-visible stdin pipeline */
 				int fd = lws_spawn_get_fd_stdxxx(vhd->lsp, 0);

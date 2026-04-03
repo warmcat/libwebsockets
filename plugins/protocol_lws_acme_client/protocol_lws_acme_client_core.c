@@ -66,15 +66,16 @@ acme_ipc_save_payload(struct lws_context *cx, const char *uds_path, const char *
 
 	char header[3072];
 	char jwt[2048] = {0};
-	char temp[2048];
-	size_t jwt_len = sizeof(jwt);
 
 	/* Sign the payload with the proxy 64-byte secret preamble */
+#if defined(LWS_WITH_SECURE_STREAMS_AUTH_SIGV4)
 	lws_system_blob_t *b = lws_system_get_blob(cx, LWS_SYSBLOB_TYPE_EXT_AUTH1, 0);
 	if (b) {
 		size_t hex_len = lws_system_blob_get_size(b);
 		if (hex_len > 0) {
 			char hex[129];
+			char temp[2048];
+			size_t jwt_len = sizeof(jwt);
 			struct lws_jwk jwk;
 			if (hex_len >= sizeof(hex)) hex_len = sizeof(hex) - 1;
 			lws_system_blob_get(b, (uint8_t *)hex, &hex_len, 0);
@@ -93,6 +94,7 @@ acme_ipc_save_payload(struct lws_context *cx, const char *uds_path, const char *
 			lws_jwk_destroy(&jwk);
 		}
 	}
+#endif
 
 	int hlen = lws_snprintf(header, sizeof(header), "{\"req\":\"%s\",\"jwt\":\"%s\",\"domain\":\"%s\",\"subdomain\":\"%s\",\"zone\":\"", req, jwt, domain, filename);
 	write(fd, header, (size_t)hlen);

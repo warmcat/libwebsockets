@@ -7,7 +7,27 @@
 # $3+ - args
 
 J=`basename $2`.$1.$SAI_INSTANCE_IDX
-$2 $3 $4 $5 $6 $7 $8 $9 2>/tmp/ctest-background-$J 1>/dev/null 0</dev/null &
+
+EXE_PATH=""
+for arg in "$@"; do
+    if [[ "$arg" == *"test-server"* ]] || [[ "$arg" == *"minimal-"* ]]; then
+        if [ -f "$arg" ]; then
+            EXE_PATH="$arg"
+            break
+        fi
+    fi
+done
+
+if [ ! -z "$EXE_PATH" ]; then
+    BIN_DIR=`dirname "$EXE_PATH"`
+    BUILD_DIR=`dirname "$BIN_DIR"`
+    export LD_LIBRARY_PATH="$BUILD_DIR/lib:$LD_LIBRARY_PATH"
+fi
+
+# We shift off $1 (the background fixture name) so that "$@" contains only the executable and its args.
+shift
+
+"$@" 2>/tmp/ctest-background-$J 1>/dev/null 0</dev/null &
 echo $! > /tmp/sai-ctest-$J
 
 # really we want to loop until the listen port is up
@@ -18,8 +38,8 @@ echo $! > /tmp/sai-ctest-$J
 
 if [ -z "${SAI_LIST_PORT}" ] ; then
 
-	if [ ! -z "`echo $2 | grep valgrind`" ] ; then
-		sleep 5
+	if [ ! -z "`echo "$1" | grep valgrind`" ] ; then
+		sleep 15
 	else
 		sleep 1
 	fi

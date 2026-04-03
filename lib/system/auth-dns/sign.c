@@ -883,7 +883,10 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 			} else {
 				lwsl_err("%s: Failed to open or fstat KSK at %s\n", __func__, info->ksk_jwk_filepath);
 			}
-			if (fd_ksk >= 0) close(fd_ksk);
+			if (fd_ksk >= 0) {
+				close(fd_ksk);
+				fd_ksk = -1;
+			}
 		}
 
 		fd_zsk = open(info->zsk_jwk_filepath, LWS_O_RDONLY);
