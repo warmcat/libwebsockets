@@ -95,7 +95,8 @@ lws_system_parse_policy(struct lws_context *cx, const char *filepath, lws_system
 			char dir[256];
 			lws_strncpy(dir, filepath, sizeof(dir));
 			dir[pt - filepath] = '\0';
-			mkdir(dir, 0755);
+			if (mkdir(dir, 0755) < 0)
+				lwsl_debug("%s: mkdir %s failed (may exist)\n", __func__, dir);
 		}
 #endif
 		fd = lws_open(filepath, O_CREAT | O_WRONLY | O_TRUNC, 0644);
