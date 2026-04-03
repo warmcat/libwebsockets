@@ -1446,15 +1446,17 @@ after_refused:
 		} else {
 			if (reason == LWS_CALLBACK_USER && delayed_q) {
 				int sockfd = lws_get_socket_fd(wsi);
-				struct sockaddr *sa = (struct sockaddr *)&delayed_q->sa46_peer;
-				socklen_t salen = delayed_q->sa46_peer.sa4.sin_family == AF_INET6 ?
-						sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in);
+				if (sockfd >= 0) {
+					struct sockaddr *sa = (struct sockaddr *)&delayed_q->sa46_peer;
+					socklen_t salen = delayed_q->sa46_peer.sa4.sin_family == AF_INET6 ?
+							sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in);
 
-				ssize_t snt = sendto(sockfd, (char *)dbuf, (size_t)pss->len, 0, sa, salen);
-				if (snt < 0) {
-					lwsl_err("%s: sendto failed on fd %d: err %d\n", __func__, sockfd, errno);
-				} else {
-					lwsl_notice("%s: sendto succeeded %ld bytes to delayed peer on fd %d\n", __func__, (long)snt, sockfd);
+					ssize_t snt = sendto(sockfd, (char *)dbuf, (size_t)pss->len, 0, sa, salen);
+					if (snt < 0) {
+						lwsl_err("%s: sendto failed on fd %d: err %d\n", __func__, sockfd, errno);
+					} else {
+						lwsl_notice("%s: sendto succeeded %ld bytes to delayed peer on fd %d\n", __func__, (long)snt, sockfd);
+					}
 				}
 			} else {
 				lws_write(wsi, dbuf, (size_t)pss->len, LWS_WRITE_RAW);
