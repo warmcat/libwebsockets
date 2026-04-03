@@ -2044,6 +2044,11 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 	case LWS_DHT_EVENT_NOTIFY: {
 		struct vhd_dht_dnssec *vhd = (struct vhd_dht_dnssec *)closure;
 
+		if (!from || fromlen < sizeof(struct sockaddr_in)) {
+			lwsl_notice("%s: Rejecting NOTIFY with missing/invalid source address\n", __func__);
+			break;
+		}
+
 		uint64_t newer_soa = 0;
 		if (data_len >= 8) {
 			const uint8_t *p = (const uint8_t *)data;
@@ -2266,7 +2271,7 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 			args.cb = NULL; /* Local callback */
 			args.opaque = NULL;
 
-			if (from && fromlen >= sizeof(struct sockaddr_in)) {
+			{
 				struct notify_strike_tracking *trk = malloc(sizeof(*trk));
 				if (trk) {
 					memset(trk, 0, sizeof(*trk));
