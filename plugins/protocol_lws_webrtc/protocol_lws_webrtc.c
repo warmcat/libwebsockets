@@ -2023,10 +2023,13 @@ webrtc_handle_dtls(struct lws *wsi, struct pss_webrtc *pss, const struct sockadd
 		/* Check if we need to send anything */
 		uint8_t out[2048];
 		int _tx_len;
+		int _fd = (int)(lws_intptr_t)lws_get_socket_fd(wsi);
 		while ((_tx_len = lws_gendtls_get_tx(&pss->dtls_ctx, out, sizeof(out))) > 0) {
 			lwsl_notice("%s: Sending DTLS Reply (%d bytes)\n", __func__, _tx_len);
-			if (sendto(lws_get_socket_fd(wsi), (const char *)out, (size_t)_tx_len, 0, (const struct sockaddr *)sin, sizeof(*sin)) < 0) {
-				webrtc_pss_err(pss, "DTLS reply sendto failed: errno %d\n", errno);
+			if (_fd >= 0) {
+				if (sendto((lws_sockfd_type)(lws_intptr_t)_fd, (const char *)out, (size_t)_tx_len, 0, (const struct sockaddr *)sin, sizeof(*sin)) < 0) {
+					webrtc_pss_err(pss, "DTLS reply sendto failed: errno %d\n", errno);
+				}
 			}
 		}
 
