@@ -500,6 +500,8 @@ auth_dns_local_zone_cb(void *opaque, const char *domain, const char *payload_pat
 				}
 
 				if (buf) free(buf);
+			} else if (buf) {
+				free(buf);
 			}
 		}
 		close(fpin);
