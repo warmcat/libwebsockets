@@ -990,11 +990,11 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 												time(&now);
 
 											uint32_t dur = info->sign_validity_duration ? info->sign_validity_duration : (30 * 24 * 3600);
-											uint32_t exp = (uint32_t)now + dur;
+											uint64_t exp = (uint64_t)now + dur;
 											pre[pl++] = (uint8_t)(exp >> 24); pre[pl++] = (uint8_t)(exp >> 16);
 											pre[pl++] = (uint8_t)(exp >> 8); pre[pl++] = (uint8_t)(exp & 0xff);
 
-											uint32_t inc = (uint32_t)now - 3600; /* Start valid one hour before current time to account for clock skew */
+											uint64_t inc = (uint64_t)now - 3600; /* Start valid one hour before current time to account for clock skew */
 											pre[pl++] = (uint8_t)(inc >> 24); pre[pl++] = (uint8_t)(inc >> 16);
 											pre[pl++] = (uint8_t)(inc >> 8); pre[pl++] = (uint8_t)(inc & 0xff);
 
@@ -1306,16 +1306,16 @@ lws_auth_dns_verify_zone(struct lws_auth_dns_sign_info *info)
 						pre[pl++] = (uint8_t)(tttl >> 8); pre[pl++] = (uint8_t)(tttl & 0xff);
 
 						/* Convert YYYYMMDDHHMMSS back to Time... */
-						uint32_t texp = 0, tinc = 0;
+						uint64_t texp = 0, tinc = 0;
 						struct tm tm_exp, tm_inc;
 						memset(&tm_exp, 0, sizeof(tm_exp)); memset(&tm_inc, 0, sizeof(tm_inc));
 						if (sscanf(exp_s, "%04d%02d%02d%02d%02d%02d", &tm_exp.tm_year, &tm_exp.tm_mon, &tm_exp.tm_mday, &tm_exp.tm_hour, &tm_exp.tm_min, &tm_exp.tm_sec) == 6) {
 							tm_exp.tm_year -= 1900; tm_exp.tm_mon -= 1;
-							texp = (uint32_t)timegm(&tm_exp);
+							texp = (uint64_t)timegm(&tm_exp);
 						}
 						if (sscanf(inc_s, "%04d%02d%02d%02d%02d%02d", &tm_inc.tm_year, &tm_inc.tm_mon, &tm_inc.tm_mday, &tm_inc.tm_hour, &tm_inc.tm_min, &tm_inc.tm_sec) == 6) {
 							tm_inc.tm_year -= 1900; tm_inc.tm_mon -= 1;
-							tinc = (uint32_t)timegm(&tm_inc);
+							tinc = (uint64_t)timegm(&tm_inc);
 						}
 
 						pre[pl++] = (uint8_t)(texp >> 24); pre[pl++] = (uint8_t)(texp >> 16);
