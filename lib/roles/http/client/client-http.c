@@ -299,6 +299,8 @@ hs2:
 					   "cws");
 			return LWS_HPI_RET_WSI_ALREADY_DIED;
 		case LWS_SSL_CAPABLE_MORE_SERVICE:
+		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
+		case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
 			lws_callback_on_writable(wsi);
 			break;
 		}
@@ -421,12 +423,12 @@ client_http_body_sent:
 			buffered = lws_buflist_aware_read(pt, wsi, &eb, 0, __func__);
 			lwsl_debug("%s: buflist-aware-read %d %d\n", __func__,
 					buffered, eb.len);
-			if (eb.len == LWS_SSL_CAPABLE_MORE_SERVICE)
-				return 0;
-			if (buffered < 0 || eb.len < 0) {
+			if (buffered < 0) {
 				cce = "read failed";
 				goto bail3;
 			}
+			if (eb.len <= 0)
+				return 0;
 			if (!eb.len)
 				return 0;
 
