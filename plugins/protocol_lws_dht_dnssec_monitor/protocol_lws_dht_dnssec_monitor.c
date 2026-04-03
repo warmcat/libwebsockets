@@ -78,6 +78,9 @@ struct vhd {
 	/* UDS raw rx buffer for server */
 	uint8_t rx[LWS_PRE + 65536];
 	size_t rx_len;
+
+	char auth_token[129];
+	struct lws_jwk auth_jwk;
 };
 
 extern const struct lws_protocols lws_dht_dnssec_monitor_protocols[];
@@ -363,6 +366,7 @@ struct monitor_req_args {
 	char *zone_buf;
 	int zone_len;
 	int zone_alloc;
+	char jwt[2048];
 };
 
 static const char * const monitor_req_paths[] = {
@@ -373,6 +377,7 @@ static const char * const monitor_req_paths[] = {
 	"organization",
 	"directory_url",
 	"zone",
+	"jwt",
 };
 
 enum enum_req_paths {
@@ -383,6 +388,7 @@ enum enum_req_paths {
 	LRP_ORG,
 	LRP_DIR_URL,
 	LRP_ZONE,
+	LRP_JWT,
 };
 
 static signed char
@@ -433,6 +439,9 @@ monitor_req_cb(struct lejp_ctx *ctx, char reason)
 			if (reason == LEJPCB_VAL_STR_END) {
 				a->zone_buf[a->zone_len] = '\0';
 			}
+			break;
+		case LRP_JWT:
+			lws_strncpy(a->jwt, ctx->buf, sizeof(a->jwt));
 			break;
 		}
 	}
@@ -783,6 +792,35 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 
 	lwsl_notice("[INSTRUMENT] handle_monitor_request: Routed valid requested endpoint: '%s'\n", a.req);
 
+	if (vhd->auth_jwk.kty == LWS_GENCRYPTO_KTY_OCT) {
+		char jwt_out[2048];
+		size_t jwt_out_len = sizeof(jwt_out);
+		char jwt_temp[2048];
+		unsigned long exp_time;
+
+		if (!a.jwt[0]) {
+			lwsl_notice("[INSTRUMENT] Missing JWT preamble token\n");
+			root_pss->tx_len = (size_t)lws_snprintf(tx, 65536, "{\"status\":\"error\",\"msg\":\"Authentication Failed\"}\n");
+			goto done;
+		}
+
+		if (lws_jwt_signed_validate(vhd->context, &vhd->auth_jwk, "HS256", a.jwt, strlen(a.jwt), jwt_temp, sizeof(jwt_temp), jwt_out, &jwt_out_len)) {
+			lwsl_notice("[INSTRUMENT] Invalid/Forged JWT preamble token\n");
+			root_pss->tx_len = (size_t)lws_snprintf(tx, 65536, "{\"status\":\"error\",\"msg\":\"Authentication Failed\"}\n");
+			goto done;
+		}
+
+		if (lws_jwt_token_sanity(jwt_out, jwt_out_len, "acme-ipc", "dnssec-monitor", NULL, NULL, 0, &exp_time)) {
+			lwsl_notice("[INSTRUMENT] Expired/Invalid JWT claims\n");
+			root_pss->tx_len = (size_t)lws_snprintf(tx, 65536, "{\"status\":\"error\",\"msg\":\"Authentication Failed\"}\n");
+			goto done;
+		}
+	} else {
+		lwsl_notice("[INSTRUMENT] Warning: UDS monitor secret not bootstrapped, rejecting request!\n");
+		root_pss->tx_len = (size_t)lws_snprintf(tx, 65536, "{\"status\":\"error\",\"msg\":\"Authentication Failed\"}\n");
+		goto done;
+	}
+
 	/* Prevent path traversal attacks */
 	if (strchr(a.domain, '/') || strstr(a.domain, "..") || strchr(a.subdomain, '/') || strstr(a.subdomain, "..")) {
 		lwsl_notice("[INSTRUMENT] handle_monitor_request: Path traversal parameters detected\n");
@@ -1093,6 +1131,28 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 				vhd->root_process_active = 1;
 				lwsl_notice("%s: Spawned root monitor process successfully\n", __func__);
 
+				/* Generate secure HS256 auth token for UDS */
+				uint8_t rand[64];
+				char hex[129];
+				lws_get_random(vhd->context, rand, sizeof(rand));
+				lws_hex_from_byte_array(rand, sizeof(rand), hex, sizeof(hex));
+
+				lws_system_blob_t *b = lws_system_get_blob(vhd->context, LWS_SYSBLOB_TYPE_EXT_AUTH1, 0);
+				if (b) {
+					lws_system_blob_heap_empty(b);
+					lws_system_blob_heap_append(b, (const uint8_t *)hex, strlen(hex));
+				}
+
+				/* Pass auth token directly to the child over non-visible stdin pipeline */
+				int fd = lws_spawn_get_fd_stdxxx(vhd->lsp, 0);
+				if (fd >= 0) {
+					/* Write out the exact hex token plus newline */
+					if (write(fd, hex, strlen(hex)) < 0) {
+						lwsl_err("%s: write to child stdin failed\n", __func__);
+					}
+					if (write(fd, "\n", 1) < 0) {}
+				}
+
 				/* Engage parent monitor to execute DHT publications off completed JWS child drops cleanly */
 				lws_sul_schedule(vhd->context, 0, &vhd->sul_timer, parent_dnssec_monitor_timer_cb, 1 * LWS_US_PER_SEC);
 			} else {
@@ -1306,7 +1366,20 @@ callback_monitor_stdwsi(struct lws *wsi, enum lws_callback_reasons reason,
                         return -1;
                 }
                 buf[ilen] = '\0';
-                lwsl_notice("root-monitor: %s", buf);
+
+                {
+                        const struct lws_protocols *prot = lws_vhost_name_to_protocol(lws_get_vhost(wsi), "lws-dht-dnssec-monitor");
+                        struct vhd *vhd = (struct vhd *)lws_protocol_vh_priv_get(lws_get_vhost(wsi), prot);
+                        if (vhd && ilen >= 128) {
+                                lws_strncpy(vhd->auth_token, (const char *)buf, sizeof(vhd->auth_token));
+                                struct lws_jwk *jwk = &vhd->auth_jwk;
+                                jwk->kty = LWS_GENCRYPTO_KTY_OCT;
+                                jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].len = 64;
+                                jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].buf = malloc(64);
+                                lws_hex_to_byte_array((const char *)buf, jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].buf, 64);
+                                lwsl_notice("root-monitor: loaded 64-byte symmetric JWK from stdin successfully\n");
+                        }
+                }
                 return 0;
 
         default:

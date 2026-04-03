@@ -351,7 +351,7 @@ lws_auth_check_credentials(struct per_vhost_data__auth_server *vhd,
 	stored_hash = (const char *)sqlite3_column_text(stmt, 1);
 	salt = (const char *)sqlite3_column_text(stmt, 2);
 
-	lwsl_notice("CHECK_CREDENTIALS: user='%s', DB hash='%s', DB salt='%s'\n", username, stored_hash, salt);
+	lwsl_notice("CHECK_CREDENTIALS: user='%s'\n", username);
 
 	/* hash the input password with SHA-512 and salt */
 	if (!stored_hash || !salt || lws_genhash_init(&ctx, LWS_GENHASH_TYPE_SHA512)) {

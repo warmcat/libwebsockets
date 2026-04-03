@@ -51,7 +51,7 @@
 #include <sys/un.h>
 
 static int
-acme_ipc_save_payload(const char *uds_path, const char *req, const char *domain, const char *filename, const char *payload, size_t payload_len)
+acme_ipc_save_payload(struct lws_context *cx, const char *uds_path, const char *req, const char *domain, const char *filename, const char *payload, size_t payload_len)
 {
 	int fd = socket(AF_UNIX, SOCK_STREAM, 0);
 	if (fd < 0) return 1;
@@ -64,8 +64,37 @@ acme_ipc_save_payload(const char *uds_path, const char *req, const char *domain,
 		return 1;
 	}
 
-	char header[512];
-	int hlen = lws_snprintf(header, sizeof(header), "{\"req\":\"%s\",\"domain\":\"%s\",\"subdomain\":\"%s\",\"zone\":\"", req, domain, filename);
+	char header[3072];
+	char jwt[2048] = {0};
+	char temp[2048];
+	size_t jwt_len = sizeof(jwt);
+
+	/* Sign the payload with the proxy 64-byte secret preamble */
+	lws_system_blob_t *b = lws_system_get_blob(cx, LWS_SYSBLOB_TYPE_EXT_AUTH1, 0);
+	if (b) {
+		size_t hex_len = lws_system_blob_get_size(b);
+		if (hex_len > 0) {
+			char hex[129];
+			struct lws_jwk jwk;
+			if (hex_len >= sizeof(hex)) hex_len = sizeof(hex) - 1;
+			lws_system_blob_get(b, (uint8_t *)hex, &hex_len, 0);
+			hex[hex_len] = '\0';
+			memset(&jwk, 0, sizeof(jwk));
+			jwk.kty = LWS_GENCRYPTO_KTY_OCT;
+			jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].len = 64;
+			jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf = malloc(64);
+			lws_hex_to_byte_array(hex, jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf, 64);
+
+			uint64_t now = (uint64_t)lws_now_usecs() / LWS_US_PER_SEC;
+			lws_jwt_sign_compact(cx, &jwk, "HS256", jwt, &jwt_len, temp, sizeof(temp),
+			    "{\"iss\":\"acme-ipc\",\"aud\":\"dnssec-monitor\",\"iat\":%llu,\"exp\":%llu}",
+			    (unsigned long long)now, (unsigned long long)now + 300);
+
+			lws_jwk_destroy(&jwk);
+		}
+	}
+
+	int hlen = lws_snprintf(header, sizeof(header), "{\"req\":\"%s\",\"jwt\":\"%s\",\"domain\":\"%s\",\"subdomain\":\"%s\",\"zone\":\"", req, jwt, domain, filename);
 	write(fd, header, (size_t)hlen);
 
 	for (size_t i = 0; i < payload_len; i++) {
@@ -85,7 +114,7 @@ acme_ipc_save_payload(const char *uds_path, const char *req, const char *domain,
 }
 #else
 static int
-acme_ipc_save_payload(const char *uds_path, const char *req, const char *domain, const char *filename, const char *payload, size_t payload_len)
+acme_ipc_save_payload(struct lws_context *cx, const char *uds_path, const char *req, const char *domain, const char *filename, const char *payload, size_t payload_len)
 {
 	return 1;
 }
@@ -765,7 +794,7 @@ lws_acme_load_create_auth_keys(struct per_vhost_data__lws_acme_client *vhd,
                         const char *fp = vhd->active_cert->pvop[LWS_TLS_SET_AUTH_PATH];
                         const char *fn = strrchr(fp, '/');
                         if (fn) fn++; else fn = fp;
-                        int r = acme_ipc_save_payload("/var/run/lws-dnssec-monitor.sock",
+                        int r = acme_ipc_save_payload(vhd->context, "/var/run/lws-dnssec-monitor.sock",
                             "save_auth_key",
                             vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME],
                             fn,
@@ -1856,7 +1885,7 @@ poll_again:
 					lwsl_vhost_notice(vhd->vhost, "falling back to IPC footprint to save %s", cert_ts);
                     const char *fn = strrchr(cert_ts, '/');
                     if (fn) fn++; else fn = cert_ts;
-					int r = acme_ipc_save_payload("/var/run/lws-dnssec-monitor.sock", "save_cert", vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], fn, ac->buf, (size_t)ac->cpos);
+					int r = acme_ipc_save_payload(vhd->context, "/var/run/lws-dnssec-monitor.sock", "save_cert", vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], fn, ac->buf, (size_t)ac->cpos);
 					if (r) {
 						lwsl_vhost_err(vhd->vhost, "unable to create cert file %s", cert_ts);
 						goto failed;
@@ -1879,7 +1908,7 @@ poll_again:
 					lwsl_vhost_notice(vhd->vhost, "falling back to IPC footprint to save %s", key_ts);
                     const char *fn = strrchr(key_ts, '/');
                     if (fn) fn++; else fn = key_ts;
-					int r = acme_ipc_save_payload("/var/run/lws-dnssec-monitor.sock", "save_key", vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], fn, ac->alloc_privkey_pem, ac->len_privkey_pem);
+					int r = acme_ipc_save_payload(vhd->context, "/var/run/lws-dnssec-monitor.sock", "save_key", vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], fn, ac->alloc_privkey_pem, ac->len_privkey_pem);
 					if (r) {
 						lwsl_vhost_err(vhd->vhost, "unable to create key file %s", key_ts);
 						goto failed;
@@ -1902,7 +1931,7 @@ poll_again:
 					lwsl_vhost_notice(vhd->vhost, "falling back to IPC footprint to save %s", full_ts);
                     const char *fn = strrchr(full_ts, '/');
                     if (fn) fn++; else fn = full_ts;
-					int r = acme_ipc_save_payload("/var/run/lws-dnssec-monitor.sock", "save_cert", vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], fn, ac->buf, (size_t)cpos_fullchain);
+					int r = acme_ipc_save_payload(vhd->context, "/var/run/lws-dnssec-monitor.sock", "save_cert", vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], fn, ac->buf, (size_t)cpos_fullchain);
 					if (r) {
 						lwsl_vhost_err(vhd->vhost, "unable to create fullchain file %s", full_ts);
 					}
