@@ -767,6 +767,10 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 		(void)keytag_zsk; /* Silences unused variable warnings when loops branch differently */
 		struct lws_genec_ctx genec_zsk, genec_ksk;
 		struct lws_genrsa_ctx genrsa_zsk, genrsa_ksk;
+		memset(&genec_zsk, 0, sizeof(genec_zsk));
+		memset(&genec_ksk, 0, sizeof(genec_ksk));
+		memset(&genrsa_zsk, 0, sizeof(genrsa_zsk));
+		memset(&genrsa_ksk, 0, sizeof(genrsa_ksk));
 		int dnssec_alg = 13; /* Default ECDSAP256SHA256 */
 
 		if (info->ksk_jwk_filepath) {
@@ -1176,6 +1180,8 @@ lws_auth_dns_verify_zone(struct lws_auth_dns_sign_info *info)
 	memset(&zsk, 0, sizeof(zsk));
 	memset(&ksk, 0, sizeof(ksk));
 	struct lws_genec_ctx genec_zsk, genec_ksk;
+	memset(&genec_zsk, 0, sizeof(genec_zsk));
+	memset(&genec_ksk, 0, sizeof(genec_ksk));
 	int has_ksk = 0;
 
 	if (0) {
