@@ -1144,7 +1144,7 @@ lws_auth_dns_verify_zone(struct lws_auth_dns_sign_info *info)
 	fd = open(info->input_filepath, LWS_O_RDONLY);
 	if (fd < 0) return 1;
 
-	if (fstat(fd, &st) || !st.st_size) {
+	if (fstat(fd, &st) || st.st_size <= 0 || st.st_size > 1024 * 1024) {
 		close(fd);
 		return 1;
 	}
