@@ -3720,7 +3720,7 @@ do_signzone(struct lws_context *context, struct lws_dht_dnssec_signzone_args *ar
 
 	/* Create temporary merged zonefile if there are active ACME records */
 	struct vhd_dht_dnssec *v = get_dnssec_vhd(context, lws_get_vhost_by_name(context, "default"));
-	char withacme_path[256];
+	char withacme_path[256] = "";
 	int fd_in, fd_out;
 	ssize_t n;
 	char buf[4096];
