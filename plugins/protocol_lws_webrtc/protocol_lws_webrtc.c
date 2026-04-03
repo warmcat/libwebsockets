@@ -1953,7 +1953,7 @@ webrtc_handle_stun(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrtc **
 
 	// lwsl_notice("%s: Incoming STUN Request from %s:%u session %p\n", __func__, ads, ntohs(sin->sin_port), pss);
 	uint8_t out[512];
-	int n_stun = lws_stun_validate_and_reply(wsi, (uint8_t *)in, len, out, sizeof(out), pss ? pss->ice_pwd : NULL, sin);
+	int n_stun = lws_stun_validate_and_reply(wsi, (uint8_t *)in, len, out, sizeof(out), pss->ice_pwd, sin);
 	if (n_stun > 0) {
 		if (udp_desc) {
 			socklen_t slen = udp_desc->sa46.sa4.sin_family == AF_INET6 ? (socklen_t)sizeof(udp_desc->sa46.sa6) : (socklen_t)sizeof(udp_desc->sa46.sa4);
