@@ -3972,6 +3972,9 @@ dht_dnssec_sul_fetch_req_timeout(struct lws_sorted_usec_list *sul)
 	struct lws_dht_dnssec_fetch_req *req = lws_container_of(sul, struct lws_dht_dnssec_fetch_req, sul_timeout);
 	struct vhd_dht_dnssec *vhd = req->vhd;
 
+	if (!vhd)
+		return;
+
 	if (req->retries >= 3) {
 		lwsl_err("%s: Fetch req for %s fully timed out after 3 retries\n", __func__, req->domain);
 		if (req->cb) req->cb(req->opaque, req->domain, 0);
