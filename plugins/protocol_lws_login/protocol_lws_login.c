@@ -486,7 +486,8 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				}
 
 				path[0] = '\0';
-				lws_hdr_copy(wsi, path, sizeof(path), WSI_TOKEN_GET_URI);
+				if (lws_hdr_copy(wsi, path, sizeof(path), WSI_TOKEN_GET_URI) < 0)
+					lwsl_debug("%s: URI copy failed\n", __func__);
 
 				host[0] = '\0';
 				if (lws_hdr_copy(wsi, host, sizeof(host), WSI_TOKEN_HOST) > 0)
@@ -523,7 +524,8 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		path[0] = '\0';
-		lws_hdr_copy(wsi, path, sizeof(path), WSI_TOKEN_GET_URI);
+		if (lws_hdr_copy(wsi, path, sizeof(path), WSI_TOKEN_GET_URI) < 0)
+			lwsl_debug("%s: URI copy failed\n", __func__);
 
 		if (lws_login_ends_with(path, "/lws-login.css")) {
 			const char *css =
@@ -685,7 +687,8 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 	{
 		char path[256];
 		path[0] = '\0';
-		lws_hdr_copy(wsi, path, sizeof(path), WSI_TOKEN_POST_URI);
+		if (lws_hdr_copy(wsi, path, sizeof(path), WSI_TOKEN_POST_URI) < 0)
+			lwsl_debug("%s: URI copy failed\n", __func__);
 
 		if (lws_login_ends_with(path, "/.lws-login-sso")) {
 			if (!pss->spa) {
@@ -711,7 +714,8 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			return 1;
 
 		path[0] = '\0';
-		lws_hdr_copy(wsi, path, sizeof(path), WSI_TOKEN_POST_URI);
+		if (lws_hdr_copy(wsi, path, sizeof(path), WSI_TOKEN_POST_URI) < 0)
+			lwsl_debug("%s: URI copy failed\n", __func__);
 
 		if (lws_login_ends_with(path, "/.lws-login-sso")) {
 			if (pss->spa) {
