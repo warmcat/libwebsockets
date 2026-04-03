@@ -313,14 +313,27 @@ parent_scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 
 	struct stat st_jws, st_pub;
 	if (stat(jws_path, &st_jws) == 0) {
-		if (stat(pub_path, &st_pub) != 0 || st_jws.st_mtime > st_pub.st_mtime) {
+		int fd_pub = open(pub_path, O_RDWR);
+		int needs_pub = 0;
+
+		if (fd_pub < 0) {
+			fd_pub = open(pub_path, O_CREAT | O_RDWR, 0666);
+			needs_pub = 1;
+		} else if (fstat(fd_pub, &st_pub) == 0) {
+			if (st_jws.st_mtime > st_pub.st_mtime)
+				needs_pub = 1;
+		}
+
+		if (needs_pub) {
 			lwsl_notice("%s: Parent detected new JWS for %s! Triggering DHT publication loop.\n", __func__, lde->name);
 			if (vhd->ops && vhd->ops->publish_jws) {
 				vhd->ops->publish_jws(vhd->vhost, jws_path);
-				int fd = open(pub_path, O_CREAT|O_WRONLY|O_TRUNC, 0666);
-				if (fd >= 0) close(fd);
+				if (fd_pub >= 0) {
+					if (write(fd_pub, "\n", 1) < 0) {}
+				}
 			}
 		}
+		if (fd_pub >= 0) close(fd_pub);
 	}
 	return 0;
 }
