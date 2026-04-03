@@ -1107,7 +1107,8 @@ next_rrset:
 					lws_free(buf_zsk);
 				}
 			}
-			close(fd_zsk);
+			if (fd_zsk >= 0)
+				close(fd_zsk);
 		} else {
 			lwsl_err("%s: Failed to open ZSK at %s\n", __func__, info->zsk_jwk_filepath);
 		}
