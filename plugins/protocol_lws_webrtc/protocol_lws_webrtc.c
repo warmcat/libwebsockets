@@ -173,7 +173,7 @@ rtp_packet_tx_cb(void *priv, const uint8_t *pkt, size_t len, int marker)
 
 	(void)marker;
 
-	if (!media || !media->has_peer_sa46)
+	if (!media || !media->wsi_udp || !media->has_peer_sa46)
 		return;
 
 	memcpy(p, pkt, len);
@@ -510,7 +510,7 @@ lws_webrtc_send_pli(struct pss_webrtc *pss)
 	uint8_t pli[128 + LWS_PRE];
 	uint8_t *p = pli + LWS_PRE;
 
-	if (!media || !media->handshake_done)
+	if (!media || !media->wsi_udp || !media->handshake_done)
 		return 0;
 
 	if (!media->ssrc_peer_video) return 0;
@@ -1112,14 +1112,17 @@ handle_answer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, c
 
 	/* Trigger DTLS Client Hello */
 	lwsl_notice("%s: Checking DTLS Cond: started %d, done %d, peer %d\n", __func__, pss->handshake_started, pss->media ? pss->media->handshake_done : 0, pss->media ? pss->media->has_peer_sa46 : 0);
-	if (pss->media && pss->handshake_started && !pss->media->handshake_done && pss->media->has_peer_sa46) {
-		uint8_t dummy;
-		lws_gendtls_get_rx(&pss->dtls_ctx, &dummy, 1);
-		uint8_t out[2048];
-		int _tx_len;
-		while ((_tx_len = lws_gendtls_get_tx(&pss->dtls_ctx, out, sizeof(out))) > 0) {
-			webrtc_pss_log(pss, "Sending Initial DTLS ClientHello (%d bytes)\n", _tx_len);
-			sendto(lws_get_socket_fd(pss->media->wsi_udp), (const char *)out, (size_t)_tx_len, 0, (const struct sockaddr *)&pss->media->peer_sa46, pss->media->peer_sa46.sa4.sin_family == AF_INET6 ? (socklen_t)sizeof(pss->media->peer_sa46.sa6) : (socklen_t)sizeof(pss->media->peer_sa46.sa4));
+	if (pss->media && pss->media->wsi_udp && pss->handshake_started && !pss->media->handshake_done && pss->media->has_peer_sa46) {
+		int fd = (int)(lws_intptr_t)lws_get_socket_fd(pss->media->wsi_udp);
+		if (fd >= 0) {
+			uint8_t dummy;
+			lws_gendtls_get_rx(&pss->dtls_ctx, &dummy, 1);
+			uint8_t out[2048];
+			int _tx_len;
+			while ((_tx_len = lws_gendtls_get_tx(&pss->dtls_ctx, out, sizeof(out))) > 0) {
+				webrtc_pss_log(pss, "Sending Initial DTLS ClientHello (%d bytes)\n", _tx_len);
+				sendto((lws_sockfd_type)(lws_intptr_t)fd, (const char *)out, (size_t)_tx_len, 0, (const struct sockaddr *)&pss->media->peer_sa46, pss->media->peer_sa46.sa4.sin_family == AF_INET6 ? (socklen_t)sizeof(pss->media->peer_sa46.sa6) : (socklen_t)sizeof(pss->media->peer_sa46.sa4));
+			}
 		}
 	}
 
