@@ -1999,7 +1999,9 @@ webrtc_handle_dtls(struct lws *wsi, struct pss_webrtc *pss, const struct sockadd
 		int _tx_len;
 		while ((_tx_len = lws_gendtls_get_tx(&pss->dtls_ctx, out, sizeof(out))) > 0) {
 			lwsl_notice("%s: Sending DTLS Reply (%d bytes)\n", __func__, _tx_len);
-			sendto(lws_get_socket_fd(wsi), (const char *)out, (size_t)_tx_len, 0, (const struct sockaddr *)sin, sizeof(*sin));
+			if (sendto(lws_get_socket_fd(wsi), (const char *)out, (size_t)_tx_len, 0, (const struct sockaddr *)sin, sizeof(*sin)) < 0) {
+				webrtc_pss_err(pss, "DTLS reply sendto failed: errno %d\n", errno);
+			}
 		}
 
 		if (!pss->media->handshake_done && lws_gendtls_handshake_done(&pss->dtls_ctx)) {
