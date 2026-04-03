@@ -92,6 +92,48 @@ lws_login_jwt_auth_cb(struct lws_jwt_auth *ja, int state, void *user)
 }
 
 static int
+auth_verify_redirect_uri(struct vhd_login *vhd, const char *redirect_uri)
+{
+	sqlite3_stmt *stmt;
+	int valid = 0;
+
+	if (!redirect_uri || !redirect_uri[0])
+		return 0;
+
+	if (strstr(redirect_uri, "../") || strstr(redirect_uri, "..%2F") ||
+	    strstr(redirect_uri, "..%2f"))
+		return 0;
+
+	if (sqlite3_prepare_v2(vhd->db, "SELECT redirect_uris FROM oauth_clients", -1, &stmt, NULL) == SQLITE_OK) {
+		while (!valid && sqlite3_step(stmt) == SQLITE_ROW) {
+			const char *uris = (const char *)sqlite3_column_text(stmt, 0);
+			if (uris) {
+				const char *p = uris;
+				while (p && *p) {
+					while (*p == ' ') p++;
+					const char *comma = strchr(p, ',');
+					size_t len = comma ? lws_ptr_diff_size_t(comma, p) : strlen(p);
+					while (len > 0 && p[len - 1] == ' ') len--;
+					while (len > 0 && p[len - 1] == '/') len--;
+					if (len > 0) {
+						if (!strncmp(redirect_uri, p, len)) {
+							char next = redirect_uri[len];
+							if (next == '\0' || next == '/' || next == '?' || next == '#') {
+								valid = 1;
+								break;
+							}
+						}
+					}
+					p = comma ? comma + 1 : NULL;
+				}
+			}
+		}
+		sqlite3_finalize(stmt);
+	}
+	return valid;
+}
+
+static int
 callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		   void *user, void *in, size_t len)
 {
@@ -747,25 +789,10 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 					if (target[0] == '/' && target[1] != '/') {
 						final_target = target;
 					} else if (vhd->db) {
-						char alt_target[512];
-						int t_len = (int)strlen(target);
-						lws_strncpy(alt_target, target, sizeof(alt_target));
-						if (t_len > 0 && alt_target[t_len - 1] == '/')
-							alt_target[t_len - 1] = '\0';
-						else if (t_len < (int)sizeof(alt_target) - 2) {
-							alt_target[t_len] = '/';
-							alt_target[t_len + 1] = '\0';
-						}
-						sqlite3_stmt *stmt;
-						if (sqlite3_prepare_v2(vhd->db, "SELECT 1 FROM oauth_clients WHERE (',' || redirect_uris || ',') LIKE ('%,' || ? || ',%') OR (',' || redirect_uris || ',') LIKE ('%,' || ? || ',%')", -1, &stmt, NULL) == SQLITE_OK) {
-							sqlite3_bind_text(stmt, 1, target, -1, SQLITE_STATIC);
-							sqlite3_bind_text(stmt, 2, alt_target, -1, SQLITE_STATIC);
-							if (sqlite3_step(stmt) == SQLITE_ROW) {
-								final_target = target;
-							} else {
-								lwsl_err("%s: untrusted absolute target %s\n", __func__, target);
-							}
-							sqlite3_finalize(stmt);
+						if (auth_verify_redirect_uri(vhd, target)) {
+							final_target = target;
+						} else {
+							lwsl_err("%s: untrusted absolute target %s\n", __func__, target);
 						}
 					}
 				}

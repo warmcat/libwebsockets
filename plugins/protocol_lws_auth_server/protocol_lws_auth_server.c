@@ -457,6 +457,79 @@ auth_record_strike(struct per_vhost_data__auth_server *vhd, const char *ip)
 }
 
 static int
+auth_verify_redirect_uri(struct per_vhost_data__auth_server *vhd,
+			 const char *client_id, const char *redirect_uri)
+{
+	sqlite3_stmt *stmt;
+	int valid = 0;
+
+	if (!redirect_uri || !redirect_uri[0])
+		return 0;
+
+	if (strstr(redirect_uri, "../") || strstr(redirect_uri, "..%2F") ||
+	    strstr(redirect_uri, "..%2f"))
+		return 0;
+
+	if (client_id && client_id[0]) {
+		if (sqlite3_prepare_v2(vhd->db, "SELECT redirect_uris FROM oauth_clients WHERE client_id = ?", -1, &stmt, NULL) == SQLITE_OK) {
+			sqlite3_bind_text(stmt, 1, client_id, -1, SQLITE_STATIC);
+			if (sqlite3_step(stmt) == SQLITE_ROW) {
+				const char *uris = (const char *)sqlite3_column_text(stmt, 0);
+				if (uris) {
+					const char *p = uris;
+					while (p && *p) {
+						while (*p == ' ') p++;
+						const char *comma = strchr(p, ',');
+						size_t len = comma ? lws_ptr_diff_size_t(comma, p) : strlen(p);
+						while (len > 0 && p[len - 1] == ' ') len--;
+						while (len > 0 && p[len - 1] == '/') len--;
+						if (len > 0) {
+							if (!strncmp(redirect_uri, p, len)) {
+								char next = redirect_uri[len];
+								if (next == '\0' || next == '/' || next == '?' || next == '#') {
+									valid = 1;
+									break;
+								}
+							}
+						}
+						p = comma ? comma + 1 : NULL;
+					}
+				}
+			}
+			sqlite3_finalize(stmt);
+		}
+	} else {
+		if (sqlite3_prepare_v2(vhd->db, "SELECT redirect_uris FROM oauth_clients", -1, &stmt, NULL) == SQLITE_OK) {
+			while (!valid && sqlite3_step(stmt) == SQLITE_ROW) {
+				const char *uris = (const char *)sqlite3_column_text(stmt, 0);
+				if (uris) {
+					const char *p = uris;
+					while (p && *p) {
+						while (*p == ' ') p++;
+						const char *comma = strchr(p, ',');
+						size_t len = comma ? lws_ptr_diff_size_t(comma, p) : strlen(p);
+						while (len > 0 && p[len - 1] == ' ') len--;
+						while (len > 0 && p[len - 1] == '/') len--;
+						if (len > 0) {
+							if (!strncmp(redirect_uri, p, len)) {
+								char next = redirect_uri[len];
+								if (next == '\0' || next == '/' || next == '?' || next == '#') {
+									valid = 1;
+									break;
+								}
+							}
+						}
+						p = comma ? comma + 1 : NULL;
+					}
+				}
+			}
+			sqlite3_finalize(stmt);
+		}
+	}
+	return valid;
+}
+
+static int
 send_auth_headers(struct lws *wsi, struct per_session_data__auth_server *pss, const char *content_type, const char *cookie)
 {
 	uint8_t buf[2048 + LWS_PRE], *start = &buf[LWS_PRE], *p = start, *end = &buf[sizeof(buf) - 1], *pq;
@@ -548,25 +621,7 @@ lws_auth_api_sso_exchange(struct lws *wsi, struct per_vhost_data__auth_server *v
 
 	const char *redirect_uri = lws_spa_get_string(pss->spa, EP_REDIRECT_URI);
 	if (redirect_uri && redirect_uri[0]) {
-		int uri_valid = 0;
-		char alt_uri[512];
-		int u_len = (int)strlen(redirect_uri);
-		lws_strncpy(alt_uri, redirect_uri, sizeof(alt_uri));
-		if (u_len > 0 && alt_uri[u_len - 1] == '/')
-			alt_uri[u_len - 1] = '\0';
-		else if (u_len < (int)sizeof(alt_uri) - 2) {
-			alt_uri[u_len] = '/';
-			alt_uri[u_len + 1] = '\0';
-		}
-		sqlite3_stmt *stmt_uri;
-		if (sqlite3_prepare_v2(vhd->db, "SELECT 1 FROM oauth_clients WHERE (',' || redirect_uris || ',') LIKE ('%,' || ? || ',%') OR (',' || redirect_uris || ',') LIKE ('%,' || ? || ',%')", -1, &stmt_uri, NULL) == SQLITE_OK) {
-			sqlite3_bind_text(stmt_uri, 1, redirect_uri, -1, SQLITE_STATIC);
-			sqlite3_bind_text(stmt_uri, 2, alt_uri, -1, SQLITE_STATIC);
-			if (sqlite3_step(stmt_uri) == SQLITE_ROW)
-				uri_valid = 1;
-			sqlite3_finalize(stmt_uri);
-		}
-		if (!uri_valid) {
+		if (!auth_verify_redirect_uri(vhd, NULL, redirect_uri)) {
 			pss->http_response_code = HTTP_STATUS_BAD_REQUEST;
 			len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Untrusted redirect URI\"}");
 			goto send;
@@ -710,24 +765,7 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 
 	/* Emulate OAuth2 whitelist logic for native SSO redirect_uri requests */
 	if ((!client_id || !client_id[0]) && redirect_uri && redirect_uri[0]) {
-		int uri_valid = 0;
-		char alt_uri[512];
-		int u_len = (int)strlen(redirect_uri);
-		lws_strncpy(alt_uri, redirect_uri, sizeof(alt_uri));
-		if (u_len > 0 && alt_uri[u_len - 1] == '/')
-			alt_uri[u_len - 1] = '\0';
-		else if (u_len < (int)sizeof(alt_uri) - 2) {
-			alt_uri[u_len] = '/';
-			alt_uri[u_len + 1] = '\0';
-		}
-		if (sqlite3_prepare_v2(vhd->db, "SELECT 1 FROM oauth_clients WHERE (',' || redirect_uris || ',') LIKE ('%,' || ? || ',%') OR (',' || redirect_uris || ',') LIKE ('%,' || ? || ',%')", -1, &stmt, NULL) == SQLITE_OK) {
-			sqlite3_bind_text(stmt, 1, redirect_uri, -1, SQLITE_STATIC);
-			sqlite3_bind_text(stmt, 2, alt_uri, -1, SQLITE_STATIC);
-			if (sqlite3_step(stmt) == SQLITE_ROW)
-				uri_valid = 1;
-			sqlite3_finalize(stmt);
-		}
-		if (!uri_valid) {
+		if (!auth_verify_redirect_uri(vhd, NULL, redirect_uri)) {
 			pss->http_response_code = HTTP_STATUS_BAD_REQUEST;
 			len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Untrusted redirect URI\"}");
 			goto send;
@@ -739,25 +777,7 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		const char *state = lws_spa_get_string(pss->spa, EP_STATE);
 		const char *code_challenge = lws_spa_get_string(pss->spa, EP_CODE_CHALLENGE);
 		const char *code_challenge_method = lws_spa_get_string(pss->spa, EP_CODE_CHALLENGE_METHOD);
-		int client_valid = 0;
-
-		char alt_uri[512];
-		int u_len = (int)strlen(redirect_uri);
-		lws_strncpy(alt_uri, redirect_uri, sizeof(alt_uri));
-		if (u_len > 0 && alt_uri[u_len - 1] == '/')
-			alt_uri[u_len - 1] = '\0';
-		else if (u_len < (int)sizeof(alt_uri) - 2) {
-			alt_uri[u_len] = '/';
-			alt_uri[u_len + 1] = '\0';
-		}
-		if (sqlite3_prepare_v2(vhd->db, "SELECT 1 FROM oauth_clients WHERE client_id = ? AND ((',' || redirect_uris || ',') LIKE ('%,' || ? || ',%') OR (',' || redirect_uris || ',') LIKE ('%,' || ? || ',%'))", -1, &stmt, NULL) == SQLITE_OK) {
-			sqlite3_bind_text(stmt, 1, client_id, -1, SQLITE_STATIC);
-			sqlite3_bind_text(stmt, 2, redirect_uri, -1, SQLITE_STATIC);
-			sqlite3_bind_text(stmt, 3, alt_uri, -1, SQLITE_STATIC);
-			if (sqlite3_step(stmt) == SQLITE_ROW)
-				client_valid = 1;
-			sqlite3_finalize(stmt);
-		}
+		int client_valid = auth_verify_redirect_uri(vhd, client_id, redirect_uri);
 
 		if (!client_valid) {
 			pss->http_response_code = HTTP_STATUS_BAD_REQUEST;
@@ -1999,25 +2019,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 
 			sqlite3_stmt *stmt;
-			int client_valid = 0;
-			/* Vulnerability risk if LIKE is unsanitized, but we use safe bindings */
-			char alt_uri[512];
-			int u_len = (int)strlen(redirect_uri);
-			lws_strncpy(alt_uri, redirect_uri, sizeof(alt_uri));
-			if (u_len > 0 && alt_uri[u_len - 1] == '/')
-				alt_uri[u_len - 1] = '\0';
-			else if (u_len < (int)sizeof(alt_uri) - 2) {
-				alt_uri[u_len] = '/';
-				alt_uri[u_len + 1] = '\0';
-			}
-			if (sqlite3_prepare_v2(vhd->db, "SELECT 1 FROM oauth_clients WHERE client_id = ? AND ((',' || redirect_uris || ',') LIKE ('%,' || ? || ',%') OR (',' || redirect_uris || ',') LIKE ('%,' || ? || ',%'))", -1, &stmt, NULL) == SQLITE_OK) {
-				sqlite3_bind_text(stmt, 1, client_id, -1, SQLITE_TRANSIENT);
-				sqlite3_bind_text(stmt, 2, redirect_uri, -1, SQLITE_TRANSIENT);
-				sqlite3_bind_text(stmt, 3, alt_uri, -1, SQLITE_TRANSIENT);
-				if (sqlite3_step(stmt) == SQLITE_ROW)
-					client_valid = 1;
-				sqlite3_finalize(stmt);
-			}
+			int client_valid = auth_verify_redirect_uri(vhd, client_id, redirect_uri);
 
 			if (!client_valid) {
 				lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, "Invalid client_id or redirect_uri");
