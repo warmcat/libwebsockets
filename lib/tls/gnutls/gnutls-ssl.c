@@ -114,6 +114,9 @@ lws_tls_server_accept(struct lws *wsi)
 	lws_usec_t _g_ssl_acc_start = lws_now_usecs();
 #endif
 
+	if (!wsi->tls.ssl)
+		return LWS_SSL_CAPABLE_ERROR;
+
 	n = gnutls_handshake((gnutls_session_t)wsi->tls.ssl);
 	lwsl_debug("%s: gnutls_handshake returned %d\n", __func__, n);
 
@@ -152,6 +155,9 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
 {
 	int n;
 
+	if (!wsi->tls.ssl)
+		return LWS_SSL_CAPABLE_ERROR;
+
 	n = gnutls_handshake((gnutls_session_t)wsi->tls.ssl);
 	if (n == GNUTLS_E_SUCCESS)
 		return LWS_SSL_CAPABLE_DONE;
@@ -180,6 +186,9 @@ int
 lws_ssl_get_error(struct lws *wsi, int n)
 {
 	if (n == GNUTLS_E_AGAIN || n == GNUTLS_E_INTERRUPTED) {
+		if (!wsi->tls.ssl)
+			return 2; /* SSL_ERROR_WANT_READ */
+
 		if (gnutls_record_get_direction((gnutls_session_t)wsi->tls.ssl) == 0)
 			return 2; /* SSL_ERROR_WANT_READ */
 
@@ -194,6 +203,9 @@ __lws_tls_shutdown(struct lws *wsi)
 {
 	int n;
 
+	if (!wsi->tls.ssl)
+		return LWS_SSL_CAPABLE_DONE;
+
 	n = gnutls_bye((gnutls_session_t)wsi->tls.ssl, GNUTLS_SHUT_WR);
 	if (n == GNUTLS_E_SUCCESS)
 		return LWS_SSL_CAPABLE_DONE;
@@ -207,7 +219,12 @@ __lws_tls_shutdown(struct lws *wsi)
 enum lws_ssl_capable_status
 lws_tls_server_abort_connection(struct lws *wsi)
 {
-	__lws_tls_shutdown(wsi);
+	if (wsi->tls.ssl) {
+		__lws_tls_shutdown(wsi);
+		gnutls_deinit((gnutls_session_t)wsi->tls.ssl);
+		wsi->tls.ssl = NULL;
+	}
+
 	return LWS_SSL_CAPABLE_DONE;
 }
 

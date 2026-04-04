@@ -123,10 +123,21 @@ bucket_middle(struct bucket *b, lws_dht_hash_t *id_return)
 static int
 bucket_random(struct lws_dht_ctx *ctx, struct bucket *b, lws_dht_hash_t *id_return)
 {
-	int bit1 = lowbit(b->first);
+	int i, r, bit, bit1 = lowbit(b->first);
 	int bit2 = b->next ? lowbit(b->next->first) : -1;
-	int bit = MAX(bit1, bit2) + 1;
-	int i, r;
+	int max_bits = id_return->len * 8;
+
+	if (bit1 >= max_bits)
+		bit1 = max_bits - 1;
+	if (bit2 >= max_bits)
+		bit2 = max_bits - 1;
+
+	if (bit1 < -1)
+		bit1 = -1;
+	if (bit2 < -1)
+		bit2 = -1;
+
+	bit = MAX(bit1, bit2) + 1;
 
 	if (bit < 0 || bit >= id_return->len * 8) {
 		memcpy(id_return->id, b->first->id, b->first->len);

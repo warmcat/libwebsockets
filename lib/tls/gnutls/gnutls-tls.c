@@ -438,6 +438,9 @@ bail:
 int
 lws_tls_session_is_reused(struct lws *wsi)
 {
+	if (!wsi->tls.ssl)
+		return 0;
+
 	return (int)gnutls_session_is_resumed((gnutls_session_t)wsi->tls.ssl);
 }
 
