@@ -105,7 +105,7 @@ lws_cgi_env_add(char **e_array, int *n, int max_n, char **p, char *end,
 	len = vsnprintf(*p, (size_t)space, fmt, ap);
 	va_end(ap);
 
-	if (len >= space)
+	if (len < 0 || len >= space)
 		return -1;
 
 	*p += len + 1;
@@ -149,7 +149,7 @@ lws_cgi_via_info(struct lws_cgi_info * cgiinfo)
 {
 	struct lws_context_per_thread *pt = &cgiinfo->wsi->a.context->pt[(int)cgiinfo->wsi->tsi];
 	struct lws_spawn_piped_info info;
-	char *env_array[30], cgi_path[500], e[1024], *p = e,
+	char *env_array[64], cgi_path[500], e[4096], *p = e,
 	     *end = p + sizeof(e) - 1, tok[256], *t, *sum, *sumend;
 	struct lws_cgi *cgi;
 	int n, m = 0, i, uritok = -1, c;
@@ -896,17 +896,33 @@ agin:
 	/* payload processing */
 
 	m = !wsi->http.cgi->implied_chunked && !wsi->mux_substream &&
-	//    !wsi->http.cgi->explicitly_chunked &&
 	    !wsi->http.cgi->content_length;
 	n = lws_get_socket_fd(wsi->http.cgi->lsp->stdwsi[LWS_STDOUT]);
 	if (n < 0)
 		return -1;
-	n = (int)read(n, start, sizeof(buf) - LWS_PRE - 16);
+
+	lws_fileofs_t wa = lws_get_peer_write_allowance(wsi);
+	if (wa == 0) {
+		/* HTTP/2 flow control window is exhausted; yield and wait for WINDOW_UPDATE */
+		return 0;
+	}
+
+	int to_read = sizeof(buf) - LWS_PRE - 16;
+	if (wa > 0 && to_read > (int)wa)
+		to_read = (int)wa;
+
+	n = (int)read(n, start, (size_t)to_read);
 
 	if (n < 0 && errno != EAGAIN) {
 		lwsl_wsi_debug(wsi, "stdout read says %d", n);
 		return -1;
 	}
+
+	if (n < 0 && errno == EAGAIN) {
+		lwsl_wsi_notice(wsi, "CGI stdout EAGAIN... yielding instead of EOF");
+		return 0;
+	}
+
 	if (n > 0) {
 		// lwsl_hexdump_notice(buf, n);
 
@@ -948,6 +964,8 @@ agin:
 		wsi->http.cgi->content_length_seen += (unsigned int)n;
 	} else {
 
+		lwsl_wsi_info(wsi, "CGI stdout reached EOF (n=%d)", n);
+
 		if (!wsi->mux_substream && m) {
 			uint8_t term[LWS_PRE + 6];
 
@@ -965,10 +983,11 @@ agin:
 
 		if (wsi->cgi_stdout_zero_length) {
 			lwsl_wsi_debug(wsi, "stdout is POLLHUP'd");
-			if (wsi->mux_substream)
+			if (wsi->mux_substream) {
 				m = lws_write(wsi, (unsigned char *)start, 0,
 					      LWS_WRITE_HTTP_FINAL);
-			else
+				wsi->http.cgi->cgi_transaction_over = 1;
+			} else
 				return -1;
 			return 1;
 		}

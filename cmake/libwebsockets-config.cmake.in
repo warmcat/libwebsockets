@@ -11,7 +11,7 @@ list(APPEND CMAKE_MODULE_PATH ${libwebsockets_DIR})
 set(LIBWEBSOCKETS_INCLUDE_DIRS "@LWS__INCLUDE_DIRS@")
 
 # Include the project Targets file, this contains definitions for IMPORTED targets.
-if (LIB_LIST_AT_END)
+if (TARGET websockets OR TARGET websockets_shared)
 else()
 include(${LWS_CMAKE_DIR}/LibwebsocketsTargets.cmake)
 endif()

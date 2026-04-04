@@ -539,13 +539,13 @@ send_auth_headers(struct lws *wsi, struct per_session_data__auth_server *pss, co
         if (lws_add_http_common_headers(wsi, resp_code, content_type,
                                         (unsigned int)(amount ? amount - LWS_PRE: LWS_ILLEGAL_HTTP_CONTENT_LEN), &p,
                                         end)) {
-                lwsl_user("[AUTH-TRX] send_auth_headers custom hdr err\n");
+                lwsl_info("send_auth_headers custom hdr err\n");
 
                 return -1;
         }
         if (pss->totp_required &&
             lws_add_http_header_by_name(wsi, (unsigned char *)"X-Requires-TOTP:", (unsigned char *)"1", 1, &p, end)) {
-                lwsl_user("[AUTH-TRX] send_auth_headers custom hdr err\n");
+                lwsl_info("send_auth_headers custom hdr err\n");
 
                 return -1;
         }
@@ -555,11 +555,11 @@ send_auth_headers(struct lws *wsi, struct per_session_data__auth_server *pss, co
         if (lws_add_http_header_by_name(wsi, (unsigned char *)"Expires:", (unsigned char *)"0", 1, &p, end)) return -1;
 
 	if (cookie && lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie, (int)strlen(cookie), &p, end)) {
-		lwsl_user("[AUTH-TRX] send_auth_headers cookie hdr err\n");
+		lwsl_info("send_auth_headers cookie hdr err\n");
 		return -1;
 	}
 	if (lws_finalize_write_http_header(wsi, start, &p, end)) {
-		lwsl_user("[AUTH-TRX] send_auth_headers final hdr err\n");
+		lwsl_info("send_auth_headers final hdr err\n");
 		return -1;
 	}
 
@@ -699,7 +699,7 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	}
 
 	if (users_empty) {
-		lwsl_user("[AUTH-TRX] login rejected (database completely empty)\n");
+		lwsl_info("login rejected (database completely empty)\n");
 		auth_record_strike(vhd, peer);
 		pss->http_response_code = HTTP_STATUS_UNAUTHORIZED;
                 len = lws_snprintf(
@@ -719,7 +719,7 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 
 	if (lws_auth_check_credentials(vhd, user, pass, &uid)) {
 		lwsl_err("%s: Validation failed for user '%s'\n", __func__, user);
-		lwsl_user("[AUTH-TRX] login bad credentials\n");
+		lwsl_info("login bad credentials\n");
 		auth_record_strike(vhd, peer);
 		pss->http_response_code = HTTP_STATUS_UNAUTHORIZED;
 		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Validation failed\"}");
@@ -746,7 +746,7 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 
 	if (totp_secret[0]) {
 		if (!totp_code_str || !totp_code_str[0]) {
-			lwsl_user("[AUTH-TRX] login missing TOTP\n");
+			lwsl_info("login missing TOTP\n");
 			pss->http_response_code = HTTP_STATUS_UNAUTHORIZED;
 			pss->totp_required = 1;
 			len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Authenticator Code Required\"}");
@@ -756,7 +756,7 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		uint32_t code = (uint32_t)atoi(totp_code_str);
 		if (lws_auth_totp_verify(totp_secret, code)) {
 			auth_record_strike(vhd, peer);
-			lwsl_user("[AUTH-TRX] login bad TOTP\n");
+			lwsl_info("login bad TOTP\n");
 			pss->http_response_code = HTTP_STATUS_UNAUTHORIZED;
 			len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Invalid Authenticator Code\"}");
 			goto send;
@@ -835,7 +835,7 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		goto send;
         }
 
-	lwsl_user("[AUTH-TRX] login token generation failed, dropping conn.\n");
+	lwsl_info("login token generation failed, dropping conn.\n");
 	pss->http_response_code = HTTP_STATUS_INTERNAL_SERVER_ERROR;
 	len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Internal Error\"}");
 
@@ -1012,7 +1012,7 @@ lws_auth_api_register(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	} else {
 		/* Not empty: enforce public registration policy */
 		if (!vhd->registration_ui) {
-			lwsl_user("[AUTH-TRX] reg denied (ui disabled)\n");
+			lwsl_info("reg denied (ui disabled)\n");
 			pss->http_response_code = HTTP_STATUS_FORBIDDEN;
 			len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Registration Disabled\"}");
 			goto send;
@@ -1032,7 +1032,7 @@ lws_auth_api_register(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 
 	if (!user || !pass) {
 		lwsl_err("%s: Missing credentials in POST\n", __func__);
-		lwsl_user("[AUTH-TRX] reg missing credentials POST\n");
+		lwsl_info("reg missing credentials POST\n");
 		pss->http_response_code = HTTP_STATUS_BAD_REQUEST;
 		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Missing Credentials\"}");
 		goto send;
@@ -1040,7 +1040,7 @@ lws_auth_api_register(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 
 	int user_len = (int)strlen(user);
 	if (user_len < 3 || user_len > 64) {
-		lwsl_user("[AUTH-TRX] reg invalid username length\n");
+		lwsl_info("reg invalid username length\n");
 		pss->http_response_code = HTTP_STATUS_BAD_REQUEST;
 		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Invalid Username length\"}");
 		goto send;
@@ -1051,7 +1051,7 @@ lws_auth_api_register(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
 		      (c >= '0' && c <= '9') || c == '@' || c == '.' ||
 		      c == '-' || c == '_' || c == '+')) {
-			lwsl_user("[AUTH-TRX] reg invalid charset\n");
+			lwsl_info("reg invalid charset\n");
 			pss->http_response_code = HTTP_STATUS_BAD_REQUEST;
 			len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Invalid Username characters\"}");
 			goto send;
@@ -1070,7 +1070,7 @@ lws_auth_api_register(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	}
 
 	if (exists) {
-		lwsl_user("[AUTH-TRX] reg denied: email already fully registered\n");
+		lwsl_info("reg denied: email already fully registered\n");
 		auth_record_strike(vhd, peer);
 		pss->http_response_code = 409;
 		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Email already registered\"}");
@@ -1084,7 +1084,7 @@ lws_auth_api_register(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	}
 
 	if (exists) {
-		lwsl_user("[AUTH-TRX] reg denied: pending verification already circulating\n");
+		lwsl_info("reg denied: pending verification already circulating\n");
 		auth_record_strike(vhd, peer);
 		pss->http_response_code = 409;
 		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Verification pending. Check your email or wait for it to naturally expire.\"}");
@@ -1123,7 +1123,7 @@ lws_auth_api_register(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
                 sqlite3_finalize(stmt);
 
                 if (sr != SQLITE_DONE) {
-                        lwsl_err("[AUTH-TRX] DB insert failed: %s\n", sqlite3_errmsg(vhd->db));
+                        lwsl_err("DB insert failed: %s\n", sqlite3_errmsg(vhd->db));
                         auth_record_strike(vhd, peer);
                         pss->http_response_code = HTTP_STATUS_BAD_REQUEST;
                         len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"User creation failed\"}");
@@ -1155,13 +1155,13 @@ lws_auth_api_register(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 
                 pss->http_response_code = HTTP_STATUS_OK;
                 len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"status\":\"Verification dispatched\"}");
-                lwsl_user("[AUTH-TRX] reg successful, dispatched verification.\n");
+                lwsl_info("reg successful, dispatched verification.\n");
 
                 goto send;
 
 	}
 fail:
-	lwsl_user("[AUTH-TRX] reg hash generation or DB query failed\n");
+	lwsl_info("reg hash generation or DB query failed\n");
 	auth_record_strike(vhd, peer);
 	pss->http_response_code = HTTP_STATUS_INTERNAL_SERVER_ERROR;
 	len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Internal Error\"}");
@@ -1426,7 +1426,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_HTTP:
-		lwsl_user("[AUTH-TRX] HTTP: path='%s'\n", in ? (const char *)in : "NULL");
+		lwsl_info("HTTP: path='%s'\n", in ? (const char *)in : "NULL");
 		{
 			char peer[64];
 			lws_get_peer_simple(wsi, peer, sizeof(peer));
@@ -1603,10 +1603,10 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 					if (count == 0)
 						users_empty = 1;
 				}
-				lwsl_notice("[AUTH-TRX] DB DEBUG: COUNT(*) row query: step_rc=%d (SQLITE_ROW=%d), count=%d -> users_empty=%d\n", step_rc, SQLITE_ROW, count, users_empty);
+				lwsl_info("DB DEBUG: COUNT(*) row query: step_rc=%d (SQLITE_ROW=%d), count=%d -> users_empty=%d\n", step_rc, SQLITE_ROW, count, users_empty);
 				sqlite3_finalize(stmt);
 			} else {
-				lwsl_err("[AUTH-TRX] DB DEBUG: sqlite3_prepare_v2 failed: rc=%d\n", rc);
+				lwsl_err("DB DEBUG: sqlite3_prepare_v2 failed: rc=%d\n", rc);
 			}
 
 			{
@@ -1644,7 +1644,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 				char cookie_val[1024] = {0};
 				lws_hdr_copy(wsi, cookie_val, sizeof(cookie_val), WSI_TOKEN_HTTP_COOKIE);
-				lwsl_notice("[AUTH-TRX] /status endpoint HIT! URL args: '%s', Incoming Cookie: '%s'\n", sname, cookie_val[0] ? cookie_val : "NONE");
+				// lwsl_info("/status endpoint HIT! URL args: '%s', Incoming Cookie: '%s'\n", sname, cookie_val[0] ? cookie_val : "NONE");
 
 				if (vhd->cookie_name[0]) {
 					struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL);
@@ -1683,7 +1683,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 				if (lws_get_urlarg_by_name_safe(wsi, "destroy=", sname, sizeof(sname)) > 0) {
 					/* client wants to terminate session via async fetch */
-					lwsl_notice("[AUTH-TRX] -> TERMINATING SESSION MANUALLY! destroy URL arg present. Emitting 200 OK JSON.\n");
+					lwsl_info("-> TERMINATING SESSION MANUALLY! destroy URL arg present. Emitting 200 OK JSON.\n");
 					logged_in = 0;
 					users_empty = 0;
 					lacks_grant = 0;
@@ -1734,7 +1734,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 						vhd->jwk_path[0] ? vhd->jwk_path : "NULL!!!", (int)vhd->jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len, pub64);
 				}
 
-				lwsl_user("[AUTH-TRX] /status API endpoint returning users_empty=%d, logged_in=%d lacks_grant=%d\n", users_empty, logged_in, lacks_grant);
+				lwsl_info("/status API endpoint returning users_empty=%d, logged_in=%d lacks_grant=%d\n", users_empty, logged_in, lacks_grant);
 				pss->http_response_code = HTTP_STATUS_OK;
 				char pl[1024 + LWS_PRE];
 		                int len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE,
@@ -1886,7 +1886,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			int found = 0;
 			uint64_t now = (uint64_t)time(NULL);
 			char email[129], pass[129], salt[33], totp[65];
-			lwsl_user("[AUTH-TRX] verify: looking for hash='%s'\n", hbuf);
+			lwsl_info("verify: looking for hash='%s'\n", hbuf);
 
 			if (sqlite3_prepare_v2(vhd->db, "SELECT email, password_hash, salt, totp_secret, expires FROM registrations WHERE verify_hash = ?", -1, &stmt, NULL) == SQLITE_OK) {
 				sqlite3_bind_text(stmt, 1, hbuf, -1, SQLITE_TRANSIENT);
@@ -1900,14 +1900,14 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 						lws_strncpy(salt,  (const char *)sqlite3_column_text(stmt, 2), sizeof(salt));
 						lws_strncpy(totp,  (const char *)sqlite3_column_text(stmt, 3), sizeof(totp));
 					} else {
-						lwsl_user("[AUTH-TRX] verify: link expired! now=%llu, exp=%llu\n", (unsigned long long)now, (unsigned long long)exp);
+						lwsl_info("verify: link expired! now=%llu, exp=%llu\n", (unsigned long long)now, (unsigned long long)exp);
 					}
 				} else {
-					lwsl_user("[AUTH-TRX] verify: db step failed or no row: %d %s\n", s_res, sqlite3_errmsg(vhd->db));
+					lwsl_info("verify: db step failed or no row: %d %s\n", s_res, sqlite3_errmsg(vhd->db));
 				}
 				sqlite3_finalize(stmt);
 			} else {
-				lwsl_err("[AUTH-TRX] verify: db prepare failed: %s\n", sqlite3_errmsg(vhd->db));
+				lwsl_err("verify: db prepare failed: %s\n", sqlite3_errmsg(vhd->db));
 			}
 
 			if (!found) {
@@ -1960,7 +1960,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			size_t alloc_size = 16384 + LWS_PRE;  /* Plenty for verify HTML */
 			uint8_t *buf = malloc(alloc_size);
 			if (!buf) {
-				lwsl_user("[AUTH-TRX] verify OOM for HTML buffer\n");
+				lwsl_info("verify OOM for HTML buffer\n");
 				lws_return_http_status(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR, "OOM");
 				return lws_http_transaction_completed(wsi);
 			}
@@ -2123,16 +2123,16 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				lwsl_err("%s: lws_spa_create_via_info failed\n", __func__);
 				return -1;
 			}
-			lwsl_user("[AUTH-TRX] HTTP POST SPA successfully initialized\n");
+			lwsl_info("HTTP POST SPA successfully initialized\n");
 			return 0;
 		}
-		lwsl_user("[AUTH-TRX] HTTP Request unaccounted for, breaking loop\n");
+		lwsl_info("HTTP Request unaccounted for, breaking loop\n");
 	break;
 
 	case LWS_CALLBACK_HTTP_BODY:
 		if (pss->spa) {
 			if (lws_spa_process(pss->spa, in, (int)len)) {
-				lwsl_user("[AUTH-TRX] HTTP_BODY spa_process failed\n");
+				lwsl_info("HTTP_BODY spa_process failed\n");
 				return -1;
 			}
 			return 0;
@@ -2140,7 +2140,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
-		lwsl_user("[AUTH-TRX] HTTP_BODY_COMPLETION: pss->spa=%p resolving "
+		lwsl_info("HTTP_BODY_COMPLETION: pss->spa=%p resolving "
 			  "for '%s'\n", pss->spa, pss->requesting_url);
 		if (!pss->spa) {
 			lwsl_err("%s: LWS_CALLBACK_HTTP_BODY_COMPLETION called but "
@@ -2216,7 +2216,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL);
 		if (!ja || lws_jwt_auth_query_grant(ja, "*") < 1) {
 			if (ja) lws_jwt_auth_destroy(&ja);
-			lwsl_notice("[AUTH-TRX] WS connection rejected: missing administrative wildcard grant\n");
+			lwsl_info("WS connection rejected: missing administrative wildcard grant\n");
 			return 1;
 		}
 		lws_jwt_auth_destroy(&ja);
@@ -2430,7 +2430,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 	}
 
 	case LWS_CALLBACK_CLOSED_HTTP:
-		lwsl_user("[AUTH-TRX] CLOSED_HTTP wsi=%p\n", wsi);
+		lwsl_info("CLOSED_HTTP wsi=%p\n", wsi);
 		if (pss && pss->spa)
 			lws_spa_destroy(pss->spa);
 		if (pss && pss->tx_buflist)
