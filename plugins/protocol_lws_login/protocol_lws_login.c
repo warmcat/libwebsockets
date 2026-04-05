@@ -767,7 +767,11 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 
 				char origin[128];
 				if (token && vhd && vhd->auth_server_url && lws_hdr_copy(wsi, origin, sizeof(origin), WSI_TOKEN_ORIGIN) > 0) {
-					if (strncmp(origin, vhd->auth_server_url, strlen(origin))) {
+					size_t olen = strlen(origin);
+					if (olen == 4 && !strcmp(origin, "null")) {
+						lwsl_notice("%s: allowing null origin due to redirect bounce\n", __func__);
+					} else if (strncmp(origin, vhd->auth_server_url, olen) ||
+						   (vhd->auth_server_url[olen] != '\0' && vhd->auth_server_url[olen] != '/')) {
 						lwsl_err("%s: blocking SSO CSRF from origin %s\n", __func__, origin);
 						token = NULL; /* Nullify to force failure */
 					}

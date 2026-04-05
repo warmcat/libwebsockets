@@ -351,7 +351,7 @@ lws_auth_check_credentials(struct per_vhost_data__auth_server *vhd,
 	stored_hash = (const char *)sqlite3_column_text(stmt, 1);
 	salt = (const char *)sqlite3_column_text(stmt, 2);
 
-	lwsl_notice("CHECK_CREDENTIALS: user='%s'\n", username);
+	// lwsl_notice("CHECK_CREDENTIALS: user='%s'\n", username);
 
 	/* hash the input password with SHA-512 and salt */
 	if (!stored_hash || !salt || lws_genhash_init(&ctx, LWS_GENHASH_TYPE_SHA512)) {
@@ -375,14 +375,13 @@ lws_auth_check_credentials(struct per_vhost_data__auth_server *vhd,
 	}
 
 	lws_genhash_render(LWS_GENHASH_TYPE_SHA512, hash, hex, sizeof(hex));
-	lwsl_notice("CHECK_CREDENTIALS: Calculated hex='%s' (len %d)\n", hex, (int)strlen(hex));
+	// lwsl_notice("CHECK_CREDENTIALS: Calculated hex='%s' (len %d)\n", hex, (int)strlen(hex));
 
         if (!strcmp(stored_hash, hex)) {
-		lwsl_notice("CHECK_CREDENTIALS: MATCH OK!\n");
+		// lwsl_notice("CHECK_CREDENTIALS: MATCH OK!\n");
 		match = 0;
-	} else {
+	} else
 		lwsl_notice("CHECK_CREDENTIALS: MISMATCH!\n");
-	}
 
 bail:
 	sqlite3_finalize(stmt);
@@ -1726,6 +1725,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 					return 0;
 				}
 
+#if 0
 				{
 					char pub64[256];
 					(void)lws_b64_encode_string((const char *)vhd->jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].buf,
@@ -1733,6 +1733,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 					lwsl_notice("auth_server status: MATHEMATICAL PROOF -> JWK path loaded from '%s', Public X-Coord length '%d', Base64 X: '%s'\n",
 						vhd->jwk_path[0] ? vhd->jwk_path : "NULL!!!", (int)vhd->jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len, pub64);
 				}
+#endif
 
 				lwsl_info("/status API endpoint returning users_empty=%d, logged_in=%d lacks_grant=%d\n", users_empty, logged_in, lacks_grant);
 				pss->http_response_code = HTTP_STATUS_OK;
@@ -2111,7 +2112,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		if (in && (strstr((const char *)in, "login") || strstr((const char *)in, "register") || strstr((const char *)in, "token") || strstr((const char *)in, "sso_exchange"))) {
 			lws_strncpy(pss->requesting_url, (const char *)in, sizeof(pss->requesting_url));
 
-			lwsl_user("%s: Processing POST to '%s'\n", __func__, pss->requesting_url);
+			lwsl_info("%s: Processing POST to '%s'\n", __func__, pss->requesting_url);
 
 			lws_spa_create_info_t i;
 			memset(&i, 0, sizeof(i));
