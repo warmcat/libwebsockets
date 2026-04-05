@@ -109,16 +109,26 @@ bucket_middle(struct bucket *b, lws_dht_hash_t *id_return)
 {
 	int bit1 = lowbit(b->first);
 	int bit2 = b->next ? lowbit(b->next->first) : -1;
+	int max_bits = id_return->len * 8;
+	int bit;
+	size_t bidx;
 
-	if (bit1 >= id_return->len * 8) bit1 = id_return->len * 8 - 1;
-	if (bit2 >= id_return->len * 8) bit2 = id_return->len * 8 - 1;
+	if (max_bits > 2040)
+		max_bits = 2040;
 
-	int bit = MAX(bit1, bit2) + 1;
-	if (bit < 0 || bit >= id_return->len * 8)
+	if (bit1 >= max_bits) bit1 = max_bits - 1;
+	if (bit2 >= max_bits) bit2 = max_bits - 1;
+
+	if (bit1 < -1) bit1 = -1;
+	if (bit2 < -1) bit2 = -1;
+
+	bit = MAX(bit1, bit2) + 1;
+	if (bit < 0 || bit >= max_bits)
 		return -1;
 
+	bidx = (size_t)bit / 8u;
 	memcpy(id_return->id, b->first->id, b->first->len);
-	id_return->id[bit / 8] = (uint8_t)(id_return->id[bit / 8] | (0x80 >> (bit % 8)));
+	id_return->id[bidx] = (uint8_t)(id_return->id[bidx] | (0x80 >> (bit % 8)));
 
 	return 1;
 }
@@ -130,6 +140,10 @@ bucket_random(struct lws_dht_ctx *ctx, struct bucket *b, lws_dht_hash_t *id_retu
 	int i, r, bit, bit1 = lowbit(b->first);
 	int bit2 = b->next ? lowbit(b->next->first) : -1;
 	int max_bits = id_return->len * 8;
+	size_t bidx;
+
+	if (max_bits > 2040)
+		max_bits = 2040;
 
 	if (bit1 >= max_bits)
 		bit1 = max_bits - 1;
@@ -143,15 +157,16 @@ bucket_random(struct lws_dht_ctx *ctx, struct bucket *b, lws_dht_hash_t *id_retu
 
 	bit = MAX(bit1, bit2) + 1;
 
-	if (bit < 0 || bit >= id_return->len * 8) {
+	if (bit < 0 || bit >= max_bits) {
 		memcpy(id_return->id, b->first->id, b->first->len);
 		return 1;
 	}
 
-	memcpy(id_return->id, b->first->id, (size_t)(bit / 8));
+	bidx = (size_t)bit / 8u;
+	memcpy(id_return->id, b->first->id, bidx);
 	lws_get_random(ctx->vhost->context, &r, sizeof(r));
-	id_return->id[bit / 8] = (uint8_t)(b->first->id[bit / 8] & (0xFF00 >> (bit % 8)));
-	id_return->id[bit / 8] |= (uint8_t)(r & (0xFF >> (bit % 8)));
+	id_return->id[bidx] = (uint8_t)(b->first->id[bidx] & (0xFF00 >> (bit % 8)));
+	id_return->id[bidx] |= (uint8_t)(r & (0xFF >> (bit % 8)));
 
 	for (i = bit / 8 + 1; i < id_return->len; i++) {
 		lws_get_random(ctx->vhost->context, &r, sizeof(r));
