@@ -101,7 +101,7 @@ lws_system_parse_policy(struct lws_context *cx, const char *filepath, lws_system
 #endif
 		fd = lws_open(filepath, O_CREAT | O_WRONLY | O_TRUNC, 0644);
 		if (fd >= 0) {
-			n = (int)write(fd, default_policy, strlen(default_policy));
+			n = (int)write(fd, default_policy, LWS_POSIX_LENGTH_CAST(strlen(default_policy)));
 			close(fd);
 			fd = -1;
 			if (n == (int)strlen(default_policy))

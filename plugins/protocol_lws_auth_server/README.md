@@ -15,6 +15,7 @@ It acts as a central identity provider and issues time-limited JWTs to outsource
 - **Single-Use Verification Pipeline**: Ephemeral registration hashes securely operate as absolute one-time read tokens for extracting the generated TOTP graphics (`/totp_svg`), passively reaping unused records natively.
 - **Decoupled SMTP Templating**: Administratively definable PVO overlays (`email-subject`, `email-body`) instantly decouple arbitrary verification alerts natively.
 - **Mobile Authenticator Deep-Linking**: Implicitly wraps the generated TOTP vector graphic explicitly into a tappable `otpauth://` deep-link anchor to seamlessly trigger iOS/Android 2FA applications organically.
+- **Refresh Token Support**: Supports stateful OAuth2 refresh tokens for silent session renewal, with configurable token lifetimes.  This is optional and disabled by default.
 
 ## Configuration (PVOs)
 
@@ -28,6 +29,8 @@ The plugin can be enabled on any vhost. Its behavior is customized using Per-Vho
 | `jwt_alg` | Optional: The JWS signing algorithm to use for issued tokens. Defaults to `ES256`. | `RS256` |
 | `cookie-name` | Optional: Name of the HTTP cookie that the server should natively emit containing the JWT payload upon successful non-OAuth2 login. Empty by default (no cookie). | `auth_token` |
 | `jwt-validity-secs` | Optional: Time-to-live for the signed JWT in seconds. Defaults to `86400` (24 hours). | `3600` |
+| `refresh-validity-secs` | Optional: Duration in seconds to issue stateful, database-backed refresh sessions. If set `> 0`, transparent silent renewals are natively permitted. Defaults to `0` (stateless). | `2592000` |
+| `auth-log-limit` | Optional: Maximum number of recent authentication IP audit logs to retain per-identity in the database. Set to `0` to completely disable logging. Defaults to `10`. | `10` |
 | `registration_ui` | Optional. If `1` or `true`, exposes public web UI endpoints. Useful for general signups. Defaults to `0` or false. | `true` |
 | `email-from` | Optional: The sender email address for outgoing SMTP verification emails. Defaults to `noreply@warmcat.com`. | `noreply@example.com` |
 | `email-subject` | Optional: The subject line for the verification email. Defaults to `Complete your registration`. | `Please confirm your ExampleApp account` |
@@ -69,6 +72,9 @@ This example mounts the front-end UI at `/auth` and configures the `lws-auth-ser
         "auth_domain": "auth.warmcat.com",
         "jwk_path": "/var/db/lws-auth.jwk",
         "jwt_alg": "ES256",
+        "jwt-validity-secs": "900",
+        "refresh-validity-secs": "2592000",
+        "auth-log-limit": "10",
         "registration_ui": "1",
         "email-from": "admin@auth.warmcat.com",
         "email-subject": "Welcome! Please verify",

@@ -80,7 +80,7 @@ body {
     position: relative;
     z-index: 10;
     width: 100%;
-    max-width: 420px;
+    max-width: 840px;
     padding: 20px;
 }
 
@@ -93,6 +93,8 @@ body {
     padding: 40px;
     box-shadow: 0 25px 40px var(--glass-shadow);
     transition: transform 0.3s ease, box-shadow 0.3s ease;
+    position: relative;
+    overflow: visible;
 }
 
 .glass-panel:hover {
@@ -256,8 +258,8 @@ input:focus {
 .auth-session-email { font-weight: 600; color: var(--acc-secondary); margin-bottom: 15px; word-break: break-all; }
 .auth-grants-box { margin-bottom: 20px; }
 .auth-grants-table { width: 100%; border-collapse: collapse; margin-top: 10px; margin-bottom: 20px; text-align: left; }
-.auth-grants-table th { border-bottom: 2px solid rgba(255,255,255,0.1); padding: 8px; font-size: 0.85em; color: var(--text-muted); font-weight: 500; }
-.auth-grants-table td { padding: 8px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.9em; }
+.auth-grants-table th { border-bottom: 2px solid rgba(255,255,255,0.1); padding: 8px; font-size: 0.75em; color: var(--text-muted); font-weight: 500; }
+.auth-grants-table td { padding: 8px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.8em; }
 .auth-grants-table .level-col { text-align: right; }
 .auth-grants-table td.level-col { color: var(--acc-secondary); font-weight: 600; }
 .auth-grants-empty { margin-bottom: 20px; font-size: 0.9em; color: var(--text-muted); }
@@ -265,3 +267,17 @@ input:focus {
 /* Access Denied Styles */
 .auth-denied-box { text-align: center; color: var(--text-muted); padding: 2rem; }
 .auth-denied-btn-box { margin-top: 1rem; }
+
+/* Auth Log Styles */
+.auth-log-table { width: 100%; border-collapse: collapse; margin-top: 10px; margin-bottom: 20px; text-align: left; }
+.auth-log-table td { padding: 6px; border-bottom: 1px solid rgba(255,255,255,0.03); font-size: 0.7em; color: var(--text-muted); }
+.auth-log-table th { border-bottom: 2px solid rgba(255,255,255,0.1); padding: 6px; font-size: 0.75em; color: var(--text-muted); font-weight: 500; text-align: left; }
+.auth-log-table th.ip-col { text-align: right; }
+.auth-log-table .time-col { color: #a5b4fc; }
+.auth-log-table .ip-col { text-align: right; font-family: monospace; }
+.auth-log-title { margin-top: 20px; font-size: 0.9em; }
+
+/* Strike Overlay */
+.strike-overlay { position: absolute; bottom: -20px; left: -30px; z-index: 100; pointer-events: none; width: 120px; height: 134px; animation: fadeIn 0.3s ease; }
+.strike-overlay img { width: 100%; height: 100%; display: block; }
+.strike-count { position: absolute; bottom: 10px; right: 0px; font-weight: bold; font-size: 20px; color: #ef4444; background-color: rgba(0, 0, 0, 0.7); padding: 4px 8px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1); }

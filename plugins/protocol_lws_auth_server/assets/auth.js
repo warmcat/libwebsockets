@@ -72,6 +72,15 @@ document.addEventListener('DOMContentLoaded', () => {
             if (response.ok) {
                 const data = await response.json();
                 if (data.csrf_token) window.csrf_token = data.csrf_token;
+                
+                if (data.strikes > 0) {
+                    const strikeOverlay = document.getElementById('strike-overlay');
+                    const strikeCount = document.getElementById('strike-count');
+                    if (strikeOverlay && strikeCount) {
+                        strikeCount.innerText = data.strikes + "/5";
+                        strikeOverlay.classList.remove('hidden');
+                    }
+                }
 
                 if (data.logged_in) {
                     regToggleBox.classList.add('hidden');
@@ -163,10 +172,19 @@ document.addEventListener('DOMContentLoaded', () => {
                               '</table>'
                             : '<div class="auth-grants-empty">No Active Grants</div>';
 
+                        let logsHtml = (data.logs && data.logs.length)
+                            ? '<p class="auth-session-title auth-log-title">Valid JWK Peers</p>' +
+                              '<table class="auth-log-table">' +
+                              '<tr><th>Date / Time</th><th class="ip-col">IP Address</th></tr>' +
+                              data.logs.map(lg => `<tr><td class="time-col">${new Date(lg.time * 1000).toLocaleString()}</td><td class="ip-col">${lg.ip}</td></tr>`).join('') +
+                              '</table>'
+                            : '';
+
                         loginForm.innerHTML = `<div class="auth-session-box">
                             <p class="auth-session-title">Logged-in as</p>
                             <p class="auth-session-email">${data.email || 'Unknown User'}</p>
                             ${grantsHtml}
+                            ${logsHtml}
                             <button type="button" id="btn-destroy-session" class="btn primary-btn">Logout</button>
                         </div>`;
                         document.getElementById('btn-destroy-session').addEventListener('click', async function() {
@@ -264,6 +282,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (data && data.error) errMsg = data.error;
                     } catch (e) {}
                     showNotif('error', errMsg);
+                    checkServerStatus();
                 }
             } else if (response.status === 403) {
                 let errMsg = 'Insufficient Privileges.';

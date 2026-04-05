@@ -85,6 +85,8 @@ struct per_vhost_data__auth_server {
 	char				ui_subtitle[256];
 	char				ui_new_network[256];
 	char				ui_css[256];
+	unsigned long long		refresh_token_validity_secs;
+	unsigned int			auth_log_limit;
 };
 
 typedef struct auth_server_strike {
@@ -193,6 +195,11 @@ static const char *schema_init =
 	"  session_id VARCHAR PRIMARY KEY,"
 	"  uid INTEGER REFERENCES users(uid),"
 	"  expires INTEGER"
+	");"
+	"CREATE TABLE IF NOT EXISTS auth_log ("
+	"  uid INTEGER REFERENCES users(uid),"
+	"  issue_time INTEGER,"
+	"  ip_address TEXT"
 	");";
 
 static int
@@ -276,7 +283,7 @@ lws_auth_issue_jwt(struct per_vhost_data__auth_server *vhd,
 static int
 lws_auth_generate_token(struct per_vhost_data__auth_server *vhd,
                         const char *username, uint32_t uid,
-                        char *out, size_t *out_len)
+                        const char *peer_ip, char *out, size_t *out_len)
 {
 	char claims[512];
 	char *p = claims;
@@ -311,11 +318,29 @@ lws_auth_generate_token(struct per_vhost_data__auth_server *vhd,
 
 	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "}");
 
+	if (vhd->auth_log_limit > 0 && peer_ip && peer_ip[0]) {
+		if (sqlite3_prepare_v2(vhd->db, "INSERT INTO auth_log (uid, issue_time, ip_address) VALUES (?, ?, ?)", -1, &stmt, NULL) == SQLITE_OK) {
+			sqlite3_bind_int(stmt, 1, (int)uid);
+			sqlite3_bind_int64(stmt, 2, (sqlite_int64)time(NULL));
+			sqlite3_bind_text(stmt, 3, peer_ip, -1, SQLITE_STATIC);
+			sqlite3_step(stmt);
+			sqlite3_finalize(stmt);
+		}
+
+		if (sqlite3_prepare_v2(vhd->db, "DELETE FROM auth_log WHERE uid = ? AND rowid NOT IN (SELECT rowid FROM auth_log WHERE uid = ? ORDER BY issue_time DESC LIMIT ?)", -1, &stmt, NULL) == SQLITE_OK) {
+			sqlite3_bind_int(stmt, 1, (int)uid);
+			sqlite3_bind_int(stmt, 2, (int)uid);
+			sqlite3_bind_int(stmt, 3, (int)vhd->auth_log_limit);
+			sqlite3_step(stmt);
+			sqlite3_finalize(stmt);
+		}
+	}
+
 	{
 		char pub64[256];
 		(void)lws_b64_encode_string((const char *)vhd->jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].buf,
 							(int)vhd->jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len, pub64, sizeof(pub64));
-		lwsl_notice("auth_server issue: MATHEMATICAL PROOF -> JWK path loaded from '%s', Public X-Coord length '%d', Base64 X: '%s'\n",
+		lwsl_info("auth_server issue: MATHEMATICAL PROOF -> JWK path loaded from '%s', Public X-Coord length '%d', Base64 X: '%s'\n",
 			vhd->jwk_path[0] ? vhd->jwk_path : "NULL!!!", (int)vhd->jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len, pub64);
 	}
 
@@ -529,7 +554,7 @@ auth_verify_redirect_uri(struct per_vhost_data__auth_server *vhd,
 }
 
 static int
-send_auth_headers(struct lws *wsi, struct per_session_data__auth_server *pss, const char *content_type, const char *cookie)
+send_auth_headers(struct lws *wsi, struct per_session_data__auth_server *pss, const char *content_type, const char *cookie1, const char *cookie2)
 {
 	uint8_t buf[2048 + LWS_PRE], *start = &buf[LWS_PRE], *p = start, *end = &buf[sizeof(buf) - 1], *pq;
 	unsigned int resp_code = pss->http_response_code ? pss->http_response_code : HTTP_STATUS_OK;
@@ -553,8 +578,12 @@ send_auth_headers(struct lws *wsi, struct per_session_data__auth_server *pss, co
         if (lws_add_http_header_by_name(wsi, (unsigned char *)"Pragma:", (unsigned char *)"no-cache", 8, &p, end)) return -1;
         if (lws_add_http_header_by_name(wsi, (unsigned char *)"Expires:", (unsigned char *)"0", 1, &p, end)) return -1;
 
-	if (cookie && lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie, (int)strlen(cookie), &p, end)) {
-		lwsl_info("send_auth_headers cookie hdr err\n");
+	if (cookie1 && lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie1, (int)strlen(cookie1), &p, end)) {
+		lwsl_info("send_auth_headers cookie1 hdr err\n");
+		return -1;
+	}
+	if (cookie2 && lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie2, (int)strlen(cookie2), &p, end)) {
+		lwsl_info("send_auth_headers cookie2 hdr err\n");
 		return -1;
 	}
 	if (lws_finalize_write_http_header(wsi, start, &p, end)) {
@@ -611,11 +640,13 @@ lws_auth_api_sso_exchange(struct lws *wsi, struct per_vhost_data__auth_server *v
 		goto send;
 	}
 
+	char cookie_hdr[1024] = {0};
+	char refresh_hdr[1024] = {0};
 	char cookie_val[1024] = {0};
+	uint32_t uid = 0;
+
 	if (lws_hdr_copy(wsi, cookie_val, sizeof(cookie_val), WSI_TOKEN_HTTP_COOKIE) <= 0 || !vhd->cookie_name[0]) {
-		pss->http_response_code = HTTP_STATUS_UNAUTHORIZED;
-		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"No session\"}");
-		goto send;
+		cookie_val[0] = '\0';
 	}
 
 	const char *redirect_uri = lws_spa_get_string(pss->spa, EP_REDIRECT_URI);
@@ -628,14 +659,45 @@ lws_auth_api_sso_exchange(struct lws *wsi, struct per_vhost_data__auth_server *v
 	}
 
 	struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL);
-	if (!ja) {
+	int was_refreshed = 0;
+
+	if (ja) {
+		uid = lws_jwt_auth_get_uid(ja);
+		lws_jwt_auth_destroy(&ja);
+	} else if (vhd->refresh_token_validity_secs > 0) {
+		char refresh_tk[128] = {0};
+		if (cookie_val[0]) {
+			const char *p = strstr(cookie_val, "auth_refresh_session=");
+			if (p) {
+				p += 21;
+				size_t i = 0;
+				while (*p && *p != ';' && i < sizeof(refresh_tk) - 1)
+					refresh_tk[i++] = *p++;
+				refresh_tk[i] = 0;
+			}
+		}
+		if (refresh_tk[0]) {
+			sqlite3_stmt *stmt;
+			uint64_t now = (uint64_t)time(NULL);
+			if (sqlite3_prepare_v2(vhd->db, "SELECT uid, expires FROM auth_sessions WHERE session_id = ?", -1, &stmt, NULL) == SQLITE_OK) {
+				sqlite3_bind_text(stmt, 1, refresh_tk, -1, SQLITE_TRANSIENT);
+				if (sqlite3_step(stmt) == SQLITE_ROW) {
+					uint64_t exp = (uint64_t)sqlite3_column_int64(stmt, 1);
+					if (now < exp) {
+						uid = (uint32_t)sqlite3_column_int(stmt, 0);
+						was_refreshed = 1;
+					}
+				}
+				sqlite3_finalize(stmt);
+			}
+		}
+	}
+
+	if (!uid) {
 		pss->http_response_code = HTTP_STATUS_UNAUTHORIZED;
 		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Invalid session\"}");
 		goto send;
 	}
-
-	uint32_t uid = lws_jwt_auth_get_uid(ja);
-	lws_jwt_auth_destroy(&ja);
 
 	char username[128] = {0};
 	sqlite3_stmt *stmt;
@@ -648,9 +710,26 @@ lws_auth_api_sso_exchange(struct lws *wsi, struct per_vhost_data__auth_server *v
 
 	char jwt[1024];
 	size_t jwt_len = sizeof(jwt);
-	if (!lws_auth_generate_token(vhd, username, uid, jwt, &jwt_len)) {
+	char peer[64] = {0};
+	lws_get_peer_simple(wsi, peer, sizeof(peer));
+
+	if (!lws_auth_generate_token(vhd, username, uid, peer, jwt, &jwt_len)) {
 		pss->http_response_code = HTTP_STATUS_OK;
 		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"token\":\"%s\"}", jwt);
+		
+		if (was_refreshed && vhd->cookie_name[0]) {
+			if (vhd->cookie_domain[0]) {
+				lws_snprintf(cookie_hdr, sizeof(cookie_hdr),
+					"%s=%s; Path=/; Domain=%s; Max-Age=%llu; HttpOnly; SameSite=None; Secure",
+					vhd->cookie_name, jwt, vhd->cookie_domain,
+					vhd->jwt_validity_secs);
+			} else {
+				lws_snprintf(cookie_hdr, sizeof(cookie_hdr),
+					"%s=%s; Path=/; Max-Age=%llu; HttpOnly; SameSite=None; Secure",
+					vhd->cookie_name, jwt,
+					vhd->jwt_validity_secs);
+			}
+		}
 		goto send;
 	}
 
@@ -661,7 +740,7 @@ send:
 	if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)pl, (size_t)len + LWS_PRE) < 0)
 		return -1;
 
-	return send_auth_headers(wsi, pss, "application/json", NULL);
+	return send_auth_headers(wsi, pss, "application/json", cookie_hdr[0] ? cookie_hdr : NULL, refresh_hdr[0] ? refresh_hdr : NULL);
 }
 
 static int
@@ -671,6 +750,8 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	char peer[64], jwt[1024], pl[1024 + LWS_PRE];
 	const char *user, *pass;
 	int len, users_empty = 0;
+	char cookie_hdr[1024] = {0};
+	char refresh_hdr[1024] = {0};
 
 	if (auth_check_csrf(wsi, vhd, pss)) {
 		pss->http_response_code = HTTP_STATUS_FORBIDDEN;
@@ -739,7 +820,6 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		sqlite3_finalize(stmt);
 	}
 
-	char cookie_hdr[1024] = {0};
 	const char *client_id = lws_spa_get_string(pss->spa, EP_CLIENT_ID);
 	const char *redirect_uri = lws_spa_get_string(pss->spa, EP_REDIRECT_URI);
 
@@ -815,7 +895,7 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	}
 
 	/* Fallback / Native mode: generate direct JWT */
-	if (!lws_auth_generate_token(vhd, user, uid, jwt, &jwt_len)) {
+	if (!lws_auth_generate_token(vhd, user, uid, peer, jwt, &jwt_len)) {
 		pss->http_response_code = HTTP_STATUS_OK;
 		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"token\":\"%s\"}", jwt);
 		if (vhd->cookie_name[0]) {
@@ -831,6 +911,33 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 					vhd->jwt_validity_secs);
 			}
 		}
+
+		if (vhd->refresh_token_validity_secs > 0) {
+			uint8_t r_rnd[32];
+			char refresh_code[65];
+			uint64_t r_exp = (uint64_t)time(NULL) + vhd->refresh_token_validity_secs;
+			lws_get_random(vhd->context, r_rnd, 32);
+			lws_hex_from_byte_array(r_rnd, 32, refresh_code, 65);
+			
+			if (sqlite3_prepare_v2(vhd->db, "INSERT INTO auth_sessions (session_id, uid, expires) VALUES (?, ?, ?)", -1, &stmt, NULL) == SQLITE_OK) {
+				sqlite3_bind_text(stmt, 1, refresh_code, -1, SQLITE_STATIC);
+				sqlite3_bind_int(stmt, 2, (int)uid);
+				sqlite3_bind_int64(stmt, 3, (sqlite_int64)r_exp);
+				sqlite3_step(stmt);
+				sqlite3_finalize(stmt);
+			}
+
+			if (vhd->cookie_domain[0]) {
+				lws_snprintf(refresh_hdr, sizeof(refresh_hdr),
+					"auth_refresh_session=%s; Path=/; Domain=%s; Max-Age=%llu; HttpOnly; SameSite=None; Secure",
+					refresh_code, vhd->cookie_domain, vhd->refresh_token_validity_secs);
+			} else {
+				lws_snprintf(refresh_hdr, sizeof(refresh_hdr),
+					"auth_refresh_session=%s; Path=/; Max-Age=%llu; HttpOnly; SameSite=None; Secure",
+					refresh_code, vhd->refresh_token_validity_secs);
+			}
+		}
+
 		goto send;
         }
 
@@ -842,7 +949,7 @@ send:
 	if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)pl, (size_t)len + LWS_PRE) < 0)
 		return -1;
 
-	return send_auth_headers(wsi, pss, "application/json", cookie_hdr[0] ? cookie_hdr : NULL);
+	return send_auth_headers(wsi, pss, "application/json", cookie_hdr[0] ? cookie_hdr : NULL, refresh_hdr[0] ? refresh_hdr : NULL);
 }
 
 static int
@@ -967,7 +1074,10 @@ lws_auth_api_token(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	}
 
 	size_t jwt_len = sizeof(jwt);
-	if (!lws_auth_generate_token(vhd, username, uid, jwt, &jwt_len)) {
+	char peer[64] = {0};
+	lws_get_peer_simple(wsi, peer, sizeof(peer));
+
+	if (!lws_auth_generate_token(vhd, username, uid, peer, jwt, &jwt_len)) {
 		pss->http_response_code = HTTP_STATUS_OK;
 		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"access_token\":\"%s\",\"token_type\":\"Bearer\",\"expires_in\":%llu}", jwt, vhd->jwt_validity_secs);
 		goto send;
@@ -980,7 +1090,7 @@ send:
 	if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)pl, (size_t)len + LWS_PRE) < 0)
 		return -1;
 
-	return send_auth_headers(wsi, pss, "application/json", NULL);
+	return send_auth_headers(wsi, pss, "application/json", NULL, NULL);
 }
 
 static int
@@ -1169,7 +1279,7 @@ send:
 	if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)pl, (size_t)len + LWS_PRE) < 0)
 		return -1;
 
-	return send_auth_headers(wsi, pss, "application/json", NULL);
+	return send_auth_headers(wsi, pss, "application/json", NULL, NULL);
 }
 
 static int
@@ -1209,6 +1319,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd->ui_css[0] = '\0';
 		vhd->jwt_validity_secs = 86400; // 24 hours
 		vhd->registration_ui = 0;
+		vhd->auth_log_limit = 10;
 
 		pvo = lws_pvo_search(
 			(const struct lws_protocol_vhost_options *)in, "db_path");
@@ -1283,6 +1394,18 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			(const struct lws_protocol_vhost_options *)in, "jwt-validity-secs");
 		if (pvo)
 			vhd->jwt_validity_secs = (unsigned long long)atoll(pvo->value);
+
+		pvo = lws_pvo_search(
+			(const struct lws_protocol_vhost_options *)in, "refresh-validity-secs");
+		if (pvo)
+			vhd->refresh_token_validity_secs = (unsigned long long)atoll(pvo->value);
+		else
+			vhd->refresh_token_validity_secs = 0;
+
+		pvo = lws_pvo_search(
+			(const struct lws_protocol_vhost_options *)in, "auth-log-limit");
+		if (pvo)
+			vhd->auth_log_limit = (unsigned int)atoi(pvo->value);
 
 		lwsl_notice("Auth Server plugin initialized: domain '%s', db '%s', jwk '%s', alg '%s', reg_ui %d\n",
 			 vhd->auth_domain, vhd->db_path, vhd->jwk_path, vhd->jwt_alg, vhd->registration_ui);
@@ -1522,7 +1645,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 			free(pl);
 
-			return send_auth_headers(wsi, pss, "text/html", NULL);
+			return send_auth_headers(wsi, pss, "text/html", NULL, NULL);
 		}
 
 		if (in && (!strcmp((const char *)in, "/.well-known/jwks.json") ||
@@ -1613,6 +1736,20 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				(struct per_session_data__auth_server *)user;
 
 			if (pss) {
+				char peer[64] = {0};
+				int strikes = 0;
+				lws_get_peer_simple(wsi, peer, sizeof(peer));
+
+				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->ip_strikes.head) {
+					auth_server_strike_t *s = lws_container_of(d, auth_server_strike_t, list);
+					if (!strcmp(s->ip, peer)) {
+						if ((uint64_t)time(NULL) - s->last_strike > 120)
+							s->strikes = 0;
+						strikes = s->strikes;
+						break;
+					}
+				} lws_end_foreach_dll_safe(d, d1);
+
 				char cookies[512] = {0};
 				char csrf[33] = {0};
 				int has_csrf = 0;
@@ -1639,6 +1776,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				char user_email[128] = {0};
 				char grants[256] = {0};
 				char *gp = grants, *gend = grants + sizeof(grants);
+				char logs[2048] = {0};
 				lws_get_urlarg_by_name_safe(wsi, "service_name=", sname, sizeof(sname));
 
 				char cookie_val[1024] = {0};
@@ -1675,6 +1813,21 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 						if (sname[0] && lws_jwt_auth_query_grant(ja, sname) < 1)
 							lacks_grant = 1;
+
+						char *lp = logs, *lend = logs + sizeof(logs);
+						int first_log = 1;
+						
+						if (sqlite3_prepare_v2(vhd->db, "SELECT issue_time, ip_address FROM auth_log WHERE uid = ? ORDER BY issue_time DESC", -1, &stmt_u, NULL) == SQLITE_OK) {
+							sqlite3_bind_int(stmt_u, 1, (int)suid);
+							while (sqlite3_step(stmt_u) == SQLITE_ROW) {
+								if (!first_log) lp += lws_snprintf(lp, lws_ptr_diff_size_t(lend, lp), ", ");
+								first_log = 0;
+								lp += lws_snprintf(lp, lws_ptr_diff_size_t(lend, lp), "{\"time\": %lld, \"ip\": \"%s\"}",
+									(long long)sqlite3_column_int64(stmt_u, 0),
+									(const char *)sqlite3_column_text(stmt_u, 1));
+							}
+							sqlite3_finalize(stmt_u);
+						}
 
 						lws_jwt_auth_destroy(&ja);
 					}
@@ -1737,20 +1890,20 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 				lwsl_info("/status API endpoint returning users_empty=%d, logged_in=%d lacks_grant=%d\n", users_empty, logged_in, lacks_grant);
 				pss->http_response_code = HTTP_STATUS_OK;
-				char pl[1024 + LWS_PRE];
+				char pl[4096 + LWS_PRE];
 		                int len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE,
-					"{\"users_empty\":%d, \"csrf_token\":\"%s\", \"logged_in\":%d, \"lacks_grant\":%d, \"email\":\"%s\", \"grants\":{%s}}",
-					users_empty, csrf, logged_in, lacks_grant, user_email, grants);
+					"{\"users_empty\":%d, \"csrf_token\":\"%s\", \"logged_in\":%d, \"lacks_grant\":%d, \"email\":\"%s\", \"strikes\":%d, \"grants\":{%s}, \"logs\":[%s]}",
+					users_empty, csrf, logged_in, lacks_grant, user_email, strikes, grants, logs);
 				if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)pl, (size_t)len + LWS_PRE) < 0)
 					return -1;
 
 				if (!has_csrf) {
 					char cookie_hdr[128];
 					lws_snprintf(cookie_hdr, sizeof(cookie_hdr), "auth_csrf=%s; Path=/; SameSite=Strict; HttpOnly", csrf);
-					return send_auth_headers(wsi, pss, "application/json", cookie_hdr);
+					return send_auth_headers(wsi, pss, "application/json", cookie_hdr, NULL);
 				}
 
-				return send_auth_headers(wsi, pss, "application/json", NULL);
+				return send_auth_headers(wsi, pss, "application/json", NULL, NULL);
 			}
 
                         return 0;
@@ -1996,7 +2149,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 			free(buf);
 
-			return send_auth_headers(wsi, pss, "text/html", NULL);
+			return send_auth_headers(wsi, pss, "text/html", NULL, NULL);
 		}
 
 		if (!strncmp((const char *)in, "/authorize", 10)) {
