@@ -1290,6 +1290,7 @@ add_custom_command(
 		COMMAND ${CMAKE_COMMAND} -E copy ${PROJECT_BINARY_DIR}/lws_config.h
      			${CMAKE_CURRENT_BINARY_DIR}/include/lws_config.h
 		MAIN_DEPENDENCY ${PROJECT_BINARY_DIR}/lws_config.h
+		DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/include/libwebsockets.h
 )
 
 add_custom_target(GENHDR DEPENDS  ${PROJECT_BINARY_DIR}/include/lws_config.h)

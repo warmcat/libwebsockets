@@ -529,5 +529,5 @@ lws_dlo_file_choose(struct lws_context *cx, const char *name);
 LWS_VISIBLE LWS_EXTERN void
 lws_dlo_file_destroy(struct lws_context *cx);
 
-LWS_VISIBLE extern const struct lws_plat_file_ops lws_dlo_fops;
+LWS_VISIBLE LWS_EXTERN_FOR_DATA const struct lws_plat_file_ops lws_dlo_fops;
 #endif

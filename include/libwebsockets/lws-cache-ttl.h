@@ -341,8 +341,8 @@ lws_cache_destroy(struct lws_cache_ttl_lru **cache);
 LWS_VISIBLE LWS_EXTERN int
 lws_cache_expunge(struct lws_cache_ttl_lru *cache);
 
-LWS_VISIBLE extern const struct lws_cache_ops lws_cache_ops_heap,
-					      lws_cache_ops_nscookiejar;
+LWS_VISIBLE LWS_EXTERN_FOR_DATA const struct lws_cache_ops lws_cache_ops_heap;
+LWS_VISIBLE LWS_EXTERN_FOR_DATA const struct lws_cache_ops lws_cache_ops_nscookiejar;
 
 ///@}
 

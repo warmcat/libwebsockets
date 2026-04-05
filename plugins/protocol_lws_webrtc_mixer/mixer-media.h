@@ -289,8 +289,8 @@ struct layout_manager_ops {
 	char * (*get_json)(void *ctx);
 };
 
-LWS_VISIBLE extern const struct layout_manager_ops lm_quad_ops;
-LWS_VISIBLE extern const struct layout_manager_ops lm_speaker_ops;
+LWS_VISIBLE LWS_EXTERN_FOR_DATA const struct layout_manager_ops lm_quad_ops;
+LWS_VISIBLE LWS_EXTERN_FOR_DATA const struct layout_manager_ops lm_speaker_ops;
 
 struct vhd_mixer {
 	struct vhd_webrtc       *vhd;

@@ -1227,9 +1227,9 @@ typedef struct lws_humanize_unit {
 	uint64_t factor;
 } lws_humanize_unit_t;
 
-LWS_VISIBLE extern const lws_humanize_unit_t humanize_schema_si[7];
-LWS_VISIBLE extern const lws_humanize_unit_t humanize_schema_si_bytes[7];
-LWS_VISIBLE extern const lws_humanize_unit_t humanize_schema_us[8];
+LWS_VISIBLE LWS_EXTERN_FOR_DATA const lws_humanize_unit_t humanize_schema_si[7];
+LWS_VISIBLE LWS_EXTERN_FOR_DATA const lws_humanize_unit_t humanize_schema_si_bytes[7];
+LWS_VISIBLE LWS_EXTERN_FOR_DATA const lws_humanize_unit_t humanize_schema_us[8];
 
 #if defined(_DEBUG)
 LWS_VISIBLE LWS_EXTERN void

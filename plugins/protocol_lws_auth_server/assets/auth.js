@@ -150,7 +150,10 @@ document.addEventListener('DOMContentLoaded', () => {
                             } else {
                                 const errData = await res.json();
                                 loginForm.innerHTML = `<div class="auth-session-box">
-                                    <p class="auth-session-title">Security Violation</p>
+                                    <div class="auth-status-row error-row auth-status-spacer">
+                                        <span class="auth-status-icon">❌</span>
+                                        <span class="auth-status-text">Security Violation</span>
+                                    </div>
                                     <p class="auth-session-email">${errData.error || 'Untrusted Redirect URI'}</p>
                                     <p style="font-size: 0.8rem; color: #94a3b8; text-align: center; margin-top: 10px;">The specified redirection target is not whitelisted by the network administrator.</p>
                                 </div>`;

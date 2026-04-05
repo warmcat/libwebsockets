@@ -297,11 +297,16 @@ typedef pthread_mutex_t lws_mutex_t;
 #endif
 #endif
 
-
 #if defined(__ANDROID__)
 #include <netinet/in.h>
 #include <unistd.h>
 #endif
+#endif
+
+#if defined(_WIN32)
+#define LWS_EXTERN_FOR_DATA LWS_EXTERN
+#else
+#define LWS_EXTERN_FOR_DATA extern
 #endif
 
 #ifdef _WIN32

@@ -303,6 +303,7 @@ if (LWS_WITH_SHARED)
 			PROPERTY COMPILE_DEFINITIONS
 			LWS_DLL
 			LWS_INTERNAL)
+		target_compile_definitions(websockets_shared INTERFACE LWS_DLL)
 	endif()
 
 	if (APPLE)
