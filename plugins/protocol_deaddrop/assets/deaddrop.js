@@ -190,7 +190,7 @@
 		// Server is authoritative for prefixing, just generate a unique name
 		generated_filename = ts + '.txt';
 
-		blob = new Blob([content.value], { type: "text/plain" });
+		blob = new File([content.value], generated_filename, { type: "text/plain" });
 		formData.append("file", blob, generated_filename);
 
 		_do_upload(formData, generated_filename, blob.size);
