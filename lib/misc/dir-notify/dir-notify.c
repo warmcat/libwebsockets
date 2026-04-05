@@ -33,14 +33,22 @@ struct lws_dir_notify {
 	int fd;
 	int dir_fd;
 	struct lws *wsi;
+	lws_dll2_t list;
 };
 
 #if !defined(LWS_WITH_NETWORK)
 
 /* Stubs for no-network */
+static int
+lws_dir_notify_rx(struct lws *wsi, enum lws_callback_reasons reason,
+		  void *user, void *in, size_t len)
+{
+	return 0;
+}
+
 const struct lws_protocols protocol_lws_dir_notify = {
 	"lws-dir-notify",
-	NULL,
+	lws_dir_notify_rx,
 	0, 0, 0, NULL, 0
 };
 
@@ -298,35 +306,129 @@ lws_dir_notify_destroy(struct lws_dir_notify **pdn)
 
 #elif defined(WIN32)
 
+struct dir_event {
+	lws_dll2_t list;
+	char name[MAX_PATH];
+	int is_file;
+};
+
 struct lws_dir_notify_thread_ctx {
 	struct lws_dir_notify *dn;
+	HANDLE hDir;
 	HANDLE hEvent;
+	HANDLE hQuitEvent;
 	HANDLE hThread;
 	volatile int quit;
+	CRITICAL_SECTION cs;
+	lws_dll2_owner_t events;
+	uint8_t buffer[4096];
+	OVERLAPPED overlapped;
 };
+
+static lws_dll2_owner_t windows_dn_owner;
 
 static DWORD WINAPI
 lws_dir_notify_windows_thread(LPVOID lpParam)
 {
 	struct lws_dir_notify_thread_ctx *tctx = (struct lws_dir_notify_thread_ctx *)lpParam;
+	DWORD bytes_used;
+	HANDLE handles[2];
+
+	handles[0] = tctx->hEvent;
+	handles[1] = tctx->hQuitEvent;
 
 	while (!tctx->quit) {
-		DWORD wait_status = WaitForSingleObject(tctx->hEvent, 1000);
-		if (wait_status == WAIT_OBJECT_0) {
-			/* Event triggered */
-			if (!tctx->quit && tctx->dn && tctx->dn->cb) {
-				tctx->dn->cb("", 0, tctx->dn->user);
-			}
-			FindNextChangeNotification(tctx->hEvent);
-			lws_cancel_service(tctx->dn->ctx);
+		memset(&tctx->overlapped, 0, sizeof(tctx->overlapped));
+		tctx->overlapped.hEvent = tctx->hEvent;
+
+		if (!ReadDirectoryChangesW(tctx->hDir, tctx->buffer, sizeof(tctx->buffer), FALSE,
+				FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME |
+				FILE_NOTIFY_CHANGE_ATTRIBUTES | FILE_NOTIFY_CHANGE_SIZE |
+				FILE_NOTIFY_CHANGE_LAST_WRITE, NULL, &tctx->overlapped, NULL)) {
+			break;
 		}
+
+		DWORD wait_status = WaitForMultipleObjects(2, handles, FALSE, INFINITE);
+
+		if (wait_status == WAIT_OBJECT_0 + 1) {
+			CancelIo(tctx->hDir);
+			break;
+		}
+
+		if (wait_status != WAIT_OBJECT_0) {
+			break;
+		}
+
+		if (GetOverlappedResult(tctx->hDir, &tctx->overlapped, &bytes_used, FALSE)) {
+			FILE_NOTIFY_INFORMATION *fni;
+			int trigger = 0;
+
+			if (bytes_used == 0)
+				continue;
+
+			fni = (FILE_NOTIFY_INFORMATION *)tctx->buffer;
+
+			do {
+				struct dir_event *ev;
+				if (fni->Action == FILE_ACTION_MODIFIED ||
+				    fni->Action == FILE_ACTION_ADDED ||
+				    fni->Action == FILE_ACTION_REMOVED ||
+				    fni->Action == FILE_ACTION_RENAMED_NEW_NAME) {
+					ev = lws_malloc(sizeof(*ev), "dir_event");
+					if (ev) {
+						int n = WideCharToMultiByte(CP_UTF8, 0, fni->FileName,
+							fni->FileNameLength / 2, ev->name, sizeof(ev->name) - 1, NULL, NULL);
+						ev->name[n] = '\0';
+						ev->is_file = 1;
+
+						EnterCriticalSection(&tctx->cs);
+						lws_dll2_add_tail(&ev->list, &tctx->events);
+						LeaveCriticalSection(&tctx->cs);
+						trigger = 1;
+					}
+				}
+
+				if (fni->NextEntryOffset == 0)
+					break;
+				fni = (FILE_NOTIFY_INFORMATION *)((uint8_t *)fni + fni->NextEntryOffset);
+			} while (1);
+
+			if (trigger)
+				lws_cancel_service(tctx->dn->ctx);
+		}
+	}
+	return 0;
+}
+
+static int
+lws_dir_notify_rx(struct lws *wsi, enum lws_callback_reasons reason,
+		  void *user, void *in, size_t len)
+{
+	if (reason == LWS_CALLBACK_EVENT_WAIT_CANCELLED) {
+		lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1, lws_dll2_get_head(&windows_dn_owner)) {
+			struct lws_dir_notify *dn = lws_container_of(p, struct lws_dir_notify, list);
+			struct lws_dir_notify_thread_ctx *tctx = (struct lws_dir_notify_thread_ctx *)dn->wsi;
+
+			EnterCriticalSection(&tctx->cs);
+			while (tctx->events.count) {
+				struct dir_event *ev = lws_container_of(lws_dll2_get_head(&tctx->events), struct dir_event, list);
+				lws_dll2_remove(&ev->list);
+				LeaveCriticalSection(&tctx->cs);
+
+				dn->cb(ev->name, ev->is_file, dn->user);
+				lws_free(ev);
+
+				EnterCriticalSection(&tctx->cs);
+			}
+			LeaveCriticalSection(&tctx->cs);
+		} lws_end_foreach_dll_safe(p, p1);
 	}
 	return 0;
 }
 
 const struct lws_protocols protocol_lws_dir_notify = {
 	"lws-dir-notify",
-	NULL,
+	lws_dir_notify_rx,
 	0, 0, 0, NULL, 0
 };
 
@@ -351,16 +453,36 @@ lws_dir_notify_create(struct lws_context *ctx, const char *path,
 	dn->ctx = ctx;
 	dn->cb = cb;
 	dn->user = user;
-	dn->wsi = (struct lws *)tctx; /* store thread context pointer in dn->wsi for Windows */
+	dn->wsi = (struct lws *)tctx;
+	lws_dll2_clear(&dn->list);
+
+	InitializeCriticalSection(&tctx->cs);
 
 	MultiByteToWideChar(CP_UTF8, 0, path, -1, wpath, LWS_ARRAY_SIZE(wpath));
 
-	tctx->hEvent = FindFirstChangeNotificationW(wpath, FALSE,
-		FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME |
-		FILE_NOTIFY_CHANGE_ATTRIBUTES | FILE_NOTIFY_CHANGE_SIZE |
-		FILE_NOTIFY_CHANGE_LAST_WRITE);
+	tctx->hDir = CreateFileW(wpath,
+		FILE_LIST_DIRECTORY,
+		FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+		NULL,
+		OPEN_EXISTING,
+		FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED,
+		NULL);
 
-	if (tctx->hEvent == INVALID_HANDLE_VALUE) {
+	if (tctx->hDir == INVALID_HANDLE_VALUE) {
+		DeleteCriticalSection(&tctx->cs);
+		lws_free(tctx);
+		lws_free(dn);
+		return NULL;
+	}
+
+	tctx->hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+	tctx->hQuitEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+
+	if (!tctx->hEvent || !tctx->hQuitEvent) {
+		if (tctx->hEvent) CloseHandle(tctx->hEvent);
+		if (tctx->hQuitEvent) CloseHandle(tctx->hQuitEvent);
+		CloseHandle(tctx->hDir);
+		DeleteCriticalSection(&tctx->cs);
 		lws_free(tctx);
 		lws_free(dn);
 		return NULL;
@@ -369,11 +491,16 @@ lws_dir_notify_create(struct lws_context *ctx, const char *path,
 	tctx->dn = dn;
 	tctx->hThread = CreateThread(NULL, 0, lws_dir_notify_windows_thread, tctx, 0, NULL);
 	if (!tctx->hThread) {
-		FindCloseChangeNotification(tctx->hEvent);
+		CloseHandle(tctx->hEvent);
+		CloseHandle(tctx->hQuitEvent);
+		CloseHandle(tctx->hDir);
+		DeleteCriticalSection(&tctx->cs);
 		lws_free(tctx);
 		lws_free(dn);
 		return NULL;
 	}
+
+	lws_dll2_add_tail(&dn->list, &windows_dn_owner);
 
 	return dn;
 }
@@ -390,21 +517,40 @@ lws_dir_notify_destroy(struct lws_dir_notify **pdn)
 	tctx = (struct lws_dir_notify_thread_ctx *)dn->wsi;
 	if (tctx) {
 		tctx->quit = 1;
+		SetEvent(tctx->hQuitEvent);
 		WaitForSingleObject(tctx->hThread, INFINITE);
 		CloseHandle(tctx->hThread);
-		FindCloseChangeNotification(tctx->hEvent);
+		CloseHandle(tctx->hEvent);
+		CloseHandle(tctx->hQuitEvent);
+		CloseHandle(tctx->hDir);
+
+		while (tctx->events.count) {
+			struct dir_event *ev = lws_container_of(lws_dll2_get_head(&tctx->events), struct dir_event, list);
+			lws_dll2_remove(&ev->list);
+			lws_free(ev);
+		}
+
+		DeleteCriticalSection(&tctx->cs);
 		lws_free(tctx);
 	}
 
+	lws_dll2_remove(&dn->list);
 	lws_free(dn);
 	*pdn = NULL;
 }
 
 #else
 /* Stubs for non-Linux implementations */
+static int
+lws_dir_notify_rx(struct lws *wsi, enum lws_callback_reasons reason,
+		  void *user, void *in, size_t len)
+{
+	return 0;
+}
+
 const struct lws_protocols protocol_lws_dir_notify = {
 	"lws-dir-notify",
-	NULL,
+	lws_dir_notify_rx,
 	0, 0, 0, NULL, 0
 };
 
