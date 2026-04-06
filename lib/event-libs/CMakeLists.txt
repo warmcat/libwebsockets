@@ -45,7 +45,7 @@ macro(create_evlib_plugin PLUGIN_NAME MAIN_SRC PLUGIN_HDR EVLIB)
 	endforeach()
 
 	set(STRIPPED_EVLIB "")
-	foreach(lib_path IN LISTS EVLIB)
+	foreach(lib_path ${EVLIB})
 		if(IS_ABSOLUTE "${lib_path}" AND NOT "${lib_path}" MATCHES "^-")
 			if (APPLE)
 				list(APPEND STRIPPED_EVLIB "${lib_path}")
