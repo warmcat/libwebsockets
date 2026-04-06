@@ -521,10 +521,12 @@ handle_req_create_domain(struct vhd *vhd, struct pss *root_pss, struct monitor_r
 	int r = 0;
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s", vhd->base_dir, a->domain);
-	mkdir(d_path, 0700);
+	if (mkdir(d_path, 0700) < 0 && errno != EEXIST)
+		lwsl_notice("%s: Failed to create domain dir\n", __func__);
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/conf.d", vhd->base_dir, a->domain);
-	mkdir(d_path, 0700);
+	if (mkdir(d_path, 0700) < 0 && errno != EEXIST)
+		lwsl_notice("%s: Failed to create conf.d dir\n", __func__);
 
 	if (access(d_path, F_OK) != 0) {
 		r = -1;
@@ -677,10 +679,12 @@ handle_req_create_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 	int n, fd;
 
 	lws_snprintf(p1, sizeof(p1), "%s/domains/%s", vhd->base_dir, a->domain);
-	mkdir(p1, 0700);
+	if (mkdir(p1, 0700) < 0 && errno != EEXIST)
+		lwsl_notice("%s: Failed to create domain dir\n", __func__);
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/conf.d", vhd->base_dir, a->domain);
-	mkdir(d_path, 0700);
+	if (mkdir(d_path, 0700) < 0 && errno != EEXIST)
+		lwsl_notice("%s: Failed to create conf.d dir\n", __func__);
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/conf.d/%s.json", vhd->base_dir, a->domain, a->subdomain);
 	fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
