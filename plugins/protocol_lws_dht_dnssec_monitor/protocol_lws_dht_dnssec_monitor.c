@@ -1150,6 +1150,12 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_get_random(vhd->context, rand, sizeof(rand));
 				lws_hex_from_byte_array(rand, sizeof(rand), hex, sizeof(hex));
 
+				lws_strncpy(vhd->auth_token, hex, sizeof(vhd->auth_token));
+				vhd->auth_jwk.kty = LWS_GENCRYPTO_KTY_OCT;
+				vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].len = 64;
+				vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf = malloc(64);
+				memcpy(vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf, rand, 64);
+
 #if defined(LWS_WITH_SECURE_STREAMS_AUTH_SIGV4)
 				lws_system_blob_t *b = lws_system_get_blob(vhd->context, LWS_SYSBLOB_TYPE_EXT_AUTH1, 0);
 				if (b) {
@@ -1256,10 +1262,43 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 				lwsl_err("%s: WS UI request too large\n", __func__);
 				return -1;
 			}
-			memcpy(&pss->tx[LWS_PRE], in, len);
-			pss->tx_len = len;
-			lws_callback_on_writable(pss->cwsi); /* Write proxy -> root */
-			lwsl_notice("[INSTRUMENT] LWS_CALLBACK_RECEIVE: Enqueued request proxy->root payload size %d\n", (int)len);
+			char jwt_buf[1024];
+			size_t jwt_len = sizeof(jwt_buf);
+			unsigned long long now = (unsigned long long)lws_now_secs();
+			char claims[256];
+			char *first_brace;
+
+			lws_snprintf(claims, sizeof(claims), "{\"iss\":\"acme-ipc\",\"aud\":\"dnssec-monitor\",\"iat\":%llu,\"exp\":%llu}", now, now + 60);
+
+			if (!lws_jwt_sign_compact(vhd->context, &vhd->auth_jwk, "HS256", claims, strlen(claims), jwt_buf, &jwt_len)) {
+				first_brace = memchr(in, '{', len);
+				if (first_brace) {
+					size_t offset = lws_ptr_diff_size_t(first_brace, in) + 1;
+					size_t out_len = 0;
+
+					memcpy(&pss->tx[LWS_PRE], in, offset);
+					out_len += offset;
+
+					int n = lws_snprintf((char *)&pss->tx[LWS_PRE + out_len], 65536 - LWS_PRE - out_len, "\"jwt\":\"%s\",", jwt_buf);
+					out_len += (size_t)n;
+
+					if (len - offset < 65536 - LWS_PRE - out_len) {
+						memcpy(&pss->tx[LWS_PRE + out_len], first_brace + 1, len - offset);
+						out_len += len - offset;
+						pss->tx_len = out_len;
+						lws_callback_on_writable(pss->cwsi); /* Write proxy -> root */
+						lwsl_notice("[INSTRUMENT] LWS_CALLBACK_RECEIVE: Enqueued proxy->root payload size %d with JWT\n", (int)out_len);
+					}
+				} else {
+					goto fallback;
+				}
+			} else {
+fallback:
+				memcpy(&pss->tx[LWS_PRE], in, len);
+				pss->tx_len = len;
+				lws_callback_on_writable(pss->cwsi); /* Write proxy -> root */
+				lwsl_notice("[INSTRUMENT] LWS_CALLBACK_RECEIVE: Enqueued proxy->root payload size %d (no JWT)\n", (int)len);
+			}
 		} else {
 			lwsl_notice("[INSTRUMENT] LWS_CALLBACK_RECEIVE: ABORTED! root_active=%d, pss->cwsi=%p\n", vhd?vhd->root_process_active:0, pss->cwsi);
 		}
