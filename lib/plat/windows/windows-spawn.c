@@ -118,6 +118,11 @@ lws_spawn_piped_destroy(struct lws_spawn_piped **_lsp)
 	if (!lsp)
 		return;
 
+	if (lsp->hJob) {
+		CloseHandle(lsp->hJob);
+		lsp->hJob = NULL;
+	}
+
 	for (n = 0; n < 3; n++) {
 		if (lsp->pipe_fds[n][!!(n == 0)]) {
 			CloseHandle(lsp->pipe_fds[n][n == 0]);
@@ -223,7 +228,14 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 			lsp->info.res->us_cpu_sys = lsp->res.us_cpu_sys;
 	}
 
-	if (GetProcessMemoryInfo(lsp->child_pid, &pmc, sizeof(pmc))) {
+	if (lsp->hJob) {
+		JOBOBJECT_EXTENDED_LIMIT_INFORMATION jeli;
+		if (QueryInformationJobObject(lsp->hJob, JobObjectExtendedLimitInformation, &jeli, sizeof(jeli), NULL)) {
+			lsp->res.peak_mem_rss = (uint64_t)jeli.PeakJobMemoryUsed;
+			if (lsp->info.res)
+				lsp->info.res->peak_mem_rss = lsp->res.peak_mem_rss;
+		}
+	} else if (GetProcessMemoryInfo(lsp->child_pid, &pmc, sizeof(pmc))) {
 		lsp->res.peak_mem_rss = pmc.PeakWorkingSetSize;
 		if (lsp->info.res)
 			lsp->info.res->peak_mem_rss = lsp->res.peak_mem_rss;
@@ -522,13 +534,25 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	si.dwFlags	= STARTF_USESTDHANDLES | CREATE_NO_WINDOW;
 	si.wShowWindow	= TRUE;
 
-	if (!CreateProcess(NULL, cli, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {
+	if (!CreateProcess(NULL, cli, NULL, NULL, TRUE, CREATE_SUSPENDED, NULL, NULL, &si, &pi)) {
 		lwsl_err("%s: CreateProcess failed 0x%x\n", __func__,
 				(unsigned long)GetLastError());
 		goto bail3;
 	}
 
 	lsp->child_pid = pi.hProcess;
+	lsp->hJob = CreateJobObjectW(NULL, NULL);
+	if (lsp->hJob) {
+		JOBOBJECT_EXTENDED_LIMIT_INFORMATION jeli;
+		memset(&jeli, 0, sizeof(jeli));
+		jeli.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+		if (!SetInformationJobObject(lsp->hJob, JobObjectExtendedLimitInformation, &jeli, sizeof(jeli)))
+			lwsl_warn("%s: SetInformationJobObject failed\n", __func__);
+		else
+			AssignProcessToJobObject(lsp->hJob, pi.hProcess);
+	}
+
+	ResumeThread(pi.hThread);
 	CloseHandle(pi.hThread);
 
 	lwsl_notice("%s: lsp %p spawned PID %d\n", __func__, lsp, lsp->child_pid);
