@@ -1155,7 +1155,9 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 			int n = 0;
 			/* Rely on the original host application executable context path instead of
 			 * guessing paths. `argv[0]` guarantees relative/absolute execution fidelity. */
+#if defined(__linux__)
 			char plat_exe_buf[256];
+#endif
 			const char *exe_path = lws_cmdline_option_cx_argv0(vhd->context);
 
 			if (!exe_path || exe_path[0] != '/') {

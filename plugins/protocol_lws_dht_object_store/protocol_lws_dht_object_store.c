@@ -203,7 +203,7 @@ verb_put_handler(struct lws_dht_ctx *ctx, struct vhd_dht_store *vhd, const struc
 		}
 		frag->hash_init_done = 1;
 	} else {
-		lwsl_user("%s: Continuing existing transfer! Safe Hash: %s, Current Total Bytes Received: %zu\n", __func__, frag->safe_hash, frag->received_len);
+		lwsl_user("%s: Continuing existing transfer! Safe Hash: %s, Current Total Bytes Received: %llu\n", __func__, frag->safe_hash, (unsigned long long)frag->received_len);
 	}
 
 	if (lseek(frag->fd, (off_t)msg->offset, SEEK_SET) < 0) {
@@ -215,7 +215,7 @@ verb_put_handler(struct lws_dht_ctx *ctx, struct vhd_dht_store *vhd, const struc
 		lwsl_err("%s: write failed (wrote %d of expected %zu, errno %d)\n", __func__, n, msg->payload_len, errno);
 		return -1;
 	}
-	lwsl_user("%s: Successfully wrote %d bytes (Total Received now: %zu/%llu)\n", __func__, n, frag->received_len + msg->payload_len, msg->len);
+	lwsl_user("%s: Successfully wrote %d bytes (Total Received now: %llu/%llu)\n", __func__, n, (unsigned long long)(frag->received_len + msg->payload_len), (unsigned long long)msg->len);
 
 	if (lws_genhash_update(&frag->ctx, msg->payload, msg->payload_len)) return -1;
 	frag->received_len += msg->payload_len;
