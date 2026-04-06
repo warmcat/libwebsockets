@@ -521,14 +521,14 @@ handle_req_create_domain(struct vhd *vhd, struct pss *root_pss, struct monitor_r
 	int r = 0;
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s", vhd->base_dir, a->domain);
-	if (mkdir(d_path, 0700) < 0 && errno != EEXIST)
+	if (mkdir(d_path, 0700) < 0 && errno != EEXIST) {
 		lwsl_notice("%s: Failed to create domain dir\n", __func__);
+		r = -1;
+	}
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/conf.d", vhd->base_dir, a->domain);
-	if (mkdir(d_path, 0700) < 0 && errno != EEXIST)
+	if (mkdir(d_path, 0700) < 0 && errno != EEXIST) {
 		lwsl_notice("%s: Failed to create conf.d dir\n", __func__);
-
-	if (access(d_path, F_OK) != 0) {
 		r = -1;
 	}
 
