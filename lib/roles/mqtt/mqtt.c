@@ -836,6 +836,7 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 		case LMQCPP_PUBLISH_VH_TOPIC:
 		{
 			lws_mqtt_publish_param_t *pub = NULL;
+			unsigned int overhead;
 
 			if (len < 2) {
 				lwsl_notice("%s: topic too short\n", __func__);
@@ -885,8 +886,14 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 
 			pub->payload_pos = 0;
 
-			pub->payload_len = par->cpkt_remlen -
-				(unsigned int)(2 + pub->topic_len + ((pub->qos) ? 2 : 0));
+			overhead = (unsigned int)(2 + pub->topic_len + ((pub->qos) ? 2 : 0));
+			if (par->cpkt_remlen < overhead) {
+				par->reason = LMQCP_REASON_MALFORMED_PACKET;
+				lws_free_set_NULL(pub->topic);
+				lws_free_set_NULL(wsi->mqtt->rx_cpkt_param);
+				goto send_reason_and_close;
+			}
+			pub->payload_len = par->cpkt_remlen - overhead;
 
 			switch (pub->qos) {
 			case QOS0:
@@ -911,6 +918,7 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 		{
 			lws_mqtt_publish_param_t *pub =
 				(lws_mqtt_publish_param_t *)wsi->mqtt->rx_cpkt_param;
+			unsigned int overhead;
 
 			if (len < 2) {
 				lwsl_notice("%s: len breakage 2\n", __func__);
@@ -925,8 +933,14 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 					__func__, (int)par->cpkt_id);
 			par->state = LMQCPP_PAYLOAD;
 			pub->payload_pos = 0;
-			pub->payload_len = par->cpkt_remlen -
-				(unsigned int)(2 + pub->topic_len + ((pub->qos) ? 2 : 0));
+			overhead = (unsigned int)(2 + pub->topic_len + ((pub->qos) ? 2 : 0));
+			if (par->cpkt_remlen < overhead) {
+				par->reason = LMQCP_REASON_MALFORMED_PACKET;
+				lws_free_set_NULL(pub->topic);
+				lws_free_set_NULL(wsi->mqtt->rx_cpkt_param);
+				goto send_reason_and_close;
+			}
+			pub->payload_len = par->cpkt_remlen - overhead;
 			if (pub->payload_len == 0)
 				goto cmd_completion;
 
