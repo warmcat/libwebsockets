@@ -2438,7 +2438,6 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			int i = 0;
 			while (*gp && *gp != '"' && i < 511) redirect_uris[i++] = *gp++;
 		}
-
 		if (!strncmp(op, "client_", 7) || !strcmp(op, "clients_list")) {
 			if (!strcmp(op, "client_delete") && client_id[0]) {
 				sqlite3_stmt *stmt;
@@ -2450,11 +2449,16 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			} else if (!strcmp(op, "client_edit") && client_id[0]) {
 				sqlite3_stmt *stmt;
 				if (sqlite3_prepare_v2(vhd->db, "UPDATE oauth_clients SET name=?, redirect_uris=? WHERE client_id=?", -1, &stmt, NULL) == SQLITE_OK) {
+					int rc;
 					sqlite3_bind_text(stmt, 1, client_name, -1, SQLITE_TRANSIENT);
 					sqlite3_bind_text(stmt, 2, redirect_uris, -1, SQLITE_TRANSIENT);
 					sqlite3_bind_text(stmt, 3, client_id, -1, SQLITE_TRANSIENT);
-					sqlite3_step(stmt);
+					rc = sqlite3_step(stmt);
+					if (rc != SQLITE_DONE)
+						lwsl_err("%s: UPDATE on cid '%s' failed with sqlite3 code %d\n", __func__, client_id, rc);
 					sqlite3_finalize(stmt);
+				} else {
+					lwsl_err("%s: sqlite3_prepare_v2 for client_edit failed\n", __func__);
 				}
 			} else if (!strcmp(op, "client_create") && client_id[0]) {
 				sqlite3_stmt *stmt;

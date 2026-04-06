@@ -42,45 +42,45 @@
 
             <section class="panel detail-panel hidden-panel" id="detail-panel">
                 <div class="panel-header">
-                    <h2 id="detail-title">Domain Details: <span>---</span></h2>
+                    <h2 id="detail-title">Zone Records: <span>---</span></h2>
                     <div class="actions-group">
-                        <button id="btn-edit-zone" class="btn secondary">Edit Zonefile</button>
-                        <button id="btn-add-tls" class="btn secondary">Add TLS Subdomain</button>
+                        <button id="btn-save-zonefile" class="btn primary">Save Zonefile</button>
                     </div>
                 </div>
 
                 <div class="table-container">
-                    <h3>TLS Subdomains</h3>
-                    <table id="table-tls">
+                    <table id="table-zone">
                         <thead>
                             <tr>
-                                <th>Subdomain Certificate</th>
+                                <th>Name</th>
+                                <th>TTL</th>
+                                <th>Type</th>
+                                <th>Value</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             <!-- Populated dynamically -->
-                            <tr><td colspan="2" class="loading">Loading...</td></tr>
+                            <tr><td colspan="5" class="loading">Loading...</td></tr>
                         </tbody>
                     </table>
+                    <button id="btn-add-record" class="btn secondary ext-add-record">+ Add Record</button>
+                </div>
+
+                <div id="record-editor" class="hidden-panel ext-editor">
+                    <h3 id="editor-title" class="ext-title">Edit Record</h3>
+                    <div id="editor-form" class="ext-form-box"></div>
+                    <div class="ext-actions">
+                        <button id="btn-cancel-edit" class="btn hollow">Discard</button>
+                        <button id="btn-apply-record" class="btn primary">Apply Changes</button>
+                    </div>
                 </div>
             </section>
         </main>
     </div>
 
     <!-- Modals -->
-    <div id="modal-zone" class="modal">
-        <div class="modal-content large">
-            <h3>Edit Zonefile: <span id="zone-domain-name"></span></h3>
-            <div class="form-group">
-                <textarea id="zone-editor" rows="20" spellcheck="false" placeholder="Enter BIND zonefile content..."></textarea>
-            </div>
-            <div class="modal-actions">
-                <button id="btn-zone-cancel" class="btn hollow">Cancel</button>
-                <button id="btn-zone-save" class="btn primary">Save Zone</button>
-            </div>
-        </div>
-    </div>
+    <!-- Modals for legacy TLS endpoints remain here hidden/inactive -->
 
     <div id="modal-new-domain" class="modal">
         <div class="modal-content">

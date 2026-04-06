@@ -282,40 +282,51 @@ int main(int argc, char **argv)
 	 * the original one dies randomly.
 	 */
 
-	signal(SIGPIPE, SIG_IGN);
-	signal(SIGHUP, reload_handler);
-	signal(SIGINT, reload_handler);
-	signal(SIGTERM, reload_handler);
-
-	fprintf(stderr, "Root process is %u\n", (unsigned int)getpid());
-
-	while (1) {
-		if (do_reload) {
-			do_reload = 0;
-			n = fork();
-			if (n == 0) /* new */
+	{
+		int is_monitor = 0;
+		for (n = 1; n < argc; n++)
+			if (!strcmp(argv[n], "--lws-dht-dnssec-monitor-root")) {
+				is_monitor = 1;
 				break;
-			/* old */
-			if (n > 0)
-				for (m = 0; m < (int)LWS_ARRAY_SIZE(pids); m++)
-					if (!pids[m]) {
-						pids[m] = n;
-						break;
-					}
-		}
-#ifndef _WIN32
-		sleep(2);
+			}
 
-		n = waitpid(-1, &status, WNOHANG);
-		if (n > 0)
-			for (m = 0; m < (int)LWS_ARRAY_SIZE(pids); m++)
-				if (pids[m] == n) {
-					pids[m] = 0;
-					break;
+		if (!is_monitor) {
+			signal(SIGPIPE, SIG_IGN);
+			signal(SIGHUP, reload_handler);
+			signal(SIGINT, reload_handler);
+			signal(SIGTERM, reload_handler);
+
+			fprintf(stderr, "Root process is %u\n", (unsigned int)getpid());
+
+			while (1) {
+				if (do_reload) {
+					do_reload = 0;
+					n = fork();
+					if (n == 0) /* new */
+						break;
+					/* old */
+					if (n > 0)
+						for (m = 0; m < (int)LWS_ARRAY_SIZE(pids); m++)
+							if (!pids[m]) {
+								pids[m] = n;
+								break;
+							}
 				}
+#ifndef _WIN32
+				sleep(2);
+
+				n = waitpid(-1, &status, WNOHANG);
+				if (n > 0)
+					for (m = 0; m < (int)LWS_ARRAY_SIZE(pids); m++)
+						if (pids[m] == n) {
+							pids[m] = 0;
+							break;
+						}
 #else
 // !!! implemenation needed
 #endif
+			}
+		}
 	}
 #endif
 	/* child process */

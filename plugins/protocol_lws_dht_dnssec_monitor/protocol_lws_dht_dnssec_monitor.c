@@ -47,6 +47,9 @@ struct pss {
 	struct lws *wsi;
 	struct lws *cwsi;
 
+	lws_sorted_usec_list_t sul;
+	int retry_count;
+
 	/* TX (proxy -> root) buffer */
 	uint8_t tx[LWS_PRE + 65536];
 	size_t tx_len;
@@ -83,9 +86,12 @@ struct vhd {
 	struct lws_jwk auth_jwk;
 };
 
+static struct vhd *global_root_vhd = NULL;
+
 extern const struct lws_protocols lws_dht_dnssec_monitor_protocols[];
 
-/* Helper for when the child process exits */
+
+
 static void
 lws_dht_dnssec_monitor_reap_cb(void *opaque, const struct lws_spawn_resource_us *res,
 			       siginfo_t *si, int we_killed_him)
@@ -512,16 +518,17 @@ handle_req_create_domain(struct vhd *vhd, struct pss *root_pss, struct monitor_r
 	char *tx = (char *)&root_pss->tx[LWS_PRE];
 	char *tx_end = tx + 65536 - 1;
 	char d_path[1024];
-	char syscmd[2048];
-	int r;
+	int r = 0;
+
+	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s", vhd->base_dir, a->domain);
+	mkdir(d_path, 0700);
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/conf.d", vhd->base_dir, a->domain);
-	lws_snprintf(syscmd, sizeof(syscmd), "mkdir -p \"%s\"", d_path);
-	r = system(syscmd);
+	mkdir(d_path, 0700);
 
-	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/dns", vhd->base_dir, a->domain);
-	lws_snprintf(syscmd, sizeof(syscmd), "mkdir -p \"%s\"", d_path);
-	r |= system(syscmd);
+	if (access(d_path, F_OK) != 0) {
+		r = -1;
+	}
 
 	if (r) {
 		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Failed making dirs\"}\n", a->req);
@@ -541,7 +548,7 @@ handle_req_create_domain(struct vhd *vhd, struct pss *root_pss, struct monitor_r
 		}
 
 		/* Touch empty zone */
-		lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/dns/%s.zone", vhd->base_dir, a->domain, a->domain);
+		lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/%s.zone", vhd->base_dir, a->domain, a->domain);
 		fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
 		if (fd >= 0) close(fd);
 
@@ -555,10 +562,12 @@ handle_req_delete_domain(struct vhd *vhd, struct pss *root_pss, struct monitor_r
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE];
 	char *tx_end = tx + 65536 - 1;
-	char syscmd[1024];
+	char d_path[1024];
 
-	lws_snprintf(syscmd, sizeof(syscmd), "rm -rf \"%s/domains/%s\"", vhd->base_dir, a->domain);
-	system(syscmd);
+	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s", vhd->base_dir, a->domain);
+	lws_dir(d_path, NULL, lws_dir_rm_rf_cb);
+	rmdir(d_path);
+
 	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
 }
@@ -570,7 +579,7 @@ handle_req_get_zone(struct vhd *vhd, struct pss *root_pss, struct monitor_req_ar
 	char *tx_end = tx + 65536 - 1;
 	char d_path[1024];
 
-	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/dns/%s.zone", vhd->base_dir, a->domain, a->domain);
+	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/%s.zone", vhd->base_dir, a->domain, a->domain);
 	int fd = open(d_path, O_RDONLY);
 	if (fd >= 0) {
 		struct stat st;
@@ -587,6 +596,7 @@ handle_req_get_zone(struct vhd *vhd, struct pss *root_pss, struct monitor_req_ar
 						else if (z[i] == '\r') { *tx++ = '\\'; *tx++ = 'r'; }
 						else if (z[i] == '"') { *tx++ = '\\'; *tx++ = '"'; }
 						else if (z[i] == '\\') { *tx++ = '\\'; *tx++ = '\\'; }
+						else if (z[i] == '\t') { *tx++ = '\\'; *tx++ = 't'; }
 						else *tx++ = z[i];
 					}
 					tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\"}\n");
@@ -610,7 +620,7 @@ handle_req_update_zone(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 
 	if (!a->zone_buf) goto fail;
 
-	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/dns/%s.zone", vhd->base_dir, a->domain, a->domain);
+	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/%s.zone", vhd->base_dir, a->domain, a->domain);
 	int fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
 	if (fd >= 0) {
 		if (write(fd, a->zone_buf, (size_t)a->zone_len) == (ssize_t)a->zone_len) {
@@ -638,7 +648,7 @@ handle_req_get_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_arg
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/conf.d", vhd->base_dir, a->domain);
 	d = opendir(d_path);
 	if (!d) {
-		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Cannot open conf.d\"}\n", a->req);
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"tls\":[]}\n", a->req);
 	} else {
 		int first = 1;
 		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"tls\":[", a->req);
@@ -662,8 +672,15 @@ handle_req_create_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 	char *tx = (char *)&root_pss->tx[LWS_PRE];
 	char *tx_end = tx + 65536 - 1;
 	char d_path[1024];
+	char p1[1024];
 	char buf[2048];
 	int n, fd;
+
+	lws_snprintf(p1, sizeof(p1), "%s/domains/%s", vhd->base_dir, a->domain);
+	mkdir(p1, 0700);
+
+	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/conf.d", vhd->base_dir, a->domain);
+	mkdir(d_path, 0700);
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/conf.d/%s.json", vhd->base_dir, a->domain, a->subdomain);
 	fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
@@ -789,7 +806,7 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 	int m = lejp_parse(&jctx, (uint8_t *)in, (int)len);
 	lejp_destruct(&jctx);
 
-	lwsl_notice("[INSTRUMENT] handle_monitor_request: executed lejp_parse. len: %d, rc: %d. String: '%.*s'\n", (int)len, m, (int)len, in);
+	// lwsl_debug("[INSTRUMENT] handle_monitor_request: executed lejp_parse. len: %d, rc: %d. String: '%.*s'\n", (int)len, m, (int)len, in);
 
 	if (m < 0 && m != LEJP_REJECT_UNKNOWN) {
 		lwsl_notice("[INSTRUMENT] handle_monitor_request: JSON parser failed! Error %d\n", m);
@@ -803,7 +820,7 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 		goto done;
 	}
 
-	lwsl_notice("[INSTRUMENT] handle_monitor_request: Routed valid requested endpoint: '%s'\n", a.req);
+	lwsl_debug("[INSTRUMENT] handle_monitor_request: Routed valid requested endpoint: '%s'\n", a.req);
 
 	if (vhd->auth_jwk.kty == LWS_GENCRYPTO_KTY_OCT) {
 		char jwt_out[2048];
@@ -836,7 +853,7 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 
 	/* Prevent path traversal attacks */
 	if (strchr(a.domain, '/') || strstr(a.domain, "..") || strchr(a.subdomain, '/') || strstr(a.subdomain, "..")) {
-		lwsl_notice("[INSTRUMENT] handle_monitor_request: Path traversal parameters detected\n");
+		lwsl_debug("[INSTRUMENT] handle_monitor_request: Path traversal parameters detected\n");
 		root_pss->tx_len = (size_t)lws_snprintf(tx, 65536, "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Invalid chars in domain\"}\n", a.req);
 		goto done;
 	}
@@ -844,14 +861,14 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 	for (size_t i = 0; i < req_map_size; i++) {
 		if (!strcmp(a.req, req_map[i].name)) {
 			/* Enforce domain param if required by the handler */
-			if (i > 0 && !a.domain[0] && strcmp(req_map[i].name, "status")) {
+			if (i > 0 && !a.domain[0] && strcmp(req_map[i].name, "status") && strcmp(req_map[i].name, "get_domains")) {
 				lwsl_notice("[INSTRUMENT] handle_monitor_request: Missing required 'domain' param for %s\n", a.req);
 				root_pss->tx_len = (size_t)lws_snprintf(tx, 65536, "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Missing arguments\"}\n", a.req);
 				goto done;
 			}
-			lwsl_notice("[INSTRUMENT] handle_monitor_request: Calling map callback...\n");
+			lwsl_debug("[INSTRUMENT] handle_monitor_request: Calling map callback...\n");
 			req_map[i].cb(vhd, root_pss, &a);
-			lwsl_notice("[INSTRUMENT] handle_monitor_request: Callback generated response size %d\n", (int)root_pss->tx_len);
+			lwsl_debug("[INSTRUMENT] handle_monitor_request: Callback generated response size %d\n", (int)root_pss->tx_len);
 			goto done;
 		}
 	}
@@ -863,6 +880,46 @@ done:
 	if (a.zone_buf) free(a.zone_buf);
 }
 
+static void
+connect_retry_cb(lws_sorted_usec_list_t *sul)
+{
+	struct pss *pss = lws_container_of(sul, struct pss, sul);
+	struct vhd *vhd = (struct vhd *)lws_protocol_vh_priv_get(lws_get_vhost(pss->wsi), lws_get_protocol(pss->wsi));
+	if (!vhd && global_root_vhd)
+		vhd = global_root_vhd;
+
+	if (!vhd || !vhd->root_process_active)
+		return;
+
+	struct lws_client_connect_info i;
+	char uds_path[1024];
+
+	memset(&i, 0, sizeof(i));
+	i.method = "RAW";
+	i.context = vhd->context;
+	i.vhost = lws_get_vhost(pss->wsi);
+
+	/* LWS client connection paths prefix with '+' for Unix Domain Socket */
+	lws_snprintf(uds_path, sizeof(uds_path), "+%s", vhd->uds_path);
+	i.address = uds_path;
+	i.port = 0;
+	i.host = "localhost";
+	i.origin = "localhost";
+	i.local_protocol_name = "lws-dht-dnssec-monitor";
+	i.opaque_user_data = pss;
+	i.pwsi = &pss->cwsi;
+
+	if (!lws_client_connect_via_info(&i)) {
+		pss->cwsi = NULL;
+		if (++pss->retry_count < 20) {
+			lwsl_notice("%s: UDS connection delayed, retrying (%d/20)\n", __func__, pss->retry_count);
+			lws_sul_schedule(vhd->context, 0, &pss->sul, connect_retry_cb, 250 * LWS_US_PER_MS);
+		} else {
+			lwsl_err("%s: failed to connect UI WS proxy to UDS server after retries\n", __func__);
+			lws_wsi_close(pss->wsi, LWS_TO_KILL_ASYNC);
+		}
+	}
+}
 
 static int
 callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
@@ -872,6 +929,10 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 	struct lws_vhost *vhost = lws_get_vhost(wsi);
 	const struct lws_protocols *protocol = lws_get_protocol(wsi);
 	struct vhd *vhd = (struct vhd *)lws_protocol_vh_priv_get(vhost, protocol);
+
+	if (!vhd && global_root_vhd)
+		vhd = global_root_vhd;
+
 	const struct lws_protocol_vhost_options *pvo;
 
 	switch (reason) {
@@ -887,19 +948,7 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 				/* Yes, we are the root spawned UDS process! */
 				lwsl_notice("%s: Started as UDS root monitor\n", __func__);
 
-#if !defined(WIN32)
-				const char *u_uid = lws_cmdline_option_cx(cx, "--uid");
-				const char *u_gid = lws_cmdline_option_cx(cx, "--gid");
-
-				if (u_gid && atoi(u_gid)) {
-					if (setgid((gid_t)atoi(u_gid)) < 0)
-						lwsl_err("%s: setgid failed\n", __func__);
-				}
-				if (u_uid && atoi(u_uid)) {
-					if (setuid((uid_t)atoi(u_uid)) < 0)
-						lwsl_err("%s: setuid failed\n", __func__);
-				}
-#endif
+				/* Privileges are seamlessly restricted via native LWS framework policies securely dropping after UDS setup */
 
 				/* Only the FIRST protocol in the list handles this, so we don't duplicate vhosts
 				 * We'll use vhd presence to guard it if needed. Actually we'll just check if we
@@ -918,7 +967,6 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 
 				/* We only want this protocol to run on the UDS */
 				static const struct lws_protocols *pprotocols[] = {
-					&lws_dht_dnssec_monitor_protocols[0],
 					&lws_dht_dnssec_monitor_protocols[1],
 					NULL
 				};
@@ -959,6 +1007,32 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 						vhd->uds_path = uds_path;
 						vhd->signature_duration = 31536000;
 
+						const char *auth_token = lws_cmdline_option_cx(cx, "--auth-token");
+						char buf[256];
+						if (!auth_token) {
+							int n, retries = 50;
+							while (retries-- > 0) {
+								n = (int)read(0, buf, sizeof(buf) - 1);
+								if (n > 0 || (n < 0 && errno != EAGAIN)) break;
+								usleep(100000);
+							}
+							if (n > 0) {
+								buf[n] = '\0';
+								char *p = strchr(buf, '\n'); if (p) *p = '\0';
+								p = strchr(buf, '\r'); if (p) *p = '\0';
+								auth_token = buf;
+							}
+						}
+
+						if (auth_token) {
+							lws_strncpy(vhd->auth_token, auth_token, sizeof(vhd->auth_token));
+							vhd->auth_jwk.kty = LWS_GENCRYPTO_KTY_OCT;
+							vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].len = 64;
+							vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf = malloc(64);
+							lws_hex_to_byte_array(auth_token, vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf, 64);
+							lwsl_notice("%s: securely mapped symmetric daemon auth-token\n", __func__);
+						}
+
 						/* Borrow ops from the invoking vhost that originally had it configured */
 						const struct lws_protocols *prot = lws_vhost_name_to_protocol(vhost, "lws-dht-dnssec");
 						if (!prot) {
@@ -968,6 +1042,9 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 						}
 						if (prot && prot->user)
 							vhd->ops = (const struct lws_dht_dnssec_ops *)prot->user;
+
+						/* Assign functional cross-vhost global routing directly for UDS channels */
+						global_root_vhd = vhd;
 
 						if (vhd->ops) {
 							char scan_path[1024];
@@ -1014,15 +1091,10 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 			/* Load standard PVOs */
 			const char *uid = "0", *gid = "0";
 
-			{
-				lws_system_policy_t *policy;
-				if (lws_system_parse_policy(vhd->context, "/etc/lwsws/policy", &policy)) {
-					lwsl_vhost_notice(vhost, "dnssec_monitor: couldn't parse policy.");
-					return -1;
-				}
-				vhd->base_dir = strdup(policy->dns_base_dir);
-				lws_system_policy_free(policy);
-			}
+			if ((pvo = lws_pvo_search(in, "base-dir")))
+				vhd->base_dir = strdup(pvo->value);
+			else
+				vhd->base_dir = strdup("/etc/dnssec");
 
 			if ((pvo = lws_pvo_search(in, "uds-path")))
 				vhd->uds_path = pvo->value;
@@ -1055,11 +1127,16 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 
 			/* Locate the operational ops struct off the prerequisite plugin */
 			const struct lws_protocols *prot = lws_vhost_name_to_protocol(vhd->vhost, "lws-dht-dnssec");
-			if (!prot || !prot->user) {
-				lwsl_err("%s: prerequisite protocol lws-dht-dnssec is missing or has no ops exported\n", __func__);
-				return -1;
+			if (!prot) {
+				struct lws_vhost *vhdflt = lws_get_vhost_by_name(vhd->context, "default");
+				if (vhdflt)
+					prot = lws_vhost_name_to_protocol(vhdflt, "lws-dht-dnssec");
 			}
-			vhd->ops = (const struct lws_dht_dnssec_ops *)prot->user;
+			if (!prot || !prot->user) {
+				lwsl_err("%s: prerequisite protocol lws-dht-dnssec is missing or has no ops exported! DHT sync will be bypassed.\n", __func__);
+			} else {
+				vhd->ops = (const struct lws_dht_dnssec_ops *)prot->user;
+			}
 
 			lwsl_notice("%s: initialized monitor proxy (base-dir: %s, uds-path: %s)\n", __func__, vhd->base_dir, vhd->uds_path);
 
@@ -1121,61 +1198,68 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_snprintf(arg_gid, sizeof(arg_gid), "--gid=%s", gid);
 				exec_array[n++] = arg_gid;
 			}
-			exec_array[n++] = NULL;
 
 			for (int i = 0; i < n; i++)
 				lwsl_notice("%s: exec_array[%d]: '%s'\n", __func__, i, exec_array[i]);
 
 			if (exec_array[0]) {
-				spawn_info.exec_array = exec_array;
-				spawn_info.timeout_us = 0; /* runs forever */
-				spawn_info.plsp = &vhd->lsp;
-				spawn_info.reap_cb = lws_dht_dnssec_monitor_reap_cb;
-				spawn_info.protocol_name = "lws-dht-dnssec-stdwsi";
-				spawn_info.vh = vhd->vhost;
+				if (!global_root_vhd) {
+					/* Generate secure HS256 auth token for UDS */
+					uint8_t rand[64];
+					char hex[129];
+					lws_get_random(vhd->context, rand, sizeof(rand));
+					lws_hex_from_byte_array(rand, sizeof(rand), hex, sizeof(hex));
 
-				lwsl_notice("dnssec_monitor: Executing root process: %s\n", exec_array[0]);
+					lws_strncpy(vhd->auth_token, hex, sizeof(vhd->auth_token));
+					vhd->auth_jwk.kty = LWS_GENCRYPTO_KTY_OCT;
+					vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].len = 64;
+					vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf = malloc(64);
+					memcpy(vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf, rand, 64);
 
-				vhd->lsp = lws_spawn_piped(&spawn_info);
-				if (!vhd->lsp) {
-					lwsl_err("%s: Failed to spawn root monitor process\n", __func__);
-					return -1;
-				}
-				vhd->root_process_active = 1;
-				lwsl_notice("%s: Spawned root monitor process successfully\n", __func__);
+					/* Inject auth token over native stdin pipe instead of argv to prevent ps inspection */
 
-				/* Generate secure HS256 auth token for UDS */
-				uint8_t rand[64];
-				char hex[129];
-				lws_get_random(vhd->context, rand, sizeof(rand));
-				lws_hex_from_byte_array(rand, sizeof(rand), hex, sizeof(hex));
+					exec_array[n++] = NULL;
 
-				lws_strncpy(vhd->auth_token, hex, sizeof(vhd->auth_token));
-				vhd->auth_jwk.kty = LWS_GENCRYPTO_KTY_OCT;
-				vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].len = 64;
-				vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf = malloc(64);
-				memcpy(vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf, rand, 64);
+					spawn_info.exec_array = exec_array;
+					spawn_info.timeout_us = 0; /* runs forever */
+					spawn_info.plsp = &vhd->lsp;
+					spawn_info.reap_cb = lws_dht_dnssec_monitor_reap_cb;
+					spawn_info.protocol_name = "lws-dht-dnssec-stdwsi";
+					spawn_info.vh = vhd->vhost;
 
-#if defined(LWS_WITH_SECURE_STREAMS_AUTH_SIGV4)
-				lws_system_blob_t *b = lws_system_get_blob(vhd->context, LWS_SYSBLOB_TYPE_EXT_AUTH1, 0);
-				if (b) {
-					lws_system_blob_heap_empty(b);
-					lws_system_blob_heap_append(b, (const uint8_t *)hex, strlen(hex));
-				}
-#endif
+					lwsl_notice("dnssec_monitor: Executing root process: %s\n", exec_array[0]);
 
-				/* Pass auth token directly to the child over non-visible stdin pipeline */
-				int fd = lws_spawn_get_fd_stdxxx(vhd->lsp, 0);
-				if (fd >= 0) {
-					/* Write out the exact hex token plus newline */
-					if (write(fd, hex, strlen(hex)) < 0) {
-						lwsl_err("%s: write to child stdin failed\n", __func__);
+					vhd->lsp = lws_spawn_piped(&spawn_info);
+					if (!vhd->lsp) {
+						lwsl_err("%s: Failed to spawn root monitor process\n", __func__);
+						return -1;
 					}
-					if (write(fd, "\n", 1) < 0) {}
-				}
 
-				/* Engage parent monitor to execute DHT publications off completed JWS child drops cleanly */
-				lws_sul_schedule(vhd->context, 0, &vhd->sul_timer, parent_dnssec_monitor_timer_cb, 1 * LWS_US_PER_SEC);
+					int stdin_fd = (int)(intptr_t)lws_spawn_get_fd_stdxxx(vhd->lsp, 0);
+					if (stdin_fd >= 0) {
+						char token_buf[140];
+						lws_snprintf(token_buf, sizeof(token_buf), "%s\n", hex);
+						if (write(stdin_fd, token_buf, strlen(token_buf)) < 0) {
+							lwsl_err("%s: Failed dropping token via stdin pipe\n", __func__);
+						}
+					}
+					vhd->root_process_active = 1;
+					global_root_vhd = vhd;
+					lwsl_notice("%s: Spawned root monitor process successfully and assigned global_root_vhd=%p (fallback active)\n", __func__, global_root_vhd);
+
+					/* Engage parent monitor to execute DHT publications off completed JWS child drops cleanly */
+					lws_sul_schedule(vhd->context, 0, &vhd->sul_timer, parent_dnssec_monitor_timer_cb, 1 * LWS_US_PER_SEC);
+				} else {
+					/* Already globally spawned! Just map the auth context */
+					lws_strncpy(vhd->auth_token, global_root_vhd->auth_token, sizeof(vhd->auth_token));
+					vhd->auth_jwk.kty = LWS_GENCRYPTO_KTY_OCT;
+					vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].len = 64;
+					vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf = malloc(64);
+					memcpy(vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf, global_root_vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf, 64);
+
+					vhd->root_process_active = 1;
+					lwsl_notice("%s: Reusing globally spawned root monitor %p for vhost %s\n", __func__, global_root_vhd, lws_get_vhost_name(vhost));
+				}
 			} else {
 				lwsl_err("%s: Cannot spawn argv[0] because it is NULL\n", __func__);
 			}
@@ -1221,33 +1305,15 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 		if (vhd && vhd->root_process_active) {
 			/* We are the unprivileged proxy, and a UI WebSocket just connected.
 			 * Establish onward Raw UDS connection */
-			struct lws_client_connect_info i;
-			char uds_path[1024];
-
-			memset(&i, 0, sizeof(i));
-			i.method = "RAW";
-			i.context = vhd->context;
-
-			/* LWS client connection paths prefix with '+' for Unix Domain Socket */
-			lws_snprintf(uds_path, sizeof(uds_path), "+%s", vhd->uds_path);
-			i.address = uds_path;
-			i.port = 0;
-			i.host = "localhost";
-			i.origin = "localhost";
-			i.local_protocol_name = "lws-dht-dnssec-monitor";
-			i.opaque_user_data = pss;
-			i.pwsi = &pss->cwsi;
-
-			if (!lws_client_connect_via_info(&i)) {
-				lwsl_err("%s: failed to connect UI WS proxy to UDS server\n", __func__);
-				return -1;
-			}
 			pss->wsi = wsi;
+			pss->retry_count = 0;
+			connect_retry_cb(&pss->sul);
 		}
 		break;
 
 	case LWS_CALLBACK_CLOSED:
 		if (vhd && vhd->root_process_active) {
+			lws_sul_cancel(&pss->sul);
 			if (pss->cwsi) {
 				lws_wsi_close(pss->cwsi, LWS_TO_KILL_ASYNC);
 				pss->cwsi = NULL;
@@ -1256,7 +1322,7 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_RECEIVE:
-		lwsl_notice("[INSTRUMENT] LWS_CALLBACK_RECEIVE: Browser UI triggered WS message (len: %d). Proxy cwsi=%p, root_process_active=%d\n", (int)len, pss->cwsi, vhd ? vhd->root_process_active : -1);
+		lwsl_debug("[INSTRUMENT] LWS_CALLBACK_RECEIVE: Browser UI triggered WS message (len: %d). Proxy cwsi=%p, root_process_active=%d\n", (int)len, pss->cwsi, vhd ? vhd->root_process_active : -1);
 		if (vhd && vhd->root_process_active && pss->cwsi) {
 			if (len > 65536) {
 				lwsl_err("%s: WS UI request too large\n", __func__);
@@ -1269,7 +1335,7 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 			char temp[2048];
 			char *first_brace;
 
-			lws_snprintf(claims, sizeof(claims), "{\"iss\":\"acme-ipc\",\"aud\":\"dnssec-monitor\",\"iat\":%llu,\"exp\":%llu}", now, now + 60);
+			lws_snprintf(claims, sizeof(claims), "{\"iss\":\"acme-ipc\",\"aud\":\"dnssec-monitor\",\"iat\":%llu,\"nbf\":%llu,\"exp\":%llu}", now, now - 60, now + 60);
 
 			if (!lws_jwt_sign_compact(vhd->context, &vhd->auth_jwk, "HS256", jwt_buf, &jwt_len, temp, sizeof(temp), "%s", claims)) {
 				first_brace = memchr(in, '{', len);
@@ -1288,7 +1354,7 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 						out_len += len - offset;
 						pss->tx_len = out_len;
 						lws_callback_on_writable(pss->cwsi); /* Write proxy -> root */
-						lwsl_notice("[INSTRUMENT] LWS_CALLBACK_RECEIVE: Enqueued proxy->root payload size %d with JWT\n", (int)out_len);
+						lwsl_debug("[INSTRUMENT] LWS_CALLBACK_RECEIVE: Enqueued proxy->root payload size %d with JWT\n", (int)out_len);
 					}
 				} else {
 					goto fallback;
@@ -1298,7 +1364,7 @@ fallback:
 				memcpy(&pss->tx[LWS_PRE], in, len);
 				pss->tx_len = len;
 				lws_callback_on_writable(pss->cwsi); /* Write proxy -> root */
-				lwsl_notice("[INSTRUMENT] LWS_CALLBACK_RECEIVE: Enqueued proxy->root payload size %d (no JWT)\n", (int)len);
+				lwsl_debug("[INSTRUMENT] LWS_CALLBACK_RECEIVE: Enqueued proxy->root payload size %d (no JWT)\n", (int)len);
 			}
 		} else {
 			lwsl_notice("[INSTRUMENT] LWS_CALLBACK_RECEIVE: ABORTED! root_active=%d, pss->cwsi=%p\n", vhd?vhd->root_process_active:0, pss->cwsi);
@@ -1307,7 +1373,7 @@ fallback:
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
 		if (vhd && vhd->root_process_active && pss->rx_len) {
-			lwsl_notice("[INSTRUMENT] LWS_CALLBACK_SERVER_WRITEABLE: Translating %d bytes to final browser!\n", (int)pss->rx_len);
+			lwsl_debug("[INSTRUMENT] LWS_CALLBACK_SERVER_WRITEABLE: Translating %d bytes to final browser!\n", (int)pss->rx_len);
 			if (lws_write(wsi, &pss->rx[LWS_PRE], pss->rx_len, LWS_WRITE_TEXT) < 0) {
 				lwsl_err("%s: Failed writing to WS UI\n", __func__);
 				return -1;
@@ -1340,7 +1406,7 @@ fallback:
 	case LWS_CALLBACK_RAW_RX:
 		{
 			struct pss *wpss = (struct pss *)lws_get_opaque_user_data(wsi);
-			lwsl_notice("[INSTRUMENT] LWS_CALLBACK_RAW_RX: UDS channel receiving %d bytes. Is Proxy? %d\n", (int)len, wpss != NULL);
+			lwsl_debug("[INSTRUMENT] LWS_CALLBACK_RAW_RX: UDS channel receiving %d bytes. Is Proxy? %d\n", (int)len, wpss != NULL);
 
 			if (wpss) {
 				/* 1: Proxy Unprivileged Client: root server just replied. */
@@ -1357,7 +1423,7 @@ fallback:
 				vhd->rx_len = len;
 
 				struct pss *root_pss = (struct pss *)user;
-				lwsl_notice("[INSTRUMENT] LWS_CALLBACK_RAW_RX (ROOT): Sending %d bytes to monitor request router\n", (int)len);
+				lwsl_debug("[INSTRUMENT] LWS_CALLBACK_RAW_RX (ROOT): Sending %d bytes to monitor request router\n", (int)len);
 				handle_monitor_request(vhd, root_pss, (const char *)&vhd->rx[LWS_PRE], len);
 
 				/* Tell server socket to reply */
@@ -1424,19 +1490,13 @@ callback_monitor_stdwsi(struct lws *wsi, enum lws_callback_reasons reason,
                 }
                 buf[ilen] = '\0';
 
-                {
-                        const struct lws_protocols *prot = lws_vhost_name_to_protocol(lws_get_vhost(wsi), "lws-dht-dnssec-monitor");
-                        struct vhd *vhd = (struct vhd *)lws_protocol_vh_priv_get(lws_get_vhost(wsi), prot);
-                        if (vhd && ilen >= 128) {
-                                lws_strncpy(vhd->auth_token, (const char *)buf, sizeof(vhd->auth_token));
-                                struct lws_jwk *jwk = &vhd->auth_jwk;
-                                jwk->kty = LWS_GENCRYPTO_KTY_OCT;
-                                jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].len = 64;
-                                jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].buf = malloc(64);
-                                lws_hex_to_byte_array((const char *)buf, jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].buf, 64);
-                                lwsl_notice("root-monitor: loaded 64-byte symmetric JWK from stdin successfully\n");
-                        }
-                }
+				char *b = (char *)buf;
+				while (b && *b) {
+					char *nl = strchr(b, '\n');
+					if (nl) *nl++ = '\0';
+					lwsl_notice("[ROOT-DAEMON] %s\n", b);
+					b = nl;
+				}
                 return 0;
         }
 

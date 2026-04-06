@@ -32,6 +32,16 @@ body {
   line-height: 1.5;
 }
 
+a {
+  color: var(--primary-color);
+  text-decoration: none;
+  transition: color 0.15s ease-in-out;
+}
+
+a:hover {
+  color: #60a5fa;
+}
+
 .app-container {
   max-width: 1200px;
   margin: 0 auto;
@@ -372,3 +382,19 @@ input:focus, textarea:focus {
 .toast.success {
   border-left-color: var(--success-color);
 }
+
+/* Extracted CSP Styles */
+.ext-add-record { margin-top: 1rem; width: 100%; }
+.ext-editor { margin-top: 1.5rem; padding: 1.5rem; background: rgba(0,0,0,0.15); border-radius: 8px; }
+.ext-title { margin-top: 0; }
+.ext-form-box { display: grid; gap: 1rem; grid-template-columns: 1fr; }
+.ext-actions { margin-top: 1.5rem; display: flex; gap: 0.5rem; justify-content: flex-end; }
+.ext-mono { font-family: monospace; }
+.ext-badge { background: rgba(255,255,255,0.05); color: #fff; }
+.ext-value { max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ext-grid-1 { display: grid; grid-template-columns: 1fr 120px; gap: 1rem; }
+.ext-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem; }
+.ext-grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 1rem; margin-top: 1rem; }
+.ext-mt { margin-top: 1rem; }
+.ext-grid-select { display: grid; grid-template-columns: 120px 1fr; gap: 1rem; margin-top: 1rem; }
+.ext-select { width: 100%; padding: 0.75rem; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.08); color: #fff; border-radius: 6px; }

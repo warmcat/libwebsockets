@@ -1,5 +1,177 @@
 let ws;
 let currentDomain = '';
+let currentZone = null;
+
+function generateId() {
+    return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+}
+
+class ZoneFile {
+    constructor(zoneText) {
+        this.records = [];
+        this.parse(zoneText || '');
+    }
+
+    parse(text) {
+        const lines = text.split('\n');
+        let currentRecord = null;
+        let inMultiLine = false;
+
+        for (let i = 0; i < lines.length; i++) {
+            let line = lines[i];
+
+            // If we are currently parsing a multi-line block (like SOA)
+            if (inMultiLine) {
+                currentRecord.raw += '\n' + line;
+                if (line.includes(')')) {
+                    inMultiLine = false;
+                    this.parseMultiRecord(currentRecord);
+                    this.records.push(currentRecord);
+                    currentRecord = null;
+                }
+                continue;
+            }
+
+            // Empty lines or purely comments
+            if (/^\s*$/.test(line) || /^\s*;/.test(line)) {
+                this.records.push({ id: generateId(), type: 'comment', raw: line });
+                continue;
+            }
+
+            // Macros like $TTL or $ORIGIN
+            if (line.startsWith('$')) {
+                this.records.push({ id: generateId(), type: 'macro', raw: line });
+                continue;
+            }
+
+            // Check for multi-line start (usually SOA)
+            if (line.includes('(')) {
+                inMultiLine = true;
+                currentRecord = { id: generateId(), type: 'SOA', raw: line };
+                if (line.includes(')')) {
+                    inMultiLine = false;
+                    this.parseMultiRecord(currentRecord);
+                    this.records.push(currentRecord);
+                    currentRecord = null;
+                }
+                continue;
+            }
+
+            // Standard one-line Resource Record
+            this.records.push(this.parseSingleRecord(line));
+        }
+
+        if (currentRecord) {
+             this.parseMultiRecord(currentRecord);
+             this.records.push(currentRecord);
+        }
+    }
+
+    parseMultiRecord(record) {
+        let clean = record.raw.replace(/;.*$/gm, '').replace(/[\(\)]/g, ' ').trim();
+        let tokens = clean.split(/\s+/);
+
+        let soaIdx = tokens.indexOf('SOA');
+        if (soaIdx !== -1) {
+            record.parsed = {
+                name: tokens[0],
+                ttl: soaIdx > 2 && !isNaN(tokens[1]) ? tokens[1] : '',
+                clazz: 'IN',
+                mname: tokens[soaIdx + 1] || '',
+                rname: tokens[soaIdx + 2] || '',
+                serial: tokens[soaIdx + 3] || '',
+                refresh: tokens[soaIdx + 4] || '',
+                retry: tokens[soaIdx + 5] || '',
+                expire: tokens[soaIdx + 6] || '',
+                minimum: tokens[soaIdx + 7] || ''
+            };
+        }
+    }
+
+    parseSingleRecord(line) {
+        let text = line;
+        let cIdx = line.indexOf(';');
+        let comment = '';
+        if (cIdx !== -1) {
+            text = line.substring(0, cIdx);
+            comment = line.substring(cIdx);
+        }
+
+        let tokens = text.trim().split(/\s+/);
+        let name;
+
+        if (/^\s/.test(line)) {
+            name = '@';
+        } else {
+            name = tokens.shift();
+        }
+
+        let ttl = '';
+        if (/^\d+/.test(tokens[0])) {
+            ttl = tokens.shift();
+        }
+
+        let clazz = 'IN';
+        if (tokens[0] === 'IN' || tokens[0] === 'CH' || tokens[0] === 'HS') {
+            clazz = tokens.shift();
+        }
+
+        let rtype = tokens.shift() || 'UNKNOWN';
+        let value = tokens.join(' ');
+
+        return {
+            id: generateId(),
+            type: rtype,
+            raw: line,
+            parsed: { name, ttl, clazz, type: rtype, value },
+            comment
+        };
+    }
+
+    updateRecord(id, parsedData) {
+        let rec = this.records.find(r => r.id === id);
+        if (!rec) return;
+
+        if (parsedData.type === 'SOA') {
+            rec.raw = `${parsedData.name || '@'} ${parsedData.ttl ? parsedData.ttl + ' ' : ''}IN SOA ${parsedData.mname} ${parsedData.rname} (\n` +
+                      `\t\t\t\t${parsedData.serial}\n\t\t\t\t${parsedData.refresh}\n\t\t\t\t${parsedData.retry}\n\t\t\t\t${parsedData.expire}\n\t\t\t\t${parsedData.minimum} )`;
+            rec.parsed = parsedData;
+            rec.type = 'SOA';
+        } else {
+            let line = `${parsedData.name === '@' ? '@' : parsedData.name}\t${parsedData.ttl}\tIN\t${parsedData.type}\t${parsedData.value}`;
+            if (rec.comment) line += `\t${rec.comment}`;
+            rec.raw = line;
+            rec.parsed = parsedData;
+            rec.type = parsedData.type;
+        }
+    }
+
+    addRecord(parsedData) {
+        let line = '';
+        if (parsedData.type === 'SOA') {
+            line = `${parsedData.name || '@'} ${parsedData.ttl ? parsedData.ttl + ' ' : ''}IN SOA ${parsedData.mname} ${parsedData.rname} (\n` +
+                   `\t\t\t\t${parsedData.serial}\n\t\t\t\t${parsedData.refresh}\n\t\t\t\t${parsedData.retry}\n\t\t\t\t${parsedData.expire}\n\t\t\t\t${parsedData.minimum} )`;
+        } else {
+            line = `${parsedData.name === '@' ? '@' : parsedData.name}\t${parsedData.ttl}\tIN\t${parsedData.type}\t${parsedData.value}`;
+        }
+
+        this.records.push({
+            id: generateId(),
+            type: parsedData.type,
+            raw: line,
+            parsed: parsedData,
+            comment: ''
+        });
+    }
+
+    deleteRecord(id) {
+        this.records = this.records.filter(r => r.id !== id);
+    }
+
+    serialize() {
+        return this.records.map(r => r.raw).join('\n');
+    }
+}
 
 function connect() {
     const l = window.location;
@@ -69,24 +241,12 @@ function handleResponse(data) {
             sendReq({ req: 'get_domains' });
             break;
         case 'get_zone':
-            document.getElementById('zone-editor').value = data.zone || '';
-            openModal('modal-zone');
+            currentZone = new ZoneFile(data.zone || '');
+            renderZoneTable();
+            document.getElementById('record-editor')?.classList.add('hidden-panel');
             break;
         case 'update_zone':
-            closeModal('modal-zone');
             showToast('Zonefile updated successfully');
-            break;
-        case 'get_tls':
-            renderTls(data.tls || []);
-            break;
-        case 'create_tls':
-            closeModal('modal-new-tls');
-            showToast('TLS Subdomain configuration created');
-            sendReq({ req: 'get_tls', domain: currentDomain });
-            break;
-        case 'delete_tls':
-            showToast('TLS configuration deleted');
-            sendReq({ req: 'get_tls', domain: currentDomain });
             break;
     }
 }
@@ -134,7 +294,8 @@ function renderDomains(domains) {
 function selectDomain(domain) {
     currentDomain = domain;
     document.querySelector('#detail-title span').textContent = domain;
-    document.getElementById('detail-panel').classList.remove('hidden-panel');
+    document.getElementById('detail-panel')?.classList.remove('hidden-panel');
+    document.getElementById('record-editor')?.classList.add('hidden-panel');
 
     const rows = document.querySelectorAll('#table-domains tbody tr');
     rows.forEach(r => {
@@ -142,7 +303,7 @@ function selectDomain(domain) {
         if (r.cells[0].textContent === domain) r.classList.add('active');
     });
 
-    sendReq({ req: 'get_tls', domain: domain });
+    sendReq({ req: 'get_zone', domain: domain });
 }
 
 function closeDetail() {
@@ -150,48 +311,149 @@ function closeDetail() {
     document.getElementById('detail-panel').classList.add('hidden-panel');
 }
 
-function renderTls(tlsList) {
-    const tbody = document.querySelector('#table-tls tbody');
+function renderZoneTable() {
+    const tbody = document.querySelector('#table-zone tbody');
     tbody.innerHTML = '';
 
-    if (!tlsList.length) {
-        tbody.innerHTML = '<tr><td colspan="2" class="loading">No TLS configs found.</td></tr>';
+    const records = currentZone.records.filter(r => r.type !== 'comment' && r.type !== 'macro');
+
+    if (records.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="loading">No records found.</td></tr>';
         return;
     }
 
-    tlsList.forEach(t => {
-        const subdomain = t.replace('.json', '');
+    records.forEach(r => {
         const tr = document.createElement('tr');
-
-        const tdName = document.createElement('td');
-        tdName.textContent = subdomain;
-
-        const tdAct = document.createElement('td');
-        const btnDel = document.createElement('button');
-        btnDel.className = 'btn btn-sm danger';
-        btnDel.textContent = 'Delete';
-        btnDel.onclick = () => {
-            if (confirm(`Delete TLS configuration for ${subdomain}?`)) {
-                sendReq({ req: 'delete_tls', domain: currentDomain, subdomain: subdomain });
+        tr.style.cursor = 'pointer';
+        tr.onclick = (e) => {
+            if (e.target.tagName !== 'BUTTON') {
+                openEditor(r.id);
             }
         };
-        tdAct.appendChild(btnDel);
 
-        tr.appendChild(tdName);
+        let nameStr = r.parsed?.name || '@';
+        let typeStr = r.type;
+        let ttlStr = r.parsed?.ttl || '-';
+        let valStr = r.parsed?.value;
+
+        if (r.type === 'SOA') {
+            valStr = `Serial: ${r.parsed?.serial} (MNAME: ${r.parsed?.mname})`;
+        }
+
+        tr.innerHTML = `
+            <td class="ext-mono">${nameStr}</td>
+            <td>${ttlStr}</td>
+            <td><span class="status-badge ext-badge">${typeStr}</span></td>
+            <td class="ext-value">${valStr || '-'}</td>
+        `;
+
+        const tdAct = document.createElement('td');
+        if (r.type !== 'SOA') {
+            const btnDel = document.createElement('button');
+            btnDel.className = 'btn btn-sm danger';
+            btnDel.textContent = 'Delete';
+            btnDel.onclick = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (confirm('Delete this record?')) {
+                    currentZone.deleteRecord(r.id);
+                    renderZoneTable();
+                    document.getElementById('record-editor')?.classList.add('hidden-panel');
+                }
+            };
+            tdAct.appendChild(btnDel);
+        }
+
         tr.appendChild(tdAct);
         tbody.appendChild(tr);
     });
 }
 
-/* Modal UX */
-function openModal(id) {
-    document.getElementById(id).classList.add('show');
-}
-function closeModal(id) {
-    document.getElementById(id).classList.remove('show');
+let editingRecordId = null;
+
+function renderFormFields(type, data) {
+    const form = document.getElementById('editor-form');
+
+    let common = `
+        <div class="ext-grid-1">
+            <div>
+                <label>Name (e.g. @ or www)</label>
+                <input type="text" id="edit-name" value="${data.name || ''}" placeholder="@">
+            </div>
+            <div>
+                <label>TTL</label>
+                <input type="text" id="edit-ttl" value="${data.ttl || ''}" placeholder="3600">
+            </div>
+        </div>
+    `;
+
+    if (type === 'SOA') {
+        form.innerHTML = `
+            ${common}
+            <div class="ext-grid-2">
+                <div><label>MNAME (Primary NS)</label><input type="text" id="edit-mname" value="${data.mname || ''}"></div>
+                <div><label>RNAME (Admin Email)</label><input type="text" id="edit-rname" value="${data.rname || ''}"></div>
+            </div>
+            <div class="ext-grid-4">
+                <div><label>Serial</label><input type="number" id="edit-serial" value="${data.serial || ''}"></div>
+                <div><label>Refresh</label><input type="number" id="edit-refresh" value="${data.refresh || ''}"></div>
+                <div><label>Retry</label><input type="number" id="edit-retry" value="${data.retry || ''}"></div>
+                <div><label>Expire</label><input type="number" id="edit-expire" value="${data.expire || ''}"></div>
+            </div>
+            <div class="ext-mt">
+                <label>Minimum TTL</label><input type="number" id="edit-minimum" value="${data.minimum || ''}">
+            </div>
+            <input type="hidden" id="edit-type" value="SOA">
+        `;
+    } else {
+        let valueLabel = 'Value (Target IP or Data)';
+        if (type === 'CNAME') valueLabel = 'Target Domain (CNAME)';
+        if (type === 'TXT') valueLabel = 'Text Content';
+
+        form.innerHTML = `
+            ${common}
+            <div class="ext-grid-select">
+                <div>
+                    <label>Record Type</label>
+                    <select id="edit-type" class="ext-select">
+                        <option value="A" ${type === 'A' ? 'selected' : ''}>A</option>
+                        <option value="AAAA" ${type === 'AAAA' ? 'selected' : ''}>AAAA</option>
+                        <option value="CNAME" ${type === 'CNAME' ? 'selected' : ''}>CNAME</option>
+                        <option value="TXT" ${type === 'TXT' ? 'selected' : ''}>TXT</option>
+                        <option value="MX" ${type === 'MX' ? 'selected' : ''}>MX</option>
+                        <option value="NS" ${type === 'NS' ? 'selected' : ''}>NS</option>
+                    </select>
+                </div>
+                <div>
+                    <label>${valueLabel}</label>
+                    <input type="text" id="edit-value" value="${data.value || ''}" placeholder="...">
+                </div>
+            </div>
+        `;
+
+        document.getElementById('edit-type').onchange = (e) => {
+            const v = document.getElementById('edit-value');
+            if (e.target.value === 'A') v.placeholder = '192.168.1.1';
+            if (e.target.value === 'CNAME') v.placeholder = 'example.com.';
+        };
+    }
 }
 
-/* Event Listeners */
+function openEditor(id) {
+    editingRecordId = id;
+    const editor = document.getElementById('record-editor');
+    editor.classList.remove('hidden-panel');
+
+    if (id) {
+        const rec = currentZone.records.find(r => r.id === id);
+        document.getElementById('editor-title').textContent = 'Edit Record';
+        renderFormFields(rec.type, rec.parsed || {});
+    } else {
+        document.getElementById('editor-title').textContent = 'Add New Record';
+        renderFormFields('A', { name: '@' });
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     connect();
 
@@ -212,48 +474,53 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    document.getElementById('btn-edit-zone').onclick = () => {
-        if (!currentDomain) return;
-        document.getElementById('zone-domain-name').textContent = currentDomain;
-        sendReq({ req: 'get_zone', domain: currentDomain });
+    document.getElementById('btn-save-zonefile').onclick = () => {
+        if (!currentDomain || !currentZone) return;
+        const serialized = currentZone.serialize();
+        sendReq({ req: 'update_zone', domain: currentDomain, zone: serialized });
     };
 
-    document.getElementById('btn-zone-cancel').onclick = () => closeModal('modal-zone');
-    document.getElementById('btn-zone-save').onclick = () => {
-        const buf = document.getElementById('zone-editor').value;
-        sendReq({ req: 'update_zone', domain: currentDomain, zone: buf });
+    document.getElementById('btn-add-record').onclick = () => {
+        openEditor(null);
     };
 
-    document.getElementById('btn-add-tls').onclick = () => {
-        if (!currentDomain) return;
-        document.getElementById('tls-domain-name').textContent = currentDomain;
-        document.getElementById('input-tls-subdomain').value = '';
-        document.getElementById('input-tls-email').value = '';
-        document.getElementById('input-tls-org').value = '';
-        document.getElementById('input-tls-dir').value = 'https://acme-v02.api.letsencrypt.org/directory';
-        checkTlsForm();
-        openModal('modal-new-tls');
+    document.getElementById('btn-cancel-edit').onclick = () => {
+        document.getElementById('record-editor')?.classList.add('hidden-panel');
     };
 
-    const checkTlsForm = () => {
-        const sd = document.getElementById('input-tls-subdomain').value.trim();
-        const em = document.getElementById('input-tls-email').value.trim();
-        const org = document.getElementById('input-tls-org').value.trim();
-        const dir = document.getElementById('input-tls-dir').value.trim();
-        document.getElementById('btn-nt-save').disabled = !(sd && em && org && dir);
-    };
+    document.getElementById('btn-apply-record').onclick = () => {
+        const type = document.getElementById('edit-type').value;
+        const name = document.getElementById('edit-name').value.trim() || '@';
+        const ttl = document.getElementById('edit-ttl').value.trim();
 
-    document.querySelectorAll('#modal-new-tls input').forEach(el => el.oninput = checkTlsForm);
+        let data = { type, name, ttl };
 
-    document.getElementById('btn-nt-cancel').onclick = () => closeModal('modal-new-tls');
-    document.getElementById('btn-nt-save').onclick = () => {
-        sendReq({
-            req: 'create_tls',
-            domain: currentDomain,
-            subdomain: document.getElementById('input-tls-subdomain').value.trim(),
-            email: document.getElementById('input-tls-email').value.trim(),
-            organization: document.getElementById('input-tls-org').value.trim(),
-            directory_url: document.getElementById('input-tls-dir').value.trim()
-        });
+        if (type === 'SOA') {
+            data.mname = document.getElementById('edit-mname').value.trim();
+            data.rname = document.getElementById('edit-rname').value.trim();
+            data.serial = document.getElementById('edit-serial').value.trim();
+            data.refresh = document.getElementById('edit-refresh').value.trim();
+            data.retry = document.getElementById('edit-retry').value.trim();
+            data.expire = document.getElementById('edit-expire').value.trim();
+            data.minimum = document.getElementById('edit-minimum').value.trim();
+        } else {
+            data.value = document.getElementById('edit-value').value.trim();
+        }
+
+        if (editingRecordId) {
+            currentZone.updateRecord(editingRecordId, data);
+        } else {
+            currentZone.addRecord(data);
+        }
+
+        renderZoneTable();
+        document.getElementById('record-editor')?.classList.add('hidden-panel');
     };
 });
+
+function openModal(id) {
+    document.getElementById(id).classList.add('show');
+}
+function closeModal(id) {
+    document.getElementById(id).classList.remove('show');
+}
