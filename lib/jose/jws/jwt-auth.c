@@ -25,6 +25,7 @@ struct lws_jwt_auth {
 	void *user;
 
 	struct lws_dll2_owner grants;
+	uint64_t iat;
 	uint64_t exp;
 	char cookie_name[64];
 	char sub[128];
@@ -49,6 +50,10 @@ lws_jwt_auth_sul_cb(lws_sorted_usec_list_t *sul)
 	} else {
 		if (ja->cb)
 			ja->cb(ja, LWS_JWT_AUTH_STATE_REAUTH, ja->user);
+
+		/* Reschedule for the actual expiration */
+		lws_usec_t us = (lws_usec_t)(ja->exp - now) * LWS_US_PER_SEC;
+		lws_sul_schedule(ja->cx, 0, &ja->sul, lws_jwt_auth_sul_cb, us);
 	}
 }
 
@@ -65,11 +70,19 @@ lws_jwt_auth_schedule(struct lws_jwt_auth *ja)
 		return;
 	}
 
-	uint64_t ttl = ja->exp - now;
-	if (ttl <= 3600) {
-		lws_sul_schedule(ja->cx, 0, &ja->sul, lws_jwt_auth_sul_cb, 1);
+	uint64_t total_val = 0;
+	if (ja->iat && ja->exp > ja->iat)
+		total_val = ja->exp - ja->iat;
+	else
+		total_val = ja->exp - now;
+
+	uint64_t reauth_point = ja->exp - (total_val * 15) / 100; /* 85% */
+
+	if (now >= reauth_point) {
+		us = (lws_usec_t)(ja->exp - now) * LWS_US_PER_SEC;
+		lws_sul_schedule(ja->cx, 0, &ja->sul, lws_jwt_auth_sul_cb, us);
 	} else {
-		us = (lws_usec_t)(ttl - 3600) * LWS_US_PER_SEC;
+		us = (lws_usec_t)(reauth_point - now) * LWS_US_PER_SEC;
 		lws_sul_schedule(ja->cx, 0, &ja->sul, lws_jwt_auth_sul_cb, us);
 	}
 }
@@ -81,6 +94,7 @@ struct jwt_auth_parse_ctx {
 
 static const char * const auth_paths[] = {
 	"exp",
+	"iat",
 	"grants",
 	"grants.*",
 	"sub",
@@ -90,6 +104,7 @@ static const char * const auth_paths[] = {
 
 enum {
 	JAP_EXP,
+	JAP_IAT,
 	JAP_GRANTS,
 	JAP_GRANTS_ANY,
 	JAP_SUB,
@@ -114,6 +129,8 @@ jwt_auth_lejp_cb(struct lejp_ctx *ctx, char reason)
 	if (reason == LEJPCB_VAL_NUM_INT) {
 		if (ctx->path_match == JAP_EXP + 1) {
 			pctx->ja->exp = (uint64_t)atoll(ctx->buf);
+		} else if (ctx->path_match == JAP_IAT + 1) {
+			pctx->ja->iat = (uint64_t)atoll(ctx->buf);
 		} else if (ctx->path_match == JAP_UID + 1) {
 			pctx->ja->uid = (uint32_t)atoi(ctx->buf);
 		} else if (ctx->path_match == JAP_GRANTS_ANY + 1 && pctx->parsing_grants) {

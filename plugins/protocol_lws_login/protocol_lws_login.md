@@ -80,3 +80,31 @@ You can enable this bouncing natively via a standard JSON layout without compili
 ```
 
 Notice that the `pmo` *(Per-Mount Option)* strictly binds the `dashboard-service` name to the `/dashboard` mount, cleanly overriding any default global values the protocol was initialized with.
+
+## Background Token Renewal (Silent Auth)
+
+For Single Page Apps (such as `deaddrop` or `sai`), when the JWT naturally expires, the server will correctly and instantly drop the WebSocket connection. You can seamlessly renew this session in the background without needing to forcefully redirect the user's browser, provided they still possess a valid `auth_refresh_session` cookie from the central authority.
+
+To leverage this, ensure your HTML includes the dynamically generated helper script:
+```html
+<script src="lws-login.js"></script>
+```
+
+Then, you can hook the `window.lwsLoginSilentRefresh` helper directly into your WebSocket `onclose` retry handler:
+
+```javascript
+ws.onclose = async function() {
+    console.log("Connection lost, attempting silent renewal...");
+
+    // If the helper is available, silently ask the local lws-login backend
+    // to proxy an sso_exchange to the authority and issue a fresh cookie
+    if (typeof window.lwsLoginSilentRefresh === 'function') {
+        await window.lwsLoginSilentRefresh();
+    }
+
+    // Attempt standard reconnect now that the auth_session cookie is refreshed
+    connect_ws();
+};
+```
+
+This functions by initiating an invisible HTTP `POST` to the localized `/.lws-login-refresh` endpoint. The `lws-login` C-plugin intercepts this, securely acts as a Backend-For-Frontend (BFF) proxy using Libwebsockets' asynchronous non-blocking client API, fetches the new token directly from the Auth Server, and sets your browser's new `auth_session` cookie. Because all of this occurs entirely over backend TLS interfaces, your frontend Javascript never directly touches or exposes the Cross-Site Request Forgery (CSRF) tokens or OAuth codes!

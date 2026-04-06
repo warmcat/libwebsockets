@@ -50,6 +50,7 @@ struct vhd_login {
 	int unauth_allow;
 
 	struct lws_jwk jwk;
+	lws_dll2_owner_t pending_refresh_list;
 };
 
 struct pss_login {
@@ -59,6 +60,34 @@ struct pss_login {
 	struct lws_spa *spa;
 	struct lws_buflist *tx_buflist;
 };
+
+struct pending_login_refresh {
+	lws_dll2_t list;
+	lws_sorted_usec_list_t sul;
+	struct vhd_login *vhd;
+
+	struct lws *wsi_server;
+	struct lws *wsi_client;
+
+	char cookie_hdr[1024];
+
+	char payload[1024];
+	int payload_len;
+	int payload_pos;
+
+	char token[2048];
+};
+
+static void
+sul_pending_refresh_cb(lws_sorted_usec_list_t *sul)
+{
+	struct pending_login_refresh *ps = lws_container_of(sul,
+					struct pending_login_refresh, sul);
+
+	lwsl_info("%s: auth refresh timed out\n", __func__);
+	lws_dll2_remove(&ps->list);
+	free(ps);
+}
 
 static const char * const param_names[] = {
 	"token",
@@ -77,6 +106,115 @@ lws_login_ends_with(const char *str, const char *suffix)
 	size_t len_suffix = strlen(suffix);
 	if (len_suffix > len_str) return 0;
 	return !strcmp(str + len_str - len_suffix, suffix);
+}
+
+static int
+callback_lws_login_client(struct lws *wsi, enum lws_callback_reasons reason,
+			  void *user, void *in, size_t len)
+{
+	struct pending_login_refresh *ps = (struct pending_login_refresh *)lws_wsi_user(wsi);
+
+	switch (reason) {
+	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER: {
+		unsigned char **p = (unsigned char **)in;
+		unsigned char *end = (*p) + len;
+		char clen[16];
+
+		if (!ps)
+			break;
+
+		lws_snprintf(clen, sizeof(clen), "%d", ps->payload_len);
+
+		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
+						 (unsigned char *)"application/x-www-form-urlencoded",
+						 33, p, end))
+			return -1;
+
+		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH,
+						 (unsigned char *)clen, (int)strlen(clen), p, end))
+			return -1;
+
+		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_COOKIE,
+						 (unsigned char *)ps->cookie_hdr,
+						 (int)strlen(ps->cookie_hdr), p, end))
+			return -1;
+
+		break;
+	}
+
+	case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE: {
+		int n;
+
+		if (!ps || ps->payload_pos >= ps->payload_len)
+			break;
+
+		n = lws_write(wsi, (unsigned char *)ps->payload + ps->payload_pos,
+			      (size_t)(ps->payload_len - ps->payload_pos), LWS_WRITE_HTTP);
+		if (n < 0)
+			return -1;
+		ps->payload_pos += n;
+
+		if (ps->payload_pos < ps->payload_len)
+			lws_callback_on_writable(wsi);
+		else
+			lws_client_http_body_pending(wsi, 0);
+		break;
+	}
+
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ: {
+		struct lws_tokenize ts;
+		lws_tokenize_elem e;
+		int state = 0;
+
+		if (!ps || !in || !len)
+			break;
+
+		lws_tokenize_init(&ts, (char *)in, LWS_TOKENIZE_F_DOT_NONTERM | LWS_TOKENIZE_F_MINUS_NONTERM);
+		ts.len = len;
+
+		while ((e = lws_tokenize(&ts)) != LWS_TOKZE_ENDED) {
+			if (state == 0 && e == LWS_TOKZE_QUOTED_STRING &&
+			    ts.token_len == 5 && !strncmp(ts.token, "token", 5)) {
+				state = 1;
+			} else if (state == 1 && e == LWS_TOKZE_DELIMITER && ts.token[0] == ':') {
+				state = 2;
+			} else if (state == 2 && e == LWS_TOKZE_QUOTED_STRING) {
+				if (ts.token_len < sizeof(ps->token)) {
+					lws_strncpy(ps->token, ts.token, ts.token_len + 1);
+					lwsl_notice("%s: Extracted OAuth token natively via BFF\n", __func__);
+				}
+				break;
+			}
+		}
+		break;
+	}
+
+	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP: {
+		if (!ps)
+			break;
+
+		if (ps->wsi_server)
+			lws_callback_on_writable(ps->wsi_server);
+		ps->wsi_client = NULL;
+		break;
+	}
+
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+	case LWS_CALLBACK_CLOSED_CLIENT_HTTP: {
+		if (!ps)
+			break;
+		lwsl_notice("%s: client connection closed or errored\n", __func__);
+		if (ps->wsi_server && !ps->token[0]) {
+			lws_callback_on_writable(ps->wsi_server);
+		}
+		ps->wsi_client = NULL;
+		break;
+	}
+
+	default:
+		break;
+	}
+	return 0;
 }
 
 static int
@@ -264,7 +402,8 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			if (lws_login_ends_with(uri, "/.lws-login-status") ||
 			    lws_login_ends_with(uri, "/lws-login.js") ||
 			    lws_login_ends_with(uri, "/lws-login.css") ||
-			    lws_login_ends_with(uri, "/.lws-login-sso"))
+			    lws_login_ends_with(uri, "/.lws-login-sso") ||
+			    lws_login_ends_with(uri, "/.lws-login-refresh"))
 				return 1;
 		}
 
@@ -629,6 +768,12 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				"        }\n"
 				"        el.innerHTML = c + '</div>';\n"
 				"    }).catch(function(err) { console.log('lws-login fetch failed:', err); });\n"
+				"};\n"
+				"window.lwsLoginSilentRefresh = async function() {\n"
+				"    try {\n"
+				"        var res = await fetch('/.lws-login-refresh', { method: 'POST', credentials: 'include' });\n"
+				"        return res.ok;\n"
+				"    } catch(e) { return false; }\n"
 				"};\n";
 
 			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "application/javascript",
@@ -643,6 +788,80 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			memcpy(fbuf + LWS_PRE, js, len);
 			int res = lws_buflist_append_segment(&pss->tx_buflist, fbuf, LWS_PRE + len);
 			free(fbuf);
+			if (res < 0) return -1;
+			lws_callback_on_writable(wsi);
+			return 0;
+		}
+
+		if (lws_login_ends_with(path, "/.lws-login-refresh")) {
+			char cookie[1024];
+			char csrf[64] = {0};
+			if (lws_hdr_copy(wsi, cookie, sizeof(cookie), WSI_TOKEN_HTTP_COOKIE) > 0) {
+				const char *p = strstr(cookie, "auth_csrf=");
+				if (p) {
+					p += 10;
+					size_t i = 0;
+					while (*p && *p != ';' && i < sizeof(csrf) - 1)
+						csrf[i++] = *p++;
+					csrf[i] = 0;
+				}
+				p = strstr(cookie, "auth_refresh_session=");
+				if (p && csrf[0]) {
+					struct pending_login_refresh *ps = malloc(sizeof(*ps));
+					if (ps) {
+						struct lws_client_connect_info i;
+						char auth_url[256];
+						const char *prot, *ads, *path_c;
+						int port = 443;
+
+						memset(ps, 0, sizeof(*ps));
+						ps->vhd = vhd;
+						ps->wsi_server = wsi;
+						lws_strncpy(ps->cookie_hdr, cookie, sizeof(ps->cookie_hdr));
+
+						ps->payload_len = lws_snprintf(ps->payload, sizeof(ps->payload),
+							"csrf_token=%s", csrf);
+						ps->payload_pos = 0;
+
+						lws_dll2_add_tail(&ps->list, &vhd->pending_refresh_list);
+						lws_sul_schedule(vhd->context, 0, &ps->sul, sul_pending_refresh_cb, 5 * 60 * LWS_US_PER_SEC);
+
+						lws_strncpy(auth_url, vhd->auth_server_url, sizeof(auth_url));
+						if (!lws_parse_uri(auth_url, &prot, &ads, &port, &path_c)) {
+							lwsl_notice("%s: Intercepted background refresh request, initiating proxy to %s/api/sso_exchange\n", __func__, vhd->auth_server_url);
+							memset(&i, 0, sizeof(i));
+							i.context = vhd->context;
+							i.address = ads;
+							i.port = port;
+							i.ssl_connection = !strcmp(prot, "http") ? 0 : LCCSCF_USE_SSL;
+							i.path = "/api/sso_exchange";
+							i.host = i.address;
+							i.origin = i.address;
+							i.method = "POST";
+							i.protocol = "lws_login_client";
+							i.pwsi = &ps->wsi_client;
+							i.userdata = ps;
+
+							lws_client_connect_via_info(&i);
+							lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT, 30);
+							return 0; // Suspend!
+						}
+						free(ps);
+					}
+				}
+			}
+			/* Failure or no cookies, 401 Unauthorized */
+			lwsl_notice("%s: Missing or malformed cookies for background refresh\n", __func__);
+			const char *err = "Missing Authorization";
+			int len = (int)strlen(err);
+			if (lws_add_http_common_headers(wsi, HTTP_STATUS_UNAUTHORIZED, "text/plain",
+							(lws_filepos_t)len, (unsigned char **)&p, (unsigned char *)end)) return 1;
+			if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end)) return 1;
+			lws_write(wsi, (unsigned char *)buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
+			uint8_t fbuf[LWS_PRE + 64];
+			if (len > 64) len = 64; /* safety */
+			memcpy(fbuf + LWS_PRE, err, (size_t)len);
+			int res = lws_buflist_append_segment(&pss->tx_buflist, fbuf, LWS_PRE + (size_t)len);
 			if (res < 0) return -1;
 			lws_callback_on_writable(wsi);
 			return 0;
@@ -839,6 +1058,60 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 	}
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
+	{
+		unsigned char buf[2048 + LWS_PRE], *p = buf + LWS_PRE, *end = buf + sizeof(buf) - 1;
+		struct pending_login_refresh *ps = NULL;
+
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+					   lws_dll2_get_head(&vhd->pending_refresh_list)) {
+			struct pending_login_refresh *s = lws_container_of(d, struct pending_login_refresh, list);
+			if (s->wsi_server == wsi) {
+				ps = s;
+				break;
+			}
+		} lws_end_foreach_dll_safe(d, d1);
+
+		if (ps) {
+			if (ps->token[0]) {
+				char cookie[2048];
+				int n;
+				uint8_t fbuf[LWS_PRE + 32];
+
+				if (vhd->cookie_domain[0]) {
+					n = lws_snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Domain=%s; Max-Age=%llu; HttpOnly; SameSite=None; Secure",
+							 vhd->cookie_name, ps->token, vhd->cookie_domain, (unsigned long long)vhd->jwt_validity_secs);
+				} else {
+					n = lws_snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=%llu; HttpOnly; SameSite=None; Secure",
+							 vhd->cookie_name, ps->token, (unsigned long long)vhd->jwt_validity_secs);
+				}
+
+				if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "application/json", 13, (unsigned char **)&p, (unsigned char *)end)) return 1;
+				if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie, n, (unsigned char **)&p, (unsigned char *)end)) return 1;
+				if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end)) return 1;
+
+				lws_write(wsi, buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
+				memcpy(fbuf + LWS_PRE, "{\"success\":1}", 13);
+				if (lws_buflist_append_segment(&pss->tx_buflist, fbuf, LWS_PRE + 13) < 0) return -1;
+				lwsl_notice("%s: Successfully issued refreshed token to browser via BFF\n", __func__);
+			} else {
+				uint8_t fbuf[LWS_PRE + 32];
+
+				if (lws_add_http_common_headers(wsi, HTTP_STATUS_UNAUTHORIZED, "application/json", 13, (unsigned char **)&p, (unsigned char *)end)) return 1;
+				if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end)) return 1;
+				lws_write(wsi, buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
+				memcpy(fbuf + LWS_PRE, "{\"success\":0}", 13);
+				if (lws_buflist_append_segment(&pss->tx_buflist, fbuf, LWS_PRE + 13) < 0) return -1;
+				lwsl_notice("%s: BFF SSO Exchange denied by Server\n", __func__);
+			}
+
+			lws_sul_cancel(&ps->sul);
+			lws_dll2_remove(&ps->list);
+			free(ps);
+
+			lws_callback_on_writable(wsi);
+			return 0;
+		}
+
 		if (!pss || !pss->tx_buflist)
 			break;
 
@@ -863,6 +1136,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		return lws_http_transaction_completed(wsi);
+	}
 
 	case LWS_CALLBACK_CLOSED_HTTP:
 	case LWS_CALLBACK_CLOSED:
@@ -900,7 +1174,16 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 #if !defined (LWS_PLUGIN_STATIC)
 
 LWS_VISIBLE const struct lws_protocols protocols[] = {
-	LWS_PLUGIN_PROTOCOL_LWS_LOGIN
+	LWS_PLUGIN_PROTOCOL_LWS_LOGIN,
+	{
+		.name = "lws_login_client",
+		.callback = callback_lws_login_client,
+		.per_session_data_size = 0,
+		.rx_buffer_size = 0,
+		.id = 0,
+		.user = NULL,
+		.tx_packet_size = 0
+	}
 };
 
 LWS_VISIBLE const lws_plugin_protocol_t lws_login = {
