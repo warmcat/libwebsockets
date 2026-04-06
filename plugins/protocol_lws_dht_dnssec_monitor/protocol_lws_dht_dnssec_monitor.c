@@ -1266,11 +1266,12 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 			size_t jwt_len = sizeof(jwt_buf);
 			unsigned long long now = (unsigned long long)lws_now_secs();
 			char claims[256];
+			char temp[2048];
 			char *first_brace;
 
 			lws_snprintf(claims, sizeof(claims), "{\"iss\":\"acme-ipc\",\"aud\":\"dnssec-monitor\",\"iat\":%llu,\"exp\":%llu}", now, now + 60);
 
-			if (!lws_jwt_sign_compact(vhd->context, &vhd->auth_jwk, "HS256", claims, strlen(claims), jwt_buf, &jwt_len)) {
+			if (!lws_jwt_sign_compact(vhd->context, &vhd->auth_jwk, "HS256", jwt_buf, &jwt_len, temp, sizeof(temp), "%s", claims)) {
 				first_brace = memchr(in, '{', len);
 				if (first_brace) {
 					size_t offset = lws_ptr_diff_size_t(first_brace, in) + 1;

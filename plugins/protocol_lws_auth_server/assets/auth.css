@@ -268,6 +268,13 @@ input:focus {
 .auth-denied-box { text-align: center; color: var(--text-muted); padding: 2rem; }
 .auth-denied-btn-box { margin-top: 1rem; }
 
+/* Auth Status Overview */
+.auth-status-row { display: flex; align-items: center; justify-content: center; margin-bottom: 6px; font-weight: 600; font-size: 1.1em; }
+.auth-status-icon { font-size: 1.5em; margin-right: 10px; }
+.auth-status-row.success-row .auth-status-text { color: var(--acc-success); word-break: break-all; }
+.auth-status-row.error-row .auth-status-text { color: var(--acc-error); word-break: break-all; margin-top: 4px; }
+.auth-status-spacer { margin-bottom: 20px; }
+
 /* Auth Log Styles */
 .auth-log-table { width: 100%; border-collapse: collapse; margin-top: 10px; margin-bottom: 20px; text-align: left; }
 .auth-log-table td { padding: 6px; border-bottom: 1px solid rgba(255,255,255,0.03); font-size: 0.7em; color: var(--text-muted); }
