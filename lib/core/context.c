@@ -1762,7 +1762,7 @@ free_context_fail2:
 #if defined(LWS_WITH_SYS_METRICS)
 		lws_metrics_destroy(context);
 #endif
-#if defined(LWS_WITH_SYS_STATE)
+#if defined(LWS_WITH_SYS_STATE) && defined(LWS_WITH_NETWORK)
 		while (context->mgr_system.notify_list.head)
 			lws_dll2_remove(context->mgr_system.notify_list.head);
 #endif
@@ -2492,7 +2492,7 @@ next:
 		pthread_cond_destroy(&context->async_worker_cond);
 #endif
 
-#if defined(LWS_WITH_SYS_STATE)
+#if defined(LWS_WITH_SYS_STATE) && defined(LWS_WITH_NETWORK)
 		while (context->mgr_system.notify_list.head)
 			lws_dll2_remove(context->mgr_system.notify_list.head);
 #endif
