@@ -480,6 +480,19 @@ auth_record_strike(struct per_vhost_data__auth_server *vhd, const char *ip)
 	}
 }
 
+static void
+auth_clear_strike(struct per_vhost_data__auth_server *vhd, const char *ip)
+{
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->ip_strikes.head) {
+		auth_server_strike_t *s = lws_container_of(d, auth_server_strike_t, list);
+		if (!strcmp(s->ip, ip)) {
+			lws_dll2_remove(&s->list);
+			free(s);
+			return;
+		}
+	} lws_end_foreach_dll_safe(d, d1);
+}
+
 static int
 auth_verify_redirect_uri(struct per_vhost_data__auth_server *vhd,
 			 const char *client_id, const char *redirect_uri)
@@ -841,6 +854,8 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 			goto send;
 		}
 	}
+
+	auth_clear_strike(vhd, peer);
 
 	/* Emulate OAuth2 whitelist logic for native SSO redirect_uri requests */
 	if ((!client_id || !client_id[0]) && redirect_uri && redirect_uri[0]) {

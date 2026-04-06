@@ -119,12 +119,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 const data = await response.json();
                 if (data.csrf_token) window.csrf_token = data.csrf_token;
                 
-                if (data.strikes > 0) {
-                    const strikeOverlay = document.getElementById('strike-overlay');
-                    const strikeCount = document.getElementById('strike-count');
-                    if (strikeOverlay && strikeCount) {
+                const strikeOverlay = document.getElementById('strike-overlay');
+                const strikeCount = document.getElementById('strike-count');
+                if (strikeOverlay && strikeCount) {
+                    if (data.strikes > 0) {
                         strikeCount.innerText = data.strikes + "/5";
                         strikeOverlay.classList.remove('hidden');
+                        setTimeout(() => strikeOverlay.classList.add('show-strike'), 20);
+                    } else {
+                        strikeOverlay.classList.remove('show-strike');
+                        setTimeout(() => strikeOverlay.classList.add('hidden'), 1000);
                     }
                 }
 
@@ -299,6 +303,10 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (response.ok) {
                 const data = await response.json();
                 showNotif('success', 'Clearance accepted. Welcome.');
+                const stkOverlay = document.getElementById('strike-overlay');
+                if (stkOverlay) {
+                    stkOverlay.classList.remove('show-strike');
+                }
                 if (data.redirect) {
                     setTimeout(() => window.location.href = data.redirect, 1000);
                 } else if (redirectUri) {
