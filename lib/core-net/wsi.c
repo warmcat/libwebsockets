@@ -626,6 +626,7 @@ int lws_parse_uri(char *p, const char **prot, const char **ads, int *port,
 		const char **path) {
 	const char *end;
 	char unix_skt = 0;
+	int has_scheme = 0;
 
 	/* cut up the location into address, port and path */
 	*prot = p;
@@ -638,6 +639,7 @@ int lws_parse_uri(char *p, const char **prot, const char **ads, int *port,
 	} else {
 		*p = '\0';
 		p += 3;
+		has_scheme = 1;
 	}
 	if (*p == '+') /* unix skt */
 		unix_skt = 1;
@@ -655,15 +657,45 @@ int lws_parse_uri(char *p, const char **prot, const char **ads, int *port,
 		if (*p)
 			*p++ = '\0';
 	} else
-		while (*p && *p != ':' && (unix_skt || *p != '/'))
+		while (*p && *p != ':' &&
+		       (unix_skt || (*p != '/' && *p != '?')))
 			p++;
 
 	if (*p == ':') {
 		*p++ = '\0';
 		*port = atoi(p);
-		while (*p && *p != '/')
+		while (*p && *p != '/' && *p != '?')
 			p++;
 	}
+
+	if (*p == '?') {
+		/*
+		 * RFC 3986: query may appear directly after authority
+		 * with no path, e.g. wss://host.com?key=val
+		 *
+		 * Keep the '?' in *path so callers reconstruct the
+		 * request-target correctly ("/" + "?k=v" => "/?k=v").
+		 *
+		 * If "://" was present, we can shift the address part
+		 * one byte left into the dead "//" space, opening a
+		 * slot for the NUL terminator before '?'.
+		 */
+		if (has_scheme) {
+			size_t ads_len = lws_ptr_diff_size_t(p, *ads);
+
+			memmove((char *)*ads - 1, *ads, ads_len);
+			*ads = *ads - 1;
+			((char *)*ads)[ads_len] = '\0';
+			*path = p;
+		} else {
+			/* no "://" so no room to shift; drop '?' */
+			*p++ = '\0';
+			*path = *p ? p : "/";
+		}
+
+		return 0;
+	}
+
 	*path = "/";
 	if (*p) {
 		*p++ = '\0';
