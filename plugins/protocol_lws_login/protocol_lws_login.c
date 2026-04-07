@@ -705,22 +705,23 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		path[0] = '\0';
-		if (lws_hdr_copy(wsi, path, sizeof(path), WSI_TOKEN_GET_URI) < 0)
-			lwsl_debug("%s: URI copy failed\n", __func__);
+		if (lws_hdr_copy(wsi, path, sizeof(path), WSI_TOKEN_GET_URI) <= 0)
+			if (lws_hdr_copy(wsi, path, sizeof(path), WSI_TOKEN_POST_URI) < 0)
+				lwsl_debug("%s: URI copy failed\n", __func__);
 
 		if (lws_login_ends_with(path, "/lws-login.css")) {
 			const char *css =
-				".lws-login-box { font-family: -apple-system, system-ui, sans-serif; padding: 16px; border-radius: 8px; background: rgba(0,0,0,0.02); border: 1px solid rgba(0,0,0,0.08); display: inline-block; font-size: 14px; line-height: 1.4; color: #333; }\n"
-				"@media (prefers-color-scheme: dark) { .lws-login-box { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: #888; } }\n"
-				".lws-login-btn { display: inline-block; padding: 8px 16px; background: #007bff; color: white !important; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 13px; transition: background 0.2s; margin-top: 5px; }\n"
-				".lws-login-btn:hover { background: #0056b3; }\n"
-				".lws-login-err { display: inline-block; margin-top: 8px; margin-bottom: 4px; padding: 6px 10px; background: #ffebee; border-left: 3px solid #f44336; color: #c62828; font-size: 13px; font-weight: 500; }\n"
-				".lws-login-link { color: #007bff; text-decoration: none; margin-right: 12px; font-weight: 500; font-size: 13px; transition: opacity 0.2s; }\n"
-				".lws-login-link:hover { opacity: 0.8; }\n"
-				".lws-login-logout { color: #f44336; }\n"
-				".lws-login-identity { font-size: 16px; margin: 0 12px 0 0; display: inline-block; font-weight: 600; }\n"
-				".lws-login-mt { margin-top: 10px; }\n"
-				".lws-login-mb { margin-bottom: 8px; font-weight: 500; }\n";
+				".lws-login-box{font-family:-apple-system,system-ui,sans-serif;padding:16px;border-radius:8px;background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.08);display:inline-block;font-size:14px;line-height:1.4;color:#333;}\n"
+				"@media(prefers-color-scheme:dark){.lws-login-box{background:rgba(255,255,255,0.05);border-color:rgba(255,255,255,0.1);color:#888;}}\n"
+				".lws-login-btn{display:inline-block;padding:8px 16px;background:#007bff;color:#fff!important;text-decoration:none;border-radius:6px;font-weight:600;font-size:13px;transition:background 0.2s;margin-top:5px;}\n"
+				".lws-login-btn:hover{background:#0056b3;}\n"
+				".lws-login-err{display:inline-block;margin-top:8px;margin-bottom:4px;padding:6px 10px;background:#ffebee;border-left:3px solid #f44336;color:#c62828;font-size:13px;font-weight:500;}\n"
+				".lws-login-link{color:#007bff;text-decoration:none;margin-right:12px;font-weight:500;font-size:13px;transition:opacity 0.2s;}\n"
+				".lws-login-link:hover{opacity:0.8;}\n"
+				".lws-login-logout{color:#f44336;}\n"
+				".lws-login-identity{font-size:16px;margin:0 12px 0 0;display:inline-block;font-weight:600;}\n"
+				".lws-login-mt{margin-top:10px;}\n"
+				".lws-login-mb{margin-bottom:8px;font-weight:500;}\n";
 
 			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "text/css",
 							(lws_filepos_t)strlen(css), (unsigned char **)&p, (unsigned char *)end))
@@ -741,40 +742,36 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (lws_login_ends_with(path, "/lws-login.js")) {
 			const char *js =
-				"window.renderLwsLoginStatus = function(divId) {\n"
-				"    var el = document.getElementById(divId);\n"
-				"    if (!el) return;\n"
-				"    if (!document.getElementById('lws-login-css')) {\n"
-				"        var link = document.createElement('link');\n"
-				"        link.id = 'lws-login-css';\n"
-				"        link.rel = 'stylesheet';\n"
-				"        link.href = 'lws-login.css';\n"
-				"        document.head.appendChild(link);\n"
-				"    }\n"
-				"    fetch('.lws-login-status').then(function(res) { return res.json(); }).then(function(data) {\n"
-				"        var c = '<div class=\"lws-login-box\">';\n"
-				"        if (data.logged_in) {\n"
-				"            var lurl = data.auth_server_url + '/api/logout?redirect_uri=' + encodeURIComponent(window.location.href);\n"
-				"            var admin = data.is_admin ? '<a class=\"lws-login-link\" href=\"' + data.auth_server_url + '/admin\">Admin Console</a>' : '';\n"
-				"            c += '<strong class=\"lws-login-identity\">' + data.identity + '</strong><br>';\n"
-				"            c += admin + ' <a class=\"lws-login-link lws-login-logout\" href=\"' + lurl + '\">Logout</a>';\n"
-				"            if (!data.has_grant && !data.is_admin) {\n"
-				"                 c += '<div class=\"lws-login-err\">login lacks grant</div><br>';\n"
-				"            }\n"
-				"        } else {\n"
-				"            var safe_lu = data.login_url.split('redirect_uri=')[0] + 'redirect_uri=' + encodeURIComponent(window.location.href);\n"
-				"            c += '<div class=\"lws-login-mb\">Not logged in</div>';\n"
-				"            c += '<a class=\"lws-login-btn\" href=\"' + safe_lu + '\">Login &rarr;</a>';\n"
-				"        }\n"
-				"        el.innerHTML = c + '</div>';\n"
-				"    }).catch(function(err) { console.log('lws-login fetch failed:', err); });\n"
-				"};\n"
-				"window.lwsLoginSilentRefresh = async function() {\n"
-				"    try {\n"
-				"        var res = await fetch('/.lws-login-refresh', { method: 'POST', credentials: 'include' });\n"
-				"        return res.ok;\n"
-				"    } catch(e) { return false; }\n"
-				"};\n";
+				"window.renderLwsLoginStatus=function(d){"
+				"var e=document.getElementById(d);"
+				"if(!e)return;"
+				"if(!document.getElementById('lws-login-css')){"
+				"var l=document.createElement('link');"
+				"l.id='lws-login-css';l.rel='stylesheet';l.href='lws-login.css';"
+				"document.head.appendChild(l);"
+				"}"
+				"fetch('.lws-login-status').then(r=>r.json()).then(d=>{"
+				"var c='<div class=\"lws-login-box\">';"
+				"if(d.logged_in){"
+				"var u=d.auth_server_url+'/api/logout?redirect_uri='+encodeURIComponent(window.location.href);"
+				"var a=d.is_admin?'<a class=\"lws-login-link\" href=\"'+d.auth_server_url+'/admin\">Admin Console</a>':'';"
+				"c+='<strong class=\"lws-login-identity\">'+d.identity+'</strong><br>';"
+				"c+=a+' <a class=\"lws-login-link lws-login-logout\" href=\"'+u+'\">Logout</a>';"
+				"if(!d.has_grant&&!d.is_admin)c+='<div class=\"lws-login-err\">login lacks grant</div><br>';"
+				"}else{"
+				"var s=d.login_url.split('redirect_uri=')[0]+'redirect_uri='+encodeURIComponent(window.location.href);"
+				"c+='<div class=\"lws-login-mb\">Not logged in</div>';"
+				"c+='<a class=\"lws-login-btn\" href=\"'+s+'\">Login &rarr;</a>';"
+				"}"
+				"e.innerHTML=c+'</div>';"
+				"}).catch(e=>{console.log('lws-login fetch:',e);});"
+				"};"
+				"window.lwsLoginSilentRefresh=async function(){"
+				"try{"
+				"var r=await fetch('/.lws-login-refresh',{method:'POST',credentials:'include'});"
+				"return r.ok;"
+				"}catch(e){return false;}"
+				"};";
 
 			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "application/javascript",
 							(lws_filepos_t)strlen(js), (unsigned char **)&p, (unsigned char *)end))
