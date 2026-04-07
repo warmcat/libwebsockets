@@ -191,6 +191,7 @@ lws_sspc_txp_event_closed(lws_transport_priv_t priv)
 		r = h->ssi.state(ss_to_userobj(h), NULL,
 					 LWSSSCS_DISCONNECTED, 0);
 	}
+	h->creating_cb_done = 0;
 	if (r != LWSSSSRET_DESTROY_ME)
 		/*
 		 * schedule a reconnect in 1s

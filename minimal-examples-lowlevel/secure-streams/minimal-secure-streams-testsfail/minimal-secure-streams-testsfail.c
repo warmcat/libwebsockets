@@ -427,7 +427,7 @@ static const char * const default_ss_policy =
 			"\"tls\": true,"
 			"\"nghttp2_quirk_end_stream\": true,"
 			"\"h2q_oflow_txcr\": true,"
-			"\"timeout_ms\": 3000,"
+			"\"timeout_ms\": 5000,"
 			"\"retry\": \"default\","
 			"\"tls_trust_store\": \"le_via_isrg\""
                 "}}"
@@ -591,19 +591,19 @@ struct tests_seq {
 
 	{
 		"h1:badcert_hostname",
-		"badcert_hostname", 6 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		"badcert_hostname", 35 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_NACK_REMOTE),
 		0
 	},
 	{
 		"h1:badcert_expired",
-		"badcert_expired", 6 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		"badcert_expired", 35 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_NACK_REMOTE),
 		0
 	},
 	{
 		"h1:badcert_selfsigned",
-		"badcert_selfsigned", 6 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
+		"badcert_selfsigned", 35 * LWS_US_PER_SEC, LWSSSCS_ALL_RETRIES_FAILED,
 		(1 << LWSSSCS_QOS_NACK_REMOTE),
 		0
 	},
@@ -737,7 +737,8 @@ fail:
 	case LWSSSCS_CONNECTING:
 	case LWSSSCS_CREATING:
 		if (state == LWSSSCS_CREATING) {
-			m->start_us = lws_now_usecs();
+			if (!m->start_us)
+				m->start_us = lws_now_usecs();
 			lws_ss_start_timeout(m->ss,
 				(unsigned int)(curr_test->timeout_us / LWS_US_PER_MS));
 		} else {
