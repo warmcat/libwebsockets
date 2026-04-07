@@ -367,11 +367,7 @@ lws_plugin_alloc(struct lws_plugin **pplugin)
 
 #if defined(LWS_BUILTIN_PLUGIN_NAMES)
 
-extern lws_plugin_protocol_t lws_sshd_demo, lws_ssh_base;
-
-lws_plugin_protocol_t *builtin_pcols[] = {
-	&lws_sshd_demo, &lws_ssh_base
-};
+extern const lws_plugin_protocol_t *builtin_pcols[];
 
 int
 lws_plugins_handle_builtin(struct lws_plugin **pplugin,
@@ -379,7 +375,7 @@ lws_plugins_handle_builtin(struct lws_plugin **pplugin,
 {
 	size_t n = 0;
 
-	while (n < LWS_ARRAY_SIZE(builtin_pcols)) {
+	while (builtin_pcols[n]) {
 		struct lws_plugin *pin = lws_plugin_alloc(pplugin);
 		if (!pin)
 			return 1;
