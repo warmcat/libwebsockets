@@ -551,6 +551,10 @@ lws_plat_if_up(const char *ifname, int fd, int up)
 int
 lws_plat_BINDTODEVICE(lws_sockfd_type fd, const char *ifname)
 {
+	/* if no interface specified, it's a no-op everywhere */
+	if (!ifname || !ifname[0])
+		return 0;
+
 #if defined(__linux__)
 	struct ifreq i;
 
