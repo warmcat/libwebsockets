@@ -44,8 +44,27 @@ if [ -z "${SAI_LIST_PORT}" ] ; then
 		sleep 1
 	fi
 else
-	if [ "${VENDOR}" = "apple" ] ; then
-		while [ -z "`lsof -iTCP -sTCP:LISTEN -P -n | grep -- ':${SAI_LIST_PORT}'`" ] ; do
+	if [ "`uname -s`" = "Darwin" ] || [ "${VENDOR}" = "apple" ] ; then
+		CNT=0
+		while ! lsof -P -n -i :${SAI_LIST_PORT} >/dev/null 2>/dev/null ; do
+			if ! kill -0 $! 2>/dev/null ; then
+				echo "Background process died while waiting for port ${SAI_LIST_PORT}" >&2
+				echo "Background process logs:" >&2
+				cat /tmp/ctest-background-$J >&2
+				exit 1
+			fi
+			if [ $CNT -gt 60 ] ; then
+				echo "Timed out waiting for port ${SAI_LIST_PORT}" >&2
+				echo "Background process state:" >&2
+				ps -fp $! >&2
+				echo "Background process logs:" >&2
+				cat /tmp/ctest-background-$J >&2
+				exit 1
+			fi
+			if [ $((CNT % 10)) -eq 0 ] ; then
+				echo "Waiting for port ${SAI_LIST_PORT}..." >&2
+			fi
+			CNT=$((CNT + 1))
 			sleep 0.5
 		done
 	else
