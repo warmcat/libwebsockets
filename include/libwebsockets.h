@@ -304,7 +304,15 @@ typedef pthread_mutex_t lws_mutex_t;
 #endif
 
 #if defined(_WIN32)
-#define LWS_EXTERN_FOR_DATA LWS_EXTERN
+#if defined(LWS_DLL)
+#if defined(LWS_INTERNAL)
+#define LWS_EXTERN_FOR_DATA extern __declspec(dllexport)
+#else
+#define LWS_EXTERN_FOR_DATA extern __declspec(dllimport)
+#endif
+#else
+#define LWS_EXTERN_FOR_DATA extern
+#endif
 #else
 #define LWS_EXTERN_FOR_DATA extern
 #endif
