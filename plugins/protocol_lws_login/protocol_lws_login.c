@@ -220,11 +220,8 @@ callback_lws_login_client(struct lws *wsi, enum lws_callback_reasons reason,
 static int
 lws_login_jwt_auth_cb(struct lws_jwt_auth *ja, int state, void *user)
 {
-	struct lws *wsi = (struct lws *)user;
-
 	if (state == LWS_JWT_AUTH_STATE_EXPIRED) {
-		lwsl_notice("%s: Session expired naturally, killing wsi\n", __func__);
-		lws_set_timeout(wsi, PENDING_TIMEOUT_KILLED_BY_SSL_INFO, LWS_TO_KILL_ASYNC);
+		lwsl_notice("%s: Session expired naturally\n", __func__);
 	}
 	return 0;
 }
@@ -730,11 +727,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				return 1;
 			lws_write(wsi, (unsigned char *)buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
 			size_t len = strlen(css);
-			uint8_t *fbuf = malloc(LWS_PRE + len);
-			if (!fbuf) return -1;
-			memcpy(fbuf + LWS_PRE, css, len);
-			int res = lws_buflist_append_segment(&pss->tx_buflist, fbuf, LWS_PRE + len);
-			free(fbuf);
+			int res = lws_buflist_append_segment(&pss->tx_buflist, (const uint8_t *)css, len);
 			if (res < 0) return -1;
 			lws_callback_on_writable(wsi);
 			return 0;
@@ -780,11 +773,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				return 1;
 			lws_write(wsi, (unsigned char *)buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
 			size_t len = strlen(js);
-			uint8_t *fbuf = malloc(LWS_PRE + len);
-			if (!fbuf) return -1;
-			memcpy(fbuf + LWS_PRE, js, len);
-			int res = lws_buflist_append_segment(&pss->tx_buflist, fbuf, LWS_PRE + len);
-			free(fbuf);
+			int res = lws_buflist_append_segment(&pss->tx_buflist, (const uint8_t *)js, len);
 			if (res < 0) return -1;
 			lws_callback_on_writable(wsi);
 			return 0;
@@ -855,10 +844,8 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 							(lws_filepos_t)len, (unsigned char **)&p, (unsigned char *)end)) return 1;
 			if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end)) return 1;
 			lws_write(wsi, (unsigned char *)buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
-			uint8_t fbuf[LWS_PRE + 64];
 			if (len > 64) len = 64; /* safety */
-			memcpy(fbuf + LWS_PRE, err, (size_t)len);
-			int res = lws_buflist_append_segment(&pss->tx_buflist, fbuf, LWS_PRE + (size_t)len);
+			int res = lws_buflist_append_segment(&pss->tx_buflist, (const uint8_t *)err, (size_t)len);
 			if (res < 0) return -1;
 			lws_callback_on_writable(wsi);
 			return 0;
@@ -914,11 +901,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end))
 				return 1;
 			lws_write(wsi, (unsigned char *)buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
-			uint8_t *fbuf = malloc(LWS_PRE + (size_t)len);
-			if (!fbuf) return -1;
-			memcpy(fbuf + LWS_PRE, pl, (size_t)len);
-			int res = lws_buflist_append_segment(&pss->tx_buflist, fbuf, LWS_PRE + (size_t)len);
-			free(fbuf);
+			int res = lws_buflist_append_segment(&pss->tx_buflist, (const uint8_t *)pl, (size_t)len);
 			if (res < 0) return -1;
 			lws_callback_on_writable(wsi);
 			return 0;
@@ -1040,11 +1023,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 					if (lws_add_http_common_headers(wsi, HTTP_STATUS_FORBIDDEN, "text/plain", (lws_filepos_t)err_len, (unsigned char **)&p, (unsigned char *)end)) return 1;
 					if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end)) return 1;
 					lws_write(wsi, (unsigned char *)buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
-					uint8_t *fbuf = malloc(LWS_PRE + (size_t)err_len);
-					if (!fbuf) return -1;
-					memcpy(fbuf + LWS_PRE, err, (size_t)err_len);
-					int res = lws_buflist_append_segment(&pss->tx_buflist, fbuf, LWS_PRE + (size_t)err_len);
-					free(fbuf);
+					int res = lws_buflist_append_segment(&pss->tx_buflist, (const uint8_t *)err, (size_t)err_len);
 					if (res < 0) return -1;
 					lws_callback_on_writable(wsi);
 					return 0;
@@ -1072,7 +1051,6 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			if (ps->token[0]) {
 				char cookie[2048];
 				int n;
-				uint8_t fbuf[LWS_PRE + 32];
 
 				if (vhd->cookie_domain[0]) {
 					n = lws_snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Domain=%s; Max-Age=%llu; HttpOnly; SameSite=None; Secure",
@@ -1087,17 +1065,13 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end)) return 1;
 
 				lws_write(wsi, buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
-				memcpy(fbuf + LWS_PRE, "{\"success\":1}", 13);
-				if (lws_buflist_append_segment(&pss->tx_buflist, fbuf, LWS_PRE + 13) < 0) return -1;
+				if (lws_buflist_append_segment(&pss->tx_buflist, (const uint8_t *)"{\"success\":1}", 13) < 0) return -1;
 				lwsl_notice("%s: Successfully issued refreshed token to browser via BFF\n", __func__);
 			} else {
-				uint8_t fbuf[LWS_PRE + 32];
-
 				if (lws_add_http_common_headers(wsi, HTTP_STATUS_UNAUTHORIZED, "application/json", 13, (unsigned char **)&p, (unsigned char *)end)) return 1;
 				if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end)) return 1;
 				lws_write(wsi, buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
-				memcpy(fbuf + LWS_PRE, "{\"success\":0}", 13);
-				if (lws_buflist_append_segment(&pss->tx_buflist, fbuf, LWS_PRE + 13) < 0) return -1;
+				if (lws_buflist_append_segment(&pss->tx_buflist, (const uint8_t *)"{\"success\":0}", 13) < 0) return -1;
 				lwsl_notice("%s: BFF SSO Exchange denied by Server\n", __func__);
 			}
 
@@ -1117,15 +1091,20 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!bytes)
 			break;
 
-		int m = lws_write(wsi, pout + LWS_PRE, (unsigned int)(bytes - LWS_PRE), LWS_WRITE_HTTP_FINAL);
+		size_t chunk = bytes;
+		if (chunk > sizeof(buf) - LWS_PRE)
+			chunk = sizeof(buf) - LWS_PRE;
+
+		memcpy(p, pout, chunk);
+
+		int flags = LWS_WRITE_HTTP;
+		if (chunk == lws_buflist_total_len(&pss->tx_buflist))
+			flags = LWS_WRITE_HTTP_FINAL;
+
+		int m = lws_write(wsi, p, (unsigned int)chunk, (enum lws_write_protocol)flags);
 		if (m < 0) return -1;
 
-		size_t consume = (size_t)m;
-		if ((size_t)m == bytes - LWS_PRE) {
-			consume = bytes;
-		}
-
-		lws_buflist_use_segment(&pss->tx_buflist, consume);
+		lws_buflist_use_segment(&pss->tx_buflist, (size_t)m);
 
 		if (lws_buflist_next_segment_len(&pss->tx_buflist, &pout)) {
 			lws_callback_on_writable(wsi);
@@ -1150,6 +1129,16 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		if (pss && pss->spa) {
 			lws_spa_destroy(pss->spa);
 			pss->spa = NULL;
+		}
+		if (vhd) {
+			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+						   lws_dll2_get_head(&vhd->pending_refresh_list)) {
+				struct pending_login_refresh *s = lws_container_of(d, struct pending_login_refresh, list);
+				if (s->wsi_server == wsi) {
+					s->wsi_server = NULL;
+					lwsl_notice("%s: cleared dangling wsi_server from pending refresh\n", __func__);
+				}
+			} lws_end_foreach_dll_safe(d, d1);
 		}
 		break;
 

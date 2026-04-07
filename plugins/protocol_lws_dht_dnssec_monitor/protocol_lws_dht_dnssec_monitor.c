@@ -310,6 +310,8 @@ dir_notify_cb(const char *path, int is_file, void *user)
 static int
 parent_scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 {
+/* commented to pause log spew */
+#if 0
 	struct vhd *vhd = (struct vhd *)user;
 	if (lde->type != LDOT_DIR || lde->name[0] == '.') return 0;
 
@@ -341,6 +343,7 @@ parent_scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		}
 		if (fd_pub >= 0) close(fd_pub);
 	}
+#endif
 	return 0;
 }
 
