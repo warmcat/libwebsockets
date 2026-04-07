@@ -455,6 +455,9 @@ function openEditor(id) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    if (typeof window.renderLwsLoginStatus === 'function') {
+        window.renderLwsLoginStatus('user-info');
+    }
     connect();
 
     document.getElementById('btn-add-domain').onclick = () => {

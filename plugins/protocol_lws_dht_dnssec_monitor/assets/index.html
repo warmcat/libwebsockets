@@ -6,6 +6,7 @@
     <title>DNSSEC Monitor</title>
     <!-- Strict CSP prevents inline styles, and using external font CDNs without explicit whitelist, so we use system fonts -->
     <link rel="stylesheet" href="monitor.css">
+    <script src="lws-login.js"></script>
 </head>
 <body>
     <div class="app-container">
@@ -15,6 +16,7 @@
                 <p>Manage authoritative DNSSEC zones and ACME TLS subdomains</p>
             </div>
             <div class="header-status">
+                <div id="user-info" class="user-info"></div>
                 <span id="ws-status" class="status-badge connecting">Connecting...</span>
             </div>
         </header>

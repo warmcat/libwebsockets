@@ -398,3 +398,33 @@ input:focus, textarea:focus {
 .ext-mt { margin-top: 1rem; }
 .ext-grid-select { display: grid; grid-template-columns: 120px 1fr; gap: 1rem; margin-top: 1rem; }
 .ext-select { width: 100%; padding: 0.75rem; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.08); color: #fff; border-radius: 6px; }
+
+.header-status {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.user-info b {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.user-info a {
+  color: var(--danger-color);
+  font-weight: 500;
+  margin-left: 0.5rem;
+}
+
+.user-info a:hover {
+  color: var(--danger-hover);
+  text-decoration: underline;
+}
