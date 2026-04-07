@@ -1460,7 +1460,7 @@ verb_put_handler(struct vhd_dht_dnssec *vhd, struct lws_dht_verb_dispatch_args *
 		}
 		lwsl_user("%s: Opened %s successfully\n", __func__, path);
 	} else {
-		lwsl_user("%s: Continuing transfer for %s, already got %zu bytes\n", __func__, frag->safe_hash, frag->received_len);
+		lwsl_user("%s: Continuing transfer for %s, already got %llu bytes\n", __func__, frag->safe_hash, (unsigned long long)frag->received_len);
 	}
 
 	if (frag->validation_started) {
@@ -1482,7 +1482,7 @@ verb_put_handler(struct vhd_dht_dnssec *vhd, struct lws_dht_verb_dispatch_args *
 	if (msg->offset + msg->payload_len > frag->received_len)
 		frag->received_len = msg->offset + msg->payload_len;
 
-	lwsl_user("%s: Wrote %d bytes successfully (Total Received: %zu/%llu)\n", __func__, n, frag->received_len, msg->len);
+	lwsl_user("%s: Wrote %d bytes successfully (Total Received: %llu/%llu)\n", __func__, n, (unsigned long long)frag->received_len, (unsigned long long)msg->len);
 
 	frag->last_offset = msg->offset;
 	frag->last_len = msg->payload_len;
