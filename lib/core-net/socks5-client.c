@@ -29,7 +29,8 @@
 int
 lws_set_socks(struct lws_vhost *vhost, const char *socks)
 {
-	char *p_at, *p_colon;
+	const char *p_at, *p_colon_in;
+	char *p_colon;
 	char user[96];
 	char password[96];
 
@@ -47,23 +48,23 @@ lws_set_socks(struct lws_vhost *vhost, const char *socks)
 			goto bail;
 		}
 
-		p_colon = strchr(socks, ':');
-		if (p_colon) {
-			if (lws_ptr_diff_size_t(p_colon, socks) >
+		p_colon_in = strchr(socks, ':');
+		if (p_colon_in) {
+			if (lws_ptr_diff_size_t(p_colon_in, socks) >
 							     sizeof(user) - 1) {
 				lwsl_vhost_err(vhost, "user too long");
 				goto bail;
 			}
-			if (lws_ptr_diff_size_t(p_at, p_colon) >
+			if (lws_ptr_diff_size_t(p_at, p_colon_in) >
 						         sizeof(password) - 1) {
 				lwsl_vhost_err(vhost, "pw too long");
 				goto bail;
 			}
 
 			lws_strncpy(vhost->socks_user, socks,
-				    lws_ptr_diff_size_t(p_colon, socks) + 1);
-			lws_strncpy(vhost->socks_password, p_colon + 1,
-				lws_ptr_diff_size_t(p_at, (p_colon + 1)) + 1);
+				    lws_ptr_diff_size_t(p_colon_in, socks) + 1);
+			lws_strncpy(vhost->socks_password, p_colon_in + 1,
+				lws_ptr_diff_size_t(p_at, (p_colon_in + 1)) + 1);
 		}
 
 		lwsl_vhost_info(vhost, " Socks auth, user: %s, password: %s",
