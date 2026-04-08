@@ -1628,6 +1628,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		if (in && (!strncmp((const char *)in, "/logout", 7))) {
 			char redirect_uri[512] = {0};
 			char cookie_hdr[256];
+			char refresh_hdr[256];
 			char buf[1024 + LWS_PRE];
 			char *p = buf + LWS_PRE, *end = buf + sizeof(buf) - 1;
 
@@ -1636,14 +1637,40 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			if (!redirect_uri[0])
 				lws_strncpy(redirect_uri, "/", sizeof(redirect_uri));
 
+			char cookie_val[1024] = {0};
+			if (lws_hdr_copy(wsi, cookie_val, sizeof(cookie_val), WSI_TOKEN_HTTP_COOKIE) > 0) {
+				const char *rp = strstr(cookie_val, "auth_refresh_session=");
+				if (rp) {
+					char refresh_tk[128] = {0};
+					rp += 21;
+					size_t i = 0;
+					while (*rp && *rp != ';' && i < sizeof(refresh_tk) - 1)
+						refresh_tk[i++] = *rp++;
+					refresh_tk[i] = 0;
+					if (refresh_tk[0]) {
+						sqlite3_stmt *stmt;
+						if (sqlite3_prepare_v2(vhd->db, "DELETE FROM auth_sessions WHERE session_id = ?", -1, &stmt, NULL) == SQLITE_OK) {
+							sqlite3_bind_text(stmt, 1, refresh_tk, -1, SQLITE_TRANSIENT);
+							sqlite3_step(stmt);
+							sqlite3_finalize(stmt);
+						}
+					}
+				}
+			}
+
 			if (vhd->cookie_domain[0]) {
 				lws_snprintf(cookie_hdr, sizeof(cookie_hdr),
 					"%s=; Path=/; Domain=%s; Max-Age=0; HttpOnly; SameSite=None; Secure",
 					vhd->cookie_name, vhd->cookie_domain);
+				lws_snprintf(refresh_hdr, sizeof(refresh_hdr),
+					"auth_refresh_session=; Path=/; Domain=%s; Max-Age=0; HttpOnly; SameSite=None; Secure",
+					vhd->cookie_domain);
 			} else {
 				lws_snprintf(cookie_hdr, sizeof(cookie_hdr),
 					"%s=; Path=/; Max-Age=0; HttpOnly; SameSite=None; Secure",
 					vhd->cookie_name);
+				lws_snprintf(refresh_hdr, sizeof(refresh_hdr),
+					"auth_refresh_session=; Path=/; Max-Age=0; HttpOnly; SameSite=None; Secure");
 			}
 
 			if (lws_add_http_common_headers(wsi, HTTP_STATUS_SEE_OTHER, "text/html",
@@ -1651,6 +1678,10 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				return 1;
 			if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:",
 							(unsigned char *)cookie_hdr, (int)strlen(cookie_hdr),
+							(unsigned char **)&p, (unsigned char *)end))
+				return 1;
+			if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:",
+							(unsigned char *)refresh_hdr, (int)strlen(refresh_hdr),
 							(unsigned char **)&p, (unsigned char *)end))
 				return 1;
 			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION,
@@ -1857,7 +1888,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 					users_empty = 0;
 					lacks_grant = 0;
 
-					char cookie_hdr1[256], cookie_hdr1_host[256], cookie_hdr2[256], cookie_hdr2_host[256];
+					char cookie_hdr1[256], cookie_hdr1_host[256], cookie_hdr2[256], cookie_hdr2_host[256], cookie_hdr3[256], cookie_hdr3_host[256];
 					char exp[64];
 					time_t t = 0;
 					struct tm *tm = gmtime(&t);
@@ -1866,12 +1897,35 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 					if (vhd->cookie_domain[0]) {
 						lws_snprintf(cookie_hdr1, sizeof(cookie_hdr1), "%s=; Path=/; Domain=%s; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", vhd->cookie_name, vhd->cookie_domain, exp);
 						lws_snprintf(cookie_hdr2, sizeof(cookie_hdr2), "auth_csrf=; Path=/; Domain=%s; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", vhd->cookie_domain, exp);
+						lws_snprintf(cookie_hdr3, sizeof(cookie_hdr3), "auth_refresh_session=; Path=/; Domain=%s; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", vhd->cookie_domain, exp);
 					} else {
 						lws_snprintf(cookie_hdr1, sizeof(cookie_hdr1), "%s=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", vhd->cookie_name, exp);
 						lws_snprintf(cookie_hdr2, sizeof(cookie_hdr2), "auth_csrf=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", exp);
+						lws_snprintf(cookie_hdr3, sizeof(cookie_hdr3), "auth_refresh_session=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", exp);
 					}
 					lws_snprintf(cookie_hdr1_host, sizeof(cookie_hdr1_host), "%s=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", vhd->cookie_name, exp);
 					lws_snprintf(cookie_hdr2_host, sizeof(cookie_hdr2_host), "auth_csrf=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", exp);
+					lws_snprintf(cookie_hdr3_host, sizeof(cookie_hdr3_host), "auth_refresh_session=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", exp);
+
+					if (cookie_val[0]) {
+						const char *rp = strstr(cookie_val, "auth_refresh_session=");
+						if (rp) {
+							char refresh_tk[128] = {0};
+							rp += 21;
+							size_t i = 0;
+							while (*rp && *rp != ';' && i < sizeof(refresh_tk) - 1)
+								refresh_tk[i++] = *rp++;
+							refresh_tk[i] = 0;
+							if (refresh_tk[0]) {
+								sqlite3_stmt *stmt;
+								if (sqlite3_prepare_v2(vhd->db, "DELETE FROM auth_sessions WHERE session_id = ?", -1, &stmt, NULL) == SQLITE_OK) {
+									sqlite3_bind_text(stmt, 1, refresh_tk, -1, SQLITE_TRANSIENT);
+									sqlite3_step(stmt);
+									sqlite3_finalize(stmt);
+								}
+							}
+						}
+					}
 
 					pss->http_response_code = HTTP_STATUS_OK;
 					char buf[2048 + LWS_PRE];
@@ -1885,6 +1939,8 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 					if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr1_host, (int)strlen(cookie_hdr1_host), &p, end)) return -1;
 					if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr2, (int)strlen(cookie_hdr2), &p, end)) return -1;
 					if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr2_host, (int)strlen(cookie_hdr2_host), &p, end)) return -1;
+					if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr3, (int)strlen(cookie_hdr3), &p, end)) return -1;
+					if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr3_host, (int)strlen(cookie_hdr3_host), &p, end)) return -1;
 					if (lws_finalize_write_http_header(wsi, start, &p, end)) return -1;
 
 					char pl[LWS_PRE + 64];
