@@ -25,58 +25,122 @@
 #include <sqlite3.h>
 
 struct login_whitelist {
-	lws_dll2_t list;
-	lws_sockaddr46 sa46;
-	int net_len;
+	lws_dll2_t              list;
+	lws_sockaddr46          sa46;
+	int                     net_len;
 };
 
 struct vhd_login {
-	struct lws_context *context;
-	struct lws_vhost *vhost;
-	struct lws_dll2_owner wl;
+	struct lws_context      *context;
+	struct lws_vhost        *vhost;
+	struct lws_dll2_owner   wl;
 
 	/* PVO settings */
-	const char *cookie_name;
-	const char *service_name;
-	const char *auth_server_url;
-	int min_grant_level;
+	const char              *cookie_name;
+	const char              *service_name;
+	const char              *auth_server_url;
+	int                     min_grant_level;
 
-	char db_path[256];
-	sqlite3 *db;
-	char auth_domain[128];
-	char cookie_domain[128];
-	uint64_t jwt_validity_secs;
+	char                    db_path[256];
+	sqlite3                 *db;
+	char                    auth_domain[128];
+	char                    cookie_domain[128];
+	uint64_t                jwt_validity_secs;
 
-	int unauth_allow;
+	int                     unauth_allow;
 
-	struct lws_jwk jwk;
-	lws_dll2_owner_t pending_refresh_list;
+	struct lws_jwk          jwk;
+	lws_dll2_owner_t        pending_refresh_list;
 };
 
 struct pss_login {
-	struct lws_jwt_auth *ja;
-	uint8_t whitelist_failed;
-	char *silent_update_jwt;
-	struct lws_spa *spa;
-	struct lws_buflist *tx_buflist;
+	struct lws_jwt_auth     *ja;
+	uint8_t                 whitelist_failed;
+	char                    *silent_update_jwt;
+	struct lws_spa          *spa;
+	struct lws_buflist      *tx_buflist;
 };
 
 struct pending_login_refresh {
-	lws_dll2_t list;
-	lws_sorted_usec_list_t sul;
-	struct vhd_login *vhd;
+	lws_dll2_t              list;
+	lws_sorted_usec_list_t  sul;
+	struct vhd_login        *vhd;
 
-	struct lws *wsi_server;
-	struct lws *wsi_client;
+	struct lws              *wsi_server;
+	struct lws              *wsi_client;
 
-	char cookie_hdr[1024];
+	char                    cookie_hdr[1024];
 
-	char payload[1024];
-	int payload_len;
-	int payload_pos;
+	char                    payload[1024];
+	int                     payload_len;
+	int                     payload_pos;
 
-	char token[2048];
+	char                    token[2048];
 };
+
+static const char * const canned_css =
+        ".lws-login-box{font-family:-apple-system,system-ui,sans-serif;padding:"
+        "16px;border-radius:8px;background:rgba(0,0,0,0.02);border:1px solid "
+        "rgba(0,0,0,0.08);display:inline-block;font-size:14px;line-height:1.4;"
+        "color:#333;}\n"
+        "@media(prefers-color-scheme:dark){.lws-login-box{background:rgba(255,255,"
+        "255,0.05);border-color:rgba(255,255,255,0.1);color:#888;}}\n"
+        ".lws-login-btn{display:inline-block;padding:8px "
+        "16px;background:#007bff;color:#fff!important;text-decoration:none;border-"
+        "radius:6px;font-weight:600;font-size:13px;transition:background "
+        "0.2s;margin-top:5px;}\n"
+        ".lws-login-btn:hover{background:#0056b3;}\n"
+        ".lws-login-err{display:inline-block;margin-top:8px;margin-bottom:4px;"
+        "padding:6px 10px;background:#ffebee;border-left:3px solid "
+        "#f44336;color:#c62828;font-size:13px;font-weight:500;}\n"
+        ".lws-login-link{color:#007bff;text-decoration:none;margin-right:12px;font-"
+        "weight:500;font-size:13px;transition:opacity 0.2s;}\n"
+        ".lws-login-link:hover{opacity:0.8;}\n"
+        ".lws-login-logout{color:#f44336;}\n"
+        ".lws-login-identity{font-size:16px;margin:0 12px 0 "
+        "0;display:inline-block;font-weight:600;}\n"
+        ".lws-login-mt{margin-top:10px;}\n"
+        ".lws-login-mb{margin-bottom:8px;font-weight:500;}\n";
+
+static const char * const canned_js =
+        "window.renderLwsLoginStatus=function(d){"
+        "var e=document.getElementById(d);"
+        "if(!e)return;"
+        "if(!document.getElementById('lws-login-css')){"
+        "var l=document.createElement('link');"
+        "l.id='lws-login-css';l.rel='stylesheet';l.href='lws-login.css';"
+        "document.head.appendChild(l);"
+        "}"
+        "fetch('.lws-login-status').then(r=>r.json()).then(d=>{"
+        "var c='<div class=\"lws-login-box\">';"
+        "if(d.logged_in){"
+        "var "
+        "u='.lws-login-logout?redirect_uri='+encodeURIComponent(window.location."
+        "href);"
+        "var a=d.is_admin?'<a class=\"lws-login-link\" "
+        "href=\"'+d.auth_server_url+'/api/admin\">Admin Console</a>':'';"
+        "c+='<strong class=\"lws-login-identity\">'+d.identity+'</strong><br>';"
+        "c+=a+' <a class=\"lws-login-link lws-login-logout\" "
+        "href=\"'+u+'\">Logout</a>';"
+        "if(!d.has_grant&&!d.is_admin)c+='<div class=\"lws-login-err\">login lacks "
+        "grant</div><br>';"
+        "}else{"
+        "var "
+        "s=d.login_url.split('redirect_uri=')[0]+'redirect_uri='+"
+        "encodeURIComponent(window.location.href);"
+        "c+='<div class=\"lws-login-mb\">Not logged in</div>';"
+        "c+='<a class=\"lws-login-btn\" href=\"'+s+'\">Login &rarr;</a>';"
+        "}"
+        "e.innerHTML=c+'</div>';"
+        "}).catch(e=>{console.log('lws-login fetch:',e);});"
+        "};"
+        "window.lwsLoginSilentRefresh=async function(){"
+        "try{"
+        "var r=await "
+        "fetch('/.lws-login-refresh',{method:'POST',credentials:'include'});"
+        "return r.ok;"
+        "}catch(e){return false;}"
+        "};";
 
 static void
 sul_pending_refresh_cb(lws_sorted_usec_list_t *sul)
@@ -104,7 +168,10 @@ lws_login_ends_with(const char *str, const char *suffix)
 {
 	size_t len_str = strlen(str);
 	size_t len_suffix = strlen(suffix);
-	if (len_suffix > len_str) return 0;
+
+	if (len_suffix > len_str)
+		return 0;
+
 	return !strcmp(str + len_str - len_suffix, suffix);
 }
 
@@ -214,15 +281,16 @@ callback_lws_login_client(struct lws *wsi, enum lws_callback_reasons reason,
 	default:
 		break;
 	}
+
 	return 0;
 }
 
 static int
 lws_login_jwt_auth_cb(struct lws_jwt_auth *ja, int state, void *user)
 {
-	if (state == LWS_JWT_AUTH_STATE_EXPIRED) {
+	if (state == LWS_JWT_AUTH_STATE_EXPIRED)
 		lwsl_notice("%s: Session expired naturally\n", __func__);
-	}
+
 	return 0;
 }
 
@@ -235,7 +303,8 @@ auth_verify_redirect_uri(struct vhd_login *vhd, const char *redirect_uri)
 	if (!redirect_uri || !redirect_uri[0])
 		return 0;
 
-	if (strstr(redirect_uri, "../") || strstr(redirect_uri, "..%2F") ||
+	if (strstr(redirect_uri, "../") ||
+	    strstr(redirect_uri, "..%2F") ||
 	    strstr(redirect_uri, "..%2f"))
 		return 0;
 
@@ -400,6 +469,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			    lws_login_ends_with(uri, "/lws-login.js") ||
 			    lws_login_ends_with(uri, "/lws-login.css") ||
 			    lws_login_ends_with(uri, "/.lws-login-sso") ||
+			    lws_login_ends_with(uri, "/.lws-login-logout") ||
 			    lws_login_ends_with(uri, "/.lws-login-refresh"))
 				return 1;
 		}
@@ -507,12 +577,10 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_HTTP:
 	{
-		char dest[512];
-		char path[256];
-		char urlenc_path[512];
-		const char *service_name;
+		char dest[512], path[256], urlenc_path[512];
 		const struct lws_http_mount *mount;
 		int whitelist_failed = 0;
+		const char *service_name;
 		int n;
 
 		if (!vhd)
@@ -524,6 +592,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		n = lws_hdr_copy(wsi, path, sizeof(path), WSI_TOKEN_GET_URI);
 		if (n <= 0)
 			n = lws_hdr_copy(wsi, path, sizeof(path), WSI_TOKEN_POST_URI);
+
 		if (n > 0) {
 			mount = lws_find_mount(wsi, path, n);
 			if (mount) {
@@ -557,7 +626,8 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				} lws_end_foreach_dll(d);
 			}
 
-			if (!match) whitelist_failed = 1;
+			if (!match)
+				whitelist_failed = 1;
 		}
 
 		if (whitelist_failed) {
@@ -567,24 +637,29 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			if (lws_add_http_common_headers(wsi, HTTP_STATUS_FORBIDDEN, "text/plain",
 							(lws_filepos_t)len, (unsigned char **)&p, (unsigned char *)end))
 				return 1;
+
 			if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end))
 				return 1;
 
 			lws_write(wsi, (unsigned char *)buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
+
 			uint8_t *fbuf = malloc(LWS_PRE + (size_t)len);
-			if (!fbuf) return -1;
+			if (!fbuf)
+				return -1;
+
 			memcpy(fbuf + LWS_PRE, err, (size_t)len);
 			int res = lws_buflist_append_segment(&pss->tx_buflist, fbuf, LWS_PRE + (size_t)len);
 			free(fbuf);
-			if (res < 0) return -1;
+			if (res < 0)
+				return -1;
 			lws_callback_on_writable(wsi);
+
 			return 0;
 		}
 
-		if (lws_hdr_copy(wsi, path, sizeof(path), WSI_TOKEN_POST_URI) > 0) {
-			if (lws_login_ends_with(path, "/.lws-login-sso"))
-				return 0; /* Fall through to LWS_CALLBACK_HTTP_BODY */
-		}
+		if (lws_hdr_copy(wsi, path, sizeof(path), WSI_TOKEN_POST_URI) > 0 &&
+		    lws_login_ends_with(path, "/.lws-login-sso"))
+			return 0; /* Fall through to LWS_CALLBACK_HTTP_BODY */
 
 		if (!pss->ja)
 			pss->ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, lws_login_jwt_auth_cb, wsi);
@@ -655,13 +730,12 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				char cookie[2048], host[128], fq_uri[512];
 				const char *h = NULL;
 
-				if (vhd->cookie_domain[0]) {
+				if (vhd->cookie_domain[0])
 					lws_snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Domain=%s; Max-Age=%llu; HttpOnly; SameSite=None; Secure",
 							 vhd->cookie_name, pss->silent_update_jwt, vhd->cookie_domain, (unsigned long long)vhd->jwt_validity_secs);
-				} else {
+				else
 					lws_snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=%llu; HttpOnly; SameSite=None; Secure",
 							 vhd->cookie_name, pss->silent_update_jwt, (unsigned long long)vhd->jwt_validity_secs);
-				}
 
 				path[0] = '\0';
 				if (lws_hdr_copy(wsi, path, sizeof(path), WSI_TOKEN_GET_URI) < 0)
@@ -707,81 +781,41 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				lwsl_debug("%s: URI copy failed\n", __func__);
 
 		if (lws_login_ends_with(path, "/lws-login.css")) {
-			const char *css =
-				".lws-login-box{font-family:-apple-system,system-ui,sans-serif;padding:16px;border-radius:8px;background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.08);display:inline-block;font-size:14px;line-height:1.4;color:#333;}\n"
-				"@media(prefers-color-scheme:dark){.lws-login-box{background:rgba(255,255,255,0.05);border-color:rgba(255,255,255,0.1);color:#888;}}\n"
-				".lws-login-btn{display:inline-block;padding:8px 16px;background:#007bff;color:#fff!important;text-decoration:none;border-radius:6px;font-weight:600;font-size:13px;transition:background 0.2s;margin-top:5px;}\n"
-				".lws-login-btn:hover{background:#0056b3;}\n"
-				".lws-login-err{display:inline-block;margin-top:8px;margin-bottom:4px;padding:6px 10px;background:#ffebee;border-left:3px solid #f44336;color:#c62828;font-size:13px;font-weight:500;}\n"
-				".lws-login-link{color:#007bff;text-decoration:none;margin-right:12px;font-weight:500;font-size:13px;transition:opacity 0.2s;}\n"
-				".lws-login-link:hover{opacity:0.8;}\n"
-				".lws-login-logout{color:#f44336;}\n"
-				".lws-login-identity{font-size:16px;margin:0 12px 0 0;display:inline-block;font-weight:600;}\n"
-				".lws-login-mt{margin-top:10px;}\n"
-				".lws-login-mb{margin-bottom:8px;font-weight:500;}\n";
-
 			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "text/css",
-							(lws_filepos_t)strlen(css), (unsigned char **)&p, (unsigned char *)end))
+							(lws_filepos_t)strlen(canned_css), (unsigned char **)&p, (unsigned char *)end))
 				return 1;
 			if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end))
 				return 1;
 			lws_write(wsi, (unsigned char *)buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
-			size_t len = strlen(css);
-			int res = lws_buflist_append_segment(&pss->tx_buflist, (const uint8_t *)css, len);
-			if (res < 0) return -1;
+			size_t len = strlen(canned_css);
+			int res = lws_buflist_append_segment(&pss->tx_buflist, (const uint8_t *)canned_css, len);
+			if (res < 0)
+				return -1;
 			lws_callback_on_writable(wsi);
+
 			return 0;
 		}
 
 		if (lws_login_ends_with(path, "/lws-login.js")) {
-			const char *js =
-				"window.renderLwsLoginStatus=function(d){"
-				"var e=document.getElementById(d);"
-				"if(!e)return;"
-				"if(!document.getElementById('lws-login-css')){"
-				"var l=document.createElement('link');"
-				"l.id='lws-login-css';l.rel='stylesheet';l.href='lws-login.css';"
-				"document.head.appendChild(l);"
-				"}"
-				"fetch('.lws-login-status').then(r=>r.json()).then(d=>{"
-				"var c='<div class=\"lws-login-box\">';"
-				"if(d.logged_in){"
-				"var u=d.auth_server_url+'/api/logout?redirect_uri='+encodeURIComponent(window.location.href);"
-				"var a=d.is_admin?'<a class=\"lws-login-link\" href=\"'+d.auth_server_url+'/api/admin\">Admin Console</a>':'';"
-				"c+='<strong class=\"lws-login-identity\">'+d.identity+'</strong><br>';"
-				"c+=a+' <a class=\"lws-login-link lws-login-logout\" href=\"'+u+'\">Logout</a>';"
-				"if(!d.has_grant&&!d.is_admin)c+='<div class=\"lws-login-err\">login lacks grant</div><br>';"
-				"}else{"
-				"var s=d.login_url.split('redirect_uri=')[0]+'redirect_uri='+encodeURIComponent(window.location.href);"
-				"c+='<div class=\"lws-login-mb\">Not logged in</div>';"
-				"c+='<a class=\"lws-login-btn\" href=\"'+s+'\">Login &rarr;</a>';"
-				"}"
-				"e.innerHTML=c+'</div>';"
-				"}).catch(e=>{console.log('lws-login fetch:',e);});"
-				"};"
-				"window.lwsLoginSilentRefresh=async function(){"
-				"try{"
-				"var r=await fetch('/.lws-login-refresh',{method:'POST',credentials:'include'});"
-				"return r.ok;"
-				"}catch(e){return false;}"
-				"};";
-
 			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "application/javascript",
-							(lws_filepos_t)strlen(js), (unsigned char **)&p, (unsigned char *)end))
+							(lws_filepos_t)strlen(canned_js), (unsigned char **)&p, (unsigned char *)end))
 				return 1;
 			if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end))
 				return 1;
 			lws_write(wsi, (unsigned char *)buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
-			size_t len = strlen(js);
-			int res = lws_buflist_append_segment(&pss->tx_buflist, (const uint8_t *)js, len);
-			if (res < 0) return -1;
+			size_t len = strlen(canned_js);
+			int res = lws_buflist_append_segment(&pss->tx_buflist, (const uint8_t *)canned_js, len);
+			if (res < 0)
+				return -1;
 			lws_callback_on_writable(wsi);
+
 			return 0;
 		}
 
 		if (lws_login_ends_with(path, "/.lws-login-refresh")) {
 			char cookie[1024];
 			char csrf[64] = {0};
+
 			if (lws_hdr_copy(wsi, cookie, sizeof(cookie), WSI_TOKEN_HTTP_COOKIE) > 0) {
 				const char *p = strstr(cookie, "auth_csrf=");
 				if (p) {
@@ -840,13 +874,17 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			const char *err = "Missing Authorization";
 			int len = (int)strlen(err);
 			if (lws_add_http_common_headers(wsi, HTTP_STATUS_UNAUTHORIZED, "text/plain",
-							(lws_filepos_t)len, (unsigned char **)&p, (unsigned char *)end)) return 1;
-			if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end)) return 1;
+							(lws_filepos_t)len, (unsigned char **)&p, (unsigned char *)end))
+				return 1;
+			if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end))
+				return 1;
 			lws_write(wsi, (unsigned char *)buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
-			if (len > 64) len = 64; /* safety */
+
 			int res = lws_buflist_append_segment(&pss->tx_buflist, (const uint8_t *)err, (size_t)len);
-			if (res < 0) return -1;
+			if (res < 0)
+				return -1;
 			lws_callback_on_writable(wsi);
+
 			return 0;
 		}
 
@@ -890,25 +928,84 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				int has_grant = lws_jwt_auth_query_grant(pss->ja, service_name) >= vhd->min_grant_level;
 				len = lws_snprintf(pl, sizeof(pl), "{\"logged_in\":1,\"has_grant\":%d,\"identity\":\"%s\",\"auth_server_url\":\"%s\",\"login_url\":\"%s\",\"is_admin\":%d}",
 					has_grant, sub ? sub : "Unknown", vhd->auth_server_url, dest, is_admin);
-			} else {
+			} else
 				len = lws_snprintf(pl, sizeof(pl), "{\"logged_in\":0,\"login_url\":\"%s\"}", dest);
-			}
 
 			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "application/json",
 							(lws_filepos_t)len, (unsigned char **)&p, (unsigned char *)end))
 				return 1;
 			if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end))
 				return 1;
+
 			lws_write(wsi, (unsigned char *)buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
+
 			int res = lws_buflist_append_segment(&pss->tx_buflist, (const uint8_t *)pl, (size_t)len);
-			if (res < 0) return -1;
+			if (res < 0)
+				return -1;
 			lws_callback_on_writable(wsi);
+
+			return 0;
+		}
+
+		if (lws_login_ends_with(path, "/.lws-login-logout")) {
+			char redirect_uri[512];
+			char u[1024];
+			char cookie_hdr1[256], cookie_hdr1_host[256];
+			char exp[64];
+			time_t t = 0;
+			struct tm *tm = gmtime(&t);
+			strftime(exp, sizeof(exp), "%a, %d %b %Y %H:%M:%S GMT", tm);
+
+			redirect_uri[0] = '\0';
+			lws_get_urlarg_by_name_safe(wsi, "redirect_uri=", redirect_uri, sizeof(redirect_uri));
+			lws_urldecode(redirect_uri, redirect_uri, sizeof(redirect_uri));
+			if (!redirect_uri[0])
+				lws_strncpy(redirect_uri, "/", sizeof(redirect_uri));
+
+			if (vhd->cookie_domain[0])
+				lws_snprintf(cookie_hdr1, sizeof(cookie_hdr1), "%s=; Path=/; Domain=%s; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", vhd->cookie_name, vhd->cookie_domain, exp);
+			else
+				lws_snprintf(cookie_hdr1, sizeof(cookie_hdr1), "%s=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", vhd->cookie_name, exp);
+
+			lws_snprintf(cookie_hdr1_host, sizeof(cookie_hdr1_host), "%s=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", vhd->cookie_name, exp);
+
+			char urlenc_path[512];
+			lws_urlencode(urlenc_path, redirect_uri, sizeof(urlenc_path));
+
+			if (vhd->auth_server_url && vhd->auth_server_url[0]) {
+				lws_snprintf(u, sizeof(u), "%s/api/logout?redirect_uri=%s", vhd->auth_server_url, urlenc_path);
+			} else {
+				/* Fallback if auth_server_url somehow missing */
+				lws_strncpy(u, redirect_uri, sizeof(u));
+			}
+
+			char html[1024];
+			int html_len = lws_snprintf(html, sizeof(html),
+				"<html><head><meta http-equiv=\"refresh\" content=\"0; url=%s\"></head><body>Redirecting to <a href=\"%s\">%s</a></body></html>",
+				u, u, u);
+			if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)html, (size_t)html_len) < 0) return -1;
+
+			if (lws_add_http_common_headers(wsi, HTTP_STATUS_SEE_OTHER, "text/html", (unsigned int)html_len, (unsigned char **)&p, (unsigned char *)end)) return 1;
+			if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr1, (int)strlen(cookie_hdr1), (unsigned char **)&p, (unsigned char *)end)) return 1;
+			if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr1_host, (int)strlen(cookie_hdr1_host), (unsigned char **)&p, (unsigned char *)end)) return 1;
+			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION, (unsigned char *)u, (int)strlen(u), (unsigned char **)&p, (unsigned char *)end)) return 1;
+			if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end)) return 1;
+
+			lws_write(wsi, (unsigned char *)buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
+			lws_callback_on_writable(wsi);
+
 			return 0;
 		}
 
 		lwsl_info("%s: bouncing unauth to %s\n", __func__, dest);
 
-		if (lws_add_http_header_status(wsi, HTTP_STATUS_SEE_OTHER, (unsigned char **)&p, (unsigned char *)end))
+		char html[1024];
+		int html_len = lws_snprintf(html, sizeof(html),
+			"<html><head><meta http-equiv=\"refresh\" content=\"0; url=%s\"></head><body>Redirecting to <a href=\"%s\">%s</a></body></html>",
+			dest, dest, dest);
+		if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)html, (size_t)html_len) < 0) return -1;
+
+		if (lws_add_http_common_headers(wsi, HTTP_STATUS_SEE_OTHER, "text/html", (unsigned int)html_len, (unsigned char **)&p, (unsigned char *)end))
 			return 1;
 
 		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION,
@@ -918,9 +1015,9 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end))
 			return 1;
 
-		lws_write(wsi, (unsigned char *)buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS | LWS_WRITE_H2_STREAM_END);
-
-		return lws_http_transaction_completed(wsi);
+		lws_write(wsi, (unsigned char *)buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
+		lws_callback_on_writable(wsi);
+		return 0;
 	}
 
 	case LWS_CALLBACK_HTTP_BODY:
@@ -1040,6 +1137,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 					   lws_dll2_get_head(&vhd->pending_refresh_list)) {
 			struct pending_login_refresh *s = lws_container_of(d, struct pending_login_refresh, list);
+
 			if (s->wsi_server == wsi) {
 				ps = s;
 				break;
@@ -1079,6 +1177,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			free(ps);
 
 			lws_callback_on_writable(wsi);
+
 			return 0;
 		}
 
@@ -1087,6 +1186,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 
 		uint8_t *pout;
 		size_t bytes = lws_buflist_next_segment_len(&pss->tx_buflist, &pout);
+
 		if (!bytes)
 			break;
 
@@ -1115,25 +1215,28 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_CLOSED_HTTP:
 	case LWS_CALLBACK_CLOSED:
-		if (pss && pss->tx_buflist) {
+		if (pss && pss->tx_buflist)
 			lws_buflist_destroy_all_segments(&pss->tx_buflist);
-		}
-		if (pss && pss->ja) {
+
+		if (pss && pss->ja)
 			lws_jwt_auth_destroy(&pss->ja);
-		}
-		if (pss && pss->silent_update_jwt) {
+
+                if (pss && pss->silent_update_jwt) {
 			free(pss->silent_update_jwt);
 			pss->silent_update_jwt = NULL;
 		}
+
 		if (pss && pss->spa) {
 			lws_spa_destroy(pss->spa);
 			pss->spa = NULL;
 		}
+
 		if (vhd) {
 			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 						   lws_dll2_get_head(&vhd->pending_refresh_list)) {
 				struct pending_login_refresh *s = lws_container_of(d, struct pending_login_refresh, list);
-				if (s->wsi_server == wsi) {
+
+                                if (s->wsi_server == wsi) {
 					s->wsi_server = NULL;
 					lwsl_notice("%s: cleared dangling wsi_server from pending refresh\n", __func__);
 				}

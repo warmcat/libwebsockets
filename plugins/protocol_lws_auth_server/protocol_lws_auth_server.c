@@ -1691,16 +1691,17 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		if (in && (!strncmp((const char *)in, "/logout", 7))) {
+			lwsl_notice("%s: Hit /logout endpoint. in=%s\n", __func__, (const char *)in);
 			char redirect_uri[512] = {0};
-			char cookie_hdr[256];
-			char refresh_hdr[256];
-			char buf[1024 + LWS_PRE];
+			char buf[4096 + LWS_PRE];
 			char *p = buf + LWS_PRE, *end = buf + sizeof(buf) - 1;
 
 			lws_get_urlarg_by_name_safe(wsi, "redirect_uri=", redirect_uri, sizeof(redirect_uri));
 			lws_urldecode(redirect_uri, redirect_uri, sizeof(redirect_uri));
 			if (!redirect_uri[0])
 				lws_strncpy(redirect_uri, "/", sizeof(redirect_uri));
+
+			lwsl_notice("%s: Extracted redirect_uri: %s\n", __func__, redirect_uri);
 
 			char cookie_val[1024] = {0};
 			if (lws_hdr_copy(wsi, cookie_val, sizeof(cookie_val), WSI_TOKEN_HTTP_COOKIE) > 0) {
@@ -1713,42 +1714,67 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 						refresh_tk[i++] = *rp++;
 					refresh_tk[i] = 0;
 					if (refresh_tk[0]) {
+						lwsl_notice("%s: Found auth_refresh_session in cookie, executing DB delete...\n", __func__);
 						sqlite3_stmt *stmt;
 						if (sqlite3_prepare_v2(vhd->db, "DELETE FROM auth_sessions WHERE session_id = ?", -1, &stmt, NULL) == SQLITE_OK) {
 							sqlite3_bind_text(stmt, 1, refresh_tk, -1, SQLITE_TRANSIENT);
 							sqlite3_step(stmt);
 							sqlite3_finalize(stmt);
+							lwsl_notice("%s: DB delete complete.\n", __func__);
+						} else {
+							lwsl_notice("%s: DB prepare failed\n", __func__);
 						}
 					}
+				} else {
+					lwsl_notice("%s: auth_refresh_session NOT found in cookie!\n", __func__);
 				}
+			} else {
+				lwsl_notice("%s: No cookies provided by client in /logout\n", __func__);
 			}
+
+			char cookie_hdr1[256], cookie_hdr1_host[256];
+			char cookie_hdr2[256], cookie_hdr2_host[256];
+			char cookie_hdr3[256], cookie_hdr3_host[256];
+			char exp[64];
+			time_t t = 0;
+			struct tm *tm = gmtime(&t);
+			strftime(exp, sizeof(exp), "%a, %d %b %Y %H:%M:%S GMT", tm);
 
 			if (vhd->cookie_domain[0]) {
-				lws_snprintf(cookie_hdr, sizeof(cookie_hdr),
-					"%s=; Path=/; Domain=%s; Max-Age=0; HttpOnly; SameSite=None; Secure",
-					vhd->cookie_name, vhd->cookie_domain);
-				lws_snprintf(refresh_hdr, sizeof(refresh_hdr),
-					"auth_refresh_session=; Path=/; Domain=%s; Max-Age=0; HttpOnly; SameSite=None; Secure",
-					vhd->cookie_domain);
+				lws_snprintf(cookie_hdr1, sizeof(cookie_hdr1), "%s=; Path=/; Domain=%s; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", vhd->cookie_name, vhd->cookie_domain, exp);
+				lws_snprintf(cookie_hdr2, sizeof(cookie_hdr2), "auth_csrf=; Path=/; Domain=%s; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", vhd->cookie_domain, exp);
+				lws_snprintf(cookie_hdr3, sizeof(cookie_hdr3), "auth_refresh_session=; Path=/; Domain=%s; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", vhd->cookie_domain, exp);
 			} else {
-				lws_snprintf(cookie_hdr, sizeof(cookie_hdr),
-					"%s=; Path=/; Max-Age=0; HttpOnly; SameSite=None; Secure",
-					vhd->cookie_name);
-				lws_snprintf(refresh_hdr, sizeof(refresh_hdr),
-					"auth_refresh_session=; Path=/; Max-Age=0; HttpOnly; SameSite=None; Secure");
+				lws_snprintf(cookie_hdr1, sizeof(cookie_hdr1), "%s=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", vhd->cookie_name, exp);
+				lws_snprintf(cookie_hdr2, sizeof(cookie_hdr2), "auth_csrf=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", exp);
+				lws_snprintf(cookie_hdr3, sizeof(cookie_hdr3), "auth_refresh_session=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", exp);
 			}
+			lws_snprintf(cookie_hdr1_host, sizeof(cookie_hdr1_host), "%s=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", vhd->cookie_name, exp);
+			lws_snprintf(cookie_hdr2_host, sizeof(cookie_hdr2_host), "auth_csrf=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", exp);
+			lws_snprintf(cookie_hdr3_host, sizeof(cookie_hdr3_host), "auth_refresh_session=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", exp);
 
-			if (lws_add_http_common_headers(wsi, HTTP_STATUS_SEE_OTHER, "text/html",
-							0, (unsigned char **)&p, (unsigned char *)end))
+			char html[LWS_PRE + 1024];
+			char urlenc_path[512];
+			int html_len;
+
+			lws_urlencode(urlenc_path, redirect_uri, sizeof(urlenc_path));
+
+			html_len = lws_snprintf(html + LWS_PRE, sizeof(html) - LWS_PRE,
+				"<html><head><meta http-equiv=\"refresh\" content=\"0; url=%s\"></head><body>Redirecting to <a href=\"%s\">%s</a></body></html>",
+				urlenc_path, urlenc_path, urlenc_path);
+
+			if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)html, (size_t)html_len + LWS_PRE) < 0)
+				return -1;
+
+			if (lws_add_http_common_headers(wsi, HTTP_STATUS_SEE_OTHER, "text/html", (unsigned int)html_len, (unsigned char **)&p, (unsigned char *)end))
 				return 1;
-			if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:",
-							(unsigned char *)cookie_hdr, (int)strlen(cookie_hdr),
-							(unsigned char **)&p, (unsigned char *)end))
-				return 1;
-			if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:",
-							(unsigned char *)refresh_hdr, (int)strlen(refresh_hdr),
-							(unsigned char **)&p, (unsigned char *)end))
-				return 1;
+
+			if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr1, (int)strlen(cookie_hdr1), (unsigned char **)&p, (unsigned char *)end)) return 1;
+			if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr1_host, (int)strlen(cookie_hdr1_host), (unsigned char **)&p, (unsigned char *)end)) return 1;
+			if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr2, (int)strlen(cookie_hdr2), (unsigned char **)&p, (unsigned char *)end)) return 1;
+			if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr2_host, (int)strlen(cookie_hdr2_host), (unsigned char **)&p, (unsigned char *)end)) return 1;
+			if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr3, (int)strlen(cookie_hdr3), (unsigned char **)&p, (unsigned char *)end)) return 1;
+			if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr3_host, (int)strlen(cookie_hdr3_host), (unsigned char **)&p, (unsigned char *)end)) return 1;
 			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION,
 							 (unsigned char *)redirect_uri, (int)strlen(redirect_uri),
 							 (unsigned char **)&p, (unsigned char *)end))
@@ -1756,8 +1782,10 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end))
 				return 1;
 
-			lws_write(wsi, (unsigned char *)buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS | LWS_WRITE_H2_STREAM_END);
-			return lws_http_transaction_completed(wsi);
+			lwsl_notice("%s: Writing headers and requesting writable callback\n", __func__);
+			lws_write(wsi, (unsigned char *)buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
+			lws_callback_on_writable(wsi);
+			return 0;
 		}
 
 		if (in && (!strncmp((const char *)in, "/status", 7))) {
