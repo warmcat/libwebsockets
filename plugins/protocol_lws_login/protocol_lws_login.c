@@ -796,9 +796,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 					struct pending_login_refresh *ps = malloc(sizeof(*ps));
 					if (ps) {
 						struct lws_client_connect_info i;
-						char auth_url[256];
-						const char *prot, *ads, *path_c;
-						int port = 443;
+						lws_parse_uri_t *puri;
 
 						memset(ps, 0, sizeof(*ps));
 						ps->vhd = vhd;
@@ -812,14 +810,14 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 						lws_dll2_add_tail(&ps->list, &vhd->pending_refresh_list);
 						lws_sul_schedule(vhd->context, 0, &ps->sul, sul_pending_refresh_cb, 5 * 60 * LWS_US_PER_SEC);
 
-						lws_strncpy(auth_url, vhd->auth_server_url, sizeof(auth_url));
-						if (!lws_parse_uri(auth_url, &prot, &ads, &port, &path_c)) {
+						puri = lws_parse_uri_create(vhd->auth_server_url);
+						if (puri) {
 							lwsl_notice("%s: Intercepted background refresh request, initiating proxy to %s/api/sso_exchange\n", __func__, vhd->auth_server_url);
 							memset(&i, 0, sizeof(i));
 							i.context = vhd->context;
-							i.address = ads;
-							i.port = port;
-							i.ssl_connection = !strcmp(prot, "http") ? 0 : LCCSCF_USE_SSL;
+							i.address = puri->host;
+							i.port = puri->port;
+							i.ssl_connection = !strcmp(puri->scheme, "http") ? 0 : LCCSCF_USE_SSL;
 							i.path = "/api/sso_exchange";
 							i.host = i.address;
 							i.origin = i.address;
@@ -830,6 +828,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 
 							lws_client_connect_via_info(&i);
 							lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT, 30);
+							lws_parse_uri_destroy(&puri);
 							return 0; // Suspend!
 						}
 						free(ps);

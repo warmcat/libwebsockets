@@ -136,20 +136,22 @@ omc_connect_client(lws_sorted_usec_list_t *sul)
 {
 	struct vhd *vhd = lws_container_of(sul, struct vhd, sul);
 	struct lws_client_connect_info i;
-	const char *prot;
-	char url[128];
+	lws_parse_uri_t *puri;
 
 	memset(&i, 0, sizeof(i));
 
 	lwsl_notice("%s: %s %s %s\n", __func__, vhd->ws_server_uri, vhd->metrics_proxy_path, vhd->ba_secret);
 
-	lws_strncpy(url, vhd->ws_server_uri, sizeof(url));
-
-	if (lws_parse_uri(url, &prot, &i.address, &i.port, &i.path)) {
+	puri = lws_parse_uri_create(vhd->ws_server_uri);
+	if (!puri) {
 		lwsl_err("%s: unable to parse uri %s\n", __func__,
 			 vhd->ws_server_uri);
 		return;
 	}
+
+	i.address = puri->host;
+	i.port = puri->port;
+	i.path = puri->path;
 
 	i.context		= vhd->cx;
 	i.origin		= i.address;
@@ -164,8 +166,12 @@ omc_connect_client(lws_sorted_usec_list_t *sul)
 
 	lwsl_notice("%s: %s %u %s\n", __func__, i.address, i.port, i.path);
 
-	if (lws_client_connect_via_info(&i))
+	if (lws_client_connect_via_info(&i)) {
+		lws_parse_uri_destroy(&puri);
 		return;
+	}
+
+	lws_parse_uri_destroy(&puri);
 
 	/*
 	 * Failed... schedule a retry... we can't use the _retry_wsi()

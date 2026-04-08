@@ -674,6 +674,110 @@ int lws_parse_uri(char *p, const char **prot, const char **ads, int *port,
 	return 0;
 }
 
+lws_parse_uri_t *
+lws_parse_uri_create(const char *uri)
+{
+	const char *p = uri;
+	int len = (int)strlen(uri);
+	lws_parse_uri_t *u;
+	char unix_skt = 0;
+	char *dest;
+	const char *end;
+
+	u = lws_zalloc(sizeof(*u) + (size_t)len + 4, __func__);
+	if (!u)
+		return NULL;
+
+	dest = (char *)(u + 1);
+
+	/* cut up the location into scheme, port and path */
+	end = uri;
+	while (*end && (*end != ':' || end[1] != '/' || end[2] != '/'))
+		end++;
+
+	u->scheme = dest;
+	if (*end) {
+		/* scheme */
+		int slen = lws_ptr_diff(end, p);
+		lws_strncpy(dest, p, (size_t)slen + 1);
+		dest += slen + 1;
+		p = end + 3;
+	} else {
+		*dest++ = '\0';
+	}
+
+	if (*p == '+')
+		unix_skt = 1;
+
+	const char *ads = p;
+	if (u->scheme[0]) {
+		if (!strcmp(u->scheme, "http") || !strcmp(u->scheme, "ws"))
+			u->port = 80;
+		else if (!strcmp(u->scheme, "https") || !strcmp(u->scheme, "wss"))
+			u->port = 443;
+	}
+
+	u->host = dest;
+	if (*p == '[') {
+		++ads;
+		while (*p && *p != ']')
+			p++;
+		if (*p) {
+			int hlen = lws_ptr_diff(p, ads);
+			lws_strncpy(dest, ads, (size_t)hlen + 1);
+			dest += hlen + 1;
+			p++;
+		} else {
+			int hlen = lws_ptr_diff(p, ads);
+			lws_strncpy(dest, ads, (size_t)hlen + 1);
+			dest += hlen + 1;
+		}
+	} else {
+		while (*p && *p != ':' && (unix_skt || (*p != '/' && *p != '?')))
+			p++;
+		int hlen = lws_ptr_diff(p, ads);
+		lws_strncpy(dest, ads, (size_t)hlen + 1);
+		dest += hlen + 1;
+	}
+
+	if (*p == ':') {
+		p++;
+		u->port = (uint16_t)atoi(p);
+		while (*p && *p != '/' && *p != '?')
+			p++;
+	}
+
+	u->unix_skt = unix_skt;
+
+	u->path = dest;
+	if (*p) {
+		if (*p == '/') {
+			p++;
+			if (*p) {
+				int plen = lws_ptr_diff(uri + len, p);
+				lws_strncpy(dest, p, (size_t)plen + 1);
+			} else
+				lws_strncpy(dest, "/", 2);
+		} else if (*p == '?') {
+			/* the ? is kept in the path */
+			int plen = lws_ptr_diff(uri + len, p);
+			lws_strncpy(dest, p, (size_t)plen + 1);
+		}
+	} else
+		lws_strncpy(dest, "/", 2);
+
+	return u;
+}
+
+void
+lws_parse_uri_destroy(lws_parse_uri_t **pcuri)
+{
+	if (*pcuri) {
+		lws_free(*pcuri);
+		*pcuri = NULL;
+	}
+}
+
 /* ... */
 
 int lws_get_urlarg_by_name_safe(struct lws *wsi, const char *name, char *buf,

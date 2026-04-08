@@ -59,19 +59,20 @@ api_attach(struct lws_vhost *vh, const char *url, const char *device_path, const
 	if (!vhd || !url) return -1;
 
 	struct lws_client_connect_info i;
-	const char *prot, *ads, *path;
-	char uri[256];
-	int port;
+	const char *path;
+	lws_parse_uri_t *puri;
 
 	memset(&i, 0, sizeof(i));
 	i.context = vhd->cx;
 	i.vhost = vh;
 
-	lws_strncpy(uri, url, sizeof(uri));
-	if (lws_parse_uri(uri, &prot, &ads, &port, &path)) {
+	puri = lws_parse_uri_create(url);
+	if (!puri) {
 		lwsl_err("Failed to parse mixer URL: %s\n", url);
 		return -1;
 	}
+
+	path = puri->path;
 
 	char path_buffer[256];
 	if (path[0] != '/') {
@@ -86,8 +87,8 @@ api_attach(struct lws_vhost *vh, const char *url, const char *device_path, const
 	args->width = width;
 	args->height = height;
 
-	i.address = ads;
-	i.port = port;
+	i.address = puri->host;
+	i.port = puri->port;
 	i.path = path;
 	i.host = i.address;
 	i.origin = i.address;
@@ -95,7 +96,7 @@ api_attach(struct lws_vhost *vh, const char *url, const char *device_path, const
 	i.local_protocol_name = "lws-rtc-camera";
 	i.opaque_user_data = args;
 
-	if (!strcmp(prot, "https") || !strcmp(prot, "wss"))
+	if (!strcmp(puri->scheme, "https") || !strcmp(puri->scheme, "wss"))
 		i.ssl_connection = LCCSCF_USE_SSL;
 
 	emit_state(vh, device_path, LWS_RTC_CAMERA_STATE_CONNECTING);
@@ -106,8 +107,11 @@ api_attach(struct lws_vhost *vh, const char *url, const char *device_path, const
 		free(args->device_path);
 		if (args->name) free((void *)args->name);
 		free(args);
+		lws_parse_uri_destroy(&puri);
 		return -1;
 	}
+
+	lws_parse_uri_destroy(&puri);
 
 	return 0;
 }

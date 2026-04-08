@@ -690,23 +690,32 @@ lws_acme_client_connect(struct lws_context *context, struct lws_vhost *vh,
 		struct lws **pwsi, struct lws_client_connect_info *i,
 		char *url, const char *method)
 {
-	const char *prot, *p;
-	char path[200], _url[256];
+	const char *p;
+	char path[200];
+	lws_parse_uri_t *puri;
 	struct lws *wsi;
 
 	memset(i, 0, sizeof(*i));
 	i->port = 443;
-	lws_strncpy(_url, url, sizeof(_url));
-	if (lws_parse_uri(_url, &prot, &i->address, &i->port, &p)) {
+	puri = lws_parse_uri_create(url);
+	if (!puri) {
 		lwsl_err("unable to parse uri %s\n", url);
 
 		return NULL;
 	}
 
+	i->address = puri->host;
+	i->port = puri->port;
+	p = puri->path;
+
 	/* add back the leading / on path */
-	path[0] = '/';
-	lws_strncpy(path + 1, p, sizeof(path) - 1);
-	i->path = path;
+	if (p[0] != '/') {
+		path[0] = '/';
+		lws_strncpy(path + 1, p, sizeof(path) - 1);
+		i->path = path;
+	} else
+		i->path = p;
+
 	i->context = context;
 	i->vhost = vh;
 	i->ssl_connection = LCCSCF_USE_SSL;
@@ -725,6 +734,9 @@ lws_acme_client_connect(struct lws_context *context, struct lws_vhost *vh,
 	} else {
         lwsl_vhost_notice(vh, "ACME Network Call Initiated: %s %s [wsi=%p]", method, url, wsi);
     }
+
+	if (puri)
+		lws_parse_uri_destroy(&puri);
 
 	return wsi;
 }

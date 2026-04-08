@@ -227,12 +227,10 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 			{
 				struct lws_client_connect_info i;
-				char auth_url[256];
-				const char *prot, *ads, *path;
-				int port = 443;
+				lws_parse_uri_t *puri;
 
-				lws_strncpy(auth_url, vhd->remote_auth_url, sizeof(auth_url));
-				if (lws_parse_uri(auth_url, &prot, &ads, &port, &path)) {
+				puri = lws_parse_uri_create(vhd->remote_auth_url);
+				if (!puri) {
 					lwsl_err("Failed to parse remote-auth-url\n");
 					lws_return_http_status(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR, "Invalid config");
 					return lws_http_transaction_completed(wsi);
@@ -240,9 +238,9 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 				memset(&i, 0, sizeof(i));
 				i.context = vhd->context;
-				i.address = ads;
-				i.port = port;
-				i.ssl_connection = !strcmp(prot, "http") ? 0 : LCCSCF_USE_SSL;
+				i.address = puri->host;
+				i.port = puri->port;
+				i.ssl_connection = !strcmp(puri->scheme, "http") ? 0 : LCCSCF_USE_SSL;
 				i.path = "/api/token";
 				i.host = i.address;
 				i.origin = i.address;
@@ -252,6 +250,7 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 				i.userdata = ps;
 
 				lws_client_connect_via_info(&i);
+				lws_parse_uri_destroy(&puri);
 			}
 
 			return 0; // suspend without writing any header yet
