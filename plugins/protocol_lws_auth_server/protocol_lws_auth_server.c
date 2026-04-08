@@ -1599,6 +1599,71 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 
+		if (in && (!strcmp((const char *)in, "/admin"))) {
+			struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL);
+			if (!ja || lws_jwt_auth_query_grant(ja, "*") < 1) {
+				if (ja) lws_jwt_auth_destroy(&ja);
+				lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, "Forbidden");
+				return lws_http_transaction_completed(wsi);
+			}
+			lws_jwt_auth_destroy(&ja);
+
+			const char *html_fmt = "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"UTF-8\">"
+				"<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">"
+				"<title>Auth Server Admin</title>"
+				"<link rel=\"stylesheet\" href=\"../admin.css\">"
+				"%s%s%s"
+				"</head><body><div class=\"container\">"
+				"<div class=\"panel-header\"><h1>Admin Console</h1></div>"
+				"<div class=\"tabs\">"
+				"<button id=\"tabUsers\" class=\"tab-active\">User Administration</button>"
+				"<button id=\"tabClients\" class=\"tab-inactive\">Grants</button>"
+				"</div>"
+				"<div id=\"usersView\">"
+				"<table id=\"usersTable\"><thead>"
+				"<tr><th>UID</th><th>Username</th><th>Active Grants</th><th>Actions</th></tr>"
+				"</thead><tbody></tbody></table>"
+				"</div>"
+				"<div id=\"clientsView\" class=\"hidden\">"
+				"<button id=\"addClientBtn\" class=\"btn-success\">+ Add Grant</button>"
+				"<table id=\"clientsTable\"><thead>"
+				"<tr><th>Grant ID</th><th>Display Name</th><th>Allowed Redirect URIs</th><th>Actions</th></tr>"
+				"</thead><tbody></tbody></table>"
+				"</div>"
+				"</div>"
+				"<div id=\"modal\"><div class=\"modal-content\"><h3 id=\"modalTitle\">Edit Grants</h3>"
+				"<p>Enter grants as comma-separated <code>service:level</code>.</p>"
+				"<div class=\"form-group\"><input type=\"text\" id=\"grantsInput\" placeholder=\"service:level\"></div>"
+				"<button id=\"saveBtn\">Save</button> <button id=\"cancelBtn\" class=\"btn-muted\">Cancel</button>"
+				"</div></div>"
+				"<div id=\"clientModal\" class=\"modal-backdrop\">"
+				"<div class=\"modal-content\">"
+				"<h3 id=\"cmTitle\">Manage Grant</h3>"
+				"<div class=\"form-group\"><label class=\"form-label\">Grant ID</label><input type=\"text\" id=\"cmId\" class=\"form-input\"></div>"
+				"<div class=\"form-group spaced\"><label class=\"form-label\">Display Name</label><input type=\"text\" id=\"cmName\" class=\"form-input\"></div>"
+				"<div class=\"form-group spaced bottom\"><label class=\"form-label\">Redirect URIs (comma delim)</label><input type=\"text\" id=\"cmRedirects\" class=\"form-input\" placeholder=\"https://...\"></div>"
+				"<button id=\"cmSaveBtn\">Save</button> <button id=\"cmCancelBtn\" class=\"btn-muted\">Cancel</button>"
+				"</div></div>"
+				"<script src=\"../admin.js\"></script>"
+				"</body></html>";
+
+			size_t max_html_len = 4096;
+			char *pl = malloc(LWS_PRE + max_html_len);
+			if (!pl) return -1;
+			size_t html_len = (size_t)lws_snprintf(pl + LWS_PRE, max_html_len, html_fmt,
+				vhd->ui_css[0] ? "<link rel=\"stylesheet\" href=\"" : "",
+				vhd->ui_css[0] ? vhd->ui_css : "",
+				vhd->ui_css[0] ? "\">" : "");
+
+			if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)pl, html_len + LWS_PRE) < 0) {
+				free(pl);
+				return -1;
+			}
+			free(pl);
+
+			return send_auth_headers(wsi, pss, "text/html", NULL, NULL);
+		}
+
 		if (in && (!strcmp((const char *)in, "/.well-known/jwks.json") ||
 				   !strcmp((const char *)in, "/jwks.json"))) {
 			char buf[1024 + LWS_PRE];

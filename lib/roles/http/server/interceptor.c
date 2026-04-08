@@ -532,11 +532,6 @@ lws_interceptor_handle_http(struct lws *wsi, void *user, const struct lws_interc
 		}
 		iat = atoll(iat_p);
 
-		if (lws_now_secs() < (unsigned long)iat + (unsigned long)(vhd->pre_delay_ms / 1000)) {
-			lwsl_vhost_notice(vhd->vhost, "%s: POST: pre-delay not met", __func__);
-			return 1;
-		}
-
 		if (ops && ops->verify) {
 			lws_interceptor_result_t res = ops->verify(wsi, NULL, 0);
 			if (res == LWS_INTERCEPTOR_RET_REJECT)
@@ -545,6 +540,11 @@ lws_interceptor_handle_http(struct lws *wsi, void *user, const struct lws_interc
 				return lws_interceptor_issue_cookie(wsi);
 
 			/* RET_DELAYED falls through to timer setup */
+		}
+
+		if (lws_now_secs() < (unsigned long)iat + (unsigned long)(vhd->pre_delay_ms / 1000)) {
+			lwsl_vhost_notice(vhd->vhost, "%s: POST: pre-delay not met", __func__);
+			return 1;
 		}
 
 		lws_set_timeout(wsi, PENDING_TIMEOUT_CLIENT_CONN_IDLE, 25);

@@ -400,8 +400,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			    lws_login_ends_with(uri, "/lws-login.js") ||
 			    lws_login_ends_with(uri, "/lws-login.css") ||
 			    lws_login_ends_with(uri, "/.lws-login-sso") ||
-			    lws_login_ends_with(uri, "/.lws-login-refresh") ||
-			    lws_login_ends_with(uri, "/admin"))
+			    lws_login_ends_with(uri, "/.lws-login-refresh"))
 				return 1;
 		}
 
@@ -707,92 +706,6 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			if (lws_hdr_copy(wsi, path, sizeof(path), WSI_TOKEN_POST_URI) < 0)
 				lwsl_debug("%s: URI copy failed\n", __func__);
 
-		if (lws_login_ends_with(path, "/admin")) {
-			if (!pss->ja)
-				pss->ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, lws_login_jwt_auth_cb, wsi);
-
-			if (!pss->ja || lws_jwt_auth_query_grant(pss->ja, "*") < 1) {
-				const char *err = "Forbidden";
-				int len = (int)strlen(err);
-				if (lws_add_http_common_headers(wsi, HTTP_STATUS_FORBIDDEN, "text/plain",
-								(lws_filepos_t)len, (unsigned char **)&p, (unsigned char *)end)) return 1;
-				if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end)) return 1;
-				lws_write(wsi, (unsigned char *)buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
-				uint8_t *fbuf = malloc(LWS_PRE + (size_t)len);
-				if (!fbuf) return -1;
-				memcpy(fbuf + LWS_PRE, err, (size_t)len);
-				int res = lws_buflist_append_segment(&pss->tx_buflist, fbuf, LWS_PRE + (size_t)len);
-				free(fbuf);
-				if (res < 0) return -1;
-				lws_callback_on_writable(wsi);
-				return 0;
-			}
-
-			const char *html_fmt = "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"UTF-8\">"
-				"<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">"
-				"<title>Auth Server Admin</title>"
-				"<link rel=\"stylesheet\" href=\"%s/admin.css\">"
-				"</head><body><div class=\"container\">"
-				"<div class=\"panel-header\"><h1>Admin Console</h1></div>"
-				"<div class=\"tabs\">"
-				"<button id=\"tabUsers\" class=\"tab-active\">User Administration</button>"
-				"<button id=\"tabClients\" class=\"tab-inactive\">Grants</button>"
-				"</div>"
-				"<div id=\"usersView\">"
-				"<table id=\"usersTable\"><thead>"
-				"<tr><th>UID</th><th>Username</th><th>Active Grants</th><th>Actions</th></tr>"
-				"</thead><tbody></tbody></table>"
-				"</div>"
-				"<div id=\"clientsView\" class=\"hidden\">"
-				"<button id=\"addClientBtn\" class=\"btn-success\">+ Add Grant</button>"
-				"<table id=\"clientsTable\"><thead>"
-				"<tr><th>Grant ID</th><th>Display Name</th><th>Allowed Redirect URIs</th><th>Actions</th></tr>"
-				"</thead><tbody></tbody></table>"
-				"</div>"
-				"</div>"
-				"<div id=\"modal\"><div class=\"modal-content\"><h3 id=\"modalTitle\">Edit Grants</h3>"
-				"<p>Enter grants as comma-separated <code>service:level</code>.</p>"
-				"<div class=\"form-group\"><input type=\"text\" id=\"grantsInput\" placeholder=\"service:level\"></div>"
-				"<button id=\"saveBtn\">Save</button> <button id=\"cancelBtn\" class=\"btn-muted\">Cancel</button>"
-				"</div></div>"
-				"<div id=\"clientModal\" class=\"modal-backdrop\">"
-				"<div class=\"modal-content\">"
-				"<h3 id=\"cmTitle\">Manage Grant</h3>"
-				"<div class=\"form-group\"><label class=\"form-label\">Grant ID</label><input type=\"text\" id=\"cmId\" class=\"form-input\"></div>"
-				"<div class=\"form-group spaced\"><label class=\"form-label\">Display Name</label><input type=\"text\" id=\"cmName\" class=\"form-input\"></div>"
-				"<div class=\"form-group spaced bottom\"><label class=\"form-label\">Redirect URIs (comma delim)</label><input type=\"text\" id=\"cmRedirects\" class=\"form-input\" placeholder=\"https://...\"></div>"
-				"<button id=\"cmSaveBtn\">Save</button> <button id=\"cmCancelBtn\" class=\"btn-muted\">Cancel</button>"
-				"</div></div>"
-				"<script src=\"%s/admin.js\"></script>"
-				"</body></html>";
-
-			size_t max_html_len = 4096;
-			char *pl = malloc(LWS_PRE + max_html_len);
-			if (!pl) return -1;
-			size_t html_len = (size_t)lws_snprintf(pl + LWS_PRE, max_html_len, html_fmt,
-				vhd->auth_server_url, vhd->auth_server_url);
-
-			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "text/html",
-							(lws_filepos_t)html_len, (unsigned char **)&p, (unsigned char *)end)) {
-				free(pl);
-				return 1;
-			}
-			if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end)) {
-				free(pl);
-				return 1;
-			}
-			lws_write(wsi, (unsigned char *)buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
-
-			if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)pl, html_len + LWS_PRE) < 0) {
-				free(pl);
-				return -1;
-			}
-			free(pl);
-
-			lws_callback_on_writable(wsi);
-			return 0;
-		}
-
 		if (lws_login_ends_with(path, "/lws-login.css")) {
 			const char *css =
 				".lws-login-box{font-family:-apple-system,system-ui,sans-serif;padding:16px;border-radius:8px;background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.08);display:inline-block;font-size:14px;line-height:1.4;color:#333;}\n"
@@ -834,7 +747,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				"var c='<div class=\"lws-login-box\">';"
 				"if(d.logged_in){"
 				"var u=d.auth_server_url+'/api/logout?redirect_uri='+encodeURIComponent(window.location.href);"
-				"var a=d.is_admin?'<a class=\"lws-login-link\" href=\"'+d.auth_server_url+'/admin\">Admin Console</a>':'';"
+				"var a=d.is_admin?'<a class=\"lws-login-link\" href=\"'+d.auth_server_url+'/api/admin\">Admin Console</a>':'';"
 				"c+='<strong class=\"lws-login-identity\">'+d.identity+'</strong><br>';"
 				"c+=a+' <a class=\"lws-login-link lws-login-logout\" href=\"'+u+'\">Logout</a>';"
 				"if(!d.has_grant&&!d.is_admin)c+='<div class=\"lws-login-err\">login lacks grant</div><br>';"

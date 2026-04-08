@@ -46,8 +46,42 @@
 #include <stdlib.h>
 #include <string.h>
 
+static lws_interceptor_result_t
+ratelimit_verify(struct lws *wsi, const void *in, size_t len)
+{
+	char buf[16];
+
+	/* If the Javascript verified the upstream login status and wants to bypass the post-delay */
+	if (lws_get_urlarg_by_name_safe(wsi, "bypass=", buf, sizeof(buf)) > 0 &&
+	    !strcmp(buf, "1")) {
+		lwsl_info("%s: ratelimit bypass=1 detected, allowing immediate pass\n", __func__);
+		return LWS_INTERCEPTOR_RET_PASS;
+	}
+
+	return LWS_INTERCEPTOR_RET_DELAYED;
+}
+
+static int
+ratelimit_get_config_js(struct lws *wsi, char *buf, size_t max_len)
+{
+	char uri[256];
+	const struct lws_http_mount *m;
+	int n = 0;
+
+	uri[0] = '\0';
+	lws_hdr_copy(wsi, uri, sizeof(uri), WSI_TOKEN_GET_URI);
+	m = lws_find_mount(wsi, uri, (int)strlen(uri));
+	if (m && m->interceptor_path) {
+		n = lws_snprintf(buf, max_len, "var lws_interceptor_path = \"%s\";\n",
+					 m->interceptor_path);
+	}
+	return n;
+}
+
 static const struct lws_interceptor_ops ratelimit_ops = {
 	.name = "ratelimit",
+	.verify = ratelimit_verify,
+	.get_config_js = ratelimit_get_config_js,
 };
 
 static int
@@ -62,7 +96,7 @@ callback_captcha_ratelimit(struct lws *wsi, enum lws_callback_reasons reason,
 	"lws_captcha_ratelimit",                                                   \
 	callback_captcha_ratelimit,                                                \
 	1024, /* pss size */                                                       \
-	1024,                                                                      \
+	0,                                                                         \
 	0,                                                                         \
 	NULL,                                                                      \
 	0									   \

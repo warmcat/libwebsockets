@@ -32,6 +32,12 @@ The plugin is configured via per-vhost options (PVOs) under the protocol name `l
 | `status` | Status message to display. | "ok" |
 | `stats-logging` | Whether to emit once-a-minute status logging | 0 |
 
+## Stacking with `lws-login`
+
+When `captcha_ratelimit` works in sequence with authentication interceptors like `lws-login`, unauthenticated public guests must endure the captcha delays prior to attempting log-in operations or browsing unauthenticated domains. If a user is already fundamentally logged into your application ecosystem, repeatedly forcing a captcha check hinders experience.
+
+The `captcha_ratelimit` handles this natively. Using its injected JavaScript context (`lws_interceptor_path`), the client-side `captcha.js` script queries the upstream `lws-login`'s `/.lws-login-status` JSON endpoint directly. If the upstream interceptor confirms the session is already authenticated, the JavaScript immediately bypasses the captcha interaction (`post-delay-ms` and `pre-delay-ms` penalties) by dynamically appending a `?bypass=1` URI argument to the captcha submission, saving configurations such as explicitly mapping `lws-login` cryptographic secrets redundantly in the `captcha_ratelimit` vhost options.
+
 **JWK Generation:**
 
 The JWK can be produced by `lws-crypto-jwk -t OCT`.
