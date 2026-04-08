@@ -1320,7 +1320,8 @@ int
 lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 		     char *uri_ptr, char ws)
 {
-	char ads[96], host[96], *pcolon, *pslash, unix_skt = 0;
+	const char *pcolon, *pslash;
+	char ads[96], host[96], unix_skt = 0;
 	struct lws_client_connect_info i;
 	struct lws *cwsi;
 	int n, na;
