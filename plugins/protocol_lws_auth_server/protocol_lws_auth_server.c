@@ -1798,18 +1798,76 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_hdr_copy(wsi, cookie_val, sizeof(cookie_val), WSI_TOKEN_HTTP_COOKIE);
 				// lwsl_info("/status endpoint HIT! URL args: '%s', Incoming Cookie: '%s'\n", sname, cookie_val[0] ? cookie_val : "NONE");
 
+				char set_cookie_jwt[2048] = {0};
+
 				if (vhd->cookie_name[0]) {
+					uint32_t suid = 0;
+					int was_refreshed = 0;
 					struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL);
+
 					if (ja) {
+						suid = lws_jwt_auth_get_uid(ja);
+						lws_jwt_auth_destroy(&ja);
+					} else if (vhd->refresh_token_validity_secs > 0) {
+						char refresh_tk[128] = {0};
+						if (cookie_val[0]) {
+							const char *p = strstr(cookie_val, "auth_refresh_session=");
+							if (p) {
+								p += 21;
+								size_t i = 0;
+								while (*p && *p != ';' && i < sizeof(refresh_tk) - 1)
+									refresh_tk[i++] = *p++;
+								refresh_tk[i] = 0;
+							}
+						}
+						if (refresh_tk[0]) {
+							sqlite3_stmt *stmt;
+							uint64_t now = (uint64_t)time(NULL);
+							if (sqlite3_prepare_v2(vhd->db, "SELECT uid, expires FROM auth_sessions WHERE session_id = ?", -1, &stmt, NULL) == SQLITE_OK) {
+								sqlite3_bind_text(stmt, 1, refresh_tk, -1, SQLITE_TRANSIENT);
+								if (sqlite3_step(stmt) == SQLITE_ROW) {
+									uint64_t exp = (uint64_t)sqlite3_column_int64(stmt, 1);
+									if (now < exp) {
+										suid = (uint32_t)sqlite3_column_int(stmt, 0);
+										was_refreshed = 1;
+									}
+								}
+								sqlite3_finalize(stmt);
+							}
+						}
+					}
+
+					if (suid) {
 						logged_in = 1;
-						uint32_t suid = lws_jwt_auth_get_uid(ja);
+						char username[128] = {0};
 
 						sqlite3_stmt *stmt_u;
 						if (sqlite3_prepare_v2(vhd->db, "SELECT username FROM users WHERE uid = ?", -1, &stmt_u, NULL) == SQLITE_OK) {
 							sqlite3_bind_int(stmt_u, 1, (int)suid);
-							if (sqlite3_step(stmt_u) == SQLITE_ROW)
-								lws_strncpy(user_email, (const char *)sqlite3_column_text(stmt_u, 0), sizeof(user_email));
+							if (sqlite3_step(stmt_u) == SQLITE_ROW) {
+								lws_strncpy(username, (const char *)sqlite3_column_text(stmt_u, 0), sizeof(username));
+								lws_strncpy(user_email, username, sizeof(user_email));
+							}
 							sqlite3_finalize(stmt_u);
+						}
+
+						if (was_refreshed) {
+							char jwt[1024];
+							size_t jwt_len = sizeof(jwt);
+							
+							if (!lws_auth_generate_token(vhd, username, suid, peer, jwt, &jwt_len)) {
+								if (vhd->cookie_domain[0]) {
+									lws_snprintf(set_cookie_jwt, sizeof(set_cookie_jwt),
+										"%s=%s; Path=/; Domain=%s; Max-Age=%llu; HttpOnly; SameSite=None; Secure",
+										vhd->cookie_name, jwt, vhd->cookie_domain,
+										(unsigned long long)vhd->jwt_validity_secs);
+								} else {
+									lws_snprintf(set_cookie_jwt, sizeof(set_cookie_jwt),
+										"%s=%s; Path=/; Max-Age=%llu; HttpOnly; SameSite=None; Secure",
+										vhd->cookie_name, jwt,
+										(unsigned long long)vhd->jwt_validity_secs);
+								}
+							}
 						}
 
 						/* Fetch grants for debugging output */
@@ -1826,8 +1884,18 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 							sqlite3_finalize(stmt_u);
 						}
 
-						if (sname[0] && lws_jwt_auth_query_grant(ja, sname) < 1)
+						if (sname[0]) {
 							lacks_grant = 1;
+							if (sqlite3_prepare_v2(vhd->db, "SELECT g.grant_level FROM grants g JOIN services s ON g.service_id = s.service_id WHERE g.uid = ? AND (s.name = ? OR s.name = '*');", -1, &stmt_u, NULL) == SQLITE_OK) {
+								sqlite3_bind_int(stmt_u, 1, (int)suid);
+								sqlite3_bind_text(stmt_u, 2, sname, -1, SQLITE_TRANSIENT);
+								while (sqlite3_step(stmt_u) == SQLITE_ROW) {
+									if (sqlite3_column_int(stmt_u, 0) >= 1)
+										lacks_grant = 0;
+								}
+								sqlite3_finalize(stmt_u);
+							}
+						}
 
 						char *lp = logs, *lend = logs + sizeof(logs);
 						int first_log = 1;
@@ -1843,8 +1911,6 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 							}
 							sqlite3_finalize(stmt_u);
 						}
-
-						lws_jwt_auth_destroy(&ja);
 					}
 				}
 
@@ -1915,10 +1981,10 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				if (!has_csrf) {
 					char cookie_hdr[128];
 					lws_snprintf(cookie_hdr, sizeof(cookie_hdr), "auth_csrf=%s; Path=/; SameSite=Strict; HttpOnly", csrf);
-					return send_auth_headers(wsi, pss, "application/json", cookie_hdr, NULL);
+					return send_auth_headers(wsi, pss, "application/json", cookie_hdr, set_cookie_jwt[0] ? set_cookie_jwt : NULL);
 				}
 
-				return send_auth_headers(wsi, pss, "application/json", NULL, NULL);
+				return send_auth_headers(wsi, pss, "application/json", set_cookie_jwt[0] ? set_cookie_jwt : NULL, NULL);
 			}
 
                         return 0;
