@@ -18,7 +18,13 @@ endif()
 include(${LWS_CMAKE_DIR}/LwsCheckRequirements.cmake)
 
 # IMPORTED targets from LibwebsocketsTargets.cmake
-set(LIBWEBSOCKETS_LIBRARIES websockets websockets_shared)
+set(LIBWEBSOCKETS_LIBRARIES)
+if (TARGET websockets)
+	set(LIBWEBSOCKETS_LIBRARIES ${LIBWEBSOCKETS_LIBRARIES} websockets)
+endif()
+if (TARGET websockets_shared)
+	set(LIBWEBSOCKETS_LIBRARIES ${LIBWEBSOCKETS_LIBRARIES} websockets_shared)
+endif()
 
 if (TARGET websockets_shared)
 	set(websockets_shared 1)
