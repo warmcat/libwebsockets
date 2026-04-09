@@ -152,7 +152,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         try {
                             const res = await fetch('/api/sso_exchange', {
                                 method: 'POST',
-                                body: 'csrf_token=' + encodeURIComponent(window.csrf_token || '') + '&redirect_uri=' + encodeURIComponent(redirectUri),
+                                body: `redirect_uri=${encodeURIComponent(redirectUri)}&csrf_token=${encodeURIComponent(window.csrf_token || "")}`,
                                 headers: {'Content-Type': 'application/x-www-form-urlencoded'}
                             });
                             if (res.ok) {

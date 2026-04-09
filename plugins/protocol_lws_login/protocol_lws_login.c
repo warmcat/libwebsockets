@@ -509,10 +509,14 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				}
 #if defined(LWS_WITH_JOSE)
 				else if (mount->interceptor_path) {
-					const struct lws_http_mount *im;
-					im = lws_find_mount(wsi, mount->interceptor_path, (int)strlen(mount->interceptor_path));
-					if (im && !lws_pmo_get_str(im, "service-name", &service_name))
-						lwsl_info("%s: using service_name %s from interceptor pmo\n", __func__, service_name);
+					const struct lws_http_mount *im = mount;
+					while (im && im->interceptor_path) {
+						im = lws_find_mount(wsi, im->interceptor_path, (int)strlen(im->interceptor_path));
+						if (im && !lws_pmo_get_str(im, "service-name", &service_name)) {
+							lwsl_info("%s: using service_name %s from interceptor pmo\n", __func__, service_name);
+							break;
+						}
+					}
 				}
 #endif
 			}
@@ -622,10 +626,14 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 
 #if defined(LWS_WITH_JOSE)
 				else if (mount->interceptor_path) {
-					const struct lws_http_mount *im;
-					im = lws_find_mount(wsi, mount->interceptor_path, (int)strlen(mount->interceptor_path));
-					if (im && !lws_pmo_get_str(im, "service-name", &service_name))
-						lwsl_info("%s: using service_name %s from interceptor pmo\n", __func__, service_name);
+					const struct lws_http_mount *im = mount;
+					while (im && im->interceptor_path) {
+						im = lws_find_mount(wsi, im->interceptor_path, (int)strlen(im->interceptor_path));
+						if (im && !lws_pmo_get_str(im, "service-name", &service_name)) {
+							lwsl_info("%s: using service_name %s from interceptor pmo\n", __func__, service_name);
+							break;
+						}
+					}
 				}
 #endif
 			}

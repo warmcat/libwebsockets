@@ -25,6 +25,8 @@
 #include <string.h>
 #include <time.h>
 
+#define LWS_AUTH_MAX_COOKIE_LEN 4096
+
 static const char * const param_names[] = {
 	"username",
 	"password",
@@ -259,22 +261,22 @@ lws_auth_issue_jwt(struct per_vhost_data__auth_server *vhd,
                    const char *claims_json,
                    char *out, size_t *out_len)
 {
-	char temp[1024]; /* scratchpad for JWK/JWS generation */
+	char temp[2048]; /* scratchpad for JWK/JWS generation */
 	uint64_t now = (uint64_t)time(NULL);
 	uint64_t exp = now + vhd->jwt_validity_secs;
 
 	/* The format string maps directly to the JWS payload */
-	if (lws_jwt_sign_compact(vhd->context, &vhd->jwk, vhd->jwt_alg,
+	int sig_ret = lws_jwt_sign_compact(vhd->context, &vhd->jwk, vhd->jwt_alg,
 	                         out, out_len, temp, sizeof(temp),
 	                         "{\"iss\":\"%s\",\"sub\":\"%s\",\"uid\":%u,"
 	                         "\"iat\":%llu,\"exp\":%llu%s%s}",
 	                         vhd->auth_domain, username, uid,
 	                         (unsigned long long)now, (unsigned long long)exp,
 	                         claims_json ? "," : "",
-	                         claims_json ? claims_json : "")) {
-		lwsl_err("JWT sig failed\n");
-
-		return -1;
+	                         claims_json ? claims_json : "");
+	if (sig_ret) {
+		lwsl_err("JWT sig failed (%d)\n", sig_ret);
+		return sig_ret;
 	}
 
 	return 0;
@@ -616,8 +618,13 @@ static int
 auth_check_csrf(struct lws *wsi, struct per_vhost_data__auth_server *vhd, struct per_session_data__auth_server *pss)
 {
 	const char *csrf_form = lws_spa_get_string(pss->spa, EP_CSRF);
-	char cookie[512] = {0};
+	char cookie[LWS_AUTH_MAX_COOKIE_LEN] = {0};
 	char csrf_ck[64] = {0};
+
+	int ck_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE);
+	if (ck_len >= (int)sizeof(cookie)) {
+		lwsl_err("%s: OVERRUN! HTTP cookie header length (%d) exceeds allocated buffer size (%d), auth tracking tokens may be truncated!\n", __func__, ck_len, (int)sizeof(cookie));
+	}
 
 	if (lws_hdr_copy(wsi, cookie, sizeof(cookie), WSI_TOKEN_HTTP_COOKIE) > 0) {
 		const char *p = strstr(cookie, "auth_csrf=");
@@ -653,10 +660,15 @@ lws_auth_api_sso_exchange(struct lws *wsi, struct per_vhost_data__auth_server *v
 		goto send;
 	}
 
-	char cookie_hdr[1024] = {0};
-	char refresh_hdr[1024] = {0};
-	char cookie_val[1024] = {0};
+	char cookie_hdr[LWS_AUTH_MAX_COOKIE_LEN] = {0};
+	char refresh_hdr[LWS_AUTH_MAX_COOKIE_LEN] = {0};
+	char cookie_val[LWS_AUTH_MAX_COOKIE_LEN] = {0};
 	uint32_t uid = 0;
+
+	int ck_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE);
+	if (ck_len >= (int)sizeof(cookie_val)) {
+		lwsl_err("%s: OVERRUN! HTTP cookie header length (%d) exceeds allocated buffer size (%d), auth tracking tokens may be truncated!\n", __func__, ck_len, (int)sizeof(cookie_val));
+	}
 
 	if (lws_hdr_copy(wsi, cookie_val, sizeof(cookie_val), WSI_TOKEN_HTTP_COOKIE) <= 0 || !vhd->cookie_name[0]) {
 		cookie_val[0] = '\0';
@@ -723,7 +735,7 @@ lws_auth_api_sso_exchange(struct lws *wsi, struct per_vhost_data__auth_server *v
 
 	char jwt[1024];
 	size_t jwt_len = sizeof(jwt);
-	char peer[64] = {0};
+	char peer[64];
 	lws_get_peer_simple(wsi, peer, sizeof(peer));
 
 	if (!lws_auth_generate_token(vhd, username, uid, peer, jwt, &jwt_len)) {
@@ -1089,7 +1101,7 @@ lws_auth_api_token(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	}
 
 	size_t jwt_len = sizeof(jwt);
-	char peer[64] = {0};
+	char peer[64];
 	lws_get_peer_simple(wsi, peer, sizeof(peer));
 
 	if (!lws_auth_generate_token(vhd, username, uid, peer, jwt, &jwt_len)) {
@@ -1703,7 +1715,12 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 			lwsl_notice("%s: Extracted redirect_uri: %s\n", __func__, redirect_uri);
 
-			char cookie_val[1024] = {0};
+			char cookie_val[LWS_AUTH_MAX_COOKIE_LEN] = {0};
+			int ck_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE);
+			if (ck_len >= (int)sizeof(cookie_val)) {
+				lwsl_err("%s: OVERRUN! HTTP cookie header length (%d) exceeds allocated buffer size (%d), auth tracking tokens may be truncated!\n", __func__, ck_len, (int)sizeof(cookie_val));
+			}
+
 			if (lws_hdr_copy(wsi, cookie_val, sizeof(cookie_val), WSI_TOKEN_HTTP_COOKIE) > 0) {
 				const char *rp = strstr(cookie_val, "auth_refresh_session=");
 				if (rp) {
@@ -1825,9 +1842,15 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 					}
 				} lws_end_foreach_dll_safe(d, d1);
 
-				char cookies[512] = {0};
+				char cookies[LWS_AUTH_MAX_COOKIE_LEN] = {0};
 				char csrf[33] = {0};
 				int has_csrf = 0;
+
+				int ck_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE);
+				if (ck_len >= (int)sizeof(cookies)) {
+					lwsl_err("%s: OVERRUN! HTTP cookie header length (%d) exceeds allocated buffer size (%d), auth tracking tokens may be truncated!\n", __func__, ck_len, (int)sizeof(cookies));
+				}
+
 				if (lws_hdr_copy(wsi, cookies, sizeof(cookies), WSI_TOKEN_HTTP_COOKIE) > 0) {
 					const char *p = strstr(cookies, "auth_csrf=");
 					if (p) {
@@ -1854,7 +1877,15 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				char logs[2048] = {0};
 				lws_get_urlarg_by_name_safe(wsi, "service_name=", sname, sizeof(sname));
 
-				char cookie_val[1024] = {0};
+				char cookie_val[LWS_AUTH_MAX_COOKIE_LEN] = {0};
+				
+				{
+					int ck_len_val = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE);
+					if (ck_len_val >= (int)sizeof(cookie_val)) {
+						lwsl_err("%s: OVERRUN! HTTP cookie header length (%d) exceeds allocated buffer size (%d), auth tracking tokens may be truncated!\n", __func__, ck_len_val, (int)sizeof(cookie_val));
+					}
+				}
+
 				lws_hdr_copy(wsi, cookie_val, sizeof(cookie_val), WSI_TOKEN_HTTP_COOKIE);
 				// lwsl_info("/status endpoint HIT! URL args: '%s', Incoming Cookie: '%s'\n", sname, cookie_val[0] ? cookie_val : "NONE");
 
@@ -2346,10 +2377,15 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				return lws_http_transaction_completed(wsi);
 			}
 
-			char cookies[512] = {0};
+			char cookies[LWS_AUTH_MAX_COOKIE_LEN] = {0};
 			char session_id[65] = {0};
 			int has_session = 0;
 			uint32_t session_uid = 0;
+
+			int ck_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE);
+			if (ck_len >= (int)sizeof(cookies)) {
+				lwsl_err("%s: OVERRUN! HTTP cookie header length (%d) exceeds allocated buffer size (%d), auth tracking tokens may be truncated!\n", __func__, ck_len, (int)sizeof(cookies));
+			}
 
 			if (lws_hdr_copy(wsi, cookies, sizeof(cookies), WSI_TOKEN_HTTP_COOKIE) > 0) {
 				const char *p = strstr(cookies, "auth_session=");

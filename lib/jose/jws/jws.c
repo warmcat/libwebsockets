@@ -1211,7 +1211,7 @@ static int lws_jwt_vsign_via_info(struct lws_context *ctx, struct lws_jwk *jwk,
 	if (lws_jws_alloc_element(&jws.map, LJWS_JOSE, info->temp, &tlr,
 				  actual_hdr_len, 0)) {
 		lwsl_err("%s: temp space too small\n", __func__);
-		goto bail;
+		r = __LINE__; goto bail;
 	}
 
 	if (!info->jose_hdr) {
@@ -1219,8 +1219,7 @@ static int lws_jwt_vsign_via_info(struct lws_context *ctx, struct lws_jwk *jwk,
 		/* get algorithm from 'alg' string and write minimal JOSE header */
 		if (lws_gencrypto_jws_alg_to_definition(info->alg, &jose.alg)) {
 			lwsl_err("%s: unknown alg %s\n", __func__, info->alg);
-
-			goto bail;
+			r = __LINE__; goto bail;
 		}
 		jws.map.len[LJWS_JOSE] = (uint32_t)lws_snprintf(
 				(char *)jws.map.buf[LJWS_JOSE], (size_t)otl,
@@ -1234,7 +1233,7 @@ static int lws_jwt_vsign_via_info(struct lws_context *ctx, struct lws_jwk *jwk,
 		if (lws_jws_parse_jose(&jose, info->jose_hdr,
 				       (int)actual_hdr_len, info->temp, &tlr)) {
 			lwsl_err("%s: invalid jose header\n", __func__);
-			goto bail;
+			r = __LINE__; goto bail;
 		}
 		tlr = otl;
 		memcpy((char *)jws.map.buf[LJWS_JOSE], info->jose_hdr,
@@ -1249,12 +1248,14 @@ static int lws_jwt_vsign_via_info(struct lws_context *ctx, struct lws_jwk *jwk,
 	va_copy(ap_cpy, ap);
 	n = vsnprintf(NULL, 0, format, ap_cpy);
 	va_end(ap_cpy);
-	if (n + 2 >= tlr)
-		goto bail;
+	if (n + 2 >= tlr) {
+		r = __LINE__; goto bail;
+	}
 
 	q = lws_malloc((unsigned int)n + 2, __func__);
-	if (!q)
-		goto bail;
+	if (!q) {
+		r = __LINE__; goto bail;
+	}
 
 	vsnprintf(q, (unsigned int)n + 2, format, ap);
 
@@ -1265,8 +1266,9 @@ static int lws_jwt_vsign_via_info(struct lws_context *ctx, struct lws_jwk *jwk,
 
 	if (lws_jws_encode_b64_element(&jws.map_b64, LJWS_PYLD, p, &tlr,
 				       jws.map.buf[LJWS_PYLD],
-				       jws.map.len[LJWS_PYLD]))
-		goto bail1;
+				       jws.map.len[LJWS_PYLD])) {
+		r = __LINE__; goto bail1;
+	}
 
 	p += otl - tlr;
 	otl = tlr;
@@ -1275,8 +1277,9 @@ static int lws_jwt_vsign_via_info(struct lws_context *ctx, struct lws_jwk *jwk,
 
 	if (lws_jws_encode_b64_element(&jws.map_b64, LJWS_JOSE, p, &tlr,
 				       jws.map.buf[LJWS_JOSE],
-				       jws.map.len[LJWS_JOSE]))
-		goto bail1;
+				       jws.map.len[LJWS_JOSE])) {
+		r = __LINE__; goto bail1;
+	}
 
 	p += otl - tlr;
 	otl = tlr;
@@ -1285,23 +1288,26 @@ static int lws_jwt_vsign_via_info(struct lws_context *ctx, struct lws_jwk *jwk,
 
 	if (lws_jws_alloc_element(&jws.map_b64, LJWS_SIG, p, &tlr,
 				  (size_t)lws_base64_size(LWS_JWE_LIMIT_KEY_ELEMENT_BYTES),
-				  0))
-		goto bail1;
+				  0)) {
+		r = __LINE__; goto bail1;
+	}
 
 	/* sign the plaintext */
 
 	n = lws_jws_sign_from_b64(&jose, &jws,
 				  (char *)jws.map_b64.buf[LJWS_SIG],
 				  jws.map_b64.len[LJWS_SIG]);
-	if (n < 0)
-		goto bail1;
+	if (n < 0) {
+		r = __LINE__; goto bail1;
+	}
 
 	/* set the actual b64 signature size */
 	jws.map_b64.len[LJWS_SIG] = (uint32_t)n;
 
 	/* create the compact JWS representation */
-	if (lws_jws_write_compact(&jws, info->out, *info->out_len))
-		goto bail1;
+	if (lws_jws_write_compact(&jws, info->out, *info->out_len)) {
+		r = __LINE__; goto bail1;
+	}
 
 	*info->out_len = strlen(info->out);
 
