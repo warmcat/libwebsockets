@@ -338,6 +338,27 @@ auth_verify_redirect_uri(struct vhd_login *vhd, const char *redirect_uri)
 }
 
 static int
+simple_response(struct lws *wsi, struct pss_login *pss, const char *msg, const char *mime_type,
+	     unsigned int code, unsigned char *start, unsigned char **p, unsigned char *end)
+{
+        char eb[LWS_PRE + 1024];
+	int l = lws_snprintf(eb + LWS_PRE, sizeof(eb) - LWS_PRE, "%s", msg);
+
+	if (lws_add_http_common_headers(wsi, code, mime_type, (lws_filepos_t)l, p, end))
+		return -1;
+
+        if (lws_finalize_write_http_header(wsi, start, p, end))
+                return -1;
+
+	if (lws_buflist_append_segment(&pss->tx_buflist, (unsigned char*)eb + LWS_PRE, (size_t)l) < 0)
+		return -1;
+
+	lws_callback_on_writable(wsi);
+
+	return 0;
+}
+
+static int
 callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		   void *user, void *in, size_t len)
 {
@@ -596,9 +617,9 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		if (n > 0) {
 			mount = lws_find_mount(wsi, path, n);
 			if (mount) {
-				if (!lws_pmo_get_str(mount, "service-name", &service_name)) {
+				if (!lws_pmo_get_str(mount, "service-name", &service_name))
 					lwsl_info("%s: using service_name %s from target pmo\n", __func__, service_name);
-				}
+
 #if defined(LWS_WITH_JOSE)
 				else if (mount->interceptor_path) {
 					const struct lws_http_mount *im;
@@ -630,34 +651,13 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				whitelist_failed = 1;
 		}
 
-		if (whitelist_failed) {
-			const char *err = "Page Unreachable";
-			int len = (int)strlen(err);
+		if (whitelist_failed)
+                  return simple_response(
+                      wsi, pss, "Page Unreachable", "text/plain", 403,
+                      (unsigned char *)buf + LWS_PRE, (unsigned char **)&p,
+                      (unsigned char *)end);
 
-			if (lws_add_http_common_headers(wsi, HTTP_STATUS_FORBIDDEN, "text/plain",
-							(lws_filepos_t)len, (unsigned char **)&p, (unsigned char *)end))
-				return 1;
-
-			if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end))
-				return 1;
-
-			lws_write(wsi, (unsigned char *)buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
-
-			uint8_t *fbuf = malloc(LWS_PRE + (size_t)len);
-			if (!fbuf)
-				return -1;
-
-			memcpy(fbuf + LWS_PRE, err, (size_t)len);
-			int res = lws_buflist_append_segment(&pss->tx_buflist, fbuf, LWS_PRE + (size_t)len);
-			free(fbuf);
-			if (res < 0)
-				return -1;
-			lws_callback_on_writable(wsi);
-
-			return 0;
-		}
-
-		if (lws_hdr_copy(wsi, path, sizeof(path), WSI_TOKEN_POST_URI) > 0 &&
+                if (lws_hdr_copy(wsi, path, sizeof(path), WSI_TOKEN_POST_URI) > 0 &&
 		    lws_login_ends_with(path, "/.lws-login-sso"))
 			return 0; /* Fall through to LWS_CALLBACK_HTTP_BODY */
 
@@ -837,8 +837,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 						ps->wsi_server = wsi;
 						lws_strncpy(ps->cookie_hdr, cookie, sizeof(ps->cookie_hdr));
 
-						ps->payload_len = lws_snprintf(ps->payload, sizeof(ps->payload),
-							"csrf_token=%s", csrf);
+						ps->payload_len = lws_snprintf(ps->payload, sizeof(ps->payload), "csrf_token=%s", csrf);
 						ps->payload_pos = 0;
 
 						lws_dll2_add_tail(&ps->list, &vhd->pending_refresh_list);
@@ -848,21 +847,22 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 						if (puri) {
 							lwsl_notice("%s: Intercepted background refresh request, initiating proxy to %s/api/sso_exchange\n", __func__, vhd->auth_server_url);
 							memset(&i, 0, sizeof(i));
-							i.context = vhd->context;
-							i.address = puri->host;
-							i.port = puri->port;
+							i.context        = vhd->context;
+							i.address        = puri->host;
+							i.port           = puri->port;
 							i.ssl_connection = !strcmp(puri->scheme, "http") ? 0 : LCCSCF_USE_SSL;
-							i.path = "/api/sso_exchange";
-							i.host = i.address;
-							i.origin = i.address;
-							i.method = "POST";
-							i.protocol = "lws_login_client";
-							i.pwsi = &ps->wsi_client;
-							i.userdata = ps;
+							i.path           = "/api/sso_exchange";
+							i.host           = i.address;
+							i.origin         = i.address;
+							i.method         = "POST";
+							i.protocol       = "lws_login_client";
+							i.pwsi           = &ps->wsi_client;
+							i.userdata       = ps;
 
 							lws_client_connect_via_info(&i);
 							lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT, 30);
 							lws_parse_uri_destroy(&puri);
+
 							return 0; // Suspend!
 						}
 						free(ps);
@@ -871,21 +871,9 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 			/* Failure or no cookies, 401 Unauthorized */
 			lwsl_notice("%s: Missing or malformed cookies for background refresh\n", __func__);
-			const char *err = "Missing Authorization";
-			int len = (int)strlen(err);
-			if (lws_add_http_common_headers(wsi, HTTP_STATUS_UNAUTHORIZED, "text/plain",
-							(lws_filepos_t)len, (unsigned char **)&p, (unsigned char *)end))
-				return 1;
-			if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end))
-				return 1;
-			lws_write(wsi, (unsigned char *)buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
-
-			int res = lws_buflist_append_segment(&pss->tx_buflist, (const uint8_t *)err, (size_t)len);
-			if (res < 0)
-				return -1;
-			lws_callback_on_writable(wsi);
-
-			return 0;
+                        return simple_response(wsi, pss, "Missing Authorization", "text/plain",
+                                            HTTP_STATUS_UNAUTHORIZED, (unsigned char *)buf + LWS_PRE,
+                                            (unsigned char **)&p, (unsigned char *)end);
 		}
 
 		char host[128];
@@ -921,30 +909,19 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (lws_login_ends_with(path, "/.lws-login-status")) {
 			char pl[1024];
-			int len;
+
 			if (pss && pss->ja) {
 				const char *sub = lws_jwt_auth_get_sub(pss->ja);
 				int is_admin = lws_jwt_auth_query_grant(pss->ja, "*") >= 1;
 				int has_grant = lws_jwt_auth_query_grant(pss->ja, service_name) >= vhd->min_grant_level;
-				len = lws_snprintf(pl, sizeof(pl), "{\"logged_in\":1,\"has_grant\":%d,\"identity\":\"%s\",\"auth_server_url\":\"%s\",\"login_url\":\"%s\",\"is_admin\":%d}",
+				lws_snprintf(pl, sizeof(pl), "{\"logged_in\":1,\"has_grant\":%d,\"identity\":\"%s\",\"auth_server_url\":\"%s\",\"login_url\":\"%s\",\"is_admin\":%d}",
 					has_grant, sub ? sub : "Unknown", vhd->auth_server_url, dest, is_admin);
 			} else
-				len = lws_snprintf(pl, sizeof(pl), "{\"logged_in\":0,\"login_url\":\"%s\"}", dest);
+				lws_snprintf(pl, sizeof(pl), "{\"logged_in\":0,\"login_url\":\"%s\"}", dest);
 
-			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "application/json",
-							(lws_filepos_t)len, (unsigned char **)&p, (unsigned char *)end))
-				return 1;
-			if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end))
-				return 1;
-
-			lws_write(wsi, (unsigned char *)buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
-
-			int res = lws_buflist_append_segment(&pss->tx_buflist, (const uint8_t *)pl, (size_t)len);
-			if (res < 0)
-				return -1;
-			lws_callback_on_writable(wsi);
-
-			return 0;
+                        return simple_response(wsi, pss, pl, "application/json",
+                                               HTTP_STATUS_OK, (unsigned char *)buf + LWS_PRE, (unsigned char **)&p,
+                                               (unsigned char *)end);
 		}
 
 		if (lws_login_ends_with(path, "/.lws-login-logout")) {
@@ -989,12 +966,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr1, (int)strlen(cookie_hdr1), (unsigned char **)&p, (unsigned char *)end)) return 1;
 			if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr1_host, (int)strlen(cookie_hdr1_host), (unsigned char **)&p, (unsigned char *)end)) return 1;
 			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION, (unsigned char *)u, (int)strlen(u), (unsigned char **)&p, (unsigned char *)end)) return 1;
-			if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end)) return 1;
-
-			lws_write(wsi, (unsigned char *)buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
-			lws_callback_on_writable(wsi);
-
-			return 0;
+			goto fin_hdrs;
 		}
 
 		lwsl_info("%s: bouncing unauth to %s\n", __func__, dest);
@@ -1011,7 +983,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION,
 				(unsigned char *)dest, (int)strlen(dest), (unsigned char **)&p, (unsigned char *)end))
 			return 1;
-
+ fin_hdrs:
 		if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end))
 			return 1;
 
