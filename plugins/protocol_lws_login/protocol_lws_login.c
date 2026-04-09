@@ -24,6 +24,8 @@
 #include <string.h>
 #include <sqlite3.h>
 
+#define LWS_AUTH_MAX_COOKIE_LEN 4096
+
 struct login_whitelist {
 	lws_dll2_t              list;
 	lws_sockaddr46          sa46;
@@ -368,7 +370,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 	char buf[LWS_PRE + 2048], *p = buf + LWS_PRE, *end = buf + sizeof(buf) - 1;
 	const char *cp;
 
-	switch (reason) {
+	switch ((int)reason) {
 	case LWS_CALLBACK_PROTOCOL_INIT:
 		if (!in)
 			return 0;
@@ -474,6 +476,60 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				sqlite3_close(vhd->db);
 		}
 		break;
+
+	case LWS_CALLBACK_USER + 1:
+	{
+		int level = -1;
+		struct lws_jwt_auth *ja;
+		const char *service_name;
+		const struct lws_http_mount *mount;
+		char uri[256];
+
+		vhd = (struct vhd_login *)lws_protocol_vh_priv_get(
+				lws_get_vhost(wsi),
+				lws_vhost_name_to_protocol(lws_get_vhost(wsi), "lws-login"));
+
+		if (!vhd)
+			return 1;
+
+		service_name = vhd->service_name;
+		uri[0] = '\0';
+		if (lws_hdr_copy(wsi, uri, sizeof(uri), WSI_TOKEN_GET_URI) > 0 ||
+		    lws_hdr_copy(wsi, uri, sizeof(uri), WSI_TOKEN_POST_URI) > 0) {
+			if (uri[0]) {
+				mount = lws_find_mount(wsi, uri, (int)strlen(uri));
+				if (mount) {
+					if (!lws_pmo_get_str(mount, "service-name", &service_name)) {
+						lwsl_info("%s: using service_name %s from target pmo for bypass api\n", __func__, service_name);
+					}
+#if defined(LWS_WITH_JOSE)
+					else if (mount->interceptor_path) {
+						const struct lws_http_mount *im = mount;
+						while (im && im->interceptor_path) {
+							im = lws_find_mount(wsi, im->interceptor_path, (int)strlen(im->interceptor_path));
+							if (im && !lws_pmo_get_str(im, "service-name", &service_name)) {
+								lwsl_info("%s: using service_name %s from interceptor pmo for bypass api\n", __func__, service_name);
+								break;
+							}
+						}
+					}
+#endif
+				}
+			}
+		}
+
+		if (!service_name)
+			service_name = "";
+
+		ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, lws_login_jwt_auth_cb, wsi);
+		if (ja) {
+			level = lws_jwt_auth_query_grant(ja, service_name);
+			lws_jwt_auth_destroy(&ja);
+			if (level >= vhd->min_grant_level)
+				return 0; /* Authentic and authorized */
+		}
+		return 1; /* Unauthenticated */
+	}
 
 	case LWS_CALLBACK_HTTP_INTERCEPTOR_CHECK:
 	{
@@ -821,8 +877,14 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		if (lws_login_ends_with(path, "/.lws-login-refresh")) {
-			char cookie[1024];
+			char cookie[LWS_AUTH_MAX_COOKIE_LEN];
 			char csrf[64] = {0};
+			int ck_len;
+
+			ck_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE);
+			if (ck_len >= (int)sizeof(cookie)) {
+				lwsl_err("%s: OVERRUN! HTTP cookie header length (%d) exceeds allocated buffer size (%d), auth tracking tokens may be truncated!\n", __func__, ck_len, (int)sizeof(cookie));
+			}
 
 			if (lws_hdr_copy(wsi, cookie, sizeof(cookie), WSI_TOKEN_HTTP_COOKIE) > 0) {
 				const char *p = strstr(cookie, "auth_csrf=");

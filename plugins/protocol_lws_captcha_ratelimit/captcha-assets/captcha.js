@@ -72,7 +72,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     btn.disabled = true;
                     btn.style.display = 'none';
                     if (barFill) barFill.style.width = '100%';
-                    form.action = window.location.pathname + '?bypass=1';
+                    form.action = window.location.pathname;
                     form.submit();
                 }
             })
