@@ -105,12 +105,6 @@ main {
   gap: 2rem;
 }
 
-@media (min-width: 768px) {
-  main {
-    grid-template-columns: 1fr 2fr;
-  }
-}
-
 .panel {
   background: var(--panel-bg);
   backdrop-filter: var(--backdrop-blur);
@@ -214,6 +208,11 @@ main {
   overflow-x: auto;
 }
 
+.detail-panel .table-container {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -251,6 +250,10 @@ tbody tr.active {
   text-align: center;
   font-style: italic;
   padding: 2rem !important;
+}
+
+.clickable-row {
+  cursor: pointer;
 }
 
 td .actions {
@@ -384,6 +387,9 @@ input:focus, textarea:focus {
 }
 
 /* Extracted CSP Styles */
+.ext-raw-editor { margin-bottom: 1.5rem; }
+.ext-raw-editor label { display: block; margin-bottom: 0.5rem; color: var(--text-secondary); font-weight: 500; font-size: 0.875rem; }
+.ext-raw-editor textarea { height: 200px; line-height: 1.4; white-space: pre; overflow-x: auto; }
 .ext-add-record { margin-top: 1rem; width: 100%; }
 .ext-editor { margin-top: 1.5rem; padding: 1.5rem; background: rgba(0,0,0,0.15); border-radius: 8px; }
 .ext-title { margin-top: 0; }

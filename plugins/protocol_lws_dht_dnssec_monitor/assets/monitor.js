@@ -34,20 +34,20 @@ class ZoneFile {
 
             // Empty lines or purely comments
             if (/^\s*$/.test(line) || /^\s*;/.test(line)) {
-                this.records.push({ id: generateId(), type: 'comment', raw: line });
+                this.records.push({ id: generateId(), type: 'comment', raw: line, lineIndex: i });
                 continue;
             }
 
             // Macros like $TTL or $ORIGIN
             if (line.startsWith('$')) {
-                this.records.push({ id: generateId(), type: 'macro', raw: line });
+                this.records.push({ id: generateId(), type: 'macro', raw: line, lineIndex: i });
                 continue;
             }
 
             // Check for multi-line start (usually SOA)
             if (line.includes('(')) {
                 inMultiLine = true;
-                currentRecord = { id: generateId(), type: 'SOA', raw: line };
+                currentRecord = { id: generateId(), type: 'SOA', raw: line, lineIndex: i };
                 if (line.includes(')')) {
                     inMultiLine = false;
                     this.parseMultiRecord(currentRecord);
@@ -58,11 +58,14 @@ class ZoneFile {
             }
 
             // Standard one-line Resource Record
-            this.records.push(this.parseSingleRecord(line));
+            let rec = this.parseSingleRecord(line);
+            rec.lineIndex = i;
+            this.records.push(rec);
         }
 
         if (currentRecord) {
              this.parseMultiRecord(currentRecord);
+             if (currentRecord.lineIndex === undefined) currentRecord.lineIndex = lines.length;
              this.records.push(currentRecord);
         }
     }
@@ -243,6 +246,7 @@ function handleResponse(data) {
         case 'get_zone':
             currentZone = new ZoneFile(data.zone || '');
             renderZoneTable();
+            updateRawEditor();
             document.getElementById('record-editor')?.classList.add('hidden-panel');
             break;
         case 'update_zone':
@@ -295,6 +299,7 @@ function selectDomain(domain) {
     currentDomain = domain;
     document.querySelector('#detail-title span').textContent = domain;
     document.getElementById('detail-panel')?.classList.remove('hidden-panel');
+    document.getElementById('domain-panel')?.classList.add('hidden-panel');
     document.getElementById('record-editor')?.classList.add('hidden-panel');
 
     const rows = document.querySelectorAll('#table-domains tbody tr');
@@ -309,6 +314,11 @@ function selectDomain(domain) {
 function closeDetail() {
     currentDomain = '';
     document.getElementById('detail-panel').classList.add('hidden-panel');
+    document.getElementById('domain-panel').classList.remove('hidden-panel');
+}
+
+function updateRawEditor() {
+    document.getElementById('raw-zone-editor').value = currentZone ? currentZone.serialize() : '';
 }
 
 function renderZoneTable() {
@@ -324,7 +334,8 @@ function renderZoneTable() {
 
     records.forEach(r => {
         const tr = document.createElement('tr');
-        tr.style.cursor = 'pointer';
+        tr.classList.add('clickable-row');
+        tr.dataset.id = r.id;
         tr.onclick = (e) => {
             if (e.target.tagName !== 'BUTTON') {
                 openEditor(r.id);
@@ -358,6 +369,7 @@ function renderZoneTable() {
                 if (confirm('Delete this record?')) {
                     currentZone.deleteRecord(r.id);
                     renderZoneTable();
+                    updateRawEditor();
                     document.getElementById('record-editor')?.classList.add('hidden-panel');
                 }
             };
@@ -454,11 +466,49 @@ function openEditor(id) {
     }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+    document.addEventListener('DOMContentLoaded', () => {
     if (typeof window.renderLwsLoginStatus === 'function') {
         window.renderLwsLoginStatus('user-info');
     }
     connect();
+
+    const rawEditor = document.getElementById('raw-zone-editor');
+    rawEditor.addEventListener('input', (e) => {
+        if (!currentDomain) return;
+        currentZone = new ZoneFile(e.target.value);
+        renderZoneTable();
+        document.getElementById('record-editor')?.classList.add('hidden-panel');
+        syncScroll(e.target);
+    });
+
+    const syncScroll = (target) => {
+        if (!currentZone) return;
+        let pos = target.selectionStart;
+        if (pos === undefined) return;
+        let lineNumber = target.value.substring(0, pos).split('\n').length - 1;
+        
+        let closestRec = null;
+        for (let r of currentZone.records) {
+            if (r.lineIndex !== undefined && r.lineIndex <= lineNumber) {
+                if (!closestRec || r.lineIndex > closestRec.lineIndex) {
+                    closestRec = r;
+                }
+            }
+        }
+        
+        if (closestRec) {
+            let row = document.querySelector(`#table-zone tr[data-id="${closestRec.id}"]`);
+            if (row) {
+                document.querySelectorAll('#table-zone tr').forEach(r => r.classList.remove('active'));
+                row.classList.add('active');
+                row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+    };
+
+    ['keyup', 'click', 'focus'].forEach(evt => {
+        rawEditor.addEventListener(evt, (e) => syncScroll(e.target));
+    });
 
     document.getElementById('btn-add-domain').onclick = () => {
         document.getElementById('input-new-domain').value = '';
@@ -475,6 +525,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (domain) {
             sendReq({ req: 'create_domain', domain: domain });
         }
+    };
+
+    document.getElementById('btn-back-domains').onclick = () => {
+        closeDetail();
     };
 
     document.getElementById('btn-save-zonefile').onclick = () => {
@@ -517,6 +571,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         renderZoneTable();
+        updateRawEditor();
         document.getElementById('record-editor')?.classList.add('hidden-panel');
     };
 });

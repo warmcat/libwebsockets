@@ -22,7 +22,7 @@
         </header>
 
         <main>
-            <section class="panel domain-panel">
+            <section class="panel domain-panel" id="domain-panel">
                 <div class="panel-header">
                     <h2>Domains</h2>
                     <button id="btn-add-domain" class="btn primary">Add Domain</button>
@@ -46,8 +46,14 @@
                 <div class="panel-header">
                     <h2 id="detail-title">Zone Records: <span>---</span></h2>
                     <div class="actions-group">
+                        <button id="btn-back-domains" class="btn secondary">&larr; Back</button>
                         <button id="btn-save-zonefile" class="btn primary">Save Zonefile</button>
                     </div>
+                </div>
+
+                <div class="ext-raw-editor">
+                    <label for="raw-zone-editor">Raw Zone File</label>
+                    <textarea id="raw-zone-editor" spellcheck="false" placeholder="; Raw zone file contents..."></textarea>
                 </div>
 
                 <div class="table-container">
