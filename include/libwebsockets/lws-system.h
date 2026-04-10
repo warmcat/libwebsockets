@@ -265,8 +265,7 @@ typedef struct lws_system_ops {
 #endif
 
 #if defined(LWS_WITH_NETWORK)
-	void (*report_external_ip_cb)(struct lws_context *cx, lws_extip_src_t src, const lws_sockaddr46 *sa46, int af, int status, const lws_sockaddr46 *peers, int num_peers);
-	/**< 0 = initial IP consensus, 1 = validated IP change */
+	/* (Removed report_external_ip_cb in favour of SMD integration) */
 #endif
 } lws_system_ops_t;
 
@@ -281,8 +280,8 @@ typedef struct lws_system_ops {
  * \param peers: optional peers information (for DHT)
  * \param num_peers: optional peer count
  *
- * This API is usually called from within your lws_system `report_external_ip_cb`
- * to formally persist your external IP understanding into the context.
+ * This API is used by IP tracking plugins like `lws_extip` to formally
+ * persist the external IP understanding into the context and broadcast it via SMD.
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_extip_report(struct lws_context *cx, lws_extip_src_t src, const lws_sockaddr46 *sa46, int af, int status, const lws_sockaddr46 *peers, int num_peers);

@@ -48,26 +48,48 @@ static int ip_consensus_reached = 0;
 static char glb_ipv4[64] = {0};
 static char glb_ipv6[64] = {0};
 
-static void
-ops_report_external_ip_cb(struct lws_context *cx, lws_extip_src_t src, const lws_sockaddr46 *sa46, int af, int status, const lws_sockaddr46 *peers, int num_peers)
+static int
+smd_cb(void *opaque, lws_smd_class_t c, lws_usec_t ts, void *buf, size_t len)
 {
-	int i;
-	char pbuf[64];
+	if (!(c & LWSSMDCL_NETWORK) || !buf)
+		return 0;
 
-	if (af == AF_INET) {
-		lws_sa46_write_numeric_address((lws_sockaddr46 *)sa46, glb_ipv4, sizeof(glb_ipv4));
-		ip_consensus_reached |= 1;
-		lwsl_notice("  IPv4 Consensus %s supported by %d peers:\n", glb_ipv4, num_peers);
-	} else if (af == AF_INET6) {
-		lws_sa46_write_numeric_address((lws_sockaddr46 *)sa46, glb_ipv6, sizeof(glb_ipv6));
-		ip_consensus_reached |= 2;
-		lwsl_notice("  IPv6 Consensus %s supported by %d peers:\n", glb_ipv6, num_peers);
+	const char *p = (const char *)buf;
+	if (!strstr(p, "\"ext-ips\""))
+		return 0;
+
+	const char *start = strchr(p, '[');
+	if (!start) return 0;
+
+	ip_consensus_reached = 0;
+	glb_ipv4[0] = '\0';
+	glb_ipv6[0] = '\0';
+
+	int in_quotes = 0;
+	char temp[64];
+	int tlen = 0;
+
+	for (const char *q = start; *q && *q != ']'; q++) {
+		if (*q == '"') {
+			if (in_quotes) {
+				temp[tlen] = '\0';
+				if (strchr(temp, '.')) {
+					lws_strncpy(glb_ipv4, temp, sizeof(glb_ipv4));
+					ip_consensus_reached |= 1;
+				} else if (strchr(temp, ':')) {
+					lws_strncpy(glb_ipv6, temp, sizeof(glb_ipv6));
+					ip_consensus_reached |= 2;
+				}
+				tlen = 0;
+			}
+			in_quotes = !in_quotes;
+		} else if (in_quotes && tlen < (int)sizeof(temp) - 1) {
+			temp[tlen++] = *q;
+		}
 	}
 
-	for (i = 0; i < num_peers; i++) {
-		lws_sa46_write_numeric_address((lws_sockaddr46 *)&peers[i], pbuf, sizeof(pbuf));
-		lwsl_notice("    - %s\n", pbuf);
-	}
+	lwsl_notice("Extip SMD detected IPs: IPv4='%s', IPv6='%s'\n", glb_ipv4, glb_ipv6);
+	return 0;
 }
 
 int main(int argc, const char **argv)
@@ -78,7 +100,6 @@ int main(int argc, const char **argv)
 	const char *p;
 	const struct lws_protocols *prot;
 	const struct lws_dht_dnssec_ops *ops;
-	struct lws_system_ops system_ops;
 	struct lws_vhost *vh;
 
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
@@ -109,19 +130,7 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-#if 0
-	static const char * const pdirs[] = {
-		"./lib",
-		"../lib",
-		"./plugins",
-		"../plugins",
-		"./build/lib",
-		"../build/lib",
-		"../../lib",
-		NULL
-	};
 	static const char * dynamic_pdirs[3];
-#endif
 
 	memset(&info, 0, sizeof info);
 #if defined(LWS_WITH_NETWORK)
@@ -129,11 +138,10 @@ int main(int argc, const char **argv)
 #endif
 	info.options = 0;
 
-	memset(&system_ops, 0, sizeof(system_ops));
 #if defined(LWS_WITH_DHT)
-	system_ops.report_external_ip_cb = ops_report_external_ip_cb;
+	info.early_smd_cb = smd_cb;
+	info.early_smd_class_filter = LWSSMDCL_NETWORK;
 #endif
-	info.system_ops = &system_ops;
 
 	static struct lws_protocol_vhost_options pvos[4];
 	static struct lws_protocol_vhost_options pvo_wrapper = { NULL, pvos, "lws-dht-dnssec", "" };
@@ -165,15 +173,11 @@ int main(int argc, const char **argv)
 
 	info.pvo = &pvo_wrapper;
 
-#if 0
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_P].sw))) {
 		dynamic_pdirs[0] = p;
 		dynamic_pdirs[1] = NULL;
 		info.plugin_dirs = dynamic_pdirs;
-	} else {
-		info.plugin_dirs = pdirs;
 	}
-#endif
 
 	info.argc = (int)argc;
 	info.argv = argv;

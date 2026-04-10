@@ -135,13 +135,8 @@ extip_dns_cb(struct lws *wsi, const char *ads, const struct addrinfo *result, in
 static void
 extip_report_ip_offline(struct vhd_extip *vhd, int i)
 {
-	const lws_system_ops_t *ops = lws_system_get_ops(vhd->context);
-
         vhd->ip[i].offline = 1;
         lwsl_notice("extip client: IPv%c offline\n", i ? '6' : '4');
-
-        if (!ops || !ops->report_external_ip_cb)
-                return;
 
 	lws_sockaddr46 zero;
 	memset(&zero, 0, sizeof(zero));
@@ -151,7 +146,7 @@ extip_report_ip_offline(struct vhd_extip *vhd, int i)
 	else
 		zero.sa6.sin6_family = AF_INET6;
 
-	ops->report_external_ip_cb(vhd->context, LWS_EXTIP_SRC_EXTIP, &zero, !i ? AF_INET : AF_INET6, 2, NULL, 0);
+	lws_extip_report(vhd->context, LWS_EXTIP_SRC_EXTIP, &zero, !i ? AF_INET : AF_INET6, 2, NULL, 0);
 }
 
 static void
@@ -338,9 +333,7 @@ callback_extip(struct lws *wsi, enum lws_callback_reasons reason, void *user, vo
 				buf[len] = '\0';
 				memset(&sa46, 0, sizeof(sa46));
 				lws_sa46_parse_numeric_address(buf + 1 + LENGTH_EXTIP_COOKIE, &sa46);
-				const lws_system_ops_t *ops = lws_system_get_ops(vhd->context);
-				if (ops && ops->report_external_ip_cb)
-					ops->report_external_ip_cb(vhd->context, LWS_EXTIP_SRC_EXTIP, &sa46, sa46.sa4.sin_family == AF_INET ? AF_INET : AF_INET6, 1, NULL, 0);
+				lws_extip_report(vhd->context, LWS_EXTIP_SRC_EXTIP, &sa46, sa46.sa4.sin_family == AF_INET ? AF_INET : AF_INET6, 1, NULL, 0);
 			}
 
 			lws_sul_schedule(vhd->context, 0, &vhd->sul, extip_client_sul_cb, 1);
@@ -366,9 +359,7 @@ callback_extip(struct lws *wsi, enum lws_callback_reasons reason, void *user, vo
 			vhd->ip[is_v6].last_rx		= lws_now_usecs();
 			vhd->ip[is_v6].offline		= 0;
 
-			const lws_system_ops_t *ops = lws_system_get_ops(vhd->context);
-			if (ops && ops->report_external_ip_cb)
-				ops->report_external_ip_cb(vhd->context, LWS_EXTIP_SRC_EXTIP, &sa46, sa46.sa4.sin_family == AF_INET ? AF_INET : AF_INET6, 1, NULL, 0);
+			lws_extip_report(vhd->context, LWS_EXTIP_SRC_EXTIP, &sa46, sa46.sa4.sin_family == AF_INET ? AF_INET : AF_INET6, 1, NULL, 0);
 
 			lws_sul_schedule(vhd->context, 0, &vhd->sul, extip_client_sul_cb, 1);
 		}

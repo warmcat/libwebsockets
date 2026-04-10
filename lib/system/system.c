@@ -270,12 +270,38 @@ lws_extip_report(struct lws_context *cx, lws_extip_src_t src,
                  const lws_sockaddr46 *peers, int num_peers)
 {
 	lws_sockaddr46 *target = (af == AF_INET) ? &cx->ext_ipv4 : &cx->ext_ipv6;
+	lws_sockaddr46 old = *target;
 
 	if (status == 2 || !sa46 || (af == AF_INET && sa46->sa4.sin_family == 0) ||
         (af == AF_INET6 && sa46->sa6.sin6_family == 0)) {
 		memset(target, 0, sizeof(*target));
 	} else {
 		*target = *sa46;
+	}
+
+	if (memcmp(&old, target, sizeof(*target))) {
+		int c = 0;
+		char payload[128], buf4[64], buf6[64];
+		char *p = payload, *end = payload + sizeof(payload);
+
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{\"ext-ips\": [");
+
+		if (cx->ext_ipv4.sa4.sin_family == AF_INET) {
+			lws_sa46_write_numeric_address(&cx->ext_ipv4, buf4, sizeof(buf4));
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\"%s\"", buf4);
+			c++;
+		}
+
+		if (cx->ext_ipv6.sa6.sin6_family == AF_INET6) {
+			lws_sa46_write_numeric_address(&cx->ext_ipv6, buf6, sizeof(buf6));
+			if (c)
+				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), ", ");
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\"%s\"", buf6);
+		}
+
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "]}");
+
+		lws_smd_msg_printf(cx, LWSSMDCL_NETWORK, "%s", payload);
 	}
 }
 
