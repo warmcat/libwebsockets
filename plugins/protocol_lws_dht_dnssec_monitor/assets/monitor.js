@@ -230,6 +230,19 @@ function handleResponse(data) {
     }
 
     switch(data.req) {
+        case 'extip_update':
+            if (data.data && data.data['ext-ips']) {
+                const bdg = document.getElementById('extip-status');
+                const ips = data.data['ext-ips'].split(',');
+                let content = '';
+                ips.forEach(ip => {
+                    let type = ip.includes(':') ? 'Ext IPv6' : 'Ext IPv4';
+                    content += `<div>${type}: ${ip}</div>`;
+                });
+                bdg.style.display = 'inline-block';
+                bdg.innerHTML = content;
+            }
+            break;
         case 'get_domains':
             renderDomains(data.domains || []);
             break;

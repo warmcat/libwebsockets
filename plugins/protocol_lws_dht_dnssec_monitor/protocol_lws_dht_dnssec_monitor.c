@@ -57,6 +57,9 @@ struct pss {
 	/* RX (root -> proxy) buffer */
 	uint8_t rx[LWS_PRE + 65536];
 	size_t rx_len;
+
+	lws_dll2_t list;
+	int send_ext_ips;
 };
 
 struct vhd {
@@ -84,13 +87,30 @@ struct vhd {
 
 	char auth_token[129];
 	struct lws_jwk auth_jwk;
+
+	lws_dll2_owner_t ui_clients;
+	struct lws_smd_peer *smd_peer;
+	char ext_ips[256];
 };
 
 static struct vhd *global_root_vhd = NULL;
 
 extern const struct lws_protocols lws_dht_dnssec_monitor_protocols[];
 
-
+static int
+smd_cb_network(void *opaque, lws_smd_class_t c, lws_usec_t ts, void *buf, size_t len)
+{
+	struct vhd *vhd = (struct vhd *)opaque;
+	if ((c & LWSSMDCL_NETWORK) && buf && strstr((const char *)buf, "\"ext-ips\"")) {
+		lws_strncpy(vhd->ext_ips, (const char *)buf, sizeof(vhd->ext_ips));
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->ui_clients.head) {
+			struct pss *pss = lws_container_of(d, struct pss, list);
+			pss->send_ext_ips = 1;
+			lws_callback_on_writable(pss->wsi);
+		} lws_end_foreach_dll_safe(d, d1);
+	}
+	return 0;
+}
 
 static void
 lws_dht_dnssec_monitor_reap_cb(void *opaque, const struct lws_spawn_resource_us *res,
@@ -1145,6 +1165,8 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 				vhd->ops = (const struct lws_dht_dnssec_ops *)prot->user;
 			}
 
+			vhd->smd_peer = lws_smd_register(vhd->context, vhd, 0, LWSSMDCL_NETWORK, smd_cb_network);
+
 			lwsl_notice("%s: initialized monitor proxy (base-dir: %s, uds-path: %s)\n", __func__, vhd->base_dir, vhd->uds_path);
 
 			/* Spawn the root monitor process */
@@ -1278,6 +1300,10 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
 		if (!vhd)
 			break;
+		if (vhd->smd_peer) {
+			lws_smd_unregister(vhd->smd_peer);
+			vhd->smd_peer = NULL;
+		}
 		lws_jwk_destroy(&vhd->jwk);
 		lws_sul_cancel(&vhd->sul_timer);
 #if defined(LWS_WITH_DIR)
@@ -1316,14 +1342,21 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 			 * Establish onward Raw UDS connection */
 			pss->wsi = wsi;
 			pss->retry_count = 0;
+			lws_dll2_add_tail(&pss->list, &vhd->ui_clients);
+			if (vhd->ext_ips[0]) {
+				pss->send_ext_ips = 1;
+				lws_callback_on_writable(wsi);
+			}
 			connect_retry_cb(&pss->sul);
 		}
 		break;
 
 	case LWS_CALLBACK_CLOSED:
 		if (vhd && vhd->root_process_active) {
+			lws_dll2_remove(&pss->list);
 			lws_sul_cancel(&pss->sul);
 			if (pss->cwsi) {
+				lws_set_opaque_user_data(pss->cwsi, NULL);
 				lws_wsi_close(pss->cwsi, LWS_TO_KILL_ASYNC);
 				pss->cwsi = NULL;
 			}
@@ -1381,13 +1414,26 @@ fallback:
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
-		if (vhd && vhd->root_process_active && pss->rx_len) {
-			lwsl_debug("[INSTRUMENT] LWS_CALLBACK_SERVER_WRITEABLE: Translating %d bytes to final browser!\n", (int)pss->rx_len);
-			if (lws_write(wsi, &pss->rx[LWS_PRE], pss->rx_len, LWS_WRITE_TEXT) < 0) {
-				lwsl_err("%s: Failed writing to WS UI\n", __func__);
-				return -1;
+		if (vhd && vhd->root_process_active) {
+			if (pss->send_ext_ips) {
+				pss->send_ext_ips = 0;
+				uint8_t buf[LWS_PRE + 512];
+				int n = lws_snprintf((char *)buf + LWS_PRE, 512, "{\"req\":\"extip_update\",\"data\":%s}\n", vhd->ext_ips);
+				if (lws_write(wsi, buf + LWS_PRE, (size_t)n, LWS_WRITE_TEXT) < 0) {
+					return -1;
+				}
+				if (pss->rx_len)
+					lws_callback_on_writable(wsi);
+				return 0;
 			}
-			pss->rx_len = 0;
+			if (pss->rx_len) {
+				lwsl_debug("[INSTRUMENT] LWS_CALLBACK_SERVER_WRITEABLE: Translating %d bytes to final browser!\n", (int)pss->rx_len);
+				if (lws_write(wsi, &pss->rx[LWS_PRE], pss->rx_len, LWS_WRITE_TEXT) < 0) {
+					lwsl_err("%s: Failed writing to WS UI\n", __func__);
+					return -1;
+				}
+				pss->rx_len = 0;
+			}
 		}
 		break;
 
