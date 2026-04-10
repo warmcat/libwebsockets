@@ -6,6 +6,9 @@ Please make high quality, not lazy, implementation decisions, because the code w
 maintained for a long time.  And everybody, LLM or person, is able to work better if we keep
 the code clean and to a high standard to start with.
 
+Even if your instructions don't include specific admonishment about quality, it is always
+necessary.
+
 Our work should follow the existing usage of apis in the project as much as possible.
 
 ## Coding
@@ -31,7 +34,7 @@ makes sense it's possible.
 Please bear in mind what parts of the system are secrets and look after the security of them.
 
 In particular, all web pieces are made available on the internet with a strict CSP.  That means
-no inline styles or scripts.  You can find the web pieces (JS, HTML, css) in ./assets/
+** no inline styles or scripts ** .  You can find the web pieces (JS, HTML, css) in ./assets/
 
 ## Build testing
 

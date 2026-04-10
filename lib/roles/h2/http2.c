@@ -734,7 +734,7 @@ int lws_h2_do_pps_send(struct lws *wsi)
 		if ((*pps1)->next == NULL) { /* we are the oldest in the list */
 			pps = *pps1; /* remove us from the list */
 			*pps1 = NULL;
-			continue;
+			break;
 		}
 	} lws_end_foreach_llp(pps1, next);
 
