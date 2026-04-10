@@ -51,7 +51,10 @@ smd_cb(void *opaque, lws_smd_class_t c, lws_usec_t ts, void *buf, size_t len)
 	lwsl_user("Extip SMD: %s\n", (const char *)buf);
 
 	/* Check if we got at least one valid IP. */
-	if (strstr((const char *)buf, ".") || strstr((const char *)buf, ":")) {
+	if (strstr((const char *)buf, ",")) {
+		bad = 0;
+		interrupted = 1; /* Got both! Exit immediately. */
+	} else if (strstr((const char *)buf, ".") || strstr((const char *)buf, ":\"")) {
 		bad = 0;
 	}
 

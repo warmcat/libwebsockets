@@ -65,6 +65,7 @@ struct vhd_extip {
 		uint8_t				cookie[LENGTH_EXTIP_COOKIE];
 		int				has_cookie;
 		lws_usec_t			last_rx;
+		lws_usec_t			last_tx;
 		int				offline;
 	} ip[2]; /* 0: IPv4, 1: IPv6 */
 };
@@ -163,6 +164,8 @@ extip_client_sul_cb(struct lws_sorted_usec_list *sul)
 		lws_async_dns_query(vhd->context, 0, vhd->server_addr, LWS_ADNS_RECORD_AAAA, extip_dns_cb, NULL, vhd, NULL);
 	}
 
+	lws_usec_t shortest = 30 * LWS_US_PER_SEC;
+
 	for (int i = 0; i < 2; i++) {
 		if (vhd->ip[i].cwsi && (
 		    (i == 0 && vhd->ip[i].srv_sa46.sa4.sin_family == AF_INET) ||
@@ -170,27 +173,54 @@ extip_client_sul_cb(struct lws_sorted_usec_list *sul)
 
 			if (now - vhd->ip[i].last_rx > 90 * LWS_US_PER_SEC && vhd->ip[i].last_rx) {
 				if (!vhd->ip[i].offline)
-                                        extip_report_ip_offline(vhd, i);
+					extip_report_ip_offline(vhd, i);
 			}
 			
-			if (!vhd->ip[i].has_cookie) {
-				payload[0] = 'R';
-				plen = 1;
+			int need_tx = 0;
+			if (!vhd->ip[i].last_tx) {
+				need_tx = 1;
+			} else if (vhd->ip[i].last_rx >= vhd->ip[i].last_tx) {
+				if (now - vhd->ip[i].last_rx >= 30 * LWS_US_PER_SEC)
+					need_tx = 1;
+				else {
+					lws_usec_t wait = (30 * LWS_US_PER_SEC) - (now - vhd->ip[i].last_rx);
+					if (wait < shortest)
+						shortest = wait;
+				}
 			} else {
-				payload[0] = 'P';
-				memcpy(payload + 1, vhd->ip[i].cookie, LENGTH_EXTIP_COOKIE);
-				plen = (1 + LENGTH_EXTIP_COOKIE);
+				if (now - vhd->ip[i].last_tx >= 3 * LWS_US_PER_SEC)
+					need_tx = 1;
+				else {
+					lws_usec_t wait = (3 * LWS_US_PER_SEC) - (now - vhd->ip[i].last_tx);
+					if (wait < shortest)
+						shortest = wait;
+				}
 			}
 
-			if (sendto(lws_get_socket_fd(vhd->ip[i].cwsi), payload, (size_t)plen, 0, sa46_sockaddr(&vhd->ip[i].srv_sa46), sa46_socklen(&vhd->ip[i].srv_sa46)) < 0) {
-				lwsl_warn("%s: sendto ping failed (i=%d, errno=%d)\n", __func__, i, errno);
-				if (!vhd->ip[i].offline)
-					extip_report_ip_offline(vhd, i);
+			if (need_tx) {
+				if (!vhd->ip[i].has_cookie) {
+					payload[0] = 'R';
+					plen = 1;
+				} else {
+					payload[0] = 'P';
+					memcpy(payload + 1, vhd->ip[i].cookie, LENGTH_EXTIP_COOKIE);
+					plen = (1 + LENGTH_EXTIP_COOKIE);
+				}
+
+				if (sendto(lws_get_socket_fd(vhd->ip[i].cwsi), payload, (size_t)plen, 0, sa46_sockaddr(&vhd->ip[i].srv_sa46), sa46_socklen(&vhd->ip[i].srv_sa46)) < 0) {
+					lwsl_warn("%s: sendto ping failed (i=%d, errno=%d)\n", __func__, i, errno);
+					if (!vhd->ip[i].offline)
+						extip_report_ip_offline(vhd, i);
+				}
+				
+				vhd->ip[i].last_tx = now;
+				if (3 * LWS_US_PER_SEC < shortest)
+					shortest = 3 * LWS_US_PER_SEC;
 			}
 		}
 	}
 
-	lws_sul_schedule(vhd->context, 0, &vhd->sul, extip_client_sul_cb, 30 * LWS_US_PER_SEC);
+	lws_sul_schedule(vhd->context, 0, &vhd->sul, extip_client_sul_cb, shortest);
 }
 
 static int
