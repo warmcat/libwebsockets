@@ -182,6 +182,11 @@ typedef enum {
 	LWS_CPD_NO_INTERNET,	/* we couldn't touch anything */
 } lws_cpd_result_t;
 
+typedef enum {
+	LWS_EXTIP_SRC_DHT,
+	LWS_EXTIP_SRC_EXTIP
+} lws_extip_src_t;
+
 typedef void (*lws_attach_cb_t)(struct lws_context *context, int tsi, void *opaque);
 struct lws_attach_item;
 
@@ -259,11 +264,41 @@ typedef struct lws_system_ops {
 	/**< base64 DS record string serving as the root trust anchor */
 #endif
 
-#if defined(LWS_WITH_DHT)
-	void (*dht_external_ip_cb)(struct lws_context *cx, const lws_sockaddr46 *sa46, int af, int status, const lws_sockaddr46 *peers, int num_peers);
+#if defined(LWS_WITH_NETWORK)
+	void (*report_external_ip_cb)(struct lws_context *cx, lws_extip_src_t src, const lws_sockaddr46 *sa46, int af, int status, const lws_sockaddr46 *peers, int num_peers);
 	/**< 0 = initial IP consensus, 1 = validated IP change */
 #endif
 } lws_system_ops_t;
+
+/**
+ * lws_extip_report() - update external IP tracking state from callback
+ *
+ * \param cx: lws_context
+ * \param src: source of the internal or external IP event
+ * \param sa46: the address associated with the event (can be NULL or zeroed if offline)
+ * \param af: the address family
+ * \param status: status indication
+ * \param peers: optional peers information (for DHT)
+ * \param num_peers: optional peer count
+ *
+ * This API is usually called from within your lws_system `report_external_ip_cb`
+ * to formally persist your external IP understanding into the context.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_extip_report(struct lws_context *cx, lws_extip_src_t src, const lws_sockaddr46 *sa46, int af, int status, const lws_sockaddr46 *peers, int num_peers);
+
+/**
+ * lws_extip_get_best() - query the context for the current best external IP
+ *
+ * \param cx: lws_context
+ * \param af: AF_INET or AF_INET6
+ * \param sa46: structure to write the best known IP into
+ *
+ * Returns 0 if sa46 contains a valid external IP, or nonzero if the external IP
+ * for the requested family is unknown or offline.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_extip_get_best(struct lws_context *cx, int af, lws_sockaddr46 *sa46);
 
 #if defined(LWS_WITH_SYS_STATE)
 

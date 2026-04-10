@@ -2350,8 +2350,8 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 		int is_shift = (info_hash != NULL);
 		const struct lws_dht_consensus_info *ci = (const struct lws_dht_consensus_info *)data;
 		const lws_system_ops_t *ops = lws_system_get_ops(vhd->context);
-		if (ops && ops->dht_external_ip_cb && ci) {
-			ops->dht_external_ip_cb(vhd->context, (const lws_sockaddr46 *)&ci->ss,
+		if (ops && ops->report_external_ip_cb && ci) {
+			ops->report_external_ip_cb(vhd->context, LWS_EXTIP_SRC_DHT, (const lws_sockaddr46 *)&ci->ss,
 						event == LWS_DHT_EVENT_EXTERNAL_ADDR ? AF_INET : AF_INET6,
 						is_shift,
 						(const lws_sockaddr46 *)ci->peer_ss,

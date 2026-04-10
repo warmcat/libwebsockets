@@ -49,7 +49,7 @@ static char glb_ipv4[64] = {0};
 static char glb_ipv6[64] = {0};
 
 static void
-ops_dht_external_ip_cb(struct lws_context *cx, const lws_sockaddr46 *sa46, int af, int status, const lws_sockaddr46 *peers, int num_peers)
+ops_report_external_ip_cb(struct lws_context *cx, lws_extip_src_t src, const lws_sockaddr46 *sa46, int af, int status, const lws_sockaddr46 *peers, int num_peers)
 {
 	int i;
 	char pbuf[64];
@@ -131,7 +131,7 @@ int main(int argc, const char **argv)
 
 	memset(&system_ops, 0, sizeof(system_ops));
 #if defined(LWS_WITH_DHT)
-	system_ops.dht_external_ip_cb = ops_dht_external_ip_cb;
+	system_ops.report_external_ip_cb = ops_report_external_ip_cb;
 #endif
 	info.system_ops = &system_ops;
 

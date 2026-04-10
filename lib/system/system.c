@@ -263,3 +263,36 @@ lws_system_do_attach(struct lws_context_per_thread *pt)
 }
 
 #endif
+
+void
+lws_extip_report(struct lws_context *cx, lws_extip_src_t src,
+                 const lws_sockaddr46 *sa46, int af, int status,
+                 const lws_sockaddr46 *peers, int num_peers)
+{
+	lws_sockaddr46 *target = (af == AF_INET) ? &cx->ext_ipv4 : &cx->ext_ipv6;
+
+	if (status == 2 || !sa46 || (af == AF_INET && sa46->sa4.sin_family == 0) ||
+        (af == AF_INET6 && sa46->sa6.sin6_family == 0)) {
+		memset(target, 0, sizeof(*target));
+	} else {
+		*target = *sa46;
+	}
+}
+
+int
+lws_extip_get_best(struct lws_context *cx, int af, lws_sockaddr46 *sa46)
+{
+	lws_sockaddr46 *src = (af == AF_INET) ? &cx->ext_ipv4 : &cx->ext_ipv6;
+
+	if ((af == AF_INET && src->sa4.sin_family == AF_INET) ||
+	    (af == AF_INET6 && src->sa6.sin6_family == AF_INET6)) {
+		if (sa46)
+			*sa46 = *src;
+		return 0; /* found */
+	}
+	
+	/* Unknown / Offline */
+	if (sa46)
+		memset(sa46, 0, sizeof(*sa46));
+	return 1;
+}
