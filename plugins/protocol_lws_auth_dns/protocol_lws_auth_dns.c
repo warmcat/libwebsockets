@@ -1189,27 +1189,28 @@ send_nxdomain:
 									if (rr->wire_rdata_len >= 2 && ((rr->wire_rdata[0] << 8) | rr->wire_rdata[1]) == 50)
 										is_nsec3_rrsig = 1;
 								}
-								if (!is_nsec3_rrsig) continue;
 							}
 
-							lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&rs->rr_list)) {
-								struct auth_dns_rr *rr = lws_container_of(d2, struct auth_dns_rr, list);
-								size_t nlen = strlen(rs->name);
-								if ((size_t)(rp - dbuf) + 12 + nlen + 1 + rr->wire_rdata_len <= max_buf) {
-									if (name_to_wire(rs->name, matched_ce->zone.origin, rp, &max_buf) == 0) {
-										size_t written_len = strlen((char *)rp) + 1; /* Name length including root dot */
-										rp += written_len;
-										*rp++ = (uint8_t)(rs->type >> 8); *rp++ = (uint8_t)(rs->type & 0xff);
-										*rp++ = (uint8_t)(rs->class_ >> 8); *rp++ = (uint8_t)(rs->class_ & 0xff);
-										*rp++ = (uint8_t)(rs->ttl >> 24); *rp++ = (uint8_t)(rs->ttl >> 16);
-										*rp++ = (uint8_t)(rs->ttl >> 8); *rp++ = (uint8_t)(rs->ttl);
-										*rp++ = (uint8_t)(rr->wire_rdata_len >> 8); *rp++ = (uint8_t)(rr->wire_rdata_len);
-										memcpy(rp, rr->wire_rdata, rr->wire_rdata_len);
-										rp += rr->wire_rdata_len;
-										added_auth++;
+							if (rs->type == 50 || is_nsec3_rrsig) {
+								lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&rs->rr_list)) {
+									struct auth_dns_rr *rr = lws_container_of(d2, struct auth_dns_rr, list);
+									size_t nlen = strlen(rs->name);
+									if ((size_t)(rp - dbuf) + 12 + nlen + 1 + rr->wire_rdata_len <= max_buf) {
+										if (name_to_wire(rs->name, matched_ce->zone.origin, rp, &max_buf) == 0) {
+											size_t written_len = strlen((char *)rp) + 1; /* Name length including root dot */
+											rp += written_len;
+											*rp++ = (uint8_t)(rs->type >> 8); *rp++ = (uint8_t)(rs->type & 0xff);
+											*rp++ = (uint8_t)(rs->class_ >> 8); *rp++ = (uint8_t)(rs->class_ & 0xff);
+											*rp++ = (uint8_t)(rs->ttl >> 24); *rp++ = (uint8_t)(rs->ttl >> 16);
+											*rp++ = (uint8_t)(rs->ttl >> 8); *rp++ = (uint8_t)(rs->ttl);
+											*rp++ = (uint8_t)(rr->wire_rdata_len >> 8); *rp++ = (uint8_t)(rr->wire_rdata_len);
+											memcpy(rp, rr->wire_rdata, rr->wire_rdata_len);
+											rp += rr->wire_rdata_len;
+											added_auth++;
+										}
 									}
-								}
-							} lws_end_foreach_dll(d2);
+								} lws_end_foreach_dll(d2);
+							}
 						}
 					} lws_end_foreach_dll(d);
 				}
