@@ -195,33 +195,12 @@ lws_jwt_auth_create(struct lws *wsi, struct lws_jwk *jwk,
                     const char *cookie_name,
                     lws_jwt_auth_cb_t cb, void *user)
 {
-	char cookie[LWS_AUTH_MAX_COOKIE_LEN];
-	char jwt[LWS_AUTH_MAX_COOKIE_LEN];
+	char jwt[8192];
+	size_t jwt_len = sizeof(jwt);
 	struct lws_jwt_auth *ja;
-	char *p;
-	int i = 0;
-	int ck_len;
 
-	ck_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE);
-	if (ck_len >= (int)sizeof(cookie)) {
-		lwsl_wsi_err(wsi, "%s: OVERRUN! HTTP cookie header length (%d) exceeds allocated buffer size (%d), auth tracking tokens may be truncated!", __func__, ck_len, (int)sizeof(cookie));
-	}
-
-	if (lws_hdr_copy(wsi, cookie, sizeof(cookie), WSI_TOKEN_HTTP_COOKIE) <= 0)
+	if (lws_http_cookie_get(wsi, cookie_name, jwt, &jwt_len))
 		return NULL;
-
-	p = strstr(cookie, cookie_name);
-	if (!p)
-		return NULL;
-
-	p += strlen(cookie_name);
-	if (*p != '=')
-		return NULL;
-	p++;
-
-	while (*p && *p != ';' && i < (int)sizeof(jwt) - 1)
-		jwt[i++] = *p++;
-	jwt[i] = '\0';
 
 	ja = malloc(sizeof(*ja));
 	if (!ja)

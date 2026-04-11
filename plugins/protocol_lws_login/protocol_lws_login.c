@@ -877,66 +877,66 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		if (lws_login_ends_with(path, "/.lws-login-refresh")) {
-			char cookie[LWS_AUTH_MAX_COOKIE_LEN];
 			char csrf[64] = {0};
+			size_t csrf_len = sizeof(csrf);
+			char refresh_session[16] = {0};
+			size_t refresh_session_len = sizeof(refresh_session);
 			int ck_len;
 
 			ck_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE);
-			if (ck_len >= (int)sizeof(cookie)) {
-				lwsl_err("%s: OVERRUN! HTTP cookie header length (%d) exceeds allocated buffer size (%d), auth tracking tokens may be truncated!\n", __func__, ck_len, (int)sizeof(cookie));
-			}
 
-			if (lws_hdr_copy(wsi, cookie, sizeof(cookie), WSI_TOKEN_HTTP_COOKIE) > 0) {
-				const char *p = strstr(cookie, "auth_csrf=");
-				if (p) {
-					p += 10;
-					size_t i = 0;
-					while (*p && *p != ';' && i < sizeof(csrf) - 1)
-						csrf[i++] = *p++;
-					csrf[i] = 0;
-				}
-				p = strstr(cookie, "auth_refresh_session=");
-				if (p && csrf[0]) {
-					struct pending_login_refresh *ps = malloc(sizeof(*ps));
-					if (ps) {
-						struct lws_client_connect_info i;
-						lws_parse_uri_t *puri;
+			if (ck_len > 0) {
+				char *cookie = malloc((size_t)ck_len + 1);
+				if (cookie) {
+					if (lws_hdr_copy(wsi, cookie, ck_len + 1, WSI_TOKEN_HTTP_COOKIE) > 0) {
+						lws_http_cookie_get(wsi, "auth_csrf", csrf, &csrf_len);
+						
+						/* We just need to know it exists to proceed */
+						if (lws_http_cookie_get(wsi, "auth_refresh_session", refresh_session, &refresh_session_len) == 0 && csrf[0]) {
+							struct pending_login_refresh *ps = malloc(sizeof(*ps));
+							if (ps) {
+								struct lws_client_connect_info i;
+								lws_parse_uri_t *puri;
 
-						memset(ps, 0, sizeof(*ps));
-						ps->vhd = vhd;
-						ps->wsi_server = wsi;
-						lws_strncpy(ps->cookie_hdr, cookie, sizeof(ps->cookie_hdr));
+								memset(ps, 0, sizeof(*ps));
+								ps->vhd = vhd;
+								ps->wsi_server = wsi;
+								lws_strncpy(ps->cookie_hdr, cookie, sizeof(ps->cookie_hdr));
 
-						ps->payload_len = lws_snprintf(ps->payload, sizeof(ps->payload), "csrf_token=%s", csrf);
-						ps->payload_pos = 0;
+								ps->payload_len = lws_snprintf(ps->payload, sizeof(ps->payload), "csrf_token=%s", csrf);
+								ps->payload_pos = 0;
 
-						lws_dll2_add_tail(&ps->list, &vhd->pending_refresh_list);
-						lws_sul_schedule(vhd->context, 0, &ps->sul, sul_pending_refresh_cb, 5 * 60 * LWS_US_PER_SEC);
+								lws_dll2_add_tail(&ps->list, &vhd->pending_refresh_list);
+								lws_sul_schedule(vhd->context, 0, &ps->sul, sul_pending_refresh_cb, 5 * 60 * LWS_US_PER_SEC);
 
-						puri = lws_parse_uri_create(vhd->auth_server_url);
-						if (puri) {
-							lwsl_notice("%s: Intercepted background refresh request, initiating proxy to %s/api/sso_exchange\n", __func__, vhd->auth_server_url);
-							memset(&i, 0, sizeof(i));
-							i.context        = vhd->context;
-							i.address        = puri->host;
-							i.port           = puri->port;
-							i.ssl_connection = !strcmp(puri->scheme, "http") ? 0 : LCCSCF_USE_SSL;
-							i.path           = "/api/sso_exchange";
-							i.host           = i.address;
-							i.origin         = i.address;
-							i.method         = "POST";
-							i.protocol       = "lws_login_client";
-							i.pwsi           = &ps->wsi_client;
-							i.userdata       = ps;
+								puri = lws_parse_uri_create(vhd->auth_server_url);
+								if (puri) {
+									lwsl_notice("%s: Intercepted background refresh request, initiating proxy to %s/api/sso_exchange\n", __func__, vhd->auth_server_url);
+									memset(&i, 0, sizeof(i));
+									i.context        = vhd->context;
+									i.address        = puri->host;
+									i.port           = puri->port;
+									i.ssl_connection = !strcmp(puri->scheme, "http") ? 0 : LCCSCF_USE_SSL;
+									i.path           = "/api/sso_exchange";
+									i.host           = i.address;
+									i.origin         = i.address;
+									i.method         = "POST";
+									i.protocol       = "lws_login_client";
+									i.pwsi           = &ps->wsi_client;
+									i.userdata       = ps;
 
-							lws_client_connect_via_info(&i);
-							lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT, 30);
-							lws_parse_uri_destroy(&puri);
+									lws_client_connect_via_info(&i);
+									lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT, 30);
+									lws_parse_uri_destroy(&puri);
 
-							return 0; // Suspend!
+									free(cookie);
+									return 0; // Suspend!
+								}
+								free(ps);
+							}
 						}
-						free(ps);
 					}
+					free(cookie);
 				}
 			}
 			/* Failure or no cookies, 401 Unauthorized */
