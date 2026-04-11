@@ -409,6 +409,7 @@ struct monitor_req_args {
 	int zone_len;
 	int zone_alloc;
 	char jwt[2048];
+	char suffix[64];
 };
 
 static const char * const monitor_req_paths[] = {
@@ -420,6 +421,7 @@ static const char * const monitor_req_paths[] = {
 	"directory_url",
 	"zone",
 	"jwt",
+	"suffix"
 };
 
 enum enum_req_paths {
@@ -431,6 +433,7 @@ enum enum_req_paths {
 	LRP_DIR_URL,
 	LRP_ZONE,
 	LRP_JWT,
+	LRP_SUFFIX
 };
 
 static signed char
@@ -484,6 +487,9 @@ monitor_req_cb(struct lejp_ctx *ctx, char reason)
 			break;
 		case LRP_JWT:
 			lws_strncpy(a->jwt, ctx->buf, sizeof(a->jwt));
+			break;
+		case LRP_SUFFIX:
+			lws_strncpy(a->suffix, ctx->buf, sizeof(a->suffix));
 			break;
 		}
 	}
@@ -633,6 +639,57 @@ handle_req_get_zone(struct vhd *vhd, struct pss *root_pss, struct monitor_req_ar
 	} else {
 		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Zone missing\"}\n", a->req);
 	}
+	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
+}
+
+static void
+handle_req_get_ipv6_suffix(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
+{
+	char *tx = (char *)&root_pss->tx[LWS_PRE];
+	char *tx_end = tx + 65536 - 1;
+	char path[1024];
+	char suffix[64] = {0};
+
+	lws_snprintf(path, sizeof(path), "%s/domains/ipv6_suffix.txt", vhd->base_dir);
+	int fd = open(path, O_RDONLY);
+	if (fd >= 0) {
+		ssize_t n = read(fd, suffix, sizeof(suffix) - 1);
+		if (n > 0) suffix[n] = '\0';
+		close(fd);
+		/* Trim whitespace just in case */
+		for (int i = (int)strlen(suffix) - 1; i >= 0 && (suffix[i] == '\n' || suffix[i] == '\r' || suffix[i] == ' '); i--)
+			suffix[i] = '\0';
+	}
+
+	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"suffix\":\"%s\"}\n", a->req, suffix);
+	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
+}
+
+static void
+handle_req_set_ipv6_suffix(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
+{
+	char *tx = (char *)&root_pss->tx[LWS_PRE];
+	char *tx_end = tx + 65536 - 1;
+	char path[1024];
+
+	lws_snprintf(path, sizeof(path), "%s/domains/ipv6_suffix.txt", vhd->base_dir);
+	if (!a->suffix[0]) {
+		unlink(path);
+	} else {
+		int fd = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+		if (fd >= 0) {
+			if (write(fd, a->suffix, strlen(a->suffix)) < 0) {
+				lwsl_err("%s: Failed writing suffix\n", __func__);
+			}
+			close(fd);
+		} else {
+			lwsl_err("%s: Failed to open %s for suffix write (errno=%d)\n", __func__, path, errno);
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Failed to write configuration\"}\n", a->req);
+			goto done;
+		}
+	}
+	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
+done:
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
 }
 
@@ -817,7 +874,9 @@ static const struct monitor_req_map {
 	{ "delete_tls", handle_req_delete_tls },
 	{ "save_auth_key", handle_req_save_auth_key },
 	{ "save_cert", handle_req_save_cert },
-	{ "save_key", handle_req_save_key }
+	{ "save_key", handle_req_save_key },
+	{ "get_ipv6_suffix", handle_req_get_ipv6_suffix },
+	{ "set_ipv6_suffix", handle_req_set_ipv6_suffix }
 };
 
 static void
@@ -888,7 +947,7 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 	for (size_t i = 0; i < req_map_size; i++) {
 		if (!strcmp(a.req, req_map[i].name)) {
 			/* Enforce domain param if required by the handler */
-			if (i > 0 && !a.domain[0] && strcmp(req_map[i].name, "status") && strcmp(req_map[i].name, "get_domains")) {
+			if (i > 0 && !a.domain[0] && strcmp(req_map[i].name, "status") && strcmp(req_map[i].name, "get_domains") && strcmp(req_map[i].name, "get_ipv6_suffix") && strcmp(req_map[i].name, "set_ipv6_suffix")) {
 				lwsl_notice("[INSTRUMENT] handle_monitor_request: Missing required 'domain' param for %s\n", a.req);
 				root_pss->tx_len = (size_t)lws_snprintf(tx, 65536, "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Missing arguments\"}\n", a.req);
 				goto done;

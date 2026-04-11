@@ -17,7 +17,12 @@
             </div>
             <div class="header-status">
                 <div id="user-info" class="user-info"></div>
-                <div id="extip-status" class="extip-container" style="display:none; text-align:right; font-family:monospace; font-size:0.85em; color:#ddd; padding-right:10px;"></div>
+                <div id="extip-status" class="extip-container"></div>
+                <div class="extip-override-box">
+                    <label for="input-ipv6-suffix" class="extip-label">IPv6 Suffix:</label>
+                    <input type="text" id="input-ipv6-suffix" placeholder="145f" class="extip-input" maxlength="4">
+                    <button id="btn-save-suffix" class="btn secondary btn-extip">Apply</button>
+                </div>
                 <span id="ws-status" class="status-badge connecting">Connecting...</span>
             </div>
         </header>

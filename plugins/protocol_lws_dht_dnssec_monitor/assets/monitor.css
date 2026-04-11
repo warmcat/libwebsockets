@@ -405,6 +405,42 @@ input:focus, textarea:focus {
 .ext-grid-select { display: grid; grid-template-columns: 120px 1fr; gap: 1rem; margin-top: 1rem; }
 .ext-select { width: 100%; padding: 0.75rem; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.08); color: #fff; border-radius: 6px; }
 
+/* IPv6 Suffix Overlay */
+.extip-container {
+  display: none;
+  text-align: right;
+  font-family: monospace;
+  font-size: 0.85em;
+  color: #ddd;
+  padding-right: 10px;
+}
+
+.extip-override-box {
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 15px;
+  font-size: 0.8em;
+}
+
+.extip-label {
+  color: #aaa;
+}
+
+.extip-input {
+  width: 50px !important;
+  background: #222 !important;
+  border: 1px solid #444 !important;
+  color: #fff !important;
+  padding: 2px 4px !important;
+  border-radius: 3px !important;
+  margin-left: 4px;
+}
+
+.btn-extip {
+  padding: 2px 6px !important;
+  font-size: 0.9em !important;
+}
+
 .header-status {
   display: flex;
   align-items: center;

@@ -187,6 +187,8 @@ function connect() {
     ws.onopen = function() {
         statusBadge.textContent = 'Connected';
         statusBadge.className = 'status-badge connected';
+        // The backend UDS proxy ring buffer drops overlapping packets if fired synchronously!
+        // We must sequence the API bootstrap calls.
         sendReq({ req: 'get_domains' });
     };
 
@@ -230,13 +232,32 @@ function handleResponse(data) {
     }
 
     switch(data.req) {
+        case 'get_ipv6_suffix':
+            window.ipv6_suffix = data.suffix || '';
+            const inSuf = document.getElementById('input-ipv6-suffix');
+            if (inSuf) inSuf.value = window.ipv6_suffix;
+            if (window.last_extip_data) handleResponse({ status:'ok', req:'extip_update', data:window.last_extip_data });
+            break;
+        case 'set_ipv6_suffix':
+            showToast('IPv6 suffix preference saved successfully');
+            break;
         case 'extip_update':
             if (data.data && data.data['ext-ips']) {
+                window.last_extip_data = data.data;
                 const bdg = document.getElementById('extip-status');
-                const ips = data.data['ext-ips'].split(',');
+
+                // data.data['ext-ips'] is an Array of strings, handle it properly!
+                const ips = Array.isArray(data.data['ext-ips']) ? data.data['ext-ips'] : (data.data['ext-ips'] + '').split(',');
                 let content = '';
                 ips.forEach(ip => {
                     let type = ip.includes(':') ? 'Ext IPv6' : 'Ext IPv4';
+                    if (type === 'Ext IPv6' && window.ipv6_suffix) {
+                        let parts = ip.split(':');
+                        if (parts.length > 2) {
+                            parts.pop();
+                            ip = parts.join(':') + ':' + window.ipv6_suffix;
+                        }
+                    }
                     content += `<div>${type}: ${ip}</div>`;
                 });
                 bdg.style.display = 'inline-block';
@@ -245,6 +266,8 @@ function handleResponse(data) {
             break;
         case 'get_domains':
             renderDomains(data.domains || []);
+            // Bootstrap phase 2: now safe to fetch suffix config
+            sendReq({ req: 'get_ipv6_suffix' });
             break;
         case 'create_domain':
             closeModal('modal-new-domain');
@@ -587,6 +610,16 @@ function openEditor(id) {
         updateRawEditor();
         document.getElementById('record-editor')?.classList.add('hidden-panel');
     };
+
+    const btnSaveSuffix = document.getElementById('btn-save-suffix');
+    if (btnSaveSuffix) {
+        btnSaveSuffix.onclick = () => {
+            const val = document.getElementById('input-ipv6-suffix').value.trim();
+            window.ipv6_suffix = val;
+            sendReq({ req: 'set_ipv6_suffix', suffix: val });
+            if (window.last_extip_data) handleResponse({ status:'ok', req:'extip_update', data:window.last_extip_data });
+        };
+    }
 });
 
 function openModal(id) {
