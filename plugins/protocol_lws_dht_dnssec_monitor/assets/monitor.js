@@ -284,9 +284,20 @@ function handleResponse(data) {
             renderZoneTable();
             updateRawEditor();
             document.getElementById('record-editor')?.classList.add('hidden-panel');
+            // Sequence getting TLS after getting Zone to avoid UDS packet drops
+            sendReq({ req: 'get_tls', domain: currentDomain });
             break;
         case 'update_zone':
             showToast('Zonefile updated successfully');
+            break;
+        case 'get_tls':
+            window.activeTls = data.tls || [];
+            renderZoneTable();
+            break;
+        case 'create_tls':
+        case 'delete_tls':
+            showToast(data.req === 'create_tls' ? 'TLS collection enabled' : 'TLS collection disabled');
+            sendReq({ req: 'get_tls', domain: currentDomain });
             break;
     }
 }
@@ -344,6 +355,7 @@ function selectDomain(domain) {
         if (r.cells[0].textContent === domain) r.classList.add('active');
     });
 
+    window.activeTls = [];
     sendReq({ req: 'get_zone', domain: domain });
 }
 
@@ -361,6 +373,9 @@ function renderZoneTable() {
     const tbody = document.querySelector('#table-zone tbody');
     tbody.innerHTML = '';
 
+    if (!currentZone) return;
+
+    window.renderedTlsFqdns = new Set();
     const records = currentZone.records.filter(r => r.type !== 'comment' && r.type !== 'macro');
 
     if (records.length === 0) {
@@ -387,12 +402,40 @@ function renderZoneTable() {
             valStr = `Serial: ${r.parsed?.serial} (MNAME: ${r.parsed?.mname})`;
         }
 
+        let fqdn = nameStr === '@' ? currentDomain : nameStr + '.' + currentDomain;
+        let isTlsCapable = (r.type === 'A' || r.type === 'AAAA' || r.type === 'CNAME');
+        let tlsTd = '<td class="ext-tls-cell">-</td>';
+
+        if (isTlsCapable && !window.renderedTlsFqdns.has(fqdn)) {
+            window.renderedTlsFqdns.add(fqdn);
+            let checked = (window.activeTls && window.activeTls.includes(fqdn + '.json')) ? 'checked' : '';
+            tlsTd = `<td class="ext-tls-cell">
+                         <input type="checkbox" class="tls-checkbox" data-fqdn="${fqdn}" title="${fqdn}" ${checked}>
+                     </td>`;
+        }
+
         tr.innerHTML = `
             <td class="ext-mono">${nameStr}</td>
             <td>${ttlStr}</td>
             <td><span class="status-badge ext-badge">${typeStr}</span></td>
             <td class="ext-value">${valStr || '-'}</td>
+            ${tlsTd}
         `;
+
+        const checkbox = tr.querySelector('.tls-checkbox');
+        if (checkbox) {
+            checkbox.onclick = (e) => e.stopPropagation();
+            checkbox.onchange = (e) => {
+                let isEnabled = e.target.checked;
+                sendReq({ req: isEnabled ? 'create_tls' : 'delete_tls', domain: currentDomain, subdomain: fqdn });
+                if (isEnabled) {
+                    if (!window.activeTls) window.activeTls = [];
+                    window.activeTls.push(fqdn + '.json');
+                } else {
+                    if (window.activeTls) window.activeTls = window.activeTls.filter(x => x !== fqdn + '.json');
+                }
+            };
+        }
 
         const tdAct = document.createElement('td');
         if (r.type !== 'SOA') {
@@ -569,6 +612,24 @@ function openEditor(id) {
 
     document.getElementById('btn-save-zonefile').onclick = () => {
         if (!currentDomain || !currentZone) return;
+
+        let existingFqdns = new Set();
+        currentZone.records.forEach(r => {
+            if (r.type === 'comment' || r.type === 'macro' || r.type === 'SOA') return;
+            let nameStr = r.parsed?.name || '@';
+            let fqdn = nameStr === '@' ? currentDomain : nameStr + '.' + currentDomain;
+            existingFqdns.add(fqdn);
+        });
+
+        if (window.activeTls) {
+            window.activeTls.forEach(tlsFilename => {
+                let fqdn = tlsFilename.replace('.json', '');
+                if (!existingFqdns.has(fqdn)) {
+                    sendReq({ req: 'delete_tls', domain: currentDomain, subdomain: fqdn });
+                }
+            });
+        }
+
         const serialized = currentZone.serialize();
         sendReq({ req: 'update_zone', domain: currentDomain, zone: serialized });
     };

@@ -744,10 +744,23 @@ handle_req_get_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_arg
 		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"tls\":[", a->req);
 		while ((de = readdir(d))) {
 			if (de->d_name[0] == '.') continue;
-			if (strstr(de->d_name, ".json") && strncmp(de->d_name, a->domain, strlen(a->domain))) {
-				if (!first) tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), ",");
-				tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\"%s\"", de->d_name);
-				first = 0;
+			if (strstr(de->d_name, ".json")) {
+				char fpath[1024];
+				lws_snprintf(fpath, sizeof(fpath), "%s/%s", d_path, de->d_name);
+				int fd = open(fpath, O_RDONLY);
+				if (fd >= 0) {
+					char buf[512];
+					ssize_t n = read(fd, buf, sizeof(buf) - 1);
+					if (n > 0) {
+						buf[n] = '\0';
+						if (strstr(buf, "\"challenge-type\"")) {
+							if (!first) tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), ",");
+							tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\"%s\"", de->d_name);
+							first = 0;
+						}
+					}
+					close(fd);
+				}
 			}
 		}
 		closedir(d);
@@ -807,7 +820,21 @@ handle_req_delete_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 	char d_path[1024];
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/conf.d/%s.json", vhd->base_dir, a->domain, a->subdomain);
-	unlink(d_path);
+
+	if (!strcmp(a->domain, a->subdomain)) {
+		int fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+		if (fd >= 0) {
+			char buf[1024];
+			int n = lws_snprintf(buf, sizeof(buf), "{\n  \"common-name\": \"%s\"\n}\n", a->domain);
+			if (write(fd, buf, (size_t)n) < 0) {
+				lwsl_err("%s: Failed rewriting domain config\n", __func__);
+			}
+			close(fd);
+		}
+	} else {
+		unlink(d_path);
+	}
+
 	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
 }
