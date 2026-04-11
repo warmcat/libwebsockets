@@ -29,7 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function loadManifest() {
         try {
-            const response = await fetch('/api/manifest', { cache: 'no-store' });
+            const response = await fetch('/api/manifest', { cache: 'no-store', credentials: 'include' });
             if (response.ok) {
                 const data = await response.json();
 
@@ -105,7 +105,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const btn = this;
             btn.innerText = "Logging out...";
             btn.disabled = true;
-            await fetch('/api/status?destroy=1', { cache: 'no-store' });
+            await fetch('/api/status?destroy=1', { cache: 'no-store', credentials: 'include' });
             window.location.reload();
         });
     }
@@ -114,7 +114,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function checkServerStatus() {
         try {
             const statusUrl = serviceName ? `/api/status?service_name=${encodeURIComponent(serviceName)}` : '/api/status';
-            const response = await fetch(statusUrl, { cache: 'no-store' });
+            const response = await fetch(statusUrl, { cache: 'no-store', credentials: 'include' });
             if (response.ok) {
                 const data = await response.json();
                 if (data.csrf_token) window.csrf_token = data.csrf_token;
@@ -152,6 +152,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         try {
                             const res = await fetch('/api/sso_exchange', {
                                 method: 'POST',
+                                credentials: 'include',
                                 body: `redirect_uri=${encodeURIComponent(redirectUri)}&csrf_token=${encodeURIComponent(window.csrf_token || "")}`,
                                 headers: {'Content-Type': 'application/x-www-form-urlencoded'}
                             });
@@ -272,6 +273,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Send to auth plugin endpoint handled by LWS
             const response = await fetch('/api/login', {
                 method: 'POST',
+                credentials: 'include',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded'
                 },
@@ -366,6 +368,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const response = await fetch('/api/register', {
                 method: 'POST',
+                credentials: 'include',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded'
                 },

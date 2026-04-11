@@ -3241,6 +3241,10 @@ do_keygen(struct lws_context *context, struct lws_dht_dnssec_keygen_args *args)
 			write(fd, key, (size_t)strlen(key));
 			close(fd);
 			lwsl_notice("Wrote private JWK to %s\n", priv_filename);
+		} else {
+			lwsl_err("%s: Failed to open %s for writing: errno %d\n", __func__, priv_filename, errno);
+			lws_jwk_destroy(&jwk);
+			return 1;
 		}
 
 		/* Export standardized DNSKEY format for zone file inclusion */
@@ -3285,6 +3289,8 @@ do_keygen(struct lws_context *context, struct lws_dht_dnssec_keygen_args *args)
 						write(fd, outbuf, (size_t)n);
 						close(fd);
 						lwsl_notice("Wrote public DNSKEY to %s\n", pub_filename);
+					} else {
+						lwsl_err("%s: Failed to open %s for writing: errno %d\n", __func__, pub_filename, errno);
 					}
 					if (is_ksk) {
 						char ds_filename[256];
@@ -3330,6 +3336,8 @@ do_keygen(struct lws_context *context, struct lws_dht_dnssec_keygen_args *args)
 										fprintf(stderr, "\n=========== DNSSEC REGISTRAR SUMMARY ===========\n");
 										fprintf(stderr, "%s", ds_summary);
 										fprintf(stderr, "================================================\n\n");
+									} else {
+										lwsl_err("%s: Failed to open %s for writing: errno %d\n", __func__, ds_filename, errno);
 									}
 								} else {
 									lws_genhash_destroy(&hash_ctx, NULL);
@@ -3366,6 +3374,8 @@ do_keygen(struct lws_context *context, struct lws_dht_dnssec_keygen_args *args)
 						write(fd, outbuf, (size_t)n);
 						close(fd);
 						lwsl_notice("Wrote public DNSKEY to %s\n", pub_filename);
+					} else {
+						lwsl_err("%s: Failed to open %s for writing: errno %d\n", __func__, pub_filename, errno);
 					}
 
 					if (is_ksk) {
@@ -3413,6 +3423,8 @@ do_keygen(struct lws_context *context, struct lws_dht_dnssec_keygen_args *args)
 										fprintf(stderr, "\n=========== DNSSEC REGISTRAR SUMMARY ===========\n");
 										fprintf(stderr, "%s", ds_summary);
 										fprintf(stderr, "================================================\n\n");
+									} else {
+										lwsl_err("%s: Failed to open %s for writing: errno %d\n", __func__, ds_filename, errno);
 									}
 								} else {
 									lws_genhash_destroy(&hash_ctx, NULL);
