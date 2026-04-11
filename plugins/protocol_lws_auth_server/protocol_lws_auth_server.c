@@ -618,27 +618,13 @@ static int
 auth_check_csrf(struct lws *wsi, struct per_vhost_data__auth_server *vhd, struct per_session_data__auth_server *pss)
 {
 	const char *csrf_form = lws_spa_get_string(pss->spa, EP_CSRF);
-	char cookie[LWS_AUTH_MAX_COOKIE_LEN] = {0};
 	char csrf_ck[64] = {0};
+	size_t csrf_len = sizeof(csrf_ck);
 
-	int ck_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE);
-	if (ck_len >= (int)sizeof(cookie)) {
-		lwsl_err("%s: OVERRUN! HTTP cookie header length (%d) exceeds allocated buffer size (%d), auth tracking tokens may be truncated!\n", __func__, ck_len, (int)sizeof(cookie));
-	}
-
-	if (lws_hdr_copy(wsi, cookie, sizeof(cookie), WSI_TOKEN_HTTP_COOKIE) > 0) {
-		const char *p = strstr(cookie, "auth_csrf=");
-		if (p) {
-			p += 10;
-			size_t i = 0;
-			while (*p && *p != ';' && i < sizeof(csrf_ck) - 1)
-				csrf_ck[i++] = *p++;
-			csrf_ck[i] = 0;
-		}
-	}
+	lws_http_cookie_get(wsi, "auth_csrf", csrf_ck, &csrf_len);
 
 	if (!csrf_form || !csrf_ck[0] || strcmp(csrf_ck, csrf_form)) {
-		lwsl_notice("%s: CSRF validation natively failed\n", __func__);
+		lwsl_notice("%s: CSRF validation natively failed. form='%s' cookie='%s'\n", __func__, csrf_form ? csrf_form : "NULL", csrf_ck[0] ? csrf_ck : "NULL");
 		char peer[64];
 		lws_get_peer_simple(wsi, peer, sizeof(peer));
 		auth_record_strike(vhd, peer);
@@ -660,19 +646,9 @@ lws_auth_api_sso_exchange(struct lws *wsi, struct per_vhost_data__auth_server *v
 		goto send;
 	}
 
-	char cookie_hdr[LWS_AUTH_MAX_COOKIE_LEN] = {0};
-	char refresh_hdr[LWS_AUTH_MAX_COOKIE_LEN] = {0};
-	char cookie_val[LWS_AUTH_MAX_COOKIE_LEN] = {0};
+	char cookie_hdr[2048] = {0};
+	char refresh_hdr[2048] = {0};
 	uint32_t uid = 0;
-
-	int ck_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE);
-	if (ck_len >= (int)sizeof(cookie_val)) {
-		lwsl_err("%s: OVERRUN! HTTP cookie header length (%d) exceeds allocated buffer size (%d), auth tracking tokens may be truncated!\n", __func__, ck_len, (int)sizeof(cookie_val));
-	}
-
-	if (lws_hdr_copy(wsi, cookie_val, sizeof(cookie_val), WSI_TOKEN_HTTP_COOKIE) <= 0 || !vhd->cookie_name[0]) {
-		cookie_val[0] = '\0';
-	}
 
 	const char *redirect_uri = lws_spa_get_string(pss->spa, EP_REDIRECT_URI);
 	if (redirect_uri && redirect_uri[0]) {
@@ -691,17 +667,9 @@ lws_auth_api_sso_exchange(struct lws *wsi, struct per_vhost_data__auth_server *v
 		lws_jwt_auth_destroy(&ja);
 	} else if (vhd->refresh_token_validity_secs > 0) {
 		char refresh_tk[128] = {0};
-		if (cookie_val[0]) {
-			const char *p = strstr(cookie_val, "auth_refresh_session=");
-			if (p) {
-				p += 21;
-				size_t i = 0;
-				while (*p && *p != ';' && i < sizeof(refresh_tk) - 1)
-					refresh_tk[i++] = *p++;
-				refresh_tk[i] = 0;
-			}
-		}
-		if (refresh_tk[0]) {
+		size_t refresh_len = sizeof(refresh_tk);
+
+		if (lws_http_cookie_get(wsi, "auth_refresh_session", refresh_tk, &refresh_len) == 0 && refresh_tk[0]) {
 			sqlite3_stmt *stmt;
 			uint64_t now = (uint64_t)time(NULL);
 			if (sqlite3_prepare_v2(vhd->db, "SELECT uid, expires FROM auth_sessions WHERE session_id = ?", -1, &stmt, NULL) == SQLITE_OK) {
@@ -775,8 +743,8 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	char peer[64], jwt[1024], pl[1024 + LWS_PRE];
 	const char *user, *pass;
 	int len, users_empty = 0;
-	char cookie_hdr[1024] = {0};
-	char refresh_hdr[1024] = {0};
+	char cookie_hdr[2048] = {0};
+	char refresh_hdr[2048] = {0};
 
 	if (auth_check_csrf(wsi, vhd, pss)) {
 		pss->http_response_code = HTTP_STATUS_FORBIDDEN;
@@ -1842,25 +1810,9 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 					}
 				} lws_end_foreach_dll_safe(d, d1);
 
-				char cookies[LWS_AUTH_MAX_COOKIE_LEN] = {0};
 				char csrf[33] = {0};
-				int has_csrf = 0;
-
-				int ck_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE);
-				if (ck_len >= (int)sizeof(cookies)) {
-					lwsl_err("%s: OVERRUN! HTTP cookie header length (%d) exceeds allocated buffer size (%d), auth tracking tokens may be truncated!\n", __func__, ck_len, (int)sizeof(cookies));
-				}
-
-				if (lws_hdr_copy(wsi, cookies, sizeof(cookies), WSI_TOKEN_HTTP_COOKIE) > 0) {
-					const char *p = strstr(cookies, "auth_csrf=");
-					if (p) {
-						p += 10;
-						int i = 0;
-						while (*p && *p != ';' && i < 32) csrf[i++] = *p++;
-						csrf[i] = 0;
-						if (i == 32) has_csrf = 1;
-					}
-				}
+				size_t csrf_len = sizeof(csrf);
+				int has_csrf = lws_http_cookie_get(wsi, "auth_csrf", csrf, &csrf_len) == 0 && csrf[0] ? 1 : 0;
 
 				if (!has_csrf) {
 					uint8_t rnd[16];
@@ -1877,18 +1829,6 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				char logs[2048] = {0};
 				lws_get_urlarg_by_name_safe(wsi, "service_name=", sname, sizeof(sname));
 
-				char cookie_val[LWS_AUTH_MAX_COOKIE_LEN] = {0};
-				
-				{
-					int ck_len_val = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE);
-					if (ck_len_val >= (int)sizeof(cookie_val)) {
-						lwsl_err("%s: OVERRUN! HTTP cookie header length (%d) exceeds allocated buffer size (%d), auth tracking tokens may be truncated!\n", __func__, ck_len_val, (int)sizeof(cookie_val));
-					}
-				}
-
-				lws_hdr_copy(wsi, cookie_val, sizeof(cookie_val), WSI_TOKEN_HTTP_COOKIE);
-				// lwsl_info("/status endpoint HIT! URL args: '%s', Incoming Cookie: '%s'\n", sname, cookie_val[0] ? cookie_val : "NONE");
-
 				char set_cookie_jwt[2048] = {0};
 
 				if (vhd->cookie_name[0]) {
@@ -1901,17 +1841,9 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 						lws_jwt_auth_destroy(&ja);
 					} else if (vhd->refresh_token_validity_secs > 0) {
 						char refresh_tk[128] = {0};
-						if (cookie_val[0]) {
-							const char *p = strstr(cookie_val, "auth_refresh_session=");
-							if (p) {
-								p += 21;
-								size_t i = 0;
-								while (*p && *p != ';' && i < sizeof(refresh_tk) - 1)
-									refresh_tk[i++] = *p++;
-								refresh_tk[i] = 0;
-							}
-						}
-						if (refresh_tk[0]) {
+						size_t refresh_len = sizeof(refresh_tk);
+
+						if (lws_http_cookie_get(wsi, "auth_refresh_session", refresh_tk, &refresh_len) == 0 && refresh_tk[0]) {
 							sqlite3_stmt *stmt;
 							uint64_t now = (uint64_t)time(NULL);
 							if (sqlite3_prepare_v2(vhd->db, "SELECT uid, expires FROM auth_sessions WHERE session_id = ?", -1, &stmt, NULL) == SQLITE_OK) {
@@ -2031,23 +1963,14 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 					lws_snprintf(cookie_hdr2_host, sizeof(cookie_hdr2_host), "auth_csrf=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", exp);
 					lws_snprintf(cookie_hdr3_host, sizeof(cookie_hdr3_host), "auth_refresh_session=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", exp);
 
-					if (cookie_val[0]) {
-						const char *rp = strstr(cookie_val, "auth_refresh_session=");
-						if (rp) {
-							char refresh_tk[128] = {0};
-							rp += 21;
-							size_t i = 0;
-							while (*rp && *rp != ';' && i < sizeof(refresh_tk) - 1)
-								refresh_tk[i++] = *rp++;
-							refresh_tk[i] = 0;
-							if (refresh_tk[0]) {
-								sqlite3_stmt *stmt;
-								if (sqlite3_prepare_v2(vhd->db, "DELETE FROM auth_sessions WHERE session_id = ?", -1, &stmt, NULL) == SQLITE_OK) {
-									sqlite3_bind_text(stmt, 1, refresh_tk, -1, SQLITE_TRANSIENT);
-									sqlite3_step(stmt);
-									sqlite3_finalize(stmt);
-								}
-							}
+					char refresh_tk[128] = {0};
+					size_t refresh_len = sizeof(refresh_tk);
+					if (lws_http_cookie_get(wsi, "auth_refresh_session", refresh_tk, &refresh_len) == 0 && refresh_tk[0]) {
+						sqlite3_stmt *stmt;
+						if (sqlite3_prepare_v2(vhd->db, "DELETE FROM auth_sessions WHERE session_id = ?", -1, &stmt, NULL) == SQLITE_OK) {
+							sqlite3_bind_text(stmt, 1, refresh_tk, -1, SQLITE_TRANSIENT);
+							sqlite3_step(stmt);
+							sqlite3_finalize(stmt);
 						}
 					}
 
