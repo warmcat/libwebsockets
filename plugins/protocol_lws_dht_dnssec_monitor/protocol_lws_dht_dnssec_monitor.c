@@ -652,6 +652,10 @@ handle_req_get_ipv6_suffix(struct vhd *vhd, struct pss *root_pss, struct monitor
 
 	lws_snprintf(path, sizeof(path), "%s/domains/ipv6_suffix.txt", vhd->base_dir);
 	int fd = open(path, O_RDONLY);
+	if (fd < 0) {
+		lws_snprintf(path, sizeof(path), "%s/domains/ipv6_suffix.txt", vhd->base_dir);
+		fd = open(path, O_RDONLY);
+	}
 	if (fd >= 0) {
 		ssize_t n = read(fd, suffix, sizeof(suffix) - 1);
 		if (n > 0) suffix[n] = '\0';
@@ -677,6 +681,10 @@ handle_req_set_ipv6_suffix(struct vhd *vhd, struct pss *root_pss, struct monitor
 		unlink(path);
 	} else {
 		int fd = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+		if (fd < 0 && errno == EACCES) {
+			lws_snprintf(path, sizeof(path), "%s/domains/ipv6_suffix.txt", vhd->base_dir);
+			fd = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+		}
 		if (fd >= 0) {
 			if (write(fd, a->suffix, strlen(a->suffix)) < 0) {
 				lwsl_err("%s: Failed writing suffix\n", __func__);
@@ -1070,6 +1078,7 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 						return -1;
 					}
 					lwsl_notice("%s: Created UDS vhost on %s\n", __func__, uds_path);
+					chmod(uds_path, 0666);
 				}
 
 				static int timer_armed = 0;
