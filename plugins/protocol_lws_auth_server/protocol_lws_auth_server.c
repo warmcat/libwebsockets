@@ -624,7 +624,10 @@ auth_check_csrf(struct lws *wsi, struct per_vhost_data__auth_server *vhd, struct
 	lws_http_cookie_get(wsi, "auth_csrf", csrf_ck, &csrf_len);
 
 	if (!csrf_form || !csrf_ck[0] || strcmp(csrf_ck, csrf_form)) {
-		lwsl_notice("%s: CSRF validation natively failed. form='%s' cookie='%s'\n", __func__, csrf_form ? csrf_form : "NULL", csrf_ck[0] ? csrf_ck : "NULL");
+		char dbg_cookie[4096] = {0};
+		if (lws_hdr_copy(wsi, dbg_cookie, sizeof(dbg_cookie), WSI_TOKEN_HTTP_COOKIE) < 0)
+			strncpy(dbg_cookie, "<overrun or empty>", sizeof(dbg_cookie) - 1);
+		lwsl_notice("%s: CSRF validation natively failed. form='%s' cookie='%s' RAW_COOKIE='%s'\n", __func__, csrf_form ? csrf_form : "NULL", csrf_ck[0] ? csrf_ck : "NULL", dbg_cookie);
 		char peer[64];
 		lws_get_peer_simple(wsi, peer, sizeof(peer));
 		auth_record_strike(vhd, peer);
@@ -2019,7 +2022,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 				if (!has_csrf) {
 					char cookie_hdr[128];
-					lws_snprintf(cookie_hdr, sizeof(cookie_hdr), "auth_csrf=%s; Path=/; SameSite=Strict; HttpOnly", csrf);
+					lws_snprintf(cookie_hdr, sizeof(cookie_hdr), "auth_csrf=%s; Path=/; SameSite=None; HttpOnly; Secure", csrf);
 					return send_auth_headers(wsi, pss, "application/json", cookie_hdr, set_cookie_jwt[0] ? set_cookie_jwt : NULL);
 				}
 

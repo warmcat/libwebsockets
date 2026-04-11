@@ -1558,18 +1558,24 @@ lws_http_cookie_get(struct lws *wsi, const char *name, char *buf,
 			while (f) {
 				p = wsi->http.ah->data + wsi->http.ah->frags[f].offset;
 				fl = (size_t)wsi->http.ah->frags[f].len;
-				if (fl >= bl + 1 &&
-				    p[bl] == '=' &&
-				    !memcmp(p, use_name, bl)) {
-					fl -= bl + 1;
-					if (max - 1 < fl)
-						fl = max - 1;
-					if (fl)
-						memcpy(buf, p + bl + 1, fl);
-					*max_len = fl;
-					buf[fl] = '\0';
+				char *pe = p + fl;
+				char *vp = p;
 
-					return 0;
+				while (vp < pe) {
+					if ((size_t)(pe - vp) > bl && !memcmp(vp, use_name, bl) && vp[bl] == '=') {
+						if (vp == p || vp[-1] == ' ' || vp[-1] == ';') {
+							vp += bl + 1;
+							while (vp < pe && *vp != ';' && max > 1) {
+								*buf++ = *vp++;
+								max--;
+							}
+							*buf = '\0';
+							*max_len = lws_ptr_diff_size_t(buf, bo);
+
+							return 0;
+						}
+					}
+					vp++;
 				}
 				f = wsi->http.ah->frags[f].nfrag;
 			}
@@ -1702,7 +1708,7 @@ lws_jwt_sign_token_set_http_cookie(struct lws *wsi,
 	n = lws_snprintf(temp, sizeof(temp), "__Host-%s=%s;"
 			 "HttpOnly;"
 			 "Secure;"
-			 "SameSite=strict;"
+			 "SameSite=None;"
 			 "Path=/;"
 			 "Max-Age=%lu",
 			 i->cookie_name, plain, i->expiry_unix_time);

@@ -219,21 +219,21 @@ scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 
 		lwsl_info("%s: Parsed domain %s from %s\n", __func__, pc.common_name, filepath);
 
-		/* Directory format requires <base_dir>/domains/<common_name>/dns/ */
+		/* Directory format requires <base_dir>/domains/<common_name>/ */
 		char key_path[1024];
 
 		/* Check ZSK */
-		lws_snprintf(key_path, sizeof(key_path), "%s/domains/%s/dns/%s.zsk.private.jwk", vhd->base_dir, pc.common_name, pc.common_name);
+		lws_snprintf(key_path, sizeof(key_path), "%s/domains/%s/%s.zsk.private.jwk", vhd->base_dir, pc.common_name, pc.common_name);
 		int has_zsk = (access(key_path, F_OK) == 0);
 
 		/* Check KSK */
-		lws_snprintf(key_path, sizeof(key_path), "%s/domains/%s/dns/%s.ksk.private.jwk", vhd->base_dir, pc.common_name, pc.common_name);
+		lws_snprintf(key_path, sizeof(key_path), "%s/domains/%s/%s.ksk.private.jwk", vhd->base_dir, pc.common_name, pc.common_name);
 		int has_ksk = (access(key_path, F_OK) == 0);
 
 		if (!has_zsk || !has_ksk) {
 			lwsl_notice("%s: Missing keys for %s, automatically generating...\n", __func__, pc.common_name);
 			char wd[512];
-			lws_snprintf(wd, sizeof(wd), "%s/domains/%s/dns", vhd->base_dir, pc.common_name);
+			lws_snprintf(wd, sizeof(wd), "%s/domains/%s", vhd->base_dir, pc.common_name);
 
 			struct lws_dht_dnssec_keygen_args kargs;
 			memset(&kargs, 0, sizeof(kargs));
@@ -254,11 +254,11 @@ scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		char zsk_path[1024];
 		char ksk_path[1024];
 
-		lws_snprintf(input_path, sizeof(input_path), "%s/domains/%s/dns/%s.zone", vhd->base_dir, pc.common_name, pc.common_name);
-		lws_snprintf(output_path, sizeof(output_path), "%s/domains/%s/dns/%s.zone.signed", vhd->base_dir, pc.common_name, pc.common_name);
-		lws_snprintf(jws_path, sizeof(jws_path), "%s/domains/%s/dns/%s.zone.signed.jws", vhd->base_dir, pc.common_name, pc.common_name);
-		lws_snprintf(zsk_path, sizeof(zsk_path), "%s/domains/%s/dns/%s.zsk.private.jwk", vhd->base_dir, pc.common_name, pc.common_name);
-		lws_snprintf(ksk_path, sizeof(ksk_path), "%s/domains/%s/dns/%s.ksk.private.jwk", vhd->base_dir, pc.common_name, pc.common_name);
+		lws_snprintf(input_path, sizeof(input_path), "%s/domains/%s/%s.zone", vhd->base_dir, pc.common_name, pc.common_name);
+		lws_snprintf(output_path, sizeof(output_path), "%s/domains/%s/%s.zone.signed", vhd->base_dir, pc.common_name, pc.common_name);
+		lws_snprintf(jws_path, sizeof(jws_path), "%s/domains/%s/%s.zone.signed.jws", vhd->base_dir, pc.common_name, pc.common_name);
+		lws_snprintf(zsk_path, sizeof(zsk_path), "%s/domains/%s/%s.zsk.private.jwk", vhd->base_dir, pc.common_name, pc.common_name);
+		lws_snprintf(ksk_path, sizeof(ksk_path), "%s/domains/%s/%s.ksk.private.jwk", vhd->base_dir, pc.common_name, pc.common_name);
 
 		char acme_path[1024];
 		lws_snprintf(acme_path, sizeof(acme_path), "%s.acme", input_path);
@@ -292,7 +292,7 @@ scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 
 		if (needs_resign) {
 			char wd[512];
-			lws_snprintf(wd, sizeof(wd), "%s/domains/%s/dns", vhd->base_dir, pc.common_name);
+			lws_snprintf(wd, sizeof(wd), "%s/domains/%s", vhd->base_dir, pc.common_name);
 
 			lwsl_user("%s: Signing zone for %s\n", __func__, pc.common_name);
 			struct lws_dht_dnssec_signzone_args sargs;
@@ -336,7 +336,7 @@ parent_scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	if (lde->type != LDOT_DIR || lde->name[0] == '.') return 0;
 
 	char jws_path[1024], pub_path[1024];
-	lws_snprintf(jws_path, sizeof(jws_path), "%s/domains/%s/dns/%s.zone.signed.jws", vhd->base_dir, lde->name, lde->name);
+	lws_snprintf(jws_path, sizeof(jws_path), "%s/domains/%s/%s.zone.signed.jws", vhd->base_dir, lde->name, lde->name);
 	lws_snprintf(pub_path, sizeof(pub_path), "%s.published", jws_path);
 
 	struct stat st_jws, st_pub;
