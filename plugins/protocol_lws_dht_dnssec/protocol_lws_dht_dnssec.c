@@ -3704,6 +3704,164 @@ get_dnssec_vhd(struct lws_context *context, struct lws_vhost *preferred_vh)
 	return global_dnssec_vhd;
 }
 
+static const char *
+dnssec_subst_cb(struct lws_auth_dns_sign_info *info, const char *name)
+{
+	static char ret[512];
+
+	if (!strcmp(name, "EXTIP4")) {
+		if (info->ipv4) return info->ipv4;
+		return "";
+	}
+	if (!strcmp(name, "EXTIP6")) {
+		if (info->ipv6) return info->ipv6;
+		return "";
+	}
+
+	if (!strncmp(name, "DANE", 4)) {
+		int previous = (name[4] == '1');
+
+		/* Extract domain from info->curr_line */
+		char line[4096];
+		if (!info->curr_line) return NULL;
+
+		size_t clen = info->curr_line_len;
+		if (clen > sizeof(line) - 1) clen = sizeof(line) - 1;
+		memcpy(line, info->curr_line, clen);
+		line[clen] = '\0';
+
+		char toks[8][256];
+		int num_toks = 0;
+		lws_tokenize_t ts;
+		lws_tokenize_elem e;
+
+		lws_tokenize_init(&ts, line, LWS_TOKENIZE_F_DOT_NONTERM | LWS_TOKENIZE_F_MINUS_NONTERM);
+		ts.len = clen;
+		do {
+			e = lws_tokenize(&ts);
+			if (e == LWS_TOKZE_TOKEN) {
+				if (num_toks < 8) {
+					int n = (int)ts.token_len;
+					if (n > (int)sizeof(toks[0]) - 1) n = sizeof(toks[0]) - 1;
+					memcpy(toks[num_toks], ts.token, (size_t)n);
+					toks[num_toks][n] = '\0';
+					num_toks++;
+				}
+			}
+		} while (e > 0);
+
+		if (num_toks == 0) return NULL;
+
+		/* toks[0] is like _443._tcp.warmcat.com. */
+		char pdomain[256];
+		lws_strncpy(pdomain, toks[0], sizeof(pdomain));
+
+		/* We can usually find the root domain by skipping `_xxx._yyy.` */
+		char *root = pdomain;
+		if (pdomain[0] == '_') {
+			root = strchr(pdomain, '.');
+			if (root) {
+				root++;
+				if (root[0] == '_') {
+					root = strchr(root, '.');
+					if (root) root++;
+				}
+			}
+		}
+		if (!root) root = pdomain;
+
+		/* remove trailing dot */
+		size_t rl = strlen(root);
+		if (rl > 0 && root[rl - 1] == '.')
+			root[rl - 1] = '\0';
+
+		/* Load X509 cert */
+		char cert_path[256];
+		if (previous) {
+			lws_snprintf(cert_path, sizeof(cert_path), "/var/dnssec/domains/%s/tls/%s.crt.1", root, root);
+		} else {
+			lws_snprintf(cert_path, sizeof(cert_path), "/var/dnssec/domains/%s/tls/%s.crt", root, root);
+		}
+
+		struct lws_x509_cert *cert = NULL;
+		if (lws_x509_create(&cert)) {
+			lwsl_err("%s: failed to create cert\n", __func__);
+			return "";
+		}
+
+		int cfd = open(cert_path, LWS_O_RDONLY);
+		if (cfd < 0) {
+			lwsl_notice("Missing cert %s, skipping DANE line\n", cert_path);
+			lws_x509_destroy(&cert);
+			return "";
+		}
+
+		struct stat st;
+		if (fstat(cfd, &st) || st.st_size <= 0) {
+			close(cfd);
+			lws_x509_destroy(&cert);
+			return "";
+		}
+
+		char *pembuf = malloc((size_t)st.st_size);
+		if (!pembuf || read(cfd, pembuf, (unsigned int)st.st_size) != st.st_size) {
+			if (pembuf) free(pembuf);
+			close(cfd);
+			lws_x509_destroy(&cert);
+			return "";
+		}
+		close(cfd);
+
+		if (lws_x509_parse_from_pem(cert, pembuf, (size_t)st.st_size) < 0) {
+			lwsl_err("Failed loading DANE cert %s\n", cert_path);
+			free(pembuf);
+			lws_x509_destroy(&cert);
+			return "";
+		}
+		free(pembuf);
+
+		/* extracted SPKI */
+		union lws_tls_cert_info_results res;
+		res.ns.name = NULL;
+		res.ns.len = 0;
+
+		if (lws_x509_info(cert, LWS_TLS_CERT_INFO_DER_SPKI, &res, 0) == -1 && res.ns.len > 0) {
+			res.ns.name = malloc((size_t)res.ns.len);
+			if (res.ns.name) {
+				if (lws_x509_info(cert, LWS_TLS_CERT_INFO_DER_SPKI, &res, res.ns.len) == 0) {
+					/* we have the DER SPKI, now hash it */
+					struct lws_genhash_ctx hash_ctx;
+					uint8_t hash[32];
+
+					if (!lws_genhash_init(&hash_ctx, LWS_GENHASH_TYPE_SHA256)) {
+						if (!lws_genhash_update(&hash_ctx, res.ns.name, (size_t)res.ns.len)) {
+							if (!lws_genhash_destroy(&hash_ctx, hash)) {
+								char hex[128];
+								int hl = 0;
+								for (int i = 0; i < 32; i++) {
+									hl += lws_snprintf(hex + hl, sizeof(hex) - (size_t)hl, "%02X", hash[i]);
+								}
+								lws_snprintf(ret, sizeof(ret), "3 1 1 %s", hex);
+								free(res.ns.name);
+								lws_x509_destroy(&cert);
+								return ret;
+							}
+						} else {
+							lws_genhash_destroy(&hash_ctx, NULL);
+						}
+					}
+				}
+				free(res.ns.name);
+			}
+		}
+
+		lws_x509_destroy(&cert);
+		return "";
+	}
+
+	return NULL;
+}
+
 static int
 do_signzone(struct lws_context *context, struct lws_dht_dnssec_signzone_args *args)
 {
@@ -3713,6 +3871,7 @@ do_signzone(struct lws_context *context, struct lws_dht_dnssec_signzone_args *ar
 
 	memset(&info, 0, sizeof(info));
 	info.cx = context;
+	info.subst_cb = dnssec_subst_cb;
 
 	if (!args->domain || args->domain[0] == '\0') {
 		lwsl_err("signzone requires a domain name\n");

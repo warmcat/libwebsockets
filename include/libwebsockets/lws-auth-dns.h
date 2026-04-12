@@ -62,7 +62,9 @@ struct lws_auth_dns_sign_info {
 	const char			*jws_filepath;      /* Path to output signed JWS of the zone */
 	const char			*zsk_jwk_filepath;  /* Path to ZSK JWK config */
 	const char			*ksk_jwk_filepath;  /* Path to KSK JWK config */
-	const char			**subst_names;      /* For lws_strexp */
+	const char *			(*subst_cb)(struct lws_auth_dns_sign_info *info, const char *name);
+	void				*subst_priv;
+	const char			**subst_names;      /* For lws_strexp fallback */
 	const char			**subst_values;
 	time_t				sign_validity_start_time; /* 0 = now */
 	uint32_t			sign_validity_duration;   /* 0 = 30 days */
@@ -70,6 +72,10 @@ struct lws_auth_dns_sign_info {
 	const char			*ipv4;              /* Dynamic IP override */
 	const char			*ipv6;
 	struct lws_context		*cx;                /* For logging/alloc */
+
+	const char			*curr_line;
+	size_t				curr_line_len;
+	uint8_t				skip_line;
 };
 
 /**
