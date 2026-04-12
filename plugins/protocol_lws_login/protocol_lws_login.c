@@ -1028,7 +1028,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 
 			char html[1024];
 			int html_len = lws_snprintf(html, sizeof(html),
-				"<html><head><meta http-equiv=\"refresh\" content=\"0; url=%s\"></head><body>Redirecting to <a href=\"%s\">%s</a></body></html>",
+				"<html lang=\"en\"><head><meta http-equiv=\"refresh\" content=\"0; url=%s\"></head><body>Redirecting to <a href=\"%s\">%s</a></body></html>",
 				u, u, u);
 			if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)html, (size_t)html_len) < 0) return -1;
 
@@ -1043,7 +1043,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 
 		char html[1024];
 		int html_len = lws_snprintf(html, sizeof(html),
-			"<html><head><meta http-equiv=\"refresh\" content=\"0; url=%s\"></head><body>Redirecting to <a href=\"%s\">%s</a></body></html>",
+			"<html lang=\"en\"><head><meta http-equiv=\"refresh\" content=\"0; url=%s\"></head><body>Redirecting to <a href=\"%s\">%s</a></body></html>",
 			dest, dest, dest);
 		if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)html, (size_t)html_len) < 0) return -1;
 
