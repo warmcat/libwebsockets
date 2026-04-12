@@ -479,8 +479,10 @@ monitor_req_cb(struct lejp_ctx *ctx, char reason)
 	}
 
 	if (reason == LEJPCB_VAL_NUM_INT) {
-		if (ctx->path_match - 1 == LRP_PORT)
+		if (ctx->path_match - 1 == LRP_PORT) {
 			a->port = atoi(ctx->buf);
+			lwsl_notice("[INSTRUMENT] monitor_req_cb: Parsed port natively from JSON INT: %d\n", a->port);
+		}
 	}
 
 	if (reason == LEJPCB_VAL_STR_CHUNK || reason == LEJPCB_VAL_STR_END) {
@@ -550,6 +552,10 @@ handle_req_status(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
 }
 
+static int cmp_str(const void *a, const void *b) {
+	return strcmp(*(const char **)a, *(const char **)b);
+}
+
 static void
 handle_req_get_domains(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
@@ -564,17 +570,34 @@ handle_req_get_domains(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 	if (!d) {
 		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"get_domains\",\"status\":\"error\",\"msg\":\"Cannot open base_dir\"}\n");
 	} else {
-		int first = 1;
-		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"get_domains\",\"status\":\"ok\",\"domains\":[");
+		char **doms = NULL;
+		size_t count = 0, alloc = 0;
+
 		while ((de = readdir(d))) {
 			if (de->d_name[0] == '.') continue;
 			if (de->d_type == DT_DIR || de->d_type == DT_UNKNOWN) {
-				if (!first) tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), ",");
-				tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\"%s\"", de->d_name);
-				first = 0;
+				if (count >= alloc) {
+					alloc = alloc ? alloc * 2 : 16;
+					char **ndoms = realloc(doms, alloc * sizeof(char *));
+					if (!ndoms) break;
+					doms = ndoms;
+				}
+				doms[count++] = strdup(de->d_name);
 			}
 		}
 		closedir(d);
+
+		if (count) {
+			qsort(doms, count, sizeof(char *), cmp_str);
+		}
+
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"get_domains\",\"status\":\"ok\",\"domains\":[");
+		for (size_t i = 0; i < count; i++) {
+			if (i > 0) tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), ",");
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\"%s\"", doms[i]);
+			free(doms[i]);
+		}
+		if (doms) free(doms);
 		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "]}\n");
 	}
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
@@ -906,14 +929,14 @@ handle_req_check_cert(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 	memset(&i, 0, sizeof(i));
 	i.context = vhd->context;
 	
-	struct lws_vhost *vh = lws_get_vhost_by_name(vhd->context, "dnssec_monitor_uds");
+	struct lws_vhost *vh = lws_get_vhost_by_name(vhd->context, "root-monitor-dummy");
 	i.vhost = vh ? vh : vhd->vhost;
 	
 	i.address = a->subdomain;
 	i.port = a->port;
 	i.ssl_connection = LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
 	i.alpn = "http/1.1";
-	i.method = "GET";
+	i.method = "RAW";
 	i.path = "/";
 	i.host = i.address;
 	i.origin = i.address;
@@ -1016,7 +1039,6 @@ static const struct monitor_req_map {
 	{ "save_auth_key", handle_req_save_auth_key },
 	{ "save_cert", handle_req_save_cert },
 	{ "save_key", handle_req_save_key },
-	{ "check_cert", handle_req_check_cert },
 	{ "get_ipv6_suffix", handle_req_get_ipv6_suffix },
 	{ "set_ipv6_suffix", handle_req_set_ipv6_suffix }
 };
@@ -1569,6 +1591,22 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RECEIVE:
 		lwsl_debug("[INSTRUMENT] LWS_CALLBACK_RECEIVE: Browser UI triggered WS message (len: %d). Proxy cwsi=%p, root_process_active=%d\n", (int)len, pss->cwsi, vhd ? vhd->root_process_active : -1);
 		if (vhd && vhd->root_process_active && pss->cwsi) {
+			if (len < 1024 && strstr((const char *)in, "\"check_cert\"")) {
+				struct monitor_req_args a;
+				struct lejp_ctx jctx;
+				memset(&a, 0, sizeof(a));
+				lejp_construct(&jctx, monitor_req_cb, &a, monitor_req_paths, LWS_ARRAY_SIZE(monitor_req_paths));
+				lejp_parse(&jctx, (uint8_t *)in, (int)len);
+				lejp_destruct(&jctx);
+
+				if (!strcmp(a.req, "check_cert")) {
+					handle_req_check_cert(vhd, pss, &a); 
+					if (a.zone_buf) free(a.zone_buf);
+					return 0;
+				}
+				if (a.zone_buf) free(a.zone_buf);
+			}
+
 			if (len > 65536) {
 				lwsl_err("%s: WS UI request too large\n", __func__);
 				return -1;
@@ -1588,28 +1626,37 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 					size_t offset = lws_ptr_diff_size_t(first_brace, in) + 1;
 					size_t out_len = 0;
 
-					memcpy(&pss->tx[LWS_PRE], in, offset);
-					out_len += offset;
-
-					int n = lws_snprintf((char *)&pss->tx[LWS_PRE + out_len], 65536 - LWS_PRE - out_len, "\"jwt\":\"%s\",", jwt_buf);
-					out_len += (size_t)n;
-
-					if (len - offset < 65536 - LWS_PRE - out_len) {
-						memcpy(&pss->tx[LWS_PRE + out_len], first_brace + 1, len - offset);
-						out_len += len - offset;
-						pss->tx_len = out_len;
-						lws_callback_on_writable(pss->cwsi); /* Write proxy -> root */
-						lwsl_debug("[INSTRUMENT] LWS_CALLBACK_RECEIVE: Enqueued proxy->root payload size %d with JWT\n", (int)out_len);
+					size_t existing_len = pss->tx_len;
+					if (existing_len + offset < 65536 - LWS_PRE) {
+						memcpy(&pss->tx[LWS_PRE + existing_len], in, offset);
+						out_len += offset;
+	
+						int n = lws_snprintf((char *)&pss->tx[LWS_PRE + existing_len + out_len], 65536 - LWS_PRE - existing_len - out_len, "\"jwt\":\"%s\",", jwt_buf);
+						out_len += (size_t)n;
+	
+						if (existing_len + out_len + len - offset + 1 < 65536 - LWS_PRE) {
+							memcpy(&pss->tx[LWS_PRE + existing_len + out_len], first_brace + 1, len - offset);
+							out_len += len - offset;
+							pss->tx[LWS_PRE + existing_len + out_len] = '\n';
+							out_len += 1;
+							pss->tx_len += out_len;
+							lws_callback_on_writable(pss->cwsi); /* Write proxy -> root */
+							lwsl_debug("[INSTRUMENT] LWS_CALLBACK_RECEIVE: Appended proxy->root payload size %d with JWT, total %d\n", (int)out_len, (int)pss->tx_len);
+						}
 					}
 				} else {
 					goto fallback;
 				}
 			} else {
 fallback:
-				memcpy(&pss->tx[LWS_PRE], in, len);
-				pss->tx_len = len;
-				lws_callback_on_writable(pss->cwsi); /* Write proxy -> root */
-				lwsl_debug("[INSTRUMENT] LWS_CALLBACK_RECEIVE: Enqueued proxy->root payload size %d (no JWT)\n", (int)len);
+				if (pss->tx_len + len + 1 < 65536 - LWS_PRE) {
+					memcpy(&pss->tx[LWS_PRE + pss->tx_len], in, len);
+					pss->tx_len += len;
+					pss->tx[LWS_PRE + pss->tx_len] = '\n';
+					pss->tx_len += 1;
+					lws_callback_on_writable(pss->cwsi); /* Write proxy -> root */
+					lwsl_debug("[INSTRUMENT] LWS_CALLBACK_RECEIVE: Appended proxy->root payload size %d (no JWT), total %d\n", (int)len + 1, (int)pss->tx_len);
+				}
 			}
 		} else {
 			lwsl_notice("[INSTRUMENT] LWS_CALLBACK_RECEIVE: ABORTED! root_active=%d, pss->cwsi=%p\n", vhd?vhd->root_process_active:0, pss->cwsi);
@@ -1617,24 +1664,22 @@ fallback:
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
-		if (vhd) {
-			if (vhd->completed_checks.head) {
-				struct lws_dll2 *p = vhd->completed_checks.head;
-				struct cert_check_result *cr = lws_container_of(p, struct cert_check_result, list);
-				char *tx = (char *)&pss->tx[LWS_PRE];
-				char *tx_end = tx + 65536 - 1;
-				int n = lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"cert_status\",\"subdomain\":\"%s\",\"status\":\"%s\",\"msg\":\"%s\"}\n",
-					cr->fqdn, cr->status_err ? "error" : "ok", cr->msg);
-				
-				if (lws_write(wsi, (unsigned char *)tx, (size_t)n, LWS_WRITE_TEXT) < 0)
-					return -1;
-				
-				lws_dll2_remove(&cr->list);
-				free(cr);
-				if (vhd->completed_checks.head)
-					lws_callback_on_writable(wsi);
-				return 0;
-			}
+		if (vhd && vhd->completed_checks.head) {
+			struct lws_dll2 *p = vhd->completed_checks.head;
+			struct cert_check_result *cr = lws_container_of(p, struct cert_check_result, list);
+			char *tx = (char *)&pss->tx[LWS_PRE];
+			char *tx_end = tx + 65536 - 1;
+			int n = lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"cert_status\",\"subdomain\":\"%s\",\"status\":\"%s\",\"msg\":\"%s\"}\n",
+				cr->fqdn, cr->status_err ? "error" : "ok", cr->msg);
+			
+			if (lws_write(wsi, (unsigned char *)tx, (size_t)n, LWS_WRITE_TEXT) < 0)
+				return -1;
+			
+			lws_dll2_remove(&cr->list);
+			free(cr);
+			if (vhd->completed_checks.head)
+				lws_callback_on_writable(wsi);
+			return 0;
 		}
 
 		if (vhd && vhd->root_process_active) {
@@ -1660,10 +1705,11 @@ fallback:
 		}
 		break;
 
-	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+	case LWS_CALLBACK_RAW_CONNECTED:
 		{
 			struct cert_check_info *cci = (struct cert_check_info *)lws_get_opaque_user_data(wsi);
 			if (cci && cci->magic == CERT_CHECK_MAGIC && vhd) {
+				lwsl_notice("[INSTRUMENT] Probe %s RAW_CONNECTED successfully!\n", cci->fqdn);
 				union lws_tls_cert_info_results ci;
 				char msg[128];
 				int err = 0;
@@ -1705,6 +1751,7 @@ fallback:
 			void *opaque = lws_get_opaque_user_data(wsi);
 			struct cert_check_info *cci = (struct cert_check_info *)opaque;
 			if (cci && cci->magic == CERT_CHECK_MAGIC && vhd) {
+				lwsl_notice("[INSTRUMENT] Probe %s CLIENT_CONNECTION_ERROR: %s\n", cci->fqdn, in ? (char *)in : "unknown");
 				struct cert_check_result *cr = malloc(sizeof(*cr));
 				if (cr) {
 					memset(cr, 0, sizeof(*cr));
@@ -1729,7 +1776,7 @@ fallback:
 		}
 		break;
 
-	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+	case LWS_CALLBACK_RAW_CLOSE:
 		{
 			void *opaque = lws_get_opaque_user_data(wsi);
 			struct cert_check_info *cci = (struct cert_check_info *)opaque;
@@ -1737,9 +1784,12 @@ fallback:
 				cci->magic = 0;
 				free(cci);
 				lws_set_opaque_user_data(wsi, NULL);
+			} else {
+				struct pss *wpss = (struct pss *)opaque;
+				if (wpss) wpss->cwsi = NULL;
+				lwsl_notice("%s: UDS connection closed\n", __func__);
 			}
 		}
-		break;
 		break;
 
 	case LWS_CALLBACK_RAW_ADOPT:
@@ -1774,11 +1824,29 @@ fallback:
 				vhd->rx_len = len;
 
 				struct pss *root_pss = (struct pss *)user;
-				lwsl_debug("[INSTRUMENT] LWS_CALLBACK_RAW_RX (ROOT): Sending %d bytes to monitor request router\n", (int)len);
-				handle_monitor_request(vhd, root_pss, (const char *)&vhd->rx[LWS_PRE], len);
+				root_pss->tx_len = 0; // Prevent synchronous overwrite buildup mapping
+				
+				char *current = (char *)&vhd->rx[LWS_PRE];
+				char *end = current + len;
+				
+				while (current < end) {
+					char *nl = strchr(current, '\n');
+					if (!nl) nl = end;
+					
+					size_t chunk_len = lws_ptr_diff_size_t(nl, current);
+					if (chunk_len > 0) {
+						char save = *nl;
+						*nl = '\0';
+						lwsl_debug("[INSTRUMENT] LWS_CALLBACK_RAW_RX (ROOT): Sending %d bytes to monitor request router\n", (int)chunk_len);
+						handle_monitor_request(vhd, root_pss, current, chunk_len);
+						if (save != '\0') *nl = save;
+					}
+					current = nl + 1;
+				}
 
 				/* Tell server socket to reply */
-				lws_callback_on_writable(wsi);
+				if (root_pss->tx_len)
+					lws_callback_on_writable(wsi);
 			}
 		}
 		break;
@@ -1806,13 +1874,7 @@ fallback:
 		}
 		break;
 
-	case LWS_CALLBACK_RAW_CLOSE:
-		{
-			struct pss *wpss = (struct pss *)lws_get_opaque_user_data(wsi);
-			if (wpss) wpss->cwsi = NULL;
-			lwsl_notice("%s: UDS connection closed\n", __func__);
-		}
-		break;
+
 
 	default:
 		break;
@@ -1827,6 +1889,10 @@ callback_monitor_stdwsi(struct lws *wsi, enum lws_callback_reasons reason,
 {
         uint8_t buf[2048];
         int ilen;
+	struct lws_vhost *vhost = lws_get_vhost(wsi);
+	const struct lws_protocols *protocol = lws_get_protocol(wsi);
+	struct vhd *vhd = (struct vhd *)lws_protocol_vh_priv_get(vhost, protocol);
+	if (!vhd && global_root_vhd) vhd = global_root_vhd;
 
         switch (reason) {
         case LWS_CALLBACK_RAW_CLOSE_FILE:
