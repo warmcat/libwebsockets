@@ -799,6 +799,17 @@ lws_cmdline_option_handle_builtin(int argc, const char **argv,
 				  struct lws_context_creation_info *info);
 
 /**
+ * lws_parse_iso8601() - parse ISO8601 date string into unixtime
+ *
+ * \param ads: the date string to parse
+ *
+ * Returns the unixtime represented by the string, or 0 if parsing failed.
+ * Supports YYYY-MM-DDTHH:MM:SSZ and some common simple variations.
+ */
+LWS_VISIBLE LWS_EXTERN lws_usec_t
+lws_parse_iso8601(const char *ads);
+
+/**
  * lws_now_secs(): return seconds since 1970-1-1
  */
 LWS_VISIBLE LWS_EXTERN unsigned long

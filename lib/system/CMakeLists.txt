@@ -64,6 +64,11 @@ if (LWS_WITH_NETWORK)
 		list(APPEND SOURCES
 			system/ntpclient/ntpclient.c)
 	endif()
+	
+	if (LWS_WITH_SYS_WHOIS)
+		list(APPEND SOURCES
+			system/whois/whois.c)
+	endif()
 
 	if (LWS_WITH_SYS_DHCP_CLIENT)
 		list(APPEND SOURCES
