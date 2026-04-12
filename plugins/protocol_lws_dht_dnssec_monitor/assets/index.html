@@ -9,21 +9,28 @@
     <script src="lws-login.js"></script>
 </head>
 <body>
+    <div id="reconnect-overlay" class="reconnect-overlay">
+        <div class="reconnect-box">
+            <div class="spinner"></div>
+            <h2>Reconnecting...</h2>
+            <p>Connection to DNSSEC Monitor lost.</p>
+        </div>
+    </div>
     <div class="app-container">
         <header>
             <div class="header-content">
                 <h1>DNSSEC Monitor</h1>
-                <p>Manage authoritative DNSSEC zones and ACME TLS subdomains</p>
+                <p>Manage DNSSEC and TLS</p>
             </div>
             <div class="header-status">
                 <div id="user-info" class="user-info"></div>
                 <div id="extip-status" class="extip-container"></div>
                 <div class="extip-override-box">
                     <label for="input-ipv6-suffix" class="extip-label">IPv6 Suffix:</label>
-                    <input type="text" id="input-ipv6-suffix" placeholder="145f" class="extip-input" maxlength="4">
+                    <input type="text" id="input-ipv6-suffix" placeholder="" class="extip-input" maxlength="4">
                     <button id="btn-save-suffix" class="btn secondary btn-extip">Apply</button>
                 </div>
-                <span id="ws-status" class="status-badge connecting">Connecting...</span>
+                <span id="ws-status" class="status-badge connecting hide"></span>
             </div>
         </header>
 
@@ -38,11 +45,12 @@
                         <thead>
                             <tr>
                                 <th>Domain Name</th>
+                                <th>Expiry</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <tr><td colspan="2" class="loading">Loading...</td></tr>
+                            <tr><td colspan="3" class="loading">Loading...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -50,11 +58,16 @@
 
             <section class="panel detail-panel hidden-panel" id="detail-panel">
                 <div class="panel-header">
-                    <h2 id="detail-title">Zone Records: <span>---</span></h2>
+                    <h2 id="detail-title">Zone Records:<br><span>---</span></h2>
+                    <div id="whois-header" class="whois-header"></div>
                     <div class="actions-group">
                         <button id="btn-back-domains" class="btn secondary">&larr; Back</button>
                         <button id="btn-save-zonefile" class="btn primary">Save Zonefile</button>
                     </div>
+                </div>
+
+                <div id="whois-header" class="whois-header-panel">
+                    <!-- Populated by JS -->
                 </div>
 
                 <div class="ext-raw-editor">

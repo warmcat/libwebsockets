@@ -1,5 +1,6 @@
 let ws;
 let currentDomain = '';
+let currentDomainObj = null;
 let currentZone = null;
 let certCheckQueue = [];
 let certCheckTimers = {};
@@ -18,7 +19,7 @@ function processCertQueue() {
             let s = document.getElementById(`cert-status-${task.fqdn}`);
             if (s && s.innerText === 'Checking...') {
                 s.innerText = 'Timeout';
-                s.style.color = '#f87171';
+                s.classList.remove('text-green', 'text-gray'); s.classList.add('text-red');
             }
             if (certCheckTimers[task.fqdn]) delete certCheckTimers[task.fqdn];
             concurrentChecks = Math.max(0, concurrentChecks - 1);
@@ -210,25 +211,35 @@ function connect() {
     const statusBadge = document.getElementById('ws-status');
 
     ws.onopen = function() {
-        statusBadge.textContent = 'Connected';
-        statusBadge.className = 'status-badge connected';
+        console.log('[INSTRUMENT] WS onopen: Connection established.');
+        statusBadge.classList.add('hide'); statusBadge.classList.remove('show-inline', 'show-flex');
+        document.getElementById('reconnect-overlay').classList.add('hide'); document.getElementById('reconnect-overlay').classList.remove('show-inline', 'show-flex');
+        document.body.classList.remove('is-disconnected');
         // The backend UDS proxy ring buffer drops overlapping packets if fired synchronously!
         // We must sequence the API bootstrap calls.
+        console.log('[INSTRUMENT] WS onopen: Bootstrapping with get_domains...');
         sendReq({ req: 'get_domains' });
     };
 
     ws.onmessage = function(msg) {
+        console.log('[INSTRUMENT] WS onmessage: Raw payload: ', msg.data);
         try {
             const data = JSON.parse(msg.data);
+            console.log('[INSTRUMENT] WS onmessage: Parsed data: ', data);
             handleResponse(data);
         } catch(e) {
-            console.error('Failed to parse WS msg:', e);
+            console.error('[INSTRUMENT] Failed to parse WS msg:', e);
+            console.log('[INSTRUMENT] Raw message fragment/broken:', msg.data);
         }
     };
 
     ws.onclose = function() {
+        console.warn('[INSTRUMENT] WS onclose: Connection closed or bounced. Retrying in 3000ms...');
+        statusBadge.classList.remove('hide'); statusBadge.classList.add('show-inline');
         statusBadge.textContent = 'Disconnected';
-        statusBadge.className = 'status-badge disconnected';
+        statusBadge.className = 'status-badge disconnected show-inline';
+        document.getElementById('reconnect-overlay').classList.remove('hide'); document.getElementById('reconnect-overlay').classList.add('show-flex');
+        document.body.classList.add('is-disconnected');
         setTimeout(connect, 3000);
     };
 }
@@ -238,8 +249,10 @@ window.certStatusCache = {};
 
 function sendReq(obj) {
     if (ws && ws.readyState === WebSocket.OPEN) {
+        console.log('[INSTRUMENT] sendReq: Dispatching payload -> ', obj);
         ws.send(JSON.stringify(obj));
     } else {
+        console.log('[INSTRUMENT] sendReq: Failed because WS is not OPEN (ready state: ' + (ws ? ws.readyState : 'null') + ') -> ', obj);
         showToast('Not connected to server', true);
     }
 }
@@ -288,12 +301,13 @@ function handleResponse(data) {
                     }
                     content += `<div>${type}: ${ip}</div>`;
                 });
-                bdg.style.display = 'inline-block';
+                bdg.classList.remove('hide'); bdg.classList.add('show-inline');
                 bdg.innerHTML = content;
             }
             break;
         case 'get_domains':
-            renderDomains(data.domains || []);
+            window.domainsCache = data.domains || [];
+            renderDomains(window.domainsCache);
             // Bootstrap phase 2: now safe to fetch suffix config
             sendReq({ req: 'get_ipv6_suffix' });
             break;
@@ -338,10 +352,10 @@ function handleResponse(data) {
             if (span) {
                 if (data.status === 'ok') {
                     span.innerText = data.msg;
-                    span.style.color = '#34d399';
+                    span.classList.remove('text-red', 'text-gray'); span.classList.add('text-green');
                 } else {
                     span.innerText = data.msg;
-                    span.style.color = '#f87171';
+                    span.classList.remove('text-green', 'text-gray'); span.classList.add('text-red');
                 }
             }
             processCertQueue();
@@ -352,45 +366,89 @@ function handleResponse(data) {
 function renderDomains(domains) {
     const tbody = document.querySelector('#table-domains tbody');
     tbody.innerHTML = '';
+    
+    console.log('Rendering domains:', domains);
 
     if (!domains.length) {
-        tbody.innerHTML = '<tr><td colspan="2" class="loading">No domains found. Add one to begin.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="3" class="loading">No domains found. Add one to begin.</td></tr>';
         return;
     }
 
     domains.forEach(d => {
+        const name = d.name || d;
+        const expiry = d.whois ? d.whois.expiry_date : 0;
+        
         const tr = document.createElement('tr');
-        if (d === currentDomain) tr.classList.add('active');
+        if (name === currentDomain) tr.classList.add('active');
 
         const tdName = document.createElement('td');
         const a = document.createElement('a');
         a.href = '#';
-        a.textContent = d;
+        a.textContent = name;
         a.onclick = (e) => {
             e.preventDefault();
-            selectDomain(d);
+            selectDomain(name);
         };
         tdName.appendChild(a);
+
+        const tdExpiry = document.createElement('td');
+        tdExpiry.className = 'expiry-column';
+        tdExpiry.innerHTML = formatExpiry(expiry);
 
         const tdAct = document.createElement('td');
         const btnDel = document.createElement('button');
         btnDel.className = 'btn btn-sm danger';
         btnDel.textContent = 'Delete';
         btnDel.onclick = () => {
-            if (confirm(`Delete domain ${d} and all associated files?`)) {
-                sendReq({ req: 'delete_domain', domain: d });
+            if (confirm(`Delete domain ${name} and all associated files?`)) {
+                sendReq({ req: 'delete_domain', domain: name });
             }
         };
         tdAct.appendChild(btnDel);
 
         tr.appendChild(tdName);
+        tr.appendChild(tdExpiry);
         tr.appendChild(tdAct);
         tbody.appendChild(tr);
     });
 }
 
+function formatExpiry(unixtime) {
+    if (!unixtime) return '---';
+    const now = Math.floor(Date.now() / 1000);
+    const diff = unixtime - now;
+    const totalDays = Math.floor(diff / 86400);
+    
+    if (totalDays < 0) return '<span class="expiry-critical">Expired</span>';
+    
+    let str = "";
+    let d = totalDays;
+    if (d >= 365) {
+        str += Math.floor(d / 365) + "y";
+        d = d % 365;
+    }
+    if (d >= 30) {
+        let m = Math.floor(d / 30);
+        if (m > 0 && str.length < 5) str += m + "mo";
+        d = d % 30;
+    }
+    if (d >= 7 && !str) {
+        str += Math.floor(d / 7) + "w";
+        d = d % 7;
+        if (d > 0) str += d + "d";
+    } else if (d > 0 || !str) {
+        if (!str || str.indexOf("mo") === -1) str += d + "d";
+    }
+    
+    if (totalDays < 30) return `<span class="expiry-critical">${str}</span>`;
+    if (totalDays < 90) return `<span class="expiry-soon">${str}</span>`;
+    return str;
+}
+
 function selectDomain(domain) {
     currentDomain = domain;
+    currentDomainObj = window.domainsCache ? window.domainsCache.find(d => d.name === domain) : null;
+    
     document.querySelector('#detail-title span').textContent = domain;
     document.getElementById('detail-panel')?.classList.remove('hidden-panel');
     document.getElementById('domain-panel')?.classList.add('hidden-panel');
@@ -402,8 +460,82 @@ function selectDomain(domain) {
         if (r.cells[0].textContent === domain) r.classList.add('active');
     });
 
+    renderWhoisHeader();
     window.activeTls = [];
     sendReq({ req: 'get_zone', domain: domain });
+}
+
+function renderWhoisHeader() {
+    const hdr = document.getElementById('whois-header');
+    if (!hdr) return;
+    
+    if (!currentDomainObj || !currentDomainObj.whois) {
+        hdr.innerHTML = '<div class="loading">No WHOIS data available</div>';
+        return;
+    }
+    
+    const w = currentDomainObj.whois;
+    const expiryDate = w.expiry_date ? new Date(w.expiry_date * 1000).toLocaleDateString() : 'Unknown';
+    const nsList = (w.nameservers || []).join('<br>') || 'None';
+    
+    let dsStatus = '';
+    if (w.ds_data) {
+        const localDs = (currentDomainObj.local_ds || '').trim().toUpperCase();
+        const whoisDs = w.ds_data.trim().toUpperCase();
+        
+        let isMatch = false;
+        if (localDs && whoisDs) {
+            /* WHOIS DS might contain key ID and other info, we check if local DS is a substring or vice versa */
+            isMatch = whoisDs.includes(localDs) || localDs.includes(whoisDs);
+        }
+        
+        dsStatus = `
+            <div class="whois-item">
+                <span class="whois-label">DNSSEC Match</span>
+                <span class="status-match ${isMatch ? 'ok' : 'fail'}">
+                    <span class="status-match-icon">${isMatch ? '✔' : '✘'}</span>
+                    <span class="whois-value">${isMatch ? 'Matches' : 'Mismatch'}</span>
+                    <div class="tooltip">Expected DS:\n${localDs || 'Unknown'}\n\nWHOIS DS:\n${whoisDs}</div>
+                </span>
+            </div>
+        `;
+    } else {
+        let isSigned = false;
+        let dnssecVal = w.dnssec ? w.dnssec.trim().toLowerCase() : '';
+        if (dnssecVal === 'signeddelegation' || dnssecVal === 'yes' || dnssecVal === 'signed' || dnssecVal === 'active') {
+            isSigned = true;
+        }
+        
+        let statusClass = isSigned ? 'ok' : 'warn';
+        let statusIcon = isSigned ? '✔' : '⚠';
+        let statusText = w.dnssec || 'Unsigned';
+        let tooltipText = isSigned ? 
+            'Delegation is actively signed according to WHOIS.\\n(DS hash not provided by registry)' : 
+            'No DS records found in WHOIS.\\nDelegate signing if this is incorrect.';
+
+        dsStatus = `
+            <div class="whois-item">
+                <span class="whois-label">DNSSEC Status</span>
+                <span class="status-match ${statusClass}">
+                    <span class="status-match-icon">${statusIcon}</span>
+                    <span class="whois-value">${statusText}</span>
+                    <div class="tooltip">${tooltipText}</div>
+                </span>
+            </div>
+        `;
+    }
+
+    hdr.innerHTML = `
+        <div class="whois-item">
+            <span class="whois-label">Expiry</span>
+            <span class="whois-value">${expiryDate}</span>
+        </div>
+        <div class="whois-item">
+            <span class="whois-label">Name Servers</span>
+            <span class="whois-value">${nsList}</span>
+        </div>
+        ${dsStatus}
+    `;
 }
 
 function closeDetail() {
@@ -461,19 +593,19 @@ function renderZoneTable() {
             let cacheKey = fqdn + ':' + portVal;
             let cached = window.certStatusCache[cacheKey];
             let initStatus = '';
-            let initColor = '#aaa';
+            let initColorClass = 'text-gray';
             if (cached) {
                 initStatus = cached.msg;
-                initColor = (cached.status === 'ok') ? '#34d399' : '#f87171';
+                initColorClass = (cached.status === 'ok') ? 'text-green' : 'text-red';
             } else if (certCheckTimers[fqdn]) {
                 initStatus = 'Checking...';
             }
 
             tlsTd = `<td class="ext-tls-cell">
-                         <div style="display:block; text-align: right;">
-                             <input type="number" class="tls-port ext-port" data-fqdn="${fqdn}" value="${portVal}" maxlength="5" placeholder="Port" style="width:70px; background: rgba(0,0,0,0.2); color:#fff; border:1px solid #444; border-radius:4px; padding:2px;">
+                         <div class="tls-port-wrapper">
+                             <input type="number" class="tls-port ext-port tls-port-input" data-fqdn="${fqdn}" value="${portVal}" maxlength="5" placeholder="Port">
                              <br>
-                             <span id="cert-status-${fqdn}" class="cert-status" style="font-size:0.8em; color:${initColor};">${initStatus}</span>
+                             <span id="cert-status-${fqdn}" class="cert-status tls-cert-status ${initColorClass}">${initStatus}</span>
                          </div>
                      </td>`;
         }

@@ -823,6 +823,7 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 
 #include <libwebsockets/lws-ota.h>
 #include <libwebsockets/lws-system.h>
+#include <libwebsockets/lws-whois.h>
 #include <libwebsockets/lws-callbacks.h>
 
 #if defined(LWS_WITH_NETWORK)

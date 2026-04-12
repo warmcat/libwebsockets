@@ -1433,6 +1433,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if defined(LWS_WITH_SYS_DHCP_CLIENT)
 		extern const struct lws_protocols lws_system_protocol_dhcpc4;
 #endif
+#if defined(LWS_WITH_SYS_WHOIS)
+		extern const struct lws_protocols lws_system_protocol_whois;
+#endif
 #if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_BAREMETAL) && !defined(LWS_PLAT_ANDROID) && defined(LWS_WITH_NETWORK)
 		extern const struct lws_protocols lws_system_protocol_stdin;
 #endif
@@ -1452,6 +1455,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 #if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_BAREMETAL) && !defined(LWS_PLAT_ANDROID) && defined(LWS_WITH_NETWORK)
 		pp[n++] = &lws_system_protocol_stdin;
+#endif
+#if defined(LWS_WITH_SYS_WHOIS)
+		pp[n++] = &lws_system_protocol_whois;
 #endif
 #if defined(LWS_WITH_DIR)
 		pp[n++] = &protocol_lws_dir_notify;

@@ -72,7 +72,7 @@ policy_cb(struct lejp_ctx *ctx, char reason)
 
 static const char *default_policy =
 	"{\n"
-	"    \"dns_base_dir\": \"/etc/dnssec\",\n"
+	"    \"dns_base_dir\": \"/var/dnssec\",\n"
 	"    \"seeds\": [ \"selfdns.org\", \"uk1.selfdns.org\", \"asia1.selfdns.org\" ]\n"
 	"}\n";
 

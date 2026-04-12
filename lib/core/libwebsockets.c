@@ -2277,3 +2277,33 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size)
 
 	return buf;
 }
+
+lws_usec_t
+lws_parse_iso8601(const char *ads)
+{
+	struct tm tm;
+	const char *p = ads;
+
+	if (!ads)
+		return 0;
+
+	memset(&tm, 0, sizeof(tm));
+
+	/* ISO8601 / WHOIS dates: YYYY-MM-DDTHH:MM:SSZ and variants */
+	if (sscanf(p, "%d-%d-%dT%d:%d:%d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday,
+		   &tm.tm_hour, &tm.tm_min, &tm.tm_sec) < 3) {
+		/* Try with space instead of T */
+		if (sscanf(p, "%d-%d-%d %d:%d:%d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday,
+			   &tm.tm_hour, &tm.tm_min, &tm.tm_sec) < 3)
+			return 0;
+	}
+
+	tm.tm_year -= 1900;
+	tm.tm_mon -= 1;
+
+#if defined(LWS_HAVE_TIMEGM)
+	return (lws_usec_t)timegm(&tm);
+#else
+	return (lws_usec_t)mktime(&tm); /* flawed but better than nothing */
+#endif
+}
