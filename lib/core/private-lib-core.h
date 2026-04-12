@@ -255,22 +255,9 @@ struct lws_tx_credit {
 
 #undef X509_NAME
 
-/*
- * All lws_tls...() functions must return this type, converting the
- * native backend result and doing the extra work to determine which one
- * as needed.
- *
- * Native TLS backend return codes are NOT ALLOWED outside the backend.
- *
- * Non-SSL mode also uses these types.
- */
-enum lws_ssl_capable_status {
-	LWS_SSL_CAPABLE_ERROR			= -1, /* it failed */
-	LWS_SSL_CAPABLE_DONE			= 0,  /* it succeeded */
-	LWS_SSL_CAPABLE_MORE_SERVICE_READ	= -2, /* retry WANT_READ */
-	LWS_SSL_CAPABLE_MORE_SERVICE_WRITE	= -3, /* retry WANT_WRITE */
-	LWS_SSL_CAPABLE_MORE_SERVICE		= -4, /* general retry */
-};
+ /*
+  * the rest is managed per-context, that includes
+  */
 
 enum lws_context_destroy {
 	LWSCD_NO_DESTROY,		/* running */

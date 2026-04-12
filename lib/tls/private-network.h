@@ -185,8 +185,6 @@ lws_tls_server_abort_connection(struct lws *wsi);
 enum lws_ssl_capable_status
 __lws_tls_shutdown(struct lws *wsi);
 
-enum lws_ssl_capable_status
-lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len);
 int
 lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len);
 int

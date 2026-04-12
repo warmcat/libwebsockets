@@ -113,6 +113,23 @@ enum lws_client_connect_ssl_connection_flags {
 	 * http cookies in a Netscape Cookie Jar on this connection */
 };
 
+/*
+ * All lws_tls...() functions must return this type, converting the
+ * native backend result and doing the extra work to determine which one
+ * as needed.
+ *
+ * Native TLS backend return codes are NOT ALLOWED outside the backend.
+ *
+ * Non-SSL mode also uses these types.
+ */
+enum lws_ssl_capable_status {
+	LWS_SSL_CAPABLE_ERROR			= -1, /* it failed */
+	LWS_SSL_CAPABLE_DONE			= 0,  /* it succeeded */
+	LWS_SSL_CAPABLE_MORE_SERVICE_READ	= -2, /* retry WANT_READ */
+	LWS_SSL_CAPABLE_MORE_SERVICE_WRITE	= -3, /* retry WANT_WRITE */
+	LWS_SSL_CAPABLE_MORE_SERVICE		= -4, /* general retry */
+};
+
 /** struct lws_client_connect_info - parameters to connect with when using
  *				    lws_client_connect_via_info() */
 
@@ -499,5 +516,33 @@ lws_http_basic_auth_gen2(const char *user, const void *pw, size_t pwd_len,
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_tls_session_is_reused(struct lws *wsi);
+
+/**
+ * lws_tls_client_connect() - perform/progress TLS handshake on client connection
+ *
+ * \param wsi: client connection
+ * \param errbuf: buffer for error string
+ * \param len: length of errbuf
+ *
+ * This is usually handled automatically by lws if LCCSCF_USE_SSL was set on
+ * the connection. However for STARTTLS type protocols, the connection
+ * starts in cleartext and this can be called manually later to perform the
+ * TLS handshake.
+ */
+LWS_VISIBLE LWS_EXTERN enum lws_ssl_capable_status
+lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len);
+
+/**
+ * lws_tls_client_upgrade() - upgrade a non-TLS client connection to TLS
+ *
+ * \param wsi: client connection
+ * \param ssl_flags: LCCSCF_ flags to apply
+ *
+ * For STARTTLS type protocols, this can be called to transition a RAW
+ * connection to TLS. It handles structure initialization and starts the
+ * handshake.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_tls_client_upgrade(struct lws *wsi, int ssl_flags);
 
 ///@}
