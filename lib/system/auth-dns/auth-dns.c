@@ -331,8 +331,7 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 {
 	char obuf[8192]; /* simple large enough buffer for test */
 	int fd, n, ofd = -1, res_wr, temp_len = 0, temp_max = 0;
-	size_t uin = 0, uout = 0;
-	lws_strexp_t exp;
+	size_t uout = 0;
 	struct stat st;
 	char *buf, *expbuf;
 	ssize_t ns;

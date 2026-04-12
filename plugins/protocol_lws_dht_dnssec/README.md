@@ -66,6 +66,20 @@ The following substitution keys are provided:
 - `${DANE0}`: Generates a DANE TLSA SHA-256 signature string for the *current* active TLS certificate. The parser natively identities the target `<domain>` context from the front of the corresponding record line (such as `_443._tcp.warmcat.com. IN TLSA ...`) and accesses `/var/dnssec/domains/<domain>/tls/<domain>.crt` to actively compute the `3 1 1 <hash>` DANE data.
 - `${DANE1}`: Acts identically to `DANE0`, however signs the *previous* archived certificate by checking `/var/dnssec/domains/<domain>/tls/<domain>.crt.1`.
 
+### Substitution Examples
+If an operator authors the following raw zone file config:
+```text
+example.com.      IN A     ${EXTIP4}
+example.com.      IN AAAA  ${EXTIP6}
+_443._tcp.example.com. IN TLSA ${DANE0}
+_443._tcp.example.com. IN TLSA ${DANE1}
+```
+
+Upon `signzone`:
+- If the node **lacks an external IPv6 address**, the entire `example.com. IN AAAA ${EXTIP6}` line will be seamlessly excluded from the resulting signed zone.
+- The `${DANE0}` key evaluates `_443._tcp.example.com.` and automatically locates `/var/dnssec/domains/example.com/tls/example.com.crt`. It hashes the embedded SPKI, returning `3 1 1 e3b0c4429...`.
+- If no archived certificate (`example.com.crt.1`) exists, the second TLSA line containing `${DANE1}` will drop itself natively.
+
 ## `lws-crypto-dnssec` Utility
 Libwebsockets provides the `<build-dir>/bin/lws-crypto-dnssec` standalone utility that interfaces dynamically using the `lws-dht-dnssec` plugin.
 
