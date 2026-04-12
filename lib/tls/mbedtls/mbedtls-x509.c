@@ -194,6 +194,36 @@ lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
 				x509->MBEDTLS_PRIVATE_V30_ONLY(raw).MBEDTLS_PRIVATE_V30_ONLY(len));
 		break;
 
+	case LWS_TLS_CERT_INFO_DER_SPKI:
+	{
+		uint8_t *tmp;
+		int ret;
+		
+		/* mbedtls writes to the end of the buffer, so allocate a temporary one */
+		/* SPKI won't exceed a few KB */
+		tmp = lws_malloc(4096, "mbedtls_spki_der");
+		if (!tmp)
+			return -1;
+
+		ret = mbedtls_pk_write_pubkey_der(&x509->MBEDTLS_PRIVATE_V30_ONLY(pk), tmp, 4096);
+		if (ret < 0) {
+			lws_free(tmp);
+			return -1;
+		}
+
+		buf->ns.len = ret;
+
+		if (len < (size_t)ret) {
+			lws_free(tmp);
+			return -1;
+		}
+
+		/* the result is written backwards, ending at tmp + 4096 */
+		memcpy(buf->ns.name, tmp + 4096 - ret, (size_t)ret);
+		lws_free(tmp);
+		break;
+	}
+
 	case LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID:
 
 		memset(&akid, 0, sizeof(akid));

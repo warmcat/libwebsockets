@@ -126,16 +126,25 @@ struct parsed_config {
 	struct vhd *vhd;
 	char common_name[256];
 	char email[256];
+	char key_type[64];
+	char key_curve[64];
+	int key_bits;
 };
 
 static const char * const config_paths[] = {
 	"common-name",
 	"email",
+	"key-type",
+	"key-curve",
+	"key-bits",
 };
 
 enum enum_config_paths {
 	LEJP_CONF_COMMON_NAME,
 	LEJP_CONF_EMAIL,
+	LEJP_CONF_KEY_TYPE,
+	LEJP_CONF_KEY_CURVE,
+	LEJP_CONF_KEY_BITS,
 };
 
 static signed char
@@ -151,6 +160,16 @@ cb_conf(struct lejp_ctx *ctx, char reason)
 		case LEJP_CONF_EMAIL:
 			lws_strncpy(pc->email, ctx->buf, sizeof(pc->email));
 			break;
+		case LEJP_CONF_KEY_TYPE:
+			lws_strncpy(pc->key_type, ctx->buf, sizeof(pc->key_type));
+			break;
+		case LEJP_CONF_KEY_CURVE:
+			lws_strncpy(pc->key_curve, ctx->buf, sizeof(pc->key_curve));
+			break;
+		}
+	} else if (reason == LEJPCB_VAL_NUM_INT) {
+		if (ctx->path_match - 1 == LEJP_CONF_KEY_BITS) {
+			pc->key_bits = atoi(ctx->buf);
 		}
 	}
 
@@ -240,8 +259,9 @@ scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 			kargs.domain = pc.common_name;
 			kargs.workdir = wd;
 
-			/* Assume ES256 fallback if unspecified (or whatever dnssec module defaults to) */
-			kargs.curve = "P-256";
+			kargs.type = pc.key_type[0] ? pc.key_type : NULL;
+			kargs.curve = pc.key_curve[0] ? pc.key_curve : "P-256";
+			kargs.bits = pc.key_bits ? pc.key_bits : 0;
 
 			if (vhd->ops->keygen(vhd->context, &kargs))
 				lwsl_err("%s: Failed to generate keys for %s\n", __func__, pc.common_name);

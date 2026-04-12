@@ -47,6 +47,11 @@ enum lws_tls_cert_info {
 	 * -1 is returned and the size will be returned in buf->ns.len.
 	 * If the certificate cannot be found -1 is returned and 0 in
 	 * buf->ns.len. */
+	LWS_TLS_CERT_INFO_DER_SPKI,
+	/**< the certificate's Subject Public Key Info as a DER sequence.
+	 * If it's too big, -1 is returned and the size will be returned
+	 * in buf->ns.len.  If the certificate cannot be found -1 is
+	 * returned and 0 in buf->ns.len. */
 	LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID,
 	/**< If the cert has one, the key ID responsible for the signature */
 	LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID_ISSUER,
