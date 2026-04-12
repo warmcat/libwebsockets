@@ -171,6 +171,9 @@ context_creation(int argc, const char **argv)
 			info.uid = (unsigned int)atoi(p);
 		if ((p = lws_cmdline_option(argc, argv, "--gid")))
 			info.gid = (unsigned int)atoi(p);
+		
+		/* Root monitor makes outbound TLS probes but skips user vhosts, force global TLS init */
+		info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	}
 
 	foreign_loops[0] = &loop;

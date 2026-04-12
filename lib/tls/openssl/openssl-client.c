@@ -278,9 +278,9 @@ lws_ssl_client_bio_create(struct lws *wsi)
 
 	wsi->tls.ssl = SSL_new(wsi->a.vhost->tls.ssl_client_ctx);
 	if (!wsi->tls.ssl) {
-		const char *es = ERR_error_string(
-			LWS_TLS_ERR_CAST(lws_ssl_get_error(wsi, 0)), NULL);
-		lwsl_err("SSL_new failed: %s\n", es);
+		unsigned long err = ERR_get_error();
+		const char *es = ERR_error_string(LWS_TLS_ERR_CAST(err), NULL);
+		lwsl_err("SSL_new failed: %s (real error %lu)\n", es, err);
 		lws_tls_err_describe_clear();
 		return -1;
 	}

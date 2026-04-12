@@ -1319,14 +1319,19 @@ lwsws_get_config_vhosts(struct lws_context *context,
 		memset(&i, 0, sizeof(i));
 		i.vhost_name = "root-monitor-dummy";
 		i.port = CONTEXT_PORT_NO_LISTEN;
-		i.options = info->options;
+		i.options = info->options | LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 		i.protocols = info->protocols;
 		i.pprotocols = info->pprotocols;
 #if defined(LWS_ROLE_WS)
 		i.extensions = info->extensions;
 #endif
-		if (!lws_create_vhost(context, &i))
+		struct lws_vhost *vh = lws_create_vhost(context, &i);
+		if (!vh)
 			return 1;
+
+		extern int lws_context_init_ssl_library(struct lws_context *cx, const struct lws_context_creation_info *info);
+		lws_context_init_ssl_library(context, &i);
+		lws_init_vhost_client_ssl(&i, vh);
 
 		return 0;
 	}

@@ -1053,6 +1053,7 @@ struct lws_spawn_piped {
 	lws_sorted_usec_list_t		sul_poll;
 	FILETIME			ft_create;
 	FILETIME			ft_exit;
+	void				*hPC; /* Pseudoconsole */
 #else
 	pid_t				child_pid;
 

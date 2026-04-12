@@ -29,6 +29,21 @@
 #include <strsafe.h>
 #include <Psapi.h>
 
+#ifndef EXTENDED_STARTUPINFO_PRESENT
+#define EXTENDED_STARTUPINFO_PRESENT 0x00080000
+#endif
+
+#ifndef PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE
+#define PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE 0x00020016
+#endif
+
+typedef VOID* HPCON;
+typedef HRESULT (WINAPI *PFN_CREATE_PSEUDO_CONSOLE)(COORD, HANDLE, HANDLE, DWORD, HPCON*);
+typedef VOID (WINAPI *PFN_CLOSE_PSEUDO_CONSOLE)(HPCON);
+typedef BOOL (WINAPI *PFN_INITIALIZE_PROC_THREAD_ATTRIBUTE_LIST)(LPPROC_THREAD_ATTRIBUTE_LIST, DWORD, DWORD, PSIZE_T);
+typedef BOOL (WINAPI *PFN_UPDATE_PROC_THREAD_ATTRIBUTE)(LPPROC_THREAD_ATTRIBUTE_LIST, DWORD, DWORD_PTR, PVOID, SIZE_T, PVOID, PSIZE_T);
+typedef VOID (WINAPI *PFN_DELETE_PROC_THREAD_ATTRIBUTE_LIST)(LPPROC_THREAD_ATTRIBUTE_LIST);
+
 void
 lws_spawn_timeout(struct lws_sorted_usec_list *sul)
 {
@@ -121,6 +136,17 @@ lws_spawn_piped_destroy(struct lws_spawn_piped **_lsp)
 	if (lsp->hJob) {
 		CloseHandle(lsp->hJob);
 		lsp->hJob = NULL;
+	}
+
+	if (lsp->hPC) {
+		HMODULE hKernel32 = GetModuleHandleW(L"kernel32.dll");
+		PFN_CLOSE_PSEUDO_CONSOLE pClosePseudoConsole = NULL;
+		if (hKernel32) {
+			pClosePseudoConsole = (PFN_CLOSE_PSEUDO_CONSOLE)GetProcAddress(hKernel32, "ClosePseudoConsole");
+			if (pClosePseudoConsole)
+				pClosePseudoConsole(lsp->hPC);
+		}
+		lsp->hPC = NULL;
 	}
 
 	for (n = 0; n < 3; n++) {
@@ -421,23 +447,28 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	sa.lpSecurityDescriptor = NULL;
 
 	for (n = 0; n < 3; n++) {
-		DWORD waitmode = PIPE_NOWAIT;
+		if (i->pty_mode && n == LWS_STDERR) {
+			/* fuse stderr to stdout for pty */
+			lsp->pipe_fds[n][0] = NULL;
+			lsp->pipe_fds[n][1] = lsp->pipe_fds[LWS_STDOUT][1];
+		} else {
+			DWORD waitmode = PIPE_NOWAIT;
 
-		if (!CreatePipe(&lsp->pipe_fds[n][0], &lsp->pipe_fds[n][1],
-				&sa, 0)) {
-			lwsl_err("%s: CreatePipe() failed\n", __func__);
-			goto bail1;
-		}
+			if (!CreatePipe(&lsp->pipe_fds[n][0], &lsp->pipe_fds[n][1],
+					&sa, 0)) {
+				lwsl_err("%s: CreatePipe() failed\n", __func__);
+				goto bail1;
+			}
 
-		SetNamedPipeHandleState(lsp->pipe_fds[1][0], &waitmode, NULL, NULL);
-		SetNamedPipeHandleState(lsp->pipe_fds[2][0], &waitmode, NULL, NULL);
+			if (n != LWS_STDIN)
+				SetNamedPipeHandleState(lsp->pipe_fds[n][0], &waitmode, NULL, NULL);
 
-		/* don't inherit the pipe side that belongs to the parent */
+			/* don't inherit the pipe side that belongs to the parent */
 
-		if (!SetHandleInformation(&lsp->pipe_fds[n][!n],
-					  HANDLE_FLAG_INHERIT, 0)) {
-			lwsl_info("%s: SetHandleInformation() failed\n", __func__);
-			//goto bail1;
+			if (!SetHandleInformation(&lsp->pipe_fds[n][!n],
+						  HANDLE_FLAG_INHERIT, 0)) {
+				// lwsl_info("%s: SetHandleInformation() failed\n", __func__);
+			}
 		}
 	}
 
@@ -459,12 +490,15 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		lsp->stdwsi[n]->a.protocol = pcol;
 		lsp->stdwsi[n]->a.opaque_user_data = i->opaque;
 
+		if (!lsp->pipe_fds[n][!n])
+			continue;
+
 		lsp->stdwsi[n]->desc.filefd = lsp->pipe_fds[n][!n];
 		lsp->stdwsi[n]->file_desc = 1;
 
 		lws_dll2_remove(&lsp->stdwsi[n]->pre_natal);
 
-		lwsl_debug("%s: lsp stdwsi %p: pipe idx %d -> fd %d / %d\n",
+		lwsl_debug("%s: lsp stdwsi %p: pipe idx %d -> fd %p / %p\n",
 			   __func__, lsp->stdwsi[n], n,
 			   lsp->pipe_fds[n][!!(n == 0)],
 			   lsp->pipe_fds[n][!(n == 0)]);
@@ -524,20 +558,73 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		*(--p) = '\0';
 	// puts(cli);
 
+	STARTUPINFOEXA siex;
+	STARTUPINFOA *psi;
+	HMODULE hKernel32;
+	PFN_CREATE_PSEUDO_CONSOLE pCreatePseudoConsole = NULL;
+	PFN_INITIALIZE_PROC_THREAD_ATTRIBUTE_LIST pInitializeProcThreadAttributeList = NULL;
+	PFN_UPDATE_PROC_THREAD_ATTRIBUTE pUpdateProcThreadAttribute = NULL;
+	PFN_DELETE_PROC_THREAD_ATTRIBUTE_LIST pDeleteProcThreadAttributeList = NULL;
+	SIZE_T attr_list_size = 0;
+	DWORD creation_flags = CREATE_SUSPENDED;
+	int pty_active = 0;
+
 	memset(&pi, 0, sizeof(pi));
 	memset(&si, 0, sizeof(si));
+	memset(&siex, 0, sizeof(siex));
 
-	si.cb		= sizeof(STARTUPINFO);
-	si.hStdInput	= lsp->pipe_fds[LWS_STDIN][0];
-	si.hStdOutput	= lsp->pipe_fds[LWS_STDOUT][1];
-	si.hStdError	= lsp->pipe_fds[LWS_STDERR][1];
-	si.dwFlags	= STARTF_USESTDHANDLES | CREATE_NO_WINDOW;
-	si.wShowWindow	= TRUE;
+	if (i->pty_mode) {
+		hKernel32 = GetModuleHandleW(L"kernel32.dll");
+		if (hKernel32) {
+			pCreatePseudoConsole = (PFN_CREATE_PSEUDO_CONSOLE)GetProcAddress(hKernel32, "CreatePseudoConsole");
+			pInitializeProcThreadAttributeList = (PFN_INITIALIZE_PROC_THREAD_ATTRIBUTE_LIST)GetProcAddress(hKernel32, "InitializeProcThreadAttributeList");
+			pUpdateProcThreadAttribute = (PFN_UPDATE_PROC_THREAD_ATTRIBUTE)GetProcAddress(hKernel32, "UpdateProcThreadAttribute");
+			pDeleteProcThreadAttributeList = (PFN_DELETE_PROC_THREAD_ATTRIBUTE_LIST)GetProcAddress(hKernel32, "DeleteProcThreadAttributeList");
+		}
 
-	if (!CreateProcess(NULL, cli, NULL, NULL, TRUE, CREATE_SUSPENDED, NULL, NULL, &si, &pi)) {
-		lwsl_err("%s: CreateProcess failed 0x%x\n", __func__,
+		if (pCreatePseudoConsole && pInitializeProcThreadAttributeList && pUpdateProcThreadAttribute && pDeleteProcThreadAttributeList) {
+			COORD size;
+			size.X = 80;
+			size.Y = 24;
+
+			if (pCreatePseudoConsole(size, lsp->pipe_fds[LWS_STDIN][0], lsp->pipe_fds[LWS_STDOUT][1], 0, &lsp->hPC) == S_OK) {
+				pty_active = 1;
+				siex.StartupInfo.cb = sizeof(STARTUPINFOEXA);
+				pInitializeProcThreadAttributeList(NULL, 1, 0, &attr_list_size);
+				siex.lpAttributeList = (LPPROC_THREAD_ATTRIBUTE_LIST)lws_malloc(attr_list_size, "ptyattr");
+				pInitializeProcThreadAttributeList(siex.lpAttributeList, 1, 0, &attr_list_size);
+				pUpdateProcThreadAttribute(siex.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, lsp->hPC, sizeof(HPCON), NULL, NULL);
+			}
+		}
+	}
+
+	if (pty_active) {
+		psi = (STARTUPINFOA *)&siex;
+		creation_flags |= EXTENDED_STARTUPINFO_PRESENT;
+	} else {
+		si.cb = sizeof(STARTUPINFOA);
+		psi = (STARTUPINFOA *)&si;
+	}
+
+	psi->hStdInput	= lsp->pipe_fds[LWS_STDIN][0];
+	psi->hStdOutput	= lsp->pipe_fds[LWS_STDOUT][1];
+	psi->hStdError	= lsp->pipe_fds[LWS_STDERR][1];
+	psi->dwFlags	= STARTF_USESTDHANDLES | CREATE_NO_WINDOW;
+	psi->wShowWindow	= TRUE;
+
+	if (!CreateProcessA(NULL, cli, NULL, NULL, TRUE, creation_flags, NULL, NULL, psi, &pi)) {
+		lwsl_err("%s: CreateProcess failed 0x%lx\n", __func__,
 				(unsigned long)GetLastError());
+		if (pty_active && siex.lpAttributeList) {
+			pDeleteProcThreadAttributeList(siex.lpAttributeList);
+			lws_free(siex.lpAttributeList);
+		}
 		goto bail3;
+	}
+
+	if (pty_active && siex.lpAttributeList) {
+		pDeleteProcThreadAttributeList(siex.lpAttributeList);
+		lws_free(siex.lpAttributeList);
 	}
 
 	lsp->child_pid = pi.hProcess;
@@ -563,10 +650,12 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	/*
 	 *  close:                stdin:r, stdout:w, stderr:w
 	 */
-	for (n = 0; n < 3; n++)
-		CloseHandle(lsp->pipe_fds[n][n != 0]);
+	for (n = 0; n < 3; n++) {
+		if (lsp->pipe_fds[n][n != 0] && (!i->pty_mode || n != LWS_STDERR))
+			CloseHandle(lsp->pipe_fds[n][n != 0]);
+	}
 
-	lsp->pipes_alive = 3;
+	lsp->pipes_alive = i->pty_mode ? 2 : 3;
 	lsp->created = lws_now_usecs();
 
 	if (i->owner)
