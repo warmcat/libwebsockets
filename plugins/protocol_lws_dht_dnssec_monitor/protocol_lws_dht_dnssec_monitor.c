@@ -91,6 +91,14 @@ struct vhd {
 	lws_dll2_owner_t ui_clients;
 	struct lws_smd_peer *smd_peer;
 	char ext_ips[256];
+	lws_dll2_owner_t completed_checks;
+};
+
+struct cert_check_result {
+	lws_dll2_t list;
+	char fqdn[128];
+	char msg[128];
+	int status_err;
 };
 
 static struct vhd *global_root_vhd = NULL;
@@ -430,6 +438,7 @@ struct monitor_req_args {
 	int zone_alloc;
 	char jwt[2048];
 	char suffix[64];
+	int port;
 };
 
 static const char * const monitor_req_paths[] = {
@@ -441,7 +450,8 @@ static const char * const monitor_req_paths[] = {
 	"directory_url",
 	"zone",
 	"jwt",
-	"suffix"
+	"suffix",
+	"port"
 };
 
 enum enum_req_paths {
@@ -453,7 +463,8 @@ enum enum_req_paths {
 	LRP_DIR_URL,
 	LRP_ZONE,
 	LRP_JWT,
-	LRP_SUFFIX
+	LRP_SUFFIX,
+	LRP_PORT
 };
 
 static signed char
@@ -465,6 +476,11 @@ monitor_req_cb(struct lejp_ctx *ctx, char reason)
 		if (ctx->path_match - 1 == LRP_ZONE) {
 			a->zone_len = 0;
 		}
+	}
+
+	if (reason == LEJPCB_VAL_NUM_INT) {
+		if (ctx->path_match - 1 == LRP_PORT)
+			a->port = atoi(ctx->buf);
 	}
 
 	if (reason == LEJPCB_VAL_STR_CHUNK || reason == LEJPCB_VAL_STR_END) {
@@ -510,6 +526,9 @@ monitor_req_cb(struct lejp_ctx *ctx, char reason)
 			break;
 		case LRP_SUFFIX:
 			lws_strncpy(a->suffix, ctx->buf, sizeof(a->suffix));
+			break;
+		case LRP_PORT:
+			a->port = atoi(ctx->buf);
 			break;
 		}
 	}
@@ -774,8 +793,21 @@ handle_req_get_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_arg
 					if (n > 0) {
 						buf[n] = '\0';
 						if (strstr(buf, "\"challenge-type\"")) {
+							int port = 0;
+							char *p = strstr(buf, "\"port\"");
+							if (p) {
+								p = strchr(p, ':');
+								if (p) {
+									while (*p == ':' || *p == ' ' || *p == '\t' || *p == '"') p++;
+									port = atoi(p);
+								}
+							}
 							if (!first) tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), ",");
-							tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\"%s\"", de->d_name);
+							char fqdn[128];
+							lws_strncpy(fqdn, de->d_name, sizeof(fqdn));
+							char *ext = strrchr(fqdn, '.');
+							if (ext && !strcmp(ext, ".json")) *ext = '\0';
+							tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"fqdn\":\"%s\",\"port\":%d}", fqdn, port);
 							first = 0;
 						}
 					}
@@ -812,10 +844,12 @@ handle_req_create_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 	if (fd >= 0) {
 		n = lws_snprintf(buf, sizeof(buf),
 			"{\n  \"common-name\": \"%s\",\n  \"challenge-type\": \"dns-01\",\n"
+			"  \"port\": %d,\n"
 			"  \"email\": \"%s\",\n  \"acme\": {\n"
 			"    \"organization\": \"%s\",\n"
 			"    \"directory-url\": \"%s\"\n  }\n}\n",
 			a->subdomain,
+			a->port,
 			a->email[0] ? a->email : "",
 			a->organization[0] ? a->organization : "",
 			a->directory_url[0] ? a->directory_url : "https://acme-v02.api.letsencrypt.org/directory");
@@ -857,6 +891,52 @@ handle_req_delete_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 
 	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
+}
+
+struct cert_check_info {
+	uint32_t magic;
+	char fqdn[128];
+};
+#define CERT_CHECK_MAGIC 0xCE87C4EC
+
+static void
+handle_req_check_cert(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
+{
+	struct lws_client_connect_info i;
+	memset(&i, 0, sizeof(i));
+	i.context = vhd->context;
+	i.address = a->subdomain;
+	i.port = a->port;
+	i.ssl_connection = LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+	i.alpn = "http/1.1";
+	i.method = "GET";
+	i.path = "/";
+	i.host = i.address;
+	i.origin = i.address;
+	i.protocol = "lws-dht-dnssec-monitor";
+	struct cert_check_info *cci = malloc(sizeof(*cci));
+	if (cci) {
+		memset(cci, 0, sizeof(*cci));
+		cci->magic = CERT_CHECK_MAGIC;
+		lws_strncpy(cci->fqdn, a->subdomain, sizeof(cci->fqdn));
+		i.opaque_user_data = cci;
+	}
+
+	if (!cci || !lws_client_connect_via_info(&i)) {
+		lwsl_err("%s: Failed to start cert check for %s:%d\n", __func__, a->subdomain, a->port);
+
+		if (cci) free(cci);
+
+		struct cert_check_result *cr = malloc(sizeof(*cr));
+		if (cr) {
+			memset(cr, 0, sizeof(*cr));
+			lws_strncpy(cr->fqdn, a->subdomain, sizeof(cr->fqdn));
+			lws_strncpy(cr->msg, "Connection failed", sizeof(cr->msg));
+			cr->status_err = 1;
+			lws_dll2_add_tail(&cr->list, &vhd->completed_checks);
+			lws_callback_on_writable_all_protocol(vhd->context, lws_get_protocol(root_pss->wsi));
+		}
+	}
 }
 
 static void
@@ -930,6 +1010,7 @@ static const struct monitor_req_map {
 	{ "save_auth_key", handle_req_save_auth_key },
 	{ "save_cert", handle_req_save_cert },
 	{ "save_key", handle_req_save_key },
+	{ "check_cert", handle_req_check_cert },
 	{ "get_ipv6_suffix", handle_req_get_ipv6_suffix },
 	{ "set_ipv6_suffix", handle_req_set_ipv6_suffix }
 };
@@ -1529,6 +1610,26 @@ fallback:
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
+		if (vhd) {
+			if (vhd->completed_checks.head) {
+				struct lws_dll2 *p = vhd->completed_checks.head;
+				struct cert_check_result *cr = lws_container_of(p, struct cert_check_result, list);
+				char *tx = (char *)&pss->tx[LWS_PRE];
+				char *tx_end = tx + 65536 - 1;
+				int n = lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"cert_status\",\"subdomain\":\"%s\",\"status\":\"%s\",\"msg\":\"%s\"}\n",
+					cr->fqdn, cr->status_err ? "error" : "ok", cr->msg);
+				
+				if (lws_write(wsi, (unsigned char *)tx, (size_t)n, LWS_WRITE_TEXT) < 0)
+					return -1;
+				
+				lws_dll2_remove(&cr->list);
+				free(cr);
+				if (vhd->completed_checks.head)
+					lws_callback_on_writable(wsi);
+				return 0;
+			}
+		}
+
 		if (vhd && vhd->root_process_active) {
 			if (pss->send_ext_ips) {
 				pss->send_ext_ips = 0;
@@ -1552,13 +1653,86 @@ fallback:
 		}
 		break;
 
-	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
 		{
-			struct pss *wpss = (struct pss *)lws_get_opaque_user_data(wsi);
-			if (wpss) {
-				wpss->cwsi = NULL;
+			struct cert_check_info *cci = (struct cert_check_info *)lws_get_opaque_user_data(wsi);
+			if (cci && cci->magic == CERT_CHECK_MAGIC && vhd) {
+				union lws_tls_cert_info_results ci;
+				char msg[128];
+				int err = 0;
+				if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_VALIDITY_TO, &ci, 0)) {
+					time_t now;
+					time(&now);
+					if (now > ci.time) {
+						lws_snprintf(msg, sizeof(msg), "Expired");
+					} else {
+						int days = (int)((ci.time - now) / (24 * 3600));
+						lws_snprintf(msg, sizeof(msg), "%d days", days);
+					}
+				} else {
+					lws_snprintf(msg, sizeof(msg), "No cert info");
+					err = 1;
+				}
+
+				struct cert_check_result *cr = malloc(sizeof(*cr));
+				if (cr) {
+					memset(cr, 0, sizeof(*cr));
+					lws_strncpy(cr->fqdn, cci->fqdn, sizeof(cr->fqdn));
+					char *colon = strchr(cr->fqdn, ':');
+					if (colon) *colon = '\0';
+					lws_strncpy(cr->msg, msg, sizeof(cr->msg));
+					cr->status_err = err;
+					lws_dll2_add_tail(&cr->list, &vhd->completed_checks);
+					lws_callback_on_writable_all_protocol(vhd->context, protocol);
+				}
+				cci->magic = 0;
+				free(cci);
+				lws_set_opaque_user_data(wsi, NULL);
+				return -1; // close immediately
 			}
 		}
+		break;
+
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		{
+			void *opaque = lws_get_opaque_user_data(wsi);
+			struct cert_check_info *cci = (struct cert_check_info *)opaque;
+			if (cci && cci->magic == CERT_CHECK_MAGIC && vhd) {
+				struct cert_check_result *cr = malloc(sizeof(*cr));
+				if (cr) {
+					memset(cr, 0, sizeof(*cr));
+					lws_strncpy(cr->fqdn, cci->fqdn, sizeof(cr->fqdn));
+					char *colon = strchr(cr->fqdn, ':');
+					if (colon) *colon = '\0';
+					char *err_str = in ? (char *)in : "Connection failed";
+					lws_snprintf(cr->msg, sizeof(cr->msg), "Error: %s", err_str);
+					cr->status_err = 1;
+					lws_dll2_add_tail(&cr->list, &vhd->completed_checks);
+					lws_callback_on_writable_all_protocol(vhd->context, protocol);
+				}
+				cci->magic = 0;
+				free(cci);
+				lws_set_opaque_user_data(wsi, NULL);
+			} else {
+				struct pss *wpss = (struct pss *)opaque;
+				if (wpss) {
+					wpss->cwsi = NULL;
+				}
+			}
+		}
+		break;
+
+	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		{
+			void *opaque = lws_get_opaque_user_data(wsi);
+			struct cert_check_info *cci = (struct cert_check_info *)opaque;
+			if (cci && cci->magic == CERT_CHECK_MAGIC) {
+				cci->magic = 0;
+				free(cci);
+				lws_set_opaque_user_data(wsi, NULL);
+			}
+		}
+		break;
 		break;
 
 	case LWS_CALLBACK_RAW_ADOPT:

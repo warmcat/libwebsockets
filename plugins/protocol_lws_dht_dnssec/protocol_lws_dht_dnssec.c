@@ -3821,20 +3821,22 @@ dnssec_subst_cb(struct lws_auth_dns_sign_info *info, const char *name)
 		free(pembuf);
 
 		/* extracted SPKI */
-		union lws_tls_cert_info_results res;
-		res.ns.name = NULL;
-		res.ns.len = 0;
+		union lws_tls_cert_info_results res1;
+		union lws_tls_cert_info_results *res;
+		res1.ns.len = 0;
 
-		if (lws_x509_info(cert, LWS_TLS_CERT_INFO_DER_SPKI, &res, 0) == -1 && res.ns.len > 0) {
-			res.ns.name = malloc((size_t)res.ns.len);
-			if (res.ns.name) {
-				if (lws_x509_info(cert, LWS_TLS_CERT_INFO_DER_SPKI, &res, res.ns.len) == 0) {
+		if (lws_x509_info(cert, LWS_TLS_CERT_INFO_DER_SPKI, &res1, 0) == -1 && res1.ns.len > 0) {
+			size_t alloc_len = sizeof(*res) - sizeof(res1.ns.name) + (size_t)res1.ns.len;
+			res = malloc(alloc_len);
+			if (res) {
+				res->ns.len = 0;
+				if (lws_x509_info(cert, LWS_TLS_CERT_INFO_DER_SPKI, res, (size_t)res1.ns.len) == 0) {
 					/* we have the DER SPKI, now hash it */
 					struct lws_genhash_ctx hash_ctx;
 					uint8_t hash[32];
 
 					if (!lws_genhash_init(&hash_ctx, LWS_GENHASH_TYPE_SHA256)) {
-						if (!lws_genhash_update(&hash_ctx, res.ns.name, (size_t)res.ns.len)) {
+						if (!lws_genhash_update(&hash_ctx, (uint8_t *)res->ns.name, (size_t)res->ns.len)) {
 							if (!lws_genhash_destroy(&hash_ctx, hash)) {
 								char hex[128];
 								int hl = 0;
@@ -3842,7 +3844,7 @@ dnssec_subst_cb(struct lws_auth_dns_sign_info *info, const char *name)
 									hl += lws_snprintf(hex + hl, sizeof(hex) - (size_t)hl, "%02X", hash[i]);
 								}
 								lws_snprintf(ret, sizeof(ret), "3 1 1 %s", hex);
-								free(res.ns.name);
+								free(res);
 								lws_x509_destroy(&cert);
 								return ret;
 							}
@@ -3851,7 +3853,7 @@ dnssec_subst_cb(struct lws_auth_dns_sign_info *info, const char *name)
 						}
 					}
 				}
-				free(res.ns.name);
+				free(res);
 			}
 		}
 

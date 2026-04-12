@@ -725,7 +725,7 @@ lws_async_dns_init(struct lws_context *context)
 	}
 
 	n = lws_plat_asyncdns_init(context, dns);
-	if (n < 0 && !dns->nameservers.count) {
+	if (!dns->nameservers.count) {
 		lwsl_cx_warn(context, "no valid dns server, retry");
 
 		return 1;

@@ -1,6 +1,17 @@
 let ws;
 let currentDomain = '';
 let currentZone = null;
+let certCheckQueue = [];
+let isCheckingCert = false;
+
+function processCertQueue() {
+    if (isCheckingCert || certCheckQueue.length === 0) return;
+    isCheckingCert = true;
+    let task = certCheckQueue.shift();
+    let span = document.getElementById(`cert-status-${task.fqdn}`);
+    if (span) span.innerText = 'Checking...';
+    sendReq({ req: 'check_cert', domain: currentDomain, subdomain: task.fqdn, port: task.port });
+}
 
 function generateId() {
     return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
@@ -297,7 +308,21 @@ function handleResponse(data) {
         case 'create_tls':
         case 'delete_tls':
             showToast(data.req === 'create_tls' ? 'TLS collection enabled' : 'TLS collection disabled');
-            sendReq({ req: 'get_tls', domain: currentDomain });
+            // We don't fetch get_tls again because we update window.activeTls synchronously.
+            break;
+        case 'cert_status':
+            let span = document.getElementById(`cert-status-${data.subdomain}`);
+            if (span) {
+                if (data.status === 'ok') {
+                    span.innerText = data.msg;
+                    span.style.color = '#34d399';
+                } else {
+                    span.innerText = data.msg;
+                    span.style.color = '#f87171';
+                }
+            }
+            isCheckingCert = false;
+            processCertQueue();
             break;
     }
 }
@@ -375,6 +400,8 @@ function renderZoneTable() {
 
     if (!currentZone) return;
 
+    certCheckQueue = [];
+    isCheckingCert = false;
     window.renderedTlsFqdns = new Set();
     const records = currentZone.records.filter(r => r.type !== 'comment' && r.type !== 'macro');
 
@@ -408,9 +435,13 @@ function renderZoneTable() {
 
         if (isTlsCapable && !window.renderedTlsFqdns.has(fqdn)) {
             window.renderedTlsFqdns.add(fqdn);
-            let checked = (window.activeTls && window.activeTls.includes(fqdn + '.json')) ? 'checked' : '';
+            let activeConfig = window.activeTls ? window.activeTls.find(t => t.fqdn === fqdn) : null;
+            let portVal = activeConfig ? activeConfig.port : '';
             tlsTd = `<td class="ext-tls-cell">
-                         <input type="checkbox" class="tls-checkbox" data-fqdn="${fqdn}" title="${fqdn}" ${checked}>
+                         <div style="display:flex; align-items:center; justify-content:flex-start; gap: 0.5rem">
+                             <input type="number" class="tls-port ext-port" data-fqdn="${fqdn}" value="${portVal}" maxlength="5" placeholder="Port" style="width:70px; background: rgba(0,0,0,0.2); color:#fff; border:1px solid #444; border-radius:4px; padding:2px;">
+                             <span id="cert-status-${fqdn}" class="cert-status" style="font-size:0.8em; color:#aaa;"></span>
+                         </div>
                      </td>`;
         }
 
@@ -422,19 +453,32 @@ function renderZoneTable() {
             ${tlsTd}
         `;
 
-        const checkbox = tr.querySelector('.tls-checkbox');
-        if (checkbox) {
-            checkbox.onclick = (e) => e.stopPropagation();
-            checkbox.onchange = (e) => {
-                let isEnabled = e.target.checked;
-                sendReq({ req: isEnabled ? 'create_tls' : 'delete_tls', domain: currentDomain, subdomain: fqdn });
-                if (isEnabled) {
-                    if (!window.activeTls) window.activeTls = [];
-                    window.activeTls.push(fqdn + '.json');
+        const portInput = tr.querySelector('.tls-port');
+        if (portInput) {
+            portInput.onclick = (e) => e.stopPropagation();
+            portInput.onchange = (e) => {
+                let p = e.target.value.trim();
+                let pnum = parseInt(p, 10);
+                if (!p || isNaN(pnum) || pnum <= 0 || pnum > 65535) {
+                    sendReq({ req: 'delete_tls', domain: currentDomain, subdomain: fqdn });
+                    if (window.activeTls) window.activeTls = window.activeTls.filter(x => x.fqdn !== fqdn);
+                    document.getElementById(`cert-status-${fqdn}`).innerText = '';
                 } else {
-                    if (window.activeTls) window.activeTls = window.activeTls.filter(x => x !== fqdn + '.json');
+                    sendReq({ req: 'create_tls', domain: currentDomain, subdomain: fqdn, port: pnum });
+                    if (!window.activeTls) window.activeTls = [];
+                    let exist = window.activeTls.find(x => x.fqdn === fqdn);
+                    if (exist) exist.port = pnum;
+                    else window.activeTls.push({fqdn: fqdn, port: pnum});
+                    
+                    certCheckQueue.push({fqdn: fqdn, port: pnum});
+                    processCertQueue();
                 }
             };
+
+            if (portInput.value) {
+                let pnum = parseInt(portInput.value, 10);
+                certCheckQueue.push({fqdn: fqdn, port: pnum});
+            }
         }
 
         const tdAct = document.createElement('td');
@@ -622,8 +666,8 @@ function openEditor(id) {
         });
 
         if (window.activeTls) {
-            window.activeTls.forEach(tlsFilename => {
-                let fqdn = tlsFilename.replace('.json', '');
+            window.activeTls.forEach(obj => {
+                let fqdn = obj.fqdn;
                 if (!existingFqdns.has(fqdn)) {
                     sendReq({ req: 'delete_tls', domain: currentDomain, subdomain: fqdn });
                 }
