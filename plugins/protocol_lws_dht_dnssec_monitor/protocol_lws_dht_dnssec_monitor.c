@@ -98,6 +98,7 @@ struct cert_check_result {
 	lws_dll2_t list;
 	char fqdn[128];
 	char msg[128];
+	int port;
 	int status_err;
 };
 
@@ -919,6 +920,8 @@ handle_req_delete_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 struct cert_check_info {
 	uint32_t magic;
 	char fqdn[128];
+	int port;
+	int starttls_state;
 };
 #define CERT_CHECK_MAGIC 0xCE87C4EC
 
@@ -934,7 +937,12 @@ handle_req_check_cert(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 	
 	i.address = a->subdomain;
 	i.port = a->port;
-	i.ssl_connection = LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+	i.ssl_connection = LCCSCF_ALLOW_SELFSIGNED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+	
+	int starttls = (a->port == 25 || a->port == 587);
+	if (!starttls)
+		i.ssl_connection |= LCCSCF_USE_SSL;
+
 	i.alpn = "http/1.1";
 	i.method = "RAW";
 	i.path = "/";
@@ -946,10 +954,12 @@ handle_req_check_cert(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 		memset(cci, 0, sizeof(*cci));
 		cci->magic = CERT_CHECK_MAGIC;
 		lws_strncpy(cci->fqdn, a->subdomain, sizeof(cci->fqdn));
+		cci->port = a->port;
+		cci->starttls_state = starttls ? 1 : 0;
 		i.opaque_user_data = cci;
 	}
 
-	lwsl_notice("%s: Dispatching TLS probe to %s:%d with LCCSCF_USE_SSL\n", __func__, a->subdomain, a->port);
+	lwsl_notice("%s: Dispatching %s TLS probe to %s:%d (STARTTLS: %d)\n", __func__, starttls ? "cleartext" : "direct", a->subdomain, a->port, starttls);
 
 	if (!cci || !lws_client_connect_via_info(&i)) {
 		lwsl_err("%s: Failed to start cert check for %s:%d\n", __func__, a->subdomain, a->port);
@@ -961,6 +971,7 @@ handle_req_check_cert(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 			memset(cr, 0, sizeof(*cr));
 			lws_strncpy(cr->fqdn, a->subdomain, sizeof(cr->fqdn));
 			lws_strncpy(cr->msg, "Connection failed", sizeof(cr->msg));
+			cr->port = a->port;
 			cr->status_err = 1;
 			lws_dll2_add_tail(&cr->list, &vhd->completed_checks);
 			lws_callback_on_writable_all_protocol(vhd->context, lws_get_protocol(root_pss->wsi));
@@ -1168,6 +1179,41 @@ connect_retry_cb(lws_sorted_usec_list_t *sul)
 			lwsl_err("%s: failed to connect UI WS proxy to UDS server after retries\n", __func__);
 			lws_wsi_close(pss->wsi, LWS_TO_KILL_ASYNC);
 		}
+	}
+}
+
+static void
+extract_and_queue_cert_result(struct lws *wsi, struct vhd *vhd, struct cert_check_info *cci, const struct lws_protocols *protocol)
+{
+	union lws_tls_cert_info_results ci;
+	char msg[128];
+	int err = 0;
+
+	if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_VALIDITY_TO, &ci, 0)) {
+		time_t now;
+		time(&now);
+		if (now > ci.time) {
+			lws_snprintf(msg, sizeof(msg), "Expired");
+		} else {
+			int days = (int)((ci.time - now) / (24 * 3600));
+			lws_snprintf(msg, sizeof(msg), "%d days", days);
+		}
+	} else {
+		lws_snprintf(msg, sizeof(msg), "No cert info");
+		err = 1;
+	}
+
+	struct cert_check_result *cr = malloc(sizeof(*cr));
+	if (cr) {
+		memset(cr, 0, sizeof(*cr));
+		lws_strncpy(cr->fqdn, cci->fqdn, sizeof(cr->fqdn));
+		cr->port = cci->port;
+		char *colon = strchr(cr->fqdn, ':');
+		if (colon) *colon = '\0';
+		lws_strncpy(cr->msg, msg, sizeof(cr->msg));
+		cr->status_err = err;
+		lws_dll2_add_tail(&cr->list, &vhd->completed_checks);
+		lws_callback_on_writable_all_protocol(vhd->context, protocol);
 	}
 }
 
@@ -1669,8 +1715,8 @@ fallback:
 			struct cert_check_result *cr = lws_container_of(p, struct cert_check_result, list);
 			char *tx = (char *)&pss->tx[LWS_PRE];
 			char *tx_end = tx + 65536 - 1;
-			int n = lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"cert_status\",\"subdomain\":\"%s\",\"status\":\"%s\",\"msg\":\"%s\"}\n",
-				cr->fqdn, cr->status_err ? "error" : "ok", cr->msg);
+			int n = lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"cert_status\",\"subdomain\":\"%s\",\"port\":%d,\"status\":\"%s\",\"msg\":\"%s\"}\n",
+				cr->fqdn, cr->port, cr->status_err ? "error" : "ok", cr->msg);
 			
 			if (lws_write(wsi, (unsigned char *)tx, (size_t)n, LWS_WRITE_TEXT) < 0)
 				return -1;
@@ -1709,39 +1755,16 @@ fallback:
 		{
 			struct cert_check_info *cci = (struct cert_check_info *)lws_get_opaque_user_data(wsi);
 			if (cci && cci->magic == CERT_CHECK_MAGIC && vhd) {
-				lwsl_notice("[INSTRUMENT] Probe %s RAW_CONNECTED successfully!\n", cci->fqdn);
-				union lws_tls_cert_info_results ci;
-				char msg[128];
-				int err = 0;
-				if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_VALIDITY_TO, &ci, 0)) {
-					time_t now;
-					time(&now);
-					if (now > ci.time) {
-						lws_snprintf(msg, sizeof(msg), "Expired");
-					} else {
-						int days = (int)((ci.time - now) / (24 * 3600));
-						lws_snprintf(msg, sizeof(msg), "%d days", days);
-					}
-				} else {
-					lws_snprintf(msg, sizeof(msg), "No cert info");
-					err = 1;
+				lwsl_notice("[INSTRUMENT] Probe %s RAW_CONNECTED successfully! (STARTTLS state: %d)\n", cci->fqdn, cci->starttls_state);
+				if (cci->starttls_state == 0 || cci->starttls_state == 4) {
+					extract_and_queue_cert_result(wsi, vhd, cci, protocol);
+					cci->magic = 0;
+					free(cci);
+					lws_set_opaque_user_data(wsi, NULL);
+					return -1; // close immediately
 				}
-
-				struct cert_check_result *cr = malloc(sizeof(*cr));
-				if (cr) {
-					memset(cr, 0, sizeof(*cr));
-					lws_strncpy(cr->fqdn, cci->fqdn, sizeof(cr->fqdn));
-					char *colon = strchr(cr->fqdn, ':');
-					if (colon) *colon = '\0';
-					lws_strncpy(cr->msg, msg, sizeof(cr->msg));
-					cr->status_err = err;
-					lws_dll2_add_tail(&cr->list, &vhd->completed_checks);
-					lws_callback_on_writable_all_protocol(vhd->context, protocol);
-				}
-				cci->magic = 0;
-				free(cci);
-				lws_set_opaque_user_data(wsi, NULL);
-				return -1; // close immediately
+				/* STARTTLS: skip extraction for now, we are cleartext. 
+				 * SMTP Banner will arrive in RX. */
 			}
 		}
 		break;
@@ -1756,21 +1779,11 @@ fallback:
 				if (cr) {
 					memset(cr, 0, sizeof(*cr));
 					lws_strncpy(cr->fqdn, cci->fqdn, sizeof(cr->fqdn));
-					char *colon = strchr(cr->fqdn, ':');
-					if (colon) *colon = '\0';
 					char *err_str = in ? (char *)in : "Connection failed";
 					lws_snprintf(cr->msg, sizeof(cr->msg), "Error: %s", err_str);
 					cr->status_err = 1;
 					lws_dll2_add_tail(&cr->list, &vhd->completed_checks);
 					lws_callback_on_writable_all_protocol(vhd->context, protocol);
-				}
-				cci->magic = 0;
-				free(cci);
-				lws_set_opaque_user_data(wsi, NULL);
-			} else {
-				struct pss *wpss = (struct pss *)opaque;
-				if (wpss) {
-					wpss->cwsi = NULL;
 				}
 			}
 		}
@@ -1786,7 +1799,9 @@ fallback:
 				lws_set_opaque_user_data(wsi, NULL);
 			} else {
 				struct pss *wpss = (struct pss *)opaque;
-				if (wpss) wpss->cwsi = NULL;
+				if (wpss) {
+					wpss->cwsi = NULL;
+				}
 				lwsl_notice("%s: UDS connection closed\n", __func__);
 			}
 		}
@@ -1806,7 +1821,64 @@ fallback:
 
 	case LWS_CALLBACK_RAW_RX:
 		{
-			struct pss *wpss = (struct pss *)lws_get_opaque_user_data(wsi);
+			void *opaque = lws_get_opaque_user_data(wsi);
+			struct cert_check_info *cci = (struct cert_check_info *)opaque;
+
+			if (cci && cci->magic == CERT_CHECK_MAGIC) {
+				lwsl_notice("[INSTRUMENT] Probe %s RAW_RX: '%.*s' (state %d, SSL %d)\n", cci->fqdn, (int)len, (const char *)in, cci->starttls_state, lws_is_ssl(wsi));
+
+				if (cci->starttls_state == 4) {
+					/* Handshake might be in progress or done. 
+					 * If lws_is_ssl is true, we can try to extract. */
+					if (lws_is_ssl(wsi)) {
+						extract_and_queue_cert_result(wsi, vhd, cci, protocol);
+						cci->magic = 0;
+						free(cci);
+						lws_set_opaque_user_data(wsi, NULL);
+						return -1;
+					}
+					return 0;
+				}
+
+				if (cci->starttls_state == 1 && !strncmp((const char *)in, "220", 3)) {
+					cci->starttls_state = 2;
+					lws_callback_on_writable(wsi);
+					return 0;
+				}
+				if (cci->starttls_state == 2 && !strncmp((const char *)in, "250", 3)) {
+					/* EHLO can have multiple lines, look for last one. 
+					 * For simplicity, we just look for 250 space. */
+					int found_250_space = 0;
+					for (size_t k = 0; k < len; k++) {
+						if ((k == 0 || ((const char *)in)[k-1] == '\n') &&
+						    len - k >= 4 && !strncmp((const char *)in + k, "250 ", 4)) {
+							found_250_space = 1;
+							break;
+						}
+					}
+					if (found_250_space) {
+						cci->starttls_state = 3;
+						lws_callback_on_writable(wsi);
+					}
+					return 0;
+				}
+				if (cci->starttls_state == 3 && !strncmp((const char *)in, "220", 3)) {
+					lwsl_notice("[INSTRUMENT] Probe %s STARTTLS accepted, upgrading to TLS\n", cci->fqdn);
+					cci->starttls_state = 4;
+					if (lws_tls_client_upgrade(wsi, LCCSCF_USE_SSL |
+								LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK |
+								LCCSCF_ALLOW_SELFSIGNED |
+								LCCSCF_ALLOW_EXPIRED) < 0) {
+						lwsl_notice("[INSTRUMENT] Probe %s TLS upgrade failed\n", cci->fqdn);
+						return -1;
+					}
+					lws_callback_on_writable(wsi);
+					return 0;
+				}
+				return 0;
+			}
+
+			struct pss *wpss = (struct pss *)opaque;
 			lwsl_debug("[INSTRUMENT] LWS_CALLBACK_RAW_RX: UDS channel receiving %d bytes. Is Proxy? %d\n", (int)len, wpss != NULL);
 
 			if (wpss) {
@@ -1853,7 +1925,33 @@ fallback:
 
 	case LWS_CALLBACK_RAW_WRITEABLE:
 		{
-			struct pss *wpss = (struct pss *)lws_get_opaque_user_data(wsi);
+			void *opaque = lws_get_opaque_user_data(wsi);
+			struct cert_check_info *cci = (struct cert_check_info *)opaque;
+
+			if (cci && cci->magic == CERT_CHECK_MAGIC) {
+				if (cci->starttls_state == 4) {
+					lwsl_notice("[INSTRUMENT] Probe %s STARTTLS handshake finished, extracting cert\n", cci->fqdn);
+					extract_and_queue_cert_result(wsi, vhd, cci, protocol);
+					cci->magic = 0;
+					free(cci);
+					lws_set_opaque_user_data(wsi, NULL);
+					return -1;
+				}
+				char buf[256];
+				int n = 0;
+				if (cci->starttls_state == 2) {
+					n = lws_snprintf(buf, sizeof(buf), "EHLO %s\r\n", cci->fqdn);
+				} else if (cci->starttls_state == 3) {
+					n = lws_snprintf(buf, sizeof(buf), "STARTTLS\r\n");
+				}
+				if (n > 0) {
+					lwsl_notice("[INSTRUMENT] Probe %s sending: %.*s", cci->fqdn, n, buf);
+					if (lws_write(wsi, (unsigned char *)buf, (size_t)n, LWS_WRITE_RAW) < 0) return -1;
+				}
+				return 0;
+			}
+
+			struct pss *wpss = (struct pss *)opaque;
 
 			if (wpss) {
 				/* 1: Proxy Client sending request -> Root Server */

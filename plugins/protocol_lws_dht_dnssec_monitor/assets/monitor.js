@@ -233,6 +233,9 @@ function connect() {
     };
 }
 
+window.activeTls = [];
+window.certStatusCache = {};
+
 function sendReq(obj) {
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify(obj));
@@ -325,6 +328,7 @@ function handleResponse(data) {
             // We don't fetch get_tls again because we update window.activeTls synchronously.
             break;
         case 'cert_status':
+            window.certStatusCache[data.subdomain + ':' + data.port] = data;
             let span = document.getElementById(`cert-status-${data.subdomain}`);
             if (certCheckTimers[data.subdomain]) {
                 clearTimeout(certCheckTimers[data.subdomain]);
@@ -419,9 +423,6 @@ function renderZoneTable() {
     if (!currentZone) return;
 
     certCheckQueue = [];
-    Object.values(certCheckTimers).forEach(t => clearTimeout(t));
-    certCheckTimers = {};
-    concurrentChecks = 0;
     window.renderedTlsFqdns = new Set();
     const records = currentZone.records.filter(r => r.type !== 'comment' && r.type !== 'macro');
 
@@ -457,10 +458,22 @@ function renderZoneTable() {
             window.renderedTlsFqdns.add(fqdn);
             let activeConfig = window.activeTls ? window.activeTls.find(t => t.fqdn === fqdn) : null;
             let portVal = activeConfig ? activeConfig.port : '';
+            let cacheKey = fqdn + ':' + portVal;
+            let cached = window.certStatusCache[cacheKey];
+            let initStatus = '';
+            let initColor = '#aaa';
+            if (cached) {
+                initStatus = cached.msg;
+                initColor = (cached.status === 'ok') ? '#34d399' : '#f87171';
+            } else if (certCheckTimers[fqdn]) {
+                initStatus = 'Checking...';
+            }
+
             tlsTd = `<td class="ext-tls-cell">
-                         <div style="display:flex; align-items:center; justify-content:flex-start; gap: 0.5rem">
+                         <div style="display:block; text-align: right;">
                              <input type="number" class="tls-port ext-port" data-fqdn="${fqdn}" value="${portVal}" maxlength="5" placeholder="Port" style="width:70px; background: rgba(0,0,0,0.2); color:#fff; border:1px solid #444; border-radius:4px; padding:2px;">
-                             <span id="cert-status-${fqdn}" class="cert-status" style="font-size:0.8em; color:#aaa;"></span>
+                             <br>
+                             <span id="cert-status-${fqdn}" class="cert-status" style="font-size:0.8em; color:${initColor};">${initStatus}</span>
                          </div>
                      </td>`;
         }
@@ -483,13 +496,22 @@ function renderZoneTable() {
                     sendReq({ req: 'delete_tls', domain: currentDomain, subdomain: fqdn });
                     if (window.activeTls) window.activeTls = window.activeTls.filter(x => x.fqdn !== fqdn);
                     document.getElementById(`cert-status-${fqdn}`).innerText = '';
+                    Object.keys(window.certStatusCache).forEach(k => {
+                        if (k.startsWith(fqdn + ':')) delete window.certStatusCache[k];
+                    });
                 } else {
                     sendReq({ req: 'create_tls', domain: currentDomain, subdomain: fqdn, port: pnum });
                     if (!window.activeTls) window.activeTls = [];
                     let exist = window.activeTls.find(x => x.fqdn === fqdn);
                     if (exist) exist.port = pnum;
                     else window.activeTls.push({fqdn: fqdn, port: pnum});
-                    
+
+                    if (certCheckTimers[fqdn]) {
+                        clearTimeout(certCheckTimers[fqdn]);
+                        delete certCheckTimers[fqdn];
+                        concurrentChecks = Math.max(0, concurrentChecks - 1);
+                    }
+                    delete window.certStatusCache[fqdn + ':' + pnum];
                     certCheckQueue.push({fqdn: fqdn, port: pnum});
                     processCertQueue();
                 }
@@ -497,7 +519,9 @@ function renderZoneTable() {
 
             if (portInput.value) {
                 let pnum = parseInt(portInput.value, 10);
-                certCheckQueue.push({fqdn: fqdn, port: pnum});
+                if (!window.certStatusCache[fqdn + ':' + pnum] && !certCheckTimers[fqdn]) {
+                    certCheckQueue.push({fqdn: fqdn, port: pnum});
+                }
             }
         }
 
