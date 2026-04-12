@@ -116,6 +116,28 @@ lws_tls_schannel_cert_info(PCCERT_CONTEXT pCert, enum lws_tls_cert_info type,
 			memcpy(buf->ns.name, pCert->pbCertEncoded, pCert->cbCertEncoded);
 			buf->ns.len = (int)pCert->cbCertEncoded;
 			break;
+		case LWS_TLS_CERT_INFO_DER_SPKI:
+		{
+			DWORD cbSize = 0;
+			/* First, get the size of the DER encoded SPKI */
+			if (!CryptEncodeObjectEx(X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
+						 X509_PUBLIC_KEY_INFO,
+						 &pCert->pCertInfo->SubjectPublicKeyInfo,
+						 0, NULL, NULL, &cbSize)) {
+				return -1;
+			}
+			buf->ns.len = (int)cbSize;
+			if (len < cbSize)
+				return -1;
+
+			if (!CryptEncodeObjectEx(X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
+						 X509_PUBLIC_KEY_INFO,
+						 &pCert->pCertInfo->SubjectPublicKeyInfo,
+						 0, NULL, buf->ns.name, &cbSize)) {
+				return -1;
+			}
+			break;
+		}
 		default:
 			return -1;
 	}
