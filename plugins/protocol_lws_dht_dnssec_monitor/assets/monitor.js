@@ -2,15 +2,29 @@ let ws;
 let currentDomain = '';
 let currentZone = null;
 let certCheckQueue = [];
-let isCheckingCert = false;
+let certCheckTimers = {};
+let concurrentChecks = 0;
+const MAX_CONCURRENT = 5;
 
 function processCertQueue() {
-    if (isCheckingCert || certCheckQueue.length === 0) return;
-    isCheckingCert = true;
-    let task = certCheckQueue.shift();
-    let span = document.getElementById(`cert-status-${task.fqdn}`);
-    if (span) span.innerText = 'Checking...';
-    sendReq({ req: 'check_cert', domain: currentDomain, subdomain: task.fqdn, port: task.port });
+    while (concurrentChecks < MAX_CONCURRENT && certCheckQueue.length > 0) {
+        let task = certCheckQueue.shift();
+        concurrentChecks++;
+        let span = document.getElementById(`cert-status-${task.fqdn}`);
+        if (span) span.innerText = 'Checking...';
+        sendReq({ req: 'check_cert', domain: currentDomain, subdomain: task.fqdn, port: task.port });
+
+        certCheckTimers[task.fqdn] = setTimeout(() => {
+            let s = document.getElementById(`cert-status-${task.fqdn}`);
+            if (s && s.innerText === 'Checking...') {
+                s.innerText = 'Timeout';
+                s.style.color = '#f87171';
+            }
+            if (certCheckTimers[task.fqdn]) delete certCheckTimers[task.fqdn];
+            concurrentChecks = Math.max(0, concurrentChecks - 1);
+            processCertQueue();
+        }, 5000);
+    }
 }
 
 function generateId() {
@@ -312,6 +326,11 @@ function handleResponse(data) {
             break;
         case 'cert_status':
             let span = document.getElementById(`cert-status-${data.subdomain}`);
+            if (certCheckTimers[data.subdomain]) {
+                clearTimeout(certCheckTimers[data.subdomain]);
+                delete certCheckTimers[data.subdomain];
+                concurrentChecks = Math.max(0, concurrentChecks - 1);
+            }
             if (span) {
                 if (data.status === 'ok') {
                     span.innerText = data.msg;
@@ -321,7 +340,6 @@ function handleResponse(data) {
                     span.style.color = '#f87171';
                 }
             }
-            isCheckingCert = false;
             processCertQueue();
             break;
     }
@@ -401,7 +419,9 @@ function renderZoneTable() {
     if (!currentZone) return;
 
     certCheckQueue = [];
-    isCheckingCert = false;
+    Object.values(certCheckTimers).forEach(t => clearTimeout(t));
+    certCheckTimers = {};
+    concurrentChecks = 0;
     window.renderedTlsFqdns = new Set();
     const records = currentZone.records.filter(r => r.type !== 'comment' && r.type !== 'macro');
 
@@ -502,6 +522,8 @@ function renderZoneTable() {
         tr.appendChild(tdAct);
         tbody.appendChild(tr);
     });
+
+    if (certCheckQueue.length > 0) processCertQueue();
 }
 
 let editingRecordId = null;

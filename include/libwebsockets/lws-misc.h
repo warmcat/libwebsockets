@@ -1411,6 +1411,7 @@ struct lws_spawn_piped_info {
 	const struct lws_role_ops	*ops; /* NULL is raw file */
 
 	uint8_t				disable_ctrlc;
+	uint8_t				pty_mode;
 
 	const char			*cgroup_name_suffix;
 	int				*p_cgroup_ret;

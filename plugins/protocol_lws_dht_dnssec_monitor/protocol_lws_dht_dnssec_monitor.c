@@ -905,6 +905,10 @@ handle_req_check_cert(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 	struct lws_client_connect_info i;
 	memset(&i, 0, sizeof(i));
 	i.context = vhd->context;
+	
+	struct lws_vhost *vh = lws_get_vhost_by_name(vhd->context, "dnssec_monitor_uds");
+	i.vhost = vh ? vh : vhd->vhost;
+	
 	i.address = a->subdomain;
 	i.port = a->port;
 	i.ssl_connection = LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
@@ -921,6 +925,8 @@ handle_req_check_cert(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 		lws_strncpy(cci->fqdn, a->subdomain, sizeof(cci->fqdn));
 		i.opaque_user_data = cci;
 	}
+
+	lwsl_notice("%s: Dispatching TLS probe to %s:%d with LCCSCF_USE_SSL\n", __func__, a->subdomain, a->port);
 
 	if (!cci || !lws_client_connect_via_info(&i)) {
 		lwsl_err("%s: Failed to start cert check for %s:%d\n", __func__, a->subdomain, a->port);
@@ -1184,7 +1190,7 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 				memset(&info, 0, sizeof(info));
 				info.vhost_name = "dnssec_monitor_uds";
 				info.port = 0; /* raw socket UDS */
-				info.options = LWS_SERVER_OPTION_UNIX_SOCK | LWS_SERVER_OPTION_ONLY_RAW;
+				info.options = LWS_SERVER_OPTION_UNIX_SOCK | LWS_SERVER_OPTION_ONLY_RAW | LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 				info.iface = uds_path;
 
 				/* We only want this protocol to run on the UDS */
@@ -1205,6 +1211,7 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 						lwsl_err("%s: Failed to create UDS vhost on %s\n", __func__, uds_path);
 						return -1;
 					}
+					lws_init_vhost_client_ssl(&info, vh);
 					lwsl_notice("%s: Created UDS vhost on %s\n", __func__, uds_path);
 					chmod(uds_path, 0666);
 				}
