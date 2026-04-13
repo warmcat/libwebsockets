@@ -820,7 +820,7 @@ handle_req_create_domain(struct vhd *vhd, struct pss *root_pss, struct monitor_r
 	int r = 0;
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s", vhd->base_dir, a->domain);
-	if (mkdir(d_path, 0700) < 0 && errno != EEXIST) {
+	if (mkdir(d_path, 0755) < 0 && errno != EEXIST) {
 		lwsl_notice("%s: Failed to create domain dir\n", __func__);
 		r = -1;
 	}
@@ -832,7 +832,7 @@ handle_req_create_domain(struct vhd *vhd, struct pss *root_pss, struct monitor_r
 
 		/* Touch empty zone */
 		lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/%s.zone", vhd->base_dir, a->domain, a->domain);
-		fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+		fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
 		if (fd >= 0) close(fd);
 
 		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
@@ -932,10 +932,10 @@ handle_req_set_ipv6_suffix(struct vhd *vhd, struct pss *root_pss, struct monitor
 	if (!a->suffix[0]) {
 		unlink(path);
 	} else {
-		int fd = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+		int fd = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
 		if (fd < 0 && errno == EACCES) {
 			lws_snprintf(path, sizeof(path), "%s/domains/ipv6_suffix.txt", vhd->base_dir);
-			fd = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+			fd = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
 		}
 		if (fd >= 0) {
 			if (write(fd, a->suffix, strlen(a->suffix)) < 0) {
@@ -963,7 +963,7 @@ handle_req_update_zone(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 	if (!a->zone_buf) goto fail;
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/%s.zone", vhd->base_dir, a->domain, a->domain);
-	int fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+	int fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
 	if (fd >= 0) {
 		if (write(fd, a->zone_buf, (size_t)a->zone_len) == (ssize_t)a->zone_len) {
 			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
@@ -1045,15 +1045,15 @@ handle_req_create_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 	int n, fd;
 
 	lws_snprintf(p1, sizeof(p1), "%s/domains/%s", vhd->base_dir, a->domain);
-	if (mkdir(p1, 0700) < 0 && errno != EEXIST)
+	if (mkdir(p1, 0755) < 0 && errno != EEXIST)
 		lwsl_notice("%s: Failed to create domain dir\n", __func__);
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/tls", vhd->base_dir, a->domain);
-	if (mkdir(d_path, 0700) < 0 && errno != EEXIST)
+	if (mkdir(d_path, 0755) < 0 && errno != EEXIST)
 		lwsl_notice("%s: Failed to create tls dir\n", __func__);
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/tls/%s.json", vhd->base_dir, a->domain, a->subdomain);
-	fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+	fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
 	if (fd >= 0) {
 		n = lws_snprintf(buf, sizeof(buf),
 			"{\n  \"common-name\": \"%s\",\n  \"challenge-type\": \"dns-01\",\n"
@@ -1089,7 +1089,7 @@ handle_req_delete_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/tls/%s.json", vhd->base_dir, a->domain, a->subdomain);
 
 	if (!strcmp(a->domain, a->subdomain)) {
-		int fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+		int fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
 		if (fd >= 0) {
 			char buf[1024];
 			int n = lws_snprintf(buf, sizeof(buf), "{\n  \"common-name\": \"%s\"\n}\n", a->domain);
@@ -1173,7 +1173,7 @@ handle_req_check_cert(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 }
 
 static void
-handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a, const char *dir_suffix)
+handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a, const char *dir_suffix, int mode)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE];
 	char *tx_end = tx + 65536 - 1;
@@ -1192,7 +1192,7 @@ handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/%s/%s", vhd->base_dir, a->domain, dir_suffix, a->subdomain);
 
-	int fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+	int fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, mode);
 	if (fd >= 0) {
 		if (write(fd, a->zone_buf, (size_t)a->zone_len) == (ssize_t)a->zone_len) {
 			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
@@ -1210,19 +1210,19 @@ done:
 static void
 handle_req_save_auth_key(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
-	handle_req_save_acme_file(vhd, root_pss, a, "");
+	handle_req_save_acme_file(vhd, root_pss, a, "", 0600);
 }
 
 static void
 handle_req_save_cert(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
-	handle_req_save_acme_file(vhd, root_pss, a, "certs/crt");
+	handle_req_save_acme_file(vhd, root_pss, a, "certs/crt", 0644);
 }
 
 static void
 handle_req_save_key(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
-	handle_req_save_acme_file(vhd, root_pss, a, "certs/key");
+	handle_req_save_acme_file(vhd, root_pss, a, "certs/key", 0600);
 }
 
 static void
