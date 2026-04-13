@@ -217,14 +217,13 @@ static DBusHandlerResult
 dmh_connect(DBusConnection *c, DBusMessage *m, DBusMessage **reply, void *d)
 {
 	struct lws_dbus_ctx_wsproxy *wspctx = (struct lws_dbus_ctx_wsproxy *)d;
-	const char *prot = "", *ads = "", *path = "", *baduri = "Bad Uri",
+	const char *prot = "", *baduri = "Bad Uri",
 		   *connecting = "Connecting", *failed = "Failed", **pp;
 	struct lws_client_connect_info i;
 	char host[128];
 	const char *uri, *subprotocol;
 	lws_parse_uri_t *puri = NULL;
 	DBusError err;
-	int port = 0;
 
 	dbus_error_init(&err);
 
