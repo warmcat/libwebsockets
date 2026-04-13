@@ -79,6 +79,16 @@ LWS_VISIBLE LWS_EXTERN uint32_t
 lws_jwt_auth_get_uid(struct lws_jwt_auth *ja);
 
 /**
+ * lws_jwt_auth_get_exp() - Extract the expiration timestamp
+ *
+ * \param ja: The opaque helper object
+ *
+ * \return the uint64_t expiration unix timestamp, or 0 if missing.
+ */
+LWS_VISIBLE LWS_EXTERN uint64_t
+lws_jwt_auth_get_exp(struct lws_jwt_auth *ja);
+
+/**
  * lws_jwt_auth_count_grants() - Return the scalar count of active parsed grants
  *
  * \param ja: The opaque helper object

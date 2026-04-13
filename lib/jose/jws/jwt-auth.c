@@ -275,6 +275,14 @@ lws_jwt_auth_get_uid(struct lws_jwt_auth *ja)
 	return ja->uid;
 }
 
+uint64_t
+lws_jwt_auth_get_exp(struct lws_jwt_auth *ja)
+{
+	if (!ja)
+		return 0;
+	return ja->exp;
+}
+
 uint32_t
 lws_jwt_auth_count_grants(struct lws_jwt_auth *ja)
 {

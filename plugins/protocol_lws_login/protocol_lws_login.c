@@ -135,6 +135,16 @@ static const char * const canned_js =
         "c+='<strong class=\"lws-login-identity\">'+st.identity+'</strong><br>';"
         "c+=a+' <a class=\"lws-login-link lws-login-logout\" href=\"'+u+'\">Logout</a>';"
         "if(!st.has_grant&&!st.is_admin)c+='<div class=\"lws-login-err\">login lacks grant</div><br>';"
+        "if(st.exp){"
+        "var n=Date.now()/1000;"
+        "var m=st.exp-n;"
+        "if(m>0&&m<86400){"
+        "setTimeout(function(){"
+        "var s=st.login_url.split('redirect_uri=')[0]+'redirect_uri='+encodeURIComponent(window.location.href);"
+        "window.location.href=s;"
+        "},(m-60)*1000);"
+        "}"
+        "}"
         "}else{"
         "var s=st.login_url.split('redirect_uri=')[0]+'redirect_uri='+encodeURIComponent(window.location.href);"
         "c+='<div class=\"lws-login-mb\">Not logged in</div>';"
@@ -984,8 +994,8 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				const char *sub = lws_jwt_auth_get_sub(pss->ja);
 				int is_admin = lws_jwt_auth_query_grant(pss->ja, "*") >= 1;
 				int has_grant = lws_jwt_auth_query_grant(pss->ja, service_name) >= vhd->min_grant_level;
-				lws_snprintf(pl, sizeof(pl), "{\"logged_in\":1,\"has_grant\":%d,\"identity\":\"%s\",\"auth_server_url\":\"%s\",\"login_url\":\"%s\",\"is_admin\":%d}",
-					has_grant, sub ? sub : "Unknown", vhd->auth_server_url, dest, is_admin);
+				lws_snprintf(pl, sizeof(pl), "{\"logged_in\":1,\"exp\":%llu,\"has_grant\":%d,\"identity\":\"%s\",\"auth_server_url\":\"%s\",\"login_url\":\"%s\",\"is_admin\":%d}",
+					(unsigned long long)lws_jwt_auth_get_exp(pss->ja), has_grant, sub ? sub : "Unknown", vhd->auth_server_url, dest, is_admin);
 			} else
 				lws_snprintf(pl, sizeof(pl), "{\"logged_in\":0,\"login_url\":\"%s\"}", dest);
 
