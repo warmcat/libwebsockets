@@ -448,13 +448,12 @@ _lws_dsh_alloc_tail(lws_dsh_t *dsh, int kind, const void *src1, size_t size1,
 				replace->prev->next = &s.best->list;
 			if (replace->next)
 				replace->next->prev = &s.best->list;
-		} else
-			if (dsh) {
-				assert(!(((unsigned long)(intptr_t)(s.best)) &
-						(sizeof(int *) - 1)));
-				lws_dll2_add_tail(&s.best->list,
-						  &dsh->oha[kind].owner);
-			}
+		} else {
+			assert(!(((unsigned long)(intptr_t)(s.best)) &
+					(sizeof(int *) - 1)));
+			lws_dll2_add_tail(&s.best->list,
+					  &dsh->oha[kind].owner);
+		}
 
 		assert(s.dsh->locally_free >= asize);
 		dsh->oha[kind].total_size += asize;

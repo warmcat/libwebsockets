@@ -1254,7 +1254,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 		context->pt[n].fake_wsi = (struct lws *)u;
 		u += sizeof(struct lws);
 
+#if !defined(__COVERITY__)
 		memset((void *)context->pt[n].fake_wsi, 0, sizeof(struct lws));
+#endif
 #endif
 
 		context->pt[n].evlib_pt = u;
@@ -1933,9 +1935,15 @@ lws_pt_destroy(struct lws_context_per_thread *pt)
 	    && ((int)pt->dummy_pipe_fds[0] != -1 || (int)pt->dummy_pipe_fds[1] != -1)
 #endif
 	) {
+#if defined(__COVERITY__)
+		struct lws wsi = { 0 };
+#else
 		struct lws wsi;
 
+#if !defined(__COVERITY__)
 		memset((void *)&wsi, 0, sizeof(wsi));
+#endif
+#endif
 		wsi.a.context = pt->context;
 		wsi.tsi = (char)pt->tid;
 		lws_plat_pipe_close(&wsi);

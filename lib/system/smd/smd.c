@@ -205,6 +205,7 @@ _lws_smd_msg_send(struct lws_context *ctx, void *pay, struct lws_smd_peer *exc)
 {
 	lws_smd_msg_t *msg = (lws_smd_msg_t *)(((uint8_t *)pay) -
 				LWS_SMD_SS_RX_HEADER_LEN_EFF - sizeof(*msg));
+	int locked_peers = 0;
 
 	if (ctx->smd.owner_messages.count >= ctx->smd_queue_depth) {
 		// lwsl_cx_debug(ctx, "rejecting message on queue depth %d",
@@ -220,9 +221,11 @@ _lws_smd_msg_send(struct lws_context *ctx, void *pay, struct lws_smd_peer *exc)
 	 * is set in that case so we can avoid it.
 	 */
 
-	if ((!ctx->smd.delivering || !lws_thread_is(ctx->smd.tid_holding)) &&
-	    lws_mutex_lock(ctx->smd.lock_peers)) /* +++++++++++++++ peers */
-		return 1; /* For Coverity */
+	if (!ctx->smd.delivering || !lws_thread_is(ctx->smd.tid_holding)) {
+		if (lws_mutex_lock(ctx->smd.lock_peers)) /* +++++++++++++++ peers */
+			return 1; /* For Coverity */
+		locked_peers = 1;
+	}
 
 	if (lws_mutex_lock(ctx->smd.lock_messages)) /* +++++++++++++++++ messages */
 		goto bail;
@@ -234,7 +237,7 @@ _lws_smd_msg_send(struct lws_context *ctx, void *pay, struct lws_smd_peer *exc)
 		lws_mutex_unlock(ctx->smd.lock_messages); /* --------------- messages */
 
 		lws_free(msg);
-		if (!ctx->smd.delivering || !lws_thread_is(ctx->smd.tid_holding))
+		if (locked_peers)
 			lws_mutex_unlock(ctx->smd.lock_peers); /* ------------- peers */
 
 		return 0;
@@ -272,7 +275,7 @@ _lws_smd_msg_send(struct lws_context *ctx, void *pay, struct lws_smd_peer *exc)
 	lws_mutex_unlock(ctx->smd.lock_messages); /* --------------- messages */
 
 bail:
-	if (!ctx->smd.delivering || !lws_thread_is(ctx->smd.tid_holding))
+	if (locked_peers)
 		lws_mutex_unlock(ctx->smd.lock_peers); /* ------------- peers */
 
 	/* we may be happening from another thread context */
@@ -631,6 +634,7 @@ lws_smd_register(struct lws_context *ctx, void *opaque, int flags,
 		 lws_smd_class_t _class_filter, lws_smd_notification_cb_t cb)
 {
 	lws_smd_peer_t *pr = lws_zalloc(sizeof(*pr), __func__);
+	int locked_peers = 0;
 
 	if (!pr)
 		return NULL;
@@ -640,10 +644,12 @@ lws_smd_register(struct lws_context *ctx, void *opaque, int flags,
 	pr->_class_filter = _class_filter;
 	pr->ctx = ctx;
 
-	if ((!ctx->smd.delivering || !lws_thread_is(ctx->smd.tid_holding)) &&
-	    lws_mutex_lock(ctx->smd.lock_peers)) { /* +++++++++++++++ peers */
-		lws_free(pr);
-		return NULL; /* For Coverity */
+	if (!ctx->smd.delivering || !lws_thread_is(ctx->smd.tid_holding)) {
+		if (lws_mutex_lock(ctx->smd.lock_peers)) { /* +++++++++++++++ peers */
+			lws_free(pr);
+			return NULL; /* For Coverity */
+		}
+		locked_peers = 1;
 	}
 
 	/*
@@ -685,7 +691,7 @@ lws_smd_register(struct lws_context *ctx, void *opaque, int flags,
 			(unsigned int)ctx->smd.owner_peers.count);
 
 bail1:
-	if (!ctx->smd.delivering || !lws_thread_is(ctx->smd.tid_holding))
+	if (locked_peers)
 		lws_mutex_unlock(ctx->smd.lock_peers); /* ------------- peers */
 
 	return pr;
@@ -695,21 +701,24 @@ void
 lws_smd_unregister(struct lws_smd_peer *pr)
 {
 	lws_smd_t *smd = lws_container_of(pr->list.owner, lws_smd_t, owner_peers);
+	int locked_peers = 0;
 
-	if ((!smd->delivering || !lws_thread_is(smd->tid_holding)) &&
-	    lws_mutex_lock(smd->lock_peers)) /* +++++++++++++++++++ peers */
-		return; /* For Coverity */
+	if (!smd->delivering || !lws_thread_is(smd->tid_holding)) {
+		if (lws_mutex_lock(smd->lock_peers)) /* +++++++++++++++++++ peers */
+			return; /* For Coverity */
+		locked_peers = 1;
+	}
 	lwsl_cx_notice(pr->ctx, "destroying peer %p", pr);
 	_lws_smd_peer_destroy(pr);
 
-	if (!smd->delivering || !lws_thread_is(smd->tid_holding))
+	if (locked_peers)
 		lws_mutex_unlock(smd->lock_peers); /* ----------------- peers */
 }
 
 int
 lws_smd_message_pending(struct lws_context *ctx)
 {
-	int ret = 1;
+	int ret = 1, locked_peers = 0;
 
 	/*
 	 * First cheaply check the common case no messages pending, so there's
@@ -724,9 +733,11 @@ lws_smd_message_pending(struct lws_context *ctx)
 	 * have been hanging around too long
 	 */
 
-	if ((!ctx->smd.delivering || !lws_thread_is(ctx->smd.tid_holding)) &&
-	    lws_mutex_lock(ctx->smd.lock_peers)) /* +++++++++++++++++++++++ peers */
-		return 1; /* For Coverity */
+	if (!ctx->smd.delivering || !lws_thread_is(ctx->smd.tid_holding)) {
+		if (lws_mutex_lock(ctx->smd.lock_peers)) /* +++++++++++++++++++++++ peers */
+			return 1; /* For Coverity */
+		locked_peers = 1;
+	}
 	if (lws_mutex_lock(ctx->smd.lock_messages)) /* +++++++++++++++++ messages */
 		goto bail; /* For Coverity */
 
@@ -786,7 +797,7 @@ lws_smd_message_pending(struct lws_context *ctx)
 	ret = 0;
 
 bail:
-	if (!ctx->smd.delivering || !lws_thread_is(ctx->smd.tid_holding))
+	if (locked_peers)
 		lws_mutex_unlock(ctx->smd.lock_peers); /* --------------------- peers */
 
 	return ret;

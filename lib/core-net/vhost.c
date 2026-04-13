@@ -387,10 +387,14 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 
 	memset(&_lwsa, 0, sizeof(_lwsa));
 #else
+#if defined(__COVERITY__)
+	struct lws _lws = { 0 };
+#else
 	struct lws _lws;
-	struct lws_a *lwsa = &_lws.a;
 
 	memset((void *)&_lws, 0, sizeof(_lws));
+#endif
+	struct lws_a *lwsa = &_lws.a;
 #endif
 
 	lwsa->context = vh->context;
@@ -1571,7 +1575,11 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 {
 	const struct lws_protocols *protocol = NULL;
 	struct lws_context *context = vh->context;
+#if defined(__COVERITY__)
+	struct lws wsi = { 0 };
+#else
 	struct lws wsi;
+#endif
 	int n;
 
 	vh->being_destroyed = 0;
@@ -1596,7 +1604,9 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 	 * let the protocols destroy the per-vhost protocol objects
 	 */
 
+#if !defined(__COVERITY__)
 	memset((void *)&wsi, 0, sizeof(wsi));
+#endif
 	wsi.a.context = vh->context;
 	wsi.a.vhost = vh; /* not a real bound wsi */
 

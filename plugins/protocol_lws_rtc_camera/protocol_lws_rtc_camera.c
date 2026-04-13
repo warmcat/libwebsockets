@@ -145,7 +145,12 @@ callback_rtc_camera(struct lws *wsi, enum lws_callback_reasons reason,
 	switch (reason) {
 		case LWS_CALLBACK_CLIENT_WRITEABLE:
 			{
-				struct pss_camshow *app_state = (struct pss_camshow *)we_ops->get_user_data((struct pss_webrtc *)user);
+				struct pss_camshow *app_state = NULL;
+				
+				if (!we_ops || !we_ops->get_user_data)
+					break;
+					
+				app_state = (struct pss_camshow *)we_ops->get_user_data((struct pss_webrtc *)user);
 				if (app_state) {
 					if (app_state->send_presence_report) {
 						const char *rep = "{\"type\":\"presence_report\",\"joined\":true}";
@@ -159,7 +164,12 @@ callback_rtc_camera(struct lws *wsi, enum lws_callback_reasons reason,
 
 		case LWS_CALLBACK_CLIENT_RECEIVE:
 			{
-				struct pss_camshow *app_state = (struct pss_camshow *)we_ops->get_user_data((struct pss_webrtc *)user);
+				struct pss_camshow *app_state = NULL;
+				
+				if (!we_ops || !we_ops->get_user_data)
+					break;
+					
+				app_state = (struct pss_camshow *)we_ops->get_user_data((struct pss_webrtc *)user);
 				if (app_state && in && len > 0) {
 					size_t al = 0;
 					if (lws_json_simple_find((const char *)in, len, "\"type\":\"presence_check\"", &al)) {

@@ -147,8 +147,10 @@ cb_proxy_serial_transport(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RAW_RX_FILE:
 //		lwsl_notice("LWS_CALLBACK_RAW_RX_FILE\n");
 
-		if (pss)
-			assert_is_pss(pss);
+		if (!pss)
+			return -1;
+
+		assert_is_pss(pss);
 
 		n = (int)read(pss->filefd, buf, sizeof(buf));
 		if (n <= 0) {
