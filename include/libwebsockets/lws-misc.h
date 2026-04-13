@@ -57,6 +57,21 @@ struct lws_buflist;
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_buflist_append_segment(struct lws_buflist **head, const uint8_t *buf,
 			   size_t len);
+
+/**
+ * lws_buflist_append_segment_take_ownership(): add buffer to buflist at head
+ *
+ * \param head: list head
+ * \param buf: buffer to stash, must be allocated by lws_malloc
+ * \param len: length of buffer to stash
+ *
+ * Returns -1 on OOM, 1 if this was the first segment on the list, and 0 if
+ * it was a subsequent segment. The buflist takes ownership of \p buf and
+ * will free it using lws_free() when it is exhausted.
+ */
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
+lws_buflist_append_segment_take_ownership(struct lws_buflist **head, uint8_t *buf, size_t len);
+
 /**
  * lws_buflist_next_segment_len(): number of bytes left in current segment
  *

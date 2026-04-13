@@ -58,6 +58,8 @@ struct lws_webrtc_peer_media {
 	uint8_t                 rtp_ts_offset_set;
 	uint32_t                rtp_ts_audio_offset;
 	uint8_t                 rtp_ts_audio_offset_set;
+    
+	uint8_t                 rx_video_corrupted;
 
 	uint16_t                last_seq_video;
 	uint8_t                 seq_valid_video;
@@ -73,6 +75,8 @@ struct lws_webrtc_peer_media {
 	size_t                  sps_len;
 	size_t                  pps_len;
 	lws_usec_t              last_sps_pps_ts;
+
+	struct lws_txp          *txpacer;
 };
 
 struct pss_webrtc {
