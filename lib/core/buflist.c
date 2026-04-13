@@ -71,10 +71,52 @@ lws_buflist_append_segment(struct lws_buflist **head, const uint8_t *buf,
 	nbuf->len = len;
 	nbuf->pos = 0;
 	nbuf->next = NULL;
+	nbuf->heap_alloc = NULL;
 
 	/* whoever consumes this might need LWS_PRE from the start... */
 	p = (uint8_t *)nbuf + sizeof(*nbuf) + LWS_PRE;
 	memcpy(p, buf, len);
+
+	*head = nbuf;
+
+	return first; /* returns 1 if first segment just created */
+}
+
+int
+lws_buflist_append_segment_take_ownership(struct lws_buflist **head, uint8_t *buf, size_t len)
+{
+	struct lws_buflist *nbuf;
+	int first = !*head;
+	int sanity = 1024;
+
+	if (!buf)
+		return -1;
+
+	assert(len);
+
+	/* append at the tail */
+	while (*head) {
+		if (!--sanity) {
+			lwsl_err("%s: buflist reached sanity limit\n", __func__);
+			return -1;
+		}
+		if (*head == (*head)->next) {
+			lwsl_err("%s: corrupt list points to self\n", __func__);
+			return -1;
+		}
+		head = &((*head)->next);
+	}
+
+	nbuf = (struct lws_buflist *)lws_malloc(sizeof(struct lws_buflist), __func__);
+	if (!nbuf) {
+		lwsl_err("%s: OOM\n", __func__);
+		return -1;
+	}
+
+	nbuf->len = len;
+	nbuf->pos = 0;
+	nbuf->next = NULL;
+	nbuf->heap_alloc = buf;
 
 	*head = nbuf;
 
@@ -90,6 +132,8 @@ lws_buflist_destroy_segment(struct lws_buflist **head)
 	*head = old->next;
 	old->next = NULL;
 	old->pos = old->len = 0;
+	if (old->heap_alloc)
+		lws_free(old->heap_alloc);
 	lws_free(old);
 
 	return !*head; /* returns 1 if last segment just destroyed */
@@ -103,6 +147,8 @@ lws_buflist_destroy_all_segments(struct lws_buflist **head)
 	while (p) {
 		p1 = p->next;
 		p->next = NULL;
+		if (p->heap_alloc)
+			lws_free(p->heap_alloc);
 		lws_free(p);
 		p = p1;
 	}
@@ -131,8 +177,12 @@ lws_buflist_next_segment_len(struct lws_buflist **head, uint8_t **buf)
 
 	assert(b->pos < b->len);
 
-	if (buf)
-		*buf = ((uint8_t *)b) + sizeof(*b) + b->pos + LWS_PRE;
+	if (buf) {
+		if (b->heap_alloc)
+			*buf = ((uint8_t *)b->heap_alloc) + b->pos;
+		else
+			*buf = ((uint8_t *)b) + sizeof(*b) + b->pos + LWS_PRE;
+	}
 
 	return b->len - b->pos;
 }
@@ -286,6 +336,9 @@ lws_buflist_get_frag_start_or_NULL(struct lws_buflist **head)
 
 	if (!b)
 		return NULL;	/* there is no segment to work on */
+
+	if (b->heap_alloc)
+		return b->heap_alloc;
 
 	return ((uint8_t *)b) + sizeof(*b) + LWS_PRE;
 }

@@ -141,6 +141,10 @@ lws_webrtc_media_unref(struct lws_webrtc_peer_media **pmedia)
 	if (!media) return;
 	media->refcount--;
 	if (media->refcount == 0) {
+#if defined(LWS_HAVE_PTHREAD_H)
+		if (media->txpacer)
+			lws_txp_destroy(&media->txpacer);
+#endif
 		pthread_mutex_destroy(&media->lock_tx);
 		free(media);
 	}
@@ -163,9 +167,35 @@ lws_webrtc_set_on_media(struct vhd_webrtc *vhd, lws_webrtc_on_media_cb cb)
 	vhd->on_media = cb;
 }
 
+static int
+webrtc_tx_pacer_cb(void *user, const uint8_t *buf, size_t len)
+{
+	struct lws_webrtc_peer_media *media = (struct lws_webrtc_peer_media *)user;
+
+	if (!media || !media->wsi_udp || !media->has_peer_sa46)
+		return -1;
+
+	int fd = (int)(lws_intptr_t)lws_get_socket_fd(media->wsi_udp);
+	if (fd >= 0) {
+		if (sendto((lws_sockfd_type)(lws_intptr_t)fd, (const char *)buf, LWS_POSIX_LENGTH_CAST(len), 0,
+					(const struct sockaddr *)&media->peer_sa46, media->peer_sa46.sa4.sin_family == AF_INET6 ? (socklen_t)sizeof(media->peer_sa46.sa6) : (socklen_t)sizeof(media->peer_sa46.sa4)) < (int)len) {
+			if (errno != EAGAIN && errno != EWOULDBLOCK && errno != ENOBUFS) {
+				lwsl_err("%s: UDP sendto failed: %d (%s)\n", __func__, errno, strerror(errno));
+			}
+		} else {
+			if (!media->sent_first_rtp) {
+				lwsl_notice("%s: Sent FIRST RTP packet to peer via Pacer\n", __func__);
+				media->sent_first_rtp = 1;
+			}
+		}
+	}
+	return 0;
+}
+
 static void
 rtp_packet_tx_cb(void *priv, const uint8_t *pkt, size_t len, int marker)
 {
+
 	struct lws_webrtc_peer_media *media = (struct lws_webrtc_peer_media *)priv;
 	uint8_t protected_pkt[2048 + LWS_PRE];
 	uint8_t *p = protected_pkt + LWS_PRE;
@@ -183,6 +213,17 @@ rtp_packet_tx_cb(void *priv, const uint8_t *pkt, size_t len, int marker)
 		lwsl_err("%s: SRTP protect failed\n", __func__);
 		return;
 	}
+
+#if defined(LWS_HAVE_PTHREAD_H)
+	if (media->txpacer) {
+		uint8_t *heap_buf = malloc(protected_len);
+		if (heap_buf) {
+			memcpy(heap_buf, p, protected_len);
+			lws_txp_append(media->txpacer, heap_buf, protected_len);
+		}
+		return;
+	}
+#endif
 
 	/*
 	 * Non-blocking send. If we get EAGAIN/ENOBUFS, we must drop the packet
@@ -1190,8 +1231,23 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 	}
 
 	/* Reset PSS PTs */
-	if (!pss->media)
+	if (!pss->media) {
 		pss->media = calloc(1, sizeof(struct lws_webrtc_peer_media));
+		if (pss->media) {
+			pss->media->refcount = 1;
+			pthread_mutex_init(&pss->media->lock_tx, NULL);
+#if defined(LWS_HAVE_PTHREAD_H)
+			lws_txp_info_t txp_i;
+			memset(&txp_i, 0, sizeof(txp_i));
+			txp_i.user = pss->media;
+			txp_i.tx_cb = webrtc_tx_pacer_cb;
+			txp_i.target_rate_bps = 5000000; /* 5 Mbps limit */
+			txp_i.interval_us = 2000;      /* 2ms ticks */
+			txp_i.max_buflist_bytes = 2 * 1024 * 1024; /* 2MB max queue */
+			pss->media->txpacer = lws_txp_create(&txp_i);
+#endif
+		}
+	}
 
 	if (!pss->media) {
 		free(sdp_clean);
@@ -1743,6 +1799,17 @@ lws_shared_webrtc_callback(struct lws *wsi, enum lws_callback_reasons reason,
 				if (!pss->media) return -1;
 				pss->media->refcount = 1; /* PSS owns one reference */
 				pthread_mutex_init(&pss->media->lock_tx, NULL);
+
+#if defined(LWS_HAVE_PTHREAD_H)
+				lws_txp_info_t txp_i;
+				memset(&txp_i, 0, sizeof(txp_i));
+				txp_i.user = pss->media;
+				txp_i.tx_cb = webrtc_tx_pacer_cb;
+				txp_i.target_rate_bps = 5000000; /* 5 Mbps limit */
+				txp_i.interval_us = 2000;      /* 2ms ticks */
+				txp_i.max_buflist_bytes = 2 * 1024 * 1024; /* 2MB max queue */
+				pss->media->txpacer = lws_txp_create(&txp_i);
+#endif
 			}
 			pss->media->wsi_udp = vhd->wsi_udp; /* Critical: Session needs UDP handle */
 			if (reason == LWS_CALLBACK_CLIENT_ESTABLISHED)
@@ -2116,8 +2183,14 @@ webrtc_handle_rtp_rtcp(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrt
 				if (pss->media->seq_valid_video) {
 					uint16_t expected = (uint16_t)(pss->media->last_seq_video + 1);
 					if (seq != expected) {
+						lwsl_notice("%s: RTP Drop (Video): Got seq %u, Expected %u (Gap %d)\n",
+							__func__, seq, expected, (int)((int16_t)(seq - expected)));
+						
+						/* Shred everything moving forward until we hit the next valid frame boundary */
+						pss->media->rx_video_corrupted = 1;
+
 						if (lws_now_usecs() - pss->last_pli_req_time > 200000) {
-							lwsl_notice("%s: RTP Drop (Video): Got %u, Expected %u. Requesting PLI.\n", __func__, seq, expected);
+							lwsl_notice("%s: Requesting PLI.\n", __func__);
 							lws_webrtc_send_pli(pss);
 							pss->last_pli_req_time = lws_now_usecs();
 						}
@@ -2173,7 +2246,15 @@ webrtc_handle_rtp_rtcp(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrt
 				if (dbg_fwd++ % 100 == 0)
 					lwsl_notice("%s: Forwarding RTP to on_media: PT %u, len %zu, ssrc %u\n", __func__, pkt_pt, rtp_len - offset, ssrc);
 #endif
-				vhd->on_media(pss->wsi_ws, pkt_pt, (uint8_t *)in + offset, rtp_len - offset, !!(p[1] & 0x80), (uint32_t)((p[4] << 24) | (p[5] << 16) | (p[6] << 8) | p[7]));
+				if ((pkt_pt == pss->media->pt_video || pkt_pt == pss->media->pt_video_h264 || pkt_pt == pss->media->pt_video_av1) && pss->media->rx_video_corrupted) {
+					/* Skip forwarding this fragment since the frame is already corrupted */
+					if (p[1] & 0x80) {
+						/* Marker bit hit: end of the corrupted frame, allow next frame to flow */
+						pss->media->rx_video_corrupted = 0;
+					}
+				} else {
+					vhd->on_media(pss->wsi_ws, pkt_pt, (uint8_t *)in + offset, rtp_len - offset, !!(p[1] & 0x80), (uint32_t)((p[4] << 24) | (p[5] << 16) | (p[6] << 8) | p[7]));
+				}
 			}
 		}
 	}

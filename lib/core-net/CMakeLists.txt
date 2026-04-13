@@ -37,6 +37,7 @@ list(APPEND SOURCES
 	core-net/wsi-timeout.c
 	core-net/adopt.c
 	core-net/latency.c
+	core-net/txpacer.c
 	roles/pipe/ops-pipe.c
 )
 

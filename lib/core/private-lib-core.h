@@ -432,6 +432,7 @@ typedef struct lws_buflist {
 	size_t					pos;
 	unsigned char				awaiting_eom;
 	unsigned char				src_channel;
+	void					*heap_alloc;
 } lws_buflist_t;
 
 

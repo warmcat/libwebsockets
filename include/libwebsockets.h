@@ -970,6 +970,7 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 
 #if defined(LWS_WITH_DIR)
 #include <libwebsockets/lws-dir-notify.h>
+#include <libwebsockets/lws-txpacer.h>
 #endif
 
 #ifdef __cplusplus
