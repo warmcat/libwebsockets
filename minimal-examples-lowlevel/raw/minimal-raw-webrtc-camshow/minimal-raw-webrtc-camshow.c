@@ -27,11 +27,11 @@ enum {
 };
 
 static const struct lws_switches switches[] = {
-	[LWS_SW_HEIGHT]	= { "--height",        "Enable --height feature" },
-	[LWS_SW_NAME]	= { "--name",          "Enable --name feature" },
-	[LWS_SW_URL]	= { "--url",           "Enable --url feature" },
-	[LWS_SW_VIDEO_DEVICE]	= { "--video-device",  "Enable --video-device feature" },
-	[LWS_SW_WIDTH]	= { "--width",         "Enable --width feature" },
+	[LWS_SW_HEIGHT]	= { "--height",        "Video capture height in pixels (default 720)" },
+	[LWS_SW_NAME]	= { "--name",          "Client peer name to identify in mixer" },
+	[LWS_SW_URL]	= { "--url",           "WebSockets URL to connect to (default wss://127.0.0.1:7681)" },
+	[LWS_SW_VIDEO_DEVICE]	= { "--video-device",  "V4L2 video device path (default /dev/video0)" },
+	[LWS_SW_WIDTH]	= { "--width",         "Video capture width in pixels (default 1280)" },
 	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
 };
 
@@ -109,14 +109,14 @@ main(int argc, const char **argv)
 	const char *opt;
 
 	lws_context_info_defaults(&info, NULL);
+	lws_cmdline_option_handle_builtin(argc, argv, &info);
+	lwsl_user("LWS minimal raw webrtc camshow [--url <wss url>] [--video-device <device>] [--name <client name>] [--width <width>] [--height <height>]\n");
 	(void)switches;
 
 	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
 		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
 		return 0;
 	}
-
-	lws_cmdline_option_handle_builtin(argc, argv, &info);
 
 	info.port = CONTEXT_PORT_NO_LISTEN;
 
