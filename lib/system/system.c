@@ -262,8 +262,6 @@ lws_system_do_attach(struct lws_context_per_thread *pt)
 	return 0;
 }
 
-#endif
-
 void
 lws_extip_report(struct lws_context *cx, lws_extip_src_t src,
                  const lws_sockaddr46 *sa46, int af, int status,
@@ -287,7 +285,9 @@ lws_extip_report(struct lws_context *cx, lws_extip_src_t src,
 	}
 
 	if (memcmp(&old, target, sizeof(*target))) {
+#if defined(LWS_WITH_IPV6)
 		int c = 0;
+#endif
 		char payload[128], buf4[64];
 		char *p = payload, *end = payload + sizeof(payload);
 
@@ -296,7 +296,9 @@ lws_extip_report(struct lws_context *cx, lws_extip_src_t src,
 		if (cx->ext_ipv4.sa4.sin_family == AF_INET) {
 			lws_sa46_write_numeric_address(&cx->ext_ipv4, buf4, sizeof(buf4));
 			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\"%s\"", buf4);
+#if defined(LWS_WITH_IPV6)
 			c++;
+#endif
 		}
 
 #if defined(LWS_WITH_IPV6)
@@ -340,3 +342,5 @@ lws_extip_get_best(struct lws_context *cx, int af, lws_sockaddr46 *sa46)
 		memset(sa46, 0, sizeof(*sa46));
 	return 1;
 }
+
+#endif

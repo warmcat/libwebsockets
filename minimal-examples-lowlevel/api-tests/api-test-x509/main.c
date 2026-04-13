@@ -43,7 +43,7 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
-	if (lws_x509_parse_from_pem(x509, test_cert, strlen(test_cert))) {
+	if (lws_x509_parse_from_pem(x509, test_cert, strlen(test_cert) + 1)) {
 		lwsl_err("lws_x509_parse_from_pem failed\n");
 		ret = 1;
 		goto bail;

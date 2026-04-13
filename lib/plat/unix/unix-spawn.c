@@ -466,7 +466,11 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 							if (slave >= 0) {
 								struct termios t;
 								tcgetattr(slave, &t);
-								cfmakeraw(&t);
+								t.c_iflag &= (tcflag_t)~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
+								t.c_oflag &= (tcflag_t)~OPOST;
+								t.c_lflag &= (tcflag_t)~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
+								t.c_cflag &= (tcflag_t)~(CSIZE | PARENB);
+								t.c_cflag |= CS8;
 								tcsetattr(slave, TCSANOW, &t);
 								lsp->pipe_fds[n][0] = master;
 								lsp->pipe_fds[n][1] = slave;
@@ -745,20 +749,29 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	 * Bind the child's stdin / out / err to its side of our pipes
 	 */
 
-	for (m = 0; m < 3; m++) {
-		if (dup2(lsp->pipe_fds[m][m != 0], m) < 0) {
-			lwsl_err("%s: stdin dup2 failed\n", __func__);
-			goto bail3;
-		}
-		/*
-		 * CLOEXEC on the lws-side of the pipe fds should have already
-		 * dealt with closing those for the child perspective.
-		 *
-		 * Now it has done the dup, the child should close its original
-		 * copies of its side of the pipes.
-		 */
+	{
+		int cfd[3];
 
-		close(lsp->pipe_fds[m][m != 0]);
+		for (m = 0; m < 3; m++)
+			cfd[m] = lsp->pipe_fds[m][m != 0];
+
+		for (m = 0; m < 3; m++) {
+			if (cfd[m] < 0)
+				continue;
+			if (dup2(cfd[m], m) < 0) {
+				lwsl_err("%s: dup2 failed for fd index %d (oldfd %d, newfd %d): errno %d (%s)\n",
+					 __func__, m, cfd[m], m, errno, strerror(errno));
+				goto bail3;
+			}
+		}
+
+		for (m = 0; m < 3; m++) {
+			if (cfd[m] >= 0 && cfd[m] != 0 && cfd[m] != 1 && cfd[m] != 2) {
+				close(cfd[m]);
+				if (i->pty_mode && m == LWS_STDOUT)
+					cfd[LWS_STDERR] = -1; /* Prevent double close */
+			}
+		}
 	}
 
 #if defined(__sun) || !defined(LWS_HAVE_VFORK) || !defined(LWS_HAVE_EXECVPE)

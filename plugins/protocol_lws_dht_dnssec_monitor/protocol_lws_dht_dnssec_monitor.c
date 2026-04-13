@@ -233,7 +233,7 @@ whois_cb(void *opaque, const struct lws_whois_results *res)
 				     now, now + 300);
 
 			if (lws_jwt_sign_compact(wqi->vhd->context, &wqi->vhd->auth_jwk, "HS256",
-						 jwt, &jwt_len, temp, sizeof(temp), jwt_payload)) {
+						 jwt, &jwt_len, temp, sizeof(temp), "%s", jwt_payload)) {
 				lwsl_err("[INSTRUMENT] %s: failed to generate jwt for whois\n", __func__);
 			}
 		}
@@ -359,7 +359,7 @@ calc_local_ds(struct vhd *vhd, const char *domain, char *out, size_t out_len)
 	memcpy(p, rdata, rdata_len);
 	size_t pay_len = (size_t)lws_ptr_diff(p + rdata_len, payload);
 	
-	int htype = LWS_GENHASH_TYPE_SHA256;
+	enum lws_genhash_types htype = LWS_GENHASH_TYPE_SHA256;
 	int dtype = 2;
 	int dlen = 32;
 	if (alg == 14) {

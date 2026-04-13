@@ -1329,7 +1329,6 @@ lwsws_get_config_vhosts(struct lws_context *context,
 		if (!vh)
 			return 1;
 
-		extern int lws_context_init_ssl_library(struct lws_context *cx, const struct lws_context_creation_info *info);
 		lws_context_init_ssl_library(context, &i);
 		lws_init_vhost_client_ssl(&i, vh);
 

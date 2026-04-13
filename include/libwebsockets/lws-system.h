@@ -182,10 +182,12 @@ typedef enum {
 	LWS_CPD_NO_INTERNET,	/* we couldn't touch anything */
 } lws_cpd_result_t;
 
+#if defined(LWS_WITH_NETWORK)
 typedef enum {
 	LWS_EXTIP_SRC_DHT,
 	LWS_EXTIP_SRC_EXTIP
 } lws_extip_src_t;
+#endif
 
 typedef void (*lws_attach_cb_t)(struct lws_context *context, int tsi, void *opaque);
 struct lws_attach_item;
@@ -269,6 +271,7 @@ typedef struct lws_system_ops {
 #endif
 } lws_system_ops_t;
 
+#if defined(LWS_WITH_NETWORK)
 /**
  * lws_extip_report() - update external IP tracking state from callback
  *
@@ -298,6 +301,7 @@ lws_extip_report(struct lws_context *cx, lws_extip_src_t src, const lws_sockaddr
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_extip_get_best(struct lws_context *cx, int af, lws_sockaddr46 *sa46);
+#endif
 
 #if defined(LWS_WITH_SYS_STATE)
 
