@@ -67,8 +67,9 @@ ratelimit_get_config_js(struct lws *wsi, char *buf, size_t max_len)
 	const struct lws_http_mount *m;
 	int n = 0;
 
-	uri[0] = '\0';
-	lws_hdr_copy(wsi, uri, sizeof(uri), WSI_TOKEN_GET_URI);
+       if (lws_hdr_copy(wsi, uri, sizeof(uri), WSI_TOKEN_GET_URI) < 0)
+               return 0;
+
 	m = lws_find_mount(wsi, uri, (int)strlen(uri));
 	if (m && m->interceptor_path) {
 		n = lws_snprintf(buf, max_len, "var lws_interceptor_path = \"%s\";\n",
