@@ -2109,7 +2109,8 @@ fallback:
 					/* Handshake might be in progress or done. 
 					 * If lws_is_ssl is true, we can try to extract. */
 					if (lws_is_ssl(wsi)) {
-						extract_and_queue_cert_result(wsi, vhd, cci, protocol);
+						if (vhd)
+							extract_and_queue_cert_result(wsi, vhd, cci, protocol);
 						cci->magic = 0;
 						free(cci);
 						lws_set_opaque_user_data(wsi, NULL);
@@ -2214,7 +2215,8 @@ fallback:
 			if (cci && cci->magic == CERT_CHECK_MAGIC) {
 				if (cci->starttls_state == 4) {
 					lwsl_notice("[INSTRUMENT] Probe %s STARTTLS handshake finished, extracting cert\n", cci->fqdn);
-					extract_and_queue_cert_result(wsi, vhd, cci, protocol);
+					if (vhd)
+						extract_and_queue_cert_result(wsi, vhd, cci, protocol);
 					cci->magic = 0;
 					free(cci);
 					lws_set_opaque_user_data(wsi, NULL);
