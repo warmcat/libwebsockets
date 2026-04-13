@@ -1014,8 +1014,8 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			strftime(exp, sizeof(exp), "%a, %d %b %Y %H:%M:%S GMT", tm);
 
 			redirect_uri[0] = '\0';
-			lws_get_urlarg_by_name_safe(wsi, "redirect_uri=", redirect_uri, sizeof(redirect_uri));
-			lws_urldecode(redirect_uri, redirect_uri, sizeof(redirect_uri));
+			if (lws_get_urlarg_by_name_safe(wsi, "redirect_uri=", redirect_uri, sizeof(redirect_uri)) >= 0)
+				lws_urldecode(redirect_uri, redirect_uri, sizeof(redirect_uri));
 			if (!redirect_uri[0])
 				lws_strncpy(redirect_uri, "/", sizeof(redirect_uri));
 
