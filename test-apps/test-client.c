@@ -885,8 +885,6 @@ int main(int argc, char **argv)
 	return ret;
 
 usage:
-	if (puri)
-		lws_parse_uri_destroy(&puri);
 	fprintf(stderr, "Usage: libwebsockets-test-client "
 				"<server address> [--port=<p>] "
 				"[--ssl] [-k] [-v <ver>] "
