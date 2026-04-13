@@ -24,19 +24,27 @@
 
 #include "private-lib-core.h"
 
+#define LWS_WHS_DOMAIN_MAX 256
+
 struct lws_whois {
-	struct lws_dll2		list;
-	struct lws_whois_args	args;
-	struct lws		*wsi;
+	struct lws_dll2		        list;
+	struct lws_whois_args	        args;
+	struct lws		        *wsi;
 
-	char			domain[128];
-	char			server[128];
+	char			        domain[LWS_WHS_DOMAIN_MAX];
+	char			        server[LWS_WHS_DOMAIN_MAX];
 
-	char			*buf;
-	size_t			buf_len;
-	size_t			buf_alloc;
+	struct lws_tokenize	        ts;
+	struct lws_whois_results        res;
 
-	int			state; /* 0 = IANA / initial, 1 = authoritative */
+	char			        vk[128];
+	char			        vv[LWS_WHS_DOMAIN_MAX + 1];
+	size_t			        vk_len;
+	size_t			        vv_len;
+
+	int			        state; /* 0 = IANA / initial, 1 = authoritative, 2 = error */
+	int			        last_effline;
+	uint8_t			        is_value;
 };
 
 static void
@@ -46,8 +54,6 @@ lws_whois_destroy(struct lws_whois *w)
 		return;
 
 	lws_dll2_remove(&w->list);
-	if (w->buf)
-		lws_free(w->buf);
 	lws_free(w);
 }
 
@@ -58,21 +64,35 @@ lws_whois_trigger(struct lws_whois *w, const char *server)
 	struct lws *wsi = NULL;
 
 	memset(&i, 0, sizeof(i));
-	i.context = w->args.context;
-	i.vhost = w->args.context->vhost_system;
-	i.address = server;
-	i.port = 43;
-	i.path = "";
-	i.host = i.address;
-	i.origin = i.address;
-	i.ssl_connection = 0;
-	i.method = "RAW";
-	i.protocol = "lws-whois";
-	i.opaque_user_data = w;
-	i.pwsi = &wsi;
-	i.fi_wsi_name = "whois";
+	i.context               = w->args.context;
+	i.vhost                 = w->args.context->vhost_system;
+	i.address               = server;
+	i.port                  = 43;
+	i.path                  = "";
+	i.host                  = i.address;
+	i.origin                = i.address;
+	i.ssl_connection        = 0;
+	i.method                = "RAW";
+	i.protocol              = "lws-whois";
+	i.opaque_user_data      = w;
+	i.pwsi                  = &wsi;
+	i.fi_wsi_name           = "whois";
 
 	lwsl_cx_notice(w->args.context, "whois connecting to %s for domain: %s (state %d)", server, w->args.domain, w->state);
+
+	/* Initialize tokenizer for this connection */
+	memset(&w->ts, 0, sizeof(w->ts));
+	w->ts.flags             = LWS_TOKENIZE_F_EXPECT_MORE |
+				  LWS_TOKENIZE_F_MINUS_NONTERM |
+				  LWS_TOKENIZE_F_DOT_NONTERM |
+				  LWS_TOKENIZE_F_SLASH_NONTERM |
+				  LWS_TOKENIZE_F_COLON_NONTERM |
+				  LWS_TOKENIZE_F_NO_FLOATS |
+				  LWS_TOKENIZE_F_NO_INTEGERS;
+	w->vk_len               = 0;
+	w->vv_len               = 0;
+	w->is_value             = 0;
+	w->last_effline         = 0;
 
 	w->wsi = lws_client_connect_via_info(&i);
 	if (!w->wsi) {
@@ -85,84 +105,96 @@ lws_whois_trigger(struct lws_whois *w, const char *server)
 	return 0;
 }
 
+enum whois_match {
+	WHS_M_REFER,
+	WHS_M_WHOIS,
+	WHS_M_CREATION_DATE,
+	WHS_M_CREATED_ON,
+	WHS_M_REGISTRY_EXPIRY,
+	WHS_M_EXPIRY_DATE,
+	WHS_M_EXPIRATION_DATE,
+	WHS_M_UPDATED_DATE,
+	WHS_M_LAST_UPDATED,
+	WHS_M_NAME_SERVER,
+	WHS_M_NSERVER,
+	WHS_M_DNSSEC,
+	WHS_M_DNSSEC_DS_DATA,
+};
+
+static const char * const whois_key_strings[] = {
+	/* WHS_M_REFER */		"refer:",
+	/* WHS_M_WHOIS */		"whois:",
+	/* WHS_M_CREATION_DATE */	"Creation Date:",
+	/* WHS_M_CREATED_ON */		"Created On:",
+	/* WHS_M_REGISTRY_EXPIRY */	"Registry Expiry Date:",
+	/* WHS_M_EXPIRY_DATE */		"Expiry Date:",
+	/* WHS_M_EXPIRATION_DATE */	"Expiration Date:",
+	/* WHS_M_UPDATED_DATE */	"Updated Date:",
+	/* WHS_M_LAST_UPDATED */	"Last Updated:",
+	/* WHS_M_NAME_SERVER */		"Name Server:",
+	/* WHS_M_NSERVER */		"nserver:",
+	/* WHS_M_DNSSEC */		"DNSSEC:",
+	/* WHS_M_DNSSEC_DS_DATA */	"DNSSEC DS Data:",
+};
+
 static void
-lws_whois_parse_final(struct lws_whois *w)
+lws_whois_eval_line(struct lws_whois *w)
 {
-	struct lws_whois_results res;
-	char *p, *end;
+	unsigned int n;
 
-	memset(&res, 0, sizeof(res));
+	if (!w->vk_len)
+		return;
 
-	p = w->buf;
-	while (p && *p) {
-		end = strchr(p, '\n');
-		if (end) {
-			*end = '\0';
-			if (end > p && *(end - 1) == '\r')
-				*(end - 1) = '\0';
+	for (n = 0; n < LWS_ARRAY_SIZE(whois_key_strings); n++)
+		if (!strcmp(w->vk, whois_key_strings[n]))
+			break;
+
+	if (n == LWS_ARRAY_SIZE(whois_key_strings))
+		return;
+
+	if (w->state == 0) {
+		if ((n == WHS_M_REFER || n == WHS_M_WHOIS) && w->vv_len) {
+			lws_strncpy(w->server, w->vv, sizeof(w->server));
+	        	w->args.server = w->server;
+			lwsl_info("%s: IANA referral to %s\n", __func__, w->server);
 		}
-
-		if (strstr(p, "Creation Date:") || strstr(p, "Created On:")) {
-			char *v = strchr(p, ':') + 1;
-			while (*v == ' ' || *v == '\t') v++;
-			res.creation_date = lws_parse_iso8601(v);
-			lwsl_notice("%s: parsed creation date\n", __func__);
-		} else if (strstr(p, "Registry Expiry Date:") ||
-			   strstr(p, "Expiry Date:") ||
-			   strstr(p, "Expiration Date:")) {
-			char *v = strchr(p, ':') + 1;
-			while (*v == ' ' || *v == '\t') v++;
-			res.expiry_date = lws_parse_iso8601(v);
-			lwsl_notice("%s: parsed expiry date\n", __func__);
-		} else if (strstr(p, "Updated Date:") || strstr(p, "Last Updated:")) {
-			char *v = strchr(p, ':') + 1;
-			while (*v == ' ' || *v == '\t') v++;
-			res.updated_date = lws_parse_iso8601(v);
-			lwsl_notice("%s: parsed updated date\n", __func__);
-		} else if (strstr(p, "Name Server:") || strstr(p, "nserver:")) {
-			char *v = strchr(p, ':') + 1;
-			while (*v == ' ' || *v == '\t') v++;
-			char *item_end = v;
-			while (*item_end && *item_end != ' ' && *item_end != '\t' &&
-			       *item_end != '\r' && *item_end != '\n')
-				item_end++;
-			
-			if (res.nameservers[0])
-				strncat(res.nameservers, ", ",
-					sizeof(res.nameservers) - strlen(res.nameservers) - 1);
-			size_t max_len = sizeof(res.nameservers) - strlen(res.nameservers) - 1;
-			size_t cur_len = lws_ptr_diff_size_t(item_end, v);
-			strncat(res.nameservers, v, cur_len < max_len ? cur_len : max_len);
-		} else if (strstr(p, "DNSSEC:")) {
-			char *v = strchr(p, ':') + 1;
-			while (*v == ' ' || *v == '\t') v++;
-			char *te = v + strlen(v) - 1;
-			while (te > v && (*te == ' ' || *te == '\t' || *te == '\r' || *te == '\n'))
-				*te-- = '\0';
-			lws_strncpy(res.dnssec, v, sizeof(res.dnssec));
-			lwsl_notice("%s: Parsed DNSSEC: '%s'\n", __func__, res.dnssec);
-		} else if (strstr(p, "DNSSEC DS Data:")) {
-			char *v = strchr(p, ':') + 1;
-			while (*v == ' ' || *v == '\t') v++;
-			char *te = v + strlen(v) - 1;
-			while (te > v && (*te == ' ' || *te == '\t' || *te == '\r' || *te == '\n'))
-				*te-- = '\0';
-			lws_strncpy(res.ds_data, v, sizeof(res.ds_data));
-			lwsl_notice("%s: parsed DS data\n", __func__);
-		}
-
-		if (end) {
-			*end = '\n';
-			p = end + 1;
-		} else {
-			p = NULL;
-		}
+		return;
 	}
 
-	lwsl_notice("[INSTRUMENT] %s: Parsed final for %s (len: %lu, dnssec: '%s', res.expiry: %llu)\n", __func__, w->args.domain, (unsigned long)w->buf_len, res.dnssec, (unsigned long long)res.expiry_date);
+	switch (n) {
+	case WHS_M_CREATION_DATE:
+	case WHS_M_CREATED_ON:
+		w->res.creation_date = lws_parse_iso8601(w->vv);
+		break;
+	case WHS_M_REGISTRY_EXPIRY:
+	case WHS_M_EXPIRY_DATE:
+	case WHS_M_EXPIRATION_DATE:
+		w->res.expiry_date = lws_parse_iso8601(w->vv);
+		break;
+	case WHS_M_UPDATED_DATE:
+	case WHS_M_LAST_UPDATED:
+		w->res.updated_date = lws_parse_iso8601(w->vv);
+		break;
+	case WHS_M_NAME_SERVER:
+	case WHS_M_NSERVER:
+	{
+		size_t max_len, cur_len;
 
-	if (w->args.cb)
-		w->args.cb(w->args.opaque, &res);
+		if (w->res.nameservers[0])
+			strncat(w->res.nameservers, ", ",
+				sizeof(w->res.nameservers) - strlen(w->res.nameservers) - 1);
+		max_len = sizeof(w->res.nameservers) - strlen(w->res.nameservers) - 1;
+		cur_len = w->vv_len;
+		strncat(w->res.nameservers, w->vv, cur_len < max_len ? cur_len : max_len);
+		break;
+	}
+	case WHS_M_DNSSEC:
+		lws_strncpy(w->res.dnssec, w->vv, sizeof(w->res.dnssec));
+		break;
+	case WHS_M_DNSSEC_DS_DATA:
+		lws_strncpy(w->res.ds_data, w->vv, sizeof(w->res.ds_data));
+		break;
+	}
 }
 
 static int
@@ -178,7 +210,6 @@ callback_whois(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		break;
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
-		lwsl_wsi_notice(wsi, "whois connection error for %s on %s", w->args.domain, w->server[0] ? w->server : "iana");
 		w->state = 2;
 		break;
 
@@ -186,9 +217,8 @@ callback_whois(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (!w)
 			break;
 		w->wsi = NULL;
-		
+
 		if (w->state == 2) {
-			lwsl_notice("[INSTRUMENT] %s: RAW_CLOSE in state 2, calling callback with NULL for %s\n", __func__, w->args.domain);
 			if (w->args.cb)
 				w->args.cb(w->args.opaque, NULL);
 			lws_set_opaque_user_data(wsi, NULL);
@@ -196,27 +226,21 @@ callback_whois(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			break;
 		}
 
+		/* finish loose ends tokenizing */
+		w->ts.flags &= (uint16_t)~LWS_TOKENIZE_F_EXPECT_MORE;
+		w->ts.start = NULL;
+		w->ts.len = 0;
+		do {
+			w->ts.e = (int8_t)lws_tokenize(&w->ts);
+		} while (w->ts.e > 0);
+
+		if (w->vk_len || w->vv_len)
+			lws_whois_eval_line(w);
+
 		if (w->state == 0) {
-			/* IANA step done, look for referral */
-			char *p = strstr(w->buf, "refer:");
-			if (!p) p = strstr(w->buf, "whois:");
-			if (p) {
-				p = strchr(p, ':') + 1;
-				while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
-				char s[128];
-				char *end = p;
-				while (*end && *end != '\r' && *end != '\n') end++;
-				size_t cur_len = lws_ptr_diff_size_t(end, p);
-				if (cur_len >= sizeof(s)) cur_len = sizeof(s) - 1;
-				lws_strncpy(s, p, cur_len + 1);
-				
+			if (w->server[0]) {
 				w->state = 1;
-				lwsl_notice("%s: IANA referred %s to %s\n", __func__, w->args.domain, s);
-				lws_free(w->buf);
-				w->buf = NULL;
-				w->buf_len = 0;
-				w->buf_alloc = 0;
-				if (lws_whois_trigger(w, s)) {
+				if (lws_whois_trigger(w, w->server)) {
 					lwsl_notice("%s: Failed triggering referral\n", __func__);
 					if (w->args.cb)
 						w->args.cb(w->args.opaque, NULL);
@@ -229,8 +253,8 @@ callback_whois(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				lws_whois_destroy(w);
 			}
 		} else {
-			/* Final result */
-			lws_whois_parse_final(w);
+			if (w->args.cb)
+				w->args.cb(w->args.opaque, &w->res);
 			lws_whois_destroy(w);
 		}
 		break;
@@ -238,22 +262,53 @@ callback_whois(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	case LWS_CALLBACK_RAW_RX:
 		if (!w)
 			break;
-		if (w->buf_len + len + 1 > w->buf_alloc) {
-			char *nb;
-			w->buf_alloc += len + 2048;
-			nb = lws_realloc(w->buf, w->buf_alloc, "whois_rx");
-			if (!nb)
-				return -1;
-			w->buf = nb;
-		}
-		memcpy(w->buf + w->buf_len, in, len);
-		w->buf_len += len;
-		w->buf[w->buf_len] = '\0';
+
+		w->ts.start = (const char *)in;
+		w->ts.len = len;
+
+		do {
+			w->ts.e = (int8_t)lws_tokenize(&w->ts);
+			if (w->ts.e == LWS_TOKZE_WANT_READ)
+				break;
+
+			if (w->ts.effline != w->last_effline) {
+				lws_whois_eval_line(w);
+				w->vk_len = 0;
+				w->vv_len = 0;
+				w->vk[0] = '\0';
+				w->vv[0] = '\0';
+				w->is_value = 0;
+				w->last_effline = w->ts.effline;
+			}
+
+			if (w->ts.e == LWS_TOKZE_TOKEN) {
+				if (!w->is_value) {
+					if (w->vk_len + w->ts.token_len + 2 < sizeof(w->vk)) {
+						if (w->vk_len)
+							w->vk[w->vk_len++] = ' ';
+						memcpy(&w->vk[w->vk_len], w->ts.token, w->ts.token_len);
+						w->vk_len += w->ts.token_len;
+						w->vk[w->vk_len] = '\0';
+
+						if (w->vk[w->vk_len - 1] == ':')
+							w->is_value = 1;
+					}
+				} else {
+					if (w->vv_len + w->ts.token_len + 2 < sizeof(w->vv)) {
+						if (w->vv_len)
+							w->vv[w->vv_len++] = ' ';
+						memcpy(&w->vv[w->vv_len], w->ts.token, w->ts.token_len);
+						w->vv_len += w->ts.token_len;
+						w->vv[w->vv_len] = '\0';
+					}
+				}
+			}
+		} while (w->ts.e > 0);
 		break;
 
 	case LWS_CALLBACK_RAW_WRITEABLE:
 		{
-			char d[256];
+			char d[LWS_WHS_DOMAIN_MAX + 3];
 			int n = lws_snprintf(d, sizeof(d), "%s\r\n", w->domain);
 			if (lws_write(wsi, (uint8_t *)d, (size_t)n, LWS_WRITE_RAW) != n)
 				return -1;
@@ -291,12 +346,11 @@ lws_whois_query(const struct lws_whois_args *args)
 			lws_free(w);
 			return 1;
 		}
-	} else {
+	} else
 		if (lws_whois_trigger(w, "whois.iana.org")) {
 			lws_free(w);
 			return 1;
 		}
-	}
 
 	return 0;
 }
