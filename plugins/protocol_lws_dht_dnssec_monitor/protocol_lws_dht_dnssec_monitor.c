@@ -173,10 +173,14 @@ whois_cb(void *opaque, const struct lws_whois_results *res)
 	if (res) {
 		lws_strncpy(s_dnssec, res->dnssec, sizeof(s_dnssec));
 		lws_strncpy(s_ds, res->ds_data, sizeof(s_ds));
-		for (size_t i = 0; i < strlen(s_dnssec); i++)
-			if (s_dnssec[i] < 32 || s_dnssec[i] == '"') s_dnssec[i] = ' ';
-		for (size_t i = 0; i < strlen(s_ds); i++)
-			if (s_ds[i] < 32 || s_ds[i] == '"') s_ds[i] = ' ';
+		for (size_t i = 0; i < strlen(s_dnssec); i++) {
+			if (!isalnum((unsigned char)s_dnssec[i]) && s_dnssec[i] != '-' && s_dnssec[i] != '.' && s_dnssec[i] != ':' && s_dnssec[i] != ' ')
+				s_dnssec[i] = ' ';
+		}
+		for (size_t i = 0; i < strlen(s_ds); i++) {
+			if (!isalnum((unsigned char)s_ds[i]) && s_ds[i] != '-' && s_ds[i] != '.' && s_ds[i] != ':' && s_ds[i] != ' ')
+				s_ds[i] = ' ';
+		}
 
 		char *p_ns, *token, *saveptr;
 		/* Convert comma-separated nameservers to JSON array of strings */
@@ -184,18 +188,23 @@ whois_cb(void *opaque, const struct lws_whois_results *res)
 		if (p_ns) {
 			token = strtok_r(p_ns, ", ", &saveptr);
 			while (token) {
+				char stoken[256];
+				lws_strncpy(stoken, token, sizeof(stoken));
+				for (size_t i = 0; i < strlen(stoken); i++) {
+					if (!isalnum((unsigned char)stoken[i]) && stoken[i] != '-' && stoken[i] != '.' && stoken[i] != ':')
+						stoken[i] = ' ';
+				}
+
 				if (ns_list[0])
 					strncat(ns_list, ", ", sizeof(ns_list) - strlen(ns_list) - 1);
 				strncat(ns_list, "\"", sizeof(ns_list) - strlen(ns_list) - 1);
-				strncat(ns_list, token, sizeof(ns_list) - strlen(ns_list) - 1);
+				strncat(ns_list, stoken, sizeof(ns_list) - strlen(ns_list) - 1);
 				strncat(ns_list, "\"", sizeof(ns_list) - strlen(ns_list) - 1);
 				token = strtok_r(NULL, ", ", &saveptr);
 			}
 			free(p_ns);
 		}
-		
-		for (size_t i = 0; i < strlen(ns_list); i++)
-			if (ns_list[i] < 32 && ns_list[i] != '\0') ns_list[i] = ' ';
+
 
 		n = lws_snprintf(buf, sizeof(buf),
 			"{\n  \"creation_date\": %llu,\n  \"expiry_date\": %llu,\n  \"updated_date\": %llu,\n"

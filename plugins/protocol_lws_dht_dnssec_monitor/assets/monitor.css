@@ -199,6 +199,12 @@ main {
   margin-bottom: 1.5rem;
 }
 
+.title-group {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
 .panel-header h2 {
   margin: 0;
   font-size: 1.25rem;
