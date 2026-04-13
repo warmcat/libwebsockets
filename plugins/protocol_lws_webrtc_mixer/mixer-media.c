@@ -383,6 +383,17 @@ process_session_media(struct mixer_media_session *s)
 				lwsl_warn("%s: No Opus Decoder initialized!\n", __func__);
 			}
 		} else if (msg->type == MSG_VIDEO_FRAME) {
+			/* Check for missing packets / lost marker using timestamps */
+			if (msg->timestamp != s->video_timestamp) {
+				if (s->video_len > 0) {
+					lwsl_warn("%s: Dropping incomplete video frame (timestamp changed %u -> %u)\n", 
+							__func__, s->video_timestamp, msg->timestamp);
+					s->video_len = 0;
+					s->obu_len = 0;
+				}
+				s->video_timestamp = msg->timestamp;
+			}
+
 			/* Handle Video logic */
 
 			if (!s->tcc_dec) {

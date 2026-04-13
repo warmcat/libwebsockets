@@ -2213,6 +2213,16 @@ lws_shared_webrtc_udp_callback(struct lws *wsi, enum lws_callback_reasons reason
 					if (setsockopt(_fd, SOL_SOCKET, SO_RCVBUF, (const char *)&sndbuf, sizeof(sndbuf)) < 0) {
 						lwsl_err("%s: Failed to scale SO_RCVBUF: %d\n", __func__, errno);
 					}
+					
+					int actual_rcvbuf = 0;
+					socklen_t optlen = sizeof(actual_rcvbuf);
+					if (getsockopt(_fd, SOL_SOCKET, SO_RCVBUF, &actual_rcvbuf, &optlen) == 0) {
+						if (actual_rcvbuf < sndbuf) {
+							lwsl_notice("%s: Requested SO_RCVBUF %d, but kernel limited it to %d. "
+									  "If you experience UDP packet drops during bursts, increase "
+									  "system net.core.rmem_max.\n", __func__, sndbuf, actual_rcvbuf);
+						}
+					}
 				}
 			}
 			break;

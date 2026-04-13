@@ -122,6 +122,8 @@ struct mixer_media_session {
 	size_t                  obu_len;
 	size_t                  obu_alloc;
 
+	uint32_t                video_timestamp;
+
 	int                     frame_complete;
 	uint64_t                decoded_frames;
 	lws_usec_t              last_pli_req;
