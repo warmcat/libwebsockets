@@ -159,7 +159,7 @@ lws_whois_parse_final(struct lws_whois *w)
 		}
 	}
 
-	lwsl_notice("%s: Parsed final for %s (len: %lu, dnssec: '%s')\n", __func__, w->args.domain, (unsigned long)w->buf_len, res.dnssec);
+	lwsl_notice("[INSTRUMENT] %s: Parsed final for %s (len: %lu, dnssec: '%s', res.expiry: %llu)\n", __func__, w->args.domain, (unsigned long)w->buf_len, res.dnssec, (unsigned long long)res.expiry_date);
 
 	if (w->args.cb)
 		w->args.cb(w->args.opaque, &res);
@@ -188,6 +188,7 @@ callback_whois(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		w->wsi = NULL;
 		
 		if (w->state == 2) {
+			lwsl_notice("[INSTRUMENT] %s: RAW_CLOSE in state 2, calling callback with NULL for %s\n", __func__, w->args.domain);
 			if (w->args.cb)
 				w->args.cb(w->args.opaque, NULL);
 			lws_set_opaque_user_data(wsi, NULL);
