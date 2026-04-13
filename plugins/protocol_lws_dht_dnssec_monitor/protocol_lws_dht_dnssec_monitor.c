@@ -72,6 +72,12 @@ struct pss {
 	int send_ext_ips;
 };
 
+struct published_jws_info {
+	lws_dll2_t list;
+	char domain[128];
+	time_t mtime;
+};
+
 struct vhd {
 	struct lws_context *context;
 	struct lws_vhost *vhost;
@@ -103,6 +109,8 @@ struct vhd {
 	char ext_ips[256];
 	lws_dll2_owner_t completed_checks;
 	lws_dll2_owner_t whois_queries;
+	lws_dll2_owner_t published_jws;
+	lws_sorted_usec_list_t sul_timer_scan;
 };
 
 struct cert_check_result {
@@ -155,13 +163,22 @@ static void
 whois_cb(void *opaque, const struct lws_whois_results *res)
 {
 	struct whois_query_info *wqi = (struct whois_query_info *)opaque;
-	char buf[2048], ns_list[1024] = "";
-	char *p_ns, *saveptr, *token;
+	int n;
+	char buf[2048];
+	char ns_list[1024] = "";
+	
+	lwsl_notice("[INSTRUMENT] %s: callback triggered for %s. res is %s\n", __func__, wqi->domain, res ? "NOT NULL" : "NULL");
 
-	if (!wqi)
-		return;
-
+	char s_dnssec[256] = "", s_ds[1024] = "";
 	if (res) {
+		lws_strncpy(s_dnssec, res->dnssec, sizeof(s_dnssec));
+		lws_strncpy(s_ds, res->ds_data, sizeof(s_ds));
+		for (size_t i = 0; i < strlen(s_dnssec); i++)
+			if (s_dnssec[i] < 32 || s_dnssec[i] == '"') s_dnssec[i] = ' ';
+		for (size_t i = 0; i < strlen(s_ds); i++)
+			if (s_ds[i] < 32 || s_ds[i] == '"') s_ds[i] = ' ';
+
+		char *p_ns, *token, *saveptr;
 		/* Convert comma-separated nameservers to JSON array of strings */
 		p_ns = strdup(res->nameservers);
 		if (p_ns) {
@@ -176,22 +193,10 @@ whois_cb(void *opaque, const struct lws_whois_results *res)
 			}
 			free(p_ns);
 		}
-	}
-	
-	char s_dnssec[256] = "", s_ds[1024] = "";
-	if (res) {
-		lws_strncpy(s_dnssec, res->dnssec, sizeof(s_dnssec));
-		lws_strncpy(s_ds, res->ds_data, sizeof(s_ds));
-		for (size_t i = 0; i < strlen(s_dnssec); i++)
-			if (s_dnssec[i] < 32 || s_dnssec[i] == '"') s_dnssec[i] = ' ';
-		for (size_t i = 0; i < strlen(s_ds); i++)
-			if (s_ds[i] < 32 || s_ds[i] == '"') s_ds[i] = ' ';
+		
 		for (size_t i = 0; i < strlen(ns_list); i++)
 			if (ns_list[i] < 32 && ns_list[i] != '\0') ns_list[i] = ' ';
-	}
 
-	int n;
-	if (res) {
 		n = lws_snprintf(buf, sizeof(buf),
 			"{\n  \"creation_date\": %llu,\n  \"expiry_date\": %llu,\n  \"updated_date\": %llu,\n"
 			"  \"nameservers\": [%s],\n"
@@ -199,30 +204,34 @@ whois_cb(void *opaque, const struct lws_whois_results *res)
 			(unsigned long long)res->creation_date, (unsigned long long)res->expiry_date,
 			(unsigned long long)res->updated_date,
 			ns_list, s_dnssec, s_ds, (unsigned long long)lws_now_secs());
+			
+		lwsl_notice("[INSTRUMENT] whois_cb: formatted JSON for %s, size = %d\n", wqi->domain, n);
 	} else {
-		n = lws_snprintf(buf, sizeof(buf),
-			"{\n  \"creation_date\": 0,\n  \"expiry_date\": 0,\n  \"updated_date\": 0,\n"
-			"  \"nameservers\": [],\n"
-			"  \"dnssec\": \"\",\n  \"ds_data\": \"\",\n  \"last_query\": %llu\n}\n",
-			(unsigned long long)lws_now_secs());
+		lwsl_notice("[INSTRUMENT] whois_cb: res is NULL for %s, skipping UDS publish\n", wqi->domain);
+		n = 0; /* Let it organically fail or retry without caching `{}` */
 	}
 
 	if (n > 0) {
-		char b64[4096] = {0}, jwt[1024] = {0}, uds_json[6144] = {0}, temp[2048] = {0};
+		char b64[8192] = {0}, jwt[1024] = {0}, uds_json[10240] = {0}, temp[2048] = {0};
 		size_t jwt_len = sizeof(jwt);
-		lws_b64_encode_string(buf, n, b64, sizeof(b64));
+		lws_b64_encode_string(buf, (int)strlen(buf), b64, sizeof(b64));
 		
 		if (wqi->vhd->auth_jwk.kty == LWS_GENCRYPTO_KTY_OCT) {
+			char jwt_payload[512];
+			unsigned long now = (unsigned long)lws_now_secs();
+			lws_snprintf(jwt_payload, sizeof(jwt_payload), 
+				     "{\"iss\":\"acme-ipc\",\"aud\":\"dnssec-monitor\",\"nbf\":%lu,\"exp\":%lu}",
+				     now, now + 300);
+
 			if (lws_jwt_sign_compact(wqi->vhd->context, &wqi->vhd->auth_jwk, "HS256",
-						 jwt, &jwt_len, temp, sizeof(temp), "{\"iss\":\"dnssec-monitor\"}")) {
-				lwsl_err("%s: failed to generate jwt for whois\n", __func__);
+						 jwt, &jwt_len, temp, sizeof(temp), jwt_payload)) {
+				lwsl_err("[INSTRUMENT] %s: failed to generate jwt for whois\n", __func__);
 			}
 		}
 
 		int payload_n = lws_snprintf(uds_json, sizeof(uds_json),
 			"{\"req\":\"update_whois\",\"domain\":\"%s\",\"jwt\":\"%s\",\"zone\":\"%s\"}\n",
 			wqi->domain, jwt, b64);
-
 		int fd = socket(AF_UNIX, SOCK_STREAM, 0);
 		if (fd >= 0) {
 			struct sockaddr_un sun;
@@ -231,19 +240,21 @@ whois_cb(void *opaque, const struct lws_whois_results *res)
 			lws_strncpy(sun.sun_path, wqi->vhd->uds_path, sizeof(sun.sun_path));
 			if (connect(fd, (struct sockaddr *)&sun, sizeof(sun)) == 0) {
 				if (write(fd, uds_json, (size_t)payload_n) < 0) {
-					lwsl_err("%s: Failed writing whois payload to UDS\n", __func__);
+					lwsl_err("[INSTRUMENT] %s: Failed writing whois payload to UDS, errno: %d\n", __func__, errno);
 				} else {
-					lwsl_notice("%s: Tunneled WHOIS for %s to Root over UDS\n", __func__, wqi->domain);
+					lwsl_notice("[INSTRUMENT] %s: Tunneled WHOIS for %s to Root over UDS (payload %d bytes)\n", __func__, wqi->domain, payload_n);
 				}
 			} else {
-				lwsl_err("%s: Failed connecting to root UDS for whois pass-back\n", __func__);
+				lwsl_err("[INSTRUMENT] %s: Failed connecting to root UDS at %s for whois pass-back, errno: %d\n", __func__, sun.sun_path, errno);
 			}
 			close(fd);
+		} else {
+			lwsl_err("[INSTRUMENT] %s: socket creation failed! errno: %d\n", __func__, errno);
 		}
+		
+		lws_dll2_remove(&wqi->list);
+		free(wqi);
 	}
-
-	lws_dll2_remove(&wqi->list);
-	free(wqi);
 }
 
 static int
@@ -524,6 +535,48 @@ dir_notify_cb(const char *path, int is_file, void *user)
 }
 #endif
 
+static int
+scan_jws_publish_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
+{
+	struct vhd *vhd = (struct vhd *)user;
+
+	if (lde->type != LDOT_DIR || lde->name[0] == '.')
+		return 0;
+
+	if (vhd->ops && vhd->ops->publish_jws) {
+		char jws_path[1024];
+		struct stat st;
+		
+		lws_snprintf(jws_path, sizeof(jws_path), "%s/domains/%s/%s.zone.signed.jws", vhd->base_dir, lde->name, lde->name);
+
+		if (stat(jws_path, &st) == 0) {
+			/* Check if we already published this version */
+			struct published_jws_info *p = NULL;
+			lws_start_foreach_dll(struct lws_dll2 *, d, vhd->published_jws.head) {
+				struct published_jws_info *tp = lws_container_of(d, struct published_jws_info, list);
+				if (!strcmp(tp->domain, lde->name)) {
+					p = tp;
+					break;
+				}
+			} lws_end_foreach_dll(d);
+
+			if (!p || p->mtime != st.st_mtime) {
+				if (!p) {
+					p = malloc(sizeof(*p));
+					if (!p) return 0;
+					memset(p, 0, sizeof(*p));
+					lws_strncpy(p->domain, lde->name, sizeof(p->domain));
+					lws_dll2_add_tail(&p->list, &vhd->published_jws);
+				}
+				p->mtime = st.st_mtime;
+				lwsl_notice("%s: Engaging parent monitor to execute DHT publication for %s\n", __func__, lde->name);
+				vhd->ops->publish_jws(vhd->vhost, jws_path);
+			}
+		}
+	}
+	return 0;
+}
+
 static void
 parent_dnssec_monitor_timer_cb(struct lws_sorted_usec_list *sul)
 {
@@ -531,8 +584,19 @@ parent_dnssec_monitor_timer_cb(struct lws_sorted_usec_list *sul)
 	char scan_path[1024];
 
 	lws_snprintf(scan_path, sizeof(scan_path), "%s/domains", vhd->base_dir);
-	lws_dir(scan_path, vhd, scan_dir_cb);
+	lws_dir(scan_path, vhd, scan_jws_publish_cb);
 	lws_sul_schedule(vhd->context, 0, &vhd->sul_timer, parent_dnssec_monitor_timer_cb, 5 * LWS_US_PER_SEC);
+}
+
+static void
+root_dnssec_scan_timer_cb(struct lws_sorted_usec_list *sul)
+{
+	struct vhd *vhd = lws_container_of(sul, struct vhd, sul_timer_scan);
+	char scan_path[1024];
+
+	lws_snprintf(scan_path, sizeof(scan_path), "%s/domains", vhd->base_dir);
+	lws_dir(scan_path, vhd, scan_dir_cb);
+	lws_sul_schedule(vhd->context, 0, &vhd->sul_timer_scan, root_dnssec_scan_timer_cb, 5 * LWS_US_PER_SEC);
 }
 
 
@@ -648,6 +712,10 @@ monitor_req_cb(struct lejp_ctx *ctx, char reason)
 			a->port = atoi(ctx->buf);
 			break;
 		}
+	}
+
+	if (reason == LEJPCB_FAILED) {
+		lwsl_err("[INSTRUMENT] monitor_req_cb: LEJP JSON Parse FAILED at struct offset %d\n", (int)ctx->st[ctx->sp].s);
 	}
 
 	return 0;
@@ -1153,22 +1221,31 @@ handle_req_update_whois(struct vhd *vhd, struct pss *root_pss, struct monitor_re
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE];
 
+	lwsl_notice("[INSTRUMENT] handle_req_update_whois START for domain: '%s', zone_buf present: %d\n", a->domain, !!a->zone_buf);
+
 	if (a->domain[0] && a->zone_buf) {
 		char path[1024];
 		lws_snprintf(path, sizeof(path), "%s/domains/%s/whois.json", vhd->base_dir, a->domain);
 		int fd = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
 		if (fd >= 0) {
-			char decoded[4096];
+			char decoded[8192];
 			int n = lws_b64_decode_string(a->zone_buf, decoded, sizeof(decoded));
+			lwsl_notice("[INSTRUMENT] lws_b64_decode_string returned %d for %s\n", n, a->domain);
 			if (n > 0) {
 				if (write(fd, decoded, (size_t)n) < 0) {
-					lwsl_err("%s: Failed writing to %s\n", __func__, path);
+					lwsl_err("[INSTRUMENT] %s: Failed writing to %s (errno: %d)\n", __func__, path, errno);
 				} else {
-					lwsl_info("%s: Successfully synced WHOIS via UDS IPC for %s\n", __func__, a->domain);
+					lwsl_info("[INSTRUMENT] %s: Successfully synced WHOIS via UDS IPC for %s\n", __func__, a->domain);
 				}
+			} else {
+				lwsl_err("[INSTRUMENT] %s: Failed B64 decode on whois zone payload size=%d\n", __func__, (int)a->zone_len);
 			}
 			close(fd);
+		} else {
+			lwsl_err("[INSTRUMENT] %s: Failed to open %s for writing! errno: %d\n", __func__, path, errno);
 		}
+	} else {
+		lwsl_err("[INSTRUMENT] %s: Failed prerequisites. domain: '%s', zone_buf present: %d\n", __func__, a->domain, !!a->zone_buf);
 	}
 	
 	/* Empty response is fine, IPC fire-and-forget */
@@ -1522,6 +1599,7 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 							if (!vhd->dn)
 								lwsl_err("%s: Failed to attach lws_dir_notify to %s\n", __func__, scan_path);
 #endif
+							lws_sul_schedule(cx, 0, &vhd->sul_timer_scan, root_dnssec_scan_timer_cb, 5 * LWS_US_PER_SEC);
 						} else {
 							lwsl_err("%s: Skipped scheduling timer on %s because vhd->ops is NULL!\n", __func__, lws_get_vhost_name(vhost));
 							/* It will organically retry when the next vhost runs PROTOCOL_INIT */
@@ -1717,7 +1795,17 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 					global_root_vhd = vhd;
 					lwsl_notice("%s: Spawned root monitor process successfully and assigned global_root_vhd=%p (fallback active)\n", __func__, global_root_vhd);
 
-					/* Engage parent monitor to execute DHT publications off completed JWS child drops cleanly */
+					/*
+					 * Privilege Separation Policy:
+					 *  - The "root daemon" drops its privileges to run as the `lwsws-priv` user.
+					 *  - Only the `lwsws-priv` daemon can write to the base dir (e.g., /var/dnssec)
+					 *    and read secrets like cert keys.
+					 *  - The less-privileged network-facing side (here) asks the daemon to handle
+					 *    write operations securely.
+					 *  - We keep the privileged daemon isolated from external network content.
+					 *    Therefore, this unprivileged side leverages a timer to securely scan for
+					 *    completed .jws drops and natively handles the DHT network publication.
+					 */
 					lws_sul_schedule(vhd->context, 0, &vhd->sul_timer, parent_dnssec_monitor_timer_cb, 1 * LWS_US_PER_SEC);
 				} else {
 					/* Already globally spawned! Just map the auth context */
@@ -2158,12 +2246,9 @@ fallback:
 		}
 		break;
 
-
-
 	default:
 		break;
 	}
-
 	return 0;
 }
 
