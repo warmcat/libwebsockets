@@ -72,6 +72,7 @@ struct lws_dht_dnssec_ops {
 	int (*dsfromkey)(struct lws_context *context, struct lws_dht_dnssec_dsfromkey_args *args);
 	int (*signzone)(struct lws_context *context, struct lws_dht_dnssec_signzone_args *args);
 	int (*importnsd)(struct lws_context *context, struct lws_dht_dnssec_importnsd_args *args);
+	int (*bump_zone_serial)(struct lws_context *context, const char *zone_filepath);
 
 	int (*add_temp_zone)(struct lws_context *context, const char *domain, const char *zone_str, int ttl_secs);
 	int (*publish_jws)(struct lws_vhost *vhost, const char *jws_filepath);

@@ -262,6 +262,7 @@ typedef struct lws_async_dns_server {
 	uint8_t			dns_server_set:1;
 	uint8_t			dns_server_connected:1;
 	uint8_t			seen:1;
+	uint8_t			pinned:1;
 } lws_async_dns_server_t;
 
 typedef struct lws_async_dns {

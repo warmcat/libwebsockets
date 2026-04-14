@@ -58,13 +58,16 @@
 
             <section class="panel detail-panel hidden-panel" id="detail-panel">
                 <div class="panel-header">
-                    <div class="title-group">
+                    <div class="title-group"><table><tr><td>
                         <button id="btn-back-domains" class="btn secondary">&larr; Back</button>
+			</td></tr><tr><td>
                         <h2 id="detail-title">Zone Records:<br><span>---</span></h2>
+			</td></tr></table>
                     </div>
                     <div id="whois-header" class="whois-header"></div>
                     <div class="actions-group">
-                        <button id="btn-save-zonefile" class="btn primary">Save Zonefile</button>
+			<div id="dnssec-status"></div><br>
+                        <button id="btn-save-zonefile" class="btn primary">Save<br>Zonefile</button>
                     </div>
                 </div>
 

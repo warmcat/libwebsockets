@@ -256,7 +256,7 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 
 	lws_ser_wu16be(&p[DHO_NQUERIES], 1);
 #if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
-	if (q->dns->dnssec_mode)
+	if (q->dns->dnssec_mode || q->want_dnssec)
 		lws_ser_wu16be(&p[DHO_NOTHER], 1); /* 1 additional record (EDNS0 OPT) */
 #endif
 
@@ -300,7 +300,7 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 	p += 2;
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
-	if (q->dns->dnssec_mode) {
+	if (q->dns->dnssec_mode || q->want_dnssec) {
 		/* Append EDNS0 OPT record with DO (DNSSEC-OK) bit */
 		*p++ = 0; /* Name: root */
 		lws_ser_wu16be(p, 41); /* Type: OPT (41) */
@@ -610,10 +610,14 @@ __lws_async_dns_server_remove(lws_async_dns_t *dns, const lws_sockaddr46 *sa46)
 int
 lws_async_dns_server_add(struct lws_context *cx, const lws_sockaddr46 *sa46)
 {
+	lws_async_dns_server_t *dsrv;
 	int r;
 
 	lws_context_lock(cx, __func__);
-	r = !!__lws_async_dns_server_add(&cx->async_dns, sa46);
+	dsrv = __lws_async_dns_server_add(&cx->async_dns, sa46);
+	if (dsrv)
+		dsrv->pinned = 1;
+	r = !!dsrv;
 	lws_context_unlock(cx);
 
 	return r;
@@ -680,28 +684,32 @@ lws_plat_asyncdns_init(struct lws_context *context, lws_async_dns_t *dns)
 	lws_async_dns_server_check_t s = LADNS_CONF_SERVER_SAME;
 	lws_async_dns_server_t *dsrv;
 	lws_sockaddr46 sa46t;
-	int n = 0;
+	int n = 0, any_pinned = 0;
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 				   lws_dll2_get_head(&dns->nameservers)) {
 		dsrv = lws_container_of(d, lws_async_dns_server_t, list);
+		if (dsrv->pinned)
+			any_pinned = 1;
 		dsrv->seen = 0;
 	} lws_end_foreach_dll(d);
 
-	while (lws_plat_asyncdns_get_server(context, n++, &sa46t) == 0) {
-		dsrv = __lws_async_dns_server_find(dns, &sa46t);
-		if (!dsrv) {
-			dsrv = __lws_async_dns_server_add(dns, &sa46t);
-			s = LADNS_CONF_SERVER_CHANGED;
+	if (!any_pinned) {
+		while (lws_plat_asyncdns_get_server(context, n++, &sa46t) == 0) {
+			dsrv = __lws_async_dns_server_find(dns, &sa46t);
+			if (!dsrv) {
+				dsrv = __lws_async_dns_server_add(dns, &sa46t);
+				s = LADNS_CONF_SERVER_CHANGED;
+			}
+			if (dsrv)
+				dsrv->seen = 1;
 		}
-		if (dsrv)
-			dsrv->seen = 1;
 	}
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 				   lws_dll2_get_head(&dns->nameservers)) {
 		dsrv = lws_container_of(d, lws_async_dns_server_t, list);
-		if (!dsrv->seen) {
+		if (!dsrv->seen && !dsrv->pinned) {
 			__lws_async_dns_server_remove(dns, &dsrv->sa46);
 			s = LADNS_CONF_SERVER_CHANGED;
 		}
@@ -1176,7 +1184,10 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	lws_adns_q_t *q;
 	uint8_t ads[16];
 	char *p;
-	int m;
+	int m = 0;
+	uint8_t want_dnssec = (qtype & LWS_ADNS_WANT_DNSSEC) ? 1 : 0;
+	
+	qtype = (adns_query_type_t)(qtype & ~(uint32_t)LWS_ADNS_WANT_DNSSEC);
 
 	lwsl_cx_info(context, "entry %s", name);
 	lws_adns_dump(dns);
@@ -1215,7 +1226,8 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 
 	/* there's a done, cached query we can just reuse? */
 
-	c = lws_adns_get_cache(dns, name);
+	c = (qtype & LWS_ADNS_NOCACHE) ? NULL : lws_adns_get_cache(dns, name);
+	qtype = (adns_query_type_t)(qtype & ~(uint32_t)LWS_ADNS_NOCACHE);
 	if (c && qtype != LWS_ADNS_RECORD_A && qtype != LWS_ADNS_RECORD_AAAA) {
 		lws_adns_rr_t *rr = c->rr_results;
 		int found = 0;
@@ -1267,15 +1279,18 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	 * of any other result
 	 */
 
-	m = lws_parse_numeric_address(name, ads, sizeof(ads));
+	if (qtype == LWS_ADNS_RECORD_A || qtype == LWS_ADNS_RECORD_AAAA) {
+		m = lws_parse_numeric_address(name, ads, sizeof(ads));
 
 #if !defined(LWS_PLAT_OPTEE) && !defined(LWS_PLAT_FREERTOS)
-	if (m < 4)
-		/*
-		 * Not directly numeric... look through /etc/hosts
-		 */
-		m = lws_adns_scan_hostsfile(name, ads, sizeof(ads));
+		if (m < 4 && !(qtype & LWS_ADNS_IGNORE_HOSTS_FILE))
+			/*
+			 * Not directly numeric and not explicitly bypassing...
+			 * look through /etc/hosts
+			 */
+			m = lws_adns_scan_hostsfile(name, ads, sizeof(ads));
 #endif
+	}
 
 	if (m == 4
 #if defined(LWS_WITH_IPV6)
@@ -1375,6 +1390,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 		lws_dll2_add_head(&wsi->adns, &q->wsi_adns);
 
 	q->qtype = (uint16_t)qtype;
+	q->want_dnssec = want_dnssec != 0;
 	if (qtype & LWS_ADNS_SYNTHETIC)
 		q->is_synthetic = 1;
 #if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
@@ -1539,19 +1555,22 @@ lws_async_dns_get_rr_cache(struct lws_context *context, const char *name,
 	if (!context || !name)
 		return NULL;
 
-	c = lws_adns_get_cache(&context->async_dns, name);
-	if (!c || !c->rr_results)
-		return NULL;
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&context->async_dns.cached)) {
+		c = lws_container_of(d, lws_adns_cache_t, list);
 
-	rr = c->rr_results;
-	while (rr) {
-		if (rr->type == qtype) {
-			if (paylen)
-				*paylen = rr->paylen;
-			return (const uint8_t *)&rr[1];
+		if (!strcmp(c->name, name) && c->rr_results) {
+			rr = c->rr_results;
+			while (rr) {
+				if (rr->type == qtype) {
+					if (paylen)
+						*paylen = rr->paylen;
+					return (const uint8_t *)&rr[1];
+				}
+				rr = rr->next;
+			}
 		}
-		rr = rr->next;
-	}
+	} lws_end_foreach_dll(d);
 
 	return NULL;
 }

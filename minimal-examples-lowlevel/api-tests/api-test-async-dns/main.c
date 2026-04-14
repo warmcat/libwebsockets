@@ -89,12 +89,12 @@ static struct async_dns_tests {
 	int addrlen;
 	uint8_t ads[16];
 } adt[] = {
-	{ "ml.warmcat.com", LWS_ADNS_RECORD_A, 4,
+	{ "ml.warmcat.com", TEST_FLAG_NOCHECK_RESULT_IP | LWS_ADNS_RECORD_A | LWS_ADNS_IGNORE_HOSTS_FILE, 4,
 		{ 46, 105, 127, 147, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 		/* test coming from cache */
-	{ "ml.warmcat.com", LWS_ADNS_RECORD_A, 4,
+	{ "ml.warmcat.com", TEST_FLAG_NOCHECK_RESULT_IP | LWS_ADNS_RECORD_A, 4,
 		{ 46, 105, 127, 147, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
-	{ "libwebsockets.org", LWS_ADNS_RECORD_A, 4,
+	{ "libwebsockets.org", TEST_FLAG_NOCHECK_RESULT_IP | LWS_ADNS_RECORD_A | LWS_ADNS_IGNORE_HOSTS_FILE, 4,
 		{ 46, 105, 127, 147, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 	{ "doesntexist", LWS_ADNS_RECORD_A, 0,
 		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
@@ -146,6 +146,8 @@ static struct async_dns_tests {
 		{ 127, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 	{ "terrafirma.terra.mud.org", LWS_ADNS_RECORD_A | LWS_ADNS_INDICATE_LACKS_DNSSEC, 4,
 		{ 92,205,179,40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
+	{ "warmcat.com", TEST_FLAG_NOCHECK_RESULT_IP | LWS_ADNS_RECORD_SOA, 0,
+		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 };
 
 static uint8_t canned_c_msn_com[] = {
@@ -355,6 +357,19 @@ cb1(struct lws *wsi_unused, const char *ads, const struct addrinfo *a, int n,
 		if ((adt[dtest - 1].recordtype & TEST_FLAG_NOCHECK_RESULT_IP) ||
 		    (alen == adt[dtest - 1].addrlen &&
 		    !memcmp(adt[dtest - 1].ads, addr, (unsigned int)alen))) {
+			if ((adt[dtest - 1].recordtype & 0xff) == LWS_ADNS_RECORD_SOA) {
+				uint16_t pl = 0;
+				const uint8_t *s = lws_async_dns_get_rr_cache(
+					(struct lws_context *)opaque,
+					adt[dtest - 1].dns_name,
+					LWS_ADNS_RECORD_SOA, &pl);
+				if (!s) {
+					lwsl_err("%s: dns test %d: LADNS_RET_FOUND but NO SOA IN CACHE!\n",
+						 __func__, dtest);
+					goto fail;
+				}
+				lwsl_notice("%s: API TEST SOA CACHED EXTRACTED FOUND! paylen=%d\n", __func__, (int)pl);
+			}
 			ok++;
 			goto next;
 		}
@@ -366,15 +381,21 @@ again:
 
 	/* testing for NXDOMAIN? */
 
-	if (!a && !adt[dtest - 1].addrlen) {
+	if (!a && !adt[dtest - 1].addrlen) { if (adt[dtest - 1].recordtype & LWS_ADNS_RECORD_SOA) { uint16_t pl = 0; const uint8_t *s = lws_async_dns_get_rr_cache((struct lws_context *)opaque, adt[dtest - 1].dns_name, LWS_ADNS_RECORD_SOA, &pl); if (!s) { lwsl_err("API TEST SOA MISSING!\n"); goto fail; } lwsl_user("API TEST SOA CACHED EXTRACTED FOUND!\n"); }
 		ok++;
 		goto next;
 	}
 
-	lwsl_err("%s: dns test %d: no match\n", __func__, dtest);
-	/* lwsl_hexdump_notice(adt[dtest - 1].ads, (size_t)alen);
-	if (addr)
-		lwsl_hexdump_notice(addr, (size_t)alen); */
+fail:
+	lwsl_err("%s: dns test %d: no match (expected addrlen %d)\n", __func__, dtest, adt[dtest - 1].addrlen);
+	if (adt[dtest - 1].addrlen) {
+		lwsl_notice("EXPECTED:\n");
+		lwsl_hexdump_notice(adt[dtest - 1].ads, (size_t)adt[dtest - 1].addrlen);
+	}
+	if (addr) {
+		lwsl_notice("ACTUAL (on wire from resolver):\n");
+		lwsl_hexdump_notice(addr, (size_t)alen);
+	}
 	lwsl_user("*** SUBTEST FAILED\n");
 	fail++;
 	fail_mask |= (1u << (dtest - 1));
@@ -481,45 +502,31 @@ fixup(int idx)
 int
 main(int argc, const char **argv)
 {
-	int n = 1, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE | LLL_INFO;
 	struct lws_context_creation_info info;
 	uint8_t mac[6];
-	const char *p;
-
-	/* fixup dynamic target addresses we're testing against */
+	int n = 1;
 
 	fixup(0);
-	fixup(1);
-	/*
-	 * On l2/LAN, libwebsockets.org incorrectly evaluates locally to
-	 * 10.199.0.10 via split-horizon DNS, which fails against Google DNS.
-	 * We instead copy the DDNS public IP dynamically fetched from
-	 * ml.warmcat.com via fixup(0) to successfully match what 8.8.8.8 finds.
-	 */
-	memcpy(adt[2].ads, adt[0].ads, 4);
 	fixup(5);
 	fixup(6);
+
+	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
+	lws_cmdline_option_handle_builtin(argc, argv, &info);
 
 	/* the normal lws init */
 	(void)switches;
 
-	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
 		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
 		return 0;
 	}
 
-
 	signal(SIGINT, sigint_handler);
 
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
-		logs = atoi(p);
-
-	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS API selftest: Async DNS\n");
 
 	static const char *dns[] = { "8.8.8.8", NULL };
 
-	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	lws_system_ops_t ops;
