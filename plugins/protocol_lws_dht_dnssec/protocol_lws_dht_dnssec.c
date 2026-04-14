@@ -3571,7 +3571,7 @@ do_dsfromkey(struct lws_context *context, struct lws_dht_dnssec_dsfromkey_args *
 	return 0;
 }
 
-static int bump_soa_serial(const char *filepath) {
+int lws_dht_dnssec_bump_zone_serial(struct lws_context *context, const char *filepath) {
 	int fd = open(filepath, O_RDWR);
 	if (fd < 0) return -1;
 
@@ -3896,7 +3896,7 @@ do_signzone(struct lws_context *context, struct lws_dht_dnssec_signzone_args *ar
 	if (args->ipv6[0]) info.ipv6 = args->ipv6;
 
 	/* Auto-bump the SOA serial before anything else */
-	bump_soa_serial(zone_in);
+	lws_dht_dnssec_bump_zone_serial(context, zone_in);
 
 	if (args->sign_validity_duration)
 		info.sign_validity_duration = args->sign_validity_duration;
@@ -4742,6 +4742,7 @@ static const struct lws_dht_dnssec_ops ops = {
 	.dsfromkey = do_dsfromkey,
 	.signzone = do_signzone,
 	.importnsd = do_importnsd,
+	.bump_zone_serial = lws_dht_dnssec_bump_zone_serial,
 	.add_temp_zone = do_add_temp_zone,
 	.publish_jws = do_publish_jws,
 	.fetch_zone = do_fetch_zone,

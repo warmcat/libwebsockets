@@ -711,3 +711,31 @@ body.is-disconnected .app-container {
     display: block;
     text-align: right;
 }
+
+/* DNSSEC Header Layout */
+.dns-layout-container {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 10px 5px;
+    background: rgba(0,0,0,0.2);
+    border-radius: 8px;
+}
+.dns-layout-lbl {
+    font-weight: bold;
+    color: var(--primary-color);
+    vertical-align: top;
+}
+.dns-overall-btn {
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-weight: bold;
+    font-family: var(--font-family);
+    font-size: 0.9em;
+    color: #fff;
+}
+.dns-bg-green { background: var(--success-color); }
+.dns-bg-red { background: var(--danger-color); }
+.dns-fg-green { color: var(--success-color); }
+.dns-fg-red { color: var(--danger-color); }
+.dns-fg-gray { color: var(--text-secondary); }
+

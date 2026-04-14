@@ -465,6 +465,16 @@ function selectDomain(domain) {
     sendReq({ req: 'get_zone', domain: domain });
 }
 
+function formatExpiryInterval(timestampSec) {
+    if (!timestampSec) return 'Unknown';
+    let diff = timestampSec - Math.floor(Date.now() / 1000);
+    if (diff > 0) {
+        return Math.floor(diff / 86400) + 'd';
+    } else {
+        return Math.floor(diff / 86400) + 'd';
+    }
+}
+
 function renderWhoisHeader() {
     const hdr = document.getElementById('whois-header');
     if (!hdr) return;
@@ -475,67 +485,76 @@ function renderWhoisHeader() {
     }
     
     const w = currentDomainObj.whois;
-    const expiryDate = w.expiry_date ? new Date(w.expiry_date * 1000).toLocaleDateString() : 'Unknown';
+    const d = currentDomainObj.dns || {};
+    const expiryDateStr = w.expiry_date ? new Date(w.expiry_date * 1000).toLocaleDateString() : 'Unknown';
+    const expiryInterval = w.expiry_date ? formatExpiryInterval(w.expiry_date) : '';
+    const expiryDate = w.expiry_date ? `${expiryDateStr} (${expiryInterval})` : 'Unknown';
     const nsList = (w.nameservers || []).join('<br>') || 'None';
-    
-    let dsStatus = '';
+    const dnsSerial = d.serial !== undefined ? d.serial : 'Unknown';
+    let isDnsExpired = false;
+    if (d.expiry) {
+        if (d.expiry < Math.floor(Date.now() / 1000)) {
+            isDnsExpired = true;
+        }
+    }
+    const dnsSignedOk = d.signed_ok === 1 && !isDnsExpired;
+    let dnsExpiryStr = formatExpiryInterval(d.expiry);
+
+    let dsStatusHTML = '';
+    let isMatch = false;
+    let isSigned = false;
+
     if (w.ds_data) {
         const localDs = (currentDomainObj.local_ds || '').trim().toUpperCase();
         const whoisDs = w.ds_data.trim().toUpperCase();
-        
-        let isMatch = false;
         if (localDs && whoisDs) {
-            /* WHOIS DS might contain key ID and other info, we check if local DS is a substring or vice versa */
             isMatch = whoisDs.includes(localDs) || localDs.includes(whoisDs);
         }
-        
-        dsStatus = `
-            <div class="whois-item">
-                <span class="whois-label">DNSSEC Match</span>
-                <span class="status-match ${isMatch ? 'ok' : 'fail'}">
-                    <span class="status-match-icon">${isMatch ? '✔' : '✘'}</span>
-                    <span class="whois-value">${isMatch ? 'Matches' : 'Mismatch'}</span>
-                    <div class="tooltip">Expected DS:\n${localDs || 'Unknown'}\n\nWHOIS DS:\n${whoisDs}</div>
-                </span>
-            </div>
-        `;
+        dsStatusHTML = `DNSSEC: <span class="${isMatch ? 'dns-fg-green' : 'dns-fg-red'}">${isMatch ? '✔' : '✘'}</span>`;
     } else {
-        let isSigned = false;
         let dnssecVal = w.dnssec ? w.dnssec.trim().toLowerCase() : '';
         if (dnssecVal === 'signeddelegation' || dnssecVal === 'yes' || dnssecVal === 'signed' || dnssecVal === 'active') {
             isSigned = true;
         }
-        
-        let statusClass = isSigned ? 'ok' : 'warn';
-        let statusIcon = isSigned ? '✔' : '⚠';
-        let statusText = w.dnssec || 'Unsigned';
-        let tooltipText = isSigned ? 
-            'Delegation is actively signed according to WHOIS.\\n(DS hash not provided by registry)' : 
-            'No DS records found in WHOIS.\\nDelegate signing if this is incorrect.';
-
-        dsStatus = `
-            <div class="whois-item">
-                <span class="whois-label">DNSSEC Status</span>
-                <span class="status-match ${statusClass}">
-                    <span class="status-match-icon">${statusIcon}</span>
-                    <span class="whois-value">${statusText}</span>
-                    <div class="tooltip">${tooltipText}</div>
-                </span>
-            </div>
-        `;
+        dsStatusHTML = `DNSSEC Delegation: <span class="${isSigned ? 'dns-fg-green' : 'dns-fg-gray'}">${isSigned ? '✔' : '⚠'}</span>`;
     }
 
+    let overallSigned = (w.ds_data ? isMatch : isSigned) && dnsSignedOk;
+    let overrideClass = overallSigned ? 'ok' : 'warn';
+    let overrideText = overallSigned ? '✔ DNSSEC OK' : '✘ INSECURE';
+
+    let sigsColor = isDnsExpired ? 'dns-fg-gray' : (dnsSignedOk ? 'dns-fg-green' : 'dns-fg-red');
+    let sigsTick = isDnsExpired ? '⚠' : (dnsSignedOk ? '✔' : '✘');
+
     hdr.innerHTML = `
-        <div class="whois-item">
-            <span class="whois-label">Expiry</span>
-            <span class="whois-value">${expiryDate}</span>
-        </div>
-        <div class="whois-item">
-            <span class="whois-label">Name Servers</span>
-            <span class="whois-value">${nsList}</span>
-        </div>
-        ${dsStatus}
+        <table class="dns-layout-container">
+            <tr>
+                <td class="dns-layout-lbl">WHOIS:<br>
+                ${expiryDate}</td>
+                <td>${nsList.replace(/<br>/g, ',<br>')}</td>
+                <td>
+                    ${dsStatusHTML}
+		</td>
+            </tr>
+            <tr>
+                <td class="dns-layout-lbl">DNS:<br>
+                ${dnsSerial}</td>
+                <td>Sigexp: ${dnsExpiryStr}</td>
+                <td>Sigs: <span class="${sigsColor}">${sigsTick}</span></td>
+            </tr>
+        </table>
     `;
+
+	const dnssec_status = document.getElementById('dnssec-status');
+
+	if (dnssec_status)
+		dnssec_status.innerHTML=`<span class="dns-overall-btn ${overrideClass === 'ok' ? 'dns-bg-green' : 'dns-bg-red'}">
+                        ${overrideText}
+                    </span>`;
+
+    // Clear any inline styles that violate CSP and use standard display
+    hdr.removeAttribute('style');
+    hdr.classList.remove('hide', 'hidden');
 }
 
 function closeDetail() {
@@ -579,7 +598,7 @@ function renderZoneTable() {
         let valStr = r.parsed?.value;
 
         if (r.type === 'SOA') {
-            valStr = `Serial: ${r.parsed?.serial} (MNAME: ${r.parsed?.mname})`;
+            valStr = `${r.parsed?.serial} (MNAME: ${r.parsed?.mname})`;
         }
 
         let fqdn = nameStr === '@' ? currentDomain : nameStr + '.' + currentDomain;

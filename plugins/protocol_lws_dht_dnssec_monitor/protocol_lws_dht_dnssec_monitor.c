@@ -386,6 +386,123 @@ calc_local_ds(struct vhd *vhd, const char *domain, char *out, size_t out_len)
 	return 0;
 }
 
+static int skip_name(const uint8_t *p, int len, int *offset) {
+	while (*offset < len) {
+		uint8_t l = p[*offset];
+		if (l == 0) {
+			(*offset)++;
+			return 0;
+		}
+		if ((l & 0xC0) == 0xC0) {
+			(*offset) += 2;
+			return 0;
+		}
+		(*offset) += l + 1;
+	}
+	return -1;
+}
+
+static uint32_t parse_soa_serial(const uint8_t *p, int len) {
+	int offset = 0;
+	if (skip_name(p, len, &offset)) return 0;
+	if (skip_name(p, len, &offset)) return 0;
+	if (offset + 4 <= len) {
+		return ((uint32_t)p[offset] << 24) | ((uint32_t)p[offset+1] << 16) |
+			   ((uint32_t)p[offset+2] << 8) | ((uint32_t)p[offset+3]);
+	}
+	return 0;
+}
+
+struct dnssec_async_req {
+	struct vhd *vhd;
+	char domain[128];
+};
+
+static struct lws *
+dnssec_state_dns_cb(struct lws *wsi, const char *ads, const struct addrinfo *result, int n, void *opaque)
+{
+	struct dnssec_async_req *req = (struct dnssec_async_req *)opaque;
+	struct vhd *vhd = req->vhd;
+	uint16_t paylen = 0;
+	uint32_t serial = 0, expiry = 0, inception = 0;
+	int signed_ok = (n & LWS_ADNS_DNSSEC_VALID) ? 1 : 0;
+
+	const uint8_t *soa = lws_async_dns_get_rr_cache(vhd->context, req->domain, 0x06 /* SOA */, &paylen);
+	if (soa) {
+		serial = parse_soa_serial(soa, paylen);
+	} else {
+		lwsl_warn("%s: No SOA record cached natively for %s (n=%d)\n", __func__, req->domain, n);
+	}
+
+	const uint8_t *rrsig = lws_async_dns_get_rr_cache(vhd->context, req->domain, 0x2e /* RRSIG */, &paylen);
+	if (rrsig && paylen >= 16) {
+		int t_covered = ((uint16_t)rrsig[0] << 8) | rrsig[1];
+		if (t_covered == 0x06 /* SOA */) {
+			expiry = ((uint32_t)rrsig[8] << 24) | ((uint32_t)rrsig[9] << 16) | ((uint32_t)rrsig[10] << 8) | rrsig[11];
+			inception = ((uint32_t)rrsig[12] << 24) | ((uint32_t)rrsig[13] << 16) | ((uint32_t)rrsig[14] << 8) | rrsig[15];
+
+			uint32_t cnow = (uint32_t)lws_now_secs();
+			if (expiry <= inception || expiry <= cnow) {
+				signed_ok = 0;
+			}
+		} else {
+			lwsl_warn("%s: Cached RRSIG was not covering SOA (t_covered: %d) for %s\n", __func__, t_covered, req->domain);
+		}
+	} else {
+		lwsl_warn("%s: No RRSIG record returned dynamically for %s (paylen: %u)\n", __func__, req->domain, paylen);
+	}
+
+	/* Also write dns_state.json */
+	char dbuf[1024];
+	char out_path[1024];
+	lws_snprintf(out_path, sizeof(out_path), "%s/domains/%s/dns_state.json", vhd->base_dir, req->domain);
+	int dfd = open(out_path, O_CREAT | O_TRUNC | O_WRONLY, 0644);
+	if (dfd >= 0) {
+		int jn = lws_snprintf(dbuf, sizeof(dbuf), "{\"serial\": %u, \"signed_ok\": %d, \"expiry\": %u, \"inception\": %u}\n", serial, signed_ok, expiry, inception);
+		write(dfd, dbuf, (size_t)jn);
+		close(dfd);
+	}
+
+	uint32_t now = (uint32_t)lws_now_secs();
+	if (expiry > inception && expiry > now && vhd->ops && vhd->ops->bump_zone_serial) {
+		uint32_t valid_dur = expiry - inception;
+		uint32_t remaining = expiry - now;
+		if (remaining < (valid_dur / 5)) { /* < 20% remaining means > 80% expired */
+			char input_path[1024];
+			char wd[512];
+			lwsl_notice("%s: Signature for %s > 80%% expired, auto-bumping and resigning\n", __func__, req->domain);
+			lws_snprintf(input_path, sizeof(input_path), "%s/domains/%s/%s.zone", vhd->base_dir, req->domain, req->domain);
+			lws_snprintf(wd, sizeof(wd), "%s/domains/%s", vhd->base_dir, req->domain);
+			
+			vhd->ops->bump_zone_serial(vhd->context, input_path);
+
+			struct lws_dht_dnssec_signzone_args sargs;
+			memset(&sargs, 0, sizeof(sargs));
+			sargs.domain = req->domain;
+			sargs.workdir = wd;
+			sargs.sign_validity_duration = vhd->signature_duration;
+			vhd->ops->signzone(vhd->context, &sargs);
+		}
+	}
+
+	free(req);
+	return wsi;
+}
+
+static void check_dnssec_state_via_dns(struct vhd *vhd, const char *domain)
+{
+	struct dnssec_async_req *req = malloc(sizeof(*req));
+	if (!req) return;
+	req->vhd = vhd;
+	lws_strncpy(req->domain, domain, sizeof(req->domain));
+	
+	lwsl_info("%s: Issuing async DNS check for %s (NOCACHE|WANT_DNSSEC|IGNORE_HOSTS)\n", __func__, domain);
+	lws_async_dns_query(vhd->context, 0, domain,
+			    LWS_ADNS_RECORD_SOA | LWS_ADNS_NOCACHE |
+			    LWS_ADNS_WANT_DNSSEC | LWS_ADNS_IGNORE_HOSTS_FILE,
+			    dnssec_state_dns_cb, NULL, req, NULL);
+}
+
 static int
 scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 {
@@ -474,7 +591,20 @@ scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 			} else {
 				lwsl_info("dnssec-monitor: unsigned zone %s (mtime %lu) is NOT newer than signed zone %s (mtime %lu), skipping resign.\n", input_path, (unsigned long)st_in.st_mtime, output_path, (unsigned long)st_out.st_mtime);
 			}
-			/* TODO: 75% lifetime exhaustion check, but requires parsing the signature. */
+			if (!needs_resign) {
+				char dns_path[1024];
+				struct stat st_dns;
+				int trigger_dns = 0;
+				lws_snprintf(dns_path, sizeof(dns_path), "%s/domains/%s/dns_state.json", vhd->base_dir, common_name);
+				if (stat(dns_path, &st_dns) < 0) {
+					trigger_dns = 1;
+				} else {
+					if ((unsigned long long)lws_now_secs() - (unsigned long long)st_dns.st_mtime > 300)
+						trigger_dns = 1;
+				}
+				if (trigger_dns)
+					check_dnssec_state_via_dns(vhd, common_name);
+			}
 		}
 	} else {
 		lwsl_info("%s: Missing domain %s base zone config, skipping resign\n", __func__, input_path);
@@ -798,11 +928,20 @@ handle_req_get_domains(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 				close(fd_w);
 			}
 
+			char dns_path[1024], dns_buf[1024] = "{}";
+			lws_snprintf(dns_path, sizeof(dns_path), "%s/domains/%s/dns_state.json", vhd->base_dir, doms[i]);
+			int fd_d = open(dns_path, O_RDONLY);
+			if (fd_d >= 0) {
+				ssize_t nw = read(fd_d, dns_buf, sizeof(dns_buf) - 1);
+				if (nw > 0) dns_buf[nw] = '\0';
+				close(fd_d);
+			}
+
 			calc_local_ds(vhd, doms[i], local_ds, sizeof(local_ds));
 
 			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx),
-				"{\"name\":\"%s\",\"whois\":%s,\"local_ds\":\"%s\"}",
-				doms[i], whois_buf[0] ? whois_buf : "{}", local_ds);
+				"{\"name\":\"%s\",\"whois\":%s,\"dns\":%s,\"local_ds\":\"%s\"}",
+				doms[i], whois_buf[0] ? whois_buf : "{}", dns_buf[0] ? dns_buf : "{}", local_ds);
 			free(doms[i]);
 		}
 		if (doms) free(doms);
@@ -1220,6 +1359,24 @@ handle_req_save_cert(struct vhd *vhd, struct pss *root_pss, struct monitor_req_a
 }
 
 static void
+force_external_dns(struct lws_context *cx, const char *external_ip)
+{
+	lws_sockaddr46 sa46;
+	int index = 0;
+
+	/* Extract exactly what the library natively discovered, and systematically kill it */
+	while (!lws_plat_asyncdns_get_server(cx, index++, &sa46)) {
+		lws_async_dns_server_remove(cx, &sa46);
+	}
+
+	memset(&sa46, 0, sizeof(sa46));
+	sa46.sa4.sin_family = AF_INET;
+	inet_pton(AF_INET, external_ip, &sa46.sa4.sin_addr);
+	sa46.sa4.sin_port = htons(53);
+	lws_async_dns_server_add(cx, &sa46);
+}
+
+static void
 handle_req_save_key(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	handle_req_save_acme_file(vhd, root_pss, a, "certs/key", 0600);
@@ -1538,6 +1695,9 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 						lwsl_notice("%s: Successfully allocated vhd on %s\n", __func__, lws_get_vhost_name(vhost));
 						vhd->context = cx;
 						vhd->vhost = vhost;
+
+						/* Force telemetry to use global public resolver to bypass local split-horizon DNS */
+						force_external_dns(cx, "8.8.8.8");
 
 						const char *base_dir_arg = lws_cmdline_option_cx(cx, "--base-dir");
 						if (base_dir_arg) {
