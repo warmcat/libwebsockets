@@ -280,15 +280,15 @@ happy:
 			lwsl_notice("%s: completed all tests\n", __func__);
 			bad = 0;
 			interrupted = 1;
-			break;
+			return LWSSSSRET_DESTROY_ME;
 		}
 		if (lws_ss_create(context, 0, next_test->ssi,
 				  NULL, NULL, NULL, NULL)) {
 			lwsl_err("%s: failed to create secure stream\n",
 				 __func__);
-			return -1;
+			return LWSSSSRET_DESTROY_ME;
 		}
-		break;
+		return LWSSSSRET_DESTROY_ME;
 
 	case LWSSSCS_DISCONNECTED:
 		if (!m->ended_well) {

@@ -950,6 +950,7 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 #endif
 #if defined(LWS_WITH_NETWORK)
 #include <libwebsockets/lws-netdev.h>
+#include <libwebsockets/lws-txpacer.h>
 #include "libwebsockets/lws-dht.h"
 #include "libwebsockets/lws-dht-dnssec.h"
 #if defined(LWS_WITH_TRANSCODE)
@@ -970,7 +971,6 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 
 #if defined(LWS_WITH_DIR)
 #include <libwebsockets/lws-dir-notify.h>
-#include <libwebsockets/lws-txpacer.h>
 #endif
 
 #ifdef __cplusplus
