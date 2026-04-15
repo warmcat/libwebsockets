@@ -42,14 +42,14 @@ typedef struct lws_txp_info {
 /**
  * lws_txp_create() - Create a generic TX pacer (Leaky Bucket Shaper)
  *
- * \param info:	Configuration and callbacks
+ * \param txp_info:	Configuration and callbacks
  *
  * Spawns a high-resolution pthread dedicated to calling your `tx_cb`
  * at precise intervals until the accumulated token bucket is empty.
  * Returns an opaque control struct.
  */
 LWS_VISIBLE LWS_EXTERN struct lws_txp *
-lws_txp_create(const lws_txp_info_t *info);
+lws_txp_create(const lws_txp_info_t *txp_info);
 
 /**
  * lws_txp_destroy() - Safely drain and destroy a TX pacer

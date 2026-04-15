@@ -845,10 +845,9 @@ handle_candidate(struct pss_webrtc *pss, struct vhd_webrtc *vhd, const char *can
 	if (state == 5 && port > 0) {
 		webrtc_pss_log(pss, "Found ICE Candidate: %s:%d\n", ip_str, port);
 
-		memset(&pss->media->peer_sa46, 0, sizeof(pss->media->peer_sa46));
-		pss->media->peer_sa46.sa4.sin_family = AF_INET;
-		pss->media->peer_sa46.sa4.sin_port = htons((uint16_t)port);
-		inet_pton(AF_INET, ip_str, &pss->media->peer_sa46.sa4.sin_addr);
+		if (lws_sa46_parse_numeric_address(ip_str, &pss->media->peer_sa46) < 0)
+			return -1;
+		sa46_sockport(&pss->media->peer_sa46, htons((uint16_t)port));
 		pss->media->has_peer_sa46 = 1;
 
 		/* Send STUN Binding Request to punch hole */

@@ -431,15 +431,18 @@ dht_obj_store_sul_put_cb(void *v)
 	char hash_hex[LWS_GENHASH_LARGEST * 2 + 1], header[256], packet[1500];
 	uint8_t hash[LWS_GENHASH_LARGEST];
 	struct lws_genhash_ctx ctx;
-	struct sockaddr_in sin;
+	lws_sockaddr46 sa46;
 	int fd, n, hlen;
 	struct stat st;
 	char buf[1500];
 
-	memset(&sin, 0, sizeof(sin));
-	sin.sin_family = AF_INET;
-	sin.sin_port = htons((uint16_t)vhd->target_port);
-	inet_pton(AF_INET, vhd->target_ip, &sin.sin_addr);
+	if (lws_sa46_parse_numeric_address(vhd->target_ip, &sa46) < 0) {
+		lwsl_err("Failed to parse target-ip: %s\n", vhd->target_ip);
+		if (vhd->cb_completion)
+			vhd->cb_completion(vhd->cb_closure, 1);
+		return;
+	}
+	sa46_sockport(&sa46, htons((uint16_t)vhd->target_port));
 
 	lwsl_user("Sending PUT %s to %s:%d\n", vhd->cli_put_file, vhd->target_ip, vhd->target_port);
 
@@ -476,25 +479,26 @@ dht_obj_store_sul_put_cb(void *v)
 	memcpy(packet, header, (size_t)hlen);
 	memcpy(packet + hlen, buf + 256, (size_t)n);
 
-	lws_dht_send_data(vhd->dht, (struct sockaddr *)&sin, packet, (size_t)(hlen + n));
+	lws_dht_send_data(vhd->dht, (struct sockaddr *)&sa46, packet, (size_t)(hlen + n));
 }
 
 static void
 dht_obj_store_sul_get_cb(void *v)
 {
 	struct vhd_dht_store *vhd = (struct vhd_dht_store *)v;
-	struct sockaddr_in sin;
+	lws_sockaddr46 sa46;
 	char buf[256];
 
-	memset(&sin, 0, sizeof(sin));
-	sin.sin_family = AF_INET;
-	sin.sin_port = htons((uint16_t)vhd->target_port);
-	inet_pton(AF_INET, vhd->target_ip, &sin.sin_addr);
+	if (lws_sa46_parse_numeric_address(vhd->target_ip, &sa46) < 0) {
+		lwsl_err("Failed to parse target-ip: %s\n", vhd->target_ip);
+		return;
+	}
+	sa46_sockport(&sa46, htons((uint16_t)vhd->target_port));
 
 	lwsl_user("Sending GET %s to %s:%d\n", vhd->cli_get_hash, vhd->target_ip, vhd->target_port);
 
 	lws_dht_msg_gen(buf, sizeof(buf), "GET", vhd->cli_get_hash, 0, 1024);
-	lws_dht_send_data(vhd->dht, (struct sockaddr *)&sin, buf, strlen(buf));
+	lws_dht_send_data(vhd->dht, (struct sockaddr *)&sa46, buf, strlen(buf));
 }
 
 static void
@@ -504,14 +508,17 @@ dht_obj_store_sul_bulk_cb(void *v)
 	char hash_hex[LWS_GENHASH_LARGEST * 2 + 1], header[256], packet[1500];
 	uint8_t hash[LWS_GENHASH_LARGEST];
 	struct lws_genhash_ctx ctx;
-	struct sockaddr_in sin;
+	lws_sockaddr46 sa46;
 	int hlen;
 	char buf[1024];
 
-	memset(&sin, 0, sizeof(sin));
-	sin.sin_family = AF_INET;
-	sin.sin_port = htons((uint16_t)vhd->target_port);
-	inet_pton(AF_INET, vhd->target_ip, &sin.sin_addr);
+	if (lws_sa46_parse_numeric_address(vhd->target_ip, &sa46) < 0) {
+		lwsl_err("Failed to parse target-ip: %s\n", vhd->target_ip);
+		if (vhd->cb_completion)
+			vhd->cb_completion(vhd->cb_closure, 1);
+		return;
+	}
+	sa46_sockport(&sa46, htons((uint16_t)vhd->target_port));
 
 	lwsl_user("Sending mock bulk data to %s:%d\n", vhd->target_ip, vhd->target_port);
 
@@ -542,7 +549,7 @@ dht_obj_store_sul_bulk_cb(void *v)
 	memcpy(packet, header, (size_t)hlen);
 	memcpy(packet + hlen, buf, sizeof(buf));
 
-	lws_dht_send_data(vhd->dht, (struct sockaddr *)&sin, packet, (size_t)hlen + sizeof(buf));
+	lws_dht_send_data(vhd->dht, (struct sockaddr *)&sa46, packet, (size_t)hlen + sizeof(buf));
 }
 
 static void
@@ -678,14 +685,15 @@ callback_dht_object_store(struct lws* wsi, enum lws_callback_reasons reason,
 		if (vhd->test_handshake) {
 			lwsl_user("Initiating Handshake TEST... sending NONCE_REQ\n");
 			char buf[1024];
-			struct sockaddr_in sin;
-			memset(&sin, 0, sizeof(sin));
-			sin.sin_family = AF_INET;
-			sin.sin_port = htons((uint16_t)vhd->target_port);
-			inet_pton(AF_INET, vhd->target_ip, &sin.sin_addr);
+			lws_sockaddr46 sa46;
+			if (lws_sa46_parse_numeric_address(vhd->target_ip, &sa46) < 0) {
+				lwsl_err("Failed to parse target-ip: %s\n", vhd->target_ip);
+				break;
+			}
+			sa46_sockport(&sa46, htons((uint16_t)vhd->target_port));
 
 			lws_dht_msg_gen(buf, sizeof(buf), "NONC_REQ", "0000", 0, 0);
-			lws_dht_send_data(vhd->dht, (const struct sockaddr *)&sin, buf, strlen(buf));
+			lws_dht_send_data(vhd->dht, (const struct sockaddr *)&sa46, buf, strlen(buf));
 		} else if (vhd->cli_put_file) {
 			lwsl_user("%s: Starting PUT task\n", __func__);
 			dht_obj_store_sul_put_cb(vhd);
