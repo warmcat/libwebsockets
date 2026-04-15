@@ -1369,10 +1369,9 @@ force_external_dns(struct lws_context *cx, const char *external_ip)
 		lws_async_dns_server_remove(cx, &sa46);
 	}
 
-	memset(&sa46, 0, sizeof(sa46));
-	sa46.sa4.sin_family = AF_INET;
-	inet_pton(AF_INET, external_ip, &sa46.sa4.sin_addr);
-	sa46.sa4.sin_port = htons(53);
+	if (lws_sa46_parse_numeric_address(external_ip, &sa46) < 0)
+		return;
+	sa46_sockport(&sa46, htons(53));
 	lws_async_dns_server_add(cx, &sa46);
 }
 

@@ -27,7 +27,7 @@
 #if defined(LWS_HAVE_PTHREAD_H)
 
 struct lws_txp {
-	lws_txp_info_t		info;
+	lws_txp_info_t		txp_info;
 
 	pthread_t		thread;
 	pthread_mutex_t		lock;
@@ -74,8 +74,8 @@ lws_txpacer_thread(void *d)
 				break;
 
 			/* We process the full segment (packet) atomically */
-			if (txp->info.tx_cb) {
-				txp->info.tx_cb(txp->info.user, buf, len);
+			if (txp->txp_info.tx_cb) {
+				txp->txp_info.tx_cb(txp->txp_info.user, buf, len);
 			}
 
 			txp->tokens -= (int64_t)len;
@@ -92,7 +92,7 @@ lws_txpacer_thread(void *d)
 		} else {
 			/* Calculate sleep time */
 			struct timespec ts;
-			lws_usec_t target_us = lws_now_usecs() + txp->info.interval_us;
+			lws_usec_t target_us = lws_now_usecs() + txp->txp_info.interval_us;
 			ts.tv_sec = target_us / 1000000;
 			ts.tv_nsec = (target_us % 1000000) * 1000;
 
@@ -106,18 +106,18 @@ lws_txpacer_thread(void *d)
 }
 
 LWS_VISIBLE LWS_EXTERN struct lws_txp *
-lws_txp_create(const lws_txp_info_t *info)
+lws_txp_create(const lws_txp_info_t *txp_info)
 {
 	struct lws_txp *txp = lws_zalloc(sizeof(*txp), __func__);
 
 	if (!txp)
 		return NULL;
 
-	txp->info = *info;
-	txp->byte_rate_s = info->target_rate_bps / 8;
+	txp->txp_info = *txp_info;
+	txp->byte_rate_s = txp_info->target_rate_bps / 8;
 
 	/* Allow bursting up to 2 intervals worth of data, or at least 4KB */
-	txp->bucket_size = (int64_t)(txp->byte_rate_s * info->interval_us * 2 / 1000000);
+	txp->bucket_size = (int64_t)(txp->byte_rate_s * txp_info->interval_us * 2 / 1000000);
 	if (txp->bucket_size < 4096)
 		txp->bucket_size = 4096;
 
@@ -173,7 +173,7 @@ lws_txp_append(struct lws_txp *txp, uint8_t *buf, size_t len)
 
 	pthread_mutex_lock(&txp->lock);
 
-	if (txp->info.max_buflist_bytes && txp->buflist_len + len > txp->info.max_buflist_bytes) {
+	if (txp->txp_info.max_buflist_bytes && txp->buflist_len + len > txp->txp_info.max_buflist_bytes) {
 		/* Queue is full, drop it to enforce backpressure */
 		lws_free(buf);
 		ret = -1;
