@@ -2700,7 +2700,7 @@ static void
 dht_dnssec_sul_get_cb(struct lws_sorted_usec_list *sul)
 {
 	struct vhd_dht_dnssec *vhd = lws_container_of(sul, struct vhd_dht_dnssec, sul_bulk);
-	struct sockaddr_in sin;
+	lws_sockaddr46 sa46;
 	char buf[256];
 	const char *get_hash = vhd->cli_get_hash;
 	char computed_hash_hex[LWS_GENHASH_LARGEST * 2 + 1];
