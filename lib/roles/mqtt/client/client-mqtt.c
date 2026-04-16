@@ -325,6 +325,8 @@ start_ws_handshake:
 				  __func__);
 			goto fail;
 		case LWS_SSL_CAPABLE_MORE_SERVICE:
+		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
+		case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
 			lwsl_info("SSL Capable more service\n");
 			return 0;
 		case LWS_SSL_CAPABLE_ERROR:
