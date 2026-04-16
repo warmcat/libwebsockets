@@ -992,11 +992,11 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 
 			if (pss && pss->ja) {
 				const char *sub = lws_jwt_auth_get_sub(pss->ja);
-				int is_admin = lws_jwt_auth_query_grant(pss->ja, "*") >= 1 ||
-					       lws_jwt_auth_query_grant(pss->ja, service_name) >= 2;
-				int has_grant = lws_jwt_auth_query_grant(pss->ja, service_name) >= vhd->min_grant_level;
-				lws_snprintf(pl, sizeof(pl), "{\"logged_in\":1,\"exp\":%llu,\"has_grant\":%d,\"identity\":\"%s\",\"auth_server_url\":\"%s\",\"login_url\":\"%s\",\"is_admin\":%d}",
-					(unsigned long long)lws_jwt_auth_get_exp(pss->ja), has_grant, sub ? sub : "Unknown", vhd->auth_server_url, dest, is_admin);
+				int level = lws_jwt_auth_query_grant(pss->ja, service_name);
+				int is_admin = lws_jwt_auth_query_grant(pss->ja, "*") >= 1 || level >= 2;
+				int has_grant = level >= vhd->min_grant_level;
+				lws_snprintf(pl, sizeof(pl), "{\"logged_in\":1,\"exp\":%llu,\"has_grant\":%d,\"grant_level\":%d,\"identity\":\"%s\",\"auth_server_url\":\"%s\",\"login_url\":\"%s\",\"is_admin\":%d}",
+					(unsigned long long)lws_jwt_auth_get_exp(pss->ja), has_grant, level, sub ? sub : "Unknown", vhd->auth_server_url, dest, is_admin);
 			} else
 				lws_snprintf(pl, sizeof(pl), "{\"logged_in\":0,\"login_url\":\"%s\"}", dest);
 
