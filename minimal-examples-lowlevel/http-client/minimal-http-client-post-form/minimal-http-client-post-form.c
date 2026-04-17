@@ -40,6 +40,29 @@ struct pss {
 
 static int form_pass = 0;
 
+static void
+sanitize_ft(char *ft)
+{
+	char *p, *eq = strchr(ft, '=');
+	if (!eq) return;
+	eq++;
+
+	/* remove trailing \r, \n, spaces, or quotes */
+	p = eq + strlen(eq) - 1;
+	while (p >= eq && (*p == '\r' || *p == '\n' || *p == ' ' || *p == '"' || *p == '\'')) {
+		*p = '\0';
+		p--;
+	}
+
+	/* remove leading quotes or spaces after = */
+	p = eq;
+	while (*p == ' ' || *p == '"' || *p == '\'')
+		p++;
+
+	if (p != eq)
+		memmove(eq, p, strlen(p) + 1);
+}
+
 int
 form_cb(struct lws_context *cx, char *ft, size_t ft_len, const char **last)
 {
@@ -55,6 +78,7 @@ form_cb(struct lws_context *cx, char *ft, size_t ft_len, const char **last)
 				if (!strchr(p, '@')) {
 					*last = p;
 					lws_strnncpy(ft, p, strlen(p), ft_len);
+					sanitize_ft(ft);
 					return 0;
 				}
 				continue;
@@ -69,6 +93,7 @@ form_cb(struct lws_context *cx, char *ft, size_t ft_len, const char **last)
 				if (strchr(p, '@')) {
 					*last = p;
 					lws_strnncpy(ft, p, strlen(p), ft_len);
+					sanitize_ft(ft);
 					return 0;
 				}
 				continue;
