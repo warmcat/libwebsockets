@@ -1637,7 +1637,6 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 	switch (reason) {
 
 	case LWS_CALLBACK_PROTOCOL_INIT:
-		lwsl_notice("dnssec_monitor: PROTOCOL_INIT called! (in=%p)\n", in);
 		{
 			struct lws_context *cx = lws_get_context(wsi);
 			const char *p = lws_cmdline_option_cx(cx, "--lws-dht-dnssec-monitor-root");

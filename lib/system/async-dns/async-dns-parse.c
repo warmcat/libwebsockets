@@ -814,7 +814,7 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 
 		c->flags = adst.flags;
 		lws_dll2_add_head(&c->list, &dns->cached);
-		lwsl_notice("%s: added %s to cache, rr_results = %p, ttl = %u\n", __func__, c->name, c->rr_results, adst.smallest_ttl);
+		lwsl_info("%s: added %s to cache, rr_results = %p, ttl = %u\n", __func__, c->name, c->rr_results, adst.smallest_ttl);
 		lws_sul_schedule(q->context, 0, &c->sul, sul_cb_expire,
 				 lws_now_usecs() +
 				 (adst.smallest_ttl * LWS_US_PER_SEC));
@@ -856,7 +856,7 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 	 * addrinfo results, if any, to all interested wsi, if any...
 	 */
 
-	lwsl_notice("%s: Calling lws_async_dns_complete for %s\n", __func__, q->firstcache ? q->firstcache->name : "NULL");
+	lwsl_info("%s: Calling lws_async_dns_complete for %s\n", __func__, q->firstcache ? q->firstcache->name : "NULL");
 	c->incomplete = 0;
 	lws_async_dns_complete(q, q->firstcache);
 

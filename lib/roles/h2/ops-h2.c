@@ -191,7 +191,10 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 			 * (new RX may trigger new http_action() that
 			 * expect to be able to send)
 			 */
-			return LWS_HPI_RET_HANDLED;
+			if (!lwsi_role_client(wsi))
+				return LWS_HPI_RET_HANDLED;
+			else
+				lwsl_notice("%s: allowing POLLIN despite buffered out (client)\n", __func__);
 		}
 	}
 
@@ -224,7 +227,8 @@ read:
 
 	if (!(lwsi_role_client(wsi) &&
 	      (lwsi_state(wsi) != LRS_ESTABLISHED &&
-	       // lwsi_state(wsi) != LRS_H1C_ISSUE_HANDSHAKE2 &&
+	       lwsi_state(wsi) != LRS_ISSUE_HTTP_BODY &&
+	       lwsi_state(wsi) != LRS_WAITING_SERVER_REPLY &&
 	       lwsi_state(wsi) != LRS_H2_WAITING_TO_SEND_HEADERS))) {
 
 		int scr_ret;

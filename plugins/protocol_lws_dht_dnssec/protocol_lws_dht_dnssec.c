@@ -2917,17 +2917,13 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 			"SUBSCRIBE_CONFIRM",
 			"NOTIFY",
 			"NOTC",
-		};
-		lwsl_vhost_notice(vhost, "LWS_CALLBACK_PROTOCOL_INIT for %s: in=%p", protocol->name, in);
-
-		/* Do not initialize the DHT plugin if we are running as the spawned root monitor */
+		};		/* Do not initialize the DHT plugin if we are running as the spawned root monitor */
 		if (lws_cmdline_option_cx(lws_get_context(wsi), "--lws-dht-dnssec-monitor-root")) {
 			lwsl_vhost_notice(vhost, "  ...leaving early: skipped in root monitor process");
 			return 0;
 		}
 
 		if (!in) {
-			lwsl_vhost_notice(vhost, "  ...leaving early: no pvo 'in'");
 			return 0;
 		}
 		if (!lws_pvo_search(in, "dht-port")) {

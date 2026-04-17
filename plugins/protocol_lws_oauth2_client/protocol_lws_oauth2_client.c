@@ -81,6 +81,9 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 	switch (reason) {
 	case LWS_CALLBACK_PROTOCOL_INIT:
+		if (!in)
+			return 0;
+
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 						  lws_get_protocol(wsi),
 						  sizeof(struct vhd_oauth2_client));
@@ -91,7 +94,7 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd->vhost = lws_get_vhost(wsi);
 		vhd->cookie_name = "auth_session";
 
-		if (in) {
+		{
 			const struct lws_protocol_vhost_options *pvo =
 				(const struct lws_protocol_vhost_options *)in;
 
@@ -107,11 +110,11 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		if (!vhd->remote_auth_url || !vhd->client_id) {
-			lwsl_err("%s: lws-oauth2-client requires remote-auth-url and client-id\n", __func__);
+			lwsl_vhost_err(vhd->vhost, "%s: lws-oauth2-client requires remote-auth-url and client-id\n", __func__);
 			return 1;
 		}
 
-		lwsl_notice("%s: initialized oauth2 client using auth=%s\n", __func__, vhd->remote_auth_url);
+		lwsl_vhost_notice(vhd->vhost, "%s: initialized oauth2 client using auth=%s\n", __func__, vhd->remote_auth_url);
 		break;
 
 	case LWS_CALLBACK_HTTP: {
@@ -402,6 +405,9 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 	}
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY: {
+		if (!vhd)
+			break;
+
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 					   lws_dll2_get_head(&vhd->pending_auth_list)) {
 			struct pending_auth_state *ps = lws_container_of(d, struct pending_auth_state, list);
