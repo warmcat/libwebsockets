@@ -1110,11 +1110,8 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 	switch ((int)reason) {
 	case LWS_CALLBACK_PROTOCOL_INIT:
-		lwsl_notice("acme_core: PROTOCOL_INIT called (in=%p, vhd=%p)\n", in, vhd);
-		if (!in) {
-			lwsl_notice("acme_core: ignoring INIT (in=%p)\n", in);
+		if (!in)
 			return 0;
-		}
 
 		/*
 		 * Don't run ACME certificate acquisition inside the root-monitor

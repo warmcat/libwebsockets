@@ -1297,9 +1297,15 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
         switch (reason) {
 	case LWS_CALLBACK_PROTOCOL_INIT:
+		if (!in)
+			return 0;
+
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 				lws_get_protocol(wsi),
 				sizeof(struct per_vhost_data__auth_server));
+		if (!vhd)
+			return 1;
+
 		vhd->context = lws_get_context(wsi);
 		vhd->protocol = lws_get_protocol(wsi);
 		vhd->vhost = lws_get_vhost(wsi);
@@ -1414,7 +1420,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			if (lws_jwk_generate(vhd->context, &vhd->jwk,
 			                     LWS_GENCRYPTO_KTY_EC, 256, "P-256") ||
 			    lws_jwk_save(&vhd->jwk, vhd->jwk_path)) {
-				lwsl_err("Auth plugin failed to generate or save JWK\n");
+				lwsl_vhost_err(vhd->vhost, "Auth plugin failed to generate or save JWK\n");
 				return -1;
 			}
 		}
@@ -1441,12 +1447,12 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 		/* Initialize sqlite database using lws_struct */
 		if (lws_struct_sq3_open(vhd->context, vhd->db_path, 1, &vhd->db)) {
-			lwsl_err("Auth plugin failed to open database\n");
+			lwsl_vhost_err(vhd->vhost, "Auth plugin failed to open database\n");
 			return -1; /* fail plugin init */
 		}
 
 		if (sqlite3_exec(vhd->db, schema_init, NULL, NULL, NULL) != SQLITE_OK) {
-			lwsl_err("Auth plugin schema creation failed: %s\n",
+			lwsl_vhost_err(vhd->vhost, "Auth plugin schema creation failed: %s\n",
 				 sqlite3_errmsg(vhd->db));
 			return -1;
 		}

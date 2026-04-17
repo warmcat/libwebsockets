@@ -185,11 +185,8 @@ callback_lws_acme_client_dns(struct lws *wsi, enum lws_callback_reasons reason,
 
 	switch (reason) {
 	case LWS_CALLBACK_PROTOCOL_INIT:
-		lwsl_notice("acme_dns: PROTOCOL_INIT called (in=%p, ad=%p)\n", in, ad);
-		if (ad || !in) {
-			lwsl_notice("acme_dns: ignoring INIT (ad=%p, in=%p)\n", ad, in);
+		if (ad || !in)
 			return 0;
-		}
 
 		/*
 		 * Don't run ACME certificate acquisition inside the root-monitor
