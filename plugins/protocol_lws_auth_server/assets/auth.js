@@ -146,7 +146,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
 
                     if (clientId && redirectUri) {
-                        window.location.href = `/api/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state||'')}&response_type=code` + (codeChallenge ? `&code_challenge=${encodeURIComponent(codeChallenge)}` : '') + (codeChallengeMethod ? `&code_challenge_method=${encodeURIComponent(codeChallengeMethod)}` : '');
+                        /*alert("auth.js auth redirect -> " + `/api/authorize`); */ window.location.href = `/api/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state||'')}&response_type=code` + (codeChallenge ? `&code_challenge=${encodeURIComponent(codeChallenge)}` : '') + (codeChallengeMethod ? `&code_challenge_method=${encodeURIComponent(codeChallengeMethod)}` : '');
                         return;
                     } else if (redirectUri) {
                         try {
@@ -310,7 +310,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     stkOverlay.classList.remove('show-strike');
                 }
                 if (data.redirect) {
-                    setTimeout(() => window.location.href = data.redirect, 1000);
+                    setTimeout(() => { /*alert("auth.js data.redirect -> "+ data.redirect);*/ window.location.href = data.redirect; }, 1000);
                 } else if (redirectUri) {
                     setTimeout(() => {
                         let u;
@@ -334,7 +334,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             document.body.appendChild(form);
                             form.submit();
                         } else {
-                            window.location.href = redirectUri;
+                            /*alert("auth.js redirectUri -> " + redirectUri);*/ window.location.href = redirectUri;
                         }
                     }, 1000);
                 } else {
