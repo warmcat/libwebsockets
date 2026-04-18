@@ -17,6 +17,7 @@
 #if !defined(_LWS_JWT_AUTH_H_)
 #define _LWS_JWT_AUTH_H_
 
+#define LWS_SSO_MAX_COOKIE 4096
 struct lws_jwt_auth;
 
 /* States emitted via the callback */

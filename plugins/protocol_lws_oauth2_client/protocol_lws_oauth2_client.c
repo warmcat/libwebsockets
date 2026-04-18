@@ -27,6 +27,7 @@
 #include <string.h>
 #include <stdlib.h>
 
+
 struct vhd_oauth2_client {
 	struct lws_context *context;
 	struct lws_vhost *vhost;
@@ -49,16 +50,42 @@ struct pending_auth_state {
 	struct lws *wsi_server;
 	struct lws *wsi_client;
 
+	struct lejp_ctx jctx;
+	const char *fatal_error;
+
 	char state[48];
 	char code_verifier[64];
 	char redirect_uri[256];
 	char code[256];
-	char token[2048];
+	char token[LWS_SSO_MAX_COOKIE];
+	int token_len;
 
 	char payload[1024];
 	int payload_len;
 	int payload_pos;
 };
+
+static const char * const lejp_paths[] = {
+	"access_token"
+};
+
+static signed char
+oauth_lejp_cb(struct lejp_ctx *ctx, char reason)
+{
+	struct pending_auth_state *ps = (struct pending_auth_state *)ctx->user;
+
+	if (reason == LEJP_FLAG_CB_IS_VALUE && ctx->path_match == 1) {
+		if (ps->token_len + ctx->npos >= LWS_SSO_MAX_COOKIE - 1) {
+			ps->fatal_error = "JWT in cookie is truncated";
+			return -1;
+		}
+		memcpy(ps->token + ps->token_len, ctx->buf, ctx->npos);
+		ps->token_len += ctx->npos;
+		ps->token[ps->token_len] = '\0';
+	}
+
+	return 0;
+}
 
 static void
 sul_pending_auth_cb(lws_sorted_usec_list_t *sul)
@@ -68,6 +95,7 @@ sul_pending_auth_cb(lws_sorted_usec_list_t *sul)
 
 	lwsl_info("%s: auth state %s timed out\\n", __func__, ps->state);
 	lws_dll2_remove(&ps->list);
+	lejp_destruct(&ps->jctx);
 	free(ps);
 }
 
@@ -131,7 +159,7 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 			char sname[128] = {0};
 			char loc[1024];
 			struct lws_genhash_ctx hctx;
-			unsigned char buf[1024], *p = buf, *end = buf + sizeof(buf) - 1;
+			unsigned char buf[1024 + LWS_PRE], *p = buf + LWS_PRE, *end = buf + sizeof(buf) - 1;
 			int loc_len;
 
 			ps = malloc(sizeof(*ps));
@@ -176,7 +204,7 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION, (unsigned char *)loc, loc_len, &p, end)) return 1;
 			if (lws_finalize_http_header(wsi, &p, end)) return 1;
 
-			lws_write(wsi, buf, (size_t)lws_ptr_diff(p, buf), LWS_WRITE_HTTP_HEADERS);
+			lws_write(wsi, buf + LWS_PRE, (size_t)lws_ptr_diff(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
 			return lws_http_transaction_completed(wsi);
 		}
 
@@ -223,6 +251,8 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 			// Suspend the server WSI and kick off the token fetch
 			lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT, 30);
 
+			lejp_construct(&ps->jctx, oauth_lejp_cb, ps, lejp_paths, LWS_ARRAY_SIZE(lejp_paths));
+
 			ps->payload_len = lws_snprintf(ps->payload, sizeof(ps->payload),
 				"grant_type=authorization_code&client_id=%s&redirect_uri=%%2Foauth%%2Fcallback&code=%s&code_verifier=%s",
 				vhd->client_id, ps->code, ps->code_verifier);
@@ -264,15 +294,15 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_HTTP_WRITEABLE: {
 		struct pending_auth_state *ps = NULL;
 		char loc[512];
-		char cookie[2048];
-		unsigned char buf[1024 + LWS_PRE], *p = buf + LWS_PRE, *end = buf + sizeof(buf) - 1;
+		char cookie[LWS_SSO_MAX_COOKIE];
+		unsigned char buf[LWS_SSO_MAX_COOKIE + 512 + LWS_PRE], *p = buf + LWS_PRE, *end = buf + sizeof(buf) - 1;
 		int n;
 
 		// Find if this WSI belongs to a pending auth state that just finished
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 					   lws_dll2_get_head(&vhd->pending_auth_list)) {
 			struct pending_auth_state *s = lws_container_of(d, struct pending_auth_state, list);
-			if (s->wsi_server == wsi && s->token[0]) {
+			if (s->wsi_server == wsi) {
 				ps = s;
 				break;
 			}
@@ -280,6 +310,17 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (!ps)
 			break;
+
+		if (ps->fatal_error || !ps->token[0]) {
+			lwsl_notice("%s: bailing with fatal error: %s\n", __func__,
+				    ps->fatal_error ? ps->fatal_error : "Failed to obtain access token");
+			lws_return_http_status(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR,
+					       ps->fatal_error ? ps->fatal_error : "Failed to obtain access token");
+			lws_dll2_remove(&ps->list);
+			lejp_destruct(&ps->jctx);
+			free(ps);
+			return lws_http_transaction_completed(wsi);
+		}
 
 		// Found the finished state!
 		n = lws_snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=3600; SameSite=Lax",
@@ -289,6 +330,7 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 		// Unlink and free it, we don't need it anymore
 		lws_dll2_remove(&ps->list);
+		lejp_destruct(&ps->jctx);
 		free(ps);
 
 		// Issue the cookie and the 302
@@ -348,29 +390,15 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ: {
 		struct pending_auth_state *ps = (struct pending_auth_state *)lws_wsi_user(wsi);
-		char *tok;
+		int m;
 
 		if (!ps || !in || !len)
 			break;
 
-		// Extremely naive JSON extraction of "access_token"
-		// A robust implementation would use lejp or lws_tokenize
-		tok = strstr((const char *)in, "\"access_token\"");
-		if (tok) {
-			tok = strchr(tok, ':');
-			if (tok) {
-				tok = strchr(tok, '"');
-				if (tok) {
-					char *end = strchr(tok + 1, '"');
-					if (end) {
-						size_t tlen = lws_ptr_diff_size_t(end, tok + 1);
-						if (tlen < sizeof(ps->token)) {
-							lws_strncpy(ps->token, tok + 1, tlen + 1);
-							lwsl_notice("%s: Extracted OAuth token successfully\n", __func__);
-						}
-					}
-				}
-			}
+		m = lejp_parse(&ps->jctx, (const unsigned char *)in, (int)len);
+		if (m < 0 && m != LEJP_CONTINUE) {
+			if (!ps->fatal_error)
+				ps->fatal_error = "Token JSON parsing failed";
 		}
 		break;
 	}
@@ -412,6 +440,7 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 					   lws_dll2_get_head(&vhd->pending_auth_list)) {
 			struct pending_auth_state *ps = lws_container_of(d, struct pending_auth_state, list);
 			lws_sul_cancel(&ps->sul);
+			lejp_destruct(&ps->jctx);
 			lws_dll2_remove(&ps->list);
 			free(ps);
 		} lws_end_foreach_dll_safe(d, d1);

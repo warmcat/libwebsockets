@@ -25,7 +25,7 @@
 #include <string.h>
 #include <time.h>
 
-#define LWS_AUTH_MAX_COOKIE_LEN 4096
+#define LWS_AUTH_MAX_COOKIE_LEN LWS_SSO_MAX_COOKIE
 
 static const char * const param_names[] = {
 	"username",
@@ -571,7 +571,7 @@ auth_verify_redirect_uri(struct per_vhost_data__auth_server *vhd,
 static int
 send_auth_headers(struct lws *wsi, struct per_session_data__auth_server *pss, const char *content_type, const char *cookie1, const char *cookie2)
 {
-	uint8_t buf[2048 + LWS_PRE], *start = &buf[LWS_PRE], *p = start, *end = &buf[sizeof(buf) - 1], *pq;
+	uint8_t buf[LWS_SSO_MAX_COOKIE + LWS_PRE], *start = &buf[LWS_PRE], *p = start, *end = &buf[sizeof(buf) - 1], *pq;
 	unsigned int resp_code = pss->http_response_code ? pss->http_response_code : HTTP_STATUS_OK;
         size_t amount = (size_t)lws_buflist_next_segment_len(&pss->tx_buflist, &pq);
 
@@ -624,7 +624,7 @@ auth_check_csrf(struct lws *wsi, struct per_vhost_data__auth_server *vhd, struct
 	lws_http_cookie_get(wsi, "auth_csrf", csrf_ck, &csrf_len);
 
 	if (!csrf_form || !csrf_ck[0] || strcmp(csrf_ck, csrf_form)) {
-		char dbg_cookie[4096] = {0};
+		char dbg_cookie[LWS_SSO_MAX_COOKIE] = {0};
 		if (lws_hdr_copy(wsi, dbg_cookie, sizeof(dbg_cookie), WSI_TOKEN_HTTP_COOKIE) < 0)
 			strncpy(dbg_cookie, "<overrun or empty>", sizeof(dbg_cookie) - 1);
 		lwsl_notice("%s: CSRF validation natively failed. form='%s' cookie='%s' RAW_COOKIE='%s'\n", __func__, csrf_form ? csrf_form : "NULL", csrf_ck[0] ? csrf_ck : "NULL", dbg_cookie);
@@ -649,8 +649,8 @@ lws_auth_api_sso_exchange(struct lws *wsi, struct per_vhost_data__auth_server *v
 		goto send;
 	}
 
-	char cookie_hdr[2048] = {0};
-	char refresh_hdr[2048] = {0};
+	char cookie_hdr[LWS_SSO_MAX_COOKIE] = {0};
+	char refresh_hdr[LWS_SSO_MAX_COOKIE] = {0};
 	uint32_t uid = 0;
 
 	const char *redirect_uri = lws_spa_get_string(pss->spa, EP_REDIRECT_URI);
@@ -746,8 +746,8 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	char peer[64], jwt[1024], pl[1024 + LWS_PRE];
 	const char *user, *pass;
 	int len, users_empty = 0;
-	char cookie_hdr[2048] = {0};
-	char refresh_hdr[2048] = {0};
+	char cookie_hdr[LWS_SSO_MAX_COOKIE] = {0};
+	char refresh_hdr[LWS_SSO_MAX_COOKIE] = {0};
 
 	if (auth_check_csrf(wsi, vhd, pss)) {
 		pss->http_response_code = HTTP_STATUS_FORBIDDEN;
@@ -1427,7 +1427,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 		/* Export public key strictly for downstream distribution */
 		{
-			char pub[4096];
+			char pub[LWS_SSO_MAX_COOKIE];
 			int plen = sizeof(pub);
 			if (lws_jwk_export(&vhd->jwk, 0, pub, &plen) > 0) {
 				char pub_path[300];
@@ -1636,7 +1636,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				"<script src=\"../admin.js\"></script>"
 				"</body></html>";
 
-			size_t max_html_len = 4096;
+			size_t max_html_len = LWS_SSO_MAX_COOKIE;
 			char *pl = malloc(LWS_PRE + max_html_len);
 			if (!pl) return -1;
 			size_t html_len = (size_t)lws_snprintf(pl + LWS_PRE, max_html_len, html_fmt,
@@ -1682,7 +1682,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		if (in && (!strncmp((const char *)in, "/logout", 7))) {
 			lwsl_notice("%s: Hit /logout endpoint. in=%s\n", __func__, (const char *)in);
 			char redirect_uri[512] = {0};
-			char buf[4096 + LWS_PRE];
+			char buf[LWS_SSO_MAX_COOKIE + LWS_PRE];
 			char *p = buf + LWS_PRE, *end = buf + sizeof(buf) - 1;
 
 			lws_get_urlarg_by_name_safe(wsi, "redirect_uri=", redirect_uri, sizeof(redirect_uri));
@@ -1835,10 +1835,10 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				char user_email[128] = {0};
 				char grants[256] = {0};
 				char *gp = grants, *gend = grants + sizeof(grants);
-				char logs[2048] = {0};
+				char logs[LWS_SSO_MAX_COOKIE] = {0};
 				lws_get_urlarg_by_name_safe(wsi, "service_name=", sname, sizeof(sname));
 
-				char set_cookie_jwt[2048] = {0};
+				char set_cookie_jwt[LWS_SSO_MAX_COOKIE] = {0};
 
 				if (vhd->cookie_name[0]) {
 					uint32_t suid = 0;
@@ -1984,7 +1984,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 					}
 
 					pss->http_response_code = HTTP_STATUS_OK;
-					char buf[2048 + LWS_PRE];
+					char buf[LWS_SSO_MAX_COOKIE + LWS_PRE];
 					uint8_t *start = (uint8_t *)buf + LWS_PRE, *p = start, *end = (uint8_t *)buf + sizeof(buf) - 1;
 
 					size_t payload_len = 13; /* {"destroy":1} */
@@ -2019,7 +2019,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 				lwsl_info("/status API endpoint returning users_empty=%d, logged_in=%d lacks_grant=%d\n", users_empty, logged_in, lacks_grant);
 				pss->http_response_code = HTTP_STATUS_OK;
-				char pl[4096 + LWS_PRE];
+				char pl[LWS_SSO_MAX_COOKIE + LWS_PRE];
 		                int len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE,
 					"{\"users_empty\":%d, \"csrf_token\":\"%s\", \"logged_in\":%d, \"lacks_grant\":%d, \"email\":\"%s\", \"strikes\":%d, \"grants\":{%s}, \"logs\":[%s]}",
 					users_empty, csrf, logged_in, lacks_grant, user_email, strikes, grants, logs);
@@ -2040,7 +2040,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		if (in && !strncmp((const char *)in, "/manifest", 9)) {
-			char pl[2048 + LWS_PRE];
+			char pl[LWS_SSO_MAX_COOKIE + LWS_PRE];
 			char buf[1024 + LWS_PRE];
 			char *p = buf + LWS_PRE, *end = buf + sizeof(buf) - 1;
 
@@ -2405,7 +2405,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			memset(&i, 0, sizeof(i));
 			i.param_names = param_names;
 			i.count_params = LWS_ARRAY_SIZE(param_names);
-			i.max_storage = 1024;
+			i.max_storage = LWS_SSO_MAX_COOKIE;
 			pss->spa = lws_spa_create_via_info(wsi, &i);
 			if (!pss->spa) {
 				lwsl_err("%s: lws_spa_create_via_info failed\n", __func__);

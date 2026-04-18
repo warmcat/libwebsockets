@@ -24,7 +24,7 @@
 #include <string.h>
 #include <sqlite3.h>
 
-#define LWS_AUTH_MAX_COOKIE_LEN 4096
+#define LWS_AUTH_MAX_COOKIE_LEN LWS_SSO_MAX_COOKIE
 
 struct login_whitelist {
 	lws_dll2_t              list;
@@ -81,7 +81,7 @@ struct pending_login_refresh {
 };
 
 static const char * const canned_css =
-        ".lws-login-box{font-family:-apple-system,system-ui,sans-serif;padding:"
+        ".lws-login-box{position:relative;font-family:-apple-system,system-ui,sans-serif;padding:"
         "16px;border-radius:8px;background:rgba(0,0,0,0.02);border:1px solid "
         "rgba(0,0,0,0.08);display:inline-block;font-size:14px;line-height:1.4;"
         "color:#333;}\n"
@@ -129,6 +129,13 @@ static const char * const canned_js =
         "}"
         "}"
         "var c='<div class=\"lws-login-box\">';"
+        "if(st.server_now){"
+        "var d=Math.abs(st.server_now-(Date.now()/1000));"
+        "if(d>300){"
+        "c+='<div class=\"lws-login-err\">Warning: Device clock off by '+Math.round(d/60)+' mins</div><br>';"
+        "c+='<img src=\"'+st.auth_server_url+'/refgirl-time.png\" style=\"position:absolute;bottom:0px;right:-10px;height:120px;opacity:0.8;pointer-events:none;z-index:1\">';"
+        "}"
+        "}"
         "if(st.logged_in){"
         "var u='.lws-login-logout?redirect_uri='+encodeURIComponent(window.location.href);"
         "var a=st.is_admin?'<a class=\"lws-login-link\" href=\"'+st.auth_server_url+'/api/admin\">Admin Console</a>':'';"
@@ -136,13 +143,18 @@ static const char * const canned_js =
         "c+=a+' <a class=\"lws-login-link lws-login-logout\" href=\"'+u+'\">Logout</a>';"
         "if(!st.has_grant&&!st.is_admin)c+='<div class=\"lws-login-err\">login lacks grant</div><br>';"
         "if(st.exp){"
-        "var n=Date.now()/1000;"
+        "var n=st.server_now?st.server_now:(Date.now()/1000);"
         "var m=st.exp-n;"
         "if(m>0&&m<86400){"
-        "setTimeout(function(){"
+        "setTimeout(async function(){"
+        "if(await window.lwsLoginSilentRefresh()){"
+        "window.renderLwsLoginStatus(d);"
+        "}else{"
+        "/*alert('canned_js redirecting to auth!');*/"
         "var s=st.login_url.split('redirect_uri=')[0]+'redirect_uri='+encodeURIComponent(window.location.href);"
         "window.location.href=s;"
-        "},(m-60)*1000);"
+        "}"
+        "},(m>60?m-60:0)*1000);"
         "}"
         "}"
         "}else{"
@@ -359,6 +371,9 @@ simple_response(struct lws *wsi, struct pss_login *pss, const char *msg, const c
 	if (lws_add_http_common_headers(wsi, code, mime_type, (lws_filepos_t)l, p, end))
 		return -1;
 
+	if (lws_add_http_header_by_name(wsi, (unsigned char *)"cache-control:", (unsigned char *)"no-cache, no-store, must-revalidate", 35, p, end))
+		return -1;
+
         if (lws_finalize_write_http_header(wsi, start, p, end))
                 return -1;
 
@@ -377,7 +392,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 	struct vhd_login *vhd = (struct vhd_login *)lws_protocol_vh_priv_get(
 			lws_get_vhost(wsi), reason == LWS_CALLBACK_HTTP_INTERCEPTOR_CHECK ? (const struct lws_protocols *)in : lws_get_protocol(wsi));
 	struct pss_login *pss = (struct pss_login *)user;
-	char buf[LWS_PRE + 2048], *p = buf + LWS_PRE, *end = buf + sizeof(buf) - 1;
+	char buf[LWS_PRE + LWS_SSO_MAX_COOKIE], *p = buf + LWS_PRE, *end = buf + sizeof(buf) - 1;
 	const char *cp;
 
 	switch ((int)reason) {
@@ -801,7 +816,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 
 			if (pss->silent_update_jwt) {
-				char cookie[2048], host[128], fq_uri[512];
+				char cookie[LWS_SSO_MAX_COOKIE], host[128], fq_uri[512];
 				const char *h = NULL;
 
 				if (vhd->cookie_domain[0])
@@ -994,11 +1009,11 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				const char *sub = lws_jwt_auth_get_sub(pss->ja);
 				int level = lws_jwt_auth_query_grant(pss->ja, service_name);
 				int is_admin = lws_jwt_auth_query_grant(pss->ja, "*") >= 1;
-				int has_grant = level >= vhd->min_grant_level;
-				lws_snprintf(pl, sizeof(pl), "{\"logged_in\":1,\"exp\":%llu,\"has_grant\":%d,\"grant_level\":%d,\"identity\":\"%s\",\"auth_server_url\":\"%s\",\"login_url\":\"%s\",\"is_admin\":%d}",
-					(unsigned long long)lws_jwt_auth_get_exp(pss->ja), has_grant, level, sub ? sub : "Unknown", vhd->auth_server_url, dest, is_admin);
+				int has_grant = level >= 1;
+				lws_snprintf(pl, sizeof(pl), "{\"logged_in\":1,\"server_now\":%llu,\"exp\":%llu,\"has_grant\":%d,\"grant_level\":%d,\"identity\":\"%s\",\"auth_server_url\":\"%s\",\"login_url\":\"%s\",\"is_admin\":%d}",
+					(unsigned long long)lws_now_secs(), (unsigned long long)lws_jwt_auth_get_exp(pss->ja), has_grant, level, sub ? sub : "Unknown", vhd->auth_server_url, dest, is_admin);
 			} else
-				lws_snprintf(pl, sizeof(pl), "{\"logged_in\":0,\"login_url\":\"%s\"}", dest);
+				lws_snprintf(pl, sizeof(pl), "{\"logged_in\":0,\"server_now\":%llu,\"auth_server_url\":\"%s\",\"login_url\":\"%s\"}", (unsigned long long)lws_now_secs(), vhd->auth_server_url, dest);
 
                         return simple_response(wsi, pss, pl, "application/json",
                                                HTTP_STATUS_OK, (unsigned char *)buf + LWS_PRE, (unsigned char **)&p,
@@ -1084,7 +1099,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			if (!pss->spa) {
 				pss->spa = lws_spa_create(wsi, param_names,
 							  LWS_ARRAY_SIZE(param_names),
-							  2048, NULL, NULL);
+							  LWS_SSO_MAX_COOKIE, NULL, NULL);
 				if (!pss->spa)
 					return -1;
 			}
@@ -1150,7 +1165,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				}
 
 				if (pss->silent_update_jwt && final_target) {
-					char cookie[2048];
+					char cookie[LWS_SSO_MAX_COOKIE];
 					if (vhd->cookie_domain[0]) {
 						lws_snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Domain=%s; Max-Age=%llu; HttpOnly; SameSite=None; Secure",
 							     vhd->cookie_name, pss->silent_update_jwt, vhd->cookie_domain, (unsigned long long)vhd->jwt_validity_secs);
@@ -1184,7 +1199,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
 	{
-		unsigned char buf[2048 + LWS_PRE], *p = buf + LWS_PRE, *end = buf + sizeof(buf) - 1;
+		unsigned char buf[LWS_SSO_MAX_COOKIE + LWS_PRE], *p = buf + LWS_PRE, *end = buf + sizeof(buf) - 1;
 		struct pending_login_refresh *ps = NULL;
 
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
@@ -1199,7 +1214,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (ps) {
 			if (ps->token[0]) {
-				char cookie[2048];
+				char cookie[LWS_SSO_MAX_COOKIE];
 				int n;
 
 				if (vhd->cookie_domain[0]) {
