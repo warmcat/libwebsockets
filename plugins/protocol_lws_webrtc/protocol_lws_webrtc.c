@@ -1643,7 +1643,7 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 	socklen_t slen = sizeof(ss);
 	lws_strncpy(local_ip, vhd->external_ip[0] ? vhd->external_ip : "127.0.0.1", sizeof(local_ip));
 
-	if (wsi && !getsockname((int)lws_get_socket_fd(wsi), (struct sockaddr *)&ss, &slen)) {
+	if (!vhd->external_ip[0] && wsi && !getsockname((int)lws_get_socket_fd(wsi), (struct sockaddr *)&ss, &slen)) {
 		if (ss.ss_family == AF_INET)
 			inet_ntop(AF_INET, &((struct sockaddr_in *)&ss)->sin_addr, local_ip, sizeof(local_ip));
 		else if (ss.ss_family == AF_INET6)
@@ -1774,7 +1774,9 @@ lws_shared_webrtc_callback(struct lws *wsi, enum lws_callback_reasons reason,
 				}
 			}
 
-			vhd->wsi_udp = lws_create_adopt_udp(vhd->vhost, NULL, vhd->udp_port, LWS_CAUDP_BIND,
+			vhd->wsi_udp = lws_create_adopt_udp(vhd->vhost,
+					vhd->external_ip[0] ? vhd->external_ip : NULL,
+					vhd->udp_port, LWS_CAUDP_BIND,
 					"lws-webrtc-udp", NULL, NULL, NULL, NULL, NULL);
 			if (!vhd->wsi_udp) {
 				lwsl_err("%s: UDP socket creation failed\n", __func__);
