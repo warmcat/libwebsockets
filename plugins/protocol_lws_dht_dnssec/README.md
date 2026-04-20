@@ -45,6 +45,20 @@ The plugin operates under the standard `lws` plugin model using per-vhost option
 | `allow` / `deny` | Optional filesystem paths to list specific rules/access lists based on public keys or identifiers, restricting who can access or modify DHT records.     | `NULL`                  |
 | `test_handshake` | Boolean flag (`1` or `0`) to place the node in testing mode, generating synthetic responses to trace handshake mechanics during development.             | `0`                     |
 | `cli_receiver`   | Boolean flag (`1` or `0`) intended for the `minimal-raw-dht-zone-client` CLI application to tell the plugin context it is acting as an active receiver.  | `0`                     |
+| `dht-iface` | The network interface the DHT node should bind to. | `NULL` |
+| `dht-port` | The port the DHT node should bind to. | `NULL` |
+| `dht-fallback-nodes` | Comma-separated list of fallback bootstrapping nodes (e.g. `1.2.3.4:443,5.6.7.8:443`). | `NULL` |
+| `dht-jwk` | Path to the JSON Web Key (JWK) used specifically for DHT participation authentication. | `NULL` |
+| `dht-storage-path` | Path indicating where DHT data objects should be persisted locally. | `NULL` |
+| `dht-policy-allow` / `dht-policy-deny` | Path to access control list files allowing or denying peers from participating in the local DHT node based on public keys. | `NULL` |
+| `dht-test-handshake` | Places the DHT network layer into handshake testing mode. | `0` |
+| `get-domain` | Instructs the CLI or node to perform an active DHT `GET` query for a specific target domain. | `NULL` |
+| `get-hash` | Instructs the CLI or node to perform an active DHT `GET` query for a specific content hash. | `NULL` |
+| `put-file` | Instructs the CLI to perform a DHT `PUT` operation storing a local file into the network. | `NULL` |
+| `gen-manifest` | Path to generate a manifest file indicating the state of DHT operations. | `NULL` |
+| `bulk` | Boolean flag (`1` or `0`) to enable bulk data transfer modes. | `0` |
+| `target-port` | The target port to connect to when bootstrapping or joining a node (CLI usage). | `0` |
+| `completion-cb` / `completion-cb-arg` | Callback configurations used by programmatic C API invocations, usually ignored via configuration files. | `NULL` |
 
 ## Example Client Usage
 When using the accompanying `minimal-raw-dht-zone-client`, the CLI dynamically injects these PVOs on instantiation. For example, to sign your local file and instruct the context to forward it with the domain context:

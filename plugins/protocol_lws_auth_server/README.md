@@ -24,7 +24,8 @@ The plugin can be enabled on any vhost. Its behavior is customized using Per-Vho
 | PVO Name | Description | Example |
 | --- | --- | --- |
 | `db_path` | Required: The absolute path to the SQLite3 database file. If the file is missing or empty, the plugin will automatically create it and initialize the schema. | `/var/db/lws-auth.sqlite3` |
-| `auth_domain` | Required: The authorizing domain context for this instance. It binds identities conceptually as `name@domain`, avoiding arbitrary collisions if tokens are exported. | `auth.warmcat.com` |
+| `auth-domain` | Required: The authorizing domain context for this instance. It binds identities conceptually as `name@domain`, avoiding arbitrary collisions if tokens are exported. | `auth.warmcat.com` |
+| `cookie-domain` | Optional: The specific domain name the auth cookie should be scoped to (e.g. `warmcat.com`). If unspecified, defaults to omitting the domain from the cookie. | `warmcat.com` |
 | `jwk_path` | Required: Absolute path to the JSON Web Key (JWK) for JWT signing. If missing, an EC P-256 key is generated and saved here automatically. | `/var/db/lws-auth.jwk` |
 | `jwt_alg` | Optional: The JWS signing algorithm to use for issued tokens. Defaults to `ES256`. | `RS256` |
 | `cookie-name` | Optional: Name of the HTTP cookie that the server should natively emit containing the JWT payload upon successful non-OAuth2 login. Empty by default (no cookie). | `auth_token` |
@@ -69,7 +70,7 @@ This example mounts the front-end UI at `/auth` and configures the `lws-auth-ser
       "lws-auth-server": {
         "status": "ok",
         "db_path": "/var/db/lws-auth.sqlite3",
-        "auth_domain": "auth.warmcat.com",
+        "auth-domain": "auth.warmcat.com",
         "jwk_path": "/var/db/lws-auth.jwk",
         "jwt_alg": "ES256",
         "jwt-validity-secs": "900",
