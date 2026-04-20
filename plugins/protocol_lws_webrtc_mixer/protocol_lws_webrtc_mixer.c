@@ -55,8 +55,8 @@ get_or_create_room(struct vhd_mixer *vhd, const char *name)
 	r->audio_info.max_energy = 327680.0;
 	r->audio_info.sample_stride = 48;
 
-	r->master_w = LWS_RTP_VIDEO_WIDTH_1080P;
-	r->master_h = LWS_RTP_VIDEO_HEIGHT_1080P;
+	r->master_w = LWS_RTP_VIDEO_WIDTH_720P;
+	r->master_h = LWS_RTP_VIDEO_HEIGHT_720P;
 
 	/* Initialize Performance Tracker (2 levels: 0=High Quality, 1=Fallback) */
 	/* 5s short-term EWMA for quick drops, 60s long-term EWMA for sustained recovery */
@@ -147,16 +147,45 @@ sul_stats_cb(lws_sorted_usec_list_t *sul)
 						uint32_t diff = p->session->processed_frames_count - p->session->last_processed_frames_count;
 						lws_usec_t interval_us = now - p->session->last_fps_check;
 
-						p->session->current_fps = (int)((diff * 1000000) / interval_us);
+						/* Cast to uint64_t to prevent overflow when diff * 1000000 exceeds 32-bit limits */
+						p->session->current_fps = (int)(((uint64_t)diff * 1000000ULL) / (unsigned long long)interval_us);
+
+						/* Temporary logging to prove FPS calc and catch negative values */
+						if (p->session->current_fps < 0 || p->session->current_fps > 100) {
+							lwsl_notice("DIAGNOSTIC FPS BUG: diff=%u, interval=%llu, fps=%d\n", diff, (unsigned long long)interval_us, p->session->current_fps);
+						}
+
 						p->session->last_fps_check = now;
 						p->session->last_processed_frames_count = p->session->processed_frames_count;
 
+						/* Calculate Telemetry Rates */
+						uint32_t rtp_drop_v_sec = 0, rtp_late_v_sec = 0, dtls_err_sec = 0, tx_drop_sec = 0;
+						if (p->pss && p->pss->media) {
+							rtp_drop_v_sec = p->pss->media->telemetry.rtp_drops_video - p->last_telemetry.rtp_drops_video;
+							rtp_late_v_sec = p->pss->media->telemetry.rtp_late_video - p->last_telemetry.rtp_late_video;
+							dtls_err_sec = p->pss->media->telemetry.dtls_errors - p->last_telemetry.dtls_errors;
+							tx_drop_sec = p->pss->media->telemetry.txpacer_drops - p->last_telemetry.txpacer_drops;
+							p->last_telemetry = p->pss->media->telemetry;
+						}
+
+						uint32_t qos_drop_sec = p->session->gst_qos_drops - p->last_gst_qos_drops;
+						p->last_gst_qos_drops = p->session->gst_qos_drops;
+
+						char tel_str[256];
+						lws_snprintf(tel_str, sizeof(tel_str),
+							"\nRTP Drp: %u (%u/s) Late: %u (%u/s)\nDTLS Err: %u (%u/s) Tx Drp: %u (%u/s)\nQOS Drp: %u (%u/s)",
+							p->pss && p->pss->media ? p->pss->media->telemetry.rtp_drops_video : 0, rtp_drop_v_sec,
+							p->pss && p->pss->media ? p->pss->media->telemetry.rtp_late_video : 0, rtp_late_v_sec,
+							p->pss && p->pss->media ? p->pss->media->telemetry.dtls_errors : 0, dtls_err_sec,
+							p->pss && p->pss->media ? p->pss->media->telemetry.txpacer_drops : 0, tx_drop_sec,
+							p->session->gst_qos_drops, qos_drop_sec);
+
 						if (p->client_stats[0]) {
-							lws_snprintf(p->stats, sizeof(p->stats), "%s | Rx: %dx%d %dfps",
-									p->client_stats, p->session->last_dec_w, p->session->last_dec_h, p->session->current_fps);
+							lws_snprintf(p->stats, sizeof(p->stats), "%s | Rx: %dfps%s",
+									p->client_stats, p->session->current_fps, tel_str);
 						} else {
-							lws_snprintf(p->stats, sizeof(p->stats), "Rx: %dx%d %dfps",
-									p->session->last_dec_w, p->session->last_dec_h, p->session->current_fps);
+							lws_snprintf(p->stats, sizeof(p->stats), "Rx: %dfps%s",
+									p->session->current_fps, tel_str);
 						}
 					}
 				}
@@ -203,8 +232,11 @@ broadcast_client_list(struct mixer_room *r, struct participant *exclude)
 		if (part != lws_container_of(lws_dll2_get_head(&r->participants), struct participant, list))
 			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), ",");
 
+		char stats_esc[128] = {0};
+		lws_json_purify(stats_esc, part->stats, sizeof(stats_esc), NULL);
+
 		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{\"name\":\"%s\",\"joined\":%s,\"stats\":\"%s\"}",
-				part->name, part->joined ? "true" : "false", part->stats);
+				part->name, part->joined ? "true" : "false", stats_esc);
 	} lws_end_foreach_dll(d);
 
 	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "]}");
@@ -268,6 +300,15 @@ mixer_on_media(struct lws *wsi_ws, int tid, const uint8_t *buf, size_t len, int 
 	if (!pss_p || !pss_p->session)
 		return;
 
+	if (tid == 206 && marker == 1) {
+		/* Received proxy PLI from webrtc plugin. Force a keyframe. */
+		if (pss_p->room) {
+			lwsl_notice("%s: Received PLI proxy from '%s', forcing keyframe\n", __func__, pss_p->name);
+			mixer_force_keyframe(pss_p->room);
+		}
+		return;
+	}
+
 	/* Create Message */
 	msg.type = MSG_VIDEO_FRAME;
 	/* Determine Type */
@@ -294,6 +335,7 @@ mixer_on_media(struct lws *wsi_ws, int tid, const uint8_t *buf, size_t len, int 
 		if (pss_p->expect_valid && (uint16_t)(pss_p->expect_seq) != msg.seq) {
 			lws_usec_t now = lws_now_usecs();
 			if (now - pss_p->last_pli_req > 500000) {
+				lwsl_notice("%s: Requesting PLI from '%s' due to seq mismatch\n", __func__, pss_p->name);
 				if (we_ops->send_pli)
 					we_ops->send_pli(pss);
 				pss_p->last_pli_req = now;
@@ -369,8 +411,8 @@ mixer_on_media(struct lws *wsi_ws, int tid, const uint8_t *buf, size_t len, int 
 	lws_mutex_lock(pss_p->session->mutex);
 	if (lws_ring_insert(pss_p->session->ring_input, &msg, 1) != 1) {
 		free(msg.payload);
-		lwsl_warn("%s: Ring Buffer Full! Dropping packet.\n", __func__);
-		/* Overflow stats? */
+		lwsl_debug("%s: Ring Buffer Full! Dropping packet.\n", __func__);
+		pss_p->session->gst_qos_drops++;
 	}
 	lws_mutex_unlock(pss_p->session->mutex);
 }
@@ -392,6 +434,16 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 
 			vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi), lws_get_protocol(wsi), sizeof(struct vhd_mixer));
 			if (!vhd) return -1;
+
+			{
+				const struct lws_protocol_vhost_options *pvo = lws_pvo_search(
+					(const struct lws_protocol_vhost_options *)in, "gstreamer-pipeline");
+				if (pvo) {
+					lws_strncpy(vhd->pipeline_template, pvo->value, sizeof(vhd->pipeline_template));
+				} else {
+					lws_strncpy(vhd->pipeline_template, "compositor name=comp ! videoconvert ! videoscale ! video/x-raw,width=1280,height=720,framerate=25/1 ! x264enc name=venc tune=zerolatency speed-preset=ultrafast byte-stream=true config-interval=1 ! appsink name=outsink sync=false async=false", sizeof(vhd->pipeline_template));
+				}
+			}
 
 			p_plugin = lws_vhost_name_to_protocol(lws_get_vhost(wsi), "lws-webrtc");
 			if (!p_plugin) {
@@ -642,10 +694,8 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 						memcpy(p->client_stats, v, nl);
 						p->client_stats[nl] = '\0';
 						if (p->client_stats[0]) {
-							lws_snprintf(p->stats, sizeof(p->stats), "%s | Rx: %dx%d %dfps",
-									p->client_stats, p->session ? p->session->last_dec_w : 0,
-									p->session ? p->session->last_dec_h : 0,
-									p->session ? p->session->current_fps : 0);
+							lws_snprintf(p->stats, sizeof(p->stats), "%s | Rx: %dfps",
+									p->client_stats, p->session ? p->session->current_fps : 0);
 						}
 						// lwsl_notice("%s: Stats update for '%s': '%s'\n", __func__, p->name, p->stats);
 						broadcast_client_list(p->room, NULL);
@@ -835,8 +885,10 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 						lwsl_notice("%s: Participant '%s' JOINED\n", __func__, p->name);
 
 						/* Play Join Sound */
-						if (p->room)
+						if (p->room) {
 							play_sound(p->room, &p->room->vhd->sfx_join, p);
+							mixer_force_keyframe(p->room);
+						}
 
 						if (p->room)
 							broadcast_client_list(p->room, NULL);

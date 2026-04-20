@@ -181,6 +181,8 @@ webrtc_tx_pacer_cb(void *user, const uint8_t *buf, size_t len)
 					(const struct sockaddr *)&media->peer_sa46, media->peer_sa46.sa4.sin_family == AF_INET6 ? (socklen_t)sizeof(media->peer_sa46.sa6) : (socklen_t)sizeof(media->peer_sa46.sa4)) < (int)len) {
 			if (errno != EAGAIN && errno != EWOULDBLOCK && errno != ENOBUFS) {
 				lwsl_err("%s: UDP sendto failed: %d (%s)\n", __func__, errno, strerror(errno));
+			} else {
+				media->telemetry.txpacer_drops++;
 			}
 		} else {
 			if (!media->sent_first_rtp) {
@@ -219,7 +221,9 @@ rtp_packet_tx_cb(void *priv, const uint8_t *pkt, size_t len, int marker)
 		uint8_t *heap_buf = malloc(protected_len);
 		if (heap_buf) {
 			memcpy(heap_buf, p, protected_len);
-			lws_txp_append(media->txpacer, heap_buf, protected_len);
+			if (lws_txp_append(media->txpacer, heap_buf, protected_len) < 0) {
+				media->telemetry.txpacer_drops++;
+			}
 		}
 		return;
 	}
@@ -235,6 +239,8 @@ rtp_packet_tx_cb(void *priv, const uint8_t *pkt, size_t len, int marker)
 					(const struct sockaddr *)&media->peer_sa46, media->peer_sa46.sa4.sin_family == AF_INET6 ? (socklen_t)sizeof(media->peer_sa46.sa6) : (socklen_t)sizeof(media->peer_sa46.sa4)) < (int)protected_len) {
 			if (errno != EAGAIN && errno != EWOULDBLOCK && errno != ENOBUFS) {
 				lwsl_err("%s: UDP sendto failed: %d (%s)\n", __func__, errno, strerror(errno));
+			} else {
+				media->telemetry.txpacer_drops++;
 			}
 			/* Else: dropped (EAGAIN/ENOBUFS) */
 		} else {
@@ -1240,7 +1246,7 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 			memset(&txp_i, 0, sizeof(txp_i));
 			txp_i.user = pss->media;
 			txp_i.tx_cb = webrtc_tx_pacer_cb;
-			txp_i.target_rate_bps = 5000000; /* 5 Mbps limit */
+			txp_i.target_rate_bps = 50000000; /* 50 Mbps limit */
 			txp_i.interval_us = 2000;      /* 2ms ticks */
 			txp_i.max_buflist_bytes = 2 * 1024 * 1024; /* 2MB max queue */
 			pss->media->txpacer = lws_txp_create(&txp_i);
@@ -1806,7 +1812,7 @@ lws_shared_webrtc_callback(struct lws *wsi, enum lws_callback_reasons reason,
 				memset(&txp_i, 0, sizeof(txp_i));
 				txp_i.user = pss->media;
 				txp_i.tx_cb = webrtc_tx_pacer_cb;
-				txp_i.target_rate_bps = 5000000; /* 5 Mbps limit */
+				txp_i.target_rate_bps = 50000000; /* 50 Mbps limit */
 				txp_i.interval_us = 2000;      /* 2ms ticks */
 				txp_i.max_buflist_bytes = 2 * 1024 * 1024; /* 2MB max queue */
 				pss->media->txpacer = lws_txp_create(&txp_i);
@@ -2137,6 +2143,7 @@ webrtc_handle_dtls(struct lws *wsi, struct pss_webrtc *pss, const struct sockadd
 		}
 	} else {
 		lwsl_err("%s: lws_gendtls_put_rx failed\n", __func__);
+		pss->media->telemetry.dtls_errors++;
 	}
 
 	return 0;
@@ -2163,7 +2170,33 @@ webrtc_handle_rtp_rtcp(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrt
 	 */
 	if (pt_raw >= 200 && pt_raw <= 215) { /* RTCP */
 		size_t rtcp_len = len;
-		lws_srtp_unprotect_rtcp(&pss->media->srtp_ctx_rx, (uint8_t *)in, &rtcp_len);
+		int ret = lws_srtp_unprotect_rtcp(&pss->media->srtp_ctx_rx, (uint8_t *)in, &rtcp_len);
+		if (ret == 0) {
+			size_t offset = 0;
+			/* RTCP packets are usually sent as compound packets. Loop through all. */
+			while (offset + 4 <= rtcp_len) {
+				uint8_t *rtcp_p = (uint8_t *)in + offset;
+				uint8_t fmt = rtcp_p[0] & 0x1F;
+				uint8_t pt = rtcp_p[1];
+				uint16_t pkt_len_words = (uint16_t)((rtcp_p[2] << 8) | rtcp_p[3]);
+				size_t pkt_len = (size_t)(pkt_len_words + 1) * 4;
+
+				if (offset + pkt_len > rtcp_len || pkt_len == 0) {
+					/* Truncated or invalid length */
+					break;
+				}
+
+				if (pt == 206 && fmt == 1) {
+					/* Received PLI! */
+					lwsl_notice("%s: Received RTCP PLI from peer\n", __func__);
+					if (vhd->on_media && pss && pss->wsi_ws) {
+						/* Proxy this up to the mixer plugin using tid=206, marker=1 */
+						vhd->on_media(pss->wsi_ws, 206, rtcp_p, pkt_len, 1, 0);
+					}
+				}
+				offset += pkt_len;
+			}
+		}
 	} else { /* RTP */
 		size_t rtp_len = len;
 		int ret = lws_srtp_unprotect_rtp(&pss->media->srtp_ctx_rx, (uint8_t *)in, &rtp_len);
@@ -2184,16 +2217,28 @@ webrtc_handle_rtp_rtcp(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrt
 				if (pss->media->seq_valid_video) {
 					uint16_t expected = (uint16_t)(pss->media->last_seq_video + 1);
 					if (seq != expected) {
-						lwsl_notice("%s: RTP Drop (Video): Got seq %u, Expected %u (Gap %d)\n",
-							__func__, seq, expected, (int)((int16_t)(seq - expected)));
-						
-						/* Shred everything moving forward until we hit the next valid frame boundary */
-						pss->media->rx_video_corrupted = 1;
+						int16_t diff = (int16_t)(seq - expected);
+						if (diff > 0) {
+							uint32_t dropped = (uint16_t)(seq - expected);
+							pss->media->telemetry.rtp_drops_video += dropped;
+							lwsl_notice("%s: RTP Drop (Video): Got seq %u, Expected %u (Gap %d)\n",
+								__func__, seq, expected, (int)diff);
 
-						if (lws_now_usecs() - pss->last_pli_req_time > 200000) {
-							lwsl_notice("%s: Requesting PLI.\n", __func__);
-							lws_webrtc_send_pli(pss);
-							pss->last_pli_req_time = lws_now_usecs();
+							/*
+							 * DO NOT SHRED the rest of the frame here! If we drop the fragment with the marker bit,
+							 * the mixer won't flush its buffer, causing multiple frames to merge into one giant
+							 * garbage buffer. This chokes GStreamer's CPU and drops the conference framerate.
+							 * Instead, we let the corrupted fragments flow to GStreamer for error concealment,
+							 * and we instantly request a PLI to heal the stream on the next frame.
+							 */
+
+							if (lws_now_usecs() - pss->last_pli_req_time > 200000) {
+								lwsl_notice("%s: Requesting PLI.\n", __func__);
+								lws_webrtc_send_pli(pss);
+								pss->last_pli_req_time = lws_now_usecs();
+							}
+						} else if (diff < 0) {
+							pss->media->telemetry.rtp_late_video++;
 						}
 					}
 				}
@@ -2207,8 +2252,13 @@ webrtc_handle_rtp_rtcp(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrt
 				if (pss->media->seq_valid_audio) {
 					uint16_t expected = (uint16_t)(pss->media->last_seq_audio + 1);
 					if (seq != expected) {
-						lwsl_warn("%s: RTP Drop (Audio): Got %u, Expected %u (Gap %d)\n",
-								__func__, seq, expected, seq - expected);
+						int16_t diff = (int16_t)(seq - expected);
+						if (diff > 0) {
+							uint32_t dropped = (uint16_t)(seq - expected);
+							pss->media->telemetry.rtp_drops_audio += dropped;
+						} else if (diff < 0) {
+							pss->media->telemetry.rtp_late_audio++;
+						}
 					}
 				}
 				pss->media->last_seq_audio = seq;
@@ -2247,15 +2297,8 @@ webrtc_handle_rtp_rtcp(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrt
 				if (dbg_fwd++ % 100 == 0)
 					lwsl_notice("%s: Forwarding RTP to on_media: PT %u, len %zu, ssrc %u\n", __func__, pkt_pt, rtp_len - offset, ssrc);
 #endif
-				if ((pkt_pt == pss->media->pt_video || pkt_pt == pss->media->pt_video_h264 || pkt_pt == pss->media->pt_video_av1) && pss->media->rx_video_corrupted) {
-					/* Skip forwarding this fragment since the frame is already corrupted */
-					if (p[1] & 0x80) {
-						/* Marker bit hit: end of the corrupted frame, allow next frame to flow */
-						pss->media->rx_video_corrupted = 0;
-					}
-				} else {
-					vhd->on_media(pss->wsi_ws, pkt_pt, (uint8_t *)in + offset, rtp_len - offset, !!(p[1] & 0x80), (uint32_t)((p[4] << 24) | (p[5] << 16) | (p[6] << 8) | p[7]));
-				}
+				/* Forward RTP packet to mixer to reassemble and push to GStreamer */
+				vhd->on_media(pss->wsi_ws, pkt_pt, (uint8_t *)in + offset, rtp_len - offset, !!(p[1] & 0x80), (uint32_t)((p[4] << 24) | (p[5] << 16) | (p[6] << 8) | p[7]));
 			}
 		}
 	}

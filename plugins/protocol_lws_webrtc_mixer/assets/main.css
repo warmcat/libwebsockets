@@ -212,6 +212,7 @@ video {
     width: 100%;
     height: 100%;
     object-fit: contain;
+    pointer-events: none;
 }
 
 /* Modal Styles */
@@ -900,6 +901,102 @@ select:hover {
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
+}
+
+/* CSP Refactor Classes */
+.remote-control-header-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    line-height: 1.2;
+    margin-bottom: 1rem;
+}
+.remote-control-header-title {
+    font-weight: 600;
+    color: #fff;
+}
+.remote-control-header-name {
+    font-size: 0.9em;
+    font-weight: 400;
+    color: #94a3b8;
+}
+.node-group-spaced {
+    margin-bottom: 1.5rem;
+}
+.remote-node-header {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    color: #94a3b8;
+    margin-bottom: 0.5rem;
+}
+.overlay-name-span {
+    font-weight: bold;
+}
+.overlay-stats-span {
+    font-size: 0.8em;
+    opacity: 0.8;
+    white-space: pre-wrap;
+}
+.debug-modal-content {
+    max-width: 800px;
+    width: 90%;
+}
+.debug-modal-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--danger, #ef4444);
+}
+.debug-modal-body {
+    padding: 1.5rem;
+}
+.debug-modal-desc {
+    margin-bottom: 1rem;
+    color: #cbd5e1;
+}
+.debug-log-area {
+    width: 100%;
+    height: 300px;
+    background: rgba(0,0,0,0.4);
+    color: #10b981;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 10px;
+    font-family: monospace;
+    font-size: 0.85em;
+    resize: vertical;
+}
+.debug-modal-footer {
+    padding: 1.5rem;
+    background: rgba(15, 23, 42, 0.5);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0 0 16px 16px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+}
+.debug-btn-primary {
+    background: var(--danger, #ef4444);
+    color: white;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.debug-btn-secondary {
+    background: rgba(255,255,255,0.1);
+    color: white;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.show-flex {
+    display: flex !important;
 }
 
 @media (max-width: 900px), (orientation: portrait) {
