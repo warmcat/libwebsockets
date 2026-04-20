@@ -28,7 +28,10 @@
 #include "private-lib-core.h"
 
 #if defined(LWS_HAVE_LINUX_IPV6_H)
+#include <linux/version.h>
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 12, 0)
 #include <linux/ipv6.h>
+#endif
 #endif
 
 #include <sys/ioctl.h>
