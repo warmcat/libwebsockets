@@ -161,6 +161,10 @@ function startFPSMonitor() {
                 const diff = totalFrames - lastFrames;
                 const fps = Math.round((diff * 1000) / dur);
 
+                if (fps < 0) {
+                     console.log(`DIAGNOSTIC FPS NEGATIVE: totalFrames=${totalFrames} lastFrames=${lastFrames} diff=${diff} dur=${dur}`);
+                }
+
                 // Update Label with Resolution
                 const w = displayVideo.videoWidth;
                 const h = displayVideo.videoHeight;
@@ -820,7 +824,7 @@ async function connectSignalling() {
                 refreshDeviceUI();
 
             } else if (msg.type === 'client_list') {
-                console.log("Received client list:", msg.clients);
+
                 updateParticipants(msg.clients);
             } else if (msg.type === 'layout') {
                 updateLayout(msg.regions);
@@ -941,6 +945,7 @@ function createPeerConnection() {
 let adaptationInterval = null;
 let currentScaleFactor = 1.0;
 let consecutiveGood = 0;
+window.assignedLayoutPx = { w: null, h: null };
 
 function startAdaptationLoop() {
     if (adaptationInterval) clearInterval(adaptationInterval);
@@ -982,6 +987,8 @@ function startAdaptationLoop() {
                  // Loop runs every 2s
                  var instantFps = Math.round((currentFramesEncoded - window.lastFramesEncoded) / 2);
                  outboundFps = Math.round((outboundFps * 0.5) + (instantFps * 0.5)); // Smoothing
+            } else if (window.lastFramesEncoded !== undefined && currentFramesEncoded < window.lastFramesEncoded) {
+                 console.log(`DIAGNOSTIC outboundFps: currentFramesEncoded (${currentFramesEncoded}) < lastFramesEncoded (${window.lastFramesEncoded})!`);
             }
             window.lastFramesEncoded = currentFramesEncoded;
             window.lastComputedFps = outboundFps;
@@ -994,23 +1001,47 @@ function startAdaptationLoop() {
             }
             window.lastPacketsLost = packetsLost;
 
-            // Scaling heuristic
-            let newScale = currentScaleFactor;
+            // Apply Layout scale limit if available
+            let layoutScale = 1.0;
+            if (window.assignedLayoutPx && window.assignedLayoutPx.w && localStream && localStream.getVideoTracks().length > 0) {
+                const settings = localStream.getVideoTracks()[0].getSettings();
+                const camW = settings.width || 1920;
+                if (window.assignedLayoutPx.w > 0) {
+                    layoutScale = Math.max(1.0, camW / window.assignedLayoutPx.w);
+                    layoutScale = Math.min(layoutScale, 8.0); // Don't scale down more than 8x
+                }
+            }
+
+            // Scaling heuristic (Network condition)
+            let networkScale = currentScaleFactor;
+            // Un-apply layout scale if it was previously overriding network scale, so we evaluate network fairly
+            if (networkScale > 4.0 && networkScale === window.lastLayoutScaleUsed) {
+                // We don't want to think our network scale is 8.0 just because layout was 8.0.
+                networkScale = window.lastNetworkScale || 1.0;
+            } else {
+                window.lastNetworkScale = networkScale;
+            }
+
             if (recentPacketsLost > 0 || rtt > 0.150) { // downgrade if any loss or >150ms RTT
-                 newScale = Math.min(newScale * 1.5, 4.0);
+                 networkScale = Math.min(networkScale * 1.5, 4.0);
                  consecutiveGood = 0;
             } else if (recentPacketsLost === 0 && rtt < 0.100) { // upgrade if perfectly clean
                  consecutiveGood++;
                  if (consecutiveGood > 3) { // 3 intervals (6s) of stability
-                     newScale = Math.max(newScale / 1.5, 1.0);
+                     networkScale = Math.max(networkScale / 1.5, 1.0);
                      consecutiveGood = 0;
                  }
             } else {
                  consecutiveGood = 0;
             }
+            window.lastNetworkScale = networkScale;
+
+            // Final scale is the stricter of network vs layout
+            let newScale = Math.max(networkScale, layoutScale);
+            window.lastLayoutScaleUsed = newScale;
 
             if (newScale !== currentScaleFactor) {
-                console.log(`Adapting resolution scale factor from ${currentScaleFactor} to ${newScale} (Lost: ${recentPacketsLost}, RTT: ${rtt})`);
+                console.log(`Adapting resolution scale factor from ${currentScaleFactor.toFixed(2)} to ${newScale.toFixed(2)} (Lost: ${recentPacketsLost}, RTT: ${rtt}, LayoutScale: ${layoutScale.toFixed(2)})`);
                 currentScaleFactor = newScale;
                 const params = videoSender.getParameters();
                 if (!params.encodings) params.encodings = [{}];
@@ -1102,8 +1133,8 @@ async function setupPreview() {
     let constraints = {
         audio: (audioId && audioId !== 'undefined') ? { deviceId: { exact: audioId } } : true,
         video: (videoId && videoId !== 'undefined') ?
-                { deviceId: { exact: videoId }, width: { min: 1920, ideal: 1920 }, height: { min: 1080, ideal: 1080 } } :
-                { width: { min: 1920, ideal: 1920 }, height: { min: 1080, ideal: 1080 } }
+                { deviceId: { exact: videoId }, width: { min: 1920, ideal: 1920 }, height: { min: 1080, ideal: 1080 }, frameRate: { ideal: 25 } } :
+                { width: { min: 1920, ideal: 1920 }, height: { min: 1080, ideal: 1080 }, frameRate: { ideal: 25 } }
     };
 
     localStream = await tryGetMedia(constraints);
@@ -1114,8 +1145,8 @@ async function setupPreview() {
         constraints = {
             audio: (audioId && audioId !== 'undefined') ? { deviceId: { ideal: audioId } } : true,
             video: (videoId && videoId !== 'undefined') ?
-                    { deviceId: { ideal: videoId }, width: { min: 1920, ideal: 1920 }, height: { min: 1080, ideal: 1080 } } :
-                    { width: { min: 1920, ideal: 1920 }, height: { min: 1080, ideal: 1080 } }
+                    { deviceId: { ideal: videoId }, width: { min: 1920, ideal: 1920 }, height: { min: 1080, ideal: 1080 }, frameRate: { ideal: 25 } } :
+                    { width: { min: 1920, ideal: 1920 }, height: { min: 1080, ideal: 1080 }, frameRate: { ideal: 25 } }
         };
         localStream = await tryGetMedia(constraints);
     }
@@ -1125,8 +1156,8 @@ async function setupPreview() {
         constraints = {
             audio: (audioId && audioId !== 'undefined') ? { deviceId: { ideal: audioId } } : true,
             video: (videoId && videoId !== 'undefined') ?
-                    { deviceId: { ideal: videoId }, width: { ideal: 1920 }, height: { ideal: 1080 } } :
-                    { width: { ideal: 1920 }, height: { ideal: 1080 } }
+                    { deviceId: { ideal: videoId }, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 25 } } :
+                    { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 25 } }
         };
         localStream = await tryGetMedia(constraints);
     }
@@ -1134,12 +1165,12 @@ async function setupPreview() {
 
     // Stage 2: Generic fallback if specific IDs or resolutions fail
     if (!localStream) {
-        localStream = await tryGetMedia({ video: true, audio: true });
+        localStream = await tryGetMedia({ video: { frameRate: { ideal: 25 } }, audio: true });
     }
 
     // Stage 3: Extreme fallback (video only)
     if (!localStream) {
-        localStream = await tryGetMedia({ video: true });
+        localStream = await tryGetMedia({ video: { frameRate: { ideal: 25 } } });
     }
 
     if (localStream) {
@@ -1179,7 +1210,13 @@ async function join() {
 
     log("Joining conference...");
     localStream.getTracks().forEach(track => {
-        pc.addTrack(track, localStream);
+        const sender = pc.addTrack(track, localStream);
+        if (track.kind === 'video') {
+            const params = sender.getParameters();
+            if (!params.encodings) params.encodings = [{}];
+            params.encodings[0].maxFramerate = 25;
+            sender.setParameters(params).catch(e => console.error("setParameters failed:", e));
+        }
     });
     tracksAdded = true;
 
@@ -1304,21 +1341,14 @@ document.getElementById('partDeviceBtn').onclick = () => {
     remoteHeader.innerHTML = '';
 
     const rhDiv = document.createElement('div');
-    rhDiv.style.display = 'flex';
-    rhDiv.style.flexDirection = 'column';
-    rhDiv.style.alignItems = 'flex-start';
-    rhDiv.style.lineHeight = '1.2';
-    rhDiv.style.marginBottom = '1rem';
+    rhDiv.className = 'remote-control-header-wrapper';
 
     const rhTitle = document.createElement('div');
-    rhTitle.style.fontWeight = '600';
-    rhTitle.style.color = '#fff';
+    rhTitle.className = 'remote-control-header-title';
     rhTitle.innerText = 'Remote Control';
 
     const rhName = document.createElement('div');
-    rhName.style.fontSize = '0.9em';
-    rhName.style.fontWeight = '400';
-    rhName.style.color = '#94a3b8';
+    rhName.className = 'remote-control-header-name';
     rhName.innerText = pName;
 
     rhDiv.appendChild(rhTitle);
@@ -1338,16 +1368,11 @@ document.getElementById('partDeviceBtn').onclick = () => {
         nodes.forEach(n => {
             // Create a sub-container for this node
             const nodeDiv = document.createElement('div');
-            nodeDiv.className = 'remote-node-group';
-            nodeDiv.style.marginBottom = '1.5rem';
+            nodeDiv.className = 'remote-node-group node-group-spaced';
 
             const header = document.createElement('h3');
             header.innerText = n.kind === 'videoinput' ? 'Camera' : (n.kind === 'audioinput' ? 'Microphone' : 'Output');
-            header.className = 'remote-header'; // reused class, ensure style matches
-            header.style.fontSize = '0.8rem';
-            header.style.textTransform = 'uppercase';
-            header.style.color = '#94a3b8';
-            header.style.marginBottom = '0.5rem';
+            header.className = 'remote-header remote-node-header'; // reused class, ensure style matches
 
             nodeDiv.appendChild(header);
 
@@ -1380,7 +1405,7 @@ window.addEventListener('click', () => {
 function updateParticipants(clients) {
     if (participantList) participantList.innerHTML = '';
 
-    console.log("DIAGNOSTIC frontend updateParticipants: count=", clients.length, "clients=", JSON.stringify(clients));
+
 
     clients.forEach((c) => {
         // List in sidebar
@@ -1434,17 +1459,22 @@ function updateLayout(regions) {
 
         // The text comes in as "Alice\nStats..."
         const parts = r.text.split('\n');
+        const name = parts[0] || '';
+
+        const myName = loggedInEmail || 'Anonymous';
+        if (name === myName && r.px_w) {
+            window.assignedLayoutPx = { w: r.px_w, h: r.px_h };
+        }
 
         const nameSpan = document.createElement('div');
-        nameSpan.innerText = parts[0] || '';
-        nameSpan.style.fontWeight = 'bold';
+        nameSpan.innerText = name;
+        nameSpan.className = 'overlay-name-span';
         overlay.appendChild(nameSpan);
 
         if (parts.length > 1 && parts[1]) {
             const statsSpan = document.createElement('div');
             statsSpan.innerText = parts[1];
-            statsSpan.style.fontSize = '0.8em';
-            statsSpan.style.opacity = '0.8';
+            statsSpan.className = 'overlay-stats-span';
             overlay.appendChild(statsSpan);
         }
 
@@ -1694,33 +1724,36 @@ function showDebugModal(text) {
         m.id = 'debugModal';
         m.className = 'modal';
         m.innerHTML = `
-            <div class="modal-content debug-content" style="max-width: 800px; width: 90%;">
+            <div class="modal-content debug-content debug-modal-content">
                 <div class="modal-header">
-                    <h2 style="display: flex; align-items: center; gap: 10px; color: var(--danger);">
+                    <h2 class="debug-modal-header">
                         <svg class="warn-icon" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 2L1 21h22L12 2zm1 16h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
                         Connection Failed
                     </h2>
-                    <button class="close-btn" onclick="document.getElementById('debugModal').style.display='none'">×</button>
+                    <button class="close-btn" id="debugCloseTopBtn">×</button>
                 </div>
-                <div class="modal-body" style="padding: 1.5rem;">
-                    <p style="margin-bottom: 1rem; color: #cbd5e1;">WebRTC connection failed. Please copy the diagnostic log below to help us debug this issue:</p>
-                    <textarea readonly id="debugLogArea" style="width: 100%; height: 300px; background: rgba(0,0,0,0.4); color: #10b981; border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-family: monospace; font-size: 0.85em; resize: vertical;"></textarea>
+                <div class="modal-body debug-modal-body">
+                    <p class="debug-modal-desc">WebRTC connection failed. Please copy the diagnostic log below to help us debug this issue:</p>
+                    <textarea readonly id="debugLogArea" class="debug-log-area"></textarea>
                 </div>
-                <div class="modal-footer" style="padding: 1.5rem; background: rgba(15, 23, 42, 0.5); border-top: 1px solid rgba(255, 255, 255, 0.1); border-radius: 0 0 16px 16px; display: flex; justify-content: flex-end; gap: 1rem;">
-                    <button id="copyDebugBtn" style="background: var(--danger, #ef4444); color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.2s;">Copy to Clipboard</button>
-                    <button style="background: rgba(255,255,255,0.1); color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.2s;" onclick="document.getElementById('debugModal').style.display='none'">Close</button>
+                <div class="modal-footer debug-modal-footer">
+                    <button id="copyDebugBtn" class="debug-btn-primary">Copy to Clipboard</button>
+                    <button id="debugCloseBottomBtn" class="debug-btn-secondary">Close</button>
                 </div>
             </div>
         `;
         document.body.appendChild(m);
-        document.getElementById('copyDebugBtn').onclick = () => {
+        document.getElementById('debugCloseTopBtn').addEventListener('click', () => { m.classList.add('hidden'); m.classList.remove('show-flex'); });
+        document.getElementById('debugCloseBottomBtn').addEventListener('click', () => { m.classList.add('hidden'); m.classList.remove('show-flex'); });
+        document.getElementById('copyDebugBtn').addEventListener('click', () => {
             const ta = document.getElementById('debugLogArea');
             ta.select();
             document.execCommand('copy');
             document.getElementById('copyDebugBtn').innerText = 'Copied!';
             setTimeout(() => { document.getElementById('copyDebugBtn').innerText = 'Copy to Clipboard'; }, 2000);
-        };
+        });
     }
     document.getElementById('debugLogArea').value = text;
-    m.style.display = 'flex';
+    m.classList.remove('hidden');
+    m.classList.add('show-flex');
 }

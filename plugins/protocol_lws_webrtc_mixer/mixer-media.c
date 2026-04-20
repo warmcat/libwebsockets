@@ -7,6 +7,105 @@
 
 #include "mixer-media.h"
 
+static gboolean
+bus_call(GstBus *bus, GstMessage *msg, gpointer data)
+{
+	struct mixer_room *r = (struct mixer_room *)data;
+	switch (GST_MESSAGE_TYPE(msg)) {
+	case GST_MESSAGE_ERROR: {
+		GError *err;
+		gchar *debug;
+		gst_message_parse_error(msg, &err, &debug);
+		lwsl_err("GStreamer Error (room %s) from %s: %s\n", r->name, GST_MESSAGE_SRC_NAME(msg), err->message);
+		if (debug) lwsl_err("Debug info: %s\n", debug);
+		g_error_free(err);
+		g_free(debug);
+		break;
+	}
+	case GST_MESSAGE_WARNING: {
+		GError *err;
+		gchar *debug;
+		gst_message_parse_warning(msg, &err, &debug);
+		lwsl_warn("GStreamer Warning (room %s) from %s: %s\n", r->name, GST_MESSAGE_SRC_NAME(msg), err->message);
+		if (debug) lwsl_warn("Debug info: %s\n", debug);
+		g_error_free(err);
+		g_free(debug);
+		break;
+	}
+	case GST_MESSAGE_EOS:
+		lwsl_notice("GStreamer EOS (room %s)\n", r->name);
+		break;
+	case GST_MESSAGE_QOS: {
+		GstClockTime timestamp, duration, jitter;
+		gboolean live;
+		guint64 processed, dropped;
+		gst_message_parse_qos(msg, &live, &timestamp, &duration, &jitter, &jitter);
+		gst_message_parse_qos_stats(msg, NULL, &processed, &dropped);
+
+		const gchar *src_name = GST_MESSAGE_SRC_NAME(msg);
+		struct mixer_media_session *s_qos = NULL;
+		const char *us = strchr(src_name, '_');
+		if (us) {
+			sscanf(us + 1, "%p", &s_qos);
+		}
+		if (s_qos) {
+			s_qos->gst_qos_drops += (uint32_t)dropped;
+		}
+
+		lwsl_notice("GStreamer QoS (room %s) from %s: processed %llu, dropped %llu\n",
+				r->name, src_name, (long long unsigned)processed, (long long unsigned)dropped);
+		break;
+	}
+	case GST_MESSAGE_STATE_CHANGED: {
+		GstState old_state, new_state, pending_state;
+		gst_message_parse_state_changed(msg, &old_state, &new_state, &pending_state);
+		if (GST_MESSAGE_SRC(msg) == GST_OBJECT(r->pipeline)) {
+			lwsl_notice("Pipeline %s state changed from %s to %s\n",
+					r->name, gst_element_state_get_name(old_state),
+					gst_element_state_get_name(new_state));
+		}
+		break;
+	}
+	default:
+		break;
+	}
+	return TRUE;
+}
+
+static GstPadProbeReturn
+on_decodebin_buffer_probe(GstPad *pad, GstPadProbeInfo *info, gpointer data)
+{
+	struct mixer_media_session *s = (struct mixer_media_session *)data;
+	GstBuffer *buffer = GST_PAD_PROBE_INFO_BUFFER(info);
+	lwsl_debug("decoder output buffer for session %p: PTS %llu, size %zu\n",
+			s, (unsigned long long)GST_BUFFER_PTS(buffer), gst_buffer_get_size(buffer));
+	return GST_PAD_PROBE_OK;
+}
+
+static GstPadProbeReturn
+on_compositor_src_buffer_probe(GstPad *pad, GstPadProbeInfo *info, gpointer data)
+{
+	GstBuffer *buffer = GST_PAD_PROBE_INFO_BUFFER(info);
+	static int dbg_comp = 0;
+	if (dbg_comp++ % 50 == 0) {
+		lwsl_notice("PROBE COMPOSITOR SRC: PTS %llu ms\n",
+			(unsigned long long)(GST_BUFFER_PTS(buffer) / 1000000));
+	}
+	return GST_PAD_PROBE_OK;
+}
+
+static GstPadProbeReturn
+on_appsrc_buffer_probe(GstPad *pad, GstPadProbeInfo *info, gpointer data)
+{
+	GstBuffer *buffer = GST_PAD_PROBE_INFO_BUFFER(info);
+	static int dbg_appsrc = 0;
+	if (dbg_appsrc++ % 50 == 0) {
+		lwsl_notice("PROBE APPSRC SRC: PTS %llu ms\n",
+			(unsigned long long)(GST_BUFFER_PTS(buffer) / 1000000));
+	}
+	return GST_PAD_PROBE_OK;
+}
+
 /* Session Lifecycle */
 
 struct mixer_media_session *
@@ -99,11 +198,39 @@ mixer_media_session_destroy(struct mixer_media_session *s)
 	if (s->decoder) opus_decoder_destroy(s->decoder);
 	if (s->encoder) opus_encoder_destroy(s->encoder);
 
-	if (s->tcc_dec) lws_transcode_destroy(&s->tcc_dec);
-	if (s->avframe_dec) lws_transcode_frame_free(&s->avframe_dec);
-	if (s->avframe_tmp) lws_transcode_frame_free(&s->avframe_tmp);
-	if (s->sws_ctx_dec) lws_transcode_scaler_destroy(&s->sws_ctx_dec);
-	if (s->avframe_scaled) lws_transcode_frame_free(&s->avframe_scaled);
+	if (s->decoder) opus_decoder_destroy(s->decoder);
+	if (s->encoder) opus_encoder_destroy(s->encoder);
+
+	struct participant *pp = (struct participant *)s->parent_p;
+	if (s->compositor_pad) {
+		if (pp && pp->room && pp->room->compositor) {
+			gst_element_release_request_pad(pp->room->compositor, s->compositor_pad);
+		}
+		gst_object_unref(s->compositor_pad);
+		s->compositor_pad = NULL;
+	}
+
+	if (pp && pp->room && pp->room->pipeline) {
+		if (s->decodebin) {
+			gst_element_set_state(s->decodebin, GST_STATE_NULL);
+			gst_bin_remove(GST_BIN(pp->room->pipeline), s->decodebin);
+		}
+		if (s->appsrc) {
+			gst_element_set_state(s->appsrc, GST_STATE_NULL);
+			gst_bin_remove(GST_BIN(pp->room->pipeline), s->appsrc);
+		}
+	} else {
+		if (s->decodebin) {
+			gst_element_set_state(s->decodebin, GST_STATE_NULL);
+			gst_object_unref(s->decodebin);
+		}
+		if (s->appsrc) {
+			gst_element_set_state(s->appsrc, GST_STATE_NULL);
+			gst_object_unref(s->appsrc);
+		}
+	}
+	s->decodebin = NULL;
+	s->appsrc = NULL;
 
     /* Queues */
     lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&s->video_queue)) {
@@ -160,47 +287,7 @@ struct codec_counts {
     int vp8;
 };
 
-static void
-blit_yuv(void *dst, void *src, int dst_x, int dst_y)
-{
-	int i;
-	uint8_t **src_data = lws_transcode_frame_get_data(src);
-	int *src_ls = lws_transcode_frame_get_linesize(src);
-	int src_w = lws_transcode_frame_get_width(src);
-	int src_h = lws_transcode_frame_get_height(src);
-	uint8_t **dst_data = lws_transcode_frame_get_data(dst);
-	int *dst_ls = lws_transcode_frame_get_linesize(dst);
 
-	for (i = 0; i < src_h; i++) {
-		uint8_t *s = src_data[0] + i * src_ls[0];
-		memcpy(dst_data[0] + (dst_y + i) * dst_ls[0] + dst_x,
-		       s, (size_t)src_w);
-	}
-	for (i = 0; i < src_h / 2; i++) {
-		memcpy(dst_data[1] + (dst_y / 2 + i) * dst_ls[1] + (dst_x / 2),
-		       src_data[1] + i * src_ls[1], (size_t)src_w / 2);
-		memcpy(dst_data[2] + (dst_y / 2 + i) * dst_ls[2] + (dst_x / 2),
-		       src_data[2] + i * src_ls[2], (size_t)src_w / 2);
-	}
-}
-
-static struct lws_transcode_ctx *
-mixer_create_encoder(enum lws_video_codec codec, uint32_t w, uint32_t h, int level)
-{
-	struct lws_transcode_info info;
-
-	memset(&info, 0, sizeof(info));
-	info.codec = codec == LWS_CODEC_AV1 ? LWS_TCC_AV1 : LWS_TCC_H264;
-	info.width = w;
-	info.height = h;
-	info.fps = 30;
-	if (level > 0)
-		info.bitrate = 1000000; /* Fallback to aggressive ~1Mbps */
-	else
-		info.bitrate = (w * h) * 2; /* High quality ~4.1Mbps for 1080p */
-
-	return lws_transcode_encoder_create(&info);
-}
 
 /* Codec counts struct end */
 
@@ -223,13 +310,54 @@ process_control_message(struct vhd_mixer *vhd, struct mixer_msg *msg)
 			lws_strncpy(s->room_name, (const char *)msg->payload, sizeof(s->room_name));
 			free(msg->payload);
 		}
+
 		return;
 	}
 
 	if (msg->type == MSG_REMOVE_SESSION) {
+		/* Find the room to release the compositor pad */
+		struct mixer_room *r = NULL;
+		lws_start_foreach_dll(struct lws_dll2 *, d_r, lws_dll2_get_head(&vhd->rooms)) {
+			struct mixer_room *tr = lws_container_of(d_r, struct mixer_room, list);
+			if (!strcmp(tr->name, s->room_name)) {
+				r = tr;
+				break;
+			}
+		} lws_end_foreach_dll(d_r);
+
+		if (s->compositor_pad && r && r->compositor) {
+			lwsl_notice("Releasing compositor pad %s for session %p in room %s\n",
+					gst_pad_get_name(s->compositor_pad), s, s->room_name);
+			gst_element_release_request_pad(r->compositor, s->compositor_pad);
+			gst_object_unref(s->compositor_pad);
+			s->compositor_pad = NULL;
+		}
+
 		if (!lws_dll2_is_detached(&s->list)) {
 			lws_dll2_remove(&s->list);
 		}
+
+		if (r) {
+			int active_sessions = 0;
+			lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->sessions)) {
+				struct mixer_media_session *ts = lws_container_of(d, struct mixer_media_session, list);
+				if (!strcmp(ts->room_name, r->name))
+					active_sessions++;
+			} lws_end_foreach_dll(d);
+
+			if (active_sessions == 0) {
+				lwsl_notice("Room %s is empty, resetting pipeline to READY to prevent catch-up bursts\n", r->name);
+				/*
+				 * We must use READY instead of PAUSED.
+				 * PAUSED preserves the running time. When a new user joins, their injected PTS
+				 * will reflect the old running time, but the compositor's output will have stalled,
+				 * causing a massive gap that it attempts to catch up with fast-forward frames.
+				 * READY completely resets the pipeline running time to 0 for the next session.
+				 */
+				gst_element_set_state(r->pipeline, GST_STATE_READY);
+			}
+		}
+
 		mixer_media_session_unref(s);
 		return;
 	}
@@ -396,39 +524,12 @@ process_session_media(struct mixer_media_session *s)
 
 			/* Handle Video logic */
 
-			if (!s->tcc_dec) {
-				/* Check Payload Type */
-				//uint8_t pt = ((uint8_t *)msg->payload)[1] & 0x7F;
-				enum lws_transcode_codec codec_type;
-
-				/* Use resolved codec from mixer_on_media */
-				if (msg->codec == LWS_CODEC_AV1) {
-					codec_type = LWS_TCC_AV1;
-					s->last_dec_codec = LWS_CODEC_AV1;
-				} else if (msg->codec == LWS_CODEC_H264) {
-					codec_type = LWS_TCC_H264;
-					s->last_dec_codec = LWS_CODEC_H264;
-				} else {
-					/* Fallback or Unknown */
-					lwsl_warn("%s: Unknown Codec for PT %d\n", __func__, ((uint8_t *)msg->payload)[1] & 0x7F);
-					/* Should we try to guess? No, safer to fail or improve resolution in on_media */
-					/* For now, if 0, assume H264? No, AV1 is 99. */
-					/* Let's leave it null to fail safely. */
-					goto skip_decoding;
-				}
-
-				s->tcc_dec = lws_transcode_decoder_create(codec_type);
-				if (!s->tcc_dec) {
-					lwsl_err("%s: Failed to create decoder (codec %d)\n", __func__, msg->codec);
-				} else {
-					lwsl_notice("%s: Created Decoder for Codec %d\n", __func__, msg->codec);
-					/* Alloc frame holder (arbitrary size, decoder should handle?) */
-					/* Actually lws_transcode_frame_alloc might need max size or initial specific size */
-					s->avframe_dec = lws_transcode_frame_alloc(1280, 720);
-				}
+			if (!s->appsrc && s->parent_p) {
+				s->last_dec_codec = msg->codec;
+				init_participant_media((struct participant *)s->parent_p, msg->codec);
 			}
 
-			if (s->tcc_dec && s->avframe_dec) {
+			if (s->appsrc) {
 				/*
 				 * lws_transcode_decode returns:
 				 * 0: Frame decoded
@@ -497,6 +598,7 @@ process_session_media(struct mixer_media_session *s)
 
 							if (S) {
 								/* Start of fragment */
+								s->fu_a_active = 1;
 								size_t needed = s->video_len + payload_len + 5;
 								if (s->video_alloc < needed) {
 									s->video_buf = realloc(s->video_buf, needed + 4096);
@@ -515,7 +617,7 @@ process_session_media(struct mixer_media_session *s)
 									// if (dbg_fua1++ % 500 == 0)
 									// 	lwsl_notice("FU-A: Start fragment, NAL type %u, len %zu\n", nal_type, payload_len);
 								}
-							} else if (s->video_buf && s->video_len > 0) {
+							} else if (s->video_buf && s->video_len > 0 && s->fu_a_active) {
 								/* Middle or end of fragment */
 								size_t needed = s->video_len + payload_len;
 								if (s->video_alloc < needed) {
@@ -536,6 +638,7 @@ process_session_media(struct mixer_media_session *s)
 					}
 
 					if (msg->marker && s->video_buf && s->video_len > 0) {
+						s->fu_a_active = 0; /* Frame boundary hit, reset FU-A state */
 						in_data = s->video_buf;
 						in_len = s->video_len;
 						ready_to_decode = 1;
@@ -672,6 +775,9 @@ process_session_media(struct mixer_media_session *s)
 					}
 
 					if (msg->marker) {
+						static int dbg_marker = 0;
+						if (dbg_marker++ % 50 == 0)
+							lwsl_notice("%s: Received RTP marker for room %s, frame len %zu\n", __func__, s->room_name, s->video_len);
 						if (s->video_buf && s->video_len > 0) {
 							in_data = s->video_buf;
 							in_len = s->video_len;
@@ -680,33 +786,62 @@ process_session_media(struct mixer_media_session *s)
 					}
 				}
 
-				if (ready_to_decode) {
-					int r = lws_transcode_decode(s->tcc_dec, in_data, in_len, s->avframe_dec);
+				if (ready_to_decode && s->appsrc) {
+					GstBuffer *buffer = gst_buffer_new_allocate(NULL, in_len, NULL);
+					gst_buffer_fill(buffer, 0, in_data, in_len);
 
-					if (r == 0) {
-						/* We got a frame! */
+					/*
+					 * To prevent h264parse from merging identical timestamps during CPU
+					 * spikes, we manually generate the PTS using the pipeline clock
+					 * but strictly enforce a monotonic +1ms offset if they arrive in
+					 * the exact same millisecond.
+					 */
+					GstClock *clock = gst_element_get_clock(s->appsrc);
+					GstClockTime pts = GST_CLOCK_TIME_NONE;
+					if (clock) {
+						struct participant *pp = (struct participant *)s->parent_p;
+						if (pp && pp->room && pp->room->pipeline) {
+							pts = gst_clock_get_time(clock) - gst_element_get_base_time(pp->room->pipeline);
+						} else {
+							pts = gst_clock_get_time(clock) - gst_element_get_base_time(s->appsrc);
+						}
+
+						static int dbg_in = 0;
+						if (dbg_in++ % 50 == 0)
+							lwsl_notice("INJECT: pts %llu ms, clock %llu ms, base %llu ms\n",
+								(unsigned long long)(pts / 1000000),
+								(unsigned long long)(gst_clock_get_time(clock) / 1000000),
+								(unsigned long long)(gst_element_get_base_time(pp && pp->room ? pp->room->pipeline : s->appsrc) / 1000000));
+
+						gst_object_unref(clock);
+					}
+
+					if (pts != GST_CLOCK_TIME_NONE) {
+						if (s->last_pts != GST_CLOCK_TIME_NONE && pts <= s->last_pts) {
+							pts = s->last_pts + 1000000ull; /* +1 millisecond */
+						}
+						s->last_pts = pts;
+					}
+
+					GST_BUFFER_PTS(buffer) = pts;
+					GST_BUFFER_DTS(buffer) = GST_CLOCK_TIME_NONE;
+
+					GstFlowReturn ret = gst_app_src_push_buffer(GST_APP_SRC(s->appsrc), buffer);
+					if (ret != GST_FLOW_OK) {
+						lwsl_err("%s: Failed to push buffer to appsrc (ret %d)\n", __func__, ret);
+					} else {
 						s->decoded_frames++;
 						s->processed_frames_count++;
-#if 0
-						if (s->decoded_frames % 50 == 0)
-							lwsl_notice("Decoder produced frame %llu\n", (unsigned long long)s->decoded_frames);
-#endif
-					} else if (r == -11) { /* AVERROR(EAGAIN) */
-						static int dbg_buff = 0;
-						if (dbg_buff++ % 100 == 0)
-							lwsl_notice("Decoder buffering... (EAGAIN)\n");
-					} else if (r < 0) {
-						/* Reducing log spam */
-						if (s->decoded_frames == 0 || s->decoded_frames % 100 == 0)
-							lwsl_warn("%s: Decoder Error %d (len %zu)\n", __func__, r, in_len);
 					}
+
 					/* Reset buffer for next frame */
 					s->video_len = 0;
+					s->obu_len = 0;
 				}
 
 			}
 
-skip_decoding:;
+
 		}
 
 		if (msg->payload) free(msg->payload);
@@ -717,7 +852,19 @@ static int
 process_room_mix(struct vhd_mixer *vhd, struct mixer_room *r, lws_usec_t deadline)
 {
 	int h264_dropped = 0;
-	/* 1. Sum Audio */
+
+	/* 1. Poll GStreamer Bus for errors/status */
+	if (r->pipeline) {
+		GstBus *bus = gst_element_get_bus(r->pipeline);
+		GstMessage *msg;
+		while ((msg = gst_bus_pop(bus))) {
+			bus_call(bus, msg, r);
+			gst_message_unref(msg);
+		}
+		gst_object_unref(bus);
+	}
+
+	/* 2. Sum Audio */
 	memset(r->mixed_pcm, 0, sizeof(r->mixed_pcm));
 
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->sessions)) {
@@ -814,235 +961,89 @@ skip_encode:
 
 	/* 3. Video Compose & Encode */
 	r->master_pts++;
+
+	// static int dbg_room = 0;
+	// if (dbg_room++ % 100 == 0)
+	//	lwsl_notice("Room %s: master_pts %llu, sessions %u\n",
+	//			r->name, (unsigned long long)r->master_pts, r->participants.count);
+
 	if ((r->master_pts & 1) == 0) { /* 25fps */
 
-		/* Broadcast previously encoded frames */
-		pthread_mutex_lock(&r->enc_thread_h264.mutex);
-		if (r->enc_thread_h264.encode_done) {
-			uint8_t *buf = r->enc_thread_h264.encoded_buf;
-			size_t len = r->enc_thread_h264.encoded_len;
-			uint32_t rtp_ts = r->enc_thread_h264.encoded_rtp_pts;
+		/* Broadcast previously encoded H264 frames */
+		pthread_mutex_lock(&r->encode_mutex);
+		while (lws_dll2_get_head(&r->h264_queue)) {
+			struct mixer_encoded_frame *f = lws_container_of(lws_dll2_get_head(&r->h264_queue), struct mixer_encoded_frame, list);
+			lws_dll2_remove(&f->list);
+			pthread_mutex_unlock(&r->encode_mutex);
+
+			uint32_t rtp_ts = f->rtp_ts ? f->rtp_ts : (uint32_t)((r->master_pts / 2) * 3600); // Fallback to master_pts if PTS missing
 
 			lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->sessions)) {
 				struct mixer_media_session *s = lws_container_of(d, struct mixer_media_session, list);
 				if (strcmp(s->room_name, r->name)) goto next_tx_h264;
 				if (s->can_rx_h264) {
 					if (s->media && we_ops && we_ops->send_video) {
-						we_ops->send_video(s->media, buf, len, LWS_CODEC_H264, rtp_ts);
+						static int dbg_tx = 0;
+						if (dbg_tx++ % 50 == 0)
+							lwsl_debug("TX Video: room %s, len %zu, RTP TS %u (master_pts %llu)\n",
+									r->name, f->len, rtp_ts, (unsigned long long)r->master_pts);
+						we_ops->send_video(s->media, f->buf, f->len, LWS_CODEC_H264, rtp_ts);
 					}
 				}
 next_tx_h264:;
 			} lws_end_foreach_dll(d);
 
-			r->enc_thread_h264.encode_done = 0;
+			free(f->buf);
+			free(f);
+			pthread_mutex_lock(&r->encode_mutex);
 		}
-		pthread_mutex_unlock(&r->enc_thread_h264.mutex);
 
-		pthread_mutex_lock(&r->enc_thread_av1.mutex);
-		if (r->enc_thread_av1.encode_done) {
-			uint8_t *buf = r->enc_thread_av1.encoded_buf;
-			size_t len = r->enc_thread_av1.encoded_len;
-			uint32_t rtp_ts = r->enc_thread_av1.encoded_rtp_pts;
+		/* Broadcast previously encoded AV1 frames */
+		while (lws_dll2_get_head(&r->av1_queue)) {
+			struct mixer_encoded_frame *f = lws_container_of(lws_dll2_get_head(&r->av1_queue), struct mixer_encoded_frame, list);
+			lws_dll2_remove(&f->list);
+			pthread_mutex_unlock(&r->encode_mutex);
+
+			uint32_t rtp_ts = f->rtp_ts ? f->rtp_ts : (uint32_t)((r->master_pts / 2) * 3600);
 
 			lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->sessions)) {
 				struct mixer_media_session *s = lws_container_of(d, struct mixer_media_session, list);
 				if (strcmp(s->room_name, r->name)) goto next_tx_av1;
 				if (s->can_rx_av1) {
 					if (s->media && we_ops && we_ops->send_video) {
-						we_ops->send_video(s->media, buf, len, LWS_CODEC_AV1, rtp_ts);
+						we_ops->send_video(s->media, f->buf, f->len, LWS_CODEC_AV1, rtp_ts);
 					}
 				}
 next_tx_av1:;
 			} lws_end_foreach_dll(d);
 
-			r->enc_thread_av1.encode_done = 0;
+			free(f->buf);
+			free(f);
+			pthread_mutex_lock(&r->encode_mutex);
 		}
-		pthread_mutex_unlock(&r->enc_thread_av1.mutex);
+		pthread_mutex_unlock(&r->encode_mutex);
 
-		/* Video Frame Drop logic to protect real-time Audio */
-		lws_usec_t mix_now = lws_now_usecs();
-		if (mix_now > deadline + 20000) {
-			static int warned = 0;
-			if (warned++ % 100 == 0) {
-				lwsl_notice("%s: CPU heavily loaded! Dropping Video Frame to preserve Audio (Behind %llums)\n",
-						__func__, (unsigned long long)(mix_now - deadline) / 1000);
+		/* Apply Layout to GStreamer Compositor Pads */
+		r->lm_ops->update(r, r->lm_ctx);
+		int num_regions = 0;
+		const struct lws_mixer_layout_region *regions = r->lm_ops->get_regions(r->lm_ctx, &num_regions);
+
+		for (int i = 0; i < num_regions; i++) {
+			const struct lws_mixer_layout_region *reg = &regions[i];
+			struct mixer_media_session *s = reg->s;
+
+			if (s->compositor_pad && s->decoded_frames > 0) {
+				static int dbg_pad = 0;
+				if (dbg_pad++ % 100 == 0)
+					lwsl_notice("Setting pad %p: %dx%d @ %d,%d\n",
+							s->compositor_pad, reg->w, reg->h, reg->x, reg->y);
+				g_object_set(G_OBJECT(s->compositor_pad),
+					"xpos", reg->x,
+					"ypos", reg->y,
+					"width", reg->w,
+					"height", reg->h,
+					NULL);
 			}
-			return h264_dropped;
-		}
-
-		/* Count Active Sources (Logic adapted from count_codec_participants) */
-		int count_h264 = 0;
-		int count_av1 = 0;
-		int count_joined_total = 0;
-
-		lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->sessions)) {
-			struct mixer_media_session *s = lws_container_of(d, struct mixer_media_session, list);
-			if (strcmp(s->room_name, r->name))
-                                goto next_codec_count;
-
-			if (s->joined)
-                                count_joined_total++;
-
-			// static int pass_log = 0;
-			// if (pass_log++ % 200 == 0) {
-			//	lwsl_notice("%s: DIAGNOSTIC pass s->joined=%d, out_only=%d, can_h264=%d, can_av1=%d (frames %llu) for peer in room\n",
-			//		__func__, s->joined, s->out_only, s->can_rx_h264, s->can_rx_av1, (unsigned long long)s->decoded_frames);
-			//}
-
-			if (!s->joined && !s->out_only)
-                                goto next_codec_count;
-
-			if (s->can_rx_h264)
-                                count_h264++;
-			if (s->can_rx_av1)
-                                count_av1++;
-
-next_codec_count:;
-		} lws_end_foreach_dll(d);
-
-		// static int mix_log = 0;
-		// if (mix_log++ % 200 == 0) {
-		//	lwsl_notice("%s: DIAGNOSTIC room '%s' joined_total=%d, active_h264=%d, active_av1=%d\n",
-		//			__func__, r->name, count_joined_total, count_h264, count_av1);
-		//}
-
-		if (count_h264 > 0 || count_av1 > 0) {
-			/* Ensure Encoders */
-			int target_level = lws_adapt_get_level(r->adapt_h264);
-
-			if (r->tcc_enc_h264 && r->active_h264_level != target_level) {
-				lwsl_notice("%s: CPU capability level changed %d -> %d, requesting encoder restart\n",
-					__func__, r->active_h264_level, target_level);
-
-				pthread_mutex_lock(&r->enc_thread_h264.mutex);
-				r->enc_thread_h264.target_level = target_level;
-				r->enc_thread_h264.pending_restart = 1;
-				pthread_cond_signal(&r->enc_thread_h264.cond);
-				pthread_mutex_unlock(&r->enc_thread_h264.mutex);
-
-				r->active_h264_level = target_level;
-			}
-
-			if (count_h264 > 0 && !r->tcc_enc_h264) {
-				r->tcc_enc_h264 = mixer_create_encoder(LWS_CODEC_H264, r->master_w, r->master_h, target_level);
-				r->active_h264_level = target_level;
-			}
-
-			if (count_av1 > 0 && !r->tcc_enc_av1)
-				r->tcc_enc_av1 = mixer_create_encoder(LWS_CODEC_AV1, r->master_w, r->master_h, 0);
-
-			/* Clear Background */
-			uint8_t **m_data = lws_transcode_frame_get_data(r->master_frame);
-			int *m_ls = lws_transcode_frame_get_linesize(r->master_frame);
-			int m_h = lws_transcode_frame_get_height(r->master_frame);
-
-                        memset(m_data[0], 0, (size_t)m_ls[0] * (size_t)m_h);
-			memset(m_data[1], 128, (size_t)m_ls[1] * (size_t)m_h / 2);
-			memset(m_data[2], 128, (size_t)m_ls[2] * (size_t)m_h / 2);
-
-			/* Compose */
-			r->lm_ops->update(r, r->lm_ctx);
-			int num_regions = 0;
-			const struct lws_mixer_layout_region *regions = r->lm_ops->get_regions(r->lm_ctx, &num_regions);
-
-			for (int i = 0; i < num_regions; i++) {
-				const struct lws_mixer_layout_region *reg = &regions[i];
-				struct mixer_media_session *s = reg->s;
-
-				if (s->avframe_dec && s->decoded_frames > 0) {
-					int slot_w = reg->w;
-					int slot_h = reg->h;
-					int x = reg->x;
-					int y = reg->y;
-
-					/* Scale & Blit (Simplified for brevity, same as original) */
-					// ... (Assume blit_yuv and scaling logic exists, specialized for session)
-					// Copy-paste scaling logic?
-					int src_w = (int)lws_transcode_frame_get_width(s->avframe_dec);
-					int src_h = (int)lws_transcode_frame_get_height(s->avframe_dec);
-					int dst_w = slot_w; int dst_h = slot_h;
-
-					if (src_w * slot_h > slot_w * src_h) { dst_h = (src_h * slot_w) / src_w; dst_h &= ~1; }
-					else { dst_w = (src_w * slot_h) / src_h; dst_w &= ~1; }
-
-					if (dst_w < 2) dst_w = 2;
-					if (dst_h < 2) dst_h = 2;
-
-					int off_x = (slot_w - dst_w) / 2; off_x &= ~1;
-					int off_y = (slot_h - dst_h) / 2; off_y &= ~1;
-
-					if (!s->sws_ctx_dec || s->last_dec_w != src_w || s->last_dec_h != src_h || s->last_dst_w != dst_w || s->last_dst_h != dst_h) {
-						if (s->sws_ctx_dec) lws_transcode_scaler_destroy(&s->sws_ctx_dec);
-						s->sws_ctx_dec = lws_transcode_scaler_create((uint32_t)src_w, (uint32_t)src_h, (uint32_t)dst_w, (uint32_t)dst_h);
-						s->last_dec_w = src_w; s->last_dec_h = src_h;
-						s->last_dst_w = dst_w; s->last_dst_h = dst_h;
-						if (s->avframe_scaled) lws_transcode_frame_free(&s->avframe_scaled);
-						s->avframe_scaled = lws_transcode_frame_alloc((uint32_t)dst_w, (uint32_t)dst_h);
-					}
-
-					if (s->sws_ctx_dec && s->avframe_scaled) {
-						lws_transcode_scale(s->sws_ctx_dec, s->avframe_dec, s->avframe_scaled);
-						void blit_yuv(void *dst, void *src, int dx, int dy); /* Declared higher up usually, or provided by lws */
-						blit_yuv(r->master_frame, s->avframe_scaled, x + off_x, y + off_y);
-					}
-				}
-			}
-
-			/* Trigger H264 Enable */
-			if (r->tcc_enc_h264 && count_h264 > 0) {
-				pthread_mutex_lock(&r->enc_thread_h264.mutex);
-				if (!r->enc_thread_h264.frame_ready) {
-					uint8_t **m_data = lws_transcode_frame_get_data(r->master_frame);
-					int *m_ls = lws_transcode_frame_get_linesize(r->master_frame);
-					uint8_t **e_data = lws_transcode_frame_get_data(r->enc_thread_h264.enc_frame);
-					int *e_ls = lws_transcode_frame_get_linesize(r->enc_thread_h264.enc_frame);
-					int m_h = lws_transcode_frame_get_height(r->master_frame);
-
-					for (int p=0; p<3; p++) {
-						int h = p == 0 ? m_h : m_h / 2;
-						int copy_len = m_ls[p] < e_ls[p] ? m_ls[p] : e_ls[p];
-						for (int y=0; y<h; y++) {
-							memcpy(e_data[p] + y * e_ls[p], m_data[p] + y * m_ls[p], (size_t)copy_len);
-						}
-					}
-					r->enc_thread_h264.rtp_pts = (uint32_t)((r->master_pts / 2) * 3600);
-					r->enc_thread_h264.frame_ready = 1;
-					pthread_cond_signal(&r->enc_thread_h264.cond);
-				} else {
-					h264_dropped = 1;
-					static int dbg_drop_h264 = 0;
-					if (dbg_drop_h264++ % 50 == 0) lwsl_notice("Dropping H264 encode frame (encoder busy)\n");
-				}
-				pthread_mutex_unlock(&r->enc_thread_h264.mutex);
-			}
-
-			/* Trigger AV1 Encode */
-			if (r->tcc_enc_av1 && count_av1 > 0) {
-				pthread_mutex_lock(&r->enc_thread_av1.mutex);
-				if (!r->enc_thread_av1.frame_ready) {
-					uint8_t **m_data = lws_transcode_frame_get_data(r->master_frame);
-					int *m_ls = lws_transcode_frame_get_linesize(r->master_frame);
-					uint8_t **e_data = lws_transcode_frame_get_data(r->enc_thread_av1.enc_frame);
-					int *e_ls = lws_transcode_frame_get_linesize(r->enc_thread_av1.enc_frame);
-					int m_h = lws_transcode_frame_get_height(r->master_frame);
-
-					for (int p=0; p<3; p++) {
-						int h = p == 0 ? m_h : m_h / 2;
-						int copy_len = m_ls[p] < e_ls[p] ? m_ls[p] : e_ls[p];
-						for (int y=0; y<h; y++) {
-							memcpy(e_data[p] + y * e_ls[p], m_data[p] + y * m_ls[p], (size_t)copy_len);
-						}
-					}
-					r->enc_thread_av1.rtp_pts = (uint32_t)((r->master_pts / 2) * 3600);
-					r->enc_thread_av1.frame_ready = 1;
-					pthread_cond_signal(&r->enc_thread_av1.cond);
-				} else {
-					static int dbg_drop_av1 = 0;
-					if (dbg_drop_av1++ % 50 == 0) lwsl_notice("Dropping AV1 encode frame (encoder busy)\n");
-				}
-				pthread_mutex_unlock(&r->enc_thread_av1.mutex);
-			}
-
 		}
 	}
 
@@ -1064,13 +1065,16 @@ media_worker_thread(void *d)
 		lws_usec_t now = lws_now_usecs();
 		if (now < next_frame_time) {
 			lws_usec_t diff = next_frame_time - now;
-			usleep((useconds_t)diff);
+			if (diff > 500)
+				usleep((useconds_t)diff);
 			continue;
 		}
 
 		/* Catch up if way behind (e.g. debugger paused), jump to now to avoid massive bursts */
-		if (now > next_frame_time && now - next_frame_time > 100000)
+		if (now - next_frame_time > 100000) {
+			lwsl_warn("%s: Worker lagging! Jumping %llu us\n", __func__, (unsigned long long)(now - next_frame_time));
 			next_frame_time = now;
+		}
 
 		next_frame_time += 20000;
 
@@ -1084,9 +1088,7 @@ media_worker_thread(void *d)
         }
         lws_mutex_unlock(vhd->mutex_rx);
 
-        /* Fast path: if there are no participants, don't waste CPU decoding/mixing */
-        if (!lws_dll2_get_head(&vhd->sessions))
-              continue;
+
 
         /* 2. Process Session Media (Decode) */
         lws_start_foreach_dll(struct lws_dll2 *, d_s, lws_dll2_get_head(&vhd->sessions)) {
@@ -1149,127 +1151,195 @@ int16_t soft_clip(int32_t sample)
 
 /* Moved above */
 
-static void *
-video_encoder_thread(void *d)
+static GstFlowReturn
+on_new_sample_h264(GstElement *sink, struct mixer_room *r)
 {
-	struct encoder_thread *et = (struct encoder_thread *)d;
+	GstSample *sample;
 
-	while (et->running) {
-		pthread_mutex_lock(&et->mutex);
-		while (et->running && !et->frame_ready && !et->pending_restart) {
-			pthread_cond_wait(&et->cond, &et->mutex);
-		}
+	// lwsl_notice("on_new_sample_h264: Called for room %s\n", r->name);
 
-		if (!et->running) {
-			pthread_mutex_unlock(&et->mutex);
-			break;
-		}
+	g_signal_emit_by_name(sink, "pull-sample", &sample);
+	if (sample) {
+		GstBuffer *buffer = gst_sample_get_buffer(sample);
+		GstMapInfo info;
+		if (gst_buffer_map(buffer, &info, GST_MAP_READ)) {
+			struct mixer_encoded_frame *f = calloc(1, sizeof(*f));
+			if (f) {
+				f->buf = malloc(info.size);
+				if (f->buf) {
+					memcpy(f->buf, info.data, info.size);
+					f->len = info.size;
 
-		int do_restart = et->pending_restart;
-		int t_level = et->target_level;
-		et->pending_restart = 0;
+					GstClockTime pts = GST_BUFFER_PTS(buffer);
 
-		/* We have a frame to encode or restart */
-		int do_encode = et->frame_ready;
-		et->frame_ready = 0;
-		pthread_mutex_unlock(&et->mutex);
+					/* Drop massive catch-up bursts from compositor when a room is re-joined after being empty */
+					int drop = 0;
+					if (GST_CLOCK_TIME_IS_VALID(pts)) {
+						f->rtp_ts = (uint32_t)(pts * 9 / 100000);
+						GstClock *clock = gst_element_get_clock(sink);
+						if (clock) {
+							GstClockTime now = gst_clock_get_time(clock) - gst_element_get_base_time(sink);
+							gst_object_unref(clock);
+							if (now > pts + 1000000000ull) {
+								drop = 1;
+							}
 
-		if (do_restart) {
-			if (et->codec == LWS_CODEC_H264) {
-				if (et->room->tcc_enc_h264) lws_transcode_destroy(&et->room->tcc_enc_h264);
-				et->room->tcc_enc_h264 = mixer_create_encoder(LWS_CODEC_H264, et->room->master_w, et->room->master_h, t_level);
-			} else {
-				if (et->room->tcc_enc_av1) lws_transcode_destroy(&et->room->tcc_enc_av1);
-				et->room->tcc_enc_av1 = mixer_create_encoder(LWS_CODEC_AV1, et->room->master_w, et->room->master_h, t_level);
+							static int dbg_out = 0;
+							if (dbg_out++ % 50 == 0 || drop) {
+								lwsl_notice("EXTRACT: pts %llu ms, now %llu ms, diff %lld ms (drop=%d)\n",
+									(unsigned long long)(pts / 1000000),
+									(unsigned long long)(now / 1000000),
+									(long long)((now - pts) / 1000000), drop);
+							}
+						}
+					} else {
+						f->rtp_ts = 0; /* Fallback will be handled in mix */
+					}
+
+					if (drop) {
+						free(f->buf);
+						free(f);
+					} else {
+						f->is_keyframe = !GST_BUFFER_FLAG_IS_SET(buffer, GST_BUFFER_FLAG_DELTA_UNIT);
+
+						if (f->is_keyframe) {
+							lwsl_notice("DIAGNOSTIC: Encoded H264 KEYFRAME! size=%zu for room %s\n", info.size, r->name);
+						}
+
+						pthread_mutex_lock(&r->encode_mutex);
+						lws_dll2_add_tail(&f->list, &r->h264_queue);
+						pthread_mutex_unlock(&r->encode_mutex);
+
+						static int dbg_enc = 0;
+						if (dbg_enc++ % 100 == 0)
+							lwsl_notice("Encoded H264 frame: %zu bytes for room %s (pts %llu)\n", info.size, r->name, (unsigned long long)pts);
+					}
+				} else {
+					free(f);
+				}
 			}
+			gst_buffer_unmap(buffer, &info);
 		}
-
-		if (!do_encode)
-			continue;
-
-		uint8_t *buf;
-		size_t len;
-		struct lws_transcode_ctx *tcc = (et->codec == LWS_CODEC_H264) ?
-				et->room->tcc_enc_h264 : et->room->tcc_enc_av1;
-
-		if (!tcc || !et->enc_frame) {
-			continue;
-		}
-
-		if (lws_transcode_encode(tcc, et->enc_frame, &buf, &len) >= 0) {
-			pthread_mutex_lock(&et->mutex);
-			if (len > et->encoded_alloc) {
-				et->encoded_alloc = len + 1048576; /* 1MB increment */
-				et->encoded_buf = realloc(et->encoded_buf, et->encoded_alloc);
-			}
-			if (et->encoded_buf) {
-				memcpy(et->encoded_buf, buf, len);
-				et->encoded_len = len;
-				et->encoded_rtp_pts = et->rtp_pts;
-				et->encode_done = 1; /* Signal back to worker thread */
-			}
-			pthread_mutex_unlock(&et->mutex);
-		}
+		gst_sample_unref(sample);
 	}
-
-	return NULL;
+	return GST_FLOW_OK;
 }
 
-static int
-init_enc_thread(struct encoder_thread *et, struct mixer_room *r, enum lws_video_codec codec)
+static GstFlowReturn
+on_new_sample_av1(GstElement *sink, struct mixer_room *r)
 {
-	et->room = r;
-	et->codec = codec;
-	et->running = 1;
-	et->encode_done = 0;
-	et->frame_ready = 0;
-	et->encoded_buf = NULL;
-	et->encoded_len = 0;
-	et->encoded_alloc = 0;
-	pthread_mutex_init(&et->mutex, NULL);
-	pthread_cond_init(&et->cond, NULL);
+	GstSample *sample;
+	g_signal_emit_by_name(sink, "pull-sample", &sample);
+	if (sample) {
+		GstBuffer *buffer = gst_sample_get_buffer(sample);
+		GstMapInfo info;
+		if (gst_buffer_map(buffer, &info, GST_MAP_READ)) {
+			struct mixer_encoded_frame *f = calloc(1, sizeof(*f));
+			if (f) {
+				f->buf = malloc(info.size);
+				if (f->buf) {
+					memcpy(f->buf, info.data, info.size);
+					f->len = info.size;
 
-	et->enc_frame = lws_transcode_frame_alloc(r->master_w, r->master_h);
-	if (!et->enc_frame)
-		return -1;
+					GstClockTime pts = GST_BUFFER_PTS(buffer);
 
-	if (pthread_create(&et->thread, NULL, video_encoder_thread, et)) {
-		lws_transcode_frame_free(&et->enc_frame);
-		return -1;
+					/* Drop massive catch-up bursts from compositor when a room is re-joined after being empty */
+					int drop = 0;
+					if (GST_CLOCK_TIME_IS_VALID(pts)) {
+						f->rtp_ts = (uint32_t)(pts * 9 / 100000);
+						GstClock *clock = gst_element_get_clock(sink);
+						if (clock) {
+							GstClockTime now = gst_clock_get_time(clock) - gst_element_get_base_time(sink);
+							gst_object_unref(clock);
+							if (now > pts + 1000000000ull) {
+								drop = 1;
+							}
+						}
+					} else {
+						f->rtp_ts = 0;
+					}
+
+					if (drop) {
+						free(f->buf);
+						free(f);
+					} else {
+						f->is_keyframe = !GST_BUFFER_FLAG_IS_SET(buffer, GST_BUFFER_FLAG_DELTA_UNIT);
+
+						pthread_mutex_lock(&r->encode_mutex);
+						lws_dll2_add_tail(&f->list, &r->av1_queue);
+						pthread_mutex_unlock(&r->encode_mutex);
+					}
+				} else {
+					free(f);
+				}
+			}
+			gst_buffer_unmap(buffer, &info);
+		}
+		gst_sample_unref(sample);
 	}
-	return 0;
-}
-
-static void
-deinit_enc_thread(struct encoder_thread *et)
-{
-	if (et->running) {
-		pthread_mutex_lock(&et->mutex);
-		et->running = 0;
-		pthread_cond_signal(&et->cond);
-		pthread_mutex_unlock(&et->mutex);
-
-		pthread_join(et->thread, NULL);
-	}
-	pthread_mutex_destroy(&et->mutex);
-	pthread_cond_destroy(&et->cond);
-
-	if (et->encoded_buf)
-		free(et->encoded_buf);
-
-	if (et->enc_frame)
-		lws_transcode_frame_free(&et->enc_frame);
+	return GST_FLOW_OK;
 }
 
 int
 mixer_room_init(struct mixer_room *r)
 {
-	r->master_frame = lws_transcode_frame_alloc(r->master_w, r->master_h);
-	if (!r->master_frame)
-		return -1;
+	GError *err = NULL;
 
-	init_enc_thread(&r->enc_thread_h264, r, LWS_CODEC_H264);
-	init_enc_thread(&r->enc_thread_av1, r, LWS_CODEC_AV1);
+	if (!gst_is_initialized())
+		gst_init(NULL, NULL);
+
+	pthread_mutex_init(&r->encode_mutex, NULL);
+	lws_dll2_owner_clear(&r->h264_queue);
+	lws_dll2_owner_clear(&r->av1_queue);
+
+	r->pipeline = gst_parse_launch(r->vhd->pipeline_template, &err);
+	if (!r->pipeline) {
+		lwsl_err("%s: GStreamer pipeline parse failed: %s\n", __func__, err ? err->message : "Unknown");
+		if (err) g_error_free(err);
+		return -1;
+	}
+
+	lwsl_err("Using PVO Pipeline String: %s\n", r->vhd->pipeline_template);
+
+
+
+	GstBus *bus = gst_element_get_bus(r->pipeline);
+	gst_bus_add_watch(bus, (GstBusFunc)bus_call, r);
+	gst_object_unref(bus);
+
+	r->compositor = gst_bin_get_by_name(GST_BIN(r->pipeline), "comp");
+	if (!r->compositor) {
+		lwsl_err("%s: Failed to find compositor 'comp' in pipeline\n", __func__);
+		return -1;
+	}
+	/* Ensure compositor aligns output PTS with the first incoming frame's PTS to avoid catch-up gaps */
+	g_object_set(G_OBJECT(r->compositor), "start-time-selection", 1, NULL); // 1 = first
+
+	GstPad *comp_src = gst_element_get_static_pad(r->compositor, "src");
+	gst_pad_add_probe(comp_src, GST_PAD_PROBE_TYPE_BUFFER, on_compositor_src_buffer_probe, r, NULL);
+	gst_object_unref(comp_src);
+
+	/* Find sinks. Try 'outsink_h264' first, fallback to 'outsink' */
+	r->appsink_h264 = gst_bin_get_by_name(GST_BIN(r->pipeline), "outsink_h264");
+	if (!r->appsink_h264)
+		r->appsink_h264 = gst_bin_get_by_name(GST_BIN(r->pipeline), "outsink");
+
+	r->appsink_av1 = gst_bin_get_by_name(GST_BIN(r->pipeline), "outsink_av1");
+
+	if (r->appsink_h264) {
+		g_object_set(G_OBJECT(r->appsink_h264), "emit-signals", TRUE, "sync", FALSE, "async", FALSE, NULL);
+		g_signal_connect(r->appsink_h264, "new-sample", G_CALLBACK(on_new_sample_h264), r);
+
+
+	}
+
+	if (r->appsink_av1) {
+		g_object_set(G_OBJECT(r->appsink_av1), "emit-signals", TRUE, "sync", FALSE, "async", FALSE, NULL);
+		g_signal_connect(r->appsink_av1, "new-sample", G_CALLBACK(on_new_sample_av1), r);
+	}
+
+	GstStateChangeReturn sret = gst_element_set_state(r->pipeline, GST_STATE_PLAYING);
+	lwsl_notice("%s: Pipeline set to PLAYING, result %d\n", __func__, sret);
 
 	r->lm_ops = &lm_speaker_ops;
 	if (r->lm_ops->create) {
@@ -1299,16 +1369,55 @@ mixer_room_deinit(struct mixer_room *r)
 		r->lm_ctx = NULL;
 	}
 
-	deinit_enc_thread(&r->enc_thread_h264);
-	deinit_enc_thread(&r->enc_thread_av1);
-
-	if (r->tcc_enc_h264) lws_transcode_destroy(&r->tcc_enc_h264);
-	if (r->tcc_enc_av1) lws_transcode_destroy(&r->tcc_enc_av1);
-	if (r->master_frame) lws_transcode_frame_free(&r->master_frame);
+	if (r->pipeline) {
+		gst_element_set_state(r->pipeline, GST_STATE_NULL);
+		if (r->compositor) gst_object_unref(r->compositor);
+		if (r->appsink_h264) gst_object_unref(r->appsink_h264);
+		if (r->appsink_av1) gst_object_unref(r->appsink_av1);
+		gst_object_unref(r->pipeline);
+		r->pipeline = NULL;
+	}
 
 	if (r->adapt_h264) lws_adapt_destroy(&r->adapt_h264);
 
+	pthread_mutex_destroy(&r->encode_mutex);
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&r->h264_queue)) {
+		struct mixer_encoded_frame *f = lws_container_of(d, struct mixer_encoded_frame, list);
+		lws_dll2_remove(&f->list);
+		free(f->buf);
+		free(f);
+	} lws_end_foreach_dll_safe(d, d1);
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&r->av1_queue)) {
+		struct mixer_encoded_frame *f = lws_container_of(d, struct mixer_encoded_frame, list);
+		lws_dll2_remove(&f->list);
+		free(f->buf);
+		free(f);
+	} lws_end_foreach_dll_safe(d, d1);
+
 	free_chat_history(r);
+}
+
+void
+on_decoder_pad_added(GstElement *element, GstPad *new_pad, gpointer data)
+{
+	/* This is only for decodebin fallback */
+	struct mixer_media_session *s = (struct mixer_media_session *)data;
+	struct participant *p = (struct participant *)s->parent_p;
+
+	if (p && p->room && p->room->compositor) {
+		if (!s->compositor_pad) {
+			s->compositor_pad = gst_element_request_pad_simple(p->room->compositor, "sink_%u");
+			if (p->room->participants.count <= 1) p->room->master_pts = 0;
+		}
+
+		/* Link: decoder -> compositor_sink */
+		GstPadLinkReturn ret = gst_pad_link(new_pad, s->compositor_pad);
+		if (GST_PAD_LINK_FAILED(ret)) {
+			lwsl_err("%s: Failed to link decoder to compositor (err %d)\n", __func__, ret);
+		}
+	}
 }
 
 int
@@ -1338,18 +1447,115 @@ init_participant_media(struct participant *p, enum lws_video_codec codec)
 		}
 	}
 
-	/* 2. Init Video Decoder */
+	/* 2. Init Video Decoder via GStreamer */
 	s->last_dec_codec = codec;
-	if (s->tcc_dec) lws_transcode_destroy(&s->tcc_dec);
 
-	s->tcc_dec = lws_transcode_decoder_create(codec == LWS_CODEC_AV1 ?
-			LWS_TCC_AV1 : LWS_TCC_H264);
-	if (!s->tcc_dec)
+	if (s->appsrc) {
+		/* Already initialized */
+		return 0;
+	}
+
+	s->last_pts = GST_CLOCK_TIME_NONE;
+	char n_appsrc[64], n_dec[64], n_que[64], n_parse[64], n_deint[64], n_vconv[64], n_vscale[64], n_vrate[64], n_cfilt[64];
+	lws_snprintf(n_appsrc, sizeof(n_appsrc), "appsrc_%p", s);
+	lws_snprintf(n_dec, sizeof(n_dec), "dec_%p", s);
+	lws_snprintf(n_que, sizeof(n_que), "que_%p", s);
+	lws_snprintf(n_parse, sizeof(n_parse), "parse_%p", s);
+	lws_snprintf(n_deint, sizeof(n_deint), "deint_%p", s);
+	lws_snprintf(n_vconv, sizeof(n_vconv), "vconv_%p", s);
+	lws_snprintf(n_vscale, sizeof(n_vscale), "vscale_%p", s);
+	lws_snprintf(n_vrate, sizeof(n_vrate), "vrate_%p", s);
+	lws_snprintf(n_cfilt, sizeof(n_cfilt), "cfilt_%p", s);
+
+	s->appsrc = gst_element_factory_make("appsrc", n_appsrc);
+	s->decodebin = gst_element_factory_make("avdec_h264", n_dec);
+	if (!s->decodebin) {
+		lwsl_err("%s: Critical: avdec_h264 not found, cannot build static chain\n", __func__);
 		return -1;
+	}
+	GstElement *que = gst_element_factory_make("queue", n_que);
+	g_object_set(G_OBJECT(que), "max-size-buffers", 0, "max-size-time", (guint64)0, "max-size-bytes", (guint)0, NULL);
 
-	if (!s->avframe_dec) s->avframe_dec = lws_transcode_frame_alloc(1280, 720);
-	if (!s->avframe_tmp) s->avframe_tmp = lws_transcode_frame_alloc(1280, 720);
-	s->avframe_scaled       = NULL;
+	GstElement *h264parse = gst_element_factory_make("h264parse", n_parse);
+
+	GstElement *deint = gst_element_factory_make("deinterlace", n_deint);
+	GstElement *vconv = gst_element_factory_make("videoconvert", n_vconv);
+	GstElement *vscale = gst_element_factory_make("videoscale", n_vscale);
+	GstElement *vrate = gst_element_factory_make("videorate", n_vrate);
+	GstElement *cfilter = gst_element_factory_make("capsfilter", n_cfilt);
+
+	if (!s->appsrc || !s->decodebin || !que || !h264parse || !deint || !vconv || !vscale || !vrate || !cfilter) {
+		lwsl_err("%s: Failed to create GStreamer elements\n", __func__);
+		return -1;
+	}
+
+	/* Force progressive I420 and EXACTLY 25fps for the compositor */
+	GstCaps *icaps = gst_caps_from_string("video/x-raw,format=I420,interlace-mode=progressive,framerate=25/1");
+	g_object_set(G_OBJECT(cfilter), "caps", icaps, NULL);
+	gst_caps_unref(icaps);
+
+	GstCaps *caps = gst_caps_new_simple("video/x-h264",
+			"stream-format", G_TYPE_STRING, "byte-stream",
+			"alignment", G_TYPE_STRING, "au",
+			NULL);
+	g_object_set(G_OBJECT(s->appsrc), "caps", caps, "format", GST_FORMAT_TIME,
+			"is-live", TRUE, "do-timestamp", FALSE, NULL);
+	gst_caps_unref(caps);
+
+	if (p->room && p->room->pipeline) {
+		/* Use system clock for maximum stability with live jittery streams */
+		gst_pipeline_use_clock(GST_PIPELINE(p->room->pipeline), gst_system_clock_obtain());
+
+		if (!s->compositor_pad) {
+			s->compositor_pad = gst_element_request_pad_simple(p->room->compositor, "sink_%u");
+			if (p->room->participants.count <= 1) p->room->master_pts = 0;
+		}
+
+		/* Set compositor pad to be as lenient as possible */
+		g_object_set(G_OBJECT(p->room->compositor), "latency", (GstClockTime)0, NULL);
+
+		gst_bin_add_many(GST_BIN(p->room->pipeline), s->appsrc, que, h264parse, s->decodebin, deint, vconv, vscale, vrate, cfilter, NULL);
+
+		/* Direct link: appsrc -> que -> h264parse -> avdec_h264 -> deinterlace -> vconv -> vscale -> videorate -> cfilter */
+		if (!gst_element_link_many(s->appsrc, que, h264parse, s->decodebin, deint, vconv, vscale, vrate, cfilter, NULL)) {
+			lwsl_err("%s: Failed to link static participant chain\n", __func__);
+		}
+
+		/* Link the end of our chain to the compositor */
+		GstPad *cf_src = gst_element_get_static_pad(cfilter, "src");
+		GstPadLinkReturn ret = gst_pad_link(cf_src, s->compositor_pad);
+		gst_object_unref(cf_src);
+
+		if (GST_PAD_LINK_FAILED(ret)) {
+			lwsl_err("%s: Failed to link chain to compositor (err %d)\n", __func__, ret);
+		}
+
+		/* Add diagnostic probes */
+		GstPad *srcpad = gst_element_get_static_pad(s->appsrc, "src");
+		gst_pad_add_probe(srcpad, GST_PAD_PROBE_TYPE_BUFFER, on_appsrc_buffer_probe, s, NULL);
+		gst_object_unref(srcpad);
+
+		GstPad *dec_src = gst_element_get_static_pad(s->decodebin, "src");
+		gst_pad_add_probe(dec_src, GST_PAD_PROBE_TYPE_BUFFER, on_decodebin_buffer_probe, s, NULL);
+		gst_object_unref(dec_src);
+
+		gst_element_sync_state_with_parent(s->appsrc);
+		gst_element_sync_state_with_parent(que);
+		gst_element_sync_state_with_parent(h264parse);
+		gst_element_sync_state_with_parent(s->decodebin);
+		gst_element_sync_state_with_parent(deint);
+		gst_element_sync_state_with_parent(vconv);
+		gst_element_sync_state_with_parent(vscale);
+		gst_element_sync_state_with_parent(vrate);
+		gst_element_sync_state_with_parent(cfilter);
+
+		GstState state;
+		gst_element_get_state(p->room->pipeline, &state, NULL, 0);
+		if (state != GST_STATE_PLAYING) {
+			lwsl_notice("Resuming pipeline on first media frame for room %s\n", p->room->name);
+			gst_element_set_state(p->room->pipeline, GST_STATE_PLAYING);
+		}
+	}
 
 	lws_dll2_owner_clear(&s->video_queue);
 	lws_dll2_owner_clear(&s->rtp_queue);
@@ -1364,7 +1570,6 @@ init_participant_media(struct participant *p, enum lws_video_codec codec)
 	s->obu_len              = 0;
 	s->obu_alloc            = 0;
 
-	s->sws_ctx_dec          = NULL;
 	s->last_dec_w           = 0;
 	s->last_dec_h           = 0;
 	s->last_dst_w           = 0;
@@ -1418,4 +1623,21 @@ deinit_participant_media(struct participant *p)
 
         p->session = NULL;
     }
+}
+
+void
+mixer_force_keyframe(struct mixer_room *r)
+{
+	if (!r || !r->pipeline || !r->appsink_h264) return;
+
+	/*
+	 * Send an UPSTREAM event starting from the sink.
+	 * This flows backwards to the encoder (x264enc) without requiring the
+	 * STREAM_LOCK, completely avoiding deadlocks with the data thread.
+	 */
+	GstEvent *event = gst_event_new_custom(GST_EVENT_CUSTOM_UPSTREAM,
+		gst_structure_new_empty("GstForceKeyUnit"));
+
+	gboolean res = gst_element_send_event(r->appsink_h264, event);
+	lwsl_notice("DIAGNOSTIC: Forced keyframe on video encoder (res=%d)\n", res);
 }
