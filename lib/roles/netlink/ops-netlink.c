@@ -36,6 +36,10 @@
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
 
+#ifndef IFA_FLAGS
+#define IFA_FLAGS 8
+#endif
+
 //#define lwsl_netlink lwsl_notice
 #define lwsl_cx_netlink		lwsl_cx_info
 #define lwsl_cx_netlink_debug	lwsl_cx_debug
