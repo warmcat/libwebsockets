@@ -32,6 +32,8 @@ To enable the plugin, attach it to your configuration and provide the following 
 | `uid` | User ID to drop privileges to in the spawned process (if standard POSIX). | `0` (do not drop) |
 | `gid` | Group ID to drop privileges to in the spawned process (if standard POSIX). | `0` (do not drop) |
 | `signature-duration` | The duration in seconds for which the newly generated DNSSEC signatures should remain valid. | 31536000 (1 year) |
+| `jwk_path` | Absolute path to the JSON Web Key (JWK) for JWT verification in the web UI. | `NULL` |
+| `cookie-name` | Name of the HTTP cookie that the monitor should check for JWT sessions. | `auth_session` |
 
 ## Domain JSON Configuration (`$dns_base_dir/domains`)
 

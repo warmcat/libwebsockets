@@ -10,22 +10,23 @@ Just configure lws with `cmake .. -DLWS_WITH_PLUGINS=1` and build lws as normal.
 |---|---|
 |upload-dir|A writeable directory where uploaded files will go|
 |max-size|Maximum individual file size in bytes|
-|basic-auth|Path to basic auth credential file so wss can also be protected|
+|jwt-jwk|Path to the JSON Web Key (JWK) used to verify JWT signatures|
+|cookie-name|Optional: Name of the HTTP cookie that the server should expect the JWT payload in. Defaults to `auth_session`|
 
 ## Required mounts
 
 To use deaddrop meaningfully, all the mounts and the ws protocol must be
-protected by basic auth.  And to use basic auth securely, the connection must
+protected by JWT authentication.  And to use JWT securely, the connection must
 be protected from snooping by tls.
 
-1) Set the basic-auth pvo to require valid credentials as described above
+1) Set the `jwt-jwk` pvo to require valid signatures on WebSocket connections as described above.
 
-2) Protect your basic fileserving mount by the same basic auth file... this is
+2) Protect your basic fileserving mount by the same JWT bouncer (`lws-login`)... this is
    used to serve index.html, the css etc.
 
 3) Add a callback mount into "lws-deaddrop" protocol at "upload"... so if your
    URL for deaddrop is "/tools/share", this would be at "/tools/share/upload".
-   It must also be protected by the basic auth file.
+   It must also be protected by the JWT bouncer.
 
 4) Add a fileserving mount at the url "get" (continuing the example above, it
    would be "/tools/share/get" whose origin matches the "upload-dir" pvo
@@ -49,16 +50,13 @@ The mountpoints would look something like this (added to vhost/mounts)
 	{
          "mountpoint": "/tools/share",
          "origin": "file:///var/www/deaddrop",
-         "default": "index.html",
-         "basic-auth": "/var/www/ba"
+         "default": "index.html"
         }, {
          "mountpoint": "/tools/share/upload",
-         "origin": "callback://lws-deaddrop",
-         "basic-auth": "/var/www/ba"
+         "origin": "callback://lws-deaddrop"
         }, {
          "mountpoint": "/tools/share/get",
          "origin": "file:///var/cache/deaddrop-uploads",
-         "basic-auth": "/var/www/ba",
 
 	 "extra-mimetypes": {
 		".bin": "application/octet-stream",
@@ -76,7 +74,7 @@ The mountpoints would look something like this (added to vhost/mounts)
 ```
 
 This enables the plugin on the vhost, configures the pvos, and makes
-the wss serving also depend on having a valid basic auth credential.
+the wss serving also depend on having a valid JWT session.
 
 ```
          "ws-protocols": [{
@@ -84,7 +82,8 @@ the wss serving also depend on having a valid basic auth credential.
                   "status": "ok",
                   "upload-dir": "/var/cache/deaddrop-uploads",
                   "max-size": "52428800",
-                  "basic-auth": "/var/www/ba"
+                  "jwt-jwk": "/var/db/lws-auth.jwk",
+                  "cookie-name": "auth_session"
                 }
           }],
 ```
