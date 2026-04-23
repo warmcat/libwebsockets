@@ -1631,7 +1631,10 @@ deinit_participant_media(struct participant *p)
             msg.session = p->session;
 
             lws_mutex_lock(p->room->vhd->mutex_rx);
-            lws_ring_insert(p->room->vhd->ring_rx, &msg, 1);
+            if (lws_ring_insert(p->room->vhd->ring_rx, &msg, 1) != 1) {
+                lwsl_err("%s: Failed to insert REMOVE_SESSION\n", __func__);
+                mixer_media_session_unref(p->session);
+            }
             lws_mutex_unlock(p->room->vhd->mutex_rx);
         } else {
             /* Fallback if somehow room is missing */
