@@ -981,7 +981,10 @@ skip_encode:
 			lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->sessions)) {
 				struct mixer_media_session *s = lws_container_of(d, struct mixer_media_session, list);
 				if (strcmp(s->room_name, r->name)) goto next_tx_h264;
-				if (s->can_rx_h264) {
+				lws_mutex_lock(s->mutex);
+				int can_rx_h264 = s->can_rx_h264;
+				lws_mutex_unlock(s->mutex);
+				if (can_rx_h264) {
 					if (s->media && we_ops && we_ops->send_video) {
 						static int dbg_tx = 0;
 						if (dbg_tx++ % 50 == 0)
@@ -1009,7 +1012,10 @@ next_tx_h264:;
 			lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->sessions)) {
 				struct mixer_media_session *s = lws_container_of(d, struct mixer_media_session, list);
 				if (strcmp(s->room_name, r->name)) goto next_tx_av1;
-				if (s->can_rx_av1) {
+				lws_mutex_lock(s->mutex);
+				int can_rx_av1 = s->can_rx_av1;
+				lws_mutex_unlock(s->mutex);
+				if (can_rx_av1) {
 					if (s->media && we_ops && we_ops->send_video) {
 						we_ops->send_video(s->media, f->buf, f->len, LWS_CODEC_AV1, rtp_ts);
 					}
