@@ -499,7 +499,9 @@ process_session_media(struct mixer_media_session *s)
 							if (dbg_jitter++ % 50 == 0)
 								lwsl_warn("%s: Dropped %zu PCM samples (Jitter full)\n", __func__, drop);
 						}
-						lws_ring_insert(s->ring_pcm, s->pcm_in, (size_t)ret);
+						if (lws_ring_insert(s->ring_pcm, s->pcm_in, (size_t)ret) != (size_t)ret) {
+							lwsl_err("%s: Failed to insert PCM samples into ring\n", __func__);
+						}
 #if 0
 						static int dbg_dec = 0;
 						if (dbg_dec++ % 50 == 0)
@@ -848,7 +850,10 @@ process_session_media(struct mixer_media_session *s)
 
 		}
 
-		if (msg->payload) free(msg->payload);
+		if (msg->payload) {
+			free(msg->payload);
+			msg->payload = NULL;
+		}
 	}
 }
 
