@@ -130,7 +130,7 @@ load_sound_clip(struct sound_clip *sc, const char *path)
 
 	for (size_t i = 0; i < frames_out; i++) {
 		size_t src_idx = (size_t)((uint64_t)i * h.sample_rate / AUDIO_RATE);
-		if (src_idx >= frames_in) src_idx = frames_in - 1;
+		if (src_idx >= frames_in) src_idx = frames_in > 0 ? frames_in - 1 : 0;
 
 		int32_t val = 0;
 		if (h.channels == 1) {
