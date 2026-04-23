@@ -1416,7 +1416,7 @@ pkt_add_hdrs:
 			}
 			lwsl_vhost_notice(vhd->vhost, "Generating ACME CSR... may take a little while");
 			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{\"csr\":\"");
-			n = lws_tls_acme_sni_csr_create(vhd->context,
+			n = lws_tls_acme_sni_csr_create_ecdsa(vhd->context,
 					&vhd->active_cert->pvop[0],
 					(uint8_t *)p, lws_ptr_diff_size_t(end, p),
 					&ac->alloc_privkey_pem,

@@ -1104,4 +1104,176 @@ bail0:
 
 	return ret;
 }
+
+int
+lws_tls_acme_sni_csr_create_ecdsa(struct lws_context *context, const char *elements[],
+				  uint8_t *csr, size_t csr_len, char **privkey_pem,
+				  size_t *privkey_len)
+{
+#if defined(OPENSSL_NO_EC)
+	return -1;
+#else
+	uint8_t *csr_in = csr;
+	EC_KEY *eckey = NULL;
+	X509_REQ *req;
+	X509_NAME *subj;
+	EVP_PKEY *pkey;
+	char *p, *end;
+	BIO *bio;
+	long bio_len;
+	int n, ret = -1;
+
+	eckey = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
+	if (!eckey)
+		return -1;
+
+	if (!EC_KEY_generate_key(eckey)) {
+		EC_KEY_free(eckey);
+		return -1;
+	}
+
+	pkey = EVP_PKEY_new();
+	if (!pkey)
+		goto bail0;
+	if (!EVP_PKEY_assign_EC_KEY(pkey, eckey))
+		goto bail1;
+
+	req = X509_REQ_new();
+	if (!req)
+	        goto bail1;
+
+	X509_REQ_set_pubkey(req, pkey);
+
+	subj = X509_NAME_new();
+	if (!subj)
+		goto bail2;
+
+	for (n = 0; n < LWS_TLS_REQ_ELEMENT_COUNT; n++)
+		if (elements[n] &&
+			lws_tls_openssl_add_nid(subj, nid_list[n],
+				elements[n])) {
+				lwsl_notice("%s: failed to add element %d\n",
+						__func__, n);
+			goto bail3;
+		}
+
+	if (X509_REQ_set_subject_name(req, subj) != 1)
+		goto bail3;
+
+	if (elements[LWS_TLS_REQ_ELEMENT_SUBJECT_ALT_NAME]) {
+		STACK_OF(X509_EXTENSION) *exts;
+		X509_EXTENSION *ext;
+		char san[256];
+
+		exts = sk_X509_EXTENSION_new_null();
+		if (!exts)
+			goto bail3;
+
+		lws_snprintf(san, sizeof(san), "DNS:%s,DNS:%s",
+				elements[LWS_TLS_REQ_ELEMENT_COMMON_NAME],
+				elements[LWS_TLS_REQ_ELEMENT_SUBJECT_ALT_NAME]);
+
+		ext = X509V3_EXT_conf_nid(NULL, NULL, NID_subject_alt_name,
+				san);
+		if (!ext) {
+			sk_X509_EXTENSION_pop_free(exts, X509_EXTENSION_free);
+			goto bail3;
+		}
+		sk_X509_EXTENSION_push(exts, ext);
+
+		if (!X509_REQ_add_extensions(req, exts)) {
+			sk_X509_EXTENSION_pop_free(exts, X509_EXTENSION_free);
+			goto bail3;
+		}
+		sk_X509_EXTENSION_pop_free(exts, X509_EXTENSION_free);
+	}
+
+	if (!X509_REQ_sign(req, pkey, EVP_sha256()))
+		goto bail3;
+
+	/*
+	 * issue the CSR as PEM to a BIO, and translate to b64urlenc without
+	 * headers, trailers, or whitespace
+	 */
+
+	bio = BIO_new(BIO_s_mem());
+	if (!bio)
+		goto bail3;
+
+	if (PEM_write_bio_X509_REQ(bio, req) != 1) {
+		BIO_free(bio);
+		goto bail3;
+	}
+
+	bio_len = BIO_get_mem_data(bio, &p);
+	end = p + bio_len;
+
+	/* strip the header line */
+	while (p < end && *p != '\n')
+		p++;
+
+	while (p < end && csr_len) {
+		if (*p == '\n') {
+			p++;
+			continue;
+		}
+
+		if (*p == '-')
+			break;
+
+		if (*p == '+')
+			*csr++ = '-';
+		else
+			if (*p == '/')
+				*csr++ = '_';
+			else
+				*csr++ = (uint8_t)*p;
+		p++;
+		csr_len--;
+	}
+	BIO_free(bio);
+	if (!csr_len) {
+		lwsl_notice("%s: need %ld for CSR\n", __func__, bio_len);
+		goto bail3;
+	}
+
+	/*
+	 * Also return the private key as a PEM in memory
+	 * (platform may not have a filesystem)
+	 */
+	bio = BIO_new(BIO_s_mem());
+	if (!bio)
+		goto bail3;
+
+	if (PEM_write_bio_PrivateKey(bio, pkey, NULL, NULL, 0, 0, NULL) != 1) {
+		BIO_free(bio);
+		goto bail3;
+	}
+	bio_len = BIO_get_mem_data(bio, &p);
+	*privkey_pem = malloc((unsigned long)bio_len); /* malloc so user code can own / free */
+	*privkey_len = (size_t)bio_len;
+	if (!*privkey_pem) {
+		lwsl_notice("%s: need %ld for private key\n", __func__,
+			    bio_len);
+		BIO_free(bio);
+		goto bail3;
+	}
+	memcpy(*privkey_pem, p, (unsigned int)(int)(long long)bio_len);
+	BIO_free(bio);
+
+	ret = lws_ptr_diff(csr, csr_in);
+
+bail3:
+	X509_NAME_free(subj);
+bail2:
+	X509_REQ_free(req);
+bail1:
+	EVP_PKEY_free(pkey);
+	return ret;
+bail0:
+	if (eckey)
+		EC_KEY_free(eckey);
+	return -1;
+#endif
+}
 #endif
