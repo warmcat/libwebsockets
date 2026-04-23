@@ -81,12 +81,17 @@ dump_context(struct parse_state *s)
 	if (s->fd >= 0) {
 		off_t cur = lseek(s->fd, 0, SEEK_CUR);
 		if (cur >= (off_t)0) {
-			lseek(s->fd, (off_t)s->raw_byte_pos, SEEK_SET);
-			ahead = read(s->fd, temp + s->ring_count, 16);
-			lseek(s->fd, cur, SEEK_SET);
+			if (lseek(s->fd, (off_t)s->raw_byte_pos, SEEK_SET) != (off_t)-1) {
+				ahead = read(s->fd, temp + s->ring_count, 16);
+			}
+			if (lseek(s->fd, cur, SEEK_SET) == (off_t)-1) {
+				lwsl_err("%s: Failed to restore fd position\n", __func__);
+			}
 		}
 		if (ahead < 0)
 			ahead = 0;
+		if (ahead > 16)
+			ahead = 16;
 	}
 
 	lwsl_hexdump_warn(temp, s->ring_count + (size_t)ahead);
