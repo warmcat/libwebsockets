@@ -1082,6 +1082,8 @@ media_worker_thread(void *d)
         lws_mutex_lock(vhd->mutex_rx);
         while (lws_ring_get_count_waiting_elements(vhd->ring_rx, &vhd->ring_rx_tail) > 0) {
              msg = (struct mixer_msg *)lws_ring_get_element(vhd->ring_rx, &vhd->ring_rx_tail);
+             if (!msg)
+                 break;
              process_control_message(vhd, msg);
              lws_ring_consume(vhd->ring_rx, &vhd->ring_rx_tail, NULL, 1);
              lws_ring_update_oldest_tail(vhd->ring_rx, vhd->ring_rx_tail);
