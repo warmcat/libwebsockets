@@ -556,7 +556,12 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 					mixer_media_session_ref(p->session); /* +1 for Worker */
 
 					lws_mutex_lock(vhd->mutex_rx);
-					lws_ring_insert(vhd->ring_rx, &msg, 1);
+					if (lws_ring_insert(vhd->ring_rx, &msg, 1) != 1) {
+						lwsl_err("%s: Failed to insert ADD_SESSION\n", __func__);
+						mixer_media_session_unref(p->session);
+						if (msg.payload)
+							free(msg.payload);
+					}
 					lws_mutex_unlock(vhd->mutex_rx);
 				}
 
@@ -872,7 +877,12 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 								mixer_media_session_ref(p->session);
 
 								lws_mutex_lock(p->room->vhd->mutex_rx);
-								lws_ring_insert(p->room->vhd->ring_rx, &msg, 1);
+								if (lws_ring_insert(p->room->vhd->ring_rx, &msg, 1) != 1) {
+									lwsl_err("%s: Failed to insert ADD_SESSION\n", __func__);
+									mixer_media_session_unref(p->session);
+									if (msg.payload)
+										free(msg.payload);
+								}
 								lws_mutex_unlock(p->room->vhd->mutex_rx);
 							} else {
 								lwsl_err("%s: Failed to recreate session for '%s'\n", __func__, p->name);
