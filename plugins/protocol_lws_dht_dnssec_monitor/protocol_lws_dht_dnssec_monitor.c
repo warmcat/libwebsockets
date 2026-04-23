@@ -1634,8 +1634,10 @@ handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_
 					lwsl_err("%s: Failed to chown dir %s to lwsws group\n", __func__, dir_path);
 				}
 			}
-			fchmod(fd, (mode_t)mode);
-			chmod(dir_path, (mode_t)0750);
+			if (fchmod(fd, (mode_t)mode) < 0)
+				lwsl_err("%s: Failed to fchmod file %s\n", __func__, d_path);
+			if (chmod(dir_path, (mode_t)0750) < 0)
+				lwsl_err("%s: Failed to chmod dir %s\n", __func__, dir_path);
 #endif
 			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
 
