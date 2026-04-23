@@ -788,3 +788,8 @@ body.is-disconnected .app-container {
 .dns-fg-red { color: var(--danger-color); }
 .dns-fg-gray { color: var(--text-secondary); }
 
+.text-sm { font-size: 0.9em; }
+.ext-link { color: #2196F3; text-decoration: none; }
+.ext-link:hover { text-decoration: underline; }
+.modal-content-wide { max-width: 800px; width: 90%; }
+.modal-actions-mt { margin-top: 15px; }

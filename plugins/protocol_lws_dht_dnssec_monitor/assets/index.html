@@ -66,17 +66,17 @@
                     </div>
                     <div id="whois-header" class="whois-header"></div>
                     <div class="actions-group">
-                        <table style="border: none; margin: 0; padding: 0;">
+                        <table id="actions-table" style="border: none; margin: 0; padding: 0;">
                             <tr><td style="border: none; padding: 0 0 5px 0; text-align: center;"><div id="dnssec-status"></div></td></tr>
-                            <tr><td style="border: none; padding: 0; text-align: center;"><button id="btn-save-zonefile" class="btn primary" disabled>Save<br>Zonefile</button></td></tr>
+                            <tr><td style="border: none; padding: 0 0 5px 0; text-align: center;"><button id="btn-save-zonefile" class="btn primary" disabled>Save<br>Zonefile</button></td></tr>
                         </table>
                     </div>
                 </div>
 
                 <div class="ext-raw-editor">
-                    <label for="raw-zone-editor">Raw Zone File</label>
                     <textarea id="raw-zone-editor" spellcheck="false" placeholder="; Raw zone file contents..."></textarea>
                 </div>
+
 
                 <div class="table-container">
                     <table id="table-zone">
@@ -182,6 +182,30 @@
             <div class="modal-actions">
                 <button id="btn-nt-cancel" class="btn hollow">Cancel</button>
                 <button id="btn-nt-save" class="btn primary" disabled>Create TLS</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-tls-details" class="modal">
+        <div class="modal-content modal-content-wide">
+            <h3>TLS Records for <span id="tls-summary-domain-name"></span></h3>
+            <div class="table-container">
+                <table id="table-tls-details">
+                    <thead>
+                        <tr>
+                            <th>Subdomain</th>
+                            <th>Local Expiry</th>
+                            <th>Remote Expiry</th>
+                            <th>Issuer</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td colspan="4" class="loading">Loading TLS data...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="modal-actions modal-actions-mt">
+                <button id="btn-tls-details-close" class="btn hollow">Close</button>
             </div>
         </div>
     </div>

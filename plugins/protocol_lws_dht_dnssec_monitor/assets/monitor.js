@@ -353,6 +353,7 @@ function handleResponse(data) {
         case 'get_tls':
             window.activeTls = data.tls || [];
             renderZoneTable();
+            updateTlsSummary();
             break;
         case 'create_tls':
         case 'delete_tls':
@@ -375,6 +376,10 @@ function handleResponse(data) {
                     span.innerText = data.msg;
                     span.classList.remove('text-green', 'text-gray'); span.classList.add('text-red');
                 }
+            }
+            updateTlsSummary();
+            if (!document.getElementById('modal-tls-details').classList.contains('hidden-panel') && document.getElementById('modal-tls-details').classList.contains('show')) {
+                renderTlsDetailsModal();
             }
             processCertQueue();
             break;
@@ -538,7 +543,7 @@ function renderWhoisHeader() {
     }
 
     if (currentDomainObj.alg) {
-        dsStatusHTML += `<br><span class="dns-fg-gray" style="font-size:0.9em">Key: ${currentDomainObj.alg} &nbsp; <a href="#" id="link-regen-keys" style="color:#2196F3; text-decoration:none;">replace</a> &nbsp; <a href="#" id="link-info-keys" style="color:#2196F3; text-decoration:none;">info</a></span>`;
+        dsStatusHTML += `<br><span class="dns-fg-gray text-sm">Key: ${currentDomainObj.alg} &nbsp; <a href="#" id="link-regen-keys" class="ext-link">replace</a> &nbsp; <a href="#" id="link-info-keys" class="ext-link">info</a></span>`;
     }
 
     let overallSigned = (w.ds_data ? isMatch : isSigned) && dnsSignedOk;
@@ -559,10 +564,13 @@ function renderWhoisHeader() {
 		</td>
             </tr>
             <tr>
-                <td class="dns-layout-lbl">DNS:<br>
-                ${dnsSerial}</td>
+                <td class="dns-layout-lbl">DNS: ${dnsSerial}</td>
                 <td>Sigexp: ${dnsExpiryStr}</td>
                 <td>Sigs: <span class="${sigsColor}">${sigsTick}</span></td>
+            </tr>
+            <tr id="tls-summary-row" class="hide">
+                <td class="dns-layout-lbl">TLS:</td>
+                <td colspan="2"><span id="tls-summary-content">Loading...</span> &nbsp; <a href="#" id="link-tls-details" class="ext-link">View TLS Details</a></td>
             </tr>
         </table>
     `;
@@ -621,6 +629,88 @@ function renderWhoisHeader() {
             document.getElementById('modal-dnssec-info').classList.add('show');
         };
     }
+
+    const lnkDetails = document.getElementById('link-tls-details');
+    if (lnkDetails) {
+        lnkDetails.onclick = (e) => {
+            e.preventDefault();
+            renderTlsDetailsModal();
+            document.getElementById('modal-tls-details').classList.add('show');
+        };
+    }
+}
+
+function updateTlsSummary() {
+    const row = document.getElementById('tls-summary-row');
+    const content = document.getElementById('tls-summary-content');
+    if (!row || !content) return;
+
+    if (!window.activeTls || window.activeTls.length === 0) {
+        row.classList.add('hide');
+        return;
+    }
+
+    let minDays = null;
+    window.activeTls.forEach(t => {
+        let cached = window.certStatusCache[t.fqdn + ':' + t.port];
+        if (cached && cached.status === 'ok') {
+            // parse days from local_msg or msg
+            let parseDays = (str) => {
+                if (!str) return null;
+                let m = str.match(/(\d+)\s*days?/i);
+                return m ? parseInt(m[1], 10) : null;
+            };
+            let d1 = parseDays(cached.local_msg);
+            let d2 = parseDays(cached.msg);
+            let d = d1 !== null ? d1 : (d2 !== null ? d2 : null);
+            if (d !== null) {
+                if (minDays === null || d < minDays) minDays = d;
+            }
+        }
+    });
+
+    let expStr = minDays !== null ? `Min Expiry: ${minDays}d` : 'Checking...';
+    content.innerText = `TLS: ${window.activeTls.length} certs, ${expStr}`;
+    row.classList.remove('hide');
+}
+
+function renderTlsDetailsModal() {
+    document.getElementById('tls-summary-domain-name').textContent = currentDomain;
+    const tbody = document.querySelector('#table-tls-details tbody');
+    tbody.innerHTML = '';
+
+    if (!window.activeTls || window.activeTls.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="loading">No TLS subdomains configured.</td></tr>';
+        return;
+    }
+
+    window.activeTls.forEach(t => {
+        const tr = document.createElement('tr');
+        let cached = window.certStatusCache[t.fqdn + ':' + t.port];
+        let locExp = 'Checking...';
+        let remExp = 'Checking...';
+        let issuer = 'Checking...';
+
+        if (cached) {
+            if (cached.status === 'ok') {
+                locExp = cached.local_msg || 'Unknown';
+                remExp = cached.msg || 'Unknown';
+                issuer = cached.issuer || 'Unknown';
+            } else {
+                remExp = `<span class="text-red">${cached.msg}</span>`;
+                locExp = 'Error';
+                issuer = 'Error';
+            }
+        }
+
+        tr.innerHTML = `
+            <td>${t.fqdn}:${t.port}</td>
+            <td>${locExp}</td>
+            <td>${remExp}</td>
+            <td>${issuer}</td>
+        `;
+        tbody.appendChild(tr);
+    });
 }
 
 function closeDetail() {
@@ -927,6 +1017,7 @@ function openEditor(id) {
 
     document.getElementById('btn-regen-cancel').onclick = () => closeModal('modal-regen-keys');
     document.getElementById('btn-dnssec-info-close').onclick = () => closeModal('modal-dnssec-info');
+    document.getElementById('btn-tls-details-close').onclick = () => closeModal('modal-tls-details');
     document.getElementById('btn-regen-replace').onclick = () => {
         const keyType = document.getElementById('select-regen-key-type').value;
         if (currentDomain) {
