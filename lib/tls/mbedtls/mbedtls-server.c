@@ -684,11 +684,104 @@ lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[],
 	/* subject must be formatted like "C=TW,O=warmcat,CN=myserver" */
 
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(x5); n++) {
-		if (p != subject)
-			*p++ = ',';
-		if (elements[n])
+		if (elements[n]) {
+			if (p != subject)
+				*p++ = ',';
 			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "%s=%s", x5[n],
 					  elements[n]);
+		}
+	}
+
+	if (mbedtls_x509write_csr_set_subject_name(&csr, subject))
+		goto fail1;
+
+	mbedtls_x509write_csr_set_key(&csr, &mpk);
+	mbedtls_x509write_csr_set_md_alg(&csr, MBEDTLS_MD_SHA256);
+
+	/*
+	 * data is written at the end of the buffer! Use the
+	 * return value to determine where you should start
+	 * using the buffer
+	 */
+	n = mbedtls_x509write_csr_der(&csr, buf, (size_t)buf_size, _rngf, context);
+	if (n < 0) {
+		lwsl_notice("%s: write csr der failed\n", __func__);
+		goto fail1;
+	}
+
+	/* we have it in DER, we need it in b64URL */
+
+	n = lws_jws_base64_enc((char *)(buf + buf_size) - n, (size_t)n,
+			       (char *)dcsr, csr_len);
+	if (n < 0)
+		goto fail1;
+
+	/*
+	 * okay, the CSR is done, last we need the private key in PEM
+	 * re-use the DER CSR buf as the result buffer since we cn do it in
+	 * one step
+	 */
+
+	if (mbedtls_pk_write_key_pem(&mpk, buf, (size_t)buf_size)) {
+		lwsl_notice("write key pem failed\n");
+		goto fail1;
+	}
+
+	*privkey_pem = (char *)buf;
+	*privkey_len = strlen((const char *)buf);
+
+	mbedtls_pk_free(&mpk);
+	mbedtls_x509write_csr_free(&csr);
+
+	return n;
+
+fail1:
+	mbedtls_pk_free(&mpk);
+fail:
+	mbedtls_x509write_csr_free(&csr);
+	free(buf);
+
+	return -1;
+}
+
+int
+lws_tls_acme_sni_csr_create_ecdsa(struct lws_context *context, const char *elements[],
+			    uint8_t *dcsr, size_t csr_len, char **privkey_pem,
+			    size_t *privkey_len)
+{
+	mbedtls_x509write_csr csr;
+	mbedtls_pk_context mpk;
+	int buf_size = 4096, n;
+	char subject[200], *p = subject, *end = p + sizeof(subject) - 1;
+	uint8_t *buf = malloc((unsigned int)buf_size); /* malloc because given to user code */
+
+	if (!buf)
+		return -1;
+
+	mbedtls_x509write_csr_init(&csr);
+
+	mbedtls_pk_init(&mpk);
+	if (mbedtls_pk_setup(&mpk, mbedtls_pk_info_from_type(MBEDTLS_PK_ECKEY))) {
+		lwsl_notice("%s: pk_setup failed\n", __func__);
+		goto fail;
+	}
+
+	n = mbedtls_ecp_gen_key(MBEDTLS_ECP_DP_SECP256R1, mbedtls_pk_ec(mpk), _rngf, context);
+	if (n) {
+		lwsl_notice("%s: failed to generate keys\n", __func__);
+
+		goto fail1;
+	}
+
+	/* subject must be formatted like "C=TW,O=warmcat,CN=myserver" */
+
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(x5); n++) {
+		if (elements[n]) {
+			if (p != subject)
+				*p++ = ',';
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "%s=%s", x5[n],
+					  elements[n]);
+		}
 	}
 
 	if (mbedtls_x509write_csr_set_subject_name(&csr, subject))
