@@ -30,6 +30,10 @@ __lws_wsi_remove_from_sul(struct lws *wsi)
 	lws_sul_cancel(&wsi->sul_timeout);
 	lws_sul_cancel(&wsi->sul_hrtimer);
 	lws_sul_cancel(&wsi->sul_validity);
+	lws_sul_cancel(&wsi->sul_connect_timeout);
+#if defined(WIN32)
+	lws_sul_cancel(&wsi->win32_sul_connect_async_check);
+#endif
 #if defined(LWS_WITH_HTTP_PROXY)
 	lws_sul_cancel(&wsi->sul_ws_proxy_est);
 #endif
