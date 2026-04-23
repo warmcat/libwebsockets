@@ -66,8 +66,10 @@
                     </div>
                     <div id="whois-header" class="whois-header"></div>
                     <div class="actions-group">
-			<div id="dnssec-status"></div><br>
-                        <button id="btn-save-zonefile" class="btn primary">Save<br>Zonefile</button>
+                        <table style="border: none; margin: 0; padding: 0;">
+                            <tr><td style="border: none; padding: 0 0 5px 0; text-align: center;"><div id="dnssec-status"></div></td></tr>
+                            <tr><td style="border: none; padding: 0; text-align: center;"><button id="btn-save-zonefile" class="btn primary" disabled>Save<br>Zonefile</button></td></tr>
+                        </table>
                     </div>
                 </div>
 
@@ -121,6 +123,39 @@
             <div class="modal-actions">
                 <button id="btn-nd-cancel" class="btn hollow">Cancel</button>
                 <button id="btn-nd-save" class="btn primary" disabled>Create</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-regen-keys" class="modal">
+        <div class="modal-content">
+            <h3>Replace DNSSEC Keys</h3>
+            <div class="form-group">
+                <label for="select-regen-key-type">Cryptographic Suite</label>
+                <select id="select-regen-key-type" style="width: 100%; padding: 0.75rem; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.08); color: #fff; border-radius: 6px;">
+                    <option value="ES256" selected>ES256 (ECDSA P-256)</option>
+                    <option value="ES384">ES384 (ECDSA P-384)</option>
+                    <option value="R1024">R1024 (RSA 1024-bit)</option>
+                    <option value="R2048">R2048 (RSA 2048-bit)</option>
+                </select>
+                <div style="color: #aaa; font-size: 0.85em; margin-top: 10px;">Warning: Selecting Replace will permanently overwrite your existing private keys and force a zone resign.</div>
+            </div>
+            <div class="modal-actions">
+                <button id="btn-regen-cancel" class="btn hollow">Cancel</button>
+                <button id="btn-regen-replace" class="btn primary" style="background:#cc2222; border-color:#cc2222;">Replace</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-dnssec-info" class="modal">
+        <div class="modal-content" style="max-width: 600px;">
+            <h3>Registrar DNSSEC Info</h3>
+            <p style="color: #aaa; font-size: 0.9em;">Copy this information to your domain registrar's DNSSEC configuration panel.</p>
+            <div class="form-group">
+                <textarea id="textarea-dnssec-info" rows="5" readonly style="width: 100%; background: #222; color: #0f0; border: 1px solid #444; padding: 10px; font-family: monospace; resize: none;"></textarea>
+            </div>
+            <div class="modal-actions">
+                <button id="btn-dnssec-info-close" class="btn hollow">Close</button>
             </div>
         </div>
     </div>

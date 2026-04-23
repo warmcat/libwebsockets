@@ -28,7 +28,8 @@ body {
     radial-gradient(circle at 90% 80%, rgba(16, 185, 129, 0.05) 0%, transparent 40%);
   color: var(--text-primary);
   font-family: var(--font-family);
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   line-height: 1.5;
 }
 
@@ -119,9 +120,12 @@ a:hover {
 }
 
 .app-container {
-  max-width: 1200px;
+  max-width: 1440px;
   margin: 0 auto;
   padding: 2rem;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 header {
@@ -176,8 +180,10 @@ header p {
 }
 
 main {
-  display: grid;
-  grid-template-columns: 1fr;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
   gap: 2rem;
 }
 
@@ -190,6 +196,10 @@ main {
   padding: 1.5rem;
   box-shadow: var(--glass-shadow);
   transition: transform 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
 .panel-header {
@@ -290,8 +300,14 @@ main {
   overflow-x: auto;
 }
 
+.domain-panel .table-container {
+  overflow-y: auto;
+  flex: 1;
+}
+
 .detail-panel .table-container {
-  max-height: 400px;
+  flex: 1 1 0%;
+  min-height: 0;
   overflow-y: auto;
 }
 
@@ -469,9 +485,9 @@ input:focus, textarea:focus {
 }
 
 /* Extracted CSP Styles */
-.ext-raw-editor { margin-bottom: 1.5rem; }
+.ext-raw-editor { margin-bottom: 1.5rem; display: flex; flex-direction: column; flex: 1 1 0%; min-height: 0; }
 .ext-raw-editor label { display: block; margin-bottom: 0.5rem; color: var(--text-secondary); font-weight: 500; font-size: 0.875rem; }
-.ext-raw-editor textarea { height: 200px; line-height: 1.4; white-space: pre; overflow-x: auto; }
+.ext-raw-editor textarea { flex: 1; min-height: 0; height: auto; resize: none; line-height: 1.4; white-space: pre; overflow-x: auto; }
 .ext-add-record { margin-top: 1rem; width: 100%; }
 .ext-editor { margin-top: 1.5rem; padding: 1.5rem; background: rgba(0,0,0,0.15); border-radius: 8px; }
 .ext-title { margin-top: 0; }
@@ -489,7 +505,36 @@ input:focus, textarea:focus {
 .ext-tls-cell { text-align: center; vertical-align: middle; }
 .tls-port { width: 4.5rem; text-align: center; }
 
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
 /* IPv6 Suffix Overlay */
+.extip-table {
+  width: auto;
+  border-collapse: collapse;
+  margin: 0;
+}
+.extip-table td {
+  padding: 2px 0;
+  border-bottom: none;
+}
+.extip-table td:first-child {
+  text-align: left;
+  padding-right: 15px;
+  color: #aaa;
+}
+.extip-table td:last-child {
+  text-align: right;
+  color: #fff;
+}
+
 .extip-container {
   display: none;
   text-align: right;
@@ -511,7 +556,7 @@ input:focus, textarea:focus {
 }
 
 .extip-input {
-  width: 50px !important;
+  width: 60px !important;
   background: #222 !important;
   border: 1px solid #444 !important;
   color: #fff !important;
@@ -719,6 +764,7 @@ body.is-disconnected .app-container {
     border-spacing: 10px 5px;
     background: rgba(0,0,0,0.2);
     border-radius: 8px;
+    font-size: 70%;
 }
 .dns-layout-lbl {
     font-weight: bold;
@@ -726,8 +772,11 @@ body.is-disconnected .app-container {
     vertical-align: top;
 }
 .dns-overall-btn {
-    padding: 2px 10px;
-    border-radius: 12px;
+    display: inline-block;
+    text-align: center;
+    line-height: 1.2;
+    padding: 4px 10px;
+    border-radius: 6px;
     font-weight: bold;
     font-family: var(--font-family);
     font-size: 0.9em;

@@ -756,6 +756,7 @@ struct monitor_req_args {
 	int zone_alloc;
 	char jwt[2048];
 	char suffix[64];
+	char key_type[32];
 	int port;
 };
 
@@ -769,6 +770,7 @@ static const char * const monitor_req_paths[] = {
 	"zone",
 	"jwt",
 	"suffix",
+	"key_type",
 	"port"
 };
 
@@ -782,6 +784,7 @@ enum enum_req_paths {
 	LRP_ZONE,
 	LRP_JWT,
 	LRP_SUFFIX,
+	LRP_KEY_TYPE,
 	LRP_PORT
 };
 
@@ -846,6 +849,9 @@ monitor_req_cb(struct lejp_ctx *ctx, char reason)
 			break;
 		case LRP_SUFFIX:
 			lws_strncpy(a->suffix, ctx->buf, sizeof(a->suffix));
+			break;
+		case LRP_KEY_TYPE:
+			lws_strncpy(a->key_type, ctx->buf, sizeof(a->key_type));
 			break;
 		case LRP_PORT:
 			a->port = atoi(ctx->buf);
@@ -937,11 +943,56 @@ handle_req_get_domains(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 				close(fd_d);
 			}
 
+			char alg_buf[32] = "";
+			char zsk_path[1024];
+			lws_snprintf(zsk_path, sizeof(zsk_path), "%s/domains/%s/%s.zsk.private.jwk", vhd->base_dir, doms[i], doms[i]);
+			lwsl_user("dnssec-monitor: trying to read JWK from %s\n", zsk_path);
+			int fd_z = open(zsk_path, O_RDONLY);
+			if (fd_z >= 0) {
+				char jwk_buf[2048];
+				ssize_t nj = read(fd_z, jwk_buf, sizeof(jwk_buf) - 1);
+				if (nj > 0) {
+					jwk_buf[nj] = '\0';
+					char *p = strstr(jwk_buf, "\"alg\"");
+					if (p) {
+						p = strchr(p, ':');
+						if (p) {
+							while (*p == ':' || *p == ' ' || *p == '"' || *p == '\t' || *p == '\n') p++;
+							char *end = strchr(p, '"');
+							if (end && (end - p) < (int)sizeof(alg_buf)) {
+								lws_strncpy(alg_buf, p, lws_ptr_diff_size_t(end, p) + 1);
+								lwsl_user("dnssec-monitor: extracted alg: '%s'\n", alg_buf);
+							} else {
+								lwsl_user("dnssec-monitor: failed to parse end of alg string\n");
+							}
+						}
+					} else {
+						if (strstr(jwk_buf, "\"P-256\"")) {
+							lws_strncpy(alg_buf, "ES256", sizeof(alg_buf));
+							lwsl_user("dnssec-monitor: inferred alg: '%s'\n", alg_buf);
+						} else if (strstr(jwk_buf, "\"P-384\"")) {
+							lws_strncpy(alg_buf, "ES384", sizeof(alg_buf));
+							lwsl_user("dnssec-monitor: inferred alg: '%s'\n", alg_buf);
+						} else if (strstr(jwk_buf, "\"RSA\"")) {
+							lws_strncpy(alg_buf, "RS256", sizeof(alg_buf));
+							lwsl_user("dnssec-monitor: inferred alg: '%s'\n", alg_buf);
+						} else {
+							lwsl_user("dnssec-monitor: could not find \"alg\" or infer algorithm in JWK\n");
+						}
+					}
+				} else {
+					lwsl_user("dnssec-monitor: failed to read JWK (read %d bytes)\n", (int)nj);
+				}
+				close(fd_z);
+			} else {
+				lwsl_user("dnssec-monitor: failed to open JWK file\n");
+			}
+
 			calc_local_ds(vhd, doms[i], local_ds, sizeof(local_ds));
 
 			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx),
-				"{\"name\":\"%s\",\"whois\":%s,\"dns\":%s,\"local_ds\":\"%s\"}",
-				doms[i], whois_buf[0] ? whois_buf : "{}", dns_buf[0] ? dns_buf : "{}", local_ds);
+				"{\"name\":\"%s\",\"whois\":%s,\"dns\":%s,\"local_ds\":\"%s\",\"alg\":\"%s\"}",
+				doms[i], whois_buf[0] ? whois_buf : "{}", dns_buf[0] ? dns_buf : "{}", local_ds, alg_buf);
 			free(doms[i]);
 		}
 		if (doms) free(doms);
@@ -1417,6 +1468,52 @@ handle_req_update_whois(struct vhd *vhd, struct pss *root_pss, struct monitor_re
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
 }
 
+static void
+handle_req_regen_keys(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
+{
+	char *tx = (char *)&root_pss->tx[LWS_PRE];
+	char *tx_end = tx + 65536 - 1;
+
+	if (vhd->ops && vhd->ops->keygen) {
+		struct lws_dht_dnssec_keygen_args kargs;
+		memset(&kargs, 0, sizeof(kargs));
+
+		char wd[1024];
+		lws_snprintf(wd, sizeof(wd), "%s/domains/%s", vhd->base_dir, a->domain);
+
+		kargs.domain = a->domain;
+		kargs.workdir = wd;
+
+		if (!strcmp(a->key_type, "ES256")) {
+			kargs.type = "EC"; kargs.curve = "P-256"; kargs.bits = 256;
+		} else if (!strcmp(a->key_type, "ES384")) {
+			kargs.type = "EC"; kargs.curve = "P-384"; kargs.bits = 384;
+		} else if (!strcmp(a->key_type, "R1024")) {
+			kargs.type = "RSA"; kargs.bits = 1024;
+		} else if (!strcmp(a->key_type, "R2048")) {
+			kargs.type = "RSA"; kargs.bits = 2048;
+		} else {
+			kargs.type = "EC"; kargs.curve = "P-256"; kargs.bits = 256;
+		}
+
+		lwsl_notice("%s: Regenerating keys for %s using %s\n", __func__, a->domain, kargs.type);
+
+		if (!vhd->ops->keygen(vhd->context, &kargs)) {
+			/* Force resign by deleting the signed zone */
+			char signed_path[1024];
+			lws_snprintf(signed_path, sizeof(signed_path), "%s/%s.zone.signed", wd, a->domain);
+			unlink(signed_path);
+
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
+		} else {
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Key generation failed\"}\n", a->req);
+		}
+	} else {
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Keygen unsupported\"}\n", a->req);
+	}
+	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
+}
+
 typedef void (*monitor_req_handler_t)(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a);
 
 static const struct monitor_req_map {
@@ -1437,7 +1534,8 @@ static const struct monitor_req_map {
 	{ "save_cert", handle_req_save_cert },
 	{ "save_key", handle_req_save_key },
 	{ "get_ipv6_suffix", handle_req_get_ipv6_suffix },
-	{ "set_ipv6_suffix", handle_req_set_ipv6_suffix }
+	{ "set_ipv6_suffix", handle_req_set_ipv6_suffix },
+	{ "regen_keys", handle_req_regen_keys }
 };
 
 static void

@@ -289,7 +289,7 @@ function handleResponse(data) {
 
                 // data.data['ext-ips'] is an Array of strings, handle it properly!
                 const ips = Array.isArray(data.data['ext-ips']) ? data.data['ext-ips'] : (data.data['ext-ips'] + '').split(',');
-                let content = '';
+                let content = '<table class="extip-table">';
                 ips.forEach(ip => {
                     let type = ip.includes(':') ? 'Ext IPv6' : 'Ext IPv4';
                     if (type === 'Ext IPv6' && window.ipv6_suffix) {
@@ -299,8 +299,9 @@ function handleResponse(data) {
                             ip = parts.join(':') + ':' + window.ipv6_suffix;
                         }
                     }
-                    content += `<div>${type}: ${ip}</div>`;
+                    content += `<tr><td>${type}:</td><td><b>${ip}</b></td></tr>`;
                 });
+                content += '</table>';
                 bdg.classList.remove('hide'); bdg.classList.add('show-inline');
                 bdg.innerHTML = content;
             }
@@ -308,6 +309,13 @@ function handleResponse(data) {
         case 'get_domains':
             window.domainsCache = data.domains || [];
             renderDomains(window.domainsCache);
+            if (currentDomain) {
+                const domObj = window.domainsCache.find(d => d.name === currentDomain);
+                if (domObj) {
+                    currentDomainObj = domObj;
+                    renderWhoisHeader();
+                }
+            }
             // Bootstrap phase 2: now safe to fetch suffix config
             sendReq({ req: 'get_ipv6_suffix' });
             break;
@@ -321,6 +329,14 @@ function handleResponse(data) {
             closeDetail();
             sendReq({ req: 'get_domains' });
             break;
+        case 'regen_keys':
+            if (data.status === 'ok') {
+                showToast('Keys regenerated and zone resign forced');
+                sendReq({ req: 'get_domains' });
+            } else {
+                showPopup('Error: ' + (data.msg || 'Action failed'), true);
+            }
+            break;
         case 'get_zone':
             currentZone = new ZoneFile(data.zone || '');
             renderZoneTable();
@@ -328,9 +344,11 @@ function handleResponse(data) {
             document.getElementById('record-editor')?.classList.add('hidden-panel');
             // Sequence getting TLS after getting Zone to avoid UDS packet drops
             sendReq({ req: 'get_tls', domain: currentDomain });
+            document.getElementById('btn-save-zonefile').disabled = true;
             break;
         case 'update_zone':
             showToast('Zonefile updated successfully');
+            document.getElementById('btn-save-zonefile').disabled = true;
             break;
         case 'get_tls':
             window.activeTls = data.tls || [];
@@ -519,12 +537,16 @@ function renderWhoisHeader() {
         dsStatusHTML = `DNSSEC Delegation: <span class="${isSigned ? 'dns-fg-green' : 'dns-fg-gray'}">${isSigned ? '✔' : '⚠'}</span>`;
     }
 
+    if (currentDomainObj.alg) {
+        dsStatusHTML += `<br><span class="dns-fg-gray" style="font-size:0.9em">Key: ${currentDomainObj.alg} &nbsp; <a href="#" id="link-regen-keys" style="color:#2196F3; text-decoration:none;">replace</a> &nbsp; <a href="#" id="link-info-keys" style="color:#2196F3; text-decoration:none;">info</a></span>`;
+    }
+
     let overallSigned = (w.ds_data ? isMatch : isSigned) && dnsSignedOk;
     let overrideClass = overallSigned ? 'ok' : 'warn';
-    let overrideText = overallSigned ? '✔ DNSSEC OK' : '✘ INSECURE';
+    let overrideText = overallSigned ? '✔ DNSSEC<br>OK' : '✘<br>INSECURE';
 
-    let sigsColor = isDnsExpired ? 'dns-fg-gray' : (dnsSignedOk ? 'dns-fg-green' : 'dns-fg-red');
-    let sigsTick = isDnsExpired ? '⚠' : (dnsSignedOk ? '✔' : '✘');
+    let sigsColor = !d.expiry ? 'dns-fg-gray' : (isDnsExpired ? 'dns-fg-gray' : (dnsSignedOk ? 'dns-fg-green' : 'dns-fg-red'));
+    let sigsTick = !d.expiry ? 'n/a' : (isDnsExpired ? '⚠' : (dnsSignedOk ? '✔' : '✘'));
 
     hdr.innerHTML = `
         <table class="dns-layout-container">
@@ -555,6 +577,50 @@ function renderWhoisHeader() {
     // Clear any inline styles that violate CSP and use standard display
     hdr.removeAttribute('style');
     hdr.classList.remove('hide', 'hidden');
+
+    const lnkRegen = document.getElementById('link-regen-keys');
+    if (lnkRegen) {
+        lnkRegen.onclick = (e) => {
+            e.preventDefault();
+            document.getElementById('modal-regen-keys').classList.add('show');
+        };
+    }
+
+    const lnkInfo = document.getElementById('link-info-keys');
+    if (lnkInfo) {
+        lnkInfo.onclick = (e) => {
+            e.preventDefault();
+            let ds = currentDomainObj.local_ds || '';
+            let dsText = '';
+            if (ds) {
+                let parts = ds.trim().split(/\s+/);
+                if (parts.length >= 4) {
+                    let keyId = parts[0];
+                    let alg = parts[1];
+                    let digestType = parts[2];
+                    let digest = parts.slice(3).join('');
+
+                    let algName = alg;
+                    if (alg === '8') algName = '8 (RSA/SHA256)';
+                    else if (alg === '13') algName = '13 (ECDSA Curve P-256 with SHA-256)';
+                    else if (alg === '14') algName = '14 (ECDSA Curve P-384 with SHA-384)';
+
+                    let dTypeName = digestType;
+                    if (digestType === '1') dTypeName = '1 (SHA-1)';
+                    else if (digestType === '2') dTypeName = '2 (SHA-256)';
+                    else if (digestType === '4') dTypeName = '4 (SHA-384)';
+
+                    dsText = `DS KeyID: ${keyId},  Alg: ${algName}, Digest Type: ${dTypeName}, Digest: ${digest}`;
+                } else {
+                    dsText = ds;
+                }
+            } else {
+                dsText = "DS record not available yet.";
+            }
+            document.getElementById('textarea-dnssec-info').value = dsText;
+            document.getElementById('modal-dnssec-info').classList.add('show');
+        };
+    }
 }
 
 function closeDetail() {
@@ -689,6 +755,7 @@ function renderZoneTable() {
                     renderZoneTable();
                     updateRawEditor();
                     document.getElementById('record-editor')?.classList.add('hidden-panel');
+                    document.getElementById('btn-save-zonefile').disabled = false;
                 }
             };
             tdAct.appendChild(btnDel);
@@ -793,12 +860,23 @@ function openEditor(id) {
     connect();
 
     const rawEditor = document.getElementById('raw-zone-editor');
+    rawEditor.addEventListener('keydown', function(e) {
+        if (e.key === 'Tab') {
+            e.preventDefault();
+            const start = this.selectionStart;
+            const end = this.selectionEnd;
+            this.value = this.value.substring(0, start) + "\t" + this.value.substring(end);
+            this.selectionStart = this.selectionEnd = start + 1;
+            this.dispatchEvent(new Event('input'));
+        }
+    });
     rawEditor.addEventListener('input', (e) => {
         if (!currentDomain) return;
         currentZone = new ZoneFile(e.target.value);
         renderZoneTable();
         document.getElementById('record-editor')?.classList.add('hidden-panel');
         syncScroll(e.target);
+        document.getElementById('btn-save-zonefile').disabled = false;
     });
 
     const syncScroll = (target) => {
@@ -847,12 +925,24 @@ function openEditor(id) {
         }
     };
 
+    document.getElementById('btn-regen-cancel').onclick = () => closeModal('modal-regen-keys');
+    document.getElementById('btn-dnssec-info-close').onclick = () => closeModal('modal-dnssec-info');
+    document.getElementById('btn-regen-replace').onclick = () => {
+        const keyType = document.getElementById('select-regen-key-type').value;
+        if (currentDomain) {
+            sendReq({ req: 'regen_keys', domain: currentDomain, key_type: keyType });
+            closeModal('modal-regen-keys');
+            showPopup('Regenerating keys and resigning zone...');
+        }
+    };
+
     document.getElementById('btn-back-domains').onclick = () => {
         closeDetail();
     };
 
     document.getElementById('btn-save-zonefile').onclick = () => {
         if (!currentDomain || !currentZone) return;
+        document.getElementById('btn-save-zonefile').disabled = true;
 
         let existingFqdns = new Set();
         currentZone.records.forEach(r => {
@@ -911,6 +1001,7 @@ function openEditor(id) {
         renderZoneTable();
         updateRawEditor();
         document.getElementById('record-editor')?.classList.add('hidden-panel');
+        document.getElementById('btn-save-zonefile').disabled = false;
     };
 
     const btnSaveSuffix = document.getElementById('btn-save-suffix');
