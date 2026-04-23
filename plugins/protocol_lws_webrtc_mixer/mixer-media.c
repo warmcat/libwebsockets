@@ -474,6 +474,10 @@ process_session_media(struct mixer_media_session *s)
 		}
 
 		msg_ptr = (struct mixer_msg *)lws_ring_get_element(s->ring_input, &s->ring_tail);
+		if (!msg_ptr) {
+			lws_mutex_unlock(s->mutex);
+			break;
+		}
 		msg_copy = *msg_ptr;
 		lws_ring_consume(s->ring_input, &s->ring_tail, NULL, 1);
 		lws_ring_update_oldest_tail(s->ring_input, s->ring_tail);
