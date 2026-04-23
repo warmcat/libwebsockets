@@ -1024,12 +1024,13 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 						/* Actually, simply forwarding it might be ambiguous if multiple people send it.
 						   Better to wrap it. */
 
-						char *wrapped = malloc(len + 256);
+						char esc_name[384];
+						lws_json_purify(esc_name, p->name, sizeof(esc_name), NULL);
+						size_t alloc_len = len + sizeof(esc_name) + 128;
+						char *wrapped = malloc(alloc_len);
 						if (wrapped) {
-							char esc_name[384];
-							lws_json_purify(esc_name, p->name, sizeof(esc_name), NULL);
 
-							int tlen = lws_snprintf(wrapped, len + 256 + sizeof(esc_name),
+							int tlen = lws_snprintf(wrapped, alloc_len,
 									"{\"type\":\"remote_capabilities\",\"target\":\"%s\",\"payload\":%.*s}",
 									esc_name, (int)len, (const char *)in);
 
