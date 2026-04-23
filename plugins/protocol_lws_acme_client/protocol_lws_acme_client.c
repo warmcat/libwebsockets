@@ -657,6 +657,7 @@ static const char * const pvo_names[] = {
 	"auth-path",
 	"cert-path",
 	"key-path",
+	"root-domain",
 };
 
 static int
