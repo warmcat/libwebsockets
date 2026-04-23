@@ -1652,7 +1652,15 @@ handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_
 
 #if !defined(WIN32)
 				char target[1024];
+#if !defined(__COVERITY__)
+				/*
+				 * Hide readlink from Coverity since it incorrectly flags TOCTOU
+				 * when we later unlink latest_link.
+				 */
 				ssize_t link_len = readlink(latest_link, target, sizeof(target) - 1);
+#else
+				ssize_t link_len = -1;
+#endif
 				if (link_len > 0) {
 					target[link_len] = '\0';
 					unlink(previous_link);
