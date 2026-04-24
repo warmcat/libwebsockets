@@ -34,7 +34,7 @@ if (requirements)
 	endif()
 
 # hack
-if (NOT WIN32 AND LWS_WITH_SERVER)
+if (NOT WIN32 AND LWS_WITH_SERVER AND LWS_WITH_TLS)
 
 	#
 	# Tests against built server running locally (needs daemonization...)
