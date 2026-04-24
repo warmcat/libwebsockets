@@ -86,15 +86,16 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 
 		if (m == SSL_ERROR_WANT_READ || SSL_want_read(wsi->tls.ssl)) {
 			lwsl_debug("%s: WANT_READ\n", __func__);
-			lwsl_debug("%s: LWS_SSL_CAPABLE_MORE_SERVICE\n", lws_wsi_tag(wsi));
-			return LWS_SSL_CAPABLE_MORE_SERVICE;
+			lwsl_debug("%s: LWS_SSL_CAPABLE_MORE_SERVICE_READ\n", lws_wsi_tag(wsi));
+			return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
 		}
 		if (m == SSL_ERROR_WANT_WRITE || SSL_want_write(wsi->tls.ssl)) {
 			lwsl_info("%s: WANT_WRITE\n", __func__);
-			lwsl_debug("%s: LWS_SSL_CAPABLE_MORE_SERVICE\n", lws_wsi_tag(wsi));
+			lwsl_debug("%s: LWS_SSL_CAPABLE_MORE_SERVICE_WRITE\n", lws_wsi_tag(wsi));
 			wsi->tls_read_wanted_write = 1;
 			lws_callback_on_writable(wsi);
-			return LWS_SSL_CAPABLE_MORE_SERVICE;
+			__lws_change_pollfd(wsi, LWS_POLLIN, 0);
+			return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
 		}
 
 do_err1:
@@ -193,14 +194,14 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 		if (m == SSL_ERROR_WANT_READ || SSL_want_read(wsi->tls.ssl)) {
 			lwsl_notice("%s: want read\n", __func__);
 
-			return LWS_SSL_CAPABLE_MORE_SERVICE;
+			return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
 		}
 
 		if (m == SSL_ERROR_WANT_WRITE || SSL_want_write(wsi->tls.ssl)) {
 			lws_set_blocking_send(wsi);
 			lwsl_debug("%s: want write\n", __func__);
 
-			return LWS_SSL_CAPABLE_MORE_SERVICE;
+			return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
 		}
 	}
 
@@ -325,7 +326,7 @@ __lws_tls_shutdown(struct lws *wsi)
 
 	case 0: /* needs a retry */
 		__lws_change_pollfd(wsi, 0, LWS_POLLIN);
-		return LWS_SSL_CAPABLE_MORE_SERVICE;
+		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
 
 	default: /* fatal error, or WANT */
 		n = SSL_get_error(wsi->tls.ssl, n);
@@ -340,6 +341,9 @@ __lws_tls_shutdown(struct lws *wsi)
 				__lws_change_pollfd(wsi, 0, LWS_POLLOUT);
 				return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
 			}
+			lwsl_debug("(wants read)\n");
+			__lws_change_pollfd(wsi, 0, LWS_POLLIN);
+			return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
 		}
 		return LWS_SSL_CAPABLE_ERROR;
 	}

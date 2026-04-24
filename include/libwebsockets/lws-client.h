@@ -127,7 +127,6 @@ enum lws_ssl_capable_status {
 	LWS_SSL_CAPABLE_DONE			= 0,  /* it succeeded */
 	LWS_SSL_CAPABLE_MORE_SERVICE_READ	= -2, /* retry WANT_READ */
 	LWS_SSL_CAPABLE_MORE_SERVICE_WRITE	= -3, /* retry WANT_WRITE */
-	LWS_SSL_CAPABLE_MORE_SERVICE		= -4, /* general retry */
 };
 
 /** struct lws_client_connect_info - parameters to connect with when using

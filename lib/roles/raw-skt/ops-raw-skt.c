@@ -199,7 +199,6 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 
 			case LWS_SSL_CAPABLE_ERROR:
 				goto fail;
-			case LWS_SSL_CAPABLE_MORE_SERVICE:
 		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
 		case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
 				goto try_pollout;
