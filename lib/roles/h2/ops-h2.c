@@ -252,8 +252,14 @@ read:
 			lwsl_info("%s: zero length read\n", __func__);
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
+			lwsl_info("SSL Capable more service (read)\n");
+			if (wsi->pending_timeout)
+				lws_set_timeout(wsi, (enum pending_timeout)wsi->pending_timeout,
+						wsi->pending_timeout == PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE ?
+						(int)lws_wsi_keepalive_timeout_eff(wsi) : (int)wsi->a.context->timeout_secs);
+			return LWS_HPI_RET_HANDLED;
 		case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
-			lwsl_info("SSL Capable more service\n");
+			lwsl_info("SSL Capable more service (write)\n");
 			if (wsi->pending_timeout)
 				lws_set_timeout(wsi, (enum pending_timeout)wsi->pending_timeout,
 						wsi->pending_timeout == PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE ?
