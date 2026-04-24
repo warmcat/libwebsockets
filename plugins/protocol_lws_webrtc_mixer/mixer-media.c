@@ -548,6 +548,10 @@ process_session_media(struct mixer_media_session *s)
 				size_t in_len = msg->len;
 				int ready_to_decode = 1;
 
+				/* satisfy coverity */
+				if (in_len > 16 * 1024 * 1024)
+					in_len = 0;
+
 				if (msg->codec == LWS_CODEC_H264 && in_data && in_len > 0) {
 					ready_to_decode = 0;
 					uint8_t header = in_data[0];
@@ -577,8 +581,8 @@ process_session_media(struct mixer_media_session *s)
 						while (off + 2 <= in_len) {
 							uint16_t nal_size = (uint16_t)((in_data[off] << 8) | in_data[off+1]);
 							off += 2;
-							if (nal_size == 0) {
-								lwsl_err("%s: H264 Parse Error: 0-length NAL in STAP-A detected, breaking loop\n", __func__);
+							if (nal_size == 0 || nal_size > 65000) {
+								lwsl_err("%s: H264 Parse Error: invalid NAL size %u in STAP-A detected, breaking loop\n", __func__, nal_size);
 								break;
 							}
 							if (off + nal_size > in_len) break;
