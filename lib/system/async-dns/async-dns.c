@@ -371,6 +371,9 @@ qfail:
 		lws_adns_cache_destroy(q->firstcache);
 		q->firstcache = NULL;
 	}
+	if (q->dsrv) {
+		lws_adapt_report_val(q->dsrv->adapt, 20000000, lws_now_usecs());
+	}
 	lws_async_dns_complete(q, NULL);
 	lws_adns_q_destroy(q);
 }
@@ -871,6 +874,10 @@ sul_cb_write(struct lws_sorted_usec_list *sul)
 
 	lwsl_wsi_info(q->dsrv ? q->dsrv->wsi : NULL, "failing");
 	lws_adns_dump(q->dns);
+
+	if (q->dsrv) {
+		lws_adapt_report_val(q->dsrv->adapt, 20000000, lws_now_usecs());
+	}
 
 	lws_async_dns_complete(q, NULL); /* no cache to relate to */
 	lws_adns_q_destroy(q);
@@ -1428,7 +1435,14 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 		if (dns->nameservers.count && all_failed) {
 			if (lws_now_usecs() - dns->time_last_reload > 5000000) {
 				lwsl_cx_notice(context, "Async DNS fallback reload triggered");
+				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+						   lws_dll2_get_head(&dns->nameservers)) {
+					lws_async_dns_server_t *s = lws_container_of(d, lws_async_dns_server_t, list);
+					lws_async_dns_drop_server(s);
+				} lws_end_foreach_dll_safe(d, d1);
 				lws_async_dns_server_reload(context);
+				/* also ensure any new servers have a wsi */
+				lws_async_dns_create_server_wsi(context);
 				dns->time_last_reload = lws_now_usecs();
 			}
 		}
