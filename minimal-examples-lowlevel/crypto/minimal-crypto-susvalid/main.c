@@ -70,23 +70,26 @@ dump_context(struct parse_state *s)
 	uint8_t temp[80];
 	size_t i, start;
 	size_t ahead = 0;
+	size_t count = s->ring_count;
 
-	if (!s->ring_count)
+	/* satisfy coverity constraint solver */
+	if (count > 64)
+		count = 64;
+
+	if (!count)
 		return;
 
-	start = (s->ring_head + 64 - s->ring_count) % 64;
-	for (i = 0; i < s->ring_count; i++)
+	start = (s->ring_head + 64 - count) % 64;
+	for (i = 0; i < count; i++)
 		temp[i] = s->ring[(start + i) % 64];
 
 	if (s->fd >= 0) {
 		off_t cur = lseek(s->fd, 0, SEEK_CUR);
 		if (cur >= (off_t)0) {
 			if (lseek(s->fd, (off_t)s->raw_byte_pos, SEEK_SET) != (off_t)-1) {
-				ssize_t r = read(s->fd, temp + s->ring_count, 16);
-				if (r > 0) {
+				ssize_t r = read(s->fd, temp + count, 16);
+				if (r > 0 && r <= 16) {
 					ahead = (size_t)r;
-					if (ahead > 16)
-						ahead = 16;
 				}
 			}
 			if (lseek(s->fd, cur, SEEK_SET) == (off_t)-1) {
@@ -95,7 +98,11 @@ dump_context(struct parse_state *s)
 		}
 	}
 
-	lwsl_hexdump_warn(temp, s->ring_count + ahead);
+	/* satisfy coverity constraint solver */
+	if (count + ahead > sizeof(temp))
+		ahead = sizeof(temp) - count;
+
+	lwsl_hexdump_warn(temp, count + ahead);
 }
 
 static void
