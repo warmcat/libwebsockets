@@ -418,6 +418,11 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 		case LWS_SSL_CAPABLE_ERROR:
 			goto fail;
 		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
+			if (wsi->pending_timeout)
+				lws_set_timeout(wsi, (enum pending_timeout)wsi->pending_timeout,
+						wsi->pending_timeout == PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE ?
+						(int)lws_wsi_keepalive_timeout_eff(wsi) : (int)wsi->a.context->timeout_secs);
+			goto try_pollout;
 		case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
 			if (wsi->pending_timeout)
 				lws_set_timeout(wsi, (enum pending_timeout)wsi->pending_timeout,
