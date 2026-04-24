@@ -1653,16 +1653,13 @@ handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_
 				lws_snprintf(previous_link, sizeof(previous_link), "%s/%s-previous%s", dir_path, base, ext);
 
 #if !defined(WIN32)
-				char target[1024];
 #if !defined(__COVERITY__)
 				/*
 				 * Hide readlink from Coverity since it incorrectly flags TOCTOU
 				 * when we later unlink latest_link.
 				 */
+				char target[1024];
 				ssize_t link_len = readlink(latest_link, target, sizeof(target) - 1);
-#else
-				ssize_t link_len = -1;
-#endif
 				if (link_len > 0) {
 					target[link_len] = '\0';
 					unlink(previous_link);
@@ -1670,6 +1667,7 @@ handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_
 					if (gr && lchown(previous_link, (uid_t)-1, gr->gr_gid) < 0)
 						lwsl_err("%s: lchown failed on %s\n", __func__, previous_link);
 				}
+#endif
 
 				unlink(latest_link);
 				symlink(a->subdomain, latest_link);
