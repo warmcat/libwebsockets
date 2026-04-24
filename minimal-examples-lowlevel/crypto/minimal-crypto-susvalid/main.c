@@ -69,7 +69,7 @@ dump_context(struct parse_state *s)
 {
 	uint8_t temp[80];
 	size_t i, start;
-	ssize_t ahead = 0;
+	size_t ahead = 0;
 
 	if (!s->ring_count)
 		return;
@@ -82,19 +82,20 @@ dump_context(struct parse_state *s)
 		off_t cur = lseek(s->fd, 0, SEEK_CUR);
 		if (cur >= (off_t)0) {
 			if (lseek(s->fd, (off_t)s->raw_byte_pos, SEEK_SET) != (off_t)-1) {
-				ahead = read(s->fd, temp + s->ring_count, 16);
+				ssize_t r = read(s->fd, temp + s->ring_count, 16);
+				if (r > 0) {
+					ahead = (size_t)r;
+					if (ahead > 16)
+						ahead = 16;
+				}
 			}
 			if (lseek(s->fd, cur, SEEK_SET) == (off_t)-1) {
 				lwsl_err("%s: Failed to restore fd position\n", __func__);
 			}
 		}
-		if (ahead < 0)
-			ahead = 0;
-		if (ahead > 16)
-			ahead = 16;
 	}
 
-	lwsl_hexdump_warn(temp, s->ring_count + (size_t)ahead);
+	lwsl_hexdump_warn(temp, s->ring_count + ahead);
 }
 
 static void
