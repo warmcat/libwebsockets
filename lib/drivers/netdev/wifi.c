@@ -31,7 +31,15 @@ lws_netdev_wifi_rssi_sort_compare(const lws_dll2_t *d, const lws_dll2_t *i)
 {
 	const lws_wifi_sta_t *wsd = (const lws_wifi_sta_t *)d,
 			     *wsi = (const lws_wifi_sta_t *)i;
-	return rssi_averaged(wsd) > rssi_averaged(wsi);
+	int a = rssi_averaged(wsd);
+	int b = rssi_averaged(wsi);
+
+	if (a < b)
+		return 1;
+	if (a > b)
+		return -1;
+
+	return 0;
 }
 
 void
@@ -209,7 +217,7 @@ lws_netdev_wifi_redo_last(lws_netdev_instance_wifi_t *wnd)
 		return 1;
 
 	memcpy(ssid_copy, ssid, al);
-	ssid_copy[al + 1] = '\0';
+	ssid_copy[al] = '\0';
 
 	pb = lws_json_simple_find((const char *)buf, l, "\"bssid\":", &al);
 	if (!pb)
