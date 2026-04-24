@@ -254,6 +254,10 @@ read:
 		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
 		case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
 			lwsl_info("SSL Capable more service\n");
+			if (wsi->pending_timeout)
+				lws_set_timeout(wsi, (enum pending_timeout)wsi->pending_timeout,
+						wsi->pending_timeout == PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE ?
+						(int)lws_wsi_keepalive_timeout_eff(wsi) : (int)wsi->a.context->timeout_secs);
 			return LWS_HPI_RET_HANDLED;
 		case LWS_SSL_CAPABLE_ERROR:
 			lwsl_info("%s: LWS_SSL_CAPABLE_ERROR\n", __func__);
@@ -272,6 +276,11 @@ read:
 			lwsl_info("%s: other error\n", __func__);
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
+
+		if (wsi->pending_timeout)
+			lws_set_timeout(wsi, (enum pending_timeout)wsi->pending_timeout,
+					wsi->pending_timeout == PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE ?
+					(int)lws_wsi_keepalive_timeout_eff(wsi) : (int)wsi->a.context->timeout_secs);
 
 		// lwsl_notice("%s: Actual RX %d\n", __func__, ebuf.len);
 		// if (ebuf.len > 0)
