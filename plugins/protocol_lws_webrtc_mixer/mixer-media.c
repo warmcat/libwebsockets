@@ -547,7 +547,7 @@ process_session_media(struct mixer_media_session *s)
 				size_t in_len = msg->len;
 				int ready_to_decode = 1;
 
-				if (msg->codec == LWS_CODEC_H264 && in_len > 0) {
+				if (msg->codec == LWS_CODEC_H264 && in_data && in_len > 0) {
 					ready_to_decode = 0;
 					uint8_t header = in_data[0];
 					uint8_t type = header & 0x1F;
@@ -653,7 +653,7 @@ process_session_media(struct mixer_media_session *s)
 					//	if (dbg_marker++ % 50 == 0)
 					//		lwsl_notice("H264 Marker Received! Feeding Frame to decoder (len %zu)\n", in_len);
 					}
-				} else if (msg->codec == LWS_CODEC_AV1 && in_len > 1) {
+				} else if (msg->codec == LWS_CODEC_AV1 && in_data && in_len > 1) {
 					ready_to_decode = 0; /* VERY IMPORTANT! Do not decode until marker=1 */
 					/*
 					   static int dbg_hex = 0;
