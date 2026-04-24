@@ -429,6 +429,7 @@ append_av1_obu(struct mixer_media_session *s, const uint8_t *data, size_t len)
 	} while (tmp != 0);
 
 	size_t needed = s->video_len + hdr_len + leb_len + payload_len + 4;
+	if (needed > 16 * 1024 * 1024) return;
 	if (s->video_alloc < needed) {
 		s->video_alloc = needed + 4096;
 		s->video_buf = realloc(s->video_buf, s->video_alloc);
@@ -556,15 +557,19 @@ process_session_media(struct mixer_media_session *s)
 					if (type >= 1 && type <= 23) {
 						/* Single NAL Unit */
 						size_t needed = s->video_len + in_len + 4;
-						if (s->video_alloc < needed) {
-							s->video_buf = realloc(s->video_buf, needed + 1024);
-							s->video_alloc = needed + 1024;
-						}
-						if (s->video_buf) {
-							memcpy(s->video_buf + s->video_len, annexb_start, 4);
-							s->video_len += 4;
-							memcpy(s->video_buf + s->video_len, in_data, in_len);
-							s->video_len += in_len;
+						if (needed > 16 * 1024 * 1024) {
+							s->video_len = 0;
+						} else {
+							if (s->video_alloc < needed) {
+								s->video_buf = realloc(s->video_buf, needed + 1024);
+								s->video_alloc = needed + 1024;
+							}
+							if (s->video_buf) {
+								memcpy(s->video_buf + s->video_len, annexb_start, 4);
+								s->video_len += 4;
+								memcpy(s->video_buf + s->video_len, in_data, in_len);
+								s->video_len += in_len;
+							}
 						}
 					} else if (type == 24) {
 						/* STAP-A: Single-Time Aggregation Packet */
@@ -578,6 +583,10 @@ process_session_media(struct mixer_media_session *s)
 							}
 							if (off + nal_size > in_len) break;
 							size_t needed = s->video_len + nal_size + 4;
+							if (needed > 16 * 1024 * 1024) {
+								s->video_len = 0;
+								break;
+							}
 							if (s->video_alloc < needed) {
 								s->video_buf = realloc(s->video_buf, needed + 1024);
 								s->video_alloc = needed + 1024;
@@ -606,37 +615,47 @@ process_session_media(struct mixer_media_session *s)
 								/* Start of fragment */
 								s->fu_a_active = 1;
 								size_t needed = s->video_len + payload_len + 5;
-								if (s->video_alloc < needed) {
-									s->video_buf = realloc(s->video_buf, needed + 4096);
-									s->video_alloc = needed + 4096;
-								}
-								if (s->video_buf) {
-									memcpy(s->video_buf + s->video_len, annexb_start, 4);
-									s->video_len += 4;
-									/* Reconstruct NAL header */
-									s->video_buf[s->video_len] = (header & 0xE0) | nal_type;
-									s->video_len += 1;
-									memcpy(s->video_buf + s->video_len, payload, payload_len);
-									s->video_len += payload_len;
+								if (needed > 16 * 1024 * 1024) {
+									s->video_len = 0;
+									s->fu_a_active = 0;
+								} else {
+									if (s->video_alloc < needed) {
+										s->video_buf = realloc(s->video_buf, needed + 4096);
+										s->video_alloc = needed + 4096;
+									}
+									if (s->video_buf) {
+										memcpy(s->video_buf + s->video_len, annexb_start, 4);
+										s->video_len += 4;
+										/* Reconstruct NAL header */
+										s->video_buf[s->video_len] = (header & 0xE0) | nal_type;
+										s->video_len += 1;
+										memcpy(s->video_buf + s->video_len, payload, payload_len);
+										s->video_len += payload_len;
 
-									// static int dbg_fua1 = 0;
-									// if (dbg_fua1++ % 500 == 0)
-									// 	lwsl_notice("FU-A: Start fragment, NAL type %u, len %zu\n", nal_type, payload_len);
+										// static int dbg_fua1 = 0;
+										// if (dbg_fua1++ % 500 == 0)
+										// 	lwsl_notice("FU-A: Start fragment, NAL type %u, len %zu\n", nal_type, payload_len);
+									}
 								}
 							} else if (s->video_buf && s->video_len > 0 && s->fu_a_active) {
 								/* Middle or end of fragment */
 								size_t needed = s->video_len + payload_len;
-								if (s->video_alloc < needed) {
-									s->video_buf = realloc(s->video_buf, needed + 4096);
-									s->video_alloc = needed + 4096;
-								}
-								if (s->video_buf) {
-									memcpy(s->video_buf + s->video_len, payload, payload_len);
-									s->video_len += payload_len;
+								if (needed > 16 * 1024 * 1024) {
+									s->video_len = 0;
+									s->fu_a_active = 0;
+								} else {
+									if (s->video_alloc < needed) {
+										s->video_buf = realloc(s->video_buf, needed + 4096);
+										s->video_alloc = needed + 4096;
+									}
+									if (s->video_buf) {
+										memcpy(s->video_buf + s->video_len, payload, payload_len);
+										s->video_len += payload_len;
 
-									// static int dbg_fua2 = 0;
-									// if (dbg_fua2++ % 2000 == 0)
-									// 	lwsl_notice("FU-A: Cont fragment, len %zu\n", payload_len);
+										// static int dbg_fua2 = 0;
+										// if (dbg_fua2++ % 2000 == 0)
+										// 	lwsl_notice("FU-A: Cont fragment, len %zu\n", payload_len);
+									}
 								}
 								/* We don't decode on 'E', we decode on 'marker' */
 							}
@@ -736,18 +755,22 @@ process_session_media(struct mixer_media_session *s)
 						if (is_first_elem && Z == 1) {
 							/* Continuation fragment from a PREVIOUS packet */
 							if (!drop_fragment && s->obu_buf) {
-								if (s->obu_len + obu_size > s->obu_alloc) {
-									s->obu_alloc = s->obu_len + obu_size + 4096;
-									s->obu_buf = realloc(s->obu_buf, s->obu_alloc);
-								}
-								if (s->obu_buf) {
-									memcpy(s->obu_buf + s->obu_len, in_data + off, obu_size);
-									s->obu_len += obu_size;
+								if (s->obu_len + obu_size > 16 * 1024 * 1024) {
+									s->obu_len = 0;
+								} else {
+									if (s->obu_len + obu_size > s->obu_alloc) {
+										s->obu_alloc = s->obu_len + obu_size + 4096;
+										s->obu_buf = realloc(s->obu_buf, s->obu_alloc);
+									}
+									if (s->obu_buf) {
+										memcpy(s->obu_buf + s->obu_len, in_data + off, obu_size);
+										s->obu_len += obu_size;
 
-									/* Complete if not continuing into NEXT packet */
-									if (!(is_last_elem_in_packet && Y == 1)) {
-										append_av1_obu(s, s->obu_buf, s->obu_len);
-										s->obu_len = 0;
+										/* Complete if not continuing into NEXT packet */
+										if (!(is_last_elem_in_packet && Y == 1)) {
+											append_av1_obu(s, s->obu_buf, s->obu_len);
+											s->obu_len = 0;
+										}
 									}
 								}
 							}
@@ -757,13 +780,17 @@ process_session_media(struct mixer_media_session *s)
 								/* Begins here, continues into NEXT packet */
 								if (dbg_aggr < 50) lwsl_notice("  -> Frag START: idx=%d, size=%zu\n", elem_idx, obu_size);
 								s->obu_len = 0;
-								if (obu_size > s->obu_alloc) {
-									s->obu_alloc = obu_size + 4096;
-									s->obu_buf = realloc(s->obu_buf, s->obu_alloc);
-								}
-								if (s->obu_buf && obu_size > 0) {
-									memcpy(s->obu_buf, in_data + off, obu_size);
-									s->obu_len = obu_size;
+								if (obu_size > 16 * 1024 * 1024) {
+									/* Too large */
+								} else {
+									if (obu_size > s->obu_alloc) {
+										s->obu_alloc = obu_size + 4096;
+										s->obu_buf = realloc(s->obu_buf, s->obu_alloc);
+									}
+									if (s->obu_buf && obu_size > 0) {
+										memcpy(s->obu_buf, in_data + off, obu_size);
+										s->obu_len = obu_size;
+									}
 								}
 							} else {
 								/* Complete within this packet */
