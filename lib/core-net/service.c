@@ -838,7 +838,6 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 
 		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
 		case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
-		case LWS_SSL_CAPABLE_MORE_SERVICE:
 #if defined(LWS_WITH_LATENCY)
 		{
 			unsigned int ms = (unsigned int)((lws_now_usecs() - _tls_shut_start) / 1000);
@@ -863,6 +862,7 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		wsi->tls_read_wanted_write = 0;
 		pollfd->revents &= ~(LWS_POLLOUT);
 		pollfd->revents |= LWS_POLLIN;
+		__lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);
 		cow = 1;
 	}
 

@@ -565,7 +565,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 	}
 
 	if (!n) /* we don't know what he wants, but he says to retry */
-		return LWS_SSL_CAPABLE_MORE_SERVICE;
+		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
 
 	lws_snprintf(errbuf, elen, "connect unk %d", m);
 

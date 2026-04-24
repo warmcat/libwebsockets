@@ -298,7 +298,6 @@ hs2:
 			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
 					   "cws");
 			return LWS_HPI_RET_WSI_ALREADY_DIED;
-		case LWS_SSL_CAPABLE_MORE_SERVICE:
 		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
 		case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
 			lws_callback_on_writable(wsi);

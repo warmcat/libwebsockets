@@ -55,8 +55,15 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 		return LWS_SSL_CAPABLE_ERROR;
 	}
 
-	if (n == GNUTLS_E_AGAIN || n == GNUTLS_E_INTERRUPTED)
-		return LWS_SSL_CAPABLE_MORE_SERVICE;
+	if (n == GNUTLS_E_AGAIN || n == GNUTLS_E_INTERRUPTED) {
+		if (gnutls_record_get_direction((gnutls_session_t)wsi->tls.ssl) == 0)
+			return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
+
+		wsi->tls_read_wanted_write = 1;
+		lws_callback_on_writable(wsi);
+		__lws_change_pollfd(wsi, LWS_POLLIN, 0);
+		return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
+	}
 
 	lwsl_info("gnutls_record_recv error %d\n", n);
 
@@ -75,8 +82,12 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 	if (n >= 0)
 		return n;
 
-	if (n == GNUTLS_E_AGAIN || n == GNUTLS_E_INTERRUPTED)
-		return LWS_SSL_CAPABLE_MORE_SERVICE;
+	if (n == GNUTLS_E_AGAIN || n == GNUTLS_E_INTERRUPTED) {
+		if (gnutls_record_get_direction((gnutls_session_t)wsi->tls.ssl) == 1)
+			return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
+
+		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
+	}
 
 	return LWS_SSL_CAPABLE_ERROR;
 }
@@ -166,12 +177,14 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
 		if (gnutls_record_get_direction((gnutls_session_t)wsi->tls.ssl) == 0) {
 			if (lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN))
 				lwsl_notice("%s: lws_change_pollfd failed\n", __func__);
+
+			return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
 		} else {
 			if (lws_change_pollfd(wsi, LWS_POLLIN, LWS_POLLOUT))
 				lwsl_notice("%s: lws_change_pollfd failed\n", __func__);
-		}
 
-		return LWS_SSL_CAPABLE_MORE_SERVICE;
+			return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
+		}
 	}
 
 	lwsl_info("gnutls_handshake (client) failed: %s (%d)\n", gnutls_strerror(n), n);
@@ -210,8 +223,12 @@ __lws_tls_shutdown(struct lws *wsi)
 	if (n == GNUTLS_E_SUCCESS)
 		return LWS_SSL_CAPABLE_DONE;
 
-	if (n == GNUTLS_E_AGAIN || n == GNUTLS_E_INTERRUPTED)
-		return LWS_SSL_CAPABLE_MORE_SERVICE;
+	if (n == GNUTLS_E_AGAIN || n == GNUTLS_E_INTERRUPTED) {
+		if (gnutls_record_get_direction((gnutls_session_t)wsi->tls.ssl) == 1)
+			return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
+
+		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
+	}
 
 	return LWS_SSL_CAPABLE_ERROR;
 }
