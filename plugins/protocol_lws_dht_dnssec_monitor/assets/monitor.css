@@ -487,7 +487,32 @@ input:focus, textarea:focus {
 /* Extracted CSP Styles */
 .ext-raw-editor { margin-bottom: 1.5rem; display: flex; flex-direction: column; flex: 1 1 0%; min-height: 0; }
 .ext-raw-editor label { display: block; margin-bottom: 0.5rem; color: var(--text-secondary); font-weight: 500; font-size: 0.875rem; }
-.ext-raw-editor textarea { flex: 1; min-height: 0; height: auto; resize: none; line-height: 1.4; white-space: pre; overflow-x: auto; }
+.ext-raw-editor textarea { flex: 1; min-height: 0; height: auto; resize: none; line-height: 1.4; white-space: pre; overflow-x: auto; background: rgba(0,0,0,0.2); }
+.raw-editor-container { position: relative; }
+.raw-editor-container textarea {
+    position: relative;
+    z-index: 1;
+    background: transparent !important;
+    color: var(--text-primary);
+    caret-color: var(--text-primary);
+}
+#raw-zone-backdrop {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 0;
+    padding: 0.75rem 1rem;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+    font-size: 0.875rem;
+    line-height: 1.4;
+    white-space: pre;
+    overflow: hidden;
+    color: transparent;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid transparent;
+    border-radius: 6px;
+    pointer-events: none;
+}
+.subst-preview { background: #ffeb3b; color: #d32f2f; padding: 0 4px; border-radius: 3px; font-weight: bold; }
 .ext-add-record { margin-top: 1rem; width: 100%; }
 .ext-editor { margin-top: 1.5rem; padding: 1.5rem; background: rgba(0,0,0,0.15); border-radius: 8px; }
 .ext-title { margin-top: 0; }
@@ -495,7 +520,7 @@ input:focus, textarea:focus {
 .ext-actions { margin-top: 1.5rem; display: flex; gap: 0.5rem; justify-content: flex-end; }
 .ext-mono { font-family: monospace; }
 .ext-badge { background: rgba(255,255,255,0.05); color: #fff; }
-.ext-value { max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ext-value { overflow-wrap: anywhere; word-break: break-all; }
 .ext-grid-1 { display: grid; grid-template-columns: 1fr 120px; gap: 1rem; }
 .ext-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem; }
 .ext-grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 1rem; margin-top: 1rem; }
@@ -793,3 +818,16 @@ body.is-disconnected .app-container {
 .ext-link:hover { text-decoration: underline; }
 .modal-content-wide { max-width: 800px; width: 90%; }
 .modal-actions-mt { margin-top: 15px; }
+
+/* Legacy inline style replacements */
+.actions-table { border: none; margin: 0; padding: 0; }
+.actions-cell { border: none; padding: 0 0 5px 0; text-align: center; }
+.modal-warning-text { color: #aaa; font-size: 0.85em; margin-top: 10px; }
+.btn-replace-danger { background: #cc2222 !important; border-color: #cc2222 !important; }
+.btn-replace-danger:hover { background: #aa1111 !important; border-color: #aa1111 !important; }
+.modal-content-medium { max-width: 600px; }
+.modal-help-text { color: #aaa; font-size: 0.9em; }
+.dnssec-info-textarea { width: 100%; background: #222; color: #0f0; border: 1px solid #444; padding: 10px; font-family: monospace; resize: none; }
+
+#table-zone td { font-family: monospace; }
+#table-zone td:not(.ext-mono):not(.ext-value) { font-size: 0.85em; }

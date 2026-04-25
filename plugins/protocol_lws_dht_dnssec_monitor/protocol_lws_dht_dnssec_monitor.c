@@ -1417,6 +1417,74 @@ fail:
 }
 
 static void
+extract_dane_hash(const char *cert_path, char *dane_out, size_t dane_out_len)
+{
+	dane_out[0] = '\0';
+	int cfd = open(cert_path, O_RDONLY);
+	if (cfd < 0) return;
+
+	struct stat st;
+	if (fstat(cfd, &st) || st.st_size <= 0) {
+		close(cfd);
+		return;
+	}
+
+	char *pembuf = malloc((size_t)st.st_size);
+	if (!pembuf || read(cfd, pembuf, (size_t)st.st_size) != st.st_size) {
+		if (pembuf) free(pembuf);
+		close(cfd);
+		return;
+	}
+	close(cfd);
+
+	struct lws_x509_cert *cert = NULL;
+	if (lws_x509_create(&cert)) {
+		free(pembuf);
+		return;
+	}
+
+	if (lws_x509_parse_from_pem(cert, pembuf, (size_t)st.st_size) < 0) {
+		free(pembuf);
+		lws_x509_destroy(&cert);
+		return;
+	}
+	free(pembuf);
+
+	union lws_tls_cert_info_results res1;
+	union lws_tls_cert_info_results *res;
+	res1.ns.len = 0;
+
+	if (lws_x509_info(cert, LWS_TLS_CERT_INFO_DER_SPKI, &res1, 0) == -1 && res1.ns.len > 0) {
+		size_t alloc_len = sizeof(*res) - sizeof(res1.ns.name) + (size_t)res1.ns.len;
+		res = malloc(alloc_len);
+		if (res) {
+			res->ns.len = 0;
+			if (lws_x509_info(cert, LWS_TLS_CERT_INFO_DER_SPKI, res, (size_t)res1.ns.len) == 0) {
+				struct lws_genhash_ctx hash_ctx;
+				uint8_t hash[32];
+
+				if (!lws_genhash_init(&hash_ctx, LWS_GENHASH_TYPE_SHA256)) {
+					if (!lws_genhash_update(&hash_ctx, (uint8_t *)res->ns.name, (size_t)res->ns.len)) {
+						if (!lws_genhash_destroy(&hash_ctx, hash)) {
+							char hex[128];
+							int hl = 0;
+							for (int i = 0; i < 32; i++) {
+								hl += lws_snprintf(hex + hl, sizeof(hex) - (size_t)hl, "%02X", hash[i]);
+							}
+							lws_snprintf(dane_out, dane_out_len, "3 1 1 %s", hex);
+						}
+					} else {
+						lws_genhash_destroy(&hash_ctx, NULL);
+					}
+				}
+			}
+			free(res);
+		}
+	}
+	lws_x509_destroy(&cert);
+}
+
+static void
 handle_req_get_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE];
@@ -1458,7 +1526,24 @@ handle_req_get_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_arg
 							lws_strncpy(fqdn, de->d_name, sizeof(fqdn));
 							char *ext = strrchr(fqdn, '.');
 							if (ext && !strcmp(ext, ".json")) *ext = '\0';
-							tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"fqdn\":\"%s\",\"port\":%d}", fqdn, port);
+							
+							char dane0[128] = {0};
+							char dane1[128] = {0};
+							char c_path[1024];
+							
+							lws_snprintf(c_path, sizeof(c_path), "%s/domains/%s/certs/crt/%s-latest.crt", vhd->base_dir, a->domain, fqdn);
+							extract_dane_hash(c_path, dane0, sizeof(dane0));
+
+							lws_snprintf(c_path, sizeof(c_path), "%s/domains/%s/certs/crt/%s-previous.crt", vhd->base_dir, a->domain, fqdn);
+							extract_dane_hash(c_path, dane1, sizeof(dane1));
+
+							tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"fqdn\":\"%s\",\"port\":%d", fqdn, port);
+							if (dane0[0])
+								tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), ",\"dane0\":\"%s\"", dane0);
+							if (dane1[0])
+								tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), ",\"dane1\":\"%s\"", dane1);
+							tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "}");
+							
 							first = 0;
 						}
 					}
