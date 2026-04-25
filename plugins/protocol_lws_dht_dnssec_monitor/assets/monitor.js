@@ -118,8 +118,25 @@ class ZoneFile {
     }
 
     parseSingleRecord(line) {
+        let cIdx = -1;
+        let inQuotes = false;
+        let escape = false;
+
+        for (let i = 0; i < line.length; i++) {
+            let char = line[i];
+            if (escape) {
+                escape = false;
+            } else if (char === '\\') {
+                escape = true;
+            } else if (char === '"') {
+                inQuotes = !inQuotes;
+            } else if (char === ';' && !inQuotes) {
+                cIdx = i;
+                break;
+            }
+        }
+
         let text = line;
-        let cIdx = line.indexOf(';');
         let comment = '';
         if (cIdx !== -1) {
             text = line.substring(0, cIdx);
@@ -304,6 +321,9 @@ function handleResponse(data) {
                 content += '</table>';
                 bdg.classList.remove('hide'); bdg.classList.add('show-inline');
                 bdg.innerHTML = content;
+                if (typeof window.updateRawEditorSubstitutions === 'function') {
+                    window.updateRawEditorSubstitutions();
+                }
             }
             break;
         case 'get_domains':
@@ -354,6 +374,11 @@ function handleResponse(data) {
             window.activeTls = data.tls || [];
             renderZoneTable();
             updateTlsSummary();
+            if (typeof window.updateRawEditor === 'function') {
+                window.updateRawEditor();
+            } else {
+                updateRawEditor();
+            }
             break;
         case 'create_tls':
         case 'delete_tls':
@@ -720,7 +745,14 @@ function closeDetail() {
 }
 
 function updateRawEditor() {
-    document.getElementById('raw-zone-editor').value = currentZone ? currentZone.serialize() : '';
+    const el = document.getElementById('raw-zone-editor');
+    if (!el) return;
+    let text = currentZone ? currentZone.serialize() : '';
+    if (typeof window.padVariables === 'function') text = window.padVariables(text);
+    el.value = text;
+    if (typeof window.updateRawEditorSubstitutions === 'function') {
+        window.updateRawEditorSubstitutions();
+    }
 }
 
 function renderZoneTable() {
@@ -755,6 +787,11 @@ function renderZoneTable() {
 
         if (r.type === 'SOA') {
             valStr = `${r.parsed?.serial} (MNAME: ${r.parsed?.mname})`;
+        } else if (valStr && typeof window.getSubstitutions === 'function') {
+            window.getSubstitutions().forEach(sub => {
+                let regex = new RegExp(`\\$\\{${sub.key}\\}`, 'g');
+                valStr = valStr.replace(regex, `\$\{${sub.key}\}<span class="subst-preview">${sub.val}</span>`);
+            });
         }
 
         let fqdn = nameStr === '@' ? currentDomain : nameStr + '.' + currentDomain;
@@ -915,7 +952,7 @@ function renderFormFields(type, data) {
                 </div>
                 <div>
                     <label>${valueLabel}</label>
-                    <input type="text" id="edit-value" value="${data.value || ''}" placeholder="...">
+                    <input type="text" id="edit-value" value="${(data.value || '').replace(/"/g, '&quot;')}" placeholder="...">
                 </div>
             </div>
         `;
@@ -950,6 +987,78 @@ function openEditor(id) {
     connect();
 
     const rawEditor = document.getElementById('raw-zone-editor');
+    
+    // Centralized substitution logic
+    window.getSubstitutions = function() {
+        let subs = [];
+        if (!window.last_extip_data) {
+            console.log("getSubstitutions: window.last_extip_data is missing!");
+            return subs;
+        }
+        const ips = Array.isArray(window.last_extip_data['ext-ips']) ? window.last_extip_data['ext-ips'] : (window.last_extip_data['ext-ips'] + '').split(',');
+        let ext_ipv4 = '';
+        let ext_ipv6 = '';
+        ips.forEach(ip => {
+            if (ip.includes(':')) {
+                if (window.ipv6_suffix) {
+                    let parts = ip.split(':');
+                    if (parts.length > 2) {
+                        parts.pop();
+                        ext_ipv6 = parts.join(':') + ':' + window.ipv6_suffix;
+                    } else ext_ipv6 = ip;
+                } else ext_ipv6 = ip;
+            } else ext_ipv4 = ip;
+        });
+        if (ext_ipv4) subs.push({ key: 'EXTIP4', val: ext_ipv4 });
+        if (ext_ipv6) subs.push({ key: 'EXTIP6', val: ext_ipv6 });
+        
+        if (window.activeTls) {
+            window.activeTls.forEach(t => {
+                if (t.dane0) subs.push({ key: `DANE0/${t.fqdn}`, val: t.dane0 });
+                if (t.dane1) subs.push({ key: `DANE1/${t.fqdn}`, val: t.dane1 });
+            });
+        }
+        
+        console.log("getSubstitutions returning:", subs);
+        return subs;
+    };
+
+    window.padVariables = function(text) {
+        let subs = window.getSubstitutions();
+        subs.forEach(sub => {
+            let regex = new RegExp(`\\$\\{${sub.key}\\}`, 'g');
+            text = text.replace(regex, `\$\{${sub.key}\}` + '\u2007'.repeat(sub.val.length));
+        });
+        return text;
+    };
+
+    window.stripVariables = function(text) {
+        return text.replace(/\u2007/g, '');
+    };
+
+    window.updateRawEditorSubstitutions = function() {
+        if (!rawEditor) return;
+        const backdrop = document.getElementById('raw-zone-backdrop');
+        if (!backdrop) return;
+        
+        let text = rawEditor.value;
+        let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+        
+        let subs = window.getSubstitutions();
+        subs.forEach(sub => {
+            let safeKey = sub.key.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+            let padded = `\\$\\{${safeKey}\\}` + '\u2007'.repeat(sub.val.length);
+            let regex = new RegExp(padded, 'g');
+            html = html.replace(regex, `\$\{${sub.key}\}<span class="subst-preview">${sub.val}</span>`);
+        });
+
+        if (text.endsWith('\n')) html += '<br>';
+        
+        backdrop.innerHTML = html;
+        backdrop.scrollTop = rawEditor.scrollTop;
+        backdrop.scrollLeft = rawEditor.scrollLeft;
+    };
+
     rawEditor.addEventListener('keydown', function(e) {
         if (e.key === 'Tab') {
             e.preventDefault();
@@ -960,13 +1069,49 @@ function openEditor(id) {
             this.dispatchEvent(new Event('input'));
         }
     });
+
     rawEditor.addEventListener('input', (e) => {
         if (!currentDomain) return;
-        currentZone = new ZoneFile(e.target.value);
+        
+        let originalValue = rawEditor.value;
+        let stripped = window.stripVariables(originalValue);
+        let padded = window.padVariables(stripped);
+        
+        if (originalValue !== padded) {
+            let origStart = rawEditor.selectionStart;
+            let u2007BeforeStartOrig = (originalValue.substring(0, origStart).match(/\u2007/g) || []).length;
+            let realStart = origStart - u2007BeforeStartOrig;
+            
+            rawEditor.value = padded;
+            
+            let pIdx = 0;
+            let rCount = 0;
+            while (pIdx < padded.length && rCount < realStart) {
+                if (padded[pIdx] !== '\u2007') rCount++;
+                pIdx++;
+            }
+            // If the cursor lands right before padding, let it jump after it so it acts like a block
+            while (pIdx < padded.length && padded[pIdx] === '\u2007') {
+                pIdx++;
+            }
+            
+            rawEditor.selectionStart = rawEditor.selectionEnd = pIdx;
+        }
+
+        window.updateRawEditorSubstitutions();
+        currentZone = new ZoneFile(window.stripVariables(rawEditor.value));
         renderZoneTable();
         document.getElementById('record-editor')?.classList.add('hidden-panel');
         syncScroll(e.target);
         document.getElementById('btn-save-zonefile').disabled = false;
+    });
+
+    rawEditor.addEventListener('scroll', (e) => {
+        const backdrop = document.getElementById('raw-zone-backdrop');
+        if (backdrop) {
+            backdrop.scrollTop = rawEditor.scrollTop;
+            backdrop.scrollLeft = rawEditor.scrollLeft;
+        }
     });
 
     const syncScroll = (target) => {
