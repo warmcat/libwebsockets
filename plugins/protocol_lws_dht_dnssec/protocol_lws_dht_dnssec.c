@@ -3700,67 +3700,37 @@ dnssec_subst_cb(struct lws_auth_dns_sign_info *info, const char *name)
 
 	if (!strncmp(name, "DANE", 4)) {
 		int previous = (name[4] == '1');
+		char root[128];
+		root[0] = '\0';
+		
+		const char *slash = strchr(name, '/');
+		if (slash && slash[1]) {
+			lws_strncpy(root, slash + 1, sizeof(root));
+		}
+		
+		if (!root[0]) return "";
 
-		/* Extract domain from info->curr_line */
-		char line[4096];
-		if (!info->curr_line) return NULL;
-
-		size_t clen = info->curr_line_len;
-		if (clen > sizeof(line) - 1) clen = sizeof(line) - 1;
-		memcpy(line, info->curr_line, clen);
-		line[clen] = '\0';
-
-		char toks[8][256];
-		int num_toks = 0;
-		lws_tokenize_t ts;
-		lws_tokenize_elem e;
-
-		lws_tokenize_init(&ts, line, LWS_TOKENIZE_F_DOT_NONTERM | LWS_TOKENIZE_F_MINUS_NONTERM);
-		ts.len = clen;
-		do {
-			e = lws_tokenize(&ts);
-			if (e == LWS_TOKZE_TOKEN) {
-				if (num_toks < 8) {
-					int n = (int)ts.token_len;
-					if (n > (int)sizeof(toks[0]) - 1) n = sizeof(toks[0]) - 1;
-					memcpy(toks[num_toks], ts.token, (size_t)n);
-					toks[num_toks][n] = '\0';
-					num_toks++;
-				}
-			}
-		} while (e > 0);
-
-		if (num_toks == 0) return NULL;
-
-		/* toks[0] is like _443._tcp.warmcat.com. */
-		char pdomain[256];
-		lws_strncpy(pdomain, toks[0], sizeof(pdomain));
-
-		/* We can usually find the root domain by skipping `_xxx._yyy.` */
-		char *root = pdomain;
-		if (pdomain[0] == '_') {
-			root = strchr(pdomain, '.');
-			if (root) {
-				root++;
-				if (root[0] == '_') {
-					root = strchr(root, '.');
-					if (root) root++;
+		/* Determine domain from info->input_filepath */
+		char domain[128];
+		domain[0] = '\0';
+		if (info->input_filepath) {
+			const char *p = strstr(info->input_filepath, "/domains/");
+			if (p) {
+				p += 9;
+				const char *p2 = strchr(p, '/');
+				if (p2 && (p2 - p) < (int)sizeof(domain)) {
+					lws_strncpy(domain, p, lws_ptr_diff_size_t(p2, p) + 1);
 				}
 			}
 		}
-		if (!root) root = pdomain;
-
-		/* remove trailing dot */
-		size_t rl = strlen(root);
-		if (rl > 0 && root[rl - 1] == '.')
-			root[rl - 1] = '\0';
+		if (!domain[0]) return "";
 
 		/* Load X509 cert */
 		char cert_path[256];
 		if (previous) {
-			lws_snprintf(cert_path, sizeof(cert_path), "/var/dnssec/domains/%s/tls/%s.crt.1", root, root);
+			lws_snprintf(cert_path, sizeof(cert_path), "/var/dnssec/domains/%s/certs/crt/%s-previous.crt", domain, root);
 		} else {
-			lws_snprintf(cert_path, sizeof(cert_path), "/var/dnssec/domains/%s/tls/%s.crt", root, root);
+			lws_snprintf(cert_path, sizeof(cert_path), "/var/dnssec/domains/%s/certs/crt/%s-latest.crt", domain, root);
 		}
 
 		struct lws_x509_cert *cert = NULL;
