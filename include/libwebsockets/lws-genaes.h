@@ -91,6 +91,16 @@ struct lws_genaes_ctx {
 #elif defined(LWS_WITH_GNUTLS)
 	gnutls_cipher_hd_t ctx;
 	int gnutls_gcm_initialized;
+#elif defined(LWS_WITH_BEARSSL)
+	union {
+		br_aes_ct_cbcenc_keys cbcenc;
+		br_aes_ct_cbcdec_keys cbcdec;
+		br_aes_ct_ctr_keys ctr;
+	} u;
+	br_gcm_context gcm;
+	const br_block_cbcenc_class *cbcenc_vtable;
+	const br_block_cbcdec_class *cbcdec_vtable;
+	const br_block_ctr_class *ctr_vtable;
 #else
 	EVP_CIPHER_CTX *ctx;
 	const EVP_CIPHER *cipher;

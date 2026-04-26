@@ -595,6 +595,8 @@ static lws_handling_result_t
 rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 		       struct lws_pollfd *pollfd)
 {
+	lwsl_notice("%s: %s state 0x%x, revents %d\n", __func__, lws_wsi_tag(wsi), lwsi_state(wsi), pollfd->revents);
+
 	if (lwsi_state(wsi) == LRS_IDLING) {
 		uint8_t buf[1];
 		int rlen;

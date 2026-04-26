@@ -110,6 +110,14 @@ if (LWS_WITH_GNUTLS)
 	include_directories(${_CMAKE_INC_LIST})
 endif()
 
+if (LWS_WITH_BEARSSL)
+	if (LWS_WITH_DTLS)
+		message(FATAL_ERROR "BearSSL does not support DTLS. Please disable LWS_WITH_DTLS (and features that imply it, like LWS_WITH_WEBRTC) or choose a different TLS backend.")
+	endif()
+	add_subdirectory(bearssl)
+	include_directories(${_CMAKE_INC_LIST})
+endif()
+
 # The base dir where the test-apps look for the SSL certs.
 set(LWS_OPENSSL_CLIENT_CERTS ../share CACHE PATH "Server SSL certificate directory")
 if (WIN32)
@@ -200,6 +208,23 @@ if (LWS_WITH_SSL)
 					tls/gnutls/lws-gendtls.c)
 			endif()
 		endif()
+	elseif (LWS_WITH_BEARSSL)
+		list(APPEND SOURCES
+			tls/bearssl/bearssl-ssl.c
+			tls/bearssl/bearssl-x509.c)
+		if (LWS_WITH_TLS_SESSIONS)
+			list(APPEND SOURCES
+				tls/bearssl/bearssl-session.c)
+		endif()
+		if (LWS_WITH_GENCRYPTO)
+			list(APPEND SOURCES
+				tls/bearssl/bearssl-crypto.c
+				tls/lws-genec-common.c)
+		endif()
+		if (LWS_WITH_DTLS)
+			list(APPEND SOURCES
+				tls/bearssl/bearssl-dtls.c)
+		endif()
 	else()
 		list(APPEND SOURCES
 			tls/openssl/openssl-tls.c
@@ -233,6 +258,9 @@ if (LWS_WITH_SSL)
 		if (LWS_WITH_MBEDTLS)
 			list(APPEND SOURCES
 				tls/mbedtls/mbedtls-server.c)
+		elseif (LWS_WITH_BEARSSL)
+			list(APPEND SOURCES
+				tls/bearssl/bearssl-server.c)
 		elseif(NOT LWS_WITH_SCHANNEL AND NOT LWS_WITH_GNUTLS)
 			list(APPEND SOURCES
 				tls/openssl/openssl-server.c)
@@ -244,6 +272,9 @@ if (LWS_WITH_SSL)
 		if (LWS_WITH_MBEDTLS)
 			list(APPEND SOURCES
 				tls/mbedtls/mbedtls-client.c)
+		elseif (LWS_WITH_BEARSSL)
+			list(APPEND SOURCES
+				tls/bearssl/bearssl-client.c)
 		elseif(NOT LWS_WITH_SCHANNEL AND NOT LWS_WITH_GNUTLS)
 			list(APPEND SOURCES
 				tls/openssl/openssl-client.c)
@@ -304,12 +335,24 @@ if (LWS_WITH_SSL)
 
 		list(INSERT LIB_LIST 0 "${MBEDTLS_LIBRARIES}")
 	endif()
+
+	if (LWS_WITH_BEARSSL AND DEFINED LWS_BEARSSL_INCLUDE_DIRS AND DEFINED LWS_BEARSSL_LIBRARIES)
+		message("BEARSSL include dir: ${LWS_BEARSSL_INCLUDE_DIRS}")
+		message("BEARSSL libraries: ${LWS_BEARSSL_LIBRARIES}")
+
+		foreach(inc ${LWS_BEARSSL_INCLUDE_DIRS})
+				set(LWS_PUBLIC_INCLUDES ${LWS_PUBLIC_INCLUDES} "${inc}")
+				set(LWS_PUBLIC_INCLUDES ${LWS_PUBLIC_INCLUDES} PARENT_SCOPE)
+		endforeach()
+
+		list(INSERT LIB_LIST 0 "${LWS_BEARSSL_LIBRARIES}")
+	endif()
 	
 	if (LWS_WITH_MBEDTLS)
 		set(chose_ssl 1)
 	endif()
 
-       if (LWS_WITH_SCHANNEL OR LWS_WITH_GNUTLS)
+       if (LWS_WITH_SCHANNEL OR LWS_WITH_GNUTLS OR LWS_WITH_BEARSSL)
                set(chose_ssl 1)
        endif()
 

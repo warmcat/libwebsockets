@@ -322,7 +322,7 @@ struct lws *__lws_wsi_create_with_role(struct lws_context *context, int tsi,
 }
 
 int lws_wsi_inject_to_loop(struct lws_context_per_thread *pt, struct lws *wsi) {
-	int ret = 1;
+	int ret = 1; fprintf(stderr, "wsi.c: pt->context=%p, ev_ops=%p\n", pt->context, pt->context->event_loop_ops);
 
 	lws_pt_lock(pt, __func__); /* -------------- pt { */
 
@@ -1112,6 +1112,11 @@ int _lws_generic_transaction_completed_active_conn(struct lws **_wsi,
 
 #if defined(LWS_WITH_TLS)
 	/* pass on the tls */
+
+#if defined(LWS_TLS_SYNTHESIZE_CB)
+	lws_sul_cancel(&wsi->tls.sul_cb_synth);
+	lws_sess_cache_synth_cb(&wsi->tls.sul_cb_synth);
+#endif
 
 	wnew->tls = wsi->tls;
 	wsi->tls.client_bio = NULL;

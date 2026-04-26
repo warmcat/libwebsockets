@@ -208,6 +208,7 @@
 #cmakedefine LWS_WITH_LWSAC
 #cmakedefine LWS_LOGS_TIMESTAMP
 #cmakedefine LWS_WITH_MBEDTLS
+#cmakedefine LWS_WITH_BEARSSL
 #cmakedefine LWS_WITH_SCHANNEL
 #cmakedefine LWS_WITH_GNUTLS
 #cmakedefine LWS_WITH_MINIZ

@@ -597,7 +597,7 @@ struct lws_context_creation_info {
 
 #endif
 
-#if !defined(LWS_WITH_MBEDTLS)
+#if !defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_BEARSSL)
 	SSL_CTX *provided_client_ssl_ctx;
 	/**< CONTEXT: If non-null, swap out libwebsockets ssl
 	  * implementation for the one provided by provided_ssl_ctx.
