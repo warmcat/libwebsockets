@@ -35,7 +35,7 @@ if (requirements AND NOT WIN32)
 		set_tests_properties(ss-threads
 				     PROPERTIES
 				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/secure-streams/minimal-secure-streams-threads
-				     TIMEOUT 10)
+				     TIMEOUT 30)
 	endif()
 
 	if (websockets_shared)

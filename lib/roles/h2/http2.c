@@ -995,7 +995,11 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		 * the right behaviour depending on reverse proxy for a particular
 		 * server.
 		 */
-		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, ds);
+		if (lwsi_role_client(wsi))
+			lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
+					(int)wsi->a.context->timeout_secs);
+		else
+			lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, ds);
 	}
 	if (h2n->sid)
 		h2n->swsi = lws_wsi_mux_from_id(wsi, h2n->sid);

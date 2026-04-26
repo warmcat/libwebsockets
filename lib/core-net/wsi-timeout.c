@@ -40,6 +40,9 @@ __lws_wsi_remove_from_sul(struct lws *wsi)
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	lws_sul_cancel(&wsi->sul_fault_timedclose);
 #endif
+#if defined(LWS_TLS_SYNTHESIZE_CB)
+	lws_sul_cancel(&wsi->tls.sul_cb_synth);
+#endif
 }
 
 /*

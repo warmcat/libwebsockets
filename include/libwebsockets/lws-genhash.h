@@ -81,6 +81,14 @@ struct lws_genhash_ctx {
 	union {
 		void *hash; /* gnutls_hash_hd_t */
 	} u;
+#elif defined(LWS_WITH_BEARSSL)
+	union {
+		br_md5_context md5;
+		br_sha1_context sha1;
+		br_sha256_context sha256;
+		br_sha384_context sha384;
+		br_sha512_context sha512;
+	} u;
 #else
         const EVP_MD *evp_type;
         EVP_MD_CTX *mdctx;
@@ -101,6 +109,9 @@ struct lws_genhmac_ctx {
 	union {
 		void *hash; /* gnutls_hash_hd_t */
 	} u;
+#elif defined(LWS_WITH_BEARSSL)
+	br_hmac_key_context hmac_key;
+	br_hmac_context ctx;
 #else
 	const EVP_MD *evp_type;
 
