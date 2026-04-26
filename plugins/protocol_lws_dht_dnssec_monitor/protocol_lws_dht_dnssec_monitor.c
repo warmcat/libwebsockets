@@ -1823,7 +1823,8 @@ handle_req_get_acme_log(struct vhd *vhd, struct pss *root_pss, struct monitor_re
 		lws_filepos_t size = (lws_filepos_t)lseek(fd, 0, SEEK_END);
 		lws_filepos_t start = 0;
 		if (size > 4000) start = size - 4000;
-		lseek(fd, (off_t)start, SEEK_SET);
+		if (lseek(fd, (off_t)start, SEEK_SET) < 0)
+			lwsl_err("%s: lseek failed\n", __func__);
 		ssize_t n = read(fd, buf, sizeof(buf) - 1);
 		if (n > 0) {
 			buf[n] = '\0';

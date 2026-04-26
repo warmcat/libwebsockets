@@ -907,6 +907,9 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 #include <mbedtls/sha256.h>
 #include <mbedtls/sha512.h>
 #endif
+#if defined(LWS_WITH_BEARSSL)
+#include <bearssl.h>
+#endif
 
 #include <libwebsockets/lws-genhash.h>
 #include <libwebsockets/lws-genrsa.h>

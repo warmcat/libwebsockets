@@ -27,7 +27,7 @@
 
 #if defined(LWS_HAVE_SSL_CTX_set_keylog_callback) && defined(LWS_WITH_NETWORK) && \
 	defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS) && \
-	!defined(LWS_WITH_GNUTLS) && \
+	!defined(LWS_WITH_GNUTLS) && !defined(LWS_WITH_BEARSSL) && \
 	(!defined(LWS_WITHOUT_CLIENT) || !defined(LWS_WITHOUT_SERVER))
 void
 lws_klog_dump(const SSL *ssl, const char *line)
@@ -83,13 +83,13 @@ lws_klog_dump(const SSL *ssl, const char *line)
 
 
 #if defined(LWS_WITH_NETWORK)
-#if (!defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_SCHANNEL) && defined(OPENSSL_VERSION_NUMBER) && \
+#if (!defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_BEARSSL) && !defined(LWS_WITH_SCHANNEL) && defined(OPENSSL_VERSION_NUMBER) && \
 				  OPENSSL_VERSION_NUMBER >= 0x10002000L)
 static int
 alpn_cb(SSL *s, const unsigned char **out, unsigned char *outlen,
 	const unsigned char *in, unsigned int inlen, void *arg)
 {
-#if !defined(LWS_WITH_MBEDTLS)
+#if !defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_BEARSSL)
 	struct alpn_ctx *alpn_ctx = (struct alpn_ctx *)arg;
 
 	if (SSL_select_next_proto((unsigned char **)out, outlen, alpn_ctx->data,
@@ -212,7 +212,7 @@ lws_tls_restrict_return(struct lws *wsi)
 void
 lws_context_init_alpn(struct lws_vhost *vhost)
 {
-#if defined(LWS_WITH_MBEDTLS) || (defined(OPENSSL_VERSION_NUMBER) && \
+#if defined(LWS_WITH_MBEDTLS) || defined(LWS_WITH_BEARSSL) || (defined(OPENSSL_VERSION_NUMBER) && \
 				  OPENSSL_VERSION_NUMBER >= 0x10002000L) || \
 				  defined(LWS_WITH_GNUTLS)
 	const char *alpn_comma = vhost->context->tls.alpn_default;
@@ -229,8 +229,8 @@ lws_context_init_alpn(struct lws_vhost *vhost)
 
 #if defined(LWS_WITH_GNUTLS)
 	/* GnuTLS ALPN is set per-session, nothing to do here for CTX */
-#elif defined(LWS_WITH_MBEDTLS)
-	/* MbedTLS ALPN is set per-session, nothing to do here for CTX */
+#elif defined(LWS_WITH_MBEDTLS) || defined(LWS_WITH_BEARSSL)
+	/* MbedTLS/BearSSL ALPN is set per-session, nothing to do here for CTX */
 #else
 	SSL_CTX_set_alpn_select_cb(vhost->tls.ssl_ctx, alpn_cb,
 				   &vhost->tls.alpn_ctx);
@@ -247,7 +247,7 @@ lws_context_init_alpn(struct lws_vhost *vhost)
 int
 lws_tls_server_conn_alpn(struct lws *wsi)
 {
-#if defined(LWS_WITH_MBEDTLS) || (defined(OPENSSL_VERSION_NUMBER) && \
+#if defined(LWS_WITH_MBEDTLS) || defined(LWS_WITH_BEARSSL) || (defined(OPENSSL_VERSION_NUMBER) && \
 				  OPENSSL_VERSION_NUMBER >= 0x10002000L) || \
 				  defined(LWS_WITH_GNUTLS)
 	const unsigned char *name = NULL;
@@ -269,6 +269,9 @@ lws_tls_server_conn_alpn(struct lws *wsi)
 			len = selected.size;
 		}
 	}
+#elif defined(LWS_WITH_BEARSSL)
+	name = NULL;
+	len = 0;
 #else
 	SSL_get0_alpn_selected(wsi->tls.ssl, &name, &len);
 #endif

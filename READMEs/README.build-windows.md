@@ -122,6 +122,16 @@ additional CMake options on lws:
       -DLWS_WITH_MBEDTLS=TRUE
 ```
 
+### Alternative: BearSSL (or OpenSSL/MbedTLS, see above)
+
+BearSSL is a highly optimized, minimalistic alternative to OpenSSL and MbedTLS. It is easily cross-compiled or built on Windows. Note that BearSSL currently does not support DTLS. To use it, simply provide the include and library paths:
+
+```
+      -DLWS_WITH_BEARSSL=TRUE
+      -DLWS_BEARSSL_INCLUDE_DIRS=C:/path/to/bearssl/inc
+      -DLWS_BEARSSL_LIBRARIES=C:/path/to/bearssl/build/bearssl.lib
+```
+
 ### Powershell
 
 CMake wants it and the version that comes with windows is too old to have pwsh.exe.

@@ -114,7 +114,7 @@ lws_b64_decode_stateful(struct lws_b64state *s, const char *in, size_t *in_len,
 	uint8_t *orig_out = out, *end_out = out + *out_size;
 	int equals = 0;
 
-	while (in < end_in && *in && out + 3 <= end_out) {
+	while ((in < end_in && *in && out + 3 <= end_out) || (final && s->i && out + 3 <= end_out)) {
 
 		for (; s->i < 4 && in < end_in && *in; s->i++) {
 			uint8_t v;
@@ -122,7 +122,7 @@ lws_b64_decode_stateful(struct lws_b64state *s, const char *in, size_t *in_len,
 			v = 0;
 			s->c = 0;
 			while (in < end_in && *in && !v) {
-				s->c = v = (unsigned char)*in++;
+				v = (unsigned char)*in++;
 
 				if (v == '\x0a' || v == '\x0d') {
 					v = 0;
@@ -134,6 +134,8 @@ lws_b64_decode_stateful(struct lws_b64state *s, const char *in, size_t *in_len,
 					v = 0;
 					continue;
 				}
+
+				s->c = v;
 
 				/* Sanity check this is part of the charset */
 

@@ -25,6 +25,9 @@ if [ $GONESKI -eq 1 ] ; then
 	exit 0
 fi
 
+echo "Background task $PI: $J logs before kill:"
+cat /tmp/ctest-background-$J
+
 echo "Trying SIGTERM..."
 
 kill $PI

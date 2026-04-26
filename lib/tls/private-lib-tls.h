@@ -157,6 +157,8 @@ typedef struct lws_tls_schannel_bio lws_tls_bio;
 typedef struct lws_tls_schannel_x509 lws_tls_x509;
 #elif defined(LWS_WITH_GNUTLS)
 #include "gnutls/private.h"
+#elif defined(LWS_WITH_BEARSSL)
+#include "bearssl/private-lib-tls-bearssl.h"
 #else
 typedef SSL lws_tls_conn;
 typedef SSL_CTX lws_tls_ctx;
@@ -176,7 +178,7 @@ lws_context_deinit_ssl_library(struct lws_context *context);
 #define LWS_SSL_ENABLED(vh) (vh && vh->tls.use_ssl)
 
 extern const struct lws_tls_ops tls_ops_openssl, tls_ops_mbedtls, tls_ops_schannel,
-				 tls_ops_gnutls;
+				 tls_ops_gnutls, tls_ops_bearssl;
 
 struct lws_ec_valid_curves {
 	int id;
@@ -227,7 +229,7 @@ int
 lws_genec_confirm_curve_allowed_by_tls_id(const char *allowed, int id,
 					  struct lws_jwk *jwk);
 
-void
+int
 lws_tls_reuse_session(struct lws *wsi);
 
 void

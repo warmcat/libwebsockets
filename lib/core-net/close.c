@@ -326,7 +326,7 @@ lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
 
 	wsi->already_did_cce = 1;
 
-	if (!wsi->a.protocol)
+	if (!wsi->a.protocol || (wsi->a.context && wsi->a.context->being_destroyed))
 		return;
 
 	if (!wsi->client_suppress_CONNECTION_ERROR)
