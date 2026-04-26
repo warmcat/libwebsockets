@@ -309,12 +309,12 @@ _lws_struct_sq3_ser_one(sqlite3 *pdb, const lws_struct_map_t *schema,
 			break;
 		case LSMT_STRING_CHAR_ARRAY:
 			sql_est += (unsigned int)lws_sql_purify_len((const char *)st +
-							map[n].ofs) + 2;
+							map[n].ofs) + 4;
 			break;
 
 		case LSMT_STRING_PTR:
 			p = *((const char * const *)&stb[map[n].ofs]);
-			sql_est += (unsigned int)((p ? lws_sql_purify_len(p) : 0) + 2);
+			sql_est += (unsigned int)((p ? lws_sql_purify_len(p) : 0) + 4);
 			break;
 
 		case LSMT_BLOB_PTR:

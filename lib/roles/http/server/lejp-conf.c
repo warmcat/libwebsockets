@@ -95,6 +95,9 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].mounts[].cache-reuse",
 	"vhosts[].mounts[].cache-revalidate",
 	"vhosts[].mounts[].cache-no",
+	"vhosts[].mounts[].exact-match",
+	"vhosts[].mounts[].append-path",
+	"vhosts[].mounts[].no-ws-upgrades",
 	"vhosts[].mounts[].basic-auth",
 	"vhosts[].mounts[].cache-intermediaries",
 	"vhosts[].mounts[].extra-mimetypes.*",
@@ -185,6 +188,9 @@ enum lejp_vhost_paths {
 	LEJPVP_MOUNT_CACHE_REUSE,
 	LEJPVP_MOUNT_CACHE_REVALIDATE,
 	LEJPVP_MOUNT_CACHE_NO,
+	LEJPVP_MOUNT_EXACT_MATCH,
+	LEJPVP_MOUNT_APPEND_PATH,
+	LEJPVP_MOUNT_NO_WS_UPGRADES,
 	LEJPVP_MOUNT_BASIC_AUTH,
 	LEJPVP_MOUNT_CACHE_INTERMEDIARIES,
 	LEJPVP_MOUNT_EXTRA_MIMETYPES,
@@ -871,6 +877,15 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		return 0;
 	case LEJPVP_MOUNT_CACHE_NO:
 		a->m.cache_no = !!arg_to_bool(ctx->buf);
+		return 0;
+	case LEJPVP_MOUNT_EXACT_MATCH:
+		a->m.exact_match = !!arg_to_bool(ctx->buf);
+		return 0;
+	case LEJPVP_MOUNT_APPEND_PATH:
+		a->m.append_path = !!arg_to_bool(ctx->buf);
+		return 0;
+	case LEJPVP_MOUNT_NO_WS_UPGRADES:
+		a->m.no_ws_upgrades = !!arg_to_bool(ctx->buf);
 		return 0;
 	case LEJPVP_MOUNT_CACHE_INTERMEDIARIES:
 		a->m.cache_intermediaries = !!arg_to_bool(ctx->buf);;
