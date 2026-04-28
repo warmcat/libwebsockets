@@ -63,7 +63,7 @@ target_link_libraries(${PLUGIN_NAME} -lwebsockets ${LIBWEBSOCKETS_DEP_LIBS})
 
 # Set test app specific defines.
 set_property(TARGET ${PLUGIN_NAME}
-	     PROPERTY COMPILE_DEFINITIONS
+	     APPEND PROPERTY COMPILE_DEFINITIONS
 	     INSTALL_DATADIR="${CMAKE_INSTALL_PREFIX}/plugins"
 )
 

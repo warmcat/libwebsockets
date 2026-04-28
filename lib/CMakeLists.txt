@@ -300,7 +300,7 @@ if (LWS_WITH_SHARED)
 		# Compile as DLL (export function declarations)
 		set_property(
 			TARGET websockets_shared
-			PROPERTY COMPILE_DEFINITIONS
+			APPEND PROPERTY COMPILE_DEFINITIONS
 			LWS_DLL
 			LWS_INTERNAL)
 		target_compile_definitions(websockets_shared INTERFACE LWS_DLL)

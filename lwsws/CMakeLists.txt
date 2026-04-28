@@ -53,7 +53,7 @@ if (LWS_WITH_LWSWS)
 	endif()
 	# Set test app specific defines.
 	set_property(TARGET lwsws
-		     PROPERTY COMPILE_DEFINITIONS
+		     APPEND PROPERTY COMPILE_DEFINITIONS
 		     INSTALL_DATADIR="${CMAKE_INSTALL_PREFIX}/share"
 	)
 
