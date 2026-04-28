@@ -26,6 +26,17 @@
                 <span id="notif-message"></span>
             </div>
 
+            <!-- No JS Notification -->
+            <noscript>
+                <style>
+                    #login-form, #register-form, #totp-setup-box, #registration-toggle-box, #login-toggle-box { display: none !important; }
+                </style>
+                <div class="auth-form active" style="text-align: center;">
+                    <p style="color: #f8fafc; font-size: 1.1rem; margin-bottom: 10px;">JavaScript is Required</p>
+                    <p>This login portal relies on JavaScript to function securely. Please enable JavaScript in your browser settings and refresh the page to continue.</p>
+                </div>
+            </noscript>
+
             <!-- Login Form -->
             <form id="login-form" class="auth-form active">
                 <div class="input-group">
@@ -37,13 +48,18 @@
                     <input type="password" id="login-password" name="password" required autocomplete="current-password">
                 </div>
                 <div class="input-group" id="totp-group">
-                    <label for="login-totp">Authenticator Code (6-digit)</label>
-                    <input type="text" id="login-totp" name="totp" pattern="[0-9]{6}" autocomplete="one-time-code">
+                    <label>Authenticator Code (6-digit)</label>
+                    <div class="totp-boxes">
+                        <input type="text" class="totp-box" maxlength="1" pattern="[0-9]" inputmode="numeric" autocomplete="one-time-code">
+                        <input type="text" class="totp-box" maxlength="1" pattern="[0-9]" inputmode="numeric">
+                        <input type="text" class="totp-box" maxlength="1" pattern="[0-9]" inputmode="numeric">
+                        <input type="text" class="totp-box" maxlength="1" pattern="[0-9]" inputmode="numeric">
+                        <input type="text" class="totp-box" maxlength="1" pattern="[0-9]" inputmode="numeric">
+                        <input type="text" class="totp-box" maxlength="1" pattern="[0-9]" inputmode="numeric">
+                    </div>
+                    <input type="hidden" id="login-totp" name="totp">
                 </div>
-                <button type="submit" class="btn primary-btn" id="login-btn">
-                    <span>Login</span>
-                    <div class="loader hidden"></div>
-                </button>
+                <button type="submit" id="login-btn" style="display: none;"></button>
             </form>
 
             <!-- Registration Form (Hidden natively... it is toggled via JS) -->

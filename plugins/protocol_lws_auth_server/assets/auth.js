@@ -286,6 +286,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     totpRequired = true;
                     totpGroup.classList.remove('hidden');
                     showNotif('error', 'Authenticator code required.');
+                    setTimeout(() => {
+                        const firstBox = document.querySelector('.totp-box');
+                        if (firstBox) firstBox.focus();
+                    }, 50);
                 } else {
                     let errMsg = 'Invalid security credentials.';
                     try {
@@ -304,41 +308,38 @@ document.addEventListener('DOMContentLoaded', () => {
                 showNotif('error', errMsg);
             } else if (response.ok) {
                 const data = await response.json();
-                showNotif('success', 'Clearance accepted. Welcome.');
                 const stkOverlay = document.getElementById('strike-overlay');
                 if (stkOverlay) {
                     stkOverlay.classList.remove('show-strike');
                 }
                 if (data.redirect) {
-                    setTimeout(() => { /*alert("auth.js data.redirect -> "+ data.redirect);*/ window.location.href = data.redirect; }, 1000);
+                    window.location.href = data.redirect;
                 } else if (redirectUri) {
-                    setTimeout(() => {
-                        let u;
-                        try { u = new URL(redirectUri); } catch(e) {}
-                        if (u) {
-                            const form = document.createElement('form');
-                            form.method = 'POST';
-                            let path = u.pathname;
-                            if (path.endsWith('/')) path = path.slice(0, -1);
-                            form.action = u.origin + path + '/.lws-login-sso';
-                            const tInput = document.createElement('input');
-                            tInput.type = 'hidden';
-                            tInput.name = 'token';
-                            tInput.value = data.token;
-                            form.appendChild(tInput);
-                            const rInput = document.createElement('input');
-                            rInput.type = 'hidden';
-                            rInput.name = 'target';
-                            rInput.value = redirectUri;
-                            form.appendChild(rInput);
-                            document.body.appendChild(form);
-                            form.submit();
-                        } else {
-                            /*alert("auth.js redirectUri -> " + redirectUri);*/ window.location.href = redirectUri;
-                        }
-                    }, 1000);
+                    let u;
+                    try { u = new URL(redirectUri); } catch(e) {}
+                    if (u) {
+                        const form = document.createElement('form');
+                        form.method = 'POST';
+                        let path = u.pathname;
+                        if (path.endsWith('/')) path = path.slice(0, -1);
+                        form.action = u.origin + path + '/.lws-login-sso';
+                        const tInput = document.createElement('input');
+                        tInput.type = 'hidden';
+                        tInput.name = 'token';
+                        tInput.value = data.token;
+                        form.appendChild(tInput);
+                        const rInput = document.createElement('input');
+                        rInput.type = 'hidden';
+                        rInput.name = 'target';
+                        rInput.value = redirectUri;
+                        form.appendChild(rInput);
+                        document.body.appendChild(form);
+                        form.submit();
+                    } else {
+                        window.location.href = redirectUri;
+                    }
                 } else {
-                    setTimeout(() => window.location.href = '/', 1000);
+                    window.location.href = '/';
                 }
             } else {
                 let errMsg = 'Server anomaly detected.';
@@ -408,4 +409,81 @@ document.addEventListener('DOMContentLoaded', () => {
     function hideNotif() {
         notifBox.className = 'notification hidden';
     }
+
+    // TOTP Box Logic
+    const totpBoxes = document.querySelectorAll('.totp-box');
+    const totpHidden = document.getElementById('login-totp');
+
+    if (totpBoxes.length > 0) {
+        totpBoxes.forEach((box, index) => {
+            box.addEventListener('input', (e) => {
+                // Ensure only digits
+                e.target.value = e.target.value.replace(/[^0-9]/g, '');
+
+                if (e.target.value.length === 1) {
+                    if (index < totpBoxes.length - 1) {
+                        totpBoxes[index + 1].focus();
+                    } else {
+                        updateTotpHidden();
+                        // Delay slightly so the input value registers visually before submit
+                        setTimeout(() => loginForm.requestSubmit(), 50);
+                    }
+                }
+                updateTotpHidden();
+            });
+
+            box.addEventListener('keydown', (e) => {
+                if (e.key === 'Backspace' && !e.target.value && index > 0) {
+                    totpBoxes[index - 1].focus();
+                } else if (e.key === 'Enter') {
+                    e.preventDefault();
+                    loginForm.requestSubmit();
+                }
+            });
+
+            box.addEventListener('paste', (e) => {
+                e.preventDefault();
+                const pasted = (e.clipboardData || window.clipboardData).getData('text').trim().replace(/[^0-9]/g, '').slice(0, 6);
+                if (pasted) {
+                    for (let i = 0; i < pasted.length; i++) {
+                        if (totpBoxes[i]) totpBoxes[i].value = pasted[i];
+                    }
+                    updateTotpHidden();
+                    if (pasted.length === 6) {
+                        totpBoxes[5].focus();
+                        setTimeout(() => loginForm.requestSubmit(), 50);
+                    } else {
+                        totpBoxes[pasted.length].focus();
+                    }
+                }
+            });
+        });
+
+        function updateTotpHidden() {
+            let code = '';
+            totpBoxes.forEach(b => code += b.value);
+            if (totpHidden) totpHidden.value = code;
+        }
+    }
+
+    // Initial Focus Management
+    setTimeout(() => {
+        const emailInput = document.getElementById('login-username');
+        const passInput = document.getElementById('login-password');
+
+        if (emailInput && !emailInput.value) {
+            emailInput.focus();
+        } else if (passInput && !passInput.value) {
+            passInput.focus();
+        } else if (totpBoxes.length > 0) {
+            const tGroup = document.getElementById('totp-group');
+            // If the totp group isn't hidden and hasn't been hidden by some previous step...
+            // Wait, totpGroup might not be visible on page load!
+            // In the HTML right now, totp-group DOES NOT have the hidden class,
+            // so it is visible by default.
+            if (tGroup && !tGroup.classList.contains('hidden')) {
+                totpBoxes[0].focus();
+            }
+        }
+    }, 150);
 });

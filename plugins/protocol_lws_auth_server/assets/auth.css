@@ -153,6 +153,23 @@ input:focus {
     box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.15);
 }
 
+/* TOTP Boxes */
+.totp-boxes {
+    display: flex;
+    gap: 10px;
+    justify-content: space-between;
+    margin-top: 10px;
+}
+
+.totp-box {
+    width: 45px;
+    height: 55px;
+    font-size: 1.5rem;
+    text-align: center;
+    padding: 0;
+    margin: 0;
+}
+
 /* Button */
 .btn {
     width: 100%;
