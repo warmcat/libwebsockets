@@ -54,6 +54,49 @@
                         </tbody>
                     </table>
                 </div>
+                
+                <div class="acme-global-config">
+                    <h2>Global ACME Configuration</h2>
+                    <div class="acme-form-group checkbox-group">
+                        <label>
+                            <input type="checkbox" id="cb-acme-enable"> Enable Let's Encrypt Certificate Fetching
+                        </label>
+                    </div>
+                    <div class="acme-form-group checkbox-group">
+                        <label>
+                            <input type="checkbox" id="cb-acme-prod"> Use Production Let's Encrypt CA
+                        </label>
+                    </div>
+                    <div class="acme-form-inputs">
+                        <div class="form-group">
+                            <label for="acme-email">Email</label>
+                            <input type="email" id="acme-email" placeholder="admin@example.com">
+                        </div>
+                        <div class="form-group">
+                            <label for="acme-org">Organization</label>
+                            <input type="text" id="acme-org" placeholder="My Company">
+                        </div>
+                        <div class="form-group">
+                            <label for="acme-country">Country (2 letters)</label>
+                            <input type="text" id="acme-country" placeholder="US" maxlength="2">
+                        </div>
+                        <div class="form-group">
+                            <label for="acme-state">State / Province</label>
+                            <input type="text" id="acme-state" placeholder="California">
+                        </div>
+                        <div class="form-group">
+                            <label for="acme-locality">Locality / City</label>
+                            <input type="text" id="acme-locality" placeholder="San Francisco">
+                        </div>
+                    </div>
+                    <div class="acme-actions">
+                        <button id="btn-acme-save" class="btn primary">Save ACME Config</button>
+                    </div>
+                    <div class="acme-log-container">
+                        <label>Recent ACME Log</label>
+                        <textarea id="acme-log" readonly rows="8"></textarea>
+                    </div>
+                </div>
             </section>
 
             <section class="panel detail-panel hidden-panel" id="detail-panel">
@@ -161,55 +204,7 @@
         </div>
     </div>
 
-    <div id="modal-new-tls" class="modal">
-        <div class="modal-content">
-            <h3>Add TLS Subdomain for <span id="tls-domain-name"></span></h3>
-            <div class="form-group">
-                <label for="input-tls-subdomain">Subdomain (FQDN)<span class="req">*</span></label>
-                <input type="text" id="input-tls-subdomain" placeholder="www.example.com">
-            </div>
-            <div class="form-group">
-                <label for="input-tls-email">Account Email<span class="req">*</span></label>
-                <input type="email" id="input-tls-email" placeholder="admin@example.com">
-            </div>
-            <div class="form-group">
-                <label for="input-tls-org">Organization<span class="req">*</span></label>
-                <input type="text" id="input-tls-org" placeholder="My Organization">
-            </div>
-            <div class="form-group">
-                <label for="input-tls-dir">ACME Directory URL<span class="req">*</span></label>
-                <input type="text" id="input-tls-dir" placeholder="https://acme-v02.../directory" value="https://acme-v02.api.letsencrypt.org/directory">
-            </div>
-            <div class="modal-actions">
-                <button id="btn-nt-cancel" class="btn hollow">Cancel</button>
-                <button id="btn-nt-save" class="btn primary" disabled>Create TLS</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="modal-tls-details" class="modal">
-        <div class="modal-content modal-content-wide">
-            <h3>TLS Records for <span id="tls-summary-domain-name"></span></h3>
-            <div class="table-container">
-                <table id="table-tls-details">
-                    <thead>
-                        <tr>
-                            <th>Subdomain</th>
-                            <th>Local Expiry</th>
-                            <th>Remote Expiry</th>
-                            <th>Issuer</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr><td colspan="4" class="loading">Loading TLS data...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-            <div class="modal-actions modal-actions-mt">
-                <button id="btn-tls-details-close" class="btn hollow">Close</button>
-            </div>
-        </div>
-    </div>
+    <!-- TLS modals removed -->
 
     <!-- Notification Toast -->
     <div id="toast" class="toast"></div>
