@@ -48,6 +48,165 @@
 #include <grp.h>
 #include <sys/types.h>
 #endif
+#include <sys/stat.h>
+#include <dirent.h>
+
+struct monitor_req_args {
+	char req[32];
+	char domain[128];
+	char subdomain[128];
+	char email[128];
+	char organization[128];
+	char directory_url[256];
+	char *zone_buf;
+	int zone_len;
+	int zone_alloc;
+	char jwt[2048];
+	char suffix[64];
+	char key_type[32];
+	int port;
+	int enabled;
+	int production;
+	char country[8];
+	char state[128];
+	char locality[128];
+};
+
+static const char * const monitor_req_paths[] = {
+	"req",
+	"domain",
+	"subdomain",
+	"email",
+	"organization",
+	"directory_url",
+	"zone",
+	"jwt",
+	"suffix",
+	"key_type",
+	"port",
+	"enabled",
+	"production",
+	"country",
+	"state",
+	"locality"
+};
+
+enum enum_req_paths {
+	LRP_REQ,
+	LRP_DOMAIN,
+	LRP_SUBDOMAIN,
+	LRP_EMAIL,
+	LRP_ORG,
+	LRP_DIR_URL,
+	LRP_ZONE,
+	LRP_JWT,
+	LRP_SUFFIX,
+	LRP_KEY_TYPE,
+	LRP_PORT,
+	LRP_ENABLED,
+	LRP_PRODUCTION,
+	LRP_COUNTRY,
+	LRP_STATE,
+	LRP_LOCALITY
+};
+
+static signed char
+monitor_req_cb(struct lejp_ctx *ctx, char reason)
+{
+	struct monitor_req_args *a = (struct monitor_req_args *)ctx->user;
+
+	if (reason == LEJPCB_VAL_STR_START) {
+		if (ctx->path_match - 1 == LRP_ZONE) {
+			a->zone_len = 0;
+		}
+	}
+
+	if (reason == LEJPCB_VAL_NUM_INT) {
+		if (ctx->path_match - 1 == LRP_PORT) {
+			a->port = atoi(ctx->buf);
+			lwsl_notice("[INSTRUMENT] monitor_req_cb: Parsed port natively from JSON INT: %d\n", a->port);
+		}
+	}
+
+	if (reason == LEJPCB_VAL_TRUE) {
+		if (ctx->path_match - 1 == LRP_ENABLED) a->enabled = 1;
+		if (ctx->path_match - 1 == LRP_PRODUCTION) a->production = 1;
+	}
+
+	if (reason == LEJPCB_VAL_FALSE) {
+		if (ctx->path_match - 1 == LRP_ENABLED) a->enabled = 0;
+		if (ctx->path_match - 1 == LRP_PRODUCTION) a->production = 0;
+	}
+
+	if (reason == LEJPCB_VAL_STR_CHUNK || reason == LEJPCB_VAL_STR_END) {
+		switch (ctx->path_match - 1) {
+		case LRP_REQ:
+			lws_strncpy(a->req, ctx->buf, sizeof(a->req));
+			break;
+		case LRP_DOMAIN:
+			lws_strncpy(a->domain, ctx->buf, sizeof(a->domain));
+			break;
+		case LRP_SUBDOMAIN:
+			lws_strncpy(a->subdomain, ctx->buf, sizeof(a->subdomain));
+			break;
+		case LRP_EMAIL:
+			lws_strncpy(a->email, ctx->buf, sizeof(a->email));
+			break;
+		case LRP_ORG:
+			lws_strncpy(a->organization, ctx->buf, sizeof(a->organization));
+			break;
+		case LRP_DIR_URL:
+			lws_strncpy(a->directory_url, ctx->buf, sizeof(a->directory_url));
+			break;
+		case LRP_ZONE:
+			if (!a->zone_buf) {
+				a->zone_alloc = 8192;
+				a->zone_buf = malloc((size_t)a->zone_alloc);
+				if (!a->zone_buf) return -1;
+			}
+			if (a->zone_len + ctx->npos >= a->zone_alloc) {
+				a->zone_alloc *= 2;
+				char *nb = realloc(a->zone_buf, (size_t)a->zone_alloc);
+				if (!nb) return -1;
+				a->zone_buf = nb;
+			}
+			memcpy(a->zone_buf + a->zone_len, ctx->buf, ctx->npos);
+			a->zone_len += ctx->npos;
+			if (reason == LEJPCB_VAL_STR_END) {
+				a->zone_buf[a->zone_len] = '\0';
+			}
+			break;
+		case LRP_JWT:
+			lws_strncpy(a->jwt, ctx->buf, sizeof(a->jwt));
+			break;
+		case LRP_SUFFIX:
+			lws_strncpy(a->suffix, ctx->buf, sizeof(a->suffix));
+			break;
+		case LRP_KEY_TYPE:
+			lws_strncpy(a->key_type, ctx->buf, sizeof(a->key_type));
+			break;
+		case LRP_PORT:
+			a->port = atoi(ctx->buf);
+			break;
+		case LRP_COUNTRY:
+			lws_strncpy(a->country, ctx->buf, sizeof(a->country));
+			break;
+		case LRP_STATE:
+			lws_strncpy(a->state, ctx->buf, sizeof(a->state));
+			break;
+		case LRP_LOCALITY:
+			lws_strncpy(a->locality, ctx->buf, sizeof(a->locality));
+			break;
+		}
+	}
+
+	if (reason == LEJPCB_FAILED) {
+		lwsl_err("[INSTRUMENT] monitor_req_cb: LEJP JSON Parse FAILED at struct offset %d\n", (int)ctx->st[ctx->sp].s);
+	}
+
+	return 0;
+}
+
 
 struct whois_query_info {
 	lws_dll2_t list;
@@ -114,6 +273,14 @@ struct vhd {
 	lws_dll2_owner_t published_jws;
 	lws_sorted_usec_list_t sul_timer_scan;
 	lws_sorted_usec_list_t sul_timer_proxy_scan;
+
+	int acme_enabled;
+	int acme_production;
+	char acme_email[128];
+	char acme_organization[128];
+	char acme_country[8];
+	char acme_state[128];
+	char acme_locality[128];
 };
 
 struct cert_check_info {
@@ -643,6 +810,155 @@ scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		}
 	}
 
+	if (vhd->acme_enabled) {
+		char cert_path[1024];
+		lws_snprintf(cert_path, sizeof(cert_path), "%s/domains/%s/certs/crt/%s-latest.crt", vhd->base_dir, common_name, common_name);
+
+		int needs_acme = 1;
+
+		int cfd = open(cert_path, O_RDONLY);
+		if (cfd >= 0) {
+			struct stat st;
+			if (!fstat(cfd, &st) && st.st_size > 0) {
+				char *cert_buf = malloc((size_t)st.st_size + 1);
+				if (cert_buf) {
+					if (read(cfd, cert_buf, (size_t)st.st_size) == st.st_size) {
+						cert_buf[st.st_size] = '\0';
+						struct lws_x509_cert *x509;
+						if (!lws_x509_create(&x509)) {
+							if (!lws_x509_parse_from_pem(x509, cert_buf, (size_t)st.st_size + 1)) {
+								union lws_tls_cert_info_results res_from, res_to;
+								if (!lws_x509_info(x509, LWS_TLS_CERT_INFO_VALIDITY_FROM, &res_from, 0) &&
+								    !lws_x509_info(x509, LWS_TLS_CERT_INFO_VALIDITY_TO, &res_to, 0)) {
+									time_t now = time(NULL);
+									time_t total = res_to.time - res_from.time;
+									time_t remaining = res_to.time - now;
+									
+									if (total > 0 && remaining >= (total / 5)) {
+										needs_acme = 0;
+									}
+								}
+							}
+							lws_x509_destroy(&x509);
+						}
+					}
+					free(cert_buf);
+				}
+			}
+			close(cfd);
+		} else {
+			/* No local cert, launch a probe to the port to check validity if ACME is needed */
+			struct cert_check_info *cci = malloc(sizeof(*cci));
+			if (cci) {
+				memset(cci, 0, sizeof(*cci));
+				cci->magic = CERT_CHECK_MAGIC;
+				lws_strncpy(cci->fqdn, common_name, sizeof(cci->fqdn));
+				cci->port = 443;
+				cci->is_automated = 1;
+				cci->starttls_state = 0;
+
+				struct lws_client_connect_info cinfo;
+				memset(&cinfo, 0, sizeof(cinfo));
+				cinfo.context = vhd->context;
+				cinfo.port = 443;
+				cinfo.address = common_name;
+				cinfo.host = cinfo.address;
+				cinfo.origin = cinfo.address;
+				cinfo.ssl_connection = LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_ALLOW_EXPIRED | LCCSCF_USE_SSL;
+				cinfo.protocol = "lws-dht-dnssec-monitor";
+				cinfo.vhost = vhd->vhost;
+				cinfo.opaque_user_data = cci;
+				cinfo.alpn = "http/1.1";
+				cinfo.method = "RAW";
+
+				if (!lws_client_connect_via_info(&cinfo)) {
+					lwsl_err("%s: Failed to start automated cert probe for %s\n", __func__, common_name);
+					free(cci);
+				} else {
+					needs_acme = 0; /* Wait for probe to complete and trigger ACME if needed */
+				}
+			}
+		}
+
+		if (needs_acme) {
+			lwsl_notice("%s: ACME needed for %s\n", __func__, common_name);
+			
+			char conf_dir[1024];
+			lws_snprintf(conf_dir, sizeof(conf_dir), "%s/domains/%s/tls", vhd->base_dir, common_name);
+			if (mkdir(conf_dir, 0755) < 0 && errno != EEXIST)
+				lwsl_notice("%s: Failed to create tls dir\n", __func__);
+			
+			char json_path[1024];
+			lws_snprintf(json_path, sizeof(json_path), "%s/%s.json", conf_dir, common_name);
+			
+			int jfd = open(json_path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+			if (jfd >= 0) {
+				char jbuf[1024];
+				int jn = lws_snprintf(jbuf, sizeof(jbuf),
+					"{\n  \"common-name\": \"%s\",\n  \"challenge-type\": \"dns-01\",\n"
+					"  \"email\": \"%s\",\n  \"acme\": {\n"
+					"    \"organization\": \"%s\",\n"
+					"    \"country\": \"%s\",\n"
+					"    \"state\": \"%s\",\n"
+					"    \"locality\": \"%s\",\n"
+					"    \"directory-url\": \"%s\"\n  }\n}\n",
+					common_name,
+					vhd->acme_email[0] ? vhd->acme_email : "admin@domain.com",
+					vhd->acme_organization, vhd->acme_country, vhd->acme_state, vhd->acme_locality,
+					vhd->acme_production ? "https://acme-v02.api.letsencrypt.org/directory" : "https://acme-staging-v02.api.letsencrypt.org/directory");
+				
+				if (write(jfd, jbuf, (size_t)jn) < 0) {
+					lwsl_err("%s: Failed to write generated ACME config\n", __func__);
+				}
+				close(jfd);
+			}
+
+			char vh_name[256];
+			lws_snprintf(vh_name, sizeof(vh_name), "acme_%s", common_name);
+			if (!lws_get_vhost_by_name(vhd->context, vh_name)) {
+				struct lws_context_creation_info info;
+				struct lws_protocol_vhost_options pvo_core = {0}, pvo_acme = {0}, pvo1 = {0}, pvo2 = {0}, pvo3 = {0}, pvo4 = {0};
+
+				memset(&info, 0, sizeof(info));
+				info.port = CONTEXT_PORT_NO_LISTEN_SERVER;
+				info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+				info.vhost_name = vh_name;
+
+				pvo_core.name = "lws-acme-client-core";
+				pvo_core.next = &pvo_acme;
+
+				pvo_acme.name = "lws-acme-client-dns";
+				pvo_acme.options = &pvo1;
+				info.pvo = &pvo_core;
+
+				pvo1.name = "root-domain";
+				pvo1.value = common_name;
+				pvo1.next = &pvo2;
+
+				pvo2.name = "common-name";
+				pvo2.value = common_name;
+				pvo2.next = &pvo3;
+
+				pvo3.name = "email";
+				pvo3.value = vhd->acme_email[0] ? vhd->acme_email : "admin@domain.com";
+				pvo3.next = &pvo4;
+
+				pvo4.name = "directory-url";
+				pvo4.value = vhd->acme_production ? "https://acme-v02.api.letsencrypt.org/directory" : "https://acme-staging-v02.api.letsencrypt.org/directory";
+
+				if (lws_create_vhost(vhd->context, &info)) {
+					lwsl_notice("%s: ACME vhost %s spawned natively\n", __func__, vh_name);
+				} else {
+					lwsl_err("%s: Failed to spawn ACME vhost %s\n", __func__, vh_name);
+				}
+			}
+		}
+	} else {
+		char json_path[1024];
+		lws_snprintf(json_path, sizeof(json_path), "%s/domains/%s/tls/%s.json", vhd->base_dir, common_name, common_name);
+		unlink(json_path);
+	}
+
 	return 0;
 }
 
@@ -903,7 +1219,7 @@ scan_tls_domains_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	if (lde->type != LDOT_DIR || lde->name[0] == '.') return 0;
 
 	char tls_path[1024];
-	lws_snprintf(tls_path, sizeof(tls_path), "%s/domains/%s/tls", vhd->base_dir, lde->name);
+	lws_snprintf(tls_path, sizeof(tls_path), "%s/domains/%s/conf.d", vhd->base_dir, lde->name);
 
 	struct scan_tls_ctx ctx = { vhd, lde->name };
 	lws_dir(tls_path, &ctx, scan_tls_configs_cb);
@@ -981,6 +1297,33 @@ root_dnssec_scan_timer_cb(struct lws_sorted_usec_list *sul)
 	struct vhd *vhd = lws_container_of(sul, struct vhd, sul_timer_scan);
 	char scan_path[1024];
 
+	/* Reload ACME config */
+	char acme_path[1024];
+	lws_snprintf(acme_path, sizeof(acme_path), "%s/acme_config.json", vhd->base_dir);
+	int fd = open(acme_path, O_RDONLY);
+	if (fd >= 0) {
+		char buf[4096];
+		ssize_t n = read(fd, buf, sizeof(buf) - 1);
+		if (n > 0) {
+			buf[n] = '\0';
+			struct monitor_req_args a;
+			memset(&a, 0, sizeof(a));
+			struct lejp_ctx jctx;
+			lejp_construct(&jctx, monitor_req_cb, &a, monitor_req_paths, LWS_ARRAY_SIZE(monitor_req_paths));
+			lejp_parse(&jctx, (uint8_t *)buf, (int)n);
+			lejp_destruct(&jctx);
+
+			vhd->acme_enabled = a.enabled;
+			vhd->acme_production = a.production;
+			lws_strncpy(vhd->acme_email, a.email, sizeof(vhd->acme_email));
+			lws_strncpy(vhd->acme_organization, a.organization, sizeof(vhd->acme_organization));
+			lws_strncpy(vhd->acme_country, a.country, sizeof(vhd->acme_country));
+			lws_strncpy(vhd->acme_state, a.state, sizeof(vhd->acme_state));
+			lws_strncpy(vhd->acme_locality, a.locality, sizeof(vhd->acme_locality));
+		}
+		close(fd);
+	}
+
 	lws_snprintf(scan_path, sizeof(scan_path), "%s/domains", vhd->base_dir);
 	lws_dir(scan_path, vhd, scan_dir_cb);
 	lws_sul_schedule(vhd->context, 0, &vhd->sul_timer_scan, root_dnssec_scan_timer_cb, 5 * LWS_US_PER_SEC);
@@ -989,135 +1332,58 @@ root_dnssec_scan_timer_cb(struct lws_sorted_usec_list *sul)
 
 
 
-#include <sys/stat.h>
-#include <dirent.h>
-
-struct monitor_req_args {
-	char req[32];
-	char domain[128];
-	char subdomain[128];
-	char email[128];
-	char organization[128];
-	char directory_url[256];
-	char *zone_buf;
-	int zone_len;
-	int zone_alloc;
-	char jwt[2048];
-	char suffix[64];
-	char key_type[32];
-	int port;
-};
-
-static const char * const monitor_req_paths[] = {
-	"req",
-	"domain",
-	"subdomain",
-	"email",
-	"organization",
-	"directory_url",
-	"zone",
-	"jwt",
-	"suffix",
-	"key_type",
-	"port"
-};
-
-enum enum_req_paths {
-	LRP_REQ,
-	LRP_DOMAIN,
-	LRP_SUBDOMAIN,
-	LRP_EMAIL,
-	LRP_ORG,
-	LRP_DIR_URL,
-	LRP_ZONE,
-	LRP_JWT,
-	LRP_SUFFIX,
-	LRP_KEY_TYPE,
-	LRP_PORT
-};
-
-static signed char
-monitor_req_cb(struct lejp_ctx *ctx, char reason)
-{
-	struct monitor_req_args *a = (struct monitor_req_args *)ctx->user;
-
-	if (reason == LEJPCB_VAL_STR_START) {
-		if (ctx->path_match - 1 == LRP_ZONE) {
-			a->zone_len = 0;
-		}
-	}
-
-	if (reason == LEJPCB_VAL_NUM_INT) {
-		if (ctx->path_match - 1 == LRP_PORT) {
-			a->port = atoi(ctx->buf);
-			lwsl_notice("[INSTRUMENT] monitor_req_cb: Parsed port natively from JSON INT: %d\n", a->port);
-		}
-	}
-
-	if (reason == LEJPCB_VAL_STR_CHUNK || reason == LEJPCB_VAL_STR_END) {
-		switch (ctx->path_match - 1) {
-		case LRP_REQ:
-			lws_strncpy(a->req, ctx->buf, sizeof(a->req));
-			break;
-		case LRP_DOMAIN:
-			lws_strncpy(a->domain, ctx->buf, sizeof(a->domain));
-			break;
-		case LRP_SUBDOMAIN:
-			lws_strncpy(a->subdomain, ctx->buf, sizeof(a->subdomain));
-			break;
-		case LRP_EMAIL:
-			lws_strncpy(a->email, ctx->buf, sizeof(a->email));
-			break;
-		case LRP_ORG:
-			lws_strncpy(a->organization, ctx->buf, sizeof(a->organization));
-			break;
-		case LRP_DIR_URL:
-			lws_strncpy(a->directory_url, ctx->buf, sizeof(a->directory_url));
-			break;
-		case LRP_ZONE:
-			if (!a->zone_buf) {
-				a->zone_alloc = 8192;
-				a->zone_buf = malloc((size_t)a->zone_alloc);
-				if (!a->zone_buf) return -1;
-			}
-			if (a->zone_len + ctx->npos >= a->zone_alloc) {
-				a->zone_alloc *= 2;
-				char *nb = realloc(a->zone_buf, (size_t)a->zone_alloc);
-				if (!nb) return -1;
-				a->zone_buf = nb;
-			}
-			memcpy(a->zone_buf + a->zone_len, ctx->buf, ctx->npos);
-			a->zone_len += ctx->npos;
-			if (reason == LEJPCB_VAL_STR_END) {
-				a->zone_buf[a->zone_len] = '\0';
-			}
-			break;
-		case LRP_JWT:
-			lws_strncpy(a->jwt, ctx->buf, sizeof(a->jwt));
-			break;
-		case LRP_SUFFIX:
-			lws_strncpy(a->suffix, ctx->buf, sizeof(a->suffix));
-			break;
-		case LRP_KEY_TYPE:
-			lws_strncpy(a->key_type, ctx->buf, sizeof(a->key_type));
-			break;
-		case LRP_PORT:
-			a->port = atoi(ctx->buf);
-			break;
-		}
-	}
-
-	if (reason == LEJPCB_FAILED) {
-		lwsl_err("[INSTRUMENT] monitor_req_cb: LEJP JSON Parse FAILED at struct offset %d\n", (int)ctx->st[ctx->sp].s);
-	}
-
-	return 0;
-}
 
 
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
+
+
+static void
+handle_req_check_cert(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
+{
+	struct lws_client_connect_info i;
+	memset(&i, 0, sizeof(i));
+	i.context = vhd->context;
+	
+	struct lws_vhost *vh = lws_get_vhost_by_name(vhd->context, "dnssec_monitor_uds");
+	i.vhost = vh ? vh : vhd->vhost;
+	
+	i.address = a->subdomain;
+	i.port = a->port;
+	i.ssl_connection = LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+	i.alpn = "http/1.1";
+	i.method = "GET";
+	i.path = "/";
+	i.host = i.address;
+	i.origin = i.address;
+	i.protocol = "lws-dht-dnssec-monitor";
+	struct cert_check_info *cci = malloc(sizeof(*cci));
+	if (cci) {
+		memset(cci, 0, sizeof(*cci));
+		cci->magic = CERT_CHECK_MAGIC;
+		lws_strncpy(cci->fqdn, a->subdomain, sizeof(cci->fqdn));
+		i.opaque_user_data = cci;
+	}
+
+	lwsl_notice("%s: Dispatching TLS probe to %s:%d with LCCSCF_USE_SSL\n", __func__, a->subdomain, a->port);
+
+	if (!cci || !lws_client_connect_via_info(&i)) {
+		lwsl_err("%s: Failed to start cert check for %s:%d\n", __func__, a->subdomain, a->port);
+
+		if (cci) free(cci);
+
+		struct cert_check_result *cr = malloc(sizeof(*cr));
+		if (cr) {
+			memset(cr, 0, sizeof(*cr));
+			lws_strncpy(cr->fqdn, a->subdomain, sizeof(cr->fqdn));
+			lws_strncpy(cr->msg, "Connection failed", sizeof(cr->msg));
+			cr->status_err = 1;
+			lws_dll2_add_tail(&cr->list, &vhd->completed_checks);
+			lws_callback_on_writable_all_protocol(vhd->context, lws_get_protocol(root_pss->wsi));
+		}
+	}
+}
 
 static void
 handle_req_status(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
@@ -1416,6 +1682,7 @@ fail:
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
 }
 
+#if 0
 static void
 extract_dane_hash(const char *cert_path, char *dane_out, size_t dane_out_len)
 {
@@ -1483,204 +1750,99 @@ extract_dane_hash(const char *cert_path, char *dane_out, size_t dane_out_len)
 	}
 	lws_x509_destroy(&cert);
 }
+#endif
 
 static void
-handle_req_get_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
+handle_req_get_acme_config(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE];
 	char *tx_end = tx + 65536 - 1;
 	char d_path[1024];
-	DIR *d;
-	struct dirent *de;
 
-	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/tls", vhd->base_dir, a->domain);
-	d = opendir(d_path);
-	if (!d) {
-		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"tls\":[]}\n", a->req);
-	} else {
-		int first = 1;
-		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"tls\":[", a->req);
-		while ((de = readdir(d))) {
-			if (de->d_name[0] == '.') continue;
-			if (strstr(de->d_name, ".json")) {
-				char fpath[1024];
-				lws_snprintf(fpath, sizeof(fpath), "%s/%s", d_path, de->d_name);
-				int fd = open(fpath, O_RDONLY);
-				if (fd >= 0) {
-					char buf[512];
-					ssize_t n = read(fd, buf, sizeof(buf) - 1);
-					if (n > 0) {
-						buf[n] = '\0';
-						if (strstr(buf, "\"challenge-type\"")) {
-							int port = 0;
-							char *p = strstr(buf, "\"port\"");
-							if (p) {
-								p = strchr(p, ':');
-								if (p) {
-									while (*p == ':' || *p == ' ' || *p == '\t' || *p == '"') p++;
-									port = atoi(p);
-								}
-							}
-							if (!first) tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), ",");
-							char fqdn[128];
-							lws_strncpy(fqdn, de->d_name, sizeof(fqdn));
-							char *ext = strrchr(fqdn, '.');
-							if (ext && !strcmp(ext, ".json")) *ext = '\0';
-							
-							char dane0[128] = {0};
-							char dane1[128] = {0};
-							char c_path[1024];
-							
-							lws_snprintf(c_path, sizeof(c_path), "%s/domains/%s/certs/crt/%s-latest.crt", vhd->base_dir, a->domain, fqdn);
-							extract_dane_hash(c_path, dane0, sizeof(dane0));
-
-							lws_snprintf(c_path, sizeof(c_path), "%s/domains/%s/certs/crt/%s-previous.crt", vhd->base_dir, a->domain, fqdn);
-							extract_dane_hash(c_path, dane1, sizeof(dane1));
-
-							tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"fqdn\":\"%s\",\"port\":%d", fqdn, port);
-							if (dane0[0])
-								tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), ",\"dane0\":\"%s\"", dane0);
-							if (dane1[0])
-								tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), ",\"dane1\":\"%s\"", dane1);
-							tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "}");
-							
-							first = 0;
-						}
-					}
-					close(fd);
-				}
-			}
-		}
-		closedir(d);
-		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "]}\n");
-	}
-	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
-}
-
-static void
-handle_req_create_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
-{
-	char *tx = (char *)&root_pss->tx[LWS_PRE];
-	char *tx_end = tx + 65536 - 1;
-	char d_path[1024];
-	char p1[1024];
-	char buf[2048];
-	int n, fd;
-
-	lws_snprintf(p1, sizeof(p1), "%s/domains/%s", vhd->base_dir, a->domain);
-	if (mkdir(p1, 0755) < 0 && errno != EEXIST)
-		lwsl_notice("%s: Failed to create domain dir\n", __func__);
-
-	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/tls", vhd->base_dir, a->domain);
-	if (mkdir(d_path, 0755) < 0 && errno != EEXIST)
-		lwsl_notice("%s: Failed to create tls dir\n", __func__);
-
-	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/tls/%s.json", vhd->base_dir, a->domain, a->subdomain);
-	fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+	lws_snprintf(d_path, sizeof(d_path), "%s/acme_config.json", vhd->base_dir);
+	int fd = open(d_path, O_RDONLY);
 	if (fd >= 0) {
-		n = lws_snprintf(buf, sizeof(buf),
-			"{\n  \"common-name\": \"%s\",\n  \"challenge-type\": \"dns-01\",\n"
-			"  \"port\": %d,\n"
-			"  \"email\": \"%s\",\n  \"acme\": {\n"
-			"    \"organization\": \"%s\",\n"
-			"    \"directory-url\": \"%s\"\n  }\n}\n",
-			a->subdomain,
-			a->port,
-			a->email[0] ? a->email : "",
-			a->organization[0] ? a->organization : "",
-			a->directory_url[0] ? a->directory_url : "https://acme-v02.api.letsencrypt.org/directory");
-
-		if (write(fd, buf, (size_t)n) == (ssize_t)n) {
-			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
+		char buf[4096];
+		ssize_t n = read(fd, buf, sizeof(buf) - 1);
+		if (n > 0) {
+			buf[n] = '\0';
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"get_acme_config\",\"status\":\"ok\",\"config\":%s}\n", buf);
 		} else {
-			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Write failed\"}\n", a->req);
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"get_acme_config\",\"status\":\"ok\",\"config\":{}}\n");
 		}
 		close(fd);
 	} else {
-		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Could not create TLS conf\"}\n", a->req);
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"get_acme_config\",\"status\":\"ok\",\"config\":{}}\n");
 	}
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
 }
 
 static void
-handle_req_delete_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
+handle_req_set_acme_config(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
+{
+	char *tx = (char *)&root_pss->tx[LWS_PRE];
+	char *tx_end = tx + 65536 - 1;
+	char d_path[1024];
+	char buf[4096];
+	int n, fd;
+
+	lws_snprintf(d_path, sizeof(d_path), "%s/acme_config.json", vhd->base_dir);
+	fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+	if (fd >= 0) {
+		n = lws_snprintf(buf, sizeof(buf),
+			"{\n  \"enabled\": %s,\n  \"production\": %s,\n  \"email\": \"%s\",\n"
+			"  \"organization\": \"%s\",\n  \"country\": \"%s\",\n  \"state\": \"%s\",\n"
+			"  \"locality\": \"%s\"\n}\n",
+			a->enabled ? "true" : "false",
+			a->production ? "true" : "false",
+			a->email, a->organization, a->country, a->state, a->locality);
+
+		if (write(fd, buf, (size_t)n) == (ssize_t)n) {
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"set_acme_config\",\"status\":\"ok\"}\n");
+		} else {
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"set_acme_config\",\"status\":\"error\",\"msg\":\"Write failed\"}\n");
+		}
+		close(fd);
+	} else {
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"set_acme_config\",\"status\":\"error\",\"msg\":\"Could not open config\"}\n");
+	}
+	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
+}
+
+static void
+handle_req_get_acme_log(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE];
 	char *tx_end = tx + 65536 - 1;
 	char d_path[1024];
 
-	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/tls/%s.json", vhd->base_dir, a->domain, a->subdomain);
-
-	if (!strcmp(a->domain, a->subdomain)) {
-		int fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
-		if (fd >= 0) {
-			char buf[1024];
-			int n = lws_snprintf(buf, sizeof(buf), "{\n  \"common-name\": \"%s\"\n}\n", a->domain);
-			if (write(fd, buf, (size_t)n) < 0) {
-				lwsl_err("%s: Failed rewriting domain config\n", __func__);
+	lws_snprintf(d_path, sizeof(d_path), "%s/acme.log", vhd->base_dir);
+	int fd = open(d_path, O_RDONLY);
+	if (fd >= 0) {
+		char buf[4096];
+		lws_filepos_t size = (lws_filepos_t)lseek(fd, 0, SEEK_END);
+		lws_filepos_t start = 0;
+		if (size > 4000) start = size - 4000;
+		lseek(fd, (off_t)start, SEEK_SET);
+		ssize_t n = read(fd, buf, sizeof(buf) - 1);
+		if (n > 0) {
+			buf[n] = '\0';
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"get_acme_log\",\"status\":\"ok\",\"log\":\"");
+			for (ssize_t i = 0; i < n; i++) {
+				if (buf[i] == '\n') tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\\n");
+				else if (buf[i] == '"') tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\\\"");
+				else if (buf[i] == '\\') tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\\\\");
+				else if (buf[i] >= 32 && buf[i] <= 126) *tx++ = buf[i];
 			}
-			close(fd);
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\"}\n");
+		} else {
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"get_acme_log\",\"status\":\"ok\",\"log\":\"\"}\n");
 		}
+		close(fd);
 	} else {
-		unlink(d_path);
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"get_acme_log\",\"status\":\"ok\",\"log\":\"No log found.\"}\n");
 	}
-
-	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
-}
-static void
-handle_req_check_cert(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
-{
-	struct lws_client_connect_info i;
-	memset(&i, 0, sizeof(i));
-	i.context = vhd->context;
-	
-	struct lws_vhost *vh = lws_get_vhost_by_name(vhd->context, "root-monitor-dummy");
-	i.vhost = vh ? vh : vhd->vhost;
-	
-	i.address = a->subdomain;
-	i.port = a->port;
-	i.ssl_connection = LCCSCF_ALLOW_SELFSIGNED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
-	
-	int starttls = (a->port == 25 || a->port == 587);
-	if (!starttls)
-		i.ssl_connection |= LCCSCF_USE_SSL;
-
-	i.alpn = "http/1.1";
-	i.method = "RAW";
-	i.path = "/";
-	i.host = i.address;
-	i.origin = i.address;
-	i.protocol = "lws-dht-dnssec-monitor";
-	struct cert_check_info *cci = malloc(sizeof(*cci));
-	if (cci) {
-		memset(cci, 0, sizeof(*cci));
-		cci->magic = CERT_CHECK_MAGIC;
-		lws_strncpy(cci->fqdn, a->subdomain, sizeof(cci->fqdn));
-		lws_strncpy(cci->domain, a->domain, sizeof(cci->domain));
-		cci->port = a->port;
-		cci->starttls_state = starttls ? 1 : 0;
-		i.opaque_user_data = cci;
-	}
-
-	lwsl_notice("%s: Dispatching %s TLS probe to %s:%d (STARTTLS: %d)\n", __func__, starttls ? "cleartext" : "direct", a->subdomain, a->port, starttls);
-
-	if (!cci || !lws_client_connect_via_info(&i)) {
-		lwsl_err("%s: Failed to start cert check for %s:%d\n", __func__, a->subdomain, a->port);
-
-		if (cci) free(cci);
-
-		struct cert_check_result *cr = malloc(sizeof(*cr));
-		if (cr) {
-			memset(cr, 0, sizeof(*cr));
-			lws_strncpy(cr->fqdn, a->subdomain, sizeof(cr->fqdn));
-			lws_strncpy(cr->msg, "Connection failed", sizeof(cr->msg));
-			cr->port = a->port;
-			cr->status_err = 1;
-			lws_dll2_add_tail(&cr->list, &vhd->completed_checks);
-			lws_callback_on_writable_all_protocol(vhd->context, lws_get_protocol(root_pss->wsi));
-		}
-	}
 }
 
 static void
@@ -1901,9 +2063,9 @@ static const struct monitor_req_map {
 	{ "delete_domain", handle_req_delete_domain },
 	{ "get_zone", handle_req_get_zone },
 	{ "update_zone", handle_req_update_zone },
-	{ "get_tls", handle_req_get_tls },
-	{ "create_tls", handle_req_create_tls },
-	{ "delete_tls", handle_req_delete_tls },
+	{ "get_acme_config", handle_req_get_acme_config },
+	{ "set_acme_config", handle_req_set_acme_config },
+	{ "get_acme_log", handle_req_get_acme_log },
 	{ "update_whois", handle_req_update_whois },
 	{ "save_auth_key", handle_req_save_auth_key },
 	{ "save_cert", handle_req_save_cert },
@@ -2106,10 +2268,97 @@ extract_and_queue_cert_result(struct lws *wsi, struct vhd *vhd, struct cert_chec
 	}
 
 	if (cci->is_automated) {
-		if (err)
-			lwsl_notice("%s: AUTOMATED PROBE %s:%d FAILED: %s\n", __func__, cci->fqdn, cci->port, msg);
-		else
-			lwsl_notice("%s: AUTOMATED PROBE %s:%d SUCCESS: Cert served expires in %s\n", __func__, cci->fqdn, cci->port, msg);
+		int needs_acme = 0;
+		if (err) {
+			lwsl_notice("%s: AUTOMATED PROBE %s:%d FAILED: %s (Triggering ACME)\n", __func__, cci->fqdn, cci->port, msg);
+			needs_acme = 1;
+		} else {
+			union lws_tls_cert_info_results ci_from;
+			if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_VALIDITY_FROM, &ci_from, 0)) {
+				time_t now;
+				time(&now);
+				time_t total = ci.time - ci_from.time;
+				time_t remaining = ci.time - now;
+				if (total > 0 && remaining < (total / 5)) {
+					lwsl_notice("%s: AUTOMATED PROBE %s:%d SUCCESS: Cert served expires in %s (Triggering ACME - <20%% validity left)\n", __func__, cci->fqdn, cci->port, msg);
+					needs_acme = 1;
+				} else {
+					lwsl_notice("%s: AUTOMATED PROBE %s:%d SUCCESS: Cert served expires in %s (ACME not needed)\n", __func__, cci->fqdn, cci->port, msg);
+				}
+			}
+		}
+
+		if (needs_acme && vhd->acme_enabled) {
+			char conf_dir[1024];
+			lws_snprintf(conf_dir, sizeof(conf_dir), "%s/domains/%s/tls", vhd->base_dir, cci->fqdn);
+			if (mkdir(conf_dir, 0755) < 0 && errno != EEXIST)
+				lwsl_notice("%s: Failed to create tls dir\n", __func__);
+			
+			char json_path[1024];
+			lws_snprintf(json_path, sizeof(json_path), "%s/%s.json", conf_dir, cci->fqdn);
+			
+			int jfd = open(json_path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+			if (jfd >= 0) {
+				char jbuf[1024];
+				int jn = lws_snprintf(jbuf, sizeof(jbuf),
+					"{\n  \"common-name\": \"%s\",\n  \"challenge-type\": \"dns-01\",\n"
+					"  \"email\": \"%s\",\n  \"acme\": {\n"
+					"    \"organization\": \"%s\",\n"
+					"    \"country\": \"%s\",\n"
+					"    \"state\": \"%s\",\n"
+					"    \"locality\": \"%s\",\n"
+					"    \"directory-url\": \"%s\"\n  }\n}\n",
+					cci->fqdn,
+					vhd->acme_email[0] ? vhd->acme_email : "admin@domain.com",
+					vhd->acme_organization, vhd->acme_country, vhd->acme_state, vhd->acme_locality,
+					vhd->acme_production ? "https://acme-v02.api.letsencrypt.org/directory" : "https://acme-staging-v02.api.letsencrypt.org/directory");
+				
+				if (write(jfd, jbuf, (size_t)jn) < 0) {
+					lwsl_err("%s: Failed to write generated ACME config\n", __func__);
+				}
+				close(jfd);
+			}
+
+			char vh_name[256];
+			lws_snprintf(vh_name, sizeof(vh_name), "acme_%s", cci->fqdn);
+			if (!lws_get_vhost_by_name(vhd->context, vh_name)) {
+				struct lws_context_creation_info info;
+				struct lws_protocol_vhost_options pvo_core = {0}, pvo_acme = {0}, pvo1 = {0}, pvo2 = {0}, pvo3 = {0}, pvo4 = {0};
+
+				memset(&info, 0, sizeof(info));
+				info.port = CONTEXT_PORT_NO_LISTEN_SERVER;
+				info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+				info.vhost_name = vh_name;
+
+				pvo_core.name = "lws-acme-client-core";
+				pvo_core.next = &pvo_acme;
+
+				pvo_acme.name = "lws-acme-client-dns";
+				pvo_acme.options = &pvo1;
+				info.pvo = &pvo_core;
+
+				pvo1.name = "root-domain";
+				pvo1.value = cci->fqdn;
+				pvo1.next = &pvo2;
+
+				pvo2.name = "common-name";
+				pvo2.value = cci->fqdn;
+				pvo2.next = &pvo3;
+
+				pvo3.name = "email";
+				pvo3.value = vhd->acme_email[0] ? vhd->acme_email : "admin@domain.com";
+				pvo3.next = &pvo4;
+
+				pvo4.name = "directory-url";
+				pvo4.value = vhd->acme_production ? "https://acme-v02.api.letsencrypt.org/directory" : "https://acme-staging-v02.api.letsencrypt.org/directory";
+
+				if (lws_create_vhost(vhd->context, &info)) {
+					lwsl_notice("%s: ACME vhost %s spawned natively\n", __func__, vh_name);
+				} else {
+					lwsl_err("%s: Failed to spawn ACME vhost %s\n", __func__, vh_name);
+				}
+			}
+		}
 		return;
 	}
 
