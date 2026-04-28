@@ -217,13 +217,13 @@ static DBusHandlerResult
 dmh_connect(DBusConnection *c, DBusMessage *m, DBusMessage **reply, void *d)
 {
 	struct lws_dbus_ctx_wsproxy *wspctx = (struct lws_dbus_ctx_wsproxy *)d;
-	const char *prot = "", *ads = "", *path = "", *baduri = "Bad Uri",
+	const char *prot = "", *baduri = "Bad Uri",
 		   *connecting = "Connecting", *failed = "Failed", **pp;
 	struct lws_client_connect_info i;
-	char host[128], uri_copy[512];
+	char host[128];
 	const char *uri, *subprotocol;
+	lws_parse_uri_t *puri = NULL;
 	DBusError err;
-	int port = 0;
 
 	dbus_error_init(&err);
 
@@ -237,15 +237,18 @@ dmh_connect(DBusConnection *c, DBusMessage *m, DBusMessage **reply, void *d)
 		return DBUS_HANDLER_RESULT_HANDLED;
 	}
 
-	strncpy(uri_copy, uri, sizeof(uri_copy) - 1);
-	uri_copy[sizeof(uri_copy) - 1] = '\0';
-
-	if (lws_parse_uri(uri_copy, &prot, &ads, &port, &path)) {
+	puri = lws_parse_uri_create(uri);
+	if (!puri) {
 		pp = &baduri;
 		goto send_reply;
 	}
 
-	lws_snprintf(host, sizeof(host), "%s:%u", ads, port);
+	if (!puri->scheme[0])
+		prot = "ws";
+	else
+		prot = puri->scheme;
+
+	lws_snprintf(host, sizeof(host), "%s:%u", puri->host, puri->port);
 
 	memset(&i, 0, sizeof(i));
 
@@ -253,9 +256,9 @@ dmh_connect(DBusConnection *c, DBusMessage *m, DBusMessage **reply, void *d)
 	assert(wspctx->vhd);
 
 	i.context = wspctx->vhd->context;
-	i.port = port;
-	i.address = ads;
-	i.path = path;
+	i.port = puri->port;
+	i.address = puri->host;
+	i.path = puri->path;
 	i.host = host;
 	i.origin = host;
 	i.ssl_connection = !strcmp(prot, "https") || !strcmp(prot, "wss");
@@ -280,6 +283,9 @@ dmh_connect(DBusConnection *c, DBusMessage *m, DBusMessage **reply, void *d)
 send_reply:
 	dbus_message_append_args(*reply, DBUS_TYPE_STRING, pp,
 					 DBUS_TYPE_INVALID);
+
+	if (puri)
+		lws_parse_uri_destroy(&puri);
 
 	return DBUS_HANDLER_RESULT_HANDLED;
 }

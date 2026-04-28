@@ -597,7 +597,7 @@ struct lws_context_creation_info {
 
 #endif
 
-#if !defined(LWS_WITH_MBEDTLS)
+#if !defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_BEARSSL)
 	SSL_CTX *provided_client_ssl_ctx;
 	/**< CONTEXT: If non-null, swap out libwebsockets ssl
 	  * implementation for the one provided by provided_ssl_ctx.
@@ -1450,6 +1450,9 @@ struct lws_http_mount {
 	unsigned int cache_revalidate:1; /**< set if client cache should revalidate on use */
 	unsigned int cache_intermediaries:1; /**< set if intermediaries are allowed to cache */
 	unsigned int cache_no:1; /**< set if client should check cache always*/
+	unsigned int exact_match:1; /**< set if mountpoint must match exactly */
+	unsigned int append_path:1; /**< set if we should append the rest of the path during a redirect */
+	unsigned int no_ws_upgrades:1; /**< set to ignore this mount for ws upgrades */
 
 	unsigned char origin_protocol; /**< one of enum lws_mount_protocols */
 	unsigned char mountpoint_len; /**< length of mountpoint string */

@@ -109,6 +109,7 @@ public:
 	struct lws_ss_handle		*m_ss;
 	uint64_t			rxlen;
 	lws_usec_t			us_start;
+	lws_parse_uri_t			*puri;
 
 private:
 	lws_ctx_t			ctx;

@@ -262,4 +262,85 @@ lws_system_do_attach(struct lws_context_per_thread *pt)
 	return 0;
 }
 
+void
+lws_extip_report(struct lws_context *cx, lws_extip_src_t src,
+                 const lws_sockaddr46 *sa46, int af, int status,
+                 const lws_sockaddr46 *peers, int num_peers)
+{
+	lws_sockaddr46 *target = &cx->ext_ipv4;
+#if defined(LWS_WITH_IPV6)
+	if (af == AF_INET6)
+		target = &cx->ext_ipv6;
+#endif
+	lws_sockaddr46 old = *target;
+
+	if (status == 2 || !sa46 || (af == AF_INET && sa46->sa4.sin_family == 0)
+#if defined(LWS_WITH_IPV6)
+        || (af == AF_INET6 && sa46->sa6.sin6_family == 0)
+#endif
+        ) {
+		memset(target, 0, sizeof(*target));
+	} else {
+		*target = *sa46;
+	}
+
+	if (memcmp(&old, target, sizeof(*target))) {
+#if defined(LWS_WITH_IPV6)
+		int c = 0;
+#endif
+		char payload[128], buf4[64];
+		char *p = payload, *end = payload + sizeof(payload);
+
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{\"ext-ips\": [");
+
+		if (cx->ext_ipv4.sa4.sin_family == AF_INET) {
+			lws_sa46_write_numeric_address(&cx->ext_ipv4, buf4, sizeof(buf4));
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\"%s\"", buf4);
+#if defined(LWS_WITH_IPV6)
+			c++;
+#endif
+		}
+
+#if defined(LWS_WITH_IPV6)
+		if (cx->ext_ipv6.sa6.sin6_family == AF_INET6) {
+			char buf6[64];
+			lws_sa46_write_numeric_address(&cx->ext_ipv6, buf6, sizeof(buf6));
+			if (c)
+				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), ", ");
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\"%s\"", buf6);
+		}
+#endif
+
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "]}");
+
+		lws_smd_msg_printf(cx, LWSSMDCL_NETWORK, "%s", payload);
+	}
+}
+
+int
+lws_extip_get_best(struct lws_context *cx, int af, lws_sockaddr46 *sa46)
+{
+	lws_sockaddr46 *src = &cx->ext_ipv4;
+
+#if defined(LWS_WITH_IPV6)
+	if (af == AF_INET6)
+		src = &cx->ext_ipv6;
+#endif
+
+	if ((af == AF_INET && src->sa4.sin_family == AF_INET)
+#if defined(LWS_WITH_IPV6)
+	    || (af == AF_INET6 && src->sa6.sin6_family == AF_INET6)
+#endif
+	   ) {
+		if (sa46)
+			*sa46 = *src;
+		return 0; /* found */
+	}
+	
+	/* Unknown / Offline */
+	if (sa46)
+		memset(sa46, 0, sizeof(*sa46));
+	return 1;
+}
+
 #endif

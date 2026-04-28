@@ -948,6 +948,60 @@ int main(int argc, const char **argv)
 		}
 	}
 
+	/* sanity check lws_parse_uri_create() */
+
+	{
+		struct {
+			const char *uri;
+			const char *scheme;
+			const char *host;
+			const char *path;
+			uint16_t port;
+			char unix_skt;
+		} parse_tests[] = {
+			{ "wss://host.com?key=val", "wss", "host.com", "?key=val", 443, 0 },
+			{ "wss://[::1]:8080/path/to?query=1", "wss", "::1", "path/to?query=1", 8080, 0 },
+			{ "host.com?key=val", "", "host.com", "?key=val", 0, 0 },
+			{ "http://+/var/run/mysocket:/my/path", "http", "+/var/run/mysocket", "my/path", 0, 1 },
+			{ "http://host.com", "http", "host.com", "/", 80, 0 },
+		};
+		int t;
+
+		for (t = 0; t < (int)LWS_ARRAY_SIZE(parse_tests); t++) {
+			lws_parse_uri_t *u = lws_parse_uri_create(parse_tests[t].uri);
+			if (!u) {
+				lwsl_err("%s: lws_parse_uri_create test %d failed to alloc\n", __func__, t);
+				fail++;
+				continue;
+			}
+			if (strcmp(u->scheme, parse_tests[t].scheme)) {
+				lwsl_err("%s: test %d: scheme mismatch exp '%s' got '%s'\n", __func__, t, parse_tests[t].scheme, u->scheme);
+				fail++;
+			}
+			if (strcmp(u->host, parse_tests[t].host)) {
+				lwsl_err("%s: test %d: host mismatch exp '%s' got '%s'\n", __func__, t, parse_tests[t].host, u->host);
+				fail++;
+			}
+			if (strcmp(u->path, parse_tests[t].path)) {
+				lwsl_err("%s: test %d: path mismatch exp '%s' got '%s'\n", __func__, t, parse_tests[t].path, u->path);
+				fail++;
+			}
+			if (u->port != parse_tests[t].port) {
+				lwsl_err("%s: test %d: port mismatch exp '%d' got '%d'\n", __func__, t, parse_tests[t].port, u->port);
+				fail++;
+			}
+			if (u->unix_skt != parse_tests[t].unix_skt) {
+				lwsl_err("%s: test %d: unix_skt mismatch exp '%d' got '%d'\n", __func__, t, parse_tests[t].unix_skt, u->unix_skt);
+				fail++;
+			}
+			lws_parse_uri_destroy(&u);
+            if (u != NULL) {
+                lwsl_err("%s: lws_parse_uri_destroy didn't set to NULL\n", __func__);
+                fail++;
+            }
+		}
+	}
+
 	p = lws_cmdline_option(argc, argv, switches[LWS_SW_S].sw);
 
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(tests); n++) {

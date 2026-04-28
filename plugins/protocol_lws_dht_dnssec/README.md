@@ -45,6 +45,20 @@ The plugin operates under the standard `lws` plugin model using per-vhost option
 | `allow` / `deny` | Optional filesystem paths to list specific rules/access lists based on public keys or identifiers, restricting who can access or modify DHT records.     | `NULL`                  |
 | `test_handshake` | Boolean flag (`1` or `0`) to place the node in testing mode, generating synthetic responses to trace handshake mechanics during development.             | `0`                     |
 | `cli_receiver`   | Boolean flag (`1` or `0`) intended for the `minimal-raw-dht-zone-client` CLI application to tell the plugin context it is acting as an active receiver.  | `0`                     |
+| `dht-iface` | The network interface the DHT node should bind to. | `NULL` |
+| `dht-port` | The port the DHT node should bind to. | `NULL` |
+| `dht-fallback-nodes` | Comma-separated list of fallback bootstrapping nodes (e.g. `1.2.3.4:443,5.6.7.8:443`). | `NULL` |
+| `dht-jwk` | Path to the JSON Web Key (JWK) used specifically for DHT participation authentication. | `NULL` |
+| `dht-storage-path` | Path indicating where DHT data objects should be persisted locally. | `NULL` |
+| `dht-policy-allow` / `dht-policy-deny` | Path to access control list files allowing or denying peers from participating in the local DHT node based on public keys. | `NULL` |
+| `dht-test-handshake` | Places the DHT network layer into handshake testing mode. | `0` |
+| `get-domain` | Instructs the CLI or node to perform an active DHT `GET` query for a specific target domain. | `NULL` |
+| `get-hash` | Instructs the CLI or node to perform an active DHT `GET` query for a specific content hash. | `NULL` |
+| `put-file` | Instructs the CLI to perform a DHT `PUT` operation storing a local file into the network. | `NULL` |
+| `gen-manifest` | Path to generate a manifest file indicating the state of DHT operations. | `NULL` |
+| `bulk` | Boolean flag (`1` or `0`) to enable bulk data transfer modes. | `0` |
+| `target-port` | The target port to connect to when bootstrapping or joining a node (CLI usage). | `0` |
+| `completion-cb` / `completion-cb-arg` | Callback configurations used by programmatic C API invocations, usually ignored via configuration files. | `NULL` |
 
 ## Example Client Usage
 When using the accompanying `minimal-raw-dht-zone-client`, the CLI dynamically injects these PVOs on instantiation. For example, to sign your local file and instruct the context to forward it with the domain context:
@@ -56,6 +70,29 @@ When using the accompanying `minimal-raw-dht-zone-client`, the CLI dynamically i
     --target-ip 127.0.0.1 \
     --put /tmp/zone.txt
 ```
+
+## Dynamic Zonefile Substitutions
+During the `signzone` process, the system supports dynamic string substitutions evaluated on a line-by-line basis. If a requested substitution variable resolves to an empty blank string or the underlying requirements (like absent IP parameters or missing certificates) aren't met, the engine gracefully skips and entirely drops the invoking line from the final signed zone. This allows creating robust generic records that adapt securely to the runtime node capacity.
+
+The following substitution keys are provided:
+- `${EXTIP4}`: Injects the dynamically detected external IPv4 address of the node generating the re-sign.
+- `${EXTIP6}`: Injects the dynamically detected external IPv6 address of the node generating the re-sign.
+- `${DANE0}`: Generates a DANE TLSA SHA-256 signature string for the *current* active TLS certificate. The parser natively identities the target `<domain>` context from the front of the corresponding record line (such as `_443._tcp.warmcat.com. IN TLSA ...`) and accesses `/var/dnssec/domains/<domain>/tls/<domain>.crt` to actively compute the `3 1 1 <hash>` DANE data.
+- `${DANE1}`: Acts identically to `DANE0`, however signs the *previous* archived certificate by checking `/var/dnssec/domains/<domain>/tls/<domain>.crt.1`.
+
+### Substitution Examples
+If an operator authors the following raw zone file config:
+```text
+example.com.      IN A     ${EXTIP4}
+example.com.      IN AAAA  ${EXTIP6}
+_443._tcp.example.com. IN TLSA ${DANE0}
+_443._tcp.example.com. IN TLSA ${DANE1}
+```
+
+Upon `signzone`:
+- If the node **lacks an external IPv6 address**, the entire `example.com. IN AAAA ${EXTIP6}` line will be seamlessly excluded from the resulting signed zone.
+- The `${DANE0}` key evaluates `_443._tcp.example.com.` and automatically locates `/var/dnssec/domains/example.com/tls/example.com.crt`. It hashes the embedded SPKI, returning `3 1 1 e3b0c4429...`.
+- If no archived certificate (`example.com.crt.1`) exists, the second TLSA line containing `${DANE1}` will drop itself natively.
 
 ## `lws-crypto-dnssec` Utility
 Libwebsockets provides the `<build-dir>/bin/lws-crypto-dnssec` standalone utility that interfaces dynamically using the `lws-dht-dnssec` plugin.

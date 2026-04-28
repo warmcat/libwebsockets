@@ -9,20 +9,33 @@
     <script src="lws-login.js"></script>
 </head>
 <body>
+    <div id="reconnect-overlay" class="reconnect-overlay">
+        <div class="reconnect-box">
+            <div class="spinner"></div>
+            <h2>Reconnecting...</h2>
+            <p>Connection to DNSSEC Monitor lost.</p>
+        </div>
+    </div>
     <div class="app-container">
         <header>
             <div class="header-content">
                 <h1>DNSSEC Monitor</h1>
-                <p>Manage authoritative DNSSEC zones and ACME TLS subdomains</p>
+                <p>Manage DNSSEC and TLS</p>
             </div>
             <div class="header-status">
                 <div id="user-info" class="user-info"></div>
-                <span id="ws-status" class="status-badge connecting">Connecting...</span>
+                <div id="extip-status" class="extip-container"></div>
+                <div class="extip-override-box">
+                    <label for="input-ipv6-suffix" class="extip-label">IPv6 Suffix:</label>
+                    <input type="text" id="input-ipv6-suffix" placeholder="" class="extip-input" maxlength="4">
+                    <button id="btn-save-suffix" class="btn secondary btn-extip">Apply</button>
+                </div>
+                <span id="ws-status" class="status-badge connecting hide"></span>
             </div>
         </header>
 
         <main>
-            <section class="panel domain-panel">
+            <section class="panel domain-panel" id="domain-panel">
                 <div class="panel-header">
                     <h2>Domains</h2>
                     <button id="btn-add-domain" class="btn primary">Add Domain</button>
@@ -32,23 +45,82 @@
                         <thead>
                             <tr>
                                 <th>Domain Name</th>
+                                <th>Expiry</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <tr><td colspan="2" class="loading">Loading...</td></tr>
+                            <tr><td colspan="3" class="loading">Loading...</td></tr>
                         </tbody>
                     </table>
+                </div>
+                
+                <div class="acme-global-config">
+                    <h2>Global ACME Configuration</h2>
+                    <div class="acme-form-group checkbox-group">
+                        <label>
+                            <input type="checkbox" id="cb-acme-enable"> Enable Let's Encrypt Certificate Fetching
+                        </label>
+                    </div>
+                    <div class="acme-form-group checkbox-group">
+                        <label>
+                            <input type="checkbox" id="cb-acme-prod"> Use Production Let's Encrypt CA
+                        </label>
+                    </div>
+                    <div class="acme-form-inputs">
+                        <div class="form-group">
+                            <label for="acme-email">Email</label>
+                            <input type="email" id="acme-email" placeholder="admin@example.com">
+                        </div>
+                        <div class="form-group">
+                            <label for="acme-org">Organization</label>
+                            <input type="text" id="acme-org" placeholder="My Company">
+                        </div>
+                        <div class="form-group">
+                            <label for="acme-country">Country (2 letters)</label>
+                            <input type="text" id="acme-country" placeholder="US" maxlength="2">
+                        </div>
+                        <div class="form-group">
+                            <label for="acme-state">State / Province</label>
+                            <input type="text" id="acme-state" placeholder="California">
+                        </div>
+                        <div class="form-group">
+                            <label for="acme-locality">Locality / City</label>
+                            <input type="text" id="acme-locality" placeholder="San Francisco">
+                        </div>
+                    </div>
+                    <div class="acme-actions">
+                        <button id="btn-acme-save" class="btn primary">Save ACME Config</button>
+                    </div>
+                    <div class="acme-log-container">
+                        <label>Recent ACME Log</label>
+                        <textarea id="acme-log" readonly rows="8"></textarea>
+                    </div>
                 </div>
             </section>
 
             <section class="panel detail-panel hidden-panel" id="detail-panel">
                 <div class="panel-header">
-                    <h2 id="detail-title">Zone Records: <span>---</span></h2>
+                    <div class="title-group"><table><tr><td>
+                        <button id="btn-back-domains" class="btn secondary">&larr; Back</button>
+			</td></tr><tr><td>
+                        <h2 id="detail-title">Zone Records:<br><span>---</span></h2>
+			</td></tr></table>
+                    </div>
+                    <div id="whois-header" class="whois-header"></div>
                     <div class="actions-group">
-                        <button id="btn-save-zonefile" class="btn primary">Save Zonefile</button>
+                        <table id="actions-table" class="actions-table">
+                            <tr><td class="actions-cell"><div id="dnssec-status"></div></td></tr>
+                            <tr><td class="actions-cell"><button id="btn-save-zonefile" class="btn primary" disabled>Save<br>Zonefile</button></td></tr>
+                        </table>
                     </div>
                 </div>
+
+                <div class="ext-raw-editor raw-editor-container">
+                    <div id="raw-zone-backdrop" aria-hidden="true"></div>
+                    <textarea id="raw-zone-editor" spellcheck="false" placeholder="; Raw zone file contents..."></textarea>
+                </div>
+
 
                 <div class="table-container">
                     <table id="table-zone">
@@ -58,6 +130,7 @@
                                 <th>TTL</th>
                                 <th>Type</th>
                                 <th>Value</th>
+                                <th>TLS Port</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -98,35 +171,44 @@
         </div>
     </div>
 
-    <div id="modal-new-tls" class="modal">
+    <div id="modal-regen-keys" class="modal">
         <div class="modal-content">
-            <h3>Add TLS Subdomain for <span id="tls-domain-name"></span></h3>
+            <h3>Replace DNSSEC Keys</h3>
             <div class="form-group">
-                <label for="input-tls-subdomain">Subdomain (FQDN)<span class="req">*</span></label>
-                <input type="text" id="input-tls-subdomain" placeholder="www.example.com">
-            </div>
-            <div class="form-group">
-                <label for="input-tls-email">Account Email<span class="req">*</span></label>
-                <input type="email" id="input-tls-email" placeholder="admin@example.com">
-            </div>
-            <div class="form-group">
-                <label for="input-tls-org">Organization<span class="req">*</span></label>
-                <input type="text" id="input-tls-org" placeholder="My Organization">
-            </div>
-            <div class="form-group">
-                <label for="input-tls-dir">ACME Directory URL<span class="req">*</span></label>
-                <input type="text" id="input-tls-dir" placeholder="https://acme-v02.../directory" value="https://acme-v02.api.letsencrypt.org/directory">
+                <label for="select-regen-key-type">Cryptographic Suite</label>
+                <select id="select-regen-key-type" class="ext-select">
+                    <option value="ES256" selected>ES256 (ECDSA P-256)</option>
+                    <option value="ES384">ES384 (ECDSA P-384)</option>
+                    <option value="R1024">R1024 (RSA 1024-bit)</option>
+                    <option value="R2048">R2048 (RSA 2048-bit)</option>
+                </select>
+                <div class="modal-warning-text">Warning: Selecting Replace will permanently overwrite your existing private keys and force a zone resign.</div>
             </div>
             <div class="modal-actions">
-                <button id="btn-nt-cancel" class="btn hollow">Cancel</button>
-                <button id="btn-nt-save" class="btn primary" disabled>Create TLS</button>
+                <button id="btn-regen-cancel" class="btn hollow">Cancel</button>
+                <button id="btn-regen-replace" class="btn primary btn-replace-danger">Replace</button>
             </div>
         </div>
     </div>
 
+    <div id="modal-dnssec-info" class="modal">
+        <div class="modal-content modal-content-medium">
+            <h3>Registrar DNSSEC Info</h3>
+            <p class="modal-help-text">Copy this information to your domain registrar's DNSSEC configuration panel.</p>
+            <div class="form-group">
+                <textarea id="textarea-dnssec-info" rows="5" readonly class="dnssec-info-textarea"></textarea>
+            </div>
+            <div class="modal-actions">
+                <button id="btn-dnssec-info-close" class="btn hollow">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- TLS modals removed -->
+
     <!-- Notification Toast -->
     <div id="toast" class="toast"></div>
 
-    <script src="monitor.js"></script>
+    <script src="monitor.js?v=2"></script>
 </body>
 </html>

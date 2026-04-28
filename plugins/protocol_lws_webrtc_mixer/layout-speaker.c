@@ -284,8 +284,8 @@ lm_speaker_get_json(void *vctx)
 		}
 
 		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
-			"{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"text\":\"%s\\n%s\"}",
-			x_pct, y_pct, w_pct, h_pct, name_esc, stats_esc);
+			"{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"px_w\":%d,\"px_h\":%d,\"text\":\"%s\\n%s\"}",
+			x_pct, y_pct, w_pct, h_pct, reg->w, reg->h, name_esc, stats_esc);
 	}
 
 	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "]}");

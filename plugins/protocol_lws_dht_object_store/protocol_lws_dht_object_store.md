@@ -45,3 +45,6 @@ You can deploy the plugin using the `lwsws` JSON configuration format within a v
 | `dht-policy-allow` | Yes | Provide a hash or rule string representing peers/objects to allow |
 | `dht-policy-deny` | Yes | Provide a hash or rule string representing peers/objects to deny |
 | `receiver` | Yes | Flags the node specifically as an active sink capable of receiving chunks |
+| `completion-cb` | Yes | Programmatic C callback function pointer for asynchronous completions (usually ignored in config files) |
+| `completion-cb-arg` | Yes | Opaque user argument passed to the completion callback |
+| `dht-test-handshake` | Yes | Places the node in testing mode for synthetic handshake validation |

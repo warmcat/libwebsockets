@@ -70,7 +70,31 @@ load_sound_clip(struct sound_clip *sc, const char *path)
 		return -1;
 	}
 
+	if (h.channels == 0 || h.channels > 2) {
+		lwsl_err("%s: unsupported channels %u in '%s'\n", __func__, h.channels, path);
+		close(fd);
+		return -1;
+	}
+
+	if (h.sample_rate == 0 || h.sample_rate > 192000) {
+		lwsl_err("%s: unsupported sample rate %u in '%s'\n", __func__, h.sample_rate, path);
+		close(fd);
+		return -1;
+	}
+
+	if (h.data_size == 0 || h.data_size > 64 * 1024 * 1024) {
+		lwsl_err("%s: unsupported data size %u in '%s'\n", __func__, h.data_size, path);
+		close(fd);
+		return -1;
+	}
+
 	size_t samples_count = h.data_size / 2;
+	if (samples_count / h.channels == 0) {
+		lwsl_err("%s: no frames in '%s'\n", __func__, path);
+		close(fd);
+		return -1;
+	}
+
 	orig_samples = malloc(h.data_size);
 	if (!orig_samples) {
 		close(fd);
@@ -106,7 +130,7 @@ load_sound_clip(struct sound_clip *sc, const char *path)
 
 	for (size_t i = 0; i < frames_out; i++) {
 		size_t src_idx = (size_t)((uint64_t)i * h.sample_rate / AUDIO_RATE);
-		if (src_idx >= frames_in) src_idx = frames_in - 1;
+		if (src_idx >= frames_in) src_idx = frames_in > 0 ? frames_in - 1 : 0;
 
 		int32_t val = 0;
 		if (h.channels == 1) {

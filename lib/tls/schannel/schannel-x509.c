@@ -116,6 +116,28 @@ lws_tls_schannel_cert_info(PCCERT_CONTEXT pCert, enum lws_tls_cert_info type,
 			memcpy(buf->ns.name, pCert->pbCertEncoded, pCert->cbCertEncoded);
 			buf->ns.len = (int)pCert->cbCertEncoded;
 			break;
+		case LWS_TLS_CERT_INFO_DER_SPKI:
+		{
+			DWORD cbSize = 0;
+			/* First, get the size of the DER encoded SPKI */
+			if (!CryptEncodeObjectEx(X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
+						 X509_PUBLIC_KEY_INFO,
+						 &pCert->pCertInfo->SubjectPublicKeyInfo,
+						 0, NULL, NULL, &cbSize)) {
+				return -1;
+			}
+			buf->ns.len = (int)cbSize;
+			if (len < cbSize)
+				return -1;
+
+			if (!CryptEncodeObjectEx(X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
+						 X509_PUBLIC_KEY_INFO,
+						 &pCert->pCertInfo->SubjectPublicKeyInfo,
+						 0, NULL, buf->ns.name, &cbSize)) {
+				return -1;
+			}
+			break;
+		}
 		default:
 			return -1;
 	}
@@ -1115,3 +1137,193 @@ cleanup:
 
 	return ret;
 }
+
+#if defined(LWS_WITH_ACME)
+static int
+_lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[],
+			     uint8_t *csr, size_t csr_len, char **privkey_pem,
+			     size_t *privkey_len, int is_ecdsa)
+{
+	NCRYPT_PROV_HANDLE hProv = 0;
+	NCRYPT_KEY_HANDLE hKey = 0;
+	PCERT_PUBLIC_KEY_INFO pPubKeyInfo = NULL;
+	DWORD cbPubKeyInfo = 0;
+	CERT_REQUEST_INFO reqInfo = {0};
+	CERT_NAME_BLOB subjectName = {0};
+	CERT_ALT_NAME_ENTRY sanEntry[2] = {0};
+	CERT_ALT_NAME_INFO sanInfo = {0};
+	BYTE *pbSanEncoded = NULL, *pbExtsEncoded = NULL;
+	DWORD cbSanEncoded = 0, cbExtsEncoded = 0;
+	CERT_EXTENSION ext = {0};
+	CERT_EXTENSIONS exts = {0};
+	CRYPT_ATTRIBUTE attr = {0};
+	CRYPT_ATTR_BLOB attrBlob = {0};
+	CRYPT_ALGORITHM_IDENTIFIER algId = {0};
+	BYTE *pbCsr = NULL;
+	DWORD cbCsr = 0;
+	char dnStr[512] = "";
+	WCHAR wCN[256] = {0}, wSAN[256] = {0};
+	char *p;
+	int ret = -1;
+	DWORD cbPriv = 0;
+	BYTE *pbPriv = NULL;
+
+	if (NCryptOpenStorageProvider(&hProv, MS_KEY_STORAGE_PROVIDER, 0) != ERROR_SUCCESS)
+		return -1;
+
+	if (is_ecdsa) {
+		if (NCryptCreatePersistedKey(hProv, &hKey, NCRYPT_ECDSA_P256_ALGORITHM, NULL, 0, 0) != ERROR_SUCCESS)
+			goto bail;
+	} else {
+		DWORD bits = 4096;
+		if (NCryptCreatePersistedKey(hProv, &hKey, NCRYPT_RSA_ALGORITHM, NULL, 0, 0) != ERROR_SUCCESS)
+			goto bail;
+		NCryptSetProperty(hKey, NCRYPT_LENGTH_PROPERTY, (PUCHAR)&bits, sizeof(bits), 0);
+	}
+
+	if (NCryptFinalizeKey(hKey, 0) != ERROR_SUCCESS)
+		goto bail;
+
+	/* Get Public Key Info */
+	if (!CryptExportPublicKeyInfo(hKey, 0, X509_ASN_ENCODING, NULL, &cbPubKeyInfo))
+		goto bail;
+	pPubKeyInfo = lws_malloc(cbPubKeyInfo, "pubkeyinfo");
+	if (!pPubKeyInfo || !CryptExportPublicKeyInfo(hKey, 0, X509_ASN_ENCODING, pPubKeyInfo, &cbPubKeyInfo))
+		goto bail;
+
+	/* Build Subject DN */
+	p = dnStr;
+	if (elements[LWS_TLS_REQ_ELEMENT_COUNTRY])
+		p += lws_snprintf(p, sizeof(dnStr) - (p - dnStr), "C=%s,", elements[LWS_TLS_REQ_ELEMENT_COUNTRY]);
+	if (elements[LWS_TLS_REQ_ELEMENT_STATE])
+		p += lws_snprintf(p, sizeof(dnStr) - (p - dnStr), "S=%s,", elements[LWS_TLS_REQ_ELEMENT_STATE]);
+	if (elements[LWS_TLS_REQ_ELEMENT_LOCALITY])
+		p += lws_snprintf(p, sizeof(dnStr) - (p - dnStr), "L=%s,", elements[LWS_TLS_REQ_ELEMENT_LOCALITY]);
+	if (elements[LWS_TLS_REQ_ELEMENT_ORGANIZATION])
+		p += lws_snprintf(p, sizeof(dnStr) - (p - dnStr), "O=%s,", elements[LWS_TLS_REQ_ELEMENT_ORGANIZATION]);
+	if (elements[LWS_TLS_REQ_ELEMENT_COMMON_NAME])
+		p += lws_snprintf(p, sizeof(dnStr) - (p - dnStr), "CN=%s,", elements[LWS_TLS_REQ_ELEMENT_COMMON_NAME]);
+	if (p > dnStr) *(p - 1) = '\0'; /* Remove trailing comma */
+
+	if (!CertStrToNameA(X509_ASN_ENCODING, dnStr, CERT_X500_NAME_STR, NULL, NULL, &subjectName.cbData, NULL))
+		goto bail;
+	subjectName.pbData = lws_malloc(subjectName.cbData, "subjname");
+	if (!subjectName.pbData || !CertStrToNameA(X509_ASN_ENCODING, dnStr, CERT_X500_NAME_STR, NULL, subjectName.pbData, &subjectName.cbData, NULL))
+		goto bail;
+
+	/* Build SAN Extensions */
+	sanInfo.rgAltEntry = sanEntry;
+	if (elements[LWS_TLS_REQ_ELEMENT_COMMON_NAME]) {
+		MultiByteToWideChar(CP_UTF8, 0, elements[LWS_TLS_REQ_ELEMENT_COMMON_NAME], -1, wCN, sizeof(wCN)/sizeof(wCN[0]));
+		sanEntry[sanInfo.cAltEntry].dwAltNameChoice = CERT_ALT_NAME_DNS_NAME;
+		sanEntry[sanInfo.cAltEntry].pwszDNSName = wCN;
+		sanInfo.cAltEntry++;
+	}
+	if (elements[LWS_TLS_REQ_ELEMENT_SUBJECT_ALT_NAME]) {
+		MultiByteToWideChar(CP_UTF8, 0, elements[LWS_TLS_REQ_ELEMENT_SUBJECT_ALT_NAME], -1, wSAN, sizeof(wSAN)/sizeof(wSAN[0]));
+		sanEntry[sanInfo.cAltEntry].dwAltNameChoice = CERT_ALT_NAME_DNS_NAME;
+		sanEntry[sanInfo.cAltEntry].pwszDNSName = wSAN;
+		sanInfo.cAltEntry++;
+	}
+
+	if (sanInfo.cAltEntry > 0) {
+		if (CryptEncodeObjectEx(X509_ASN_ENCODING, X509_ALTERNATE_NAME, &sanInfo, CRYPT_ENCODE_ALLOC_FLAG, NULL, &pbSanEncoded, &cbSanEncoded)) {
+			ext.pszObjId = szOID_SUBJECT_ALT_NAME2;
+			ext.fCritical = FALSE;
+			ext.Value.cbData = cbSanEncoded;
+			ext.Value.pbData = pbSanEncoded;
+
+			exts.cExtension = 1;
+			exts.rgExtension = &ext;
+
+			if (CryptEncodeObjectEx(X509_ASN_ENCODING, X509_EXTENSIONS, &exts, CRYPT_ENCODE_ALLOC_FLAG, NULL, &pbExtsEncoded, &cbExtsEncoded)) {
+				attr.pszObjId = szOID_RSA_certExtensions;
+				attr.cValue = 1;
+				attr.rgValue = &attrBlob;
+				attrBlob.cbData = cbExtsEncoded;
+				attrBlob.pbData = pbExtsEncoded;
+			}
+		}
+	}
+
+	/* Build Request Info */
+	reqInfo.dwVersion = CERT_REQUEST_V1;
+	reqInfo.Subject = subjectName;
+	reqInfo.SubjectPublicKeyInfo = *pPubKeyInfo;
+	reqInfo.cAttribute = (attr.cValue > 0) ? 1 : 0;
+	reqInfo.rgAttribute = &attr;
+
+	/* Set Signature Algorithm */
+	algId.pszObjId = is_ecdsa ? szOID_ECDSA_SHA256 : szOID_RSA_SHA256RSA;
+
+	/* Encode & Sign */
+	if (!CryptSignAndEncodeCertificate(hKey, 0, X509_ASN_ENCODING, X509_CERT_REQUEST_TO_BE_SIGNED,
+					   &reqInfo, &algId, NULL, NULL, &cbCsr))
+		goto bail;
+
+	pbCsr = lws_malloc(cbCsr, "csr_raw");
+	if (!pbCsr || !CryptSignAndEncodeCertificate(hKey, 0, X509_ASN_ENCODING, X509_CERT_REQUEST_TO_BE_SIGNED,
+						     &reqInfo, &algId, NULL, pbCsr, &cbCsr))
+		goto bail;
+
+	/* Convert CSR to base64url */
+	ret = lws_jws_base64_enc((char *)pbCsr, (size_t)cbCsr, (char *)csr, csr_len);
+	if (ret < 0)
+		goto bail;
+
+	/* Export Private Key as PEM */
+	/* Windows 10+ CNG supports NCRYPT_PKCS8_PRIVATE_KEY_BLOB directly */
+#ifndef NCRYPT_PKCS8_PRIVATE_KEY_BLOB
+#define NCRYPT_PKCS8_PRIVATE_KEY_BLOB L"PKCS8_PRIVATEKEY"
+#endif
+
+	if (NCryptExportKey(hKey, 0, NCRYPT_PKCS8_PRIVATE_KEY_BLOB, NULL, NULL, 0, &cbPriv, NCRYPT_SILENT_FLAG) != ERROR_SUCCESS)
+		goto bail;
+	pbPriv = lws_malloc(cbPriv, "privkey_raw");
+	if (!pbPriv || NCryptExportKey(hKey, 0, NCRYPT_PKCS8_PRIVATE_KEY_BLOB, NULL, pbPriv, cbPriv, &cbPriv, NCRYPT_SILENT_FLAG) != ERROR_SUCCESS)
+		goto bail;
+
+	{
+		DWORD cchPem = 0;
+		if (CryptBinaryToStringA(pbPriv, cbPriv, CRYPT_STRING_BASE64HEADER, NULL, &cchPem)) {
+			*privkey_pem = malloc(cchPem);
+			if (*privkey_pem) {
+				CryptBinaryToStringA(pbPriv, cbPriv, CRYPT_STRING_BASE64HEADER, *privkey_pem, &cchPem);
+				*privkey_len = strlen(*privkey_pem);
+			} else {
+				ret = -1;
+			}
+		} else {
+			ret = -1;
+		}
+	}
+
+bail:
+	if (pbPriv) lws_free(pbPriv);
+	if (pbCsr) lws_free(pbCsr);
+	if (pbExtsEncoded) LocalFree(pbExtsEncoded);
+	if (pbSanEncoded) LocalFree(pbSanEncoded);
+	if (subjectName.pbData) lws_free(subjectName.pbData);
+	if (pPubKeyInfo) lws_free(pPubKeyInfo);
+	if (hKey) NCryptFreeObject(hKey);
+	if (hProv) NCryptFreeObject(hProv);
+
+	return ret < 0 ? -1 : ret;
+}
+
+int
+lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[],
+			    uint8_t *csr, size_t csr_len, char **privkey_pem,
+			    size_t *privkey_len)
+{
+	return _lws_tls_acme_sni_csr_create(context, elements, csr, csr_len, privkey_pem, privkey_len, 0);
+}
+
+int
+lws_tls_acme_sni_csr_create_ecdsa(struct lws_context *context, const char *elements[],
+				  uint8_t *csr, size_t csr_len, char **privkey_pem,
+				  size_t *privkey_len)
+{
+	return _lws_tls_acme_sni_csr_create(context, elements, csr, csr_len, privkey_pem, privkey_len, 1);
+}
+#endif

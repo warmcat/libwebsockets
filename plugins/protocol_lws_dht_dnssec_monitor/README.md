@@ -32,14 +32,16 @@ To enable the plugin, attach it to your configuration and provide the following 
 | `uid` | User ID to drop privileges to in the spawned process (if standard POSIX). | `0` (do not drop) |
 | `gid` | Group ID to drop privileges to in the spawned process (if standard POSIX). | `0` (do not drop) |
 | `signature-duration` | The duration in seconds for which the newly generated DNSSEC signatures should remain valid. | 31536000 (1 year) |
+| `jwk_path` | Absolute path to the JSON Web Key (JWK) for JWT verification in the web UI. | `NULL` |
+| `cookie-name` | Name of the HTTP cookie that the monitor should check for JWT sessions. | `auth_session` |
 
 ## Domain JSON Configuration (`$dns_base_dir/domains`)
 
 This plugin shares the exact same JSON format parsed by the [lws-acme-client](../acme-client/protocol_lws_acme_client.md). For every `<domain>` directory inside `$dns_base_dir/domains`:
 
-1. The monitor looks for `$dns_base_dir/domains/<domain>/conf.d/<domain>.json` and extracts `common-name`.
-2. It looks inside `$dns_base_dir/domains/<domain>/dns/` for the respective `<domain>.zone` base file.
-3. It validates whether `${common-name}.zsk.private.jwk` and `${common-name}.ksk.private.jwk` exist inside that directory.
+1. The monitor looks for `$dns_base_dir/domains/<domain>/conf.d/<domain>.json` and extracts `common-name`. It can also extract custom generator keys like `"key-type"` (e.g. `RSA` or `EC`), `"key-curve"` (e.g. `P-256` or `P-384`), and `"key-bits"` (e.g. `4096`).
+2. It looks inside `$dns_base_dir/domains/<domain>/` for the respective `<domain>.zone` base file.
+3. It validates whether `${common-name}.zsk.private.jwk` and `${common-name}.ksk.private.jwk` exist inside that directory. If missing, they are automatically generated honoring the provided JSON key type configuration (defaulting to EC `P-256`).
 
 You do **not** need to declare separate configuration files for ACME vs DNSSEC. A single `example.com.json` specifying `"common-name": "example.com"` is sufficient for both plugins to target the domain effectively.
 
@@ -113,12 +115,11 @@ Based on the global `/etc/lwsws/policy` `dns_base_dir` usage (e.g. `/var/lib/lws
 └── example.com/
     ├── conf.d/
     │   └── example.com.json            <-- Your JSON configuration here
-    └── dns/
-        ├── example.com.zone            <-- The raw unsigned DNS zone file
-        ├── example.com.signed          <-- (Generated automatically)
-        ├── example.com.jws             <-- (Generated automatically)
-        ├── example.com.zsk.private.jwk <-- (Generated automatically if missing)
-        └── example.com.ksk.private.jwk <-- (Generated automatically if missing)
+    ├── example.com.zone            <-- The raw unsigned DNS zone file
+    ├── example.com.signed          <-- (Generated automatically)
+    ├── example.com.jws             <-- (Generated automatically)
+    ├── example.com.zsk.private.jwk <-- (Generated automatically if missing)
+    └── example.com.ksk.private.jwk <-- (Generated automatically if missing)
 ```
 
 If you edit `example.com.zone`, the monitor will automatically detect the timestamp mismatch during its next periodic scan (every 5 minutes) and re-sign the zone, replacing the `.signed` and `.jws` outputs.

@@ -57,6 +57,21 @@ struct lws_buflist;
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_buflist_append_segment(struct lws_buflist **head, const uint8_t *buf,
 			   size_t len);
+
+/**
+ * lws_buflist_append_segment_take_ownership(): add buffer to buflist at head
+ *
+ * \param head: list head
+ * \param buf: buffer to stash, must be allocated by lws_malloc
+ * \param len: length of buffer to stash
+ *
+ * Returns -1 on OOM, 1 if this was the first segment on the list, and 0 if
+ * it was a subsequent segment. The buflist takes ownership of \p buf and
+ * will free it using lws_free() when it is exhausted.
+ */
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
+lws_buflist_append_segment_take_ownership(struct lws_buflist **head, uint8_t *buf, size_t len);
+
 /**
  * lws_buflist_next_segment_len(): number of bytes left in current segment
  *
@@ -604,10 +619,50 @@ lws_set_wsi_user(struct lws *wsi, void *user);
  * If the first character after the + is '@', it's interpreted by lws client
  * processing as meaning to use linux abstract namespace sockets, the @ is
  * replaced with a '\0' before use.
+ *
+ * \deprecated Use lws_parse_uri_create() instead.
  */
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_parse_uri(char *p, const char **prot, const char **ads, int *port,
-	      const char **path);
+	      const char **path) LWS_WARN_DEPRECATED;
+
+typedef struct lws_parse_uri {
+	const char	*scheme;
+	const char	*host;
+	const char	*path;
+	uint16_t	port;
+	char		unix_skt;
+} lws_parse_uri_t;
+
+/**
+ * lws_parse_uri_create() - non-destructively parse a URI
+ *
+ * \param uri: the URI string to parse
+ *
+ * Returns a dynamically allocated struct containing the parsed scheme, host,
+ * path, and port. The strings (scheme, host, path) point to memory allocated
+ * sequentially right after the struct.
+ *
+ * Note: many lws apis like the client create api expect the strings to stick
+ * around indefinitely. For that reason you might want to destroy() the results
+ * of the parse after any users of the results that might be pointing to it
+ * have been destroyed.
+ *
+ * Returns NULL on parsing failure or OOM.
+ */
+LWS_VISIBLE LWS_EXTERN lws_parse_uri_t * LWS_WARN_UNUSED_RESULT
+lws_parse_uri_create(const char *uri);
+
+/**
+ * lws_parse_uri_destroy() - free a parsed URI struct
+ *
+ * \param pcuri: pointer to a pointer to the lws_parse_uri_t to free
+ *
+ * Frees the allocation made by lws_parse_uri_create() and sets the
+ * pointer to NULL.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_parse_uri_destroy(lws_parse_uri_t **pcuri);
 
 struct lws_switches {
 	const char *sw;
@@ -757,6 +812,17 @@ lws_cmdline_option_cx_argv0(const struct lws_context *cx);
 LWS_VISIBLE LWS_EXTERN void
 lws_cmdline_option_handle_builtin(int argc, const char **argv,
 				  struct lws_context_creation_info *info);
+
+/**
+ * lws_parse_iso8601() - parse ISO8601 date string into unixtime
+ *
+ * \param ads: the date string to parse
+ *
+ * Returns the unixtime represented by the string, or 0 if parsing failed.
+ * Supports YYYY-MM-DDTHH:MM:SSZ and some common simple variations.
+ */
+LWS_VISIBLE LWS_EXTERN lws_usec_t
+lws_parse_iso8601(const char *ads);
 
 /**
  * lws_now_secs(): return seconds since 1970-1-1
@@ -1208,7 +1274,7 @@ struct lws_wifi_scan { /* generic wlan scan item */
 	uint8_t authmode;
 };
 
-#if defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS)
+#if defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_BEARSSL)
 /**
  * lws_get_ssl() - Return wsi's SSL context structure
  * \param wsi:	websocket connection
@@ -1371,6 +1437,7 @@ struct lws_spawn_piped_info {
 	const struct lws_role_ops	*ops; /* NULL is raw file */
 
 	uint8_t				disable_ctrlc;
+	uint8_t				pty_mode;
 
 	const char			*cgroup_name_suffix;
 	int				*p_cgroup_ret;

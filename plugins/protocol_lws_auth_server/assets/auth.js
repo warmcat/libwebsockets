@@ -29,7 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function loadManifest() {
         try {
-            const response = await fetch('/api/manifest', { cache: 'no-store' });
+            const response = await fetch('/api/manifest', { cache: 'no-store', credentials: 'include' });
             if (response.ok) {
                 const data = await response.json();
 
@@ -105,7 +105,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const btn = this;
             btn.innerText = "Logging out...";
             btn.disabled = true;
-            await fetch('/api/status?destroy=1', { cache: 'no-store' });
+            await fetch('/api/status?destroy=1', { cache: 'no-store', credentials: 'include' });
             window.location.reload();
         });
     }
@@ -114,7 +114,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function checkServerStatus() {
         try {
             const statusUrl = serviceName ? `/api/status?service_name=${encodeURIComponent(serviceName)}` : '/api/status';
-            const response = await fetch(statusUrl, { cache: 'no-store' });
+            const response = await fetch(statusUrl, { cache: 'no-store', credentials: 'include' });
             if (response.ok) {
                 const data = await response.json();
                 if (data.csrf_token) window.csrf_token = data.csrf_token;
@@ -146,13 +146,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
 
                     if (clientId && redirectUri) {
-                        window.location.href = `/api/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state||'')}&response_type=code` + (codeChallenge ? `&code_challenge=${encodeURIComponent(codeChallenge)}` : '') + (codeChallengeMethod ? `&code_challenge_method=${encodeURIComponent(codeChallengeMethod)}` : '');
+                        /*alert("auth.js auth redirect -> " + `/api/authorize`); */ window.location.href = `/api/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state||'')}&response_type=code` + (codeChallenge ? `&code_challenge=${encodeURIComponent(codeChallenge)}` : '') + (codeChallengeMethod ? `&code_challenge_method=${encodeURIComponent(codeChallengeMethod)}` : '');
                         return;
                     } else if (redirectUri) {
                         try {
                             const res = await fetch('/api/sso_exchange', {
                                 method: 'POST',
-                                body: 'csrf_token=' + encodeURIComponent(window.csrf_token || '') + '&redirect_uri=' + encodeURIComponent(redirectUri),
+                                credentials: 'include',
+                                body: `redirect_uri=${encodeURIComponent(redirectUri)}&csrf_token=${encodeURIComponent(window.csrf_token || "")}`,
                                 headers: {'Content-Type': 'application/x-www-form-urlencoded'}
                             });
                             if (res.ok) {
@@ -272,6 +273,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Send to auth plugin endpoint handled by LWS
             const response = await fetch('/api/login', {
                 method: 'POST',
+                credentials: 'include',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded'
                 },
@@ -308,7 +310,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     stkOverlay.classList.remove('show-strike');
                 }
                 if (data.redirect) {
-                    setTimeout(() => window.location.href = data.redirect, 1000);
+                    setTimeout(() => { /*alert("auth.js data.redirect -> "+ data.redirect);*/ window.location.href = data.redirect; }, 1000);
                 } else if (redirectUri) {
                     setTimeout(() => {
                         let u;
@@ -332,7 +334,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             document.body.appendChild(form);
                             form.submit();
                         } else {
-                            window.location.href = redirectUri;
+                            /*alert("auth.js redirectUri -> " + redirectUri);*/ window.location.href = redirectUri;
                         }
                     }, 1000);
                 } else {
@@ -366,6 +368,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const response = await fetch('/api/register', {
                 method: 'POST',
+                credentials: 'include',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded'
                 },

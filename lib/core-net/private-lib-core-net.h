@@ -262,6 +262,7 @@ typedef struct lws_async_dns_server {
 	uint8_t			dns_server_set:1;
 	uint8_t			dns_server_connected:1;
 	uint8_t			seen:1;
+	uint8_t			pinned:1;
 } lws_async_dns_server_t;
 
 typedef struct lws_async_dns {
@@ -1053,6 +1054,7 @@ struct lws_spawn_piped {
 	lws_sorted_usec_list_t		sul_poll;
 	FILETIME			ft_create;
 	FILETIME			ft_exit;
+	void				*hPC; /* Pseudoconsole */
 #else
 	pid_t				child_pid;
 

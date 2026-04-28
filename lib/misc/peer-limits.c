@@ -198,7 +198,8 @@ lws_peer_cull_peer_wait_list(struct lws_context *context)
 
 	context->next_cull = t + 5;
 
-	lws_start_foreach_llp(struct lws_peer **, p, context->peer_wait_list) {
+	struct lws_peer **p = &context->peer_wait_list;
+	while (*p) {
 		if (t - (*p)->time_closed_all > 10) {
 			df = *p;
 
@@ -207,9 +208,10 @@ lws_peer_cull_peer_wait_list(struct lws_context *context)
 			df->peer_wait_list = NULL;
 
 			__lws_peer_destroy(context, df);
-			continue; /* we already point to next, if any */
+		} else {
+			p = &(*p)->peer_wait_list;
 		}
-	} lws_end_foreach_llp(p, peer_wait_list);
+	}
 
 	lws_context_unlock(context); /* ====================================> */
 }

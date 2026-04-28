@@ -2349,9 +2349,8 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 		struct vhd_dht_dnssec *vhd = (struct vhd_dht_dnssec *)closure;
 		int is_shift = (info_hash != NULL);
 		const struct lws_dht_consensus_info *ci = (const struct lws_dht_consensus_info *)data;
-		const lws_system_ops_t *ops = lws_system_get_ops(vhd->context);
-		if (ops && ops->dht_external_ip_cb && ci) {
-			ops->dht_external_ip_cb(vhd->context, (const lws_sockaddr46 *)&ci->ss,
+		if (ci) {
+			lws_extip_report(vhd->context, LWS_EXTIP_SRC_DHT, (const lws_sockaddr46 *)&ci->ss,
 						event == LWS_DHT_EVENT_EXTERNAL_ADDR ? AF_INET : AF_INET6,
 						is_shift,
 						(const lws_sockaddr46 *)ci->peer_ss,
@@ -2524,22 +2523,17 @@ static void
 dht_dnssec_sul_cap_cb(struct lws_sorted_usec_list *sul)
 {
 	struct vhd_dht_dnssec *vhd = lws_container_of(sul, struct vhd_dht_dnssec, sul_bulk);
-	struct sockaddr_in sin;
+	lws_sockaddr46 sa46;
 	char buf[256], my_id_hex[41];
 
-	memset(&sin, 0, sizeof(sin));
-	sin.sin_family = AF_INET;
-	sin.sin_port = htons((uint16_t)vhd->target_port);
-
-	if (inet_pton(AF_INET, vhd->target_ip, &sin.sin_addr) <= 0) {
+	if (lws_sa46_parse_numeric_address(vhd->target_ip, &sa46) < 0) {
 		/* Try synchronous host resolution if it's not a raw IP */
 		struct addrinfo hints, *result;
 		memset(&hints, 0, sizeof(hints));
 		hints.ai_family = AF_INET;
 
 		if (getaddrinfo(vhd->target_ip, NULL, &hints, &result) == 0 && result) {
-			struct sockaddr_in *sa = (struct sockaddr_in *)result->ai_addr;
-			sin.sin_addr = sa->sin_addr;
+			sa46.sa4 = *(struct sockaddr_in *)result->ai_addr;
 			freeaddrinfo(result);
 		} else {
 			lwsl_err("Failed to resolve target-ip: %s\n", vhd->target_ip);
@@ -2548,6 +2542,7 @@ dht_dnssec_sul_cap_cb(struct lws_sorted_usec_list *sul)
 			return;
 		}
 	}
+	sa46_sockport(&sa46, htons((uint16_t)vhd->target_port));
 
 	const lws_dht_hash_t *myid = lws_dht_get_myid(vhd->dht);
 	lws_hex_from_byte_array((const uint8_t *)myid->id, myid->len, my_id_hex, sizeof(my_id_hex));
@@ -2555,7 +2550,7 @@ dht_dnssec_sul_cap_cb(struct lws_sorted_usec_list *sul)
 	lwsl_user("Sending CAP_REQ to %s:%d (myid %s) for %s\n", vhd->target_ip, vhd->target_port, my_id_hex, vhd->cli_put_file);
 
 	lws_dht_msg_gen(buf, sizeof(buf), "CAP_REQ", my_id_hex, 0, 0);
-	lws_dht_send_data(vhd->dht, (struct sockaddr *)&sin, buf, strlen(buf));
+	lws_dht_send_data(vhd->dht, (struct sockaddr *)&sa46, buf, strlen(buf));
 
 	/* Schedule UDP timeout for 3 seconds */
 	lws_sul_schedule(vhd->context, 0, &vhd->sul_timeout, dht_dnssec_sul_timeout_cb, 3 * LWS_US_PER_SEC);
@@ -2610,24 +2605,19 @@ dht_dnssec_sul_put_cb(struct lws_sorted_usec_list *sul)
 	char hash_hex[LWS_GENHASH_LARGEST * 2 + 1], header[256], packet[1500];
 	uint8_t hash[LWS_GENHASH_LARGEST];
 	struct lws_genhash_ctx ctx;
-	struct sockaddr_in sin;
+	lws_sockaddr46 sa46;
 	int fd, n, hlen;
 	struct stat st;
 	char buf[1500];
 
-	memset(&sin, 0, sizeof(sin));
-	sin.sin_family = AF_INET;
-	sin.sin_port = htons((uint16_t)vhd->target_port);
-
-	if (inet_pton(AF_INET, vhd->target_ip, &sin.sin_addr) <= 0) {
+	if (lws_sa46_parse_numeric_address(vhd->target_ip, &sa46) < 0) {
 		/* Try synchronous host resolution if it's not a raw IP */
 		struct addrinfo hints, *result;
 		memset(&hints, 0, sizeof(hints));
 		hints.ai_family = AF_INET;
 
 		if (getaddrinfo(vhd->target_ip, NULL, &hints, &result) == 0 && result) {
-			struct sockaddr_in *sa = (struct sockaddr_in *)result->ai_addr;
-			sin.sin_addr = sa->sin_addr;
+			sa46.sa4 = *(struct sockaddr_in *)result->ai_addr;
 			freeaddrinfo(result);
 		} else {
 			lwsl_err("Failed to resolve target-ip: %s\n", vhd->target_ip);
@@ -2636,6 +2626,7 @@ dht_dnssec_sul_put_cb(struct lws_sorted_usec_list *sul)
 			return;
 		}
 	}
+	sa46_sockport(&sa46, htons((uint16_t)vhd->target_port));
 
 	lwsl_user("Sending PUT %s to %s:%d\n", vhd->cli_put_file, vhd->target_ip, vhd->target_port);
 
@@ -2695,7 +2686,7 @@ dht_dnssec_sul_put_cb(struct lws_sorted_usec_list *sul)
 	memcpy(packet, header, (size_t)hlen);
 	memcpy(packet + hlen, buf + 256, (size_t)n);
 
-	lws_dht_send_data(vhd->dht, (struct sockaddr *)&sin, packet, (size_t)(hlen + n));
+	lws_dht_send_data(vhd->dht, (struct sockaddr *)&sa46, packet, (size_t)(hlen + n));
 
 	int timeout_secs = 3;
 	if (vhd->bulk_sent + (uint64_t)n >= vhd->bulk_total)
@@ -2709,7 +2700,7 @@ static void
 dht_dnssec_sul_get_cb(struct lws_sorted_usec_list *sul)
 {
 	struct vhd_dht_dnssec *vhd = lws_container_of(sul, struct vhd_dht_dnssec, sul_bulk);
-	struct sockaddr_in sin;
+	lws_sockaddr46 sa46;
 	char buf[256];
 	const char *get_hash = vhd->cli_get_hash;
 	char computed_hash_hex[LWS_GENHASH_LARGEST * 2 + 1];
@@ -2734,30 +2725,25 @@ dht_dnssec_sul_get_cb(struct lws_sorted_usec_list *sul)
 		return;
 	}
 
-	memset(&sin, 0, sizeof(sin));
-	sin.sin_family = AF_INET;
-	sin.sin_port = htons((uint16_t)vhd->target_port);
-
-
-	if (inet_pton(AF_INET, vhd->target_ip, &sin.sin_addr) <= 0) {
+	if (lws_sa46_parse_numeric_address(vhd->target_ip, &sa46) < 0) {
 		struct addrinfo hints, *result;
 		memset(&hints, 0, sizeof(hints));
 		hints.ai_family = AF_INET;
 
 		if (getaddrinfo(vhd->target_ip, NULL, &hints, &result) == 0 && result) {
-			struct sockaddr_in *sa = (struct sockaddr_in *)result->ai_addr;
-			sin.sin_addr = sa->sin_addr;
+			sa46.sa4 = *(struct sockaddr_in *)result->ai_addr;
 			freeaddrinfo(result);
 		} else {
 			lwsl_err("Failed to resolve target-ip: %s\n", vhd->target_ip);
 			return;
 		}
 	}
+	sa46_sockport(&sa46, htons((uint16_t)vhd->target_port));
 
 	lwsl_user("Sending GET %s to %s:%d\n", get_hash, vhd->target_ip, vhd->target_port);
 
 	lws_dht_msg_gen(buf, sizeof(buf), "GET", get_hash, 0, 1024);
-	lws_dht_send_data(vhd->dht, (struct sockaddr *)&sin, buf, strlen(buf));
+	lws_dht_send_data(vhd->dht, (struct sockaddr *)&sa46, buf, strlen(buf));
 
 	/* Schedule UDP timeout for 3 seconds */
 	lws_sul_schedule(vhd->context, 0, &vhd->sul_timeout, dht_dnssec_sul_timeout_cb, 3 * LWS_US_PER_SEC);
@@ -2770,22 +2756,17 @@ dht_dnssec_sul_bulk_cb(struct lws_sorted_usec_list *sul)
 	char hash_hex[LWS_GENHASH_LARGEST * 2 + 1], header[256], packet[1500];
 	uint8_t hash[LWS_GENHASH_LARGEST];
 	struct lws_genhash_ctx ctx;
-	struct sockaddr_in sin;
+	lws_sockaddr46 sa46;
 	int hlen;
 	char buf[1024];
 
-	memset(&sin, 0, sizeof(sin));
-	sin.sin_family = AF_INET;
-	sin.sin_port = htons((uint16_t)vhd->target_port);
-
-	if (inet_pton(AF_INET, vhd->target_ip, &sin.sin_addr) <= 0) {
+	if (lws_sa46_parse_numeric_address(vhd->target_ip, &sa46) < 0) {
 		struct addrinfo hints, *result;
 		memset(&hints, 0, sizeof(hints));
 		hints.ai_family = AF_INET;
 
 		if (getaddrinfo(vhd->target_ip, NULL, &hints, &result) == 0 && result) {
-			struct sockaddr_in *sa = (struct sockaddr_in *)result->ai_addr;
-			sin.sin_addr = sa->sin_addr;
+			sa46.sa4 = *(struct sockaddr_in *)result->ai_addr;
 			freeaddrinfo(result);
 		} else {
 			lwsl_err("Failed to resolve target-ip: %s\n", vhd->target_ip);
@@ -2794,6 +2775,7 @@ dht_dnssec_sul_bulk_cb(struct lws_sorted_usec_list *sul)
 			return;
 		}
 	}
+	sa46_sockport(&sa46, htons((uint16_t)vhd->target_port));
 
 	lwsl_user("Sending mock bulk data to %s:%d\n", vhd->target_ip, vhd->target_port);
 
@@ -2824,7 +2806,7 @@ dht_dnssec_sul_bulk_cb(struct lws_sorted_usec_list *sul)
 	memcpy(packet, header, (size_t)hlen);
 	memcpy(packet + hlen, buf, sizeof(buf));
 
-	lws_dht_send_data(vhd->dht, (struct sockaddr *)&sin, packet, (size_t)hlen + sizeof(buf));
+	lws_dht_send_data(vhd->dht, (struct sockaddr *)&sa46, packet, (size_t)hlen + sizeof(buf));
 }
 
 static void
@@ -2935,17 +2917,13 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 			"SUBSCRIBE_CONFIRM",
 			"NOTIFY",
 			"NOTC",
-		};
-		lwsl_vhost_notice(vhost, "LWS_CALLBACK_PROTOCOL_INIT for %s: in=%p", protocol->name, in);
-
-		/* Do not initialize the DHT plugin if we are running as the spawned root monitor */
+		};		/* Do not initialize the DHT plugin if we are running as the spawned root monitor */
 		if (lws_cmdline_option_cx(lws_get_context(wsi), "--lws-dht-dnssec-monitor-root")) {
 			lwsl_vhost_notice(vhost, "  ...leaving early: skipped in root monitor process");
 			return 0;
 		}
 
 		if (!in) {
-			lwsl_vhost_notice(vhost, "  ...leaving early: no pvo 'in'");
 			return 0;
 		}
 		if (!lws_pvo_search(in, "dht-port")) {
@@ -3116,14 +3094,15 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 
 			lwsl_user("Initiating Handshake TEST... sending NONCE_REQ (myid %s)\n", my_id_hex);
 			char buf[1024];
-			struct sockaddr_in sin;
-			memset(&sin, 0, sizeof(sin));
-			sin.sin_family = AF_INET;
-			sin.sin_port = htons((uint16_t)vhd->target_port);
-			inet_pton(AF_INET, vhd->target_ip, &sin.sin_addr);
+			lws_sockaddr46 sa46;
+			if (lws_sa46_parse_numeric_address(vhd->target_ip, &sa46) < 0) {
+				lwsl_err("Failed to parse target-ip: %s\n", vhd->target_ip);
+				break;
+			}
+			sa46_sockport(&sa46, htons((uint16_t)vhd->target_port));
 
 			lws_dht_msg_gen(buf, sizeof(buf), "NONC_REQ", my_id_hex, 0, 0);
-			lws_dht_send_data(vhd->dht, (const struct sockaddr *)&sin, buf, strlen(buf));
+			lws_dht_send_data(vhd->dht, (const struct sockaddr *)&sa46, buf, strlen(buf));
 		} else if (vhd->cli_put_file) {
 			lwsl_notice("%s: Taking PUT branch\n", __func__);
 			lwsl_user("%s: Starting PUT task\n", __func__);
@@ -3242,6 +3221,10 @@ do_keygen(struct lws_context *context, struct lws_dht_dnssec_keygen_args *args)
 			write(fd, key, (size_t)strlen(key));
 			close(fd);
 			lwsl_notice("Wrote private JWK to %s\n", priv_filename);
+		} else {
+			lwsl_err("%s: Failed to open %s for writing: errno %d\n", __func__, priv_filename, errno);
+			lws_jwk_destroy(&jwk);
+			return 1;
 		}
 
 		/* Export standardized DNSKEY format for zone file inclusion */
@@ -3286,6 +3269,8 @@ do_keygen(struct lws_context *context, struct lws_dht_dnssec_keygen_args *args)
 						write(fd, outbuf, (size_t)n);
 						close(fd);
 						lwsl_notice("Wrote public DNSKEY to %s\n", pub_filename);
+					} else {
+						lwsl_err("%s: Failed to open %s for writing: errno %d\n", __func__, pub_filename, errno);
 					}
 					if (is_ksk) {
 						char ds_filename[256];
@@ -3331,6 +3316,8 @@ do_keygen(struct lws_context *context, struct lws_dht_dnssec_keygen_args *args)
 										fprintf(stderr, "\n=========== DNSSEC REGISTRAR SUMMARY ===========\n");
 										fprintf(stderr, "%s", ds_summary);
 										fprintf(stderr, "================================================\n\n");
+									} else {
+										lwsl_err("%s: Failed to open %s for writing: errno %d\n", __func__, ds_filename, errno);
 									}
 								} else {
 									lws_genhash_destroy(&hash_ctx, NULL);
@@ -3367,6 +3354,8 @@ do_keygen(struct lws_context *context, struct lws_dht_dnssec_keygen_args *args)
 						write(fd, outbuf, (size_t)n);
 						close(fd);
 						lwsl_notice("Wrote public DNSKEY to %s\n", pub_filename);
+					} else {
+						lwsl_err("%s: Failed to open %s for writing: errno %d\n", __func__, pub_filename, errno);
 					}
 
 					if (is_ksk) {
@@ -3414,6 +3403,8 @@ do_keygen(struct lws_context *context, struct lws_dht_dnssec_keygen_args *args)
 										fprintf(stderr, "\n=========== DNSSEC REGISTRAR SUMMARY ===========\n");
 										fprintf(stderr, "%s", ds_summary);
 										fprintf(stderr, "================================================\n\n");
+									} else {
+										lwsl_err("%s: Failed to open %s for writing: errno %d\n", __func__, ds_filename, errno);
 									}
 								} else {
 									lws_genhash_destroy(&hash_ctx, NULL);
@@ -3560,7 +3551,7 @@ do_dsfromkey(struct lws_context *context, struct lws_dht_dnssec_dsfromkey_args *
 	return 0;
 }
 
-static int bump_soa_serial(const char *filepath) {
+int lws_dht_dnssec_bump_zone_serial(struct lws_context *context, const char *filepath) {
 	int fd = open(filepath, O_RDWR);
 	if (fd < 0) return -1;
 
@@ -3693,6 +3684,136 @@ get_dnssec_vhd(struct lws_context *context, struct lws_vhost *preferred_vh)
 	return global_dnssec_vhd;
 }
 
+static const char *
+dnssec_subst_cb(struct lws_auth_dns_sign_info *info, const char *name)
+{
+	static char ret[512];
+
+	if (!strcmp(name, "EXTIP4")) {
+		if (info->ipv4) return info->ipv4;
+		return "";
+	}
+	if (!strcmp(name, "EXTIP6")) {
+		if (info->ipv6) return info->ipv6;
+		return "";
+	}
+
+	if (!strncmp(name, "DANE", 4)) {
+		int previous = (name[4] == '1');
+		char root[128];
+		root[0] = '\0';
+		
+		const char *slash = strchr(name, '/');
+		if (slash && slash[1]) {
+			lws_strncpy(root, slash + 1, sizeof(root));
+		}
+		
+		if (!root[0]) return "";
+
+		/* Determine domain from info->input_filepath */
+		char domain[128];
+		domain[0] = '\0';
+		if (info->input_filepath) {
+			const char *p = strstr(info->input_filepath, "/domains/");
+			if (p) {
+				p += 9;
+				const char *p2 = strchr(p, '/');
+				if (p2 && (p2 - p) < (int)sizeof(domain)) {
+					lws_strncpy(domain, p, lws_ptr_diff_size_t(p2, p) + 1);
+				}
+			}
+		}
+		if (!domain[0]) return "";
+
+		/* Load X509 cert */
+		char cert_path[256];
+		if (previous) {
+			lws_snprintf(cert_path, sizeof(cert_path), "/var/dnssec/domains/%s/certs/crt/%s-previous.crt", domain, root);
+		} else {
+			lws_snprintf(cert_path, sizeof(cert_path), "/var/dnssec/domains/%s/certs/crt/%s-latest.crt", domain, root);
+		}
+
+		struct lws_x509_cert *cert = NULL;
+		if (lws_x509_create(&cert)) {
+			lwsl_err("%s: failed to create cert\n", __func__);
+			return "";
+		}
+
+		int cfd = open(cert_path, LWS_O_RDONLY);
+		if (cfd < 0) {
+			lwsl_notice("Missing cert %s, skipping DANE line\n", cert_path);
+			lws_x509_destroy(&cert);
+			return "";
+		}
+
+		struct stat st;
+		if (fstat(cfd, &st) || st.st_size <= 0) {
+			close(cfd);
+			lws_x509_destroy(&cert);
+			return "";
+		}
+
+		char *pembuf = malloc((size_t)st.st_size);
+		if (!pembuf || read(cfd, pembuf, (unsigned int)st.st_size) != st.st_size) {
+			if (pembuf) free(pembuf);
+			close(cfd);
+			lws_x509_destroy(&cert);
+			return "";
+		}
+		close(cfd);
+
+		if (lws_x509_parse_from_pem(cert, pembuf, (size_t)st.st_size) < 0) {
+			lwsl_err("Failed loading DANE cert %s\n", cert_path);
+			free(pembuf);
+			lws_x509_destroy(&cert);
+			return "";
+		}
+		free(pembuf);
+
+		/* extracted SPKI */
+		union lws_tls_cert_info_results res1;
+		union lws_tls_cert_info_results *res;
+		res1.ns.len = 0;
+
+		if (lws_x509_info(cert, LWS_TLS_CERT_INFO_DER_SPKI, &res1, 0) == -1 && res1.ns.len > 0) {
+			size_t alloc_len = sizeof(*res) - sizeof(res1.ns.name) + (size_t)res1.ns.len;
+			res = malloc(alloc_len);
+			if (res) {
+				res->ns.len = 0;
+				if (lws_x509_info(cert, LWS_TLS_CERT_INFO_DER_SPKI, res, (size_t)res1.ns.len) == 0) {
+					/* we have the DER SPKI, now hash it */
+					struct lws_genhash_ctx hash_ctx;
+					uint8_t hash[32];
+
+					if (!lws_genhash_init(&hash_ctx, LWS_GENHASH_TYPE_SHA256)) {
+						if (!lws_genhash_update(&hash_ctx, (uint8_t *)res->ns.name, (size_t)res->ns.len)) {
+							if (!lws_genhash_destroy(&hash_ctx, hash)) {
+								char hex[128];
+								int hl = 0;
+								for (int i = 0; i < 32; i++) {
+									hl += lws_snprintf(hex + hl, sizeof(hex) - (size_t)hl, "%02X", hash[i]);
+								}
+								lws_snprintf(ret, sizeof(ret), "3 1 1 %s", hex);
+								free(res);
+								lws_x509_destroy(&cert);
+								return ret;
+							}
+						} else {
+							lws_genhash_destroy(&hash_ctx, NULL);
+						}
+					}
+				}
+				free(res);
+			}
+		}
+
+		lws_x509_destroy(&cert);
+		return "";
+	}
+
+	return NULL;
+}
+
 static int
 do_signzone(struct lws_context *context, struct lws_dht_dnssec_signzone_args *args)
 {
@@ -3702,6 +3823,7 @@ do_signzone(struct lws_context *context, struct lws_dht_dnssec_signzone_args *ar
 
 	memset(&info, 0, sizeof(info));
 	info.cx = context;
+	info.subst_cb = dnssec_subst_cb;
 
 	if (!args->domain || args->domain[0] == '\0') {
 		lwsl_err("signzone requires a domain name\n");
@@ -3724,7 +3846,7 @@ do_signzone(struct lws_context *context, struct lws_dht_dnssec_signzone_args *ar
 	if (args->ipv6[0]) info.ipv6 = args->ipv6;
 
 	/* Auto-bump the SOA serial before anything else */
-	bump_soa_serial(zone_in);
+	lws_dht_dnssec_bump_zone_serial(context, zone_in);
 
 	if (args->sign_validity_duration)
 		info.sign_validity_duration = args->sign_validity_duration;
@@ -4006,14 +4128,12 @@ dht_dnssec_sul_fetch_req_timeout(struct lws_sorted_usec_list *sul)
 	lwsl_user("%s: Fetch req for %s timed out, retry %d/3\n", __func__, req->domain, req->retries);
 
 	if (vhd && vhd->dht) {
-		struct sockaddr_in sin;
+		lws_sockaddr46 sa46;
 		char buf[256];
-		memset(&sin, 0, sizeof(sin));
-		sin.sin_family = AF_INET;
-		sin.sin_port = htons((uint16_t)vhd->target_port);
-		if (inet_pton(AF_INET, vhd->target_ip, &sin.sin_addr) > 0) {
+		if (lws_sa46_parse_numeric_address(vhd->target_ip, &sa46) == 0) {
+			sa46_sockport(&sa46, htons((uint16_t)vhd->target_port));
 			lws_dht_msg_gen(buf, sizeof(buf), "GET", req->target_hash, 0, 1024);
-			lws_dht_send_data(vhd->dht, (struct sockaddr *)&sin, buf, strlen(buf));
+			lws_dht_send_data(vhd->dht, (struct sockaddr *)&sa46, buf, strlen(buf));
 		}
 	}
 
@@ -4136,23 +4256,21 @@ do_fetch_zone(struct lws_context *context, struct lws_dht_dnssec_fetch_zone_args
 
 	/* 2. Fallback to bootstrap target_ip if configured (for clients/unbootstrapped nodes) */
 	if (v->dht && v->target_ip && v->target_ip[0] && v->target_port > 0) {
-		struct sockaddr_in sin;
-		memset(&sin, 0, sizeof(sin));
-		sin.sin_family = AF_INET;
-		sin.sin_port = htons((uint16_t)v->target_port);
-		if (inet_pton(AF_INET, v->target_ip, &sin.sin_addr) == 1) {
-			lws_dht_send_data(v->dht, (struct sockaddr *)&sin, buf, strlen(buf));
+		lws_sockaddr46 sa46;
+		if (lws_sa46_parse_numeric_address(v->target_ip, &sa46) == 0) {
+			sa46_sockport(&sa46, htons((uint16_t)v->target_port));
+			lws_dht_send_data(v->dht, (struct sockaddr *)&sa46, buf, strlen(buf));
 			sent++;
 		} else {
 			struct addrinfo hints, *result;
 			memset(&hints, 0, sizeof(hints));
 			hints.ai_family = AF_INET;
 			if (getaddrinfo(v->target_ip, NULL, &hints, &result) == 0 && result) {
-				struct sockaddr_in *sa = (struct sockaddr_in *)result->ai_addr;
-				sin.sin_addr = sa->sin_addr;
+				sa46.sa4 = *(struct sockaddr_in *)result->ai_addr;
+				sa46_sockport(&sa46, htons((uint16_t)v->target_port));
 				freeaddrinfo(result);
 
-				lws_dht_send_data(v->dht, (struct sockaddr *)&sin, buf, strlen(buf));
+				lws_dht_send_data(v->dht, (struct sockaddr *)&sa46, buf, strlen(buf));
 				sent++;
 			}
 		}
@@ -4570,6 +4688,7 @@ static const struct lws_dht_dnssec_ops ops = {
 	.dsfromkey = do_dsfromkey,
 	.signzone = do_signzone,
 	.importnsd = do_importnsd,
+	.bump_zone_serial = lws_dht_dnssec_bump_zone_serial,
 	.add_temp_zone = do_add_temp_zone,
 	.publish_jws = do_publish_jws,
 	.fetch_zone = do_fetch_zone,

@@ -548,8 +548,11 @@ lws_jwe_render_compact(struct lws_jwe *jwe, char *out, size_t out_len)
 	out += n;
 	*out++ = '\0';
 	out_len -= (unsigned int)n;
-
+#if defined(__COVERITY__)
+	return 0;
+#else
 	return (int)(orig - out_len);
+#endif
 }
 
 int

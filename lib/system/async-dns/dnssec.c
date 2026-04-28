@@ -556,9 +556,12 @@ lws_adns_dnssec_verify(lws_adns_q_t *q, const uint8_t *pkt, size_t len)
 			return 1;
 		}
 
-		if (ret < 0) {
-			/* Query failed to initiate synchronously */
+		if (ret == LADNS_RET_FAILED) {
+			/* Query failed to allocate/initiate synchronously (no callback fired) */
 			lws_free(vctx);
+			return -1;
+		} else if (ret < 0) {
+			/* Callback WAS called synchronously and already freed vctx */
 			return -1;
 		}
 

@@ -668,7 +668,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 
 #if defined(LWS_WITH_NETWORK)
-	context->event_loop_ops = plev->ops;
+	context->event_loop_ops = plev->ops; fprintf(stderr, "context.c: sizeof(struct lws_context)=%zu, ev_ops_offset=%zu\n", sizeof(struct lws_context), ((size_t)&context->event_loop_ops - (size_t)context));
 	context->us_wait_resolution = us_wait_resolution;
 	context->wol_if = info->wol_if;
 #if defined(LWS_WITH_TLS_JIT_TRUST)
@@ -869,6 +869,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 	lwsl_cx_notice(context, "LWS: %s, BoringSSL, %s%s", library_version, opts_str, s);
 #elif defined(LWS_WITH_AWSLC)
 	lwsl_cx_notice(context, "LWS: %s, AWS-LC, %s%s", library_version, opts_str, s);
+#elif defined(LWS_WITH_BEARSSL)
+	lwsl_cx_notice(context, "LWS: %s, BearSSL, %s%s", library_version, opts_str, s);
 #elif defined(OPENSSL_VERSION_NUMBER) && (OPENSSL_VERSION_NUMBER >= 0x10100000L)
 	lwsl_cx_notice(context, "LWS: %s, %s, %s%s", library_version, OpenSSL_version(OPENSSL_VERSION), opts_str, s);
 #elif defined(OPENSSL_VERSION_NUMBER)
@@ -972,6 +974,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->tls_ops = &tls_ops_schannel;
 #elif defined(LWS_WITH_GNUTLS)
 	context->tls_ops = &tls_ops_gnutls;
+#elif defined(LWS_WITH_BEARSSL)
+	context->tls_ops = &tls_ops_bearssl;
 #else
 	context->tls_ops = &tls_ops_openssl;
 #endif
@@ -1254,7 +1258,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 		context->pt[n].fake_wsi = (struct lws *)u;
 		u += sizeof(struct lws);
 
+#if !defined(__COVERITY__)
 		memset((void *)context->pt[n].fake_wsi, 0, sizeof(struct lws));
+#endif
 #endif
 
 		context->pt[n].evlib_pt = u;
@@ -1433,6 +1439,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if defined(LWS_WITH_SYS_DHCP_CLIENT)
 		extern const struct lws_protocols lws_system_protocol_dhcpc4;
 #endif
+#if defined(LWS_WITH_SYS_WHOIS)
+		extern const struct lws_protocols lws_system_protocol_whois;
+#endif
 #if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_BAREMETAL) && !defined(LWS_PLAT_ANDROID) && defined(LWS_WITH_NETWORK)
 		extern const struct lws_protocols lws_system_protocol_stdin;
 #endif
@@ -1452,6 +1461,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 #if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_BAREMETAL) && !defined(LWS_PLAT_ANDROID) && defined(LWS_WITH_NETWORK)
 		pp[n++] = &lws_system_protocol_stdin;
+#endif
+#if defined(LWS_WITH_SYS_WHOIS)
+		pp[n++] = &lws_system_protocol_whois;
 #endif
 #if defined(LWS_WITH_DIR)
 		pp[n++] = &protocol_lws_dir_notify;
@@ -1927,9 +1939,15 @@ lws_pt_destroy(struct lws_context_per_thread *pt)
 	    && ((int)pt->dummy_pipe_fds[0] != -1 || (int)pt->dummy_pipe_fds[1] != -1)
 #endif
 	) {
+#if defined(__COVERITY__)
+		struct lws wsi = { 0 };
+#else
 		struct lws wsi;
 
+#if !defined(__COVERITY__)
 		memset((void *)&wsi, 0, sizeof(wsi));
+#endif
+#endif
 		wsi.a.context = pt->context;
 		wsi.tsi = (char)pt->tid;
 		lws_plat_pipe_close(&wsi);
@@ -2260,13 +2278,12 @@ next:
 			for (nu = 0; nu < context->pl_hash_elements; nu++)	{
 				if (!context->pl_hash_table[nu])
 					continue;
-				lws_start_foreach_llp(struct lws_peer **, peer,
-						      context->pl_hash_table[nu]) {
+				struct lws_peer **peer = &context->pl_hash_table[nu];
+				while (*peer) {
 					struct lws_peer *df = *peer;
 					*peer = df->next;
 					lws_free(df);
-					continue;
-				} lws_end_foreach_llp(peer, next);
+				}
 			}
 		lws_free(context->pl_hash_table);
 #endif

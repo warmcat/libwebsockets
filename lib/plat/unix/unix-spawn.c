@@ -31,6 +31,9 @@
 #include <sys/types.h>
 #include <pwd.h>
 #include <grp.h>
+#include <stdlib.h>
+#include <fcntl.h>
+#include <termios.h>
 
 #if defined(__linux__)
 #include <sys/stat.h>
@@ -452,9 +455,44 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	/* create pipes for [stdin|stdout] and [stderr] */
 
 	for (n = 0; n < 3; n++) {
-		if (pipe(lsp->pipe_fds[n]) == -1)
-			goto bail1;
-		if (lws_plat_apply_FD_CLOEXEC(lsp->pipe_fds[n][n == 0]))
+		if (i->pty_mode && n != LWS_STDIN) {
+			if (n == LWS_STDOUT) {
+				int master = posix_openpt(O_RDWR | O_NOCTTY);
+				if (master >= 0) {
+					if (grantpt(master) == 0 && unlockpt(master) == 0) {
+						char *slavename = ptsname(master);
+						if (slavename) {
+							int slave = open(slavename, O_RDWR | O_NOCTTY);
+							if (slave >= 0) {
+								struct termios t;
+								tcgetattr(slave, &t);
+								t.c_iflag &= (tcflag_t)~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
+								t.c_oflag &= (tcflag_t)~OPOST;
+								t.c_lflag &= (tcflag_t)~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
+								t.c_cflag &= (tcflag_t)~(CSIZE | PARENB);
+								t.c_cflag |= CS8;
+								tcsetattr(slave, TCSANOW, &t);
+								lsp->pipe_fds[n][0] = master;
+								lsp->pipe_fds[n][1] = slave;
+							}
+						}
+					}
+				}
+				if (lsp->pipe_fds[n][0] == -1) {
+					lwsl_err("%s: posix_openpt failed\n", __func__);
+					goto bail1;
+				}
+			} else {
+				/* STDERR: fuse into STDOUT's pty */
+				lsp->pipe_fds[n][0] = -1; /* parent has no separate reader */
+				lsp->pipe_fds[n][1] = lsp->pipe_fds[LWS_STDOUT][1]; /* child dup2s this */
+			}
+		} else {
+			if (pipe(lsp->pipe_fds[n]) == -1)
+				goto bail1;
+		}
+
+		if (lsp->pipe_fds[n][0] >= 0 && lws_plat_apply_FD_CLOEXEC(lsp->pipe_fds[n][n == 0]))
 			lwsl_info("%s: FD_CLOEXEC didn't stick\n", __func__);
 	}
 
@@ -466,6 +504,9 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	/* create wsis for each stdin/out/err fd */
 
 	for (n = 0; n < 3; n++) {
+		if (lsp->pipe_fds[n][n == 0] == -1)
+			continue;
+
 		lsp->stdwsi[n] = lws_create_stdwsi(i->vh->context, i->tsi,
 					  i->ops ? i->ops : &role_ops_raw_file);
 		if (!lsp->stdwsi[n]) {
@@ -508,6 +549,9 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	 */
 
 	for (n = 0; n < 3; n++) {
+		if (!lsp->stdwsi[n])
+			continue;
+
 		if (context->event_loop_ops->sock_accept)
 			if (context->event_loop_ops->sock_accept(lsp->stdwsi[n]))
 				goto bail3;
@@ -528,13 +572,13 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		goto bail3;
 	if (lws_change_pollfd(lsp->stdwsi[LWS_STDOUT], LWS_POLLOUT, LWS_POLLIN))
 		goto bail3;
-	if (lws_change_pollfd(lsp->stdwsi[LWS_STDERR], LWS_POLLOUT, LWS_POLLIN))
+	if (lsp->stdwsi[LWS_STDERR] && lws_change_pollfd(lsp->stdwsi[LWS_STDERR], LWS_POLLOUT, LWS_POLLIN))
 		goto bail3;
 
 	lwsl_info("%s: fds in %d, out %d, err %d\n", __func__,
 		   lsp->stdwsi[LWS_STDIN]->desc.sockfd,
 		   lsp->stdwsi[LWS_STDOUT]->desc.sockfd,
-		   lsp->stdwsi[LWS_STDERR]->desc.sockfd);
+		   lsp->stdwsi[LWS_STDERR] ? lsp->stdwsi[LWS_STDERR]->desc.sockfd : -1);
  
 #if defined(__linux__)
 	if (i->cgroup_name_suffix && i->cgroup_name_suffix[0]) {
@@ -616,11 +660,17 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		 * "other" side of the pipe fds, ie, rd for stdin and wr for
 		 * stdout / stderr.
 		 */
-		for (n = 0; n < 3; n++)
+		for (n = 0; n < 3; n++) {
 			/* these guys didn't have any wsi footprint */
-			close(lsp->pipe_fds[n][n != 0]);
+			if (lsp->pipe_fds[n][n != 0] >= 0) {
+				close(lsp->pipe_fds[n][n != 0]);
+				/* if fused, prevent double close */
+				if (i->pty_mode && n == LWS_STDOUT)
+					lsp->pipe_fds[LWS_STDERR][1] = -1;
+			}
+		}
 
-		lsp->pipes_alive = 3;
+		lsp->pipes_alive = i->pty_mode ? 2 : 3;
 		lsp->created = lws_now_usecs();
 
 		lwsl_info("%s: lsp %p spawned PID %d\n", __func__, lsp,
@@ -699,20 +749,29 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	 * Bind the child's stdin / out / err to its side of our pipes
 	 */
 
-	for (m = 0; m < 3; m++) {
-		if (dup2(lsp->pipe_fds[m][m != 0], m) < 0) {
-			lwsl_err("%s: stdin dup2 failed\n", __func__);
-			goto bail3;
-		}
-		/*
-		 * CLOEXEC on the lws-side of the pipe fds should have already
-		 * dealt with closing those for the child perspective.
-		 *
-		 * Now it has done the dup, the child should close its original
-		 * copies of its side of the pipes.
-		 */
+	{
+		int cfd[3];
 
-		close(lsp->pipe_fds[m][m != 0]);
+		for (m = 0; m < 3; m++)
+			cfd[m] = lsp->pipe_fds[m][m != 0];
+
+		for (m = 0; m < 3; m++) {
+			if (cfd[m] < 0)
+				continue;
+			if (dup2(cfd[m], m) < 0) {
+				lwsl_err("%s: dup2 failed for fd index %d (oldfd %d, newfd %d): errno %d (%s)\n",
+					 __func__, m, cfd[m], m, errno, strerror(errno));
+				goto bail3;
+			}
+		}
+
+		for (m = 0; m < 3; m++) {
+			if (cfd[m] >= 0 && cfd[m] != 0 && cfd[m] != 1 && cfd[m] != 2) {
+				close(cfd[m]);
+				if (i->pty_mode && m == LWS_STDOUT)
+					cfd[LWS_STDERR] = -1; /* Prevent double close */
+			}
+		}
 	}
 
 #if defined(__sun) || !defined(LWS_HAVE_VFORK) || !defined(LWS_HAVE_EXECVPE)
@@ -744,7 +803,8 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 bail3:
 
 	while (--n >= 0)
-		__remove_wsi_socket_from_fds(lsp->stdwsi[n]);
+		if (lsp->stdwsi[n])
+			__remove_wsi_socket_from_fds(lsp->stdwsi[n]);
 bail2:
 	for (n = 0; n < 3; n++)
 		if (lsp->stdwsi[n])

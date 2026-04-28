@@ -95,6 +95,9 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].mounts[].cache-reuse",
 	"vhosts[].mounts[].cache-revalidate",
 	"vhosts[].mounts[].cache-no",
+	"vhosts[].mounts[].exact-match",
+	"vhosts[].mounts[].append-path",
+	"vhosts[].mounts[].no-ws-upgrades",
 	"vhosts[].mounts[].basic-auth",
 	"vhosts[].mounts[].cache-intermediaries",
 	"vhosts[].mounts[].extra-mimetypes.*",
@@ -185,6 +188,9 @@ enum lejp_vhost_paths {
 	LEJPVP_MOUNT_CACHE_REUSE,
 	LEJPVP_MOUNT_CACHE_REVALIDATE,
 	LEJPVP_MOUNT_CACHE_NO,
+	LEJPVP_MOUNT_EXACT_MATCH,
+	LEJPVP_MOUNT_APPEND_PATH,
+	LEJPVP_MOUNT_NO_WS_UPGRADES,
 	LEJPVP_MOUNT_BASIC_AUTH,
 	LEJPVP_MOUNT_CACHE_INTERMEDIARIES,
 	LEJPVP_MOUNT_EXTRA_MIMETYPES,
@@ -872,6 +878,15 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	case LEJPVP_MOUNT_CACHE_NO:
 		a->m.cache_no = !!arg_to_bool(ctx->buf);
 		return 0;
+	case LEJPVP_MOUNT_EXACT_MATCH:
+		a->m.exact_match = !!arg_to_bool(ctx->buf);
+		return 0;
+	case LEJPVP_MOUNT_APPEND_PATH:
+		a->m.append_path = !!arg_to_bool(ctx->buf);
+		return 0;
+	case LEJPVP_MOUNT_NO_WS_UPGRADES:
+		a->m.no_ws_upgrades = !!arg_to_bool(ctx->buf);
+		return 0;
 	case LEJPVP_MOUNT_CACHE_INTERMEDIARIES:
 		a->m.cache_intermediaries = !!arg_to_bool(ctx->buf);;
 		return 0;
@@ -1319,14 +1334,18 @@ lwsws_get_config_vhosts(struct lws_context *context,
 		memset(&i, 0, sizeof(i));
 		i.vhost_name = "root-monitor-dummy";
 		i.port = CONTEXT_PORT_NO_LISTEN;
-		i.options = info->options;
+		i.options = info->options | LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT | LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS;
 		i.protocols = info->protocols;
 		i.pprotocols = info->pprotocols;
 #if defined(LWS_ROLE_WS)
 		i.extensions = info->extensions;
 #endif
-		if (!lws_create_vhost(context, &i))
+		struct lws_vhost *vh = lws_create_vhost(context, &i);
+		if (!vh)
 			return 1;
+
+		lws_context_init_ssl_library(context, &i);
+		lws_init_vhost_client_ssl(&i, vh);
 
 		return 0;
 	}

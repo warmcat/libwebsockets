@@ -43,8 +43,15 @@ lws_adns_parse_label(const uint8_t *pkt, int len, const uint8_t *ls, int budget,
 	if (budget < 1)
 		return 0;
 
-	/* caller must catch end of labels */
-	assert(*ls);
+	/* caller must catch end of labels, but might have passed us root */
+	if (!*ls) {
+		if (dl < 2)
+			return -1;
+		(*dest)[0] = '.';
+		(*dest)[1] = '\0';
+		*dest += 1;
+		return 1;
+	}
 
 again1:
 	if (ls >= e)
@@ -188,7 +195,7 @@ lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
 	stack[0].enl = (int)strlen(expname);
 
 start:
-	ansc = lws_ser_ru16be(pkt + DHO_NANSWERS);
+	ansc = lws_ser_ru16be(pkt + DHO_NANSWERS) + lws_ser_ru16be(pkt + DHO_NAUTH);
 	p = pkt + DHO_SIZEOF;
 	inq = 1;
 
@@ -393,6 +400,7 @@ do_cb:
 		case LWS_ADNS_RECORD_DS:
 		case LWS_ADNS_RECORD_NSEC:
 		case LWS_ADNS_RECORD_NSEC3:
+		case LWS_ADNS_RECORD_SOA:
 			/* We pass these DNSSEC-related records to the callback so
 			 * it can store/evaluate them.
 			 */
@@ -489,7 +497,7 @@ lws_async_dns_estimate(const char *name, void *opaque, uint32_t ttl,
 	 */
 	if (type == LWS_ADNS_RECORD_DNSKEY || type == LWS_ADNS_RECORD_RRSIG ||
 	    type == LWS_ADNS_RECORD_DS || type == LWS_ADNS_RECORD_NSEC ||
-	    type == LWS_ADNS_RECORD_NSEC3) {
+	    type == LWS_ADNS_RECORD_NSEC3 || type == LWS_ADNS_RECORD_SOA) {
 		/* We'll stash them as lws_adns_rr_t directly after the A records */
 		my += sizeof(lws_adns_rr_t) + rrpaylen;
 	}
@@ -531,7 +539,7 @@ lws_async_dns_store(const char *name, void *opaque, uint32_t ttl,
 	 */
 	if (type == LWS_ADNS_RECORD_RRSIG || type == LWS_ADNS_RECORD_DNSKEY ||
 	    type == LWS_ADNS_RECORD_DS || type == LWS_ADNS_RECORD_NSEC ||
-	    type == LWS_ADNS_RECORD_NSEC3) {
+	    type == LWS_ADNS_RECORD_NSEC3 || type == LWS_ADNS_RECORD_SOA) {
 		lws_adns_rr_t *rr = (lws_adns_rr_t *)adst->pos;
 
 		rr->next = NULL;
@@ -718,7 +726,7 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 	n = (int)strlen(nm) + 1;
 
 	est = sizeof(lws_adns_cache_t) + (unsigned int)n;
-	if (lws_ser_ru16be(pkt + DHO_NANSWERS)) {
+	if (lws_ser_ru16be(pkt + DHO_NANSWERS) || lws_ser_ru16be(pkt + DHO_NAUTH)) {
 		int ir = lws_adns_iterate(q, pkt, (int)len, nmcname,
 					  lws_async_dns_estimate, &est);
 		if (ir < 0)
@@ -760,13 +768,13 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 	 * set to the minimum ttl seen in all the results.
 	 */
 
-	if (lws_ser_ru16be(pkt + DHO_NANSWERS) &&
+	if ((lws_ser_ru16be(pkt + DHO_NANSWERS) || lws_ser_ru16be(pkt + DHO_NAUTH)) &&
 	    lws_adns_iterate(q, pkt, (int)len, nmcname, lws_async_dns_store, &adst) < 0) {
 		lws_free(c);
 		goto fail_out;
 	}
 
-	if (lws_ser_ru16be(pkt + DHO_NANSWERS)) {
+	if (lws_ser_ru16be(pkt + DHO_NANSWERS) || lws_ser_ru16be(pkt + DHO_NAUTH)) {
 		c->results = adst.ctr ? (struct addrinfo *)&c[1] : NULL;
 		c->rr_results = adst.rr_first;
 
@@ -806,6 +814,7 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 
 		c->flags = adst.flags;
 		lws_dll2_add_head(&c->list, &dns->cached);
+		lwsl_info("%s: added %s to cache, rr_results = %p, ttl = %u\n", __func__, c->name, c->rr_results, adst.smallest_ttl);
 		lws_sul_schedule(q->context, 0, &c->sul, sul_cb_expire,
 				 lws_now_usecs() +
 				 (adst.smallest_ttl * LWS_US_PER_SEC));
@@ -847,7 +856,7 @@ lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 	 * addrinfo results, if any, to all interested wsi, if any...
 	 */
 
-	lwsl_notice("%s: Calling lws_async_dns_complete for %s\n", __func__, q->firstcache ? q->firstcache->name : "NULL");
+	lwsl_info("%s: Calling lws_async_dns_complete for %s\n", __func__, q->firstcache ? q->firstcache->name : "NULL");
 	c->incomplete = 0;
 	lws_async_dns_complete(q, q->firstcache);
 

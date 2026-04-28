@@ -27,6 +27,15 @@ struct vhd_webrtc_udp {
 	struct vhd_webrtc       *vhd;
 };
 
+struct lws_webrtc_telemetry {
+	uint32_t rtp_drops_video;
+	uint32_t rtp_late_video;
+	uint32_t rtp_drops_audio;
+	uint32_t rtp_late_audio;
+	uint32_t dtls_errors;
+	uint32_t txpacer_drops;
+};
+
 struct lws_webrtc_peer_media {
 	volatile int            refcount;
 	pthread_mutex_t         lock_tx;
@@ -58,6 +67,8 @@ struct lws_webrtc_peer_media {
 	uint8_t                 rtp_ts_offset_set;
 	uint32_t                rtp_ts_audio_offset;
 	uint8_t                 rtp_ts_audio_offset_set;
+    
+	uint8_t                 rx_video_corrupted;
 
 	uint16_t                last_seq_video;
 	uint8_t                 seq_valid_video;
@@ -73,6 +84,10 @@ struct lws_webrtc_peer_media {
 	size_t                  sps_len;
 	size_t                  pps_len;
 	lws_usec_t              last_sps_pps_ts;
+
+	struct lws_txp          *txpacer;
+
+	struct lws_webrtc_telemetry telemetry;
 };
 
 struct pss_webrtc {

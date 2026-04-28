@@ -334,6 +334,8 @@ plugins and lwsws.
  - If you are really restricted on memory, code size, or don't care about TLS
    speed, mbedTLS is a good choice: `cmake .. -DLWS_WITH_MBEDTLS=1`
  
+ - If you want an extremely lightweight, highly optimized TLS library with a minimal memory footprint and fast execution speed, BearSSL is a strong alternative: `cmake .. -DLWS_WITH_BEARSSL=1`. Note that BearSSL currently does not support DTLS.
+
  - If cpu and memory is not super restricted and you care about TLS speed,
    OpenSSL or a directly compatible variant like Boring SSL is a good choice.
  
@@ -354,12 +356,18 @@ Lws supports both almost the same, so instead of taking my word for it you are
 invited to try it both ways and see which the results (including, eg, binary
 size and memory usage as well as speed) suggest you use.
 
-NOTE: one major difference with mbedTLS is it does not load the system trust
-store by default.  That has advantages and disadvantages, but the disadvantage
-is you must provide the CA cert to lws built against mbedTLS for it to be able
-to validate it, ie, use -A with the test client.  The minimal test clients
-have the CA cert for warmcat.com and libwebsockets.org and use it if they see
-they were built with mbedTLS.
+NOTE: one major difference with mbedTLS and BearSSL is they do not natively load the OS trust
+store by default in the same way OpenSSL does.
+
+For mbedTLS, you must provide the CA cert to lws for it to be able
+to validate it, ie, use `-A` with the test client.
+
+For BearSSL, LWS implements a multi-cert PEM parser and fallback sequence to emulate OpenSSL's behavior:
+1. It checks the `SSL_CERT_FILE` and `SSL_CERT_DIR` environment variables for runtime overrides.
+2. It falls back to probing standard OS locations (e.g. `/etc/ssl/certs/ca-certificates.crt`).
+3. It defaults to the CMake-configured `LWS_OPENSSL_CLIENT_CERTS` if all else fails.
+
+This allows BearSSL to validate most system certificates out of the box on Linux. The minimal test clients also automatically include the CA cert for warmcat.com if they see they were built with mbedTLS or BearSSL.
 
 @section optee Building for OP-TEE
 

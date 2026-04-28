@@ -734,7 +734,7 @@ int lws_h2_do_pps_send(struct lws *wsi)
 		if ((*pps1)->next == NULL) { /* we are the oldest in the list */
 			pps = *pps1; /* remove us from the list */
 			*pps1 = NULL;
-			continue;
+			break;
 		}
 	} lws_end_foreach_llp(pps1, next);
 
@@ -995,7 +995,11 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		 * the right behaviour depending on reverse proxy for a particular
 		 * server.
 		 */
-		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, ds);
+		if (lwsi_role_client(wsi))
+			lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
+					(int)wsi->a.context->timeout_secs);
+		else
+			lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, ds);
 	}
 	if (h2n->sid)
 		h2n->swsi = lws_wsi_mux_from_id(wsi, h2n->sid);

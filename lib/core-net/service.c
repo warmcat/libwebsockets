@@ -838,7 +838,6 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 
 		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
 		case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
-		case LWS_SSL_CAPABLE_MORE_SERVICE:
 #if defined(LWS_WITH_LATENCY)
 		{
 			unsigned int ms = (unsigned int)((lws_now_usecs() - _tls_shut_start) / 1000);
@@ -863,6 +862,7 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 		wsi->tls_read_wanted_write = 0;
 		pollfd->revents &= ~(LWS_POLLOUT);
 		pollfd->revents |= LWS_POLLIN;
+		__lws_change_pollfd(wsi, LWS_POLLOUT, LWS_POLLIN);
 		cow = 1;
 	}
 
@@ -897,16 +897,6 @@ close_and_handled:
 		lwsl_wsi_debug(wsi, "Close and handled");
 		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
 				   "close_and_handled");
-#if defined(_DEBUG) && defined(LWS_WITH_LIBUV)
-		/*
-		 * confirm close has no problem being called again while
-		 * it waits for libuv service to complete the first async
-		 * close
-		 */
-		if (!strcmp(context->event_loop_ops->name, "libuv"))
-			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
-					   "close_and_handled uv repeat test");
-#endif
 		/*
 		 * pollfd may point to something else after the close
 		 * due to pollfd swapping scheme on delete on some platforms

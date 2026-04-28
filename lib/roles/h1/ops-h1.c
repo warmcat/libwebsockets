@@ -417,11 +417,24 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 
 		case LWS_SSL_CAPABLE_ERROR:
 			goto fail;
-		case LWS_SSL_CAPABLE_MORE_SERVICE:
 		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
+			if (wsi->pending_timeout)
+				lws_set_timeout(wsi, (enum pending_timeout)wsi->pending_timeout,
+						wsi->pending_timeout == PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE ?
+						(int)lws_wsi_keepalive_timeout_eff(wsi) : (int)wsi->a.context->timeout_secs);
+			goto try_pollout;
 		case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
+			if (wsi->pending_timeout)
+				lws_set_timeout(wsi, (enum pending_timeout)wsi->pending_timeout,
+						wsi->pending_timeout == PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE ?
+						(int)lws_wsi_keepalive_timeout_eff(wsi) : (int)wsi->a.context->timeout_secs);
 			goto try_pollout;
 		}
+
+		if (wsi->pending_timeout)
+			lws_set_timeout(wsi, (enum pending_timeout)wsi->pending_timeout,
+					wsi->pending_timeout == PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE ?
+					(int)lws_wsi_keepalive_timeout_eff(wsi) : (int)wsi->a.context->timeout_secs);
 
 		/* just ignore incoming if waiting for close */
 		if (lwsi_state(wsi) == LRS_FLUSHING_BEFORE_CLOSE) {
@@ -582,6 +595,8 @@ static lws_handling_result_t
 rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 		       struct lws_pollfd *pollfd)
 {
+	lwsl_notice("%s: %s state 0x%x, revents %d\n", __func__, lws_wsi_tag(wsi), lwsi_state(wsi), pollfd->revents);
+
 	if (lwsi_state(wsi) == LRS_IDLING) {
 		uint8_t buf[1];
 		int rlen;

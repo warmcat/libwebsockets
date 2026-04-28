@@ -411,6 +411,37 @@ lws_x509_info(struct lws_x509_cert *x509, enum lws_tls_cert_info type,
 		break;
 	}
 
+	case LWS_TLS_CERT_INFO_DER_SPKI:
+	{
+		gnutls_pubkey_t pubkey;
+		gnutls_datum_t der;
+
+		if (gnutls_pubkey_init(&pubkey) < 0)
+			return -1;
+
+		if (gnutls_pubkey_import_x509(pubkey, x509->cert, 0) < 0) {
+			gnutls_pubkey_deinit(pubkey);
+			return -1;
+		}
+
+		if (gnutls_pubkey_export2(pubkey, GNUTLS_X509_FMT_DER, &der) < 0) {
+			gnutls_pubkey_deinit(pubkey);
+			return -1;
+		}
+
+		gnutls_pubkey_deinit(pubkey);
+
+		buf->ns.len = (int)der.size;
+		if (len < der.size) {
+			gnutls_free(der.data);
+			return -1;
+		}
+
+		memcpy(buf->ns.name, der.data, der.size);
+		gnutls_free(der.data);
+		break;
+	}
+
 	default:
 		return -1;
 	}
@@ -427,3 +458,108 @@ lws_x509_destroy(struct lws_x509_cert **x509)
 	lws_free(*x509);
 	*x509 = NULL;
 }
+
+#if defined(LWS_WITH_ACME)
+static const char * const oids[] = {
+	GNUTLS_OID_X520_COUNTRY_NAME,
+	GNUTLS_OID_X520_STATE_OR_PROVINCE_NAME,
+	GNUTLS_OID_X520_LOCALITY_NAME,
+	GNUTLS_OID_X520_ORGANIZATION_NAME,
+	GNUTLS_OID_X520_COMMON_NAME,
+	NULL, /* SAN handled specially */
+	GNUTLS_OID_PKCS9_EMAIL
+};
+
+static int
+_lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[],
+			     uint8_t *csr, size_t csr_len, char **privkey_pem,
+			     size_t *privkey_len, int pk_algo)
+{
+	gnutls_x509_crq_t crq;
+	gnutls_x509_privkey_t key;
+	gnutls_datum_t der;
+	int ret = -1;
+	int i;
+
+	if (gnutls_x509_privkey_init(&key) < 0)
+		return -1;
+
+	if (pk_algo == GNUTLS_PK_RSA) {
+		if (gnutls_x509_privkey_generate(key, GNUTLS_PK_RSA, 4096, 0) < 0)
+			goto bail;
+	} else {
+		if (gnutls_x509_privkey_generate(key, GNUTLS_PK_ECC, GNUTLS_ECC_CURVE_SECP256R1, 0) < 0)
+			goto bail;
+	}
+
+	if (gnutls_x509_crq_init(&crq) < 0)
+		goto bail;
+
+	for (i = 0; i < LWS_TLS_REQ_ELEMENT_COUNT; i++) {
+		if (!elements[i])
+			continue;
+		if (i == LWS_TLS_REQ_ELEMENT_SUBJECT_ALT_NAME) {
+			gnutls_x509_crq_set_subject_alt_name(crq, GNUTLS_SAN_DNSNAME,
+					elements[LWS_TLS_REQ_ELEMENT_COMMON_NAME],
+					(unsigned int)strlen(elements[LWS_TLS_REQ_ELEMENT_COMMON_NAME]), 0);
+			gnutls_x509_crq_set_subject_alt_name(crq, GNUTLS_SAN_DNSNAME,
+					elements[LWS_TLS_REQ_ELEMENT_SUBJECT_ALT_NAME],
+					(unsigned int)strlen(elements[LWS_TLS_REQ_ELEMENT_SUBJECT_ALT_NAME]), 0);
+			continue;
+		}
+		gnutls_x509_crq_set_dn_by_oid(crq, oids[i], 0, elements[i], (unsigned int)strlen(elements[i]));
+	}
+
+	gnutls_x509_crq_set_key(crq, key);
+
+	if (gnutls_x509_crq_sign2(crq, key, GNUTLS_DIG_SHA256, 0) < 0)
+		goto bail_crq;
+
+	if (gnutls_x509_crq_export2(crq, GNUTLS_X509_FMT_DER, &der) < 0)
+		goto bail_crq;
+
+	/* we have it in DER, we need it in b64URL */
+	ret = lws_jws_base64_enc((const char *)der.data, (size_t)der.size, (char *)csr, csr_len);
+	gnutls_free(der.data);
+
+	if (ret < 0)
+		goto bail_crq;
+
+	if (gnutls_x509_privkey_export2(key, GNUTLS_X509_FMT_PEM, &der) < 0)
+		goto bail_crq;
+
+	*privkey_pem = malloc((size_t)der.size + 1);
+	if (!*privkey_pem) {
+		gnutls_free(der.data);
+		ret = -1;
+		goto bail_crq;
+	}
+	memcpy(*privkey_pem, der.data, der.size);
+	(*privkey_pem)[der.size] = '\0';
+	*privkey_len = der.size;
+	gnutls_free(der.data);
+
+bail_crq:
+	gnutls_x509_crq_deinit(crq);
+bail:
+	gnutls_x509_privkey_deinit(key);
+
+	return ret < 0 ? -1 : ret;
+}
+
+int
+lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[],
+			    uint8_t *csr, size_t csr_len, char **privkey_pem,
+			    size_t *privkey_len)
+{
+	return _lws_tls_acme_sni_csr_create(context, elements, csr, csr_len, privkey_pem, privkey_len, GNUTLS_PK_RSA);
+}
+
+int
+lws_tls_acme_sni_csr_create_ecdsa(struct lws_context *context, const char *elements[],
+				  uint8_t *csr, size_t csr_len, char **privkey_pem,
+				  size_t *privkey_len)
+{
+	return _lws_tls_acme_sni_csr_create(context, elements, csr, csr_len, privkey_pem, privkey_len, GNUTLS_PK_ECC);
+}
+#endif

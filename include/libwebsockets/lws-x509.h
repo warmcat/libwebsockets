@@ -47,6 +47,11 @@ enum lws_tls_cert_info {
 	 * -1 is returned and the size will be returned in buf->ns.len.
 	 * If the certificate cannot be found -1 is returned and 0 in
 	 * buf->ns.len. */
+	LWS_TLS_CERT_INFO_DER_SPKI,
+	/**< the certificate's Subject Public Key Info as a DER sequence.
+	 * If it's too big, -1 is returned and the size will be returned
+	 * in buf->ns.len.  If the certificate cannot be found -1 is
+	 * returned and 0 in buf->ns.len. */
 	LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID,
 	/**< If the cert has one, the key ID responsible for the signature */
 	LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID_ISSUER,
@@ -289,6 +294,33 @@ LWS_VISIBLE LWS_EXTERN int
 lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[],
 			    uint8_t *csr, size_t csr_len, char **privkey_pem,
 			    size_t *privkey_len);
+
+/**
+ * lws_tls_acme_sni_csr_create_ecdsa() - creates an ECDSA CSR and related private key PEM
+ *
+ * \param context: lws_context used for random
+ * \param elements: array of LWS_TLS_REQ_ELEMENT_COUNT const char *
+ * \param csr: buffer that will get the b64URL(ASN-1 CSR)
+ * \param csr_len: max length of the csr buffer
+ * \param privkey_pem: pointer to pointer allocated to hold the privkey_pem
+ * \param privkey_len: pointer to size_t set to the length of the privkey_pem
+ *
+ * Creates a CSR according to the information in \p elements, and a private
+ * ECDSA key (secp256r1) used to sign the CSR.
+ *
+ * The outputs are the b64URL(ASN-1 CSR) into csr, and the PEM private key into
+ * privkey_pem.
+ *
+ * Notice that \p elements points to an array of const char *s pointing to the
+ * information listed in the enum above.  If an entry is NULL or an empty
+ * string, the element is set to "none" in the CSR.
+ *
+ * Returns 0 on success or nonzero for failure.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_tls_acme_sni_csr_create_ecdsa(struct lws_context *context, const char *elements[],
+				  uint8_t *csr, size_t csr_len, char **privkey_pem,
+				  size_t *privkey_len);
 
 /**
  * lws_tls_cert_updated() - update every vhost using the given cert path

@@ -127,6 +127,7 @@ typedef struct lws_adns_q {
 	uint8_t			is_synthetic:1; /* test will deliver canned */
 	uint8_t			is_tcp:1;
 	uint8_t			has_tcp_len:1;
+	uint8_t			want_dnssec:1;
 #if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)
 	uint8_t			dnssec_valid:1;  /* results are verified */
 	uint8_t			dnssec_chk_cname:1; /* currently checking a CNAME */

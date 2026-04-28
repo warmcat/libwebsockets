@@ -62,6 +62,23 @@ document.addEventListener('DOMContentLoaded', function() {
         requestAnimationFrame(frame);
     }
 
+    if (typeof lws_interceptor_path !== 'undefined') {
+        fetch(lws_interceptor_path + '/.lws-login-status')
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (d.logged_in && form) {
+                    if (msg) msg.innerText = 'Authenticated via login... bypassing...';
+                    setStatus('pressed');
+                    btn.disabled = true;
+                    btn.style.display = 'none';
+                    if (barFill) barFill.style.width = '100%';
+                    form.action = window.location.pathname;
+                    form.submit();
+                }
+            })
+            .catch(function(e) { console.log('bypass check failed:', e); });
+    }
+
     // Stage 1: Pre-delay
     setStatus('pre');
     animateBar(pre_delay, function() {

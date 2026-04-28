@@ -330,6 +330,7 @@ sul_timer(struct lws_sorted_usec_list *sul)
 	char payload[64];
 	const char *ws_pkt = payload;
 	DBusMessage *msg;
+	uint32_t r[5];
 
 	if (!dbus_ctx || dbus_ctx->state != LDCS_CONN_ONWARD)
 		goto again;
@@ -347,9 +348,11 @@ sul_timer(struct lws_sorted_usec_list *sul)
 	if (!msg)
 		goto again;
 
+	lws_get_random(context, r, sizeof(r));
+
 	lws_snprintf(payload, sizeof(payload), "d #%06X %d %d %d %d;",
-		     rand() & 0xffffff, rand() % 480, rand() % 300,
-		     rand() % 480, rand() % 300);
+		     r[0] & 0xffffff, r[1] % 480, r[2] % 300,
+		     r[3] % 480, r[4] % 300);
 
 	if (!dbus_message_append_args(msg, DBUS_TYPE_STRING, &ws_pkt,
 					   DBUS_TYPE_INVALID)) {

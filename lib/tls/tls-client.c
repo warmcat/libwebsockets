@@ -45,7 +45,6 @@ lws_ssl_client_connect1(struct lws *wsi, char *errbuf, size_t len)
 	case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
 		lws_callback_on_writable(wsi);
 		/* fallthru */
-	case LWS_SSL_CAPABLE_MORE_SERVICE:
 	case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
 		lwsi_set_state(wsi, LRS_WAITING_SSL);
 		break;
@@ -82,7 +81,6 @@ lws_ssl_client_connect2(struct lws *wsi, char *errbuf, size_t len)
 		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
 			lwsi_set_state(wsi, LRS_WAITING_SSL);
 			/* fallthru */
-		case LWS_SSL_CAPABLE_MORE_SERVICE:
 			return 0; /* retry */
 		}
 	}
@@ -141,7 +139,7 @@ int lws_context_init_client_ssl(const struct lws_context_creation_info *info,
 	if (vhost->tls.ssl_client_ctx)
 		return 0;
 
-#if !defined(LWS_WITH_MBEDTLS)
+#if !defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_BEARSSL)
 	if (info->provided_client_ssl_ctx) {
 		/* use the provided OpenSSL context if given one */
 		vhost->tls.ssl_client_ctx = info->provided_client_ssl_ctx;
@@ -235,4 +233,17 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 		wsi->tls.ssl = NULL;
 
 	return CCTLS_RETURN_DONE; /* OK */
+}
+
+int
+lws_tls_client_upgrade(struct lws *wsi, int ssl_flags)
+{
+	const char *cce = NULL;
+
+	wsi->tls.use_ssl = (unsigned int)ssl_flags;
+
+	if (lws_client_create_tls(wsi, &cce, 1) == CCTLS_RETURN_ERROR)
+		return -1;
+
+	return 0;
 }

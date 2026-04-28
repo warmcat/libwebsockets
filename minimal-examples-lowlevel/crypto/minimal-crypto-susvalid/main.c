@@ -15,32 +15,32 @@
 #include <unistd.h>
 #endif
 
-static int
+static const char *
 is_suspicious(uint32_t cp)
 {
 	/* Zero Width Spaces and direction marks (LRM, RLM) */
-	if (cp >= 0x200B && cp <= 0x200F) return 1;
+	if (cp >= 0x200B && cp <= 0x200F) return "Zero Width Space or Direction Mark";
 	/* Bidi Override Controls (LRE, RLE, PDF, LRO, RLO) */
-	if (cp >= 0x202A && cp <= 0x202E) return 1;
+	if (cp >= 0x202A && cp <= 0x202E) return "Bidi Override Control";
 	/* Word joiners and Bidi isolate controls (LRI, RLI, FSI, PDI) */
-	if (cp >= 0x2060 && cp <= 0x2069) return 1;
+	if (cp >= 0x2060 && cp <= 0x2069) return "Word Joiner or Bidi Isolate";
 	/* Variation Selectors */
-	if (cp >= 0xFE00 && cp <= 0xFE0F) return 1;
+	if (cp >= 0xFE00 && cp <= 0xFE0F) return "Variation Selector";
 	/* Variation Selectors Supplement */
-	if (cp >= 0xE0100 && cp <= 0xE01EF) return 1;
+	if (cp >= 0xE0100 && cp <= 0xE01EF) return "Variation Selectors Supplement";
 	/* Tags Block */
-	if (cp >= 0xE0000 && cp <= 0xE007F) return 1;
+	if (cp >= 0xE0000 && cp <= 0xE007F) return "Tags Block";
 
 	/* Hangul Fillers, BOM, Mongolian Vowel Separator */
-	if (cp == 0x3164 || cp == 0xFEFF || cp == 0xFFA0 || cp == 0x180E) return 1;
+	if (cp == 0x3164 || cp == 0xFEFF || cp == 0xFFA0 || cp == 0x180E) return "Filler, BOM, or Separator";
 
-	return 0;
+	return NULL;
 }
 
 static int hex_val(char c)
 {
 	if (c >= '0' && c <= '9') return c - '0';
-	if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+	/* RFC 2045: hexadecimal letters A through F must be uppercase */
 	if (c >= 'A' && c <= 'F') return c - 'A' + 10;
 	return -1;
 }
@@ -49,6 +49,13 @@ struct parse_state {
 	int line, col;
 	size_t raw_byte_pos;
 
+	uint8_t ring[64];
+	size_t ring_head;
+	size_t ring_count;
+
+	int fd;
+	int issues;
+
 	unsigned int codepoint;
 	int utf8_expect;
 	int utf8_invalid;
@@ -56,6 +63,47 @@ struct parse_state {
 	int qp_state;
 	char qp_hex1;
 };
+
+static void
+dump_context(struct parse_state *s)
+{
+	uint8_t temp[80];
+	size_t i, start;
+	size_t ahead = 0;
+	size_t count = s->ring_count;
+
+	/* satisfy coverity constraint solver */
+	if (count > 64)
+		count = 64;
+
+	if (!count)
+		return;
+
+	start = (s->ring_head + 64 - count) % 64;
+	for (i = 0; i < count; i++)
+		temp[i] = s->ring[(start + i) % 64];
+
+	if (s->fd >= 0) {
+		off_t cur = lseek(s->fd, 0, SEEK_CUR);
+		if (cur >= (off_t)0) {
+			if (lseek(s->fd, (off_t)s->raw_byte_pos, SEEK_SET) != (off_t)-1) {
+				ssize_t r = read(s->fd, temp + count, 16);
+				if (r > 0 && r <= 16) {
+					ahead = (size_t)r;
+				}
+			}
+			if (lseek(s->fd, cur, SEEK_SET) == (off_t)-1) {
+				lwsl_err("%s: Failed to restore fd position\n", __func__);
+			}
+		}
+	}
+
+	/* satisfy coverity constraint solver */
+	if (count + ahead > sizeof(temp))
+		ahead = sizeof(temp) - count;
+
+	lwsl_hexdump_warn(temp, count + ahead);
+}
 
 static void
 emit_byte(struct parse_state *s, uint8_t b)
@@ -75,6 +123,10 @@ emit_byte(struct parse_state *s, uint8_t b)
 			s->utf8_expect = 3;
 		} else {
 			/* Invalid UTF-8 start byte */
+			lwsl_warn("Invalid UTF-8 start byte 0x%02X found at byte %zu (line %d, col %d)\n",
+				  b, s->raw_byte_pos, s->line, s->col);
+			dump_context(s);
+			s->issues++;
 			s->utf8_invalid = 1;
 			s->utf8_expect = 0;
 			return;
@@ -82,6 +134,10 @@ emit_byte(struct parse_state *s, uint8_t b)
 	} else {
 		if ((b & 0xC0) != 0x80) {
 			/* Invalid continuation byte */
+			lwsl_warn("Invalid UTF-8 continuation byte 0x%02X found at byte %zu (line %d, col %d)\n",
+				  b, s->raw_byte_pos, s->line, s->col);
+			dump_context(s);
+			s->issues++;
 			s->utf8_invalid = 1;
 			s->utf8_expect = 0;
 			return;
@@ -90,10 +146,12 @@ emit_byte(struct parse_state *s, uint8_t b)
 		s->utf8_expect--;
 	}
 
-	if (s->utf8_expect == 0 && !s->utf8_invalid) {
-		if (is_suspicious(s->codepoint)) {
-			lwsl_notice("Suspicious Unicode U+%04X found at byte %zu (line %d, col %d)\n",
-				    s->codepoint, s->raw_byte_pos, s->line, s->col);
+	if (s->utf8_expect == 0) {
+		const char *reason = is_suspicious(s->codepoint);
+		if (reason) {
+			lwsl_notice("Suspicious Unicode U+%04X (%s) found at byte %zu (line %d, col %d)\n",
+				    s->codepoint, reason, s->raw_byte_pos, s->line, s->col);
+			s->issues++;
 		}
 	}
 }
@@ -104,6 +162,11 @@ process_byte(struct parse_state *s, uint8_t b)
 	int v1, v2;
 
 	s->raw_byte_pos++;
+
+	s->ring[s->ring_head] = b;
+	s->ring_head = (s->ring_head + 1) % sizeof(s->ring);
+	if (s->ring_count < sizeof(s->ring))
+		s->ring_count++;
 
 	/* basic line/col accounting on the raw input stream */
 	if (b == '\n') {
@@ -195,6 +258,8 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
+	lwsl_user("Checking %s for suspicious bitwise Unicode and Quoted-Printable (email) encoding errors...\n", argv[argc - 1]);
+
 	fd = open(argv[argc - 1], O_RDONLY);
 	if (fd < 0) {
 		lwsl_err("Failed to open %s\n", argv[argc - 1]);
@@ -204,6 +269,7 @@ int main(int argc, const char **argv)
 	memset(&s, 0, sizeof(s));
 	s.line = 1;
 	s.col = 1;
+	s.fd = fd;
 
 	while ((n = read(fd, buf, sizeof(buf))) > 0) {
 		for (ssize_t i = 0; i < n; i++)
@@ -214,6 +280,11 @@ int main(int argc, const char **argv)
 
 	if (s.utf8_invalid)
 		lwsl_warn("Warning: Invalid UTF-8 sequences were encountered.\n");
+
+	if (s.issues)
+		lwsl_user("Completed with %d issue(s) found.\n", s.issues);
+	else
+		lwsl_user("Completed cleanly. 0 issues found.\n");
 
 	return 0;
 }

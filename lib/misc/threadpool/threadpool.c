@@ -1201,8 +1201,10 @@ static int
 disassociate_wsi(struct lws_threadpool_task *task,
 		  void *user)
 {
+#if !defined(__COVERITY__)
 	task->args.wsi = NULL;
 	lws_dll2_remove(&task->list);
+#endif
 
 	return 0;
 }

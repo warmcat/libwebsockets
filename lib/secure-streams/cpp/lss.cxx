@@ -61,6 +61,7 @@ lss::lss(lws_ctx_t _ctx, std::string _uri, lsscomp_t _comp, bool _psh,
 	comp		= _comp;
 	comp_done	= 0;
 	rxlen		= 0;
+	puri		= NULL;
 
 	/*
 	 * We have a common stub userdata, our "real" userdata is in the
@@ -97,13 +98,15 @@ lss::lss(lws_ctx_t _ctx, std::string _uri, lsscomp_t _comp, bool _psh,
 
 	n = pcols_port[n];
 
-	if (lws_parse_uri(uri, &p, &pol.endpoint, &n, &urlpath))
+	puri = lws_parse_uri_create(uri);
+	if (!puri)
 		throw lssException("unable to parse uri://");
 
-	pol.port = (uint16_t)n;
+	pol.endpoint = puri->host;
+	pol.port = puri->port ? puri->port : (uint16_t)n;
 
 	if (pol.protocol <= LWSSSP_WS) {
-		pol.u.http.url = urlpath;
+		pol.u.http.url = puri->path;
 
 		/*
 		 * These are workarounds for common h2 server noncompliances
@@ -137,6 +140,8 @@ lss::~lss()
 {
 	if (uri)
 		free(uri);
+	if (puri)
+		lws_parse_uri_destroy(&puri);
 	if (m_ss)
 		lws_ss_destroy(&m_ss);
 }

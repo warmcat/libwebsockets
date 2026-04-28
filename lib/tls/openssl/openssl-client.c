@@ -278,9 +278,9 @@ lws_ssl_client_bio_create(struct lws *wsi)
 
 	wsi->tls.ssl = SSL_new(wsi->a.vhost->tls.ssl_client_ctx);
 	if (!wsi->tls.ssl) {
-		const char *es = ERR_error_string(
-			LWS_TLS_ERR_CAST(lws_ssl_get_error(wsi, 0)), NULL);
-		lwsl_err("SSL_new failed: %s\n", es);
+		unsigned long err = ERR_get_error();
+		const char *es = ERR_error_string(LWS_TLS_ERR_CAST(err), NULL);
+		lwsl_err("SSL_new failed: %s (real error %lu)\n", es, err);
 		lws_tls_err_describe_clear();
 		return -1;
 	}
@@ -565,7 +565,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 	}
 
 	if (!n) /* we don't know what he wants, but he says to retry */
-		return LWS_SSL_CAPABLE_MORE_SERVICE;
+		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
 
 	lws_snprintf(errbuf, elen, "connect unk %d", m);
 

@@ -46,8 +46,42 @@
 #include <stdlib.h>
 #include <string.h>
 
+static lws_interceptor_result_t
+ratelimit_verify(struct lws *wsi, const void *in, size_t len)
+{
+	const struct lws_protocols *pt = lws_vhost_name_to_protocol(lws_get_vhost(wsi), "lws-login");
+
+	/* If the lws-login plugin confirms upstream auth via API, allow bypass */
+	if (pt && pt->callback(wsi, LWS_CALLBACK_USER + 1, NULL, NULL, 0) == 0) {
+		lwsl_info("%s: ratelimit bypass via lws-login API detected, allowing immediate pass\n", __func__);
+		return LWS_INTERCEPTOR_RET_PASS;
+	}
+
+	return LWS_INTERCEPTOR_RET_DELAYED;
+}
+
+static int
+ratelimit_get_config_js(struct lws *wsi, char *buf, size_t max_len)
+{
+	char uri[256];
+	const struct lws_http_mount *m;
+	int n = 0;
+
+       if (lws_hdr_copy(wsi, uri, sizeof(uri), WSI_TOKEN_GET_URI) < 0)
+               return 0;
+
+	m = lws_find_mount(wsi, uri, (int)strlen(uri));
+	if (m && m->interceptor_path) {
+		n = lws_snprintf(buf, max_len, "var lws_interceptor_path = \"%s\";\n",
+					 m->interceptor_path);
+	}
+	return n;
+}
+
 static const struct lws_interceptor_ops ratelimit_ops = {
 	.name = "ratelimit",
+	.verify = ratelimit_verify,
+	.get_config_js = ratelimit_get_config_js,
 };
 
 static int
@@ -62,7 +96,7 @@ callback_captcha_ratelimit(struct lws *wsi, enum lws_callback_reasons reason,
 	"lws_captcha_ratelimit",                                                   \
 	callback_captcha_ratelimit,                                                \
 	1024, /* pss size */                                                       \
-	1024,                                                                      \
+	0,                                                                         \
 	0,                                                                         \
 	NULL,                                                                      \
 	0									   \

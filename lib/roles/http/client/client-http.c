@@ -298,7 +298,6 @@ hs2:
 			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
 					   "cws");
 			return LWS_HPI_RET_WSI_ALREADY_DIED;
-		case LWS_SSL_CAPABLE_MORE_SERVICE:
 		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
 		case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
 			lws_callback_on_writable(wsi);
@@ -1011,6 +1010,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	char *p = NULL, *q, *simp;
 	char new_path[300];
 	void *opaque;
+	lws_parse_uri_t *puri = NULL;
 
 	// lws_free_set_NULL(wsi->stash);
 
@@ -1188,10 +1188,15 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		}
 		/* Absolute (Full) URI */
 		else if (strchr(p, ':')) {
-			if (lws_parse_uri(p, &prot, &ads, &port, &path)) {
+			puri = lws_parse_uri_create(p);
+			if (!puri) {
 				cce = "HS: URI did not parse";
 				goto bail3;
 			}
+			prot = puri->scheme;
+			ads = puri->host;
+			port = puri->port;
+			path = puri->path;
 
 			if (!strcmp(prot, "wss") || !strcmp(prot, "https"))
 				ssl = LCCSCF_USE_SSL;
@@ -1311,6 +1316,9 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		opaque = wsi->a.opaque_user_data;
 		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "redir");
 		wsi->a.opaque_user_data = opaque;
+
+		if (puri)
+			lws_parse_uri_destroy(&puri);
 
 		return LWS_HPI_RET_WSI_ALREADY_DIED;
 	}
@@ -1538,6 +1546,9 @@ bail2:
 
 	/* closing will free up his parsing allocations */
 	lws_close_free_wsi(wsi, (enum lws_close_status)close_reason, "c hs interp");
+
+	if (puri)
+		lws_parse_uri_destroy(&puri);
 
 	return LWS_HPI_RET_WSI_ALREADY_DIED;
 }

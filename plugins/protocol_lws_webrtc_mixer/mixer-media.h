@@ -2,9 +2,13 @@
 #define __MIXER_MEDIA_H__
 
 #include <libwebsockets.h>
+#include "../protocol_lws_webrtc/protocol_lws_webrtc.h"
 
 #include <opus/opus.h>
 #include <pthread.h>
+#include <gst/gst.h>
+#include <gst/app/gstappsrc.h>
+#include <gst/app/gstappsink.h>
 
 int16_t soft_clip(int32_t sample);
 
@@ -106,26 +110,30 @@ struct mixer_media_session {
 	struct lws_dll2_owner   video_queue;
 
 	/* Video decoding */
-	struct lws_transcode_ctx *tcc_dec;
-	void                    *avframe_dec;    /* Managed by lws_transcode */
-	void                    *avframe_delayed; /* Back-buffer for 80ms delay */
-	lws_usec_t              delayed_frame_ready_time;
-	void                    *avframe_tmp;    /* Managed by lws_transcode */
-	void                    *sws_ctx_dec;    /* struct SwsContext * */
-	void                    *avframe_scaled; /* Managed by lws_transcode */
+	GstElement              *appsrc;
+	GstElement              *decodebin;
+	GstPad                  *compositor_pad;
 
 	uint8_t                 *video_buf;
 	size_t                  video_len;
 	size_t                  video_alloc;
+	int                     fu_a_active;
 
 	uint8_t                 *obu_buf;
 	size_t                  obu_len;
 	size_t                  obu_alloc;
 
+	uint32_t                video_timestamp;
+
 	int                     frame_complete;
 	uint64_t                decoded_frames;
 	lws_usec_t              last_pli_req;
 	lws_usec_t              last_frame_usec;
+
+	uint32_t                first_timestamp;
+	int                     timestamp_initialized;
+	uint64_t                gst_time_offset;
+	uint64_t                last_pts;
 
 	int                     last_dec_w, last_dec_h, last_dec_fmt;
 	int                     last_dst_w, last_dst_h;
@@ -139,6 +147,7 @@ struct mixer_media_session {
 	uint32_t                last_processed_frames_count;
 	lws_usec_t              last_fps_check;
 	int                     current_fps;
+	uint32_t                gst_qos_drops;
 
 	lws_dll2_t              list; /* List in vhd->sessions (Worker Side) */
 
@@ -171,6 +180,10 @@ struct participant {
 	uint16_t                expect_seq;
 	int                     expect_valid;
 	lws_usec_t              last_pli_req;
+
+	/* Telemetry Rate Calculation */
+	struct lws_webrtc_telemetry last_telemetry;
+	uint32_t                last_gst_qos_drops;
 
 	struct mixer_room       *room;
 	struct pss_webrtc       *pss;
@@ -227,6 +240,14 @@ struct encoder_thread {
 	int                     target_level;
 };
 
+struct mixer_encoded_frame {
+	lws_dll2_t              list;
+	uint8_t                 *buf;
+	size_t                  len;
+	uint32_t                rtp_ts;
+	int                     is_keyframe;
+};
+
 struct mixer_room {
 	lws_dll2_t              list; /* stored in vhd->rooms */
 	struct vhd_mixer        *vhd;  /* parent */
@@ -251,13 +272,17 @@ struct mixer_room {
 	   */
 
 	/* Master video compositing */
-	struct lws_transcode_ctx *tcc_enc_h264;
-	struct lws_transcode_ctx *tcc_enc_av1;
+	GstElement              *pipeline;
+	GstElement              *compositor;
+	GstElement              *appsink_h264;
+	GstElement              *appsink_av1;
+
+	pthread_mutex_t         encode_mutex;
+	lws_dll2_owner_t        h264_queue;
+	lws_dll2_owner_t        av1_queue;
+
 	struct lws_adapt        *adapt_h264;
 	int                     active_h264_level;
-	void                    *master_frame;   /* Managed by lws_transcode */
-	struct encoder_thread   enc_thread_h264;
-	struct encoder_thread   enc_thread_av1;
 
 	uint32_t                master_w, master_h;
 	int64_t                 master_pts;
@@ -314,6 +339,8 @@ struct vhd_mixer {
 
 	lws_dll2_owner_t        sessions; /* Worker Side: List of active mixer_media_session */
 
+	char                    pipeline_template[512]; /* PVO pipeline string */
+
 	/* Global Sound Assets */
 	struct sound_clip       sfx_join;
 	struct sound_clip       sfx_leave;
@@ -359,5 +386,8 @@ mixer_media_session_ref(struct mixer_media_session *s);
 
 void
 mixer_media_session_unref(struct mixer_media_session *s);
+
+void
+mixer_force_keyframe(struct mixer_room *r);
 
 #endif /* __MIXER_MEDIA_H__ */

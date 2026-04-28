@@ -1335,3 +1335,24 @@ the user-selected text message and attempts to pull in `/error.css` for styling.
 If this file exists, it can be used to style the error page.  See
 https://libwebsockets.org/git/badrepo for an example of what can be done (
 and https://libwebsockets.org/error.css for the corresponding css).
+
+@section spawn Process Spawning and PTY routing
+
+libwebsockets provides a cross-platform API for spawning child processes and
+redirecting their standard streams (stdin, stdout, stderr) into the lws event loop
+as wsi handles: `lws_spawn_piped`.
+
+It is controlled by `struct lws_spawn_piped_info`. By default, the streams are
+redirected via standard anonymous pipes.
+
+However, if you wish to run a process that expects a terminal (for example, to
+preserve ANSI color codes or other TTY-specific behaviors), you can set
+`info.pty_mode = 1` before calling `lws_spawn_piped()`.
+
+ - On POSIX systems, `pty_mode` will allocate a pseudoterminal via `posix_openpt()`
+   and securely fuse both the child's stdout and stderr into the single PTY
+   master file descriptor.
+ - On Windows (Windows 10+), `pty_mode` will attempt to dynamically instantiate a
+   `CreatePseudoConsole` (ConPTY) handle and route the standard pipes through it. If 
+   the host system does not support ConPTY, it will gracefully fall back to pipes
+   or fail cleanly.

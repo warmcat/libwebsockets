@@ -255,22 +255,9 @@ struct lws_tx_credit {
 
 #undef X509_NAME
 
-/*
- * All lws_tls...() functions must return this type, converting the
- * native backend result and doing the extra work to determine which one
- * as needed.
- *
- * Native TLS backend return codes are NOT ALLOWED outside the backend.
- *
- * Non-SSL mode also uses these types.
- */
-enum lws_ssl_capable_status {
-	LWS_SSL_CAPABLE_ERROR			= -1, /* it failed */
-	LWS_SSL_CAPABLE_DONE			= 0,  /* it succeeded */
-	LWS_SSL_CAPABLE_MORE_SERVICE_READ	= -2, /* retry WANT_READ */
-	LWS_SSL_CAPABLE_MORE_SERVICE_WRITE	= -3, /* retry WANT_WRITE */
-	LWS_SSL_CAPABLE_MORE_SERVICE		= -4, /* general retry */
-};
+ /*
+  * the rest is managed per-context, that includes
+  */
 
 enum lws_context_destroy {
 	LWSCD_NO_DESTROY,		/* running */
@@ -445,6 +432,7 @@ typedef struct lws_buflist {
 	size_t					pos;
 	unsigned char				awaiting_eom;
 	unsigned char				src_channel;
+	void					*heap_alloc;
 } lws_buflist_t;
 
 
@@ -585,6 +573,9 @@ struct lws_context {
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 	lws_async_dns_t			async_dns;
 #endif
+
+	lws_sockaddr46			ext_ipv4;
+	lws_sockaddr46			ext_ipv6;
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	lws_fi_ctx_t			fic;

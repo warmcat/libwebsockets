@@ -27,6 +27,7 @@
 typedef enum dns_query_type {
 	LWS_ADNS_RECORD_A					= 0x01,
 	LWS_ADNS_RECORD_CNAME					= 0x05,
+	LWS_ADNS_RECORD_SOA					= 0x06,
 	LWS_ADNS_RECORD_MX					= 0x0f,
 	LWS_ADNS_RECORD_TXT					= 0x10,
 	LWS_ADNS_RECORD_AAAA					= 0x1c,
@@ -58,6 +59,9 @@ typedef enum {
 #define LWS_ADNS_SYNTHETIC	0x10000	/* don't send, synthetic response will
 					 * be injected for testing */
 #define LWS_ADNS_INDICATE_LACKS_DNSSEC	0x20000 /* tolerate missing DNSSEC on this specific lookup */
+#define LWS_ADNS_NOCACHE		0x40000 /* force network query, bypass cache */
+#define LWS_ADNS_WANT_DNSSEC	0x80000 /* Explicitly set DO bit in EDNS0 OPT record */
+#define LWS_ADNS_IGNORE_HOSTS_FILE 0x100000 /* Bypass checking /etc/hosts and force network DNS lookup */
 
 struct addrinfo;
 

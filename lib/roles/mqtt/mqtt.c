@@ -1320,7 +1320,6 @@ cmd_completion:
 				wsi->mux.highest_sid = 1;
 				lws_wsi_mux_insert(w, wsi, wsi->mux.highest_sid++);
 
-				wsi->mux_substream = 1;
 				w->mux_substream = 1;
 				w->client_mux_substream = 1;
 				wsi->client_mux_migrated = 1;

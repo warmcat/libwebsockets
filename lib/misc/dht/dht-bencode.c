@@ -884,7 +884,7 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 
 			lwsl_notice("%s: actively validated new external address shift!\n", __func__);
 			if (ctx->cb) {
-				/* High level plugins will differentiate via ops->dht_external_ip_cb(cx, sa46, af, 1) */
+			/* High level plugins will differentiate via lws_extip_report(cx, LWS_EXTIP_SRC_DHT, sa46, af, 1) */
 				ctx->cb(ctx->closure,
 						ss.ss_family == AF_INET ?
 							LWS_DHT_EVENT_EXTERNAL_ADDR :

@@ -41,13 +41,16 @@
  * ends when it gets a NULL.
  * The while loop should be terminated using lws_start_foreach_ll().
  *
- * Notice you can't use continue; to go around this iterator.  You must
- * goto a label placed at the lws_end_foreach_ll().
+ * Note: Thanks to the structural abstraction, you can now safely use
+ * continue; or break; to control the loop as if it were a standard
+ * for / while loop.
  */
 #define lws_start_foreach_ll(type, it, start)\
 { \
 	type it = start; \
-	while (it) {
+	while (it) { \
+		int _c_##it = 0, _b_##it = 0; \
+		for (; !_c_##it; _c_##it = 1) {
 
 /**
  * lws_end_foreach_ll(): linkedlist iterator helper end
@@ -58,11 +61,15 @@
  * This helper is the partner for lws_start_foreach_ll() that ends the
  * while loop.
  *
- * Notice you can't use continue; to go around this iterator.  You must
- * goto a label placed at the lws_end_foreach_ll().
+ * Note: Thanks to the structural abstraction, you can now safely use
+ * continue; or break; to control the loop as if it were a standard
+ * for / while loop.
  */
 
 #define lws_end_foreach_ll(it, nxt) \
+			_b_##it = 1; \
+		} \
+		if (!_b_##it) break; \
 		it = it->nxt; \
 	} \
 }
@@ -82,14 +89,14 @@
  * Performs storage of next increment for situations where iterator can become invalidated
  * during iteration.
  *
- * Notice you can't use continue; to go around this iterator.  You must
- * goto a label placed at the lws_end_foreach_ll_safe().
+ * Note: Thanks to the structural abstraction, you can now safely use
+ * continue; or break; to control the loop as if it were a standard
+ * for / while loop.
  */
 #define lws_start_foreach_ll_safe(type, it, start, nxt)\
 { \
-	type it = start; \
-	while (it) { \
-		type next_##it = it->nxt;
+	type next_##it; \
+	for (type it = start; it && ((next_##it = it->nxt), 1); it = next_##it) {
 
 /**
  * lws_end_foreach_ll_safe(): linkedlist iterator helper end (pre increment storage)
@@ -100,12 +107,12 @@
  * while loop. It uses the precreated next_ variable already stored during
  * start.
  *
- * Notice you can't use continue; to go around this iterator.  You must
- * goto a label placed at the lws_end_foreach_ll_safe().
+ * Note: Thanks to the structural abstraction, you can now safely use
+ * continue; or break; to control the loop as if it were a standard
+ * for / while loop.
  */
 
 #define lws_end_foreach_ll_safe(it) \
-		it = next_##it; \
 	} \
 }
 
@@ -125,20 +132,21 @@
  * element.  That allows you to easily delete list members by rewriting the
  * previous pointer to the element's next pointer.
  *
- * Notice you can't use continue; to go around this iterator.  You must
- * goto a label placed at the lws_end_foreach_llp() / ..._safe().
+ * Note: Thanks to the structural abstraction, you can now safely use
+ * continue; or break; to control the loop as if it were a standard
+ * for / while loop.
  */
 #define lws_start_foreach_llp(type, it, start)\
 { \
 	type it = &(start); \
-	while (*(it)) {
+	while (*(it)) { \
+		int _c_##it = 0, _b_##it = 0; \
+		for (; !_c_##it; _c_##it = 1) {
 
 #define lws_start_foreach_llp_safe(type, it, start, nxt)\
 { \
-	type it = &(start); \
 	type next; \
-	while (*(it)) { \
-		next = &((*(it))->nxt); \
+	for (type it = &(start); *(it) && ((next = &((*(it))->nxt)), 1); it = next) {
 
 /**
  * lws_end_foreach_llp(): linkedlist pointer iterator helper end
@@ -149,17 +157,20 @@
  * This helper is the partner for lws_start_foreach_llp() that ends the
  * while loop.
  *
- * Notice you can't use continue; to go around this iterator.  You must
- * goto a label placed at the lws_end_foreach_llp() / ..._safe().
+ * Note: Thanks to the structural abstraction, you can now safely use
+ * continue; or break; to control the loop as if it were a standard
+ * for / while loop.
  */
 
 #define lws_end_foreach_llp(it, nxt) \
+			_b_##it = 1; \
+		} \
+		if (!_b_##it) break; \
 		it = &(*(it))->nxt; \
 	} \
 }
 
 #define lws_end_foreach_llp_safe(it) \
-		it = next; \
 	} \
 }
 
@@ -303,22 +314,18 @@ lws_dll2_describe(struct lws_dll2_owner *owner, const char *desc);
 
 #define lws_start_foreach_dll_safe(___type, ___it, ___tmp, ___start) \
 { \
-	___type ___it = ___start; \
-	while (___it) { \
-		___type ___tmp = (___it)->next;
+	___type ___tmp; \
+	for (___type ___it = ___start; ___it && (((___tmp) = (___it)->next), 1); ___it = ___tmp) {
 
 #define lws_end_foreach_dll_safe(___it, ___tmp) \
-		___it = ___tmp; \
 	} \
 }
 
 #define lws_start_foreach_dll(___type, ___it, ___start) \
 { \
-	___type ___it = ___start; \
-	while (___it) {
+	for (___type ___it = ___start; ___it; ___it = (___it)->next) {
 
 #define lws_end_foreach_dll(___it) \
-		___it = (___it)->next; \
 	} \
 }
 

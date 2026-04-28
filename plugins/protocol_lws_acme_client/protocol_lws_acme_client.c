@@ -573,26 +573,28 @@ lws_acme_report_status(struct lws_vhost *v, int state, const char *json)
 	return 0;
 }
 
-/*
- * Notice: trashes i and url
- */
 static struct lws *
 lws_acme_client_connect(struct lws_context *context, struct lws_vhost *vh,
 		struct lws **pwsi, struct lws_client_connect_info *i,
 		char *url, const char *method)
 {
-	const char *prot, *p;
-	char path[200], _url[256];
+	const char *p;
+	char path[200];
+	lws_parse_uri_t *puri;
 	struct lws *wsi;
 
 	memset(i, 0, sizeof(*i));
 	i->port = 443;
-	lws_strncpy(_url, url, sizeof(_url));
-	if (lws_parse_uri(_url, &prot, &i->address, &i->port, &p)) {
+	puri = lws_parse_uri_create(url);
+	if (!puri) {
 		lwsl_err("unable to parse uri %s\n", url);
 
 		return NULL;
 	}
+
+	i->address = puri->host;
+	i->port = puri->port;
+	p = puri->path;
 
 	/* add back the leading / on path */
 	path[0] = '/';
@@ -614,6 +616,9 @@ lws_acme_client_connect(struct lws_context *context, struct lws_vhost *vh,
 		lwsl_notice("%s: %s\n", __func__, path);
 		lws_acme_report_status(vh, LWS_CUS_FAILED, path);
 	}
+
+	if (puri)
+		lws_parse_uri_destroy(&puri);
 
 	return wsi;
 }
@@ -652,6 +657,7 @@ static const char * const pvo_names[] = {
 	"auth-path",
 	"cert-path",
 	"key-path",
+	"root-domain",
 };
 
 static int
@@ -1139,7 +1145,7 @@ pkt_add_hdrs:
 			}
 			lwsl_vhost_notice(vhd->vhost, "Generating ACME CSR... may take a little while");
 			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{\"csr\":\"");
-			n = lws_tls_acme_sni_csr_create(vhd->context,
+			n = lws_tls_acme_sni_csr_create_ecdsa(vhd->context,
 					&vhd->pvop_active[0],
 					(uint8_t *)p, lws_ptr_diff_size_t(end, p),
 					&ac->alloc_privkey_pem,

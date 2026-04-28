@@ -38,35 +38,50 @@ strexp_cb(void *priv, const char *name, char *out, size_t *pos,
 	struct lws_auth_dns_sign_info *info = (struct lws_auth_dns_sign_info *)priv;
 	int n;
 	size_t l;
+	const char *val = NULL;
 
-	for (n = 0; n < info->num_substs; n++) {
-		if (!strcmp(name, info->subst_names[n])) {
-			l = strlen(info->subst_values[n]);
+	if (info->subst_cb)
+		val = info->subst_cb(info, name);
 
-			if (*exp_ofs >= l)
-				return LSTRX_DONE;
-
-			if (*pos >= olen)
-				return LSTRX_FILLED_OUT;
-
-			l -= *exp_ofs;
-			if (l > olen - *pos)
-				l = olen - *pos;
-
-			memcpy(out + *pos, info->subst_values[n] + *exp_ofs, l);
-			*pos += l;
-			*exp_ofs += l;
-
-			if (*exp_ofs == strlen(info->subst_values[n]))
-				return LSTRX_DONE;
-
-			return LSTRX_FILLED_OUT;
+	if (!val) {
+		for (n = 0; n < info->num_substs; n++) {
+			if (!strcmp(name, info->subst_names[n])) {
+				val = info->subst_values[n];
+				break;
+			}
 		}
 	}
 
-	lwsl_warn("%s: unknown substitution variable: %s\n", __func__, name);
+	if (!val) {
+		lwsl_warn("%s: unknown substitution variable: %s\n", __func__, name);
+		return LSTRX_FATAL_NAME_UNKNOWN;
+	}
 
-	return LSTRX_FATAL_NAME_UNKNOWN;
+	if (val[0] == '\0') {
+		info->skip_line = 1;
+		return LSTRX_DONE;
+	}
+
+	l = strlen(val);
+
+	if (*exp_ofs >= l)
+		return LSTRX_DONE;
+
+	if (*pos >= olen)
+		return LSTRX_FILLED_OUT;
+
+	l -= *exp_ofs;
+	if (l > olen - *pos)
+		l = olen - *pos;
+
+	memcpy(out + *pos, val + *exp_ofs, l);
+	*pos += l;
+	*exp_ofs += l;
+
+	if (*exp_ofs == strlen(val))
+		return LSTRX_DONE;
+
+	return LSTRX_FILLED_OUT;
 }
 
 int
@@ -316,8 +331,7 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 {
 	char obuf[8192]; /* simple large enough buffer for test */
 	int fd, n, ofd = -1, res_wr, temp_len = 0, temp_max = 0;
-	size_t uin = 0, uout = 0;
-	lws_strexp_t exp;
+	size_t uout = 0;
 	struct stat st;
 	char *buf, *expbuf;
 	ssize_t ns;
@@ -362,13 +376,40 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 		return 1;
 	}
 
-	lws_strexp_init(&exp, info, strexp_cb, expbuf, (size_t)st.st_size * 2);
-	if (lws_strexp_expand(&exp, buf, (size_t)st.st_size, &uin, &uout) != LSTRX_DONE) {
-		lwsl_err("%s: lws_strexp_expand failed or filled out buffer\n", __func__);
-		lws_free(expbuf);
-		lws_free(buf);
+	char *lb = buf;
+	uout = 0;
+	while (lb < buf + st.st_size) {
+		char *le = strchr(lb, '\n');
+		if (!le)
+			le = buf + st.st_size;
+		else
+			le++; /* Include newline */
 
-		return 1;
+		info->curr_line = lb;
+		info->curr_line_len = (size_t)(le - lb);
+		info->skip_line = 0;
+
+		/* Expand current line */
+		char line_exp[4096];
+		lws_strexp_t exp_line;
+		size_t uin_line = 0, uout_line = 0;
+
+		lws_strexp_init(&exp_line, info, strexp_cb, line_exp, sizeof(line_exp));
+		if (lws_strexp_expand(&exp_line, lb, info->curr_line_len, &uin_line, &uout_line) != LSTRX_DONE && !info->skip_line) {
+			lwsl_err("%s: lws_strexp_expand failed or filled out buffer on line\n", __func__);
+			goto bail;
+		}
+
+		if (!info->skip_line && uout_line > 0) {
+			if (uout + uout_line >= (size_t)st.st_size * 2) {
+				lwsl_err("%s: expbuf overflow\n", __func__);
+				goto bail;
+			}
+			memcpy(expbuf + uout, line_exp, uout_line);
+			uout += uout_line;
+		}
+
+		lb = le;
 	}
 
 	expbuf[uout] = '\0';

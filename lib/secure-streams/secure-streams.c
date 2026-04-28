@@ -724,13 +724,14 @@ disconn:
 lws_ss_state_return_t
 _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 {
-	const char *prot, *_prot, *ipath, *_ipath, *ads, *_ads;
+	const char *prot, *ipath, *ads;
 	struct lws_client_connect_info i;
 	const struct ss_pcols *ssp;
 	size_t used_in, used_out;
 	union lws_ss_contemp ct;
+	lws_parse_uri_t *puri = NULL;
 	lws_ss_state_return_t r;
-	int port, _port, tls;
+	int port, tls;
 	char *path, ep[LHP_URL_LEN];
 	lws_strexp_t exp;
 	struct lws *wsi;
@@ -804,10 +805,10 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 	 * that was given for at least server, port and the url path.
 	 */
 
-	_port = port = h->policy->port;
-	_prot = prot = NULL;
-	_ipath = ipath = "";
-	_ads = ads = ep;
+	port = h->policy->port;
+	prot = NULL;
+	ipath = "";
+	ads = ep;
 
 #if defined(LWS_WITH_FILE_OPS)
 	if (!strncmp(ep, "file://", 7)) {
@@ -843,13 +844,13 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 #endif
 
 	if (strchr(ep, ':') &&
-	    !lws_parse_uri(ep, &_prot, &_ads, &_port, &_ipath)) {
+	    (puri = lws_parse_uri_create(ep))) {
 		lwsl_debug("%s: using uri parse results '%s' '%s' %d '%s'\n",
-				__func__, _prot, _ads, _port, _ipath);
-		prot = _prot;
-		ads = _ads;
-		port = _port;
-		ipath = _ipath;
+				__func__, puri->scheme, puri->host, puri->port, puri->path);
+		prot = puri->scheme;
+		ads = puri->host;
+		port = puri->port;
+		ipath = puri->path;
 	}
 
 	memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
@@ -875,6 +876,8 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 					 __func__,
 					 h->policy->trust.store->name);
 
+				if (puri)
+					lws_parse_uri_destroy(&puri);
 				return -1;
 			}
 		}
@@ -925,6 +928,8 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 	if (!ssp) {
 		lwsl_err("%s: unsupported protocol\n", __func__);
 
+		if (puri)
+			lws_parse_uri_destroy(&puri);
 		return LWSSSSRET_TX_DONT_SEND;
 	}
 	i.alpn = ssp->alpn;
@@ -940,6 +945,8 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 	path = lws_malloc(h->context->max_http_header_data, __func__);
 	if (!path) {
 		lwsl_warn("%s: OOM on path prealloc\n", __func__);
+		if (puri)
+			lws_parse_uri_destroy(&puri);
 		return LWSSSSRET_TX_DONT_SEND;
 	}
 
@@ -965,6 +972,8 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 	r = lws_ss_event_helper(h, LWSSSCS_CONNECTING);
 	if (r) {
 		lws_free(path);
+		if (puri)
+			lws_parse_uri_destroy(&puri);
 		return r;
 	}
 
@@ -979,8 +988,11 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 		 * having to go around the event loop
 		 */
 
-		if (h->pending_ret)
+		if (h->pending_ret) {
+			if (puri)
+				lws_parse_uri_destroy(&puri);
 			return h->pending_ret;
+		}
 
 #if defined(LWS_WITH_FILE_OPS)
 fail_out:
@@ -992,17 +1004,27 @@ fail_out:
 			 * CCE, and unreachable can get to ALL_RETRIES_FAILED
 			 */
 			r = lws_ss_event_helper(h, LWSSSCS_UNREACHABLE);
-			if (r)
+			if (r) {
+				if (puri)
+					lws_parse_uri_destroy(&puri);
 				return r;
+			}
 
 			r = lws_ss_backoff(h);
-			if (r)
+			if (r) {
+				if (puri)
+					lws_parse_uri_destroy(&puri);
 				return r;
+			}
 		}
 
+		if (puri)
+			lws_parse_uri_destroy(&puri);
 		return LWSSSSRET_TX_DONT_SEND;
 	}
 
+	if (puri)
+		lws_parse_uri_destroy(&puri);
 	return LWSSSSRET_OK;
 }
 

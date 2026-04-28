@@ -4,6 +4,7 @@ Changelog
 Development
 ===========
 
+ - ACME: support DNS-01
  - Async DNS: support DNSSEC
  - Async DNS: support tcp fallback
  - Support authoritative DNS server, like nsd, using own-signed zone files

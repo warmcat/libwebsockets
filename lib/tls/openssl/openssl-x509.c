@@ -218,6 +218,26 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 
 		return 0;
 	}
+	case LWS_TLS_CERT_INFO_DER_SPKI:
+	{
+#ifndef USE_WOLFSSL
+		int der_len = i2d_X509_PUBKEY(X509_get_X509_PUBKEY(x509), NULL);
+		uint8_t *tmp = (uint8_t *)buf->ns.name;
+
+		buf->ns.len = der_len < 0 ? 0 : der_len;
+
+		if (der_len < 0 || (size_t)der_len > len)
+			return -1;
+
+		der_len = i2d_X509_PUBKEY(X509_get_X509_PUBKEY(x509), &tmp);
+		if (der_len < 0)
+			return -1;
+
+		return 0;
+#else
+		return -1;
+#endif
+	}
 
 #ifndef USE_WOLFSSL
 

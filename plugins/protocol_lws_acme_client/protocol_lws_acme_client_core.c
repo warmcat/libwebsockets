@@ -690,23 +690,32 @@ lws_acme_client_connect(struct lws_context *context, struct lws_vhost *vh,
 		struct lws **pwsi, struct lws_client_connect_info *i,
 		char *url, const char *method)
 {
-	const char *prot, *p;
-	char path[200], _url[256];
+	const char *p;
+	char path[200];
+	lws_parse_uri_t *puri;
 	struct lws *wsi;
 
 	memset(i, 0, sizeof(*i));
 	i->port = 443;
-	lws_strncpy(_url, url, sizeof(_url));
-	if (lws_parse_uri(_url, &prot, &i->address, &i->port, &p)) {
+	puri = lws_parse_uri_create(url);
+	if (!puri) {
 		lwsl_err("unable to parse uri %s\n", url);
 
 		return NULL;
 	}
 
+	i->address = puri->host;
+	i->port = puri->port;
+	p = puri->path;
+
 	/* add back the leading / on path */
-	path[0] = '/';
-	lws_strncpy(path + 1, p, sizeof(path) - 1);
-	i->path = path;
+	if (p[0] != '/') {
+		path[0] = '/';
+		lws_strncpy(path + 1, p, sizeof(path) - 1);
+		i->path = path;
+	} else
+		i->path = p;
+
 	i->context = context;
 	i->vhost = vh;
 	i->ssl_connection = LCCSCF_USE_SSL;
@@ -725,6 +734,9 @@ lws_acme_client_connect(struct lws_context *context, struct lws_vhost *vh,
 	} else {
         lwsl_vhost_notice(vh, "ACME Network Call Initiated: %s %s [wsi=%p]", method, url, wsi);
     }
+
+	if (puri)
+		lws_parse_uri_destroy(&puri);
 
 	return wsi;
 }
@@ -798,7 +810,7 @@ lws_acme_load_create_auth_keys(struct per_vhost_data__lws_acme_client *vhd,
                         if (fn) fn++; else fn = fp;
                         int r = acme_ipc_save_payload(vhd->context, "/var/run/lws-dnssec-monitor.sock",
                             "save_auth_key",
-                            vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME],
+                            vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] ? vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] : vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME],
                             fn,
                             buf, (size_t)st.st_size);
                         if (!r) success = 1;
@@ -1098,11 +1110,8 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 	switch ((int)reason) {
 	case LWS_CALLBACK_PROTOCOL_INIT:
-		lwsl_notice("acme_core: PROTOCOL_INIT called (in=%p, vhd=%p)\n", in, vhd);
-		if (!in) {
-			lwsl_notice("acme_core: ignoring INIT (in=%p)\n", in);
+		if (!in)
 			return 0;
-		}
 
 		/*
 		 * Don't run ACME certificate acquisition inside the root-monitor
@@ -1407,7 +1416,7 @@ pkt_add_hdrs:
 			}
 			lwsl_vhost_notice(vhd->vhost, "Generating ACME CSR... may take a little while");
 			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{\"csr\":\"");
-			n = lws_tls_acme_sni_csr_create(vhd->context,
+			n = lws_tls_acme_sni_csr_create_ecdsa(vhd->context,
 					&vhd->active_cert->pvop[0],
 					(uint8_t *)p, lws_ptr_diff_size_t(end, p),
 					&ac->alloc_privkey_pem,
@@ -1887,7 +1896,7 @@ poll_again:
 					lwsl_vhost_notice(vhd->vhost, "falling back to IPC footprint to save %s", cert_ts);
                     const char *fn = strrchr(cert_ts, '/');
                     if (fn) fn++; else fn = cert_ts;
-					int r = acme_ipc_save_payload(vhd->context, "/var/run/lws-dnssec-monitor.sock", "save_cert", vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], fn, ac->buf, (size_t)ac->cpos);
+					int r = acme_ipc_save_payload(vhd->context, "/var/run/lws-dnssec-monitor.sock", "save_cert", vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] ? vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] : vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], fn, ac->buf, (size_t)ac->cpos);
 					if (r) {
 						lwsl_vhost_err(vhd->vhost, "unable to create cert file %s", cert_ts);
 						goto failed;
@@ -1910,7 +1919,7 @@ poll_again:
 					lwsl_vhost_notice(vhd->vhost, "falling back to IPC footprint to save %s", key_ts);
                     const char *fn = strrchr(key_ts, '/');
                     if (fn) fn++; else fn = key_ts;
-					int r = acme_ipc_save_payload(vhd->context, "/var/run/lws-dnssec-monitor.sock", "save_key", vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], fn, ac->alloc_privkey_pem, ac->len_privkey_pem);
+					int r = acme_ipc_save_payload(vhd->context, "/var/run/lws-dnssec-monitor.sock", "save_key", vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] ? vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] : vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], fn, ac->alloc_privkey_pem, ac->len_privkey_pem);
 					if (r) {
 						lwsl_vhost_err(vhd->vhost, "unable to create key file %s", key_ts);
 						goto failed;
@@ -1933,7 +1942,7 @@ poll_again:
 					lwsl_vhost_notice(vhd->vhost, "falling back to IPC footprint to save %s", full_ts);
                     const char *fn = strrchr(full_ts, '/');
                     if (fn) fn++; else fn = full_ts;
-					int r = acme_ipc_save_payload(vhd->context, "/var/run/lws-dnssec-monitor.sock", "save_cert", vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], fn, ac->buf, (size_t)cpos_fullchain);
+					int r = acme_ipc_save_payload(vhd->context, "/var/run/lws-dnssec-monitor.sock", "save_cert", vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] ? vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] : vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], fn, ac->buf, (size_t)cpos_fullchain);
 					if (r) {
 						lwsl_vhost_err(vhd->vhost, "unable to create fullchain file %s", full_ts);
 					}

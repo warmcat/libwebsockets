@@ -996,13 +996,21 @@ lws_find_mount(struct lws *wsi, const char *uri_ptr, int uri_len)
 	while (hm) {
 		if (uri_len >= hm->mountpoint_len &&
 		    !strncmp(uri_ptr, hm->mountpoint, hm->mountpoint_len) &&
-		    (uri_ptr[hm->mountpoint_len] == '\0' ||
-		     uri_ptr[hm->mountpoint_len] == '/' ||
-		     hm->mountpoint_len == 1)
+		    (hm->exact_match ?
+		     (uri_len == hm->mountpoint_len) :
+		     (uri_ptr[hm->mountpoint_len] == '\0' ||
+		      uri_ptr[hm->mountpoint_len] == '/' ||
+		      hm->mountpoint_len == 1))
 		    ) {
 #if defined(LWS_WITH_SYS_METRICS)
 			lws_metrics_tag_wsi_add(wsi, "mnt", hm->mountpoint);
 #endif
+
+			if (hm->no_ws_upgrades &&
+			    lws_hdr_total_length(wsi, WSI_TOKEN_UPGRADE)) {
+				hm = hm->mount_next;
+				continue;
+			}
 
 			if (hm->origin_protocol == LWSMPRO_NO_MOUNT)
 				return NULL;
@@ -1623,11 +1631,16 @@ lws_http_redirect_hit(struct lws_context_per_thread *pt, struct lws *wsi,
 
 		/* > at start indicates deal with by redirect */
 		if (hit->origin_protocol == LWSMPRO_REDIR_HTTP ||
-		    hit->origin_protocol == LWSMPRO_REDIR_HTTPS)
-			n = lws_snprintf((char *)end, 256, "%s%s",
-				    oprot[hit->origin_protocol & 1],
-				    hit->origin);
-		else {
+		    hit->origin_protocol == LWSMPRO_REDIR_HTTPS) {
+			if (hit->append_path)
+				n = lws_snprintf((char *)end, 256, "%s%s%s",
+					    oprot[hit->origin_protocol & 1],
+					    hit->origin, s);
+			else
+				n = lws_snprintf((char *)end, 256, "%s%s",
+					    oprot[hit->origin_protocol & 1],
+					    hit->origin);
+		} else {
 			if (!lws_hdr_total_length(wsi, WSI_TOKEN_HOST)) {
 #if defined(LWS_ROLE_H2)
 				if (!lws_hdr_total_length(wsi,

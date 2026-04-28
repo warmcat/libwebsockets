@@ -289,7 +289,8 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 #if defined(LWS_WITH_TLS) && defined(LWS_HAVE_SSL_CTX_set1_param) && \
-	!defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_GNUTLS)
+	!defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_GNUTLS) && \
+	!defined(LWS_WITH_BEARSSL)
 	case LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS:
 		if (crl_path[0]) {
 			/* Enable CRL checking of the server certificate */
@@ -593,6 +594,7 @@ int main(int argc, char **argv)
 	struct lws_client_connect_info i;
 	struct lws_context *context;
 	const char *prot, *p;
+	lws_parse_uri_t *puri = NULL;
 	char path[300];
 	char cert_path[1024] = "";
 	char key_path[1024] = "";
@@ -686,8 +688,14 @@ int main(int argc, char **argv)
 	memset(&i, 0, sizeof(i));
 
 	i.port = port;
-	if (lws_parse_uri(argv[optind], &prot, &i.address, &i.port, &p))
+	puri = lws_parse_uri_create(argv[optind]);
+	if (!puri)
 		goto usage;
+
+	prot = puri->scheme[0] ? puri->scheme : "ws";
+	i.address = puri->host;
+	i.port = puri->port;
+	p = puri->path;
 
 	/* add back the leading / on path */
 	if (p[0] != '/') {
@@ -872,6 +880,8 @@ int main(int argc, char **argv)
 
 	lwsl_err("Exiting\n");
 	lws_context_destroy(context);
+	if (puri)
+		lws_parse_uri_destroy(&puri);
 
 	return ret;
 

@@ -904,11 +904,12 @@ malformed:
 			char *px = (char *)buf + LWS_PRE; /* guarantees LWS_PRE */
 			int lenx = sizeof(buf) - LWS_PRE;
 
-			m = lws_http_client_read(wsi, &px, &lenx);
-			if (m < 0)
-				return m;
+			if (lws_http_client_read(wsi, &px, &lenx) < 0)
+				return -1;
 		}
-		lws_set_timeout(wsi, 99, 30);
+
+		if (!h->txn_ok)
+			lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT, 30);
 
 		return 0; /* don't passthru */
 

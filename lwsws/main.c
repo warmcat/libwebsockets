@@ -165,6 +165,17 @@ context_creation(int argc, const char **argv)
 	if (lwsws_get_config_globals(&info, config_dir, &cs, &cs_len))
 		goto init_failed;
 
+	if (lws_cmdline_option(argc, argv, "--lws-dht-dnssec-monitor-root")) {
+		const char *p;
+		if ((p = lws_cmdline_option(argc, argv, "--uid")))
+			info.uid = (unsigned int)atoi(p);
+		if ((p = lws_cmdline_option(argc, argv, "--gid")))
+			info.gid = (unsigned int)atoi(p);
+		
+		/* Root monitor makes outbound TLS probes but skips user vhosts, force global TLS init */
+		info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+	}
+
 	foreign_loops[0] = &loop;
 	info.foreign_loops = foreign_loops;
 	info.pcontext = &context;

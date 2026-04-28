@@ -326,7 +326,7 @@ lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
 
 	wsi->already_did_cce = 1;
 
-	if (!wsi->a.protocol)
+	if (!wsi->a.protocol || (wsi->a.context && wsi->a.context->being_destroyed))
 		return;
 
 	if (!wsi->client_suppress_CONNECTION_ERROR)
@@ -717,7 +717,6 @@ just_kill_connection:
 			case LWS_SSL_CAPABLE_ERROR:
 			case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
 			case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
-			case LWS_SSL_CAPABLE_MORE_SERVICE:
 				if (wsi->lsp_channel++ == 8) {
 					lwsl_wsi_info(wsi, "avoiding shutdown spin");
 					lwsi_set_state(wsi, LRS_SHUTDOWN);

@@ -135,7 +135,8 @@ read:
 			lwsl_info("%s: zero length read\n",
 				  __func__);
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-		case LWS_SSL_CAPABLE_MORE_SERVICE:
+		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
+		case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
 			lwsl_info("SSL Capable more service\n");
 			return LWS_HPI_RET_HANDLED;
 		case LWS_SSL_CAPABLE_ERROR:

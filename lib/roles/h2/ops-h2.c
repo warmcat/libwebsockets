@@ -191,7 +191,10 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 			 * (new RX may trigger new http_action() that
 			 * expect to be able to send)
 			 */
-			return LWS_HPI_RET_HANDLED;
+			if (!lwsi_role_client(wsi))
+				return LWS_HPI_RET_HANDLED;
+			else
+				lwsl_notice("%s: allowing POLLIN despite buffered out (client)\n", __func__);
 		}
 	}
 
@@ -224,7 +227,8 @@ read:
 
 	if (!(lwsi_role_client(wsi) &&
 	      (lwsi_state(wsi) != LRS_ESTABLISHED &&
-	       // lwsi_state(wsi) != LRS_H1C_ISSUE_HANDSHAKE2 &&
+	       lwsi_state(wsi) != LRS_ISSUE_HTTP_BODY &&
+	       lwsi_state(wsi) != LRS_WAITING_SERVER_REPLY &&
 	       lwsi_state(wsi) != LRS_H2_WAITING_TO_SEND_HEADERS))) {
 
 		int scr_ret;
@@ -247,8 +251,19 @@ read:
 		case 0:
 			lwsl_info("%s: zero length read\n", __func__);
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
-		case LWS_SSL_CAPABLE_MORE_SERVICE:
-			lwsl_info("SSL Capable more service\n");
+		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
+			lwsl_info("SSL Capable more service (read)\n");
+			if (wsi->pending_timeout)
+				lws_set_timeout(wsi, (enum pending_timeout)wsi->pending_timeout,
+						wsi->pending_timeout == PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE ?
+						(int)lws_wsi_keepalive_timeout_eff(wsi) : (int)wsi->a.context->timeout_secs);
+			return LWS_HPI_RET_HANDLED;
+		case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
+			lwsl_info("SSL Capable more service (write)\n");
+			if (wsi->pending_timeout)
+				lws_set_timeout(wsi, (enum pending_timeout)wsi->pending_timeout,
+						wsi->pending_timeout == PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE ?
+						(int)lws_wsi_keepalive_timeout_eff(wsi) : (int)wsi->a.context->timeout_secs);
 			return LWS_HPI_RET_HANDLED;
 		case LWS_SSL_CAPABLE_ERROR:
 			lwsl_info("%s: LWS_SSL_CAPABLE_ERROR\n", __func__);
@@ -267,6 +282,11 @@ read:
 			lwsl_info("%s: other error\n", __func__);
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
+
+		if (wsi->pending_timeout)
+			lws_set_timeout(wsi, (enum pending_timeout)wsi->pending_timeout,
+					wsi->pending_timeout == PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE ?
+					(int)lws_wsi_keepalive_timeout_eff(wsi) : (int)wsi->a.context->timeout_secs);
 
 		// lwsl_notice("%s: Actual RX %d\n", __func__, ebuf.len);
 		// if (ebuf.len > 0)

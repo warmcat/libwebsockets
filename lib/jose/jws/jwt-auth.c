@@ -16,6 +16,8 @@
 
 #include "private-lib-core.h"
 
+#define LWS_AUTH_MAX_COOKIE_LEN 4096
+
 struct lws_jwt_auth {
 	struct lws_context *cx;
 	struct lws *wsi;
@@ -193,27 +195,12 @@ lws_jwt_auth_create(struct lws *wsi, struct lws_jwk *jwk,
                     const char *cookie_name,
                     lws_jwt_auth_cb_t cb, void *user)
 {
-	char cookie[1024];
-	char jwt[1024];
+	char jwt[8192];
+	size_t jwt_len = sizeof(jwt);
 	struct lws_jwt_auth *ja;
-	char *p;
-	int i = 0;
 
-	if (lws_hdr_copy(wsi, cookie, sizeof(cookie), WSI_TOKEN_HTTP_COOKIE) <= 0)
+	if (lws_http_cookie_get(wsi, cookie_name, jwt, &jwt_len))
 		return NULL;
-
-	p = strstr(cookie, cookie_name);
-	if (!p)
-		return NULL;
-
-	p += strlen(cookie_name);
-	if (*p != '=')
-		return NULL;
-	p++;
-
-	while (*p && *p != ';' && i < (int)sizeof(jwt) - 1)
-		jwt[i++] = *p++;
-	jwt[i] = '\0';
 
 	ja = malloc(sizeof(*ja));
 	if (!ja)
@@ -286,6 +273,14 @@ lws_jwt_auth_get_uid(struct lws_jwt_auth *ja)
 	if (!ja)
 		return 0;
 	return ja->uid;
+}
+
+uint64_t
+lws_jwt_auth_get_exp(struct lws_jwt_auth *ja)
+{
+	if (!ja)
+		return 0;
+	return ja->exp;
 }
 
 uint32_t

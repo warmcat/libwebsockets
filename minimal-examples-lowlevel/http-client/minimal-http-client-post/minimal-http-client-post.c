@@ -198,9 +198,8 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		    int current, int target)
 {
 	struct lws_context *cx = lws_system_context_from_system_mgr(mgr);
-	const char *p, *prot = NULL, *url = "https://libwebsockets.org:443/testserver/formtest";
+	const char *p, *url = "https://libwebsockets.org:443/testserver/formtest";
 	struct lws_client_connect_info i;
-	static char urlcp[128];
 	int n;
 
 	switch (target) {
@@ -221,35 +220,44 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		if (p)
 			url = p;
 
-		strncpy(urlcp, url, sizeof(urlcp));
-		lwsl_user("%s: url=%s\n", __func__, urlcp);
-		if (lws_parse_uri(urlcp, &prot, &i.address, &i.port, &i.path)) {
-			lwsl_err("%s: URL like https://warmcat.com/mypath needed\n", __func__);
-			return 1;
-		}
+		{
+			lws_parse_uri_t *puri;
 
-		p = lws_cmdline_option_cx(cx, "--port");
-		if (p)
-			i.port = atoi(p);
+			puri = lws_parse_uri_create(url);
+			if (!puri) {
+				lwsl_err("%s: URL like https://warmcat.com/mypath needed\n", __func__);
+				return 1;
+			}
 
-		if (lws_cmdline_option_cx(cx, "--form1"))
-			i.path			= "/form1";
+			i.address = puri->host;
+			i.port = puri->port;
+			i.path = puri->path;
 
-		i.host				= i.address;
-		i.origin			= i.address;
-		i.method = "POST";
+			p = lws_cmdline_option_cx(cx, "--port");
+			if (p)
+				i.port = (uint16_t)atoi(p);
 
-		/* force h1 even if h2 available */
-		if (lws_cmdline_option_cx(cx, "--h1"))
-			i.alpn			= "http/1.1";
+			if (lws_cmdline_option_cx(cx, "--form1"))
+				i.path			= "/form1";
 
-		i.protocol = protocols[0].name;
+			i.host				= i.address;
+			i.origin			= i.address;
+			i.method = "POST";
 
-		for (n = 0; n < count_clients; n++) {
-			i.pwsi = &client_wsi[n];
-			lwsl_user("%s: connecting to https://%s:%d/%s\n", __func__, i.address, i.port, i.path);
-			if (!lws_client_connect_via_info(&i))
-				completed++;
+			/* force h1 even if h2 available */
+			if (lws_cmdline_option_cx(cx, "--h1"))
+				i.alpn			= "http/1.1";
+
+			i.protocol = protocols[0].name;
+
+			for (n = 0; n < count_clients; n++) {
+				i.pwsi = &client_wsi[n];
+				lwsl_user("%s: connecting to https://%s:%d/%s\n", __func__, i.address, i.port, i.path);
+				if (!lws_client_connect_via_info(&i))
+					completed++;
+			}
+
+			lws_parse_uri_destroy(&puri);
 		}
 		break;
 	}

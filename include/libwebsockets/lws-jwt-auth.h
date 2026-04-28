@@ -17,6 +17,7 @@
 #if !defined(_LWS_JWT_AUTH_H_)
 #define _LWS_JWT_AUTH_H_
 
+#define LWS_SSO_MAX_COOKIE 4096
 struct lws_jwt_auth;
 
 /* States emitted via the callback */
@@ -77,6 +78,16 @@ lws_jwt_auth_get_sub(struct lws_jwt_auth *ja);
  */
 LWS_VISIBLE LWS_EXTERN uint32_t
 lws_jwt_auth_get_uid(struct lws_jwt_auth *ja);
+
+/**
+ * lws_jwt_auth_get_exp() - Extract the expiration timestamp
+ *
+ * \param ja: The opaque helper object
+ *
+ * \return the uint64_t expiration unix timestamp, or 0 if missing.
+ */
+LWS_VISIBLE LWS_EXTERN uint64_t
+lws_jwt_auth_get_exp(struct lws_jwt_auth *ja);
 
 /**
  * lws_jwt_auth_count_grants() - Return the scalar count of active parsed grants
