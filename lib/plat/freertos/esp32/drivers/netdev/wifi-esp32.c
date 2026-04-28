@@ -84,6 +84,7 @@ lws_netdev_wifi_connect_plat(lws_netdev_instance_t *nd, const char *ssid,
 
 	wnde32->wnd.flags |= LNDIW_MODE_STA;
 	esp_wifi_set_mode(WIFI_MODE_STA);
+	esp_wifi_set_ps(WIFI_PS_NONE);
 
 #if 0
 	/* we will do our own dhcp */
@@ -414,6 +415,7 @@ lws_netdev_plat_wifi_init(void)
 	}
 
 	 ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+	esp_wifi_set_ps(WIFI_PS_NONE);
 
 	return 0;
 }
@@ -462,6 +464,7 @@ lws_netdev_wifi_up_plat(struct lws_netdev_instance *nd)
 			  &wnde32->instance_any_id));
 
 	esp_wifi_start();
+	esp_wifi_set_ps(WIFI_PS_NONE);
 	wnde32->wnd.flags |= LNDIW_UP;
 
 	lws_smd_msg_printf(ctx, LWSSMDCL_NETWORK,
