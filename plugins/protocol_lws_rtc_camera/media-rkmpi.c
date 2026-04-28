@@ -9,6 +9,14 @@
 #include <rk_mpi_sys.h>
 #include <rk_mpi_vi.h>
 #include <rk_mpi_venc.h>
+#include <rk_mpi_mb.h>
+
+/* uClibc shim */
+#include <ctype.h>
+#include <stdio.h>
+__attribute__((visibility("default"))) const unsigned short *__ctype_b;
+__attribute__((constructor)) void init_uclibc_shims(void) { __ctype_b = *__ctype_b_loc(); }
+__attribute__((visibility("default"))) int __fputc_unlocked(int c, FILE *stream) { return fputc_unlocked(c, stream); }
 
 static int chnId = 0;
 

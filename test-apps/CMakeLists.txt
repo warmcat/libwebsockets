@@ -101,7 +101,7 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2))
 
 		# Set test app specific defines.
 		set_property(TARGET ${TEST_NAME}
-					PROPERTY COMPILE_DEFINITIONS
+					APPEND PROPERTY COMPILE_DEFINITIONS
 						INSTALL_DATADIR="${CMAKE_INSTALL_PREFIX}/share"
 					)
 
@@ -157,7 +157,7 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2))
 			# Set defines for this executable only.
 			set_property(
 				TARGET test-server-extpoll
-				PROPERTY COMPILE_DEFINITIONS 
+				APPEND PROPERTY COMPILE_DEFINITIONS 
 					INSTALL_DATADIR="${CMAKE_INSTALL_PREFIX}/share"
 				)
 

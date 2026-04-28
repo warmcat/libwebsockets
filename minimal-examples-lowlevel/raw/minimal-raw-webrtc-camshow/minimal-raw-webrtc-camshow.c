@@ -102,6 +102,26 @@ void sigint_handler(int signum) {
     interrupted = 1;
 }
 
+static int
+set_clock(lws_usec_t us)
+{
+	struct timeval tv;
+	int n;
+	tv.tv_sec = us / LWS_US_PER_SEC;
+	tv.tv_usec = us % LWS_US_PER_SEC;
+	n = settimeofday(&tv, NULL);
+	if (n) {
+		lwsl_err("%s: settimeofday failed: %d\n", __func__, n);
+		return 1;
+	}
+	lwsl_notice("%s: system time successfully updated via NTP!\n", __func__);
+	return 0;
+}
+
+static const lws_system_ops_t system_ops = {
+	.set_clock = set_clock,
+};
+
 int
 main(int argc, const char **argv)
 {
@@ -140,6 +160,12 @@ main(int argc, const char **argv)
 	info.plugin_dirs = plugin_dirs;
 #endif
 
+	info.system_ops = &system_ops;
+
+	/* Wire up cert trust bundle so wss:// connections can verify the peer */
+	info.client_ssl_ca_filepath = "/etc/ssl/certs/ca-certificates.crt";
+
+
 	/*
 	 * Provide the state_cb up front so the plugin has it when it overwrites
 	 * the pointer to point to its own op struct.
@@ -152,6 +178,7 @@ main(int argc, const char **argv)
 	vinfo.vhost_name = "camshow-clients";
 	vinfo.port = CONTEXT_PORT_NO_LISTEN;
 	vinfo.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+	vinfo.client_ssl_ca_filepath = info.client_ssl_ca_filepath;
 
 	static struct lws_webrtc_ops webrtc_ops;
 
