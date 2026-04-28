@@ -338,6 +338,8 @@ function handleResponse(data) {
             }
             // Bootstrap phase 2: now safe to fetch suffix config
             sendReq({ req: 'get_ipv6_suffix' });
+            sendReq({ req: 'get_acme_config' });
+            sendReq({ req: 'get_acme_log' });
             break;
         case 'create_domain':
             closeModal('modal-new-domain');
@@ -370,21 +372,31 @@ function handleResponse(data) {
             showToast('Zonefile updated successfully');
             document.getElementById('btn-save-zonefile').disabled = true;
             break;
-        case 'get_tls':
-            window.activeTls = data.tls || [];
-            renderZoneTable();
-            updateTlsSummary();
-            if (typeof window.updateRawEditor === 'function') {
-                window.updateRawEditor();
-            } else {
-                updateRawEditor();
+        case 'get_acme_config':
+            if (data.config) {
+                document.getElementById('cb-acme-enable').checked = data.config.enabled || false;
+                document.getElementById('cb-acme-prod').checked = data.config.production || false;
+                document.getElementById('acme-email').value = data.config.email || '';
+                document.getElementById('acme-org').value = data.config.organization || '';
+                document.getElementById('acme-country').value = data.config.country || '';
+                document.getElementById('acme-state').value = data.config.state || '';
+                document.getElementById('acme-locality').value = data.config.locality || '';
             }
             break;
-        case 'create_tls':
-        case 'delete_tls':
-            showToast(data.req === 'create_tls' ? 'TLS collection enabled' : 'TLS collection disabled');
-            // We don't fetch get_tls again because we update window.activeTls synchronously.
+        case 'set_acme_config':
+            showToast('ACME configuration saved');
             break;
+        case 'get_acme_log':
+            if (data.log) {
+                const logEl = document.getElementById('acme-log');
+                if (logEl) {
+                    logEl.value = data.log;
+                    logEl.scrollTop = logEl.scrollHeight;
+                }
+            }
+            break;
+        case 'get_tls':
+            // Removed per-domain TLS fetch
         case 'cert_status':
             window.certStatusCache[data.subdomain + ':' + data.port] = data;
             let span = document.getElementById(`cert-status-${data.subdomain}`);
@@ -1162,8 +1174,7 @@ function openEditor(id) {
 
     document.getElementById('btn-regen-cancel').onclick = () => closeModal('modal-regen-keys');
     document.getElementById('btn-dnssec-info-close').onclick = () => closeModal('modal-dnssec-info');
-    document.getElementById('btn-tls-details-close').onclick = () => closeModal('modal-tls-details');
-    document.getElementById('btn-regen-replace').onclick = () => {
+    // Legacy modal close handlers removed    document.getElementById('btn-regen-replace').onclick = () => {
         const keyType = document.getElementById('select-regen-key-type').value;
         if (currentDomain) {
             sendReq({ req: 'regen_keys', domain: currentDomain, key_type: keyType });
@@ -1247,6 +1258,22 @@ function openEditor(id) {
             window.ipv6_suffix = val;
             sendReq({ req: 'set_ipv6_suffix', suffix: val });
             if (window.last_extip_data) handleResponse({ status:'ok', req:'extip_update', data:window.last_extip_data });
+        };
+    }
+
+    const btnAcmeSave = document.getElementById('btn-acme-save');
+    if (btnAcmeSave) {
+        btnAcmeSave.onclick = () => {
+            sendReq({
+                req: 'set_acme_config',
+                enabled: document.getElementById('cb-acme-enable').checked,
+                production: document.getElementById('cb-acme-prod').checked,
+                email: document.getElementById('acme-email').value.trim(),
+                organization: document.getElementById('acme-org').value.trim(),
+                country: document.getElementById('acme-country').value.trim(),
+                state: document.getElementById('acme-state').value.trim(),
+                locality: document.getElementById('acme-locality').value.trim()
+            });
         };
     }
 });
