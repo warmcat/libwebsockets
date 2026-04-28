@@ -11,7 +11,7 @@ The WebRTC mixer plugin relies heavily on `protocol_lws_webrtc`. While `protocol
 Video decoding, composition, and encoding (H.264/AV1) are handled entirely by GStreamer. This enables hardware-accelerated media pipelines that drastically reduce CPU usage and memory footprint compared to software-based transcoding.
 
 ### Build Requirements
-To compile the mixer plugin, you must enable `LWS_WITH_GSTREAMER=ON` in CMake and install the GStreamer development headers:
+To compile the mixer plugin, you must enable `LWS_WITH_WEBRTC_MIXER=ON` in CMake and install the GStreamer development headers:
 - **Debian/Ubuntu**: `sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev`
 - **Fedora/RHEL**: `sudo dnf install gstreamer1-devel gstreamer1-plugins-base-devel`
 
