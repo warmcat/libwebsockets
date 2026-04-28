@@ -19,4 +19,7 @@ create_plugin(protocol_lws_rtc_camera "" "${PLUGIN_SRCS}" "" "")
 
 if (NOT LWS_WITH_PLUGINS_BUILTIN)
 	target_compile_definitions(protocol_lws_rtc_camera PRIVATE LWS_BUILDING_SHARED)
+	if (LWS_WITH_MEDIA_RK_MPI)
+		target_link_libraries(protocol_lws_rtc_camera ${ROCKCHIP_MPI_LIB} ${ROCKCHIP_MPP_LIB})
+	endif()
 endif()

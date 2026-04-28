@@ -75,6 +75,7 @@ struct vhd_deaddrop {
 	struct lwsac			*lwsac_head;
 	struct dir_entry		*dire_head;
 	int				filelist_version;
+	int				userlist_version;
 
 	unsigned long long		max_size;
 
@@ -95,6 +96,7 @@ struct pss_deaddrop {
 	char				browser[32];
 	char				user[64];
 	char				tab_id[32];
+	char				ip[46];
 	unsigned long long		file_length;
 	lws_filefd_type			fd;
 	int				response_code;
@@ -104,11 +106,15 @@ struct pss_deaddrop {
 	struct lwsac			*lwsac_head;
 	struct dir_entry		*dire;
 	int				filelist_version;
+	int				userlist_version;
+	int				sending_filelist_version;
+	int				sending_userlist_version;
 
 	uint8_t				completed:1;
 	uint8_t				sent_headers:1;
 	uint8_t				sent_body:1;
 	uint8_t				first:1;
+	uint8_t				sent_initial:1;
 	uint8_t				ws_ongoing_send:1;
 	uint8_t				has_star_grant:1;
 };
@@ -128,7 +134,7 @@ enum enum_param_names {
 };
 
 static void
-parse_user_agent(const char *ua, char *platform, size_t plat_len,
+deaddrop_parse_user_agent(const char *ua, char *platform, size_t plat_len,
 		 char *browser, size_t browser_len)
 {
 	lws_strncpy(platform, "Unknown", plat_len);
@@ -158,7 +164,7 @@ parse_user_agent(const char *ua, char *platform, size_t plat_len,
 }
 
 static int
-de_mtime_sort(lws_list_ptr a, lws_list_ptr b)
+deaddrop_de_mtime_sort(lws_list_ptr a, lws_list_ptr b)
 {
 	struct dir_entry *p1 = lp_to_dir_entry(a, next),
 			 *p2 = lp_to_dir_entry(b, next);
@@ -167,7 +173,7 @@ de_mtime_sort(lws_list_ptr a, lws_list_ptr b)
 }
 
 static void
-start_sending_dir(struct pss_deaddrop *pss)
+deaddrop_start_sending_dir(struct pss_deaddrop *pss)
 {
 	if (pss->lwsac_head)
 		lwsac_unreference(&pss->lwsac_head);
@@ -176,26 +182,39 @@ start_sending_dir(struct pss_deaddrop *pss)
 		lwsac_reference(pss->vhd->lwsac_head);
 	pss->lwsac_head = pss->vhd->lwsac_head;
 	pss->dire = pss->vhd->dire_head;
-	pss->filelist_version = pss->vhd->filelist_version;
+	pss->sending_filelist_version = pss->vhd->filelist_version;
+	pss->sending_userlist_version = pss->vhd->userlist_version;
 	pss->first = 1;
 	pss->ws_ongoing_send = 1;
 }
 
 static void
-broadcast_state_update(struct vhd_deaddrop *vhd)
+deaddrop_broadcast_userlist_update(struct vhd_deaddrop *vhd)
 {
-	vhd->filelist_version++; /* Invalidate client cache */
+	vhd->userlist_version++;
 
 	lws_start_foreach_llp(struct pss_deaddrop **, ppss, vhd->pss_head) {
 		if (!(*ppss)->ws_ongoing_send)
-			start_sending_dir(*ppss);
+			deaddrop_start_sending_dir(*ppss);
+		lws_callback_on_writable((*ppss)->wsi);
+	} lws_end_foreach_llp(ppss, pss_list);
+}
+
+static void
+deaddrop_broadcast_filelist_update(struct vhd_deaddrop *vhd)
+{
+	vhd->filelist_version++;
+
+	lws_start_foreach_llp(struct pss_deaddrop **, ppss, vhd->pss_head) {
+		if (!(*ppss)->ws_ongoing_send)
+			deaddrop_start_sending_dir(*ppss);
 		lws_callback_on_writable((*ppss)->wsi);
 	} lws_end_foreach_llp(ppss, pss_list);
 }
 
 
 static int
-scan_upload_dir(struct vhd_deaddrop *vhd)
+deaddrop_scan_upload_dir(struct vhd_deaddrop *vhd)
 {
 	char filepath[512], *p_owner_end;
 	struct lwsac *lwsac_head = NULL;
@@ -252,10 +271,28 @@ scan_upload_dir(struct vhd_deaddrop *vhd)
 
 		memcpy(&dire[1], de->d_name, m);
 
-		lws_list_ptr_insert(&sorted_head, &dire->next, de_mtime_sort);
+		lws_list_ptr_insert(&sorted_head, &dire->next, deaddrop_de_mtime_sort);
 	}
 
 	closedir(dir);
+
+	int changed = 0;
+	struct dir_entry *old_dire = vhd->dire_head;
+	struct dir_entry *new_dire = sorted_head ? lp_to_dir_entry(sorted_head, next) : NULL;
+
+	while (old_dire && new_dire) {
+		if (old_dire->size != new_dire->size ||
+		    old_dire->mtime != new_dire->mtime ||
+		    strcmp(old_dire->user, new_dire->user) ||
+		    strcmp((const char *)&old_dire[1], (const char *)&new_dire[1])) {
+			changed = 1;
+			break;
+		}
+		old_dire = lp_to_dir_entry(old_dire->next, next);
+		new_dire = lp_to_dir_entry(new_dire->next, next);
+	}
+	if (old_dire || new_dire)
+		changed = 1;
 
 	/* the old lwsac continues to live while someone else is consuming it */
 	if (vhd->lwsac_head)
@@ -268,13 +305,14 @@ scan_upload_dir(struct vhd_deaddrop *vhd)
 	else
 		vhd->dire_head = NULL;
 
-	broadcast_state_update(vhd);
+	if (changed)
+		deaddrop_broadcast_filelist_update(vhd);
 
 	return 0;
 }
 
 static int
-file_upload_cb(void *data, const char *name, const char *filename,
+deaddrop_file_upload_cb(void *data, const char *name, const char *filename,
 	       char *buf, int _len, enum lws_spa_fileupload_states state)
 {
 	lwsl_warn("%s: entered, state %d, pss->user: '%s'\n", __func__,
@@ -360,7 +398,7 @@ file_upload_cb(void *data, const char *name, const char *filename,
 
 		pss->fd = LWS_INVALID_FILE;
 		pss->response_code = HTTP_STATUS_OK;
-		scan_upload_dir(pss->vhd);
+		deaddrop_scan_upload_dir(pss->vhd);
 
 		break;
 	case LWS_UFS_CLOSE:
@@ -375,7 +413,7 @@ file_upload_cb(void *data, const char *name, const char *filename,
  */
 
 static int
-format_result(struct pss_deaddrop *pss)
+deaddrop_format_result(struct pss_deaddrop *pss)
 {
 	/*
 	 * We don't want to send any entity body back for the upload
@@ -388,7 +426,7 @@ format_result(struct pss_deaddrop *pss)
 
 
 static int
-handler_server_protocol_init(struct lws *wsi, void *in)
+deaddrop_handler_server_protocol_init(struct lws *wsi, void *in)
 {
 	struct vhd_deaddrop *vhd;
 	const char *cp;
@@ -455,7 +493,7 @@ handler_server_protocol_init(struct lws *wsi, void *in)
 	}
 #endif
 
-	scan_upload_dir(vhd);
+	deaddrop_scan_upload_dir(vhd);
 
 	lwsl_notice("  deaddrop: vh %s, upload dir %s, max size %llu\n",
 		    lws_get_vhost_name(vhd->vh), vhd->upload_dir,
@@ -465,7 +503,7 @@ handler_server_protocol_init(struct lws *wsi, void *in)
 }
 
 static void
-handler_server_protocol_destroy(struct vhd_deaddrop *vhd)
+deaddrop_handler_server_protocol_destroy(struct vhd_deaddrop *vhd)
 {
 	if (!vhd)
 		return;
@@ -481,7 +519,7 @@ handler_server_protocol_destroy(struct vhd_deaddrop *vhd)
 }
 
 static int
-handler_server_http(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
+deaddrop_handler_server_http(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 		    struct lws *wsi)
 {
 	char *uri_ptr;
@@ -532,14 +570,14 @@ handler_server_http(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 }
 
 static int
-handler_server_http_body(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
+deaddrop_handler_server_http_body(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 			 struct lws *wsi, void *in, size_t len)
 {
 	/* create the POST argument parser if not already existing */
 	if (!pss->spa) {
 		pss->spa = lws_spa_create(wsi, param_names,
 					  LWS_ARRAY_SIZE(param_names),
-					  1024, file_upload_cb, pss);
+					  1024, deaddrop_file_upload_cb, pss);
 		if (!pss->spa)
 			return -1;
 
@@ -562,7 +600,7 @@ handler_server_http_body(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 }
 
 static void
-handler_server_http_body_completion(struct pss_deaddrop *pss, struct lws *wsi)
+deaddrop_handler_server_http_body_completion(struct pss_deaddrop *pss, struct lws *wsi)
 {
 	/* call to inform no more payload data coming */
 	lws_spa_finalize(pss->spa);
@@ -572,7 +610,7 @@ handler_server_http_body_completion(struct pss_deaddrop *pss, struct lws *wsi)
 }
 
 static int
-handler_server_http_writeable(struct vhd_deaddrop *vhd,
+deaddrop_handler_server_http_writeable(struct vhd_deaddrop *vhd,
 			      struct pss_deaddrop *pss, struct lws *wsi)
 {
 	uint8_t buf[LWS_PRE + 2048], *start = &buf[LWS_PRE], *p = start,
@@ -586,7 +624,7 @@ handler_server_http_writeable(struct vhd_deaddrop *vhd,
 	end = p + sizeof(pss->result) - LWS_PRE - 1;
 
 	if (!pss->sent_headers) {
-		int n = format_result(pss);
+		int n = deaddrop_format_result(pss);
 
 		if (lws_add_http_header_status(wsi,
 				(unsigned int)pss->response_code,
@@ -616,7 +654,7 @@ handler_server_http_writeable(struct vhd_deaddrop *vhd,
 	}
 
 	if (!pss->sent_body) {
-		int n = format_result(pss);
+		int n = deaddrop_format_result(pss);
 		n = lws_write(wsi, (unsigned char *)start, (unsigned int)n,
 			      LWS_WRITE_HTTP_FINAL);
 
@@ -632,7 +670,7 @@ handler_server_http_writeable(struct vhd_deaddrop *vhd,
 }
 
 static int
-handler_server_raw_file_rx(struct vhd_deaddrop *vhd, struct lws *wsi)
+deaddrop_handler_server_raw_file_rx(struct vhd_deaddrop *vhd, struct lws *wsi)
 {
 #if defined(__linux__)
 	char ev_buf[1024];
@@ -645,7 +683,7 @@ handler_server_raw_file_rx(struct vhd_deaddrop *vhd, struct lws *wsi)
 
 	n = (int)read(fd, ev_buf, sizeof(ev_buf));
 	lwsl_info("%s: inotify event (%d), rescanning upload dir\n", __func__, n);
-	scan_upload_dir(vhd);
+	deaddrop_scan_upload_dir(vhd);
 
 	return n;
 #else
@@ -654,7 +692,7 @@ handler_server_raw_file_rx(struct vhd_deaddrop *vhd, struct lws *wsi)
 }
 
 static int
-handler_server_ws_filter_protocol_connection(struct vhd_deaddrop *vhd,
+deaddrop_handler_server_ws_filter_protocol_connection(struct vhd_deaddrop *vhd,
 					     struct pss_deaddrop *pss, struct lws *wsi)
 {
 	char ua_buf[256];
@@ -730,13 +768,13 @@ handler_server_ws_filter_protocol_connection(struct vhd_deaddrop *vhd,
 				}
 			}
 		}
-		if (!pss->user[0])
-			lwsl_wsi_warn(wsi, "WS filter: no auth\n");
+		// if (!pss->user[0])
+		//	lwsl_wsi_warn(wsi, "WS filter: no auth\n");
 	}
 
 	if (lws_hdr_copy(wsi, ua_buf, sizeof(ua_buf),
 			 WSI_TOKEN_HTTP_USER_AGENT) > 0)
-		parse_user_agent(ua_buf, pss->platform,  sizeof(pss->platform),
+		deaddrop_parse_user_agent(ua_buf, pss->platform,  sizeof(pss->platform),
 				 pss->browser, sizeof(pss->browser));
 
 	if (lws_get_urlarg_by_name_safe(wsi, "tabId=", pss->tab_id, sizeof(pss->tab_id)) < 0)
@@ -746,44 +784,27 @@ handler_server_ws_filter_protocol_connection(struct vhd_deaddrop *vhd,
 }
 
 static void
-handler_server_ws_established(struct vhd_deaddrop *vhd,
+deaddrop_handler_server_ws_established(struct vhd_deaddrop *vhd,
 			      struct pss_deaddrop *pss, struct lws *wsi)
 {
 	pss->vhd		= vhd;
 	pss->wsi		= wsi;
 
-	/*
-	 * Browsers like Chrome sometimes hold zombie WS connections on refresh.
-	 * If we detect a new connection presenting the same tab ID from the same IP
-	 * and user, unilaterally kill the zombie old connection.
-	 */
-	if (pss->tab_id[0]) {
-		char ip[46];
-		lws_get_peer_simple(wsi, ip, sizeof(ip));
-		lws_start_foreach_llp(struct pss_deaddrop **, ppss, vhd->pss_head) {
-			if ((*ppss)->wsi && (*ppss)->wsi != wsi &&
-			    !strcmp((*ppss)->tab_id, pss->tab_id) &&
-			    !strcmp((*ppss)->user, pss->user)) {
-			    char oip[46];
-			    lws_get_peer_simple((*ppss)->wsi, oip, sizeof(oip));
-			    if (!strcmp(ip, oip)) {
-					lwsl_notice("%s: killing zombie WS for tab %s\n", __func__, pss->tab_id);
-					lws_set_timeout((*ppss)->wsi, 1, LWS_TO_KILL_ASYNC);
-				}
-			}
-		} lws_end_foreach_llp(ppss, pss_list);
-	}
+	lws_get_peer_simple(wsi, pss->ip, sizeof(pss->ip));
 
 	/* add ourselves to the list of live pss held in the vhd */
 	pss->pss_list		= vhd->pss_head;
 	vhd->pss_head		= pss;
 
-	broadcast_state_update(vhd);
+	deaddrop_broadcast_userlist_update(vhd);
 }
 
 static void
-handler_server_ws_closed(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss)
+deaddrop_handler_server_ws_closed(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss)
 {
+	lwsl_notice("%s: WS connection closed (user: '%s', ip: %s)\n",
+		    __func__, pss->user, pss->ip);
+
 	if (pss->lwsac_head)
 		lwsac_unreference(&pss->lwsac_head);
 	/* remove our closing pss from the list of live pss */
@@ -795,11 +816,11 @@ handler_server_ws_closed(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss)
 		}
 	} lws_end_foreach_llp(ppss, pss_list);
 
-	broadcast_state_update(vhd);
+	deaddrop_broadcast_userlist_update(vhd);
 }
 
 static void
-handler_server_ws_rx(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
+deaddrop_handler_server_ws_rx(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 		     struct lws *wsi, void *in, size_t len)
 {
 #if defined(__linux__)
@@ -867,11 +888,11 @@ handler_server_ws_rx(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 		lwsl_err("%s: unlink %s failed: %s\n", __func__,
 				path, strerror(errno));
 
-	scan_upload_dir(vhd);
+	deaddrop_scan_upload_dir(vhd);
 }
 
 static int
-handler_server_ws_writeable(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
+deaddrop_handler_server_ws_writeable(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 			    struct lws *wsi)
 {
 	uint8_t buf[LWS_PRE + LWS_RECOMMENDED_MIN_HEADER_SPACE],
@@ -883,42 +904,51 @@ handler_server_ws_writeable(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 	if (!pss->ws_ongoing_send)
 		return 0;
 
+	int send_users = (pss->userlist_version != pss->sending_userlist_version) || !pss->sent_initial;
+	int send_files = (pss->filelist_version != pss->sending_filelist_version) || !pss->sent_initial;
+
 	if (pss->first) {
 		p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
-				  "{\"max_size\":%llu, \"user\":\"%s\", \"cookie\":\"%s\", ",
+				  "{\"max_size\":%llu, \"user\":\"%s\", \"cookie\":\"%s\"",
 				  vhd->max_size,
 				  pss->user[0] ? pss->user : "",
 				  vhd->cookie_name);
 
-		p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
-				  "\"connected_users\":[");
+		if (send_users) {
+			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
+					  ", \"connected_users\":[");
 
-		int first_user = 1;
-		lws_start_foreach_llp(struct pss_deaddrop **, ppss,
-				      vhd->pss_head) {
-			char ip[46];
+			int first_user = 1;
+			lws_start_foreach_llp(struct pss_deaddrop **, ppss,
+					      vhd->pss_head) {
+				/* Only list authenticated connections */
+				if ((*ppss)->wsi && (*ppss)->user[0]) {
+					p += lws_snprintf((char *)p,
+							  lws_ptr_diff_size_t(end, p),
+						"%c{\"user\":\"%s\", \"ip\":\"%s\", "
+						"\"platform\":\"%s\", \"browser\":\"%s\"%s%s}",
+						first_user ? ' ' : ',',
+						(*ppss)->user, (*ppss)->ip, (*ppss)->platform,
+						(*ppss)->browser,
+						(*ppss)->has_star_grant ? ", \"is_admin\":1" : "",
+						((*ppss) == pss) ? ", \"is_self\":1" : "");
 
-			/* Only list authenticated connections */
-			if ((*ppss)->wsi && (*ppss)->user[0]) {
-				lws_get_peer_simple((*ppss)->wsi, ip, sizeof(ip));
+					first_user = 0;
+				}
+			} lws_end_foreach_llp(ppss, pss_list);
 
-				p += lws_snprintf((char *)p,
-						  lws_ptr_diff_size_t(end, p),
-					"%c{\"user\":\"%s\", \"ip\":\"%s\", "
-					"\"platform\":\"%s\", \"browser\":\"%s\"%s%s}",
-					first_user ? ' ' : ',',
-					(*ppss)->user, ip, (*ppss)->platform,
-					(*ppss)->browser,
-					(*ppss)->has_star_grant ? ", \"is_admin\":1" : "",
-					((*ppss) == pss) ? ", \"is_self\":1" : "");
+			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "]");
+		}
 
-				first_user = 0;
-			}
-		} lws_end_foreach_llp(ppss, pss_list);
-
-		p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
-				  "], \"files\": [");
-		was = 1;
+		if (send_files) {
+			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
+					  ", \"files\": [");
+			was = 1;
+		} else {
+			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "}");
+			pss->dire = NULL;
+			was = 1;
+		}
 	}
 
 	n = 5;
@@ -941,12 +971,14 @@ handler_server_ws_writeable(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 
 		p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
 				  "%c{\"name\":\"%s\", "
+				  "\"uploader\":\"%s\","
 				  "\"size\":%llu,"
 				  "\"mtime\":%llu,"
 				  "\"yours\":%d,"
 				  "\"is_text\":%d}",
 				  pss->first ? ' ' : ',',
 				  fname,
+				  pss->dire->user,
 				  pss->dire->size,
 				  (unsigned long long)pss->dire->mtime,
 				  is_yours, is_text);
@@ -955,13 +987,19 @@ handler_server_ws_writeable(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 	}
 
 	if (!pss->dire) {
-		p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
-				  "]}");
+		int send_files = (pss->filelist_version != pss->sending_filelist_version) || !pss->sent_initial;
+		if (send_files) {
+			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
+					  "]}");
+		}
 		if (pss->lwsac_head) {
 			lwsac_unreference(&pss->lwsac_head);
 			pss->lwsac_head = NULL;
 		}
 		pss->ws_ongoing_send = 0;
+		pss->sent_initial = 1;
+		pss->userlist_version = pss->sending_userlist_version;
+		pss->filelist_version = pss->sending_filelist_version;
 	}
 
 	n = lws_write(wsi, start, lws_ptr_diff_size_t(p, start),
@@ -978,10 +1016,11 @@ handler_server_ws_writeable(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 
 	/* ie, we finished */
 
-	if (pss->filelist_version != pss->vhd->filelist_version) {
+	if (pss->filelist_version != pss->vhd->filelist_version ||
+	    pss->userlist_version != pss->vhd->userlist_version) {
 		lwsl_info("%s: restart send\n", __func__);
 		/* what we just sent is already out of date */
-		start_sending_dir(pss);
+		deaddrop_start_sending_dir(pss);
 		lws_callback_on_writable(wsi);
 	}
 
@@ -989,7 +1028,7 @@ handler_server_ws_writeable(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 }
 
 static int
-callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
+_deaddrop_callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 		  void *user, void *in, size_t len)
 {
 	struct vhd_deaddrop *vhd = (struct vhd_deaddrop *)
@@ -1004,56 +1043,56 @@ callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!in)
 			return 0;
 
-		handler_server_protocol_init(wsi, in);
+		deaddrop_handler_server_protocol_init(wsi, in);
 		break;
 
 	case LWS_CALLBACK_HTTP:
-		if (!handler_server_http(vhd, pss, wsi))
+		if (!deaddrop_handler_server_http(vhd, pss, wsi))
 			return 0;
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
-		handler_server_protocol_destroy(vhd);
+		deaddrop_handler_server_protocol_destroy(vhd);
 		break;
 
 	case LWS_CALLBACK_RAW_RX_FILE:
-		handler_server_raw_file_rx(vhd, wsi);
+		deaddrop_handler_server_raw_file_rx(vhd, wsi);
 		break;
 
 	/* WS-related */
 
 	case LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION:
-		if (handler_server_ws_filter_protocol_connection(vhd, pss, wsi))
+		if (deaddrop_handler_server_ws_filter_protocol_connection(vhd, pss, wsi))
 			return 1;
 		return 0;
 
 	case LWS_CALLBACK_ESTABLISHED:
-		handler_server_ws_established(vhd, pss, wsi);
+		deaddrop_handler_server_ws_established(vhd, pss, wsi);
 		return 0;
 
 	case LWS_CALLBACK_CLOSED:
-		handler_server_ws_closed(vhd, pss);
+		deaddrop_handler_server_ws_closed(vhd, pss);
 		return 0;
 
 	case LWS_CALLBACK_RECEIVE:
-		handler_server_ws_rx(vhd, pss, wsi, in, len);
+		deaddrop_handler_server_ws_rx(vhd, pss, wsi, in, len);
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
-		handler_server_ws_writeable(vhd, pss, wsi);
+		deaddrop_handler_server_ws_writeable(vhd, pss, wsi);
 		return 0;
 
 	/* POST-related */
 
 	case LWS_CALLBACK_HTTP_BODY:
-		return handler_server_http_body(vhd, pss, wsi, in, len);
+		return deaddrop_handler_server_http_body(vhd, pss, wsi, in, len);
 
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
-		handler_server_http_body_completion(pss, wsi);
+		deaddrop_handler_server_http_body_completion(pss, wsi);
 		return 0;
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
-		switch (handler_server_http_writeable(vhd, pss, wsi)) {
+		switch (deaddrop_handler_server_http_writeable(vhd, pss, wsi)) {
 		case 0:
 			return 0;
 		case 1:
@@ -1088,10 +1127,37 @@ try_to_reuse:
 	return 0;
 }
 
+static int
+deaddrop_callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
+		  void *user, void *in, size_t len)
+{
+	int r = _deaddrop_callback_deaddrop(wsi, reason, user, in, len);
+
+	if (reason == LWS_CALLBACK_CLOSED) {
+		lwsl_notice("%s: LWS_CALLBACK_CLOSED on wsi %p\n", __func__, wsi);
+	} else if (reason == LWS_CALLBACK_WS_PEER_INITIATED_CLOSE) {
+		lwsl_notice("%s: LWS_CALLBACK_WS_PEER_INITIATED_CLOSE on wsi %p (len %d)\n", __func__, wsi, (int)len);
+	} else if (reason == LWS_CALLBACK_WSI_DESTROY) {
+		lwsl_notice("%s: LWS_CALLBACK_WSI_DESTROY on wsi %p\n", __func__, wsi);
+	} else if (reason == LWS_CALLBACK_TIMER) {
+		lwsl_notice("%s: LWS_CALLBACK_TIMER on wsi %p\n", __func__, wsi);
+	} else if (reason == LWS_CALLBACK_RECEIVE_PONG) {
+		lwsl_notice("%s: RECEIVED PONG on wsi %p\n", __func__, wsi);
+	}
+
+	if (r && reason != LWS_CALLBACK_HTTP_WRITEABLE &&
+	    reason != LWS_CALLBACK_SERVER_WRITEABLE &&
+	    reason != LWS_CALLBACK_HTTP_BODY) {
+		lwsl_notice("%s: returning %d for reason %d on wsi %p\n", __func__, r, reason, wsi);
+	}
+
+	return r;
+}
+
 #define LWS_PLUGIN_PROTOCOL_DEADDROP \
 	{ \
 		"lws-deaddrop", \
-		callback_deaddrop, \
+		deaddrop_callback_deaddrop, \
 		sizeof(struct pss_deaddrop), \
 		1024, \
 		0, NULL, 0 \

@@ -610,12 +610,18 @@ lws_x509_create_self_signed(struct lws_context *context,
 			goto bail;
 	}
 
-	if (mbedtls_pk_setup(&key, mbedtls_pk_info_from_type(MBEDTLS_PK_RSA)))
+	ret = mbedtls_pk_setup(&key, mbedtls_pk_info_from_type(MBEDTLS_PK_RSA));
+	if (ret) {
+		lwsl_err("%s: pk_setup failed %d\n", __func__, ret);
 		goto bail;
+	}
 
-	if (mbedtls_rsa_gen_key(mbedtls_pk_rsa(key), mbedtls_ctr_drbg_random, pdrbg,
-				(unsigned int)key_bits, 65537))
+	ret = mbedtls_rsa_gen_key(mbedtls_pk_rsa(key), mbedtls_ctr_drbg_random, pdrbg,
+				(unsigned int)key_bits, 65537);
+	if (ret) {
+		lwsl_err("%s: rsa_gen_key failed %d\n", __func__, ret);
 		goto bail;
+	}
 
 	mbedtls_x509write_crt_set_version(&crt, MBEDTLS_X509_CRT_VERSION_3);
 	mbedtls_x509write_crt_set_subject_key(&crt, &key);
@@ -676,7 +682,10 @@ lws_x509_create_self_signed(struct lws_context *context,
 
 	/* Cert Output */
 	len = mbedtls_x509write_crt_der(&crt, buf, sizeof(buf), mbedtls_ctr_drbg_random, pdrbg);
-	if (len < 0) goto bail;
+	if (len < 0) {
+		lwsl_err("%s: crt_der failed %d\n", __func__, len);
+		goto bail;
+	}
 
 	/* mbedtls writes to end of buffer */
 	*cert_buf = malloc((size_t)len);

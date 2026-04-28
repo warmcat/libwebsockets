@@ -1174,7 +1174,8 @@ function openEditor(id) {
 
     document.getElementById('btn-regen-cancel').onclick = () => closeModal('modal-regen-keys');
     document.getElementById('btn-dnssec-info-close').onclick = () => closeModal('modal-dnssec-info');
-    // Legacy modal close handlers removed    document.getElementById('btn-regen-replace').onclick = () => {
+    // Legacy modal close handlers removed
+    document.getElementById('btn-regen-replace').onclick = () => {
         const keyType = document.getElementById('select-regen-key-type').value;
         if (currentDomain) {
             sendReq({ req: 'regen_keys', domain: currentDomain, key_type: keyType });

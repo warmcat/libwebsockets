@@ -2144,7 +2144,7 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 	for (size_t i = 0; i < req_map_size; i++) {
 		if (!strcmp(a.req, req_map[i].name)) {
 			/* Enforce domain param if required by the handler */
-			if (i > 0 && !a.domain[0] && strcmp(req_map[i].name, "status") && strcmp(req_map[i].name, "get_domains") && strcmp(req_map[i].name, "get_ipv6_suffix") && strcmp(req_map[i].name, "set_ipv6_suffix")) {
+			if (i > 0 && !a.domain[0] && strcmp(req_map[i].name, "status") && strcmp(req_map[i].name, "get_domains") && strcmp(req_map[i].name, "get_ipv6_suffix") && strcmp(req_map[i].name, "set_ipv6_suffix") && strcmp(req_map[i].name, "get_acme_config") && strcmp(req_map[i].name, "set_acme_config") && strcmp(req_map[i].name, "get_acme_log")) {
 				lwsl_notice("[INSTRUMENT] handle_monitor_request: Missing required 'domain' param for %s\n", a.req);
 				root_pss->tx_len = (size_t)lws_snprintf(tx, 65536, "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Missing arguments\"}\n", a.req);
 				goto done;

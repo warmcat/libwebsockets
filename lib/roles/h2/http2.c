@@ -998,8 +998,10 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		if (lwsi_role_client(wsi))
 			lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT,
 					(int)wsi->a.context->timeout_secs);
-		else
+		else {
+			
 			lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE, ds);
+		}
 	}
 	if (h2n->sid)
 		h2n->swsi = lws_wsi_mux_from_id(wsi, h2n->sid);
@@ -2196,10 +2198,12 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 				 * subs are active... our frame may take a long
 				 * time to chew through
 				 */
-				if (!wsi->immortal_substream_count)
+				if (!wsi->immortal_substream_count) {
+					
 					lws_set_timeout(wsi,
 						PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE,
 						lws_wsi_keepalive_timeout_eff(wsi));
+				}
 
 				if (!h2n->swsi || h2n->swsi->socket_is_permanently_unusable)
 					break;
