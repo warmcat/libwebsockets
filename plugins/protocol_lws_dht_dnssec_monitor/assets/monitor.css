@@ -200,6 +200,7 @@ main {
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  overflow-y: auto;
 }
 
 .panel-header {
@@ -301,14 +302,11 @@ main {
 }
 
 .domain-panel .table-container {
-  overflow-y: auto;
-  flex: 1;
+  flex: 0 0 auto;
 }
 
 .detail-panel .table-container {
-  flex: 1 1 0%;
-  min-height: 0;
-  overflow-y: auto;
+  flex: 0 0 auto;
 }
 
 table {

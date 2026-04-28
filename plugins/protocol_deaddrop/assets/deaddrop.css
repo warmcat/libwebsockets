@@ -152,3 +152,21 @@ img.delbtn {
 .connected-users {
 	margin-top: 2em;
 }
+
+@keyframes fadeIn {
+	from { opacity: 0; background-color: #ffff99; }
+	to { opacity: 1; background-color: transparent; }
+}
+
+@keyframes fadeOut {
+	from { opacity: 1; }
+	to { opacity: 0; }
+}
+
+.fade-in {
+	animation: fadeIn 1.5s ease-out;
+}
+
+.fade-out {
+	animation: fadeOut 0.5s ease-out forwards;
+}

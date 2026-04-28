@@ -668,7 +668,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 
 #if defined(LWS_WITH_NETWORK)
-	context->event_loop_ops = plev->ops; fprintf(stderr, "context.c: sizeof(struct lws_context)=%zu, ev_ops_offset=%zu\n", sizeof(struct lws_context), ((size_t)&context->event_loop_ops - (size_t)context));
+	context->event_loop_ops = plev->ops;
 	context->us_wait_resolution = us_wait_resolution;
 	context->wol_if = info->wol_if;
 #if defined(LWS_WITH_TLS_JIT_TRUST)

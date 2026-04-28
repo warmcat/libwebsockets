@@ -322,7 +322,7 @@ struct lws *__lws_wsi_create_with_role(struct lws_context *context, int tsi,
 }
 
 int lws_wsi_inject_to_loop(struct lws_context_per_thread *pt, struct lws *wsi) {
-	int ret = 1; fprintf(stderr, "wsi.c: pt->context=%p, ev_ops=%p\n", pt->context, pt->context->event_loop_ops);
+	int ret = 1;
 
 	lws_pt_lock(pt, __func__); /* -------------- pt { */
 
@@ -1301,7 +1301,7 @@ void lws_mux_mark_immortal(struct lws *wsi) {
 
 	wsi->mux_stream_immortal = 1;
 	assert(nwsi->immortal_substream_count < 255); /* largest count */
-	nwsi->immortal_substream_count++;
+	 nwsi->immortal_substream_count++;
 	if (nwsi->immortal_substream_count == 1)
 		lws_set_timeout(nwsi, NO_PENDING_TIMEOUT, 0);
 }

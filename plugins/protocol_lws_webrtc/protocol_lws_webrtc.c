@@ -2407,7 +2407,8 @@ callback_webrtc_udp(struct lws *wsi, enum lws_callback_reasons reason,
 	if (reason == LWS_CALLBACK_PROTOCOL_INIT) {
 		const struct lws_protocols *p;
 
-		// lwsl_vhost_notice(lws_get_vhost(wsi), "plugin 'lws-webrtc-udp' PROTOCOL_INIT\n");
+		if (!in)
+			return 0;
 
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi), lws_get_protocol(wsi), sizeof(struct vhd_webrtc_udp));
 		if (!vhd)
@@ -2437,7 +2438,7 @@ callback_webrtc(struct lws *wsi, enum lws_callback_reasons reason,
 	if (reason == LWS_CALLBACK_PROTOCOL_INIT) {
 
 		if (!in)
-			return -1;
+			return 0;
 
 		lwsl_vhost_notice(lws_get_vhost(wsi), "plugin 'lws-webrtc' PROTOCOL_INIT\n");
 

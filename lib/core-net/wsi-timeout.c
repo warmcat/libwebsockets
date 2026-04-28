@@ -139,6 +139,12 @@ __lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
+	if (reason == PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE && secs > 0) {
+		if (wsi->immortal_substream_count > 0) {
+			lwsl_wsi_info(wsi, "Refusing to set idle keepalive timeout because it has %d immortal substreams", wsi->immortal_substream_count);
+			return;
+		}
+	}
 	wsi->sul_timeout.cb = lws_sul_wsitimeout_cb;
 	__lws_sul_insert_us(&pt->pt_sul_owner[LWSSULLI_MISS_IF_SUSPENDED],
 			    &wsi->sul_timeout,
@@ -173,7 +179,13 @@ lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs)
 	if (secs == LWS_TO_KILL_ASYNC)
 		secs = 0;
 
-	// assert(!secs || !wsi->mux_stream_immortal);
+	if (reason == PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE && secs > 0) {
+		if (wsi->immortal_substream_count > 0) {
+			lwsl_wsi_info(wsi, "Refusing to set idle keepalive timeout because it has %d immortal substreams", wsi->immortal_substream_count);
+			lws_context_unlock(pt->context);
+			return;
+		}
+	}
 	if (secs && wsi->mux_stream_immortal)
 		lwsl_wsi_err(wsi, "on immortal stream %d %d", reason, secs);
 
@@ -218,6 +230,8 @@ lws_validity_cb(lws_sorted_usec_list_t *sul)
 	/* one of either the ping or hangup validity threshold was crossed */
 
 	if (wsi->validity_hup) {
+		lwsl_notice("%s: VALIDITY TIMEOUT EXPIRED ON WSI %p! Server is closing connection. (ping=%d, hangup=%d)\n", 
+			    __func__, wsi, rbo ? rbo->secs_since_valid_ping : 0, rbo ? rbo->secs_since_valid_hangup : 0);
 		lwsl_wsi_err(wsi, "validity too old");
 		struct lws_context *cx = wsi->a.context;
 		struct lws_context_per_thread *pt = &cx->pt[(int)wsi->tsi];

@@ -282,6 +282,66 @@
 		sessionStorage.setItem('ddTabId', tabId);
 	}
 
+	function updateTable(tbodyId, rowDataArray, rowIdFn, createRowHtmlFn, postUpdateFn) {
+		var tbody = document.getElementById(tbodyId);
+		if (!tbody) return;
+
+		var existingRows = {};
+		for (var i = 0; i < tbody.children.length; i++) {
+			var tr = tbody.children[i];
+			if (tr.id) existingRows[tr.id] = tr;
+		}
+
+		var newRows = {};
+		rowDataArray.forEach(function(item, index) {
+			var id = rowIdFn(item, index);
+			newRows[id] = item;
+			var tr = existingRows[id];
+			var newHtml = createRowHtmlFn(item, index);
+			
+			if (!tr) {
+				tr = document.createElement("tr");
+				tr.id = id;
+				tr.innerHTML = newHtml;
+				tr.classList.add("fade-in");
+				tr.setAttribute("data-content", newHtml);
+			} else {
+				if (tr.getAttribute("data-content") !== newHtml) {
+					tr.innerHTML = newHtml;
+					tr.setAttribute("data-content", newHtml);
+					tr.classList.remove("fade-in");
+					void tr.offsetWidth; // trigger reflow
+					tr.classList.add("fade-in");
+				}
+			}
+
+			/* Place it in the correct order in the DOM, ignoring fade-out rows */
+			var targetNode = tbody.children[index];
+			/* If the row is already in the right place, do nothing. 
+			 * Otherwise, insert it before the current node at this index.
+			 * (If targetNode is null, it appends to the end) */
+			if (targetNode !== tr) {
+				tbody.insertBefore(tr, targetNode);
+			}
+
+			if (postUpdateFn) postUpdateFn(tr, item, index);
+		});
+
+		for (var id in existingRows) {
+			if (!newRows[id]) {
+				var tr = existingRows[id];
+				if (!tr.classList.contains("fade-out")) {
+					tr.classList.add("fade-out");
+					setTimeout((function(el) { 
+						return function() { 
+							if (el.parentNode) el.parentNode.removeChild(el); 
+						}; 
+					})(tr), 500);
+				}
+			}
+		}
+	}
+
 	document.addEventListener("DOMContentLoaded", function() {
 		console.log("deaddrop DOMContentLoaded fired. lws-login status: ", typeof renderLwsLoginStatus);
 		if (typeof renderLwsLoginStatus === 'function')
@@ -329,104 +389,70 @@
 				};
 
 				ws.onmessage = function got_packet(msg) {
-					var j = JSON.parse(msg.data),
-					    s_files = "", s_users = "", n,
-					    t_files = document.getElementById("dd-list"),
-					    t_users = document.getElementById("connected-users-list");
+					var j = JSON.parse(msg.data);
 
-				username = j.user || "";
-				server_max_size = j.max_size;
-
-				document.getElementById("size").innerHTML =
-					"Server maximum file size " +
-					humanize(j.max_size);
-
-				s_files += "<table class=\"nb\">";
-				for (n = 0; n < j.files.length; n++) {
-					var fullName = j.files[n].name;
-					var displayName = fullName;
-					/*
-					 * The server is the single source of truth.
-					 * We trust the "yours" flag it sends us.
-					 */
-					var isOwner = j.files[n].yours;
-
-					// Strip username prefix for display if owner
-					if (isOwner && username.length > 0)
-						displayName = fullName.substring(
-								username.length + 1);
-
-					var date = new Date(j.files[n].mtime * 1000);
-					s_files += "<tr><td class=\"dow r\">" +
-					humanize(j.files[n].size) +
-					"</td><td class=\"dow\">" +
-					date.toDateString() + " " +
-					date.toLocaleTimeString() + "</td><td class=\"btn-cell\">";
-
-					/* Show text button if it's a .txt file from textarea */
-					if (j.files[n].is_text)
-						s_files += "<button id=\"t" + n +
-						"\" class=\"textbtn\" file=\"" +
-						san(fullName) + "\">T</button>";
-					else
-						s_files += "<span class=\"textbtn_spacer\"></span>";
-
-
-					/* Only show delete button if the server said we are the owner */
-					if (isOwner)
-						s_files += "<img id=\"d" + n +
-					  "\" class=\"delbtn\" file=\"" +
-						san(fullName) + "\">";
-					else
-						s_files += " ";
-
-					s_files += "</td><td class=\"ogn\"><a href=\"get/" +
-					lws_urlencode(san(fullName)) +
-					  "\" download=\"" + san(displayName) + "\">" +
-					san(displayName) + "</a></td></tr>";
-				}
-				s_files += "</table>";
-
-				t_files.innerHTML = s_files;
-
-				for (n = 0; n < j.files.length; n++) {
-					var d = document.getElementById("d" + n);
-					if (d)
-						d.addEventListener("click", delfile, false);
-					var t = document.getElementById("t" + n);
-					if (t)
-						t.addEventListener("click", load_text, false);
-				}
-
-				/*
-				 * Render the list of connected users
-				 */
-				if (t_users && j.connected_users) {
-					s_users += "<h3>Live Connections</h3>" +
-						"<table class=\"nb\">" +
-						"<tr><th>User</th><th>IP Address</th>" +
-						"<th>Platform</th><th>Client</th></tr>";
-
-					for (n = 0; n < j.connected_users.length; n++) {
-						var u = j.connected_users[n];
-						var display_user = san(u.user);
-
-						if (u.is_self)
-							display_user = "<b>" + display_user + "</b>";
-
-						if (u.is_admin)
-							display_user += " (Admin)";
-
-						s_users += "<tr><td>" + display_user +
-							"</td><td>" + san(u.ip) +
-							"</td><td>" + san(u.platform) +
-							"</td><td>" + san(u.browser) +
-							"</td></tr>";
+					username = j.user || "";
+					if (j.max_size) {
+						server_max_size = j.max_size;
+						document.getElementById("size").innerHTML =
+							"Server maximum file size " + humanize(j.max_size);
 					}
-					s_users += "</table>";
-					t_users.innerHTML = s_users;
-				}
-			};
+
+					if (j.files) {
+						updateTable("files-tbody", j.files, 
+							function(f) { return "file-" + btoa(unescape(encodeURIComponent(f.name))).replace(/=/g, ""); },
+							function(f) {
+								var fullName = f.name;
+								var displayName = fullName;
+								var isOwner = f.yours;
+
+								if (f.uploader && f.uploader.length > 0)
+									displayName = fullName.substring(f.uploader.length + 1);
+
+								var date = new Date(f.mtime * 1000);
+								var html = "<td class=\"dow r\">" + humanize(f.size) + "</td>" +
+										   "<td class=\"dow\">" + date.toDateString() + " " + date.toLocaleTimeString() + "</td>" +
+										   "<td class=\"btn-cell\">";
+
+								if (f.is_text)
+									html += "<button class=\"textbtn\" file=\"" + san(fullName) + "\">T</button>";
+								else
+									html += "<span class=\"textbtn_spacer\"></span>";
+
+								if (isOwner)
+									html += "<img class=\"delbtn\" file=\"" + san(fullName) + "\">";
+								else
+									html += " ";
+
+								html += "</td><td class=\"ogn\"><a href=\"get/" +
+										lws_urlencode(san(fullName)) + "\" download=\"" + san(displayName) + "\">" +
+										san(displayName) + "</a></td>";
+								return html;
+							},
+							function(tr) {
+								var d = tr.querySelector(".delbtn");
+								if (d) d.addEventListener("click", delfile, false);
+								var t = tr.querySelector(".textbtn");
+								if (t) t.addEventListener("click", load_text, false);
+							}
+						);
+					}
+
+					if (j.connected_users) {
+						updateTable("users-tbody", j.connected_users,
+							function(u) { return "user-" + btoa(unescape(encodeURIComponent(u.user + u.ip + u.platform))).replace(/=/g, ""); },
+							function(u) {
+								var display_user = san(u.user);
+								if (u.is_self) display_user = "<b>" + display_user + "</b>";
+								if (u.is_admin) display_user += " (Admin)";
+								return "<td>" + display_user + "</td>" +
+									   "<td>" + san(u.ip) + "</td>" +
+									   "<td>" + san(u.platform) + "</td>" +
+									   "<td>" + san(u.browser) + "</td>";
+							}
+						);
+					}
+				};
 
 			ws.onclose = function() {
 				var dd = document.getElementById("ddrop"),
