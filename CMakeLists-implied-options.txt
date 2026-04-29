@@ -30,7 +30,15 @@ endif()
 # Workaround for ESP-IDF
 # Detect ESP_PLATFORM environment flag, if exist, set LWS_WITH_ESP32.
 # Otherwise the user may not be able to run configuration ESP-IDF in the first time.
-if (ESP_PLATFORM)
+#
+# espressif-port patch: skip the ESP32 / FreeRTOS path when building
+# for the IDF Linux target. ESP_PLATFORM is set on every IDF build
+# (including --preview set-target linux), but the Linux target is a
+# POSIX/glibc environment and the FreeRTOS plat shims pull in IDF's
+# newlib platform_include — which uses `__assert_func` (newlib-only)
+# and `<sys/features.h>` (newlib path), neither of which exists on
+# glibc. Fall through to the upstream `plat/unix` path instead.
+if (ESP_PLATFORM AND NOT (DEFINED IDF_TARGET AND IDF_TARGET STREQUAL "linux"))
 	message(STATUS "ESP-IDF enabled")
 	set(LWS_WITH_ESP32 ON)
 	set(LWS_WITH_ZLIB OFF)

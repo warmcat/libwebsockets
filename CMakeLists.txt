@@ -68,7 +68,7 @@ endif()
 set(LWS_ROLE_RAW 1)
 set(LWS_WITH_POLL 1)
 
-if (ESP_PLATFORM)
+if (ESP_PLATFORM AND NOT (DEFINED IDF_TARGET AND IDF_TARGET STREQUAL "linux"))
 	set(LWS_ESP_PLATFORM 1)
 	#set(CMAKE_TOOLCHAIN_FILE contrib/cross-esp32.cmake)
 	set(LWIP_PROVIDE_ERRNO 1)
@@ -85,7 +85,7 @@ if (PICO_SDK_PATH)
 	pico_sdk_init()
 endif()
 
-if (ESP_PLATFORM)
+if (ESP_PLATFORM AND NOT (DEFINED IDF_TARGET AND IDF_TARGET STREQUAL "linux"))
        include_directories(
 		$ENV{IDF_PATH}/components/esp_hw_support/include/soc/
 		$ENV{IDF_PATH}/components/freertos/include/
