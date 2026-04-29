@@ -14,6 +14,8 @@ When a mount is protected by an `interceptor-path` (such as `lws-login`), **both
 
 If an unauthorized client (such as a headless script like `-camshow` or a browser without a valid session cookie) attempts to negotiate a WebSocket connection against a protected mount, the connection is proactively intercepted and immediately rejected with an `HTTP 401 Unauthorized` status during the HTTP phase of the handshake, cleanly dropping the socket.
 
+However, for headless IoT clients that strictly cannot redirect to a login page, we provide the `unauth-protocols` bypass to allow them into a pre-authentication "waiting room". See [Headless Device Authorization](#headless-device-authorization) below.
+
 
 ## Per-Vhost Options (PVOs)
 
@@ -32,6 +34,7 @@ This plugin handles several PVO options to control the redirection routing and t
 | `db-path` | Absolute filepath to the shared sqlite3 permissions database (used to instantly verify and rewrite valid cookies suffering from revoked grants). Defaults to `/var/db/lws-auth.sqlite3`. |
 | `whitelist` | Optional array of CIDR netblock strings (e.g. `10.0.0.0/8`, `192.168.1.0/24`). If any are provided, the connecting peer must match at least one explicitly or they will uniformly receive a `403 Forbidden` bypass, regardless of login state. |
 | `unauth-allow` | If set to `1`, unauthenticated connections are **not** actively bounced via a 302 redirect. Traffic is instead permitted through to the underlying application mount unhindered. This enables scenarios where an underlying mount might conditionally render public views while relying securely on `/.lws-login-status` responses to dictate authenticated view logic without hard-failing unauthenticated guests. |
+| `unauth-protocols` | Optional comma-separated list of `Sec-WebSocket-Protocol` names (e.g., `lws-oauth-preauth`) that are permitted to bypass the JWT requirement during the upgrade phase. This allows unauthenticated headless devices to negotiate specific protocols to complete RFC 8628 Device Flow pairing. |
 
 **Where does the JWK come from?**
 The central `auth-server` plugin automatically generates an Elliptic Curve (EC P-256) keypair upon its first startup and saves it to its configured `jwk_path` (e.g., `/var/db/lws-auth.jwk`). To configure the `jwt-jwk` PVO for this bouncer mount, you simply take the contents of that generated file.
@@ -41,6 +44,16 @@ Because the JWT validator only strictly requires the public key components to ve
 2. Read the literal string dynamically into the PVO when configuring your mount from your application.
 
 *(Note: While passing the full keypair including the private key into the bouncer works, it is best practice to strip the private component `d` from the JSON if the bouncer is operating on an entirely different physical server).*
+
+## Headless Device Authorization (RFC 8628)
+
+When building embedded devices without a screen or UI (such as IP cameras or IoT sensors), they inherently lack the ability to follow HTTP 302 redirects to a login page or process interactive OAuth flows.
+
+To securely onboard these devices to a protected mount without opening security holes, you can utilize the `lws-oauth-preauth` protocol in conjunction with the `unauth-protocols` PVO bypass.
+
+1. **The Bypass**: By defining `"unauth-protocols": "lws-oauth-preauth"` in your `lws-login` configuration, the interceptor will unconditionally allow incoming WebSocket connections that specifically request the `lws-oauth-preauth` subprotocol, even if they lack a valid JWT.
+2. **The Waiting Room**: The `lws-oauth-preauth` plugin provides a secure "waiting room". Unauthenticated devices can connect and broadcast their unique hardware serial numbers and pairing codes.
+3. **Admin Verification**: Authenticated administrators (who connect with a valid JWT) can join this same protocol to observe pending devices. Crucially, admins can issue specific commands (like `{"cmd": "identify"}`) that the server securely routes to the target device to trigger physical "pairing indications" (e.g., blinking an LED). This ensures the admin visually verifies the physical hardware before explicitly granting it authorization via the Auth Server, effectively preventing remote phishing attacks.
 
 ## Cross-Domain SSO Architecture
 

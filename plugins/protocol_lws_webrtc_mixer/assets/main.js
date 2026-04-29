@@ -83,7 +83,7 @@ function updateView() {
         videoLabel.innerText = "Conference Stream";
         startButton.innerText = "Connected";
 
-        if (overlayContainer) overlayContainer.style.display = 'block';
+        if (overlayContainer) overlayContainer.classList.remove('hidden');
 
         displayVideo.volume = 1.0;
         displayVideo.play().catch(e => console.log("Auto-play failed:", e));
@@ -102,7 +102,7 @@ function updateView() {
         }
 
         // Hide decorations when in local preview
-        if (overlayContainer) overlayContainer.style.display = 'none';
+        if (overlayContainer) overlayContainer.classList.add('hidden');
 
         // Ensure label stays visible during preview (cancel any fade timeout)
         videoLabel.classList.remove('hidden');
@@ -220,10 +220,9 @@ function adjustOverlaySize() {
         left = 0;
     }
 
-    overlayContainer.style.width = `${width}px`;
-    overlayContainer.style.height = `${height}px`;
-    overlayContainer.style.left = `${left}px`;
-    overlayContainer.style.top = `${top}px`;
+    overlayContainer.animate([
+        { width: `${width}px`, height: `${height}px`, left: `${left}px`, top: `${top}px` }
+    ], { duration: 0, fill: 'forwards' });
 }
 
 function updateButtonState() {
@@ -847,7 +846,7 @@ async function connectSignalling() {
                 if (dot) {
                      // level is 0-100. Opacity 0.2 to 1.0.
                      const op = 0.2 + (msg.level / 100) * 0.8;
-                     dot.style.opacity = op;
+                     dot.animate([{ opacity: op }], { duration: 100, fill: 'forwards' });
                 }
             } else if (msg.type === 'chat') {
                 if (inConference) {
@@ -858,7 +857,7 @@ async function connectSignalling() {
                 const ta = document.getElementById('debugLogArea');
                 const modal = document.getElementById('debugModal');
 
-                if (ta && modal && modal.style.display !== 'none') {
+                if (ta && modal && !modal.classList.contains('hidden')) {
                     ta.value = header + msg.log + "\n\n" + ta.value;
                 } else {
                     showDebugModal(header + msg.log);
@@ -1390,8 +1389,9 @@ function showParticipantMenu(e, name) {
     activeParticipant = name;
 
     // Position menu
-    partMenu.style.top = `${e.clientY}px`;
-    partMenu.style.left = `${e.clientX}px`;
+    partMenu.animate([
+        { top: `${e.clientY}px`, left: `${e.clientX}px` }
+    ], { duration: 0, fill: 'forwards' });
     partMenu.classList.add('show');
 
     // Close other menus
@@ -1412,7 +1412,7 @@ function updateParticipants(clients) {
         if (participantList) {
             const item = document.createElement('div');
             item.className = 'participant-item' + (c.joined ? '' : ' unjoined');
-            item.style.cursor = 'pointer';
+            item.classList.add('cursor-pointer');
 
             item.onclick = (e) => showParticipantMenu(e, c.name);
 
@@ -1425,8 +1425,7 @@ function updateParticipants(clients) {
                 // Determine a pseudo-color from name hash (requires stringToColor to exist, but using simple style or keeping it default if not)
                 // Assuming CSS handles default color or we just don't touch it.
             } else {
-                icon.style.color = '#888';
-                icon.style.opacity = '0.5';
+                icon.classList.add('icon-grey');
                 item.title = "Connecting...";
             }
 
@@ -1451,11 +1450,9 @@ function updateLayout(regions) {
         overlay.className = 'name-overlay';
 
         // Apply explicit positions rather than CSS classes
-        overlay.style.left = r.x + '%';
-        overlay.style.top = r.y + '%';
-        // Note: we don't strictly set width/height as it's an overlay div,
-        // but it's guaranteed to be within the sub-region.
-        overlay.style.maxWidth = r.w + '%';
+        overlay.animate([
+            { left: r.x + '%', top: r.y + '%', maxWidth: r.w + '%' }
+        ], { duration: 0, fill: 'forwards' });
 
         // The text comes in as "Alice\nStats..."
         const parts = r.text.split('\n');

@@ -204,7 +204,27 @@
         </div>
     </div>
 
-    <!-- TLS modals removed -->
+    <div id="modal-tls-details" class="modal">
+        <div class="modal-content auto-width">
+            <h3>TLS Details: <span id="tls-summary-domain-name"></span></h3>
+            <div class="form-group table-responsive">
+                <table id="table-tls-details" class="table-striped table-bordered table-nowrap">
+                    <thead>
+                        <tr>
+                            <th>FQDN:Port</th>
+                            <th>Local Expiry</th>
+                            <th>Remote Expiry</th>
+                            <th>Issuer</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            <div class="modal-actions">
+                <button id="btn-tls-details-close" class="btn hollow">Close</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Notification Toast -->
     <div id="toast" class="toast"></div>

@@ -404,6 +404,11 @@ td .actions {
   max-width: 800px;
 }
 
+.modal-content.auto-width {
+  width: max-content;
+  max-width: 95vw;
+}
+
 .modal h3 {
   margin-top: 0;
   margin-bottom: 1.5rem;
@@ -412,6 +417,15 @@ td .actions {
 
 .form-group {
   margin-bottom: 1.5rem;
+}
+
+.table-responsive {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+table.table-nowrap {
+  white-space: nowrap;
 }
 
 .form-group label {

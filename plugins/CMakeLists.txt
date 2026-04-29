@@ -123,6 +123,7 @@ if ((LWS_WITH_PLUGINS AND LWS_WITH_SHARED) OR LWS_WITH_PLUGINS_BUILTIN)
 
 			source_group("Headers Private"   FILES ${PLUGIN_HDR})
 			source_group("Sources"   FILES ${PLUGIN_SRCS})
+			message("CREATING PLUGIN ${PLUGIN_NAME}")
 			add_library(${PLUGIN_NAME} SHARED ${PLUGIN_SRCS} ${PLUGIN_HDR})
 			target_link_libraries(${PLUGIN_NAME} websockets_shared)
 			add_dependencies(${PLUGIN_NAME} websockets_shared)

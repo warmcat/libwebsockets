@@ -41,6 +41,7 @@ struct vhd_login {
 	const char              *cookie_name;
 	const char              *service_name;
 	const char              *auth_server_url;
+	const char              *unauth_protocols;
 	int                     min_grant_level;
 
 	char                    db_path[256];
@@ -102,7 +103,18 @@ static const char * const canned_css =
         ".lws-login-identity{font-size:16px;margin:0 12px 0 "
         "0;display:inline-block;font-weight:600;}\n"
         ".lws-login-mt{margin-top:10px;}\n"
-        ".lws-login-mb{margin-bottom:8px;font-weight:500;}\n";
+        ".lws-login-mb{margin-bottom:8px;font-weight:500;}\n"
+        ".lws-preauth-banner{position:relative;margin-top:10px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);padding:12px;border-radius:8px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 4px 12px rgba(0,0,0,0.15);}"
+        ".lws-preauth-info{display:flex;flex-direction:column;}"
+        ".lws-preauth-title{font-weight:600;font-size:14px;margin-bottom:4px;}"
+        ".lws-preauth-desc{font-size:12px;color:#aaa;}"
+        ".lws-preauth-link{background:#28a745;color:#fff!important;text-decoration:none;padding:6px 12px;border-radius:4px;font-weight:600;font-size:13px;transition:background 0.2s;display:flex;align-items:center;gap:8px;}"
+        ".lws-preauth-link:hover{background:#218838;}"
+        ".pie-timer{width:20px;height:20px;transform:rotate(-90deg);border-radius:50%;}"
+        ".pie-timer circle{fill:none;stroke:#fff;stroke-width:10;stroke-dasharray:31.4;transition:stroke-dashoffset 1s linear;}"
+        ".lws-login-refgirl{position:absolute;bottom:0px;right:-10px;height:120px;opacity:0.8;pointer-events:none;z-index:1;}"
+        ".lws-preauth-widget{display:none;position:absolute;top:0;left:100%;margin-left:15px;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px;max-height:200px;overflow-y:auto;background:#2b2d31;box-shadow:0 8px 16px rgba(0,0,0,0.3);z-index:1000;min-width:280px;}"
+        ".lws-preauth-widget.active{display:block;}";
 
 static const char * const canned_js =
         "window.lwsLoginSilentRefresh=async function(){"
@@ -133,7 +145,7 @@ static const char * const canned_js =
         "var d=Math.abs(st.server_now-(Date.now()/1000));"
         "if(d>300){"
         "c+='<div class=\"lws-login-err\">Warning: Device clock off by '+Math.round(d/60)+' mins</div><br>';"
-        "c+='<img src=\"'+st.auth_server_url+'/refgirl-time.png\" style=\"position:absolute;bottom:0px;right:-10px;height:120px;opacity:0.8;pointer-events:none;z-index:1\">';"
+        "c+='<img src=\"'+st.auth_server_url+'/refgirl-time.png\" class=\"lws-login-refgirl\">';"
         "}"
         "}"
         "if(st.logged_in){"
@@ -162,7 +174,40 @@ static const char * const canned_js =
         "c+='<div class=\"lws-login-mb\">Not logged in</div>';"
         "c+='<a class=\"lws-login-btn\" href=\"'+s+'\">Login &rarr;</a>';"
         "}"
+        "var pc=document.getElementById('lws-preauth-container');"
         "e.innerHTML=c+'</div>';"
+        "if(st.logged_in){"
+        "if(!pc){pc=document.createElement('div');pc.id='lws-preauth-container';pc.className='lws-preauth-widget';}"
+        "e.style.position='relative';e.appendChild(pc);"
+        "if(!window.lwsPreauthWS){"
+        "var asu=st.auth_server_url || st.login_url.split('/login')[0];"
+        "var u=asu.replace('https','wss').replace('http','ws');"
+        "var ws=new WebSocket(u,'lws-oauth-preauth');"
+        "window.lwsPreauthWS=ws;"
+        "var devs={};"
+        "function draw(){"
+        "var h='';var now=Date.now()/1000;"
+        "for(var k in devs){"
+        "var d=devs[k];var left=d.expires-now;if(left<=0){delete devs[k];continue;}"
+        "var pct=left/300.0;var dash=(1-pct)*31.4;"
+        "h+='<div class=\"lws-preauth-banner\"><div class=\"lws-preauth-info\">';"
+        "h+='<span class=\"lws-preauth-title\">New Device: '+d.name+'</span>';"
+        "h+='<span class=\"lws-preauth-desc\">Requires authorization</span></div>';"
+        "h+='<a class=\"lws-preauth-link\" href=\"'+st.auth_server_url+'/?device_code='+d.user_code+'\" target=\"_blank\">';"
+        "h+='<svg class=\"pie-timer\" viewBox=\"0 0 10 10\"><circle cx=\"5\" cy=\"5\" r=\"5\" stroke-dashoffset=\"'+dash+'\"></circle></svg>';"
+        "h+='Authorize</a></div>';"
+        "}"
+        "pc.innerHTML=h;"
+        "if(Object.keys(devs).length>0){pc.classList.add('active');setTimeout(draw,1000);}else{pc.classList.remove('active');}"
+        "}"
+        "ws.onmessage=function(e){"
+        "var m=JSON.parse(e.data);"
+        "if(m.event==='device_joined'){devs[m.serial]=m;draw();}"
+        "else if(m.event==='device_left'){delete devs[m.serial];draw();}"
+        "};"
+        "}"
+        "}"
+        ""
         "}catch(er){console.log('lws-login fetch:',er);}"
         "};";
 
@@ -475,15 +520,15 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!lws_pvo_get_str(in, "unauth-allow", &cp))
 			vhd->unauth_allow = atoi(cp);
 
+		if (!lws_pvo_get_str(in, "unauth-protocols", &vhd->unauth_protocols))
+			lwsl_notice("%s: unauth-protocols: %s\n", __func__, vhd->unauth_protocols);
+
 		if (!lws_pvo_get_str(in, "db-path", &cp))
 			lws_strncpy(vhd->db_path, cp, sizeof(vhd->db_path));
 
-		lwsl_notice("%s: opening local database at %s\n", __func__, vhd->db_path);
 		if (lws_struct_sq3_open(vhd->context, vhd->db_path, 1, &vhd->db)) {
-			lwsl_warn("%s: could not open local database at %s. Dynamic grant revocation disabled.\n", __func__, vhd->db_path);
+			lwsl_err("%s: could not open local database at %s. Dynamic grant revocation disabled.\n", __func__, vhd->db_path);
 			vhd->db = NULL;
-		} else {
-			lwsl_notice("%s: Local database bound to %s\n", __func__, vhd->db_path);
 		}
 
 
@@ -581,6 +626,17 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			return 0;
 		}
 
+		if (vhd->unauth_protocols) {
+			char ws_prot[256];
+			if (lws_hdr_copy(wsi, ws_prot, sizeof(ws_prot), WSI_TOKEN_PROTOCOL) > 0) {
+				/* simplistic match, sufficient for our usecase but could be tokenized */
+				if (strstr(vhd->unauth_protocols, ws_prot)) {
+					lwsl_notice("%s: bypassing interceptor for unauth protocol '%s'\n", __func__, ws_prot);
+					return 0;
+				}
+			}
+		}
+
 		service_name = vhd->service_name;
 		if (uri[0]) {
 			mount = lws_find_mount(wsi, uri, (int)strlen(uri));
@@ -627,6 +683,23 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 
 		ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, lws_login_jwt_auth_cb, wsi);
 		if (ja) {
+			const char *did = lws_jwt_auth_get_did(ja);
+			if (did && vhd->db) {
+				sqlite3_stmt *stmt;
+				int found_device = 0;
+				if (sqlite3_prepare_v2(vhd->db, "SELECT 1 FROM devices WHERE device_id = ?", -1, &stmt, NULL) == SQLITE_OK) {
+					sqlite3_bind_text(stmt, 1, did, -1, SQLITE_STATIC);
+					if (sqlite3_step(stmt) == SQLITE_ROW)
+						found_device = 1;
+					sqlite3_finalize(stmt);
+				}
+				if (!found_device) {
+					lwsl_notice("%s: Device %s rejected (not found in DB %s), rejecting JWT\n", __func__, did, vhd->db_path);
+					lws_jwt_auth_destroy(&ja);
+					return 1; /* Request to intercept */
+				}
+			}
+
 			lwsl_info("%s: Valid cookie found! User authenticated.\n", __func__);
 			level = lws_jwt_auth_query_grant(ja, service_name);
 			if (level >= vhd->min_grant_level) {
@@ -999,8 +1072,11 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 
 		lws_urlencode(urlenc_path, fq_uri, sizeof(urlenc_path));
 
-		lws_snprintf(dest, sizeof(dest), "%s?service_name=%s&redirect_uri=%s",
-			vhd->auth_server_url, service_name, urlenc_path);
+		size_t asu_len = strlen(vhd->auth_server_url);
+		lws_snprintf(dest, sizeof(dest), "%s%s?service_name=%s&redirect_uri=%s",
+			vhd->auth_server_url,
+			(asu_len > 0 && vhd->auth_server_url[asu_len - 1] == '/') ? "" : "/",
+			service_name, urlenc_path);
 
 		if (lws_login_ends_with(path, "/.lws-login-status")) {
 			char pl[1024];
@@ -1011,9 +1087,9 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				int is_admin = lws_jwt_auth_query_grant(pss->ja, "*") >= 1;
 				int has_grant = level >= 1;
 				lws_snprintf(pl, sizeof(pl), "{\"logged_in\":1,\"server_now\":%llu,\"exp\":%llu,\"has_grant\":%d,\"grant_level\":%d,\"identity\":\"%s\",\"auth_server_url\":\"%s\",\"login_url\":\"%s\",\"is_admin\":%d}",
-					(unsigned long long)lws_now_secs(), (unsigned long long)lws_jwt_auth_get_exp(pss->ja), has_grant, level, sub ? sub : "Unknown", vhd->auth_server_url, dest, is_admin);
+					(unsigned long long)lws_now_secs(), (unsigned long long)lws_jwt_auth_get_exp(pss->ja), has_grant, level, sub ? sub : "Unknown", vhd->auth_server_url ? vhd->auth_server_url : "", dest, is_admin);
 			} else
-				lws_snprintf(pl, sizeof(pl), "{\"logged_in\":0,\"server_now\":%llu,\"auth_server_url\":\"%s\",\"login_url\":\"%s\"}", (unsigned long long)lws_now_secs(), vhd->auth_server_url, dest);
+				lws_snprintf(pl, sizeof(pl), "{\"logged_in\":0,\"server_now\":%llu,\"auth_server_url\":\"%s\",\"login_url\":\"%s\"}", (unsigned long long)lws_now_secs(), vhd->auth_server_url ? vhd->auth_server_url : "", dest);
 
                         return simple_response(wsi, pss, pl, "application/json",
                                                HTTP_STATUS_OK, (unsigned char *)buf + LWS_PRE, (unsigned char **)&p,

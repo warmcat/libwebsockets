@@ -173,7 +173,7 @@ context_creation(int argc, const char **argv)
 			info.gid = (unsigned int)atoi(p);
 		
 		/* Root monitor makes outbound TLS probes but skips user vhosts, force global TLS init */
-		info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+		info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT | LWS_SERVER_OPTION_VH_SKIP_PRIV_DROP;
 	}
 
 	foreign_loops[0] = &loop;

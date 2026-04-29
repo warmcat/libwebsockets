@@ -16,6 +16,9 @@
 
 #include "../../../plugins/protocol_lws_rtc_camera/protocol_lws_rtc_camera.h"
 #include "../../../plugins/protocol_lws_webrtc/protocol_lws_webrtc.h"
+#include "../../../include/libwebsockets/lws-auth-device-client.h"
+
+static struct lws_auth_device_client_api *auth_api;
 
 enum {
 	LWS_SW_HEIGHT,
@@ -75,17 +78,12 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
                         return -1;
                 }
 
-                if (!devices_copy)
-                        devices_copy = strdup(devs_list);
-
-                char *p = devices_copy;
-                char *token;
-
-                while ((token = strsep(&p, ","))) {
-                        lwsl_notice("Attaching %s to WebRTC mixer\n", token);
-                        if (cam_ops->attach(vh, url, token, client_name, app_width, app_height))
-                                lwsl_err("Failed to queue attach for %s\n", token);
+                if (!auth_api || !auth_api->start_auth_flow) {
+                        lwsl_err("auth_api not populated by plugin\n");
+                        return -1;
                 }
+
+                auth_api->start_auth_flow(vh, url, "camshow");
 
                 break;
 	}
@@ -117,6 +115,40 @@ set_clock(lws_usec_t us)
 	lwsl_notice("%s: system time successfully updated via NTP!\n", __func__);
 	return 0;
 }
+
+static void start_app_attach(struct lws_vhost *vh, const char *logical_name, const char *access_token)
+{
+	char *devices_copy_local = strdup(devs_list);
+	char *p = devices_copy_local, *token;
+
+        while ((token = strsep(&p, ","))) {
+		lwsl_notice("Attaching %s to WebRTC mixer\n", token);
+		if (cam_ops->attach(vh, url, token, client_name, app_width, app_height, access_token))
+			lwsl_err("Failed to queue attach for %s\n", token);
+	}
+
+        free(devices_copy_local);
+}
+
+static void pairing_indication(struct lws_vhost *vh, const char *logical_name, int start)
+{
+	lwsl_notice("\n\n*** BLINK BLINK BLINK: Identify triggered by Admin for %s ***\n\n", logical_name);
+}
+
+static void display_code(struct lws_vhost *vh, const char *logical_name, const char *user_code)
+{
+	lwsl_notice("\n\n=======================================\n");
+	lwsl_notice("   PAIRING REQUIRED FOR %s\n", logical_name);
+	lwsl_notice("   User Code: %s\n", user_code);
+	lwsl_notice("=======================================\n\n");
+}
+
+static struct lws_auth_device_client_ops auth_ops = {
+	.abi_version = LWS_AUTH_DEVICE_CLIENT_ABI_VERSION,
+	.auth_success = start_app_attach,
+	.pairing_indication = pairing_indication,
+	.display_code = display_code,
+};
 
 static const lws_system_ops_t system_ops = {
 	.set_clock = set_clock,
@@ -162,6 +194,11 @@ main(int argc, const char **argv)
 
 	info.system_ops = &system_ops;
 
+	static const struct lws_protocols protocols[] = {
+		{ NULL, NULL, 0, 0, 0, NULL, 0 }
+	};
+	info.protocols = protocols;
+
 	/* Wire up cert trust bundle so wss:// connections can verify the peer */
 	info.client_ssl_ca_filepath = "/etc/ssl/certs/ca-certificates.crt";
 
@@ -201,7 +238,13 @@ main(int argc, const char **argv)
 	static struct lws_protocol_vhost_options pvo_cam_status = { &pvo_ops, NULL, "status", "ok" };
 	static struct lws_protocol_vhost_options pvo = { &pvo_cam_v4l2, &pvo_cam_status, "lws-rtc-camera", "" };
 
-	vinfo.pvo = &pvo;
+	/* For lws-auth-device-client */
+	static struct lws_protocol_vhost_options pvo_auth_api = { NULL, NULL, "lws-auth-client-api", (void *)&auth_api };
+	static struct lws_protocol_vhost_options pvo_auth_ops = { &pvo_auth_api, NULL, "app-auth-ops", (void *)&auth_ops };
+	static struct lws_protocol_vhost_options pvo_auth_status = { &pvo_auth_ops, NULL, "status", "ok" };
+	static struct lws_protocol_vhost_options pvo_auth = { &pvo, &pvo_auth_status, "lws-auth-device-client", "" };
+
+	vinfo.pvo = &pvo_auth;
 
 	cx = lws_create_context(&info);
 	if (!cx) {

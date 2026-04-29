@@ -41,7 +41,9 @@ static const char * const param_names[] = {
 	"code",
 	"client_secret",
 	"code_verifier",
-	"service_name"
+	"service_name",
+	"device_code",
+	"user_code"
 };
 
 enum enum_param_names {
@@ -59,6 +61,8 @@ enum enum_param_names {
         EP_CLIENT_SECRET,
         EP_CODE_VERIFIER,
         EP_SERVICE_NAME,
+        EP_DEVICE_CODE,
+        EP_USER_CODE,
         EP_COUNT
 };
 
@@ -202,6 +206,19 @@ static const char *schema_init =
 	"  uid INTEGER REFERENCES users(uid),"
 	"  issue_time INTEGER,"
 	"  ip_address TEXT"
+	");"
+	"CREATE TABLE IF NOT EXISTS device_codes ("
+	"  device_code VARCHAR PRIMARY KEY,"
+	"  user_code VARCHAR,"
+	"  uid INTEGER,"
+	"  expires INTEGER,"
+	"  status INTEGER"
+	");"
+	"CREATE TABLE IF NOT EXISTS devices ("
+	"  device_id VARCHAR PRIMARY KEY,"
+	"  uid INTEGER REFERENCES users(uid),"
+	"  name VARCHAR,"
+	"  created INTEGER"
 	");";
 
 static int
@@ -283,6 +300,32 @@ lws_auth_issue_jwt(struct per_vhost_data__auth_server *vhd,
 }
 
 static int
+lws_auth_issue_device_jwt(struct per_vhost_data__auth_server *vhd,
+                          const char *username, uint32_t uid, const char *device_id,
+                          const char *claims_json,
+                          char *out, size_t *out_len)
+{
+	char temp[2048];
+	uint64_t now = (uint64_t)time(NULL);
+	uint64_t exp = now + (10ULL * 365 * 24 * 3600); /* 10 years */
+
+	int sig_ret = lws_jwt_sign_compact(vhd->context, &vhd->jwk, vhd->jwt_alg,
+	                         out, out_len, temp, sizeof(temp),
+	                         "{\"iss\":\"%s\",\"sub\":\"%s\",\"uid\":%u,"
+	                         "\"did\":\"%s\",\"iat\":%llu,\"exp\":%llu%s%s}",
+	                         vhd->auth_domain, username, uid, device_id,
+	                         (unsigned long long)now, (unsigned long long)exp,
+	                         claims_json ? "," : "",
+	                         claims_json ? claims_json : "");
+	if (sig_ret) {
+		lwsl_err("Device JWT sig failed (%d)\n", sig_ret);
+		return sig_ret;
+	}
+
+	return 0;
+}
+
+static int
 lws_auth_generate_token(struct per_vhost_data__auth_server *vhd,
                         const char *username, uint32_t uid,
                         const char *peer_ip, char *out, size_t *out_len)
@@ -347,6 +390,66 @@ lws_auth_generate_token(struct per_vhost_data__auth_server *vhd,
 	}
 
 	return lws_auth_issue_jwt(vhd, username, uid, claims, out, out_len);
+}
+
+static int
+lws_auth_generate_device_token(struct per_vhost_data__auth_server *vhd,
+                               const char *username, uint32_t uid,
+                               const char *device_id, const char *peer_ip,
+                               char *out, size_t *out_len)
+{
+	char claims[512];
+	char *p = claims;
+	char *end = claims + sizeof(claims);
+	sqlite3_stmt *stmt;
+	const char *query =
+		"SELECT s.name, g.grant_level "
+		"FROM grants g JOIN services s ON g.service_id = s.service_id "
+		"WHERE g.uid = ?";
+	int first = 1;
+
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\"grants\":{");
+
+	if (sqlite3_prepare_v2(vhd->db, query, -1, &stmt, NULL) == SQLITE_OK) {
+		sqlite3_bind_int(stmt, 1, (int)uid);
+		while (sqlite3_step(stmt) == SQLITE_ROW) {
+			const char *svc_name = (const char *)sqlite3_column_text(stmt, 0);
+			int level = sqlite3_column_int(stmt, 1);
+
+			if (!svc_name)
+				continue;
+
+			if (!first)
+				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), ",");
+			first = 0;
+
+			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+				"\"%s\":%d", svc_name, level);
+		}
+		sqlite3_finalize(stmt);
+	}
+
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "}");
+
+	if (vhd->auth_log_limit > 0 && peer_ip && peer_ip[0]) {
+		if (sqlite3_prepare_v2(vhd->db, "INSERT INTO auth_log (uid, issue_time, ip_address) VALUES (?, ?, ?)", -1, &stmt, NULL) == SQLITE_OK) {
+			sqlite3_bind_int(stmt, 1, (int)uid);
+			sqlite3_bind_int64(stmt, 2, (sqlite_int64)time(NULL));
+			sqlite3_bind_text(stmt, 3, peer_ip, -1, SQLITE_STATIC);
+			sqlite3_step(stmt);
+			sqlite3_finalize(stmt);
+		}
+
+		if (sqlite3_prepare_v2(vhd->db, "DELETE FROM auth_log WHERE uid = ? AND rowid NOT IN (SELECT rowid FROM auth_log WHERE uid = ? ORDER BY issue_time DESC LIMIT ?)", -1, &stmt, NULL) == SQLITE_OK) {
+			sqlite3_bind_int(stmt, 1, (int)uid);
+			sqlite3_bind_int(stmt, 2, (int)uid);
+			sqlite3_bind_int(stmt, 3, (int)vhd->auth_log_limit);
+			sqlite3_step(stmt);
+			sqlite3_finalize(stmt);
+		}
+	}
+
+	return lws_auth_issue_device_jwt(vhd, username, uid, device_id, claims, out, out_len);
 }
 
 static int
@@ -737,6 +840,222 @@ send:
 		return -1;
 
 	return send_auth_headers(wsi, pss, "application/json", cookie_hdr[0] ? cookie_hdr : NULL, refresh_hdr[0] ? refresh_hdr : NULL);
+}
+
+static void
+generate_user_code(struct lws_context *cx, char *out)
+{
+	uint8_t rnd[8];
+	const char *charset = "BCDFGHJKLMNPQRSTVWXZ23456789";
+	size_t clen = strlen(charset);
+	int i;
+
+	lws_get_random(cx, rnd, sizeof(rnd));
+	for (i = 0; i < 4; i++) {
+		out[i] = charset[rnd[i] % clen];
+	}
+	out[4] = '-';
+	for (i = 0; i < 4; i++) {
+		out[i + 5] = charset[rnd[i + 4] % clen];
+	}
+	out[9] = '\0';
+}
+
+static int
+lws_auth_api_device_auth(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
+			 struct per_session_data__auth_server *pss)
+{
+	char pl[1024 + LWS_PRE];
+	int len;
+	char device_code[65];
+	char user_code[16];
+	uint8_t rnd[32];
+	sqlite3_stmt *stmt;
+	uint64_t expires = (uint64_t)time(NULL) + (15 * 60); /* 15 minutes to pair */
+
+	lws_get_random(vhd->context, rnd, 32);
+	lws_hex_from_byte_array(rnd, 32, device_code, 65);
+	generate_user_code(vhd->context, user_code);
+
+	if (sqlite3_prepare_v2(vhd->db, "INSERT INTO device_codes (device_code, user_code, uid, expires, status) VALUES (?, ?, 0, ?, 0)", -1, &stmt, NULL) == SQLITE_OK) {
+		sqlite3_bind_text(stmt, 1, device_code, -1, SQLITE_STATIC);
+		sqlite3_bind_text(stmt, 2, user_code, -1, SQLITE_STATIC);
+		sqlite3_bind_int64(stmt, 3, (sqlite_int64)expires);
+		sqlite3_step(stmt);
+		sqlite3_finalize(stmt);
+	}
+
+	pss->http_response_code = HTTP_STATUS_OK;
+	len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE,
+			"{\"device_code\":\"%s\",\"user_code\":\"%s\",\"verification_uri\":\"https://%s/\",\"expires_in\":900,\"interval\":5}",
+			device_code, user_code, vhd->auth_domain);
+
+	if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)pl, (size_t)len + LWS_PRE) < 0)
+		return -1;
+
+	return send_auth_headers(wsi, pss, "application/json", NULL, NULL);
+}
+
+static int
+lws_auth_api_device_token(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
+			  struct per_session_data__auth_server *pss)
+{
+	char pl[1024 + LWS_PRE];
+	int len;
+	const char *device_code = lws_spa_get_string(pss->spa, EP_DEVICE_CODE);
+	sqlite3_stmt *stmt;
+	uint64_t now = (uint64_t)time(NULL);
+	int status = -1;
+	uint32_t uid = 0;
+	uint64_t expires = 0;
+
+	if (!device_code || !device_code[0]) {
+		pss->http_response_code = HTTP_STATUS_BAD_REQUEST;
+		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"invalid_request\"}");
+		goto send;
+	}
+
+	if (sqlite3_prepare_v2(vhd->db, "SELECT status, uid, expires FROM device_codes WHERE device_code = ?", -1, &stmt, NULL) == SQLITE_OK) {
+		sqlite3_bind_text(stmt, 1, device_code, -1, SQLITE_STATIC);
+		if (sqlite3_step(stmt) == SQLITE_ROW) {
+			status = sqlite3_column_int(stmt, 0);
+			uid = (uint32_t)sqlite3_column_int(stmt, 1);
+			expires = (uint64_t)sqlite3_column_int64(stmt, 2);
+		}
+		sqlite3_finalize(stmt);
+	}
+
+	if (status == -1) {
+		pss->http_response_code = HTTP_STATUS_BAD_REQUEST;
+		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"expired_token\"}");
+		goto send;
+	}
+
+	if (now > expires) {
+		pss->http_response_code = HTTP_STATUS_BAD_REQUEST;
+		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"expired_token\"}");
+		goto send;
+	}
+
+	if (status == 0) {
+		pss->http_response_code = HTTP_STATUS_BAD_REQUEST;
+		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"authorization_pending\"}");
+		goto send;
+	}
+
+	if (status == 1 && uid > 0) {
+		char username[128] = {0};
+		if (sqlite3_prepare_v2(vhd->db, "SELECT username FROM users WHERE uid = ?", -1, &stmt, NULL) == SQLITE_OK) {
+			sqlite3_bind_int(stmt, 1, (int)uid);
+			if (sqlite3_step(stmt) == SQLITE_ROW)
+				lws_strncpy(username, (const char *)sqlite3_column_text(stmt, 0), sizeof(username));
+			sqlite3_finalize(stmt);
+		}
+
+		char jwt[1024];
+		size_t jwt_len = sizeof(jwt);
+		char peer[64];
+		lws_get_peer_simple(wsi, peer, sizeof(peer));
+
+		if (!lws_auth_generate_device_token(vhd, username, uid, device_code, peer, jwt, &jwt_len)) {
+			pss->http_response_code = HTTP_STATUS_OK;
+			len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"access_token\":\"%s\",\"token_type\":\"bearer\"}", jwt);
+
+			/* Insert into devices table for granular revocation */
+			if (sqlite3_prepare_v2(vhd->db, "INSERT OR IGNORE INTO devices (device_id, uid, name, created) VALUES (?, ?, ?, ?)", -1, &stmt, NULL) == SQLITE_OK) {
+				sqlite3_bind_text(stmt, 1, device_code, -1, SQLITE_STATIC);
+				sqlite3_bind_int(stmt, 2, (int)uid);
+				sqlite3_bind_text(stmt, 3, "Headless Device", -1, SQLITE_STATIC);
+				sqlite3_bind_int64(stmt, 4, (sqlite_int64)time(NULL));
+
+				sqlite3_step(stmt);
+				sqlite3_finalize(stmt);
+			} else {
+				lwsl_err("%s: Failed to prepare device registration query: %s\n", __func__, sqlite3_errmsg(vhd->db));
+			}
+
+			/* Consume code */
+			if (sqlite3_prepare_v2(vhd->db, "DELETE FROM device_codes WHERE device_code = ?", -1, &stmt, NULL) == SQLITE_OK) {
+				sqlite3_bind_text(stmt, 1, device_code, -1, SQLITE_STATIC);
+				sqlite3_step(stmt);
+				sqlite3_finalize(stmt);
+			}
+			goto send;
+		} else {
+			pss->http_response_code = HTTP_STATUS_INTERNAL_SERVER_ERROR;
+			len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"server_error\"}");
+			goto send;
+		}
+	}
+
+	pss->http_response_code = HTTP_STATUS_BAD_REQUEST;
+	len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"access_denied\"}");
+
+send:
+	if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)pl, (size_t)len + LWS_PRE) < 0)
+		return -1;
+
+	return send_auth_headers(wsi, pss, "application/json", NULL, NULL);
+}
+
+static int
+lws_auth_api_device_approve(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
+			    struct per_session_data__auth_server *pss)
+{
+	char pl[1024 + LWS_PRE];
+	int len;
+
+	if (auth_check_csrf(wsi, vhd, pss)) {
+		pss->http_response_code = HTTP_STATUS_FORBIDDEN;
+		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"CSRF validation failed\"}");
+		goto send;
+	}
+
+	struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL);
+	uint32_t uid = 0;
+	if (ja) {
+		uid = lws_jwt_auth_get_uid(ja);
+		lws_jwt_auth_destroy(&ja);
+	}
+
+	if (!uid) {
+		pss->http_response_code = HTTP_STATUS_UNAUTHORIZED;
+		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"invalid_session\"}");
+		goto send;
+	}
+
+	const char *user_code = lws_spa_get_string(pss->spa, EP_USER_CODE);
+	if (!user_code || !user_code[0]) {
+		pss->http_response_code = HTTP_STATUS_BAD_REQUEST;
+		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"missing_code\"}");
+		goto send;
+	}
+
+	sqlite3_stmt *stmt;
+	int found = 0;
+	if (sqlite3_prepare_v2(vhd->db, "UPDATE device_codes SET status = 1, uid = ? WHERE user_code = ? AND status = 0", -1, &stmt, NULL) == SQLITE_OK) {
+		sqlite3_bind_int(stmt, 1, (int)uid);
+		sqlite3_bind_text(stmt, 2, user_code, -1, SQLITE_STATIC);
+		sqlite3_step(stmt);
+		if (sqlite3_changes(vhd->db) > 0) {
+			found = 1;
+		}
+		sqlite3_finalize(stmt);
+	}
+
+	if (found) {
+		pss->http_response_code = HTTP_STATUS_OK;
+		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"status\":\"ok\"}");
+	} else {
+		pss->http_response_code = HTTP_STATUS_BAD_REQUEST;
+		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Invalid or expired code\"}");
+	}
+
+send:
+	if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)pl, (size_t)len + LWS_PRE) < 0)
+		return -1;
+
+	return send_auth_headers(wsi, pss, "application/json", NULL, NULL);
 }
 
 static int
@@ -1447,8 +1766,8 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 		/* Initialize sqlite database using lws_struct */
 		if (lws_struct_sq3_open(vhd->context, vhd->db_path, 1, &vhd->db)) {
-			lwsl_vhost_err(vhd->vhost, "Auth plugin failed to open database\n");
-			return -1; /* fail plugin init */
+			lwsl_err("%s: could not open local database at %s. FATAL.\n", __func__, vhd->db_path);
+			return -1;
 		}
 
 		if (sqlite3_exec(vhd->db, schema_init, NULL, NULL, NULL) != SQLITE_OK) {
@@ -1597,52 +1916,31 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 			lws_jwt_auth_destroy(&ja);
 
-			const char *html_fmt = "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"UTF-8\">"
+						const char *html_fmt = "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"UTF-8\">"
 				"<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">"
-				"<title>Auth Server Admin</title>"
-				"<link rel=\"stylesheet\" href=\"../admin.css\">"
+				"<title>Authorize Device</title>"
 				"%s%s%s"
-				"</head><body><div class=\"container\">"
-				"<div class=\"panel-header\"><h1>Admin Console</h1></div>"
-				"<div class=\"tabs\">"
-				"<button id=\"tabUsers\" class=\"tab-active\">User Administration</button>"
-				"<button id=\"tabClients\" class=\"tab-inactive\">Grants</button>"
+				"<link rel=\"stylesheet\" href=\"/assets/device.css\">"
+				"</head><body><div class=\"card\">"
+				"<h2>Authorize Device</h2>"
+				"<p>Enter the 8-character code displayed on your device or in the waiting room.</p>"
+				"<input type=\"text\" id=\"userCode\" maxlength=\"9\" placeholder=\"XXXX-YYYY\" value=\"%s\" />"
+				"<button id=\"authBtn\">Authorize Device</button>"
+				"<div id=\"statusMsg\" class=\"status\"></div>"
 				"</div>"
-				"<div id=\"usersView\">"
-				"<table id=\"usersTable\"><thead>"
-				"<tr><th>UID</th><th>Username</th><th>Active Grants</th><th>Actions</th></tr>"
-				"</thead><tbody></tbody></table>"
-				"</div>"
-				"<div id=\"clientsView\" class=\"hidden\">"
-				"<button id=\"addClientBtn\" class=\"btn-success\">+ Add Grant</button>"
-				"<table id=\"clientsTable\"><thead>"
-				"<tr><th>Grant ID</th><th>Display Name</th><th>Allowed Redirect URIs</th><th>Actions</th></tr>"
-				"</thead><tbody></tbody></table>"
-				"</div>"
-				"</div>"
-				"<div id=\"modal\"><div class=\"modal-content\"><h3 id=\"modalTitle\">Edit Grants</h3>"
-				"<p>Enter grants as comma-separated <code>service:level</code>.</p>"
-				"<div class=\"form-group\"><input type=\"text\" id=\"grantsInput\" placeholder=\"service:level\"></div>"
-				"<button id=\"saveBtn\">Save</button> <button id=\"cancelBtn\" class=\"btn-muted\">Cancel</button>"
-				"</div></div>"
-				"<div id=\"clientModal\" class=\"modal-backdrop\">"
-				"<div class=\"modal-content\">"
-				"<h3 id=\"cmTitle\">Manage Grant</h3>"
-				"<div class=\"form-group\"><label class=\"form-label\">Grant ID</label><input type=\"text\" id=\"cmId\" class=\"form-input\"></div>"
-				"<div class=\"form-group spaced\"><label class=\"form-label\">Display Name</label><input type=\"text\" id=\"cmName\" class=\"form-input\"></div>"
-				"<div class=\"form-group spaced bottom\"><label class=\"form-label\">Redirect URIs (comma delim)</label><input type=\"text\" id=\"cmRedirects\" class=\"form-input\" placeholder=\"https://...\"></div>"
-				"<button id=\"cmSaveBtn\">Save</button> <button id=\"cmCancelBtn\" class=\"btn-muted\">Cancel</button>"
-				"</div></div>"
-				"<script src=\"../admin.js\"></script>"
-				"</body></html>";
+				"<script src=\"/assets/device.js\"></script></body></html>";
 
 			size_t max_html_len = LWS_SSO_MAX_COOKIE;
 			char *pl = malloc(LWS_PRE + max_html_len);
 			if (!pl) return -1;
+
+			char prefill[32] = {0};
+			lws_get_urlarg_by_name_safe(wsi, "code=", prefill, sizeof(prefill));
+
 			size_t html_len = (size_t)lws_snprintf(pl + LWS_PRE, max_html_len, html_fmt,
 				vhd->ui_css[0] ? "<link rel=\"stylesheet\" href=\"" : "",
 				vhd->ui_css[0] ? vhd->ui_css : "",
-				vhd->ui_css[0] ? "\">" : "");
+				vhd->ui_css[0] ? "\">" : "", prefill);
 
 			if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)pl, html_len + LWS_PRE) < 0) {
 				free(pl);
@@ -1716,7 +2014,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 							sqlite3_finalize(stmt);
 							lwsl_notice("%s: DB delete complete.\n", __func__);
 						} else {
-							lwsl_notice("%s: DB prepare failed\n", __func__);
+							lwsl_notice("%s: DB prepare failed: %s\n", __func__, sqlite3_errmsg(vhd->db));
 						}
 					}
 				} else {
@@ -2396,7 +2694,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			return lws_http_transaction_completed(wsi);
 		}
 
-		if (in && (strstr((const char *)in, "login") || strstr((const char *)in, "register") || strstr((const char *)in, "token") || strstr((const char *)in, "sso_exchange"))) {
+		if (in && (strstr((const char *)in, "login") || strstr((const char *)in, "register") || strstr((const char *)in, "token") || strstr((const char *)in, "sso_exchange") || strstr((const char *)in, "device_auth") || strstr((const char *)in, "device_approve"))) {
 			lws_strncpy(pss->requesting_url, (const char *)in, sizeof(pss->requesting_url));
 
 			lwsl_info("%s: Processing POST to '%s'\n", __func__, pss->requesting_url);
@@ -2438,7 +2736,13 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		lws_spa_finalize(pss->spa);
 
-		if (strstr(pss->requesting_url, "token"))
+		if (strstr(pss->requesting_url, "device_auth"))
+			return lws_auth_api_device_auth(wsi, vhd, pss);
+		else if (strstr(pss->requesting_url, "device_token"))
+			return lws_auth_api_device_token(wsi, vhd, pss);
+		else if (strstr(pss->requesting_url, "device_approve"))
+			return lws_auth_api_device_approve(wsi, vhd, pss);
+		else if (strstr(pss->requesting_url, "token"))
 			return lws_auth_api_token(wsi, vhd, pss);
 		else if (strstr(pss->requesting_url, "login"))
 			return lws_auth_api_login(wsi, vhd, pss);
@@ -2502,7 +2806,12 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION:
 	{
 		struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL);
-		if (!ja || lws_jwt_auth_query_grant(ja, "*") < 1) {
+		int gl = ja ? lws_jwt_auth_query_grant(ja, "*") : -1;
+
+		lwsl_notice("%s: FILTER_PROTOCOL_CONNECTION: ja=%p, wildcard grant level=%d\n",
+			    __func__, ja, gl);
+
+		if (!ja || gl < 1) {
 			if (ja) lws_jwt_auth_destroy(&ja);
 			lwsl_info("WS connection rejected: missing administrative wildcard grant\n");
 			return 1;
