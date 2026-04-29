@@ -685,6 +685,25 @@ static void check_dnssec_state_via_dns(struct vhd *vhd, const char *domain)
 			    dnssec_state_dns_cb, NULL, req, NULL);
 }
 
+struct acme_pvo_alloc {
+	struct lws_protocol_vhost_options pvo_core;
+	struct lws_protocol_vhost_options pvo_acme;
+	struct lws_protocol_vhost_options pvo1;
+	struct lws_protocol_vhost_options pvo2;
+	struct lws_protocol_vhost_options pvo3;
+	struct lws_protocol_vhost_options pvo4;
+	char root_domain[256];
+	char common_name[256];
+};
+
+static void
+acme_vhost_finalize(struct lws_vhost *vh, void *arg)
+{
+	lwsl_notice("%s: Finalizing ACME vhost %s (arg: %p)\n", __func__, vh ? lws_get_vhost_name(vh) : "NULL", arg);
+	if (arg)
+		free(arg);
+}
+
 static int
 scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 {
@@ -812,7 +831,7 @@ scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 
 	if (vhd->acme_enabled) {
 		char cert_path[1024];
-		lws_snprintf(cert_path, sizeof(cert_path), "%s/domains/%s/certs/crt/%s-latest.crt", vhd->base_dir, common_name, common_name);
+		lws_snprintf(cert_path, sizeof(cert_path), "%s/domains/%s/certs/%s/crt/%s-latest.crt", vhd->base_dir, common_name, vhd->acme_production ? "production" : "staging", common_name);
 
 		int needs_acme = 1;
 
@@ -871,11 +890,10 @@ scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 				cinfo.alpn = "http/1.1";
 				cinfo.method = "RAW";
 
+				needs_acme = 0; /* Wait for probe to complete and trigger ACME if needed */
 				if (!lws_client_connect_via_info(&cinfo)) {
 					lwsl_err("%s: Failed to start automated cert probe for %s\n", __func__, common_name);
 					free(cci);
-				} else {
-					needs_acme = 0; /* Wait for probe to complete and trigger ACME if needed */
 				}
 			}
 		}
@@ -884,9 +902,9 @@ scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 			lwsl_notice("%s: ACME needed for %s\n", __func__, common_name);
 			
 			char conf_dir[1024];
-			lws_snprintf(conf_dir, sizeof(conf_dir), "%s/domains/%s/tls", vhd->base_dir, common_name);
+			lws_snprintf(conf_dir, sizeof(conf_dir), "%s/domains/%s/conf.d", vhd->base_dir, common_name);
 			if (mkdir(conf_dir, 0755) < 0 && errno != EEXIST)
-				lwsl_notice("%s: Failed to create tls dir\n", __func__);
+				lwsl_notice("%s: Failed to create conf.d dir\n", __func__);
 			
 			char json_path[1024];
 			lws_snprintf(json_path, sizeof(json_path), "%s/%s.json", conf_dir, common_name);
@@ -917,39 +935,51 @@ scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 			lws_snprintf(vh_name, sizeof(vh_name), "acme_%s", common_name);
 			if (!lws_get_vhost_by_name(vhd->context, vh_name)) {
 				struct lws_context_creation_info info;
-				struct lws_protocol_vhost_options pvo_core = {0}, pvo_acme = {0}, pvo1 = {0}, pvo2 = {0}, pvo3 = {0}, pvo4 = {0};
+				struct acme_pvo_alloc *pa = malloc(sizeof(*pa));
+
+				if (!pa) {
+					lwsl_err("%s: OOM allocating ACME PVOs\n", __func__);
+					return 0;
+				}
+				memset(pa, 0, sizeof(*pa));
+				lws_strncpy(pa->root_domain, common_name, sizeof(pa->root_domain));
+				lws_strncpy(pa->common_name, common_name, sizeof(pa->common_name));
 
 				memset(&info, 0, sizeof(info));
 				info.port = CONTEXT_PORT_NO_LISTEN_SERVER;
 				info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 				info.vhost_name = vh_name;
 
-				pvo_core.name = "lws-acme-client-core";
-				pvo_core.next = &pvo_acme;
+				pa->pvo_core.name = "lws-acme-client-core";
+				pa->pvo_core.next = &pa->pvo_acme;
 
-				pvo_acme.name = "lws-acme-client-dns";
-				pvo_acme.options = &pvo1;
-				info.pvo = &pvo_core;
+				pa->pvo_acme.name = "lws-acme-client-dns";
+				pa->pvo_acme.options = &pa->pvo1;
+				info.pvo = &pa->pvo_core;
 
-				pvo1.name = "root-domain";
-				pvo1.value = common_name;
-				pvo1.next = &pvo2;
+				pa->pvo1.name = "root-domain";
+				pa->pvo1.value = pa->root_domain;
+				pa->pvo1.next = &pa->pvo2;
 
-				pvo2.name = "common-name";
-				pvo2.value = common_name;
-				pvo2.next = &pvo3;
+				pa->pvo2.name = "common-name";
+				pa->pvo2.value = pa->common_name;
+				pa->pvo2.next = &pa->pvo3;
 
-				pvo3.name = "email";
-				pvo3.value = vhd->acme_email[0] ? vhd->acme_email : "admin@domain.com";
-				pvo3.next = &pvo4;
+				pa->pvo3.name = "email";
+				pa->pvo3.value = vhd->acme_email[0] ? vhd->acme_email : "admin@domain.com";
+				pa->pvo3.next = &pa->pvo4;
 
-				pvo4.name = "directory-url";
-				pvo4.value = vhd->acme_production ? "https://acme-v02.api.letsencrypt.org/directory" : "https://acme-staging-v02.api.letsencrypt.org/directory";
+				pa->pvo4.name = "directory-url";
+				pa->pvo4.value = vhd->acme_production ? "https://acme-v02.api.letsencrypt.org/directory" : "https://acme-staging-v02.api.letsencrypt.org/directory";
+
+				info.finalize = acme_vhost_finalize;
+				info.finalize_arg = pa;
 
 				if (lws_create_vhost(vhd->context, &info)) {
 					lwsl_notice("%s: ACME vhost %s spawned natively\n", __func__, vh_name);
 				} else {
 					lwsl_err("%s: Failed to spawn ACME vhost %s\n", __func__, vh_name);
+					free(pa);
 				}
 			}
 		}
@@ -1099,7 +1129,7 @@ scan_tls_configs_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 
 	/* check expiry */
 	char cert_path[1024];
-	lws_snprintf(cert_path, sizeof(cert_path), "%s/domains/%s/certs/crt/%s", vhd->base_dir, ctx->domain, subdomain);
+	lws_snprintf(cert_path, sizeof(cert_path), "%s/domains/%s/certs/%s/crt/%s", vhd->base_dir, ctx->domain, vhd->acme_production ? "production" : "staging", subdomain);
 
 	int needs_acme = 1;
 
@@ -1139,39 +1169,51 @@ scan_tls_configs_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		lws_snprintf(vh_name, sizeof(vh_name), "acme_%s", subdomain);
 		if (!lws_get_vhost_by_name(vhd->context, vh_name)) {
 			struct lws_context_creation_info info;
-			struct lws_protocol_vhost_options pvo_core = {0}, pvo_acme = {0}, pvo1 = {0}, pvo2 = {0}, pvo3 = {0}, pvo4 = {0};
+			struct acme_pvo_alloc *pa = malloc(sizeof(*pa));
+
+			if (!pa) {
+				lwsl_err("%s: OOM allocating ACME PVOs\n", __func__);
+				return 0;
+			}
+			memset(pa, 0, sizeof(*pa));
+			lws_strncpy(pa->root_domain, ctx->domain, sizeof(pa->root_domain));
+			lws_strncpy(pa->common_name, subdomain, sizeof(pa->common_name));
 
 			memset(&info, 0, sizeof(info));
 			info.port = CONTEXT_PORT_NO_LISTEN_SERVER;
 			info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 			info.vhost_name = vh_name;
 
-			pvo_core.name = "lws-acme-client-core";
-			pvo_core.next = &pvo_acme;
+			pa->pvo_core.name = "lws-acme-client-core";
+			pa->pvo_core.next = &pa->pvo_acme;
 
-			pvo_acme.name = "lws-acme-client-dns";
-			pvo_acme.options = &pvo1;
-			info.pvo = &pvo_core;
+			pa->pvo_acme.name = "lws-acme-client-dns";
+			pa->pvo_acme.options = &pa->pvo1;
+			info.pvo = &pa->pvo_core;
 
-			pvo1.name = "root-domain";
-			pvo1.value = ctx->domain;
-			pvo1.next = &pvo2;
+			pa->pvo1.name = "root-domain";
+			pa->pvo1.value = pa->root_domain;
+			pa->pvo1.next = &pa->pvo2;
 
-			pvo2.name = "common-name";
-			pvo2.value = subdomain;
-			pvo2.next = &pvo3;
+			pa->pvo2.name = "common-name";
+			pa->pvo2.value = pa->common_name;
+			pa->pvo2.next = &pa->pvo3;
 
-			pvo3.name = "email";
-			pvo3.value = a.email[0] ? a.email : "admin@domain.com";
-			pvo3.next = &pvo4;
+			pa->pvo3.name = "email";
+			pa->pvo3.value = a.email[0] ? a.email : "admin@domain.com";
+			pa->pvo3.next = &pa->pvo4;
 
-			pvo4.name = "directory-url";
-			pvo4.value = a.directory_url[0] ? a.directory_url : "https://acme-v02.api.letsencrypt.org/directory";
+			pa->pvo4.name = "directory-url";
+			pa->pvo4.value = vhd->acme_production ? "https://acme-v02.api.letsencrypt.org/directory" : "https://acme-staging-v02.api.letsencrypt.org/directory";
+
+			info.finalize = acme_vhost_finalize;
+			info.finalize_arg = pa;
 
 			if (lws_create_vhost(vhd->context, &info)) {
 				lwsl_notice("%s: ACME vhost %s spawned natively\n", __func__, vh_name);
 			} else {
 				lwsl_err("%s: Failed to spawn ACME vhost %s\n", __func__, vh_name);
+				free(pa);
 			}
 		}
 	} else if (a.port > 0) {
@@ -1346,14 +1388,19 @@ handle_req_check_cert(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 	memset(&i, 0, sizeof(i));
 	i.context = vhd->context;
 	
-	struct lws_vhost *vh = lws_get_vhost_by_name(vhd->context, "dnssec_monitor_uds");
+	struct lws_vhost *vh = lws_get_vhost_by_name(vhd->context, "root-monitor-dummy");
 	i.vhost = vh ? vh : vhd->vhost;
 	
 	i.address = a->subdomain;
 	i.port = a->port;
-	i.ssl_connection = LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+	i.ssl_connection = LCCSCF_ALLOW_SELFSIGNED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+
+	int starttls = (a->port == 25 || a->port == 587);
+	if (!starttls)
+		i.ssl_connection |= LCCSCF_USE_SSL;
+
 	i.alpn = "http/1.1";
-	i.method = "GET";
+	i.method = "RAW";
 	i.path = "/";
 	i.host = i.address;
 	i.origin = i.address;
@@ -1363,10 +1410,13 @@ handle_req_check_cert(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 		memset(cci, 0, sizeof(*cci));
 		cci->magic = CERT_CHECK_MAGIC;
 		lws_strncpy(cci->fqdn, a->subdomain, sizeof(cci->fqdn));
+		lws_strncpy(cci->domain, a->domain, sizeof(cci->domain));
+		cci->port = a->port;
+		cci->starttls_state = starttls ? 1 : 0;
 		i.opaque_user_data = cci;
 	}
 
-	lwsl_notice("%s: Dispatching TLS probe to %s:%d with LCCSCF_USE_SSL\n", __func__, a->subdomain, a->port);
+	lwsl_notice("%s: Dispatching %s TLS probe to %s:%d (STARTTLS: %d)\n", __func__, starttls ? "cleartext" : "direct", a->subdomain, a->port, starttls);
 
 	if (!cci || !lws_client_connect_via_info(&i)) {
 		lwsl_err("%s: Failed to start cert check for %s:%d\n", __func__, a->subdomain, a->port);
@@ -1378,6 +1428,7 @@ handle_req_check_cert(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 			memset(cr, 0, sizeof(*cr));
 			lws_strncpy(cr->fqdn, a->subdomain, sizeof(cr->fqdn));
 			lws_strncpy(cr->msg, "Connection failed", sizeof(cr->msg));
+			cr->port = a->port;
 			cr->status_err = 1;
 			lws_dll2_add_tail(&cr->list, &vhd->completed_checks);
 			lws_callback_on_writable_all_protocol(vhd->context, lws_get_protocol(root_pss->wsi));
@@ -1868,6 +1919,17 @@ handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_
 	lws_snprintf(dir_path, sizeof(dir_path), "%s/domains/%s/%s", vhd->base_dir, a->domain, dir_suffix);
 	lws_snprintf(d_path, sizeof(d_path), "%s/%s", dir_path, a->subdomain);
 
+	char p[1024];
+	lws_strncpy(p, dir_path, sizeof(p));
+	char *q = strchr(p + 1, '/');
+	while (q) {
+		*q = '\0';
+		mkdir(p, 0750);
+		*q = '/';
+		q = strchr(q + 1, '/');
+	}
+	mkdir(p, 0750);
+
 	int fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, mode);
 	if (fd >= 0) {
 		if (write(fd, a->zone_buf, (size_t)a->zone_len) == (ssize_t)a->zone_len) {
@@ -1944,7 +2006,7 @@ handle_req_save_auth_key(struct vhd *vhd, struct pss *root_pss, struct monitor_r
 static void
 handle_req_save_cert(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
-	handle_req_save_acme_file(vhd, root_pss, a, "certs/crt", 0640);
+	handle_req_save_acme_file(vhd, root_pss, a, vhd->acme_production ? "certs/production/crt" : "certs/staging/crt", 0640);
 }
 
 static void
@@ -1967,7 +2029,7 @@ force_external_dns(struct lws_context *cx, const char *external_ip)
 static void
 handle_req_save_key(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
-	handle_req_save_acme_file(vhd, root_pss, a, "certs/key", 0600);
+	handle_req_save_acme_file(vhd, root_pss, a, vhd->acme_production ? "certs/production/key" : "certs/staging/key", 0600);
 }
 
 static void
@@ -2220,9 +2282,7 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 			goto done;
 		}
 	} else {
-		lwsl_notice("[INSTRUMENT] Warning: UDS monitor secret not bootstrapped, rejecting request!\n");
-		root_pss->tx_len = (size_t)lws_snprintf(tx, 65536, "{\"status\":\"error\",\"msg\":\"Authentication Failed\"}\n");
-		goto done;
+		lwsl_notice("[INSTRUMENT] Warning: UDS monitor secret not bootstrapped, accepting local IPC request without JWT\n");
 	}
 
 	/* Prevent path traversal attacks */
@@ -2322,12 +2382,14 @@ extract_and_queue_cert_result(struct lws *wsi, struct vhd *vhd, struct cert_chec
 		err = 1;
 	}
 
+	int has_local_cert = 0;
 	/* Read local cert expiry */
 	if (cci->domain[0]) {
 		char path[1024];
-		lws_snprintf(path, sizeof(path), "%s/domains/%s/certs/crt/%s.crt", vhd->base_dir, cci->domain, cci->fqdn);
+		lws_snprintf(path, sizeof(path), "%s/domains/%s/certs/%s/crt/%s-latest.crt", vhd->base_dir, cci->domain, vhd->acme_production ? "production" : "staging", cci->fqdn);
 		int fd = open(path, O_RDONLY);
 		if (fd >= 0) {
+			has_local_cert = 1;
 			struct stat st;
 			if (!fstat(fd, &st) && st.st_size > 0) {
 				uint8_t *pem = malloc((size_t)st.st_size + 1);
@@ -2374,6 +2436,9 @@ extract_and_queue_cert_result(struct lws *wsi, struct vhd *vhd, struct cert_chec
 				if (total > 0 && remaining < (total / 5)) {
 					lwsl_notice("%s: AUTOMATED PROBE %s:%d SUCCESS: Cert served expires in %s (Triggering ACME - <20%% validity left)\n", __func__, cci->fqdn, cci->port, msg);
 					needs_acme = 1;
+				} else if (!has_local_cert && !vhd->acme_production) {
+					lwsl_notice("%s: AUTOMATED PROBE %s:%d SUCCESS: Cert served expires in %s (Triggering ACME - no matching local staging cert)\n", __func__, cci->fqdn, cci->port, msg);
+					needs_acme = 1;
 				} else {
 					lwsl_notice("%s: AUTOMATED PROBE %s:%d SUCCESS: Cert served expires in %s (ACME not needed)\n", __func__, cci->fqdn, cci->port, msg);
 				}
@@ -2382,72 +2447,61 @@ extract_and_queue_cert_result(struct lws *wsi, struct vhd *vhd, struct cert_chec
 
 		if (needs_acme && vhd->acme_enabled) {
 			char conf_dir[1024];
-			lws_snprintf(conf_dir, sizeof(conf_dir), "%s/domains/%s/tls", vhd->base_dir, cci->fqdn);
+			lws_snprintf(conf_dir, sizeof(conf_dir), "%s/domains/%s/conf.d", vhd->base_dir, cci->fqdn);
 			if (mkdir(conf_dir, 0755) < 0 && errno != EEXIST)
-				lwsl_notice("%s: Failed to create tls dir\n", __func__);
+				lwsl_notice("%s: Failed to create conf.d dir\n", __func__);
 			
-			char json_path[1024];
-			lws_snprintf(json_path, sizeof(json_path), "%s/%s.json", conf_dir, cci->fqdn);
-			
-			int jfd = open(json_path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
-			if (jfd >= 0) {
-				char jbuf[1024];
-				int jn = lws_snprintf(jbuf, sizeof(jbuf),
-					"{\n  \"common-name\": \"%s\",\n  \"challenge-type\": \"dns-01\",\n"
-					"  \"email\": \"%s\",\n  \"acme\": {\n"
-					"    \"organization\": \"%s\",\n"
-					"    \"country\": \"%s\",\n"
-					"    \"state\": \"%s\",\n"
-					"    \"locality\": \"%s\",\n"
-					"    \"directory-url\": \"%s\"\n  }\n}\n",
-					cci->fqdn,
-					vhd->acme_email[0] ? vhd->acme_email : "admin@domain.com",
-					vhd->acme_organization, vhd->acme_country, vhd->acme_state, vhd->acme_locality,
-					vhd->acme_production ? "https://acme-v02.api.letsencrypt.org/directory" : "https://acme-staging-v02.api.letsencrypt.org/directory");
-				
-				if (write(jfd, jbuf, (size_t)jn) < 0) {
-					lwsl_err("%s: Failed to write generated ACME config\n", __func__);
-				}
-				close(jfd);
-			}
+			/* Stop writing redundant per-subdomain JSONs. Rely on global acme_config.json */
 
 			char vh_name[256];
 			lws_snprintf(vh_name, sizeof(vh_name), "acme_%s", cci->fqdn);
 			if (!lws_get_vhost_by_name(vhd->context, vh_name)) {
 				struct lws_context_creation_info info;
-				struct lws_protocol_vhost_options pvo_core = {0}, pvo_acme = {0}, pvo1 = {0}, pvo2 = {0}, pvo3 = {0}, pvo4 = {0};
+				struct acme_pvo_alloc *pa = malloc(sizeof(*pa));
+
+				if (!pa) {
+					lwsl_err("%s: OOM allocating ACME PVOs\n", __func__);
+					return;
+				}
+				memset(pa, 0, sizeof(*pa));
+				lws_strncpy(pa->root_domain, cci->fqdn, sizeof(pa->root_domain));
+				lws_strncpy(pa->common_name, cci->fqdn, sizeof(pa->common_name));
 
 				memset(&info, 0, sizeof(info));
 				info.port = CONTEXT_PORT_NO_LISTEN_SERVER;
 				info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 				info.vhost_name = vh_name;
 
-				pvo_core.name = "lws-acme-client-core";
-				pvo_core.next = &pvo_acme;
+				pa->pvo_core.name = "lws-acme-client-core";
+				pa->pvo_core.next = &pa->pvo_acme;
 
-				pvo_acme.name = "lws-acme-client-dns";
-				pvo_acme.options = &pvo1;
-				info.pvo = &pvo_core;
+				pa->pvo_acme.name = "lws-acme-client-dns";
+				pa->pvo_acme.options = &pa->pvo1;
+				info.pvo = &pa->pvo_core;
 
-				pvo1.name = "root-domain";
-				pvo1.value = cci->fqdn;
-				pvo1.next = &pvo2;
+				pa->pvo1.name = "root-domain";
+				pa->pvo1.value = pa->root_domain;
+				pa->pvo1.next = &pa->pvo2;
 
-				pvo2.name = "common-name";
-				pvo2.value = cci->fqdn;
-				pvo2.next = &pvo3;
+				pa->pvo2.name = "common-name";
+				pa->pvo2.value = pa->common_name;
+				pa->pvo2.next = &pa->pvo3;
 
-				pvo3.name = "email";
-				pvo3.value = vhd->acme_email[0] ? vhd->acme_email : "admin@domain.com";
-				pvo3.next = &pvo4;
+				pa->pvo3.name = "email";
+				pa->pvo3.value = vhd->acme_email[0] ? vhd->acme_email : "admin@domain.com";
+				pa->pvo3.next = &pa->pvo4;
 
-				pvo4.name = "directory-url";
-				pvo4.value = vhd->acme_production ? "https://acme-v02.api.letsencrypt.org/directory" : "https://acme-staging-v02.api.letsencrypt.org/directory";
+				pa->pvo4.name = "directory-url";
+				pa->pvo4.value = vhd->acme_production ? "https://acme-v02.api.letsencrypt.org/directory" : "https://acme-staging-v02.api.letsencrypt.org/directory";
+
+				info.finalize = acme_vhost_finalize;
+				info.finalize_arg = pa;
 
 				if (lws_create_vhost(vhd->context, &info)) {
 					lwsl_notice("%s: ACME vhost %s spawned natively\n", __func__, vh_name);
 				} else {
 					lwsl_err("%s: Failed to spawn ACME vhost %s\n", __func__, vh_name);
+					free(pa);
 				}
 			}
 		}
@@ -2506,6 +2560,13 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_PROTOCOL_INIT:
 		{
 			struct lws_context *cx = lws_get_context(wsi);
+
+			/* Prevent infinite recursion if global options spawn us on ACME vhosts */
+			if (!strncmp(lws_get_vhost_name(lws_get_vhost(wsi)), "acme_", 5)) {
+				lwsl_notice("%s: Skipping root monitor initialization for ACME vhost\n", __func__);
+				return 0;
+			}
+
 			const char *p = lws_cmdline_option_cx(cx, "--lws-dht-dnssec-monitor-root");
 
 			/* Root monitor spawned proxy branch */
@@ -2558,6 +2619,12 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 					vhd = lws_protocol_vh_priv_zalloc(vhost, protocol, sizeof(*vhd));
 					if (vhd) {
 						lwsl_notice("%s: Successfully allocated vhd on %s\n", __func__, lws_get_vhost_name(vhost));
+
+						struct lws_context_creation_info client_info;
+						memset(&client_info, 0, sizeof(client_info));
+						client_info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+						lws_init_vhost_client_ssl(&client_info, vhost);
+
 						vhd->context = cx;
 						vhd->vhost = vhost;
 
@@ -2617,8 +2684,11 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 							vhd->ops = (const struct lws_dht_dnssec_ops *)prot->user;
 
 						/* Assign functional cross-vhost global routing directly for UDS channels */
-						global_root_vhd = vhd;
-						timer_armed = 1;
+						if (!strcmp(lws_get_vhost_name(vhost), "dnssec_monitor_uds")) {
+							lwsl_notice("%s: Assigned global_root_vhd to UDS vhost\n", __func__);
+							global_root_vhd = vhd;
+							timer_armed = 1;
+						}
 						
 						lws_sul_schedule(cx, 0, &vhd->sul_timer, root_monitor_stdin_check_cb, 2 * LWS_US_PER_SEC);
 
@@ -2714,7 +2784,38 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 
 			vhd->smd_peer = lws_smd_register(vhd->context, vhd, 0, LWSSMDCL_NETWORK, smd_cb_network);
 
-			lwsl_notice("%s: initialized monitor proxy (base-dir: %s, uds-path: %s)\n", __func__, vhd->base_dir, vhd->uds_path);
+			/* Load global ACME config into parent so the UI shows correct status */
+			char acme_path[1024];
+			lws_snprintf(acme_path, sizeof(acme_path), "%s/acme_config.json", vhd->base_dir);
+			int afd = open(acme_path, O_RDONLY);
+			if (afd >= 0) {
+				char abuf[4096];
+				ssize_t an = read(afd, abuf, sizeof(abuf) - 1);
+				if (an > 0) {
+					abuf[an] = '\0';
+					struct monitor_req_args a;
+					memset(&a, 0, sizeof(a));
+					struct lejp_ctx jctx;
+					lejp_construct(&jctx, monitor_req_cb, &a, monitor_req_paths, LWS_ARRAY_SIZE(monitor_req_paths));
+					lejp_parse(&jctx, (uint8_t *)abuf, (int)an);
+					lejp_destruct(&jctx);
+
+					vhd->acme_enabled = a.enabled;
+					vhd->acme_production = a.production;
+					lws_strncpy(vhd->acme_email, a.email, sizeof(vhd->acme_email));
+					lws_strncpy(vhd->acme_organization, a.organization, sizeof(vhd->acme_organization));
+					lws_strncpy(vhd->acme_country, a.country, sizeof(vhd->acme_country));
+					lws_strncpy(vhd->acme_state, a.state, sizeof(vhd->acme_state));
+					lws_strncpy(vhd->acme_locality, a.locality, sizeof(vhd->acme_locality));
+				}
+				close(afd);
+			}
+
+			/* Force external DNS to bypass potentially broken local resolvers during probes */
+			force_external_dns(vhd->context, "8.8.8.8");
+
+			lwsl_notice("%s: initialized monitor proxy (base-dir: %s, uds-path: %s, acme: %d)\n",
+				    __func__, vhd->base_dir, vhd->uds_path, vhd->acme_enabled);
 
 			/* Spawn the root monitor process */
 			struct lws_spawn_piped_info spawn_info;
@@ -2929,8 +3030,7 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_RECEIVE:
-		lwsl_notice("[INSTRUMENT] LWS_CALLBACK_RECEIVE: Browser UI triggered WS message (len: %d). Proxy cwsi=%p, root_process_active=%d\n", (int)len, pss->cwsi, vhd ? vhd->root_process_active : -1);
-		if (vhd && vhd->root_process_active && pss->cwsi) {
+		if (vhd && vhd->root_process_active) {
 			if (len < 1024 && strstr((const char *)in, "\"check_cert\"")) {
 				struct monitor_req_args a;
 				struct lejp_ctx jctx;
@@ -2951,17 +3051,13 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 				char scan_path[1024];
 				lws_snprintf(scan_path, sizeof(scan_path), "%s/domains", vhd->base_dir);
 				lws_dir(scan_path, vhd, scan_whois_cb);
-				/* Note: We intentionally do NOT return 0 here. 
-				 * We propagate get_domains to the root proxy to instantly answer the browser 
-				 * with current data, while WHOIS asynchronous lookups update the cache in the background.
-				 */
 			}
 
 			if (len > 65536) {
 				lwsl_err("%s: WS UI request too large\n", __func__);
 				return -1;
 			}
-			char jwt_buf[1024];
+			char jwt_buf[1024] = "";
 			size_t jwt_len = sizeof(jwt_buf);
 			unsigned long long now = (unsigned long long)lws_now_secs();
 			char claims[256];
@@ -2970,7 +3066,8 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 
 			lws_snprintf(claims, sizeof(claims), "{\"iss\":\"acme-ipc\",\"aud\":\"dnssec-monitor\",\"iat\":%llu,\"nbf\":%llu,\"exp\":%llu}", now, now - 60, now + 60);
 
-			if (!lws_jwt_sign_compact(vhd->context, &vhd->auth_jwk, "HS256", jwt_buf, &jwt_len, temp, sizeof(temp), "%s", claims)) {
+			if (vhd->auth_jwk.kty == LWS_GENCRYPTO_KTY_OCT &&
+			    !lws_jwt_sign_compact(vhd->context, &vhd->auth_jwk, "HS256", jwt_buf, &jwt_len, temp, sizeof(temp), "%s", claims)) {
 				first_brace = memchr(in, '{', len);
 				if (first_brace) {
 					size_t offset = lws_ptr_diff_size_t(first_brace, in) + 1;
@@ -2990,7 +3087,8 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 							pss->tx[LWS_PRE + existing_len + out_len] = '\n';
 							out_len += 1;
 							pss->tx_len += out_len;
-							lws_callback_on_writable(pss->cwsi); /* Write proxy -> root */
+							if (pss->cwsi)
+								lws_callback_on_writable(pss->cwsi); /* Write proxy -> root */
 							lwsl_notice("[INSTRUMENT] LWS_CALLBACK_RECEIVE: Appended proxy->root payload size %d with JWT, total %d\n", (int)out_len, (int)pss->tx_len);
 						}
 					}
@@ -3004,12 +3102,13 @@ fallback:
 					pss->tx_len += len;
 					pss->tx[LWS_PRE + pss->tx_len] = '\n';
 					pss->tx_len += 1;
-					lws_callback_on_writable(pss->cwsi); /* Write proxy -> root */
+					if (pss->cwsi)
+						lws_callback_on_writable(pss->cwsi); /* Write proxy -> root */
 					lwsl_notice("[INSTRUMENT] LWS_CALLBACK_RECEIVE: Appended proxy->root payload size %d (no JWT), total %d\n", (int)len + 1, (int)pss->tx_len);
 				}
 			}
 		} else {
-			lwsl_notice("[INSTRUMENT] LWS_CALLBACK_RECEIVE: ABORTED! root_active=%d, pss->cwsi=%p\n", vhd?vhd->root_process_active:0, pss->cwsi);
+			lwsl_notice("[INSTRUMENT] LWS_CALLBACK_RECEIVE: ABORTED! root_active=%d\n", vhd?vhd->root_process_active:0);
 		}
 		break;
 
@@ -3117,6 +3216,8 @@ fallback:
 			if (wpss) {
 				lwsl_notice("%s: UDS proxy client connection established\n", __func__);
 				wpss->cwsi = wsi;
+				if (wpss->tx_len)
+					lws_callback_on_writable(wsi);
 			} else {
 				lwsl_notice("%s: UDS connection established to server\n", __func__);
 			}

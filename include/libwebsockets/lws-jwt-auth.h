@@ -70,6 +70,16 @@ LWS_VISIBLE LWS_EXTERN const char *
 lws_jwt_auth_get_sub(struct lws_jwt_auth *ja);
 
 /**
+ * lws_jwt_auth_get_did() - get the device id associated with the jwt (if any)
+ *
+ * \param ja: the jwt auth object
+ *
+ * Returns the device ID ("did" claim) from the jwt, or NULL.
+ */
+LWS_VISIBLE LWS_EXTERN const char *
+lws_jwt_auth_get_did(struct lws_jwt_auth *ja);
+
+/**
  * lws_jwt_auth_get_uid() - Extract the native uid integer
  *
  * \param ja: The opaque helper object

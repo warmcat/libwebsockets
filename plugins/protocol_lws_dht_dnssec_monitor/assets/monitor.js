@@ -295,6 +295,7 @@ function handleResponse(data) {
             const inSuf = document.getElementById('input-ipv6-suffix');
             if (inSuf) inSuf.value = window.ipv6_suffix;
             if (window.last_extip_data) handleResponse({ status:'ok', req:'extip_update', data:window.last_extip_data });
+            sendReq({ req: 'get_acme_config' });
             break;
         case 'set_ipv6_suffix':
             showToast('IPv6 suffix preference saved successfully');
@@ -329,6 +330,16 @@ function handleResponse(data) {
         case 'get_domains':
             window.domainsCache = data.domains || [];
             renderDomains(window.domainsCache);
+
+            // Restore saved domain state if possible
+            if (!currentDomain) {
+                const saved = localStorage.getItem('lws-dnssec-monitor-selected-domain');
+                if (saved && window.domainsCache.find(d => d.name === saved)) {
+                    console.log('[INSTRUMENT] Restoring saved domain state:', saved);
+                    selectDomain(saved);
+                }
+            }
+
             if (currentDomain) {
                 const domObj = window.domainsCache.find(d => d.name === currentDomain);
                 if (domObj) {
@@ -338,8 +349,6 @@ function handleResponse(data) {
             }
             // Bootstrap phase 2: now safe to fetch suffix config
             sendReq({ req: 'get_ipv6_suffix' });
-            sendReq({ req: 'get_acme_config' });
-            sendReq({ req: 'get_acme_log' });
             break;
         case 'create_domain':
             closeModal('modal-new-domain');
@@ -382,6 +391,7 @@ function handleResponse(data) {
                 document.getElementById('acme-state').value = data.config.state || '';
                 document.getElementById('acme-locality').value = data.config.locality || '';
             }
+            sendReq({ req: 'get_acme_log' });
             break;
         case 'set_acme_config':
             showToast('ACME configuration saved');
@@ -432,7 +442,8 @@ function handleResponse(data) {
                 }
             }
             updateTlsSummary();
-            if (!document.getElementById('modal-tls-details').classList.contains('hidden-panel') && document.getElementById('modal-tls-details').classList.contains('show')) {
+            let modal = document.getElementById('modal-tls-details');
+            if (modal && !modal.classList.contains('hidden-panel') && modal.classList.contains('show')) {
                 renderTlsDetailsModal();
             }
             processCertQueue();
@@ -524,6 +535,7 @@ function formatExpiry(unixtime) {
 
 function selectDomain(domain) {
     currentDomain = domain;
+    localStorage.setItem('lws-dnssec-monitor-selected-domain', domain);
     currentDomainObj = window.domainsCache ? window.domainsCache.find(d => d.name === domain) : null;
     
     document.querySelector('#detail-title span').textContent = domain;
@@ -689,7 +701,8 @@ function renderWhoisHeader() {
         lnkDetails.onclick = (e) => {
             e.preventDefault();
             renderTlsDetailsModal();
-            document.getElementById('modal-tls-details').classList.add('show');
+            let modal = document.getElementById('modal-tls-details');
+            if (modal) modal.classList.add('show');
         };
     }
 }
@@ -729,8 +742,10 @@ function updateTlsSummary() {
 }
 
 function renderTlsDetailsModal() {
-    document.getElementById('tls-summary-domain-name').textContent = currentDomain;
+    let domainNameEl = document.getElementById('tls-summary-domain-name');
+    if (domainNameEl) domainNameEl.textContent = currentDomain;
     const tbody = document.querySelector('#table-tls-details tbody');
+    if (!tbody) return;
     tbody.innerHTML = '';
 
     if (!window.activeTls || window.activeTls.length === 0) {
@@ -769,6 +784,7 @@ function renderTlsDetailsModal() {
 
 function closeDetail() {
     currentDomain = '';
+    localStorage.removeItem('lws-dnssec-monitor-selected-domain');
     document.getElementById('detail-panel').classList.add('hidden-panel');
     document.getElementById('domain-panel').classList.remove('hidden-panel');
 }
@@ -1191,6 +1207,8 @@ function openEditor(id) {
 
     document.getElementById('btn-regen-cancel').onclick = () => closeModal('modal-regen-keys');
     document.getElementById('btn-dnssec-info-close').onclick = () => closeModal('modal-dnssec-info');
+    let btnTlsClose = document.getElementById('btn-tls-details-close');
+    if (btnTlsClose) btnTlsClose.onclick = () => closeModal('modal-tls-details');
     // Legacy modal close handlers removed
     document.getElementById('btn-regen-replace').onclick = () => {
         const keyType = document.getElementById('select-regen-key-type').value;

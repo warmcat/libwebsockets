@@ -36,6 +36,7 @@ struct per_vhost_data {
 struct attach_args {
 	char *device_path;
 	char *name;
+	char *auth_token;
 	uint32_t width;
 	uint32_t height;
 };
@@ -53,7 +54,7 @@ emit_state(struct lws_vhost *vh, const char *dev, enum lws_rtc_camera_states sta
 }
 
 static int
-api_attach(struct lws_vhost *vh, const char *url, const char *device_path, const char *name, uint32_t width, uint32_t height)
+api_attach(struct lws_vhost *vh, const char *url, const char *device_path, const char *name, uint32_t width, uint32_t height, const char *auth_token)
 {
 	struct per_vhost_data *vhd = (struct per_vhost_data *)lws_protocol_vh_priv_get(vh, lws_vhost_name_to_protocol(vh, "lws-rtc-camera"));
 	if (!vhd || !url) return -1;
@@ -84,6 +85,7 @@ api_attach(struct lws_vhost *vh, const char *url, const char *device_path, const
 	if (!args) return -1;
 	args->device_path = strdup(device_path);
 	args->name = name ? strdup(name) : NULL;
+	args->auth_token = auth_token ? strdup(auth_token) : NULL;
 	args->width = width;
 	args->height = height;
 
@@ -106,6 +108,7 @@ api_attach(struct lws_vhost *vh, const char *url, const char *device_path, const
 		emit_state(vh, device_path, LWS_RTC_CAMERA_STATE_ERROR);
 		free(args->device_path);
 		if (args->name) free((void *)args->name);
+		if (args->auth_token) free((void *)args->auth_token);
 		free(args);
 		lws_parse_uri_destroy(&puri);
 		return -1;
@@ -143,6 +146,19 @@ callback_rtc_camera(struct lws *wsi, enum lws_callback_reasons reason,
 	}
 
 	switch (reason) {
+		case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER: {
+			struct attach_args *args = (struct attach_args *)lws_get_opaque_user_data(wsi);
+			unsigned char **p = (unsigned char **)in;
+			unsigned char *end = (*p) + len;
+
+			if (args && args->auth_token) {
+				char cookie[512];
+				int n = lws_snprintf(cookie, sizeof(cookie), "auth_session=%s", args->auth_token);
+				if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_COOKIE, (unsigned char *)cookie, n, p, end))
+					return -1;
+			}
+			break;
+		}
 		case LWS_CALLBACK_CLIENT_WRITEABLE:
 			{
 				struct pss_camshow *app_state = NULL;
@@ -313,6 +329,7 @@ callback_rtc_camera(struct lws *wsi, enum lws_callback_reasons reason,
 				if (args) {
 					if (args->name) free(args->name);
 					if (args->device_path) free(args->device_path);
+					if (args->auth_token) free(args->auth_token);
 					free(args);
 				}
 				break;

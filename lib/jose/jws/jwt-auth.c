@@ -31,6 +31,7 @@ struct lws_jwt_auth {
 	uint64_t exp;
 	char cookie_name[64];
 	char sub[128];
+	char did[128];
 	uint32_t uid;
 };
 
@@ -102,6 +103,7 @@ static const char * const auth_paths[] = {
 	"sub",
 	"email",
 	"uid",
+	"did",
 };
 
 enum {
@@ -112,6 +114,7 @@ enum {
 	JAP_SUB,
 	JAP_EMAIL,
 	JAP_UID,
+	JAP_DID,
 };
 
 static signed char
@@ -147,6 +150,8 @@ jwt_auth_lejp_cb(struct lejp_ctx *ctx, char reason)
 	} else if (reason == LEJPCB_VAL_STR_CHUNK || reason == LEJPCB_VAL_STR_END) {
 		if (ctx->path_match == JAP_SUB + 1 || ctx->path_match == JAP_EMAIL + 1) {
 			lws_strncpy(pctx->ja->sub, ctx->buf, sizeof(pctx->ja->sub));
+		} else if (ctx->path_match == JAP_DID + 1) {
+			lws_strncpy(pctx->ja->did, ctx->buf, sizeof(pctx->ja->did));
 		}
 	}
 
@@ -265,6 +270,14 @@ lws_jwt_auth_get_sub(struct lws_jwt_auth *ja)
 	if (!ja || !ja->sub[0])
 		return NULL;
 	return ja->sub;
+}
+
+const char *
+lws_jwt_auth_get_did(struct lws_jwt_auth *ja)
+{
+	if (!ja || !ja->did[0])
+		return NULL;
+	return ja->did;
 }
 
 uint32_t

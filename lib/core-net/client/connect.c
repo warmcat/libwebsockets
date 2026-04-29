@@ -545,7 +545,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 #if defined(LWS_WITH_TLS)
 bail3:
-	lwsl_wsi_info(wsi, "tls start fail");
+	lwsl_wsi_err(wsi, "tls start fail");
 	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "tls start fail");
 
 	if (i->pwsi)

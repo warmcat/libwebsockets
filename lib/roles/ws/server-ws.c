@@ -397,13 +397,7 @@ lws_process_ws_upgrade2(struct lws *wsi)
 					    LWSIFR_SERVER | LWSIFR_P_ENCAP_H2,
 					    LRS_ESTABLISHED, &role_ops_ws);
 
-			/*
-			 * There should be no validity checking since we
-			 * are encapsulated in something else with its own
-			 * validity checking
-			 */
 
-			lws_sul_cancel(&wsi->sul_validity);
 		} else
 #endif
 		{

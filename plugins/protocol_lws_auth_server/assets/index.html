@@ -86,6 +86,17 @@
                 <button type="button" class="btn primary-btn" id="finish-totp-btn">I've Saved It</button>
             </div>
 
+            <div id="device-auth-box" class="auth-form hidden">
+                <div class="input-group">
+                    <label for="device-code">Device Code</label>
+                    <input type="text" id="device-code" name="device_code" required autocomplete="off" placeholder="XXXX-YYYY">
+                </div>
+                <button type="button" class="btn primary-btn" id="device-auth-btn">
+                    <span>Authorize Device</span>
+                    <div class="loader hidden"></div>
+                </button>
+            </div>
+
             <div class="panel-footer" id="registration-toggle-box">
                 <p>New to the network? <button type="button" class="btn-link" id="switch-to-reg">Register here</button></p>
             </div>

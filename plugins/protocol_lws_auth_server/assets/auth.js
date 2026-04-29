@@ -477,13 +477,93 @@ document.addEventListener('DOMContentLoaded', () => {
             passInput.focus();
         } else if (totpBoxes.length > 0) {
             const tGroup = document.getElementById('totp-group');
-            // If the totp group isn't hidden and hasn't been hidden by some previous step...
-            // Wait, totpGroup might not be visible on page load!
-            // In the HTML right now, totp-group DOES NOT have the hidden class,
-            // so it is visible by default.
             if (tGroup && !tGroup.classList.contains('hidden')) {
                 totpBoxes[0].focus();
             }
         }
     }, 150);
+
+    const deviceCodeParam = urlParams.get('device_code');
+    const deviceAuthBox = document.getElementById('device-auth-box');
+    const deviceAuthBtn = document.getElementById('device-auth-btn');
+    const deviceCodeInput = document.getElementById('device-code');
+
+    if (deviceCodeParam) {
+        // Hide standard forms
+        if (loginForm) loginForm.classList.add('hidden');
+        if (registerForm) registerForm.classList.add('hidden');
+        if (regToggleBox) regToggleBox.classList.add('hidden');
+        if (logToggleBox) logToggleBox.classList.add('hidden');
+
+        // Show device auth
+        if (deviceAuthBox) {
+            deviceAuthBox.classList.remove('hidden');
+            deviceAuthBox.classList.add('active');
+        }
+        if (deviceCodeInput) {
+            deviceCodeInput.value = deviceCodeParam;
+        }
+        if (subtitle) {
+            subtitle.innerText = "Authorize a new device";
+        }
+    }
+
+    if (deviceAuthBtn) {
+        deviceAuthBtn.addEventListener('click', async () => {
+            const code = deviceCodeInput.value.trim();
+            if (code.length < 8) {
+                showNotif('error', 'Invalid code length');
+                return;
+            }
+
+            const loader = deviceAuthBtn.querySelector('.loader');
+            const span = deviceAuthBtn.querySelector('span');
+
+            deviceAuthBtn.disabled = true;
+            if (loader) loader.classList.remove('hidden');
+            if (span) span.innerText = 'Authorizing...';
+
+            try {
+                const formData = new URLSearchParams();
+                formData.append('user_code', code);
+                if (window.csrf_token) formData.append('csrf_token', window.csrf_token);
+
+                const response = await fetch('/api/device_approve', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    credentials: 'include',
+                    body: formData.toString()
+                });
+
+                if (response.ok) {
+                    showNotif('success', 'Device authorized successfully!');
+                    deviceAuthBox.innerHTML = `
+                        <div class="auth-status-row success-row" style="margin-bottom: 0;">
+                            <span class="auth-status-icon">✅</span>
+                            <span class="auth-status-text">Device Authorized</span>
+                        </div>
+                        <p style="text-align: center; color: var(--text-muted); font-size: 0.9rem; margin-top: 15px;">
+                            You may now close this tab. The device will connect automatically.
+                        </p>
+                    `;
+                } else {
+                    deviceAuthBtn.disabled = false;
+                    if (loader) loader.classList.add('hidden');
+                    if (span) span.innerText = 'Authorize Device';
+
+                    let errMsg = 'Authorization failed';
+                    try {
+                        const data = await response.json();
+                        if (data && data.error) errMsg = data.error;
+                    } catch (e) {}
+                    showNotif('error', errMsg);
+                }
+            } catch (e) {
+                deviceAuthBtn.disabled = false;
+                if (loader) loader.classList.add('hidden');
+                if (span) span.innerText = 'Authorize Device';
+                showNotif('error', 'Network error');
+            }
+        });
+    }
 });

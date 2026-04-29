@@ -140,6 +140,23 @@ h1 {
     min-width: 160px;
 }
 
+.show-block {
+    display: block !important;
+}
+
+.show-flex {
+    display: flex !important;
+}
+
+.cursor-pointer {
+    cursor: pointer;
+}
+
+.icon-grey {
+    color: #888 !important;
+    opacity: 0.5 !important;
+}
+
 /* Network Health Badges for Text Output */
 .badge-good {
     color: #4ade80; /* Green */
@@ -602,15 +619,18 @@ select:hover {
 
 .overlay-container {
     position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
+    top: var(--overlay-top, 0);
+    left: var(--overlay-left, 0);
+    width: var(--overlay-width, 100%);
+    height: var(--overlay-height, 100%);
     pointer-events: none;
 }
 
 .name-overlay {
     position: absolute;
+    left: var(--r-x, 0);
+    top: var(--r-y, 0);
+    max-width: var(--r-w, 100%);
     background: rgba(0, 0, 0, 0.4);
     color: white;
     padding: 2px 6px;
