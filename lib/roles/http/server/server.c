@@ -1678,6 +1678,39 @@ bail_nuke_ah:
 	return 1;
 }
 
+static const struct lws_http_mount *
+lws_http_evaluate_interceptors(struct lws *wsi, const struct lws_http_mount *hit,
+			       char **uri_ptr, int *uri_len)
+{
+#if defined(LWS_WITH_JOSE)
+	const struct lws_http_mount *curr = hit;
+
+	while (curr && curr->interceptor_path) {
+		const struct lws_http_mount *m_interceptor = lws_find_mount(wsi,
+					curr->interceptor_path, (int)strlen(curr->interceptor_path));
+
+		if (!m_interceptor || !m_interceptor->protocol)
+			break;
+
+		const struct lws_protocols *p = lws_vhost_name_to_protocol(
+							wsi->a.vhost, m_interceptor->protocol);
+
+		if (p) {
+			if (p->callback(wsi, LWS_CALLBACK_HTTP_INTERCEPTOR_CHECK,
+				       wsi->user_space, (void *)p, 0)) {
+
+				*uri_ptr = (char *)m_interceptor->mountpoint; /* forced internal redirect */
+				*uri_len = (int)m_interceptor->mountpoint_len;
+				return m_interceptor;
+			}
+		}
+		curr = m_interceptor;
+	}
+#endif
+
+	return hit;
+}
+
 int
 lws_http_action(struct lws *wsi)
 {
@@ -1911,35 +1944,7 @@ lws_http_action(struct lws *wsi)
 	 * it says we are not authorized, divert the connection to the interceptor
 	 * mount
 	 */
-
-#if defined(LWS_WITH_JOSE)
-	{
-		const struct lws_http_mount *curr = hit;
-
-		while (curr && curr->interceptor_path) {
-			const struct lws_http_mount *m_interceptor = lws_find_mount(wsi,
-						curr->interceptor_path, (int)strlen(curr->interceptor_path));
-
-			if (!m_interceptor || !m_interceptor->protocol)
-				break;
-
-			const struct lws_protocols *p = lws_vhost_name_to_protocol(
-								wsi->a.vhost, m_interceptor->protocol);
-
-			if (p) {
-				if (p->callback(wsi, LWS_CALLBACK_HTTP_INTERCEPTOR_CHECK,
-					       wsi->user_space, (void *)p, 0)) {
-
-					hit = m_interceptor;
-					uri_ptr = (char *)hit->mountpoint; /* forced internal redirect */
-					uri_len = (int)hit->mountpoint_len;
-					break;
-				}
-			}
-			curr = m_interceptor;
-		}
-	}
-#endif
+	hit = lws_http_evaluate_interceptors(wsi, hit, &uri_ptr, &uri_len);
 
 #if defined(LWS_WITH_HTTP_BASIC_AUTH)
 
@@ -2495,6 +2500,20 @@ raw_transition:
 								  uri_len, &ha);
 					if (ha)
 						return n;
+
+					const struct lws_http_mount *post_intercept =
+						lws_http_evaluate_interceptors(wsi, hit, &uri_ptr, &uri_len);
+
+					if (post_intercept != hit && lws_hdr_total_length(wsi, WSI_TOKEN_UPGRADE)) {
+						/*
+						 * It's an upgrade request but the interceptor rejected it.
+						 * We can't redirect a WSS upgrade to an HTML login page,
+						 * so we must immediately reject it with 401 Unauthorized.
+						 */
+						lwsl_notice("WS Upgrade rejected by interceptor\n");
+						lws_return_http_status(wsi, HTTP_STATUS_UNAUTHORIZED, NULL);
+						goto bail_nuke_ah;
+					}
 				}
 			}
 		}

@@ -8,6 +8,13 @@ Instead of maintaining its own database, it acts as a lightweight, proactive **b
 
 Furthermore, `lws-login` natively maintains an `lws_sorted_usec_list` (SUL) expiration timer tracking the exact token `exp` boundary. Even if a WebSocket successfully upgrades over the protected mount, the connection will be gracefully terminated the exact moment the active authorization token naturally expires!
 
+## WebSocket Upgrades
+
+When a mount is protected by an `interceptor-path` (such as `lws-login`), **both standard HTTP requests and `wss://` WebSocket upgrade requests are subjected to the exact same cryptographic JWT validation.**
+
+If an unauthorized client (such as a headless script like `-camshow` or a browser without a valid session cookie) attempts to negotiate a WebSocket connection against a protected mount, the connection is proactively intercepted and immediately rejected with an `HTTP 401 Unauthorized` status during the HTTP phase of the handshake, cleanly dropping the socket.
+
+
 ## Per-Vhost Options (PVOs)
 
 This plugin handles several PVO options to control the redirection routing and the properties of the required JWT session cookie:
