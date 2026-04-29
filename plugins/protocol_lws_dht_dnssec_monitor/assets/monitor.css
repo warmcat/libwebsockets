@@ -200,6 +200,9 @@ main {
   flex-direction: column;
   flex: 1;
   min-height: 0;
+}
+
+.domain-panel {
   overflow-y: auto;
 }
 
@@ -306,7 +309,9 @@ main {
 }
 
 .detail-panel .table-container {
-  flex: 0 0 auto;
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 table {
