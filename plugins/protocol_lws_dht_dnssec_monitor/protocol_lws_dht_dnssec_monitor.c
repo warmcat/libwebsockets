@@ -2052,6 +2052,94 @@ handle_req_regen_keys(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
 }
 
+static void
+handle_req_create_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
+{
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
+	char *tx_end = (char *)&root_pss->tx[LWS_PRE + 65536 - 1];
+	char d_path[1024];
+	char buf[64];
+	int n, fd;
+
+	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/conf.d", vhd->base_dir, a->domain);
+	mkdir(d_path, 0755);
+
+	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/conf.d/%s.port", vhd->base_dir, a->domain, a->subdomain);
+	fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+	if (fd >= 0) {
+		n = lws_snprintf(buf, sizeof(buf), "%d\n", a->port);
+		if (write(fd, buf, (size_t)n) == (ssize_t)n) {
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
+		} else {
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Write failed\"}\n", a->req);
+		}
+		close(fd);
+	} else {
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Could not create TLS conf\"}\n", a->req);
+	}
+	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
+}
+
+static void
+handle_req_delete_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
+{
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
+	char *tx_end = (char *)&root_pss->tx[LWS_PRE + 65536 - 1];
+	char d_path[1024];
+
+	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/conf.d/%s.port", vhd->base_dir, a->domain, a->subdomain);
+	unlink(d_path);
+	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
+	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
+}
+
+static void
+handle_req_get_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
+{
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
+	char *tx_end = (char *)&root_pss->tx[LWS_PRE + 65536 - 1];
+	char d_path[1024];
+	DIR *d;
+	struct dirent *de;
+
+	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/conf.d", vhd->base_dir, a->domain);
+	d = opendir(d_path);
+	if (!d) {
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"tls\":[]}\n", a->req);
+	} else {
+		int first = 1;
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"tls\":[", a->req);
+		while ((de = readdir(d))) {
+			if (de->d_name[0] == '.') continue;
+			if (strstr(de->d_name, ".port")) {
+				char p_path[1024];
+				char sub[256];
+				lws_strncpy(sub, de->d_name, sizeof(sub));
+				char *ext = strstr(sub, ".port");
+				if (ext) *ext = '\0';
+
+				lws_snprintf(p_path, sizeof(p_path), "%s/domains/%s/conf.d/%s", vhd->base_dir, a->domain, de->d_name);
+				int fd = open(p_path, O_RDONLY);
+				if (fd >= 0) {
+					char buf[64];
+					ssize_t n = read(fd, buf, sizeof(buf) - 1);
+					if (n > 0) {
+						buf[n] = '\0';
+						int port = atoi(buf);
+						if (!first) tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), ",");
+						tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"fqdn\":\"%s\",\"port\":%d}", sub, port);
+						first = 0;
+					}
+					close(fd);
+				}
+			}
+		}
+		closedir(d);
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "]}\n");
+	}
+	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
+}
+
 typedef void (*monitor_req_handler_t)(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a);
 
 static const struct monitor_req_map {
@@ -2073,7 +2161,10 @@ static const struct monitor_req_map {
 	{ "save_key", handle_req_save_key },
 	{ "get_ipv6_suffix", handle_req_get_ipv6_suffix },
 	{ "set_ipv6_suffix", handle_req_set_ipv6_suffix },
-	{ "regen_keys", handle_req_regen_keys }
+	{ "regen_keys", handle_req_regen_keys },
+	{ "get_tls", handle_req_get_tls },
+	{ "create_tls", handle_req_create_tls },
+	{ "delete_tls", handle_req_delete_tls }
 };
 
 static void
