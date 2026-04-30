@@ -626,13 +626,19 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 
 					v = lws_json_simple_find((const char *)in, len, "\"controls\":", &al);
 					if (v) {
-						if (p->capabilities) free(p->capabilities);
+						size_t kl;
+						const char *kind = lws_json_simple_find((const char *)in, len, "\"kind\":", &kl);
+						int is_audio = (kind && !strncmp(kind, "\"audio\"", 7));
+						char **target_cap = is_audio ? &p->capabilities_audio : &p->capabilities_video;
 
-						p->capabilities = malloc(len + 1);
-						if (p->capabilities) {
-							memcpy(p->capabilities, in, len);
-							p->capabilities[len] = '\0';
-							lwsl_warn("%s: Stored capabilities for '%s' (%zu bytes)\n", __func__, p->name, len);
+						if (*target_cap) free(*target_cap);
+
+						*target_cap = malloc(len + 1);
+						if (*target_cap) {
+							memcpy(*target_cap, in, len);
+							(*target_cap)[len] = '\0';
+							lwsl_notice("%s: Stored %s capabilities for '%s' (%zu bytes)\n", __func__, is_audio ? "audio" : "video", p->name, len);
+							lwsl_info("%s: Payload: %s\n", __func__, *target_cap);
 
 							/* Notify all clients about this update immediately */
 							broadcast_client_list(p->room, NULL);
@@ -647,7 +653,7 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 
 									int n = lws_snprintf(msg, msg_len,
 											"{\"type\":\"remote_capabilities\",\"target\":\"%s\",\"payload\":%s}",
-											esc_name, p->capabilities);
+											esc_name, *target_cap);
 
 									if (n > 0 && (size_t)n < msg_len) {
 										lwsl_info("%s: Broadcasting capabilities update for '%s' to room (len %d)\n", __func__, p->name, n);
@@ -725,6 +731,16 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 						/* Already handled by stats field check above, but good for explicit typing */
 					}
 
+					/* Handle video_mute: {"type":"video_mute","muted":true/false} */
+					if (al >= 10 && !strncmp(v, "\"video_mute\"", 12)) {
+						const char *m = lws_json_simple_find((const char *)in, len, "\"muted\":", &al);
+						if (m && p->session) {
+							p->session->video_muted = !strncmp(m, "true", 4);
+							lwsl_notice("%s: Participant '%s' video_muted=%d\n", __func__, p->name, p->session->video_muted);
+							broadcast_client_list(p->room, NULL);
+						}
+					}
+
 					/* Handle request_caps: {"type":"request_caps","target":"<name>"} */
 					if (al >= 12 && !strncmp(v, "\"request_caps\"", 12)) {
 						const char *target = lws_json_simple_find((const char *)in, len, "\"target\":", &al);
@@ -749,32 +765,43 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 							} lws_end_foreach_dll(d);
 
 							if (tp) {
-								if (tp->capabilities) {
-									/* Reply with cached capabilities */
-									size_t msg_len = strlen(tp->capabilities) + 128 + (strlen(tp->name) * 6);
+								int cached = 0;
+								/* Reply with cached capabilities */
+								if (tp->capabilities_video) {
+									size_t msg_len = strlen(tp->capabilities_video) + 128 + (strlen(tp->name) * 6);
 									char *msg = malloc(msg_len);
 									if (msg) {
 										char esc_name[384];
 										lws_json_purify(esc_name, tp->name, sizeof(esc_name), NULL);
-
 										int n = lws_snprintf(msg, msg_len,
 												"{\"type\":\"remote_capabilities\",\"target\":\"%s\",\"payload\":%s}",
-												esc_name, tp->capabilities);
+												esc_name, tp->capabilities_video);
 										we_ops->send_text(p->pss, msg, (size_t)n);
 										free(msg);
-										lwsl_notice("%s: Sent cached caps for '%s' to '%s'\n", __func__, tp->name, p->name);
+										lwsl_notice("%s: Sent cached video caps for '%s' to '%s'\n", __func__, tp->name, p->name);
 									}
-								} else {
-									/* Forward request to target (if it's not out_only? No, out_only can have controls too) */
-									/* Actually, out_only means it sends video but doesn't receive video. It absolutely has controls. */
-									/* We should forward the request so it can reply.
-									   But camshow replies to the MIXER, not the requester.
-									   The mixer needs to capture that reply and broadcast/forward it.
-									   We already handle that in the 'capabilities' block above.
-									   */
+									cached = 1;
+								}
+								if (tp->capabilities_audio) {
+									size_t msg_len = strlen(tp->capabilities_audio) + 128 + (strlen(tp->name) * 6);
+									char *msg = malloc(msg_len);
+									if (msg) {
+										char esc_name[384];
+										lws_json_purify(esc_name, tp->name, sizeof(esc_name), NULL);
+										int n = lws_snprintf(msg, msg_len,
+												"{\"type\":\"remote_capabilities\",\"target\":\"%s\",\"payload\":%s}",
+												esc_name, tp->capabilities_audio);
+										we_ops->send_text(p->pss, msg, (size_t)n);
+										free(msg);
+										lwsl_notice("%s: Sent cached audio caps for '%s' to '%s'\n", __func__, tp->name, p->name);
+									}
+									cached = 1;
+								}
+
+								if (!cached) {
+									/* Forward request to target */
 									lwsl_notice("%s: No cached caps for '%s', forwarding request...\n", __func__, tp->name);
 									if (tp->pss) {
-										/* Forward {"type":"request_caps"} */
 										const char *fwd = "{\"type\":\"request_caps\"}";
 										we_ops->send_text(tp->pss, fwd, strlen(fwd));
 									}
@@ -937,20 +964,32 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 							/* Send Cached Capabilities from other participants */
 							lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&p->room->participants)) {
 								struct participant *other = lws_container_of(d, struct participant, list);
-								if (other != p && other->capabilities) {
-									size_t msg_len = strlen(other->capabilities) + 128 + (strlen(other->name) * 6);
-									char *msg = malloc(msg_len);
-									if (msg) {
-										char esc_name[384];
-										lws_json_purify(esc_name, other->name, sizeof(esc_name), NULL);
-
-										int n = lws_snprintf(msg, msg_len,
-												"{\"type\":\"remote_capabilities\",\"target\":\"%s\",\"payload\":%s}",
-												esc_name, other->capabilities);
-										if (p->pss)
-											we_ops->send_text(p->pss, msg, (size_t)n);
-										free(msg);
-										lwsl_notice("%s: Sent cached caps for '%s' to new joiner '%s'\n", __func__, other->name, p->name);
+								if (other != p) {
+									if (other->capabilities_video) {
+										size_t msg_len = strlen(other->capabilities_video) + 128 + (strlen(other->name) * 6);
+										char *msg = malloc(msg_len);
+										if (msg) {
+											char esc_name[384];
+											lws_json_purify(esc_name, other->name, sizeof(esc_name), NULL);
+											int n = lws_snprintf(msg, msg_len,
+													"{\"type\":\"remote_capabilities\",\"target\":\"%s\",\"payload\":%s}",
+													esc_name, other->capabilities_video);
+											if (p->pss) we_ops->send_text(p->pss, msg, (size_t)n);
+											free(msg);
+										}
+									}
+									if (other->capabilities_audio) {
+										size_t msg_len = strlen(other->capabilities_audio) + 128 + (strlen(other->name) * 6);
+										char *msg = malloc(msg_len);
+										if (msg) {
+											char esc_name[384];
+											lws_json_purify(esc_name, other->name, sizeof(esc_name), NULL);
+											int n = lws_snprintf(msg, msg_len,
+													"{\"type\":\"remote_capabilities\",\"target\":\"%s\",\"payload\":%s}",
+													esc_name, other->capabilities_audio);
+											if (p->pss) we_ops->send_text(p->pss, msg, (size_t)n);
+											free(msg);
+										}
 									}
 								}
 							} lws_end_foreach_dll(d);
@@ -1003,50 +1042,6 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 								}
 							}
 						}
-					} else if ((al >= 12 && !strncmp(v, "\"capabilities\"", 12)) ||
-							(al >= 10 && !strncmp(v, "capabilities", 10))) {
-						/* Store and broadcast capabilities */
-						lwsl_notice("%s: Received capabilities from '%s'\n", __func__, p->name);
-
-						/* {"type":"capabilities","kind":"video","controls":[...]} */
-
-						/* We want to store the whole message or just the controls?
-						   Let's store the whole message so we can just replay it. */
-						if (p->capabilities) free(p->capabilities);
-						p->capabilities = malloc(len + 1);
-						if (p->capabilities) {
-							memcpy(p->capabilities, in, len);
-							p->capabilities[len] = '\0';
-						}
-
-						/* Broadcast to others so they can update UI immediately if watching?
-						   Or just let them request it.
-						   Let's broadcast a notification or the caps themselves wrapped with owner info. */
-						/* Wrapped: {"type":"remote_capabilities","target":"<name>","payload":<original_json>} */
-						/* Actually, simply forwarding it might be ambiguous if multiple people send it.
-						   Better to wrap it. */
-
-						char esc_name[384];
-						lws_json_purify(esc_name, p->name, sizeof(esc_name), NULL);
-						size_t alloc_len = len + sizeof(esc_name) + 128;
-						char *wrapped = malloc(alloc_len);
-						if (wrapped) {
-
-							int tlen = lws_snprintf(wrapped, alloc_len,
-									"{\"type\":\"remote_capabilities\",\"target\":\"%s\",\"payload\":%.*s}",
-									esc_name, (int)len, (const char *)in);
-
-							struct broadcast_ctx bctx = { 0 };
-							bctx.room = p->room;
-							bctx.text = wrapped;
-							bctx.len = (size_t)tlen;
-							bctx.require_joined = 1; /* Only joined users need to know */
-							bctx.exclude = p; /* Don't echo to sender */
-
-							lws_dll2_foreach_safe(&p->room->participants, &bctx, broadcast_text_iter);
-							free(wrapped);
-						}
-
 					} else if ((al >= 12 && !strncmp(v, "\"request_caps\"", 12)) ||
 							(al >= 12 && !strncmp(v, "request_caps", 12))) {
 						/* Note: fixed length check for "request_caps" to 12 */
@@ -1064,19 +1059,32 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 							/* Find target */
 							lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&p->room->participants)) {
 								struct participant *tp = lws_container_of(d, struct participant, list);
-								if (!strcmp(tp->name, target_name) && tp->capabilities) {
-									/* Send back wrapped caps */
-									size_t msg_len = strlen(tp->capabilities) + 256 + (strlen(tp->name) * 6);
-									char *resp = malloc(msg_len);
-									if (resp) {
-										char esc_name[384];
-										lws_json_purify(esc_name, tp->name, sizeof(esc_name), NULL);
-
-										lws_snprintf(resp, msg_len,
-												"{\"type\":\"remote_capabilities\",\"target\":\"%s\",\"payload\":%s}",
-												esc_name, tp->capabilities);
-										we_ops->send_text(p->pss, resp, strlen(resp));
-										free(resp);
+								if (!strcmp(tp->name, target_name)) {
+									if (tp->capabilities_video) {
+										size_t msg_len = strlen(tp->capabilities_video) + 256 + (strlen(tp->name) * 6);
+										char *resp = malloc(msg_len);
+										if (resp) {
+											char esc_name[384];
+											lws_json_purify(esc_name, tp->name, sizeof(esc_name), NULL);
+											lws_snprintf(resp, msg_len,
+													"{\"type\":\"remote_capabilities\",\"target\":\"%s\",\"payload\":%s}",
+													esc_name, tp->capabilities_video);
+											we_ops->send_text(p->pss, resp, strlen(resp));
+											free(resp);
+										}
+									}
+									if (tp->capabilities_audio) {
+										size_t msg_len = strlen(tp->capabilities_audio) + 256 + (strlen(tp->name) * 6);
+										char *resp = malloc(msg_len);
+										if (resp) {
+											char esc_name[384];
+											lws_json_purify(esc_name, tp->name, sizeof(esc_name), NULL);
+											lws_snprintf(resp, msg_len,
+													"{\"type\":\"remote_capabilities\",\"target\":\"%s\",\"payload\":%s}",
+													esc_name, tp->capabilities_audio);
+											we_ops->send_text(p->pss, resp, strlen(resp));
+											free(resp);
+										}
 									}
 									break;
 								}
@@ -1193,8 +1201,8 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 						broadcast_client_list(p->room, NULL);
 					}
 
-					if (p->capabilities)
-						free(p->capabilities);
+					if (p->capabilities_video) free(p->capabilities_video);
+					if (p->capabilities_audio) free(p->capabilities_audio);
 
 					we_ops->set_user_data(pss, NULL);
 					free(p);

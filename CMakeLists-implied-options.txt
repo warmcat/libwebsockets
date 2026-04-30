@@ -196,6 +196,8 @@ if (LWS_WITH_WEBRTC)
 	set(LWS_WITH_JOSE 1)
 	set(LWS_WITH_NETWORK 1)
 	set(LWS_WITH_CLIENT 1)
+	set(LWS_WITH_ALSA 1)
+	set(LWS_WITH_OPUS 1)
 endif()
 
 

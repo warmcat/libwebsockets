@@ -28,13 +28,10 @@ struct pss_camshow {
 	struct lws              *wsi_v4l2;
 	struct lws              *wsi_alsa;
 	void                    *v4l2_ctx; /* lws_v4l2_state * */
-	struct lws_alsa_state   *alsa_ctx;
-
-	OpusEncoder             *opus_enc;
-	uint8_t                 opus_out[512];
-	int16_t                 audio_samples[AUDIO_SAMPLES_PER_FRAME];
+	struct lws_alsa_opus_capture *alsa_cap;
 
 	const char              *video_device;
+	const char              *audio_device;
 	uint32_t                width, height;
 	uint32_t                target_width, target_height;
 	uint32_t                pixelformat;

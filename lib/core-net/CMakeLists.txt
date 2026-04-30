@@ -36,10 +36,15 @@ list(APPEND SOURCES
 	core-net/wsi.c
 	core-net/wsi-timeout.c
 	core-net/adopt.c
-	core-net/latency.c
 	core-net/txpacer.c
 	roles/pipe/ops-pipe.c
 )
+
+if (LWS_WITH_LATENCY)
+	list(APPEND SOURCES
+		core-net/latency.c
+	)
+endif()
 
 if (LWS_WITH_TRANSPORT_SEQUENCER)
 	list(APPEND SOURCES

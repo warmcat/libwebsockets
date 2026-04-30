@@ -328,16 +328,25 @@ function handleResponse(data) {
             }
             break;
         case 'get_domains':
+            console.log('[DEBUG] get_domains response received. data.domains:', data.domains);
             window.domainsCache = data.domains || [];
+            console.log('[DEBUG] Calling renderDomains with cache length:', window.domainsCache.length);
             renderDomains(window.domainsCache);
 
+            let didSelect = false;
             // Restore saved domain state if possible
             if (!currentDomain) {
                 const saved = localStorage.getItem('lws-dnssec-monitor-selected-domain');
+                console.log('[DEBUG] No currentDomain. Found saved domain in localStorage:', saved);
                 if (saved && window.domainsCache.find(d => d.name === saved)) {
-                    console.log('[INSTRUMENT] Restoring saved domain state:', saved);
+                    console.log('[DEBUG] Restoring saved domain state:', saved);
                     selectDomain(saved);
+                    didSelect = true;
+                } else if (saved) {
+                    console.warn('[DEBUG] Saved domain not found in domainsCache:', saved);
                 }
+            } else {
+                console.log('[DEBUG] currentDomain is already set:', currentDomain);
             }
 
             if (currentDomain) {
@@ -348,7 +357,10 @@ function handleResponse(data) {
                 }
             }
             // Bootstrap phase 2: now safe to fetch suffix config
-            sendReq({ req: 'get_ipv6_suffix' });
+            if (!didSelect) {
+                window.didBootstrapPhase2 = true;
+                sendReq({ req: 'get_ipv6_suffix' });
+            }
             break;
         case 'create_domain':
             closeModal('modal-new-domain');
@@ -369,11 +381,14 @@ function handleResponse(data) {
             }
             break;
         case 'get_zone':
+            console.log('[DEBUG] get_zone response received for zone length:', data.zone ? data.zone.length : 0);
             currentZone = new ZoneFile(data.zone || '');
+            console.log('[DEBUG] Parsed ZoneFile records:', currentZone.records.length);
             renderZoneTable();
             updateRawEditor();
             document.getElementById('record-editor')?.classList.add('hidden-panel');
             // Sequence getting TLS after getting Zone to avoid UDS packet drops
+            console.log('[DEBUG] Dispatching get_tls for domain:', currentDomain);
             sendReq({ req: 'get_tls', domain: currentDomain });
             document.getElementById('btn-save-zonefile').disabled = true;
             break;
@@ -406,15 +421,25 @@ function handleResponse(data) {
             }
             break;
         case 'get_tls':
+            console.log('[DEBUG] get_tls response received. data.tls:', data.tls);
             if (data.tls) {
                 window.activeTls = data.tls;
             } else {
                 window.activeTls = [];
             }
+            console.log('[DEBUG] activeTls set. Length:', window.activeTls.length);
             if (currentZone) {
+                console.log('[DEBUG] Calling renderZoneTable from get_tls');
                 renderZoneTable();
+            } else {
+                console.log('[DEBUG] No currentZone available in get_tls');
             }
             processCertQueue();
+
+            if (!window.didBootstrapPhase2) {
+                window.didBootstrapPhase2 = true;
+                sendReq({ req: 'get_ipv6_suffix' });
+            }
             break;
         case 'create_tls':
             showToast('TLS Port mapped successfully');
@@ -452,12 +477,12 @@ function handleResponse(data) {
 }
 
 function renderDomains(domains) {
+    console.log('[DEBUG] renderDomains called with domains:', domains);
     const tbody = document.querySelector('#table-domains tbody');
     tbody.innerHTML = '';
     
-    console.log('Rendering domains:', domains);
-
     if (!domains.length) {
+        console.log('[DEBUG] No domains to render.');
         tbody.innerHTML = '<tr><td colspan="3" class="loading">No domains found. Add one to begin.</td></tr>';
         return;
     }
@@ -534,9 +559,11 @@ function formatExpiry(unixtime) {
 }
 
 function selectDomain(domain) {
+    console.log('[DEBUG] selectDomain called for:', domain);
     currentDomain = domain;
     localStorage.setItem('lws-dnssec-monitor-selected-domain', domain);
     currentDomainObj = window.domainsCache ? window.domainsCache.find(d => d.name === domain) : null;
+    console.log('[DEBUG] currentDomainObj set to:', currentDomainObj);
     
     document.querySelector('#detail-title span').textContent = domain;
     document.getElementById('detail-panel')?.classList.remove('hidden-panel');
@@ -551,6 +578,7 @@ function selectDomain(domain) {
 
     renderWhoisHeader();
     window.activeTls = [];
+    console.log('[DEBUG] dispatching get_zone from selectDomain');
     sendReq({ req: 'get_zone', domain: domain });
 }
 

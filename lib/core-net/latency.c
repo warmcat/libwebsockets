@@ -24,7 +24,6 @@
 
 #include "private-lib-core.h"
 
-#if defined(LWS_WITH_LATENCY)
 
 LWS_VISIBLE void
 lws_latency_cb_start(struct lws_context_per_thread *pt)
@@ -137,4 +136,3 @@ lws_latency_get_json(struct lws_context *context, int tsi, uint64_t since_us,
 	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "]}");
 	return count;
 }
-#endif
