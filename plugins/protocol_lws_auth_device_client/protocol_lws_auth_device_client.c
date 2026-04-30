@@ -128,6 +128,8 @@ callback_auth_device_client(struct lws *wsi, enum lws_callback_reasons reason, v
 	switch (reason) {
 	case LWS_CALLBACK_PROTOCOL_INIT: {
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi), lws_get_protocol(wsi), sizeof(struct per_vhost_data));
+		if (!vhd)
+			return -1;
 		vhd->cx = lws_get_context(wsi);
 		vhd->vh = lws_get_vhost(wsi);
 
@@ -192,7 +194,7 @@ callback_auth_device_client(struct lws *wsi, enum lws_callback_reasons reason, v
 						puri->scheme, puri->host, puri->port);
 			}
 
-			if (!connect_to(lws_get_context(wsi), vhd->vh, session->auth_server_url, "/api/device_auth", "POST", "lws-auth-device-client", 1, session))
+			if (!connect_to(lws_get_context(wsi), lws_get_vhost(wsi), session->auth_server_url, "/api/device_auth", "POST", "lws-auth-device-client", 1, session))
 				lwsl_err("Failed to connect to auth server for device code\n");
 		}
 		lws_parse_uri_destroy(&puri);
@@ -277,7 +279,7 @@ callback_auth_device_client(struct lws *wsi, enum lws_callback_reasons reason, v
 
 			lws_sul_schedule(lws_get_context(wsi), 0, &session->sul_poll, poll_cb, 5 * LWS_US_PER_SEC);
 
-			session->wsi_preauth = connect_to(lws_get_context(wsi), vhd->vh, session->auth_server_url, "/", NULL, "lws-oauth-preauth", 3, session);
+			session->wsi_preauth = connect_to(lws_get_context(wsi), lws_get_vhost(wsi), session->auth_server_url, "/", NULL, "lws-oauth-preauth", 3, session);
 			if (!session->wsi_preauth)
 				lwsl_err("Failed to connect to waiting room\n");
 			break;
