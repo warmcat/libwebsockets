@@ -166,7 +166,7 @@ callback_auth_device_client(struct lws *wsi, enum lws_callback_reasons reason, v
 		char loc[256];
 		char *q;
 
-		if (action->phase != 0)
+		if (!action || action->phase != 0)
 			break;
 
 		if (lws_hdr_copy(wsi, loc, sizeof(loc), WSI_TOKEN_HTTP_LOCATION) <= 0)
