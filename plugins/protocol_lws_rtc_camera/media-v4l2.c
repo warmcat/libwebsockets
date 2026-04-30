@@ -392,7 +392,6 @@ static void media_v4l2_deinit(struct pss_camshow *pss)
 	if (pss->v4l2_ctx) lws_v4l2_destroy((struct lws_v4l2_ctx **)&pss->v4l2_ctx);
 	if (pss->jpeg_dec) lws_jpeg_free((lws_jpeg_t **)&pss->jpeg_dec);
 	if (pss->yuv_frame) free(pss->yuv_frame);
-	if (pss->video_device) free((void*)pss->video_device);
 	media_deinit(pss);
 }
 

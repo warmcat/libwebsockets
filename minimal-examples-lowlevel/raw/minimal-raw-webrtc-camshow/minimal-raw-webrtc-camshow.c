@@ -25,6 +25,7 @@ enum {
 	LWS_SW_NAME,
 	LWS_SW_URL,
 	LWS_SW_VIDEO_DEVICE,
+	LWS_SW_AUDIO_DEVICE,
 	LWS_SW_WIDTH,
 	LWS_SW_HELP,
 };
@@ -34,12 +35,14 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_NAME]	= { "--name",          "Client peer name to identify in mixer" },
 	[LWS_SW_URL]	= { "--url",           "WebSockets URL to connect to (default wss://127.0.0.1:7681)" },
 	[LWS_SW_VIDEO_DEVICE]	= { "--video-device",  "V4L2 video device path (default /dev/video0)" },
+	[LWS_SW_AUDIO_DEVICE]	= { "--audio-device",  "ALSA audio device path (default default)" },
 	[LWS_SW_WIDTH]	= { "--width",         "Video capture width in pixels (default 1280)" },
 	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
 };
 
 static const char *url = "wss://127.0.0.1:7681";
 static const char *devs_list = "/dev/video0";
+static const char *audio_dev = "default";
 static char *devices_copy = NULL;
 static const char *client_name;
 static uint32_t app_width = 1280;
@@ -122,8 +125,8 @@ static void start_app_attach(struct lws_vhost *vh, const char *logical_name, con
 	char *p = devices_copy_local, *token;
 
         while ((token = strsep(&p, ","))) {
-		lwsl_notice("Attaching %s to WebRTC mixer\n", token);
-		if (cam_ops->attach(vh, url, token, client_name, app_width, app_height, access_token))
+		lwsl_notice("Attaching %s (audio %s) to WebRTC mixer\n", token, audio_dev);
+		if (cam_ops->attach(vh, url, token, audio_dev, client_name, app_width, app_height, access_token))
 			lwsl_err("Failed to queue attach for %s\n", token);
 	}
 
@@ -162,7 +165,7 @@ main(int argc, const char **argv)
 
 	lws_context_info_defaults(&info, NULL);
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
-	lwsl_user("LWS minimal raw webrtc camshow [--url <wss url>] [--video-device <device>] [--name <client name>] [--width <width>] [--height <height>]\n");
+	lwsl_user("LWS minimal raw webrtc camshow [--url <wss url>] [--video-device <device>] [--audio-device <device>] [--name <client name>] [--width <width>] [--height <height>]\n");
 	(void)switches;
 
 	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
@@ -174,6 +177,7 @@ main(int argc, const char **argv)
 
 	if ((opt = lws_cmdline_option(argc, argv, switches[LWS_SW_URL].sw))) url = opt;
 	if ((opt = lws_cmdline_option(argc, argv, switches[LWS_SW_VIDEO_DEVICE].sw))) devs_list = opt;
+	if ((opt = lws_cmdline_option(argc, argv, switches[LWS_SW_AUDIO_DEVICE].sw))) audio_dev = opt;
 	if ((opt = lws_cmdline_option(argc, argv, switches[LWS_SW_NAME].sw))) client_name = opt;
 	if ((opt = lws_cmdline_option(argc, argv, switches[LWS_SW_WIDTH].sw))) app_width = (uint32_t)atoi(opt);
 	if ((opt = lws_cmdline_option(argc, argv, switches[LWS_SW_HEIGHT].sw))) app_height = (uint32_t)atoi(opt);

@@ -269,12 +269,13 @@ lws_interceptor_check(struct lws *wsi, const struct lws_protocols *prot)
 
 	s = sizeof(buf);
 	if (lws_jwt_get_http_cookie_validate_jwt(wsi, &ck, buf, &s)) {
-		lwsl_notice("%s: JWT validation failed for cookie '%s'\n", __func__, vhd->cookie_name);
+		// lwsl_notice("%s: JWT validation failed for cookie '%s'\n", __func__, vhd->cookie_name);
 		lws_interceptor_inject_header(wsi, vhd, NULL);
+
 		return vhd->always_pass ? 0 : 1;
 	}
 
-	lwsl_notice("%s: JWT validation passed for cookie '%s', payload: %.*s\n", __func__, vhd->cookie_name, (int)s, buf);
+	// lwsl_notice("%s: JWT validation passed for cookie '%s', payload: %.*s\n", __func__, vhd->cookie_name, (int)s, buf);
 
 	cp = lws_json_simple_find(buf, s, "\"sub\":", &claim_len);
 	if (!cp) {

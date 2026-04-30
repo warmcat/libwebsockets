@@ -1,6 +1,7 @@
 set(PLUGIN_NAME protocol_lws_oauth_preauth)
 set(requirements 1)
 require_lws_config(LWS_WITHOUT_SERVER 0 requirements)
+require_lws_config(LWS_WITH_JOSE 1 requirements)
 
 if (requirements)
 	create_plugin(${PLUGIN_NAME} "" "protocol_lws_oauth_preauth.c" "" "")

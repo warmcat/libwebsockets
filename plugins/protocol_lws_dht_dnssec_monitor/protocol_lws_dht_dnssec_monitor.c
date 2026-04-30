@@ -281,9 +281,11 @@ struct vhd {
 	char acme_country[8];
 	char acme_state[128];
 	char acme_locality[128];
+	lws_dll2_owner_t active_probes;
 };
 
 struct cert_check_info {
+	lws_dll2_t active_list;
 	uint32_t magic;
 	char domain[128];
 	char fqdn[128];
@@ -867,14 +869,28 @@ scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 			close(cfd);
 		} else {
 			/* No local cert, launch a probe to the port to check validity if ACME is needed */
-			struct cert_check_info *cci = malloc(sizeof(*cci));
-			if (cci) {
-				memset(cci, 0, sizeof(*cci));
-				cci->magic = CERT_CHECK_MAGIC;
-				lws_strncpy(cci->fqdn, common_name, sizeof(cci->fqdn));
-				cci->port = 443;
-				cci->is_automated = 1;
-				cci->starttls_state = 0;
+			int probe_active = 0;
+			lws_start_foreach_dll(struct lws_dll2 *, d, vhd->active_probes.head) {
+				struct cert_check_info *p = lws_container_of(d, struct cert_check_info, active_list);
+				if (!strcmp(p->fqdn, common_name) && p->is_automated) {
+					probe_active = 1;
+					break;
+				}
+			} lws_end_foreach_dll(d);
+
+			if (probe_active) {
+				lwsl_info("%s: Automated probe already active for %s, skipping duplicate\n", __func__, common_name);
+				needs_acme = 0;
+			} else {
+				struct cert_check_info *cci = malloc(sizeof(*cci));
+				if (cci) {
+					memset(cci, 0, sizeof(*cci));
+					cci->magic = CERT_CHECK_MAGIC;
+					lws_strncpy(cci->fqdn, common_name, sizeof(cci->fqdn));
+					cci->port = 443;
+					cci->is_automated = 1;
+					cci->starttls_state = 0;
+					lws_dll2_add_tail(&cci->active_list, &vhd->active_probes);
 
 				struct lws_client_connect_info cinfo;
 				memset(&cinfo, 0, sizeof(cinfo));
@@ -893,9 +909,11 @@ scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 				needs_acme = 0; /* Wait for probe to complete and trigger ACME if needed */
 				if (!lws_client_connect_via_info(&cinfo)) {
 					lwsl_err("%s: Failed to start automated cert probe for %s\n", __func__, common_name);
+					lws_dll2_remove(&cci->active_list);
 					free(cci);
 				}
 			}
+		}
 		}
 
 		if (needs_acme) {
@@ -1452,6 +1470,7 @@ static int cmp_str(const void *a, const void *b) {
 static void
 handle_req_get_domains(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
+    lwsl_notice("[INSTRUMENT] handle_req_get_domains: entering.\n");
 	char *tx = (char *)&root_pss->tx[LWS_PRE];
 	char *tx_end = tx + 65536 - 1;
 	char path[1024];
@@ -1459,8 +1478,10 @@ handle_req_get_domains(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 	struct dirent *de;
 
 	lws_snprintf(path, sizeof(path), "%s/domains", vhd->base_dir);
+    lwsl_notice("[INSTRUMENT] handle_req_get_domains: opening dir '%s'\n", path);
 	d = opendir(path);
 	if (!d) {
+        lwsl_notice("[INSTRUMENT] handle_req_get_domains: failed to open dir.\n");
 		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"get_domains\",\"status\":\"error\",\"msg\":\"Cannot open base_dir\"}\n");
 	} else {
 		char **doms = NULL;
@@ -1562,8 +1583,10 @@ handle_req_get_domains(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 		}
 		if (doms) free(doms);
 		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "]}\n");
+        lwsl_notice("[INSTRUMENT] handle_req_get_domains: constructed JSON array.\n");
 	}
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
+    lwsl_notice("[INSTRUMENT] handle_req_get_domains: exiting, tx_len=%d.\n", (int)root_pss->tx_len);
 }
 
 static void
@@ -1924,11 +1947,13 @@ handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_
 	char *q = strchr(p + 1, '/');
 	while (q) {
 		*q = '\0';
-		mkdir(p, 0750);
+		if (mkdir(p, 0750) < 0 && errno != EEXIST)
+			lwsl_err("%s: Failed to create directory %s\n", __func__, p);
 		*q = '/';
 		q = strchr(q + 1, '/');
 	}
-	mkdir(p, 0750);
+	if (mkdir(p, 0750) < 0 && errno != EEXIST)
+		lwsl_err("%s: Failed to create directory %s\n", __func__, p);
 
 	int fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, mode);
 	if (fd >= 0) {
@@ -2124,7 +2149,8 @@ handle_req_create_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 	int n, fd;
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/conf.d", vhd->base_dir, a->domain);
-	mkdir(d_path, 0755);
+	if (mkdir(d_path, 0755) < 0 && errno != EEXIST)
+		lwsl_err("%s: Failed to create directory %s\n", __func__, d_path);
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/conf.d/%s.port", vhd->base_dir, a->domain, a->subdomain);
 	fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
@@ -2242,7 +2268,7 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 	int m = lejp_parse(&jctx, (uint8_t *)in, (int)len);
 	lejp_destruct(&jctx);
 
-	// lwsl_notice("[INSTRUMENT] handle_monitor_request: executed lejp_parse. len: %d, rc: %d. String: '%.*s'\n", (int)len, m, (int)len, in);
+	lwsl_notice("[INSTRUMENT] handle_monitor_request: executed lejp_parse. len: %d, rc: %d. String: '%.*s'\n", (int)len, m, (int)len, in);
 
 	if (m < 0 && m != LEJP_REJECT_UNKNOWN) {
 		lwsl_notice("[INSTRUMENT] handle_monitor_request: JSON parser failed! Error %d\n", m);
@@ -2257,6 +2283,8 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 	}
 
 	lwsl_notice("[INSTRUMENT] handle_monitor_request: Routed valid requested endpoint: '%s'\n", a.req);
+
+
 
 	if (vhd->auth_jwk.kty == LWS_GENCRYPTO_KTY_OCT) {
 		char jwt_out[2048];
@@ -2572,6 +2600,10 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 			/* Root monitor spawned proxy branch */
 			if (p) {
 				/* Yes, we are the root spawned UDS process! */
+				if (global_root_vhd) {
+					/* Already initialized the root monitor singleton */
+					return 0;
+				}
 				lwsl_notice("%s: Started as UDS root monitor\n", __func__);
 
 				/* Privileges are seamlessly restricted via native LWS framework policies securely dropping after UDS setup */
@@ -2650,17 +2682,24 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 						const char *auth_token = lws_cmdline_option_cx(cx, "--auth-token");
 						char buf[256];
 						if (!auth_token) {
-							int n, retries = 50;
+							int n = 0;
+							int retries = 5; /* 500ms max wait */
+							struct pollfd pfd;
+							pfd.fd = 0;
+							pfd.events = POLLIN;
 							while (retries-- > 0) {
-								n = (int)read(0, buf, sizeof(buf) - 1);
-								if (n > 0 || (n < 0 && errno != EAGAIN)) break;
-								usleep(100000);
+								if (poll(&pfd, 1, 100) > 0) {
+									n = (int)read(0, buf, sizeof(buf) - 1);
+									break;
+								}
 							}
 							if (n > 0) {
 								buf[n] = '\0';
 								char *p = strchr(buf, '\n'); if (p) *p = '\0';
 								p = strchr(buf, '\r'); if (p) *p = '\0';
 								auth_token = buf;
+							} else {
+								lwsl_warn("%s: No auth-token provided via command line or stdin! Connections may be rejected.\n", __func__);
 							}
 						}
 
@@ -2684,11 +2723,9 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 							vhd->ops = (const struct lws_dht_dnssec_ops *)prot->user;
 
 						/* Assign functional cross-vhost global routing directly for UDS channels */
-						if (!strcmp(lws_get_vhost_name(vhost), "dnssec_monitor_uds")) {
-							lwsl_notice("%s: Assigned global_root_vhd to UDS vhost\n", __func__);
-							global_root_vhd = vhd;
-							timer_armed = 1;
-						}
+						lwsl_notice("%s: Assigned global_root_vhd to UDS vhost (fallback active)\n", __func__);
+						global_root_vhd = vhd;
+						timer_armed = 1;
 						
 						lws_sul_schedule(cx, 0, &vhd->sul_timer, root_monitor_stdin_check_cb, 2 * LWS_US_PER_SEC);
 
@@ -3162,6 +3199,7 @@ fallback:
 				if (cci->starttls_state == 0 || cci->starttls_state == 4) {
 					extract_and_queue_cert_result(wsi, vhd, cci, protocol);
 					cci->magic = 0;
+					lws_dll2_remove(&cci->active_list);
 					free(cci);
 					lws_set_opaque_user_data(wsi, NULL);
 					return -1; // close immediately
@@ -3198,6 +3236,7 @@ fallback:
 			struct cert_check_info *cci = (struct cert_check_info *)opaque;
 			if (cci && cci->magic == CERT_CHECK_MAGIC) {
 				cci->magic = 0;
+				lws_dll2_remove(&cci->active_list);
 				free(cci);
 				lws_set_opaque_user_data(wsi, NULL);
 			} else {

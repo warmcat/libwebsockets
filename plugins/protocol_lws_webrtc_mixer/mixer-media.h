@@ -100,6 +100,7 @@ struct mixer_media_session {
 	int                     has_pcm;
 	int                     audio_seen;
 	int                     audio_energy;
+	int                     video_muted;
 
 	/* Sequence Number Handling */
 	lws_dll2_owner_t        rtp_queue;     /* Raw RTP packets (sorted) */
@@ -163,7 +164,8 @@ struct participant {
 	char                    name[64];
 	char                    stats[128];
 	char                    client_stats[128];
-	char                    *capabilities; /* JSON blob of device controls */
+	char                    *capabilities_video; /* JSON blob of video device controls */
+	char                    *capabilities_audio; /* JSON blob of audio device controls */
     int                     last_codec; /* enum lws_video_codec */
 	int                     joined;
 

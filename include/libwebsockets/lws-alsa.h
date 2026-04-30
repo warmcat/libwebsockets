@@ -63,4 +63,30 @@ lws_alsa_enum_controls(struct lws_alsa_ctx *ctx, lws_alsa_control_cb cb, void *u
 LWS_VISIBLE LWS_EXTERN int
 lws_alsa_set_control(struct lws_alsa_ctx *ctx, uint32_t id, long val);
 
+#if defined(LWS_WITH_OPUS)
+
+struct lws_alsa_opus_capture;
+
+typedef void (*lws_alsa_opus_encoded_cb_t)(void *user_data, const uint8_t *payload, size_t len);
+
+LWS_VISIBLE LWS_EXTERN struct lws_alsa_opus_capture *
+lws_alsa_opus_capture_create(const struct lws_alsa_info *info, lws_alsa_opus_encoded_cb_t cb, void *user_data);
+
+LWS_VISIBLE LWS_EXTERN void
+lws_alsa_opus_capture_destroy(struct lws_alsa_opus_capture **cap);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_alsa_opus_get_fd(struct lws_alsa_opus_capture *cap);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_alsa_opus_read(struct lws_alsa_opus_capture *cap);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_alsa_opus_send_capabilities(struct lws_alsa_opus_capture *cap, char *buf, size_t max_len);
+
+LWS_VISIBLE LWS_EXTERN int
+lws_alsa_opus_set_control(struct lws_alsa_opus_capture *cap, uint32_t id, long val);
+
+#endif
+
 #endif

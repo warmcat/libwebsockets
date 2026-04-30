@@ -32,12 +32,8 @@ struct per_vhost_data {
 
 	uint32_t                target_width, target_height;
 
-	struct lws_alsa_ctx     *alsa_ctx;
-	OpusEncoder             *opus_enc;
 	struct lws              *wsi_alsa;
-
-	int16_t                 audio_samples[AUDIO_SAMPLES_PER_FRAME];
-	uint8_t                 opus_out[512];
+	struct lws_alsa_opus_capture *alsa_cap;
 
 	int                     raw_rx_count;
 	int                     frame_count;

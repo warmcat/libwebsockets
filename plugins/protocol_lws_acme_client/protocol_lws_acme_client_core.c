@@ -50,115 +50,6 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 
-static int
-acme_ipc_save_payload(struct lws_context *cx, const char *req, const char *domain, const char *filename, const char *payload, size_t payload_len)
-{
-	const char *uds_path = lws_cmdline_option_cx(cx, "--uds-path");
-	if (!uds_path) uds_path = "/var/run/lws-dnssec-monitor.sock";
-
-	int fd = socket(AF_UNIX, SOCK_STREAM, 0);
-	if (fd < 0) {
-		lwsl_err("IPC socket() failed: %d\n", errno);
-		return 1;
-	}
-	struct sockaddr_un addr;
-	memset(&addr, 0, sizeof(addr));
-	addr.sun_family = AF_UNIX;
-	strncpy(addr.sun_path, uds_path, sizeof(addr.sun_path) - 1);
-	int retries = 50;
-	int last_errno = 0;
-
-	while (retries--) {
-		if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) == 0)
-			goto connected;
-
-		last_errno = errno;
-		if (errno == ECONNREFUSED || errno == ENOENT) {
-			usleep(100000); /* 100ms */
-			continue;
-		}
-
-		lwsl_err("IPC connect() to %s failed: %d\n", uds_path, errno);
-		close(fd);
-		return 1;
-	}
-	lwsl_err("IPC connect() to %s failed after retries for %s (%s): %d\n",
-		 uds_path, domain, filename, last_errno);
-	close(fd);
-	return 1;
-
-connected:
-
-	char header[3072];
-	char jwt[2048] = {0};
-
-	/* Sign the payload with the proxy 64-byte secret preamble */
-#if defined(LWS_WITH_JOSE)
-	lws_system_blob_t *b = lws_system_get_blob(cx, LWS_SYSBLOB_TYPE_EXT_AUTH1, 0);
-	if (b) {
-		size_t hex_len = lws_system_blob_get_size(b);
-		if (hex_len > 0) {
-			char hex[129];
-			char temp[2048];
-			size_t jwt_len = sizeof(jwt);
-			struct lws_jwk jwk;
-			if (hex_len >= sizeof(hex)) hex_len = sizeof(hex) - 1;
-			lws_system_blob_get(b, (uint8_t *)hex, &hex_len, 0);
-			hex[hex_len] = '\0';
-			memset(&jwk, 0, sizeof(jwk));
-			jwk.kty = LWS_GENCRYPTO_KTY_OCT;
-			jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].len = 64;
-			jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf = malloc(64);
-			lws_hex_to_byte_array(hex, jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf, 64);
-
-			uint64_t now = (uint64_t)lws_now_usecs() / LWS_US_PER_SEC;
-			lws_jwt_sign_compact(cx, &jwk, "HS256", jwt, &jwt_len, temp, sizeof(temp),
-			    "{\"iss\":\"acme-ipc\",\"aud\":\"dnssec-monitor\",\"iat\":%llu,\"exp\":%llu}",
-			    (unsigned long long)now, (unsigned long long)now + 300);
-
-			lws_jwk_destroy(&jwk);
-		}
-	}
-#endif
-
-	int hlen = lws_snprintf(header, sizeof(header), "{\"req\":\"%s\",\"jwt\":\"%s\",\"domain\":\"%s\",\"subdomain\":\"%s\",\"zone\":\"", req, jwt, domain, filename);
-	write(fd, header, (size_t)hlen);
-
-	for (size_t i = 0; i < payload_len; i++) {
-        char c = payload[i];
-        if (c == '\n') { write(fd, "\\n", 2); }
-        else if (c == '\r') { write(fd, "\\r", 2); }
-        else if (c == '"') { write(fd, "\\\"", 2); }
-        else if (c == '\\') { write(fd, "\\\\", 2); }
-        else { write(fd, &c, 1); }
-    }
-	write(fd, "\"}\n", 3);
-
-	char resp[256];
-	ssize_t n = read(fd, resp, sizeof(resp) - 1);
-	close(fd);
-
-	if (n > 0) {
-		resp[n] = '\0';
-		if (strstr(resp, "\"status\":\"error\"")) {
-			lwsl_err("IPC server returned error: %s\n", resp);
-			return 1;
-		}
-	} else {
-		lwsl_err("IPC server failed to respond or returned empty\n");
-		return 1;
-	}
-
-	return 0;
-}
-#else
-static int
-acme_ipc_save_payload(struct lws_context *cx, const char *req, const char *domain, const char *filename, const char *payload, size_t payload_len)
-{
-	return 1;
-}
-#endif
-
 typedef enum {
 	ACME_STATE_DIRECTORY,	/* get the directory JSON using GET + parse */
 	ACME_STATE_NEW_NONCE,	/* get the replay nonce */
@@ -220,28 +111,6 @@ struct acme_connection {
 	unsigned int is_sni_02:1;
 };
 
-/*
- * Maps for nested JSON parsing
- */
-static const lws_struct_map_t map_acme_acme_obj[] = {
-	LSM_STRING_PTR(struct lws_acme_cert_config_acme, country, "country"),
-	LSM_STRING_PTR(struct lws_acme_cert_config_acme, state, "state"),
-	LSM_STRING_PTR(struct lws_acme_cert_config_acme, locality, "locality"),
-	LSM_STRING_PTR(struct lws_acme_cert_config_acme, organization, "organization"),
-	LSM_STRING_PTR(struct lws_acme_cert_config_acme, directory_url, "directory-url"),
-};
-
-static const lws_struct_map_t map_acme_cert_config[] = {
-	LSM_STRING_PTR(struct lws_acme_cert_config, common_name, "common-name"),
-	LSM_STRING_PTR(struct lws_acme_cert_config, challenge_type_str, "challenge-type"),
-	LSM_STRING_PTR(struct lws_acme_cert_config, email, "email"),
-	LSM_CHILD_PTR(struct lws_acme_cert_config, acme, struct lws_acme_cert_config_acme, NULL, map_acme_acme_obj, "acme"),
-};
-
-static const lws_struct_map_t map_acme_cert_config_root[] = {
-	LSM_SCHEMA(struct lws_acme_cert_config, NULL, map_acme_cert_config, "lws-acme-client-config"),
-};
-
 struct per_vhost_data__lws_acme_client {
 	struct lws_context *context;
 	struct lws_vhost *vhost;
@@ -273,7 +142,141 @@ struct per_vhost_data__lws_acme_client {
 	/* removed persistent fd_updated_cert/key handles since they are opened dynamically per cert */
 	/* we allocate memory here because we drop root too early */
 #endif
+	const char *uds_path;
 };
+
+/*
+ * Maps for nested JSON parsing
+ */
+static const lws_struct_map_t map_acme_acme_obj[] = {
+	LSM_STRING_PTR(struct lws_acme_cert_config_acme, country, "country"),
+	LSM_STRING_PTR(struct lws_acme_cert_config_acme, state, "state"),
+	LSM_STRING_PTR(struct lws_acme_cert_config_acme, locality, "locality"),
+	LSM_STRING_PTR(struct lws_acme_cert_config_acme, organization, "organization"),
+	LSM_STRING_PTR(struct lws_acme_cert_config_acme, directory_url, "directory-url"),
+};
+
+static const lws_struct_map_t map_acme_cert_config[] = {
+	LSM_STRING_PTR(struct lws_acme_cert_config, common_name, "common-name"),
+	LSM_STRING_PTR(struct lws_acme_cert_config, challenge_type_str, "challenge-type"),
+	LSM_STRING_PTR(struct lws_acme_cert_config, email, "email"),
+	LSM_CHILD_PTR(struct lws_acme_cert_config, acme, struct lws_acme_cert_config_acme, NULL, map_acme_acme_obj, "acme"),
+};
+
+static const lws_struct_map_t map_acme_cert_config_root[] = {
+	LSM_SCHEMA(struct lws_acme_cert_config, NULL, map_acme_cert_config, "lws-acme-client-config"),
+};
+
+static int
+acme_ipc_save_payload(struct per_vhost_data__lws_acme_client *vhd, const char *req, const char *domain, const char *filename, const char *payload, size_t payload_len)
+{
+	const char *uds_path = vhd->uds_path;
+	if (!uds_path) uds_path = lws_cmdline_option_cx(vhd->context, "--uds-path");
+	if (!uds_path) uds_path = "/var/run/lws-dnssec-monitor.sock";
+
+	int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+	if (fd < 0) {
+		lwsl_err("IPC socket() failed: %d\n", errno);
+		return 1;
+	}
+	struct sockaddr_un addr;
+	memset(&addr, 0, sizeof(addr));
+	addr.sun_family = AF_UNIX;
+	strncpy(addr.sun_path, uds_path, sizeof(addr.sun_path) - 1);
+	int retries = 50;
+	int last_errno = 0;
+
+	while (retries--) {
+		if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) == 0)
+			goto connected;
+
+		last_errno = errno;
+		if (errno == ECONNREFUSED || errno == ENOENT) {
+			usleep(100000); /* 100ms */
+			continue;
+		}
+
+		lwsl_err("IPC connect() to %s failed: %d\n", uds_path, errno);
+		close(fd);
+		return 1;
+	}
+	lwsl_err("IPC connect() to %s failed after retries for %s (%s): %d\n",
+		 uds_path, domain, filename, last_errno);
+	close(fd);
+	return 1;
+
+connected:
+	;
+
+	char header[3072];
+	char jwt[2048] = {0};
+
+	/* Sign the payload with the proxy 64-byte secret preamble */
+#if defined(LWS_WITH_JOSE)
+	lws_system_blob_t *b = lws_system_get_blob(vhd->context, LWS_SYSBLOB_TYPE_EXT_AUTH1, 0);
+	if (b) {
+		size_t hex_len = lws_system_blob_get_size(b);
+		if (hex_len > 0) {
+			char hex[129];
+			char temp[2048];
+			size_t jwt_len = sizeof(jwt);
+			struct lws_jwk jwk;
+			if (hex_len >= sizeof(hex)) hex_len = sizeof(hex) - 1;
+			lws_system_blob_get(b, (uint8_t *)hex, &hex_len, 0);
+			hex[hex_len] = '\0';
+			memset(&jwk, 0, sizeof(jwk));
+			jwk.kty = LWS_GENCRYPTO_KTY_OCT;
+			jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].len = 64;
+			jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf = malloc(64);
+			lws_hex_to_byte_array(hex, jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf, 64);
+
+			uint64_t now = (uint64_t)lws_now_usecs() / LWS_US_PER_SEC;
+			lws_jwt_sign_compact(vhd->context, &jwk, "HS256", jwt, &jwt_len, temp, sizeof(temp),
+			    "{\"iss\":\"acme-ipc\",\"aud\":\"dnssec-monitor\",\"iat\":%llu,\"exp\":%llu}",
+			    (unsigned long long)now, (unsigned long long)now + 300);
+
+			lws_jwk_destroy(&jwk);
+		}
+	}
+#endif
+
+	int hlen = lws_snprintf(header, sizeof(header), "{\"req\":\"%s\",\"jwt\":\"%s\",\"domain\":\"%s\",\"subdomain\":\"%s\",\"zone\":\"", req, jwt, domain, filename);
+	write(fd, header, (size_t)hlen);
+
+	for (size_t i = 0; i < payload_len; i++) {
+        char c = payload[i];
+        if (c == '\n') { write(fd, "\\n", 2); }
+        else if (c == '\r') { write(fd, "\\r", 2); }
+        else if (c == '"') { write(fd, "\\\"", 2); }
+        else if (c == '\\') { write(fd, "\\\\", 2); }
+        else { write(fd, &c, 1); }
+    }
+	write(fd, "\"}\n", 3);
+
+	char resp[256];
+	ssize_t n = read(fd, resp, sizeof(resp) - 1);
+	close(fd);
+
+	if (n > 0) {
+		resp[n] = '\0';
+		if (strstr(resp, "\"status\":\"error\"")) {
+			lwsl_err("IPC server returned error: %s\n", resp);
+			return 1;
+		}
+	} else {
+		lwsl_err("IPC server failed to respond or returned empty\n");
+		return 1;
+	}
+
+	return 0;
+}
+#else
+static int
+acme_ipc_save_payload(struct per_vhost_data__lws_acme_client *vhd, const char *req, const char *domain, const char *filename, const char *payload, size_t payload_len)
+{
+	return 1;
+}
+#endif
 
 static int
 callback_chall_http01(struct lws *wsi, enum lws_callback_reasons reason,
@@ -847,7 +850,7 @@ lws_acme_load_create_auth_keys(struct per_vhost_data__lws_acme_client *vhd,
                         const char *fp = vhd->active_cert->pvop[LWS_TLS_SET_AUTH_PATH];
                         const char *fn = strrchr(fp, '/');
                         if (fn) fn++; else fn = fp;
-                        int r = acme_ipc_save_payload(vhd->context,
+                        int r = acme_ipc_save_payload(vhd,
                             "save_auth_key",
                             vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] ? vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] : vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME],
                             fn,
@@ -1207,6 +1210,13 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 			vhd->dns_base_dir = strdup(policy->dns_base_dir);
 			lws_system_policy_free(policy);
+
+			const struct lws_protocol_vhost_options *pvo = (const struct lws_protocol_vhost_options *)in;
+			while (pvo) {
+				if (!strcmp(pvo->name, "uds-path"))
+					vhd->uds_path = pvo->value;
+				pvo = pvo->next;
+			}
 		}
 
         {
@@ -1961,7 +1971,7 @@ poll_again:
 					lwsl_vhost_notice(vhd->vhost, "falling back to IPC footprint to save %s", cert_ts);
 					const char *fn = strrchr(cert_ts, '/');
 					if (fn) fn++; else fn = cert_ts;
-					int r = acme_ipc_save_payload(vhd->context, "save_cert", vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] ? vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] : vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], fn, ac->buf, (size_t)ac->cpos);
+					int r = acme_ipc_save_payload(vhd, "save_cert", vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] ? vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] : vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], fn, ac->buf, (size_t)ac->cpos);
 					if (r) {
 						lwsl_vhost_err(vhd->vhost, "unable to create cert file %s", cert_ts);
 						goto failed;
@@ -1984,7 +1994,7 @@ poll_again:
 					lwsl_vhost_notice(vhd->vhost, "falling back to IPC footprint to save %s", key_ts);
 					const char *fn = strrchr(key_ts, '/');
 					if (fn) fn++; else fn = key_ts;
-					int r = acme_ipc_save_payload(vhd->context, "save_key", vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] ? vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] : vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], fn, ac->alloc_privkey_pem, ac->len_privkey_pem);
+					int r = acme_ipc_save_payload(vhd, "save_key", vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] ? vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] : vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], fn, ac->alloc_privkey_pem, ac->len_privkey_pem);
 					if (r) {
 						lwsl_vhost_err(vhd->vhost, "unable to create key file %s", key_ts);
 						goto failed;
@@ -2007,7 +2017,7 @@ poll_again:
 					lwsl_vhost_notice(vhd->vhost, "falling back to IPC footprint to save %s", full_ts);
 					const char *fn = strrchr(full_ts, '/');
 					if (fn) fn++; else fn = full_ts;
-					int r = acme_ipc_save_payload(vhd->context, "save_cert", vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] ? vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] : vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], fn, ac->buf, (size_t)cpos_fullchain);
+					int r = acme_ipc_save_payload(vhd, "save_cert", vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] ? vhd->active_cert->pvop[LWS_TLS_SET_ROOT_DOMAIN] : vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], fn, ac->buf, (size_t)cpos_fullchain);
 					if (r) {
 						lwsl_vhost_err(vhd->vhost, "unable to create fullchain file %s", full_ts);
 					}

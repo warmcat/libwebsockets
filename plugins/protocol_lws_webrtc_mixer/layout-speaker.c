@@ -143,6 +143,12 @@ skip:
 	struct speaker_part *best_part = NULL;
 	uint64_t max_energy = 0;
 	for (int i = 0; i < ctx->num_parts; i++) {
+		struct mixer_media_session *s = ctx->parts[i].s;
+
+		/* Exclude participants who have no outgoing audio, are out_only, or have muted their video */
+		if (s->out_only || !s->audio_seen || s->video_muted)
+			continue;
+
 		if (!best_part || ctx->parts[i].total_energy > max_energy) {
 			best_part = &ctx->parts[i];
 			max_energy = ctx->parts[i].total_energy;
@@ -152,11 +158,42 @@ skip:
 	/* Keep current speaker if energy isn't significantly higher than 0 and there is a current speaker.
 	 * Or just switch to max. We'll switch to the one with the highest energy.
 	 * If max_energy is 0, keep current speaker if still active, else pick join_time oldest/newest. */
-	if (max_energy == 0 && ctx->current_speaker) {
+	if (max_energy == 0 && ctx->current_speaker && ctx->current_speaker->audio_seen && !ctx->current_speaker->out_only && !ctx->current_speaker->video_muted) {
 		for (int i = 0; i < ctx->num_parts; i++) {
 			if (ctx->parts[i].s == ctx->current_speaker) {
 				best_part = &ctx->parts[i];
 				break;
+			}
+		}
+	}
+
+	/* Fallback if no one has audio, or everyone with audio is excluded */
+	if (!best_part) {
+		for (int i = 0; i < ctx->num_parts; i++) {
+			struct mixer_media_session *s = ctx->parts[i].s;
+
+			if (!best_part) {
+				best_part = &ctx->parts[i];
+				continue;
+			}
+
+			/* Prefer people who have video over people who are video muted */
+			if (best_part->s->video_muted && !s->video_muted) {
+				best_part = &ctx->parts[i];
+				continue;
+			}
+
+			/* If both have same video mute state, prefer people who are not out_only */
+			if (best_part->s->video_muted == s->video_muted) {
+				if (best_part->s->out_only && !s->out_only) {
+					best_part = &ctx->parts[i];
+					continue;
+				}
+
+				/* Prefer oldest join time among equals */
+				if ((best_part->s->out_only == s->out_only) && (ctx->parts[i].join_time < best_part->join_time)) {
+					best_part = &ctx->parts[i];
+				}
 			}
 		}
 	}

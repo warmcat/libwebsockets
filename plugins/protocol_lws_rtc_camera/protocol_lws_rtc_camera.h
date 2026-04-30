@@ -30,7 +30,7 @@ struct lws_rtc_camera_ops {
 	uint32_t abi_version;
 
 	/* Dynamically attach a new camera unit to the WebRTC mixer */
-	int (*attach)(struct lws_vhost *vh, const char *url, const char *device_path, const char *name, uint32_t width, uint32_t height, const char *auth_token);
+	int (*attach)(struct lws_vhost *vh, const char *url, const char *device_path, const char *audio_device_path, const char *name, uint32_t width, uint32_t height, const char *auth_token);
 
 	/* Detach a previously attached camera */
 	int (*detach)(struct lws_vhost *vh, const char *device_path);

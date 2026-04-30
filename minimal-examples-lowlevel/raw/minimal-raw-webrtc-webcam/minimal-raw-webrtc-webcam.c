@@ -55,6 +55,17 @@ relay_to_session(struct pss_webrtc *pss, void *user)
 	return we_ops->send_audio(we_ops->get_media(pss), rd->buf, rd->len, 0);
 }
 
+#if defined(LWS_WITH_OPUS)
+static void alsa_audio_cb(void *user_data, const uint8_t *payload, size_t len)
+{
+	struct per_vhost_data *vhd = (struct per_vhost_data *)user_data;
+	if (we_ops && we_ops->send_audio && vhd && vhd->vhd) {
+		struct relay_data rd_a = { payload, len, 0 };
+		we_ops->foreach_session(vhd->vhd, relay_to_session, &rd_a);
+	}
+}
+#endif
+
 static int
 v4l2_init(struct per_vhost_data *vhd)
 {
@@ -141,20 +152,6 @@ append_v4l2_control(void *user, const struct lws_v4l2_control *c)
 	return 0;
 }
 
-static int
-append_alsa_control(void *user, const struct lws_alsa_control *c)
-{
-	char **p = (char **)user;
-	int n;
-
-	n = lws_snprintf(*p, 256, "{\"id\":%u,\"name\":\"%s\",\"min\":%ld,\"max\":%ld,\"step\":%ld,\"val\":%ld},",
-			 c->id, c->name, c->min, c->max, c->step, c->val);
-	if (n > 0)
-		*p += n;
-
-	return 0;
-}
-
 static void
 send_controls(struct lws *wsi, struct per_vhost_data *vhd)
 {
@@ -163,10 +160,30 @@ send_controls(struct lws *wsi, struct per_vhost_data *vhd)
 	p += lws_snprintf(p, 128, "{\"type\":\"device_controls\",\"video\":[");
 	lws_v4l2_enum_controls(vhd->v4l2_ctx, append_v4l2_control, &p);
 	if (*(p-1) == ',') p--;
+#if defined(LWS_WITH_OPUS)
 	p += lws_snprintf(p, 128, "],\"audio\":[");
-	lws_alsa_enum_controls(vhd->alsa_ctx, append_alsa_control, &p);
+	if (vhd->alsa_cap) {
+		/* Use a temporary buffer to extract controls array */
+		char abuf[1024];
+		int n = lws_alsa_opus_send_capabilities(vhd->alsa_cap, abuf, sizeof(abuf));
+		if (n > 0) {
+			/* Parse out the array inside abuf {"type":"capabilities","kind":"audio","controls":[...]} */
+			char *abuf_start = strstr(abuf, "\"controls\":[");
+			if (abuf_start) {
+				abuf_start += 12; // skip "\"controls\":["
+				char *abuf_end = strrchr(abuf_start, ']');
+				if (abuf_end) {
+					*abuf_end = '\0';
+					p += lws_snprintf(p, lws_ptr_diff_size_t(buf + LWS_PRE + 2048, p), "%s", abuf_start);
+				}
+			}
+		}
+	}
 	if (*(p-1) == ',') p--;
 	p += lws_snprintf(p, 64, "]}");
+#else
+	p += lws_snprintf(p, 64, "]}");
+#endif
 
 	lws_write(wsi, (uint8_t *)start, lws_ptr_diff_size_t(p, start), LWS_WRITE_TEXT);
 }
@@ -232,8 +249,10 @@ callback_webrtc_webcam(struct lws *wsi, enum lws_callback_reasons reason,
 				int32_t cval = (int32_t)atoi(v);
 				if (!strncmp(kind, "\"video\"", 7))
 					lws_v4l2_set_control(vhd->v4l2_ctx, cid, cval);
-				else
-					lws_alsa_set_control(vhd->alsa_ctx, cid, (long)cval);
+#if defined(LWS_WITH_OPUS)
+				else if (vhd->alsa_cap)
+					lws_alsa_opus_set_control(vhd->alsa_cap, cid, (long)cval);
+#endif
 			}
 		}
 	}
@@ -242,7 +261,9 @@ callback_webrtc_webcam(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_PROTOCOL_INIT:
 	{
 		const struct lws_protocols *p;
+#if defined(LWS_WITH_OPUS)
 		struct lws_alsa_info ainfo;
+#endif
 
 		lwsl_vhost_notice(lws_get_vhost(wsi), "lws-webrtc-webcam: PROTOCOL_INIT");
 
@@ -278,16 +299,17 @@ callback_webrtc_webcam(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd->target_width = LWS_RTP_VIDEO_WIDTH_360P;
 		vhd->target_height = LWS_RTP_VIDEO_HEIGHT_360P;
 
-		int err;
-		vhd->opus_enc = opus_encoder_create(AUDIO_RATE, AUDIO_CHANNELS, OPUS_APPLICATION_VOIP, &err);
-
 		v4l2_init(vhd);
 
+#if defined(LWS_WITH_OPUS)
 		memset(&ainfo, 0, sizeof(ainfo));
 		ainfo.device_name = "default";
 		ainfo.rate = AUDIO_RATE;
 		ainfo.channels = AUDIO_CHANNELS;
-		vhd->alsa_ctx = lws_alsa_create_capture(&ainfo);
+		ainfo.samples_per_frame = AUDIO_SAMPLES_PER_FRAME;
+
+		vhd->alsa_cap = lws_alsa_opus_capture_create(&ainfo, alsa_audio_cb, vhd);
+#endif
 
 		if (vhd->v4l2_ctx) {
 			struct lws_adopt_desc ad;
@@ -299,11 +321,13 @@ callback_webrtc_webcam(struct lws *wsi, enum lws_callback_reasons reason,
 			vhd->wsi_v4l2 = lws_adopt_descriptor_vhost_via_info(&ad);
 		}
 
-		if (vhd->alsa_ctx) {
+#if defined(LWS_WITH_OPUS)
+		if (vhd->alsa_cap) {
 			lws_sock_file_fd_type u;
-			u.filefd = (lws_filefd_type)(long long)lws_alsa_get_fd(vhd->alsa_ctx);
+			u.filefd = (lws_filefd_type)(long long)lws_alsa_opus_get_fd(vhd->alsa_cap);
 			vhd->wsi_alsa = lws_adopt_descriptor_vhost(we_ops->get_vhost(vhd->vhd), LWS_ADOPT_RAW_FILE_DESC, u, "lws-webrtc-webcam", NULL);
 		}
+#endif
 		break;
 	}
 
@@ -316,18 +340,13 @@ callback_webrtc_webcam(struct lws *wsi, enum lws_callback_reasons reason,
 	}
 
 	case LWS_CALLBACK_RAW_RX_FILE:
+#if defined(LWS_WITH_OPUS)
 		if (wsi == vhd->wsi_alsa) {
-			n = lws_alsa_read(vhd->alsa_ctx, vhd->audio_samples, AUDIO_SAMPLES_PER_FRAME);
-			if (n <= 0)
-				return 0;
-			int opus_len = opus_encode(vhd->opus_enc, vhd->audio_samples,
-						   (int)n, vhd->opus_out,
-						   sizeof(vhd->opus_out));
-			if (opus_len > 0 && we_ops && we_ops->send_audio) {
-				struct relay_data rd_a = { vhd->opus_out, (size_t)opus_len, 0 };
-				we_ops->foreach_session(vhd->vhd, relay_to_session, &rd_a);
-			}
-		} else {
+			if (vhd->alsa_cap)
+				lws_alsa_opus_read(vhd->alsa_cap);
+		} else
+#endif
+		{
 			struct v4l2_buffer buf_v;
 			void *start;
 			size_t len;
@@ -353,10 +372,11 @@ callback_webrtc_webcam(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
-		lws_alsa_destroy(&vhd->alsa_ctx);
+#if defined(LWS_WITH_OPUS)
+		if (vhd->alsa_cap)
+			lws_alsa_opus_capture_destroy(&vhd->alsa_cap);
+#endif
 		lws_v4l2_destroy(&vhd->v4l2_ctx);
-		if (vhd->opus_enc)
-			opus_encoder_destroy(vhd->opus_enc);
 		if (vhd->jpeg_dec)
 			lws_jpeg_free((lws_jpeg_t **)&vhd->jpeg_dec);
 		free(vhd->yuv_frame);
