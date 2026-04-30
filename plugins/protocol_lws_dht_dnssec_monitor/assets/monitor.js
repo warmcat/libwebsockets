@@ -396,7 +396,24 @@ function handleResponse(data) {
             }
             break;
         case 'get_tls':
-            // Removed per-domain TLS fetch
+            if (data.tls) {
+                window.activeTls = data.tls;
+            } else {
+                window.activeTls = [];
+            }
+            if (currentZone) {
+                renderZoneTable();
+            }
+            processCertQueue();
+            break;
+        case 'create_tls':
+            showToast('TLS Port mapped successfully');
+            sendReq({ req: 'get_tls', domain: currentDomain });
+            break;
+        case 'delete_tls':
+            showToast('TLS Port mapping removed');
+            sendReq({ req: 'get_tls', domain: currentDomain });
+            break;
         case 'cert_status':
             window.certStatusCache[data.subdomain + ':' + data.port] = data;
             let span = document.getElementById(`cert-status-${data.subdomain}`);
