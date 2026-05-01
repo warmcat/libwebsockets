@@ -155,6 +155,7 @@ skip:
 		}
 	}
 
+
 	/* Keep current speaker if energy isn't significantly higher than 0 and there is a current speaker.
 	 * Or just switch to max. We'll switch to the one with the highest energy.
 	 * If max_energy is 0, keep current speaker if still active, else pick join_time oldest/newest. */
@@ -182,6 +183,9 @@ skip:
 				best_part = &ctx->parts[i];
 				continue;
 			}
+			if (!best_part->s->video_muted && s->video_muted) {
+				continue;
+			}
 
 			/* If both have same video mute state, prefer people who are not out_only */
 			if (best_part->s->video_muted == s->video_muted) {
@@ -199,8 +203,15 @@ skip:
 	}
 
 	if (best_part) {
+		if (ctx->current_speaker != best_part->s) {
+			lwsl_notice("[INSTRUMENT] %s: Switching speaker from '%s' to '%s'\n",
+					__func__, ctx->current_speaker ? ((struct participant *)ctx->current_speaker->parent_p)->name : "none",
+					((struct participant *)best_part->s->parent_p)->name);
+		}
 		ctx->current_speaker = best_part->s;
 		best_part->last_speaker_time = lws_now_usecs();
+	} else {
+		lwsl_notice("[INSTRUMENT] %s: No best_part found!\n", __func__);
 	}
 
 	/* Allocate regions */
