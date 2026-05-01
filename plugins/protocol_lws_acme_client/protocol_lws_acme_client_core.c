@@ -183,7 +183,7 @@ acme_ipc_save_payload(struct per_vhost_data__lws_acme_client *vhd, const char *r
 	memset(&addr, 0, sizeof(addr));
 	addr.sun_family = AF_UNIX;
 	strncpy(addr.sun_path, uds_path, sizeof(addr.sun_path) - 1);
-	int retries = 50;
+	int retries = 200;
 	int last_errno = 0;
 
 	while (retries--) {
