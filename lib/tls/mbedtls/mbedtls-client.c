@@ -445,18 +445,11 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		}
 #endif
 	} else {
-		vh->tls.x509_client_CA = d2i_X509(NULL, (const uint8_t **)&ca_mem, (long)ca_mem_len);
-		lwsl_info("%s: using mem client CA cert %d\n",
-			    __func__, ca_mem_len);
-		if (!vh->tls.x509_client_CA) {
+		if (SSL_CTX_add_client_CA_ASN1(vh->tls.ssl_client_ctx, (int)ca_mem_len, ca_mem) != 1) {
 			lwsl_err("client CA: x509 parse failed\n");
 			return 1;
 		}
-
-		if (!vh->tls.ssl_ctx)
-			SSL_CTX_add_client_CA(vh->tls.ssl_client_ctx, vh->tls.x509_client_CA);
-		else
-			SSL_CTX_add_client_CA(vh->tls.ssl_ctx, vh->tls.x509_client_CA);
+		lwsl_info("%s: using mem client CA cert %d\n", __func__, ca_mem_len);
 	}
 
 	/* support for client-side certificate authentication */

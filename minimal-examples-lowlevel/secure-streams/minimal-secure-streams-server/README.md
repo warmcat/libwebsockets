@@ -32,7 +32,7 @@ Commandline option|Meaning
 [2020/07/27 10:51:05:1753] N: lws_adopt_descriptor_vhost2: wsi 0x53182c0, vhost system ss_handle (nil)
 [2020/07/27 10:51:05:2129] N: lws_ss_policy_parser_cb: server 'self_localhost' keep 52 0x5318cc0
 [2020/07/27 10:51:05:2134] N: lws_ss_policy_parser_cb: server 'self_localhost_key' keep 53 0x5318cf8
-[2020/07/27 10:51:05:2192] N: lws_ss_policy_ref_trust_store: le_via_isrg trust store initial 'isrg_root_x1'
+[2020/07/27 10:51:05:2192] N: lws_ss_policy_ref_trust_store: le_via_isrg trust store initial 'isrg_root_x2'
 [2020/07/27 10:51:05:7804] N: smd_cb: creating server stream
 [2020/07/27 10:51:05:7851] N:  Vhost 'myserver' using TLS mode
 [2020/07/27 10:51:05:8660] N:  SSL ECDH curve 'prime256v1'

@@ -694,6 +694,7 @@ lws_create_vhost(struct lws_context *context,
 #endif
 	int n;
 
+
 	if (!pcols && context->protocols_copy)
 		pcols = context->protocols_copy;
 

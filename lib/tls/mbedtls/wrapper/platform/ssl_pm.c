@@ -268,10 +268,14 @@ static int ssl_pm_reload_crt(SSL *ssl)
 
     mbedtls_ssl_conf_authmode(&ssl_pm->conf, mode);
 
-    if (ca_pm->x509_crt)
+    if (ca_pm->x509_crt) {
+        lwsl_notice("ssl_pm_reload_crt: using ca_pm->x509_crt\n");
         mbedtls_ssl_conf_ca_chain(&ssl_pm->conf, ca_pm->x509_crt, NULL);
-    else if (ca_pm->ex_crt)
+    } else if (ca_pm->ex_crt) {
         mbedtls_ssl_conf_ca_chain(&ssl_pm->conf, ca_pm->ex_crt, NULL);
+    } else {
+        lwsl_notice("ssl_pm_reload_crt: NO CA CHAIN PROVIDED!\n");
+    }
 
     if (crt_pm->x509_crt && pkey_pm->pkey)
         ret = mbedtls_ssl_conf_own_cert(&ssl_pm->conf, crt_pm->x509_crt, pkey_pm->pkey);

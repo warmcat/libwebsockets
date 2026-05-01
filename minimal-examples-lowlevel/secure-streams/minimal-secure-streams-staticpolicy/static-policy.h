@@ -17,9 +17,9 @@
 		}
 	}],
 	"certs": [{
-		"isrg_root_x1": "MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAwTzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2VhcmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4WhcNMzUwNjA0MTEwNDM4WjBPMQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJuZXQgU2VjdXJpdHkgUmVzZWFyY2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBYMTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK3oJHP0FDfzm54rVygch77ct984kIxuPOZXoHj3dcKi/vVqbvYATyjb3miGbESTtrFj/RQSa78f0uoxmyF+0TM8ukj13Xnfs7j/EvEhmkvBioZxaUpmZmyPfjxwv60pIgbz5MDmgK7iS4+3mX6UA5/TR5d8mUgjU+g4rk8Kb4Mu0UlXjIB0ttov0DiNewNwIRt18jA8+o+u3dpjq+sWT8KOEUt+zwvo/7V3LvSye0rgTBIlDHCNAymg4VMk7BPZ7hm/ELNKjD+Jo2FR3qyHB5T0Y3HsLuJvW5iB4YlcNHlsdu87kGJ55tukmi8mxdAQ4Q7e2RCOFvu396j3x+UCB5iPNgiV5+I3lg02dZ77DnKxHZu8A/lJBdiB3QW0KtZB6awBdpUKD9jf1b0SHzUvKBds0pjBqAlkd25HN7rOrFleaJ1/ctaJxQZBKT5ZPt0m9STJEadao0xAH0ahmbWnOlFuhjuefXKnEgV4We0+UXgVCwOPjdAvBbI+e0ocS3MFEvzG6uBQE3xDk3SzynTnjh8BCNAw1FtxNrQHusEwMFxIt4I7mKZ9YIqioymCzLq9gwQbooMDQaHWBfEbwrbwqHyGO0aoSCqI3Haadr8faqU9GY/rOPNk3sgrDQoo//fb4hVC1CLQJ13hef4Y53CIrU7m2Ys6xt0nUW7/vGT1M0NPAgMBAAGjQjBAMA4GA1UdDwEB/wQEAwIBBjAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQWBBR5tFnme7bl5AFzgAiIyBpY9umbbjANBgkqhkiG9w0BAQsFAAOCAgEAVR9YqbyyqFDQDLHYGmkgJykIrGF1XIpu+ILlaS/V9lZLubhzEFnTIZd+50xx+7LSYK05qAvqFyFWhfFQDlnrzuBZ6brJFe+GnY+EgPbk6ZGQ3BebYhtF8GaV0nxvwuo77x/Py9auJ/GpsMiu/X1+mvoiBOv/2X/qkSsisRcOj/KKNFtY2PwByVS5uCbMiogziUwthDyC3+6WVwW6LLv3xLfHTjuCvjHIInNzktHCgKQ5ORAzI4JMPJ+GslWYHb4phowim57iaztXOoJwTdwJx4nLCgdNbOhdjsnvzqvHu7UrTkXWStAmzOVyyghqpZXjFaH3pO3JLF+l+/+sKAIuvtd7u+Nxe5AW0wdeRlN8NwdCjNPElpzVmbUq4JUagEiuTDkHzsxHpFKVK7q4+63SM1N95R1NbdWhscdCb+ZAJzVcoyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq4RgqsahDYVvTH9w7jXbyLeiNdd8XM2w9U/t7y0Ff/9yi0GE44Za4rF2LN9d11TPAmRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57demyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc="
+		"isrg_root_x2": "MIICGzCCAaGgAwIBAgIQQdKd0XLq7qeAwSxs6S+HUjAKBggqhkjOPQQDAzBPMQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJuZXQgU2VjdXJpdHkgUmVzZWFyY2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBYMjAeFw0yMDA5MDQwMDAwMDBaFw00MDA5MTcxNjAwMDBaME8xCzAJBgNVBAYTAlVTMSkwJwYDVQQKEyBJbnRlcm5ldCBTZWN1cml0eSBSZXNlYXJjaCBHcm91cDEVMBMGA1UEAxMMSVNSRyBSb290IFgyMHYwEAYHKoZIzj0CAQYFK4EEACIDYgAEzZvVn4CDCuwJSvMWSj5cz3es3mcFDR0HttwW+1qLFNvicWDEukWVEYmO6gbf9yoWHKS5xcUy4APgHoIYOIvXRdgKam7mAHf7AlF9ItgKbppbd9/w+kHsOdx1ymgHDB/qo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQUfEKWrt5LSDv6kviejM9ti6lyN5UwCgYIKoZIzj0EAwMDaAAwZQIwe3lORlCEwkSHRhtFcP9Ymd70/aTSVaYgLXTWNLxBo1BfASdWtL4ndQavEi51mI38AjEAi/V3bNTIZargCyzuFJ0nN6T5U6VR5CmD1/iQMVtCnwr1/q4AaOeMSQ+2b1tbFfLn"
 	}, {
-		"LEX3_isrg_root_x1": "MIIFjTCCA3WgAwIBAgIRANOxciY0IzLc9AUoUSrsnGowDQYJKoZIhvcNAQELBQAwTzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2VhcmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTYxMDA2MTU0MzU1WhcNMjExMDA2MTU0MzU1WjBKMQswCQYDVQQGEwJVUzEWMBQGA1UEChMNTGV0J3MgRW5jcnlwdDEjMCEGA1UEAxMaTGV0J3MgRW5jcnlwdCBBdXRob3JpdHkgWDMwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCc0wzwWuUuR7dyXTeDs2hjMOrXNSYZJeG9vjXxcJIvt7hLQQWrqZ41CFjssSrEaIcLo+N15Obzp2JxunmBYB/XkZqf89B4Z3HIaQ6Vkc/+5pnpYDxIzH7KTXcSJJ1HG1rrueweNwAcnKx7pwXqzkrrvUHlNpi5y/1tPJZo3yMqQpAMhnRnyH+lmrhSYRQTP2XpgofL2/oOVvaGifOFP5eGr7DcGu9rDZUWfcQroGWymQQ2dYBrrErzG5BJeC+ilk8qICUpBMZ0wNAxzY8xOJUWuqgzuEPxsR/DMH+ieTETPS02+OP88jNquTkxxa/EjQ0dZBYzqvqEKbbUC8DYfcOTAgMBAAGjggFnMIIBYzAOBgNVHQ8BAf8EBAMCAYYwEgYDVR0TAQH/BAgwBgEB/wIBADBUBgNVHSAETTBLMAgGBmeBDAECATA/BgsrBgEEAYLfEwEBATAwMC4GCCsGAQUFBwIBFiJodHRwOi8vY3BzLnJvb3QteDEubGV0c2VuY3J5cHQub3JnMB0GA1UdDgQWBBSoSmpjBH3duubRObemRWXv86jsoTAzBgNVHR8ELDAqMCigJqAkhiJodHRwOi8vY3JsLnJvb3QteDEubGV0c2VuY3J5cHQub3JnMHIGCCsGAQUFBwEBBGYwZDAwBggrBgEFBQcwAYYkaHR0cDovL29jc3Aucm9vdC14MS5sZXRzZW5jcnlwdC5vcmcvMDAGCCsGAQUFBzAChiRodHRwOi8vY2VydC5yb290LXgxLmxldHNlbmNyeXB0Lm9yZy8wHwYDVR0jBBgwFoAUebRZ5nu25eQBc4AIiMgaWPbpm24wDQYJKoZIhvcNAQELBQADggIBABnPdSA0LTqmRf/Q1eaM2jLonG4bQdEnqOJQ8nCqxOeTRrToEKtwT++36gTSlBGxA/5dut82jJQ2jxN8RI8L9QFXrWi4xXnA2EqA10yjHiR6H9cj6MFiOnb5In1eWsRMUM2v3e9tNsCAgBukPHAg1lQh07rvFKm/Bz9BCjaxorALINUfZ9DD64j2igLIxle2DPxW8dI/F2loHMjXZjqG8RkqZUdoxtID5+90FgsGIfkMpqgRS05f4zPbCEHqCXl1eO5HyELTgcVlLXXQDgAWnRzut1hFJeczY1tjQQno6f6s+nMydLN26WuU4s3UYvOuOsUxRlJu7TSRHqDC3lSE5XggVkzdaPkuKGQbGpny+01/47hfXXNB7HntWNZ6N2Vwp7G6OfY+YQrZwIaQmhrIqJZuigsrbe3W+gdn5ykE9+Ky0VgVUsfxo52mwFYs1JKY2PGDuWx8M6DlS6qQkvHaRUo0FMd8TsSlbF0/v965qGFKhSDeQoMpYnwcmQilRh/0ayLThlHLN81gSkJjVrPI0Y8xCVPB4twb1PFUd2fPM3sA1tJ83sZ5v8vgFv2yofKRPB0t6JzUA81mSqM3kxl5e+IZwhYAyO0OTg3/fs8HqGTNKd9BqoUwSRBzp06JMg5brUCGwbCUDI0mxadJ3Bz4WxR6fyNpBK2yAinWEsikxqEt"
+		"LEX3_isrg_root_x2": "MIIFjTCCA3WgAwIBAgIRANOxciY0IzLc9AUoUSrsnGowDQYJKoZIhvcNAQELBQAwTzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2VhcmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTYxMDA2MTU0MzU1WhcNMjExMDA2MTU0MzU1WjBKMQswCQYDVQQGEwJVUzEWMBQGA1UEChMNTGV0J3MgRW5jcnlwdDEjMCEGA1UEAxMaTGV0J3MgRW5jcnlwdCBBdXRob3JpdHkgWDMwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCc0wzwWuUuR7dyXTeDs2hjMOrXNSYZJeG9vjXxcJIvt7hLQQWrqZ41CFjssSrEaIcLo+N15Obzp2JxunmBYB/XkZqf89B4Z3HIaQ6Vkc/+5pnpYDxIzH7KTXcSJJ1HG1rrueweNwAcnKx7pwXqzkrrvUHlNpi5y/1tPJZo3yMqQpAMhnRnyH+lmrhSYRQTP2XpgofL2/oOVvaGifOFP5eGr7DcGu9rDZUWfcQroGWymQQ2dYBrrErzG5BJeC+ilk8qICUpBMZ0wNAxzY8xOJUWuqgzuEPxsR/DMH+ieTETPS02+OP88jNquTkxxa/EjQ0dZBYzqvqEKbbUC8DYfcOTAgMBAAGjggFnMIIBYzAOBgNVHQ8BAf8EBAMCAYYwEgYDVR0TAQH/BAgwBgEB/wIBADBUBgNVHSAETTBLMAgGBmeBDAECATA/BgsrBgEEAYLfEwEBATAwMC4GCCsGAQUFBwIBFiJodHRwOi8vY3BzLnJvb3QteDEubGV0c2VuY3J5cHQub3JnMB0GA1UdDgQWBBSoSmpjBH3duubRObemRWXv86jsoTAzBgNVHR8ELDAqMCigJqAkhiJodHRwOi8vY3JsLnJvb3QteDEubGV0c2VuY3J5cHQub3JnMHIGCCsGAQUFBwEBBGYwZDAwBggrBgEFBQcwAYYkaHR0cDovL29jc3Aucm9vdC14MS5sZXRzZW5jcnlwdC5vcmcvMDAGCCsGAQUFBzAChiRodHRwOi8vY2VydC5yb290LXgxLmxldHNlbmNyeXB0Lm9yZy8wHwYDVR0jBBgwFoAUebRZ5nu25eQBc4AIiMgaWPbpm24wDQYJKoZIhvcNAQELBQADggIBABnPdSA0LTqmRf/Q1eaM2jLonG4bQdEnqOJQ8nCqxOeTRrToEKtwT++36gTSlBGxA/5dut82jJQ2jxN8RI8L9QFXrWi4xXnA2EqA10yjHiR6H9cj6MFiOnb5In1eWsRMUM2v3e9tNsCAgBukPHAg1lQh07rvFKm/Bz9BCjaxorALINUfZ9DD64j2igLIxle2DPxW8dI/F2loHMjXZjqG8RkqZUdoxtID5+90FgsGIfkMpqgRS05f4zPbCEHqCXl1eO5HyELTgcVlLXXQDgAWnRzut1hFJeczY1tjQQno6f6s+nMydLN26WuU4s3UYvOuOsUxRlJu7TSRHqDC3lSE5XggVkzdaPkuKGQbGpny+01/47hfXXNB7HntWNZ6N2Vwp7G6OfY+YQrZwIaQmhrIqJZuigsrbe3W+gdn5ykE9+Ky0VgVUsfxo52mwFYs1JKY2PGDuWx8M6DlS6qQkvHaRUo0FMd8TsSlbF0/v965qGFKhSDeQoMpYnwcmQilRh/0ayLThlHLN81gSkJjVrPI0Y8xCVPB4twb1PFUd2fPM3sA1tJ83sZ5v8vgFv2yofKRPB0t6JzUA81mSqM3kxl5e+IZwhYAyO0OTg3/fs8HqGTNKd9BqoUwSRBzp06JMg5brUCGwbCUDI0mxadJ3Bz4WxR6fyNpBK2yAinWEsikxqEt"
 	}, {
 	"amazon_root_ca_1": "MIIDQTCCAimgAwIBAgITBmyfz5m/jAo54vB4ikPmljZbyjANBgkqhkiG9w0BAQsFADA5MQswCQYDVQQGEwJVUzEPMA0GA1UEChMGQW1hem9uMRkwFwYDVQQDExBBbWF6b24gUm9vdCBDQSAxMB4XDTE1MDUyNjAwMDAwMFoXDTM4MDExNzAwMDAwMFowOTELMAkGA1UEBhMCVVMxDzANBgNVBAoTBkFtYXpvbjEZMBcGA1UEAxMQQW1hem9uIFJvb3QgQ0EgMTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBALJ4gHHKeNXjca9HgFB0fW7Y14h29Jlo91ghYPl0hAEvrAIthtOgQ3pOsqTQNroBvo3bSMgHFzZM9O6II8c+6zf1tRn4SWiw3te5djgdYZ6k/oI2peVKVuRF4fn9tBb6dNqcmzU5L/qwIFAGbHrQgLKm+a/sRxmPUDgH3KKHOVj4utWp+UhnMJbulHheb4mjUcAwhmahRWa6VOujw5H5SNz/0egwLX0tdHA114gk957EWW67c4cX8jJGKLhD+rcdqsq08p8kDi1L93FcXmn/6pUCyziKrlA4b9v7LWIbxcceVOF34GfID5yHI9Y/QCB/IIDEgEw+OyQmjgSubJrIqg0CAwEAAaNCMEAwDwYDVR0TAQH/BAUwAwEB/zAOBgNVHQ8BAf8EBAMCAYYwHQYDVR0OBBYEFIQYzIU07LwMlJQuCFmcx7IQTgoIMA0GCSqGSIb3DQEBCwUAA4IBAQCY8jdaQZChGsV2USggNiMOruYou6r4lK5IpDB/G/wkjUu0yKGX9rbxenDIU5PMCCjjmCXPI6T53iHTfIUJrU6adTrCC2qJeHZERxhlbI1Bjjt/msv0tadQ1wUsN+gDS63pYaACbvXy8MWy7Vu33PqUXHeeE6V/Uq2V8viTO96LXFvKWlJbYK8U90vvo/ufQJVtMVT8QtPHRh8jrdkPSHCa2XV4cdFyQzR1bldZwgJcJmApzyMZFo6IQ6XU5MsI+yMRQ+hDKXJioaldXgjUkK642M4UwtBV8ob2xJNDd2ZhwLnoQdeXeGADbkpyrqXRfboQnoZsG4q5WTP468SQvvG5"
 	}, {
@@ -33,7 +33,7 @@
 	}],
 	"trust_stores": [{
 		"name": "le_via_isrg",
-		"stack": ["isrg_root_x1", "LEX3_isrg_root_x1"]
+		"stack": ["isrg_root_x2", "LEX3_isrg_root_x2"]
 	}, {
 		"name": "api_amazon_com",
 		"stack": ["digicert_global_ca_g2", "digicert_global_root_g2"]
@@ -347,7 +347,7 @@ static const uint8_t _ss_der_amazon_root_ca_1[] = {
 static const lws_ss_x509_t _ss_x509_amazon_root_ca_1 = {
 	.vhost_name = "amazon_root_ca_1",
 	.ca_der = _ss_der_amazon_root_ca_1,
-	.ca_der_len = 837,
+	.ca_der_len = 543,
 };
 static const uint8_t _ss_der_starfield_class_2_ca[] = {
 	/* 0x  0 */ 0x30, 0x82, 0x04, 0x0F, 0x30, 0x82, 0x02, 0xF7, 
@@ -485,7 +485,7 @@ static const uint8_t _ss_der_starfield_class_2_ca[] = {
 static const lws_ss_x509_t _ss_x509_starfield_class_2_ca = {
 	.vhost_name = "starfield_class_2_ca",
 	.ca_der = _ss_der_starfield_class_2_ca,
-	.ca_der_len = 1043,
+	.ca_der_len = 543,
 };
 static const uint8_t _ss_der_starfield_services_root_ca[] = {
 	/* 0x  0 */ 0x30, 0x82, 0x03, 0xEF, 0x30, 0x82, 0x02, 0xD7, 
@@ -619,7 +619,7 @@ static const uint8_t _ss_der_starfield_services_root_ca[] = {
 static const lws_ss_x509_t _ss_x509_starfield_services_root_ca = {
 	.vhost_name = "starfield_services_root_ca",
 	.ca_der = _ss_der_starfield_services_root_ca,
-	.ca_der_len = 1011,
+	.ca_der_len = 543,
 };
 static const lws_ss_trust_store_t _ss_ts_mqtt_amz_iot = {
 	.name = "mqtt_amz_iot",
@@ -810,7 +810,82 @@ static const lws_ss_x509_t _ss_x509_isrg_root_x1 = {
 	.ca_der = _ss_der_isrg_root_x1,
 	.ca_der_len = 1391,
 };
-static const uint8_t _ss_der_LEX3_isrg_root_x1[] = {
+static const uint8_t _ss_der_isrg_root_x2[] = {
+	/* 0x  0 */ 0x30, 0x82, 0x02, 0x1B, 0x30, 0x82, 0x01, 0xA1,
+	/* 0x  8 */ 0xA0, 0x03, 0x02, 0x01, 0x02, 0x02, 0x10, 0x41,
+	/* 0x 10 */ 0xD2, 0x9D, 0xD1, 0x72, 0xEA, 0xEE, 0xA7, 0x80,
+	/* 0x 18 */ 0xC1, 0x2C, 0x6C, 0xE9, 0x2F, 0x87, 0x52, 0x30,
+	/* 0x 20 */ 0x0A, 0x06, 0x08, 0x2A, 0x86, 0x48, 0xCE, 0x3D,
+	/* 0x 28 */ 0x04, 0x03, 0x03, 0x30, 0x4F, 0x31, 0x0B, 0x30,
+	/* 0x 30 */ 0x09, 0x06, 0x03, 0x55, 0x04, 0x06, 0x13, 0x02,
+	/* 0x 38 */ 0x55, 0x53, 0x31, 0x29, 0x30, 0x27, 0x06, 0x03,
+	/* 0x 40 */ 0x55, 0x04, 0x0A, 0x13, 0x20, 0x49, 0x6E, 0x74,
+	/* 0x 48 */ 0x65, 0x72, 0x6E, 0x65, 0x74, 0x20, 0x53, 0x65,
+	/* 0x 50 */ 0x63, 0x75, 0x72, 0x69, 0x74, 0x79, 0x20, 0x52,
+	/* 0x 58 */ 0x65, 0x73, 0x65, 0x61, 0x72, 0x63, 0x68, 0x20,
+	/* 0x 60 */ 0x47, 0x72, 0x6F, 0x75, 0x70, 0x31, 0x15, 0x30,
+	/* 0x 68 */ 0x13, 0x06, 0x03, 0x55, 0x04, 0x03, 0x13, 0x0C,
+	/* 0x 70 */ 0x49, 0x53, 0x52, 0x47, 0x20, 0x52, 0x6F, 0x6F,
+	/* 0x 78 */ 0x74, 0x20, 0x58, 0x32, 0x30, 0x1E, 0x17, 0x0D,
+	/* 0x 80 */ 0x32, 0x30, 0x30, 0x39, 0x30, 0x34, 0x30, 0x30,
+	/* 0x 88 */ 0x30, 0x30, 0x30, 0x30, 0x5A, 0x17, 0x0D, 0x34,
+	/* 0x 90 */ 0x30, 0x30, 0x39, 0x31, 0x37, 0x31, 0x36, 0x30,
+	/* 0x 98 */ 0x30, 0x30, 0x30, 0x5A, 0x30, 0x4F, 0x31, 0x0B,
+	/* 0x a0 */ 0x30, 0x09, 0x06, 0x03, 0x55, 0x04, 0x06, 0x13,
+	/* 0x a8 */ 0x02, 0x55, 0x53, 0x31, 0x29, 0x30, 0x27, 0x06,
+	/* 0x b0 */ 0x03, 0x55, 0x04, 0x0A, 0x13, 0x20, 0x49, 0x6E,
+	/* 0x b8 */ 0x74, 0x65, 0x72, 0x6E, 0x65, 0x74, 0x20, 0x53,
+	/* 0x c0 */ 0x65, 0x63, 0x75, 0x72, 0x69, 0x74, 0x79, 0x20,
+	/* 0x c8 */ 0x52, 0x65, 0x73, 0x65, 0x61, 0x72, 0x63, 0x68,
+	/* 0x d0 */ 0x20, 0x47, 0x72, 0x6F, 0x75, 0x70, 0x31, 0x15,
+	/* 0x d8 */ 0x30, 0x13, 0x06, 0x03, 0x55, 0x04, 0x03, 0x13,
+	/* 0x e0 */ 0x0C, 0x49, 0x53, 0x52, 0x47, 0x20, 0x52, 0x6F,
+	/* 0x e8 */ 0x6F, 0x74, 0x20, 0x58, 0x32, 0x30, 0x76, 0x30,
+	/* 0x f0 */ 0x10, 0x06, 0x07, 0x2A, 0x86, 0x48, 0xCE, 0x3D,
+	/* 0x f8 */ 0x02, 0x01, 0x06, 0x05, 0x2B, 0x81, 0x04, 0x00,
+	/* 0x100 */ 0x22, 0x03, 0x62, 0x00, 0x04, 0xCD, 0x9B, 0xD5,
+	/* 0x108 */ 0x9F, 0x80, 0x83, 0x0A, 0xEC, 0x09, 0x4A, 0xF3,
+	/* 0x110 */ 0x16, 0x4A, 0x3E, 0x5C, 0xCF, 0x77, 0xAC, 0xDE,
+	/* 0x118 */ 0x67, 0x05, 0x0D, 0x1D, 0x07, 0xB6, 0xDC, 0x16,
+	/* 0x120 */ 0xFB, 0x5A, 0x8B, 0x14, 0xDB, 0xE2, 0x71, 0x60,
+	/* 0x128 */ 0xC4, 0xBA, 0x45, 0x95, 0x11, 0x89, 0x8E, 0xEA,
+	/* 0x130 */ 0x06, 0xDF, 0xF7, 0x2A, 0x16, 0x1C, 0xA4, 0xB9,
+	/* 0x138 */ 0xC5, 0xC5, 0x32, 0xE0, 0x03, 0xE0, 0x1E, 0x82,
+	/* 0x140 */ 0x18, 0x38, 0x8B, 0xD7, 0x45, 0xD8, 0x0A, 0x6A,
+	/* 0x148 */ 0x6E, 0xE6, 0x00, 0x77, 0xFB, 0x02, 0x51, 0x7D,
+	/* 0x150 */ 0x22, 0xD8, 0x0A, 0x6E, 0x9A, 0x5B, 0x77, 0xDF,
+	/* 0x158 */ 0xF0, 0xFA, 0x41, 0xEC, 0x39, 0xDC, 0x75, 0xCA,
+	/* 0x160 */ 0x68, 0x07, 0x0C, 0x1F, 0xEA, 0xA3, 0x42, 0x30,
+	/* 0x168 */ 0x40, 0x30, 0x0E, 0x06, 0x03, 0x55, 0x1D, 0x0F,
+	/* 0x170 */ 0x01, 0x01, 0xFF, 0x04, 0x04, 0x03, 0x02, 0x01,
+	/* 0x178 */ 0x06, 0x30, 0x0F, 0x06, 0x03, 0x55, 0x1D, 0x13,
+	/* 0x180 */ 0x01, 0x01, 0xFF, 0x04, 0x05, 0x30, 0x03, 0x01,
+	/* 0x188 */ 0x01, 0xFF, 0x30, 0x1D, 0x06, 0x03, 0x55, 0x1D,
+	/* 0x190 */ 0x0E, 0x04, 0x16, 0x04, 0x14, 0x7C, 0x42, 0x96,
+	/* 0x198 */ 0xAE, 0xDE, 0x4B, 0x48, 0x3B, 0xFA, 0x92, 0xF8,
+	/* 0x1a0 */ 0x9E, 0x8C, 0xCF, 0x6D, 0x8B, 0xA9, 0x72, 0x37,
+	/* 0x1a8 */ 0x95, 0x30, 0x0A, 0x06, 0x08, 0x2A, 0x86, 0x48,
+	/* 0x1b0 */ 0xCE, 0x3D, 0x04, 0x03, 0x03, 0x03, 0x68, 0x00,
+	/* 0x1b8 */ 0x30, 0x65, 0x02, 0x30, 0x7B, 0x79, 0x4E, 0x46,
+	/* 0x1c0 */ 0x50, 0x84, 0xC2, 0x44, 0x87, 0x46, 0x1B, 0x45,
+	/* 0x1c8 */ 0x70, 0xFF, 0x58, 0x99, 0xDE, 0xF4, 0xFD, 0xA4,
+	/* 0x1d0 */ 0xD2, 0x55, 0xA6, 0x20, 0x2D, 0x74, 0xD6, 0x34,
+	/* 0x1d8 */ 0xBC, 0x41, 0xA3, 0x50, 0x5F, 0x01, 0x27, 0x56,
+	/* 0x1e0 */ 0xB4, 0xBE, 0x27, 0x75, 0x06, 0xAF, 0x12, 0x2E,
+	/* 0x1e8 */ 0x75, 0x98, 0x8D, 0xFC, 0x02, 0x31, 0x00, 0x8B,
+	/* 0x1f0 */ 0xF5, 0x77, 0x6C, 0xD4, 0xC8, 0x65, 0xAA, 0xE0,
+	/* 0x1f8 */ 0x0B, 0x2C, 0xEE, 0x14, 0x9D, 0x27, 0x37, 0xA4,
+	/* 0x200 */ 0xF9, 0x53, 0xA5, 0x51, 0xE4, 0x29, 0x83, 0xD7,
+	/* 0x208 */ 0xF8, 0x90, 0x31, 0x5B, 0x42, 0x9F, 0x0A, 0xF5,
+	/* 0x210 */ 0xFE, 0xAE, 0x00, 0x68, 0xE7, 0x8C, 0x49, 0x0F,
+	/* 0x218 */ 0xB6, 0x6F, 0x5B, 0x5B, 0x15, 0xF2, 0xE7,
+};
+static const lws_ss_x509_t _ss_x509_isrg_root_x2 = {
+	.vhost_name = "isrg_root_x2",
+	.ca_der = _ss_der_isrg_root_x2,
+	.ca_der_len = 543,
+};
+static const uint8_t _ss_der_LEX3_isrg_root_x2[] = {
 	/* 0x  0 */ 0x30, 0x82, 0x05, 0x8D, 0x30, 0x82, 0x03, 0x75, 
 	/* 0x  8 */ 0xA0, 0x03, 0x02, 0x01, 0x02, 0x02, 0x11, 0x00, 
 	/* 0x 10 */ 0xD3, 0xB1, 0x72, 0x26, 0x34, 0x23, 0x32, 0xDC, 
@@ -991,16 +1066,16 @@ static const uint8_t _ss_der_LEX3_isrg_root_x1[] = {
 	/* 0x588 */ 0x02, 0x29, 0xD6, 0x12, 0xC8, 0xA4, 0xC6, 0xA1, 
 	/* 0x590 */ 0x2D, 
 };
-static const lws_ss_x509_t _ss_x509_LEX3_isrg_root_x1 = {
-	.vhost_name = "LEX3_isrg_root_x1",
-	.ca_der = _ss_der_LEX3_isrg_root_x1,
-	.ca_der_len = 1425,
+static const lws_ss_x509_t _ss_x509_LEX3_isrg_root_x2 = {
+	.vhost_name = "LEX3_isrg_root_x2",
+	.ca_der = _ss_der_LEX3_isrg_root_x2,
+	.ca_der_len = 543,
 };
 static const lws_ss_trust_store_t _ss_ts_le_via_isrg = {
 	.name = "le_via_isrg",
 	.ssx509 = {
-		&_ss_x509_LEX3_isrg_root_x1,
-		&_ss_x509_isrg_root_x1,
+		&_ss_x509_LEX3_isrg_root_x2,
+		&_ss_x509_isrg_root_x2,
 	}
 };
 
@@ -1180,7 +1255,7 @@ static const uint8_t _ss_der_digicert_global_ca_g2[] = {
 static const lws_ss_x509_t _ss_x509_digicert_global_ca_g2 = {
 	.vhost_name = "digicert_global_ca_g2",
 	.ca_der = _ss_der_digicert_global_ca_g2,
-	.ca_der_len = 1167,
+	.ca_der_len = 543,
 };
 static const uint8_t _ss_der_digicert_global_root_g2[] = {
 	/* 0x  0 */ 0x30, 0x82, 0x03, 0x8E, 0x30, 0x82, 0x02, 0x76, 
@@ -1302,7 +1377,7 @@ static const uint8_t _ss_der_digicert_global_root_g2[] = {
 static const lws_ss_x509_t _ss_x509_digicert_global_root_g2 = {
 	.vhost_name = "digicert_global_root_g2",
 	.ca_der = _ss_der_digicert_global_root_g2,
-	.ca_der_len = 914,
+	.ca_der_len = 543,
 };
 static const lws_ss_trust_store_t _ss_ts_api_amazon_com = {
 	.name = "api_amazon_com",

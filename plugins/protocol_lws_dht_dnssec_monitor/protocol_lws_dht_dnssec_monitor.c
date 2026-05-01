@@ -124,7 +124,7 @@ monitor_req_cb(struct lejp_ctx *ctx, char reason)
 	if (reason == LEJPCB_VAL_NUM_INT) {
 		if (ctx->path_match - 1 == LRP_PORT) {
 			a->port = atoi(ctx->buf);
-			lwsl_notice("[INSTRUMENT] monitor_req_cb: Parsed port natively from JSON INT: %d\n", a->port);
+			lwsl_notice("[ACME] monitor_req_cb: Parsed port natively from JSON INT: %d\n", a->port);
 		}
 	}
 
@@ -201,7 +201,7 @@ monitor_req_cb(struct lejp_ctx *ctx, char reason)
 	}
 
 	if (reason == LEJPCB_FAILED) {
-		lwsl_err("[INSTRUMENT] monitor_req_cb: LEJP JSON Parse FAILED at struct offset %d\n", (int)ctx->st[ctx->sp].s);
+		lwsl_err("[ACME] monitor_req_cb: LEJP JSON Parse FAILED at struct offset %d\n", (int)ctx->st[ctx->sp].s);
 	}
 
 	return 0;
@@ -351,7 +351,7 @@ whois_cb(void *opaque, const struct lws_whois_results *res)
 	char buf[2048];
 	char ns_list[1024] = "";
 	
-	lwsl_notice("[INSTRUMENT] %s: callback triggered for %s. res is %s\n", __func__, wqi->domain, res ? "NOT NULL" : "NULL");
+	lwsl_notice("[WHOIS] %s: callback triggered for %s. res is %s\n", __func__, wqi->domain, res ? "NOT NULL" : "NULL");
 
 	char s_dnssec[256] = "", s_ds[1024] = "";
 	if (res) {
@@ -398,9 +398,9 @@ whois_cb(void *opaque, const struct lws_whois_results *res)
 			(unsigned long long)res->updated_date,
 			ns_list, s_dnssec, s_ds, (unsigned long long)lws_now_secs());
 			
-		lwsl_notice("[INSTRUMENT] whois_cb: formatted JSON for %s, size = %d\n", wqi->domain, n);
+		lwsl_notice("[WHOIS] whois_cb: formatted JSON for %s, size = %d\n", wqi->domain, n);
 	} else {
-		lwsl_notice("[INSTRUMENT] whois_cb: res is NULL for %s, skipping UDS publish\n", wqi->domain);
+		lwsl_notice("[WHOIS] whois_cb: res is NULL for %s, skipping UDS publish\n", wqi->domain);
 		n = 0; /* Let it organically fail or retry without caching `{}` */
 	}
 
@@ -418,7 +418,7 @@ whois_cb(void *opaque, const struct lws_whois_results *res)
 
 			if (lws_jwt_sign_compact(wqi->vhd->context, &wqi->vhd->auth_jwk, "HS256",
 						 jwt, &jwt_len, temp, sizeof(temp), "%s", jwt_payload)) {
-				lwsl_err("[INSTRUMENT] %s: failed to generate jwt for whois\n", __func__);
+				lwsl_err("[WHOIS] %s: failed to generate jwt for whois\n", __func__);
 			}
 		}
 
@@ -433,16 +433,16 @@ whois_cb(void *opaque, const struct lws_whois_results *res)
 			lws_strncpy(sun.sun_path, wqi->vhd->uds_path, sizeof(sun.sun_path));
 			if (connect(fd, (struct sockaddr *)&sun, sizeof(sun)) == 0) {
 				if (write(fd, uds_json, (size_t)payload_n) < 0) {
-					lwsl_err("[INSTRUMENT] %s: Failed writing whois payload to UDS, errno: %d\n", __func__, errno);
+					lwsl_err("[WHOIS] %s: Failed writing whois payload to UDS, errno: %d\n", __func__, errno);
 				} else {
-					lwsl_notice("[INSTRUMENT] %s: Tunneled WHOIS for %s to Root over UDS (payload %d bytes)\n", __func__, wqi->domain, payload_n);
+					lwsl_notice("[WHOIS] %s: Tunneled WHOIS for %s to Root over UDS (payload %d bytes)\n", __func__, wqi->domain, payload_n);
 				}
 			} else {
-				lwsl_err("[INSTRUMENT] %s: Failed connecting to root UDS at %s for whois pass-back, errno: %d\n", __func__, sun.sun_path, errno);
+				lwsl_err("[WHOIS] %s: Failed connecting to root UDS at %s for whois pass-back, errno: %d\n", __func__, sun.sun_path, errno);
 			}
 			close(fd);
 		} else {
-			lwsl_err("[INSTRUMENT] %s: socket creation failed! errno: %d\n", __func__, errno);
+			lwsl_err("[WHOIS] %s: socket creation failed! errno: %d\n", __func__, errno);
 		}
 		
 		lws_dll2_remove(&wqi->list);
@@ -869,19 +869,25 @@ scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 			close(cfd);
 		} else {
 			/* No local cert, launch a probe to the port to check validity if ACME is needed */
-			int probe_active = 0;
-			lws_start_foreach_dll(struct lws_dll2 *, d, vhd->active_probes.head) {
-				struct cert_check_info *p = lws_container_of(d, struct cert_check_info, active_list);
-				if (!strcmp(p->fqdn, common_name) && p->is_automated) {
-					probe_active = 1;
-					break;
-				}
-			} lws_end_foreach_dll(d);
-
-			if (probe_active) {
-				lwsl_info("%s: Automated probe already active for %s, skipping duplicate\n", __func__, common_name);
+			char vh_name[256];
+			lws_snprintf(vh_name, sizeof(vh_name), "acme_%s", common_name);
+			if (lws_get_vhost_by_name(vhd->context, vh_name)) {
+				lwsl_info("%s: ACME vhost already active for %s, skipping probe\n", __func__, common_name);
 				needs_acme = 0;
 			} else {
+				int probe_active = 0;
+				lws_start_foreach_dll(struct lws_dll2 *, d, vhd->active_probes.head) {
+					struct cert_check_info *p = lws_container_of(d, struct cert_check_info, active_list);
+					if (!strcmp(p->fqdn, common_name) && p->is_automated) {
+						probe_active = 1;
+						break;
+					}
+				} lws_end_foreach_dll(d);
+	
+				if (probe_active) {
+					lwsl_info("%s: Automated probe already active for %s, skipping duplicate\n", __func__, common_name);
+					needs_acme = 0;
+				} else {
 				struct cert_check_info *cci = malloc(sizeof(*cci));
 				if (cci) {
 					memset(cci, 0, sizeof(*cci));
@@ -908,11 +914,14 @@ scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 
 				needs_acme = 0; /* Wait for probe to complete and trigger ACME if needed */
 				if (!lws_client_connect_via_info(&cinfo)) {
-					lwsl_err("%s: Failed to start automated cert probe for %s\n", __func__, common_name);
+					lwsl_err("%s: Failed to start automated cert probe for %s (port %d, vhost %s, ctx %p)\n",
+						__func__, common_name, cinfo.port,
+						cinfo.vhost ? lws_get_vhost_name(cinfo.vhost) : "none", cinfo.context);
 					lws_dll2_remove(&cci->active_list);
 					free(cci);
 				}
 			}
+		}
 		}
 		}
 
@@ -1262,7 +1271,9 @@ scan_tls_configs_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 			cinfo.method = "RAW";
 
 			if (!lws_client_connect_via_info(&cinfo)) {
-				lwsl_err("%s: Failed to start automated cert probe for %s:%d\n", __func__, subdomain, a.port);
+				lwsl_err("%s: Failed to start automated cert probe for %s:%d (vhost %s, ctx %p)\n",
+					__func__, subdomain, a.port,
+					cinfo.vhost ? lws_get_vhost_name(cinfo.vhost) : "none", cinfo.context);
 				free(cci);
 			}
 		}
@@ -1348,7 +1359,7 @@ parent_dnssec_monitor_timer_cb(struct lws_sorted_usec_list *sul)
 
 	lws_snprintf(scan_path, sizeof(scan_path), "%s/domains", vhd->base_dir);
 	lws_dir(scan_path, vhd, scan_jws_publish_cb);
-	lws_sul_schedule(vhd->context, 0, &vhd->sul_timer, parent_dnssec_monitor_timer_cb, 5 * LWS_US_PER_SEC);
+	lws_sul_schedule(vhd->context, 0, &vhd->sul_timer, parent_dnssec_monitor_timer_cb, 300 * LWS_US_PER_SEC);
 }
 
 static void
@@ -1386,7 +1397,7 @@ root_dnssec_scan_timer_cb(struct lws_sorted_usec_list *sul)
 
 	lws_snprintf(scan_path, sizeof(scan_path), "%s/domains", vhd->base_dir);
 	lws_dir(scan_path, vhd, scan_dir_cb);
-	lws_sul_schedule(vhd->context, 0, &vhd->sul_timer_scan, root_dnssec_scan_timer_cb, 5 * LWS_US_PER_SEC);
+	lws_sul_schedule(vhd->context, 0, &vhd->sul_timer_scan, root_dnssec_scan_timer_cb, 300 * LWS_US_PER_SEC);
 }
 
 
@@ -1470,7 +1481,7 @@ static int cmp_str(const void *a, const void *b) {
 static void
 handle_req_get_domains(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
-    lwsl_notice("[INSTRUMENT] handle_req_get_domains: entering.\n");
+    lwsl_notice("[WS-API] handle_req_get_domains: entering.\n");
 	char *tx = (char *)&root_pss->tx[LWS_PRE];
 	char *tx_end = tx + 65536 - 1;
 	char path[1024];
@@ -1478,10 +1489,10 @@ handle_req_get_domains(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 	struct dirent *de;
 
 	lws_snprintf(path, sizeof(path), "%s/domains", vhd->base_dir);
-    lwsl_notice("[INSTRUMENT] handle_req_get_domains: opening dir '%s'\n", path);
+    lwsl_notice("[WS-API] handle_req_get_domains: opening dir '%s'\n", path);
 	d = opendir(path);
 	if (!d) {
-        lwsl_notice("[INSTRUMENT] handle_req_get_domains: failed to open dir.\n");
+        lwsl_notice("[WS-API] handle_req_get_domains: failed to open dir.\n");
 		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"get_domains\",\"status\":\"error\",\"msg\":\"Cannot open base_dir\"}\n");
 	} else {
 		char **doms = NULL;
@@ -1583,10 +1594,10 @@ handle_req_get_domains(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 		}
 		if (doms) free(doms);
 		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "]}\n");
-        lwsl_notice("[INSTRUMENT] handle_req_get_domains: constructed JSON array.\n");
+        lwsl_notice("[WS-API] handle_req_get_domains: constructed JSON array.\n");
 	}
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
-    lwsl_notice("[INSTRUMENT] handle_req_get_domains: exiting, tx_len=%d.\n", (int)root_pss->tx_len);
+    lwsl_notice("[WS-API] handle_req_get_domains: exiting, tx_len=%d.\n", (int)root_pss->tx_len);
 }
 
 static void
@@ -2062,7 +2073,7 @@ handle_req_update_whois(struct vhd *vhd, struct pss *root_pss, struct monitor_re
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE];
 
-	lwsl_notice("[INSTRUMENT] handle_req_update_whois START for domain: '%s', zone_buf present: %d\n", a->domain, !!a->zone_buf);
+	lwsl_notice("[WHOIS] handle_req_update_whois START for domain: '%s', zone_buf present: %d\n", a->domain, !!a->zone_buf);
 
 	if (a->domain[0] && a->zone_buf) {
 		char path[1024];
@@ -2071,22 +2082,22 @@ handle_req_update_whois(struct vhd *vhd, struct pss *root_pss, struct monitor_re
 		if (fd >= 0) {
 			char decoded[8192];
 			int n = lws_b64_decode_string(a->zone_buf, decoded, sizeof(decoded));
-			lwsl_notice("[INSTRUMENT] lws_b64_decode_string returned %d for %s\n", n, a->domain);
+			lwsl_notice("[WHOIS] lws_b64_decode_string returned %d for %s\n", n, a->domain);
 			if (n > 0) {
 				if (write(fd, decoded, (size_t)n) < 0) {
-					lwsl_err("[INSTRUMENT] %s: Failed writing to %s (errno: %d)\n", __func__, path, errno);
+					lwsl_err("[WHOIS] %s: Failed writing to %s (errno: %d)\n", __func__, path, errno);
 				} else {
-					lwsl_info("[INSTRUMENT] %s: Successfully synced WHOIS via UDS IPC for %s\n", __func__, a->domain);
+					lwsl_info("[WHOIS] %s: Successfully synced WHOIS via UDS IPC for %s\n", __func__, a->domain);
 				}
 			} else {
-				lwsl_err("[INSTRUMENT] %s: Failed B64 decode on whois zone payload size=%d\n", __func__, (int)a->zone_len);
+				lwsl_err("[WHOIS] %s: Failed B64 decode on whois zone payload size=%d\n", __func__, (int)a->zone_len);
 			}
 			close(fd);
 		} else {
-			lwsl_err("[INSTRUMENT] %s: Failed to open %s for writing! errno: %d\n", __func__, path, errno);
+			lwsl_err("[WHOIS] %s: Failed to open %s for writing! errno: %d\n", __func__, path, errno);
 		}
 	} else {
-		lwsl_err("[INSTRUMENT] %s: Failed prerequisites. domain: '%s', zone_buf present: %d\n", __func__, a->domain, !!a->zone_buf);
+		lwsl_err("[WHOIS] %s: Failed prerequisites. domain: '%s', zone_buf present: %d\n", __func__, a->domain, !!a->zone_buf);
 	}
 	
 	/* Empty response is fine, IPC fire-and-forget */
@@ -2268,21 +2279,21 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 	int m = lejp_parse(&jctx, (uint8_t *)in, (int)len);
 	lejp_destruct(&jctx);
 
-	lwsl_notice("[INSTRUMENT] handle_monitor_request: executed lejp_parse. len: %d, rc: %d. String: '%.*s'\n", (int)len, m, (int)len, in);
+	lwsl_notice("[WS-API] handle_monitor_request: executed lejp_parse. len: %d, rc: %d. String: '%.*s'\n", (int)len, m, (int)len, in);
 
 	if (m < 0 && m != LEJP_REJECT_UNKNOWN) {
-		lwsl_notice("[INSTRUMENT] handle_monitor_request: JSON parser failed! Error %d\n", m);
+		lwsl_notice("[WS-API] handle_monitor_request: JSON parser failed! Error %d\n", m);
 		root_pss->tx_len = (size_t)lws_snprintf(tx, 65536, "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"JSON parse failed: %d\"}\n", a.req[0] ? a.req : "unknown", m);
 		goto done;
 	}
 
 	if (!a.req[0]) {
-		lwsl_notice("[INSTRUMENT] handle_monitor_request: Missing 'req' parameter in JSON payload!\n");
+		lwsl_notice("[WS-API] handle_monitor_request: Missing 'req' parameter in JSON payload!\n");
 		root_pss->tx_len = (size_t)lws_snprintf(tx, 65536, "{\"status\":\"error\",\"msg\":\"Missing req\"}\n");
 		goto done;
 	}
 
-	lwsl_notice("[INSTRUMENT] handle_monitor_request: Routed valid requested endpoint: '%s'\n", a.req);
+	lwsl_notice("[WS-API] handle_monitor_request: Routed valid requested endpoint: '%s'\n", a.req);
 
 
 
@@ -2293,29 +2304,29 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 		unsigned long exp_time;
 
 		if (!a.jwt[0]) {
-			lwsl_notice("[INSTRUMENT] Missing JWT preamble token\n");
+			lwsl_notice("[WS-API] Missing JWT preamble token\n");
 			root_pss->tx_len = (size_t)lws_snprintf(tx, 65536, "{\"status\":\"error\",\"msg\":\"Authentication Failed\"}\n");
 			goto done;
 		}
 
 		if (lws_jwt_signed_validate(vhd->context, &vhd->auth_jwk, "HS256", a.jwt, strlen(a.jwt), jwt_temp, sizeof(jwt_temp), jwt_out, &jwt_out_len)) {
-			lwsl_notice("[INSTRUMENT] Invalid/Forged JWT preamble token\n");
+			lwsl_notice("[WS-API] Invalid/Forged JWT preamble token\n");
 			root_pss->tx_len = (size_t)lws_snprintf(tx, 65536, "{\"status\":\"error\",\"msg\":\"Authentication Failed\"}\n");
 			goto done;
 		}
 
 		if (lws_jwt_token_sanity(jwt_out, jwt_out_len, "acme-ipc", "dnssec-monitor", NULL, NULL, 0, &exp_time)) {
-			lwsl_notice("[INSTRUMENT] Expired/Invalid JWT claims\n");
+			lwsl_notice("[WS-API] Expired/Invalid JWT claims\n");
 			root_pss->tx_len = (size_t)lws_snprintf(tx, 65536, "{\"status\":\"error\",\"msg\":\"Authentication Failed\"}\n");
 			goto done;
 		}
 	} else {
-		lwsl_notice("[INSTRUMENT] Warning: UDS monitor secret not bootstrapped, accepting local IPC request without JWT\n");
+		lwsl_notice("[WS-API] Warning: UDS monitor secret not bootstrapped, accepting local IPC request without JWT\n");
 	}
 
 	/* Prevent path traversal attacks */
 	if (strchr(a.domain, '/') || strstr(a.domain, "..") || strchr(a.subdomain, '/') || strstr(a.subdomain, "..")) {
-		lwsl_notice("[INSTRUMENT] handle_monitor_request: Path traversal parameters detected\n");
+		lwsl_notice("[WS-API] handle_monitor_request: Path traversal parameters detected\n");
 		root_pss->tx_len = (size_t)lws_snprintf(tx, 65536, "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Invalid chars in domain\"}\n", a.req);
 		goto done;
 	}
@@ -2324,18 +2335,18 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 		if (!strcmp(a.req, req_map[i].name)) {
 			/* Enforce domain param if required by the handler */
 			if (i > 0 && !a.domain[0] && strcmp(req_map[i].name, "status") && strcmp(req_map[i].name, "get_domains") && strcmp(req_map[i].name, "get_ipv6_suffix") && strcmp(req_map[i].name, "set_ipv6_suffix") && strcmp(req_map[i].name, "get_acme_config") && strcmp(req_map[i].name, "set_acme_config") && strcmp(req_map[i].name, "get_acme_log")) {
-				lwsl_notice("[INSTRUMENT] handle_monitor_request: Missing required 'domain' param for %s\n", a.req);
+				lwsl_notice("[WS-API] handle_monitor_request: Missing required 'domain' param for %s\n", a.req);
 				root_pss->tx_len = (size_t)lws_snprintf(tx, 65536, "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Missing arguments\"}\n", a.req);
 				goto done;
 			}
-			lwsl_notice("[INSTRUMENT] handle_monitor_request: Calling map callback...\n");
+			lwsl_notice("[WS-API] handle_monitor_request: Calling map callback...\n");
 			req_map[i].cb(vhd, root_pss, &a);
-			lwsl_notice("[INSTRUMENT] handle_monitor_request: Callback generated response size %d\n", (int)root_pss->tx_len);
+			lwsl_notice("[WS-API] handle_monitor_request: Callback generated response size %d\n", (int)root_pss->tx_len);
 			goto done;
 		}
 	}
 
-	lwsl_notice("[INSTRUMENT] handle_monitor_request: Unknown request parameter '%s'\n", a.req);
+	lwsl_notice("[WS-API] handle_monitor_request: Unknown request parameter '%s'\n", a.req);
 	root_pss->tx_len = (size_t)lws_snprintf(tx, 65536, "{\"req\":\"unknown\",\"status\":\"error\",\"msg\":\"Unknown req %s\"}\n", a.req);
 
 done:
@@ -2452,7 +2463,7 @@ extract_and_queue_cert_result(struct lws *wsi, struct vhd *vhd, struct cert_chec
 	if (cci->is_automated) {
 		int needs_acme = 0;
 		if (err) {
-			lwsl_notice("%s: AUTOMATED PROBE %s:%d FAILED: %s (Triggering ACME)\n", __func__, cci->fqdn, cci->port, msg);
+			lwsl_notice("%s: [TLS-PROBE] %s:%d FAILED: %s (Triggering ACME)\n", __func__, cci->fqdn, cci->port, msg);
 			needs_acme = 1;
 		} else {
 			union lws_tls_cert_info_results ci_from;
@@ -2462,13 +2473,13 @@ extract_and_queue_cert_result(struct lws *wsi, struct vhd *vhd, struct cert_chec
 				time_t total = ci.time - ci_from.time;
 				time_t remaining = ci.time - now;
 				if (total > 0 && remaining < (total / 5)) {
-					lwsl_notice("%s: AUTOMATED PROBE %s:%d SUCCESS: Cert served expires in %s (Triggering ACME - <20%% validity left)\n", __func__, cci->fqdn, cci->port, msg);
+					lwsl_notice("%s: [TLS-PROBE] %s:%d SUCCESS: Cert served expires in %s (Triggering ACME - <20%% validity left)\n", __func__, cci->fqdn, cci->port, msg);
 					needs_acme = 1;
 				} else if (!has_local_cert && !vhd->acme_production) {
-					lwsl_notice("%s: AUTOMATED PROBE %s:%d SUCCESS: Cert served expires in %s (Triggering ACME - no matching local staging cert)\n", __func__, cci->fqdn, cci->port, msg);
+					lwsl_notice("%s: [TLS-PROBE] %s:%d SUCCESS: Cert served expires in %s (Triggering ACME - no matching local staging cert)\n", __func__, cci->fqdn, cci->port, msg);
 					needs_acme = 1;
 				} else {
-					lwsl_notice("%s: AUTOMATED PROBE %s:%d SUCCESS: Cert served expires in %s (ACME not needed)\n", __func__, cci->fqdn, cci->port, msg);
+					lwsl_notice("%s: [TLS-PROBE] %s:%d SUCCESS: Cert served expires in %s (ACME not needed)\n", __func__, cci->fqdn, cci->port, msg);
 				}
 			}
 		}
@@ -2740,7 +2751,7 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 							if (!vhd->dn)
 								lwsl_err("%s: Failed to attach lws_dir_notify to %s\n", __func__, scan_path);
 #endif
-							lws_sul_schedule(cx, 0, &vhd->sul_timer_scan, root_dnssec_scan_timer_cb, 5 * LWS_US_PER_SEC);
+							lws_sul_schedule(cx, 0, &vhd->sul_timer_scan, root_dnssec_scan_timer_cb, 300 * LWS_US_PER_SEC);
 						} else {
 							lwsl_err("%s: Skipped scheduling timer on %s because vhd->ops is NULL!\n", __func__, lws_get_vhost_name(vhost));
 							/* It will organically retry when the next vhost runs PROTOCOL_INIT */
@@ -3126,7 +3137,7 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 							pss->tx_len += out_len;
 							if (pss->cwsi)
 								lws_callback_on_writable(pss->cwsi); /* Write proxy -> root */
-							lwsl_notice("[INSTRUMENT] LWS_CALLBACK_RECEIVE: Appended proxy->root payload size %d with JWT, total %d\n", (int)out_len, (int)pss->tx_len);
+							lwsl_notice("[UDS-IPC] Appended proxy->root payload size %d with JWT, total %d\n", (int)out_len, (int)pss->tx_len);
 						}
 					}
 				} else {
@@ -3141,11 +3152,11 @@ fallback:
 					pss->tx_len += 1;
 					if (pss->cwsi)
 						lws_callback_on_writable(pss->cwsi); /* Write proxy -> root */
-					lwsl_notice("[INSTRUMENT] LWS_CALLBACK_RECEIVE: Appended proxy->root payload size %d (no JWT), total %d\n", (int)len + 1, (int)pss->tx_len);
+					lwsl_notice("[UDS-IPC] Appended proxy->root payload size %d (no JWT), total %d\n", (int)len + 1, (int)pss->tx_len);
 				}
 			}
 		} else {
-			lwsl_notice("[INSTRUMENT] LWS_CALLBACK_RECEIVE: ABORTED! root_active=%d\n", vhd?vhd->root_process_active:0);
+			lwsl_notice("[UDS-IPC] ABORTED! root_active=%d\n", vhd?vhd->root_process_active:0);
 		}
 		break;
 
@@ -3181,7 +3192,7 @@ fallback:
 				return 0;
 			}
 			if (pss->rx_len) {
-				lwsl_notice("[INSTRUMENT] LWS_CALLBACK_SERVER_WRITEABLE: Translating %d bytes to final browser!\n", (int)pss->rx_len);
+				lwsl_notice("[WS-API] LWS_CALLBACK_SERVER_WRITEABLE: Translating %d bytes to final browser!\n", (int)pss->rx_len);
 				if (lws_write(wsi, &pss->rx[LWS_PRE], pss->rx_len, LWS_WRITE_TEXT) < 0) {
 					lwsl_err("%s: Failed writing to WS UI\n", __func__);
 					return -1;
@@ -3195,7 +3206,7 @@ fallback:
 		{
 			struct cert_check_info *cci = (struct cert_check_info *)lws_get_opaque_user_data(wsi);
 			if (cci && cci->magic == CERT_CHECK_MAGIC && vhd) {
-				lwsl_notice("[INSTRUMENT] Probe %s RAW_CONNECTED successfully! (STARTTLS state: %d)\n", cci->fqdn, cci->starttls_state);
+				lwsl_notice("[TLS-PROBE] Probe %s RAW_CONNECTED successfully! (STARTTLS state: %d)\n", cci->fqdn, cci->starttls_state);
 				if (cci->starttls_state == 0 || cci->starttls_state == 4) {
 					extract_and_queue_cert_result(wsi, vhd, cci, protocol);
 					cci->magic = 0;
@@ -3215,7 +3226,7 @@ fallback:
 			void *opaque = lws_get_opaque_user_data(wsi);
 			struct cert_check_info *cci = (struct cert_check_info *)opaque;
 			if (cci && cci->magic == CERT_CHECK_MAGIC && vhd) {
-				lwsl_notice("[INSTRUMENT] Probe %s CLIENT_CONNECTION_ERROR: %s\n", cci->fqdn, in ? (char *)in : "unknown");
+				lwsl_notice("[TLS-PROBE] Probe %s CLIENT_CONNECTION_ERROR: %s\n", cci->fqdn, in ? (char *)in : "unknown");
 				struct cert_check_result *cr = malloc(sizeof(*cr));
 				if (cr) {
 					memset(cr, 0, sizeof(*cr));
@@ -3269,7 +3280,7 @@ fallback:
 			struct cert_check_info *cci = (struct cert_check_info *)opaque;
 
 			if (cci && cci->magic == CERT_CHECK_MAGIC) {
-				lwsl_notice("[INSTRUMENT] Probe %s RAW_RX: '%.*s' (state %d, SSL %d)\n", cci->fqdn, (int)len, (const char *)in, cci->starttls_state, lws_is_ssl(wsi));
+				lwsl_notice("[TLS-PROBE] Probe %s RAW_RX: '%.*s' (state %d, SSL %d)\n", cci->fqdn, (int)len, (const char *)in, cci->starttls_state, lws_is_ssl(wsi));
 
 				if (cci->starttls_state == 4) {
 					/* Handshake might be in progress or done. 
@@ -3308,13 +3319,13 @@ fallback:
 					return 0;
 				}
 				if (cci->starttls_state == 3 && !strncmp((const char *)in, "220", 3)) {
-					lwsl_notice("[INSTRUMENT] Probe %s STARTTLS accepted, upgrading to TLS\n", cci->fqdn);
+					lwsl_notice("[TLS-PROBE] Probe %s STARTTLS accepted, upgrading to TLS\n", cci->fqdn);
 					cci->starttls_state = 4;
 					if (lws_tls_client_upgrade(wsi, LCCSCF_USE_SSL |
 								LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK |
 								LCCSCF_ALLOW_SELFSIGNED |
 								LCCSCF_ALLOW_EXPIRED) < 0) {
-						lwsl_notice("[INSTRUMENT] Probe %s TLS upgrade failed\n", cci->fqdn);
+						lwsl_notice("[TLS-PROBE] Probe %s TLS upgrade failed\n", cci->fqdn);
 						return -1;
 					}
 					lws_callback_on_writable(wsi);
@@ -3324,7 +3335,7 @@ fallback:
 			}
 
 			struct pss *wpss = (struct pss *)opaque;
-			lwsl_notice("[INSTRUMENT] LWS_CALLBACK_RAW_RX: UDS channel receiving %d bytes. Is Proxy? %d\n", (int)len, wpss != NULL);
+			lwsl_notice("[UDS-IPC] LWS_CALLBACK_RAW_RX: UDS channel receiving %d bytes. Is Proxy? %d\n", (int)len, wpss != NULL);
 
 			if (wpss) {
 				/* 1: Proxy Unprivileged Client: root server just replied. */
@@ -3332,12 +3343,12 @@ fallback:
 				memcpy(&wpss->rx[LWS_PRE], in, len);
 				wpss->rx_len = len;
 				lws_callback_on_writable(wpss->wsi); /* trigger WS write */
-				lwsl_notice("[INSTRUMENT] LWS_CALLBACK_RAW_RX (PROXY): Saved response length %d and queued browser wsi ptr %p for writing\n", (int)len, wpss->wsi);
+				lwsl_notice("[UDS-IPC] LWS_CALLBACK_RAW_RX (PROXY): Saved response length %d and queued browser wsi ptr %p for writing\n", (int)len, wpss->wsi);
 			} else {
 				/* 2: Root Server: UI proxy just gave us a request. */
 				if (len > 65536 - 1) return -1;
 				
-				lwsl_notice("[ROOT-DAEMON] [INSTRUMENT] LWS_CALLBACK_RAW_RX: UDS Channel rx %d bytes\n", (int)len);
+				lwsl_notice("[UDS-IPC] LWS_CALLBACK_RAW_RX: UDS Channel rx %d bytes\n", (int)len);
 
 				memcpy(&vhd->rx[LWS_PRE], in, len);
 				vhd->rx[LWS_PRE + len] = '\0';
@@ -3357,7 +3368,7 @@ fallback:
 					if (chunk_len > 0) {
 						char save = *nl;
 						*nl = '\0';
-						lwsl_notice("[ROOT-DAEMON] [INSTRUMENT] LWS_CALLBACK_RAW_RX (ROOT): Sending %d bytes to monitor request router\n", (int)chunk_len);
+						lwsl_notice("[UDS-IPC] LWS_CALLBACK_RAW_RX (ROOT): Sending %d bytes to monitor request router\n", (int)chunk_len);
 						handle_monitor_request(vhd, root_pss, current, chunk_len);
 						if (save != '\0') *nl = save;
 					}
@@ -3366,7 +3377,7 @@ fallback:
 
 				/* Tell server socket to reply */
 				if (root_pss->tx_len) {
-					lwsl_notice("[ROOT-DAEMON] [INSTRUMENT] LWS_CALLBACK_RAW_RX (ROOT): Triggering WS write\n");
+					lwsl_notice("[UDS-IPC] LWS_CALLBACK_RAW_RX (ROOT): Triggering WS write\n");
 					lws_callback_on_writable(wsi);
 				}
 			}
@@ -3380,7 +3391,7 @@ fallback:
 
 			if (cci && cci->magic == CERT_CHECK_MAGIC) {
 				if (cci->starttls_state == 4) {
-					lwsl_notice("[INSTRUMENT] Probe %s STARTTLS handshake finished, extracting cert\n", cci->fqdn);
+					lwsl_notice("[TLS-PROBE] Probe %s STARTTLS handshake finished, extracting cert\n", cci->fqdn);
 					if (vhd)
 						extract_and_queue_cert_result(wsi, vhd, cci, protocol);
 					cci->magic = 0;
@@ -3396,7 +3407,7 @@ fallback:
 					n = lws_snprintf(buf, sizeof(buf), "STARTTLS\r\n");
 				}
 				if (n > 0) {
-					lwsl_notice("[INSTRUMENT] Probe %s sending: %.*s", cci->fqdn, n, buf);
+					lwsl_notice("[TLS-PROBE] Probe %s sending: %.*s", cci->fqdn, n, buf);
 					if (lws_write(wsi, (unsigned char *)buf, (size_t)n, LWS_WRITE_RAW) < 0) return -1;
 				}
 				return 0;
@@ -3407,7 +3418,7 @@ fallback:
 			if (wpss) {
 				/* 1: Proxy Client sending request -> Root Server */
 				if (wpss->tx_len) {
-					lwsl_notice("[INSTRUMENT] LWS_CALLBACK_RAW_WRITEABLE (PROXY): Driving %d bytes out over UDS IPC into Daemon\n", (int)wpss->tx_len);
+					lwsl_notice("[UDS-IPC] LWS_CALLBACK_RAW_WRITEABLE (PROXY): Driving %d bytes out over UDS IPC into Daemon\n", (int)wpss->tx_len);
 					if (lws_write(wsi, &wpss->tx[LWS_PRE], wpss->tx_len, LWS_WRITE_RAW) < 0) return -1;
 					wpss->tx_len = 0;
 				}
@@ -3415,7 +3426,7 @@ fallback:
 				/* 2: Root Server sending response -> Proxy Client */
 				struct pss *root_pss = (struct pss *)user;
 				if (root_pss && root_pss->tx_len) {
-					lwsl_notice("[INSTRUMENT] LWS_CALLBACK_RAW_WRITEABLE (ROOT): Dispatching %d byte JSON response natively to Proxy UDS caller\n", (int)root_pss->tx_len);
+					lwsl_notice("[UDS-IPC] LWS_CALLBACK_RAW_WRITEABLE (ROOT): Dispatching %d byte JSON response natively to Proxy UDS caller\n", (int)root_pss->tx_len);
 					if (lws_write(wsi, &root_pss->tx[LWS_PRE], root_pss->tx_len, LWS_WRITE_RAW) < 0) return -1;
 					root_pss->tx_len = 0;
 				}
@@ -3457,7 +3468,7 @@ callback_monitor_stdwsi(struct lws *wsi, enum lws_callback_reasons reason,
 				while (b && *b) {
 					char *nl = strchr(b, '\n');
 					if (nl) *nl++ = '\0';
-					lwsl_notice("[ROOT-DAEMON] %s\n", b);
+					lwsl_notice("[SYSTEM-LOG] %s\n", b);
 					b = nl;
 				}
                 return 0;
