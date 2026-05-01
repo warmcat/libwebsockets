@@ -694,6 +694,7 @@ struct acme_pvo_alloc {
 	struct lws_protocol_vhost_options pvo2;
 	struct lws_protocol_vhost_options pvo3;
 	struct lws_protocol_vhost_options pvo4;
+	struct lws_protocol_vhost_options pvo5;
 	char root_domain[256];
 	char common_name[256];
 };
@@ -998,6 +999,10 @@ scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 
 				pa->pvo4.name = "directory-url";
 				pa->pvo4.value = vhd->acme_production ? "https://acme-v02.api.letsencrypt.org/directory" : "https://acme-staging-v02.api.letsencrypt.org/directory";
+				pa->pvo4.next = &pa->pvo5;
+
+				pa->pvo5.name = "uds-path";
+				pa->pvo5.value = vhd->uds_path;
 
 				info.finalize = acme_vhost_finalize;
 				info.finalize_arg = pa;
@@ -1232,6 +1237,10 @@ scan_tls_configs_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 
 			pa->pvo4.name = "directory-url";
 			pa->pvo4.value = vhd->acme_production ? "https://acme-v02.api.letsencrypt.org/directory" : "https://acme-staging-v02.api.letsencrypt.org/directory";
+			pa->pvo4.next = &pa->pvo5;
+
+			pa->pvo5.name = "uds-path";
+			pa->pvo5.value = vhd->uds_path;
 
 			info.finalize = acme_vhost_finalize;
 			info.finalize_arg = pa;
@@ -2532,6 +2541,10 @@ extract_and_queue_cert_result(struct lws *wsi, struct vhd *vhd, struct cert_chec
 
 				pa->pvo4.name = "directory-url";
 				pa->pvo4.value = vhd->acme_production ? "https://acme-v02.api.letsencrypt.org/directory" : "https://acme-staging-v02.api.letsencrypt.org/directory";
+				pa->pvo4.next = &pa->pvo5;
+
+				pa->pvo5.name = "uds-path";
+				pa->pvo5.value = vhd->uds_path;
 
 				info.finalize = acme_vhost_finalize;
 				info.finalize_arg = pa;
