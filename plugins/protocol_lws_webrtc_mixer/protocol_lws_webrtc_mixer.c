@@ -620,15 +620,11 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 
 				if (is_capabilities) {
 					/* Store the raw JSON blob of capabilities for this participant */
-					lwsl_warn("%s: Processing capabilities for '%s'. Payload len %zu:\n",
-							__func__, p->name, len);
-					lwsl_hexdump_warn(in, len);
-
 					v = lws_json_simple_find((const char *)in, len, "\"controls\":", &al);
 					if (v) {
 						size_t kl;
 						const char *kind = lws_json_simple_find((const char *)in, len, "\"kind\":", &kl);
-						int is_audio = (kind && !strncmp(kind, "\"audio\"", 7));
+						int is_audio = (kind && (strstr(kind, "audio") != NULL));
 						char **target_cap = is_audio ? &p->capabilities_audio : &p->capabilities_video;
 
 						if (*target_cap) free(*target_cap);
@@ -637,41 +633,35 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 						if (*target_cap) {
 							memcpy(*target_cap, in, len);
 							(*target_cap)[len] = '\0';
-							lwsl_notice("%s: Stored %s capabilities for '%s' (%zu bytes)\n", __func__, is_audio ? "audio" : "video", p->name, len);
-							lwsl_info("%s: Payload: %s\n", __func__, *target_cap);
+							lwsl_notice("[INSTRUMENT] %s: Stored %s capabilities for '%s' (%zu bytes): %s\n", __func__, is_audio ? "audio" : "video", p->name, len, *target_cap);
 
 							/* Notify all clients about this update immediately */
 							broadcast_client_list(p->room, NULL);
 
 							{
 								/* Construct notification: {"type":"remote_capabilities","target":"<NAME>","payload":<RAW_JSON>} */
-								size_t msg_len = len + 128 + (strlen(p->name) * 6);
+								size_t msg_len = len + 256 + (strlen(p->name) * 6);
 								char *msg = malloc(msg_len);
 								if (msg) {
 									char esc_name[384];
 									lws_json_purify(esc_name, p->name, sizeof(esc_name), NULL);
 
-									int n = lws_snprintf(msg, msg_len,
+									lws_snprintf(msg, msg_len,
 											"{\"type\":\"remote_capabilities\",\"target\":\"%s\",\"payload\":%s}",
 											esc_name, *target_cap);
 
-									if (n > 0 && (size_t)n < msg_len) {
-										lwsl_info("%s: Broadcasting capabilities update for '%s' to room (len %d)\n", __func__, p->name, n);
-										/* Broadcast to everyone (including self? no, others) */
-										lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&p->room->participants)) {
-											struct participant *other = lws_container_of(d, struct participant, list);
-											if (other->pss)
-												we_ops->send_text(other->pss, msg, strlen(msg));
-										} lws_end_foreach_dll(d);
-									} else {
-										lwsl_err("%s: Truncation/Error broadcasting capabilities (n=%d, max=%zu)\n", __func__, n, msg_len);
-									}
+									lwsl_notice("[INSTRUMENT] %s: Broadcasting capabilities update for '%s' to room\n", __func__, p->name);
+									/* Broadcast to everyone else */
+									lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&p->room->participants)) {
+										struct participant *other = lws_container_of(d, struct participant, list);
+										if (other != p && other->pss)
+											we_ops->send_text(other->pss, msg, strlen(msg));
+									} lws_end_foreach_dll(d);
 
 									free(msg);
 								}
 							}
 						}
-
 					} else {
 						lwsl_err("%s: 'controls' key not found in capabilities message\n", __func__);
 					}
@@ -732,83 +722,59 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 					}
 
 					/* Handle video_mute: {"type":"video_mute","muted":true/false} */
-					if (al >= 10 && !strncmp(v, "\"video_mute\"", 12)) {
+					if (al >= 10 && (strstr(v, "video_mute") != NULL)) {
 						const char *m = lws_json_simple_find((const char *)in, len, "\"muted\":", &al);
 						if (m && p->session) {
-							p->session->video_muted = !strncmp(m, "true", 4);
-							lwsl_notice("%s: Participant '%s' video_muted=%d\n", __func__, p->name, p->session->video_muted);
+							p->session->video_muted = (strstr(m, "true") != NULL);
+							lwsl_notice("[INSTRUMENT] %s: Participant '%s' video_muted=%d\n", __func__, p->name, p->session->video_muted);
 							broadcast_client_list(p->room, NULL);
 						}
 					}
 
 					/* Handle request_caps: {"type":"request_caps","target":"<name>"} */
-					if (al >= 12 && !strncmp(v, "\"request_caps\"", 12)) {
+					if (al >= 12 && (strstr(v, "request_caps") != NULL)) {
 						const char *target = lws_json_simple_find((const char *)in, len, "\"target\":", &al);
 						if (target) {
 							char target_name[64];
 							size_t nl = al;
 							if (*target == '\"') { target++; nl -= 2; }
-							if (nl >= sizeof(target_name)) nl = sizeof(target_name) - 1;
-							memcpy(target_name, target, nl);
-							target_name[nl] = '\0';
+							lws_strnncpy(target_name, target, sizeof(target_name), nl);
 
-							lwsl_notice("%s: request_caps for '%s'\n", __func__, target_name);
+							lwsl_notice("[INSTRUMENT] %s: request_caps for '%s'\n", __func__, target_name);
 
 							/* Find target participant */
-							struct participant *tp = NULL;
 							lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&p->room->participants)) {
-								struct participant *other = lws_container_of(d, struct participant, list);
-								if (!strcmp(other->name, target_name)) {
-									tp = other;
+								struct participant *tp = lws_container_of(d, struct participant, list);
+								if (!strcmp(tp->name, target_name)) {
+									if (tp->capabilities_video) {
+										size_t msg_len = strlen(tp->capabilities_video) + 256 + (strlen(tp->name) * 6);
+										char *resp = malloc(msg_len);
+										if (resp) {
+											char esc_name[384];
+											lws_json_purify(esc_name, tp->name, sizeof(esc_name), NULL);
+											lws_snprintf(resp, msg_len,
+													"{\"type\":\"remote_capabilities\",\"target\":\"%s\",\"payload\":%s}",
+													esc_name, tp->capabilities_video);
+											we_ops->send_text(p->pss, resp, strlen(resp));
+											free(resp);
+										}
+									}
+									if (tp->capabilities_audio) {
+										size_t msg_len = strlen(tp->capabilities_audio) + 256 + (strlen(tp->name) * 6);
+										char *resp = malloc(msg_len);
+										if (resp) {
+											char esc_name[384];
+											lws_json_purify(esc_name, tp->name, sizeof(esc_name), NULL);
+											lws_snprintf(resp, msg_len,
+													"{\"type\":\"remote_capabilities\",\"target\":\"%s\",\"payload\":%s}",
+													esc_name, tp->capabilities_audio);
+											we_ops->send_text(p->pss, resp, strlen(resp));
+											free(resp);
+										}
+									}
 									break;
 								}
 							} lws_end_foreach_dll(d);
-
-							if (tp) {
-								int cached = 0;
-								/* Reply with cached capabilities */
-								if (tp->capabilities_video) {
-									size_t msg_len = strlen(tp->capabilities_video) + 128 + (strlen(tp->name) * 6);
-									char *msg = malloc(msg_len);
-									if (msg) {
-										char esc_name[384];
-										lws_json_purify(esc_name, tp->name, sizeof(esc_name), NULL);
-										int n = lws_snprintf(msg, msg_len,
-												"{\"type\":\"remote_capabilities\",\"target\":\"%s\",\"payload\":%s}",
-												esc_name, tp->capabilities_video);
-										we_ops->send_text(p->pss, msg, (size_t)n);
-										free(msg);
-										lwsl_notice("%s: Sent cached video caps for '%s' to '%s'\n", __func__, tp->name, p->name);
-									}
-									cached = 1;
-								}
-								if (tp->capabilities_audio) {
-									size_t msg_len = strlen(tp->capabilities_audio) + 128 + (strlen(tp->name) * 6);
-									char *msg = malloc(msg_len);
-									if (msg) {
-										char esc_name[384];
-										lws_json_purify(esc_name, tp->name, sizeof(esc_name), NULL);
-										int n = lws_snprintf(msg, msg_len,
-												"{\"type\":\"remote_capabilities\",\"target\":\"%s\",\"payload\":%s}",
-												esc_name, tp->capabilities_audio);
-										we_ops->send_text(p->pss, msg, (size_t)n);
-										free(msg);
-										lwsl_notice("%s: Sent cached audio caps for '%s' to '%s'\n", __func__, tp->name, p->name);
-									}
-									cached = 1;
-								}
-
-								if (!cached) {
-									/* Forward request to target */
-									lwsl_notice("%s: No cached caps for '%s', forwarding request...\n", __func__, tp->name);
-									if (tp->pss) {
-										const char *fwd = "{\"type\":\"request_caps\"}";
-										we_ops->send_text(tp->pss, fwd, strlen(fwd));
-									}
-								}
-							} else {
-								lwsl_warn("%s: Target '%s' not found for request_caps\n", __func__, target_name);
-							}
 						}
 					}
 

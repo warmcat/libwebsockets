@@ -133,12 +133,12 @@ JSON.
 		}
 	}],
 	"certs": [{
-		"isrg_root_x1": "MIIFazCCA1OgAw...AnX5iItreGCc="
+		"isrg_root_x2": "MIIFazCCA1OgAw...AnX5iItreGCc="
 	}, {
-		"LEX3_isrg_root_x1": "MIIFjTCCA3WgAwIB...WEsikxqEt"
+		"LEX3_isrg_root_x2": "MIIFjTCCA3WgAwIB...WEsikxqEt"
 	}],
 	"trust_stores": [{
-		"le_via_isrg": ["isrg_root_x1", "LEX3_isrg_root_x1"]
+		"le_via_isrg": ["isrg_root_x2", "LEX3_isrg_root_x2"]
 	}],
 	"s": [{
 		"mintest": {
