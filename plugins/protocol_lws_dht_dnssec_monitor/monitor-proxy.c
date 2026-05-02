@@ -26,15 +26,31 @@ scan_whois_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	return 0;
 }
 
-void
-dir_notify_cb(const char *path, int is_file, void *user)
+static void
+rescan_debounce_cb(lws_sorted_usec_list_t *sul)
 {
-	struct vhd *vhd = (struct vhd *)user;
-	lwsl_notice("%s: Directory change at %s (is_file: %d)\n", __func__, path, is_file);
+	struct vhd *vhd = lws_container_of(sul, struct vhd, sul_debounce_scan);
+	char scan_path[1024];
+
+	lws_snprintf(scan_path, sizeof(scan_path), "%s/domains", vhd->base_dir);
+	lwsl_notice("%s: Debounced rescan of %s starting\n", __func__, scan_path);
+
+	lws_dir(scan_path, vhd, scan_dir_cb);
+
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->ui_clients.head) {
 		struct pss *pss = lws_container_of(d, struct pss, list);
 		pss->send_ext_ips = 1; lws_callback_on_writable(pss->wsi);
 	} lws_end_foreach_dll_safe(d, d1);
+}
+
+void
+dir_notify_cb(const char *path, int is_file, void *user)
+{
+	struct vhd *vhd = (struct vhd *)user;
+
+	lwsl_notice("%s: Directory change at %s (is_file: %d), scheduling debounced rescan\n", __func__, path, is_file);
+
+	lws_sul_schedule(vhd->context, 0, &vhd->sul_debounce_scan, rescan_debounce_cb, 500 * LWS_US_PER_MS);
 }
 
 signed char

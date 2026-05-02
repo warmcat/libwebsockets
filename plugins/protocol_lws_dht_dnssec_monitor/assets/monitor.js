@@ -405,11 +405,37 @@ function handleResponse(data) {
                 document.getElementById('acme-country').value = data.config.country || '';
                 document.getElementById('acme-state').value = data.config.state || '';
                 document.getElementById('acme-locality').value = data.config.locality || '';
+                if (document.getElementById('acme-profile')) {
+                    document.getElementById('acme-profile').value = data.config.profile || '';
+                    window.currentAcmeProfile = data.config.profile || '';
+                }
             }
+            sendReq({ req: 'get_acme_profiles' });
             sendReq({ req: 'get_acme_log' });
+            break;
+        case 'get_acme_profiles':
+            if (data.profiles && typeof data.profiles === 'object') {
+                let select = document.getElementById('acme-profile');
+                if (select) {
+                    let currentValue = select.value || window.currentAcmeProfile || '';
+                    select.innerHTML = '';
+                    for (let p in data.profiles) {
+                        let opt = document.createElement('option');
+                        opt.value = p;
+                        opt.textContent = p.charAt(0).toUpperCase() + p.slice(1) + ' (' + p + ')';
+                        select.appendChild(opt);
+                    }
+                    if (currentValue && data.profiles[currentValue]) {
+                        select.value = currentValue;
+                    }
+                }
+            }
             break;
         case 'set_acme_config':
             showToast('ACME configuration saved');
+            break;
+        case 'set_domain_acme':
+            showToast('Domain ACME preference saved');
             break;
         case 'get_acme_log':
             if (data.log) {
@@ -585,6 +611,14 @@ function selectDomain(domain) {
     currentDomainObj = window.domainsCache ? window.domainsCache.find(d => d.name === domain) : null;
     console.log('[DEBUG] currentDomainObj set to:', currentDomainObj);
     
+    const cbAcme = document.getElementById('cb-domain-acme-enable');
+    if (cbAcme && currentDomainObj) {
+        cbAcme.checked = currentDomainObj.acme_enabled === true;
+        cbAcme.onchange = function() {
+            sendReq({ req: 'set_domain_acme', domain: currentDomain, enabled: this.checked });
+        };
+    }
+
     document.querySelector('#detail-title span').textContent = domain;
     document.getElementById('detail-panel')?.classList.remove('hidden-panel');
     document.getElementById('domain-panel')?.classList.add('hidden-panel');
@@ -622,50 +656,86 @@ function renderWhoisHeader() {
     }
     
     const w = currentDomainObj.whois;
-    const d = currentDomainObj.dns || {};
     const expiryDateStr = w.expiry_date ? new Date(w.expiry_date * 1000).toLocaleDateString() : 'Unknown';
     const expiryInterval = w.expiry_date ? formatExpiryInterval(w.expiry_date) : '';
     const expiryDate = w.expiry_date ? `${expiryDateStr} (${expiryInterval})` : 'Unknown';
     const nsList = (w.nameservers || []).join('<br>') || 'None';
-    const dnsSerial = d.serial !== undefined ? d.serial : 'Unknown';
-    let isDnsExpired = false;
-    if (d.expiry) {
-        if (d.expiry < Math.floor(Date.now() / 1000)) {
-            isDnsExpired = true;
-        }
-    }
-    const dnsSignedOk = d.signed_ok === 1 && !isDnsExpired;
-    let dnsExpiryStr = formatExpiryInterval(d.expiry);
 
     let dsStatusHTML = '';
-    let isMatch = false;
     let isSigned = false;
+    let localMismatch = false;
+    let globalMismatch = false;
 
-    if (w.ds_data) {
-        const localDs = (currentDomainObj.local_ds || '').trim().toUpperCase();
-        const whoisDs = w.ds_data.trim().toUpperCase();
-        if (localDs && whoisDs) {
-            isMatch = whoisDs.includes(localDs) || localDs.includes(whoisDs);
+    const localDs = (currentDomainObj.local_ds || '').trim().toUpperCase();
+
+    if (currentDomainObj.dns_ds) {
+        const dnsDs = currentDomainObj.dns_ds.trim().toUpperCase();
+        if (localDs && dnsDs && !dnsDs.includes(localDs) && !localDs.includes(dnsDs)) {
+            localMismatch = true;
         }
-        dsStatusHTML = `DNSSEC: <span class="${isMatch ? 'dns-fg-green' : 'dns-fg-red'}">${isMatch ? '✔' : '✘'}</span>`;
-    } else {
-        let dnssecVal = w.dnssec ? w.dnssec.trim().toLowerCase() : '';
-        if (dnssecVal === 'signeddelegation' || dnssecVal === 'yes' || dnssecVal === 'signed' || dnssecVal === 'active') {
-            isSigned = true;
+    }
+
+    if (currentDomainObj.dns_ds_global) {
+        const dnsDsGlobal = currentDomainObj.dns_ds_global.trim().toUpperCase();
+        if (localDs && dnsDsGlobal && !dnsDsGlobal.includes(localDs) && !localDs.includes(dnsDsGlobal)) {
+            globalMismatch = true;
         }
-        dsStatusHTML = `DNSSEC Delegation: <span class="${isSigned ? 'dns-fg-green' : 'dns-fg-gray'}">${isSigned ? '✔' : '⚠'}</span>`;
+    }
+
+    let dnssecVal = w.dnssec ? w.dnssec.trim().toLowerCase() : '';
+    if (dnssecVal === 'signeddelegation' || dnssecVal === 'yes' || dnssecVal === 'signed' || dnssecVal === 'active') {
+        isSigned = true;
+    }
+    dsStatusHTML = `DNSSEC Delegation: <span class="${isSigned ? 'dns-fg-green' : 'dns-fg-gray'}">${isSigned ? '✔' : '⚠'}</span>`;
+
+    const extractKeyTag = (dsStr) => {
+        if (!dsStr) return 'Missing';
+        const parts = dsStr.trim().split(/\s+/);
+        return parts.length > 0 ? parts[0] : 'Unknown';
+    };
+
+    if (currentDomainObj.dns_ds || currentDomainObj.dns_ds_global) {
+        dsStatusHTML += `<div style="margin-top: 4px; font-size: 0.85em; padding-left: 8px; border-left: 2px solid #555;">`;
+        if (currentDomainObj.dns_ds_global) {
+            const globalTag = extractKeyTag(currentDomainObj.dns_ds_global);
+            dsStatusHTML += `<div>Global DNS Cache (8.8.8.8): <span class="${globalMismatch ? 'dns-fg-red' : 'dns-fg-green'}">${globalMismatch ? `✘ Disagrees with Local Keys (${globalTag})` : `✔ Matches Local Keys (${globalTag})`}</span></div>`;
+        }
+        if (currentDomainObj.dns_ds) {
+            const systemTag = extractKeyTag(currentDomainObj.dns_ds);
+            dsStatusHTML += `<div>System DNS Cache: <span class="${localMismatch ? 'dns-fg-red' : 'dns-fg-green'}">${localMismatch ? `✘ Disagrees with Local Keys (${systemTag})` : `✔ Matches Local Keys (${systemTag})`}</span></div>`;
+        }
+        dsStatusHTML += `</div>`;
+    }
+
+    if (localMismatch || globalMismatch) {
+        dsStatusHTML += `<br><b class="dns-fg-red text-sm">⚠ Registrar DNSSEC key differs</b>`;
     }
 
     if (currentDomainObj.alg) {
         dsStatusHTML += `<br><span class="dns-fg-gray text-sm">Key: ${currentDomainObj.alg} &nbsp; <a href="#" id="link-regen-keys" class="ext-link">replace</a> &nbsp; <a href="#" id="link-info-keys" class="ext-link">info</a></span>`;
     }
 
-    let overallSigned = (w.ds_data ? isMatch : isSigned) && dnsSignedOk;
+    let overallSigned = isSigned && !localMismatch && !globalMismatch;
     let overrideClass = overallSigned ? 'ok' : 'warn';
     let overrideText = overallSigned ? '✔ DNSSEC<br>OK' : '✘<br>INSECURE';
 
-    let sigsColor = !d.expiry ? 'dns-fg-gray' : (isDnsExpired ? 'dns-fg-gray' : (dnsSignedOk ? 'dns-fg-green' : 'dns-fg-red'));
-    let sigsTick = !d.expiry ? 'n/a' : (isDnsExpired ? '⚠' : (dnsSignedOk ? '✔' : '✘'));
+    let dnssecLookupsHTML = '';
+    if (localMismatch || globalMismatch) {
+        dnssecLookupsHTML = `
+            <tr>
+                <td colspan="3">
+                    <div class="dns-fg-red" style="font-weight:bold; margin-top:8px; padding: 4px; border: 1px solid red; background: rgba(255,0,0,0.1);">
+                        ⚠ DNS Lookup Failed due to DNSSEC Error
+                    </div>
+                </td>
+            </tr>`;
+    } else if (isSigned) {
+        dnssecLookupsHTML = `
+            <tr>
+                <td class="dns-layout-lbl">DNS:</td>
+                <td colspan="2"><span class="dns-fg-green">✔ Lookup OK (Validated Local & Global)</span></td>
+            </tr>`;
+    }
 
     hdr.innerHTML = `
         <table class="dns-layout-container">
@@ -677,11 +747,7 @@ function renderWhoisHeader() {
                     ${dsStatusHTML}
 		</td>
             </tr>
-            <tr>
-                <td class="dns-layout-lbl">DNS: ${dnsSerial}</td>
-                <td>Sigexp: ${dnsExpiryStr}</td>
-                <td>Sigs: <span class="${sigsColor}">${sigsTick}</span></td>
-            </tr>
+            ${dnssecLookupsHTML}
             <tr id="tls-summary-row" class="hide">
                 <td class="dns-layout-lbl">TLS:</td>
                 <td colspan="2"><span id="tls-summary-content">Loading...</span> &nbsp; <a href="#" id="link-tls-details" class="ext-link">View TLS Details</a></td>
@@ -1357,7 +1423,8 @@ function openEditor(id) {
                 organization: document.getElementById('acme-org').value.trim(),
                 country: document.getElementById('acme-country').value.trim(),
                 state: document.getElementById('acme-state').value.trim(),
-                locality: document.getElementById('acme-locality').value.trim()
+                locality: document.getElementById('acme-locality').value.trim(),
+                profile: document.getElementById('acme-profile') ? document.getElementById('acme-profile').value : ''
             });
         };
     }

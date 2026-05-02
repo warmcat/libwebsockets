@@ -312,8 +312,7 @@ lws_validity_confirmed(struct lws *wsi)
 	 * to the role to figure out who actually needs to understand their
 	 * validity was confirmed.
 	 */
-	if (!wsi->h2_stream_carries_ws && /* only if not encapsulated */
-	    wsi->role_ops &&
+	if (wsi->role_ops &&
 	    lws_rops_fidx(wsi->role_ops, LWS_ROPS_issue_keepalive))
 		lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_issue_keepalive).
 							issue_keepalive(wsi, 1);

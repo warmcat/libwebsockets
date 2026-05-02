@@ -1270,8 +1270,8 @@ void lws_http_close_immortal(struct lws *wsi) {
 		 * since we closed the only immortal stream on this nwsi, we
 		 * need to reapply a normal timeout regime to the nwsi
 		 */
-		lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE,
-				lws_wsi_keepalive_timeout_eff(wsi));
+		lws_set_timeout(nwsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE,
+				lws_wsi_keepalive_timeout_eff(nwsi));
 }
 
 void lws_mux_mark_immortal(struct lws *wsi) {

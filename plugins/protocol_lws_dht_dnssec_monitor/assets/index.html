@@ -88,6 +88,11 @@
                             <label for="acme-locality">Locality / City</label>
                             <input type="text" id="acme-locality" placeholder="Cambridge">
                         </div>
+                        <div class="form-group">
+                            <label for="acme-profile">Certificate Profile</label>
+                            <select id="acme-profile" class="ext-select">
+                            </select>
+                        </div>
                     </div>
                     <div class="acme-actions">
                         <button id="btn-acme-save" class="btn primary">Save ACME Config</button>
@@ -112,6 +117,11 @@
                         <table id="actions-table" class="actions-table">
                             <tr><td class="actions-cell"><div id="dnssec-status"></div></td></tr>
                             <tr><td class="actions-cell"><button id="btn-save-zonefile" class="btn primary" disabled>Save<br>Zonefile</button></td></tr>
+                            <tr><td class="actions-cell">
+                                <label class="domain-acme-label" title="Enable Let's Encrypt automated certificate fetching for this domain">
+                                    <input type="checkbox" id="cb-domain-acme-enable"> ACME Enabled
+                                </label>
+                            </td></tr>
                         </table>
                     </div>
                 </div>
@@ -230,6 +240,6 @@
     <!-- Notification Toast -->
     <div id="toast" class="toast"></div>
 
-    <script src="monitor.js?v=2"></script>
+    <script src="monitor.js?v=7"></script>
 </body>
 </html>

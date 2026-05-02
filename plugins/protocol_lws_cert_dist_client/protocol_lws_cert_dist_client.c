@@ -4,6 +4,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+static struct vhd_cert_dist_client *global_cert_dist_vhd = NULL;
+
 struct vhd_cert_dist_client {
 	struct lws_context *cx;
 	struct lws_vhost *vh;
@@ -242,6 +244,7 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		break;
 	case LWS_CALLBACK_PROTOCOL_INIT:
+		if (!in) return 0;
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 						  lws_get_protocol(wsi),
 						  sizeof(struct vhd_cert_dist_client));
@@ -270,17 +273,21 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 		/* Check if we are the stub */
 		stub = lws_cmdline_option_cx(vhd->cx, "--lws-stub");
 		if (stub && !strcmp(stub, "distribution-client")) {
+			if (global_cert_dist_vhd) return 0;
+			global_cert_dist_vhd = vhd;
 			vhd->is_stub = 1;
 			return dist_client_stub_run(vhd);
 		}
 
-		/* Plugin mode: spawn stub if we are root */
-		if (getuid() == 0) {
+		if (stub) return 0; /* Stubs don't spawn other stubs */
+
+		if (sub_pvo && getuid() == 0 && !global_cert_dist_vhd) {
 			struct lws_spawn_piped_info spawn_info;
 			const char *exec_array[10];
 			int n = 0;
 
-			lwsl_notice("%s: Root detected, spawning privileged stub\n", __func__);
+			lwsl_notice("%s: Root detected and subdomains configured, spawning privileged stub\n", __func__);
+			global_cert_dist_vhd = vhd;
 
 			/* Generate secret */
 			uint8_t rand[64];
@@ -330,6 +337,27 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 			sub_pvo = sub_pvo->next;
 		}
+		break;
+
+	case LWS_CALLBACK_RAW_RX_FILE: {
+		char buf[512];
+		ssize_t n;
+
+		n = read(lws_get_socket_fd(wsi), buf, sizeof(buf) - 1);
+		if (n < 0) {
+			if (errno == EAGAIN || errno == EWOULDBLOCK)
+				return 0;
+			return -1;
+		}
+		if (n == 0)
+			return -1;
+
+		buf[n] = '\0';
+		lwsl_notice("[DIST-STUB] %s", buf);
+		break;
+	}
+
+	case LWS_CALLBACK_RAW_CLOSE_FILE:
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:

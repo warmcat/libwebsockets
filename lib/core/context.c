@@ -671,6 +671,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->event_loop_ops = plev->ops;
 	context->us_wait_resolution = us_wait_resolution;
 	context->wol_if = info->wol_if;
+	context->lws_stub = info->lws_stub;
 #if defined(LWS_WITH_TLS_JIT_TRUST)
 	{
 		struct lws_cache_creation_info ci;

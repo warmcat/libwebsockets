@@ -112,10 +112,10 @@ whois_cb(void *opaque, const struct lws_whois_results *res)
 		} else {
 			lwsl_err("[WHOIS] %s: socket creation failed! errno: %d\n", __func__, errno);
 		}
-
-		lws_dll2_remove(&wqi->list);
-		free(wqi);
 	}
+
+	lws_dll2_remove(&wqi->list);
+	free(wqi);
 }
 
 int

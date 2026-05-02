@@ -21,6 +21,15 @@ force_external_dns(struct lws_context *cx, const char *external_ip)
 		lws_async_dns_server_remove(cx, &sa46);
 	}
 
+	if (!external_ip) {
+		index = 0;
+		while (!lws_plat_asyncdns_get_server(cx, index++, &sa46)) {
+			sa46_sockport(&sa46, htons(53));
+			lws_async_dns_server_add(cx, &sa46);
+		}
+		return;
+	}
+
 	if (lws_sa46_parse_numeric_address(external_ip, &sa46) < 0)
 		return;
 	sa46_sockport(&sa46, htons(53));

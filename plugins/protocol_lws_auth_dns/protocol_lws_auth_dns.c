@@ -330,9 +330,12 @@ auth_dns_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 
 	if (vhd->dht_ops && vhd->dht_ops->subscribe_zone) {
 		/* Kick off initial subscription and schedule rolling updates */
+		lwsl_notice("%s: Triggering DHT subscription for %s\n", __func__, ce->zone.origin);
 		vhd->dht_ops->subscribe_zone(vhd->vhost, ce->zone.origin);
 		lws_sul_schedule(vhd->context, 0, &ce->sul_subscribe,
 				 auth_dns_sul_subscribe_cb, 45 * 60 * LWS_US_PER_SEC);
+	} else {
+		lwsl_notice("%s: No DHT ops for subscription of %s\n", __func__, ce->zone.origin);
 	}
 
 	return 0;
@@ -479,7 +482,11 @@ auth_dns_local_zone_cb(void *opaque, const char *domain, const char *payload_pat
 
 						/* Safely repoint all child elements to the new heap owner instead of the original stack address */
 						lws_start_foreach_dll(struct lws_dll2 *, d, ce->zone.rrset_list.head) {
+							struct auth_dns_rrset *rs = lws_container_of(d, struct auth_dns_rrset, list);
 							d->owner = &ce->zone.rrset_list;
+							lws_start_foreach_dll(struct lws_dll2 *, d2, rs->rr_list.head) {
+								d2->owner = &rs->rr_list;
+							} lws_end_foreach_dll(d2);
 						} lws_end_foreach_dll(d);
 
 						ce->vhd = vhd;
@@ -776,13 +783,16 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			const struct lws_protocols *prot = lws_vhost_name_to_protocol(vhd->vhost, "lws-dht-dnssec");
 			if (prot && prot->user) {
 				vhd->dht_ops = (const struct lws_dht_dnssec_ops *)prot->user;
+				lwsl_notice("%s: Successfully linked with lws-dht-dnssec operations at %p\n", __func__, vhd->dht_ops);
 				if (vhd->dht_ops->register_auth_cb)
 					vhd->dht_ops->register_auth_cb(vhd->vhost, auth_dns_local_zone_cb, vhd);
+			} else {
+				lwsl_notice("%s: lws-dht-dnssec not found or ops missing (prot=%p, user=%p)\n", __func__, prot, prot ? prot->user : NULL);
 			}
 		}
 
-		/* read zone files only if DHT is not taking over zone management */
-		if (vhd->zone_dir[0] != '\0' && !vhd->dht_ops) {
+		/* read zone files to identify domains we are authoritative for */
+		if (vhd->zone_dir[0] != '\0') {
 			lwsl_notice("%s: scanning directory %s (local disk mode)\n", __func__, vhd->zone_dir);
 			int r = lws_dir(vhd->zone_dir, vhd, auth_dns_dir_cb);
 			lwsl_notice("%s: lws_dir returned %d\n", __func__, r);
@@ -1056,6 +1066,8 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			/* MRU Promotion */
 			lws_dll2_remove(&matched_ce->list);
 			lws_dll2_add_head(&matched_ce->list, &vhd->zones);
+			lwsl_notice("LWS_CALLBACK_RAW_RX answering from zone %s (serial %llu)\n",
+				matched_ce->zone.origin, (unsigned long long)matched_ce->serial);
 		}
 
 		lwsl_info("found_rs? %p\n", found_rs);

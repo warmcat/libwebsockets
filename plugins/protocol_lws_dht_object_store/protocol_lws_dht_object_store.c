@@ -235,7 +235,7 @@ verb_put_handler(struct lws_dht_ctx *ctx, struct vhd_dht_store *vhd, const struc
 			if (!lws_hex_to_byte_array(frag->safe_hash, raw_hash, sizeof(raw_hash))) {
 				lws_dht_hash_t *id = lws_dht_hash_create(LWS_DHT_HASH_TYPE_SHA1, 20, raw_hash);
 				if (id) {
-					lws_dht_notify_subscribers(ctx, id, hash);
+					lws_dht_notify_subscribers(ctx, id, hash, NULL, 0);
 					lws_dht_hash_destroy(&id);
 				}
 			}

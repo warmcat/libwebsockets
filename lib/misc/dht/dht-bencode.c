@@ -971,7 +971,8 @@ skip_ip_tracking:
 
                 int p2 = 0;
                 if (from->sa_family == AF_INET) p2 = ntohs(((struct sockaddr_in *)from)->sin_port);
-				lwsl_err("%s: ACK received from %s:%d (len %d) but no sequencer found!\n", __func__, ads, p2, (int)fromlen);
+                else if (from->sa_family == AF_INET6) p2 = ntohs(((struct sockaddr_in6 *)from)->sin6_port);
+				lwsl_info("%s: Duplicate/Late ACK received from %s:%d (len %d) - no active sequencer\n", __func__, ads, p2, (int)fromlen);
 
                 lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&ctx->ts_owner)) {
                     lws_dht_ts_t *dts = lws_container_of(d, lws_dht_ts_t, list);
@@ -979,7 +980,8 @@ skip_ip_tracking:
                     lws_sa46_write_numeric_address((lws_sockaddr46 *)&dts->sa, d_ads, sizeof(d_ads));
                     int p1 = 0;
                     if (dts->sa.ss_family == AF_INET) p1 = ntohs(((struct sockaddr_in *)&dts->sa)->sin_port);
-                    lwsl_err("   ... Active Sequencer in pool: dest %s:%d (family %d vs %d)\n", d_ads, p1, dts->sa.ss_family, from->sa_family);
+                    else if (dts->sa.ss_family == AF_INET6) p1 = ntohs(((struct sockaddr_in6 *)&dts->sa)->sin6_port);
+                    lwsl_debug("   ... Active Sequencer in pool: dest %s:%d (family %d vs %d)\n", d_ads, p1, dts->sa.ss_family, from->sa_family);
                 } lws_end_foreach_dll(d);
 			}
 			break;

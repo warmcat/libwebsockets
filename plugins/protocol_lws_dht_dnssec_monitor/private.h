@@ -32,6 +32,7 @@
 #if defined(WIN32) || defined(_WIN32)
 #else
 #include <sys/wait.h>
+#include <pwd.h>
 #include <grp.h>
 #include <sys/types.h>
 #endif
@@ -55,6 +56,7 @@ struct monitor_req_args {
 	char country[8];
 	char state[128];
 	char locality[128];
+	char profile[64];
 };
 
 struct vhd {
@@ -62,7 +64,7 @@ struct vhd {
 	struct lws_vhost *vhost;
 	const struct lws_dht_dnssec_ops *ops;
 
-	char *base_dir;
+	const char *base_dir;
 	const char *uds_path;
 	uint32_t signature_duration;
 
@@ -90,6 +92,9 @@ struct vhd {
 	lws_dll2_owner_t published_jws;
 	lws_sorted_usec_list_t sul_timer_scan;
 	lws_sorted_usec_list_t sul_timer_proxy_scan;
+	lws_sorted_usec_list_t sul_debounce_scan;
+	lws_sorted_usec_list_t sul_timer_global_scan;
+	int scan_type;
 
 	int acme_enabled;
 	int acme_production;
@@ -98,9 +103,14 @@ struct vhd {
 	char acme_country[8];
 	char acme_state[128];
 	char acme_locality[128];
+	char acme_profile[64];
 	lws_dll2_owner_t active_probes;
 	lws_dll2_owner_t dns_queries;
 	int root_daemon;
+	char stub_base_dir[256];
+	char stub_uds_path[256];
+	char stub_uid[64];
+	char stub_gid[64];
 };
 
 struct pss {
@@ -149,6 +159,14 @@ struct cert_check_result {
 	int status_err;
 };
 
+struct acme_profiles_fetch_info {
+	uint32_t magic;
+	struct pss *root_pss;
+	char json[16384];
+	size_t json_len;
+};
+#define ACME_PROFILES_MAGIC 0xAC3E0000
+
 struct parsed_config {
 	struct vhd *vhd;
 	char common_name[256];
@@ -163,6 +181,7 @@ struct dns_req {
 	struct vhd *vhd;
 	char domain[128];
 	int port;
+	int sent_probe;
 };
 
 struct scan_tls_ctx {
@@ -186,7 +205,8 @@ static const char * const monitor_req_paths[] = {
 	"production",
 	"country",
 	"state",
-	"locality"
+	"locality",
+	"profile"
 };
 
 enum enum_req_paths {
@@ -205,7 +225,8 @@ enum enum_req_paths {
 	LRP_PRODUCTION,
 	LRP_COUNTRY,
 	LRP_STATE,
-	LRP_LOCALITY
+	LRP_LOCALITY,
+	LRP_PROFILE
 };
 
 static const char * const tls_config_paths[] = {
@@ -230,6 +251,7 @@ struct acme_pvo_alloc {
 	struct lws_protocol_vhost_options pvo3;
 	struct lws_protocol_vhost_options pvo4;
 	struct lws_protocol_vhost_options pvo5;
+	struct lws_protocol_vhost_options pvo6;
 	char root_domain[256];
 	char common_name[256];
 };
@@ -263,6 +285,7 @@ void extract_and_queue_cert_result(struct lws *wsi, struct vhd *vhd, struct cert
 struct lws * dnssec_state_dns_cb(struct lws *wsi, const char *ads, const struct addrinfo *result, int n, void *opaque);
 int scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde);
 void root_dnssec_scan_timer_cb(struct lws_sorted_usec_list *sul);
+void global_dnssec_scan_timer_cb(struct lws_sorted_usec_list *sul);
 void root_monitor_stdin_check_cb(struct lws_sorted_usec_list *sul);
 
 /* monitor-proxy.c */
@@ -274,5 +297,6 @@ void parent_dnssec_monitor_timer_cb(struct lws_sorted_usec_list *sul);
 /* monitor-api.c */
 signed char monitor_req_cb(struct lejp_ctx *ctx, char reason);
 void handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, size_t len);
+struct lws * handle_req_get_acme_profiles(struct vhd *vhd, struct pss *root_pss, const char *directory_url);
 
 #endif

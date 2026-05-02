@@ -646,6 +646,7 @@ struct lws_context {
 #endif
 
 	const char			*wol_if;
+	const char			*lws_stub;
 
 /*
  * <====== LWS_WITH_NETWORK end

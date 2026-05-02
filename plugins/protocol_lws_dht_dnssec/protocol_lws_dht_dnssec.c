@@ -248,6 +248,9 @@ notify_fetch_completion_cb(void *opaque, const char *domain, int status)
 	struct notify_strike_tracking *trk = (struct notify_strike_tracking *)opaque;
 	if (status == 0) {
 		add_peer_strike(trk->vhd, &trk->sa);
+		lwsl_notice("%s: Added strike to peer due to fetch network timeout for %s\n", __func__, domain);
+	} else if (status < 0) {
+		lwsl_notice("%s: Fetch for %s failed DNSSEC validation, skipping strike penalty for peer\n", __func__, domain);
 	} else if (status == 1) {
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, trk->vhd->notify_strikes.head) {
 			struct notify_strike *n = lws_container_of(d, struct notify_strike, list);
@@ -353,33 +356,45 @@ do_fetch_zone(struct lws_context *cx, struct lws_dht_dnssec_fetch_zone_args *arg
 static int
 do_notify_peer_outdated(struct lws_vhost *vhost, const char *domain, const lws_sockaddr46 *sa46_peer, uint64_t newer_soa_serial);
 
+static int
+do_subscribe_zone(struct lws_vhost *vhost, const char *domain);
+
 static void
 dht_dnssec_broadcast_notify(struct vhd_dht_dnssec *vhd, const char *domain, uint64_t soa_serial)
 {
-	struct sockaddr_in sin[32];
-	struct sockaddr_in6 sin6[32];
-	int num_v4 = 32, num_v6 = 32, i;
+	struct sockaddr_in sin[128];
+	struct sockaddr_in6 sin6[128];
+	int num_v4 = 128, num_v6 = 128, i;
 
 	if (!vhd->dht) return;
 
 	/* Send an unsolicited EVENT_NOTIFY to all known DHT participants to immediately propagate new zonefiles */
 	lws_dht_get_nodes(vhd->dht, sin, &num_v4, sin6, &num_v6);
 
+	lwsl_user("%s: Broadcasting SOA %llu for %s to %d IPv4 and %d IPv6 peers\n",
+		  __func__, (unsigned long long)soa_serial, domain, num_v4, num_v6);
+
 	for (i = 0; i < num_v4; i++) {
 		lws_sockaddr46 sa;
+		char ip[64];
 		memset(&sa, 0, sizeof(sa));
 		sa.sa4.sin_family = AF_INET;
 		sa.sa4.sin_addr = sin[i].sin_addr;
 		sa.sa4.sin_port = sin[i].sin_port;
+		lws_sa46_write_numeric_address(&sa, ip, sizeof(ip));
+		lwsl_notice("%s: Broadast NOTIFY to %s:%u\n", __func__, ip, ntohs(sa.sa4.sin_port));
 		do_notify_peer_outdated(vhd->vhost, domain, &sa, soa_serial);
 	}
 #if defined(LWS_WITH_IPV6)
 	for (i = 0; i < num_v6; i++) {
 		lws_sockaddr46 sa;
+		char ip[64];
 		memset(&sa, 0, sizeof(sa));
 		sa.sa6.sin6_family = AF_INET6;
 		sa.sa6.sin6_addr = sin6[i].sin6_addr;
 		sa.sa6.sin6_port = sin6[i].sin6_port;
+		lws_sa46_write_numeric_address(&sa, ip, sizeof(ip));
+		lwsl_notice("%s: Broadast NOTIFY to %s:%u\n", __func__, ip, ntohs(sa.sa6.sin6_port));
 		do_notify_peer_outdated(vhd->vhost, domain, &sa, soa_serial);
 	}
 #endif
@@ -687,6 +702,10 @@ dht_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 								if (frag->ds_digest_len > 0 && memcmp(digest, frag->ds_digest, frag->ds_digest_len) == 0) {
 									lwsl_user("%s: DS Hash Test matched the Embedded JWS JWK perfectly!\n", __func__);
 									ds_hash_test_worked = 1;
+								} else {
+									lwsl_user("%s: DS Hash Test failed! Computed vs Fetched (%d bytes):\n", __func__, frag->ds_digest_len);
+									lwsl_hexdump_user(digest, frag->ds_digest_len);
+									lwsl_hexdump_user(frag->ds_digest, frag->ds_digest_len);
 								}
 							} else {
 								lws_genhash_destroy(&hash_ctx, digest);
@@ -819,7 +838,7 @@ dht_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 	free(jws_buf);
 
 	if (!valid) {
-		lwsl_notice("%s: Cryptographic verification of JWS failed\n", __func__);
+		lwsl_notice("%s: Cryptographic verification of JWS failed for domain %s\n", __func__, frag->domain);
 		add_peer_strike(frag->vhd, (const lws_sockaddr46 *)&frag->from_sa);
 		goto drop;
 	}
@@ -863,7 +882,7 @@ dht_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 		if (!lws_hex_to_byte_array(frag->safe_hash, raw_hash, sizeof(raw_hash))) {
 			lws_dht_hash_t *id = lws_dht_hash_create(LWS_DHT_HASH_TYPE_SHA256, 32, raw_hash);
 			if (id) {
-				lws_dht_notify_subscribers(frag->dht_ctx, id, frag->payload_hash);
+				lws_dht_notify_subscribers(frag->dht_ctx, id, frag->payload_hash, NULL, 0);
 				lws_dht_hash_destroy(&id);
 			}
 		}
@@ -1063,7 +1082,7 @@ drop:
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->fetch_reqs.head) {
 		struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
 		if (!strcmp(req->target_hash, frag->safe_hash)) {
-			if (req->cb) req->cb(req->opaque, req->domain, 0);
+			if (req->cb) req->cb(req->opaque, req->domain, -1);
 			lws_sul_cancel(&req->sul_timeout);
 			lws_dll2_remove(d);
 			free(req);
@@ -1147,7 +1166,7 @@ drop:
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, frag->vhd->fetch_reqs.head) {
 		struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
 		if (!strcmp(req->target_hash, frag->safe_hash)) {
-			if (req->cb) req->cb(req->opaque, req->domain, 0);
+			if (req->cb) req->cb(req->opaque, req->domain, -1);
 			lws_sul_cancel(&req->sul_timeout);
 			lws_dll2_remove(d);
 			free(req);
@@ -1202,7 +1221,7 @@ dht_dnssec_trigger_validation(struct lws_dht_ctx *ctx, struct vhd_dht_dnssec *vh
 		}
 
 		if (lws_jws_b64_compact_map(buf, (int)st.st_size, &map_b64) < 0) {
-			lwsl_notice("%s: compact JWS map failed\n", __func__);
+			lwsl_notice("%s: compact JWS map failed (st.st_size=%zu)\n", __func__, (size_t)st.st_size);
 			free(temp);
 			free(buf);
 			return -1;
@@ -1211,18 +1230,21 @@ dht_dnssec_trigger_validation(struct lws_dht_ctx *ctx, struct vhd_dht_dnssec *vh
 		h = lws_jws_compact_decode(buf, (int)st.st_size, &map, &map_b64, temp, &temp_len);
 
 		if (h != 3) {
-			lwsl_notice("%s: compact JWS decode failed (h=%d)\n", __func__, h);
+			lwsl_notice("%s: compact JWS decode failed (h=%d, st.st_size=%zu)\n", __func__, h, (size_t)st.st_size);
 			free(temp);
 			free(buf);
 			return -1;
 		}
+
+		lwsl_notice("%s: JWS Decoded: header_len=%u, payload_len=%u, sig_len=%u\n",
+			    __func__, map.len[LJWS_JOSE], map.len[LJWS_PYLD], map.len[LJWS_SIG]);
 
 		/* Extract domain dynamically and strictly validate the syntax of the decoded zone file payload! */
 		struct auth_dns_zone parsed_zone;
 		memset(&parsed_zone, 0, sizeof(parsed_zone));
 
 		if (lws_auth_dns_parse_zone_buf((const char *)map.buf[LJWS_PYLD], map.len[LJWS_PYLD], &parsed_zone, NULL, NULL)) {
-			lwsl_err("%s: Failed to syntax validate zonefile!\n", __func__);
+			lwsl_err("%s: Failed to syntax validate zonefile (payload_len=%u)!\n", __func__, map.len[LJWS_PYLD]);
 			free(temp);
 			free(buf);
 			return -1;
@@ -1534,7 +1556,7 @@ drop:
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->fetch_reqs.head) {
 		struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
 		if (!strcmp(req->target_hash, frag->safe_hash)) {
-			if (req->cb) req->cb(req->opaque, req->domain, 0);
+			if (req->cb) req->cb(req->opaque, req->domain, -1);
 			lws_sul_cancel(&req->sul_timeout);
 			lws_dll2_remove(d);
 			free(req);
@@ -1791,7 +1813,7 @@ drop:
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->fetch_reqs.head) {
 		struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
 		if (!strcmp(req->target_hash, frag->safe_hash)) {
-			if (req->cb) req->cb(req->opaque, req->domain, 0);
+			if (req->cb) req->cb(req->opaque, req->domain, -1);
 			lws_sul_cancel(&req->sul_timeout);
 			lws_dll2_remove(d);
 			free(req);
@@ -1834,7 +1856,7 @@ verb_cap_rsp_handler(struct vhd_dht_dnssec *vhd, struct lws_dht_verb_dispatch_ar
 		lwsl_user("%s: Peer supports lws-dht-dnssec via CAP_RSP! Proceeding with PUT.\n", __func__);
 		if (!vhd->put_started) {
 			vhd->put_started = 1;
-			lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_put_cb, 10);
+			lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_put_cb, 10 * LWS_US_PER_MS);
 		}
 	} else if (strstr(pbuf, "\"lws-dht-store\"")) {
 		lwsl_err("%s: Peer only supports basic raw store, missing lws-dht-dnssec capability. Aborting.\n", __func__);
@@ -2050,12 +2072,22 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 		}
 
 		uint64_t newer_soa = 0;
+		char newer_domain[256];
+		newer_domain[0] = '\0';
+
 		if (data_len >= 8) {
 			const uint8_t *p = (const uint8_t *)data;
 			newer_soa = ((uint64_t)p[0] << 56) | ((uint64_t)p[1] << 48) |
 				    ((uint64_t)p[2] << 40) | ((uint64_t)p[3] << 32) |
 				    ((uint64_t)p[4] << 24) | ((uint64_t)p[5] << 16) |
 				    ((uint64_t)p[6] << 8) | p[7];
+
+			if (data_len > 8) {
+				size_t dl = data_len - 8;
+				if (dl > sizeof(newer_domain) - 1) dl = sizeof(newer_domain) - 1;
+				memcpy(newer_domain, p + 8, dl);
+				newer_domain[dl] = '\0';
+			}
 		}
 
 		{
@@ -2149,7 +2181,8 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 		}
 
 		/* If we're not actively tracking the subscription but we have it hot in our local cache,
-		 * we should still honor the NOTIFY to keep the cache from going stale during ACME validations. */
+		 * or we are an authoritative server and we just discovered the domain name,
+		 * we should honor the NOTIFY. */
 		if (!found) {
 			char hex_hash[LWS_GENHASH_LARGEST * 2 + 1];
 			lws_hex_from_byte_array(info_hash->id, info_hash->len, hex_hash, sizeof(hex_hash));
@@ -2161,22 +2194,41 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 			da.prefix = hex_hash;
 			lws_dir(dir_path, &da, dht_dnssec_find_highest_serial_cb);
 
-			if (da.is_outdated) {
-				/* We don't have the domain string because it's just a hash, so use the hash as the domain name for internal tracking */
-				lws_snprintf(target_domain, sizeof(target_domain), "dht-hash-%s", hex_hash);
-				lwsl_notice("%s: Hash %s is not actively subscribed but exists in cache. Honoring NOTIFY to keep hot!\n", __func__, hex_hash);
-
-				/* Implicitly create a subscription so subsequent NOTIFYs are tracked via `found_sub` rate limiters */
-				struct lws_dht_dnssec_subscribed_domain *nsub = malloc(sizeof(*nsub));
-				if (nsub) {
-					memset(nsub, 0, sizeof(*nsub));
-					lws_strncpy(nsub->domain, target_domain, sizeof(nsub->domain));
-					memcpy(nsub->hash, info_hash->id, info_hash->len);
-					nsub->needs_initial_fetch = 0;
-					lws_dll2_add_tail(&nsub->list, &vhd->subscribed_domains);
-					found_sub = nsub;
+			if (da.is_outdated || (vhd->auth_cb && newer_domain[0])) {
+				if (newer_domain[0]) {
+					lws_strncpy(target_domain, newer_domain, sizeof(target_domain));
+					if (da.is_outdated)
+						lwsl_user("%s: Discovered domain name '%s' for cached hash %s. Upgrading!\n", __func__, newer_domain, hex_hash);
+					else
+						lwsl_user("%s: Auto-subscribing to discovered authoritative domain: %s\n", __func__, newer_domain);
+				} else {
+					lws_snprintf(target_domain, sizeof(target_domain), "dht-hash-%s", hex_hash);
+					lwsl_notice("%s: Hash %s is not actively subscribed but exists in cache. Honoring NOTIFY to keep hot!\n", __func__, hex_hash);
 				}
-				found = 1;
+
+				/* Implicitly create or upgrade a subscription so subsequent NOTIFYs are tracked via `found_sub` rate limiters */
+				if (vhd->auth_cb && newer_domain[0]) {
+					do_subscribe_zone(vhd->vhost, newer_domain);
+				} else {
+					struct lws_dht_dnssec_subscribed_domain *nsub = malloc(sizeof(*nsub));
+					if (nsub) {
+						memset(nsub, 0, sizeof(*nsub));
+						lws_strncpy(nsub->domain, target_domain, sizeof(nsub->domain));
+						memcpy(nsub->hash, info_hash->id, info_hash->len);
+						nsub->needs_initial_fetch = 0;
+						lws_dll2_add_tail(&nsub->list, &vhd->subscribed_domains);
+					}
+				}
+
+				/* Re-find the sub we just created or were already looking for */
+				lws_start_foreach_dll(struct lws_dll2 *, d, vhd->subscribed_domains.head) {
+					struct lws_dht_dnssec_subscribed_domain *sub = lws_container_of(d, struct lws_dht_dnssec_subscribed_domain, list);
+					if (!memcmp(sub->hash, info_hash->id, info_hash->len)) {
+						found_sub = sub;
+						found = 1;
+						break;
+					}
+				} lws_end_foreach_dll(d);
 			}
 		}
 
@@ -2285,21 +2337,47 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 			}
 
 			do_fetch_zone(vhd->context, &args);
-		} else {
+		}
+
+		/*
+		 * [RELAY LOGIC] Even if we didn't find a local subscription or owner (found == 0),
+		 * we might be a tracker/relay for other nodes who HAVE subscribed to us.
+		 * We must relay the NOTIFY signal to our DHT subscribers.
+		 */
+		{
+			uint8_t pseudo_sha256[32];
+			memset(pseudo_sha256, 0, sizeof(pseudo_sha256));
+			/* Use the SOA serial as the 'version' hash for subscriber change detection */
+			pseudo_sha256[0] = (uint8_t)(newer_soa >> 56);
+			pseudo_sha256[1] = (uint8_t)(newer_soa >> 48);
+			pseudo_sha256[2] = (uint8_t)(newer_soa >> 40);
+			pseudo_sha256[3] = (uint8_t)(newer_soa >> 32);
+			pseudo_sha256[4] = (uint8_t)(newer_soa >> 24);
+			pseudo_sha256[5] = (uint8_t)(newer_soa >> 16);
+			pseudo_sha256[6] = (uint8_t)(newer_soa >> 8);
+			pseudo_sha256[7] = (uint8_t)newer_soa;
+
+			/* Pass the FULL incoming payload (serial + domain) to subscribers */
+			int relayed = lws_dht_notify_subscribers(vhd->dht, info_hash, pseudo_sha256, (const uint8_t *)data, data_len);
+			if (relayed > 0)
+				lwsl_notice("%s: Relayed NOTIFY (len %d) to %d downstream DHT subscribers\n", __func__, (int)data_len, relayed);
+		}
+
+		if (!found) {
 			char h1[128], h2[128] = "NONE";
 			lws_hex_from_byte_array(info_hash->id, info_hash->len, h1, sizeof(h1));
 			if (vhd->subscribed_domains.head) {
 				struct lws_dht_dnssec_subscribed_domain *sub = lws_container_of(vhd->subscribed_domains.head, struct lws_dht_dnssec_subscribed_domain, list);
 				lws_hex_from_byte_array(sub->hash, info_hash->len, h2, sizeof(h2));
 			}
-			lwsl_notice("%s: Incoming NOTIFY hash (%s) does not match any active subscriptions (first sub is %s).\n", __func__, h1, h2);
+			lwsl_notice("%s: Incoming NOTIFY hash (%s) does not match any active local subscriptions (first sub is %s). [RELAY ONLY]\n", __func__, h1, h2);
 		}
 		break;
 	}
 	case LWS_DHT_EVENT_SEARCH_DONE:
 	case LWS_DHT_EVENT_SEARCH_DONE6: {
 		struct vhd_dht_dnssec *vhd = (struct vhd_dht_dnssec *)closure;
-		lwsl_notice("%s: Peer discovery completed! Probing known nodes for IPs...\n", __func__);
+		lwsl_notice("%s: Peer discovery completed (af=%d)! Probing known nodes for IPs...\n", __func__, event == LWS_DHT_EVENT_SEARCH_DONE ? 4 : 6);
 		lws_dht_test_external_ips(vhd->dht);
 		break;
 	}
@@ -2318,9 +2396,9 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 
 		if (!get_hash && vhd->cli_get_domain) {
 			char domain_str[256];
-			int dom_len = lws_snprintf(domain_str, sizeof(domain_str), "lws-dnssec-dht-%s", vhd->cli_get_domain);
+			lws_snprintf(domain_str, sizeof(domain_str), "lws-dnssec-dht-%s", vhd->cli_get_domain);
 			if (!lws_genhash_init(&pctx, LWS_DHT_STORE_GENHASH) &&
-			    !lws_genhash_update(&pctx, domain_str, (size_t)dom_len) &&
+			    !lws_genhash_update(&pctx, domain_str, strlen(domain_str)) &&
 			    !lws_genhash_destroy(&pctx, hash)) {
 				lws_hex_from_byte_array(hash, (size_t)lws_genhash_size(LWS_DHT_STORE_GENHASH), computed_hash_hex, sizeof(computed_hash_hex));
 				get_hash = computed_hash_hex;
@@ -2660,7 +2738,6 @@ dht_dnssec_sul_put_cb(struct lws_sorted_usec_list *sul)
 
 	{
 		char domain_str[256];
-		int dom_len;
 
 		if (!vhd->cli_domain) {
 			lwsl_err("No domain specified for zone file upload (use --domain)\n");
@@ -2669,10 +2746,10 @@ dht_dnssec_sul_put_cb(struct lws_sorted_usec_list *sul)
 			return;
 		}
 
-		dom_len = lws_snprintf(domain_str, sizeof(domain_str), "lws-dnssec-dht-%s", vhd->cli_domain);
+		lws_snprintf(domain_str, sizeof(domain_str), "lws-dnssec-dht-%s", vhd->cli_domain);
 
 		if (lws_genhash_init(&ctx, LWS_DHT_STORE_GENHASH) ||
-		    lws_genhash_update(&ctx, domain_str, (size_t)dom_len) ||
+		    lws_genhash_update(&ctx, domain_str, strlen(domain_str)) ||
 		    lws_genhash_destroy(&ctx, hash)) {
 			lwsl_err("Hash calculation failed\n");
 			return;
@@ -2707,13 +2784,12 @@ dht_dnssec_sul_get_cb(struct lws_sorted_usec_list *sul)
 
 	if (!get_hash && vhd->cli_get_domain) {
 		char domain_str[256];
-		int dom_len;
 		struct lws_genhash_ctx ctx;
 		uint8_t hash[LWS_GENHASH_LARGEST];
 
-		dom_len = lws_snprintf(domain_str, sizeof(domain_str), "lws-dnssec-dht-%s", vhd->cli_get_domain);
+		lws_snprintf(domain_str, sizeof(domain_str), "lws-dnssec-dht-%s", vhd->cli_get_domain);
 		if (!lws_genhash_init(&ctx, LWS_DHT_STORE_GENHASH) &&
-		    !lws_genhash_update(&ctx, domain_str, (size_t)dom_len) &&
+		    !lws_genhash_update(&ctx, domain_str, strlen(domain_str)) &&
 		    !lws_genhash_destroy(&ctx, hash)) {
 			lws_hex_from_byte_array(hash, (size_t)lws_genhash_size(LWS_DHT_STORE_GENHASH), computed_hash_hex, sizeof(computed_hash_hex));
 			get_hash = computed_hash_hex;
@@ -3106,24 +3182,24 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 		} else if (vhd->cli_put_file) {
 			lwsl_notice("%s: Taking PUT branch\n", __func__);
 			lwsl_user("%s: Starting PUT task\n", __func__);
-			lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_cap_cb, 10);
+			lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_cap_cb, 10 * LWS_US_PER_MS);
 		} else if (vhd->cli_bulk || vhd->gen_manifest) {
 			lwsl_notice("%s: Taking BULK branch\n", __func__);
 			lwsl_user("%s: Starting BULK task\n", __func__);
-			lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_bulk_cb, 10);
+			lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_bulk_cb, 10 * LWS_US_PER_MS);
 		} else if (vhd->cli_get_hash || vhd->cli_get_domain) {
 			lwsl_notice("%s: Taking GET branch\n", __func__);
 			lwsl_user("%s: Starting GET task\n", __func__);
-			lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_get_cb, 10);
+			lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_get_cb, 10 * LWS_US_PER_MS);
 		} else if (vhd->cli_receiver) {
 			lwsl_notice("%s: Taking RECEIVER branch\n", __func__);
 			lwsl_user("%s: Starting RECEIVER task\n", __func__);
-			lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_manifest_rcv_cb, 10);
-			lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_manifest_rcv_cb, 10);
+			lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_manifest_rcv_cb, 10 * LWS_US_PER_MS);
+			lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_manifest_rcv_cb, 10 * LWS_US_PER_MS);
 		} else {
 			lwsl_notice("%s: Taking BOOTSTRAP branch\n", __func__);
 			/* Always schedule bootstrap checking, either to actively ping target_ip OR passively wait for peers to ping us */
-			lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_bootstrap_cb, 10);
+			lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_bootstrap_cb, 10 * LWS_US_PER_MS);
 		}
 		break;
 	}
@@ -3863,6 +3939,8 @@ do_signzone(struct lws_context *context, struct lws_dht_dnssec_signzone_args *ar
 	int fd_acme = open(acmefile_path, O_RDONLY);
 	int has_acmefile = (fd_acme >= 0);
 
+	lwsl_notice("%s: Checking for ACME addon at %s (found: %d)\n", __func__, acmefile_path, has_acmefile);
+
 	struct lws_dht_dnssec_domain *dom = NULL;
 
 	if (v && args->domain) {
@@ -3986,7 +4064,7 @@ do_add_temp_zone(struct lws_context *context, const char *domain, const char *zo
 		struct lws_genhash_ctx ctx;
 		char domain_str[256];
 		char clean_domain[256];
-		int clen, dom_len;
+		int clen;
 
 		dom = malloc(sizeof(*dom));
 		if (!dom) return 1;
@@ -3998,10 +4076,10 @@ do_add_temp_zone(struct lws_context *context, const char *domain, const char *zo
 		clen = (int)strlen(clean_domain);
 		if (clen > 0 && clean_domain[clen - 1] == '.')
 			clean_domain[clen - 1] = '\0';
-		dom_len = lws_snprintf(domain_str, sizeof(domain_str), "lws-dnssec-dht-%s", clean_domain);
+		lws_snprintf(domain_str, sizeof(domain_str), "lws-dnssec-dht-%s", clean_domain);
 
 		if (lws_genhash_init(&ctx, LWS_DHT_STORE_GENHASH) ||
-		    lws_genhash_update(&ctx, domain_str, (size_t)dom_len) ||
+		    lws_genhash_update(&ctx, domain_str, strlen(domain_str)) ||
 		    lws_genhash_destroy(&ctx, dom->hash)) {
 			free(dom);
 			return 1;
@@ -4173,10 +4251,10 @@ do_fetch_zone(struct lws_context *context, struct lws_dht_dnssec_fetch_zone_args
 		lws_hex_to_byte_array(hex, hash, (int)lws_genhash_size(LWS_DHT_STORE_GENHASH));
 	} else {
 		char domain_str[256];
-		int dom_len = lws_snprintf(domain_str, sizeof(domain_str), "lws-dnssec-dht-%s", clean_domain);
+		lws_snprintf(domain_str, sizeof(domain_str), "lws-dnssec-dht-%s", clean_domain);
 
 		if (lws_genhash_init(&ctx, LWS_DHT_STORE_GENHASH) ||
-		    lws_genhash_update(&ctx, domain_str, (size_t)dom_len) ||
+		    lws_genhash_update(&ctx, domain_str, strlen(domain_str)) ||
 		    lws_genhash_destroy(&ctx, hash)) {
 			return 1;
 		}
@@ -4524,7 +4602,6 @@ do_subscribe_zone(struct lws_vhost *vhost, const char *domain)
 	struct vhd_dht_dnssec *vhd;
 	const struct lws_protocols *prot;
 	char domain_str[256];
-	int dom_len;
 	struct lws_genhash_ctx ctx;
 	uint8_t hash[LWS_GENHASH_LARGEST];
 
@@ -4539,9 +4616,14 @@ do_subscribe_zone(struct lws_vhost *vhost, const char *domain)
 	if (clen > 0 && clean_domain[clen - 1] == '.')
 		clean_domain[clen - 1] = '\0';
 
-	dom_len = lws_snprintf(domain_str, sizeof(domain_str), "lws-dnssec-dht-%s", clean_domain);
+
+	for (int i = 0; i < (int)strlen(clean_domain); i++)
+		clean_domain[i] = (char)tolower(clean_domain[i]);
+
+	lwsl_notice("%s: Normalizing domain to %s for DHT hash calculation\n", __func__, clean_domain);
+	lws_snprintf(domain_str, sizeof(domain_str), "lws-dnssec-dht-%s", clean_domain);
 	if (lws_genhash_init(&ctx, LWS_DHT_STORE_GENHASH) ||
-	    lws_genhash_update(&ctx, domain_str, (size_t)dom_len) ||
+	    lws_genhash_update(&ctx, domain_str, strlen(domain_str)) ||
 	    lws_genhash_destroy(&ctx, hash)) {
 		return 1;
 	}
@@ -4562,7 +4644,23 @@ do_subscribe_zone(struct lws_vhost *vhost, const char *domain)
 			memset(nsub, 0, sizeof(*nsub));
 			lws_strncpy(nsub->domain, domain, sizeof(nsub->domain));
 			memcpy(nsub->hash, hash, (size_t)lws_genhash_size(LWS_DHT_STORE_GENHASH));
-			nsub->needs_initial_fetch = 1;
+
+			char hex[65];
+			lws_hex_from_byte_array(hash, (size_t)lws_genhash_size(LWS_DHT_STORE_GENHASH), hex, sizeof(hex));
+			struct dht_dnssec_fetch_dir_args fda;
+			memset(&fda, 0, sizeof(fda));
+			fda.prefix = hex;
+			char dir_path[256];
+			lws_snprintf(dir_path, sizeof(dir_path), "%s/%.2s/%.2s", vhd->storage_path, hex, hex + 2);
+			lws_dir(dir_path, &fda, dht_dnssec_fetch_payload_cb);
+
+			if (fda.found) {
+				nsub->needs_initial_fetch = 0;
+				nsub->last_notify_fetch = time(NULL);
+			} else {
+				nsub->needs_initial_fetch = 1;
+			}
+
 			lws_dll2_add_tail(&nsub->list, &vhd->subscribed_domains);
 		}
 	}
@@ -4613,7 +4711,6 @@ do_notify_peer_outdated(struct lws_vhost *vhost, const char *domain,
 	struct vhd_dht_dnssec *vhd;
 	const struct lws_protocols *prot;
 	char domain_str[256];
-	int dom_len;
 	struct lws_genhash_ctx ctx;
 	uint8_t hash[LWS_GENHASH_LARGEST];
 	uint8_t payload[32]; // Up to 32 bytes to pass the serial
@@ -4629,9 +4726,9 @@ do_notify_peer_outdated(struct lws_vhost *vhost, const char *domain,
 	if (clen > 0 && clean_domain[clen - 1] == '.')
 		clean_domain[clen - 1] = '\0';
 
-	dom_len = lws_snprintf(domain_str, sizeof(domain_str), "lws-dnssec-dht-%s", clean_domain);
+	lws_snprintf(domain_str, sizeof(domain_str), "lws-dnssec-dht-%s", clean_domain);
 	if (lws_genhash_init(&ctx, LWS_DHT_STORE_GENHASH) ||
-	    lws_genhash_update(&ctx, domain_str, (size_t)dom_len) ||
+	    lws_genhash_update(&ctx, domain_str, strlen(domain_str)) ||
 	    lws_genhash_destroy(&ctx, hash)) {
 		return 1;
 	}
@@ -4645,6 +4742,11 @@ do_notify_peer_outdated(struct lws_vhost *vhost, const char *domain,
 	payload[5] = (uint8_t)(newer_soa_serial >> 16);
 	payload[6] = (uint8_t)(newer_soa_serial >> 8);
 	payload[7] = (uint8_t)(newer_soa_serial & 0xff);
+
+	/* Append the domain name to the payload to allow auto-discovery on authoritative nodes */
+	size_t payload_len = 8;
+	lws_strncpy((char *)payload + 8, clean_domain, sizeof(payload) - 8);
+	payload_len += strlen(clean_domain) + 1;
 
 	uint8_t tid[4];
 	char peer_ip[64];
@@ -4669,14 +4771,14 @@ do_notify_peer_outdated(struct lws_vhost *vhost, const char *domain,
 		lws_dht_send_notify(vhd->dht, (const struct sockaddr *)&sa46_peer->sa4, sizeof(sa46_peer->sa4),
 				    tid, sizeof(tid),
 				    proper_hash, NULL,
-				    payload, 8);
+				    payload, payload_len);
 	}
 #if defined(LWS_WITH_IPV6)
 	else if (sa46_peer->sa6.sin6_family == AF_INET6) {
 		lws_dht_send_notify(vhd->dht, (const struct sockaddr *)&sa46_peer->sa6, sizeof(sa46_peer->sa6),
 				    tid, sizeof(tid),
 				    proper_hash, NULL,
-				    payload, 8);
+				    payload, payload_len);
 	}
 #endif
 
@@ -4701,7 +4803,7 @@ LWS_VISIBLE const struct lws_protocols lws_dht_dnssec_protocols[] = {
 	{
 		.name = "lws-dht-dnssec",
 		.callback = callback_dht_dnssec,
-		.per_session_data_size = sizeof(struct vhd_dht_dnssec),
+		.per_session_data_size = 0,
 		.rx_buffer_size = 4096,
 		.user = (void *)&ops
 	},

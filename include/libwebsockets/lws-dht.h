@@ -238,7 +238,7 @@ lws_dht_register_verbs(struct lws_dht_ctx *ctx, const char **verbs, int count, c
  * \return number of subscribers notified, or negative on error
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_dht_notify_subscribers(struct lws_dht_ctx *ctx, const lws_dht_hash_t *hash, const uint8_t *sha256);
+lws_dht_notify_subscribers(struct lws_dht_ctx *ctx, const lws_dht_hash_t *hash, const uint8_t *sha256, const uint8_t *payload, size_t payload_len);
 
 /**
  * lws_dht_blacklist_cb_t() - DHT blacklist check callback

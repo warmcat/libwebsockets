@@ -433,7 +433,7 @@ again:
 		}
 		sr->af		= af;
 		sr->tid		= ctx->search_id++;
-		sr->step_time	= 0;
+		sr->step_time	= ctx->now.tv_sec;
 		sr->id		= lws_dht_hash_dup(id);
 
 		if (!sr->id) {

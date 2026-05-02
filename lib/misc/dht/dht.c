@@ -300,6 +300,16 @@ pass:
 	return 0;
 }
 
+static void
+lws_dht_ts_idle_cb(lws_sorted_usec_list_t *sul)
+{
+	lws_dht_ts_t *dts = lws_container_of(sul, lws_dht_ts_t, sul_idle);
+
+	lws_transport_sequencer_destroy(&dts->ts);
+	lws_dll2_remove(&dts->list);
+	lws_free(dts);
+}
+
 void
 dht_on_state_change(struct lws_transport_sequencer *ts, int state, int status)
 {
@@ -312,8 +322,12 @@ dht_on_state_change(struct lws_transport_sequencer *ts, int state, int status)
 			     NULL, (void *)(intptr_t)status, 0,
 			     (struct sockaddr *)&dts->sa, dts->salen);
 
-	lws_dll2_remove(&dts->list);
-	lws_free(dts);
+	if (state != 0) {
+		lws_sul_cancel(&dts->sul_idle);
+		lws_transport_sequencer_destroy(&dts->ts);
+		lws_dll2_remove(&dts->list);
+		lws_free(dts);
+	}
 }
 
 static const lws_transport_sequencer_ops_t dht_seq_ops = {
@@ -362,8 +376,10 @@ lws_dht_get_ts(struct lws_dht_ctx *ctx, const struct sockaddr *dest, size_t sale
 			}
 		}
 
-		if (match)
+		if (match) {
+			lws_sul_schedule(ctx->vhost->context, 0, &dts->sul_idle, lws_dht_ts_idle_cb, 30 * LWS_US_PER_SEC);
 			return dts->ts;
+		}
 
 		d = d->next;
 	}
@@ -401,6 +417,7 @@ lws_dht_get_ts(struct lws_dht_ctx *ctx, const struct sockaddr *dest, size_t sale
 	}
 
 	lws_dll2_add_tail(&dts->list, &ctx->ts_owner);
+	lws_sul_schedule(ctx->vhost->context, 0, &dts->sul_idle, lws_dht_ts_idle_cb, 30 * LWS_US_PER_SEC);
 
 	return dts->ts;
 }
@@ -850,6 +867,7 @@ lws_dht_destroy(struct lws_dht_ctx **pctx)
 		lws_dll2_t *d1 = d->next;
 		lws_dht_ts_t *dts = lws_container_of(d, lws_dht_ts_t, list);
 
+		lws_sul_cancel(&dts->sul_idle);
 		lws_transport_sequencer_destroy(&dts->ts);
 		lws_dll2_remove(&dts->list);
 		lws_free(dts);
@@ -1015,7 +1033,7 @@ lws_dht_msg_parse(const char *in, size_t len, struct lws_dht_msg *out)
 }
 
 int
-lws_dht_notify_subscribers(struct lws_dht_ctx *ctx, const lws_dht_hash_t *hash, const uint8_t *sha256)
+lws_dht_notify_subscribers(struct lws_dht_ctx *ctx, const lws_dht_hash_t *hash, const uint8_t *sha256, const uint8_t *payload, size_t payload_len)
 {
 #if defined(LWS_WITH_DHT_BACKEND)
 	struct storage *st;
@@ -1035,7 +1053,7 @@ lws_dht_notify_subscribers(struct lws_dht_ctx *ctx, const lws_dht_hash_t *hash, 
 		if (ctx->now.tv_sec <= sub->expire) {
 			/* Only notify if the content actually changed from what they have */
 			if (memcmp(sub->current_sha256, sha256, 32)) {
-				lws_dht_send_notify(ctx, (struct sockaddr *)&sub->ss, sub->sslen, sub->tid, sub->tid_len, hash, sha256, NULL, 0);
+				lws_dht_send_notify(ctx, (struct sockaddr *)&sub->ss, sub->sslen, sub->tid, sub->tid_len, hash, sha256, payload, payload_len);
 
 				/* Queue up reliable delivery retry state */
 				sub->pending_notify = 1;
