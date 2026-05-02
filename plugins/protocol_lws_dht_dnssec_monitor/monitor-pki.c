@@ -139,3 +139,8 @@ generate_client_cert(struct vhd *vhd, const char *domain, const char *subdomain)
 	lwsl_notice("%s: Generating Client Cert for %s\n", __func__, subdomain);
 	generate_cert_internal(vhd, subdomain, path_crt, path_key, ca_crt, ca_key, 0);
 }
+void
+pki_init(struct vhd *vhd)
+{
+	generate_dist_pki(vhd);
+}

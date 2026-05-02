@@ -370,7 +370,9 @@ lws_process_ws_upgrade2(struct lws *wsi)
 			LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION,
 			wsi->user_space,
 		      lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL), 0)) {
-		lwsl_warn("User code denied connection\n");
+		char name[64];
+		lwsl_warn("User code denied connection: protocol=%s, peer=%s\n",
+			  wsi->a.protocol->name, lws_get_peer_simple(wsi, name, sizeof(name)));
 		return 1;
 	}
 

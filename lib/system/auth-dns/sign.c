@@ -83,6 +83,33 @@ name_to_wire(const char *name, const char *origin, uint8_t *wire, size_t *wire_l
 	return 0;
 }
 
+static int
+lws_auth_dns_b32hex_decode(const char *in, uint8_t *out, size_t out_max)
+{
+	uint32_t bitb = 0;
+	int bits = 0;
+	size_t olen = 0;
+
+	while (*in) {
+		int val = -1;
+		if (*in >= '0' && *in <= '9') val = *in - '0';
+		else if (*in >= 'A' && *in <= 'V') val = *in - 'A' + 10;
+		else if (*in >= 'a' && *in <= 'v') val = *in - 'a' + 10;
+
+		if (val >= 0) {
+			bitb = (bitb << 5) | (uint32_t)val;
+			bits += 5;
+			if (bits >= 8) {
+				if (olen >= out_max) return -1;
+				out[olen++] = (uint8_t)(bitb >> (bits - 8));
+				bits -= 8;
+			}
+		}
+		in++;
+	}
+	return (int)olen;
+}
+
 int
 lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint16_t type, const char *ipv4, const char *ipv6)
 {
@@ -152,6 +179,10 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		size_t av = 512;
 		if (name_to_wire(toks[0], z->origin, w, &av)) goto fail;
 		wl = av;
+	} else if (type == 5 && num_toks >= 1) { // CNAME
+		size_t av = 512;
+		if (name_to_wire(toks[0], z->origin, w, &av)) goto fail;
+		wl = av;
 	} else if (type == 15 && num_toks >= 2) { // MX
 		uint16_t p = (uint16_t)atoi(toks[0]);
 		w[0] = (uint8_t)(p >> 8); w[1] = (uint8_t)(p & 0xff);
@@ -183,32 +214,100 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 			memcpy(w + wl, toks[i], (size_t)n);
 			wl += (size_t)n;
 		}
-	} else if (type == 50 && num_toks >= 1) { // NSEC3
-		/* [NSEC3 base32hex] is just stored as raw ascii text for the test right now, but
-		 * a real NSEC3 has Hash Alg, Flags, Iterations, Salt, Next Hashed Owner Name, Type Bitmaps.
-		 * To proceed with the test, we'll pack the base32hex string length and string since we are
-		 * mocking the crypto loop.
-		 */
-		n = (int)strlen(toks[1]);
-		w[wl++] = (uint8_t)n;
-		memcpy(w + wl, toks[1], (size_t)n);
-		wl += (size_t)n;
+	} else if (type == 50 && num_toks >= 5) { // NSEC3
+		int tidx = 0;
+		if (!strcasecmp(toks[tidx], "NSEC3"))
+			tidx++;
+		if (num_toks - tidx < 5) goto fail;
+
+		/* Format: HashAlg Flags Iterations Salt NextB32 Type1 Type2 ... */
+		w[wl++] = (uint8_t)atoi(toks[tidx + 0]); /* Hash Alg */
+		w[wl++] = (uint8_t)atoi(toks[tidx + 1]); /* Flags */
+		uint16_t iters = (uint16_t)atoi(toks[tidx + 2]); /* Iterations */
+		w[wl++] = (uint8_t)(iters >> 8);
+		w[wl++] = (uint8_t)(iters & 0xff);
+
+		/* Salt Length & Salt */
+		if (!strcmp(toks[tidx + 3], "-")) {
+			w[wl++] = 0;
+		} else {
+			size_t slen = strlen(toks[tidx + 3]) / 2;
+			w[wl++] = (uint8_t)slen;
+			lws_hex_to_byte_array(toks[tidx + 3], w + wl, (int)slen);
+			wl += slen;
+		}
+
+		/* Hash Length & Next Hashed Owner Name */
+		/* The NextHashedOwnerName is base32hex encoded without padding. */
+		/* We need to decode it back into binary. */
+		uint8_t nxt_hash[64];
+		int nxt_len = lws_auth_dns_b32hex_decode(toks[tidx + 4], nxt_hash, sizeof(nxt_hash));
+		if (nxt_len < 0) goto fail;
+		w[wl++] = (uint8_t)nxt_len;
+		memcpy(w + wl, nxt_hash, (size_t)nxt_len);
+		wl += (size_t)nxt_len;
+
+		/* Type Bit Maps */
+		/* Build the type bit maps from the remaining tokens */
+		uint8_t window_blocks[256][32]; /* 256 windows, each 32 bytes max */
+		uint8_t window_max[256];
+		memset(window_blocks, 0, sizeof(window_blocks));
+		memset(window_max, 0, sizeof(window_max));
+
+		for (int i = tidx + 5; i < num_toks; i++) {
+			uint16_t ty = 0;
+			if (!strcmp(toks[i], "A")) ty = 1;
+			else if (!strcmp(toks[i], "NS")) ty = 2;
+			else if (!strcmp(toks[i], "CNAME")) ty = 5;
+			else if (!strcmp(toks[i], "SOA")) ty = 6;
+			else if (!strcmp(toks[i], "MX")) ty = 15;
+			else if (!strcmp(toks[i], "TXT")) ty = 16;
+			else if (!strcmp(toks[i], "AAAA")) ty = 28;
+			else if (!strcmp(toks[i], "RRSIG")) ty = 46;
+			else if (!strcmp(toks[i], "DNSKEY")) ty = 48;
+			else if (!strcmp(toks[i], "NSEC3")) ty = 50;
+			else if (!strcmp(toks[i], "NSEC3PARAM")) ty = 51;
+			else if (!strcmp(toks[i], "CAA")) ty = 257;
+			else ty = (uint16_t)atoi(toks[i]);
+
+			if (ty > 0) {
+				int win = ty / 256;
+				int byte_idx = (ty % 256) / 8;
+				int bit_idx = 7 - (ty % 8);
+				window_blocks[win][byte_idx] |= (1 << bit_idx);
+				if (byte_idx >= window_max[win]) window_max[win] = (uint8_t)(byte_idx + 1);
+			}
+		}
+
+		for (int win = 0; win < 256; win++) {
+			if (window_max[win] > 0) {
+				w[wl++] = (uint8_t)win; /* Window Block number */
+				w[wl++] = window_max[win]; /* Bitmap Length */
+				memcpy(w + wl, window_blocks[win], window_max[win]);
+				wl += window_max[win];
+			}
+		}
 	} else if (type == 51 && num_toks >= 4) { // NSEC3PARAM
+		int tidx = 0;
+		if (!strcasecmp(toks[tidx], "NSEC3PARAM"))
+			tidx++;
+		if (num_toks - tidx < 4) goto fail;
+
 		/* Hash Algorithm */
-		w[wl++] = (uint8_t)atoi(toks[0]);
+		w[wl++] = (uint8_t)atoi(toks[tidx + 0]);
 		/* Flags */
-		w[wl++] = (uint8_t)atoi(toks[1]);
+		w[wl++] = (uint8_t)atoi(toks[tidx + 1]);
 		/* Iterations */
-		uint16_t iters = (uint16_t)atoi(toks[2]);
+		uint16_t iters = (uint16_t)atoi(toks[tidx + 2]);
 		w[wl++] = (uint8_t)(iters >> 8);
 		w[wl++] = (uint8_t)(iters & 0xff);
 		/* Salt Length & Salt */
-		if (!strcmp(toks[3], "-")) {
+		if (!strcmp(toks[tidx + 3], "-")) {
 			w[wl++] = 0;
 		} else {
-			size_t slen = strlen(toks[3]) / 2;
+			size_t slen = strlen(toks[tidx + 3]) / 2;
 			w[wl++] = (uint8_t)slen;
-			lws_hex_to_byte_array(toks[3], w + wl, (int)slen);
+			lws_hex_to_byte_array(toks[tidx + 3], w + wl, (int)slen);
 			wl += slen;
 		}
 	} else if (type == 48 && num_toks >= 4) { // DNSKEY
@@ -587,24 +686,68 @@ bail:
 	return ret;
 }
 
+struct nsec3_node {
+	char *name;
+	uint8_t hash[20];
+	char b32[64];
+	char type_list[512];
+};
+
+static int
+cmp_nsec3_node(const void *a, const void *b)
+{
+	const struct nsec3_node *na = *(const struct nsec3_node **)a;
+	const struct nsec3_node *nb = *(const struct nsec3_node **)b;
+	return strcmp(na->b32, nb->b32);
+}
+
 static int
 lws_auth_dns_add_nsec3(struct auth_dns_zone *z, const char *salt_hex, int iterations)
 {
-	/* Need a list of unique canonical names to hash */
-	char *names[1024]; /* Rough upper bound for test */
+	struct nsec3_node *nodes[1024]; /* Rough upper bound for test */
 	int num_names = 0;
 
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&z->rrset_list)) {
 		struct auth_dns_rrset *rs = lws_container_of(d, struct auth_dns_rrset, list);
-		int found = 0;
+		int found = -1;
 		for (int i = 0; i < num_names; i++) {
-			if (!strcmp(names[i], rs->name)) {
-				found = 1;
+			if (!strcmp(nodes[i]->name, rs->name)) {
+				found = i;
 				break;
 			}
 		}
-		if (!found && num_names < 1024)
-			names[num_names++] = lws_strdup(rs->name);
+		if (found < 0 && num_names < 1024) {
+			nodes[num_names] = lws_zalloc(sizeof(struct nsec3_node), "nsec3_node");
+			if (!nodes[num_names]) continue;
+			nodes[num_names]->name = lws_strdup(rs->name);
+			found = num_names++;
+		}
+
+		if (found >= 0) {
+			const char *ts = "UNKNOWN";
+			switch (rs->type) {
+				case 1: ts = "A"; break;
+				case 2: ts = "NS"; break;
+				case 5: ts = "CNAME"; break;
+				case 6: ts = "SOA"; break;
+				case 15: ts = "MX"; break;
+				case 16: ts = "TXT"; break;
+				case 28: ts = "AAAA"; break;
+				case 46: ts = "RRSIG"; break;
+				case 48: ts = "DNSKEY"; break;
+				case 50: ts = "NSEC3"; break;
+				case 51: ts = "NSEC3PARAM"; break;
+				case 257: ts = "CAA"; break;
+			}
+			/* Append type if not already there */
+			if (!strstr(nodes[found]->type_list, ts)) {
+				size_t len = strlen(nodes[found]->type_list);
+				if (len < sizeof(nodes[found]->type_list) - 32) {
+					if (len > 0) { nodes[found]->type_list[len++] = ' '; nodes[found]->type_list[len] = '\0'; }
+					strcat(nodes[found]->type_list, ts);
+				}
+			}
+		}
 	} lws_end_foreach_dll(d);
 
 	/* parse salt */
@@ -618,19 +761,20 @@ lws_auth_dns_add_nsec3(struct auth_dns_zone *z, const char *salt_hex, int iterat
 	for (int i = 0; i < num_names; i++) {
 		uint8_t wire[256];
 		size_t wl = sizeof(wire);
-		if (name_to_wire(names[i], z->origin, wire, &wl))
+		if (name_to_wire(nodes[i]->name, z->origin, wire, &wl)) {
+			nodes[i]->b32[0] = '\0';
 			continue;
+		}
 
-		uint8_t hash[32];
 		struct lws_genhash_ctx hctx;
 
 		/* first iteration: hash(salt + wire) */
 		if (lws_genhash_init(&hctx, LWS_GENHASH_TYPE_SHA1) ||
 		    (salt_len && lws_genhash_update(&hctx, salt, salt_len)) ||
 		    lws_genhash_update(&hctx, wire, wl) ||
-		    lws_genhash_destroy(&hctx, hash)) {
+		    lws_genhash_destroy(&hctx, nodes[i]->hash)) {
 			lws_genhash_destroy(&hctx, NULL);
-			lws_free(names[i]);
+			nodes[i]->b32[0] = '\0';
 			continue;
 		}
 
@@ -638,18 +782,36 @@ lws_auth_dns_add_nsec3(struct auth_dns_zone *z, const char *salt_hex, int iterat
 		for (int j = 0; j < iterations; j++) {
 			if (lws_genhash_init(&hctx, LWS_GENHASH_TYPE_SHA1) ||
 			    (salt_len && lws_genhash_update(&hctx, salt, salt_len)) ||
-			    lws_genhash_update(&hctx, hash, 20) || /* SHA1 is 20 bytes */
-			    lws_genhash_destroy(&hctx, hash)) {
+			    lws_genhash_update(&hctx, nodes[i]->hash, 20) || /* SHA1 is 20 bytes */
+			    lws_genhash_destroy(&hctx, nodes[i]->hash)) {
 				lws_genhash_destroy(&hctx, NULL);
 				break;
 			}
 		}
 
-		char b32[128];
-		lws_auth_dns_b32hex_encode(hash, 20, b32);
+		lws_auth_dns_b32hex_encode(nodes[i]->hash, 20, nodes[i]->b32);
+
+		/* Always add RRSIG to type list, as all records will be signed */
+		if (!strstr(nodes[i]->type_list, "RRSIG")) {
+			size_t len = strlen(nodes[i]->type_list);
+			if (len > 0) { nodes[i]->type_list[len++] = ' '; nodes[i]->type_list[len] = '\0'; }
+			strcat(nodes[i]->type_list, "RRSIG");
+		}
+	}
+
+	/* Sort nodes by b32 hash */
+	qsort(nodes, (size_t)num_names, sizeof(void *), cmp_nsec3_node);
+
+	for (int i = 0; i < num_names; i++) {
+		if (!nodes[i]->b32[0]) continue;
+
+		int next_idx = (i + 1) % num_names;
+		while (!nodes[next_idx]->b32[0] && next_idx != i) {
+			next_idx = (next_idx + 1) % num_names;
+		}
 
 		char fqdn[256];
-		lws_snprintf(fqdn, sizeof(fqdn), "%s.%s", b32, z->origin);
+		lws_snprintf(fqdn, sizeof(fqdn), "%s.%s", nodes[i]->b32, z->origin);
 
 		/* Create NSEC3 rrset manually since it needs to be hashed as owner name */
 		struct auth_dns_rrset *rrset = lws_zalloc(sizeof(*rrset), "nsec3");
@@ -662,15 +824,17 @@ lws_auth_dns_add_nsec3(struct auth_dns_zone *z, const char *salt_hex, int iterat
 
 			struct auth_dns_rr *rr = lws_zalloc(sizeof(*rr), "rr");
 			if (rr) {
-				char tb[256];
-				lws_snprintf(tb, sizeof(tb), "[NSEC3 %s]", b32);
+				char tb[1024];
+				/* Format: HashAlg Flags Iterations Salt NextB32 Type1 Type2 ... */
+				lws_snprintf(tb, sizeof(tb), "1 0 %d %s %s %s", iterations, salt_hex ? salt_hex : "-", nodes[next_idx]->b32, nodes[i]->type_list);
 				rr->rdata = lws_strdup(tb);
 				rr->rdata_len = strlen(rr->rdata);
 				lws_auth_dns_rdata_to_wire(z, rr, rrset->type, NULL, NULL);
 				lws_dll2_add_tail(&rr->list, &rrset->rr_list);
 			}
 		}
-		lws_free(names[i]);
+		lws_free(nodes[i]->name);
+		lws_free(nodes[i]);
 	}
 
 	/* Insert NSEC3PARAM at apex */

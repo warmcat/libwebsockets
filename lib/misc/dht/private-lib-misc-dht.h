@@ -284,6 +284,7 @@ typedef struct lws_dht_ts {
 	struct sockaddr_storage		sa;
 	size_t				salen;
 	struct lws_dht_ctx		*ctx;
+	lws_sorted_usec_list_t		sul_idle;
 } lws_dht_ts_t;
 
 struct lws_dht_mparams {

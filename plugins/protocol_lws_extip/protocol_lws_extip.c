@@ -147,6 +147,7 @@ extip_report_ip_offline(struct vhd_extip *vhd, int i)
 	else
 		zero.sa6.sin6_family = AF_INET6;
 
+	lwsl_notice("EXTIP_DEBUG: extip_report_ip_offline for IPv%c\n", i ? '6' : '4');
 	lws_extip_report(vhd->context, LWS_EXTIP_SRC_EXTIP, &zero, !i ? AF_INET : AF_INET6, 2, NULL, 0);
 }
 
@@ -237,7 +238,7 @@ callback_extip(struct lws *wsi, enum lws_callback_reasons reason, void *user, vo
                 if (!pvo)
                         return -1;
 
-		lwsl_vhost_notice(lws_get_vhost(wsi), "%s: LWS_CALLBACK_PROTOCOL_INIT starting\n", __func__);
+		lwsl_vhost_notice(lws_get_vhost(wsi), "EXTIP_DEBUG: %s: LWS_CALLBACK_PROTOCOL_INIT starting\n", __func__);
 
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi), lws_get_protocol(wsi), sizeof(struct vhd_extip));
 		if (!vhd)
@@ -363,6 +364,7 @@ callback_extip(struct lws *wsi, enum lws_callback_reasons reason, void *user, vo
 				buf[len] = '\0';
 				memset(&sa46, 0, sizeof(sa46));
 				lws_sa46_parse_numeric_address(buf + 1 + LENGTH_EXTIP_COOKIE, &sa46);
+				lwsl_notice("EXTIP_DEBUG: Client reporting online IP to lws_extip_report\n");
 				lws_extip_report(vhd->context, LWS_EXTIP_SRC_EXTIP, &sa46, sa46.sa4.sin_family == AF_INET ? AF_INET : AF_INET6, 1, NULL, 0);
 			}
 

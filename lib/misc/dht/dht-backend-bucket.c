@@ -316,7 +316,9 @@ maybe_new_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 	}
 
 	if (is_martian(sa) || node_blacklisted(ctx, sa, salen)) {
-		lwsl_dht_warn("%s: martian or blacklisted\n", __func__);
+		char buf[64] = "unknown";
+		lws_sa46_write_numeric_address((lws_sockaddr46 *)sa, buf, sizeof(buf));
+		lwsl_dht_warn("%s: martian or blacklisted: %s\n", __func__, buf);
 		return NULL;
 	}
 

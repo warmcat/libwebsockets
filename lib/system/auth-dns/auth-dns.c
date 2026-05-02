@@ -92,9 +92,11 @@ lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *z
 	int in_parens = 0;
 	int in_comment = 0;
 
-	char line_accum[4096];
+	char line_accum[16384];
 	size_t lptr = 0;
 	int loop_cycles = 0;
+
+	lwsl_notice("%s: Parsing zone buffer of length %zu\n", __func__, len);
 
 	while (p <= end) {
 		if (++loop_cycles > 5000000) {
@@ -120,14 +122,15 @@ lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *z
 			if (lptr > 0) {
 				lws_tokenize_t ts;
 				lws_tokenize_elem e;
-				char toks[8][256];
+				lws_tokenize_init(&ts, line_accum, LWS_TOKENIZE_F_HASH_COMMENT | LWS_TOKENIZE_F_DOT_NONTERM | LWS_TOKENIZE_F_NO_FLOATS | LWS_TOKENIZE_F_MINUS_NONTERM | LWS_TOKENIZE_F_SLASH_NONTERM | LWS_TOKENIZE_F_COLON_NONTERM | LWS_TOKENIZE_F_EQUALS_NONTERM | LWS_TOKENIZE_F_PLUS_NONTERM);
+				ts.len = lptr;
+
+				char toks[32][256];
+				const char *tok_ptr[32];
 				int num_toks = 0, name_inherited = 0, n;
 
 				if (line_accum[0] == ' ' || line_accum[0] == '\t')
 					name_inherited = 1;
-
-				lws_tokenize_init(&ts, line_accum, LWS_TOKENIZE_F_HASH_COMMENT | LWS_TOKENIZE_F_DOT_NONTERM | LWS_TOKENIZE_F_NO_FLOATS | LWS_TOKENIZE_F_MINUS_NONTERM | LWS_TOKENIZE_F_SLASH_NONTERM | LWS_TOKENIZE_F_COLON_NONTERM | LWS_TOKENIZE_F_EQUALS_NONTERM | LWS_TOKENIZE_F_PLUS_NONTERM);
-				ts.len = lptr;
 
 				int max_tokens = 0;
 				do {
@@ -136,15 +139,17 @@ lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *z
 						break;
 
 					if (e == LWS_TOKZE_TOKEN || e == LWS_TOKZE_QUOTED_STRING || e == LWS_TOKZE_INTEGER) {
-						if (num_toks < 8) {
+						if (num_toks < 32) {
 							n = (int)ts.token_len;
 							if (n > (int)sizeof(toks[0]) - 1)
 								n = sizeof(toks[0]) - 1;
 							memcpy(toks[num_toks], ts.token, (size_t)n);
 							toks[num_toks][n] = '\0';
+							tok_ptr[num_toks] = ts.start;
+							num_toks++;
 						}
-						num_toks++;
 					}
+
 				} while (e > 0);
 
 				if (!strncmp(line_accum, "$ORIGIN", 7)) {
@@ -216,28 +221,36 @@ lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *z
 							}
 						}
 
-						if (type_idx < num_toks && !strcmp(toks[type_idx], "IN")) {
+						for (int i = 0; i < num_toks; i++) {
+							lwsl_notice("  Token[%d]: '%s'\n", i, toks[i]);
+						}
+
+						if (type_idx < num_toks && !strcasecmp(toks[type_idx], "IN")) {
 							class_ = 1;
 							type_idx++;
 						}
 
 						if (type_idx < num_toks) {
+							lwsl_notice("  Attempting type match at type_idx=%d: '%s'\n", type_idx, toks[type_idx]);
 							/* simplistic type assignment */
-							if (!strcmp(toks[type_idx], "A")) type = 1;
-							else if (!strcmp(toks[type_idx], "NS")) type = 2;
-							else if (!strcmp(toks[type_idx], "SOA")) type = 6;
-							else if (!strcmp(toks[type_idx], "MX")) type = 15;
-							else if (!strcmp(toks[type_idx], "TXT")) type = 16;
-							else if (!strcmp(toks[type_idx], "AAAA")) type = 28;
-							else if (!strcmp(toks[type_idx], "RRSIG")) type = 46;
-							else if (!strcmp(toks[type_idx], "DNSKEY")) type = 48;
-							else if (!strcmp(toks[type_idx], "NSEC3")) type = 50;
-							else if (!strcmp(toks[type_idx], "NSEC3PARAM")) type = 51;
-							else if (!strcmp(toks[type_idx], "TLSA")) type = 52;
-							else if (!strcmp(toks[type_idx], "CAA")) type = 257;
+							if (!strcasecmp(toks[type_idx], "A")) type = 1;
+							else if (!strcasecmp(toks[type_idx], "NS")) type = 2;
+							else if (!strcasecmp(toks[type_idx], "SOA")) type = 6;
+							else if (!strcasecmp(toks[type_idx], "CNAME")) type = 5;
+							else if (!strcasecmp(toks[type_idx], "MX")) type = 15;
+							else if (!strcasecmp(toks[type_idx], "TXT")) type = 16;
+							else if (!strcasecmp(toks[type_idx], "AAAA")) type = 28;
+							else if (!strcasecmp(toks[type_idx], "RRSIG")) type = 46;
+							else if (!strcasecmp(toks[type_idx], "DNSKEY")) type = 48;
+							else if (!strcasecmp(toks[type_idx], "NSEC3")) type = 50;
+							else if (!strcasecmp(toks[type_idx], "NSEC3PARAM")) type = 51;
+							else if (!strcasecmp(toks[type_idx], "TLSA")) type = 52;
+							else if (!strcasecmp(toks[type_idx], "CAA")) type = 257;
 							else type = 0; /* unknown */
 							type_idx++;
 						}
+
+						lwsl_notice("%s: Record: name=%s, type=%u, class=%u, tokens=%d, final_type_idx=%d\n", __func__, cur_name, type, class_, num_toks, type_idx);
 
 						/* find existing rrset */
 						lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&zone->rrset_list)) {
@@ -265,22 +278,26 @@ lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *z
 
 						/* The remainder of the line is rdata. */
 						{
-							char *rd = strstr(line_accum, toks[type_idx - 1]);
+							const char *rd = tok_ptr[type_idx - 1];
 							if (rd) {
-								rd += strlen(toks[type_idx - 1]);
 								while (*rd == ' ' || *rd == '\t') rd++;
 
 								/* Strip surrounding quotes if present (TXT records) */
 								size_t rdlen = strlen(rd);
 								if (rdlen >= 2 && rd[0] == '"' && rd[rdlen - 1] == '"') {
-									rd[rdlen - 1] = '\0';
-									rdlen -= 2;
-									rd++;
+									char *qrd = lws_strdup(rd);
+									if (qrd) {
+										rdlen = strlen(qrd);
+										qrd[rdlen - 1] = '\0';
+										rr->rdata = lws_strdup(qrd + 1);
+										rr->rdata_len = rdlen - 2;
+										lws_free(qrd);
+									}
+								} else {
+									rr->rdata = lws_strdup(rd);
+									if (rr->rdata)
+										rr->rdata_len = rdlen;
 								}
-
-								rr->rdata = lws_strdup(rd);
-								if (rr->rdata)
-									rr->rdata_len = rdlen;
 							}
 						}
 
@@ -295,7 +312,7 @@ lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *z
 
 			lptr = 0;
 		} else {
-			if (lptr < sizeof(line_accum) - 1)
+			if (!in_comment && *p != '(' && *p != ')' && *p != '\n' && *p != '\r' && lptr < sizeof(line_accum) - 1)
 				line_accum[lptr++] = *p;
 		}
 		p++;
@@ -446,6 +463,7 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 		switch (rs->type) {
 			case 1: ts = "A"; break;
 			case 2: ts = "NS"; break;
+			case 5: ts = "CNAME"; break;
 			case 6: ts = "SOA"; break;
 			case 15: ts = "MX"; break;
 			case 16: ts = "TXT"; break;
@@ -485,7 +503,7 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 	}
 
 	ofd = open(info->output_filepath ? info->output_filepath : "signed.zone", LWS_O_RDONLY);
-	if (ofd < 0 || fstat(ofd, &ost) || ost.st_size <= 0 || ost.st_size >= 10000) {
+	if (ofd < 0 || fstat(ofd, &ost) || ost.st_size <= 0 || ost.st_size >= 1048576) {
 		lwsl_err("Failed file open/stat ofd=%d st_size=%ld\n", ofd, (long)ost.st_size);
 		goto bail_jwk;
 	}

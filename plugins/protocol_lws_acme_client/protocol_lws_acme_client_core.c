@@ -160,6 +160,7 @@ static const lws_struct_map_t map_acme_cert_config[] = {
 	LSM_STRING_PTR(struct lws_acme_cert_config, common_name, "common-name"),
 	LSM_STRING_PTR(struct lws_acme_cert_config, challenge_type_str, "challenge-type"),
 	LSM_STRING_PTR(struct lws_acme_cert_config, email, "email"),
+	LSM_STRING_PTR(struct lws_acme_cert_config, profile, "profile"),
 	LSM_CHILD_PTR(struct lws_acme_cert_config, acme, struct lws_acme_cert_config_acme, NULL, map_acme_acme_obj, "acme"),
 };
 
@@ -179,6 +180,10 @@ acme_ipc_save_payload(struct per_vhost_data__lws_acme_client *vhd, const char *r
 		lwsl_err("IPC socket() failed: %d\n", errno);
 		return 1;
 	}
+
+	int flags = fcntl(fd, F_GETFL, 0);
+	fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+
 	struct sockaddr_un addr;
 	memset(&addr, 0, sizeof(addr));
 	addr.sun_family = AF_UNIX;
@@ -191,6 +196,15 @@ acme_ipc_save_payload(struct per_vhost_data__lws_acme_client *vhd, const char *r
 			goto connected;
 
 		last_errno = errno;
+		if (errno == EINPROGRESS || errno == EALREADY) {
+			struct pollfd pfd;
+			pfd.fd = fd;
+			pfd.events = POLLOUT;
+			if (poll(&pfd, 1, 100) > 0)
+				goto connected;
+			continue;
+		}
+
 		if (errno == ECONNREFUSED || errno == ENOENT) {
 			usleep(100000); /* 100ms */
 			continue;
@@ -241,17 +255,34 @@ connected:
 #endif
 
 	int hlen = lws_snprintf(header, sizeof(header), "{\"req\":\"%s\",\"jwt\":\"%s\",\"domain\":\"%s\",\"subdomain\":\"%s\",\"zone\":\"", req, jwt, domain, filename);
-	write(fd, header, (size_t)hlen);
 
-	for (size_t i = 0; i < payload_len; i++) {
-        char c = payload[i];
-        if (c == '\n') { write(fd, "\\n", 2); }
-        else if (c == '\r') { write(fd, "\\r", 2); }
-        else if (c == '"') { write(fd, "\\\"", 2); }
-        else if (c == '\\') { write(fd, "\\\\", 2); }
-        else { write(fd, &c, 1); }
-    }
-	write(fd, "\"}\n", 3);
+	size_t est_len = (size_t)hlen + (payload_len * 2) + 4;
+	char *dyn_buf = malloc(est_len);
+	if (dyn_buf) {
+		memcpy(dyn_buf, header, (size_t)hlen);
+		size_t pos = (size_t)hlen;
+		for (size_t i = 0; i < payload_len; i++) {
+			char c = payload[i];
+			if (c == '\n') { dyn_buf[pos++] = '\\'; dyn_buf[pos++] = 'n'; }
+			else if (c == '\r') { dyn_buf[pos++] = '\\'; dyn_buf[pos++] = 'r'; }
+			else if (c == '"') { dyn_buf[pos++] = '\\'; dyn_buf[pos++] = '"'; }
+			else if (c == '\\') { dyn_buf[pos++] = '\\'; dyn_buf[pos++] = '\\'; }
+			else { dyn_buf[pos++] = c; }
+		}
+		dyn_buf[pos++] = '"'; dyn_buf[pos++] = '}'; dyn_buf[pos++] = '\n';
+		write(fd, dyn_buf, pos);
+		free(dyn_buf);
+	}
+
+	struct pollfd pfd;
+	pfd.fd = fd;
+	pfd.events = POLLIN;
+	int pr = poll(&pfd, 1, 1000);
+	if (pr <= 0) {
+		lwsl_warn("IPC server failed to respond within 1s (poll: %d) - assuming success to avoid event loop deadlock\n", pr);
+		close(fd);
+		return 0;
+	}
 
 	char resp[256];
 	ssize_t n = read(fd, resp, sizeof(resp) - 1);
@@ -270,11 +301,23 @@ connected:
 
 	return 0;
 }
+
+static void
+lws_acme_core_trigger_resign(struct per_vhost_data__lws_acme_client *vhd)
+{
+	acme_ipc_save_payload(vhd, "trigger_resign", "none", "none", "", 0);
+}
+
 #else
 static int
 acme_ipc_save_payload(struct per_vhost_data__lws_acme_client *vhd, const char *req, const char *domain, const char *filename, const char *payload, size_t payload_len)
 {
 	return 1;
+}
+
+static void
+lws_acme_core_trigger_resign(struct per_vhost_data__lws_acme_client *vhd)
+{
 }
 #endif
 
@@ -1126,6 +1169,15 @@ lws_acme_scan_domains_cb(const char *dirpath, void *user, struct lws_dir_entry *
 	scan_ctx.vhd = vhd;
 	lws_strncpy(scan_ctx.domain, lde->name, sizeof(scan_ctx.domain));
 
+	char disabled_path[512];
+	lws_snprintf(disabled_path, sizeof(disabled_path), "%s/domains/%s/acme_disabled", vhd->dns_base_dir, lde->name);
+	int fd = open(disabled_path, O_RDONLY);
+	if (fd >= 0) {
+		close(fd);
+		lwsl_notice("acme: Skipping domain %s (acme_disabled present)\n", lde->name);
+		return 0;
+	}
+
 	lws_snprintf(path, sizeof(path), "%s/domains/%s/conf.d", vhd->dns_base_dir, lde->name);
 
 	lwsl_notice("acme: Scanning domain config dir %s\n", path);
@@ -1462,8 +1514,12 @@ pkt_add_hdrs:
 					"\"type\":\"dns\","
 					"\"value\":\"%s\""
 					"}]"
+					"%s%s%s"
 					"}",
-			vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME]);
+			vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME],
+			(vhd->active_cert->profile && vhd->active_cert->profile[0]) ? ",\"profile\":\"" : "",
+			(vhd->active_cert->profile && vhd->active_cert->profile[0]) ? vhd->active_cert->profile : "",
+			(vhd->active_cert->profile && vhd->active_cert->profile[0]) ? "\"" : "");
 
 			lws_strncpy(ac->active_url, ac->urls[JAD_NEW_ORDER_URL], sizeof(ac->active_url));
 			goto pkt_add_hdrs;
@@ -2237,7 +2293,8 @@ static const struct lws_acme_core_ops acme_core_ops = {
 	.init_vhost = lws_acme_core_init_vhost,
 	.destroy_vhost = lws_acme_core_destroy_vhost,
 	.cert_aging = lws_acme_core_cert_aging,
-	.notify_challenge_ready = lws_acme_core_notify_challenge_ready
+	.notify_challenge_ready = lws_acme_core_notify_challenge_ready,
+	.trigger_resign = lws_acme_core_trigger_resign
 };
 
 LWS_VISIBLE const struct lws_protocols lws_acme_client_protocols[] = {

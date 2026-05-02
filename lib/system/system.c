@@ -280,8 +280,12 @@ lws_extip_report(struct lws_context *cx, lws_extip_src_t src,
 #endif
         ) {
 		memset(target, 0, sizeof(*target));
+		lwsl_notice("EXTIP_DEBUG: lws_extip_report called with status %d (OFFLINE)\n", status);
 	} else {
 		*target = *sa46;
+		char buf_dbg[64];
+		lws_sa46_write_numeric_address((lws_sockaddr46 *)sa46, buf_dbg, sizeof(buf_dbg));
+		lwsl_notice("EXTIP_DEBUG: lws_extip_report called with IP %s\n", buf_dbg);
 	}
 
 	if (memcmp(&old, target, sizeof(*target))) {
@@ -314,8 +318,11 @@ lws_extip_report(struct lws_context *cx, lws_extip_src_t src,
 		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "]}");
 
 #if defined(LWS_WITH_SYS_SMD)
+		lwsl_notice("EXTIP_DEBUG: lws_extip_report emitting SMD: %s\n", payload);
 		lws_smd_msg_printf(cx, LWSSMDCL_NETWORK, "%s", payload);
 #endif
+	} else {
+		lwsl_notice("EXTIP_DEBUG: lws_extip_report skipped SMD emit (no change)\n");
 	}
 }
 

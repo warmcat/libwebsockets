@@ -56,6 +56,7 @@ struct lws_acme_cert_config {
 	const char *common_name;
 	const char *email;
 	const char *challenge_type_str;
+	const char *profile;
 	struct lws_acme_cert_config_acme *acme;
 };
 
@@ -81,6 +82,9 @@ struct lws_acme_core_ops {
 
 	void
 	(*notify_challenge_ready)(struct per_vhost_data__lws_acme_client *vhd);
+
+	void
+	(*trigger_resign)(struct per_vhost_data__lws_acme_client *vhd);
 };
 
 #endif
