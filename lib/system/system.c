@@ -313,7 +313,9 @@ lws_extip_report(struct lws_context *cx, lws_extip_src_t src,
 
 		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "]}");
 
+#if defined(LWS_WITH_SYS_SMD)
 		lws_smd_msg_printf(cx, LWSSMDCL_NETWORK, "%s", payload);
+#endif
 	}
 }
 
