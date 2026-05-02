@@ -473,7 +473,27 @@ function handleResponse(data) {
             }
             processCertQueue();
             break;
+        case 'provisioning_bundle':
+            if (data.status === 'ok') {
+                const content = `Distribution CA:\n${data.ca}\n\nClient Certificate (${data.subdomain}):\n${data.cert}\n\nClient Key:\n${data.key}\n`;
+                const blob = new Blob([content], { type: 'text/plain' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `provisioning-${data.subdomain}.txt`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+                showToast('Provisioning bundle downloaded');
+            }
+            break;
     }
+}
+
+function downloadProvisioningBundle(subdomain) {
+    showToast('Preparing provisioning bundle...');
+    sendReq({ req: 'provisioning_bundle', domain: currentDomain, subdomain: subdomain });
 }
 
 function renderDomains(domains) {
@@ -805,6 +825,7 @@ function renderTlsDetailsModal() {
             <td>${locExp}</td>
             <td>${remExp}</td>
             <td>${issuer}</td>
+            <td><button class="btn btn-sm secondary" onclick="downloadProvisioningBundle('${t.fqdn}')">Provision</button></td>
         `;
         tbody.appendChild(tr);
     });
