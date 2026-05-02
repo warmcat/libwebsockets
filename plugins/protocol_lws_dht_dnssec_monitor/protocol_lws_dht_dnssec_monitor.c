@@ -3033,6 +3033,8 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		lws_jwk_destroy(&vhd->jwk);
 		lws_sul_cancel(&vhd->sul_timer);
+		lws_sul_cancel(&vhd->sul_timer_scan);
+		lws_sul_cancel(&vhd->sul_timer_proxy_scan);
 #if defined(LWS_WITH_DIR)
 			if (vhd->dn) {
 				lws_dir_notify_destroy(&vhd->dn);
