@@ -165,14 +165,16 @@ context_creation(int argc, const char **argv)
 	if (lwsws_get_config_globals(&info, config_dir, &cs, &cs_len))
 		goto init_failed;
 
-	if (lws_cmdline_option(argc, argv, "--lws-dht-dnssec-monitor-root")) {
+	const char *stub = lws_cmdline_option(argc, argv, "--lws-stub");
+	if (lws_cmdline_option(argc, argv, "--lws-dht-dnssec-monitor-root") || stub) {
 		const char *p;
 		if ((p = lws_cmdline_option(argc, argv, "--uid")))
 			info.uid = (unsigned int)atoi(p);
 		if ((p = lws_cmdline_option(argc, argv, "--gid")))
 			info.gid = (unsigned int)atoi(p);
 		
-		/* Root monitor makes outbound TLS probes but skips user vhosts, force global TLS init */
+		info.lws_stub = stub;
+		/* Root monitor / stubs make outbound TLS probes but skip user vhosts, force global TLS init */
 		info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT | LWS_SERVER_OPTION_VH_SKIP_PRIV_DROP;
 	}
 
@@ -294,14 +296,15 @@ int main(int argc, char **argv)
 	 */
 
 	{
-		int is_monitor = 0;
+		int is_stub = 0;
 		for (n = 1; n < argc; n++)
-			if (!strcmp(argv[n], "--lws-dht-dnssec-monitor-root")) {
-				is_monitor = 1;
+			if (!strcmp(argv[n], "--lws-dht-dnssec-monitor-root") ||
+			    !strncmp(argv[n], "--lws-stub", 10)) {
+				is_stub = 1;
 				break;
 			}
 
-		if (!is_monitor) {
+		if (!is_stub) {
 			signal(SIGPIPE, SIG_IGN);
 			signal(SIGHUP, reload_handler);
 			signal(SIGINT, reload_handler);

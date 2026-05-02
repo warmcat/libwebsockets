@@ -1,0 +1,11 @@
+set(PLUGIN_NAME protocol_lws_cert_dist_client)
+set(requirements 1)
+require_lws_config(LWS_WITH_TLS 1 requirements)
+require_lws_config(LWS_WITH_SPAWN 1 requirements)
+
+if (requirements)
+	create_plugin(${PLUGIN_NAME} "lws-cert-dist-client" "protocol_lws_cert_dist_client.c" "" "")
+	if (NOT LWS_WITH_PLUGINS_BUILTIN)
+		target_compile_definitions(${PLUGIN_NAME} PRIVATE LWS_BUILDING_SHARED)
+	endif()
+endif()

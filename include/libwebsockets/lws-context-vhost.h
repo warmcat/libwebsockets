@@ -1027,6 +1027,10 @@ struct lws_context_creation_info {
 	/**< CONTEXT: NULL, or interface name to bind outgoing WOL packet to */
 #endif
 
+	const char		*lws_stub;
+	/**< CONTEXT: if non-NULL, the name of the stub function requested
+	 * via --lws-stub=... commandline switch.  Filled in by
+	 * lws_cmdline_option_handle_builtin(). */
 	int			argc;
 	/**< CONTEXT: optionally pass the app commandline to the context, so we can use it
 	 * as part of lws_cmdline_option_cx() */

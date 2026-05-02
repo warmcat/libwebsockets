@@ -1692,6 +1692,7 @@ static const char * const builtins[] = {
 	"--ssproxy-port",
 	"--ssproxy-iface",
 	"--ssproxy-ads",
+	"--lws-stub",
 };
 
 enum opts {
@@ -1702,6 +1703,7 @@ enum opts {
 	OPT_SSPROXY_PORT,
 	OPT_SSPROXY_IFACE,
 	OPT_SSPROXY_ADS,
+	OPT_LWS_STUB,
 };
 
 static void
@@ -1838,6 +1840,10 @@ lws_cmdline_option_handle_builtin(int argc, const char **argv,
 #if !defined(LWS_PLAT_FREERTOS)
 			signal(SIGTERM, lws_sigterm_catch);
 #endif
+			break;
+
+		case OPT_LWS_STUB:
+			info->lws_stub = p;
 			break;
 		}
 	}
