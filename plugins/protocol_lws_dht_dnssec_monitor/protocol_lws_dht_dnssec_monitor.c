@@ -309,6 +309,7 @@ static struct vhd *global_root_vhd = NULL;
 
 extern const struct lws_protocols lws_dht_dnssec_monitor_protocols[];
 
+#if defined(LWS_WITH_SYS_SMD)
 static int
 smd_cb_network(void *opaque, lws_smd_class_t c, lws_usec_t ts, void *buf, size_t len)
 {
@@ -323,6 +324,7 @@ smd_cb_network(void *opaque, lws_smd_class_t c, lws_usec_t ts, void *buf, size_t
 	}
 	return 0;
 }
+#endif
 
 static void
 lws_dht_dnssec_monitor_reap_cb(void *opaque, const struct lws_spawn_resource_us *res,
@@ -2843,7 +2845,9 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 				vhd->ops = (const struct lws_dht_dnssec_ops *)prot->user;
 			}
 
+#if defined(LWS_WITH_SYS_SMD)
 			vhd->smd_peer = lws_smd_register(vhd->context, vhd, 0, LWSSMDCL_NETWORK, smd_cb_network);
+#endif
 
 			/* Load global ACME config into parent so the UI shows correct status */
 			char acme_path[1024];
@@ -3027,10 +3031,12 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 		if (vhd->vhost != lws_get_vhost(wsi))
 			break; /* Borrowed global_root_vhd */
 
+#if defined(LWS_WITH_SYS_SMD)
 		if (vhd->smd_peer) {
 			lws_smd_unregister(vhd->smd_peer);
 			vhd->smd_peer = NULL;
 		}
+#endif
 		lws_jwk_destroy(&vhd->jwk);
 		lws_sul_cancel(&vhd->sul_timer);
 		lws_sul_cancel(&vhd->sul_timer_scan);

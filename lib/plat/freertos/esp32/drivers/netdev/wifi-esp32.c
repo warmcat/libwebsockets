@@ -251,9 +251,11 @@ lws_netdev_wifi_event_plat(struct lws_netdev_instance *nd, lws_usec_t timestamp,
 			 */
 
 		case WIFI_EVENT_STA_DISCONNECTED:
+#if defined(LWS_WITH_SYS_SMD)
 			lws_smd_msg_printf(ctx, LWSSMDCL_NETWORK,
 					   "{\"type\":\"linkdown\","
 					   "\"if\":\"%s\"}", wnd->inst.name);
+#endif
 			wnd->state = LWSNDVWIFI_STATE_SCAN;
 			/*
 			 * We do it via the sul so we don't get timed scans
@@ -264,9 +266,11 @@ lws_netdev_wifi_event_plat(struct lws_netdev_instance *nd, lws_usec_t timestamp,
 			break;
 
 		case WIFI_EVENT_STA_CONNECTED:
+#if defined(LWS_WITH_SYS_SMD)
 			lws_smd_msg_printf(ctx, LWSSMDCL_NETWORK,
 					   "{\"type\":\"linkup\","
 					   "\"if\":\"%s\"}", wnd->inst.name);
+#endif
 			break;
 
 		case WIFI_EVENT_SCAN_DONE:
@@ -315,9 +319,11 @@ _event_handler_wifi(void *arg, esp_event_base_t event_base, int32_t event_id,
 		 * for other things to consume.
 		 */
 
+#if defined(LWS_WITH_SYS_SMD)
 		lws_smd_msg_printf(ctx, LWSSMDCL_NETWORK,
 				   "{\"type\":\"priv\",\"if\":\"%s\",\"ev\":%d}",
 				   wnd->inst.name, (int)event_id);
+#endif
 		break;
 	default:
 		return;
@@ -377,9 +383,11 @@ _event_handler_ip(void *arg, esp_event_base_t event_base, int32_t event_id,
 
 		lws_write_numeric_address((void *)&e->ip_info.ip, 4, ip,
 				sizeof(ip));
+#if defined(LWS_WITH_SYS_SMD)
 		lws_smd_msg_printf(ctx, LWSSMDCL_NETWORK,
 				   "{\"type\":\"ipacq\",\"if\":\"%s\","
 				   "\"ipv4\":\"%s\"}", wnd->inst.name, ip);
+#endif
 	}
 }
 
@@ -467,9 +475,11 @@ lws_netdev_wifi_up_plat(struct lws_netdev_instance *nd)
 	esp_wifi_set_ps(WIFI_PS_NONE);
 	wnde32->wnd.flags |= LNDIW_UP;
 
+#if defined(LWS_WITH_SYS_SMD)
 	lws_smd_msg_printf(ctx, LWSSMDCL_NETWORK,
 			   "{\"type\":\"up\",\"if\":\"%s\"}",
 			   wnde32->wnd.inst.name);
+#endif
 
 	return 0;
 }
@@ -484,9 +494,11 @@ lws_netdev_wifi_down_plat(struct lws_netdev_instance *nd)
 	if (!(wnde32->wnd.flags & LNDIW_UP))
 		return 0;
 
+#if defined(LWS_WITH_SYS_SMD)
 	lws_smd_msg_printf(ctx, LWSSMDCL_NETWORK,
 			   "{\"type\":\"down\",\"if\":\"%s\"}",
 			   wnde32->wnd.inst.name);
+#endif
 
 	esp_wifi_stop();
 
