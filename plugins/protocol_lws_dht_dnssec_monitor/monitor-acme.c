@@ -30,6 +30,15 @@ acme_vhost_spawn(struct vhd *vhd, const char *domain, const char *subdomain, con
 	if (lws_get_vhost_by_name(vhd->context, vh_name))
 		return 0;
 
+	char dis_path[1024];
+	lws_snprintf(dis_path, sizeof(dis_path), "%s/domains/%s/acme_disabled", vhd->base_dir, domain);
+	int fd = open(dis_path, O_RDONLY);
+	if (fd >= 0) {
+		lwsl_notice("%s: ACME explicitly disabled for domain %s\n", __func__, domain);
+		close(fd);
+		return 0;
+	}
+
 	pa = malloc(sizeof(*pa));
 	if (!pa) {
 		lwsl_err("%s: OOM allocating ACME PVOs\n", __func__);
@@ -69,6 +78,13 @@ acme_vhost_spawn(struct vhd *vhd, const char *domain, const char *subdomain, con
 
 	pa->pvo5.name = "uds-path";
 	pa->pvo5.value = vhd->uds_path;
+	pa->pvo5.next = vhd->acme_profile[0] ? &pa->pvo6 : NULL;
+
+	if (vhd->acme_profile[0]) {
+		pa->pvo6.name = "profile";
+		pa->pvo6.value = vhd->acme_profile;
+		pa->pvo6.next = NULL;
+	}
 
 	info.finalize = acme_vhost_finalize;
 	info.finalize_arg = pa;

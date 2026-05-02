@@ -38,6 +38,8 @@
 
 #include "lws-acme-client.h"
 #include <errno.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 struct vhd_acme_dns {
 	const struct lws_protocols *core_protocol;
@@ -77,11 +79,15 @@ challenge_start_dns(struct lws_vhost *vh, void *priv, const char *token,
 
 	lws_strncpy(ad->active_domain, domain, sizeof(ad->active_domain));
 
+	lws_snprintf(path, sizeof(path), "%s/domains/%s/dns", ad->base_dir, domain);
+	mkdir(path, 0755);
+
 	lws_snprintf(path, sizeof(path), "%s/domains/%s/dns/%s.zone.acme", ad->base_dir, domain, domain);
 
 	fd = open(path, LWS_O_WRONLY | LWS_O_CREAT | LWS_O_TRUNC, 0644);
 	if (fd < 0) {
-		lwsl_vhost_err(vh, "failed to create acme zone file %s", path);
+		int n = errno;
+		lwsl_vhost_err(vh, "failed to create acme zone file %s: %s (%d)", path, strerror(n), n);
 		return 1;
 	}
 
@@ -132,6 +138,8 @@ challenge_start_dns(struct lws_vhost *vh, void *priv, const char *token,
 	unlink(domain_dir);
 
 	lwsl_user("Created dns-01 local acme temp zone addon: %s, waiting 20s for DHT propagation...\n", path);
+	if (ad->core_ops && ad->core_ops->trigger_resign)
+		ad->core_ops->trigger_resign(ad->core_vhd);
 	lws_sul_schedule(ad->context, 0, &ad->sul_delay, sul_dns_ready_cb, 20 * LWS_US_PER_SEC);
 
 	return 0;
@@ -162,6 +170,8 @@ challenge_cleanup_dns(struct lws_vhost *vh, void *priv)
 		if (trigger_fd >= 0) close(trigger_fd);
 		unlink(domain_dir);
 
+		if (ad->core_ops && ad->core_ops->trigger_resign)
+			ad->core_ops->trigger_resign(ad->core_vhd);
 		lwsl_vhost_info(vh, "Cleaned up dns-01 local acme temp zone addon: %s", path);
 		ad->active_domain[0] = '\0';
 	}

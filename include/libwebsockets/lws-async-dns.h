@@ -62,6 +62,7 @@ typedef enum {
 #define LWS_ADNS_NOCACHE		0x40000 /* force network query, bypass cache */
 #define LWS_ADNS_WANT_DNSSEC	0x80000 /* Explicitly set DO bit in EDNS0 OPT record */
 #define LWS_ADNS_IGNORE_HOSTS_FILE 0x100000 /* Bypass checking /etc/hosts and force network DNS lookup */
+#define LADNS_NO_WSI_BUT_OK ((struct lws *)(intptr_t)0x1)
 
 struct addrinfo;
 
