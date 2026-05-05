@@ -1133,18 +1133,6 @@ deaddrop_callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 {
 	int r = _deaddrop_callback_deaddrop(wsi, reason, user, in, len);
 
-	if (reason == LWS_CALLBACK_CLOSED) {
-		lwsl_notice("%s: LWS_CALLBACK_CLOSED on wsi %p\n", __func__, wsi);
-	} else if (reason == LWS_CALLBACK_WS_PEER_INITIATED_CLOSE) {
-		lwsl_notice("%s: LWS_CALLBACK_WS_PEER_INITIATED_CLOSE on wsi %p (len %d)\n", __func__, wsi, (int)len);
-	} else if (reason == LWS_CALLBACK_WSI_DESTROY) {
-		lwsl_notice("%s: LWS_CALLBACK_WSI_DESTROY on wsi %p\n", __func__, wsi);
-	} else if (reason == LWS_CALLBACK_TIMER) {
-		lwsl_notice("%s: LWS_CALLBACK_TIMER on wsi %p\n", __func__, wsi);
-	} else if (reason == LWS_CALLBACK_RECEIVE_PONG) {
-		lwsl_notice("%s: RECEIVED PONG on wsi %p\n", __func__, wsi);
-	}
-
 	if (r && reason != LWS_CALLBACK_HTTP_WRITEABLE &&
 	    reason != LWS_CALLBACK_SERVER_WRITEABLE &&
 	    reason != LWS_CALLBACK_HTTP_BODY) {
