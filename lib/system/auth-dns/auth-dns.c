@@ -221,17 +221,13 @@ lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *z
 							}
 						}
 
-						for (int i = 0; i < num_toks; i++) {
-							lwsl_notice("  Token[%d]: '%s'\n", i, toks[i]);
-						}
-
 						if (type_idx < num_toks && !strcasecmp(toks[type_idx], "IN")) {
 							class_ = 1;
 							type_idx++;
 						}
 
 						if (type_idx < num_toks) {
-							lwsl_notice("  Attempting type match at type_idx=%d: '%s'\n", type_idx, toks[type_idx]);
+							// lwsl_notice("  Attempting type match at type_idx=%d: '%s'\n", type_idx, toks[type_idx]);
 							/* simplistic type assignment */
 							if (!strcasecmp(toks[type_idx], "A")) type = 1;
 							else if (!strcasecmp(toks[type_idx], "NS")) type = 2;
@@ -250,7 +246,7 @@ lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *z
 							type_idx++;
 						}
 
-						lwsl_notice("%s: Record: name=%s, type=%u, class=%u, tokens=%d, final_type_idx=%d\n", __func__, cur_name, type, class_, num_toks, type_idx);
+						// lwsl_notice("%s: Record: name=%s, type=%u, class=%u, tokens=%d, final_type_idx=%d\n", __func__, cur_name, type, class_, num_toks, type_idx);
 
 						/* find existing rrset */
 						lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&zone->rrset_list)) {
