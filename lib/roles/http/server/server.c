@@ -1838,9 +1838,12 @@ lws_http_action(struct lws *wsi)
 	n = (unsigned int)wsi->a.protocol->callback(wsi, LWS_CALLBACK_FILTER_HTTP_CONNECTION,
 				    wsi->user_space, uri_ptr, (unsigned int)uri_len);
 	if (n) {
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 		char name[64];
+
 		lwsl_notice("User code denied HTTP connection: protocol=%s, peer=%s, uri=%s\n",
 			    wsi->a.protocol->name, lws_get_peer_simple(wsi, name, sizeof(name)), uri_ptr);
+#endif
 
 		return 1;
 	}
