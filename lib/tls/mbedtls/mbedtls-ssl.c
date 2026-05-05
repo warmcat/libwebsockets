@@ -357,5 +357,5 @@ tops_fake_POLLIN_for_buffered_mbedtls(struct lws_context_per_thread *pt)
 }
 
 const struct lws_tls_ops tls_ops_mbedtls = {
-	/* fake_POLLIN_for_buffered */	tops_fake_POLLIN_for_buffered_mbedtls,
+	.fake_POLLIN_for_buffered = tops_fake_POLLIN_for_buffered_mbedtls,
 };

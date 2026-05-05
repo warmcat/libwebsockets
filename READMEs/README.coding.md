@@ -567,6 +567,12 @@ LWS_CALLBACK_OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS to add your certificate to
 the SSL_CTX directly.  The vhost SSL_CTX * is in the user parameter in that
 callback.
 
+@section tls_cleanup Process-wide TLS library cleanup
+
+If you are using OpenSSL (>= 1.1.0) and you destroy the last `lws_context`, you may want to clean up the process-wide allocations made by the TLS library. You can call `lws_tls_cleanup_process()` to do this.
+
+However, be aware that if you call this, you cannot re-initialize the OpenSSL library in the same process. So only call it if you are completely finished with `libwebsockets` and the TLS library. If you plan to create a new `lws_context` later in the same process lifecycle, you must not call this API.
+
 @section clientasync Async nature of client connections
 
 When you call `lws_client_connect_info(..)` and get a `wsi` back, it does not

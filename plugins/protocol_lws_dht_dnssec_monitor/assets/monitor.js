@@ -417,7 +417,7 @@ function handleResponse(data) {
             if (data.profiles && typeof data.profiles === 'object') {
                 let select = document.getElementById('acme-profile');
                 if (select) {
-                    let currentValue = select.value || window.currentAcmeProfile || '';
+                    let currentValue = window.currentAcmeProfile || select.value || '';
                     select.innerHTML = '';
                     for (let p in data.profiles) {
                         let opt = document.createElement('option');
@@ -428,6 +428,9 @@ function handleResponse(data) {
                     if (currentValue && data.profiles[currentValue]) {
                         select.value = currentValue;
                     }
+                    select.onchange = function() {
+                        window.currentAcmeProfile = this.value;
+                    };
                 }
             }
             break;

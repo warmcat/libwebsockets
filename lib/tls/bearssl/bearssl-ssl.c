@@ -312,7 +312,7 @@ tops_fake_POLLIN_for_buffered_bearssl(struct lws_context_per_thread *pt)
 }
 
 const struct lws_tls_ops tls_ops_bearssl = {
-	/* fake_POLLIN_for_buffered */	tops_fake_POLLIN_for_buffered_bearssl,
+	.fake_POLLIN_for_buffered = tops_fake_POLLIN_for_buffered_bearssl,
 };
 
 int lws_context_init_ssl_library(struct lws_context *cx,
