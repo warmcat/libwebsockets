@@ -188,7 +188,7 @@ dht_on_rx_data(struct lws_transport_sequencer *ts, uint64_t offset,
 		struct sockaddr_in6 *s = (struct sockaddr_in6 *)&dts->sa;
 		inet_ntop(AF_INET6, &s->sin6_addr, buf_ip, sizeof(buf_ip));
 	}
-	lwsl_user("%s: [DEBUG] Received raw UDP packet from %s on sequencer: offset=%llu len=%zu\n", __func__, buf_ip, (unsigned long long)offset, len);
+	// lwsl_notice("%s: [DEBUG] Received raw UDP packet from %s on sequencer: offset=%llu len=%zu\n", __func__, buf_ip, (unsigned long long)offset, len);
 
 	int parse_ret = lws_dht_msg_parse((const char *)buf, len, &msg);
 	if (!parse_ret) {
@@ -202,7 +202,7 @@ dht_on_rx_data(struct lws_transport_sequencer *ts, uint64_t offset,
 			lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&dts->ctx->verb_owner)) {
 				struct lws_dht_verb_list *vl = lws_container_of(d, struct lws_dht_verb_list, list);
 
-				lwsl_user("CAP_REQ Generator Iteration: verb=%s, protocol=%s\n",
+				lwsl_notice("CAP_REQ Generator Iteration: verb=%s, protocol=%s\n",
 					vl->v.name ? vl->v.name : "null",
 					(vl->v.protocol && vl->v.protocol->name) ? vl->v.protocol->name : "null");
 
@@ -260,7 +260,7 @@ dht_on_rx_data(struct lws_transport_sequencer *ts, uint64_t offset,
 
 				args.out_precedence = LWS_DHT_VERB_RESULT_PROCEED;
 
-				lwsl_user("DISPATCHING %s to protocol %s\n", msg.verb, vl->v.protocol->name);
+				// lwsl_notice("DISPATCHING %s to protocol %s\n", msg.verb, vl->v.protocol->name);
 
 				n = vl->v.protocol->callback((struct lws *)&a, LWS_CALLBACK_DHT_VERB_DISPATCH,
 							lws_protocol_vh_priv_get(dts->ctx->vhost, vl->v.protocol),
@@ -983,7 +983,7 @@ lws_dht_msg_parse(const char *in, size_t len, struct lws_dht_msg *out)
 	if (len > 32) {
 		char dbg[128];
 		lws_strncpy(dbg, in, sizeof(dbg));
-		lwsl_user("lws_dht_msg_parse: len=%zu header='%s'\n", len, dbg);
+		// lwsl_notice("lws_dht_msg_parse: len=%zu header='%s'\n", len, dbg);
 	}
 
 	const char *p = in;

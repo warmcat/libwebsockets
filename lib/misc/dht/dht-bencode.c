@@ -70,10 +70,9 @@ parse_hash(const uint8_t *dict, const uint8_t *end, const char *key,
 
 		if (hash_data && lws_dht_hash_validate(type, len)) {
 			*h_ret = lws_dht_hash_create(type, len, hash_data);
-		} else {
+		} else
 			lwsl_notice("%s: rejecting invalid/unsupported hash type %d len %d\n",
 					__func__, type, len);
-		}
 	}
 }
 
@@ -820,10 +819,9 @@ lws_dht_process_packet(struct lws_dht_ctx *ctx, const void *buf, size_t buflen,
 			memcpy(&decoded_seq, mp.tid + 2, 2);
 			if (decoded_seq == ctx->ip_monitor_seqno) {
 				is_nonce_validated = 1;
-				lwsl_notice("%s: IP Challenge matched sequence %u from %s!\n", __func__, decoded_seq, (ss.ss_family == AF_INET ? "IPv4" : "IPv6"));
-			} else {
+				lwsl_info("%s: IP Challenge matched sequence %u from %s!\n", __func__, decoded_seq, (ss.ss_family == AF_INET ? "IPv4" : "IPv6"));
+			} else
 				lwsl_dht_warn("%s: Spurious IP tracking reply dropped!\n", __func__);
-			}
 		}
 
 		if (!is_nonce_validated)

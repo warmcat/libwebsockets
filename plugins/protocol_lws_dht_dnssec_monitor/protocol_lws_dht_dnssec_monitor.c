@@ -24,9 +24,10 @@ static int
 smd_cb_network(void *opaque, lws_smd_class_t c, lws_usec_t ts, void *buf, size_t len)
 {
 	struct vhd *vhd = (struct vhd *)opaque;
-	if (c & LWSSMDCL_NETWORK) {
-		lwsl_notice("EXTIP_DEBUG: smd_cb_network received network event: %.*s\n", (int)len, (const char *)buf);
-	}
+
+	// if (c & LWSSMDCL_NETWORK) {
+	//	lwsl_notice("EXTIP_DEBUG: smd_cb_network received network event: %.*s\n", (int)len, (const char *)buf);
+	// }
 	if ((c & LWSSMDCL_NETWORK) && buf && strstr((const char *)buf, "\"ext-ips\"")) {
 		lwsl_notice("EXTIP_DEBUG: Updating vhd->ext_ips\n");
 		lws_strncpy(vhd->ext_ips, (const char *)buf, sizeof(vhd->ext_ips));

@@ -272,7 +272,7 @@ verb_get_handler(struct lws_dht_ctx *ctx, struct vhd_dht_store *vhd, const struc
 	size_t blen = 1024 + 1024;
 	int hlen;
 
-	lwsl_user("%s: GET %s offset %llu len %llu\n", __func__, msg->hash, msg->offset, msg->len);
+	// lwsl_user("%s: GET %s offset %llu len %llu\n", __func__, msg->hash, msg->offset, msg->len);
 
 	lws_snprintf(path, sizeof(path), "%s/%s", vhd->storage_path, msg->hash);
 	fd = open(path, O_RDONLY);

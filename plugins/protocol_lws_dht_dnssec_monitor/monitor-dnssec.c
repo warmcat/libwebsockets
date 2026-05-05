@@ -158,7 +158,7 @@ dnssec_state_ds_cb(struct lws *wsi, const char *ads, const struct addrinfo *resu
 	struct vhd *vhd = req->vhd;
 	uint16_t ds_paylen = 0;
 
-	lwsl_notice("%s: DS query for %s returned %d\n", __func__, req->domain, n);
+	lwsl_info("%s: DS query for %s returned %d\n", __func__, req->domain, n);
 
 	char debug_path[1024];
 	lws_snprintf(debug_path, sizeof(debug_path), "%s/domains/%s/dns_ds_debug.txt", vhd->base_dir, req->domain);
@@ -171,11 +171,10 @@ dnssec_state_ds_cb(struct lws *wsi, const char *ads, const struct addrinfo *resu
 	}
 
 	char path[1024];
-	if (vhd->scan_type == 1) {
+	if (vhd->scan_type == 1)
 		lws_snprintf(path, sizeof(path), "%s/domains/%s/dns_ds_8888.txt", vhd->base_dir, req->domain);
-	} else {
+	else
 		lws_snprintf(path, sizeof(path), "%s/domains/%s/dns_ds.txt", vhd->base_dir, req->domain);
-	}
 
 	if (n <= 0 || (n & ~LWS_ADNS_DNSSEC_VALID) != LADNS_RET_FOUND) {
 		lwsl_notice("%s: query for %s failed with n=%d\n", __func__, req->domain, n);
@@ -218,7 +217,7 @@ scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	char filepath[1024];
 	struct stat st;
 
-	lwsl_notice("%s: Seen entry '%s' (type %d) in %s\n", __func__, lde->name, lde->type, dirpath);
+	lwsl_info("%s: Seen entry '%s' (type %d) in %s\n", __func__, lde->name, lde->type, dirpath);
 
 	if (lde->name[0] == '.') return 0;
 	if (lde->type != LDOT_DIR && lde->type != LDOT_UNKNOWN) return 0;
@@ -443,7 +442,7 @@ global_dnssec_scan_timer_cb(struct lws_sorted_usec_list *sul)
 	struct vhd *vhd = lws_container_of(sul, struct vhd, sul_timer_global_scan);
 	char scan_path[1024];
 
-	lwsl_notice("%s: Starting global DS scan on 8.8.8.8\n", __func__);
+	// lwsl_notice("%s: Starting global DS scan on 8.8.8.8\n", __func__);
 	force_external_dns(vhd->context, "8.8.8.8");
 	vhd->scan_type = 1;
 

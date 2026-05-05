@@ -946,7 +946,7 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			}
 		}
 
-		lwsl_notice("LWS_CALLBACK_RAW_RX len %ld, reason %d, is_tcp=%d, peer=%s\n", (long)len, reason, is_tcp, peer_ip);
+		lwsl_info("LWS_CALLBACK_RAW_RX len %ld, reason %d, is_tcp=%d, peer=%s\n", (long)len, reason, is_tcp, peer_ip);
 
 		if (p + 12 > end) {
 			if (reason == LWS_CALLBACK_RAW_RX) lwsl_notice("short header (len %d)\n", (int)len);
@@ -1066,8 +1066,8 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			/* MRU Promotion */
 			lws_dll2_remove(&matched_ce->list);
 			lws_dll2_add_head(&matched_ce->list, &vhd->zones);
-			lwsl_notice("LWS_CALLBACK_RAW_RX answering from zone %s (serial %llu)\n",
-				matched_ce->zone.origin, (unsigned long long)matched_ce->serial);
+			lwsl_notice("LWS_CALLBACK_RAW_RX query %s (type %d) from %s, answering from zone %s (serial %llu)\n",
+				qname, qtype, peer_ip, matched_ce->zone.origin, (unsigned long long)matched_ce->serial);
 		}
 
 		lwsl_info("found_rs? %p\n", found_rs);

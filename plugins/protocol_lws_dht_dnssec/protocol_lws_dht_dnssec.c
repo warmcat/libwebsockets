@@ -1583,7 +1583,7 @@ verb_get_handler(struct vhd_dht_dnssec *vhd, struct lws_dht_verb_dispatch_args *
 
 	struct stat st;
 
-	lwsl_user("%s: GET %s offset %llu len %llu\n", __func__, msg->hash, msg->offset, msg->len);
+	// lwsl_user("%s: GET %s offset %llu len %llu\n", __func__, msg->hash, msg->offset, msg->len);
 
 	lws_snprintf(path, sizeof(path), "%s/%s", vhd->storage_path, msg->hash);
 	fd = open(path, O_RDONLY);
