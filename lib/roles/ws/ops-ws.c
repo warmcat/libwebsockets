@@ -1008,9 +1008,6 @@ rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 	struct lws_tokens ebuf;
 	char buffered = 0;
 	int n = 0, m, sanity = 100;
-#if defined(LWS_WITH_HTTP2)
-	struct lws *wsi1;
-#endif
 
 	if (!wsi->ws) {
 		lwsl_err("ws role wsi with no ws\n");
@@ -1103,19 +1100,6 @@ rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 
 	if (lws_is_flowcontrolled(wsi))
 		return LWS_HPI_RET_HANDLED;
-
-#if defined(LWS_WITH_HTTP2)
-	if (wsi->mux_substream || wsi->upgraded_to_http2) {
-		wsi1 = lws_get_network_wsi(wsi);
-		if (wsi1 && lws_has_buffered_out(wsi1))
-			/* We cannot deal with any kind of new RX
-			 * because we are dealing with a partial send
-			 * (new RX may trigger new http_action() that
-			 * expect to be able to send)
-			 */
-			return LWS_HPI_RET_HANDLED;
-	}
-#endif
 
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	/* 2: RX Extension needs to be drained
