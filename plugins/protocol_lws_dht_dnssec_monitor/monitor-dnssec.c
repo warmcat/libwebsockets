@@ -69,6 +69,7 @@ extract_and_queue_cert_result(struct lws *wsi, struct vhd *vhd, struct cert_chec
 		int needs_acme = 0;
 		if (err) {
 			lwsl_notice("%s: [TLS-PROBE] %s:%d FAILED: %s (Triggering ACME)\n", __func__, cci->fqdn, cci->port, msg);
+			append_acme_log(vhd, "TLS probe for %s:%d failed: %s. Triggering ACME renewal.", cci->fqdn, cci->port, msg);
 			needs_acme = 1;
 		} else {
 			union lws_tls_cert_info_results ci_from;
@@ -78,9 +79,11 @@ extract_and_queue_cert_result(struct lws *wsi, struct vhd *vhd, struct cert_chec
 				time_t remaining = ci.time - now;
 				if (total > 0 && remaining < (total / 5)) {
 					lwsl_notice("%s: [TLS-PROBE] %s:%d SUCCESS: Cert served expires in %s (Triggering ACME - <20%% validity left)\n", __func__, cci->fqdn, cci->port, msg);
+					append_acme_log(vhd, "TLS probe for %s:%d OK, but cert expires in %s (<20%% validity). Triggering ACME.", cci->fqdn, cci->port, msg);
 					needs_acme = 1;
 				} else if (!has_local_cert && !vhd->acme_production) {
 					lwsl_notice("%s: [TLS-PROBE] %s:%d SUCCESS: Cert served expires in %s (Triggering ACME - no matching local staging cert)\n", __func__, cci->fqdn, cci->port, msg);
+					append_acme_log(vhd, "TLS probe for %s:%d OK, but no local cert found. Triggering ACME.", cci->fqdn, cci->port);
 					needs_acme = 1;
 				}
 			}
@@ -386,6 +389,7 @@ scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 
 		if (needs_resign) {
 			lwsl_user("%s: Signing zone for %s (ops: %p, acme: %d, zone: %s)\n", __func__, common_name, vhd->ops, has_acme, input_path);
+			append_acme_log(vhd, "Decided to resign zonefile for %s (has_acme: %d)", common_name, has_acme);
 			struct lws_dht_dnssec_signzone_args sargs; memset(&sargs, 0, sizeof(sargs));
 			sargs.domain = common_name; sargs.workdir = wd;
 			sargs.sign_validity_duration = vhd->signature_duration;
@@ -423,6 +427,7 @@ scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 			lwsl_notice("%s: IPs for signzone: ipv4='%s', ipv6='%s'\n", __func__, sargs.ipv4, sargs.ipv6);
 
 			vhd->ops->signzone(vhd->context, &sargs);
+			append_acme_log(vhd, "Signed zonefile for %s with ipv4=%s ipv6=%s", common_name, sargs.ipv4, sargs.ipv6);
 
 			if (vhd->ops->publish_jws) {
 				char jws_path[1024];

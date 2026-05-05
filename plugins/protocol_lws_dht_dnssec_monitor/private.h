@@ -274,6 +274,7 @@ void acme_vhost_finalize(struct lws_vhost *vh, void *arg);
 int acme_vhost_spawn(struct vhd *vhd, const char *domain, const char *subdomain, const char *email);
 
 /* monitor-utils.c */
+void append_acme_log(struct vhd *vhd, const char *fmt, ...);
 void force_external_dns(struct lws_context *cx, const char *external_ip);
 int calc_local_ds(struct vhd *vhd, const char *domain, char *out, size_t out_len);
 
