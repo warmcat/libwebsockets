@@ -116,6 +116,7 @@ struct vhd_dht_dnssec {
 	lws_dll2_owner_t		notify_strikes;
 	lws_dll2_owner_t		notify_ratelimiters;
 	lws_dht_hash_t			*myid;
+	int				sweep_prefix_idx;
 };
 
 static struct vhd_dht_dnssec *global_dnssec_vhd = NULL;
@@ -166,7 +167,9 @@ static void
 notify_ratelimit_expire_cb(lws_sorted_usec_list_t *sul)
 {
 	struct notify_ratelimit *nrl = lws_container_of(sul, struct notify_ratelimit, sul_decay);
-	lwsl_notice("%s: NOTIFY ratelimit decayed completely for IP\n", __func__);
+	char peer_ip[64] = "unknown";
+	lws_sa46_write_numeric_address(&nrl->sa, peer_ip, sizeof(peer_ip));
+	lwsl_notice("%s: DHT NOTIFY ratelimit decayed completely for IP %s\n", __func__, peer_ip);
 	lws_dll2_remove(&nrl->list);
 	free(nrl);
 }
@@ -2938,10 +2941,98 @@ lws_dht_dnssec_domain_destroy(struct lws_dll2 *d, void *user)
 	return 0;
 }
 
+struct dht_dnssec_sweep_args {
+	struct vhd_dht_dnssec *vhd;
+	int items_scanned;
+};
+
+static int
+dht_dnssec_sweep_level2_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
+{
+	if (lde->type == LDOT_FILE) {
+		size_t nl = strlen(lde->name);
+		if (nl > 8 && !strcmp(lde->name + nl - 8, ".payload")) {
+			char *p = (char *)lde->name + nl - 9;
+			int uscore = 0;
+			uint64_t sig_expiry = 0;
+			while (p > lde->name) {
+				if (*p == '_') {
+					uscore++;
+					if (uscore == 2 && sig_expiry == 0) {
+						sig_expiry = strtoull(p + 1, NULL, 10);
+					}
+				}
+				p--;
+			}
+
+			int is_legacy = (uscore < 3);
+
+			if (is_legacy || (sig_expiry > 0 && sig_expiry < (uint64_t)lws_now_secs())) {
+				char fp[1024];
+				lws_snprintf(fp, sizeof(fp), "%s/%s", dirpath, lde->name);
+				lwsl_notice("Expunging %s payload %s\n", is_legacy ? "legacy" : "expired", fp);
+				unlink(fp);
+
+				char hash[128];
+				p = (char *)lde->name;
+				int i = 0;
+				while (p < lde->name + nl && *p != '_' && *p != '.' && i < (int)sizeof(hash) - 1) {
+					hash[i++] = *p++;
+				}
+				hash[i] = '\0';
+				lws_snprintf(fp, sizeof(fp), "%s/%s", dirpath, hash);
+				unlink(fp);
+			}
+		}
+	}
+	return 0;
+}
+
+static int
+dht_dnssec_sweep_level1_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
+{
+	struct dht_dnssec_sweep_args *a = (struct dht_dnssec_sweep_args *)user;
+	if (lde->type == LDOT_DIR && lde->name[0] != '.') {
+		a->items_scanned++;
+		char next_path[1024];
+		lws_snprintf(next_path, sizeof(next_path), "%s/%s", dirpath, lde->name);
+		lws_dir(next_path, a, dht_dnssec_sweep_level2_cb);
+	}
+	return 0;
+}
+
 static void
 dht_dnssec_sul_dump_cb(lws_sorted_usec_list_t *sul)
 {
+	struct vhd_dht_dnssec *vhd = lws_container_of(sul, struct vhd_dht_dnssec, sul_dump);
+	struct dht_dnssec_sweep_args a;
+	int tries = 0;
+
+	memset(&a, 0, sizeof(a));
+	a.vhd = vhd;
+
+	while (tries < 256) {
+		char target_prefix[4];
+		lws_snprintf(target_prefix, sizeof(target_prefix), "%02x", vhd->sweep_prefix_idx);
+
+		char next_path[1024];
+		lws_snprintf(next_path, sizeof(next_path), "%s/%s", vhd->storage_path, target_prefix);
+
+		struct stat st;
+		if (stat(next_path, &st) == 0 && S_ISDIR(st.st_mode)) {
+			lws_dir(next_path, &a, dht_dnssec_sweep_level1_cb);
+			vhd->sweep_prefix_idx = (vhd->sweep_prefix_idx + 1) & 0xff;
+			if (a.items_scanned > 0)
+				break;
+		} else {
+			vhd->sweep_prefix_idx = (vhd->sweep_prefix_idx + 1) & 0xff;
+		}
+		tries++;
+	}
+
 	/* Periodic DHT Routing Table dumps have been disabled */
+	/* Re-schedule the sweep every 60 seconds */
+	lws_sul_schedule(vhd->context, 0, &vhd->sul_dump, dht_dnssec_sul_dump_cb, 60 * LWS_US_PER_SEC);
 }
 
 static int
