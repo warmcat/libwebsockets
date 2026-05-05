@@ -1106,6 +1106,18 @@ lws_create_context(const struct lws_context_creation_info *info);
 LWS_VISIBLE LWS_EXTERN void
 lws_context_destroy(struct lws_context *context);
 
+/**
+ * lws_tls_cleanup_process() - cleanup process-wide TLS allocations
+ *
+ *	This function can be called after the last context is destroyed to
+ *	cleanup process-wide TLS allocations. For example, for OpenSSL it
+ *	may call OPENSSL_cleanup() if supported.
+ *	You should only call this if you are absolutely sure you will not
+ *	reinitialize libwebsockets or the TLS library in this process.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_tls_cleanup_process(void);
+
 typedef int (*lws_reload_func)(void);
 
 /**

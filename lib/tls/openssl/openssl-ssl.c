@@ -624,6 +624,15 @@ tops_fake_POLLIN_for_buffered_openssl(struct lws_context_per_thread *pt)
 	return lws_tls_fake_POLLIN_for_buffered(pt);
 }
 
+static void
+tops_process_cleanup_openssl(void)
+{
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+	OPENSSL_cleanup();
+#endif
+}
+
 const struct lws_tls_ops tls_ops_openssl = {
 	/* fake_POLLIN_for_buffered */	tops_fake_POLLIN_for_buffered_openssl,
+	/* process_cleanup */		tops_process_cleanup_openssl,
 };

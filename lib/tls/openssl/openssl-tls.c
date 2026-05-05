@@ -177,10 +177,6 @@ lws_context_deinit_ssl_library(struct lws_context *context)
 	}
 #endif
 
-	if (!--openssl_contexts_using_global_init) {
+	if (!--openssl_contexts_using_global_init)
 		lwsl_cx_info(context, "Doing SSL library cleanup");
-#if OPENSSL_VERSION_NUMBER >= 0x10100000L
-		OPENSSL_cleanup();
-#endif
-	}
 }
