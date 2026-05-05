@@ -736,7 +736,7 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		vhd->context = lws_get_context(wsi);
 		vhd->protocol = lws_get_protocol(wsi);
 		vhd->vhost = lws_get_vhost(wsi);
-		vhd->dht_max_pending = 16;
+		vhd->dht_max_pending = 128;
 		vhd->cache_max_zones = 1000;
 
 		{
@@ -1078,12 +1078,75 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				goto send_nxdomain;
 			}
 			if (vhd->dht_ops && vhd->dht_ops->fetch_zone && reason == LWS_CALLBACK_RAW_RX) {
-				if ((uint32_t)vhd->pending_queries.count >= vhd->dht_max_pending) {
-					lwsl_notice("dht pending queries maxed out\n");
-					goto send_refused;
-				}
 				char base[256];
 				extract_base_domain(qname, base, sizeof(base));
+
+				int is_already_fetching_globally = 0;
+				int is_already_fetching_ip = 0;
+				int global_domains_count = 0;
+
+				const char *ip_domains[16];
+				int ip_domains_count = 0;
+				int ip_total_queries = 0;
+
+				lws_start_foreach_dll(struct lws_dll2 *, d, vhd->pending_queries.head) {
+					struct pending_dns_query *q = lws_container_of(d, struct pending_dns_query, list);
+
+					if (!strcmp(q->domain, base))
+						is_already_fetching_globally = 1;
+
+					int is_unique_global = 1;
+					lws_start_foreach_dll(struct lws_dll2 *, d2, vhd->pending_queries.head) {
+						if (d2 == d) break;
+						struct pending_dns_query *q2 = lws_container_of(d2, struct pending_dns_query, list);
+						if (!strcmp(q->domain, q2->domain)) {
+							is_unique_global = 0;
+							break;
+						}
+					} lws_end_foreach_dll(d2);
+					if (is_unique_global)
+						global_domains_count++;
+
+					char q_ip[64];
+					lws_sa46_write_numeric_address(&q->sa46_peer, q_ip, sizeof(q_ip));
+					if (!strcmp(q_ip, peer_ip)) {
+						ip_total_queries++;
+						if (!strcmp(q->domain, base))
+							is_already_fetching_ip = 1;
+
+						int found = 0;
+						for (int i = 0; i < ip_domains_count; i++) {
+							if (!strcmp(ip_domains[i], q->domain)) { found = 1; break; }
+						}
+						if (!found && ip_domains_count < 16) {
+							ip_domains[ip_domains_count++] = q->domain;
+						}
+					}
+				} lws_end_foreach_dll(d);
+
+				if (!is_already_fetching_globally) {
+					if (global_domains_count >= (int)vhd->dht_max_pending) {
+						lwsl_notice("dht pending queries maxed out (globally %d unique) for %s from %s\n", global_domains_count, base, peer_ip);
+						goto send_refused;
+					}
+				}
+
+				if (!is_already_fetching_ip) {
+					if (ip_domains_count >= 16) {
+						lwsl_notice("dht pending queries IP limit maxed out (16 unique domains) for %s from %s\n", base, peer_ip);
+						goto send_refused;
+					}
+				}
+
+				if (ip_total_queries >= 64) {
+					lwsl_notice("dht pending queries IP absolute limit (64) reached for %s from %s\n", base, peer_ip);
+					goto send_refused;
+				}
+
+				if ((uint32_t)vhd->pending_queries.count >= 1024) {
+					lwsl_notice("dht pending queries absolute queue limit (1024) reached for %s from %s\n", base, peer_ip);
+					goto send_refused;
+				}
 
 				lwsl_notice("Initiating DHT fetch for missing zone %s (qname %s)\n", base, qname);
 
