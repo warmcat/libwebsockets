@@ -30,11 +30,15 @@ acme_vhost_spawn(struct vhd *vhd, const char *domain, const char *subdomain, con
 	if (lws_get_vhost_by_name(vhd->context, vh_name))
 		return 0;
 
+	append_acme_log(vhd, "Attempting to spawn ACME client vhost %s for domain %s", vh_name, domain);
+
+
 	char dis_path[1024];
 	lws_snprintf(dis_path, sizeof(dis_path), "%s/domains/%s/acme_disabled", vhd->base_dir, domain);
 	int fd = open(dis_path, O_RDONLY);
 	if (fd >= 0) {
 		lwsl_notice("%s: ACME explicitly disabled for domain %s\n", __func__, domain);
+		append_acme_log(vhd, "ACME explicitly disabled for domain %s, aborting spawn", domain);
 		close(fd);
 		return 0;
 	}
@@ -91,10 +95,12 @@ acme_vhost_spawn(struct vhd *vhd, const char *domain, const char *subdomain, con
 
 	if (lws_create_vhost(vhd->context, &info)) {
 		lwsl_notice("%s: ACME vhost %s spawned natively\n", __func__, vh_name);
+		append_acme_log(vhd, "Successfully spawned ACME vhost %s natively", vh_name);
 		return 0;
 	}
 
 	lwsl_err("%s: Failed to spawn ACME vhost %s\n", __func__, vh_name);
+	append_acme_log(vhd, "Error: Failed to spawn ACME vhost %s", vh_name);
 	free(pa);
 	return -1;
 }

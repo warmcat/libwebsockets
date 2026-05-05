@@ -10,6 +10,44 @@
  */
 
 #include "private.h"
+#include <stdarg.h>
+#include <sys/time.h>
+
+void
+append_acme_log(struct vhd *vhd, const char *fmt, ...)
+{
+	char path[1024];
+	lws_snprintf(path, sizeof(path), "%s/acme.log", vhd->base_dir);
+	int fd = open(path, O_CREAT | O_WRONLY | O_APPEND, 0644);
+	if (fd < 0) return;
+
+	char buf[1024];
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+	struct tm *tm = localtime(&tv.tv_sec);
+
+	int n = lws_snprintf(buf, sizeof(buf), "[%04d-%02d-%02d %02d:%02d:%02d] ",
+		tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
+		tm->tm_hour, tm->tm_min, tm->tm_sec);
+
+	va_list ap;
+	va_start(ap, fmt);
+	n += vsnprintf(buf + n, sizeof(buf) - (size_t)n, fmt, ap);
+	va_end(ap);
+
+	if (n > 0 && buf[n - 1] != '\n') {
+		if (n < (int)sizeof(buf) - 1) {
+			buf[n++] = '\n';
+		} else {
+			buf[sizeof(buf) - 2] = '\n';
+			n = sizeof(buf) - 1;
+		}
+	}
+	buf[n] = '\0';
+
+	write(fd, buf, (size_t)n);
+	close(fd);
+}
 
 void
 force_external_dns(struct lws_context *cx, const char *external_ip)
