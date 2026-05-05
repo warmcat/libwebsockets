@@ -279,3 +279,24 @@ lws_alpn_comma_to_openssl(const char *comma, uint8_t *os, int len)
 
 
 
+
+void
+lws_tls_cleanup_process(void)
+{
+#if defined(LWS_WITH_MBEDTLS)
+	if (tls_ops_mbedtls.process_cleanup)
+		tls_ops_mbedtls.process_cleanup();
+#elif defined(LWS_WITH_SCHANNEL)
+	if (tls_ops_schannel.process_cleanup)
+		tls_ops_schannel.process_cleanup();
+#elif defined(LWS_WITH_GNUTLS)
+	if (tls_ops_gnutls.process_cleanup)
+		tls_ops_gnutls.process_cleanup();
+#elif defined(LWS_WITH_BEARSSL)
+	if (tls_ops_bearssl.process_cleanup)
+		tls_ops_bearssl.process_cleanup();
+#else
+	if (tls_ops_openssl.process_cleanup)
+		tls_ops_openssl.process_cleanup();
+#endif
+}
