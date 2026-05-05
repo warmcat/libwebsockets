@@ -27,6 +27,7 @@
 struct lws_context_per_thread;
 struct lws_tls_ops {
 	int (*fake_POLLIN_for_buffered)(struct lws_context_per_thread *pt);
+	void (*process_cleanup)(void);
 };
 
 struct lws_context_tls {

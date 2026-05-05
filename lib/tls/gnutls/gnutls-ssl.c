@@ -294,5 +294,5 @@ tops_fake_POLLIN_for_buffered_gnutls(struct lws_context_per_thread *pt)
 }
 
 const struct lws_tls_ops tls_ops_gnutls = {
-	/* fake_POLLIN_for_buffered */	tops_fake_POLLIN_for_buffered_gnutls,
+	.fake_POLLIN_for_buffered = tops_fake_POLLIN_for_buffered_gnutls,
 };
