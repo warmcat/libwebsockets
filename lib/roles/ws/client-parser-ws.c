@@ -241,6 +241,10 @@ lws_ws_client_rx_sm(struct lws *wsi, unsigned char c)
 				}
 				wsi->ws->first_fragment = 0;
 				break;
+			case LWSWSOPC_PING:
+			case LWSWSOPC_PONG:
+				wsi->ws->defeat_check_utf8 = 1;
+				break;
 			case LWSWSOPC_CLOSE:
 				wsi->ws->check_utf8 = 0;
 				wsi->ws->utf8 = 0;

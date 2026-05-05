@@ -210,6 +210,10 @@ handle_first:
 				goto ret_asking_close;
 			}
 			break;
+		case LWSWSOPC_PING:
+		case LWSWSOPC_PONG:
+			wsi->ws->defeat_check_utf8 = 1;
+			break;
 		case LWSWSOPC_CLOSE:
 			wsi->ws->check_utf8 = 0;
 			wsi->ws->utf8 = 0;
@@ -1431,9 +1435,10 @@ rops_handle_POLLOUT_ws(struct lws *wsi)
 				lws_wsi_tag(wsi),
 				wsi->role_ops->name, wsi->a.protocol->name,
 				wsi->mux_substream);
+
 		wsi->ws->send_check_ping = 0;
 		n = lws_write(wsi, &wsi->ws->ping_payload_buf[LWS_PRE],
-			      0, LWS_WRITE_PING);
+			      8, LWS_WRITE_PING);
 		if (n < 0)
 			return LWS_HP_RET_BAIL_DIE;
 
@@ -2165,22 +2170,6 @@ rops_issue_keepalive_ws(struct lws *wsi, int isvalid)
 {
 	uint64_t us;
 
-#if defined(LWS_WITH_HTTP2)
-	if (lwsi_role_h2_ENCAPSULATION(wsi)) {
-		/* we know then that it has an h2 parent */
-		struct lws *enc = lws_rops_func_fidx(&role_ops_h2,
-						     LWS_ROPS_encapsulation_parent).
-						     encapsulation_parent(wsi);
-
-		assert(enc);
-		lwsl_wsi_info(wsi, "trying to do keepalive on h2 wrapper around ws");
-		if (lws_rops_func_fidx(enc->role_ops, LWS_ROPS_issue_keepalive).
-						  issue_keepalive(enc, isvalid)) {
-			lwsl_wsi_err(wsi, "FAILED to keep h2 wrapper for ws alive");
-			return 1;
-		}
-	}
-#endif
 
 	if (isvalid) {
 		lwsl_wsi_info(wsi, "confirming validity");
