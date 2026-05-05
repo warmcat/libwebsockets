@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DNSSEC Monitor</title>
     <!-- Strict CSP prevents inline styles, and using external font CDNs without explicit whitelist, so we use system fonts -->
-    <link rel="stylesheet" href="monitor.css">
+    <link rel="stylesheet" href="monitor.css?v=3">
     <script src="lws-login.js"></script>
 </head>
 <body>
@@ -20,7 +20,6 @@
         <header>
             <div class="header-content">
                 <h1>DNSSEC Monitor</h1>
-                <p>Manage DNSSEC and TLS</p>
             </div>
             <div class="header-status">
                 <div id="user-info" class="user-info"></div>
@@ -35,11 +34,19 @@
         </header>
 
         <main>
-            <section class="panel domain-panel" id="domain-panel">
-                <div class="panel-header">
-                    <h2>Domains</h2>
-                    <button id="btn-add-domain" class="btn primary">Add Domain</button>
-                </div>
+            <div class="tabs-header">
+                <button id="tab-btn-domains" class="tab-link active" data-tab="tab-domains">Domains</button>
+                <button id="tab-btn-tls" class="tab-link" data-tab="tab-tls">TLS</button>
+                <button id="tab-btn-acme" class="tab-link" data-tab="tab-acme">ACME Config</button>
+                <button id="tab-btn-dist" class="tab-link" data-tab="tab-dist">Distribution</button>
+            </div>
+
+            <div id="tab-domains" class="tab-content active">
+                <section class="panel domain-panel" id="domain-panel">
+                    <div class="panel-header">
+                        <h2>Domains</h2>
+                        <button id="btn-add-domain" class="btn primary">Add Domain</button>
+                    </div>
                 <div class="table-container">
                     <table id="table-domains">
                         <thead>
@@ -54,62 +61,13 @@
                         </tbody>
                     </table>
                 </div>
-                
-                <div class="acme-global-config">
-                    <h2>Global ACME Configuration</h2>
-                    <div class="acme-form-group checkbox-group">
-                        <label>
-                            <input type="checkbox" id="cb-acme-enable"> Enable Let's Encrypt Certificate Fetching
-                        </label>
-                    </div>
-                    <div class="acme-form-group checkbox-group">
-                        <label>
-                            <input type="checkbox" id="cb-acme-prod"> Use Production Let's Encrypt CA
-                        </label>
-                    </div>
-                    <div class="acme-form-inputs">
-                        <div class="form-group">
-                            <label for="acme-email">Email</label>
-                            <input type="email" id="acme-email" placeholder="admin@example.com">
-                        </div>
-                        <div class="form-group">
-                            <label for="acme-org">Organization</label>
-                            <input type="text" id="acme-org" placeholder="My Company">
-                        </div>
-                        <div class="form-group">
-                            <label for="acme-country">Country (2 letters)</label>
-                            <input type="text" id="acme-country" placeholder="UK" maxlength="2">
-                        </div>
-                        <div class="form-group">
-                            <label for="acme-state">State / Province</label>
-                            <input type="text" id="acme-state" placeholder="Cambs">
-                        </div>
-                        <div class="form-group">
-                            <label for="acme-locality">Locality / City</label>
-                            <input type="text" id="acme-locality" placeholder="Cambridge">
-                        </div>
-                        <div class="form-group">
-                            <label for="acme-profile">Certificate Profile</label>
-                            <select id="acme-profile" class="ext-select">
-                            </select>
-                        </div>
-                    </div>
-                    <div class="acme-actions">
-                        <button id="btn-acme-save" class="btn primary">Save ACME Config</button>
-                    </div>
-                    <div class="acme-log-container">
-                        <label>Recent ACME Log</label>
-                        <textarea id="acme-log" readonly rows="8"></textarea>
-                    </div>
-                </div>
             </section>
-
             <section class="panel detail-panel hidden-panel" id="detail-panel">
                 <div class="panel-header">
                     <div class="title-group"><table><tr><td>
                         <button id="btn-back-domains" class="btn secondary">&larr; Back</button>
 			</td></tr><tr><td>
-                        <h2 id="detail-title">Zone Records:<br><span>---</span></h2>
+                        <h2 id="detail-title"><span>---</span></h2>
 			</td></tr></table>
                     </div>
                     <div id="whois-header" class="whois-header"></div>
@@ -161,6 +119,121 @@
                     </div>
                 </div>
             </section>
+            </div>
+
+            <div id="tab-tls" class="tab-content">
+                <div class="panel">
+                    <div class="panel-header">
+                        <h2>Cross-Domain TLS Certificates</h2>
+                    </div>
+                    <div class="table-container table-responsive">
+                        <table id="table-all-tls" class="table-striped table-bordered table-nowrap">
+                            <thead>
+                                <tr>
+                                    <th>FQDN:Port</th>
+                                    <th>Local Expiry</th>
+                                    <th>Remote Expiry</th>
+                                    <th>Issuer</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr><td colspan="5" class="loading">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div id="tab-acme" class="tab-content">
+                <div class="panel">
+                    <div class="acme-global-config">
+                        <h2>Global ACME Configuration</h2>
+                        <div class="acme-form-group checkbox-group">
+                            <label>
+                                <input type="checkbox" id="cb-acme-enable"> Enable Let's Encrypt Certificate Fetching
+                            </label>
+                        </div>
+                        <div class="acme-form-group checkbox-group">
+                            <label>
+                                <input type="checkbox" id="cb-acme-prod"> Use Production Let's Encrypt CA
+                            </label>
+                        </div>
+                        <div class="acme-form-inputs">
+                            <div class="form-group">
+                                <label for="acme-email">Email</label>
+                                <input type="email" id="acme-email" placeholder="admin@example.com">
+                            </div>
+                            <div class="form-group">
+                                <label for="acme-org">Organization</label>
+                                <input type="text" id="acme-org" placeholder="My Company">
+                            </div>
+                            <div class="form-group">
+                                <label for="acme-country">Country (2 letters)</label>
+                                <input type="text" id="acme-country" placeholder="UK" maxlength="2">
+                            </div>
+                            <div class="form-group">
+                                <label for="acme-state">State / Province</label>
+                                <input type="text" id="acme-state" placeholder="Cambs">
+                            </div>
+                            <div class="form-group">
+                                <label for="acme-locality">Locality / City</label>
+                                <input type="text" id="acme-locality" placeholder="Cambridge">
+                            </div>
+                            <div class="form-group">
+                                <label for="acme-profile">Certificate Profile</label>
+                                <select id="acme-profile" class="ext-select">
+                                </select>
+                            </div>
+                        </div>
+                        <div class="acme-actions">
+                            <button id="btn-acme-save" class="btn primary">Save ACME Config</button>
+                        </div>
+                        <div class="acme-log-container">
+                            <label>Recent ACME Log</label>
+                            <textarea id="acme-log" readonly rows="8"></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="tab-dist" class="tab-content">
+                <div class="panel">
+                    <div class="panel-header">
+                        <h2>Distribution PKI Management</h2>
+                    </div>
+                    <div class="dist-pki-row">
+                        <div class="dist-pki-section">
+                            <h3>Distribution Root CA</h3>
+                            <p class="help-text">The root CA used to sign client and server certificates for the distribution service.</p>
+                            <button id="btn-dist-download-ca" class="btn primary">Download CA Public Cert</button>
+                        </div>
+                        <div class="dist-pki-section">
+                            <h3>Distribution Server Certificate</h3>
+                            <p class="help-text">The TLS certificate and private key used by the distribution server.</p>
+                            <button id="btn-dist-download-server" class="btn primary">Download Server Cert + Key</button>
+                        </div>
+                    </div>
+                    <div class="dist-pki-section">
+                        <h3>Client Certificates</h3>
+                        <p class="help-text">Generate and download client certificates for your provisioned TLS endpoints.</p>
+                        <div class="table-container">
+                            <table id="table-dist-clients">
+                                <thead>
+                                    <tr>
+                                        <th>Domain</th>
+                                        <th>Endpoint</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td colspan="3" class="loading">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </main>
     </div>
 
@@ -214,32 +287,9 @@
         </div>
     </div>
 
-    <div id="modal-tls-details" class="modal">
-        <div class="modal-content auto-width">
-            <h3>TLS Details: <span id="tls-summary-domain-name"></span></h3>
-            <div class="form-group table-responsive">
-                <table id="table-tls-details" class="table-striped table-bordered table-nowrap">
-                    <thead>
-                        <tr>
-                            <th>FQDN:Port</th>
-                            <th>Local Expiry</th>
-                            <th>Remote Expiry</th>
-                            <th>Issuer</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody></tbody>
-                </table>
-            </div>
-            <div class="modal-actions">
-                <button id="btn-tls-details-close" class="btn hollow">Close</button>
-            </div>
-        </div>
-    </div>
-
     <!-- Notification Toast -->
     <div id="toast" class="toast"></div>
 
-    <script src="monitor.js?v=7"></script>
+    <script src="monitor.js?v=14"></script>
 </body>
 </html>

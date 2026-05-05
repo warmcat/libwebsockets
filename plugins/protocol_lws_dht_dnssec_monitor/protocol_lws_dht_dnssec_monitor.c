@@ -139,9 +139,18 @@ monitor_init_root_daemon(struct vhd *vhd, const struct lws_protocol_vhost_option
 		}
 
 		uid_t u = (uid_t)-1; gid_t g = (gid_t)-1;
+		if (!uid) {
+			const char *uid_str = lws_cmdline_option_cx(vhd->context, "--uid");
+			if (uid_str) uid = uid_str;
+		}
 		if (uid) {
 			if (isdigit(uid[0])) u = (uid_t)atoi(uid);
 			else { struct passwd *pw = getpwnam(uid); if (pw) u = pw->pw_uid; }
+		}
+
+		if (!u || u == (uid_t)-1) {
+			struct passwd *pw = getpwnam("lwsws");
+			if (pw) u = pw->pw_uid;
 		}
 
 		const char *proxy_gid_str = lws_cmdline_option_cx(vhd->context, "--proxy-gid");
@@ -163,6 +172,9 @@ monitor_init_root_daemon(struct vhd *vhd, const struct lws_protocol_vhost_option
 			if (isdigit(gid[0])) g = (gid_t)atoi(gid);
 			else { struct group *gr = getgrnam(gid); if (gr) g = gr->gr_gid; }
 		}
+
+		vhd->proxy_uid = u;
+		vhd->proxy_gid = g;
 
 		if (u != (uid_t)-1 || g != (gid_t)-1) {
 			if (chown(vhd->uds_path, u, g))
@@ -592,6 +604,47 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 				if (cr) {
 					memset(cr, 0, sizeof(*cr)); lws_strncpy(cr->fqdn, cci->fqdn, sizeof(cr->fqdn));
 					lws_snprintf(cr->msg, sizeof(cr->msg), "Error: %s", in ? (char *)in : "unknown");
+					lws_strncpy(cr->local_msg, "Not Found", sizeof(cr->local_msg));
+					lws_strncpy(cr->issuer, "Unknown", sizeof(cr->issuer));
+
+					if (cci->domain[0]) {
+						char path[1024];
+						lws_snprintf(path, sizeof(path), "%s/domains/%s/certs/%s/crt/%s-latest.crt", vhd->base_dir, cci->domain, vhd->acme_production ? "production" : "staging", cci->fqdn);
+						lwsl_notice("%s: Checking local cert at %s\n", __func__, path);
+						int fd = open(path, O_RDONLY);
+						if (fd >= 0) {
+							struct stat st;
+							if (!fstat(fd, &st) && st.st_size > 0) {
+								uint8_t *pem = malloc((size_t)st.st_size + 1);
+								if (pem) {
+									if (read(fd, pem, (size_t)st.st_size) == (ssize_t)st.st_size) {
+										pem[st.st_size] = '\0';
+										struct lws_x509_cert *x509 = NULL;
+										if (!lws_x509_create(&x509)) {
+											if (!lws_x509_parse_from_pem(x509, pem, (size_t)st.st_size + 1)) {
+												union lws_tls_cert_info_results lci;
+												if (!lws_x509_info(x509, LWS_TLS_CERT_INFO_ISSUER_NAME, &lci, 0))
+													lws_strncpy(cr->issuer, lci.ns.name, sizeof(cr->issuer));
+												if (!lws_x509_info(x509, LWS_TLS_CERT_INFO_VALIDITY_TO, &lci, 0)) {
+													time_t now; time(&now);
+													if (now > lci.time) lws_snprintf(cr->local_msg, sizeof(cr->local_msg), "Expired");
+													else lws_snprintf(cr->local_msg, sizeof(cr->local_msg), "%d days", (int)((lci.time - now) / (24 * 3600)));
+												}
+											} else {
+												lwsl_err("%s: Failed to parse PEM at %s\n", __func__, path);
+											}
+											lws_x509_destroy(&x509);
+										}
+									}
+									free(pem);
+								}
+							}
+							close(fd);
+						} else {
+							lwsl_err("%s: Failed to open %s: %d\n", __func__, path, errno);
+						}
+					}
+
 					cr->status_err = 1; lws_dll2_add_tail(&cr->list, &vhd->completed_checks);
 					lws_callback_on_writable_all_protocol(vhd->context, protocol);
 				}
