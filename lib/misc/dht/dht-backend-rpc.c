@@ -49,11 +49,12 @@ send_pong(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t salen,
 	rc = lws_snprintf(buf + i, sizeof(buf) - i, "1:y1:re");
 	if (dht_tx_skip(&i, sizeof(buf), (size_t)(rc))) goto fail;
 
-	lwsl_warn("%s: generated pong of length %zu\n", __func__, i);
-	lwsl_hexdump_warn(buf, i);
+	// lwsl_warn("%s: generated pong of length %zu\n", __func__, i);
+	// lwsl_hexdump_warn(buf, i);
 
 	rc = dht_send(ctx, buf, i, sa, salen);
-	lwsl_warn("%s: dht_send returned %d\n", __func__, rc);
+	// lwsl_warn("%s: dht_send returned %d\n", __func__, rc);
+
 	return rc;
 
 fail:
