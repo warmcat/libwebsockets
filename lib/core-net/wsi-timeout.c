@@ -230,9 +230,13 @@ lws_validity_cb(lws_sorted_usec_list_t *sul)
 	/* one of either the ping or hangup validity threshold was crossed */
 
 	if (wsi->validity_hup) {
-		lwsl_notice("%s: VALIDITY TIMEOUT EXPIRED ON WSI %p! Server is closing connection. (ping=%d, hangup=%d)\n", 
-			    __func__, wsi, rbo ? rbo->secs_since_valid_ping : 0, rbo ? rbo->secs_since_valid_hangup : 0);
-		lwsl_wsi_err(wsi, "validity too old");
+		char buf[128];
+		buf[0] = '\0';
+		lws_get_peer_simple(wsi, buf, sizeof(buf));
+
+		lwsl_wsi_notice(wsi, "VALIDITY TIMEOUT EXPIRED ON (protocol %s, peer %s)! Server is closing connection. (ping=%d, hangup=%d)\n",
+			    wsi->a.protocol ? wsi->a.protocol->name : "none", buf,
+			    rbo ? rbo->secs_since_valid_ping : 0, rbo ? rbo->secs_since_valid_hangup : 0);
 		struct lws_context *cx = wsi->a.context;
 		struct lws_context_per_thread *pt = &cx->pt[(int)wsi->tsi];
 
