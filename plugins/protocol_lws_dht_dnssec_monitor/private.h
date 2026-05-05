@@ -111,6 +111,8 @@ struct vhd {
 	char stub_uds_path[256];
 	char stub_uid[64];
 	char stub_gid[64];
+	uid_t proxy_uid;
+	gid_t proxy_gid;
 };
 
 struct pss {

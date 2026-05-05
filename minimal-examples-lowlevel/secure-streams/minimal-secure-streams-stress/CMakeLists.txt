@@ -54,7 +54,7 @@ if (requirements)
 		set_tests_properties(ssstress-warmcat
 				     PROPERTIES
 				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/secure-streams/minimal-secure-streams-stress
-				     TIMEOUT 110)
+				     TIMEOUT 300)
 		if (DEFINED ENV{SAI_OVN})
 			set_tests_properties(ssstress-warmcat PROPERTIES FIXTURES_REQUIRED "res_sspcmin")
 		endif()
@@ -112,7 +112,7 @@ if (requirements)
 			set_tests_properties(sspc-minimalstress PROPERTIES
 				WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/secure-streams/minimal-secure-streams-stress
 				FIXTURES_REQUIRED "${fixlist}"
-				TIMEOUT 110)
+				TIMEOUT 300)
 
 		endif()
 

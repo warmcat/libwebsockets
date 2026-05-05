@@ -1066,8 +1066,9 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			/* MRU Promotion */
 			lws_dll2_remove(&matched_ce->list);
 			lws_dll2_add_head(&matched_ce->list, &vhd->zones);
-			lwsl_notice("LWS_CALLBACK_RAW_RX query %s (type %d) from %s, answering from zone %s (serial %llu)\n",
-				qname, qtype, peer_ip, matched_ce->zone.origin, (unsigned long long)matched_ce->serial);
+			lwsl_notice("'%s' %d from %s, %s serial %llu\n",
+				qname, qtype, peer_ip, matched_ce->zone.origin,
+				(unsigned long long)matched_ce->serial);
 		}
 
 		lwsl_info("found_rs? %p\n", found_rs);

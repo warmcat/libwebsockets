@@ -607,16 +607,16 @@ lws_webrtc_create_offer(struct pss_webrtc *pss)
 	char audio_m[2048], video_m[2048], candidates[1024] = "";
 	size_t n_sdp;
 
-	pss->is_client = 1;
+	pss->is_client = 0;
 
 	if (!vhd) return -1;
 
-	/* Initialize Client DTLS */
+	/* Initialize Server DTLS */
 	if (!pss->handshake_started) {
 		struct lws_gendtls_creation_info ci;
 		memset(&ci, 0, sizeof(ci));
 		ci.context = vhd->context;
-		ci.mode = LWS_GENDTLS_MODE_CLIENT;
+		ci.mode = LWS_GENDTLS_MODE_SERVER;
 		ci.mtu = 1100;
 		ci.use_srtp = "SRTP_AES128_CM_SHA1_80";
 		if (lws_gendtls_create(&pss->dtls_ctx, &ci)) return -1;
@@ -657,7 +657,7 @@ lws_webrtc_create_offer(struct pss_webrtc *pss)
 			"a=ice-ufrag:%s\\r\\n"
 			"a=ice-pwd:%s\\r\\n"
 			"a=fingerprint:sha-256 %s\\r\\n"
-			"a=setup:actpass\\r\\n"
+			"a=setup:passive\\r\\n"
 			"a=mid:1\\r\\n"
 			"a=sendonly\\r\\n"
 			"a=msid:lws-stream lws-track-video\\r\\n"
@@ -689,7 +689,7 @@ lws_webrtc_create_offer(struct pss_webrtc *pss)
 			"a=ice-ufrag:%s\\r\\n"
 			"a=ice-pwd:%s\\r\\n"
 			"a=fingerprint:sha-256 %s\\r\\n"
-			"a=setup:actpass\\r\\n"
+			"a=setup:passive\\r\\n"
 			"a=mid:0\\r\\n"
 			"a=sendonly\\r\\n"
 			"a=msid:lws-stream lws-track-audio\\r\\n"
@@ -723,7 +723,7 @@ lws_webrtc_create_offer(struct pss_webrtc *pss)
 	return 0;
 }
 
-/* STUN Binding Request generator */
+/* STUN Binding Request generator for hole punching */
 static int
 lws_webrtc_stun_req_pack(struct pss_webrtc *pss, uint8_t *buf, size_t len, uint8_t *tid)
 {
@@ -761,13 +761,13 @@ lws_webrtc_stun_req_pack(struct pss_webrtc *pss, uint8_t *buf, size_t len, uint8
 	lws_ser_wu32be(p + 4, 1845494271); /* Type preference 110, Local pref 65535, Component 255 */
 	p += 8;
 
-	/* 3. ICE-CONTROLLING (0x802A) */
-	lws_ser_wu16be(p, 0x802A);
-	lws_ser_wu16be(p + 2, 8);
-	lws_get_random(lws_get_context(pss->wsi_ws), p + 4, 8);
-	p += 12;
+	/* 
+	 * CRITICAL: We MUST NOT include ICE-CONTROLLING (0x802A) here! 
+	 * Since our server is ice-lite, sending ICE-CONTROLLING is a fatal protocol 
+	 * violation and modern Chrome/Firefox will aggressively abort the ICE connection.
+	 */
 
-	/* 4. MESSAGE-INTEGRITY (0x0008) */
+	/* 3. MESSAGE-INTEGRITY (0x0008) */
 	/* Should use remote password */
 	if (pss->ice_pwd_remote[0]) {
 		uint16_t msg_len = (uint16_t)(p - start - 20 + 24); /* Current len + attribute header + HMAC (20) */
@@ -786,7 +786,7 @@ lws_webrtc_stun_req_pack(struct pss_webrtc *pss, uint8_t *buf, size_t len, uint8
 		p += 24;
 	}
 
-	/* 5. FINGERPRINT (0x8028) */
+	/* 4. FINGERPRINT (0x8028) */
 	{
 		uint16_t msg_len = (uint16_t)(p - start - 20 + 8); /* Current len + attribute header + CRC (4) */
 		lws_ser_wu16be(start + 2, msg_len);
@@ -805,6 +805,8 @@ lws_webrtc_stun_req_pack(struct pss_webrtc *pss, uint8_t *buf, size_t len, uint8
 
 	return (int)(p - start);
 }
+
+
 
 
 	static int
@@ -856,7 +858,7 @@ handle_candidate(struct pss_webrtc *pss, struct vhd_webrtc *vhd, const char *can
 		sa46_sockport(&pss->media->peer_sa46, htons((uint16_t)port));
 		pss->media->has_peer_sa46 = 1;
 
-		/* Send STUN Binding Request to punch hole */
+		/* Send STUN Binding Request to punch hole (spec compliant) */
 		uint8_t stun[2048];
 		uint8_t tid[12];
 
@@ -880,22 +882,6 @@ handle_candidate(struct pss_webrtc *pss, struct vhd_webrtc *vhd, const char *can
 			webrtc_pss_err(pss, "STUN req pack failed: %d\n", n);
 		}
 
-		/* Trigger DTLS Client Hello if we were waiting for peer sin */
-		if (pss->is_client && pss->handshake_started && !pss->media->handshake_done) {
-			uint8_t dummy;
-			lws_gendtls_get_rx(&pss->dtls_ctx, &dummy, 1);
-			uint8_t out[2048];
-			int _tx_len;
-			while ((_tx_len = lws_gendtls_get_tx(&pss->dtls_ctx, out, sizeof(out))) > 0) {
-				int fd = (int)(lws_intptr_t)lws_get_socket_fd(pss->media->wsi_udp);
-				if (fd >= 0) {
-					lwsl_notice("%s: Sending Initial DTLS ClientHello after ICE (%d bytes)\n", __func__, _tx_len);
-					if (sendto((lws_sockfd_type)(lws_intptr_t)fd, (const char *)out, (size_t)_tx_len, 0, (const struct sockaddr *)&pss->media->peer_sa46, pss->media->peer_sa46.sa4.sin_family == AF_INET6 ? (socklen_t)sizeof(pss->media->peer_sa46.sa6) : (socklen_t)sizeof(pss->media->peer_sa46.sa4)) < 0) {
-						webrtc_pss_err(pss, "DTLS ClientHello sendto failed: errno %d\n", errno);
-					}
-				}
-			}
-		}
 
 		return 0;
 	}
@@ -1178,24 +1164,6 @@ handle_answer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, c
 	lws_webrtc_parse_sdp_codecs(pss, sdp_clean);
 
 	free(sdp_clean);
-
-	/* Trigger DTLS Client Hello */
-	lwsl_notice("%s: Checking DTLS Cond: started %d, done %d, peer %d\n", __func__, pss->handshake_started, pss->media ? pss->media->handshake_done : 0, pss->media ? pss->media->has_peer_sa46 : 0);
-	if (pss->media && pss->media->wsi_udp && pss->handshake_started && !pss->media->handshake_done && pss->media->has_peer_sa46) {
-		int fd = (int)(lws_intptr_t)lws_get_socket_fd(pss->media->wsi_udp);
-		if (fd >= 0) {
-			uint8_t dummy;
-			lws_gendtls_get_rx(&pss->dtls_ctx, &dummy, 1);
-			uint8_t out[2048];
-			int _tx_len;
-			while ((_tx_len = lws_gendtls_get_tx(&pss->dtls_ctx, out, sizeof(out))) > 0) {
-				webrtc_pss_log(pss, "Sending Initial DTLS ClientHello (%d bytes)\n", _tx_len);
-				if (sendto((lws_sockfd_type)(lws_intptr_t)fd, (const char *)out, (size_t)_tx_len, 0, (const struct sockaddr *)&pss->media->peer_sa46, pss->media->peer_sa46.sa4.sin_family == AF_INET6 ? (socklen_t)sizeof(pss->media->peer_sa46.sa6) : (socklen_t)sizeof(pss->media->peer_sa46.sa4)) < 0) {
-					webrtc_pss_err(pss, "Failed to send Initial DTLS ClientHello: errno %d\n", errno);
-				}
-			}
-		}
-	}
 
 	return 0;
 }
@@ -1489,7 +1457,7 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 		struct lws_gendtls_creation_info ci;
 		memset(&ci, 0, sizeof(ci));
 		ci.context = vhd->context;
-		ci.mode = LWS_GENDTLS_MODE_SERVER;
+		ci.mode = pss->is_client ? LWS_GENDTLS_MODE_CLIENT : LWS_GENDTLS_MODE_SERVER;
 		ci.mtu = 1100;
 		ci.use_srtp = "SRTP_AES128_CM_SHA1_80";
 		if (lws_gendtls_create(&pss->dtls_ctx, &ci)) return -1;
@@ -1596,7 +1564,7 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 			"a=ice-ufrag:%s\\r\\n"
 			"a=ice-pwd:%s\\r\\n"
 			"a=fingerprint:sha-256 %s\\r\\n"
-			"a=setup:passive\\r\\n"
+			"a=setup:%s\\r\\n"
 			"a=mid:%s\\r\\n"
 			"a=sendrecv\\r\\n"
 			"a=msid:lws-stream lws-track-video\\r\\n"
@@ -1609,6 +1577,7 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 			"a=end-of-candidates\\r\\n",
 		vhd->udp_port, pt_list[0] ? pt_list : "0", vhd->external_ip[0] ? vhd->external_ip : "127.0.0.1",
 		pss->ice_ufrag, pss->ice_pwd, vhd->fingerprint,
+		pss->is_client ? "active" : "passive",
 		mid_video,
 		rtpmap_lines,
 		pss->media->ssrc_video, pss->media->ssrc_video, candidates);
@@ -1628,7 +1597,7 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 			"a=ice-ufrag:%s\\r\\n"
 			"a=ice-pwd:%s\\r\\n"
 			"a=fingerprint:sha-256 %s\\r\\n"
-			"a=setup:passive\\r\\n"
+			"a=setup:%s\\r\\n"
 			"a=mid:%s\\r\\n"
 			"a=sendrecv\\r\\n"
 			"a=msid:lws-stream lws-track-audio\\r\\n"
@@ -1639,6 +1608,7 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 			"%s"
 			"a=end-of-candidates\\r\\n",
 			vhd->udp_port, pss->media->pt_audio, vhd->external_ip[0] ? vhd->external_ip : "127.0.0.1", pss->ice_ufrag, pss->ice_pwd, vhd->fingerprint,
+			pss->is_client ? "active" : "passive",
 			mid_audio, pss->media->pt_audio,
 			fmtp_audio,
 			pss->media->ssrc_audio, pss->media->ssrc_audio, candidates);
@@ -1819,8 +1789,6 @@ lws_shared_webrtc_callback(struct lws *wsi, enum lws_callback_reasons reason,
 #endif
 			}
 			pss->media->wsi_udp = vhd->wsi_udp; /* Critical: Session needs UDP handle */
-			if (reason == LWS_CALLBACK_CLIENT_ESTABLISHED)
-				pss->is_client = 1;
 			lws_dll2_clear(&pss->list);
 			lws_dll2_add_tail(&pss->list, &vhd->sessions);
 			pss->media->ssrc_video = (uint32_t)lws_now_usecs();
@@ -2063,18 +2031,43 @@ webrtc_handle_stun(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrtc **
 	int n_stun = lws_stun_validate_and_reply(wsi, (uint8_t *)in, len, out, sizeof(out), pss->ice_pwd, sin);
 	if (n_stun > 0) {
 		if (udp_desc) {
+			if (pss->media) {
+				pss->media->peer_sa46 = udp_desc->sa46;
+				pss->media->has_peer_sa46 = 1;
+			}
+
 			int fd = (int)(lws_intptr_t)lws_get_socket_fd(wsi);
 			if (fd >= 0) {
 				socklen_t slen = udp_desc->sa46.sa4.sin_family == AF_INET6 ? (socklen_t)sizeof(udp_desc->sa46.sa6) : (socklen_t)sizeof(udp_desc->sa46.sa4);
-				// webrtc_pss_log(pss, "Sent STUN Response (%d bytes) successfully.\n", n_stun);
+				webrtc_pss_log(pss, "Sent STUN Response (%d bytes) successfully.\n", n_stun);
 				ssize_t sent = sendto((lws_sockfd_type)(lws_intptr_t)fd, (const char *)out, (size_t)n_stun, 0, (const struct sockaddr *)&udp_desc->sa46, slen);
 				if (sent < 0) {
 					webrtc_pss_err(pss, "STUN sendto failed: errno %d\n", errno);
 				} else if (sent != n_stun) {
 					webrtc_pss_err(pss, "STUN sendto partial %ld of %d\n", (long)sent, n_stun);
 				}
+
+				/* 
+				 * Trigger DTLS Client Hello now that we have proven connectivity 
+				 * via a successful STUN Request/Response cycle. 
+				 */
+				if (pss->is_client && pss->handshake_started && !pss->media->handshake_done) {
+					uint8_t dummy;
+					lws_gendtls_get_rx(&pss->dtls_ctx, &dummy, 1);
+					uint8_t out_dtls[2048];
+					int _tx_len;
+					while ((_tx_len = lws_gendtls_get_tx(&pss->dtls_ctx, out_dtls, sizeof(out_dtls))) > 0) {
+						lwsl_notice("%s: Sending Initial DTLS ClientHello (%d bytes) to %s:%u\n", 
+								__func__, _tx_len, ads, ntohs(sin->sin_port));
+						if (sendto((lws_sockfd_type)(lws_intptr_t)fd, (const char *)out_dtls, (size_t)_tx_len, 0, 
+								(const struct sockaddr *)&udp_desc->sa46, slen) < 0) {
+							webrtc_pss_err(pss, "DTLS ClientHello sendto failed: errno %d\n", errno);
+						}
+					}
+				}
 			}
 		}
+
 	} else {
 		webrtc_pss_err(pss, "STUN validation failed (bad credentials or format)\n");
 	}
@@ -2103,7 +2096,7 @@ webrtc_handle_dtls(struct lws *wsi, struct pss_webrtc *pss, const struct sockadd
 		while ((_tx_len = lws_gendtls_get_tx(&pss->dtls_ctx, out, sizeof(out))) > 0) {
 			lwsl_notice("%s: Sending DTLS Reply (%d bytes)\n", __func__, _tx_len);
 			if (_fd >= 0) {
-				if (sendto((lws_sockfd_type)(lws_intptr_t)_fd, (const char *)out, (size_t)_tx_len, 0, (const struct sockaddr *)sin, sizeof(*sin)) < 0) {
+				if (sendto((lws_sockfd_type)(lws_intptr_t)_fd, (const char *)out, (size_t)_tx_len, 0, (const struct sockaddr *)&pss->media->peer_sa46, pss->media->peer_sa46.sa4.sin_family == AF_INET6 ? (socklen_t)sizeof(pss->media->peer_sa46.sa6) : (socklen_t)sizeof(pss->media->peer_sa46.sa4)) < 0) {
 					webrtc_pss_err(pss, "DTLS reply sendto failed: errno %d\n", errno);
 				}
 			}

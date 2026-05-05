@@ -882,6 +882,15 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 							}
 						}
 
+						/* The WebRTC offer might have been processed just before this join message, 
+						   meaning pss->media is now allocated. Update the session's media pointer 
+						   if it is currently NULL. */
+						if (p->session && !p->session->media && we_ops && we_ops->get_media) {
+							p->session->media = we_ops->get_media(p->pss);
+							if (p->session->media && we_ops->media_ref)
+								we_ops->media_ref(p->session->media);
+						}
+
 						p->joined = 1;
 						if (p->session) p->session->joined = 1;
 						p->presence_missed = 0;

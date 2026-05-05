@@ -773,9 +773,21 @@ bail:
 
 	if (bad == expected) {
 		lwsl_user("Completed: OK (seen expected %d)\n", expected);
-		return 0;
-	} else
+		bad = 0;
+	} else {
 		lwsl_err("Completed: failed: exit %d, expected %d\n", bad, expected);
+		bad = 1;
+	}
 
-	return 1;
+#if !defined(WIN32)
+	{
+		int status;
+		while (waitpid(-1, &status, 0) > 0) {
+			if (WIFEXITED(status) && WEXITSTATUS(status))
+				bad = 1;
+		}
+	}
+#endif
+
+	return bad;
 }

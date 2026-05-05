@@ -320,9 +320,8 @@ lws_interceptor_check(struct lws *wsi, const struct lws_protocols *prot)
 		}
 	}
 
-	lwsl_vhost_notice(vhd->vhost, "%s: valid JWT for %s: exp %lu, now %lu (expires in %lds)",
-		    __func__, sub_claim, ck.expiry_unix_time, lws_now_secs(),
-		    (long)(ck.expiry_unix_time - lws_now_secs()));
+	lwsl_vhost_notice(vhd->vhost, "valid JWT for %s: expires in %lds",
+			  sub_claim, (long)(ck.expiry_unix_time - lws_now_secs()));
 
 	if (lws_get_urlarg_by_name(wsi, "lws_interceptor_ok", junk, sizeof(junk))) {
 		lws_interceptor_inject_header(wsi, vhd, sub_claim);
