@@ -1472,9 +1472,8 @@ after_refused:
 					ssize_t snt = sendto(sockfd, (char *)dbuf, (size_t)pss->len, 0, sa, salen);
 					if (snt < 0) {
 						lwsl_err("%s: sendto failed on fd %d: err %d\n", __func__, sockfd, errno);
-					} else {
-						lwsl_notice("%s: sendto succeeded %ld bytes to delayed peer on fd %d\n", __func__, (long)snt, sockfd);
-					}
+					} else
+						lwsl_info("%s: sendto succeeded %ld bytes to delayed peer on fd %d\n", __func__, (long)snt, sockfd);
 				}
 			} else {
 				lws_write(wsi, dbuf, (size_t)pss->len, LWS_WRITE_RAW);
