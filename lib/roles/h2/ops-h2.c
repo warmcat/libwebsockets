@@ -1268,6 +1268,23 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 		 * then logically close ourself
 		 */
 
+		if (lwsi_role_ws(w) && w->ws->send_check_ping) {
+			lwsl_info("%s: issuing ping on wsi %s: %s %s h2: %d\n", __func__,
+					lws_wsi_tag(w),
+					w->role_ops->name, w->a.protocol->name,
+					w->mux_substream);
+
+			w->ws->send_check_ping = 0;
+			n = lws_write(w, &w->ws->ping_payload_buf[LWS_PRE],
+				      8, LWS_WRITE_PING);
+			if (n < 0)
+				return -1;
+
+			lws_callback_on_writable(w);
+			w->mux.requested_POLLOUT = 1;
+			goto next_child;
+		}
+
 		if ((lwsi_role_ws(w) && w->ws->pong_pending_flag) ||
 		    (lwsi_state(w) == LRS_RETURNED_CLOSE &&
 		     w->ws->payload_is_close)) {
