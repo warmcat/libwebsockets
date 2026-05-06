@@ -588,6 +588,8 @@ callback_lws_openmetrics_prox_agg(struct lws *wsi,
 	switch (reason) {
 
 	case LWS_CALLBACK_PROTOCOL_INIT:
+		if (lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub"))
+			return 0;
 
 		if (!in)
 			return 0;
@@ -766,6 +768,8 @@ callback_lws_openmetrics_prox_server(struct lws *wsi,
 	switch (reason) {
 
 	case LWS_CALLBACK_PROTOCOL_INIT:
+		if (lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub"))
+			return 0;
 		/*
 		 * We get told what to do when we are bound to the vhost
 		 */
@@ -968,6 +972,8 @@ callback_lws_openmetrics_prox_client(struct lws *wsi,
 	switch (reason) {
 
 	case LWS_CALLBACK_PROTOCOL_INIT:
+		if (lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub"))
+			return 0;
 
 		if (!in)
 			return 0;

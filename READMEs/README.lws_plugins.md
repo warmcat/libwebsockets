@@ -103,3 +103,49 @@ lws_plugins_destroy(struct lws_plugin **pplugin, each_plugin_cb_t each,
 plugins and a pointer to its exported header object, so you can walk this
 after loading.
 
+## Protocol Plugin Best Practices
+
+When writing a protocol plugin that utilizes `LWS_CALLBACK_PROTOCOL_INIT`, you must follow these requirements:
+
+### 1. Ignore NULL `in` Parameters
+
+During context creation or system initialization, `LWS_CALLBACK_PROTOCOL_INIT` may be called with a `NULL` `in` parameter (which normally carries the `lws_protocol_vhost_options`). Your plugin must safely ignore this and exit without error:
+
+```c
+	case LWS_CALLBACK_PROTOCOL_INIT:
+		if (!in)
+			return 0;
+```
+
+### 2. Contextual Warning for PVO Errors
+
+When parsing `lws_protocol_vhost_options` (PVOs) during `PROTOCOL_INIT`, if an error occurs (such as a missing or invalid value), you should use `lws_vhost_warn(lws_get_vhost(wsi), ...)` or `lws_vhost_err(...)` instead of generic logging. This ensures the user can understand *which* vhost is misconfigured, especially in multi-vhost setups.
+
+### 3. Stub Process Isolation
+
+Generic stub processes (such as `--lws-stub=dnssec-priv`) inherit the user's config and will attempt to initialize all plugins. To prevent resource contention (like conflicting UDP port bindings or duplicated threads), plugins must explicitly opt-in or opt-out of running inside stubs.
+
+If your plugin **should never run** inside a stub process (which is the case for most application and UI plugins), you must inject this snippet at the top of your `PROTOCOL_INIT` block:
+
+```c
+	case LWS_CALLBACK_PROTOCOL_INIT:
+		if (!in)
+			return 0;
+
+		/* Do not initialize in generic stub processes */
+		if (lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub"))
+			return 0;
+```
+
+If your plugin **is explicitly designed to run** inside a specific stub (e.g. `dnssec-monitor` running inside `dnssec-priv`), you must modify the snippet to ensure it only initializes for *that specific* stub, and ignores any others:
+
+```c
+	case LWS_CALLBACK_PROTOCOL_INIT:
+		if (!in)
+			return 0;
+
+		/* Only initialize if we are running as the dnssec-priv stub */
+		const char *stub = lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub");
+		if (stub && strcmp(stub, "dnssec-priv"))
+			return 0;
+```

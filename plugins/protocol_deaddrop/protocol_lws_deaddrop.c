@@ -1039,6 +1039,8 @@ _deaddrop_callback_deaddrop(struct lws *wsi, enum lws_callback_reasons reason,
 	switch (reason) {
 
 	case LWS_CALLBACK_PROTOCOL_INIT: /* per vhost */
+		if (lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub"))
+			return 0;
 
 		if (!in)
 			return 0;

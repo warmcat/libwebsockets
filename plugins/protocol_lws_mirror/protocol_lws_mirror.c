@@ -345,6 +345,8 @@ bail1:
 		return 1; /* disallow compression */
 
 	case LWS_CALLBACK_PROTOCOL_INIT: /* per vhost */
+		if (lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub"))
+			return 0;
 		if (!v) {
 			lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 				lws_get_protocol(wsi),
