@@ -606,6 +606,8 @@ callback_dht_object_store(struct lws* wsi, enum lws_callback_reasons reason,
 	}
 
 	case LWS_CALLBACK_PROTOCOL_INIT: {
+		if (lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub"))
+			return 0;
 		const char *store_verbs[] = {
 			"PUT",
 			"GET",
