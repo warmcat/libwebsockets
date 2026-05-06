@@ -92,8 +92,11 @@ lws_txpacer_thread(void *d)
 		} else {
 			/* Calculate sleep time */
 			struct timespec ts;
-			lws_usec_t target_us = lws_now_usecs() + txp->txp_info.interval_us;
-			ts.tv_sec = (time_t)(target_us / 1000000);
+			struct timeval tv;
+			gettimeofday(&tv, NULL);
+
+			uint64_t target_us = (uint64_t)tv.tv_usec + txp->txp_info.interval_us;
+			ts.tv_sec = tv.tv_sec + (time_t)(target_us / 1000000);
 			ts.tv_nsec = (long)((target_us % 1000000) * 1000);
 
 			/* Wait for signal (new packet) or timeout (next pacing tick) */

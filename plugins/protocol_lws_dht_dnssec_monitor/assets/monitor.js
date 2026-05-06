@@ -555,32 +555,49 @@ function handleResponse(data) {
             break;
         case 'download_dist_server':
             if (data.status === 'ok') {
-                const content = `Certificate:\n${data.cert}\n\nPrivate Key:\n${data.key}\n`;
-                const blob = new Blob([content], { type: 'application/x-pem-file' });
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `distribution-server.pem`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                window.URL.revokeObjectURL(url);
-                showToast('Server Certificate downloaded');
+                const triggerDownload = (content, filename) => {
+                    const blob = new Blob([content], { type: 'application/x-pem-file' });
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+                };
+
+                const srvPem = `${data.cert}\n${data.ca}\n`;
+                triggerDownload(srvPem, 'distribution-server.pem');
+
+                setTimeout(() => {
+                    triggerDownload(`${data.key}\n`, 'distribution-server.key');
+                }, 100);
+
+                showToast('Server Certificate and Key downloaded');
             }
             break;
         case 'provisioning_bundle':
             if (data.status === 'ok') {
-                const content = `Distribution CA:\n${data.ca}\n\nClient Certificate (${data.subdomain}):\n${data.cert}\n\nClient Key:\n${data.key}\n`;
-                const blob = new Blob([content], { type: 'text/plain' });
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `provisioning-${data.subdomain}.txt`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                window.URL.revokeObjectURL(url);
-                showToast('Provisioning bundle downloaded');
+                const triggerDownload = (content, filename) => {
+                    const blob = new Blob([content], { type: 'application/x-pem-file' });
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+                };
+
+                triggerDownload(`${data.cert}\n`, `distribution-client-${data.subdomain}.pem`);
+
+                setTimeout(() => {
+                    triggerDownload(`${data.key}\n`, `distribution-client-${data.subdomain}.key`);
+                }, 100);
+
+                showToast('Provisioning keys downloaded');
             }
             break;
     }
