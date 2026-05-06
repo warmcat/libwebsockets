@@ -860,9 +860,20 @@ handle_req_download_dist_server(struct vhd *vhd, struct pss *root_pss, struct mo
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE];
 	char *tx_end = tx + 65536;
-	char path[512], *crt = NULL, *key = NULL;
+	char path[512], *ca = NULL, *crt = NULL, *key = NULL;
 	struct stat st;
 	int fd;
+
+	lws_snprintf(path, sizeof(path), "%s/pki/distribution-ca.crt", vhd->base_dir);
+	fd = open(path, O_RDONLY);
+	if (fd >= 0) {
+		if (fstat(fd, &st) == 0) {
+			ca = malloc((size_t)st.st_size + 1);
+			if (ca && read(fd, ca, (size_t)st.st_size) == (ssize_t)st.st_size) ca[st.st_size] = '\0';
+			else { free(ca); ca = NULL; }
+		}
+		close(fd);
+	}
 
 	lws_snprintf(path, sizeof(path), "%s/pki/distribution-server.crt", vhd->base_dir);
 	fd = open(path, O_RDONLY);
@@ -886,18 +897,21 @@ handle_req_download_dist_server(struct vhd *vhd, struct pss *root_pss, struct mo
 		close(fd);
 	}
 
-	if (!crt || !key) {
+	if (!ca || !crt || !key) {
 		root_pss->tx_len = (size_t)lws_snprintf(tx, 65536, "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Server cert/key not found\"}\n", a->req);
 		goto bail;
 	}
 
-	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"cert\":\"", a->req);
-	char *p = crt; while (p && *p) { if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
+	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"ca\":\"", a->req);
+	char *p = ca; while (p && *p) { if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
+	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\",\"cert\":\"");
+	p = crt; while (p && *p) { if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
 	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\",\"key\":\"");
 	p = key; while (p && *p) { if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
 	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\"}\n");
 
 bail:
+	if (ca) free(ca);
 	if (crt) free(crt);
 	if (key) free(key);
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);

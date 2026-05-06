@@ -14,6 +14,8 @@
 #include <openssl/x509v3.h>
 #include <openssl/pem.h>
 #include <openssl/err.h>
+#include <openssl/ec.h>
+#include <openssl/obj_mac.h>
 
 static int
 add_ext(X509 *cert, int nid, char *value)
@@ -37,11 +39,13 @@ generate_cert_internal(struct vhd *vhd, const char *cn, const char *out_crt, con
 	X509 *x = X509_new();
 	EVP_PKEY *ca_pk = NULL;
 	X509 *ca_x = NULL;
-	RSA *rsa = RSA_generate_key(2048, RSA_F4, NULL, NULL);
+	EC_KEY *eckey = EC_KEY_new_by_curve_name(NID_secp521r1);
 	FILE *f;
 
-	if (!rsa || !pk || !x) goto bail;
-	EVP_PKEY_assign_RSA(pk, rsa);
+	if (!eckey || !pk || !x) goto bail;
+	EC_KEY_set_asn1_flag(eckey, OPENSSL_EC_NAMED_CURVE);
+	if (!EC_KEY_generate_key(eckey)) goto bail;
+	EVP_PKEY_assign_EC_KEY(pk, eckey);
 
 	X509_set_version(x, 2);
 	ASN1_INTEGER_set(X509_get_serialNumber(x), (long)lws_now_secs());
