@@ -1678,6 +1678,8 @@ lws_shared_webrtc_callback(struct lws *wsi, enum lws_callback_reasons reason,
 
 	switch (reason) {
 		case LWS_CALLBACK_PROTOCOL_INIT:
+			if (lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub"))
+				return 0;
 			/* VHD is managed by the application extension now */
 
 			if (!vhd->context) vhd->context = lws_get_context(wsi);

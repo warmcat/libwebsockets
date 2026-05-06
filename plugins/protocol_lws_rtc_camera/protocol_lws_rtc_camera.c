@@ -407,6 +407,8 @@ callback_rtc_camera(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 
 		case LWS_CALLBACK_PROTOCOL_INIT: {
+				if (lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub"))
+					return 0;
 				const struct lws_protocol_vhost_options *pvo;
 
 				vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi), lws_get_protocol(wsi), sizeof(struct per_vhost_data));
