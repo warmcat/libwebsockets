@@ -568,13 +568,16 @@ function handleResponse(data) {
                 };
 
                 const srvPem = `${data.cert}\n${data.ca}\n`;
-                triggerDownload(srvPem, 'distribution-server.pem');
+                const filenameBase = data.domain ? `distribution-server-${data.domain}` : 'distribution-server';
+                triggerDownload(srvPem, `${filenameBase}.pem`);
 
                 setTimeout(() => {
-                    triggerDownload(`${data.key}\n`, 'distribution-server.key');
+                    triggerDownload(`${data.key}\n`, `${filenameBase}.key`);
                 }, 100);
 
                 showToast('Server Certificate and Key downloaded');
+            } else if (data.status === 'error') {
+                showToast(data.msg || 'Error fetching server certificates', true);
             }
             break;
         case 'provisioning_bundle':
@@ -1298,7 +1301,22 @@ function initApp() {
     if (btnDownloadCa) btnDownloadCa.onclick = () => sendReq({ req: 'download_dist_ca' });
 
     const btnDownloadServer = document.getElementById('btn-dist-download-server');
-    if (btnDownloadServer) btnDownloadServer.onclick = () => sendReq({ req: 'download_dist_server' });
+    const domainInput = document.getElementById('dist-server-domain');
+    if (domainInput) {
+        const savedDomain = localStorage.getItem('dist-server-domain');
+        if (savedDomain) domainInput.value = savedDomain;
+        domainInput.addEventListener('input', () => localStorage.setItem('dist-server-domain', domainInput.value.trim()));
+    }
+    if (btnDownloadServer) {
+        btnDownloadServer.onclick = () => {
+            if (domainInput && domainInput.value.trim() !== '') {
+                localStorage.setItem('dist-server-domain', domainInput.value.trim());
+                sendReq({ req: 'download_dist_server', domain: domainInput.value.trim() });
+            } else {
+                alert('Please enter a valid domain for the Distribution Server.');
+            }
+        };
+    }
 
     const rawEditor = document.getElementById('raw-zone-editor');
     

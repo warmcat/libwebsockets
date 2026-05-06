@@ -10,91 +10,131 @@
  */
 
 #include "private.h"
-#include <openssl/x509.h>
-#include <openssl/x509v3.h>
-#include <openssl/pem.h>
-#include <openssl/err.h>
-#include <openssl/ec.h>
-#include <openssl/obj_mac.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+
+static char *
+read_file(const char *path)
+{
+	int fd = open(path, O_RDONLY);
+	struct stat st;
+	char *buf = NULL;
+
+	if (fd < 0)
+		return NULL;
+
+	if (!fstat(fd, &st)) {
+		buf = malloc((size_t)st.st_size + 1);
+		if (buf) {
+			if (read(fd, buf, (size_t)st.st_size) != st.st_size) {
+				free(buf);
+				buf = NULL;
+			} else {
+				buf[st.st_size] = '\0';
+			}
+		}
+	}
+	close(fd);
+
+	return buf;
+}
 
 static int
-add_ext(X509 *cert, int nid, char *value)
+write_pem(const char *path, const char *type, const uint8_t *der, size_t der_len)
 {
-	X509_EXTENSION *ex;
-	X509V3_CTX ctx;
-	X509V3_set_ctx_nodb(&ctx);
-	X509V3_set_ctx(&ctx, cert, cert, NULL, NULL, 0);
-	ex = X509V3_EXT_conf_nid(NULL, &ctx, nid, value);
-	if (!ex) return 0;
-	X509_add_ext(cert, ex, -1);
-	X509_EXTENSION_free(ex);
+	char *b64;
+	size_t b64_len = (size_t)lws_base64_size((int)der_len) + 1;
+	int fd, n;
+	size_t pos = 0, len;
+	char hdr[128];
+
+	b64 = malloc(b64_len);
+	if (!b64)
+		return 1;
+
+	lws_b64_encode_string((const char *)der, (int)der_len, b64, (int)b64_len);
+	len = strlen(b64);
+
+	fd = open(path, O_CREAT | O_TRUNC | O_WRONLY, 0600);
+	if (fd < 0) {
+		free(b64);
+		return 1;
+	}
+
+	n = lws_snprintf(hdr, sizeof(hdr), "-----BEGIN %s-----\n", type);
+	if (write(fd, hdr, (size_t)n) != n) goto bail;
+
+	while (pos < len) {
+		size_t chunk = len - pos > 64 ? 64 : len - pos;
+		if (write(fd, b64 + pos, chunk) != (ssize_t)chunk) goto bail;
+		if (write(fd, "\n", 1) != 1) goto bail;
+		pos += chunk;
+	}
+
+	n = lws_snprintf(hdr, sizeof(hdr), "-----END %s-----\n", type);
+	if (write(fd, hdr, (size_t)n) != n) goto bail;
+
+	close(fd);
+	free(b64);
+	return 0;
+
+bail:
+	close(fd);
+	free(b64);
 	return 1;
 }
 
 static int
 generate_cert_internal(struct vhd *vhd, const char *cn, const char *out_crt, const char *out_key,
-		      const char *ca_crt_path, const char *ca_key_path, int is_ca)
+		      const char *ca_crt_path, const char *ca_key_path, int is_ca, int is_server)
 {
-	EVP_PKEY *pk = EVP_PKEY_new();
-	X509 *x = X509_new();
-	EVP_PKEY *ca_pk = NULL;
-	X509 *ca_x = NULL;
-	EC_KEY *eckey = EC_KEY_new_by_curve_name(NID_secp521r1);
-	FILE *f;
+	struct lws_x509_cert_gen_info info;
+	uint8_t *cert_buf = NULL, *key_buf = NULL;
+	size_t cert_len = 0, key_len = 0;
+	char *ca_crt_pem = NULL, *ca_key_pem = NULL;
+	int ret = 1;
 
-	if (!eckey || !pk || !x) goto bail;
-	EC_KEY_set_asn1_flag(eckey, OPENSSL_EC_NAMED_CURVE);
-	if (!EC_KEY_generate_key(eckey)) goto bail;
-	EVP_PKEY_assign_EC_KEY(pk, eckey);
+	memset(&info, 0, sizeof(info));
+	info.san = cn;
+	info.curve_name = "P-521"; /* Force ECDSA P-521 for Distribution PKI */
+	info.is_ca = is_ca;
+	info.is_server = is_server;
 
-	X509_set_version(x, 2);
-	ASN1_INTEGER_set(X509_get_serialNumber(x), (long)lws_now_secs());
-	X509_gmtime_adj(X509_get_notBefore(x), 0);
-	X509_gmtime_adj(X509_get_notAfter(x), 315360000L); /* 10 years */
-	X509_set_pubkey(x, pk);
-
-	X509_NAME *name = X509_get_subject_name(x);
-	X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC, (unsigned char *)cn, -1, -1, 0);
-
-	if (is_ca) {
-		X509_set_issuer_name(x, name);
-		add_ext(x, NID_basic_constraints, "critical,CA:TRUE");
-		add_ext(x, NID_key_usage, "critical,keyCertSign,cRLSign");
-		if (!X509_sign(x, pk, EVP_sha256())) goto bail;
-	} else {
-		f = fopen(ca_crt_path, "r");
-		if (f) { ca_x = PEM_read_X509(f, NULL, NULL, NULL); fclose(f); }
-		f = fopen(ca_key_path, "r");
-		if (f) { ca_pk = PEM_read_PrivateKey(f, NULL, NULL, NULL); fclose(f); }
-
-		if (!ca_x || !ca_pk) goto bail;
-		X509_set_issuer_name(x, X509_get_subject_name(ca_x));
-		add_ext(x, NID_basic_constraints, "critical,CA:FALSE");
-		if (strstr(cn, "server"))
-			add_ext(x, NID_ext_key_usage, "serverAuth");
-		else
-			add_ext(x, NID_ext_key_usage, "clientAuth");
-
-		if (!X509_sign(x, ca_pk, EVP_sha256())) goto bail;
+	if (!is_ca && ca_crt_path && ca_key_path) {
+		ca_crt_pem = read_file(ca_crt_path);
+		ca_key_pem = read_file(ca_key_path);
+		if (!ca_crt_pem || !ca_key_pem) {
+			lwsl_err("%s: failed to read CA cert or key\n", __func__);
+			goto bail;
+		}
+		info.ca_cert_pem = ca_crt_pem;
+		info.ca_key_pem = ca_key_pem;
 	}
 
-	f = fopen(out_key, "w");
-	if (f) { PEM_write_PrivateKey(f, pk, NULL, NULL, 0, NULL, NULL); fclose(f); }
-	f = fopen(out_crt, "w");
-	if (f) { PEM_write_X509(f, x); fclose(f); }
+	if (lws_x509_create_cert(vhd->context, &cert_buf, &cert_len, &key_buf, &key_len, &info)) {
+		lwsl_err("%s: failed to create cert\n", __func__);
+		goto bail;
+	}
 
-	if (ca_x) X509_free(ca_x);
-	if (ca_pk) EVP_PKEY_free(ca_pk);
-	X509_free(x);
-	EVP_PKEY_free(pk);
-	return 0;
+	if (write_pem(out_crt, "CERTIFICATE", cert_buf, cert_len)) {
+		lwsl_err("%s: failed to write cert\n", __func__);
+		goto bail;
+	}
+
+	if (write_pem(out_key, "PRIVATE KEY", key_buf, key_len)) {
+		lwsl_err("%s: failed to write key\n", __func__);
+		goto bail;
+	}
+
+	ret = 0;
 
 bail:
-	if (ca_x) X509_free(ca_x);
-	if (ca_pk) EVP_PKEY_free(ca_pk);
-	if (x) X509_free(x);
-	if (pk) EVP_PKEY_free(pk);
-	return 1;
+	if (ca_crt_pem) free(ca_crt_pem);
+	if (ca_key_pem) free(ca_key_pem);
+	if (cert_buf) free(cert_buf);
+	if (key_buf) free(key_buf);
+
+	return ret;
 }
 
 void
@@ -110,17 +150,30 @@ generate_dist_pki(struct vhd *vhd)
 
 	if (access(path_crt, F_OK) != 0) {
 		lwsl_notice("%s: Generating Distribution CA\n", __func__);
-		generate_cert_internal(vhd, "dnssec-monitor-distribution-ca", path_crt, path_key, NULL, NULL, 1);
+		generate_cert_internal(vhd, "dnssec-monitor-distribution-ca", path_crt, path_key, NULL, NULL, 1, 0);
 	}
 
-	char srv_crt[1024], srv_key[1024];
-	lws_snprintf(srv_crt, sizeof(srv_crt), "%s/pki/distribution-server.crt", vhd->base_dir);
-	lws_snprintf(srv_key, sizeof(srv_key), "%s/pki/distribution-server.key", vhd->base_dir);
+}
 
-	if (access(srv_crt, F_OK) != 0) {
-		lwsl_notice("%s: Generating Distribution Server Cert\n", __func__);
-		generate_cert_internal(vhd, "distribution-server", srv_crt, srv_key, path_crt, path_key, 0);
-	}
+void
+generate_dist_server_cert(struct vhd *vhd, const char *domain)
+{
+	char path_crt[1024], path_key[1024], path_dir[1024];
+	char ca_crt[1024], ca_key[1024];
+
+	lws_snprintf(path_dir, sizeof(path_dir), "%s/pki", vhd->base_dir);
+	mkdir(path_dir, 0700);
+
+	lws_snprintf(path_crt, sizeof(path_crt), "%s/pki/distribution-server-%s.crt", vhd->base_dir, domain);
+	lws_snprintf(path_key, sizeof(path_key), "%s/pki/distribution-server-%s.key", vhd->base_dir, domain);
+
+	if (access(path_crt, F_OK) == 0) return;
+
+	lws_snprintf(ca_crt, sizeof(ca_crt), "%s/pki/distribution-ca.crt", vhd->base_dir);
+	lws_snprintf(ca_key, sizeof(ca_key), "%s/pki/distribution-ca.key", vhd->base_dir);
+
+	lwsl_notice("%s: Generating Distribution Server Cert for %s\n", __func__, domain);
+	generate_cert_internal(vhd, domain, path_crt, path_key, ca_crt, ca_key, 0, 1);
 }
 
 void
@@ -141,8 +194,9 @@ generate_client_cert(struct vhd *vhd, const char *domain, const char *subdomain)
 	lws_snprintf(ca_key, sizeof(ca_key), "%s/pki/distribution-ca.key", vhd->base_dir);
 
 	lwsl_notice("%s: Generating Client Cert for %s\n", __func__, subdomain);
-	generate_cert_internal(vhd, subdomain, path_crt, path_key, ca_crt, ca_key, 0);
+	generate_cert_internal(vhd, subdomain, path_crt, path_key, ca_crt, ca_key, 0, 0);
 }
+
 void
 pki_init(struct vhd *vhd)
 {
