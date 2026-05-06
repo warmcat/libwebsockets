@@ -28,18 +28,20 @@
 #include <gnutls/x509.h>
 
 int
-lws_x509_create_self_signed(struct lws_context *context,
-			    uint8_t **cert_buf, size_t *cert_len,
-			    uint8_t **key_buf, size_t *key_len,
-			    const char *san, int key_bits)
+lws_x509_create_cert(struct lws_context *context,
+		     uint8_t **cert_buf, size_t *cert_len,
+		     uint8_t **key_buf, size_t *key_len,
+		     const struct lws_x509_cert_gen_info *info)
 {
-	gnutls_x509_privkey_t key;
-	gnutls_x509_crt_t crt;
+	gnutls_x509_privkey_t key = NULL, issuer_key = NULL;
+	gnutls_x509_crt_t crt = NULL, issuer_crt = NULL;
 	int ret = 1;
 	gnutls_datum_t data;
-	const char *cn = san ? san : "localhost";
 
 	(void)context;
+
+	if (!info || !info->san)
+		return 1;
 
 	if (gnutls_x509_privkey_init(&key))
 		return 1;
@@ -48,8 +50,23 @@ lws_x509_create_self_signed(struct lws_context *context,
 		return 1;
 	}
 
-	if (gnutls_x509_privkey_generate(key, GNUTLS_PK_RSA, (unsigned int)key_bits, 0))
-		goto bail;
+	if (info->curve_name) {
+		gnutls_ecc_curve_t curve = GNUTLS_ECC_CURVE_INVALID;
+		if (!strcmp(info->curve_name, "P-521")) curve = GNUTLS_ECC_CURVE_SECP521R1;
+		else if (!strcmp(info->curve_name, "P-384")) curve = GNUTLS_ECC_CURVE_SECP384R1;
+		else if (!strcmp(info->curve_name, "P-256")) curve = GNUTLS_ECC_CURVE_SECP256R1;
+
+		if (curve == GNUTLS_ECC_CURVE_INVALID) {
+			lwsl_err("%s: unknown curve %s\n", __func__, info->curve_name);
+			goto bail;
+		}
+
+		if (gnutls_x509_privkey_generate(key, GNUTLS_PK_ECC, curve, 0))
+			goto bail;
+	} else {
+		if (gnutls_x509_privkey_generate(key, GNUTLS_PK_RSA, (unsigned int)(info->key_bits ? info->key_bits : 2048), 0))
+			goto bail;
+	}
 
 	gnutls_x509_crt_set_key(crt, key);
 	gnutls_x509_crt_set_version(crt, 3);
@@ -57,18 +74,40 @@ lws_x509_create_self_signed(struct lws_context *context,
 	gnutls_x509_crt_set_activation_time(crt, time(NULL));
 	gnutls_x509_crt_set_expiration_time(crt, time(NULL) + (365 * 24 * 3600));
 
-	gnutls_x509_crt_set_dn_by_oid(crt, GNUTLS_OID_X520_COMMON_NAME, 0, cn, (unsigned int)strlen(cn));
-	gnutls_x509_crt_set_issuer_dn_by_oid(crt, GNUTLS_OID_X520_COMMON_NAME, 0, cn, (unsigned int)strlen(cn));
+	gnutls_x509_crt_set_dn_by_oid(crt, GNUTLS_OID_X520_COMMON_NAME, 0, info->san, (unsigned int)strlen(info->san));
+
+	if (info->ca_cert_pem && info->ca_key_pem) {
+		gnutls_datum_t d_cert = { (unsigned char *)info->ca_cert_pem, (unsigned int)strlen(info->ca_cert_pem) };
+		gnutls_datum_t d_key = { (unsigned char *)info->ca_key_pem, (unsigned int)strlen(info->ca_key_pem) };
+
+		if (gnutls_x509_crt_init(&issuer_crt) < 0) goto bail;
+		if (gnutls_x509_crt_import(issuer_crt, &d_cert, GNUTLS_X509_FMT_PEM) < 0) goto bail;
+
+		if (gnutls_x509_privkey_init(&issuer_key) < 0) goto bail;
+		if (gnutls_x509_privkey_import(issuer_key, &d_key, GNUTLS_X509_FMT_PEM) < 0) goto bail;
+
+	} else {
+		issuer_crt = crt;
+		issuer_key = key;
+	}
 
 	/* Extensions */
-	gnutls_x509_crt_set_basic_constraints(crt, 0, -1);
-	gnutls_x509_crt_set_key_usage(crt, GNUTLS_KEY_DIGITAL_SIGNATURE | GNUTLS_KEY_KEY_ENCIPHERMENT);
+	gnutls_x509_crt_set_basic_constraints(crt, info->is_ca ? 1 : 0, -1);
+	
+	if (info->is_ca) {
+		gnutls_x509_crt_set_key_usage(crt, GNUTLS_KEY_KEY_CERT_SIGN | GNUTLS_KEY_CRL_SIGN);
+	} else {
+		gnutls_x509_crt_set_key_usage(crt, GNUTLS_KEY_DIGITAL_SIGNATURE | GNUTLS_KEY_KEY_ENCIPHERMENT);
+		if (info->is_server)
+			gnutls_x509_crt_set_key_purpose_oid(crt, GNUTLS_KP_TLS_WWW_SERVER, 0);
+		gnutls_x509_crt_set_key_purpose_oid(crt, GNUTLS_KP_TLS_WWW_CLIENT, 0);
+	}
 
-	if (san)
-		gnutls_x509_crt_set_subject_alt_name(crt, GNUTLS_SAN_DNSNAME, san, (unsigned int)strlen(san), 0);
+	if (info->san && info->is_server)
+		gnutls_x509_crt_set_subject_alt_name(crt, GNUTLS_SAN_DNSNAME, info->san, (unsigned int)strlen(info->san), 0);
 
-	/* Self-sign */
-	if (gnutls_x509_crt_sign2(crt, crt, key, GNUTLS_DIG_SHA256, 0))
+	/* Sign */
+	if (gnutls_x509_crt_sign2(crt, issuer_crt, issuer_key, GNUTLS_DIG_SHA256, 0))
 		goto bail;
 
 	/* Export Cert */
@@ -102,10 +141,28 @@ lws_x509_create_self_signed(struct lws_context *context,
 	ret = 0;
 
 bail:
-	gnutls_x509_crt_deinit(crt);
-	gnutls_x509_privkey_deinit(key);
+	if (issuer_crt && issuer_crt != crt) gnutls_x509_crt_deinit(issuer_crt);
+	if (issuer_key && issuer_key != key) gnutls_x509_privkey_deinit(issuer_key);
+	if (crt) gnutls_x509_crt_deinit(crt);
+	if (key) gnutls_x509_privkey_deinit(key);
 
 	return ret;
+}
+
+int
+lws_x509_create_self_signed(struct lws_context *context,
+			    uint8_t **cert_buf, size_t *cert_len,
+			    uint8_t **key_buf, size_t *key_len,
+			    const char *san, int key_bits)
+{
+	struct lws_x509_cert_gen_info info;
+
+	memset(&info, 0, sizeof(info));
+	info.san = san ? san : "localhost";
+	info.key_bits = key_bits;
+	info.is_server = 1;
+
+	return lws_x509_create_cert(context, cert_buf, cert_len, key_buf, key_len, &info);
 }
 
 int

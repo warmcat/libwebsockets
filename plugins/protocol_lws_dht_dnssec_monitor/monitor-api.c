@@ -864,6 +864,13 @@ handle_req_download_dist_server(struct vhd *vhd, struct pss *root_pss, struct mo
 	struct stat st;
 	int fd;
 
+	if (!a->domain[0]) {
+		root_pss->tx_len = (size_t)lws_snprintf(tx, 65536, "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Missing domain parameter\"}\n", a->req);
+		return;
+	}
+
+	generate_dist_server_cert(vhd, a->domain);
+
 	lws_snprintf(path, sizeof(path), "%s/pki/distribution-ca.crt", vhd->base_dir);
 	fd = open(path, O_RDONLY);
 	if (fd >= 0) {
@@ -875,7 +882,7 @@ handle_req_download_dist_server(struct vhd *vhd, struct pss *root_pss, struct mo
 		close(fd);
 	}
 
-	lws_snprintf(path, sizeof(path), "%s/pki/distribution-server.crt", vhd->base_dir);
+	lws_snprintf(path, sizeof(path), "%s/pki/distribution-server-%s.crt", vhd->base_dir, a->domain);
 	fd = open(path, O_RDONLY);
 	if (fd >= 0) {
 		if (fstat(fd, &st) == 0) {
@@ -886,7 +893,7 @@ handle_req_download_dist_server(struct vhd *vhd, struct pss *root_pss, struct mo
 		close(fd);
 	}
 
-	lws_snprintf(path, sizeof(path), "%s/pki/distribution-server.key", vhd->base_dir);
+	lws_snprintf(path, sizeof(path), "%s/pki/distribution-server-%s.key", vhd->base_dir, a->domain);
 	fd = open(path, O_RDONLY);
 	if (fd >= 0) {
 		if (fstat(fd, &st) == 0) {
@@ -898,7 +905,7 @@ handle_req_download_dist_server(struct vhd *vhd, struct pss *root_pss, struct mo
 	}
 
 	if (!ca || !crt || !key) {
-		root_pss->tx_len = (size_t)lws_snprintf(tx, 65536, "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Server cert/key not found\"}\n", a->req);
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Server cert/key not found\"}\n", a->req);
 		goto bail;
 	}
 
@@ -908,7 +915,7 @@ handle_req_download_dist_server(struct vhd *vhd, struct pss *root_pss, struct mo
 	p = crt; while (p && *p) { if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
 	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\",\"key\":\"");
 	p = key; while (p && *p) { if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
-	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\"}\n");
+	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\",\"domain\":\"%s\"}\n", a->domain);
 
 bail:
 	if (ca) free(ca);

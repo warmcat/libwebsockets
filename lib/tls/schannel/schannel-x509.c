@@ -1327,3 +1327,23 @@ lws_tls_acme_sni_csr_create_ecdsa(struct lws_context *context, const char *eleme
 	return _lws_tls_acme_sni_csr_create(context, elements, csr, csr_len, privkey_pem, privkey_len, 1);
 }
 #endif
+
+int
+lws_x509_create_cert(struct lws_context *context,
+		     uint8_t **cert_buf, size_t *cert_len,
+		     uint8_t **key_buf, size_t *key_len,
+		     const struct lws_x509_cert_gen_info *info)
+{
+	lwsl_err("%s: not supported on schannel\n", __func__);
+	return 1;
+}
+
+int
+lws_x509_create_self_signed(struct lws_context *context,
+			    uint8_t **cert_buf, size_t *cert_len,
+			    uint8_t **key_buf, size_t *key_len,
+			    const char *san, int key_bits)
+{
+	lwsl_err("%s: not supported on schannel\n", __func__);
+	return 1;
+}

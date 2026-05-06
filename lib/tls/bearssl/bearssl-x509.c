@@ -743,3 +743,23 @@ int lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type, union l
 	if (!conn || !conn->peer_cert) return -1;
 	return lws_x509_info(conn->peer_cert, type, buf, len);
 }
+
+int
+lws_x509_create_cert(struct lws_context *context,
+		     uint8_t **cert_buf, size_t *cert_len,
+		     uint8_t **key_buf, size_t *key_len,
+		     const struct lws_x509_cert_gen_info *info)
+{
+	lwsl_err("%s: not supported on bearssl\n", __func__);
+	return 1;
+}
+
+int
+lws_x509_create_self_signed(struct lws_context *context,
+			    uint8_t **cert_buf, size_t *cert_len,
+			    uint8_t **key_buf, size_t *key_len,
+			    const char *san, int key_bits)
+{
+	lwsl_err("%s: not supported on bearssl\n", __func__);
+	return 1;
+}

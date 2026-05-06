@@ -268,6 +268,7 @@ struct monitor_req_map {
 /* monitor-pki.c */
 void pki_init(struct vhd *vhd);
 void generate_dist_pki(struct vhd *vhd);
+void generate_dist_server_cert(struct vhd *vhd, const char *domain);
 void generate_client_cert(struct vhd *vhd, const char *domain, const char *subdomain);
 void scan_subdomains_for_certs(struct vhd *vhd, const char *domain);
 
