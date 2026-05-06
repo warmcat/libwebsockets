@@ -138,6 +138,18 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_init)
 }
 
 int
+lws_plat_user_to_uid(const char *username, uid_t *puid)
+{
+	return 1;
+}
+
+int
+lws_plat_group_to_gid(const char *groupname, gid_t *pgid)
+{
+	return 1;
+}
+
+int
 lws_plat_context_early_init(void)
 {
 	return 0;

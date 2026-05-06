@@ -907,6 +907,28 @@ LWS_VISIBLE LWS_EXTERN void
 lws_get_effective_uid_gid(struct lws_context *context, uid_t *uid, gid_t *gid);
 
 /**
+ * lws_plat_user_to_uid() - Find uid from username
+ * \param username: string username, or string containing numeric uid
+ * \param puid: pointer to uid_t to receive result
+ *
+ * Returns 0 if found and *puid is set, else nonzero.
+ * If the string contains a number, it is parsed directly.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_plat_user_to_uid(const char *username, uid_t *puid);
+
+/**
+ * lws_plat_group_to_gid() - Find gid from groupname
+ * \param groupname: string groupname, or string containing numeric gid
+ * \param pgid: pointer to gid_t to receive result
+ *
+ * Returns 0 if found and *pgid is set, else nonzero.
+ * If the string contains a number, it is parsed directly.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_plat_group_to_gid(const char *groupname, gid_t *pgid);
+
+/**
  * lws_get_udp() - get wsi's udp struct
  *
  * \param wsi: lws connection

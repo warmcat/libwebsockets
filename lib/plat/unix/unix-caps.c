@@ -49,42 +49,21 @@ _lws_plat_apply_caps(unsigned int mode, const cap_value_t *cv, int count)
 #endif
 
 int
-lws_plat_user_colon_group_to_ids(const char *u_colon_g, uid_t *puid, gid_t *pgid)
+lws_plat_user_to_uid(const char *username, uid_t *puid)
 {
-	const char *colon = strchr(u_colon_g, ':');
-	char u[33];
-	struct group *g;
 	struct passwd *p;
-	size_t ulen;
 
-	if (!colon)
+	if (!username || !username[0])
 		return 1;
 
-	ulen = (size_t)(unsigned int)lws_ptr_diff(colon, u_colon_g);
-	if (ulen < 2 || ulen > sizeof(u) - 1)
-		return 1;
-
-	memcpy(u, u_colon_g, ulen);
-	u[ulen] = '\0';
-
-	colon++;
-
-#if defined(LWS_HAVE_GETGRNAM_R)
+	/* check if numeric string */
 	{
-		struct group gr;
-		char strs[1024];
-
-		if (getgrnam_r(colon, &gr, strs, sizeof(strs), &g) || !g) {
-#else
-	{
-		g = getgrnam(colon);
-		if (!g) {
-#endif
-			lwsl_err("%s: unknown group '%s'\n", __func__, colon);
-
-			return 1;
+		char *endptr = NULL;
+		long val = strtol(username, &endptr, 10);
+		if (*endptr == '\0' && val >= 0) {
+			*puid = (uid_t)val;
+			return 0;
 		}
-		*pgid = g->gr_gid;
 	}
 
 #if defined(LWS_HAVE_GETPWNAM_R)
@@ -92,18 +71,85 @@ lws_plat_user_colon_group_to_ids(const char *u_colon_g, uid_t *puid, gid_t *pgid
 		struct passwd pr;
 		char strs[1024];
 
-		if (getpwnam_r(u, &pr, strs, sizeof(strs), &p) || !p) {
+		if (getpwnam_r(username, &pr, strs, sizeof(strs), &p) || !p) {
 #else
 	{
-		p = getpwnam(u);
+		p = getpwnam(username);
 		if (!p) {
 #endif
-			lwsl_err("%s: unknown user '%s'\n", __func__, u);
+			lwsl_err("%s: unknown user '%s'\n", __func__, username);
 
 			return 1;
 		}
 		*puid = p->pw_uid;
 	}
+
+	return 0;
+}
+
+int
+lws_plat_group_to_gid(const char *groupname, gid_t *pgid)
+{
+	struct group *g;
+
+	if (!groupname || !groupname[0])
+		return 1;
+
+	/* check if numeric string */
+	{
+		char *endptr = NULL;
+		long val = strtol(groupname, &endptr, 10);
+		if (*endptr == '\0' && val >= 0) {
+			*pgid = (gid_t)val;
+			return 0;
+		}
+	}
+
+#if defined(LWS_HAVE_GETGRNAM_R)
+	{
+		struct group gr;
+		char strs[1024];
+
+		if (getgrnam_r(groupname, &gr, strs, sizeof(strs), &g) || !g) {
+#else
+	{
+		g = getgrnam(groupname);
+		if (!g) {
+#endif
+			lwsl_err("%s: unknown group '%s'\n", __func__, groupname);
+
+			return 1;
+		}
+		*pgid = g->gr_gid;
+	}
+
+	return 0;
+}
+
+int
+lws_plat_user_colon_group_to_ids(const char *u_colon_g, uid_t *puid, gid_t *pgid)
+{
+	const char *colon = strchr(u_colon_g, ':');
+	char u[33];
+	size_t ulen;
+
+	if (!colon)
+		return 1;
+
+	ulen = (size_t)(unsigned int)lws_ptr_diff(colon, u_colon_g);
+	if (ulen < 1 || ulen > sizeof(u) - 1)
+		return 1;
+
+	memcpy(u, u_colon_g, ulen);
+	u[ulen] = '\0';
+
+	colon++;
+
+	if (lws_plat_group_to_gid(colon, pgid))
+		return 1;
+
+	if (lws_plat_user_to_uid(u, puid))
+		return 1;
 
 	return 0;
 }
@@ -117,22 +163,14 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 	/* if he gave us the groupname, align gid to match it */
 
 	if (context->groupname) {
-#if defined(LWS_HAVE_GETGRNAM_R)
-		struct group gr;
-		char strs[1024];
-
-		if (!getgrnam_r(context->groupname, &gr, strs, sizeof(strs), &g) && g) {
-#else
-		g = getgrnam(context->groupname);
-		if (g) {
-#endif
+		gid_t gid;
+		if (!lws_plat_group_to_gid(context->groupname, &gid)) {
 			lwsl_cx_info(context, "group %s -> gid %u",
-				  context->groupname, g->gr_gid);
-			context->gid = g->gr_gid;
+				  context->groupname, (unsigned int)gid);
+			context->gid = gid;
 		} else {
 			lwsl_cx_err(context, "unknown groupname '%s'",
 				 context->groupname);
-
 			return 1;
 		}
 	}
@@ -140,23 +178,14 @@ lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 	/* if he gave us the username, align uid to match it */
 
 	if (context->username) {
-#if defined(LWS_HAVE_GETPWNAM_R)
-		struct passwd pr;
-		char strs[1024];
-
-		if (!getpwnam_r(context->username, &pr, strs, sizeof(strs), &p) && p) {
-#else
-		p = getpwnam(context->username);
-		if (p) {
-#endif
-			context->uid = p->pw_uid;
-
+		uid_t uid;
+		if (!lws_plat_user_to_uid(context->username, &uid)) {
+			context->uid = uid;
 			lwsl_cx_info(context, "username %s -> uid %u",
-				  context->username, (unsigned int)p->pw_uid);
+				  context->username, (unsigned int)uid);
 		} else {
 			lwsl_cx_err(context, "unknown username %s",
 				 context->username);
-
 			return 1;
 		}
 	}

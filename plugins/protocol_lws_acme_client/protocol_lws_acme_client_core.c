@@ -1284,9 +1284,10 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
             info.user = vhd;
             info.cb = lws_acme_scan_domains_cb;
             ret = lws_dir_via_info(&info);
-            if (ret)
+            if (ret != 1)
                 lwsl_err("acme: Failed to scan domains dir %s (err %d)\n", path, ret);
             else
+
                 lwsl_notice("acme: Found %d cert configs in base dir\n", (int)vhd->cert_configs.count);
         }
 

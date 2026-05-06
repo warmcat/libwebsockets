@@ -1073,7 +1073,8 @@ lws_x509_create_cert(struct lws_context *context,
 
 		if (info->san && info->is_server) {
 			char alt[256];
-			int is_ip = !!strchr(info->san, '.');
+			int is_ip = (strspn(info->san, "0123456789.") == strlen(info->san)) ||
+				    (strspn(info->san, "0123456789abcdefABCDEF:") == strlen(info->san) && strchr(info->san, ':'));
 			lws_snprintf(alt, sizeof(alt), "%s:%s", is_ip ? "IP" : "DNS", info->san);
 			X509_extension_helper(x509, &ctx, NID_subject_alt_name, alt);
 		}

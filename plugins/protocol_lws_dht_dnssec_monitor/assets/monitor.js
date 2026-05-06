@@ -359,6 +359,13 @@ function handleResponse(data) {
             window.domainsCache = data.domains || [];
             console.log('[DEBUG] Calling renderDomains with cache length:', window.domainsCache.length);
             renderDomains(window.domainsCache);
+            setTimeout(() => {
+                sendReq({ req: 'get_all_tls' });
+            }, 50);
+
+            setTimeout(() => {
+                sendReq({ req: 'get_dist_server_domain' });
+            }, 100);
 
             let didSelect = false;
             // Restore saved domain state if possible
@@ -367,7 +374,7 @@ function handleResponse(data) {
                 console.log('[DEBUG] No currentDomain. Found saved domain in localStorage:', saved);
                 if (saved && window.domainsCache.find(d => d.name === saved)) {
                     console.log('[DEBUG] Restoring saved domain state:', saved);
-                    selectDomain(saved);
+                    setTimeout(() => selectDomain(saved), 150);
                     didSelect = true;
                 } else if (saved) {
                     console.warn('[DEBUG] Saved domain not found in domainsCache:', saved);
@@ -386,7 +393,7 @@ function handleResponse(data) {
             // Bootstrap phase 2: now safe to fetch suffix config
             if (!didSelect) {
                 window.didBootstrapPhase2 = true;
-                sendReq({ req: 'get_ipv6_suffix' });
+                setTimeout(() => sendReq({ req: 'get_ipv6_suffix' }), 150);
             }
             break;
         case 'create_domain':
@@ -510,6 +517,34 @@ function handleResponse(data) {
                 sendReq({ req: 'get_ipv6_suffix' });
             }
             break;
+        case 'get_all_tls':
+            if (data.all_tls) {
+                data.all_tls.forEach(d => {
+                    window.allTlsCache[d.domain] = d.tls;
+                    if (d.domain === currentDomain) window.activeTls = d.tls;
+                    d.tls.forEach(t => {
+                        let cacheKey = t.fqdn + ':' + t.port;
+                        if (!window.certStatusCache[cacheKey] && !certCheckTimers[t.fqdn]) {
+                            certCheckQueue.push({fqdn: t.fqdn, port: t.port, domain: d.domain});
+                        }
+                    });
+                });
+            }
+            if (currentZone) {
+                renderZoneTable();
+            }
+            processCertQueue();
+            updateGlobalTlsTable();
+            updateDistClientsTable();
+            break;
+        case 'get_dist_server_domain':
+            if (data.status === 'ok' && data.domain) {
+                const domainInput = document.getElementById('dist-server-domain');
+                if (domainInput && !domainInput.value) {
+                    domainInput.value = data.domain;
+                }
+            }
+            break;
         case 'create_tls':
             showToast('TLS Port mapped successfully');
             sendReq({ req: 'get_tls', domain: currentDomain });
@@ -569,7 +604,7 @@ function handleResponse(data) {
 
                 const srvPem = `${data.cert}\n${data.ca}\n`;
                 const filenameBase = data.domain ? `distribution-server-${data.domain}` : 'distribution-server';
-                triggerDownload(srvPem, `${filenameBase}.pem`);
+                triggerDownload(srvPem, `${filenameBase}.crt`);
 
                 setTimeout(() => {
                     triggerDownload(`${data.key}\n`, `${filenameBase}.key`);
@@ -594,7 +629,7 @@ function handleResponse(data) {
                     window.URL.revokeObjectURL(url);
                 };
 
-                triggerDownload(`${data.cert}\n`, `distribution-client-${data.subdomain}.pem`);
+                triggerDownload(`${data.cert}\n`, `distribution-client-${data.subdomain}.crt`);
 
                 setTimeout(() => {
                     triggerDownload(`${data.key}\n`, `distribution-client-${data.subdomain}.key`);
@@ -720,9 +755,11 @@ function selectDomain(domain) {
     });
 
     renderWhoisHeader();
-    window.activeTls = [];
-    console.log('[DEBUG] dispatching get_zone from selectDomain');
-    sendReq({ req: 'get_zone', domain: domain });
+    sendReq({ req: 'get_tls', domain: domain });
+    setTimeout(() => {
+        console.log('[DEBUG] dispatching get_zone from selectDomain');
+        sendReq({ req: 'get_zone', domain: domain });
+    }, 50);
 }
 
 function formatExpiryInterval(timestampSec) {
@@ -1284,16 +1321,6 @@ function initApp() {
             tab.classList.add('active');
             const target = document.getElementById(tab.getAttribute('data-tab'));
             if (target) target.classList.add('active');
-
-            if (tab.getAttribute('data-tab') === 'tab-tls') {
-                if (window.domainsCache) {
-                    for (let k = 0; k < window.domainsCache.length; k++) {
-                        let d = window.domainsCache[k];
-                        const name = d.name || d;
-                        sendReq({ req: 'get_tls', domain: name });
-                    }
-                }
-            }
         });
     }
 
@@ -1303,14 +1330,16 @@ function initApp() {
     const btnDownloadServer = document.getElementById('btn-dist-download-server');
     const domainInput = document.getElementById('dist-server-domain');
     if (domainInput) {
-        const savedDomain = localStorage.getItem('dist-server-domain');
-        if (savedDomain) domainInput.value = savedDomain;
-        domainInput.addEventListener('input', () => localStorage.setItem('dist-server-domain', domainInput.value.trim()));
+        const saveDomain = () => {
+            sendReq({ req: 'set_dist_server_domain', domain: domainInput.value.trim() });
+        };
+        domainInput.addEventListener('change', saveDomain);
+        domainInput.addEventListener('blur', saveDomain);
     }
     if (btnDownloadServer) {
         btnDownloadServer.onclick = () => {
             if (domainInput && domainInput.value.trim() !== '') {
-                localStorage.setItem('dist-server-domain', domainInput.value.trim());
+                sendReq({ req: 'set_dist_server_domain', domain: domainInput.value.trim() });
                 sendReq({ req: 'download_dist_server', domain: domainInput.value.trim() });
             } else {
                 alert('Please enter a valid domain for the Distribution Server.');
@@ -1345,10 +1374,27 @@ function initApp() {
         if (ext_ipv6) subs.push({ key: 'EXTIP6', val: ext_ipv6 });
         
         if (window.activeTls) {
+            console.log("getSubstitutions: window.activeTls has", window.activeTls.length, "items", window.activeTls);
             window.activeTls.forEach(t => {
-                if (t.dane0) subs.push({ key: `DANE0/${t.fqdn}`, val: t.dane0 });
-                if (t.dane1) subs.push({ key: `DANE1/${t.fqdn}`, val: t.dane1 });
+                console.log("getSubstitutions: checking TLS item:", t);
+                let fullFqdn = t.fqdn === '@' ? currentDomain : t.fqdn + '.' + currentDomain;
+                if (t.dane0) {
+                    subs.push({ key: `DANE0/${t.fqdn}`, val: t.dane0 });
+                    subs.push({ key: `DANE0/${fullFqdn}`, val: t.dane0 });
+                    console.log(`getSubstitutions: Added DANE0 for ${fullFqdn}`);
+                } else {
+                    console.log(`getSubstitutions: t.dane0 is falsy/missing for ${fullFqdn}`);
+                }
+                if (t.dane1) {
+                    subs.push({ key: `DANE1/${t.fqdn}`, val: t.dane1 });
+                    subs.push({ key: `DANE1/${fullFqdn}`, val: t.dane1 });
+                    console.log(`getSubstitutions: Added DANE1 for ${fullFqdn}`);
+                } else {
+                    console.log(`getSubstitutions: t.dane1 is falsy/missing for ${fullFqdn}`);
+                }
             });
+        } else {
+            console.log("getSubstitutions: window.activeTls is falsy/missing!");
         }
         
         console.log("getSubstitutions returning:", subs);
@@ -1361,6 +1407,11 @@ function initApp() {
             let regex = new RegExp(`\\$\\{${sub.key}\\}`, 'g');
             text = text.replace(regex, `\$\{${sub.key}\}` + '\u2007'.repeat(sub.val.length));
         });
+
+        // Unconditionally pad any DANE0/DANE1 macro with 70 chars if it hasn't been padded yet
+        // The DANE hash format is "3 1 1 <64_char_hex>" which is 70 characters.
+        text = text.replace(/(\$\{DANE[01]\/[^}]+?\})(?!\u2007)/g, '$1' + '\u2007'.repeat(70));
+
         return text;
     };
 
