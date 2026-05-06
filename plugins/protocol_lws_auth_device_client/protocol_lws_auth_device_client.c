@@ -446,7 +446,8 @@ static int
 callback_auth_device_client_init(struct lws *wsi, enum lws_callback_reasons reason, void *user, void *in, size_t len)
 {
 	if (reason == LWS_CALLBACK_PROTOCOL_INIT) {
-		lwsl_err("LWS_CALLBACK_PROTOCOL_INIT for auth device client called!\n");
+		if (!in)
+			return 0;
 		const struct lws_protocol_vhost_options *pvo = (const struct lws_protocol_vhost_options *)in;
 		while (pvo) {
 			if (!strcmp(pvo->name, "lws-auth-client-api")) {

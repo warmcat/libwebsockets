@@ -238,9 +238,7 @@ callback_extip(struct lws *wsi, enum lws_callback_reasons reason, void *user, vo
 		const struct lws_protocol_vhost_options *pvo = (const struct lws_protocol_vhost_options *)in;
 
                 if (!pvo)
-                        return -1;
-
-		lwsl_vhost_notice(lws_get_vhost(wsi), "EXTIP_DEBUG: %s: LWS_CALLBACK_PROTOCOL_INIT starting\n", __func__);
+                        return 0;
 
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi), lws_get_protocol(wsi), sizeof(struct vhd_extip));
 		if (!vhd)
