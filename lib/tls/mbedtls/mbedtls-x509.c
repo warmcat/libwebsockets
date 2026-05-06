@@ -580,10 +580,10 @@ lws_x509_destroy(struct lws_x509_cert **x509)
 }
 
 int
-lws_x509_create_self_signed(struct lws_context *context,
-			    uint8_t **cert_buf, size_t *cert_len,
-			    uint8_t **key_buf, size_t *key_len,
-			    const char *san, int key_bits)
+lws_x509_create_cert(struct lws_context *context,
+		     uint8_t **cert_buf, size_t *cert_len,
+		     uint8_t **key_buf, size_t *key_len,
+		     const struct lws_x509_cert_gen_info *info)
 {
 	mbedtls_x509write_cert crt;
 	mbedtls_pk_context key;
@@ -591,14 +591,21 @@ lws_x509_create_self_signed(struct lws_context *context,
 	mbedtls_entropy_context entropy;
 	mbedtls_ctr_drbg_context ctr_drbg;
 	mbedtls_ctr_drbg_context *pdrbg = &ctr_drbg;
+	mbedtls_x509_crt issuer_crt;
+	mbedtls_pk_context issuer_key;
 	int ret = 1;
 	unsigned char buf[4096];
 	char name[128];
 	int len;
 
+	if (!info || !info->san)
+		return 1;
+
 	mbedtls_x509write_crt_init(&crt);
 	mbedtls_pk_init(&key);
 	mbedtls_mpi_init(&serial);
+	mbedtls_x509_crt_init(&issuer_crt);
+	mbedtls_pk_init(&issuer_key);
 
 	if (context) {
 		pdrbg = &context->mcdc;
@@ -606,44 +613,84 @@ lws_x509_create_self_signed(struct lws_context *context,
 		mbedtls_ctr_drbg_init(&ctr_drbg);
 		mbedtls_entropy_init(&entropy);
 		if (mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy,
-					  (const unsigned char *)"lws_self_signed", 15))
+					  (const unsigned char *)"lws_cert_gen", 12))
 			goto bail;
 	}
 
-	ret = mbedtls_pk_setup(&key, mbedtls_pk_info_from_type(MBEDTLS_PK_RSA));
-	if (ret) {
-		lwsl_err("%s: pk_setup failed %d\n", __func__, ret);
-		goto bail;
-	}
+	if (info->curve_name) {
+		mbedtls_ecp_group_id grp_id = MBEDTLS_ECP_DP_NONE;
+		if (!strcmp(info->curve_name, "P-521")) grp_id = MBEDTLS_ECP_DP_SECP521R1;
+		else if (!strcmp(info->curve_name, "P-384")) grp_id = MBEDTLS_ECP_DP_SECP384R1;
+		else if (!strcmp(info->curve_name, "P-256")) grp_id = MBEDTLS_ECP_DP_SECP256R1;
 
-	ret = mbedtls_rsa_gen_key(mbedtls_pk_rsa(key), mbedtls_ctr_drbg_random, pdrbg,
-				(unsigned int)key_bits, 65537);
-	if (ret) {
-		lwsl_err("%s: rsa_gen_key failed %d\n", __func__, ret);
-		goto bail;
+		if (grp_id == MBEDTLS_ECP_DP_NONE) {
+			lwsl_err("%s: unknown curve %s\n", __func__, info->curve_name);
+			goto bail;
+		}
+
+		ret = mbedtls_pk_setup(&key, mbedtls_pk_info_from_type(MBEDTLS_PK_ECKEY));
+		if (ret) goto bail;
+
+		ret = mbedtls_ecp_gen_key(grp_id, mbedtls_pk_ec(key), mbedtls_ctr_drbg_random, pdrbg);
+		if (ret) goto bail;
+	} else {
+		ret = mbedtls_pk_setup(&key, mbedtls_pk_info_from_type(MBEDTLS_PK_RSA));
+		if (ret) goto bail;
+
+		ret = mbedtls_rsa_gen_key(mbedtls_pk_rsa(key), mbedtls_ctr_drbg_random, pdrbg,
+					(unsigned int)(info->key_bits ? info->key_bits : 2048), 65537);
+		if (ret) goto bail;
 	}
 
 	mbedtls_x509write_crt_set_version(&crt, MBEDTLS_X509_CRT_VERSION_3);
 	mbedtls_x509write_crt_set_subject_key(&crt, &key);
-	mbedtls_x509write_crt_set_issuer_key(&crt, &key);
 
 #if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
 	{
-		uint8_t serial_val[] = { 1 };
+		uint8_t serial_val[8];
+		mbedtls_ctr_drbg_random(pdrbg, serial_val, sizeof(serial_val));
+		serial_val[0] &= 0x7f; /* Positive */
 		if (mbedtls_x509write_crt_set_serial_raw(&crt, serial_val, sizeof(serial_val)))
 			goto bail;
 	}
 #else
-	if (mbedtls_mpi_read_string(&serial, 10, "1"))
-		goto bail;
-	mbedtls_x509write_crt_set_serial(&crt, &serial);
+	{
+		unsigned char rnd[8];
+		mbedtls_ctr_drbg_random(pdrbg, rnd, sizeof(rnd));
+		rnd[0] &= 0x7f; /* Positive */
+		if (mbedtls_mpi_read_binary(&serial, rnd, sizeof(rnd)))
+			goto bail;
+		mbedtls_x509write_crt_set_serial(&crt, &serial);
+	}
 #endif
 
-	lws_snprintf(name, sizeof(name), "CN=%s", san ? san : "localhost");
+	lws_snprintf(name, sizeof(name), "CN=%s", info->san);
 	if (mbedtls_x509write_crt_set_subject_name(&crt, name))
 		goto bail;
-	if (mbedtls_x509write_crt_set_issuer_name(&crt, name))
-		goto bail;
+
+	if (info->ca_cert_pem && info->ca_key_pem) {
+		char issuer_name[256];
+		ret = mbedtls_x509_crt_parse(&issuer_crt, (const unsigned char *)info->ca_cert_pem, strlen(info->ca_cert_pem) + 1);
+		if (ret) goto bail;
+
+		ret = mbedtls_pk_parse_key(&issuer_key, (const unsigned char *)info->ca_key_pem, strlen(info->ca_key_pem) + 1, NULL, 0
+#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
+					, mbedtls_ctr_drbg_random, pdrbg
+#endif
+		);
+		if (ret) goto bail;
+
+		mbedtls_x509write_crt_set_issuer_key(&crt, &issuer_key);
+		
+		ret = mbedtls_x509_dn_gets(issuer_name, sizeof(issuer_name), &issuer_crt.MBEDTLS_PRIVATE_V30_ONLY(subject));
+		if (ret < 0) goto bail;
+		if (mbedtls_x509write_crt_set_issuer_name(&crt, issuer_name))
+			goto bail;
+	} else {
+		mbedtls_x509write_crt_set_issuer_key(&crt, &key);
+		if (mbedtls_x509write_crt_set_issuer_name(&crt, name))
+			goto bail;
+	}
 
 	if (mbedtls_x509write_crt_set_validity(&crt, "20240101000000", "20340101000000"))
 		goto bail;
@@ -651,34 +698,29 @@ lws_x509_create_self_signed(struct lws_context *context,
 	mbedtls_x509write_crt_set_md_alg(&crt, MBEDTLS_MD_SHA256);
 
 	/* Extensions */
-	mbedtls_x509write_crt_set_basic_constraints(&crt, 0, -1);
-	mbedtls_x509write_crt_set_key_usage(&crt, MBEDTLS_X509_KU_DIGITAL_SIGNATURE |
-						  MBEDTLS_X509_KU_KEY_ENCIPHERMENT);
+	mbedtls_x509write_crt_set_basic_constraints(&crt, info->is_ca ? 1 : 0, -1);
+	
+	if (info->is_ca) {
+		mbedtls_x509write_crt_set_key_usage(&crt, MBEDTLS_X509_KU_KEY_CERT_SIGN | MBEDTLS_X509_KU_CRL_SIGN);
+	} else {
+		mbedtls_x509write_crt_set_key_usage(&crt, MBEDTLS_X509_KU_DIGITAL_SIGNATURE |
+							  MBEDTLS_X509_KU_KEY_ENCIPHERMENT);
+	}
 
-	/* Extended Key Usage - OIDs for serverAuth and clientAuth */
+#if defined(MBEDTLS_OID_SERVER_AUTH) && defined(MBEDTLS_OID_CLIENT_AUTH)
 	{
 		const char *serverAuth = MBEDTLS_OID_SERVER_AUTH;
 		const char *clientAuth = MBEDTLS_OID_CLIENT_AUTH;
 		mbedtls_asn1_named_data *ext_key_usage = NULL;
 
-		if (mbedtls_asn1_store_named_data(&ext_key_usage, serverAuth,
-						  strlen(serverAuth), NULL, 0) == NULL)
+		if (info->is_server) {
+			if (mbedtls_asn1_store_named_data(&ext_key_usage, serverAuth, strlen(serverAuth), NULL, 0) == NULL)
+				goto bail;
+		}
+		if (mbedtls_asn1_store_named_data(&ext_key_usage, clientAuth, strlen(clientAuth), NULL, 0) == NULL)
 			goto bail;
-		if (mbedtls_asn1_store_named_data(&ext_key_usage, clientAuth,
-						  strlen(clientAuth), NULL, 0) == NULL)
-			goto bail;
-
-		/* Unfortunately mbedtls doesn't have a simple wrapper for EKU in some versions,
-		   but it DOES have mbedtls_x509write_crt_set_extension */
-		/* Actually serverAuth/clientAuth are very common, let's see if we can just use
-		   mbedtls_x509write_crt_set_ext_key_usage if it exists, or just skip it if complex.
-		   In WebRTC it's quite important. */
 	}
-
-	if (san) {
-		/* DNS name */
-		/* MbedTLS uses a sequence for SAN */
-	}
+#endif
 
 	/* Cert Output */
 	len = mbedtls_x509write_crt_der(&crt, buf, sizeof(buf), mbedtls_ctr_drbg_random, pdrbg);
@@ -714,10 +756,28 @@ bail:
 	mbedtls_x509write_crt_free(&crt);
 	mbedtls_pk_free(&key);
 	mbedtls_mpi_free(&serial);
+	mbedtls_x509_crt_free(&issuer_crt);
+	mbedtls_pk_free(&issuer_key);
 	if (!context) {
 		mbedtls_ctr_drbg_free(&ctr_drbg);
 		mbedtls_entropy_free(&entropy);
 	}
 
 	return ret;
+}
+
+int
+lws_x509_create_self_signed(struct lws_context *context,
+			    uint8_t **cert_buf, size_t *cert_len,
+			    uint8_t **key_buf, size_t *key_len,
+			    const char *san, int key_bits)
+{
+	struct lws_x509_cert_gen_info info;
+
+	memset(&info, 0, sizeof(info));
+	info.san = san ? san : "localhost";
+	info.key_bits = key_bits;
+	info.is_server = 1;
+
+	return lws_x509_create_cert(context, cert_buf, cert_len, key_buf, key_len, &info);
 }

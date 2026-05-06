@@ -1751,8 +1751,7 @@ lws_shared_webrtc_callback(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 
 			vhd->wsi_udp = lws_create_adopt_udp(vhd->vhost,
-					vhd->external_ip[0] ? vhd->external_ip : NULL,
-					vhd->udp_port, LWS_CAUDP_BIND,
+					NULL, vhd->udp_port, LWS_CAUDP_BIND,
 					"lws-webrtc-udp", NULL, NULL, NULL, NULL, NULL);
 			if (!vhd->wsi_udp) {
 				lwsl_err("%s: UDP socket creation failed\n", __func__);
@@ -2039,6 +2038,8 @@ webrtc_handle_stun(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrtc **
 			int fd = (int)(lws_intptr_t)lws_get_socket_fd(wsi);
 			if (fd >= 0) {
 				socklen_t slen = udp_desc->sa46.sa4.sin_family == AF_INET6 ? (socklen_t)sizeof(udp_desc->sa46.sa6) : (socklen_t)sizeof(udp_desc->sa46.sa4);
+				lwsl_user(">>> STUN RESPONSE (%d bytes) TO %s:%u <<<\n", n_stun, ads, ntohs(sin->sin_port));
+				lwsl_hexdump_user(out, (size_t)n_stun);
 				webrtc_pss_log(pss, "Sent STUN Response (%d bytes) successfully.\n", n_stun);
 				ssize_t sent = sendto((lws_sockfd_type)(lws_intptr_t)fd, (const char *)out, (size_t)n_stun, 0, (const struct sockaddr *)&udp_desc->sa46, slen);
 				if (sent < 0) {

@@ -119,6 +119,37 @@ lws_x509_create_self_signed(struct lws_context *context,
 			    uint8_t **key_buf, size_t *key_len,
 			    const char *san, int key_bits);
 
+struct lws_x509_cert_gen_info {
+	const char *san;             /* Subject Alt Name / CN */
+	const char *ca_cert_pem;     /* Optional CA cert to sign with */
+	const char *ca_key_pem;      /* Optional CA key to sign with */
+	const char *curve_name;      /* e.g., "P-521" or "P-384" for ECDSA */
+	int key_bits;                /* If curve_name is NULL, use RSA with these bits */
+	int is_ca;                   /* 1 = CA:TRUE (Basic Constraints) */
+	int is_server;               /* 1 = serverAuth, 0 = clientAuth */
+};
+
+/**
+ * lws_x509_create_cert() - Create a certificate (self-signed or CA-signed)
+ *
+ * \param context: lws_context
+ * \param cert_buf: pointer to pointer to be set to allocated DER cert
+ * \param cert_len: pointer to size_t to be set to length of allocated cert
+ * \param key_buf: pointer to pointer to be set to allocated DER private key
+ * \param key_len: pointer to size_t to be set to length of allocated key
+ * \param info: struct containing generation parameters
+ *
+ * Creates a certificate and private key in memory (DER format).
+ * The caller is responsible for freeing *cert_buf and *key_buf using lws_free().
+ *
+ * Returns 0 on success.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_x509_create_cert(struct lws_context *context,
+		     uint8_t **cert_buf, size_t *cert_len,
+		     uint8_t **key_buf, size_t *key_len,
+		     const struct lws_x509_cert_gen_info *info);
+
 /**
  * lws_x509_parse_from_pem() - Read one or more x509 certs in PEM format from memory
  *

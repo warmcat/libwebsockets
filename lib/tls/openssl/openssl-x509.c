@@ -914,16 +914,11 @@ X509_extension_helper(X509 *x, X509V3_CTX *ctx, int nid, const char *value)
 #endif
 
 int
-lws_x509_create_self_signed(struct lws_context *context,
-			    uint8_t **cert_buf, size_t *cert_len,
-			    uint8_t **key_buf, size_t *key_len,
-			    const char *san, int key_bits)
+lws_x509_create_cert(struct lws_context *context,
+		     uint8_t **cert_buf, size_t *cert_len,
+		     uint8_t **key_buf, size_t *key_len,
+		     const struct lws_x509_cert_gen_info *info)
 {
-#if defined(USE_WOLFSSL)
-	lwsl_err("%s: not supported on wolfssl\n", __func__);
-
-	return 1;
-#else
 	EVP_PKEY *pkey = EVP_PKEY_new();
 	X509 *x509 = NULL;
 	X509_NAME *name;
@@ -931,30 +926,79 @@ lws_x509_create_self_signed(struct lws_context *context,
 	unsigned char *p;
 	int n;
 	size_t len;
+	X509 *issuer_x509 = NULL;
+	EVP_PKEY *issuer_pkey = NULL;
+	BIO *bio;
+
+	if (!info || !info->san)
+		return 1;
+
+	/* 1. Generate or load the subject key */
+	if (info->curve_name) {
+		int nid = OBJ_sn2nid(info->curve_name);
+		if (nid == NID_undef)
+			nid = OBJ_ln2nid(info->curve_name);
+		if (nid == NID_undef) {
+			/* Common fallback map if OBJ_sn2nid fails for standard names */
+			if (!strcmp(info->curve_name, "P-521")) nid = NID_secp521r1;
+			else if (!strcmp(info->curve_name, "P-384")) nid = NID_secp384r1;
+			else if (!strcmp(info->curve_name, "P-256")) nid = NID_X9_62_prime256v1;
+		}
+
+		if (nid == NID_undef) {
+			lwsl_err("%s: unknown curve %s\n", __func__, info->curve_name);
+			goto bail;
+		}
 
 #if OPENSSL_VERSION_NUMBER >= 0x10100000L
-	EVP_PKEY_CTX *pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_EC, NULL);
-	if (!pctx) return 1;
-	if (EVP_PKEY_keygen_init(pctx) <= 0 ||
-	    EVP_PKEY_CTX_set_ec_paramgen_curve_nid(pctx, NID_X9_62_prime256v1) <= 0 ||
-	    EVP_PKEY_keygen(pctx, &pkey) <= 0) {
-		EVP_PKEY_CTX_free(pctx);
-		return 1;
-	}
-	EVP_PKEY_CTX_free(pctx);
+		{
+			EVP_PKEY_CTX *pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_EC, NULL);
+			if (!pctx) goto bail;
+			if (EVP_PKEY_keygen_init(pctx) <= 0 ||
+			    EVP_PKEY_CTX_set_ec_paramgen_curve_nid(pctx, nid) <= 0 ||
+			    EVP_PKEY_keygen(pctx, &pkey) <= 0) {
+				EVP_PKEY_CTX_free(pctx);
+				goto bail;
+			}
+			EVP_PKEY_CTX_free(pctx);
+		}
 #else
-	/* Legacy OpenSSL 1.0.2 fallback */
-	EC_KEY *ec = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
-	if (!ec) return 1;
-	EC_KEY_set_asn1_flag(ec, OPENSSL_EC_NAMED_CURVE);
-	if (EC_KEY_generate_key(ec) <= 0) {
-		EC_KEY_free(ec);
-		return 1;
-	}
-	EVP_PKEY_assign_EC_KEY(pkey, ec);
+		/* Legacy OpenSSL 1.0.2 fallback */
+		{
+			EC_KEY *ec = EC_KEY_new_by_curve_name(nid);
+			if (!ec) goto bail;
+			EC_KEY_set_asn1_flag(ec, OPENSSL_EC_NAMED_CURVE);
+			if (EC_KEY_generate_key(ec) <= 0) {
+				EC_KEY_free(ec);
+				goto bail;
+			}
+			EVP_PKEY_assign_EC_KEY(pkey, ec);
+		}
 #endif
+	} else {
+		/* RSA */
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+		{
+			EVP_PKEY_CTX *pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, NULL);
+			if (!pctx) goto bail;
+			if (EVP_PKEY_keygen_init(pctx) <= 0 ||
+			    EVP_PKEY_CTX_set_rsa_keygen_bits(pctx, info->key_bits ? info->key_bits : 2048) <= 0 ||
+			    EVP_PKEY_keygen(pctx, &pkey) <= 0) {
+				EVP_PKEY_CTX_free(pctx);
+				goto bail;
+			}
+			EVP_PKEY_CTX_free(pctx);
+		}
+#else
+		{
+			RSA *rsa = RSA_generate_key(info->key_bits ? info->key_bits : 2048, RSA_F4, NULL, NULL);
+			if (!rsa) goto bail;
+			EVP_PKEY_assign_RSA(pkey, rsa);
+		}
+#endif
+	}
 
-	/* Create Cert */
+	/* 2. Create Cert */
 	x509 = X509_new();
 	if (!x509) goto bail;
 
@@ -976,39 +1020,70 @@ lws_x509_create_self_signed(struct lws_context *context,
 
 	name = X509_get_subject_name(x509);
 	X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
-				   (unsigned char *)(san ? san : "localhost"), -1, -1, 0);
-	X509_set_issuer_name(x509, name);
+				   (unsigned char *)info->san, -1, -1, 0);
 
-	/* Add Extensions */
+	/* 3. Load Issuer if provided, else self-sign */
+	if (info->ca_cert_pem && info->ca_key_pem) {
+		bio = BIO_new_mem_buf(info->ca_cert_pem, -1);
+		issuer_x509 = PEM_read_bio_X509(bio, NULL, NULL, NULL);
+		BIO_free(bio);
+		if (!issuer_x509) goto bail;
+
+		bio = BIO_new_mem_buf(info->ca_key_pem, -1);
+		issuer_pkey = PEM_read_bio_PrivateKey(bio, NULL, NULL, NULL);
+		BIO_free(bio);
+		if (!issuer_pkey) goto bail;
+
+		X509_set_issuer_name(x509, X509_get_subject_name(issuer_x509));
+	} else {
+		X509_set_issuer_name(x509, name);
+		issuer_x509 = x509;
+		issuer_pkey = pkey;
+	}
+
+	/* 4. Add Extensions */
 	{
 		X509V3_CTX ctx;
-		X509V3_set_ctx(&ctx, x509, x509, NULL, NULL, 0);
+		X509V3_set_ctx(&ctx, issuer_x509, x509, NULL, NULL, 0);
 
-		X509_extension_helper(x509, &ctx, NID_basic_constraints, "critical,CA:FALSE");
-		X509_extension_helper(x509, &ctx, NID_key_usage, "critical,digitalSignature");
-		X509_extension_helper(x509, &ctx, NID_ext_key_usage, "serverAuth,clientAuth");
+		if (info->is_ca) {
+			X509_extension_helper(x509, &ctx, NID_basic_constraints, "critical,CA:TRUE");
+			X509_extension_helper(x509, &ctx, NID_key_usage, "critical,keyCertSign,cRLSign");
+		} else {
+			X509_extension_helper(x509, &ctx, NID_basic_constraints, "critical,CA:FALSE");
+			X509_extension_helper(x509, &ctx, NID_key_usage, "critical,digitalSignature,keyEncipherment");
+			if (info->is_server)
+				X509_extension_helper(x509, &ctx, NID_ext_key_usage, "serverAuth,clientAuth");
+			else
+				X509_extension_helper(x509, &ctx, NID_ext_key_usage, "clientAuth");
+		}
+
 		X509_extension_helper(x509, &ctx, NID_subject_key_identifier, "hash");
-		X509_extension_helper(x509, &ctx, NID_authority_key_identifier, "keyid:always");
 
-		if (san) {
+		if (issuer_x509 != x509)
+			X509_extension_helper(x509, &ctx, NID_authority_key_identifier, "keyid:always,issuer:always");
+		else
+			X509_extension_helper(x509, &ctx, NID_authority_key_identifier, "keyid:always");
+
+		if (info->san && info->is_server) {
 			char alt[256];
-			int is_ip = !!strchr(san, '.');
-			lws_snprintf(alt, sizeof(alt), "%s:%s", is_ip ? "IP" : "DNS", san);
+			int is_ip = !!strchr(info->san, '.');
+			lws_snprintf(alt, sizeof(alt), "%s:%s", is_ip ? "IP" : "DNS", info->san);
 			X509_extension_helper(x509, &ctx, NID_subject_alt_name, alt);
 		}
 	}
 
-	/* Sign */
-	if (!X509_sign(x509, pkey, EVP_sha256()))
+	/* 5. Sign */
+	if (!X509_sign(x509, issuer_pkey, EVP_sha256()))
 		goto bail;
 
-	/* Export to DER buffers */
+	/* 6. Export to DER buffers */
 
 	/* Cert */
 	n = i2d_X509(x509, NULL);
 	if (n < 0) goto bail;
 	len = (size_t)n;
-	*cert_buf = malloc(len); /* Use standard malloc for example to free */
+	*cert_buf = malloc(len); /* Use standard malloc for caller to free */
 	if (!*cert_buf) goto bail;
 	p = *cert_buf;
 	*cert_len = (size_t)i2d_X509(x509, &p);
@@ -1031,9 +1106,26 @@ lws_x509_create_self_signed(struct lws_context *context,
 	ret = 0;
 
 bail:
+	if (issuer_x509 && issuer_x509 != x509) X509_free(issuer_x509);
+	if (issuer_pkey && issuer_pkey != pkey) EVP_PKEY_free(issuer_pkey);
 	if (x509) X509_free(x509);
 	if (pkey) EVP_PKEY_free(pkey);
 
 	return ret;
-#endif
+}
+
+int
+lws_x509_create_self_signed(struct lws_context *context,
+			    uint8_t **cert_buf, size_t *cert_len,
+			    uint8_t **key_buf, size_t *key_len,
+			    const char *san, int key_bits)
+{
+	struct lws_x509_cert_gen_info info;
+
+	memset(&info, 0, sizeof(info));
+	info.san = san ? san : "localhost";
+	info.key_bits = key_bits;
+	info.is_server = 1;
+
+	return lws_x509_create_cert(context, cert_buf, cert_len, key_buf, key_len, &info);
 }
