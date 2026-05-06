@@ -209,8 +209,10 @@ done_list:
 		limit = cx->count_threads;
 #endif
 
-	if (cx->lws_stub && !LWS_UNIX_SOCK_ENABLED(a->vhost))
+	if (cx->lws_stub && !LWS_UNIX_SOCK_ENABLED(a->vhost)) {
 		limit = 0;
+		a->vhost->options |= LWS_SERVER_OPTION_SKIP_PROTOCOL_INIT;
+	}
 
 	for (m = 0; m < limit; m++) {
 
