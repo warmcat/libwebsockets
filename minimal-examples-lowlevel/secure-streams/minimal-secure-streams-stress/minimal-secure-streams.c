@@ -1,3 +1,4 @@
+#include <sys/wait.h>
 /*
  * lws-minimal-secure-streams
  *

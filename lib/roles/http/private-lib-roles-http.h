@@ -319,6 +319,7 @@ enum lws_check_basic_auth_results {
 	LCBA_CONTINUE,
 	LCBA_FAILED_AUTH,
 	LCBA_END_TRANSACTION,
+	LCBA_AUTH_RETRY_KEEPALIVE, /* digest auth computed, reuse existing TCP/TLS */
 };
 
 enum lws_check_basic_auth_results
