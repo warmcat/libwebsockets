@@ -21,24 +21,29 @@ function processCertQueue() {
         sendReq({ req: 'check_cert', domain: reqDomain, subdomain: task.fqdn, port: task.port });
 
         certCheckTimers[task.fqdn] = setTimeout(() => {
+            console.log('[INSTRUMENT] TIMER FIRED for:', task.fqdn, 'port:', task.port);
             let cacheKey = task.fqdn + ':' + task.port;
             let prev = window.certStatusCache[cacheKey];
             window.certStatusCache[cacheKey] = {
                 status: 'error',
                 msg: 'Connection Timeout',
-                local_msg: prev ? prev.local_msg : 'Unknown',
-                issuer: prev ? prev.issuer : 'Unknown'
+                local_msg: 'Unknown',
+                issuer: 'Unknown',
+                fqdn: task.fqdn,
+                port: task.port
             };
 
             let s = document.getElementById(`cert-status-${task.fqdn}`);
-            if (s && s.innerText === 'Checking...') {
+            if (s) {
                 s.innerText = 'Timeout';
-                s.classList.remove('text-green', 'text-gray'); s.classList.add('text-red');
+                s.classList.remove('text-green', 'text-gray');
+                s.classList.add('text-red');
             }
             if (certCheckTimers[task.fqdn]) delete certCheckTimers[task.fqdn];
             concurrentChecks = Math.max(0, concurrentChecks - 1);
 
             updateGlobalTlsTable();
+            if (typeof renderDomainDetails === 'function') renderDomainDetails();
             processCertQueue();
         }, 20000);
     }
@@ -255,28 +260,35 @@ function connect() {
     };
 
     ws.onmessage = function(msg) {
-        console.log('[INSTRUMENT] WS onmessage: Raw payload: ', msg.data);
-        const parts = msg.data.split('\n');
-        let buffer = '';
+        window.wsStreamBuffer = (window.wsStreamBuffer || '') + msg.data;
+        const parts = window.wsStreamBuffer.split('\n');
+        let testBuffer = '';
+        let successfullyParsedUpToPart = -1;
+
         for (let i = 0; i < parts.length; i++) {
-            buffer += (buffer ? '\n' : '') + parts[i];
-            let p = buffer.trim();
+            testBuffer += (testBuffer ? '\n' : '') + parts[i];
+            let p = testBuffer.trim();
             if (!p) {
-                buffer = '';
+                testBuffer = '';
+                successfullyParsedUpToPart = i;
                 continue;
             }
+
             try {
                 const data = JSON.parse(p);
-                console.log('[INSTRUMENT] WS onmessage: Parsed data: ', data);
                 handleResponse(data);
-                buffer = ''; // Reset buffer after successful parse
+                testBuffer = '';
+                successfullyParsedUpToPart = i;
             } catch(e) {
-                // Keep accumulating if parsing fails (multiline JSON)
-                if (i === parts.length - 1) {
-                    console.error('[INSTRUMENT] Failed to parse WS msg part:', e);
-                    console.log('[INSTRUMENT] Raw message fragment/broken:', buffer);
-                }
+                // Expected when receiving fragmented JSON over UDS.
+                // The state machine will buffer and re-attempt on the next chunk.
             }
+        }
+
+        if (successfullyParsedUpToPart === parts.length - 1) {
+            window.wsStreamBuffer = '';
+        } else {
+            window.wsStreamBuffer = parts.slice(successfullyParsedUpToPart + 1).join('\n');
         }
     };
 
@@ -492,7 +504,7 @@ function handleResponse(data) {
                 // Enqueue background cert checks for all these endpoints
                 data.tls.forEach(t => {
                     let cacheKey = t.fqdn + ':' + t.port;
-                    if (!window.certStatusCache[cacheKey] && !certCheckTimers[t.fqdn]) {
+                    if (!window.certStatusCache[cacheKey] && !certCheckTimers[t.fqdn] && !certCheckQueue.some(q => q.fqdn === t.fqdn && q.port === t.port)) {
                         certCheckQueue.push({fqdn: t.fqdn, port: t.port, domain: data.domain});
                     }
                 });
@@ -524,7 +536,7 @@ function handleResponse(data) {
                     if (d.domain === currentDomain) window.activeTls = d.tls;
                     d.tls.forEach(t => {
                         let cacheKey = t.fqdn + ':' + t.port;
-                        if (!window.certStatusCache[cacheKey] && !certCheckTimers[t.fqdn]) {
+                        if (!window.certStatusCache[cacheKey] && !certCheckTimers[t.fqdn] && !certCheckQueue.some(q => q.fqdn === t.fqdn && q.port === t.port)) {
                             certCheckQueue.push({fqdn: t.fqdn, port: t.port, domain: d.domain});
                         }
                     });
@@ -554,12 +566,16 @@ function handleResponse(data) {
             sendReq({ req: 'get_tls', domain: currentDomain });
             break;
         case 'cert_status':
+            console.log('[INSTRUMENT] cert_status RECEIVED for:', data.subdomain, data.port, 'status:', data.status, 'msg:', data.msg);
             window.certStatusCache[data.subdomain + ':' + data.port] = data;
             let span = document.getElementById(`cert-status-${data.subdomain}`);
             if (certCheckTimers[data.subdomain]) {
+                console.log('[INSTRUMENT] CLEARING timer for:', data.subdomain);
                 clearTimeout(certCheckTimers[data.subdomain]);
                 delete certCheckTimers[data.subdomain];
                 concurrentChecks = Math.max(0, concurrentChecks - 1);
+            } else {
+                console.log('[INSTRUMENT] NO TIMER FOUND to clear for:', data.subdomain);
             }
             if (span) {
                 if (data.status === 'ok') {
@@ -571,7 +587,9 @@ function handleResponse(data) {
                 }
             }
             updateGlobalTlsTable();
-            updateDistClientsTable();
+            renderZoneTable();
+
+            // Re-trigger the queue to process the next one
             processCertQueue();
             break;
         case 'download_dist_ca':
@@ -876,7 +894,7 @@ function renderWhoisHeader() {
             ${dnssecLookupsHTML}
             <tr id="tls-summary-row" class="hide">
                 <td class="dns-layout-lbl">TLS:</td>
-                <td colspan="2"><span id="tls-summary-content">Loading...</span> &nbsp; <a href="#" id="link-tls-details" class="ext-link">View TLS Details</a></td>
+                <td colspan="2"><span id="tls-summary-content">Loading...</span></td>
             </tr>
         </table>
     `;
@@ -1000,10 +1018,17 @@ function updateGlobalTlsTable() {
     const content = document.getElementById('tls-summary-content');
     if (row && content) {
         let minDays = null;
+        let allChecked = true;
+        let anyError = false;
+
         allTlsList.forEach(t => {
             if (t.domain !== currentDomain) return;
             let cached = window.certStatusCache[t.fqdn + ':' + t.port];
-            if (cached && cached.status === 'ok') {
+            if (!cached) {
+                allChecked = false;
+                return;
+            }
+            if (cached.status === 'ok') {
                 let parseDays = (str) => {
                     if (!str) return null;
                     let m = str.match(/(\d+)\s*days?/i);
@@ -1014,13 +1039,24 @@ function updateGlobalTlsTable() {
                 let d = d1 !== null ? d1 : (d2 !== null ? d2 : null);
                 if (d !== null) {
                     if (minDays === null || d < minDays) minDays = d;
+                } else {
+                    anyError = true;
                 }
+            } else {
+                anyError = true;
             }
         });
 
         let localTlsCount = allTlsList.filter(t => t.domain === currentDomain).length;
         if (localTlsCount > 0) {
-            let expStr = minDays !== null ? `Min Expiry: ${minDays}d` : 'Checking...';
+            let expStr = 'Checking...';
+            if (minDays !== null) {
+                expStr = `Min Expiry: ${minDays}d`;
+                if (anyError) expStr += ' (Some Errors)';
+            } else if (allChecked) {
+                expStr = anyError ? 'Error/Timeout' : 'Unknown';
+            }
+
             content.innerText = `TLS: ${localTlsCount} certs, ${expStr}`;
             row.classList.remove('hide');
         } else {
@@ -1178,14 +1214,16 @@ function renderZoneTable() {
                         concurrentChecks = Math.max(0, concurrentChecks - 1);
                     }
                     delete window.certStatusCache[fqdn + ':' + pnum];
-                    certCheckQueue.push({fqdn: fqdn, port: pnum, domain: currentDomain});
+                    if (!certCheckQueue.some(q => q.fqdn === fqdn && q.port === pnum)) {
+                        certCheckQueue.push({fqdn: fqdn, port: pnum, domain: currentDomain});
+                    }
                     processCertQueue();
                 }
             };
 
             if (portInput.value) {
                 let pnum = parseInt(portInput.value, 10);
-                if (!window.certStatusCache[fqdn + ':' + pnum] && !certCheckTimers[fqdn]) {
+                if (!window.certStatusCache[fqdn + ':' + pnum] && !certCheckTimers[fqdn] && !certCheckQueue.some(q => q.fqdn === fqdn && q.port === pnum)) {
                     certCheckQueue.push({fqdn: fqdn, port: pnum, domain: currentDomain});
                 }
             }
