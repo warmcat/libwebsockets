@@ -922,6 +922,7 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 		switch (lws_check_basic_auth(wsi, hit->basic_auth_login_file,
 					     hit->auth_mask & AUTH_MODE_MASK)) {
 		case LCBA_CONTINUE:
+		case LCBA_AUTH_RETRY_KEEPALIVE:
 			break;
 		case LCBA_FAILED_AUTH:
 			return lws_unauthorised_basic_auth(wsi);

@@ -962,6 +962,44 @@ str_val:
 		a = wsi->stash->cis[CIS_ADDRESS];
 		p = &wsi->stash->cis[CIS_PATH][1];
 
+		wsi->client_pipeline = 0;
+
+		/*
+		 * If the server kept the TCP/TLS connection alive on the 401
+		 * and sent an explicitly empty body, reuse the existing
+		 * session instead of tearing down and recreating it.
+		 * Fall back to the close/reconnect path if any doubt exists.
+		 */
+		{
+			const char *cl401 = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH);
+			const char *te401 = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_TRANSFER_ENCODING);
+			const char *conn = lws_hdr_simple_ptr(wsi, WSI_TOKEN_CONNECTION);
+			int keep_alive = 1;
+
+			if (conn) {
+				struct lws_tokenize ts;
+				lws_tokenize_init(&ts, conn, LWS_TOKENIZE_F_COMMA_SEP_LIST | LWS_TOKENIZE_F_MINUS_NONTERM);
+				do {
+					ts.e = lws_tokenize(&ts);
+					if (ts.e == LWS_TOKZE_TOKEN &&
+					    ts.token_len == 5 &&
+					    !strncasecmp(ts.token, "close", 5)) {
+						keep_alive = 0;
+						break;
+					}
+				} while (ts.e > 0);
+			}
+
+			if (wsi->stash &&
+			    wsi->http.conn_type == HTTP_CONNECTION_KEEP_ALIVE &&
+			    keep_alive &&
+			    (!te401 || strncasecmp(te401, "chunked", 7)) &&
+			    cl401 && atoi(cl401) == 0) {
+				wsi->http.digest_auth_hdr = tmp_digest;
+				return LCBA_AUTH_RETRY_KEEPALIVE;
+			}
+		}
+
 		/*
 		 * This prevents connection pipelining when two
 		 * HTTP connection use the same tcp socket.
@@ -979,7 +1017,6 @@ str_val:
 		*/
 
 		wsi->http.digest_auth_hdr = tmp_digest;
-		wsi->client_pipeline = 0;
 	}
 
 	return 0;
@@ -1117,7 +1154,47 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			return LCBA_FAILED_AUTH;
 		}
 
-		if (lws_http_digest_auth(wsi))
+		int auth_res = lws_http_digest_auth(wsi);
+
+		if (auth_res == LCBA_AUTH_RETRY_KEEPALIVE) {
+			/*
+			 * Server kept the TCP/TLS connection alive:
+			 * reuse it for the authenticated retry without
+			 * any close/reconnect.  Reset the AH parser and
+			 * re-populate client request headers from stash,
+			 * then schedule a new HTTP handshake send.
+			 */
+			static const uint8_t hnames_cis[] = {
+				_WSI_TOKEN_CLIENT_PEER_ADDRESS,
+				_WSI_TOKEN_CLIENT_URI,
+				_WSI_TOKEN_CLIENT_HOST,
+				_WSI_TOKEN_CLIENT_ORIGIN,
+				_WSI_TOKEN_CLIENT_SENT_PROTOCOLS,
+				_WSI_TOKEN_CLIENT_METHOD,
+				_WSI_TOKEN_CLIENT_IFACE,
+				_WSI_TOKEN_CLIENT_ALPN
+			};
+			int m;
+
+			lwsl_wsi_info(wsi, "digest auth: reusing TCP/TLS connection\n");
+
+			_lws_header_table_reset(wsi->http.ah);
+
+			if (wsi->stash)
+				for (m = 0; m < (int)LWS_ARRAY_SIZE(hnames_cis); m++)
+					if (hnames_cis[m] &&
+					    wsi->stash->cis[m] &&
+					    lws_hdr_simple_create(wsi, hnames_cis[m], wsi->stash->cis[m]))
+						goto bail3;
+
+			wsi->hdr_parsing_completed = 0;
+			wsi->http.ah->ues = URIES_IDLE;
+			lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE2);
+			lws_callback_on_writable(wsi);
+			return 0;
+		}
+
+		if (auth_res)
 			goto bail3;
 
 		opaque = wsi->a.opaque_user_data;
