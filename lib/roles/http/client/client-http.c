@@ -962,6 +962,28 @@ str_val:
 		a = wsi->stash->cis[CIS_ADDRESS];
 		p = &wsi->stash->cis[CIS_PATH][1];
 
+		wsi->client_pipeline = 0;
+
+		/*
+		 * If the server kept the TCP/TLS connection alive on the 401
+		 * (HTTP/1.1 default) and sent an empty body, reuse the existing
+		 * session instead of tearing down and recreating it.
+		 * Fall back to the close/reconnect path if conn_type is
+		 * HTTP_CONNECTION_CLOSE (e.g. HTTP/1.0 server) or if the stash
+		 * is not available.
+		 */
+		{
+			const char *cl401 = lws_hdr_simple_ptr(wsi,
+						WSI_TOKEN_HTTP_CONTENT_LENGTH);
+
+			if (wsi->stash &&
+			    wsi->http.conn_type == HTTP_CONNECTION_KEEP_ALIVE &&
+			    (!cl401 || atoi(cl401) == 0)) {
+				wsi->http.digest_auth_hdr = tmp_digest;
+				return LCBA_AUTH_RETRY_KEEPALIVE;
+			}
+		}
+
 		/*
 		 * This prevents connection pipelining when two
 		 * HTTP connection use the same tcp socket.
@@ -979,7 +1001,6 @@ str_val:
 		*/
 
 		wsi->http.digest_auth_hdr = tmp_digest;
-		wsi->client_pipeline = 0;
 	}
 
 	return 0;
@@ -1117,7 +1138,52 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			return LCBA_FAILED_AUTH;
 		}
 
-		if (lws_http_digest_auth(wsi))
+		int auth_res = lws_http_digest_auth(wsi);
+
+		if (auth_res == LCBA_AUTH_RETRY_KEEPALIVE) {
+			/*
+				* Server kept the TCP/TLS connection alive:
+				* reuse it for the authenticated retry without
+				* any close/reconnect.  Reset the AH parser and
+				* re-populate client request headers from stash,
+				* then schedule a new HTTP handshake send.
+				*/
+			static const uint8_t hnames_cis[] = {
+				_WSI_TOKEN_CLIENT_PEER_ADDRESS,
+				_WSI_TOKEN_CLIENT_URI,
+				_WSI_TOKEN_CLIENT_HOST,
+				_WSI_TOKEN_CLIENT_ORIGIN,
+				_WSI_TOKEN_CLIENT_SENT_PROTOCOLS,
+				_WSI_TOKEN_CLIENT_METHOD,
+				_WSI_TOKEN_CLIENT_IFACE,
+				_WSI_TOKEN_CLIENT_ALPN
+			};
+			int m;
+
+			lwsl_wsi_info(wsi, "digest auth: reusing "
+						"TCP/TLS connection\n");
+
+			_lws_header_table_reset(wsi->http.ah);
+
+			if (wsi->stash)
+				for (m = 0;
+						m < (int)LWS_ARRAY_SIZE(hnames_cis);
+						m++)
+					if (hnames_cis[m] &&
+						wsi->stash->cis[m] &&
+						lws_hdr_simple_create(wsi,
+						hnames_cis[m],
+						wsi->stash->cis[m]))
+						goto bail3;
+
+			wsi->hdr_parsing_completed = 0;
+			wsi->http.ah->ues = URIES_IDLE;
+			lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE2);
+			lws_callback_on_writable(wsi);
+			return 0;
+		}
+
+		if (auth_res)
 			goto bail3;
 
 		opaque = wsi->a.opaque_user_data;
