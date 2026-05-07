@@ -1012,3 +1012,5 @@ body.is-disconnected .app-container {
   border: 1px solid red;
   background: rgba(255, 0, 0, 0.1);
 }
+
+.mb-10 { margin-bottom: 10px; }
