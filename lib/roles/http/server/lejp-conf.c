@@ -356,7 +356,7 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 		rej->next = a->info->reject_service_keywords;
 		a->info->reject_service_keywords = rej;
 		rej->name = a->p;
-		 lwsl_notice("  adding rej %s=%s\n", a->p, ctx->buf);
+		// lwsl_notice("  adding rej %s=%s\n", a->p, ctx->buf);
 		a->p += n - 1;
 		*(a->p++) = '\0';
 		rej->value = a->p;

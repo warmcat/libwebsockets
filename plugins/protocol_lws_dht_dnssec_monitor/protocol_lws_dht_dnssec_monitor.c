@@ -43,7 +43,10 @@
 #include <sys/wait.h>
 #endif
 
+#define PSS_MAGIC 0x50535301
+
 struct pss {
+	uint32_t magic;
 	struct lws *wsi;
 	struct lws *cwsi;
 
@@ -91,7 +94,47 @@ struct vhd {
 	lws_dll2_owner_t ui_clients;
 	struct lws_smd_peer *smd_peer;
 	char ext_ips[256];
+
+	/* ACME client configuration state */
+	int acme_production;
+	char acme_email[128];
+	char acme_profile[128];
+
+	uid_t proxy_uid;
+	gid_t proxy_gid;
+
+	/* UDS Proxy clients queue */
+	lws_dll2_owner_t clients;
 };
+
+#define ACME_PROFILES_MAGIC 0xAC3E0001
+struct acme_profiles_fetch_info {
+	uint32_t magic;
+	struct pss *root_pss;
+	char *json;
+	size_t json_len;
+	size_t json_alloc;
+};
+
+#define CERT_CHECK_MAGIC 0xCE670001
+struct cert_check_info {
+	uint32_t magic;
+	char fqdn[128];
+	char domain[128];
+	int port;
+	int starttls_state; /* 0=none, 1=wait 220, 2=sent EHLO, 3=wait 250, 4=sent STARTTLS, 5=wait 220 */
+};
+
+struct cert_check_result {
+	lws_dll2_t list;
+	char fqdn[128];
+	int port;
+	int status_err;
+	char msg[256];
+	char local_msg[128];
+	char issuer[128];
+};
+
 
 static struct vhd *global_root_vhd = NULL;
 
@@ -411,6 +454,13 @@ struct monitor_req_args {
 	char jwt[2048];
 	char suffix[64];
 	int port;
+	int enabled;
+	int production;
+	char country[128];
+	char state[128];
+	char locality[128];
+	char profile[128];
+	char key_type[32];
 };
 
 static const char * const monitor_req_paths[] = {
@@ -423,7 +473,14 @@ static const char * const monitor_req_paths[] = {
 	"zone",
 	"jwt",
 	"suffix",
-	"port"
+	"port",
+	"enabled",
+	"production",
+	"country",
+	"state",
+	"locality",
+	"profile",
+	"key_type"
 };
 
 enum enum_req_paths {
@@ -436,7 +493,14 @@ enum enum_req_paths {
 	LRP_ZONE,
 	LRP_JWT,
 	LRP_SUFFIX,
-	LRP_PORT
+	LRP_PORT,
+	LRP_ENABLED,
+	LRP_PRODUCTION,
+	LRP_COUNTRY,
+	LRP_STATE,
+	LRP_LOCALITY,
+	LRP_PROFILE,
+	LRP_KEY_TYPE
 };
 
 static signed char
@@ -448,6 +512,16 @@ monitor_req_cb(struct lejp_ctx *ctx, char reason)
 		if (ctx->path_match - 1 == LRP_PORT) {
 			a->port = atoi(ctx->buf);
 		}
+	}
+
+	if (reason == LEJPCB_VAL_TRUE) {
+		if (ctx->path_match - 1 == LRP_ENABLED) a->enabled = 1;
+		if (ctx->path_match - 1 == LRP_PRODUCTION) a->production = 1;
+	}
+
+	if (reason == LEJPCB_VAL_FALSE) {
+		if (ctx->path_match - 1 == LRP_ENABLED) a->enabled = 0;
+		if (ctx->path_match - 1 == LRP_PRODUCTION) a->production = 0;
 	}
 
 	if (reason == LEJPCB_VAL_STR_START) {
@@ -500,6 +574,21 @@ monitor_req_cb(struct lejp_ctx *ctx, char reason)
 		case LRP_SUFFIX:
 			lws_strncpy(a->suffix, ctx->buf, sizeof(a->suffix));
 			break;
+		case LRP_COUNTRY:
+			lws_strncpy(a->country, ctx->buf, sizeof(a->country));
+			break;
+		case LRP_STATE:
+			lws_strncpy(a->state, ctx->buf, sizeof(a->state));
+			break;
+		case LRP_LOCALITY:
+			lws_strncpy(a->locality, ctx->buf, sizeof(a->locality));
+			break;
+		case LRP_PROFILE:
+			lws_strncpy(a->profile, ctx->buf, sizeof(a->profile));
+			break;
+		case LRP_KEY_TYPE:
+			lws_strncpy(a->key_type, ctx->buf, sizeof(a->key_type));
+			break;
 		}
 	}
 
@@ -511,10 +600,193 @@ monitor_req_cb(struct lejp_ctx *ctx, char reason)
 #include <unistd.h>
 #include <sys/stat.h>
 
+static char *
+read_file(const char *path)
+{
+	int fd = open(path, O_RDONLY);
+	struct stat st;
+	char *buf = NULL;
+
+	if (fd < 0)
+		return NULL;
+
+	if (!fstat(fd, &st)) {
+		buf = malloc((size_t)st.st_size + 1);
+		if (buf) {
+			if (read(fd, buf, (size_t)st.st_size) != st.st_size) {
+				free(buf);
+				buf = NULL;
+			} else {
+				buf[st.st_size] = '\0';
+			}
+		}
+	}
+	close(fd);
+
+	return buf;
+}
+
+static int
+write_pem(const char *path, const char *type, const uint8_t *der, size_t der_len)
+{
+	char *b64;
+	size_t b64_len = (size_t)lws_base64_size((int)der_len) + 1;
+	int fd, n;
+	size_t pos = 0, len;
+	char hdr[128];
+
+	b64 = malloc(b64_len);
+	if (!b64)
+		return 1;
+
+	lws_b64_encode_string((const char *)der, (int)der_len, b64, (int)b64_len);
+	len = strlen(b64);
+
+	fd = open(path, O_CREAT | O_TRUNC | O_WRONLY, 0600);
+	if (fd < 0) {
+		free(b64);
+		return 1;
+	}
+
+	n = lws_snprintf(hdr, sizeof(hdr), "-----BEGIN %s-----\n", type);
+	if (write(fd, hdr, (size_t)n) != n) goto bail;
+
+	while (pos < len) {
+		size_t chunk = len - pos > 64 ? 64 : len - pos;
+		if (write(fd, b64 + pos, chunk) != (ssize_t)chunk) goto bail;
+		if (write(fd, "\n", 1) != 1) goto bail;
+		pos += chunk;
+	}
+
+	n = lws_snprintf(hdr, sizeof(hdr), "-----END %s-----\n", type);
+	if (write(fd, hdr, (size_t)n) != n) goto bail;
+
+	close(fd);
+	free(b64);
+	return 0;
+
+bail:
+	close(fd);
+	free(b64);
+	return 1;
+}
+
+static int
+generate_cert_internal(struct vhd *vhd, const char *cn, const char *out_crt, const char *out_key,
+		      const char *ca_crt_path, const char *ca_key_path, int is_ca, int is_server)
+{
+	struct lws_x509_cert_gen_info info;
+	uint8_t *cert_buf = NULL, *key_buf = NULL;
+	size_t cert_len = 0, key_len = 0;
+	char *ca_crt_pem = NULL, *ca_key_pem = NULL;
+	int ret = 1;
+
+	memset(&info, 0, sizeof(info));
+	info.san = cn;
+	info.curve_name = "P-521"; /* Force ECDSA P-521 for Distribution PKI */
+	info.is_ca = is_ca;
+	info.is_server = is_server;
+
+	if (!is_ca && ca_crt_path && ca_key_path) {
+		ca_crt_pem = read_file(ca_crt_path);
+		ca_key_pem = read_file(ca_key_path);
+		if (!ca_crt_pem || !ca_key_pem) {
+			lwsl_err("%s: failed to read CA cert or key\n", __func__);
+			goto bail;
+		}
+		info.ca_cert_pem = ca_crt_pem;
+		info.ca_key_pem = ca_key_pem;
+	}
+
+	if (lws_x509_create_cert(vhd->context, &cert_buf, &cert_len, &key_buf, &key_len, &info)) {
+		lwsl_err("%s: failed to create cert\n", __func__);
+		goto bail;
+	}
+
+	if (write_pem(out_crt, "CERTIFICATE", cert_buf, cert_len)) {
+		lwsl_err("%s: failed to write cert\n", __func__);
+		goto bail;
+	}
+
+	if (write_pem(out_key, "PRIVATE KEY", key_buf, key_len)) {
+		lwsl_err("%s: failed to write key\n", __func__);
+		goto bail;
+	}
+
+	ret = 0;
+
+bail:
+	if (ca_crt_pem) free(ca_crt_pem);
+	if (ca_key_pem) free(ca_key_pem);
+	if (cert_buf) free(cert_buf);
+	if (key_buf) free(key_buf);
+
+	return ret;
+}
+
+static void
+generate_dist_pki(struct vhd *vhd)
+{
+	char path_crt[1024], path_key[1024], path_dir[1024];
+
+	lws_snprintf(path_dir, sizeof(path_dir), "%s/pki", vhd->base_dir);
+	mkdir(path_dir, 0700);
+
+	lws_snprintf(path_crt, sizeof(path_crt), "%s/pki/distribution-ca.crt", vhd->base_dir);
+	lws_snprintf(path_key, sizeof(path_key), "%s/pki/distribution-ca.key", vhd->base_dir);
+
+	if (access(path_crt, F_OK) != 0) {
+		lwsl_notice("%s: Generating Distribution CA\n", __func__);
+		generate_cert_internal(vhd, "dnssec-monitor-distribution-ca", path_crt, path_key, NULL, NULL, 1, 0);
+	}
+}
+
+static void
+generate_dist_server_cert(struct vhd *vhd, const char *domain)
+{
+	char path_crt[1024], path_key[1024], path_dir[1024];
+	char ca_crt[1024], ca_key[1024];
+
+	lws_snprintf(path_dir, sizeof(path_dir), "%s/pki", vhd->base_dir);
+	mkdir(path_dir, 0700);
+
+	lws_snprintf(path_crt, sizeof(path_crt), "%s/pki/distribution-server-%s.crt", vhd->base_dir, domain);
+	lws_snprintf(path_key, sizeof(path_key), "%s/pki/distribution-server-%s.key", vhd->base_dir, domain);
+
+	if (access(path_crt, F_OK) == 0) return;
+
+	lws_snprintf(ca_crt, sizeof(ca_crt), "%s/pki/distribution-ca.crt", vhd->base_dir);
+	lws_snprintf(ca_key, sizeof(ca_key), "%s/pki/distribution-ca.key", vhd->base_dir);
+
+	lwsl_notice("%s: Generating Distribution Server Cert for %s\n", __func__, domain);
+	generate_cert_internal(vhd, domain, path_crt, path_key, ca_crt, ca_key, 0, 1);
+}
+
+static void
+generate_client_cert(struct vhd *vhd, const char *domain, const char *subdomain)
+{
+	char path_dir[1024], path_crt[1024], path_key[1024];
+	char ca_crt[1024], ca_key[1024];
+
+	lws_snprintf(path_dir, sizeof(path_dir), "%s/domains/%s/dist-client", vhd->base_dir, domain);
+	mkdir(path_dir, 0700);
+
+	lws_snprintf(path_crt, sizeof(path_crt), "%s/distribution-client-%s.crt", path_dir, subdomain);
+	lws_snprintf(path_key, sizeof(path_key), "%s/distribution-client-%s.key", path_dir, subdomain);
+
+	if (access(path_crt, F_OK) == 0) return;
+
+	lws_snprintf(ca_crt, sizeof(ca_crt), "%s/pki/distribution-ca.crt", vhd->base_dir);
+	lws_snprintf(ca_key, sizeof(ca_key), "%s/pki/distribution-ca.key", vhd->base_dir);
+
+	lwsl_notice("%s: Generating Client Cert for %s\n", __func__, subdomain);
+	generate_cert_internal(vhd, subdomain, path_crt, path_key, ca_crt, ca_key, 0, 0);
+}
+
 static void
 handle_req_status(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
-	char *tx = (char *)&root_pss->tx[LWS_PRE];
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
 	char *tx_end = tx + 65536 - 1;
 	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"status\",\"status\":\"ok\"}\n");
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
@@ -523,7 +795,7 @@ handle_req_status(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args
 static void
 handle_req_get_domains(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
-	char *tx = (char *)&root_pss->tx[LWS_PRE];
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
 	char *tx_end = tx + 65536 - 1;
 	char path[1024];
 	DIR *d;
@@ -539,8 +811,40 @@ handle_req_get_domains(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 		while ((de = readdir(d))) {
 			if (de->d_name[0] == '.') continue;
 			if (de->d_type == DT_DIR || de->d_type == DT_UNKNOWN) {
+				char whois_path[1024], whois_buf[2048] = "{}";
+				char dns_path[1024], dns_buf[1024] = "{}";
+				char ds_path[1024], ds_buf[256] = "";
+				int fd;
+
+				lws_snprintf(whois_path, sizeof(whois_path), "%s/domains/%s/whois.json", vhd->base_dir, de->d_name);
+				if ((fd = open(whois_path, O_RDONLY)) >= 0) {
+					ssize_t nw = read(fd, whois_buf, sizeof(whois_buf) - 1);
+					if (nw > 0) whois_buf[nw] = '\0';
+					close(fd);
+				}
+
+				lws_snprintf(dns_path, sizeof(dns_path), "%s/domains/%s/dns_state.json", vhd->base_dir, de->d_name);
+				if ((fd = open(dns_path, O_RDONLY)) >= 0) {
+					ssize_t nw = read(fd, dns_buf, sizeof(dns_buf) - 1);
+					if (nw > 0) dns_buf[nw] = '\0';
+					close(fd);
+				}
+
+				lws_snprintf(ds_path, sizeof(ds_path), "%s/domains/%s/dns_ds.txt", vhd->base_dir, de->d_name);
+				if ((fd = open(ds_path, O_RDONLY)) >= 0) {
+					ssize_t nw = read(fd, ds_buf, sizeof(ds_buf) - 1);
+					if (nw > 0) {
+						ds_buf[nw] = '\0';
+						char *nl = strchr(ds_buf, '\n');
+						if (nl) *nl = '\0';
+					}
+					close(fd);
+				}
+
 				if (!first) tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), ",");
-				tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\"%s\"", de->d_name);
+				tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), 
+					"{\"name\":\"%s\",\"whois\":%s,\"dns\":%s,\"local_ds\":\"%s\"}",
+					de->d_name, whois_buf[0] ? whois_buf : "{}", dns_buf[0] ? dns_buf : "{}", ds_buf);
 				first = 0;
 			}
 		}
@@ -553,7 +857,7 @@ handle_req_get_domains(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 static void
 handle_req_create_domain(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
-	char *tx = (char *)&root_pss->tx[LWS_PRE];
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
 	char *tx_end = tx + 65536 - 1;
 	char d_path[1024];
 	int r = 0;
@@ -600,7 +904,7 @@ handle_req_create_domain(struct vhd *vhd, struct pss *root_pss, struct monitor_r
 static void
 handle_req_delete_domain(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
-	char *tx = (char *)&root_pss->tx[LWS_PRE];
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
 	char *tx_end = tx + 65536 - 1;
 	char d_path[1024];
 
@@ -615,7 +919,7 @@ handle_req_delete_domain(struct vhd *vhd, struct pss *root_pss, struct monitor_r
 static void
 handle_req_get_zone(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
-	char *tx = (char *)&root_pss->tx[LWS_PRE];
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
 	char *tx_end = tx + 65536 - 1;
 	char d_path[1024];
 
@@ -654,7 +958,7 @@ handle_req_get_zone(struct vhd *vhd, struct pss *root_pss, struct monitor_req_ar
 static void
 handle_req_get_ipv6_suffix(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
-	char *tx = (char *)&root_pss->tx[LWS_PRE];
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
 	char *tx_end = tx + 65536 - 1;
 	char path[1024];
 	char suffix[64] = {0};
@@ -681,7 +985,7 @@ handle_req_get_ipv6_suffix(struct vhd *vhd, struct pss *root_pss, struct monitor
 static void
 handle_req_set_ipv6_suffix(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
-	char *tx = (char *)&root_pss->tx[LWS_PRE];
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
 	char *tx_end = tx + 65536 - 1;
 	char path[1024];
 
@@ -713,7 +1017,7 @@ done:
 static void
 handle_req_update_zone(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
-	char *tx = (char *)&root_pss->tx[LWS_PRE];
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
 	char *tx_end = tx + 65536 - 1;
 	char d_path[1024];
 
@@ -738,7 +1042,7 @@ fail:
 static void
 handle_req_get_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
-	char *tx = (char *)&root_pss->tx[LWS_PRE];
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
 	char *tx_end = tx + 65536 - 1;
 	char d_path[1024];
 	DIR *d;
@@ -747,16 +1051,30 @@ handle_req_get_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_arg
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/conf.d", vhd->base_dir, a->domain);
 	d = opendir(d_path);
 	if (!d) {
-		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"tls\":[]}\n", a->req);
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"domain\":\"%s\",\"tls\":[]}\n", a->req, a->domain);
 	} else {
 		int first = 1;
-		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"tls\":[", a->req);
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"domain\":\"%s\",\"tls\":[", a->req, a->domain);
 		while ((de = readdir(d))) {
 			if (de->d_name[0] == '.') continue;
-			if (strstr(de->d_name, ".json") && strncmp(de->d_name, a->domain, strlen(a->domain))) {
-				if (!first) tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), ",");
-				tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\"%s\"", de->d_name);
-				first = 0;
+			if (strstr(de->d_name, ".port")) {
+				char p_path[1024], sub[256];
+				lws_strncpy(sub, de->d_name, sizeof(sub));
+				char *ext = strstr(sub, ".port");
+				if (ext) *ext = '\0';
+				lws_snprintf(p_path, sizeof(p_path), "%s/%s", d_path, de->d_name);
+				int fd = open(p_path, O_RDONLY);
+				if (fd >= 0) {
+					char buf[64];
+					ssize_t n = read(fd, buf, sizeof(buf) - 1);
+					if (n > 0) {
+						buf[n] = '\0';
+						if (!first) tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), ",");
+						tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"fqdn\":\"%s\",\"port\":%d}", sub, atoi(buf));
+						first = 0;
+					}
+					close(fd);
+				}
 			}
 		}
 		closedir(d);
@@ -768,7 +1086,7 @@ handle_req_get_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_arg
 static void
 handle_req_create_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
-	char *tx = (char *)&root_pss->tx[LWS_PRE];
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
 	char *tx_end = tx + 65536 - 1;
 	char d_path[1024];
 	char p1[1024];
@@ -811,7 +1129,7 @@ handle_req_create_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 static void
 handle_req_delete_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
-	char *tx = (char *)&root_pss->tx[LWS_PRE];
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
 	char *tx_end = tx + 65536 - 1;
 	char d_path[1024];
 
@@ -824,7 +1142,7 @@ handle_req_delete_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 static void
 handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a, const char *dir_suffix)
 {
-	char *tx = (char *)&root_pss->tx[LWS_PRE];
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
 	char *tx_end = tx + 65536 - 1;
 	char d_path[1024];
 
@@ -877,7 +1195,7 @@ handle_req_save_key(struct vhd *vhd, struct pss *root_pss, struct monitor_req_ar
 static void
 handle_req_get_all_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
-	char *tx = (char *)&root_pss->tx[LWS_PRE];
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
 	char *tx_end = tx + 65536 - 1;
 	char d_path[1024];
 	DIR *d, *d2;
@@ -900,10 +1218,24 @@ handle_req_get_all_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 				int first_tls = 1;
 				while ((de2 = readdir(d2))) {
 					if (de2->d_name[0] == '.') continue;
-					if (strstr(de2->d_name, ".json") && strncmp(de2->d_name, de->d_name, strlen(de->d_name))) {
-						if (!first_tls) tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), ",");
-						tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\"%s\"", de2->d_name);
-						first_tls = 0;
+					if (strstr(de2->d_name, ".port")) {
+						char p_path[1024], sub[256];
+						lws_strncpy(sub, de2->d_name, sizeof(sub));
+						char *ext = strstr(sub, ".port");
+						if (ext) *ext = '\0';
+						lws_snprintf(p_path, sizeof(p_path), "%s/%s", conf_path, de2->d_name);
+						int fd = open(p_path, O_RDONLY);
+						if (fd >= 0) {
+							char buf[64];
+							ssize_t n = read(fd, buf, sizeof(buf) - 1);
+							if (n > 0) {
+								buf[n] = '\0';
+								if (!first_tls) tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), ",");
+								tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"fqdn\":\"%s\",\"port\":%d}", sub, atoi(buf));
+								first_tls = 0;
+							}
+							close(fd);
+						}
 					}
 				}
 				tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "]}");
@@ -921,48 +1253,550 @@ handle_req_get_all_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 static void
 handle_req_get_acme_config(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
-	char *tx = (char *)&root_pss->tx[LWS_PRE];
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
 	char *tx_end = tx + 65536 - 1;
-	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"config\":{}}\n", a->req);
+	char d_path[1024];
+
+	lws_snprintf(d_path, sizeof(d_path), "%s/acme_config.json", vhd->base_dir);
+	int fd = open(d_path, O_RDONLY);
+	if (fd >= 0) {
+		char buf[4096];
+		ssize_t n = read(fd, buf, sizeof(buf) - 1);
+		if (n > 0) {
+			buf[n] = '\0';
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"get_acme_config\",\"status\":\"ok\",\"config\":%s}\n", buf);
+		} else {
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"get_acme_config\",\"status\":\"ok\",\"config\":{}}\n");
+		}
+		close(fd);
+	} else {
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"get_acme_config\",\"status\":\"ok\",\"config\":{}}\n");
+	}
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
 }
 
 static void
-handle_req_get_acme_profiles(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
+handle_req_set_acme_config(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
-	char *tx = (char *)&root_pss->tx[LWS_PRE];
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
 	char *tx_end = tx + 65536 - 1;
-	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"profiles\":{}}\n", a->req);
+	char d_path[1024];
+	char buf[4096];
+	int n, fd;
+
+	lws_snprintf(d_path, sizeof(d_path), "%s/acme_config.json", vhd->base_dir);
+	fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+	if (fd >= 0) {
+		if (vhd->proxy_uid != (uid_t)-1 || vhd->proxy_gid != (gid_t)-1)
+			fchown(fd, vhd->proxy_uid, vhd->proxy_gid);
+		n = lws_snprintf(buf, sizeof(buf),
+			"{\n  \"enabled\": %s,\n  \"production\": %s,\n  \"email\": \"%s\",\n"
+			"  \"organization\": \"%s\",\n  \"country\": \"%s\",\n  \"state\": \"%s\",\n"
+			"  \"locality\": \"%s\",\n  \"profile\": \"%s\"\n}\n",
+			a->enabled ? "true" : "false",
+			a->production ? "true" : "false",
+			a->email, a->organization, a->country, a->state, a->locality, a->profile);
+
+		if (write(fd, buf, (size_t)n) == (ssize_t)n) {
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"set_acme_config\",\"status\":\"ok\"}\n");
+		} else {
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"set_acme_config\",\"status\":\"error\",\"msg\":\"Write failed\"}\n");
+		}
+		close(fd);
+	} else {
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"set_acme_config\",\"status\":\"error\",\"msg\":\"Could not open config\"}\n");
+	}
+	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
+}
+
+static void
+handle_req_set_domain_acme(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
+{
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
+	char *tx_end = tx + 65536 - 1;
+	char d_path[1024];
+
+	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/acme_disabled", vhd->base_dir, a->domain);
+	if (a->enabled) {
+		unlink(d_path);
+	} else {
+		int fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+		if (fd >= 0) {
+			if (vhd->proxy_uid != (uid_t)-1 || vhd->proxy_gid != (gid_t)-1)
+				fchown(fd, vhd->proxy_uid, vhd->proxy_gid);
+			close(fd);
+		}
+	}
+
+	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"set_domain_acme\",\"status\":\"ok\"}\n");
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
 }
 
 static void
 handle_req_get_acme_log(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
-	char *tx = (char *)&root_pss->tx[LWS_PRE];
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
 	char *tx_end = tx + 65536 - 1;
-	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"log\":\"\"}\n", a->req);
+	char d_path[1024];
+
+	lws_snprintf(d_path, sizeof(d_path), "%s/acme.log", vhd->base_dir);
+	int fd = open(d_path, O_RDONLY);
+	if (fd >= 0) {
+		char buf[4096];
+		lws_filepos_t size = (lws_filepos_t)lseek(fd, 0, SEEK_END);
+		lws_filepos_t start = 0;
+		if (size > 4000) start = size - 4000;
+		if (lseek(fd, (off_t)start, SEEK_SET) >= 0) {
+			ssize_t n = read(fd, buf, sizeof(buf) - 1);
+			if (n > 0) {
+				buf[n] = '\0';
+				tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"get_acme_log\",\"status\":\"ok\",\"log\":\"");
+				for (ssize_t i = 0; i < n; i++) {
+					if (buf[i] == '\n') tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\\n");
+					else if (buf[i] == '"') tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\\\"");
+					else if (buf[i] == '\\') tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\\\\");
+					else if (buf[i] >= 32 && buf[i] <= 126) *tx++ = buf[i];
+				}
+				tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\"}\n");
+			} else {
+				tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"get_acme_log\",\"status\":\"ok\",\"log\":\"\"}\n");
+			}
+		}
+		close(fd);
+	} else {
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"get_acme_log\",\"status\":\"ok\",\"log\":\"No log found.\"}\n");
+	}
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
+}
+
+static void
+handle_req_trigger_resign(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
+{
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
+	char *tx_end = tx + 65536 - 1;
+
+	lwsl_notice("%s: ACME client triggered immediate re-sign for all zones\n", __func__);
+	lws_sul_schedule(vhd->context, 0, &vhd->sul_timer, parent_dnssec_monitor_timer_cb, 100 * LWS_US_PER_MS);
+
+	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"trigger_resign\",\"status\":\"ok\"}\n");
+	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
+}
+
+static void
+handle_req_update_whois(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
+{
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
+	if (a->domain[0] && a->zone_buf) {
+		char path[1024];
+		lws_snprintf(path, sizeof(path), "%s/domains/%s/whois.json", vhd->base_dir, a->domain);
+		int fd = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+		if (fd >= 0) {
+			if (vhd->proxy_uid != (uid_t)-1 || vhd->proxy_gid != (gid_t)-1)
+				fchown(fd, vhd->proxy_uid, vhd->proxy_gid);
+			char decoded[8192];
+			int n = lws_b64_decode_string(a->zone_buf, decoded, sizeof(decoded));
+			if (n > 0) write(fd, decoded, (size_t)n);
+			close(fd);
+		}
+	}
+	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
+}
+
+static void
+handle_req_regen_keys(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
+{
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
+	char *tx_end = tx + 65536 - 1;
+
+	if (vhd->ops && vhd->ops->keygen) {
+		struct lws_dht_dnssec_keygen_args kargs;
+		memset(&kargs, 0, sizeof(kargs));
+		char wd[1024];
+		lws_snprintf(wd, sizeof(wd), "%s/domains/%s", vhd->base_dir, a->domain);
+		kargs.domain = a->domain;
+		kargs.workdir = wd;
+
+		if (!strcmp(a->key_type, "ES256")) { kargs.type = "EC"; kargs.curve = "P-256"; kargs.bits = 256; }
+		else if (!strcmp(a->key_type, "ES384")) { kargs.type = "EC"; kargs.curve = "P-384"; kargs.bits = 384; }
+		else if (!strcmp(a->key_type, "R1024")) { kargs.type = "RSA"; kargs.bits = 1024; }
+		else if (!strcmp(a->key_type, "R2048")) { kargs.type = "RSA"; kargs.bits = 2048; }
+		else { kargs.type = "EC"; kargs.curve = "P-256"; kargs.bits = 256; }
+
+		if (!vhd->ops->keygen(vhd->context, &kargs)) {
+			char signed_path[1024];
+			lws_snprintf(signed_path, sizeof(signed_path), "%s/%s.zone.signed", wd, a->domain);
+			unlink(signed_path);
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
+		} else {
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Key generation failed\"}\n", a->req);
+		}
+	} else {
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Keygen unsupported\"}\n", a->req);
+	}
+	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
+}
+
+struct lws * handle_req_get_acme_profiles(struct vhd *vhd, struct pss *root_pss, const char *directory_url)
+{
+	struct lws_client_connect_info i;
+	memset(&i, 0, sizeof(i));
+	i.context = vhd->context;
+	struct lws_vhost *vh = lws_get_vhost_by_name(vhd->context, "root-monitor-dummy");
+	i.vhost = vh ? vh : vhd->vhost;
+
+	const char *url = (vhd->acme_production) ?
+		"https://acme-v02.api.letsencrypt.org/directory" :
+		"https://acme-staging-v02.api.letsencrypt.org/directory";
+
+	i.address = vhd->acme_production ? "acme-v02.api.letsencrypt.org" : "acme-staging-v02.api.letsencrypt.org";
+	i.port = 443;
+	i.ssl_connection = LCCSCF_USE_SSL;
+	i.alpn = "http/1.1";
+	i.method = "GET";
+	i.path = "/directory";
+	i.host = i.address;
+	i.origin = i.address;
+	i.protocol = "lws-dht-dnssec-monitor";
+
+	struct acme_profiles_fetch_info *afi = malloc(sizeof(*afi));
+	if (afi) {
+		memset(afi, 0, sizeof(*afi));
+		afi->magic = ACME_PROFILES_MAGIC;
+		afi->root_pss = root_pss;
+		i.opaque_user_data = afi;
+	}
+
+	lwsl_notice("%s: Fetching ACME directory from %s\n", __func__, url);
+	struct lws *wsi = lws_client_connect_via_info(&i);
+	if (!wsi && afi) {
+		free(afi);
+		char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
+		root_pss->tx_len += (size_t)lws_snprintf(tx, 65536 - root_pss->tx_len, "{\"req\":\"get_acme_profiles\",\"status\":\"error\",\"msg\":\"Failed to connect to ACME directory\"}\n");
+		lws_callback_on_writable_all_protocol(vhd->context, lws_get_protocol(root_pss->wsi));
+	}
+	return wsi;
+}
+
+static void handle_get_acme_profiles_wrapper(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
+{
+	handle_req_get_acme_profiles(vhd, root_pss, NULL);
 }
 
 static void
 handle_req_get_dist_server_domain(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
-	char *tx = (char *)&root_pss->tx[LWS_PRE];
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
 	char *tx_end = tx + 65536 - 1;
-	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"domain\":\"\"}\n", a->req);
+	char path[1024];
+	char domain[256] = "";
+	int fd;
+
+	lws_snprintf(path, sizeof(path), "%s/dist_server_domain.txt", vhd->base_dir);
+	fd = open(path, O_RDONLY);
+	if (fd >= 0) {
+		ssize_t n = read(fd, domain, sizeof(domain) - 1);
+		if (n > 0) {
+			domain[n] = '\0';
+			char *nl = strchr(domain, '\n');
+			if (nl) *nl = '\0';
+		}
+		close(fd);
+	}
+
+	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"domain\":\"%s\"}\n", a->req, domain);
+	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
+}
+
+static void
+handle_req_set_dist_server_domain(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
+{
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
+	char *tx_end = tx + 65536 - 1;
+	char path[1024];
+	int fd;
+
+	lws_snprintf(path, sizeof(path), "%s/dist_server_domain.txt", vhd->base_dir);
+	
+	if (!a->domain[0]) {
+		unlink(path);
+	} else {
+		fd = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+		if (fd >= 0) {
+			if (write(fd, a->domain, strlen(a->domain)) < 0) {
+				lwsl_err("%s: Failed writing dist server domain\n", __func__);
+			}
+			close(fd);
+		} else {
+			lwsl_err("%s: Failed to open %s for write (errno=%d)\n", __func__, path, errno);
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Failed to write configuration\"}\n", a->req);
+			goto done;
+		}
+	}
+	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
+done:
+	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
+}
+
+static void
+handle_req_provisioning_bundle(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
+{
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
+	char *tx_end = tx + 65536;
+	char path[512], *ca = NULL, *crt = NULL, *key = NULL;
+	struct stat st;
+	int fd;
+
+	if (!a->domain[0] || !a->subdomain[0]) {
+		root_pss->tx_len += (size_t)lws_snprintf(tx, 65536 - root_pss->tx_len, "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Missing domain or subdomain\"}\n", a->req);
+		return;
+	}
+
+	generate_client_cert(vhd, a->domain, a->subdomain);
+
+	lws_snprintf(path, sizeof(path), "%s/pki/distribution-ca.crt", vhd->base_dir);
+	fd = open(path, O_RDONLY);
+	if (fd >= 0) {
+		if (fstat(fd, &st) == 0) {
+			ca = malloc((size_t)st.st_size + 1);
+			if (ca && read(fd, ca, (size_t)st.st_size) == (ssize_t)st.st_size) ca[st.st_size] = '\0';
+			else { free(ca); ca = NULL; }
+		}
+		close(fd);
+	}
+
+	lws_snprintf(path, sizeof(path), "%s/domains/%s/dist-client/distribution-client-%s.crt", vhd->base_dir, a->domain, a->subdomain);
+	fd = open(path, O_RDONLY);
+	if (fd >= 0) {
+		if (fstat(fd, &st) == 0) {
+			crt = malloc((size_t)st.st_size + 1);
+			if (crt && read(fd, crt, (size_t)st.st_size) == (ssize_t)st.st_size) crt[st.st_size] = '\0';
+			else { free(crt); crt = NULL; }
+		}
+		close(fd);
+	}
+
+	lws_snprintf(path, sizeof(path), "%s/domains/%s/dist-client/distribution-client-%s.key", vhd->base_dir, a->domain, a->subdomain);
+	fd = open(path, O_RDONLY);
+	if (fd >= 0) {
+		if (fstat(fd, &st) == 0) {
+			key = malloc((size_t)st.st_size + 1);
+			if (key && read(fd, key, (size_t)st.st_size) == (ssize_t)st.st_size) key[st.st_size] = '\0';
+			else { free(key); key = NULL; }
+		}
+		close(fd);
+	}
+
+	if (!ca || !crt || !key) {
+		root_pss->tx_len += (size_t)lws_snprintf(tx, 65536 - root_pss->tx_len, "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Certificate files not found on server\"}\n", a->req);
+		goto bail;
+	}
+
+	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"subdomain\":\"%s\",\"ca\":\"", a->req, a->subdomain);
+	char *p = ca; while (p && *p) { if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
+	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\",\"cert\":\"");
+	p = crt; while (p && *p) { if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
+	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\",\"key\":\"");
+	p = key; while (p && *p) { if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
+	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\"}\n");
+
+bail:
+	if (ca) free(ca);
+	if (crt) free(crt);
+	if (key) free(key);
+	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
+}
+
+static void
+handle_req_download_dist_ca(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
+{
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
+	char *tx_end = tx + 65536;
+	char path[512], *ca = NULL;
+	struct stat st;
+	int fd;
+
+	lws_snprintf(path, sizeof(path), "%s/pki/distribution-ca.crt", vhd->base_dir);
+	fd = open(path, O_RDONLY);
+	if (fd >= 0) {
+		if (fstat(fd, &st) == 0) {
+			ca = malloc((size_t)st.st_size + 1);
+			if (ca && read(fd, ca, (size_t)st.st_size) == (ssize_t)st.st_size) ca[st.st_size] = '\0';
+			else { free(ca); ca = NULL; }
+		}
+		close(fd);
+	}
+
+	if (!ca) {
+		root_pss->tx_len += (size_t)lws_snprintf(tx, 65536 - root_pss->tx_len, "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"CA not found\"}\n", a->req);
+		return;
+	}
+
+	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"ca\":\"", a->req);
+	char *p = ca; while (p && *p) { if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
+	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\"}\n");
+
+	free(ca);
+	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
+}
+
+static void
+handle_req_download_dist_server(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
+{
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
+	char *tx_end = tx + 65536;
+	char path[512], *ca = NULL, *crt = NULL, *key = NULL;
+	struct stat st;
+	int fd;
+
+	if (!a->domain[0]) {
+		root_pss->tx_len += (size_t)lws_snprintf(tx, 65536 - root_pss->tx_len, "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Missing domain parameter\"}\n", a->req);
+		return;
+	}
+
+	generate_dist_server_cert(vhd, a->domain);
+
+	lws_snprintf(path, sizeof(path), "%s/pki/distribution-ca.crt", vhd->base_dir);
+	fd = open(path, O_RDONLY);
+	if (fd >= 0) {
+		if (fstat(fd, &st) == 0) {
+			ca = malloc((size_t)st.st_size + 1);
+			if (ca && read(fd, ca, (size_t)st.st_size) == (ssize_t)st.st_size) ca[st.st_size] = '\0';
+			else { free(ca); ca = NULL; }
+		}
+		close(fd);
+	}
+
+	lws_snprintf(path, sizeof(path), "%s/pki/distribution-server-%s.crt", vhd->base_dir, a->domain);
+	fd = open(path, O_RDONLY);
+	if (fd >= 0) {
+		if (fstat(fd, &st) == 0) {
+			crt = malloc((size_t)st.st_size + 1);
+			if (crt && read(fd, crt, (size_t)st.st_size) == (ssize_t)st.st_size) crt[st.st_size] = '\0';
+			else { free(crt); crt = NULL; }
+		}
+		close(fd);
+	}
+
+	lws_snprintf(path, sizeof(path), "%s/pki/distribution-server-%s.key", vhd->base_dir, a->domain);
+	fd = open(path, O_RDONLY);
+	if (fd >= 0) {
+		if (fstat(fd, &st) == 0) {
+			key = malloc((size_t)st.st_size + 1);
+			if (key && read(fd, key, (size_t)st.st_size) == (ssize_t)st.st_size) key[st.st_size] = '\0';
+			else { free(key); key = NULL; }
+		}
+		close(fd);
+	}
+
+	if (!ca || !crt || !key) {
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Server cert/key not found\"}\n", a->req);
+		goto bail;
+	}
+
+	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"ca\":\"", a->req);
+	char *p = ca; while (p && *p) { if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
+	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\",\"cert\":\"");
+	p = crt; while (p && *p) { if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
+	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\",\"key\":\"");
+	p = key; while (p && *p) { if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
+	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\",\"domain\":\"%s\"}\n", a->domain);
+
+bail:
+	if (ca) free(ca);
+	if (crt) free(crt);
+	if (key) free(key);
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
 }
 
 static void
 handle_req_check_cert(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
-	char *tx = (char *)&root_pss->tx[LWS_PRE];
-	char *tx_end = tx + 65536 - 1;
+	struct lws_client_connect_info i;
+	memset(&i, 0, sizeof(i));
+	i.context = vhd->context;
+	struct lws_vhost *vh = lws_get_vhost_by_name(vhd->context, "root-monitor-dummy");
+	i.vhost = vh ? vh : vhd->vhost;
+	i.address = a->subdomain;
+	i.port = a->port;
+	i.ssl_connection = LCCSCF_ALLOW_SELFSIGNED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+	int starttls = (a->port == 25 || a->port == 587);
+	if (!starttls) i.ssl_connection |= LCCSCF_USE_SSL;
+	i.alpn = "http/1.1"; i.method = "RAW"; i.path = "/"; i.host = i.address; i.origin = i.address; i.protocol = "lws-dht-dnssec-monitor";
+	struct cert_check_info *cci = malloc(sizeof(*cci));
+	if (cci) {
+		memset(cci, 0, sizeof(*cci));
+		cci->magic = CERT_CHECK_MAGIC;
+		lws_strncpy(cci->fqdn, a->subdomain, sizeof(cci->fqdn));
+		lws_strncpy(cci->domain, a->domain, sizeof(cci->domain));
+		cci->port = a->port; cci->starttls_state = starttls ? 1 : 0;
+		i.opaque_user_data = cci;
+	}
+	if (!cci || !lws_client_connect_via_info(&i)) {
+		if (cci) free(cci);
+		struct cert_check_result *cr = malloc(sizeof(*cr));
+		if (cr) {
+			memset(cr, 0, sizeof(*cr));
+			lws_strncpy(cr->fqdn, a->subdomain, sizeof(cr->fqdn));
+			lws_strncpy(cr->msg, "Connection failed", sizeof(cr->msg));
+			lws_strncpy(cr->local_msg, "Not Found", sizeof(cr->local_msg));
+			lws_strncpy(cr->issuer, "Unknown", sizeof(cr->issuer));
 
-	/* Mock response for now to unblock the UI */
-	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"cert_status\",\"status\":\"ok\",\"msg\":\"Mock Valid\",\"domain\":\"%s\",\"subdomain\":\"%s\",\"port\":%d}\n", a->domain, a->subdomain, a->port);
-	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
+			if (a->domain[0]) {
+				char path[1024];
+				lws_snprintf(path, sizeof(path), "%s/domains/%s/certs/%s/crt/%s-latest.crt", vhd->base_dir, a->domain, vhd->acme_production ? "production" : "staging", a->subdomain);
+				lwsl_notice("%s: Checking local cert at %s\n", __func__, path);
+				int fd = open(path, O_RDONLY);
+				if (fd >= 0) {
+					struct stat st;
+					if (!fstat(fd, &st) && st.st_size > 0) {
+						uint8_t *pem = malloc((size_t)st.st_size + 1);
+						if (pem) {
+							if (read(fd, pem, (size_t)st.st_size) == (ssize_t)st.st_size) {
+								pem[st.st_size] = '\0';
+								struct lws_x509_cert *x509 = NULL;
+								if (!lws_x509_create(&x509)) {
+									if (!lws_x509_parse_from_pem(x509, pem, (size_t)st.st_size + 1)) {
+										union lws_tls_cert_info_results lci;
+										if (!lws_x509_info(x509, LWS_TLS_CERT_INFO_ISSUER_NAME, &lci, 0))
+											lws_strncpy(cr->issuer, lci.ns.name, sizeof(cr->issuer));
+										if (!lws_x509_info(x509, LWS_TLS_CERT_INFO_VALIDITY_TO, &lci, 0)) {
+											time_t now; time(&now);
+											if (now > lci.time) lws_snprintf(cr->local_msg, sizeof(cr->local_msg), "Expired");
+											else lws_snprintf(cr->local_msg, sizeof(cr->local_msg), "%d days", (int)((lci.time - now) / (24 * 3600)));
+										}
+									} else {
+										lwsl_err("%s: Failed to parse PEM at %s\n", __func__, path);
+									}
+									lws_x509_destroy(&x509);
+								}
+							}
+							free(pem);
+						}
+					}
+					close(fd);
+				} else {
+					lwsl_err("%s: Failed to open %s: %d\n", __func__, path, errno);
+				}
+			}
+
+			cr->port = a->port; cr->status_err = 1;
+			
+			char json[1024];
+			int n = lws_snprintf(json, sizeof(json), "{\"req\":\"cert_status\",\"subdomain\":\"%s\",\"port\":%d,\"status\":\"error\",\"msg\":\"%s\",\"local_msg\":\"%s\",\"issuer\":\"%s\"}\n",
+				cr->fqdn, cr->port, cr->msg, cr->local_msg, cr->issuer);
+			
+			struct vhd *target_vhd = global_root_vhd ? global_root_vhd : vhd;
+			lws_start_foreach_dll(struct lws_dll2 *, p, target_vhd->clients.head) {
+				struct pss *wpss = lws_container_of(p, struct pss, list);
+				if (wpss->tx_len + (size_t)n < 65536 - LWS_PRE) {
+					memcpy(&wpss->tx[LWS_PRE + wpss->tx_len], json, (size_t)n);
+					wpss->tx_len += (size_t)n;
+					lws_callback_on_writable(wpss->wsi);
+				}
+			} lws_end_foreach_dll(p);
+			free(cr);
+		}
+	}
 }
 
 typedef void (*monitor_req_handler_t)(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a);
@@ -987,9 +1821,18 @@ static const struct monitor_req_map {
 	{ "get_ipv6_suffix", handle_req_get_ipv6_suffix },
 	{ "set_ipv6_suffix", handle_req_set_ipv6_suffix },
 	{ "get_acme_config", handle_req_get_acme_config },
-	{ "get_acme_profiles", handle_req_get_acme_profiles },
+	{ "set_acme_config", handle_req_set_acme_config },
+	{ "set_domain_acme", handle_req_set_domain_acme },
+	{ "get_acme_profiles", handle_get_acme_profiles_wrapper },
 	{ "get_acme_log", handle_req_get_acme_log },
+	{ "trigger_resign", handle_req_trigger_resign },
+	{ "update_whois", handle_req_update_whois },
+	{ "regen_keys", handle_req_regen_keys },
+	{ "provisioning_bundle", handle_req_provisioning_bundle },
+	{ "download_dist_ca", handle_req_download_dist_ca },
+	{ "download_dist_server", handle_req_download_dist_server },
 	{ "get_dist_server_domain", handle_req_get_dist_server_domain },
+	{ "set_dist_server_domain", handle_req_set_dist_server_domain },
 	{ "check_cert", handle_req_check_cert }
 };
 
@@ -998,7 +1841,7 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 {
 	struct monitor_req_args a;
 	struct lejp_ctx jctx;
-	char *tx = (char *)&root_pss->tx[LWS_PRE];
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
 	const size_t req_map_size = LWS_ARRAY_SIZE(req_map);
 
 	memset(&a, 0, sizeof(a));
@@ -1009,14 +1852,14 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 	// lwsl_debug("[INSTRUMENT] handle_monitor_request: executed lejp_parse. len: %d, rc: %d. String: '%.*s'\n", (int)len, m, (int)len, in);
 
 	if (m < 0 && m != LEJP_REJECT_UNKNOWN) {
-		lwsl_notice("[INSTRUMENT] handle_monitor_request: JSON parser failed! Error %d\n", m);
-		root_pss->tx_len = (size_t)lws_snprintf(tx, 65536, "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"JSON parse failed: %d\"}\n", a.req[0] ? a.req : "unknown", m);
+		lwsl_notice("[INSTRUMENT] handle_monitor_request: JSON parser failed! Error %d, len %d, in:\n%.*s\n", m, (int)len, (int)len, in);
+		root_pss->tx_len += (size_t)lws_snprintf(tx, 65536 - root_pss->tx_len, "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"JSON parse failed: %d\"}\n", a.req[0] ? a.req : "unknown", m);
 		goto done;
 	}
 
 	if (!a.req[0]) {
 		lwsl_notice("[INSTRUMENT] handle_monitor_request: Missing 'req' parameter in JSON payload!\n");
-		root_pss->tx_len = (size_t)lws_snprintf(tx, 65536, "{\"status\":\"error\",\"msg\":\"Missing req\"}\n");
+		root_pss->tx_len += (size_t)lws_snprintf(tx, 65536 - root_pss->tx_len, "{\"status\":\"error\",\"msg\":\"Missing req\"}\n");
 		goto done;
 	}
 
@@ -1030,31 +1873,31 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 
 		if (!a.jwt[0]) {
 			lwsl_notice("[INSTRUMENT] Missing JWT preamble token\n");
-			root_pss->tx_len = (size_t)lws_snprintf(tx, 65536, "{\"status\":\"error\",\"msg\":\"Authentication Failed\"}\n");
+			root_pss->tx_len += (size_t)lws_snprintf(tx, 65536 - root_pss->tx_len, "{\"status\":\"error\",\"msg\":\"Authentication Failed\"}\n");
 			goto done;
 		}
 
 		if (lws_jwt_signed_validate(vhd->context, &vhd->auth_jwk, "HS256", a.jwt, strlen(a.jwt), jwt_temp, sizeof(jwt_temp), jwt_out, &jwt_out_len)) {
 			lwsl_notice("[INSTRUMENT] Invalid/Forged JWT preamble token\n");
-			root_pss->tx_len = (size_t)lws_snprintf(tx, 65536, "{\"status\":\"error\",\"msg\":\"Authentication Failed\"}\n");
+			root_pss->tx_len += (size_t)lws_snprintf(tx, 65536 - root_pss->tx_len, "{\"status\":\"error\",\"msg\":\"Authentication Failed\"}\n");
 			goto done;
 		}
 
 		if (lws_jwt_token_sanity(jwt_out, jwt_out_len, "acme-ipc", "dnssec-monitor", NULL, NULL, 0, &exp_time)) {
 			lwsl_notice("[INSTRUMENT] Expired/Invalid JWT claims\n");
-			root_pss->tx_len = (size_t)lws_snprintf(tx, 65536, "{\"status\":\"error\",\"msg\":\"Authentication Failed\"}\n");
+			root_pss->tx_len += (size_t)lws_snprintf(tx, 65536 - root_pss->tx_len, "{\"status\":\"error\",\"msg\":\"Authentication Failed\"}\n");
 			goto done;
 		}
 	} else {
 		lwsl_notice("[INSTRUMENT] Warning: UDS monitor secret not bootstrapped, rejecting request!\n");
-		root_pss->tx_len = (size_t)lws_snprintf(tx, 65536, "{\"status\":\"error\",\"msg\":\"Authentication Failed\"}\n");
+		root_pss->tx_len += (size_t)lws_snprintf(tx, 65536 - root_pss->tx_len, "{\"status\":\"error\",\"msg\":\"Authentication Failed\"}\n");
 		goto done;
 	}
 
 	/* Prevent path traversal attacks */
 	if (strchr(a.domain, '/') || strstr(a.domain, "..") || strchr(a.subdomain, '/') || strstr(a.subdomain, "..")) {
 		lwsl_debug("[INSTRUMENT] handle_monitor_request: Path traversal parameters detected\n");
-		root_pss->tx_len = (size_t)lws_snprintf(tx, 65536, "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Invalid chars in domain\"}\n", a.req);
+		root_pss->tx_len += (size_t)lws_snprintf(tx, 65536 - root_pss->tx_len, "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Invalid chars in domain\"}\n", a.req);
 		goto done;
 	}
 
@@ -1070,9 +1913,10 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 				strcmp(req_map[i].name, "get_acme_config") &&
 				strcmp(req_map[i].name, "get_acme_profiles") &&
 				strcmp(req_map[i].name, "get_acme_log") &&
-				strcmp(req_map[i].name, "get_dist_server_domain")) {
+				strcmp(req_map[i].name, "get_dist_server_domain") &&
+				strcmp(req_map[i].name, "set_dist_server_domain")) {
 				lwsl_notice("[INSTRUMENT] handle_monitor_request: Missing required 'domain' param for %s\n", a.req);
-				root_pss->tx_len = (size_t)lws_snprintf(tx, 65536, "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Missing arguments\"}\n", a.req);
+				root_pss->tx_len += (size_t)lws_snprintf(tx, 65536 - root_pss->tx_len, "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Missing arguments\"}\n", a.req);
 				goto done;
 			}
 			lwsl_debug("[INSTRUMENT] handle_monitor_request: Calling map callback...\n");
@@ -1083,7 +1927,7 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 	}
 
 	lwsl_notice("[INSTRUMENT] handle_monitor_request: Unknown request parameter '%s'\n", a.req);
-	root_pss->tx_len = (size_t)lws_snprintf(tx, 65536, "{\"req\":\"unknown\",\"status\":\"error\",\"msg\":\"Unknown req %s\"}\n", a.req);
+	root_pss->tx_len += (size_t)lws_snprintf(tx, 65536 - root_pss->tx_len, "{\"req\":\"unknown\",\"status\":\"error\",\"msg\":\"Unknown req %s\"}\n", a.req);
 
 done:
 	if (a.zone_buf) free(a.zone_buf);
@@ -1114,6 +1958,7 @@ connect_retry_cb(lws_sorted_usec_list_t *sul)
 	i.port = 0;
 	i.host = "localhost";
 	i.origin = "localhost";
+	i.method = "RAW";
 	i.local_protocol_name = "lws-dht-dnssec-monitor";
 	i.opaque_user_data = pss;
 	i.pwsi = &pss->cwsi;
@@ -1127,6 +1972,62 @@ connect_retry_cb(lws_sorted_usec_list_t *sul)
 			lwsl_err("%s: failed to connect UI WS proxy to UDS server after retries\n", __func__);
 			lws_wsi_close(pss->wsi, LWS_TO_KILL_ASYNC);
 		}
+	}
+}
+
+static void extract_and_queue_cert_result(struct lws *wsi, struct vhd *vhd, struct cert_check_info *cci, const struct lws_protocols *protocol)
+{
+	union lws_tls_cert_info_results ci;
+	char msg[128];
+	int err = 0;
+	if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_VALIDITY_TO, &ci, 0)) {
+		time_t now;
+		time(&now);
+		if (now > ci.time) {
+			lws_snprintf(msg, sizeof(msg), "Expired");
+		} else {
+			int days = (int)((ci.time - now) / (24 * 3600));
+			lws_snprintf(msg, sizeof(msg), "%d days", days);
+		}
+	} else {
+		lws_snprintf(msg, sizeof(msg), "No cert info");
+		err = 1;
+	}
+
+	struct cert_check_result *cr = malloc(sizeof(*cr));
+	if (cr) {
+		memset(cr, 0, sizeof(*cr));
+		lws_strncpy(cr->fqdn, cci->fqdn, sizeof(cr->fqdn));
+		char *colon = strchr(cr->fqdn, ':');
+		if (colon) *colon = '\0';
+		cr->port = cci->port;
+		lws_strncpy(cr->msg, msg, sizeof(cr->msg));
+		cr->status_err = err;
+
+		if (!lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_ISSUER_NAME, &ci, 0)) {
+			lws_strncpy(cr->issuer, ci.ns.name, sizeof(cr->issuer));
+			for (int i = 0; cr->issuer[i]; i++) {
+				if (cr->issuer[i] == '\n' || cr->issuer[i] == '\r') cr->issuer[i] = ' ';
+				if (cr->issuer[i] == '"') cr->issuer[i] = '\'';
+				if (cr->issuer[i] == '\\') cr->issuer[i] = '/';
+			}
+		} else {
+			lws_strncpy(cr->issuer, "Unknown", sizeof(cr->issuer));
+		}
+		char json[1024];
+		int n = lws_snprintf(json, sizeof(json), "{\"req\":\"cert_status\",\"subdomain\":\"%s\",\"port\":%d,\"status\":\"%s\",\"msg\":\"%s\",\"local_msg\":\"%s\",\"issuer\":\"%s\"}\n",
+			cr->fqdn, cr->port, cr->status_err ? "error" : "ok", cr->msg, cr->local_msg, cr->issuer);
+		
+		struct vhd *target_vhd = global_root_vhd ? global_root_vhd : vhd;
+		lws_start_foreach_dll(struct lws_dll2 *, p, target_vhd->clients.head) {
+			struct pss *wpss = lws_container_of(p, struct pss, list);
+			if (wpss->tx_len + (size_t)n < 65536 - LWS_PRE) {
+				memcpy(&wpss->tx[LWS_PRE + wpss->tx_len], json, (size_t)n);
+				wpss->tx_len += (size_t)n;
+				lws_callback_on_writable(wpss->wsi);
+			}
+		} lws_end_foreach_dll(p);
+		free(cr);
 	}
 }
 
@@ -1211,6 +2112,7 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 						lwsl_notice("%s: Successfully allocated vhd on %s\n", __func__, lws_get_vhost_name(vhost));
 						vhd->context = cx;
 						vhd->vhost = vhost;
+						vhd->root_process_active = 1;
 
 						{
 							lws_system_policy_t *policy;
@@ -1498,7 +2400,20 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 					lwsl_notice("%s: Spawned root monitor process successfully and assigned global_root_vhd=%p (fallback active)\n", __func__, global_root_vhd);
 
 					/* Engage parent monitor to execute DHT publications off completed JWS child drops cleanly */
-					lws_sul_schedule(vhd->context, 0, &vhd->sul_timer, parent_dnssec_monitor_timer_cb, 1 * LWS_US_PER_SEC);
+					vhd->proxy_uid = (uid_t)-1;
+					vhd->proxy_gid = (gid_t)-1;
+					const char *uid_opt = lws_cmdline_option_cx(vhd->context, "--uid");
+					if (uid_opt && lws_plat_user_to_uid(uid_opt, &vhd->proxy_uid)) {
+						lwsl_err("%s: unknown user %s\n", __func__, uid_opt);
+					}
+					const char *gid_opt = lws_cmdline_option_cx(vhd->context, "--gid");
+					if (gid_opt && lws_plat_group_to_gid(gid_opt, &vhd->proxy_gid)) {
+						lwsl_err("%s: unknown group %s\n", __func__, gid_opt);
+					}
+
+					generate_dist_pki(vhd);
+
+					lws_sul_schedule(vhd->context, 0, &vhd->sul_timer, parent_dnssec_monitor_timer_cb, 5 * LWS_US_PER_SEC);
 				} else {
 					/* Already globally spawned! Just map the auth context */
 					lws_strncpy(vhd->auth_token, global_root_vhd->auth_token, sizeof(vhd->auth_token));
@@ -1564,6 +2479,7 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 		if (vhd && vhd->root_process_active) {
 			/* We are the unprivileged proxy, and a UI WebSocket just connected.
 			 * Establish onward Raw UDS connection */
+			pss->magic = PSS_MAGIC;
 			pss->wsi = wsi;
 			pss->retry_count = 0;
 			lws_dll2_add_tail(&pss->list, &vhd->ui_clients);
@@ -1608,29 +2524,39 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 				if (first_brace) {
 					size_t offset = lws_ptr_diff_size_t(first_brace, in) + 1;
 					size_t out_len = 0;
+					size_t existing_len = pss->tx_len;
 
-					memcpy(&pss->tx[LWS_PRE], in, offset);
+					if (existing_len + offset + 512 + (len - offset) + 1 >= 65536 - LWS_PRE) {
+						lwsl_err("%s: WS UI request dropped, tx buffer full\n", __func__);
+						return -1;
+					}
+
+					memcpy(&pss->tx[LWS_PRE + existing_len], in, offset);
 					out_len += offset;
 
-					int n = lws_snprintf((char *)&pss->tx[LWS_PRE + out_len], 65536 - LWS_PRE - out_len, "\"jwt\":\"%s\",", jwt_buf);
+					int n = lws_snprintf((char *)&pss->tx[LWS_PRE + existing_len + out_len], 65536 - LWS_PRE - existing_len - out_len, "\"jwt\":\"%s\",", jwt_buf);
 					out_len += (size_t)n;
 
-					if (len - offset < 65536 - LWS_PRE - out_len) {
-						memcpy(&pss->tx[LWS_PRE + out_len], first_brace + 1, len - offset);
-						out_len += len - offset;
-						pss->tx_len = out_len;
-						lws_callback_on_writable(pss->cwsi); /* Write proxy -> root */
-						lwsl_debug("[INSTRUMENT] LWS_CALLBACK_RECEIVE: Enqueued proxy->root payload size %d with JWT\n", (int)out_len);
-					}
+					memcpy(&pss->tx[LWS_PRE + existing_len + out_len], first_brace + 1, len - offset);
+					out_len += len - offset;
+					pss->tx[LWS_PRE + existing_len + out_len] = '\n';
+					out_len++;
+					pss->tx_len += out_len;
+					lws_callback_on_writable(pss->cwsi); /* Write proxy -> root */
+					lwsl_debug("[INSTRUMENT] LWS_CALLBACK_RECEIVE: Enqueued proxy->root payload size %d with JWT (total: %d)\n", (int)out_len, (int)pss->tx_len);
 				} else {
 					goto fallback;
 				}
 			} else {
 fallback:
-				memcpy(&pss->tx[LWS_PRE], in, len);
-				pss->tx_len = len;
-				lws_callback_on_writable(pss->cwsi); /* Write proxy -> root */
-				lwsl_debug("[INSTRUMENT] LWS_CALLBACK_RECEIVE: Enqueued proxy->root payload size %d (no JWT)\n", (int)len);
+				if (pss->tx_len + len + 1 < 65536 - LWS_PRE) {
+					memcpy(&pss->tx[LWS_PRE + pss->tx_len], in, len);
+					pss->tx_len += len;
+					pss->tx[LWS_PRE + pss->tx_len] = '\n';
+					pss->tx_len++;
+					lws_callback_on_writable(pss->cwsi); /* Write proxy -> root */
+					lwsl_debug("[INSTRUMENT] LWS_CALLBACK_RECEIVE: Enqueued proxy->root payload size %d (no JWT)\n", (int)len);
+				}
 			}
 		} else {
 			lwsl_notice("[INSTRUMENT] LWS_CALLBACK_RECEIVE: ABORTED! root_active=%d, pss->cwsi=%p\n", vhd?vhd->root_process_active:0, pss->cwsi);
@@ -1652,83 +2578,367 @@ fallback:
 			}
 			if (pss->rx_len) {
 				lwsl_debug("[INSTRUMENT] LWS_CALLBACK_SERVER_WRITEABLE: Translating %d bytes to final browser!\n", (int)pss->rx_len);
-				if (lws_write(wsi, &pss->rx[LWS_PRE], pss->rx_len, LWS_WRITE_TEXT) < 0) {
+				int m = lws_write(wsi, &pss->rx[LWS_PRE], pss->rx_len, LWS_WRITE_TEXT);
+				if (m < 0) {
 					lwsl_err("%s: Failed writing to WS UI\n", __func__);
 					return -1;
 				}
-				pss->rx_len = 0;
+				if (m < (int)pss->rx_len) {
+					memmove(&pss->rx[LWS_PRE], &pss->rx[LWS_PRE + m], pss->rx_len - (size_t)m);
+					pss->rx_len -= (size_t)m;
+					lws_callback_on_writable(wsi);
+				} else {
+					pss->rx_len = 0;
+				}
 			}
 		}
 		break;
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		{
-			struct pss *wpss = (struct pss *)lws_get_opaque_user_data(wsi);
-			if (wpss) {
+			uint32_t *magic = (uint32_t *)lws_get_opaque_user_data(wsi);
+			if (magic && *magic == CERT_CHECK_MAGIC) {
+				struct cert_check_info *cci = (struct cert_check_info *)magic;
+				if (vhd) {
+					struct cert_check_result *cr = malloc(sizeof(*cr));
+					if (cr) {
+						memset(cr, 0, sizeof(*cr));
+						lws_strncpy(cr->fqdn, cci->fqdn, sizeof(cr->fqdn));
+						char *colon = strchr(cr->fqdn, ':');
+						if (colon) *colon = '\0';
+						cr->port = cci->port;
+						char *err_str = in ? (char *)in : "Connection failed";
+						lws_snprintf(cr->msg, sizeof(cr->msg), "Error: %s", err_str);
+						for (int i = 0; cr->msg[i]; i++) {
+							if (cr->msg[i] == '\n' || cr->msg[i] == '\r') cr->msg[i] = ' ';
+							if (cr->msg[i] == '"') cr->msg[i] = '\'';
+							if (cr->msg[i] == '\\') cr->msg[i] = '/';
+						}
+						cr->status_err = 1;
+						
+						char json[1024];
+						int n = lws_snprintf(json, sizeof(json), "{\"req\":\"cert_status\",\"subdomain\":\"%s\",\"port\":%d,\"status\":\"error\",\"msg\":\"%s\",\"local_msg\":\"%s\",\"issuer\":\"%s\"}\n",
+							cr->fqdn, cr->port, cr->msg, cr->local_msg, cr->issuer);
+						
+						struct vhd *target_vhd = global_root_vhd ? global_root_vhd : vhd;
+						lws_start_foreach_dll(struct lws_dll2 *, p, target_vhd->clients.head) {
+							struct pss *wpss = lws_container_of(p, struct pss, list);
+							if (wpss->tx_len + (size_t)n < 65536 - LWS_PRE) {
+								memcpy(&wpss->tx[LWS_PRE + wpss->tx_len], json, (size_t)n);
+								wpss->tx_len += (size_t)n;
+								lws_callback_on_writable(wpss->wsi);
+							}
+						} lws_end_foreach_dll(p);
+						free(cr);
+					}
+				}
+				cci->magic = 0;
+				free(cci);
+				lws_set_opaque_user_data(wsi, NULL);
+			} else if (magic && *magic == PSS_MAGIC) {
+				struct pss *wpss = (struct pss *)magic;
 				wpss->cwsi = NULL;
+			}
+		}
+		break;
+
+	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+		{
+			struct acme_profiles_fetch_info *afi = (struct acme_profiles_fetch_info *)lws_get_opaque_user_data(wsi);
+			if (afi && afi->magic == ACME_PROFILES_MAGIC) {
+				lwsl_notice("%s: Connected to ACME directory\n", __func__);
+			}
+		}
+		break;
+
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP:
+		{
+			struct acme_profiles_fetch_info *afi = (struct acme_profiles_fetch_info *)lws_get_opaque_user_data(wsi);
+			if (afi && afi->magic == ACME_PROFILES_MAGIC) {
+				char buffer[2048 + LWS_PRE];
+				char *px = buffer + LWS_PRE;
+				int lenx = sizeof(buffer) - LWS_PRE;
+
+				if (lws_http_client_read(wsi, &px, &lenx) < 0)
+					return -1;
+			}
+		}
+		return 0;
+
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
+		{
+			struct acme_profiles_fetch_info *afi = (struct acme_profiles_fetch_info *)lws_get_opaque_user_data(wsi);
+			if (afi && afi->magic == ACME_PROFILES_MAGIC) {
+				lwsl_notice("%s: Received %zu bytes for ACME directory\n", __func__, len);
+
+				if (!afi->json) {
+					afi->json_alloc = 8192;
+					afi->json = malloc(afi->json_alloc);
+				}
+				if (afi->json) {
+					if (afi->json_len + len >= afi->json_alloc) {
+						afi->json_alloc *= 2;
+						char *nb = realloc(afi->json, afi->json_alloc);
+						if (nb) afi->json = nb;
+					}
+					if (afi->json_len + len < afi->json_alloc) {
+						memcpy(&afi->json[afi->json_len], in, len);
+						afi->json_len += len;
+						afi->json[afi->json_len] = '\0';
+					} else {
+						lwsl_err("%s: ACME directory JSON too large!\n", __func__);
+					}
+				}
+			}
+		}
+		return 0;
+
+	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
+		{
+			struct acme_profiles_fetch_info *afi = (struct acme_profiles_fetch_info *)lws_get_opaque_user_data(wsi);
+			if (afi && afi->magic == ACME_PROFILES_MAGIC) {
+				lwsl_notice("%s: Completed ACME directory fetch (%zu bytes)\n", __func__, afi->json_len);
+
+				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->ui_clients.head) {
+					struct pss *wpss = lws_container_of(d, struct pss, list);
+					size_t existing_len = wpss->tx_len;
+					if (existing_len + afi->json_len + 128 < 65536 - LWS_PRE) {
+						int n = lws_snprintf((char *)&wpss->tx[LWS_PRE + existing_len], 65536 - LWS_PRE - existing_len,
+							"{\"req\":\"get_acme_profiles\",\"status\":\"ok\",\"profiles\":");
+						existing_len += (size_t)n;
+
+						char *profiles_start = afi->json ? strstr(afi->json, "\"profiles\"") : NULL;
+						if (profiles_start) {
+							profiles_start += 10;
+							while (*profiles_start && (*profiles_start == ' ' || *profiles_start == ':')) profiles_start++;
+							char *profiles_end = profiles_start;
+							int braces = 0;
+							while (*profiles_end) {
+								if (*profiles_end == '{') braces++;
+								else if (*profiles_end == '}') {
+									braces--;
+									if (braces == 0) { profiles_end++; break; }
+								}
+								profiles_end++;
+							}
+							if (braces == 0 && profiles_end > profiles_start) {
+								size_t plen = lws_ptr_diff_size_t(profiles_end, profiles_start);
+								memcpy(&wpss->tx[LWS_PRE + existing_len], profiles_start, plen);
+								existing_len += plen;
+							} else {
+								int k = lws_snprintf((char *)&wpss->tx[LWS_PRE + existing_len], 65536 - LWS_PRE - existing_len, "{}");
+								existing_len += (size_t)k;
+							}
+						} else {
+							int k = lws_snprintf((char *)&wpss->tx[LWS_PRE + existing_len], 65536 - LWS_PRE - existing_len, "{}");
+							existing_len += (size_t)k;
+						}
+
+						int k = lws_snprintf((char *)&wpss->tx[LWS_PRE + existing_len], 65536 - LWS_PRE - existing_len, "}\n");
+						wpss->tx_len = existing_len + (size_t)k;
+						if (wpss->cwsi) lws_callback_on_writable(wpss->cwsi);
+						if (wpss->wsi) lws_callback_on_writable(wpss->wsi);
+					}
+				} lws_end_foreach_dll_safe(d, d1);
+
+				afi->magic = 0;
+				if (afi->json) free(afi->json);
+				free(afi);
+				lws_set_opaque_user_data(wsi, NULL);
+			}
+		}
+		break;
+
+	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		{
+			struct acme_profiles_fetch_info *afi = (struct acme_profiles_fetch_info *)lws_get_opaque_user_data(wsi);
+			if (afi && afi->magic == ACME_PROFILES_MAGIC) {
+				lwsl_err("%s: ACME directory HTTP client connection closed before completion\n", __func__);
+				afi->magic = 0;
+				if (afi->json) free(afi->json);
+				free(afi);
+				lws_set_opaque_user_data(wsi, NULL);
+			}
+		}
+		break;
+
+	case LWS_CALLBACK_RAW_CONNECTED:
+		{
+			uint32_t *magic = (uint32_t *)lws_get_opaque_user_data(wsi);
+			if (magic && *magic == CERT_CHECK_MAGIC) {
+				struct cert_check_info *cci = (struct cert_check_info *)magic;
+				if (vhd) {
+					lwsl_notice("[INSTRUMENT] Probe %s RAW_CONNECTED successfully!\n", cci->fqdn);
+					if (cci->starttls_state == 0 || cci->starttls_state == 4) {
+						extract_and_queue_cert_result(wsi, vhd, cci, protocol);
+						cci->magic = 0; free(cci); lws_set_opaque_user_data(wsi, NULL);
+						return -1;
+					}
+				}
+				/* Drop STARTTLS probe rx */
+				return 0;
 			}
 		}
 		break;
 
 	case LWS_CALLBACK_RAW_ADOPT:
 		{
-			struct pss *wpss = (struct pss *)lws_get_opaque_user_data(wsi);
-			if (wpss) {
+			uint32_t *magic = (uint32_t *)lws_get_opaque_user_data(wsi);
+			if (magic && *magic == PSS_MAGIC) {
+				struct pss *wpss = (struct pss *)magic;
 				lwsl_notice("%s: UDS proxy client connection established\n", __func__);
 				wpss->cwsi = wsi;
-			} else {
+			} else if (!magic) {
 				lwsl_notice("%s: UDS connection established to server\n", __func__);
+				if (vhd && vhd->root_process_active) {
+					struct pss *root_pss = (struct pss *)user;
+					root_pss->wsi = wsi;
+					lws_dll2_add_head(&root_pss->list, &vhd->clients);
+				}
 			}
 		}
 		break;
 
 	case LWS_CALLBACK_RAW_RX:
 		{
-			struct pss *wpss = (struct pss *)lws_get_opaque_user_data(wsi);
-			lwsl_debug("[INSTRUMENT] LWS_CALLBACK_RAW_RX: UDS channel receiving %d bytes. Is Proxy? %d\n", (int)len, wpss != NULL);
+			void *opaque = lws_get_opaque_user_data(wsi);
+			struct cert_check_info *cci = (struct cert_check_info *)opaque;
+			if (cci && cci->magic == CERT_CHECK_MAGIC) {
+				if (cci->starttls_state == 4 && lws_is_ssl(wsi)) {
+					if (vhd) extract_and_queue_cert_result(wsi, vhd, cci, protocol);
+					cci->magic = 0; free(cci); lws_set_opaque_user_data(wsi, NULL); return -1;
+				}
+				if (cci->starttls_state == 1 && !strncmp((const char *)in, "220", 3)) {
+					cci->starttls_state = 2; lws_callback_on_writable(wsi); return 0;
+				}
+				if (cci->starttls_state == 2 && !strncmp((const char *)in, "250", 3)) {
+					int found_250_space = 0;
+					for (size_t k = 0; k < len; k++) {
+						if ((k == 0 || ((const char *)in)[k-1] == '\n') && len - k >= 4 && !strncmp((const char *)in + k, "250 ", 4)) {
+							found_250_space = 1; break;
+						}
+					}
+					if (found_250_space) { cci->starttls_state = 3; lws_callback_on_writable(wsi); }
+					return 0;
+				}
+				if (cci->starttls_state == 3 && !strncmp((const char *)in, "220", 3)) {
+					cci->starttls_state = 4;
+					if (lws_tls_client_upgrade(wsi, LCCSCF_USE_SSL | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_ALLOW_EXPIRED) < 0) return -1;
+					lws_callback_on_writable(wsi); return 0;
+				}
+				return 0;
+			}
+			uint32_t *magic = (uint32_t *)lws_get_opaque_user_data(wsi);
+			lwsl_debug("[INSTRUMENT] LWS_CALLBACK_RAW_RX: UDS channel receiving %d bytes. Is Proxy? %d\n", (int)len, magic && *magic == PSS_MAGIC);
 
-			if (wpss) {
+			if (magic && *magic == CERT_CHECK_MAGIC) {
+				/* Drop STARTTLS probe rx */
+				return 0;
+			} else if (magic && *magic == PSS_MAGIC) {
+				struct pss *wpss = (struct pss *)magic;
 				/* 1: Proxy Unprivileged Client: root server just replied. */
-				if (len > 65536) return -1;
-				memcpy(&wpss->rx[LWS_PRE], in, len);
-				wpss->rx_len = len;
+				if (wpss->rx_len + len > 65536 - LWS_PRE) return -1;
+				memcpy(&wpss->rx[LWS_PRE + wpss->rx_len], in, len);
+				wpss->rx_len += len;
 				lws_callback_on_writable(wpss->wsi); /* trigger WS write */
-				lwsl_notice("[INSTRUMENT] LWS_CALLBACK_RAW_RX (PROXY): Saved response length %d and queued browser wsi ptr %p for writing\n", (int)len, wpss->wsi);
+				lwsl_notice("[INSTRUMENT] LWS_CALLBACK_RAW_RX (PROXY): Appended response length %d and queued browser wsi ptr %p for writing\n", (int)len, wpss->wsi);
 			} else {
+				struct lws_vhost *vh = lws_get_vhost(wsi);
+				if (!vh || strcmp(lws_get_vhost_name(vh), "dnssec_monitor_uds") != 0) {
+					/* Drop anything not explicitly accepted on the UDS channel (e.g. child stream WSIs from probes) */
+					return 0;
+				}
+
 				/* 2: Root Server: UI proxy just gave us a request. */
-				if (len > 65536 - 1) return -1;
-				memcpy(&vhd->rx[LWS_PRE], in, len);
-				vhd->rx[LWS_PRE + len] = '\0';
-				vhd->rx_len = len;
+				if (vhd->rx_len + len > 65536 - 1) return -1;
+				memcpy(&vhd->rx[LWS_PRE + vhd->rx_len], in, len);
+				vhd->rx_len += len;
+				vhd->rx[LWS_PRE + vhd->rx_len] = '\0';
 
 				struct pss *root_pss = (struct pss *)user;
-				lwsl_debug("[INSTRUMENT] LWS_CALLBACK_RAW_RX (ROOT): Sending %d bytes to monitor request router\n", (int)len);
-				handle_monitor_request(vhd, root_pss, (const char *)&vhd->rx[LWS_PRE], len);
+				/* root_pss->tx_len = 0; REMOVED to prevent overwriting batched responses */
 
-				/* Tell server socket to reply */
-				lws_callback_on_writable(wsi);
+				lwsl_debug("[INSTRUMENT] LWS_CALLBACK_RAW_RX (ROOT): Processing %d bytes buffer\n", (int)vhd->rx_len);
+				
+				char *p = (char *)&vhd->rx[LWS_PRE];
+				char *start = p;
+				while (p && *p) {
+					char *nl = strchr(p, '\n');
+					if (nl) {
+						*nl = '\0';
+						if (*p) {
+							handle_monitor_request(vhd, root_pss, p, strlen(p));
+						}
+						p = nl + 1;
+						start = p;
+					} else {
+						break;
+					}
+				}
+				
+				if (start > (char *)&vhd->rx[LWS_PRE]) {
+					size_t unparsed = lws_ptr_diff_size_t((char *)&vhd->rx[LWS_PRE + vhd->rx_len], start);
+					if (unparsed > 0) {
+						memmove(&vhd->rx[LWS_PRE], start, unparsed);
+					}
+					vhd->rx_len = unparsed;
+					vhd->rx[LWS_PRE + vhd->rx_len] = '\0';
+				}
+
+				if (root_pss->tx_len) {
+					/* Tell server socket to reply */
+					lws_callback_on_writable(wsi);
+				}
 			}
 		}
 		break;
 
 	case LWS_CALLBACK_RAW_WRITEABLE:
 		{
-			struct pss *wpss = (struct pss *)lws_get_opaque_user_data(wsi);
-
-			if (wpss) {
-				/* 1: Proxy Client sending request -> Root Server */
+			void *opaque = lws_get_opaque_user_data(wsi);
+			struct cert_check_info *cci = (struct cert_check_info *)opaque;
+			if (cci && cci->magic == CERT_CHECK_MAGIC) {
+				if (cci->starttls_state == 4) {
+					if (vhd) extract_and_queue_cert_result(wsi, vhd, cci, protocol);
+					cci->magic = 0; free(cci); lws_set_opaque_user_data(wsi, NULL); return -1;
+				}
+				char buf[256]; int n = 0;
+				if (cci->starttls_state == 2) n = lws_snprintf(buf, sizeof(buf), "EHLO %s\r\n", cci->fqdn);
+				else if (cci->starttls_state == 3) n = lws_snprintf(buf, sizeof(buf), "STARTTLS\r\n");
+				if (n > 0 && lws_write(wsi, (unsigned char *)buf, (size_t)n, LWS_WRITE_RAW) < 0) return -1;
+				return 0;
+			}
+			uint32_t *magic = (uint32_t *)lws_get_opaque_user_data(wsi);
+			if (magic && *magic == PSS_MAGIC) {
+				struct pss *wpss = (struct pss *)magic;
+				/* 1: Proxy Unprivileged Client: write queued UI data to Root Server */
 				if (wpss->tx_len) {
 					lwsl_notice("[INSTRUMENT] LWS_CALLBACK_RAW_WRITEABLE (PROXY): Driving %d bytes out over UDS IPC into Daemon\n", (int)wpss->tx_len);
-					if (lws_write(wsi, &wpss->tx[LWS_PRE], wpss->tx_len, LWS_WRITE_RAW) < 0) return -1;
-					wpss->tx_len = 0;
+					int m = lws_write(wsi, &wpss->tx[LWS_PRE], wpss->tx_len, LWS_WRITE_RAW);
+					if (m < 0) return -1;
+					if (m < (int)wpss->tx_len) {
+						memmove(&wpss->tx[LWS_PRE], &wpss->tx[LWS_PRE + m], wpss->tx_len - (size_t)m);
+						wpss->tx_len -= (size_t)m;
+						lws_callback_on_writable(wsi);
+					} else {
+						wpss->tx_len = 0;
+					}
 				}
 			} else {
 				/* 2: Root Server sending response -> Proxy Client */
 				struct pss *root_pss = (struct pss *)user;
+				
 				if (root_pss && root_pss->tx_len) {
 					lwsl_notice("[INSTRUMENT] LWS_CALLBACK_RAW_WRITEABLE (ROOT): Dispatching %d byte JSON response natively to Proxy UDS caller\n", (int)root_pss->tx_len);
-					if (lws_write(wsi, &root_pss->tx[LWS_PRE], root_pss->tx_len, LWS_WRITE_RAW) < 0) return -1;
-					root_pss->tx_len = 0;
+					int m = lws_write(wsi, &root_pss->tx[LWS_PRE], root_pss->tx_len, LWS_WRITE_RAW);
+					if (m < 0) return -1;
+					if (m < (int)root_pss->tx_len) {
+						memmove(&root_pss->tx[LWS_PRE], &root_pss->tx[LWS_PRE + m], root_pss->tx_len - (size_t)m);
+						root_pss->tx_len -= (size_t)m;
+						lws_callback_on_writable(wsi);
+					} else {
+						root_pss->tx_len = 0;
+					}
 				}
 			}
 		}
@@ -1736,8 +2946,21 @@ fallback:
 
 	case LWS_CALLBACK_RAW_CLOSE:
 		{
-			struct pss *wpss = (struct pss *)lws_get_opaque_user_data(wsi);
-			if (wpss) wpss->cwsi = NULL;
+			uint32_t *magic = (uint32_t *)lws_get_opaque_user_data(wsi);
+			if (magic && *magic == CERT_CHECK_MAGIC) {
+				struct cert_check_info *cci = (struct cert_check_info *)magic;
+				cci->magic = 0;
+				free(cci);
+				lws_set_opaque_user_data(wsi, NULL);
+			} else if (magic && *magic == PSS_MAGIC) {
+				struct pss *wpss = (struct pss *)magic;
+				wpss->cwsi = NULL;
+			} else if (!magic) {
+				if (vhd && vhd->root_process_active) {
+					struct pss *root_pss = (struct pss *)user;
+					lws_dll2_remove(&root_pss->list);
+				}
+			}
 			lwsl_notice("%s: UDS connection closed\n", __func__);
 		}
 		break;
