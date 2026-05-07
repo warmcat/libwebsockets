@@ -290,6 +290,7 @@ lws_process_ws_upgrade2(struct lws *wsi)
 		switch (lws_check_basic_auth(wsi, ws_prot_basic_auth, LWSAUTHM_DEFAULT
 						/* no callback based auth here */)) {
 		case LCBA_CONTINUE:
+		case LCBA_AUTH_RETRY_KEEPALIVE:
 			break;
 		case LCBA_FAILED_AUTH:
 			return lws_unauthorised_basic_auth(wsi);
