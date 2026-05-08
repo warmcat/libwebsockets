@@ -990,8 +990,7 @@ str_val:
 				} while (ts.e > 0);
 			}
 
-			if (wsi->stash &&
-			    wsi->http.conn_type == HTTP_CONNECTION_KEEP_ALIVE &&
+			if (wsi->http.conn_type == HTTP_CONNECTION_KEEP_ALIVE &&
 			    keep_alive &&
 			    (!te401 || strncasecmp(te401, "chunked", 7)) &&
 			    cl401 && atoi(cl401) == 0) {
