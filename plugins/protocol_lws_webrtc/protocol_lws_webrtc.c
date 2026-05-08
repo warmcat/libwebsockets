@@ -2054,7 +2054,7 @@ webrtc_handle_stun(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrtc **
 				 * Trigger DTLS Client Hello now that we have proven connectivity 
 				 * via a successful STUN Request/Response cycle. 
 				 */
-				if (pss->is_client && pss->handshake_started && !pss->media->handshake_done) {
+				if (pss->is_client && pss->handshake_started && pss->media && !pss->media->handshake_done) {
 					uint8_t dummy;
 					lws_gendtls_get_rx(&pss->dtls_ctx, &dummy, 1);
 					uint8_t out_dtls[2048];
