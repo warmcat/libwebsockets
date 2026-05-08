@@ -730,7 +730,8 @@ generate_dist_pki(struct vhd *vhd)
 	char path_crt[1024], path_key[1024], path_dir[1024];
 
 	lws_snprintf(path_dir, sizeof(path_dir), "%s/pki", vhd->base_dir);
-	mkdir(path_dir, 0700);
+	if (mkdir(path_dir, 0700) < 0 && errno != EEXIST)
+		lwsl_notice("%s: Failed to create pki dir\n", __func__);
 
 	lws_snprintf(path_crt, sizeof(path_crt), "%s/pki/distribution-ca.crt", vhd->base_dir);
 	lws_snprintf(path_key, sizeof(path_key), "%s/pki/distribution-ca.key", vhd->base_dir);
@@ -748,7 +749,8 @@ generate_dist_server_cert(struct vhd *vhd, const char *domain)
 	char ca_crt[1024], ca_key[1024];
 
 	lws_snprintf(path_dir, sizeof(path_dir), "%s/pki", vhd->base_dir);
-	mkdir(path_dir, 0700);
+	if (mkdir(path_dir, 0700) < 0 && errno != EEXIST)
+		lwsl_notice("%s: Failed to create pki dir\n", __func__);
 
 	lws_snprintf(path_crt, sizeof(path_crt), "%s/pki/distribution-server-%s.crt", vhd->base_dir, domain);
 	lws_snprintf(path_key, sizeof(path_key), "%s/pki/distribution-server-%s.key", vhd->base_dir, domain);
@@ -769,7 +771,8 @@ generate_client_cert(struct vhd *vhd, const char *domain, const char *subdomain)
 	char ca_crt[1024], ca_key[1024];
 
 	lws_snprintf(path_dir, sizeof(path_dir), "%s/domains/%s/dist-client", vhd->base_dir, domain);
-	mkdir(path_dir, 0700);
+	if (mkdir(path_dir, 0700) < 0 && errno != EEXIST)
+		lwsl_notice("%s: Failed to create dist-client dir\n", __func__);
 
 	lws_snprintf(path_crt, sizeof(path_crt), "%s/distribution-client-%s.crt", path_dir, subdomain);
 	lws_snprintf(path_key, sizeof(path_key), "%s/distribution-client-%s.key", path_dir, subdomain);
