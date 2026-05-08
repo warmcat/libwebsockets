@@ -101,7 +101,8 @@ stub_req_cb(struct lejp_ctx *ctx, char reason)
 
 		/* 1. Ensure directory exists */
 		lws_snprintf(path, sizeof(path), "%s/%s", a->vhd->base_dir, a->subdomain);
-		mkdir(path, 0700);
+		if (mkdir(path, 0700) < 0 && errno != EEXIST)
+			lwsl_notice("%s: Failed to create directory\n", __func__);
 
 		/* 2. Write fullchain */
 		lws_snprintf(path, sizeof(path), "%s/%s/fullchain.pem.%s", a->vhd->base_dir, a->subdomain, timestamp);
