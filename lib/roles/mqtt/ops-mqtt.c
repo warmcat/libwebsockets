@@ -485,6 +485,17 @@ rops_close_role_mqtt(struct lws_context_per_thread *pt, struct lws *wsi)
 		s = s1;
 	}
 
+	/* clean up QoS2 rx list */
+	{
+		lws_mqtt_qos2_rx_t *rx;
+
+		lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp, wsi->mqtt->qos2_rx_list.head) {
+			rx = lws_container_of(p, lws_mqtt_qos2_rx_t, list);
+			lws_dll2_remove(&rx->list);
+			lws_free(rx);
+		} lws_end_foreach_dll_safe(p, tp);
+	}
+
 	lws_mqtt_publish_param_t *pub =
 			(lws_mqtt_publish_param_t *)
 				wsi->mqtt->rx_cpkt_param;
