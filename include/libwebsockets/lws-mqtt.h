@@ -73,7 +73,7 @@ typedef struct lws_mqtt_str_st lws_mqtt_str_t;
 typedef enum {
 	QOS0,
 	QOS1,
-	QOS2,				/* not supported */
+	QOS2,
 	RESERVED_QOS_LEVEL,
 	FAILURE_QOS_LEVEL = 0x80
 } lws_mqtt_qos_levels_t;
@@ -87,6 +87,11 @@ typedef union {
 	} flags;
 	uint8_t 		bits;
 } lws_mqtt_fixed_hdr_t;
+
+typedef struct lws_mqtt_qos2_state_ops {
+	int (*rx_add)(struct lws *wsi, const char *client_id, uint16_t pkt_id);
+	int (*rx_remove)(struct lws *wsi, const char *client_id, uint16_t pkt_id);
+} lws_mqtt_qos2_state_ops_t;
 
 /*
  * MQTT connection parameters, passed into struct
@@ -122,6 +127,7 @@ typedef struct lws_mqtt_client_connect_param_s {
 						   parameters */
 	const char 			*username;
 	const char 			*password;
+	const lws_mqtt_qos2_state_ops_t	*qos2_state_ops;
 	uint8_t				aws_iot;
 } lws_mqtt_client_connect_param_t;
 
@@ -382,5 +388,17 @@ lws_mqtt_client_send_subcribe(struct lws *wsi, lws_mqtt_subscribe_param_t *sub);
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_mqtt_client_send_unsubcribe(struct lws *wsi,
 				const lws_mqtt_subscribe_param_t *unsub);
+
+/**
+ * lws_mqtt_client_qos2_rx_add() - inject a saved QoS2 packet ID into the rx list
+ *
+ * \param wsi: the mqtt child wsi
+ * \param pkt_id: the packet ID to inject
+ *
+ * This allows the application to repopulate the unacknowledged QoS2 receives
+ * from persistent storage when a session is resumed.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_mqtt_client_qos2_rx_add(struct lws *wsi, uint16_t pkt_id);
 
 #endif /* _LWS_MQTT_H */
