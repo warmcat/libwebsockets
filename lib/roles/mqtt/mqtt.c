@@ -929,6 +929,32 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			buf += 2;
 			len -= 2;
 			wsi->mqtt->peer_ack_pkt_id = par->cpkt_id;
+			wsi->mqtt->qos2_duplicate = 0;
+
+			if (pub->qos == QOS2) {
+				lws_mqtt_qos2_rx_t *rx;
+
+				lws_start_foreach_dll(struct lws_dll2 *, p, wsi->mqtt->qos2_rx_list.head) {
+					rx = lws_container_of(p, lws_mqtt_qos2_rx_t, list);
+					if (rx->packet_id == par->cpkt_id) {
+						wsi->mqtt->qos2_duplicate = 1;
+						break;
+					}
+				} lws_end_foreach_dll(p);
+
+				if (!wsi->mqtt->qos2_duplicate) {
+					rx = lws_malloc(sizeof(*rx), "qos2 rx");
+					if (rx) {
+						const char *cid = wsi->mqtt->client.id ? (const char *)wsi->mqtt->client.id->buf : "unknown";
+						rx->packet_id = par->cpkt_id;
+						lws_dll2_add_tail(&rx->list, &wsi->mqtt->qos2_rx_list);
+						if (wsi->mqtt->client.qos2_state_ops &&
+						    wsi->mqtt->client.qos2_state_ops->rx_add)
+							wsi->mqtt->client.qos2_state_ops->rx_add(wsi, cid, par->cpkt_id);
+					}
+				}
+			}
+
 			lwsl_debug("%s: Packet ID %d\n",
 					__func__, (int)par->cpkt_id);
 			par->state = LMQCPP_PAYLOAD;
@@ -1471,11 +1497,40 @@ bail1:
 				break;
 
 			case LMQCP_PUBREL:
-				lwsl_err("%s: cmd_completion: PUBREL\n",
+			{
+				lws_mqtt_qos2_rx_t *rx;
+
+				lwsl_info("%s: cmd_completion: PUBREL\n",
 						__func__);
+
+				lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp, wsi->mqtt->qos2_rx_list.head) {
+					rx = lws_container_of(p, lws_mqtt_qos2_rx_t, list);
+					if (rx->packet_id == par->cpkt_id) {
+						const char *cid = wsi->mqtt->client.id ? (const char *)wsi->mqtt->client.id->buf : "unknown";
+						lws_dll2_remove(&rx->list);
+						lws_free(rx);
+						if (wsi->mqtt->client.qos2_state_ops &&
+						    wsi->mqtt->client.qos2_state_ops->rx_remove)
+							wsi->mqtt->client.qos2_state_ops->rx_remove(wsi, cid, par->cpkt_id);
+						break;
+					}
+				} lws_end_foreach_dll_safe(p, tp);
+
+				lws_start_foreach_ll(struct lws *, w,
+						      wsi->mux.child_list) {
+					uint16_t pid = par->cpkt_id;
+					if (w->a.protocol->callback(w,
+						    LWS_CALLBACK_MQTT_QOS2_RX_COMPLETE,
+						    w->user_space,
+						    (void *)&pid, 0)) {
+						return 1;
+					}
+				} lws_end_foreach_ll(w, mux.sibling_list);
+
 				wsi->mqtt->send_pubcomp = 1;
 				lws_callback_on_writable(wsi);
 				break;
+			}
 
 			case LMQCP_PUBACK:
 				lwsl_info("%s: cmd_completion: PUBACK\n",
@@ -1671,7 +1726,8 @@ bail1:
 
 				lws_start_foreach_ll(struct lws *, w,
 						      wsi->mux.child_list) {
-					if (lws_mqtt_find_sub(w->mqtt,
+					if (!wsi->mqtt->qos2_duplicate &&
+					    lws_mqtt_find_sub(w->mqtt,
 							      pub->topic))
 						if (w->a.protocol->callback(
 							    w, (enum lws_callback_reasons)n,
@@ -2531,3 +2587,21 @@ bail1:
 	return NULL;
 }
 
+int
+lws_mqtt_client_qos2_rx_add(struct lws *wsi, uint16_t pkt_id)
+{
+	struct lws *nwsi = lws_get_network_wsi(wsi);
+	lws_mqtt_qos2_rx_t *rx;
+
+	if (!nwsi || !nwsi->mqtt)
+		return 1;
+
+	rx = lws_malloc(sizeof(*rx), "qos2 rx");
+	if (!rx)
+		return 1;
+
+	rx->packet_id = pkt_id;
+	lws_dll2_add_tail(&rx->list, &nwsi->mqtt->qos2_rx_list);
+
+	return 0;
+}

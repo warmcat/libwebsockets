@@ -885,7 +885,13 @@ enum lws_callback_reasons {
 	 * Return nonzero to close the wsi.
 	 */
 
-	LWS_CALLBACK_HTTP_INTERCEPTOR_CHECK				= 213,
+	LWS_CALLBACK_MQTT_QOS2_RX_COMPLETE			= 213,
+	/**< When a QoS2 message has fully completed the transaction (PUBREL
+	 * received, PUBCOMP sent), this callback is generated.
+	 * `in` will point to the `uint16_t` packet ID that completed.
+	 */
+
+	LWS_CALLBACK_HTTP_INTERCEPTOR_CHECK			= 214,
 	/**< A mount has a interceptor_path enabled, this callback asks the
 	 * protocol bound to that mount if it is OK for this request to
 	 * proceed.  If returning 0, the request proceeds to the original
@@ -893,12 +899,12 @@ enum lws_callback_reasons {
 	 * mount.
 	 */
 
-	LWS_CALLBACK_GET_PSS_SIZE					= 214,
+	LWS_CALLBACK_GET_PSS_SIZE					= 215,
 	/**< Called when a protocol wants to specify its PSS size at runtime.
 	 *   If the protocol structure has per_session_data_size == 0, lws will
 	 *   call this to get the size to allocate for the session. */
 
-	LWS_CALLBACK_DHT_VERB_DISPATCH					= 215,
+	LWS_CALLBACK_DHT_VERB_DISPATCH					= 216,
 	/**< Sent to the user protocol handler callback when a DHT message
 	 * carrying a registered verb has been matched by lws-dht.
 	 * `in` is a pointer to `struct lws_dht_verb_dispatch_args` containing
