@@ -342,8 +342,12 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RAW_RX_FILE: {
 		char buf[512];
 		ssize_t n;
+		int fd = (int)lws_get_socket_fd(wsi);
 
-		n = read(lws_get_socket_fd(wsi), buf, sizeof(buf) - 1);
+		if (fd < 0)
+			return -1;
+
+		n = read(fd, buf, sizeof(buf) - 1);
 		if (n < 0) {
 			if (errno == EAGAIN || errno == EWOULDBLOCK)
 				return 0;
