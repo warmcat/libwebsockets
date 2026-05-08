@@ -327,6 +327,11 @@ typedef struct lws_mqtt_subs {
 	char			topic[];
 } lws_mqtt_subs_t;
 
+typedef struct lws_mqtt_qos2_rx {
+	struct lws_dll2		list;
+	uint16_t		packet_id;
+} lws_mqtt_qos2_rx_t;
+
 typedef struct lws_mqtts {
 	lws_mqtt_parser_t	par;
 	lwsgs_mqtt_states_t	estate;
@@ -348,6 +353,7 @@ typedef struct lws_mqttc {
 	} will;
 	uint16_t		keep_alive_secs;
 	uint16_t			conn_flags;
+	const lws_mqtt_qos2_state_ops_t *qos2_state_ops;
 	uint8_t			aws_iot;
 } lws_mqttc_t;
 
@@ -358,6 +364,7 @@ struct _lws_mqtt_related {
 	lws_sorted_usec_list_t	sul_unsuback_wait; /* unsuback wait TO */
 	lws_sorted_usec_list_t	sul_qos2_pubrec_wait; /* QoS2 pubrec wait TO */
 	lws_sorted_usec_list_t	sul_shadow_wait; /* Device Shadow wait TO */
+	struct lws_dll2_owner	qos2_rx_list;
 	struct lws		*wsi; /**< so sul can use lws_container_of */
 	lws_mqtt_subs_t		*subs_head; /**< Linked-list of heap-allocated subscription objects */
 	void			*rx_cpkt_param;
@@ -381,6 +388,8 @@ struct _lws_mqtt_related {
 	uint8_t 		send_pubcomp:1;
 	uint8_t			unacked_publish:1;
 	uint8_t			unacked_pubrel:1;
+
+	uint8_t			qos2_duplicate:1;
 
 	uint8_t			done_subscribe:1;
 	uint8_t			done_birth:1;
