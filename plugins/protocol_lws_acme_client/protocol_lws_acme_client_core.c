@@ -125,7 +125,6 @@ struct per_vhost_data__lws_acme_client {
 	struct acme_connection *ac;
 
 	struct lws_jwk jwk;
-	struct lws_genrsa_ctx rsactx;
 	char *dns_base_dir;
 
 	lws_dll2_owner_t cert_configs;
@@ -244,10 +243,10 @@ connected:
 			jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf = malloc(64);
 			lws_hex_to_byte_array(hex, jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf, 64);
 
-			uint64_t now = (uint64_t)lws_now_usecs() / LWS_US_PER_SEC;
+			uint64_t now = (uint64_t)time(NULL);
 			lws_jwt_sign_compact(vhd->context, &jwk, "HS256", jwt, &jwt_len, temp, sizeof(temp),
-			    "{\"iss\":\"acme-ipc\",\"aud\":\"dnssec-monitor\",\"iat\":%llu,\"exp\":%llu}",
-			    (unsigned long long)now, (unsigned long long)now + 300);
+			    "{\"iss\":\"acme-ipc\",\"aud\":\"dnssec-monitor\",\"iat\":%llu,\"nbf\":%llu,\"exp\":%llu}",
+			    (unsigned long long)now, (unsigned long long)now, (unsigned long long)now + 300);
 
 			lws_jwk_destroy(&jwk);
 		}
@@ -430,7 +429,7 @@ jws_create_packet(struct lws_jwe *jwe, const char *payload, size_t len,
 	if (!jwe->jose.alg || !jwe->jose.alg->alg)
 		goto bail;
 
-	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{\"alg\":\"RS256\"");
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{\"alg\":\"%s\"", jwe->jwk.kty == LWS_GENCRYPTO_KTY_RSA ? "RS256" : "ES256");
 	if (kid)
 		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), ",\"kid\":\"%s\"", kid);
 	else {
@@ -840,7 +839,6 @@ lws_acme_finished(struct per_vhost_data__lws_acme_client *vhd)
 		free(vhd->ac);
 	}
 
-	lws_genrsa_destroy(&vhd->rsactx);
 	lws_jwk_destroy(&vhd->jwk);
 
 	if (vhd->dns_base_dir) {
@@ -849,6 +847,7 @@ lws_acme_finished(struct per_vhost_data__lws_acme_client *vhd)
 	}
 
 	vhd->ac = NULL;
+	vhd->last_acme_failure = 0;
 #if defined(LWS_WITH_ESP32)
 	lws_esp32.acme = 0; /* enable scanning */
 #endif
@@ -865,12 +864,20 @@ lws_acme_load_create_auth_keys(struct per_vhost_data__lws_acme_client *vhd,
 				NULL, NULL))
 		return 0;
 
-	vhd->jwk.kty = LWS_GENCRYPTO_KTY_RSA;
+	vhd->jwk.kty = LWS_GENCRYPTO_KTY_EC;
 
-	lwsl_notice("Generating ACME %d-bit keypair... "
-			"will take a little while\n", bits);
-	n = lws_genrsa_new_keypair(vhd->context, &vhd->rsactx, LGRSAM_PKCS1_1_5,
-			vhd->jwk.e, bits);
+	lwsl_notice("Generating ACME P-256 keypair... "
+			"will take a little while\n");
+
+	struct lws_genec_ctx ecdsa;
+	if (lws_genecdsa_create(&ecdsa, vhd->context, NULL)) {
+		lwsl_vhost_warn(vhd->vhost, "failed to create ecdsa ctx");
+		return 1;
+	}
+
+	n = lws_genecdsa_new_keypair(&ecdsa, "P-256", vhd->jwk.e);
+	lws_genec_destroy(&ecdsa);
+
 	if (n) {
 		lwsl_vhost_warn(vhd->vhost, "failed to create keypair");
 		return 1;
@@ -1122,8 +1129,9 @@ lws_acme_scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 			char *cert_path = (char *)malloc(len);
 			char *key_path = (char *)malloc(len);
 			char *auth_path = (char *)malloc(len);
+			char *root_domain = strdup(scan_ctx->domain);
 
-			if (cert_path && key_path && auth_path) {
+			if (cert_path && key_path && auth_path && root_domain) {
 				lws_snprintf(cert_path, len, "%s/domains/%s/certs/%s/crt/%s-latest.crt", vhd->dns_base_dir, scan_ctx->domain, env_dir, common_name_s);
 				lws_snprintf(key_path, len, "%s/domains/%s/certs/%s/key/%s-latest.key", vhd->dns_base_dir, scan_ctx->domain, env_dir, common_name_s);
 				lws_snprintf(auth_path, len, "%s/domains/%s/%s-auth.jwk", vhd->dns_base_dir, scan_ctx->domain, common_name_s);
@@ -1131,6 +1139,12 @@ lws_acme_scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 				cfg->pvop[LWS_TLS_SET_CERT_PATH] = cert_path;
 				cfg->pvop[LWS_TLS_SET_KEY_PATH] = key_path;
 				cfg->pvop[LWS_TLS_SET_AUTH_PATH] = auth_path;
+				cfg->pvop[LWS_TLS_SET_ROOT_DOMAIN] = root_domain;
+			} else {
+				if (cert_path) free(cert_path);
+				if (key_path) free(key_path);
+				if (auth_path) free(auth_path);
+				if (root_domain) free(root_domain);
 			}
 		}
 
@@ -1459,10 +1473,11 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 			lws_strncpy(ac->active_url, ac->urls[JAD_NEW_ACCOUNT_URL], sizeof(ac->active_url));
 pkt_add_hdrs:
-			if (lws_gencrypto_jwe_alg_to_definition("RSA1_5",
+			if (lws_gencrypto_jws_alg_to_definition(
+						jwe.jwk.kty == LWS_GENCRYPTO_KTY_RSA ? "RS256" : "ES256",
 						&jwe.jose.alg)) {
 				ac->len = 0;
-				lwsl_notice("%s: no RSA1_5\n", __func__);
+				lwsl_notice("%s: no RS256/ES256\n", __func__);
 				goto failed;
 			}
 			jwe.jwk = vhd->jwk;
@@ -2230,6 +2245,26 @@ lws_acme_core_cert_aging(struct per_vhost_data__lws_acme_client *vhd,
         cfg = lws_container_of(d, struct lws_acme_cert_config, list);
 
         if (!cfg->pvop[LWS_TLS_SET_CERT_PATH] || !cfg->pvop[LWS_TLS_SET_KEY_PATH])
+            goto next_cert;
+
+        {
+            char disabled_path[512];
+            const char *domain = cfg->pvop[LWS_TLS_SET_ROOT_DOMAIN] ?
+                    cfg->pvop[LWS_TLS_SET_ROOT_DOMAIN] :
+                    cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME];
+            if (domain) {
+                lws_snprintf(disabled_path, sizeof(disabled_path), "%s/domains/%s/acme_disabled",
+                    vhd->dns_base_dir, domain);
+                if (access(disabled_path, F_OK) == 0)
+                    goto next_cert;
+            }
+            lws_snprintf(disabled_path, sizeof(disabled_path), "%s/domains/%s/acme_disabled",
+                vhd->dns_base_dir, lws_get_vhost_name(vhd->vhost));
+            if (access(disabled_path, F_OK) == 0)
+                goto next_cert;
+        }
+
+        if (vhd->last_acme_failure && lws_now_usecs() - vhd->last_acme_failure < 60 * LWS_US_PER_SEC)
             goto next_cert;
 
         /* Check if cert needs renewing based on 25% remaining validity */

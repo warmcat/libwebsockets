@@ -40,8 +40,10 @@ strexp_cb(void *priv, const char *name, char *out, size_t *pos,
 	size_t l;
 	const char *val = NULL;
 
-	if (info->subst_cb)
+	if (info->subst_cb) {
+		lwsl_notice("%s: attempting substitution for macro name: '%s'\n", __func__, name);
 		val = info->subst_cb(info, name);
+	}
 
 	if (!val) {
 		for (n = 0; n < info->num_substs; n++) {

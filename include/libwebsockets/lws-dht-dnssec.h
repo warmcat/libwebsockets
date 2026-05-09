@@ -44,6 +44,7 @@ struct lws_dht_dnssec_dsfromkey_args {
 struct lws_dht_dnssec_signzone_args {
 	const char *domain;
 	const char *workdir;
+	const char *certs_dir;
 	uint32_t sign_validity_duration;
 	char ipv4[64];
 	char ipv6[64];

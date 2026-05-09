@@ -3868,6 +3868,7 @@ dnssec_subst_cb(struct lws_auth_dns_sign_info *info, const char *name)
 	}
 
 	if (!strncmp(name, "DANE", 4)) {
+		lwsl_notice("%s: Starting DANE substitution for macro: %s\n", __func__, name);
 		int previous = (name[4] == '1');
 		char root[128];
 		root[0] = '\0';
@@ -3877,14 +3878,20 @@ dnssec_subst_cb(struct lws_auth_dns_sign_info *info, const char *name)
 			lws_strncpy(root, slash + 1, sizeof(root));
 		}
 		
-		if (!root[0]) return "";
+		if (!root[0]) {
+			lwsl_err("%s: Failed to parse root domain from macro %s\n", __func__, name);
+			return "";
+		}
 
-		/* Determine domain from info->input_filepath */
+		/* Determine domain and base_dir from info->input_filepath */
 		char domain[128];
+		char base_dir[256];
 		domain[0] = '\0';
+		base_dir[0] = '\0';
 		if (info->input_filepath) {
 			const char *p = strstr(info->input_filepath, "/domains/");
 			if (p) {
+				lws_strncpy(base_dir, info->input_filepath, lws_ptr_diff_size_t(p, info->input_filepath) + 1);
 				p += 9;
 				const char *p2 = strchr(p, '/');
 				if (p2 && (p2 - p) < (int)sizeof(domain)) {
@@ -3893,30 +3900,39 @@ dnssec_subst_cb(struct lws_auth_dns_sign_info *info, const char *name)
 			}
 		}
 		if (!domain[0]) return "";
+		if (!base_dir[0]) lws_strncpy(base_dir, "/var/dnssec", sizeof(base_dir));
 
-		/* Load X509 cert */
 		char cert_path[256];
-		if (previous) {
-			lws_snprintf(cert_path, sizeof(cert_path), "/var/dnssec/domains/%s/certs/crt/%s-previous.crt", domain, root);
-		} else {
-			lws_snprintf(cert_path, sizeof(cert_path), "/var/dnssec/domains/%s/certs/crt/%s-latest.crt", domain, root);
-		}
+		int cfd = -1;
+		const char *certs_dir = info->subst_priv ? (const char *)info->subst_priv : "staging";
+
+		lwsl_notice("%s: Parsed context -> input_filepath: %s, base_dir: %s, domain: %s, certs_dir: %s\n",
+			__func__, info->input_filepath ? info->input_filepath : "NULL", base_dir, domain, certs_dir);
+
+		lws_snprintf(cert_path, sizeof(cert_path), "%s/domains/%s/certs/%s/crt/%s-%s.crt",
+			base_dir, domain, certs_dir, root, previous ? "previous" : "latest");
+
+		lwsl_notice("%s: Attempting to open cert at path: %s\n", __func__, cert_path);
+		cfd = open(cert_path, LWS_O_RDONLY);
 
 		struct lws_x509_cert *cert = NULL;
 		if (lws_x509_create(&cert)) {
-			lwsl_err("%s: failed to create cert\n", __func__);
+			lwsl_err("%s: failed to create x509 cert object\n", __func__);
+			if (cfd >= 0) close(cfd);
 			return "";
 		}
 
-		int cfd = open(cert_path, LWS_O_RDONLY);
 		if (cfd < 0) {
-			lwsl_notice("Missing cert %s, skipping DANE line\n", cert_path);
+			lwsl_err("%s: Failed to open cert %s (errno %d), skipping DANE substitution\n", __func__, cert_path, errno);
 			lws_x509_destroy(&cert);
 			return "";
 		}
 
+		lwsl_notice("%s: Successfully opened cert %s. Reading PEM...\n", __func__, cert_path);
+
 		struct stat st;
 		if (fstat(cfd, &st) || st.st_size <= 0) {
+			lwsl_err("%s: fstat failed or empty file for %s\n", __func__, cert_path);
 			close(cfd);
 			lws_x509_destroy(&cert);
 			return "";
@@ -3924,6 +3940,7 @@ dnssec_subst_cb(struct lws_auth_dns_sign_info *info, const char *name)
 
 		char *pembuf = malloc((size_t)st.st_size);
 		if (!pembuf || read(cfd, pembuf, (unsigned int)st.st_size) != st.st_size) {
+			lwsl_err("%s: Failed to read PEM file %s\n", __func__, cert_path);
 			if (pembuf) free(pembuf);
 			close(cfd);
 			lws_x509_destroy(&cert);
@@ -3932,19 +3949,23 @@ dnssec_subst_cb(struct lws_auth_dns_sign_info *info, const char *name)
 		close(cfd);
 
 		if (lws_x509_parse_from_pem(cert, pembuf, (size_t)st.st_size) < 0) {
-			lwsl_err("Failed loading DANE cert %s\n", cert_path);
+			lwsl_err("%s: Failed parsing PEM data from %s\n", __func__, cert_path);
 			free(pembuf);
 			lws_x509_destroy(&cert);
 			return "";
 		}
 		free(pembuf);
 
+		lwsl_notice("%s: Successfully parsed PEM. Extracting SPKI...\n", __func__);
+
 		/* extracted SPKI */
 		union lws_tls_cert_info_results res1;
 		union lws_tls_cert_info_results *res;
 		res1.ns.len = 0;
 
-		if (lws_x509_info(cert, LWS_TLS_CERT_INFO_DER_SPKI, &res1, 0) == -1 && res1.ns.len > 0) {
+		int info_ret = lws_x509_info(cert, LWS_TLS_CERT_INFO_DER_SPKI, &res1, 0);
+		if (info_ret == -1 && res1.ns.len > 0) {
+			lwsl_notice("%s: SPKI extraction requires %d bytes\n", __func__, res1.ns.len);
 			size_t alloc_len = sizeof(*res) - sizeof(res1.ns.name) + (size_t)res1.ns.len;
 			res = malloc(alloc_len);
 			if (res) {
@@ -3963,19 +3984,30 @@ dnssec_subst_cb(struct lws_auth_dns_sign_info *info, const char *name)
 									hl += lws_snprintf(hex + hl, sizeof(hex) - (size_t)hl, "%02X", hash[i]);
 								}
 								lws_snprintf(ret, sizeof(ret), "3 1 1 %s", hex);
+								lwsl_notice("%s: SUCCESS: Generated DANE payload: %s\n", __func__, ret);
 								free(res);
 								lws_x509_destroy(&cert);
 								return ret;
 							}
 						} else {
+							lwsl_err("%s: lws_genhash_update failed\n", __func__);
 							lws_genhash_destroy(&hash_ctx, NULL);
 						}
+					} else {
+						lwsl_err("%s: lws_genhash_init failed\n", __func__);
 					}
+				} else {
+					lwsl_err("%s: Failed second call to lws_x509_info\n", __func__);
 				}
 				free(res);
+			} else {
+				lwsl_err("%s: malloc failed for SPKI buffer\n", __func__);
 			}
+		} else {
+			lwsl_err("%s: lws_x509_info(LWS_TLS_CERT_INFO_DER_SPKI) failed: ret=%d, len=%d\n", __func__, info_ret, res1.ns.len);
 		}
 
+		lwsl_err("%s: DANE generation completely failed, returning empty string\n", __func__);
 		lws_x509_destroy(&cert);
 		return "";
 	}
@@ -3994,6 +4026,8 @@ do_signzone(struct lws_context *context, struct lws_dht_dnssec_signzone_args *ar
 	info.cx = context;
 	info.subst_cb = dnssec_subst_cb;
 
+	lwsl_notice("%s: do_signzone called for domain: %s\n", __func__, args->domain ? args->domain : "NULL");
+
 	if (!args->domain || args->domain[0] == '\0') {
 		lwsl_err("signzone requires a domain name\n");
 		return 1;
@@ -4011,6 +4045,7 @@ do_signzone(struct lws_context *context, struct lws_dht_dnssec_signzone_args *ar
 	info.input_filepath = zone_in;
 	info.output_filepath = zone_out;
 	info.jws_filepath = jws_out;
+	info.subst_priv = (void *)args->certs_dir;
 	if (args->ipv4[0]) info.ipv4 = args->ipv4;
 	if (args->ipv6[0]) info.ipv6 = args->ipv6;
 
