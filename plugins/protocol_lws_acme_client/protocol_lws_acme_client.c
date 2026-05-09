@@ -115,7 +115,6 @@ struct per_vhost_data__lws_acme_client {
 	struct acme_connection *ac;
 
 	struct lws_jwk jwk;
-	struct lws_genrsa_ctx rsactx;
 
 	char *pvo_data;
 	char *pvop[LWS_TLS_TOTAL_COUNT];
@@ -238,7 +237,7 @@ jws_create_packet(struct lws_jwe *jwe, const char *payload, size_t len,
 	if (!jwe->jose.alg || !jwe->jose.alg->alg)
 		goto bail;
 
-	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{\"alg\":\"RS256\"");
+	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{\"alg\":\"%s\"", jwe->jwk.kty == LWS_GENCRYPTO_KTY_RSA ? "RS256" : "ES256");
 	if (kid)
 		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), ",\"kid\":\"%s\"", kid);
 	else {
@@ -636,7 +635,6 @@ lws_acme_finished(struct per_vhost_data__lws_acme_client *vhd)
 		free(vhd->ac);
 	}
 
-	lws_genrsa_destroy(&vhd->rsactx);
 	lws_jwk_destroy(&vhd->jwk);
 
 	vhd->ac = NULL;
@@ -670,12 +668,20 @@ lws_acme_load_create_auth_keys(struct per_vhost_data__lws_acme_client *vhd,
 				NULL, NULL))
 		return 0;
 
-	vhd->jwk.kty = LWS_GENCRYPTO_KTY_RSA;
+	vhd->jwk.kty = LWS_GENCRYPTO_KTY_EC;
 
-	lwsl_notice("Generating ACME %d-bit keypair... "
-			"will take a little while\n", bits);
-	n = lws_genrsa_new_keypair(vhd->context, &vhd->rsactx, LGRSAM_PKCS1_1_5,
-			vhd->jwk.e, bits);
+	lwsl_notice("Generating ACME P-256 keypair... "
+			"will take a little while\n");
+
+	struct lws_genec_ctx ecdsa;
+	if (lws_genecdsa_create(&ecdsa, vhd->context, NULL)) {
+		lwsl_vhost_warn(vhd->vhost, "failed to create ecdsa ctx");
+		return 1;
+	}
+
+	n = lws_genecdsa_new_keypair(&ecdsa, "P-256", vhd->jwk.e);
+	lws_genec_destroy(&ecdsa);
+
 	if (n) {
 		lwsl_vhost_warn(vhd->vhost, "failed to create keypair");
 		return 1;
@@ -1063,10 +1069,11 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 			lws_strncpy(ac->active_url, ac->urls[JAD_NEW_ACCOUNT_URL], sizeof(ac->active_url));
 pkt_add_hdrs:
-			if (lws_gencrypto_jwe_alg_to_definition("RSA1_5",
+			if (lws_gencrypto_jws_alg_to_definition(
+						jwe.jwk.kty == LWS_GENCRYPTO_KTY_RSA ? "RS256" : "ES256",
 						&jwe.jose.alg)) {
 				ac->len = 0;
-				lwsl_notice("%s: no RSA1_5\n", __func__);
+				lwsl_notice("%s: no RS256/ES256\n", __func__);
 				goto failed;
 			}
 			jwe.jwk = vhd->jwk;

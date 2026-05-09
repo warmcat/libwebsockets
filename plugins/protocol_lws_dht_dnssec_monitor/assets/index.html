@@ -37,7 +37,7 @@
             <div class="tabs-header">
                 <button id="tab-btn-domains" class="tab-link active" data-tab="tab-domains">Domains</button>
                 <button id="tab-btn-tls" class="tab-link" data-tab="tab-tls">TLS</button>
-                <button id="tab-btn-acme" class="tab-link" data-tab="tab-acme">ACME Config</button>
+                <button id="tab-btn-acme" class="tab-link" data-tab="tab-acme">Global Settings</button>
                 <button id="tab-btn-dist" class="tab-link" data-tab="tab-dist">Distribution</button>
             </div>
 
@@ -148,7 +148,7 @@
             <div id="tab-acme" class="tab-content">
                 <div class="panel">
                     <div class="acme-global-config">
-                        <h2>Global ACME Configuration</h2>
+                        <h2>Global Settings</h2>
                         <div class="acme-form-group checkbox-group">
                             <label>
                                 <input type="checkbox" id="cb-acme-enable"> Enable Let's Encrypt Certificate Fetching
@@ -185,9 +185,13 @@
                                 <select id="acme-profile" class="ext-select">
                                 </select>
                             </div>
+                            <div class="form-group">
+                                <label for="acme-sign-validity">Signature Validity (Days)</label>
+                                <input type="number" id="acme-sign-validity" min="1" max="365" placeholder="21">
+                            </div>
                         </div>
                         <div class="acme-actions">
-                            <button id="btn-acme-save" class="btn primary">Save ACME Config</button>
+                            <button id="btn-acme-save" class="btn primary">Save Global Settings</button>
                         </div>
                         <div class="acme-log-container">
                             <label>Recent ACME Log</label>

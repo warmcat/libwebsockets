@@ -4,6 +4,7 @@ require_lws_config(LWS_WITH_AUTHORITATIVE_DNS 1 requirements)
 require_lws_config(LWS_WITH_JOSE 1 requirements)
 require_lws_config(LWS_WITH_SYS_ASYNC_DNS_DNSSEC 1 requirements)
 require_lws_config(LWS_WITH_SPAWN 1 requirements)
+require_lws_config(LWS_WITH_DIR 1 requirements)
 
 if (requirements)
 	create_plugin(${PLUGIN_NAME} "lws-dht-dnssec-monitor" "protocol_lws_dht_dnssec_monitor.c;monitor-pki.c;monitor-acme.c;monitor-api.c;monitor-dnssec.c;monitor-whois.c;monitor-utils.c;monitor-proxy.c" "" "")

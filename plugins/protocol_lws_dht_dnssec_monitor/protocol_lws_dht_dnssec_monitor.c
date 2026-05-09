@@ -201,7 +201,7 @@ cb_conf(struct lejp_ctx *ctx, char reason)
 }
 
 static int
-scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
+scan_dir_cb_fast(const char *dirpath, void *user, struct lws_dir_entry *lde)
 {
 	struct vhd *vhd = (struct vhd *)user;
 	char filepath[1024];
@@ -293,15 +293,9 @@ scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		/* Check resign triggers */
 		char input_path[1024];
 		char output_path[1024];
-		char jws_path[1024];
-		char zsk_path[1024];
-		char ksk_path[1024];
 
 		lws_snprintf(input_path, sizeof(input_path), "%s/domains/%s/%s.zone", vhd->base_dir, pc.common_name, pc.common_name);
 		lws_snprintf(output_path, sizeof(output_path), "%s/domains/%s/%s.zone.signed", vhd->base_dir, pc.common_name, pc.common_name);
-		lws_snprintf(jws_path, sizeof(jws_path), "%s/domains/%s/%s.zone.signed.jws", vhd->base_dir, pc.common_name, pc.common_name);
-		lws_snprintf(zsk_path, sizeof(zsk_path), "%s/domains/%s/%s.zsk.private.jwk", vhd->base_dir, pc.common_name, pc.common_name);
-		lws_snprintf(ksk_path, sizeof(ksk_path), "%s/domains/%s/%s.ksk.private.jwk", vhd->base_dir, pc.common_name, pc.common_name);
 
 		char acme_path[1024];
 		lws_snprintf(acme_path, sizeof(acme_path), "%s.acme", input_path);
@@ -327,7 +321,6 @@ scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 				} else {
 					lwsl_info("dnssec-monitor: unsigned zone %s (mtime %lu) is NOT newer than signed zone %s (mtime %lu), skipping resign.\n", input_path, (unsigned long)st_in.st_mtime, output_path, (unsigned long)st_out.st_mtime);
 				}
-				/* TODO: 75% lifetime exhaustion check, but requires parsing the signature. */
 			}
 		} else {
 			lwsl_info("%s: Missing domain %s base zone config, skipping resign\n", __func__, input_path);
@@ -342,12 +335,85 @@ scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 			memset(&sargs, 0, sizeof(sargs));
 			sargs.domain = pc.common_name;
 			sargs.workdir = wd;
+			sargs.certs_dir = vhd->acme_production ? "production" : "staging";
 			sargs.sign_validity_duration = vhd->signature_duration;
 
 			if (vhd->ops->signzone(vhd->context, &sargs)) {
 				lwsl_user("%s: Failed signing zone for %s\n", __func__, pc.common_name);
 			} else {
 				lwsl_user("%s: Successfully signed zone for %s\n", __func__, pc.common_name);
+			}
+		}
+	}
+
+	return 0;
+}
+
+static int
+scan_dir_cb_expiry(const char *dirpath, void *user, struct lws_dir_entry *lde)
+{
+	struct vhd *vhd = (struct vhd *)user;
+	char filepath[1024];
+	int fd;
+	struct stat st;
+	char *buf;
+	struct parsed_config pc;
+	struct lejp_ctx jctx;
+
+	if (lde->type != LDOT_DIR)
+		return 0;
+
+	if (lde->name[0] == '.')
+		return 0;
+
+	lws_snprintf(filepath, sizeof(filepath), "%s/%s/conf.d/%s.json", dirpath, lde->name, lde->name);
+
+	fd = open(filepath, O_RDONLY);
+	if (fd < 0)
+		return 0;
+
+	if (fstat(fd, &st) < 0 || st.st_size == 0) {
+		close(fd);
+		return 0;
+	}
+
+	buf = malloc((size_t)st.st_size + 1);
+	if (!buf) {
+		close(fd);
+		return 0;
+	}
+
+	if (read(fd, buf, (size_t)st.st_size) != st.st_size) {
+		free(buf);
+		close(fd);
+		return 0;
+	}
+	buf[st.st_size] = '\0';
+	close(fd);
+
+	memset(&pc, 0, sizeof(pc));
+	pc.vhd = vhd;
+	lejp_construct(&jctx, cb_conf, &pc, config_paths, LWS_ARRAY_SIZE(config_paths));
+	int m = lejp_parse(&jctx, (uint8_t *)buf, (int)st.st_size);
+	lejp_destruct(&jctx);
+	free(buf);
+
+	if (m < 0 && m != LEJP_REJECT_UNKNOWN)
+		return 0;
+
+	if (pc.common_name[0]) {
+		if (strchr(pc.common_name, '/') || strstr(pc.common_name, ".."))
+			return 0;
+
+		char output_path[1024];
+		lws_snprintf(output_path, sizeof(output_path), "%s/domains/%s/%s.zone.signed", vhd->base_dir, pc.common_name, pc.common_name);
+
+		struct stat st_out;
+		if (stat(output_path, &st_out) == 0) {
+			time_t now = time(NULL);
+			if (now > st_out.st_mtime && (uint32_t)(now - st_out.st_mtime) >= (vhd->signature_duration * 3 / 4)) {
+				lwsl_user("dnssec-monitor: signed zone %s is older than 75%% of signature lifetime, triggering resign by unlinking!\n", output_path);
+				unlink(output_path);
 			}
 		}
 	}
@@ -366,7 +432,7 @@ dir_notify_cb(const char *path, int is_file, void *user)
 
 	lwsl_user("%s: Detected inotify filesystem change %s (file: %d), manually rescanning domains: %s\n", __func__, path, is_file, scan_path);
 
-	lws_dir(scan_path, vhd, scan_dir_cb);
+	lws_dir(scan_path, vhd, scan_dir_cb_fast);
 }
 #endif
 
@@ -424,17 +490,17 @@ parent_dnssec_monitor_timer_cb(struct lws_sorted_usec_list *sul)
 }
 
 static void
-dnssec_monitor_timer_cb(struct lws_sorted_usec_list *sul)
+dnssec_monitor_expiry_timer_cb(struct lws_sorted_usec_list *sul)
 {
 	struct vhd *vhd = lws_container_of(sul, struct vhd, sul_timer);
 	char scan_path[1024];
 
-	// lwsl_notice("%s: Child timer fired!\n", __func__);
+	// lwsl_notice("%s: Expiry timer fired!\n", __func__);
 
 	lws_snprintf(scan_path, sizeof(scan_path), "%s/domains", vhd->base_dir);
-	lws_dir(scan_path, vhd, scan_dir_cb);
+	lws_dir(scan_path, vhd, scan_dir_cb_expiry);
 
-	lws_sul_schedule(vhd->context, 0, &vhd->sul_timer, dnssec_monitor_timer_cb, 5 * LWS_US_PER_SEC);
+	lws_sul_schedule(vhd->context, 0, &vhd->sul_timer, dnssec_monitor_expiry_timer_cb, 4 * 3600 * LWS_US_PER_SEC);
 }
 
 
@@ -461,6 +527,7 @@ struct monitor_req_args {
 	char locality[128];
 	char profile[128];
 	char key_type[32];
+	int sign_validity_days;
 };
 
 static const char * const monitor_req_paths[] = {
@@ -480,7 +547,8 @@ static const char * const monitor_req_paths[] = {
 	"state",
 	"locality",
 	"profile",
-	"key_type"
+	"key_type",
+	"sign_validity_days"
 };
 
 enum enum_req_paths {
@@ -500,7 +568,8 @@ enum enum_req_paths {
 	LRP_STATE,
 	LRP_LOCALITY,
 	LRP_PROFILE,
-	LRP_KEY_TYPE
+	LRP_KEY_TYPE,
+	LRP_SIGN_VALIDITY_DAYS
 };
 
 static signed char
@@ -511,6 +580,9 @@ monitor_req_cb(struct lejp_ctx *ctx, char reason)
 	if (reason == LEJPCB_VAL_NUM_INT) {
 		if (ctx->path_match - 1 == LRP_PORT) {
 			a->port = atoi(ctx->buf);
+		}
+		if (ctx->path_match - 1 == LRP_SIGN_VALIDITY_DAYS) {
+			a->sign_validity_days = atoi(ctx->buf);
 		}
 	}
 
@@ -817,6 +889,8 @@ handle_req_get_domains(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 				char whois_path[1024], whois_buf[2048] = "{}";
 				char dns_path[1024], dns_buf[1024] = "{}";
 				char ds_path[1024], ds_buf[256] = "";
+				char disabled_path[1024];
+				int acme_enabled = 1;
 				int fd;
 
 				lws_snprintf(whois_path, sizeof(whois_path), "%s/domains/%s/whois.json", vhd->base_dir, de->d_name);
@@ -844,10 +918,14 @@ handle_req_get_domains(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 					close(fd);
 				}
 
+				lws_snprintf(disabled_path, sizeof(disabled_path), "%s/domains/%s/acme_disabled", vhd->base_dir, de->d_name);
+				if (access(disabled_path, F_OK) == 0)
+					acme_enabled = 0;
+
 				if (!first) tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), ",");
 				tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx),
-					"{\"name\":\"%s\",\"whois\":%s,\"dns\":%s,\"local_ds\":\"%s\"}",
-					de->d_name, whois_buf[0] ? whois_buf : "{}", dns_buf[0] ? dns_buf : "{}", ds_buf);
+					"{\"name\":\"%s\",\"whois\":%s,\"dns\":%s,\"local_ds\":\"%s\",\"acme_enabled\":%s}",
+					de->d_name, whois_buf[0] ? whois_buf : "{}", dns_buf[0] ? dns_buf : "{}", ds_buf, acme_enabled ? "true" : "false");
 				first = 0;
 			}
 		}
@@ -1030,6 +1108,10 @@ handle_req_update_zone(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 	int fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
 	if (fd >= 0) {
 		if (write(fd, a->zone_buf, (size_t)a->zone_len) == (ssize_t)a->zone_len) {
+			char signed_path[1024];
+			lws_snprintf(signed_path, sizeof(signed_path), "%s/domains/%s/%s.zone.signed", vhd->base_dir, a->domain, a->domain);
+			lwsl_user("%s: Unlinking signed zone %s to trigger resign\n", __func__, signed_path);
+			unlink(signed_path);
 			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
 		} else {
 			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Partial write failure\"}\n", a->req);
@@ -1040,6 +1122,60 @@ fail:
 		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Could not open zone for writing\"}\n", a->req);
 	}
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
+}
+
+static void
+get_dane_hash(const char *base_dir, const char *domain, const char *certs_dir, const char *root, int previous, char *out, size_t out_len)
+{
+	char cert_path[256];
+	int cfd;
+	struct lws_x509_cert *cert = NULL;
+
+	out[0] = '\0';
+
+	lws_snprintf(cert_path, sizeof(cert_path), "%s/domains/%s/certs/%s/crt/%s-%s.crt",
+		base_dir, domain, certs_dir, root, previous ? "previous" : "latest");
+
+	cfd = open(cert_path, LWS_O_RDONLY);
+	if (cfd < 0) return;
+
+	if (!lws_x509_create(&cert)) {
+		struct stat st;
+		if (!fstat(cfd, &st) && st.st_size > 0) {
+			char *pembuf = malloc((size_t)st.st_size);
+			if (pembuf && read(cfd, pembuf, (unsigned int)st.st_size) == st.st_size) {
+				if (lws_x509_parse_from_pem(cert, pembuf, (size_t)st.st_size) >= 0) {
+					union lws_tls_cert_info_results res1;
+					union lws_tls_cert_info_results *res;
+					res1.ns.len = 0;
+					if (lws_x509_info(cert, LWS_TLS_CERT_INFO_DER_SPKI, &res1, 0) == -1 && res1.ns.len > 0) {
+						size_t alloc_len = sizeof(*res) - sizeof(res1.ns.name) + (size_t)res1.ns.len;
+						res = malloc(alloc_len);
+						if (res) {
+							res->ns.len = 0;
+							if (lws_x509_info(cert, LWS_TLS_CERT_INFO_DER_SPKI, res, (size_t)res1.ns.len) == 0) {
+								struct lws_genhash_ctx hash_ctx;
+								uint8_t hash[32];
+								if (!lws_genhash_init(&hash_ctx, LWS_GENHASH_TYPE_SHA256)) {
+									if (!lws_genhash_update(&hash_ctx, (uint8_t *)res->ns.name, (size_t)res->ns.len)) {
+										if (!lws_genhash_destroy(&hash_ctx, hash)) {
+											char hex[65];
+											for (int i = 0; i < 32; i++) lws_snprintf(&hex[i * 2], 3, "%02X", hash[i]);
+											lws_snprintf(out, out_len, "3 1 1 %s", hex);
+										}
+									}
+								}
+							}
+							free(res);
+						}
+					}
+				}
+			}
+			if (pembuf) free(pembuf);
+		}
+		lws_x509_destroy(&cert);
+	}
+	close(cfd);
 }
 
 static void
@@ -1072,8 +1208,11 @@ handle_req_get_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_arg
 					ssize_t n = read(fd, buf, sizeof(buf) - 1);
 					if (n > 0) {
 						buf[n] = '\0';
+						char dane0[128] = {0}, dane1[128] = {0};
+						get_dane_hash(vhd->base_dir, a->domain, vhd->acme_production ? "production" : "staging", sub, 0, dane0, sizeof(dane0));
+						get_dane_hash(vhd->base_dir, a->domain, vhd->acme_production ? "production" : "staging", sub, 1, dane1, sizeof(dane1));
 						if (!first) tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), ",");
-						tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"fqdn\":\"%s\",\"port\":%d}", sub, atoi(buf));
+						tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"fqdn\":\"%s\",\"port\":%d,\"dane0\":\"%s\",\"dane1\":\"%s\"}", sub, atoi(buf), dane0, dane1);
 						first = 0;
 					}
 					close(fd);
@@ -1233,8 +1372,11 @@ handle_req_get_all_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 							ssize_t n = read(fd, buf, sizeof(buf) - 1);
 							if (n > 0) {
 								buf[n] = '\0';
+								char dane0[128] = {0}, dane1[128] = {0};
+								get_dane_hash(vhd->base_dir, de->d_name, vhd->acme_production ? "production" : "staging", sub, 0, dane0, sizeof(dane0));
+								get_dane_hash(vhd->base_dir, de->d_name, vhd->acme_production ? "production" : "staging", sub, 1, dane1, sizeof(dane1));
 								if (!first_tls) tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), ",");
-								tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"fqdn\":\"%s\",\"port\":%d}", sub, atoi(buf));
+								tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"fqdn\":\"%s\",\"port\":%d,\"dane0\":\"%s\",\"dane1\":\"%s\"}", sub, atoi(buf), dane0, dane1);
 								first_tls = 0;
 							}
 							close(fd);
@@ -1295,12 +1437,15 @@ handle_req_set_acme_config(struct vhd *vhd, struct pss *root_pss, struct monitor
 		n = lws_snprintf(buf, sizeof(buf),
 			"{\n  \"enabled\": %s,\n  \"production\": %s,\n  \"email\": \"%s\",\n"
 			"  \"organization\": \"%s\",\n  \"country\": \"%s\",\n  \"state\": \"%s\",\n"
-			"  \"locality\": \"%s\",\n  \"profile\": \"%s\"\n}\n",
+			"  \"locality\": \"%s\",\n  \"profile\": \"%s\",\n  \"sign_validity_days\": %d\n}\n",
 			a->enabled ? "true" : "false",
 			a->production ? "true" : "false",
-			a->email, a->organization, a->country, a->state, a->locality, a->profile);
+			a->email, a->organization, a->country, a->state, a->locality, a->profile,
+			a->sign_validity_days ? a->sign_validity_days : 21);
 
 		if (write(fd, buf, (size_t)n) == (ssize_t)n) {
+			if (a->sign_validity_days > 0)
+				vhd->signature_duration = (uint32_t)(a->sign_validity_days * 24 * 3600);
 			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"set_acme_config\",\"status\":\"ok\"}\n");
 		} else {
 			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"set_acme_config\",\"status\":\"error\",\"msg\":\"Write failed\"}\n");
@@ -1914,6 +2059,7 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 				strcmp(req_map[i].name, "set_ipv6_suffix") &&
 				strcmp(req_map[i].name, "get_all_tls") &&
 				strcmp(req_map[i].name, "get_acme_config") &&
+				strcmp(req_map[i].name, "set_acme_config") &&
 				strcmp(req_map[i].name, "get_acme_profiles") &&
 				strcmp(req_map[i].name, "get_acme_log") &&
 				strcmp(req_map[i].name, "get_dist_server_domain") &&
@@ -2175,7 +2321,7 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 
 							/* Guarantee absolute discovery independently of Unix kernel notify boundaries */
 							/* Deferred to cleanly drop execution permissions naturally inside the loop */
-							lws_sul_schedule(vhd->context, 0, &vhd->sul_timer, dnssec_monitor_timer_cb, 1 * LWS_US_PER_SEC);
+							lws_sul_schedule(vhd->context, 0, &vhd->sul_timer, dnssec_monitor_expiry_timer_cb, 1 * LWS_US_PER_SEC);
 							timer_armed = 1;
 
 #if defined(LWS_WITH_DIR)
@@ -2243,6 +2389,27 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 			if (!vhd->uds_path)
 				vhd->uds_path = "/var/run/lws-dnssec-monitor.sock";
+
+			{
+				char d_path[1024];
+				lws_snprintf(d_path, sizeof(d_path), "%s/acme_config.json", vhd->base_dir);
+				int fd = open(d_path, O_RDONLY);
+				if (fd >= 0) {
+					char buf[4096];
+					ssize_t n = read(fd, buf, sizeof(buf) - 1);
+					if (n > 0) {
+						struct monitor_req_args a;
+						memset(&a, 0, sizeof(a));
+						struct lejp_ctx jctx;
+						lejp_construct(&jctx, monitor_req_cb, &a, monitor_req_paths, LWS_ARRAY_SIZE(monitor_req_paths));
+						lejp_parse(&jctx, (uint8_t *)buf, (int)n);
+						lejp_destruct(&jctx);
+						if (a.sign_validity_days > 0)
+							vhd->signature_duration = (uint32_t)(a.sign_validity_days * 24 * 3600);
+					}
+					close(fd);
+				}
+			}
 
 			/* Locate the operational ops struct off the prerequisite plugin */
 			const struct lws_protocols *prot = lws_vhost_name_to_protocol(vhd->vhost, "lws-dht-dnssec");
@@ -2698,8 +2865,17 @@ fallback:
 			if (afi && afi->magic == ACME_PROFILES_MAGIC) {
 				lwsl_notice("%s: Completed ACME directory fetch (%zu bytes)\n", __func__, afi->json_len);
 
-				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->ui_clients.head) {
-					struct pss *wpss = lws_container_of(d, struct pss, list);
+				struct vhd *target_vhd = global_root_vhd ? global_root_vhd : vhd;
+				int found = 0;
+				lws_start_foreach_dll(struct lws_dll2 *, p, target_vhd->clients.head) {
+					if (lws_container_of(p, struct pss, list) == afi->root_pss) found = 1;
+				} lws_end_foreach_dll(p);
+				lws_start_foreach_dll(struct lws_dll2 *, p, target_vhd->ui_clients.head) {
+					if (lws_container_of(p, struct pss, list) == afi->root_pss) found = 1;
+				} lws_end_foreach_dll(p);
+
+				if (found) {
+					struct pss *wpss = afi->root_pss;
 					size_t existing_len = wpss->tx_len;
 					if (existing_len + afi->json_len + 128 < 65536 - LWS_PRE) {
 						int n = lws_snprintf((char *)&wpss->tx[LWS_PRE + existing_len], 65536 - LWS_PRE - existing_len,
@@ -2738,7 +2914,7 @@ fallback:
 						if (wpss->cwsi) lws_callback_on_writable(wpss->cwsi);
 						if (wpss->wsi) lws_callback_on_writable(wpss->wsi);
 					}
-				} lws_end_foreach_dll_safe(d, d1);
+				}
 
 				afi->magic = 0;
 				if (afi->json) free(afi->json);
