@@ -38,6 +38,8 @@
 #include <unistd.h>
 #include <sys/stat.h>
 
+#include "../../lib/tls/private-lib-tls.h"
+
 #if defined(WIN32) || defined(_WIN32)
 #else
 #include <sys/wait.h>
@@ -113,6 +115,7 @@ struct vhd {
 	lws_dll2_owner_t clients;
 
 	lws_dll2_owner_t pub_states;
+	int initial_parent_scan_done;
 };
 
 #define ACME_PROFILES_MAGIC 0xAC3E0001
@@ -469,19 +472,24 @@ parent_scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		} lws_end_foreach_dll(d);
 
 		if (needs_pub) {
-			lwsl_notice("%s: Parent detected new JWS for %s! Triggering DHT publication loop.\n", __func__, lde->name);
-			if (vhd->ops && vhd->ops->publish_jws) {
-				vhd->ops->publish_jws(vhd->vhost, jws_path);
-				if (!ps) {
-					ps = calloc(1, sizeof(*ps));
-					if (ps) {
-						lws_strncpy(ps->domain, lde->name, sizeof(ps->domain));
-						lws_dll2_add_tail(&ps->list, &vhd->pub_states);
-					}
+			if (vhd->initial_parent_scan_done) {
+				lwsl_notice("%s: Parent detected new JWS for %s! Triggering DHT publication loop.\n", __func__, lde->name);
+				if (vhd->ops && vhd->ops->publish_jws) {
+					vhd->ops->publish_jws(vhd->vhost, jws_path);
 				}
-				if (ps)
-					ps->mtime = st_jws.st_mtime;
+			} else {
+				lwsl_notice("%s: Initial startup scan observed existing JWS for %s, marking as already published.\n", __func__, lde->name);
 			}
+
+			if (!ps) {
+				ps = calloc(1, sizeof(*ps));
+				if (ps) {
+					lws_strncpy(ps->domain, lde->name, sizeof(ps->domain));
+					lws_dll2_add_tail(&ps->list, &vhd->pub_states);
+				}
+			}
+			if (ps)
+				ps->mtime = st_jws.st_mtime;
 		}
 	}
 	return 0;
@@ -497,6 +505,7 @@ parent_dnssec_monitor_timer_cb(struct lws_sorted_usec_list *sul)
 
 	lws_snprintf(scan_path, sizeof(scan_path), "%s/domains", vhd->base_dir);
 	lws_dir(scan_path, vhd, parent_scan_dir_cb);
+	vhd->initial_parent_scan_done = 1;
 	lws_sul_schedule(vhd->context, 0, &vhd->sul_timer, parent_dnssec_monitor_timer_cb, 5 * LWS_US_PER_SEC);
 }
 
@@ -1533,6 +1542,38 @@ handle_req_get_all_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 }
 
 static void
+handle_req_get_cert_validity(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
+{
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
+	char *tx_end = tx + 65536 - 1;
+	char cert_path[512];
+	int days_left = 0, total_days = 0;
+
+	if (!a->domain[0] || !a->subdomain[0]) {
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Missing domain or subdomain\"}\n", a->req);
+		goto done;
+	}
+
+	if (strchr(a->domain, '/') || strstr(a->domain, "..") || strchr(a->domain, '\\') ||
+	    strchr(a->subdomain, '/') || strstr(a->subdomain, "..") || strchr(a->subdomain, '\\')) {
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Path traversal\"}\n", a->req);
+		goto done;
+	}
+
+	lws_snprintf(cert_path, sizeof(cert_path), "%s/domains/%s/certs/%s/crt/%s-latest.crt",
+			vhd->base_dir, a->domain, vhd->acme_production ? "production" : "staging", a->subdomain);
+
+	if (!lws_tls_cert_get_x509_remaining(vhd->context, cert_path, &days_left, &total_days)) {
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"days_left\":%d,\"total_days\":%d}\n", a->req, days_left, total_days);
+	} else {
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Could not read certificate\"}\n", a->req);
+	}
+
+done:
+	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
+}
+
+static void
 handle_req_get_acme_config(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
@@ -2120,7 +2161,8 @@ static const struct monitor_req_map {
 	{ "download_dist_server", handle_req_download_dist_server },
 	{ "get_dist_server_domain", handle_req_get_dist_server_domain },
 	{ "set_dist_server_domain", handle_req_set_dist_server_domain },
-	{ "check_cert", handle_req_check_cert }
+	{ "check_cert", handle_req_check_cert },
+	{ "get_cert_validity", handle_req_get_cert_validity }
 };
 
 static void

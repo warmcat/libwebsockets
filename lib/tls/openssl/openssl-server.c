@@ -144,6 +144,17 @@ lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
 	/* select the ssl ctx from the selected vhost for this conn */
 	SSL_set_SSL_CTX(ssl, vhost->tls.ssl_ctx);
 
+	/*
+	 * OpenSSL's SSL_set_SSL_CTX does NOT copy the verify mode or client CA list
+	 * from the new context to the active SSL object! We must do it manually
+	 * so SNI vhosts can have different client cert requirements than the default vhost.
+	 */
+	SSL_set_verify(ssl, SSL_CTX_get_verify_mode(vhost->tls.ssl_ctx),
+		       SSL_CTX_get_verify_callback(vhost->tls.ssl_ctx));
+
+	if (SSL_CTX_get_client_CA_list(vhost->tls.ssl_ctx))
+		SSL_set_client_CA_list(ssl, SSL_dup_CA_list(SSL_CTX_get_client_CA_list(vhost->tls.ssl_ctx)));
+
 	return SSL_TLSEXT_ERR_OK;
 }
 #endif
@@ -561,16 +572,28 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 	SSL_CTX_set_tlsext_servername_arg(vhost->tls.ssl_ctx, vhost->context);
 #endif
 
-	if (info->ssl_ca_filepath &&
+	if (info->ssl_ca_filepath) {
 #if defined(LWS_HAVE_SSL_CTX_load_verify_file)
-	    !SSL_CTX_load_verify_file(vhost->tls.ssl_ctx,
+	    if (!SSL_CTX_load_verify_file(vhost->tls.ssl_ctx,
 				      info->ssl_ca_filepath)) {
 #else
-	    !SSL_CTX_load_verify_locations(vhost->tls.ssl_ctx,
+	    if (!SSL_CTX_load_verify_locations(vhost->tls.ssl_ctx,
 					   info->ssl_ca_filepath, NULL)) {
 #endif
-		lwsl_err("%s: SSL_CTX_load_verify_locations unhappy\n",
-			 __func__);
+			lwsl_err("%s: SSL_CTX_load_verify_locations unhappy\n",
+				 __func__);
+		} else {
+			/*
+			 * Provide the CA list to the client so it knows what client certs to send
+			 */
+			STACK_OF(X509_NAME) *calist = SSL_load_client_CA_file(info->ssl_ca_filepath);
+			if (!calist) {
+				lwsl_err("%s: SSL_load_client_CA_file failed to load %s\n", __func__, info->ssl_ca_filepath);
+			} else {
+				lwsl_notice("%s: Loaded %d CAs for client CA list from %s\n", __func__, sk_X509_NAME_num(calist), info->ssl_ca_filepath);
+				SSL_CTX_set_client_CA_list(vhost->tls.ssl_ctx, calist);
+			}
+		}
 	}
 
 	SSL_OPT_TYPE ssl_options_set_value = (SSL_OPT_TYPE) info->ssl_options_set;
