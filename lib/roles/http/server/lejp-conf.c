@@ -113,6 +113,7 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].mounts[].interceptor-path",
 #endif
 	"vhosts[].mounts[]",
+	/* Nested generic paths handled dynamically in LEJPVP_PROTOCOL_NAME_OPT */
 	"vhosts[].ws-protocols[].*.*",
 	"vhosts[].ws-protocols[].*",
 	"vhosts[].ws-protocols[]",
@@ -208,6 +209,7 @@ enum lejp_vhost_paths {
 
 	LEJPVP_MOUNTS,
 
+	/* Nested generic enum slots removed */
 	LEJPVP_PROTOCOL_NAME_OPT,
 	LEJPVP_PROTOCOL_NAME,
 	LEJPVP_PROTOCOL,
@@ -444,7 +446,7 @@ static signed char
 lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 {
 	struct jpargs *a = (struct jpargs *)ctx->user;
-	struct lws_protocol_vhost_options *pvo, *mp_cgienv, *headers;
+	struct lws_protocol_vhost_options *mp_cgienv, *headers;
 	struct lws_http_mount *m;
 	char *p, *p1;
 	int n;
@@ -953,25 +955,82 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		goto dostring;
 
 	case LEJPVP_PROTOCOL_NAME_OPT:
-		/* this catches, eg,
-		 * vhosts[].ws-protocols[].xxx-protocol.yyy-option
-		 * ie, these are options attached to a protocol with { }
-		 */
+	{
+		struct lws_protocol_vhost_options *pvo_parent = a->pvo;
+		struct lws_protocol_vhost_options *pvo_cur;
+		int wild1 = ctx->wild[1];
+		int lvl_start = 1;
+		int lvl, start, len, next_p;
+		char key_buf[128];
+
 		if (a->chunk)
 			goto dostring;
 
-		pvo = lwsws_align(a);
-		a->p += sizeof(*a->pvo);
+		/* Find the largest stack level that is <= wild1 */
+		for (lvl = 1; lvl < ctx->sp; lvl++) {
+			int p = (unsigned char)ctx->st[lvl].p;
+			if (p <= wild1) {
+				lvl_start = lvl;
+			} else {
+				break;
+			}
+		}
 
-		n = lejp_get_wildcard(ctx, 1, a->p, lws_ptr_diff(a->end, a->p));
-		/* ie, enable this protocol, no options yet */
-		pvo->next = a->pvo->options;
-		a->pvo->options = pvo;
-		pvo->name = a->p;
-		a->p += n;
-		pvo->value = a->p;
-		pvo->options = NULL;
+		/* Iterate through the stack to build the PVO tree */
+		for (lvl = lvl_start; lvl < ctx->sp; lvl++) {
+			start = (unsigned char)ctx->st[lvl].p;
+			next_p = (lvl + 1 < ctx->sp) ? (unsigned char)ctx->st[lvl+1].p : (int)strlen(ctx->path);
+
+			if (next_p <= start)
+				continue; /* Skip empty or invalid levels (e.g. string value level) */
+
+			if (ctx->path[start] == '.')
+				start++;
+
+			if (next_p <= start)
+				continue;
+
+			len = next_p - start;
+			if (ctx->path[next_p - 1] == '.')
+				len--; /* Exclude the trailing dot */
+
+			if (len <= 0)
+				continue;
+
+			if (len >= (int)sizeof(key_buf))
+				len = sizeof(key_buf) - 1;
+
+			memcpy(key_buf, &ctx->path[start], (size_t)len);
+			key_buf[len] = '\0';
+
+			/* Find or create the PVO at this level */
+			pvo_cur = (struct lws_protocol_vhost_options *)pvo_parent->options;
+			while (pvo_cur && strcmp(pvo_cur->name, key_buf)) {
+				pvo_cur = (struct lws_protocol_vhost_options *)pvo_cur->next;
+			}
+
+			if (!pvo_cur) {
+				pvo_cur = lwsws_align(a);
+				a->p += sizeof(*pvo_cur);
+				pvo_cur->name = a->p;
+				a->p += lws_snprintf(a->p, lws_ptr_diff_size_t(a->end, a->p), "%s", key_buf) + 1;
+				pvo_cur->value = NULL;
+				pvo_cur->options = NULL;
+
+				/* Link into parent's options */
+				pvo_cur->next = pvo_parent->options;
+				pvo_parent->options = pvo_cur;
+			}
+
+			pvo_parent = pvo_cur;
+		}
+
+		/* The last created PVO is the leaf node. Value goes here via dostring */
+		if (pvo_parent)
+			pvo_parent->value = a->p;
+
 		goto dostring;
+	}
 
 	case LEJPVP_MOUNT_EXTRA_MIMETYPES:
 		if (a->chunk)

@@ -1321,34 +1321,10 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 
 		caa = (struct lws_acme_cert_aging_args *)in;
-		/*
-		 * Somebody is telling us about a cert some vhost is using.
-		 *
-		 * First see if the cert is getting close enough to expiry that
-		 * we *want* to do something about it.
-		 */
-		if ((int)(ssize_t)len > 14)
-			break;
-
-		/*
-		 * ...is this a vhost we were configured on?
-		 */
 		if (vhd->vhost != caa->vh)
 			return 1;
 
-		if (!vhd->active_cert)
-			return 1; /* For now, just operate on the single active certificate during aging */
-
-		for (n = 0; n < LWS_TLS_TOTAL_COUNT; n++)
-			if (caa->element_overrides[n])
-				vhd->active_cert->pvop[n] = caa->element_overrides[n];
-
-		lwsl_notice("scheduling acme acquisition on %s: %s\n",
-				lws_get_vhost_name(caa->vh),
-				vhd->active_cert->pvop[LWS_TLS_SET_DIR_URL]);
-
-		lws_sul_schedule(lws_get_context(wsi), 0, &vhd->sul_acquisition,
-				 lws_acme_start_acquisition_cb, 100 * LWS_US_PER_MS);
+		lws_acme_core_cert_aging(vhd, caa);
 		break;
 
 	/*

@@ -37,17 +37,16 @@ Below is an example of how to configure this plugin in an `lwsws` JSON config fi
         "base-dir": "/etc/lwsws-pki",
         "server-url": "wss://distribution-server.local",
         "ca-filepath": "/etc/lwsws-pki/dist-server-ca.crt",
-        "certs": [{
+        "certs": {
           "example-com": {
             "cert": "/etc/lwsws-pki/example.com/mtls-client.crt",
             "key": "/etc/lwsws-pki/example.com/mtls-client.key"
-          }
-        }, {
+          },
           "test-org": {
             "cert": "/etc/lwsws-pki/test.org/mtls-client.crt",
             "key": "/etc/lwsws-pki/test.org/mtls-client.key"
           }
-        }]
+        }
       }
     }]
   }]
