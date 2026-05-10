@@ -1,7 +1,7 @@
 /*
  * libwebsockets web server application
  *
- * Written in 2010-2020 by Andy Green <andy@warmcat.com>
+ * Written in 2010-2026 by Andy Green <andy@warmcat.com>
  *
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
@@ -348,7 +348,7 @@ int main(int argc, char **argv)
 	lws_set_log_level(debug_level, lwsl_emit_stderr_notimestamp);
 
 	lwsl_notice("lwsws libwebsockets web server - license CC0 + MIT\n");
-	lwsl_notice("(C) Copyright 2010-2020 Andy Green <andy@warmcat.com>\n");
+	lwsl_notice("(C) Copyright 2010-2026 Andy Green <andy@warmcat.com>\n");
 
 #if (UV_VERSION_MAJOR > 0) // Travis...
 	uv_loop_init(&loop);

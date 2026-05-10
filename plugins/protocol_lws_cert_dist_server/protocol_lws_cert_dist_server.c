@@ -57,7 +57,6 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 						 lws_get_protocol(wsi));
 	struct pss_cert_dist_server *pss = (struct pss_cert_dist_server *)user;
-	union lws_tls_cert_info_results ir;
 	char path[512], *p;
 
 	switch (reason) {
@@ -65,6 +64,7 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_PROTOCOL_INIT:
 		if (lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub"))
 			return 0;
+
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 						  lws_get_protocol(wsi),
 						  sizeof(struct vhd_cert_dist_server));
@@ -90,26 +90,53 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 #endif
 		break;
 
-	case LWS_CALLBACK_ESTABLISHED:
+	case LWS_CALLBACK_WSI_CREATE:
+		lwsl_notice("%s: WSI_CREATE (wsi=%p)\n", __func__, wsi);
+		break;
+
+	case LWS_CALLBACK_FILTER_NETWORK_CONNECTION:
+		lwsl_notice("%s: FILTER_NETWORK_CONNECTION (TCP connection arrived at vhost!)\n", __func__);
+		break;
+
+	case LWS_CALLBACK_WSI_DESTROY:
+		lwsl_notice("%s: WSI_DESTROY (wsi=%p)\n", __func__, wsi);
+		break;
+
+	case LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION:
+		lwsl_notice("%s: TLS Handshake: Performing client cert verification!\n", __func__);
+		break;
+
+	case LWS_CALLBACK_ESTABLISHED: {
+		uint8_t buf[256];
+		union lws_tls_cert_info_results *ir = (union lws_tls_cert_info_results *)buf;
+
 		lwsl_notice("%s: Incoming connection from client\n", __func__);
+
 		/*
 		 * Extract the identity from the client certificate.
 		 * The CN should be the subdomain.
 		 */
-		if (lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_COMMON_NAME, &ir, sizeof(ir.ns.name))) {
+		if (lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_COMMON_NAME, ir, sizeof(buf))) {
 			lwsl_err("%s: No client cert common name found\n", __func__);
+			lws_close_reason(wsi, LWS_CLOSE_STATUS_POLICY_VIOLATION, (unsigned char *)"No CN in client cert", 20);
 			return -1;
 		}
 
-		lws_strncpy(pss->subdomain, ir.ns.name, sizeof(pss->subdomain));
+		lws_strncpy(pss->subdomain, ir->ns.name, sizeof(pss->subdomain));
 		pss->wsi = wsi;
 
-		/* Derive domain from subdomain (assume last two parts or similar) */
-		p = strchr(pss->subdomain, '.');
-		if (p)
-			lws_strncpy(pss->domain, p + 1, sizeof(pss->domain));
-		else
-			lws_strncpy(pss->domain, pss->subdomain, sizeof(pss->domain));
+		{
+			int dots = 0;
+			char *q;
+			for (q = pss->subdomain; *q; q++) if (*q == '.') dots++;
+
+			if (dots > 1) {
+				p = strchr(pss->subdomain, '.');
+				lws_strncpy(pss->domain, p + 1, sizeof(pss->domain));
+			} else {
+				lws_strncpy(pss->domain, pss->subdomain, sizeof(pss->domain));
+			}
+		}
 
 		/* Verify the client cert still exists in the monitor's data dir */
 		lws_snprintf(path, sizeof(path), "%s/%s/dist-client/distribution-client-%s.crt",
@@ -117,6 +144,7 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (access(path, F_OK)) {
 			lwsl_err("%s: Client cert file %s not found on server\n", __func__, path);
+			lws_close_reason(wsi, LWS_CLOSE_STATUS_POLICY_VIOLATION, (unsigned char *)"Cert not found on server", 24);
 			return -1;
 		}
 
@@ -125,6 +153,7 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 		pss->established = 1;
 		lws_callback_on_writable(wsi);
 		break;
+	}
 
 	case LWS_CALLBACK_CLOSED:
 		lws_dll2_remove(&pss->list);
@@ -217,13 +246,13 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 					if (m < 0) {
 						lwsl_err("%s: Write failed\n", __func__);
 						free(json);
-						goto bail;
+						lws_close_reason(wsi, LWS_CLOSE_STATUS_UNEXPECTED_CONDITION, (unsigned char *)"Write failed", 12);
+						return -1;
 					}
 					free(json);
 				}
 			}
 
-bail:
 			if (cert_buf) free(cert_buf);
 			if (key_buf) free(key_buf);
 		}

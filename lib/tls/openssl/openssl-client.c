@@ -211,6 +211,19 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 			lwsl_err("SSL error: %s (preverify_ok=%d;err=%d;"
 				 "depth=%d)\n", msg, preverify_ok, err, depth);
 
+			if (err == X509_V_ERR_HOSTNAME_MISMATCH) {
+				const char *expected = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
+				char cert_cn[256] = "unknown";
+				X509 *cert = X509_STORE_CTX_get_current_cert(x509_ctx);
+				if (cert) {
+					X509_NAME *subject = X509_get_subject_name(cert);
+					if (subject)
+						X509_NAME_get_text_by_NID(subject, NID_commonName, cert_cn, sizeof(cert_cn));
+				}
+				lwsl_err("Hostname mismatch details: Expected='%s', Cert CN='%s'\n",
+					expected ? expected : "unknown", cert_cn);
+			}
+
 #if defined(LWS_WITH_SYS_METRICS)
 			{
 				char buckname[64];

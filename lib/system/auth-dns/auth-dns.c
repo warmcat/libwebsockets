@@ -470,6 +470,7 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 			case 48: ts = "DNSKEY"; break;
 			case 50: ts = "NSEC3"; break;
 			case 51: ts = "NSEC3PARAM"; break;
+			case 52: ts = "TLSA"; break;
 			case 257: ts = "CAA"; break;
 		}
 

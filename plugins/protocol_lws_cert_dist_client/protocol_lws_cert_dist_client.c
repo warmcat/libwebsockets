@@ -314,6 +314,8 @@ dist_client_stub_run(struct vhd_cert_dist_client *vhd)
 	return 0;
 }
 
+static const struct lws_protocols protocols[];
+
 static int
 callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 			 void *user, void *in, size_t len)
@@ -322,6 +324,30 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 						 lws_get_protocol(wsi));
 	switch (reason) {
+
+	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+		if (lws_http_client_http_response(wsi) != 101) {
+			lwsl_err("%s: Server REJECTED WebSocket upgrade! HTTP Status: %u\n", __func__,
+				 lws_http_client_http_response(wsi));
+			return -1; /* Abort connection */
+		}
+		return 0; /* Allow 101 to proceed to WS upgrade */
+
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
+		lwsl_notice("%s: Server sent HTTP body: %.*s\n", __func__, (int)len, (const char *)in);
+		return 0;
+
+	case LWS_CALLBACK_WSI_CREATE:
+		lwsl_notice("%s: WSI_CREATE (wsi=%p)\n", __func__, wsi);
+		break;
+
+	case LWS_CALLBACK_WSI_DESTROY:
+		lwsl_notice("%s: WSI_DESTROY (wsi=%p)\n", __func__, wsi);
+		break;
+
+	case LWS_CALLBACK_OPENSSL_PERFORM_SERVER_CERT_VERIFICATION:
+		lwsl_notice("%s: TLS Handshake: Performing server cert verification!\n", __func__);
+		break;
 
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:
 		lwsl_notice("%s: Connected to distribution server\n", __func__);
@@ -410,6 +436,11 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		break;
 
+	case LWS_CALLBACK_WS_PEER_INITIATED_CLOSE:
+		lwsl_notice("%s: Server initiated close: len %d, msg '%.*s'\n", __func__,
+			    (int)len, (int)len, in ? (const char *)in : "none");
+		break;
+
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		lwsl_notice("%s: CLIENT_CONNECTION_ERROR: %s\n", __func__, in ? (char *)in : "(null)");
 		/* fallthru */
@@ -438,6 +469,12 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 
 			lwsl_notice("%s: proceeding with init (in=%p, stub=%s)\n", __func__, in, stub ? stub : "NULL");
+
+			if (!strncmp(lws_get_vhost_name(lws_get_vhost(wsi)), "dist-client-", 12)) {
+				lwsl_notice("%s: dynamically created vhost '%s', skipping recursive init\n",
+							__func__, lws_get_vhost_name(lws_get_vhost(wsi)));
+				return 0;
+			}
 
 			vhd = lws_protocol_vh_priv_get(lws_get_vhost(wsi), lws_get_protocol(wsi));
 			if (vhd) {
@@ -587,6 +624,7 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 			ci.client_ssl_private_key_filepath = key_path;
 			if (ca_filepath)
 				ci.client_ssl_ca_filepath = ca_filepath;
+			ci.protocols = protocols;
 			ci.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 
 			struct lws_vhost *vh = lws_create_vhost(vhd->cx, &ci);
@@ -613,7 +651,7 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 					if (!strcmp(prot, "wss") || !strcmp(prot, "https")) {
 						cci.ssl_connection = LCCSCF_USE_SSL | LCCSCF_H2_QUIRK_NGHTTP2_END_STREAM | LCCSCF_H2_QUIRK_OVERFLOWS_TXCR;
-						cci.alpn = "h2,http/1.1";
+						cci.alpn = "http/1.1";
 					}
 
 					lwsl_notice("%s: Initiating connection to %s:%d (prot=%s)\n", __func__, addr, port, prot);
@@ -624,6 +662,9 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 				} else {
 					lwsl_err("%s: Failed to parse server url %s\n", __func__, vhd->server_url);
 				}
+			} else {
+				lwsl_err("%s: Failed to create client vhost '%s'! (Check if cert %s and key %s exist and are valid)\n",
+						 __func__, vh_name, cert_path, key_path);
 			}
 
 			certs_pvo = certs_pvo->next;
