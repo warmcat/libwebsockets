@@ -967,8 +967,8 @@ lws_acme_start_acquisition(struct per_vhost_data__lws_acme_client *vhd,
 	/*
 	 * ...well... we should try to do something about it then...
 	 */
-	lwsl_vhost_notice(vhd->vhost, "ACME cert needs creating / updating:  "
-			"vhost %s", lws_get_vhost_name(vhd->vhost));
+	lwsl_vhost_notice(vhd->vhost, "ACME cert needs creating / updating: %s "
+			"(via vhost %s)", vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], lws_get_vhost_name(vhd->vhost));
 
 	vhd->ac = malloc(sizeof(*vhd->ac));
 	memset(vhd->ac, 0, sizeof(*vhd->ac));
@@ -2234,18 +2234,113 @@ lws_acme_core_cert_aging(struct per_vhost_data__lws_acme_client *vhd,
 	int n, days_left, total_days;
     struct lws_acme_cert_config *cfg;
 
-	if (!vhd || !vhd->cert_configs.head)
+	if (!vhd || !vhd->cert_configs.head) {
+        lwsl_notice("acme_aging: aborting, no vhd or cert_configs.head is empty\n");
 		return 0;
+    }
 
     /* If we are already doing an ACME check, busy. Try again later */
-    if (vhd->ac)
+    if (vhd->ac) {
+        lwsl_notice("acme_aging: aborting, ACME check already busy\n");
         return 0;
+    }
+
+    int is_production = 0;
+    int has_config = 0;
+    int global_enabled = 1;
+    char global_email[128];
+    global_email[0] = '\0';
+
+    {
+        char d_path[1024];
+        lws_snprintf(d_path, sizeof(d_path), "%s/acme_config.json", vhd->dns_base_dir);
+        int fd_cfg = open(d_path, O_RDONLY);
+        if (fd_cfg >= 0) {
+            char buf[1024];
+            ssize_t nr = read(fd_cfg, buf, sizeof(buf) - 1);
+            if (nr > 0) {
+                buf[nr] = '\0';
+                if (strstr(buf, "\"production\": true") || strstr(buf, "\"production\":true"))
+                    is_production = 1;
+                if (strstr(buf, "\"enabled\": false") || strstr(buf, "\"enabled\":false"))
+                    global_enabled = 0;
+
+                char *email_start = strstr(buf, "\"email\": \"");
+                if (email_start) {
+                    email_start += 10;
+                    char *email_end = strchr(email_start, '"');
+                    if (email_end && (size_t)(email_end - email_start) < sizeof(global_email)) {
+                        memcpy(global_email, email_start, (size_t)(email_end - email_start));
+                        global_email[(size_t)(email_end - email_start)] = '\0';
+                    }
+                }
+                has_config = 1;
+            }
+            close(fd_cfg);
+        } else {
+            lwsl_notice("acme_aging: failed to open acme_config.json at %s\n", d_path);
+        }
+    }
+
+    if (!global_enabled) {
+        lwsl_notice("acme_aging: global ACME is disabled in acme_config.json\n");
+        return 0;
+    }
+
+    lwsl_notice("acme_aging: starting evaluation of cert_configs (has_config: %d, is_production: %d)\n", has_config, is_production);
 
     lws_start_foreach_dll(struct lws_dll2 *, d, vhd->cert_configs.head) {
         cfg = lws_container_of(d, struct lws_acme_cert_config, list);
 
-        if (!cfg->pvop[LWS_TLS_SET_CERT_PATH] || !cfg->pvop[LWS_TLS_SET_KEY_PATH])
+        lwsl_notice("acme_aging: checking cert CN: %s\n", cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME] ? cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME] : "unknown");
+
+        if (has_config) {
+            const char *env_dir = is_production ? "production" : "staging";
+            char cert_path[512], key_path[512];
+            const char *domain = cfg->pvop[LWS_TLS_SET_ROOT_DOMAIN] ?
+                    cfg->pvop[LWS_TLS_SET_ROOT_DOMAIN] :
+                    cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME];
+            const char *cn = cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME];
+
+            if (domain && cn) {
+                lws_snprintf(cert_path, sizeof(cert_path), "%s/domains/%s/certs/%s/crt/%s-latest.crt",
+                    vhd->dns_base_dir, domain, env_dir, cn);
+                lws_snprintf(key_path, sizeof(key_path), "%s/domains/%s/certs/%s/key/%s-latest.key",
+                    vhd->dns_base_dir, domain, env_dir, cn);
+
+                if (cfg->pvop[LWS_TLS_SET_CERT_PATH] && strcmp(cfg->pvop[LWS_TLS_SET_CERT_PATH], cert_path) != 0) {
+                    free((void *)cfg->pvop[LWS_TLS_SET_CERT_PATH]);
+                    cfg->pvop[LWS_TLS_SET_CERT_PATH] = strdup(cert_path);
+                }
+                if (cfg->pvop[LWS_TLS_SET_KEY_PATH] && strcmp(cfg->pvop[LWS_TLS_SET_KEY_PATH], key_path) != 0) {
+                    free((void *)cfg->pvop[LWS_TLS_SET_KEY_PATH]);
+                    cfg->pvop[LWS_TLS_SET_KEY_PATH] = strdup(key_path);
+                }
+
+                if (is_production)
+                    cfg->pvop[LWS_TLS_SET_DIR_URL] = "https://acme-v02.api.letsencrypt.org/directory";
+                else
+                    cfg->pvop[LWS_TLS_SET_DIR_URL] = "https://acme-staging-v02.api.letsencrypt.org/directory";
+
+                if (global_email[0]) {
+                    /* Only overwrite if not already dynamically allocated by us before, to avoid leaks,
+                     * but wait, pvop strings are owned by the lws_struct except when we overwrite them.
+                     * We'll just strdup it to be safe, or just point it to a static copy?
+                     * We can't free the original because it's managed by lws_struct.
+                     * We just overwrite the pointer.
+                     */
+                     static char safe_global_email[128];
+                     lws_strncpy(safe_global_email, global_email, sizeof(safe_global_email));
+                     cfg->pvop[LWS_TLS_REQ_ELEMENT_EMAIL] = safe_global_email;
+                }
+            }
+        }
+
+
+        if (!cfg->pvop[LWS_TLS_SET_CERT_PATH] || !cfg->pvop[LWS_TLS_SET_KEY_PATH]) {
+            lwsl_notice("acme_aging: skipping %s: missing cert/key paths in pvop\n", cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME]);
             goto next_cert;
+        }
 
         {
             char disabled_path[512];
@@ -2255,17 +2350,17 @@ lws_acme_core_cert_aging(struct per_vhost_data__lws_acme_client *vhd,
             if (domain) {
                 lws_snprintf(disabled_path, sizeof(disabled_path), "%s/domains/%s/acme_disabled",
                     vhd->dns_base_dir, domain);
-                if (access(disabled_path, F_OK) == 0)
+                if (access(disabled_path, F_OK) == 0) {
+                    lwsl_notice("acme_aging: skipping %s: acme_disabled file present at %s\n", domain, disabled_path);
                     goto next_cert;
+                }
             }
-            lws_snprintf(disabled_path, sizeof(disabled_path), "%s/domains/%s/acme_disabled",
-                vhd->dns_base_dir, lws_get_vhost_name(vhd->vhost));
-            if (access(disabled_path, F_OK) == 0)
-                goto next_cert;
         }
 
-        if (vhd->last_acme_failure && lws_now_usecs() - vhd->last_acme_failure < 60 * LWS_US_PER_SEC)
+        if (vhd->last_acme_failure && lws_now_usecs() - vhd->last_acme_failure < 60 * LWS_US_PER_SEC) {
+            lwsl_notice("acme_aging: skipping %s: last_acme_failure cooldown\n", cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME]);
             goto next_cert;
+        }
 
         /* Check if cert needs renewing based on 25% remaining validity */
         if (!lws_tls_cert_get_x509_remaining(vhd->context,
@@ -2274,8 +2369,13 @@ lws_acme_core_cert_aging(struct per_vhost_data__lws_acme_client *vhd,
              lwsl_vhost_notice(vhd->vhost, "acme: cert %s: %d days left, total %d",
                 cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], days_left, total_days);
 
-             if (total_days && days_left > (total_days / 4))
+             if (total_days && days_left > (total_days / 4)) {
+                 lwsl_notice("acme_aging: skipping %s: cert has >25%% validity remaining\n", cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME]);
                  goto next_cert; /* Still active! */
+             }
+        } else {
+            lwsl_notice("acme_aging: triggering acquisition for %s: lws_tls_cert_get_x509_remaining failed (missing or invalid cert at %s)\n",
+                cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], cfg->pvop[LWS_TLS_SET_CERT_PATH]);
         }
 
         /* Activate this cert and configure it for acquisition! */
