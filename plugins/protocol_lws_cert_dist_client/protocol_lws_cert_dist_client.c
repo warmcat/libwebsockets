@@ -259,15 +259,18 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_strncpy(vhd->base_dir, "/etc/lwsws-pki", sizeof(vhd->base_dir));
 
 		const struct lws_protocol_vhost_options *pvo = (const struct lws_protocol_vhost_options *)in;
-		const struct lws_protocol_vhost_options *sub_pvo = NULL;
+		const struct lws_protocol_vhost_options *certs_pvo = NULL;
+		const char *ca_filepath = NULL;
 
 		while (pvo) {
 			if (!strcmp(pvo->name, "base-dir"))
 				lws_strncpy(vhd->base_dir, pvo->value, sizeof(vhd->base_dir));
 			if (!strcmp(pvo->name, "server-url"))
 				vhd->server_url = pvo->value;
-			if (!strcmp(pvo->name, "subdomains"))
-				sub_pvo = pvo->options;
+			if (!strcmp(pvo->name, "certs"))
+				certs_pvo = pvo->options;
+			if (!strcmp(pvo->name, "ca-filepath"))
+				ca_filepath = pvo->value;
 			pvo = pvo->next;
 		}
 
@@ -282,12 +285,12 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (stub) return 0; /* Stubs don't spawn other stubs */
 
-		if (sub_pvo && getuid() == 0 && !global_cert_dist_vhd) {
+		if (certs_pvo && getuid() == 0 && !global_cert_dist_vhd) {
 			struct lws_spawn_piped_info spawn_info;
 			const char *exec_array[10];
 			int n = 0;
 
-			lwsl_notice("%s: Root detected and subdomains configured, spawning privileged stub\n", __func__);
+			lwsl_notice("%s: Root detected and certs configured, spawning privileged stub\n", __func__);
 			global_cert_dist_vhd = vhd;
 
 			/* Generate secret */
@@ -314,29 +317,46 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 		}
 
-		/* Start connections for each subdomain */
-		while (sub_pvo) {
+		/* Start connections for each cert */
+		while (certs_pvo) {
 			struct lws_context_creation_info ci;
-			char cert_path[512], key_path[512], vh_name[128];
+			char vh_name[128];
+			const struct lws_protocol_vhost_options *c_pvo = certs_pvo->options;
+			const char *cert_path = NULL;
+			const char *key_path = NULL;
 
-			lws_snprintf(vh_name, sizeof(vh_name), "dist-client-%s", sub_pvo->name);
-			lws_snprintf(cert_path, sizeof(cert_path), "%s/%s/dist-client.crt", vhd->base_dir, sub_pvo->name);
-			lws_snprintf(key_path, sizeof(key_path), "%s/%s/dist-client.key", vhd->base_dir, sub_pvo->name);
+			while (c_pvo) {
+				if (!strcmp(c_pvo->name, "cert"))
+					cert_path = c_pvo->value;
+				if (!strcmp(c_pvo->name, "key"))
+					key_path = c_pvo->value;
+				c_pvo = c_pvo->next;
+			}
+
+			if (!cert_path || !key_path) {
+				lwsl_err("%s: certs PVO missing cert or key path\n", __func__);
+				certs_pvo = certs_pvo->next;
+				continue;
+			}
+
+			lws_snprintf(vh_name, sizeof(vh_name), "dist-client-%s", certs_pvo->name);
 
 			memset(&ci, 0, sizeof(ci));
 			ci.vhost_name = vh_name;
 			ci.port = CONTEXT_PORT_NO_LISTEN;
 			ci.client_ssl_cert_filepath = cert_path;
 			ci.client_ssl_private_key_filepath = key_path;
+			if (ca_filepath)
+				ci.client_ssl_ca_filepath = ca_filepath;
 			ci.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 
 			struct lws_vhost *vh = lws_create_vhost(vhd->cx, &ci);
 			if (vh) {
-				lwsl_notice("%s: Created client vhost for %s\n", __func__, sub_pvo->name);
+				lwsl_notice("%s: Created client vhost for %s\n", __func__, certs_pvo->name);
 				/* ... Initiate connection ... */
 			}
 
-			sub_pvo = sub_pvo->next;
+			certs_pvo = certs_pvo->next;
 		}
 		break;
 

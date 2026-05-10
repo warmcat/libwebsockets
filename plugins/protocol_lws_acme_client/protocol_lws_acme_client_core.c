@@ -264,6 +264,7 @@ connected:
 			char c = payload[i];
 			if (c == '\n') { dyn_buf[pos++] = '\\'; dyn_buf[pos++] = 'n'; }
 			else if (c == '\r') { dyn_buf[pos++] = '\\'; dyn_buf[pos++] = 'r'; }
+			else if (c == '\t') { dyn_buf[pos++] = '\\'; dyn_buf[pos++] = 't'; }
 			else if (c == '"') { dyn_buf[pos++] = '\\'; dyn_buf[pos++] = '"'; }
 			else if (c == '\\') { dyn_buf[pos++] = '\\'; dyn_buf[pos++] = '\\'; }
 			else { dyn_buf[pos++] = c; }
@@ -2432,7 +2433,8 @@ static const struct lws_acme_core_ops acme_core_ops = {
 	.destroy_vhost = lws_acme_core_destroy_vhost,
 	.cert_aging = lws_acme_core_cert_aging,
 	.notify_challenge_ready = lws_acme_core_notify_challenge_ready,
-	.trigger_resign = lws_acme_core_trigger_resign
+	.trigger_resign = lws_acme_core_trigger_resign,
+	.acme_ipc_save_payload = acme_ipc_save_payload,
 };
 
 LWS_VISIBLE const struct lws_protocols lws_acme_client_protocols[] = {
