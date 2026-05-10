@@ -766,7 +766,7 @@ generate_cert_internal(struct vhd *vhd, const char *cn, const char *out_crt, con
 
 	memset(&info, 0, sizeof(info));
 	info.san = cn;
-	info.curve_name = "P-521"; /* Force ECDSA P-521 for Distribution PKI */
+	info.curve_name = "P-384"; /* ECDSA P-384 for Distribution PKI */
 	info.is_ca = is_ca;
 	info.is_server = is_server;
 
@@ -791,7 +791,7 @@ generate_cert_internal(struct vhd *vhd, const char *cn, const char *out_crt, con
 		goto bail;
 	}
 
-	if (write_pem(out_key, "PRIVATE KEY", key_buf, key_len)) {
+	if (write_pem(out_key, "EC PRIVATE KEY", key_buf, key_len)) {
 		lwsl_err("%s: failed to write key\n", __func__);
 		goto bail;
 	}
@@ -843,7 +843,7 @@ generate_dist_server_cert(struct vhd *vhd, const char *domain)
 	lws_snprintf(ca_crt, sizeof(ca_crt), "%s/pki/distribution-ca.crt", vhd->base_dir);
 	lws_snprintf(ca_key, sizeof(ca_key), "%s/pki/distribution-ca.key", vhd->base_dir);
 
-	lwsl_notice("%s: Generating Distribution Server Cert for %s\n", __func__, domain);
+	lwsl_notice("%s: Generating Distribution Server Cert for %s (CN=%s)\n", __func__, domain, domain);
 	generate_cert_internal(vhd, domain, path_crt, path_key, ca_crt, ca_key, 0, 1);
 }
 
@@ -1335,6 +1335,23 @@ handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_
 	if (fd >= 0) {
 		if (write(fd, a->zone_buf, (size_t)a->zone_len) == (ssize_t)a->zone_len) {
 			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
+
+			if (strstr(a->subdomain, ".crt") || strstr(a->subdomain, ".key")) {
+				char link_path[1024];
+				lws_strncpy(link_path, d_path, sizeof(link_path));
+				char *p = strrchr(link_path, '-');
+				if (p) {
+					if (strstr(a->subdomain, "-fullchain.crt"))
+						lws_snprintf(p, sizeof(link_path) - (size_t)(p - link_path), "-latest-fullchain.crt");
+					else if (strstr(a->subdomain, ".crt"))
+						lws_snprintf(p, sizeof(link_path) - (size_t)(p - link_path), "-latest.crt");
+					else if (strstr(a->subdomain, ".key"))
+						lws_snprintf(p, sizeof(link_path) - (size_t)(p - link_path), "-latest.key");
+
+					unlink(link_path);
+					symlink(a->subdomain, link_path);
+				}
+			}
 		} else {
 			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Partial write failure\"}\n", a->req);
 		}

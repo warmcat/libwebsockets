@@ -169,6 +169,9 @@ lws_interceptor_issue_cookie(struct lws *wsi)
 	char ip[64], uri[512], *p2;
 	int n, args_len, space;
 
+	if (!vhd)
+		return 1;
+
 	lws_get_peer_simple(wsi, ip, sizeof(ip));
 
 	lws_interceptor_init_jwt_cookie(&ck, vhd, ip, vhd->cookie_name);
@@ -349,6 +352,9 @@ lws_interceptor_handle_http(struct lws *wsi, void *user, const struct lws_interc
 	size_t vs, iat_len, claim_len;
 	const char *cp_sub;
 	long long iat;
+
+	if (!vhd)
+		return 1;
 
 	sub_claim[0] = '\0';
 	lws_interceptor_init_jwt_cookie(&vck, vhd, NULL, vhd->cookie_name);

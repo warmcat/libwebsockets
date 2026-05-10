@@ -91,6 +91,7 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_ESTABLISHED:
+		lwsl_notice("%s: Incoming connection from client\n", __func__);
 		/*
 		 * Extract the identity from the client certificate.
 		 * The CN should be the subdomain.
