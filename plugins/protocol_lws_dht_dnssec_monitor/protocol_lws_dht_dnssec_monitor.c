@@ -65,6 +65,12 @@ struct pss {
 	int send_ext_ips;
 };
 
+struct pub_state {
+	struct lws_dll2 list;
+	char domain[64];
+	time_t mtime;
+};
+
 struct vhd {
 	struct lws_context *context;
 	struct lws_vhost *vhost;
@@ -105,6 +111,8 @@ struct vhd {
 
 	/* UDS Proxy clients queue */
 	lws_dll2_owner_t clients;
+
+	lws_dll2_owner_t pub_states;
 };
 
 #define ACME_PROFILES_MAGIC 0xAC3E0001
@@ -439,40 +447,43 @@ dir_notify_cb(const char *path, int is_file, void *user)
 static int
 parent_scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 {
-/* commented to pause log spew */
-#if 0
 	struct vhd *vhd = (struct vhd *)user;
 	if (lde->type != LDOT_DIR || lde->name[0] == '.') return 0;
 
-	char jws_path[1024], pub_path[1024];
+	char jws_path[1024];
 	lws_snprintf(jws_path, sizeof(jws_path), "%s/domains/%s/%s.zone.signed.jws", vhd->base_dir, lde->name, lde->name);
-	lws_snprintf(pub_path, sizeof(pub_path), "%s.published", jws_path);
 
-	struct stat st_jws, st_pub;
+	struct stat st_jws;
 	if (stat(jws_path, &st_jws) == 0) {
-		int fd_pub = open(pub_path, O_RDWR);
-		int needs_pub = 0;
+		int needs_pub = 1;
+		struct pub_state *ps = NULL;
 
-		if (fd_pub < 0) {
-			fd_pub = open(pub_path, O_CREAT | O_RDWR, 0666);
-			needs_pub = 1;
-		} else if (fstat(fd_pub, &st_pub) == 0) {
-			if (st_jws.st_mtime > st_pub.st_mtime)
-				needs_pub = 1;
-		}
+		lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->pub_states)) {
+			struct pub_state *p = lws_container_of(d, struct pub_state, list);
+			if (!strcmp(p->domain, lde->name)) {
+				ps = p;
+				if (st_jws.st_mtime <= ps->mtime)
+					needs_pub = 0;
+				break;
+			}
+		} lws_end_foreach_dll(d);
 
 		if (needs_pub) {
 			lwsl_notice("%s: Parent detected new JWS for %s! Triggering DHT publication loop.\n", __func__, lde->name);
 			if (vhd->ops && vhd->ops->publish_jws) {
 				vhd->ops->publish_jws(vhd->vhost, jws_path);
-				if (fd_pub >= 0) {
-					if (write(fd_pub, "\n", 1) < 0) {}
+				if (!ps) {
+					ps = calloc(1, sizeof(*ps));
+					if (ps) {
+						lws_strncpy(ps->domain, lde->name, sizeof(ps->domain));
+						lws_dll2_add_tail(&ps->list, &vhd->pub_states);
+					}
 				}
+				if (ps)
+					ps->mtime = st_jws.st_mtime;
 			}
 		}
-		if (fd_pub >= 0) close(fd_pub);
 	}
-#endif
 	return 0;
 }
 
@@ -1299,6 +1310,25 @@ handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_
 		goto done;
 	}
 
+	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s", vhd->base_dir, a->domain);
+	mkdir(d_path, 0700);
+
+	if (dir_suffix[0]) {
+		char p1[1024];
+		char *p = (char *)dir_suffix;
+		char *slash;
+		lws_snprintf(p1, sizeof(p1), "%s", d_path);
+		while ((slash = strchr(p, '/')) != NULL) {
+			*slash = '\0';
+			lws_snprintf(p1 + strlen(p1), sizeof(p1) - strlen(p1), "/%s", p);
+			mkdir(p1, 0700);
+			*slash = '/';
+			p = slash + 1;
+		}
+		lws_snprintf(p1 + strlen(p1), sizeof(p1) - strlen(p1), "/%s", p);
+		mkdir(p1, 0700);
+	}
+
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/%s/%s", vhd->base_dir, a->domain, dir_suffix, a->subdomain);
 
 	int fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
@@ -1325,13 +1355,99 @@ handle_req_save_auth_key(struct vhd *vhd, struct pss *root_pss, struct monitor_r
 static void
 handle_req_save_cert(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
-	handle_req_save_acme_file(vhd, root_pss, a, "certs/crt");
+	char dir_suffix[64];
+	lws_snprintf(dir_suffix, sizeof(dir_suffix), "certs/%s/crt", vhd->acme_production ? "production" : "staging");
+	handle_req_save_acme_file(vhd, root_pss, a, dir_suffix);
 }
 
 static void
 handle_req_save_key(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
-	handle_req_save_acme_file(vhd, root_pss, a, "certs/key");
+	char dir_suffix[64];
+	lws_snprintf(dir_suffix, sizeof(dir_suffix), "certs/%s/key", vhd->acme_production ? "production" : "staging");
+	handle_req_save_acme_file(vhd, root_pss, a, dir_suffix);
+}
+
+static void
+handle_req_save_dns_challenge(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
+{
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
+	char *tx_end = tx + 65536 - 1;
+	char d_path[1024];
+
+	if (!a->zone_buf || !a->domain[0]) {
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Missing payload or domain\"}\n", a->req);
+		goto done;
+	}
+
+	if (strchr(a->domain, '/') || strstr(a->domain, "..") || strchr(a->domain, '\\')) {
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Path traversal\"}\n", a->req);
+		goto done;
+	}
+
+	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/dns/%s.zone.acme", vhd->base_dir, a->domain, a->domain);
+
+	int fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+	if (fd >= 0) {
+		if (write(fd, a->zone_buf, (size_t)a->zone_len) == (ssize_t)a->zone_len) {
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
+		} else {
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Partial write failure\"}\n", a->req);
+		}
+		close(fd);
+
+		/* Force resign */
+		char zone_path[512];
+		lws_snprintf(zone_path, sizeof(zone_path), "%s/domains/%s/dns/%s.zone.signed", vhd->base_dir, a->domain, a->domain);
+		unlink(zone_path);
+
+		char trigger_path[512];
+		lws_snprintf(trigger_path, sizeof(trigger_path), "%s/domains/.acme_trigger_%s", vhd->base_dir, a->domain);
+		int t_fd = open(trigger_path, O_CREAT | O_WRONLY, 0600);
+		if (t_fd >= 0) close(t_fd);
+		unlink(trigger_path);
+
+	} else {
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Could not open file for writing\"}\n", a->req);
+	}
+done:
+	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
+}
+
+static void
+handle_req_cleanup_dns_challenge(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
+{
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
+	char *tx_end = tx + 65536 - 1;
+	char d_path[1024];
+
+	if (!a->domain[0]) {
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Missing domain\"}\n", a->req);
+		goto done;
+	}
+
+	if (strchr(a->domain, '/') || strstr(a->domain, "..") || strchr(a->domain, '\\')) {
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Path traversal\"}\n", a->req);
+		goto done;
+	}
+
+	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/dns/%s.zone.acme", vhd->base_dir, a->domain, a->domain);
+	unlink(d_path);
+
+	/* Force resign */
+	char zone_path[512];
+	lws_snprintf(zone_path, sizeof(zone_path), "%s/domains/%s/dns/%s.zone.signed", vhd->base_dir, a->domain, a->domain);
+	unlink(zone_path);
+
+	char trigger_path[512];
+	lws_snprintf(trigger_path, sizeof(trigger_path), "%s/domains/.acme_trigger_%s", vhd->base_dir, a->domain);
+	int t_fd = open(trigger_path, O_CREAT | O_WRONLY, 0600);
+	if (t_fd >= 0) close(t_fd);
+	unlink(trigger_path);
+
+	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
+done:
+	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
 }
 
 static void
@@ -1966,6 +2082,8 @@ static const struct monitor_req_map {
 	{ "save_auth_key", handle_req_save_auth_key },
 	{ "save_cert", handle_req_save_cert },
 	{ "save_key", handle_req_save_key },
+	{ "save_dns_challenge", handle_req_save_dns_challenge },
+	{ "cleanup_dns_challenge", handle_req_cleanup_dns_challenge },
 	{ "get_ipv6_suffix", handle_req_get_ipv6_suffix },
 	{ "set_ipv6_suffix", handle_req_set_ipv6_suffix },
 	{ "get_acme_config", handle_req_get_acme_config },
@@ -2063,7 +2181,8 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 				strcmp(req_map[i].name, "get_acme_profiles") &&
 				strcmp(req_map[i].name, "get_acme_log") &&
 				strcmp(req_map[i].name, "get_dist_server_domain") &&
-				strcmp(req_map[i].name, "set_dist_server_domain")) {
+				strcmp(req_map[i].name, "set_dist_server_domain") &&
+				strcmp(req_map[i].name, "download_dist_ca")) {
 				lwsl_notice("[INSTRUMENT] handle_monitor_request: Missing required 'domain' param for %s\n", a.req);
 				root_pss->tx_len += (size_t)lws_snprintf(tx, 65536 - root_pss->tx_len, "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Missing arguments\"}\n", a.req);
 				goto done;

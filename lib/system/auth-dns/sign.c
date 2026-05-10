@@ -214,6 +214,18 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 			memcpy(w + wl, toks[i], (size_t)n);
 			wl += (size_t)n;
 		}
+	} else if (type == 52 && num_toks >= 4) { // TLSA
+		w[wl++] = (uint8_t)atoi(toks[0]); /* Usage */
+		w[wl++] = (uint8_t)atoi(toks[1]); /* Selector */
+		w[wl++] = (uint8_t)atoi(toks[2]); /* Matching Type */
+
+		char hex_accum[4096] = "";
+		for (int i = 3; i < num_toks; i++) {
+			strncat(hex_accum, toks[i], sizeof(hex_accum) - strlen(hex_accum) - 1);
+		}
+		size_t hlen = strlen(hex_accum) / 2;
+		lws_hex_to_byte_array(hex_accum, w + wl, (int)hlen);
+		wl += hlen;
 	} else if (type == 50 && num_toks >= 5) { // NSEC3
 		int tidx = 0;
 		if (!strcasecmp(toks[tidx], "NSEC3"))
@@ -267,6 +279,7 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 			else if (!strcmp(toks[i], "DNSKEY")) ty = 48;
 			else if (!strcmp(toks[i], "NSEC3")) ty = 50;
 			else if (!strcmp(toks[i], "NSEC3PARAM")) ty = 51;
+			else if (!strcmp(toks[i], "TLSA")) ty = 52;
 			else if (!strcmp(toks[i], "CAA")) ty = 257;
 			else ty = (uint16_t)atoi(toks[i]);
 
@@ -342,6 +355,7 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		else if (!strcmp(toks[0], "DNSKEY")) tc = 48;
 		else if (!strcmp(toks[0], "NSEC3")) tc = 50;
 		else if (!strcmp(toks[0], "NSEC3PARAM")) tc = 51;
+		else if (!strcmp(toks[0], "TLSA")) tc = 52;
 		else tc = (uint16_t)atoi(toks[0]);
 
 		w[wl++] = (uint8_t)(tc >> 8); w[wl++] = (uint8_t)(tc & 0xff);
@@ -737,6 +751,7 @@ lws_auth_dns_add_nsec3(struct auth_dns_zone *z, const char *salt_hex, int iterat
 				case 48: ts = "DNSKEY"; break;
 				case 50: ts = "NSEC3"; break;
 				case 51: ts = "NSEC3PARAM"; break;
+				case 52: ts = "TLSA"; break;
 				case 257: ts = "CAA"; break;
 			}
 			/* Append type if not already there */

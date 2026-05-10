@@ -85,6 +85,12 @@ struct lws_acme_core_ops {
 
 	void
 	(*trigger_resign)(struct per_vhost_data__lws_acme_client *vhd);
+
+	int
+	(*acme_ipc_save_payload)(struct per_vhost_data__lws_acme_client *vhd,
+				 const char *req, const char *domain,
+				 const char *filename, const char *payload,
+				 size_t payload_len);
 };
 
 #endif
