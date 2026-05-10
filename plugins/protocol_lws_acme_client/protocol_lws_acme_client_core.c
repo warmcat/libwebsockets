@@ -142,6 +142,8 @@ struct per_vhost_data__lws_acme_client {
 	/* we allocate memory here because we drop root too early */
 #endif
 	const char *uds_path;
+	struct lws_async_ipc *ipc;
+	int ipc_pending_saves;
 };
 
 /*
@@ -170,57 +172,6 @@ static const lws_struct_map_t map_acme_cert_config_root[] = {
 static int
 acme_ipc_save_payload(struct per_vhost_data__lws_acme_client *vhd, const char *req, const char *domain, const char *filename, const char *payload, size_t payload_len)
 {
-	const char *uds_path = vhd->uds_path;
-	if (!uds_path) uds_path = lws_cmdline_option_cx(vhd->context, "--uds-path");
-	if (!uds_path) uds_path = "/var/run/lws-dnssec-monitor.sock";
-
-	int fd = socket(AF_UNIX, SOCK_STREAM, 0);
-	if (fd < 0) {
-		lwsl_err("IPC socket() failed: %d\n", errno);
-		return 1;
-	}
-
-	int flags = fcntl(fd, F_GETFL, 0);
-	fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-
-	struct sockaddr_un addr;
-	memset(&addr, 0, sizeof(addr));
-	addr.sun_family = AF_UNIX;
-	strncpy(addr.sun_path, uds_path, sizeof(addr.sun_path) - 1);
-	int retries = 10;
-	int last_errno = 0;
-
-	while (retries--) {
-		if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) == 0)
-			goto connected;
-
-		last_errno = errno;
-		if (errno == EINPROGRESS || errno == EALREADY) {
-			struct pollfd pfd;
-			pfd.fd = fd;
-			pfd.events = POLLOUT;
-			if (poll(&pfd, 1, 100) > 0)
-				goto connected;
-			continue;
-		}
-
-		if (errno == ECONNREFUSED || errno == ENOENT) {
-			usleep(100000); /* 100ms */
-			continue;
-		}
-
-		lwsl_err("IPC connect() to %s failed: %d\n", uds_path, errno);
-		close(fd);
-		return 1;
-	}
-	lwsl_err("IPC connect() to %s failed after retries for %s (%s): %d\n",
-		 uds_path, domain, filename, last_errno);
-	close(fd);
-	return 1;
-
-connected:
-	;
-
 	char header[3072];
 	char jwt[2048] = {0};
 
@@ -257,47 +208,30 @@ connected:
 
 	size_t est_len = (size_t)hlen + (payload_len * 2) + 4;
 	char *dyn_buf = malloc(est_len);
-	if (dyn_buf) {
-		memcpy(dyn_buf, header, (size_t)hlen);
-		size_t pos = (size_t)hlen;
-		for (size_t i = 0; i < payload_len; i++) {
-			char c = payload[i];
-			if (c == '\n') { dyn_buf[pos++] = '\\'; dyn_buf[pos++] = 'n'; }
-			else if (c == '\r') { dyn_buf[pos++] = '\\'; dyn_buf[pos++] = 'r'; }
-			else if (c == '\t') { dyn_buf[pos++] = '\\'; dyn_buf[pos++] = 't'; }
-			else if (c == '"') { dyn_buf[pos++] = '\\'; dyn_buf[pos++] = '"'; }
-			else if (c == '\\') { dyn_buf[pos++] = '\\'; dyn_buf[pos++] = '\\'; }
-			else { dyn_buf[pos++] = c; }
-		}
-		dyn_buf[pos++] = '"'; dyn_buf[pos++] = '}'; dyn_buf[pos++] = '\n';
-		write(fd, dyn_buf, pos);
+	if (!dyn_buf)
+		return 1;
+
+	memcpy(dyn_buf, header, (size_t)hlen);
+	size_t pos = (size_t)hlen;
+	for (size_t i = 0; i < payload_len; i++) {
+		char c = payload[i];
+		if (c == '\n') { dyn_buf[pos++] = '\\'; dyn_buf[pos++] = 'n'; }
+		else if (c == '\r') { dyn_buf[pos++] = '\\'; dyn_buf[pos++] = 'r'; }
+		else if (c == '\t') { dyn_buf[pos++] = '\\'; dyn_buf[pos++] = 't'; }
+		else if (c == '"') { dyn_buf[pos++] = '\\'; dyn_buf[pos++] = '"'; }
+		else if (c == '\\') { dyn_buf[pos++] = '\\'; dyn_buf[pos++] = '\\'; }
+		else { dyn_buf[pos++] = c; }
+	}
+	dyn_buf[pos++] = '"'; dyn_buf[pos++] = '}'; dyn_buf[pos++] = '\n';
+
+	if (!vhd->ipc) {
 		free(dyn_buf);
-	}
-
-	struct pollfd pfd;
-	pfd.fd = fd;
-	pfd.events = POLLIN;
-	int pr = poll(&pfd, 1, 1000);
-	if (pr <= 0) {
-		lwsl_warn("IPC server failed to respond within 1s (poll: %d) - assuming success to avoid event loop deadlock\n", pr);
-		close(fd);
-		return 0;
-	}
-
-	char resp[256];
-	ssize_t n = read(fd, resp, sizeof(resp) - 1);
-	close(fd);
-
-	if (n > 0) {
-		resp[n] = '\0';
-		if (strstr(resp, "\"status\":\"error\"")) {
-			lwsl_err("IPC server returned error: %s\n", resp);
-			return 1;
-		}
-	} else {
-		lwsl_err("IPC server failed to respond or returned empty\n");
 		return 1;
 	}
+
+	lws_async_ipc_queue_payload(vhd->ipc, dyn_buf, pos);
+	vhd->ipc_pending_saves++;
+	free(dyn_buf);
 
 	return 0;
 }
@@ -1221,6 +1155,40 @@ lws_acme_timer_cb(lws_sorted_usec_list_t *sul)
 }
 
 static int
+acme_ipc_cb(struct lws_async_ipc *ipc, lws_async_ipc_state_t state,
+	    const void *data, size_t len, void *opaque)
+{
+	struct per_vhost_data__lws_acme_client *vhd = opaque;
+
+	switch (state) {
+	case LWS_ASYNC_IPC_STATE_TIMEOUT:
+	case LWS_ASYNC_IPC_STATE_ERROR:
+		lwsl_vhost_err(vhd->vhost, "ACME IPC failed! Retrying acquisition from scratch...");
+		if (vhd->ac)
+			lws_acme_finished(vhd);
+		vhd->last_acme_failure = lws_now_usecs();
+		lws_sul_schedule(vhd->context, 0, &vhd->sul_acquisition, lws_acme_start_acquisition_cb, 5 * LWS_US_PER_SEC);
+		break;
+	case LWS_ASYNC_IPC_STATE_RX:
+		lwsl_vhost_notice(vhd->vhost, "ACME IPC RX successfully received!");
+		if (vhd->ipc_pending_saves > 0) {
+			vhd->ipc_pending_saves--;
+			if (vhd->ipc_pending_saves == 0) {
+				if (vhd->ac)
+					lws_acme_finished(vhd);
+				lws_acme_report_status(vhd->vhost, LWS_CUS_SUCCESS, NULL);
+			}
+		}
+		break;
+	case LWS_ASYNC_IPC_STATE_DESTROYED:
+		break;
+	default:
+		break;
+	}
+	return 0;
+}
+
+static int
 callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 		void *user, void *in, size_t len)
 {
@@ -1286,6 +1254,15 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 					vhd->uds_path = pvo->value;
 				pvo = pvo->next;
 			}
+
+			const char *uds = vhd->uds_path;
+			if (!uds) uds = lws_cmdline_option_cx(vhd->context, "--uds-path");
+			if (!uds) uds = "/var/run/lws-dnssec-monitor.sock";
+
+			struct lws_async_ipc_ops ops;
+			memset(&ops, 0, sizeof(ops));
+			ops.cb = acme_ipc_cb;
+			vhd->ipc = lws_async_ipc_create(vhd->context, uds, &ops, vhd);
 		}
 
         {
@@ -1312,8 +1289,11 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
-		if (vhd)
+		if (vhd) {
 			lws_acme_finished(vhd);
+			if (vhd->ipc)
+				lws_async_ipc_destroy(&vhd->ipc);
+		}
 		break;
 
 	case LWS_CALLBACK_VHOST_CERT_AGING:
@@ -2125,9 +2105,13 @@ poll_again:
 				lwsl_vhost_warn(vhd->vhost, "problem setting certs");
 			}
 
-			lws_acme_finished(vhd);
-			lws_acme_report_status(vhd->vhost,
-					LWS_CUS_SUCCESS, NULL);
+			if (vhd->ipc_pending_saves > 0) {
+				lwsl_vhost_notice(vhd->vhost, "Waiting for %d IPC saves to complete...", vhd->ipc_pending_saves);
+			} else {
+				lws_acme_finished(vhd);
+				lws_acme_report_status(vhd->vhost,
+						LWS_CUS_SUCCESS, NULL);
+			}
 
 			return -1;
 
