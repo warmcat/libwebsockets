@@ -27,6 +27,7 @@ include_directories(.)
 list(APPEND SOURCES
 	core-net/dummy-callback.c
 	core-net/output.c
+	core-net/async-ipc.c
 	core-net/close.c
 	core-net/network.c
 	core-net/vhost.c
