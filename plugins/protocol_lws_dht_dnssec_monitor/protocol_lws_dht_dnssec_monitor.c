@@ -1247,11 +1247,11 @@ handle_req_create_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 	int n, fd;
 
 	lws_snprintf(p1, sizeof(p1), "%s/domains/%s", vhd->base_dir, a->domain);
-	if (mkdir(p1, 0700) < 0 && errno != EEXIST)
+	if (mkdir(p1, 0755) < 0 && errno != EEXIST)
 		lwsl_notice("%s: Failed to create domain dir\n", __func__);
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/conf.d", vhd->base_dir, a->domain);
-	if (mkdir(d_path, 0700) < 0 && errno != EEXIST)
+	if (mkdir(d_path, 0755) < 0 && errno != EEXIST)
 		lwsl_notice("%s: Failed to create conf.d dir\n", __func__);
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/conf.d/%s.json", vhd->base_dir, a->domain, a->subdomain);
@@ -1311,7 +1311,7 @@ handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_
 	}
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s", vhd->base_dir, a->domain);
-	mkdir(d_path, 0700);
+	mkdir(d_path, 0755);
 
 	if (dir_suffix[0]) {
 		char p1[1024];
@@ -1321,17 +1321,21 @@ handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_
 		while ((slash = strchr(p, '/')) != NULL) {
 			*slash = '\0';
 			lws_snprintf(p1 + strlen(p1), sizeof(p1) - strlen(p1), "/%s", p);
-			mkdir(p1, 0700);
+			mkdir(p1, 0755);
 			*slash = '/';
 			p = slash + 1;
 		}
 		lws_snprintf(p1 + strlen(p1), sizeof(p1) - strlen(p1), "/%s", p);
-		mkdir(p1, 0700);
+		mkdir(p1, 0755);
 	}
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/%s/%s", vhd->base_dir, a->domain, dir_suffix, a->subdomain);
 
-	int fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+	int perms = 0600;
+	if (strstr(a->subdomain, ".crt"))
+		perms = 0644;
+
+	int fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, perms);
 	if (fd >= 0) {
 		if (write(fd, a->zone_buf, (size_t)a->zone_len) == (ssize_t)a->zone_len) {
 			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
