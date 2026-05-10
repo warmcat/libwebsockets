@@ -1110,15 +1110,15 @@ lws_acme_scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 			const char *env_dir = (cfg->acme && cfg->acme->directory_url && strstr(cfg->acme->directory_url, "staging")) ? "staging" : "production";
 			lws_snprintf(certs_dir, sizeof(dir_path), "%s/domains/%s/certs", vhd->dns_base_dir, scan_ctx->domain);
 #if !defined(WIN32) && !defined(LWS_WITH_ESP32)
-			mkdir(certs_dir, 0700);
+			mkdir(certs_dir, 0755);
 #endif
 			lws_snprintf(certs_dir, sizeof(dir_path), "%s/domains/%s/certs/%s", vhd->dns_base_dir, scan_ctx->domain, env_dir);
 #if !defined(WIN32) && !defined(LWS_WITH_ESP32)
-			mkdir(certs_dir, 0700);
+			mkdir(certs_dir, 0755);
 #endif
 			lws_snprintf(certs_dir, sizeof(dir_path), "%s/domains/%s/certs/%s/crt", vhd->dns_base_dir, scan_ctx->domain, env_dir);
 #if !defined(WIN32) && !defined(LWS_WITH_ESP32)
-			mkdir(certs_dir, 0700);
+			mkdir(certs_dir, 0755);
 #endif
 			lws_snprintf(certs_dir, sizeof(dir_path), "%s/domains/%s/certs/%s/key", vhd->dns_base_dir, scan_ctx->domain, env_dir);
 #if !defined(WIN32) && !defined(LWS_WITH_ESP32)
@@ -2017,7 +2017,7 @@ poll_again:
 #ifdef WIN32
 					| O_BINARY
 #endif
-					, 0600);
+					, 0644);
 				if (fd_cert < 0) {
 					lwsl_vhost_notice(vhd->vhost, "falling back to IPC footprint to save %s", cert_ts);
 					const char *fn = strrchr(cert_ts, '/');
@@ -2063,7 +2063,7 @@ poll_again:
 #ifdef WIN32
 					| O_BINARY
 #endif
-					, 0600);
+					, 0644);
 				if (fd_full < 0) {
 					lwsl_vhost_notice(vhd->vhost, "falling back to IPC footprint to save %s", full_ts);
 					const char *fn = strrchr(full_ts, '/');
