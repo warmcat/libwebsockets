@@ -1352,8 +1352,16 @@ handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_
 			if (strstr(a->subdomain, ".crt") || strstr(a->subdomain, ".key")) {
 				char link_path[1024];
 				lws_strncpy(link_path, d_path, sizeof(link_path));
-				char *p = strrchr(link_path, '-');
-				if (p) {
+				char *p = link_path + strlen(link_path);
+
+				if (strstr(a->subdomain, "-fullchain.crt"))
+					p -= 14; /* len("-fullchain.crt") */
+				else
+					p -= 4; /* len(".crt") or len(".key") */
+
+				p -= 16; /* len("-YYYYMMDD-HHMMSS") */
+
+				if (p > link_path && *p == '-') {
 					if (strstr(a->subdomain, "-fullchain.crt"))
 						lws_snprintf(p, sizeof(link_path) - (size_t)(p - link_path), "-latest-fullchain.crt");
 					else if (strstr(a->subdomain, ".crt"))
@@ -2614,16 +2622,16 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 			struct lws_spawn_piped_info spawn_info;
 			memset(&spawn_info, 0, sizeof(spawn_info));
 
-			const char *exec_array[15];
-			char arg_uds[1024];
-			char arg_uid[128];
-			char arg_gid[128];
-			char arg_proxy_perms[128];
+			static const char *exec_array[15];
+			static char arg_uds[1024];
+			static char arg_uid[128];
+			static char arg_gid[128];
+			static char arg_proxy_perms[128];
 			int n = 0;
 			/* Rely on the original host application executable context path instead of
 			 * guessing paths. `argv[0]` guarantees relative/absolute execution fidelity. */
 #if defined(__linux__)
-			char plat_exe_buf[256];
+			static char plat_exe_buf[256];
 #endif
 			const char *exe_path = lws_cmdline_option_cx_argv0(vhd->context);
 

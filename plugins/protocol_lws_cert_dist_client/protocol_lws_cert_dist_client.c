@@ -540,7 +540,7 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 			if (certs_pvo && getuid() == 0 && !global_cert_dist_vhd) {
 				struct lws_spawn_piped_info spawn_info;
-				const char *exec_array[10];
+				static const char *exec_array[10];
 				int n = 0;
 
 				lwsl_notice("%s: Root detected and certs configured, spawning privileged stub\n", __func__);
@@ -555,7 +555,7 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 				const char *exe_path = lws_cmdline_option_cx_argv0(vhd->cx);
 #if defined(__linux__)
-				char plat_exe_buf[256];
+				static char plat_exe_buf[256];
 				if (!exe_path || exe_path[0] != '/') {
 					int m = (int)readlink("/proc/self/exe", plat_exe_buf, sizeof(plat_exe_buf) - 1);
 					if (m > 0) {

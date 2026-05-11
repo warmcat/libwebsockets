@@ -13,7 +13,13 @@ struct vhd_cert_dist_server {
 #if defined(LWS_WITH_DIR)
 	struct lws_dir_notify *dn;
 #endif
+
+	int is_stub;
+	char secret[129];
+	struct lws_spawn_piped *lsp;
 };
+
+static struct vhd_cert_dist_server *global_cert_dist_server_vhd = NULL;
 
 struct pss_cert_dist_server {
 	struct lws_dll2 list;
@@ -21,7 +27,246 @@ struct pss_cert_dist_server {
 	char subdomain[128];
 	char domain[128];
 	int established;
+
+	struct lws *wsi_uds;
+	char *uds_tx;
+	int uds_tx_len;
+	int uds_tx_pos;
+
+	char *uds_rx;
+	int uds_rx_len;
+	int uds_rx_pos;
 };
+
+/* --- STUB SERVER IMPLEMENTATION --- */
+
+static const char * const stub_req_paths[] = {
+	"secret",
+	"subdomain",
+	"domain"
+};
+
+enum stub_req_paths_enum {
+	STUB_SECRET,
+	STUB_SUBDOMAIN,
+	STUB_DOMAIN,
+};
+
+struct stub_req_args {
+	struct vhd_cert_dist_server *vhd;
+	struct lws *wsi;
+	char secret[129];
+	char subdomain[128];
+	char domain[128];
+};
+
+static signed char
+stub_req_cb(struct lejp_ctx *ctx, char reason)
+{
+	struct stub_req_args *a = (struct stub_req_args *)ctx->user;
+
+	if (reason == LEJPCB_VAL_STR_END) {
+		switch (ctx->path_match - 1) {
+		case STUB_SECRET:
+			lws_strncpy(a->secret, ctx->buf, sizeof(a->secret));
+			break;
+		case STUB_SUBDOMAIN:
+			lws_strncpy(a->subdomain, ctx->buf, sizeof(a->subdomain));
+			break;
+		case STUB_DOMAIN:
+			lws_strncpy(a->domain, ctx->buf, sizeof(a->domain));
+			break;
+		}
+	}
+
+	if (reason == LEJPCB_OBJECT_END) {
+		lws_callback_on_writable(a->wsi);
+	}
+
+	return 0;
+}
+
+struct pss_stub_server {
+	struct lejp_ctx jctx;
+	struct stub_req_args args;
+	int parser_valid;
+	char *response;
+	int response_len;
+	int response_pos;
+};
+
+static int
+callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason,
+			       void *user, void *in, size_t len)
+{
+	struct vhd_cert_dist_server *vhd = (struct vhd_cert_dist_server *)
+			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
+						 lws_get_protocol(wsi));
+	struct pss_stub_server *pss = (struct pss_stub_server *)user;
+
+	switch (reason) {
+	case LWS_CALLBACK_PROTOCOL_INIT:
+		break;
+
+	case LWS_CALLBACK_RAW_RX:
+		if (!pss->parser_valid) {
+			memset(&pss->args, 0, sizeof(pss->args));
+			pss->args.vhd = vhd;
+			pss->args.wsi = wsi;
+			lejp_construct(&pss->jctx, stub_req_cb, &pss->args, stub_req_paths, LWS_ARRAY_SIZE(stub_req_paths));
+			pss->parser_valid = 1;
+		}
+		{
+			int m = lejp_parse(&pss->jctx, (uint8_t *)in, (int)len);
+			if (m < 0 && m != LEJP_CONTINUE) {
+				lwsl_err("%s: lejp parse failed\n", __func__);
+				return -1;
+			}
+		}
+		break;
+
+	case LWS_CALLBACK_RAW_WRITEABLE:
+		if (pss->response) {
+			int m = lws_write(wsi, (unsigned char *)pss->response + LWS_PRE + pss->response_pos, (size_t)(pss->response_len - pss->response_pos), LWS_WRITE_RAW);
+			if (m < 0) return -1;
+			pss->response_pos += m;
+			if (pss->response_pos < pss->response_len)
+				lws_callback_on_writable(wsi);
+			else
+				return -1; /* Done */
+			break;
+		}
+
+		/* We need to generate the response */
+		if (!pss->parser_valid) break;
+
+		if (strcmp(pss->args.secret, vhd->secret)) {
+			lwsl_err("%s: Secret mismatch\n", __func__);
+			return -1;
+		}
+
+		if (strchr(pss->args.subdomain, '/') || strstr(pss->args.subdomain, "..") ||
+		    strchr(pss->args.domain, '/') || strstr(pss->args.domain, "..")) {
+			lwsl_err("%s: Path traversal\n", __func__);
+			return -1;
+		}
+
+		{
+			char cert_path[512], key_path[512];
+			char *cert_buf = NULL, *key_buf = NULL;
+			struct stat st;
+			int fd;
+
+			lws_snprintf(cert_path, sizeof(cert_path), "%s/domains/%s/certs/production/crt",
+				     vhd->pki_root, pss->args.domain);
+			lws_snprintf(key_path, sizeof(key_path), "%s/domains/%s/certs/production/key",
+				     vhd->pki_root, pss->args.domain);
+
+			fd = open(cert_path, O_RDONLY);
+			if (fd >= 0) {
+				if (fstat(fd, &st) == 0 && (cert_buf = malloc((size_t)st.st_size + 1))) {
+					if (read(fd, cert_buf, (size_t)st.st_size) == (ssize_t)st.st_size)
+						cert_buf[st.st_size] = '\0';
+					else { free(cert_buf); cert_buf = NULL; }
+				}
+				close(fd);
+			}
+
+			fd = open(key_path, O_RDONLY);
+			if (fd >= 0) {
+				if (fstat(fd, &st) == 0 && (key_buf = malloc((size_t)st.st_size + 1))) {
+					if (read(fd, key_buf, (size_t)st.st_size) == (ssize_t)st.st_size)
+						key_buf[st.st_size] = '\0';
+					else { free(key_buf); key_buf = NULL; }
+				}
+				close(fd);
+			}
+
+			if (cert_buf && key_buf) {
+				size_t jlen = strlen(cert_buf) + strlen(key_buf) + 512;
+				pss->response = malloc(LWS_PRE + jlen);
+				if (pss->response) {
+					char *p = pss->response + LWS_PRE, *end = pss->response + LWS_PRE + jlen;
+					p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{\"subdomain\":\"%s\",\"fullchain\":\"", pss->args.subdomain);
+					char *src = cert_buf;
+					while (*src && p < end - 4) {
+						if (*src == '\n') { *p++ = '\\'; *p++ = 'n'; }
+						else if (*src == '\r') { *p++ = '\\'; *p++ = 'r'; }
+						else if (*src == '"') { *p++ = '\\'; *p++ = '"'; }
+						else *p++ = *src;
+						src++;
+					}
+					p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\",\"privkey\":\"");
+					src = key_buf;
+					while (*src && p < end - 4) {
+						if (*src == '\n') { *p++ = '\\'; *p++ = 'n'; }
+						else if (*src == '\r') { *p++ = '\\'; *p++ = 'r'; }
+						else if (*src == '"') { *p++ = '\\'; *p++ = '"'; }
+						else *p++ = *src;
+						src++;
+					}
+					p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\"}");
+					pss->response_len = (int)(p - (pss->response + LWS_PRE));
+					pss->response_pos = 0;
+					lws_callback_on_writable(wsi);
+				}
+			} else {
+				/* Not ready yet */
+				return -1;
+			}
+
+			if (cert_buf) free(cert_buf);
+			if (key_buf) free(key_buf);
+		}
+		break;
+
+	case LWS_CALLBACK_CLOSED:
+		if (pss->parser_valid) lejp_destruct(&pss->jctx);
+		if (pss->response) free(pss->response);
+		break;
+
+	default:
+		break;
+	}
+	return 0;
+}
+
+static const struct lws_protocols stub_protocols[] = {
+	{ "lws-cert-dist-server-stub", callback_cert_dist_server_stub, sizeof(struct pss_stub_server), 4096, 0, NULL, 0 },
+	{ NULL, NULL, 0, 0, 0, NULL, 0 }
+};
+
+static int
+dist_server_stub_run(struct vhd_cert_dist_server *vhd)
+{
+	struct lws_context_creation_info info;
+
+	lwsl_notice("%s: Starting privileged stub for cert dist server\n", __func__);
+
+	/* Read secret from stdin */
+	if (read(0, vhd->secret, 128) != 128) {
+		lwsl_err("%s: Failed to read secret from stdin\n", __func__);
+		return -1;
+	}
+	vhd->secret[128] = '\0';
+
+	memset(&info, 0, sizeof(info));
+	info.options = LWS_SERVER_OPTION_UNIX_SOCK | LWS_SERVER_OPTION_ONLY_RAW;
+	info.iface = "/var/run/lws-cert-dist-server-stub.sock";
+	info.protocols = stub_protocols;
+	info.vhost_name = "cert-dist-server-stub";
+
+	unlink(info.iface);
+	if (!lws_create_vhost(vhd->cx, &info)) {
+		lwsl_err("%s: Failed to create stub vhost\n", __func__);
+		return -1;
+	}
+
+	chmod(info.iface, 0666);
+	return 0;
+}
+
+/* --- MAIN SERVER IMPLEMENTATION --- */
 
 #if defined(LWS_WITH_DIR)
 static void
@@ -29,19 +274,10 @@ dist_server_dir_notify_cb(const char *path, int is_file, void *user)
 {
 	struct vhd_cert_dist_server *vhd = (struct vhd_cert_dist_server *)user;
 
-	lwsl_info("%s: FS change: %s\n", __func__, path);
-
-	/*
-	 * If a fullchain.pem or privkey.pem changed, trigger updates for
-	 * clients belonging to that domain.
-	 */
-	if (strstr(path, "fullchain.pem") || strstr(path, "privkey.pem")) {
+	if (strstr(path, "fullchain.pem") || strstr(path, "privkey.pem") || strstr(path, "crt") || strstr(path, "key")) {
 		lws_start_foreach_dll(struct lws_dll2 *, d, vhd->connections.head) {
-			struct pss_cert_dist_server *pss =
-				lws_container_of(d, struct pss_cert_dist_server, list);
-
+			struct pss_cert_dist_server *pss = lws_container_of(d, struct pss_cert_dist_server, list);
 			if (strstr(path, pss->domain)) {
-				lwsl_notice("%s: Triggering update for %s\n", __func__, pss->subdomain);
 				lws_callback_on_writable(pss->wsi);
 			}
 		} lws_end_foreach_dll(d);
@@ -57,67 +293,110 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
 						 lws_get_protocol(wsi));
 	struct pss_cert_dist_server *pss = (struct pss_cert_dist_server *)user;
-	char path[512], *p;
 
 	switch (reason) {
 
-	case LWS_CALLBACK_PROTOCOL_INIT:
-		if (lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub"))
+	case LWS_CALLBACK_PROTOCOL_INIT: {
+		const char *stub = lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub");
+
+		/* Do not process if the plugin is not enabled on this vhost, unless we are the stub */
+		if (!in && (!stub || strcmp(stub, "distribution-server")))
+			return 0;
+
+		/* Prevent spawning inside other plugins' stubs */
+		if (lws_cmdline_option_cx(lws_get_context(wsi), "--lws-dht-dnssec-monitor-root") ||
+		    lws_cmdline_option_cx(lws_get_context(wsi), "--lws-acme-client-root"))
 			return 0;
 
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 						  lws_get_protocol(wsi),
 						  sizeof(struct vhd_cert_dist_server));
-		if (!vhd)
-			return -1;
+		if (!vhd) return -1;
 		vhd->cx = lws_get_context(wsi);
 		vhd->vh = lws_get_vhost(wsi);
 		vhd->protocol = lws_get_protocol(wsi);
 
-		lws_strncpy(vhd->pki_root, "/var/dnssec/domains/", sizeof(vhd->pki_root));
+		lws_strncpy(vhd->pki_root, "/var/dnssec", sizeof(vhd->pki_root));
+		int has_pvo = 0;
 		const struct lws_protocol_vhost_options *pvo = (const struct lws_protocol_vhost_options *)in;
 		while (pvo) {
+			has_pvo = 1;
 			if (!strcmp(pvo->name, "pki-root"))
 				lws_strncpy(vhd->pki_root, pvo->value, sizeof(vhd->pki_root));
 			pvo = pvo->next;
 		}
 
+		if (stub && !strcmp(stub, "distribution-server")) {
+			if (global_cert_dist_server_vhd) return 0;
+			global_cert_dist_server_vhd = vhd;
+			vhd->is_stub = 1;
+			return dist_server_stub_run(vhd);
+		}
+
+		if (stub) return 0;
+
+		if (has_pvo && geteuid() == 0 && !global_cert_dist_server_vhd) {
+			struct lws_spawn_piped_info spawn_info;
+			static const char *exec_array[10];
+			int n = 0;
+
+			global_cert_dist_server_vhd = vhd;
+
+			uint8_t rand[64];
+			lws_get_random(vhd->cx, rand, sizeof(rand));
+			lws_hex_from_byte_array(rand, sizeof(rand), vhd->secret, sizeof(vhd->secret));
+
+			memset(&spawn_info, 0, sizeof(spawn_info));
+			const char *exe_path = lws_cmdline_option_cx_argv0(vhd->cx);
+#if defined(__linux__)
+			static char plat_exe_buf[256];
+			if (!exe_path || exe_path[0] != '/') {
+				int m = (int)readlink("/proc/self/exe", plat_exe_buf, sizeof(plat_exe_buf) - 1);
+				if (m > 0) {
+					plat_exe_buf[m] = '\0';
+					exe_path = plat_exe_buf;
+				} else exe_path = "/usr/local/bin/lwsws";
+			}
+#endif
+			exec_array[n++] = exe_path;
+			exec_array[n++] = "--lws-stub=distribution-server";
+			exec_array[n++] = NULL;
+
+			spawn_info.exec_array = exec_array;
+			spawn_info.vh = vhd->vh;
+			spawn_info.protocol_name = "lws-cert-dist-server";
+
+			vhd->lsp = lws_spawn_piped(&spawn_info);
+			if (vhd->lsp) {
+				int stdin_fd = (int)(intptr_t)lws_spawn_get_fd_stdxxx(vhd->lsp, 0);
+				if (stdin_fd >= 0) {
+					if (write(stdin_fd, vhd->secret, 128) < 0)
+						lwsl_err("Failed writing secret to pipe\n");
+				}
+			}
+		}
+
 #if defined(LWS_WITH_DIR)
-		/* Watch the pki_root/ directory for changes */
 		char scan_path[512];
-		lws_snprintf(scan_path, sizeof(scan_path), "%s", vhd->pki_root);
+		lws_snprintf(scan_path, sizeof(scan_path), "%s/domains", vhd->pki_root);
 		vhd->dn = lws_dir_notify_create(vhd->cx, scan_path, dist_server_dir_notify_cb, vhd);
 #endif
 		break;
+	}
 
-	case LWS_CALLBACK_WSI_CREATE:
-		lwsl_notice("%s: WSI_CREATE (wsi=%p)\n", __func__, wsi);
-		break;
-
-	case LWS_CALLBACK_FILTER_NETWORK_CONNECTION:
-		lwsl_notice("%s: FILTER_NETWORK_CONNECTION (TCP connection arrived at vhost!)\n", __func__);
-		break;
-
-	case LWS_CALLBACK_WSI_DESTROY:
-		lwsl_notice("%s: WSI_DESTROY (wsi=%p)\n", __func__, wsi);
-		break;
-
-	case LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION:
-		lwsl_notice("%s: TLS Handshake: Performing client cert verification!\n", __func__);
+	case LWS_CALLBACK_PROTOCOL_DESTROY:
+		if (vhd && vhd->lsp)
+			lws_spawn_piped_kill_child_process(vhd->lsp);
 		break;
 
 	case LWS_CALLBACK_ESTABLISHED: {
 		uint8_t buf[256];
 		union lws_tls_cert_info_results *ir = (union lws_tls_cert_info_results *)buf;
+		char *p;
 
-		lwsl_notice("%s: Incoming connection from client\n", __func__);
+		if (vhd->is_stub) return -1; /* Stub doesn't accept WSS */
 
-		/*
-		 * Extract the identity from the client certificate.
-		 * The CN should be the subdomain.
-		 */
 		if (lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_COMMON_NAME, ir, sizeof(buf))) {
-			lwsl_err("%s: No client cert common name found\n", __func__);
 			lws_close_reason(wsi, LWS_CLOSE_STATUS_POLICY_VIOLATION, (unsigned char *)"No CN in client cert", 20);
 			return -1;
 		}
@@ -129,7 +408,6 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 			int dots = 0;
 			char *q;
 			for (q = pss->subdomain; *q; q++) if (*q == '.') dots++;
-
 			if (dots > 1) {
 				p = strchr(pss->subdomain, '.');
 				lws_strncpy(pss->domain, p + 1, sizeof(pss->domain));
@@ -138,17 +416,6 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 		}
 
-		/* Verify the client cert still exists in the monitor's data dir */
-		lws_snprintf(path, sizeof(path), "%s/%s/dist-client/distribution-client-%s.crt",
-			     vhd->pki_root, pss->domain, pss->subdomain);
-
-		if (access(path, F_OK)) {
-			lwsl_err("%s: Client cert file %s not found on server\n", __func__, path);
-			lws_close_reason(wsi, LWS_CLOSE_STATUS_POLICY_VIOLATION, (unsigned char *)"Cert not found on server", 24);
-			return -1;
-		}
-
-		lwsl_notice("%s: Validated distribution client for %s\n", __func__, pss->subdomain);
 		lws_dll2_add_tail(&pss->list, &vhd->connections);
 		pss->established = 1;
 		lws_callback_on_writable(wsi);
@@ -156,107 +423,115 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 	}
 
 	case LWS_CALLBACK_CLOSED:
-		lws_dll2_remove(&pss->list);
+		if (!vhd->is_stub && pss->established) {
+			lws_dll2_remove(&pss->list);
+			if (pss->uds_tx) free(pss->uds_tx);
+			if (pss->uds_rx) free(pss->uds_rx);
+			if (pss->wsi_uds) {
+				/* disconnect UDS safely */
+				lws_set_opaque_user_data(pss->wsi_uds, NULL);
+			}
+		}
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
-		if (!pss->established)
-			return -1;
+		if (vhd->is_stub) break;
+		if (!pss->established) return -1;
 
-		{
-			char cert_path[512], key_path[512];
-			char *cert_buf = NULL, *key_buf = NULL;
-			struct stat st;
-			int fd, m;
-
-			lws_snprintf(cert_path, sizeof(cert_path), "%s/%s/fullchain.pem",
-				     vhd->pki_root, pss->domain);
-			lws_snprintf(key_path, sizeof(key_path), "%s/%s/privkey.pem",
-				     vhd->pki_root, pss->domain);
-
-			/* Read cert */
-			fd = open(cert_path, O_RDONLY);
-			if (fd >= 0) {
-				if (fstat(fd, &st) == 0) {
-					cert_buf = malloc((size_t)st.st_size + 1);
-					if (cert_buf) {
-						if (read(fd, cert_buf, (size_t)st.st_size) != (ssize_t)st.st_size) {
-							free(cert_buf);
-							cert_buf = NULL;
-						} else {
-							cert_buf[st.st_size] = '\0';
-						}
-					}
-				}
-				close(fd);
+		/* If we have the payload from the UDS, write it to WSS */
+		if (pss->uds_rx && pss->uds_rx_len > 0) {
+			int m = lws_write(wsi, (unsigned char *)pss->uds_rx + LWS_PRE + pss->uds_rx_pos, (size_t)(pss->uds_rx_len - pss->uds_rx_pos), LWS_WRITE_TEXT);
+			if (m < 0) return -1;
+			pss->uds_rx_pos += m;
+			if (pss->uds_rx_pos < pss->uds_rx_len)
+				lws_callback_on_writable(wsi);
+			else {
+				free(pss->uds_rx);
+				pss->uds_rx = NULL;
+				return -1; /* Done sending cert */
 			}
+			break;
+		}
 
-			/* Read key */
-			fd = open(key_path, O_RDONLY);
-			if (fd >= 0) {
-				if (fstat(fd, &st) == 0) {
-					key_buf = malloc((size_t)st.st_size + 1);
-					if (key_buf) {
-						if (read(fd, key_buf, (size_t)st.st_size) != (ssize_t)st.st_size) {
-							free(key_buf);
-							key_buf = NULL;
-						} else {
-							key_buf[st.st_size] = '\0';
-						}
-					}
-				}
-				close(fd);
+		/* If we haven't asked UDS yet, ask UDS */
+		if (!pss->wsi_uds) {
+			size_t est_len = 512;
+			pss->uds_tx = malloc(est_len + LWS_PRE);
+			if (!pss->uds_tx) return -1;
+			pss->uds_tx_len = lws_snprintf(pss->uds_tx + LWS_PRE, est_len,
+				"{\"secret\":\"%s\",\"subdomain\":\"%s\",\"domain\":\"%s\"}",
+				vhd->secret, pss->subdomain, pss->domain);
+			pss->uds_tx_pos = 0;
+
+			struct lws_client_connect_info i;
+			memset(&i, 0, sizeof(i));
+			i.context = vhd->cx;
+			i.address = "+/var/run/lws-cert-dist-server-stub.sock";
+			i.port = 0;
+			i.host = "localhost";
+			i.origin = "localhost";
+			i.method = "RAW";
+			i.local_protocol_name = "lws-cert-dist-server";
+			i.opaque_user_data = pss;
+
+			pss->wsi_uds = lws_client_connect_via_info(&i);
+			if (!pss->wsi_uds) {
+				free(pss->uds_tx);
+				pss->uds_tx = NULL;
 			}
-
-			if (cert_buf && key_buf) {
-				/* Prepare JSON payload */
-				size_t jlen = strlen(cert_buf) + strlen(key_buf) + 512;
-				char *json = malloc(LWS_PRE + jlen);
-				char *start = json + LWS_PRE, *p = start, *end = json + LWS_PRE + jlen;
-
-				if (json) {
-					p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
-						"{\"subdomain\":\"%s\",\"fullchain\":\"", pss->subdomain);
-
-					/* Escape newlines for JSON */
-					char *src = cert_buf;
-					while (*src && p < end - 4) {
-						if (*src == '\n') { *p++ = '\\'; *p++ = 'n'; }
-						else if (*src == '\r') { *p++ = '\\'; *p++ = 'r'; }
-						else if (*src == '"') { *p++ = '\\'; *p++ = '"'; }
-						else *p++ = *src;
-						src++;
-					}
-
-					p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\",\"privkey\":\"");
-
-					src = key_buf;
-					while (*src && p < end - 4) {
-						if (*src == '\n') { *p++ = '\\'; *p++ = 'n'; }
-						else if (*src == '\r') { *p++ = '\\'; *p++ = 'r'; }
-						else if (*src == '"') { *p++ = '\\'; *p++ = '"'; }
-						else *p++ = *src;
-						src++;
-					}
-
-					p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\"}");
-
-					lwsl_notice("%s: Sending %d bytes to %s\n", __func__, (int)(p - start), pss->subdomain);
-					m = lws_write(wsi, (unsigned char *)start, lws_ptr_diff_size_t(p, start), LWS_WRITE_TEXT);
-					if (m < 0) {
-						lwsl_err("%s: Write failed\n", __func__);
-						free(json);
-						lws_close_reason(wsi, LWS_CLOSE_STATUS_UNEXPECTED_CONDITION, (unsigned char *)"Write failed", 12);
-						return -1;
-					}
-					free(json);
-				}
-			}
-
-			if (cert_buf) free(cert_buf);
-			if (key_buf) free(key_buf);
 		}
 		break;
+
+	/* UDS Client Callbacks handled in the same protocol callback */
+	case LWS_CALLBACK_RAW_CONNECTED:
+		if (!vhd->is_stub && lws_get_opaque_user_data(wsi)) {
+			lws_callback_on_writable(wsi);
+		}
+		break;
+
+	case LWS_CALLBACK_CLIENT_WRITEABLE: {
+		struct pss_cert_dist_server *up_pss = (struct pss_cert_dist_server *)lws_get_opaque_user_data(wsi);
+		if (up_pss && up_pss->uds_tx) {
+			int m = lws_write(wsi, (unsigned char *)up_pss->uds_tx + LWS_PRE + up_pss->uds_tx_pos, (size_t)(up_pss->uds_tx_len - up_pss->uds_tx_pos), LWS_WRITE_RAW);
+			if (m < 0) return -1;
+			up_pss->uds_tx_pos += m;
+			if (up_pss->uds_tx_pos < up_pss->uds_tx_len)
+				lws_callback_on_writable(wsi);
+			else {
+				free(up_pss->uds_tx);
+				up_pss->uds_tx = NULL;
+			}
+		}
+		break;
+	}
+
+	case LWS_CALLBACK_RAW_RX: {
+		struct pss_cert_dist_server *up_pss = (struct pss_cert_dist_server *)lws_get_opaque_user_data(wsi);
+		if (up_pss) {
+			if (!up_pss->uds_rx) {
+				up_pss->uds_rx = malloc(LWS_PRE + 65536);
+				up_pss->uds_rx_len = 0;
+				up_pss->uds_rx_pos = 0;
+			}
+			if ((size_t)up_pss->uds_rx_len + len < 65536) {
+				memcpy(up_pss->uds_rx + LWS_PRE + up_pss->uds_rx_len, in, len);
+				up_pss->uds_rx_len += (int)len;
+			}
+		}
+		break;
+	}
+
+	case LWS_CALLBACK_CLIENT_CLOSED:
+	case LWS_CALLBACK_RAW_CLOSE: {
+		struct pss_cert_dist_server *up_pss = (struct pss_cert_dist_server *)lws_get_opaque_user_data(wsi);
+		if (up_pss) {
+			up_pss->wsi_uds = NULL;
+			if (up_pss->uds_tx) { free(up_pss->uds_tx); up_pss->uds_tx = NULL; }
+			if (up_pss->uds_rx_len > 0)
+				lws_callback_on_writable(up_pss->wsi); /* Forward to WSS */
+		}
+		break;
+	}
 
 	default:
 		break;
@@ -270,7 +545,7 @@ static const struct lws_protocols protocols[] = {
 		"lws-cert-dist-server",
 		callback_cert_dist_server,
 		sizeof(struct pss_cert_dist_server),
-		1024, /* rx buf size */
+		65536, /* rx buf size */
 		0, /* id */
 		NULL, 0 /* user, tx_idl */
 	},
