@@ -51,6 +51,7 @@ struct alpn_ctx {
 
 struct lws_tls_ctx_ref {
 	lws_dll2_t list;
+	struct lws_vhost *vh;
 	lws_tls_ctx *ctx;
 	int refcount;
 };
@@ -191,7 +192,10 @@ void
 lws_tls_vhost_backend_free_ctx(lws_tls_ctx *ctx);
 
 struct lws_tls_ctx_ref *
-lws_tls_ctx_ref_create(lws_tls_ctx *ctx);
+lws_tls_ctx_ref_create(struct lws_vhost *vh, lws_tls_ctx *ctx);
+
+struct lws_tls_ctx_ref *
+lws_tls_ctx_ref_get(struct lws_vhost *vh);
 
 void
 lws_tls_ctx_ref_unref(struct lws_tls_ctx_ref *ref);

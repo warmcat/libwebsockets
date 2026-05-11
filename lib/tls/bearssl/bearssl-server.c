@@ -111,11 +111,8 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 
 	wsi->tls.ssl = (lws_tls_conn *)conn;
 	conn->is_client = 0;
-	conn->ctx = wsi->a.vhost->tls.ssl_ctx;
-
-	wsi->tls.ctx_ref = wsi->a.vhost->tls.active_ctx_ref;
-	if (wsi->tls.ctx_ref)
-		wsi->tls.ctx_ref->refcount++;
+	wsi->tls.ctx_ref = lws_tls_ctx_ref_get(wsi->a.vhost);
+	conn->ctx = wsi->tls.ctx_ref ? wsi->tls.ctx_ref->ctx : wsi->a.vhost->tls.ssl_ctx;
 
 	return 0;
 }

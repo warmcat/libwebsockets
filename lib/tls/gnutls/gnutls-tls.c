@@ -166,13 +166,10 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 
 	wsi->tls.ssl = (lws_tls_conn *)session;
 
-	gnutls_priority_set(session, wsi->a.vhost->tls.ssl_ctx->priority);
-	gnutls_credentials_set(session, GNUTLS_CRD_CERTIFICATE, wsi->a.vhost->tls.ssl_ctx->creds);
+	wsi->tls.ctx_ref = lws_tls_ctx_ref_get(wsi->a.vhost);
+	gnutls_priority_set(session, wsi->tls.ctx_ref ? wsi->tls.ctx_ref->ctx->priority : wsi->a.vhost->tls.ssl_ctx->priority);
+	gnutls_credentials_set(session, GNUTLS_CRD_CERTIFICATE, wsi->tls.ctx_ref ? wsi->tls.ctx_ref->ctx->creds : wsi->a.vhost->tls.ssl_ctx->creds);
 	gnutls_transport_set_int((gnutls_session_t)wsi->tls.ssl, (int)accept_fd);
-
-	wsi->tls.ctx_ref = wsi->a.vhost->tls.active_ctx_ref;
-	if (wsi->tls.ctx_ref)
-		wsi->tls.ctx_ref->refcount++;
 
 	if (wsi->a.vhost->tls.alpn_ctx.len) {
 		gnutls_datum_t alpn[4];

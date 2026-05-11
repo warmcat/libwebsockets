@@ -331,9 +331,7 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 	if (!conn) return 1;
 	wsi->tls.ssl = conn;
 
-	wsi->tls.ctx_ref = wsi->a.vhost->tls.active_ctx_ref;
-	if (wsi->tls.ctx_ref)
-		wsi->tls.ctx_ref->refcount++;
+	wsi->tls.ctx_ref = lws_tls_ctx_ref_get(wsi->a.vhost);
 
 	return 0;
 }
@@ -342,7 +340,7 @@ enum lws_ssl_capable_status
 lws_tls_server_accept(struct lws *wsi)
 {
 	struct lws_tls_schannel_conn *conn = wsi->tls.ssl;
-	struct lws_tls_schannel_ctx *ctx = wsi->a.vhost->tls.ssl_ctx;
+	struct lws_tls_schannel_ctx *ctx = wsi->tls.ctx_ref ? wsi->tls.ctx_ref->ctx : wsi->a.vhost->tls.ssl_ctx;
 	SecBufferDesc out_desc, in_desc;
 	SecBuffer out_buf[1], in_buf[2];
 	ULONG req_attrs, ret_attrs;

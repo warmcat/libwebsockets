@@ -205,7 +205,7 @@ lws_tls_cert_updated(struct lws_context *context, const char *certpath,
 				continue;
 			}
 
-			struct lws_tls_ctx_ref *new_ref = lws_tls_ctx_ref_create(v->tls.ssl_ctx);
+			struct lws_tls_ctx_ref *new_ref = lws_tls_ctx_ref_create(v, v->tls.ssl_ctx);
 			if (!new_ref) {
 				lws_tls_vhost_backend_free_ctx(v->tls.ssl_ctx);
 				v->tls.ssl_ctx = old_ctx;

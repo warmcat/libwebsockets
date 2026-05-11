@@ -279,7 +279,7 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
         return 1;
 
     lws_snprintf(vhost->tls.ssl_ctx->key_container_name, sizeof(vhost->tls.ssl_ctx->key_container_name),
-                 "lws_vhost_%p_%u", vhost, (unsigned int)time(NULL));
+                 "lws_vhost_%p_%lu", vhost, (unsigned long)lws_now_usecs());
 
     return 0;
 }

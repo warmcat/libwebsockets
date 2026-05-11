@@ -27,7 +27,7 @@
 #if defined(LWS_WITH_SERVER)
 
 struct lws_tls_ctx_ref *
-lws_tls_ctx_ref_create(lws_tls_ctx *ctx)
+lws_tls_ctx_ref_create(struct lws_vhost *vh, lws_tls_ctx *ctx)
 {
 	struct lws_tls_ctx_ref *ref;
 
@@ -38,8 +38,23 @@ lws_tls_ctx_ref_create(lws_tls_ctx *ctx)
 	if (!ref)
 		return NULL;
 
+	ref->vh = vh;
 	ref->ctx = ctx;
 	ref->refcount = 1;
+
+	return ref;
+}
+
+struct lws_tls_ctx_ref *
+lws_tls_ctx_ref_get(struct lws_vhost *vh)
+{
+	struct lws_tls_ctx_ref *ref;
+
+	lws_vhost_lock(vh);
+	ref = vh->tls.active_ctx_ref;
+	if (ref)
+		ref->refcount++;
+	lws_vhost_unlock(vh);
 
 	return ref;
 }
@@ -47,14 +62,19 @@ lws_tls_ctx_ref_create(lws_tls_ctx *ctx)
 void
 lws_tls_ctx_ref_unref(struct lws_tls_ctx_ref *ref)
 {
+	struct lws_vhost *vh;
+
 	if (!ref)
 		return;
 
+	vh = ref->vh;
+	lws_vhost_lock(vh);
 	if (--ref->refcount == 0) {
 		lws_dll2_remove(&ref->list);
 		lws_tls_vhost_backend_free_ctx(ref->ctx);
 		lws_free(ref);
 	}
+	lws_vhost_unlock(vh);
 }
 
 void
@@ -69,8 +89,11 @@ lws_tls_ctx_ref_destroy_all(struct lws_vhost *vhost)
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 				   lws_dll2_get_head(&vhost->tls.retired_ctx_list)) {
 		struct lws_tls_ctx_ref *r = lws_container_of(d, struct lws_tls_ctx_ref, list);
-		r->refcount = 1;
-		lws_tls_ctx_ref_unref(r);
+		lwsl_vhost_err(vhost, "Retired ctx_ref %p leaked with refcount %d", r, r->refcount);
+		/* forcefully free it to avoid memory leak if WSI leaked */
+		lws_dll2_remove(&r->list);
+		lws_tls_vhost_backend_free_ctx(r->ctx);
+		lws_free(r);
 	} lws_end_foreach_dll_safe(d, d1);
 }
 
@@ -151,7 +174,7 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 			return -1;
 
 		if (vhost->tls.ssl_ctx && !vhost->tls.active_ctx_ref)
-			vhost->tls.active_ctx_ref = lws_tls_ctx_ref_create(vhost->tls.ssl_ctx);
+			vhost->tls.active_ctx_ref = lws_tls_ctx_ref_create(vhost, vhost->tls.ssl_ctx);
 
 		lws_tls_server_client_cert_verify_config(vhost);
 
