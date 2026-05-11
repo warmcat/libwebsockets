@@ -26,6 +26,54 @@
 
 #if defined(LWS_WITH_SERVER)
 
+struct lws_tls_ctx_ref *
+lws_tls_ctx_ref_create(lws_tls_ctx *ctx)
+{
+	struct lws_tls_ctx_ref *ref;
+
+	if (!ctx)
+		return NULL;
+
+	ref = lws_zalloc(sizeof(*ref), "ctx_ref");
+	if (!ref)
+		return NULL;
+
+	ref->ctx = ctx;
+	ref->refcount = 1;
+
+	return ref;
+}
+
+void
+lws_tls_ctx_ref_unref(struct lws_tls_ctx_ref *ref)
+{
+	if (!ref)
+		return;
+
+	if (--ref->refcount == 0) {
+		lws_dll2_remove(&ref->list);
+		lws_tls_vhost_backend_free_ctx(ref->ctx);
+		lws_free(ref);
+	}
+}
+
+void
+lws_tls_ctx_ref_destroy_all(struct lws_vhost *vhost)
+{
+	if (vhost->tls.active_ctx_ref) {
+		lws_tls_ctx_ref_unref(vhost->tls.active_ctx_ref);
+		vhost->tls.active_ctx_ref = NULL;
+		vhost->tls.ssl_ctx = NULL;
+	}
+
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&vhost->tls.retired_ctx_list)) {
+		struct lws_tls_ctx_ref *r = lws_container_of(d, struct lws_tls_ctx_ref, list);
+		r->refcount = 1;
+		lws_tls_ctx_ref_unref(r);
+	} lws_end_foreach_dll_safe(d, d1);
+}
+
 static void
 lws_sul_tls_cb(lws_sorted_usec_list_t *sul)
 {
@@ -101,6 +149,9 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 	if (vhost->tls.use_ssl) {
 		if (lws_tls_server_vhost_backend_init(info, vhost, (struct lws *)plwsa))
 			return -1;
+
+		if (vhost->tls.ssl_ctx && !vhost->tls.active_ctx_ref)
+			vhost->tls.active_ctx_ref = lws_tls_ctx_ref_create(vhost->tls.ssl_ctx);
 
 		lws_tls_server_client_cert_verify_config(vhost);
 

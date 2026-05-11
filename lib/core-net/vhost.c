@@ -841,6 +841,21 @@ lws_create_vhost(struct lws_context *context,
 		lws_strncpy(vh->tls.ecdh_curve, info->ecdh_curve,
 			    sizeof(vh->tls.ecdh_curve));
 
+	if (info->ssl_cipher_list)
+		vh->tls.cfg_ssl_cipher_list = lws_strdup(info->ssl_cipher_list);
+	if (info->tls1_3_plus_cipher_list)
+		vh->tls.cfg_tls1_3_plus_cipher_list = lws_strdup(info->tls1_3_plus_cipher_list);
+#if defined(LWS_WITH_CLIENT)
+	if (info->client_ssl_cipher_list)
+		vh->tls.cfg_tls_client_cipher_list = lws_strdup(info->client_ssl_cipher_list);
+#endif
+	if (info->tls_ciphers_iana)
+		vh->tls.cfg_tls_ciphers_iana = lws_strdup(info->tls_ciphers_iana);
+	if (info->ssl_ca_filepath)
+		vh->tls.cfg_ssl_ca_filepath = lws_strdup(info->ssl_ca_filepath);
+	vh->tls.ssl_options_set = info->ssl_options_set;
+	vh->tls.ssl_options_clear = info->ssl_options_clear;
+
 	/* carefully allocate and take a copy of cert + key paths if present */
 	n = 0;
 	if (info->ssl_cert_filepath)
@@ -849,18 +864,18 @@ lws_create_vhost(struct lws_context *context,
 		n += (int)strlen(info->ssl_private_key_filepath) + 1;
 
 	if (n) {
-		vh->tls.key_path = vh->tls.alloc_cert_path =
+		vh->tls.cfg_key_path = vh->tls.cfg_alloc_cert_path =
 					lws_malloc((unsigned int)n, "vh paths");
-		if (!vh->tls.alloc_cert_path)
+		if (!vh->tls.cfg_alloc_cert_path)
 			goto bail;
 		if (info->ssl_cert_filepath) {
 			n = (int)strlen(info->ssl_cert_filepath) + 1;
-			memcpy(vh->tls.alloc_cert_path,
+			memcpy(vh->tls.cfg_alloc_cert_path,
 			       info->ssl_cert_filepath, (unsigned int)n);
-			vh->tls.key_path += n;
+			vh->tls.cfg_key_path += n;
 		}
 		if (info->ssl_private_key_filepath)
-			memcpy(vh->tls.key_path, info->ssl_private_key_filepath,
+			memcpy(vh->tls.cfg_key_path, info->ssl_private_key_filepath,
 			       strlen(info->ssl_private_key_filepath) + 1);
 	}
 #endif
@@ -1685,6 +1700,9 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 	}
 	if (vh->protocol_vh_privs)
 		lws_free(vh->protocol_vh_privs);
+#if defined(LWS_WITH_SERVER)
+	lws_tls_ctx_ref_destroy_all(vh);
+#endif
 	lws_ssl_SSL_CTX_destroy(vh);
 	lws_free(vh->same_vh_protocol_owner);
 
@@ -1708,8 +1726,13 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 #endif
 
 #if defined (LWS_WITH_TLS)
-	lws_free_set_NULL(vh->tls.alloc_cert_path);
-	vh->tls.key_path = NULL;
+	lws_free_set_NULL(vh->tls.cfg_alloc_cert_path);
+	lws_free_set_NULL(vh->tls.cfg_ssl_cipher_list);
+	lws_free_set_NULL(vh->tls.cfg_tls1_3_plus_cipher_list);
+	lws_free_set_NULL(vh->tls.cfg_tls_client_cipher_list);
+	lws_free_set_NULL(vh->tls.cfg_tls_ciphers_iana);
+	lws_free_set_NULL(vh->tls.cfg_ssl_ca_filepath);
+	vh->tls.cfg_key_path = NULL;
 #endif
 
 #if LWS_MAX_SMP > 1

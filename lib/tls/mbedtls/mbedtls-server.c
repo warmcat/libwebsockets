@@ -190,47 +190,101 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 	return 0;
 }
 
+void
+lws_tls_vhost_backend_free_ctx(lws_tls_ctx *ctx)
+{
+	if (ctx)
+		SSL_CTX_free(ctx);
+}
+
 int
-lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
-				  struct lws_vhost *vhost, struct lws *wsi)
+lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 {
 	const SSL_METHOD *method = TLS_server_method();
 	uint8_t *p;
 	lws_filepos_t flen;
-	int n;
+	struct lws_vhost_tls *tls = &vhost->tls;
 
-	vhost->tls.ssl_ctx = SSL_CTX_new(method);	/* create context */
-	if (!vhost->tls.ssl_ctx) {
+	tls->ssl_ctx = SSL_CTX_new(method);	/* create context */
+	if (!tls->ssl_ctx) {
 		lwsl_err("problem creating ssl context\n");
 		return 1;
 	}
 
-	vhost->tls.ssl_ctx->rngctx = &vhost->context->mcdc;
-	if (!vhost->tls.use_ssl ||
-	    (!info->ssl_cert_filepath && !info->server_ssl_cert_mem))
-		return 0;
+	tls->ssl_ctx->rngctx = &vhost->context->mcdc;
 
-	if (info->ssl_ca_filepath) {
+	if (tls->cfg_ssl_ca_filepath) {
 		lwsl_notice("%s: vh %s: loading CA filepath %s\n", __func__,
-			    vhost->name, info->ssl_ca_filepath);
+			    vhost->name, tls->cfg_ssl_ca_filepath);
 		if (lws_tls_alloc_pem_to_der_file(vhost->context,
-				info->ssl_ca_filepath, NULL, 0, &p, &flen)) {
+				tls->cfg_ssl_ca_filepath, NULL, 0, &p, &flen)) {
 			lwsl_err("couldn't find client CA file %s\n",
-					info->ssl_ca_filepath);
+					tls->cfg_ssl_ca_filepath);
 
 			return 1;
 		}
 
-		if (SSL_CTX_add_client_CA_ASN1(vhost->tls.ssl_ctx, (int)flen, p) != 1) {
+		if (SSL_CTX_add_client_CA_ASN1(tls->ssl_ctx, (int)flen, p) != 1) {
 			lwsl_err("%s: SSL_CTX_add_client_CA_ASN1 unhappy\n",
 				 __func__);
 			free(p);
 			return 1;
 		}
 		free(p);
-	} else {
-		if (info->server_ssl_ca_mem && info->server_ssl_ca_mem_len &&
-		    SSL_CTX_add_client_CA_ASN1(vhost->tls.ssl_ctx,
+	}
+
+	/* Apply cipher list if specified */
+	if (tls->cfg_tls_ciphers_iana) {
+		if (!SSL_CTX_set_cipher_list(tls->ssl_ctx,
+					    tls->cfg_tls_ciphers_iana)) {
+			lwsl_err("SSL_CTX_set_cipher_list(%s) failed\n",
+				 tls->cfg_tls_ciphers_iana);
+			return 1;
+		}
+		lwsl_notice("%s: vh %s: applied IANA cipher list: %s\n", __func__,
+			    vhost->name, tls->cfg_tls_ciphers_iana);
+	} else if (tls->cfg_ssl_cipher_list) {
+		if (!SSL_CTX_set_cipher_list(tls->ssl_ctx,
+					    tls->cfg_ssl_cipher_list)) {
+			lwsl_err("SSL_CTX_set_cipher_list(%s) failed\n",
+				 tls->cfg_ssl_cipher_list);
+			return 1;
+		}
+		lwsl_notice("%s: vh %s: applied cipher list: %s\n", __func__,
+			    vhost->name, tls->cfg_ssl_cipher_list);
+	}
+
+	return 0;
+}
+
+int
+lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
+				  struct lws_vhost *vhost, struct lws *wsi)
+{
+	int n;
+
+	if (lws_tls_vhost_backend_create_ctx(vhost))
+		return 1;
+
+	if (!vhost->tls.use_ssl ||
+	    (!info->ssl_cert_filepath && !info->server_ssl_cert_mem))
+		return 0;
+
+	n = (int)lws_tls_generic_cert_checks(vhost, info->ssl_cert_filepath,
+					     info->ssl_private_key_filepath);
+
+	if (n == LWS_TLS_EXTANT_NO &&
+	    (vhost->options & LWS_SERVER_OPTION_IGNORE_MISSING_CERT)) {
+		lwsl_notice("No certs found, continuing without SSL_CTX\n");
+		SSL_free(vhost->tls.ssl_ctx); // mbedtls wrapper uses SSL_free for its context sometimes?
+		// Wait, SSL_CTX_free is the correct openssl-wrapper function.
+		SSL_CTX_free(vhost->tls.ssl_ctx);
+		vhost->tls.ssl_ctx = NULL;
+		return 0;
+	}
+
+	if (!info->ssl_ca_filepath && info->server_ssl_ca_mem && info->server_ssl_ca_mem_len) {
+		if (SSL_CTX_add_client_CA_ASN1(vhost->tls.ssl_ctx,
 					       (int)info->server_ssl_ca_mem_len,
 					       info->server_ssl_ca_mem) != 1) {
 			lwsl_err("%s: mem SSL_CTX_add_client_CA_ASN1 unhappy\n",
@@ -249,27 +303,6 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 	if (n)
 		return n;
 
-	/* Apply cipher list if specified */
-	if (info->tls_ciphers_iana) {
-		if (!SSL_CTX_set_cipher_list(vhost->tls.ssl_ctx,
-					    info->tls_ciphers_iana)) {
-			lwsl_err("SSL_CTX_set_cipher_list(%s) failed\n",
-				 info->tls_ciphers_iana);
-			return 1;
-		}
-		lwsl_notice("%s: vh %s: applied IANA cipher list: %s\n", __func__,
-			    vhost->name, info->tls_ciphers_iana);
-	} else if (info->ssl_cipher_list) {
-		if (!SSL_CTX_set_cipher_list(vhost->tls.ssl_ctx,
-					    info->ssl_cipher_list)) {
-			lwsl_err("SSL_CTX_set_cipher_list(%s) failed\n",
-				 info->ssl_cipher_list);
-			return 1;
-		}
-		lwsl_notice("%s: vh %s: applied cipher list: %s\n", __func__,
-			    vhost->name, info->ssl_cipher_list);
-	}
-
 	return 0;
 }
 
@@ -286,6 +319,10 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 	}
 
 	SSL_set_fd(wsi->tls.ssl, (int)accept_fd);
+
+	wsi->tls.ctx_ref = wsi->a.vhost->tls.active_ctx_ref;
+	if (wsi->tls.ctx_ref)
+		wsi->tls.ctx_ref->refcount++;
 
 	if (wsi->a.vhost->tls.ssl_info_event_mask)
 		SSL_set_info_callback(wsi->tls.ssl, lws_ssl_info_callback);

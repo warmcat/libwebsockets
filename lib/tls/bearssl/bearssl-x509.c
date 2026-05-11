@@ -571,14 +571,10 @@ int lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi, const ch
 	struct lws_tls_ctx *ctx;
 	int err;
 
-	if (!vhost->tls.ssl_ctx) {
-		ctx = lws_zalloc(sizeof(*ctx), "bearssl server ctx");
-		if (!ctx)
-			return 1;
-		vhost->tls.ssl_ctx = ctx;
-	} else {
-		ctx = (struct lws_tls_ctx *)vhost->tls.ssl_ctx;
-	}
+	if (!vhost->tls.ssl_ctx)
+		return 1;
+
+	ctx = (struct lws_tls_ctx *)vhost->tls.ssl_ctx;
 
 	/*
 	 * We use lws_tls_alloc_pem_to_der_file to get the DER representation

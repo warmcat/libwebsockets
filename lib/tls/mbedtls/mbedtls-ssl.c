@@ -282,6 +282,11 @@ lws_ssl_close(struct lws *wsi)
 
 	lws_tls_restrict_return(wsi);
 
+	if (wsi->tls.ctx_ref) {
+		lws_tls_ctx_ref_unref(wsi->tls.ctx_ref);
+		wsi->tls.ctx_ref = NULL;
+	}
+
 	return 1; /* handled */
 }
 
@@ -289,7 +294,7 @@ void
 lws_ssl_SSL_CTX_destroy(struct lws_vhost *vhost)
 {
 	if (vhost->tls.ssl_ctx)
-		SSL_CTX_free(vhost->tls.ssl_ctx);
+		lws_tls_vhost_backend_free_ctx(vhost->tls.ssl_ctx);
 
 	if (!vhost->tls.user_supplied_ssl_ctx && vhost->tls.ssl_client_ctx)
 		SSL_CTX_free(vhost->tls.ssl_client_ctx);

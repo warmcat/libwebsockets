@@ -39,9 +39,19 @@ lws_context_deinit_ssl_library(struct lws_context *context)
 	gnutls_global_deinit();
 }
 
+void
+lws_tls_vhost_backend_free_ctx(lws_tls_ctx *ctx)
+{
+	if (!ctx)
+		return;
+
+	gnutls_certificate_free_credentials(ctx->creds);
+	gnutls_priority_deinit(ctx->priority);
+	lws_free(ctx);
+}
+
 int
-lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
-				  struct lws_vhost *vhost, struct lws *wsi)
+lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 {
 	vhost->tls.ssl_ctx = lws_zalloc(sizeof(*vhost->tls.ssl_ctx), "gnutls_ctx");
 	if (!vhost->tls.ssl_ctx)
@@ -54,8 +64,8 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 	}
 
 	if (gnutls_priority_init(&vhost->tls.ssl_ctx->priority,
-				 info->ssl_cipher_list ?
-				 info->ssl_cipher_list : "NORMAL", NULL) < 0) {
+				 vhost->tls.cfg_ssl_cipher_list ?
+				 vhost->tls.cfg_ssl_cipher_list : "NORMAL", NULL) < 0) {
 		lwsl_err("%s: gnutls_priority_init failed\n", __func__);
 		gnutls_certificate_free_credentials(vhost->tls.ssl_ctx->creds);
 		lws_free(vhost->tls.ssl_ctx);
@@ -63,16 +73,44 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 		return 1;
 	}
 
+	return 0;
+}
+
+int
+lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
+				  struct lws_vhost *vhost, struct lws *wsi)
+{
+	int n;
+
+	if (lws_tls_vhost_backend_create_ctx(vhost))
+		return 1;
+
 	if (!vhost->tls.use_ssl ||
 	    (!info->ssl_cert_filepath && !info->server_ssl_cert_mem))
 		return 0;
 
-	return lws_tls_server_certs_load(vhost, wsi, info->ssl_cert_filepath,
+	n = (int)lws_tls_generic_cert_checks(vhost, info->ssl_cert_filepath,
+					     info->ssl_private_key_filepath);
+
+	if (n == LWS_TLS_EXTANT_NO &&
+	    (vhost->options & LWS_SERVER_OPTION_IGNORE_MISSING_CERT)) {
+		lwsl_notice("No certs found, continuing without SSL_CTX\n");
+		lws_free_set_NULL(vhost->tls.ssl_ctx);
+		return 0;
+	}
+
+	n = lws_tls_server_certs_load(vhost, wsi, info->ssl_cert_filepath,
 					 info->ssl_private_key_filepath,
 					 info->server_ssl_cert_mem,
 					 info->server_ssl_cert_mem_len,
 					 info->server_ssl_private_key_mem,
 					 info->server_ssl_private_key_mem_len);
+	if (n) {
+		lwsl_err("%s: failed to load certs\n", __func__);
+		return 1;
+	}
+
+	return 0;
 }
 
 int
@@ -131,6 +169,10 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 	gnutls_priority_set(session, wsi->a.vhost->tls.ssl_ctx->priority);
 	gnutls_credentials_set(session, GNUTLS_CRD_CERTIFICATE, wsi->a.vhost->tls.ssl_ctx->creds);
 	gnutls_transport_set_int((gnutls_session_t)wsi->tls.ssl, (int)accept_fd);
+
+	wsi->tls.ctx_ref = wsi->a.vhost->tls.active_ctx_ref;
+	if (wsi->tls.ctx_ref)
+		wsi->tls.ctx_ref->refcount++;
 
 	if (wsi->a.vhost->tls.alpn_ctx.len) {
 		gnutls_datum_t alpn[4];
@@ -210,9 +252,7 @@ void
 lws_ssl_SSL_CTX_destroy(struct lws_vhost *vhost)
 {
 	if (vhost->tls.ssl_ctx) {
-		gnutls_certificate_free_credentials(vhost->tls.ssl_ctx->creds);
-		gnutls_priority_deinit(vhost->tls.ssl_ctx->priority);
-		lws_free(vhost->tls.ssl_ctx);
+		lws_tls_vhost_backend_free_ctx(vhost->tls.ssl_ctx);
 		vhost->tls.ssl_ctx = NULL;
 	}
 	if (vhost->tls.ssl_client_ctx) {

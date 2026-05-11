@@ -27,10 +27,65 @@
 
 
 int
+lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
+{
+	struct lws_tls_ctx *ctx;
+
+	ctx = lws_zalloc(sizeof(*ctx), "bearssl server ctx");
+	if (!ctx)
+		return 1;
+
+	vhost->tls.ssl_ctx = ctx;
+
+	return 0;
+}
+
+void
+lws_tls_vhost_backend_free_ctx(lws_tls_ctx *ctx)
+{
+	if (!ctx)
+		return;
+
+	if (ctx->chain) {
+		size_t i;
+		for (i = 0; i < ctx->chain_len; i++)
+			if (ctx->chain[i].data)
+				lws_free(ctx->chain[i].data);
+		lws_free(ctx->chain);
+	}
+
+#if defined(LWS_WITH_TLS_SESSIONS)
+	if (ctx->lru_buffer)
+		lws_free(ctx->lru_buffer);
+#endif
+
+	lws_free(ctx);
+}
+
+int
 lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 			  struct lws_vhost *vhost, struct lws *wsi)
 {
-	int n = lws_tls_server_certs_load(vhost, wsi, info->ssl_cert_filepath,
+	int n;
+
+	if (lws_tls_vhost_backend_create_ctx(vhost))
+		return 1;
+
+	if (!vhost->tls.use_ssl ||
+	    (!info->ssl_cert_filepath && !info->server_ssl_cert_mem))
+		return 0;
+
+	n = (int)lws_tls_generic_cert_checks(vhost, info->ssl_cert_filepath,
+					     info->ssl_private_key_filepath);
+
+	if (n == LWS_TLS_EXTANT_NO &&
+	    (vhost->options & LWS_SERVER_OPTION_IGNORE_MISSING_CERT)) {
+		lwsl_notice("No certs found, continuing without SSL_CTX\n");
+		lws_free_set_NULL(vhost->tls.ssl_ctx);
+		return 0;
+	}
+
+	n = lws_tls_server_certs_load(vhost, wsi, info->ssl_cert_filepath,
 			info->ssl_private_key_filepath,
 			info->server_ssl_cert_mem,
 			info->server_ssl_cert_mem_len,
@@ -57,6 +112,10 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 	wsi->tls.ssl = (lws_tls_conn *)conn;
 	conn->is_client = 0;
 	conn->ctx = wsi->a.vhost->tls.ssl_ctx;
+
+	wsi->tls.ctx_ref = wsi->a.vhost->tls.active_ctx_ref;
+	if (wsi->tls.ctx_ref)
+		wsi->tls.ctx_ref->refcount++;
 
 	return 0;
 }

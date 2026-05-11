@@ -490,12 +490,19 @@ post_ecdh:
 	return 0;
 }
 
+void
+lws_tls_vhost_backend_free_ctx(lws_tls_ctx *ctx)
+{
+	if (ctx)
+		SSL_CTX_free(ctx);
+}
+
 int
-lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
-				  struct lws_vhost *vhost, struct lws *wsi)
+lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 {
 	unsigned long error;
 	SSL_METHOD *method = (SSL_METHOD *)SSLv23_server_method();
+	struct lws_vhost_tls *tls = &vhost->tls;
 
 	if (!method) {
 		const char *s;
@@ -506,8 +513,8 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 				error, s);
 		return 1;
 	}
-	vhost->tls.ssl_ctx = SSL_CTX_new(method);	/* create context */
-	if (!vhost->tls.ssl_ctx) {
+	tls->ssl_ctx = SSL_CTX_new(method);	/* create context */
+	if (!tls->ssl_ctx) {
 		const char *s;
 
 		error = ERR_peek_error();
@@ -519,31 +526,31 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 	/* Added for sniffing packets on hub side */
 #if defined(LWS_HAVE_SSL_CTX_set_keylog_callback) && \
 		defined(LWS_WITH_TLS) && (!defined(LWS_WITHOUT_CLIENT) || !defined(LWS_WITHOUT_SERVER))
-	SSL_CTX_set_keylog_callback(vhost->tls.ssl_ctx, lws_klog_dump);
+	SSL_CTX_set_keylog_callback(tls->ssl_ctx, lws_klog_dump);
 #endif
 
-	SSL_CTX_set_ex_data(vhost->tls.ssl_ctx,
+	SSL_CTX_set_ex_data(tls->ssl_ctx,
 			    openssl_SSL_CTX_private_data_index,
 			    (char *)vhost->context);
 	/* Disable SSLv2 and SSLv3 */
-	SSL_CTX_set_options(vhost->tls.ssl_ctx, SSL_OP_NO_SSLv2 |
+	SSL_CTX_set_options(tls->ssl_ctx, SSL_OP_NO_SSLv2 |
 						SSL_OP_NO_SSLv3);
 #ifdef SSL_OP_NO_COMPRESSION
-	SSL_CTX_set_options(vhost->tls.ssl_ctx, SSL_OP_NO_COMPRESSION);
+	SSL_CTX_set_options(tls->ssl_ctx, SSL_OP_NO_COMPRESSION);
 #endif
-	if (lws_check_opt(info->options,
+	if (lws_check_opt(vhost->options,
 	                  LWS_SERVER_OPTION_OPENSSL_AUTO_DH_PARAMETERS))
 #if defined(LWS_HAVE_SSL_CTX_SET_ECDH_AUTO) || defined(LWS_WITH_BORINGSSL)
-		(void)SSL_CTX_set_ecdh_auto(vhost->tls.ssl_ctx, 1);
+		(void)SSL_CTX_set_ecdh_auto(tls->ssl_ctx, 1);
 #else
-		SSL_CTX_set_dh_auto(vhost->tls.ssl_ctx, 1);
+		SSL_CTX_set_dh_auto(tls->ssl_ctx, 1);
 #endif
 
-	SSL_CTX_set_options(vhost->tls.ssl_ctx, SSL_OP_SINGLE_DH_USE);
-	SSL_CTX_set_options(vhost->tls.ssl_ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
+	SSL_CTX_set_options(tls->ssl_ctx, SSL_OP_SINGLE_DH_USE);
+	SSL_CTX_set_options(tls->ssl_ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
 
-	if (info->tls_ciphers_iana) {
-		char *p = lws_strdup(info->tls_ciphers_iana);
+	if (tls->cfg_tls_ciphers_iana) {
+		char *p = lws_strdup(tls->cfg_tls_ciphers_iana);
 		if (p) {
 			char *q = p;
 			while (*q) {
@@ -551,34 +558,34 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 					*q = ':';
 				q++;
 			}
-			SSL_CTX_set_cipher_list(vhost->tls.ssl_ctx, p);
+			SSL_CTX_set_cipher_list(tls->ssl_ctx, p);
 #if defined(LWS_HAVE_SSL_CTX_set_ciphersuites)
-			SSL_CTX_set_ciphersuites(vhost->tls.ssl_ctx, p);
+			SSL_CTX_set_ciphersuites(tls->ssl_ctx, p);
 #endif
 			lws_free(p);
 		}
-	} else if (info->ssl_cipher_list)
-		SSL_CTX_set_cipher_list(vhost->tls.ssl_ctx, info->ssl_cipher_list);
+	} else if (tls->cfg_ssl_cipher_list)
+		SSL_CTX_set_cipher_list(tls->ssl_ctx, tls->cfg_ssl_cipher_list);
 
 #if defined(LWS_HAVE_SSL_CTX_set_ciphersuites)
-	if (info->tls1_3_plus_cipher_list)
-		SSL_CTX_set_ciphersuites(vhost->tls.ssl_ctx,
-					 info->tls1_3_plus_cipher_list);
+	if (tls->cfg_tls1_3_plus_cipher_list)
+		SSL_CTX_set_ciphersuites(tls->ssl_ctx,
+					 tls->cfg_tls1_3_plus_cipher_list);
 #endif
 
 #if !defined(OPENSSL_NO_TLSEXT)
-	SSL_CTX_set_tlsext_servername_callback(vhost->tls.ssl_ctx,
+	SSL_CTX_set_tlsext_servername_callback(tls->ssl_ctx,
 					       lws_ssl_server_name_cb);
-	SSL_CTX_set_tlsext_servername_arg(vhost->tls.ssl_ctx, vhost->context);
+	SSL_CTX_set_tlsext_servername_arg(tls->ssl_ctx, vhost->context);
 #endif
 
-	if (info->ssl_ca_filepath) {
+	if (tls->cfg_ssl_ca_filepath) {
 #if defined(LWS_HAVE_SSL_CTX_load_verify_file)
-	    if (!SSL_CTX_load_verify_file(vhost->tls.ssl_ctx,
-				      info->ssl_ca_filepath)) {
+	    if (!SSL_CTX_load_verify_file(tls->ssl_ctx,
+				      tls->cfg_ssl_ca_filepath)) {
 #else
-	    if (!SSL_CTX_load_verify_locations(vhost->tls.ssl_ctx,
-					   info->ssl_ca_filepath, NULL)) {
+	    if (!SSL_CTX_load_verify_locations(tls->ssl_ctx,
+					   tls->cfg_ssl_ca_filepath, NULL)) {
 #endif
 			lwsl_err("%s: SSL_CTX_load_verify_locations unhappy\n",
 				 __func__);
@@ -586,46 +593,74 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 			/*
 			 * Provide the CA list to the client so it knows what client certs to send
 			 */
-			STACK_OF(X509_NAME) *calist = SSL_load_client_CA_file(info->ssl_ca_filepath);
+			STACK_OF(X509_NAME) *calist = SSL_load_client_CA_file(tls->cfg_ssl_ca_filepath);
 			if (!calist) {
-				lwsl_err("%s: SSL_load_client_CA_file failed to load %s\n", __func__, info->ssl_ca_filepath);
+				lwsl_err("%s: SSL_load_client_CA_file failed to load %s\n", __func__, tls->cfg_ssl_ca_filepath);
 			} else {
-				lwsl_notice("%s: Loaded %d CAs for client CA list from %s\n", __func__, sk_X509_NAME_num(calist), info->ssl_ca_filepath);
-				SSL_CTX_set_client_CA_list(vhost->tls.ssl_ctx, calist);
+				lwsl_notice("%s: Loaded %d CAs for client CA list from %s\n", __func__, sk_X509_NAME_num(calist), tls->cfg_ssl_ca_filepath);
+				SSL_CTX_set_client_CA_list(tls->ssl_ctx, calist);
 			}
 		}
 	}
 
-	SSL_OPT_TYPE ssl_options_set_value = (SSL_OPT_TYPE) info->ssl_options_set;
+	SSL_OPT_TYPE ssl_options_set_value = (SSL_OPT_TYPE) tls->ssl_options_set;
 
-	if (info->ssl_options_set)
-		SSL_CTX_set_options(vhost->tls.ssl_ctx, ssl_options_set_value);
+	if (tls->ssl_options_set)
+		SSL_CTX_set_options(tls->ssl_ctx, ssl_options_set_value);
 
 #if (OPENSSL_VERSION_NUMBER >= 0x009080df) && !defined(USE_WOLFSSL)
 
 /* SSL_clear_options introduced in 0.9.8m */
-	SSL_OPT_TYPE ssl_options_clear_value = (SSL_OPT_TYPE) info->ssl_options_clear;
+	SSL_OPT_TYPE ssl_options_clear_value = (SSL_OPT_TYPE) tls->ssl_options_clear;
 
-	if (info->ssl_options_clear) {
-		SSL_CTX_clear_options(vhost->tls.ssl_ctx, ssl_options_clear_value);
+	if (tls->ssl_options_clear) {
+		SSL_CTX_clear_options(tls->ssl_ctx, ssl_options_clear_value);
 	}
 
 	lwsl_info(" SSL options 0x%lX\n",
-			(unsigned long)SSL_CTX_get_options(vhost->tls.ssl_ctx));
+			(unsigned long)SSL_CTX_get_options(tls->ssl_ctx));
 #endif
+
+	return 0;
+}
+
+int
+lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
+				  struct lws_vhost *vhost, struct lws *wsi)
+{
+	int n, m;
+
+	if (lws_tls_vhost_backend_create_ctx(vhost))
+		return 1;
 
 	if (!vhost->tls.use_ssl ||
 	    (!info->ssl_cert_filepath && !info->server_ssl_cert_mem))
 		return 0;
 
+	n = (int)lws_tls_generic_cert_checks(vhost, info->ssl_cert_filepath,
+					     info->ssl_private_key_filepath);
+
+	if (n == LWS_TLS_EXTANT_NO &&
+	    (vhost->options & LWS_SERVER_OPTION_IGNORE_MISSING_CERT)) {
+		lwsl_notice("No certs found, continuing without SSL_CTX\n");
+		SSL_CTX_free(vhost->tls.ssl_ctx);
+		vhost->tls.ssl_ctx = NULL;
+		return 0;
+	}
+
 	lws_ssl_bind_passphrase(vhost->tls.ssl_ctx, 0, info);
 
-	return lws_tls_server_certs_load(vhost, wsi, info->ssl_cert_filepath,
+	m = lws_tls_server_certs_load(vhost, wsi, info->ssl_cert_filepath,
 					 info->ssl_private_key_filepath,
 					 info->server_ssl_cert_mem,
 					 info->server_ssl_cert_mem_len,
 					 info->server_ssl_private_key_mem,
 					 info->server_ssl_private_key_mem_len);
+
+	if (m && n != LWS_TLS_EXTANT_NO)
+		return 1;
+
+	return 0;
 }
 
 int
@@ -648,6 +683,10 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 
 	SSL_set_ex_data(wsi->tls.ssl, openssl_websocket_private_data_index, wsi);
 	SSL_set_fd(wsi->tls.ssl, (int)(lws_intptr_t)accept_fd);
+
+	wsi->tls.ctx_ref = wsi->a.vhost->tls.active_ctx_ref;
+	if (wsi->tls.ctx_ref)
+		wsi->tls.ctx_ref->refcount++;
 
 #ifdef USE_WOLFSSL
 #ifdef USE_OLD_CYASSL
