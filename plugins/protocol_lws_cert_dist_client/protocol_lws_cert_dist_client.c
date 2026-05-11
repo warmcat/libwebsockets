@@ -365,21 +365,30 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 			struct pss_cert_dist_client *pss = (struct pss_cert_dist_client *)user;
 			if (!pss) break;
 
+			lwsl_notice("%s: Received chunk of JSON from distribution server (%d bytes)\n", __func__, (int)len);
 			if (lejp_parse(&pss->jctx, (uint8_t *)in, (int)len) < 0) {
 				lwsl_err("%s: lejp parse failed\n", __func__);
 			}
 		}
 		break;
 
+	case LWS_CALLBACK_RAW_CONNECTED:
+		if (lws_get_opaque_user_data(wsi))
+			lws_callback_on_writable(wsi);
+		break;
+
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
+	case LWS_CALLBACK_RAW_WRITEABLE:
 		{
-			struct pss_cert_dist_client *pss = (struct pss_cert_dist_client *)user;
+			struct pss_cert_dist_client *pss = (struct pss_cert_dist_client *)lws_get_opaque_user_data(wsi);
+			if (!pss)
+				pss = (struct pss_cert_dist_client *)user;
 			if (!pss) break;
 
 			if (pss->wsi == wsi && pss->cert && pss->key && !pss->wsi_uds) {
 				/* Build UDS payload */
 				/* Expected by stub: {"secret":"...","subdomain":"...","fullchain":"...","privkey":"..."} */
-				int est_len = pss->cert_len + pss->key_len + (int)strlen(pss->subdomain) + (int)strlen(vhd->secret) + 128;
+				int est_len = (pss->cert_len * 2) + (pss->key_len * 2) + (int)strlen(pss->subdomain) + (int)strlen(vhd->secret) + 128;
 				pss->uds_tx = malloc((size_t)est_len + LWS_PRE);
 				if (!pss->uds_tx) {
 					lwsl_err("%s: OOM alloc uds tx\n", __func__);
@@ -403,6 +412,8 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 				pss->uds_tx_len = (int)(p - (pss->uds_tx + LWS_PRE));
 				pss->uds_tx_len += lws_snprintf(pss->uds_tx + LWS_PRE + pss->uds_tx_len, (size_t)(est_len - pss->uds_tx_len), "\"}\n");
 				pss->uds_tx_pos = 0;
+
+				lwsl_notice("%s: JSON payload built, connecting to UDS stub for %s\n", __func__, pss->subdomain);
 
 				/* Initiate UDS connection */
 				struct lws_client_connect_info i;
@@ -432,7 +443,7 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 					char certpath[256];
 					char keypath[256];
 
-					lwsl_notice("%s: Sent complete cert update to stub\n", __func__);
+					lwsl_notice("%s: Sent complete cert update to local UDS stub for %s\n", __func__, pss->subdomain);
 
 					lws_snprintf(certpath, sizeof(certpath), "%s/%s/fullchain.pem",
 						     vhd->base_dir, pss->subdomain);
@@ -462,17 +473,24 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_notice("%s: CLIENT_CONNECTION_ERROR: %s\n", __func__, in ? (char *)in : "(null)");
 		/* fallthru */
 	case LWS_CALLBACK_CLIENT_CLOSED:
+	case LWS_CALLBACK_RAW_CLOSE:
 		{
-			struct pss_cert_dist_client *pss = (struct pss_cert_dist_client *)user;
+			struct pss_cert_dist_client *pss = (struct pss_cert_dist_client *)lws_get_opaque_user_data(wsi);
+			if (!pss)
+				pss = (struct pss_cert_dist_client *)user;
+
 			if (reason == LWS_CALLBACK_CLIENT_CLOSED)
 				lwsl_notice("%s: CLIENT_CLOSED\n", __func__);
 			if (pss) {
-				if (pss->cert) { free(pss->cert); pss->cert = NULL; }
-				if (pss->key) { free(pss->key); pss->key = NULL; }
-				if (pss->uds_tx) { free(pss->uds_tx); pss->uds_tx = NULL; }
-				lejp_destruct(&pss->jctx);
-				if (pss->wsi == wsi) pss->wsi = NULL;
-				if (pss->wsi_uds == wsi) pss->wsi_uds = NULL;
+				if (pss->wsi == wsi) {
+					if (pss->cert) { free(pss->cert); pss->cert = NULL; }
+					if (pss->key) { free(pss->key); pss->key = NULL; }
+					if (pss->uds_tx) { free(pss->uds_tx); pss->uds_tx = NULL; }
+					lejp_destruct(&pss->jctx);
+					pss->wsi = NULL;
+				} else if (pss->wsi_uds == wsi) {
+					pss->wsi_uds = NULL;
+				}
 			}
 		}
 		break;

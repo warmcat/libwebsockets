@@ -3,7 +3,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
-
+#include <dirent.h>
 struct vhd_cert_dist_server {
 	struct lws_context *cx;
 	struct lws_vhost *vh;
@@ -39,6 +39,53 @@ struct pss_cert_dist_server {
 };
 
 /* --- STUB SERVER IMPLEMENTATION --- */
+
+static char *
+read_newest_file_in_dir(const char *dirpath, const char *suffix)
+{
+	DIR *dir;
+	struct dirent *de;
+	char best_name[256];
+	char path[512];
+	struct stat st;
+	int fd;
+	char *buf = NULL;
+
+	best_name[0] = '\0';
+
+	dir = opendir(dirpath);
+	if (!dir)
+		return NULL;
+
+	while ((de = readdir(dir))) {
+		size_t l = strlen(de->d_name);
+		size_t sl = strlen(suffix);
+		if (l > sl && !strcmp(de->d_name + l - sl, suffix)) {
+			if (!best_name[0] || strcmp(de->d_name, best_name) > 0)
+				lws_strncpy(best_name, de->d_name, sizeof(best_name));
+		}
+	}
+	closedir(dir);
+
+	if (!best_name[0])
+		return NULL;
+
+	lws_snprintf(path, sizeof(path), "%s/%s", dirpath, best_name);
+	fd = open(path, O_RDONLY);
+	if (fd >= 0) {
+		if (fstat(fd, &st) == 0 && (buf = malloc((size_t)st.st_size + 1))) {
+			if (read(fd, buf, (size_t)st.st_size) == (ssize_t)st.st_size)
+				buf[st.st_size] = '\0';
+			else {
+				free(buf);
+				buf = NULL;
+			}
+		}
+		close(fd);
+	}
+
+	return buf;
+}
 
 static const char * const stub_req_paths[] = {
 	"secret",
@@ -105,10 +152,12 @@ callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason
 	struct pss_stub_server *pss = (struct pss_stub_server *)user;
 
 	switch (reason) {
-	case LWS_CALLBACK_PROTOCOL_INIT:
+	case LWS_CALLBACK_RAW_ADOPT:
+		lwsl_notice("%s: Stub accepted new UDS connection\n", __func__);
 		break;
 
 	case LWS_CALLBACK_RAW_RX:
+		lwsl_notice("%s: Stub received %d bytes\n", __func__, (int)len);
 		if (!pss->parser_valid) {
 			memset(&pss->args, 0, sizeof(pss->args));
 			pss->args.vhd = vhd;
@@ -127,6 +176,7 @@ callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason
 
 	case LWS_CALLBACK_RAW_WRITEABLE:
 		if (pss->response) {
+			lwsl_notice("%s: Stub writing %d bytes to proxy\n", __func__, pss->response_len - pss->response_pos);
 			int m = lws_write(wsi, (unsigned char *)pss->response + LWS_PRE + pss->response_pos, (size_t)(pss->response_len - pss->response_pos), LWS_WRITE_RAW);
 			if (m < 0) return -1;
 			pss->response_pos += m;
@@ -154,36 +204,21 @@ callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason
 		{
 			char cert_path[512], key_path[512];
 			char *cert_buf = NULL, *key_buf = NULL;
-			struct stat st;
-			int fd;
 
 			lws_snprintf(cert_path, sizeof(cert_path), "%s/domains/%s/certs/production/crt",
 				     vhd->pki_root, pss->args.domain);
 			lws_snprintf(key_path, sizeof(key_path), "%s/domains/%s/certs/production/key",
 				     vhd->pki_root, pss->args.domain);
 
-			fd = open(cert_path, O_RDONLY);
-			if (fd >= 0) {
-				if (fstat(fd, &st) == 0 && (cert_buf = malloc((size_t)st.st_size + 1))) {
-					if (read(fd, cert_buf, (size_t)st.st_size) == (ssize_t)st.st_size)
-						cert_buf[st.st_size] = '\0';
-					else { free(cert_buf); cert_buf = NULL; }
-				}
-				close(fd);
-			}
+			lwsl_notice("%s: Looking for newest cert in %s\n", __func__, cert_path);
+			cert_buf = read_newest_file_in_dir(cert_path, ".crt");
 
-			fd = open(key_path, O_RDONLY);
-			if (fd >= 0) {
-				if (fstat(fd, &st) == 0 && (key_buf = malloc((size_t)st.st_size + 1))) {
-					if (read(fd, key_buf, (size_t)st.st_size) == (ssize_t)st.st_size)
-						key_buf[st.st_size] = '\0';
-					else { free(key_buf); key_buf = NULL; }
-				}
-				close(fd);
-			}
+			lwsl_notice("%s: Looking for newest key in %s\n", __func__, key_path);
+			key_buf = read_newest_file_in_dir(key_path, ".key");
 
 			if (cert_buf && key_buf) {
-				size_t jlen = strlen(cert_buf) + strlen(key_buf) + 512;
+				lwsl_notice("%s: Found both cert and key for %s, preparing response\n", __func__, pss->args.domain);
+				size_t jlen = (strlen(cert_buf) * 2) + (strlen(key_buf) * 2) + 512;
 				pss->response = malloc(LWS_PRE + jlen);
 				if (pss->response) {
 					char *p = pss->response + LWS_PRE, *end = pss->response + LWS_PRE + jlen;
@@ -208,9 +243,11 @@ callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason
 					p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\"}");
 					pss->response_len = (int)(p - (pss->response + LWS_PRE));
 					pss->response_pos = 0;
+					lwsl_notice("%s: Stub JSON response built (%d bytes), requesting write\n", __func__, pss->response_len);
 					lws_callback_on_writable(wsi);
 				}
 			} else {
+				lwsl_notice("%s: Cert or key not found yet for %s\n", __func__, pss->args.domain);
 				/* Not ready yet */
 				return -1;
 			}
@@ -446,6 +483,7 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 			if (pss->uds_rx_pos < pss->uds_rx_len)
 				lws_callback_on_writable(wsi);
 			else {
+				lwsl_notice("%s: Sent complete cert update to WSS client for %s\n", __func__, pss->domain);
 				free(pss->uds_rx);
 				pss->uds_rx = NULL;
 				return -1; /* Done sending cert */
@@ -456,6 +494,7 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 		/* If we haven't asked UDS yet, ask UDS */
 		if (!pss->wsi_uds) {
 			size_t est_len = 512;
+			lwsl_notice("%s: Requesting cert for %s from server UDS stub\n", __func__, pss->domain);
 			pss->uds_tx = malloc(est_len + LWS_PRE);
 			if (!pss->uds_tx) return -1;
 			pss->uds_tx_len = lws_snprintf(pss->uds_tx + LWS_PRE, est_len,
@@ -485,19 +524,28 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 	/* UDS Client Callbacks handled in the same protocol callback */
 	case LWS_CALLBACK_RAW_CONNECTED:
 		if (!vhd->is_stub && lws_get_opaque_user_data(wsi)) {
+			lwsl_notice("%s: Proxy connected to stub UDS\n", __func__);
 			lws_callback_on_writable(wsi);
 		}
 		break;
 
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		if (!vhd->is_stub && lws_get_opaque_user_data(wsi))
+			lwsl_err("%s: Proxy failed to connect to stub UDS: %s\n", __func__, in ? (char *)in : "unknown");
+		break;
+
+	case LWS_CALLBACK_RAW_WRITEABLE:
 	case LWS_CALLBACK_CLIENT_WRITEABLE: {
 		struct pss_cert_dist_server *up_pss = (struct pss_cert_dist_server *)lws_get_opaque_user_data(wsi);
 		if (up_pss && up_pss->uds_tx) {
+			lwsl_notice("%s: Proxy writing %d bytes to stub UDS\n", __func__, up_pss->uds_tx_len - up_pss->uds_tx_pos);
 			int m = lws_write(wsi, (unsigned char *)up_pss->uds_tx + LWS_PRE + up_pss->uds_tx_pos, (size_t)(up_pss->uds_tx_len - up_pss->uds_tx_pos), LWS_WRITE_RAW);
 			if (m < 0) return -1;
 			up_pss->uds_tx_pos += m;
 			if (up_pss->uds_tx_pos < up_pss->uds_tx_len)
 				lws_callback_on_writable(wsi);
 			else {
+				lwsl_notice("%s: Proxy finished writing to stub UDS\n", __func__);
 				free(up_pss->uds_tx);
 				up_pss->uds_tx = NULL;
 			}
@@ -508,6 +556,7 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RAW_RX: {
 		struct pss_cert_dist_server *up_pss = (struct pss_cert_dist_server *)lws_get_opaque_user_data(wsi);
 		if (up_pss) {
+			lwsl_notice("%s: Proxy received %d bytes from stub UDS\n", __func__, (int)len);
 			if (!up_pss->uds_rx) {
 				up_pss->uds_rx = malloc(LWS_PRE + 65536);
 				up_pss->uds_rx_len = 0;
