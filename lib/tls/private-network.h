@@ -72,6 +72,20 @@ struct lws_vhost_tls {
 	char *cfg_tls_client_cipher_list;
 	char *cfg_tls_ciphers_iana;
 	char *cfg_ssl_ca_filepath;
+	const void *cfg_server_ssl_cert_mem;
+	unsigned int cfg_server_ssl_cert_mem_len;
+	const void *cfg_server_ssl_privkey_mem;
+	unsigned int cfg_server_ssl_privkey_mem_len;
+	const void *cfg_server_ssl_ca_mem;
+	unsigned int cfg_server_ssl_ca_mem_len;
+#if defined(LWS_WITH_CLIENT)
+	const void *cfg_client_ssl_ca_mem;
+	unsigned int cfg_client_ssl_ca_mem_len;
+	const void *cfg_client_ssl_cert_mem;
+	unsigned int cfg_client_ssl_cert_mem_len;
+	const void *cfg_client_ssl_key_mem;
+	unsigned int cfg_client_ssl_key_mem_len;
+#endif
 	long ssl_options_set;
 	long ssl_options_clear;
 #if defined(LWS_WITH_MBEDTLS)

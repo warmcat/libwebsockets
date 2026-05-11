@@ -2793,6 +2793,8 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
+		/* Only tear down if this vhost natively owns the vhd */
+		vhd = (struct vhd *)lws_protocol_vh_priv_get(vhost, protocol);
 		if (!vhd)
 			break;
 		if (vhd->smd_peer) {
@@ -2813,6 +2815,9 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 			free(vhd->base_dir);
 			vhd->base_dir = NULL;
 		}
+
+		if (global_root_vhd == vhd)
+			global_root_vhd = NULL;
 		break;
 
 	case LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION:
