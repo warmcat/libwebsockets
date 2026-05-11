@@ -303,14 +303,13 @@ lws_cookie_parse_nsc(struct lws_cookie *c, const char *b, size_t l)
 static int
 lws_cookie_write_nsc(struct lws *wsi, struct lws_cookie *c)
 {
-	char cache_name[LWS_COOKIE_MAX_CACHE_NAME_LEN];
 	const char *ads, *path;
 	struct lws_cache_ttl_lru *l1;
 	struct client_info_stash *stash;
-	char *cookie_string = NULL;
+	char *cookie_string = NULL, *cache_name = NULL;
 	const char *dl;
 	 /* 6 tabs + 20 for max time_t + 2 * TRUE/FALSE + null */
-	size_t size = 6 + 20 + 10 + 1;
+	size_t size = 6 + 20 + 10 + 1, cnl;
 	time_t expires = 0;
 	int ret = 0;
 
@@ -357,8 +356,15 @@ lws_cookie_write_nsc(struct lws *wsi, struct lws_cookie *c)
 			c->l[CE_PATH] = (size_t)(dl - c->f[CE_PATH]);
 	}
 
-	if (lws_cookie_compile_cache_name(cache_name, sizeof(cache_name), c))
+	cnl = c->l[CE_DOMAIN] + c->l[CE_PATH] + c->l[CE_NAME] + 6;
+	cache_name = lws_malloc(cnl, __func__);
+	if (!cache_name)
 		return -1;
+
+	if (lws_cookie_compile_cache_name(cache_name, cnl, c)) {
+		ret = -1;
+		goto exit;
+	}
 
 	if (c->f[CE_EXPIRES] &&
 	    lws_cookie_parse_date(c->f[CE_EXPIRES], c->l[CE_EXPIRES], &expires)) {
@@ -414,6 +420,7 @@ lws_cookie_write_nsc(struct lws *wsi, struct lws_cookie *c)
 
 exit:
 	lws_free(cookie_string);
+	lws_free(cache_name);
 
 	return ret;
 }
@@ -422,14 +429,13 @@ static int
 lws_cookie_attach_cookies(struct lws *wsi, char *buf, char *end)
 {
 	const char *domain, *path, *dl_domain, *dl_path, *po;
-	char cache_name[LWS_COOKIE_MAX_CACHE_NAME_LEN];
-	size_t domain_len, path_len, size, ret = 0;
+	size_t domain_len, path_len, size, cnl, ret = 0;
 	struct lws_cache_ttl_lru *l1;
 	struct client_info_stash *stash;
 	lws_cache_results_t cr;
 	struct lws_cookie c;
 	int hostdomain = 1;
-	char *p, *p1;
+	char *p, *p1, *cache_name;
 
 	if (!wsi)
 		return -1;
@@ -484,7 +490,9 @@ lws_cookie_attach_cookies(struct lws *wsi, char *buf, char *end)
 		if (!dl_domain)
 			break;
 
-		if (domain_len + path_len + 6 > sizeof(cache_name))
+		cnl = domain_len + path_len + 6;
+		cache_name = lws_malloc(cnl, __func__);
+		if (!cache_name)
 			return -1;
 
 		/* compile key string "[domain]|[path]|*"" */
@@ -546,6 +554,8 @@ lws_cookie_attach_cookies(struct lws *wsi, char *buf, char *end)
 
 			}
 		}
+
+		lws_free(cache_name);
 
 		domain = dl_domain + 1;
 		hostdomain = 0;
