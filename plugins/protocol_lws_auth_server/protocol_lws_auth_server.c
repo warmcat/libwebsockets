@@ -43,7 +43,10 @@ static const char * const param_names[] = {
 	"code_verifier",
 	"service_name",
 	"device_code",
-	"user_code"
+	"user_code",
+	"email",
+	"reset_token",
+	"new_password"
 };
 
 enum enum_param_names {
@@ -63,6 +66,9 @@ enum enum_param_names {
         EP_SERVICE_NAME,
         EP_DEVICE_CODE,
         EP_USER_CODE,
+        EP_EMAIL,
+        EP_RESET_TOKEN,
+        EP_NEW_PASS,
         EP_COUNT
 };
 
@@ -156,7 +162,8 @@ static const char *schema_init =
 	"  username VARCHAR UNIQUE,"
 	"  password_hash VARCHAR,"
 	"  salt VARCHAR,"
-	"  totp_secret VARCHAR"
+	"  totp_secret VARCHAR,"
+	"  session_epoch INTEGER DEFAULT 0"
 	");"
 	"CREATE TABLE IF NOT EXISTS services ("
 	"  service_id INTEGER PRIMARY KEY AUTOINCREMENT,"
@@ -219,6 +226,17 @@ static const char *schema_init =
 	"  uid INTEGER REFERENCES users(uid),"
 	"  name VARCHAR,"
 	"  created INTEGER"
+	");"
+	"CREATE TABLE IF NOT EXISTS password_recovery ("
+	"  token VARCHAR PRIMARY KEY,"
+	"  uid INTEGER REFERENCES users(uid),"
+	"  expires INTEGER"
+	");"
+	"CREATE TABLE IF NOT EXISTS backup_codes ("
+	"  code VARCHAR,"
+	"  uid INTEGER REFERENCES users(uid),"
+	"  used INTEGER DEFAULT 0,"
+	"  PRIMARY KEY(code, uid)"
 	");";
 
 static int
@@ -281,13 +299,22 @@ lws_auth_issue_jwt(struct per_vhost_data__auth_server *vhd,
 	char temp[2048]; /* scratchpad for JWK/JWS generation */
 	uint64_t now = (uint64_t)time(NULL);
 	uint64_t exp = now + vhd->jwt_validity_secs;
+	sqlite3_stmt *stmt;
+	uint32_t session_epoch = 0;
+
+	if (sqlite3_prepare_v2(vhd->db, "SELECT session_epoch FROM users WHERE uid = ?", -1, &stmt, NULL) == SQLITE_OK) {
+		sqlite3_bind_int(stmt, 1, (int)uid);
+		if (sqlite3_step(stmt) == SQLITE_ROW)
+			session_epoch = (uint32_t)sqlite3_column_int(stmt, 0);
+		sqlite3_finalize(stmt);
+	}
 
 	/* The format string maps directly to the JWS payload */
 	int sig_ret = lws_jwt_sign_compact(vhd->context, &vhd->jwk, vhd->jwt_alg,
 	                         out, out_len, temp, sizeof(temp),
-	                         "{\"iss\":\"%s\",\"sub\":\"%s\",\"uid\":%u,"
+	                         "{\"iss\":\"%s\",\"sub\":\"%s\",\"uid\":%u,\"sec\":%u,"
 	                         "\"iat\":%llu,\"exp\":%llu%s%s}",
-	                         vhd->auth_domain, username, uid,
+	                         vhd->auth_domain, username, uid, session_epoch,
 	                         (unsigned long long)now, (unsigned long long)exp,
 	                         claims_json ? "," : "",
 	                         claims_json ? claims_json : "");
@@ -308,12 +335,21 @@ lws_auth_issue_device_jwt(struct per_vhost_data__auth_server *vhd,
 	char temp[2048];
 	uint64_t now = (uint64_t)time(NULL);
 	uint64_t exp = now + (10ULL * 365 * 24 * 3600); /* 10 years */
+	sqlite3_stmt *stmt;
+	uint32_t session_epoch = 0;
+
+	if (sqlite3_prepare_v2(vhd->db, "SELECT session_epoch FROM users WHERE uid = ?", -1, &stmt, NULL) == SQLITE_OK) {
+		sqlite3_bind_int(stmt, 1, (int)uid);
+		if (sqlite3_step(stmt) == SQLITE_ROW)
+			session_epoch = (uint32_t)sqlite3_column_int(stmt, 0);
+		sqlite3_finalize(stmt);
+	}
 
 	int sig_ret = lws_jwt_sign_compact(vhd->context, &vhd->jwk, vhd->jwt_alg,
 	                         out, out_len, temp, sizeof(temp),
-	                         "{\"iss\":\"%s\",\"sub\":\"%s\",\"uid\":%u,"
+	                         "{\"iss\":\"%s\",\"sub\":\"%s\",\"uid\":%u,\"sec\":%u,"
 	                         "\"did\":\"%s\",\"iat\":%llu,\"exp\":%llu%s%s}",
-	                         vhd->auth_domain, username, uid, device_id,
+	                         vhd->auth_domain, username, uid, session_epoch, device_id,
 	                         (unsigned long long)now, (unsigned long long)exp,
 	                         claims_json ? "," : "",
 	                         claims_json ? claims_json : "");
@@ -1059,6 +1095,182 @@ send:
 }
 
 static int
+lws_auth_api_forgot_password(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
+			     struct per_session_data__auth_server *pss)
+{
+	char peer[64], pl[1024 + LWS_PRE];
+	const char *email;
+	int len;
+	sqlite3_stmt *stmt;
+	uint32_t uid = 0;
+
+	if (auth_check_csrf(wsi, vhd, pss)) {
+		pss->http_response_code = HTTP_STATUS_FORBIDDEN;
+		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"CSRF validation failed\"}");
+		goto send;
+	}
+
+	email = lws_spa_get_string(pss->spa, EP_EMAIL);
+	lws_get_peer_simple(wsi, peer, sizeof(peer));
+
+	if (!email || !email[0]) {
+		auth_record_strike(vhd, peer);
+		pss->http_response_code = HTTP_STATUS_BAD_REQUEST;
+		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Missing email parameter\"}");
+		goto send;
+	}
+
+	if (sqlite3_prepare_v2(vhd->db, "SELECT uid FROM users WHERE username = ?", -1, &stmt, NULL) == SQLITE_OK) {
+		sqlite3_bind_text(stmt, 1, email, -1, SQLITE_STATIC);
+		if (sqlite3_step(stmt) == SQLITE_ROW) {
+			uid = (uint32_t)sqlite3_column_int(stmt, 0);
+		}
+		sqlite3_finalize(stmt);
+	}
+
+	if (uid) {
+		int pending = 0;
+		if (sqlite3_prepare_v2(vhd->db, "SELECT 1 FROM password_recovery WHERE uid = ? AND expires > ?", -1, &stmt, NULL) == SQLITE_OK) {
+			sqlite3_bind_int(stmt, 1, (int)uid);
+			sqlite3_bind_int64(stmt, 2, (sqlite_int64)time(NULL));
+			if (sqlite3_step(stmt) == SQLITE_ROW)
+				pending = 1;
+			sqlite3_finalize(stmt);
+		}
+
+		if (!pending) {
+			char token[64];
+			lws_get_random(vhd->context, token, 32);
+			char token_b64[64];
+			lws_b64_encode_string(token, 32, token_b64, sizeof(token_b64));
+
+			uint64_t expires = (uint64_t)time(NULL) + (15 * 60);
+
+			if (sqlite3_prepare_v2(vhd->db, "INSERT INTO password_recovery (token, uid, expires) VALUES (?, ?, ?)", -1, &stmt, NULL) == SQLITE_OK) {
+				sqlite3_bind_text(stmt, 1, token_b64, -1, SQLITE_STATIC);
+				sqlite3_bind_int(stmt, 2, (int)uid);
+				sqlite3_bind_int64(stmt, 3, (sqlite_int64)expires);
+				if (sqlite3_step(stmt) == SQLITE_DONE) {
+					if (vhd->smtp && vhd->smtp->send_email) {
+						char url[512], mbody[1024];
+						lws_snprintf(url, sizeof(url), "https://%s/login?reset_token=%s", lws_get_vhost_name(vhd->vhost), token_b64);
+						lws_snprintf(mbody, sizeof(mbody), "To reset your password, click this link within 15 minutes:\n%s\nIf you did not request this, please ignore it.", url);
+						lws_smtp_email_t payload;
+						memset(&payload, 0, sizeof(payload));
+						payload.from = vhd->email_from;
+						payload.to = email;
+						payload.subject = "Password Recovery";
+						payload.body = mbody;
+						vhd->smtp->send_email(vhd->context, vhd->vhost, &payload);
+					}
+				}
+				sqlite3_finalize(stmt);
+			}
+		}
+	}
+
+	pss->http_response_code = HTTP_STATUS_OK;
+	len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"status\":\"If an account exists, a recovery link has been sent.\"}");
+
+send:
+	if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)pl, (size_t)len + LWS_PRE) < 0)
+		return -1;
+	return send_auth_headers(wsi, pss, "application/json", NULL, NULL);
+}
+
+static int
+lws_auth_api_reset_password(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
+			    struct per_session_data__auth_server *pss)
+{
+	char peer[64], pl[1024 + LWS_PRE];
+	const char *token, *new_password;
+	int len;
+	sqlite3_stmt *stmt;
+	uint32_t uid = 0;
+
+	if (auth_check_csrf(wsi, vhd, pss)) {
+		pss->http_response_code = HTTP_STATUS_FORBIDDEN;
+		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"CSRF validation failed\"}");
+		goto send;
+	}
+
+	token = lws_spa_get_string(pss->spa, EP_RESET_TOKEN);
+	new_password = lws_spa_get_string(pss->spa, EP_NEW_PASS);
+	lws_get_peer_simple(wsi, peer, sizeof(peer));
+
+	if (!token || !token[0] || !new_password || strlen(new_password) < 8) {
+		auth_record_strike(vhd, peer);
+		pss->http_response_code = HTTP_STATUS_BAD_REQUEST;
+		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Invalid token or password too short (min 8 chars)\"}");
+		goto send;
+	}
+
+	if (sqlite3_prepare_v2(vhd->db, "SELECT uid FROM password_recovery WHERE token = ? AND expires > ?", -1, &stmt, NULL) == SQLITE_OK) {
+		sqlite3_bind_text(stmt, 1, token, -1, SQLITE_STATIC);
+		sqlite3_bind_int64(stmt, 2, (sqlite_int64)time(NULL));
+		if (sqlite3_step(stmt) == SQLITE_ROW) {
+			uid = (uint32_t)sqlite3_column_int(stmt, 0);
+		}
+		sqlite3_finalize(stmt);
+	}
+
+	if (!uid) {
+		auth_record_strike(vhd, peer);
+		pss->http_response_code = HTTP_STATUS_UNAUTHORIZED;
+		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Invalid or expired reset token\"}");
+		goto send;
+	}
+
+	uint8_t salt[16], hash[64];
+	char salt_hex[33], hash_hex[129];
+	struct lws_genhash_ctx ctx;
+
+	lws_get_random(vhd->context, salt, sizeof(salt));
+	lws_b64_encode_string((char *)salt, sizeof(salt), salt_hex, sizeof(salt_hex));
+
+	if (!lws_genhash_init(&ctx, LWS_GENHASH_TYPE_SHA512) &&
+	    !lws_genhash_update(&ctx, (const uint8_t *)salt_hex, strlen(salt_hex)) &&
+	    !lws_genhash_update(&ctx, (const uint8_t *)new_password, strlen(new_password)) &&
+	    !lws_genhash_destroy(&ctx, hash)) {
+
+		lws_genhash_render(LWS_GENHASH_TYPE_SHA512, hash, hash_hex, sizeof(hash_hex));
+
+		if (sqlite3_prepare_v2(vhd->db, "UPDATE users SET password_hash = ?, salt = ?, session_epoch = session_epoch + 1 WHERE uid = ?", -1, &stmt, NULL) == SQLITE_OK) {
+			sqlite3_bind_text(stmt, 1, hash_hex, -1, SQLITE_STATIC);
+			sqlite3_bind_text(stmt, 2, salt_hex, -1, SQLITE_STATIC);
+			sqlite3_bind_int(stmt, 3, (int)uid);
+			if (sqlite3_step(stmt) == SQLITE_DONE) {
+				sqlite3_stmt *del_stmt;
+				if (sqlite3_prepare_v2(vhd->db, "DELETE FROM auth_sessions WHERE uid = ?", -1, &del_stmt, NULL) == SQLITE_OK) {
+					sqlite3_bind_int(del_stmt, 1, (int)uid);
+					sqlite3_step(del_stmt);
+					sqlite3_finalize(del_stmt);
+				}
+				if (sqlite3_prepare_v2(vhd->db, "DELETE FROM password_recovery WHERE token = ?", -1, &del_stmt, NULL) == SQLITE_OK) {
+					sqlite3_bind_text(del_stmt, 1, token, -1, SQLITE_STATIC);
+					sqlite3_step(del_stmt);
+					sqlite3_finalize(del_stmt);
+				}
+
+				auth_clear_strike(vhd, peer);
+				pss->http_response_code = HTTP_STATUS_OK;
+				len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"status\":\"Password updated successfully. Please log in.\"}");
+				goto send;
+			}
+			sqlite3_finalize(stmt);
+		}
+	}
+
+	pss->http_response_code = HTTP_STATUS_INTERNAL_SERVER_ERROR;
+	len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Internal Error\"}");
+
+send:
+	if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)pl, (size_t)len + LWS_PRE) < 0)
+		return -1;
+	return send_auth_headers(wsi, pss, "application/json", NULL, NULL);
+}
+
+static int
 lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		   struct per_session_data__auth_server *pss)
 {
@@ -1149,11 +1361,29 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 
 		uint32_t code = (uint32_t)atoi(totp_code_str);
 		if (lws_auth_totp_verify(totp_secret, code)) {
-			auth_record_strike(vhd, peer);
-			lwsl_info("login bad TOTP\n");
-			pss->http_response_code = HTTP_STATUS_UNAUTHORIZED;
-			len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Invalid Authenticator Code\"}");
-			goto send;
+			int backup_ok = 0;
+			if (sqlite3_prepare_v2(vhd->db, "SELECT 1 FROM backup_codes WHERE uid = ? AND code = ? AND used = 0", -1, &stmt, NULL) == SQLITE_OK) {
+				sqlite3_bind_int(stmt, 1, (int)uid);
+				sqlite3_bind_text(stmt, 2, totp_code_str, -1, SQLITE_STATIC);
+				if (sqlite3_step(stmt) == SQLITE_ROW)
+					backup_ok = 1;
+				sqlite3_finalize(stmt);
+			}
+			if (backup_ok) {
+				if (sqlite3_prepare_v2(vhd->db, "UPDATE backup_codes SET used = 1 WHERE uid = ? AND code = ?", -1, &stmt, NULL) == SQLITE_OK) {
+					sqlite3_bind_int(stmt, 1, (int)uid);
+					sqlite3_bind_text(stmt, 2, totp_code_str, -1, SQLITE_STATIC);
+					sqlite3_step(stmt);
+					sqlite3_finalize(stmt);
+				}
+				lwsl_notice("%s: User %u consumed a backup code\n", __func__, uid);
+			} else {
+				auth_record_strike(vhd, peer);
+				lwsl_info("login bad TOTP\n");
+				pss->http_response_code = HTTP_STATUS_UNAUTHORIZED;
+				len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"Invalid Authenticator Code\"}");
+				goto send;
+			}
 		}
 	}
 
@@ -1777,6 +2007,9 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				 sqlite3_errmsg(vhd->db));
 			return -1;
 		}
+
+		/* attempt to add session_epoch if upgrading from an older schema */
+		sqlite3_exec(vhd->db, "ALTER TABLE users ADD COLUMN session_epoch INTEGER DEFAULT 0;", NULL, NULL, NULL);
 
 #if !defined(WIN32)
 		{
@@ -2521,6 +2754,28 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				sqlite3_finalize(stmt);
 			}
 
+			char backup_codes_html[2048] = "";
+			char *b_p = backup_codes_html;
+			char *b_end = backup_codes_html + sizeof(backup_codes_html);
+
+			for (int i = 0; i < 10; i++) {
+				uint8_t rand_bytes[4];
+				lws_get_random(vhd->context, rand_bytes, sizeof(rand_bytes));
+				uint32_t raw_code = rand_bytes[0] | (rand_bytes[1] << 8) | (rand_bytes[2] << 16) | (rand_bytes[3] << 24);
+				uint32_t bcode = raw_code % 1000000;
+
+				if (sqlite3_prepare_v2(vhd->db, "INSERT INTO backup_codes (uid, code) VALUES ((SELECT uid FROM users WHERE username=?), ?)", -1, &stmt, NULL) == SQLITE_OK) {
+					char bcode_str[16];
+					lws_snprintf(bcode_str, sizeof(bcode_str), "%06u", bcode);
+					sqlite3_bind_text(stmt, 1, email, -1, SQLITE_STATIC);
+					sqlite3_bind_text(stmt, 2, bcode_str, -1, SQLITE_STATIC);
+					sqlite3_step(stmt);
+					sqlite3_finalize(stmt);
+
+					b_p += lws_snprintf(b_p, lws_ptr_diff_size_t(b_end, b_p), "<span class=\"backup-code\">%06u</span>", bcode);
+				}
+			}
+
 			/* Always add public grant to newly minted users */
 			sqlite3_exec(vhd->db, "INSERT OR IGNORE INTO services (name) VALUES ('public')", NULL, NULL, NULL);
 			char public_grant_query[256];
@@ -2540,7 +2795,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			qrcodegen_encodeText(uri, tempBuffer, qrcode, qrcodegen_Ecc_MEDIUM,
 				qrcodegen_VERSION_MIN, qrcodegen_VERSION_MAX, qrcodegen_Mask_AUTO, true);
 
-			size_t alloc_size = 16384 + LWS_PRE;  /* Plenty for verify HTML */
+			size_t alloc_size = 32768 + LWS_PRE;  /* Plenty for verify HTML */
 			uint8_t *buf = malloc(alloc_size);
 			if (!buf) {
 				lwsl_info("verify OOM for HTML buffer\n");
@@ -2556,7 +2811,13 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				"<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Account Confirmed</title>"
 				"<link rel=\"stylesheet\" href=\"../auth.css\">"
 				"%s%s%s"
-				"<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"></head>"
+				"<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+				"<style>"
+				".backup-codes-container { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 20px 0; background: rgba(0,0,0,0.1); padding: 15px; border-radius: 8px; }"
+				".backup-code { font-family: monospace; font-size: 1.2em; letter-spacing: 2px; text-align: center; background: rgba(255,255,255,0.05); padding: 5px; border-radius: 4px; }"
+				".warning-text { color: #ff6b6b; font-size: 0.9em; margin-bottom: 20px; }"
+				"</style>"
+				"</head>"
 				"<body><div class=\"background-elements\"><div class=\"orb orb-1\"></div><div class=\"orb orb-2\"></div><div class=\"orb orb-3\"></div></div>"
 				"<div class=\"auth-container\"><div class=\"glass-panel totp-setup-box\"><div class=\"panel-header\"><h1>Account Confirmed</h1>"
 				"<p>Scan this into your Authenticator app within 5 minutes!</p>"
@@ -2564,12 +2825,16 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				"<div class=\"qrcode-container\"><a href=\"%s\" title=\"Tap to open Authenticator App\">"
 				"<img src=\"totp_svg?h=%s\" width=\"200\" height=\"200\" alt=\"TOTP Setup QR\"></a></div>"
 				"<p class=\"totp-secret-text\">%s</p>"
+				"<hr style=\"opacity: 0.2; margin: 20px 0;\">"
+				"<h3>Emergency Backup Codes</h3>"
+				"<p class=\"warning-text\">Save these codes in a secure place. This is the <b>ONLY</b> time they will be shown.</p>"
+				"<div class=\"backup-codes-container\">%s</div>"
 				"<div class=\"panel-footer\"><a href=\"../\" class=\"btn-link\">Proceed to Login</a></div>"
 				"</div></div></body></html>",
 				vhd->ui_css[0] ? "<link rel=\"stylesheet\" href=\"" : "",
 				vhd->ui_css[0] ? vhd->ui_css : "",
 				vhd->ui_css[0] ? "\">" : "",
-				uri, hbuf, totp);
+				uri, hbuf, totp, backup_codes_html);
 
 			size_t body_len = lws_ptr_diff_size_t(p, body_start);
 			if (lws_buflist_append_segment(&pss->tx_buflist, buf, body_len + LWS_PRE) < 0) {
@@ -2696,7 +2961,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			return lws_http_transaction_completed(wsi);
 		}
 
-		if (in && (strstr((const char *)in, "login") || strstr((const char *)in, "register") || strstr((const char *)in, "token") || strstr((const char *)in, "sso_exchange") || strstr((const char *)in, "device_auth") || strstr((const char *)in, "device_approve"))) {
+		if (in && (strstr((const char *)in, "login") || strstr((const char *)in, "register") || strstr((const char *)in, "forgot_password") || strstr((const char *)in, "reset_password") || strstr((const char *)in, "token") || strstr((const char *)in, "sso_exchange") || strstr((const char *)in, "device_auth") || strstr((const char *)in, "device_approve"))) {
 			lws_strncpy(pss->requesting_url, (const char *)in, sizeof(pss->requesting_url));
 
 			lwsl_info("%s: Processing POST to '%s'\n", __func__, pss->requesting_url);
@@ -2752,6 +3017,10 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			return lws_auth_api_sso_exchange(wsi, vhd, pss);
 		else if (strstr(pss->requesting_url, "register"))
 			return lws_auth_api_register(wsi, vhd, pss);
+		else if (strstr(pss->requesting_url, "forgot_password"))
+			return lws_auth_api_forgot_password(wsi, vhd, pss);
+		else if (strstr(pss->requesting_url, "reset_password"))
+			return lws_auth_api_reset_password(wsi, vhd, pss);
 
 		lwsl_err("%s: Unknown requesting URL '%s'\n", __func__, pss->requesting_url);
 		break;

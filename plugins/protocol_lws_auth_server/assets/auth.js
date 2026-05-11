@@ -10,6 +10,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const logToggleBox = document.getElementById('login-toggle-box');
     const switchRegBtn = document.getElementById('switch-to-reg');
     const switchLoginBtn = document.getElementById('switch-to-login');
+    const switchForgotBtn = document.getElementById('switch-to-forgot');
+
+    const forgotForm = document.getElementById('forgot-password-form');
+    const resetForm = document.getElementById('reset-password-form');
 
     const notifBox = document.getElementById('notification');
     const notifMsg = document.getElementById('notif-message');
@@ -25,6 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const codeChallenge = urlParams.get('code_challenge');
     const codeChallengeMethod = urlParams.get('code_challenge_method');
     const serviceName = urlParams.get('service_name');
+    const resetToken = urlParams.get('reset_token');
 
 
     async function loadManifest() {
@@ -231,6 +236,8 @@ document.addEventListener('DOMContentLoaded', () => {
     switchRegBtn.addEventListener('click', () => {
         isRegistrationMode = true;
         loginForm.classList.add('hidden');
+        forgotForm.classList.add('hidden');
+        resetForm.classList.add('hidden');
         registerForm.classList.remove('hidden');
         regToggleBox.classList.add('hidden');
         logToggleBox.classList.remove('hidden');
@@ -241,6 +248,8 @@ document.addEventListener('DOMContentLoaded', () => {
     switchLoginBtn.addEventListener('click', () => {
         isRegistrationMode = false;
         registerForm.classList.add('hidden');
+        forgotForm.classList.add('hidden');
+        resetForm.classList.add('hidden');
         loginForm.classList.remove('hidden');
         logToggleBox.classList.add('hidden');
         regToggleBox.classList.remove('hidden');
@@ -248,7 +257,27 @@ document.addEventListener('DOMContentLoaded', () => {
         hideNotif();
     });
 
-    if (serviceName && !isRegistrationMode) {
+    if (switchForgotBtn) {
+        switchForgotBtn.addEventListener('click', () => {
+            loginForm.classList.add('hidden');
+            registerForm.classList.add('hidden');
+            forgotForm.classList.remove('hidden');
+            regToggleBox.classList.add('hidden');
+            logToggleBox.classList.remove('hidden');
+            subtitle.innerText = "Recover your password";
+            hideNotif();
+        });
+    }
+
+    if (resetToken) {
+        loginForm.classList.add('hidden');
+        registerForm.classList.add('hidden');
+        regToggleBox.classList.add('hidden');
+        logToggleBox.classList.remove('hidden');
+        resetForm.classList.remove('hidden');
+        document.getElementById('reset-token').value = resetToken;
+        subtitle.innerText = "Reset your password";
+    } else if (serviceName && !isRegistrationMode) {
         subtitle.innerText = "Authenticate to access " + serviceName;
     }
 
@@ -395,6 +424,82 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.classList.remove('loading');
         }
     });
+
+    if (forgotForm) {
+        forgotForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('forgot-btn');
+            btn.classList.add('loading');
+            hideNotif();
+
+            const formData = new FormData(forgotForm);
+            formData.append("csrf_token", window.csrf_token || "");
+
+            try {
+                const response = await fetch('/api/forgot_password', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams(formData).toString()
+                });
+
+                if (response.ok) {
+                    showNotif('success', 'If the email exists, a recovery link has been sent.');
+                    setTimeout(() => switchLoginBtn.click(), 3000);
+                } else {
+                    let errMsg = 'Recovery request failed.';
+                    try {
+                        const data = await response.json();
+                        if (data && data.error) errMsg = data.error;
+                    } catch (e) {}
+                    showNotif('error', errMsg);
+                }
+            } catch (err) {
+                showNotif('error', 'Network communication failed.');
+            } finally {
+                btn.classList.remove('loading');
+            }
+        });
+    }
+
+    if (resetForm) {
+        resetForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('reset-btn');
+            btn.classList.add('loading');
+            hideNotif();
+
+            const formData = new FormData(resetForm);
+            formData.append("csrf_token", window.csrf_token || "");
+
+            try {
+                const response = await fetch('/api/reset_password', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams(formData).toString()
+                });
+
+                if (response.ok) {
+                    showNotif('success', 'Password reset successfully. Please log in.');
+                    setTimeout(() => {
+                        window.location.href = '/login';
+                    }, 2000);
+                } else {
+                    let errMsg = 'Reset failed.';
+                    try {
+                        const data = await response.json();
+                        if (data && data.error) errMsg = data.error;
+                    } catch (e) {}
+                    showNotif('error', errMsg);
+                }
+            } catch (err) {
+                showNotif('error', 'Network communication failed.');
+            } finally {
+                btn.classList.remove('loading');
+            }
+        });
+    }
 
     function showNotif(type, msg) {
         notifBox.className = `notification ${type}`;

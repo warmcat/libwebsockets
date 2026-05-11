@@ -595,9 +595,25 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 
 		ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, lws_login_jwt_auth_cb, wsi);
 		if (ja) {
+			int epoch_ok = 1;
+			if (vhd->db) {
+				uint32_t uid = lws_jwt_auth_get_uid(ja);
+				if (uid) {
+					sqlite3_stmt *stmt;
+					if (sqlite3_prepare_v2(vhd->db, "SELECT session_epoch FROM users WHERE uid = ?", -1, &stmt, NULL) == SQLITE_OK) {
+						sqlite3_bind_int(stmt, 1, (int)uid);
+						if (sqlite3_step(stmt) == SQLITE_ROW) {
+							uint32_t db_epoch = (uint32_t)sqlite3_column_int(stmt, 0);
+							if (db_epoch != lws_jwt_auth_get_sec(ja))
+								epoch_ok = 0;
+						}
+						sqlite3_finalize(stmt);
+					}
+				}
+			}
 			level = lws_jwt_auth_query_grant(ja, service_name);
 			lws_jwt_auth_destroy(&ja);
-			if (level >= vhd->min_grant_level)
+			if (epoch_ok && level >= vhd->min_grant_level)
 				return 0; /* Authentic and authorized */
 		}
 		return 1; /* Unauthenticated */
@@ -723,6 +739,18 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 								int old_gl = lws_jwt_auth_query_grant(ja, svc_name);
 								if (old_gl != gl)
 									mismatch = 1;
+							}
+							sqlite3_finalize(stmt);
+						}
+
+						if (sqlite3_prepare_v2(vhd->db, "SELECT session_epoch FROM users WHERE uid = ?", -1, &stmt, NULL) == SQLITE_OK) {
+							sqlite3_bind_int(stmt, 1, (int)uid);
+							if (sqlite3_step(stmt) == SQLITE_ROW) {
+								uint32_t db_epoch = (uint32_t)sqlite3_column_int(stmt, 0);
+								if (db_epoch != lws_jwt_auth_get_sec(ja)) {
+									lwsl_info("%s: session epoch mismatch! DB=%u JWT=%u\n", __func__, db_epoch, lws_jwt_auth_get_sec(ja));
+									mismatch = 1;
+								}
 							}
 							sqlite3_finalize(stmt);
 						}

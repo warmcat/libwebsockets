@@ -33,6 +33,7 @@ struct lws_jwt_auth {
 	char sub[128];
 	char did[128];
 	uint32_t uid;
+	uint32_t session_epoch;
 };
 
 struct lws_jwt_auth_grant {
@@ -104,6 +105,7 @@ static const char * const auth_paths[] = {
 	"email",
 	"uid",
 	"did",
+	"sec",
 };
 
 enum {
@@ -115,6 +117,7 @@ enum {
 	JAP_EMAIL,
 	JAP_UID,
 	JAP_DID,
+	JAP_SEC,
 };
 
 static signed char
@@ -138,6 +141,8 @@ jwt_auth_lejp_cb(struct lejp_ctx *ctx, char reason)
 			pctx->ja->iat = (uint64_t)atoll(ctx->buf);
 		} else if (ctx->path_match == JAP_UID + 1) {
 			pctx->ja->uid = (uint32_t)atoi(ctx->buf);
+		} else if (ctx->path_match == JAP_SEC + 1) {
+			pctx->ja->session_epoch = (uint32_t)atoi(ctx->buf);
 		} else if (ctx->path_match == JAP_GRANTS_ANY + 1 && pctx->parsing_grants) {
 			struct lws_jwt_auth_grant *g = malloc(sizeof(*g));
 			if (g) {
@@ -302,4 +307,12 @@ lws_jwt_auth_count_grants(struct lws_jwt_auth *ja)
 	if (!ja)
 		return 0;
 	return ja->grants.count;
+}
+
+uint32_t
+lws_jwt_auth_get_sec(struct lws_jwt_auth *ja)
+{
+	if (!ja)
+		return 0;
+	return ja->session_epoch;
 }

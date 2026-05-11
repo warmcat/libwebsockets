@@ -99,10 +99,36 @@
 
             <div class="panel-footer" id="registration-toggle-box">
                 <p>New to the network? <button type="button" class="btn-link" id="switch-to-reg">Register here</button></p>
+                <p style="margin-top: 5px;"><button type="button" class="btn-link" id="switch-to-forgot" style="font-size: 0.9em; opacity: 0.8;">Forgot Password?</button></p>
             </div>
             <div class="panel-footer hidden" id="login-toggle-box">
                 <p>Already have clearance? <button type="button" class="btn-link" id="switch-to-login">Access Portal</button></p>
             </div>
+
+            <!-- Forgot Password Form -->
+            <form id="forgot-password-form" class="auth-form hidden">
+                <div class="input-group">
+                    <label for="forgot-email">Email Address</label>
+                    <input type="email" id="forgot-email" name="email" required autocomplete="email">
+                </div>
+                <button type="submit" class="btn primary-btn" id="forgot-btn">
+                    <span>Send Recovery Link</span>
+                    <div class="loader hidden"></div>
+                </button>
+            </form>
+
+            <!-- Reset Password Form -->
+            <form id="reset-password-form" class="auth-form hidden">
+                <input type="hidden" id="reset-token" name="reset_token">
+                <div class="input-group">
+                    <label for="reset-password">New Password</label>
+                    <input type="password" id="reset-password" name="new_password" required autocomplete="new-password">
+                </div>
+                <button type="submit" class="btn primary-btn" id="reset-btn">
+                    <span>Reset Password</span>
+                    <div class="loader hidden"></div>
+                </button>
+            </form>
 
             <div id="strike-overlay" class="strike-overlay hidden">
                 <img src="refgirl.png" alt="Strikes">
