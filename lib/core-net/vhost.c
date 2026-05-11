@@ -853,6 +853,23 @@ lws_create_vhost(struct lws_context *context,
 		vh->tls.cfg_tls_ciphers_iana = lws_strdup(info->tls_ciphers_iana);
 	if (info->ssl_ca_filepath)
 		vh->tls.cfg_ssl_ca_filepath = lws_strdup(info->ssl_ca_filepath);
+
+	vh->tls.cfg_server_ssl_cert_mem = info->server_ssl_cert_mem;
+	vh->tls.cfg_server_ssl_cert_mem_len = info->server_ssl_cert_mem_len;
+	vh->tls.cfg_server_ssl_privkey_mem = info->server_ssl_private_key_mem;
+	vh->tls.cfg_server_ssl_privkey_mem_len = info->server_ssl_private_key_mem_len;
+	vh->tls.cfg_server_ssl_ca_mem = info->server_ssl_ca_mem;
+	vh->tls.cfg_server_ssl_ca_mem_len = info->server_ssl_ca_mem_len;
+
+#if defined(LWS_WITH_CLIENT)
+	vh->tls.cfg_client_ssl_ca_mem = info->client_ssl_ca_mem;
+	vh->tls.cfg_client_ssl_ca_mem_len = info->client_ssl_ca_mem_len;
+	vh->tls.cfg_client_ssl_cert_mem = info->client_ssl_cert_mem;
+	vh->tls.cfg_client_ssl_cert_mem_len = info->client_ssl_cert_mem_len;
+	vh->tls.cfg_client_ssl_key_mem = info->client_ssl_key_mem;
+	vh->tls.cfg_client_ssl_key_mem_len = info->client_ssl_key_mem_len;
+#endif
+
 	vh->tls.ssl_options_set = info->ssl_options_set;
 	vh->tls.ssl_options_clear = info->ssl_options_clear;
 

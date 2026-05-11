@@ -231,6 +231,15 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 			return 1;
 		}
 		free(p);
+	} else if (tls->cfg_server_ssl_ca_mem && tls->cfg_server_ssl_ca_mem_len) {
+		if (SSL_CTX_add_client_CA_ASN1(tls->ssl_ctx,
+					       (int)tls->cfg_server_ssl_ca_mem_len,
+					       tls->cfg_server_ssl_ca_mem) != 1) {
+			lwsl_err("%s: mem SSL_CTX_add_client_CA_ASN1 unhappy\n",
+				 __func__);
+			return 1;
+		}
+		lwsl_notice("%s: vh %s: mem CA OK\n", __func__, vhost->name);
 	}
 
 	/* Apply cipher list if specified */
@@ -283,16 +292,7 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 		return 0;
 	}
 
-	if (!info->ssl_ca_filepath && info->server_ssl_ca_mem && info->server_ssl_ca_mem_len) {
-		if (SSL_CTX_add_client_CA_ASN1(vhost->tls.ssl_ctx,
-					       (int)info->server_ssl_ca_mem_len,
-					       info->server_ssl_ca_mem) != 1) {
-			lwsl_err("%s: mem SSL_CTX_add_client_CA_ASN1 unhappy\n",
-				 __func__);
-			return 1;
-		}
-		lwsl_notice("%s: vh %s: mem CA OK\n", __func__, vhost->name);
-	}
+
 
 	n = lws_tls_server_certs_load(vhost, wsi, info->ssl_cert_filepath,
 				      info->ssl_private_key_filepath,

@@ -601,6 +601,40 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 				SSL_CTX_set_client_CA_list(tls->ssl_ctx, calist);
 			}
 		}
+	} else if (tls->cfg_server_ssl_ca_mem && tls->cfg_server_ssl_ca_mem_len) {
+		lws_filepos_t amount = 0;
+		const uint8_t *up;
+		uint8_t *up1;
+
+		if (lws_tls_alloc_pem_to_der_file(vhost->context, NULL, tls->cfg_server_ssl_ca_mem,
+						  tls->cfg_server_ssl_ca_mem_len, &up1, &amount)) {
+			lwsl_err("%s: Unable to decode x.509 mem\n", __func__);
+		} else {
+			up = up1;
+			X509 *client_CA = d2i_X509(NULL, &up, (long)amount);
+			if (!client_CA) {
+				lwsl_err("server CA: x509 parse failed\n");
+			} else {
+				X509_STORE *x509_store = X509_STORE_new();
+				if (!X509_STORE_add_cert(x509_store, client_CA)) {
+					X509_STORE_free(x509_store);
+					lwsl_err("Unable to load SSL server certs from "
+						 "ssl_ca_mem -- server ssl isn't going to work\n");
+				} else {
+					SSL_CTX_set_cert_store(tls->ssl_ctx, x509_store);
+					STACK_OF(X509_NAME) *calist = sk_X509_NAME_new_null();
+					if (calist) {
+						X509_NAME *name = X509_get_subject_name(client_CA);
+						if (name)
+							sk_X509_NAME_push(calist, X509_NAME_dup(name));
+						SSL_CTX_set_client_CA_list(tls->ssl_ctx, calist);
+					}
+					lwsl_notice("%s: vh %s: mem CA OK\n", __func__, vhost->name);
+				}
+				X509_free(client_CA);
+			}
+			lws_free(up1);
+		}
 	}
 
 	SSL_OPT_TYPE ssl_options_set_value = (SSL_OPT_TYPE) tls->ssl_options_set;
