@@ -340,14 +340,7 @@ lws_cookie_write_nsc(struct lws *wsi, struct lws_cookie *c)
 		return -1;
 	}
 
-	if (!c->f[CE_EXPIRES]) {
-		/*
-		 * Currently we just take the approach to reject session cookies
-		 */
-		lwsl_warn("%s: reject session cookies\n", __func__);
 
-		return 0;
-	}
 
 	if (!c->f[CE_DOMAIN]) {
 		c->f[CE_HOSTONLY] = "T";
