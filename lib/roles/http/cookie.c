@@ -59,6 +59,27 @@ struct lws_cookie {
 	unsigned int httponly:1;
 };
 
+static size_t
+lws_cookie_domain_len(const char *domain)
+{
+	const char *p;
+
+	if (!domain)
+		return 0;
+
+	if (domain[0] == '[') {
+		p = strchr(domain, ']');
+		if (p && p[1] == ':')
+			return lws_ptr_diff_size_t((p + 1), domain);
+	} else {
+		p = strchr(domain, ':');
+		if (p)
+			return lws_ptr_diff_size_t(p, domain);
+	}
+
+	return strlen(domain);
+}
+
 static int
 lws_cookie_parse_date(const char *d, size_t len, time_t *t)
 {
@@ -302,10 +323,12 @@ lws_cookie_write_nsc(struct lws *wsi, struct lws_cookie *c)
 
 	stash = wsi->stash ? wsi->stash : lws_get_network_wsi(wsi)->stash;
 	if (stash) {
-		ads = stash->cis[CIS_ADDRESS];
+		ads = stash->cis[CIS_HOST] ? stash->cis[CIS_HOST] : stash->cis[CIS_ADDRESS];
 		path = stash->cis[CIS_PATH];
 	} else {
-		ads = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS);
+		ads = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST);
+		if (!ads)
+			ads = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_PEER_ADDRESS);
 		path = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI);
 	}
 	if (!ads || !path)
@@ -330,7 +353,7 @@ lws_cookie_write_nsc(struct lws *wsi, struct lws_cookie *c)
 		c->f[CE_HOSTONLY] = "T";
 		c->l[CE_HOSTONLY] = 1;
 		c->f[CE_DOMAIN] = ads;
-		c->l[CE_DOMAIN] = strlen(ads);
+		c->l[CE_DOMAIN] = lws_cookie_domain_len(ads);
 	}
 
 	if (!c->f[CE_PATH]) {
@@ -419,7 +442,7 @@ lws_cookie_attach_cookies(struct lws *wsi, char *buf, char *end)
 		return -1;
 
 	stash = wsi->stash ? wsi->stash : lws_get_network_wsi(wsi)->stash;
-	if (!stash || !stash->cis[CIS_ADDRESS] ||
+	if (!stash || (!stash->cis[CIS_HOST] && !stash->cis[CIS_ADDRESS]) ||
 			   !stash->cis[CIS_PATH])
 		return -1;
 
@@ -431,7 +454,7 @@ lws_cookie_attach_cookies(struct lws *wsi, char *buf, char *end)
 
 	memset(&c, 0, sizeof(c));
 
-	domain = stash->cis[CIS_ADDRESS];
+	domain = stash->cis[CIS_HOST] ? stash->cis[CIS_HOST] : stash->cis[CIS_ADDRESS];
 	path = stash->cis[CIS_PATH];
 
 	if (!domain || !path)
@@ -462,7 +485,7 @@ lws_cookie_attach_cookies(struct lws *wsi, char *buf, char *end)
 	/* iterate through domain and path levels to find matching cookies */
 	dl_domain = domain;
 	while (dl_domain) {
-		domain_len = strlen(domain);
+		domain_len = lws_cookie_domain_len(domain);
 		dl_domain = memchr(domain, '.', domain_len);
 		/* don't match top level domain */
 		if (!dl_domain)
