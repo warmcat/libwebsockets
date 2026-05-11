@@ -281,6 +281,11 @@ int lws_ssl_close(struct lws *wsi)
 	lws_free(conn);
 	wsi->tls.ssl = NULL;
 
+	if (wsi->tls.ctx_ref) {
+		lws_tls_ctx_ref_unref(wsi->tls.ctx_ref);
+		wsi->tls.ctx_ref = NULL;
+	}
+
 	return 0;
 }
 

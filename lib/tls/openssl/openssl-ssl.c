@@ -519,6 +519,11 @@ lws_ssl_close(struct lws *wsi)
 	//		wsi->a.context->simultaneous_ssl_restriction,
 	//		wsi->a.context->simultaneous_ssl);
 
+	if (wsi->tls.ctx_ref) {
+		lws_tls_ctx_ref_unref(wsi->tls.ctx_ref);
+		wsi->tls.ctx_ref = NULL;
+	}
+
 	return 1; /* handled */
 }
 

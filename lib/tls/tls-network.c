@@ -193,12 +193,42 @@ lws_tls_cert_updated(struct lws_context *context, const char *certpath,
 
 	lws_start_foreach_ll(struct lws_vhost *, v, context->vhost_list) {
 		wsi.a.vhost = v; /* not a real bound wsi */
-		if (v->tls.alloc_cert_path && v->tls.key_path &&
-		    !strcmp(v->tls.alloc_cert_path, certpath) &&
-		    !strcmp(v->tls.key_path, keypath)) {
-			lws_tls_server_certs_load(v, &wsi, certpath, keypath,
+		if (v->tls.cfg_alloc_cert_path && v->tls.cfg_key_path &&
+		    !strcmp(v->tls.cfg_alloc_cert_path, certpath) &&
+		    !strcmp(v->tls.cfg_key_path, keypath)) {
+
+			lws_tls_ctx *old_ctx = v->tls.ssl_ctx;
+			struct lws_tls_ctx_ref *old_ref = v->tls.active_ctx_ref;
+
+			if (lws_tls_vhost_backend_create_ctx(v)) {
+				lwsl_vhost_err(v, "Failed to recreate SSL_CTX");
+				continue;
+			}
+
+			struct lws_tls_ctx_ref *new_ref = lws_tls_ctx_ref_create(v->tls.ssl_ctx);
+			if (!new_ref) {
+				lws_tls_vhost_backend_free_ctx(v->tls.ssl_ctx);
+				v->tls.ssl_ctx = old_ctx;
+				continue;
+			}
+
+			if (lws_tls_server_certs_load(v, &wsi, certpath, keypath,
 						  mem_cert, len_mem_cert,
-						  mem_privkey, len_mem_privkey);
+						  mem_privkey, len_mem_privkey)) {
+				/* Failed to load new certs. Revert to old context */
+				lws_tls_ctx_ref_unref(new_ref);
+				v->tls.ssl_ctx = old_ctx;
+				lwsl_vhost_err(v, "Failed to load updated certs");
+				continue;
+			}
+
+			/* Successfully loaded. Commit new ref and retire old ref */
+			v->tls.active_ctx_ref = new_ref;
+
+			if (old_ref) {
+				lws_dll2_add_tail(&old_ref->list, &v->tls.retired_ctx_list);
+				lws_tls_ctx_ref_unref(old_ref);
+			}
 
 			if (v->tls.skipped_certs)
 				lwsl_vhost_notice(v, "vhost %s: cert unset", v->name);

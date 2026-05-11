@@ -49,14 +49,30 @@ struct alpn_ctx {
 	uint8_t len;
 };
 
+struct lws_tls_ctx_ref {
+	lws_dll2_t list;
+	lws_tls_ctx *ctx;
+	int refcount;
+};
+
 struct lws_vhost_tls {
 	lws_tls_ctx *ssl_ctx;
+	struct lws_tls_ctx_ref *active_ctx_ref;
+	lws_dll2_owner_t retired_ctx_list;
+
 	lws_tls_ctx *ssl_client_ctx;
 	struct lws_tls_client_reuse *tcr;
 	const char *alpn;
 	struct lws_tls_ss_pieces *ss; /* for acme tls certs */
-	char *alloc_cert_path;
-	char *key_path;
+	char *cfg_alloc_cert_path;
+	char *cfg_key_path;
+	char *cfg_ssl_cipher_list;
+	char *cfg_tls1_3_plus_cipher_list;
+	char *cfg_tls_client_cipher_list;
+	char *cfg_tls_ciphers_iana;
+	char *cfg_ssl_ca_filepath;
+	long ssl_options_set;
+	long ssl_options_clear;
 #if defined(LWS_WITH_MBEDTLS)
 	lws_tls_x509 *x509_client_CA;
 #endif
@@ -77,6 +93,7 @@ struct lws_vhost_tls {
 
 struct lws_lws_tls {
 	lws_tls_conn		*ssl;
+	struct lws_tls_ctx_ref  *ctx_ref;
 	lws_tls_bio		*client_bio;
 #if defined(LWS_TLS_SYNTHESIZE_CB)
 	lws_sorted_usec_list_t	sul_cb_synth;
@@ -167,6 +184,20 @@ lws_tls_server_client_cert_verify_config(struct lws_vhost *vh);
 int
 lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 			  struct lws_vhost *vhost, struct lws *wsi);
+int
+lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost);
+
+void
+lws_tls_vhost_backend_free_ctx(lws_tls_ctx *ctx);
+
+struct lws_tls_ctx_ref *
+lws_tls_ctx_ref_create(lws_tls_ctx *ctx);
+
+void
+lws_tls_ctx_ref_unref(struct lws_tls_ctx_ref *ref);
+
+void
+lws_tls_ctx_ref_destroy_all(struct lws_vhost *vhost);
 int
 lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd);
 

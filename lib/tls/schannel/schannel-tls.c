@@ -53,14 +53,8 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
     if (!cert && !mem_cert)
         return 0;
 
-    vhost->tls.ssl_ctx = lws_zalloc(sizeof(*vhost->tls.ssl_ctx), "schannel_ctx");
     if (!vhost->tls.ssl_ctx)
         return 1;
-
-    /* Generate a unique container name for this vhost context to persist keys */
-    /* We need to clean this up in destroy */
-    lws_snprintf(vhost->tls.ssl_ctx->key_container_name, sizeof(vhost->tls.ssl_ctx->key_container_name),
-                 "lws_vhost_%p_%u", vhost, (unsigned int)time(NULL));
 
     if (lws_tls_schannel_cert_info_load(vhost->context, cert, private_key,
                                         mem_cert, len_mem_cert,
@@ -110,54 +104,7 @@ void
 lws_ssl_destroy(struct lws_vhost *vhost)
 {
     if (vhost->tls.ssl_ctx) {
-        if (vhost->tls.ssl_ctx->initialized)
-            FreeCredentialsHandle(&vhost->tls.ssl_ctx->cred);
-
-        /* Cleanup Key */
-        if (vhost->tls.ssl_ctx->key_type == 0) {
-            /* CAPI */
-            if (vhost->tls.ssl_ctx->u.key_prov) {
-                CryptReleaseContext(vhost->tls.ssl_ctx->u.key_prov, 0);
-                /* Clean up the temporary key container */
-                if (vhost->tls.ssl_ctx->key_container_name[0]) {
-                     HCRYPTPROV hProv;
-                     if (CryptAcquireContext(&hProv, vhost->tls.ssl_ctx->key_container_name, MS_ENH_RSA_AES_PROV, PROV_RSA_AES, CRYPT_DELETEKEYSET | CRYPT_SILENT)) {
-                         // Successfully deleted
-                     }
-                }
-            }
-        } else {
-            /* CNG (EC) */
-            /* Ephemeral handles are returned, named container handles are closed but need deleting. */
-            /* If it's a named container, we might not have the handle open (it was closed after link). */
-            /* If it's ephemeral, we have the handle. */
-
-            if (vhost->tls.ssl_ctx->u.key_cng) {
-                 NCryptFreeObject(vhost->tls.ssl_ctx->u.key_cng);
-            }
-
-            if (vhost->tls.ssl_ctx->key_container_name[0]) {
-                 /* Delete named key */
-                 NCRYPT_PROV_HANDLE hProv = 0;
-                 if (NCryptOpenStorageProvider(&hProv, MS_KEY_STORAGE_PROVIDER, 0) == ERROR_SUCCESS) {
-                      NCRYPT_KEY_HANDLE hKey = 0;
-                      /* We need to open it to delete it? */
-                      /* Wait, NCryptDeleteKey takes a key handle. */
-                      WCHAR wName[128];
-                      if (MultiByteToWideChar(CP_UTF8, 0, vhost->tls.ssl_ctx->key_container_name, -1, wName, 128)) {
-                           if (NCryptOpenKey(hProv, &hKey, wName, 0, 0) == ERROR_SUCCESS) {
-                                NCryptDeleteKey(hKey, 0);
-                                /* hKey is freed by DeleteKey? "The handle is invalid after this function returns" */
-                           }
-                      }
-                      NCryptFreeObject(hProv);
-                 }
-            }
-        }
-
-        if (vhost->tls.ssl_ctx->store)
-            CertCloseStore(vhost->tls.ssl_ctx->store, 0);
-        lws_free(vhost->tls.ssl_ctx);
+        lws_tls_vhost_backend_free_ctx(vhost->tls.ssl_ctx);
         vhost->tls.ssl_ctx = NULL;
     }
     if (vhost->tls.ssl_client_ctx) {
@@ -282,15 +229,95 @@ lws_ssl_info_callback(const lws_tls_conn *ssl, int where, int ret)
 {
 }
 
+void
+lws_tls_vhost_backend_free_ctx(lws_tls_ctx *ctx)
+{
+    if (!ctx)
+        return;
+
+    if (ctx->initialized)
+        FreeCredentialsHandle(&ctx->cred);
+
+    if (ctx->key_type == 0) {
+        if (ctx->u.key_prov) {
+            CryptReleaseContext(ctx->u.key_prov, 0);
+            if (ctx->key_container_name[0]) {
+                 HCRYPTPROV hProv;
+                 if (CryptAcquireContext(&hProv, ctx->key_container_name, MS_ENH_RSA_AES_PROV, PROV_RSA_AES, CRYPT_DELETEKEYSET | CRYPT_SILENT)) {
+                 }
+            }
+        }
+    } else {
+        if (ctx->u.key_cng) {
+             NCryptFreeObject(ctx->u.key_cng);
+        }
+        if (ctx->key_container_name[0]) {
+             NCRYPT_PROV_HANDLE hProv = 0;
+             if (NCryptOpenStorageProvider(&hProv, MS_KEY_STORAGE_PROVIDER, 0) == ERROR_SUCCESS) {
+                  NCRYPT_KEY_HANDLE hKey = 0;
+                  WCHAR wName[128];
+                  if (MultiByteToWideChar(CP_UTF8, 0, ctx->key_container_name, -1, wName, 128)) {
+                       if (NCryptOpenKey(hProv, &hKey, wName, 0, 0) == ERROR_SUCCESS) {
+                            NCryptDeleteKey(hKey, 0);
+                       }
+                  }
+                  NCryptFreeObject(hProv);
+             }
+        }
+    }
+
+    if (ctx->store)
+        CertCloseStore(ctx->store, 0);
+    lws_free(ctx);
+}
+
+int
+lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
+{
+    vhost->tls.ssl_ctx = lws_zalloc(sizeof(*vhost->tls.ssl_ctx), "schannel_ctx");
+    if (!vhost->tls.ssl_ctx)
+        return 1;
+
+    lws_snprintf(vhost->tls.ssl_ctx->key_container_name, sizeof(vhost->tls.ssl_ctx->key_container_name),
+                 "lws_vhost_%p_%u", vhost, (unsigned int)time(NULL));
+
+    return 0;
+}
+
 int
 lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 				  struct lws_vhost *vhost, struct lws *wsi)
 {
-    return lws_tls_server_certs_load(vhost, wsi,
+    int n;
+
+    if (lws_tls_vhost_backend_create_ctx(vhost))
+        return 1;
+
+    if (!vhost->tls.use_ssl ||
+        (!info->ssl_cert_filepath && !info->server_ssl_cert_mem))
+        return 0;
+
+    n = (int)lws_tls_generic_cert_checks(vhost, info->ssl_cert_filepath,
+                                         info->ssl_private_key_filepath);
+
+    if (n == LWS_TLS_EXTANT_NO &&
+        (vhost->options & LWS_SERVER_OPTION_IGNORE_MISSING_CERT)) {
+        lwsl_notice("No certs found, continuing without SSL_CTX\n");
+        lws_free_set_NULL(vhost->tls.ssl_ctx);
+        return 0;
+    }
+
+    n = lws_tls_server_certs_load(vhost, wsi,
                                      info->ssl_cert_filepath,
                                      info->ssl_private_key_filepath,
                                      info->server_ssl_cert_mem,
                                      info->server_ssl_cert_mem_len,
                                      info->server_ssl_private_key_mem,
                                      info->server_ssl_private_key_mem_len);
+    if (n) {
+        lwsl_err("%s: failed to load certs\n", __func__);
+        return 1;
+    }
+
+    return 0;
 }

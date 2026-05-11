@@ -330,6 +330,11 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 	conn = lws_zalloc(sizeof(*conn), "schannel_conn_srv");
 	if (!conn) return 1;
 	wsi->tls.ssl = conn;
+
+	wsi->tls.ctx_ref = wsi->a.vhost->tls.active_ctx_ref;
+	if (wsi->tls.ctx_ref)
+		wsi->tls.ctx_ref->refcount++;
+
 	return 0;
 }
 
@@ -763,6 +768,12 @@ lws_ssl_close(struct lws *wsi)
 		lws_free_set_NULL(conn);
 		wsi->tls.ssl = NULL;
 	}
+
+	if (wsi->tls.ctx_ref) {
+		lws_tls_ctx_ref_unref(wsi->tls.ctx_ref);
+		wsi->tls.ctx_ref = NULL;
+	}
+
 	return 0;
 }
 

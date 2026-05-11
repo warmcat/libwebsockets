@@ -182,10 +182,10 @@ int
 lws_plat_write_cert(struct lws_vhost *vhost, int is_key, int fd, void *buf,
 			size_t len)
 {
-	const char *name = vhost->tls.alloc_cert_path;
+	const char *name = vhost->tls.cfg_alloc_cert_path;
 
 	if (is_key)
-		name = vhost->tls.key_path;
+		name = vhost->tls.cfg_key_path;
 
 	return lws_plat_write_file(name, buf, len) < 0;
 }
