@@ -100,6 +100,16 @@ LWS_VISIBLE LWS_EXTERN uint64_t
 lws_jwt_auth_get_exp(struct lws_jwt_auth *ja);
 
 /**
+ * lws_jwt_auth_get_sec() - Extract the session epoch
+ *
+ * \param ja: The opaque helper object
+ *
+ * \return the session epoch parsed out of the token, or 0 if missing.
+ */
+LWS_VISIBLE LWS_EXTERN uint32_t
+lws_jwt_auth_get_sec(struct lws_jwt_auth *ja);
+
+/**
  * lws_jwt_auth_count_grants() - Return the scalar count of active parsed grants
  *
  * \param ja: The opaque helper object

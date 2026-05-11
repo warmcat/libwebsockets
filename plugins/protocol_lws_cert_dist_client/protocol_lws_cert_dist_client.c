@@ -429,7 +429,24 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 				if (pss->uds_tx_pos < pss->uds_tx_len)
 					lws_callback_on_writable(wsi);
 				else {
+					char certpath[256];
+					char keypath[256];
+
 					lwsl_notice("%s: Sent complete cert update to stub\n", __func__);
+
+					lws_snprintf(certpath, sizeof(certpath), "%s/%s/fullchain.pem",
+						     vhd->base_dir, pss->subdomain);
+					lws_snprintf(keypath, sizeof(keypath), "%s/%s/privkey.pem",
+						     vhd->base_dir, pss->subdomain);
+
+					if (lws_tls_cert_updated(vhd->cx, certpath, keypath,
+								 pss->cert, (size_t)pss->cert_len,
+								 pss->key, (size_t)pss->key_len))
+						lwsl_err("%s: Failed to dynamically update vhosts\n", __func__);
+					else
+						lwsl_notice("%s: Successfully rotated active vhosts for %s\n",
+							    __func__, pss->subdomain);
+
 					return -1; /* Close UDS wsi since we are done */
 				}
 			}
