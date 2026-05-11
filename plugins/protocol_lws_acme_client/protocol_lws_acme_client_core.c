@@ -1200,14 +1200,19 @@ acme_ipc_cb(const struct lws_async_ipc_cb_args *args)
 		} else if (vhd->aging_current_cert) {
 			int days_left = 0, total_days = 0;
 			const char *p;
-			if ((p = strstr((const char *)args->data, "\"days_left\":")))
+			char safe_buf[2048];
+			size_t copy_len = args->len < sizeof(safe_buf) - 1 ? args->len : sizeof(safe_buf) - 1;
+			memcpy(safe_buf, args->data, copy_len);
+			safe_buf[copy_len] = '\0';
+
+			if ((p = strstr(safe_buf, "\"days_left\":")))
 				days_left = atoi(p + 12);
-			if ((p = strstr((const char *)args->data, "\"total_days\":")))
+			if ((p = strstr(safe_buf, "\"total_days\":")))
 				total_days = atoi(p + 13);
 
 			struct lws_acme_cert_config *cfg = lws_container_of(vhd->aging_current_cert, struct lws_acme_cert_config, list);
-			if (strstr((const char *)args->data, "\"status\":\"error\"") || (total_days && days_left <= (total_days / 4))) {
-				if (strstr((const char *)args->data, "\"status\":\"error\""))
+			if (strstr(safe_buf, "\"status\":\"error\"") || (total_days && days_left <= (total_days / 4))) {
+				if (strstr(safe_buf, "\"status\":\"error\""))
 					lwsl_notice("acme_aging: triggering acquisition for %s: root daemon could not read cert\n", cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME]);
 				else
 					lwsl_vhost_notice(vhd->vhost, "acme_aging: cert %s has %d days left (total %d). Triggering renewal!", cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], days_left, total_days);
