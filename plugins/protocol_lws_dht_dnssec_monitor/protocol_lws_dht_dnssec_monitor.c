@@ -147,8 +147,6 @@ struct cert_check_result {
 };
 
 
-static struct vhd *global_root_vhd = NULL;
-
 extern const struct lws_protocols lws_dht_dnssec_monitor_protocols[];
 
 static int
@@ -2119,8 +2117,7 @@ handle_req_check_cert(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 			int n = lws_snprintf(json, sizeof(json), "{\"req\":\"cert_status\",\"subdomain\":\"%s\",\"port\":%d,\"status\":\"error\",\"msg\":\"%s\",\"local_msg\":\"%s\",\"issuer\":\"%s\"}\n",
 				cr->fqdn, cr->port, cr->msg, cr->local_msg, cr->issuer);
 
-			struct vhd *target_vhd = global_root_vhd ? global_root_vhd : vhd;
-			lws_start_foreach_dll(struct lws_dll2 *, p, target_vhd->clients.head) {
+			lws_start_foreach_dll(struct lws_dll2 *, p, vhd->clients.head) {
 				struct pss *wpss = lws_container_of(p, struct pss, list);
 				if (wpss->tx_len + (size_t)n < 65536 - LWS_PRE) {
 					memcpy(&wpss->tx[LWS_PRE + wpss->tx_len], json, (size_t)n);
@@ -2277,8 +2274,7 @@ connect_retry_cb(lws_sorted_usec_list_t *sul)
 {
 	struct pss *pss = lws_container_of(sul, struct pss, sul);
 	struct vhd *vhd = (struct vhd *)lws_protocol_vh_priv_get(lws_get_vhost(pss->wsi), lws_get_protocol(pss->wsi));
-	if (!vhd && global_root_vhd)
-		vhd = global_root_vhd;
+
 
 	if (!vhd || !vhd->root_process_active)
 		return;
@@ -2357,8 +2353,7 @@ static void extract_and_queue_cert_result(struct lws *wsi, struct vhd *vhd, stru
 		int n = lws_snprintf(json, sizeof(json), "{\"req\":\"cert_status\",\"subdomain\":\"%s\",\"port\":%d,\"status\":\"%s\",\"msg\":\"%s\",\"local_msg\":\"%s\",\"issuer\":\"%s\"}\n",
 			cr->fqdn, cr->port, cr->status_err ? "error" : "ok", cr->msg, cr->local_msg, cr->issuer);
 
-		struct vhd *target_vhd = global_root_vhd ? global_root_vhd : vhd;
-		lws_start_foreach_dll(struct lws_dll2 *, p, target_vhd->clients.head) {
+		lws_start_foreach_dll(struct lws_dll2 *, p, vhd->clients.head) {
 			struct pss *wpss = lws_container_of(p, struct pss, list);
 			if (wpss->tx_len + (size_t)n < 65536 - LWS_PRE) {
 				memcpy(&wpss->tx[LWS_PRE + wpss->tx_len], json, (size_t)n);
@@ -2379,8 +2374,17 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 	const struct lws_protocols *protocol = lws_get_protocol(wsi);
 	struct vhd *vhd = (struct vhd *)lws_protocol_vh_priv_get(vhost, protocol);
 
-	if (!vhd && global_root_vhd)
-		vhd = global_root_vhd;
+	if (!vhd) {
+		struct lws_context *cx = lws_get_context(wsi);
+		if (cx) {
+			struct lws_vhost *uds_vh = lws_get_vhost_by_name(cx, "dnssec_monitor_uds");
+			if (uds_vh) {
+				const struct lws_protocols *uds_prot = lws_vhost_name_to_protocol(uds_vh, "lws-dht-dnssec-monitor");
+				if (uds_prot)
+					vhd = (struct vhd *)lws_protocol_vh_priv_get(uds_vh, uds_prot);
+			}
+		}
+	}
 
 	const struct lws_protocol_vhost_options *pvo;
 
@@ -2404,132 +2408,127 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 
 				/* Privileges are seamlessly restricted via native LWS framework policies securely dropping after UDS setup */
 
-				/* Only the FIRST protocol in the list handles this, so we don't duplicate vhosts
-				 * We'll use vhd presence to guard it if needed. Actually we'll just check if we
-				 * already created the UDS vhost to avoid doing it per-protocol INIT.
-				 * lws_cmdline_option_cx requires us to look for uds-path.
-				 */
-				const char *uds_path = lws_cmdline_option_cx(cx, "--uds-path");
-				if (!uds_path) uds_path = "/var/run/lws-dnssec-monitor.sock";
+				if (strcmp(lws_get_vhost_name(vhost), "dnssec_monitor_uds")) {
+					const char *uds_path = lws_cmdline_option_cx(cx, "--uds-path");
+					if (!uds_path) uds_path = "/var/run/lws-dnssec-monitor.sock";
 
-				struct lws_context_creation_info info;
-				memset(&info, 0, sizeof(info));
-				info.vhost_name = "dnssec_monitor_uds";
-				info.port = 0; /* raw socket UDS */
-				info.options = LWS_SERVER_OPTION_UNIX_SOCK | LWS_SERVER_OPTION_ONLY_RAW;
-				info.iface = uds_path;
-
-				const char *uds_perms = lws_cmdline_option_cx(cx, "--uds-perms");
-				if (uds_perms)
-					info.unix_socket_perms = uds_perms;
-
-				/* We only want this protocol to run on the UDS */
-				static const struct lws_protocols *pprotocols[] = {
-					&lws_dht_dnssec_monitor_protocols[1],
-					NULL
-				};
-				info.pprotocols = pprotocols;
-
-				/* We need to ensure we don't loop indefinitely creating vhosts.
-				 * If lws_get_vhost_by_name finds our vhost, we don't create it again.
-				 */
-				struct lws_vhost *vh = lws_get_vhost_by_name(cx, info.vhost_name);
-				if (!vh) {
-					unlink(uds_path);
-					vh = lws_create_vhost(cx, &info);
+					struct lws_vhost *vh = lws_get_vhost_by_name(cx, "dnssec_monitor_uds");
 					if (!vh) {
-						lwsl_err("%s: Failed to create UDS vhost on %s\n", __func__, uds_path);
-						return -1;
-					}
-					lwsl_notice("%s: Created UDS vhost on %s\n", __func__, uds_path);
-				}
+						struct lws_context_creation_info info;
+						memset(&info, 0, sizeof(info));
+						info.vhost_name = "dnssec_monitor_uds";
+						info.port = 0; /* raw socket UDS */
+						info.options = LWS_SERVER_OPTION_UNIX_SOCK | LWS_SERVER_OPTION_ONLY_RAW;
+						info.iface = uds_path;
 
-				static int timer_armed = 0;
-				if (!timer_armed) {
-					vhd = lws_protocol_vh_priv_zalloc(vhost, protocol, sizeof(*vhd));
-					if (vhd) {
-						lwsl_notice("%s: Successfully allocated vhd on %s\n", __func__, lws_get_vhost_name(vhost));
-						vhd->context = cx;
-						vhd->vhost = vhost;
-						vhd->root_process_active = 1;
+						const char *uds_perms = lws_cmdline_option_cx(cx, "--uds-perms");
+						if (uds_perms)
+							info.unix_socket_perms = uds_perms;
 
-						{
-							lws_system_policy_t *policy;
-							if (lws_system_parse_policy(cx, "/etc/lwsws/policy", &policy)) {
-								lwsl_vhost_notice(vh, "dnssec_monitor: couldn't parse policy.");
-								return -1;
-							}
-							vhd->base_dir = strdup(policy->dns_base_dir);
-							lws_system_policy_free(policy);
+						static const struct lws_protocols *pprotocols[] = {
+							&lws_dht_dnssec_monitor_protocols[1],
+							NULL
+						};
+						info.pprotocols = pprotocols;
+
+						unlink(uds_path);
+						vh = lws_create_vhost(cx, &info);
+						if (!vh) {
+							lwsl_err("%s: Failed to create UDS vhost on %s\n", __func__, uds_path);
+							return -1;
 						}
+						lwsl_notice("%s: Created UDS vhost on %s\n", __func__, uds_path);
 
-						vhd->uds_path = uds_path;
-						vhd->signature_duration = 31536000;
+						const struct lws_protocols *uds_prot = lws_vhost_name_to_protocol(vh, "lws-dht-dnssec-monitor");
+						if (uds_prot && !lws_protocol_vh_priv_get(vh, uds_prot)) {
+							vhd = lws_protocol_vh_priv_zalloc(vh, uds_prot, sizeof(*vhd));
+							if (vhd) {
+								lwsl_notice("%s: Successfully allocated vhd on %s\n", __func__, lws_get_vhost_name(vh));
+								vhd->context = cx;
+								vhd->vhost = vh;
+								vhd->root_process_active = 1;
 
-						const char *auth_token = lws_cmdline_option_cx(cx, "--auth-token");
-						char buf[256];
-						if (!auth_token) {
-							int n, retries = 50;
-							while (retries-- > 0) {
-								n = (int)read(0, buf, sizeof(buf) - 1);
-								if (n > 0 || (n < 0 && errno != EAGAIN)) break;
-								usleep(100000);
-							}
-							if (n > 0) {
-								buf[n] = '\0';
-								char *p = strchr(buf, '\n'); if (p) *p = '\0';
-								p = strchr(buf, '\r'); if (p) *p = '\0';
-								auth_token = buf;
-							}
-						}
+								{
+									lws_system_policy_t *policy;
+									if (lws_system_parse_policy(cx, "/etc/lwsws/policy", &policy)) {
+										lwsl_vhost_notice(vh, "dnssec_monitor: couldn't parse policy.");
+										return -1;
+									}
+									vhd->base_dir = strdup(policy->dns_base_dir);
+									lws_system_policy_free(policy);
+								}
 
-						if (auth_token) {
-							lws_strncpy(vhd->auth_token, auth_token, sizeof(vhd->auth_token));
-							vhd->auth_jwk.kty = LWS_GENCRYPTO_KTY_OCT;
-							vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].len = 64;
-							vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf = malloc(64);
-							lws_hex_to_byte_array(auth_token, vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf, 64);
-							lwsl_notice("%s: securely mapped symmetric daemon auth-token\n", __func__);
-						}
+								vhd->uds_path = uds_path;
+								vhd->signature_duration = 31536000;
 
-						/* Borrow ops from the invoking vhost that originally had it configured */
-						const struct lws_protocols *prot = lws_vhost_name_to_protocol(vhost, "lws-dht-dnssec");
-						if (!prot) {
-							struct lws_vhost *vhdflt = lws_get_vhost_by_name(cx, "default");
-							if (vhdflt)
-								prot = lws_vhost_name_to_protocol(vhdflt, "lws-dht-dnssec");
-						}
-						if (prot && prot->user)
-							vhd->ops = (const struct lws_dht_dnssec_ops *)prot->user;
+								const char *auth_token = lws_cmdline_option_cx(cx, "--auth-token");
+								char buf[256];
+								if (!auth_token) {
+									int n, retries = 50;
+									while (retries-- > 0) {
+										n = (int)read(0, buf, sizeof(buf) - 1);
+										if (n > 0 || (n < 0 && errno != EAGAIN)) break;
+										usleep(100000);
+									}
+									if (n > 0) {
+										buf[n] = '\0';
+										char *p = strchr(buf, '\n'); if (p) *p = '\0';
+										p = strchr(buf, '\r'); if (p) *p = '\0';
+										auth_token = buf;
+									}
+								}
 
-						/* Assign functional cross-vhost global routing directly for UDS channels */
-						global_root_vhd = vhd;
+								if (auth_token) {
+									lws_strncpy(vhd->auth_token, auth_token, sizeof(vhd->auth_token));
+									vhd->auth_jwk.kty = LWS_GENCRYPTO_KTY_OCT;
+									vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].len = 64;
+									vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf = malloc(64);
+									lws_hex_to_byte_array(auth_token, vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf, 64);
+									lwsl_notice("%s: securely mapped symmetric daemon auth-token\n", __func__);
+								}
 
-						if (vhd->ops) {
-							char scan_path[1024];
-							lws_snprintf(scan_path, sizeof(scan_path), "%s/domains", vhd->base_dir);
+								/* Borrow ops from the invoking vhost that originally had it configured */
+								const struct lws_protocols *prot = lws_vhost_name_to_protocol(vhost, "lws-dht-dnssec");
+								if (!prot) {
+									struct lws_vhost *vhdflt = lws_get_vhost_by_name(cx, "default");
+									if (vhdflt)
+										prot = lws_vhost_name_to_protocol(vhdflt, "lws-dht-dnssec");
+								}
+								if (prot && prot->user)
+									vhd->ops = (const struct lws_dht_dnssec_ops *)prot->user;
 
-							/* Guarantee absolute discovery independently of Unix kernel notify boundaries */
-							/* Deferred to cleanly drop execution permissions naturally inside the loop */
-							lws_sul_schedule(vhd->context, 0, &vhd->sul_timer, dnssec_monitor_expiry_timer_cb, 1 * LWS_US_PER_SEC);
-							timer_armed = 1;
+								if (vhd->ops) {
+									char scan_path[1024];
+									lws_snprintf(scan_path, sizeof(scan_path), "%s/domains", vhd->base_dir);
+
+									/* Guarantee absolute discovery independently of Unix kernel notify boundaries */
+									lws_sul_schedule(vhd->context, 0, &vhd->sul_timer, dnssec_monitor_expiry_timer_cb, 1 * LWS_US_PER_SEC);
 
 #if defined(LWS_WITH_DIR)
-							vhd->dn = lws_dir_notify_create(cx, scan_path, dir_notify_cb, vhd);
-							if (!vhd->dn)
-								lwsl_err("%s: Failed to attach lws_dir_notify to %s\n", __func__, scan_path);
+									vhd->dn = lws_dir_notify_create(cx, scan_path, dir_notify_cb, vhd);
+									if (!vhd->dn)
+										lwsl_err("%s: Failed to attach lws_dir_notify to %s\n", __func__, scan_path);
 #endif
-						} else {
-							lwsl_err("%s: Skipped scheduling timer on %s because vhd->ops is NULL!\n", __func__, lws_get_vhost_name(vhost));
-							/* It will organically retry when the next vhost runs PROTOCOL_INIT */
+								} else {
+									lwsl_err("%s: Skipped scheduling timer on %s because vhd->ops is NULL!\n", __func__, lws_get_vhost_name(vh));
+								}
+							} else {
+								lwsl_err("%s: FAILED to allocate vhd on %s\n", __func__, lws_get_vhost_name(vh));
+							}
 						}
-					} else {
-						lwsl_err("%s: FAILED to allocate vhd on %s\n", __func__, lws_get_vhost_name(vhost));
 					}
+					return 0;
 				}
+
+				/* We are called for dnssec_monitor_uds directly (e.g. organically by lws), we safely ignore since we already initialized it! */
+				return 0;
 
 				return 0;
 			}
+
+			/* Do not spawn root daemon if we are just a stub process */
+			if (lws_cmdline_option_cx(cx, "--lws-stub"))
+				return 0;
 
 			/* Fast path: Prevent duplicate instantiation */
 			if (lws_protocol_vh_priv_get(vhost, protocol))
@@ -2705,87 +2704,69 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 				lwsl_notice("%s: exec_array[%d]: '%s'\n", __func__, i, exec_array[i]);
 
 			if (exec_array[0]) {
-				if (!global_root_vhd) {
-					/* Generate secure HS256 auth token for UDS */
-					uint8_t rand[64];
-					char hex[129];
-					lws_get_random(vhd->context, rand, sizeof(rand));
-					lws_hex_from_byte_array(rand, sizeof(rand), hex, sizeof(hex));
+				/* Generate secure HS256 auth token for UDS */
+				uint8_t rand[64];
+				char hex[129];
+				lws_get_random(vhd->context, rand, sizeof(rand));
+				lws_hex_from_byte_array(rand, sizeof(rand), hex, sizeof(hex));
 
-					lws_strncpy(vhd->auth_token, hex, sizeof(vhd->auth_token));
-					vhd->auth_jwk.kty = LWS_GENCRYPTO_KTY_OCT;
-					vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].len = 64;
-					vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf = malloc(64);
-					memcpy(vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf, rand, 64);
+				lws_strncpy(vhd->auth_token, hex, sizeof(vhd->auth_token));
+				vhd->auth_jwk.kty = LWS_GENCRYPTO_KTY_OCT;
+				vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].len = 64;
+				vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf = malloc(64);
+				memcpy(vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf, rand, 64);
 
-					lws_system_blob_t *b = lws_system_get_blob(vhd->context, LWS_SYSBLOB_TYPE_EXT_AUTH1, 0);
-					if (b) {
-						lws_system_blob_direct_set(b, (uint8_t *)vhd->auth_token, strlen(vhd->auth_token));
-					}
-
-					/* Inject auth token over native stdin pipe instead of argv to prevent ps inspection */
-
-
-					exec_array[n++] = NULL;
-
-					spawn_info.exec_array = exec_array;
-					spawn_info.timeout_us = 0; /* runs forever */
-					spawn_info.plsp = &vhd->lsp;
-					spawn_info.reap_cb = lws_dht_dnssec_monitor_reap_cb;
-					spawn_info.protocol_name = "lws-dht-dnssec-stdwsi";
-					spawn_info.vh = vhd->vhost;
-
-					lwsl_notice("dnssec_monitor: Executing root process: %s\n", exec_array[0]);
-
-					vhd->lsp = lws_spawn_piped(&spawn_info);
-					if (!vhd->lsp) {
-						lwsl_err("%s: Failed to spawn root monitor process\n", __func__);
-						return -1;
-					}
-
-					int stdin_fd = (int)(intptr_t)lws_spawn_get_fd_stdxxx(vhd->lsp, 0);
-					if (stdin_fd >= 0) {
-						char token_buf[140];
-						lws_snprintf(token_buf, sizeof(token_buf), "%s\n", hex);
-						if (write(stdin_fd, token_buf, strlen(token_buf)) < 0) {
-							lwsl_err("%s: Failed dropping token via stdin pipe\n", __func__);
-						}
-					}
-					vhd->root_process_active = 1;
-					global_root_vhd = vhd;
-					lwsl_notice("%s: Spawned root monitor process successfully and assigned global_root_vhd=%p (fallback active)\n", __func__, global_root_vhd);
-
-					/* Engage parent monitor to execute DHT publications off completed JWS child drops cleanly */
-					vhd->proxy_uid = (uid_t)-1;
-					vhd->proxy_gid = (gid_t)-1;
-					const char *uid_opt = lws_cmdline_option_cx(vhd->context, "--uid");
-					if (uid_opt && lws_plat_user_to_uid(uid_opt, &vhd->proxy_uid)) {
-						lwsl_err("%s: unknown user %s\n", __func__, uid_opt);
-					}
-					const char *gid_opt = lws_cmdline_option_cx(vhd->context, "--gid");
-					if (gid_opt && lws_plat_group_to_gid(gid_opt, &vhd->proxy_gid)) {
-						lwsl_err("%s: unknown group %s\n", __func__, gid_opt);
-					}
-
-					generate_dist_pki(vhd);
-
-					lws_sul_schedule(vhd->context, 0, &vhd->sul_timer, parent_dnssec_monitor_timer_cb, 5 * LWS_US_PER_SEC);
-				} else {
-					/* Already globally spawned! Just map the auth context */
-					lws_strncpy(vhd->auth_token, global_root_vhd->auth_token, sizeof(vhd->auth_token));
-					vhd->auth_jwk.kty = LWS_GENCRYPTO_KTY_OCT;
-					vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].len = 64;
-					vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf = malloc(64);
-					memcpy(vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf, global_root_vhd->auth_jwk.e[LWS_GENCRYPTO_OCT_KEYEL_K].buf, 64);
-
-					lws_system_blob_t *b = lws_system_get_blob(vhd->context, LWS_SYSBLOB_TYPE_EXT_AUTH1, 0);
-					if (b) {
-						lws_system_blob_direct_set(b, (uint8_t *)vhd->auth_token, strlen(vhd->auth_token));
-					}
-
-					vhd->root_process_active = 1;
-					lwsl_notice("%s: Reusing globally spawned root monitor %p for vhost %s\n", __func__, global_root_vhd, lws_get_vhost_name(vhost));
+				lws_system_blob_t *b = lws_system_get_blob(vhd->context, LWS_SYSBLOB_TYPE_EXT_AUTH1, 0);
+				if (b) {
+					lws_system_blob_direct_set(b, (uint8_t *)vhd->auth_token, strlen(vhd->auth_token));
 				}
+
+				/* Inject auth token over native stdin pipe instead of argv to prevent ps inspection */
+
+
+				exec_array[n++] = NULL;
+
+				spawn_info.exec_array = exec_array;
+				spawn_info.timeout_us = 0; /* runs forever */
+				spawn_info.plsp = &vhd->lsp;
+				spawn_info.reap_cb = lws_dht_dnssec_monitor_reap_cb;
+				spawn_info.protocol_name = "lws-dht-dnssec-stdwsi";
+				spawn_info.vh = vhd->vhost;
+
+				lwsl_notice("dnssec_monitor: Executing root process: %s\n", exec_array[0]);
+
+				vhd->lsp = lws_spawn_piped(&spawn_info);
+				if (!vhd->lsp) {
+					lwsl_err("%s: Failed to spawn root monitor process\n", __func__);
+					return -1;
+				}
+
+				int stdin_fd = (int)(intptr_t)lws_spawn_get_fd_stdxxx(vhd->lsp, 0);
+				if (stdin_fd >= 0) {
+					char token_buf[140];
+					lws_snprintf(token_buf, sizeof(token_buf), "%s\n", hex);
+					if (write(stdin_fd, token_buf, strlen(token_buf)) < 0) {
+						lwsl_err("%s: Failed dropping token via stdin pipe\n", __func__);
+					}
+				}
+				vhd->root_process_active = 1;
+				lwsl_notice("%s: Spawned root monitor process successfully\n", __func__);
+
+				/* Engage parent monitor to execute DHT publications off completed JWS child drops cleanly */
+				vhd->proxy_uid = (uid_t)-1;
+				vhd->proxy_gid = (gid_t)-1;
+				const char *uid_opt = lws_cmdline_option_cx(vhd->context, "--uid");
+				if (uid_opt && lws_plat_user_to_uid(uid_opt, &vhd->proxy_uid)) {
+					lwsl_err("%s: unknown user %s\n", __func__, uid_opt);
+				}
+				const char *gid_opt = lws_cmdline_option_cx(vhd->context, "--gid");
+				if (gid_opt && lws_plat_group_to_gid(gid_opt, &vhd->proxy_gid)) {
+					lwsl_err("%s: unknown group %s\n", __func__, gid_opt);
+				}
+
+				generate_dist_pki(vhd);
+
+				lws_sul_schedule(vhd->context, 0, &vhd->sul_timer, parent_dnssec_monitor_timer_cb, 5 * LWS_US_PER_SEC);
 			} else {
 				lwsl_err("%s: Cannot spawn argv[0] because it is NULL\n", __func__);
 			}
@@ -2816,8 +2797,7 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 			vhd->base_dir = NULL;
 		}
 
-		if (global_root_vhd == vhd)
-			global_root_vhd = NULL;
+
 		break;
 
 	case LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION:
@@ -2981,8 +2961,7 @@ fallback:
 						int n = lws_snprintf(json, sizeof(json), "{\"req\":\"cert_status\",\"subdomain\":\"%s\",\"port\":%d,\"status\":\"error\",\"msg\":\"%s\",\"local_msg\":\"%s\",\"issuer\":\"%s\"}\n",
 							cr->fqdn, cr->port, cr->msg, cr->local_msg, cr->issuer);
 
-						struct vhd *target_vhd = global_root_vhd ? global_root_vhd : vhd;
-						lws_start_foreach_dll(struct lws_dll2 *, p, target_vhd->clients.head) {
+						lws_start_foreach_dll(struct lws_dll2 *, p, vhd->clients.head) {
 							struct pss *wpss = lws_container_of(p, struct pss, list);
 							if (wpss->tx_len + (size_t)n < 65536 - LWS_PRE) {
 								memcpy(&wpss->tx[LWS_PRE + wpss->tx_len], json, (size_t)n);
@@ -3060,12 +3039,11 @@ fallback:
 			if (afi && afi->magic == ACME_PROFILES_MAGIC) {
 				lwsl_notice("%s: Completed ACME directory fetch (%zu bytes)\n", __func__, afi->json_len);
 
-				struct vhd *target_vhd = global_root_vhd ? global_root_vhd : vhd;
 				int found = 0;
-				lws_start_foreach_dll(struct lws_dll2 *, p, target_vhd->clients.head) {
+				lws_start_foreach_dll(struct lws_dll2 *, p, vhd->clients.head) {
 					if (lws_container_of(p, struct pss, list) == afi->root_pss) found = 1;
 				} lws_end_foreach_dll(p);
-				lws_start_foreach_dll(struct lws_dll2 *, p, target_vhd->ui_clients.head) {
+				lws_start_foreach_dll(struct lws_dll2 *, p, vhd->ui_clients.head) {
 					if (lws_container_of(p, struct pss, list) == afi->root_pss) found = 1;
 				} lws_end_foreach_dll(p);
 
@@ -3220,6 +3198,11 @@ fallback:
 				}
 
 				/* 2: Root Server: UI proxy just gave us a request. */
+				if (!vhd) {
+					lwsl_err("%s: vhd is NULL for UDS connection!\n", __func__);
+					return -1;
+				}
+
 				if (vhd->rx_len + len > 65536 - 1) return -1;
 				memcpy(&vhd->rx[LWS_PRE + vhd->rx_len], in, len);
 				vhd->rx_len += len;

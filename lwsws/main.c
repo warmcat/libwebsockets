@@ -173,7 +173,7 @@ context_creation(int argc, const char **argv)
 		if ((p = lws_cmdline_option(argc, argv, "--gid")))
 			info.gid = (unsigned int)atoi(p);
 		
-		info.lws_stub = stub;
+		info.lws_stub = stub ? stub : "dnssec-monitor";
 		/* Root monitor / stubs make outbound TLS probes but skip user vhosts, force global TLS init */
 		info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT | LWS_SERVER_OPTION_VH_SKIP_PRIV_DROP;
 	}
