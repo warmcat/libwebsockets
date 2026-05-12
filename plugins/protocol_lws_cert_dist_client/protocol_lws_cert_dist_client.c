@@ -203,12 +203,16 @@ stub_req_cb(struct lejp_ctx *ctx, char reason)
 	if (reason == LEJPCB_VAL_STR_CHUNK || reason == LEJPCB_VAL_STR_END) {
 		switch (ctx->path_match - 1) {
 		case STUB_SECRET:
-			if (reason == LEJPCB_VAL_STR_END)
+			if (reason == LEJPCB_VAL_STR_END) {
 				lws_strncpy(a->secret, ctx->buf, sizeof(a->secret));
+				lwsl_notice("%s: Parsed secret (len %d)\n", __func__, (int)strlen(a->secret));
+			}
 			break;
 		case STUB_SUBDOMAIN:
-			if (reason == LEJPCB_VAL_STR_END)
+			if (reason == LEJPCB_VAL_STR_END) {
 				lws_strncpy(a->subdomain, ctx->buf, sizeof(a->subdomain));
+				lwsl_notice("%s: Parsed subdomain: %s\n", __func__, a->subdomain);
+			}
 			break;
 		case STUB_FULLCHAIN:
 			if (!a->fullchain) {
@@ -254,6 +258,8 @@ stub_req_cb(struct lejp_ctx *ctx, char reason)
 		struct timeval tv;
 		int fd;
 
+		lwsl_notice("%s: LEJPCB_OBJECT_END reached, validating secret\n", __func__);
+
 		/* All parts received, validate and write */
 		if (strcmp(a->secret, a->vhd->secret)) {
 			lwsl_err("%s: Secret mismatch\n", __func__);
@@ -273,8 +279,32 @@ stub_req_cb(struct lejp_ctx *ctx, char reason)
 
 		/* 1. Ensure directory exists */
 		lws_snprintf(path, sizeof(path), "%s/%s", a->vhd->base_dir, a->subdomain);
-		if (mkdir(path, 0700) < 0 && errno != EEXIST)
-			lwsl_notice("%s: Failed to create directory\n", __func__);
+		if (mkdir(path, 0700) < 0 && errno != EEXIST) {
+			lwsl_err("%s: Failed to create directory '%s': %s (errno=%d)\n", __func__, path, strerror(errno), errno);
+			return 1;
+		}
+
+		/* 1.5 Check if certificate actually changed */
+		lws_snprintf(sym, sizeof(sym), "%s/%s/fullchain.pem", a->vhd->base_dir, a->subdomain);
+		fd = open(sym, O_RDONLY);
+		if (fd >= 0) {
+			struct stat st;
+			if (!fstat(fd, &st) && st.st_size == a->fc_len) {
+				char *buf = malloc((size_t)st.st_size);
+				if (buf) {
+					if (read(fd, buf, (size_t)st.st_size) == st.st_size) {
+						if (!memcmp(buf, a->fullchain, (size_t)st.st_size)) {
+							lwsl_notice("%s: Cert for %s is unchanged, skipping update\n", __func__, a->subdomain);
+							free(buf);
+							close(fd);
+							return 0; /* Success, no need to write again */
+						}
+					}
+					free(buf);
+				}
+			}
+			close(fd);
+		}
 
 		/* 2. Write fullchain */
 		lws_snprintf(path, sizeof(path), "%s/%s/fullchain.pem.%s", a->vhd->base_dir, a->subdomain, timestamp);
@@ -329,10 +359,15 @@ callback_cert_dist_stub(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 	case LWS_CALLBACK_RAW_RX:
 		if (a && a->parser_valid) {
+			lwsl_notice("%s: Parsing %d bytes of JSON\n", __func__, (int)len);
 			int m = lejp_parse(&a->jctx, (uint8_t *)in, (int)len);
 			if (m < 0 && m != LEJP_CONTINUE) {
 				lwsl_err("%s: lejp parse failed: %d\n", __func__, m);
 				a->parser_valid = 0;
+				return -1;
+			} else if (m == 0) {
+				lwsl_notice("%s: lejp parse completed successfully\n", __func__);
+				return -1; /* Close connection after successful processing */
 			}
 		}
 		break;
@@ -544,15 +579,18 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 					lwsl_notice("%s: [DEBUG] lws_client_connect_via_info returned valid wsi %p\n", __func__, pss->wsi_uds);
 				}
 			} else if (pss->wsi_uds == wsi && pss->uds_tx) {
+				lwsl_notice("%s: [DEBUG] Attempting to write %d bytes to UDS socket\n", __func__, (int)(pss->uds_tx_len - pss->uds_tx_pos));
 				int m = lws_write(wsi, (unsigned char *)pss->uds_tx + LWS_PRE + pss->uds_tx_pos, (size_t)(pss->uds_tx_len - pss->uds_tx_pos), LWS_WRITE_RAW);
 				if (m < 0) {
-					lwsl_err("%s: Write to UDS failed\n", __func__);
+					lwsl_err("%s: Write to UDS failed (m=%d)\n", __func__, m);
 					return -1;
 				}
+				lwsl_notice("%s: [DEBUG] lws_write returned %d\n", __func__, m);
 				pss->uds_tx_pos += m;
-				if (pss->uds_tx_pos < pss->uds_tx_len)
+				if (pss->uds_tx_pos < pss->uds_tx_len) {
+					lwsl_notice("%s: [DEBUG] Partial write (%d < %d), scheduling writable\n", __func__, pss->uds_tx_pos, pss->uds_tx_len);
 					lws_callback_on_writable(wsi);
-				else {
+				} else {
 					char certpath[256];
 					char keypath[256];
 
@@ -574,9 +612,10 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 					if (pss->cert) { free(pss->cert); pss->cert = NULL; pss->cert_len = 0; }
 					if (pss->key) { free(pss->key); pss->key = NULL; pss->key_len = 0; }
 					if (pss->uds_tx) { free(pss->uds_tx); pss->uds_tx = NULL; }
-					pss->wsi_uds = NULL;
 
-					return -1; /* Close UDS wsi since we are done */
+					/* Do not close the socket here. The stub needs to read all chunks.
+					 * The stub will close the socket when it finishes parsing the JSON. */
+					return 0;
 				}
 			}
 		}
@@ -716,7 +755,14 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 			lwsl_notice("%s: done parsing PVOs\n", __func__);
 
 			if (stub && !strcmp(stub, "distribution-client")) {
-				if (global_cert_dist_vhd) return 0;
+				if (global_cert_dist_vhd) {
+					/* If a subsequent vhost has PVOs, apply them to the global vhd */
+					if (strcmp(vhd->base_dir, "/etc/lwsws-pki"))
+						lws_strncpy(global_cert_dist_vhd->base_dir, vhd->base_dir, sizeof(global_cert_dist_vhd->base_dir));
+					if (vhd->reload_cmd[0])
+						lws_strncpy(global_cert_dist_vhd->reload_cmd, vhd->reload_cmd, sizeof(global_cert_dist_vhd->reload_cmd));
+					return 0;
+				}
 				global_cert_dist_vhd = vhd;
 				vhd->is_stub = 1;
 				return dist_client_stub_run(vhd);
