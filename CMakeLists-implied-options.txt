@@ -232,6 +232,10 @@ if (LWS_WITH_CGI)
 	set(LWS_WITH_SPAWN 1)
 endif()
 
+if (LWS_WITH_STUB)
+	set(LWS_WITH_SPAWN 1)
+endif()
+
 if (LWS_WITH_STRUCT_SQLITE3)
 	set(LWS_WITH_SQLITE3 1)
 endif()
