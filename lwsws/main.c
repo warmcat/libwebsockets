@@ -35,6 +35,9 @@
 #include <sys/time.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#if defined(__linux__) || defined(__APPLE__)
+#include <execinfo.h>
+#endif
 #else
 #include <io.h>
 #include "gettimeofday.h"
@@ -215,6 +218,34 @@ init_failed:
  * root-level sighup handler
  */
 
+#if defined(__linux__) || defined(__APPLE__)
+static void
+crash_handler(int signum)
+{
+	void *array[20];
+	int size;
+	char **strings;
+
+	lwsl_err("FATAL: Caught signal %d, producing backtrace:\n", signum);
+
+	size = backtrace(array, 20);
+	strings = backtrace_symbols(array, size);
+
+	if (strings != NULL) {
+		for (int i = 0; i < size; i++)
+			lwsl_err("  %s\n", strings[i]);
+		free(strings);
+	}
+
+	signal(signum, SIG_DFL);
+	abort();
+}
+#endif
+
+/*
+ * root-level sighup handler
+ */
+
 static void
 reload_handler(int signum)
 {
@@ -330,12 +361,20 @@ int main(int argc, char **argv)
 				sleep(2);
 
 				n = waitpid(-1, &status, WNOHANG);
-				if (n > 0)
+				if (n > 0) {
+					if (WIFEXITED(status))
+						fprintf(stderr, "Child process %d exited with status %d\n", n, WEXITSTATUS(status));
+					else if (WIFSIGNALED(status))
+						fprintf(stderr, "Child process %d killed by signal %d (core: %d)\n", n, WTERMSIG(status), WCOREDUMP(status));
+					else if (WIFSTOPPED(status))
+						fprintf(stderr, "Child process %d stopped by signal %d\n", n, WSTOPSIG(status));
+
 					for (m = 0; m < (int)LWS_ARRAY_SIZE(pids); m++)
 						if (pids[m] == n) {
 							pids[m] = 0;
 							break;
 						}
+				}
 #else
 // !!! implemenation needed
 #endif
@@ -349,6 +388,14 @@ int main(int argc, char **argv)
 
 	lwsl_notice("lwsws libwebsockets web server - license CC0 + MIT\n");
 	lwsl_notice("(C) Copyright 2010-2026 Andy Green <andy@warmcat.com>\n");
+
+#if defined(__linux__) || defined(__APPLE__)
+	signal(SIGSEGV, crash_handler);
+	signal(SIGABRT, crash_handler);
+	signal(SIGBUS, crash_handler);
+	signal(SIGILL, crash_handler);
+	signal(SIGFPE, crash_handler);
+#endif
 
 #if (UV_VERSION_MAJOR > 0) // Travis...
 	uv_loop_init(&loop);
