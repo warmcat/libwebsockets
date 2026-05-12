@@ -190,9 +190,9 @@ read:
 			/*
 			 * Help coverity see we cannot overflow n here
 			 */
-			if ((size_t)n >= sizeof(temp) ||
-			    (size_t)n1s >= sizeof(temp) ||
-			    (size_t)(n + n1s) >= sizeof(temp)) {
+			if ((size_t)n > sizeof(temp) ||
+			    (size_t)n1s > sizeof(temp) ||
+			    (size_t)(n + n1s) > sizeof(temp)) {
 				ret = -1;
 				goto bail;
 			}
