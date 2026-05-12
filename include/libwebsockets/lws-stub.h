@@ -101,11 +101,10 @@ lws_stub_request(struct lws_stub_manager *mgr,
 LWS_VISIBLE LWS_EXTERN void
 lws_stub_destroy(struct lws_stub_manager **_mgr);
 
-/**
- * lws_stub_client_protocol - Expose this protocol in your plugin's protocol array
- * so the manager can create outbound UDS connections from your vhost.
- */
-extern const struct lws_protocols lws_stub_client_protocol;
+
+LWS_VISIBLE LWS_EXTERN int
+lws_callback_stub_client(struct lws *wsi, enum lws_callback_reasons reason,
+		     void *user, void *in, size_t len);
 
 #endif /* LWS_WITH_STUB */
 

@@ -692,8 +692,28 @@ lws_x509_create_cert(struct lws_context *context,
 			goto bail;
 	}
 
-	if (mbedtls_x509write_crt_set_validity(&crt, "20240101000000", "20340101000000"))
-		goto bail;
+	{
+		char not_before[16], not_after[16];
+		time_t t;
+		struct tm *tm;
+
+		time(&t);
+		t -= 86400;
+		tm = gmtime(&t);
+		lws_snprintf(not_before, sizeof(not_before), "%04d%02d%02d%02d%02d%02d",
+			tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
+			tm->tm_hour, tm->tm_min, tm->tm_sec);
+
+		t += 86400;
+		t += (time_t)(info->validity_days ? info->validity_days : 365) * 24 * 3600;
+		tm = gmtime(&t);
+		lws_snprintf(not_after, sizeof(not_after), "%04d%02d%02d%02d%02d%02d",
+			tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
+			tm->tm_hour, tm->tm_min, tm->tm_sec);
+
+		if (mbedtls_x509write_crt_set_validity(&crt, not_before, not_after))
+			goto bail;
+	}
 
 	mbedtls_x509write_crt_set_md_alg(&crt, MBEDTLS_MD_SHA256);
 

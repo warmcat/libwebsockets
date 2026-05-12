@@ -4,39 +4,44 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <dirent.h>
+
 struct vhd_cert_dist_server {
-	struct lws_context *cx;
-	struct lws_vhost *vh;
-	const struct lws_protocols *protocol;
-	char pki_root[256];
-	struct lws_dll2_owner connections;
+	struct lws_context                  *cx;
+	struct lws_vhost                    *vh;
+	const struct lws_protocols          *protocol;
+	char                                pki_root[256];
+	struct lws_dll2_owner               connections;
 #if defined(LWS_WITH_DIR)
-	struct lws_dir_notify *dn;
+	struct lws_dir_notify               *dn;
 #endif
 
-	int is_stub;
-	char secret[129];
-	struct lws_stub_manager *stub_mgr;
+	struct lws_dll2                     list_vhd;
+	char                                vh_name[128];
+
+	int                                 is_stub;
+	char                                secret[129];
+	struct lws_stub_manager             *stub_mgr;
 };
 
-static struct vhd_cert_dist_server *global_cert_dist_server_vhd = NULL;
+static struct lws_dll2_owner active_server_vhds;
 
 struct pss_cert_dist_server {
-	struct lws_dll2 list;
-	struct lws *wsi;
-	char subdomain[128];
-	char domain[128];
-	int established;
-	int needs_cert_update;
+	struct lws_dll2                     list;
+	struct lws                          *wsi;
+	char                                subdomain[128];
+	char                                domain[128];
+	int                                 established;
+	int                                 needs_cert_update;
 
-	struct lws *wsi_uds;
-	char *uds_tx;
-	int uds_tx_len;
-	int uds_tx_pos;
+	struct lws                          *wsi_uds;
+	char                                *uds_tx;
+	int                                 uds_tx_len;
+	int                                 uds_tx_pos;
 
-	char *uds_rx;
-	int uds_rx_len;
-	int uds_rx_pos;
+	char                                *uds_rx;
+	int                                 uds_rx_len;
+	int                                 uds_rx_pos;
+	char                                hash[65];
 };
 
 /* --- STUB SERVER IMPLEMENTATION --- */
@@ -44,13 +49,13 @@ struct pss_cert_dist_server {
 static char *
 read_newest_file_in_dir(const char *dirpath, const char *suffix)
 {
-	DIR *dir;
-	struct dirent *de;
-	char best_name[256];
-	char path[512];
-	struct stat st;
-	int fd;
-	char *buf = NULL;
+	DIR                     *dir;
+	struct dirent           *de;
+	char                    best_name[256];
+	char                    path[512];
+	struct stat             st;
+	int                     fd;
+	char                    *buf = NULL;
 
 	best_name[0] = '\0';
 
@@ -85,6 +90,7 @@ read_newest_file_in_dir(const char *dirpath, const char *suffix)
 		close(fd);
 	}
 
+	return buf;
 }
 
 static const char * const stub_req_paths[] = {
@@ -102,12 +108,12 @@ enum stub_req_paths_enum {
 };
 
 struct stub_req_args {
-	struct vhd_cert_dist_server *vhd;
-	struct lws *wsi;
-	char secret[129];
-	char subdomain[128];
-	char domain[128];
-	char hash[65];
+	struct vhd_cert_dist_server         *vhd;
+	struct lws                          *wsi;
+	char                                secret[129];
+	char                                subdomain[128];
+	char                                domain[128];
+	char                                hash[65];
 };
 
 static signed char
@@ -132,35 +138,31 @@ stub_req_cb(struct lejp_ctx *ctx, char reason)
 		}
 	}
 
-	if (reason == LEJPCB_OBJECT_END) {
+	if (reason == LEJPCB_OBJECT_END)
 		lws_callback_on_writable(a->wsi);
-	}
 
 	return 0;
 }
 
-	struct lejp_ctx jctx;
-	struct stub_req_args args;
-	int parser_valid;
-	char *response;
-	int response_len;
-	int response_pos;
+struct pss_stub_server {
+	struct lejp_ctx                 jctx;
+	struct stub_req_args            args;
+	int                               parser_valid;
+	char                            *response;
+	int                             response_len;
+	int                             response_pos;
 };
-
-/* Optional callback to read hash from request if present */
-static signed char
-stub_hash_req_cb(struct lejp_ctx *ctx, char reason)
-{
-	/* Optional stub request hash handler can go here */
-	return 0;
-}
 
 static int
 callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason,
 			       void *user, void *in, size_t len)
 {
-	struct vhd_cert_dist_server *vhd = global_cert_dist_server_vhd;
+	struct vhd_cert_dist_server *vhd = NULL;
+	if (active_server_vhds.head)
+		vhd = lws_container_of(active_server_vhds.head, struct vhd_cert_dist_server, list_vhd);
 	struct pss_stub_server *pss = (struct pss_stub_server *)user;
+
+	if (!vhd) return -1;
 
 	switch (reason) {
 	case LWS_CALLBACK_RAW_ADOPT:
@@ -304,8 +306,13 @@ callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason
 }
 
 static const struct lws_protocols stub_protocols[] = {
-	{ "lws-cert-dist-server-stub", callback_cert_dist_server_stub, sizeof(struct pss_stub_server), 4096, 0, NULL, 0 },
-	{ NULL, NULL, 0, 0, 0, NULL, 0 }
+	{
+		.name			= "lws-cert-dist-server-stub",
+		.callback		= callback_cert_dist_server_stub,
+		.per_session_data_size	= sizeof(struct pss_stub_server),
+		.rx_buffer_size		= 4096,
+	},
+	LWS_PROTOCOL_LIST_TERM
 };
 
 
@@ -360,15 +367,24 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_PROTOCOL_INIT: {
 		const char *stub = lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub");
+		const char *vh_name = lws_get_vhost_name(lws_get_vhost(wsi));
 
-		/* Do not process if the plugin is not enabled on this vhost, unless we are the stub */
-		if (!in && (!stub || strcmp(stub, "distribution-server")))
+		/* Only initialize if the plugin is explicitly enabled on this vhost */
+		if (!in)
 			return 0;
 
 		/* Prevent spawning inside other plugins' stubs */
 		if (lws_cmdline_option_cx(lws_get_context(wsi), "--lws-dht-dnssec-monitor-root") ||
 		    lws_cmdline_option_cx(lws_get_context(wsi), "--lws-acme-client-root"))
 			return 0;
+
+		if (stub) {
+			/* In the stub process, we only initialize the specific vhost we were spawned for */
+			char expected_stub[256];
+			lws_snprintf(expected_stub, sizeof(expected_stub), "stub-%s", vh_name);
+			if (strcmp(stub, expected_stub))
+				return 0;
+		}
 
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 						  lws_get_protocol(wsi),
@@ -377,58 +393,70 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd->cx = lws_get_context(wsi);
 		vhd->vh = lws_get_vhost(wsi);
 		vhd->protocol = lws_get_protocol(wsi);
+		lws_strncpy(vhd->vh_name, vh_name, sizeof(vhd->vh_name));
 
 		lws_strncpy(vhd->pki_root, "/var/dnssec", sizeof(vhd->pki_root));
-		int has_pvo = 0;
 		const struct lws_protocol_vhost_options *pvo = (const struct lws_protocol_vhost_options *)in;
 		while (pvo) {
-			has_pvo = 1;
 			if (!strcmp(pvo->name, "pki-root"))
 				lws_strncpy(vhd->pki_root, pvo->value, sizeof(vhd->pki_root));
 			pvo = pvo->next;
 		}
 
-		if (stub && !strcmp(stub, "distribution-server")) {
-			if (global_cert_dist_server_vhd) return 0;
-			global_cert_dist_server_vhd = vhd;
+		char uds_path[256];
+		lws_snprintf(uds_path, sizeof(uds_path), "/var/run/lws-cert-dist-server-stub-%s.sock", vh_name);
+
+		char stub_name[256];
+		lws_snprintf(stub_name, sizeof(stub_name), "stub-%s", vh_name);
+
+		if (stub) {
 			vhd->is_stub = 1;
 
 			struct lws_stub_config sc;
 			memset(&sc, 0, sizeof(sc));
 			sc.cx = vhd->cx;
 			sc.vh = vhd->vh;
-			sc.stub_name = "distribution-server";
-			sc.uds_path = "/var/run/lws-cert-dist-server-stub.sock";
+			sc.stub_name = stub_name;
+			sc.uds_path = uds_path;
 			sc.protocols = stub_protocols;
 
-			return lws_stub_server_init(&sc, vhd->secret, NULL, 0);
+			lws_dll2_add_tail(&vhd->list_vhd, &active_server_vhds);
+			if (lws_stub_server_init(&sc, vhd->secret, NULL, 0)) {
+				lws_dll2_remove(&vhd->list_vhd);
+				return -1;
+			}
+			return 0;
 		}
 
-		if (stub) return 0;
+		struct vhd_cert_dist_server *old_vhd = NULL;
+		lws_start_foreach_dll(struct lws_dll2 *, d, active_server_vhds.head) {
+			struct vhd_cert_dist_server *v = lws_container_of(d, struct vhd_cert_dist_server, list_vhd);
+			if (!strcmp(v->vh_name, vh_name)) {
+				old_vhd = v;
+				break;
+			}
+		} lws_end_foreach_dll(d);
 
-		if (has_pvo && geteuid() == 0 && !global_cert_dist_server_vhd) {
-			global_cert_dist_server_vhd = vhd;
-
+		if (old_vhd) {
+			/* Hot-reload: Take over the stub manager from the old vhost */
+			lwsl_vhost_notice(lws_get_vhost(wsi), "%s: Hot-reloading cert-dist-server, taking over stub manager\n", __func__);
+			vhd->stub_mgr = old_vhd->stub_mgr;
+			old_vhd->stub_mgr = NULL;
+		} else {
 			struct lws_stub_config sc;
 			memset(&sc, 0, sizeof(sc));
 			sc.cx = vhd->cx;
 			sc.vh = vhd->vh;
-			sc.stub_name = "distribution-server";
-			sc.uds_path = "/var/run/lws-cert-dist-server-stub.sock";
+			sc.stub_name = stub_name;
+			sc.uds_path = uds_path;
 			sc.protocols = stub_protocols;
 
 			vhd->stub_mgr = lws_stub_spawn(&sc);
-			if (vhd->stub_mgr) {
-				lwsl_notice("%s: Spawned privileged stub via lws_stub_spawn\n", __func__);
-				/* We need to get the secret somehow...
-				   Actually, lws_stub_spawn returns mgr but mgr->secret is opaque...
-				   Wait, the proxy needs to know the secret to auth requests to the stub! */
-				/* I'll use lws_stub_request to do this safely, but wait! We don't need to check secret if we use lws_stub_request because the UDS connects without secrets... NO, the STUB requires the secret in the JSON! */
-				/* But the UDS socket is 0600 so maybe we don't need the secret?
-				   The original cert_dist_server generates a secret and passes it over stdin, then includes it in every JSON payload.
-				*/
-			}
+			if (!vhd->stub_mgr)
+				return -1;
 		}
+
+		lws_dll2_add_tail(&vhd->list_vhd, &active_server_vhds);
 
 #if defined(LWS_WITH_DIR)
 		char scan_path[512];
@@ -439,8 +467,11 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 	}
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
-		if (vhd && vhd->stub_mgr)
-			lws_stub_destroy(&vhd->stub_mgr);
+		if (vhd) {
+			lws_dll2_remove(&vhd->list_vhd);
+			if (vhd->stub_mgr)
+				lws_stub_destroy(&vhd->stub_mgr);
+		}
 		break;
 
 	case LWS_CALLBACK_ESTABLISHED: {
@@ -542,18 +573,14 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!pss->wsi_uds && pss->needs_cert_update) {
 			pss->needs_cert_update = 0;
 
-			if (!vhd->stub_mgr) {
-				lwsl_err("%s: No stub manager present, cannot request certs!\n", __func__);
+			if (!vhd || !vhd->stub_mgr) {
+				lwsl_err("%s: No stub manager present on vhost '%s', cannot request certs!\n",
+					__func__, lws_get_vhost_name(lws_get_vhost(wsi)));
 				return -1;
 			}
 
 			char tx[512];
 			lwsl_notice("%s: Requesting cert for %s from server UDS stub\n", __func__, pss->domain);
-			/* We use the secret that the stub knows! We need to expose it from mgr or skip it in the stub?
-			   Actually, since the socket is 0600 and the stub generated the secret, we can just NOT send the secret.
-			   The STUB only checks it if it's there.
-			   Wait, the STUB requires it! I will update the STUB to ignore the secret if it's not present, or I will get it from mgr.
-			   Let's just send a dummy secret. I will update the stub! */
 			if (pss->hash[0]) {
 				lws_snprintf(tx, sizeof(tx),
 					"{\"secret\":\"\",\"subdomain\":\"%s\",\"domain\":\"%s\",\"hash\":\"%s\"}",
@@ -575,18 +602,6 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		break;
 
-	case LWS_CALLBACK_CLIENT_CLOSED:
-	case LWS_CALLBACK_RAW_CLOSE:
-	case LWS_CALLBACK_RAW_RX_FILE:
-	case LWS_CALLBACK_RAW_CLOSE_FILE:
-	case LWS_CALLBACK_RAW_RX:
-	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
-	case LWS_CALLBACK_RAW_CONNECTED:
-	case LWS_CALLBACK_RAW_WRITEABLE:
-	case LWS_CALLBACK_CLIENT_WRITEABLE:
-	case LWS_CALLBACK_TIMER:
-		break;
-
 	default:
 		break;
 	}
@@ -595,15 +610,12 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 }
 
 static const struct lws_protocols protocols[] = {
-	{
-		"lws-cert-dist-server",
-		callback_cert_dist_server,
-		sizeof(struct pss_cert_dist_server),
-		65536, /* rx buf size */
-		0, /* id */
-		NULL, 0 /* user, tx_idl */
-	},
-	{ NULL, NULL, 0, 0, 0, NULL, 0 } /* terminator */
+    {
+        .name                   = "lws-cert-dist-server",
+        .callback               = callback_cert_dist_server,
+        .per_session_data_size  = sizeof(struct pss_cert_dist_server),
+        .rx_buffer_size         = 65536,
+    }
 };
 
 LWS_VISIBLE const lws_plugin_protocol_t lws_cert_dist_server = {
