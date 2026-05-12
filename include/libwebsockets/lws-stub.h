@@ -35,7 +35,9 @@ struct lws_stub_config {
 	struct lws_vhost *vh;
 	const char *stub_name;         /* e.g. "distribution-client" */
 	const char *uds_path;          /* e.g. "/var/run/lws-cert-dist-stub.sock" */
-	const lws_jrpc_method_t *rpc_methods; /* JSON-RPC methods the stub handles */
+	const struct lws_protocols *protocols; /* Protocol array for the UDS server vhost */
+	const void *extra_payload;     /* Optional extra data to write to child stdin */
+	size_t extra_payload_len;
 };
 
 struct lws_stub_manager;
@@ -64,7 +66,7 @@ lws_stub_spawn(const struct lws_stub_config *config);
  * Returns 0 on success, < 0 on failure.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_stub_server_init(const struct lws_stub_config *config, char *secret_out);
+lws_stub_server_init(const struct lws_stub_config *config, char *secret_out, void *extra_out, size_t extra_len);
 
 /**
  * lws_stub_rpc_request() - Send a JSON-RPC request to the stub
@@ -86,6 +88,7 @@ lws_stub_request(struct lws_stub_manager *mgr,
 		 const char * const *rx_paths,
 		 size_t rx_paths_count,
 		 signed char (*rx_cb)(struct lejp_ctx *ctx, char reason),
+		 void (*raw_cb)(const char *in, size_t len, void *user),
 		 void *user);
 
 /**

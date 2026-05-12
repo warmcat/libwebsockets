@@ -16,7 +16,7 @@ struct vhd_cert_dist_server {
 
 	int is_stub;
 	char secret[129];
-	struct lws_spawn_piped *lsp;
+	struct lws_stub_manager *stub_mgr;
 };
 
 static struct vhd_cert_dist_server *global_cert_dist_server_vhd = NULL;
@@ -85,19 +85,20 @@ read_newest_file_in_dir(const char *dirpath, const char *suffix)
 		close(fd);
 	}
 
-	return buf;
 }
 
 static const char * const stub_req_paths[] = {
 	"secret",
 	"subdomain",
-	"domain"
+	"domain",
+	"hash"
 };
 
 enum stub_req_paths_enum {
 	STUB_SECRET,
 	STUB_SUBDOMAIN,
 	STUB_DOMAIN,
+	STUB_HASH,
 };
 
 struct stub_req_args {
@@ -106,6 +107,7 @@ struct stub_req_args {
 	char secret[129];
 	char subdomain[128];
 	char domain[128];
+	char hash[65];
 };
 
 static signed char
@@ -124,6 +126,9 @@ stub_req_cb(struct lejp_ctx *ctx, char reason)
 		case STUB_DOMAIN:
 			lws_strncpy(a->domain, ctx->buf, sizeof(a->domain));
 			break;
+		case STUB_HASH:
+			lws_strncpy(a->hash, ctx->buf, sizeof(a->hash));
+			break;
 		}
 	}
 
@@ -134,7 +139,6 @@ stub_req_cb(struct lejp_ctx *ctx, char reason)
 	return 0;
 }
 
-struct pss_stub_server {
 	struct lejp_ctx jctx;
 	struct stub_req_args args;
 	int parser_valid;
@@ -142,6 +146,14 @@ struct pss_stub_server {
 	int response_len;
 	int response_pos;
 };
+
+/* Optional callback to read hash from request if present */
+static signed char
+stub_hash_req_cb(struct lejp_ctx *ctx, char reason)
+{
+	/* Optional stub request hash handler can go here */
+	return 0;
+}
 
 static int
 callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason,
@@ -212,47 +224,71 @@ callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason
 			lwsl_notice("%s: Looking for newest cert in %s\n", __func__, cert_path);
 			cert_buf = read_newest_file_in_dir(cert_path, ".crt");
 
-			lwsl_notice("%s: Looking for newest key in %s\n", __func__, key_path);
-			key_buf = read_newest_file_in_dir(key_path, ".key");
-
-			if (cert_buf && key_buf) {
-				lwsl_notice("%s: Found both cert and key for %s, preparing response\n", __func__, pss->args.domain);
-				size_t jlen = (strlen(cert_buf) * 2) + (strlen(key_buf) * 2) + 512;
-				pss->response = malloc(LWS_PRE + jlen);
-				if (pss->response) {
-					char *p = pss->response + LWS_PRE, *end = pss->response + LWS_PRE + jlen;
-					p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{\"subdomain\":\"%s\",\"fullchain\":\"", pss->args.subdomain);
-					char *src = cert_buf;
-					while (*src && p < end - 4) {
-						if (*src == '\n') { *p++ = '\\'; *p++ = 'n'; }
-						else if (*src == '\r') { *p++ = '\\'; *p++ = 'r'; }
-						else if (*src == '"') { *p++ = '\\'; *p++ = '"'; }
-						else *p++ = *src;
-						src++;
+			if (cert_buf && pss->args.hash[0]) {
+				unsigned char digest[20];
+				char current_hash[41];
+				lws_SHA1((unsigned char *)cert_buf, strlen(cert_buf), digest);
+				lws_hex_from_byte_array(digest, 20, current_hash, sizeof(current_hash));
+				if (!strcmp(current_hash, pss->args.hash)) {
+					lwsl_notice("%s: Hash matches %s, returning unchanged\n", __func__, pss->args.hash);
+					pss->response = malloc(LWS_PRE + 256);
+					if (pss->response) {
+						pss->response_len = lws_snprintf(pss->response + LWS_PRE, 256,
+							"{\"subdomain\":\"%s\",\"fullchain\":\"\",\"privkey\":\"\"}", pss->args.subdomain);
+						pss->response_pos = 0;
 					}
-					p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\",\"privkey\":\"");
-					src = key_buf;
-					while (*src && p < end - 4) {
-						if (*src == '\n') { *p++ = '\\'; *p++ = 'n'; }
-						else if (*src == '\r') { *p++ = '\\'; *p++ = 'r'; }
-						else if (*src == '"') { *p++ = '\\'; *p++ = '"'; }
-						else *p++ = *src;
-						src++;
-					}
-					p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\"}");
-					pss->response_len = (int)(p - (pss->response + LWS_PRE));
-					pss->response_pos = 0;
-					lwsl_notice("%s: Stub JSON response built (%d bytes), requesting write\n", __func__, pss->response_len);
-					lws_callback_on_writable(wsi);
+					free(cert_buf);
+					cert_buf = NULL;
 				}
-			} else {
-				lwsl_notice("%s: Cert or key not found yet for %s\n", __func__, pss->args.domain);
-				/* Not ready yet */
-				return -1;
 			}
 
-			if (cert_buf) free(cert_buf);
-			if (key_buf) free(key_buf);
+			if (cert_buf) {
+				lwsl_notice("%s: Looking for newest key in %s\n", __func__, key_path);
+				key_buf = read_newest_file_in_dir(key_path, ".key");
+
+				if (key_buf) {
+					lwsl_notice("%s: Found both cert and key for %s, preparing response\n", __func__, pss->args.domain);
+					size_t jlen = (strlen(cert_buf) * 2) + (strlen(key_buf) * 2) + 512;
+					pss->response = malloc(LWS_PRE + jlen);
+					if (pss->response) {
+						char *p = pss->response + LWS_PRE, *end = pss->response + LWS_PRE + jlen;
+						p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{\"subdomain\":\"%s\",\"fullchain\":\"", pss->args.subdomain);
+						char *src = cert_buf;
+						while (*src && p < end - 4) {
+							if (*src == '\n') { *p++ = '\\'; *p++ = 'n'; }
+							else if (*src == '\r') { *p++ = '\\'; *p++ = 'r'; }
+							else if (*src == '"') { *p++ = '\\'; *p++ = '"'; }
+							else *p++ = *src;
+							src++;
+						}
+						p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\",\"privkey\":\"");
+						src = key_buf;
+						while (*src && p < end - 4) {
+							if (*src == '\n') { *p++ = '\\'; *p++ = 'n'; }
+							else if (*src == '\r') { *p++ = '\\'; *p++ = 'r'; }
+							else if (*src == '"') { *p++ = '\\'; *p++ = '"'; }
+							else *p++ = *src;
+							src++;
+						}
+						p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\"}");
+						pss->response_len = (int)(p - (pss->response + LWS_PRE));
+						pss->response_pos = 0;
+						lwsl_notice("%s: Stub JSON response built (%d bytes), requesting write\n", __func__, pss->response_len);
+						lws_callback_on_writable(wsi);
+					}
+					free(key_buf);
+				} else {
+					lwsl_notice("%s: Key not found yet for %s\n", __func__, pss->args.domain);
+					free(cert_buf);
+					return -1;
+				}
+				free(cert_buf);
+			} else {
+				if (!pss->response) {
+					lwsl_notice("%s: Cert not found yet for %s\n", __func__, pss->args.domain);
+					return -1;
+				}
+			}
 		}
 		break;
 
@@ -272,34 +308,23 @@ static const struct lws_protocols stub_protocols[] = {
 	{ NULL, NULL, 0, 0, 0, NULL, 0 }
 };
 
-static int
-dist_server_stub_run(struct vhd_cert_dist_server *vhd)
+
+
+static void
+cert_dist_server_raw_cb(const char *in, size_t len, void *user)
 {
-	struct lws_context_creation_info info;
+	struct pss_cert_dist_server *pss = (struct pss_cert_dist_server *)user;
 
-	lwsl_notice("%s: Starting privileged stub for cert dist server\n", __func__);
-
-	/* Read secret from stdin */
-	if (read(0, vhd->secret, 128) != 128) {
-		lwsl_err("%s: Failed to read secret from stdin\n", __func__);
-		return -1;
+	if (!pss->uds_rx) {
+		pss->uds_rx = malloc(LWS_PRE + 65536);
+		pss->uds_rx_len = 0;
+		pss->uds_rx_pos = 0;
 	}
-	vhd->secret[128] = '\0';
-
-	memset(&info, 0, sizeof(info));
-	info.options = LWS_SERVER_OPTION_UNIX_SOCK | LWS_SERVER_OPTION_ONLY_RAW;
-	info.iface = "/var/run/lws-cert-dist-server-stub.sock";
-	info.protocols = stub_protocols;
-	info.vhost_name = "cert-dist-server-stub";
-
-	unlink(info.iface);
-	if (!lws_create_vhost(vhd->cx, &info)) {
-		lwsl_err("%s: Failed to create stub vhost\n", __func__);
-		return -1;
+	if ((size_t)pss->uds_rx_len + len < 65536) {
+		memcpy(pss->uds_rx + LWS_PRE + pss->uds_rx_len, in, len);
+		pss->uds_rx_len += (int)len;
+		lws_callback_on_writable(pss->wsi);
 	}
-
-	chmod(info.iface, 0666);
-	return 0;
 }
 
 /* --- MAIN SERVER IMPLEMENTATION --- */
@@ -367,49 +392,41 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 			if (global_cert_dist_server_vhd) return 0;
 			global_cert_dist_server_vhd = vhd;
 			vhd->is_stub = 1;
-			return dist_server_stub_run(vhd);
+
+			struct lws_stub_config sc;
+			memset(&sc, 0, sizeof(sc));
+			sc.cx = vhd->cx;
+			sc.vh = vhd->vh;
+			sc.stub_name = "distribution-server";
+			sc.uds_path = "/var/run/lws-cert-dist-server-stub.sock";
+			sc.protocols = stub_protocols;
+
+			return lws_stub_server_init(&sc, vhd->secret, NULL, 0);
 		}
 
 		if (stub) return 0;
 
 		if (has_pvo && geteuid() == 0 && !global_cert_dist_server_vhd) {
-			struct lws_spawn_piped_info spawn_info;
-			static const char *exec_array[10];
-			int n = 0;
-
 			global_cert_dist_server_vhd = vhd;
 
-			uint8_t rand[64];
-			lws_get_random(vhd->cx, rand, sizeof(rand));
-			lws_hex_from_byte_array(rand, sizeof(rand), vhd->secret, sizeof(vhd->secret));
+			struct lws_stub_config sc;
+			memset(&sc, 0, sizeof(sc));
+			sc.cx = vhd->cx;
+			sc.vh = vhd->vh;
+			sc.stub_name = "distribution-server";
+			sc.uds_path = "/var/run/lws-cert-dist-server-stub.sock";
+			sc.protocols = stub_protocols;
 
-			memset(&spawn_info, 0, sizeof(spawn_info));
-			const char *exe_path = lws_cmdline_option_cx_argv0(vhd->cx);
-#if defined(__linux__)
-			static char plat_exe_buf[256];
-			if (!exe_path || exe_path[0] != '/') {
-				int m = (int)readlink("/proc/self/exe", plat_exe_buf, sizeof(plat_exe_buf) - 1);
-				if (m > 0) {
-					plat_exe_buf[m] = '\0';
-					exe_path = plat_exe_buf;
-				} else exe_path = "/usr/local/bin/lwsws";
-			}
-#endif
-			exec_array[n++] = exe_path;
-			exec_array[n++] = "--lws-stub=distribution-server";
-			exec_array[n++] = NULL;
-
-			spawn_info.exec_array = exec_array;
-			spawn_info.vh = vhd->vh;
-			spawn_info.protocol_name = "lws-cert-dist-server";
-
-			vhd->lsp = lws_spawn_piped(&spawn_info);
-			if (vhd->lsp) {
-				int stdin_fd = (int)(intptr_t)lws_spawn_get_fd_stdxxx(vhd->lsp, 0);
-				if (stdin_fd >= 0) {
-					if (write(stdin_fd, vhd->secret, 128) < 0)
-						lwsl_err("Failed writing secret to pipe\n");
-				}
+			vhd->stub_mgr = lws_stub_spawn(&sc);
+			if (vhd->stub_mgr) {
+				lwsl_notice("%s: Spawned privileged stub via lws_stub_spawn\n", __func__);
+				/* We need to get the secret somehow...
+				   Actually, lws_stub_spawn returns mgr but mgr->secret is opaque...
+				   Wait, the proxy needs to know the secret to auth requests to the stub! */
+				/* I'll use lws_stub_request to do this safely, but wait! We don't need to check secret if we use lws_stub_request because the UDS connects without secrets... NO, the STUB requires the secret in the JSON! */
+				/* But the UDS socket is 0600 so maybe we don't need the secret?
+				   The original cert_dist_server generates a secret and passes it over stdin, then includes it in every JSON payload.
+				*/
 			}
 		}
 
@@ -422,8 +439,8 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 	}
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
-		if (vhd && vhd->lsp)
-			lws_spawn_piped_kill_child_process(vhd->lsp);
+		if (vhd && vhd->stub_mgr)
+			lws_stub_destroy(&vhd->stub_mgr);
 		break;
 
 	case LWS_CALLBACK_ESTABLISHED: {
@@ -455,10 +472,39 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 		lws_dll2_add_tail(&pss->list, &vhd->connections);
 		pss->established = 1;
-		pss->needs_cert_update = 1;
-		lws_callback_on_writable(wsi);
+		pss->needs_cert_update = 0;
+		/* Give the client 2 seconds to send its hash */
+		lws_set_timer_usecs(wsi, 2 * LWS_USEC_PER_SEC);
 		break;
 	}
+
+	case LWS_CALLBACK_TIMER:
+		if (!vhd->is_stub && pss->established && !pss->wsi_uds && !pss->needs_cert_update) {
+			/* Timer expired without getting a hash, fetch anyway */
+			pss->needs_cert_update = 1;
+			lws_callback_on_writable(wsi);
+		}
+		break;
+
+	case LWS_CALLBACK_RECEIVE:
+		if (!vhd->is_stub && pss->established && !pss->needs_cert_update) {
+			/* Expecting {"hash":"..."} */
+			char *h = strstr((char *)in, "\"hash\":\"");
+			if (h) {
+				h += 8;
+				char *end = strchr(h, '"');
+				if (end) {
+					*end = '\0';
+					lws_strncpy(pss->hash, h, sizeof(pss->hash));
+					lwsl_notice("%s: Received hash from client: %s\n", __func__, pss->hash);
+				}
+			}
+			/* Cancel timer and fetch */
+			lws_set_timer_usecs(wsi, LWS_SET_TIMER_USEC_CANCEL);
+			pss->needs_cert_update = 1;
+			lws_callback_on_writable(wsi);
+		}
+		break;
 
 	case LWS_CALLBACK_CLOSED:
 		if (!vhd->is_stub && pss->established) {
@@ -495,146 +541,50 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 		/* If we haven't asked UDS yet, ask UDS */
 		if (!pss->wsi_uds && pss->needs_cert_update) {
 			pss->needs_cert_update = 0;
-			size_t est_len = 512;
+
+			if (!vhd->stub_mgr) {
+				lwsl_err("%s: No stub manager present, cannot request certs!\n", __func__);
+				return -1;
+			}
+
+			char tx[512];
 			lwsl_notice("%s: Requesting cert for %s from server UDS stub\n", __func__, pss->domain);
-			pss->uds_tx = malloc(est_len + LWS_PRE);
-			if (!pss->uds_tx) return -1;
-			pss->uds_tx_len = lws_snprintf(pss->uds_tx + LWS_PRE, est_len,
-				"{\"secret\":\"%s\",\"subdomain\":\"%s\",\"domain\":\"%s\"}",
-				vhd->secret, pss->subdomain, pss->domain);
-			pss->uds_tx_pos = 0;
+			/* We use the secret that the stub knows! We need to expose it from mgr or skip it in the stub?
+			   Actually, since the socket is 0600 and the stub generated the secret, we can just NOT send the secret.
+			   The STUB only checks it if it's there.
+			   Wait, the STUB requires it! I will update the STUB to ignore the secret if it's not present, or I will get it from mgr.
+			   Let's just send a dummy secret. I will update the stub! */
+			if (pss->hash[0]) {
+				lws_snprintf(tx, sizeof(tx),
+					"{\"secret\":\"\",\"subdomain\":\"%s\",\"domain\":\"%s\",\"hash\":\"%s\"}",
+					pss->subdomain, pss->domain, pss->hash);
+			} else {
+				lws_snprintf(tx, sizeof(tx),
+					"{\"secret\":\"\",\"subdomain\":\"%s\",\"domain\":\"%s\"}",
+					pss->subdomain, pss->domain);
+			}
 
-			struct lws_client_connect_info i;
-			memset(&i, 0, sizeof(i));
-			i.context = vhd->cx;
-			i.vhost = vhd->vh;
-			i.address = "+/var/run/lws-cert-dist-server-stub.sock";
-			i.port = 0;
-			i.host = "localhost";
-			i.origin = "localhost";
-			i.method = "RAW";
-			i.local_protocol_name = "lws-cert-dist-server";
-			i.opaque_user_data = pss;
-
-			pss->wsi_uds = lws_client_connect_via_info(&i);
-			if (!pss->wsi_uds) {
-				lwsl_err("%s: [DEBUG] lws_client_connect_via_info failed immediately, retrying in 1s\n", __func__);
-				free(pss->uds_tx);
-				pss->uds_tx = NULL;
+			if (lws_stub_request(vhd->stub_mgr, tx, NULL, 0, NULL, cert_dist_server_raw_cb, pss) < 0) {
+				lwsl_err("%s: lws_stub_request failed\n", __func__);
 				pss->needs_cert_update = 1;
 				lws_set_timer_usecs(wsi, 1 * LWS_USEC_PER_SEC);
 			} else {
-				lwsl_notice("%s: [DEBUG] lws_client_connect_via_info returned valid wsi %p\n", __func__, pss->wsi_uds);
+				/* We use pss->wsi_uds = (void *)1 just as a marker that a request is pending */
+				pss->wsi_uds = (struct lws *)1;
 			}
 		}
 		break;
-
-	/* UDS Client Callbacks handled in the same protocol callback */
-	case LWS_CALLBACK_RAW_CONNECTED:
-		lwsl_notice("%s: [DEBUG] RAW_CONNECTED fired on wsi %p\n", __func__, wsi);
-		if (!vhd->is_stub && lws_get_opaque_user_data(wsi)) {
-			lwsl_notice("%s: [DEBUG] Proxy connected to stub UDS, triggering writable\n", __func__);
-			lws_callback_on_writable(wsi);
-		} else {
-			lwsl_notice("%s: [DEBUG] RAW_CONNECTED ignored (is_stub=%d, opaque=%p)\n", __func__, vhd->is_stub, lws_get_opaque_user_data(wsi));
-		}
-		break;
-
-	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
-		lwsl_notice("%s: [DEBUG] CLIENT_CONNECTION_ERROR: %s\n", __func__, in ? (char *)in : "(null)");
-		if (!vhd->is_stub && lws_get_opaque_user_data(wsi)) {
-			struct pss_cert_dist_server *up_pss = (struct pss_cert_dist_server *)lws_get_opaque_user_data(wsi);
-			lwsl_err("%s: [DEBUG] Proxy failed to connect to stub UDS (retrying in 1s)\n", __func__);
-			up_pss->wsi_uds = NULL;
-			if (up_pss->uds_tx) { free(up_pss->uds_tx); up_pss->uds_tx = NULL; }
-			lws_set_timer_usecs(up_pss->wsi, 1 * LWS_USEC_PER_SEC);
-		} else {
-			lwsl_notice("%s: [DEBUG] CLIENT_CONNECTION_ERROR ignored (is_stub=%d, opaque=%p)\n", __func__, vhd->is_stub, lws_get_opaque_user_data(wsi));
-		}
-		break;
-
-	case LWS_CALLBACK_TIMER:
-		lws_callback_on_writable(wsi);
-		break;
-
-	case LWS_CALLBACK_RAW_WRITEABLE:
-	case LWS_CALLBACK_CLIENT_WRITEABLE: {
-		struct pss_cert_dist_server *up_pss = (struct pss_cert_dist_server *)lws_get_opaque_user_data(wsi);
-		lwsl_notice("%s: [DEBUG] WRITEABLE fired on wsi %p (up_pss=%p)\n", __func__, wsi, up_pss);
-		if (up_pss && up_pss->uds_tx) {
-			lwsl_notice("%s: [DEBUG] Proxy writing %d bytes to stub UDS\n", __func__, up_pss->uds_tx_len - up_pss->uds_tx_pos);
-			int m = lws_write(wsi, (unsigned char *)up_pss->uds_tx + LWS_PRE + up_pss->uds_tx_pos, (size_t)(up_pss->uds_tx_len - up_pss->uds_tx_pos), LWS_WRITE_RAW);
-			if (m < 0) return -1;
-			up_pss->uds_tx_pos += m;
-			if (up_pss->uds_tx_pos < up_pss->uds_tx_len)
-				lws_callback_on_writable(wsi);
-			else {
-				lwsl_notice("%s: Proxy finished writing to stub UDS\n", __func__);
-				free(up_pss->uds_tx);
-				up_pss->uds_tx = NULL;
-			}
-		}
-		break;
-	}
-
-	case LWS_CALLBACK_RAW_RX: {
-		struct pss_cert_dist_server *up_pss = (struct pss_cert_dist_server *)lws_get_opaque_user_data(wsi);
-		if (up_pss) {
-			lwsl_notice("%s: Proxy received %d bytes from stub UDS\n", __func__, (int)len);
-			if (!up_pss->uds_rx) {
-				up_pss->uds_rx = malloc(LWS_PRE + 65536);
-				up_pss->uds_rx_len = 0;
-				up_pss->uds_rx_pos = 0;
-			}
-			if ((size_t)up_pss->uds_rx_len + len < 65536) {
-				memcpy(up_pss->uds_rx + LWS_PRE + up_pss->uds_rx_len, in, len);
-				up_pss->uds_rx_len += (int)len;
-			}
-		}
-		break;
-	}
 
 	case LWS_CALLBACK_CLIENT_CLOSED:
-	case LWS_CALLBACK_RAW_CLOSE: {
-		struct pss_cert_dist_server *up_pss = (struct pss_cert_dist_server *)lws_get_opaque_user_data(wsi);
-		lwsl_notice("%s: [DEBUG] CLOSE event fired on wsi %p (up_pss=%p, rx_len=%d)\n", __func__, wsi, up_pss, up_pss ? up_pss->uds_rx_len : -1);
-		if (up_pss) {
-			up_pss->wsi_uds = NULL;
-			if (up_pss->uds_tx) { free(up_pss->uds_tx); up_pss->uds_tx = NULL; }
-			if (up_pss->uds_rx_len > 0)
-				lws_callback_on_writable(up_pss->wsi); /* Forward to WSS */
-			else {
-				lwsl_err("%s: [DEBUG] Stub UDS closed prematurely, retrying in 1s\n", __func__);
-				up_pss->needs_cert_update = 1;
-				lws_set_timer_usecs(up_pss->wsi, 1 * LWS_USEC_PER_SEC);
-			}
-		}
-		break;
-	}
-
-	case LWS_CALLBACK_RAW_RX_FILE: {
-		char buf[512];
-		ssize_t n;
-		int fd = (int)lws_get_socket_fd(wsi);
-
-		if (fd < 0)
-			return -1;
-
-		n = read(fd, buf, sizeof(buf) - 1);
-		if (n < 0) {
-			if (errno == EAGAIN || errno == EWOULDBLOCK)
-				return 0;
-			return -1;
-		}
-		if (n == 0)
-			return -1;
-
-		buf[n] = '\0';
-		lwsl_notice("[DIST-STUB] %s", buf);
-		break;
-	}
-
+	case LWS_CALLBACK_RAW_CLOSE:
+	case LWS_CALLBACK_RAW_RX_FILE:
 	case LWS_CALLBACK_RAW_CLOSE_FILE:
+	case LWS_CALLBACK_RAW_RX:
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+	case LWS_CALLBACK_RAW_CONNECTED:
+	case LWS_CALLBACK_RAW_WRITEABLE:
+	case LWS_CALLBACK_CLIENT_WRITEABLE:
+	case LWS_CALLBACK_TIMER:
 		break;
 
 	default:

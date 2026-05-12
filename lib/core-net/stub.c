@@ -37,6 +37,7 @@ struct lws_stub_req {
 	size_t tx_pos;
 	struct lejp_ctx jctx;
 	signed char (*rx_cb)(struct lejp_ctx *ctx, char reason);
+	void (*raw_cb)(const char *in, size_t len, void *user);
 	void *user;
 };
 
@@ -47,7 +48,7 @@ struct lws_stub_manager {
 	char secret[129];
 	struct lws_spawn_piped *lsp;
 
-	const lws_jrpc_method_t *rpc_methods;
+	const struct lws_protocols *protocols;
 
 	struct lws *wsi_client;
 	struct lws_dll2_owner reqs;
@@ -72,7 +73,7 @@ lws_stub_spawn(const struct lws_stub_config *config)
 	mgr->cx = config->cx;
 	mgr->vh = config->vh;
 	lws_strncpy(mgr->uds_path, config->uds_path, sizeof(mgr->uds_path));
-	mgr->rpc_methods = config->rpc_methods;
+	mgr->protocols = config->protocols;
 
 	/* Generate a secure 128-char secret */
 	lws_get_random(mgr->cx, rand, sizeof(rand));
@@ -112,6 +113,11 @@ lws_stub_spawn(const struct lws_stub_config *config)
 			if (write(stdin_fd, mgr->secret, 128) < 0) {
 				lwsl_err("%s: Failed writing secret to pipe\n", __func__);
 			}
+			if (config->extra_payload && config->extra_payload_len) {
+				if (write(stdin_fd, config->extra_payload, config->extra_payload_len) < 0) {
+					lwsl_err("%s: Failed writing extra payload to pipe\n", __func__);
+				}
+			}
 		}
 	} else {
 		lwsl_err("%s: Failed to spawn child process\n", __func__);
@@ -122,13 +128,9 @@ lws_stub_spawn(const struct lws_stub_config *config)
 	return mgr;
 }
 
-static const struct lws_protocols stub_server_protocols[] = {
-	{ "lws-stub-server", NULL, 0, 4096, 0, NULL, 0 },
-	{ NULL, NULL, 0, 0, 0, NULL, 0 }
-};
 
 int
-lws_stub_server_init(const struct lws_stub_config *config, char *secret_out)
+lws_stub_server_init(const struct lws_stub_config *config, char *secret_out, void *extra_out, size_t extra_len)
 {
 	struct lws_context_creation_info info;
 	struct lws_vhost *vh_uds;
@@ -140,11 +142,19 @@ lws_stub_server_init(const struct lws_stub_config *config, char *secret_out)
 	}
 	secret_out[128] = '\0';
 
+	/* 1.5. Read extra payload if provided */
+	if (extra_out && extra_len > 0) {
+		if (read(0, extra_out, extra_len) < 0) {
+			lwsl_err("%s: Failed to read extra payload\n", __func__);
+			/* Non-fatal */
+		}
+	}
+
 	/* 2. Create UDS server vhost */
 	memset(&info, 0, sizeof(info));
 	info.options = LWS_SERVER_OPTION_UNIX_SOCK | LWS_SERVER_OPTION_ONLY_RAW;
 	info.iface = config->uds_path;
-	info.protocols = stub_server_protocols;
+	info.protocols = config->protocols;
 	info.vhost_name = config->stub_name;
 
 	unlink(info.iface);
@@ -255,6 +265,9 @@ callback_stub_client(struct lws *wsi, enum lws_callback_reasons reason,
 			break; /* Received RX but no active request? */
 
 		struct lws_stub_req *req = lws_container_of(d, struct lws_stub_req, list);
+		if (req->raw_cb)
+			req->raw_cb((const char *)in, len, req->user);
+
 		if (req->rx_cb) {
 			int m = lejp_parse(&req->jctx, (uint8_t *)in, (int)len);
 			if (m < 0 && m != LEJP_CONTINUE) {
@@ -288,6 +301,7 @@ lws_stub_request(struct lws_stub_manager *mgr,
 		 const char * const *rx_paths,
 		 size_t rx_paths_count,
 		 signed char (*rx_cb)(struct lejp_ctx *ctx, char reason),
+		 void (*raw_cb)(const char *in, size_t len, void *user),
 		 void *user)
 {
 	struct lws_stub_req *req = lws_zalloc(sizeof(*req), "stub_req");
@@ -295,6 +309,7 @@ lws_stub_request(struct lws_stub_manager *mgr,
 		return -1;
 
 	req->rx_cb = rx_cb;
+	req->raw_cb = raw_cb;
 	req->user = user;
 
 	if (rx_cb)
