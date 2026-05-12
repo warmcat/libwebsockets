@@ -71,8 +71,8 @@ lws_x509_create_cert(struct lws_context *context,
 	gnutls_x509_crt_set_key(crt, key);
 	gnutls_x509_crt_set_version(crt, 3);
 	gnutls_x509_crt_set_serial(crt, "\x01", 1);
-	gnutls_x509_crt_set_activation_time(crt, time(NULL));
-	gnutls_x509_crt_set_expiration_time(crt, time(NULL) + (365 * 24 * 3600));
+	gnutls_x509_crt_set_activation_time(crt, time(NULL) - 86400);
+	gnutls_x509_crt_set_expiration_time(crt, time(NULL) + ((info->validity_days ? info->validity_days : 365) * 24 * 3600));
 
 	gnutls_x509_crt_set_dn_by_oid(crt, GNUTLS_OID_X520_COMMON_NAME, 0, info->san, (unsigned int)strlen(info->san));
 

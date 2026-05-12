@@ -303,6 +303,18 @@ function connect() {
     };
 }
 
+document.addEventListener('DOMContentLoaded', () => {
+    const btnDistReset = document.getElementById('btn-dist-reset');
+    if (btnDistReset) {
+        btnDistReset.addEventListener('click', () => {
+            if (confirm("Are you sure you want to completely wipe and regenerate the Distribution PKI? This action cannot be undone and will invalidate all existing certificates.")) {
+                sendReq({ req: "reset_dist_pki" });
+                showToast('Resetting Distribution PKI...');
+            }
+        });
+    }
+});
+
 function sendReq(obj) {
     if (ws && ws.readyState === WebSocket.OPEN) {
         console.log('[INSTRUMENT] sendReq: Dispatching payload -> ', obj);
@@ -657,6 +669,13 @@ function handleResponse(data) {
                 }, 100);
 
                 showToast('Provisioning keys downloaded');
+            }
+            break;
+        case 'reset_dist_pki':
+            if (data.status === 'ok') {
+                showToast('Distribution PKI successfully regenerated.', 'success');
+            } else {
+                showToast('Failed to reset PKI: ' + data.msg, true);
             }
             break;
     }

@@ -1019,7 +1019,7 @@ lws_x509_create_cert(struct lws_context *context,
 	}
 
 	X509_gmtime_adj(X509_get_notBefore(x509), (long)-86400);
-	X509_gmtime_adj(X509_get_notAfter(x509), 31536000L); /* 1 Year */
+	X509_gmtime_adj(X509_get_notAfter(x509), (long)(info->validity_days ? info->validity_days : 365) * 24 * 3600);
 
 	X509_set_pubkey(x509, pkey);
 

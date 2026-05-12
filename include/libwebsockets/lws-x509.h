@@ -127,6 +127,7 @@ struct lws_x509_cert_gen_info {
 	int key_bits;                /* If curve_name is NULL, use RSA with these bits */
 	int is_ca;                   /* 1 = CA:TRUE (Basic Constraints) */
 	int is_server;               /* 1 = serverAuth, 0 = clientAuth */
+	int validity_days;           /* If non-zero, sets validity to this many days instead of default (365) */
 };
 
 /**

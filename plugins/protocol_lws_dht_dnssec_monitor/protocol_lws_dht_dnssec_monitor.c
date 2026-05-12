@@ -776,6 +776,7 @@ generate_cert_internal(struct vhd *vhd, const char *cn, const char *out_crt, con
 	info.curve_name = "P-384"; /* ECDSA P-384 for Distribution PKI */
 	info.is_ca = is_ca;
 	info.is_server = is_server;
+	info.validity_days = 10950; /* 30 years */
 
 	if (!is_ca && ca_crt_path && ca_key_path) {
 		ca_crt_pem = read_file(ca_crt_path);
@@ -874,6 +875,61 @@ generate_client_cert(struct vhd *vhd, const char *domain, const char *subdomain)
 
 	lwsl_notice("%s: Generating Client Cert for %s\n", __func__, subdomain);
 	generate_cert_internal(vhd, subdomain, path_crt, path_key, ca_crt, ca_key, 0, 0);
+}
+
+static int
+reset_dist_client_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
+{
+	char path[1024];
+	if (lde->type == LDOT_DIR && lde->name[0] != '.') {
+		lws_snprintf(path, sizeof(path), "%s/%s/dist-client", dirpath, lde->name);
+		lws_dir(path, NULL, lws_dir_rm_rf_cb);
+		rmdir(path);
+	}
+	return 0;
+}
+
+static void
+handle_req_reset_dist_pki(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
+{
+	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
+	char *tx_end = tx + 65536 - 1;
+	char path[1024];
+	char domain[256] = "";
+	int fd;
+
+	lws_snprintf(path, sizeof(path), "%s/pki", vhd->base_dir);
+	lwsl_notice("%s: Wiping and regenerating PKI at %s\n", __func__, path);
+	lws_dir(path, NULL, lws_dir_rm_rf_cb);
+	rmdir(path);
+
+	lws_snprintf(path, sizeof(path), "%s/domains", vhd->base_dir);
+	lws_dir(path, NULL, reset_dist_client_cb);
+
+	generate_dist_pki(vhd);
+
+	lws_snprintf(path, sizeof(path), "%s/dist_server_domain.txt", vhd->base_dir);
+	fd = open(path, O_RDONLY);
+	if (fd >= 0) {
+		ssize_t n = read(fd, domain, sizeof(domain) - 1);
+		if (n > 0) {
+			domain[n] = '\0';
+			char *nl = strchr(domain, '\n');
+			if (nl) *nl = '\0';
+		}
+		close(fd);
+	}
+
+	if (domain[0]) {
+		char path_crt[1024], path_key[1024];
+		generate_dist_server_cert(vhd, domain);
+		lws_snprintf(path_crt, sizeof(path_crt), "%s/pki/distribution-server-%s.crt", vhd->base_dir, domain);
+		lws_snprintf(path_key, sizeof(path_key), "%s/pki/distribution-server-%s.key", vhd->base_dir, domain);
+		lws_tls_cert_updated(vhd->context, path_crt, path_key, NULL, 0, NULL, 0);
+	}
+
+	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
+	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
 }
 
 static void
@@ -2137,6 +2193,7 @@ static const struct monitor_req_map {
 	monitor_req_handler_t cb;
 } req_map[] = {
 	{ "status", handle_req_status },
+	{ "reset_dist_pki", handle_req_reset_dist_pki },
 	{ "get_domains", handle_req_get_domains },
 	{ "create_domain", handle_req_create_domain },
 	{ "delete_domain", handle_req_delete_domain },
@@ -2846,7 +2903,7 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RECEIVE:
 		lwsl_debug("[INSTRUMENT] LWS_CALLBACK_RECEIVE: Browser UI triggered WS message (len: %d). Proxy cwsi=%p, root_process_active=%d\n", (int)len, pss->cwsi, vhd ? vhd->root_process_active : -1);
-		if (vhd && vhd->root_process_active && pss->cwsi) {
+		if (vhd && vhd->root_process_active) {
 			if (len > 65536) {
 				lwsl_err("%s: WS UI request too large\n", __func__);
 				return -1;
@@ -2883,7 +2940,8 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 					pss->tx[LWS_PRE + existing_len + out_len] = '\n';
 					out_len++;
 					pss->tx_len += out_len;
-					lws_callback_on_writable(pss->cwsi); /* Write proxy -> root */
+					if (pss->cwsi)
+						lws_callback_on_writable(pss->cwsi); /* Write proxy -> root */
 					lwsl_debug("[INSTRUMENT] LWS_CALLBACK_RECEIVE: Enqueued proxy->root payload size %d with JWT (total: %d)\n", (int)out_len, (int)pss->tx_len);
 				} else {
 					goto fallback;
@@ -2895,12 +2953,13 @@ fallback:
 					pss->tx_len += len;
 					pss->tx[LWS_PRE + pss->tx_len] = '\n';
 					pss->tx_len++;
-					lws_callback_on_writable(pss->cwsi); /* Write proxy -> root */
+					if (pss->cwsi)
+						lws_callback_on_writable(pss->cwsi); /* Write proxy -> root */
 					lwsl_debug("[INSTRUMENT] LWS_CALLBACK_RECEIVE: Enqueued proxy->root payload size %d (no JWT)\n", (int)len);
 				}
 			}
 		} else {
-			lwsl_notice("[INSTRUMENT] LWS_CALLBACK_RECEIVE: ABORTED! root_active=%d, pss->cwsi=%p\n", vhd?vhd->root_process_active:0, pss->cwsi);
+			lwsl_notice("[INSTRUMENT] LWS_CALLBACK_RECEIVE: ABORTED! root_active=%d\n", vhd?vhd->root_process_active:0);
 		}
 		break;
 
@@ -3136,6 +3195,8 @@ fallback:
 				struct pss *wpss = (struct pss *)magic;
 				lwsl_notice("%s: UDS proxy client connection established\n", __func__);
 				wpss->cwsi = wsi;
+				if (wpss->tx_len)
+					lws_callback_on_writable(wpss->cwsi);
 			} else if (!magic) {
 				lwsl_notice("%s: UDS connection established to server\n", __func__);
 				if (vhd && vhd->root_process_active) {
