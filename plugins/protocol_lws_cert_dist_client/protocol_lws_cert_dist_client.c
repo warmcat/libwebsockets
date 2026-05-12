@@ -13,10 +13,9 @@ struct vhd_cert_dist_client {
 	char base_dir[256];
 	char secret[129];
 	char reload_cmd[256];
-	struct lws_spawn_piped *lsp;
+	struct lws_stub_manager *stub_mgr;
 	struct lws_dll2_owner clients;
 	int is_stub;
-	struct lws_vhost *vh_uds;
 	const char *server_url;
 };
 
@@ -50,6 +49,8 @@ struct dist_client_conn {
 	int port;
 	char prot[16];
 	char name[64];
+	char hash[65];
+	int fetching_hash;
 };
 
 static const uint32_t backoff_ms[] = { 1000, 2000, 3000, 4000, 5000 };
@@ -95,6 +96,57 @@ connect_client(lws_sorted_usec_list_t *sul)
 					   connect_client, &conn->retry_count)) {
 			lwsl_err("%s: connection attempts exhausted\n", __func__);
 		}
+	}
+}
+
+static signed char
+hash_rx_cb(struct lejp_ctx *ctx, char reason)
+{
+	struct dist_client_conn *conn = (struct dist_client_conn *)ctx->user;
+
+	if (reason == LEJPCB_VAL_STR_CHUNK || reason == LEJPCB_VAL_STR_END) {
+		if (ctx->path_match - 1 == 0) { /* "hash" */
+			if (reason == LEJPCB_VAL_STR_END) {
+				lws_strncpy(conn->hash, ctx->buf, sizeof(conn->hash));
+				lwsl_notice("%s: Got hash %s for %s\n", __func__, conn->hash, conn->name);
+			}
+		}
+	}
+
+	if (reason == LEJPCB_OBJECT_END) {
+		conn->fetching_hash = 0;
+		/* Hash acquired (or empty), now connect via WSS */
+		lws_retry_sul_schedule(conn->vhd->cx, 0, &conn->sul, NULL, connect_client, NULL);
+	}
+
+	return 0;
+}
+
+static const char * const hash_paths[] = { "hash" };
+
+static void
+fetch_local_hash(lws_sorted_usec_list_t *sul)
+{
+	struct dist_client_conn *conn = lws_container_of(sul, struct dist_client_conn, sul);
+	char req[256];
+
+	if (!conn->vhd->stub_mgr) {
+		/* no local stub (maybe not root?), just connect to remote */
+		conn->hash[0] = '\0';
+		connect_client(&conn->sul);
+		return;
+	}
+
+	conn->fetching_hash = 1;
+	lws_snprintf(req, sizeof(req), "{\"secret\":\"%s\",\"subdomain\":\"%s\",\"get_hash\":true}",
+		     conn->vhd->secret, conn->name);
+
+	if (lws_stub_request(conn->vhd->stub_mgr, req, hash_paths, 1, hash_rx_cb, NULL, conn) < 0) {
+		lwsl_err("%s: Failed requesting hash for %s\n", __func__, conn->name);
+		/* connect anyway without hash */
+		conn->hash[0] = '\0';
+		conn->fetching_hash = 0;
+		lws_retry_sul_schedule(conn->vhd->cx, 0, &conn->sul, NULL, connect_client, NULL);
 	}
 }
 
@@ -163,7 +215,13 @@ client_rx_cb(struct lejp_ctx *ctx, char reason)
 	if (reason == LEJPCB_OBJECT_END) {
 		lwsl_notice("%s: [DEBUG] JSON object complete. cert_len=%d, key_len=%d, subdomain='%s'\n",
 			    __func__, pss->cert_len, pss->key_len, pss->subdomain);
-		lws_callback_on_writable(pss->wsi);
+
+		if (pss->cert_len == 0 && pss->key_len == 0) {
+			lwsl_notice("%s: Server reported certificate unchanged, skipping\n", __func__);
+			/* We successfully checked, keep connection open */
+		} else {
+			lws_callback_on_writable(pss->wsi);
+		}
 	}
 
 	return 0;
@@ -174,6 +232,7 @@ static const char * const stub_req_paths[] = {
 	"subdomain",
 	"fullchain",
 	"privkey",
+	"get_hash",
 };
 
 enum stub_req_paths_enum {
@@ -181,6 +240,7 @@ enum stub_req_paths_enum {
 	STUB_SUBDOMAIN,
 	STUB_FULLCHAIN,
 	STUB_PRIVKEY,
+	STUB_GET_HASH,
 };
 
 struct stub_req_args {
@@ -193,6 +253,11 @@ struct stub_req_args {
 	int pk_len;
 	struct lejp_ctx jctx;
 	int parser_valid;
+	int get_hash;
+	char *response;
+	int response_len;
+	int response_pos;
+	struct lws *wsi;
 };
 
 static signed char
@@ -250,6 +315,9 @@ stub_req_cb(struct lejp_ctx *ctx, char reason)
 				}
 			}
 			break;
+		case STUB_GET_HASH:
+			a->get_hash = 1;
+			break;
 		}
 	}
 
@@ -260,7 +328,6 @@ stub_req_cb(struct lejp_ctx *ctx, char reason)
 
 		lwsl_notice("%s: LEJPCB_OBJECT_END reached, validating secret\n", __func__);
 
-		/* All parts received, validate and write */
 		if (strcmp(a->secret, a->vhd->secret)) {
 			lwsl_err("%s: Secret mismatch\n", __func__);
 			return 1;
@@ -270,6 +337,35 @@ stub_req_cb(struct lejp_ctx *ctx, char reason)
 		if (strchr(a->subdomain, '/') || strstr(a->subdomain, "..")) {
 			lwsl_err("%s: Invalid domain format (path traversal detected)\n", __func__);
 			return 1;
+		}
+
+		if (a->get_hash) {
+			char hash[41];
+			hash[0] = '\0';
+			char sym2[512];
+			lws_snprintf(sym2, sizeof(sym2), "%s/%s/fullchain.pem", a->vhd->base_dir, a->subdomain);
+			int fd = open(sym2, O_RDONLY);
+			if (fd >= 0) {
+				struct stat st;
+				if (!fstat(fd, &st)) {
+					char *buf = malloc((size_t)st.st_size);
+					if (buf && read(fd, buf, (size_t)st.st_size) == st.st_size) {
+						unsigned char digest[20];
+						lws_SHA1((unsigned char *)buf, (size_t)st.st_size, digest);
+						lws_hex_from_byte_array(digest, 20, hash, sizeof(hash));
+					}
+					if (buf) free(buf);
+				}
+				close(fd);
+			}
+
+			a->response = malloc(256 + LWS_PRE);
+			if (a->response) {
+				a->response_len = lws_snprintf(a->response + LWS_PRE, 256, "{\"hash\":\"%s\"}", hash);
+				a->response_pos = 0;
+				lws_callback_on_writable(a->wsi);
+			}
+			return 0;
 		}
 
 		lwsl_notice("%s: Valid command for %s\n", __func__, a->subdomain);
@@ -353,6 +449,7 @@ callback_cert_dist_stub(struct lws *wsi, enum lws_callback_reasons reason,
 		if (a) {
 			memset(a, 0, sizeof(*a));
 			a->vhd = vhd;
+			a->wsi = wsi;
 			lejp_construct(&a->jctx, stub_req_cb, a, stub_req_paths, LWS_ARRAY_SIZE(stub_req_paths));
 			a->parser_valid = 1;
 		}
@@ -366,8 +463,25 @@ callback_cert_dist_stub(struct lws *wsi, enum lws_callback_reasons reason,
 				a->parser_valid = 0;
 				return -1;
 			} else if (m == 0) {
-				lwsl_notice("%s: lejp parse completed successfully\n", __func__);
-				return -1; /* Close connection after successful processing */
+				if (!a->get_hash) {
+					lwsl_notice("%s: lejp parse completed successfully (no hash requested)\n", __func__);
+					return -1; /* Close connection after successful processing */
+				} else {
+					/* Write response back */
+					lwsl_notice("%s: hash computed, waiting for writable\n", __func__);
+				}
+			}
+		}
+		break;
+	case LWS_CALLBACK_RAW_WRITEABLE:
+		if (a && a->response) {
+			int m = lws_write(wsi, (unsigned char *)a->response + LWS_PRE + a->response_pos, (size_t)(a->response_len - a->response_pos), LWS_WRITE_RAW);
+			if (m < 0) return -1;
+			a->response_pos += m;
+			if (a->response_pos < a->response_len)
+				lws_callback_on_writable(wsi);
+			else {
+				return -1; /* Close after sending response */
 			}
 		}
 		break;
@@ -376,6 +490,7 @@ callback_cert_dist_stub(struct lws *wsi, enum lws_callback_reasons reason,
 			if (a->parser_valid) lejp_destruct(&a->jctx);
 			if (a->fullchain) free(a->fullchain);
 			if (a->privkey) free(a->privkey);
+			if (a->response) free(a->response);
 		}
 		break;
 	default:
@@ -392,46 +507,6 @@ static const struct lws_protocols stub_protocols[] = {
 	},
 	{ NULL, NULL, 0, 0, 0, NULL, 0 }
 };
-
-static int
-dist_client_stub_run(struct vhd_cert_dist_client *vhd)
-{
-	struct lws_context_creation_info info;
-
-	lwsl_notice("%s: Stub process starting (running as root)\n", __func__);
-
-	/* 1. Read secret from stdin */
-	if (read(0, vhd->secret, 128) < 64) {
-		lwsl_err("%s: Failed to read secret from stdin\n", __func__);
-		return -1;
-	}
-	vhd->secret[128] = '\0';
-
-	/* 1.5 Read reload_cmd from stdin */
-	ssize_t n = read(0, vhd->reload_cmd, 256);
-	if (n > 0)
-		vhd->reload_cmd[n - 1] = '\0'; /* Null terminate within bounds */
-	else
-		vhd->reload_cmd[0] = '\0';
-
-	/* 2. Create UDS server vhost */
-	memset(&info, 0, sizeof(info));
-	info.options = LWS_SERVER_OPTION_UNIX_SOCK | LWS_SERVER_OPTION_ONLY_RAW;
-	info.iface = "/var/run/lws-cert-dist-stub.sock";
-	info.protocols = stub_protocols;
-	info.vhost_name = "cert-dist-stub";
-
-	unlink(info.iface);
-	vhd->vh_uds = lws_create_vhost(vhd->cx, &info);
-	if (!vhd->vh_uds) {
-		lwsl_err("%s: Failed to create UDS vhost\n", __func__);
-		return -1;
-	}
-
-	chmod(info.iface, 0600); /* Only root and unprivileged client can talk */
-
-	/* Signal to proxy that UDS server is ready */
-	lwsl_notice("DIST-STUB-READY\n");
 
 	return 0;
 }
@@ -480,6 +555,7 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 				pss->wsi = wsi;
 				lejp_construct(&pss->jctx, client_rx_cb, pss, client_rx_paths, LWS_ARRAY_SIZE(client_rx_paths));
 			}
+			lws_callback_on_writable(wsi);
 		}
 		break;
 
@@ -515,19 +591,35 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 		{
 			struct pss_cert_dist_client *pss = NULL;
 			struct lws_vhost *vh = lws_get_vhost(wsi);
+			struct dist_client_conn *conn = NULL;
 			if (vh && !strncmp(lws_get_vhost_name(vh), "dist-client-", 12)) {
 				pss = (struct pss_cert_dist_client *)user;
-				struct dist_client_conn *conn = (struct dist_client_conn *)lws_get_opaque_user_data(wsi);
+				conn = (struct dist_client_conn *)lws_get_opaque_user_data(wsi);
 				if (conn && conn->vhd) vhd = conn->vhd;
 			} else {
 				pss = (struct pss_cert_dist_client *)lws_get_opaque_user_data(wsi);
 			}
 			if (!pss || !vhd) break;
 
+			/* Send hash if we have one */
+			if (conn && conn->hash[0]) {
+				char msg[128];
+				int n = lws_snprintf(msg + LWS_PRE, sizeof(msg) - LWS_PRE, "{\"hash\":\"%s\"}", conn->hash);
+				lwsl_notice("%s: Sending hash to server: %s\n", __func__, conn->hash);
+				lws_write(wsi, (unsigned char *)msg + LWS_PRE, (size_t)n, LWS_WRITE_TEXT);
+				conn->hash[0] = '\0'; /* Don't send again */
+				break;
+			}
+
 			lwsl_notice("%s: [DEBUG] WRITEABLE fired on wsi %p (pss->wsi=%p, cert=%p, key=%p, wsi_uds=%p)\n",
 				    __func__, wsi, pss->wsi, pss->cert, pss->key, pss->wsi_uds);
 
 			if (pss->wsi == wsi && pss->cert && pss->key && !pss->wsi_uds) {
+				if (!vhd->stub_mgr) {
+					lwsl_err("%s: No local stub available to save certs!\n", __func__);
+					break;
+				}
+
 				/* Build UDS payload */
 				/* Expected by stub: {"secret":"...","subdomain":"...","fullchain":"...","privkey":"..."} */
 				int est_len = (pss->cert_len * 2) + (pss->key_len * 2) + (int)strlen(pss->subdomain) + (int)strlen(vhd->secret) + 128;
@@ -553,74 +645,33 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 				pss->uds_tx_len = (int)(p - (pss->uds_tx + LWS_PRE));
 				pss->uds_tx_len += lws_snprintf(pss->uds_tx + LWS_PRE + pss->uds_tx_len, (size_t)(est_len - pss->uds_tx_len), "\"}\n");
-				pss->uds_tx_pos = 0;
 
-				lwsl_notice("%s: JSON payload built, connecting to UDS stub for %s\n", __func__, pss->subdomain);
+				lwsl_notice("%s: JSON payload built, pushing to UDS stub for %s\n", __func__, pss->subdomain);
 
-				/* Initiate UDS connection */
-				struct lws_client_connect_info i;
-				memset(&i, 0, sizeof(i));
-				i.context = vhd->cx;
-				i.vhost = vhd->vh;
-				i.vhost = vhd->vh;
-				i.address = "+/var/run/lws-cert-dist-stub.sock";
-				i.port = 0;
-				i.host = "localhost";
-				i.origin = "localhost";
-				i.method = "RAW";
-				i.local_protocol_name = "lws-cert-dist-client";
-				i.opaque_user_data = pss;
-
-				pss->wsi_uds = lws_client_connect_via_info(&i);
-				if (!pss->wsi_uds) {
-					lwsl_err("%s: [DEBUG] Failed connecting to local UDS stub immediately, retrying in 1s\n", __func__);
-					lws_set_timer_usecs(pss->wsi, 1 * LWS_USEC_PER_SEC);
+				if (lws_stub_request(vhd->stub_mgr, pss->uds_tx + LWS_PRE, NULL, 0, NULL, NULL, pss) < 0) {
+					lwsl_err("%s: Failed pushing to UDS stub\n", __func__);
 				} else {
-					lwsl_notice("%s: [DEBUG] lws_client_connect_via_info returned valid wsi %p\n", __func__, pss->wsi_uds);
-				}
-			} else if (pss->wsi_uds == wsi && pss->uds_tx) {
-				lwsl_notice("%s: [DEBUG] Attempting to write %d bytes to UDS socket\n", __func__, (int)(pss->uds_tx_len - pss->uds_tx_pos));
-				int m = lws_write(wsi, (unsigned char *)pss->uds_tx + LWS_PRE + pss->uds_tx_pos, (size_t)(pss->uds_tx_len - pss->uds_tx_pos), LWS_WRITE_RAW);
-				if (m < 0) {
-					lwsl_err("%s: Write to UDS failed (m=%d)\n", __func__, m);
-					return -1;
-				}
-				lwsl_notice("%s: [DEBUG] lws_write returned %d\n", __func__, m);
-				pss->uds_tx_pos += m;
-				if (pss->uds_tx_pos < pss->uds_tx_len) {
-					lwsl_notice("%s: [DEBUG] Partial write (%d < %d), scheduling writable\n", __func__, pss->uds_tx_pos, pss->uds_tx_len);
-					lws_callback_on_writable(wsi);
-				} else {
-					char certpath[256];
-					char keypath[256];
-
+					pss->wsi_uds = (struct lws *)1;
 					lwsl_notice("%s: Sent complete cert update to local UDS stub for %s\n", __func__, pss->subdomain);
-
-					lws_snprintf(certpath, sizeof(certpath), "%s/%s/fullchain.pem",
-						     vhd->base_dir, pss->subdomain);
-					lws_snprintf(keypath, sizeof(keypath), "%s/%s/privkey.pem",
-						     vhd->base_dir, pss->subdomain);
-
-					if (lws_tls_cert_updated(vhd->cx, certpath, keypath,
-								 pss->cert, (size_t)pss->cert_len,
-								 pss->key, (size_t)pss->key_len))
-						lwsl_err("%s: Failed to dynamically update vhosts\n", __func__);
-					else
-						lwsl_notice("%s: Successfully rotated active vhosts for %s\n",
-							    __func__, pss->subdomain);
-
-					if (pss->cert) { free(pss->cert); pss->cert = NULL; pss->cert_len = 0; }
-					if (pss->key) { free(pss->key); pss->key = NULL; pss->key_len = 0; }
-					if (pss->uds_tx) { free(pss->uds_tx); pss->uds_tx = NULL; }
-
-					/* Do not close the socket here. The stub needs to read all chunks.
-					 * The stub will close the socket when it finishes parsing the JSON. */
-					return 0;
 				}
+
+				free(pss->uds_tx);
+				pss->uds_tx = NULL;
+
+				/* Clear the memory so we don't save it twice */
+				free(pss->cert); pss->cert = NULL;
+				free(pss->key); pss->key = NULL;
 			}
 		}
 		break;
 
+	case LWS_CALLBACK_RAW_RX_FILE:
+	case LWS_CALLBACK_RAW_CLOSE_FILE:
+	case LWS_CALLBACK_CLIENT_CLOSED:
+	case LWS_CALLBACK_RAW_CLOSE:
+	case LWS_CALLBACK_RAW_RX:
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		break;
 	case LWS_CALLBACK_WS_PEER_INITIATED_CLOSE:
 		lwsl_notice("%s: Server initiated close: len %d, msg '%.*s'\n", __func__,
 			    (int)len, (int)len, in ? (const char *)in : "none");
@@ -637,21 +688,10 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 				struct dist_client_conn *conn = (struct dist_client_conn *)lws_get_opaque_user_data(wsi);
 				lwsl_err("%s: Main connection error: %s. Retrying...\n", __func__, in ? (char *)in : "(null)");
 				if (conn && conn->vhd) {
-					if (lws_retry_sul_schedule_retry_wsi(wsi, &conn->sul, connect_client, &conn->retry_count)) {
+					if (lws_retry_sul_schedule_retry_wsi(wsi, &conn->sul, fetch_local_hash, &conn->retry_count)) {
 						lwsl_err("%s: Main connection attempts exhausted\n", __func__);
 					}
 				}
-				return -1;
-			}
-
-			/* UDS connection error */
-			struct pss_cert_dist_client *pss = (struct pss_cert_dist_client *)lws_get_opaque_user_data(wsi);
-			lwsl_notice("%s: [DEBUG] UDS CLIENT_CONNECTION_ERROR: %s (pss=%p)\n", __func__, in ? (char *)in : "(null)", pss);
-			if (pss) {
-				lwsl_err("%s: [DEBUG] Proxy failed to connect to UDS stub: %s (retrying in 1s)\n", __func__, in ? (char *)in : "unknown");
-				pss->wsi_uds = NULL;
-				if (pss->uds_tx) { free(pss->uds_tx); pss->uds_tx = NULL; }
-				lws_set_timer_usecs(pss->wsi, 1 * LWS_USEC_PER_SEC);
 				return -1;
 			}
 		}
@@ -663,7 +703,7 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 			if (vh && !strncmp(lws_get_vhost_name(vh), "dist-client-", 12)) {
 				struct dist_client_conn *conn = (struct dist_client_conn *)lws_get_opaque_user_data(wsi);
 				if (conn && conn->vhd) {
-					if (lws_retry_sul_schedule_retry_wsi(wsi, &conn->sul, connect_client, &conn->retry_count)) {
+					if (lws_retry_sul_schedule_retry_wsi(wsi, &conn->sul, fetch_local_hash, &conn->retry_count)) {
 						lwsl_err("%s: Main connection attempts exhausted\n", __func__);
 					}
 				}
@@ -765,7 +805,15 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 				}
 				global_cert_dist_vhd = vhd;
 				vhd->is_stub = 1;
-				return dist_client_stub_run(vhd);
+				struct lws_stub_config sc;
+				memset(&sc, 0, sizeof(sc));
+				sc.cx = vhd->cx;
+				sc.vh = vhd->vh;
+				sc.stub_name = "distribution-client";
+				sc.uds_path = "/var/run/lws-cert-dist-stub.sock";
+				sc.protocols = stub_protocols;
+
+				return lws_stub_server_init(&sc, vhd->secret, vhd->reload_cmd, sizeof(vhd->reload_cmd));
 			}
 
 			if (stub) {
@@ -777,62 +825,31 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 						__func__, certs_pvo, getuid(), global_cert_dist_vhd);
 
 			if (certs_pvo && getuid() == 0 && !global_cert_dist_vhd) {
-				struct lws_spawn_piped_info spawn_info;
-				static const char *exec_array[10];
-				int n = 0;
-
 				lwsl_notice("%s: Root detected and certs configured, spawning privileged stub\n", __func__);
 				global_cert_dist_vhd = vhd;
-
-				/* Generate secret */
-				uint8_t rand[64];
-				lws_get_random(vhd->cx, rand, sizeof(rand));
-				lws_hex_from_byte_array(rand, sizeof(rand), vhd->secret, sizeof(vhd->secret));
 
 				/* Unlink any stale UDS socket BEFORE spawning the stub to prevent the proxy from
 				 * racing and connecting to a dead socket left over from a previous crash.
 				 * This forces the proxy to gracefully retry until the new stub binds the socket. */
 				unlink("/var/run/lws-cert-dist-stub.sock");
 
-				memset(&spawn_info, 0, sizeof(spawn_info));
+				struct lws_stub_config sc;
+				memset(&sc, 0, sizeof(sc));
+				sc.cx = vhd->cx;
+				sc.vh = vhd->vh;
+				sc.stub_name = "distribution-client";
+				sc.uds_path = "/var/run/lws-cert-dist-stub.sock";
+				sc.protocols = stub_protocols;
 
-				const char *exe_path = lws_cmdline_option_cx_argv0(vhd->cx);
-#if defined(__linux__)
-				static char plat_exe_buf[256];
-				if (!exe_path || exe_path[0] != '/') {
-					int m = (int)readlink("/proc/self/exe", plat_exe_buf, sizeof(plat_exe_buf) - 1);
-					if (m > 0) {
-						plat_exe_buf[m] = '\0';
-						exe_path = plat_exe_buf;
-					} else {
-						exe_path = "/usr/local/bin/lwsws";
-					}
-				}
-#endif
-				exec_array[n++] = exe_path;
-				exec_array[n++] = "--lws-stub=distribution-client";
-				exec_array[n++] = NULL;
+				char rc[256];
+				memset(rc, 0, sizeof(rc));
+				lws_strncpy(rc, vhd->reload_cmd, sizeof(rc));
+				sc.extra_payload = rc;
+				sc.extra_payload_len = 256;
 
-				for (int i = 0; i < n - 1; i++)
-					lwsl_notice("%s: spawn exec_array[%d]: '%s'\n", __func__, i, exec_array[i]);
-
-				spawn_info.exec_array = exec_array;
-				spawn_info.timeout_us = 0;
-				spawn_info.vh = vhd->vh;
-				spawn_info.protocol_name = "lws-cert-dist-client";
-
-				vhd->lsp = lws_spawn_piped(&spawn_info);
-				if (vhd->lsp) {
-					int stdin_fd = (int)(intptr_t)lws_spawn_get_fd_stdxxx(vhd->lsp, 0);
-					if (stdin_fd >= 0) {
-						char rc[256];
-						memset(rc, 0, sizeof(rc));
-						lws_strncpy(rc, vhd->reload_cmd, sizeof(rc));
-						if (write(stdin_fd, vhd->secret, 128) < 0)
-							lwsl_err("%s: Failed writing secret to pipe\n", __func__);
-						if (write(stdin_fd, rc, 256) < 0)
-							lwsl_err("%s: Failed writing reload cmd to pipe\n", __func__);
-					}
+				vhd->stub_mgr = lws_stub_spawn(&sc);
+				if (!vhd->stub_mgr) {
+					lwsl_err("%s: Failed spawning privileged stub\n", __func__);
 				}
 			}
 
@@ -889,9 +906,10 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 						conn->port = port;
 						lws_strncpy(conn->prot, prot, sizeof(conn->prot));
 						lws_strncpy(conn->name, certs_pvo->name, sizeof(conn->name));
-						lws_dll2_add_tail(&conn->list, &vhd->clients);
+						conn->vh = lws_get_vhost(wsi);
 
-						/* Will start connection attempt after stub signals ready */
+						/* Schedule connection for this domain by fetching hash first */
+						lws_sul_schedule(vhd->cx, 0, &conn->sul, fetch_local_hash, 100 * LWS_USEC_PER_MSEC);
 					}
 				} else {
 					lwsl_err("%s: Failed to parse server url %s\n", __func__, vhd->server_url);
@@ -943,8 +961,8 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
 		if (vhd) {
-			if (vhd->lsp)
-				lws_spawn_piped_kill_child_process(vhd->lsp);
+			if (vhd && vhd->stub_mgr)
+			lws_stub_destroy(&vhd->stub_mgr);
 			lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp, lws_dll2_get_head(&vhd->clients)) {
 				struct dist_client_conn *conn = lws_container_of(p, struct dist_client_conn, list);
 				lws_sul_cancel(&conn->sul);
