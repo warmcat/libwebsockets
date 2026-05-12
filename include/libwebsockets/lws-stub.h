@@ -70,21 +70,23 @@ lws_stub_server_init(const struct lws_stub_config *config, char *secret_out);
  * lws_stub_rpc_request() - Send a JSON-RPC request to the stub
  *
  * \param mgr: The manager returned by lws_stub_spawn
- * \param method: JSON-RPC method name to call
- * \param json_params: JSON string representing the params object
- * \param on_response: Callback when the JSON-RPC response is received
+ * \param json: Complete JSON string to send to the stub
+ * \param rx_paths: Array of lejp paths to match in the response
+ * \param rx_paths_count: Number of paths in the array
+ * \param rx_cb: LEJP callback to handle the parsed response JSON
  * \param user: Opaque user pointer passed to the callback
  *
- * Queues an asynchronous JSON-RPC request over the UDS connection to the stub.
+ * Queues an asynchronous JSON request over the UDS connection to the stub.
  * The underlying connection is managed automatically (connect/retry).
  * Returns 0 if queued, < 0 if failed.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_stub_rpc_request(struct lws_stub_manager *mgr,
-		     const char *method,
-		     const char *json_params,
-		     void (*on_response)(struct lws_jrpc_obj *resp, void *user),
-		     void *user);
+lws_stub_request(struct lws_stub_manager *mgr,
+		 const char *json,
+		 const char * const *rx_paths,
+		 size_t rx_paths_count,
+		 signed char (*rx_cb)(struct lejp_ctx *ctx, char reason),
+		 void *user);
 
 /**
  * lws_stub_destroy() - Destroy a stub manager
@@ -95,6 +97,12 @@ lws_stub_rpc_request(struct lws_stub_manager *mgr,
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_stub_destroy(struct lws_stub_manager **_mgr);
+
+/**
+ * lws_stub_client_protocol - Expose this protocol in your plugin's protocol array
+ * so the manager can create outbound UDS connections from your vhost.
+ */
+extern const struct lws_protocols lws_stub_client_protocol;
 
 #endif /* LWS_WITH_STUB */
 
