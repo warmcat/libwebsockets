@@ -318,6 +318,7 @@ option(LWS_WITH_LHP "With the Lightweight HTML5 parser" ON)
 option(LWS_WITH_STRUCT_JSON "Generic struct serialization to and from JSON" OFF)
 option(LWS_WITH_STRUCT_SQLITE3 "Generic struct serialization to and from SQLITE3" OFF)
 option(LWS_WITH_JSONRPC "JSON RPC support" ON)
+option(LWS_WITH_STUB "Formalized stub API for IPC" ON)
 # broken atm
 #option(LWS_WITH_SMTP "Provide SMTP support" OFF)
 if (LWS_WITH_ESP32)
