@@ -141,6 +141,11 @@ lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
 
 	lwsl_info("SNI: Found: %s:%d\n", servername, vh->listen_port);
 
+	if (!vhost->tls.ssl_ctx) {
+		lwsl_info("SNI: %s has no tls ctx yet\n", servername);
+		return SSL_TLSEXT_ERR_OK;
+	}
+
 	/* select the ssl ctx from the selected vhost for this conn */
 	SSL_set_SSL_CTX(ssl, vhost->tls.ssl_ctx);
 

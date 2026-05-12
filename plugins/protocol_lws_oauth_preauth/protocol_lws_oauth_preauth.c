@@ -262,7 +262,8 @@ callback_lws_oauth_preauth(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
-		lws_jwk_destroy(&vhd->jwk);
+		if (vhd)
+			lws_jwk_destroy(&vhd->jwk);
 		break;
 
 	default:

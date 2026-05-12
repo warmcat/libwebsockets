@@ -27,6 +27,7 @@ struct pss_cert_dist_server {
 	char subdomain[128];
 	char domain[128];
 	int established;
+	int needs_cert_update;
 
 	struct lws *wsi_uds;
 	char *uds_tx;
@@ -146,9 +147,7 @@ static int
 callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason,
 			       void *user, void *in, size_t len)
 {
-	struct vhd_cert_dist_server *vhd = (struct vhd_cert_dist_server *)
-			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
-						 lws_get_protocol(wsi));
+	struct vhd_cert_dist_server *vhd = global_cert_dist_server_vhd;
 	struct pss_stub_server *pss = (struct pss_stub_server *)user;
 
 	switch (reason) {
@@ -315,6 +314,7 @@ dist_server_dir_notify_cb(const char *path, int is_file, void *user)
 		lws_start_foreach_dll(struct lws_dll2 *, d, vhd->connections.head) {
 			struct pss_cert_dist_server *pss = lws_container_of(d, struct pss_cert_dist_server, list);
 			if (strstr(path, pss->domain)) {
+				pss->needs_cert_update = 1;
 				lws_callback_on_writable(pss->wsi);
 			}
 		} lws_end_foreach_dll(d);
@@ -455,6 +455,7 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 		lws_dll2_add_tail(&pss->list, &vhd->connections);
 		pss->established = 1;
+		pss->needs_cert_update = 1;
 		lws_callback_on_writable(wsi);
 		break;
 	}
@@ -486,13 +487,14 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 				lwsl_notice("%s: Sent complete cert update to WSS client for %s\n", __func__, pss->domain);
 				free(pss->uds_rx);
 				pss->uds_rx = NULL;
-				return -1; /* Done sending cert */
+				/* Keep connection open for future updates */
 			}
 			break;
 		}
 
 		/* If we haven't asked UDS yet, ask UDS */
-		if (!pss->wsi_uds) {
+		if (!pss->wsi_uds && pss->needs_cert_update) {
+			pss->needs_cert_update = 0;
 			size_t est_len = 512;
 			lwsl_notice("%s: Requesting cert for %s from server UDS stub\n", __func__, pss->domain);
 			pss->uds_tx = malloc(est_len + LWS_PRE);
@@ -505,6 +507,7 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 			struct lws_client_connect_info i;
 			memset(&i, 0, sizeof(i));
 			i.context = vhd->cx;
+			i.vhost = vhd->vh;
 			i.address = "+/var/run/lws-cert-dist-server-stub.sock";
 			i.port = 0;
 			i.host = "localhost";
@@ -515,30 +518,51 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 			pss->wsi_uds = lws_client_connect_via_info(&i);
 			if (!pss->wsi_uds) {
+				lwsl_err("%s: [DEBUG] lws_client_connect_via_info failed immediately, retrying in 1s\n", __func__);
 				free(pss->uds_tx);
 				pss->uds_tx = NULL;
+				pss->needs_cert_update = 1;
+				lws_set_timer_usecs(wsi, 1 * LWS_USEC_PER_SEC);
+			} else {
+				lwsl_notice("%s: [DEBUG] lws_client_connect_via_info returned valid wsi %p\n", __func__, pss->wsi_uds);
 			}
 		}
 		break;
 
 	/* UDS Client Callbacks handled in the same protocol callback */
 	case LWS_CALLBACK_RAW_CONNECTED:
+		lwsl_notice("%s: [DEBUG] RAW_CONNECTED fired on wsi %p\n", __func__, wsi);
 		if (!vhd->is_stub && lws_get_opaque_user_data(wsi)) {
-			lwsl_notice("%s: Proxy connected to stub UDS\n", __func__);
+			lwsl_notice("%s: [DEBUG] Proxy connected to stub UDS, triggering writable\n", __func__);
 			lws_callback_on_writable(wsi);
+		} else {
+			lwsl_notice("%s: [DEBUG] RAW_CONNECTED ignored (is_stub=%d, opaque=%p)\n", __func__, vhd->is_stub, lws_get_opaque_user_data(wsi));
 		}
 		break;
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
-		if (!vhd->is_stub && lws_get_opaque_user_data(wsi))
-			lwsl_err("%s: Proxy failed to connect to stub UDS: %s\n", __func__, in ? (char *)in : "unknown");
+		lwsl_notice("%s: [DEBUG] CLIENT_CONNECTION_ERROR: %s\n", __func__, in ? (char *)in : "(null)");
+		if (!vhd->is_stub && lws_get_opaque_user_data(wsi)) {
+			struct pss_cert_dist_server *up_pss = (struct pss_cert_dist_server *)lws_get_opaque_user_data(wsi);
+			lwsl_err("%s: [DEBUG] Proxy failed to connect to stub UDS (retrying in 1s)\n", __func__);
+			up_pss->wsi_uds = NULL;
+			if (up_pss->uds_tx) { free(up_pss->uds_tx); up_pss->uds_tx = NULL; }
+			lws_set_timer_usecs(up_pss->wsi, 1 * LWS_USEC_PER_SEC);
+		} else {
+			lwsl_notice("%s: [DEBUG] CLIENT_CONNECTION_ERROR ignored (is_stub=%d, opaque=%p)\n", __func__, vhd->is_stub, lws_get_opaque_user_data(wsi));
+		}
+		break;
+
+	case LWS_CALLBACK_TIMER:
+		lws_callback_on_writable(wsi);
 		break;
 
 	case LWS_CALLBACK_RAW_WRITEABLE:
 	case LWS_CALLBACK_CLIENT_WRITEABLE: {
 		struct pss_cert_dist_server *up_pss = (struct pss_cert_dist_server *)lws_get_opaque_user_data(wsi);
+		lwsl_notice("%s: [DEBUG] WRITEABLE fired on wsi %p (up_pss=%p)\n", __func__, wsi, up_pss);
 		if (up_pss && up_pss->uds_tx) {
-			lwsl_notice("%s: Proxy writing %d bytes to stub UDS\n", __func__, up_pss->uds_tx_len - up_pss->uds_tx_pos);
+			lwsl_notice("%s: [DEBUG] Proxy writing %d bytes to stub UDS\n", __func__, up_pss->uds_tx_len - up_pss->uds_tx_pos);
 			int m = lws_write(wsi, (unsigned char *)up_pss->uds_tx + LWS_PRE + up_pss->uds_tx_pos, (size_t)(up_pss->uds_tx_len - up_pss->uds_tx_pos), LWS_WRITE_RAW);
 			if (m < 0) return -1;
 			up_pss->uds_tx_pos += m;
@@ -573,14 +597,45 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLIENT_CLOSED:
 	case LWS_CALLBACK_RAW_CLOSE: {
 		struct pss_cert_dist_server *up_pss = (struct pss_cert_dist_server *)lws_get_opaque_user_data(wsi);
+		lwsl_notice("%s: [DEBUG] CLOSE event fired on wsi %p (up_pss=%p, rx_len=%d)\n", __func__, wsi, up_pss, up_pss ? up_pss->uds_rx_len : -1);
 		if (up_pss) {
 			up_pss->wsi_uds = NULL;
 			if (up_pss->uds_tx) { free(up_pss->uds_tx); up_pss->uds_tx = NULL; }
 			if (up_pss->uds_rx_len > 0)
 				lws_callback_on_writable(up_pss->wsi); /* Forward to WSS */
+			else {
+				lwsl_err("%s: [DEBUG] Stub UDS closed prematurely, retrying in 1s\n", __func__);
+				up_pss->needs_cert_update = 1;
+				lws_set_timer_usecs(up_pss->wsi, 1 * LWS_USEC_PER_SEC);
+			}
 		}
 		break;
 	}
+
+	case LWS_CALLBACK_RAW_RX_FILE: {
+		char buf[512];
+		ssize_t n;
+		int fd = (int)lws_get_socket_fd(wsi);
+
+		if (fd < 0)
+			return -1;
+
+		n = read(fd, buf, sizeof(buf) - 1);
+		if (n < 0) {
+			if (errno == EAGAIN || errno == EWOULDBLOCK)
+				return 0;
+			return -1;
+		}
+		if (n == 0)
+			return -1;
+
+		buf[n] = '\0';
+		lwsl_notice("[DIST-STUB] %s", buf);
+		break;
+	}
+
+	case LWS_CALLBACK_RAW_CLOSE_FILE:
+		break;
 
 	default:
 		break;
