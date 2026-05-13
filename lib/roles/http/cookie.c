@@ -376,6 +376,26 @@ lws_cookie_write_nsc(struct lws *wsi, struct lws_cookie *c)
 		return -1;
 	}
 
+	if (c->f[CE_EXPIRES])
+		lwsl_cookie("%s: name=%s expires='%.*s'@ t=%lld now=%lld\n", __func__, cache_name,
+			    (int)c->l[CE_EXPIRES], c->f[CE_EXPIRES],
+			    (long long)expires, (long long)now_s);
+	else
+		lwsl_cookie("%s: name=%s expires='<unset>'@ t=%lld now=%lld\n", __func__, cache_name,
+			    (long long)expires, (long long)now_s);
+
+	/*
+	 * RFC 6265 treats a past-dated Expires as a delete signal for the
+	 * cookie. Ensure we handle expires=0 (PARSED at actual UNIX epoch, t=0)
+	 * as a delete signal as well.
+	 */
+	if (c->f[CE_EXPIRES] && (expires <= now_s)) {
+		lwsl_cookie("%s: dropping already-expired cookie\n", __func__);
+		(void)lws_cache_item_remove(l1, cache_name);
+		ret = 0;
+		goto exit;
+	}
+
 	size += c->l[CE_NAME] + c->l[CE_VALUE] + c->l[CE_DOMAIN] + c->l[CE_PATH];
 	cookie_string = (char *)lws_malloc(size, __func__);
 	if (!cookie_string) {
