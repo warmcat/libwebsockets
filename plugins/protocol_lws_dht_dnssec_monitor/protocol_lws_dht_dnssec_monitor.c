@@ -1374,7 +1374,9 @@ handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_
 	}
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s", vhd->base_dir, a->domain);
-	mkdir(d_path, 0755);
+	if (mkdir(d_path, 0755) < 0 && errno != EEXIST) {
+		lwsl_notice("%s: mkdir %s failed: %d\n", __func__, d_path, errno);
+	}
 
 	if (dir_suffix[0]) {
 		char p1[1024];
@@ -1384,12 +1386,16 @@ handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_
 		while ((slash = strchr(p, '/')) != NULL) {
 			*slash = '\0';
 			lws_snprintf(p1 + strlen(p1), sizeof(p1) - strlen(p1), "/%s", p);
-			mkdir(p1, 0755);
+			if (mkdir(p1, 0755) < 0 && errno != EEXIST) {
+				lwsl_notice("%s: mkdir %s failed: %d\n", __func__, p1, errno);
+			}
 			*slash = '/';
 			p = slash + 1;
 		}
 		lws_snprintf(p1 + strlen(p1), sizeof(p1) - strlen(p1), "/%s", p);
-		mkdir(p1, 0755);
+		if (mkdir(p1, 0755) < 0 && errno != EEXIST) {
+			lwsl_notice("%s: mkdir %s failed: %d\n", __func__, p1, errno);
+		}
 	}
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/%s/%s", vhd->base_dir, a->domain, dir_suffix, a->subdomain);
