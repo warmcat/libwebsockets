@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2019 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2026 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -27,6 +27,8 @@
 
 #include <string.h>
 #include <stdlib.h>
+
+#define LWS_SSH_MAX_PACKET_SIZE  (256 * 1024)
 
 void *sshd_zalloc(size_t s)
 {
@@ -592,6 +594,11 @@ again:
 			pss->parser_state = SSHS_MSG_PADDING;
 			pss->ctr = 0;
 			pss->pos = 4;
+
+			if (pss->msg_len > LWS_SSH_MAX_PACKET_SIZE) {
+				lwsl_notice("msg size %u exceeds maximum\n", pss->msg_len);
+				goto bail;
+			}
 			if (pss->msg_len < 2 + 4) {
 				lwsl_notice("illegal msg size\n");
 				goto bail;
