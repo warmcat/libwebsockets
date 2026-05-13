@@ -602,7 +602,7 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 			if (!calist) {
 				lwsl_err("%s: SSL_load_client_CA_file failed to load %s\n", __func__, tls->cfg_ssl_ca_filepath);
 			} else {
-				lwsl_notice("%s: Loaded %d CAs for client CA list from %s\n", __func__, sk_X509_NAME_num(calist), tls->cfg_ssl_ca_filepath);
+				lwsl_notice("%s: Loaded %d CAs for client CA list from %s\n", __func__, (int)sk_X509_NAME_num(calist), tls->cfg_ssl_ca_filepath);
 				SSL_CTX_set_client_CA_list(tls->ssl_ctx, calist);
 			}
 		}
@@ -616,17 +616,21 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 			lwsl_err("%s: Unable to decode x.509 mem\n", __func__);
 		} else {
 			up = up1;
+#if defined(USE_WOLFSSL)
+			X509 *client_CA = d2i_X509(NULL, &up, (int)amount);
+#else
 			X509 *client_CA = d2i_X509(NULL, &up, (long)amount);
+#endif
 			if (!client_CA) {
 				lwsl_err("server CA: x509 parse failed\n");
 			} else {
-				X509_STORE *x509_store = X509_STORE_new();
-				if (!X509_STORE_add_cert(x509_store, client_CA)) {
-					X509_STORE_free(x509_store);
+				X509_STORE *x509_store = SSL_CTX_get_cert_store(tls->ssl_ctx);
+				if (!x509_store) {
+					lwsl_err("server CA: x509_store missing\n");
+				} else if (!X509_STORE_add_cert(x509_store, client_CA)) {
 					lwsl_err("Unable to load SSL server certs from "
 						 "ssl_ca_mem -- server ssl isn't going to work\n");
 				} else {
-					SSL_CTX_set_cert_store(tls->ssl_ctx, x509_store);
 					STACK_OF(X509_NAME) *calist = sk_X509_NAME_new_null();
 					if (calist) {
 						X509_NAME *name = X509_get_subject_name(client_CA);

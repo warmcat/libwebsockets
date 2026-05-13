@@ -988,17 +988,15 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 			lwsl_hexdump_notice(up1, (size_t)amount);
 			lws_tls_err_describe_clear();
 		} else {
-			x509_store = X509_STORE_new();
-			if (!X509_STORE_add_cert(x509_store, client_CA)) {
-				X509_STORE_free(x509_store);
+			x509_store = SSL_CTX_get_cert_store(vh->tls.ssl_client_ctx);
+			if (!x509_store) {
+				lwsl_err("%s: failed to get cert store\n", __func__);
+			} else if (!X509_STORE_add_cert(x509_store, client_CA)) {
 				lwsl_err("Unable to load SSL Client certs from "
 					 "ssl_ca_mem -- client ssl isn't going to "
 					 "work\n");
 				lws_tls_err_describe_clear();
 			} else {
-				/* it doesn't increment x509_store ref counter */
-				SSL_CTX_set_cert_store(vh->tls.ssl_client_ctx,
-						       x509_store);
 				lwsl_info("loaded ssl_ca_mem\n");
 			}
 		}
