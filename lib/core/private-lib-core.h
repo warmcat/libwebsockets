@@ -1045,6 +1045,7 @@ void lwsl_emit_stderr(int level, const char *line);
  #define lws_ssl_close(_a) (0)
  #define lws_ssl_context_destroy(_a)
  #define lws_ssl_SSL_CTX_destroy(_a)
+ #define lws_tls_ctx_ref_destroy_all(_a)
  #define lws_ssl_remove_wsi_from_buffered_list(_a)
  #define __lws_ssl_remove_wsi_from_buffered_list(_a)
  #define lws_context_init_ssl_library(_a, _b)
