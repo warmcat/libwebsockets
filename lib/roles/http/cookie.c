@@ -311,6 +311,9 @@ lws_cookie_write_nsc(struct lws *wsi, struct lws_cookie *c)
 	 /* 6 tabs + 20 for max time_t + 2 * TRUE/FALSE + null */
 	size_t size = 6 + 20 + 10 + 1, cnl;
 	time_t expires = 0;
+	lws_usec_t expiry_us = 0;
+	time_t now_s = time(NULL);
+
 	int ret = 0;
 
 	if (!wsi || !c)
@@ -393,11 +396,20 @@ lws_cookie_write_nsc(struct lws *wsi, struct lws_cookie *c)
 	lwsl_cookie("%s: name %s\n", __func__, cache_name);
 	lwsl_cookie("%s: c %s\n", __func__, cookie_string);
 
+	/*
+	 * Convert expiry in UNIX time to lws_usec_t (monotonic clock).
+	 * expires == 0 is a session cookie (no expiry).
+	 */
+	if (expires) {
+		expiry_us = lws_now_usecs() +
+				(lws_usec_t)(expires - now_s) *
+				(lws_usec_t)LWS_US_PER_SEC;
+	}
+
 	if (lws_cache_write_through(l1, cache_name,
-				    (const uint8_t *)cookie_string,
-				    strlen(cookie_string),
-				    (lws_usec_t)((unsigned long long)expires *
-					   (lws_usec_t)LWS_US_PER_SEC), NULL)) {
+					(const uint8_t *)cookie_string,
+					strlen(cookie_string),
+					expiry_us, NULL)) {
 		ret = -1;
 		goto exit;
 	}

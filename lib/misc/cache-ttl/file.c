@@ -397,6 +397,7 @@ nsc_line_to_tag(const char *buf, size_t size, char *tag, size_t max_tag,
 	lws_usec_t expiry = 0;
 	size_t bn = 0;
 	char col[64];
+	long long secs = 0;
 
 	if (size < 3)
 		return 1;
@@ -413,8 +414,18 @@ nsc_line_to_tag(const char *buf, size_t size, char *tag, size_t max_tag,
 
 		switch (idx) {
 		case NSC_COL_EXPIRY:
-			expiry = (lws_usec_t)((unsigned long long)atoll(col) *
-					(lws_usec_t)LWS_US_PER_SEC);
+			/*
+			 * The on-disk expiry is wall-clock seconds since the
+			 * Unix epoch. A value of 0 is the "session cookie /
+			 * no expiry" sentinel and is passed through unchanged.
+			 */
+			secs = atoll(col);
+			if (secs) {
+				lws_usec_t delta = (lws_usec_t)(secs - (long long)time(NULL)) * LWS_US_PER_SEC;
+				expiry = lws_now_usecs() + delta;
+			} else {
+				expiry = 0;
+			}
 			break;
 
 		case NSC_COL_HOST:
