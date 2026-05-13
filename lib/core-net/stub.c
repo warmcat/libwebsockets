@@ -157,8 +157,9 @@ lws_stub_server_init(const struct lws_stub_config *config, char *secret_out, voi
 
 	/* 1.5. Read extra payload if provided */
 	if (extra_out && extra_len > 0) {
-		if (read(0, extra_out, extra_len) < 0) {
-			lwsl_err("%s: Failed to read extra payload\n", __func__);
+		ssize_t n = read(0, extra_out, extra_len);
+		if (n < (ssize_t)extra_len) {
+			lwsl_err("%s: Failed to read extra payload (got %d of %d)\n", __func__, (int)n, (int)extra_len);
 			/* Non-fatal */
 		}
 	}
