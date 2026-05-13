@@ -241,6 +241,9 @@ done_list:
 		}
 
 #if !defined(LWS_PLAT_FREERTOS)
+#if defined(WIN32) && defined(LWS_WITH_UNIX_SOCK)
+		if (a->af != AF_UNIX) {
+#endif
 #if (defined(WIN32) || defined(_WIN32)) && defined(SO_EXCLUSIVEADDRUSE)
 		/*
 		 * only accept that we are the only listener on the port
@@ -269,6 +272,9 @@ done_list:
 			compatible_close(sockfd);
 			return -1;
 		}
+#if defined(WIN32) && defined(LWS_WITH_UNIX_SOCK)
+		}
+#endif
 
 #if defined(LWS_WITH_IPV6) && defined(IPV6_V6ONLY)
 		/*
@@ -304,7 +310,11 @@ done_list:
 			}
 #endif
 #endif
+#if defined(LWS_WITH_UNIX_SOCK)
+		lws_plat_set_socket_options(a->vhost, sockfd, a->af == AF_UNIX);
+#else
 		lws_plat_set_socket_options(a->vhost, sockfd, 0);
+#endif
 
 		if (!a->info || !a->info->vh_listen_sockfd) {
 			is = lws_socket_bind(a->vhost, NULL, sockfd,

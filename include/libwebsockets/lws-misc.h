@@ -1559,7 +1559,7 @@ lws_spawn_get_stdfd(struct lws *wsi);
  * Lets you get the fd for writing to the spawned process stdin, or reading from
  * the spawned process stdout and stderr.
  */
-LWS_VISIBLE LWS_EXTERN int
+LWS_VISIBLE LWS_EXTERN lws_filefd_type
 lws_spawn_get_fd_stdxxx(struct lws_spawn_piped *lsp, int std_idx);
 
 /**

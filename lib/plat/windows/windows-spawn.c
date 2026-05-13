@@ -299,7 +299,7 @@ lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp)
 
 	lsp->ungraceful = 1; /* don't wait for flushing, just kill it */
 
-	lwsl_warn("%s: calling TerminateProcess on child pid\n", __func__);
+	lwsl_info("%s: calling TerminateProcess on child pid\n", __func__);
        if (!TerminateProcess(lsp->child_pid, 252)) {
                lwsl_warn("%s: TerminateProcess failed: 0x%lx\n", __func__, (unsigned long)GetLastError());
                return 0;
@@ -353,13 +353,15 @@ windows_pipe_poll_hack(lws_sorted_usec_list_t *sul)
 			 * lsp may be destroyed by here... if we wanted to
 			 * handle a still-extant stderr we'll get it next time
 			 */
-
-			return;
-		} else
-			if (br)
+		} else if (br) {
+			struct lws_context_per_thread *pt = &wsi->a.context->pt[wsi->tsi];
+			if (ReadFile(lsp->pipe_fds[LWS_STDOUT][0], pt->serv_buf,
+				     wsi->a.context->pt_serv_buf_size, &br, NULL) && br > 0) {
 				wsi->a.protocol->callback(wsi,
 							LWS_CALLBACK_RAW_RX_FILE,
-							NULL, NULL, 0);
+							wsi->user_space, pt->serv_buf, (size_t)br);
+			}
+		}
 	}
 
 	/*
@@ -383,11 +385,15 @@ windows_pipe_poll_hack(lws_sorted_usec_list_t *sul)
 			/*
 			 * lsp may have been destroyed above
 			 */
-		} else
-			if (br)
+		} else if (br) {
+			struct lws_context_per_thread *pt = &wsi1->a.context->pt[wsi1->tsi];
+			if (ReadFile(lsp->pipe_fds[LWS_STDERR][0], pt->serv_buf,
+				     wsi1->a.context->pt_serv_buf_size, &br, NULL) && br > 0) {
 				wsi1->a.protocol->callback(wsi1,
 							LWS_CALLBACK_RAW_RX_FILE,
-							NULL, NULL, 0);
+							wsi1->user_space, pt->serv_buf, (size_t)br);
+			}
+		}
 	}
 }
 
@@ -609,8 +615,10 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	psi->hStdInput	= lsp->pipe_fds[LWS_STDIN][0];
 	psi->hStdOutput	= lsp->pipe_fds[LWS_STDOUT][1];
 	psi->hStdError	= lsp->pipe_fds[LWS_STDERR][1];
-	psi->dwFlags	= STARTF_USESTDHANDLES | CREATE_NO_WINDOW;
+	psi->dwFlags	= STARTF_USESTDHANDLES;
 	psi->wShowWindow	= TRUE;
+
+	creation_flags |= CREATE_NO_WINDOW;
 
 	if (!CreateProcessA(NULL, cli, NULL, NULL, TRUE, creation_flags, NULL, NULL, psi, &pi)) {
 		lwsl_err("%s: CreateProcess failed 0x%lx\n", __func__,
@@ -750,12 +758,12 @@ lws_spawn_get_stdfd(struct lws *wsi)
 	return wsi->lsp_channel;
 }
 
-int
+lws_filefd_type
 lws_spawn_get_fd_stdxxx(struct lws_spawn_piped *lsp, int std_idx)
 {
 	assert(std_idx >= 0 && std_idx < 3);
 
-	return (int)(intptr_t)lsp->pipe_fds[std_idx][!!(std_idx == 0)];
+	return (lws_filefd_type)lsp->pipe_fds[std_idx][!!(std_idx == 0)];
 }
 
 int

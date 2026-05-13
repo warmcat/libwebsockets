@@ -28,7 +28,7 @@
 #if defined(LWS_HAVE_SSL_CTX_set_keylog_callback) && defined(LWS_WITH_NETWORK) && \
 	defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS) && \
 	!defined(LWS_WITH_GNUTLS) && !defined(LWS_WITH_BEARSSL) && \
-	(!defined(LWS_WITHOUT_CLIENT) || !defined(LWS_WITHOUT_SERVER))
+	(defined(LWS_WITH_CLIENT) || defined(LWS_WITH_SERVER))
 void
 lws_klog_dump(const SSL *ssl, const char *line)
 {

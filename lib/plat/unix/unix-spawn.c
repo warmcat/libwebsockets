@@ -547,6 +547,9 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	/*
 	 * Stitch the wsi fd into the poll wait
 	 */
+	struct lws_context_per_thread *pt = &context->pt[(int)i->tsi];
+
+	lws_pt_lock(pt, __func__);
 
 	for (n = 0; n < 3; n++) {
 		if (!lsp->stdwsi[n])
@@ -554,10 +557,10 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 
 		if (context->event_loop_ops->sock_accept)
 			if (context->event_loop_ops->sock_accept(lsp->stdwsi[n]))
-				goto bail3;
+				goto bail3_unlock;
 
 		if (__insert_wsi_socket_into_fds(context, lsp->stdwsi[n]))
-			goto bail3;
+			goto bail3_unlock;
 
 		lws_dll2_remove(&lsp->stdwsi[n]->pre_natal);
 
@@ -569,11 +572,13 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	}
 
 	if (lws_change_pollfd(lsp->stdwsi[LWS_STDIN], LWS_POLLIN, LWS_POLLOUT))
-		goto bail3;
+		goto bail3_unlock;
 	if (lws_change_pollfd(lsp->stdwsi[LWS_STDOUT], LWS_POLLOUT, LWS_POLLIN))
-		goto bail3;
+		goto bail3_unlock;
 	if (lsp->stdwsi[LWS_STDERR] && lws_change_pollfd(lsp->stdwsi[LWS_STDERR], LWS_POLLOUT, LWS_POLLIN))
-		goto bail3;
+		goto bail3_unlock;
+
+	lws_pt_unlock(pt);
 
 	lwsl_info("%s: fds in %d, out %d, err %d\n", __func__,
 		   lsp->stdwsi[LWS_STDIN]->desc.sockfd,
@@ -774,10 +779,12 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		}
 	}
 
+
+
 #if defined(__sun) || !defined(LWS_HAVE_VFORK) || !defined(LWS_HAVE_EXECVPE)
 #if defined(__linux__) || defined(__APPLE__) || defined(__sun)
 	m = 0;
-	while (i->env_array[m]){
+	while (i->env_array && i->env_array[m]){
 		const char *p = strchr(i->env_array[m], '=');
 		int naml = lws_ptr_diff(p, i->env_array[m]);
 		char enam[32];
@@ -795,11 +802,15 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		(char **)&i->env_array[0]);
 #endif
 
+
+
 	lwsl_err("%s: child exec of %s failed %d\n", __func__, i->exec_array[0],
 		 LWS_ERRNO);
 
 	_exit(1);
 
+bail3_unlock:
+	lws_pt_unlock(pt);
 bail3:
 
 	while (--n >= 0)
@@ -985,7 +996,7 @@ lws_spawn_prepare_self_cgroup(const char *user, const char *group)
 	return 1; /* Not supported on this platform */
 }
 
-int
+lws_filefd_type
 lws_spawn_get_fd_stdxxx(struct lws_spawn_piped *lsp, int std_idx)
 {
 	assert(std_idx >= 0 && std_idx < 3);

@@ -2810,7 +2810,17 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 					return -1;
 				}
 
-				int stdin_fd = (int)(intptr_t)lws_spawn_get_fd_stdxxx(vhd->lsp, 0);
+				lws_filefd_type stdin_fd = lws_spawn_get_fd_stdxxx(vhd->lsp, 0);
+#if defined(WIN32)
+				if (stdin_fd) {
+					char token_buf[140];
+					DWORD bw;
+					lws_snprintf(token_buf, sizeof(token_buf), "%s\n", hex);
+					if (!WriteFile(stdin_fd, token_buf, (DWORD)strlen(token_buf), &bw, NULL)) {
+						lwsl_err("%s: Failed dropping token via stdin pipe\n", __func__);
+					}
+				}
+#else
 				if (stdin_fd >= 0) {
 					char token_buf[140];
 					lws_snprintf(token_buf, sizeof(token_buf), "%s\n", hex);
@@ -2818,6 +2828,7 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 						lwsl_err("%s: Failed dropping token via stdin pipe\n", __func__);
 					}
 				}
+#endif
 				vhd->root_process_active = 1;
 				lwsl_notice("%s: Spawned root monitor process successfully\n", __func__);
 

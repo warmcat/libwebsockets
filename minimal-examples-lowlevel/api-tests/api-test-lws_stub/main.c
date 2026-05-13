@@ -13,10 +13,23 @@
 #include <libwebsockets.h>
 #include <string.h>
 #include <signal.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 #include <sys/types.h>
+#if !defined(WIN32)
+#include <unistd.h>
 #include <sys/wait.h>
+#else
+#include <process.h>
+#include <io.h>
+#define getpid _getpid
+#define open _open
+#define close _close
+#define dup2 _dup2
+#endif
 
 static int interrupted;
+int is_stub = 0;
 
 /* --- STUB (ROOT) PROCESS --- */
 
@@ -56,7 +69,23 @@ callback_stub_server(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_notice("Stub accepted connection\n");
 		break;
 
+	case LWS_CALLBACK_RAW_RX_FILE:
 	case LWS_CALLBACK_RAW_RX:
+		if (!is_stub) {
+			/* This is pipe output from the stub process */
+#if !defined(WIN32)
+			if (!in) {
+				uint8_t buf[4096];
+				int n = (int)read(lws_get_socket_fd(wsi), buf, sizeof(buf));
+				if (n <= 0)
+					return -1;
+				lwsl_notice("STUB-OUTPUT: %.*s", n, (const char *)buf);
+				break;
+			}
+#endif
+			lwsl_notice("STUB-OUTPUT: %.*s", (int)len, (const char *)in);
+			break;
+		}
 		if (!pss->parser_valid) {
 			lejp_construct(&pss->jctx, stub_req_cb, pss, stub_req_paths, 1);
 			pss->wsi = wsi;
@@ -91,16 +120,18 @@ callback_stub_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 static struct lws_protocols stub_protocols[] = {
 	{
-		"lws-demo-stub",
-		callback_stub_server,
-		sizeof(struct pss_stub), 4096, 0, NULL, 0
+		.name = "lws-demo-stub",
+		.callback = callback_stub_server,
+		.per_session_data_size = sizeof(struct pss_stub),
+		.rx_buffer_size = 4096,
 	},
 	{
-		"lws-stub-client",
-		lws_callback_stub_client,
-		0, 4096, 0, NULL, 0
+		.name = "lws-stub-client",
+		.callback = lws_callback_stub_client,
+		.per_session_data_size = 0,
+		.rx_buffer_size = 4096,
 	},
-	{ NULL, NULL, 0, 0, 0, NULL, 0 }
+	LWS_PROTOCOL_LIST_TERM
 };
 
 static int run_stub(struct lws_context *cx, const char *stub_name)
@@ -112,7 +143,16 @@ static int run_stub(struct lws_context *cx, const char *stub_name)
 	memset(&sc, 0, sizeof(sc));
 	sc.cx = cx;
 	sc.stub_name = stub_name;
+#if defined(WIN32)
+	static char win_uds[MAX_PATH];
+	const char *tmp = getenv("TMP");
+	if (!tmp) tmp = getenv("TEMP");
+	if (!tmp) tmp = ".";
+	lws_snprintf(win_uds, sizeof(win_uds), "%s\\lws-stub.sock", tmp);
+	sc.uds_path = win_uds;
+#else
 	sc.uds_path = "/tmp/lws-demo-stub.sock";
+#endif
 	sc.protocols = stub_protocols;
 
 	if (lws_stub_server_init(&sc, secret, extra, sizeof(extra)) < 0) {
@@ -166,8 +206,9 @@ int main(int argc, const char **argv)
 	struct lws_context_creation_info info;
 	struct lws_context *cx;
 	const char *p;
-	int logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
-	int result = 0;
+	int result = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+
+
 
 	if ((p = lws_cmdline_option(argc, argv, "-d")))
 		logs = atoi(p);
@@ -182,6 +223,8 @@ int main(int argc, const char **argv)
 		return 0;
 	}
 
+	setvbuf(stdout, NULL, _IONBF, 0);
+	setvbuf(stderr, NULL, _IONBF, 0);
 	lws_set_log_level(logs, NULL);
 	signal(SIGINT, sigint_handler);
 
@@ -197,6 +240,7 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
+	info.vhost_name = "api-test-vhost";
 	struct lws_vhost *vh = lws_create_vhost(cx, &info);
 	if (!vh) {
 		lwsl_err("lws_create_vhost failed\n");
@@ -205,11 +249,8 @@ int main(int argc, const char **argv)
 
 	if ((p = lws_cmdline_option(argc, argv, "--lws-stub="))) {
 		/* We are the spawned stub process */
-		FILE *f = fopen("/tmp/stub-log.txt", "w");
-		if (f) {
-			dup2(fileno(f), 2);
-			fclose(f);
-		}
+		is_stub = 1;
+		lwsl_notice("Stub process starting (PID %d)\n", getpid());
 		result = run_stub(cx, p);
 	} else {
 		/* We are the parent process */
@@ -223,7 +264,16 @@ int main(int argc, const char **argv)
 		sc.cx = cx;
 		sc.vh = vh;
 		sc.stub_name = "demo-stub";
+#if defined(WIN32)
+		static char win_uds2[MAX_PATH];
+		const char *tmp = getenv("TMP");
+		if (!tmp) tmp = getenv("TEMP");
+		if (!tmp) tmp = ".";
+		lws_snprintf(win_uds2, sizeof(win_uds2), "%s\\lws-stub.sock", tmp);
+		sc.uds_path = win_uds2;
+#else
 		sc.uds_path = "/tmp/lws-demo-stub.sock";
+#endif
 		sc.protocols = stub_protocols;
 		sc.extra_payload = "initialization_data_for_stub";
 		sc.extra_payload_len = strlen((const char *)sc.extra_payload) + 1;
@@ -251,6 +301,14 @@ int main(int argc, const char **argv)
 		if (!interrupted) {
 			lwsl_err("Timeout waiting for stub!\n");
 			result = 1;
+		} else {
+#if defined(WIN32)
+			/* 
+			 * Wait an extra 100ms to ensure the 50ms windows_pipe_poll_hack timer 
+			 * fires and drains the final child MSVCRT logs before destruction.
+			 */
+			lws_service(cx, 100);
+#endif
 		}
 
 done:

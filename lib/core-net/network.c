@@ -305,7 +305,11 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 			         iface);
 			return LWS_ITOSA_NOT_EXIST;
 		}
+#if defined(WIN32)
+		n = (int)(sizeof(uint16_t) + strlen(iface) + 1);
+#else
 		n = (int)(sizeof(uint16_t) + strlen(iface));
+#endif
 		lws_strncpy(serv_unix.sun_path, iface, sizeof(serv_unix.sun_path) - 1);
 		if (serv_unix.sun_path[0] == '@')
 			serv_unix.sun_path[0] = '\0';
@@ -457,10 +461,10 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 
 #ifndef LWS_PLAT_OPTEE
 	if (getsockname(sockfd, (struct sockaddr *)psin, &len) == -1) {
-#if !defined(LWS_WITH_NO_LOGS)
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 		char t16[16];
 
-		lwsl_wsi_warn(wsi, "getsockname: %s",
+		lwsl_wsi_info(wsi, "getsockname: %s",
 			      lws_errno_describe(LWS_ERRNO, t16, sizeof(t16)));
 #endif
 	} else
