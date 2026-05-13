@@ -364,3 +364,10 @@ tops_fake_POLLIN_for_buffered_mbedtls(struct lws_context_per_thread *pt)
 const struct lws_tls_ops tls_ops_mbedtls = {
 	.fake_POLLIN_for_buffered = tops_fake_POLLIN_for_buffered_mbedtls,
 };
+
+void
+lws_tls_vhost_backend_free_ctx(lws_tls_ctx *ctx)
+{
+	if (ctx)
+		SSL_CTX_free(ctx);
+}

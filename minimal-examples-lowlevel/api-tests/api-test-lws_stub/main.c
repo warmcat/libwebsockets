@@ -13,10 +13,23 @@
 #include <libwebsockets.h>
 #include <string.h>
 #include <signal.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 #include <sys/types.h>
+#if !defined(WIN32)
+#include <unistd.h>
 #include <sys/wait.h>
+#else
+#include <process.h>
+#include <io.h>
+#define getpid _getpid
+#define open _open
+#define close _close
+#define dup2 _dup2
+#endif
 
 static int interrupted;
+int is_stub = 0;
 
 /* --- STUB (ROOT) PROCESS --- */
 
@@ -57,6 +70,11 @@ callback_stub_server(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_RAW_RX:
+		if (!is_stub) {
+			/* This is pipe output from the stub process */
+			lwsl_notice("STUB-OUTPUT: %.*s", (int)len, (const char *)in);
+			break;
+		}
 		if (!pss->parser_valid) {
 			lejp_construct(&pss->jctx, stub_req_cb, pss, stub_req_paths, 1);
 			pss->wsi = wsi;
@@ -91,16 +109,18 @@ callback_stub_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 static struct lws_protocols stub_protocols[] = {
 	{
-		"lws-demo-stub",
-		callback_stub_server,
-		sizeof(struct pss_stub), 4096, 0, NULL, 0
+		.name = "lws-demo-stub",
+		.callback = callback_stub_server,
+		.per_session_data_size = sizeof(struct pss_stub),
+		.rx_buffer_size = 4096,
 	},
 	{
-		"lws-stub-client",
-		lws_callback_stub_client,
-		0, 4096, 0, NULL, 0
+		.name = "lws-stub-client",
+		.callback = lws_callback_stub_client,
+		.per_session_data_size = 0,
+		.rx_buffer_size = 4096,
 	},
-	{ NULL, NULL, 0, 0, 0, NULL, 0 }
+	LWS_PROTOCOL_LIST_TERM
 };
 
 static int run_stub(struct lws_context *cx, const char *stub_name)
@@ -166,8 +186,9 @@ int main(int argc, const char **argv)
 	struct lws_context_creation_info info;
 	struct lws_context *cx;
 	const char *p;
-	int logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
-	int result = 0;
+	int result = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+
+
 
 	if ((p = lws_cmdline_option(argc, argv, "-d")))
 		logs = atoi(p);
@@ -197,6 +218,7 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
+	info.vhost_name = "api-test-vhost";
 	struct lws_vhost *vh = lws_create_vhost(cx, &info);
 	if (!vh) {
 		lwsl_err("lws_create_vhost failed\n");
@@ -205,11 +227,19 @@ int main(int argc, const char **argv)
 
 	if ((p = lws_cmdline_option(argc, argv, "--lws-stub="))) {
 		/* We are the spawned stub process */
-		FILE *f = fopen("/tmp/stub-log.txt", "w");
-		if (f) {
-			dup2(fileno(f), 2);
-			fclose(f);
+		is_stub = 1;
+		char logpath[64];
+		int fd;
+
+#if !defined(WIN32)
+		lws_snprintf(logpath, sizeof(logpath), "/tmp/stub-log-%d.txt", getpid());
+		fd = open(logpath, O_CREAT | O_TRUNC | O_WRONLY, 0644);
+		if (fd >= 0) {
+			dup2(fd, 2);
+			close(fd);
 		}
+#endif
+		lwsl_notice("Stub process starting (PID %d)\n", getpid());
 		result = run_stub(cx, p);
 	} else {
 		/* We are the parent process */

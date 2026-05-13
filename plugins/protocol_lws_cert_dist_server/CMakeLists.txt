@@ -2,6 +2,8 @@ set(PLUGIN_NAME protocol_lws_cert_dist_server)
 set(requirements 1)
 require_lws_config(LWS_WITH_DIR 1 requirements)
 require_lws_config(LWS_WITH_TLS 1 requirements)
+require_lws_config(LWS_WITH_STUB 1 requirements)
+
 
 if (requirements)
 	create_plugin(${PLUGIN_NAME} "lws-cert-dist-server" "protocol_lws_cert_dist_server.c" "" "")

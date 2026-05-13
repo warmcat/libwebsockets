@@ -2761,7 +2761,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			for (int i = 0; i < 10; i++) {
 				uint8_t rand_bytes[4];
 				lws_get_random(vhd->context, rand_bytes, sizeof(rand_bytes));
-				uint32_t raw_code = rand_bytes[0] | (rand_bytes[1] << 8) | (rand_bytes[2] << 16) | (rand_bytes[3] << 24);
+				uint32_t raw_code = (uint32_t)rand_bytes[0] | ((uint32_t)rand_bytes[1] << 8) | ((uint32_t)rand_bytes[2] << 16) | ((uint32_t)rand_bytes[3] << 24);
 				uint32_t bcode = raw_code % 1000000;
 
 				if (sqlite3_prepare_v2(vhd->db, "INSERT INTO backup_codes (uid, code) VALUES ((SELECT uid FROM users WHERE username=?), ?)", -1, &stmt, NULL) == SQLITE_OK) {

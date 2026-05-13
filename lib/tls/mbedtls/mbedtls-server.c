@@ -232,12 +232,7 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 	return 0;
 }
 
-void
-lws_tls_vhost_backend_free_ctx(lws_tls_ctx *ctx)
-{
-	if (ctx)
-		SSL_CTX_free(ctx);
-}
+
 
 int
 lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)

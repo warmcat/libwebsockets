@@ -40,27 +40,7 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 	return 0;
 }
 
-void
-lws_tls_vhost_backend_free_ctx(lws_tls_ctx *ctx)
-{
-	if (!ctx)
-		return;
 
-	if (ctx->chain) {
-		size_t i;
-		for (i = 0; i < ctx->chain_len; i++)
-			if (ctx->chain[i].data)
-				lws_free(ctx->chain[i].data);
-		lws_free(ctx->chain);
-	}
-
-#if defined(LWS_WITH_TLS_SESSIONS)
-	if (ctx->lru_buffer)
-		lws_free(ctx->lru_buffer);
-#endif
-
-	lws_free(ctx);
-}
 
 int
 lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,

@@ -124,6 +124,9 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 
 	unsigned st;
 
+	if (!wsi->tls.use_ssl)
+		return lws_ssl_capable_read_no_ssl(wsi, buf, len);
+
 	if (!conn)
 		return LWS_SSL_CAPABLE_ERROR;
 
@@ -199,6 +202,9 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 	unsigned char *abuf;
 	unsigned st;
 
+	if (!wsi->tls.use_ssl)
+		return lws_ssl_capable_write_no_ssl(wsi, buf, len);
+
 	if (!conn)
 		return LWS_SSL_CAPABLE_ERROR;
 
@@ -246,6 +252,9 @@ int lws_ssl_pending(struct lws *wsi)
 {
 	struct lws_tls_conn *conn = (struct lws_tls_conn *)wsi->tls.ssl;
 	size_t alen;
+
+	if (!wsi->tls.use_ssl)
+		return lws_ssl_pending_no_ssl(wsi);
 
 	if (!conn)
 		return 0;
@@ -358,3 +367,25 @@ int lws_tls_session_dump_load(struct lws_vhost *vh, const char *host, uint16_t p
 int lws_tls_session_is_reused(struct lws *wsi) { return 0; }
 int lws_tls_session_vh_destroy(struct lws_vhost *vh) { return 0; }
 #endif
+
+void
+lws_tls_vhost_backend_free_ctx(lws_tls_ctx *ctx)
+{
+	if (!ctx)
+		return;
+
+	if (ctx->chain) {
+		size_t i;
+		for (i = 0; i < ctx->chain_len; i++)
+			if (ctx->chain[i].data)
+				lws_free(ctx->chain[i].data);
+		lws_free(ctx->chain);
+	}
+
+#if defined(LWS_WITH_TLS_SESSIONS)
+	if (ctx->lru_buffer)
+		lws_free(ctx->lru_buffer);
+#endif
+
+	lws_free(ctx);
+}

@@ -27,34 +27,36 @@
 
 #include "private-lib-core.h"
 
-#if defined(LWS_WITH_STUB)
-
-
+#if defined(LWS_WITH_CLIENT)
 struct lws_stub_req {
-	struct lws_dll2 list;
-	char *tx_buf;
-	size_t tx_len;
-	size_t tx_pos;
-	struct lejp_ctx jctx;
-	signed char (*rx_cb)(struct lejp_ctx *ctx, char reason);
-	void (*raw_cb)(const char *in, size_t len, void *user);
-	void *user;
+	struct lws_dll2			list;
+	char				*tx_buf;
+	size_t				tx_len;
+	size_t				tx_pos;
+	struct lejp_ctx			jctx;
+	signed char			(*rx_cb)(struct lejp_ctx *ctx, char reason);
+	void				(*raw_cb)(const char *in, size_t len, void *user);
+	void				*user;
 };
 
 struct lws_stub_manager {
-	struct lws_context *cx;
-	struct lws_vhost *vh;
-	char uds_path[256];
-	char secret[129];
-	struct lws_spawn_piped *lsp;
+	struct lws_context		*cx;
+	struct lws_vhost		*vh;
+	char				uds_path[256];
+	char				secret[129];
+	struct lws_spawn_piped		*lsp;
 
-	const struct lws_protocols *protocols;
+	const struct lws_protocols	*protocols;
 
-	struct lws *wsi_client;
-	struct lws_dll2_owner reqs;
+	struct lws			*wsi_client;
+	struct lws_dll2_owner		reqs;
 
-	lws_sorted_usec_list_t sul;
-	uint16_t ctry;
+	lws_sorted_usec_list_t		sul;
+	uint16_t			ctry;
+	char				stub_arg[128];
+	const char			*exec_array[5];
+	char				addr[256];
+	char				exe_path[256];
 };
 
 struct lws_stub_manager *
@@ -62,7 +64,6 @@ lws_stub_spawn(const struct lws_stub_config *config)
 {
 	struct lws_stub_manager *mgr;
 	struct lws_spawn_piped_info spawn_info;
-	const char *exec_array[5];
 	int n = 0;
 	uint8_t rand[64];
 
@@ -80,29 +81,43 @@ lws_stub_spawn(const struct lws_stub_config *config)
 	lws_hex_from_byte_array(rand, sizeof(rand), mgr->secret, sizeof(mgr->secret));
 
 	memset(&spawn_info, 0, sizeof(spawn_info));
-	const char *exe_path = lws_cmdline_option_cx_argv0(mgr->cx);
-#if defined(__linux__)
-	static char plat_exe_buf[256];
-	if (!exe_path || exe_path[0] != '/') {
-		int m = (int)readlink("/proc/self/exe", plat_exe_buf, sizeof(plat_exe_buf) - 1);
-		if (m > 0) {
-			plat_exe_buf[m] = '\0';
-			exe_path = plat_exe_buf;
+	const char *argv0 = lws_cmdline_option_cx_argv0(mgr->cx);
+	const char *exe_path = "/usr/local/bin/lwsws";
+
+	if (argv0) {
+		if (argv0[0] == '/') {
+			lws_strncpy(mgr->exe_path, argv0, sizeof(mgr->exe_path));
+			exe_path = mgr->exe_path;
 		} else {
-			exe_path = "/usr/local/bin/lwsws";
+#if defined(__linux__)
+			int m = (int)readlink("/proc/self/exe", mgr->exe_path, sizeof(mgr->exe_path) - 1);
+			if (m > 0) {
+				mgr->exe_path[m] = '\0';
+				exe_path = mgr->exe_path;
+			} else
+#endif
+#if !defined(WIN32)
+			{
+				/* Fallback to realpath of argv0 if possible */
+				if (realpath(argv0, mgr->exe_path))
+					exe_path = mgr->exe_path;
+				else
+					exe_path = argv0;
+			}
+#else
+			exe_path = argv0;
+#endif
 		}
 	}
-#endif
 
-	exec_array[n++] = exe_path;
-
+	mgr->exec_array[n++] = exe_path;
+	lwsl_notice("%s: Spawning stub with exe: %s\n", __func__, exe_path);
 	/* Construct the stub argument dynamically */
-	char stub_arg[128];
-	lws_snprintf(stub_arg, sizeof(stub_arg), "--lws-stub=%s", config->stub_name);
-	exec_array[n++] = stub_arg;
-	exec_array[n++] = NULL;
+	lws_snprintf(mgr->stub_arg, sizeof(mgr->stub_arg), "--lws-stub=%s", config->stub_name);
+	mgr->exec_array[n++] = mgr->stub_arg;
+	mgr->exec_array[n++] = NULL;
 
-	spawn_info.exec_array = exec_array;
+	spawn_info.exec_array = mgr->exec_array;
 	spawn_info.vh = mgr->vh;
 	spawn_info.protocol_name = NULL; /* Use the vhost's default protocol for the pipes */
 
@@ -115,7 +130,7 @@ lws_stub_spawn(const struct lws_stub_config *config)
 				goto spawn_fail;
 			}
 			if (config->extra_payload && config->extra_payload_len) {
-				if (write(stdin_fd, config->extra_payload, config->extra_payload_len) < 0) {
+				if (write(stdin_fd, config->extra_payload, (unsigned int)config->extra_payload_len) < 0) {
 					lwsl_err("%s: Failed writing extra payload to pipe\n", __func__);
 					goto spawn_fail;
 				}
@@ -140,6 +155,7 @@ spawn_fail:
 	lws_free(mgr);
 	return NULL;
 }
+#endif
 
 
 int
@@ -148,8 +164,17 @@ lws_stub_server_init(const struct lws_stub_config *config, char *secret_out, voi
 	struct lws_context_creation_info info;
 	struct lws_vhost *vh_uds;
 
+	size_t rx = 0;
+
 	/* 1. Read secret from stdin */
-	if (read(0, secret_out, 128) < 64) {
+	while (rx < 128) {
+		ssize_t n = read(0, secret_out + rx, 128 - (unsigned int)rx);
+		if (n <= 0)
+			break;
+		rx += (size_t)n;
+	}
+
+	if (rx < 64) {
 		lwsl_err("%s: Failed to read secret from stdin\n", __func__);
 		return -1;
 	}
@@ -157,9 +182,11 @@ lws_stub_server_init(const struct lws_stub_config *config, char *secret_out, voi
 
 	/* 1.5. Read extra payload if provided */
 	if (extra_out && extra_len > 0) {
-		ssize_t n = read(0, extra_out, extra_len);
-		if (n < (ssize_t)extra_len) {
-			lwsl_err("%s: Failed to read extra payload (got %d of %d)\n", __func__, (int)n, (int)extra_len);
+		/* We only do a single read here because the payload size is variable
+		 * and unknown to the child, and the pipe remains open for future IPC. */
+		ssize_t n = read(0, extra_out, (unsigned int)extra_len);
+		if (n < 0) {
+			lwsl_err("%s: Failed to read extra payload\n", __func__);
 			/* Non-fatal */
 		}
 	}
@@ -187,6 +214,7 @@ lws_stub_server_init(const struct lws_stub_config *config, char *secret_out, voi
 	return 0;
 }
 
+#if defined(LWS_WITH_CLIENT)
 static const uint32_t backoff_ms[] = { 100, 250, 500, 1000, 5000 };
 
 static const lws_retry_bo_t stub_retry = {
@@ -207,23 +235,23 @@ lws_stub_client_connect(struct lws_stub_manager *mgr)
 	struct lws_client_connect_info i;
 
 	memset(&i, 0, sizeof(i));
-	i.context = mgr->cx;
-	i.vhost = mgr->vh;
+	i.context		= mgr->cx;
+	i.vhost			= mgr->vh;
 
 	/* UNIX domain socket addresses need a '+' prefix */
-	char addr[256];
-	lws_snprintf(addr, sizeof(addr), "+%s", mgr->uds_path);
-	i.address = addr;
+	lws_snprintf(mgr->addr, sizeof(mgr->addr), "+%s", mgr->uds_path);
+	i.address		= mgr->addr;
 
-	i.port = 0;
-	i.protocol = "lws-stub-client";
-	i.local_protocol_name = "lws-stub-client";
-	i.host = i.address;
-	i.origin = i.address;
-	i.opaque_user_data = mgr;
+	i.port			= 0;
+	i.protocol		= "lws-stub-client";
+	i.local_protocol_name	= "lws-stub-client";
+	i.host			= NULL;
+	i.origin		= NULL;
+	i.opaque_user_data	= mgr;
 	i.retry_and_idle_policy = &stub_retry;
-	i.method = "RAW";
+	i.method		= "RAW"; /* RAW connection */
 
+	lwsl_vhost_notice(mgr->vh, "protocol %s, addr %s\n", i.protocol, i.address);
 	mgr->wsi_client = lws_client_connect_via_info(&i);
 	if (!mgr->wsi_client) {
 		if (mgr->ctry < 10) {
@@ -232,11 +260,11 @@ lws_stub_client_connect(struct lws_stub_manager *mgr)
 				mgr->ctry : stub_retry.retry_ms_table_count - 1];
 			mgr->ctry++;
 			if (mgr->ctry > 1)
-				lwsl_notice("%s: Synchronous connect failed, retrying in %u ms (attempt %d)\n", __func__, ms, mgr->ctry);
+				lwsl_notice("%s: Synchronous connect failed (errno %d), retrying in %u ms (attempt %d)\n", __func__, LWS_ERRNO, (unsigned int)ms, mgr->ctry);
 			lws_sul_schedule(mgr->cx, 0, &mgr->sul, stub_retry_cb, ms * 1000);
-		} else {
+		} else
 			lwsl_err("%s: Max retries reached\n", __func__);
-		}
+
 		return -1;
 	}
 
@@ -266,7 +294,7 @@ lws_callback_stub_client(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_RAW_CONNECTED:
-		lwsl_info("%s: UDS connected to stub\n", __func__);
+		lwsl_notice("%s: UDS connected to stub\n", __func__);
 		mgr->ctry = 0; /* Reset retry counter on success */
 		lws_callback_on_writable(wsi);
 		break;
@@ -278,7 +306,7 @@ lws_callback_stub_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 		struct lws_stub_req *req = lws_container_of(d, struct lws_stub_req, list);
 		if (req->tx_pos < req->tx_len) {
-			int n = lws_write(wsi, (unsigned char *)req->tx_buf + req->tx_pos,
+			int n = lws_write(wsi, (unsigned char *)req->tx_buf + LWS_PRE + req->tx_pos,
 					  req->tx_len - req->tx_pos, LWS_WRITE_RAW);
 			if (n < 0)
 				return -1;
@@ -339,29 +367,28 @@ lws_stub_request(struct lws_stub_manager *mgr,
 	if (!req)
 		return -1;
 
-	req->rx_cb = rx_cb;
-	req->raw_cb = raw_cb;
-	req->user = user;
+	req->rx_cb	= rx_cb;
+	req->raw_cb	= raw_cb;
+	req->user	= user;
 
 	if (rx_cb)
 		lejp_construct(&req->jctx, rx_cb, user, rx_paths, (uint8_t)rx_paths_count);
 
 	size_t n = strlen(json);
-	req->tx_buf = lws_malloc(n + 1, "stub_req_tx");
+	req->tx_buf = lws_malloc(n + LWS_PRE + 1, "stub_req_tx");
 	if (!req->tx_buf) {
 		lws_free(req);
 		return -1;
 	}
-	memcpy(req->tx_buf, json, n);
+	memcpy((unsigned char *)req->tx_buf + LWS_PRE, json, n);
 	req->tx_len = n;
 
 	lws_dll2_add_tail(&req->list, &mgr->reqs);
 
-	if (!mgr->wsi_client) {
+	if (!mgr->wsi_client)
 		lws_stub_client_connect(mgr);
-	} else {
+	else
 		lws_callback_on_writable(mgr->wsi_client);
-	}
 
 	return 0;
 }
@@ -371,6 +398,7 @@ void
 lws_stub_destroy(struct lws_stub_manager **_mgr)
 {
 	struct lws_stub_manager *mgr = *_mgr;
+
 	if (!mgr)
 		return;
 
@@ -393,5 +421,4 @@ lws_stub_destroy(struct lws_stub_manager **_mgr)
 	lws_free(mgr);
 	*_mgr = NULL;
 }
-
-#endif /* LWS_WITH_STUB */
+#endif

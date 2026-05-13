@@ -495,12 +495,7 @@ post_ecdh:
 	return 0;
 }
 
-void
-lws_tls_vhost_backend_free_ctx(lws_tls_ctx *ctx)
-{
-	if (ctx)
-		SSL_CTX_free(ctx);
-}
+
 
 int
 lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
@@ -530,7 +525,7 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 	}
 	/* Added for sniffing packets on hub side */
 #if defined(LWS_HAVE_SSL_CTX_set_keylog_callback) && \
-		defined(LWS_WITH_TLS) && (!defined(LWS_WITHOUT_CLIENT) || !defined(LWS_WITHOUT_SERVER))
+		defined(LWS_WITH_TLS) && (defined(LWS_WITH_CLIENT) || defined(LWS_WITH_SERVER))
 	SSL_CTX_set_keylog_callback(tls->ssl_ctx, lws_klog_dump);
 #endif
 
