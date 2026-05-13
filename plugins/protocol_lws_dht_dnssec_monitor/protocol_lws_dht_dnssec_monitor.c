@@ -415,15 +415,19 @@ scan_dir_cb_expiry(const char *dirpath, void *user, struct lws_dir_entry *lde)
 			return 0;
 
 		char output_path[1024];
-		lws_snprintf(output_path, sizeof(output_path), "%s/domains/%s/%s.zone.signed", vhd->base_dir, pc.common_name, pc.common_name);
 
-		struct stat st_out;
-		if (stat(output_path, &st_out) == 0) {
-			time_t now = time(NULL);
-			if (now > st_out.st_mtime && (uint32_t)(now - st_out.st_mtime) >= (vhd->signature_duration * 3 / 4)) {
-				lwsl_user("dnssec-monitor: signed zone %s is older than 75%% of signature lifetime, triggering resign by unlinking!\n", output_path);
-				unlink(output_path);
+		lws_snprintf(output_path, sizeof(output_path), "%s/domains/%s/%s.zone.signed", vhd->base_dir, pc.common_name, pc.common_name);
+		int fd = open(output_path, O_RDONLY);
+		if (fd >= 0) {
+			struct stat st_out;
+			if (fstat(fd, &st_out) == 0) {
+				time_t now = time(NULL);
+				if (now > st_out.st_mtime && (uint32_t)(now - st_out.st_mtime) >= (vhd->signature_duration * 3 / 4)) {
+					lwsl_user("dnssec-monitor: signed zone %s is older than 75%% of signature lifetime, triggering resign by unlinking!\n", output_path);
+					unlink(output_path);
+				}
 			}
+			close(fd);
 		}
 	}
 
