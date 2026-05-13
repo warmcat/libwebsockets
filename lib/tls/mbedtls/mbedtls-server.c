@@ -120,6 +120,9 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 	uint8_t *p = NULL;
 	long err;
 	int n;
+	mbedtls_x509_crt extras = {0};
+	mbedtls_x509_crt *leaf = NULL;
+	mbedtls_x509_crt *tail = NULL;
 
 	if ((!cert || !private_key) && (!mem_cert || !mem_privkey)) {
 		lwsl_notice("%s: no usable input\n", __func__);
@@ -168,6 +171,45 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 		lwsl_err("Problem loading cert\n");
 		return 1;
 	}
+
+	/*
+	 * The single-cert load above only installs the leaf. If the PEM source
+	 * contains a chain (leaf + intermediates [+ root]), parse the whole
+	 * file and splice the intermediates onto the leaf's mbedtls_x509_crt
+	 * ->next list so the TLS handshake sends them on the wire.
+	 */
+	mbedtls_x509_crt_init(&extras);
+
+	if (cert)
+		n = mbedtls_x509_crt_parse_file(&extras, cert);
+	else if (mem_cert && mem_cert_len)
+		n = mbedtls_x509_crt_parse(&extras,
+									(const unsigned char *)mem_cert,
+									(size_t)mem_cert_len);
+
+	if (n == 0 && extras.next) {
+		leaf = ssl_ctx_get_mbedtls_x509_crt(vhost->tls.ssl_ctx);
+		if (leaf) {
+			tail = leaf;
+			while (tail->next)
+				tail = tail->next;
+			/*
+			 * Detach the intermediates from `extras` and hang
+			 * them off the leaf. mbedtls_x509_crt_free(&extras)
+			 * will then only free `extras` itself (cert #1, a
+			 * duplicate of the leaf), not the chain we kept.
+			 */
+			tail->next = extras.next;
+			extras.next = NULL;
+			lwsl_notice("%s: appended chain certs from %s\n",
+						__func__, cert ? cert : "(mem)");
+		}
+	} else if (n < 0) {
+		lwsl_warn("%s: chain parse n=-0x%x; serving leaf only\n",
+					__func__, -n);
+	}
+
+	mbedtls_x509_crt_free(&extras);
 
 	if (lws_tls_alloc_pem_to_der_file(vhost->context, private_key,
 					  (char *)mem_privkey, mem_privkey_len,
