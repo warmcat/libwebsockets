@@ -641,3 +641,10 @@ const struct lws_tls_ops tls_ops_openssl = {
 	.fake_POLLIN_for_buffered = tops_fake_POLLIN_for_buffered_openssl,
 	.process_cleanup = tops_process_cleanup_openssl,
 };
+
+void
+lws_tls_vhost_backend_free_ctx(lws_tls_ctx *ctx)
+{
+	if (ctx)
+		SSL_CTX_free(ctx);
+}

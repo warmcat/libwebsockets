@@ -692,7 +692,9 @@ lws_create_vhost(struct lws_context *context,
 #if defined(LWS_WITH_DHT)
 	extern const struct lws_protocols lws_dht_protocol;
 #endif
+#if defined(LWS_WITH_CLIENT)
 	extern const struct lws_protocols lws_async_ipc_protocol;
+#endif
 	int n;
 
 
@@ -926,7 +928,10 @@ lws_create_vhost(struct lws_context *context,
 				((unsigned int)vh->count_protocols +
 				   (unsigned int)abs_pcol_count +
 				   (unsigned int)sec_pcol_count +
-				   (unsigned int)dht_count + 1 +
+				   (unsigned int)dht_count +
+#if defined(LWS_WITH_CLIENT)
+				   1 +
+#endif
 				   (unsigned int)context->plugin_protocol_count +
 				   (unsigned int)fx + 1), "vh plugin table");
 	if (!lwsp) {
@@ -991,9 +996,12 @@ lws_create_vhost(struct lws_context *context,
 	vh->count_protocols++;
 #endif
 
+#if defined(LWS_WITH_CLIENT)
 	memcpy(&lwsp[m], &lws_async_ipc_protocol, sizeof(*lwsp));
 	m++;
 	vh->count_protocols++;
+#endif
+
 
 	/*
 	 * 3: For compatibility, all protocols enabled on vhost if only

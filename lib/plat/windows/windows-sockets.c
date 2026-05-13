@@ -99,6 +99,9 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd,
 	struct protoent *tcp_proto;
 #endif
 
+	if (unix_skt)
+		return lws_plat_set_nonblocking(fd);
+
 	if (vhost->ka_time) {
 		/* enable keepalive on this socket */
 		optval = 1;
@@ -139,8 +142,8 @@ lws_plat_set_socket_options(struct lws_vhost *vhost, lws_sockfd_type fd,
 #endif
 
 	if (setsockopt(fd, protonbr, TCP_NODELAY, (const char *)&optval, optlen) ) {
-#if (_LWS_ENABLED_LOGS & LLL_WARN)
-		lwsl_warn("setsockopt TCP_NODELAY 1 failed with error %d\n", LWS_ERRNO);
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
+		lwsl_info("setsockopt TCP_NODELAY 1 failed with error %d\n", LWS_ERRNO);
 #endif
 	}
 
@@ -152,8 +155,19 @@ lws_plat_set_socket_options_ip(lws_sockfd_type fd, uint8_t pri, int lws_flags)
 {	
 	int optval = 1, ret = 0;
 	socklen_t optlen = sizeof(optval);
+#if defined(LWS_WITH_UNIX_SOCK)
+	WSAPROTOCOL_INFOW info;
+	int info_len = sizeof(info);
+#endif
 #if (_LWS_ENABLED_LOGS & LLL_WARN)
 	int en;
+#endif
+
+#if defined(LWS_WITH_UNIX_SOCK)
+	if (getsockopt(fd, SOL_SOCKET, SO_PROTOCOL_INFOW, (char *)&info, &info_len) == 0) {
+		if (info.iAddressFamily == AF_UNIX)
+			return 0;
+	}
 #endif
 
 	/*

@@ -502,9 +502,13 @@ ads_known:
 #if defined(LWS_WITH_UNIX_SOCK)
 	if (wsi->unix_skt) {
 		psa = (const struct sockaddr *)&sau;
-		if (sau.sun_path[0])
+		if (sau.sun_path[0]) {
+#if defined(WIN32)
+			n = (int)(sizeof(uint16_t) + strlen(sau.sun_path) + 1);
+#else
 			n = (int)(sizeof(uint16_t) + strlen(sau.sun_path));
-		else
+#endif
+		} else
 			n = (int)(sizeof(uint16_t) +
 					strlen(&sau.sun_path[1]) + 1);
 	} else
@@ -647,6 +651,7 @@ ads_known:
 					     "conn fail: %s: UDS %s",
 					     lws_errno_describe(errno_copy, t16, sizeof(t16)), ads);
 				cce = dcce;
+				lwsl_wsi_info(wsi, "%s", cce);
 			}
 #endif
 #endif
@@ -716,7 +721,7 @@ conn_good:
 				(struct sockaddr *)&wsi->sa46_local,
 				&salen) == -1) {
 			en = LWS_ERRNO;
-			lwsl_warn("getsockname: %s\n", lws_errno_describe(en, t16, sizeof(t16)));
+			lwsl_info("getsockname: %s\n", lws_errno_describe(en, t16, sizeof(t16)));
 		}
 #if defined(_DEBUG)
 #if defined(LWS_WITH_UNIX_SOCK)

@@ -550,8 +550,10 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
-		if (!vhd || vhd->is_stub) break;
-		if (!pss->established) return -1;
+		if (!vhd || vhd->is_stub)
+                        break;
+		if (!pss->established)
+                        return -1;
 
 		/* If we have the payload from the UDS, write it to WSS */
 		if (pss->uds_rx && pss->uds_rx_len > 0) {

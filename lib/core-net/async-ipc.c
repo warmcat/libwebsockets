@@ -23,6 +23,9 @@
  */
 
 #include "private-lib-core.h"
+
+#if defined(LWS_WITH_CLIENT)
+
 #include <string.h>
 
 struct lws_async_ipc_msg {
@@ -306,3 +309,4 @@ lws_async_ipc_queue_payload(struct lws_async_ipc *ipc,
 
 	return 0;
 }
+#endif

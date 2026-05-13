@@ -801,7 +801,12 @@ if (LWS_WITH_PLUGINS_API AND UNIX AND CMAKE_DL_LIBS AND NOT (${CMAKE_SYSTEM_NAME
 endif()
 
 
+if (LWS_WITHOUT_CLIENT OR LWS_WITHOUT_SERVER)
+	set(LWS_WITH_STUB OFF)
+endif()
+
 if (WIN32 OR MSVC)
+
 	CHECK_C_SOURCE_COMPILES("#include <winsock2.h>
 				 #include <afunix.h>
 				 int main() { return 0; }" LWS_HAVE_WIN32_AFUNIX_H)

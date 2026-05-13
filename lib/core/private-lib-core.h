@@ -448,7 +448,7 @@ struct lws_context {
 	char canonical_hostname[96];
  #endif
 #if defined(LWS_HAVE_SSL_CTX_set_keylog_callback) && \
-	defined(LWS_WITH_TLS) && (!defined(LWS_WITHOUT_CLIENT) || !defined(LWS_WITHOUT_SERVER))
+	defined(LWS_WITH_TLS) && (defined(LWS_WITH_CLIENT) || defined(LWS_WITH_SERVER))
 	char					keylog_file[96];
 #endif
 

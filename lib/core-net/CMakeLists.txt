@@ -27,7 +27,6 @@ include_directories(.)
 list(APPEND SOURCES
 	core-net/dummy-callback.c
 	core-net/output.c
-	core-net/async-ipc.c
 	core-net/close.c
 	core-net/network.c
 	core-net/vhost.c
@@ -38,7 +37,6 @@ list(APPEND SOURCES
 	core-net/wsi-timeout.c
 	core-net/adopt.c
 	core-net/txpacer.c
-	core-net/stub.c
 	roles/pipe/ops-pipe.c
 )
 
@@ -47,6 +45,19 @@ if (LWS_WITH_LATENCY)
 		core-net/latency.c
 	)
 endif()
+
+if (LWS_WITH_STUB AND NOT LWS_WITHOUT_CLIENT)
+	list(APPEND SOURCES
+		core-net/stub.c
+	)
+endif()
+
+if (NOT LWS_WITHOUT_CLIENT)
+	list(APPEND SOURCES
+		core-net/async-ipc.c
+	)
+endif()
+
 
 if (LWS_WITH_TRANSPORT_SEQUENCER)
 	list(APPEND SOURCES
