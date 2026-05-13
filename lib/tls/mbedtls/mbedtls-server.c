@@ -327,8 +327,6 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 	if (n == LWS_TLS_EXTANT_NO &&
 	    (vhost->options & LWS_SERVER_OPTION_IGNORE_MISSING_CERT)) {
 		lwsl_notice("No certs found, continuing without SSL_CTX\n");
-		SSL_free(vhost->tls.ssl_ctx); // mbedtls wrapper uses SSL_free for its context sometimes?
-		// Wait, SSL_CTX_free is the correct openssl-wrapper function.
 		SSL_CTX_free(vhost->tls.ssl_ctx);
 		vhost->tls.ssl_ctx = NULL;
 		return 0;
