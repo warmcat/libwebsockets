@@ -479,7 +479,7 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 		union lws_tls_cert_info_results *ir = (union lws_tls_cert_info_results *)buf;
 		char *p;
 
-		if (vhd->is_stub) return -1; /* Stub doesn't accept WSS */
+		if (!vhd || vhd->is_stub) return -1; /* Stub doesn't accept WSS */
 
 		if (lws_tls_peer_cert_info(wsi, LWS_TLS_CERT_INFO_COMMON_NAME, ir, sizeof(buf))) {
 			lws_close_reason(wsi, LWS_CLOSE_STATUS_POLICY_VIOLATION, (unsigned char *)"No CN in client cert", 20);
@@ -510,7 +510,7 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 	}
 
 	case LWS_CALLBACK_TIMER:
-		if (!vhd->is_stub && pss->established && !pss->wsi_uds && !pss->needs_cert_update) {
+		if (vhd && !vhd->is_stub && pss->established && !pss->wsi_uds && !pss->needs_cert_update) {
 			/* Timer expired without getting a hash, fetch anyway */
 			pss->needs_cert_update = 1;
 			lws_callback_on_writable(wsi);
@@ -518,7 +518,7 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_RECEIVE:
-		if (!vhd->is_stub && pss->established && !pss->needs_cert_update) {
+		if (vhd && !vhd->is_stub && pss->established && !pss->needs_cert_update) {
 			/* Expecting {"hash":"..."} */
 			char *h = strstr((char *)in, "\"hash\":\"");
 			if (h) {
@@ -538,7 +538,7 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLOSED:
-		if (!vhd->is_stub && pss->established) {
+		if (vhd && !vhd->is_stub && pss->established) {
 			lws_dll2_remove(&pss->list);
 			if (pss->uds_tx) free(pss->uds_tx);
 			if (pss->uds_rx) free(pss->uds_rx);
@@ -550,7 +550,7 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
-		if (vhd->is_stub) break;
+		if (!vhd || vhd->is_stub) break;
 		if (!pss->established) return -1;
 
 		/* If we have the payload from the UDS, write it to WSS */
@@ -573,7 +573,7 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!pss->wsi_uds && pss->needs_cert_update) {
 			pss->needs_cert_update = 0;
 
-			if (!vhd || !vhd->stub_mgr) {
+			if (!vhd->stub_mgr) {
 				lwsl_err("%s: No stub manager present on vhost '%s', cannot request certs!\n",
 					__func__, lws_get_vhost_name(lws_get_vhost(wsi)));
 				return -1;
