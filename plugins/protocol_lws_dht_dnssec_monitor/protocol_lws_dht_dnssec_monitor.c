@@ -916,8 +916,9 @@ handle_req_reset_dist_pki(struct vhd *vhd, struct pss *root_pss, struct monitor_
 	fd = open(path, O_RDONLY);
 	if (fd >= 0) {
 		ssize_t n = read(fd, domain, sizeof(domain) - 1);
+		if (n < 0) n = 0;
+		domain[n] = '\0';
 		if (n > 0) {
-			domain[n] = '\0';
 			char *nl = strchr(domain, '\n');
 			if (nl) *nl = '\0';
 		}
@@ -1893,8 +1894,9 @@ handle_req_get_dist_server_domain(struct vhd *vhd, struct pss *root_pss, struct 
 	fd = open(path, O_RDONLY);
 	if (fd >= 0) {
 		ssize_t n = read(fd, domain, sizeof(domain) - 1);
+		if (n < 0) n = 0;
+		domain[n] = '\0';
 		if (n > 0) {
-			domain[n] = '\0';
 			char *nl = strchr(domain, '\n');
 			if (nl) *nl = '\0';
 		}
