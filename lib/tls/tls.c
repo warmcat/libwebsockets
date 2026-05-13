@@ -404,7 +404,7 @@ lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 			      const char *inbuf, lws_filepos_t inlen,
 			      uint8_t **buf, lws_filepos_t *amount)
 {
-	uint8_t *pem = NULL, *p, *end, *opem;
+	uint8_t *pem = NULL, *p, *end;
 	lws_filepos_t len;
 	uint8_t *q;
 	int n;
@@ -421,7 +421,7 @@ lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 	if (len && pem[len - 1] == '\0')
 		len--;
 
-	opem = p = pem;
+	p = pem;
 	end = p + len;
 
 	if (strncmp((char *)p, "-----", 5)) {
@@ -472,14 +472,13 @@ lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 
 	p++;
 
-	/* trim the last line */
+	/* find the end of the base64 block */
 
-	q = (uint8_t *)end - 2;
+	q = p;
+	while (q < end && strncmp((const char *)q, "-----END", 8))
+		q++;
 
-	while (q > opem && *q != '\n')
-		q--;
-
-	if (*q != '\n')
+	if (q == end)
 		goto bail;
 
 	/* we can't write into the input buffer for mem, since it may be in RO
