@@ -3099,12 +3099,14 @@ fallback:
 				lwsl_notice("%s: Completed ACME directory fetch (%zu bytes)\n", __func__, afi->json_len);
 
 				int found = 0;
-				lws_start_foreach_dll(struct lws_dll2 *, p, vhd->clients.head) {
-					if (lws_container_of(p, struct pss, list) == afi->root_pss) found = 1;
-				} lws_end_foreach_dll(p);
-				lws_start_foreach_dll(struct lws_dll2 *, p, vhd->ui_clients.head) {
-					if (lws_container_of(p, struct pss, list) == afi->root_pss) found = 1;
-				} lws_end_foreach_dll(p);
+				if (vhd) {
+					lws_start_foreach_dll(struct lws_dll2 *, p, vhd->clients.head) {
+						if (lws_container_of(p, struct pss, list) == afi->root_pss) found = 1;
+					} lws_end_foreach_dll(p);
+					lws_start_foreach_dll(struct lws_dll2 *, p, vhd->ui_clients.head) {
+						if (lws_container_of(p, struct pss, list) == afi->root_pss) found = 1;
+					} lws_end_foreach_dll(p);
+				}
 
 				if (found) {
 					struct pss *wpss = afi->root_pss;
