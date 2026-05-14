@@ -83,6 +83,7 @@ struct vhd {
 	uint32_t signature_duration;
 
 	lws_sorted_usec_list_t sul_timer;
+	lws_sorted_usec_list_t sul_fast_timer;
 	struct lws_dir_notify *dn;
 
 	struct lws_spawn_piped *lsp;
@@ -523,6 +524,18 @@ dnssec_monitor_expiry_timer_cb(struct lws_sorted_usec_list *sul)
 	lws_dir(scan_path, vhd, scan_dir_cb_expiry);
 
 	lws_sul_schedule(vhd->context, 0, &vhd->sul_timer, dnssec_monitor_expiry_timer_cb, 4 * 3600 * LWS_US_PER_SEC);
+}
+
+static void
+dnssec_monitor_fast_timer_cb(struct lws_sorted_usec_list *sul)
+{
+	struct vhd *vhd = lws_container_of(sul, struct vhd, sul_fast_timer);
+	char scan_path[1024];
+
+	lws_snprintf(scan_path, sizeof(scan_path), "%s/domains", vhd->base_dir);
+	lws_dir(scan_path, vhd, scan_dir_cb_fast);
+
+	lws_sul_schedule(vhd->context, 0, &vhd->sul_fast_timer, dnssec_monitor_fast_timer_cb, 5 * LWS_US_PER_SEC);
 }
 
 
@@ -1189,8 +1202,14 @@ handle_req_update_zone(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 		if (write(fd, a->zone_buf, (size_t)a->zone_len) == (ssize_t)a->zone_len) {
 			char signed_path[1024];
 			lws_snprintf(signed_path, sizeof(signed_path), "%s/domains/%s/%s.zone.signed", vhd->base_dir, a->domain, a->domain);
-			lwsl_user("%s: Unlinking signed zone %s to trigger resign\n", __func__, signed_path);
+			lwsl_user("%s: Unlinking signed zone %s to trigger immediate resign\n", __func__, signed_path);
+			fsync(fd);
 			unlink(signed_path);
+
+			/* Immediately trigger the fast timer to sign, and the parent timer to publish */
+			lws_sul_schedule(vhd->context, 0, &vhd->sul_fast_timer, dnssec_monitor_fast_timer_cb, 1);
+			lws_sul_schedule(vhd->context, 0, &vhd->sul_timer, parent_dnssec_monitor_timer_cb, 100 * LWS_US_PER_MS);
+
 			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
 		} else {
 			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Partial write failure\"}\n", a->req);
@@ -2572,6 +2591,7 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 
 									/* Guarantee absolute discovery independently of Unix kernel notify boundaries */
 									lws_sul_schedule(vhd->context, 0, &vhd->sul_timer, dnssec_monitor_expiry_timer_cb, 1 * LWS_US_PER_SEC);
+									lws_sul_schedule(vhd->context, 0, &vhd->sul_fast_timer, dnssec_monitor_fast_timer_cb, 5 * LWS_US_PER_SEC);
 
 #if defined(LWS_WITH_DIR)
 									vhd->dn = lws_dir_notify_create(cx, scan_path, dir_notify_cb, vhd);
@@ -2864,6 +2884,7 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		lws_jwk_destroy(&vhd->jwk);
 		lws_sul_cancel(&vhd->sul_timer);
+		lws_sul_cancel(&vhd->sul_fast_timer);
 #if defined(LWS_WITH_DIR)
 			if (vhd->dn) {
 				lws_dir_notify_destroy(&vhd->dn);
