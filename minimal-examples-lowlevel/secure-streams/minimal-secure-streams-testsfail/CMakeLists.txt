@@ -18,7 +18,13 @@ require_lws_config(USE_WOLFSSL 0 requirements)
 require_lws_config(LWS_WITH_TLS 1 requirements)
 
 if (requirements)
+    option(LWS_WITH_SS_TESTS_HTTP_ONLY "Enable HTTP-only tests that require a local go-httpbin in secure streams test suite" ON)
+
 	add_executable(${SAMP} minimal-secure-streams-testsfail.c)
+
+	if(LWS_WITH_SS_TESTS_HTTP_ONLY)
+    	target_compile_definitions(${SAMP} PRIVATE LWS_WITH_SS_TESTS_HTTP_ONLY)
+	endif()
 
 	find_program(VALGRIND "valgrind")
 
