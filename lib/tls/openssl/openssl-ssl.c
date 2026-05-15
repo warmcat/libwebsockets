@@ -509,7 +509,8 @@ lws_ssl_close(struct lws *wsi)
 	n = SSL_get_fd(wsi->tls.ssl);
 	if (!wsi->socket_is_permanently_unusable)
 		SSL_shutdown(wsi->tls.ssl);
-	compatible_close(n);
+	if (n != (lws_sockfd_type)LWS_SOCK_INVALID && n != (lws_sockfd_type)-1)
+		compatible_close(n);
 	SSL_free(wsi->tls.ssl);
 	wsi->tls.ssl = NULL;
 

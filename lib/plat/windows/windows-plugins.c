@@ -59,7 +59,7 @@ lws_plat_dlopen(struct lws_plugin **pplugin, const char *libpath,
 	m = lws_snprintf(sym, sizeof(sym) - 1, "%s", sofilename);
 	if (m < 4)
 		goto bail;
-	dot = strchr(sym, '.');
+	dot = (char *)strchr(sym, '.');
 	if (dot)
 		*dot = '\0'; /* snip the .so or .lib or what-have-you*/
 

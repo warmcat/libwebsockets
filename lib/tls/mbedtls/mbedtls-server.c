@@ -398,7 +398,7 @@ lws_tls_server_accept(struct lws *wsi)
 	wsi->skip_fallback = 1;
 	if (n == 1) {
 
-		if (strstr(wsi->a.vhost->name, ".invalid")) {
+		if ((char *)strstr(wsi->a.vhost->name, ".invalid")) {
 			lwsl_notice("%s: vhost has .invalid, "
 				    "rejecting accept\n", __func__);
 

@@ -1,0 +1,198 @@
+# libwebsockets QUIC and TLS Backends
+
+Libwebsockets supports the QUIC transport protocol (RFC 9000) using a variety of TLS backends. Since QUIC relies on TLS 1.3 for its cryptographic handshake and secret derivation, configuring your chosen TLS library correctly is essential.
+
+This guide outlines how to clone, build, and link each supported TLS backend for use with lws QUIC, specifically targeting the `lws-minimal-quic-client-server` tests.
+
+## General Considerations
+
+When building static libraries for your TLS backend, you **must** build them with Position Independent Code (`-fPIC`) if you intend to link them into the `libwebsockets.so` shared library. If you forget to do this, your linker will throw (eg, for x86_64) an `R_X86_64_32 against .rodata can not be used when making a shared object` error.
+
+Alternatively, if you only want to build the static `libwebsockets.a` and its executable tests, you can append `-DLWS_WITH_SHARED=OFF` to your lws `cmake` command.
+
+---
+
+## 1. BoringSSL
+
+BoringSSL provides a robust QUIC API that lws fully integrates with.
+
+*   **Source:** `git clone https://boringssl.googlesource.com/boringssl`
+*   **Building BoringSSL:**
+    ```bash
+    cd boringssl && mkdir build && cd build
+    cmake .. -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+    make -j
+    ```
+*   **Building lws:**
+    BoringSSL doesn't export standard CMake packages, so you must explicitly specify the library paths.
+    ```bash
+    cmake .. \
+        -DLWS_WITH_BORINGSSL=ON \
+        -DOPENSSL_INCLUDE_DIRS="/path/to/boringssl/include" \
+        -DOPENSSL_LIBRARIES="/path/to/boringssl/build/libssl.a;/path/to/boringssl/build/libcrypto.a" \
+        -DLWS_ROLE_QUIC=ON
+    make -j
+    ```
+
+## 2. AWS-LC
+
+AWS-LC is a fork of BoringSSL with identical QUIC capabilities but different build targets.
+
+*   **Source:** `git clone https://github.com/aws/aws-lc.git`
+*   **Building AWS-LC:**
+    ```bash
+    cd aws-lc && mkdir build && cd build
+    cmake .. -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DBUILD_SHARED_LIBS=OFF
+    make -j
+    ```
+*   **Building lws:**
+    ```bash
+    cmake .. \
+        -DLWS_WITH_AWSLC=ON \
+        -DOPENSSL_INCLUDE_DIRS="/path/to/aws-lc/include" \
+        -DOPENSSL_LIBRARIES="/path/to/aws-lc/build/ssl/libssl.a;/path/to/aws-lc/build/crypto/libcrypto.a" \
+        -DLWS_ROLE_QUIC=ON
+    make -j
+    ```
+
+## 3. OpenSSL
+
+OpenSSL 3.2 and later provides native QUIC support.
+
+*   **Source:** `git clone https://github.com/openssl/openssl.git`
+*   **Building OpenSSL:**
+    ```bash
+    cd openssl
+    ./config -fPIC no-shared
+    make -j
+    ```
+*   **Building lws:**
+    ```bash
+    cmake .. \
+        -DLWS_WITH_SSL=ON \
+        -DOPENSSL_ROOT_DIR="/path/to/openssl" \
+        -DLWS_ROLE_QUIC=ON
+    make -j
+    ```
+
+## 4. wolfSSL
+
+wolfSSL supports QUIC, but it must be explicitly enabled during configuration.
+
+*   **Source:** `git clone https://github.com/wolfSSL/wolfssl.git`
+*   **Building wolfSSL:**
+    ```bash
+    cd wolfssl
+    ./autogen.sh
+    ./configure --enable-libwebsockets --enable-quic --enable-session-ticket --enable-earlydata --enable-all CFLAGS="-fPIC"
+    make -j
+    ```
+*   **Building lws:**
+    ```bash
+    cmake .. \
+        -DLWS_WITH_WOLFSSL=ON \
+        -DWOLFSSL_INCLUDE_DIRS="/path/to/wolfssl" \
+        -DWOLFSSL_LIBRARIES="/path/to/wolfssl/src/.libs/libwolfssl.a" \
+        -DLWS_ROLE_QUIC=ON
+    make -j
+    ```
+
+## 5. mbedTLS
+
+mbedTLS version 3.x is required for QUIC support in lws.
+
+*   **Source:** `git clone https://github.com/Mbed-TLS/mbedtls.git`
+*   **Building mbedTLS:**
+    ```bash
+    cd mbedtls
+    cmake . -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+    make -j
+    ```
+*   **Building lws:**
+    ```bash
+    cmake .. \
+        -DLWS_WITH_MBEDTLS=ON \
+        -DMBEDTLS_INCLUDE_DIRS="/path/to/mbedtls/include" \
+        -DMBEDTLS_LIBRARIES="/path/to/mbedtls/library/libmbedcrypto.a;/path/to/mbedtls/library/libmbedx509.a;/path/to/mbedtls/library/libmbedtls.a" \
+        -DLWS_ROLE_QUIC=ON
+    make -j
+    ```
+
+## 6. GnuTLS
+
+GnuTLS supports QUIC natively in modern versions. It can typically be installed via your system's package manager, saving you the trouble of building it from source.
+
+*   **Ubuntu/Debian:** `sudo apt install libgnutls28-dev`
+*   **Building lws (with system GnuTLS):**
+    ```bash
+    cmake .. \
+        -DLWS_WITH_GNUTLS=ON \
+        -DLWS_ROLE_QUIC=ON
+    make -j
+    ```
+
+### Building GnuTLS from source
+
+If you want to build GnuTLS from scratch (for example, to get the absolute latest QUIC fixes without conflicting with your system's `libgnutls`), you can compile it locally and point lws to the build directory.
+
+*   **Source:** `git clone https://gitlab.com/gnutls/gnutls.git`
+*   **Building GnuTLS:**
+    GnuTLS requires `nettle` and `gmp` installed on your system (e.g., `sudo apt install nettle-dev libgmp-dev`).
+    In addition running bootstrap requires a lot of dependencies installed:
+      gnulib-devel gtk-doc bison gettext gperf
+    You can't go on with the build until bootstrap says it's happy with "./bootstrap: done.  Now you can run './configure'."
+    ```bash
+    cd gnutls
+    ./bootstrap
+    autoconf
+    ./configure --with-included-libtasn1 --with-included-unistring --without-p11-kit --disable-doc
+    make -j
+    ```
+*   **Building lws:**
+    You can point lws directly to your uninstalled GnuTLS build directory using the `LWS_GNUTLS_` CMake variables.
+    ```bash
+    cmake .. \
+        -DLWS_WITH_GNUTLS=ON \
+        -DLWS_GNUTLS_INCLUDE_DIRS="/path/to/gnutls/lib/includes" \
+        -DLWS_GNUTLS_LIBRARIES="/path/to/gnutls/lib/.libs/libgnutls.so" \
+        -DLWS_ROLE_QUIC=ON
+    make -j
+    ```
+
+    *Alternatively, you can use `pkg-config` by pointing it to the uninstalled GnuTLS `.pc` file:*
+    ```bash
+    PKG_CONFIG_PATH="/path/to/gnutls/lib" cmake .. \
+        -DLWS_WITH_GNUTLS=ON \
+        -DLWS_ROLE_QUIC=ON
+    make -j
+    ```
+
+## 7. LibreSSL
+
+LibreSSL provides standard OpenSSL API compatibility for QUIC.
+
+*   **Source:** `git clone https://github.com/libressl/libressl.git`
+*   **Building LibreSSL:**
+    ```bash
+    cd libressl
+    cmake . -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+    make -j
+    ```
+*   **Building lws:**
+    ```bash
+    cmake .. \
+        -DLWS_WITH_LIBRESSL=ON \
+        -DOPENSSL_ROOT_DIR="/path/to/libressl" \
+        -DLWS_ROLE_QUIC=ON
+    make -j
+    ```
+
+## 8. SChannel (Windows)
+
+SChannel is native to Windows, so no third-party TLS library compilation is required. SChannel uses Windows MSQuic APIs under the hood.
+
+*   **Building lws (from a Visual Studio Command Prompt):**
+    ```cmd
+    cmake .. -DLWS_WITH_SCHANNEL=ON -DLWS_ROLE_QUIC=ON
+    cmake --build . --config Release
+    ```

@@ -341,7 +341,6 @@ typedef pthread_mutex_t lws_mutex_t;
 #if defined(LWS_WITH_TLS)
 
 #if defined(LWS_WITH_SCHANNEL)
-#include <wincrypt.h>
 typedef struct lws_tls_schannel_conn SSL;
 typedef struct lws_tls_schannel_ctx SSL_CTX;
 typedef struct lws_tls_schannel_bio BIO;

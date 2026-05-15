@@ -596,6 +596,7 @@ struct lws_vhost {
 #if defined(LWS_WITH_TLS_SESSIONS)
 	uint32_t		tls_session_cache_max;
 #endif
+	uint32_t		quic_mtu;
 	uint32_t		protocol_init; /* bitmap indicating if protocol initialized */
 #if defined(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY) || defined(LWS_WITH_SECURE_STREAMS_CPP)
 	int8_t			ss_refcount;
@@ -753,8 +754,11 @@ struct lws {
 #if defined(LWS_ROLE_MQTT)
 	struct _lws_mqtt_related	*mqtt;
 #endif
+#if defined(LWS_ROLE_QUIC)
+	struct _lws_quic_related	quic;
+#endif
 
-#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT)
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT) || defined(LWS_ROLE_QUIC)
 	struct lws_muxable		mux;
 	struct lws_tx_credit		txc;
 #endif

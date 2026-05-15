@@ -627,7 +627,7 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 					if (v) {
 						size_t kl;
 						const char *kind = lws_json_simple_find((const char *)in, len, "\"kind\":", &kl);
-						int is_audio = (kind && (strstr(kind, "audio") != NULL));
+						int is_audio = (kind && ((char *)strstr(kind, "audio") != NULL));
 						char **target_cap = is_audio ? &p->capabilities_audio : &p->capabilities_video;
 
 						if (*target_cap) free(*target_cap);
@@ -725,17 +725,17 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 					}
 
 					/* Handle video_mute: {"type":"video_mute","muted":true/false} */
-					if (al >= 10 && (strstr(v, "video_mute") != NULL)) {
+					if (al >= 10 && ((char *)strstr(v, "video_mute") != NULL)) {
 						const char *m = lws_json_simple_find((const char *)in, len, "\"muted\":", &al);
 						if (m && p->session) {
-							p->session->video_muted = (strstr(m, "true") != NULL);
+							p->session->video_muted = ((char *)strstr(m, "true") != NULL);
 							lwsl_notice("[INSTRUMENT] %s: Participant '%s' video_muted=%d\n", __func__, p->name, p->session->video_muted);
 							broadcast_client_list(p->room, NULL);
 						}
 					}
 
 					/* Handle request_caps: {"type":"request_caps","target":"<name>"} */
-					if (al >= 12 && (strstr(v, "request_caps") != NULL)) {
+					if (al >= 12 && ((char *)strstr(v, "request_caps") != NULL)) {
 						const char *target = lws_json_simple_find((const char *)in, len, "\"target\":", &al);
 						if (target) {
 							char target_name[64];

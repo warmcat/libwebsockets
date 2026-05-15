@@ -25,7 +25,397 @@
 #include "private-lib-core.h"
 #include "private-lib-tls-openssl.h"
 
-#if defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_WOLFSSL) && !defined(LWS_WITH_SCHANNEL)
+#if defined(LWS_ROLE_QUIC) && defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_SCHANNEL)
+
+#if defined(LWS_WITH_BORINGSSL) || defined(LWS_WITH_AWSLC) || defined(USE_WOLFSSL) || defined(LIBRESSL_VERSION_NUMBER)
+#define LWS_HAVE_BORINGSSL_QUIC_API
+#endif
+
+#if defined(LWS_HAVE_BORINGSSL_QUIC_API)
+
+#if defined(USE_WOLFSSL)
+
+static int
+set_encryption_secrets(WOLFSSL *ssl, enum wolfssl_encryption_level_t level,
+                       const uint8_t *read_secret,
+                       const uint8_t *write_secret,
+                       size_t secret_len)
+{
+	struct lws *wsi = (struct lws *)SSL_get_app_data((SSL *)ssl);
+	enum lws_tls_quic_secret_type rt, wt;
+
+	switch (level) {
+	case wolfssl_encryption_early_data:
+		rt = LWS_TLS_QUIC_SECRET_CLIENT_EARLY;
+		wt = LWS_TLS_QUIC_SECRET_CLIENT_EARLY;
+		break;
+	case wolfssl_encryption_handshake:
+		rt = lwsi_role_client(wsi) ? LWS_TLS_QUIC_SECRET_SERVER_HANDSHAKE : LWS_TLS_QUIC_SECRET_CLIENT_HANDSHAKE;
+		wt = lwsi_role_client(wsi) ? LWS_TLS_QUIC_SECRET_CLIENT_HANDSHAKE : LWS_TLS_QUIC_SECRET_SERVER_HANDSHAKE;
+		break;
+	case wolfssl_encryption_application:
+		rt = lwsi_role_client(wsi) ? LWS_TLS_QUIC_SECRET_SERVER_APPLICATION : LWS_TLS_QUIC_SECRET_CLIENT_APPLICATION;
+		wt = lwsi_role_client(wsi) ? LWS_TLS_QUIC_SECRET_CLIENT_APPLICATION : LWS_TLS_QUIC_SECRET_SERVER_APPLICATION;
+		break;
+	default:
+		return 1;
+	}
+
+	if (read_secret && wsi->tls.quic_secret_cb)
+		wsi->tls.quic_secret_cb(wsi, rt, read_secret, secret_len);
+
+	if (write_secret && wsi->tls.quic_secret_cb)
+		wsi->tls.quic_secret_cb(wsi, wt, write_secret, secret_len);
+
+	return 1;
+}
+
+static int
+test_secret_cb(struct lws *wsi, enum lws_tls_quic_secret_type type,
+	       const uint8_t *secret, size_t secret_len);
+
+static int
+add_handshake_data(WOLFSSL *ssl, enum wolfssl_encryption_level_t level,
+		   const uint8_t *data, size_t len)
+{
+	struct lws *wsi = (struct lws *)SSL_get_app_data((SSL *)ssl);
+	int lws_level;
+
+	switch (level) {
+	case wolfssl_encryption_initial: lws_level = 0; break;
+	case wolfssl_encryption_early_data: lws_level = 1; break;
+	case wolfssl_encryption_handshake: lws_level = 2; break;
+	case wolfssl_encryption_application: lws_level = 3; break;
+	default: return 0;
+	}
+
+	if (wsi->tls.quic_secret_cb == test_secret_cb) {
+		uint8_t *out = (uint8_t *)wsi->tls.quic_tp_send;
+		size_t written = (size_t)(uintptr_t)wsi->tls.quic_tp_recv;
+		size_t capacity = wsi->tls.quic_tp_recv_len;
+
+		if (out && written + 3 + len <= capacity) {
+			out[written] = (uint8_t)level;
+			out[written + 1] = (uint8_t)((len >> 8) & 0xff);
+			out[written + 2] = (uint8_t)(len & 0xff);
+			memcpy(out + written + 3, data, len);
+			wsi->tls.quic_tp_recv = (uint8_t *)(uintptr_t)(written + 3 + len);
+		}
+		return 1;
+	}
+
+	lws_tls_quic_tx_crypto_cb(wsi, lws_level, data, len);
+
+	return 1;
+}
+
+static int
+flush_flight(WOLFSSL *ssl)
+{
+	return 1;
+}
+
+static int
+send_alert(WOLFSSL *ssl, enum wolfssl_encryption_level_t level, uint8_t alert)
+{
+	return 1;
+}
+
+static const WOLFSSL_QUIC_METHOD quic_method = {
+	set_encryption_secrets,
+	add_handshake_data,
+	flush_flight,
+	send_alert,
+};
+
+#else /* BoringSSL / AWS-LC */
+
+static int
+set_read_secret(SSL *ssl, enum ssl_encryption_level_t level,
+		const SSL_CIPHER *cipher, const uint8_t *secret,
+		size_t secret_len)
+{
+	struct lws *wsi = (struct lws *)SSL_get_app_data(ssl);
+	enum lws_tls_quic_secret_type t;
+
+	switch (level) {
+	case ssl_encryption_early_data:
+		t = LWS_TLS_QUIC_SECRET_CLIENT_EARLY;
+		break;
+	case ssl_encryption_handshake:
+		t = lwsi_role_client(wsi) ? LWS_TLS_QUIC_SECRET_SERVER_HANDSHAKE : LWS_TLS_QUIC_SECRET_CLIENT_HANDSHAKE;
+		break;
+	case ssl_encryption_application:
+		t = lwsi_role_client(wsi) ? LWS_TLS_QUIC_SECRET_SERVER_APPLICATION : LWS_TLS_QUIC_SECRET_CLIENT_APPLICATION;
+		break;
+	default:
+		return 1;
+	}
+
+	if (wsi->tls.quic_secret_cb)
+		wsi->tls.quic_secret_cb(wsi, t, secret, secret_len);
+
+	return 1;
+}
+
+static int
+set_write_secret(SSL *ssl, enum ssl_encryption_level_t level,
+		 const SSL_CIPHER *cipher, const uint8_t *secret,
+		 size_t secret_len)
+{
+	struct lws *wsi = (struct lws *)SSL_get_app_data(ssl);
+	enum lws_tls_quic_secret_type t;
+
+	switch (level) {
+	case ssl_encryption_early_data:
+		t = LWS_TLS_QUIC_SECRET_CLIENT_EARLY;
+		break;
+	case ssl_encryption_handshake:
+		t = lwsi_role_client(wsi) ? LWS_TLS_QUIC_SECRET_CLIENT_HANDSHAKE : LWS_TLS_QUIC_SECRET_SERVER_HANDSHAKE;
+		break;
+	case ssl_encryption_application:
+		t = lwsi_role_client(wsi) ? LWS_TLS_QUIC_SECRET_CLIENT_APPLICATION : LWS_TLS_QUIC_SECRET_SERVER_APPLICATION;
+		break;
+	default:
+		return 1;
+	}
+
+	if (wsi->tls.quic_secret_cb)
+		wsi->tls.quic_secret_cb(wsi, t, secret, secret_len);
+
+	return 1;
+}
+
+static int
+test_secret_cb(struct lws *wsi, enum lws_tls_quic_secret_type type,
+	       const uint8_t *secret, size_t secret_len);
+
+static int
+add_handshake_data(SSL *ssl, enum ssl_encryption_level_t level,
+		   const uint8_t *data, size_t len)
+{
+	struct lws *wsi = (struct lws *)SSL_get_app_data(ssl);
+	int lws_level;
+
+	switch (level) {
+	case ssl_encryption_initial: lws_level = 0; break;
+	case ssl_encryption_early_data: lws_level = 1; break;
+	case ssl_encryption_handshake: lws_level = 2; break;
+	case ssl_encryption_application: lws_level = 3; break;
+	default: return 0;
+	}
+
+	if (wsi->tls.quic_secret_cb == test_secret_cb) {
+		uint8_t *out = (uint8_t *)wsi->tls.quic_tp_send;
+		size_t written = (size_t)(uintptr_t)wsi->tls.quic_tp_recv;
+		size_t capacity = wsi->tls.quic_tp_recv_len;
+
+		if (out && written + 3 + len <= capacity) {
+			out[written] = (uint8_t)level;
+			out[written + 1] = (uint8_t)((len >> 8) & 0xff);
+			out[written + 2] = (uint8_t)(len & 0xff);
+			memcpy(out + written + 3, data, len);
+			wsi->tls.quic_tp_recv = (uint8_t *)(uintptr_t)(written + 3 + len);
+		}
+		return 1;
+	}
+
+	lws_tls_quic_tx_crypto_cb(wsi, lws_level, data, len);
+
+	return 1;
+}
+
+static int
+flush_flight(SSL *ssl)
+{
+	return 1;
+}
+
+static int
+send_alert(SSL *ssl, enum ssl_encryption_level_t level, uint8_t alert)
+{
+	return 1;
+}
+
+static const SSL_QUIC_METHOD quic_method = {
+	.set_read_secret	= set_read_secret,
+	.set_write_secret	= set_write_secret,
+	.add_handshake_data	= add_handshake_data,
+	.flush_flight		= flush_flight,
+	.send_alert		= send_alert,
+};
+
+#endif /* USE_WOLFSSL */
+
+int
+lws_tls_quic_vhost_init(SSL_CTX *ctx)
+{
+	return 0;
+}
+
+int
+lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
+{
+	if (!wsi->tls.ssl)
+		return -1;
+
+	wsi->tls.quic_secret_cb = cb;
+	SSL_set_app_data(wsi->tls.ssl, wsi);
+
+#if defined(USE_WOLFSSL)
+	wolfSSL_set_quic_method(wsi->tls.ssl, &quic_method);
+#else
+	SSL_set_quic_method(wsi->tls.ssl, &quic_method);
+#endif
+
+	if (lwsi_role_client(wsi))
+		SSL_set_connect_state(wsi->tls.ssl);
+	else
+		SSL_set_accept_state(wsi->tls.ssl);
+
+	if (!wsi->tls.quic_tp_send) {
+		const uint8_t dummy_tp[] = {
+			0x04, 0x04, 0x00, 0x00, 0x00, 0x00
+		};
+#if defined(USE_WOLFSSL)
+		wolfSSL_set_quic_transport_params(wsi->tls.ssl, dummy_tp, sizeof(dummy_tp));
+#else
+		SSL_set_quic_transport_params(wsi->tls.ssl, dummy_tp, sizeof(dummy_tp));
+#endif
+	}
+
+	return 0;
+}
+
+int
+lws_tls_quic_advance_handshake(struct lws *wsi, int level,
+			       const uint8_t *in, size_t in_len,
+			       uint8_t *out, size_t *out_len)
+{
+#if defined(USE_WOLFSSL)
+	enum wolfssl_encryption_level_t bssl_level;
+#else
+	enum ssl_encryption_level_t bssl_level;
+#endif
+	int hs_n;
+
+	if (wsi->tls.quic_secret_cb == test_secret_cb) {
+		wsi->tls.quic_tp_send = out;
+		wsi->tls.quic_tp_recv_len = *out_len;
+		wsi->tls.quic_tp_recv = NULL;
+	} else {
+		if (out_len)
+			*out_len = 0;
+	}
+
+	if (in && in_len) {
+		if (wsi->tls.quic_secret_cb == test_secret_cb) {
+			size_t offset = 0;
+			int fed_any;
+			do {
+				fed_any = 0;
+				size_t chunk_offset = offset;
+				while (chunk_offset + 3 <= in_len) {
+#if defined(USE_WOLFSSL)
+					enum wolfssl_encryption_level_t chunk_level = (enum wolfssl_encryption_level_t)in[chunk_offset];
+#else
+					enum ssl_encryption_level_t chunk_level = (enum ssl_encryption_level_t)in[chunk_offset];
+#endif
+					size_t chunk_len = (size_t)((in[chunk_offset + 1] << 8) | in[chunk_offset + 2]);
+					if (chunk_offset + 3 + chunk_len > in_len)
+						break;
+
+#if defined(USE_WOLFSSL)
+					if (wolfSSL_provide_quic_data(wsi->tls.ssl, chunk_level, in + chunk_offset + 3, chunk_len) == 1) {
+						wolfSSL_quic_do_handshake(wsi->tls.ssl);
+#else
+					if (SSL_provide_quic_data(wsi->tls.ssl, chunk_level, in + chunk_offset + 3, chunk_len) == 1) {
+						SSL_do_handshake(wsi->tls.ssl);
+#endif
+						fed_any = 1;
+						offset = chunk_offset + 3 + chunk_len;
+						break;
+					}
+					chunk_offset += 3 + chunk_len;
+				}
+			} while (fed_any);
+		} else {
+			switch (level) {
+#if defined(USE_WOLFSSL)
+			case 0: bssl_level = wolfssl_encryption_initial; break;
+			case 1: bssl_level = wolfssl_encryption_early_data; break;
+			case 2: bssl_level = wolfssl_encryption_handshake; break;
+			case 3: bssl_level = wolfssl_encryption_application; break;
+#else
+			case 0: bssl_level = ssl_encryption_initial; break;
+			case 1: bssl_level = ssl_encryption_early_data; break;
+			case 2: bssl_level = ssl_encryption_handshake; break;
+			case 3: bssl_level = ssl_encryption_application; break;
+#endif
+			default: return -1;
+			}
+
+#if defined(USE_WOLFSSL)
+			if (wolfSSL_provide_quic_data(wsi->tls.ssl, bssl_level, in, in_len) != 1)
+#else
+			if (SSL_provide_quic_data(wsi->tls.ssl, bssl_level, in, in_len) != 1)
+#endif
+				return -1;
+		}
+	}
+
+#if defined(USE_WOLFSSL)
+	hs_n = wolfSSL_quic_do_handshake(wsi->tls.ssl);
+#else
+	hs_n = SSL_do_handshake(wsi->tls.ssl);
+#endif
+
+	if (wsi->tls.quic_secret_cb == test_secret_cb) {
+		*out_len = (size_t)(uintptr_t)wsi->tls.quic_tp_recv;
+	}
+
+	if (hs_n <= 0) {
+		int err = SSL_get_error(wsi->tls.ssl, hs_n);
+		if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE)
+			return 1;
+
+		unsigned long e = ERR_get_error();
+		lwsl_wsi_err(wsi, "SSL_do_handshake failed: hs_n %d, err %d, openssl err %lu (%s)",
+			hs_n, err, e, ERR_error_string((uint32_t)e, NULL));
+		ERR_print_errors_fp(stderr);
+		return -1;
+	}
+
+	return 0;
+}
+
+int
+lws_tls_quic_set_transport_parameters(struct lws *wsi, const uint8_t *tp, size_t tp_len)
+{
+#if defined(USE_WOLFSSL)
+	if (wolfSSL_set_quic_transport_params(wsi->tls.ssl, tp, tp_len) != 1)
+		return -1;
+#else
+	if (SSL_set_quic_transport_params(wsi->tls.ssl, tp, tp_len) != 1)
+		return -1;
+#endif
+	return 0;
+}
+
+int
+lws_tls_quic_get_transport_parameters(struct lws *wsi, const uint8_t **tp, size_t *tp_len)
+{
+#if defined(USE_WOLFSSL)
+	wolfSSL_get_peer_quic_transport_params(wsi->tls.ssl, tp, tp_len);
+#else
+	SSL_get_peer_quic_transport_params(wsi->tls.ssl, tp, tp_len);
+#endif
+	if (!*tp || !*tp_len)
+		return -1;
+	return 0;
+}
+
+#else
 
 static uint8_t
 from_hex(char c)
@@ -102,19 +492,19 @@ openssl_quic_keylog_cb(const SSL *ssl, const char *line)
 
 	if (!strncmp(line, "CLIENT_EARLY_TRAFFIC_SECRET ", 28)) {
 		type = LWS_TLS_QUIC_SECRET_CLIENT_EARLY;
-		secret_hex = strchr(line + 28, ' ');
+		secret_hex = (char *)strchr(line + 28, ' ');
 	} else if (!strncmp(line, "CLIENT_HANDSHAKE_TRAFFIC_SECRET ", 32)) {
 		type = LWS_TLS_QUIC_SECRET_CLIENT_HANDSHAKE;
-		secret_hex = strchr(line + 32, ' ');
+		secret_hex = (char *)strchr(line + 32, ' ');
 	} else if (!strncmp(line, "SERVER_HANDSHAKE_TRAFFIC_SECRET ", 32)) {
 		type = LWS_TLS_QUIC_SECRET_SERVER_HANDSHAKE;
-		secret_hex = strchr(line + 32, ' ');
+		secret_hex = (char *)strchr(line + 32, ' ');
 	} else if (!strncmp(line, "CLIENT_TRAFFIC_SECRET_0 ", 24)) {
 		type = LWS_TLS_QUIC_SECRET_CLIENT_APPLICATION;
-		secret_hex = strchr(line + 24, ' ');
+		secret_hex = (char *)strchr(line + 24, ' ');
 	} else if (!strncmp(line, "SERVER_TRAFFIC_SECRET_0 ", 24)) {
 		type = LWS_TLS_QUIC_SECRET_SERVER_APPLICATION;
-		secret_hex = strchr(line + 24, ' ');
+		secret_hex = (char *)strchr(line + 24, ' ');
 	}
 
 	if (!secret_hex)
@@ -170,19 +560,24 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 	wsi->tls.quic_secret_cb = cb;
 	SSL_set_app_data(wsi->tls.ssl, wsi);
 
+	if (lwsi_role_client(wsi))
+		SSL_set_connect_state(wsi->tls.ssl);
+	else
+		SSL_set_accept_state(wsi->tls.ssl);
+
 	SSL_CTX_set_keylog_callback(ctx, openssl_quic_keylog_cb);
 
 	return 0;
 }
 
 int
-lws_tls_quic_advance_handshake(struct lws *wsi,
+lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 			       const uint8_t *in, size_t in_len,
 			       uint8_t *out, size_t *out_len)
 {
 	BIO *rbio = SSL_get_rbio(wsi->tls.ssl);
 	BIO *wbio = SSL_get_wbio(wsi->tls.ssl);
-	int n;
+	int hs_n;
 	size_t written = 0;
 
 	if (!rbio || !wbio)
@@ -190,18 +585,34 @@ lws_tls_quic_advance_handshake(struct lws *wsi,
 
 	if (in && in_len)
 		BIO_write(rbio, in, (int)in_len);
-
-	n = SSL_do_handshake(wsi->tls.ssl);
+	lwsl_info("QUIC TLS: SSL_do_handshake starting (in_len=%d)\n", (int)in_len);
+	hs_n = SSL_do_handshake(wsi->tls.ssl);
+	lwsl_info("QUIC TLS: SSL_do_handshake returned %d\n", hs_n);
 
 	if (out && out_len) {
-		n = BIO_read(wbio, out, (int)*out_len);
-		if (n > 0)
-			written = (size_t)n;
+		int read_n = BIO_read(wbio, out, (int)*out_len);
+		if (read_n > 0)
+			written = (size_t)read_n;
 		*out_len = written;
+		lwsl_info("QUIC TLS: BIO_read extracted %d bytes of TX data\n", (int)written);
 	}
 
-	return n <= 0 && SSL_get_error(wsi->tls.ssl, n) == SSL_ERROR_WANT_READ ? 1 : 0;
+	if (hs_n <= 0) {
+		int err = SSL_get_error(wsi->tls.ssl, hs_n);
+		lwsl_info("QUIC TLS: SSL_get_error returned %d\n", err);
+		if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE)
+			return 1; /* In progress */
+
+		unsigned long e = ERR_get_error();
+		lwsl_wsi_err(wsi, "SSL_do_handshake failed: hs_n %d, err %d, openssl err %lu (%s)",
+			hs_n, err, e, ERR_error_string((uint32_t)e, NULL));
+		ERR_print_errors_fp(stderr);
+		return -1;
+	}
+
+	return 0; /* Complete */
 }
+
 
 int
 lws_tls_quic_set_transport_parameters(struct lws *wsi, const uint8_t *tp, size_t tp_len)
@@ -222,6 +633,8 @@ lws_tls_quic_get_transport_parameters(struct lws *wsi, const uint8_t **tp, size_
 	return 0;
 }
 
+#endif /* LWS_HAVE_BORINGSSL_QUIC_API */
+
 static int test_secrets_extracted = 0;
 
 static int
@@ -232,6 +645,17 @@ test_secret_cb(struct lws *wsi, enum lws_tls_quic_secret_type type,
 	test_secrets_extracted++;
 	return 0;
 }
+
+#if defined(LWS_HAVE_BORINGSSL_QUIC_API)
+static int
+test_alpn_select_cb(SSL *ssl, const unsigned char **out, unsigned char *outlen,
+                    const unsigned char *in, unsigned int inlen, void *arg)
+{
+	*out = (const unsigned char *)"test";
+	*outlen = 4;
+	return SSL_TLSEXT_ERR_OK;
+}
+#endif
 
 int
 lws_tls_quic_api_test(void)
@@ -252,7 +676,9 @@ lws_tls_quic_api_test(void)
 	uint8_t stp[] = { 0x05, 0x06, 0x07, 0x08 };
 
 	memset(&wsi_client, 0, sizeof(wsi_client));
+	wsi_client.wsistate = LWSIFR_CLIENT;
 	memset(&wsi_server, 0, sizeof(wsi_server));
+	wsi_server.wsistate = LWSIFR_SERVER;
 
 	cctx = SSL_CTX_new(TLS_client_method());
 	sctx = SSL_CTX_new(TLS_server_method());
@@ -264,6 +690,8 @@ lws_tls_quic_api_test(void)
 	SSL_CTX_set_max_proto_version(cctx, TLS1_3_VERSION);
 	SSL_CTX_set_min_proto_version(sctx, TLS1_3_VERSION);
 	SSL_CTX_set_max_proto_version(sctx, TLS1_3_VERSION);
+
+	SSL_CTX_set_verify(cctx, SSL_VERIFY_NONE, NULL);
 
 	lws_tls_quic_vhost_init(cctx);
 	lws_tls_quic_vhost_init(sctx);
@@ -298,6 +726,11 @@ lws_tls_quic_api_test(void)
 	SSL_set_connect_state(wsi_client.tls.ssl);
 	SSL_set_accept_state(wsi_server.tls.ssl);
 
+#if defined(LWS_HAVE_BORINGSSL_QUIC_API)
+	SSL_set_alpn_protos(wsi_client.tls.ssl, (const unsigned char *)"\x04test", 5);
+	SSL_CTX_set_alpn_select_cb(sctx, test_alpn_select_cb, NULL);
+#endif
+
 	if (lws_tls_quic_init(&wsi_client, test_secret_cb))
 		goto fail;
 	if (lws_tls_quic_init(&wsi_server, test_secret_cb))
@@ -308,20 +741,20 @@ lws_tls_quic_api_test(void)
 
 	/* Start the handshake by advancing the client with no input */
 	c2s_len = sizeof(c2s);
-	lws_tls_quic_advance_handshake(&wsi_client, NULL, 0, c2s, &c2s_len);
+	lws_tls_quic_advance_handshake(&wsi_client, 0, NULL, 0, c2s, &c2s_len);
 
 	while (iter++ < 10) {
 		if (c2s_len) {
 			lwsl_notice("C -> S: %d bytes\n", (int)c2s_len);
 			s2c_len = sizeof(s2c);
-			(void)lws_tls_quic_advance_handshake(&wsi_server, c2s, c2s_len, s2c, &s2c_len);
+			(void)lws_tls_quic_advance_handshake(&wsi_server, 0, c2s, c2s_len, s2c, &s2c_len);
 			c2s_len = 0;
 		}
 
 		if (s2c_len) {
 			lwsl_notice("S -> C: %d bytes\n", (int)s2c_len);
 			c2s_len = sizeof(c2s);
-			(void)lws_tls_quic_advance_handshake(&wsi_client, s2c, s2c_len, c2s, &c2s_len);
+			(void)lws_tls_quic_advance_handshake(&wsi_client, 0, s2c, s2c_len, c2s, &c2s_len);
 			s2c_len = 0;
 		}
 

@@ -436,7 +436,7 @@ ome_prepare(struct lws_context *ctx, struct pss *pss)
 
 #if defined(__linux__)
 	if (grabfile("/proc/loadavg", hn, sizeof(hn))) {
-		char *sp = strchr(hn, ' ');
+		const char *sp = strchr(hn, ' ');
 		if (sp) {
 			p = start;
 			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),

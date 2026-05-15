@@ -27,6 +27,10 @@
 
 #include <stdint.h>
 
+#if defined(LWS_WITH_MBEDTLS)
+#include <mbedtls/chachapoly.h>
+#endif
+
 /*! \defgroup generic chacha
  * ## Generic ChaCha20 and Poly1305 related functions
  *

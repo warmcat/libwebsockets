@@ -749,7 +749,7 @@ lws_parse_numeric_address(const char *ads, uint8_t *result, size_t max_len)
 {
 	struct lws_tokenize ts;
 	uint8_t *orig = result, temp[16];
-	int sects = 0, ipv6 = !!strchr(ads, ':'), skip_point = -1, dm = 0;
+	int sects = 0, ipv6 = !!(char *)strchr(ads, ':'), skip_point = -1, dm = 0;
 	char t[5];
 	size_t n;
 	long u;
@@ -1231,7 +1231,7 @@ lws_parse_cidr(const char *cidr, lws_sockaddr46 *sa46, int *len)
 	int n;
 
 	lws_strncpy(buf, cidr, sizeof(buf));
-	p = strchr(buf, '/');
+	p = (char *)strchr(buf, '/');
 
 	if (!p) {
 		*len = -1; /* no mask */

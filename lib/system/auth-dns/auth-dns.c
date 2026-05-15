@@ -158,15 +158,15 @@ lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *z
 					const char *v = line_accum + 7;
 					while (*v == ' ' || *v == '\t') v++;
 					lws_strncpy(zone->origin, v, sizeof(zone->origin));
-					char *sp = strchr(zone->origin, ' ');
-					if (!sp) sp = strchr(zone->origin, '\t');
+					char *sp = (char *)strchr(zone->origin, ' ');
+					if (!sp) sp = (char *)strchr(zone->origin, '\t');
 					if (sp) *sp = '\0';
 				} else if (!strncmp(line_accum, "$TTL", 4)) {
 					const char *v = line_accum + 4;
 					while (*v == ' ' || *v == '\t') v++;
 					lws_strncpy(zone->default_ttl, v, sizeof(zone->default_ttl));
-					char *sp = strchr(zone->default_ttl, ' ');
-					if (!sp) sp = strchr(zone->default_ttl, '\t');
+					char *sp = (char *)strchr(zone->default_ttl, ' ');
+					if (!sp) sp = (char *)strchr(zone->default_ttl, '\t');
 					if (sp) *sp = '\0';
 				} else if (num_toks > 0) {
 					{
@@ -394,7 +394,7 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 	char *lb = buf;
 	uout = 0;
 	while (lb < buf + st.st_size) {
-		char *le = strchr(lb, '\n');
+		char *le = (char *)strchr(lb, '\n');
 		if (!le)
 			le = buf + st.st_size;
 		else

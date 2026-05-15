@@ -51,7 +51,7 @@ lws_http_compression_validate(struct lws *wsi)
 		return 0;
 
 	for (n = 0; n < LWS_ARRAY_SIZE(lcs_available); n++)
-		if (strstr(a, lcs_available[n]->encoding_name))
+		if ((char *)strstr(a, lcs_available[n]->encoding_name))
 			wsi->http.comp_accept_mask = (uint8_t)(wsi->http.comp_accept_mask | (1 << n));
 
 	return 0;

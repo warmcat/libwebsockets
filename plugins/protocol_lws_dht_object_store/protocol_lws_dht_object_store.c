@@ -565,7 +565,7 @@ dht_obj_store_sul_manifest_rcv_cb(void *v)
 		return;
 	}
 
-	p = strchr(buf, '\n');
+	p = (char *)strchr(buf, '\n');
 	if (p) *p = 0;
 
 	lws_strncpy(vhd->manifest_hashes[0], buf, sizeof(vhd->manifest_hashes[0]));

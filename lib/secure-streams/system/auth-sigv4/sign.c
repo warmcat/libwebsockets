@@ -509,7 +509,7 @@ lws_aws_filesystem_credentials_helper(const char *path, const char *kid,
 			if (strncmp(line, i ? kid : ak, strlen(i ? kid : ak)))
 				continue;
 
-			str = strchr(line, '=');
+			str = (char *)strchr(line, '=');
 			if (!str)
 				continue;
 

@@ -165,11 +165,11 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
 			/* Parse comma separated list */
 			char temp[64];
 			lws_strncpy(temp, conn->alpn, sizeof(temp));
-			char *p = temp;
-			char *end = p + strlen(p);
+			const char *p = temp;
+			const char *end = p + strlen(p);
 
 			while (p < end) {
-				char *comma = strchr(p, ',');
+				const char *comma = strchr(p, ',');
 				size_t item_len;
 				if (comma) item_len = comma - p;
 				else item_len = strlen(p);

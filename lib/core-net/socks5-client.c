@@ -40,7 +40,7 @@ lws_set_socks(struct lws_vhost *vhost, const char *socks)
 	vhost->socks_user[0] = '\0';
 	vhost->socks_password[0] = '\0';
 
-	p_at = strrchr(socks, '@');
+	p_at = (char *)strrchr(socks, '@');
 	if (p_at) { /* auth is around */
 		if (lws_ptr_diff_size_t(p_at, socks) > (sizeof(user) +
 							sizeof(password) - 2)) {
@@ -48,7 +48,7 @@ lws_set_socks(struct lws_vhost *vhost, const char *socks)
 			goto bail;
 		}
 
-		p_colon_in = strchr(socks, ':');
+		p_colon_in = (char *)strchr(socks, ':');
 		if (p_colon_in) {
 			if (lws_ptr_diff_size_t(p_colon_in, socks) >
 							     sizeof(user) - 1) {
@@ -77,7 +77,7 @@ lws_set_socks(struct lws_vhost *vhost, const char *socks)
 	lws_strncpy(vhost->socks_proxy_address, socks,
 		    sizeof(vhost->socks_proxy_address));
 
-	p_colon = strchr(vhost->socks_proxy_address, ':');
+	p_colon = (char *)strchr(vhost->socks_proxy_address, ':');
 	if (!p_colon && !vhost->socks_proxy_port) {
 		lwsl_vhost_err(vhost, "socks_proxy needs to be address:port");
 

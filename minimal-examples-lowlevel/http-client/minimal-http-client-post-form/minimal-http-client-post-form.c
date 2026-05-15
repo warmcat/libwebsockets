@@ -43,7 +43,7 @@ static int form_pass = 0;
 static void
 sanitize_ft(char *ft)
 {
-	char *p, *eq = strchr(ft, '=');
+	char *p, *eq = (char *)strchr(ft, '=');
 	if (!eq) return;
 	eq++;
 
@@ -75,7 +75,7 @@ form_cb(struct lws_context *cx, char *ft, size_t ft_len, const char **last)
 		if (form_pass == 0) {
 			p = lws_cmdline_options_cx(cx, "--form", p);
 			if (p) {
-				if (!strchr(p, '@')) {
+				if (!(char *)strchr(p, '@')) {
 					*last = p;
 					lws_strnncpy(ft, p, strlen(p), ft_len);
 					sanitize_ft(ft);
@@ -90,7 +90,7 @@ form_cb(struct lws_context *cx, char *ft, size_t ft_len, const char **last)
 		if (form_pass == 1) {
 			p = lws_cmdline_options_cx(cx, "--form", p);
 			if (p) {
-				if (strchr(p, '@')) {
+				if ((char *)strchr(p, '@')) {
 					*last = p;
 					lws_strnncpy(ft, p, strlen(p), ft_len);
 					sanitize_ft(ft);

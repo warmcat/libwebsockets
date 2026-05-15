@@ -911,6 +911,11 @@ enum lws_callback_reasons {
 	 * the context, message, and peer sockaddr information.
 	 */
 
+	LWS_CALLBACK_QT_SERVER_RECEIVE					= 217,
+	/**< QUIC transport payload received on server side */
+	LWS_CALLBACK_QT_CLIENT_RECEIVE					= 218,
+	/**< QUIC transport payload received on client side */
+
 	/****** add new things just above ---^ ******/
 
 	LWS_CALLBACK_USER = 1000,

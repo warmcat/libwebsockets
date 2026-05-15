@@ -179,7 +179,7 @@ callback_auth_device_client(struct lws *wsi, enum lws_callback_reasons reason, v
 		/* The redirect might not have a '/' before the query string, which breaks
 		 * lws_parse_uri. We only need the base auth server URL anyway, so we
 		 * can just strip the query string completely before parsing. */
-		if ((q = strchr(loc, '?')))
+		if ((q = (char *)strchr(loc, '?')))
 			*q = '\0';
 
 		lws_parse_uri_t *puri = lws_parse_uri_create(loc);
@@ -448,6 +448,9 @@ callback_auth_device_client_init(struct lws *wsi, enum lws_callback_reasons reas
 	if (reason == LWS_CALLBACK_PROTOCOL_INIT) {
 		if (!in)
 			return 0;
+
+		lwsl_vhost_notice(lws_get_vhost(wsi), "LWS_CALLBACK_PROTOCOL_INIT: %s\n",
+				  lws_get_protocol(wsi)->name);
 		const struct lws_protocol_vhost_options *pvo = (const struct lws_protocol_vhost_options *)in;
 		while (pvo) {
 			if (!strcmp(pvo->name, "lws-auth-client-api")) {

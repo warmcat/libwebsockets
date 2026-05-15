@@ -270,8 +270,11 @@ lws_tls_server_conn_alpn(struct lws *wsi)
 		}
 	}
 #elif defined(LWS_WITH_BEARSSL)
-	name = NULL;
-	len = 0;
+	{
+		struct lws_tls_conn *conn = (struct lws_tls_conn *)wsi->tls.ssl;
+		name = (const unsigned char *)br_ssl_engine_get_selected_protocol(&conn->u.engine);
+		len = name ? (unsigned int)strlen((const char *)name) : 0;
+	}
 #else
 	SSL_get0_alpn_selected(wsi->tls.ssl, &name, &len);
 #endif

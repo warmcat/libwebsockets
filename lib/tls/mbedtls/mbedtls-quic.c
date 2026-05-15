@@ -25,7 +25,7 @@
 #include "private-lib-core.h"
 #include "private-lib-tls-mbedtls.h"
 
-#if defined(LWS_WITH_TLS) && defined(LWS_WITH_MBEDTLS)
+#if defined(LWS_ROLE_QUIC) && defined(LWS_WITH_TLS) && defined(LWS_WITH_MBEDTLS)
 
 static void
 mbedtls_quic_export_keys_cb(void *p_expkey,
@@ -143,16 +143,17 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 }
 
 int
-lws_tls_quic_advance_handshake(struct lws *wsi,
+lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 			       const uint8_t *in, size_t in_len,
 			       uint8_t *out, size_t *out_len)
 {
-	mbedtls_ssl_context *msc = SSL_mbedtls_ssl_context_from_SSL(wsi->tls.ssl);
-	struct mbedtls_quic_bio *b = (struct mbedtls_quic_bio *)wsi->tls.client_bio;
-	int n;
+	int hs_n, err;
+	struct mbedtls_quic_bio *b;
 
-	if (!b || !msc)
+	if (!wsi->tls.client_bio)
 		return -1;
+
+	b = (struct mbedtls_quic_bio *)wsi->tls.client_bio;
 
 	b->in = in;
 	b->in_len = in_len;
@@ -162,16 +163,30 @@ lws_tls_quic_advance_handshake(struct lws *wsi,
 	b->out_max = out ? *out_len : 0;
 	b->out_len = 0;
 
-	n = mbedtls_ssl_handshake(msc);
+	if (in_len > 0) {
+		lwsl_debug("%s: feeding %d bytes to MbedTLS (is_server=%d)\n", __func__, (int)in_len, wsi->quic.qn ? wsi->quic.qn->is_server : -1);
+	}
+
+	hs_n = SSL_do_handshake(wsi->tls.ssl);
 
 	if (out_len)
 		*out_len = b->out_len;
 
-	if (n == 0)
-		return 0;
+	if (hs_n != 1) {
+		err = SSL_get_error(wsi->tls.ssl, hs_n);
+		/* The MbedTLS wrapper returns 0 for WANT_READ/WANT_WRITE, and SSL_get_error doesn't map it if hs_n == 0. */
+		if (hs_n == 0 && (wsi->tls.ssl->err == MBEDTLS_ERR_SSL_WANT_READ || wsi->tls.ssl->err == MBEDTLS_ERR_SSL_WANT_WRITE))
+			return 1; /* wanting more */
 
-	if (n == MBEDTLS_ERR_SSL_WANT_READ || n == MBEDTLS_ERR_SSL_WANT_WRITE)
-		return 1;
+		if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE)
+			return 1; /* wanting more */
+
+		lwsl_wsi_err(wsi, "SSL_do_handshake failed: hs_n %d, err %d", hs_n, err);
+		return -1;
+	}
+
+	if (wsi->quic.qn && !wsi->quic.qn->handshake_done)
+		return 0;
 
 	return 0;
 }
@@ -243,20 +258,20 @@ lws_tls_quic_api_test(void)
 
 	/* Start the handshake by advancing the client with no input */
 	c2s_len = sizeof(c2s);
-	lws_tls_quic_advance_handshake(&wsi_client, NULL, 0, c2s, &c2s_len);
+	lws_tls_quic_advance_handshake(&wsi_client, 0, NULL, 0, c2s, &c2s_len);
 
 	while (iter++ < 10) {
 		if (c2s_len) {
 			lwsl_notice("C -> S: %d bytes\n", (int)c2s_len);
 			s2c_len = sizeof(s2c);
-			(void)lws_tls_quic_advance_handshake(&wsi_server, c2s, c2s_len, s2c, &s2c_len);
+			(void)lws_tls_quic_advance_handshake(&wsi_server, 0, c2s, c2s_len, s2c, &s2c_len);
 			c2s_len = 0;
 		}
 
 		if (s2c_len) {
 			lwsl_notice("S -> C: %d bytes\n", (int)s2c_len);
 			c2s_len = sizeof(c2s);
-			(void)lws_tls_quic_advance_handshake(&wsi_client, s2c, s2c_len, c2s, &c2s_len);
+			(void)lws_tls_quic_advance_handshake(&wsi_client, 0, s2c, s2c_len, c2s, &c2s_len);
 			s2c_len = 0;
 		}
 

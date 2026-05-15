@@ -762,7 +762,7 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 					vhd->dnsbl_count = 0;
 					while (p && *p && vhd->dnsbl_count < 16) {
 						vhd->dnsbl[vhd->dnsbl_count++] = p;
-						p = strchr(p, ',');
+						p = (char *)strchr(p, ',');
 						if (p) {
 							*p++ = '\0';
 							while (*p == ' ') p++; /* Skip leading spaces */

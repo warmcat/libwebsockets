@@ -59,7 +59,7 @@ pennies(const char *s)
 {
 	uint64_t price = (uint64_t)atoll(s) * 100;
 
-	s = strchr(s, '.');
+	s = (char *)strchr(s, '.');
 
 	if (s && isdigit(s[1]) && isdigit(s[2]))
 		price = price + (uint64_t)((10 * (s[1] - '0')) + (s[2] - '0'));

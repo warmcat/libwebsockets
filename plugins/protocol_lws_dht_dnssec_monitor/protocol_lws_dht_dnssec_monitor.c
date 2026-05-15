@@ -154,7 +154,7 @@ static int
 smd_cb_network(void *opaque, lws_smd_class_t c, lws_usec_t ts, void *buf, size_t len)
 {
 	struct vhd *vhd = (struct vhd *)opaque;
-	if ((c & LWSSMDCL_NETWORK) && buf && strstr((const char *)buf, "\"ext-ips\"")) {
+	if ((c & LWSSMDCL_NETWORK) && buf && (char *)strstr((const char *)buf, "\"ext-ips\"")) {
 		lws_strncpy(vhd->ext_ips, (const char *)buf, sizeof(vhd->ext_ips));
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->ui_clients.head) {
 			struct pss *pss = lws_container_of(d, struct pss, list);
@@ -265,7 +265,7 @@ scan_dir_cb_fast(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	}
 
 	if (pc.common_name[0]) {
-		if (strchr(pc.common_name, '/') || strstr(pc.common_name, "..")) {
+		if ((char *)strchr(pc.common_name, '/') || (char *)strstr(pc.common_name, "..")) {
 			lwsl_err("%s: Invalid common-name containing path traversal characters: %s\n", __func__, pc.common_name);
 			return 0;
 		}
@@ -412,7 +412,7 @@ scan_dir_cb_expiry(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		return 0;
 
 	if (pc.common_name[0]) {
-		if (strchr(pc.common_name, '/') || strstr(pc.common_name, ".."))
+		if ((char *)strchr(pc.common_name, '/') || (char *)strstr(pc.common_name, ".."))
 			return 0;
 
 		char output_path[1024];
@@ -932,7 +932,7 @@ handle_req_reset_dist_pki(struct vhd *vhd, struct pss *root_pss, struct monitor_
 		if (n < 0) n = 0;
 		domain[n] = '\0';
 		if (n > 0) {
-			char *nl = strchr(domain, '\n');
+			char *nl = (char *)strchr(domain, '\n');
 			if (nl) *nl = '\0';
 		}
 		close(fd);
@@ -1004,7 +1004,7 @@ handle_req_get_domains(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 					ssize_t nw = read(fd, ds_buf, sizeof(ds_buf) - 1);
 					if (nw > 0) {
 						ds_buf[nw] = '\0';
-						char *nl = strchr(ds_buf, '\n');
+						char *nl = (char *)strchr(ds_buf, '\n');
 						if (nl) *nl = '\0';
 					}
 					close(fd);
@@ -1294,10 +1294,10 @@ handle_req_get_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_arg
 		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"domain\":\"%s\",\"tls\":[", a->req, a->domain);
 		while ((de = readdir(d))) {
 			if (de->d_name[0] == '.') continue;
-			if (strstr(de->d_name, ".port")) {
+			if ((char *)strstr(de->d_name, ".port")) {
 				char p_path[1024], sub[256];
 				lws_strncpy(sub, de->d_name, sizeof(sub));
-				char *ext = strstr(sub, ".port");
+				char *ext = (char *)strstr(sub, ".port");
 				if (ext) *ext = '\0';
 				lws_snprintf(p_path, sizeof(p_path), "%s/%s", d_path, de->d_name);
 				int fd = open(p_path, O_RDONLY);
@@ -1391,8 +1391,8 @@ handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_
 		goto done;
 	}
 
-	if (strchr(a->domain, '/') || strstr(a->domain, "..") || strchr(a->domain, '\\') ||
-	    strchr(a->subdomain, '/') || strstr(a->subdomain, "..") || strchr(a->subdomain, '\\')) {
+	if ((char *)strchr(a->domain, '/') || (char *)strstr(a->domain, "..") || (char *)strchr(a->domain, '\\') ||
+	    (char *)strchr(a->subdomain, '/') || (char *)strstr(a->subdomain, "..") || (char *)strchr(a->subdomain, '\\')) {
 		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Path traversal\"}\n", a->req);
 		goto done;
 	}
@@ -1407,7 +1407,7 @@ handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_
 		char *p = (char *)dir_suffix;
 		char *slash;
 		lws_snprintf(p1, sizeof(p1), "%s", d_path);
-		while ((slash = strchr(p, '/')) != NULL) {
+		while ((slash = (char *)strchr(p, '/')) != NULL) {
 			*slash = '\0';
 			lws_snprintf(p1 + strlen(p1), sizeof(p1) - strlen(p1), "/%s", p);
 			if (mkdir(p1, 0755) < 0 && errno != EEXIST) {
@@ -1425,7 +1425,7 @@ handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/%s/%s", vhd->base_dir, a->domain, dir_suffix, a->subdomain);
 
 	int perms = 0600;
-	if (strstr(a->subdomain, ".crt"))
+	if ((char *)strstr(a->subdomain, ".crt"))
 		perms = 0644;
 
 	int fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, perms);
@@ -1433,12 +1433,12 @@ handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_
 		if (write(fd, a->zone_buf, (size_t)a->zone_len) == (ssize_t)a->zone_len) {
 			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
 
-			if (strstr(a->subdomain, ".crt") || strstr(a->subdomain, ".key")) {
+			if ((char *)strstr(a->subdomain, ".crt") || (char *)strstr(a->subdomain, ".key")) {
 				char link_path[1024];
 				lws_strncpy(link_path, d_path, sizeof(link_path));
 				char *p = link_path + strlen(link_path);
 
-				if (strstr(a->subdomain, "-fullchain.crt"))
+				if ((char *)strstr(a->subdomain, "-fullchain.crt"))
 					p -= 14; /* len("-fullchain.crt") */
 				else
 					p -= 4; /* len(".crt") or len(".key") */
@@ -1446,11 +1446,11 @@ handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_
 				p -= 16; /* len("-YYYYMMDD-HHMMSS") */
 
 				if (p > link_path && *p == '-') {
-					if (strstr(a->subdomain, "-fullchain.crt"))
+					if ((char *)strstr(a->subdomain, "-fullchain.crt"))
 						lws_snprintf(p, sizeof(link_path) - (size_t)(p - link_path), "-latest-fullchain.crt");
-					else if (strstr(a->subdomain, ".crt"))
+					else if ((char *)strstr(a->subdomain, ".crt"))
 						lws_snprintf(p, sizeof(link_path) - (size_t)(p - link_path), "-latest.crt");
-					else if (strstr(a->subdomain, ".key"))
+					else if ((char *)strstr(a->subdomain, ".key"))
 						lws_snprintf(p, sizeof(link_path) - (size_t)(p - link_path), "-latest.key");
 
 					unlink(link_path);
@@ -1502,7 +1502,7 @@ handle_req_save_dns_challenge(struct vhd *vhd, struct pss *root_pss, struct moni
 		goto done;
 	}
 
-	if (strchr(a->domain, '/') || strstr(a->domain, "..") || strchr(a->domain, '\\')) {
+	if ((char *)strchr(a->domain, '/') || (char *)strstr(a->domain, "..") || (char *)strchr(a->domain, '\\')) {
 		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Path traversal\"}\n", a->req);
 		goto done;
 	}
@@ -1548,7 +1548,7 @@ handle_req_cleanup_dns_challenge(struct vhd *vhd, struct pss *root_pss, struct m
 		goto done;
 	}
 
-	if (strchr(a->domain, '/') || strstr(a->domain, "..") || strchr(a->domain, '\\')) {
+	if ((char *)strchr(a->domain, '/') || (char *)strstr(a->domain, "..") || (char *)strchr(a->domain, '\\')) {
 		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Path traversal\"}\n", a->req);
 		goto done;
 	}
@@ -1598,10 +1598,10 @@ handle_req_get_all_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 				int first_tls = 1;
 				while ((de2 = readdir(d2))) {
 					if (de2->d_name[0] == '.') continue;
-					if (strstr(de2->d_name, ".port")) {
+					if ((char *)strstr(de2->d_name, ".port")) {
 						char p_path[1024], sub[256];
 						lws_strncpy(sub, de2->d_name, sizeof(sub));
-						char *ext = strstr(sub, ".port");
+						char *ext = (char *)strstr(sub, ".port");
 						if (ext) *ext = '\0';
 						lws_snprintf(p_path, sizeof(p_path), "%s/%s", conf_path, de2->d_name);
 						int fd = open(p_path, O_RDONLY);
@@ -1646,8 +1646,8 @@ handle_req_get_cert_validity(struct vhd *vhd, struct pss *root_pss, struct monit
 		goto done;
 	}
 
-	if (strchr(a->domain, '/') || strstr(a->domain, "..") || strchr(a->domain, '\\') ||
-	    strchr(a->subdomain, '/') || strstr(a->subdomain, "..") || strchr(a->subdomain, '\\')) {
+	if ((char *)strchr(a->domain, '/') || (char *)strstr(a->domain, "..") || (char *)strchr(a->domain, '\\') ||
+	    (char *)strchr(a->subdomain, '/') || (char *)strstr(a->subdomain, "..") || (char *)strchr(a->subdomain, '\\')) {
 		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Path traversal\"}\n", a->req);
 		goto done;
 	}
@@ -1916,7 +1916,7 @@ handle_req_get_dist_server_domain(struct vhd *vhd, struct pss *root_pss, struct 
 		if (n < 0) n = 0;
 		domain[n] = '\0';
 		if (n > 0) {
-			char *nl = strchr(domain, '\n');
+			char *nl = (char *)strchr(domain, '\n');
 			if (nl) *nl = '\0';
 		}
 		close(fd);
@@ -2317,7 +2317,7 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 	}
 
 	/* Prevent path traversal attacks */
-	if (strchr(a.domain, '/') || strstr(a.domain, "..") || strchr(a.subdomain, '/') || strstr(a.subdomain, "..")) {
+	if ((char *)strchr(a.domain, '/') || (char *)strstr(a.domain, "..") || (char *)strchr(a.subdomain, '/') || (char *)strstr(a.subdomain, "..")) {
 		lwsl_debug("[INSTRUMENT] handle_monitor_request: Path traversal parameters detected\n");
 		root_pss->tx_len += (size_t)lws_snprintf(tx, 65536 - root_pss->tx_len, "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Invalid chars in domain\"}\n", a.req);
 		goto done;
@@ -2421,7 +2421,7 @@ static void extract_and_queue_cert_result(struct lws *wsi, struct vhd *vhd, stru
 	if (cr) {
 		memset(cr, 0, sizeof(*cr));
 		lws_strncpy(cr->fqdn, cci->fqdn, sizeof(cr->fqdn));
-		char *colon = strchr(cr->fqdn, ':');
+		char *colon = (char *)strchr(cr->fqdn, ':');
 		if (colon) *colon = '\0';
 		cr->port = cci->port;
 		lws_strncpy(cr->msg, msg, sizeof(cr->msg));
@@ -2560,8 +2560,8 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 									}
 									if (n > 0) {
 										buf[n] = '\0';
-										char *p = strchr(buf, '\n'); if (p) *p = '\0';
-										p = strchr(buf, '\r'); if (p) *p = '\0';
+										char *p = (char *)strchr(buf, '\n'); if (p) *p = '\0';
+										p = (char *)strchr(buf, '\r'); if (p) *p = '\0';
 										auth_token = buf;
 									}
 								}
@@ -2962,7 +2962,7 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_snprintf(claims, sizeof(claims), "{\"iss\":\"acme-ipc\",\"aud\":\"dnssec-monitor\",\"iat\":%llu,\"nbf\":%llu,\"exp\":%llu}", now, now - 60, now + 60);
 
 			if (!lws_jwt_sign_compact(vhd->context, &vhd->auth_jwk, "HS256", jwt_buf, &jwt_len, temp, sizeof(temp), "%s", claims)) {
-				first_brace = memchr(in, '{', len);
+				first_brace = (char *)memchr(in, '{', len);
 				if (first_brace) {
 					size_t offset = lws_ptr_diff_size_t(first_brace, in) + 1;
 					size_t out_len = 0;
@@ -3048,7 +3048,7 @@ fallback:
 					if (cr) {
 						memset(cr, 0, sizeof(*cr));
 						lws_strncpy(cr->fqdn, cci->fqdn, sizeof(cr->fqdn));
-						char *colon = strchr(cr->fqdn, ':');
+						char *colon = (char *)strchr(cr->fqdn, ':');
 						if (colon) *colon = '\0';
 						cr->port = cci->port;
 						char *err_str = in ? (char *)in : "Connection failed";
@@ -3160,7 +3160,7 @@ fallback:
 							"{\"req\":\"get_acme_profiles\",\"status\":\"ok\",\"profiles\":");
 						existing_len += (size_t)n;
 
-						char *profiles_start = afi->json ? strstr(afi->json, "\"profiles\"") : NULL;
+						char *profiles_start = afi->json ? (char *)strstr(afi->json, "\"profiles\"") : NULL;
 						if (profiles_start) {
 							profiles_start += 10;
 							while (*profiles_start && (*profiles_start == ' ' || *profiles_start == ':')) profiles_start++;
@@ -3323,7 +3323,7 @@ fallback:
 				char *p = (char *)&vhd->rx[LWS_PRE];
 				char *start = p;
 				while (p && *p) {
-					char *nl = strchr(p, '\n');
+					char *nl = (char *)strchr(p, '\n');
 					if (nl) {
 						*nl = '\0';
 						if (*p) {
@@ -3454,7 +3454,7 @@ callback_monitor_stdwsi(struct lws *wsi, enum lws_callback_reasons reason,
 
 				char *b = (char *)buf;
 				while (b && *b) {
-					char *nl = strchr(b, '\n');
+					char *nl = (char *)strchr(b, '\n');
 					if (nl) *nl++ = '\0';
 					lwsl_notice("[PRIV-DAEMON] %s\n", b);
 					b = nl;

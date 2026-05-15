@@ -157,7 +157,7 @@ lws_diskcache_finalize_name(char *cache)
 
 	strncpy(ren, cache, sizeof(ren) - 1);
 	ren[sizeof(ren) - 1] = '\0';
-	p = strchr(cache, '~');
+	p = (char *)strchr(cache, '~');
 	if (p) {
 		*p = '\0';
 		if (rename(ren, cache)) {

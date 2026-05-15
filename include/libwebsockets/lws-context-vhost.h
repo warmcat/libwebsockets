@@ -1054,7 +1054,10 @@ struct lws_context_creation_info {
 	 * was not built against the newer headers.
 	 */
 
-	void *_unused[2]; /**< dummy */
+	uint32_t			quic_mtu;
+	/**< VHOST: 0 for default (1280), or the desired QUIC MTU for the vhost */
+
+	void *_unused[1]; /**< dummy */
 };
 
 /**

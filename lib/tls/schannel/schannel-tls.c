@@ -46,7 +46,7 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 			  const char *mem_privkey, size_t mem_privkey_len)
 {
     PCCERT_CONTEXT pCertCtx = NULL;
-    SCHANNEL_CRED schannel_cred = { 0 };
+    LWS_SCH_CREDENTIALS schannel_cred = { 0 };
     SECURITY_STATUS status;
     TimeStamp tsExpiry;
 
@@ -69,16 +69,36 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
         return 1;
     }
 
-    schannel_cred.dwVersion = SCHANNEL_CRED_VERSION;
+    schannel_cred.dwVersion = SCH_CREDENTIALS_VERSION;
     schannel_cred.cCreds = 1;
     schannel_cred.paCred = &pCertCtx;
-    schannel_cred.dwFlags = SCH_CRED_NO_DEFAULT_CREDS | SCH_CRED_NO_SYSTEM_MAPPER;
-    /* Allow all protocol versions by default */
-    schannel_cred.grbitEnabledProtocols = 0;
+#ifndef SCH_USE_STRONG_CRYPTO
+#define SCH_USE_STRONG_CRYPTO 0x00400000
+#endif
+#ifndef SP_PROT_TLS1_3_SERVER
+#define SP_PROT_TLS1_3_SERVER 0x00001000
+#endif
+    LWS_TLS_PARAMETERS tls_params = { 0 };
+    tls_params.grbitDisabledProtocols = (DWORD)~SP_PROT_TLS1_3_SERVER;
+
+    schannel_cred.dwFlags = SCH_CRED_NO_DEFAULT_CREDS | SCH_CRED_NO_SYSTEM_MAPPER | SCH_USE_STRONG_CRYPTO;
+    schannel_cred.cTlsParameters = 1;
+    schannel_cred.pTlsParameters = &tls_params;
 
     status = AcquireCredentialsHandleA(NULL, UNISP_NAME_A, SECPKG_CRED_INBOUND, NULL,
                                       &schannel_cred, NULL, NULL,
                                       &vhost->tls.ssl_ctx->cred, &tsExpiry);
+
+    if (status == SEC_E_UNKNOWN_CREDENTIALS || status == SEC_E_INVALID_PARAMETER) {
+        SCHANNEL_CRED old_cred = { 0 };
+        old_cred.dwVersion = SCHANNEL_CRED_VERSION;
+        old_cred.cCreds = 1;
+        old_cred.paCred = &pCertCtx;
+        old_cred.dwFlags = SCH_CRED_NO_DEFAULT_CREDS | SCH_CRED_NO_SYSTEM_MAPPER | SCH_USE_STRONG_CRYPTO;
+        status = AcquireCredentialsHandleA(NULL, UNISP_NAME_A, SECPKG_CRED_INBOUND, NULL,
+                                          &old_cred, NULL, NULL,
+                                          &vhost->tls.ssl_ctx->cred, &tsExpiry);
+    }
 
     CertFreeCertificateContext(pCertCtx);
 
@@ -163,7 +183,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 				    const void *key_mem,
 				    unsigned int key_mem_len)
 {
-    SCHANNEL_CRED schannel_cred = { 0 };
+    LWS_SCH_CREDENTIALS schannel_cred = { 0 };
     SECURITY_STATUS status;
     TimeStamp tsExpiry;
     PCCERT_CONTEXT pCertCtx = NULL;
@@ -171,24 +191,26 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
     vh->tls.ssl_client_ctx = lws_zalloc(sizeof(*vh->tls.ssl_client_ctx), "schannel_client_ctx");
     if (!vh->tls.ssl_client_ctx) return 1;
 
-    schannel_cred.dwVersion = SCHANNEL_CRED_VERSION;
-    schannel_cred.dwFlags = SCH_CRED_MANUAL_CRED_VALIDATION;
+    schannel_cred.dwVersion = SCH_CREDENTIALS_VERSION;
+#ifndef SCH_USE_STRONG_CRYPTO
+#define SCH_USE_STRONG_CRYPTO 0x00400000
+#endif
+#ifndef SP_PROT_TLS1_3_CLIENT
+#define SP_PROT_TLS1_3_CLIENT 0x00002000
+#endif
+
+    LWS_TLS_PARAMETERS tls_params = { 0 };
+    tls_params.grbitDisabledProtocols = (DWORD)~SP_PROT_TLS1_3_CLIENT;
+
+    schannel_cred.dwFlags = SCH_CRED_MANUAL_CRED_VALIDATION | SCH_CRED_NO_DEFAULT_CREDS | SCH_USE_STRONG_CRYPTO;
+    schannel_cred.cTlsParameters = 1;
+    schannel_cred.pTlsParameters = &tls_params;
 
     if (cert_filepath || cert_mem) {
-        schannel_cred.dwFlags |= SCH_CRED_NO_DEFAULT_CREDS;
         if (lws_tls_schannel_cert_info_load(vh->context, cert_filepath, private_key_filepath,
                                             cert_mem, cert_mem_len,
                                             key_mem, key_mem_len, &pCertCtx,
                                             &vh->tls.ssl_client_ctx->store,
-                                            /* We pass NULL for provider because client usually relies on default behavior or different handling.
-                                               Actually, if we want to support client certs from memory properly, we SHOULD pass &vh->tls.ssl_client_ctx->key_prov.
-                                               But the current change switches implementation to CAPI.
-                                               Let's stick to NULL for client for now to match "existing working" state (where we assumed it worked without keeping prov open, or used a different flow).
-                                               Wait, earlier finding was that client LEAKED the provider.
-                                               If we pass NULL, my new implementation in schannel-x509.c closes it.
-                                               If client needs it open, we MUST pass the pointer.
-                                               So I will pass the pointer.
-                                            */
                                             (void **)&vh->tls.ssl_client_ctx->u.key_prov,
                                             &vh->tls.ssl_client_ctx->key_type,
                                             NULL) == 0) {
@@ -197,18 +219,38 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
         }
     }
 
-    status = AcquireCredentialsHandleA(NULL, UNISP_NAME_A, SECPKG_CRED_OUTBOUND, NULL,
+    status = AcquireCredentialsHandleW(NULL, (SEC_WCHAR*)UNISP_NAME_W, SECPKG_CRED_OUTBOUND, NULL,
                                       &schannel_cred, NULL, NULL,
                                       &vh->tls.ssl_client_ctx->cred, &tsExpiry);
+
+    if (status == SEC_E_UNKNOWN_CREDENTIALS || status == SEC_E_INVALID_PARAMETER) {
+        lwsl_err("%s: SCH_CREDENTIALS failed with 0x%x! Falling back to SCHANNEL_CRED (QUIC will fail!)\n", __func__, (int)status);
+        SCHANNEL_CRED old_cred = { 0 };
+        old_cred.dwVersion = SCHANNEL_CRED_VERSION;
+        old_cred.dwFlags = schannel_cred.dwFlags;
+        old_cred.cCreds = schannel_cred.cCreds;
+        old_cred.paCred = schannel_cred.paCred;
+        status = AcquireCredentialsHandleW(NULL, (SEC_WCHAR*)UNISP_NAME_W, SECPKG_CRED_OUTBOUND, NULL,
+                                          &old_cred, NULL, NULL,
+                                          &vh->tls.ssl_client_ctx->cred, &tsExpiry);
+    }
 
     if (status == SEC_E_NO_CREDENTIALS && schannel_cred.cCreds > 0) {
         lwsl_warn("%s: client cert rejected by SChannel, retrying without\n", __func__);
         schannel_cred.cCreds = 0;
         schannel_cred.paCred = NULL;
         schannel_cred.dwFlags &= ~SCH_CRED_NO_DEFAULT_CREDS;
-        status = AcquireCredentialsHandleA(NULL, UNISP_NAME_A, SECPKG_CRED_OUTBOUND, NULL,
+        status = AcquireCredentialsHandleW(NULL, (SEC_WCHAR*)UNISP_NAME_W, SECPKG_CRED_OUTBOUND, NULL,
                                           &schannel_cred, NULL, NULL,
                                           &vh->tls.ssl_client_ctx->cred, &tsExpiry);
+        if (status == SEC_E_UNKNOWN_CREDENTIALS || status == SEC_E_INVALID_PARAMETER) {
+            SCHANNEL_CRED old_cred = { 0 };
+            old_cred.dwVersion = SCHANNEL_CRED_VERSION;
+            old_cred.dwFlags = schannel_cred.dwFlags;
+            status = AcquireCredentialsHandleW(NULL, (SEC_WCHAR*)UNISP_NAME_W, SECPKG_CRED_OUTBOUND, NULL,
+                                              &old_cred, NULL, NULL,
+                                              &vh->tls.ssl_client_ctx->cred, &tsExpiry);
+        }
     }
 
     if (pCertCtx) CertFreeCertificateContext(pCertCtx);

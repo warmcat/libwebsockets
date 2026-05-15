@@ -49,7 +49,8 @@ lws_http_client_connect_via_info2(struct lws *wsi)
 	wsi->a.opaque_user_data = wsi->stash->opaque_user_data;
 
 	if (stash->cis[CIS_METHOD] && (!strcmp(stash->cis[CIS_METHOD], "RAW") ||
-				      !strcmp(stash->cis[CIS_METHOD], "MQTT")))
+				      !strcmp(stash->cis[CIS_METHOD], "MQTT") ||
+				      !strcmp(stash->cis[CIS_METHOD], "QUIC")))
 		goto no_ah;
 
 	/*
@@ -477,7 +478,11 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 	/* raw socket per se doesn't want this... raw socket proxy wants it... */
 
-	if (wsi->role_ops != &role_ops_raw_skt ||
+	if ((wsi->role_ops != &role_ops_raw_skt &&
+#if defined(LWS_ROLE_QUIC)
+	     wsi->role_ops != &role_ops_quic &&
+#endif
+	     1) ||
 	    (i->local_protocol_name &&
 	     !strcmp(i->local_protocol_name, "raw-proxy"))) {
 		lwsl_wsi_debug(wsi, "adoption cb %d to %s %s",
@@ -495,7 +500,8 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 					     i->uri_replace_to);
 #endif
 
-	if (i->method && (!strcmp(i->method, "RAW") // ||
+	if (i->method && (!strcmp(i->method, "RAW") ||
+			  !strcmp(i->method, "QUIC") // ||
 //			  !strcmp(i->method, "MQTT")
 	)) {
 
@@ -508,16 +514,20 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 		wsi->tls.ssl = NULL;
 
-		if (wsi->role_ops != &role_ops_raw_skt && (wsi->tls.use_ssl & LCCSCF_USE_SSL)) {
+		if (strcmp(wsi->role_ops->name, "raw-skt") != 0 &&
+		    (wsi->tls.use_ssl & LCCSCF_USE_SSL)) {
 			const char *cce = NULL;
+			int do_c1 = 1;
 
-			switch (
-#if !defined(LWS_WITH_SYS_ASYNC_DNS)
-			lws_client_create_tls(wsi, &cce, 1)
-#else
-			lws_client_create_tls(wsi, &cce, 0)
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+			do_c1 = 0;
 #endif
-			) {
+#if defined(LWS_ROLE_QUIC)
+			if (!strcmp(wsi->role_ops->name, "quic"))
+				do_c1 = 0;
+#endif
+
+			switch (lws_client_create_tls(wsi, &cce, do_c1)) {
 			case 1:
 				return wsi;
 			case 0:

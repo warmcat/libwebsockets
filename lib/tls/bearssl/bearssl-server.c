@@ -121,6 +121,11 @@ lws_tls_server_accept(struct lws *wsi)
 		br_ssl_engine_set_buffer(&conn->u.server.eng, conn->iobuf_in, sizeof(conn->iobuf_in), 1);
 		br_ssl_engine_set_buffer(&conn->u.server.eng, conn->iobuf_out, sizeof(conn->iobuf_out), 0);
 
+		if (wsi->a.vhost->tls.alpn_ctx.len) {
+			lws_bearssl_set_alpn(conn, wsi->a.vhost->tls.alpn_ctx.data,
+					     wsi->a.vhost->tls.alpn_ctx.len);
+		}
+
 #if defined(LWS_WITH_TLS_SESSIONS)
 		if (ctx->lru_buffer)
 			br_ssl_server_set_cache(&conn->u.server, &ctx->lru.vtable);

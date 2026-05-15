@@ -35,6 +35,10 @@ if (LWS_ROLE_MQTT)
 	add_subdir_include_directories(mqtt)
 endif()
 
+if (LWS_ROLE_QUIC)
+	add_subdir_include_directories(quic)
+endif()
+
 if (LWS_ROLE_DBUS AND NOT LWS_PLAT_FREERTOS)
 	add_subdir_include_directories(dbus)
 endif()

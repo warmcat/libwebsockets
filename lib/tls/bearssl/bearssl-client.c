@@ -53,6 +53,29 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 		br_ssl_engine_set_buffer(&conn->u.client.eng, conn->iobuf_in, sizeof(conn->iobuf_in), 1);
 		br_ssl_engine_set_buffer(&conn->u.client.eng, conn->iobuf_out, sizeof(conn->iobuf_out), 0);
 
+		{
+			const char *alpn_comma = wsi->a.context->tls.alpn_default;
+			uint8_t openssl_alpn[128];
+			int n;
+
+			if (wsi->a.vhost->tls.alpn)
+				alpn_comma = wsi->a.vhost->tls.alpn;
+			if (wsi->stash) {
+				alpn_comma = wsi->stash->cis[CIS_ALPN];
+			} else {
+				char temp_alpn[128];
+				if (lws_hdr_copy(wsi, temp_alpn, sizeof(temp_alpn), _WSI_TOKEN_CLIENT_ALPN) > 0)
+					alpn_comma = temp_alpn;
+			}
+
+			if (alpn_comma) {
+				n = lws_alpn_comma_to_openssl(alpn_comma, openssl_alpn, sizeof(openssl_alpn) - 1);
+				if (n > 0) {
+					lws_bearssl_set_alpn(conn, openssl_alpn, (size_t)n);
+				}
+			}
+		}
+
 		/* Extract hostname for SNI */
 		if (wsi->stash) {
 			conn->client_hostname = lws_strdup(wsi->stash->cis[CIS_HOST]);
@@ -63,7 +86,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 		}
 
 		if (conn->client_hostname) {
-			char *p = strchr(conn->client_hostname, ':');
+			char *p = (char *)strchr(conn->client_hostname, ':');
 			if (p)
 				*p = '\0';
 		}
@@ -109,7 +132,14 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 		return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
 
 	if (st & (BR_SSL_SENDAPP | BR_SSL_RECVAPP)) {
+		const char *alpn_selected = br_ssl_engine_get_selected_protocol(&conn->u.engine);
+
 		lwsl_info("%s: client connect OK\n", __func__);
+
+		if (alpn_selected) {
+			lwsl_info("%s: ALPN selected: %s\n", __func__, alpn_selected);
+			lws_role_call_alpn_negotiated(wsi, alpn_selected);
+		}
 
 		if (lws_ssl_pending(wsi)) {
 			struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];

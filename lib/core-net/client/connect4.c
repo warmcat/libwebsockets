@@ -39,11 +39,10 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 	meth = lws_wsi_client_stash_item(wsi, CIS_METHOD,
 					 _WSI_TOKEN_CLIENT_METHOD);
 
-	if (meth && (!strcmp(meth, "RAW")
-#if defined(LWS_ROLE_MQTT)
-		     || !strcmp(meth, "MQTT")
-#endif
-	))
+	if (meth && (!strcmp(meth, "RAW") ||
+		     !strcmp(meth, "MQTT") ||
+		     !strcmp(meth, "QUIC") ||
+		     !strcmp(meth, "UDP")))
 		rawish = 1;
 
 	if (wsi_piggyback)
@@ -185,6 +184,9 @@ send_hs:
 			/* we have connected if we got here */
 
 			if (lwsi_state(wsi) == LRS_WAITING_CONNECT &&
+#if defined(LWS_ROLE_QUIC)
+			    strcmp(wsi->role_ops->name, "quic") != 0 &&
+#endif
 			    (wsi->tls.use_ssl & LCCSCF_USE_SSL)) {
 				int result;
 
@@ -233,6 +235,16 @@ send_hs:
 #endif
 
 				goto provoke_service;
+			}
+#endif
+
+#if defined(LWS_ROLE_QUIC)
+			if (meth && !strcmp(meth, "QUIC")) {
+				lwsi_set_state(wsi, LRS_WAITING_SSL);
+				wsi->hdr_parsing_completed = 1;
+				lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+				lws_callback_on_writable(wsi);
+				return wsi;
 			}
 #endif
 

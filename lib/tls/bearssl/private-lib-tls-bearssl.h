@@ -72,6 +72,9 @@ struct lws_tls_conn {
 	size_t pending_app_data_len;
 	struct lws_tls_ctx *ctx;
 	unsigned int tls_use_ssl;
+
+	char **alpn_strings;
+	size_t alpn_strings_count;
 };
 
 typedef struct lws_tls_conn lws_tls_conn;
@@ -87,5 +90,6 @@ typedef struct lws_x509_cert lws_tls_x509;
 int lws_bearssl_pump(struct lws *wsi);
 void lws_bearssl_x509_wrap_conn(lws_tls_conn *conn);
 int lws_tls_session_new_bearssl(struct lws *wsi);
+int lws_bearssl_set_alpn(struct lws_tls_conn *conn, const uint8_t *alpn, size_t alpn_len);
 
 #endif

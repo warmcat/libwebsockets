@@ -61,7 +61,7 @@ __progname(nargv0)
 
 	_DIAGASSERT(nargv0 != NULL);
 
-	tmp = strrchr(nargv0, '/');
+	tmp = (char *)strrchr(nargv0, '/');
 	if (tmp)
 		tmp++;
 	else
@@ -102,7 +102,7 @@ getopt_internal(nargc, nargv, ostr)
 		}
 	}					/* option letter okay? */
 	if ((optopt = (int)*place++) == (int)':' ||
-	    !(oli = strchr(ostr, optopt))) {
+	    !(oli = (char *)strchr(ostr, optopt))) {
 		/*
 		 * if the user didn't specify '-' as an option,
 		 * assume it means -1.
@@ -153,7 +153,7 @@ getopt2(nargc, nargv, ostr)
 
 	if ((retval = getopt_internal(nargc, nargv, ostr)) == -2) {
 		retval = -1;
-		++optind; 
+		++optind;
 	}
 	return(retval);
 }
@@ -185,17 +185,17 @@ getopt_long(nargc, nargv, options, long_options, index)
 		if (*current_argv == '\0') {
 			return(-1);
 		}
-		if ((has_equal = strchr(current_argv, '=')) != NULL) {
+		if ((has_equal = (char *)strchr(current_argv, '=')) != NULL) {
 			current_argv_len = lws_ptr_diff(has_equal, current_argv);
 			has_equal++;
 		} else
 			current_argv_len = (int)strlen(current_argv);
 
-		for (i = 0; long_options[i].name; i++) { 
+		for (i = 0; long_options[i].name; i++) {
 			if (strncmp(current_argv, long_options[i].name, current_argv_len))
 				continue;
 
-			if (strlen(long_options[i].name) == (unsigned)current_argv_len) { 
+			if (strlen(long_options[i].name) == (unsigned)current_argv_len) {
 				match = i;
 				break;
 			}
@@ -231,7 +231,7 @@ getopt_long(nargc, nargv, options, long_options, index)
 		if (long_options[match].flag) {
 			*long_options[match].flag = long_options[match].val;
 			retval = 0;
-		} else 
+		} else
 			retval = long_options[match].val;
 		if (index)
 			*index = match;

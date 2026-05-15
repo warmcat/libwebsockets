@@ -921,7 +921,7 @@ lws_webrtc_parse_sdp_codecs(struct pss_webrtc *pss, const char *sdp_clean)
 	/* Pass 1: Build H.264 PT Map from rtpmap */
 	char *p_pass1 = (char *)sdp_clean;
 	while (*p_pass1) {
-		char *eol = strchr(p_pass1, '\n');
+		char *eol = (char *)strchr(p_pass1, '\n');
 		size_t line_len = eol ? (size_t)(eol - p_pass1) : strlen(p_pass1);
 		if (line_len > 0 && p_pass1[line_len-1] == '\r') line_len--;
 
@@ -962,7 +962,7 @@ lws_webrtc_parse_sdp_codecs(struct pss_webrtc *pss, const char *sdp_clean)
 
 	/* Pass 2: Main Parsing */
 	while (*p_scan) {
-		char *eol = strchr(p_scan, '\n');
+		char *eol = (char *)strchr(p_scan, '\n');
 		size_t line_len = eol ? (size_t)(eol - p_scan) : strlen(p_scan);
 		if (line_len > 0 && p_scan[line_len-1] == '\r') line_len--;
 
@@ -1125,7 +1125,7 @@ handle_answer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, c
 
 	char *p = sdp_clean;
 	while (*p) {
-		char *eol = strchr(p, '\n');
+		char *eol = (char *)strchr(p, '\n');
 		size_t line_len = eol ? (size_t)(eol - p) : strlen(p);
 		if (line_len > 0 && p[line_len-1] == '\r') line_len--;
 
@@ -1255,7 +1255,7 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 	/* Pass 1: Build H.264 PT Map from rtpmap */
 	char *p_pass1 = sdp_clean;
 	while (*p_pass1) {
-		char *eol = strchr(p_pass1, '\n');
+		char *eol = (char *)strchr(p_pass1, '\n');
 		size_t line_len = eol ? (size_t)(eol - p_pass1) : strlen(p_pass1);
 		if (line_len > 0 && p_pass1[line_len-1] == '\r') line_len--;
 
@@ -1296,7 +1296,7 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 
 	/* Pass 2: Main Parsing */
 	while (*p_scan) {
-		char *eol = strchr(p_scan, '\n');
+		char *eol = (char *)strchr(p_scan, '\n');
 		size_t line_len = eol ? (size_t)(eol - p_scan) : strlen(p_scan);
 		if (line_len > 0 && p_scan[line_len-1] == '\r') line_len--;
 
@@ -1480,7 +1480,7 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 
 		if (rou->src.sa4.sin_family == AF_INET && rou->source_ads) {
 			lws_sa46_write_numeric_address(&rou->src, ads, sizeof(ads));
-			if (strcmp(ads, "127.0.0.1") && !strstr(candidates, ads)) {
+			if (strcmp(ads, "127.0.0.1") && !(char *)strstr(candidates, ads)) {
 				lws_snprintf(candidates + strlen(candidates),
 						sizeof(candidates) - strlen(candidates),
 						"a=candidate:%d 1 udp %u %s %u typ host generation 0\\r\\n",
@@ -1490,7 +1490,7 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 	} lws_end_foreach_dll(d);
 #endif
 
-	if (vhd->external_ip[0] && !strstr(candidates, vhd->external_ip)) {
+	if (vhd->external_ip[0] && !(char *)strstr(candidates, vhd->external_ip)) {
 		lws_snprintf(candidates + strlen(candidates),
 				sizeof(candidates) - strlen(candidates),
 				"a=candidate:%d 1 udp %u %s %u typ host generation 0\\r\\n",
@@ -1507,7 +1507,7 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 			else if (ss.ss_family == AF_INET6)
 				inet_ntop(AF_INET6, &((struct sockaddr_in6 *)&ss)->sin6_addr, local_ip, sizeof(local_ip));
 		}
-		if (!strstr(candidates, local_ip)) {
+		if (!(char *)strstr(candidates, local_ip)) {
 			lws_snprintf(candidates + strlen(candidates),
 					sizeof(candidates) - strlen(candidates),
 					"a=candidate:%d 1 udp %u %s %u typ host generation 0\\r\\n",
@@ -1988,7 +1988,7 @@ webrtc_handle_stun(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrtc **
 				username[attr_len] = '\0';
 
 				/* Format is DestUfrag:SrcUfrag */
-				char *colon = strchr(username, ':');
+				char *colon = (char *)strchr(username, ':');
 				if (colon) {
 					*colon = '\0';
 					const char *u_dest = username; // Server Ufrag (Ours)

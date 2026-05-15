@@ -163,6 +163,7 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].dht[].hash",
 	"vhosts[].dht[]",
 #endif
+	"vhosts[].quic-mtu",
 };
 
 enum lejp_vhost_paths {
@@ -259,6 +260,7 @@ enum lejp_vhost_paths {
 	LEJPVP_DHT_HASH,
 	LEJPVP_DHT,
 #endif
+	LEJPVP_QUIC_MTU,
 };
 
 #define MAX_PLUGIN_DIRS 10
@@ -1148,6 +1150,9 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	case LEJPVP_ALPN:
 		a->info->alpn = a->p;
 		break;
+	case LEJPVP_QUIC_MTU:
+		a->info->quic_mtu = (uint32_t)atoi(ctx->buf);
+		return 0;
 #endif
 
 	case LEJPVP_LISTEN_ACCEPT_ROLE:
@@ -1212,7 +1217,7 @@ dostring:
 
 	if (reason != LEJPCB_VAL_STR_END)
 		p[LEJP_STRING_CHUNK] = '\0';
-	p1 = strstr(p, ESC_INSTALL_DATADIR);
+	p1 = (char *)strstr(p, ESC_INSTALL_DATADIR);
 	if (p1) {
 		n = lws_ptr_diff(p1, p);
 		if (n > a->end - a->p)

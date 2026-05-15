@@ -644,8 +644,8 @@ auth_verify_redirect_uri(struct per_vhost_data__auth_server *vhd,
 	if (!redirect_uri || !redirect_uri[0])
 		return 0;
 
-	if (strstr(redirect_uri, "../") || strstr(redirect_uri, "..%2F") ||
-	    strstr(redirect_uri, "..%2f"))
+	if ((char *)strstr(redirect_uri, "../") || (char *)strstr(redirect_uri, "..%2F") ||
+	    (char *)strstr(redirect_uri, "..%2f"))
 		return 0;
 
 	if (client_id && client_id[0]) {
@@ -2028,7 +2028,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				else
 					lwsl_notice("Auth plugin chowned database file '%s' to %d:%d\n", parent, (int)uid, (int)gid);
 
-				last_slash = strrchr(parent, '/');
+				last_slash = (char *)strrchr(parent, '/');
 				if (last_slash && last_slash != parent) {
 					*last_slash = '\0';
 					if (chown(parent, uid, gid))
@@ -2961,7 +2961,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			return lws_http_transaction_completed(wsi);
 		}
 
-		if (in && (strstr((const char *)in, "login") || strstr((const char *)in, "register") || strstr((const char *)in, "forgot_password") || strstr((const char *)in, "reset_password") || strstr((const char *)in, "token") || strstr((const char *)in, "sso_exchange") || strstr((const char *)in, "device_auth") || strstr((const char *)in, "device_approve"))) {
+		if (in && ((char *)strstr((const char *)in, "login") || (char *)strstr((const char *)in, "register") || (char *)strstr((const char *)in, "forgot_password") || (char *)strstr((const char *)in, "reset_password") || (char *)strstr((const char *)in, "token") || (char *)strstr((const char *)in, "sso_exchange") || (char *)strstr((const char *)in, "device_auth") || (char *)strstr((const char *)in, "device_approve"))) {
 			lws_strncpy(pss->requesting_url, (const char *)in, sizeof(pss->requesting_url));
 
 			lwsl_info("%s: Processing POST to '%s'\n", __func__, pss->requesting_url);
@@ -3003,23 +3003,23 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		lws_spa_finalize(pss->spa);
 
-		if (strstr(pss->requesting_url, "device_auth"))
+		if ((char *)strstr(pss->requesting_url, "device_auth"))
 			return lws_auth_api_device_auth(wsi, vhd, pss);
-		else if (strstr(pss->requesting_url, "device_token"))
+		else if ((char *)strstr(pss->requesting_url, "device_token"))
 			return lws_auth_api_device_token(wsi, vhd, pss);
-		else if (strstr(pss->requesting_url, "device_approve"))
+		else if ((char *)strstr(pss->requesting_url, "device_approve"))
 			return lws_auth_api_device_approve(wsi, vhd, pss);
-		else if (strstr(pss->requesting_url, "token"))
+		else if ((char *)strstr(pss->requesting_url, "token"))
 			return lws_auth_api_token(wsi, vhd, pss);
-		else if (strstr(pss->requesting_url, "login"))
+		else if ((char *)strstr(pss->requesting_url, "login"))
 			return lws_auth_api_login(wsi, vhd, pss);
-		else if (strstr(pss->requesting_url, "sso_exchange"))
+		else if ((char *)strstr(pss->requesting_url, "sso_exchange"))
 			return lws_auth_api_sso_exchange(wsi, vhd, pss);
-		else if (strstr(pss->requesting_url, "register"))
+		else if ((char *)strstr(pss->requesting_url, "register"))
 			return lws_auth_api_register(wsi, vhd, pss);
-		else if (strstr(pss->requesting_url, "forgot_password"))
+		else if ((char *)strstr(pss->requesting_url, "forgot_password"))
 			return lws_auth_api_forgot_password(wsi, vhd, pss);
-		else if (strstr(pss->requesting_url, "reset_password"))
+		else if ((char *)strstr(pss->requesting_url, "reset_password"))
 			return lws_auth_api_reset_password(wsi, vhd, pss);
 
 		lwsl_err("%s: Unknown requesting URL '%s'\n", __func__, pss->requesting_url);
@@ -3101,17 +3101,17 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		char new_grants[512] = {0};
 
 		char *gp;
-		if ((gp = strstr((const char *)in, "\"op\":\""))) {
+		if ((gp = (char *)strstr((const char *)in, "\"op\":\""))) {
 			gp += 6;
 			int i = 0;
 			while (*gp && *gp != '"' && i < 31) op[i++] = *gp++;
 		}
-		if ((gp = strstr((const char *)in, "\"uid\":"))) {
+		if ((gp = (char *)strstr((const char *)in, "\"uid\":"))) {
 			gp += 6;
 			while (*gp == ' ' || *gp == '"') gp++;
 			req_uid = atoi(gp);
 		}
-		if ((gp = strstr((const char *)in, "\"grants\":\""))) {
+		if ((gp = (char *)strstr((const char *)in, "\"grants\":\""))) {
 			gp += 10;
 			int i = 0;
 			while (*gp && *gp != '"' && i < 511)
@@ -3122,17 +3122,17 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		char client_name[64] = {0};
 		char redirect_uris[512] = {0};
 
-		if ((gp = strstr((const char *)in, "\"client_id\":\""))) {
+		if ((gp = (char *)strstr((const char *)in, "\"client_id\":\""))) {
 			gp += 13;
 			int i = 0;
 			while (*gp && *gp != '"' && i < 63) client_id[i++] = *gp++;
 		}
-		if ((gp = strstr((const char *)in, "\"name\":\""))) {
+		if ((gp = (char *)strstr((const char *)in, "\"name\":\""))) {
 			gp += 8;
 			int i = 0;
 			while (*gp && *gp != '"' && i < 63) client_name[i++] = *gp++;
 		}
-		if ((gp = strstr((const char *)in, "\"redirect_uris\":\""))) {
+		if ((gp = (char *)strstr((const char *)in, "\"redirect_uris\":\""))) {
 			gp += 17;
 			int i = 0;
 			while (*gp && *gp != '"' && i < 511) redirect_uris[i++] = *gp++;
@@ -3224,9 +3224,9 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 			char *p2 = new_grants;
 			while (*p2) {
-				char *comma = strchr(p2, ',');
+				char *comma = (char *)strchr(p2, ',');
 				if (comma) *comma = '\0';
-				char *colon = strchr(p2, ':');
+				char *colon = (char *)strchr(p2, ':');
 				if (colon) {
 					*colon = '\0';
 					const char *sn = p2;

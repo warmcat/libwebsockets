@@ -454,6 +454,9 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	lws_pt_assert_lock_held(pt);
 
 #if defined(LWS_WITH_CLIENT)
+#if defined(LWS_WITH_TLS_SESSIONS) && defined(LWS_WITH_GNUTLS)
+	lws_tls_session_new_gnutls(wsi);
+#endif
 
 	lws_free_set_NULL(wsi->cli_hostname_copy);
 	wsi->client_mux_substream_was = wsi->client_mux_substream;
@@ -941,14 +944,17 @@ async_close:
 void
 __lws_close_free_wsi_final(struct lws *wsi)
 {
-	int n;
+	int n, ssl_handled = 0;
 
 #if defined(LWS_WITH_ASYNC_QUEUE)
 	lws_async_worker_wait_and_reap(wsi);
 #endif
 
+	if (!wsi->shadow)
+		ssl_handled = lws_ssl_close(wsi);
+
 	if (!wsi->shadow &&
-	    lws_socket_is_valid(wsi->desc.sockfd) && !lws_ssl_close(wsi)) {
+	    lws_socket_is_valid(wsi->desc.sockfd) && !ssl_handled) {
 		lwsl_wsi_debug(wsi, "fd %d", wsi->desc.sockfd);
 
 		__remove_wsi_socket_from_fds(wsi);

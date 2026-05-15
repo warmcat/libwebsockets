@@ -570,7 +570,7 @@ lws_select_vhost(struct lws_context *context, int port, const char *servername)
 
 	n = (int)strlen(servername);
 	colon = n;
-	p = strchr(servername, ':');
+	p = (char *)strchr(servername, ':');
 	if (p)
 		colon = lws_ptr_diff(p, servername);
 
@@ -704,7 +704,7 @@ lws_vfs_prepare_flags(struct lws *wsi)
 	if (!lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING))
 		return f;
 
-	if (strstr(lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING),
+	if ((char *)strstr(lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_ACCEPT_ENCODING),
 		   "gzip")) {
 		lwsl_info("client indicates GZIP is acceptable\n");
 		f |= LWS_FOP_FLAG_COMPR_ACCEPTABLE_GZIP;
@@ -1284,7 +1284,7 @@ lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file,
 	}
 
 	plain[m] = '\0';
-	pcolon = strchr(plain, ':');
+	pcolon = (char *)strchr(plain, ':');
 	if (!pcolon) {
 		lwsl_err("basic auth format broken\n");
 		return LCBA_END_TRANSACTION;
@@ -1374,8 +1374,8 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 	if (hit->origin[0] == '+')
 		unix_skt = 1;
 
-	pcolon = strchr(hit->origin, ':');
-	pslash = strchr(hit->origin, '/');
+	pcolon = (char *)strchr(hit->origin, ':');
+	pslash = (char *)strchr(hit->origin, '/');
 	if (!pslash) {
 		lwsl_err("Proxy mount origin '%s' must have /\n", hit->origin);
 		return -1;
@@ -2468,12 +2468,12 @@ raw_transition:
 #endif
 				ua[sizeof(ua) - 1] = '\0';
 				while (rej) {
-					if (!strstr(ua, rej->name)) {
+					if (!(char *)strstr(ua, rej->name)) {
 						rej = rej->next;
 						continue;
 					}
 
-					msg = strchr(rej->value, ' ');
+					msg = (char *)strchr(rej->value, ' ');
 					if (msg)
 						msg++;
 					lws_return_http_status(wsi,
@@ -3194,8 +3194,8 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 
 	/* Only add cache control if its not specified by any other_headers. */
 	if (!other_headers ||
-	    (!strstr(other_headers, "cache-control") &&
-	     !strstr(other_headers, "Cache-Control"))) {
+	    (!(char *)strstr(other_headers, "cache-control") &&
+	     !(char *)strstr(other_headers, "Cache-Control"))) {
 		if (lws_add_http_header_by_token(wsi,
 				WSI_TOKEN_HTTP_CACHE_CONTROL,
 				(unsigned char *)cc, cclen, &p, end))

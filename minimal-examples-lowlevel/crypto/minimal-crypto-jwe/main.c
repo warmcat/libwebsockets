@@ -140,7 +140,7 @@ int main(int argc, const char **argv)
 	/* if encrypting, set the ciphers */
 
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_E].sw))) {
-		char *sp = strchr(p, ' ');
+		char *sp = (char *)strchr(p, ' ');
 
 		if (!sp) {
 			lwsl_err("format: -e \"<cek cipher alg> "

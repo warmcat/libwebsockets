@@ -105,6 +105,9 @@ int
 lws_ssl_close(struct lws *wsi)
 {
 	if (wsi->tls.ssl) {
+#if defined(LWS_WITH_TLS_SESSIONS)
+		lws_tls_session_new_gnutls(wsi);
+#endif
 		gnutls_deinit((gnutls_session_t)wsi->tls.ssl);
 		wsi->tls.ssl = NULL;
 	}
@@ -175,8 +178,15 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
 		return LWS_SSL_CAPABLE_ERROR;
 
 	n = gnutls_handshake((gnutls_session_t)wsi->tls.ssl);
-	if (n == GNUTLS_E_SUCCESS)
+	if (n == GNUTLS_E_SUCCESS) {
+#if defined(LWS_WITH_CLIENT)
+		wsi->tls_session_reused = gnutls_session_is_resumed((gnutls_session_t)wsi->tls.ssl) ? 1 : 0;
+#endif
+#if defined(LWS_WITH_TLS_SESSIONS)
+		lws_tls_session_new_gnutls(wsi);
+#endif
 		return LWS_SSL_CAPABLE_DONE;
+	}
 
 	if (n == GNUTLS_E_AGAIN || n == GNUTLS_E_INTERRUPTED) {
 		if (gnutls_record_get_direction((gnutls_session_t)wsi->tls.ssl) == 0) {

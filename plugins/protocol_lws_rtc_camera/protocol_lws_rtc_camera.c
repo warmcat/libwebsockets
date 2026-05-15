@@ -355,7 +355,7 @@ callback_rtc_camera(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_callback_on_writable(wsi);
 
 				char json[256];
-				const char *name = args && args->name ? args->name : strrchr(app_state->video_device, '/');
+				const char *name = args && args->name ? args->name : (char *)strrchr(app_state->video_device, '/');
 				if (name && name[0] == '/') name++; else if (!name) name = app_state->video_device;
 
 				char esc_name[384];

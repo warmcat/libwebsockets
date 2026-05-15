@@ -764,7 +764,7 @@ str_val:
 							strcpy((char *)qop, "auth");
 							break;
 						}
-						p = strchr(p, ',');
+						p = (char *)strchr(p, ',');
 						if (p) {
 							p++;
 							while (*p == ' ') p++;
@@ -1250,7 +1250,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		}
 
 		/* Relative reference absolute path */
-		if (p[0] == '/' || !strchr(p, ':')) {
+		if (p[0] == '/' || !(char *)strchr(p, ':')) {
 #if defined(LWS_WITH_TLS)
 			ssl = nwsi->tls.use_ssl & LCCSCF_USE_SSL;
 #endif
@@ -1263,7 +1263,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 				path++;
 		}
 		/* Absolute (Full) URI */
-		else if (strchr(p, ':')) {
+		else if ((char *)strchr(p, ':')) {
 			puri = lws_parse_uri_create(p);
 			if (!puri) {
 				cce = "HS: URI did not parse";
@@ -1296,7 +1296,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 				new_path[0] = '/';
 				new_path[1] = '\0';
 			}
-			q = strrchr(new_path, '/');
+			q = (char *)strrchr(new_path, '/');
 			if (q)
 				lws_strncpy(q + 1, p, sizeof(new_path) -
 							(unsigned int)(q - new_path) - 1);
@@ -1804,7 +1804,7 @@ lws_http_mp_sm_init(struct lws *wsi, lws_http_mp_sm_cb_t cb, uint8_t **p, uint8_
 			goto bail;
 		if (n)
 			break;
-		eq = strchr(ft, '=');
+		eq = (char *)strchr(ft, '=');
 		if (eq) {
 			*eq = '\0';
 			eq++;
@@ -1891,7 +1891,7 @@ lws_http_mp_sm_fill(struct lws_http_mp_sm *phms, uint8_t **p, uint8_t *end)
 				return 0; /* finished then */
 			}
 
-			phms->eq = strchr(phms->ft, '=');
+			phms->eq = (char *)strchr(phms->ft, '=');
 			if (phms->eq) {
 				*phms->eq = '\0';
 				phms->eq++;

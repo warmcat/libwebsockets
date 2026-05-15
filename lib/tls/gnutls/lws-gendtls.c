@@ -139,13 +139,13 @@ lws_gendtls_create(struct lws_gendtls_ctx *ctx,
 		gnutls_srtp_profile_t profiles[4];
 		int n = 0;
 
-		if (strstr(info->use_srtp, "SRTP_AES128_CM_SHA1_80"))
+		if ((char *)strstr(info->use_srtp, "SRTP_AES128_CM_SHA1_80"))
 			profiles[n++] = GNUTLS_SRTP_AES128_CM_HMAC_SHA1_80;
-		if (strstr(info->use_srtp, "SRTP_AES128_CM_SHA1_32"))
+		if ((char *)strstr(info->use_srtp, "SRTP_AES128_CM_SHA1_32"))
 			profiles[n++] = GNUTLS_SRTP_AES128_CM_HMAC_SHA1_32;
-		if (strstr(info->use_srtp, "SRTP_NULL_HMAC_SHA1_80"))
+		if ((char *)strstr(info->use_srtp, "SRTP_NULL_HMAC_SHA1_80"))
 			profiles[n++] = GNUTLS_SRTP_NULL_HMAC_SHA1_80;
-		if (strstr(info->use_srtp, "SRTP_NULL_HMAC_SHA1_32"))
+		if ((char *)strstr(info->use_srtp, "SRTP_NULL_HMAC_SHA1_32"))
 			profiles[n++] = GNUTLS_SRTP_NULL_HMAC_SHA1_32;
 
 		if (n) {

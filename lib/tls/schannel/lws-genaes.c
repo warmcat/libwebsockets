@@ -96,41 +96,28 @@ int
 lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 {
 	if (ctx->mode == LWS_GAESM_GCM && ctx->underway && ctx->u.pbMacContext) {
-		/* Finalize GCM to get/verify tag using persisted authInfo */
-
 		BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO *authInfo =
 			(BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO *)ctx->u.pbMacContext;
 
-		/* Clear the chaining flag for the final call */
-		authInfo->dwFlags &= ~BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG;
+		if (ctx->underway == 1) {
+			/* Finalize GCM if there was no payload call */
+			authInfo->dwFlags &= ~BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG;
 
-		/* We must pass a valid output buffer (even if dummy) to force BCryptEncrypt to execute
-		   and produce the tag, otherwise it acts as "Get Size" */
-		uint8_t dummy[128];
-		ULONG result_len = 0;
+			uint8_t dummy[128];
+			ULONG result_len = 0;
 
-		/* Ensure tag buffer pointers are correct for the final call */
-		if (ctx->op == LWS_GAESO_ENC && tag && tlen) {
-			/* Final call to generate tag in internal buffer */
-			if (BCRYPT_SUCCESS(BCryptEncrypt(ctx->u.hKey, NULL, 0, authInfo, ctx->u.iv, 16, dummy, sizeof(dummy), &result_len, 0))) {
-				/* Copy internal tag to user buffer */
-				if (tlen <= ctx->u.cbTag)
-					memcpy(tag, ctx->u.pbTag, tlen);
+			if (ctx->op == LWS_GAESO_ENC) {
+				BCryptEncrypt(ctx->u.hKey, NULL, 0, authInfo, authInfo->pbMacContext, authInfo->cbMacContext, dummy, sizeof(dummy), &result_len, 0);
+			} else {
+				if (tag && tlen && tlen <= ctx->u.cbTag)
+					memcpy(ctx->u.pbTag, tag, tlen);
+				BCryptDecrypt(ctx->u.hKey, NULL, 0, authInfo, authInfo->pbMacContext, authInfo->cbMacContext, dummy, sizeof(dummy), &result_len, 0);
 			}
 		}
 
-		if (ctx->op == LWS_GAESO_DEC && tag && tlen) {
-			/* For decryption, we must populate the internal tag buffer with the expected tag
-			   BEFORE the final verification call.
-			*/
-			if (tlen <= ctx->u.cbTag)
-				memcpy(ctx->u.pbTag, tag, tlen);
-
-			if (!BCRYPT_SUCCESS(BCryptDecrypt(ctx->u.hKey, NULL, 0, authInfo, ctx->u.iv, 16, dummy, sizeof(dummy), &result_len, 0))) {
-				/* Verification failed */
-				/* We cannot easily return failure here as destroy returns 0 typically,
-				   but the tag check failure is implied. */
-			}
+		/* For encryption, copy the generated tag to the user buffer */
+		if (ctx->op == LWS_GAESO_ENC && tag && tlen && tlen <= ctx->u.cbTag) {
+			memcpy(tag, ctx->u.pbTag, tlen);
 		}
 	}
 
@@ -255,10 +242,10 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 
 				if (ctx->op == LWS_GAESO_ENC)
 					status = BCryptEncrypt(ctx->u.hKey, NULL, 0, authInfo,
-							       ctx->u.iv, 16, NULL, 0, &result_len, 0);
+							       authInfo->pbMacContext, authInfo->cbMacContext, NULL, 0, &result_len, 0);
 				else
 					status = BCryptDecrypt(ctx->u.hKey, NULL, 0, authInfo,
-							       ctx->u.iv, 16, NULL, 0, &result_len, 0);
+							       authInfo->pbMacContext, authInfo->cbMacContext, NULL, 0, &result_len, 0);
 
 				lws_free(authData);
 
@@ -277,8 +264,10 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 		/* Retrieve persisted authInfo */
 		authInfo = (BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO *)ctx->u.pbMacContext;
 
-		/* Ensure flags are still set for chaining (should persist, but safety) */
-		authInfo->dwFlags = BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG;
+		/* The payload cannot be chained in BCrypt. So this MUST be the final data call. */
+		authInfo->dwFlags &= ~BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG;
+
+		ctx->underway = 2; /* Mark as finalized */
 
 		/* Reset AAD pointers for payload call */
 		authInfo->pbAuthData = NULL;
@@ -308,11 +297,11 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 
 			if (ctx->op == LWS_GAESO_ENC)
 				status = BCryptEncrypt(ctx->u.hKey, (PUCHAR)in_aligned, (ULONG)len,
-						       authInfo, ctx->u.iv, 16, (PUCHAR)out_aligned,
+						       authInfo, authInfo->pbMacContext, authInfo->cbMacContext, (PUCHAR)out_aligned,
 						       (ULONG)len, &result_len, 0);
 			else
 				status = BCryptDecrypt(ctx->u.hKey, (PUCHAR)in_aligned, (ULONG)len,
-						       authInfo, ctx->u.iv, 16, (PUCHAR)out_aligned,
+						       authInfo, authInfo->pbMacContext, authInfo->cbMacContext, (PUCHAR)out_aligned,
 						       (ULONG)len, &result_len, 0);
 
 			if (BCRYPT_SUCCESS(status))

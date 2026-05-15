@@ -4,8 +4,22 @@
 
 ** NEW features available on main **
 
- - Windows "out of the box" GENCRYPTO and TLS - without OpenSSL: `-DLWS_WITH_SCHANNEL=1`
- - GNUTLS support for GENCRYPTO and TLS: `-DLWS_WITH_GNUTLS=1`
+ - Support for SChannel (windows native TLS), GnuTLS, and BearSSL added
+ - QUIC transport protocol implementation, using openssl, aws-lc, wolfssl, boringssl, libressl, mbedtls, gnutls, and sc
+
+
+| TLS Library | Server TLS | Client TLS | QUIC Transport (TLS 1.3) | WSS / HTTPS | MQTT over TLS | ALPN (HTTP/2) | DTLS (WebRTC) | Session Cache | JIT Trust | GenCrypto |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **OpenSSL** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** |
+| **LibreSSL** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
+| **AWS-LC** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
+| **BoringSSL** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
+| **wolfSSL** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
+| **mbedTLS** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** |
+| **GnuTLS** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
+| **SChannel** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
+| **BearSSL** | **Yes** | **Yes** | **No** | **Yes** | **Yes** | **Yes** | **No** | **Yes** | **Yes** | **Yes** |
+
  - DHT support built-in: `-DLWS_WITH_DHT=1`
 
 ** v4.5 is released, you can follow it on v4.5-stable **

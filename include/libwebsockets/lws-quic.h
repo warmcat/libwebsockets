@@ -77,7 +77,7 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb);
  * to be sent in the next QUIC CRYPTO frame.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_tls_quic_advance_handshake(struct lws *wsi,
+lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 			       const uint8_t *in, size_t in_len,
 			       uint8_t *out, size_t *out_len);
 

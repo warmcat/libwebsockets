@@ -51,10 +51,7 @@ set(LWS_WOLFSSL_LIBRARIES CACHE PATH "Path to the wolfSSL library" )
 set(LWS_WOLFSSL_INCLUDE_DIRS CACHE PATH "Path to the wolfSSL include directory" )
 
 
-if (LWS_WITH_BORINGSSL OR LWS_WITH_AWSLC)
-	# boringssl and aws-lc deprecated EVP_PKEY
-	set (LWS_WITH_GENHASH OFF PARENT_SCOPE)
-endif()
+# BoringSSL and AWS-LC support modern GenHash APIs now
 
 if (LWS_WITH_SSL AND NOT LWS_WITH_WOLFSSL AND NOT LWS_WITH_MBEDTLS AND NOT LWS_WITH_SCHANNEL)
 	if ("${LWS_OPENSSL_LIBRARIES}" STREQUAL "" OR "${LWS_OPENSSL_INCLUDE_DIRS}" STREQUAL "")
@@ -199,6 +196,10 @@ if (LWS_WITH_SSL)
 			tls/gnutls/gnutls-quic.c
 			tls/gnutls/gnutls-ssl.c
 			tls/gnutls/gnutls-x509.c)
+		if (LWS_WITH_TLS_SESSIONS)
+			list(APPEND SOURCES
+				tls/gnutls/gnutls-session.c)
+		endif()
 		if (LWS_WITH_GENCRYPTO)
 			list(APPEND SOURCES
 				tls/gnutls/lws-genhash.c
@@ -388,7 +389,7 @@ if (LWS_WITH_SSL)
 			set(LWS_PUBLIC_INCLUDES ${LWS_PUBLIC_INCLUDES} "${OPENSSL_INCLUDE_DIRS}")
 			set(LWS_PUBLIC_INCLUDES ${LWS_PUBLIC_INCLUDES} PARENT_SCOPE)
 		endif()
-		if (NOT LWS_PLAT_FREERTOS)
+		if (NOT LWS_PLAT_FREERTOS AND OPENSSL_LIBRARIES)
 			list(INSERT LIB_LIST 0 ${OPENSSL_LIBRARIES})
 		endif()
 
@@ -403,7 +404,11 @@ if (LWS_WITH_SSL)
 			endif()
 		else()
 			unset(LWS_HAVE_OPENSSL_ECDH_H PARENT_SCOPE)
-		endif(NOT LWS_WITH_MBEDTLS)
+		endif()
+
+		if (LWS_WITH_BORINGSSL)
+			list(APPEND LIB_LIST "stdc++" "pthread")
+		endif()
 	endif()
 
 endif(LWS_WITH_SSL)

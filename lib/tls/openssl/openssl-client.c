@@ -1115,7 +1115,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		}
 	}
 
-#if !defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_WOLFSSL) && !defined(LWS_WITH_SCHANNEL) && !defined(LWS_WITH_GNUTLS) && !defined(LWS_WITH_BEARSSL)
+#if defined(LWS_ROLE_QUIC) && !defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_WOLFSSL) && !defined(LWS_WITH_SCHANNEL) && !defined(LWS_WITH_GNUTLS) && !defined(LWS_WITH_BEARSSL)
 	lws_tls_quic_vhost_init(vh->tls.ssl_client_ctx);
 #endif
 

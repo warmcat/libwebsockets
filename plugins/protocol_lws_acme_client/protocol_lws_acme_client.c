@@ -1548,7 +1548,7 @@ poll_again:
 			 * ACME 2.0 can send certs chain with 3 certs, we need save only first
 			 */
 			{
-				char *end_cert = strstr(ac->buf, "END CERTIFICATE-----");
+				const char *end_cert = strstr(ac->buf, "END CERTIFICATE-----");
 
 				if (end_cert) {
 					ac->cpos = (int)(lws_ptr_diff_size_t(end_cert, ac->buf) + sizeof("END CERTIFICATE-----") - 1);

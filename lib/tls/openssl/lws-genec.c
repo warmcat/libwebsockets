@@ -739,7 +739,7 @@ int
 lws_geneddsa_set_key(struct lws_genec_ctx *ctx,
 		     const struct lws_gencrypto_keyelem *el)
 {
-#if defined(EVP_PKEY_ED25519) && !defined(LIBRESSL_VERSION_NUMBER)
+#if defined(EVP_PKEY_ED25519) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(USE_WOLFSSL)
 	EVP_PKEY *pkey = NULL;
 	int nid = NID_undef;
 
@@ -791,7 +791,7 @@ int
 lws_geneddsa_new_keypair(struct lws_genec_ctx *ctx, const char *curve_name,
 			 struct lws_gencrypto_keyelem *el)
 {
-#if defined(EVP_PKEY_ED25519) && !defined(LIBRESSL_VERSION_NUMBER)
+#if defined(EVP_PKEY_ED25519) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(USE_WOLFSSL)
 	EVP_PKEY *pkey = NULL;
 	EVP_PKEY_CTX *pctx = NULL;
 	int nid = NID_undef;
@@ -859,7 +859,7 @@ int
 lws_geneddsa_hash_sig_verify_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
 				 size_t in_len, const uint8_t *sig, size_t sig_len)
 {
-#if defined(EVP_PKEY_ED25519) && !defined(LIBRESSL_VERSION_NUMBER)
+#if defined(EVP_PKEY_ED25519) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(USE_WOLFSSL)
 	EVP_MD_CTX *mdctx = NULL;
 	int ret = -1;
 
@@ -889,7 +889,7 @@ int
 lws_geneddsa_hash_sign_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
 			   size_t in_len, uint8_t *sig, size_t sig_len)
 {
-#if defined(EVP_PKEY_ED25519) && !defined(LIBRESSL_VERSION_NUMBER)
+#if defined(EVP_PKEY_ED25519) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(USE_WOLFSSL)
 	EVP_MD_CTX *mdctx = NULL;
 
 	if (ctx->genec_alg != LEGENEC_EDDSA)

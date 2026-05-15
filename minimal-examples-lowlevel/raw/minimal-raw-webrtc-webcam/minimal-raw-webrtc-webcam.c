@@ -168,10 +168,10 @@ send_controls(struct lws *wsi, struct per_vhost_data *vhd)
 		int n = lws_alsa_opus_send_capabilities(vhd->alsa_cap, abuf, sizeof(abuf));
 		if (n > 0) {
 			/* Parse out the array inside abuf {"type":"capabilities","kind":"audio","controls":[...]} */
-			char *abuf_start = strstr(abuf, "\"controls\":[");
+			const char *abuf_start = strstr(abuf, "\"controls\":[");
 			if (abuf_start) {
 				abuf_start += 12; // skip "\"controls\":["
-				char *abuf_end = strrchr(abuf_start, ']');
+				const char *abuf_end = strrchr(abuf_start, ']');
 				if (abuf_end) {
 					*abuf_end = '\0';
 					p += lws_snprintf(p, lws_ptr_diff_size_t(buf + LWS_PRE + 2048, p), "%s", abuf_start);

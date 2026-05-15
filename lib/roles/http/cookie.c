@@ -68,11 +68,11 @@ lws_cookie_domain_len(const char *domain)
 		return 0;
 
 	if (domain[0] == '[') {
-		p = strchr(domain, ']');
+		p = (char *)strchr(domain, ']');
 		if (p && p[1] == ':')
 			return lws_ptr_diff_size_t((p + 1), domain);
 	} else {
-		p = strchr(domain, ':');
+		p = (char *)strchr(domain, ':');
 		if (p)
 			return lws_ptr_diff_size_t(p, domain);
 	}
@@ -354,7 +354,7 @@ lws_cookie_write_nsc(struct lws *wsi, struct lws_cookie *c)
 	if (!c->f[CE_PATH]) {
 		c->f[CE_PATH] = path;
 		c->l[CE_PATH] = strlen(path);
-		dl = memchr(c->f[CE_PATH], '?', c->l[CE_PATH]);
+		dl = (char *)memchr(c->f[CE_PATH], '?', c->l[CE_PATH]);
 		if (dl)
 			c->l[CE_PATH] = (size_t)(dl - c->f[CE_PATH]);
 	}
@@ -494,7 +494,7 @@ lws_cookie_attach_cookies(struct lws *wsi, char *buf, char *end)
 	path_len = strlen(path);
 
 	/* remove query string if exist */
-	dl_path = memchr(path, '?', path_len);
+	dl_path = (char *)memchr(path, '?', path_len);
 	if (dl_path)
 		path_len = lws_ptr_diff_size_t(dl_path,  path);
 
@@ -517,7 +517,7 @@ lws_cookie_attach_cookies(struct lws *wsi, char *buf, char *end)
 	dl_domain = domain;
 	while (dl_domain) {
 		domain_len = lws_cookie_domain_len(domain);
-		dl_domain = memchr(domain, '.', domain_len);
+		dl_domain = (char *)memchr(domain, '.', domain_len);
 		/* don't match top level domain */
 		if (!dl_domain)
 			break;
@@ -646,7 +646,7 @@ lws_parse_set_cookie(struct lws *wsi)
 
 		do {
 			tk_head = buf_head;
-			tk_end = memchr(buf_head, ';',
+			tk_end = (char *)memchr(buf_head, ';',
 					(size_t)(buf_end - buf_head + 1));
 			if (!tk_end) {
 				tk_end = buf_end;
@@ -670,7 +670,7 @@ lws_parse_set_cookie(struct lws *wsi)
 			 * WS and DQ for value
 			 */
 
-			dl = memchr(tk_head, '=',
+			dl = (char *)memchr(tk_head, '=',
 				    lws_ptr_diff_size_t(tk_end, tk_head) + 1);
 			if (!dl || dl == tk_head)
 				return -1;

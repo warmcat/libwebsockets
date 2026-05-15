@@ -843,7 +843,7 @@ _lws_ss_client_connect(lws_ss_handle_t *h, int is_retry, void *conn_if_sspc_onw)
 	}
 #endif
 
-	if (strchr(ep, ':') &&
+	if ((char *)strchr(ep, ':') &&
 	    (puri = lws_parse_uri_create(ep))) {
 		lwsl_debug("%s: using uri parse results '%s' '%s' %d '%s'\n",
 				__func__, puri->scheme, puri->host, puri->port, puri->path);

@@ -372,9 +372,9 @@ auth_verify_redirect_uri(struct vhd_login *vhd, const char *redirect_uri)
 	if (!redirect_uri || !redirect_uri[0])
 		return 0;
 
-	if (strstr(redirect_uri, "../") ||
-	    strstr(redirect_uri, "..%2F") ||
-	    strstr(redirect_uri, "..%2f"))
+	if ((char *)strstr(redirect_uri, "../") ||
+	    (char *)strstr(redirect_uri, "..%2F") ||
+	    (char *)strstr(redirect_uri, "..%2f"))
 		return 0;
 
 	if (sqlite3_prepare_v2(vhd->db, "SELECT redirect_uris FROM oauth_clients", -1, &stmt, NULL) == SQLITE_OK) {
@@ -648,7 +648,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			char ws_prot[256];
 			if (lws_hdr_copy(wsi, ws_prot, sizeof(ws_prot), WSI_TOKEN_PROTOCOL) > 0) {
 				/* simplistic match, sufficient for our usecase but could be tokenized */
-				if (strstr(vhd->unauth_protocols, ws_prot)) {
+				if ((char *)strstr(vhd->unauth_protocols, ws_prot)) {
 					lwsl_notice("%s: bypassing interceptor for unauth protocol '%s'\n", __func__, ws_prot);
 					return 0;
 				}

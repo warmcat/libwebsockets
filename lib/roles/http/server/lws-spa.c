@@ -131,7 +131,7 @@ lws_urldecode_s_create(struct lws_spa *spa, struct lws *wsi, char *out,
 			s->multipart_form_data = 1;
 			s->state = MT_LOOK_BOUND_IN;
 			s->mp = 2;
-			p = strstr(buf, "boundary=");
+			p = (char *)strstr(buf, "boundary=");
 			if (p) {
 				p += 9;
 				s->mime_boundary[m++] = '\x0d';

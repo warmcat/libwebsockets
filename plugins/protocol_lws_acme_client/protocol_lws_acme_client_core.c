@@ -1054,7 +1054,7 @@ lws_acme_scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 			*q = '\0';
 
 			char *certs_dir = dir_path;
-			const char *env_dir = (cfg->acme && cfg->acme->directory_url && strstr(cfg->acme->directory_url, "staging")) ? "staging" : "production";
+			const char *env_dir = (cfg->acme && cfg->acme->directory_url && (char *)strstr(cfg->acme->directory_url, "staging")) ? "staging" : "production";
 			lws_snprintf(certs_dir, sizeof(dir_path), "%s/domains/%s/certs", vhd->dns_base_dir, scan_ctx->domain);
 #if !defined(WIN32) && !defined(LWS_WITH_ESP32)
 			mkdir(certs_dir, 0755);
@@ -1205,14 +1205,14 @@ acme_ipc_cb(const struct lws_async_ipc_cb_args *args)
 			memcpy(safe_buf, args->data, copy_len);
 			safe_buf[copy_len] = '\0';
 
-			if ((p = strstr(safe_buf, "\"days_left\":")))
+			if ((p = (char *)strstr(safe_buf, "\"days_left\":")))
 				days_left = atoi(p + 12);
-			if ((p = strstr(safe_buf, "\"total_days\":")))
+			if ((p = (char *)strstr(safe_buf, "\"total_days\":")))
 				total_days = atoi(p + 13);
 
 			struct lws_acme_cert_config *cfg = lws_container_of(vhd->aging_current_cert, struct lws_acme_cert_config, list);
-			if (strstr(safe_buf, "\"status\":\"error\"") || (total_days && days_left <= (total_days / 4))) {
-				if (strstr(safe_buf, "\"status\":\"error\""))
+			if ((char *)strstr(safe_buf, "\"status\":\"error\"") || (total_days && days_left <= (total_days / 4))) {
+				if ((char *)strstr(safe_buf, "\"status\":\"error\""))
 					lwsl_notice("acme_aging: triggering acquisition for %s: root daemon could not read cert\n", cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME]);
 				else
 					lwsl_vhost_notice(vhd->vhost, "acme_aging: cert %s has %d days left (total %d). Triggering renewal!", cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], days_left, total_days);
@@ -2017,7 +2017,7 @@ poll_again:
 				char *p;
 				int cpos_fullchain = ac->cpos;
 
-				char *end_cert = strstr(ac->buf, "END CERTIFICATE-----");
+				const char *end_cert = strstr(ac->buf, "END CERTIFICATE-----");
 
 				if (end_cert) {
 					ac->cpos = (int)(lws_ptr_diff_size_t(end_cert, ac->buf) + sizeof("END CERTIFICATE-----") - 1);
@@ -2032,22 +2032,22 @@ poll_again:
 				strftime(timebuf, sizeof(timebuf), "%Y%m%d-%H%M%S", tm);
 
 				lws_strncpy(cert_ts, cert_latest, sizeof(cert_ts));
-				p = strstr(cert_ts, "-latest.crt");
+				p = (char *)strstr(cert_ts, "-latest.crt");
 				if (p)
 					lws_snprintf(p, sizeof(cert_ts) - (size_t)(p - cert_ts), "-%s.crt", timebuf);
 
 				lws_strncpy(full_latest, cert_latest, sizeof(full_latest));
-				p = strstr(full_latest, "-latest.crt");
+				p = (char *)strstr(full_latest, "-latest.crt");
 				if (p)
 					lws_snprintf(p, sizeof(full_latest) - (size_t)(p - full_latest), "-latest-fullchain.crt");
 
 				lws_strncpy(full_ts, full_latest, sizeof(full_ts));
-				p = strstr(full_ts, "-latest-fullchain.crt");
+				p = (char *)strstr(full_ts, "-latest-fullchain.crt");
 				if (p)
 					lws_snprintf(p, sizeof(full_ts) - (size_t)(p - full_ts), "-%s-fullchain.crt", timebuf);
 
 				lws_strncpy(key_ts, key_latest, sizeof(key_ts));
-				p = strstr(key_ts, "-latest.key");
+				p = (char *)strstr(key_ts, "-latest.key");
 				if (p)
 					lws_snprintf(p, sizeof(key_ts) - (size_t)(p - key_ts), "-%s.key", timebuf);
 
@@ -2123,13 +2123,13 @@ poll_again:
 				unlink(cert_latest);
 				unlink(full_latest);
 #if !defined(WIN32)
-				symlink(strrchr(cert_ts, '/') ? strrchr(cert_ts, '/') + 1 : cert_ts, cert_latest);
-				symlink(strrchr(full_ts, '/') ? strrchr(full_ts, '/') + 1 : full_ts, full_latest);
+				symlink((char *)strrchr(cert_ts, '/') ? (char *)strrchr(cert_ts, '/') + 1 : cert_ts, cert_latest);
+				symlink((char *)strrchr(full_ts, '/') ? (char *)strrchr(full_ts, '/') + 1 : full_ts, full_latest);
 #endif
 
 				unlink(key_latest);
 #if !defined(WIN32)
-				symlink(strrchr(key_ts, '/') ? strrchr(key_ts, '/') + 1 : key_ts, key_latest);
+				symlink((char *)strrchr(key_ts, '/') ? (char *)strrchr(key_ts, '/') + 1 : key_ts, key_latest);
 #endif
 
 				lwsl_vhost_notice(vhd->vhost, "Updated certs written for %s "
@@ -2373,15 +2373,15 @@ lws_acme_core_cert_aging(struct per_vhost_data__lws_acme_client *vhd,
 		ssize_t nr = read(fd_cfg, buf, sizeof(buf) - 1);
 		if (nr > 0) {
 			buf[nr] = '\0';
-			if (strstr(buf, "\"production\": true") || strstr(buf, "\"production\":true"))
+			if ((char *)strstr(buf, "\"production\": true") || (char *)strstr(buf, "\"production\":true"))
 				vhd->aging_is_production = 1;
-			if (strstr(buf, "\"enabled\": false") || strstr(buf, "\"enabled\":false"))
+			if ((char *)strstr(buf, "\"enabled\": false") || (char *)strstr(buf, "\"enabled\":false"))
 				global_enabled = 0;
 
-			char *email_start = strstr(buf, "\"email\": \"");
+			const char *email_start = strstr(buf, "\"email\": \"");
 			if (email_start) {
 				email_start += 10;
-				char *email_end = strchr(email_start, '"');
+				const char *email_end = strchr(email_start, '"');
 				if (email_end && (size_t)(email_end - email_start) < sizeof(vhd->aging_global_email)) {
 					memcpy(vhd->aging_global_email, email_start, (size_t)(email_end - email_start));
 					vhd->aging_global_email[(size_t)(email_end - email_start)] = '\0';

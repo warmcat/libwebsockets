@@ -266,7 +266,7 @@ lws_dlo_ss_create(lws_dlo_ss_create_info_t *i, lws_dlo_t **pdlo)
 	if (ul < 5)
 		return 1;
 
-	p = strchr(i->url, '?');
+	p = (char *)strchr(i->url, '?');
 	if (!p)
 		p = i->url + ul;
 

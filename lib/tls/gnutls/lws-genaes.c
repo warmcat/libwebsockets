@@ -247,9 +247,29 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 int
 lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 {
+	int ret = 0;
 	if (ctx->ctx) {
-		if (tag && tlen && ctx->mode == LWS_GAESM_GCM && ctx->op == LWS_GAESO_ENC)
-			gnutls_cipher_tag(ctx->ctx, tag, tlen);
+		if (tag && tlen && ctx->mode == LWS_GAESM_GCM) {
+			if (ctx->op == LWS_GAESO_ENC)
+				gnutls_cipher_tag(ctx->ctx, tag, tlen);
+			else {
+				unsigned char calc_tag[16];
+				if (tlen <= sizeof(calc_tag)) {
+					if (gnutls_cipher_tag(ctx->ctx, calc_tag, tlen) == 0) {
+						if (lws_timingsafe_bcmp(calc_tag, tag, (uint32_t)tlen)) {
+							lwsl_err("%s: GCM tag mismatch\n", __func__);
+							lwsl_hexdump_err(calc_tag, tlen);
+							lwsl_hexdump_err(tag, tlen);
+							ret = -1;
+						}
+					} else {
+						ret = -1;
+					}
+				} else {
+					ret = -1;
+				}
+			}
+		}
 
 		if (ctx->op == LWS_GAESO_ENC && ctx->padding == LWS_GAESP_WITH_PADDING &&
 		    ctx->mode == LWS_GAESM_CBC && tag) {
@@ -263,5 +283,5 @@ lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
 	}
 	ctx->ctx = NULL;
 
-	return 0;
+	return ret;
 }

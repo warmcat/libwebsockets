@@ -77,6 +77,7 @@ policy_set(lws_sorted_usec_list_t *sul)
 	 * ss connection close that was using the vhost from the old policy
 	 */
 
+	context->hss_fetch_policy = NULL;
 	lws_ss_destroy(&m->ss);
 
 	if (lws_ss_policy_set(context, "updated"))

@@ -749,7 +749,7 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 	 * (missing CRT params) that the legacy CAPI path fails on.
 	 */
 	is_ec = 0;
-	if (strstr(private_key ? private_key : (mem_privkey ? mem_privkey : ""), "EC PRIVATE KEY")) {
+	if ((char *)strstr(private_key ? private_key : (mem_privkey ? mem_privkey : ""), "EC PRIVATE KEY")) {
 		is_ec = 1;
 	} else {
 		/* Check DER for OID 1.2.840.10045.2.1 (ecPublicKey) */

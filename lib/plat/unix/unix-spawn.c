@@ -366,14 +366,14 @@ lws_spawn_get_self_cgroup(char *cgroup, size_t max)
 	ur = (size_t)r;
 
 	s[ur] = '\0'; 
-	p = strchr(s, ':');
+	p = (char *)strchr(s, ':');
 
 	if (!p) {
 		lwsl_err("%s: unable to find first :  '%s'\n", __func__, s);
 		return 1;
 	}
 
-	p = strchr(p + 1, ':');
+	p = (char *)strchr(p + 1, ':');
 	if (!p || lws_ptr_diff_size_t(end, p) < 3) {
 		lwsl_err("%s: unable to find second :  '%s'\n", __func__, s);
 

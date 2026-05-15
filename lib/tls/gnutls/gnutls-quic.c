@@ -25,7 +25,7 @@
 #include "private-lib-core.h"
 #include "private-lib-tls.h"
 
-#if defined(LWS_WITH_TLS) && defined(LWS_WITH_GNUTLS)
+#if defined(LWS_ROLE_QUIC) && defined(LWS_WITH_TLS) && defined(LWS_WITH_GNUTLS)
 
 struct gnutls_quic_bio {
 	const uint8_t *in;
@@ -93,7 +93,10 @@ gnutls_quic_secret_func(gnutls_session_t session,
 	if (!wsi || !wsi->tls.quic_secret_cb)
 		return 0;
 
-	is_client = wsi->a.vhost ? !wsi->a.vhost->listen_port : (wsi->tls.quic_tp_send_len == 3);
+	if (wsi->a.vhost)
+		is_client = lwsi_role_client(wsi) ? 1 : 0;
+	else
+		is_client = (wsi->tls.quic_tp_send_len == 3);
 
 	if (secret_write) {
 		enum lws_tls_quic_secret_type qtype;
@@ -219,7 +222,7 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 }
 
 int
-lws_tls_quic_advance_handshake(struct lws *wsi,
+lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 			       const uint8_t *in, size_t in_len,
 			       uint8_t *out, size_t *out_len)
 {
@@ -332,20 +335,20 @@ lws_tls_quic_api_test(void)
 	lws_tls_quic_set_transport_parameters(&wsi_server, stp, sizeof(stp));
 
 	c2s_len = sizeof(c2s);
-	lws_tls_quic_advance_handshake(&wsi_client, NULL, 0, c2s, &c2s_len);
+	lws_tls_quic_advance_handshake(&wsi_client, 0, NULL, 0, c2s, &c2s_len);
 
 	while (iter++ < 10) {
 		if (c2s_len) {
 			lwsl_notice("C -> S: %d bytes\n", (int)c2s_len);
 			s2c_len = sizeof(s2c);
-			(void)lws_tls_quic_advance_handshake(&wsi_server, c2s, c2s_len, s2c, &s2c_len);
+			(void)lws_tls_quic_advance_handshake(&wsi_server, 0, c2s, c2s_len, s2c, &s2c_len);
 			c2s_len = 0;
 		}
 
 		if (s2c_len) {
 			lwsl_notice("S -> C: %d bytes\n", (int)s2c_len);
 			c2s_len = sizeof(c2s);
-			(void)lws_tls_quic_advance_handshake(&wsi_client, s2c, s2c_len, c2s, &c2s_len);
+			(void)lws_tls_quic_advance_handshake(&wsi_client, 0, s2c, s2c_len, c2s, &c2s_len);
 			s2c_len = 0;
 		}
 

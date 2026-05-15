@@ -755,7 +755,7 @@ lws_auth_dns_add_nsec3(struct auth_dns_zone *z, const char *salt_hex, int iterat
 				case 257: ts = "CAA"; break;
 			}
 			/* Append type if not already there */
-			if (!strstr(nodes[found]->type_list, ts)) {
+			if (!(char *)strstr(nodes[found]->type_list, ts)) {
 				size_t len = strlen(nodes[found]->type_list);
 				if (len < sizeof(nodes[found]->type_list) - 32) {
 					if (len > 0) { nodes[found]->type_list[len++] = ' '; nodes[found]->type_list[len] = '\0'; }
@@ -807,7 +807,7 @@ lws_auth_dns_add_nsec3(struct auth_dns_zone *z, const char *salt_hex, int iterat
 		lws_auth_dns_b32hex_encode(nodes[i]->hash, 20, nodes[i]->b32);
 
 		/* Always add RRSIG to type list, as all records will be signed */
-		if (!strstr(nodes[i]->type_list, "RRSIG")) {
+		if (!(char *)strstr(nodes[i]->type_list, "RRSIG")) {
 			size_t len = strlen(nodes[i]->type_list);
 			if (len > 0) { nodes[i]->type_list[len++] = ' '; nodes[i]->type_list[len] = '\0'; }
 			strcat(nodes[i]->type_list, "RRSIG");

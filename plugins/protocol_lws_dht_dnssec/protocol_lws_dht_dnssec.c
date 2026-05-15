@@ -605,7 +605,7 @@ dht_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 			memcpy(header, map.buf[LJWS_JOSE], map.len[LJWS_JOSE]);
 			header[map.len[LJWS_JOSE]] = '\0';
 
-			char *jwk_start = strstr(header, "\"jwk\":");
+			const char *jwk_start = strstr(header, "\"jwk\":");
 			if (jwk_start) {
 				jwk_start += 6; /* skip over "jwk": */
 				while (*jwk_start == ' ' || *jwk_start == '\t' || *jwk_start == '\n' || *jwk_start == '\r')
@@ -1855,13 +1855,13 @@ verb_cap_rsp_handler(struct vhd_dht_dnssec *vhd, struct lws_dht_verb_dispatch_ar
 	lws_sul_cancel(&vhd->sul_timeout);
 	vhd->put_retries = 0;
 
-	if (strstr(pbuf, "\"lws-dht-dnssec\"")) {
+	if ((char *)strstr(pbuf, "\"lws-dht-dnssec\"")) {
 		lwsl_user("%s: Peer supports lws-dht-dnssec via CAP_RSP! Proceeding with PUT.\n", __func__);
 		if (!vhd->put_started) {
 			vhd->put_started = 1;
 			lws_sul_schedule(vhd->context, 0, &vhd->sul_bulk, dht_dnssec_sul_put_cb, 10 * LWS_US_PER_MS);
 		}
-	} else if (strstr(pbuf, "\"lws-dht-store\"")) {
+	} else if ((char *)strstr(pbuf, "\"lws-dht-store\"")) {
 		lwsl_err("%s: Peer only supports basic raw store, missing lws-dht-dnssec capability. Aborting.\n", __func__);
 		if (vhd->cb_completion)
 			vhd->cb_completion(vhd->cb_closure, 1);
@@ -2901,7 +2901,7 @@ dht_dnssec_sul_manifest_rcv_cb(struct lws_sorted_usec_list *sul)
 		return;
 	}
 
-	p = strchr(buf, '\n');
+	p = (char *)strchr(buf, '\n');
 	if (p) *p = 0;
 
 	lws_strncpy(vhd->manifest_hashes[0], buf, sizeof(vhd->manifest_hashes[0]));
@@ -3142,7 +3142,7 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 			if (policy->seeds.head) {
 				lws_system_seed_t *seed = lws_container_of(policy->seeds.head, lws_system_seed_t, list);
 				lws_strncpy(vhd->policy_resolved_ip, seed->hostname, sizeof(vhd->policy_resolved_ip));
-				char *colon = strchr(vhd->policy_resolved_ip, ':');
+				char *colon = (char *)strchr(vhd->policy_resolved_ip, ':');
 				if (colon) {
 					*colon = '\0';
 					vhd->target_port = atoi(colon + 1);
@@ -4280,8 +4280,8 @@ do_publish_jws(struct lws_vhost *vhost, const char *jws_filepath)
 	basename = basename ? basename + 1 : jws_filepath;
 	char domain[256];
 	lws_strncpy(domain, basename, sizeof(domain));
-	char *p = strstr(domain, ".zone.signed.jws");
-	if (!p) p = strstr(domain, ".jws");
+	char *p = (char *)strstr(domain, ".zone.signed.jws");
+	if (!p) p = (char *)strstr(domain, ".jws");
 	if (p) *p = '\0';
 
 	struct dht_upload_job *job = malloc(sizeof(*job));
@@ -4561,7 +4561,7 @@ do_importnsd(struct lws_context *context, struct lws_dht_dnssec_importnsd_args *
 			const int field_idx[] = { LWS_GENCRYPTO_RSA_KEYEL_N, LWS_GENCRYPTO_RSA_KEYEL_E, LWS_GENCRYPTO_RSA_KEYEL_D, LWS_GENCRYPTO_RSA_KEYEL_P, LWS_GENCRYPTO_RSA_KEYEL_Q, LWS_GENCRYPTO_RSA_KEYEL_DP, LWS_GENCRYPTO_RSA_KEYEL_DQ, LWS_GENCRYPTO_RSA_KEYEL_QI };
 
 			for (int f = 0; f < 8; f++) {
-				char *m = strstr(p, fields[f]);
+				char *m = (char *)strstr(p, fields[f]);
 				if (!m) { lwsl_err("Missing %s in RSA\n", fields[f]); return 1; }
 				m += strlen(fields[f]);
 				while (*m == ' ' || *m == '\r' || *m == '\n') m++;
@@ -4599,7 +4599,7 @@ do_importnsd(struct lws_context *context, struct lws_dht_dnssec_importnsd_args *
 			memcpy(jwk.e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf, curve_name, strlen(curve_name));
 			jwk.e[LWS_GENCRYPTO_EC_KEYEL_CRV].len = (uint32_t)strlen(curve_name);
 
-			char *m = strstr(priv_buf, "PrivateKey:");
+			char *m = (char *)strstr(priv_buf, "PrivateKey:");
 			if (!m) { lwsl_err("Missing PrivateKey in ECDSA\n"); return 1; }
 			m += 11;
 			while (*m == ' ' || *m == '\r' || *m == '\n') m++;

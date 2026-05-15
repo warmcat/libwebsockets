@@ -59,7 +59,7 @@ __lws_lc_tag(struct lws_context *context, lws_lifecycle_group_t *grp,
 	if (*lc->gutag == '[') {
 		/* appending inside [] */
 
-		char *cp = strchr(lc->gutag, ']');
+		char *cp = (char *)strchr(lc->gutag, ']');
 		char rend[96];
 		size_t ll, k;
 		int n;

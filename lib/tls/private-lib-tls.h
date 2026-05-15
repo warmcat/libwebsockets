@@ -32,7 +32,7 @@
 
 #include "private-jit-trust.h"
 
-#if defined(LWS_WITH_SCHANNEL)
+#if defined(WIN32) && defined(LWS_WITH_SCHANNEL)
  #include <wincrypt.h>
  #include <bcrypt.h>
  #include <ncrypt.h>
@@ -146,11 +146,6 @@ lws_tls_restrict_return(struct lws *wsi);
 void
 lws_tls_restrict_return_handshake(struct lws *wsi);
 
-#if defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_WOLFSSL) && !defined(LWS_WITH_SCHANNEL) && !defined(LWS_WITH_GNUTLS) && !defined(LWS_WITH_BEARSSL)
-int
-lws_tls_quic_vhost_init(lws_tls_ctx *ctx);
-#endif
-
 void
 lws_tls_restrict_return(struct lws *wsi);
 
@@ -179,6 +174,27 @@ typedef X509 lws_tls_x509;
 
 #if defined(LWS_WITH_NETWORK)
 #include "private-network.h"
+#endif
+
+#if defined(LWS_ROLE_QUIC) && defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_WOLFSSL) && !defined(LWS_WITH_SCHANNEL) && !defined(LWS_WITH_GNUTLS) && !defined(LWS_WITH_BEARSSL)
+int
+lws_tls_quic_vhost_init(lws_tls_ctx *ctx);
+#endif
+
+#if defined(LWS_ROLE_QUIC) && defined(LWS_WITH_TLS)
+/*
+ * Feed parsed QUIC CRYPTO frame data into the active TLS backend
+ * (e.g., via OpenSSL SSL_provide_quic_data)
+ */
+int
+lws_tls_quic_rx_crypto(struct lws *wsi, int level, const uint8_t *buf, size_t len);
+
+/*
+ * Callback from the TLS backend when it has generated outbound CRYPTO data
+ * (e.g., ServerHello). LWS wraps this in a tx_frame and queues it to pending_tx.
+ */
+int
+lws_tls_quic_tx_crypto_cb(struct lws *wsi, int level, const uint8_t *buf, size_t len);
 #endif
 
 int
@@ -239,6 +255,11 @@ lws_gencrypto_mbedtls_rngf(void *context, unsigned char *buf, size_t len);
 int
 lws_genec_confirm_curve_allowed_by_tls_id(const char *allowed, int id,
 					  struct lws_jwk *jwk);
+
+#if defined(LWS_WITH_GNUTLS)
+int
+lws_tls_session_new_gnutls(struct lws *wsi);
+#endif
 
 int
 lws_tls_reuse_session(struct lws *wsi);

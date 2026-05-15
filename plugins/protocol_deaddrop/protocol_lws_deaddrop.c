@@ -142,24 +142,24 @@ deaddrop_parse_user_agent(const char *ua, char *platform, size_t plat_len,
 
 	/* Guess platform from UA */
 
-	if (strstr(ua, "Windows"))
+	if ((char *)strstr(ua, "Windows"))
 		lws_strncpy(platform, "Windows", plat_len);
-	else if (strstr(ua, "Linux"))
+	else if ((char *)strstr(ua, "Linux"))
 		lws_strncpy(platform, "Linux", plat_len);
-	else if (strstr(ua, "Macintosh") || strstr(ua, "Mac OS"))
+	else if ((char *)strstr(ua, "Macintosh") || (char *)strstr(ua, "Mac OS"))
 		lws_strncpy(platform, "macOS", plat_len);
 
 	/* Guess browser / client from UA */
 
-	if (strstr(ua, "curl"))
+	if ((char *)strstr(ua, "curl"))
 		lws_strncpy(browser, "curl", browser_len);
-	else if (strstr(ua, "Wget"))
+	else if ((char *)strstr(ua, "Wget"))
 		lws_strncpy(browser, "Wget", browser_len);
-	else if (strstr(ua, "Edg/"))
+	else if ((char *)strstr(ua, "Edg/"))
 		lws_strncpy(browser, "Edge", browser_len);
-	else if (strstr(ua, "Firefox/"))
+	else if ((char *)strstr(ua, "Firefox/"))
 		lws_strncpy(browser, "Firefox", browser_len);
-	else if (strstr(ua, "Chrome/") && strstr(ua, "Safari/"))
+	else if ((char *)strstr(ua, "Chrome/") && (char *)strstr(ua, "Safari/"))
 		lws_strncpy(browser, "Chrome", browser_len);
 }
 
@@ -260,7 +260,7 @@ deaddrop_scan_upload_dir(struct vhd_deaddrop *vhd)
 		dire->mtime = s.st_mtime;
 		dire->user[0] = '\0';
 
-		p_owner_end = strchr(de->d_name, '_');
+		p_owner_end = (char *)strchr(de->d_name, '_');
 		if (p_owner_end) {
 			size_t owner_len = (size_t)(p_owner_end - de->d_name);
 			if (owner_len < sizeof(dire->user)) {
@@ -557,7 +557,7 @@ deaddrop_handler_server_http(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 	meth = lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len);
 	if (meth != LWSHUMETH_POST || !uri_ptr)
 		return 1;
-	if (!strstr(uri_ptr, "/upload/"))
+	if (!(char *)strstr(uri_ptr, "/upload/"))
 		return 1;
 
 	pss->vhd = vhd;
@@ -716,7 +716,7 @@ deaddrop_handler_server_ws_filter_protocol_connection(struct vhd_deaddrop *vhd,
 				if (cookie_len > 1000) {
 					cookie_buf = malloc((size_t)cookie_len + 1);
 					if (cookie_buf && lws_hdr_copy(wsi, cookie_buf, cookie_len + 1, WSI_TOKEN_HTTP_COOKIE) > 0) {
-						char *p = strstr(cookie_buf, vhd->cookie_name);
+						char *p = (char *)strstr(cookie_buf, vhd->cookie_name);
 						if (p) {
 							p += strlen(vhd->cookie_name);
 							if (*p == '=') {
@@ -836,7 +836,7 @@ deaddrop_handler_server_ws_rx(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss
 	if (strncmp((const char *)in, "{\"del\":\"", 8))
 		return;
 
-	cp = strchr((const char *)in + 8, '_');
+	cp = (char *)strchr((const char *)in + 8, '_');
 	if (!cp) {
 		lwsl_warn("%s: del: no owner in filename\n", __func__);
 		return;
@@ -855,7 +855,7 @@ deaddrop_handler_server_ws_rx(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss
 	}
 
 	lws_strncpy(fname, ((const char *)in) + 8, sizeof(fname));
-	wp = strchr((const char *)fname, '\"');
+	wp = (char *)strchr((const char *)fname, '\"');
 	if (wp)
 		*wp = '\0';
 

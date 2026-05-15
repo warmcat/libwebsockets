@@ -102,7 +102,7 @@ stats_cb(lws_sorted_usec_list_t *sul)
 			char *sp;
 
 			vhd->loadavg[n] = '\0';
-			sp = strchr(vhd->loadavg, ' ');
+			sp = (char *)strchr(vhd->loadavg, ' ');
 			if (sp)
 				*sp = '\0';
 		}
@@ -421,12 +421,12 @@ lws_interceptor_handle_http(struct lws *wsi, void *user, const struct lws_interc
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI)) {
 		file_part = uri;
 
-		p1 = strrchr(uri, '/');
+		p1 = (char *)strrchr(uri, '/');
 		if (p1)
 			file_part = p1 + 1;
 
 		if (file_part[0] && strcmp(file_part, "..") &&
-		    strcmp(file_part, ".") && !strstr(file_part, "..")) {
+		    strcmp(file_part, ".") && !(char *)strstr(file_part, "..")) {
 
 			if (lws_nstrstr(file_part, strlen(file_part), "interceptor-config.js", 21)) {
 				js_len = lws_snprintf(js_buf, sizeof(js_buf),

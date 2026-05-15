@@ -153,6 +153,10 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		return 1;
 	}
 
+	vh->tls_session_cache_max = info->tls_session_cache_max ?
+				    info->tls_session_cache_max : 10;
+	lws_tls_session_cache(vh, info->tls_session_timeout);
+
 	return 0;
 }
 
@@ -230,6 +234,10 @@ lws_ssl_client_bio_create(struct lws *wsi)
 
 	gnutls_server_name_set(session, GNUTLS_NAME_DNS, hostname, strlen(hostname));
 
+#if defined(LWS_WITH_TLS_SESSIONS)
+	lws_tls_reuse_session(wsi);
+#endif
+
 	if (wsi->a.vhost->tls.alpn_ctx.len) {
 		gnutls_datum_t alpn[4];
 		unsigned int i = 0, p = 0;
@@ -275,12 +283,7 @@ lws_ssl_context_destroy(struct lws_context *context)
 	/* Global init already handled by global_deinit */
 }
 
-void
-lws_tls_session_vh_destroy(struct lws_vhost *vh)
-{
-	/* GnuTLS doesn't require explicit vhost-level session cache destruction
-	 * as it handles session tickets internally or relies on external DBs. */
-}
+
 
 int
 lws_tls_client_vhost_extra_cert_mem(struct lws_vhost *vh, const uint8_t *der, size_t len)

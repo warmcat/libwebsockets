@@ -1116,7 +1116,7 @@ lws_tokenize(struct lws_tokenize *ts)
 
 		if (!utf8 &&
 		     ((ts->flags & LWS_TOKENIZE_F_RFC7230_DELIMS &&
-		       strchr(rfc7230_delims, c) && c > 32) ||
+		       (char *)strchr(rfc7230_delims, c) && c > 32) ||
 		       ((!(ts->flags & LWS_TOKENIZE_F_RFC7230_DELIMS) &&
 		        (c < '0' || c > '9') && (c < 'A' || c > 'Z') &&
 		        (c < 'a' || c > 'z') && c != '_') &&

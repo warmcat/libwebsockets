@@ -824,7 +824,7 @@ LWS_VISIBLE bool qrcodegen_isNumeric(const char *text) {
 LWS_VISIBLE bool qrcodegen_isAlphanumeric(const char *text) {
 	assert(text != NULL);
 	for (; *text != '\0'; text++) {
-		if (strchr(ALPHANUMERIC_CHARSET, *text) == NULL)
+		if ((char *)strchr(ALPHANUMERIC_CHARSET, *text) == NULL)
 			return false;
 	}
 	return true;

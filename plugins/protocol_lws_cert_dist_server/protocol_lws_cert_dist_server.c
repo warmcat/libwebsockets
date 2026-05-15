@@ -208,8 +208,8 @@ callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason
 			return -1;
 		}
 
-		if (strchr(pss->args.subdomain, '/') || strstr(pss->args.subdomain, "..") ||
-		    strchr(pss->args.domain, '/') || strstr(pss->args.domain, "..")) {
+		if ((char *)strchr(pss->args.subdomain, '/') || (char *)strstr(pss->args.subdomain, "..") ||
+		    (char *)strchr(pss->args.domain, '/') || (char *)strstr(pss->args.domain, "..")) {
 			lwsl_err("%s: Path traversal\n", __func__);
 			return -1;
 		}
@@ -342,10 +342,10 @@ dist_server_dir_notify_cb(const char *path, int is_file, void *user)
 {
 	struct vhd_cert_dist_server *vhd = (struct vhd_cert_dist_server *)user;
 
-	if (strstr(path, "fullchain.pem") || strstr(path, "privkey.pem") || strstr(path, "crt") || strstr(path, "key")) {
+	if ((char *)strstr(path, "fullchain.pem") || (char *)strstr(path, "privkey.pem") || (char *)strstr(path, "crt") || (char *)strstr(path, "key")) {
 		lws_start_foreach_dll(struct lws_dll2 *, d, vhd->connections.head) {
 			struct pss_cert_dist_server *pss = lws_container_of(d, struct pss_cert_dist_server, list);
-			if (strstr(path, pss->domain)) {
+			if ((char *)strstr(path, pss->domain)) {
 				pss->needs_cert_update = 1;
 				lws_callback_on_writable(pss->wsi);
 			}
@@ -494,7 +494,7 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 			char *q;
 			for (q = pss->subdomain; *q; q++) if (*q == '.') dots++;
 			if (dots > 1) {
-				p = strchr(pss->subdomain, '.');
+				p = (char *)strchr(pss->subdomain, '.');
 				lws_strncpy(pss->domain, p + 1, sizeof(pss->domain));
 			} else {
 				lws_strncpy(pss->domain, pss->subdomain, sizeof(pss->domain));
@@ -520,10 +520,10 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RECEIVE:
 		if (vhd && !vhd->is_stub && pss->established && !pss->needs_cert_update) {
 			/* Expecting {"hash":"..."} */
-			char *h = strstr((char *)in, "\"hash\":\"");
+			const char *h = strstr((char *)in, "\"hash\":\"");
 			if (h) {
 				h += 8;
-				char *end = strchr(h, '"');
+				char *end = (char *)strchr(h, '"');
 				if (end) {
 					*end = '\0';
 					lws_strncpy(pss->hash, h, sizeof(pss->hash));

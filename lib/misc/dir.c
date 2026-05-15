@@ -176,7 +176,7 @@ lws_dir_via_info(struct lws_dir_info *info)
 #if !defined(__sun) && !defined(__QNX__)
 		type = namelist[i]->d_type;
 #endif
-		if (strchr(namelist[i]->d_name, '~'))
+		if ((char *)strchr(namelist[i]->d_name, '~'))
 			goto skip;
 
 		_fill_lde(combo, l, namelist[i]->d_name, type, &lde);

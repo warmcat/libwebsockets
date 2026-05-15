@@ -141,10 +141,10 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 		if (!xn)
 			return -1;
 		X509_NAME_oneline((X509_NAME *)xn, buf->ns.name, (int)len - 2);
-		p = strstr(buf->ns.name, "/CN=");
+		p = (char *)strstr(buf->ns.name, "/CN=");
 		if (p) {
 			p += 4;
-			p1 = strchr(p, '/');
+			p1 = (char *)strchr(p, '/');
 			if (p1)
 				rl = lws_ptr_diff_size_t(p1, p);
 			else
@@ -491,7 +491,7 @@ lws_x509_verify(struct lws_x509_cert *x509, struct lws_x509_cert *trusted,
 		if (!xn)
 			return -1;
 		X509_NAME_oneline((X509_NAME *)xn, c, (int)sizeof(c) - 2);
-		p = strstr(c, "/CN=");
+		p = (char *)strstr(c, "/CN=");
 		if (p)
 			p = p + 4;
 		else
@@ -752,7 +752,7 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 
 		/* quick size check first */
 
-		n = BN_num_bytes(cmpi);
+		n = (int)BN_num_bytes(cmpi);
 		if (jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y].len != (uint32_t)n) {
 			lwsl_err("%s: jwk key size doesn't match\n", __func__);
 
@@ -802,7 +802,7 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 
 		/* quick size check first */
 
-		n = BN_num_bytes(mpi);
+		n = (int)BN_num_bytes(mpi);
 		if (jwk->e[LWS_GENCRYPTO_RSA_KEYEL_N].len != (uint32_t)n) {
 			lwsl_err("%s: jwk key size doesn't match\n", __func__);
 
@@ -1074,7 +1074,7 @@ lws_x509_create_cert(struct lws_context *context,
 		if (info->san && info->is_server) {
 			char alt[256];
 			int is_ip = (strspn(info->san, "0123456789.") == strlen(info->san)) ||
-				    (strspn(info->san, "0123456789abcdefABCDEF:") == strlen(info->san) && strchr(info->san, ':'));
+				    (strspn(info->san, "0123456789abcdefABCDEF:") == strlen(info->san) && (char *)strchr(info->san, ':'));
 			lws_snprintf(alt, sizeof(alt), "%s:%s", is_ip ? "IP" : "DNS", info->san);
 			X509_extension_helper(x509, &ctx, NID_subject_alt_name, alt);
 		}

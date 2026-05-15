@@ -718,11 +718,11 @@ ensure:
 					continue;
 				lbuf[sizeof(lbuf) - 1] = '\0';
 
-				p = (unsigned char *)strchr((char *)lbuf, '\n');
+				p = (unsigned char *)(char *)strchr((char *)lbuf, '\n');
 				if (p)
 					m = lws_ptr_diff(p, lbuf);
 				lbuf[m] = '\0';
-				p = (unsigned char *)strchr((char *)lbuf, '\r');
+				p = (unsigned char *)(char *)strchr((char *)lbuf, '\r');
 				if (p)
 					m = lws_ptr_diff(p, lbuf);
 				lbuf[m] = '\0';

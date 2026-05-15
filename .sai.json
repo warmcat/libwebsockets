@@ -74,6 +74,15 @@
 				"\"C:\\Program Files\\CMake\\bin\\ctest.exe\" --test-dir build -C DEBUG -j%SAI_PARALLEL% --output-on-failure --repeat until-pass:3"
 			]
 		},
+		"w11/x86_64-amd/msvc-schannel": {
+			"default": false,
+			"build": [
+				"\"C:\\Program Files\\CMake\\bin\\cmake.exe\" -S . -B build -DLWS_WITH_SCHANNEL=1 -DLWS_EXT_PTHREAD_INCLUDE_DIR=\"C:\\Program Files (x86)\\pthreads\\include\" -DLWS_EXT_PTHREAD_LIBRARIES=\"C:\\Program Files (x86)\\pthreads\\lib\\x64\\libpthreadGC2.a\" ${cmake}",
+				"\"C:\\Program Files\\CMake\\bin\\cmake.exe\" --build build --config DEBUG --parallel %SAI_PARALLEL%",
+				"\"C:\\Program Files\\CMake\\bin\\ctest.exe\" --test-dir build -C DEBUG -j%SAI_PARALLEL% --output-on-failure --repeat until-pass:3"
+			]
+		},
+
 		"freertos-espidf/xl6-esp32/gcc": {
                         "default": false,
                         "build": [
@@ -95,10 +104,13 @@
 	"configurations": {
 		"default": {
 			"cmake":	"",
-			"platforms":	"w11/x86_64-amd/msvc,netbsd/aarch64BE-bcm2837-a53/gcc,freebsd/aarch64/llvm"
+			"platforms":	"w11/x86_64-amd/msvc,w11/x86_64-amd/msvc-schannel,netbsd/aarch64BE-bcm2837-a53/gcc,freebsd/aarch64/llvm"
 		},
 		"default-noudp": {
 			"cmake":	"-DLWS_WITH_UDP=0"
+		},
+		"default-quic": {
+			"cmake":	"-DLWS_ROLE_QUIC=1"
 		},
 		"default-dht": {
 			"cmake":	"-DLWS_WITH_DHT=1",
@@ -113,7 +125,7 @@
                         "platforms":    "none, freertos-espidf/xl6-esp32/gcc"
                 },
 		"gnutls": {
-			"cmake":	"-DLWS_WITH_GNUTLS=1",
+			"cmake":	"-DLWS_WITH_GNUTLS=1 -DLWS_GNUTLS_INCLUDE_DIRS=\"/opt/gnutls/lib/includes\" -DLWS_GNUTLS_LIBRARIES=\"/opt/gnutls/lib/.libs/libgnutls.so\" -DLWS_ROLE_QUIC=1",
 			"platforms":	"none, rocky9/aarch64-a72a55-rk3588/gcc"
 		},
 		"bearssl": {
@@ -121,19 +133,19 @@
 			"platforms":	"none, rocky9/aarch64-a72a55-rk3588/gcc"
 		},
 		"default-examples-awslc": {
-			"cmake":	"-DLWS_WITH_AWSLC=1 -DLWS_OPENSSL_INCLUDE_DIRS=\"/usr/aws-lc/include\" -DLWS_OPENSSL_LIBRARIES=\"/usr/aws-lc/lib64/libssl.so;/usr/aws-lc/lib64/libcrypto.so\" -DLWS_WITH_MINIMAL_EXAMPLES=1",
+			"cmake":	"-DLWS_WITH_AWSLC=1 -DLWS_ROLE_QUIC=1 -DLWS_OPENSSL_INCLUDE_DIRS=\"/usr/aws-lc/include\" -DLWS_OPENSSL_LIBRARIES=\"/usr/aws-lc/lib64/libssl.so;/usr/aws-lc/lib64/libcrypto.so\" -DLWS_WITH_MINIMAL_EXAMPLES=1",
 			"platforms":	"none, rocky9/aarch64-a72a55-rk3588/gcc"
 		},
 		"default-examples-boringssl": {
-			"cmake":	"-DLWS_WITH_BORINGSSL=1 -DLWS_OPENSSL_INCLUDE_DIRS=\"/usr/boringssl/include\" -DLWS_OPENSSL_LIBRARIES=\"/usr/boringssl/lib64/libssl.so;/usr/boringssl/lib64/libcrypto.so\" -DLWS_WITH_MINIMAL_EXAMPLES=1",
+			"cmake":	"-DLWS_WITH_BORINGSSL=1 -DLWS_ROLE_QUIC=1 -DLWS_OPENSSL_INCLUDE_DIRS=\"/usr/boringssl/include\" -DLWS_OPENSSL_LIBRARIES=\"/usr/boringssl/lib64/libssl.so;/usr/boringssl/lib64/libcrypto.so\" -DLWS_WITH_MINIMAL_EXAMPLES=1",
 			"platforms":	"none, rocky9/aarch64-a72a55-rk3588/gcc"
 		},
 		"default-examples-libressl": {
-			"cmake":	"-DLWS_OPENSSL_LIBRARIES='/usr/libressl/lib64/libtls.so;/usr/libressl/lib64/libssl.so;/usr/libressl/lib64/libcrypto.so' -DLWS_OPENSSL_INCLUDE_DIRS=/usr/libressl/include -DLWS_WITH_MINIMAL_EXAMPLES=1",
+			"cmake":	"-DLWS_ROLE_QUIC=1 -DLWS_OPENSSL_LIBRARIES='/usr/libressl/lib64/libtls.so;/usr/libressl/lib64/libssl.so;/usr/libressl/lib64/libcrypto.so' -DLWS_OPENSSL_INCLUDE_DIRS=/usr/libressl/include -DLWS_WITH_MINIMAL_EXAMPLES=1",
 			"platforms":	"none, rocky9/aarch64-a72a55-rk3588/gcc"
 		},
 		"default-wolfssl": {
-			"cmake":	"-DLWS_WITH_WOLFSSL=1 -DLWS_WOLFSSL_INCLUDE_DIRS=/usr/local/include -DLWS_WOLFSSL_LIBRARIES=/usr/local/lib/libwolfssl.so -DLWS_WITH_MINIMAL_EXAMPLES=0",
+			"cmake":	"-DLWS_ROLE_QUIC=1 -DLWS_WITH_WOLFSSL=1 -DLWS_WOLFSSL_INCLUDE_DIRS=/usr/local/include -DLWS_WOLFSSL_LIBRARIES=/usr/local/lib/libwolfssl.so -DLWS_WITH_MINIMAL_EXAMPLES=0",
 			"platforms":	"none, rocky9/aarch64-a72a55-rk3588/gcc"
 		},
 		"default-examples": {
@@ -191,7 +203,7 @@
 			"cmake": "-DLWS_WITH_MBEDTLS=1 -DLWS_WITHOUT_TESTAPPS=1"
 		},
 		"mbedtls": {
-			"cmake":	"-DLWS_WITH_MBEDTLS=1 -DLWS_WITH_HTTP2=1 -DLWS_WITH_LWSWS=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_JOSE=1 -DCMAKE_BUILD_TYPE=DEBUG"
+			"cmake":	"-DLWS_WITH_MBEDTLS=1 -DLWS_WITH_QUIC=1 -DLWS_WITH_HTTP2=1 -DLWS_WITH_LWSWS=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_JOSE=1 -DCMAKE_BUILD_TYPE=DEBUG"
 		},
 		"mbedtls-metrics": {
 			"cmake":	"-DLWS_WITH_MBEDTLS=1 -DLWS_WITH_HTTP2=1 -DLWS_WITH_LWSWS=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_JOSE=1 -DCMAKE_BUILD_TYPE=DEBUG -DLWS_WITH_SYS_METRICS=1"

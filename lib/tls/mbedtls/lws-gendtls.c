@@ -186,13 +186,13 @@ lws_gendtls_create(struct lws_gendtls_ctx *ctx,
 #if defined(MBEDTLS_SSL_DTLS_SRTP)
 	if (info->use_srtp) {
 		int n = 0;
-		if (strstr(info->use_srtp, "SRTP_AES128_CM_SHA1_80"))
+		if ((char *)strstr(info->use_srtp, "SRTP_AES128_CM_SHA1_80"))
 			ctx->srtp_profiles[n++] = MBEDTLS_TLS_SRTP_AES128_CM_HMAC_SHA1_80;
-		if (strstr(info->use_srtp, "SRTP_AES128_CM_SHA1_32"))
+		if ((char *)strstr(info->use_srtp, "SRTP_AES128_CM_SHA1_32"))
 			ctx->srtp_profiles[n++] = MBEDTLS_TLS_SRTP_AES128_CM_HMAC_SHA1_32;
-		if (strstr(info->use_srtp, "SRTP_NULL_HMAC_SHA1_80"))
+		if ((char *)strstr(info->use_srtp, "SRTP_NULL_HMAC_SHA1_80"))
 			ctx->srtp_profiles[n++] = MBEDTLS_TLS_SRTP_NULL_HMAC_SHA1_80;
-		if (strstr(info->use_srtp, "SRTP_NULL_HMAC_SHA1_32"))
+		if ((char *)strstr(info->use_srtp, "SRTP_NULL_HMAC_SHA1_32"))
 			ctx->srtp_profiles[n++] = MBEDTLS_TLS_SRTP_NULL_HMAC_SHA1_32;
 
 		ctx->srtp_profiles[n] = MBEDTLS_TLS_SRTP_UNSET;

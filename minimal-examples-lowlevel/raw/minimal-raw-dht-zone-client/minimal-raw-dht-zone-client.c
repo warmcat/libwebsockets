@@ -229,7 +229,7 @@ int main(int argc, const char **argv)
 				}
 				lws_snprintf(auto_put_buf, sizeof(auto_put_buf), "%s.zone.signed.jws", domain_arg);
 				pvos[7].value = auto_put_buf;
-			} else if (strstr(put_arg, ".jws")) {
+			} else if ((char *)strstr(put_arg, ".jws")) {
 				pvos[7].value = put_arg;
 			} else {
 				lws_snprintf(auto_put_buf, sizeof(auto_put_buf), "%s.zone.signed.jws", put_arg);

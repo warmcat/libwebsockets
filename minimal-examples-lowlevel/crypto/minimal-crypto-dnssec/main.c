@@ -55,7 +55,7 @@ smd_cb(void *opaque, lws_smd_class_t c, lws_usec_t ts, void *buf, size_t len)
 		return 0;
 
 	const char *p = (const char *)buf;
-	if (!strstr(p, "\"ext-ips\""))
+	if (!(char *)strstr(p, "\"ext-ips\""))
 		return 0;
 
 	const char *start = strchr(p, '[');
@@ -73,10 +73,10 @@ smd_cb(void *opaque, lws_smd_class_t c, lws_usec_t ts, void *buf, size_t len)
 		if (*q == '"') {
 			if (in_quotes) {
 				temp[tlen] = '\0';
-				if (strchr(temp, '.')) {
+				if ((char *)strchr(temp, '.')) {
 					lws_strncpy(glb_ipv4, temp, sizeof(glb_ipv4));
 					ip_consensus_reached |= 1;
-				} else if (strchr(temp, ':')) {
+				} else if ((char *)strchr(temp, ':')) {
 					lws_strncpy(glb_ipv6, temp, sizeof(glb_ipv6));
 					ip_consensus_reached |= 2;
 				}

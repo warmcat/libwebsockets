@@ -166,7 +166,7 @@ callback_lws_oauth_preauth(struct lws *wsi, enum lws_callback_reasons reason,
 		const char *cp = (const char *)in;
 		if (pss->is_listener) {
 			/* Listeners can send {"cmd": "identify", "serial": "..."} */
-			if (strstr(cp, "\"identify\"")) {
+			if ((char *)strstr(cp, "\"identify\"")) {
 				const char *s = strstr(cp, "\"serial\":");
 				if (s) {
 					char target_serial[64];
@@ -188,7 +188,7 @@ callback_lws_oauth_preauth(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 		} else {
 			/* Devices send {"name": "...", "serial": "...", "user_code": "..."} */
-			if (strstr(cp, "\"serial\":")) {
+			if ((char *)strstr(cp, "\"serial\":")) {
 				const char *n = strstr(cp, "\"name\":");
 				const char *s = strstr(cp, "\"serial\":");
 				const char *u = strstr(cp, "\"user_code\":");

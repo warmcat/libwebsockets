@@ -67,7 +67,7 @@ _progname(nargv0)
 
 	_DIAGASSERT(nargv0 != NULL);
 
-	tmp = strrchr(nargv0, '/');
+	tmp = (char *)strrchr(nargv0, '/');
 	if (tmp)
 		tmp++;
 	else
@@ -111,7 +111,7 @@ getopt(nargc, nargv, ostr)
 		}
 	}					/* option letter okay? */
 	if ((optopt = (int)*place++) == (int)':' ||
-	    !(oli = strchr(ostr, optopt))) {
+	    !(oli = (char *)strchr(ostr, optopt))) {
 		/*
 		 * if the user didn't specify '-' as an option,
 		 * assume it means -1.
@@ -143,11 +143,10 @@ getopt(nargc, nargv, ostr)
 				    __progname, optopt);
 			return (BADCH);
 		}
-	 	else				/* white space */
+		else				/* white space */
 			optarg = nargv[optind];
 		place = EMSG;
 		++optind;
 	}
 	return (optopt);			/* dump back option letter */
 }
-

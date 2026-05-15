@@ -31,6 +31,9 @@ const struct lws_role_ops *available_roles[] = {
 #if defined(LWS_ROLE_H2)
 	&role_ops_h2,
 #endif
+#if defined(LWS_ROLE_QUIC)
+	&role_ops_quic,
+#endif
 #if defined(LWS_ROLE_H1)
 	&role_ops_h1,
 #endif
@@ -1145,6 +1148,8 @@ lws_create_vhost(struct lws_context *context,
 
 	vh->ka_time = info->ka_time;
 	vh->ka_interval = info->ka_interval;
+
+	vh->quic_mtu = info->quic_mtu ? info->quic_mtu : 1280;
 	vh->ka_probes = info->ka_probes;
 
 	if (vh->options & LWS_SERVER_OPTION_STS)
@@ -1969,7 +1974,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 	char newconn_cannot_use_h1 = 0;
 
 	if ((wsi->tls.use_ssl & LCCSCF_USE_SSL) &&
-	    my_alpn && !strstr(my_alpn, "http/1.1"))
+	    my_alpn && !(char *)strstr(my_alpn, "http/1.1"))
 		/*
 		 * new guy wants to use tls, he specifies the alpn and he does
 		 * not list h1 as a choice ==> he can't bind to existing h1

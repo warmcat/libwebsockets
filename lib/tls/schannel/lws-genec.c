@@ -172,9 +172,9 @@ lws_genecdh_new_keypair(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 	uint8_t *p;
 
 	if (curve_name) {
-		if (strstr(curve_name, "256")) bits = 256;
-		else if (strstr(curve_name, "384")) bits = 384;
-		else if (strstr(curve_name, "521")) bits = 521;
+		if ((char *)strstr(curve_name, "256")) bits = 256;
+		else if ((char *)strstr(curve_name, "384")) bits = 384;
+		else if ((char *)strstr(curve_name, "521")) bits = 521;
 	}
 
 	status = BCryptGenerateKeyPair(ctx->u.hAlg, &ctx->u.hKey, bits, 0);

@@ -360,6 +360,10 @@ next_dns_result:
 
 	lws_dll2_remove(&curr->list);
 	wsi->sa46_peer = curr->dest;
+#if defined(LWS_WITH_UDP)
+	if (wsi->udp)
+		wsi->udp->sa46 = curr->dest;
+#endif
 #if defined(LWS_WITH_NETLINK)
 	wsi->peer_route_uidx = curr->uidx;
 	lwsl_wsi_info(wsi, "peer_route_uidx %d", wsi->peer_route_uidx);
@@ -399,8 +403,13 @@ ads_known:
 #endif
 		{
 			af = wsi->sa46_peer.sa4.sin_family;
+#if defined(LWS_WITH_UDP)
 			wsi->desc.sockfd = socket(wsi->sa46_peer.sa4.sin_family,
-						  SOCK_STREAM, 0);
+						  (wsi->udp || !strcmp(wsi->role_ops->name, "quic")) ? SOCK_DGRAM : SOCK_STREAM, 0);
+#else
+			wsi->desc.sockfd = socket(wsi->sa46_peer.sa4.sin_family,
+						  (!strcmp(wsi->role_ops->name, "quic")) ? SOCK_DGRAM : SOCK_STREAM, 0);
+#endif
 		}
 
 		if (!lws_socket_is_valid(wsi->desc.sockfd)) {
@@ -414,7 +423,11 @@ ads_known:
 			goto try_next_dns_result;
 		}
 
-		if (lws_plat_set_socket_options(wsi->a.vhost, wsi->desc.sockfd,
+#if defined(LWS_WITH_UDP)
+		if (!wsi->udp && strcmp(wsi->role_ops->name, "quic") != 0 && lws_plat_set_socket_options(wsi->a.vhost, wsi->desc.sockfd,
+#else
+		if (strcmp(wsi->role_ops->name, "quic") != 0 && lws_plat_set_socket_options(wsi->a.vhost, wsi->desc.sockfd,
+#endif
 #if defined(LWS_WITH_UNIX_SOCK)
 						wsi->unix_skt)) {
 #else
@@ -428,6 +441,17 @@ ads_known:
 			cce = dcce;
 			lwsl_wsi_warn(wsi, "%s", dcce);
 			goto try_next_dns_result_closesock;
+		}
+
+#if defined(LWS_WITH_UDP)
+		if (wsi->udp || !strcmp(wsi->role_ops->name, "quic")) {
+#else
+		if (!strcmp(wsi->role_ops->name, "quic")) {
+#endif
+			if (lws_plat_set_nonblocking(wsi->desc.sockfd)) {
+				cce = "conn fail: set nonblocking";
+				goto try_next_dns_result_closesock;
+			}
 		}
 
 		/* apply requested socket options */

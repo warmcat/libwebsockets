@@ -345,7 +345,7 @@ stub_req_cb(struct lejp_ctx *ctx, char reason)
 		}
 
 		/* STRICT ENFORCEMENT: prevent directory traversal */
-		if (strchr(a->subdomain, '/') || strstr(a->subdomain, "..")) {
+		if ((char *)strchr(a->subdomain, '/') || (char *)strstr(a->subdomain, "..")) {
 			lwsl_err("%s: Invalid domain format (path traversal detected)\n", __func__);
 			return 1;
 		}
@@ -909,7 +909,7 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 		buf[n] = '\0';
 		lwsl_notice("[DIST-STUB] %s", buf);
 
-		if (!strstr(buf, "DIST-STUB-READY") || !vhd)
+		if (!(char *)strstr(buf, "DIST-STUB-READY") || !vhd)
 			break;
 
 		lwsl_notice("%s: Received ready signal from stub, initiating proxy connections\n", __func__);

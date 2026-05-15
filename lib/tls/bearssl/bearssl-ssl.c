@@ -40,19 +40,23 @@ int
 lws_bearssl_pump(struct lws *wsi)
 {
 	struct lws_tls_conn *conn = (struct lws_tls_conn *)wsi->tls.ssl;
-	unsigned st = 0;
+	unsigned st;
 	int progressed = 0;
 
 	if (!conn)
 		return -1;
+
+	st = br_ssl_engine_current_state(&conn->u.engine);
 
 	while (1) {
 		unsigned old_st = 0;
 		do {
 			old_st = st;
 			st = br_ssl_engine_current_state(&conn->u.engine);
-			if (st != old_st)
-				lwsl_notice("%s: st changed %x -> %x\n", __func__, old_st, st);
+			if (st != old_st) {
+				LWS_RATELIMIT_DEFINE_STATIC(rl);
+				lwsl_ratelimit_notice(&rl, 1000000, "%s: st changed %x -> %x\n", __func__, old_st, st);
+			}
 		} while (st != old_st && st != BR_SSL_CLOSED);
 
 		if (st == BR_SSL_CLOSED) {
@@ -133,6 +137,9 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 again:
 	/* 1. Drain whatever is already decrypted */
 	st = br_ssl_engine_current_state(&conn->u.engine);
+	if (st == BR_SSL_CLOSED)
+		return LWS_SSL_CAPABLE_ERROR;
+
 	if (st & BR_SSL_RECVAPP) {
 		abuf = br_ssl_engine_recvapp_buf(&conn->u.engine, &alen);
 		if (alen == 0) {
@@ -160,6 +167,9 @@ again:
 
 	/* 3. Check again if anything was decrypted */
 	st = br_ssl_engine_current_state(&conn->u.engine);
+	if (st == BR_SSL_CLOSED)
+		return LWS_SSL_CAPABLE_ERROR;
+
 	if (st & BR_SSL_RECVAPP) {
 		abuf = br_ssl_engine_recvapp_buf(&conn->u.engine, &alen);
 		if (alen == 0) {
@@ -213,6 +223,9 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 			return LWS_SSL_CAPABLE_ERROR;
 
 		st = br_ssl_engine_current_state(&conn->u.engine);
+		if (st == BR_SSL_CLOSED)
+			return LWS_SSL_CAPABLE_ERROR;
+
 		if (st & BR_SSL_SENDREC)
 			return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
 
@@ -233,6 +246,9 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 			return LWS_SSL_CAPABLE_ERROR;
 
 		st = br_ssl_engine_current_state(&conn->u.engine);
+		if (st == BR_SSL_CLOSED)
+			return LWS_SSL_CAPABLE_ERROR;
+
 		if (st & BR_SSL_SENDREC) {
 			conn->pending_app_data_len = alen;
 			return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
@@ -286,6 +302,15 @@ int lws_ssl_close(struct lws *wsi)
 	if (conn->temp_cert)
 		lws_x509_destroy(&conn->temp_cert);
 #endif
+
+	if (conn->alpn_strings) {
+		size_t i;
+		for (i = 0; i < conn->alpn_strings_count; i++) {
+			if (conn->alpn_strings[i])
+				lws_free(conn->alpn_strings[i]);
+		}
+		lws_free(conn->alpn_strings);
+	}
 
 	lws_free(conn);
 	wsi->tls.ssl = NULL;
@@ -388,4 +413,57 @@ lws_tls_vhost_backend_free_ctx(lws_tls_ctx *ctx)
 #endif
 
 	lws_free(ctx);
+}
+
+int
+lws_bearssl_set_alpn(struct lws_tls_conn *conn, const uint8_t *alpn, size_t alpn_len)
+{
+	size_t count = 0;
+	size_t offset = 0;
+	size_t idx = 0;
+
+	if (!alpn || !alpn_len)
+		return 0;
+
+	/* 1. Count strings */
+	while (offset < alpn_len) {
+		uint8_t len = alpn[offset];
+		if (offset + 1 + len > alpn_len)
+			break;
+		count++;
+		offset += 1 + len;
+	}
+
+	if (!count)
+		return 0;
+
+	/* 2. Allocate the array of string pointers */
+	conn->alpn_strings = lws_malloc(sizeof(char *) * count, "bearssl alpn");
+	if (!conn->alpn_strings)
+		return -1;
+
+	/* 3. Allocate and copy each string */
+	offset = 0;
+	while (offset < alpn_len && idx < count) {
+		uint8_t len = alpn[offset];
+		conn->alpn_strings[idx] = lws_malloc(len + 1, "bearssl alpn str");
+		if (!conn->alpn_strings[idx]) {
+			/* Cleanup previously allocated strings on failure */
+			while (idx > 0)
+				lws_free(conn->alpn_strings[--idx]);
+			lws_free(conn->alpn_strings);
+			conn->alpn_strings = NULL;
+			return -1;
+		}
+		memcpy(conn->alpn_strings[idx], &alpn[offset + 1], len);
+		conn->alpn_strings[idx][len] = '\0';
+		idx++;
+		offset += 1 + len;
+	}
+	conn->alpn_strings_count = count;
+
+	/* 4. Set the protocols on the engine */
+	br_ssl_engine_set_protocol_names(&conn->u.engine, (const char **)conn->alpn_strings, count);
+
+	return 0;
 }

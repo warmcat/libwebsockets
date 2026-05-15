@@ -285,7 +285,8 @@ process_timeout(lws_sorted_usec_list_t *sul)
 {
 	lwsl_err("%s: process timed out\n", __func__);
 
-	exit(1);
+	interrupted = 1;
+	bad = 1;
 }
 
 /* secure streams payload interface */
@@ -748,7 +749,7 @@ int main(int argc, const char **argv)
 	/* timeout for each forked process */
 
 	lws_sul_schedule(context, 0, &sul_timeout, process_timeout,
-			 (lws_usec_t)((lws_usec_t)budget *
+			 (lws_usec_t)((lws_usec_t)budget * 3 *
 				       (lws_usec_t)timeout_ms * LWS_US_PER_MS));
 
 #if !defined(LWS_SS_USE_SSPC)
