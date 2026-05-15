@@ -257,6 +257,65 @@ lws_genhmac_update(struct lws_genhmac_ctx *ctx, const void *in, size_t len);
 LWS_VISIBLE LWS_EXTERN int
 lws_genhmac_destroy(struct lws_genhmac_ctx *ctx, void *result);
 
+/**
+ * lws_genhkdf_extract() - HKDF-Extract (RFC 5869)
+ *
+ * \param type: one of LWS_GENHMAC_TYPE_...
+ * \param salt: optional salt (can be NULL)
+ * \param salt_len: length of salt
+ * \param ikm: Input Keying Material
+ * \param ikm_len: length of ikm
+ * \param prk: Buffer to receive the Pseudorandom Key (must be at least hash length)
+ *
+ * Extracts a fixed-length PRK from the input keying material.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_genhkdf_extract(enum lws_genhmac_types type, const uint8_t *salt,
+                    size_t salt_len, const uint8_t *ikm, size_t ikm_len,
+                    uint8_t *prk);
+
+/**
+ * lws_genhkdf_expand() - HKDF-Expand (RFC 5869)
+ *
+ * \param type: one of LWS_GENHMAC_TYPE_...
+ * \param prk: Pseudorandom Key (from HKDF-Extract)
+ * \param prk_len: length of prk (usually hash length)
+ * \param info: optional Context/Application specific info (can be NULL)
+ * \param info_len: length of info
+ * \param okm: Buffer to receive Output Keying Material
+ * \param okm_len: Length of okm requested
+ *
+ * Expands the PRK into the requested length of output keying material.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_genhkdf_expand(enum lws_genhmac_types type, const uint8_t *prk,
+                   size_t prk_len, const uint8_t *info, size_t info_len,
+                   uint8_t *okm, size_t okm_len);
+
+/**
+ * lws_genhkdf_expand_label() - TLS 1.3 HKDF-Expand-Label (RFC 8446)
+ *
+ * \param type: one of LWS_GENHMAC_TYPE_...
+ * \param prk: Pseudorandom Key (from HKDF-Extract)
+ * \param prk_len: length of prk (usually hash length)
+ * \param label: The ascii label (e.g., "quic iv", "quic key")
+ * \param context: Optional context (can be NULL)
+ * \param context_len: length of context
+ * \param okm: Buffer to receive Output Keying Material
+ * \param okm_len: Length of okm requested
+ *
+ * This internally constructs the TLS 1.3 HkdfLabel struct:
+ *    uint16 length = okm_len;
+ *    opaque label<7..255> = "tls13 " + label;
+ *    opaque context<0..255> = context;
+ * And then automatically calls lws_genhkdf_expand() with it.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_genhkdf_expand_label(enum lws_genhmac_types type, const uint8_t *prk,
+                         size_t prk_len, const char *label,
+                         const uint8_t *context, size_t context_len,
+                         uint8_t *okm, size_t okm_len);
+
 #endif
 ///@}
 

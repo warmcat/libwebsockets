@@ -757,3 +757,124 @@ lws_genhash_render_prefixed(enum lws_genhash_types type, const uint8_t *hash, ch
 
 	return lws_genhash_render(type, hash, out + n, out_len - (size_t)n);
 }
+
+int
+lws_genhkdf_extract(enum lws_genhmac_types type, const uint8_t *salt,
+                    size_t salt_len, const uint8_t *ikm, size_t ikm_len,
+                    uint8_t *prk)
+{
+	struct lws_genhmac_ctx ctx;
+	int ret = -1;
+	size_t hs;
+	uint8_t z[LWS_GENHASH_LARGEST];
+
+	hs = lws_genhmac_size(type);
+	if (!hs)
+		return -1;
+
+	if (!salt || !salt_len) {
+		memset(z, 0, hs);
+		salt = z;
+		salt_len = hs;
+	}
+
+	if (lws_genhmac_init(&ctx, type, salt, salt_len))
+		return -1;
+
+	if (ikm_len && lws_genhmac_update(&ctx, ikm, ikm_len))
+		goto bail;
+
+	if (lws_genhmac_destroy(&ctx, prk))
+		return -1;
+
+	return 0;
+
+bail:
+	lws_genhmac_destroy(&ctx, NULL);
+	return ret;
+}
+
+int
+lws_genhkdf_expand(enum lws_genhmac_types type, const uint8_t *prk,
+                   size_t prk_len, const uint8_t *info, size_t info_len,
+                   uint8_t *okm, size_t okm_len)
+{
+	struct lws_genhmac_ctx ctx;
+	uint8_t t[LWS_GENHASH_LARGEST];
+	size_t hs = lws_genhmac_size(type);
+	size_t t_len = 0, remain = okm_len, copy_len;
+	uint8_t count = 1;
+	int ret = -1;
+
+	if (!hs || !okm_len || !prk || !okm)
+		return -1;
+
+	while (remain) {
+		if (lws_genhmac_init(&ctx, type, prk, prk_len))
+			return -1;
+
+		if (t_len && lws_genhmac_update(&ctx, t, t_len))
+			goto bail;
+
+		if (info && info_len && lws_genhmac_update(&ctx, info, info_len))
+			goto bail;
+
+		if (lws_genhmac_update(&ctx, &count, 1))
+			goto bail;
+
+		if (lws_genhmac_destroy(&ctx, t))
+			return -1;
+
+		t_len = hs;
+		copy_len = remain > hs ? hs : remain;
+		memcpy(okm, t, copy_len);
+		okm += copy_len;
+		remain -= copy_len;
+		count++;
+	}
+
+	return 0;
+
+bail:
+	lws_genhmac_destroy(&ctx, NULL);
+	return ret;
+}
+
+int
+lws_genhkdf_expand_label(enum lws_genhmac_types type, const uint8_t *prk,
+                         size_t prk_len, const char *label,
+                         const uint8_t *context, size_t context_len,
+                         uint8_t *okm, size_t okm_len)
+{
+	uint8_t info[256 + 256 + 4];
+	size_t info_len = 0;
+	size_t label_len;
+
+	if (!label)
+		return -1;
+
+	label_len = strlen(label);
+	/* "tls13 " length is 6, so label_len + 6 must be <= 255 */
+	if (label_len + 6 > 255 || context_len > 255)
+		return -1;
+
+	/* Length (uint16) */
+	info[info_len++] = (okm_len >> 8) & 0xff;
+	info[info_len++] = okm_len & 0xff;
+
+	/* Label length (uint8) */
+	info[info_len++] = (uint8_t)(label_len + 6);
+	memcpy(&info[info_len], "tls13 ", 6);
+	info_len += 6;
+	memcpy(&info[info_len], label, label_len);
+	info_len += label_len;
+
+	/* Context length (uint8) */
+	info[info_len++] = (uint8_t)context_len;
+	if (context_len && context) {
+		memcpy(&info[info_len], context, context_len);
+		info_len += context_len;
+	}
+
+	return lws_genhkdf_expand(type, prk, prk_len, info, info_len, okm, okm_len);
+}
