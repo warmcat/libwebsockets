@@ -24,6 +24,10 @@ int
 test_genaes(struct lws_context *context);
 int
 test_genec(struct lws_context *context);
+int
+test_genhkdf(struct lws_context *context);
+int
+test_genchacha(struct lws_context *context);
 
 #if defined(LWS_WITH_MBEDTLS) && defined(LWS_WITH_TLS)
 /* int
@@ -38,7 +42,7 @@ int main(int argc, const char **argv)
 	int result = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
 	(void)switches;
 
-	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
 		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
 		return 0;
 	}
@@ -64,6 +68,8 @@ int main(int argc, const char **argv)
 
 	result |= test_genaes(context);
 	result |= test_genec(context);
+	result |= test_genhkdf(context);
+	result |= test_genchacha(context);
 
 #if defined(LWS_WITH_MBEDTLS) && defined(LWS_WITH_TLS)
 	/* result |= test_mbedtls_cipherlist(context); */ /* Requires static linking to access inner OpenSSL shim symbols */

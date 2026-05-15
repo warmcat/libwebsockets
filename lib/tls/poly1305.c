@@ -5,8 +5,7 @@
 
 /* $OpenBSD: poly1305.c,v 1.3 2013/12/19 22:57:13 djm Exp $ */
 
-#include <libwebsockets.h>
-#include "lws-ssh.h"
+#include "private-lib-core.h"
 
 #define mul32x32_64(a,b) ((uint64_t)(a) * (b))
 
@@ -25,9 +24,9 @@
 	} while (0)
 
 void
-poly1305_auth(unsigned char out[POLY1305_TAGLEN],
+lws_poly1305_auth(unsigned char out[LWS_POLY1305_TAGLEN],
 	      const unsigned char *m, size_t inlen,
-	      const unsigned char key[POLY1305_KEYLEN])
+	      const unsigned char key[LWS_POLY1305_KEYLEN])
 {
 	uint32_t t0,t1,t2,t3;
 	uint32_t h0,h1,h2,h3,h4;

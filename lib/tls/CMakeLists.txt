@@ -674,7 +674,10 @@ if (MSVC AND LWS_WITH_SSL AND NOT LWS_WITH_WOLFSSL)
 endif()
 
 	list(APPEND SOURCES
-		tls/lws-gencrypto-common.c)
+		tls/lws-gencrypto-common.c
+		tls/chacha.c
+		tls/poly1305.c
+		tls/lws-genchacha.c)
 
 
 

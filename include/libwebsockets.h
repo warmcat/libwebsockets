@@ -916,6 +916,7 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 #include <libwebsockets/lws-genhash.h>
 #include <libwebsockets/lws-genrsa.h>
 #include <libwebsockets/lws-genaes.h>
+#include <libwebsockets/lws-genchacha.h>
 #include <libwebsockets/lws-genec.h>
 
 #include <libwebsockets/lws-jwk.h>
