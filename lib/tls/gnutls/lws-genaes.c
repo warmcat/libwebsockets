@@ -45,6 +45,7 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 
 	switch (mode) {
 	case LWS_GAESM_CBC:
+	case LWS_GAESM_ECB:
 		switch (key.size) {
 		case 16: alg = GNUTLS_CIPHER_AES_128_CBC; break;
 		case 24: alg = GNUTLS_CIPHER_AES_192_CBC; break;

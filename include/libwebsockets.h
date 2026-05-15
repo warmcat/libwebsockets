@@ -902,6 +902,7 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 #if defined(LWS_WITH_TLS)
 
 #include <libwebsockets/lws-tls-sessions.h>
+#include <libwebsockets/lws-quic.h>
 
 #if defined(LWS_WITH_MBEDTLS)
 #include <mbedtls/md5.h>

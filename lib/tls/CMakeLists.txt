@@ -145,6 +145,7 @@ if (LWS_WITH_SSL)
 	if (LWS_WITH_MBEDTLS)
 		list(APPEND SOURCES
 			tls/mbedtls/mbedtls-tls.c
+			tls/mbedtls/mbedtls-quic.c
 			tls/mbedtls/mbedtls-extensions.c
 			tls/mbedtls/mbedtls-x509.c)
 		if (LWS_WITH_NETWORK)
@@ -177,6 +178,7 @@ if (LWS_WITH_SSL)
 			tls/schannel/schannel-tls.c
 			tls/schannel/schannel-ssl.c
 			tls/schannel/schannel-session.c
+			tls/schannel/schannel-quic.c
 			tls/schannel/schannel-x509.c)
 		list(APPEND LIB_LIST "ncrypt" "bcrypt" "crypt32" "secur32")
 		if (LWS_WITH_GENCRYPTO)
@@ -194,6 +196,7 @@ if (LWS_WITH_SSL)
 	elseif (LWS_WITH_GNUTLS)
 		list(APPEND SOURCES
 			tls/gnutls/gnutls-tls.c
+			tls/gnutls/gnutls-quic.c
 			tls/gnutls/gnutls-ssl.c
 			tls/gnutls/gnutls-x509.c)
 		if (LWS_WITH_GENCRYPTO)
@@ -228,6 +231,7 @@ if (LWS_WITH_SSL)
 	else()
 		list(APPEND SOURCES
 			tls/openssl/openssl-tls.c
+			tls/openssl/openssl-quic.c
 			tls/openssl/openssl-x509.c)
 		if (LWS_WITH_NETWORK)
 			list(APPEND SOURCES

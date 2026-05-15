@@ -119,6 +119,13 @@ struct lws_lws_tls {
 #endif
 	struct lws_dll2		dll_pending_tls;
 	char			err_helper[64];
+
+	uint8_t			*quic_tp_recv;
+	size_t			quic_tp_recv_len;
+	const uint8_t		*quic_tp_send;
+	size_t			quic_tp_send_len;
+	lws_tls_quic_secret_cb	quic_secret_cb;
+
 	unsigned int		use_ssl;
 	unsigned int		redirect_to_https:1;
 	unsigned int		ssl_accept_in_bg:1;

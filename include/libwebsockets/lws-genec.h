@@ -91,7 +91,7 @@ struct lws_ec_curves {
  *
  * Initializes a genecdh
  */
-LWS_VISIBLE int
+LWS_VISIBLE LWS_EXTERN int
 lws_genecdh_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 		   const struct lws_ec_curves *curve_table);
 
@@ -137,7 +137,7 @@ lws_genecdh_compute_shared_secret(struct lws_genec_ctx *ctx, uint8_t *ss,
  *
  * Initializes a genecdh
  */
-LWS_VISIBLE int
+LWS_VISIBLE LWS_EXTERN int
 lws_genecdsa_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 		    const struct lws_ec_curves *curve_table);
 
@@ -226,7 +226,7 @@ lws_genecdsa_hash_sign_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
  *
  * Initializes a geneddsa
  */
-LWS_VISIBLE int
+LWS_VISIBLE LWS_EXTERN int
 lws_geneddsa_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 		    const struct lws_ec_curves *curve_table);
 

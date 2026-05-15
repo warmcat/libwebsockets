@@ -146,6 +146,17 @@ lws_tls_restrict_return(struct lws *wsi);
 void
 lws_tls_restrict_return_handshake(struct lws *wsi);
 
+#if defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_WOLFSSL) && !defined(LWS_WITH_SCHANNEL) && !defined(LWS_WITH_GNUTLS) && !defined(LWS_WITH_BEARSSL)
+int
+lws_tls_quic_vhost_init(lws_tls_ctx *ctx);
+#endif
+
+void
+lws_tls_restrict_return(struct lws *wsi);
+
+void
+lws_tls_restrict_return_handshake(struct lws *wsi);
+
 #if defined(LWS_WITH_SCHANNEL)
 struct lws_tls_schannel_conn;
 struct lws_tls_schannel_ctx;

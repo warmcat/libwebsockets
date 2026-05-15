@@ -698,6 +698,10 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 	if (m && n != LWS_TLS_EXTANT_NO)
 		return 1;
 
+#if !defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_WOLFSSL) && !defined(LWS_WITH_SCHANNEL) && !defined(LWS_WITH_GNUTLS) && !defined(LWS_WITH_BEARSSL)
+	lws_tls_quic_vhost_init(vhost->tls.ssl_ctx);
+#endif
+
 	return 0;
 }
 

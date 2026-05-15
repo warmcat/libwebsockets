@@ -213,7 +213,7 @@ lws_jwk_dump(struct lws_jwk *jwk);
  *
  * Returns 0 for OK or nonzero for failure
  */
-LWS_VISIBLE int
+LWS_VISIBLE LWS_EXTERN int
 lws_jwk_generate(struct lws_context *context, struct lws_jwk *jwk,
 	         enum lws_gencrypto_kty kty, int bits, const char *curve);
 

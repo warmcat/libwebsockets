@@ -79,7 +79,7 @@ lws_jwe_be64(uint64_t c, uint8_t *p8);
 LWS_VISIBLE LWS_EXTERN int
 lws_jwe_render_compact(struct lws_jwe *jwe, char *out, size_t out_len);
 
-LWS_VISIBLE int
+LWS_VISIBLE LWS_EXTERN int
 lws_jwe_render_flattened(struct lws_jwe *jwe, char *out, size_t out_len);
 
 LWS_VISIBLE LWS_EXTERN int
