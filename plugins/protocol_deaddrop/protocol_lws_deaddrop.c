@@ -563,10 +563,7 @@ deaddrop_handler_server_http(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 	pss->vhd = vhd;
 	pss->wsi = wsi;
 
-	if (lws_hdr_copy(wsi, pss->filename, sizeof(pss->filename), WSI_TOKEN_HTTP_URI_ARGS) > 0)
-		return 0;
-
-	return 1;
+	return 0;
 }
 
 static int
