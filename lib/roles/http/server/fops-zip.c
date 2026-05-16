@@ -499,7 +499,7 @@ lws_fops_zip_read(lws_fop_fd_t fd, lws_filepos_t *amount, uint8_t *buf,
 		  lws_filepos_t len)
 {
 	lws_fops_zip_t priv = fop_fd_to_priv(fd);
-	lws_filepos_t ramount, rlen, cur = lws_vfs_tell(fd);
+	lws_filepos_t ramount = 0, rlen, cur = lws_vfs_tell(fd);
 	int ret;
 
 	if (priv->decompress) {
