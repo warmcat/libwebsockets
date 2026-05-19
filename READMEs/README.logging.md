@@ -286,3 +286,42 @@ file handle open.
 For this reason the log contexts have a refcount, and an opaque `void *stg`
 availble for the emit and refounct_cb to use how they see fit, eg, for storing
 the output log file descriptor.
+
+## Rate-limiting logs
+
+If you have a log that may be generated at a high rate under some conditions, you can use the rate-limiting log macros. These allow you to specify a minimum interval between emissions in microseconds, and they will automatically append ` (dropped %u logs)` with the count of suppressed logs if any were dropped.
+
+You need to provide a `lws_log_ratelimit_t` object to hold the state.
+
+If the log context is local to a specific object (e.g., a `wsi` or `vhost`), you can compose the `lws_log_ratelimit_t` type into your object. It only needs to be zero-initialized:
+
+```c
+struct my_object {
+	...
+	lws_log_ratelimit_t rl;
+	...
+};
+
+/* ... inside some object-bound function ... */
+/* ratelimit to 1 emission per second */
+lwsl_ratelimit_wsi_notice(&wsi->rl, 1000000, wsi, "Oops: %s\n", err);
+```
+
+If the log context is global or applies to a specific code block rather than a specific object, you can use the helper macro `LWS_RATELIMIT_DEFINE_STATIC()` to define a static state variable:
+
+```c
+LWS_RATELIMIT_DEFINE_STATIC(rl);
+
+/* ratelimit to 1 emission per second */
+lwsl_ratelimit_notice(&rl, 1000000, "QUIC TX: Congestion window full, blocking POLLOUT\n");
+```
+
+There are rate-limited counterparts for every log level and scoping context. For example:
+
+| Scope | Api example |
+|---|---|
+| Processwide | `lwsl_ratelimit_err(&rl, 1000000, ...)` |
+| lws_context | `lwsl_ratelimit_cx_err(&rl, 1000000, context, ...)` |
+| lws_vhost | `lwsl_ratelimit_vhost_err(&rl, 1000000, vh, ...)` |
+| lws_wsi | `lwsl_ratelimit_wsi_err(&rl, 1000000, wsi, ...)` |
+| lws_ss | `lwsl_ratelimit_ss_err(&rl, 1000000, handle, ...)` |

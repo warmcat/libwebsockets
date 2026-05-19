@@ -125,6 +125,24 @@ typedef struct lws_log_cx {
 LWS_VISIBLE LWS_EXTERN int
 lwsl_timestamp(int level, char *p, size_t len);
 
+typedef struct lws_log_ratelimit {
+	int64_t next_log_us;
+	uint32_t dropped;
+} lws_log_ratelimit_t;
+
+#define LWS_RATELIMIT_DEFINE_STATIC(_name) \
+	static lws_log_ratelimit_t _name = { 0, 0 }
+
+LWS_VISIBLE LWS_EXTERN uint32_t
+lws_log_ratelimit_check(lws_log_ratelimit_t *rl, int64_t interval_us);
+
+LWS_VISIBLE LWS_EXTERN void
+_lws_log_rl(int filter, uint32_t dropped, const char *format, ...) LWS_FORMAT(3);
+
+LWS_VISIBLE LWS_EXTERN void
+_lws_log_cx_rl(lws_log_cx_t *cx, lws_log_prepend_cx_t prep, void *obj,
+	    int filter, uint32_t dropped, const char *_fun, const char *format, ...) LWS_FORMAT(7);
+
 #if defined(LWS_PLAT_OPTEE) && !defined(LWS_WITH_NETWORK)
 #define _lws_log(aaa, ...) SMSG(__VA_ARGS__)
 #else
@@ -804,3 +822,503 @@ LWS_VISIBLE LWS_EXTERN void
 lwsl_refcount_cx(lws_log_cx_t *cx, int _new);
 
 ///@}
+
+/*
+ * Ratelimited process scope logs
+ */
+
+#if (_LWS_ENABLED_LOGS & LLL_ERR)
+#define lwsl_ratelimit_err(_rl, _i, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_rl(LLL_ERR, _c, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_err(_rl, _i, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_WARN)
+#define lwsl_ratelimit_warn(_rl, _i, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_rl(LLL_WARN, _c, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_warn(_rl, _i, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+#define lwsl_ratelimit_notice(_rl, _i, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_rl(LLL_NOTICE, _c, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_notice(_rl, _i, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
+#define lwsl_ratelimit_info(_rl, _i, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_rl(LLL_INFO, _c, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_info(_rl, _i, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_DEBUG)
+#define lwsl_ratelimit_debug(_rl, _i, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_rl(LLL_DEBUG, _c, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_debug(_rl, _i, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_PARSER)
+#define lwsl_ratelimit_parser(_rl, _i, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_rl(LLL_PARSER, _c, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_parser(_rl, _i, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_HEADER)
+#define lwsl_ratelimit_header(_rl, _i, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_rl(LLL_HEADER, _c, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_header(_rl, _i, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_EXT)
+#define lwsl_ratelimit_ext(_rl, _i, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_rl(LLL_EXT, _c, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_ext(_rl, _i, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_CLIENT)
+#define lwsl_ratelimit_client(_rl, _i, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_rl(LLL_CLIENT, _c, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_client(_rl, _i, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_LATENCY)
+#define lwsl_ratelimit_latency(_rl, _i, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_rl(LLL_LATENCY, _c, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_latency(_rl, _i, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_THREAD)
+#define lwsl_ratelimit_thread(_rl, _i, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_rl(LLL_THREAD, _c, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_thread(_rl, _i, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_USER)
+#define lwsl_ratelimit_user(_rl, _i, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_rl(LLL_USER, _c, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_user(_rl, _i, ...) do {} while(0)
+#endif
+
+/*
+ * Ratelimited lws_context scope logs
+ */
+
+#if (_LWS_ENABLED_LOGS & LLL_ERR)
+#define lwsl_ratelimit_cx_err(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_context_get_cx(_o), lws_log_prepend_context, _o, LLL_ERR, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_cx_err(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_WARN)
+#define lwsl_ratelimit_cx_warn(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_context_get_cx(_o), lws_log_prepend_context, _o, LLL_WARN, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_cx_warn(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+#define lwsl_ratelimit_cx_notice(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_context_get_cx(_o), lws_log_prepend_context, _o, LLL_NOTICE, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_cx_notice(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
+#define lwsl_ratelimit_cx_info(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_context_get_cx(_o), lws_log_prepend_context, _o, LLL_INFO, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_cx_info(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_DEBUG)
+#define lwsl_ratelimit_cx_debug(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_context_get_cx(_o), lws_log_prepend_context, _o, LLL_DEBUG, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_cx_debug(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_PARSER)
+#define lwsl_ratelimit_cx_parser(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_context_get_cx(_o), lws_log_prepend_context, _o, LLL_PARSER, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_cx_parser(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_HEADER)
+#define lwsl_ratelimit_cx_header(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_context_get_cx(_o), lws_log_prepend_context, _o, LLL_HEADER, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_cx_header(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_EXT)
+#define lwsl_ratelimit_cx_ext(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_context_get_cx(_o), lws_log_prepend_context, _o, LLL_EXT, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_cx_ext(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_CLIENT)
+#define lwsl_ratelimit_cx_client(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_context_get_cx(_o), lws_log_prepend_context, _o, LLL_CLIENT, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_cx_client(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_LATENCY)
+#define lwsl_ratelimit_cx_latency(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_context_get_cx(_o), lws_log_prepend_context, _o, LLL_LATENCY, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_cx_latency(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_THREAD)
+#define lwsl_ratelimit_cx_thread(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_context_get_cx(_o), lws_log_prepend_context, _o, LLL_THREAD, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_cx_thread(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_USER)
+#define lwsl_ratelimit_cx_user(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_context_get_cx(_o), lws_log_prepend_context, _o, LLL_USER, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_cx_user(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+/*
+ * Ratelimited lws_vhost scope logs
+ */
+
+#if (_LWS_ENABLED_LOGS & LLL_ERR)
+#define lwsl_ratelimit_vhost_err(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_vhost_get_cx(_o), lws_log_prepend_vhost, _o, LLL_ERR, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_vhost_err(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_WARN)
+#define lwsl_ratelimit_vhost_warn(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_vhost_get_cx(_o), lws_log_prepend_vhost, _o, LLL_WARN, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_vhost_warn(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+#define lwsl_ratelimit_vhost_notice(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_vhost_get_cx(_o), lws_log_prepend_vhost, _o, LLL_NOTICE, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_vhost_notice(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
+#define lwsl_ratelimit_vhost_info(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_vhost_get_cx(_o), lws_log_prepend_vhost, _o, LLL_INFO, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_vhost_info(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_DEBUG)
+#define lwsl_ratelimit_vhost_debug(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_vhost_get_cx(_o), lws_log_prepend_vhost, _o, LLL_DEBUG, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_vhost_debug(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_PARSER)
+#define lwsl_ratelimit_vhost_parser(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_vhost_get_cx(_o), lws_log_prepend_vhost, _o, LLL_PARSER, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_vhost_parser(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_HEADER)
+#define lwsl_ratelimit_vhost_header(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_vhost_get_cx(_o), lws_log_prepend_vhost, _o, LLL_HEADER, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_vhost_header(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_EXT)
+#define lwsl_ratelimit_vhost_ext(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_vhost_get_cx(_o), lws_log_prepend_vhost, _o, LLL_EXT, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_vhost_ext(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_CLIENT)
+#define lwsl_ratelimit_vhost_client(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_vhost_get_cx(_o), lws_log_prepend_vhost, _o, LLL_CLIENT, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_vhost_client(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_LATENCY)
+#define lwsl_ratelimit_vhost_latency(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_vhost_get_cx(_o), lws_log_prepend_vhost, _o, LLL_LATENCY, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_vhost_latency(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_THREAD)
+#define lwsl_ratelimit_vhost_thread(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_vhost_get_cx(_o), lws_log_prepend_vhost, _o, LLL_THREAD, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_vhost_thread(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_USER)
+#define lwsl_ratelimit_vhost_user(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_vhost_get_cx(_o), lws_log_prepend_vhost, _o, LLL_USER, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_vhost_user(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+/*
+ * Ratelimited lws_wsi scope logs
+ */
+
+#if (_LWS_ENABLED_LOGS & LLL_ERR)
+#define lwsl_ratelimit_wsi_err(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_wsi_get_cx(_o), lws_log_prepend_wsi, _o, LLL_ERR, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_wsi_err(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_WARN)
+#define lwsl_ratelimit_wsi_warn(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_wsi_get_cx(_o), lws_log_prepend_wsi, _o, LLL_WARN, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_wsi_warn(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+#define lwsl_ratelimit_wsi_notice(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_wsi_get_cx(_o), lws_log_prepend_wsi, _o, LLL_NOTICE, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_wsi_notice(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
+#define lwsl_ratelimit_wsi_info(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_wsi_get_cx(_o), lws_log_prepend_wsi, _o, LLL_INFO, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_wsi_info(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_DEBUG)
+#define lwsl_ratelimit_wsi_debug(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_wsi_get_cx(_o), lws_log_prepend_wsi, _o, LLL_DEBUG, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_wsi_debug(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_PARSER)
+#define lwsl_ratelimit_wsi_parser(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_wsi_get_cx(_o), lws_log_prepend_wsi, _o, LLL_PARSER, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_wsi_parser(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_HEADER)
+#define lwsl_ratelimit_wsi_header(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_wsi_get_cx(_o), lws_log_prepend_wsi, _o, LLL_HEADER, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_wsi_header(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_EXT)
+#define lwsl_ratelimit_wsi_ext(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_wsi_get_cx(_o), lws_log_prepend_wsi, _o, LLL_EXT, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_wsi_ext(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_CLIENT)
+#define lwsl_ratelimit_wsi_client(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_wsi_get_cx(_o), lws_log_prepend_wsi, _o, LLL_CLIENT, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_wsi_client(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_LATENCY)
+#define lwsl_ratelimit_wsi_latency(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_wsi_get_cx(_o), lws_log_prepend_wsi, _o, LLL_LATENCY, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_wsi_latency(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_THREAD)
+#define lwsl_ratelimit_wsi_thread(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_wsi_get_cx(_o), lws_log_prepend_wsi, _o, LLL_THREAD, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_wsi_thread(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_USER)
+#define lwsl_ratelimit_wsi_user(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_wsi_get_cx(_o), lws_log_prepend_wsi, _o, LLL_USER, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_wsi_user(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+/*
+ * Ratelimited lws_ss scope logs
+ */
+
+#if (_LWS_ENABLED_LOGS & LLL_ERR)
+#define lwsl_ratelimit_ss_err(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_ss_get_cx(_o), lws_log_prepend_ss, _o, LLL_ERR, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_ss_err(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_WARN)
+#define lwsl_ratelimit_ss_warn(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_ss_get_cx(_o), lws_log_prepend_ss, _o, LLL_WARN, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_ss_warn(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+#define lwsl_ratelimit_ss_notice(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_ss_get_cx(_o), lws_log_prepend_ss, _o, LLL_NOTICE, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_ss_notice(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
+#define lwsl_ratelimit_ss_info(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_ss_get_cx(_o), lws_log_prepend_ss, _o, LLL_INFO, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_ss_info(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_DEBUG)
+#define lwsl_ratelimit_ss_debug(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_ss_get_cx(_o), lws_log_prepend_ss, _o, LLL_DEBUG, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_ss_debug(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_PARSER)
+#define lwsl_ratelimit_ss_parser(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_ss_get_cx(_o), lws_log_prepend_ss, _o, LLL_PARSER, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_ss_parser(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_HEADER)
+#define lwsl_ratelimit_ss_header(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_ss_get_cx(_o), lws_log_prepend_ss, _o, LLL_HEADER, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_ss_header(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_EXT)
+#define lwsl_ratelimit_ss_ext(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_ss_get_cx(_o), lws_log_prepend_ss, _o, LLL_EXT, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_ss_ext(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_CLIENT)
+#define lwsl_ratelimit_ss_client(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_ss_get_cx(_o), lws_log_prepend_ss, _o, LLL_CLIENT, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_ss_client(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_LATENCY)
+#define lwsl_ratelimit_ss_latency(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_ss_get_cx(_o), lws_log_prepend_ss, _o, LLL_LATENCY, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_ss_latency(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_THREAD)
+#define lwsl_ratelimit_ss_thread(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_ss_get_cx(_o), lws_log_prepend_ss, _o, LLL_THREAD, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_ss_thread(_rl, _i, _o, ...) do {} while(0)
+#endif
+
+#if (_LWS_ENABLED_LOGS & LLL_USER)
+#define lwsl_ratelimit_ss_user(_rl, _i, _o, ...) \
+	do { uint32_t _c = lws_log_ratelimit_check(_rl, _i); if (_c) \
+		_lws_log_cx_rl(lwsl_ss_get_cx(_o), lws_log_prepend_ss, _o, LLL_USER, _c, __func__, __VA_ARGS__); } while(0)
+#else
+#define lwsl_ratelimit_ss_user(_rl, _i, _o, ...) do {} while(0)
+#endif
