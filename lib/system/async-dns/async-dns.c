@@ -55,6 +55,8 @@ lws_adns_q_destroy(lws_adns_q_t *q)
 		q->firstcache->refcount--;
 		q->firstcache = NULL;
 	}
+
+	lws_free(q);
 }
 
 lws_adns_q_t *

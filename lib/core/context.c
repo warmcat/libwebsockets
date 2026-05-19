@@ -2055,6 +2055,19 @@ lws_context_destroy(struct lws_context *context)
 		 * We can't free things until after the event loop shuts down.
 		 */
 
+#if defined(LWS_WITH_SECURE_STREAMS)
+#if defined(LWS_WITH_SECURE_STREAMS_SYS_AUTH_API_AMAZON_COM)
+		if (context->hss_auth)
+			lws_ss_destroy(&context->hss_auth);
+#endif
+		if (context->hss_fetch_policy)
+			lws_ss_destroy(&context->hss_fetch_policy);
+#if defined(LWS_WITH_DRIVERS)
+		if (context->ss_cpd)
+			lws_ss_destroy(&context->ss_cpd);
+#endif
+#endif
+
 		if (context->protocol_init_done)
 			vh = context->vhost_list;
 
