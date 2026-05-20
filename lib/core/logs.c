@@ -391,11 +391,14 @@ __lws_logv(lws_log_cx_t *cx, lws_log_prepend_cx_t prep, void *obj,
 {
 #if LWS_MAX_SMP == 1 && !defined(LWS_WITH_THREADPOOL)
 	/* this is incompatible with multithreaded logging */
-	static char buf[256];
+	static char buf[256], prev_buf[256];
 #else
 	char buf[1024];
+	static char prev_buf[1024];
 #endif
-	char *p = buf, *end = p + sizeof(buf) - 1;
+	static uint32_t log_dupes;
+	static lws_usec_t last_log_dupe_emit;
+	char *p = buf, *end = p + sizeof(buf) - 1, *body_start;
 	lws_log_cx_t *cxp;
 	int n, back = 0;
 
@@ -428,6 +431,8 @@ __lws_logv(lws_log_cx_t *cx, lws_log_prepend_cx_t prep, void *obj,
 		lwsl_timestamp(filter, buf, sizeof(buf));
 		p += strlen(buf);
 	}
+
+	body_start = p;
 
 	/*
 	 * prepend parent log ctx content first
@@ -471,7 +476,7 @@ __lws_logv(lws_log_cx_t *cx, lws_log_prepend_cx_t prep, void *obj,
 		*p++ = '.';
 		*p++ = '\n';
 		*p++ = '\0';
-	} else
+	} else {
 		if (n > 0) {
 			p += n;
 			if (p[-1] == '\n')
@@ -483,6 +488,25 @@ __lws_logv(lws_log_cx_t *cx, lws_log_prepend_cx_t prep, void *obj,
 				*p = '\0';
 			}
 		}
+	}
+
+	if (!strcmp(body_start, prev_buf)) {
+		log_dupes++;
+		if (lws_now_usecs() - last_log_dupe_emit < 1000000)
+			return;
+
+		p = body_start + strlen(body_start);
+		if (p > buf && p[-1] == '\n')
+			p--;
+		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+				  " (swallowed %u dupes)\n", (unsigned int)log_dupes);
+		log_dupes = 0;
+		last_log_dupe_emit = lws_now_usecs();
+	} else {
+		lws_strncpy(prev_buf, body_start, sizeof(prev_buf));
+		log_dupes = 0;
+		last_log_dupe_emit = lws_now_usecs();
+	}
 
 	/*
 	 * The actual emit
