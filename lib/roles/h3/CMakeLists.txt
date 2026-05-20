@@ -1,7 +1,7 @@
 #
 # libwebsockets - small server side websockets and web server implementation
 #
-# Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
+# Copyright (C) 2010 - 2026 Andy Green <andy@warmcat.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to
@@ -31,71 +31,12 @@
 
 include_directories(.)
 
-if (LWS_ROLE_MQTT)
-	add_subdir_include_directories(mqtt)
-endif()
-
-if (LWS_ROLE_QUIC)
-	add_subdir_include_directories(quic)
-endif()
-
-if (LWS_ROLE_DBUS AND NOT LWS_PLAT_FREERTOS)
-	add_subdir_include_directories(dbus)
-endif()
-
-if (LWS_ROLE_H1 OR LWS_ROLE_H2)
-	add_subdir_include_directories(http)
-endif()
-
-if (LWS_ROLE_H1)
-	add_subdir_include_directories(h1)
-endif()
-
-if (LWS_ROLE_H2)
-	add_subdir_include_directories(h2)
-endif()
-
-if (LWS_ROLE_H3)
-	add_subdir_include_directories(h3)
-endif()
-
-if (LWS_ROLE_WS)
-	add_subdir_include_directories(ws)
-endif()
-
-if (LWS_ROLE_RAW)
-	add_subdir_include_directories(raw-skt)
-endif()
-
-if (LWS_ROLE_RAW_FILE)
-	add_subdir_include_directories(raw-file)
-endif()
-
-if (LWS_WITH_CGI)
-	add_subdir_include_directories(cgi)
-endif()
-
-if (LWS_ROLE_RAW_PROXY)
-	add_subdir_include_directories(raw-proxy)
-endif()
-
-if (NOT LWS_WITHOUT_SERVER OR LWS_WITH_SECURE_STREAMS_PROCESS_API)
-	add_subdir_include_directories(listen)
-endif()
-
-if (LWS_WITH_CLIENT AND (LWS_ROLE_H1 OR LWS_ROLE_H2))
-	list(APPEND SOURCES
-		roles/http/client/client-http.c)
-endif()
-
-if (LWS_WITH_NETLINK)
-	list(APPEND SOURCES roles/netlink/ops-netlink.c)
-endif()
+list(APPEND SOURCES
+	roles/h3/qpack.c
+)
 
 #
 # Keep explicit parent scope exports at end
 #
 
-export_to_parent_intermediate()
-set(LWS_DEPS_LIB_PATHS ${LWS_DEPS_LIB_PATHS} PARENT_SCOPE)
-
+exports_to_parent_scope()

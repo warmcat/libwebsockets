@@ -757,6 +757,9 @@ struct lws {
 #if defined(LWS_ROLE_QUIC)
 	struct _lws_quic_related	quic;
 #endif
+#if defined(LWS_ROLE_H3)
+	struct lws_qpack_tx_encoder	*qpack_tx_encoder;
+#endif
 
 #if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT) || defined(LWS_ROLE_QUIC)
 	struct lws_muxable		mux;

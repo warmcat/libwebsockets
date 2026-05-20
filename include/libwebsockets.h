@@ -849,6 +849,9 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 #endif
 #include <libwebsockets/lws-client.h>
 #include <libwebsockets/lws-http.h>
+#if defined(LWS_ROLE_H3)
+#include <libwebsockets/lws-qpack.h>
+#endif
 #include <libwebsockets/lws-spa.h>
 #include <libwebsockets/lws-async-ipc.h>
 #endif

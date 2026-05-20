@@ -140,6 +140,7 @@
 #cmakedefine LWS_ROLE_DBUS
 #cmakedefine LWS_ROLE_H1
 #cmakedefine LWS_ROLE_H2
+#cmakedefine LWS_ROLE_H3
 #cmakedefine LWS_ROLE_RAW
 #cmakedefine LWS_ROLE_RAW_FILE
 #cmakedefine LWS_ROLE_RAW_PROXY
@@ -188,6 +189,8 @@
 #cmakedefine LWS_WITH_GTK
 #cmakedefine LWS_WITH_GZINFLATE
 #cmakedefine LWS_WITH_HTTP2
+#cmakedefine LWS_WITH_HTTP3
+#cmakedefine LWS_WITH_LS_QPACK
 #cmakedefine LWS_WITH_HTTP_BASIC_AUTH
 #cmakedefine LWS_WITH_HTTP_DIGEST_AUTH
 #cmakedefine LWS_WITH_HTTP_BROTLI

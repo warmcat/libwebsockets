@@ -397,6 +397,12 @@ extern const struct lws_role_ops role_ops_raw_skt, role_ops_raw_file,
  #define lwsi_role_h2(wsi) (0)
 #endif
 
+#if defined(LWS_ROLE_H3)
+ #include "h3/private-lib-roles-h3.h"
+#else
+ #define lwsi_role_h3(wsi) (0)
+#endif
+
 #if defined(LWS_ROLE_QUIC)
  #include "roles/quic/private-lib-roles-quic.h"
 #else

@@ -281,6 +281,11 @@ struct _lws_http_mode_related {
 	unsigned int proxy_clientside:1;
 	unsigned int proxy_parent_chunked:1;
 #endif
+#if defined(LWS_ROLE_H3)
+	unsigned char *h3_prefix_ptr;
+	uint32_t h3_base;
+	uint32_t h3_req_ric;
+#endif
 	unsigned int deferred_transaction_completed:1;
 	unsigned int content_length_explicitly_zero:1;
 	unsigned int content_length_given:1;

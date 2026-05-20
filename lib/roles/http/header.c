@@ -65,6 +65,14 @@ lws_wsi_is_h2(struct lws *wsi)
 }
 #endif
 
+#ifdef LWS_ROLE_H3
+int
+lws_wsi_is_h3(struct lws *wsi)
+{
+	return lwsi_role_h3(wsi);
+}
+#endif
+
 int
 lws_add_http_header_by_name(struct lws *wsi, const unsigned char *name,
 			    const unsigned char *value, int length,
@@ -74,9 +82,15 @@ lws_add_http_header_by_name(struct lws *wsi, const unsigned char *name,
 	if (lws_wsi_is_h2(wsi))
 		return lws_add_http2_header_by_name(wsi, name,
 						    value, length, p, end);
-#else
-	(void)wsi;
 #endif
+#ifdef LWS_ROLE_H3
+	if (wsi && lws_wsi_is_h3(wsi))
+		return lws_add_http3_header_by_name(wsi, name,
+						    value, length, p, end);
+#endif
+	if (!wsi) {
+		/* Used occasionally by tests that pass NULL wsi */
+	}
 	if (name) {
 		char has_colon = 0;
 		while (*p < end && *name) {
@@ -107,8 +121,27 @@ int lws_finalize_http_header(struct lws *wsi, unsigned char **p,
 #ifdef LWS_WITH_HTTP2
 	if (lws_wsi_is_h2(wsi))
 		return 0;
-#else
-	(void)wsi;
+#endif
+#ifdef LWS_ROLE_H3
+	if (wsi && lws_wsi_is_h3(wsi)) {
+		if (wsi->http.h3_prefix_ptr) {
+			uint32_t ric = wsi->http.h3_req_ric;
+			uint32_t base = wsi->http.h3_base;
+			
+			if (ric > base) {
+				/* Use the real encoder prefix routine instead of hardcoded prefix! */
+				/* We assume prefix fits in 2 bytes here because that's all we reserved! */
+				/* Max capacity in HTTP/3 default lws is usually 0 or small, but we will pass max_entries=1 for now. */
+				uint32_t max_entries = 1;
+				lws_qpack_encode_prefix(wsi->http.h3_prefix_ptr, 2, ric, base, max_entries);
+			} else {
+				wsi->http.h3_prefix_ptr[0] = 0x00;
+				wsi->http.h3_prefix_ptr[1] = 0x00;
+			}
+			wsi->http.h3_prefix_ptr = NULL;
+		}
+		return 0;
+	}
 #endif
 	if ((lws_intptr_t)(end - *p) < 3)
 		return 1;
@@ -146,6 +179,11 @@ lws_add_http_header_by_token(struct lws *wsi, enum lws_token_indexes token,
 #ifdef LWS_WITH_HTTP2
 	if (lws_wsi_is_h2(wsi))
 		return lws_add_http2_header_by_token(wsi, token, value,
+						     length, p, end);
+#endif
+#ifdef LWS_ROLE_H3
+	if (wsi && lws_wsi_is_h3(wsi))
+		return lws_add_http3_header_by_token(wsi, token, value,
 						     length, p, end);
 #endif
 	name = lws_token_to_string(token);
@@ -327,6 +365,13 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 #ifdef LWS_WITH_HTTP2
 	if (lws_wsi_is_h2(wsi)) {
 		n = lws_add_http2_header_status(wsi, code, p, end);
+		if (n)
+			return n;
+	} else
+#endif
+#ifdef LWS_ROLE_H3
+	if (lws_wsi_is_h3(wsi)) {
+		n = lws_add_http3_header_status(wsi, code, p, end);
 		if (n)
 			return n;
 	} else

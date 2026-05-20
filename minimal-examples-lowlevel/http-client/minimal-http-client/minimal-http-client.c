@@ -282,6 +282,12 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 	i.alpn = "h2,http/1.1";
 	if (lws_cmdline_option(a->argc, a->argv, "--h1"))
 		i.alpn = "http/1.1";
+	if (lws_cmdline_option(a->argc, a->argv, "--h3")) {
+		i.alpn = "h3";
+		i.method = "QUIC";
+		i.address = "google.com";
+		i.port = 443;
+	}
 
 	if (lws_cmdline_option(a->argc, a->argv, "--h2-prior-knowledge"))
 		i.ssl_connection |= LCCSCF_H2_PRIOR_KNOWLEDGE;
