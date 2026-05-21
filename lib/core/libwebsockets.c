@@ -585,6 +585,7 @@ lws_json_purify(char *escaped, const char *string, int len, int *in_used)
 			p++;
 			*q++ = '\\';
 			*q++ = 't';
+			len--;
 			continue;
 		}
 
@@ -592,6 +593,7 @@ lws_json_purify(char *escaped, const char *string, int len, int *in_used)
 			p++;
 			*q++ = '\\';
 			*q++ = 'n';
+			len--;
 			continue;
 		}
 
@@ -599,6 +601,7 @@ lws_json_purify(char *escaped, const char *string, int len, int *in_used)
 			p++;
 			*q++ = '\\';
 			*q++ = 'r';
+			len--;
 			continue;
 		}
 
@@ -606,6 +609,7 @@ lws_json_purify(char *escaped, const char *string, int len, int *in_used)
 			p++;
 			*q++ = '\\';
 			*q++ = '\\';
+			len--;
 			continue;
 		}
 
@@ -972,7 +976,6 @@ lws_tokenize(struct lws_tokenize *ts)
 	ts->dry = 0;
 
 	if (ts->reset_token) {
-		ts->effline = ts->line;
 		ts->state = LWS_TOKZS_LEADING_WHITESPACE;
 		ts->token_len = 0;
 		ts->reset_token = 0;
@@ -1057,6 +1060,7 @@ lws_tokenize(struct lws_tokenize *ts)
 			}
 
 			ts->state = LWS_TOKZS_QUOTED_STRING;
+			ts->effline = ts->line;
 			ts->token = ts->collect;
 			ts->token_len = 0;
 
@@ -1138,6 +1142,7 @@ lws_tokenize(struct lws_tokenize *ts)
 					ts->delim = LWSTZ_DT_NEED_NEXT_CONTENT;
 				}
 
+				ts->effline = ts->line;
 				ts->token = ts->start - 1;
 				ts->token_len = 1;
 				ts->reset_token = 1;
@@ -1182,6 +1187,7 @@ agg:
 				ts->delim = LWSTZ_DT_NEED_DELIM;
 			}
 
+			ts->effline = ts->line;
 			ts->state = LWS_TOKZS_TOKEN;
 			ts->reset_token = 1;
 
@@ -1576,17 +1582,60 @@ lws_mutex_refcount_assert_held(struct lws_mutex_refcount *mr)
 
 #if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_BAREMETAL)
 
+#if !defined(LWS_PLAT_ANDROID) && defined(LWS_WITH_NETWORK)
+static const struct lws_switches builtins[] = {
+	{ "-d", "Log level (eg, -d15)" },
+	{ "--fault-injection", "Inject fault at named point" },
+	{ "--fault-seed", "Random seed for fault injection" },
+	{ "--ignore-sigterm", "Ignore sigterm" },
+	{ "--ssproxy-port", "SSProxy port" },
+	{ "--ssproxy-iface", "SSProxy interface" },
+	{ "--ssproxy-ads", "SSProxy address" },
+	{ "--lws-stub", "LWS Stub" },
+	{ "--h1", "Force HTTP/1.1 (client)" },
+	{ "--h2", "Force HTTP/2 (client)" },
+	{ "--h3", "Force HTTP/3 (client)" },
+	{ "-h", "Print this help" },
+	{ "--help", "Print this help" },
+};
+
+enum opts {
+	OPT_DEBUGLEVEL,
+	OPT_FAULTINJECTION,
+	OPT_FAULT_SEED,
+	OPT_IGNORE_SIGTERM,
+	OPT_SSPROXY_PORT,
+	OPT_SSPROXY_IFACE,
+	OPT_SSPROXY_ADS,
+	OPT_LWS_STUB,
+	OPT_H1,
+	OPT_H2,
+	OPT_H3,
+	OPT_HELP1,
+	OPT_HELP2,
+};
+#endif
+
+
 void
 lws_switches_print_help(const char *prog, const struct lws_switches *switches,
 			 size_t count)
 {
 	size_t i;
 
+	lws_set_log_level(LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE, NULL);
+
 	lwsl_user("\nUsage: %s [options]\n", prog);
 	lwsl_user("\n");
 
 	for (i = 0; i < count; i++)
 		lwsl_user("  %-20s %s\n", switches[i].sw, switches[i].doc);
+
+#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_BAREMETAL) && !defined(LWS_PLAT_ANDROID) && defined(LWS_WITH_NETWORK)
+	lwsl_user("\n  (Also supports LWS built-in options)\n\n");
+	for (i = 0; i < LWS_ARRAY_SIZE(builtins); i++)
+		lwsl_user("  %-20s %s\n", builtins[i].sw, builtins[i].doc);
+#endif
 
 	lwsl_user("\n");
 }
@@ -1684,28 +1733,6 @@ lws_cmdline_option(int argc, const char **argv, const char *val)
 #endif
 
 #if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_BAREMETAL) && !defined(LWS_PLAT_ANDROID) && defined(LWS_WITH_NETWORK)
-static const char * const builtins[] = {
-	"-d",
-	"--fault-injection",
-	"--fault-seed",
-	"--ignore-sigterm",
-	"--ssproxy-port",
-	"--ssproxy-iface",
-	"--ssproxy-ads",
-	"--lws-stub",
-};
-
-enum opts {
-	OPT_DEBUGLEVEL,
-	OPT_FAULTINJECTION,
-	OPT_FAULT_SEED,
-	OPT_IGNORE_SIGTERM,
-	OPT_SSPROXY_PORT,
-	OPT_SSPROXY_IFACE,
-	OPT_SSPROXY_ADS,
-	OPT_LWS_STUB,
-};
-
 static void
 lws_sigterm_catch(int sig)
 {
@@ -1725,8 +1752,8 @@ _lws_context_info_defaults(struct lws_context_creation_info *info,
         info->pss_policies_json = sspol;
 #endif
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API)
-        if (!sspol)
-        	info->protocols = lws_sspc_protocols;
+        // We no longer override info->protocols here.
+        // Instead, the ssproxy protocol is appended in lws_create_vhost.
 #endif
        	info->options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
        		LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW |
@@ -1793,7 +1820,7 @@ lws_cmdline_option_handle_builtin(int argc, const char **argv,
 	info->argv = argv;
 
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(builtins); n++) {
-		p = lws_cmdline_option(argc, argv, builtins[n]);
+		p = lws_cmdline_option(argc, argv, builtins[n].sw);
 		if (!p)
 			continue;
 
@@ -1845,6 +1872,22 @@ lws_cmdline_option_handle_builtin(int argc, const char **argv,
 		case OPT_LWS_STUB:
 			info->lws_stub = p;
 			break;
+
+		case OPT_H1:
+			info->options |= LWS_SERVER_OPTION_CMDLINE_FORCE_H1;
+			break;
+		case OPT_H2:
+			info->options |= LWS_SERVER_OPTION_CMDLINE_FORCE_H2;
+			break;
+		case OPT_H3:
+			info->options |= LWS_SERVER_OPTION_CMDLINE_FORCE_H3;
+			break;
+
+		case OPT_HELP1:
+		case OPT_HELP2:
+			lws_set_log_level(logs, NULL);
+			lws_switches_print_help(argv[0], NULL, 0);
+			exit(0);
 		}
 	}
 

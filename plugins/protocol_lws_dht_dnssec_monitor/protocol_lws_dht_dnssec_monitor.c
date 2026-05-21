@@ -541,6 +541,7 @@ dnssec_monitor_fast_timer_cb(struct lws_sorted_usec_list *sul)
 
 #include <sys/stat.h>
 #include <dirent.h>
+#include <errno.h>
 
 struct monitor_req_args {
 	char req[32];
@@ -1355,6 +1356,21 @@ handle_req_create_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 			a->directory_url[0] ? a->directory_url : "https://acme-v02.api.letsencrypt.org/directory");
 
 		if (write(fd, buf, (size_t)n) == (ssize_t)n) {
+			if (a->port > 0) {
+				char port_path[1024];
+				char port_buf[32];
+				int pfd;
+
+				lws_snprintf(port_path, sizeof(port_path), "%s/domains/%s/conf.d/%s.port", vhd->base_dir, a->domain, a->subdomain);
+				pfd = open(port_path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+				if (pfd >= 0) {
+					int pn = lws_snprintf(port_buf, sizeof(port_buf), "%d\n", a->port);
+					if (write(pfd, port_buf, (size_t)pn) < 0) {
+						lwsl_err("%s: Failed to write port file\n", __func__);
+					}
+					close(pfd);
+				}
+			}
 			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
 		} else {
 			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Write failed\"}\n", a->req);
@@ -1374,6 +1390,8 @@ handle_req_delete_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 	char d_path[1024];
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/conf.d/%s.json", vhd->base_dir, a->domain, a->subdomain);
+	unlink(d_path);
+	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/conf.d/%s.port", vhd->base_dir, a->domain, a->subdomain);
 	unlink(d_path);
 	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);

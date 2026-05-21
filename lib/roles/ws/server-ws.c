@@ -316,7 +316,7 @@ lws_process_ws_upgrade2(struct lws *wsi)
 	 * Switch roles if we're upgrading away from http
 	 */
 
-	if (!wsi->h2_stream_carries_ws) {
+	if (!wsi->h23_stream_carries_ws) {
 		lws_role_transition(wsi, LWSIFR_SERVER, LRS_ESTABLISHED,
 				    &role_ops_ws);
 
@@ -393,7 +393,7 @@ lws_process_ws_upgrade2(struct lws *wsi)
 		/* fallthru */
 	case 13:
 #if defined(LWS_WITH_HTTP2)
-		if (wsi->h2_stream_carries_ws) {
+		if (wsi->h23_stream_carries_ws) {
 			if (lws_h2_ws_handshake(wsi)) {
 				lwsl_notice("h2 ws handshake failed\n");
 				return 1;
@@ -426,7 +426,7 @@ lws_process_ws_upgrade2(struct lws *wsi)
 		char *uptr = "unknown method", combo[128], dotstar[64];
 		int l = 14, meth = lws_http_get_uri_and_method(wsi, &uptr, &l);
 
-		if (wsi->h2_stream_carries_ws)
+		if (wsi->h23_stream_carries_ws)
 			wsi->http.request_version = HTTP_VERSION_2;
 
 		wsi->http.access_log.response = 101;

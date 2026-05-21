@@ -170,9 +170,13 @@ __lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 		new_wsi->a.protocol = lws_vhost_name_to_protocol(new_wsi->a.vhost,
 							       vh_prot_name);
 		if (!new_wsi->a.protocol) {
-			lwsl_vhost_err(new_wsi->a.vhost, "Protocol %s not enabled",
-						      vh_prot_name);
-			goto bail;
+			if (!strcmp(vh_prot_name, "quic")) {
+				new_wsi->a.protocol = &new_wsi->a.vhost->protocols[0];
+			} else {
+				lwsl_vhost_err(new_wsi->a.vhost, "Protocol %s not enabled",
+							      vh_prot_name);
+				goto bail;
+			}
 		}
 		if (lws_ensure_user_space(new_wsi)) {
 			lwsl_wsi_notice(new_wsi, "OOM");
@@ -703,13 +707,13 @@ bail:
 }
 
 #if defined(LWS_WITH_UDP)
-#if defined(LWS_WITH_CLIENT)
 
 /*
  * This is the ASYNC_DNS callback target for udp client, it's analogous to
  * connect3()
  */
 
+#if defined(LWS_WITH_CLIENT)
 static struct lws *
 lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		      const struct addrinfo *r, int n, void *opaque)
@@ -797,9 +801,24 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		if (sock.sockfd == LWS_SOCK_INVALID)
 			goto resume;
 
+		lws_plat_apply_FD_CLOEXEC((int)sock.sockfd);
+		lws_plat_set_nonblocking(sock.sockfd);
+
+#if defined(LWS_WITH_IPV6) && defined(IPV6_V6ONLY)
+		if (s->dest.sa4.sin_family == AF_INET6 &&
+		    (!(wsi->a.vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY) ||
+		     (wsi->a.vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE))) {
+			int opt = 1;
+			if (setsockopt(sock.sockfd, IPPROTO_IPV6, IPV6_V6ONLY,
+				       (const void *)&opt, sizeof(opt)) < 0) {
+				lwsl_vhost_notice(wsi->a.vhost, "set IPV6_V6ONLY fail");
+			}
+		}
+#endif
+
 		/* ipv6 udp!!! */
 
-		if (s->af == AF_INET)
+		if (s->dest.sa4.sin_family == AF_INET)
 			s->dest.sa4.sin_port = htons(wsi->c_port);
 #if defined(LWS_WITH_IPV6)
 		else
@@ -891,6 +910,134 @@ bail:
 
 	return NULL;
 }
+#else
+static struct lws *
+lws_create_adopt_udp2(struct lws *wsi, const char *ads,
+		      const struct addrinfo *r, int n, void *opaque)
+{
+	lws_sock_file_fd_type sock;
+	int bc = 1;
+	lws_sockaddr46 dest;
+
+	assert(wsi);
+
+	if (ads && (n < 0 || !r)) {
+		lwsl_notice("%s: bad: n %d, r %p\n", __func__, n, r);
+		goto bail;
+	}
+
+	memset(&dest, 0, sizeof(dest));
+
+	if (r) {
+		if (r->ai_family == AF_INET) {
+			dest.sa4.sin_family = AF_INET;
+			memcpy(&dest.sa4.sin_addr, &((struct sockaddr_in *)r->ai_addr)->sin_addr, sizeof(struct in_addr));
+		}
+#if defined(LWS_WITH_IPV6)
+		else if (r->ai_family == AF_INET6) {
+			dest.sa6.sin6_family = AF_INET6;
+			memcpy(&dest.sa6.sin6_addr, &((struct sockaddr_in6 *)r->ai_addr)->sin6_addr, sizeof(struct in6_addr));
+		}
+#endif
+	} else {
+#if defined(LWS_WITH_IPV6)
+		if (!lws_check_opt(wsi->a.context->options,
+				   LWS_SERVER_OPTION_DISABLE_IPV6)) {
+			dest.sa6.sin6_family = AF_INET6;
+		} else
+#endif
+		{
+			dest.sa4.sin_family = AF_INET;
+			dest.sa4.sin_addr.s_addr = INADDR_ANY;
+		}
+	}
+
+#if !defined(__linux__)
+	sock.sockfd = socket(dest.sa4.sin_family, SOCK_DGRAM, IPPROTO_UDP);
+#else
+	sock.sockfd = socket(wsi->pf_packet ? PF_PACKET : dest.sa4.sin_family,
+			     SOCK_DGRAM, wsi->pf_packet ? htons(0x800) : IPPROTO_UDP);
+#endif
+	if (sock.sockfd == LWS_SOCK_INVALID)
+		goto bail;
+
+	lws_plat_apply_FD_CLOEXEC((int)sock.sockfd);
+	lws_plat_set_nonblocking(sock.sockfd);
+
+#if defined(LWS_WITH_IPV6) && defined(IPV6_V6ONLY)
+	if (dest.sa4.sin_family == AF_INET6 &&
+	    (!(wsi->a.vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY) ||
+	     (wsi->a.vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE))) {
+		int opt = 1;
+		if (setsockopt(sock.sockfd, IPPROTO_IPV6, IPV6_V6ONLY,
+			       (const void *)&opt, sizeof(opt)) < 0) {
+			lwsl_vhost_notice(wsi->a.vhost, "set IPV6_V6ONLY fail");
+		}
+	}
+#endif
+
+	if (dest.sa4.sin_family == AF_INET)
+		dest.sa4.sin_port = htons(wsi->c_port);
+#if defined(LWS_WITH_IPV6)
+	else
+		dest.sa6.sin6_port = htons(wsi->c_port);
+#endif
+
+	if (setsockopt(sock.sockfd, SOL_SOCKET, SO_REUSEADDR,
+		       (const char *)&bc, sizeof(bc)) < 0)
+		lwsl_err("%s: failed to set reuse\n", __func__);
+
+	if (wsi->do_broadcast &&
+	    setsockopt(sock.sockfd, SOL_SOCKET, SO_BROADCAST,
+		       (const char *)&bc, sizeof(bc)) < 0)
+		lwsl_err("%s: failed to set broadcast\n", __func__);
+
+	if (opaque && lws_plat_BINDTODEVICE(sock.sockfd, (const char *)opaque))
+		goto resume;
+
+	if (wsi->do_bind &&
+	    bind(sock.sockfd, sa46_sockaddr(&dest),
+#if defined(_WIN32)
+		 (int)
+#endif
+		 sa46_socklen(&dest)) == -1) {
+		lwsl_err("%s: bind failed\n", __func__);
+		goto resume;
+	}
+
+	if (!wsi->do_bind && !wsi->pf_packet) {
+#if !defined(__APPLE__)
+		if (connect(sock.sockfd, sa46_sockaddr(&dest),
+			    sa46_socklen(&dest)) == -1 &&
+		    errno != EADDRNOTAVAIL) {
+			lwsl_err("%s: conn failed\n", __func__);
+			goto resume;
+		}
+#endif
+	}
+
+	if (wsi->udp)
+		wsi->udp->sa46 = dest;
+	wsi->sa46_peer = dest;
+
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+	{
+		lws_async_dns_server_t *asds =
+				__lws_async_dns_server_find_wsi(
+					&wsi->a.context->async_dns, wsi);
+		if (asds)
+			asds->dns_server_connected = 1;
+	}
+#endif
+
+	return lws_adopt_descriptor_vhost2(wsi, LWS_ADOPT_RAW_SOCKET_UDP, sock);
+
+resume:
+	compatible_close(sock.sockfd);
+bail:
+	return NULL;
+}
+#endif
 
 struct lws *
 lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
@@ -1021,7 +1168,6 @@ bail:
 	return NULL;
 #endif
 }
-#endif
 #endif
 
 struct lws *

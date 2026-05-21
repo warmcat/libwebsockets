@@ -63,7 +63,8 @@ int main(int argc, const char **argv)
 	char buf[256];
 	uint8_t entropy[16];
 
-	memset(&info, 0, sizeof(info));
+	lws_context_info_defaults(&info, NULL);
+	lws_cmdline_option_handle_builtin(argc, argv, &info);
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.port = CONTEXT_PORT_NO_LISTEN;
 

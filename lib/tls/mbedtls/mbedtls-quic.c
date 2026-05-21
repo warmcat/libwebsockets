@@ -27,6 +27,8 @@
 
 #if defined(LWS_ROLE_QUIC) && defined(LWS_WITH_TLS) && defined(LWS_WITH_MBEDTLS)
 
+#if defined(LWS_HAVE_mbedtls_ssl_set_export_keys_cb)
+
 static void
 mbedtls_quic_export_keys_cb(void *p_expkey,
 			    mbedtls_ssl_key_export_type type,
@@ -293,5 +295,65 @@ fail:
 
 	return 0;
 }
+
+int
+lws_tls_quic_migrate_wsi(struct lws *old_wsi, struct lws *new_wsi)
+{
+	mbedtls_ssl_context *msc;
+
+	if (!new_wsi || !new_wsi->tls.ssl)
+		return -1;
+
+	msc = SSL_mbedtls_ssl_context_from_SSL(new_wsi->tls.ssl);
+	if (!msc)
+		return -1;
+
+	mbedtls_ssl_set_export_keys_cb(msc, mbedtls_quic_export_keys_cb, new_wsi);
+
+	return 0;
+}
+
+#else
+
+int
+lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
+{
+	lwsl_err("%s: MbedTLS version too old for QUIC support\n", __func__);
+	return -1;
+}
+
+int
+lws_tls_quic_advance_handshake(struct lws *wsi, int level,
+			       const uint8_t *in, size_t in_len,
+			       uint8_t *out, size_t *out_len)
+{
+	return -1;
+}
+
+int
+lws_tls_quic_set_transport_parameters(struct lws *wsi, const uint8_t *tp, size_t tp_len)
+{
+	return -1;
+}
+
+int
+lws_tls_quic_get_transport_parameters(struct lws *wsi, const uint8_t **tp, size_t *tp_len)
+{
+	return -1;
+}
+
+int
+lws_tls_quic_api_test(void)
+{
+	return 0;
+}
+
+int
+lws_tls_quic_migrate_wsi(struct lws *old_wsi, struct lws *new_wsi)
+{
+	return -1;
+}
+
+#endif /* LWS_HAVE_mbedtls_ssl_set_export_keys_cb */
 
 #endif

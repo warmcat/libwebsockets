@@ -68,6 +68,10 @@ enum lws_write_protocol {
 	LWS_WRITE_HTTP_HEADERS_CONTINUATION			= 9,
 	/**< Continuation of http/2 headers
 	 */
+	LWS_WRITE_QUIC_DATAGRAM					= 10,
+	/**< Send a QUIC datagram (RFC 9221). The payload is sent as a single QUIC
+	 * DATAGRAM frame.
+	 */
 
 	/****** add new things just above ---^ ******/
 

@@ -292,7 +292,21 @@ lws_tls_server_conn_alpn(struct lws *wsi)
 	lwsl_info("%s: negotiated '%s' using ALPN\n", __func__, cstr);
 	wsi->tls.use_ssl |= LCCSCF_USE_SSL;
 
+#if defined(LWS_WITH_CLIENT)
+	/* record the successful ALPN in the cache */
+	if (wsi->cli_hostname_copy && wsi->a.context->alpn_cache && wsi->c_port) {
+		char key[256];
+		void *p;
+		lws_snprintf(key, sizeof(key), "alpn_%s_%u", wsi->cli_hostname_copy, wsi->c_port);
+		/* cache it with a TTL, e.g. 1 hour (3600 seconds) */
+		lws_cache_write_through(wsi->a.context->alpn_cache, key, (const uint8_t *)cstr, len + 1,
+					lws_now_usecs() + (lws_usec_t)(3600ULL * 1000000ULL), &p);
+		lwsl_wsi_notice(wsi, "wrote ALPN %s to cache for %s", cstr, key);
+	}
+#endif
+
 	return lws_role_call_alpn_negotiated(wsi, (const char *)cstr);
+
 #else
 	lwsl_err("%s: openssl/gnutls too old\n", __func__);
 #endif

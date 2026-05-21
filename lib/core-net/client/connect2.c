@@ -135,6 +135,35 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 static const char * const dns_nxdomain = "DNS NXDOMAIN";
 #endif
 
+#if defined(LWS_WITH_TLS)
+#if 0
+static struct lws *
+lws_client_connect_dns_https_cb(struct lws *wsi, const char *ads,
+			     const struct addrinfo *result, int n, void *opaque)
+{
+	if (!wsi || !wsi->a.context->alpn_cache || !wsi->c_port || !ads)
+		return wsi;
+
+	if (n == LADNS_RET_FOUND) {
+		char key[256];
+		void *p;
+		const char *c_alpn = "h3";
+
+		/* We check if h3 is supported by the HTTPS record */
+		if (lws_async_dns_get_alpn(wsi->a.context, ads, c_alpn)) {
+			lws_snprintf(key, sizeof(key), "alpn_%s_%u", ads, wsi->c_port);
+			lws_cache_write_through(wsi->a.context->alpn_cache, key,
+						(const uint8_t *)c_alpn, strlen(c_alpn) + 1,
+						lws_now_usecs() + (lws_usec_t)(3600ULL * 1000000ULL), &p);
+			lwsl_wsi_notice(wsi, "HTTPS DNS record cached ALPN h3 for %s", key);
+		}
+	}
+
+	return wsi;
+}
+#endif
+#endif
+
 struct lws *
 lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(struct lws *wsi)
 {
@@ -212,7 +241,7 @@ lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(struct lws *wsi)
 		break;
 	case ACTIVE_CONNS_MUXED:
 		lwsl_wsi_info(wsi, "ACTIVE_CONNS_MUXED");
-		if (lwsi_role_h2(wsi)) {
+		if (lwsi_role_h2(wsi) || lwsi_role_h3(wsi)) {
 
 			if (wsi->a.protocol->callback(wsi,
 					LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP,
@@ -230,12 +259,15 @@ lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(struct lws *wsi)
 							lwsi_state(wsi));
 
 		if (lwsi_state(wsi) == LRS_UNCONNECTED) {
-			if (lwsi_role_h2(w))
+			if (lwsi_role_h2(w) || lwsi_role_h3(w))
 				lwsi_set_state(wsi,
 					       LRS_H2_WAITING_TO_SEND_HEADERS);
 			else
 				lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE2);
 		}
+
+		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
+				(int)wsi->a.context->timeout_secs);
 
 		return lws_client_connect_4_established(wsi, w, 0);
 	}
@@ -270,6 +302,66 @@ solo:
 	 */
 	if (!adsin)
 		return NULL;
+
+#if defined(LWS_WITH_TLS)
+	if (wsi->a.context->alpn_cache && wsi->tls.use_ssl && wsi->c_port) {
+		char key[256];
+		const char *cached_alpn;
+		size_t clen;
+
+		lws_snprintf(key, sizeof(key), "alpn_%s_%u", adsin, wsi->c_port);
+		if (!lws_cache_item_get(wsi->a.context->alpn_cache, key, (const void **)&cached_alpn, &clen)) {
+			lws_strncpy(wsi->alpn_discovered, cached_alpn, sizeof(wsi->alpn_discovered));
+			lwsl_wsi_notice(wsi, "ALPN cache hit for %s: %s", key, wsi->alpn_discovered);
+		} else {
+			wsi->alpn_discovered[0] = '\0';
+		}
+	}
+#endif
+
+#if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
+	if (wsi->tls.use_ssl && !wsi->tried_quic) {
+		const char *requested_alpn = NULL;
+		int try_quic = 0;
+
+		if (wsi->stash)
+			requested_alpn = wsi->stash->cis[CIS_ALPN];
+		else
+			requested_alpn = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ALPN);
+
+		if (wsi->alpn_discovered[0]) {
+			/* Cache hit */
+			if (strstr(wsi->alpn_discovered, "h3"))
+				try_quic = 1;
+		} else if (requested_alpn && strstr(requested_alpn, "h3")) {
+			/* Cache miss, but h3 is allowed */
+			try_quic = 1;
+		}
+
+		if (try_quic) {
+			const struct lws_role_ops *r = lws_role_by_name("quic");
+			if (r) {
+				lwsl_wsi_notice(wsi, "Attempting QUIC connection first");
+				if (!wsi->udp) {
+					wsi->udp = lws_malloc(sizeof(*wsi->udp), "udp struct");
+					if (wsi->udp)
+						memset(wsi->udp, 0, sizeof(*wsi->udp));
+				}
+				if (wsi->udp) {
+					struct lws_client_connect_info i;
+					wsi->tried_quic = 1;
+					memset(&i, 0, sizeof(i));
+					i.method = "QUIC";
+					i.alpn = "h3";
+					lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED, r);
+					if (lws_role_call_client_bind(wsi, &i)) {
+						/* failed */
+					}
+				}
+			}
+		}
+	}
+#endif
 
 #if defined(LWS_WITH_UNIX_SOCK)
 	/*
@@ -367,10 +459,16 @@ solo:
 
 	if (lws_fi(&wsi->fic, "dnsfail"))
 		return lws_client_connect_3_connect(wsi, NULL, NULL, -4, NULL);
-	else
+	else {
+
+
+#if defined(LWS_WITH_TLS)
+		/* we will skip HTTPS DNS query on this wsi to prevent double binding */
+#endif
 		n = lws_async_dns_query(wsi->a.context, wsi->tsi, adsin,
 				LWS_ADNS_RECORD_A, lws_client_connect_3_connect,
 				wsi, NULL, NULL);
+	}
 
 	if (n == LADNS_RET_FAILED_WSI_CLOSED)
 		return NULL;

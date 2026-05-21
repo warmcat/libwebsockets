@@ -50,8 +50,7 @@ EVP_PKEY * EVP_PKEY_CTX_get0_pkey(EVP_PKEY_CTX *p)
 }
 #endif
 
-#if !defined(LWS_HAVE_ECDSA_SIG_set0)
-static void
+#if !defined(LWS_HAVE_ECDSA_SIG_set0) && !defined(OPENSSL_IS_BORINGSSL) && !defined(OPENSSL_IS_AWSLC)
 ECDSA_SIG_get0(const ECDSA_SIG *sig, const BIGNUM **pr, const BIGNUM **ps)
 {
     if (pr != NULL)
@@ -73,25 +72,25 @@ ECDSA_SIG_set0(ECDSA_SIG *sig, BIGNUM *r, BIGNUM *s)
 	return 1;
 }
 #endif
-#if !defined(LWS_HAVE_BN_bn2binpad)
+#if !defined(LWS_HAVE_BN_bn2binpad) && !defined(OPENSSL_IS_BORINGSSL) && !defined(OPENSSL_IS_AWSLC)
 int BN_bn2binpad(const BIGNUM *a, unsigned char *to, int tolen)
 {
     int i;
-#if !defined(USE_WOLFSSL)
+#if !defined(USE_WOLFSSL) && !defined(OPENSSL_IS_BORINGSSL) && !defined(OPENSSL_IS_AWSLC)
     BN_ULONG l;
 #endif
 
-#if !defined(LIBRESSL_VERSION_NUMBER) && !defined(USE_WOLFSSL)
+#if !defined(LIBRESSL_VERSION_NUMBER) && !defined(USE_WOLFSSL) && !defined(OPENSSL_IS_BORINGSSL) && !defined(OPENSSL_IS_AWSLC)
     bn_check_top(a);
 #endif
-    i = BN_num_bytes(a);
+    i = (int)BN_num_bytes(a);
 
     /* Add leading zeroes if necessary */
     if (tolen > i) {
         memset(to, 0, (size_t)(tolen - i));
         to += tolen - i;
     }
-#if defined(USE_WOLFSSL)
+#if defined(USE_WOLFSSL) || defined(OPENSSL_IS_BORINGSSL) || defined(OPENSSL_IS_AWSLC)
     BN_bn2bin(a, to);
 #else
     while (i--) {

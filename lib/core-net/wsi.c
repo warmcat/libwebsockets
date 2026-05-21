@@ -580,15 +580,48 @@ lws_tls_conn *lws_get_ssl(struct lws *wsi) { return wsi->tls.ssl; }
 #endif
 
 int lws_has_buffered_out(struct lws *wsi) {
-	if (wsi->buflist_out)
+	if (wsi->buflist_out) {
+		lwsl_notice("lws_has_buffered_out: %s has buflist_out\n", lws_wsi_tag(wsi));
 		return 1;
+	}
 
 #if defined(LWS_ROLE_H2)
 	{
 		struct lws *nwsi = lws_get_network_wsi(wsi);
 
-		if (nwsi->buflist_out)
+		if (nwsi && nwsi->buflist_out) {
+			lwsl_notice("lws_has_buffered_out: network wsi %s has buflist_out\n", lws_wsi_tag(nwsi));
 			return 1;
+		}
+	}
+#endif
+
+#if defined(LWS_ROLE_QUIC)
+	if (wsi->quic.qs) {
+		struct lws *nwsi = lws_get_network_wsi(wsi);
+		struct lws_quic_netconn *qn = nwsi ? nwsi->quic.qn : NULL;
+		if (qn) {
+			uint64_t sid = wsi->quic.qs->stream_id;
+			int i;
+
+			for (i = 0; i < LWS_QUIC_LEVEL_COUNT; i++) {
+				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->pending_tx[i].head) {
+					struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
+					if ((f->type & 0xf8) == LWS_QUIC_FT_STREAM && f->stream_id == sid) {
+						lwsl_notice("lws_has_buffered_out: %s has pending_tx stream frame on sid %llu\n", lws_wsi_tag(wsi), (unsigned long long)sid);
+						return 1;
+					}
+				} lws_end_foreach_dll_safe(d, d1);
+
+				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->in_flight[i].head) {
+					struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
+					if ((f->type & 0xf8) == LWS_QUIC_FT_STREAM && f->stream_id == sid) {
+						lwsl_notice("lws_has_buffered_out: %s has in_flight stream frame on sid %llu\n", lws_wsi_tag(wsi), (unsigned long long)sid);
+						return 1;
+					}
+				} lws_end_foreach_dll_safe(d, d1);
+			}
+		}
 	}
 #endif
 
@@ -1357,7 +1390,7 @@ int lws_wsi_keepalive_timeout_eff(struct lws *wsi) {
 	return ds;
 }
 
-#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT)
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT) || defined(LWS_ROLE_QUIC)
 
 void lws_wsi_mux_insert(struct lws *wsi, struct lws *parent_wsi,
 		unsigned int sid) {
@@ -1369,7 +1402,8 @@ void lws_wsi_mux_insert(struct lws *wsi, struct lws *parent_wsi,
 
 	wsi->mux.my_sid = sid;
 	wsi->mux.parent_wsi = parent_wsi;
-	wsi->role_ops = parent_wsi->role_ops;
+	if (!wsi->role_ops)
+		wsi->role_ops = parent_wsi->role_ops;
 
 	/* new guy's sibling is whoever was the first child before */
 	wsi->mux.sibling_list = parent_wsi->mux.child_list;
@@ -1532,7 +1566,7 @@ int lws_wsi_mux_action_pending_writeable_reqs(struct lws *wsi) {
 }
 
 int lws_wsi_txc_check_skint(struct lws_tx_credit *txc, int32_t tx_cr) {
-	if (txc->tx_cr <= 0) {
+	if (tx_cr <= 0) {
 		/*
 		 * If other side is not able to cope with us sending any DATA
 		 * so no matter if we have POLLOUT on our side if it's DATA we
@@ -1540,7 +1574,7 @@ int lws_wsi_txc_check_skint(struct lws_tx_credit *txc, int32_t tx_cr) {
 		 */
 
 		if (!txc->skint)
-			lwsl_info("%s: %p: skint (%d)\n", __func__, txc, (int)txc->tx_cr);
+			lwsl_info("%s: %p: skint (%d)\n", __func__, txc, (int)tx_cr);
 
 		txc->skint = 1;
 
@@ -1548,7 +1582,7 @@ int lws_wsi_txc_check_skint(struct lws_tx_credit *txc, int32_t tx_cr) {
 	}
 
 	if (txc->skint)
-		lwsl_info("%s: %p: unskint (%d)\n", __func__, txc, (int)txc->tx_cr);
+		lwsl_info("%s: %p: unskint (%d)\n", __func__, txc, (int)tx_cr);
 
 	txc->skint = 0;
 
@@ -1600,9 +1634,9 @@ int lws_wsi_mux_apply_queue(struct lws *wsi) {
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 			wsi->dll2_cli_txn_queue_owner.head) {
+#if defined(LWS_ROLE_H2)
 		struct lws *w = lws_container_of(d, struct lws, dll2_cli_txn_queue);
 
-#if defined(LWS_ROLE_H2)
 		if (lwsi_role_http(wsi) &&
 				lwsi_state(w) == LRS_H2_WAITING_TO_SEND_HEADERS) {
 			lwsl_wsi_info(w, "cli pipeq to be h2");

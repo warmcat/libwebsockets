@@ -28,7 +28,7 @@ function renderClientsTable(clients) {
             <tr>
                 <td><b>${c.client_id}</b></td>
                 <td>${c.name}</td>
-                <td style="word-break: break-all; font-size: 0.9em;"><code>${c.redirect_uris}</code></td>
+                <td class="redirect-uri-cell"><code>${c.redirect_uris}</code></td>
                 <td>
                     <button class="editClientBtn" data-cid="${c.client_id}" data-name="${c.name}" data-redirects="${c.redirect_uris}">Edit</button>
                     <button class="danger deleteClientBtn" data-cid="${c.client_id}">Delete</button>
@@ -73,7 +73,7 @@ function renderTable(users) {
 
         const isGod = u.grants && u.grants['*'] !== undefined;
         const actionsHtml = isGod ?
-            `<span style="color:var(--text-muted);font-style:italic;">Protected Administrator</span>` :
+            `<span class="protected-admin-label">Protected Administrator</span>` :
             `<button class="editBtn" data-uid="${u.uid}" data-grants='${JSON.stringify(u.grants)}'>Edit</button>
              <button class="danger deleteBtn" data-uid="${u.uid}" data-user="${u.user}">Delete</button>`;
 

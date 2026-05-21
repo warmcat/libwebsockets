@@ -36,6 +36,7 @@ typedef enum dns_query_type {
 	LWS_ADNS_RECORD_NSEC					= 0x2f,
 	LWS_ADNS_RECORD_DNSKEY					= 0x30,
 	LWS_ADNS_RECORD_NSEC3					= 0x32,
+	LWS_ADNS_RECORD_HTTPS					= 0x41,
 } adns_query_type_t;
 
 typedef enum {
@@ -127,6 +128,19 @@ lws_async_dns_freeaddrinfo(const struct addrinfo **ai);
 LWS_VISIBLE LWS_EXTERN const uint8_t *
 lws_async_dns_get_rr_cache(struct lws_context *context, const char *name,
 			   adns_query_type_t qtype, uint16_t *paylen);
+
+/**
+ * lws_async_dns_get_alpn() - check if an ALPN protocol is in the cached HTTPS record
+ *
+ * \param context: the lws_context
+ * \param name: the DNS name
+ * \param alpn: the ALPN protocol string to check (e.g. "h3")
+ *
+ * Returns 1 if the ALPN protocol is found in the cached HTTPS record for the name,
+ * or 0 otherwise.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_async_dns_get_alpn(struct lws_context *context, const char *name, const char *alpn);
 
 /**
  * lws_async_dns_server_add() - add a DNS server to the lws async DNS list

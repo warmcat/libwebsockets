@@ -183,7 +183,7 @@ int
 lws_genhmac_init(struct lws_genhmac_ctx *ctx, enum lws_genhmac_types type,
 		 const uint8_t *key, size_t key_len)
 {
-#if defined(LWS_HAVE_HMAC_CTX_new)
+#if defined(LWS_HAVE_HMAC_CTX_new) || defined(OPENSSL_IS_BORINGSSL) || defined(OPENSSL_IS_AWSLC)
 	ctx->ctx = HMAC_CTX_new();
 	if (!ctx->ctx)
 		return -1;
@@ -212,7 +212,7 @@ lws_genhmac_init(struct lws_genhmac_ctx *ctx, enum lws_genhmac_types type,
 		goto bail;
 	}
 
-#if defined(LWS_HAVE_HMAC_CTX_new)
+#if defined(LWS_HAVE_HMAC_CTX_new) || defined(OPENSSL_IS_BORINGSSL) || defined(OPENSSL_IS_AWSLC)
         if (HMAC_Init_ex(ctx->ctx, key, 
 				SSL_SIZE_T_CAST(key_len), ctx->evp_type, NULL) != 1)
 #else
@@ -223,7 +223,7 @@ lws_genhmac_init(struct lws_genhmac_ctx *ctx, enum lws_genhmac_types type,
 	return 0;
 
 bail:
-#if defined(LWS_HAVE_HMAC_CTX_new)
+#if defined(LWS_HAVE_HMAC_CTX_new) || defined(OPENSSL_IS_BORINGSSL) || defined(OPENSSL_IS_AWSLC)
 	HMAC_CTX_free(ctx->ctx);
 #endif
 
@@ -233,7 +233,7 @@ bail:
 int
 lws_genhmac_update(struct lws_genhmac_ctx *ctx, const void *in, size_t len)
 {
-#if defined(LWS_HAVE_HMAC_CTX_new)
+#if defined(LWS_HAVE_HMAC_CTX_new) || defined(OPENSSL_IS_BORINGSSL) || defined(OPENSSL_IS_AWSLC)
 #if defined(LIBRESSL_VERSION_NUMBER)
 	if (HMAC_Update(ctx->ctx, in, len) != 1)
 #else
@@ -251,7 +251,7 @@ int
 lws_genhmac_destroy(struct lws_genhmac_ctx *ctx, void *result)
 {
 	unsigned int size = (unsigned int)lws_genhmac_size(ctx->type);
-#if defined(LWS_HAVE_HMAC_CTX_new)
+#if defined(LWS_HAVE_HMAC_CTX_new) || defined(OPENSSL_IS_BORINGSSL) || defined(OPENSSL_IS_AWSLC)
 	int n = HMAC_Final(ctx->ctx, result, &size);
 
 	HMAC_CTX_free(ctx->ctx);

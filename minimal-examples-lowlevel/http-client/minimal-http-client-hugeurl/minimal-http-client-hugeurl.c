@@ -15,13 +15,11 @@
 #include <libwebsockets.h>
 
 enum {
-	LWS_SW_H1,
 	LWS_SW_L,
 	LWS_SW_HELP,
 };
 
 static const struct lws_switches switches[] = {
-	[LWS_SW_H1]	= { "--h1",            "Enable --h1 feature" },
 	[LWS_SW_L]	= { "-l",              "Enable -l feature" },
 	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
 };
@@ -172,10 +170,9 @@ int main(int argc, const char **argv)
 
 	signal(SIGINT, sigint_handler);
 
-	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
-	lws_cmdline_option_handle_builtin(argc, argv, &info);
+	lws_context_info_defaults(&info, NULL);lws_cmdline_option_handle_builtin(argc, argv, &info);
 
-	lwsl_user("LWS minimal http client hugeurl [-d <verbosity>] [-l] [--h1]\n");
+	lwsl_user("LWS minimal http client hugeurl [-d <verbosity>] [-l]\n");
 
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.port = CONTEXT_PORT_NO_LISTEN; /* we do not run any server */
@@ -218,9 +215,6 @@ int main(int argc, const char **argv)
 		i.port = 443;
 		i.address = "warmcat.com";
 	}
-
-	if (lws_cmdline_option(argc, argv, switches[LWS_SW_H1].sw))
-		i.alpn = "http/1.1";
 
 	i.path = uri;
 	i.host = i.address;

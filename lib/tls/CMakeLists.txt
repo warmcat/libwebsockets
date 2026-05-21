@@ -105,6 +105,10 @@ endif()
 if (LWS_WITH_GNUTLS)
 	add_subdirectory(gnutls)
 	include_directories(${_CMAKE_INC_LIST})
+	if (GNUTLS_INCLUDE_DIRS)
+		set(LWS_PUBLIC_INCLUDES ${LWS_PUBLIC_INCLUDES} "${GNUTLS_INCLUDE_DIRS}")
+		set(LWS_PUBLIC_INCLUDES ${LWS_PUBLIC_INCLUDES} PARENT_SCOPE)
+	endif()
 endif()
 
 if (LWS_WITH_BEARSSL)
@@ -140,11 +144,31 @@ if (LWS_WITH_SSL)
 	endif()
 	
 	if (LWS_WITH_MBEDTLS)
+		set(CMAKE_REQUIRED_INCLUDES_TEMP ${CMAKE_REQUIRED_INCLUDES})
+		set(CMAKE_REQUIRED_INCLUDES ${CMAKE_REQUIRED_INCLUDES} ${MBEDTLS_INCLUDE_DIRS})
+		CHECK_C_SOURCE_COMPILES("#include <mbedtls/ssl.h>\nint main(void) { void *v = (void *)mbedtls_ssl_set_export_keys_cb; return !!v; }\n" LWS_HAVE_mbedtls_ssl_set_export_keys_cb)
+		CHECK_C_SOURCE_COMPILES("#include <mbedtls/ssl.h>\nint main(void) { void *v = (void *)mbedtls_ssl_conf_export_keys_cb; return !!v; }\n" LWS_HAVE_mbedtls_ssl_conf_export_keys_cb)
+		set(CMAKE_REQUIRED_INCLUDES ${CMAKE_REQUIRED_INCLUDES_TEMP})
+
+		if (LWS_ROLE_QUIC AND NOT LWS_HAVE_mbedtls_ssl_set_export_keys_cb)
+			message(WARNING "MbedTLS version too old for QUIC; disabling QUIC and HTTP3")
+			set(LWS_ROLE_QUIC 0)
+			set(LWS_WITH_HTTP3 0)
+			set(LWS_ROLE_H3 0)
+			set(LWS_ROLE_WT 0)
+			set(LWS_ROLE_QUIC 0 PARENT_SCOPE)
+			set(LWS_WITH_HTTP3 0 PARENT_SCOPE)
+			set(LWS_ROLE_H3 0 PARENT_SCOPE)
+			set(LWS_ROLE_WT 0 PARENT_SCOPE)
+		endif()
+
 		list(APPEND SOURCES
 			tls/mbedtls/mbedtls-tls.c
-			tls/mbedtls/mbedtls-quic.c
 			tls/mbedtls/mbedtls-extensions.c
 			tls/mbedtls/mbedtls-x509.c)
+		if (LWS_ROLE_QUIC AND LWS_WITH_NETWORK)
+			list(APPEND SOURCES tls/mbedtls/mbedtls-quic.c)
+		endif()
 		if (LWS_WITH_NETWORK)
 			list(APPEND SOURCES
 				tls/mbedtls/mbedtls-ssl.c)
@@ -175,8 +199,10 @@ if (LWS_WITH_SSL)
 			tls/schannel/schannel-tls.c
 			tls/schannel/schannel-ssl.c
 			tls/schannel/schannel-session.c
-			tls/schannel/schannel-quic.c
 			tls/schannel/schannel-x509.c)
+		if (LWS_ROLE_QUIC AND LWS_WITH_NETWORK)
+			list(APPEND SOURCES tls/schannel/schannel-quic.c)
+		endif()
 		list(APPEND LIB_LIST "ncrypt" "bcrypt" "crypt32" "secur32")
 		if (LWS_WITH_GENCRYPTO)
 			list(APPEND SOURCES
@@ -193,9 +219,14 @@ if (LWS_WITH_SSL)
 	elseif (LWS_WITH_GNUTLS)
 		list(APPEND SOURCES
 			tls/gnutls/gnutls-tls.c
-			tls/gnutls/gnutls-quic.c
-			tls/gnutls/gnutls-ssl.c
 			tls/gnutls/gnutls-x509.c)
+		if (LWS_ROLE_QUIC AND LWS_WITH_NETWORK)
+			list(APPEND SOURCES tls/gnutls/gnutls-quic.c)
+		endif()
+		if (LWS_WITH_NETWORK)
+			list(APPEND SOURCES
+				tls/gnutls/gnutls-ssl.c)
+		endif()
 		if (LWS_WITH_TLS_SESSIONS)
 			list(APPEND SOURCES
 				tls/gnutls/gnutls-session.c)
@@ -232,8 +263,10 @@ if (LWS_WITH_SSL)
 	else()
 		list(APPEND SOURCES
 			tls/openssl/openssl-tls.c
-			tls/openssl/openssl-quic.c
 			tls/openssl/openssl-x509.c)
+		if (LWS_ROLE_QUIC AND LWS_WITH_NETWORK)
+			list(APPEND SOURCES tls/openssl/openssl-quic.c)
+		endif()
 		if (LWS_WITH_NETWORK)
 			list(APPEND SOURCES
 				tls/openssl/openssl-ssl.c)
@@ -406,8 +439,11 @@ if (LWS_WITH_SSL)
 			unset(LWS_HAVE_OPENSSL_ECDH_H PARENT_SCOPE)
 		endif()
 
-		if (LWS_WITH_BORINGSSL)
-			list(APPEND LIB_LIST "stdc++" "pthread")
+		if (LWS_WITH_BORINGSSL OR LWS_WITH_AWSLC)
+			if (LWS_WITH_BORINGSSL)
+				list(APPEND LIB_LIST "stdc++")
+			endif()
+			list(APPEND LIB_LIST "pthread")
 		endif()
 	endif()
 
@@ -486,7 +522,7 @@ CHECK_C_SOURCE_COMPILES("#include <openssl/ssl.h>\nint main(void) { OPENSSL_STAC
 CHECK_C_SOURCE_COMPILES("#include <openssl/ssl.h>\nint main(void) { SSL_CTX *ctx = NULL; return SSL_CTX_set_ecdh_auto(ctx, 1); }\n" LWS_HAVE_SSL_CTX_SET_ECDH_AUTO)
 CHECK_C_SOURCE_COMPILES("#include <openssl/ssl.h>\nint main(void) { SSL *ssl = NULL; return (int)SSL_set_tlsext_host_name(ssl, \"hello\"); }\n" LWS_HAVE_SSL_set_tlsext_host_name)
 
-set(LWS_HAVE_SSL_set_tlsext_host_name ${LWS_HAVE_SSL_set_tlsext_host_name} PARENT_SCOPE)
+set(LWS_HAVE_SSL_set_tlsext_host_name 1 CACHE BOOL "" FORCE)
 set(LWS_HAVE_SSL_EXTRA_CHAIN_CERTS ${LWS_HAVE_SSL_EXTRA_CHAIN_CERTS} PARENT_SCOPE)
 set(LWS_HAVE_EVP_MD_CTX_free ${LWS_HAVE_EVP_MD_CTX_free} PARENT_SCOPE)
 set(LWS_HAVE_SSL_CTX_SET_ECDH_AUTO ${LWS_HAVE_SSL_CTX_SET_ECDH_AUTO} PARENT_SCOPE)
@@ -496,6 +532,12 @@ CHECK_FUNCTION_EXISTS(${VARIA}EVP_aes_128_wrap LWS_HAVE_EVP_aes_128_wrap PARENT_
 CHECK_FUNCTION_EXISTS(${VARIA}EC_POINT_get_affine_coordinates LWS_HAVE_EC_POINT_get_affine_coordinates PARENT_SCOPE)
 CHECK_FUNCTION_EXISTS(${VARIA}SSL_CTX_load_verify_file LWS_HAVE_SSL_CTX_load_verify_file PARENT_SCOPE)
 CHECK_FUNCTION_EXISTS(${VARIA}SSL_CTX_load_verify_dir LWS_HAVE_SSL_CTX_load_verify_dir PARENT_SCOPE)
+
+CHECK_C_SOURCE_COMPILES("#include <openssl/ssl.h>\nint main(void) { SSL_set_quic_method(NULL, NULL); return 0; }\n" LWS_HAVE_SSL_SET_QUIC_METHOD)
+if (LWS_ROLE_QUIC AND NOT LWS_HAVE_SSL_SET_QUIC_METHOD AND NOT LWS_WITH_BORINGSSL AND NOT LWS_WITH_AWSLC AND NOT LWS_WITH_GNUTLS AND NOT LWS_WITH_WOLFSSL)
+	message(FATAL_ERROR "LWS_ROLE_QUIC (HTTP/3) requires BoringSSL, GnuTLS, WolfSSL, or the quictls fork of OpenSSL. Standard upstream OpenSSL is not supported because it lacks SSL_set_quic_method.")
+endif()
+
 endif()
 
 endif() # schannel
@@ -700,6 +742,8 @@ set(LWS_HAVE_MBEDTLS_SSL_NEW_SESSION_TICKET ${LWS_HAVE_MBEDTLS_SSL_NEW_SESSION_T
 set(LWS_HAVE_mbedtls_ssl_conf_alpn_protocols ${LWS_HAVE_mbedtls_ssl_conf_alpn_protocols} PARENT_SCOPE)
 set(LWS_HAVE_mbedtls_ssl_conf_ciphersuites ${LWS_HAVE_mbedtls_ssl_conf_ciphersuites} PARENT_SCOPE)
 set(LWS_HAVE_mbedtls_ssl_session_save ${LWS_HAVE_mbedtls_ssl_session_save} PARENT_SCOPE)
+set(LWS_HAVE_mbedtls_ssl_set_export_keys_cb ${LWS_HAVE_mbedtls_ssl_set_export_keys_cb} PARENT_SCOPE)
+set(LWS_HAVE_mbedtls_ssl_conf_export_keys_cb ${LWS_HAVE_mbedtls_ssl_conf_export_keys_cb} PARENT_SCOPE)
 set(TEST_SERVER_SSL_KEY "${TEST_SERVER_SSL_KEY}" PARENT_SCOPE)
 set(TEST_SERVER_SSL_CERT "${TEST_SERVER_SSL_CERT}" PARENT_SCOPE)
 set(TEST_SERVER_DATA ${TEST_SERVER_DATA} PARENT_SCOPE)

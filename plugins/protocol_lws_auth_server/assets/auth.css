@@ -306,3 +306,34 @@ input:focus {
 .strike-overlay.show-strike { opacity: 1; }
 .strike-overlay img { width: 100%; height: 100%; display: block; }
 .strike-count { position: absolute; bottom: 10px; right: 0px; font-weight: bold; font-size: 20px; color: #ef4444; background-color: rgba(0, 0, 0, 0.7); padding: 4px 8px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1); }
+
+/* Strict CSP Helpers */
+.text-center { text-align: center; }
+.js-req-title { color: #f8fafc; font-size: 1.1rem; margin-bottom: 10px; }
+.forgot-btn-wrap { margin-top: 5px; }
+.forgot-btn { font-size: 0.9em; opacity: 0.8; }
+.qr-hint { font-size: 0.9em; margin-top: -10px; opacity: 0.8; }
+.auth-divider { opacity: 0.2; margin: 20px 0; border: 0; border-top: 1px solid #fff; }
+
+/* Backup codes container styles */
+.backup-codes-container { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 20px 0; background: rgba(0,0,0,0.1); padding: 15px; border-radius: 8px; }
+.backup-code { font-family: monospace; font-size: 1.2em; letter-spacing: 2px; text-align: center; background: rgba(255,255,255,0.05); padding: 5px; border-radius: 4px; }
+.warning-text { color: #ff6b6b; font-size: 0.9em; margin-bottom: 20px; }
+
+.redirect-whitelist-error {
+    font-size: 0.8rem;
+    color: #94a3b8;
+    text-align: center;
+    margin-top: 10px;
+}
+
+.mb-0 {
+    margin-bottom: 0 !important;
+}
+
+.auto-redirect-msg {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    margin-top: 15px;
+}

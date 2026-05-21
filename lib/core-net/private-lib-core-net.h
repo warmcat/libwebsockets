@@ -47,6 +47,9 @@ struct lws_muxable {
 };
 
 #include "private-lib-roles.h"
+#if defined(LWS_ROLE_WT)
+#include "wt/private-lib-roles-wt.h"
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -758,7 +761,10 @@ struct lws {
 	struct _lws_quic_related	quic;
 #endif
 #if defined(LWS_ROLE_H3)
-	struct lws_qpack_tx_encoder	*qpack_tx_encoder;
+	struct _lws_h3_related		h3;
+#endif
+#if defined(LWS_ROLE_WT)
+	struct _lws_wt_related		wt;
 #endif
 
 #if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT) || defined(LWS_ROLE_QUIC)
@@ -854,6 +860,8 @@ struct lws {
 #if defined(LWS_WITH_CLIENT)
 	struct client_info_stash	*stash;
 	char				*cli_hostname_copy;
+	char				alpn_discovered[8];
+
 
 #if defined(LWS_WITH_CONMON)
 	struct lws_conmon		conmon;
@@ -892,7 +900,7 @@ struct lws {
 	unsigned int			mux_substream:1;
 	unsigned int			upgraded_to_http2:1;
 	unsigned int			mux_stream_immortal:1;
-	unsigned int			h2_stream_carries_ws:1; /* immortal set as well */
+	unsigned int			h23_stream_carries_ws:1; /* immortal set as well */
 	unsigned int			h2_stream_carries_sse:1; /* immortal set as well */
 	unsigned int			h2_acked_settings:1;
 	unsigned int			seen_nonpseudoheader:1;
@@ -947,6 +955,7 @@ struct lws {
 	unsigned int                    tls_borrowed:1;
 	unsigned int                    tls_borrowed_hs:1;
 	unsigned int                    tls_read_wanted_write:1;
+	unsigned int			tried_quic:1;
 
 #ifdef LWS_WITH_ACCESS_LOG
 	unsigned int			access_log_pending:1;

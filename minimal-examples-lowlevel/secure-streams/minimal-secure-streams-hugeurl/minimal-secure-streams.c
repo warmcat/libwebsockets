@@ -13,7 +13,6 @@
 #include <libwebsockets.h>
 
 enum {
-	LWS_SW_H1,
 	LWS_SW_A,
 	LWS_SW_H,
 	LWS_SW_I,
@@ -22,7 +21,6 @@ enum {
 };
 
 static const struct lws_switches switches[] = {
-	[LWS_SW_H1]	= { "--h1",            "Enable --h1 feature" },
 	[LWS_SW_A]	= { "-a",              "Enable -a feature" },
 	[LWS_SW_H]	= { "-h",              "Strict Host Check / Help" },
 	[LWS_SW_I]	= { "-i",              "Interface to bind to" },
@@ -34,7 +32,7 @@ static const struct lws_switches switches[] = {
 #include <signal.h>
 
 static unsigned int timeout_ms = 6000;
-static int interrupted, bad = 1, h1;
+static int interrupted, bad = 1;
 static lws_state_notify_link_t nl;
 static size_t hugeurl_size = 4000;
 
@@ -346,9 +344,6 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 	if (current != LWS_SYSTATE_OPERATIONAL)
 		return 0;
 
-	if (h1)
-		ssi.streamtype = "lws_anything_h1";
-
 	if (!lws_ss_create(context, 0, &ssi, NULL, NULL, NULL, NULL))
 		return 0;
 
@@ -383,8 +378,7 @@ int main(int argc, const char **argv)
 
 	signal(SIGINT, sigint_handler);
 
-	memset(&info, 0, sizeof info);
-	lws_cmdline_option_handle_builtin(argc, argv, &info);
+	lws_context_info_defaults(&info, NULL);lws_cmdline_option_handle_builtin(argc, argv, &info);
 
 	lwsl_user("LWS secure streams hugeurl test client [-d<verb>][-h <urlarg len>]\n");
 
@@ -415,9 +409,6 @@ int main(int argc, const char **argv)
 #endif
 	info.connect_timeout_secs = 15;
 	info.timeout_secs = 10;
-
-	if (lws_cmdline_option(argc, argv, switches[LWS_SW_H1].sw))
-		h1 = 1;
 
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_H].sw)))
 		hugeurl_size = (size_t)atol(p);

@@ -162,7 +162,6 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 			char loc[1024];
 			struct lws_genhash_ctx hctx;
 			unsigned char buf[1024 + LWS_PRE], *p = buf + LWS_PRE, *end = buf + sizeof(buf) - 1;
-			int loc_len;
 
 			ps = malloc(sizeof(*ps));
 			if (!ps)
@@ -198,12 +197,12 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_dll2_add_tail(&ps->list, &vhd->pending_auth_list);
 			lws_sul_schedule(vhd->context, 0, &ps->sul, sul_pending_auth_cb, 5 * 60 * LWS_US_PER_SEC);
 
-			loc_len = lws_snprintf(loc, sizeof(loc), "%s/api/authorize?client_id=%s&redirect_uri=%%2Foauth%%2Fcallback&state=%s&code_challenge=%s&code_challenge_method=S256&response_type=code%s%s",
+			lws_snprintf(loc, sizeof(loc), "%s/api/authorize?client_id=%s&redirect_uri=%%2Foauth%%2Fcallback&state=%s&code_challenge=%s&code_challenge_method=S256&response_type=code%s%s",
 				vhd->remote_auth_url, vhd->client_id, ps->state, code_challenge,
 				sname[0] ? "&service_name=" : "", sname);
 
 			if (lws_add_http_header_status(wsi, HTTP_STATUS_FOUND, &p, end)) return 1;
-			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION, (unsigned char *)loc, loc_len, &p, end)) return 1;
+			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION, (unsigned char *)loc, (int)strlen(loc), &p, end)) return 1;
 			if (lws_finalize_http_header(wsi, &p, end)) return 1;
 
 			lws_write(wsi, buf + LWS_PRE, (size_t)lws_ptr_diff(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
@@ -298,7 +297,6 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 		char loc[512];
 		char cookie[LWS_SSO_MAX_COOKIE];
 		unsigned char buf[LWS_SSO_MAX_COOKIE + 512 + LWS_PRE], *p = buf + LWS_PRE, *end = buf + sizeof(buf) - 1;
-		int n;
 
 		// Find if this WSI belongs to a pending auth state that just finished
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
@@ -325,7 +323,7 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		// Found the finished state!
-		n = lws_snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=3600; SameSite=Lax",
+		lws_snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=3600; SameSite=Lax",
 				 vhd->cookie_name, ps->token);
 
 		lws_strncpy(loc, ps->redirect_uri, sizeof(loc));
@@ -338,7 +336,7 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 		// Issue the cookie and the 302
 		if (lws_add_http_header_status(wsi, HTTP_STATUS_FOUND, &p, end)) return 1;
 		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION, (unsigned char *)loc, (int)strlen(loc), &p, end)) return 1;
-		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_SET_COOKIE, (unsigned char *)cookie, n, &p, end)) return 1;
+		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_SET_COOKIE, (unsigned char *)cookie, (int)strlen(cookie), &p, end)) return 1;
 		if (lws_finalize_http_header(wsi, &p, end)) return 1;
 
 		lws_write(wsi, buf + LWS_PRE, (size_t)lws_ptr_diff(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);

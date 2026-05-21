@@ -26,18 +26,22 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#if defined(WIN32) || defined(_WIN32)
+#include <io.h>
+#else
 #include <unistd.h>
+#endif
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info cx_info;
 	struct lws_auth_dns_sign_info info;
 	struct lws_context *cx;
-	int logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+	
 	int res = 1;
 
-	lws_set_log_level(logs, NULL);
+	lws_context_info_defaults(&cx_info, NULL);
+	lws_cmdline_option_handle_builtin(argc, argv, &cx_info);
 
-	memset(&cx_info, 0, sizeof(cx_info));
 	cx_info.port = CONTEXT_PORT_NO_LISTEN;
 	cx = lws_create_context(&cx_info);
 	if (!cx)

@@ -311,9 +311,6 @@ sul_connect_cb(lws_sorted_usec_list_t *sul)
 		i.origin			= i.address;
 		i.method			= "POST";
 
-		if (lws_cmdline_option_cx(cx, "--h1"))
-			i.alpn			= "http/1.1";
-
 		i.protocol			= protocols[0].name;
 		i.pwsi				= &client_wsi;
 
@@ -375,9 +372,8 @@ int main(int argc, const char **argv)
 
 	signal(SIGINT, sigint_handler);
 
-	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
-	lws_cmdline_option_handle_builtin(argc, argv, &info);
-	lwsl_user("LWS minimal http client form - POST [-d<verbosity>] [-l] [--h1] https://libwebsockets.org/testserver/formtest\n");
+	lws_context_info_defaults(&info, NULL);lws_cmdline_option_handle_builtin(argc, argv, &info);
+	lwsl_user("LWS minimal http client form - POST [-d<verbosity>] [-l] https://libwebsockets.org/testserver/formtest\n");
 
 	info.options			= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
 					  LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW;

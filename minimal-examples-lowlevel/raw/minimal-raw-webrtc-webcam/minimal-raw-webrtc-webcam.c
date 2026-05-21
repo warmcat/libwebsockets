@@ -445,8 +445,7 @@ app_system_state_nf(lws_state_manager_t *mgr,
                         break;
 
                 lwsl_user("%s: OPERATIONAL->creating vhost\n", __func__);
-                memset(&info, 0, sizeof(info));
-                info.vhost_name         = "webrtc";
+                lws_context_info_defaults(&info, NULL);info.vhost_name         = "webrtc";
 		info.port		= 7681;
 		info.protocols          = protocols;
                 info.pvo                = pvos;

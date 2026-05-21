@@ -196,6 +196,12 @@ const char *
 lws_get_peer_simple(struct lws *wsi, char *name, size_t namelen)
 {
 	wsi = lws_get_network_wsi(wsi);
+#if defined(LWS_WITH_UDP)
+	if (wsi->udp) {
+		lws_sa46_write_numeric_address(&wsi->udp->sa46, name, namelen);
+		return name;
+	}
+#endif
 	return lws_get_peer_simple_fd(wsi->desc.sockfd, name, namelen);
 }
 #endif
@@ -494,7 +500,6 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 	return port;
 }
 
-#if defined(LWS_WITH_CLIENT)
 
 unsigned int
 lws_retry_get_delay_ms(struct lws_context *context,
@@ -578,18 +583,19 @@ lws_retry_sul_schedule_retry_wsi(struct lws *wsi, lws_sorted_usec_list_t *sul,
 		wsi->role_ops == &role_ops_h2
 #endif
 		)
+#if defined(LWS_WITH_CLIENT)
 		/*
 		 * Since we're doing it by wsi, we're in a position to check for
 		 * http retry-after, it will increase us accordingly if found
 		 */
 		lws_http_check_retry_after(wsi, &us);
 #endif
+#endif
 	lws_sul_schedule(wsi->a.context, wsi->tsi, sul, cb, us);
 
 	return 0;
 }
 
-#endif
 
 #if defined(LWS_WITH_IPV6)
 unsigned long

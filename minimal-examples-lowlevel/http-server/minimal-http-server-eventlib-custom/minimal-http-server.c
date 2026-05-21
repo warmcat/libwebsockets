@@ -400,8 +400,7 @@ void sigint_handler(int sig)
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
-	const char *p;
-	int logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+	
 	void *foreign_loops[1];
 	(void)switches;
 
@@ -413,18 +412,16 @@ int main(int argc, const char **argv)
 
 	signal(SIGINT, sigint_handler);
 
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
-		logs = atoi(p);
 
 	/*
 	 * init the existing custom event loop here if anything to do, don't
 	 * run it yet. In our example, no init required.
 	 */
 
-	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS minimal http server | visit http://localhost:7681\n");
 
-	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
+	lws_context_info_defaults(&info, NULL);
+	lws_cmdline_option_handle_builtin(argc, argv, &info);
 	info.port = 7681;
 	info.mounts = &mount;
 	info.error_document_404 = "/404.html";

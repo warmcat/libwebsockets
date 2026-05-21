@@ -50,8 +50,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 #if defined(LWS_WITH_TLS_JIT_TRUST)
 		conn->wsi = wsi;
 #endif
-		br_ssl_engine_set_buffer(&conn->u.client.eng, conn->iobuf_in, sizeof(conn->iobuf_in), 1);
-		br_ssl_engine_set_buffer(&conn->u.client.eng, conn->iobuf_out, sizeof(conn->iobuf_out), 0);
+		br_ssl_engine_set_buffers_bidi(&conn->u.client.eng, conn->iobuf_in, sizeof(conn->iobuf_in), conn->iobuf_out, sizeof(conn->iobuf_out));
 
 		{
 			const char *alpn_comma = wsi->a.context->tls.alpn_default;

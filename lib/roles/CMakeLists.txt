@@ -59,6 +59,10 @@ if (LWS_ROLE_H3)
 	add_subdir_include_directories(h3)
 endif()
 
+if (LWS_ROLE_WT)
+	add_subdir_include_directories(wt)
+endif()
+
 if (LWS_ROLE_WS)
 	add_subdir_include_directories(ws)
 endif()

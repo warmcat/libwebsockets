@@ -203,10 +203,6 @@ lws_http_compression_transform(struct lws *wsi, unsigned char *buf,
 		return -1;
 	}
 
-	if (!ctx->may_have_more && ctx->final_on_input_side)
-
-		*wp = (unsigned int)(LWS_WRITE_HTTP_FINAL | ((*wp) & ~0x1fu));
-
 	lwsl_debug("%s: %s: more %d, ilen_iused %d\n", __func__, lws_wsi_tag(wsi),
 		   ctx->may_have_more, (int)ilen_iused);
 
@@ -236,6 +232,9 @@ lws_http_compression_transform(struct lws *wsi, unsigned char *buf,
 	}
 	if (ctx->buflist_comp || ctx->may_have_more)
 		lws_callback_on_writable(wsi);
+
+	if (ctx->final_on_input_side && !ctx->may_have_more && !ctx->buflist_comp)
+		*wp = (unsigned int)(LWS_WRITE_HTTP_FINAL | ((*wp) & ~0x1fu));
 
 	return 0;
 }

@@ -42,6 +42,7 @@ struct lws_qpack_dynamic_table {
 	struct lws_qpack_dynamic_table_entry *entries;
 	uint32_t virtual_payload_usage;
 	uint32_t virtual_payload_max;
+	uint32_t virtual_payload_limit;
 	uint32_t insert_count;
 	uint32_t known_received_count;
 	uint16_t num_entries;
@@ -69,9 +70,8 @@ struct lws_qpack_tx_encoder {
 	uint16_t used_entries;
 	uint16_t pos; /* Ring buffer head */
 	
-	/* Temporary buffer for encoder stream output during header generation */
-	unsigned char enc_buf[65536];
-	size_t enc_ptr;
+	struct lws_buflist *tx_bl;
+	struct lws *wsi_qpack_enc;
 };
 
 struct lws_qpack_context {

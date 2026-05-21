@@ -25,13 +25,48 @@
 #include "private-lib-core.h"
 #include "private-lib-async-dns.h"
 
+#if defined(LWS_WITH_ESP32)
+#include <lwip/dns.h>
+#endif
+
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 int
 lws_plat_asyncdns_get_server(struct lws_context *context, int index,
 			     lws_sockaddr46 *sa46)
 {
+#if defined(LWS_WITH_ESP32)
+	const ip_addr_t *dns;
+#else
 	uint32_t ipv4;
+#endif
 
+#if defined(LWS_WITH_ESP32)
+	if (index > 2)
+		return -1;
+
+	dns = dns_getserver(index);
+	if (!dns || ip_addr_isany(dns))
+		return -1;
+
+	memset(sa46, 0, sizeof(*sa46));
+#if defined(LWIP_IPV6) && LWIP_IPV6
+#if defined(LWS_WITH_IPV6)
+	if (IP_IS_V6(dns)) {
+		sa46->sa4.sin_family = AF_INET6;
+		memcpy(&sa46->sa6.sin6_addr, ip_2_ip6(dns)->addr, 16);
+	} else
+#endif
+	{
+		sa46->sa4.sin_family = AF_INET;
+		sa46->sa4.sin_addr.s_addr = ip_2_ip4(dns)->addr;
+	}
+#else
+	sa46->sa4.sin_family = AF_INET;
+	sa46->sa4.sin_addr.s_addr = dns->addr;
+#endif
+
+	return 0;
+#else
 	if (index > 0)
 		return -1;
 
@@ -42,8 +77,8 @@ lws_plat_asyncdns_get_server(struct lws_context *context, int index,
 	sa46->sa4.sin_addr.s_addr = ipv4;
 
 	return 0;
+#endif
 }
-
 
 #endif
 

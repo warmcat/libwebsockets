@@ -17,6 +17,15 @@
 
 static int interrupted;
 static int result = 1; /* 1 means failed/timeout, 0 means success */
+static int server_only = 0;
+
+static const struct lws_http_mount mount_redir = {
+	.mountpoint = "/",
+	.origin = "warmcat.com/git/blog",
+	.origin_protocol = LWSMPRO_REDIR_HTTPS,
+	.mountpoint_len = 1,
+	.exact_match = 1,
+};
 
 static const char * const test_cert =
 "-----BEGIN CERTIFICATE-----\n"
@@ -131,6 +140,8 @@ simple_hash(uint32_t hash, const uint8_t *data, size_t len)
 	return hash;
 }
 
+
+
 static void
 teardown_cb(lws_sorted_usec_list_t *sul)
 {
@@ -145,7 +156,8 @@ check_test_completion(struct lws *wsi)
 	if (client_done && server_done) {
 		lwsl_notice("Test completed successfully! Both sides received full data. Waiting 1.5s for ACKs...\n");
 		result = 0;
-		lws_sul_schedule(lws_get_context(wsi), 0, &sul_teardown, teardown_cb, 1500 * 1000);
+		if (!server_only)
+			lws_sul_schedule(lws_get_context(wsi), 0, &sul_teardown, teardown_cb, 1500 * 1000);
 	}
 }
 
@@ -186,8 +198,8 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 		size_t to_send = TOTAL_DATA - client_sent;
 		if (to_send > 1024)
 			to_send = 1024;
-
 		memset(&buf[LWS_PRE], (client_sent & 0xff), to_send);
+                lwsl_notice("CLIENT WSI allowance=%d\n", (int)lws_get_peer_write_allowance(wsi));
 		int n = lws_write(wsi, &buf[LWS_PRE], to_send, LWS_WRITE_BINARY);
                 if (n > 0) {
                         client_sent += (size_t)n;
@@ -196,10 +208,17 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
                 }
 		break;
 	}
+	case LWS_CALLBACK_ESTABLISHED:
+		lwsl_notice("SERVER ESTABLISHED!\n");
+		lws_callback_on_writable(wsi);
+		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
 	{
 		uint8_t buf[LWS_PRE + 1024];
+
+		if (server_only)
+			break;
 
 		if (server_sent >= TOTAL_DATA)
                         break;
@@ -207,11 +226,14 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 		if (to_send > 1024)
 			to_send = 1024;
 		memset(&buf[LWS_PRE], (server_sent & 0xff), to_send);
+                lwsl_notice("SERVER WSI allowance=%d\n", (int)lws_get_peer_write_allowance(wsi));
 		int n = lws_write(wsi, &buf[LWS_PRE], to_send, LWS_WRITE_BINARY);
 		if (n > 0) {
 			server_sent += (size_t)n;
 			if (server_sent < TOTAL_DATA)
 				lws_callback_on_writable(wsi);
+		} else {
+                        lwsl_err("SERVER WROTE FAILED n=%d\n", n);
 		}
 		break;
 	}
@@ -265,12 +287,14 @@ enum {
 	LWS_SW_HELP,
 	LWS_SW_URL,
 	LWS_SW_PORT,
+	LWS_SW_SERVER_ONLY,
 };
 
 static const struct lws_switches switches[] = {
 	[LWS_SW_HELP]	= { "--help",	"Show this help information" },
 	[LWS_SW_URL]	= { "-u",	"URL to connect to (if absent, acts as server too)" },
 	[LWS_SW_PORT]	= { "-p",	"Port to connect to / listen on (default 7681)" },
+	[LWS_SW_SERVER_ONLY] = { "-s",	"Server only mode (do not launch client, do not send data unprompted)" },
 };
 
 int main(int argc, const char **argv)
@@ -297,6 +321,9 @@ int main(int argc, const char **argv)
 	p = lws_cmdline_option(argc, argv, "-p");
 	if (p)
 		port = atoi(p);
+
+	if (lws_cmdline_option(argc, argv, "-s"))
+		server_only = 1;
 
 	p = lws_cmdline_option(argc, argv, "-u");
 	if (p) {
@@ -330,13 +357,14 @@ int main(int argc, const char **argv)
 		info.vhost_name			        = "quic-server";
 		info.listen_accept_role		        = "quic";
 		info.listen_accept_protocol	        = "quic-test-protocol";
-		info.alpn				= "lws-quic";
+		info.alpn				= "h3,lws-quic";
 
 		/* TLS 1.3 requires valid certificates for QUIC. Use our in-memory certs. */
 		info.server_ssl_cert_mem	        = test_cert;
 		info.server_ssl_cert_mem_len            = (unsigned int)strlen(test_cert);
 		info.server_ssl_private_key_mem         = test_key;
 		info.server_ssl_private_key_mem_len     = (unsigned int)strlen(test_key);
+		info.mounts                             = &mount_redir;
 	} else {
 		info.port			        = CONTEXT_PORT_NO_LISTEN;
 		info.vhost_name			        = "quic-client";
@@ -358,44 +386,48 @@ int main(int argc, const char **argv)
 		}
 	}
 
-	/*
-	 * Immediately launch the client.
-	 */
-	memset(&i, 0, sizeof(i));
-	i.context		= context;
-	i.port			= port;
-	i.address		= p ? address : "127.0.0.1";
-	i.host			= p ? address : "localhost";
-	i.origin		= i.address;
-	i.vhost			= vh;
-	i.ssl_connection	= LCCSCF_USE_SSL;
-	if (!p) /* by default, we use our canned selfsigned cert for local tests */
-		i.ssl_connection |= LCCSCF_ALLOW_SELFSIGNED |
-				    LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
-	i.protocol		= "quic-test-protocol";
-	i.alpn			= "lws-quic";
-	i.local_protocol_name	= "quic-test-protocol";
-	i.method		= "QUIC";
+	if (!server_only) {
+		/*
+		 * Immediately launch the client.
+		 */
+		memset(&i, 0, sizeof(i));
+		i.context		= context;
+		i.port			= port;
+		i.address		= p ? address : "127.0.0.1";
+		i.host			= p ? address : "localhost";
+		i.origin		= i.address;
+		i.vhost			= vh;
+		i.ssl_connection	= LCCSCF_USE_SSL;
+		if (!p) /* by default, we use our canned selfsigned cert for local tests */
+			i.ssl_connection |= LCCSCF_ALLOW_SELFSIGNED |
+					    LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+		i.protocol		= "quic-test-protocol";
+		i.alpn			= "lws-quic";
+		i.local_protocol_name	= "quic-test-protocol";
+		i.method		= "QUIC";
 
-	client_wsi = lws_client_connect_via_info(&i);
-	if (!client_wsi) {
-		lwsl_err("Client connection failed\n");
-		goto bail;
+		client_wsi = lws_client_connect_via_info(&i);
+		if (!client_wsi) {
+			lwsl_err("Client connection failed\n");
+			goto bail;
+		}
 	}
 
 	start_us = lws_now_usecs();
 	last_rx_us = start_us;
 
         while (lws_service(context, 0) >= 0 && !interrupted) {
-		if (lws_now_usecs() - start_us > 60000000) {
-			lwsl_err("Timeout waiting for QUIC transfer (60s absolute)\n");
-			result = 1;
-			break;
-		}
-		if (lws_now_usecs() - last_rx_us > 15000000) {
-			lwsl_err("Timeout waiting for QUIC transfer (15s idle RX)\n");
-			result = 1;
-			break;
+		if (!server_only) {
+			if (lws_now_usecs() - start_us > 60000000) {
+				lwsl_err("Timeout waiting for QUIC transfer (60s absolute)\n");
+				result = 1;
+				break;
+			}
+			if (lws_now_usecs() - last_rx_us > 15000000) {
+				lwsl_err("Timeout waiting for QUIC transfer (15s idle RX)\n");
+				result = 1;
+				break;
+			}
 		}
 	}
 

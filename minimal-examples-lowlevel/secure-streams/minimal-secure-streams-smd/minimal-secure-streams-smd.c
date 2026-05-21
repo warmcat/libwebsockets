@@ -289,8 +289,7 @@ int main(int argc, const char **argv)
 
 	signal(SIGINT, sigint_handler);
 
-	memset(&info, 0, sizeof info);
-
+	lws_context_info_defaults(&info, NULL);
 #if defined(LWS_SS_USE_SSPC)
 	if (lws_cmdline_option(argc, argv, switches[LWS_SW_MULTI].sw))
 		return smd_ss_multi_test(argc, argv);

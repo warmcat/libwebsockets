@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <dirent.h>
+#include <errno.h>
 
 struct vhd_cert_dist_server {
 	struct lws_context                  *cx;

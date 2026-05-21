@@ -51,7 +51,7 @@ if (requirements)
 			WORKING_DIRECTORY .
 			FIXTURES_SETUP raw_dht_srv
 			TIMEOUT 800
-			ENVIRONMENT "SAI_LIST_PORT=${PORT_DHT_SRV};LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/lib")
+			ENVIRONMENT "SAI_LIST_PORT=${PORT_DHT_SRV};SAI_LIST_IS_UDP=1;LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/lib")
 
 		add_test(NAME ki_raw_dht_srv COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh

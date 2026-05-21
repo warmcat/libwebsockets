@@ -56,7 +56,7 @@ done_cb(struct lws_smtp_email *email, void *buf, size_t len)
 
 int main(int argc, const char **argv)
 {
-	int n = 1, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+	int n = 1;
 	struct lws_context_creation_info info;
 	lws_smtp_sequencer_args_t ss_args;
 	struct lws_context *context;
@@ -77,8 +77,6 @@ int main(int argc, const char **argv)
 
 	signal(SIGINT, sigint_handler);
 
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
-		logs = atoi(p);
 
 	p = lws_cmdline_option(argc, argv, switches[LWS_SW_R].sw);
 	if (!p) {
@@ -87,10 +85,10 @@ int main(int argc, const char **argv)
 	}
 	recip = p;
 
-	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS API selftest: SMTP client\n");
 
-	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
+	lws_context_info_defaults(&info, NULL);
+	lws_cmdline_option_handle_builtin(argc, argv, &info);
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
 

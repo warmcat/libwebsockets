@@ -200,7 +200,7 @@ main(int argc, const char **argv)
 	lws_state_notify_link_t notifier = { { NULL, NULL, NULL },
 						system_notify_cb, "app" };
 	lws_state_notify_link_t *na[] = { &notifier, NULL };
-	int logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+	
 	struct lws_context_creation_info info;
 	struct lws_smd_peer *userreg;
 	const char *p;
@@ -210,8 +210,6 @@ main(int argc, const char **argv)
 
 	signal(SIGINT, sigint_handler);
 
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
-		logs = atoi(p);
 
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_COUNT].sw)))
 		how_many_msg = (unsigned int)atol(p);
@@ -221,11 +219,11 @@ main(int argc, const char **argv)
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_INTERVAL].sw)))
 		usec_interval = (unsigned int)atol(p);
 
-	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS API selftest: lws_smd: %u msgs at %uus interval\n",
 			how_many_msg, usec_interval);
 
-	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
+	lws_context_info_defaults(&info, NULL);
+	lws_cmdline_option_handle_builtin(argc, argv, &info);
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.register_notifier_list = na;

@@ -791,6 +791,7 @@ lws_adns_get_cache(lws_async_dns_t *dns, const char *name)
 void
 lws_adns_server_dump(lws_async_dns_server_t *dsrv)
 {
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 	lws_async_dns_t *dns = (lws_async_dns_t *)dsrv->list.owner;
 	char ads[64];
 
@@ -805,11 +806,13 @@ lws_adns_server_dump(lws_async_dns_server_t *dsrv)
 				      (const char *)&q[1], q->sent[0], q->responded,
 				      q->broadsiding ? " (broadsiding)" : "");
 	} lws_end_foreach_dll(d);
+#endif
 }
 
 void
 lws_adns_dump(lws_async_dns_t *dns)
 {
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 	lws_async_dns_server_t *dsrv;
 	lws_adns_cache_t *c;
 
@@ -834,6 +837,7 @@ lws_adns_dump(lws_async_dns_t *dns)
 		dsrv = lws_container_of(d, lws_async_dns_server_t, list);
 		lws_adns_server_dump(dsrv);
 	} lws_end_foreach_dll(d);
+#endif
 }
 #endif
 
@@ -1524,6 +1528,7 @@ failed:
 int
 lws_async_dns_create_tcp_wsi(lws_adns_q_t *q)
 {
+#if defined(LWS_WITH_CLIENT)
 	struct lws_client_connect_info i;
 	char ads[48];
 
@@ -1532,6 +1537,7 @@ lws_async_dns_create_tcp_wsi(lws_adns_q_t *q)
 
 	memset(&i, 0, sizeof(i));
 	i.context = q->context;
+	i.vhost = q->context->vhost_system;
 
 	lws_sa46_write_numeric_address(&q->dsrv->sa46, ads, sizeof(ads));
 	i.address = ads;
@@ -1552,6 +1558,9 @@ lws_async_dns_create_tcp_wsi(lws_adns_q_t *q)
 	}
 
 	return 0;
+#else
+	return 1;
+#endif
 }
 
 void
@@ -1589,4 +1598,46 @@ lws_async_dns_get_rr_cache(struct lws_context *context, const char *name,
 	} lws_end_foreach_dll(d);
 
 	return NULL;
+}
+
+int
+lws_async_dns_get_alpn(struct lws_context *context, const char *name, const char *alpn)
+{
+	uint16_t paylen;
+	const uint8_t *rr = lws_async_dns_get_rr_cache(context, name, LWS_ADNS_RECORD_HTTPS, &paylen);
+	int pos = 2;
+
+	if (!rr || paylen < 3)
+		return 0;
+
+	/* TargetName: sequence of labels ending in 0 */
+	while (pos < paylen && rr[pos]) {
+		pos += rr[pos] + 1;
+	}
+	pos++; /* Skip the 0 length label */
+
+	/* SvcParams */
+	while (pos + 4 <= paylen) {
+		uint16_t key = (uint16_t)((rr[pos] << 8) | rr[pos + 1]);
+		uint16_t len = (uint16_t)((rr[pos + 2] << 8) | rr[pos + 3]);
+		pos += 4;
+
+		if (pos + len > paylen)
+			break;
+
+		if (key == 1) { /* alpn */
+			int i = 0;
+			while (i < len) {
+				uint8_t slen = rr[pos + i];
+				if (i + 1 + slen > len)
+					break;
+				if (slen == strlen(alpn) && !strncmp((const char *)&rr[pos + i + 1], alpn, slen))
+					return 1;
+				i += slen + 1;
+			}
+		}
+		pos += len;
+	}
+
+	return 0;
 }

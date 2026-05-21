@@ -68,9 +68,12 @@ lcs_process_deflate(lws_comp_ctx_t *ctx, const void *in, size_t *ilen_iused,
 	ctx->u.deflate->next_out = out;
 	ctx->u.deflate->avail_out = (unsigned int)*olen_oused;
 
-	if (!ctx->is_decompression)
-		n = deflate(ctx->u.deflate, Z_SYNC_FLUSH);
-	else
+	if (!ctx->is_decompression) {
+		int flush = Z_SYNC_FLUSH;
+		if (ctx->final_on_input_side && !ctx->buflist_comp)
+			flush = Z_FINISH;
+		n = deflate(ctx->u.deflate, flush);
+	} else
 		n = inflate(ctx->u.deflate, Z_SYNC_FLUSH);
 
 	switch (n) {

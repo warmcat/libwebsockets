@@ -81,6 +81,8 @@
 #cmakedefine LWS_HAVE_mbedtls_ssl_set_hs_own_cert
 #cmakedefine LWS_HAVE_mbedtls_ssl_set_hs_authmode
 #cmakedefine LWS_HAVE_mbedtls_ssl_set_verify
+#cmakedefine LWS_HAVE_mbedtls_ssl_set_export_keys_cb
+#cmakedefine LWS_HAVE_mbedtls_ssl_conf_export_keys_cb
 #cmakedefine LWS_HAVE_mbedtls_x509_crt_parse_file
 #cmakedefine LWS_HAVE_MBEDTLS_NET_SOCKETS
 #cmakedefine LWS_HAVE_MBEDTLS_SSL_NEW_SESSION_TICKET
@@ -147,6 +149,7 @@
 #cmakedefine LWS_ROLE_WS
 #cmakedefine LWS_ROLE_MQTT
 #cmakedefine LWS_ROLE_QUIC
+#cmakedefine LWS_ROLE_WT
 #cmakedefine LWS_SHA1_USE_OPENSSL_NAME
 #cmakedefine LWS_SSL_CLIENT_USE_OS_CA_CERTS
 #cmakedefine LWS_SSL_SERVER_WITH_ECDH_CERT

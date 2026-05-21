@@ -128,6 +128,7 @@ lws_callback_as_writeable(struct lws *wsi)
 	int n, m;
 
 	n = wsi->role_ops->writeable_cb[lwsi_role_server(wsi)];
+	// lwsl_wsi_notice(wsi, "lws_callback_as_writeable: cb enum = %d", n);
 	m = user_callback_handle_rxflow(wsi->a.protocol->callback,
 					wsi, (enum lws_callback_reasons) n,
 					wsi->user_space, NULL, 0);

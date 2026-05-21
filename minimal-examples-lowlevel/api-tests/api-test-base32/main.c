@@ -25,14 +25,10 @@ static const struct tests tests[] = {
 
 int main(int argc, const char **argv)
 {
-	int n, m, fails = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+	int n, m, fails = 0;
 	char enc[64], dec[64];
-	const char *p;
 
-	if ((p = lws_cmdline_option(argc, argv, "-d")))
-		logs = atoi(p);
 
-	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS API selftest: base32\n");
 
 	for (n = 0; n < (int)LWS_ARRAY_SIZE(tests); n++) {

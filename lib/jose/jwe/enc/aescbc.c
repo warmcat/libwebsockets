@@ -236,6 +236,12 @@ lws_jwe_auth_and_decrypt_cbc_hs(struct lws_jwe *jwe, uint8_t *enc_cek,
 	el.buf = enc_cek + (hlen / 2);
 	el.len = (unsigned int)hlen / 2;
 
+	if (jwe->jws.map.len[LJWE_CTXT] % LWS_AES_CBC_BLOCKLEN) {
+		lwsl_notice("%s: ciphertext len %d not multiple of block size\n",
+			    __func__, (int)jwe->jws.map.len[LJWE_CTXT]);
+		return -1;
+	}
+
 	if (lws_genaes_create(&aesctx, LWS_GAESO_DEC, LWS_GAESM_CBC,
 			      &el, LWS_GAESP_NO_PADDING, NULL)) {
 		lwsl_err("%s: lws_genaes_create failed\n", __func__);

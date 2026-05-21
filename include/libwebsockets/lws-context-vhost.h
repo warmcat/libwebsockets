@@ -262,11 +262,23 @@
 #define LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS		(1ll << 42)
 	/**< (VH) force instantiation of all protocols for this vhost */
 
-#define LWS_SERVER_OPTION_VH_SKIP_PRIV_DROP			(1ll << 43)
-	/**< Cause create vhost api to skip priv drop, requires caller
-	  *  to manage it themselves */
+#define LWS_SERVER_OPTION_VH_SKIP_PRIV_DROP                     (1ll << 43)
+        /**< Cause create vhost api to skip priv drop, requires caller
+          *  to manage it themselves */
 
-	/****** add new things just above ---^ ******/
+#define LWS_SERVER_OPTION_CMDLINE_FORCE_H1                      (1ll << 44)
+        /**< (CTX) Set by core built-in options to force ALPN to HTTP/1.1 */
+
+#define LWS_SERVER_OPTION_CMDLINE_FORCE_H2                      (1ll << 45)
+        /**< (CTX) Set by core built-in options to force ALPN to H2 */
+
+#define LWS_SERVER_OPTION_CMDLINE_FORCE_H3                      (1ll << 46)
+        /**< (CTX) Set by core built-in options to force ALPN to H3 */
+
+#define LWS_SERVER_OPTION_ALLOW_EARLY_DATA                      (1ll << 47)
+        /**< (VH) Accept 0-RTT early data for QUIC/TLS 1.3 connections */
+
+        /****** add new things just above ---^ ******/
 
 
 #define lws_check_opt(c, f) ((((uint64_t)c) & ((uint64_t)f)) == ((uint64_t)f))
@@ -284,6 +296,20 @@ typedef int (*lws_peer_limits_notify_t)(struct lws_context *ctx,
 					lws_sockfd_type sockfd,
 					lws_sockaddr46 *sa46);
 #endif
+
+/**
+ * lws_quic_tx_credit_cb_t - Callback for dynamic QUIC TX credit window scaling
+ *
+ * \param wsi: The stream wsi, or the network wsi for connection-level flow control
+ * \param current_window: The current window size (rx_window_size)
+ * \param consumed_bytes: The number of bytes the application just consumed
+ * \param time_since_last_update_us: Microseconds since the window was last scaled or initialized
+ *
+ * Return: The new window size (in bytes). If you return 0 or a value less than the
+ *         current ungranted window, the window will not be scaled.
+ */
+typedef uint64_t (*lws_quic_tx_credit_cb_t)(struct lws *wsi, uint64_t current_window,
+                                            uint64_t consumed_bytes, uint64_t time_since_last_update_us);
 
 /** struct lws_context_creation_info - parameters to create context and /or vhost with
  *
@@ -1056,6 +1082,12 @@ struct lws_context_creation_info {
 
 	uint32_t			quic_mtu;
 	/**< VHOST: 0 for default (1280), or the desired QUIC MTU for the vhost */
+
+	lws_quic_tx_credit_cb_t		quic_tx_credit_cb;
+	/**< VHOST: Callback for dynamic QUIC TX credit window scaling. If NULL, defaults to 50% refill batched logic. */
+
+	const struct lws_cc_ops		*quic_cc_ops;
+	/**< CONTEXT: QUIC congestion control algorithm ops to use. If NULL, defaults to &lws_cc_ops_newreno. */
 
 	void *_unused[1]; /**< dummy */
 };

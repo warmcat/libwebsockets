@@ -782,7 +782,11 @@ lws_cookie_send_cookies(struct lws *wsi, char **pp, char *end)
 
 
 #ifdef LWS_WITH_HTTP2
-	if (lws_wsi_is_h2(wsi))
+	if (lws_wsi_is_h2(wsi)
+#ifdef LWS_ROLE_H3
+	    || lws_wsi_is_h3(wsi)
+#endif
+	)
 		p = *pp - size;
 	else
 #endif

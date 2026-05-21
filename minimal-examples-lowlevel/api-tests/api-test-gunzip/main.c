@@ -35,7 +35,7 @@ int fdin = 0, fdout = 1;
 int
 main(int argc, const char **argv)
 {
-	int logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+	
 	int result = 0, more = 1;
 	const char *p;
 	lws_stateful_ret_t r = LWS_SRET_WANT_INPUT;
@@ -50,10 +50,7 @@ main(int argc, const char **argv)
 	}
 
 
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
-		logs = atoi(p);
 
-	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS API selftest: gunzip\n");
 
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_STDIN].sw))) {

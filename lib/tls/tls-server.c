@@ -340,9 +340,13 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 					goto notls_accepted;
 				}
 
+				char ipbuf[64];
+
+				lws_get_peer_simple(wsi, ipbuf, sizeof(ipbuf));
 				lwsl_notice("%s: client did not send a valid "
-					    "tls hello (default vhost %s)\n",
-					    __func__, wsi->a.vhost->name);
+					    "tls hello (default vhost %s) from %s\n",
+					    __func__, wsi->a.vhost->name, ipbuf);
+				lwsl_hexdump_notice(pt->serv_buf, s > 256 ? 256 : (size_t)s);
 				goto fail;
 			}
 			if (!s) {

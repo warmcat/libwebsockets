@@ -10,6 +10,7 @@ set(SRCS minimal-http-client.c)
 
 set(has_fault_injection 1)
 set(has_h2 1)
+set(has_h3 1)
 set(has_plugins 1)
 set(has_ss_policy_parse 1)
 set(has_no_system_vhost 1)
@@ -24,6 +25,7 @@ require_lws_config(LWS_WITH_SYS_STATE 1 requirements)
 require_lws_config(LWS_WITH_TLS 1 requirements)
 
 require_lws_config(LWS_ROLE_H2 1 has_h2)
+require_lws_config(LWS_ROLE_H3 1 has_h3)
 require_lws_config(LWS_WITH_SYS_FAULT_INJECTION 1 has_fault_injection)
 require_lws_config(LWS_WITH_EVLIB_PLUGINS 1 has_plugins)
 require_lws_config(LWS_WITH_EVENT_LIBS 1 has_plugins)
@@ -56,6 +58,12 @@ if (requirements)
 
 
 		add_test(NAME http-client-warmcat-h1 COMMAND lws-minimal-http-client  --h1)
+		
+		if (has_h3)
+			add_test(NAME http-client-h3 COMMAND lws-minimal-http-client --h3 https://cloudflare-quic.com/ -d 1039)
+			set_tests_properties(http-client-h3 PROPERTIES TIMEOUT 10)
+			list(APPEND mytests http-client-h3)
+		endif()
 				     
 		if (has_fault_injection)
 
@@ -131,7 +139,7 @@ if (requirements)
 			
 			if (has_async_dns)
 				list(APPEND mytests http-client-fi-connfail)
-				add_test(NAME http-client-fi-connfail COMMAND lws-minimal-http-client --expected-exit 2 --fault-injection "wsi=user/connfail")
+				add_test(NAME http-client-fi-connfail COMMAND lws-minimal-http-client --expected-exit 3 --fault-injection "wsi=user/connfail")
 			else()
 				list(APPEND mytests http-client-fi-connfail)
 				add_test(NAME http-client-fi-connfail COMMAND lws-minimal-http-client --expected-exit 2 --fault-injection "wsi=user/connfail")

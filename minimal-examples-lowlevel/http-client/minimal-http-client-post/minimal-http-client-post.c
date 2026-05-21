@@ -18,12 +18,14 @@
 enum {
 	LWS_SW_L,
 	LWS_SW_M,
+	LWS_SW_H3,
 	LWS_SW_HELP,
 };
 
 static const struct lws_switches switches[] = {
 	[LWS_SW_L]	= { "-l",              "Enable -l feature" },
 	[LWS_SW_M]	= { "-m",              "Enable -m feature" },
+	[LWS_SW_H3]	= { "--h3",              "Use HTTP/3" },
 	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
 };
 
@@ -220,6 +222,15 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		if (p)
 			url = p;
 
+#if defined(LWS_ROLE_H3)
+		if (lws_cmdline_option_cx(cx, "--h3")) {
+			i.alpn = "h3";
+			/* cloudflare quic test server */
+			if (!p)
+				url = "https://cloudflare-quic.com/";
+		}
+#endif
+
 		{
 			lws_parse_uri_t *puri;
 
@@ -243,10 +254,6 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 			i.host				= i.address;
 			i.origin			= i.address;
 			i.method = "POST";
-
-			/* force h1 even if h2 available */
-			if (lws_cmdline_option_cx(cx, "--h1"))
-				i.alpn			= "http/1.1";
 
 			i.protocol = protocols[0].name;
 
@@ -291,14 +298,13 @@ int main(int argc, const char **argv)
 
 	signal(SIGINT, sigint_handler);
 
-	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
-	lws_cmdline_option_handle_builtin(argc, argv, &info);
-	lwsl_user("LWS minimal http client - POST [-d<verbosity>] [-l] [--h1] https://libwebsockets.org/testserver/formtest\n");
+	lws_context_info_defaults(&info, NULL);lws_cmdline_option_handle_builtin(argc, argv, &info);
+	lwsl_user("LWS minimal http client - POST [-d<verbosity>] [-l] https://libwebsockets.org/testserver/formtest\n");
 
 	if (lws_cmdline_option(argc, argv, switches[LWS_SW_M].sw))
 		count_clients = LWS_ARRAY_SIZE(client_wsi);
 
-	info.options			= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+	info.options			|= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.port			= CONTEXT_PORT_NO_LISTEN;
 	info.protocols			= protocols;
 

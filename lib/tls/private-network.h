@@ -125,6 +125,7 @@ struct lws_lws_tls {
 	const uint8_t		*quic_tp_send;
 	size_t			quic_tp_send_len;
 	lws_tls_quic_secret_cb	quic_secret_cb;
+	int			quic_alert;
 
 	unsigned int		use_ssl;
 	unsigned int		redirect_to_https:1;

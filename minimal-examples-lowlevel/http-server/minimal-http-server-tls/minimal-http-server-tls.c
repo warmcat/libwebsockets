@@ -110,8 +110,7 @@ int main(int argc, const char **argv)
 #else
 	signal(SIGINT, sigint_handler);
 #endif
-	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
-	lws_cmdline_option_handle_builtin(argc, argv, &info);
+	lws_context_info_defaults(&info, NULL);lws_cmdline_option_handle_builtin(argc, argv, &info);
 	lwsl_user("LWS minimal http server TLS | visit https://localhost:7681\n");
 
 	info.port = 7681;

@@ -588,8 +588,7 @@ int main(int argc, const char **argv)
 
 	signal(SIGINT, sigint_handler);
 
-	memset(&info, 0, sizeof info);
-	lws_cmdline_option_handle_builtin(argc, argv, &info);
+	lws_context_info_defaults(&info, NULL);lws_cmdline_option_handle_builtin(argc, argv, &info);
 
 	//lws_set_log_level(LLL_USER | LLL_ERR | LLL_DEBUG | LLL_NOTICE | LLL_INFO, NULL);
 

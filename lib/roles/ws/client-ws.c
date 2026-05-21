@@ -246,72 +246,68 @@ lws_client_ws_upgrade(struct lws *wsi, const char **cce)
 	char ignore;
 #endif
 
-	if (wsi->client_mux_substream) {/* !!! client ws-over-h2 not there yet */
-		lwsl_wsi_warn(wsi, "client ws-over-h2 upgrade not supported yet");
-		*cce = "HS: h2 / ws upgrade unsupported";
-		goto bail3;
-	}
-
-	if (wsi->http.ah->http_response == 401) {
-		lwsl_wsi_warn(wsi, "got bad HTTP response '%ld'",
-			      (long)wsi->http.ah->http_response);
-		*cce = "HS: ws upgrade unauthorized";
-		goto bail3;
-	}
-
-	if (wsi->http.ah->http_response != 101) {
-		lwsl_wsi_warn(wsi, "got bad HTTP response '%ld'",
-			      (long)wsi->http.ah->http_response);
-		*cce = "HS: ws upgrade response not 101";
-		goto bail3;
-	}
-
-	if (lws_hdr_total_length(wsi, WSI_TOKEN_ACCEPT) == 0) {
-		lwsl_wsi_info(wsi, "no ACCEPT");
-		*cce = "HS: ACCEPT missing";
-		goto bail3;
-	}
-
-	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_UPGRADE);
-	if (!p) {
-		lwsl_wsi_info(wsi, "no UPGRADE");
-		*cce = "HS: UPGRADE missing";
-		goto bail3;
-	}
-	strtolower(p);
-	if (strcmp(p, "websocket")) {
-		lwsl_wsi_warn(wsi, "got bad Upgrade header '%s'", p);
-		*cce = "HS: Upgrade to something other than websocket";
-		goto bail3;
-	}
-
-	/* connection: must have "upgrade" */
-
-	lws_tokenize_init(&ts, buf, LWS_TOKENIZE_F_COMMA_SEP_LIST |
-				    LWS_TOKENIZE_F_MINUS_NONTERM);
-	n = lws_hdr_copy(wsi, buf, sizeof(buf) - 1, WSI_TOKEN_CONNECTION);
-	if (n <= 0) /* won't fit, or absent */
-		goto bad_conn_format;
-	ts.len = (unsigned int)n;
-
-	do {
-		e = lws_tokenize(&ts);
-		switch (e) {
-		case LWS_TOKZE_TOKEN:
-			if (!strncasecmp(ts.token, "upgrade", ts.token_len))
-				e = LWS_TOKZE_ENDED;
-			break;
-
-		case LWS_TOKZE_DELIMITER:
-			break;
-
-		default: /* includes ENDED found by the tokenizer itself */
-bad_conn_format:
-			lwsl_wsi_info(wsi, "malformed connection '%s'", buf);
-			*cce = "HS: UPGRADE malformed";
+	if (wsi->client_mux_substream) {
+		if (wsi->http.ah->http_response != 200) {
+			lwsl_wsi_warn(wsi, "got bad HTTP response '%ld'",
+				      (long)wsi->http.ah->http_response);
+			*cce = "HS: ws upgrade response not 200";
 			goto bail3;
 		}
-	} while (e > 0);
+	} else {
+		if (wsi->http.ah->http_response != 101) {
+			lwsl_wsi_warn(wsi, "got bad HTTP response '%ld'",
+				      (long)wsi->http.ah->http_response);
+			*cce = "HS: ws upgrade response not 101";
+			goto bail3;
+		}
+
+		if (lws_hdr_total_length(wsi, WSI_TOKEN_ACCEPT) == 0) {
+			lwsl_wsi_info(wsi, "no ACCEPT");
+			*cce = "HS: ACCEPT missing";
+			goto bail3;
+		}
+
+		p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_UPGRADE);
+		if (!p) {
+			lwsl_wsi_info(wsi, "no UPGRADE");
+			*cce = "HS: UPGRADE missing";
+			goto bail3;
+		}
+		strtolower(p);
+		if (strcmp(p, "websocket")) {
+			lwsl_wsi_warn(wsi, "got bad Upgrade header '%s'", p);
+			*cce = "HS: Upgrade to something other than websocket";
+			goto bail3;
+		}
+
+		/* connection: must have "upgrade" */
+
+		lws_tokenize_init(&ts, buf, LWS_TOKENIZE_F_COMMA_SEP_LIST |
+					    LWS_TOKENIZE_F_MINUS_NONTERM);
+		n = lws_hdr_copy(wsi, buf, sizeof(buf) - 1, WSI_TOKEN_CONNECTION);
+		if (n <= 0) /* won't fit, or absent */
+			goto bad_conn_format;
+		ts.len = (unsigned int)n;
+
+		do {
+			e = lws_tokenize(&ts);
+			switch (e) {
+			case LWS_TOKZE_TOKEN:
+				if (!strncasecmp(ts.token, "upgrade", ts.token_len))
+					e = LWS_TOKZE_ENDED;
+				break;
+
+			case LWS_TOKZE_DELIMITER:
+				break;
+
+			default: /* includes ENDED found by the tokenizer itself */
+	bad_conn_format:
+				lwsl_wsi_info(wsi, "malformed connection '%s'", buf);
+				*cce = "HS: UPGRADE malformed";
+				goto bail3;
+			}
+		} while (e > 0);
+	}
 
 	pc = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_SENT_PROTOCOLS);
 #if defined(_DEBUG)
