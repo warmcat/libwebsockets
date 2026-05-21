@@ -44,6 +44,9 @@ set_encryption_secrets(WOLFSSL *ssl, enum wolfssl_encryption_level_t level,
 	struct lws *wsi = (struct lws *)SSL_get_app_data((SSL *)ssl);
 	enum lws_tls_quic_secret_type rt, wt;
 
+	if (!wsi)
+		return 1;
+
 	switch (level) {
 	case wolfssl_encryption_early_data:
 		rt = LWS_TLS_QUIC_SECRET_CLIENT_EARLY;
@@ -80,6 +83,9 @@ add_handshake_data(WOLFSSL *ssl, enum wolfssl_encryption_level_t level,
 {
 	struct lws *wsi = (struct lws *)SSL_get_app_data((SSL *)ssl);
 	int lws_level;
+
+	if (!wsi)
+		return 1;
 
 	switch (level) {
 	case wolfssl_encryption_initial: lws_level = 0; break;
@@ -118,6 +124,9 @@ flush_flight(WOLFSSL *ssl)
 static int
 send_alert(WOLFSSL *ssl, enum wolfssl_encryption_level_t level, uint8_t alert)
 {
+	struct lws *wsi = (struct lws *)SSL_get_app_data((SSL *)ssl);
+	if (wsi)
+		wsi->tls.quic_alert = alert;
 	return 1;
 }
 
@@ -137,6 +146,9 @@ set_read_secret(SSL *ssl, enum ssl_encryption_level_t level,
 {
 	struct lws *wsi = (struct lws *)SSL_get_app_data(ssl);
 	enum lws_tls_quic_secret_type t;
+
+	if (!wsi)
+		return 1;
 
 	switch (level) {
 	case ssl_encryption_early_data:
@@ -165,6 +177,9 @@ set_write_secret(SSL *ssl, enum ssl_encryption_level_t level,
 {
 	struct lws *wsi = (struct lws *)SSL_get_app_data(ssl);
 	enum lws_tls_quic_secret_type t;
+
+	if (!wsi)
+		return 1;
 
 	switch (level) {
 	case ssl_encryption_early_data:
@@ -196,6 +211,9 @@ add_handshake_data(SSL *ssl, enum ssl_encryption_level_t level,
 {
 	struct lws *wsi = (struct lws *)SSL_get_app_data(ssl);
 	int lws_level;
+
+	if (!wsi)
+		return 1;
 
 	switch (level) {
 	case ssl_encryption_initial: lws_level = 0; break;
@@ -234,6 +252,10 @@ flush_flight(SSL *ssl)
 static int
 send_alert(SSL *ssl, enum ssl_encryption_level_t level, uint8_t alert)
 {
+	struct lws *wsi = (struct lws *)SSL_get_app_data(ssl);
+	lwsl_err("send_alert called with alert %d, wsi %p\n", alert, wsi);
+	if (wsi)
+		wsi->tls.quic_alert = alert;
 	return 1;
 }
 
@@ -268,10 +290,21 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 	SSL_set_quic_method(wsi->tls.ssl, &quic_method);
 #endif
 
-	if (lwsi_role_client(wsi))
+	if (lwsi_role_client(wsi)) {
+		if (wsi->flags & LCCSCF_ALLOW_EARLY_DATA) {
+#if !defined(USE_WOLFSSL) && !defined(LWS_WITH_MBEDTLS)
+			SSL_set_early_data_enabled(wsi->tls.ssl, 1);
+#endif
+		}
 		SSL_set_connect_state(wsi->tls.ssl);
-	else
+	} else {
+		if (wsi->a.vhost && (wsi->a.vhost->options & LWS_SERVER_OPTION_ALLOW_EARLY_DATA)) {
+#if !defined(USE_WOLFSSL) && !defined(LWS_WITH_MBEDTLS)
+			SSL_set_early_data_enabled(wsi->tls.ssl, 1);
+#endif
+		}
 		SSL_set_accept_state(wsi->tls.ssl);
+	}
 
 	if (!wsi->tls.quic_tp_send) {
 		const uint8_t dummy_tp[] = {
@@ -281,6 +314,12 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 		wolfSSL_set_quic_transport_params(wsi->tls.ssl, dummy_tp, sizeof(dummy_tp));
 #else
 		SSL_set_quic_transport_params(wsi->tls.ssl, dummy_tp, sizeof(dummy_tp));
+#endif
+	} else {
+#if defined(USE_WOLFSSL)
+		wolfSSL_set_quic_transport_params(wsi->tls.ssl, wsi->tls.quic_tp_send, wsi->tls.quic_tp_send_len);
+#else
+		SSL_set_quic_transport_params(wsi->tls.ssl, wsi->tls.quic_tp_send, wsi->tls.quic_tp_send_len);
 #endif
 	}
 
@@ -392,6 +431,12 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 int
 lws_tls_quic_set_transport_parameters(struct lws *wsi, const uint8_t *tp, size_t tp_len)
 {
+	wsi->tls.quic_tp_send = tp;
+	wsi->tls.quic_tp_send_len = tp_len;
+
+	if (!wsi->tls.ssl)
+		return 0;
+
 #if defined(USE_WOLFSSL)
 	if (wolfSSL_set_quic_transport_params(wsi->tls.ssl, tp, tp_len) != 1)
 		return -1;
@@ -465,6 +510,8 @@ openssl_quic_ext_parse_cb(SSL *ssl, unsigned int ext_type,
 
 	if (!wsi)
 		return 1;
+
+	lwsl_wsi_notice(wsi, "openssl_quic_ext_parse_cb: ext_type %u, inlen %zu", ext_type, inlen);
 
 	wsi->tls.quic_tp_recv = lws_malloc(inlen, "quic_tp_recv");
 	if (!wsi->tls.quic_tp_recv) {
@@ -560,10 +607,21 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 	wsi->tls.quic_secret_cb = cb;
 	SSL_set_app_data(wsi->tls.ssl, wsi);
 
-	if (lwsi_role_client(wsi))
+	if (lwsi_role_client(wsi)) {
+		if (wsi->flags & LCCSCF_ALLOW_EARLY_DATA) {
+#if !defined(USE_WOLFSSL) && !defined(LWS_WITH_MBEDTLS)
+			SSL_set_early_data_enabled(wsi->tls.ssl, 1);
+#endif
+		}
 		SSL_set_connect_state(wsi->tls.ssl);
-	else
+	} else {
+		if (wsi->a.vhost && (wsi->a.vhost->options & LWS_SERVER_OPTION_ALLOW_EARLY_DATA)) {
+#if !defined(USE_WOLFSSL) && !defined(LWS_WITH_MBEDTLS)
+			SSL_set_early_data_enabled(wsi->tls.ssl, 1);
+#endif
+		}
 		SSL_set_accept_state(wsi->tls.ssl);
+	}
 
 	SSL_CTX_set_keylog_callback(ctx, openssl_quic_keylog_cb);
 
@@ -802,6 +860,17 @@ fail:
 	if (cctx) SSL_CTX_free(cctx);
 	if (sctx) SSL_CTX_free(sctx);
 	return -1;
+}
+
+int
+lws_tls_quic_migrate_wsi(struct lws *old_wsi, struct lws *new_wsi)
+{
+	if (!new_wsi || !new_wsi->tls.ssl)
+		return -1;
+
+	SSL_set_app_data(new_wsi->tls.ssl, new_wsi);
+
+	return 0;
 }
 
 #endif

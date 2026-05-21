@@ -197,13 +197,23 @@ __lws_reset_wsi(struct lws *wsi)
 	wsi->close_when_buffered_out_drained = wsi->could_have_pending = 0;
 #endif
 
+#if defined(LWS_ROLE_QUIC)
+	lws_quic_stream_cleanup(wsi);
+	memset(&wsi->quic, 0, sizeof(wsi->quic));
+#endif
+
+#if defined(LWS_ROLE_H3)
+	memset(&wsi->h3, 0, sizeof(wsi->h3));
+#endif
+
 #if defined(LWS_WITH_CLIENT)
 	wsi->do_ws = wsi->chunked = wsi->client_rx_avail =
 	wsi->client_http_body_pending = wsi->transaction_from_pipeline_queue =
 	wsi->keepalive_active = wsi->keepalive_rejected =
 	wsi->redirected_to_get = wsi->client_pipeline = wsi->client_h2_alpn =
 	wsi->client_mux_substream = wsi->client_mux_migrated =
-	wsi->tls_session_reused = wsi->perf_done = 0;
+	wsi->tls_session_reused = wsi->perf_done =
+	wsi->tried_quic = 0;
 
 	wsi->immortal_substream_count = 0;
 #endif
@@ -319,10 +329,50 @@ lws_remove_child_from_any_parent(struct lws *wsi)
 void
 lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
 {
-	lws_addrinfo_clean(wsi);
-
 	if (wsi->already_did_cce)
 		return;
+
+#if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
+	if (wsi->udp && wsi->tried_quic && wsi->role_ops && !strcmp(wsi->role_ops->name, "quic")) {
+		const char *path = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI);
+		const char *host = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST);
+		const char *ads = wsi->cli_hostname_copy;
+		
+		if (!ads && wsi->stash) 
+			ads = wsi->stash->cis[CIS_ADDRESS];
+
+		if (wsi->dns_sorted_list.count) {
+			struct lws_dll2 *d = lws_dll2_get_head(&wsi->dns_sorted_list);
+			lws_dns_sort_t *ds = lws_container_of(d, lws_dns_sort_t, list);
+			char ads_fallback[48];
+
+			lws_sa46_write_numeric_address(&ds->dest, ads_fallback, sizeof(ads_fallback));
+			lws_dll2_remove(d);
+			lws_free(ds);
+
+			if (ads_fallback[0] && host && path) {
+				lwsl_wsi_notice(wsi, "QUIC fail, trying next DNS result %s", ads_fallback);
+				lws_addrinfo_clean(wsi);
+				if (lws_client_reset(&wsi, (int)wsi->tls.use_ssl, ads_fallback, wsi->c_port, path, host, 1)) {
+					return;
+				}
+			}
+		}
+			
+		if (ads && host && path) {
+			wsi->tried_quic = 0;
+			lwsl_wsi_notice(wsi, "QUIC connection failed, falling back to TCP");
+			lws_free_set_NULL(wsi->udp);
+			lws_addrinfo_clean(wsi);
+			if (lws_client_reset(&wsi, (int)wsi->tls.use_ssl, ads, wsi->c_port, path, host, 1)) {
+				/* Successfully scheduled fallback */
+				return;
+			}
+		}
+	}
+#endif
+
+	lws_addrinfo_clean(wsi);
 
 	wsi->already_did_cce = 1;
 
@@ -358,6 +408,9 @@ lws_addrinfo_clean(struct lws *wsi)
 static void
 lws_async_worker_wait_and_reap(struct lws *wsi)
 {
+	if (!wsi->async_worker_job)
+		return;
+
 	while (1) {
 		pthread_mutex_lock(&wsi->a.context->async_worker_mutex);
 		if (!wsi->async_worker_job) {
@@ -1016,7 +1069,7 @@ __lws_close_free_wsi_final(struct lws *wsi)
 		if (wsi->client_mux_substream_was)
 			wsi->h2.END_STREAM = wsi->h2.END_HEADERS = 0;
 #endif
-#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT)
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT) || defined(LWS_ROLE_H3)
 		if (wsi->mux.parent_wsi) {
 			lws_wsi_mux_sibling_disconnect(wsi);
 			wsi->mux.parent_wsi = NULL;

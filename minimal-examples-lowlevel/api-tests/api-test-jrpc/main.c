@@ -209,10 +209,9 @@ static const lws_jrpc_method_t methods[] = {
 
 int main(int argc, const char **argv)
 {
-	int n, m, e = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+	int n, m, e = 0;
 	struct lws_jrpc_obj *req;
 	struct lws_jrpc *jrpc;
-	const char *p;
 	(void)switches;
 
 	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
@@ -221,10 +220,7 @@ int main(int argc, const char **argv)
 	}
 
 
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
-		logs = atoi(p);
 
-	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS API selftest: JSON-RPC\n");
 
 	for (m = 0; m < (int)LWS_ARRAY_SIZE(jrpc_request_tests); m++) {

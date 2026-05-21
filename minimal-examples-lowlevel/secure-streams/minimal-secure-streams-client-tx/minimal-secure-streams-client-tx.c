@@ -159,7 +159,7 @@ static const lws_ss_info_t ssi = {
 
 int main(int argc, const char **argv)
 {
-	int n = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+	int n = 0;
 	struct lws_context_creation_info info;
 	struct lws_context *context;
 	const char *p;
@@ -173,17 +173,14 @@ int main(int argc, const char **argv)
 
 	signal(SIGINT, sigint_handler);
 
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
-		logs = atoi(p);
 
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_C].sw)))
 		reads = atoi(p);
 
-	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS secure streams client TX [-d<verb>]\n");
 
-	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
-
+	lws_context_info_defaults(&info, NULL);
+	lws_cmdline_option_handle_builtin(argc, argv, &info);
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.fd_limit_per_thread = 1 + 6 + 1;
 	info.port = CONTEXT_PORT_NO_LISTEN;

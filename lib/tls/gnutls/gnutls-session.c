@@ -173,13 +173,16 @@ lws_tls_session_new_gnutls(struct lws *wsi)
 	lws_tls_scm_t *ts;
 	size_t nl;
 	gnutls_datum_t gd;
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 	const char *disposition = "reuse";
+#endif
 
 	if (!wsi || !wsi->tls.ssl || !wsi->a.vhost)
 		return 0;
 
 	vh = wsi->a.vhost;
-	if (vh->options & LWS_SERVER_OPTION_DISABLE_TLS_SESSION_CACHE)
+	if ((vh->options & LWS_SERVER_OPTION_DISABLE_TLS_SESSION_CACHE) ||
+	    vh->being_destroyed)
 		return 0;
 
 	if (lws_tls_session_tag_from_wsi(wsi, buf, sizeof(buf))) {
@@ -191,7 +194,10 @@ lws_tls_session_new_gnutls(struct lws *wsi)
 
 	int ret = gnutls_session_get_data2((gnutls_session_t)wsi->tls.ssl, &gd);
 	if (ret != GNUTLS_E_SUCCESS) {
-		lwsl_tlssess("%s: gnutls_session_get_data2 failed: %d (%s)\n", __func__, ret, gnutls_strerror(ret));
+		if (ret == GNUTLS_E_INTERNAL_ERROR)
+			lwsl_debug("%s: gnutls_session_get_data2 failed: %d (%s)\n", __func__, ret, gnutls_strerror(ret));
+		else
+			lwsl_tlssess("%s: gnutls_session_get_data2 failed: %d (%s)\n", __func__, ret, gnutls_strerror(ret));
 		return 0;
 	}
 
@@ -251,7 +257,9 @@ lws_tls_session_new_gnutls(struct lws *wsi)
 				 (int64_t)vh->tls.tls_session_cache_ttl *
 							 LWS_US_PER_SEC);
 
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 		disposition = "new";
+#endif
 	} else {
 		if (!ts->ser_data) {
 			ts->ser_data = lws_malloc(sizeof(*ts->ser_data), __func__);
@@ -285,7 +293,12 @@ lws_tls_session_new_gnutls(struct lws *wsi)
 	lws_context_unlock(vh->context); /* } cx --------------  */
 
 	lwsl_tlssess("%s: %s %s, (%s:%u)\n", __func__,
-		     disposition, buf, vh->name,
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
+		     disposition,
+#else
+		     "",
+#endif
+		     buf, vh->name,
 		     (unsigned int)vh->tls_sessions.count);
 
 	return 1;

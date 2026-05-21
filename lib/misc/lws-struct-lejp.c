@@ -588,7 +588,7 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 			break;
 		}
 
-		if (j->subsequent) {
+		if (j->subsequent && !js->offset) {
 			*buf++ = ',';
 			len--;
 			lws_struct_pretty(js, &buf, &len);
@@ -803,8 +803,10 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 		switch (map->type) {
 		case LSMT_STRING_CHAR_ARRAY:
 		case LSMT_STRING_PTR:
-			*buf++ = '\"';
-			len--;
+			if (!js->remaining) {
+				*buf++ = '\"';
+				len--;
+			}
 			break;
 		case LSMT_SCHEMA:
 			continue;

@@ -4,6 +4,5 @@ document.addEventListener('DOMContentLoaded', () => {
     if (error) {
         const errorMsg = document.getElementById('error-msg');
         errorMsg.textContent = decodeURIComponent(error);
-        errorMsg.style.display = 'block';
     }
 });

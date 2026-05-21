@@ -124,7 +124,7 @@ lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *z
 			if (lptr > 0) {
 				lws_tokenize_t ts;
 				lws_tokenize_elem e;
-				lws_tokenize_init(&ts, line_accum, LWS_TOKENIZE_F_HASH_COMMENT | LWS_TOKENIZE_F_DOT_NONTERM | LWS_TOKENIZE_F_NO_FLOATS | LWS_TOKENIZE_F_MINUS_NONTERM | LWS_TOKENIZE_F_SLASH_NONTERM | LWS_TOKENIZE_F_COLON_NONTERM | LWS_TOKENIZE_F_EQUALS_NONTERM | LWS_TOKENIZE_F_PLUS_NONTERM);
+				lws_tokenize_init(&ts, line_accum, LWS_TOKENIZE_F_DOT_NONTERM | LWS_TOKENIZE_F_NO_FLOATS | LWS_TOKENIZE_F_MINUS_NONTERM | LWS_TOKENIZE_F_SLASH_NONTERM | LWS_TOKENIZE_F_COLON_NONTERM | LWS_TOKENIZE_F_EQUALS_NONTERM | LWS_TOKENIZE_F_PLUS_NONTERM);
 				ts.len = lptr;
 
 				char toks[32][256];
@@ -244,6 +244,10 @@ lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *z
 							else if (!strcasecmp(toks[type_idx], "NSEC3PARAM")) type = 51;
 							else if (!strcasecmp(toks[type_idx], "TLSA")) type = 52;
 							else if (!strcasecmp(toks[type_idx], "CAA")) type = 257;
+							else if (!strcasecmp(toks[type_idx], "HTTPS")) type = 65;
+							else if (!strncasecmp(toks[type_idx], "TYPE", 4) &&
+								 toks[type_idx][4] >= '0' && toks[type_idx][4] <= '9')
+								type = (uint16_t)atoi(toks[type_idx] + 4);
 							else type = 0; /* unknown */
 							type_idx++;
 						}
@@ -472,6 +476,7 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 			case 51: ts = "NSEC3PARAM"; break;
 			case 52: ts = "TLSA"; break;
 			case 257: ts = "CAA"; break;
+			case 65: ts = "HTTPS"; break;
 		}
 
 		lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&rs->rr_list)) {

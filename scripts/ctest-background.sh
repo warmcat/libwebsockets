@@ -46,7 +46,12 @@ if [ -z "${SAI_LIST_PORT}" ] ; then
 else
 	if [ "`uname -s`" = "Darwin" ] || [ "${VENDOR}" = "apple" ] ; then
 		CNT=0
-		while ! lsof -P -n -i :${SAI_LIST_PORT} >/dev/null 2>/dev/null ; do
+		while true ; do
+			if [ -n "$SAI_LIST_IS_UDP" ] ; then
+				lsof -P -n -iUDP:${SAI_LIST_PORT} >/dev/null 2>/dev/null && break
+			else
+				lsof -P -n -iTCP:${SAI_LIST_PORT} -sTCP:LISTEN >/dev/null 2>/dev/null && break
+			fi
 			if ! kill -0 $! 2>/dev/null ; then
 				echo "Background process died while waiting for port ${SAI_LIST_PORT}" >&2
 				echo "Background process logs:" >&2
@@ -69,7 +74,13 @@ else
 		done
 	else
 		CNT=0
-		while [ -z "`netstat -ltun4 | tr -s ' ' | grep ":${SAI_LIST_PORT} "`" ] ; do
+		while true ; do
+			if [ -n "$SAI_LIST_IS_UDP" ] ; then
+				MATCH="`netstat -lun4 | tr -s ' ' | grep ":${SAI_LIST_PORT} "`"
+			else
+				MATCH="`netstat -ltn4 | tr -s ' ' | grep ":${SAI_LIST_PORT} .*LISTEN"`"
+			fi
+			if [ -n "$MATCH" ] ; then break ; fi
 			if ! kill -0 $! 2>/dev/null ; then
 				echo "Background process died while waiting for port ${SAI_LIST_PORT}" >&2
 				echo "Background process logs:" >&2

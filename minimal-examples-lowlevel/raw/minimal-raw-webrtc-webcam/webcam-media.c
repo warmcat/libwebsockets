@@ -28,7 +28,7 @@ media_update_scaler(struct per_vhost_data *vhd)
 		lws_transcode_destroy(&vhd->tcc_enc);
 
 		memset(&info, 0, sizeof(info));
-		info.codec = LWS_TCC_H264;
+	info.codec = LWS_TCC_H264;
 		info.width = vhd->target_width;
 		info.height = vhd->target_height;
 		info.fps = 30;

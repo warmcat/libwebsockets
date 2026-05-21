@@ -48,9 +48,10 @@ lws_http_client_connect_via_info2(struct lws *wsi)
 
 	wsi->a.opaque_user_data = wsi->stash->opaque_user_data;
 
-	if (stash->cis[CIS_METHOD] && (!strcmp(stash->cis[CIS_METHOD], "RAW") ||
+	if ((stash->cis[CIS_METHOD] && (!strcmp(stash->cis[CIS_METHOD], "RAW") ||
 				      !strcmp(stash->cis[CIS_METHOD], "MQTT") ||
-				      !strcmp(stash->cis[CIS_METHOD], "QUIC")))
+				      !strcmp(stash->cis[CIS_METHOD], "QUIC"))) ||
+	    (stash->cis[CIS_ALPN] && !strcmp(stash->cis[CIS_ALPN], "h3")))
 		goto no_ah;
 
 	/*
@@ -134,7 +135,15 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	const char *cisin[CIS_COUNT];
 	char buf_localport[8];
 	struct lws_vhost *vh;
+	const char *alpn = i->alpn;
 	int tsi;
+
+	if (i->context->options & LWS_SERVER_OPTION_CMDLINE_FORCE_H3)
+		alpn = "h3";
+	else if (i->context->options & LWS_SERVER_OPTION_CMDLINE_FORCE_H2)
+		alpn = "h2";
+	else if (i->context->options & LWS_SERVER_OPTION_CMDLINE_FORCE_H1)
+		alpn = "http/1.1";
 
 	if (i->context->requested_stop_internal_loops)
 		return NULL;
@@ -361,7 +370,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	cisin[CIS_IFACE]	= i->iface;
 	lws_snprintf(buf_localport, sizeof(buf_localport), "%u", i->local_port);
 	cisin[CIS_LOCALPORT]	= buf_localport;
-	cisin[CIS_ALPN]		= i->alpn;
+	cisin[CIS_ALPN]		= alpn;
 	cisin[CIS_USERNAME]	= i->auth_username;
 	cisin[CIS_PASSWORD]	= i->auth_password;
 
@@ -383,8 +392,8 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 		goto bail;
 
 #if defined(LWS_WITH_TLS)
-	if (i->alpn)
-		lws_strncpy(wsi->alpn, i->alpn, sizeof(wsi->alpn));
+	if (alpn)
+		lws_strncpy(wsi->alpn, alpn, sizeof(wsi->alpn));
 #endif
 
 	wsi->a.opaque_user_data = wsi->stash->opaque_user_data =
@@ -500,10 +509,9 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 					     i->uri_replace_to);
 #endif
 
-	if (i->method && (!strcmp(i->method, "RAW") ||
-			  !strcmp(i->method, "QUIC") // ||
-//			  !strcmp(i->method, "MQTT")
-	)) {
+	if ((i->method && (!strcmp(i->method, "RAW") ||
+			  !strcmp(i->method, "QUIC"))) ||
+	    (alpn && !strcmp(alpn, "h3"))) {
 
 		/*
 		 * Not for MQTT here, since we don't know if we will

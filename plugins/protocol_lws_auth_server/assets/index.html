@@ -28,11 +28,9 @@
 
             <!-- No JS Notification -->
             <noscript>
-                <style>
-                    #login-form, #register-form, #totp-setup-box, #registration-toggle-box, #login-toggle-box { display: none !important; }
-                </style>
-                <div class="auth-form active" style="text-align: center;">
-                    <p style="color: #f8fafc; font-size: 1.1rem; margin-bottom: 10px;">JavaScript is Required</p>
+                <link rel="stylesheet" href="nojs.css">
+                <div class="auth-form active text-center">
+                    <p class="js-req-title">JavaScript is Required</p>
                     <p>This login portal relies on JavaScript to function securely. Please enable JavaScript in your browser settings and refresh the page to continue.</p>
                 </div>
             </noscript>
@@ -59,7 +57,7 @@
                     </div>
                     <input type="hidden" id="login-totp" name="totp">
                 </div>
-                <button type="submit" id="login-btn" style="display: none;"></button>
+                <button type="submit" id="login-btn" class="hidden"></button>
             </form>
 
             <!-- Registration Form (Hidden natively... it is toggled via JS) -->
@@ -99,7 +97,7 @@
 
             <div class="panel-footer" id="registration-toggle-box">
                 <p>New to the network? <button type="button" class="btn-link" id="switch-to-reg">Register here</button></p>
-                <p style="margin-top: 5px;"><button type="button" class="btn-link" id="switch-to-forgot" style="font-size: 0.9em; opacity: 0.8;">Forgot Password?</button></p>
+                <p class="forgot-btn-wrap"><button type="button" class="btn-link forgot-btn" id="switch-to-forgot">Forgot Password?</button></p>
             </div>
             <div class="panel-footer hidden" id="login-toggle-box">
                 <p>Already have clearance? <button type="button" class="btn-link" id="switch-to-login">Access Portal</button></p>

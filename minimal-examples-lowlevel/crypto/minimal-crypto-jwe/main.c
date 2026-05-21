@@ -101,8 +101,7 @@ format_c(const char *key)
 
 int main(int argc, const char **argv)
 {
-	int n, enc = 0, result = 0,
-	    logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+	int n, enc = 0, result = 0;
 	char *in;
 	struct lws_context_creation_info info;
 	int temp_len = sizeof(temp);
@@ -117,13 +116,11 @@ int main(int argc, const char **argv)
 	}
 
 
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
-		logs = atoi(p);
 
-	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS JWE example tool\n");
 
-	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
+	lws_context_info_defaults(&info, NULL);
+	lws_cmdline_option_handle_builtin(argc, argv, &info);
 #if defined(LWS_WITH_NETWORK)
 	info.port = CONTEXT_PORT_NO_LISTEN;
 #endif

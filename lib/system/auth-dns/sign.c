@@ -127,7 +127,7 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 	int num_toks = 0, n;
 
 	memset(toks, 0, sizeof(toks));
-	lws_tokenize_init(&ts, rr->rdata, LWS_TOKENIZE_F_HASH_COMMENT | LWS_TOKENIZE_F_DOT_NONTERM | LWS_TOKENIZE_F_NO_FLOATS | LWS_TOKENIZE_F_MINUS_NONTERM | LWS_TOKENIZE_F_SLASH_NONTERM | LWS_TOKENIZE_F_COLON_NONTERM | LWS_TOKENIZE_F_EQUALS_NONTERM | LWS_TOKENIZE_F_PLUS_NONTERM | LWS_TOKENIZE_F_CHUNK);
+	lws_tokenize_init(&ts, rr->rdata, LWS_TOKENIZE_F_DOT_NONTERM | LWS_TOKENIZE_F_NO_FLOATS | LWS_TOKENIZE_F_MINUS_NONTERM | LWS_TOKENIZE_F_SLASH_NONTERM | LWS_TOKENIZE_F_COLON_NONTERM | LWS_TOKENIZE_F_EQUALS_NONTERM | LWS_TOKENIZE_F_PLUS_NONTERM | LWS_TOKENIZE_F_CHUNK);
 	ts.len = strlen(rr->rdata);
 
 	int max_tokens = 0;
@@ -156,6 +156,31 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 			}
 		}
 	} while (e > 0);
+
+	/* Check for generic RFC 3597 representation: starts with \# */
+	const char *rd_start = rr->rdata;
+	while (*rd_start == ' ' || *rd_start == '\t') rd_start++;
+	if (rd_start[0] == '\\' && rd_start[1] == '#') {
+		if (num_toks < 2) goto fail;
+		int gen_len = atoi(toks[0]);
+		if (gen_len < 0 || gen_len > 65535) goto fail;
+
+		char hex_accum[65536] = "";
+		for (int i = 1; i < num_toks; i++) {
+			strncat(hex_accum, toks[i], sizeof(hex_accum) - strlen(hex_accum) - 1);
+		}
+		size_t hlen = strlen(hex_accum) / 2;
+		if (hlen != (size_t)gen_len) {
+			lwsl_err("generic RDATA length mismatch: expected %d, got %zu\n", gen_len, hlen);
+			goto fail;
+		}
+		lws_hex_to_byte_array(hex_accum, w, gen_len);
+		wl = (size_t)gen_len;
+
+		rr->wire_rdata = w;
+		rr->wire_rdata_len = wl;
+		return 0;
+	}
 
 	if (type == 1 && num_toks >= 1) { // A
 		struct sockaddr_in sin;
@@ -281,6 +306,7 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 			else if (!strcmp(toks[i], "NSEC3PARAM")) ty = 51;
 			else if (!strcmp(toks[i], "TLSA")) ty = 52;
 			else if (!strcmp(toks[i], "CAA")) ty = 257;
+			else if (!strcmp(toks[i], "HTTPS")) ty = 65;
 			else ty = (uint16_t)atoi(toks[i]);
 
 			if (ty > 0) {
@@ -415,6 +441,183 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		} else {
 			memcpy(w + wl, toks[2], (size_t)val_len);
 			wl += (size_t)val_len;
+		}
+	} else if (type == 65 && num_toks >= 2) { // HTTPS
+		uint16_t priority = (uint16_t)atoi(toks[0]);
+		w[wl++] = (uint8_t)(priority >> 8);
+		w[wl++] = (uint8_t)(priority & 0xff);
+
+		size_t av = 512;
+		if (name_to_wire(toks[1], z->origin, w + wl, &av)) goto fail;
+		wl += av;
+
+		for (int i = 2; i < num_toks; i++) {
+			const char *eq = strchr(toks[i], '=');
+			const char *key = toks[i];
+			const char *val = "";
+			char key_name[128];
+			if (eq) {
+				size_t klen = lws_ptr_diff_size_t(eq, key);
+				if (klen >= sizeof(key_name)) klen = sizeof(key_name) - 1;
+				memcpy(key_name, key, klen);
+				key_name[klen] = '\0';
+				val = eq + 1;
+			} else {
+				lws_strncpy(key_name, key, sizeof(key_name));
+			}
+
+			char val_clean[1024];
+			lws_strncpy(val_clean, val, sizeof(val_clean));
+			size_t vlen = strlen(val_clean);
+			if (vlen >= 2 && val_clean[0] == '"' && val_clean[vlen - 1] == '"') {
+				memmove(val_clean, val_clean + 1, vlen - 2);
+				val_clean[vlen - 2] = '\0';
+				vlen -= 2;
+			}
+
+			uint16_t param_key = 0xffff;
+			if (!strcasecmp(key_name, "alpn")) param_key = 1;
+			else if (!strcasecmp(key_name, "no-default-alpn")) param_key = 2;
+			else if (!strcasecmp(key_name, "port")) param_key = 3;
+			else if (!strcasecmp(key_name, "ipv4hint")) param_key = 4;
+			else if (!strcasecmp(key_name, "ech")) param_key = 5;
+			else if (!strcasecmp(key_name, "ipv6hint")) param_key = 6;
+			else if (!strncasecmp(key_name, "key", 3)) param_key = (uint16_t)atoi(key_name + 3);
+
+			if (param_key == 0xffff) continue;
+
+			if (param_key == 1) { /* alpn */
+				size_t alpn_wire_len = 0;
+				const char *p_alpn = val_clean;
+				while (*p_alpn) {
+					const char *comma = strchr(p_alpn, ',');
+					size_t len_item = comma ? lws_ptr_diff_size_t(comma, p_alpn) : strlen(p_alpn);
+					if (len_item > 255) goto fail;
+					alpn_wire_len += 1 + len_item;
+					if (!comma) break;
+					p_alpn = comma + 1;
+				}
+
+				w[wl++] = (uint8_t)(param_key >> 8);
+				w[wl++] = (uint8_t)(param_key & 0xff);
+				w[wl++] = (uint8_t)(alpn_wire_len >> 8);
+				w[wl++] = (uint8_t)(alpn_wire_len & 0xff);
+
+				p_alpn = val_clean;
+				while (*p_alpn) {
+					const char *comma = strchr(p_alpn, ',');
+					size_t len_item = comma ? lws_ptr_diff_size_t(comma, p_alpn) : strlen(p_alpn);
+					w[wl++] = (uint8_t)len_item;
+					memcpy(w + wl, p_alpn, len_item);
+					wl += len_item;
+					if (!comma) break;
+					p_alpn = comma + 1;
+				}
+			} else if (param_key == 2) { /* no-default-alpn */
+				w[wl++] = (uint8_t)(param_key >> 8);
+				w[wl++] = (uint8_t)(param_key & 0xff);
+				w[wl++] = 0;
+				w[wl++] = 0;
+			} else if (param_key == 3) { /* port */
+				uint16_t port_val = (uint16_t)atoi(val_clean);
+				w[wl++] = (uint8_t)(param_key >> 8);
+				w[wl++] = (uint8_t)(param_key & 0xff);
+				w[wl++] = 0;
+				w[wl++] = 2;
+				w[wl++] = (uint8_t)(port_val >> 8);
+				w[wl++] = (uint8_t)(port_val & 0xff);
+			} else if (param_key == 4) { /* ipv4hint */
+				int ip_count = 0;
+				const char *p_ip = val_clean;
+				while (*p_ip) {
+					ip_count++;
+					const char *comma = strchr(p_ip, ',');
+					if (!comma) break;
+					p_ip = comma + 1;
+				}
+
+				w[wl++] = (uint8_t)(param_key >> 8);
+				w[wl++] = (uint8_t)(param_key & 0xff);
+				uint16_t vlen_bytes = (uint16_t)(ip_count * 4);
+				w[wl++] = (uint8_t)(vlen_bytes >> 8);
+				w[wl++] = (uint8_t)(vlen_bytes & 0xff);
+
+				p_ip = val_clean;
+				while (*p_ip) {
+					char ip_str[64];
+					const char *comma = strchr(p_ip, ',');
+					size_t len_item = comma ? lws_ptr_diff_size_t(comma, p_ip) : strlen(p_ip);
+					if (len_item >= sizeof(ip_str)) goto fail;
+					memcpy(ip_str, p_ip, len_item);
+					ip_str[len_item] = '\0';
+
+					struct sockaddr_in sin;
+					if (inet_pton(AF_INET, ip_str, &sin.sin_addr) != 1) goto fail;
+					memcpy(w + wl, &sin.sin_addr, 4);
+					wl += 4;
+
+					if (!comma) break;
+					p_ip = comma + 1;
+				}
+			} else if (param_key == 6) { /* ipv6hint */
+				int ip_count = 0;
+				const char *p_ip = val_clean;
+				while (*p_ip) {
+					ip_count++;
+					const char *comma = strchr(p_ip, ',');
+					if (!comma) break;
+					p_ip = comma + 1;
+				}
+
+				w[wl++] = (uint8_t)(param_key >> 8);
+				w[wl++] = (uint8_t)(param_key & 0xff);
+				uint16_t vlen_bytes = (uint16_t)(ip_count * 16);
+				w[wl++] = (uint8_t)(vlen_bytes >> 8);
+				w[wl++] = (uint8_t)(vlen_bytes & 0xff);
+
+				p_ip = val_clean;
+				while (*p_ip) {
+					char ip_str[128];
+					const char *comma = strchr(p_ip, ',');
+					size_t len_item = comma ? lws_ptr_diff_size_t(comma, p_ip) : strlen(p_ip);
+					if (len_item >= sizeof(ip_str)) goto fail;
+					memcpy(ip_str, p_ip, len_item);
+					ip_str[len_item] = '\0';
+
+					struct sockaddr_in6 sin6;
+					if (inet_pton(AF_INET6, ip_str, &sin6.sin6_addr) != 1) goto fail;
+					memcpy(w + wl, &sin6.sin6_addr, 16);
+					wl += 16;
+
+					if (!comma) break;
+					p_ip = comma + 1;
+				}
+			} else if (param_key == 5) { /* ech (base64) */
+				size_t dec_max = strlen(val_clean);
+				uint8_t *dec_buf = lws_malloc(dec_max, "ech_dec");
+				if (!dec_buf) goto fail;
+				int dec_len = lws_b64_decode_string(val_clean, (char *)dec_buf, (int)dec_max);
+				if (dec_len < 0) {
+					lws_free(dec_buf);
+					goto fail;
+				}
+
+				size_t dlen = (size_t)dec_len;
+				w[wl++] = (uint8_t)(param_key >> 8);
+				w[wl++] = (uint8_t)(param_key & 0xff);
+				w[wl++] = (uint8_t)(dlen >> 8);
+				w[wl++] = (uint8_t)(dlen & 0xff);
+				memcpy(w + wl, dec_buf, dlen);
+				wl += dlen;
+				lws_free(dec_buf);
+			} else { /* generic custom keys (raw string) */
+				w[wl++] = (uint8_t)(param_key >> 8);
+				w[wl++] = (uint8_t)(param_key & 0xff);
+				w[wl++] = (uint8_t)(vlen >> 8);
+				w[wl++] = (uint8_t)(vlen & 0xff);
+				memcpy(w + wl, val_clean, vlen);
+				wl += vlen;
+			}
 		}
 	} else {
 		{ lwsl_err("FAIL on rdata: %s (toks[0]: %s)", rr->rdata, toks[0]); goto fail; }
@@ -753,6 +956,7 @@ lws_auth_dns_add_nsec3(struct auth_dns_zone *z, const char *salt_hex, int iterat
 				case 51: ts = "NSEC3PARAM"; break;
 				case 52: ts = "TLSA"; break;
 				case 257: ts = "CAA"; break;
+				case 65: ts = "HTTPS"; break;
 			}
 			/* Append type if not already there */
 			if (!(char *)strstr(nodes[found]->type_list, ts)) {

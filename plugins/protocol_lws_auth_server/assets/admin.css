@@ -64,3 +64,13 @@ input[type="text"] {
 .form-group.spaced.bottom { margin-bottom: 1.5rem; }
 .form-label { display: block; }
 .form-input { width: 100%; padding: 0.5rem; margin-top: 0.3rem; box-sizing: border-box; }
+
+.redirect-uri-cell {
+    word-break: break-all;
+    font-size: 0.9em;
+}
+
+.protected-admin-label {
+    color: var(--text-muted);
+    font-style: italic;
+}

@@ -81,7 +81,7 @@ static const struct lws_protocol_vhost_options pvo = {
 
 int main(int argc, const char **argv)
 {
-	int n = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+	int n = 0;
 	struct lws_context_creation_info info;
 	struct lws_context *context;
 	char outward[256];
@@ -96,10 +96,7 @@ int main(int argc, const char **argv)
 
 	signal(SIGINT, sigint_handler);
 
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
-		logs = atoi(p);
 
-	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS minimal raw proxy fallback | visit http://localhost:7681\n");
 
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_R].sw))) {
@@ -107,7 +104,8 @@ int main(int argc, const char **argv)
 		pvo1.value = outward;
 	}
 
-	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
+	lws_context_info_defaults(&info, NULL);
+	lws_cmdline_option_handle_builtin(argc, argv, &info);
 	info.port = 7681;
 	info.pvo = &pvo;
 	info.mounts = &mount;

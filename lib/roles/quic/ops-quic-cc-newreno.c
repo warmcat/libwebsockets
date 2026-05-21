@@ -128,7 +128,10 @@ newreno_on_loss(struct lws *nwsi, size_t bytes_lost)
 
 	st->cwnd = st->ssthresh;
 
-	lwsl_cx_notice(nwsi->a.context, "QUIC NewReno: loss detected, cwnd reduced to %zu", st->cwnd);
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
+	LWS_RATELIMIT_DEFINE_STATIC(rl);
+	lwsl_ratelimit_info(&rl, 1000000, "QUIC NewReno: loss detected, cwnd reduced to %zu", st->cwnd);
+#endif
 }
 
 static int

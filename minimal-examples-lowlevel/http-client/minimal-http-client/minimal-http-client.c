@@ -110,6 +110,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 			lws_get_peer_simple(wsi, buf, sizeof(buf));
 			status = (int)lws_http_client_http_response(wsi);
+			lwsl_user("Connected with server response: %d\n", status);
 
 #if defined(LWS_WITH_ALLOC_METADATA_LWS)
 			_lws_alloc_metadata_dump_lws(lws_alloc_metadata_dump_stdout, NULL);
@@ -200,6 +201,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		lwsl_user("LWS_CALLBACK_CLOSED_CLIENT_HTTP\n");
 		interrupted = 1;
 		bad = status != 200;
 		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
@@ -280,12 +282,9 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 			    LCCSCF_H2_QUIRK_NGHTTP2_END_STREAM;
 
 	i.alpn = "h2,http/1.1";
-	if (lws_cmdline_option(a->argc, a->argv, "--h1"))
-		i.alpn = "http/1.1";
 	if (lws_cmdline_option(a->argc, a->argv, "--h3")) {
-		i.alpn = "h3";
 		i.method = "QUIC";
-		i.address = "google.com";
+		i.address = "cloudflare-quic.com";
 		i.port = 443;
 	}
 
@@ -382,12 +381,12 @@ int main(int argc, const char **argv)
 
 	signal(SIGINT, sigint_handler);
 
-	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
-	lws_cmdline_option_handle_builtin(argc, argv, &info);
+	lws_context_info_defaults(&info, NULL);lws_cmdline_option_handle_builtin(argc, argv, &info);
 
-	lwsl_user("LWS minimal http client [-d<verbosity>] [-l] [--h1]\n");
+	lwsl_user("LWS minimal http client [-d<verbosity>] [-l]\n");
 
-	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
+	info.options &= ~((uint64_t)LWS_SERVER_OPTION_EXPLICIT_VHOSTS);
+	info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
 		       LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW;
 	info.port = CONTEXT_PORT_NO_LISTEN; /* we do not run any server */
 	info.protocols = protocols;
@@ -434,6 +433,7 @@ int main(int argc, const char **argv)
 		memcert[info.client_ssl_ca_mem_len++] = '\0';
 	}
 #endif
+        lwsl_user("CA FILEPATH: %s\n", info.client_ssl_ca_filepath);
 	context = lws_create_context(&info);
 	if (!context) {
 		lwsl_err("lws init failed\n");

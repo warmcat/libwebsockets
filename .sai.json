@@ -12,7 +12,7 @@
 		},
 		"netbsd-OSX-bigsur/x86_64-intel-i3/llvm": {
                         "build": [
-				"mkdir -p build destdir; cd build; CCACHE_DISABLE=1 LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib MACOSX_DEPLOYMENT_TARGET=15.7 cmake .. -DCMAKE_MAKE_PROGRAM=/usr/bin/make ${cmake}",
+				"mkdir -p build destdir; cd build; CCACHE_DISABLE=1 LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib MACOSX_DEPLOYMENT_TARGET=15.7 cmake .. -DCMAKE_MAKE_PROGRAM=/usr/bin/make -DLWS_GNUTLS_INCLUDE_DIRS=/usr/local/include -DLWS_GNUTLS_LIBRARIES=/usr/local/lib/libgnutls.dylib ${cmake}",
                                 "cd build && make -j$SAI_PARALLEL && rm -rf ../destdir && make -j$SAI_PARALLEL DESTDIR=../destdir install",
 				"cd build ; export LD_LIBRARY_PATH=\"$HOME/jobs/$SAI_VN/src/build/lib\" ; ctest -j$SAI_PARALLEL --output-on-failure --repeat until-pass:3",
                                 "cd build && SAI_CPACK=\"-G ZIP\" ${cpack}"
@@ -20,7 +20,7 @@
 		},
 		"netbsd-OSX-tahoe/aarch64-apple-m1/llvm": {
                         "build": [
-				"mkdir -p build destdir; cd build; CCACHE_DISABLE=1 LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib MACOSX_DEPLOYMENT_TARGET=26 cmake .. -DCMAKE_MAKE_PROGRAM=/usr/bin/make ${cmake}",
+				"mkdir -p build destdir; cd build; CCACHE_DISABLE=1 LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib MACOSX_DEPLOYMENT_TARGET=26 cmake .. -DCMAKE_MAKE_PROGRAM=/usr/bin/make -DLWS_GNUTLS_INCLUDE_DIRS=/System/Volumes/Data/opt/homebrew/Cellar/gnutls/3.8.13_2/include -DLWS_GNUTLS_LIBRARIES=/System/Volumes/Data/opt/homebrew/Cellar/gnutls/3.8.13_2/lib/libgnutls.dylib ${cmake}",
                                 "cd build && make -j$SAI_PARALLEL && rm -rf ../destdir && make -j$SAI_PARALLEL DESTDIR=../destdir install",
 				"cd build ; export LD_LIBRARY_PATH=\"$HOME/jobs/$SAI_VN/src/build/lib\" ; ctest -j$SAI_PARALLEL --output-on-failure --repeat until-pass:3",
                                 "cd build && SAI_CPACK=\"-G ZIP\" ${cpack}"
@@ -156,10 +156,10 @@
 			"cmake":	"-DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_TLS_SESSIONS=1"
 		},
 		"h1only-examples": {
-			"cmake":	"-DLWS_WITH_HTTP2=0 -DLWS_WITH_MINIMAL_EXAMPLES=1"
+			"cmake":	"-DLWS_WITH_HTTP3=0 -DLWS_WITH_HTTP2=0 -DLWS_WITH_MINIMAL_EXAMPLES=1"
 		},
 		"h1only-notls": {
-			"cmake":	"-DLWS_WITH_HTTP2=0 -DLWS_WITH_SSL=OFF"
+			"cmake":	"-DLWS_WITH_HTTP3=0 -DLWS_WITH_HTTP2=0 -DLWS_WITH_SSL=OFF"
 		},
 		"unix-domain": {
 			"cmake":	"-DUNIX_SOCK=1"
@@ -203,7 +203,7 @@
 			"cmake": "-DLWS_WITH_MBEDTLS=1 -DLWS_WITHOUT_TESTAPPS=1"
 		},
 		"mbedtls": {
-			"cmake":	"-DLWS_WITH_MBEDTLS=1 -DLWS_WITH_QUIC=1 -DLWS_WITH_HTTP2=1 -DLWS_WITH_LWSWS=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_JOSE=1 -DCMAKE_BUILD_TYPE=DEBUG"
+			"cmake":	"-DLWS_WITH_MBEDTLS=1 -DLWS_WITH_HTTP3=1 -DLWS_WITH_HTTP2=1 -DLWS_WITH_LWSWS=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_JOSE=1 -DCMAKE_BUILD_TYPE=DEBUG"
 		},
 		"mbedtls-metrics": {
 			"cmake":	"-DLWS_WITH_MBEDTLS=1 -DLWS_WITH_HTTP2=1 -DLWS_WITH_LWSWS=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_JOSE=1 -DCMAKE_BUILD_TYPE=DEBUG -DLWS_WITH_SYS_METRICS=1"

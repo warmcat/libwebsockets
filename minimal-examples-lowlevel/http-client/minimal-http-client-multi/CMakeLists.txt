@@ -26,7 +26,12 @@ require_lws_config(LWS_WITH_MBEDTLS 1 MBEDTLS)
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
 	
-	find_program(VALGRIND "valgrind")
+	option(USE_VALGRIND_IF_AVAILABLE "Use valgrind for tests if available" OFF)
+	if (USE_VALGRIND_IF_AVAILABLE)
+		find_program(VALGRIND "valgrind")
+	else()
+		set(VALGRIND "")
+	endif()
 	
        #
        # instantiate the server per sai builder instance, they are running in the same

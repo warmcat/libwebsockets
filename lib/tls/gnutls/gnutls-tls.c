@@ -39,6 +39,8 @@ lws_context_deinit_ssl_library(struct lws_context *context)
 	gnutls_global_deinit();
 }
 
+#if defined(LWS_WITH_NETWORK)
+
 void
 lws_tls_vhost_backend_free_ctx(lws_tls_ctx *ctx)
 {
@@ -76,6 +78,7 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 	return 0;
 }
 
+#if !defined(LWS_WITHOUT_SERVER)
 int
 lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 				  struct lws_vhost *vhost, struct lws *wsi)
@@ -112,7 +115,9 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 
 	return 0;
 }
+#endif
 
+#if defined(LWS_WITH_CLIENT)
 int
 lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 				    const struct lws_context_creation_info *info,
@@ -159,6 +164,48 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 
 	return 0;
 }
+#endif
+
+#if !defined(LWS_WITHOUT_SERVER)
+static int
+lws_gnutls_server_name_cb(gnutls_session_t session)
+{
+	struct lws *wsi = (struct lws *)gnutls_session_get_ptr(session);
+	struct lws_vhost *vhost;
+	char servername[256];
+	size_t len = sizeof(servername) - 1;
+	unsigned int type;
+
+	if (!wsi)
+		return 0;
+
+	if (gnutls_server_name_get(session, servername, &len, &type, 0) < 0) {
+		lwsl_info("SNI: Unknown ServerName\n");
+		return 0;
+	}
+	servername[len] = '\0';
+
+	vhost = lws_select_vhost(wsi->a.context, wsi->a.vhost->listen_port, servername);
+	if (!vhost) {
+		lwsl_info("SNI: none: %s:%d\n", servername, wsi->a.vhost->listen_port);
+		return 0;
+	}
+
+	lwsl_info("SNI: Found: %s:%d\n", servername, wsi->a.vhost->listen_port);
+
+	if (!vhost->tls.ssl_ctx) {
+		lwsl_info("SNI: %s has no tls ctx yet\n", servername);
+		return 0;
+	}
+
+	/* select the credentials from the selected vhost for this session */
+	gnutls_credentials_set(session, GNUTLS_CRD_CERTIFICATE, vhost->tls.ssl_ctx->creds);
+
+	/* And update wsi's bound vhost! */
+	lws_vhost_bind_wsi(vhost, wsi);
+
+	return 0;
+}
 
 int
 lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
@@ -175,6 +222,9 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 	gnutls_credentials_set(session, GNUTLS_CRD_CERTIFICATE, wsi->tls.ctx_ref ? wsi->tls.ctx_ref->ctx->creds : wsi->a.vhost->tls.ssl_ctx->creds);
 	gnutls_transport_set_int((gnutls_session_t)wsi->tls.ssl, (int)accept_fd);
 
+	gnutls_session_set_ptr(session, wsi);
+	gnutls_handshake_set_post_client_hello_function(session, lws_gnutls_server_name_cb);
+
 	if (wsi->a.vhost->tls.alpn_ctx.len) {
 		gnutls_datum_t alpn[4];
 		unsigned int i = 0, p = 0;
@@ -189,7 +239,9 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 
 	return 0;
 }
+#endif
 
+#if defined(LWS_WITH_CLIENT)
 int
 lws_ssl_client_bio_create(struct lws *wsi)
 {
@@ -252,6 +304,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 
 	return 0;
 }
+#endif
 
 void
 lws_ssl_SSL_CTX_destroy(struct lws_vhost *vhost)
@@ -260,12 +313,14 @@ lws_ssl_SSL_CTX_destroy(struct lws_vhost *vhost)
 		lws_tls_vhost_backend_free_ctx(vhost->tls.ssl_ctx);
 		vhost->tls.ssl_ctx = NULL;
 	}
+#if defined(LWS_WITH_CLIENT)
 	if (vhost->tls.ssl_client_ctx) {
 		gnutls_certificate_free_credentials(vhost->tls.ssl_client_ctx->creds);
 		gnutls_priority_deinit(vhost->tls.ssl_client_ctx->priority);
 		lws_free(vhost->tls.ssl_client_ctx);
 		vhost->tls.ssl_client_ctx = NULL;
 	}
+#endif
 }
 
 lws_tls_ctx *
@@ -285,6 +340,7 @@ lws_ssl_context_destroy(struct lws_context *context)
 
 
 
+#if defined(LWS_WITH_CLIENT)
 int
 lws_tls_client_vhost_extra_cert_mem(struct lws_vhost *vh, const uint8_t *der, size_t len)
 {
@@ -304,6 +360,7 @@ lws_tls_client_vhost_extra_cert_mem(struct lws_vhost *vh, const uint8_t *der, si
 
 	return 0;
 }
+#endif
 
 int
 lws_tls_vhost_cert_info(struct lws_vhost *vhost, enum lws_tls_cert_info type,
@@ -364,6 +421,7 @@ lws_tls_vhost_cert_info(struct lws_vhost *vhost, enum lws_tls_cert_info type,
 	return -1;
 }
 
+#if !defined(LWS_WITHOUT_SERVER)
 int
 lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 			  const char *cert, const char *private_key,
@@ -411,6 +469,7 @@ lws_tls_server_client_cert_verify_config(struct lws_vhost *vh)
 	 * apply it dynamically when creating sessions if LWS_SERVER_OPTION_REQUIRE_VALID_CLIENT_CERT is set. */
 	return 0;
 }
+#endif
 
 int
 lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
@@ -497,3 +556,5 @@ lws_tls_session_dump_load(struct lws_vhost *vh, const char *host, uint16_t port,
 {
 	return -1;
 }
+
+#endif

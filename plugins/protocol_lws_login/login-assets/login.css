@@ -78,3 +78,7 @@ button:hover {
     font-size: 0.9rem;
     border: 1px solid rgba(255, 0, 0, 0.2);
 }
+
+#error-msg:empty {
+    display: none;
+}

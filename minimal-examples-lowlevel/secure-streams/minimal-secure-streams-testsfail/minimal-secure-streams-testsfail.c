@@ -923,8 +923,7 @@ main(int argc, const char **argv)
 
 	signal(SIGINT, sigint_handler);
 
-	memset(&info, 0, sizeof info);
-	lws_cmdline_option_handle_builtin(argc, argv, &info);
+	lws_context_info_defaults(&info, NULL);lws_cmdline_option_handle_builtin(argc, argv, &info);
 
 	if ((pp = lws_cmdline_option(argc, argv, switches[LWS_SW_AMOUNT].sw)))
 		amount = (size_t)atoi(pp);

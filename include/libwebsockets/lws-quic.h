@@ -38,6 +38,13 @@ enum lws_tls_quic_secret_type {
 	LWS_TLS_QUIC_SECRET_SERVER_APPLICATION,
 };
 
+enum lws_0rtt_status {
+	LWS_0RTT_STATUS_NONE,       /**< No 0-RTT attempted */
+	LWS_0RTT_STATUS_ATTEMPTED,  /**< Client sent 0-RTT, awaiting server decision */
+	LWS_0RTT_STATUS_ACCEPTED,   /**< Server accepted 0-RTT data */
+	LWS_0RTT_STATUS_REJECTED,   /**< Server rejected 0-RTT data, client must resend */
+};
+
 /**
  * lws_tls_quic_secret_cb() - Callback for QUIC traffic secret derivation
  *
@@ -102,9 +109,61 @@ LWS_VISIBLE LWS_EXTERN int
 lws_tls_quic_get_transport_parameters(struct lws *wsi, const uint8_t **tp, size_t *tp_len);
 
 /**
+ * lws_tls_0rtt_status() - Get the status of 0-RTT early data
+ *
+ * \param wsi: the wsi
+ *
+ * Returns the status of 0-RTT early data for the connection.
+ */
+LWS_VISIBLE LWS_EXTERN enum lws_0rtt_status
+lws_tls_0rtt_status(struct lws *wsi);
+
+/**
+ * lws_rx_is_early_data() - Determine if received data is 0-RTT early data
+ *
+ * \param wsi: the wsi
+ *
+ * Returns 1 if the current RX data was received as 0-RTT early data, 0 otherwise.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_rx_is_early_data(struct lws *wsi);
+
+/**
  * lws_tls_quic_api_test() - Internal API test for QUIC TLS 1.3 memory BIOs
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_tls_quic_api_test(void);
+
+/**
+ * lws_tls_quic_migrate_wsi() - Migrate QUIC TLS context from old to new wsi
+ *
+ * \param old_wsi: the old logical stream wsi
+ * \param new_wsi: the new parent network connection wsi
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_tls_quic_migrate_wsi(struct lws *old_wsi, struct lws *new_wsi);
+
+/**
+ * lws_quic_initiate_key_update() - Manually trigger a QUIC Key Update
+ *
+ * \param wsi: any QUIC wsi on the connection (stream or network)
+ *
+ * Initiates a Key Update on the QUIC connection as per RFC 9001.
+ * Returns 0 if successfully initiated, or nonzero on failure.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_quic_initiate_key_update(struct lws *wsi);
+
+struct lws_cc_ops {
+	void (*init)(struct lws *nwsi);
+	void (*on_sent)(struct lws *nwsi, size_t bytes);
+	void (*on_ack)(struct lws *nwsi, size_t bytes_acked, lws_usec_t rtt);
+	void (*on_loss)(struct lws *nwsi, size_t bytes_lost);
+	int  (*can_send)(struct lws *nwsi, size_t bytes);
+	lws_usec_t (*get_pacing_delay)(struct lws *nwsi, size_t bytes_to_send);
+};
+
+LWS_VISIBLE LWS_EXTERN_FOR_DATA const struct lws_cc_ops lws_cc_ops_newreno;
+LWS_VISIBLE LWS_EXTERN_FOR_DATA const struct lws_cc_ops lws_cc_ops_cubic;
 
 ///@}

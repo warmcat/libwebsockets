@@ -746,6 +746,22 @@ conn_good:
 				&salen) == -1) {
 			en = LWS_ERRNO;
 			lwsl_info("getsockname: %s\n", lws_errno_describe(en, t16, sizeof(t16)));
+		} else {
+#if defined(LWS_WITH_IPV6)
+			if (wsi->sa46_peer.sa4.sin_family == AF_INET6 &&
+			    wsi->sa46_local.sa4.sin_family == AF_INET6) {
+				const uint8_t *pb = (const uint8_t *)&wsi->sa46_peer.sa6.sin6_addr;
+				const uint8_t *lb = (const uint8_t *)&wsi->sa46_local.sa6.sin6_addr;
+				int peer_is_ll = (pb[0] == 0xfe && (pb[1] & 0xc0) == 0x80);
+				int local_is_ll = (lb[0] == 0xfe && (lb[1] & 0xc0) == 0x80);
+
+				if (local_is_ll && !peer_is_ll) {
+					lwsl_wsi_notice(wsi, "rejecting global v6 peer with link-local src");
+					cce = "incompatible v6 scopes";
+					goto try_next_dns_result_fds;
+				}
+			}
+#endif
 		}
 #if defined(_DEBUG)
 #if defined(LWS_WITH_UNIX_SOCK)
@@ -765,7 +781,10 @@ conn_good:
 #endif
 	lws_metrics_caliper_report(wsi->cal_conn, METRES_GO);
 
-	lws_addrinfo_clean(wsi);
+#if defined(LWS_ROLE_QUIC)
+	if (strcmp(wsi->role_ops->name, "quic") != 0)
+#endif
+		lws_addrinfo_clean(wsi);
 
 	if (wsi->a.protocol)
 		wsi->a.protocol->callback(wsi, LWS_CALLBACK_WSI_CREATE,

@@ -4629,7 +4629,6 @@ int main(int argc, const char **argv)
 		return 0;
 	}
 
-
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
 		logs = atoi(p);
 

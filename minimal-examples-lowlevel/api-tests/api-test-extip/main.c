@@ -90,8 +90,7 @@ int main(int argc, const char **argv)
 	
 	signal(SIGINT, sigint_handler);
 	
-	memset(&info, 0, sizeof info);
-	memset(&ops, 0, sizeof ops);
+	lws_context_info_defaults(&info, NULL);memset(&ops, 0, sizeof ops);
 
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 

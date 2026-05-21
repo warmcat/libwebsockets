@@ -1062,10 +1062,10 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		 */
 #if defined(LWS_ROLE_H2)
 		if (wsi->client_h2_alpn || wsi->client_mux_substream) {
-			lwsl_debug("%s: %s: transitioning to h2 client\n",
+			lwsl_debug("%s: %s: transitioning to mux client\n",
 				   __func__, lws_wsi_tag(wsi));
 			lws_role_transition(wsi, LWSIFR_CLIENT,
-					    LRS_ESTABLISHED, &role_ops_h2);
+					    LRS_ESTABLISHED, wsi->role_ops);
 		} else
 #endif
 		{
@@ -1979,7 +1979,11 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt, size_t pkt_len)
 	meth = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_METHOD);
 	if (!meth) {
 		meth = "GET";
-		wsi->do_ws = 1;
+#if defined(LWS_ROLE_WS)
+		wsi->do_ws = wsi->ws ? 1 : 0;
+#else
+		wsi->do_ws = 0;
+#endif
 	} else {
 		wsi->do_ws = 0;
 	}
@@ -2043,24 +2047,23 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt, size_t pkt_len)
 				  "Pragma: no-cache\x0d\x0a"
 				  "Cache-Control: no-cache\x0d\x0a");
 
-	p += lws_snprintf(p,  lws_ptr_diff_size_t(end, p),
-			  "Host: %s\x0d\x0a",
-			  lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST));
+	const char *host = lws_wsi_client_stash_item(wsi, CIS_HOST, _WSI_TOKEN_CLIENT_HOST);
+	if (host)
+		p += lws_snprintf(p,  lws_ptr_diff_size_t(end, p),
+				  "Host: %s\x0d\x0a", host);
 
-	if (lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ORIGIN)) {
+	const char *origin = lws_wsi_client_stash_item(wsi, CIS_ORIGIN, _WSI_TOKEN_CLIENT_ORIGIN);
+	if (origin) {
 		if (lws_check_opt(wsi->a.context->options,
 				  LWS_SERVER_OPTION_JUST_USE_RAW_ORIGIN))
 			p += lws_snprintf(p,  lws_ptr_diff_size_t(end, p),
-					  "Origin: %s\x0d\x0a",
-					  lws_hdr_simple_ptr(wsi,
-						     _WSI_TOKEN_CLIENT_ORIGIN));
+					  "Origin: %s\x0d\x0a", origin);
 		else
 			p += lws_snprintf(p,  lws_ptr_diff_size_t(end, p),
 					  "Origin: %s://%s\x0d\x0a",
 					  wsi->flags & LCCSCF_USE_SSL ?
 							 "https" : "http",
-					  lws_hdr_simple_ptr(wsi,
-						     _WSI_TOKEN_CLIENT_ORIGIN));
+					  origin);
 	}
 
 	if (wsi->flags & LCCSCF_HTTP_MULTIPART_MIME) {
@@ -2502,8 +2505,13 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	cisin[CIS_PATH]		= path + o;
 	cisin[CIS_HOST]		= host;
 
-	for (n = 0; n < (int)LWS_ARRAY_SIZE(hnames2); n++)
+	for (n = 0; n < (int)LWS_ARRAY_SIZE(hnames2); n++) {
 		cisin[n + 3] = lws_hdr_simple_ptr(wsi, hnames2[n]);
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
+		if (!cisin[n + 3] && hnames2[n] == _WSI_TOKEN_CLIENT_METHOD)
+			cisin[n + 3] = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD);
+#endif
+	}
 
 	r = (int)wsi->http.ah->http_response;
 
@@ -2511,8 +2519,14 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	cisin[CIS_ALPN]		= wsi->alpn;
 #endif
 
-	if (!wsi->stash && lws_client_stash_create(wsi, cisin))
-		return NULL;
+	{
+		void *opaque = wsi->stash ? wsi->stash->opaque_user_data : NULL;
+
+		if (lws_client_stash_create(wsi, cisin))
+			return NULL;
+
+		wsi->stash->opaque_user_data = opaque;
+	}
 
 	if (!port) {
 		lwsl_info("%s: forcing port 443\n", __func__);

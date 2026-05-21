@@ -40,7 +40,7 @@ lws_ws_proxy_est_cb(lws_sorted_usec_list_t *sul)
 #else
 					    NULL,
 #endif
-					    wsi->h2_stream_carries_ws))
+					    wsi->h23_stream_carries_ws))
 			lws_wsi_close(wsi, LWS_TO_KILL_ASYNC);
 }
 #endif
@@ -905,7 +905,7 @@ lws_server_init_wsi_for_ws(struct lws *wsi)
 #else
 					    NULL,
 #endif
-					    wsi->h2_stream_carries_ws))
+					    wsi->h23_stream_carries_ws))
 			return 1;
 	}
 #if defined(LWS_WITH_HTTP_PROXY)
@@ -1976,7 +1976,7 @@ do_more_inside_frame:
 	case LWS_WRITE_TEXT:
 	case LWS_WRITE_BINARY:
 	case LWS_WRITE_CONTINUATION:
-		if (!wsi->h2_stream_carries_ws) {
+		if (!wsi->h23_stream_carries_ws) {
 
 			/*
 			 * give any active extensions a chance to munge the
@@ -2036,7 +2036,7 @@ rops_close_kill_connection_ws(struct lws *wsi, enum lws_close_status reason)
 {
 	/* deal with ws encapsulation in h2 */
 #if defined(LWS_WITH_HTTP2)
-	if (wsi->mux_substream && wsi->h2_stream_carries_ws)
+	if (wsi->mux_substream && wsi->h23_stream_carries_ws)
 		return lws_rops_func_fidx(&role_ops_h2,
 				   LWS_ROPS_close_kill_connection).
 				close_kill_connection(wsi, reason);

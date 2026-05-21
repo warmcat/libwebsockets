@@ -136,10 +136,9 @@ lws_ipv6_prefix_match_len(const struct sockaddr_in6 *a,
 static int
 lws_ipv6_unicast_scope(const struct sockaddr_in6 *sa)
 {
-	uint64_t *u;
+	const uint8_t *b = (const uint8_t *)&sa->sin6_addr;
 
-	u = (uint64_t *)&sa->sin6_addr;
-	if (*u == 0xfe80000000000000ull)
+	if (b[0] == 0xfe && (b[1] & 0xc0) == 0x80)
 		return 2; /* link-local */
 
 	return 0xe;
@@ -407,8 +406,8 @@ lws_sort_dns_dcomp(const lws_dns_sort_t *da, const lws_dns_sort_t *db)
 
 	scopea = lws_ipv6_unicast_scope(to_v6_sa(&da->dest));
 	scopeb = lws_ipv6_unicast_scope(to_v6_sa(&db->dest));
-	scope_srca = lws_ipv6_unicast_scope(to_v6_sa(&da->source));
-	scope_srcb = lws_ipv6_unicast_scope(to_v6_sa(&db->source));
+	scope_srca = da->source ? lws_ipv6_unicast_scope(to_v6_sa(&da->source->src)) : 0;
+	scope_srcb = db->source ? lws_ipv6_unicast_scope(to_v6_sa(&db->source->src)) : 0;
 
 	if (scopea == scope_srca && scopeb != scope_srcb)
 		return SAS_PREFER_A;
@@ -470,8 +469,10 @@ lws_sort_dns_dcomp(const lws_dns_sort_t *da, const lws_dns_sort_t *db)
 	if (!db->source)
 		return SAS_PREFER_A;
 
-	lws_sort_dns_classify(&da->source->dest, &score_srca);
-	lws_sort_dns_classify(&db->source->dest, &score_srcb);
+	if (da->source)
+		lws_sort_dns_classify(&da->source->src, &score_srca);
+	if (db->source)
+		lws_sort_dns_classify(&db->source->src, &score_srcb);
 
 	if (score_srca.label == da->score.label &&
 	    score_srcb.label != db->score.label)
@@ -527,8 +528,8 @@ lws_sort_dns_dcomp(const lws_dns_sort_t *da, const lws_dns_sort_t *db)
 	 * then prefer DB.
 	 */
 
-	cpla = lws_ipv6_prefix_match_len(&da->source->dest.sa6, &da->dest.sa6);
-	cplb = lws_ipv6_prefix_match_len(&db->source->dest.sa6, &db->dest.sa6);
+	cpla = da->source ? lws_ipv6_prefix_match_len(&da->source->src.sa6, &da->dest.sa6) : 0;
+	cplb = db->source ? lws_ipv6_prefix_match_len(&db->source->src.sa6, &db->dest.sa6) : 0;
 
 	if (cpla > cplb)
 		return SAS_PREFER_A;
@@ -642,7 +643,7 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 		 * we don't have a way to use it if we listed it
 		 */
 
-		if (pt->context->routing_table.count) {
+		if (pt->context->routing_table.count && !wsi->do_bind) {
 
 			estr = _lws_route_est_outgoing(pt, &ds->dest);
 			if (!estr) {
@@ -733,12 +734,11 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 		}
 
 just_add:
-		if (!bestsrc) {
+		ds->source = bestsrc ? bestsrc : estr;
+		if (!ds->source) {
 			lws_dll2_add_tail(&ds->list, &wsi->dns_sorted_list);
 			goto next;
 		}
-
-		ds->source = bestsrc;
 
 		/*
 		 * RFC6724 Section 6: Destination Address Selection

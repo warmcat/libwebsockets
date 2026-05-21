@@ -17,14 +17,12 @@
 #include <libwebsockets.h>
 
 enum {
-	LWS_SW_H2,
 	LWS_SW_D,
 	LWS_SW_T,
 	LWS_SW_HELP,
 };
 
 static const struct lws_switches switches[] = {
-	[LWS_SW_H2]	= { "--h2",            "Enable --h2 feature" },
 	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
 	[LWS_SW_T]	= { "-t",              "Test flag" },
 	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
@@ -91,14 +89,7 @@ int main(int argc, const char **argv)
 	struct lws_context_creation_info info;
 	struct lws_client_connect_info i;
 	struct lws_context *context;
-	const char *p;
-	int n = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE
-		/* for LLL_ verbosity above NOTICE to be built into lws, lws
-		 * must have been configured with -DCMAKE_BUILD_TYPE=DEBUG
-		 * instead of =RELEASE */
-		/* | LLL_INFO */ /* | LLL_PARSER */ /* | LLL_HEADER */
-		/* | LLL_EXT */ /* | LLL_CLIENT */ /* | LLL_LATENCY */
-		/* | LLL_DEBUG */;
+	int n = 0;
 	(void)switches;
 
 	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
@@ -108,15 +99,13 @@ int main(int argc, const char **argv)
 
 
 	signal(SIGINT, sigint_handler);
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
-		logs = atoi(p);
 
 	test = !!lws_cmdline_option(argc, argv, switches[LWS_SW_T].sw);
 
-	lws_set_log_level(logs, NULL);
-	lwsl_user("LWS minimal ws client rx [-d <logs>] [--h2] [-t (test)]\n");
+	lwsl_user("LWS minimal ws client rx [-d <logs>] [-t (test)]\n");
 
-	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
+	lws_context_info_defaults(&info, NULL);
+	lws_cmdline_option_handle_builtin(argc, argv, &info);
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.port = CONTEXT_PORT_NO_LISTEN; /* we do not run any server */
 	info.protocols = protocols;
@@ -155,9 +144,6 @@ int main(int argc, const char **argv)
 	i.ssl_connection = LCCSCF_USE_SSL;
 	i.protocol = protocols[0].name; /* "dumb-increment-protocol" */
 	i.pwsi = &client_wsi;
-
-	if (lws_cmdline_option(argc, argv, switches[LWS_SW_H2].sw))
-		i.alpn = "h2";
 
 	lws_client_connect_via_info(&i);
 

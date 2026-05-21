@@ -10,7 +10,11 @@
 #include <libwebsockets.h>
 #include <string.h>
 #include <fcntl.h>
+#if defined(WIN32) || defined(_WIN32)
+#include <io.h>
+#else
 #include <unistd.h>
+#endif
 
 
 #if defined(LWS_WITH_LS_QPACK)
@@ -18,7 +22,7 @@
 #include <lsxpack_header.h>
 #endif
 
-#include <dirent.h>
+
 #include <sys/types.h>
 
 void lws_free(void *p);
@@ -70,11 +74,16 @@ static int test_qpack_encoder(struct lws_context *ctx)
 	if (lws_finalize_http_header(wsi, &p, end)) { lwsl_err("finalize fail\n"); fails++; }
 
 	/* Decode the generated encoder stream */
-	if (tx_enc.enc_ptr) {
-		lwsl_user("Encoded %d bytes of encoder stream.\n", (int)tx_enc.enc_ptr);
-		if (lws_qpack_decode_encoder_stream(&state, &qctx, tx_enc.enc_buf, tx_enc.enc_ptr)) {
-			lwsl_err("Failed to decode encoder stream\n");
-			fails++;
+	{
+		size_t len = lws_buflist_total_len(&tx_enc.tx_bl);
+		if (len) {
+			uint8_t enc_buf[1024];
+			lws_buflist_linear_copy(&tx_enc.tx_bl, 0, enc_buf, len);
+			lwsl_user("Encoded %d bytes of encoder stream.\n", (int)len);
+			if (lws_qpack_decode_encoder_stream(&state, &qctx, enc_buf, len)) {
+				lwsl_err("Failed to decode encoder stream\n");
+				fails++;
+			}
 		}
 	}
 
@@ -119,7 +128,7 @@ test_qif_roundtrip_cb(void *user, int name_idx, const char *name, size_t name_le
 	const char *n2 = exp_name ? exp_name : "";
 	
 	if (!name && name_idx >= 0) {
-		const unsigned char *name_str = lws_token_to_string(name_idx);
+		const unsigned char *name_str = lws_token_to_string((enum lws_token_indexes)name_idx);
 		char clean_name[128] = "";
 		if (name_str) {
 			size_t len = strlen((const char *)name_str);
@@ -207,12 +216,18 @@ test_qif_roundtrip(struct lws_context *ctx, const char *filepath)
 				}
 				
 				/* Decode encoder stream */
-				if (tx_enc.enc_ptr > 0) {
-					if (lws_qpack_decode_encoder_stream(&enc_state, &qctx, tx_enc.enc_buf, tx_enc.enc_ptr)) {
-						lwsl_err("Encoder stream decode failed in %s\n", filepath);
-						fails++;
+				{
+					size_t len = lws_buflist_total_len(&tx_enc.tx_bl);
+					if (len > 0) {
+						uint8_t enc_buf[1024];
+						if (len > sizeof(enc_buf)) len = sizeof(enc_buf);
+						lws_buflist_linear_copy(&tx_enc.tx_bl, 0, enc_buf, len);
+						if (lws_qpack_decode_encoder_stream(&enc_state, &qctx, enc_buf, len)) {
+							lwsl_err("Encoder stream decode failed in %s\n", filepath);
+							fails++;
+						}
+						lws_buflist_destroy_all_segments(&tx_enc.tx_bl);
 					}
-					tx_enc.enc_ptr = 0;
 				}
 				
 				/* Decode header block */
@@ -392,9 +407,39 @@ test_qif_file(const char *filepath)
 	return fails;
 }
 
+struct qif_test_ctx {
+	struct lws_context *cx;
+	int fails;
+	int is_roundtrip;
+};
+
+static int
+qif_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
+{
+	struct qif_test_ctx *qctx = (struct qif_test_ctx *)user;
+	char path[512];
+
+	if (lde->type != LDOT_FILE)
+		return 0;
+
+	if (qctx->is_roundtrip) {
+		if (strstr(lde->name, ".qif")) {
+			snprintf(path, sizeof(path), "%s/%s", dirpath, lde->name);
+			qctx->fails += test_qif_roundtrip(qctx->cx, path);
+		}
+	} else {
+		if (strstr(lde->name, ".out")) {
+			snprintf(path, sizeof(path), "%s/%s", dirpath, lde->name);
+			qctx->fails += test_qif_file(path);
+		}
+	}
+
+	return 0;
+}
+
 int main(int argc, const char **argv)
 {
-	int logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+	
 	struct lws_context_creation_info info;
 	struct lws_context *context;
 	int tok, fails = 0;
@@ -402,10 +447,10 @@ int main(int argc, const char **argv)
 	unsigned char buf[256];
 	int len;
 
-	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS QPACK API tests\n");
 
-	memset(&info, 0, sizeof info);
+	lws_context_info_defaults(&info, NULL);
+	lws_cmdline_option_handle_builtin(argc, argv, &info);
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 
@@ -566,37 +611,18 @@ int main(int argc, const char **argv)
 
 	/* 7. Run against ALL QIF Interop Outputs */
 	{
-		DIR *d = opendir("../minimal-examples-lowlevel/api-tests/api-test-qpack/qifs/encoded/qpack-06/ls-qpack");
-		struct dirent *dir;
+		struct qif_test_ctx qctx = { context, 0, 0 };
 		lwsl_user("\n--- 7. QIF Interop Decoder Test (ALL datasets) ---\n");
-		if (d) {
-			while ((dir = readdir(d)) != NULL) {
-				if (strstr(dir->d_name, ".out")) {
-					char path[512];
-					snprintf(path, sizeof(path), "../minimal-examples-lowlevel/api-tests/api-test-qpack/qifs/encoded/qpack-06/ls-qpack/%s", dir->d_name);
-					fails += test_qif_file(path);
-				}
-			}
-			closedir(d);
-		}
+		lws_dir("../minimal-examples-lowlevel/api-tests/api-test-qpack/qifs/encoded/qpack-06/ls-qpack", &qctx, qif_dir_cb);
+		fails += qctx.fails;
 	}
 	
 	/* 8. Run LWS Encoder Roundtrip against ALL QIF Plaintext Datasets */
 	{
-		DIR *d = opendir("../minimal-examples-lowlevel/api-tests/api-test-qpack/qifs/qifs");
-		struct dirent *dir;
+		struct qif_test_ctx qctx = { context, 0, 1 };
 		lwsl_user("\n--- 8. QIF Interop Encoder Roundtrip Test (ALL datasets) ---\n");
-		if (d) {
-			while ((dir = readdir(d)) != NULL) {
-				if (strstr(dir->d_name, ".qif")) {
-					char path[512];
-					snprintf(path, sizeof(path), "../minimal-examples-lowlevel/api-tests/api-test-qpack/qifs/qifs/%s", dir->d_name);
-					/* lwsl_user("Roundtripping %s\n", path); */
-					fails += test_qif_roundtrip(context, path);
-				}
-			}
-			closedir(d);
-		}
+		lws_dir("../minimal-examples-lowlevel/api-tests/api-test-qpack/qifs/qifs", &qctx, qif_dir_cb);
+		fails += qctx.fails;
 	}
 	
 	fails += test_qpack_encoder(context);

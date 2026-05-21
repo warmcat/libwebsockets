@@ -28,14 +28,13 @@ static const uint8_t expected_spki[] = {
 
 int main(int argc, const char **argv)
 {
-	int logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+	
 	struct lws_x509_cert *x509 = NULL;
 	char big[1024];
 	union lws_tls_cert_info_results *res = (union lws_tls_cert_info_results *)big;
 	int ret = 0;
 	size_t big_len = sizeof(big) - sizeof(*res) + sizeof(res->ns.name);
 
-	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS x509 API test\n");
 
 	if (lws_x509_create(&x509)) {

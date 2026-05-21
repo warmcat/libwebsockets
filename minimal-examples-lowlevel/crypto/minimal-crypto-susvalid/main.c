@@ -240,17 +240,13 @@ process_byte(struct parse_state *s, uint8_t b)
 
 int main(int argc, const char **argv)
 {
-	int logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+	
 	struct parse_state s;
-	const char *p;
 	uint8_t buf[1024];
 	ssize_t n;
 	int fd;
 
-	if ((p = lws_cmdline_option(argc, argv, "-d")))
-		logs = atoi(p);
 
-	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS Suspicious Unicode Validator\n");
 
 	if (argc < 2 || lws_cmdline_option(argc, argv, "-h")) {

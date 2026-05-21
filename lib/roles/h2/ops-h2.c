@@ -603,7 +603,7 @@ rops_check_upgrades_h2(struct lws *wsi)
 
 	lwsl_info("Upgrade h2 to ws\n");
 	lws_mux_mark_immortal(wsi);
-	wsi->h2_stream_carries_ws = 1;
+	wsi->h23_stream_carries_ws = 1;
 
 	lws_metrics_tag_wsi_add(wsi, "upg", "ws_over_h2");
 
@@ -752,7 +752,7 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 	}
 #endif
 
-	if (wsi->mux_substream && wsi->h2_stream_carries_ws)
+	if (wsi->mux_substream && wsi->h23_stream_carries_ws)
 		lws_h2_rst_stream(wsi, 0, "none");
 /*	else
 		if (wsi->mux_substream)
@@ -965,7 +965,8 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 		  wsi->http.rx_content_length) &&
 	       (blen = lws_buflist_next_segment_len(&wsi->buflist, &buffered))) {
 
-		if ((size_t)wsi->http.rx_content_length < blen)
+		if (wsi->http.content_length_given &&
+		    (size_t)wsi->http.rx_content_length < blen)
 			blen = (size_t)wsi->http.rx_content_length;
 
 		if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP_BODY,
@@ -1031,8 +1032,14 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 	if (!*wsi2)
 		return 0;
 
+	int sanity = 1000;
 	do {
 		struct lws *w, **wa;
+
+		if (!sanity--) {
+			lwsl_wsi_warn(wsi, "POLLOUT multiplexer loop sanity limit reached, closing");
+			return LWS_HP_RET_BAIL_DIE;
+		}
 
 		wa = &(*wsi2)->mux.sibling_list;
 		if (!(*wsi2)->mux.requested_POLLOUT)
@@ -1051,6 +1058,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			wa = &wsi->mux.child_list;
 			goto next_child;
 		}
+                                  wa = wsi2; /* wsi2 is updated to point to the next element by move_child_to_tail */
 
 		lwsl_info("%s: child %s, sid %d, (wsistate 0x%x)\n",
 			  __func__, lws_wsi_tag(w), w->mux.my_sid,

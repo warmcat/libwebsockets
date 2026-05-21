@@ -489,11 +489,14 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 
 		case LWS_CALLBACK_PROTOCOL_DESTROY:
-			if (vhd && vhd->worker_running) {
-				vhd->worker_running = 0;
-				pthread_join(vhd->worker_thread, NULL);
-				lws_mutex_destroy(vhd->mutex_rx);
-				lws_ring_destroy(vhd->ring_rx);
+			if (vhd) {
+				lws_sul_cancel(&vhd->sul_stats);
+				if (vhd->worker_running) {
+					vhd->worker_running = 0;
+					pthread_join(vhd->worker_thread, NULL);
+					lws_mutex_destroy(vhd->mutex_rx);
+					lws_ring_destroy(vhd->ring_rx);
+				}
 			}
 
 			// Clean up rooms etc.

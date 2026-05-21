@@ -34,6 +34,7 @@ include_directories(.)
 list(APPEND SOURCES
 	roles/quic/ops-quic.c
 	roles/quic/ops-quic-cc-newreno.c
+	roles/quic/ops-quic-cc-cubic.c
 	roles/quic/crypto-quic.c
 	roles/quic/parse-quic.c
 )
