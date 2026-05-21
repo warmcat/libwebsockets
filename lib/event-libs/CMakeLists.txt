@@ -163,5 +163,11 @@ add_subdir_include_directories_local_end()
 #
 
 export_to_parent_intermediate()
+if (LIBUV_INCLUDE_DIRS)
+	set(LWS_PUBLIC_INCLUDES ${LWS_PUBLIC_INCLUDES} "${LIBUV_INCLUDE_DIRS}")
+endif()
+if (LWS_PUBLIC_INCLUDES)
+	set(LWS_PUBLIC_INCLUDES ${LWS_PUBLIC_INCLUDES} PARENT_SCOPE)
+endif()
 set(EVLIB_PLUGINS_LIST ${EVLIB_PLUGINS_LIST} PARENT_SCOPE)
 

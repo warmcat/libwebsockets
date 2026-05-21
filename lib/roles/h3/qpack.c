@@ -125,7 +125,7 @@ static const unsigned char qpack_static_token[99] = {
 	LWS_QPACK_IGNORE_ENTRY, /* purpose */
 	WSI_TOKEN_HTTP_SERVER,
 	LWS_QPACK_IGNORE_ENTRY, /* timing-allow-origin */
-	WSI_TOKEN_UPGRADE,
+	LWS_QPACK_IGNORE_ENTRY, /* upgrade-insecure-requests */
 	WSI_TOKEN_HTTP_USER_AGENT,
 	WSI_TOKEN_X_FORWARDED_FOR,
 	LWS_QPACK_IGNORE_ENTRY, /* x-frame-options */
@@ -133,7 +133,7 @@ static const unsigned char qpack_static_token[99] = {
 };
 
 static const char * const qpack_canned[] = {
-	"", "", "0", "", "0", "", "", "", "", "",
+	"", "/", "0", "", "0", "", "", "", "", "",
 	"", "", "", "", "", "CONNECT", "DELETE", "GET", "HEAD", "OPTIONS",
 	"POST", "PUT", "http", "https", "103", "200", "304", "404", "503", "*/*",
 	"application/dns-message", "gzip, deflate, br", "bytes", "cache-control", "content-type", "*", "max-age=0", "max-age=2592000", "max-age=604800", "no-cache", "no-store", "public, max-age=31536000",
@@ -141,7 +141,7 @@ static const char * const qpack_canned[] = {
 	"text/html; charset=utf-8", "text/plain", "text/plain;charset=utf-8", "bytes=0-", "max-age=31536000", "max-age=31536000; includesubdomains", "max-age=31536000; includesubdomains; preload", "accept-encoding", "origin", "nosniff",
 	"1; mode=block", "100", "204", "206", "302", "400", "403", "421", "425", "500",
 	"", "FALSE", "TRUE", "*", "get", "get, post, options", "options", "content-length", "content-type", "get",
-	"post", "clear", "", "script-src 'none'; object-src 'none'; base-uri 'none'", "1", "", "", "", "", "prefetch",
+	"post", "clear", "", "script-src 'none'; object-src 'none'; base-uri 'none'", "1", "100-continue", "", "", "", "prefetch",
 	"", "*", "1", "", "", "deny", "sameorigin"
 };
 
@@ -162,11 +162,10 @@ lws_qpack_find_static_index(int lws_hdr_idx, const char *value, int value_len)
 		}
 	}
 	
-	/* Fallback to matching just the name, taking the first match with empty string if possible */
+	/* Fallback to matching just the name, taking the first match */
 	for (i = 0; i < 99; i++) {
 		if (qpack_static_token[i] == lws_hdr_idx) {
-			if (!value || qpack_canned[i][0] == '\0')
-				return i;
+			return i;
 		}
 	}
 	
@@ -303,6 +302,7 @@ lws_qpack_encode_literal_with_name_ref(unsigned char *buf, size_t buf_len, int i
 	
 	/* 0 1 N T Index, T=1 (Static), N=0 -> mask=0x50, prefix=4 */
 	n = lws_qpack_encode_int(buf, buf_len, (uint64_t)index, 4, 0x50);
+	lwsl_notice("%s: index=%d, output byte: 0x%02X\n", __func__, index, buf[0]);
 	if (n < 0) return -1;
 	pos += (size_t)n;
 	
@@ -321,6 +321,7 @@ lws_qpack_encode_literal_with_literal_name(unsigned char *buf, size_t buf_len, c
 	
 	/* 0 0 1 N H Name Length, N=0, H=0 (Plaintext) -> mask=0x20, prefix=3 */
 	n = lws_qpack_encode_int(buf, buf_len, (uint64_t)name_len, 3, 0x20);
+	lwsl_notice("%s: name_len=%d, output byte: 0x%02X\n", __func__, (int)name_len, buf[0]);
 	if (n < 0) return -1;
 	pos += (size_t)n;
 	
@@ -343,7 +344,7 @@ lws_add_http3_header_by_name(struct lws *wsi, const unsigned char *name,
 	int name_len = (int)strlen((const char *)name);
 	int n;
 	char lower_name[256];
-	struct lws_qpack_tx_encoder *enc = wsi ? wsi->qpack_tx_encoder : NULL;
+	struct lws_qpack_tx_encoder *enc = NULL; /* wsi ? wsi->h3.qpack_tx_encoder : NULL; */
 
 	if (name_len && name[name_len - 1] == ':')
 		name_len--;
@@ -390,7 +391,7 @@ lws_add_http3_header_by_token(struct lws *wsi, enum lws_token_indexes token,
 			      unsigned char **p, unsigned char *end)
 {
 	int static_idx = lws_qpack_find_static_index((int)token, (const char *)value, length);
-	struct lws_qpack_tx_encoder *enc = wsi ? wsi->qpack_tx_encoder : NULL;
+	struct lws_qpack_tx_encoder *enc = NULL; /* wsi ? wsi->h3.qpack_tx_encoder : NULL; */
 	int n;
 
 	if (static_idx != -1) {
@@ -442,7 +443,7 @@ lws_add_http3_header_status(struct lws *wsi, unsigned int code,
 	
 	/* Prefix is required at the start of the header block! */
 	if (wsi) {
-		struct lws_qpack_tx_encoder *enc = wsi->qpack_tx_encoder;
+		struct lws_qpack_tx_encoder *enc = wsi->h3.qpack_tx_encoder;
 		wsi->http.h3_prefix_ptr = *p;
 		*p += 2; /* Reserve space for exactly 2-byte prefix */
 		wsi->http.h3_req_ric = 0; /* Reset RIC for this block */
@@ -548,7 +549,8 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 				} else {
 					goto do_emit;
 				}
-			} else if ((c & 0xf0) == 0x50 || (c & 0xf0) == 0x40) {
+			} else if ((c & 0xf0) == 0x70 || (c & 0xf0) == 0x60 ||
+			           (c & 0xf0) == 0x50 || (c & 0xf0) == 0x40) {
 				/* Literal Field Line With Name Reference */
 				state->is_name = 0;
 				state->int_val = c & 0x0f;
@@ -603,6 +605,8 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 			break;
 
 		case LQP_DEC_INT:
+			if (state->int_shift >= 64)
+				return 1;
 			state->int_val += (uint64_t)(c & 0x7f) << state->int_shift;
 			state->int_shift += 7;
 			if (!(c & 0x80)) {
@@ -713,7 +717,7 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 				const char *val = NULL;
 				
 				if ((state->opcode & 0xc0) == 0xc0) {
-					lws_qpack_get_static_token((int)state->int_val, &idx, &val);
+					if (lws_qpack_get_static_token((int)state->int_val, &idx, &val)) return 1;
 				} else if ((state->opcode & 0xc0) == 0x80) {
 					int absolute_idx = (int)(state->base - (uint64_t)state->int_val - 1);
 					int relative_idx = ctx ? (int)(ctx->dyn_table.insert_count - 1 - (uint32_t)absolute_idx) : -1;
@@ -730,11 +734,11 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 						name = dte->value;
 						val = dte->value + name_len + 1;
 					}
-				} else if ((state->opcode & 0xf0) == 0x50) {
-					lws_qpack_get_static_token((int)state->hdr_idx, &idx, NULL);
+				} else if ((state->opcode & 0xf0) == 0x50 || (state->opcode & 0xf0) == 0x70) {
+					if (lws_qpack_get_static_token((int)state->hdr_idx, &idx, NULL)) return 1;
 					state->val_buf[state->val_pos] = '\0';
 					val = state->val_buf;
-				} else if ((state->opcode & 0xf0) == 0x40) {
+				} else if ((state->opcode & 0xf0) == 0x40 || (state->opcode & 0xf0) == 0x60) {
 					int absolute_idx = (int)(state->base - (uint64_t)(unsigned int)state->hdr_idx - 1);
 					int relative_idx = ctx ? (int)(ctx->dyn_table.insert_count - 1 - (uint32_t)absolute_idx) : -1;
 					struct lws_qpack_dynamic_table_entry *dte = 
@@ -802,7 +806,7 @@ lws_qpack_get_dynamic_entry(struct lws_qpack_context *ctx, int relative_idx)
 	if (!ctx || !ctx->dyn_table.entries)
 		return NULL;
 		
-	if (relative_idx >= ctx->dyn_table.used_entries)
+	if (relative_idx < 0 || relative_idx >= ctx->dyn_table.used_entries)
 		return NULL;
 		
 	ring_idx = (ctx->dyn_table.pos - 1 - relative_idx + ctx->dyn_table.num_entries) % ctx->dyn_table.num_entries;
@@ -1054,7 +1058,8 @@ do_emit_enc:
 					state->val_buf[state->val_pos] = '\0';
 					lws_qpack_dynamic_insert(ctx, -1, state->name_buf, state->name_pos, state->val_buf, state->val_pos);
 				} else if ((state->opcode & 0xe0) == 0x20) {
-					lws_qpack_dynamic_size(ctx, (int)state->int_val);
+					if (lws_qpack_dynamic_size(ctx, (int)state->int_val))
+						return 1;
 				} else if ((state->opcode & 0xe0) == 0x00) {
 					struct lws_qpack_dynamic_table_entry *dte = 
 						lws_qpack_get_dynamic_entry(ctx, (int)state->int_val);
@@ -1084,6 +1089,11 @@ lws_qpack_dynamic_size(struct lws_qpack_context *ctx, int size)
 {
 	struct lws_qpack_dynamic_table_entry *dte;
 	int n, min, m;
+
+	if ((uint32_t)size > ctx->dyn_table.virtual_payload_limit) {
+		lwsl_err("LWS_QPACK_ENCODER_STREAM_ERROR: table capacity limit exceeded!\n");
+		return 1;
+	}
 
 	if (!size) {
 		lws_qpack_destroy_dynamic_header(ctx);
@@ -1151,29 +1161,7 @@ lws_qpack_destroy_dynamic_header(struct lws_qpack_context *ctx)
 }
 
 #if defined(LWS_ROLE_H3)
-static const lws_rops_t rops_table_h3[] = {
-	/*  1 */ { .check_upgrades = NULL },
-};
 
-/* 
- * Dummy role_ops_h3 to satisfy the linker until the full h3 role is built.
- * It allows lwsi_role_h3() macro to compile.
- */
-const struct lws_role_ops role_ops_h3 = {
-	/* role name */			"h3",
-	/* alpn id */			"h3",
-	/* rops_table */		rops_table_h3,
-	/* rops_idx */			{
-	  /* 1 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	},
-	/* adoption_cb clnt, srv */	{ 0, 0 },
-	/* rx_cb clnt, srv */		{ 0, 0 },
-	/* writeable cb clnt, srv */	{ 0, 0 },
-	/* close cb clnt, srv */	{ 0, 0 },
-	/* protocol_bind cb c, srv */	{ 0, 0 },
-	/* protocol_unbind cb c, srv */	{ 0, 0 },
-	/* file_handle */		0,
-};
 
 LWS_VISIBLE struct lws *
 lws_create_h3_dummy_wsi(struct lws_context *context, struct lws_qpack_tx_encoder *tx_enc)
@@ -1186,7 +1174,7 @@ lws_create_h3_dummy_wsi(struct lws_context *context, struct lws_qpack_tx_encoder
 
 	wsi->a.context = context;
 	wsi->role_ops = &role_ops_h3;
-	wsi->qpack_tx_encoder = tx_enc;
+	wsi->h3.qpack_tx_encoder = tx_enc;
 	wsi->http.h3_base = 0;
 	wsi->http.h3_req_ric = 0;
 
@@ -1291,6 +1279,10 @@ lws_qpack_tx_find(struct lws_qpack_tx_encoder *enc, const char *name, size_t nam
 	for (i = 0; i < enc->used_entries; i++) {
 		int idx = (enc->pos - enc->used_entries + i + enc->num_entries) % enc->num_entries;
 		struct lws_qpack_tx_table_entry *dte = &enc->entries[idx];
+		
+		if (dte->insert_index >= enc->known_received_count)
+			continue;
+			
 		if (dte->name_len == name_len && dte->value_len == val_len) {
 			if ((!name_len || !memcmp(dte->name, name, name_len)) &&
 			    (!val_len || !memcmp(dte->value, val, val_len))) {
@@ -1367,16 +1359,25 @@ lws_qpack_tx_insert(struct lws_qpack_tx_encoder *enc, const char *name, size_t n
 	enc->pos = (uint16_t)((enc->pos + 1) % enc->num_entries);
 	
 	/* Generate the Encoder Stream Instruction */
-	if (static_name_idx >= 0) {
-		n = lws_qpack_tx_encode_insert_name_ref(enc->enc_buf + enc->enc_ptr, 
-			sizeof(enc->enc_buf) - enc->enc_ptr, 1, static_name_idx, val, val_len);
-	} else {
-		n = lws_qpack_tx_encode_insert_literal(enc->enc_buf + enc->enc_ptr, 
-			sizeof(enc->enc_buf) - enc->enc_ptr, name, name_len, val, val_len);
+	{
+		uint8_t scratch[512];
+		if (static_name_idx >= 0) {
+			n = lws_qpack_tx_encode_insert_name_ref(scratch,
+				sizeof(scratch), 1, static_name_idx, val, val_len);
+		} else {
+			n = lws_qpack_tx_encode_insert_literal(scratch,
+				sizeof(scratch), name, name_len, val, val_len);
+		}
+
+		if (n > 0) {
+			if (lws_buflist_append_segment(&enc->tx_bl, scratch, (size_t)n) < 0)
+				return -1;
+			if (enc->wsi_qpack_enc)
+				lws_callback_on_writable(enc->wsi_qpack_enc);
+		} else {
+			lwsl_err("ENCODER STREAM GENERATION FAILED! n=%d\n", n);
+		}
 	}
-	
-	if (n > 0) enc->enc_ptr += (size_t)n;
-	else lwsl_err("ENCODER STREAM GENERATION FAILED! n=%d\n", n);
 	
 	return (int)dte->insert_index;
 }
@@ -1386,11 +1387,14 @@ lws_qpack_tx_encoder_destroy(struct lws_qpack_tx_encoder *enc)
 {
 	int i;
 	if (!enc || !enc->entries) return;
+	
 	for (i = 0; i < enc->used_entries; i++) {
 		int idx = (enc->pos - enc->used_entries + i + enc->num_entries) % enc->num_entries;
 		if (enc->entries[idx].name) lws_free(enc->entries[idx].name);
 		if (enc->entries[idx].value) lws_free(enc->entries[idx].value);
 	}
+	
+	lws_buflist_destroy_all_segments(&enc->tx_bl);
 }
 
 LWS_VISIBLE void

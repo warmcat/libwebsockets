@@ -326,8 +326,7 @@ int main(int argc, const char **argv)
 	int n = 0;
 
 	signal(SIGINT, sigint_handler);
-	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
-	lws_cmdline_option_handle_builtin(argc, argv, &info);
+	lws_context_info_defaults(&info, NULL);lws_cmdline_option_handle_builtin(argc, argv, &info);
 
 	do_ssl = !!lws_cmdline_option(argc, argv, switches[LWS_SW_S].sw);
 	if (do_ssl)

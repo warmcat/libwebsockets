@@ -18,7 +18,6 @@ static struct option options[] = {
 	{ "help",	no_argument,		NULL, 'h' },
 	{ "createindex", no_argument,		NULL, 'c' },
 	{ "index",	required_argument,	NULL, 'i' },
-	{ "debug",	required_argument,	NULL, 'd' },
 	{ "file",	required_argument,	NULL, 'f' },
 	{ "lines",	required_argument,	NULL, 'l' },
 	{ NULL, 0, 0, 0 }
@@ -28,15 +27,19 @@ static struct option options[] = {
 static const char *index_filepath = "/tmp/lws-fts-test-index";
 static char filepath[256];
 
-int main(int argc, char **argv)
+int main(int argc, char * const * argv)
 {
-	int n, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
 	int fd, fi, ft, createindex = 0, flags = LWSFTS_F_QUERY_AUTOCOMPLETE;
+	struct lws_context_creation_info cx_info;
 	struct lws_fts_search_params params;
 	struct lws_fts_result *result;
 	struct lws_fts_file *jtf;
 	struct lws_fts *t;
 	char buf[16384];
+	int n;
+	
+	lws_context_info_defaults(&cx_info, NULL);
+	lws_cmdline_option_handle_builtin(argc, (const char **)argv, &cx_info);
 
 	do {
 #if defined(LWS_HAS_GETOPT_LONG) || defined(WIN32)
@@ -51,9 +54,6 @@ int main(int argc, char **argv)
 			strncpy(filepath, optarg, sizeof(filepath) - 1);
 			filepath[sizeof(filepath) - 1] = '\0';
 			index_filepath = filepath;
-			break;
-		case 'd':
-			logs = atoi(optarg);
 			break;
 		case 'c':
 			createindex = 1;
@@ -76,7 +76,6 @@ int main(int argc, char **argv)
 		}
 	} while (n >= 0);
 
-	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS API selftest: full-text search\n");
 
 	if (createindex) {

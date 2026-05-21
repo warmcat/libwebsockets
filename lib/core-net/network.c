@@ -196,6 +196,12 @@ const char *
 lws_get_peer_simple(struct lws *wsi, char *name, size_t namelen)
 {
 	wsi = lws_get_network_wsi(wsi);
+#if defined(LWS_WITH_UDP)
+	if (wsi->udp) {
+		lws_sa46_write_numeric_address(&wsi->udp->sa46, name, namelen);
+		return name;
+	}
+#endif
 	return lws_get_peer_simple_fd(wsi->desc.sockfd, name, namelen);
 }
 #endif

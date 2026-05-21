@@ -230,7 +230,7 @@ sigint_handler(int sig)
 
 int main(int argc, const char **argv)
 {
-	int logs = LLL_USER | LLL_ERR | LLL_WARN /* | LLL_NOTICE */ ;
+	
 	struct lws_context_creation_info info;
 	struct lws_context *context;
 	int n = 0;
@@ -243,10 +243,8 @@ int main(int argc, const char **argv)
 
 
 	signal(SIGINT, sigint_handler);
-	lws_set_log_level(logs, NULL);
 
-	memset(&info, 0, sizeof info);
-	lws_cmdline_option_handle_builtin(argc, argv, &info);
+	lws_context_info_defaults(&info, NULL);lws_cmdline_option_handle_builtin(argc, argv, &info);
 
 	lwsl_user("LWS minimal secure streams sigv4 \n");
 

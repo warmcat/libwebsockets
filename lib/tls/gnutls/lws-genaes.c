@@ -77,8 +77,17 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 	if (alg == GNUTLS_CIPHER_UNKNOWN)
 		return 1;
 
-	if (gnutls_cipher_init(&ctx->ctx, alg, &key, NULL) < 0)
-		return 1;
+	if (mode == LWS_GAESM_ECB || mode == LWS_GAESM_CBC) {
+		uint8_t iv[16] = {0};
+		gnutls_datum_t giv;
+		giv.data = iv;
+		giv.size = 16;
+		if (gnutls_cipher_init(&ctx->ctx, alg, &key, &giv) < 0)
+			return 1;
+	} else {
+		if (gnutls_cipher_init(&ctx->ctx, alg, &key, NULL) < 0)
+			return 1;
+	}
 
 	return 0;
 }
@@ -174,7 +183,20 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 {
 	int n;
 
+	if (ctx->mode == LWS_GAESM_CBC || ctx->mode == LWS_GAESM_ECB) {
+		if (!(ctx->op == LWS_GAESO_ENC && ctx->padding == LWS_GAESP_WITH_PADDING)) {
+			if (len % 16) {
+				lwsl_err("%s: input length %zu not a multiple of block size\n", __func__, len);
+				return -1;
+			}
+		}
+	}
+
 	if (ctx->mode == LWS_GAESM_KW) {
+		if (len < 16 || len % 8) {
+			lwsl_err("%s: KW len %zu invalid\n", __func__, len);
+			return -1;
+		}
 		n = lws_genaes_rfc3394_wrap(ctx->op == LWS_GAESO_ENC,
 				(ctx->op == LWS_GAESO_ENC ? (int)len * 8 :
 						((int)len - 8) * 8), ctx->k->buf,

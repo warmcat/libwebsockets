@@ -633,3 +633,11 @@ lws_tls_quic_api_test(void)
 	return secrets_found > 0 ? 0 : 1;
 #endif
 }
+
+int
+lws_tls_quic_migrate_wsi(struct lws *old_wsi, struct lws *new_wsi)
+{
+	(void)old_wsi;
+	(void)new_wsi;
+	return 0;
+}

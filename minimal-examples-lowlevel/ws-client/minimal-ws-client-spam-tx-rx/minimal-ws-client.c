@@ -165,8 +165,7 @@ int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	const char *p;
-	int n = 0, logs =
-			LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+	int n = 0;
 #ifndef WIN32
 	srandom((unsigned int)time(0));
 #endif
@@ -182,12 +181,10 @@ int main(int argc, const char **argv)
 
 	signal(SIGINT, sigint_handler);
 
-	if (lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw))
-		logs |= LLL_INFO | LLL_DEBUG;
 
-	lws_set_log_level(logs, NULL);
 
-	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
+	lws_context_info_defaults(&info, NULL);
+	lws_cmdline_option_handle_builtin(argc, argv, &info);
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.port = CONTEXT_PORT_NO_LISTEN; /* we do not run any server */
 	info.protocols = protocols;

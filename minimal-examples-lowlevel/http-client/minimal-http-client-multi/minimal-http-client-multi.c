@@ -41,7 +41,6 @@ enum {
 	LWS_SW_EV,
 	LWS_SW_EVENT,
 	LWS_SW_GLIB,
-	LWS_SW_H1,
 	LWS_SW_LIMIT,
 	LWS_SW_NO_TLS,
 	LWS_SW_NO_TLS_SESSION_REUSE,
@@ -64,7 +63,6 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_EV]	= { "--ev",            "Enable --ev feature" },
 	[LWS_SW_EVENT]	= { "--event",         "Enable --event feature" },
 	[LWS_SW_GLIB]	= { "--glib",          "Enable --glib feature" },
-	[LWS_SW_H1]	= { "--h1",            "Enable --h1 feature" },
 	[LWS_SW_LIMIT]	= { "--limit",         "Enable --limit feature" },
 	[LWS_SW_NO_TLS]	= { "--no-tls",        "Enable --no-tls feature" },
 	[LWS_SW_NO_TLS_SESSION_REUSE]	= { "--no-tls-session-reuse", "Enable --no-tls-session-reuse feature" },
@@ -106,6 +104,7 @@ static int completed, failed, numbered, stagger_idx, posting, count = COUNT,
 static lws_sorted_usec_list_t sul_stagger;
 static struct lws_client_connect_info i;
 static struct lws *client_wsi[COUNT];
+static char conn_state[COUNT];
 static char urlpath[64], intr;
 static struct lws_context *context;
 
@@ -244,6 +243,9 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_err("CLIENT_CONNECTION_ERROR: %s\n",
 			 in ? (char *)in : "(null)");
 		client_wsi[idx] = NULL;
+		if (conn_state[idx] == 2)
+			break;
+		conn_state[idx] = 2;
 		failed++;
 
 #if defined(LWS_WITH_CONMON)
@@ -287,22 +289,26 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_user("LWS_CALLBACK_COMPLETED_CLIENT_HTTP %s: idx %d\n",
 			  lws_wsi_tag(wsi), idx);
 		client_wsi[idx] = NULL;
+		if (conn_state[idx] == 2)
+			break;
+		conn_state[idx] = 2;
 		goto finished;
 
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
-		lwsl_info("%s: closed: %s\n", __func__, lws_wsi_tag(client_wsi[idx]));
+		lwsl_info("%s: closed: %s\n", __func__, lws_wsi_tag(wsi));
 
 #if defined(LWS_WITH_CONMON)
 		dump_conmon_data(wsi);
 #endif
 
-		if (client_wsi[idx]) {
+		if (conn_state[idx] != 2) {
 			/*
 			 * If it completed normally, it will have been set to
-			 * NULL then already.  So we are dealing with an
+			 * 2 then already.  So we are dealing with an
 			 * abnormal, failing, close
 			 */
 			client_wsi[idx] = NULL;
+			conn_state[idx] = 2;
 			failed++;
 			goto finished;
 		}
@@ -440,15 +446,21 @@ lws_try_client_connection(struct lws_client_connect_info *ii, int m)
 	ii->opaque_user_data = (void *)(intptr_t)m;
 
 	if (!lws_client_connect_via_info(ii)) {
-		failed++;
-		lwsl_user("%s: failed: conn idx %d\n", __func__, m);
-		if (++completed == count) {
-			lwsl_user("Done: failed: %d\n", failed);
-			lws_context_destroy(context);
+		if (conn_state[m] != 2) {
+			conn_state[m] = 2;
+			failed++;
+			lwsl_user("%s: failed: conn idx %d\n", __func__, m);
+			if (++completed == count) {
+				lwsl_user("Done: failed: %d\n", failed);
+				lws_context_destroy(context);
+			}
 		}
-	} else
+	} else {
+		if (conn_state[m] != 2)
+			conn_state[m] = 1;
 		lwsl_user("started connection %s: idx %d (%s)\n",
 			  lws_wsi_tag(client_wsi[m]), m, ii->path);
+	}
 }
 
 
@@ -572,8 +584,7 @@ int main(int argc, const char **argv)
 	int pl = 0;
 #endif
 
-	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
-	memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
+	lws_context_info_defaults(&info, NULL);memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
 
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 
@@ -597,7 +608,7 @@ int main(int argc, const char **argv)
 	staggered = !!lws_cmdline_option(argc, argv, switches[LWS_SW_S].sw);
 
 	lwsl_user("LWS minimal http client [-s (staggered)] [-p (pipeline)]\n");
-	lwsl_user("   [--h1 (http/1 only)] [-l (localhost)] [-d <logs>]\n");
+	lwsl_user("   [-l (localhost)] [-d <logs>]\n");
 	lwsl_user("   [-n (numbered)] [--post]\n");
 
 	info.port = CONTEXT_PORT_NO_LISTEN; /* we do not run any server */
@@ -678,10 +689,6 @@ int main(int argc, const char **argv)
 		i.ssl_connection |= LCCSCF_CONMON;
 #endif
 
-	/* force h1 even if h2 available */
-	if (lws_cmdline_option(argc, argv, switches[LWS_SW_H1].sw))
-		i.alpn = "http/1.1";
-
 	strcpy(urlpath, "/");
 
 	if (lws_cmdline_option(argc, argv, switches[LWS_SW_L].sw)) {
@@ -690,6 +697,10 @@ int main(int argc, const char **argv)
 		i.ssl_connection |= LCCSCF_ALLOW_SELFSIGNED;
 		if (posting)
 			strcpy(urlpath, "/formtest");
+	} else if (lws_cmdline_option(argc, argv, "--h3")) {
+		i.port = 443;
+		i.address = "cloudflare-quic.com";
+		strcpy(urlpath, "/");
 	} else {
 		i.port = 443;
 		i.address = "libwebsockets.org";

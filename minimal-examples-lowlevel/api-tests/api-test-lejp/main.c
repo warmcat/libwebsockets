@@ -802,9 +802,8 @@ test_cb(struct lejp_ctx *ctx, char reason)
 
 int main(int argc, const char **argv)
 {
-	int n, e = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+	int n, e = 0;
 	struct lejp_ctx ctx;
-	const char *p;
 	(void)switches;
 
 	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
@@ -815,10 +814,7 @@ int main(int argc, const char **argv)
 
 	memset(&ctx, 0, sizeof(ctx));
 
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
-		logs = atoi(p);
 
-	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS API selftest: lws_struct JSON\n");
 
 	for (m = 0; m < (int)LWS_ARRAY_SIZE(json_tests); m++) {

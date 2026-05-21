@@ -10,7 +10,7 @@
 
 | TLS Library | Server TLS | Client TLS | QUIC Transport (TLS 1.3) | WSS / HTTPS | MQTT over TLS | ALPN (HTTP/2) | DTLS (WebRTC) | Session Cache | JIT Trust | GenCrypto |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **OpenSSL** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** |
+| **OpenSSL** | **Yes** | **Yes** | **No*** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** |
 | **LibreSSL** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
 | **AWS-LC** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
 | **BoringSSL** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
@@ -19,6 +19,9 @@
 | **GnuTLS** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
 | **SChannel** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
 | **BearSSL** | **Yes** | **Yes** | **No** | **Yes** | **Yes** | **Yes** | **No** | **Yes** | **Yes** | **Yes** |
+
+\* *Note: Upstream OpenSSL does not provide the necessary QUIC TLS API (`SSL_set_quic_method`) to act as a cryptographic engine for LWS's QUIC transport. If you need QUIC/HTTP3 support, we recommend using BoringSSL, GnuTLS, WolfSSL, or the `quictls` fork of OpenSSL.*
+
 
  - DHT support built-in: `-DLWS_WITH_DHT=1`
 

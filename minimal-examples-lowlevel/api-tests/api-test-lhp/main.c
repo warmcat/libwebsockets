@@ -272,11 +272,10 @@ static lws_displaylist_t displaylist;
 int
 main(int argc, const char **argv)
 {
-	int e = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+	int e = 0;
 	lws_stateful_ret_t n;
 	lws_dl_rend_t drt;
 	lhp_ctx_t ctx;
-	const char *p;
 	(void)switches;
 
 	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
@@ -288,10 +287,7 @@ main(int argc, const char **argv)
 
 	memset(&ctx, 0, sizeof(ctx));
 
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
-		logs = atoi(p);
 
-	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS API selftest: lhp HTML5 parser\n");
 
 	for (m = 0; m < (int)LWS_ARRAY_SIZE(html_tests); m++) {

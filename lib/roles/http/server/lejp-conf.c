@@ -509,6 +509,9 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
                a->info->user = a->user;
 #if defined(LWS_WITH_TLS)
 #if defined(LWS_WITH_CLIENT)
+#if defined(LWS_WITH_GNUTLS)
+		a->info->client_ssl_cipher_list = "NORMAL";
+#else
 		a->info->client_ssl_cipher_list = "ECDHE-ECDSA-AES256-GCM-SHA384:"
 			"ECDHE-RSA-AES256-GCM-SHA384:"
 			"DHE-RSA-AES256-GCM-SHA384:"
@@ -523,7 +526,11 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 			"!AES256-GCM-SHA384:"
 			"!AES256-SHA256";
 #endif
+#endif
 #if defined(LWS_WITH_SERVER)
+#if defined(LWS_WITH_GNUTLS)
+		a->info->ssl_cipher_list = "NORMAL";
+#else
 		a->info->ssl_cipher_list = "ECDHE-ECDSA-AES256-GCM-SHA384:"
 				       "ECDHE-RSA-AES256-GCM-SHA384:"
 				       "DHE-RSA-AES256-GCM-SHA384:"
@@ -532,13 +539,14 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 				       "!DES:!MD5:!PSK:!RC4:!HMAC_SHA1:"
 				       "!SHA1:!DHE-RSA-AES128-GCM-SHA256:"
 				       "!DHE-RSA-AES128-SHA256:"
-                                      "!ECDHE-RSA-AES128-GCM-SHA256:"
+                                       "!ECDHE-RSA-AES128-GCM-SHA256:"
 				       "!AES128-GCM-SHA256:"
 				       "!AES128-SHA256:"
 				       "!DHE-RSA-AES256-SHA256:"
 				       "!AES256-GCM-SHA384:"
-                                      "!AES256-SHA256:"
-                                      "!CAMELLIA128:!CAMELLIA256";
+                                       "!AES256-SHA256:"
+                                       "!CAMELLIA128:!CAMELLIA256";
+#endif
 #endif
 #endif
 		a->info->keepalive_timeout = 5;

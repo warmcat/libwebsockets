@@ -55,6 +55,9 @@ lws_http_string_to_known_header(const char *s, size_t slen)
 int
 lws_wsi_is_h2(struct lws *wsi)
 {
+	if (lwsi_role_h3(wsi))
+		return 0;
+
 	return wsi->upgraded_to_http2 ||
 	       wsi->mux_substream ||
 #if defined(LWS_WITH_CLIENT)
@@ -78,14 +81,14 @@ lws_add_http_header_by_name(struct lws *wsi, const unsigned char *name,
 			    const unsigned char *value, int length,
 			    unsigned char **p, unsigned char *end)
 {
-#ifdef LWS_WITH_HTTP2
-	if (lws_wsi_is_h2(wsi))
-		return lws_add_http2_header_by_name(wsi, name,
-						    value, length, p, end);
-#endif
 #ifdef LWS_ROLE_H3
 	if (wsi && lws_wsi_is_h3(wsi))
 		return lws_add_http3_header_by_name(wsi, name,
+						    value, length, p, end);
+#endif
+#ifdef LWS_WITH_HTTP2
+	if (lws_wsi_is_h2(wsi))
+		return lws_add_http2_header_by_name(wsi, name,
 						    value, length, p, end);
 #endif
 	if (!wsi) {
@@ -118,10 +121,6 @@ lws_add_http_header_by_name(struct lws *wsi, const unsigned char *name,
 int lws_finalize_http_header(struct lws *wsi, unsigned char **p,
 			     unsigned char *end)
 {
-#ifdef LWS_WITH_HTTP2
-	if (lws_wsi_is_h2(wsi))
-		return 0;
-#endif
 #ifdef LWS_ROLE_H3
 	if (wsi && lws_wsi_is_h3(wsi)) {
 		if (wsi->http.h3_prefix_ptr) {
@@ -142,6 +141,10 @@ int lws_finalize_http_header(struct lws *wsi, unsigned char **p,
 		}
 		return 0;
 	}
+#endif
+#ifdef LWS_WITH_HTTP2
+	if (lws_wsi_is_h2(wsi))
+		return 0;
 #endif
 	if ((lws_intptr_t)(end - *p) < 3)
 		return 1;
@@ -176,14 +179,14 @@ lws_add_http_header_by_token(struct lws *wsi, enum lws_token_indexes token,
 			     unsigned char **p, unsigned char *end)
 {
 	const unsigned char *name;
-#ifdef LWS_WITH_HTTP2
-	if (lws_wsi_is_h2(wsi))
-		return lws_add_http2_header_by_token(wsi, token, value,
-						     length, p, end);
-#endif
 #ifdef LWS_ROLE_H3
 	if (wsi && lws_wsi_is_h3(wsi))
 		return lws_add_http3_header_by_token(wsi, token, value,
+						     length, p, end);
+#endif
+#ifdef LWS_WITH_HTTP2
+	if (lws_wsi_is_h2(wsi))
+		return lws_add_http2_header_by_token(wsi, token, value,
 						     length, p, end);
 #endif
 	name = lws_token_to_string(token);
@@ -208,8 +211,9 @@ lws_add_http_header_content_length(struct lws *wsi,
 	wsi->http.tx_content_length = content_length;
 	wsi->http.tx_content_remain = content_length;
 
-	lwsl_info("%s: %s: tx_content_length/remain %llu\n", __func__,
-		  lws_wsi_tag(wsi), (unsigned long long)content_length);
+	/* lwsl_notice("CONTENT-LENGTH: %s: content_length=%llu, stream_id=%llu\n",
+		    lws_wsi_tag(wsi), (unsigned long long)content_length,
+		    (unsigned long long)(wsi->quic.qs ? wsi->quic.qs->stream_id : 0)); */
 
 	return 0;
 }
@@ -534,6 +538,37 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 				"includeSubDomains", 36, p, end))
 			return 1;
 
+#if defined(LWS_ROLE_QUIC)
+	if (lws_wsi_is_h2(wsi) || !wsi->mux_substream) {
+		struct lws_vhost *vh = wsi->a.context->vhost_list;
+		int quic_listening = 0;
+		while (vh) {
+			if (vh->listen_port == wsi->a.vhost->listen_port) {
+				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d_tmp, vh->listen_wsi.head) {
+					struct lws *lw = lws_container_of(d, struct lws, listen_list);
+					if (lw->role_ops && lw->role_ops->name &&
+					    !strcmp(lw->role_ops->name, "quic")) {
+						quic_listening = 1;
+						break;
+					}
+				} lws_end_foreach_dll_safe(d, d_tmp);
+			}
+			if (quic_listening)
+				break;
+			vh = vh->vhost_next;
+		}
+			if (quic_listening) {
+				char buf[64];
+				int n = lws_snprintf(buf, sizeof(buf), "h3=\":%d\"; ma=2592000", wsi->a.vhost->listen_port);
+				int ret;
+				ret = lws_add_http_header_by_name(wsi, (unsigned char *)"alt-svc:",
+							    (unsigned char *)buf, n, p, end);
+				if (ret)
+					return 1;
+			}
+	}
+#endif
+
 	if (*p >= (end - 2)) {
 		lwsl_err("%s: reached end of buffer\n", __func__);
 
@@ -561,7 +596,7 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 
 		return 1;
 	}
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 	if (!wsi->handling_404 &&
 	    wsi->a.vhost->http.error_document_404 &&
 	    code == HTTP_STATUS_NOT_FOUND)
@@ -662,6 +697,16 @@ lws_http_redirect(struct lws *wsi, int code, const unsigned char *loc, int len,
 		  unsigned char **p, unsigned char *end)
 {
 	unsigned char *start = *p;
+	char *uri_ptr = NULL;
+	int uri_len = 0;
+
+	if (lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len) < 0) {
+		uri_ptr = "unknown";
+		uri_len = 7;
+	}
+
+	// lwsl_notice("%s: code=%d, from='%.*s', loc='%.*s'\n", __func__, code,
+	//	    uri_len, uri_ptr, len, loc);
 
 	if (lws_add_http_header_status(wsi, (unsigned int)code, p, end))
 		return -1;

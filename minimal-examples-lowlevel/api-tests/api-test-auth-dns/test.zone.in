@@ -24,3 +24,7 @@ mail                    IN      AAAA    2001:bc8:6010:213:208:a2ff:fe0c:72ce
 @                       IN      TXT     "v=spf1 mx a -all"
 mx              60      IN      A       ${MHWC_DYNAMIC}
 mx              60      IN      AAAA    2001:bc8:6010:213:208:a2ff:fe0c:72ce
+
+@               1200    IN      HTTPS   1 . alpn="h3,h2"
+www             1200    IN      TYPE65  \# 13 00010000010006026833026832
+

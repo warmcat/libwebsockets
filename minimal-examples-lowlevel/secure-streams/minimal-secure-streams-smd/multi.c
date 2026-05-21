@@ -365,8 +365,7 @@ smd_ss_multi_test(int argc, const char **argv)
 		/* the original process */
 		n = -1; /* so original ends up with context.user as 0 below */
 
-	memset(&info, 0, sizeof info);
-	memset(&sul_timeout, 0, sizeof sul_timeout);
+	lws_context_info_defaults(&info, NULL);memset(&sul_timeout, 0, sizeof sul_timeout);
 
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 

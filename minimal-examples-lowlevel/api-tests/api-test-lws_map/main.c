@@ -12,15 +12,7 @@
 #include <libwebsockets.h>
 
 
-enum {
-	LWS_SW_D,
-	LWS_SW_HELP,
-};
 
-static const struct lws_switches switches[] = {
-	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
-	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
-};
 
 typedef struct lws_map_item lws_map_item_t;
 
@@ -41,26 +33,21 @@ compare_mykey_t(const lws_map_key_t key1, size_t kl1,
 
 int main(int argc, const char **argv)
 {
-	int e = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE,
+	int e = 0,
 			expected = 4, pass = 0;
 	mykey_t k1 = { .key = 123 }, k2 = { .key = 234 }, k3 = { .key = 999 };
 	struct lwsac *ac = NULL;
 	lws_map_item_t *item;
 	lws_map_info_t info;
 	lws_map_t *map;
-	const char *p;
 
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
-		logs = atoi(p);
 
-	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS API selftest: lws_map\n");
 
 	/* Test 1: string keys */
 
 	lwsl_user("%s: test1\n", __func__);
-	memset(&info, 0, sizeof(info));
-	map = lws_map_create(&info);
+	memset(&info, 0, sizeof(info));map = lws_map_create(&info);
 	if (!map) {
 		e++;
 		goto end_t1;
@@ -231,8 +218,7 @@ end_t3:
 	/* Test 4: same key items */
 
 	lwsl_user("%s: test4\n", __func__);
-	memset(&info, 0, sizeof(info));
-	map = lws_map_create(&info);
+	memset(&info, 0, sizeof(info));map = lws_map_create(&info);
 	if (!map) {
 		e++;
 		goto end_t4;

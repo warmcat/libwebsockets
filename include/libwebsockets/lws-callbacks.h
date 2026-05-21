@@ -916,6 +916,11 @@ enum lws_callback_reasons {
 	LWS_CALLBACK_QT_CLIENT_RECEIVE					= 218,
 	/**< QUIC transport payload received on client side */
 
+	LWS_CALLBACK_CLIENT_ESTABLISHED_EARLY				= 219,
+	/**< 0-RTT/Early data callback. If the client stream opts into 0-RTT,
+	 * it can return 1 from this callback to enable early WRITEABLE callbacks
+	 * before the handshake completes. Return 0 to ignore 0-RTT. */
+
 	/****** add new things just above ---^ ******/
 
 	LWS_CALLBACK_USER = 1000,

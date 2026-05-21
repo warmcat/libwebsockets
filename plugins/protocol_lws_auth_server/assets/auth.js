@@ -195,7 +195,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                         <span class="auth-status-text">Security Violation</span>
                                     </div>
                                     <p class="auth-session-email">${errData.error || 'Untrusted Redirect URI'}</p>
-                                    <p style="font-size: 0.8rem; color: #94a3b8; text-align: center; margin-top: 10px;">The specified redirection target is not whitelisted by the network administrator.</p>
+                                    <p class="redirect-whitelist-error">The specified redirection target is not whitelisted by the network administrator.</p>
                                 </div>`;
                                 subtitle.innerText = "Access Blocked";
                                 showNotif('error', errData.error || 'Untrusted Redirect URI');
@@ -643,11 +643,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (response.ok) {
                     showNotif('success', 'Device authorized successfully!');
                     deviceAuthBox.innerHTML = `
-                        <div class="auth-status-row success-row" style="margin-bottom: 0;">
+                        <div class="auth-status-row success-row mb-0">
                             <span class="auth-status-icon">✅</span>
                             <span class="auth-status-text">Device Authorized</span>
                         </div>
-                        <p style="text-align: center; color: var(--text-muted); font-size: 0.9rem; margin-top: 15px;">
+                        <p class="auto-redirect-msg">
                             You may now close this tab. The device will connect automatically.
                         </p>
                     `;

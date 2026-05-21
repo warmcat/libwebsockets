@@ -34,6 +34,12 @@ const struct lws_role_ops *available_roles[] = {
 #if defined(LWS_ROLE_QUIC)
 	&role_ops_quic,
 #endif
+#if defined(LWS_ROLE_H3)
+	&role_ops_h3,
+#endif
+#if defined(LWS_ROLE_WT)
+	&role_ops_wt,
+#endif
 #if defined(LWS_ROLE_H1)
 	&role_ops_h1,
 #endif
@@ -123,9 +129,22 @@ lws_role_call_alpn_negotiated(struct lws *wsi, const char *alpn)
 	lwsl_wsi_info(wsi, "'%s'", alpn);
 #endif
 
+	/* First try the WSI's current role if it matches the ALPN or if it's QUIC */
+	if (wsi->role_ops && lws_rops_fidx(wsi->role_ops, LWS_ROPS_alpn_negotiated) &&
+	    ((wsi->role_ops->alpn && !strcmp(wsi->role_ops->alpn, alpn)) ||
+		 (!strcmp(wsi->role_ops->name, "quic") && !strcmp(alpn, "lws-quic")))) {
+			lwsl_wsi_notice(wsi, "lws_role_call_alpn_negotiated: Matched WSI current role: %s", wsi->role_ops->name);
+#if defined(LWS_WITH_SERVER)
+			lws_metrics_tag_wsi_add(wsi, "upg", wsi->role_ops->name);
+#endif
+			return (lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_alpn_negotiated)).
+						   alpn_negotiated(wsi, alpn);
+	}
+
 	LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar)
 		if (ar->alpn && !strcmp(ar->alpn, alpn) &&
 		    lws_rops_fidx(ar, LWS_ROPS_alpn_negotiated)) {
+			// lwsl_wsi_notice(wsi, "lws_role_call_alpn_negotiated: Matched fallback role: %s", ar->name);
 #if defined(LWS_WITH_SERVER)
 			lws_metrics_tag_wsi_add(wsi, "upg", ar->name);
 #endif
@@ -2077,6 +2096,34 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 				*nwsi = w;
 
 				return ACTIVE_CONNS_MUXED;
+			}
+#endif
+
+#if defined(LWS_ROLE_H3)
+			/*
+			 * h3: if in usable state already: just use it without
+			 *     going through the queue
+			 */
+			if (lwsi_role_h3(w) && w->client_h2_alpn && w->client_mux_migrated &&
+			    (lwsi_state(w) == LRS_H2_WAITING_TO_SEND_HEADERS ||
+			     lwsi_state(w) == LRS_ESTABLISHED ||
+			     lwsi_state(w) == LRS_IDLING)) {
+
+				lwsl_wsi_info(w, "just join h3 directly 0x%x",
+						   lwsi_state(w));
+
+				if (lwsi_state(w) == LRS_IDLING)
+					_lws_generic_transaction_completed_active_conn(&w, 0);
+
+				wsi->client_h2_alpn = 1;
+				if (lws_wsi_h3_adopt(w, wsi)) {
+					lws_vhost_unlock(wsi->a.vhost); /* } ---------- */
+					lws_context_unlock(wsi->a.context); /* -------------- cx { */
+
+					*nwsi = w;
+
+					return ACTIVE_CONNS_MUXED;
+				}
 			}
 #endif
 

@@ -401,6 +401,7 @@ do_cb:
 		case LWS_ADNS_RECORD_NSEC:
 		case LWS_ADNS_RECORD_NSEC3:
 		case LWS_ADNS_RECORD_SOA:
+		case LWS_ADNS_RECORD_HTTPS:
 			/* We pass these DNSSEC-related records to the callback so
 			 * it can store/evaluate them.
 			 */
@@ -497,7 +498,8 @@ lws_async_dns_estimate(const char *name, void *opaque, uint32_t ttl,
 	 */
 	if (type == LWS_ADNS_RECORD_DNSKEY || type == LWS_ADNS_RECORD_RRSIG ||
 	    type == LWS_ADNS_RECORD_DS || type == LWS_ADNS_RECORD_NSEC ||
-	    type == LWS_ADNS_RECORD_NSEC3 || type == LWS_ADNS_RECORD_SOA) {
+	    type == LWS_ADNS_RECORD_NSEC3 || type == LWS_ADNS_RECORD_SOA ||
+	    type == LWS_ADNS_RECORD_HTTPS) {
 		/* We'll stash them as lws_adns_rr_t directly after the A records */
 		my += sizeof(lws_adns_rr_t) + rrpaylen;
 	}
@@ -539,7 +541,8 @@ lws_async_dns_store(const char *name, void *opaque, uint32_t ttl,
 	 */
 	if (type == LWS_ADNS_RECORD_RRSIG || type == LWS_ADNS_RECORD_DNSKEY ||
 	    type == LWS_ADNS_RECORD_DS || type == LWS_ADNS_RECORD_NSEC ||
-	    type == LWS_ADNS_RECORD_NSEC3 || type == LWS_ADNS_RECORD_SOA) {
+	    type == LWS_ADNS_RECORD_NSEC3 || type == LWS_ADNS_RECORD_SOA ||
+	    type == LWS_ADNS_RECORD_HTTPS) {
 		lws_adns_rr_t *rr = (lws_adns_rr_t *)adst->pos;
 
 		rr->next = NULL;

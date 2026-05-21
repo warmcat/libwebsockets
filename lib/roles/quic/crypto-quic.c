@@ -31,6 +31,13 @@ static const uint8_t quic_v1_initial_salt[20] = {
 	0xcc, 0xbb, 0x7f, 0x0a
 };
 
+static const uint8_t quic_v2_initial_salt[32] = {
+	0x0c, 0x20, 0x34, 0xeb, 0x2d, 0xcf, 0xeb, 0x4a,
+	0x14, 0x4e, 0x1b, 0x82, 0xf0, 0x93, 0x14, 0x06,
+	0xcb, 0xb9, 0x2e, 0xd3, 0x5b, 0x3e, 0x64, 0xf2,
+	0x71, 0xbc, 0x60, 0x7e, 0xb3, 0x26, 0x89, 0xc1
+};
+
 static int
 lws_quic_derive_key_iv_hp(uint8_t *secret, size_t secret_len, uint8_t cipher_type,
 			  uint8_t *iv, size_t iv_len,
@@ -77,16 +84,26 @@ lws_quic_derive_initial_keys(struct lws *wsi, const struct lws_quic_cid *dcid)
 	struct lws_quic_keys *k;
 	int ret = -1;
 
+	const uint8_t *salt;
+	size_t salt_len;
+
 	if (!qn)
 		return -1;
-
 	k = lws_zalloc(sizeof(*k), "quic_keys_initial");
 	if (!k)
 		return -1;
 
+	if (wsi->quic.qn->version == LWS_QUIC_VERSION_2) {
+		salt = quic_v2_initial_salt;
+		salt_len = sizeof(quic_v2_initial_salt);
+	} else {
+		salt = quic_v1_initial_salt;
+		salt_len = sizeof(quic_v1_initial_salt);
+	}
+
 	/* 1. Extract Initial Secret from DCID and Fixed Salt */
-	if (lws_genhkdf_extract(LWS_GENHMAC_TYPE_SHA256, quic_v1_initial_salt,
-				sizeof(quic_v1_initial_salt), dcid->id, dcid->len,
+	if (lws_genhkdf_extract(LWS_GENHMAC_TYPE_SHA256, salt,
+				salt_len, dcid->id, dcid->len,
 				initial_secret))
 		goto bail;
 
@@ -138,6 +155,41 @@ bail:
 }
 
 int
+lws_quic_initiate_key_update(struct lws *wsi)
+{
+	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+	struct lws_quic_netconn *qn;
+
+	if (!nwsi || !nwsi->quic.qn)
+		return -1;
+	
+	qn = nwsi->quic.qn;
+	
+	/* We only update keys if the handshake is done and we have APP keys */
+	if (!qn->handshake_done || !qn->keys[LWS_QUIC_LEVEL_APP])
+		return -1;
+		
+	/* If an update is already pending, wait for it to be echoed/completed */
+	if (qn->key_update_pending)
+		return -1;
+
+	/* Derive the new TX keys */
+	if (lws_quic_update_keys(qn->keys[LWS_QUIC_LEVEL_APP], 0))
+		return -1;
+		
+	/* Flip the TX key phase bit */
+	qn->tx_key_phase ^= 1;
+	
+	/* Mark that we initiated it, so we expect the peer to echo it back in RX */
+	qn->key_update_pending = 1;
+	
+	/* Reset the packet counter for AEAD limits */
+	qn->tx_packets_since_update = 0;
+
+	return 0;
+}
+
+int
 lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uint8_t *secret, size_t secret_len)
 {
 	struct lws_quic_netconn *qn = wsi->quic.qn;
@@ -148,11 +200,20 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
 	if (!qn)
 		return -1;
 
+	if (qn->handshake_done && (type == LWS_TLS_QUIC_SECRET_CLIENT_APPLICATION || type == LWS_TLS_QUIC_SECRET_SERVER_APPLICATION)) {
+		lwsl_info("lws_quic_set_keys: ignoring post-handshake application secret update\n");
+		return 0;
+	}
+
+
+
+
 	/* Determine level and direction */
 	switch (type) {
 	case LWS_TLS_QUIC_SECRET_CLIENT_EARLY:
-		/* 0-RTT not fully supported yet */
-		return 0;
+		level = LWS_QUIC_LEVEL_EARLY;
+		is_rx = qn->is_server ? 1 : 0;
+		break;
 	case LWS_TLS_QUIC_SECRET_CLIENT_HANDSHAKE:
 		level = LWS_QUIC_LEVEL_HANDSHAKE;
 		is_rx = qn->is_server ? 1 : 0;
@@ -201,30 +262,74 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
 	/* For simplicity, we just mark valid and rely on tx/rx logic */
 	k->valid = 1;
 
+	/* If this is the client deriving the early secret, check if the stream opts in */
+	if (type == LWS_TLS_QUIC_SECRET_CLIENT_EARLY && !qn->is_server) {
+		qn->early_data_status = LWS_0RTT_STATUS_ATTEMPTED;
+
+		/* The initial stream is currently also the network wsi, because ALPN
+		 * hasn't migrated it yet. If it returns 1, it opts into 0-RTT. */
+		if (wsi->a.protocol && wsi->a.protocol->callback) {
+			int ret = wsi->a.protocol->callback(wsi,
+					LWS_CALLBACK_CLIENT_ESTABLISHED_EARLY,
+					wsi->user_space, NULL, 0);
+			if (ret == 1) {
+				lwsl_wsi_notice(wsi, "Stream %s opted into 0-RTT", lws_wsi_tag(wsi));
+				if (wsi->quic.qs)
+					wsi->quic.qs->opted_into_early_data = 1;
+				lws_callback_on_writable(wsi);
+			} else {
+				lwsl_wsi_notice(wsi, "Stream %s ignored 0-RTT", lws_wsi_tag(wsi));
+			}
+		}
+	} else if (type == LWS_TLS_QUIC_SECRET_CLIENT_EARLY && qn->is_server) {
+		qn->early_data_status = LWS_0RTT_STATUS_ACCEPTED;
+	}
+
 	return 0;
 }
 
-int
-lws_quic_update_keys(struct lws *wsi, int is_rx)
+void
+lws_quic_keys_destroy(struct lws_quic_keys *keys)
 {
-	struct lws_quic_netconn *qn = wsi->quic.qn;
-	if (!qn || !qn->keys[LWS_QUIC_LEVEL_APP]) return -1;
+        if (!keys) return;
 
-	struct lws_quic_keys *k = qn->keys[LWS_QUIC_LEVEL_APP];
+#if defined(LWS_WITH_GNUTLS)
+        if (keys->aead_rx)
+                gnutls_aead_cipher_deinit((gnutls_aead_cipher_hd_t)keys->aead_rx);
+        if (keys->aead_tx)
+                gnutls_aead_cipher_deinit((gnutls_aead_cipher_hd_t)keys->aead_tx);
+#endif
+
+        lws_free(keys);
+}
+
+int
+lws_quic_update_keys(struct lws_quic_keys *k, int is_rx)
+{
 	uint8_t new_secret[48];
+
+	size_t key_len = (k->cipher_type == 0) ? 16 : 32;
 
 	if (is_rx) {
 		enum lws_genhmac_types hash_type = (k->secret_len == 48) ? LWS_GENHMAC_TYPE_SHA384 : LWS_GENHMAC_TYPE_SHA256;
 		if (lws_genhkdf_expand_label(hash_type, k->secret_rx, k->secret_len, "quic ku", NULL, 0, new_secret, k->secret_len)) return -1;
 		memcpy(k->secret_rx, new_secret, k->secret_len);
-		if (lws_quic_derive_key_iv_hp(new_secret, k->secret_len, k->cipher_type, k->iv_rx, sizeof(k->iv_rx),
-					      &k->el_aead_rx, k->key_aead_rx, &k->el_hp_rx, k->key_hp_rx)) return -1;
+		
+		if (lws_genhkdf_expand_label(hash_type, new_secret, k->secret_len, "quic key", NULL, 0, k->key_aead_rx, key_len)) return -1;
+		if (lws_genhkdf_expand_label(hash_type, new_secret, k->secret_len, "quic iv", NULL, 0, k->iv_rx, 12)) return -1;
+		
+		k->el_aead_rx.buf = k->key_aead_rx;
+		k->el_aead_rx.len = (uint32_t)key_len;
 	} else {
 		enum lws_genhmac_types hash_type = (k->secret_len == 48) ? LWS_GENHMAC_TYPE_SHA384 : LWS_GENHMAC_TYPE_SHA256;
 		if (lws_genhkdf_expand_label(hash_type, k->secret_tx, k->secret_len, "quic ku", NULL, 0, new_secret, k->secret_len)) return -1;
 		memcpy(k->secret_tx, new_secret, k->secret_len);
-		if (lws_quic_derive_key_iv_hp(new_secret, k->secret_len, k->cipher_type, k->iv_tx, sizeof(k->iv_tx),
-					      &k->el_aead_tx, k->key_aead_tx, &k->el_hp_tx, k->key_hp_tx)) return -1;
+		
+		if (lws_genhkdf_expand_label(hash_type, new_secret, k->secret_len, "quic key", NULL, 0, k->key_aead_tx, key_len)) return -1;
+		if (lws_genhkdf_expand_label(hash_type, new_secret, k->secret_len, "quic iv", NULL, 0, k->iv_tx, 12)) return -1;
+		
+		k->el_aead_tx.buf = k->key_aead_tx;
+		k->el_aead_tx.len = (uint32_t)key_len;
 	}
 
 	lws_explicit_bzero(new_secret, sizeof(new_secret));
@@ -312,25 +417,30 @@ lws_quic_decrypt_payload(struct lws_quic_keys *keys, uint8_t *packet, size_t pac
 #endif
 	if (keys->cipher_type == 0 || keys->cipher_type == 2) {
 #if defined(LWS_WITH_GNUTLS)
-		gnutls_aead_cipher_hd_t hd;
-		gnutls_datum_t key;
-		key.data = keys->el_aead_rx.buf;
-		key.size = keys->el_aead_rx.len;
-		gnutls_cipher_algorithm_t alg = (keys->cipher_type == 2) ? GNUTLS_CIPHER_AES_256_GCM : GNUTLS_CIPHER_AES_128_GCM;
-		
-		if (gnutls_aead_cipher_init(&hd, alg, &key) < 0)
-			return -1;
+                gnutls_aead_cipher_hd_t hd;
+                gnutls_datum_t key;
+                key.data = keys->el_aead_rx.buf;
+                key.size = keys->el_aead_rx.len;
+                gnutls_cipher_algorithm_t alg = (keys->cipher_type == 2) ? GNUTLS_CIPHER_AES_256_GCM : GNUTLS_CIPHER_AES_128_GCM;
 
-		size_t ct_len = payload_len + 16;
-		size_t pt_len = payload_len;
-		if (gnutls_aead_cipher_decrypt(hd, nonce, 12, packet, payload_offset,
-					       16, &packet[payload_offset], ct_len,
-					       &packet[payload_offset], &pt_len) < 0) {
-			lwsl_err("DECRYPT GCM tag check failed via gnutls_aead_cipher_decrypt\n");
-			gnutls_aead_cipher_deinit(hd);
-			return -1;
-		}
-		gnutls_aead_cipher_deinit(hd);
+                if (!keys->aead_rx) {
+                        if (gnutls_aead_cipher_init((gnutls_aead_cipher_hd_t *)&keys->aead_rx, alg, &key) < 0)
+                                return -1;
+                }
+                hd = (gnutls_aead_cipher_hd_t)keys->aead_rx;
+
+                size_t ct_len = payload_len + 16;
+                size_t pt_len = payload_len;
+                uint8_t tmp[2048];
+                if (ct_len > sizeof(tmp))
+                        return -1;
+                memcpy(tmp, &packet[payload_offset], ct_len);
+                if (gnutls_aead_cipher_decrypt(hd, nonce, 12, packet, payload_offset,
+                                               16, tmp, ct_len,
+                                               &packet[payload_offset], &pt_len) < 0) {
+                        lwsl_err("DECRYPT GCM tag check failed via gnutls_aead_cipher_decrypt\n");
+                        return -1;
+                }
 #else
 		struct lws_genaes_ctx aead;
 		if (lws_genaes_create(&aead, LWS_GAESO_DEC, LWS_GAESM_GCM, &keys->el_aead_rx, LWS_GAESP_NO_PADDING, NULL))
@@ -395,28 +505,40 @@ lws_quic_encrypt_payload(struct lws_quic_keys *keys, uint8_t *packet, size_t pac
 #endif
 	if (keys->cipher_type == 0 || keys->cipher_type == 2) {
 #if defined(LWS_WITH_GNUTLS)
-		gnutls_aead_cipher_hd_t hd;
-		gnutls_datum_t key;
-		key.data = keys->el_aead_tx.buf;
-		key.size = keys->el_aead_tx.len;
-		gnutls_cipher_algorithm_t alg = (keys->cipher_type == 2) ? GNUTLS_CIPHER_AES_256_GCM : GNUTLS_CIPHER_AES_128_GCM;
-		
-		if (gnutls_aead_cipher_init(&hd, alg, &key) < 0)
-			return -1;
+                gnutls_aead_cipher_hd_t hd;
+                gnutls_datum_t key;
+                key.data = keys->el_aead_tx.buf;
+                key.size = keys->el_aead_tx.len;
+                gnutls_cipher_algorithm_t alg = (keys->cipher_type == 2) ? GNUTLS_CIPHER_AES_256_GCM : GNUTLS_CIPHER_AES_128_GCM;
 
-		size_t ct_len = payload_len + 16;
-		if (gnutls_aead_cipher_encrypt(hd, nonce, 12, packet, payload_offset,
-					       16, &packet[payload_offset], payload_len,
-					       &packet[payload_offset], &ct_len) < 0) {
-			lwsl_err("ENCRYPT GCM failed via gnutls_aead_cipher_encrypt\n");
-			gnutls_aead_cipher_deinit(hd);
-			return -1;
-		}
-		gnutls_aead_cipher_deinit(hd);
-		
-		/* GnuTLS automatically appends the tag to the end of the ciphertext output */
-		/* We copy it to 'tag' just for the debug dump */
-		memcpy(tag, &packet[payload_offset + payload_len], 16);
+                if (!keys->aead_tx) {
+                        if (gnutls_aead_cipher_init((gnutls_aead_cipher_hd_t *)&keys->aead_tx, alg, &key) < 0)
+                                return -1;
+                }
+                hd = (gnutls_aead_cipher_hd_t)keys->aead_tx;
+
+                size_t ct_len = payload_len + 16;
+                uint8_t tmp[2048];
+                if (payload_len > sizeof(tmp))
+                        return -1;
+                memcpy(tmp, &packet[payload_offset], payload_len);
+                lwsl_debug("GnuTLS AEAD TX: full_pn=%llu, pn_offset=%d, payload_offset=%d, payload_len=%d\n",
+                            (unsigned long long)full_pn, (int)pn_offset, (int)payload_offset, (int)payload_len);
+                lwsl_hexdump_debug(packet, payload_offset); /* Print AAD */
+                lwsl_hexdump_debug(keys->iv_tx, 12); /* Print IV */
+                lwsl_hexdump_debug(nonce, 12); /* Print Nonce */
+                if (gnutls_aead_cipher_encrypt(hd, nonce, 12, packet, payload_offset,
+                                               16, tmp, payload_len,
+                                               &packet[payload_offset], &ct_len) < 0) {
+                        lwsl_err("ENCRYPT GCM failed via gnutls_aead_cipher_encrypt\n");
+                        return -1;
+                }
+
+                /* GnuTLS automatically appends the tag to the end of the ciphertext output */
+                /* We copy it to 'tag' just for the debug dump */
+                memcpy(tag, &packet[payload_offset + payload_len], 16);
+                lwsl_debug("GnuTLS AEAD TX TAG:\n");
+                lwsl_hexdump_debug(tag, 16);
 #else
 		struct lws_genaes_ctx aead;
 		if (lws_genaes_create(&aead, LWS_GAESO_ENC, LWS_GAESM_GCM, &keys->el_aead_tx, LWS_GAESP_NO_PADDING, NULL)) {
@@ -518,26 +640,155 @@ lws_quic_encrypt_payload(struct lws_quic_keys *keys, uint8_t *packet, size_t pac
 int
 lws_tls_quic_rx_crypto(struct lws *wsi, int level, const uint8_t *buf, size_t len)
 {
-	uint8_t out[4096];
-	size_t out_len = sizeof(out);
+	uint8_t *out = lws_malloc(32768, "quic rx crypto");
+	size_t out_len = 32768;
 	int n;
 
-	/*
-	 * Feed the RX CRYPTO payload into the TLS backend and simultaneously
-	 * pull any generated outbound TLS handshake data (like the ServerHello).
-	 */
+	if (!out)
+		return -1;
+
+	if (len > 0 && wsi->quic.qn) {
+		size_t i = 0;
+		while (i < len) {
+			if (wsi->quic.qn->crypto_rx_expected_msg_len[level] > 0) {
+				size_t consume = wsi->quic.qn->crypto_rx_expected_msg_len[level];
+				if (consume > len - i)
+					consume = len - i;
+				wsi->quic.qn->crypto_rx_expected_msg_len[level] -= consume;
+				i += consume;
+				continue;
+			}
+			
+			/* We are at the start of a new Handshake message! */
+			uint8_t type = buf[i];
+			if (type == 24 || type == 5) {
+				lwsl_wsi_notice(wsi, "QUIC RX CRYPTO: Illegal TLS Handshake type %d", type);
+				lws_quic_enter_closing_state(wsi, 0x0100 + 10 /* unexpected_message */, 0, 0);
+				lws_free(out);
+				return -1;
+			}
+			
+			if (i + 3 >= len) {
+				/* Fragmented header - extremely rare in h3spec, but we'd need to handle it.
+				 * For now, assume headers are not fragmented across chunks. */
+				break;
+			}
+			
+			uint32_t msg_len = ((uint32_t)buf[i+1] << 16) | ((uint32_t)buf[i+2] << 8) | buf[i+3];
+			wsi->quic.qn->crypto_rx_expected_msg_len[level] = msg_len;
+			i += 4;
+		}
+	}
+
 	n = lws_tls_quic_advance_handshake(wsi, level, buf, len, out, &out_len);
+
+	if (n < 0) {
+#if defined(LWS_WITH_GNUTLS)
+		int alert_level = 0;
+		int alert = gnutls_error_to_alert(n, &alert_level);
+		if (alert >= 0) {
+			lwsl_wsi_notice(wsi, "GnuTLS error %d mapped to alert %d (level %d)", n, alert, alert_level);
+			lws_quic_enter_closing_state(wsi, 0x0100 + (uint64_t)alert, 0, 0);
+		} else {
+			int alert_got = wsi->tls.ssl ? (int)gnutls_alert_get((gnutls_session_t)wsi->tls.ssl) : 0;
+			if (alert_got > 0) {
+				lwsl_wsi_notice(wsi, "GnuTLS generated alert %d", alert_got);
+				lws_quic_enter_closing_state(wsi, 0x0100 + (uint64_t)alert_got, 0, 0);
+			} else {
+				lws_quic_enter_closing_state(wsi, 0x0100 + 10 /* unexpected_message fallback */, 0, 0);
+			}
+		}
+#else
+		lws_quic_enter_closing_state(wsi, 0x0100 + 10 /* unexpected_message fallback */, 0, 0);
+#endif
+		lws_free(out);
+		return -1;
+	}
 
 	if (out_len > 0) {
 		/* Pass the generated TX CRYPTO data back to the QUIC transport queues */
 		lws_tls_quic_tx_crypto_cb(wsi, level, out, out_len);
 	}
 
+
+	lwsl_wsi_notice(wsi, "lws_tls_quic_advance_handshake returned %d, tp_parsed=%d", n, wsi->quic.qn ? wsi->quic.qn->tp_parsed : -1);
+
+	if (wsi->quic.qn && !wsi->quic.qn->tp_parsed) {
+		const uint8_t *peer_tp = NULL;
+		size_t peer_tp_len = 0;
+		if (lws_tls_quic_get_transport_parameters(wsi, &peer_tp, &peer_tp_len) == 0 && peer_tp) {
+			lwsl_wsi_notice(wsi, "Got peer_tp, len %zu, parsing...", peer_tp_len);
+			wsi->quic.qn->tp_parsed = 1;
+			if (lws_quic_parse_transport_parameters(wsi, peer_tp, peer_tp_len) < 0) {
+				lwsl_wsi_err(wsi, "QUIC transport parameters validation failed");
+				lws_quic_enter_closing_state(wsi, LWS_QUIC_ERR_TRANSPORT_PARAMETER_ERROR, 0, 0);
+				lws_free(out);
+				return -1;
+			}
+		} else {
+			lwsl_wsi_notice(wsi, "lws_tls_quic_get_transport_parameters returned non-zero or NULL");
+		}
+
+		if (wsi->quic.qn->is_server && out_len > 0 && !wsi->quic.qn->tp_parsed) {
+			lwsl_wsi_err(wsi, "QUIC Peer provided no transport parameters in ClientHello!");
+			lws_quic_enter_closing_state(wsi, 0x0100 + 109 /* missing_extension */, 0, 0);
+			lws_free(out);
+			return -1;
+		}
+	}
+
 	if (n == 0 && wsi->quic.qn && !wsi->quic.qn->handshake_done) {
 		lwsl_wsi_notice(wsi, "QUIC TLS Handshake Complete!");
+
+		if (!wsi->quic.qn->tp_parsed) {
+			lwsl_wsi_err(wsi, "QUIC Peer provided no transport parameters!");
+			lws_quic_enter_closing_state(wsi, 0x0100 + 109 /* missing_extension */, 0, 0);
+			lws_free(out);
+			return -1;
+		}
+
 		wsi->quic.qn->handshake_done = 1;
 
+		if (wsi->quic.qn->is_server) {
+			struct lws_quic_tx_frame *f_hd = lws_zalloc(sizeof(*f_hd), "HANDSHAKE_DONE");
+			if (f_hd) {
+				f_hd->type = LWS_QUIC_FT_HANDSHAKE_DONE;
+				f_hd->len = 0; /* No payload */
+				lws_dll2_add_tail(&f_hd->list, &wsi->quic.qn->pending_tx[LWS_QUIC_LEVEL_APP]);
+				lws_callback_on_writable(wsi);
+			}
+		}
+
 		lwsi_set_state(wsi, LRS_ESTABLISHED);
+
+#if defined(LWS_WITH_TLS)
+		{
+			const unsigned char *prot = NULL;
+			unsigned int plen = 0;
+
+#if defined(USE_WOLFSSL)
+			wolfSSL_get0_alpn_selected(wsi->tls.ssl, &prot, &plen);
+#elif defined(LWS_WITH_GNUTLS)
+			gnutls_datum_t dt;
+			if (gnutls_alpn_get_selected_protocol(wsi->tls.ssl, &dt) >= 0) {
+				prot = dt.data;
+				plen = dt.size;
+			}
+#elif defined(LWS_HAVE_SSL_get0_alpn_selected)
+			SSL_get0_alpn_selected(wsi->tls.ssl, &prot, &plen);
+#endif
+			if (plen) {
+				lws_strncpy(wsi->alpn, (const char *)prot, plen + 1);
+				lwsl_wsi_notice(wsi, "QUIC ALPN negotiated: %s", wsi->alpn);
+				lws_role_call_alpn_negotiated(wsi, (const char *)prot);
+			} else {
+				lwsl_wsi_err(wsi, "QUIC requires ALPN, but none was negotiated!");
+				lws_quic_enter_closing_state(wsi, 0x0100 + 120 /* no_application_protocol */, 0, 0);
+				lws_free(out);
+				return -1;
+			}
+		}
+#endif
 
 		if (wsi->role_ops) {
 			enum lws_callback_reasons cb = (enum lws_callback_reasons)wsi->role_ops->adoption_cb[lwsi_role_server(wsi)];
@@ -549,5 +800,60 @@ lws_tls_quic_rx_crypto(struct lws *wsi, int level, const uint8_t *buf, size_t le
 		lws_callback_on_writable(wsi);
 	}
 
+	lws_free(out);
 	return n < 0 ? -1 : 0;
+}
+
+LWS_VISIBLE LWS_EXTERN enum lws_0rtt_status
+lws_tls_0rtt_status(struct lws *wsi)
+{
+	struct lws_quic_netconn *qn;
+
+	if (!wsi)
+		return LWS_0RTT_STATUS_NONE;
+
+	qn = wsi->quic.qn;
+	if (!qn) {
+		/* Maybe it's a stream, let's get the network connection */
+		struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+		if (nwsi)
+			qn = nwsi->quic.qn;
+	}
+
+	if (!qn)
+		return LWS_0RTT_STATUS_NONE;
+
+	return (enum lws_0rtt_status)qn->early_data_status;
+}
+
+LWS_VISIBLE LWS_EXTERN int
+lws_rx_is_early_data(struct lws *wsi)
+{
+	struct lws_quic_stream *qs = NULL;
+
+	if (!wsi)
+		return 0;
+
+	qs = wsi->quic.qs;
+	if (!qs)
+		return 0;
+
+	/* In LWS, the transport layer determines if the currently processed RX
+	 * frame arrived in a 0-RTT packet. For QUIC streams, we can track if
+	 * the stream's current RX packet was at the LWS_QUIC_LEVEL_EARLY level.
+	 * Wait, we just need to know if the connection is still in the early data
+	 * phase (handshake not done yet) and we are the server, OR if the specific
+	 * packet was decrypted using the early secret.
+	 */
+	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+	if (!nwsi || !nwsi->quic.qn)
+		return 0;
+
+	/* If we are the server, and the handshake is not yet complete, any
+	 * application data we process MUST be 0-RTT early data.
+	 */
+	if (nwsi->quic.qn->is_server && !nwsi->quic.qn->handshake_done)
+		return 1;
+
+	return 0;
 }

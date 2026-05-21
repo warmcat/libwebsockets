@@ -31,8 +31,7 @@ int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	struct lws_context *context;
-	const char *p;
-	int result = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+	int result = 0;
 	(void)switches;
 
 	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
@@ -41,13 +40,11 @@ int main(int argc, const char **argv)
 	}
 
 
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
-		logs = atoi(p);
 
-	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS JOSE api tests\n");
 
-	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
+	lws_context_info_defaults(&info, NULL);
+	lws_cmdline_option_handle_builtin(argc, argv, &info);
 #if defined(LWS_WITH_NETWORK)
 	info.port = CONTEXT_PORT_NO_LISTEN;
 #endif

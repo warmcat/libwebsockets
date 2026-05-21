@@ -371,7 +371,7 @@ enum {
 
 	LWSLCG_WSI_SERVER,		/* server wsi */
 
-#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT)
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT) || defined(LWS_ROLE_QUIC)
 	LWSLCG_WSI_MUX,			/* a mux child wsi */
 #endif
 
@@ -584,6 +584,10 @@ struct lws_context {
 
 #if defined(LWS_WITH_CACHE_NSCOOKIEJAR) && defined(LWS_WITH_CLIENT)
 	struct lws_cache_ttl_lru *l1, *nsc;
+#endif
+
+#if defined(LWS_WITH_CLIENT)
+	struct lws_cache_ttl_lru *alpn_cache;
 #endif
 
 #if defined(LWS_WITH_SYS_NTPCLIENT)
@@ -843,6 +847,9 @@ struct lws_context {
 	uint8_t captive_portal_detect_type;
 
 	uint8_t		destroy_state; /* enum lws_context_destroy */
+
+	lws_quic_tx_credit_cb_t quic_tx_credit_cb;
+	const struct lws_cc_ops *quic_cc_ops;
 };
 
 #define lws_get_context_protocol(ctx, x) ctx->vhost_list->protocols[x]
@@ -1115,6 +1122,13 @@ lws_find_mount(struct lws *wsi, const char *uri_ptr, int uri_len);
 
 #ifdef LWS_WITH_HTTP2
 int lws_wsi_is_h2(struct lws *wsi);
+#else
+#define lws_wsi_is_h2(wsi) (0)
+#endif
+#ifdef LWS_ROLE_H3
+int lws_wsi_is_h3(struct lws *wsi);
+#else
+#define lws_wsi_is_h3(wsi) (0)
 #endif
 /*
  * custom allocator

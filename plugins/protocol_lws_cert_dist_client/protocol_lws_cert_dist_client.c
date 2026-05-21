@@ -3,6 +3,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <errno.h>
 
 static struct lws_dll2_owner active_client_vhds;
 

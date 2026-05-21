@@ -70,11 +70,16 @@ static int test_qpack_encoder(struct lws_context *ctx)
 	if (lws_finalize_http_header(wsi, &p, end)) { lwsl_err("finalize fail\n"); fails++; }
 
 	/* Decode the generated encoder stream */
-	if (tx_enc.enc_ptr) {
-		lwsl_user("Encoded %d bytes of encoder stream.\n", (int)tx_enc.enc_ptr);
-		if (lws_qpack_decode_encoder_stream(&state, &qctx, tx_enc.enc_buf, tx_enc.enc_ptr)) {
-			lwsl_err("Failed to decode encoder stream\n");
-			fails++;
+	{
+		size_t len = lws_buflist_total_len(&tx_enc.tx_bl);
+		if (len) {
+			uint8_t enc_buf[1024];
+			lws_buflist_linear_copy(&tx_enc.tx_bl, 0, enc_buf, len);
+			lwsl_user("Encoded %d bytes of encoder stream.\n", (int)len);
+			if (lws_qpack_decode_encoder_stream(&state, &qctx, enc_buf, len)) {
+				lwsl_err("Failed to decode encoder stream\n");
+				fails++;
+			}
 		}
 	}
 
@@ -119,7 +124,7 @@ test_qif_roundtrip_cb(void *user, int name_idx, const char *name, size_t name_le
 	const char *n2 = exp_name ? exp_name : "";
 	
 	if (!name && name_idx >= 0) {
-		const unsigned char *name_str = lws_token_to_string(name_idx);
+		const unsigned char *name_str = lws_token_to_string((enum lws_token_indexes)name_idx);
 		char clean_name[128] = "";
 		if (name_str) {
 			size_t len = strlen((const char *)name_str);
@@ -207,12 +212,18 @@ test_qif_roundtrip(struct lws_context *ctx, const char *filepath)
 				}
 				
 				/* Decode encoder stream */
-				if (tx_enc.enc_ptr > 0) {
-					if (lws_qpack_decode_encoder_stream(&enc_state, &qctx, tx_enc.enc_buf, tx_enc.enc_ptr)) {
-						lwsl_err("Encoder stream decode failed in %s\n", filepath);
-						fails++;
+				{
+					size_t len = lws_buflist_total_len(&tx_enc.tx_bl);
+					if (len > 0) {
+						uint8_t enc_buf[1024];
+						if (len > sizeof(enc_buf)) len = sizeof(enc_buf);
+						lws_buflist_linear_copy(&tx_enc.tx_bl, 0, enc_buf, len);
+						if (lws_qpack_decode_encoder_stream(&enc_state, &qctx, enc_buf, len)) {
+							lwsl_err("Encoder stream decode failed in %s\n", filepath);
+							fails++;
+						}
+						lws_buflist_destroy_all_segments(&tx_enc.tx_bl);
 					}
-					tx_enc.enc_ptr = 0;
 				}
 				
 				/* Decode header block */
@@ -394,7 +405,7 @@ test_qif_file(const char *filepath)
 
 int main(int argc, const char **argv)
 {
-	int logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+	
 	struct lws_context_creation_info info;
 	struct lws_context *context;
 	int tok, fails = 0;
@@ -402,10 +413,10 @@ int main(int argc, const char **argv)
 	unsigned char buf[256];
 	int len;
 
-	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS QPACK API tests\n");
 
-	memset(&info, 0, sizeof info);
+	lws_context_info_defaults(&info, NULL);
+	lws_cmdline_option_handle_builtin(argc, argv, &info);
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 

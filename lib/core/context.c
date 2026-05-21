@@ -712,6 +712,10 @@ lws_create_context(const struct lws_context_creation_info *info)
 	lwsl_refcount_cx(context->log_cx, 1);
 
 	context->system_ops = info->system_ops;
+
+	context->quic_tx_credit_cb = info->quic_tx_credit_cb;
+	context->quic_cc_ops = info->quic_cc_ops;
+
 	context->pt_serv_buf_size = (unsigned int)s1;
 	context->protocols_copy = info->protocols;
 #if defined(LWS_WITH_TLS_JIT_TRUST)
@@ -1575,6 +1579,27 @@ lws_create_context(const struct lws_context_creation_info *info)
 	}
 #endif
 
+#if defined(LWS_WITH_CLIENT)
+	{
+		struct lws_cache_creation_info cci;
+		memset(&cci, 0, sizeof(cci));
+
+		cci.cx			= context;
+		cci.ops			= &lws_cache_ops_heap;
+		cci.name		= "ALPN";
+		cci.max_footprint	= 4096;
+		cci.max_items		= 256;
+		cci.max_payload		= 16;
+
+		context->alpn_cache = lws_cache_create(&cci);
+		if (!context->alpn_cache) {
+			lwsl_cx_err(context, "Failed to init ALPN cache");
+			goto bail;
+		}
+	}
+#endif
+
+
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 	if (info->async_dns_servers) {
 		const char **dsrv = info->async_dns_servers;
@@ -2401,6 +2426,11 @@ next:
 		lws_cache_destroy(&context->nsc);
 		lws_cache_destroy(&context->l1);
 #endif
+
+#if defined(LWS_WITH_CLIENT)
+		lws_cache_destroy(&context->alpn_cache);
+#endif
+
 
 #if defined(LWS_WITH_SYS_SMD)
 		_lws_smd_destroy(context);

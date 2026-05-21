@@ -81,6 +81,23 @@ check_extant(struct lws_dll2 *d, void *user)
 	return 1;
 }
 
+#if defined(LWS_ROLE_QUIC)
+static int
+check_extant_quic(struct lws_dll2 *d, void *user)
+{
+        struct lws *wsi = lws_container_of(d, struct lws, listen_list);
+        struct vh_sock_args *a = (struct vh_sock_args *)user;
+
+        if (!lws_vhost_compare_listen(wsi->a.vhost, a->vhost))
+                return 0;
+
+        if (strcmp(wsi->role_ops->name, "quic"))
+                return 0;
+
+        return 1;
+}
+#endif
+
 /*
  * Creates a single listen socket of a specific AF
  */
@@ -549,14 +566,47 @@ _lws_vhost_init_server(const struct lws_context_creation_info *info,
 	}
 	if (LWS_IPV6_ENABLED(vhost)) {
 		a.af = AF_INET6;
-		goto single;
+		n = _lws_vhost_init_server_af(&a);
+		if (n)
+			return n;
 	}
 #endif
 
-	return 0;
+	goto check_quic;
 
 single:
-	return _lws_vhost_init_server_af(&a);
+	n = _lws_vhost_init_server_af(&a);
+	if (n)
+		return n;
+
+check_quic:
+#if defined(LWS_ROLE_QUIC)
+        if (!vhost->context->lws_stub &&
+            LWS_SSL_ENABLED(vhost) &&
+            !lws_vhost_foreach_listen_wsi(vhost->context, &a, check_extant_quic)) {
+                
+#if defined(LWS_WITH_IPV6)
+                if (LWS_IPV6_ENABLED(vhost)) {
+                        const char *ads6 = vhost->iface ? vhost->iface : "::";
+                        if (!lws_create_adopt_udp(vhost, ads6, vhost->listen_port,
+                                                  LWS_CAUDP_BIND, "quic", vhost->iface, NULL,
+                                                  NULL, NULL, "quic_listen")) {
+                                lwsl_vhost_err(vhost, "Failed to bind QUIC IPv6 UDP listener");
+                        }
+                }
+#endif
+                if (!vhost->iface || !LWS_IPV6_ENABLED(vhost) || 
+                    (vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE)) {
+                        const char *ads4 = vhost->iface ? vhost->iface : "0.0.0.0";
+                        if (!lws_create_adopt_udp(vhost, ads4, vhost->listen_port,
+                                                  LWS_CAUDP_BIND, "quic", vhost->iface, NULL,
+                                                  NULL, NULL, "quic_listen")) {
+                                lwsl_vhost_err(vhost, "Failed to bind QUIC IPv4 UDP listener");
+                        }
+                }
+        }
+#endif
+	return 0;
 }
 
 #endif
@@ -743,10 +793,17 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	if (!wsi->a.vhost)
 		return -1;
 
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-	if (wsi->a.vhost->http.error_document_404 &&
-	    !strcmp(uri, wsi->a.vhost->http.error_document_404))
-		wsi->handling_404 = 1;
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
+	if (wsi->a.vhost->http.error_document_404) {
+		const char *e = wsi->a.vhost->http.error_document_404;
+		if (*e == '/')
+			e++;
+		const char *u = uri;
+		if (*u == '/')
+			u++;
+		if (!strcmp(u, e))
+			wsi->handling_404 = 1;
+	}
 #endif
 
 	lws_snprintf(path, sizeof(path) - 1, "%s/%s", origin, uri);
@@ -998,60 +1055,83 @@ notfound:
 }
 #endif
 
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 LWS_VISIBLE const struct lws_http_mount *
 lws_find_mount(struct lws *wsi, const char *uri_ptr, int uri_len)
 {
 	const struct lws_http_mount *hm, *hit = NULL;
 	int best = 0;
 
+	lwsl_debug("H3_TRACE: lws_find_mount: wsi %p, role %s, uri '%.*s' (len %d), mux_substream %d\n",
+		    wsi, wsi->role_ops ? wsi->role_ops->name : "none",
+		    uri_len, uri_ptr ? uri_ptr : "NULL", uri_len, wsi->mux_substream);
+
 	hm = wsi->a.vhost->http.mount_list;
 	while (hm) {
-		if (uri_len >= hm->mountpoint_len &&
-		    !strncmp(uri_ptr, hm->mountpoint, hm->mountpoint_len) &&
-		    (hm->exact_match ?
-		     (uri_len == hm->mountpoint_len) :
-		     (uri_ptr[hm->mountpoint_len] == '\0' ||
-		      uri_ptr[hm->mountpoint_len] == '/' ||
-		      hm->mountpoint_len == 1))
-		    ) {
+		int cond1 = uri_len >= hm->mountpoint_len;
+		int cond2 = cond1 && !strncmp(uri_ptr, hm->mountpoint, hm->mountpoint_len);
+		int cond3 = cond2 && (hm->exact_match ?
+				      (uri_len == hm->mountpoint_len) :
+				      (uri_ptr[hm->mountpoint_len] == '\0' ||
+				       uri_ptr[hm->mountpoint_len] == '/' ||
+				       hm->mountpoint_len == 1));
+
+		lwsl_debug("  mount check: mnt '%s' (len %d), exact %d, origin '%s', protocol %d -> match_conds: %d %d %d\n",
+			    hm->mountpoint, hm->mountpoint_len, hm->exact_match,
+			    hm->origin ? hm->origin : "NULL", hm->origin_protocol,
+			    cond1, cond2, cond3);
+
+		if (cond3) {
 #if defined(LWS_WITH_SYS_METRICS)
 			lws_metrics_tag_wsi_add(wsi, "mnt", hm->mountpoint);
 #endif
 
 			if (hm->no_ws_upgrades &&
 			    lws_hdr_total_length(wsi, WSI_TOKEN_UPGRADE)) {
+				lwsl_notice("    skip due to no_ws_upgrades\n");
 				hm = hm->mount_next;
 				continue;
 			}
 
-			if (hm->origin_protocol == LWSMPRO_NO_MOUNT)
+			if (hm->origin_protocol == LWSMPRO_NO_MOUNT) {
+				lwsl_notice("    origin LWSMPRO_NO_MOUNT -> NULL\n");
 				return NULL;
+			}
 
-			if (hm->origin_protocol == LWSMPRO_CALLBACK ||
-			    ((hm->origin_protocol == LWSMPRO_CGI ||
-			     lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI) ||
-			     lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI) ||
+			int has_token = (hm->origin_protocol == LWSMPRO_CALLBACK ||
+					 hm->origin_protocol == LWSMPRO_CGI ||
+					 lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI) ||
+					 lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI) ||
 #if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
-			     lws_hdr_total_length(wsi, WSI_TOKEN_PUT_URI) ||
-			     lws_hdr_total_length(wsi, WSI_TOKEN_PATCH_URI) ||
-			     lws_hdr_total_length(wsi, WSI_TOKEN_DELETE_URI) ||
+					 lws_hdr_total_length(wsi, WSI_TOKEN_PUT_URI) ||
+					 lws_hdr_total_length(wsi, WSI_TOKEN_PATCH_URI) ||
+					 lws_hdr_total_length(wsi, WSI_TOKEN_DELETE_URI) ||
 #endif
-			     lws_hdr_total_length(wsi, WSI_TOKEN_HEAD_URI) ||
-#if defined(LWS_ROLE_H2)
-			     (wsi->mux_substream &&
-				lws_hdr_total_length(wsi,
-						WSI_TOKEN_HTTP_COLON_PATH)) ||
+					 lws_hdr_total_length(wsi, WSI_TOKEN_HEAD_URI) ||
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
+					 (wsi->mux_substream &&
+					  lws_hdr_total_length(wsi,
+							WSI_TOKEN_HTTP_COLON_PATH)) ||
 #endif
-			     hm->protocol) &&
-			    hm->mountpoint_len > best)) {
+					 hm->protocol);
+
+			int is_better = hm->mountpoint_len > best ||
+					(hm->mountpoint_len == best &&
+					 hm->exact_match && (!hit || !hit->exact_match));
+
+			lwsl_debug("    has_token: %d, is_better: %d (best was %d)\n",
+				    has_token, is_better, best);
+
+			if (has_token && is_better) {
 				best = hm->mountpoint_len;
 				hit = hm;
+				lwsl_debug("    => selected mount %s\n", hit->mountpoint);
 			}
 		}
 		hm = hm->mount_next;
 	}
 
+	lwsl_debug("  lws_find_mount result: %s\n", hit ? hit->mountpoint : "NULL");
 	return hit;
 }
 #endif
@@ -1180,7 +1260,7 @@ static const unsigned char methods[] = {
 #endif
 	WSI_TOKEN_CONNECT,
 	WSI_TOKEN_HEAD_URI,
-#ifdef LWS_WITH_HTTP2
+#if defined(LWS_WITH_HTTP2) || defined(LWS_ROLE_H3)
 	WSI_TOKEN_HTTP_COLON_PATH,
 #endif
 };
@@ -1199,8 +1279,8 @@ lws_http_get_uri_and_method(struct lws *wsi, char **puri_ptr, int *puri_len)
 	}
 
 	if (count != 1 &&
-	    !((wsi->mux_substream || wsi->h2_stream_carries_ws)
-#if defined(LWS_ROLE_H2)
+	    !((wsi->mux_substream || wsi->h23_stream_carries_ws)
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 			    &&
 	      lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH)
 #endif
@@ -1611,6 +1691,10 @@ lws_http_redirect_hit(struct lws_context_per_thread *pt, struct lws *wsi,
 	*h = 0;
 	s = uri_ptr + hit->mountpoint_len;
 
+	lwsl_debug("%s: hit %p, mountpoint '%s', origin '%s', protocol %d, s '%s'\n",
+		    __func__, hit, hit->mountpoint, hit->origin ? hit->origin : "NULL",
+		    hit->origin_protocol, s);
+
 	/*
 	 * if we have a mountpoint like https://xxx.com/yyy
 	 * there is an implied / at the end for our purposes since
@@ -1634,13 +1718,17 @@ lws_http_redirect_hit(struct lws_context_per_thread *pt, struct lws *wsi,
 	      hit->origin_protocol == LWSMPRO_REDIR_HTTPS)) &&
 	    (hit->origin_protocol != LWSMPRO_CGI &&
 	     hit->origin_protocol != LWSMPRO_CALLBACK)) {
+		char peer_buf[64];
 		unsigned char *start = pt->serv_buf + LWS_PRE, *p = start,
 			      *end = p + wsi->a.context->pt_serv_buf_size -
 					LWS_PRE - 512;
 
 		*h = 1;
 
-		lwsl_info("Doing 301 '%s' org %s\n", s, hit->origin);
+		lws_get_peer_simple(wsi, peer_buf, sizeof(peer_buf));
+
+		// lwsl_notice("Doing 301 '%s' (vhost port %d, peer %s) org %s\n", s,
+		//	    wsi->a.vhost->listen_port, peer_buf, hit->origin);
 
 		/* > at start indicates deal with by redirect */
 		if (hit->origin_protocol == LWSMPRO_REDIR_HTTP ||
@@ -1655,12 +1743,12 @@ lws_http_redirect_hit(struct lws_context_per_thread *pt, struct lws *wsi,
 					    hit->origin);
 		} else {
 			if (!lws_hdr_total_length(wsi, WSI_TOKEN_HOST)) {
-#if defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 				if (!lws_hdr_total_length(wsi,
 						WSI_TOKEN_HTTP_COLON_AUTHORITY))
 #endif
 					goto bail_nuke_ah;
-#if defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 				n = lws_snprintf((char *)end, 256,
 				    "%s%s%s/", oprot[!!lws_is_ssl(wsi)],
 				    lws_hdr_simple_ptr(wsi,
@@ -1673,6 +1761,9 @@ lws_http_redirect_hit(struct lws_context_per_thread *pt, struct lws *wsi,
 				    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST),
 				    uri_ptr);
 		}
+
+		// lwsl_notice("%s: redirecting to '%s' (vhost port %d, peer %s)\n",
+		//	    __func__, (char *)end, wsi->a.vhost->listen_port, peer_buf);
 
 		lws_clean_url((char *)end);
 		n = lws_http_redirect(wsi, HTTP_STATUS_MOVED_PERMANENTLY,
@@ -1735,16 +1826,26 @@ lws_http_action(struct lws *wsi)
 	enum http_conn_type conn_type;
 	char content_length_str[32];
 	char http_version_str[12];
-	char http_conn_str[25];
+	char http_conn_str[20];
 	char *uri_ptr = NULL;
 #if defined(LWS_WITH_FILE_OPS)
 	char *s;
 #endif
 	unsigned int n;
 
+	lwsl_debug("H3_TRACE: lws_http_action entered for wsi %p. vhost=%s, mux_substream=%d\n", 
+		wsi, wsi->a.vhost ? wsi->a.vhost->name : "none", wsi->mux_substream);
+
 	meth = lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len);
-	if (meth < 0 || meth >= (int)LWS_ARRAY_SIZE(method_names))
+	if (meth < 0) {
+		lwsl_debug("H3_TRACE: lws_http_action for wsi %p aborting because get_uri_and_method returned < 0\n", wsi);
 		goto bail_nuke_ah;
+	}
+
+	if (meth >= (int)LWS_ARRAY_SIZE(method_names)) {
+		lwsl_err("LWS_HTTP_ACTION_START: bailing due to invalid meth %d\n", meth);
+		goto bail_nuke_ah;
+	}
 
 	lws_metrics_tag_wsi_add(wsi, "vh", wsi->a.vhost->name);
 	lws_metrics_tag_wsi_add(wsi, "meth", method_names[meth]);
@@ -1752,13 +1853,14 @@ lws_http_action(struct lws *wsi)
 	/* we insist on absolute paths */
 
 	if (!uri_ptr || uri_ptr[0] != '/') {
+		lwsl_err("LWS_HTTP_ACTION_START: bailing due to missing or non-absolute uri_ptr\n");
 		lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
 
 		goto bail_nuke_ah;
 	}
 
-	lwsl_info("Method: '%s' (%d), request for '%s'\n", method_names[meth],
-		  meth, uri_ptr);
+	lwsl_debug("Method: '%s' (%d), request for '%s' (vhost '%s')\n", method_names[meth],
+		  meth, uri_ptr, wsi->a.vhost->name);
 
 	if (wsi->role_ops &&
 	    lws_rops_fidx(wsi->role_ops, LWS_ROPS_check_upgrades))
@@ -1929,6 +2031,8 @@ lws_http_action(struct lws *wsi)
 	wsi->http.mount_specific_keepalive_timeout_secs = 0;
 
 	hit = lws_find_mount(wsi, uri_ptr, uri_len);
+	lwsl_debug("H3_TRACE: lws_find_mount returned %p (%s) for wsi %p\n", 
+		hit, hit ? hit->mountpoint : "none", wsi);
 	if (!hit) {
 		/* deferred cleanup and reset to protocols[0] */
 
@@ -2830,7 +2934,7 @@ lws_http_transaction_completed(struct lws *wsi)
 #ifdef LWS_WITH_ACCESS_LOG
 	wsi->http.access_log.sent = 0;
 #endif
-#if defined(LWS_WITH_FILE_OPS) && (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2))
+#if defined(LWS_WITH_FILE_OPS) && (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
 	if (lwsi_role_http(wsi) && lwsi_role_server(wsi) &&
 	    wsi->http.fop_fd != NULL)
 		lws_vfs_file_close(&wsi->http.fop_fd);
@@ -2913,6 +3017,22 @@ lws_http_transaction_completed(struct lws *wsi)
 }
 
 #if defined(LWS_WITH_FILE_OPS)
+static int
+lws_is_ascii_headers(const char *buf, int len)
+{
+	int i;
+
+	for (i = 0; i < len; i++) {
+		unsigned char c = (unsigned char)buf[i];
+		if (c < 0x20 && c != '\r' && c != '\n' && c != '\t')
+			return 0;
+		if (c >= 0x7f)
+			return 0;
+	}
+
+	return 1;
+}
+
 int
 lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 		    const char *other_headers, int other_headers_len)
@@ -2990,6 +3110,19 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 	}
 #endif
 	total_content_length = wsi->http.filelen;
+
+#if 0
+#if defined(LWS_ROLE_QUIC)
+	{
+		uint64_t sid = wsi->quic.qs ? wsi->quic.qs->stream_id : 0;
+		lwsl_notice("SERVE FILE: file='%s', filelen=%llu, mux_substream=%d, stream_id=%llu\n",
+			    file, (unsigned long long)wsi->http.filelen, wsi->mux_substream, (unsigned long long)sid);
+	}
+#else
+	lwsl_notice("SERVE FILE: file='%s', filelen=%llu, mux_substream=%d, stream_id=0\n",
+		    file, (unsigned long long)wsi->http.filelen, wsi->mux_substream);
+#endif
+#endif
 
 #if defined(LWS_WITH_RANGES)
 	ranges = lws_ranges_init(wsi, rp, wsi->http.filelen);
@@ -3192,21 +3325,97 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 		}
 	}
 
-	/* Only add cache control if its not specified by any other_headers. */
-	if (!other_headers ||
-	    (!(char *)strstr(other_headers, "cache-control") &&
-	     !(char *)strstr(other_headers, "Cache-Control"))) {
-		if (lws_add_http_header_by_token(wsi,
-				WSI_TOKEN_HTTP_CACHE_CONTROL,
-				(unsigned char *)cc, cclen, &p, end))
-			goto bail;
+	{
+		int has_cache_control = 0;
+		if (other_headers && other_headers_len > 0 &&
+		    lws_is_ascii_headers(other_headers, other_headers_len)) {
+			if (strstr(other_headers, "cache-control") ||
+			    strstr(other_headers, "Cache-Control"))
+				has_cache_control = 1;
+		}
+
+		/* Only add cache control if its not specified by any other_headers. */
+		if (!has_cache_control) {
+			if (lws_add_http_header_by_token(wsi,
+					WSI_TOKEN_HTTP_CACHE_CONTROL,
+					(unsigned char *)cc, cclen, &p, end))
+				goto bail;
+		}
 	}
 
-	if (other_headers) {
-		if ((end - p) < other_headers_len)
-			goto bail;
-		memcpy(p, other_headers, (unsigned int)other_headers_len);
-		p += other_headers_len;
+	if (other_headers && other_headers_len > 0) {
+#if defined(LWS_ROLE_H3) || defined(LWS_WITH_HTTP2)
+		if ((
+#if defined(LWS_ROLE_H3)
+		     lws_wsi_is_h3(wsi) ||
+#endif
+#if defined(LWS_WITH_HTTP2)
+		     lws_wsi_is_h2(wsi) ||
+#endif
+		     0) && lws_is_ascii_headers(other_headers, other_headers_len)) {
+			const char *lh = other_headers;
+			const char *lh_end = other_headers + other_headers_len;
+
+			while (lh < lh_end) {
+				const char *line_end = lh;
+				while (line_end < lh_end && *line_end != '\n' && *line_end != '\r')
+					line_end++;
+
+				if (line_end > lh) {
+					const char *colon = lh;
+					while (colon < line_end && *colon != ':')
+						colon++;
+
+					if (colon < line_end) {
+						const char *name = lh;
+						int name_len = (int)(colon - name);
+						const char *val = colon + 1;
+
+						while (val < line_end && (*val == ' ' || *val == '\t'))
+							val++;
+
+						while (name_len > 0 && (name[name_len - 1] == ' ' || name[name_len - 1] == '\t'))
+							name_len--;
+
+						int val_len = (int)(line_end - val);
+						while (val_len > 0 && (val[val_len - 1] == ' ' || val[val_len - 1] == '\t'))
+							val_len--;
+
+						if (name_len > 0) {
+							if (name[0] == ':') {
+								/* Skip pseudo-headers */
+								lh = line_end;
+								while (lh < lh_end && (*lh == '\r' || *lh == '\n'))
+									lh++;
+								continue;
+							}
+							char name_buf[128];
+							if (name_len < (int)sizeof(name_buf)) {
+								memcpy(name_buf, name, (size_t)name_len);
+								name_buf[name_len] = '\0';
+
+								if (lws_add_http_header_by_name(wsi,
+										(const unsigned char *)name_buf,
+										(const unsigned char *)val,
+										val_len, &p, end))
+									goto bail;
+							}
+						}
+					}
+				}
+
+				lh = line_end;
+				while (lh < lh_end && (*lh == '\r' || *lh == '\n'))
+					lh++;
+			}
+		} else
+#endif
+		{
+			if ((end - p) < other_headers_len)
+				goto bail;
+			memcpy(p, other_headers, (unsigned int)other_headers_len);
+			p += other_headers_len;
+		}
 	}
 
 	if (lws_finalize_http_header(wsi, &p, end))
@@ -3259,6 +3468,7 @@ int lws_serve_http_file_fragment(struct lws *wsi)
 #endif
 	int n, m;
 
+	// lwsl_wsi_notice(wsi, "entry, state=%d", lwsi_state(wsi));
 	lwsl_debug("wsi->mux_substream %d\n", wsi->mux_substream);
 
 	do {
@@ -3520,11 +3730,15 @@ int lws_serve_http_file_fragment(struct lws *wsi)
 			if (m < 0)
 				goto file_had_it;
 
-			wsi->http.filepos += amount;
+			lws_filepos_t sent_amount = 0;
+			if (m >= (n - (int)amount))
+				sent_amount = (lws_filepos_t)(m - (n - (int)amount));
+
+			wsi->http.filepos += sent_amount;
 
 #if defined(LWS_WITH_RANGES)
 			if (wsi->http.range.count_ranges >= 1) {
-				wsi->http.range.budget -= amount;
+				wsi->http.range.budget -= sent_amount;
 				if (wsi->http.range.budget == 0) {
 					lwsl_notice("range budget exhausted\n");
 					wsi->http.range.inside = 0;

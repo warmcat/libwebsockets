@@ -206,12 +206,10 @@ int main(int argc, const char **argv)
 	struct lws_context_creation_info info;
 	struct lws_context *cx;
 	const char *p;
-	int result = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+	int result = 0;
 
 
 
-	if ((p = lws_cmdline_option(argc, argv, "-d")))
-		logs = atoi(p);
 
 	if (lws_cmdline_option(argc, argv, "-h") ||
 	    lws_cmdline_option(argc, argv, "--help")) {
@@ -225,7 +223,6 @@ int main(int argc, const char **argv)
 
 	setvbuf(stdout, NULL, _IONBF, 0);
 	setvbuf(stderr, NULL, _IONBF, 0);
-	lws_set_log_level(logs, NULL);
 	signal(SIGINT, sigint_handler);
 
 	lws_context_info_defaults(&info, NULL);

@@ -196,3 +196,65 @@ SChannel is native to Windows, so no third-party TLS library compilation is requ
     cmake .. -DLWS_WITH_SCHANNEL=ON -DLWS_ROLE_QUIC=ON
     cmake --build . --config Release
     ```
+
+---
+
+## Testing QUIC and HTTP/3 Compliance
+
+lws uses `h3spec` to validate its QUIC and HTTP/3 implementation against the RFCs. The `ctest` infrastructure automatically discovers and runs the `h3spec` test suite against the `lws-minimal-quic-client-server` test application if the `h3spec` executable is found in your system's `PATH`.
+
+### Enabling `h3spec` tests in CI or locally
+
+To enable `h3spec` testing, simply download the pre-compiled static binary for your platform from the [h3spec GitHub releases](https://github.com/kazu-yamamoto/h3spec/releases) and place it somewhere in your `PATH` (e.g., `/usr/local/bin`).
+
+**Example for Linux x86_64:**
+```bash
+wget https://github.com/kazu-yamamoto/h3spec/releases/download/v0.1.13/h3spec-linux-x86_64
+chmod +x h3spec-linux-x86_64
+sudo cp h3spec-linux-x86_64 /usr/local/bin/h3spec
+```
+
+Once installed, re-run `cmake` on your lws build directory so it can discover the `h3spec` executable. Then, simply run `ctest` (or `make test`) as usual. The `h3spec` test will spawn a temporary test server in the background, run the compliance suite, and tear down the server automatically.
+
+---
+
+## Congestion Control
+
+Libwebsockets features a pluggable QUIC Congestion Control architecture. By default, it uses a New Reno algorithm, but we also provide an implementation of CUBIC.
+
+### Selecting a Congestion Control Algorithm
+
+You can select the congestion control algorithm used for the context by configuring `quic_cc_ops` in `struct lws_context_creation_info`. We export two built-in implementations natively in `lws-quic.h`:
+
+- `lws_cc_ops_newreno`
+- `lws_cc_ops_cubic`
+
+Example of selecting CUBIC:
+```c
+struct lws_context_creation_info info;
+memset(&info, 0, sizeof(info));
+/* ... other config ... */
+info.quic_cc_ops = &lws_cc_ops_cubic;
+
+struct lws_context *context = lws_create_context(&info);
+```
+
+### Writing Your Own Congestion Control Algorithm
+
+If you need a specialized algorithm (like BBR), you can easily plug it in by implementing the `struct lws_cc_ops` interface defined in `lws-quic.h`:
+
+```c
+struct lws_cc_ops {
+	void (*init)(struct lws *nwsi);
+	void (*on_sent)(struct lws *nwsi, size_t bytes);
+	void (*on_ack)(struct lws *nwsi, size_t bytes_acked, lws_usec_t rtt);
+	void (*on_loss)(struct lws *nwsi, size_t bytes_lost);
+	int  (*can_send)(struct lws *nwsi, size_t bytes);
+	lws_usec_t (*get_pacing_delay)(struct lws *nwsi, size_t bytes_to_send);
+};
+```
+
+1. **State Management**: Inside `init()`, allocate your custom state structure and assign it to `nwsi->quic.qn->cc_state`. 
+2. **Implement Hooks**: Fill out the remaining hooks to track `bytes_in_flight`, adjust `cwnd`, manage `ssthresh`, and handle loss/ack events.
+3. **Pacing**: `get_pacing_delay()` should return `0` if it's safe to send immediately, or the number of microseconds to delay the send.
+4. **Use It**: Assign a pointer to your custom `lws_cc_ops` struct to `info.quic_cc_ops` during context creation.

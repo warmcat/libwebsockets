@@ -75,7 +75,7 @@ read_pem_c509_cert(struct lws_x509_cert **x509, const char *filename,
 
 int main(int argc, const char **argv)
 {
-	int n, result = 1, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+	int n, result = 1;
 	struct lws_x509_cert *x509 = NULL, *x509_trusted = NULL;
 	struct lws_context_creation_info info;
 	struct lws_context *context;
@@ -92,13 +92,11 @@ int main(int argc, const char **argv)
 
 	memset(&jwk, 0, sizeof(jwk));
 
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
-		logs = atoi(p);
 
-	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS X509 api example\n");
 
-	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
+	lws_context_info_defaults(&info, NULL);
+	lws_cmdline_option_handle_builtin(argc, argv, &info);
 #if defined(LWS_WITH_NETWORK)
 	info.port = CONTEXT_PORT_NO_LISTEN;
 #endif

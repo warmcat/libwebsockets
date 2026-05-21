@@ -677,7 +677,6 @@ test_cose_sign(struct lws_context *context)
 	lws_dll2_owner_t *o;
 	int n;
 
-	memset(&info, 0, sizeof(info));
 	info.cx = context;
 	info.keyset = &set;
 

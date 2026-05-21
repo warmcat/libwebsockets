@@ -33,8 +33,7 @@ char temp[MAX_SIZE], compact[MAX_SIZE];
 
 int main(int argc, const char **argv)
 {
-	int n, sign = 0, result = 0,
-	    logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+	int n, sign = 0, result = 0;
 	char *in;
 	struct lws_context_creation_info info;
 	struct lws_jws_map map;
@@ -52,13 +51,11 @@ int main(int argc, const char **argv)
 	}
 
 
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
-		logs = atoi(p);
 
-	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS JWS example tool\n");
 
-	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
+	lws_context_info_defaults(&info, NULL);
+	lws_cmdline_option_handle_builtin(argc, argv, &info);
 #if defined(LWS_WITH_NETWORK)
 	info.port = CONTEXT_PORT_NO_LISTEN;
 #endif

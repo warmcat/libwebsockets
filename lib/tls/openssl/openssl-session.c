@@ -233,7 +233,8 @@ lws_tls_session_new_cb(SSL *ssl, SSL_SESSION *sess)
 	}
 
 	vh = wsi->a.vhost;
-	if (vh->options & LWS_SERVER_OPTION_DISABLE_TLS_SESSION_CACHE)
+	if ((vh->options & LWS_SERVER_OPTION_DISABLE_TLS_SESSION_CACHE) ||
+	    vh->being_destroyed)
 		return 0;
 
 	if (lws_tls_session_tag_from_wsi(wsi, tag, sizeof(tag)))

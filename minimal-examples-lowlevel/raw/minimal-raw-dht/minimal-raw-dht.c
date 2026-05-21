@@ -234,8 +234,7 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 			NULL, NULL, "lws-dht-stats", ""
 		};
 
-		memset(&info, 0, sizeof(info));
-                info.vhost_name		= "http";
+		lws_context_info_defaults(&info, NULL);info.vhost_name		= "http";
                 info.port		= atoi(port_buf) + 100;
                 info.protocols		= app_protocols;
                 info.mounts		= &mount_stats;
@@ -252,8 +251,7 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 			return 0;
 		}
 
-		memset(&info, 0, sizeof(info));
-                info.vhost_name		= "dht";
+		lws_context_info_defaults(&info, NULL);info.vhost_name		= "dht";
                 info.pvo		= pvos;
 		info.port		= atoi(port_buf);
 		info.protocols		= app_protocols;

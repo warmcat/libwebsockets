@@ -25,6 +25,11 @@
 #include "private-lib-core.h"
 #include "private-lib-tls.h"
 
+#if defined(LWS_ROLE_QUIC)
+extern void
+gnutls_quic_bio_free(struct lws *wsi);
+#endif
+
 int
 lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 {
@@ -104,6 +109,10 @@ lws_ssl_pending(struct lws *wsi)
 int
 lws_ssl_close(struct lws *wsi)
 {
+#if defined(LWS_ROLE_QUIC)
+	gnutls_quic_bio_free(wsi);
+#endif
+
 	if (wsi->tls.ssl) {
 #if defined(LWS_WITH_TLS_SESSIONS)
 		lws_tls_session_new_gnutls(wsi);
@@ -124,6 +133,7 @@ lws_ssl_close(struct lws *wsi)
 	return 0;
 }
 
+#if !defined(LWS_WITHOUT_SERVER)
 enum lws_ssl_capable_status
 lws_tls_server_accept(struct lws *wsi)
 {
@@ -135,6 +145,8 @@ lws_tls_server_accept(struct lws *wsi)
 
 	if (!wsi->tls.ssl)
 		return LWS_SSL_CAPABLE_ERROR;
+
+	wsi->skip_fallback = 1;
 
 	n = gnutls_handshake((gnutls_session_t)wsi->tls.ssl);
 	lwsl_debug("%s: gnutls_handshake returned %d\n", __func__, n);
@@ -168,6 +180,7 @@ lws_tls_server_accept(struct lws *wsi)
 
 	return LWS_SSL_CAPABLE_ERROR;
 }
+#endif
 
 enum lws_ssl_capable_status
 lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
@@ -248,6 +261,7 @@ __lws_tls_shutdown(struct lws *wsi)
 	return LWS_SSL_CAPABLE_ERROR;
 }
 
+#if !defined(LWS_WITHOUT_SERVER)
 enum lws_ssl_capable_status
 lws_tls_server_abort_connection(struct lws *wsi)
 {
@@ -259,6 +273,7 @@ lws_tls_server_abort_connection(struct lws *wsi)
 
 	return LWS_SSL_CAPABLE_DONE;
 }
+#endif
 
 int
 lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)

@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebTransport Test Protocol</title>
+    <meta name="description" content="Test WebTransport bidirectional streams transferring large blobs and verifying hashes.">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <header>
+            <h1>WebTransport Test</h1>
+            <p>Testing 4MB Bidirectional Transfers over HTTP/3 WebTransport</p>
+        </header>
+
+        <main>
+            <div class="controls">
+                <div class="input-group">
+                    <label for="server-url">Server URL</label>
+                    <input type="text" id="server-url" value="https://localhost:7681/">
+                </div>
+                <div class="input-group">
+                    <label for="cert-hash">Certificate Hash (Optional for self-signed)</label>
+                    <input type="text" id="cert-hash" placeholder="e.g. AB:CD:EF...">
+                    <small>Required if using self-signed certs without <code>--ignore-certificate-errors</code> flag.</small>
+                </div>
+                <button id="start-btn" class="btn primary">Start Test</button>
+            </div>
+
+            <div class="status-panel">
+                <div class="status-card">
+                    <h3>Connection Status</h3>
+                    <div id="conn-status" class="status-badge disconnected">Disconnected</div>
+                </div>
+                <div class="status-card">
+                    <h3>Overall Progress</h3>
+                    <div class="progress-bar-container">
+                        <div id="overall-progress" class="progress-bar"></div>
+                    </div>
+                    <div id="progress-text">0 / 10 Iterations</div>
+                </div>
+            </div>
+
+            <div class="log-container">
+                <h3>Activity Log</h3>
+                <div id="log" class="terminal-log"></div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Ensure logic is loaded securely without inline scripts -->
+    <script src="app.js" type="module"></script>
+</body>
+</html>

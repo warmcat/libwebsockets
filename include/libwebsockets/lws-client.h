@@ -111,6 +111,8 @@ enum lws_client_connect_ssl_connection_flags {
 	LCCSCF_CACHE_COOKIES			= (1 << 30),
 	/**< If built with -DLWS_WITH_CACHE_NSCOOKIEJAR, store and reapply
 	 * http cookies in a Netscape Cookie Jar on this connection */
+	LCCSCF_ALLOW_EARLY_DATA			= (int)(1u << 31),
+	/**< Allow 0-RTT early data for QUIC/TLS 1.3 connections */
 };
 
 /*

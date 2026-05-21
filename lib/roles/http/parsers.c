@@ -309,7 +309,6 @@ int __lws_header_table_detach(struct lws *wsi, int autoservice)
 
 	if (!ah)
 		return 0;
-
 	lwsl_info("%s: %s: ah %p (tsi=%d, count = %d)\n", __func__,
 		  lws_wsi_tag(wsi), (void *)ah, wsi->tsi,
 		  pt->http.ah_count_in_use);
@@ -731,7 +730,14 @@ lws_hdr_simple_create(struct lws *wsi, enum lws_token_indexes h, const char *s)
 		return -1;
 	}
 
-	wsi->http.ah->frag_index[h] = wsi->http.ah->nfrag;
+	if (!wsi->http.ah->frag_index[h]) {
+		wsi->http.ah->frag_index[h] = wsi->http.ah->nfrag;
+	} else {
+		int n = wsi->http.ah->frag_index[h];
+		while (wsi->http.ah->frags[n].nfrag)
+			n = wsi->http.ah->frags[n].nfrag;
+		wsi->http.ah->frags[n].nfrag = wsi->http.ah->nfrag;
+	}
 
 	wsi->http.ah->frags[wsi->http.ah->nfrag].offset = wsi->http.ah->pos;
 	wsi->http.ah->frags[wsi->http.ah->nfrag].len = 0;
@@ -1550,8 +1556,7 @@ lws_http_cookie_get(struct lws *wsi, const char *name, char *buf,
 		if ((unsigned int)n < bl + 1)
 			continue;
 
-#if defined(LWS_ROLE_H2)
-		if (lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_METHOD)) {
+		{
 			int f = wsi->http.ah->frag_index[WSI_TOKEN_HTTP_COOKIE];
 			size_t fl;
 
@@ -1578,32 +1583,6 @@ lws_http_cookie_get(struct lws *wsi, const char *name, char *buf,
 					vp++;
 				}
 				f = wsi->http.ah->frags[f].nfrag;
-			}
-		} else
-#endif
-		{
-			p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COOKIE);
-			if (p) {
-				char *pe = p + n;
-
-				while (p < pe) {
-					if (!memcmp(p, use_name, bl) && p[bl] == '=') {
-						/* it's a match... is it at the start or after a space / ;? */
-						if (p == lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COOKIE) ||
-						    p[-1] == ' ' || p[-1] == ';') {
-							p += bl + 1;
-							while (p < pe && *p != ';' && max > 1) {
-								*buf++ = *p++;
-								max--;
-							}
-							*buf = '\0';
-							*max_len = lws_ptr_diff_size_t(buf, bo);
-
-							return 0;
-						}
-					}
-					p++;
-				}
 			}
 		}
 	}

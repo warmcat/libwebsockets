@@ -54,8 +54,10 @@ lws_bearssl_pump(struct lws *wsi)
 			old_st = st;
 			st = br_ssl_engine_current_state(&conn->u.engine);
 			if (st != old_st) {
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 				LWS_RATELIMIT_DEFINE_STATIC(rl);
 				lwsl_ratelimit_notice(&rl, 1000000, "%s: st changed %x -> %x\n", __func__, old_st, st);
+#endif
 			}
 		} while (st != old_st && st != BR_SSL_CLOSED);
 

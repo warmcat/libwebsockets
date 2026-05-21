@@ -47,12 +47,11 @@ create_file(const char *path, size_t size)
 
 int main(int argc, const char **argv)
 {
-	int logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+	
 	lws_dir_du_t du;
 	int result = 0;
 
 	lwsl_user("lws-api-test-dir\n");
-	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS API selftest: lws_dir du\n");
 
 	/* Create test directory structure */

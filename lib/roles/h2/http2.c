@@ -479,7 +479,7 @@ lws_h2_rst_stream(struct lws *wsi, uint32_t err, const char *reason)
 	if (!h2n)
 		return 0;
 
-	if (!wsi->h2_stream_carries_ws && h2n->type == LWS_H2_FRAME_TYPE_COUNT)
+	if (!wsi->h23_stream_carries_ws && h2n->type == LWS_H2_FRAME_TYPE_COUNT)
 		return 0;
 
 	pps = lws_h2_new_pps(LWS_H2_PPS_RST_STREAM);
@@ -667,7 +667,7 @@ int lws_h2_frame_write(struct lws *wsi, int type, int flags,
 	unsigned char *p = &buf[-LWS_H2_FRAME_HEADER_LENGTH];
 	int n;
 
-	//if (wsi->h2_stream_carries_ws)
+	//if (wsi->h23_stream_carries_ws)
 	// lwsl_hexdump_level(LLL_NOTICE, buf, len);
 
 	*p++ = (uint8_t)(len >> 16);
@@ -2583,7 +2583,9 @@ lws_h2_client_handshake(struct lws *wsi)
 
 	/* it's time for us to send our client stream headers */
 
-	if (!meth)
+	if (wsi->do_ws)
+		meth = "CONNECT";
+	else if (!meth)
 		meth = "GET";
 
 	/* h2 pseudoheaders must be in a bunch at the start */
@@ -2593,6 +2595,14 @@ lws_h2_client_handshake(struct lws *wsi)
 				(unsigned char *)meth,
 				(int)strlen(meth), &p, end))
 		goto fail_length;
+
+	if (wsi->do_ws) {
+		if (lws_add_http_header_by_token(wsi,
+					WSI_TOKEN_COLON_PROTOCOL,
+					(unsigned char *)"websocket", 9,
+					&p, end))
+			goto fail_length;
+	}
 
 	if (lws_add_http_header_by_token(wsi,
 				WSI_TOKEN_HTTP_COLON_SCHEME,
@@ -2622,6 +2632,27 @@ lws_h2_client_handshake(struct lws *wsi)
 				WSI_TOKEN_HTTP_COLON_PATH,
 				(unsigned char *)path, n, &p, end))
 		goto fail_length;
+
+#if defined(LWS_ROLE_WS)
+	if (wsi->do_ws) {
+		const char *prot = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ORIGIN);
+		
+		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_VERSION,
+					(unsigned char *)"13", 2, &p, end))
+			goto fail_length;
+
+		if (!prot && wsi->stash && wsi->stash->cis[CIS_PROTOCOL])
+			prot = wsi->stash->cis[CIS_PROTOCOL];
+
+		if (prot) {
+			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_PROTOCOL,
+						(unsigned char *)prot, (int)strlen(prot), &p, end))
+				goto fail_length;
+		}
+
+		wsi->h23_stream_carries_ws = 1;
+	}
+#endif
 
 	n = lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_HOST);
 	simp = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST);

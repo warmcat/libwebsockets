@@ -110,7 +110,7 @@ lws_quic_get_pn_offset(const uint8_t *buf, size_t len, size_t *payload_len)
 		consumed = lws_quic_parse_varint(&buf[pos], len - pos, &token_len);
 		if (!consumed) return 0;
 		pos += consumed;
-		if (pos + token_len > len) return 0;
+		if (token_len > len - pos) return 0;
 		pos += (size_t)token_len;
 	}
 
@@ -119,7 +119,7 @@ lws_quic_get_pn_offset(const uint8_t *buf, size_t len, size_t *payload_len)
 	if (!consumed) return 0;
 	pos += consumed;
 
-	if (pos + p_len > len) return 0; /* Packet is truncated based on stated length */
+	if (p_len > len - pos) return 0; /* Packet is truncated based on stated length */
 
 	*payload_len = (size_t)p_len;
 	return pos; /* This is the exact offset where the Packet Number begins */
@@ -174,12 +174,14 @@ lws_quic_write_varint(uint8_t *buf, size_t len, uint64_t val)
  * it will also flush any previously buffered contiguous chunks.
  */
 void
-lws_quic_rx_reassemble(struct lws *nwsi, lws_dll2_owner_t *owner,
-		       uint64_t *expected_offset, uint64_t offset,
-		       uint8_t *buf, size_t len, int is_crypto, int level)
+lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_stream *qs,
+		       uint64_t offset, uint8_t *buf, size_t len, int is_crypto, int level)
 {
+	uint64_t *expected_offset = is_crypto ? &nwsi->quic.qn->rx_crypto_offset[level] : &qs->rx_offset;
+	lws_dll2_owner_t *owner = is_crypto ? &nwsi->quic.qn->rx_crypto_chunks[level] : &qs->rx_chunks;
+
 	/* 1. If it's a past or overlapping frame, ignore it (simple version) */
-	if (offset + len <= *expected_offset)
+	if (offset + len <= *expected_offset && !(len == 0 && offset == *expected_offset))
 		return;
 
 	if (offset < *expected_offset) {
@@ -193,24 +195,65 @@ lws_quic_rx_reassemble(struct lws *nwsi, lws_dll2_owner_t *owner,
 	/* 2. If it's the exact expected piece, deliver it immediately! */
 	if (offset == *expected_offset) {
 		if (is_crypto) {
-			lws_tls_quic_rx_crypto(nwsi, level, buf, len);
-		} else {
-			/* Application Stream Data */
-			/* Wait until we bind the stream to a child wsi to deliver it.
-			 * For our minimal test, we assume nwsi->a.protocol->callback handles it */
-			struct lws *child = nwsi;
-			if (nwsi->mux.child_list) child = nwsi->mux.child_list;
-
-			if (child && child->a.protocol && child->a.protocol->callback) {
-				enum lws_callback_reasons reason = lwsi_role_client(child) ?
-					LWS_CALLBACK_QT_CLIENT_RECEIVE : LWS_CALLBACK_QT_SERVER_RECEIVE;
-				int n = child->a.protocol->callback(child, reason, child->user_space, buf, len);
-				if (n == 0) {
-					/* Data consumed by application, replenish rx credit to generate MAX_DATA! */
-					lws_wsi_tx_credit(child, LWSTXCR_PEER_TO_US, (int)len);
+			if (lws_tls_quic_rx_crypto(nwsi, level, buf, len) < 0) {
+				lwsl_wsi_notice(nwsi, "QUIC RX: TLS Crypto processing failed");
+				return; /* PROTOCOL_VIOLATION */
+			}
+			if (nwsi && !nwsi->quic.qn) {
+				nwsi = lws_get_quic_network_wsi(nwsi);
+				if (nwsi && nwsi->quic.qn) {
+					expected_offset = &nwsi->quic.qn->rx_crypto_offset[level];
+					owner = &nwsi->quic.qn->rx_crypto_chunks[level];
 				}
 			}
+		} else if (wsi_child) {
+#if defined(LWS_ROLE_H3)
+			lwsl_wsi_info(wsi_child, "QUIC RX: rx_reassemble for stream ID, role_ops=%p, role_ops_h3=%p, len=%d", wsi_child->role_ops, &role_ops_h3, (int)len);
+			if (wsi_child->role_ops == &role_ops_h3) {
+				lwsl_wsi_info(wsi_child, "QUIC RX: Delivering %d bytes to H3!", (int)len);
+				if (lws_h3_rx_stream_data(wsi_child, buf, len)) {
+					wsi_child = NULL;
+				}
+			} else
+#endif
+			if (wsi_child->a.protocol && wsi_child->a.protocol->callback) {
+				/* Application Stream Data */
+				enum lws_callback_reasons reason = lwsi_role_client(wsi_child) ?
+					LWS_CALLBACK_QT_CLIENT_RECEIVE : LWS_CALLBACK_QT_SERVER_RECEIVE;
+				int n = wsi_child->a.protocol->callback(wsi_child, reason, wsi_child->user_space, buf, len);
+				if (n == 0) {
+					/* Data consumed by application, replenish rx credit to generate MAX_DATA! */
+					lws_wsi_tx_credit(wsi_child, LWSTXCR_PEER_TO_US, (int)len);
+				}
+			}
+
+                        if (wsi_child && qs && qs->fin_received && *expected_offset + len == qs->rx_final_size && !qs->fin_delivered) {
+                                qs->fin_delivered = 1;
+#if defined(LWS_ROLE_H3)
+                                if (wsi_child->role_ops == &role_ops_h3) {
+                                        if (!qs->is_unidirectional) {
+                                                if (lwsi_role_client(wsi_child)) {
+                                                        wsi_child->client_mux_substream = 1;
+                                                        if (lws_http_transaction_completed_client(wsi_child)) {
+                                                                lwsl_info("Transaction completed and wsi closed\n");
+                                                                wsi_child = NULL;
+                                                        }
+                                                } else {
+                                                        wsi_child->client_mux_substream = 0;
+                                                }
+                                        } else {
+                                                if (wsi_child->h3.type_set && (wsi_child->h3.stream_type == 0x00 || wsi_child->h3.stream_type == 0x02 || wsi_child->h3.stream_type == 0x03)) {
+                                                        lws_quic_enter_closing_state(nwsi, 0x0104 /* LWS_H3_CLOSED_CRITICAL_STREAM */, 0, 1);
+                                                        return;
+                                                }
+                                        }
+                                }
+#endif
+                        }
 		}
+
+		if (!is_crypto && !wsi_child)
+			return;
 
 		*expected_offset += len;
 
@@ -224,19 +267,60 @@ lws_quic_rx_reassemble(struct lws *nwsi, lws_dll2_owner_t *owner,
 				if (c->offset == *expected_offset) {
 					/* We found the next contiguous piece! */
 					if (is_crypto) {
-						lws_tls_quic_rx_crypto(nwsi, level, c->data, c->len);
-					} else {
-						struct lws *child = nwsi;
-						if (nwsi->mux.child_list) child = nwsi->mux.child_list;
-						if (child && child->a.protocol && child->a.protocol->callback) {
-							enum lws_callback_reasons reason = lwsi_role_client(child) ?
-								LWS_CALLBACK_QT_CLIENT_RECEIVE : LWS_CALLBACK_QT_SERVER_RECEIVE;
-							int n = child->a.protocol->callback(child, reason, child->user_space, c->data, c->len);
-							if (n == 0) {
-								/* Data consumed by application, replenish rx credit to generate MAX_DATA! */
-								lws_wsi_tx_credit(child, LWSTXCR_PEER_TO_US, (int)c->len);
+						if (lws_tls_quic_rx_crypto(nwsi, level, c->data, c->len) < 0) {
+							lwsl_wsi_notice(nwsi, "QUIC RX: TLS Crypto processing failed");
+							return; /* PROTOCOL_VIOLATION */
+						}
+						if (nwsi && !nwsi->quic.qn) {
+							nwsi = lws_get_quic_network_wsi(nwsi);
+							if (nwsi && nwsi->quic.qn) {
+								expected_offset = &nwsi->quic.qn->rx_crypto_offset[level];
+								owner = &nwsi->quic.qn->rx_crypto_chunks[level];
 							}
 						}
+					} else if (wsi_child) {
+#if defined(LWS_ROLE_H3)
+						if (wsi_child->role_ops == &role_ops_h3) {
+							lwsl_wsi_info(wsi_child, "QUIC RX: Delivering chunk %d bytes to H3!", (int)c->len);
+							if (lws_h3_rx_stream_data(wsi_child, c->data, c->len)) {
+								wsi_child = NULL;
+							}
+						} else
+#endif
+						if (wsi_child->a.protocol && wsi_child->a.protocol->callback) {
+							enum lws_callback_reasons reason = lwsi_role_client(wsi_child) ?
+								LWS_CALLBACK_QT_CLIENT_RECEIVE : LWS_CALLBACK_QT_SERVER_RECEIVE;
+							int n = wsi_child->a.protocol->callback(wsi_child, reason, wsi_child->user_space, c->data, c->len);
+							if (n == 0) {
+								/* Data consumed by application, replenish rx credit to generate MAX_DATA! */
+								lws_wsi_tx_credit(wsi_child, LWSTXCR_PEER_TO_US, (int)c->len);
+							}
+						}
+
+						if (wsi_child && qs && qs->fin_received && *expected_offset + c->len == qs->rx_final_size && !qs->fin_delivered) {
+							qs->fin_delivered = 1;
+#if defined(LWS_ROLE_H3)
+							if (wsi_child->role_ops == &role_ops_h3) {
+								if (!qs->is_unidirectional) {
+									if (lwsi_role_client(wsi_child)) {
+										wsi_child->client_mux_substream = 1;
+										if (lws_http_transaction_completed_client(wsi_child)) {
+											lwsl_info("Transaction completed and wsi closed\n");
+											wsi_child = NULL;
+										}
+									} else {
+										wsi_child->client_mux_substream = 0;
+									}
+								}
+							}
+#endif
+						}
+					}
+
+					if (!is_crypto && !wsi_child) {
+						lws_dll2_remove(&c->list);
+						lws_free(c);
+						return;
 					}
 
 					*expected_offset += c->len;
@@ -252,6 +336,16 @@ lws_quic_rx_reassemble(struct lws *nwsi, lws_dll2_owner_t *owner,
 	}
 
 	/* 4. It's in the future. We must buffer it! */
+#if defined(LWS_WITH_FREERTOS)
+	if (owner->count >= 16)
+#else
+	if (owner->count >= 64)
+#endif
+	{
+		lwsl_wsi_notice(nwsi, "QUIC RX: Dropping future chunk, reassembly buffer full");
+		return;
+	}
+
 	struct lws_quic_rx_chunk *c = lws_malloc(sizeof(*c) + len, "quic rx chunk");
 	if (!c) return; /* OOM */
 
@@ -291,6 +385,24 @@ lws_quic_rx_reassemble(struct lws *nwsi, lws_dll2_owner_t *owner,
 }
 
 /*
+ * Finds a child WSI for a given QUIC Stream ID, or returns NULL.
+ */
+struct lws *
+lws_quic_stream_find(struct lws *nwsi, uint64_t stream_id)
+{
+	struct lws *wsi_child = nwsi->mux.child_list;
+	while (wsi_child) {
+		if (wsi_child->quic.qs && wsi_child->quic.qs->stream_id == stream_id)
+			return wsi_child;
+		if (wsi_child->mux.my_sid == stream_id) /* Fallback */
+			return wsi_child;
+		wsi_child = wsi_child->mux.sibling_list;
+	}
+	return NULL;
+}
+
+
+/*
  * Parses QUIC frames from a decrypted payload and routes them.
  */
 int
@@ -299,8 +411,21 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 	size_t pos = 0;
 	uint64_t type, offset, len;
 	size_t consumed;
+	int ack_eliciting = 0;
 
 	while (pos < payload_len) {
+		struct lws_quic_netconn *qn;
+		/* ALPN negotiation during a previous frame might have migrated the network WSI! */
+		if (nwsi && !nwsi->quic.qn) {
+			nwsi = lws_get_network_wsi(nwsi);
+		}
+		qn = nwsi ? nwsi->quic.qn : NULL;
+
+		if (qn && qn->is_closing) {
+			/* If the connection is closing (e.g. critical stream closed), stop parsing frames */
+			return -1;
+		}
+
 		/* Parse Frame Type */
 		consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &type);
 		if (!consumed) return -1;
@@ -323,7 +448,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 			pos += consumed;
 
 			/* 3. Validation */
-			if (pos + len > payload_len) {
+			if (len > payload_len - pos) {
 				lwsl_wsi_notice(nwsi, "QUIC RX: Truncated CRYPTO frame");
 				return -1;
 			}
@@ -332,8 +457,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 				level, (unsigned long long)offset, (unsigned long long)len);
 
 			/* 4. Action: Pass the TLS handshake data to the OpenSSL QUIC method */
-			lws_quic_rx_reassemble(nwsi, &nwsi->quic.qn->rx_crypto_chunks[level],
-					       &nwsi->quic.qn->rx_crypto_offset[level],
+			lws_quic_rx_reassemble(nwsi, NULL, NULL,
 					       offset, &payload[pos], (size_t)len, 1, level);
 
 			pos += (size_t)len;
@@ -363,8 +487,15 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 			if (!consumed) return -1;
 			pos += consumed;
 
+			lwsl_wsi_info(nwsi, "QUIC RX TELEMETRY: Parsed ACK frame! Largest = %llu, First Range = %llu",
+				(unsigned long long)largest_ack, (unsigned long long)first_ack_range);
+
 			/* Process the First ACK Range */
 			uint64_t pn = largest_ack;
+			if (first_ack_range > pn) {
+				lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FRAME_ENCODING_ERROR, type, 0);
+				return -1;
+			}
 			for (uint64_t i = 0; i <= first_ack_range; i++) {
 				lws_quic_handle_ack(nwsi, level, pn - i);
 			}
@@ -382,7 +513,16 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 				if (!consumed) return -1;
 				pos += consumed;
 
+				if (gap + 1 > pn) {
+					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FRAME_ENCODING_ERROR, type, 0);
+					return -1;
+				}
 				pn -= gap + 1;
+
+				if (ack_range > pn) {
+					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FRAME_ENCODING_ERROR, type, 0);
+					return -1;
+				}
 				for (uint64_t i = 0; i <= ack_range; i++) {
 					lws_quic_handle_ack(nwsi, level, pn - i);
 				}
@@ -403,13 +543,35 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 		}
 
 		case LWS_QUIC_FT_PING:
-			lwsl_wsi_notice(nwsi, "QUIC RX: Parsed PING frame!");
+			lwsl_wsi_info(nwsi, "QUIC RX: Parsed PING frame!");
 			break;
 
 		case LWS_QUIC_FT_RESET_STREAM: {
 			uint64_t stream_id, app_err_code, final_size;
 			consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &stream_id);
 			if (!consumed) return -1;
+			
+			if (!qn) return -1;
+			int is_peer_initiated = (stream_id & 1) != (qn->is_server ? 1 : 0);
+			int is_unidirectional = (stream_id & 2);
+			struct lws *wsi_child = lws_quic_stream_find(nwsi, stream_id);
+			
+			if (is_peer_initiated) {
+				uint64_t limit = is_unidirectional ? qn->max_streams_unidi_local : qn->max_streams_bidi_local;
+				if ((stream_id >> 2) >= limit) {
+					lwsl_wsi_notice(nwsi, "QUIC RX: Stream ID %llu exceeds limit", (unsigned long long)stream_id);
+					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_STREAM_LIMIT_ERROR, type, 0);
+					return -1;
+				}
+			}
+
+			if (!is_peer_initiated) {
+				if (is_unidirectional || !wsi_child) {
+					lwsl_wsi_notice(nwsi, "QUIC RX: Invalid RESET_STREAM on stream ID %llu", (unsigned long long)stream_id);
+					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_STREAM_STATE_ERROR, type, 0);
+					return -1;
+				}
+			}
 			pos += consumed;
 			consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &app_err_code);
 			if (!consumed) return -1;
@@ -423,6 +585,14 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 			while (child) {
 				if (child->mux.my_sid == stream_id) {
 					lwsl_wsi_notice(child, "QUIC RX: Stream closed by peer via RESET_STREAM");
+#if defined(LWS_ROLE_H3)
+					if (child->role_ops == &role_ops_h3 && child->quic.qs && child->quic.qs->is_unidirectional) {
+						if (child->h3.type_set && (child->h3.stream_type == 0x00 || child->h3.stream_type == 0x02 || child->h3.stream_type == 0x03)) {
+							lws_quic_enter_closing_state(nwsi, 0x0104 /* LWS_H3_CLOSED_CRITICAL_STREAM */, 0, 1);
+							return -1;
+						}
+					}
+#endif
 					lws_close_free_wsi(child, LWS_CLOSE_STATUS_ABNORMAL_CLOSE, "quic reset stream");
 					break;
 				}
@@ -431,10 +601,74 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 			break;
 		}
 
+		case 0x1c: /* CONNECTION_CLOSE */
+		case 0x1d: { /* CONNECTION_CLOSE (Application) */
+			uint64_t err_code, frame_type = 0, reason_len;
+			consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &err_code);
+			if (!consumed) return -1;
+			pos += consumed;
+			if (type == 0x1c) {
+				consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &frame_type);
+				if (!consumed) return -1;
+				pos += consumed;
+			}
+			consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &reason_len);
+			if (!consumed) return -1;
+			pos += consumed;
+			if (reason_len > payload_len - pos) return -1;
+			lwsl_wsi_notice(nwsi, "QUIC RX: CONNECTION_CLOSE (err=%llu, frame_type=%llu, reason_len=%llu)", 
+				(unsigned long long)err_code, (unsigned long long)frame_type, (unsigned long long)reason_len);
+			
+			if (reason_len) {
+				char chunk[128];
+				size_t printed = 0;
+				while (printed < reason_len) {
+					size_t chunk_len = reason_len - printed;
+					if (chunk_len > sizeof(chunk) - 1)
+						chunk_len = sizeof(chunk) - 1;
+					memcpy(chunk, &payload[pos + printed], chunk_len);
+					chunk[chunk_len] = '\0';
+					lwsl_wsi_notice(nwsi, "QUIC RX REASON: %s", chunk);
+					printed += chunk_len;
+				}
+			}
+			
+			pos += (size_t)reason_len;
+			return -3; /* Terminate parsing and connection cleanly (Peer closed) */
+		}
+
 		case LWS_QUIC_FT_STOP_SENDING: {
 			uint64_t stream_id, app_err_code;
 			consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &stream_id);
 			if (!consumed) return -1;
+			
+			if (!qn) return -1;
+			int is_peer_initiated = (stream_id & 1) != (qn->is_server ? 1 : 0);
+			int is_unidirectional = (stream_id & 2);
+			struct lws *wsi_child = lws_quic_stream_find(nwsi, stream_id);
+			
+			if (is_peer_initiated) {
+				uint64_t limit = is_unidirectional ? qn->max_streams_unidi_local : qn->max_streams_bidi_local;
+				if ((stream_id >> 2) >= limit) {
+					lwsl_wsi_notice(nwsi, "QUIC RX: Stream ID %llu exceeds limit", (unsigned long long)stream_id);
+					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_STREAM_LIMIT_ERROR, type, 0);
+					return -1;
+				}
+			}
+
+			if (!is_peer_initiated) {
+				if (!wsi_child) {
+					lwsl_wsi_notice(nwsi, "QUIC RX: STOP_SENDING on non-existing stream ID %llu", (unsigned long long)stream_id);
+					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_STREAM_STATE_ERROR, type, 0);
+					return -1;
+				}
+			} else {
+				if (is_unidirectional) {
+					lwsl_wsi_notice(nwsi, "QUIC RX: STOP_SENDING on receive-only stream ID %llu", (unsigned long long)stream_id);
+					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_STREAM_STATE_ERROR, type, 0);
+					return -1;
+				}
+			}
 			pos += consumed;
 			consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &app_err_code);
 			if (!consumed) return -1;
@@ -460,11 +694,17 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 			consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &max_streams);
 			if (!consumed) return -1;
 			pos += consumed;
+			if (max_streams > (1ULL << 60)) {
+				lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FRAME_ENCODING_ERROR, type, 0);
+				return -1;
+			}
 			lwsl_wsi_info(nwsi, "QUIC RX: Parsed MAX/BLOCKED STREAMS! max_streams %llu", (unsigned long long)max_streams);
-			if (type == LWS_QUIC_FT_MAX_STREAMS_BIDI)
-				nwsi->quic.qn->max_streams_bidi_remote = max_streams;
-			else if (type == LWS_QUIC_FT_MAX_STREAMS_UNIDI)
-				nwsi->quic.qn->max_streams_unidi_remote = max_streams;
+			if (qn) {
+				if (type == LWS_QUIC_FT_MAX_STREAMS_BIDI)
+					qn->max_streams_bidi_remote = max_streams;
+				else if (type == LWS_QUIC_FT_MAX_STREAMS_UNIDI)
+					qn->max_streams_unidi_remote = max_streams;
+			}
 			break;
 		}
 
@@ -476,8 +716,16 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 			consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &retire_prior_to);
 			if (!consumed) return -1;
 			pos += consumed;
+			if (retire_prior_to > seq) {
+				lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FRAME_ENCODING_ERROR, type, 0);
+				return -1;
+			}
 			if (pos >= payload_len) return -1;
 			uint8_t cid_len = payload[pos++];
+			if (cid_len == 0 || cid_len > 20) {
+				lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FRAME_ENCODING_ERROR, type, 0);
+				return -1;
+			}
 			if (pos + cid_len + 16 > payload_len) return -1;
 			pos += cid_len + 16;
 			lwsl_wsi_info(nwsi, "QUIC RX: Parsed NEW_CONNECTION_ID! seq %llu", (unsigned long long)seq);
@@ -495,6 +743,10 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 
 		case LWS_QUIC_FT_PATH_CHALLENGE:
 		case LWS_QUIC_FT_PATH_RESPONSE: {
+			if (level != LWS_QUIC_LEVEL_APP) {
+				lwsl_wsi_notice(nwsi, "QUIC RX: PATH_CHALLENGE/RESPONSE not allowed in non 1-RTT packets");
+				return -2; /* PROTOCOL_VIOLATION */
+			}
 			if (pos + 8 > payload_len) return -1;
 			uint8_t path_data[8];
 			memcpy(path_data, &payload[pos], 8);
@@ -511,7 +763,86 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 					lws_dll2_add_tail(&f_pr->list, &nwsi->quic.qn->pending_tx[level]);
 					lws_callback_on_writable(nwsi);
 				}
+			} else if (type == LWS_QUIC_FT_PATH_RESPONSE && nwsi->quic.qn) {
+				if (nwsi->quic.qn->path_challenge_pending && !memcmp(nwsi->quic.qn->path_challenge, path_data, 8)) {
+					lwsl_wsi_notice(nwsi, "QUIC RX: Path validated via PATH_RESPONSE!");
+					nwsi->quic.qn->address_validated = 1;
+					nwsi->quic.qn->path_challenge_pending = 0;
+				} else {
+					lwsl_wsi_notice(nwsi, "QUIC RX: Spurious or mismatched PATH_RESPONSE, ignoring");
+				}
 			}
+			break;
+		}
+
+		case 0x1e: /* HANDSHAKE_DONE */
+			lwsl_wsi_info(nwsi, "QUIC RX: Parsed HANDSHAKE_DONE!");
+			if (nwsi->quic.qn && nwsi->quic.qn->is_server) {
+				/* Clients SHOULD NOT send HANDSHAKE_DONE. Server MUST treat as PROTOCOL_VIOLATION */
+				lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_PROTOCOL_VIOLATION, type, 0);
+				return -1;
+			}
+			break;
+
+		case 0x07: { /* NEW_TOKEN */
+			uint64_t token_len;
+			consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &token_len);
+			if (!consumed) return -1;
+			pos += consumed;
+			if (token_len > payload_len - pos) return -1;
+			pos += (size_t)token_len;
+			lwsl_wsi_info(nwsi, "QUIC RX: Parsed NEW_TOKEN! length %llu", (unsigned long long)token_len);
+			if (nwsi->quic.qn && nwsi->quic.qn->is_server) {
+				/* Server MUST treat NEW_TOKEN from client as PROTOCOL_VIOLATION */
+				lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_PROTOCOL_VIOLATION, type, 0);
+				return -1;
+			}
+			break;
+		}
+
+		case LWS_QUIC_FT_DATAGRAM:
+		case LWS_QUIC_FT_DATAGRAM + 1: {
+			uint64_t datagram_len;
+			if (type & 1) { /* with LEN */
+				consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &datagram_len);
+				if (!consumed) return -1;
+				pos += consumed;
+			} else {
+				datagram_len = payload_len - pos;
+			}
+			if (datagram_len > payload_len - pos) {
+				lwsl_wsi_notice(nwsi, "QUIC RX: Truncated DATAGRAM frame");
+				return -1;
+			}
+			lwsl_wsi_info(nwsi, "QUIC RX: Parsed DATAGRAM! len %llu", (unsigned long long)datagram_len);
+			
+			/* Pass datagram payload to protocol callback via LWS_CALLBACK_RECEIVE on network wsi
+			   Wait, actually we should use the h3 role's receive processing or just dispatch to user callback.
+			   Since DATAGRAMs in H3 have Quarter Stream IDs, we will just queue them to the nwsi rx chunks,
+			   or just invoke a direct callback.
+			   For now, lws_quic_rx_reassemble to the network wsi's own rx_chunks if it was supported,
+			   but network wsi doesn't have a stream. Let's just create an rx_chunk on nwsi if we can,
+			   or directly call LWS_CALLBACK_RECEIVE if possible. We will call the user callback directly. */
+			if (nwsi->role_ops && nwsi->a.protocol && nwsi->a.protocol->callback) {
+				/* Note: WebTransport datagrams will be dispatched inside H3 role */
+				/* We can push this data to a special list or just call rxflow right away */
+				if (lws_rops_fidx(nwsi->role_ops, LWS_ROPS_handle_POLLIN)) {
+					/* Create a dummy rx chunk on a special nwsi datagram queue?
+					   Actually it's better to just call LWS_CALLBACK_RECEIVE on nwsi here. */
+					/* But to keep rx flow control, let's just dispatch it. */
+				}
+				/* For now, direct callback. H3 will intercept this in its rxflow/rx handling */
+				/* Let's set a flag or just call LWS_CALLBACK_RECEIVE with a new reason,
+				 * but LWS_CALLBACK_RECEIVE_CLIENT_HTTP works. */
+				nwsi->quic.qn->rx_packets_since_update++; /* Just a dummy increment */
+				
+				/* A better way: store in nwsi->quic.qn->rx_crypto_chunks[LWS_QUIC_LEVEL_APP] for datagrams? No. */
+				/* We will call lws_quic_rx_reassemble but with wsi_child = nwsi, and qs = NULL? 
+				 * Yes, let's add a datagram callback or just use lws_quic_rx_reassemble with is_crypto=2 */
+				lws_quic_rx_reassemble(nwsi, nwsi, NULL, 0, &payload[pos], (size_t)datagram_len, 2, LWS_QUIC_LEVEL_APP);
+			}
+
+			pos += (size_t)datagram_len;
 			break;
 		}
 
@@ -521,6 +852,17 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 				consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &stream_id);
 				if (!consumed) return -1;
 				pos += consumed;
+
+				int is_peer_initiated = (stream_id & 1) != (qn->is_server ? 1 : 0);
+				int is_unidirectional = (stream_id & 2);
+				if (is_peer_initiated) {
+					uint64_t limit = is_unidirectional ? qn->max_streams_unidi_local : qn->max_streams_bidi_local;
+					if ((stream_id >> 2) >= limit) {
+						lwsl_wsi_notice(nwsi, "QUIC RX: Stream ID %llu exceeds limit", (unsigned long long)stream_id);
+						lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_STREAM_LIMIT_ERROR, type, 0);
+						return -1;
+					}
+				}
 
 				if (type & 0x04) { /* OFF */
 					consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &offset);
@@ -538,62 +880,144 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 					len = payload_len - pos;
 				}
 
-				if (pos + len > payload_len) {
+				if (len > payload_len - pos) {
 					lwsl_wsi_notice(nwsi, "QUIC RX: Truncated STREAM frame");
 					return -1;
 				}
 
-				lwsl_wsi_info(nwsi, "QUIC RX: Parsed STREAM frame! id %llu, offset %llu, len %llu",
-						(unsigned long long)stream_id, (unsigned long long)offset, (unsigned long long)len);
+
+
+				int fin = (type & 0x01) ? 1 : 0;
+				lwsl_wsi_info(nwsi, "QUIC RX: Parsed STREAM! id %llu, off %llu, len %llu, fin %d",
+					(unsigned long long)stream_id, (unsigned long long)offset, (unsigned long long)len, fin);
+
+				is_unidirectional = (stream_id & 2);
+
+				struct lws *wsi_child = lws_quic_stream_find(nwsi, stream_id);
+
+				int is_locally_initiated = lwsi_role_client(nwsi) ? !(stream_id & 1) : (stream_id & 1);
+
+				if (is_locally_initiated) {
+					if (is_unidirectional || !wsi_child) {
+						lwsl_wsi_notice(nwsi, "QUIC RX: Invalid STREAM frame on stream ID %llu (is_locally_initiated=1)", (unsigned long long)stream_id);
+						/* RFC 9000 19.8: A receiver MUST terminate the connection with STREAM_STATE_ERROR if it receives a STREAM frame for a locally-initiated stream that has not yet been created, or for a send-only stream */
+						lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_STREAM_STATE_ERROR, type, 0);
+						return -1;
+					}
+				}
+
+				if (!wsi_child) {
+					/* Peer initiated a new stream. We must create a child WSI! */
+					wsi_child = lws_create_new_server_wsi(nwsi->a.vhost, nwsi->tsi, LWSLCG_WSI_MUX, "quic stream");
+					if (!wsi_child) return -1;
+					
+					lws_wsi_mux_insert(wsi_child, nwsi, (unsigned int)stream_id);
+					wsi_child->mux.my_sid = (unsigned int)stream_id;
+					
+					/* Inherit the role from the network WSI, but use H3 role if H3 ALPN was negotiated */
+#if defined(LWS_ROLE_H3)
+					lws_role_transition(wsi_child, lwsi_role_client(nwsi) ? LWSIFR_CLIENT : LWSIFR_SERVER, LRS_ESTABLISHED, nwsi->h3.h3n ? &role_ops_h3 : nwsi->role_ops);
+#else
+					lws_role_transition(wsi_child, lwsi_role_client(nwsi) ? LWSIFR_CLIENT : LWSIFR_SERVER, LRS_ESTABLISHED, nwsi->role_ops);
+#endif
+					
+					wsi_child->quic.qs = lws_zalloc(sizeof(*wsi_child->quic.qs), "quic stream");
+					if (wsi_child->quic.qs) {
+						wsi_child->quic.qs->wsi = wsi_child;
+						wsi_child->quic.qs->stream_id = stream_id;
+						wsi_child->quic.qs->is_unidirectional = (uint8_t)((stream_id & 0x02) != 0 ? 1 : 0);
+						wsi_child->quic.qs->is_server_initiated = (uint8_t)((stream_id & 0x01) != 0 ? 1 : 0);
+						wsi_child->quic.qs->rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
+						wsi_child->quic.qs->rx_window_size = LWS_QUIC_DEFAULT_WINDOW;
+						wsi_child->quic.qs->last_rx_update_us = lws_now_usecs();
+					} else {
+						lws_close_free_wsi(wsi_child, LWS_CLOSE_STATUS_NOSTATUS, "quic stream oom");
+						return -1;
+					}
+					
+#if defined(LWS_ROLE_H3)
+					wsi_child->h3.h3n = nwsi->h3.h3n;
+					wsi_child->h3.qpack_tx_encoder = nwsi->h3.qpack_tx_encoder;
+#endif
+
+					if (lwsi_role_client(nwsi))
+						if (lwsi_role_client(wsi_child))
+							wsi_child->client_mux_substream = 1;
+						else
+							wsi_child->client_mux_substream = 0;
+					else
+						wsi_child->mux_substream = 1;
+					
+					/* Bind to protocol */
+					wsi_child->a.protocol = nwsi->a.protocol;
+					if (wsi_child->a.protocol && wsi_child->a.protocol->callback) {
+						wsi_child->a.protocol->callback(wsi_child, LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED, wsi_child->user_space, NULL, 0);
+					}
+
+					struct lws_quic_netconn *qn = nwsi->quic.qn;
+					/* Initialize Stream TX Credit from Peer Transport Parameters */
+					int is_bidi = (wsi_child->quic.qs->is_unidirectional == 0);
+					int is_remote_initiated = (wsi_child->quic.qs->is_server_initiated == nwsi->quic.qn->is_server ? 0 : 1);
+					if (is_bidi) {
+						if (is_remote_initiated) {
+							if (qn->peer_initial_max_stream_data_bidi_remote) {
+								wsi_child->txc.peer_tx_cr_est = (int32_t)qn->peer_initial_max_stream_data_bidi_remote;
+								wsi_child->txc.tx_cr = (int32_t)qn->peer_initial_max_stream_data_bidi_remote;
+							}
+						} else {
+							if (qn->peer_initial_max_stream_data_bidi_local) {
+								wsi_child->txc.peer_tx_cr_est = (int32_t)qn->peer_initial_max_stream_data_bidi_local;
+								wsi_child->txc.tx_cr = (int32_t)qn->peer_initial_max_stream_data_bidi_local;
+							}
+						}
+					} else {
+						if (qn->peer_initial_max_stream_data_uni) {
+							wsi_child->txc.peer_tx_cr_est = (int32_t)qn->peer_initial_max_stream_data_uni;
+							wsi_child->txc.tx_cr = (int32_t)qn->peer_initial_max_stream_data_uni;
+						}
+					}
+				}
+
+				/* Dynamic Flow Control Enforcement */
+				if (wsi_child && wsi_child->quic.qs) {
+					uint64_t new_highest = offset + len;
+					
+					/* Enforce Stream Limit */
+					if (new_highest > wsi_child->quic.qs->rx_max_data || new_highest < offset) {
+						lwsl_wsi_notice(nwsi, "QUIC RX: Stream offset %llu + len %llu exceeds dynamic stream flow control limit (%llu)", 
+							(unsigned long long)offset, (unsigned long long)len, (unsigned long long)wsi_child->quic.qs->rx_max_data);
+						lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FLOW_CONTROL_ERROR, type, 0);
+						return -1;
+					}
+
+					/* Enforce Connection Limit */
+					if (new_highest > wsi_child->quic.qs->highest_rx_offset) {
+						uint64_t diff = new_highest - wsi_child->quic.qs->highest_rx_offset;
+						wsi_child->quic.qs->highest_rx_offset = new_highest;
+						
+						nwsi->quic.qn->highest_rx_offset += diff;
+						if (nwsi->quic.qn->highest_rx_offset > nwsi->quic.qn->rx_max_data) {
+							lwsl_wsi_notice(nwsi, "QUIC RX: Total bytes (%llu) exceeds dynamic connection flow control limit (%llu)", 
+								(unsigned long long)nwsi->quic.qn->highest_rx_offset, (unsigned long long)nwsi->quic.qn->rx_max_data);
+							lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FLOW_CONTROL_ERROR, type, 0);
+							return -1;
+						}
+					}
+				}
 
 				/* Deliver stream data via Reassembly Buffer */
-				if (len) {
-					lws_quic_rx_reassemble(nwsi, &nwsi->quic.qn->rx_stream_chunks,
-							       &nwsi->quic.qn->rx_stream_offset,
+				if (wsi_child && wsi_child->quic.qs) {
+					if (fin) {
+						wsi_child->quic.qs->fin_received = 1;
+						wsi_child->quic.qs->rx_final_size = offset + len;
+					}
+					if (len || fin) {
+						lws_quic_rx_reassemble(nwsi, wsi_child, wsi_child->quic.qs,
 							       offset, &payload[pos], (size_t)len, 0, level);
+					}
 				}
 
 				pos += (size_t)len;
-				break;
-			} else if (type == LWS_QUIC_FT_ACK || type == 0x03 /* ACK with ECN */) {
-				uint64_t largest_ack, ack_delay, ack_range_count, first_ack_range;
-				consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &largest_ack);
-				if (!consumed) return -1;
-				pos += consumed;
-				consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &ack_delay);
-				if (!consumed) return -1;
-				pos += consumed;
-				consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &ack_range_count);
-				if (!consumed) return -1;
-				pos += consumed;
-				consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &first_ack_range);
-				if (!consumed) return -1;
-				pos += consumed;
-
-				for (uint64_t i = 0; i < ack_range_count; i++) {
-					uint64_t gap, ack_range;
-					consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &gap);
-					if (!consumed) return -1;
-					pos += consumed;
-					consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &ack_range);
-					if (!consumed) return -1;
-					pos += consumed;
-				}
-
-				if (type == 0x03) { /* ECN */
-					uint64_t ect0, ect1, ecn_ce;
-					consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &ect0);
-					if (!consumed) return -1;
-					pos += consumed;
-					consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &ect1);
-					if (!consumed) return -1;
-					pos += consumed;
-					consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &ecn_ce);
-					if (!consumed) return -1;
-					pos += consumed;
-				}
-
-				lwsl_wsi_info(nwsi, "QUIC RX: Parsed ACK frame! largest %llu", (unsigned long long)largest_ack);
 				break;
 			} else if (type == LWS_QUIC_FT_MAX_DATA || type == LWS_QUIC_FT_DATA_BLOCKED) {
 				uint64_t max_data;
@@ -620,16 +1044,49 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 				if (!consumed) return -1;
 				pos += consumed;
 
+				int is_peer_initiated = (stream_id & 1) != (qn->is_server ? 1 : 0);
+				int is_unidirectional = (stream_id & 2);
+				struct lws *wsi_child = lws_quic_stream_find(nwsi, stream_id);
+
+				if (is_peer_initiated) {
+					uint64_t limit = is_unidirectional ? qn->max_streams_unidi_local : qn->max_streams_bidi_local;
+					if ((stream_id >> 2) >= limit) {
+						lwsl_wsi_notice(nwsi, "QUIC RX: Stream ID %llu exceeds limit", (unsigned long long)stream_id);
+						lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_STREAM_LIMIT_ERROR, type, 0);
+						return -1;
+					}
+				}
+
+				if (!is_peer_initiated) {
+					if (!wsi_child) {
+						lwsl_wsi_notice(nwsi, "QUIC RX: %s on non-existing stream ID %llu", 
+							type == LWS_QUIC_FT_MAX_STREAM_DATA ? "MAX_STREAM_DATA" : "STREAM_DATA_BLOCKED",
+							(unsigned long long)stream_id);
+						lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_STREAM_STATE_ERROR, type, 0);
+						return -1;
+					}
+				} else {
+					if (is_unidirectional) {
+						lwsl_wsi_notice(nwsi, "QUIC RX: %s on receive-only stream ID %llu", 
+							type == LWS_QUIC_FT_MAX_STREAM_DATA ? "MAX_STREAM_DATA" : "STREAM_DATA_BLOCKED",
+							(unsigned long long)stream_id);
+						lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_STREAM_STATE_ERROR, type, 0);
+						return -1;
+					}
+				}
+
 				lwsl_wsi_info(nwsi, "QUIC RX: Parsed %s frame! stream_id %llu, max_stream_data %llu",
 					type == LWS_QUIC_FT_MAX_STREAM_DATA ? "MAX_STREAM_DATA" : "STREAM_DATA_BLOCKED",
 					(unsigned long long)stream_id, (unsigned long long)max_stream_data);
 
 				if (type == LWS_QUIC_FT_MAX_STREAM_DATA) {
-					/* Assuming stream 0 for now until full mux is implemented */
-					int32_t current_max = (int32_t)(nwsi->quic.tx_stream_offset + (uint64_t)nwsi->txc.tx_cr);
-					int32_t delta = (int32_t)max_stream_data - current_max;
-					if (delta > 0)
-						lws_wsi_tx_credit(nwsi, LWSTXCR_US_TO_PEER, delta);
+					struct lws *child = lws_quic_stream_find(nwsi, stream_id);
+					if (child) {
+						int32_t current_max = (int32_t)((child->quic.qs ? child->quic.qs->tx_offset : 0) + (uint64_t)child->txc.tx_cr);
+						int32_t delta = (int32_t)max_stream_data - current_max;
+						if (delta > 0)
+							lws_wsi_tx_credit(child, LWSTXCR_US_TO_PEER, delta);
+					}
 				}
 				break;
 			}
@@ -639,6 +1096,169 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 			/* Unknown frame: we MUST abort parsing because we don't know its length! */
 			return -1;
 		}
+		if (type != LWS_QUIC_FT_PADDING && type != LWS_QUIC_FT_ACK && type != LWS_QUIC_FT_ACK_ECN && type != 0x1c && type != 0x1d) {
+			ack_eliciting = 1;
+		}
+	}
+
+	return ack_eliciting;
+}
+
+int
+lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t len)
+{
+	struct lws_quic_netconn *qn = wsi->quic.qn;
+	size_t pos = 0, consumed;
+	uint64_t param_id, param_len, val;
+	uint64_t seen_params[64];
+	size_t num_seen = 0;
+
+	if (!qn)
+		return -1;
+
+	int seen_initial_source_cid = 0;
+
+	while (pos < len) {
+		consumed = lws_quic_parse_varint(&buf[pos], len - pos, &param_id);
+		if (!consumed) return -1;
+		pos += consumed;
+
+		consumed = lws_quic_parse_varint(&buf[pos], len - pos, &param_len);
+		if (!consumed) return -1;
+		pos += consumed;
+
+		if (param_len > len - pos)
+			return -1;
+
+		lwsl_wsi_info(wsi, "QUIC TP: ID 0x%llx, len %llu", (unsigned long long)param_id, (unsigned long long)param_len);
+			if (param_id >= 4 && param_id <= 7) {
+				uint64_t v;
+				if (lws_quic_parse_varint(&buf[pos], param_len, &v) == param_len)
+					lwsl_wsi_info(wsi, "QUIC TP FLOW CONTROL param 0x%llx = %llu", (unsigned long long)param_id, (unsigned long long)v);
+			}
+
+		/* Check for duplicates */
+		for (size_t i = 0; i < num_seen; i++) {
+			if (seen_params[i] == param_id) {
+				lwsl_wsi_err(wsi, "QUIC TP error: Duplicate parameter ID %llu", (unsigned long long)param_id);
+				return -1;
+			}
+		}
+		if (num_seen < LWS_ARRAY_SIZE(seen_params))
+			seen_params[num_seen++] = param_id;
+
+		switch (param_id) {
+		case 0x0f: /* initial_source_connection_id */
+			seen_initial_source_cid = 1;
+			break;
+		case 0x00: /* original_destination_connection_id */
+			if (qn->is_server) {
+				/* Client cannot send this */
+				lwsl_wsi_err(wsi, "QUIC TP error: Client sent original_destination_connection_id");
+				return -1;
+			}
+			break;
+		case 0x03: /* max_udp_payload_size */
+			if (lws_quic_parse_varint(&buf[pos], param_len, &val) == param_len) {
+				if (val < 1200) {
+					lwsl_wsi_err(wsi, "QUIC TP error: max_udp_payload_size %llu < 1200", (unsigned long long)val);
+					return -1;
+				}
+			} else return -1;
+			break;
+		case 0x04: /* initial_max_data */
+			if (lws_quic_parse_varint(&buf[pos], param_len, &val) == param_len) {
+				qn->peer_initial_max_data = val;
+				struct lws *nwsi = qn->nwsi ? qn->nwsi : wsi;
+				int64_t diff = (int64_t)val - 65535;
+				if (diff > 0) {
+					nwsi->txc.peer_tx_cr_est += (int32_t)diff;
+					nwsi->txc.tx_cr += (int32_t)diff;
+				}
+			} else return -1;
+			break;
+		case 0x05: /* initial_max_stream_data_bidi_local */
+			if (lws_quic_parse_varint(&buf[pos], param_len, &val) == param_len) {
+				qn->peer_initial_max_stream_data_bidi_local = val;
+			} else return -1;
+			break;
+		case 0x06: /* initial_max_stream_data_bidi_remote */
+			if (lws_quic_parse_varint(&buf[pos], param_len, &val) == param_len) {
+				qn->peer_initial_max_stream_data_bidi_remote = val;
+			} else return -1;
+			break;
+		case 0x07: /* initial_max_stream_data_uni */
+			if (lws_quic_parse_varint(&buf[pos], param_len, &val) == param_len) {
+				qn->peer_initial_max_stream_data_uni = val;
+			} else return -1;
+			break;
+		case 0x08: /* initial_max_streams_bidi */
+			if (lws_quic_parse_varint(&buf[pos], param_len, &val) == param_len) {
+				qn->max_streams_bidi_remote = val;
+			} else return -1;
+			break;
+		case 0x09: /* initial_max_streams_uni */
+			if (lws_quic_parse_varint(&buf[pos], param_len, &val) == param_len) {
+				qn->max_streams_unidi_remote = val;
+			} else return -1;
+			break;
+		case 0x0a: /* ack_delay_exponent */
+			if (lws_quic_parse_varint(&buf[pos], param_len, &val) == param_len) {
+				if (val > 20) {
+					lwsl_wsi_err(wsi, "QUIC TP error: ack_delay_exponent %llu > 20", (unsigned long long)val);
+					return -1;
+				}
+			} else return -1;
+			break;
+		case 0x20: /* max_datagram_frame_size */
+			if (lws_quic_parse_varint(&buf[pos], param_len, &val) == param_len) {
+				qn->peer_max_datagram_frame_size = val;
+			} else return -1;
+			break;
+		case 0x0b: /* max_ack_delay */
+			if (lws_quic_parse_varint(&buf[pos], param_len, &val) == param_len) {
+				if (val >= 16384) { /* 2^14 */
+					lwsl_wsi_err(wsi, "QUIC TP error: max_ack_delay %llu >= 16384", (unsigned long long)val);
+					return -1;
+				}
+			} else return -1;
+			break;
+		case 0x0e: /* active_connection_id_limit */
+			if (lws_quic_parse_varint(&buf[pos], param_len, &val) == param_len) {
+				if (val < 2) {
+					lwsl_wsi_err(wsi, "QUIC TP error: active_connection_id_limit %llu < 2", (unsigned long long)val);
+					return -1;
+				}
+			} else return -1;
+			break;
+		case 0x10: /* retry_source_connection_id */
+		case 0x02: /* stateless_reset_token */
+		case 0x0d: /* preferred_address */
+			if (qn->is_server) {
+				/* Client cannot send these */
+				lwsl_wsi_err(wsi, "QUIC TP error: Client sent server-only parameter %llu", (unsigned long long)param_id);
+				return -1;
+			}
+			if (param_id == 0x02 && param_len != 16) {
+				lwsl_wsi_err(wsi, "QUIC TP error: stateless_reset_token length %llu != 16", (unsigned long long)param_len);
+				return -1;
+			}
+			break;
+		default:
+			break;
+		}
+
+		pos += param_len;
+	}
+
+	if (pos != len) {
+		lwsl_wsi_err(wsi, "QUIC TP error: buffer not fully consumed");
+		return -1;
+	}
+
+	if (!seen_initial_source_cid) {
+		lwsl_wsi_err(wsi, "QUIC TP error: initial_source_connection_id is missing");
+		return -1;
 	}
 
 	return 0;

@@ -170,9 +170,13 @@ __lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 		new_wsi->a.protocol = lws_vhost_name_to_protocol(new_wsi->a.vhost,
 							       vh_prot_name);
 		if (!new_wsi->a.protocol) {
-			lwsl_vhost_err(new_wsi->a.vhost, "Protocol %s not enabled",
-						      vh_prot_name);
-			goto bail;
+			if (!strcmp(vh_prot_name, "quic")) {
+				new_wsi->a.protocol = &new_wsi->a.vhost->protocols[0];
+			} else {
+				lwsl_vhost_err(new_wsi->a.vhost, "Protocol %s not enabled",
+							      vh_prot_name);
+				goto bail;
+			}
 		}
 		if (lws_ensure_user_space(new_wsi)) {
 			lwsl_wsi_notice(new_wsi, "OOM");
@@ -796,6 +800,21 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 #endif
 		if (sock.sockfd == LWS_SOCK_INVALID)
 			goto resume;
+
+		lws_plat_apply_FD_CLOEXEC((int)sock.sockfd);
+		lws_plat_set_nonblocking(sock.sockfd);
+
+#if defined(LWS_WITH_IPV6) && defined(IPV6_V6ONLY)
+		if (s->af == AF_INET6 &&
+		    (!(wsi->a.vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY) ||
+		     (wsi->a.vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE))) {
+			int opt = 1;
+			if (setsockopt(sock.sockfd, IPPROTO_IPV6, IPV6_V6ONLY,
+				       (const void *)&opt, sizeof(opt)) < 0) {
+				lwsl_vhost_notice(wsi->a.vhost, "set IPV6_V6ONLY fail");
+			}
+		}
+#endif
 
 		/* ipv6 udp!!! */
 

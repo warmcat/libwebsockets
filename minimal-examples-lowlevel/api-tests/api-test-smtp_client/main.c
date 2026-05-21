@@ -190,13 +190,12 @@ tests_completion_cb(const void *cb_user)
 
 int main(int argc, const char **argv)
 {
-	int n = 1, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+	int n = 1;
 	struct lws_context_creation_info info;
 	lws_test_sequencer_args_t args;
 	struct lws_context *context;
 	lws_abs_t *abs = NULL;
 	struct lws_vhost *vh;
-	const char *p;
 
 	/* the normal lws init */
 	(void)switches;
@@ -209,13 +208,11 @@ int main(int argc, const char **argv)
 
 	signal(SIGINT, sigint_handler);
 
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
-		logs = atoi(p);
 
-	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS API selftest: SMTP client unit tests\n");
 
-	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
+	lws_context_info_defaults(&info, NULL);
+	lws_cmdline_option_handle_builtin(argc, argv, &info);
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
 
