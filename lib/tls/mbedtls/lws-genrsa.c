@@ -98,8 +98,9 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 
 		if (el[LWS_GENCRYPTO_RSA_KEYEL_D].len &&
 #if defined(MBEDTLS_VERSION_MAJOR) && MBEDTLS_VERSION_MAJOR >= 4
-		    (!el[LWS_GENCRYPTO_RSA_KEYEL_P].len ||
-		     !el[LWS_GENCRYPTO_RSA_KEYEL_Q].len ||
+		    el[LWS_GENCRYPTO_RSA_KEYEL_P].len &&
+		    el[LWS_GENCRYPTO_RSA_KEYEL_Q].len &&
+		    (!el[LWS_GENCRYPTO_RSA_KEYEL_N].len ||
 		     !el[LWS_GENCRYPTO_RSA_KEYEL_DP].len ||
 		     !el[LWS_GENCRYPTO_RSA_KEYEL_DQ].len ||
 		     !el[LWS_GENCRYPTO_RSA_KEYEL_QI].len)) {

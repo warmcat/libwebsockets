@@ -137,7 +137,8 @@ struct lws_genaes_ctx {
  * Creates an AES context with a key associated with it, formed from
  * the key elements in \p el.
  *
- * Returns 0 for OK or nonzero for error.
+ * Returns 0 for OK, -2 if the selected backend does not support the
+ * requested mode, or another nonzero value for error.
  *
  * This and related APIs operate identically with OpenSSL or mbedTLS backends.
  */

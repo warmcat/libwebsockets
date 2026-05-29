@@ -285,14 +285,14 @@ lws_cose_sign_alg_complete(lws_cose_sig_alg_t *alg)
 	{
 		int len;
 
+		bytes = (unsigned int)lws_gencrypto_bits_to_bytes(alg->keybits);
 		htype = alg->hash_ctx.type;
 		alg->rhash_len = 0;
 
 		if (!lws_genhash_destroy(&alg->hash_ctx, digest) &&
 		    !alg->failed &&
 		    (len = lws_genrsa_hash_sign(&alg->u.rsactx, digest, htype,
-				 alg->rhash,
-				 sizeof(alg->rhash))) >= 0)
+				 alg->rhash, bytes)) >= 0)
 			alg->rhash_len = len;
 		else {
 			alg->failed = 1;

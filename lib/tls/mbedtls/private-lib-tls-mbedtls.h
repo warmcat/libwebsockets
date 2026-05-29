@@ -296,11 +296,18 @@ static inline int
 lws_mbedtls_global_crypto_init(void)
 {
 #if defined(MBEDTLS_VERSION_MAJOR) && MBEDTLS_VERSION_MAJOR >= 4
+	static char initialized;
+	static int init_ret;
 	psa_status_t ps;
 
-	ps = psa_crypto_init();
+	if (initialized)
+		return init_ret;
 
-	return ps == PSA_SUCCESS ? 0 : (int)ps;
+	ps = psa_crypto_init();
+	init_ret = ps == PSA_SUCCESS ? 0 : (int)ps;
+	initialized = 1;
+
+	return init_ret;
 #else
 	return 0;
 #endif
@@ -310,7 +317,12 @@ static inline int
 lws_mbedtls_random(void *rng_ctx, unsigned char *buf, size_t len)
 {
 #if defined(MBEDTLS_VERSION_MAJOR) && MBEDTLS_VERSION_MAJOR >= 4
+	int ret;
+
 	(void)rng_ctx;
+	ret = lws_mbedtls_global_crypto_init();
+	if (ret)
+		return ret;
 
 	return psa_generate_random(buf, len) == PSA_SUCCESS ? 0 : -1;
 #else
@@ -324,7 +336,12 @@ lws_mbedtls_pk_parse_key(mbedtls_pk_context *pk, const unsigned char *key,
 			 const size_t pwd_len, void *rng_ctx)
 {
 #if defined(MBEDTLS_VERSION_MAJOR) && MBEDTLS_VERSION_MAJOR >= 4
+	int ret;
+
 	(void)rng_ctx;
+	ret = lws_mbedtls_global_crypto_init();
+	if (ret)
+		return ret;
 
 	return mbedtls_pk_parse_key(pk, key, key_len, pwd, pwd_len);
 #elif defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
@@ -398,6 +415,10 @@ lws_mbedtls_pk_generate_rsa(mbedtls_pk_context *pk, unsigned int bits)
 	psa_status_t ps;
 	int ret;
 
+	ret = lws_mbedtls_global_crypto_init();
+	if (ret)
+		return ret;
+
 	psa_set_key_usage_flags(&attributes,
 				PSA_KEY_USAGE_EXPORT |
 				PSA_KEY_USAGE_SIGN_HASH |
@@ -439,6 +460,10 @@ lws_mbedtls_pk_generate_ec(mbedtls_pk_context *pk, mbedtls_ecp_group_id grp_id)
 	size_t bits;
 	int ret;
 
+	ret = lws_mbedtls_global_crypto_init();
+	if (ret)
+		return ret;
+
 	switch (grp_id) {
 	case MBEDTLS_ECP_DP_SECP256R1:
 		family = PSA_ECC_FAMILY_SECP_R1;
@@ -461,7 +486,7 @@ lws_mbedtls_pk_generate_ec(mbedtls_pk_context *pk, mbedtls_ecp_group_id grp_id)
 				PSA_KEY_USAGE_SIGN_HASH |
 				PSA_KEY_USAGE_VERIFY_HASH);
 	psa_set_key_algorithm(&attributes,
-			      MBEDTLS_PK_ALG_ECDSA(PSA_ALG_ANY_HASH));
+			      PSA_ALG_ECDSA(PSA_ALG_ANY_HASH));
 	psa_set_key_type(&attributes, PSA_KEY_TYPE_ECC_KEY_PAIR(family));
 	psa_set_key_bits(&attributes, bits);
 

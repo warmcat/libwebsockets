@@ -155,6 +155,36 @@
 
 #if defined(LWS_WITH_MBEDTLS) && defined(MBEDTLS_VERSION_MAJOR) && \
 	MBEDTLS_VERSION_MAJOR >= 4
+#include <psa/crypto.h>
+
+#if !defined(LWS_MBEDTLS_LEGACY_RNG_TYPES_DEFINED)
+#define LWS_MBEDTLS_LEGACY_RNG_TYPES_DEFINED
+typedef struct lws_mbedtls_entropy_context {
+	unsigned char opaque;
+} mbedtls_entropy_context;
+
+typedef struct lws_mbedtls_ctr_drbg_context {
+	unsigned char opaque;
+} mbedtls_ctr_drbg_context;
+#endif
+
+static inline int
+lws_mbedtls_psa_init_once(void)
+{
+	static char initialized;
+	static int init_ret;
+	psa_status_t ps;
+
+	if (initialized)
+		return init_ret;
+
+	ps = psa_crypto_init();
+	init_ret = ps == PSA_SUCCESS ? 0 : (int)ps;
+	initialized = 1;
+
+	return init_ret;
+}
+
 static inline void
 mbedtls_entropy_init(mbedtls_entropy_context *entropy)
 {
@@ -170,12 +200,12 @@ mbedtls_entropy_free(mbedtls_entropy_context *entropy)
 static inline int
 mbedtls_entropy_func(void *data, unsigned char *output, size_t len)
 {
-	psa_status_t ps;
+	int ret;
 
 	(void)data;
-	ps = psa_crypto_init();
-	if (ps != PSA_SUCCESS)
-		return (int)ps;
+	ret = lws_mbedtls_psa_init_once();
+	if (ret)
+		return ret;
 
 	return psa_generate_random(output, len) == PSA_SUCCESS ? 0 : -1;
 }
@@ -198,27 +228,27 @@ mbedtls_ctr_drbg_seed(mbedtls_ctr_drbg_context *ctr_drbg,
 			      void *p_rng, const unsigned char *custom,
 			      size_t len)
 {
-	psa_status_t ps;
+	int ret;
 
 	(void)ctr_drbg;
 	(void)f_rng;
 	(void)p_rng;
 	(void)custom;
 	(void)len;
-	ps = psa_crypto_init();
+	ret = lws_mbedtls_psa_init_once();
 
-	return ps == PSA_SUCCESS ? 0 : (int)ps;
+	return ret;
 }
 
 static inline int
 mbedtls_ctr_drbg_random(void *p_rng, unsigned char *output, size_t len)
 {
-	psa_status_t ps;
+	int ret;
 
 	(void)p_rng;
-	ps = psa_crypto_init();
-	if (ps != PSA_SUCCESS)
-		return (int)ps;
+	ret = lws_mbedtls_psa_init_once();
+	if (ret)
+		return ret;
 
 	return psa_generate_random(output, len) == PSA_SUCCESS ? 0 : -1;
 }

@@ -190,6 +190,36 @@ lws_mbedtls_jwk_from_rsa_public_der(struct lws_jwk *jwk,
 
 	end = p + seq_len;
 
+	if (p < end && *p == (MBEDTLS_ASN1_CONSTRUCTED | MBEDTLS_ASN1_SEQUENCE)) {
+		size_t alg_len, bit_len;
+
+		if (mbedtls_asn1_get_tag(&p, end, &alg_len,
+					MBEDTLS_ASN1_CONSTRUCTED | MBEDTLS_ASN1_SEQUENCE))
+			return -1;
+
+		if ((size_t)(end - p) < alg_len)
+			return -1;
+
+		p += alg_len;
+
+		if (mbedtls_asn1_get_bitstring_null(&p, end, &bit_len))
+			return -1;
+
+		if ((size_t)(end - p) < bit_len)
+			return -1;
+
+		end = p + bit_len;
+
+		if (mbedtls_asn1_get_tag(&p, end, &seq_len,
+					MBEDTLS_ASN1_CONSTRUCTED | MBEDTLS_ASN1_SEQUENCE))
+			return -1;
+
+		if ((size_t)(end - p) < seq_len)
+			return -1;
+
+		end = p + seq_len;
+	}
+
 	if (lws_mbedtls_asn1_get_integer_span(&p, end, &modulus, &modulus_len) ||
 	    lws_mbedtls_asn1_get_integer_span(&p, end, &exponent, &exponent_len))
 		return -1;
@@ -592,12 +622,26 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 	#if defined(MBEDTLS_VERSION_MAJOR) && MBEDTLS_VERSION_MAJOR >= 4
 	switch (kt) {
 	case MBEDTLS_PK_RSA:
+	{
+		unsigned char *tmp;
+		int der_len;
+
 		jwk->kty = LWS_GENCRYPTO_KTY_RSA;
-		if (lws_mbedtls_jwk_from_rsa_public_der(jwk,
-				x509->cert.MBEDTLS_PRIVATE_V30_ONLY(pk).MBEDTLS_PRIVATE(pub_raw),
-				x509->cert.MBEDTLS_PRIVATE_V30_ONLY(pk).MBEDTLS_PRIVATE(pub_raw_len)))
+		tmp = lws_malloc(4096, "mbedtls_spki_der");
+		if (!tmp)
 			goto bail;
+
+		der_len = mbedtls_pk_write_pubkey_der(
+				&x509->cert.MBEDTLS_PRIVATE_V30_ONLY(pk), tmp, 4096);
+		if (der_len < 0 || lws_mbedtls_jwk_from_rsa_public_der(jwk,
+					tmp + 4096 - der_len, (size_t)der_len)) {
+			lws_free(tmp);
+			goto bail;
+		}
+
+		lws_free(tmp);
 		break;
+	}
 	case MBEDTLS_PK_ECKEY:
 	{
 		mbedtls_ecp_group_id grp_id;

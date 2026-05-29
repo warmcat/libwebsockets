@@ -28,6 +28,16 @@
 #if defined(LWS_WITH_MBEDTLS)
 #include <mbedtls/ssl.h>
 #include <mbedtls/ssl_cookie.h>
+
+#if defined(MBEDTLS_VERSION_MAJOR) && MBEDTLS_VERSION_MAJOR >= 4
+#define LWS_MBEDTLS_GENDTLS_CTR_DRBG(_ctx) \
+	((mbedtls_ctr_drbg_context *)(_ctx)->ctr_drbg)
+#define LWS_MBEDTLS_GENDTLS_ENTROPY(_ctx) \
+	((mbedtls_entropy_context *)(_ctx)->entropy)
+#else
+#define LWS_MBEDTLS_GENDTLS_CTR_DRBG(_ctx) (&(_ctx)->ctr_drbg)
+#define LWS_MBEDTLS_GENDTLS_ENTROPY(_ctx) (&(_ctx)->entropy)
+#endif
 #elif defined(LWS_WITH_GNUTLS)
 #include <gnutls/gnutls.h>
 #include <gnutls/dtls.h>
@@ -127,16 +137,27 @@ lws_gendtls_create(struct lws_gendtls_ctx *ctx,
 
 	memset(ctx, 0, sizeof(*ctx));
 
+	#if defined(MBEDTLS_VERSION_MAJOR) && MBEDTLS_VERSION_MAJOR >= 4
+	ctx->ctr_drbg = lws_zalloc(sizeof(*LWS_MBEDTLS_GENDTLS_CTR_DRBG(ctx)),
+				  "gendtls-ctr-drbg");
+	ctx->entropy = lws_zalloc(sizeof(*LWS_MBEDTLS_GENDTLS_ENTROPY(ctx)),
+				  "gendtls-entropy");
+	if (!ctx->ctr_drbg || !ctx->entropy)
+		goto bail;
+	#endif
+
 	mbedtls_ssl_init(&ctx->ssl);
 	mbedtls_ssl_config_init(&ctx->conf);
-	mbedtls_ctr_drbg_init(&ctx->ctr_drbg);
-	mbedtls_entropy_init(&ctx->entropy);
+	mbedtls_ctr_drbg_init(LWS_MBEDTLS_GENDTLS_CTR_DRBG(ctx));
+	mbedtls_entropy_init(LWS_MBEDTLS_GENDTLS_ENTROPY(ctx));
 	mbedtls_x509_crt_init(&ctx->cacert);
 	mbedtls_pk_init(&ctx->pkey);
 	mbedtls_ssl_cookie_init(&ctx->cookie_ctx);
 
-	if (mbedtls_ctr_drbg_seed(&ctx->ctr_drbg, mbedtls_entropy_func,
-				  &ctx->entropy, (const unsigned char *)"lws_gendtls", 11) != 0) {
+	if (mbedtls_ctr_drbg_seed(LWS_MBEDTLS_GENDTLS_CTR_DRBG(ctx),
+				  mbedtls_entropy_func,
+				  LWS_MBEDTLS_GENDTLS_ENTROPY(ctx),
+				  (const unsigned char *)"lws_gendtls", 11) != 0) {
 		lwsl_err("mbedtls_ctr_drbg_seed failed\n");
 		goto bail;
 	}
@@ -153,7 +174,7 @@ lws_gendtls_create(struct lws_gendtls_ctx *ctx,
 
 	if (mode == LWS_GENDTLS_MODE_SERVER) {
 		if ((ret = lws_mbedtls_ssl_cookie_setup(&ctx->cookie_ctx,
-					       &ctx->ctr_drbg)) != 0) {
+					       LWS_MBEDTLS_GENDTLS_CTR_DRBG(ctx))) != 0) {
 			lwsl_err("mbedtls_ssl_cookie_setup failed: -0x%x\n", -ret);
 			goto bail;
 		}
@@ -166,7 +187,7 @@ lws_gendtls_create(struct lws_gendtls_ctx *ctx,
 
 	mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_NONE);
 
-	lws_mbedtls_ssl_conf_rng(&ctx->conf, &ctx->ctr_drbg);
+	lws_mbedtls_ssl_conf_rng(&ctx->conf, LWS_MBEDTLS_GENDTLS_CTR_DRBG(ctx));
 
 	if ((ret = mbedtls_ssl_setup(&ctx->ssl, &ctx->conf)) != 0) {
 		lwsl_err("mbedtls_ssl_setup failed: -0x%x\n", -ret);
@@ -235,11 +256,17 @@ lws_gendtls_destroy(struct lws_gendtls_ctx *ctx)
 {
 	mbedtls_ssl_free(&ctx->ssl);
 	mbedtls_ssl_config_free(&ctx->conf);
-	mbedtls_ctr_drbg_free(&ctx->ctr_drbg);
-	mbedtls_entropy_free(&ctx->entropy);
+	if (LWS_MBEDTLS_GENDTLS_CTR_DRBG(ctx))
+		mbedtls_ctr_drbg_free(LWS_MBEDTLS_GENDTLS_CTR_DRBG(ctx));
+	if (LWS_MBEDTLS_GENDTLS_ENTROPY(ctx))
+		mbedtls_entropy_free(LWS_MBEDTLS_GENDTLS_ENTROPY(ctx));
 	mbedtls_x509_crt_free(&ctx->cacert);
 	mbedtls_pk_free(&ctx->pkey);
 	mbedtls_ssl_cookie_free(&ctx->cookie_ctx);
+	#if defined(MBEDTLS_VERSION_MAJOR) && MBEDTLS_VERSION_MAJOR >= 4
+	lws_free_set_NULL(ctx->ctr_drbg);
+	lws_free_set_NULL(ctx->entropy);
+	#endif
 
 	lws_buflist_destroy_all_segments(&ctx->rx_head);
 	lws_buflist_destroy_all_segments(&ctx->tx_head);
@@ -265,7 +292,7 @@ lws_gendtls_set_key_mem(struct lws_gendtls_ctx *ctx, const uint8_t *key, size_t 
 
 	if ((ret = lws_mbedtls_pk_parse_key(&ctx->pkey,
 				   (const unsigned char *)key, len, NULL, 0,
-				   &ctx->ctr_drbg)) != 0) {
+				   LWS_MBEDTLS_GENDTLS_CTR_DRBG(ctx))) != 0) {
 		printf("mbedtls_pk_parse_key failed: -0x%x\n", -ret);
 		return -1;
 	}

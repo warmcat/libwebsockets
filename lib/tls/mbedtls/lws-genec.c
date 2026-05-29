@@ -29,13 +29,19 @@
 
 #if defined(LWS_HAVE_MBEDTLS_PRIVATE_ECP_H) && defined(MBEDTLS_VERSION_MAJOR) && \
 	MBEDTLS_VERSION_MAJOR >= 4
-#define ECDHCTX(_c, _ins) (_c)->u.ctx_ecdh->MBEDTLS_PRIVATE(_ins)
-#define ECDSACTX(_c, _ins) (_c)->u.ctx_ecdsa->MBEDTLS_PRIVATE(_ins)
+#define LWS_MBEDTLS_ECDH_CTX(_c) ((mbedtls_ecdh_context *)(_c)->u.ctx_ecdh)
+#define LWS_MBEDTLS_ECDSA_CTX(_c) ((mbedtls_ecdsa_context *)(_c)->u.ctx_ecdsa)
+#define ECDHCTX(_c, _ins) LWS_MBEDTLS_ECDH_CTX(_c)->MBEDTLS_PRIVATE(_ins)
+#define ECDSACTX(_c, _ins) LWS_MBEDTLS_ECDSA_CTX(_c)->MBEDTLS_PRIVATE(_ins)
 #elif defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
+#define LWS_MBEDTLS_ECDH_CTX(_c) (_c)->u.ctx_ecdh
+#define LWS_MBEDTLS_ECDSA_CTX(_c) (_c)->u.ctx_ecdsa
 #define ECDHCTX(_c, _ins) _c->u.ctx_ecdh->MBEDTLS_PRIVATE(ctx).\
 			MBEDTLS_PRIVATE(mbed_ecdh).MBEDTLS_PRIVATE(_ins)
 #define ECDSACTX(_c, _ins) _c->u.ctx_ecdsa->MBEDTLS_PRIVATE(_ins)
 #else
+#define LWS_MBEDTLS_ECDH_CTX(_c) (_c)->u.ctx_ecdh
+#define LWS_MBEDTLS_ECDSA_CTX(_c) (_c)->u.ctx_ecdsa
 #define ECDHCTX(_c, _ins) _c->u.ctx_ecdh->_ins
 #define ECDSACTX(_c, _ins) _c->u.ctx_ecdsa->_ins
 #endif
@@ -165,7 +171,7 @@ lws_genecdh_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 	ctx->curve_table = curve_table;
 	ctx->genec_alg = LEGENEC_ECDH;
 
-	ctx->u.ctx_ecdh = lws_zalloc(sizeof(*ctx->u.ctx_ecdh), "genecdh");
+	ctx->u.ctx_ecdh = lws_zalloc(sizeof(*LWS_MBEDTLS_ECDH_CTX(ctx)), "genecdh");
 	if (!ctx->u.ctx_ecdh)
 		return 1;
 
@@ -184,7 +190,7 @@ lws_genecdsa_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 	ctx->curve_table = curve_table;
 	ctx->genec_alg = LEGENEC_ECDSA;
 
-	ctx->u.ctx_ecdsa = lws_zalloc(sizeof(*ctx->u.ctx_ecdsa), "genecdsa");
+	ctx->u.ctx_ecdsa = lws_zalloc(sizeof(*LWS_MBEDTLS_ECDSA_CTX(ctx)), "genecdsa");
 	if (!ctx->u.ctx_ecdsa)
 		return 1;
 

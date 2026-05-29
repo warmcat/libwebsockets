@@ -39,20 +39,7 @@
 #include <mbedtls/ssl.h>
 #include <mbedtls/version.h>
 
-#if defined(MBEDTLS_VERSION_MAJOR) && MBEDTLS_VERSION_MAJOR >= 4
-#include <psa/crypto.h>
-
-#if !defined(LWS_MBEDTLS_LEGACY_RNG_TYPES_DEFINED)
-#define LWS_MBEDTLS_LEGACY_RNG_TYPES_DEFINED
-typedef struct lws_mbedtls_entropy_context {
-	unsigned char opaque;
-} mbedtls_entropy_context;
-
-typedef struct lws_mbedtls_ctr_drbg_context {
-	unsigned char opaque;
-} mbedtls_ctr_drbg_context;
-#endif
-#else
+#if !defined(MBEDTLS_VERSION_MAJOR) || MBEDTLS_VERSION_MAJOR < 4
 #include <mbedtls/entropy.h>
 #include <mbedtls/ctr_drbg.h>
 #endif
@@ -72,8 +59,13 @@ struct lws_gendtls_ctx {
 #if defined(LWS_WITH_MBEDTLS)
 	mbedtls_ssl_context			ssl;
 	mbedtls_ssl_config			conf;
+	#if defined(MBEDTLS_VERSION_MAJOR) && MBEDTLS_VERSION_MAJOR >= 4
+	void					*ctr_drbg;
+	void					*entropy;
+	#else
 	mbedtls_ctr_drbg_context		ctr_drbg;
 	mbedtls_entropy_context			entropy;
+	#endif
 	mbedtls_x509_crt			cacert;
 	mbedtls_pk_context			pkey;
 	mbedtls_ssl_cookie_ctx			cookie_ctx;

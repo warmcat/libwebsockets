@@ -740,7 +740,7 @@ lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[],
 	mbedtls_pk_init(&mpk);
 	if (lws_mbedtls_pk_generate_rsa(&mpk,
 				      (unsigned int)lws_plat_recommended_rsa_bits())) {
-		lwsl_notice("%s: pk_setup failed\n", __func__);
+		lwsl_notice("%s: pk setup / keygen failed\n", __func__);
 		goto fail;
 	}
 
@@ -826,7 +826,7 @@ lws_tls_acme_sni_csr_create_ecdsa(struct lws_context *context, const char *eleme
 
 	mbedtls_pk_init(&mpk);
 	if (lws_mbedtls_pk_generate_ec(&mpk, MBEDTLS_ECP_DP_SECP256R1)) {
-		lwsl_notice("%s: pk_setup failed\n", __func__);
+		lwsl_notice("%s: pk setup / keygen failed\n", __func__);
 		goto fail;
 	}
 
