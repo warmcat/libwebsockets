@@ -27,7 +27,12 @@
 #include "private-lib-tls-openssl.h"
 #endif
 #if defined(LWS_WITH_MBEDTLS)
+#if defined(LWS_HAVE_MBEDTLS_PRIVATE_CHACHAPOLY_H)
+#include <mbedtls/private/cipher.h>
+#include <mbedtls/private/chachapoly.h>
+#else
 #include <mbedtls/chachapoly.h>
+#endif
 #endif
 
 int

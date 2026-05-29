@@ -26,7 +26,6 @@
  */
 #include "private-lib-core.h"
 #include "private-lib-tls-mbedtls.h"
-#include <mbedtls/rsa.h>
 
 void
 lws_genrsa_destroy_elements(struct lws_gencrypto_keyelem *el)
@@ -46,6 +45,9 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 		  struct lws_context *context, enum enum_genrsa_mode mode,
 		  enum lws_genhash_types oaep_hashid)
 {
+	if (lws_mbedtls_global_crypto_init())
+		return -1;
+
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->ctx = lws_zalloc(sizeof(*ctx->ctx), "genrsa");
 	if (!ctx->ctx)
@@ -92,11 +94,19 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 				return -1;
 			}
 
-		/* mbedtls... compute missing P & Q */
+		/* mbedtls... compute missing private-key CRT parts */
 
-		if ( el[LWS_GENCRYPTO_RSA_KEYEL_D].len &&
+		if (el[LWS_GENCRYPTO_RSA_KEYEL_D].len &&
+#if defined(MBEDTLS_VERSION_MAJOR) && MBEDTLS_VERSION_MAJOR >= 4
+		    (!el[LWS_GENCRYPTO_RSA_KEYEL_P].len ||
+		     !el[LWS_GENCRYPTO_RSA_KEYEL_Q].len ||
+		     !el[LWS_GENCRYPTO_RSA_KEYEL_DP].len ||
+		     !el[LWS_GENCRYPTO_RSA_KEYEL_DQ].len ||
+		     !el[LWS_GENCRYPTO_RSA_KEYEL_QI].len)) {
+#else
 		    !el[LWS_GENCRYPTO_RSA_KEYEL_P].len &&
 		    !el[LWS_GENCRYPTO_RSA_KEYEL_Q].len) {
+#endif
 #if defined(LWS_HAVE_mbedtls_rsa_complete)
 			if (mbedtls_rsa_complete(ctx->ctx)) {
 				lwsl_notice("mbedtls_rsa_complete failed\n");
@@ -112,7 +122,8 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 		}
 	}
 
-	ctx->ctx->MBEDTLS_PRIVATE(len) = el[LWS_GENCRYPTO_RSA_KEYEL_N].len;
+	ctx->ctx->MBEDTLS_PRIVATE(len) = mbedtls_mpi_size(
+					&ctx->ctx->MBEDTLS_PRIVATE(N));
 
 	return 0;
 }
@@ -132,6 +143,9 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 		       int bits)
 {
 	int n;
+
+	if (lws_mbedtls_global_crypto_init())
+		return -1;
 
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->ctx = lws_zalloc(sizeof(*ctx->ctx), "genrsa");
@@ -156,6 +170,9 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 		lwsl_err("mbedtls_rsa_gen_key failed 0x%x\n", -n);
 		goto cleanup_1;
 	}
+
+	ctx->ctx->MBEDTLS_PRIVATE(len) = mbedtls_mpi_size(
+					&ctx->ctx->MBEDTLS_PRIVATE(N));
 
 	{
 		mbedtls_mpi *mpi[LWS_GENCRYPTO_RSA_KEYEL_COUNT] = {

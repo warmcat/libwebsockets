@@ -44,7 +44,7 @@ enum enum_genrsa_mode {
 
 struct lws_genrsa_ctx {
 #if defined(LWS_WITH_MBEDTLS)
-	mbedtls_rsa_context *ctx;
+	struct mbedtls_rsa_context *ctx;
 #elif defined(LWS_WITH_SCHANNEL)
 	struct {
 		void *hAlg;

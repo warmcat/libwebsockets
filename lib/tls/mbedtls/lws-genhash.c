@@ -280,7 +280,17 @@ lws_genhmac_init(struct lws_genhmac_ctx *ctx, enum lws_genhmac_types type,
 
 	mbedtls_md_init(&ctx->ctx);
 
-#if defined(LWS_HAVE_mbedtls_md_setup) || \
+#if defined(MBEDTLS_VERSION_MAJOR) && MBEDTLS_VERSION_MAJOR >= 4
+	if (mbedtls_md_setup(&ctx->ctx, ctx->hmac, 0))
+		return -1;
+
+	if (mbedtls_md_hmac_setup(&ctx->ctx, ctx->hmac)) {
+		mbedtls_md_free(&ctx->ctx);
+		ctx->hmac = NULL;
+
+		return -1;
+	}
+#elif defined(LWS_HAVE_mbedtls_md_setup) || \
     (defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000)
 	if (mbedtls_md_setup(&ctx->ctx, ctx->hmac, 1))
 		return -1;

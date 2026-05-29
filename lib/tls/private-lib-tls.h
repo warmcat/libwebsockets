@@ -68,19 +68,36 @@
    #define MBEDTLS_CONFIG_FILE <mbedtls/esp_config.h>
   #endif
   #include <mbedtls/ssl.h>
-  #include <mbedtls/aes.h>
-  #include <mbedtls/gcm.h>
+   #if defined(LWS_HAVE_MBEDTLS_PRIVATE_AES_H)
+    #include <mbedtls/private/aes.h>
+    #include <mbedtls/private/gcm.h>
+   #else
+    #include <mbedtls/aes.h>
+    #include <mbedtls/gcm.h>
+   #endif
   #include <mbedtls/x509_crt.h>
   #include "ssl.h" /* wrapper !!!! */
  #else /* not esp32 */
   #if defined(LWS_WITH_MBEDTLS)
    #include <mbedtls/ssl.h>
-   #include <mbedtls/aes.h>
-   #include <mbedtls/gcm.h>
+    #if defined(LWS_HAVE_MBEDTLS_PRIVATE_AES_H)
+      #include <mbedtls/private/aes.h>
+      #include <mbedtls/private/gcm.h>
+    #else
+      #include <mbedtls/aes.h>
+      #include <mbedtls/gcm.h>
+    #endif
    #include <mbedtls/x509_crt.h>
    #include <mbedtls/x509_csr.h>
-   #include <mbedtls/ecp.h>
-   #include <mbedtls/ecdsa.h>
+   #if defined(LWS_HAVE_MBEDTLS_PRIVATE_ECP_H)
+    #include <mbedtls/private/ecp.h>
+    #include <mbedtls/private/ecdsa.h>
+    #include <mbedtls/private/rsa.h>
+   #else
+    #include <mbedtls/ecp.h>
+    #include <mbedtls/ecdsa.h>
+    #include <mbedtls/rsa.h>
+   #endif
   #if defined(LWS_AMAZON_LINUX)
    #include "ssl.h" /* wrapper !!!! */
   #else

@@ -34,8 +34,13 @@
 ///@{
 
 #if defined(LWS_WITH_MBEDTLS)
+#if defined(LWS_HAVE_MBEDTLS_PRIVATE_AES_H)
+#include <mbedtls/private/aes.h>
+#include <mbedtls/private/gcm.h>
+#else
 #include <mbedtls/aes.h>
 #include <mbedtls/gcm.h>
+#endif
 #endif
 
 enum enum_aes_modes {

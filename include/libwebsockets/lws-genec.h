@@ -30,11 +30,21 @@ enum enum_genec_alg {
 	LEGENEC_EDDSA
 };
 
+#if defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_MBEDTLS_PRIVATE_ECP_H)
+struct mbedtls_ecdh_context;
+typedef struct mbedtls_ecp_keypair mbedtls_ecdsa_context;
+#endif
+
 struct lws_genec_ctx {
 #if defined(LWS_WITH_MBEDTLS)
 	union {
+	#if defined(LWS_HAVE_MBEDTLS_PRIVATE_ECP_H)
+		struct mbedtls_ecdh_context *ctx_ecdh;
+		mbedtls_ecdsa_context *ctx_ecdsa;
+	#else
 		mbedtls_ecdh_context *ctx_ecdh;
 		mbedtls_ecdsa_context *ctx_ecdsa;
+	#endif
 	} u;
 #elif defined(LWS_WITH_SCHANNEL)
 	struct {
@@ -62,8 +72,13 @@ struct lws_genec_ctx {
 
 #if defined(LWS_WITH_MBEDTLS)
 enum enum_lws_dh_side {
+	#if defined(LWS_HAVE_MBEDTLS_PRIVATE_ECP_H)
+	LDHS_OURS = 0,
+	LDHS_THEIRS = 1
+	#else
 	LDHS_OURS = MBEDTLS_ECDH_OURS,
 	LDHS_THEIRS = MBEDTLS_ECDH_THEIRS
+	#endif
 };
 #else
 enum enum_lws_dh_side {

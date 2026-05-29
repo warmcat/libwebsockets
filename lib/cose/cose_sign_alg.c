@@ -282,19 +282,26 @@ lws_cose_sign_alg_complete(lws_cose_sig_alg_t *alg)
 	case LWSCOSE_WKARSA_ALG_RS256:
 	case LWSCOSE_WKARSA_ALG_RS384:
 	case LWSCOSE_WKARSA_ALG_RS512:
-		bytes = (unsigned int)lws_gencrypto_bits_to_bytes(alg->keybits);
+	{
+		int len;
+
 		htype = alg->hash_ctx.type;
+		alg->rhash_len = 0;
 
 		if (!lws_genhash_destroy(&alg->hash_ctx, digest) &&
 		    !alg->failed &&
-		    lws_genrsa_hash_sign(&alg->u.rsactx, digest, htype,
-					 alg->rhash, bytes) >= 0)
-			alg->rhash_len = (int)bytes;
-		else
+		    (len = lws_genrsa_hash_sign(&alg->u.rsactx, digest, htype,
+				 alg->rhash,
+				 sizeof(alg->rhash))) >= 0)
+			alg->rhash_len = len;
+		else {
+			alg->failed = 1;
 			lwsl_err("%s: lws_genrsa_hash_sign\n", __func__);
+		}
 
 		lws_genrsa_destroy(&alg->u.rsactx);
 		break;
+	}
 
 	default:
 		break;

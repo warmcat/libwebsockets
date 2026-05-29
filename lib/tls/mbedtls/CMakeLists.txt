@@ -125,6 +125,33 @@ include_directories(wrapper/include wrapper/include/internal)
 
 CHECK_C_SOURCE_COMPILES("#include <mbedtls/net_sockets.h>\nint main(void) { return 0;}\n" LWS_HAVE_MBEDTLS_NET_SOCKETS)
 CHECK_C_SOURCE_COMPILES("#include <mbedtls/ssl.h>\nint main(void) { return MBEDTLS_SSL_NEW_SESSION_TICKET;}\n" LWS_HAVE_MBEDTLS_SSL_NEW_SESSION_TICKET)
+CHECK_C_SOURCE_COMPILES("#include <mbedtls/version.h>\n#if !defined(MBEDTLS_VERSION_MAJOR) || MBEDTLS_VERSION_MAJOR < 4\n#error not mbedtls 4\n#endif\nint main(void) { return 0;}\n" LWS_HAVE_MBEDTLS_V4)
+CHECK_C_SOURCE_COMPILES("#include <mbedtls/private/rsa.h>\nint main(void) { return (int)sizeof(mbedtls_rsa_context); }\n" LWS_HAVE_MBEDTLS_PRIVATE_RSA_H)
+CHECK_C_SOURCE_COMPILES("#include <mbedtls/private/ecp.h>\nint main(void) { return (int)sizeof(mbedtls_ecp_keypair); }\n" LWS_HAVE_MBEDTLS_PRIVATE_ECP_H)
+CHECK_C_SOURCE_COMPILES("#include <mbedtls/private/ecdsa.h>\nint main(void) { return (int)sizeof(mbedtls_ecdsa_context); }\n" LWS_HAVE_MBEDTLS_PRIVATE_ECDSA_H)
+CHECK_C_SOURCE_COMPILES("#include <mbedtls/private/md5.h>\nint main(void) { return (int)sizeof(mbedtls_md5_context); }\n" LWS_HAVE_MBEDTLS_PRIVATE_MD5_H)
+CHECK_C_SOURCE_COMPILES("#include <mbedtls/private/sha1.h>\nint main(void) { return (int)sizeof(mbedtls_sha1_context); }\n" LWS_HAVE_MBEDTLS_PRIVATE_SHA1_H)
+CHECK_C_SOURCE_COMPILES("#include <mbedtls/private/sha256.h>\nint main(void) { return (int)sizeof(mbedtls_sha256_context); }\n" LWS_HAVE_MBEDTLS_PRIVATE_SHA256_H)
+CHECK_C_SOURCE_COMPILES("#include <mbedtls/private/sha512.h>\nint main(void) { return (int)sizeof(mbedtls_sha512_context); }\n" LWS_HAVE_MBEDTLS_PRIVATE_SHA512_H)
+CHECK_C_SOURCE_COMPILES("#include <mbedtls/private/aes.h>\nint main(void) { return (int)sizeof(mbedtls_aes_context); }\n" LWS_HAVE_MBEDTLS_PRIVATE_AES_H)
+CHECK_C_SOURCE_COMPILES("#include <mbedtls/private/gcm.h>\nint main(void) { return (int)sizeof(mbedtls_gcm_context); }\n" LWS_HAVE_MBEDTLS_PRIVATE_GCM_H)
+CHECK_C_SOURCE_COMPILES("#include <mbedtls/private/cipher.h>\nint main(void) { return (int)sizeof(mbedtls_cipher_context_t); }\n" LWS_HAVE_MBEDTLS_PRIVATE_CIPHER_H)
+CHECK_C_SOURCE_COMPILES("#include <mbedtls/private/chachapoly.h>\nint main(void) { return (int)sizeof(mbedtls_chachapoly_context); }\n" LWS_HAVE_MBEDTLS_PRIVATE_CHACHAPOLY_H)
+
+if (LWS_HAVE_MBEDTLS_V4 AND
+	(NOT LWS_HAVE_MBEDTLS_PRIVATE_RSA_H OR
+	 NOT LWS_HAVE_MBEDTLS_PRIVATE_ECP_H OR
+	NOT LWS_HAVE_MBEDTLS_PRIVATE_ECDSA_H OR
+	NOT LWS_HAVE_MBEDTLS_PRIVATE_MD5_H OR
+	NOT LWS_HAVE_MBEDTLS_PRIVATE_SHA1_H OR
+	NOT LWS_HAVE_MBEDTLS_PRIVATE_SHA256_H OR
+	NOT LWS_HAVE_MBEDTLS_PRIVATE_SHA512_H OR
+	NOT LWS_HAVE_MBEDTLS_PRIVATE_AES_H OR
+	NOT LWS_HAVE_MBEDTLS_PRIVATE_GCM_H OR
+	NOT LWS_HAVE_MBEDTLS_PRIVATE_CIPHER_H OR
+	NOT LWS_HAVE_MBEDTLS_PRIVATE_CHACHAPOLY_H))
+	message(FATAL_ERROR "mbedTLS 4.x support requires TF-PSA-Crypto private headers. Add include and drivers/builtin/include from TF-PSA-Crypto to LWS_MBEDTLS_INCLUDE_DIRS.")
+endif()
 
 #
 # Keep explicit parent scope exports at end
@@ -133,3 +160,15 @@ CHECK_C_SOURCE_COMPILES("#include <mbedtls/ssl.h>\nint main(void) { return MBEDT
 exports_to_parent_scope()
 set(LWS_HAVE_MBEDTLS_NET_SOCKETS ${LWS_HAVE_MBEDTLS_NET_SOCKETS} PARENT_SCOPE)
 set(LWS_HAVE_MBEDTLS_SSL_NEW_SESSION_TICKET ${LWS_HAVE_MBEDTLS_SSL_NEW_SESSION_TICKET} PARENT_SCOPE)
+set(LWS_HAVE_MBEDTLS_V4 ${LWS_HAVE_MBEDTLS_V4} PARENT_SCOPE)
+set(LWS_HAVE_MBEDTLS_PRIVATE_RSA_H ${LWS_HAVE_MBEDTLS_PRIVATE_RSA_H} PARENT_SCOPE)
+set(LWS_HAVE_MBEDTLS_PRIVATE_ECP_H ${LWS_HAVE_MBEDTLS_PRIVATE_ECP_H} PARENT_SCOPE)
+set(LWS_HAVE_MBEDTLS_PRIVATE_ECDSA_H ${LWS_HAVE_MBEDTLS_PRIVATE_ECDSA_H} PARENT_SCOPE)
+set(LWS_HAVE_MBEDTLS_PRIVATE_MD5_H ${LWS_HAVE_MBEDTLS_PRIVATE_MD5_H} PARENT_SCOPE)
+set(LWS_HAVE_MBEDTLS_PRIVATE_SHA1_H ${LWS_HAVE_MBEDTLS_PRIVATE_SHA1_H} PARENT_SCOPE)
+set(LWS_HAVE_MBEDTLS_PRIVATE_SHA256_H ${LWS_HAVE_MBEDTLS_PRIVATE_SHA256_H} PARENT_SCOPE)
+set(LWS_HAVE_MBEDTLS_PRIVATE_SHA512_H ${LWS_HAVE_MBEDTLS_PRIVATE_SHA512_H} PARENT_SCOPE)
+set(LWS_HAVE_MBEDTLS_PRIVATE_AES_H ${LWS_HAVE_MBEDTLS_PRIVATE_AES_H} PARENT_SCOPE)
+set(LWS_HAVE_MBEDTLS_PRIVATE_GCM_H ${LWS_HAVE_MBEDTLS_PRIVATE_GCM_H} PARENT_SCOPE)
+set(LWS_HAVE_MBEDTLS_PRIVATE_CIPHER_H ${LWS_HAVE_MBEDTLS_PRIVATE_CIPHER_H} PARENT_SCOPE)
+set(LWS_HAVE_MBEDTLS_PRIVATE_CHACHAPOLY_H ${LWS_HAVE_MBEDTLS_PRIVATE_CHACHAPOLY_H} PARENT_SCOPE)

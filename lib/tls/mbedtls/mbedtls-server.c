@@ -23,6 +23,7 @@
  */
 
 #include "private-lib-core.h"
+#include "private-lib-tls-mbedtls.h"
 #include <mbedtls/x509_csr.h>
 #include <errno.h>
 
@@ -737,17 +738,10 @@ lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[],
 	mbedtls_x509write_csr_init(&csr);
 
 	mbedtls_pk_init(&mpk);
-	if (mbedtls_pk_setup(&mpk, mbedtls_pk_info_from_type(MBEDTLS_PK_RSA))) {
+	if (lws_mbedtls_pk_generate_rsa(&mpk,
+				      (unsigned int)lws_plat_recommended_rsa_bits())) {
 		lwsl_notice("%s: pk_setup failed\n", __func__);
 		goto fail;
-	}
-
-	n = mbedtls_rsa_gen_key(mbedtls_pk_rsa(mpk), _rngf, context,
-				(unsigned int)lws_plat_recommended_rsa_bits(), 65537);
-	if (n) {
-		lwsl_notice("%s: failed to generate keys\n", __func__);
-
-		goto fail1;
 	}
 
 	/* subject must be formatted like "C=TW,O=warmcat,CN=myserver" */
@@ -831,16 +825,9 @@ lws_tls_acme_sni_csr_create_ecdsa(struct lws_context *context, const char *eleme
 	mbedtls_x509write_csr_init(&csr);
 
 	mbedtls_pk_init(&mpk);
-	if (mbedtls_pk_setup(&mpk, mbedtls_pk_info_from_type(MBEDTLS_PK_ECKEY))) {
+	if (lws_mbedtls_pk_generate_ec(&mpk, MBEDTLS_ECP_DP_SECP256R1)) {
 		lwsl_notice("%s: pk_setup failed\n", __func__);
 		goto fail;
-	}
-
-	n = mbedtls_ecp_gen_key(MBEDTLS_ECP_DP_SECP256R1, mbedtls_pk_ec(mpk), _rngf, context);
-	if (n) {
-		lwsl_notice("%s: failed to generate keys\n", __func__);
-
-		goto fail1;
 	}
 
 	/* subject must be formatted like "C=TW,O=warmcat,CN=myserver" */

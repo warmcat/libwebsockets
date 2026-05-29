@@ -64,7 +64,7 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 		mbedtls_aes_xts_init(&ctx->u.ctx_xts);
 		break;
 #else
-		return -1;
+		return -2;
 #endif
 	case LWS_GAESM_GCM:
 		mbedtls_gcm_init(&ctx->u.ctx_gcm);
@@ -104,7 +104,7 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 						       ctx->k->len * 8);
 			break;
 #else
-			return -1;
+			return -2;
 #endif
 
 		case LWS_GAESM_CFB128:

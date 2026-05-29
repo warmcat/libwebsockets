@@ -27,7 +27,11 @@
 #include "private-lib-core.h"
 #include "private-lib-tls-mbedtls.h"
 
-#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
+#if defined(LWS_HAVE_MBEDTLS_PRIVATE_ECP_H) && defined(MBEDTLS_VERSION_MAJOR) && \
+	MBEDTLS_VERSION_MAJOR >= 4
+#define ECDHCTX(_c, _ins) (_c)->u.ctx_ecdh->MBEDTLS_PRIVATE(_ins)
+#define ECDSACTX(_c, _ins) (_c)->u.ctx_ecdsa->MBEDTLS_PRIVATE(_ins)
+#elif defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
 #define ECDHCTX(_c, _ins) _c->u.ctx_ecdh->MBEDTLS_PRIVATE(ctx).\
 			MBEDTLS_PRIVATE(mbed_ecdh).MBEDTLS_PRIVATE(_ins)
 #define ECDSACTX(_c, _ins) _c->u.ctx_ecdsa->MBEDTLS_PRIVATE(_ins)

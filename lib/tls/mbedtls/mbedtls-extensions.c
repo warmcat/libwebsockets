@@ -59,7 +59,14 @@
  */
 
 typedef struct {
-    mbedtls_oid_descriptor_t    descriptor;
+	const char *MBEDTLS_PRIVATE(asn1);
+	size_t MBEDTLS_PRIVATE(asn1_len);
+	const char *MBEDTLS_PRIVATE(name);
+	const char *MBEDTLS_PRIVATE(description);
+} lws_mbedtls_oid_descriptor_t;
+
+typedef struct {
+	lws_mbedtls_oid_descriptor_t descriptor;
     int                 	ext_type;
 } oid_x509_ext_t;
 
@@ -100,8 +107,8 @@ static const oid_x509_ext_t oid_x509_ext[] = {
                                       const mbedtls_asn1_buf *oid )     \
     {                                                                   \
         const TYPE_T *p = (LIST);                                       \
-        const mbedtls_oid_descriptor_t *cur =                           \
-            (const mbedtls_oid_descriptor_t *) p;                       \
+		const lws_mbedtls_oid_descriptor_t *cur =                       \
+			(const lws_mbedtls_oid_descriptor_t *) p;                   \
         if( p == NULL || oid == NULL ) return( NULL );                  \
         while( cur->MBEDTLS_PRIVATE(asn1) != NULL ) {                          \
             if( cur->MBEDTLS_PRIVATE(asn1_len) == oid->MBEDTLS_PRIVATE_V30_ONLY(len) && \
@@ -109,7 +116,7 @@ static const oid_x509_ext_t oid_x509_ext[] = {
                 return( p );                                            \
             }                                                           \
             p++;                                                        \
-            cur = (const mbedtls_oid_descriptor_t *) p;                 \
+			cur = (const lws_mbedtls_oid_descriptor_t *) p;             \
         }                                                               \
         return( NULL );                                                 \
     }

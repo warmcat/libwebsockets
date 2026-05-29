@@ -400,6 +400,9 @@ typedef void X509_VERIFY_PARAM;
 #endif /* not USE_OLD_CYASSL */
 #else
 #if defined(LWS_WITH_MBEDTLS)
+#if defined(LWS_HAVE_MBEDTLS_V4) && !defined(MBEDTLS_ALLOW_PRIVATE_ACCESS)
+#define MBEDTLS_ALLOW_PRIVATE_ACCESS
+#endif
 #if defined(LWS_PLAT_FREERTOS)
 /* this filepath is passed to us but without quotes or <> */
 #if !defined(LWS_AMAZON_RTOS)
@@ -923,10 +926,17 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 #include <libwebsockets/lws-quic.h>
 
 #if defined(LWS_WITH_MBEDTLS)
+#if defined(LWS_HAVE_MBEDTLS_PRIVATE_MD5_H)
+#include <mbedtls/private/md5.h>
+#include <mbedtls/private/sha1.h>
+#include <mbedtls/private/sha256.h>
+#include <mbedtls/private/sha512.h>
+#else
 #include <mbedtls/md5.h>
 #include <mbedtls/sha1.h>
 #include <mbedtls/sha256.h>
 #include <mbedtls/sha512.h>
+#endif
 #endif
 #if defined(LWS_WITH_BEARSSL)
 #include <bearssl.h>

@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include "private-lib-core.h"
+#include "../../private-lib-tls-mbedtls.h"
 
 #include "ssl_pm.h"
 #include "ssl_port.h"
