@@ -27,8 +27,6 @@
 
 #if defined(LWS_WITH_MBEDTLS)
 #include <mbedtls/ssl.h>
-#include <mbedtls/entropy.h>
-#include <mbedtls/ctr_drbg.h>
 #include <mbedtls/ssl_cookie.h>
 #elif defined(LWS_WITH_GNUTLS)
 #include <gnutls/gnutls.h>
@@ -154,9 +152,8 @@ lws_gendtls_create(struct lws_gendtls_ctx *ctx,
 	}
 
 	if (mode == LWS_GENDTLS_MODE_SERVER) {
-		if ((ret = mbedtls_ssl_cookie_setup(&ctx->cookie_ctx,
-						    mbedtls_ctr_drbg_random,
-						    &ctx->ctr_drbg)) != 0) {
+		if ((ret = lws_mbedtls_ssl_cookie_setup(&ctx->cookie_ctx,
+					       &ctx->ctr_drbg)) != 0) {
 			lwsl_err("mbedtls_ssl_cookie_setup failed: -0x%x\n", -ret);
 			goto bail;
 		}
@@ -169,7 +166,7 @@ lws_gendtls_create(struct lws_gendtls_ctx *ctx,
 
 	mbedtls_ssl_conf_authmode(&ctx->conf, MBEDTLS_SSL_VERIFY_NONE);
 
-	mbedtls_ssl_conf_rng(&ctx->conf, mbedtls_ctr_drbg_random, &ctx->ctr_drbg);
+	lws_mbedtls_ssl_conf_rng(&ctx->conf, &ctx->ctr_drbg);
 
 	if ((ret = mbedtls_ssl_setup(&ctx->ssl, &ctx->conf)) != 0) {
 		lwsl_err("mbedtls_ssl_setup failed: -0x%x\n", -ret);
@@ -266,12 +263,9 @@ lws_gendtls_set_key_mem(struct lws_gendtls_ctx *ctx, const uint8_t *key, size_t 
 {
 	int ret;
 
-	if ((ret = mbedtls_pk_parse_key(&ctx->pkey, (const unsigned char *)key, len,
-				 NULL, 0
-#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
-				 , mbedtls_ctr_drbg_random, &ctx->ctr_drbg
-#endif
-	)) != 0) {
+	if ((ret = lws_mbedtls_pk_parse_key(&ctx->pkey,
+				   (const unsigned char *)key, len, NULL, 0,
+				   &ctx->ctr_drbg)) != 0) {
 		printf("mbedtls_pk_parse_key failed: -0x%x\n", -ret);
 		return -1;
 	}

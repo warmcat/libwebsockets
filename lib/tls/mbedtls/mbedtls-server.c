@@ -772,7 +772,8 @@ lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[],
 	 * return value to determine where you should start
 	 * using the buffer
 	 */
-	n = mbedtls_x509write_csr_der(&csr, buf, (size_t)buf_size, _rngf, context);
+	n = lws_mbedtls_x509write_csr_der(&csr, buf, (size_t)buf_size,
+					 context);
 	if (n < 0) {
 		lwsl_notice("%s: write csr der failed\n", __func__);
 		goto fail1;
@@ -864,7 +865,8 @@ lws_tls_acme_sni_csr_create_ecdsa(struct lws_context *context, const char *eleme
 	 * return value to determine where you should start
 	 * using the buffer
 	 */
-	n = mbedtls_x509write_csr_der(&csr, buf, (size_t)buf_size, _rngf, context);
+	n = lws_mbedtls_x509write_csr_der(&csr, buf, (size_t)buf_size,
+					 context);
 	if (n < 0) {
 		lwsl_notice("%s: write csr der failed\n", __func__);
 		goto fail1;

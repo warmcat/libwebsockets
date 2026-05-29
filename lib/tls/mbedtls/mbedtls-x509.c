@@ -505,11 +505,9 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 	n = 0;
 	if (passphrase)
 		n = (int)strlen(passphrase);
-	n = mbedtls_pk_parse_key(&pk, pem, len, (uint8_t *)passphrase, (unsigned int)n
-#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
-					, mbedtls_ctr_drbg_random, &cx->mcdc
-#endif
-			);
+	n = lws_mbedtls_pk_parse_key(&pk, pem, len,
+				    (const unsigned char *)passphrase,
+				    (unsigned int)n, &cx->mcdc);
 	if (n) {
 		lwsl_err("%s: parse PEM key failed: -0x%x\n", __func__, -n);
 
@@ -648,7 +646,8 @@ lws_x509_create_cert(struct lws_context *context,
 #if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
 	{
 		uint8_t serial_val[8];
-		mbedtls_ctr_drbg_random(pdrbg, serial_val, sizeof(serial_val));
+		if (lws_mbedtls_random(pdrbg, serial_val, sizeof(serial_val)))
+			goto bail;
 		serial_val[0] &= 0x7f; /* Positive */
 		if (mbedtls_x509write_crt_set_serial_raw(&crt, serial_val, sizeof(serial_val)))
 			goto bail;
@@ -656,7 +655,8 @@ lws_x509_create_cert(struct lws_context *context,
 #else
 	{
 		unsigned char rnd[8];
-		mbedtls_ctr_drbg_random(pdrbg, rnd, sizeof(rnd));
+		if (lws_mbedtls_random(pdrbg, rnd, sizeof(rnd)))
+			goto bail;
 		rnd[0] &= 0x7f; /* Positive */
 		if (mbedtls_mpi_read_binary(&serial, rnd, sizeof(rnd)))
 			goto bail;
@@ -673,11 +673,10 @@ lws_x509_create_cert(struct lws_context *context,
 		ret = mbedtls_x509_crt_parse(&issuer_crt, (const unsigned char *)info->ca_cert_pem, strlen(info->ca_cert_pem) + 1);
 		if (ret) goto bail;
 
-		ret = mbedtls_pk_parse_key(&issuer_key, (const unsigned char *)info->ca_key_pem, strlen(info->ca_key_pem) + 1, NULL, 0
-#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
-					, mbedtls_ctr_drbg_random, pdrbg
-#endif
-		);
+		ret = lws_mbedtls_pk_parse_key(&issuer_key,
+					      (const unsigned char *)info->ca_key_pem,
+					      strlen(info->ca_key_pem) + 1, NULL,
+					      0, pdrbg);
 		if (ret) goto bail;
 
 		mbedtls_x509write_crt_set_issuer_key(&crt, &issuer_key);
@@ -743,7 +742,7 @@ lws_x509_create_cert(struct lws_context *context,
 #endif
 
 	/* Cert Output */
-	len = mbedtls_x509write_crt_der(&crt, buf, sizeof(buf), mbedtls_ctr_drbg_random, pdrbg);
+	len = lws_mbedtls_x509write_crt_der(&crt, buf, sizeof(buf), pdrbg);
 	if (len < 0) {
 		lwsl_err("%s: crt_der failed %d\n", __func__, len);
 		goto bail;

@@ -153,6 +153,77 @@
 
 #include "libwebsockets.h"
 
+#if defined(LWS_WITH_MBEDTLS) && defined(MBEDTLS_VERSION_MAJOR) && \
+	MBEDTLS_VERSION_MAJOR >= 4
+static inline void
+mbedtls_entropy_init(mbedtls_entropy_context *entropy)
+{
+	(void)entropy;
+}
+
+static inline void
+mbedtls_entropy_free(mbedtls_entropy_context *entropy)
+{
+	(void)entropy;
+}
+
+static inline int
+mbedtls_entropy_func(void *data, unsigned char *output, size_t len)
+{
+	psa_status_t ps;
+
+	(void)data;
+	ps = psa_crypto_init();
+	if (ps != PSA_SUCCESS)
+		return (int)ps;
+
+	return psa_generate_random(output, len) == PSA_SUCCESS ? 0 : -1;
+}
+
+static inline void
+mbedtls_ctr_drbg_init(mbedtls_ctr_drbg_context *ctr_drbg)
+{
+	(void)ctr_drbg;
+}
+
+static inline void
+mbedtls_ctr_drbg_free(mbedtls_ctr_drbg_context *ctr_drbg)
+{
+	(void)ctr_drbg;
+}
+
+static inline int
+mbedtls_ctr_drbg_seed(mbedtls_ctr_drbg_context *ctr_drbg,
+			      int (*f_rng)(void *, unsigned char *, size_t),
+			      void *p_rng, const unsigned char *custom,
+			      size_t len)
+{
+	psa_status_t ps;
+
+	(void)ctr_drbg;
+	(void)f_rng;
+	(void)p_rng;
+	(void)custom;
+	(void)len;
+	ps = psa_crypto_init();
+
+	return ps == PSA_SUCCESS ? 0 : (int)ps;
+}
+
+static inline int
+mbedtls_ctr_drbg_random(void *p_rng, unsigned char *output, size_t len)
+{
+	psa_status_t ps;
+
+	(void)p_rng;
+	ps = psa_crypto_init();
+	if (ps != PSA_SUCCESS)
+		return (int)ps;
+
+	return psa_generate_random(output, len) == PSA_SUCCESS ? 0 : -1;
+}
+#endif
+
 /*
  * lws_dsh
 */

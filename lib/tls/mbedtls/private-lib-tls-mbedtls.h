@@ -24,8 +24,17 @@
  *  gencrypto mbedtls-specific helper declarations
  */
 
+#include <mbedtls/pk.h>
+#include <mbedtls/ssl.h>
+#include <mbedtls/ssl_cookie.h>
 #include <mbedtls/x509_crl.h>
+#include <mbedtls/x509_crt.h>
+#include <mbedtls/x509_csr.h>
 #include <errno.h>
+
+#if defined(MBEDTLS_VERSION_MAJOR) && MBEDTLS_VERSION_MAJOR >= 4
+#include <psa/crypto.h>
+#endif
 
 struct lws_x509_cert {
 	mbedtls_x509_crt cert; /* has a .next for linked-list / chain */
@@ -62,4 +71,101 @@ lws_x509_get_crt_ext(mbedtls_x509_crt *crt, mbedtls_x509_buf *skid,
 	int mbedtls_x509_get_name(unsigned char **p, const unsigned char *end,
 						  mbedtls_x509_name *cur);
 #endif
+
+static inline int
+lws_mbedtls_global_crypto_init(void)
+{
+#if defined(MBEDTLS_VERSION_MAJOR) && MBEDTLS_VERSION_MAJOR >= 4
+	psa_status_t ps;
+
+	ps = psa_crypto_init();
+
+	return ps == PSA_SUCCESS ? 0 : (int)ps;
+#else
+	return 0;
+#endif
+}
+
+static inline int
+lws_mbedtls_random(void *rng_ctx, unsigned char *buf, size_t len)
+{
+#if defined(MBEDTLS_VERSION_MAJOR) && MBEDTLS_VERSION_MAJOR >= 4
+	(void)rng_ctx;
+
+	return psa_generate_random(buf, len) == PSA_SUCCESS ? 0 : -1;
+#else
+	return mbedtls_ctr_drbg_random(rng_ctx, buf, len);
+#endif
+}
+
+static inline int
+lws_mbedtls_pk_parse_key(mbedtls_pk_context *pk, const unsigned char *key,
+			 const size_t key_len, const unsigned char *pwd,
+			 const size_t pwd_len, void *rng_ctx)
+{
+#if defined(MBEDTLS_VERSION_MAJOR) && MBEDTLS_VERSION_MAJOR >= 4
+	(void)rng_ctx;
+
+	return mbedtls_pk_parse_key(pk, key, key_len, pwd, pwd_len);
+#elif defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
+	return mbedtls_pk_parse_key(pk, key, key_len, pwd, pwd_len,
+				    mbedtls_ctr_drbg_random, rng_ctx);
+#else
+	(void)rng_ctx;
+
+	return mbedtls_pk_parse_key(pk, key, key_len, pwd, pwd_len);
+#endif
+}
+
+static inline int
+lws_mbedtls_ssl_cookie_setup(mbedtls_ssl_cookie_ctx *cookie_ctx, void *rng_ctx)
+{
+#if defined(MBEDTLS_VERSION_MAJOR) && MBEDTLS_VERSION_MAJOR >= 4
+	(void)rng_ctx;
+
+	return mbedtls_ssl_cookie_setup(cookie_ctx);
+#else
+	return mbedtls_ssl_cookie_setup(cookie_ctx, mbedtls_ctr_drbg_random,
+				       rng_ctx);
+#endif
+}
+
+static inline void
+lws_mbedtls_ssl_conf_rng(mbedtls_ssl_config *conf, void *rng_ctx)
+{
+#if !defined(MBEDTLS_VERSION_MAJOR) || MBEDTLS_VERSION_MAJOR < 4
+	mbedtls_ssl_conf_rng(conf, mbedtls_ctr_drbg_random, rng_ctx);
+#else
+	(void)conf;
+	(void)rng_ctx;
+#endif
+}
+
+static inline int
+lws_mbedtls_x509write_crt_der(mbedtls_x509write_cert *crt, unsigned char *buf,
+			      const size_t len, void *rng_ctx)
+{
+#if defined(MBEDTLS_VERSION_MAJOR) && MBEDTLS_VERSION_MAJOR >= 4
+	(void)rng_ctx;
+
+	return mbedtls_x509write_crt_der(crt, buf, len);
+#else
+	return mbedtls_x509write_crt_der(crt, buf, len,
+					 mbedtls_ctr_drbg_random, rng_ctx);
+#endif
+}
+
+static inline int
+lws_mbedtls_x509write_csr_der(mbedtls_x509write_csr *csr, unsigned char *buf,
+			      const size_t len, void *rng_ctx)
+{
+#if defined(MBEDTLS_VERSION_MAJOR) && MBEDTLS_VERSION_MAJOR >= 4
+	(void)rng_ctx;
+
+	return mbedtls_x509write_csr_der(csr, buf, len);
+#else
+	return mbedtls_x509write_csr_der(csr, buf, len,
+					 mbedtls_ctr_drbg_random, rng_ctx);
+#endif
+}
 

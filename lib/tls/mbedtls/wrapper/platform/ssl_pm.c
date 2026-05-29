@@ -26,8 +26,6 @@
 #include "mbedtls/net.h"
 #endif
 #include "mbedtls/debug.h"
-#include "mbedtls/entropy.h"
-#include "mbedtls/ctr_drbg.h"
 #include "mbedtls/error.h"
 
 #define X509_INFO_STRING_LENGTH 8192
@@ -191,7 +189,7 @@ int ssl_pm_new(SSL *ssl)
     }
 #endif // 0
 
-    mbedtls_ssl_conf_rng(&ssl_pm->conf, mbedtls_ctr_drbg_random, &ssl_pm->ctr_drbg);
+    lws_mbedtls_ssl_conf_rng(&ssl_pm->conf, &ssl_pm->ctr_drbg);
 
 //#ifdef CONFIG_OPENSSL_LOWLEVEL_DEBUG
  //   mbedtls_debug_set_threshold(MBEDTLS_DEBUG_LEVEL);
@@ -877,16 +875,15 @@ int pkey_pm_load(EVP_PKEY *pk, const unsigned char *buffer, int len)
     mbedtls_pk_init(pkey_pm->pkey);
     mbedtls_ctr_drbg_init(&ctr_drbg);
 
-#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
-#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03050000
-    ret = mbedtls_pk_parse_key(pkey_pm->pkey, load_buf, (unsigned int)len, NULL, 0,
-		    mbedtls_ctr_drbg_random, &ctr_drbg);
+#if defined(MBEDTLS_VERSION_MAJOR) && MBEDTLS_VERSION_MAJOR >= 4
+    ret = lws_mbedtls_pk_parse_key(pkey_pm->pkey, load_buf, (unsigned int)len,
+		    NULL, 0, &ctr_drbg);
+#elif defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03050000
+    ret = lws_mbedtls_pk_parse_key(pkey_pm->pkey, load_buf, (unsigned int)len,
+		    NULL, 0, &ctr_drbg);
 #else
-    ret = mbedtls_pk_parse_key(pkey_pm->pkey, load_buf, (unsigned int)len + 1, NULL, 0,
-		    mbedtls_ctr_drbg_random, &ctr_drbg);
-#endif
-#else
-    ret = mbedtls_pk_parse_key(pkey_pm->pkey, load_buf, (unsigned int)len + 1, NULL, 0);
+    ret = lws_mbedtls_pk_parse_key(pkey_pm->pkey, load_buf,
+		    (unsigned int)len + 1, NULL, 0, &ctr_drbg);
 #endif
     ssl_mem_free(load_buf);
 

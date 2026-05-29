@@ -34,7 +34,16 @@ int
 lws_context_init_ssl_library(struct lws_context *cx,
 			     const struct lws_context_creation_info *info)
 {
+	int n;
+
 	lwsl_info(" Compiled with MbedTLS support");
+
+	n = lws_mbedtls_global_crypto_init();
+	if (n) {
+		lwsl_err("mbedtls global crypto init failed: %d\n", n);
+
+		return 1;
+	}
 
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT))
 		lwsl_info(" SSL disabled: no "
