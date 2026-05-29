@@ -1010,6 +1010,8 @@ __lws_close_free_wsi_final(struct lws *wsi)
 		lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED,
 				    &role_ops_h1);
 
+		wsi->wsistate_pre_close = 0;
+
 #if defined(LWS_WITH_HTTP2)
 		if (wsi->client_mux_substream_was)
 			wsi->h2.END_STREAM = wsi->h2.END_HEADERS = 0;
