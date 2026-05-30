@@ -447,7 +447,7 @@ struct lws_context {
  #if defined(LWS_WITH_SERVER)
 	char canonical_hostname[96];
  #endif
-#if defined(LWS_HAVE_SSL_CTX_set_keylog_callback) && \
+#if (defined(LWS_HAVE_SSL_CTX_set_keylog_callback) || defined(LWS_WITH_GNUTLS)) && \
 	defined(LWS_WITH_TLS) && (defined(LWS_WITH_CLIENT) || defined(LWS_WITH_SERVER))
 	char					keylog_file[96];
 #endif
@@ -490,7 +490,7 @@ struct lws_context {
         const struct lws_extension		*extensions;
 #endif
 
-#if defined(LWS_WITH_NETLINK)
+#if defined(LWS_WITH_ROUTING)
 	lws_sorted_usec_list_t			sul_nl_coldplug;
 	/* process can only have one netlink socket, have to do it in ctx */
 	lws_dll2_owner_t			routing_table;
@@ -807,7 +807,7 @@ struct lws_context {
 	uint16_t smd_queue_depth;
 #endif
 
-#if defined(LWS_WITH_NETLINK) && defined(LWS_WITH_NETWORK)
+#if defined(LWS_WITH_ROUTING) && defined(LWS_WITH_NETWORK)
 	lws_route_uidx_t			route_uidx;
 #endif
 
@@ -826,7 +826,7 @@ struct lws_context {
 	unsigned int evlib_finalize_destroy_after_int_loops_stop:1;
 	unsigned int max_fds_unrelated_to_ulimit:1;
 	unsigned int policy_updated:1;
-#if defined(LWS_WITH_NETLINK)
+#if defined(LWS_WITH_ROUTING)
 	unsigned int nl_initial_done:1;
 #endif
 

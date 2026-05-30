@@ -87,9 +87,19 @@ include_directories(wrapper/include wrapper/include/internal)
 
 		find_path(LWS_MBEDTLS_INCLUDE_DIRS mbedtls/ssl.h)
 
-		find_library(MBEDTLS_LIBRARY mbedtls)
-		find_library(MBEDX509_LIBRARY mbedx509)
-		find_library(MBEDCRYPTO_LIBRARY mbedcrypto)
+		if (LWS_MBEDTLS_INCLUDE_DIRS)
+			list(GET LWS_MBEDTLS_INCLUDE_DIRS 0 MBEDTLS_INC_BASE)
+			set(MBEDTLS_HINTS
+				"${MBEDTLS_INC_BASE}/../lib"
+				"${MBEDTLS_INC_BASE}/../lib64"
+				"${MBEDTLS_INC_BASE}/../build/library"
+				"${MBEDTLS_INC_BASE}/../library"
+			)
+		endif()
+
+		find_library(MBEDTLS_LIBRARY mbedtls HINTS ${MBEDTLS_HINTS})
+		find_library(MBEDX509_LIBRARY mbedx509 HINTS ${MBEDTLS_HINTS})
+		find_library(MBEDCRYPTO_LIBRARY mbedcrypto HINTS ${MBEDTLS_HINTS})
 
 		set(LWS_MBEDTLS_LIBRARIES "${MBEDTLS_LIBRARY}" "${MBEDX509_LIBRARY}" "${MBEDCRYPTO_LIBRARY}")
 

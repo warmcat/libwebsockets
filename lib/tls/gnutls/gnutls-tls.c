@@ -25,6 +25,44 @@
 #include "private-lib-core.h"
 #include "private-lib-tls.h"
 
+#if (defined(LWS_HAVE_SSL_CTX_set_keylog_callback) || defined(LWS_WITH_GNUTLS)) && \
+    defined(LWS_WITH_TLS) && (defined(LWS_WITH_CLIENT) || defined(LWS_WITH_SERVER))
+
+static int
+lws_gnutls_keylog_cb(gnutls_session_t session, const char *label, const gnutls_datum_t *secret)
+{
+	struct lws *wsi = (struct lws *)gnutls_session_get_ptr(session);
+	gnutls_datum_t crandom;
+	int fd;
+	char crand_hex[65];
+	char secret_hex[129];
+	unsigned int i;
+	char buf[256];
+
+	if (!wsi || !wsi->a.context->keylog_file[0])
+		return 0;
+
+	gnutls_session_get_random(session, &crandom, NULL);
+	if (crandom.size != 32)
+		return 0;
+
+	for (i = 0; i < crandom.size; i++)
+		sprintf(&crand_hex[i * 2], "%02x", crandom.data[i]);
+	for (i = 0; i < secret->size; i++)
+		sprintf(&secret_hex[i * 2], "%02x", secret->data[i]);
+
+	fd = open(wsi->a.context->keylog_file, O_WRONLY | O_CREAT | O_APPEND, 0600);
+	if (fd < 0)
+		return 0;
+
+	snprintf(buf, sizeof(buf), "%s %s %s\n", label, crand_hex, secret_hex);
+	if (write(fd, buf, strlen(buf))) {}
+	close(fd);
+
+	return 0;
+}
+#endif
+
 int
 lws_context_init_ssl_library(struct lws_context *context,
 			     const struct lws_context_creation_info *info)
@@ -78,7 +116,7 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 	return 0;
 }
 
-#if !defined(LWS_WITHOUT_SERVER)
+#if defined(LWS_WITH_SERVER)
 int
 lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 				  struct lws_vhost *vhost, struct lws *wsi)
@@ -158,15 +196,17 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		return 1;
 	}
 
+#if defined(LWS_WITH_TLS_SESSIONS)
 	vh->tls_session_cache_max = info->tls_session_cache_max ?
 				    info->tls_session_cache_max : 10;
 	lws_tls_session_cache(vh, info->tls_session_timeout);
+#endif
 
 	return 0;
 }
 #endif
 
-#if !defined(LWS_WITHOUT_SERVER)
+#if defined(LWS_WITH_SERVER)
 static int
 lws_gnutls_server_name_cb(gnutls_session_t session)
 {
@@ -223,6 +263,12 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 	gnutls_transport_set_int((gnutls_session_t)wsi->tls.ssl, (int)accept_fd);
 
 	gnutls_session_set_ptr(session, wsi);
+
+#if (defined(LWS_HAVE_SSL_CTX_set_keylog_callback) || defined(LWS_WITH_GNUTLS)) && \
+    defined(LWS_WITH_TLS) && (defined(LWS_WITH_CLIENT) || defined(LWS_WITH_SERVER))
+	gnutls_session_set_keylog_function(session, lws_gnutls_keylog_cb);
+#endif
+
 	gnutls_handshake_set_post_client_hello_function(session, lws_gnutls_server_name_cb);
 
 	if (wsi->a.vhost->tls.alpn_ctx.len) {
@@ -285,6 +331,12 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	gnutls_transport_set_int(session, (int)wsi->desc.sockfd);
 
 	gnutls_server_name_set(session, GNUTLS_NAME_DNS, hostname, strlen(hostname));
+	gnutls_session_set_ptr(session, wsi);
+
+#if (defined(LWS_HAVE_SSL_CTX_set_keylog_callback) || defined(LWS_WITH_GNUTLS)) && \
+    defined(LWS_WITH_TLS) && (defined(LWS_WITH_CLIENT) || defined(LWS_WITH_SERVER))
+	gnutls_session_set_keylog_function(session, lws_gnutls_keylog_cb);
+#endif
 
 #if defined(LWS_WITH_TLS_SESSIONS)
 	lws_tls_reuse_session(wsi);
@@ -421,7 +473,7 @@ lws_tls_vhost_cert_info(struct lws_vhost *vhost, enum lws_tls_cert_info type,
 	return -1;
 }
 
-#if !defined(LWS_WITHOUT_SERVER)
+#if defined(LWS_WITH_SERVER)
 int
 lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 			  const char *cert, const char *private_key,

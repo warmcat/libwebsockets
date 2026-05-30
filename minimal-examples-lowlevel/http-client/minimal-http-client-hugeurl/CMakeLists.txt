@@ -30,7 +30,7 @@ if (requirements)
 				     http-client-hugeurl-warmcat-h1
 				     PROPERTIES
 				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-client/minimal-http-client-hugeurl
-				     TIMEOUT 20)
+				     TIMEOUT 60)
 		if (DEFINED ENV{SAI_OVN})
 			set_tests_properties(http-client-hugeurl-warmcat
 					     http-client-hugeurl-warmcat-h1

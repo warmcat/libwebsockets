@@ -55,6 +55,9 @@ enum {
 	LWS_SW_N,
 	LWS_SW_P,
 	LWS_SW_S,
+	LWS_SW_OUTDIR,
+	LWS_SW_SAVE_TICKET,
+	LWS_SW_LOAD_TICKET,
 	LWS_SW_HELP,
 };
 
@@ -77,6 +80,9 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_N]	= { "-n",              "Enable -n feature" },
 	[LWS_SW_P]	= { "-p",              "Port number to listen or connect on" },
 	[LWS_SW_S]	= { "-s",              "Use TLS / https" },
+	[LWS_SW_OUTDIR]	= { "-O",              "Output directory for downloads" },
+	[LWS_SW_SAVE_TICKET] = { "--save-ticket", "Path to save TLS session ticket" },
+	[LWS_SW_LOAD_TICKET] = { "--load-ticket", "Path to load TLS session ticket" },
 	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
 };
 
@@ -90,13 +96,13 @@ static const struct lws_switches switches[] = {
 #include <unistd.h>
 #endif
 
-#define COUNT 8
+#define COUNT 1024
 
 struct cliuser {
 	int index;
 };
 
-static int completed, failed, numbered, stagger_idx, posting, count = COUNT,
+static int completed, failed, stagger_idx, posting, count = COUNT,
 #if defined(LWS_WITH_TLS_SESSIONS)
 	   reuse,
 #endif
@@ -105,13 +111,25 @@ static lws_sorted_usec_list_t sul_stagger;
 static struct lws_client_connect_info i;
 static struct lws *client_wsi[COUNT];
 static char conn_state[COUNT];
-static char urlpath[64], intr;
+static char intr;
 static struct lws_context *context;
 
 /* we only need this for tracking POST emit state */
 
+static char out_dir[256];
+static char save_ticket[256];
+static char load_ticket[256];
+
+struct req {
+	char address[128];
+	int port;
+	char path[128];
+};
+static struct req reqs[1024];
+
 struct pss {
 	char body_part;
+	int fd;
 };
 
 #if defined(LWS_WITH_TLS_SESSIONS) && !defined(LWS_WITH_MBEDTLS) && !defined(WIN32)
@@ -121,19 +139,15 @@ struct pss {
 static int
 sess_save_cb(struct lws_context *cx, struct lws_tls_session_dump *info)
 {
-	char path[128];
 	int fd, n;
 
-	lws_snprintf(path, sizeof(path), "%s/lws_tls_sess_%s", (const char *)info->opaque,
-			info->tag);
-	fd = open(path, LWS_O_WRONLY | O_CREAT | O_TRUNC, 0600);
+	fd = open(save_ticket, LWS_O_WRONLY | O_CREAT | O_TRUNC, 0600);
 	if (fd < 0) {
-		lwsl_warn("%s: cannot open %s\n", __func__, path);
+		lwsl_warn("%s: cannot open %s\n", __func__, save_ticket);
 		return 1;
 	}
 
 	n = (int)write(fd, info->blob, info->blob_len);
-
 	close(fd);
 
 	return n != (int)info->blob_len;
@@ -143,12 +157,9 @@ static int
 sess_load_cb(struct lws_context *cx, struct lws_tls_session_dump *info)
 {
 	struct stat sta;
-	char path[128];
 	int fd, n;
 
-	lws_snprintf(path, sizeof(path), "%s/lws_tls_sess_%s", (const char *)info->opaque,
-			info->tag);
-	fd = open(path, LWS_O_RDONLY);
+	fd = open(load_ticket, LWS_O_RDONLY);
 	if (fd < 0)
 		return 1;
 
@@ -156,12 +167,10 @@ sess_load_cb(struct lws_context *cx, struct lws_tls_session_dump *info)
 		goto bail;
 
 	info->blob = malloc((size_t)sta.st_size);
-	/* caller will free this */
 	if (!info->blob)
 		goto bail;
 
 	info->blob_len = (size_t)sta.st_size;
-
 	n = (int)read(fd, info->blob, info->blob_len);
 	close(fd);
 
@@ -169,7 +178,6 @@ sess_load_cb(struct lws_context *cx, struct lws_tls_session_dump *info)
 
 bail:
 	close(fd);
-
 	return 1;
 }
 #endif
@@ -222,6 +230,24 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
 		lwsl_user("LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: idx: %d, resp %u\n",
 				idx, lws_http_client_http_response(wsi));
+		
+		if (out_dir[0] && lws_http_client_http_response(wsi) == 200) {
+			char path[512];
+			const char *basename = reqs[idx].path;
+			const char *p = strrchr(basename, '/');
+			if (p) basename = p + 1;
+			if (!basename[0]) basename = "index.html";
+			
+			lws_snprintf(path, sizeof(path), "%s/%s", out_dir, basename);
+			pss->fd = open(path, LWS_O_WRONLY | O_CREAT | O_TRUNC, 0644);
+			if (pss->fd < 0) {
+				lwsl_err("Failed to open %s for writing\n", path);
+			} else {
+				lwsl_user("Opened %s for writing\n", path);
+			}
+		} else {
+			pss->fd = -1;
+		}
 
 #if defined(LWS_WITH_TLS_SESSIONS) && !defined(LWS_WITH_MBEDTLS) && !defined(WIN32)
 		if (lws_tls_session_is_reused(wsi))
@@ -233,7 +259,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 			 */
 			if (lws_tls_session_dump_save(lws_get_vhost_by_name(context, "default"),
 					i.host, (uint16_t)i.port,
-					sess_save_cb, "/tmp"))
+					sess_save_cb, save_ticket))
 		lwsl_warn("%s: session save failed\n", __func__);
 #endif
 		break;
@@ -257,7 +283,10 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	/* chunks of chunked content, with header removed */
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
 		lwsl_user("RECEIVE_CLIENT_HTTP_READ: conn %d: read %d\n", idx, (int)len);
-		lwsl_hexdump_info(in, len);
+		if (pss->fd >= 0) {
+			if (write(pss->fd, in, len) != (ssize_t)len)
+				lwsl_err("Write failed\n");
+		}
 		return 0; /* don't passthru */
 
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
@@ -288,6 +317,10 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		lwsl_user("LWS_CALLBACK_COMPLETED_CLIENT_HTTP %s: idx %d\n",
 			  lws_wsi_tag(wsi), idx);
+		if (pss->fd >= 0) {
+			close(pss->fd);
+			pss->fd = -1;
+		}
 		client_wsi[idx] = NULL;
 		if (conn_state[idx] == 2)
 			break;
@@ -296,6 +329,11 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
 		lwsl_info("%s: closed: %s\n", __func__, lws_wsi_tag(wsi));
+
+		if (pss->fd >= 0) {
+			close(pss->fd);
+			pss->fd = -1;
+		}
 
 #if defined(LWS_WITH_CONMON)
 		dump_conmon_data(wsi);
@@ -434,13 +472,11 @@ stagger_cb(lws_sorted_usec_list_t *sul);
 static void
 lws_try_client_connection(struct lws_client_connect_info *ii, int m)
 {
-	char path[128];
-
-	if (numbered) {
-		lws_snprintf(path, sizeof(path), "/%d.png", m + 1);
-		ii->path = path;
-	} else
-		ii->path = urlpath;
+	ii->address = reqs[m].address;
+	ii->host = reqs[m].address;
+	ii->origin = reqs[m].address;
+	ii->port = reqs[m].port;
+	ii->path = reqs[m].path;
 
 	ii->pwsi = &client_wsi[m];
 	ii->opaque_user_data = (void *)(intptr_t)m;
@@ -689,46 +725,53 @@ int main(int argc, const char **argv)
 		i.ssl_connection |= LCCSCF_CONMON;
 #endif
 
-	strcpy(urlpath, "/");
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_OUTDIR].sw)))
+		lws_strncpy(out_dir, p, sizeof(out_dir));
 
-	if (lws_cmdline_option(argc, argv, switches[LWS_SW_L].sw)) {
-		i.port = 7681;
-		i.address = "localhost";
-		i.ssl_connection |= LCCSCF_ALLOW_SELFSIGNED;
-		if (posting)
-			strcpy(urlpath, "/formtest");
-	} else if (lws_cmdline_option(argc, argv, "--h3")) {
-		i.port = 443;
-		i.address = "cloudflare-quic.com";
-		strcpy(urlpath, "/");
-	} else {
-		i.port = 443;
-		i.address = "libwebsockets.org";
-		if (posting)
-			strcpy(urlpath, "/testserver/formtest");
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_SAVE_TICKET].sw)))
+		lws_strncpy(save_ticket, p, sizeof(save_ticket));
+
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_LOAD_TICKET].sw)))
+		lws_strncpy(load_ticket, p, sizeof(load_ticket));
+
+	/* Parse URLs */
+	count = 0;
+	for (int j = 1; j < argc; j++) {
+		if (!strncmp(argv[j], "https://", 8)) {
+			const char *url = argv[j] + 8;
+			char *slash = strchr(url, '/');
+			char *colon = strchr(url, ':');
+			
+			if (slash) {
+				lws_strncpy(reqs[count].path, slash, sizeof(reqs[count].path));
+			} else {
+				lws_strncpy(reqs[count].path, "/", sizeof(reqs[count].path));
+			}
+			
+			if (colon && (!slash || colon < slash)) {
+				reqs[count].port = atoi(colon + 1);
+				lws_strncpy(reqs[count].address, url, lws_ptr_diff_size_t(colon, url) + 1);
+			} else {
+				reqs[count].port = 443;
+				if (slash)
+					lws_strncpy(reqs[count].address, url, lws_ptr_diff_size_t(slash, url) + 1);
+				else
+					lws_strncpy(reqs[count].address, url, sizeof(reqs[count].address));
+			}
+			count++;
+			if (count == 1024) break;
+		}
+	}
+	if (count == 0) {
+		/* Fallback to default */
+		lws_strncpy(reqs[0].address, "libwebsockets.org", sizeof(reqs[0].address));
+		reqs[0].port = 443;
+		lws_strncpy(reqs[0].path, "/", sizeof(reqs[0].path));
+		count = 1;
 	}
 
-	if (lws_cmdline_option(argc, argv, switches[LWS_SW_NO_TLS].sw))
-		i.ssl_connection &= ~(LCCSCF_USE_SSL);
-
-	if (lws_cmdline_option(argc, argv, switches[LWS_SW_N].sw))
-		numbered = 1;
-
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_SERVER].sw)))
-		i.address = p;
-
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PORT].sw)))
-		i.port = atoi(p);
-
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PATH].sw)))
-		lws_strncpy(urlpath, p, sizeof(urlpath));
-
-	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_C].sw)))
-		if (atoi(p) <= COUNT && atoi(p))
-			count = atoi(p);
-
-	i.host = i.address;
-	i.origin = i.address;
+	i.host = reqs[0].address;
+	i.origin = reqs[0].address;
 	i.protocol = protocols[0].name;
 
 #if defined(LWS_WITH_TLS_SESSIONS) && !defined(LWS_WITH_MBEDTLS) && !defined(WIN32)
@@ -736,7 +779,7 @@ int main(int argc, const char **argv)
 	 * Attempt to preload a session from external storage
 	 */
 	if (lws_tls_session_dump_load(lws_get_vhost_by_name(context, "default"),
-				  i.host, (uint16_t)i.port, sess_load_cb, "/tmp"))
+				  i.host, (uint16_t)i.port, sess_load_cb, load_ticket))
 		lwsl_warn("%s: session load failed\n", __func__);
 #endif
 

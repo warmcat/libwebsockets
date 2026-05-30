@@ -61,6 +61,7 @@ set(SRCS main.c)
 set(requirements 1)
 
 require_lws_config(LWS_WITH_HTTP3 1 requirements)
+require_lws_config(LWS_WITH_NETWORK 1 requirements)
 
 if (requirements)
 	if (LWS_WITH_LS_QPACK)
@@ -75,7 +76,9 @@ if (requirements)
 	endif()
 
 	add_executable(${SAMP} ${SRCS})
-	add_dependencies(${SAMP} websockets_shared)
+	if (TARGET websockets_shared)
+		add_dependencies(${SAMP} websockets_shared)
+	endif()
 
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared ${LIBWEBSOCKETS_DEP_LIBS})

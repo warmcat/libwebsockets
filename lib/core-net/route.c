@@ -405,7 +405,7 @@ _lws_route_pt_close_route_users(struct lws_context_per_thread *pt,
 	return 0;
 }
 
-#if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_NETLINK)
+#if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_ROUTING)
 struct lws_dll2_owner *
 lws_routing_table_get(struct lws_context *cx)
 {

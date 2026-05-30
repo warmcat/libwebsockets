@@ -42,6 +42,14 @@
                                 "cd build && SAI_CPACK=\"-G RPM\" ${cpack}"
 			]
 		},
+		"linux-fedora44/x86_64-amd/gcc": {
+			"build": [
+				"mkdir -p build destdir; cd build; CCACHE_DISABLE=1 LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib cmake .. ${cmake}",
+				"cd build && make -j$SAI_PARALLEL && rm -rf ../destdir && make -j$SAI_PARALLEL DESTDIR=../destdir install",
+				"cd build && LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib ctest -j$SAI_PARALLEL --output-on-failure --repeat until-pass:3",
+				"cd build && SAI_CPACK=\"-G RPM\" ${cpack}"
+			]
+		},
 		"linux-ubuntu-2404/aarch64-a72-bcm2711-rpi4/gcc": {
                         "build": [
 				"mkdir -p build destdir; cd build; CCACHE_DISABLE=1 LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib cmake .. ${cmake}",
@@ -69,7 +77,7 @@
 		"w11/x86_64-amd/msvc": {
 			"default": false,
 			"build": [
-				"\"C:\\Program Files\\CMake\\bin\\cmake.exe\" -S . -B build -DOPENSSL_ROOT_DIR=\"C:\\Users\\andy\\vcpkg\\packages\\openssl_x64-windows\" -DLWS_EXT_PTHREAD_INCLUDE_DIR=\"C:\\Program Files (x86)\\pthreads\\include\" -DLWS_EXT_PTHREAD_LIBRARIES=\"C:\\Program Files (x86)\\pthreads\\lib\\x64\\libpthreadGC2.a\" ${cmake}",
+				"\"C:\\Program Files\\CMake\\bin\\cmake.exe\" -S . -B build -DLWS_WITH_SCHANNEL=0 -DOPENSSL_ROOT_DIR=\"C:\\Users\\andy\\vcpkg\\packages\\openssl_x64-windows\" -DLWS_EXT_PTHREAD_INCLUDE_DIR=\"C:\\Program Files (x86)\\pthreads\\include\" -DLWS_EXT_PTHREAD_LIBRARIES=\"C:\\Program Files (x86)\\pthreads\\lib\\x64\\libpthreadGC2.a\" ${cmake}",
 				"\"C:\\Program Files\\CMake\\bin\\cmake.exe\" --build build --config DEBUG --parallel %SAI_PARALLEL%",
 				"\"C:\\Program Files\\CMake\\bin\\ctest.exe\" --test-dir build -C DEBUG -j%SAI_PARALLEL% --output-on-failure --repeat until-pass:3"
 			]
@@ -109,8 +117,8 @@
 		"default-noudp": {
 			"cmake":	"-DLWS_WITH_UDP=0"
 		},
-		"default-quic": {
-			"cmake":	"-DLWS_ROLE_QUIC=1"
+		"quic-off": {
+			"cmake":	"-DLWS_ROLE_QUIC=0"
 		},
 		"default-dht": {
 			"cmake":	"-DLWS_WITH_DHT=1",
@@ -120,10 +128,14 @@
 			"cmake":	"-DLWS_WITH_SYS_FAULT_INJECTION=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_CBOR=1"
 		},
 		"esp32-heltec": {
-                        "cmake":        "-DLWS_IPV6=0",
+                        "cmake":        "-DLWS_IPV6=1",
                         "cpack":        "esp-heltec-wb32",
                         "platforms":    "none, freertos-espidf/xl6-esp32/gcc"
                 },
+		"mbedtls4": {
+			"cmake":	"-DLWS_WITH_MBEDTLS=1 -DCMAKE_PREFIX_PATH=/opt/mbedtls -DLWS_WITH_MINIMAL_EXAMPLES=1",
+			"platforms":	"none, rocky9/aarch64-a72a55-rk3588/gcc"
+		},
 		"gnutls": {
 			"cmake":	"-DLWS_WITH_GNUTLS=1 -DLWS_GNUTLS_INCLUDE_DIRS=\"/opt/gnutls/lib/includes\" -DLWS_GNUTLS_LIBRARIES=\"/opt/gnutls/lib/.libs/libgnutls.so\" -DLWS_ROLE_QUIC=1",
 			"platforms":	"none, rocky9/aarch64-a72a55-rk3588/gcc"
@@ -152,8 +164,8 @@
 			"cmake":	"-DLWS_WITH_MINIMAL_EXAMPLES=0",
 			"platforms":	"netbsd/aarch64BE-bcm2837-a53/gcc,freebsd/aarch64/llvm"
 		},
-		"default-examples-tls-sess": {
-			"cmake":	"-DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_TLS_SESSIONS=1"
+		"tls-sess-off": {
+			"cmake":	"-DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_TLS_SESSIONS=0"
 		},
 		"h1only-examples": {
 			"cmake":	"-DLWS_WITH_HTTP3=0 -DLWS_WITH_HTTP2=0 -DLWS_WITH_MINIMAL_EXAMPLES=1"
@@ -161,8 +173,8 @@
 		"h1only-notls": {
 			"cmake":	"-DLWS_WITH_HTTP3=0 -DLWS_WITH_HTTP2=0 -DLWS_WITH_SSL=OFF"
 		},
-		"unix-domain": {
-			"cmake":	"-DUNIX_SOCK=1"
+		"unix-domain-off": {
+			"cmake":	"-DLWS_UNIX_SOCK=0"
 		},
 		"plugins": {
 			"cmake":	"-DLWS_WITH_PLUGINS=1"
@@ -175,8 +187,8 @@
 			"cmake":	"-DLWS_SUPPRESS_DEPRECATED_API_WARNINGS=1 -DCMAKE_BUILD_TYPE=DEBUG -DLWS_WITH_GENCRYPTO=1 -DLWS_WITH_JOSE=1 -DLWS_WITH_SYS_ASYNC_DNS=1 -DLWS_WITH_SYS_ASYNC_DNS_DNSSEC=1 -DLWS_WITH_AUTHORITATIVE_DNS=1"
 		},
 
-		"secure-streams": {
-			"cmake":	"-DLWS_WITH_SECURE_STREAMS=1 -DLWS_WITH_MINIMAL_EXAMPLES=1",
+		"secure-streams-off": {
+			"cmake":	"-DLWS_WITH_SECURE_STREAMS=0 -DLWS_WITH_MINIMAL_EXAMPLES=1",
 			"platforms":	"w11/x86_64-amd/msvc,netbsd/aarch64BE-bcm2837-a53/gcc"
 		},
 		"secure-streams-proxy": {
@@ -187,7 +199,7 @@
 		},
 		"distro_recommended": { # minimal examples also needed for ctest
 			"cmake":	"-DLWS_WITH_DISTRO_RECOMMENDED=1 -DLWS_WITH_MINIMAL_EXAMPLES=1",
-			"cpack":	"&& cpack $SAI_CPACK",
+			"cpack":	"cpack $SAI_CPACK",
 			"artifacts":	"build/*.rpm, build/*.deb, build/*.zip"
 		},
 		"lwsws": {
@@ -255,8 +267,8 @@
 			"cmake":	"-DLWS_WITH_NO_LOGS=ON",
 			"platforms":	"w11/x86_64-amd/msvc"
 		},
-		"cookiejar": {
-			"cmake":	"-DLWS_WITH_CACHE_NSCOOKIEJAR=ON"
+		"cookiejar-off": {
+			"cmake":	"-DLWS_WITH_CACHE_NSCOOKIEJAR=0"
 		},
 		"jittrust": {
 			"cmake":	"-DLWS_WITH_TLS_JIT_TRUST=1"

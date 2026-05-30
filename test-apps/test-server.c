@@ -272,23 +272,26 @@ static const struct lws_extension exts[] = {
  * stuff from here is autoserved by the library
  */
 
-static const struct lws_http_mount mount_ziptest_uncomm = {
+static struct lws_http_mount mount_ziptest_uncomm = {
 	.mountpoint		= "/uncommziptest",		/* mountpoint in URL namespace on this vhost */
 	.origin			= LOCAL_RESOURCE_PATH"/candide-uncompressed.zip",	/* handler */
-	.origin_protocol	= LWSMPRO_FILE,			/* origin points to a file */
-	.mountpoint_len		= 14,				/* strlen("/ziptest"), ie length of the mountpoint */
+	.def			= "",
+	.origin_protocol	= LWSMPRO_FILE,	/* files in a dir */
+	.mountpoint_len		= 15,		/* char count */
 }, mount_ziptest = {
-	.mount_next		= (struct lws_http_mount *)&mount_ziptest_uncomm,			/* linked-list pointer to next*/
-	.mountpoint		= "/ziptest",			/* mountpoint in URL namespace on this vhost */
-	.origin			= LOCAL_RESOURCE_PATH"/candide.zip",			/* handler */
-	.origin_protocol	= LWSMPRO_FILE,			/* origin points to a file */
-	.mountpoint_len		= 8,				/* strlen("/ziptest"), ie length of the mountpoint */
-}, mount_post = 	{
-	.mount_next		= (struct lws_http_mount *)&mount_ziptest, /* linked-list pointer to next*/
-	.mountpoint		= "/formtest",			/* mountpoint in URL namespace on this vhost */
-	.protocol		= "protocol-post-demo",		/* handler */
-	.origin_protocol	= LWSMPRO_CALLBACK,		/* origin points to a callback */
-	.mountpoint_len		= 9,				/* strlen("/formtest"), ie length of the mountpoint */
+	.mount_next		= &mount_ziptest_uncomm,
+	.mountpoint		= "/ziptest",		/* mountpoint in URL namespace on this vhost */
+	.origin			= LOCAL_RESOURCE_PATH"/candide.zip",	/* handler */
+	.def			= "",
+	.origin_protocol	= LWSMPRO_FILE,	/* files in a dir */
+	.mountpoint_len		= 8,		/* char count */
+}, mount_post = {
+	.mount_next		= &mount_ziptest,	/* linked-list "next" */
+	.mountpoint		= "/formtest",		/* mountpoint URL */
+	.protocol		= "protocol-post-demo",	/* serve from dir */
+	.def			= "",			/* default filename */
+	.origin_protocol	= LWSMPRO_CALLBACK,	/* files in a dir */
+	.mountpoint_len		= 9,			/* char count */
 }, mount = {
 	.mount_next		= &mount_post,			/* linked-list "next" */
 	.mountpoint		= "/",				/* mountpoint URL */
@@ -610,6 +613,9 @@ int main(int argc, char **argv)
 	if (use_ssl)
 		/* redirect guys coming on http */
 		info.options |= LWS_SERVER_OPTION_REDIRECT_HTTP_TO_HTTPS;
+
+	/* update the default mount origin to use the dynamic resource path */
+	mount.origin = resource_path;
 
 	context = lws_create_context(&info);
 	if (context == NULL) {

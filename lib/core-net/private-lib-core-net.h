@@ -1018,7 +1018,7 @@ struct lws {
 #if defined(LWS_WITH_CGI) || defined(LWS_WITH_CLIENT)
 	char reason_bf; /* internal writeable callback reason bitfield */
 #endif
-#if defined(LWS_WITH_NETLINK)
+#if defined(LWS_WITH_ROUTING)
 	lws_route_uidx_t		peer_route_uidx;
 	/**< unique index of the route the connection is estimated to take */
 #endif

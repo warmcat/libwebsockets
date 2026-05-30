@@ -23,6 +23,7 @@
  */
 
 #include "private-lib-core.h"
+#include "private.h"
 
 void
 lws_tls_session_vh_destroy(struct lws_vhost *vh)
@@ -34,8 +35,26 @@ int
 lws_tls_client_vhost_extra_cert_mem(struct lws_vhost *vh,
                 const uint8_t *der, size_t der_len)
 {
-	/* TBD */
-	return 1;
+	struct lws_tls_schannel_ctx *ctx = vh->tls.ssl_client_ctx;
+
+	if (!ctx)
+		return 1;
+
+	if (!ctx->store) {
+		ctx->store = CertOpenStore(CERT_STORE_PROV_MEMORY, 0, 0, 0, NULL);
+		if (!ctx->store) {
+			lwsl_vhost_err(vh, "CertOpenStore failed: 0x%x", (unsigned int)GetLastError());
+			return 1;
+		}
+	}
+
+	if (!CertAddEncodedCertificateToStore(ctx->store, X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
+					      der, (DWORD)der_len, CERT_STORE_ADD_REPLACE_EXISTING, NULL)) {
+		lwsl_vhost_err(vh, "CertAddEncodedCertificateToStore failed: 0x%x", (unsigned int)GetLastError());
+		return 1;
+	}
+
+	return 0;
 }
 
 

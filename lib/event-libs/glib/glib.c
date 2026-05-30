@@ -265,7 +265,8 @@ elops_accept_glib(struct lws *wsi)
 	struct lws_wsi_eventlibs_glib *wsipr = wsi_to_priv_glib(wsi);
 	int fd;
 
-	assert(!wsi_to_subclass(wsi));
+	if (wsi_to_subclass(wsi))
+		return 0;
 
 	wsi_to_subclass(wsi) = (struct lws_io_watcher_glib_subclass *)
 			g_source_new((GSourceFuncs *)&lws_glib_source_ops,

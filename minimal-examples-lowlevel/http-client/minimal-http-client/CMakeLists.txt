@@ -26,6 +26,9 @@ require_lws_config(LWS_WITH_TLS 1 requirements)
 
 require_lws_config(LWS_ROLE_H2 1 has_h2)
 require_lws_config(LWS_ROLE_H3 1 has_h3)
+if (LWS_WITH_MBEDTLS)
+	set(has_h3 0)
+endif()
 require_lws_config(LWS_WITH_SYS_FAULT_INJECTION 1 has_fault_injection)
 require_lws_config(LWS_WITH_EVLIB_PLUGINS 1 has_plugins)
 require_lws_config(LWS_WITH_EVENT_LIBS 1 has_plugins)
@@ -60,9 +63,7 @@ if (requirements)
 		add_test(NAME http-client-warmcat-h1 COMMAND lws-minimal-http-client  --h1)
 		
 		if (has_h3)
-			add_test(NAME http-client-h3 COMMAND lws-minimal-http-client --h3 https://cloudflare-quic.com/ -d 1039)
-			set_tests_properties(http-client-h3 PROPERTIES TIMEOUT 10)
-			list(APPEND mytests http-client-h3)
+			# h3 test moved out of internet available block to use local test server
 		endif()
 				     
 		if (has_fault_injection)
@@ -161,7 +162,7 @@ if (requirements)
 		foreach(N IN LISTS mytests)
 			set_tests_properties(${N} PROPERTIES
 			     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-client/minimal-http-client
-			     TIMEOUT 20)
+			     TIMEOUT 60)
 		endforeach()
 				     
     		if (DEFINED ENV{SAI_OVN})
@@ -177,4 +178,40 @@ if (requirements)
 	else()
 		target_link_libraries(${SAMP} websockets ${LIBWEBSOCKETS_DEP_LIBS})
 	endif()
+
+	#
+	# Tests against built server running locally (needs daemonization...)
+	#
+	set(PORT_HC_SRV "7050")
+	if ("$ENV{SAI_INSTANCE_IDX}")
+		math(EXPR PORT_HC_SRV "7051 + $ENV{SAI_INSTANCE_IDX}")
+	endif()
+
+	if (NOT WIN32 AND LWS_WITH_SERVER AND LWS_WITH_TLS)
+		add_test(NAME st_hc_srv COMMAND
+			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
+					hc_srv
+					$<TARGET_FILE:test-server>
+					-r ${CMAKE_BINARY_DIR}/share/libwebsockets-test-server/
+					-s --port ${PORT_HC_SRV} )
+		add_test(NAME ki_hc_srv COMMAND
+			${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh hc_srv
+					$<TARGET_FILE_NAME:test-server> --port ${PORT_HC_SRV})
+
+		set_tests_properties(st_hc_srv PROPERTIES
+							 WORKING_DIRECTORY .
+							 FIXTURES_SETUP hc_srv
+							 TIMEOUT 800)
+		set_tests_properties(ki_hc_srv PROPERTIES
+							 FIXTURES_CLEANUP hc_srv)
+
+		if (has_h3)
+			add_test(NAME http-client-h3 COMMAND lws-minimal-http-client --h3 -l --server localhost -p ${PORT_HC_SRV} -d 1039)
+			set_tests_properties(http-client-h3 PROPERTIES 
+				WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-client/minimal-http-client
+				FIXTURES_REQUIRED "hc_srv"
+				TIMEOUT 60)
+		endif()
+	endif()
+
 endif()

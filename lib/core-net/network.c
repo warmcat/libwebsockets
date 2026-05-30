@@ -131,6 +131,7 @@ lws_get_addresses(struct lws_vhost *vh, void *ads, char *name,
 			memmove(rip, rip + 7, strlen(rip) - 6);
 
 		if (name) {
+#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
 			getnameinfo((struct sockaddr *)ads, sizeof(struct sockaddr_in6),
 				    name,
 #if defined(__ANDROID__)
@@ -139,6 +140,12 @@ lws_get_addresses(struct lws_vhost *vh, void *ads, char *name,
 				    (socklen_t)name_len,
 #endif
 				    NULL, 0, 0);
+#else
+			if (!lws_plat_inet_ntop(AF_INET6,
+					&((struct sockaddr_in6 *)ads)->sin6_addr,
+					name, (socklen_t)name_len))
+				name[0] = '\0';
+#endif
 		}
 
 		return 0;
@@ -148,8 +155,8 @@ lws_get_addresses(struct lws_vhost *vh, void *ads, char *name,
 		addr4.sin_family = AF_INET;
 		addr4.sin_addr = ((struct sockaddr_in *)ads)->sin_addr;
 
-#if !defined(LWS_PLAT_FREERTOS)
 		if (name) {
+#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
 			getnameinfo((struct sockaddr *)ads,
 					sizeof(struct sockaddr_in),
 					name,
@@ -159,8 +166,13 @@ lws_get_addresses(struct lws_vhost *vh, void *ads, char *name,
 					(socklen_t)name_len,
 #endif
 					NULL, 0, 0);
-		}
+#else
+			if (!lws_plat_inet_ntop(AF_INET,
+					&((struct sockaddr_in *)ads)->sin_addr,
+					name, (socklen_t)name_len))
+				name[0] = '\0';
 #endif
+		}
 	}
 
 	if (addr4.sin_family == AF_UNSPEC)
@@ -278,7 +290,7 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 #ifdef LWS_WITH_UNIX_SOCK
 	struct sockaddr_un serv_unix;
 #endif
-#ifdef LWS_WITH_IPV6
+#if defined(LWS_WITH_IPV6) && !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
 	struct sockaddr_in6 serv_addr6;
 #endif
 	struct sockaddr_in serv_addr4;
@@ -602,11 +614,13 @@ unsigned long
 lws_get_addr_scope(struct lws *wsi, const char *ifname_or_ipaddr)
 {
 	unsigned long scope;
-	char ip[NI_MAXHOST];
+#if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
+	char ip[256];
 	unsigned int i;
-#if !defined(WIN32)
+#endif
+#if !defined(WIN32) && !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
 	struct ifaddrs *addrs, *addr;
-#else
+#elif defined(WIN32)
 	PIP_ADAPTER_ADDRESSES adapter, addrs = NULL;
 	PIP_ADAPTER_UNICAST_ADDRESS addr;
 	struct sockaddr_in6 *sockaddr;
@@ -631,7 +645,7 @@ lws_get_addr_scope(struct lws *wsi, const char *ifname_or_ipaddr)
 
 	scope = 0;
 
-#if !defined(WIN32)
+#if !defined(WIN32) && !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
 
 	getifaddrs(&addrs);
 	for (addr = addrs; addr; addr = addr->ifa_next) {
@@ -656,7 +670,28 @@ lws_get_addr_scope(struct lws *wsi, const char *ifname_or_ipaddr)
 		}
 	}
 	freeifaddrs(addrs);
-#else
+#elif defined(LWS_PLAT_FREERTOS)
+#if defined(LWS_AMAZON_RTOS) || defined(LWS_ESP_PLATFORM)
+#include <lwip/netif.h>
+#include <lwip/ip6_addr.h>
+	{
+		ip6_addr_t ip6;
+		struct netif *netif;
+		int j;
+
+		if (ip6addr_aton(ifname_or_ipaddr, &ip6)) {
+			for (netif = netif_list; netif != NULL; netif = netif->next) {
+				for (j = 0; j < LWIP_IPV6_NUM_ADDRESSES; j++) {
+					if (ip6_addr_isvalid(netif_ip6_addr_state(netif, j)) &&
+					    ip6_addr_cmp(&ip6, netif_ip6_addr(netif, j))) {
+						return netif_get_index(netif);
+					}
+				}
+			}
+		}
+	}
+#endif
+#elif defined(WIN32)
 
 	for (i = 0; i < 5; i++) {
 		ret = GetAdaptersAddresses(AF_INET6, GAA_FLAG_INCLUDE_PREFIX,
@@ -1009,18 +1044,30 @@ lws_sa46_write_numeric_address(lws_sockaddr46 *sa46, char *buf, size_t len)
 int
 lws_sa46_compare_ads(const lws_sockaddr46 *sa46a, const lws_sockaddr46 *sa46b)
 {
-	if (sa46a->sa4.sin_family != sa46b->sa4.sin_family)
+	uint8_t norm1[16], norm2[16];
+	const uint8_t *p1, *p2;
+
+	if (sa46a->sa4.sin_family == AF_INET) {
+		p1 = norm1;
+		lws_4to6(norm1, (const uint8_t *)&sa46a->sa4.sin_addr);
+#if defined(LWS_WITH_IPV6)
+	} else if (sa46a->sa4.sin_family == AF_INET6) {
+		p1 = (const uint8_t *)&sa46a->sa6.sin6_addr;
+#endif
+	} else
 		return 1;
 
+	if (sa46b->sa4.sin_family == AF_INET) {
+		p2 = norm2;
+		lws_4to6(norm2, (const uint8_t *)&sa46b->sa4.sin_addr);
 #if defined(LWS_WITH_IPV6)
-	if (sa46a->sa4.sin_family == AF_INET6)
-		return memcmp(&sa46a->sa6.sin6_addr, &sa46b->sa6.sin6_addr, 16);
+	} else if (sa46b->sa4.sin_family == AF_INET6) {
+		p2 = (const uint8_t *)&sa46b->sa6.sin6_addr;
 #endif
+	} else
+		return 1;
 
-	if (sa46a->sa4.sin_family == AF_INET)
-		return sa46a->sa4.sin_addr.s_addr != sa46b->sa4.sin_addr.s_addr;
-
-	return 0;
+	return memcmp(p1, p2, 16);
 }
 
 void

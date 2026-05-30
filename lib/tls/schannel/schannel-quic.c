@@ -262,7 +262,7 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 		sub->Subscriptions[0].HandshakeType = LWS_SCH_QUIC_TP_HS_TYPE_ENCRYPTED_EXT;
 
 		in_bufs[num_in_bufs].BufferType = SECBUFFER_SUBSCRIBE_GENERIC_TLS_EXTENSION;
-		in_bufs[num_in_bufs].cbBuffer = sizeof(*sub);
+		in_bufs[num_in_bufs].cbBuffer = (unsigned long)(offsetof(SUBSCRIBE_GENERIC_TLS_EXTENSION, Subscriptions) + sizeof(sub->Subscriptions[0]));
 		in_bufs[num_in_bufs].pvBuffer = sub;
 		num_in_bufs++;
 	}
@@ -285,8 +285,8 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 
 	if (conn->rx_len > 0 && lwsi_role_client(wsi) && !wsi->tls.quic_tp_recv) {
 		out_bufs[out_desc.cBuffers].BufferType = SECBUFFER_SUBSCRIBE_GENERIC_TLS_EXTENSION;
-		out_bufs[out_desc.cBuffers].cbBuffer = (unsigned long)conn->rx_len;
-		out_bufs[out_desc.cBuffers].pvBuffer = (void *)conn->rx_buf;
+		out_bufs[out_desc.cBuffers].cbBuffer = 0;
+		out_bufs[out_desc.cBuffers].pvBuffer = NULL;
 		out_desc.cBuffers++;
 	}
 
@@ -353,14 +353,26 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
             status == SEC_I_CONTINUE_NEEDED_MESSAGE_OK)
 		for (unsigned int j = 0; j < out_desc.cBuffers; j++)
 			if (out_bufs[j].BufferType == SECBUFFER_SUBSCRIBE_GENERIC_TLS_EXTENSION &&
-			    out_bufs[j].cbBuffer > 0 &&
 			    out_bufs[j].pvBuffer && !wsi->tls.quic_tp_recv) {
-				wsi->tls.quic_tp_recv = lws_malloc(out_bufs[j].cbBuffer, "quic_tp_recv");
-				if (wsi->tls.quic_tp_recv) {
-					memcpy((void *)wsi->tls.quic_tp_recv, out_bufs[j].pvBuffer, out_bufs[j].cbBuffer);
-					wsi->tls.quic_tp_recv_len = out_bufs[j].cbBuffer;
+				
+				size_t ext_len = out_bufs[j].cbBuffer;
+				uint8_t *ext_data = (uint8_t *)out_bufs[j].pvBuffer;
+				
+				lwsl_notice("SChannel returned ext_len %zu", ext_len);
+				lwsl_hexdump_notice(ext_data, ext_len < 32 ? ext_len : 32);
+				
+				if (ext_len > 4) {
+					ext_len -= 4;
+					ext_data += 4;
+					
+					wsi->tls.quic_tp_recv = lws_malloc(ext_len, "quic_tp_recv");
+					if (wsi->tls.quic_tp_recv) {
+						memcpy((void *)wsi->tls.quic_tp_recv, ext_data, ext_len);
+						wsi->tls.quic_tp_recv_len = ext_len;
+					}
 				}
-		        }
+				FreeContextBuffer(out_bufs[j].pvBuffer);
+			}
 
 	if (status != SEC_E_OK &&
             status != SEC_I_CONTINUE_NEEDED &&

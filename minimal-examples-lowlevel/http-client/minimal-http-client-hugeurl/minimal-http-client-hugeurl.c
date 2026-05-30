@@ -213,7 +213,7 @@ int main(int argc, const char **argv)
 		i.ssl_connection |= LCCSCF_ALLOW_SELFSIGNED;
 	} else {
 		i.port = 443;
-		i.address = "warmcat.com";
+		i.address = "libwebsockets.org";
 	}
 
 	i.path = uri;

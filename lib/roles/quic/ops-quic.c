@@ -95,7 +95,7 @@ lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t acked_pn)
 
 	/* PMTUD: Check if our active probe was acknowledged */
 	if (qn->pmtud_probe_pn != 0 && acked_pn == qn->pmtud_probe_pn) {
-		lwsl_wsi_notice(nwsi, "QUIC PMTUD: Probe %llu ACKed! MTU upgraded from %d to %d", 
+		lwsl_wsi_info(nwsi, "QUIC PMTUD: Probe %llu ACKed! MTU upgraded from %d to %d", 
 			(unsigned long long)acked_pn, (int)qn->current_mtu, (int)qn->probed_mtu);
 		qn->current_mtu = qn->probed_mtu;
 		qn->pmtud_probe_pn = 0;
@@ -483,6 +483,7 @@ tp_overflow:
 			lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS, "tp overflow");
 			return LWS_HPI_RET_HANDLED;
 tp_ok:
+			;
 #undef LWS_QUIC_WRITE_TP_VARINT
 #undef LWS_QUIC_WRITE_TP_BUF
 		}
@@ -892,7 +893,7 @@ static int
 quic_secret_cb(struct lws *wsi, enum lws_tls_quic_secret_type type,
 	       const uint8_t *secret, size_t secret_len)
 {
-	lwsl_info("QUIC TLS: Extracted secret type %d (len %d)", type, (int)secret_len);
+	lwsl_info("QUIC TLS: Extracted secret type %d (len %d)\n", type, (int)secret_len);
 	if (lws_quic_set_keys(wsi, type, secret, secret_len)) {
 		lwsl_wsi_err(wsi, "Failed to set QUIC keys for type %d", type);
 		return -1;
@@ -997,11 +998,12 @@ rops_handle_POLLOUT_quic(struct lws *wsi)
 		if (wsi->mux.child_list) {
 			w = wsi->mux.child_list;
 			while (w) {
+				struct lws *next = w->mux.sibling_list;
 				if (w->mux.requested_POLLOUT) {
 					w->mux.requested_POLLOUT = 0;
 					rops_handle_POLLOUT_quic(w);
 				}
-				w = w->mux.sibling_list;
+				w = next;
 			}
 		}
 		return LWS_HP_RET_DROP_POLLOUT;
@@ -1529,14 +1531,24 @@ send_frames:
 				if (lws_rops_fidx(w->role_ops, LWS_ROPS_perform_user_POLLOUT)) {
 					if (lws_rops_func_fidx(w->role_ops, LWS_ROPS_perform_user_POLLOUT).
 									perform_user_POLLOUT(w) == -1) {
-						lwsl_wsi_notice(w, "QUIC TX: child perform_user_POLLOUT failed, closing");
-						lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "quic child write fail");
+						lwsl_wsi_info(w, "QUIC TX: child perform_user_POLLOUT requested close");
+						int _found = 0;
+						lws_start_foreach_ll(struct lws *, _w1, wsi->mux.child_list) {
+							if (_w1 == w) { _found = 1; break; }
+						} lws_end_foreach_ll(_w1, mux.sibling_list);
+						if (_found)
+							lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "quic child write close");
 						wa = &wsi->mux.child_list;
 					}
 				} else {
 					if (lws_callback_as_writeable(w)) {
-						lwsl_wsi_notice(w, "QUIC TX: child writeable callback failed, closing");
-						lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "quic child write fail");
+						lwsl_wsi_info(w, "QUIC TX: child writeable callback requested close");
+						int _found = 0;
+						lws_start_foreach_ll(struct lws *, _w1, wsi->mux.child_list) {
+							if (_w1 == w) { _found = 1; break; }
+						} lws_end_foreach_ll(_w1, mux.sibling_list);
+						if (_found)
+							lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "quic child write close");
 						wa = &wsi->mux.child_list;
 					}
 				}
@@ -1808,6 +1820,7 @@ tp_overflow2:
 			lwsl_wsi_err(wsi, "QUIC TX: tp buffer overflow");
 			return 1;
 tp_ok2:
+			;
 #undef LWS_QUIC_WRITE_TP_VARINT
 #undef LWS_QUIC_WRITE_TP_BUF
 		}
@@ -2132,15 +2145,22 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 		/* We're being told we can write an additional "add" bytes to the peer */
 		wsi->txc.tx_cr += add;
 		wsi->quic.tx_blocked_sent = 0;
-		if (nwsi) {
+		if (nwsi && nwsi != wsi) {
 			nwsi->txc.tx_cr += add;
 			nwsi->quic.tx_blocked_sent = 0;
 		}
 
 		/* Unblock if blocked */
-		if (wsi->txc.tx_cr > 0)
+		if (wsi->txc.tx_cr > 0) {
+			struct lws *w = wsi->mux.child_list;
+
 			lws_callback_on_writable(wsi);
 
+			while (w) {
+				lws_callback_on_writable(w);
+				w = w->mux.sibling_list;
+			}
+		}
 		return 0;
 	}
 
@@ -2184,9 +2204,9 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	if (strcmp(alpn, "h3") && strcmp(alpn, "lws-quic"))
 		return 0;
 
-	lwsl_notice("ENTER rops_alpn_negotiated_quic: wsi=%p\n", wsi);
+	lwsl_info("ENTER rops_alpn_negotiated_quic: wsi=%p\n", wsi);
 
-	lwsl_wsi_notice(wsi, "QUIC negotiated %s, migrating network connection to new wsi", alpn);
+	lwsl_wsi_info(wsi, "QUIC negotiated %s, migrating network connection to new wsi", alpn);
 
 	role = lws_role_by_name(alpn);
 	if (!role) {
@@ -2255,9 +2275,9 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	wsi->txc.peer_tx_cr_est = init_cr;
 	wsi->txc.tx_cr = init_cr;
 
-	lwsl_notice("rops_alpn_negotiated_quic: old_wsi=%p\n", wsi);
-	lwsl_notice("rops_alpn_negotiated_quic: new_nwsi=%p\n", nwsi);
-	lwsl_notice("rops_alpn_negotiated_quic: qn=%p\n", nwsi->quic.qn);
+	lwsl_info("rops_alpn_negotiated_quic: old_wsi=%p\n", wsi);
+	lwsl_info("rops_alpn_negotiated_quic: new_nwsi=%p\n", nwsi);
+	lwsl_info("rops_alpn_negotiated_quic: qn=%p\n", nwsi->quic.qn);
 
 	/* Important: the network WSI must point back to itself */
 	if (nwsi->quic.qn)

@@ -266,9 +266,8 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 
 	if (lwsi_state(wsi) == LRS_WAITING_CONNECT &&
 	    lws_socket_is_valid(wsi->desc.sockfd)) {
-		if (!wsi->dns_sorted_list.count &&
-		    !wsi->sul_connect_timeout.list.owner)
-			/* no dns results and no ongoing timeout for one */
+		if (!wsi->sul_connect_timeout.list.owner)
+			/* no ongoing timeout for one */
 			goto connect_to;
 
 		/*
@@ -364,7 +363,7 @@ next_dns_result:
 	if (wsi->udp)
 		wsi->udp->sa46 = curr->dest;
 #endif
-#if defined(LWS_WITH_NETLINK)
+#if defined(LWS_WITH_ROUTING)
 	wsi->peer_route_uidx = curr->uidx;
 	lwsl_wsi_info(wsi, "peer_route_uidx %d", wsi->peer_route_uidx);
 #endif

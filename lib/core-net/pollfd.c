@@ -302,7 +302,7 @@ __insert_wsi_socket_into_fds(struct lws_context *context, struct lws *wsi)
 
 	assert(wsi);
 
-#if defined(LWS_WITH_NETLINK)
+#if defined(LWS_WITH_ROUTING)
 	assert(wsi->event_pipe || wsi->a.vhost || wsi == pt->context->netlink);
 #else
 	assert(wsi->event_pipe || wsi->a.vhost);

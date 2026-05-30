@@ -111,7 +111,7 @@ _lws_vhost_init_server_af(struct vh_sock_args *a)
 	lws_sockfd_type sockfd;
 	struct lws *wsi;
 	int m = 0, is = 0;
-#if defined(LWS_WITH_IPV6)
+#if !defined(LWS_PLAT_FREERTOS) && defined(LWS_WITH_IPV6) && defined(IPV6_V6ONLY)
 	int value = 1;
 #endif
 
@@ -695,6 +695,7 @@ static const struct lws_mimetype {
 	{ ".txt", "text/plain" },
 	{ ".xml", "application/xml" },
 	{ ".json", "application/json" },
+	{ ".babylon", "application/json" },
 	{ ".mjs", "text/javascript" },
 	{ ".wasm", "application/wasm" },
 };

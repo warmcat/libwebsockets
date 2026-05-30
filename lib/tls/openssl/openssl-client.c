@@ -251,8 +251,8 @@ int
 lws_ssl_client_bio_create(struct lws *wsi)
 {
 	char hostname[128], *p;
-#if defined(LWS_HAVE_SSL_set_alpn_protos) && \
-    defined(LWS_HAVE_SSL_get0_alpn_selected)
+#if (defined(LWS_HAVE_SSL_set_alpn_protos) || defined(OPENSSL_IS_AWSLC)) && \
+    (defined(LWS_HAVE_SSL_get0_alpn_selected) || defined(OPENSSL_IS_AWSLC))
 	uint8_t openssl_alpn[40];
 	const char *alpn_comma = wsi->a.context->tls.alpn_default;
 	int n;
@@ -260,8 +260,8 @@ lws_ssl_client_bio_create(struct lws *wsi)
 
 	if (wsi->stash) {
 		lws_strncpy(hostname, wsi->stash->cis[CIS_HOST], sizeof(hostname));
-#if defined(LWS_HAVE_SSL_set_alpn_protos) && \
-    defined(LWS_HAVE_SSL_get0_alpn_selected)
+#if (defined(LWS_HAVE_SSL_set_alpn_protos) || defined(OPENSSL_IS_AWSLC)) && \
+    (defined(LWS_HAVE_SSL_get0_alpn_selected) || defined(OPENSSL_IS_AWSLC))
 		alpn_comma = wsi->stash->cis[CIS_ALPN];
 #endif
 	} else {
@@ -397,8 +397,8 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	BIO_set_nbio(wsi->tls.client_bio, 1); /* nonblocking */
 #endif
 
-#if defined(LWS_HAVE_SSL_set_alpn_protos) && \
-    defined(LWS_HAVE_SSL_get0_alpn_selected)
+#if (defined(LWS_HAVE_SSL_set_alpn_protos) || defined(OPENSSL_IS_AWSLC)) && \
+    (defined(LWS_HAVE_SSL_get0_alpn_selected) || defined(OPENSSL_IS_AWSLC))
 	if (wsi->a.vhost->tls.alpn)
 		alpn_comma = wsi->a.vhost->tls.alpn;
 	if (wsi->stash) {
@@ -495,8 +495,8 @@ no_client_cert:
 enum lws_ssl_capable_status
 lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 {
-#if defined(LWS_HAVE_SSL_set_alpn_protos) && \
-    defined(LWS_HAVE_SSL_get0_alpn_selected)
+#if (defined(LWS_HAVE_SSL_set_alpn_protos) || defined(OPENSSL_IS_AWSLC)) && \
+    (defined(LWS_HAVE_SSL_get0_alpn_selected) || defined(OPENSSL_IS_AWSLC))
 	const unsigned char *prot;
 	char a[32];
 	unsigned int len;
@@ -555,8 +555,8 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 		return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
 
 	if (n == 1 || m == SSL_ERROR_SYSCALL) {
-#if defined(LWS_HAVE_SSL_set_alpn_protos) && \
-    defined(LWS_HAVE_SSL_get0_alpn_selected)
+#if (defined(LWS_HAVE_SSL_set_alpn_protos) || defined(OPENSSL_IS_AWSLC)) && \
+    (defined(LWS_HAVE_SSL_get0_alpn_selected) || defined(OPENSSL_IS_AWSLC))
 		SSL_get0_alpn_selected(wsi->tls.ssl, &prot, &len);
 
 		if (len >= sizeof(a))

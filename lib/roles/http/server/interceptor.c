@@ -295,24 +295,21 @@ lws_interceptor_check(struct lws *wsi, const struct lws_protocols *prot)
 	lws_get_peer_simple(wsi, ip, sizeof(ip));
 	if (strcmp(sub_claim, ip)) {
 		struct lws_interceptor_cidr *cidr = vhd->cidr_head;
-		lws_sockaddr46 sa46;
+		lws_sockaddr46 sa46, sa46_sub;
 		int allow = 0;
 
-		lws_sockfd_type fd = lws_get_socket_fd(wsi);
-
-		if (lws_get_peer_addresses(wsi, fd,
-				NULL, 0, ip, sizeof(ip))) {
-			lwsl_vhost_err(vhd->vhost, "%s: get peer ads fail", __func__);
-			return 1;
-		}
-
 		if (!lws_sa46_parse_numeric_address(ip, &sa46)) {
-			while (cidr) {
-				if (!lws_sa46_on_net(&sa46, &cidr->sa46, cidr->len)) {
-					allow = 1;
-					break;
+			if (!lws_sa46_parse_numeric_address(sub_claim, &sa46_sub) &&
+			    !lws_sa46_compare_ads(&sa46, &sa46_sub))
+				allow = 1;
+			else {
+				while (cidr) {
+					if (!lws_sa46_on_net(&sa46, &cidr->sa46, cidr->len)) {
+						allow = 1;
+						break;
+					}
+					cidr = cidr->next;
 				}
-				cidr = cidr->next;
 			}
 		}
 

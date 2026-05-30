@@ -85,7 +85,7 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 			ctx->cipher = EVP_aes_128_ctr();
 			break;
 #endif
-#if defined(LWS_HAVE_EVP_aes_128_ecb)
+#if defined(LWS_HAVE_EVP_aes_128_ecb) || defined(OPENSSL_IS_AWSLC)
 		case LWS_GAESM_ECB:
 			ctx->cipher = EVP_aes_128_ecb();
 			break;
@@ -140,7 +140,7 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 			ctx->cipher = EVP_aes_192_ctr();
 			break;
 #endif
-#if defined(LWS_HAVE_EVP_aes_128_ecb)
+#if defined(LWS_HAVE_EVP_aes_128_ecb) || defined(OPENSSL_IS_AWSLC)
 		case LWS_GAESM_ECB:
 			ctx->cipher = EVP_aes_192_ecb();
 			break;
@@ -194,7 +194,7 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 			ctx->cipher = EVP_aes_256_ctr();
 			break;
 #endif
-#if defined(LWS_HAVE_EVP_aes_128_ecb)
+#if defined(LWS_HAVE_EVP_aes_128_ecb) || defined(OPENSSL_IS_AWSLC)
 		case LWS_GAESM_ECB:
 			ctx->cipher = EVP_aes_256_ecb();
 			break;

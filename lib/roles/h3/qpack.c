@@ -302,7 +302,7 @@ lws_qpack_encode_literal_with_name_ref(unsigned char *buf, size_t buf_len, int i
 	
 	/* 0 1 N T Index, T=1 (Static), N=0 -> mask=0x50, prefix=4 */
 	n = lws_qpack_encode_int(buf, buf_len, (uint64_t)index, 4, 0x50);
-	lwsl_notice("%s: index=%d, output byte: 0x%02X\n", __func__, index, buf[0]);
+	lwsl_debug("%s: index=%d, output byte: 0x%02X\n", __func__, index, buf[0]);
 	if (n < 0) return -1;
 	pos += (size_t)n;
 	
@@ -321,7 +321,7 @@ lws_qpack_encode_literal_with_literal_name(unsigned char *buf, size_t buf_len, c
 	
 	/* 0 0 1 N H Name Length, N=0, H=0 (Plaintext) -> mask=0x20, prefix=3 */
 	n = lws_qpack_encode_int(buf, buf_len, (uint64_t)name_len, 3, 0x20);
-	lwsl_notice("%s: name_len=%d, output byte: 0x%02X\n", __func__, (int)name_len, buf[0]);
+	lwsl_debug("%s: name_len=%d, output byte: 0x%02X\n", __func__, (int)name_len, buf[0]);
 	if (n < 0) return -1;
 	pos += (size_t)n;
 	

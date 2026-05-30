@@ -27,7 +27,7 @@
 
 #if defined(LWS_ROLE_QUIC) && defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_SCHANNEL)
 
-#if defined(LWS_WITH_BORINGSSL) || defined(LWS_WITH_AWSLC) || defined(USE_WOLFSSL) || defined(LIBRESSL_VERSION_NUMBER)
+#if defined(LWS_WITH_BORINGSSL) || defined(LWS_WITH_AWSLC) || defined(LWS_WITH_AWSLC) || defined(USE_WOLFSSL) || defined(LIBRESSL_VERSION_NUMBER)
 #define LWS_HAVE_BORINGSSL_QUIC_API
 #endif
 

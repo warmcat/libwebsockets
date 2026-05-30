@@ -11,6 +11,7 @@ set(SRCS main.c)
 
 set(requirements 1)
 require_lws_config(LWS_WITH_STUB 1 requirements)
+require_lws_config(LWS_UNIX_SOCK 1 requirements)
 
 if (requirements)
 

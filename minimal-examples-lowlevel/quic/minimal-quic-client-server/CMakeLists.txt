@@ -29,24 +29,24 @@ if (requirements)
 			math(EXPR PORT_QCS "7681 + $ENV{SAI_INSTANCE_IDX}")
 		endif()
 
-		add_test(NAME st_qcs_srv COMMAND
-			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
-					qcs_srv
-					$<TARGET_FILE:lws-minimal-quic-client-server>
-					-s -p ${PORT_QCS} -d 1039 )
-		add_test(NAME ki_qcs_srv COMMAND
-			${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh qcs_srv
-					$<TARGET_FILE_NAME:lws-minimal-quic-client-server> )
-		
-		set_tests_properties(st_qcs_srv PROPERTIES
-						 WORKING_DIRECTORY .
-						 FIXTURES_SETUP qcs_srv
-						 TIMEOUT 800)
-		set_tests_properties(ki_qcs_srv PROPERTIES
-						 FIXTURES_CLEANUP qcs_srv)
-
 		find_program(H3SPEC_EXECUTABLE h3spec)
 		if (H3SPEC_EXECUTABLE)
+			add_test(NAME st_qcs_srv COMMAND
+				${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
+						qcs_srv
+						$<TARGET_FILE:lws-minimal-quic-client-server>
+						-s -p ${PORT_QCS} -d 1039 )
+			add_test(NAME ki_qcs_srv COMMAND
+				${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh qcs_srv
+						$<TARGET_FILE_NAME:lws-minimal-quic-client-server> )
+			
+			set_tests_properties(st_qcs_srv PROPERTIES
+							 WORKING_DIRECTORY .
+							 FIXTURES_SETUP qcs_srv
+							 TIMEOUT 800)
+			set_tests_properties(ki_qcs_srv PROPERTIES
+							 FIXTURES_CLEANUP qcs_srv)
+
 			add_test(NAME h3spec COMMAND
 				${H3SPEC_EXECUTABLE} 127.0.0.1 ${PORT_QCS} -n )
 			
