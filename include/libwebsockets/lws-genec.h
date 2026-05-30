@@ -32,10 +32,17 @@ enum enum_genec_alg {
 
 struct lws_genec_ctx {
 #if defined(LWS_WITH_MBEDTLS)
+#if !defined(LWS_HAVE_MBEDTLS_V4)
 	union {
 		mbedtls_ecdh_context *ctx_ecdh;
 		mbedtls_ecdsa_context *ctx_ecdsa;
 	} u;
+#else
+	psa_key_id_t key_id;
+	psa_algorithm_t alg;
+	uint8_t *peer_key;
+	size_t peer_key_len;
+#endif
 #elif defined(LWS_WITH_SCHANNEL)
 	struct {
 		void *hAlg;
@@ -60,7 +67,7 @@ struct lws_genec_ctx {
 	char has_private;
 };
 
-#if defined(LWS_WITH_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS) && !defined(LWS_HAVE_MBEDTLS_V4)
 enum enum_lws_dh_side {
 	LDHS_OURS = MBEDTLS_ECDH_OURS,
 	LDHS_THEIRS = MBEDTLS_ECDH_THEIRS

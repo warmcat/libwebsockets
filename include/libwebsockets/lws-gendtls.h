@@ -37,8 +37,10 @@
 
 #if defined(LWS_WITH_MBEDTLS)
 #include <mbedtls/ssl.h>
+#if !defined(LWS_HAVE_MBEDTLS_V4)
 #include <mbedtls/entropy.h>
 #include <mbedtls/ctr_drbg.h>
+#endif
 #include <mbedtls/ssl_cookie.h>
 #elif defined(LWS_WITH_GNUTLS)
 #include <gnutls/gnutls.h>

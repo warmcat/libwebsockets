@@ -35,11 +35,27 @@ int main(int argc, const char **argv)
 	int ret = 0;
 	size_t big_len = sizeof(big) - sizeof(*res) + sizeof(res->ns.name);
 
+	struct lws_context_creation_info info;
+	struct lws_context *context;
+
 	lwsl_user("LWS x509 API test\n");
+
+	lws_context_info_defaults(&info, NULL);
+#if defined(LWS_WITH_NETWORK)
+	info.port = CONTEXT_PORT_NO_LISTEN;
+#endif
+	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+
+	context = lws_create_context(&info);
+	if (!context) {
+		lwsl_err("lws init failed\n");
+		return 1;
+	}
 
 	if (lws_x509_create(&x509)) {
 		lwsl_err("lws_x509_create failed\n");
-		return 1;
+		ret = 1;
+		goto bail_ctx;
 	}
 
 	if (lws_x509_parse_from_pem(x509, test_cert, strlen(test_cert) + 1)) {
@@ -71,5 +87,7 @@ int main(int argc, const char **argv)
 
 bail:
 	lws_x509_destroy(&x509);
+bail_ctx:
+	lws_context_destroy(context);
 	return ret;
 }

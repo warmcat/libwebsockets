@@ -25,6 +25,7 @@
  *  same whether you are using openssl or mbedtls crypto functions underneath.
  */
 #include "private-lib-core.h"
+#if !defined(LWS_HAVE_MBEDTLS_V4)
 #include "private-lib-tls-mbedtls.h"
 #include <mbedtls/rsa.h>
 
@@ -562,3 +563,306 @@ lws_genrsa_destroy(struct lws_genrsa_ctx *ctx)
 	lws_free(ctx->ctx);
 	ctx->ctx = NULL;
 }
+#else /* LWS_HAVE_MBEDTLS_V4 */
+
+#include "private-lib-tls-mbedtls.h"
+#include <psa/crypto.h>
+
+void
+lws_genrsa_destroy_elements(struct lws_gencrypto_keyelem *el)
+{
+	int n;
+	for (n = 0; n < LWS_GENCRYPTO_RSA_KEYEL_COUNT; n++)
+		if (el[n].buf)
+			lws_free_set_NULL(el[n].buf);
+}
+
+static int write_asn1_integer(uint8_t **p, uint8_t *end, const struct lws_gencrypto_keyelem *el)
+{
+	size_t len = el->len;
+	int leading_zero = 0;
+	if (!len || !el->buf) {
+		if (*p + 3 > end) return -1;
+		*(*p)++ = 0x02;
+		*(*p)++ = 0x01;
+		*(*p)++ = 0x00;
+		return 0;
+	}
+	if (el->buf[0] & 0x80) {
+		leading_zero = 1;
+		len++;
+	}
+	if (*p + 2 + (len >= 128 ? (len >= 256 ? 3 : 2) : 1) + len > end)
+		return -1;
+
+	*(*p)++ = 0x02;
+	if (len < 128) {
+		*(*p)++ = (uint8_t)len;
+	} else if (len < 256) {
+		*(*p)++ = 0x81;
+		*(*p)++ = (uint8_t)len;
+	} else {
+		*(*p)++ = 0x82;
+		*(*p)++ = (uint8_t)(len >> 8);
+		*(*p)++ = (uint8_t)(len & 0xFF);
+	}
+	if (leading_zero)
+		*(*p)++ = 0x00;
+	memcpy(*p, el->buf, el->len);
+	*p += el->len;
+	return 0;
+}
+
+static int write_asn1_len(uint8_t **p, uint8_t *end, size_t len)
+{
+	if (len < 128) {
+		if (*p + 1 > end) return -1;
+		*(*p)++ = (uint8_t)len;
+	} else if (len < 256) {
+		if (*p + 2 > end) return -1;
+		*(*p)++ = 0x81;
+		*(*p)++ = (uint8_t)len;
+	} else {
+		if (*p + 3 > end) return -1;
+		*(*p)++ = 0x82;
+		*(*p)++ = (uint8_t)(len >> 8);
+		*(*p)++ = (uint8_t)(len & 0xFF);
+	}
+	return 0;
+}
+
+int
+lws_genrsa_create(struct lws_genrsa_ctx *ctx,
+		  const struct lws_gencrypto_keyelem *el,
+		  struct lws_context *context, enum enum_genrsa_mode mode,
+		  enum lws_genhash_types oaep_hashid)
+{
+	uint8_t der[4096];
+	uint8_t *p = der;
+	uint8_t *end = der + sizeof(der);
+	size_t payload_len = 0;
+	int i;
+	struct lws_gencrypto_keyelem zero = { NULL, 0 };
+	struct lws_gencrypto_keyelem version = { (uint8_t *)"\0", 1 };
+	psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
+
+	memset(ctx, 0, sizeof(*ctx));
+	ctx->context = context;
+	ctx->mode = mode;
+
+	/* Calculate payload size */
+	for (i = -1; i < LWS_GENCRYPTO_RSA_KEYEL_COUNT; i++) {
+		const struct lws_gencrypto_keyelem *e = (i == -1) ? &version : &el[i];
+		size_t len = e->len;
+		if (len && (e->buf[0] & 0x80)) len++;
+		payload_len += 1 + (size_t)(len >= 128 ? (len >= 256 ? 3 : 2) : 1) + len;
+		if (!len && i != -1) payload_len += 3; /* zero int */
+	}
+
+	if (p + 1 > end) return -1;
+	*p++ = 0x30; /* SEQUENCE */
+	if (write_asn1_len(&p, end, payload_len)) return -1;
+
+	if (write_asn1_integer(&p, end, &version)) return -1;
+	for (i = 0; i < LWS_GENCRYPTO_RSA_KEYEL_COUNT; i++) {
+		if (write_asn1_integer(&p, end, el[i].len ? &el[i] : &zero)) return -1;
+	}
+
+	psa_set_key_type(&attr, PSA_KEY_TYPE_RSA_KEY_PAIR);
+	psa_set_key_usage_flags(&attr, PSA_KEY_USAGE_SIGN_HASH | PSA_KEY_USAGE_VERIFY_HASH |
+					PSA_KEY_USAGE_DECRYPT | PSA_KEY_USAGE_ENCRYPT);
+
+	/* Determine algorithm based on mode */
+	if (mode == LGRSAM_PKCS1_1_5) {
+		psa_set_key_algorithm(&attr, PSA_ALG_RSA_PKCS1V15_SIGN_RAW);
+	} else if (mode == LGRSAM_PKCS1_OAEP_PSS) {
+		psa_set_key_algorithm(&attr, PSA_ALG_RSA_PSS_ANY_SALT(PSA_ALG_ANY_HASH));
+	}
+
+	if (psa_import_key(&attr, der, (size_t)(p - der), &ctx->key_id) != PSA_SUCCESS)
+		return -1;
+
+	return 0;
+}
+
+int
+lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
+		       enum enum_genrsa_mode mode, struct lws_gencrypto_keyelem *el,
+		       int bits)
+{
+	psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
+	uint8_t der[4096];
+	size_t der_len;
+
+	memset(ctx, 0, sizeof(*ctx));
+	ctx->context = context;
+	ctx->mode = mode;
+
+	psa_set_key_type(&attr, PSA_KEY_TYPE_RSA_KEY_PAIR);
+	psa_set_key_bits(&attr, (size_t)bits);
+	psa_set_key_usage_flags(&attr, PSA_KEY_USAGE_SIGN_HASH | PSA_KEY_USAGE_VERIFY_HASH |
+					PSA_KEY_USAGE_DECRYPT | PSA_KEY_USAGE_ENCRYPT | PSA_KEY_USAGE_EXPORT);
+
+	if (mode == LGRSAM_PKCS1_1_5) {
+		psa_set_key_algorithm(&attr, PSA_ALG_RSA_PKCS1V15_SIGN_RAW);
+	} else if (mode == LGRSAM_PKCS1_OAEP_PSS) {
+		psa_set_key_algorithm(&attr, PSA_ALG_RSA_PSS_ANY_SALT(PSA_ALG_ANY_HASH));
+	}
+
+	if (psa_generate_key(&attr, &ctx->key_id) != PSA_SUCCESS)
+		return -1;
+
+	if (psa_export_key(ctx->key_id, der, sizeof(der), &der_len) != PSA_SUCCESS)
+		return -1;
+
+	{
+		uint8_t *p = der;
+		uint8_t *end = der + der_len;
+		int i;
+
+		if (p >= end || *p++ != 0x30) return -1;
+		/* Skip length */
+		if (p >= end) return -1;
+		if (*p & 0x80) {
+			int l = *p++ & 0x7F;
+			p += l;
+		} else {
+			p++;
+		}
+
+		/* Skip version integer */
+		if (p >= end || *p++ != 0x02) return -1;
+		if (p >= end) return -1;
+		if (*p & 0x80) {
+			int l = *p++ & 0x7F;
+			p += l;
+		} else {
+			p += 1 + *p;
+		}
+
+		for (i = 0; i < LWS_GENCRYPTO_RSA_KEYEL_COUNT; i++) {
+			int len;
+			if (p >= end || *p++ != 0x02) goto cleanup_der;
+			if (p >= end) goto cleanup_der;
+			if (*p & 0x80) {
+				int l = *p++ & 0x7F;
+				len = 0;
+				while (l--) len = (len << 8) | *p++;
+			} else {
+				len = *p++;
+			}
+			if (p + len > end) goto cleanup_der;
+			/* Skip leading zero if present */
+			if (len > 1 && p[0] == 0x00) {
+				p++;
+				len--;
+			}
+			el[i].buf = lws_malloc((size_t)len, "genrsakey");
+			if (!el[i].buf) goto cleanup_der;
+			memcpy(el[i].buf, p, (size_t)len);
+			el[i].len = (uint32_t)len;
+			p += len;
+		}
+	}
+
+	return 0;
+
+cleanup_der:
+	lws_genrsa_destroy_elements(el);
+	return -1;
+}
+
+int
+lws_genrsa_public_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
+			  size_t in_len, uint8_t *out, size_t out_max)
+{
+	size_t olen;
+	if (psa_asymmetric_decrypt(ctx->key_id, PSA_ALG_RSA_PKCS1V15_CRYPT,
+				   in, in_len, NULL, 0, out, out_max, &olen) != PSA_SUCCESS)
+		return -1;
+	return (int)olen;
+}
+
+int
+lws_genrsa_private_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
+			   size_t in_len, uint8_t *out, size_t out_max)
+{
+	size_t olen;
+	if (psa_asymmetric_decrypt(ctx->key_id, PSA_ALG_RSA_PKCS1V15_CRYPT,
+				   in, in_len, NULL, 0, out, out_max, &olen) != PSA_SUCCESS)
+		return -1;
+	return (int)olen;
+}
+
+int
+lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
+			  size_t in_len, uint8_t *out)
+{
+	size_t olen;
+	if (psa_asymmetric_encrypt(ctx->key_id, PSA_ALG_RSA_PKCS1V15_CRYPT,
+				   in, in_len, NULL, 0, out, 4096, &olen) != PSA_SUCCESS)
+		return -1;
+	return (int)olen;
+}
+
+int
+lws_genrsa_private_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
+			   size_t in_len, uint8_t *out)
+{
+	size_t olen;
+	if (psa_asymmetric_encrypt(ctx->key_id, PSA_ALG_RSA_PKCS1V15_CRYPT,
+				   in, in_len, NULL, 0, out, 4096, &olen) != PSA_SUCCESS)
+		return -1;
+	return (int)olen;
+}
+
+int
+lws_genrsa_hash_sig_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
+			 enum lws_genhash_types hash_type, const uint8_t *sig,
+			 size_t sig_len)
+{
+	psa_algorithm_t alg;
+	if (ctx->mode == LGRSAM_PKCS1_1_5) {
+		alg = PSA_ALG_RSA_PKCS1V15_SIGN(PSA_ALG_ANY_HASH); /* We'll use specific if needed */
+	} else {
+		alg = PSA_ALG_RSA_PSS_ANY_SALT(PSA_ALG_ANY_HASH);
+	}
+	if (psa_verify_hash(ctx->key_id, alg, in, lws_genhash_size(hash_type), sig, sig_len) != PSA_SUCCESS)
+		return -1;
+	return 0;
+}
+
+int
+lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
+		       enum lws_genhash_types hash_type, uint8_t *sig,
+		       size_t sig_len)
+{
+	size_t olen;
+	psa_algorithm_t alg;
+	if (ctx->mode == LGRSAM_PKCS1_1_5) {
+		alg = PSA_ALG_RSA_PKCS1V15_SIGN(PSA_ALG_ANY_HASH);
+	} else {
+		alg = PSA_ALG_RSA_PSS_ANY_SALT(PSA_ALG_ANY_HASH);
+	}
+	if (psa_sign_hash(ctx->key_id, alg, in, lws_genhash_size(hash_type), sig, sig_len, &olen) != PSA_SUCCESS)
+		return -1;
+	return (int)olen;
+}
+
+int
+lws_genrsa_render_pkey_asn1(struct lws_genrsa_ctx *ctx, int _private,
+			    uint8_t *pkey_asn1, size_t pkey_asn1_len)
+{
+	size_t olen;
+	if (psa_export_key(ctx->key_id, pkey_asn1, pkey_asn1_len, &olen) != PSA_SUCCESS)
+		return -1;
+	return (int)olen;
+}
+
+void
+lws_genrsa_destroy(struct lws_genrsa_ctx *ctx)
+{
+	psa_destroy_key(ctx->key_id);
+}
+
+#endif

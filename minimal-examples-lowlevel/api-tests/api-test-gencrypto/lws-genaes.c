@@ -207,6 +207,7 @@ bail:
     (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_CFB))) || \
     (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_cfb8))
 
+#if !defined(LWS_HAVE_MBEDTLS_V4)
 static const uint8_t
 /*
  * produced with (plaintext.txt contains "test plaintext\0\0")
@@ -228,7 +229,9 @@ cfb8_enc[] = {
 	0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
 	0xfe, 0xdc, 0xba, 0x98, 0x76, 0x54, 0x32, 0x10,
 };
+#endif
 
+#if !defined(LWS_HAVE_MBEDTLS_V4)
 static int
 test_genaes_cfb8(void)
 {
@@ -290,6 +293,7 @@ bail:
 
 	return -1;
 }
+#endif
 #endif
 
 #if (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_CTR))) || \
@@ -597,6 +601,7 @@ bail:
 #if (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_XTS))) || \
     (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_xts))
 
+#if !defined(LWS_HAVE_MBEDTLS_V4)
 static const uint8_t
 	/*
 	 * Fedora openssl tool doesn't support xts... this data produced
@@ -620,6 +625,8 @@ static const uint8_t
 		0x5f, 0x31, 0x9e, 0xcd, 0x33, 0x08, 0xa0, 0x44
 	}
 ;
+#endif
+#if !defined(LWS_HAVE_MBEDTLS_V4)
 static int
 test_genaes_xts(void)
 {
@@ -689,6 +696,7 @@ bail:
 
 	return -1;
 }
+#endif
 #endif
 
 //#if !defined(LWS_WITH_SCHANNEL)
@@ -832,8 +840,10 @@ test_genaes(struct lws_context *context)
 #if defined(LWS_WITH_SCHANNEL) || \
     (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_CFB))) || \
     (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_cfb8))
+#if !defined(LWS_HAVE_MBEDTLS_V4)
 	if (test_genaes_cfb8())
 		goto bail;
+#endif
 #endif
 #if (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_CTR))) || \
     (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_ctr))
@@ -853,8 +863,10 @@ test_genaes(struct lws_context *context)
 #endif
 #if (defined(LWS_WITH_MBEDTLS) && (!defined(MBEDTLS_CONFIG_H) || defined(MBEDTLS_CIPHER_MODE_XTS))) || \
     (!defined(LWS_WITH_MBEDTLS) && defined(LWS_HAVE_EVP_aes_128_xts))
+#if !defined(LWS_HAVE_MBEDTLS_V4)
 	if (test_genaes_xts())
 		goto bail;
+#endif
 #endif
 
 //#if !defined(LWS_WITH_SCHANNEL)

@@ -416,7 +416,9 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		return 1;
 	}
 
+#if !defined(LWS_HAVE_MBEDTLS_V4)
 	vh->tls.ssl_client_ctx->rngctx = &vh->context->mcdc;
+#endif
 	if (!ca_filepath && (!ca_mem || !ca_mem_len)) {
 #if defined(LWS_HAVE_SSL_CTX_load_verify_dir)
 		if (!SSL_CTX_load_verify_dir(

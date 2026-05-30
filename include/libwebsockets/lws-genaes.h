@@ -34,8 +34,12 @@
 ///@{
 
 #if defined(LWS_WITH_MBEDTLS)
+#if !defined(LWS_HAVE_MBEDTLS_V4)
 #include <mbedtls/aes.h>
 #include <mbedtls/gcm.h>
+#else
+#include <psa/crypto.h>
+#endif
 #endif
 
 enum enum_aes_modes {
@@ -67,6 +71,7 @@ enum enum_aes_padding {
 
 struct lws_genaes_ctx {
 #if defined(LWS_WITH_MBEDTLS)
+#if !defined(LWS_HAVE_MBEDTLS_V4)
 	union {
 		mbedtls_aes_context ctx;
 #if defined(MBEDTLS_CIPHER_MODE_XTS)
@@ -74,6 +79,12 @@ struct lws_genaes_ctx {
 #endif
 		mbedtls_gcm_context ctx_gcm;
 	} u;
+#else
+	psa_key_id_t key_id;
+	psa_algorithm_t alg;
+	psa_cipher_operation_t cipher_ctx;
+	psa_aead_operation_t aead_ctx;
+#endif
 #elif defined(LWS_WITH_SCHANNEL)
 	struct {
 		void *hAlg;

@@ -48,9 +48,38 @@
  * We have the _ret variants available, check the return codes on everything
  */
 
+#if defined(LWS_HAVE_MBEDTLS_V4)
+static psa_algorithm_t
+lws_genhash_to_psa_alg(enum lws_genhash_types type)
+{
+	switch (type) {
+	case LWS_GENHASH_TYPE_MD5: return PSA_ALG_MD5;
+	case LWS_GENHASH_TYPE_SHA1: return PSA_ALG_SHA_1;
+	case LWS_GENHASH_TYPE_SHA256: return PSA_ALG_SHA_256;
+	case LWS_GENHASH_TYPE_SHA384: return PSA_ALG_SHA_384;
+	case LWS_GENHASH_TYPE_SHA512: return PSA_ALG_SHA_512;
+	default: return 0;
+	}
+}
+#endif
+
 int
 lws_genhash_init(struct lws_genhash_ctx *ctx, enum lws_genhash_types type)
 {
+#if defined(LWS_HAVE_MBEDTLS_V4)
+	psa_algorithm_t alg;
+
+	ctx->type = (uint8_t)type;
+	alg = lws_genhash_to_psa_alg(type);
+	if (!alg)
+		return 1;
+
+	ctx->hash_ctx = psa_hash_operation_init();
+	if (psa_hash_setup(&ctx->hash_ctx, alg) != PSA_SUCCESS)
+		return 1;
+
+	return 0;
+#else
 	ctx->type = (uint8_t)type;
 
 	switch (ctx->type) {
@@ -84,11 +113,21 @@ lws_genhash_init(struct lws_genhash_ctx *ctx, enum lws_genhash_types type)
 	}
 
 	return 0;
+#endif
 }
 
 int
 lws_genhash_update(struct lws_genhash_ctx *ctx, const void *in, size_t len)
 {
+#if defined(LWS_HAVE_MBEDTLS_V4)
+	if (!len)
+		return 0;
+
+	if (psa_hash_update(&ctx->hash_ctx, in, len) != PSA_SUCCESS)
+		return 1;
+
+	return 0;
+#else
 	if (!len)
 		return 0;
 
@@ -116,11 +155,26 @@ lws_genhash_update(struct lws_genhash_ctx *ctx, const void *in, size_t len)
 	}
 
 	return 0;
+#endif
 }
 
 int
 lws_genhash_destroy(struct lws_genhash_ctx *ctx, void *result)
 {
+#if defined(LWS_HAVE_MBEDTLS_V4)
+	size_t hash_len;
+
+	if (result) {
+		if (psa_hash_finish(&ctx->hash_ctx, result, LWS_GENHASH_LARGEST, &hash_len) != PSA_SUCCESS) {
+			psa_hash_abort(&ctx->hash_ctx);
+			return 1;
+		}
+	} else {
+		psa_hash_abort(&ctx->hash_ctx);
+	}
+
+	return 0;
+#else
 	switch (ctx->type) {
 	case LWS_GENHASH_TYPE_MD5:
 		if (mbedtls_md5_finish_ret(&ctx->u.md5, result))
@@ -150,6 +204,7 @@ lws_genhash_destroy(struct lws_genhash_ctx *ctx, void *result)
 	}
 
 	return 0;
+#endif
 }
 
 #else
@@ -249,10 +304,50 @@ lws_genhash_destroy(struct lws_genhash_ctx *ctx, void *result)
 
 #endif
 
+#if defined(LWS_HAVE_MBEDTLS_V4)
+static psa_algorithm_t
+lws_genhmac_to_psa_alg(enum lws_genhmac_types type)
+{
+	switch (type) {
+	case LWS_GENHMAC_TYPE_SHA1: return PSA_ALG_SHA_1;
+	case LWS_GENHMAC_TYPE_SHA256: return PSA_ALG_SHA_256;
+	case LWS_GENHMAC_TYPE_SHA384: return PSA_ALG_SHA_384;
+	case LWS_GENHMAC_TYPE_SHA512: return PSA_ALG_SHA_512;
+	default: return 0;
+	}
+}
+#endif
+
 int
 lws_genhmac_init(struct lws_genhmac_ctx *ctx, enum lws_genhmac_types type,
 		 const uint8_t *key, size_t key_len)
 {
+#if defined(LWS_HAVE_MBEDTLS_V4)
+	psa_algorithm_t alg, hmac_alg;
+	psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
+
+	ctx->type = (uint8_t)type;
+	alg = lws_genhmac_to_psa_alg(type);
+	if (!alg)
+		return -1;
+
+	hmac_alg = PSA_ALG_HMAC(alg);
+
+	psa_set_key_usage_flags(&attributes, PSA_KEY_USAGE_SIGN_HASH | PSA_KEY_USAGE_VERIFY_HASH | PSA_KEY_USAGE_SIGN_MESSAGE | PSA_KEY_USAGE_VERIFY_MESSAGE);
+	psa_set_key_algorithm(&attributes, hmac_alg);
+	psa_set_key_type(&attributes, PSA_KEY_TYPE_HMAC);
+
+	if (psa_import_key(&attributes, key, key_len, &ctx->key_id) != PSA_SUCCESS)
+		return -1;
+
+	ctx->mac_ctx = psa_mac_operation_init();
+	if (psa_mac_sign_setup(&ctx->mac_ctx, ctx->key_id, hmac_alg) != PSA_SUCCESS) {
+		psa_destroy_key(ctx->key_id);
+		return -1;
+	}
+
+	return 0;
+#else
 	int t;
 
 	ctx->type = (uint8_t)type;
@@ -298,11 +393,21 @@ lws_genhmac_init(struct lws_genhmac_ctx *ctx, enum lws_genhmac_types type,
 	}
 
 	return 0;
+#endif
 }
 
 int
 lws_genhmac_update(struct lws_genhmac_ctx *ctx, const void *in, size_t len)
 {
+#if defined(LWS_HAVE_MBEDTLS_V4)
+	if (!len)
+		return 0;
+
+	if (psa_mac_update(&ctx->mac_ctx, in, len) != PSA_SUCCESS)
+		return -1;
+
+	return 0;
+#else
 	if (!len)
 		return 0;
 
@@ -310,11 +415,27 @@ lws_genhmac_update(struct lws_genhmac_ctx *ctx, const void *in, size_t len)
 		return -1;
 
 	return 0;
+#endif
 }
 
 int
 lws_genhmac_destroy(struct lws_genhmac_ctx *ctx, void *result)
 {
+#if defined(LWS_HAVE_MBEDTLS_V4)
+	size_t mac_len;
+	int ret = 0;
+
+	if (result) {
+		if (psa_mac_sign_finish(&ctx->mac_ctx, result, LWS_GENHASH_LARGEST, &mac_len) != PSA_SUCCESS)
+			ret = -1;
+	} else {
+		psa_mac_abort(&ctx->mac_ctx);
+	}
+
+	psa_destroy_key(ctx->key_id);
+
+	return ret;
+#else
 	int n = 0;
 
 	if (result)
@@ -326,4 +447,5 @@ lws_genhmac_destroy(struct lws_genhmac_ctx *ctx, void *result)
 		return -1;
 
 	return 0;
+#endif
 }

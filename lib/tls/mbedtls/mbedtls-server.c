@@ -248,7 +248,9 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 		return 1;
 	}
 
+#if !defined(LWS_HAVE_MBEDTLS_V4)
 	tls->ssl_ctx->rngctx = &vhost->context->mcdc;
+#endif
 
 	if (tls->cfg_ssl_ca_filepath) {
 		lwsl_notice("%s: vh %s: loading CA filepath %s\n", __func__,

@@ -75,12 +75,18 @@
  #else /* not esp32 */
   #if defined(LWS_WITH_MBEDTLS)
    #include <mbedtls/ssl.h>
+#if !defined(LWS_HAVE_MBEDTLS_V4)
    #include <mbedtls/aes.h>
    #include <mbedtls/gcm.h>
+#endif
    #include <mbedtls/x509_crt.h>
    #include <mbedtls/x509_csr.h>
+#if !defined(LWS_HAVE_MBEDTLS_V4)
    #include <mbedtls/ecp.h>
    #include <mbedtls/ecdsa.h>
+#else
+   #include <psa/crypto.h>
+#endif
   #if defined(LWS_AMAZON_LINUX)
    #include "ssl.h" /* wrapper !!!! */
   #else
