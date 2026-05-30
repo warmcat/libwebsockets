@@ -364,6 +364,25 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 	return 0;
 }
 
+#if defined(WIN32) && defined(LWS_WITH_SCHANNEL)
+#include <windows.h>
+static int is_quic_supported_on_os(void) {
+    OSVERSIONINFOEXW osvi = { sizeof(osvi), 0, 0, 0, 0, {0}, 0, 0 };
+    DWORDLONG const dwlConditionMask = VerSetConditionMask(
+        VerSetConditionMask(
+        VerSetConditionMask(
+            0, VER_MAJORVERSION, VER_GREATER_EQUAL),
+               VER_MINORVERSION, VER_GREATER_EQUAL),
+               VER_BUILDNUMBER,  VER_GREATER_EQUAL);
+
+    osvi.dwMajorVersion = 10;
+    osvi.dwMinorVersion = 0;
+    osvi.dwBuildNumber  = 20348; /* Windows Server 2022 */
+
+    return VerifyVersionInfoW(&osvi, VER_MAJORVERSION | VER_MINORVERSION | VER_BUILDNUMBER, dwlConditionMask) != FALSE;
+}
+#endif
+
 int main(int argc, const char **argv)
 {
 	lws_state_notify_link_t notifier = { { NULL, NULL, NULL },
@@ -382,6 +401,15 @@ int main(int argc, const char **argv)
 	signal(SIGINT, sigint_handler);
 
 	lws_context_info_defaults(&info, NULL);lws_cmdline_option_handle_builtin(argc, argv, &info);
+
+#if defined(WIN32) && defined(LWS_WITH_SCHANNEL)
+	if (lws_cmdline_option(argc, argv, "--h3")) {
+		if (!is_quic_supported_on_os()) {
+			lwsl_user("SChannel QUIC requires Windows 11+ / Server 2022+\n");
+			return 0;
+		}
+	}
+#endif
 
 	lwsl_user("LWS minimal http client [-d<verbosity>] [-l]\n");
 

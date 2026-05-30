@@ -186,14 +186,14 @@ client_rx_cb(struct lejp_ctx *ctx, char reason)
 			break;
 		case CRX_CERT:
 			if (!pss->cert) {
-				pss->cert = malloc(ctx->npos + 1);
+				pss->cert = malloc((size_t)ctx->npos + 1);
 				if (pss->cert) {
 					memcpy(pss->cert, ctx->buf, ctx->npos);
 					pss->cert_len = ctx->npos;
 					pss->cert[pss->cert_len] = '\0';
 				}
 			} else {
-				char *tmp = realloc(pss->cert, (size_t)pss->cert_len + ctx->npos + 1);
+				char *tmp = realloc(pss->cert, (size_t)pss->cert_len + (size_t)ctx->npos + 1);
 				if (tmp) {
 					pss->cert = tmp;
 					memcpy(pss->cert + pss->cert_len, ctx->buf, ctx->npos);
@@ -204,14 +204,14 @@ client_rx_cb(struct lejp_ctx *ctx, char reason)
 			break;
 		case CRX_KEY:
 			if (!pss->key) {
-				pss->key = malloc(ctx->npos + 1);
+				pss->key = malloc((size_t)ctx->npos + 1);
 				if (pss->key) {
 					memcpy(pss->key, ctx->buf, ctx->npos);
 					pss->key_len = ctx->npos;
 					pss->key[pss->key_len] = '\0';
 				}
 			} else {
-				char *tmp = realloc(pss->key, (size_t)pss->key_len + ctx->npos + 1);
+				char *tmp = realloc(pss->key, (size_t)pss->key_len + (size_t)ctx->npos + 1);
 				if (tmp) {
 					pss->key = tmp;
 					memcpy(pss->key + pss->key_len, ctx->buf, ctx->npos);
@@ -293,14 +293,14 @@ stub_req_cb(struct lejp_ctx *ctx, char reason)
 			break;
 		case STUB_FULLCHAIN:
 			if (!a->fullchain) {
-				a->fullchain = malloc(ctx->npos + 1);
+				a->fullchain = malloc((size_t)ctx->npos + 1);
 				if (a->fullchain) {
 					memcpy(a->fullchain, ctx->buf, ctx->npos);
 					a->fc_len = ctx->npos;
 					a->fullchain[a->fc_len] = '\0';
 				}
 			} else {
-				char *tmp = realloc(a->fullchain, (size_t)a->fc_len + ctx->npos + 1);
+				char *tmp = realloc(a->fullchain, (size_t)a->fc_len + (size_t)ctx->npos + 1);
 				if (tmp) {
 					a->fullchain = tmp;
 					memcpy(a->fullchain + a->fc_len, ctx->buf, ctx->npos);
@@ -311,14 +311,14 @@ stub_req_cb(struct lejp_ctx *ctx, char reason)
 			break;
 		case STUB_PRIVKEY:
 			if (!a->privkey) {
-				a->privkey = malloc(ctx->npos + 1);
+				a->privkey = malloc((size_t)ctx->npos + 1);
 				if (a->privkey) {
 					memcpy(a->privkey, ctx->buf, ctx->npos);
 					a->pk_len = ctx->npos;
 					a->privkey[a->pk_len] = '\0';
 				}
 			} else {
-				char *tmp = realloc(a->privkey, (size_t)a->pk_len + ctx->npos + 1);
+				char *tmp = realloc(a->privkey, (size_t)a->pk_len + (size_t)ctx->npos + 1);
 				if (tmp) {
 					a->privkey = tmp;
 					memcpy(a->privkey + a->pk_len, ctx->buf, ctx->npos);
@@ -856,27 +856,26 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 			struct lws_vhost *vh = lws_create_vhost(vhd->cx, &ci);
 			if (vh) {
-				const char *prot, *addr, *path;
-				int port;
-				char url_copy[256];
+				lws_parse_uri_t *pcuri;
 
 				lwsl_notice("%s: Created client vhost for %s\n", __func__, certs_pvo->name);
 
-				lws_strncpy(url_copy, vhd->server_url, sizeof(url_copy));
-				if (!lws_parse_uri(url_copy, &prot, &addr, &port, &path)) {
+				pcuri = lws_parse_uri_create(vhd->server_url);
+				if (pcuri) {
 					struct dist_client_conn *conn = malloc(sizeof(*conn));
 					if (conn) {
 						memset(conn, 0, sizeof(*conn));
 						conn->vhd = vhd;
 						conn->vh = vh;
-						lws_strncpy(conn->addr, addr, sizeof(conn->addr));
-						conn->port = port;
-						lws_strncpy(conn->prot, prot, sizeof(conn->prot));
+						lws_strncpy(conn->addr, pcuri->host, sizeof(conn->addr));
+						conn->port = pcuri->port;
+						lws_strncpy(conn->prot, pcuri->scheme, sizeof(conn->prot));
 						lws_strncpy(conn->name, certs_pvo->name, sizeof(conn->name));
 
 						/* Schedule connection for this domain by fetching hash first */
 						lws_sul_schedule(vhd->cx, 0, &conn->sul, fetch_local_hash, 100 * LWS_US_PER_MS);
 					}
+					lws_parse_uri_destroy(&pcuri);
 				} else {
 					lwsl_err("%s: Failed to parse server url %s\n", __func__, vhd->server_url);
 				}

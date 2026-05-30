@@ -420,7 +420,7 @@ callback_async_dns(struct lws *wsi, enum lws_callback_reasons reason,
 						}
 						q->has_tcp_len = 1;
 						q->tcp_rx_pos = 0;
-						q->tcp_rx_buf = lws_malloc(q->tcp_rx_len + 1, "adns tcp");
+						q->tcp_rx_buf = lws_malloc((size_t)q->tcp_rx_len + 1, "adns tcp");
 						if (!q->tcp_rx_buf) {
 							lwsl_wsi_err(wsi, "OOM");
 							return -1;
@@ -1080,7 +1080,7 @@ lws_async_dns_get_new_tid(struct lws_context *context, lws_adns_q_t *q)
  */
 
 int
-lws_adns_scan_hostsfile(const char *name, uint8_t *ads, size_t adslen)
+lws_adns_scan_hostsfile(const char *name, uint8_t *ads, size_t adslen, int qtype)
 {
 	char had_ads = 0, buf[128], finalized = 0;
 	int fd, ret = 0, l = 0, ol = -1;
@@ -1136,8 +1136,12 @@ lws_adns_scan_hostsfile(const char *name, uint8_t *ads, size_t adslen)
 			    nl == ts.token_len &&
 			    !memcmp(name, ts.token, ts.token_len)) {
 				/* it's a hit */
-				ret = (int)l;
-				break;
+				if ((qtype == LWS_ADNS_RECORD_A && l == 4) ||
+				    (qtype == LWS_ADNS_RECORD_AAAA && l == 16) ||
+				    (qtype != LWS_ADNS_RECORD_A && qtype != LWS_ADNS_RECORD_AAAA)) {
+					ret = (int)l;
+					break;
+				}
 			}
 			if (ts.e == LWS_TOKZE_TOKEN && !had_ads && ts.token_len < 50) {
 				/* we're getting an ipv4 or ipv6 numads */
@@ -1301,7 +1305,22 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 			 * Not directly numeric and not explicitly bypassing...
 			 * look through /etc/hosts
 			 */
-			m = lws_adns_scan_hostsfile(name, ads, sizeof(ads));
+			m = lws_adns_scan_hostsfile(name, ads, sizeof(ads), qtype & 0xff);
+
+#if defined(WIN32)
+		if (m < 4 && !strcmp(name, "localhost")) {
+			if (qtype == LWS_ADNS_RECORD_A) {
+				ads[0] = 127; ads[1] = 0; ads[2] = 0; ads[3] = 1;
+				m = 4;
+			}
+#if defined(LWS_WITH_IPV6)
+			else if (qtype == LWS_ADNS_RECORD_AAAA) {
+				memset(ads, 0, 15); ads[15] = 1;
+				m = 16;
+			}
+#endif
+		}
+#endif
 #endif
 	}
 
@@ -1497,7 +1516,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 
 	p = (char *)&q[1];
 	while (nlen--) {
-		*p++ = (char)tolower(*name++);
+		*p++ = (char)tolower((uint8_t)*name++);
 		p[DNS_MAX - 1] = p[-1];
 	}
 	*p = '\0';

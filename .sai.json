@@ -69,7 +69,7 @@
 		"w11/x86_64-amd/msvc": {
 			"default": false,
 			"build": [
-				"\"C:\\Program Files\\CMake\\bin\\cmake.exe\" -S . -B build -DOPENSSL_ROOT_DIR=\"C:\\Users\\andy\\vcpkg\\packages\\openssl_x64-windows\" -DLWS_EXT_PTHREAD_INCLUDE_DIR=\"C:\\Program Files (x86)\\pthreads\\include\" -DLWS_EXT_PTHREAD_LIBRARIES=\"C:\\Program Files (x86)\\pthreads\\lib\\x64\\libpthreadGC2.a\" ${cmake}",
+				"\"C:\\Program Files\\CMake\\bin\\cmake.exe\" -S . -B build -DLWS_WITH_SCHANNEL=0 -DOPENSSL_ROOT_DIR=\"C:\\Users\\andy\\vcpkg\\packages\\openssl_x64-windows\" -DLWS_EXT_PTHREAD_INCLUDE_DIR=\"C:\\Program Files (x86)\\pthreads\\include\" -DLWS_EXT_PTHREAD_LIBRARIES=\"C:\\Program Files (x86)\\pthreads\\lib\\x64\\libpthreadGC2.a\" ${cmake}",
 				"\"C:\\Program Files\\CMake\\bin\\cmake.exe\" --build build --config DEBUG --parallel %SAI_PARALLEL%",
 				"\"C:\\Program Files\\CMake\\bin\\ctest.exe\" --test-dir build -C DEBUG -j%SAI_PARALLEL% --output-on-failure --repeat until-pass:3"
 			]
@@ -120,10 +120,14 @@
 			"cmake":	"-DLWS_WITH_SYS_FAULT_INJECTION=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_CBOR=1"
 		},
 		"esp32-heltec": {
-                        "cmake":        "-DLWS_IPV6=0",
+                        "cmake":        "-DLWS_IPV6=1",
                         "cpack":        "esp-heltec-wb32",
                         "platforms":    "none, freertos-espidf/xl6-esp32/gcc"
                 },
+		"mbedtls4": {
+			"cmake":	"-DLWS_WITH_MBEDTLS=1 -DCMAKE_PREFIX_PATH=/opt/mbedtls -DLWS_WITH_MINIMAL_EXAMPLES=1",
+			"platforms":	"none, rocky9/aarch64-a72a55-rk3588/gcc"
+		},
 		"gnutls": {
 			"cmake":	"-DLWS_WITH_GNUTLS=1 -DLWS_GNUTLS_INCLUDE_DIRS=\"/opt/gnutls/lib/includes\" -DLWS_GNUTLS_LIBRARIES=\"/opt/gnutls/lib/.libs/libgnutls.so\" -DLWS_ROLE_QUIC=1",
 			"platforms":	"none, rocky9/aarch64-a72a55-rk3588/gcc"

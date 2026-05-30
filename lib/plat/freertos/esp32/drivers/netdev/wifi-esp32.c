@@ -361,24 +361,32 @@ _event_handler_ip(void *arg, esp_event_base_t event_base, int32_t event_id,
 	if (event_id == IP_EVENT_STA_GOT_IP) {
 		ip_event_got_ip_t *e = (ip_event_got_ip_t *)event_data;
 		char ip[16];
-#if 0
-		tcpip_adapter_dns_info_t e32ip;
+#if defined(LWS_WITH_ROUTING)
+		struct lws_context_per_thread *pt = &ctx->pt[0];
+		lws_route_t *rou;
 
-		/*
-		 * Since atm we get this via DHCP, presumably we can get ahold
-		 * of related info set by the router
-		 */
+		lws_pt_lock(pt, __func__);
+		_lws_route_table_ifdown(pt, 0);
 
-		if (tcpip_adapter_get_dns_info(TCPIP_ADAPTER_IF_STA,
-					   TCPIP_ADAPTER_DNS_MAIN,
-					   /* also _BACKUP, _FALLBACK */
-					   &e32ip)) {
-			lwsl_err("%s: there's no dns server set\n", __func__);
-			e32ip.ip.u_addr.ipv4 = 0x08080808;
-			e32ip.ip.type = ESP_IPADDR_TYPE_V4;
+		rou = lws_zalloc(sizeof(*rou), __func__);
+		if (rou) {
+			rou->if_idx = 0;
+			rou->priority = 0;
+			rou->dest_len = 0;
+			rou->dest.sa4.sin_family = AF_INET;
+			
+			rou->src_len = 32;
+			rou->src.sa4.sin_family = AF_INET;
+			memcpy(&rou->src.sa4.sin_addr, &e->ip_info.ip, 4);
+			
+			rou->gateway.sa4.sin_family = AF_INET;
+			memcpy(&rou->gateway.sa4.sin_addr, &e->ip_info.gw, 4);
+
+			rou->uidx = _lws_route_get_uidx(ctx);
+
+			lws_dll2_add_tail(&rou->list, &ctx->routing_table);
 		}
-
-		netdevs->sa46_dns_resolver.
+		lws_pt_unlock(pt);
 #endif
 
 		lws_write_numeric_address((void *)&e->ip_info.ip, 4, ip,

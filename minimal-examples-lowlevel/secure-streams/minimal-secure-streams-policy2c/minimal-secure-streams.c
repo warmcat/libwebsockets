@@ -379,6 +379,7 @@ int main(int argc, const char **argv)
 		switch (pol->protocol) {
 		case LWSSSP_H1:
 		case LWSSSP_H2:
+		case LWSSSP_H3:
 		case LWSSSP_WS:
 
 			if (!pol->u.http.count_respmap)
@@ -499,6 +500,7 @@ int main(int argc, const char **argv)
 		switch (pol->protocol) {
 		case LWSSSP_H1:
 		case LWSSSP_H2:
+		case LWSSSP_H3:
 		case LWSSSP_WS:
 
 			printf("\t.u = {\n\t\t.http = {\n");

@@ -380,11 +380,7 @@ const struct lws_role_ops role_ops_raw_skt = {
 	  /* LWS_ROPS_close_role */
 	  /* LWS_ROPS_close_kill_connection */		0x00,
 	  /* LWS_ROPS_destroy_role */
-#if defined(LWS_WITH_SERVER)
 	  /* LWS_ROPS_adoption_bind */			0x02,
-#else
-	  /* LWS_ROPS_adoption_bind */			0x00,
-#endif
 #if defined(LWS_WITH_CLIENT)
 	  /* LWS_ROPS_client_bind */
 	  /* LWS_ROPS_issue_keepalive */		0x30,

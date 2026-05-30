@@ -295,7 +295,16 @@ lws_gendtls_put_rx(struct lws_gendtls_ctx *ctx, const uint8_t *in, size_t len)
 int
 lws_gendtls_get_rx(struct lws_gendtls_ctx *ctx, uint8_t *out, size_t max_len)
 {
-	int ret = mbedtls_ssl_read(&ctx->ssl, out, max_len);
+	int ret;
+	do {
+		ret = mbedtls_ssl_read(&ctx->ssl, out, max_len);
+	} while (
+#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
+		ret == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET
+#else
+		0
+#endif
+	);
 
 	if (ret > 0)
 		return ret;
@@ -322,7 +331,15 @@ lws_gendtls_put_tx(struct lws_gendtls_ctx *ctx, const uint8_t *in, size_t len)
 	int ret;
 
 	while (len) {
-		ret = mbedtls_ssl_write(&ctx->ssl, in, len);
+		do {
+			ret = mbedtls_ssl_write(&ctx->ssl, in, len);
+		} while (
+#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
+			ret == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET
+#else
+			0
+#endif
+		);
 		if (ret > 0) {
 			in += ret;
 			len -= (size_t)ret;

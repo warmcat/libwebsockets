@@ -849,7 +849,8 @@ malformed:
 		 * body
 		 */
 		if ((h->policy->protocol == LWSSSP_H1 ||
-		     h->policy->protocol == LWSSSP_H2) &&
+		     h->policy->protocol == LWSSSP_H2 ||
+		     h->policy->protocol == LWSSSP_H3) &&
 		     h->being_serialized && (
 #if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_HTTP_HEADERS_ALL)
 				!strcmp(h->policy->u.http.method, "PUT") ||

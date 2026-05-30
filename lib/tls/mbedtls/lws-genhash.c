@@ -165,7 +165,7 @@ lws_genhash_destroy(struct lws_genhash_ctx *ctx, void *result)
 	size_t hash_len;
 
 	if (result) {
-		if (psa_hash_finish(&ctx->hash_ctx, result, LWS_GENHASH_LARGEST, &hash_len) != PSA_SUCCESS) {
+		if (psa_hash_finish(&ctx->hash_ctx, result, lws_genhash_size(ctx->type), &hash_len) != PSA_SUCCESS) {
 			psa_hash_abort(&ctx->hash_ctx);
 			return 1;
 		}
@@ -426,7 +426,7 @@ lws_genhmac_destroy(struct lws_genhmac_ctx *ctx, void *result)
 	int ret = 0;
 
 	if (result) {
-		if (psa_mac_sign_finish(&ctx->mac_ctx, result, LWS_GENHASH_LARGEST, &mac_len) != PSA_SUCCESS)
+		if (psa_mac_sign_finish(&ctx->mac_ctx, result, lws_genhmac_size(ctx->type), &mac_len) != PSA_SUCCESS)
 			ret = -1;
 	} else {
 		psa_mac_abort(&ctx->mac_ctx);

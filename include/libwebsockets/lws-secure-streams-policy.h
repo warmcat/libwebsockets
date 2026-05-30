@@ -152,6 +152,7 @@ typedef struct lws_ss_trust_store {
 enum {
 	LWSSSP_H1,
 	LWSSSP_H2,
+	LWSSSP_H3,
 	LWSSSP_WS,
 	LWSSSP_MQTT,
 	LWSSSP_RAW,
@@ -267,6 +268,8 @@ typedef struct lws_ss_policy {
 //				} h1;
 //				struct { /* LWSSSP_H2 */
 //				} h2;
+//				struct { /* LWSSSP_H3 */
+//				} h3;
 				struct { /* LWSSSP_WS */
 					const char	*subprotocol;
 					uint8_t		binary;

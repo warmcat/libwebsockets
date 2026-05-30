@@ -35,6 +35,11 @@ static const struct ss_pcols *ss_pcols[] = {
 #else
 	NULL,
 #endif
+#if defined(LWS_ROLE_H3)
+	&ss_pcol_h3,		/* LWSSSP_H3 */
+#else
+	NULL,
+#endif
 #if defined(LWS_ROLE_WS)
 	&ss_pcol_ws,		/* LWSSSP_WS */
 #else
@@ -1993,6 +1998,7 @@ lws_ss_request_tx_len(lws_ss_handle_t *h, unsigned long len)
 	if (h->wsi && h->policy &&
 	    (h->policy->protocol == LWSSSP_H1 ||
 	     h->policy->protocol == LWSSSP_H2 ||
+	     h->policy->protocol == LWSSSP_H3 ||
 	     h->policy->protocol == LWSSSP_WS))
 		h->wsi->http.writeable_len = len;
 	else

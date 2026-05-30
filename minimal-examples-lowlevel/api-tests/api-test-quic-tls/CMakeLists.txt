@@ -11,6 +11,7 @@ set(SRCS main.c)
 set(requirements 1)
 require_lws_config(LWS_WITH_TLS 1 requirements)
 require_lws_config(LWS_ROLE_QUIC 1 requirements)
+require_lws_config(LWS_WITH_NETWORK 1 requirements)
 
 if (requirements)
 

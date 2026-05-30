@@ -45,7 +45,17 @@
 #include <netinet6/in6_var.h>
 #endif
 
-#if defined(LWS_WITH_IPV6) && defined(LWS_WITH_NETLINK)
+#if !defined(IFA_F_DEPRECATED)
+#define IFA_F_DEPRECATED 0
+#endif
+#if !defined(IFA_F_HOMEADDRESS)
+#define IFA_F_HOMEADDRESS 0
+#endif
+#if !defined(IFA_F_TEMPORARY)
+#define IFA_F_TEMPORARY 0
+#endif
+
+#if defined(LWS_WITH_IPV6) && defined(LWS_WITH_ROUTING)
 
 /*
  * RFC6724 default policy table
@@ -589,7 +599,7 @@ lws_sort_dns_dump(struct lws *wsi)
 int
 lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 {
-#if defined(LWS_WITH_NETLINK)
+#if defined(LWS_WITH_ROUTING)
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 #endif
 	const struct addrinfo *ai = result;
@@ -606,7 +616,7 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 	 */
 
 	while (ai) {
-#if defined(LWS_WITH_NETLINK)
+#if defined(LWS_WITH_ROUTING)
 		lws_route_t *estr = NULL
 #if defined(LWS_WITH_IPV6)
 			, *bestsrc = NULL
@@ -635,7 +645,7 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 		lwsl_wsi_info(wsi, "unsorted entry (af %d) %s",
 				   ds->dest.sa4.sin_family, afip);
 
-#if defined(LWS_WITH_NETLINK)
+#if defined(LWS_WITH_ROUTING)
 
 		/*
 		 * Let's assess this DNS result in terms of route
@@ -666,7 +676,7 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 		}
 #endif
 
-#if defined(LWS_WITH_NETLINK) && defined(LWS_WITH_IPV6)
+#if defined(LWS_WITH_ROUTING) && defined(LWS_WITH_IPV6)
 
 		/*
 		 * These sorting rules only apply to ipv6.  If we have ipv4

@@ -26,8 +26,10 @@
 #include "mbedtls/net.h"
 #endif
 #include "mbedtls/debug.h"
+#if !defined(LWS_HAVE_MBEDTLS_V4)
 #include "mbedtls/entropy.h"
 #include "mbedtls/ctr_drbg.h"
+#endif
 #include "mbedtls/error.h"
 
 #define X509_INFO_STRING_LENGTH 8192
@@ -41,11 +43,15 @@ struct ssl_pm
 
     mbedtls_ssl_config conf;
 
+#if !defined(LWS_HAVE_MBEDTLS_V4)
     mbedtls_ctr_drbg_context ctr_drbg;
+#endif
 
     mbedtls_ssl_context ssl;
 
+#if !defined(LWS_HAVE_MBEDTLS_V4)
     mbedtls_entropy_context entropy;
+#endif
 
     SSL *owner;
 };
@@ -114,8 +120,10 @@ int ssl_pm_new(SSL *ssl)
     struct ssl_pm *ssl_pm;
     int ret;
 
+#if !defined(LWS_HAVE_MBEDTLS_V4)
     const unsigned char pers[] = "OpenSSL PM";
     size_t pers_len = sizeof(pers);
+#endif
 
     int endpoint;
     //int version;
@@ -140,8 +148,10 @@ int ssl_pm_new(SSL *ssl)
     mbedtls_net_init(&ssl_pm->cl_fd);
 
     mbedtls_ssl_config_init(&ssl_pm->conf);
+#if !defined(LWS_HAVE_MBEDTLS_V4)
     mbedtls_ctr_drbg_init(&ssl_pm->ctr_drbg);
     mbedtls_entropy_init(&ssl_pm->entropy);
+#endif
     mbedtls_ssl_init(&ssl_pm->ssl);
 
 #if defined(LWS_HAVE_mbedtls_ssl_set_verify)
@@ -150,11 +160,13 @@ int ssl_pm_new(SSL *ssl)
     mbedtls_ssl_conf_verify(&ssl_pm->conf, lws_mbedtls_f_vrfy, ssl_pm);
 #endif
 
+#if !defined(LWS_HAVE_MBEDTLS_V4)
     ret = mbedtls_ctr_drbg_seed(&ssl_pm->ctr_drbg, mbedtls_entropy_func, &ssl_pm->entropy, pers, pers_len);
     if (ret) {
         lwsl_notice("%s: mbedtls_ctr_drbg_seed() return -0x%x", __func__, -ret);
         //goto mbedtls_err1;
     }
+#endif
 
     if (method->endpoint) {
         endpoint = MBEDTLS_SSL_IS_SERVER;
@@ -220,9 +232,11 @@ int ssl_pm_new(SSL *ssl)
 
 mbedtls_err2:
     mbedtls_ssl_config_free(&ssl_pm->conf);
+#if !defined(LWS_HAVE_MBEDTLS_V4)
     mbedtls_ctr_drbg_free(&ssl_pm->ctr_drbg);
 //mbedtls_err1:
     mbedtls_entropy_free(&ssl_pm->entropy);
+#endif
     ssl_mem_free(ssl_pm);
 no_mem:
     return -1;
@@ -235,8 +249,10 @@ void ssl_pm_free(SSL *ssl)
 {
     struct ssl_pm *ssl_pm = (struct ssl_pm *)ssl->ssl_pm;
 
+#if !defined(LWS_HAVE_MBEDTLS_V4)
     mbedtls_ctr_drbg_free(&ssl_pm->ctr_drbg);
     mbedtls_entropy_free(&ssl_pm->entropy);
+#endif
     mbedtls_ssl_config_free(&ssl_pm->conf);
     mbedtls_ssl_free(&ssl_pm->ssl);
 
@@ -457,7 +473,15 @@ int ssl_pm_read(SSL *ssl, void *buffer, int len)
 	int ret;
 	struct ssl_pm *ssl_pm = (struct ssl_pm *)ssl->ssl_pm;
 
-	ret = mbedtls_ssl_read(&ssl_pm->ssl, buffer, (size_t)len);
+	do {
+		ret = mbedtls_ssl_read(&ssl_pm->ssl, buffer, (size_t)len);
+	} while (
+#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
+		ret == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET
+#else
+		0
+#endif
+	);
 	if (ret < 0) {
 //		lwsl_notice("%s: mbedtls_ssl_read says -0x%x\n", __func__, -ret);
 		SSL_DEBUG(SSL_PLATFORM_ERROR_LEVEL, "mbedtls_ssl_read() return -0x%x", -ret);
@@ -498,7 +522,15 @@ int ssl_pm_send(SSL *ssl, const void *buffer, int len)
     int ret;
     struct ssl_pm *ssl_pm = (struct ssl_pm *)ssl->ssl_pm;
 
-    ret = mbedtls_ssl_write(&ssl_pm->ssl, buffer, (size_t)len);
+	do {
+		ret = mbedtls_ssl_write(&ssl_pm->ssl, buffer, (size_t)len);
+	} while (
+#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
+		ret == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET
+#else
+		0
+#endif
+	);
     /*
      * We can get a positive number, which may be less than len... that
      * much was sent successfully and you can call again to send more.
@@ -854,7 +886,9 @@ int pkey_pm_load(EVP_PKEY *pk, const unsigned char *buffer, int len)
     int ret;
     unsigned char *load_buf;
     struct pkey_pm *pkey_pm = (struct pkey_pm *)pk->pkey_pm;
+#if !defined(LWS_HAVE_MBEDTLS_V4)
     mbedtls_ctr_drbg_context ctr_drbg;
+#endif
 
     if (pkey_pm->pkey)
         mbedtls_pk_free(pkey_pm->pkey);
@@ -877,7 +911,9 @@ int pkey_pm_load(EVP_PKEY *pk, const unsigned char *buffer, int len)
     load_buf[len] = '\0';
 
     mbedtls_pk_init(pkey_pm->pkey);
+#if !defined(LWS_HAVE_MBEDTLS_V4)
     mbedtls_ctr_drbg_init(&ctr_drbg);
+#endif
 
 #if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000 && !defined(LWS_HAVE_MBEDTLS_V4)
 #if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03050000
@@ -899,12 +935,16 @@ int pkey_pm_load(EVP_PKEY *pk, const unsigned char *buffer, int len)
         goto failed;
     }
 
+#if !defined(LWS_HAVE_MBEDTLS_V4)
     mbedtls_ctr_drbg_free(&ctr_drbg);
+#endif
 
     return 0;
 
 failed:
+#if !defined(LWS_HAVE_MBEDTLS_V4)
     mbedtls_ctr_drbg_free(&ctr_drbg);
+#endif
     mbedtls_pk_free(pkey_pm->pkey);
     ssl_mem_free(pkey_pm->pkey);
     pkey_pm->pkey = NULL;

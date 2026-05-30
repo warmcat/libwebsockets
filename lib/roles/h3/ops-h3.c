@@ -610,7 +610,9 @@ lws_h3_create_unidi_stream(struct lws *nwsi, uint8_t type)
 
 	{
 		uint8_t pre[LWS_PRE + 16];
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 		int n;
+#endif
 		size_t send_len = 1;
 		pre[LWS_PRE] = type;
 		if (type == 0x00) {
@@ -643,11 +645,19 @@ lws_h3_create_unidi_stream(struct lws *nwsi, uint8_t type)
 				send_len = 6;
 			}
 			
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 			n = lws_write(cwsi, &pre[LWS_PRE], send_len, LWS_WRITE_BINARY | LWS_WRITE_NO_FIN);
 			lwsl_notice("lws_h3_create_unidi_stream: lws_write control ret %d\n", n);
+#else
+			lws_write(cwsi, &pre[LWS_PRE], send_len, LWS_WRITE_BINARY | LWS_WRITE_NO_FIN);
+#endif
 		} else {
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 			n = lws_write(cwsi, &pre[LWS_PRE], 1, LWS_WRITE_BINARY | LWS_WRITE_NO_FIN);
 			lwsl_notice("lws_h3_create_unidi_stream: lws_write %d ret %d\n", type, n);
+#else
+			lws_write(cwsi, &pre[LWS_PRE], 1, LWS_WRITE_BINARY | LWS_WRITE_NO_FIN);
+#endif
 		}
 	}
 

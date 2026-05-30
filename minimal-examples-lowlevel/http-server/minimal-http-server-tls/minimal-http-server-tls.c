@@ -110,7 +110,9 @@ int main(int argc, const char **argv)
 #else
 	signal(SIGINT, sigint_handler);
 #endif
-	lws_context_info_defaults(&info, NULL);lws_cmdline_option_handle_builtin(argc, argv, &info);
+	lws_context_info_defaults(&info, NULL);
+	lws_cmdline_option_handle_builtin(argc, argv, &info);
+	info.fd_limit_per_thread = 0;
 	lwsl_user("LWS minimal http server TLS | visit https://localhost:7681\n");
 
 	info.port = 7681;

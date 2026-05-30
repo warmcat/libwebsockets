@@ -56,22 +56,27 @@ if (requirements)
 	set_tests_properties(crypto-cose-sign-6	PROPERTIES
 						DEPENDS crypto-cose-sign-3)
 
-	# RSA 4096 signing
-	
-	add_test(NAME crypto-cose-sign-7
-	 COMMAND lws-crypto-cose-sign -s -k rsa-4096.ck
-	 	--alg RS512 --cose-sign
-	 	--stdin payload.txt
-	 	--stdout ctest-sig-rs512.sig)
-	 	
-	 # RSA 4096 validation
-
-	add_test(NAME crypto-cose-sign-8
-		 COMMAND lws-crypto-cose-sign -k rsa-4096.ck --cose-sign
-		 	--stdout r8.txt
-		 	--stdin ctest-sig-rs512.sig)
-	set_tests_properties(crypto-cose-sign-8	PROPERTIES
-						DEPENDS crypto-cose-sign-7)
+	if (NOT LWS_WITH_GNUTLS)
+		# RSA 4096 signing
+		add_test(NAME crypto-cose-sign-7
+		 COMMAND lws-crypto-cose-sign -s -k rsa-4096.ck
+			--alg RS512 --cose-sign
+			--stdin payload.txt
+			--stdout ctest-sig-rs512.sig)
+			
+		 # RSA 4096 validation
+		add_test(NAME crypto-cose-sign-8
+			 COMMAND lws-crypto-cose-sign -k rsa-4096.ck --cose-sign
+				--stdout r8.txt
+				--stdin ctest-sig-rs512.sig)
+		set_tests_properties(crypto-cose-sign-8	PROPERTIES
+							DEPENDS crypto-cose-sign-7)
+		set_tests_properties(crypto-cose-sign-7 crypto-cose-sign-8
+				     PROPERTIES
+					WORKING_DIRECTORY
+						${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/crypto/minimal-crypto-cose-sign
+					TIMEOUT 5)
+	endif()
 						
 	# HMAC signing, cose-mac
 
@@ -186,8 +191,6 @@ if (requirements)
 			     crypto-cose-sign-4
      			     crypto-cose-sign-5
 			     crypto-cose-sign-6
-			     crypto-cose-sign-7
-			     crypto-cose-sign-8
 #    			     crypto-cose-sign-9
 #       		     crypto-cose-sign-10
 #			     crypto-cose-sign-11
