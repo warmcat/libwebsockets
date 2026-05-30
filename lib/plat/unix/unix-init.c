@@ -141,6 +141,7 @@ lws_plat_init(struct lws_context *context,
 	{
 		int n;
 
+#if !defined(LWS_HAVE_MBEDTLS_V4)
 		/* initialize platform random through mbedtls */
 		mbedtls_entropy_init(&context->mec);
 		mbedtls_ctr_drbg_init(&context->mcdc);
@@ -150,6 +151,12 @@ lws_plat_init(struct lws_context *context,
 		if (n)
 			lwsl_err("%s: mbedtls_ctr_drbg_seed() returned 0x%x\n",
 				 __func__, n);
+#else
+		n = psa_crypto_init();
+		if (n != 0)
+			lwsl_err("%s: psa_crypto_init() returned 0x%x\n",
+				 __func__, n);
+#endif
 #if 0
 		else {
 			uint8_t rtest[16];
@@ -269,7 +276,7 @@ lws_plat_context_late_destroy(struct lws_context *context)
 	if (context->fd_random != LWS_INVALID_FILE)
 		close(context->fd_random);
 
-#if defined(LWS_WITH_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS) && !defined(LWS_HAVE_MBEDTLS_V4)
 	mbedtls_entropy_free(&context->mec);
 	mbedtls_ctr_drbg_free(&context->mcdc);
 #endif

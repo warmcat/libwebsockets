@@ -25,6 +25,7 @@
  *  same whether you are using openssl or mbedtls hash functions underneath.
  */
 #include "private-lib-core.h"
+#if !defined(LWS_HAVE_MBEDTLS_V4)
 #if defined(LWS_WITH_JOSE)
 #include "private-lib-jose.h"
 #endif
@@ -445,3 +446,213 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 
 	return 0;
 }
+#else /* LWS_HAVE_MBEDTLS_V4 */
+
+#if defined(LWS_WITH_JOSE)
+#include "private-lib-jose.h"
+#endif
+
+#include <psa/crypto.h>
+
+static unsigned int
+_write_pkcs7_pad(uint8_t *p, int len)
+{
+	unsigned int n = 0, padlen = LWS_AES_CBC_BLOCKLEN * ((unsigned int)len /
+					LWS_AES_CBC_BLOCKLEN + 1) - (unsigned int)len;
+
+	p += len;
+
+	while (n++ < padlen)
+		*p++ = (uint8_t)padlen;
+
+	return padlen;
+}
+
+int
+lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
+		  enum enum_aes_modes mode, struct lws_gencrypto_keyelem *el,
+		  enum enum_aes_padding padding, void *engine)
+{
+	psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
+	psa_algorithm_t alg;
+	psa_key_usage_t usage;
+
+	ctx->mode = mode;
+	ctx->k = el;
+	ctx->op = op; /* We use the enum_aes_operation directly */
+	ctx->underway = 0;
+	ctx->padding = padding == LWS_GAESP_WITH_PADDING;
+	ctx->cipher_ctx = psa_cipher_operation_init();
+	ctx->aead_ctx = psa_aead_operation_init();
+	ctx->key_id = 0;
+
+	usage = (op == LWS_GAESO_ENC) ? PSA_KEY_USAGE_ENCRYPT : PSA_KEY_USAGE_DECRYPT;
+
+	switch (ctx->mode) {
+	case LWS_GAESM_CBC:
+		alg = PSA_ALG_CBC_NO_PADDING;
+		break;
+	case LWS_GAESM_CFB128:
+		alg = PSA_ALG_CFB;
+		break;
+	case LWS_GAESM_CFB8:
+		lwsl_err("%s: AES-CFB8 not supported in V4\n", __func__);
+		return -1;
+	case LWS_GAESM_CTR:
+		alg = PSA_ALG_CTR;
+		break;
+	case LWS_GAESM_ECB:
+		alg = PSA_ALG_ECB_NO_PADDING;
+		break;
+	case LWS_GAESM_OFB:
+		alg = PSA_ALG_OFB;
+		break;
+	case LWS_GAESM_XTS:
+		lwsl_err("%s: AES-XTS not supported in V4\n", __func__);
+		return -1;
+	case LWS_GAESM_GCM:
+		alg = PSA_ALG_GCM;
+		break;
+	case LWS_GAESM_KW:
+		/* Not supported directly via cipher, but we can implement the wrapper */
+		lwsl_err("%s: AES-KW not yet supported in V4\n", __func__);
+		return -1;
+	default:
+		return -1;
+	}
+
+	ctx->alg = alg;
+
+	psa_set_key_type(&attr, PSA_KEY_TYPE_AES);
+	psa_set_key_bits(&attr, el->len * 8);
+	psa_set_key_usage_flags(&attr, usage);
+	psa_set_key_algorithm(&attr, alg);
+
+	if (psa_import_key(&attr, el->buf, el->len, &ctx->key_id) != PSA_SUCCESS) {
+		lwsl_err("%s: psa_import_key failed\n", __func__);
+		return -1;
+	}
+
+	return 0;
+}
+
+int
+lws_genaes_destroy(struct lws_genaes_ctx *ctx, unsigned char *tag, size_t tlen)
+{
+	int ret = 0;
+
+	if (ctx->mode == LWS_GAESM_GCM) {
+		if (ctx->underway) {
+			size_t olen;
+			if (ctx->op == LWS_GAESO_ENC) {
+				if (psa_aead_finish(&ctx->aead_ctx, NULL, 0, &olen, tag, tlen, &olen) != PSA_SUCCESS)
+					ret = -1;
+			} else {
+				if (psa_aead_verify(&ctx->aead_ctx, NULL, 0, &olen, tag, tlen) != PSA_SUCCESS)
+					ret = -1;
+			}
+			psa_aead_abort(&ctx->aead_ctx);
+		}
+	} else {
+		psa_cipher_abort(&ctx->cipher_ctx);
+	}
+
+	if (ctx->key_id) {
+		psa_destroy_key(ctx->key_id);
+		ctx->key_id = 0;
+	}
+
+	return ret;
+}
+
+int
+lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
+		 uint8_t *out, uint8_t *iv_or_nonce_ctr_or_data_unit_16,
+		 uint8_t *stream_block_16, size_t *nc_or_iv_off, int taglen)
+{
+	size_t olen;
+	psa_status_t status;
+
+	switch (ctx->mode) {
+	case LWS_GAESM_KW:
+		lwsl_err("%s: AES-KW not implemented in V4\n", __func__);
+		return -1;
+
+	case LWS_GAESM_CBC:
+	case LWS_GAESM_CFB128:
+	case LWS_GAESM_CFB8:
+	case LWS_GAESM_OFB:
+	case LWS_GAESM_XTS:
+	case LWS_GAESM_ECB:
+	case LWS_GAESM_CTR:
+		if (ctx->op == LWS_GAESO_ENC)
+			status = psa_cipher_encrypt_setup(&ctx->cipher_ctx, ctx->key_id, ctx->alg);
+		else
+			status = psa_cipher_decrypt_setup(&ctx->cipher_ctx, ctx->key_id, ctx->alg);
+		
+		if (status != PSA_SUCCESS) return -1;
+
+		if (ctx->mode != LWS_GAESM_ECB) {
+			status = psa_cipher_set_iv(&ctx->cipher_ctx, iv_or_nonce_ctr_or_data_unit_16, 16);
+			if (status != PSA_SUCCESS) {
+				lwsl_err("%s: set_iv failed %d\n", __func__, (int)status);
+				return -1;
+			}
+		}
+
+		if (ctx->padding && ctx->op == LWS_GAESO_ENC && ctx->mode == LWS_GAESM_CBC) {
+			uint8_t *padin = (uint8_t *)lws_malloc(
+				lws_gencrypto_padded_length(LWS_AES_CBC_BLOCKLEN, len),
+								__func__);
+			if (!padin) {
+				psa_cipher_abort(&ctx->cipher_ctx);
+				return -1;
+			}
+			memcpy(padin, in, len);
+			len += _write_pkcs7_pad((uint8_t *)padin, (int)len);
+			status = psa_cipher_update(&ctx->cipher_ctx, padin, len, out, len + 16, &olen);
+			lws_free(padin);
+		} else {
+			status = psa_cipher_update(&ctx->cipher_ctx, in, len, out, len + 16, &olen);
+		}
+
+		if (status != PSA_SUCCESS) {
+			psa_cipher_abort(&ctx->cipher_ctx);
+			return -1;
+		}
+
+		/* finish */
+		status = psa_cipher_finish(&ctx->cipher_ctx, out + olen, 16, &olen);
+		if (status != PSA_SUCCESS) return -1;
+		break;
+
+	case LWS_GAESM_GCM:
+		if (!ctx->underway) {
+			ctx->underway = 1;
+			ctx->taglen = taglen;
+
+			if (ctx->op == LWS_GAESO_ENC)
+				status = psa_aead_encrypt_setup(&ctx->aead_ctx, ctx->key_id, ctx->alg);
+			else
+				status = psa_aead_decrypt_setup(&ctx->aead_ctx, ctx->key_id, ctx->alg);
+			
+			if (status != PSA_SUCCESS) return -1;
+
+			status = psa_aead_set_nonce(&ctx->aead_ctx, iv_or_nonce_ctr_or_data_unit_16, *nc_or_iv_off);
+			if (status != PSA_SUCCESS) return -1;
+
+			if (len) {
+				status = psa_aead_update_ad(&ctx->aead_ctx, in, len);
+				if (status != PSA_SUCCESS) return -1;
+			}
+			break;
+		}
+
+		status = psa_aead_update(&ctx->aead_ctx, in, len, out, len + 16, &olen);
+		if (status != PSA_SUCCESS) return -1;
+		break;
+	}
+
+	return 0;
+}
+#endif

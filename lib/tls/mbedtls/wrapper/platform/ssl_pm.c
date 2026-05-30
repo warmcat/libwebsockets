@@ -191,7 +191,9 @@ int ssl_pm_new(SSL *ssl)
     }
 #endif // 0
 
+#if !defined(LWS_HAVE_MBEDTLS_V4)
     mbedtls_ssl_conf_rng(&ssl_pm->conf, mbedtls_ctr_drbg_random, &ssl_pm->ctr_drbg);
+#endif
 
 //#ifdef CONFIG_OPENSSL_LOWLEVEL_DEBUG
  //   mbedtls_debug_set_threshold(MBEDTLS_DEBUG_LEVEL);
@@ -877,7 +879,7 @@ int pkey_pm_load(EVP_PKEY *pk, const unsigned char *buffer, int len)
     mbedtls_pk_init(pkey_pm->pkey);
     mbedtls_ctr_drbg_init(&ctr_drbg);
 
-#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
+#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000 && !defined(LWS_HAVE_MBEDTLS_V4)
 #if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03050000
     ret = mbedtls_pk_parse_key(pkey_pm->pkey, load_buf, (unsigned int)len, NULL, 0,
 		    mbedtls_ctr_drbg_random, &ctr_drbg);
@@ -885,6 +887,8 @@ int pkey_pm_load(EVP_PKEY *pk, const unsigned char *buffer, int len)
     ret = mbedtls_pk_parse_key(pkey_pm->pkey, load_buf, (unsigned int)len + 1, NULL, 0,
 		    mbedtls_ctr_drbg_random, &ctr_drbg);
 #endif
+#elif defined(LWS_HAVE_MBEDTLS_V4)
+    ret = mbedtls_pk_parse_key(pkey_pm->pkey, load_buf, (unsigned int)len, NULL, 0);
 #else
     ret = mbedtls_pk_parse_key(pkey_pm->pkey, load_buf, (unsigned int)len + 1, NULL, 0);
 #endif

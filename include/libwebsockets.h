@@ -411,8 +411,10 @@ typedef void X509_VERIFY_PARAM;
 
 #if defined(LWS_WITH_TLS)
 #include <mbedtls/ssl.h>
+#if !defined(LWS_HAVE_MBEDTLS_V4)
 #include <mbedtls/entropy.h>
 #include <mbedtls/ctr_drbg.h>
+#endif
 #include <mbedtls/version.h>
 
 #if !defined(MBEDTLS_PRIVATE)
@@ -907,10 +909,14 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size);
 #include <libwebsockets/lws-quic.h>
 
 #if defined(LWS_WITH_MBEDTLS)
+#if !defined(LWS_HAVE_MBEDTLS_V4)
 #include <mbedtls/md5.h>
 #include <mbedtls/sha1.h>
 #include <mbedtls/sha256.h>
 #include <mbedtls/sha512.h>
+#else
+#include <psa/crypto.h>
+#endif
 #endif
 #if defined(LWS_WITH_BEARSSL)
 #include <bearssl.h>

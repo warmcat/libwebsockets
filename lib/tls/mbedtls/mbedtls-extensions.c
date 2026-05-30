@@ -59,7 +59,14 @@
  */
 
 typedef struct {
-    mbedtls_oid_descriptor_t    descriptor;
+    const char *asn1;
+    size_t asn1_len;
+    const char *name;
+    const char *description;
+} lws_oid_descriptor_t;
+
+typedef struct {
+    lws_oid_descriptor_t    descriptor;
     int                 	ext_type;
 } oid_x509_ext_t;
 
@@ -97,26 +104,26 @@ static const oid_x509_ext_t oid_x509_ext[] = {
 
 #define FN_OID_TYPED_FROM_ASN1( TYPE_T, NAME, LIST )                    \
     static const TYPE_T * oid_ ## NAME ## _from_asn1(                   \
-                                      const mbedtls_asn1_buf *oid )     \
+                                      const mbedtls_x509_buf *oid )     \
     {                                                                   \
         const TYPE_T *p = (LIST);                                       \
-        const mbedtls_oid_descriptor_t *cur =                           \
-            (const mbedtls_oid_descriptor_t *) p;                       \
+        const lws_oid_descriptor_t *cur =                           \
+            (const lws_oid_descriptor_t *) p;                       \
         if( p == NULL || oid == NULL ) return( NULL );                  \
-        while( cur->MBEDTLS_PRIVATE(asn1) != NULL ) {                          \
-            if( cur->MBEDTLS_PRIVATE(asn1_len) == oid->MBEDTLS_PRIVATE_V30_ONLY(len) && \
-                memcmp( cur->MBEDTLS_PRIVATE(asn1), oid->MBEDTLS_PRIVATE_V30_ONLY(p), oid->MBEDTLS_PRIVATE_V30_ONLY(len) ) == 0 ) {          \
+        while( cur->asn1 != NULL ) {                          \
+            if( cur->asn1_len == oid->MBEDTLS_PRIVATE_V30_ONLY(len) && \
+                memcmp( cur->asn1, oid->MBEDTLS_PRIVATE_V30_ONLY(p), oid->MBEDTLS_PRIVATE_V30_ONLY(len) ) == 0 ) {          \
                 return( p );                                            \
             }                                                           \
             p++;                                                        \
-            cur = (const mbedtls_oid_descriptor_t *) p;                 \
+            cur = (const lws_oid_descriptor_t *) p;                 \
         }                                                               \
         return( NULL );                                                 \
     }
 
 
 #define FN_OID_GET_ATTR1(FN_NAME, TYPE_T, TYPE_NAME, ATTR1_TYPE, ATTR1) \
-int FN_NAME( const mbedtls_asn1_buf *oid, ATTR1_TYPE * ATTR1 )                  \
+int FN_NAME( const mbedtls_x509_buf *oid, ATTR1_TYPE * ATTR1 )                  \
 {                                                                       \
     const TYPE_T *data = oid_ ## TYPE_NAME ## _from_asn1( oid );        \
     if (!data) return 1;            \
@@ -281,8 +288,8 @@ static int
 lws_x509_get_general_names(uint8_t **p, const uint8_t *end,
 			   mbedtls_x509_sequence *name )
 {
-	mbedtls_asn1_sequence *cur = name;
-	mbedtls_asn1_buf *buf;
+	mbedtls_x509_sequence *cur = name;
+	mbedtls_x509_buf *buf;
 	size_t len, tag_len;
 	unsigned char tag;
 	int r;

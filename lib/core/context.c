@@ -855,7 +855,11 @@ lws_create_context(const struct lws_context_creation_info *info)
 		char mbedtls_version[32];
 
 #if defined(MBEDTLS_VERSION_C)
+#if defined(LWS_HAVE_MBEDTLS_V4)
+		lws_snprintf(mbedtls_version, sizeof(mbedtls_version), "%s", mbedtls_version_get_string());
+#else
 		mbedtls_version_get_string(mbedtls_version);
+#endif
 #else
 		lws_snprintf(mbedtls_version, sizeof(mbedtls_version), "%s", MBEDTLS_VERSION_STRING);
 #endif

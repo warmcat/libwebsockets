@@ -25,7 +25,15 @@
 #include "private-lib-core.h"
 #include "private-lib-tls-mbedtls.h"
 #include <mbedtls/oid.h>
+#if !defined(LWS_HAVE_MBEDTLS_V4)
 #include <mbedtls/asn1write.h>
+#endif
+#include <mbedtls/x509_csr.h>
+#if defined(LWS_HAVE_MBEDTLS_V4)
+#include <psa/crypto.h>
+#include <mbedtls/pk.h>
+#include <mbedtls/private/pk_private.h>
+#endif
 
 #if defined(LWS_PLAT_OPTEE) || defined(OPTEE_DEV_KIT)
 struct tm {
@@ -133,6 +141,10 @@ lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
 
 	case LWS_TLS_CERT_INFO_OPAQUE_PUBLIC_KEY:
 	{
+#if defined(LWS_HAVE_MBEDTLS_V4)
+		lwsl_err("LWS_TLS_CERT_INFO_OPAQUE_PUBLIC_KEY not yet implemented for MbedTLS v4\n");
+		return -1;
+#else
 		char *p = buf->ns.name;
 		size_t r = len, u;
 
@@ -178,6 +190,7 @@ lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
 			return -1;
 		}
 		break;
+#endif
 	}
 	case LWS_TLS_CERT_INFO_DER_RAW:
 
@@ -420,6 +433,106 @@ int
 lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 		       const char *curves, int rsa_min_bits)
 {
+#if defined(LWS_HAVE_MBEDTLS_V4)
+	int ret = -1;
+	unsigned char der[4096];
+	int der_len = mbedtls_pk_write_pubkey_der(&x509->cert.pk, der, sizeof(der));
+	if (der_len < 0) {
+		lwsl_err("%s: write pubkey der failed\n", __func__);
+		return -1;
+	}
+	unsigned char *p = der + sizeof(der) - der_len;
+	const unsigned char *end = der + sizeof(der);
+	size_t asn1_len;
+
+	psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
+	mbedtls_pk_get_psa_attributes(&x509->cert.pk, PSA_KEY_USAGE_VERIFY_HASH, &attr);
+	psa_key_type_t type = psa_get_key_type(&attr);
+
+	memset(jwk, 0, sizeof(*jwk));
+
+	/* SubjectPublicKeyInfo ::= SEQUENCE */
+	if (mbedtls_asn1_get_tag(&p, end, &asn1_len, MBEDTLS_ASN1_CONSTRUCTED | MBEDTLS_ASN1_SEQUENCE)) goto bail;
+	/* algorithm AlgorithmIdentifier ::= SEQUENCE */
+	if (mbedtls_asn1_get_tag(&p, end, &asn1_len, MBEDTLS_ASN1_CONSTRUCTED | MBEDTLS_ASN1_SEQUENCE)) goto bail;
+	p += asn1_len; /* skip algorithm details */
+	
+	/* subjectPublicKey BIT STRING */
+	if (mbedtls_asn1_get_tag(&p, end, &asn1_len, MBEDTLS_ASN1_BIT_STRING)) goto bail;
+	if (*p == 0x00) { p++; asn1_len--; } /* Skip unused bits */
+
+	if (PSA_KEY_TYPE_IS_RSA(type)) {
+		jwk->kty = LWS_GENCRYPTO_KTY_RSA;
+		/* RSAPublicKey ::= SEQUENCE */
+		if (mbedtls_asn1_get_tag(&p, end, &asn1_len, MBEDTLS_ASN1_CONSTRUCTED | MBEDTLS_ASN1_SEQUENCE)) goto bail;
+		/* Modulus N */
+		if (mbedtls_asn1_get_tag(&p, end, &asn1_len, MBEDTLS_ASN1_INTEGER)) goto bail;
+		if (*p == 0x00) { p++; asn1_len--; }
+		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_N].buf = lws_malloc(asn1_len, "jwk_N");
+		if (!jwk->e[LWS_GENCRYPTO_RSA_KEYEL_N].buf) goto bail;
+		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_N].len = (uint32_t)asn1_len;
+		memcpy(jwk->e[LWS_GENCRYPTO_RSA_KEYEL_N].buf, p, asn1_len);
+		p += asn1_len;
+		
+		/* Exponent E */
+		if (mbedtls_asn1_get_tag(&p, end, &asn1_len, MBEDTLS_ASN1_INTEGER)) goto bail;
+		if (*p == 0x00) { p++; asn1_len--; }
+		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].buf = lws_malloc(asn1_len, "jwk_E");
+		if (!jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].buf) goto bail;
+		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].len = (uint32_t)asn1_len;
+		memcpy(jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].buf, p, asn1_len);
+	} else if (PSA_KEY_TYPE_IS_ECC(type)) {
+		jwk->kty = LWS_GENCRYPTO_KTY_EC;
+		
+		if (asn1_len < 1 || *p != 0x04) {
+			lwsl_err("Only uncompressed EC points supported\n");
+			goto bail;
+		}
+		p++; asn1_len--;
+		if (asn1_len % 2 != 0) goto bail;
+		size_t coord_len = asn1_len / 2;
+		
+		jwk->e[LWS_GENCRYPTO_EC_KEYEL_X].buf = lws_malloc(coord_len, "jwk_X");
+		if (!jwk->e[LWS_GENCRYPTO_EC_KEYEL_X].buf) goto bail;
+		jwk->e[LWS_GENCRYPTO_EC_KEYEL_X].len = (uint32_t)coord_len;
+		memcpy(jwk->e[LWS_GENCRYPTO_EC_KEYEL_X].buf, p, coord_len);
+		p += coord_len;
+		
+		jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y].buf = lws_malloc(coord_len, "jwk_Y");
+		if (!jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y].buf) goto bail;
+		jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y].len = (uint32_t)coord_len;
+		memcpy(jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y].buf, p, coord_len);
+
+		psa_ecc_family_t family = PSA_KEY_TYPE_ECC_GET_FAMILY(type);
+		size_t bits = psa_get_key_bits(&attr);
+		const char *crv = NULL;
+
+		if (family == PSA_ECC_FAMILY_SECP_R1) {
+			if (bits == 256) crv = "P-256";
+			else if (bits == 384) crv = "P-384";
+			else if (bits == 521) crv = "P-521";
+		}
+		
+		if (!crv) {
+			lwsl_err("Unsupported curve family=%d bits=%u\n", (int)family, (unsigned)bits);
+			goto bail;
+		}
+
+		jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf = lws_malloc(strlen(crv) + 1, "jwk_crv");
+		if (!jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf) goto bail;
+		jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].len = (uint32_t)strlen(crv);
+		memcpy(jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf, crv, strlen(crv) + 1);
+	} else {
+		lwsl_err("%s: key type %d not supported\n", __func__, (int)type);
+		return -1;
+	}
+
+	ret = 0;
+
+bail:
+	if (ret) lws_jwk_destroy(jwk);
+	return ret;
+#else
 	int kt = (int)mbedtls_pk_get_type(&x509->cert.MBEDTLS_PRIVATE_V30_ONLY(pk)),
 			n, count = 0, ret = -1;
 	mbedtls_rsa_context *rsactx;
@@ -488,12 +601,145 @@ bail:
 		lws_jwk_destroy(jwk);
 
 	return ret;
+#endif
 }
 
 int
 lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 			 void *pem, size_t len, const char *passphrase)
 {
+#if defined(LWS_HAVE_MBEDTLS_V4)
+	mbedtls_pk_context pk;
+	int n, ret = -1;
+	unsigned char der[4096];
+	int der_len;
+
+	mbedtls_pk_init(&pk);
+	n = passphrase ? (int)strlen(passphrase) : 0;
+	n = mbedtls_pk_parse_key(&pk, pem, len, (uint8_t *)passphrase, (size_t)n);
+	if (n) {
+		lwsl_err("%s: parse PEM key failed: -0x%x\n", __func__, -n);
+		return -1;
+	}
+
+	der_len = mbedtls_pk_write_key_der(&pk, der, sizeof(der));
+	if (der_len < 0) {
+		lwsl_err("%s: write key der failed\n", __func__);
+		goto bail;
+	}
+
+	psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
+	mbedtls_pk_get_psa_attributes(&pk, PSA_KEY_USAGE_SIGN_HASH, &attr);
+	psa_key_type_t type = psa_get_key_type(&attr);
+
+	unsigned char *p = der + sizeof(der) - der_len;
+	const unsigned char *end = der + sizeof(der);
+	size_t asn1_len;
+
+	if (PSA_KEY_TYPE_IS_RSA(type)) {
+		if (jwk->kty != LWS_GENCRYPTO_KTY_RSA) {
+			lwsl_err("%s: RSA privkey, non-RSA jwk\n", __func__);
+			goto bail;
+		}
+		
+		/* RSAPrivateKey ::= SEQUENCE */
+		if (mbedtls_asn1_get_tag(&p, end, &asn1_len, MBEDTLS_ASN1_CONSTRUCTED | MBEDTLS_ASN1_SEQUENCE)) goto bail;
+		/* version Version */
+		if (mbedtls_asn1_get_tag(&p, end, &asn1_len, MBEDTLS_ASN1_INTEGER)) goto bail;
+		p += asn1_len;
+		
+		/* Modulus N */
+		if (mbedtls_asn1_get_tag(&p, end, &asn1_len, MBEDTLS_ASN1_INTEGER)) goto bail;
+		p += asn1_len;
+		/* Exponent E */
+		if (mbedtls_asn1_get_tag(&p, end, &asn1_len, MBEDTLS_ASN1_INTEGER)) goto bail;
+		p += asn1_len;
+
+		/* Exponent D */
+		if (mbedtls_asn1_get_tag(&p, end, &asn1_len, MBEDTLS_ASN1_INTEGER)) goto bail;
+		if (*p == 0x00) { p++; asn1_len--; }
+		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_D].buf = lws_malloc(asn1_len, "jwk_D");
+		if (!jwk->e[LWS_GENCRYPTO_RSA_KEYEL_D].buf) goto bail;
+		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_D].len = (uint32_t)asn1_len;
+		memcpy(jwk->e[LWS_GENCRYPTO_RSA_KEYEL_D].buf, p, asn1_len);
+		p += asn1_len;
+
+		/* Prime P */
+		if (mbedtls_asn1_get_tag(&p, end, &asn1_len, MBEDTLS_ASN1_INTEGER)) goto bail;
+		if (*p == 0x00) { p++; asn1_len--; }
+		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_P].buf = lws_malloc(asn1_len, "jwk_P");
+		if (!jwk->e[LWS_GENCRYPTO_RSA_KEYEL_P].buf) goto bail;
+		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_P].len = (uint32_t)asn1_len;
+		memcpy(jwk->e[LWS_GENCRYPTO_RSA_KEYEL_P].buf, p, asn1_len);
+		p += asn1_len;
+
+		/* Prime Q */
+		if (mbedtls_asn1_get_tag(&p, end, &asn1_len, MBEDTLS_ASN1_INTEGER)) goto bail;
+		if (*p == 0x00) { p++; asn1_len--; }
+		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_Q].buf = lws_malloc(asn1_len, "jwk_Q");
+		if (!jwk->e[LWS_GENCRYPTO_RSA_KEYEL_Q].buf) goto bail;
+		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_Q].len = (uint32_t)asn1_len;
+		memcpy(jwk->e[LWS_GENCRYPTO_RSA_KEYEL_Q].buf, p, asn1_len);
+		p += asn1_len;
+
+		/* Exponent DP */
+		if (mbedtls_asn1_get_tag(&p, end, &asn1_len, MBEDTLS_ASN1_INTEGER)) goto bail;
+		if (*p == 0x00) { p++; asn1_len--; }
+		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_DP].buf = lws_malloc(asn1_len, "jwk_DP");
+		if (!jwk->e[LWS_GENCRYPTO_RSA_KEYEL_DP].buf) goto bail;
+		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_DP].len = (uint32_t)asn1_len;
+		memcpy(jwk->e[LWS_GENCRYPTO_RSA_KEYEL_DP].buf, p, asn1_len);
+		p += asn1_len;
+
+		/* Exponent DQ */
+		if (mbedtls_asn1_get_tag(&p, end, &asn1_len, MBEDTLS_ASN1_INTEGER)) goto bail;
+		if (*p == 0x00) { p++; asn1_len--; }
+		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_DQ].buf = lws_malloc(asn1_len, "jwk_DQ");
+		if (!jwk->e[LWS_GENCRYPTO_RSA_KEYEL_DQ].buf) goto bail;
+		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_DQ].len = (uint32_t)asn1_len;
+		memcpy(jwk->e[LWS_GENCRYPTO_RSA_KEYEL_DQ].buf, p, asn1_len);
+		p += asn1_len;
+
+		/* Coefficient QI */
+		if (mbedtls_asn1_get_tag(&p, end, &asn1_len, MBEDTLS_ASN1_INTEGER)) goto bail;
+		if (*p == 0x00) { p++; asn1_len--; }
+		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_QI].buf = lws_malloc(asn1_len, "jwk_QI");
+		if (!jwk->e[LWS_GENCRYPTO_RSA_KEYEL_QI].buf) goto bail;
+		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_QI].len = (uint32_t)asn1_len;
+		memcpy(jwk->e[LWS_GENCRYPTO_RSA_KEYEL_QI].buf, p, asn1_len);
+		p += asn1_len;
+
+	} else if (PSA_KEY_TYPE_IS_ECC(type)) {
+		if (jwk->kty != LWS_GENCRYPTO_KTY_EC) {
+			lwsl_err("%s: EC privkey, non-EC jwk\n", __func__);
+			goto bail;
+		}
+
+		/* ECPrivateKey ::= SEQUENCE */
+		if (mbedtls_asn1_get_tag(&p, end, &asn1_len, MBEDTLS_ASN1_CONSTRUCTED | MBEDTLS_ASN1_SEQUENCE)) goto bail;
+		/* version Version */
+		if (mbedtls_asn1_get_tag(&p, end, &asn1_len, MBEDTLS_ASN1_INTEGER)) goto bail;
+		p += asn1_len;
+		/* privateKey OCTET STRING */
+		if (mbedtls_asn1_get_tag(&p, end, &asn1_len, MBEDTLS_ASN1_OCTET_STRING)) goto bail;
+		
+		jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].buf = lws_malloc(asn1_len, "jwk_D");
+		if (!jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].buf) goto bail;
+		jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].len = (uint32_t)asn1_len;
+		memcpy(jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].buf, p, asn1_len);
+		p += asn1_len;
+
+	} else {
+		lwsl_err("%s: key type %d not supported\n", __func__, (int)type);
+		goto bail;
+	}
+
+	ret = 0;
+
+bail:
+	mbedtls_pk_free(&pk);
+	return ret;
+#else
 	mbedtls_rsa_context *rsactx;
 	mbedtls_ecp_keypair *ecpctx;
 	mbedtls_pk_context pk;
@@ -506,7 +752,7 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 	if (passphrase)
 		n = (int)strlen(passphrase);
 	n = mbedtls_pk_parse_key(&pk, pem, len, (uint8_t *)passphrase, (unsigned int)n
-#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000
+#if defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000 && !defined(LWS_HAVE_MBEDTLS_V4)
 					, mbedtls_ctr_drbg_random, &cx->mcdc
 #endif
 			);
@@ -565,6 +811,7 @@ bail:
 	mbedtls_pk_free(&pk);
 
 	return ret;
+#endif
 }
 #endif
 
@@ -585,6 +832,11 @@ lws_x509_create_cert(struct lws_context *context,
 		     uint8_t **key_buf, size_t *key_len,
 		     const struct lws_x509_cert_gen_info *info)
 {
+	int ret = 1;
+#if defined(LWS_HAVE_MBEDTLS_V4)
+	lwsl_err("Self-signed cert generation not yet implemented for MbedTLS v4\n");
+	return ret;
+#else
 	mbedtls_x509write_cert crt;
 	mbedtls_pk_context key;
 	mbedtls_mpi serial;
@@ -593,7 +845,6 @@ lws_x509_create_cert(struct lws_context *context,
 	mbedtls_ctr_drbg_context *pdrbg = &ctr_drbg;
 	mbedtls_x509_crt issuer_crt;
 	mbedtls_pk_context issuer_key;
-	int ret = 1;
 	unsigned char buf[4096];
 	char name[128];
 	int len;
@@ -784,6 +1035,7 @@ bail:
 	}
 
 	return ret;
+#endif
 }
 
 int

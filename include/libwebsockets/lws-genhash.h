@@ -40,6 +40,10 @@
 #include <openssl/hmac.h>
 #endif
 
+#if defined(LWS_HAVE_MBEDTLS_V4)
+#include <psa/crypto.h>
+#endif
+
 
 enum lws_genhash_types {
 	LWS_GENHASH_TYPE_UNKNOWN,
@@ -65,6 +69,9 @@ enum lws_genhmac_types {
 struct lws_genhash_ctx {
         uint8_t type;
 #if defined(LWS_WITH_MBEDTLS)
+#if defined(LWS_HAVE_MBEDTLS_V4)
+	psa_hash_operation_t hash_ctx;
+#else
         union {
 		mbedtls_md5_context md5;
         	mbedtls_sha1_context sha1;
@@ -72,6 +79,7 @@ struct lws_genhash_ctx {
 		mbedtls_sha512_context sha512; /* 384 also uses this */
 		const mbedtls_md_info_t *hmac;
         } u;
+#endif
 #elif defined(LWS_WITH_SCHANNEL)
 	struct {
 		void *hAlg;
@@ -98,8 +106,13 @@ struct lws_genhash_ctx {
 struct lws_genhmac_ctx {
         uint8_t type;
 #if defined(LWS_WITH_MBEDTLS)
+#if defined(LWS_HAVE_MBEDTLS_V4)
+	psa_mac_operation_t mac_ctx;
+	psa_key_id_t key_id;
+#else
 	const mbedtls_md_info_t *hmac;
 	mbedtls_md_context_t ctx;
+#endif
 #elif defined(LWS_WITH_SCHANNEL)
 	struct {
 		void *hAlg;

@@ -26,7 +26,7 @@
 #if defined(LWS_WITH_OPENSSL)
 #include "private-lib-tls-openssl.h"
 #endif
-#if defined(LWS_WITH_MBEDTLS)
+#if defined(LWS_WITH_MBEDTLS) && !defined(LWS_HAVE_MBEDTLS_V4)
 #include <mbedtls/chachapoly.h>
 #endif
 
@@ -46,7 +46,7 @@ lws_genchacha_create(struct lws_genchacha_ctx *ctx, enum enum_aes_operation op,
 	ctx->ctx = EVP_CIPHER_CTX_new();
 	if (!ctx->ctx)
 		return -1;
-#elif defined(LWS_WITH_MBEDTLS) && defined(MBEDTLS_CHACHAPOLY_C)
+#elif defined(LWS_WITH_MBEDTLS) && defined(MBEDTLS_CHACHAPOLY_C) && !defined(LWS_HAVE_MBEDTLS_V4)
 	mbedtls_chachapoly_init(&ctx->u.cp);
 	if (mbedtls_chachapoly_setkey(&ctx->u.cp, ctx->k->buf) != 0) {
 		mbedtls_chachapoly_free(&ctx->u.cp);
@@ -67,7 +67,7 @@ lws_genchacha_destroy(struct lws_genchacha_ctx *ctx)
 	if (ctx->ctx)
 		EVP_CIPHER_CTX_free(ctx->ctx);
 	ctx->ctx = NULL;
-#elif defined(LWS_WITH_MBEDTLS) && defined(MBEDTLS_CHACHAPOLY_C)
+#elif defined(LWS_WITH_MBEDTLS) && defined(MBEDTLS_CHACHAPOLY_C) && !defined(LWS_HAVE_MBEDTLS_V4)
 	mbedtls_chachapoly_free(&ctx->u.cp);
 #endif
 	return 0;
@@ -106,7 +106,7 @@ lws_genchacha_crypt(struct lws_genchacha_ctx *ctx,
 		if (EVP_DecryptFinal_ex(ctx->ctx, out + (len ? len : 0), &outl) <= 0) return -1;
 		return 0;
 	}
-#elif defined(LWS_WITH_MBEDTLS) && defined(MBEDTLS_CHACHAPOLY_C)
+#elif defined(LWS_WITH_MBEDTLS) && defined(MBEDTLS_CHACHAPOLY_C) && !defined(LWS_HAVE_MBEDTLS_V4)
 	if (ctx->op == LWS_GAESO_ENC) {
 		if (mbedtls_chachapoly_encrypt_and_tag(&ctx->u.cp, len, nonce, aad, aad_len, in, out, tag) != 0) return -1;
 	} else {

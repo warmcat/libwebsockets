@@ -58,7 +58,35 @@ int
 lws_x509_get_crt_ext(mbedtls_x509_crt *crt, mbedtls_x509_buf *skid,
 		     lws_mbedtls_x509_authority *akid);
 
-#if (MBEDTLS_VERSION_MAJOR == 3) && (MBEDTLS_VERSION_MINOR >= 5)
+#if defined(LWS_HAVE_MBEDTLS_V4)
+#define MBEDTLS_ASN1_BOOLEAN                 0x01
+#define MBEDTLS_ASN1_INTEGER                 0x02
+#define MBEDTLS_ASN1_BIT_STRING              0x03
+#define MBEDTLS_ASN1_OCTET_STRING            0x04
+#define MBEDTLS_ASN1_NULL                    0x05
+#define MBEDTLS_ASN1_OID                     0x06
+#define MBEDTLS_ASN1_UTF8_STRING             0x0C
+#define MBEDTLS_ASN1_SEQUENCE                0x10
+#define MBEDTLS_ASN1_SET                     0x11
+#define MBEDTLS_ASN1_PRINTABLE_STRING        0x13
+#define MBEDTLS_ASN1_T61_STRING              0x14
+#define MBEDTLS_ASN1_IA5_STRING              0x16
+#define MBEDTLS_ASN1_UTC_TIME                0x17
+#define MBEDTLS_ASN1_GENERALIZED_TIME        0x18
+#define MBEDTLS_ASN1_UNIVERSAL_STRING        0x1C
+#define MBEDTLS_ASN1_BMP_STRING              0x1E
+#define MBEDTLS_ASN1_PRIMITIVE               0x00
+#define MBEDTLS_ASN1_CONSTRUCTED             0x20
+#define MBEDTLS_ASN1_CONTEXT_SPECIFIC        0x80
+
+int mbedtls_asn1_get_len(unsigned char **p, const unsigned char *end, size_t *len);
+int mbedtls_asn1_get_tag(unsigned char **p, const unsigned char *end, size_t *len, int tag);
+int mbedtls_asn1_get_bool(unsigned char **p, const unsigned char *end, int *val);
+int mbedtls_asn1_get_int(unsigned char **p, const unsigned char *end, int *val);
+int mbedtls_asn1_get_bitstring_null(unsigned char **p, const unsigned char *end, size_t *len);
+#endif
+
+#if defined(LWS_HAVE_MBEDTLS_V4) || ((MBEDTLS_VERSION_MAJOR == 3) && (MBEDTLS_VERSION_MINOR >= 5))
 	int mbedtls_x509_get_name(unsigned char **p, const unsigned char *end,
 						  mbedtls_x509_name *cur);
 #endif

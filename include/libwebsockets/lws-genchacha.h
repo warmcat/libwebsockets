@@ -28,7 +28,11 @@
 #include <stdint.h>
 
 #if defined(LWS_WITH_MBEDTLS)
+#if !defined(LWS_HAVE_MBEDTLS_V4)
 #include <mbedtls/chachapoly.h>
+#else
+#include <psa/crypto.h>
+#endif
 #endif
 
 /*! \defgroup generic chacha
