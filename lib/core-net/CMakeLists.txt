@@ -72,7 +72,7 @@ if (LWS_WITH_SYS_STATE)
 	)
 endif()
 
-if (LWS_WITH_NETLINK)
+if (LWS_WITH_ROUTING)
 	list(APPEND SOURCES
 		core-net/route.c
 	)

@@ -30,6 +30,8 @@
 
 #if defined(LWS_WITH_STUB)
 
+struct lws_stub_manager;
+
 struct lws_stub_config {
 	struct lws_context *cx;
 	struct lws_vhost *vh;
@@ -38,6 +40,8 @@ struct lws_stub_config {
 	const struct lws_protocols *protocols; /* Protocol array for the UDS server vhost */
 	const void *extra_payload;     /* Optional extra data to write to child stdin */
 	size_t extra_payload_len;
+	void *user;                    /* Opaque user pointer passed to vhost */
+	void (*connected_cb)(struct lws_stub_manager *mgr); /* Called when UDS connects */
 };
 
 struct lws_stub_manager;

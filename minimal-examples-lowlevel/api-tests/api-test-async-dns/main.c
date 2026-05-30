@@ -506,10 +506,6 @@ main(int argc, const char **argv)
 	uint8_t mac[6];
 	int n = 1;
 
-	fixup(0);
-	fixup(5);
-	fixup(6);
-
 	lws_context_info_defaults(&info, NULL);lws_cmdline_option_handle_builtin(argc, argv, &info);
 
 	/* the normal lws init */
@@ -539,6 +535,10 @@ main(int argc, const char **argv)
 		lwsl_err("lws init failed\n");
 		return 1;
 	}
+
+	fixup(0);
+	fixup(5);
+	fixup(6);
 
 	{
 		lws_sockaddr46 sa46;

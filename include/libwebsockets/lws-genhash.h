@@ -132,7 +132,7 @@ struct lws_genhmac_ctx {
 	EVP_MD_CTX *ctx;
 	EVP_PKEY *key;
 #else
-#if defined(LWS_HAVE_HMAC_CTX_new) || defined(LWS_WITH_BORINGSSL)
+#if defined(LWS_HAVE_HMAC_CTX_new) || defined(LWS_WITH_BORINGSSL) || defined(LWS_WITH_AWSLC)
         HMAC_CTX *ctx;
 #else
         HMAC_CTX ctx;

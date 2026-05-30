@@ -355,6 +355,13 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 #endif
 				   len, 0, sa46_sockaddr(&wsi->udp->sa46),
 				   sa46_socklen(&wsi->udp->sa46));
+
+		if (n < 0 && LWS_ERRNO == LWS_EISCONN)
+			n = (int)sendto(wsi->desc.sockfd, (const char *)buf,
+#if defined(WIN32)
+				(int)
+#endif
+				   len, 0, NULL, 0);
 	} else
 #endif
 		if (wsi->role_ops->file_handle)

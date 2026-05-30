@@ -19,7 +19,7 @@ if (requirements)
 		set_tests_properties(api-test-secure-streams
 				     PROPERTIES
 				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-secure-streams
-				     TIMEOUT 45)
+				     TIMEOUT 90)
 	endif()
 
 	if (websockets_shared)

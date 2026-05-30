@@ -112,7 +112,7 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 		goto bail;
 	}
 
-#if (defined(LWS_HAVE_RSA_SET0_KEY) || defined(OPENSSL_IS_BORINGSSL)) && !defined(USE_WOLFSSL)
+#if (defined(LWS_HAVE_RSA_SET0_KEY) || defined(OPENSSL_IS_BORINGSSL) || defined(OPENSSL_IS_AWSLC)) && !defined(USE_WOLFSSL)
 	if (RSA_set0_key(ctx->rsa, ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_N],
 			 ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_E],
 			 ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_D]) != 1) {
@@ -178,7 +178,7 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 	if (n != 1)
 		goto cleanup_1;
 
-#if (defined(LWS_HAVE_RSA_SET0_KEY) || defined(OPENSSL_IS_BORINGSSL)) && !defined(USE_WOLFSSL)
+#if (defined(LWS_HAVE_RSA_SET0_KEY) || defined(OPENSSL_IS_BORINGSSL) || defined(OPENSSL_IS_AWSLC)) && !defined(USE_WOLFSSL)
 	{
 		const BIGNUM *mpi[5];
 

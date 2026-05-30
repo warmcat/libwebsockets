@@ -141,6 +141,11 @@ typedef struct lws_ss_handle {
 					uint8_t dummy;
 #endif
 				} h2;
+				struct { /* LWSSSP_H3 */
+#if defined(WIN32) || defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
+					uint8_t dummy;
+#endif
+				} h3;
 				struct { /* LWSSSP_WS */
 #if defined(WIN32) || defined(FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION)
 					uint8_t dummy;
@@ -727,6 +732,7 @@ lws_ss_proxy_destroy(struct lws_context *cx);
 
 extern const struct ss_pcols ss_pcol_h1;
 extern const struct ss_pcols ss_pcol_h2;
+extern const struct ss_pcols ss_pcol_h3;
 extern const struct ss_pcols ss_pcol_ws;
 extern const struct ss_pcols ss_pcol_mqtt;
 extern const struct ss_pcols ss_pcol_raw;

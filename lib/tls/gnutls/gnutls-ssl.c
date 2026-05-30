@@ -133,7 +133,7 @@ lws_ssl_close(struct lws *wsi)
 	return 0;
 }
 
-#if !defined(LWS_WITHOUT_SERVER)
+#if defined(LWS_WITH_SERVER)
 enum lws_ssl_capable_status
 lws_tls_server_accept(struct lws *wsi)
 {
@@ -261,7 +261,7 @@ __lws_tls_shutdown(struct lws *wsi)
 	return LWS_SSL_CAPABLE_ERROR;
 }
 
-#if !defined(LWS_WITHOUT_SERVER)
+#if defined(LWS_WITH_SERVER)
 enum lws_ssl_capable_status
 lws_tls_server_abort_connection(struct lws *wsi)
 {

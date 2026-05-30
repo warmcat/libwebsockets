@@ -2231,10 +2231,13 @@ lws_http_client_read(struct lws *wsi, char **buf, int *len)
 
 	if (buffered < 0) {
 		lwsl_debug("%s: SSL capable error\n", __func__);
+		lwsl_notice("%s: SSL capable error, hdr_parsing_completed=%d, content_length_given=%d, chunked=%d, ah_ptr=%p\n",
+			__func__, wsi->hdr_parsing_completed, wsi->http.content_length_given, wsi->chunked, wsi->http.ah);
 
-		if (wsi->http.ah &&
-		    wsi->http.ah->parser_state == WSI_PARSING_COMPLETE &&
-		    !lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH))
+		if (wsi->hdr_parsing_completed &&
+		    !wsi->http.content_length_given &&
+		    !wsi->chunked) {
+			lwsl_notice("%s: generating lws_http_transaction_completed_client\n", __func__);
 			/*
 			 * We had the headers from this stream, but as there
 			 * was no content-length: we had to wait until the
@@ -2247,6 +2250,7 @@ lws_http_client_read(struct lws *wsi, char **buf, int *len)
 				 * warn_unused_result
 				 */
 				return -1;
+		}
 
 		return -1;
 	}

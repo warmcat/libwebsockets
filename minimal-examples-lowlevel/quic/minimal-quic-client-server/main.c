@@ -172,8 +172,10 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_PROTOCOL_INIT:
 	{
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 		struct lws_vhost *vh = lws_get_vhost(wsi);
 		lwsl_vhost_notice(vh, "Protocol init");
+#endif
 		break;
 	}
 
@@ -297,6 +299,25 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_SERVER_ONLY] = { "-s",	"Server only mode (do not launch client, do not send data unprompted)" },
 };
 
+#if defined(WIN32) && defined(LWS_WITH_SCHANNEL)
+#include <windows.h>
+static int is_quic_supported_on_os(void) {
+    OSVERSIONINFOEXW osvi = { sizeof(osvi), 0, 0, 0, 0, {0}, 0, 0 };
+    DWORDLONG const dwlConditionMask = VerSetConditionMask(
+        VerSetConditionMask(
+        VerSetConditionMask(
+            0, VER_MAJORVERSION, VER_GREATER_EQUAL),
+               VER_MINORVERSION, VER_GREATER_EQUAL),
+               VER_BUILDNUMBER,  VER_GREATER_EQUAL);
+
+    osvi.dwMajorVersion = 10;
+    osvi.dwMinorVersion = 0;
+    osvi.dwBuildNumber  = 20348; /* Windows Server 2022 */
+
+    return VerifyVersionInfoW(&osvi, VER_MAJORVERSION | VER_MINORVERSION | VER_BUILDNUMBER, dwlConditionMask) != FALSE;
+}
+#endif
+
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
@@ -311,7 +332,15 @@ int main(int argc, const char **argv)
 	int url_port = 0;
 
 	lws_context_info_defaults(&info, NULL);
+	info.fd_limit_per_thread = 0;
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
+
+#if defined(WIN32) && defined(LWS_WITH_SCHANNEL)
+	if (!is_quic_supported_on_os()) {
+		lwsl_user("SChannel QUIC requires Windows 11+ / Server 2022+\n");
+		return 0;
+	}
+#endif
 
 	if (lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
 		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));

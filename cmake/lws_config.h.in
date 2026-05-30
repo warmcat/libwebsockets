@@ -221,6 +221,7 @@
 #cmakedefine LWS_WITH_SCHANNEL
 #cmakedefine LWS_WITH_GNUTLS
 #cmakedefine LWS_WITH_MINIZ
+#cmakedefine LWS_WITH_ROUTING
 #cmakedefine LWS_WITH_NETLINK
 #cmakedefine LWS_WITH_BINDTODEVICE
 #cmakedefine LWS_WITH_NETWORK

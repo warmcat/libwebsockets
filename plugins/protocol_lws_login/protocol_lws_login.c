@@ -383,13 +383,13 @@ auth_verify_redirect_uri(struct vhd_login *vhd, const char *redirect_uri)
 			if (uris) {
 				const char *p = uris;
 				while (p && *p) {
-					while (*p == ' ') p++;
+					while (*p == ' ' || *p == '\r' || *p == '\n') p++;
 					const char *comma = strchr(p, ',');
 					size_t len = comma ? lws_ptr_diff_size_t(comma, p) : strlen(p);
-					while (len > 0 && p[len - 1] == ' ') len--;
+					while (len > 0 && (p[len - 1] == ' ' || p[len - 1] == '\r' || p[len - 1] == '\n')) len--;
 					while (len > 0 && p[len - 1] == '/') len--;
 					if (len > 0) {
-						if (!strncmp(redirect_uri, p, len)) {
+						if (!strncasecmp(redirect_uri, p, len)) {
 							char next = redirect_uri[len];
 							if (next == '\0' || next == '/' || next == '?' || next == '#') {
 								valid = 1;

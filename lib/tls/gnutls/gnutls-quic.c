@@ -127,7 +127,7 @@ gnutls_quic_read_func(gnutls_session_t session,
 	struct gnutls_quic_bio *b;
 	int qlevel;
 
-	lwsl_notice("GNUTLS QUIC READ FUNC: level %d, htype %d, len %d\n",
+	lwsl_debug("GNUTLS QUIC READ FUNC: level %d, htype %d, len %d\n",
 		(int)level, (int)htype, (int)data_size);
 
 	if (!wsi || !wsi->tls.client_bio)
@@ -204,7 +204,7 @@ gnutls_quic_ext_send_func(gnutls_session_t session, gnutls_buffer_t extdata)
 		return 0;
 	}
 
-	lwsl_notice("GNUTLS EXT SEND: appending %d bytes of TP!\n", (int)wsi->tls.quic_tp_send_len);
+	lwsl_info("GNUTLS EXT SEND: appending %d bytes of TP!\n", (int)wsi->tls.quic_tp_send_len);
 
 	if (gnutls_buffer_append_data(extdata, wsi->tls.quic_tp_send, wsi->tls.quic_tp_send_len) < 0)
 		return GNUTLS_E_MEMORY_ERROR;

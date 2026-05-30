@@ -31,4 +31,8 @@ require_lws_config(LWS_WITH_SERVER 1 requirements)
 
 if (requirements)
 	create_plugin(${PLUGIN_NAME} "" ${PLUGIN_SRCS} "" "")
+	
+	if (NOT LWS_WITH_PLUGINS_BUILTIN)
+		target_compile_definitions(${PLUGIN_NAME} PRIVATE LWS_BUILDING_SHARED)
+	endif()
 endif()

@@ -467,7 +467,7 @@ skip:
 		char *cp = (char *)&q[1];
 
 		while (stack[stp].name[n])
-			*cp++ = (char)tolower(stack[stp].name[n++]);
+			*cp++ = (char)tolower((uint8_t)stack[stp].name[n++]);
 		/* trim the following . if any */
 		if (n && cp[-1] == '.')
 			cp--;

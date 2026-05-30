@@ -78,7 +78,7 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 	return 0;
 }
 
-#if !defined(LWS_WITHOUT_SERVER)
+#if defined(LWS_WITH_SERVER)
 int
 lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 				  struct lws_vhost *vhost, struct lws *wsi)
@@ -166,7 +166,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 }
 #endif
 
-#if !defined(LWS_WITHOUT_SERVER)
+#if defined(LWS_WITH_SERVER)
 static int
 lws_gnutls_server_name_cb(gnutls_session_t session)
 {
@@ -421,7 +421,7 @@ lws_tls_vhost_cert_info(struct lws_vhost *vhost, enum lws_tls_cert_info type,
 	return -1;
 }
 
-#if !defined(LWS_WITHOUT_SERVER)
+#if defined(LWS_WITH_SERVER)
 int
 lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 			  const char *cert, const char *private_key,

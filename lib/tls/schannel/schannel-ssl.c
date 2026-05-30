@@ -80,7 +80,9 @@ lws_ssl_client_bio_create(struct lws *wsi)
 
 	/* ALPN */
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-	if (wsi->a.vhost->tls.alpn)
+	if (wsi->alpn[0])
+		lws_strncpy(conn->alpn, wsi->alpn, sizeof(conn->alpn));
+	else if (wsi->a.vhost->tls.alpn)
 		lws_strncpy(conn->alpn, wsi->a.vhost->tls.alpn, sizeof(conn->alpn));
 #endif
 
@@ -156,11 +158,11 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
 			   unsigned char ProtocolList[ANYSIZE_ARRAY];
 			   */
 
-			uint32_t status = 0;
-			uint32_t proto_id_type = 1; /* ALPN */
-			uint32_t list_size = 0;
+			uint32_t proto_lists_size = 0;
+			uint32_t proto_id_type = 2; /* SecApplicationProtocolNegotiationExt_ALPN */
+			uint16_t list_size = 0;
 
-			uint8_t *pData = alpn_buf + 12; /* Skip 12 bytes header */
+			uint8_t *pData = alpn_buf + 10; /* Skip 10 bytes header */
 
 			/* Parse comma separated list */
 			char temp[64];
@@ -185,11 +187,12 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
 				else break;
 			}
 
-			list_size = (uint32_t)(pData - (alpn_buf + 12));
+			list_size = (uint16_t)(pData - (alpn_buf + 10));
+			proto_lists_size = 6 + list_size;
 
-			memcpy(alpn_buf, &status, 4);
+			memcpy(alpn_buf, &proto_lists_size, 4);
 			memcpy(alpn_buf + 4, &proto_id_type, 4);
-			memcpy(alpn_buf + 8, &list_size, 4);
+			memcpy(alpn_buf + 8, &list_size, 2);
 
 			in_bufs[0].BufferType = SECBUFFER_APPLICATION_PROTOCOLS;
 			in_bufs[0].pvBuffer = alpn_buf;
@@ -562,7 +565,13 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 		return lws_ssl_capable_read(wsi, buf, len);
 	}
 
-	if (status == SEC_E_OK || status == SEC_I_RENEGOTIATE) {
+	if (status != SEC_E_OK && status != SEC_I_RENEGOTIATE && status != SEC_I_CONTEXT_EXPIRED) {
+		lwsl_err("%s: DecryptMessage failed 0x%x\n", __func__, (int)status);
+		return LWS_SSL_CAPABLE_ERROR;
+	}
+
+	if (status == SEC_E_OK || status == SEC_I_RENEGOTIATE ||
+	    status == SEC_I_CONTEXT_EXPIRED) {
 		int i;
 		uint8_t *dec_data = NULL;
 		size_t dec_len = 0;
@@ -620,11 +629,6 @@ done:
 	return LWS_SSL_CAPABLE_ERROR;
 
 check_pending:
-	if (n != (ssize_t)len) {
-		lws_ssl_remove_wsi_from_buffered_list(wsi);
-		return (int)n;
-	}
-
 	if (lws_ssl_pending(wsi)) {
 		struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 		if (lws_dll2_is_detached(&wsi->tls.dll_pending_tls))
@@ -703,6 +707,7 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 
 	status = EncryptMessage(&conn->ctxt, 0, &msg_desc, 0);
 	if (status != SEC_E_OK) {
+		lwsl_err("%s: EncryptMessage failed 0x%x\n", __func__, (int)status);
 		lws_free(alloc_buf);
 		return LWS_SSL_CAPABLE_ERROR;
 	}
@@ -749,6 +754,14 @@ lws_ssl_pending(struct lws *wsi)
 	if (conn && conn->rx_len > 0 && !conn->f_socket_is_blocking) {
 		lwsl_wsi_debug(wsi, "pending rx_len %d", (int)conn->rx_len);
 		return 1;
+	}
+
+	if (conn && conn->rx_len >= 5) {
+		size_t record_len = (((size_t)conn->rx_buf[3]) << 8) | conn->rx_buf[4];
+		if (conn->rx_len >= 5 + record_len) {
+			lwsl_wsi_debug(wsi, "pending rx_buf complete record %d", (int)record_len);
+			return 1;
+		}
 	}
 
 	return 0;
@@ -799,6 +812,7 @@ __lws_tls_shutdown(struct lws *wsi)
 lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 {
 	struct lws_tls_schannel_conn *conn = wsi->tls.ssl;
+	struct lws_tls_schannel_ctx *ctx = wsi->a.vhost->tls.ssl_client_ctx;
 	PCCERT_CONTEXT pCert = NULL;
 	SECURITY_STATUS status;
 	int ret = -1;
@@ -817,7 +831,7 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 	memset(&ChainPara, 0, sizeof(ChainPara));
 	ChainPara.cbSize = sizeof(ChainPara);
 
-	if (CertGetCertificateChain(NULL, pCert, NULL, NULL, &ChainPara, 0, NULL, &pChainContext)) {
+	if (CertGetCertificateChain(NULL, pCert, NULL, ctx ? ctx->store : NULL, &ChainPara, 0, NULL, &pChainContext)) {
 
 		HTTPSPolicyCallbackData polHttps;
 		memset(&polHttps, 0, sizeof(HTTPSPolicyCallbackData));
@@ -849,6 +863,22 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 					if (PolicyStatus.dwError == CERT_E_UNTRUSTEDROOT ||
 							PolicyStatus.dwError == CERT_E_CHAINING) {
 						ret = 0;
+					}
+				}
+
+				if (ret != 0 && PolicyStatus.dwError == CERT_E_UNTRUSTEDROOT) {
+					/* Check if the root of the resolved chain is explicitly trusted in our custom store */
+					if (ctx && ctx->store && pChainContext->cChain > 0) {
+						PCERT_SIMPLE_CHAIN pSimpleChain = pChainContext->rgpChain[0];
+						if (pSimpleChain->cElement > 0) {
+							PCERT_CHAIN_ELEMENT pRootElement = pSimpleChain->rgpElement[pSimpleChain->cElement - 1];
+							PCCERT_CONTEXT pFound = CertFindCertificateInStore(ctx->store, X509_ASN_ENCODING | PKCS_7_ASN_ENCODING, 0, CERT_FIND_EXISTING, pRootElement->pCertContext, NULL);
+							if (pFound) {
+								/* The root is explicitly trusted */
+								ret = 0;
+								CertFreeCertificateContext(pFound);
+							}
+						}
 					}
 				}
 

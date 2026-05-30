@@ -33,6 +33,10 @@
 #include <io.h>
 #endif
 
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
+
 #if defined(LWS_WITH_CLIENT)
 struct lws_stub_req {
 	struct lws_dll2			list;
@@ -51,6 +55,7 @@ struct lws_stub_manager {
 	char				uds_path[256];
 	char				secret[129];
 	struct lws_spawn_piped		*lsp;
+	struct lws_stub_config		config;
 
 	const struct lws_protocols	*protocols;
 
@@ -64,6 +69,9 @@ struct lws_stub_manager {
 	char				addr[256];
 	char				exe_path[256];
 };
+
+static int
+lws_stub_client_connect(struct lws_stub_manager *mgr);
 
 struct lws_stub_manager *
 lws_stub_spawn(const struct lws_stub_config *config)
@@ -79,6 +87,7 @@ lws_stub_spawn(const struct lws_stub_config *config)
 
 	mgr->cx = config->cx;
 	mgr->vh = config->vh;
+	memcpy(&mgr->config, config, sizeof(mgr->config));
 	lws_strncpy(mgr->uds_path, config->uds_path, sizeof(mgr->uds_path));
 	mgr->protocols = config->protocols;
 
@@ -87,34 +96,42 @@ lws_stub_spawn(const struct lws_stub_config *config)
 	lws_hex_from_byte_array(rand, sizeof(rand), mgr->secret, sizeof(mgr->secret));
 
 	memset(&spawn_info, 0, sizeof(spawn_info));
-	const char *argv0 = lws_cmdline_option_cx_argv0(mgr->cx);
 	const char *exe_path = "/usr/local/bin/lwsws";
 
-	if (argv0) {
+#if defined(__APPLE__)
+	{
+		uint32_t size = sizeof(mgr->exe_path);
+		if (_NSGetExecutablePath(mgr->exe_path, &size) == 0)
+			exe_path = mgr->exe_path;
+	}
+#elif defined(__linux__)
+	{
+		int m = (int)readlink("/proc/self/exe", mgr->exe_path, sizeof(mgr->exe_path) - 1);
+		if (m > 0) {
+			mgr->exe_path[m] = '\0';
+			exe_path = mgr->exe_path;
+		}
+	}
+#else
+	{
+		const char *argv0 = lws_cmdline_option_cx_argv0(mgr->cx);
+		if (argv0) {
 		if (argv0[0] == '/') {
 			lws_strncpy(mgr->exe_path, argv0, sizeof(mgr->exe_path));
 			exe_path = mgr->exe_path;
 		} else {
-#if defined(__linux__)
-			int m = (int)readlink("/proc/self/exe", mgr->exe_path, sizeof(mgr->exe_path) - 1);
-			if (m > 0) {
-				mgr->exe_path[m] = '\0';
-				exe_path = mgr->exe_path;
-			} else
-#endif
 #if !defined(WIN32)
-			{
-				/* Fallback to realpath of argv0 if possible */
-				if (realpath(argv0, mgr->exe_path))
-					exe_path = mgr->exe_path;
-				else
-					exe_path = argv0;
-			}
+			if (realpath(argv0, mgr->exe_path))
+				exe_path = mgr->exe_path;
+			else
+				exe_path = argv0;
 #else
 			exe_path = argv0;
 #endif
 		}
+		}
 	}
+#endif
 
 	mgr->exec_array[n++] = exe_path;
 	lwsl_notice("%s: Spawning stub with exe: %s\n", __func__, exe_path);
@@ -173,6 +190,9 @@ lws_stub_spawn(const struct lws_stub_config *config)
 
 	lwsl_vhost_notice(mgr->vh, "%s: Spawned stub %s\n", __func__, config->stub_name);
 
+	if (!mgr->sul.list.owner && !mgr->wsi_client)
+		lws_stub_client_connect(mgr);
+
 	return mgr;
 
 spawn_fail:
@@ -198,7 +218,7 @@ lws_stub_server_init(const struct lws_stub_config *config, char *secret_out, voi
 
 	/* 1. Read secret from stdin */
 	while (rx < 128) {
-		ssize_t n = read(0, secret_out + rx, 128 - (unsigned int)rx);
+		ssize_t n = read(0, (void *)(secret_out + rx), 128 - (unsigned int)rx);
 		if (n <= 0)
 			break;
 		rx += (size_t)n;
@@ -214,7 +234,7 @@ lws_stub_server_init(const struct lws_stub_config *config, char *secret_out, voi
 	if (extra_out && extra_len > 0) {
 		/* We only do a single read here because the payload size is variable
 		 * and unknown to the child, and the pipe remains open for future IPC. */
-		ssize_t n = read(0, extra_out, (unsigned int)extra_len);
+		ssize_t n = read(0, (void *)extra_out, (unsigned int)extra_len);
 		if (n < 0) {
 			lwsl_err("%s: Failed to read extra payload\n", __func__);
 			/* Non-fatal */
@@ -227,6 +247,7 @@ lws_stub_server_init(const struct lws_stub_config *config, char *secret_out, voi
 	info.iface = config->uds_path;
 	info.protocols = config->protocols;
 	info.vhost_name = config->stub_name;
+	info.user = config->user;
 
 	unlink(info.iface);
 	vh_uds = lws_create_vhost(config->cx, &info);
@@ -236,7 +257,9 @@ lws_stub_server_init(const struct lws_stub_config *config, char *secret_out, voi
 	}
 
 	/* 3. Secure permissions: Only root (and unprivileged clients dropping privs) */
+#if !defined(WIN32)
 	chmod(info.iface, 0600);
+#endif
 
 	/* Signal ready */
 	lwsl_notice("STUB-READY (%s)\n", config->stub_name);
@@ -292,8 +315,7 @@ lws_stub_client_connect(struct lws_stub_manager *mgr)
 			if (mgr->ctry > 1)
 				lwsl_notice("%s: Synchronous connect failed (errno %d), retrying in %u ms (attempt %d)\n", __func__, LWS_ERRNO, (unsigned int)ms, mgr->ctry);
 			lws_sul_schedule(mgr->cx, 0, &mgr->sul, stub_retry_cb, ms * 1000);
-		} else
-			lwsl_err("%s: Max retries reached\n", __func__);
+		}
 
 		return -1;
 	}
@@ -326,6 +348,8 @@ lws_callback_stub_client(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RAW_CONNECTED:
 		lwsl_notice("%s: UDS connected to stub\n", __func__);
 		mgr->ctry = 0; /* Reset retry counter on success */
+		if (mgr->config.connected_cb)
+			mgr->config.connected_cb(mgr);
 		lws_callback_on_writable(wsi);
 		break;
 
@@ -343,8 +367,18 @@ lws_callback_stub_client(struct lws *wsi, enum lws_callback_reasons reason,
 			req->tx_pos += (size_t)n;
 		}
 
-		if (req->tx_pos < req->tx_len)
+		if (req->tx_pos < req->tx_len) {
 			lws_callback_on_writable(wsi);
+		} else if (!req->rx_cb && !req->raw_cb) {
+			/* No response expected, so we can complete and free the request immediately */
+			lws_dll2_remove(&req->list);
+			lws_free(req->tx_buf);
+			lws_free(req);
+			
+			/* If there are more requests queued, ask for writable again */
+			if (lws_dll2_get_head(&mgr->reqs))
+				lws_callback_on_writable(wsi);
+		}
 		break;
 	}
 
@@ -415,9 +449,15 @@ lws_stub_request(struct lws_stub_manager *mgr,
 
 	lws_dll2_add_tail(&req->list, &mgr->reqs);
 
-	if (!mgr->wsi_client)
-		lws_stub_client_connect(mgr);
-	else
+	if (!mgr->wsi_client) {
+		if (!mgr->sul.list.owner) {
+			if (mgr->ctry >= 10) {
+				/* If we hit max retries, reset and try again if new requests come in */
+				mgr->ctry = 0;
+			}
+			lws_stub_client_connect(mgr);
+		}
+	} else
 		lws_callback_on_writable(mgr->wsi_client);
 
 	return 0;

@@ -421,12 +421,12 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 	}
 
 	if (name) {
-		lwsl_wsi_notice(wsi, "QPACK decoded header: name=%.*s, value=%.*s", (int)name_len, name, (int)value_len, value);
+		lwsl_wsi_debug(wsi, "QPACK decoded header: name=%.*s, value=%.*s", (int)name_len, name, (int)value_len, value);
 		/* It's an unknown header, or string-based. We need to match it. */
 		tok = lws_http_string_to_known_header(name, name_len);
 		if (name_len > 0 && name[0] == ':') is_pseudo = 1;
 	} else {
-		lwsl_wsi_notice(wsi, "QPACK decoded header: tok=%d (%s), value=%.*s", tok, (const char *)lws_token_to_string((enum lws_token_indexes)tok), (int)value_len, value);
+		lwsl_wsi_debug(wsi, "QPACK decoded header: tok=%d (%s), value=%.*s", tok, (const char *)lws_token_to_string((enum lws_token_indexes)tok), (int)value_len, value);
 		if (tok == WSI_TOKEN_HTTP_COLON_AUTHORITY ||
 		    tok == WSI_TOKEN_HTTP_COLON_METHOD ||
 		    tok == WSI_TOKEN_HTTP_COLON_PATH ||
@@ -571,6 +571,14 @@ rops_adoption_bind_h3(struct lws *wsi, int type, const char *vh_prot_name)
 	return 0;
 }
 
+#if defined(LWS_PLAT_FREERTOS)
+#define LWS_QPACK_CAP_VARINT 0x50 /* 4096 */
+#define LWS_QPACK_CAP_VAL 4096
+#else
+#define LWS_QPACK_CAP_VARINT 0x60 /* 8192 */
+#define LWS_QPACK_CAP_VAL 8192
+#endif
+
 static struct lws *
 lws_h3_create_unidi_stream(struct lws *nwsi, uint8_t type)
 {
@@ -610,16 +618,13 @@ lws_h3_create_unidi_stream(struct lws *nwsi, uint8_t type)
 
 	{
 		uint8_t pre[LWS_PRE + 16];
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 		int n;
+#endif
 		size_t send_len = 1;
 		pre[LWS_PRE] = type;
 		if (type == 0x00) {
 			/* HTTP/3 Control Stream MUST send a SETTINGS frame (Type 0x04) immediately */
-#if defined(LWS_PLAT_FREERTOS)
-#define LWS_QPACK_CAP_VARINT 0x50 /* 4096 */
-#else
-#define LWS_QPACK_CAP_VARINT 0x60 /* 8192 */
-#endif
 
 			if (nwsi->a.vhost->h2.set.s[H2SET_ENABLE_CONNECT_PROTOCOL]) {
 				pre[LWS_PRE + 1] = 0x04; /* SETTINGS */
@@ -643,11 +648,19 @@ lws_h3_create_unidi_stream(struct lws *nwsi, uint8_t type)
 				send_len = 6;
 			}
 			
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 			n = lws_write(cwsi, &pre[LWS_PRE], send_len, LWS_WRITE_BINARY | LWS_WRITE_NO_FIN);
-			lwsl_notice("lws_h3_create_unidi_stream: lws_write control ret %d\n", n);
+			lwsl_info("lws_h3_create_unidi_stream: lws_write control ret %d\n", n);
+#else
+			lws_write(cwsi, &pre[LWS_PRE], send_len, LWS_WRITE_BINARY | LWS_WRITE_NO_FIN);
+#endif
 		} else {
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 			n = lws_write(cwsi, &pre[LWS_PRE], 1, LWS_WRITE_BINARY | LWS_WRITE_NO_FIN);
-			lwsl_notice("lws_h3_create_unidi_stream: lws_write %d ret %d\n", type, n);
+			lwsl_info("lws_h3_create_unidi_stream: lws_write %d ret %d\n", type, n);
+#else
+			lws_write(cwsi, &pre[LWS_PRE], 1, LWS_WRITE_BINARY | LWS_WRITE_NO_FIN);
+#endif
 		}
 	}
 
@@ -679,6 +692,10 @@ lws_quic_parse_varint_prefix(const uint8_t *buf, size_t len, int prefix_len, uin
 			return i;
 		}
 		shift += 7;
+		if (shift >= 64) {
+			/* Prevent undefined behavior from shifting >= 64 bits */
+			return 0;
+		}
 	}
 	return 0; /* Need more data */
 }
@@ -816,7 +833,7 @@ lws_quic_enter_closing_state(nwsi, LWS_QPACK_ENCODER_STREAM_ERROR, 0, 1);
 
 				/* Validation: Request Streams */
 				if (!wsi->quic.qs || !wsi->quic.qs->is_unidirectional) {
-					lwsl_wsi_warn(wsi, "H3 Validation: rx_frame_type=%d, hdr_parsing_completed=%d",
+					lwsl_wsi_debug(wsi, "H3 Validation: rx_frame_type=%d, hdr_parsing_completed=%d",
 						(int)wsi->h3.rx_frame_type, (int)wsi->hdr_parsing_completed);
 					if (wsi->h3.rx_frame_type == 0x00 && !wsi->hdr_parsing_completed) {
 						struct lws *nwsi = lws_get_quic_network_wsi(wsi);
@@ -915,7 +932,7 @@ lws_quic_enter_closing_state(nwsi, LWS_QPACK_ENCODER_STREAM_ERROR, 0, 1);
 								return 1;
 							} else if (id == 0x01) { /* SETTINGS_QPACK_MAX_TABLE_CAPACITY */
 								if (wsi->h3.h3n) {
-									wsi->h3.h3n->qpack_dec_ctx.dyn_table.virtual_payload_limit = (uint32_t)val;
+									wsi->h3.h3n->qpack_tx_encoder.virtual_payload_max = (uint32_t)val;
 								}
 							} else if (id == 0x08) {
 								/* SETTINGS_ENABLE_WEB_SOCKETS */
@@ -1050,7 +1067,7 @@ lws_quic_enter_closing_state(nwsi, LWS_QPACK_ENCODER_STREAM_ERROR, 0, 1);
 					} else
 #endif
 					{
-						lwsl_err("H3_VHOST_SELECT: headers parsed. vhost listen_port: %d, auth len: %d, authority: %s\n",
+						lwsl_info("H3_VHOST_SELECT: headers parsed. vhost listen_port: %d, auth len: %d, authority: %s\n",
 							wsi->a.vhost->listen_port,
 							lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_AUTHORITY),
 							lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_AUTHORITY) ? lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_AUTHORITY) : "NULL");
@@ -1098,7 +1115,7 @@ rops_alpn_negotiated_h3(struct lws *wsi, const char *alpn)
 	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
 	struct lws_h3_netconn *h3n;
 
-	lwsl_wsi_notice(wsi, "H3 ALPN Negotiated: %s", alpn);
+	lwsl_wsi_info(wsi, "H3 ALPN Negotiated: %s", alpn);
 
 	if (!nwsi || !nwsi->quic.qn)
 		return 1;
@@ -1116,6 +1133,8 @@ rops_alpn_negotiated_h3(struct lws *wsi, const char *alpn)
 		h3n->qpack_tx_encoder.num_entries = LWS_ARRAY_SIZE(h3n->tx_entries);
 		h3n->qpack_tx_encoder.virtual_payload_max = 4096;
 		nwsi->h3.qpack_tx_encoder = &h3n->qpack_tx_encoder;
+
+		h3n->qpack_dec_ctx.dyn_table.virtual_payload_limit = LWS_QPACK_CAP_VAL;
 
 		/* Create the 3 local control streams */
 		/* Client unidi start at 2 */
@@ -1201,11 +1220,7 @@ rops_write_role_protocol_h3(struct lws *wsi, unsigned char *buf, size_t len,
 #endif
 
 	if (is_http && wsi->http.tx_content_length) {
-		wsi->http.tx_content_remain -= len;
-		lwsl_info("%s: %s: tx_content_rem = %llu\n", __func__,
-			  lws_wsi_tag(wsi),
-			  (unsigned long long)wsi->http.tx_content_remain);
-		if (!wsi->http.tx_content_remain) {
+		if (wsi->http.tx_content_remain <= len) {
 			lwsl_info("%s: selecting final write mode\n", __func__);
 			base = LWS_WRITE_HTTP_FINAL;
 			*wp = (enum lws_write_protocol)(((unsigned int)*wp & ~0x1fu) | LWS_WRITE_HTTP_FINAL);
@@ -1273,6 +1288,14 @@ rops_write_role_protocol_h3(struct lws *wsi, unsigned char *buf, size_t len,
 					write_role_protocol(wsi, (is_http || is_headers) ? pre : buf, len, wp);
 			if (n <= 0)
 				return n;
+
+			if (is_http && wsi->http.tx_content_length) {
+				wsi->http.tx_content_remain -= olen;
+				lwsl_info("%s: %s: tx_content_rem = %llu\n", __func__,
+					  lws_wsi_tag(wsi),
+					  (unsigned long long)wsi->http.tx_content_remain);
+			}
+
 			return (int)olen;
 		}
 	}

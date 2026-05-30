@@ -133,7 +133,7 @@ lws_role_call_alpn_negotiated(struct lws *wsi, const char *alpn)
 	if (wsi->role_ops && lws_rops_fidx(wsi->role_ops, LWS_ROPS_alpn_negotiated) &&
 	    ((wsi->role_ops->alpn && !strcmp(wsi->role_ops->alpn, alpn)) ||
 		 (!strcmp(wsi->role_ops->name, "quic") && !strcmp(alpn, "lws-quic")))) {
-			lwsl_wsi_notice(wsi, "lws_role_call_alpn_negotiated: Matched WSI current role: %s", wsi->role_ops->name);
+			lwsl_wsi_info(wsi, "lws_role_call_alpn_negotiated: Matched WSI current role: %s", wsi->role_ops->name);
 #if defined(LWS_WITH_SERVER)
 			lws_metrics_tag_wsi_add(wsi, "upg", wsi->role_ops->name);
 #endif

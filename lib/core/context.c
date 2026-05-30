@@ -152,7 +152,7 @@ lws_state_notify_protocol_init(struct lws_state_manager *mgr,
 	}
 #endif
 
-#if defined(LWS_WITH_NETLINK)
+#if defined(LWS_WITH_ROUTING)
 	/*
 	 * If we're going to use netlink routing data for DNS, we have to
 	 * wait to collect it asynchronously from the platform first.  Netlink
@@ -337,6 +337,9 @@ static const char * const opts_str =
 #if defined(LWS_ROLE_H2)
 			"H2 "
 #endif
+#if defined(LWS_ROLE_H3)
+			"H3 "
+#endif
 #if defined(LWS_ROLE_WS)
 			"WS "
 #endif
@@ -415,15 +418,14 @@ lws_create_context(const struct lws_context_creation_info *info)
 #if defined(__ANDROID__)
 	struct rlimit rt;
 #endif
-	size_t
 #if defined(LWS_PLAT_FREERTOS)
 		/* smaller default, can set in info->pt_serv_buf_size */
-		s1 = 2048,
+		size_t s1 = 2048;
 #else
-		s1 = 4096,
+		size_t s1 = 4096;
 #endif
-		size = sizeof(struct lws_context);
 #endif
+	size_t size = sizeof(struct lws_context);
 #if !defined(LWS_PLAT_BAREMETAL) && defined(LWS_WITH_NETWORK)
 	int n;
 #endif
@@ -646,6 +648,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 	if (!plev || lws_fi(&info->fic, "ctx_createfail_evlib_sel"))
 		goto fail_event_libs;
+#endif /* LWS_WITH_NETWORK */
 
 #if defined(LWS_WITH_NETWORK)
 	size += (size_t)plev->ops->evlib_size_ctx /* the ctx evlib priv */ +
@@ -660,6 +663,15 @@ lws_create_context(const struct lws_context_creation_info *info)
 		lwsl_err("OOM");
 		goto early_bail;
 	}
+
+	context->name			= info->vhost_name;
+	if (info->log_cx)
+		context->log_cx = info->log_cx;
+	else
+		context->log_cx = &log_cx;
+	lwsl_refcount_cx(context->log_cx, 1);
+
+#if defined(LWS_WITH_NETWORK)
 
 #if defined(LWS_WITH_SYS_STATE)
    // NOTE: we need to init this fields because they may be used in logger when context destroying
@@ -704,12 +716,6 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->argc			= info->argc;
 	context->argv			= info->argv;
 #endif
-	context->name			= info->vhost_name;
-	if (info->log_cx)
-		context->log_cx = info->log_cx;
-	else
-		context->log_cx = &log_cx;
-	lwsl_refcount_cx(context->log_cx, 1);
 
 	context->system_ops = info->system_ops;
 
