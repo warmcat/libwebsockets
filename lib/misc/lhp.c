@@ -664,6 +664,7 @@ lhp_atr_new(lhp_ctx_t *ctx, size_t name_len, size_t value_len)
 	ctx->buf[ctx->npos] = '\0';
 	memcpy(&a[1], ctx->buf, (unsigned int)ctx->npos + 1u);
 	*(((uint8_t *)&a[1]) + name_len) = '\0';
+	*(((uint8_t *)&a[1]) + name_len + 1 + value_len) = '\0';
 	lws_dll2_add_tail(&a->list, &ps->atr);
 
 	ctx->npos = 0;

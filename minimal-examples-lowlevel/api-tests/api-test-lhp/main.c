@@ -35,6 +35,8 @@ static const char * const cb_reasons[] = {
 };
 
 static const char * const html_tests[] = {
+	/* POC test */
+	"<style>span.note{color:#123;}</style><span class>x</span>",
 	/* test 1 */
 	"hello",
 	/* test 2 */
