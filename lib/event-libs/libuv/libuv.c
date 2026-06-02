@@ -379,7 +379,7 @@ elops_destroy_context1_uv(struct lws_context *context)
 
 		/* only for internal loops... */
 
-		if (!pt->event_loop_foreign) {
+		if (!pt->event_loop_foreign && pt_to_priv_uv(pt)->io_loop) {
 
 			while (budget-- && (m = uv_run(pt_to_priv_uv(pt)->io_loop,
 						  UV_RUN_NOWAIT)))
