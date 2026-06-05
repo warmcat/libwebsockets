@@ -1310,6 +1310,9 @@ _openssl_alpn_to_mbedtls(struct alpn_ctx *ac, char ***palpn_protos)
 	if (!alpn_protos)
 		return;
 
+	if (*palpn_protos)
+		ssl_mem_free(*palpn_protos);
+
 	*palpn_protos = alpn_protos;
 
 	/* convert to mbedtls format */

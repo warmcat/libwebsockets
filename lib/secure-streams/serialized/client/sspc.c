@@ -771,11 +771,13 @@ lws_sspc_start_timeout(struct lws_sspc_handle *h, unsigned int timeout_ms)
 #if !defined(STANDALONE)
 	lws_service_assert_loop_thread(h->context, 0);
 #endif
-	if (!h->txp_path.priv_onw)
-		/* we can't fulfil it */
-		return;
 	h->timeout_ms = (uint32_t)timeout_ms;
 	h->pending_timeout_update = 1;
+
+	if (!h->txp_path.priv_onw)
+		/* we can't fulfil it yet */
+		return;
+
 	h->txp_path.ops_onw->req_write(h->txp_path.priv_onw);
 }
 

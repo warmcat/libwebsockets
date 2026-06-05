@@ -101,5 +101,5 @@ endif()
 #
 
 export_to_parent_intermediate()
-set(LWS_DEPS_LIB_PATHS ${LWS_DEPS_LIB_PATHS} PARENT_SCOPE)
+set(LWS_DEP_LIB_PATHS ${LWS_DEP_LIB_PATHS} PARENT_SCOPE)
 

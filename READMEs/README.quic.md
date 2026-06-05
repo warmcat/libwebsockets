@@ -99,7 +99,15 @@ wolfSSL supports QUIC, but it must be explicitly enabled during configuration.
 
 ## 5. mbedTLS
 
-mbedTLS version 3.x is required for QUIC support in lws.
+mbedTLS version 3.x + an OOT patch is required for QUIC support in lws.
+mbedTLS itself doesn't support quic (at least until 4.1.0) and needs some
+extra apis grafting in (+434 LOC and another 300 docs and selftests).
+
+Mbedtls with the patch rebased on top is available here:
+https://libwebsockets.org/git/mbedtls/log?h=development
+
+If the mbedts lib lws was built against was suitably patched, the lws_context
+config string will append the mbedtls version with +LWSQUIC.
 
 *   **Source:** `git clone https://github.com/Mbed-TLS/mbedtls.git`
 *   **Building mbedTLS:**

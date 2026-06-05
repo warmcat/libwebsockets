@@ -40,9 +40,6 @@ macro(create_evlib_plugin PLUGIN_NAME MAIN_SRC PLUGIN_HDR EVLIB)
 		set_property(TARGET websockets-${PLUGIN_NAME} PROPERTY MACOSX_RPATH YES)
 	endif()
 
-	foreach(libpath ${LWS_DEP_LIB_PATHS})
-		target_link_directories(websockets-${PLUGIN_NAME} PRIVATE ${libpath})
-	endforeach()
 
 	set(STRIPPED_EVLIB "")
 	foreach(lib_path ${EVLIB})

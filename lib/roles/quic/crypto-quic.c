@@ -648,6 +648,8 @@ lws_tls_quic_rx_crypto(struct lws *wsi, int level, const uint8_t *buf, size_t le
 		return -1;
 
 	if (len > 0 && wsi->quic.qn) {
+		lwsl_wsi_notice(wsi, "lws_tls_quic_rx_crypto: level %d, len %zu, buf[0]=%d", level, len, buf[0]);
+		lwsl_hexdump_notice(buf, len > 32 ? 32 : len);
 		size_t i = 0;
 		while (i < len) {
 			if (wsi->quic.qn->crypto_rx_expected_msg_len[level] > 0) {
@@ -661,6 +663,7 @@ lws_tls_quic_rx_crypto(struct lws *wsi, int level, const uint8_t *buf, size_t le
 			
 			/* We are at the start of a new Handshake message! */
 			uint8_t type = buf[i];
+			lwsl_wsi_notice(wsi, "QUIC RX CRYPTO: checking message type %d at offset %zu", type, i);
 			if (type == 24 || type == 5) {
 				lwsl_wsi_notice(wsi, "QUIC RX CRYPTO: Illegal TLS Handshake type %d", type);
 				lws_quic_enter_closing_state(wsi, 0x0100 + 10 /* unexpected_message */, 0, 0);
@@ -676,6 +679,7 @@ lws_tls_quic_rx_crypto(struct lws *wsi, int level, const uint8_t *buf, size_t le
 			
 			uint32_t msg_len = ((uint32_t)buf[i+1] << 16) | ((uint32_t)buf[i+2] << 8) | buf[i+3];
 			wsi->quic.qn->crypto_rx_expected_msg_len[level] = msg_len;
+			lwsl_wsi_notice(wsi, "QUIC RX CRYPTO: Expecting %u bytes for message type %d", msg_len, type);
 			i += 4;
 		}
 	}
@@ -719,7 +723,6 @@ lws_tls_quic_rx_crypto(struct lws *wsi, int level, const uint8_t *buf, size_t le
 	lwsl_wsi_debug(wsi, "lws_tls_quic_advance_handshake returned %d, tp_parsed=%d", n, wsi->quic.qn ? wsi->quic.qn->tp_parsed : -1);
 
 	if (wsi->quic.qn && !wsi->quic.qn->tp_parsed) {
-#if !defined(LWS_WITH_MBEDTLS)
 		const uint8_t *peer_tp = NULL;
 		size_t peer_tp_len = 0;
 		if (lws_tls_quic_get_transport_parameters(wsi, &peer_tp, &peer_tp_len) == 0 && peer_tp) {
@@ -734,41 +737,23 @@ lws_tls_quic_rx_crypto(struct lws *wsi, int level, const uint8_t *buf, size_t le
 		} else {
 			lwsl_wsi_debug(wsi, "lws_tls_quic_get_transport_parameters returned non-zero or NULL");
 		}
-#else
-		/* MbedTLS 4.x has no custom extension API, so QUIC transport parameters are not supported natively yet */
-		wsi->quic.qn->tp_parsed = 1;
-		wsi->quic.qn->peer_initial_max_data = 10485760;
-		wsi->quic.qn->peer_initial_max_stream_data_bidi_local = 10485760;
-		wsi->quic.qn->peer_initial_max_stream_data_bidi_remote = 10485760;
-		wsi->quic.qn->peer_initial_max_stream_data_uni = 10485760;
-		wsi->quic.qn->max_streams_bidi_remote = 100;
-		wsi->quic.qn->max_streams_unidi_remote = 100;
-		if (wsi->quic.qn->nwsi) {
-			wsi->quic.qn->nwsi->txc.peer_tx_cr_est += (10485760 - 65535);
-			wsi->quic.qn->nwsi->txc.tx_cr += (10485760 - 65535);
-		}
-#endif
-#if !defined(LWS_WITH_MBEDTLS)
 		if (wsi->quic.qn->is_server && out_len > 0 && !wsi->quic.qn->tp_parsed) {
 			lwsl_wsi_err(wsi, "QUIC Peer provided no transport parameters in ClientHello!");
 			lws_quic_enter_closing_state(wsi, 0x0100 + 109 /* missing_extension */, 0, 0);
 			lws_free(out);
 			return -1;
 		}
-#endif
 	}
 
 	if (n == 0 && wsi->quic.qn && !wsi->quic.qn->handshake_done) {
 		lwsl_wsi_info(wsi, "QUIC TLS Handshake Complete!");
 
-#if !defined(LWS_WITH_MBEDTLS)
 		if (!wsi->quic.qn->tp_parsed) {
 			lwsl_wsi_err(wsi, "QUIC Peer provided no transport parameters!");
 			lws_quic_enter_closing_state(wsi, 0x0100 + 109 /* missing_extension */, 0, 0);
 			lws_free(out);
 			return -1;
 		}
-#endif
 
 		wsi->quic.qn->handshake_done = 1;
 
@@ -813,16 +798,10 @@ lws_tls_quic_rx_crypto(struct lws *wsi, int level, const uint8_t *buf, size_t le
 				lwsl_wsi_notice(wsi, "QUIC ALPN negotiated: %s", wsi->alpn);
 				lws_role_call_alpn_negotiated(wsi, wsi->alpn);
 			} else {
-#if !defined(LWS_WITH_MBEDTLS)
 				lwsl_wsi_err(wsi, "QUIC requires ALPN, but none was negotiated!");
 				lws_quic_enter_closing_state(wsi, 0x0100 + 120 /* no_application_protocol */, 0, 0);
 				lws_free(out);
 				return -1;
-#else
-				lws_strncpy(wsi->alpn, "lws-quic", sizeof(wsi->alpn));
-				lwsl_wsi_notice(wsi, "QUIC ALPN mocked for MbedTLS: %s", wsi->alpn);
-				lws_role_call_alpn_negotiated(wsi, wsi->alpn);
-#endif
 			}
 		}
 #endif

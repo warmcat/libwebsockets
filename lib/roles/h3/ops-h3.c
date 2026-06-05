@@ -169,6 +169,7 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 {
 	lwsl_wsi_info(wsi, "rops_perform_user_POLLOUT_h3: entry, state=%d", lwsi_state(wsi));
 
+#if defined(LWS_WITH_SERVER)
 	if (wsi->http.deferred_transaction_completed) {
 		if (!lws_has_buffered_out(wsi)) {
 			wsi->http.deferred_transaction_completed = 0;
@@ -179,6 +180,7 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 		}
 		return 0;
 	}
+#endif
 
 	if (lwsi_state(wsi) == LRS_FLUSHING_BEFORE_CLOSE) {
 		if (!lws_has_buffered_out(wsi)) {
@@ -232,6 +234,7 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 			    wsi == wsi->h3.h3n->cwsi_qpack_dec))
 		return 0;
 
+#if defined(LWS_WITH_SERVER)
 #if defined(LWS_WITH_FILE_OPS)
 	if (lwsi_state(wsi) == LRS_ISSUING_FILE) {
 		int n;
@@ -271,6 +274,7 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 
 		return 0;
 	}
+#endif
 #endif
 
 	if (lwsi_state(wsi) == LRS_H2_AWAIT_PREFACE) {
@@ -883,7 +887,11 @@ lws_quic_enter_closing_state(nwsi, LWS_QPACK_ENCODER_STREAM_ERROR, 0, 1);
 							if (lws_http_transaction_completed_client(wsi))
 								return 1;
 						}
-					} else
+					}
+#endif
+#if defined(LWS_WITH_SERVER)
+#if defined(LWS_WITH_CLIENT)
+					else
 #endif
 					{
 						/* Server-side receive */
@@ -905,6 +913,7 @@ lws_quic_enter_closing_state(nwsi, LWS_QPACK_ENCODER_STREAM_ERROR, 0, 1);
 							}
 						}
 					}
+#endif
 				}
 			} else if (wsi->h3.stream_type == 0x00 && wsi->h3.rx_frame_type == 0x04) {
 				/* Parse SETTINGS frame */
@@ -1061,7 +1070,11 @@ lws_quic_enter_closing_state(nwsi, LWS_QPACK_ENCODER_STREAM_ERROR, 0, 1);
 							lwsl_info("cli int serv hs closed, or redir\n");
 							return 1;
 						}
-					} else
+					}
+#endif
+#if defined(LWS_WITH_SERVER)
+#if defined(LWS_WITH_CLIENT)
+					else
 #endif
 					{
 						lwsl_info("H3_VHOST_SELECT: headers parsed. vhost listen_port: %d, auth len: %d, authority: %s\n",
@@ -1097,6 +1110,7 @@ lws_quic_enter_closing_state(nwsi, LWS_QPACK_ENCODER_STREAM_ERROR, 0, 1);
 						lws_callback_on_writable(wsi);
 						lwsl_debug("H3_TRACE: wsi %p transitioned to LRS_DEFERRING_ACTION and called callback_on_writable\n", wsi);
 					}
+#endif
 				}
 				wsi->h3.rx_frame_state = 0; /* Next frame */
 			}

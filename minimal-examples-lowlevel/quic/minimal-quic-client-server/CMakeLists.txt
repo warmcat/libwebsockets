@@ -55,7 +55,7 @@ if (requirements)
 					     TIMEOUT 120)
 		endif()
 
-		add_test(NAME ${SAMP} COMMAND ${SAMP} -p ${PORT_QCS})
+		add_test(NAME ${SAMP} COMMAND ${SAMP} -p 1${PORT_QCS})
 		set_tests_properties(${SAMP} PROPERTIES
 					     WORKING_DIRECTORY .
 					     TIMEOUT 20)

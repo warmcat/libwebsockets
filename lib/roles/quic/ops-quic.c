@@ -326,6 +326,7 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 	}
 
 
+#if defined(LWS_WITH_SERVER)
 	if (!nwsi) {
 		if (!(p[0] & 0x80) || ((p[0] & 0x30) >> 4) != 0) {
 			lwsl_wsi_notice(wsi, "QUIC RX: Unknown DCID and not Initial, dropping");
@@ -505,6 +506,12 @@ tp_ok:
 
 		lwsl_wsi_info(wsi, "QUIC RX: Created new connection! (loc_cid len %d)", nwsi->quic.qn->loc_cid.len);
 	}
+#else
+	if (!nwsi) {
+		lwsl_wsi_notice(wsi, "QUIC RX: Unknown DCID and no server support, dropping");
+		return LWS_HPI_RET_HANDLED;
+	}
+#endif
 
 	int pending_migration = 0;
 	lws_sockaddr46 migration_sa46;
@@ -545,6 +552,11 @@ tp_ok:
 
 		if (!nwsi || !nwsi->quic.qn) {
 			lwsl_wsi_notice(wsi, "QUIC RX: network connection gone, dropping remaining packets");
+			break;
+		}
+
+		if (nwsi->quic.qn->is_closing) {
+			lwsl_wsi_notice(wsi, "QUIC RX: Connection is closing, dropping remaining packets");
 			break;
 		}
 
@@ -1864,8 +1876,10 @@ rops_adoption_bind_quic(struct lws *wsi, int type, const char *vh_prot_name)
 
 		if ((type & _LWS_ADOPT_FINISH) && wsi->do_bind) {
 			wsi->listener = 1;
+#if defined(LWS_WITH_SERVER)
 			if (!wsi->listen_list.owner)
 				lws_dll2_add_tail(&wsi->listen_list, &wsi->a.vhost->listen_wsi);
+#endif
 		}
 
 		return 1;

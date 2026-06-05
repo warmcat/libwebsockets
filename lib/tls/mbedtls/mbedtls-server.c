@@ -302,6 +302,8 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 			    vhost->name, tls->cfg_ssl_cipher_list);
 	}
 
+
+
 	return 0;
 }
 
@@ -366,12 +368,21 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 	return 0;
 }
 
+#if defined(LWS_ROLE_QUIC)
+extern void
+mbedtls_quic_bio_free(struct lws *wsi);
+#endif
+
 enum lws_ssl_capable_status
 lws_tls_server_abort_connection(struct lws *wsi)
 {
 	if (wsi->tls.use_ssl)
 		__lws_tls_shutdown(wsi);
 	
+#if defined(LWS_ROLE_QUIC)
+	mbedtls_quic_bio_free(wsi);
+#endif
+
 	SSL_free(wsi->tls.ssl);
 
 	return 0;

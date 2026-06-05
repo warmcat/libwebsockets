@@ -25,6 +25,11 @@
 #include "private-lib-core.h"
 #include "private-lib-tls-mbedtls.h"
 
+#if defined(LWS_ROLE_QUIC)
+extern void
+mbedtls_quic_bio_free(struct lws *wsi);
+#endif
+
 void
 lws_ssl_destroy(struct lws_vhost *vhost)
 {
@@ -277,6 +282,9 @@ lws_ssl_close(struct lws *wsi)
 	if (!wsi->socket_is_permanently_unusable)
 		SSL_shutdown(wsi->tls.ssl);
 	compatible_close(n);
+#if defined(LWS_ROLE_QUIC)
+	mbedtls_quic_bio_free(wsi);
+#endif
 	SSL_free(wsi->tls.ssl);
 	wsi->tls.ssl = NULL;
 

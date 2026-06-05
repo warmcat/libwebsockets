@@ -1,7 +1,7 @@
 #
 # libwebsockets - small server side websockets and web server implementation
 #
-# Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
+# Copyright (C) 2010 - 2026 Andy Green <andy@warmcat.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to
@@ -150,6 +150,7 @@ if (LWS_WITH_SSL)
 		set(CMAKE_REQUIRED_LIBRARIES ${CMAKE_REQUIRED_LIBRARIES} ${MBEDTLS_LIBRARIES})
 		CHECK_C_SOURCE_COMPILES("#include <mbedtls/ssl.h>\nint main(void) { void *v = (void *)mbedtls_ssl_set_export_keys_cb; return !!v; }\n" LWS_HAVE_mbedtls_ssl_set_export_keys_cb)
 		CHECK_C_SOURCE_COMPILES("#include <mbedtls/ssl.h>\nint main(void) { void *v = (void *)mbedtls_ssl_conf_export_keys_cb; return !!v; }\n" LWS_HAVE_mbedtls_ssl_conf_export_keys_cb)
+		CHECK_C_SOURCE_COMPILES("#include <mbedtls/ssl.h>\nint main(void) { void *v = (void *)mbedtls_ssl_set_quic_transport_ops; return !!v; }\n" LWS_HAVE_mbedtls_ssl_set_quic_transport_ops)
 		set(CMAKE_REQUIRED_LIBRARIES ${CMAKE_REQUIRED_LIBRARIES_TEMP})
 		set(CMAKE_REQUIRED_INCLUDES ${CMAKE_REQUIRED_INCLUDES_TEMP})
 
@@ -163,6 +164,10 @@ if (LWS_WITH_SSL)
 			set(LWS_WITH_HTTP3 0 PARENT_SCOPE)
 			set(LWS_ROLE_H3 0 PARENT_SCOPE)
 			set(LWS_ROLE_WT 0 PARENT_SCOPE)
+		endif()
+
+		if (LWS_ROLE_QUIC AND NOT LWS_HAVE_mbedtls_ssl_set_quic_transport_ops)
+			message(FATAL_ERROR "LWS_ROLE_QUIC (HTTP/3) requires mbedtls to be patched with QUIC support. Standard upstream mbedtls doesn't support quic.  See https://libwebsockets.org/git/mbedtls/log?h=development")
 		endif()
 
 		list(APPEND SOURCES
@@ -747,7 +752,9 @@ set(LWS_HAVE_mbedtls_ssl_conf_ciphersuites ${LWS_HAVE_mbedtls_ssl_conf_ciphersui
 set(LWS_HAVE_mbedtls_ssl_session_save ${LWS_HAVE_mbedtls_ssl_session_save} PARENT_SCOPE)
 set(LWS_HAVE_mbedtls_ssl_set_export_keys_cb ${LWS_HAVE_mbedtls_ssl_set_export_keys_cb} PARENT_SCOPE)
 set(LWS_HAVE_mbedtls_ssl_conf_export_keys_cb ${LWS_HAVE_mbedtls_ssl_conf_export_keys_cb} PARENT_SCOPE)
+set(LWS_HAVE_mbedtls_ssl_set_quic_transport_ops ${LWS_HAVE_mbedtls_ssl_set_quic_transport_ops} PARENT_SCOPE)
 set(TEST_SERVER_SSL_KEY "${TEST_SERVER_SSL_KEY}" PARENT_SCOPE)
 set(TEST_SERVER_SSL_CERT "${TEST_SERVER_SSL_CERT}" PARENT_SCOPE)
 set(TEST_SERVER_DATA ${TEST_SERVER_DATA} PARENT_SCOPE)
+set(LWS_DEP_LIB_PATHS ${LWS_DEP_LIB_PATHS} PARENT_SCOPE)
 

@@ -384,7 +384,7 @@ lws_cache_heap_write(struct lws_cache_ttl_lru *_c, const char *specific_key,
 	if (!item)
 		return 1;
 
-	cache->cache.current_footprint += item->size;
+	cache->cache.current_footprint += size;
 
 	/* only need to zero down our item object */
 	memset(item, 0, sizeof(*item));

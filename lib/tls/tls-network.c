@@ -351,12 +351,14 @@ lws_alpn_comma_to_openssl(const char *comma, uint8_t *os, int len)
 	if (!comma)
 		return 0;
 
-	while (*comma && len > 2) {
+	while (*comma && len > 0) {
 		if (!plen && *comma == ' ') {
 			comma++;
 			continue;
 		}
 		if (!plen) {
+			if (len < 2)
+				break;
 			plen = os++;
 			len--;
 		}

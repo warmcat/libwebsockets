@@ -409,7 +409,7 @@ int ssl_pm_handshake(SSL *ssl)
 	    return 0;
     }
 
-    lwsl_info("%s: mbedtls_ssl_handshake() returned -0x%x\n", __func__, -ret);
+    lwsl_notice("%s: mbedtls_ssl_handshake() returned -0x%x\n", __func__, -ret);
 
     /* it's had it */
 
@@ -1033,15 +1033,18 @@ void _ssl_set_alpn_list(const SSL *ssl)
 {
 #if defined(LWS_HAVE_mbedtls_ssl_conf_alpn_protocols)
 	if (ssl->alpn_protos) {
-		if (mbedtls_ssl_conf_alpn_protocols(&((struct ssl_pm *)(ssl->ssl_pm))->conf, ssl->alpn_protos))
+		fprintf(stderr, "_ssl_set_alpn_list: setting alpn from ssl->alpn_protos. [0]='%s'\n", ssl->alpn_protos[0] ? ssl->alpn_protos[0] : "NULL");
+		if (mbedtls_ssl_conf_alpn_protocols(&((struct ssl_pm *)(ssl->ssl_pm))->conf, (const char **)ssl->alpn_protos))
 			fprintf(stderr, "mbedtls_ssl_conf_alpn_protocols failed\n");
 
 		return;
 	}
-	if (!ssl->ctx->alpn_protos)
+	if (!ssl->ctx->alpn_protos) {
+		fprintf(stderr, "_ssl_set_alpn_list: no alpn protos\n");
 		return;
-	// lwsl_hexdump_notice(ssl->ctx->alpn_protos, 128);
-	if (mbedtls_ssl_conf_alpn_protocols(&((struct ssl_pm *)(ssl->ssl_pm))->conf, ssl->ctx->alpn_protos))
+	}
+
+	if (mbedtls_ssl_conf_alpn_protocols(&((struct ssl_pm *)(ssl->ssl_pm))->conf, (const char **)ssl->ctx->alpn_protos))
 		fprintf(stderr, "mbedtls_ssl_conf_alpn_protocols failed\n");
 #else
 	fprintf(stderr, "mbedtls_ssl_conf_alpn_protocols absent\n");
@@ -1158,4 +1161,6 @@ void SSL_set_SSL_CTX(SSL *ssl, SSL_CTX *ctx)
 #if defined(LWS_HAVE_mbedtls_ssl_set_hs_authmode)
 	mbedtls_ssl_set_hs_authmode(&ssl_pm->ssl, mode);
 #endif
+
+	_ssl_set_alpn_list(ssl);
 }

@@ -77,7 +77,7 @@
 		"w11/x86_64-amd/msvc": {
 			"default": false,
 			"build": [
-				"\"C:\\Program Files\\CMake\\bin\\cmake.exe\" -S . -B build -DLWS_WITH_SCHANNEL=0 -DOPENSSL_ROOT_DIR=\"C:\\Users\\andy\\vcpkg\\packages\\openssl_x64-windows\" -DLWS_EXT_PTHREAD_INCLUDE_DIR=\"C:\\Program Files (x86)\\pthreads\\include\" -DLWS_EXT_PTHREAD_LIBRARIES=\"C:\\Program Files (x86)\\pthreads\\lib\\x64\\libpthreadGC2.a\" ${cmake}",
+				"\"C:\\Program Files\\CMake\\bin\\cmake.exe\" -S . -B build -DLWS_WITH_HTTP3=0 -DLWS_WITH_SCHANNEL=0 -DOPENSSL_ROOT_DIR=\"C:\\Users\\andy\\vcpkg\\packages\\openssl_x64-windows\" -DLWS_EXT_PTHREAD_INCLUDE_DIR=\"C:\\Program Files (x86)\\pthreads\\include\" -DLWS_EXT_PTHREAD_LIBRARIES=\"C:\\Program Files (x86)\\pthreads\\lib\\x64\\libpthreadGC2.a\" ${cmake}",
 				"\"C:\\Program Files\\CMake\\bin\\cmake.exe\" --build build --config DEBUG --parallel %SAI_PARALLEL%",
 				"\"C:\\Program Files\\CMake\\bin\\ctest.exe\" --test-dir build -C DEBUG -j%SAI_PARALLEL% --output-on-failure --repeat until-pass:3"
 			]
@@ -112,8 +112,13 @@
 	"configurations": {
 		"default": {
 			"cmake":	"",
-			"platforms":	"w11/x86_64-amd/msvc,w11/x86_64-amd/msvc-schannel,netbsd/aarch64BE-bcm2837-a53/gcc,freebsd/aarch64/llvm"
+			"platforms":	"w11/x86_64-amd/msvc-schannel,netbsd/aarch64BE-bcm2837-a53/gcc,freebsd/aarch64/llvm"
 		},
+		"default-noh3": {
+			"cmake":	"-DLWS_WITH_HTTP3=0",
+			"platforms":	"none, w11/x86_64-amd/msvc"
+		},
+
 		"default-noudp": {
 			"cmake":	"-DLWS_WITH_UDP=0"
 		},
@@ -160,7 +165,7 @@
 			"cmake":	"-DLWS_ROLE_QUIC=1 -DLWS_WITH_WOLFSSL=1 -DLWS_WOLFSSL_INCLUDE_DIRS=/usr/local/include -DLWS_WOLFSSL_LIBRARIES=/usr/local/lib/libwolfssl.so -DLWS_WITH_MINIMAL_EXAMPLES=0",
 			"platforms":	"none, rocky9/aarch64-a72a55-rk3588/gcc"
 		},
-		"default-examples": {
+		"default-noexamples": {
 			"cmake":	"-DLWS_WITH_MINIMAL_EXAMPLES=0",
 			"platforms":	"netbsd/aarch64BE-bcm2837-a53/gcc,freebsd/aarch64/llvm"
 		},
@@ -212,13 +217,13 @@
 			"cmake":	"-DLWS_WITH_LWSWS=ON -DLWS_WITHOUT_EXTENSIONS=0 -DLWS_WITH_HTTP2=1 -DLWS_WITH_ACME=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DCMAKE_BUILD_TYPE=DEBUG -DLWS_WITH_LWS_DSH=1 -DLWS_WITH_CACHE_NSCOOKIEJAR=0"
 		},
 		"justmbedtls": {
-			"cmake": "-DLWS_WITH_MBEDTLS=1 -DLWS_WITHOUT_TESTAPPS=1"
+			"cmake": "-DLWS_WITH_HTTP3=0 -DLWS_WITH_MBEDTLS=1 -DLWS_WITHOUT_TESTAPPS=1"
 		},
 		"mbedtls": {
-			"cmake":	"-DLWS_WITH_MBEDTLS=1 -DLWS_WITH_HTTP3=1 -DLWS_WITH_HTTP2=1 -DLWS_WITH_LWSWS=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_JOSE=1 -DCMAKE_BUILD_TYPE=DEBUG"
+			"cmake":	"-DLWS_WITH_MBEDTLS=1 -DLWS_WITH_HTTP3=0 -DLWS_WITH_HTTP2=1 -DLWS_WITH_LWSWS=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_JOSE=1 -DCMAKE_BUILD_TYPE=DEBUG"
 		},
 		"mbedtls-metrics": {
-			"cmake":	"-DLWS_WITH_MBEDTLS=1 -DLWS_WITH_HTTP2=1 -DLWS_WITH_LWSWS=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_JOSE=1 -DCMAKE_BUILD_TYPE=DEBUG -DLWS_WITH_SYS_METRICS=1"
+			"cmake":	"-DLWS_WITH_HTTP3=0 -DLWS_WITH_MBEDTLS=1 -DLWS_WITH_HTTP2=1 -DLWS_WITH_LWSWS=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_JOSE=1 -DCMAKE_BUILD_TYPE=DEBUG -DLWS_WITH_SYS_METRICS=1"
 		},
 		"noserver": {
 			"cmake":	"-DLWS_WITHOUT_SERVER=ON -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_SECURE_STREAMS=1"

@@ -220,6 +220,8 @@ lws_context_init_alpn(struct lws_vhost *vhost)
 	if (vhost->tls.alpn)
 		alpn_comma = vhost->tls.alpn;
 
+	lwsl_notice("%s: alpn_comma = '%s'\n", __func__, alpn_comma ? alpn_comma : "NULL");
+
 	lwsl_info(" Server '%s' advertising ALPN: %s\n",
 		    vhost->name, alpn_comma);
 
@@ -229,8 +231,11 @@ lws_context_init_alpn(struct lws_vhost *vhost)
 
 #if defined(LWS_WITH_GNUTLS)
 	/* GnuTLS ALPN is set per-session, nothing to do here for CTX */
-#elif defined(LWS_WITH_MBEDTLS) || defined(LWS_WITH_BEARSSL)
-	/* MbedTLS/BearSSL ALPN is set per-session, nothing to do here for CTX */
+#elif defined(LWS_WITH_BEARSSL)
+	/* BearSSL ALPN is set per-session, nothing to do here for CTX */
+#elif defined(LWS_WITH_MBEDTLS)
+	SSL_CTX_set_alpn_select_cb(vhost->tls.ssl_ctx, NULL,
+				   &vhost->tls.alpn_ctx);
 #else
 	SSL_CTX_set_alpn_select_cb(vhost->tls.ssl_ctx, alpn_cb,
 				   &vhost->tls.alpn_ctx);

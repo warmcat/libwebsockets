@@ -41,6 +41,11 @@ foreach(item "@LIB_LIST_AT_END@")
 	list(APPEND LIBWEBSOCKETS_DEP_LIBS ${item})
 endforeach()
 
+set(LWS_DEP_LIB_PATHS "@LWS_DEP_LIB_PATHS@")
+foreach(item ${LWS_DEP_LIB_PATHS})
+	link_directories(${item})
+endforeach()
+
 # Move boilerplate for consuming cmake files into here
 
 include(CheckIncludeFile)

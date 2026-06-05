@@ -869,6 +869,14 @@ lws_create_context(const struct lws_context_creation_info *info)
 #else
 		lws_snprintf(mbedtls_version, sizeof(mbedtls_version), "%s", MBEDTLS_VERSION_STRING);
 #endif
+
+#if defined(LWS_HAVE_mbedtls_ssl_set_quic_transport_ops)
+		{
+			size_t l = strlen(mbedtls_version);
+			lws_snprintf(mbedtls_version + l, sizeof(mbedtls_version) - l, "+LWSQUIC");
+		}
+#endif
+
 		lwsl_cx_notice(context, "LWS: %s, MbedTLS-%s %s%s", library_version, mbedtls_version, opts_str, s);
 	}
 #else

@@ -284,7 +284,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
 		lwsl_user("RECEIVE_CLIENT_HTTP_READ: conn %d: read %d\n", idx, (int)len);
 		if (pss->fd >= 0) {
-			if (write(pss->fd, in, len) != (ssize_t)len)
+			if (write(pss->fd, in, (unsigned int)len) != (ssize_t)len)
 				lwsl_err("Write failed\n");
 		}
 		return 0; /* don't passthru */
@@ -721,9 +721,13 @@ int main(int argc, const char **argv)
 	}
 
 #if defined(LWS_WITH_CONMON)
-	if (lws_cmdline_option(argc, argv, switches[LWS_SW_CONMON].sw))
+	if (lws_cmdline_option(argc, argv, "--conmon"))
 		i.ssl_connection |= LCCSCF_CONMON;
 #endif
+
+	/* force h1 even if h2 available */
+	if (lws_cmdline_option(argc, argv, "--h1"))
+		i.alpn = "http/1.1";
 
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_OUTDIR].sw)))
 		lws_strncpy(out_dir, p, sizeof(out_dir));
@@ -736,11 +740,12 @@ int main(int argc, const char **argv)
 
 	/* Parse URLs */
 	count = 0;
+
 	for (int j = 1; j < argc; j++) {
 		if (!strncmp(argv[j], "https://", 8)) {
 			const char *url = argv[j] + 8;
-			char *slash = strchr(url, '/');
-			char *colon = strchr(url, ':');
+			const char *slash = strchr(url, '/');
+			const char *colon = strchr(url, ':');
 			
 			if (slash) {
 				lws_strncpy(reqs[count].path, slash, sizeof(reqs[count].path));
@@ -766,8 +771,55 @@ int main(int argc, const char **argv)
 		/* Fallback to default */
 		lws_strncpy(reqs[0].address, "libwebsockets.org", sizeof(reqs[0].address));
 		reqs[0].port = 443;
-		lws_strncpy(reqs[0].path, "/", sizeof(reqs[0].path));
-		count = 1;
+		if (posting)
+			lws_strncpy(reqs[0].path, "/testserver/formtest", sizeof(reqs[0].path));
+		else
+			lws_strncpy(reqs[0].path, "/", sizeof(reqs[0].path));
+		count = 8;
+
+		if (lws_cmdline_option(argc, argv, switches[LWS_SW_L].sw)) {
+			reqs[0].port = 7681;
+			lws_strncpy(reqs[0].address, "localhost", sizeof(reqs[0].address));
+			i.ssl_connection |= LCCSCF_ALLOW_SELFSIGNED;
+			if (posting)
+				lws_strncpy(reqs[0].path, "/formtest", sizeof(reqs[0].path));
+		} else if (lws_cmdline_option(argc, argv, "--h3")) {
+			reqs[0].port = 443;
+			lws_strncpy(reqs[0].address, "cloudflare-quic.com", sizeof(reqs[0].address));
+			lws_strncpy(reqs[0].path, "/", sizeof(reqs[0].path));
+		}
+
+		if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_SERVER].sw)))
+			lws_strncpy(reqs[0].address, p, sizeof(reqs[0].address));
+
+		if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PORT].sw)))
+			reqs[0].port = atoi(p);
+
+		if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PATH].sw)))
+			lws_strncpy(reqs[0].path, p, sizeof(reqs[0].path));
+	}
+
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_NO_TLS].sw))
+		i.ssl_connection &= ~(LCCSCF_USE_SSL);
+
+	int c_opt = count;
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_C].sw))) {
+		c_opt = atoi(p);
+		if (c_opt > COUNT || c_opt <= 0)
+			c_opt = count;
+	}
+
+	for (int j = 1; j < c_opt; j++) {
+		lws_strncpy(reqs[j].address, reqs[0].address, sizeof(reqs[j].address));
+		reqs[j].port = reqs[0].port;
+		lws_strncpy(reqs[j].path, reqs[0].path, sizeof(reqs[j].path));
+	}
+	count = c_opt;
+
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_N].sw)) {
+		for (int j = 0; j < count; j++) {
+			lws_snprintf(reqs[j].path, sizeof(reqs[j].path), "/%d.png", j + 1);
+		}
 	}
 
 	i.host = reqs[0].address;
