@@ -230,7 +230,9 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 #if defined(LWS_WITH_LATENCY)
 	lws_usec_t _lws_start = lws_now_usecs();
 #endif
+	memset(buf, 0, len);
 	n = SSL_read(wsi->tls.ssl, buf, (int)(ssize_t)len);
+
 #if defined(LWS_WITH_LATENCY)
 	{
 		unsigned int ms = (unsigned int)((lws_now_usecs() - _lws_start) / 1000);
@@ -371,7 +373,6 @@ int
 lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 {
 	int n, m;
-
 
 #if defined(LWS_TLS_LOG_PLAINTEXT_TX)
 	/*

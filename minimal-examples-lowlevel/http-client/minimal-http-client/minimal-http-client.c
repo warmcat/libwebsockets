@@ -352,7 +352,8 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 	if (!lws_client_connect_via_info(&i)) {
 		lwsl_err("Client creation failed\n");
 		interrupted = 1;
-		bad = 2; /* could not even start client connection */
+		if (bad != 3)
+			bad = 3; /* synchronous connection/creation failure */
 		lws_cancel_service(context);
 
 		return 1;

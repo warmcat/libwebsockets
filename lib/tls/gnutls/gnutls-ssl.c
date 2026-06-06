@@ -309,7 +309,7 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 			snprintf(ebuf, ebuf_len, "Peer cert verify failed: %s", ds.data);
 			gnutls_free(ds.data);
 		} else {
-			snprintf(ebuf, ebuf_len, "Peer cert verify failed with status %d", status);
+			snprintf(ebuf, ebuf_len, "Peer cert verify failed with status %d", status); lwsl_err("GnuTLS verify failed: status=%u, allowed=%u\n", status, allowed);
 		}
 		return -1;
 	}

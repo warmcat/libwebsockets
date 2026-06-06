@@ -17,6 +17,7 @@
 #include <libwebsockets.h>
 
 enum {
+	LWS_SW_C,
 	LWS_SW_AMOUNT,
 	LWS_SW_A,
 	LWS_SW_I,
@@ -25,6 +26,7 @@ enum {
 };
 
 static const struct lws_switches switches[] = {
+	[LWS_SW_C]	= { "-c",              "Policy filepath" },
 	[LWS_SW_AMOUNT]	= { "--amount",        "Amount of something" },
 	[LWS_SW_A]	= { "-a",              "Enable -a feature" },
 	[LWS_SW_I]	= { "-i",              "Interface to bind to" },
@@ -230,8 +232,8 @@ static const char * const default_ss_policy =
 		 */
 
 		    "\"t_h1\": {"
-			"\"endpoint\": \"libwebsockets.org\","
-			"\"port\": 8080,"
+			"\"endpoint\": \"127.0.0.1\","
+			"\"port\": 7681,"
 			"\"protocol\": \"h1\","
 			"\"http_method\": \"GET\","
 			"\"http_url\": \"/status/200\","
@@ -271,8 +273,8 @@ static const char * const default_ss_policy =
 		 */
 
 		    "\"d_h1\": {"
-			"\"endpoint\": \"libwebsockets.org\","
-			"\"port\": 8080,"
+			"\"endpoint\": \"127.0.0.1\","
+			"\"port\": 7681,"
 			"\"protocol\": \"h1\","
 			"\"http_method\": \"GET\","
 			"\"http_url\": \"/delay/10\","
@@ -353,11 +355,11 @@ static const char * const default_ss_policy =
 		 */
 
 		    "\"bulk_h1\": {"
-			"\"endpoint\": \"libwebsockets.org\","
-			"\"port\": 8080,"
+			"\"endpoint\": \"127.0.0.1\","
+			"\"port\": 7681,"
 			"\"protocol\": \"h1\","
 			"\"http_method\": \"GET\","
-			"\"http_url\": \"bytes/${amount}\","
+			"\"http_url\": \"/bytes/${amount}\","
 			"\"metadata\": [{"
 					"\"amount\": \"\""
 				"}],"
@@ -933,7 +935,11 @@ main(int argc, const char **argv)
 	tests_seq[12].eom_pass = tests_seq[13].eom_pass =
 					tests_seq[14].eom_pass = amount;
 #if !defined(LWS_SS_USE_SSPC)
-	// puts(default_ss_policy);
+	if ((pp = lws_cmdline_option(argc, argv, switches[LWS_SW_C].sw))) {
+		info.pss_policies_json = pp;
+	} else {
+		info.pss_policies_json = default_ss_policy;
+	}
 #endif
 
 	lwsl_user("LWS secure streams error path tests [-d<verb>]\n");
@@ -963,7 +969,6 @@ main(int argc, const char **argv)
 			info.ss_proxy_address = p;
 	}
 #else
-	info.pss_policies_json = default_ss_policy;
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 		       LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW |
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;

@@ -89,26 +89,26 @@ static struct async_dns_tests {
 	int addrlen;
 	uint8_t ads[16];
 } adt[] = {
-	{ "ml.warmcat.com", TEST_FLAG_NOCHECK_RESULT_IP | LWS_ADNS_RECORD_A | LWS_ADNS_IGNORE_HOSTS_FILE, 4,
+	{ "ml.warmcat.com", TEST_FLAG_NOCHECK_RESULT_IP | LWS_ADNS_RECORD_A | LWS_ADNS_IGNORE_HOSTS_FILE | LWS_ADNS_INDICATE_LACKS_DNSSEC, 4,
 		{ 46, 105, 127, 147, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 		/* test coming from cache */
-	{ "ml.warmcat.com", TEST_FLAG_NOCHECK_RESULT_IP | LWS_ADNS_RECORD_A, 4,
+	{ "ml.warmcat.com", TEST_FLAG_NOCHECK_RESULT_IP | LWS_ADNS_RECORD_A | LWS_ADNS_INDICATE_LACKS_DNSSEC, 4,
 		{ 46, 105, 127, 147, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
-	{ "libwebsockets.org", TEST_FLAG_NOCHECK_RESULT_IP | LWS_ADNS_RECORD_A | LWS_ADNS_IGNORE_HOSTS_FILE, 4,
+	{ "libwebsockets.org", TEST_FLAG_NOCHECK_RESULT_IP | LWS_ADNS_RECORD_A | LWS_ADNS_IGNORE_HOSTS_FILE | LWS_ADNS_INDICATE_LACKS_DNSSEC, 4,
 		{ 46, 105, 127, 147, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
-	{ "doesntexist", LWS_ADNS_RECORD_A, 0,
+	{ "doesntexist", LWS_ADNS_RECORD_A | LWS_ADNS_INDICATE_LACKS_DNSSEC, 0,
 		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
-	{ "localhost", LWS_ADNS_RECORD_A, 4,
+	{ "localhost", LWS_ADNS_RECORD_A | LWS_ADNS_INDICATE_LACKS_DNSSEC, 4,
 		{ 127, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
-	{ "ipv4only.warmcat.com", LWS_ADNS_RECORD_A, 4,
+	{ "ipv4only.warmcat.com", LWS_ADNS_RECORD_A | LWS_ADNS_INDICATE_LACKS_DNSSEC, 4,
 		{ 212, 83, 179, 61, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
-	{ "onevalid.bogus.warmcat.com", LWS_ADNS_RECORD_A, 4,
+	{ "onevalid.bogus.warmcat.com", LWS_ADNS_RECORD_A | LWS_ADNS_INDICATE_LACKS_DNSSEC, 4,
 		{ 212, 83, 179, 61, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 #if defined(LWS_WITH_IPV6)
-	{ "mail.warmcat.com", LWS_ADNS_RECORD_AAAA, 16, /* check ipv6 */
+	{ "mail.warmcat.com", LWS_ADNS_RECORD_AAAA | LWS_ADNS_INDICATE_LACKS_DNSSEC, 16, /* check ipv6 */
 		{ 0x20, 0x01, 0x0b, 0xc8, 0x60, 0x10, 0x02, 0x13,
 				0x02, 0x08, 0xa2, 0xff, 0xfe, 0x0c, 0x72, 0xce, } },
-	{ "ipv6only.warmcat.com", LWS_ADNS_RECORD_AAAA, 16, /* check ipv6 */
+	{ "ipv6only.warmcat.com", LWS_ADNS_RECORD_AAAA | LWS_ADNS_INDICATE_LACKS_DNSSEC, 16, /* check ipv6 */
 		{ 0x20, 0x01, 0x0b, 0xc8, 0x60, 0x10, 0x02, 0x13,
 				0x02, 0x08, 0xa2, 0xff, 0xfe, 0x0c, 0x72, 0xce, } },
 #endif
@@ -146,7 +146,7 @@ static struct async_dns_tests {
 		{ 127, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 	{ "terrafirma.terra.mud.org", LWS_ADNS_RECORD_A | LWS_ADNS_INDICATE_LACKS_DNSSEC, 4,
 		{ 92,205,179,40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
-	{ "warmcat.com", TEST_FLAG_NOCHECK_RESULT_IP | LWS_ADNS_RECORD_SOA, 0,
+	{ "warmcat.com", TEST_FLAG_NOCHECK_RESULT_IP | LWS_ADNS_RECORD_SOA | LWS_ADNS_INDICATE_LACKS_DNSSEC, 0,
 		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 };
 
@@ -521,6 +521,10 @@ main(int argc, const char **argv)
 	lwsl_user("LWS API selftest: Async DNS\n");
 
 	static const char *dns[] = { "8.8.8.8", NULL };
+	const char *p;
+
+	if ((p = lws_cmdline_option(argc, argv, "-s")))
+		dns[0] = p;
 
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
@@ -536,9 +540,11 @@ main(int argc, const char **argv)
 		return 1;
 	}
 
-	fixup(0);
-	fixup(5);
-	fixup(6);
+	if (!p) {
+		fixup(0);
+		fixup(5);
+		fixup(6);
+	}
 
 	{
 		lws_sockaddr46 sa46;

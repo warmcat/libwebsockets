@@ -53,18 +53,12 @@ lws_bearssl_pump(struct lws *wsi)
 		do {
 			old_st = st;
 			st = br_ssl_engine_current_state(&conn->u.engine);
-			if (st != old_st) {
-#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
-				LWS_RATELIMIT_DEFINE_STATIC(rl);
-				lwsl_ratelimit_notice(&rl, 1000000, "%s: st changed %x -> %x\n", __func__, old_st, st);
-#endif
-			}
 		} while (st != old_st && st != BR_SSL_CLOSED);
 
 		if (st == BR_SSL_CLOSED) {
 			int err = br_ssl_engine_last_error(&conn->u.engine);
 			if (err) {
-				lwsl_err("%s: BearSSL engine closed with err %d\n", __func__, err);
+				lwsl_info("%s: BearSSL engine closed with err %d\n", __func__, err);
 				return -1;
 			}
 			return 0;
@@ -74,7 +68,7 @@ lws_bearssl_pump(struct lws *wsi)
 			size_t len;
 			unsigned char *buf = br_ssl_engine_sendrec_buf(&conn->u.engine, &len);
 			int n = (int)send(wsi->desc.sockfd, (const char *)buf, len, MSG_NOSIGNAL);
-			lwsl_notice("%s: sendrec_buf len %zu, send n=%d\n", __func__, len, n);
+			// lwsl_notice("%s: sendrec_buf len %zu, send n=%d\n", __func__, len, n);
 			if (n > 0) {
 				br_ssl_engine_sendrec_ack(&conn->u.engine, (size_t)n);
 				progressed = 1;
@@ -90,7 +84,7 @@ lws_bearssl_pump(struct lws *wsi)
 			size_t len;
 			unsigned char *buf = br_ssl_engine_recvrec_buf(&conn->u.engine, &len);
 			int n = (int)recv(wsi->desc.sockfd, (char *)buf, len, 0);
-			lwsl_notice("%s: recvrec_buf len %d, recv n=%d\n", __func__, (int)len, n);
+			// lwsl_notice("%s: recvrec_buf len %d, recv n=%d\n", __func__, (int)len, n);
 			if (n > 0) {
 				br_ssl_engine_recvrec_ack(&conn->u.engine, (size_t)n);
 				progressed = 1;
@@ -109,7 +103,7 @@ lws_bearssl_pump(struct lws *wsi)
 		break;
 	}
 	int pending = lws_ssl_pending(wsi);
-	lwsl_notice("%s: pump exit progressed=%d, pending=%d, st=%x\n", __func__, progressed, pending, st);
+	// lwsl_notice("%s: pump exit progressed=%d, pending=%d, st=%x\n", __func__, progressed, pending, st);
 	if (pending) {
 		struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 		if (lws_dll2_is_detached(&wsi->tls.dll_pending_tls))

@@ -340,9 +340,9 @@ drain:
 		lws_usec_t _h2_read_start = lws_now_usecs();
 #endif
 		if (lwsi_role_h2(wsi) && lwsi_state(wsi) != LRS_BODY &&
-		    lwsi_state(wsi) != LRS_DISCARD_BODY)
+		    lwsi_state(wsi) != LRS_DISCARD_BODY) {
 			n = lws_read_h2(wsi, ebuf.token, (unsigned int)ebuf.len);
-		else
+		} else
 			n = lws_read_h1(wsi, ebuf.token, (unsigned int)ebuf.len);
 #if defined(LWS_WITH_LATENCY)
 		{
@@ -369,7 +369,7 @@ drain:
 			}
 		} else
 			/* cov: both n and ebuf.len are int */
-			if (n > 0 && n < ebuf.len && ebuf.len > 0) {
+			if (n >= 0 && n < ebuf.len && ebuf.len > 0) {
 				// lwsl_notice("%s: h2 append seg %d\n", __func__, ebuf.len - n);
 				m = lws_buflist_append_segment(&wsi->buflist,
 						ebuf.token + n,

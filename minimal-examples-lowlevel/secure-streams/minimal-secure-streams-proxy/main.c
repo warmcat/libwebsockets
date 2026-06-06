@@ -25,12 +25,14 @@
 #include <libwebsockets.h>
 
 enum {
+	LWS_SW_C,
 	LWS_SW_I,
 	LWS_SW_P,
 	LWS_SW_HELP,
 };
 
 static const struct lws_switches switches[] = {
+	[LWS_SW_C]	= { "-c",              "Policy filepath" },
 	[LWS_SW_I]	= { "-i",              "Interface to bind to" },
 	[LWS_SW_P]	= { "-p",              "Port number to listen or connect on" },
 	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
@@ -38,6 +40,8 @@ static const struct lws_switches switches[] = {
 
 #include <string.h>
 #include <signal.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #if defined(__APPLE__) || defined(__linux__)
 #include <execinfo.h>
@@ -381,6 +385,8 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 	 * past them when we haven't solved them yet, and make the system
 	 * state wait while we trigger the dependent action.
 	 */
+	lwsl_user("%s: current %d, target %d\n", __func__, current, target);
+
 	switch (target) {
 	case LWS_SYSTATE_REGISTERED:
 		size = lws_system_blob_get_size(ab);
@@ -484,6 +490,7 @@ int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	const char *p;
+	char *file_buf = NULL;
 	int n = 0;
 	(void)switches;
 
@@ -510,7 +517,21 @@ int main(int argc, const char **argv)
 
 	info.fd_limit_per_thread = 1 + 26 + 1;
 	info.port = CONTEXT_PORT_NO_LISTEN;
-	info.pss_policies_json = default_ss_policy;
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_C].sw))) {
+		int fd = open(p, O_RDONLY);
+		if (fd >= 0) {
+			size_t s = (size_t)lseek(fd, 0, SEEK_END);
+			file_buf = malloc(s + 1);
+			lseek(fd, 0, SEEK_SET);
+			read(fd, file_buf, s);
+			file_buf[s] = '\0';
+			close(fd);
+			info.pss_policies_json = file_buf;
+		}
+	} else {
+		info.pss_policies_json = default_ss_policy;
+	}
+	
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 		       LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW |
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
