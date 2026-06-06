@@ -27,7 +27,7 @@ fi
 # We shift off $1 (the background fixture name) so that "$@" contains only the executable and its args.
 shift
 
-"$@" 2>/tmp/ctest-background-$J 1>/dev/null 0</dev/null &
+"$@" -d1039 2>/tmp/ctest-background-$J 1>/dev/null 0</dev/null &
 echo $! > /tmp/sai-ctest-$J
 
 # really we want to loop until the listen port is up
@@ -64,6 +64,7 @@ else
 				ps -fp $! >&2
 				echo "Background process logs:" >&2
 				cat /tmp/ctest-background-$J >&2
+				kill -9 $! 2>/dev/null
 				exit 1
 			fi
 			if [ $((CNT % 10)) -eq 0 ] ; then
@@ -76,9 +77,9 @@ else
 		CNT=0
 		while true ; do
 			if [ -n "$SAI_LIST_IS_UDP" ] ; then
-				MATCH="`netstat -lun4 | tr -s ' ' | grep ":${SAI_LIST_PORT} "`"
+				MATCH="`netstat -an | grep "^udp" | tr -s ' ' | grep "[\.:]${SAI_LIST_PORT} "`"
 			else
-				MATCH="`netstat -ltn4 | tr -s ' ' | grep ":${SAI_LIST_PORT} .*LISTEN"`"
+				MATCH="`netstat -an | grep "^tcp" | tr -s ' ' | grep "[\.:]${SAI_LIST_PORT} " | grep LISTEN`"
 			fi
 			if [ -n "$MATCH" ] ; then break ; fi
 			if ! kill -0 $! 2>/dev/null ; then
@@ -94,7 +95,8 @@ else
 				echo "Background process logs:" >&2
 				cat /tmp/ctest-background-$J >&2
 				echo "Netstat output:" >&2
-				netstat -ltun4 >&2
+				netstat -an >&2
+				kill -9 $! 2>/dev/null
 				exit 1
 			fi
 			if [ $((CNT % 10)) -eq 0 ] ; then

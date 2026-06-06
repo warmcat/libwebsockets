@@ -661,13 +661,18 @@ lws_async_dns_create_server_wsi(struct lws_context *context)
 						lws_async_dns_server_t, list);
 
 		if (!dsrv->wsi) {
-			dsrv->sa46.sa4.sin_port = htons(53);
+			uint16_t port = 53;
+			const char *env_port = getenv("LWS_ASYNCDNS_PORT");
+			if (env_port)
+				port = (uint16_t)atoi(env_port);
+
+			dsrv->sa46.sa4.sin_port = htons(port);
 			lws_sa46_write_numeric_address(&dsrv->sa46,
 						       ads, sizeof(ads));
 
 			/* wsi opaque is the dsrv */
 			dsrv->wsi = lws_create_adopt_udp(
-					context->vhost_list, ads, 53, 0,
+					context->vhost_list, ads, port, 0,
 					lws_async_dns_protocol.name, NULL,
 					NULL, dsrv, &retry_policy, "asyncdns");
 			if (!dsrv->wsi) {
@@ -1296,7 +1301,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	 * of any other result
 	 */
 
-	if (qtype == LWS_ADNS_RECORD_A || qtype == LWS_ADNS_RECORD_AAAA) {
+	if ((qtype & 0xff) == LWS_ADNS_RECORD_A || (qtype & 0xff) == LWS_ADNS_RECORD_AAAA) {
 		m = lws_parse_numeric_address(name, ads, sizeof(ads));
 
 #if !defined(LWS_PLAT_OPTEE) && !defined(LWS_PLAT_FREERTOS)
@@ -1307,20 +1312,18 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 			 */
 			m = lws_adns_scan_hostsfile(name, ads, sizeof(ads), qtype & 0xff);
 
-#if defined(WIN32)
 		if (m < 4 && !strcmp(name, "localhost")) {
-			if (qtype == LWS_ADNS_RECORD_A) {
+			if ((qtype & 0xff) == LWS_ADNS_RECORD_A) {
 				ads[0] = 127; ads[1] = 0; ads[2] = 0; ads[3] = 1;
 				m = 4;
 			}
 #if defined(LWS_WITH_IPV6)
-			else if (qtype == LWS_ADNS_RECORD_AAAA) {
+			else if ((qtype & 0xff) == LWS_ADNS_RECORD_AAAA) {
 				memset(ads, 0, 15); ads[15] = 1;
 				m = 16;
 			}
 #endif
 		}
-#endif
 #endif
 	}
 
@@ -1558,9 +1561,14 @@ lws_async_dns_create_tcp_wsi(lws_adns_q_t *q)
 	i.context = q->context;
 	i.vhost = q->context->vhost_system;
 
+	uint16_t port = 53;
+	const char *env_port = getenv("LWS_ASYNCDNS_PORT");
+	if (env_port)
+		port = (uint16_t)atoi(env_port);
+
 	lws_sa46_write_numeric_address(&q->dsrv->sa46, ads, sizeof(ads));
 	i.address = ads;
-	i.port = 53;
+	i.port = port;
 	i.ssl_connection = 0;
 	i.method = "RAW";
 	i.local_protocol_name = lws_async_dns_protocol.name;

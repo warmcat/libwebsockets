@@ -30,7 +30,7 @@ if (requirements)
 		endif()
 
 		find_program(H3SPEC_EXECUTABLE h3spec)
-		if (H3SPEC_EXECUTABLE)
+		if (H3SPEC_EXECUTABLE AND LWS_WITH_HTTP3)
 			add_test(NAME st_qcs_srv COMMAND
 				${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 						qcs_srv

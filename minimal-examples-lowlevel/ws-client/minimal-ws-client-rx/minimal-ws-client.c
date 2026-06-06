@@ -19,12 +19,18 @@
 enum {
 	LWS_SW_D,
 	LWS_SW_T,
+	LWS_SW_SERVER,
+	LWS_SW_PORT,
+	LWS_SW_L,
 	LWS_SW_HELP,
 };
 
 static const struct lws_switches switches[] = {
 	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
 	[LWS_SW_T]	= { "-t",              "Test flag" },
+	[LWS_SW_SERVER]	= { "--server",        "Server address to connect to" },
+	[LWS_SW_PORT]	= { "-p",              "Port to connect to" },
+	[LWS_SW_L]	= { "-l",              "localhost / selfsigned" },
 	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
 };
 
@@ -89,6 +95,7 @@ int main(int argc, const char **argv)
 	struct lws_context_creation_info info;
 	struct lws_client_connect_info i;
 	struct lws_context *context;
+	const char *p;
 	int n = 0;
 	(void)switches;
 
@@ -138,10 +145,21 @@ int main(int argc, const char **argv)
 	i.context = context;
 	i.port = 443;
 	i.address = "libwebsockets.org";
+
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_SERVER].sw)))
+		i.address = p;
+
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PORT].sw)))
+		i.port = atoi(p);
+
 	i.path = "/";
 	i.host = i.address;
 	i.origin = i.address;
 	i.ssl_connection = LCCSCF_USE_SSL;
+
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_L].sw))
+		i.ssl_connection |= LCCSCF_ALLOW_SELFSIGNED;
+
 	i.protocol = protocols[0].name; /* "dumb-increment-protocol" */
 	i.pwsi = &client_wsi;
 

@@ -1,0 +1,14 @@
+$ORIGIN lociterm.com.
+$TTL 86400
+@	IN	SOA	ns1.lociterm.com. hostmaster.lociterm.com. (
+			2020010101 ; serial
+			3600       ; refresh
+			1800       ; retry
+			604800     ; expire
+			86400      ; minimum TTL
+			)
+@	IN	NS	ns1.lociterm.com.
+
+lwsbiglongtesthostname	IN	A	127.0.0.1
+grow	IN	A	127.0.0.1
+letsgobigorgohome	IN	A	127.0.0.1

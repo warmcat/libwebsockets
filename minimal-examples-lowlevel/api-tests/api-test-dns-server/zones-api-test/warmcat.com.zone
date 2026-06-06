@@ -1,0 +1,16 @@
+$ORIGIN warmcat.com.
+$TTL 86400
+@	IN	SOA	ns1.warmcat.com. hostmaster.warmcat.com. (
+			2020010101 ; serial
+			3600       ; refresh
+			1800       ; retry
+			604800     ; expire
+			86400      ; minimum TTL
+			)
+@	IN	NS	ns1.warmcat.com.
+
+ml	IN	A	46.105.127.147
+ipv4only	IN	A	212.83.179.61
+onevalid.bogus	IN	A	212.83.179.61
+mail	IN	AAAA	2001:bc8:6010:213:208:a2ff:fe0c:72ce
+ipv6only	IN	AAAA	2001:bc8:6010:213:208:a2ff:fe0c:72ce

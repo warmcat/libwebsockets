@@ -82,6 +82,8 @@ static unsigned int timeout_ms = 8000;
 static lws_state_notify_link_t nl;
 struct lws_context *context;
 static lws_sorted_usec_list_t sul_timeout; /* for each process to complete */
+static lws_sorted_usec_list_t sul_create;
+
 
 /*
  * If the -proxy app is fulfilling our connection, then we don't need to have
@@ -262,6 +264,13 @@ typedef struct myss {
 static int
 create_ss(struct lws_context *cx);
 
+static void
+sul_create_cb(lws_sorted_usec_list_t *sul)
+{
+	if (budget)
+		create_ss(context);
+}
+
 #if !defined(LWS_SS_USE_SSPC)
 
 static const char *canned_root_token_payload =
@@ -415,7 +424,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 
 	case LWSSSCS_DISCONNECTED: /* attempt is over */
 		if (budget)
-			create_ss(context);
+			lws_sul_schedule(context, 0, &sul_create, sul_create_cb, 1);
 		else
 			interrupted = 1;
 		return LWSSSSRET_DESTROY_ME;
@@ -424,7 +433,7 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		lwsl_ss_notice(m->ss, "LWSSSCS_TIMEOUT");
 		bad = 3;
 		if (budget)
-			create_ss(context);
+			lws_sul_schedule(context, 0, &sul_create, sul_create_cb, 1);
 		else
 			interrupted = 1;
 		return LWSSSSRET_DESTROY_ME;
@@ -749,7 +758,7 @@ int main(int argc, const char **argv)
 
 	lws_sul_schedule(context, 0, &sul_timeout, process_timeout,
 			 (lws_usec_t)((lws_usec_t)budget * 3 *
-				       (lws_usec_t)timeout_ms * LWS_US_PER_MS));
+				      (lws_usec_t)timeout_ms * LWS_US_PER_MS));
 
 #if !defined(LWS_SS_USE_SSPC)
 	/*

@@ -25,7 +25,7 @@ enum {
 };
 
 static const struct lws_switches switches[] = {
-	[LWS_SW_PORT]	= { "--port",          "Port to connect or listen on" },
+	[LWS_SW_PORT]	= { "-p",          "Port to connect or listen on" },
 	[LWS_SW_H]	= { "-h",              "Strict Host Check / Help" },
 	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
 };
@@ -115,7 +115,8 @@ int main(int argc, const char **argv)
 	info.fd_limit_per_thread = 0;
 	lwsl_user("LWS minimal http server TLS | visit https://localhost:7681\n");
 
-	info.port = 7681;
+	if (!info.port)
+		info.port = 7681;
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PORT].sw)))
 		info.port = atoi(p);
 	info.mounts = &mount;

@@ -50,7 +50,7 @@ if (NOT WIN32 AND LWS_WITH_SERVER)
 	#
 
 if (WIN32)
-	add_test(NAME st_hcm_srv COMMAND cmd.exe /c start /b $<TARGET_FILE:lws-minimal-http-server-tls> --port ${PORT_HCM_SRV})
+	add_test(NAME st_hcm_srv COMMAND cmd.exe /c start /b $<TARGET_FILE:lws-minimal-http-server-tls> -p ${PORT_HCM_SRV})
 	add_test(NAME ki_hcm_srv COMMAND taskkill /F /IM $<TARGET_FILE_NAME:lws-minimal-http-server-tls> /T)
 	add_test(NAME st_hcmp_srv COMMAND cmd.exe /c start /b $<TARGET_FILE:test-server> -s --port 1${PORT_HCM_SRV})
 	add_test(NAME ki_hcmp_srv COMMAND taskkill /F /IM $<TARGET_FILE_NAME:test-server> /T)
@@ -62,11 +62,11 @@ else()
 		add_test(NAME st_hcm_srv COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 				hcm_srv ${VALGRIND} --tool=memcheck $<TARGET_FILE:lws-minimal-http-server-tls>
-				--port ${PORT_HCM_SRV})
+				-p ${PORT_HCM_SRV})
 		add_test(NAME ki_hcm_srv COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
 				hcm_srv ${VALGRIND} $<TARGET_FILE_NAME:lws-minimal-http-server-tls>
-					--port ${PORT_HCM_SRV})
+					-p ${PORT_HCM_SRV})
 		add_test(NAME st_hcmp_srv COMMAND
 				${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 					hcmp_srv ${VALGRIND} --tool=memcheck $<TARGET_FILE:test-server> -s
@@ -80,11 +80,11 @@ else()
 		add_test(NAME st_hcm_srv COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 				hcm_srv $<TARGET_FILE:lws-minimal-http-server-tls>
-				--port ${PORT_HCM_SRV} )
+				-p ${PORT_HCM_SRV} )
 		add_test(NAME ki_hcm_srv COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
 				hcm_srv $<TARGET_FILE_NAME:lws-minimal-http-server-tls>
-					--port ${PORT_HCM_SRV})
+					-p ${PORT_HCM_SRV})
 		add_test(NAME st_hcmp_srv COMMAND
 				${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 					hcmp_srv $<TARGET_FILE:test-server> -s

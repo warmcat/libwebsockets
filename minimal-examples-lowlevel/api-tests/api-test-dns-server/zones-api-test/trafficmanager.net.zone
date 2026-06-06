@@ -1,0 +1,13 @@
+$ORIGIN trafficmanager.net.
+$TTL 86400
+
+@	IN	SOA	ns1.trafficmanager.net. hostmaster.trafficmanager.net. (
+			2026060601	; Serial
+			3600		; Refresh
+			1800		; Retry
+			604800		; Expire
+			86400 )		; Minimum TTL
+
+@	IN	NS	ns1.trafficmanager.net.
+
+c-msn-com-europe-vip	IN	A	3.3.3.3

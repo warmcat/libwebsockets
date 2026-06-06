@@ -1,0 +1,12 @@
+$ORIGIN mud.org.
+$TTL 86400
+@	IN	SOA	ns1.mud.org. hostmaster.mud.org. (
+			2020010101 ; serial
+			3600       ; refresh
+			1800       ; retry
+			604800     ; expire
+			86400      ; minimum TTL
+			)
+@	IN	NS	ns1.mud.org.
+
+terrafirma.terra	IN	A	92.205.179.40
