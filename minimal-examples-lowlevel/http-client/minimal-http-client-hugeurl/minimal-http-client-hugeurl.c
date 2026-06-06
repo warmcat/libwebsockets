@@ -16,11 +16,15 @@
 
 enum {
 	LWS_SW_L,
+	LWS_SW_SERVER,
+	LWS_SW_PORT,
 	LWS_SW_HELP,
 };
 
 static const struct lws_switches switches[] = {
 	[LWS_SW_L]	= { "-l",              "Enable -l feature" },
+	[LWS_SW_SERVER]	= { "--server",        "Server address to connect to" },
+	[LWS_SW_PORT]	= { "-p",              "Port to connect to" },
 	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
 };
 
@@ -159,6 +163,7 @@ int main(int argc, const char **argv)
 	struct lws_context_creation_info info;
 	struct lws_client_connect_info i;
 	struct lws_context *context;
+	const char *p;
 	int n = 0;
 	(void)switches;
 
@@ -215,6 +220,12 @@ int main(int argc, const char **argv)
 		i.port = 443;
 		i.address = "libwebsockets.org";
 	}
+
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_SERVER].sw)))
+		i.address = p;
+
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PORT].sw)))
+		i.port = atoi(p);
 
 	i.path = uri;
 	i.host = i.address;

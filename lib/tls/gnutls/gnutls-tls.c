@@ -183,6 +183,23 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	if (ca_filepath) {
 		gnutls_certificate_set_x509_trust_file(vh->tls.ssl_client_ctx->creds,
 						      ca_filepath, GNUTLS_X509_FMT_PEM);
+	} else if (ca_mem && ca_mem_len) {
+		lws_filepos_t amount = 0;
+		uint8_t *up1;
+
+		if (lws_tls_alloc_pem_to_der_file(vh->context, NULL, ca_mem,
+						  ca_mem_len, &up1, &amount)) {
+			lwsl_err("%s: Unable to decode x.509 mem\n", __func__);
+			return 1;
+		}
+
+		if (lws_tls_client_vhost_extra_cert_mem(vh, up1, (size_t)amount)) {
+			lwsl_err("%s: add extra cert failed\n", __func__);
+			lws_free(up1);
+			return 1;
+		}
+
+		lws_free(up1);
 	} else {
 		gnutls_certificate_set_x509_system_trust(vh->tls.ssl_client_ctx->creds);
 	}

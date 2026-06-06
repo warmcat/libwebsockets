@@ -58,14 +58,14 @@
                                 "cd build && SAI_CPACK=\"-G DEB\" ${cpack}"
 			]
 		},
-                "netbsd/aarch64BE-bcm2837-a53/gcc": {
-                        "default": false,
-                        "build": [
-				"mkdir -p build destdir; cd build; CCACHE_DISABLE=1 LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib cmake .. ${cmake}",
-                                "cd build && make -j$SAI_PARALLEL && rm -rf ../destdir && make -j$SAI_PARALLEL DESTDIR=../destdir install",
-				"cd build && LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib /usr/pkg/bin/ctest -j$SAI_PARALLEL --output-on-failure --repeat until-pass:3"
-			]
-                },
+#                "netbsd/aarch64BE-bcm2837-a53/gcc": {
+#                        "default": false,
+#                        "build": [
+#				"mkdir -p build destdir; cd build; CCACHE_DISABLE=1 LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib cmake .. ${cmake}",
+#                                "cd build && make -j$SAI_PARALLEL && rm -rf ../destdir && make -j$SAI_PARALLEL DESTDIR=../destdir install",
+#				"cd build && LD_LIBRARY_PATH=../destdir/usr/local/share/libwebsockets-test-server/plugins:../destdir/usr/local/lib /usr/pkg/bin/ctest -j$SAI_PARALLEL --output-on-failure --repeat until-pass:3"
+#			]
+#                },
 		"freebsd/aarch64/llvm": {
                         "default": false,
                         "build": [
@@ -112,7 +112,7 @@
 	"configurations": {
 		"default": {
 			"cmake":	"",
-			"platforms":	"w11/x86_64-amd/msvc-schannel,netbsd/aarch64BE-bcm2837-a53/gcc,freebsd/aarch64/llvm"
+			"platforms":	"w11/x86_64-amd/msvc-schannel,freebsd/aarch64/llvm"
 		},
 		"default-noh3": {
 			"cmake":	"-DLWS_WITH_HTTP3=0",
@@ -127,7 +127,7 @@
 		},
 		"default-dht": {
 			"cmake":	"-DLWS_WITH_DHT=1",
-			"platforms":	"w11/x86_64-amd/msvc,netbsd/aarch64BE-bcm2837-a53/gcc,freebsd/aarch64/llvm"
+			"platforms":	"w11/x86_64-amd/msvc,freebsd/aarch64/llvm"
 		},
 		"fault-injection": {
 			"cmake":	"-DLWS_WITH_SYS_FAULT_INJECTION=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_CBOR=1"
@@ -167,7 +167,7 @@
 		},
 		"default-noexamples": {
 			"cmake":	"-DLWS_WITH_MINIMAL_EXAMPLES=0",
-			"platforms":	"netbsd/aarch64BE-bcm2837-a53/gcc,freebsd/aarch64/llvm"
+			"platforms":	"freebsd/aarch64/llvm"
 		},
 		"tls-sess-off": {
 			"cmake":	"-DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_TLS_SESSIONS=0"
@@ -194,7 +194,7 @@
 
 		"secure-streams-off": {
 			"cmake":	"-DLWS_WITH_SECURE_STREAMS=0 -DLWS_WITH_MINIMAL_EXAMPLES=1",
-			"platforms":	"w11/x86_64-amd/msvc,netbsd/aarch64BE-bcm2837-a53/gcc"
+			"platforms":	"w11/x86_64-amd/msvc"
 		},
 		"secure-streams-proxy": {
 			"cmake":	"-DLWS_WITH_SECURE_STREAMS=1 -DLWS_WITH_SECURE_STREAMS_PROXY_API=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 "

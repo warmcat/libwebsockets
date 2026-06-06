@@ -401,6 +401,8 @@ int main(int argc, char **argv)
 	 */
 	memset(&info, 0, sizeof info);
 	info.port = 7681;
+	info.max_http_header_data = 8192;
+	info.max_http_header_pool = 64;
 
 	while (n >= 0) {
 #if defined(LWS_HAS_GETOPT_LONG) || defined(WIN32)

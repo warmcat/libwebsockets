@@ -1,0 +1,12 @@
+$ORIGIN majicrealm.com.
+$TTL 86400
+@	IN	SOA	ns1.majicrealm.com. hostmaster.majicrealm.com. (
+			2020010101 ; serial
+			3600       ; refresh
+			1800       ; retry
+			604800     ; expire
+			86400      ; minimum TTL
+			)
+@	IN	NS	ns1.majicrealm.com.
+
+awsrealm	IN	A	35.88.197.177
