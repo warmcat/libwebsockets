@@ -33,7 +33,7 @@ lws_plat_context_early_init(void)
 void
 lws_plat_context_early_destroy(struct lws_context *context)
 {
-#if defined(LWS_AMAZON_RTOS) && defined(LWS_WITH_MBEDTLS)
+#if defined(LWS_AMAZON_RTOS) && defined(LWS_WITH_MBEDTLS) && !defined(LWS_HAVE_MBEDTLS_V4)
 	mbedtls_ctr_drbg_free(&context->mcdc);
 	mbedtls_entropy_free(&context->mec);
 #endif
@@ -76,6 +76,7 @@ lws_plat_init(struct lws_context *context,
 #if defined(LWS_AMAZON_RTOS) && defined(LWS_WITH_MBEDTLS)
 	int n;
 
+#if !defined(LWS_HAVE_MBEDTLS_V4)
 	/* initialize platform random through mbedtls */
 	mbedtls_entropy_init(&context->mec);
 	mbedtls_ctr_drbg_init(&context->mcdc);
@@ -88,6 +89,15 @@ lws_plat_init(struct lws_context *context,
 
 		return 1;
 	}
+#else
+	/* mbedTLS 4 removed ctr_drbg/entropy; PSA owns the RNG */
+	n = psa_crypto_init();
+	if (n) {
+		lwsl_err("%s: psa_crypto_init() returned 0x%x\n", __func__, n);
+
+		return 1;
+	}
+#endif
 #endif
 
 	/* context has the global fd lookup array */

@@ -67,6 +67,7 @@ lws_get_random(struct lws_context *context, void *buf, size_t len)
 	return pb - (uint8_t *)buf;
 #else
 #if defined(LWS_WITH_MBEDTLS)
+#if !defined(LWS_HAVE_MBEDTLS_V4)
 	int n;
 
 	n = mbedtls_ctr_drbg_random(&context->mcdc, buf, len);
@@ -76,6 +77,15 @@ lws_get_random(struct lws_context *context, void *buf, size_t len)
 	/* failed */
 
 	lwsl_err("%s: mbedtls_ctr_drbg_random returned 0x%x\n", __func__, n);
+#else
+	/* mbedTLS 4 removed ctr_drbg; PSA provides the RNG */
+	psa_status_t st = psa_generate_random((uint8_t *)buf, len);
+
+	if (st == PSA_SUCCESS)
+		return len;
+
+	lwsl_err("%s: psa_generate_random returned %d\n", __func__, (int)st);
+#endif
 #endif
 	return 0;
 #endif
