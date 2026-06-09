@@ -68,8 +68,10 @@
    #define MBEDTLS_CONFIG_FILE <mbedtls/esp_config.h>
   #endif
   #include <mbedtls/ssl.h>
+#if !defined(LWS_HAVE_MBEDTLS_V4)
   #include <mbedtls/aes.h>
   #include <mbedtls/gcm.h>
+#endif
   #include <mbedtls/x509_crt.h>
   #include "ssl.h" /* wrapper !!!! */
  #else /* not esp32 */
