@@ -1378,6 +1378,8 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 
 #if defined(LWS_WITH_IPV6)
 	if (m == 16) {
+		ai = (struct addrinfo *)&c[1];
+		sa46 = (lws_sockaddr46 *)&ai[1];
 		ai->ai_family = sa46->sa6.sin6_family = AF_INET6;
 		ai->ai_addrlen = sizeof(sa46->sa6);
 		ai->ai_addr = (struct sockaddr *)&sa46->sa6;
