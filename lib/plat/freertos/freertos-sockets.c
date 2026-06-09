@@ -25,7 +25,9 @@
 #include "private-lib-core.h"
 #include <errno.h>
 #if defined(LWS_WITH_MBEDTLS)
-#if defined(LWS_HAVE_MBEDTLS_NET_SOCKETS)
+#if defined(LWS_HAVE_MBEDTLS_NET_SOCKETS) || defined(LWS_HAVE_MBEDTLS_V4)
+/* net_sockets.h carries mbedtls_net_context + MBEDTLS_ERR_NET_* even when
+ * MBEDTLS_NET_C is off; the legacy mbedtls/net.h was removed in mbedTLS 4 */
 #include "mbedtls/net_sockets.h"
 #else
 #include "mbedtls/net.h"
