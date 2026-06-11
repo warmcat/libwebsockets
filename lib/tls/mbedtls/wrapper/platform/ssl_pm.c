@@ -20,7 +20,9 @@
 
 /* mbedtls include */
 #include "mbedtls/platform.h"
-#if defined(LWS_HAVE_MBEDTLS_NET_SOCKETS)
+#if defined(LWS_HAVE_MBEDTLS_NET_SOCKETS) || defined(LWS_HAVE_MBEDTLS_V4)
+/* mbedTLS 4 removed the legacy mbedtls/net.h; net_sockets.h still carries
+ * mbedtls_net_context and the MBEDTLS_ERR_NET_* codes even with MBEDTLS_NET_C off */
 #include "mbedtls/net_sockets.h"
 #else
 #include "mbedtls/net.h"
@@ -633,7 +635,7 @@ OSSL_HANDSHAKE_STATE ssl_pm_get_state(const SSL *ssl)
         case MBEDTLS_SSL_SERVER_KEY_EXCHANGE:
             state = TLS_ST_SR_KEY_EXCH;
             break;
-#if defined(LWS_HAVE_MBEDTLS_SSL_NEW_SESSION_TICKET)
+#if defined(LWS_HAVE_MBEDTLS_SSL_NEW_SESSION_TICKET) || defined(LWS_HAVE_MBEDTLS_V4)
         case MBEDTLS_SSL_NEW_SESSION_TICKET:
 #else
         case MBEDTLS_SSL_SERVER_NEW_SESSION_TICKET:
