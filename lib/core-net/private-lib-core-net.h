@@ -179,7 +179,7 @@ struct lws_peer {
 	uint32_t count_wsi;
 	uint32_t total_wsi;
 
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 	struct lws_peer_role_http http;
 #endif
 };
@@ -329,7 +329,7 @@ struct lws_context_per_thread {
 						 are kept on here until bound, so
 						 they can be reaped if needed */
 
-#if (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)) && defined(LWS_WITH_SERVER)
+#if (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)) && defined(LWS_WITH_SERVER)
 	lws_sorted_usec_list_t sul_ah_lifecheck;
 #endif
 #if defined(LWS_WITH_TLS) && defined(LWS_WITH_SERVER)
@@ -376,7 +376,7 @@ struct lws_context_per_thread {
 #if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
 	struct lws_pt_role_ws ws;
 #endif
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 	struct lws_pt_role_http http;
 #endif
 #if defined(LWS_ROLE_DBUS)
@@ -490,10 +490,10 @@ struct lws_vhost {
 	char					close_flow_vs_tsi[LWS_MAX_SMP];
 #endif
 
-#if defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 	struct lws_vhost_role_h2 h2;
 #endif
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 	struct lws_vhost_role_http http;
 #endif
 #if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
@@ -742,7 +742,7 @@ struct lws {
 
 	/* structs */
 
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 	struct _lws_http_mode_related	http;
 #endif
 #if defined(LWS_ROLE_H2)

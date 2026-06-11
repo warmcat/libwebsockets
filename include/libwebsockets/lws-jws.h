@@ -528,7 +528,7 @@ lws_jwt_token_sanity(const char *in, size_t in_len,
 		     const char *iss, const char *aud, const char *csrf_in,
 		     char *sub, size_t sub_len, unsigned long *exp_unix_time);
 
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 
 struct lws_jwt_sign_set_cookie {
 	struct lws_jwk			*jwk;

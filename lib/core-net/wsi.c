@@ -1377,12 +1377,14 @@ int lws_wsi_keepalive_timeout_eff(struct lws *wsi) {
 	int ds = wsi->a.vhost->keepalive_timeout;
 
 #if defined(LWS_WITH_SERVER)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	if (wsi->http.mount_specific_keepalive_timeout_secs)
 		ds = (int)wsi->http.mount_specific_keepalive_timeout_secs;
 
 	if (wsi->parent &&
 			(int)wsi->parent->http.mount_specific_keepalive_timeout_secs > ds)
 		ds = (int)wsi->parent->http.mount_specific_keepalive_timeout_secs;
+#endif
 #endif
 
 	if (!ds)

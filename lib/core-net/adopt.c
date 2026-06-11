@@ -645,7 +645,9 @@ static struct lws*
 adopt_socket_readbuf(struct lws *wsi, const char *readbuf, size_t len)
 {
 	struct lws_context_per_thread *pt;
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	struct lws_pollfd *pfd;
+#endif
 	int n;
 
 	if (!wsi)
@@ -676,6 +678,7 @@ adopt_socket_readbuf(struct lws *wsi, const char *readbuf, size_t len)
 	 * readbuf data to wsi or ah yet, and we will do it next if we get
 	 * the ah.
 	 */
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	if (wsi->http.ah || !lws_header_table_attach(wsi, 0)) {
 
 		lwsl_notice("%s: calling service on readbuf ah\n", __func__);
@@ -695,6 +698,7 @@ adopt_socket_readbuf(struct lws *wsi, const char *readbuf, size_t len)
 
 		return wsi;
 	}
+#endif
 	lwsl_err("%s: deferring handling ah\n", __func__);
 
 	return wsi;

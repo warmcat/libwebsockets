@@ -205,6 +205,15 @@ int
 lws_tls_quic_tx_crypto_cb(struct lws *wsi, int level, const uint8_t *buf, size_t len);
 #endif
 
+enum {
+	CCTLS_RETURN_ERROR		= -1,
+	CCTLS_RETURN_DONE		= 0,
+	CCTLS_RETURN_RETRY		= 1,
+};
+
+int
+lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1);
+
 int
 lws_context_init_ssl_library(struct lws_context *cx,
 			     const struct lws_context_creation_info *info);
