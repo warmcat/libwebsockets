@@ -46,7 +46,15 @@ set(LWS_WITH_POLL 1)
 if (ESP_PLATFORM AND NOT (DEFINED IDF_TARGET AND IDF_TARGET STREQUAL "linux"))
 	set(LWS_ESP_PLATFORM 1)
 	#set(CMAKE_TOOLCHAIN_FILE contrib/cross-esp32.cmake)
-	set(LWIP_PROVIDE_ERRNO 1)
+	# IDF v6 (picolibc + mbedtls 4) makes errno thread-local and its lwip does
+	# not provide an errno of its own. Forcing LWIP_PROVIDE_ERRNO here bakes a
+	# non-TLS `extern int errno` into lws_config_private.h, which then fails to
+	# link against picolibc's TLS errno ("TLS definition ... mismatches non-TLS
+	# reference"). Only force it on older IDF (newlib), detected via the absence
+	# of mbedtls 4.
+	if (NOT LWS_HAVE_MBEDTLS_V4)
+		set(LWIP_PROVIDE_ERRNO 1)
+	endif()
 endif()
 
 # it's at this point any toolchain file is brought in
