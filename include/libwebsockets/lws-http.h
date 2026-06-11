@@ -62,7 +62,7 @@ lws_get_mimetype(const char *file, const struct lws_http_mount *m);
  *
  * Returns NULL or a pointer to the matching mount.
  */
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 LWS_VISIBLE LWS_EXTERN const struct lws_http_mount *
 lws_find_mount(struct lws *wsi, const char *uri_ptr, int uri_len);
 #endif
@@ -249,7 +249,7 @@ enum lws_token_indexes {
 	WSI_TOKEN_NONCE,
 #endif
 	WSI_TOKEN_HTTP,
-#if defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3) || defined(LWS_HTTP_HEADERS_ALL)
 	WSI_TOKEN_HTTP2_SETTINGS, /* 16 */
 #endif
 	WSI_TOKEN_HTTP_ACCEPT,
@@ -276,7 +276,7 @@ enum lws_token_indexes {
 	WSI_TOKEN_VERSION,
 	WSI_TOKEN_SWORIGIN,
 #endif
-#if defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3) || defined(LWS_HTTP_HEADERS_ALL)
 	WSI_TOKEN_HTTP_COLON_AUTHORITY,
 	WSI_TOKEN_HTTP_COLON_METHOD,
 	WSI_TOKEN_HTTP_COLON_PATH,
@@ -346,7 +346,7 @@ enum lws_token_indexes {
 	WSI_TOKEN_TE,
 	WSI_TOKEN_REPLAY_NONCE, /* ACME */
 #endif
-#if defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3) || defined(LWS_HTTP_HEADERS_ALL)
 	WSI_TOKEN_COLON_PROTOCOL,
 #endif
 	WSI_TOKEN_X_AUTH_TOKEN,
@@ -416,6 +416,15 @@ lws_token_to_string(enum lws_token_indexes token);
  */
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_hdr_total_length(struct lws *wsi, enum lws_token_indexes h);
+
+/**
+ * lws_hdr_extant: check if a header is present
+ *
+ * \param wsi: websocket connection
+ * \param h: which header index we are interested in
+ */
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
+lws_hdr_extant(struct lws *wsi, enum lws_token_indexes h);
 
 /**
  * lws_hdr_fragment_length: report length of a single fragment of a header

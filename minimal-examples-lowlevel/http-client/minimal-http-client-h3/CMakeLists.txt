@@ -1,0 +1,32 @@
+project(lws-minimal-http-client-h3 C)
+cmake_minimum_required(VERSION 3.10)
+find_package(libwebsockets CONFIG REQUIRED)
+list(APPEND CMAKE_MODULE_PATH ${LWS_CMAKE_DIR})
+include(CheckCSourceCompiles)
+include(LwsCheckRequirements)
+
+set(SAMP lws-minimal-http-client-h3)
+set(SRCS minimal-http-client-h3.c)
+
+set(requirements 1)
+require_lws_config(LWS_ROLE_H3 1 requirements)
+require_lws_config(LWS_WITH_CLIENT 1 requirements)
+require_lws_config(LWS_WITH_SYS_STATE 1 requirements)
+require_lws_config(LWS_WITH_TLS 1 requirements)
+
+if (requirements)
+	add_executable(${SAMP} ${SRCS})
+
+	if (websockets_shared)
+		target_link_libraries(${SAMP} websockets_shared ${LIBWEBSOCKETS_DEP_LIBS})
+		add_dependencies(${SAMP} websockets_shared)
+	else()
+		target_link_libraries(${SAMP} websockets ${LIBWEBSOCKETS_DEP_LIBS})
+	endif()
+
+	add_test(NAME http-client-h3 COMMAND lws-minimal-http-client-h3)
+	set_tests_properties(http-client-h3
+			     PROPERTIES
+			     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-client/minimal-http-client-h3
+			     TIMEOUT 30)
+endif()

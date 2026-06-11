@@ -467,6 +467,22 @@ lws_hdr_fragment_length(struct lws *wsi, enum lws_token_indexes h, int frag_idx)
 	return 0;
 }
 
+int
+lws_hdr_extant(struct lws *wsi, enum lws_token_indexes h)
+{
+	struct allocated_headers *ah = wsi->http.ah;
+	int n;
+
+	if (!ah)
+		return 0;
+
+	n = ah->frag_index[h];
+	if (!n)
+		return 0;
+
+	return !!(ah->frags[n].flags & 2);
+}
+
 int lws_hdr_total_length(struct lws *wsi, enum lws_token_indexes h)
 {
 	int n;

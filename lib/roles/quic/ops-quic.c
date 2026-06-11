@@ -121,7 +121,11 @@ lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t acked_pn)
 			lws_free(f);
 
 			struct lws *child = lws_quic_stream_find(nwsi, sid);
-			if (child && (lwsi_state(child) == LRS_FLUSHING_BEFORE_CLOSE || child->http.deferred_transaction_completed)) {
+			if (child && (lwsi_state(child) == LRS_FLUSHING_BEFORE_CLOSE
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+			    || child->http.deferred_transaction_completed
+#endif
+			)) {
 				lws_callback_on_writable(child);
 			}
 		}

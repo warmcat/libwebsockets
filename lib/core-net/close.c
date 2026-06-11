@@ -138,11 +138,13 @@ __lws_reset_wsi(struct lws *wsi)
 		lws_buflist_destroy_all_segments(&wsi->http.buflist_post_body);
 #endif
 
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 #if defined(LWS_WITH_HTTP_DIGEST_AUTH)
 	if (wsi->http.digest_auth_hdr) {
 		lws_free(wsi->http.digest_auth_hdr);
 		wsi->http.digest_auth_hdr = NULL;
 	}
+#endif
 #endif
 
 #if defined(LWS_WITH_SERVER)
@@ -828,8 +830,10 @@ just_kill_connection:
 	}
 #endif
 
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	if (wsi->http.pending_return_headers)
 		lws_free_set_NULL(wsi->http.pending_return_headers);
+#endif
 
 	/*
 	 * we won't be servicing or receiving anything further from this guy
@@ -1060,8 +1064,18 @@ __lws_close_free_wsi_final(struct lws *wsi)
 
 		lwsl_wsi_info(wsi, "picking up redirection");
 
+#if defined(LWS_ROLE_H1)
 		lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED,
 				    &role_ops_h1);
+#elif defined(LWS_ROLE_H2)
+		lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED,
+				    &role_ops_h2);
+#elif defined(LWS_ROLE_H3)
+		lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED,
+				    &role_ops_h3);
+#else
+		wsi->socket_is_permanently_unusable = 1;
+#endif
 
 		wsi->wsistate_pre_close = 0;
 

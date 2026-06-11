@@ -97,7 +97,7 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 		break;
 #endif
 
-#if defined(LWS_CLIENT_HTTP_PROXYING) && (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2))
+#if defined(LWS_CLIENT_HTTP_PROXYING) && (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
 
 	case LRS_WAITING_PROXY_REPLY:
 
@@ -328,7 +328,7 @@ hs2:
 		if (lwsi_state(wsi) == LRS_IDLING) {
 			lwsi_set_state(wsi, LRS_WAITING_SERVER_REPLY);
 			wsi->hdr_parsing_completed = 0;
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 			wsi->http.ah->parser_state = WSI_TOKEN_NAME_PART;
 			wsi->http.ah->lextable_pos = 0;
 			wsi->http.ah->unk_pos = 0;
@@ -358,7 +358,7 @@ hs2:
 			break;
 		}
 client_http_body_sent:
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 		/* prepare ourselves to do the parsing */
 		wsi->http.ah->parser_state = WSI_TOKEN_NAME_PART;
 		wsi->http.ah->lextable_pos = 0;
@@ -396,7 +396,7 @@ client_http_body_sent:
 		if (!(pollfd->revents & LWS_POLLIN))
 			break;
 
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 		/* interpret the server response
 		 *
 		 *  HTTP/1.1 101 Switching Protocols
@@ -509,7 +509,7 @@ bail3:
 	return 0;
 }
 
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 
 int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed_client(struct lws *wsi)
@@ -1027,7 +1027,7 @@ bail:
 }
 #endif
 
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 
 int
 lws_http_is_redirected_to_get(struct lws *wsi)
@@ -2160,7 +2160,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt, size_t pkt_len)
 	return p;
 }
 
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 #if defined(LWS_WITH_HTTP_BASIC_AUTH)
 
 int

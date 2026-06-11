@@ -1053,7 +1053,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 
 #if defined(LWS_WITH_SERVER)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	context->reject_service_keywords = info->reject_service_keywords;
+#endif
 #endif
 	if (info->external_baggage_free_on_destroy)
 		context->external_baggage_free_on_destroy =
@@ -1141,7 +1143,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 	}
 
 #if defined(LWS_WITH_NETWORK)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	context->token_limits = info->token_limits;
+#endif
 #endif
 
 
@@ -1359,11 +1363,13 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 #if defined(LWS_WITH_NETWORK)
 #if defined(LWS_WITH_SERVER)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	if (info->server_string) {
 		context->server_string = info->server_string;
 		context->server_string_len = (short)
 				strlen(context->server_string);
 	}
+#endif
 #endif
 #endif
 

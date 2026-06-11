@@ -29,7 +29,9 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 				 ssize_t plen)
 {
 #if defined(LWS_CLIENT_HTTP_PROXYING)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+#endif
 #endif
 	const char *meth;
 	struct lws_pollfd pfd;
@@ -131,9 +133,9 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 		}
 #endif
 
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 send_hs:
 
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	if (wsi_piggyback &&
 	    !lws_dll2_is_detached(&wsi->dll2_cli_txn_queue)) {
 		/*
@@ -160,7 +162,9 @@ send_hs:
 
 		lwsl_wsi_info(wsi, "waiting to send hdrs (par state 0x%x)",
 			      lwsi_state(wsi_piggyback));
-	} else {
+	} else
+#endif
+	{
 		lwsl_wsi_info(wsi, "%s %s client created own conn "
 			  "(raw %d) vh %s st 0x%x",
 			  wsi->role_ops->name, wsi->a.protocol->name, rawish,
@@ -174,8 +178,10 @@ send_hs:
 #endif
 		    ) {
 
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 			if (lwsi_state(wsi) != LRS_H1C_ISSUE_HANDSHAKE2)
 				lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE);
+#endif
 		} else {
 			/* for a method = "RAW" connection, this makes us
 			 * established */
@@ -221,10 +227,12 @@ send_hs:
 					    "client_h2_alpn %d", lwsi_state(wsi),
 					    wsi->client_h2_alpn);
 
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 				if (lwsi_state(wsi) !=
 						LRS_H2_WAITING_TO_SEND_HEADERS)
 					lwsi_set_state(wsi,
 						LRS_H1C_ISSUE_HANDSHAKE2);
+#endif
 				lws_set_timeout(wsi,
 					PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
 					(int)wsi->a.context->timeout_secs);
@@ -339,7 +347,6 @@ provoke_service:
 		if (n) /* returns 1 on failure after closing wsi */
 			return NULL;
 	}
-#endif
 	return wsi;
 
 failed:
