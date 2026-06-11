@@ -67,6 +67,11 @@ _lws_destroy_ah(struct lws_context_per_thread *pt, struct allocated_headers *ah)
 			lwsl_info("%s: freed ah %p : pool length %u\n",
 				    __func__, ah,
 				    (unsigned int)pt->http.ah_pool_length);
+			/* Remove any dangling wsi references to the ah we are about to free */
+			if (ah->wsi) {
+				ah->wsi->http.ah = NULL;
+				ah->wsi = NULL;
+			}
 			if (ah->data)
 				lws_free(ah->data);
 			lws_free(ah);
