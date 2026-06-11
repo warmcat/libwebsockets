@@ -604,7 +604,14 @@ int getsockopt(int sockfd, int level, int optname,
 int connect(int sockfd, const struct sockaddr *addr,
                    socklen_t addrlen);
 
+#if defined(ESP_PLATFORM)
+/* IDF v6 (picolibc) makes errno thread-local; a plain "extern int errno" makes
+ * lws objects reference it non-TLS and fail to link ("TLS definition ...
+ * mismatches non-TLS reference"). Use the platform's real errno. */
+#include <errno.h>
+#else
 extern int errno;
+#endif
 
 uint16_t ntohs(uint16_t netshort);
 uint16_t htons(uint16_t hostshort);
