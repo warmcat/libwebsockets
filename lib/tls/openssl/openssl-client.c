@@ -492,6 +492,7 @@ no_client_cert:
 	return 1;
 }
 
+#if defined(LWS_WITH_TCP_TLS)
 enum lws_ssl_capable_status
 lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 {
@@ -653,6 +654,7 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 	return 0;
 #endif
 }
+#endif
 
 int
 lws_tls_client_vhost_extra_cert_mem(struct lws_vhost *vh,

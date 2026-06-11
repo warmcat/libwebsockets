@@ -25,7 +25,7 @@ static const char * const set[] = {
 	"sec-websocket-nonce:",
 #endif
 	"http/1.1 ",
-#if defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3) || defined(LWS_HTTP_HEADERS_ALL)
 	"http2-settings:",
 #endif
 
@@ -45,7 +45,7 @@ static const char * const set[] = {
 	"content-type:",
 	"date:",
 	"range:",
-#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3) || defined(LWS_HTTP_HEADERS_ALL)
 	"referer:",
 #endif
 #if defined(LWS_ROLE_WS) || defined(LWS_HTTP_HEADERS_ALL)
@@ -53,18 +53,18 @@ static const char * const set[] = {
 	"sec-websocket-version:",
 	"sec-websocket-origin:",
 #endif
-#if defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3) || defined(LWS_HTTP_HEADERS_ALL)
 	":authority",
 	":method",
 	":path",
 	":scheme",
 	":status",
 #endif
-#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3) || defined(LWS_HTTP_HEADERS_ALL)
 	"accept-charset:",
 #endif
 	"accept-ranges:",
-#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3) || defined(LWS_HTTP_HEADERS_ALL)
 	"access-control-allow-origin:",
 #endif
 	"age:",
@@ -84,7 +84,7 @@ static const char * const set[] = {
 	"last-modified:",
 	"link:",
 	"location:",
-#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3) || defined(LWS_HTTP_HEADERS_ALL)
 	"max-forwards:",
 	"proxy-authenticate:",
 	"proxy-authorization:",
@@ -93,11 +93,11 @@ static const char * const set[] = {
 	"retry-after:",
 	"server:",
 	"set-cookie:",
-#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3) || defined(LWS_HTTP_HEADERS_ALL)
 	"strict-transport-security:",
 #endif
 	"transfer-encoding:",
-#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3) || defined(LWS_HTTP_HEADERS_ALL)
 	"user-agent:",
 	"vary:",
 	"via:",
@@ -120,11 +120,11 @@ static const char * const set[] = {
 	"x-forwarded-for:",
 	"connect ",
 	"head ",
-#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3) || defined(LWS_HTTP_HEADERS_ALL)
 	"te:",		/* http/2 wants it to reject it */
 	"replay-nonce:", /* ACME */
 #endif
-#if defined(LWS_ROLE_H2) || defined(LWS_HTTP_HEADERS_ALL)
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3) || defined(LWS_HTTP_HEADERS_ALL)
 	":protocol",		/* defined in mcmanus-httpbis-h2-ws-02 */
 #endif
 

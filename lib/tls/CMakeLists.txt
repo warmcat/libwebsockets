@@ -180,6 +180,8 @@ if (LWS_WITH_SSL)
 		if (LWS_WITH_NETWORK)
 			list(APPEND SOURCES
 				tls/mbedtls/mbedtls-ssl.c)
+		endif()
+		if (LWS_WITH_NETWORK)
 			if (LWS_WITH_DTLS)
 				list(APPEND SOURCES
 					tls/mbedtls/lws-gendtls.c)
@@ -205,9 +207,11 @@ if (LWS_WITH_SSL)
 	elseif (LWS_WITH_SCHANNEL)
 		list(APPEND SOURCES
 			tls/schannel/schannel-tls.c
-			tls/schannel/schannel-ssl.c
 			tls/schannel/schannel-session.c
 			tls/schannel/schannel-x509.c)
+		if (LWS_WITH_NETWORK)
+			list(APPEND SOURCES tls/schannel/schannel-ssl.c)
+		endif()
 		if (LWS_ROLE_QUIC AND LWS_WITH_NETWORK)
 			list(APPEND SOURCES tls/schannel/schannel-quic.c)
 		endif()
@@ -253,8 +257,10 @@ if (LWS_WITH_SSL)
 		endif()
 	elseif (LWS_WITH_BEARSSL)
 		list(APPEND SOURCES
-			tls/bearssl/bearssl-ssl.c
 			tls/bearssl/bearssl-x509.c)
+		if (LWS_WITH_NETWORK)
+			list(APPEND SOURCES tls/bearssl/bearssl-ssl.c)
+		endif()
 		if (LWS_WITH_TLS_SESSIONS)
 			list(APPEND SOURCES
 				tls/bearssl/bearssl-session.c)
@@ -278,6 +284,8 @@ if (LWS_WITH_SSL)
 		if (LWS_WITH_NETWORK)
 			list(APPEND SOURCES
 				tls/openssl/openssl-ssl.c)
+		endif()
+		if (LWS_WITH_NETWORK)
 			if (LWS_WITH_DTLS)
 				list(APPEND SOURCES
 					tls/openssl/lws-gendtls.c)

@@ -341,8 +341,12 @@ lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file, unsigne
 int
 lws_unauthorised_basic_auth(struct lws *wsi);
 
+#if defined(LWS_ROLE_H1)
 int
 lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len);
+#else
+#define lws_read_h1(_a, _b, _c) (0)
+#endif
 
 void
 _lws_header_table_reset(struct allocated_headers *ah);

@@ -1444,7 +1444,11 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 #if defined (LWS_ROLE_H2)
 						    &role_ops_h2);
 #else
-						    &role_ops_raw);
+#if defined (LWS_ROLE_H3)
+						    &role_ops_h3);
+#else
+						    NULL);
+#endif
 #endif
 #endif
 				ww->user_space = NULL;

@@ -68,6 +68,11 @@ lws_mbedtls_client_verify_callback(SSL *ssl, mbedtls_x509_crt *x509)
 
 #endif
 
+int ERR_get_error(void)
+{
+	return 0;
+}
+
 int
 lws_ssl_client_bio_create(struct lws *wsi)
 {
@@ -238,14 +243,10 @@ no_client_cert:
 	lwsl_err("%s: unable to set up system client cert %d\n", __func__,
 			wsi->sys_tls_client_cert - 1);
 
-	return 1;
-}
-
-int ERR_get_error(void)
-{
 	return 0;
 }
 
+#if defined(LWS_WITH_TCP_TLS)
 enum lws_ssl_capable_status
 lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 {
@@ -362,6 +363,7 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 
 	return -1;
 }
+#endif
 
 int
 lws_tls_client_create_vhost_context(struct lws_vhost *vh,

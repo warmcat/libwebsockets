@@ -256,12 +256,12 @@ int issue(int version)
 	if (version == 7)
 		printf("#if defined(LWS_HTTP_HEADERS_ALL) || (%cdefined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && "
 			 "%cdefined(LWS_ROLE_WS) && "
-			 "%cdefined(LWS_ROLE_H2))\n", version & 1 ? ' ' : '!',
+			 "%c(defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)))\n", version & 1 ? ' ' : '!',
 			     version & 2 ? ' ' : '!', version & 4 ? ' ' : '!');
 	else
 		printf("#if !defined(LWS_HTTP_HEADERS_ALL) && %cdefined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && "
 			 "%cdefined(LWS_ROLE_WS) && "
-			 "%cdefined(LWS_ROLE_H2)\n", version & 1 ? ' ' : '!',
+			 "%c(defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))\n", version & 1 ? ' ' : '!',
 			     version & 2 ? ' ' : '!', version & 4 ? ' ' : '!');
 
 	/*
@@ -480,12 +480,12 @@ int main(void)
 		if (n == 7)
 			printf("#if defined(LWS_HTTP_HEADERS_ALL) || (%cdefined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && "
 				 "%cdefined(LWS_ROLE_WS) && "
-				 "%cdefined(LWS_ROLE_H2))\n", n & 1 ? ' ' : '!',
+				 "%c(defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)))\n", n & 1 ? ' ' : '!',
 				     n & 2 ? ' ' : '!', n & 4 ? ' ' : '!');
 		else
 		printf("#if !defined(LWS_HTTP_HEADERS_ALL) && %cdefined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && "
 			 "%cdefined(LWS_ROLE_WS) && "
-			 "%cdefined(LWS_ROLE_H2)\n", n & 1 ? ' ' : '!',
+			 "%c(defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))\n", n & 1 ? ' ' : '!',
 			     n & 2 ? ' ' : '!', n & 4 ? ' ' : '!');
 
 		printf("static uint8_t lws_header_implies_psuedoheader_map[] = {\n\t");

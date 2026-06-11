@@ -280,6 +280,12 @@ option(LWS_TLS_LOG_PLAINTEXT_RX "For debugging log the received plaintext as soo
 option(LWS_TLS_LOG_PLAINTEXT_TX "For debugging log the transmitted plaintext just before encryption" OFF)
 option(LWS_WITH_TLS_SESSIONS "Enable persistent, resumable TLS sessions" ON)
 option(LWS_WITH_TLS_JIT_TRUST "Enable dynamically computing which trusted TLS CA is needed to be instantiated" OFF)
+if (LWS_WITH_SSL AND (LWS_ROLE_H1 OR LWS_WITH_HTTP2 OR LWS_ROLE_WS OR LWS_ROLE_MQTT))
+	set(DEFAULT_TCP_TLS ON)
+else()
+	set(DEFAULT_TCP_TLS OFF)
+endif()
+option(LWS_WITH_TCP_TLS "Compile TCP TLS specific files" ${DEFAULT_TCP_TLS})
 
 #
 # Event library options (may select multiple, or none for default poll()
