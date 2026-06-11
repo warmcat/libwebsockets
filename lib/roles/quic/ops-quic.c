@@ -122,7 +122,7 @@ lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t acked_pn)
 
 			struct lws *child = lws_quic_stream_find(nwsi, sid);
 			if (child && (lwsi_state(child) == LRS_FLUSHING_BEFORE_CLOSE
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 			    || child->http.deferred_transaction_completed
 #endif
 			)) {
@@ -1437,8 +1437,39 @@ send_frames:
 #endif
 		}
 		if (n < 0) {
-			lwsl_wsi_err(wsi, "QUIC TX: Write failed, errno=%d", LWS_ERRNO);
-			return LWS_HP_RET_BAIL_OK;
+			int e = LWS_ERRNO;
+			if (e == LWS_EAGAIN || e == LWS_EWOULDBLOCK || e == LWS_EINTR
+#if defined(EPIPE)
+			    || e == EPIPE
+#endif
+#if defined(EHOSTUNREACH)
+			    || e == EHOSTUNREACH
+#endif
+#if defined(ENETDOWN)
+			    || e == ENETDOWN
+#endif
+#if defined(ENETUNREACH)
+			    || e == ENETUNREACH
+#endif
+#if defined(ECONNREFUSED)
+			    || e == ECONNREFUSED
+#endif
+#if defined(EADDRNOTAVAIL)
+			    || e == EADDRNOTAVAIL
+#endif
+#if defined(EDESTADDRREQ)
+			    || e == EDESTADDRREQ
+#endif
+#if defined(ENOBUFS)
+			    || e == ENOBUFS
+#endif
+			) {
+				lwsl_wsi_info(wsi, "QUIC TX: dropping packet (transient tx error), errno=%d", e);
+				n = (int)send_len;
+			} else {
+				lwsl_wsi_err(wsi, "QUIC TX: Write failed, errno=%d", e);
+				return LWS_HP_RET_BAIL_OK;
+			}
 		}
 
 		qn->bytes_sent += (uint64_t)n;

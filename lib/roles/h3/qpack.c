@@ -784,8 +784,10 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 				
 				/* lwsl_user("EMIT: opcode=%02x idx=%d name=%s val=%s val_len=%d\n", state->opcode, idx, name ? name : "null", val ? val : "null", val ? (int)strlen(val) : 0); */
 				
-				if (cb) cb(user, idx, name, name ? strlen(name) : 0, val, val ? strlen(val) : 0);
-				
+				if (cb) {
+					if (cb(user, idx, name, name ? strlen(name) : 0, val, val ? strlen(val) : 0))
+						return 1;
+				}				
 				state->state = LQP_DEC_INSTRUCTION;
 			}
 			break;

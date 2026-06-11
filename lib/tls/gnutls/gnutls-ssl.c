@@ -30,6 +30,7 @@ extern void
 gnutls_quic_bio_free(struct lws *wsi);
 #endif
 
+#if defined(LWS_WITH_TCP_TLS)
 int
 lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 {
@@ -105,6 +106,7 @@ lws_ssl_pending(struct lws *wsi)
 
 	return (int)gnutls_record_check_pending((gnutls_session_t)wsi->tls.ssl);
 }
+#endif
 
 int
 lws_ssl_close(struct lws *wsi)
@@ -133,7 +135,7 @@ lws_ssl_close(struct lws *wsi)
 	return 0;
 }
 
-#if defined(LWS_WITH_SERVER)
+#if defined(LWS_WITH_SERVER) && defined(LWS_WITH_TCP_TLS)
 enum lws_ssl_capable_status
 lws_tls_server_accept(struct lws *wsi)
 {
@@ -182,6 +184,7 @@ lws_tls_server_accept(struct lws *wsi)
 }
 #endif
 
+#if defined(LWS_WITH_TCP_TLS)
 enum lws_ssl_capable_status
 lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
 {
@@ -222,6 +225,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
 
 	return LWS_SSL_CAPABLE_ERROR;
 }
+#endif
 
 int
 lws_ssl_get_error(struct lws *wsi, int n)

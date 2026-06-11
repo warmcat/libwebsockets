@@ -388,6 +388,7 @@ lws_tls_server_abort_connection(struct lws *wsi)
 	return 0;
 }
 
+#if defined(LWS_WITH_TCP_TLS)
 enum lws_ssl_capable_status
 lws_tls_server_accept(struct lws *wsi)
 {
@@ -473,6 +474,7 @@ lws_tls_server_accept(struct lws *wsi)
 
 	return LWS_SSL_CAPABLE_ERROR;
 }
+#endif
 
 #if defined(LWS_WITH_ACME)
 /*

@@ -24,6 +24,7 @@
 
 #include "private-lib-core.h"
 
+#if defined(LWS_WITH_TCP_TLS)
 static int
 lws_ssl_client_connect1(struct lws *wsi, char *errbuf, size_t len)
 {
@@ -100,6 +101,7 @@ lws_ssl_client_connect2(struct lws *wsi, char *errbuf, size_t len)
 
 	return 1; /* connected */
 }
+#endif
 
 
 int lws_context_init_client_ssl(const struct lws_context_creation_info *info,
@@ -188,8 +190,9 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 	/* we can retry this... just cook the SSL BIO the first time */
 
 	if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
+#if defined(LWS_WITH_TCP_TLS)
 		int n;
-
+#endif
 		if (!wsi->tls.ssl) {
 
 #if defined(LWS_WITH_TLS)
@@ -208,6 +211,7 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 		if (!do_c1)
 			return CCTLS_RETURN_DONE;
 
+#if defined(LWS_WITH_TCP_TLS)
 		lws_metrics_caliper_report(wsi->cal_conn, METRES_GO);
 		lws_metrics_caliper_bind(wsi->cal_conn, wsi->a.context->mt_conn_tls);
 #if defined(LWS_WITH_CONMON)
@@ -228,7 +232,7 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 		/* ...connect1 already handled caliper if SSL_accept done */
 
 		lws_tls_server_conn_alpn(wsi);
-
+#endif
 	} else
 		wsi->tls.ssl = NULL;
 

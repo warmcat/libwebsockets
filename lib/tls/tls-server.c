@@ -127,6 +127,7 @@ lws_context_init_server_ssl(const struct lws_context_creation_info *info,
 }
 #endif
 
+#if defined(LWS_WITH_TCP_TLS)
 int
 lws_tls_server_accept_completed(struct lws *wsi, int n)
 {
@@ -481,4 +482,5 @@ notls_accepted:
 fail:
 	return 1;
 }
+#endif
 

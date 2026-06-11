@@ -31,8 +31,10 @@
 
 include_directories(.)
 
-list(APPEND SOURCES
-	roles/h1/ops-h1.c)
+if (LWS_ROLE_H1)
+	list(APPEND SOURCES
+		roles/h1/ops-h1.c)
+endif()
 
 #
 # Keep explicit parent scope exports at end
