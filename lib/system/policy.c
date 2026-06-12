@@ -25,6 +25,7 @@
 #include <private-lib-core.h>
 
 #if defined(LWS_WITH_NETWORK)
+#if defined(LWS_WITH_FILE_OPS)
 
 static const char * const policy_paths[] = {
 	"dns_base_dir",
@@ -69,6 +70,7 @@ policy_cb(struct lejp_ctx *ctx, char reason)
 
 	return 0;
 }
+
 
 static const char *default_policy =
 	"{\n"
@@ -155,6 +157,7 @@ bail:
 	lws_system_policy_free(p);
 	return 1;
 }
+#endif
 
 void
 lws_system_policy_free(lws_system_policy_t *policy)
