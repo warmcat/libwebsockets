@@ -111,7 +111,7 @@ _lws_vhost_init_server_af(struct vh_sock_args *a)
 	lws_sockfd_type sockfd;
 	struct lws *wsi;
 	int m = 0, is = 0;
-#if !defined(LWS_PLAT_FREERTOS) && defined(LWS_WITH_IPV6) && defined(IPV6_V6ONLY)
+#if defined(LWS_WITH_IPV6) && defined(IPV6_V6ONLY)
 	int value = 1;
 #endif
 
@@ -257,7 +257,6 @@ done_list:
 			return 1;
 		}
 
-#if !defined(LWS_PLAT_FREERTOS)
 #if defined(WIN32) && defined(LWS_WITH_UNIX_SOCK)
 		if (a->af != AF_UNIX) {
 #endif
@@ -280,6 +279,7 @@ done_list:
 		} else
 #endif
 
+#if defined(SO_REUSEADDR)
 		/*
 		 * allow us to restart even if old sockets in TIME_WAIT
 		 */
@@ -289,6 +289,7 @@ done_list:
 			compatible_close(sockfd);
 			return -1;
 		}
+#endif
 #if defined(WIN32) && defined(LWS_WITH_UNIX_SOCK)
 		}
 #endif
@@ -325,7 +326,6 @@ done_list:
 //				compatible_close(sockfd);
 //				return -1;
 			}
-#endif
 #endif
 #if defined(LWS_WITH_UNIX_SOCK)
 		lws_plat_set_socket_options(a->vhost, sockfd, a->af == AF_UNIX);
