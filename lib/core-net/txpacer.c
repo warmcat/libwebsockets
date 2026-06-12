@@ -25,6 +25,7 @@
 #include "private-lib-core.h"
 
 #if defined(LWS_HAVE_PTHREAD_H)
+#if !defined(LWS_PLAT_OPTEE) && !defined(LWS_PLAT_BAREMETAL) && !defined(LWS_PLAT_FREERTOS)
 
 struct lws_txp {
 	lws_txp_info_t		txp_info;
@@ -198,5 +199,5 @@ bail:
 	pthread_mutex_unlock(&txp->lock);
 	return ret;
 }
-
+#endif
 #endif /* LWS_HAVE_PTHREAD_H */
