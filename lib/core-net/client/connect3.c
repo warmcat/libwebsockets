@@ -520,6 +520,21 @@ ads_known:
 				goto try_next_dns_result_fds;
 			}
 		}
+
+#if defined(LWS_WITH_IPV6) && (defined(LWS_AMAZON_RTOS) || defined(LWS_ESP_PLATFORM))
+		/*
+		 * For IPv6 link-local addresses on FreeRTOS/lwIP, getaddrinfo()
+		 * does not set sin6_scope_id. Set it from the iface stash so
+		 * connect() can route to the correct network interface.
+		 */
+		if (iface && *iface &&
+		    wsi->sa46_peer.sa4.sin_family == AF_INET6 &&
+		    !wsi->sa46_peer.sa6.sin6_scope_id) {
+			unsigned long scope = lws_get_addr_scope(wsi, iface);
+			if (scope)
+				wsi->sa46_peer.sa6.sin6_scope_id = (uint32_t)scope;
+		}
+#endif
 	}
 
 #if defined(LWS_WITH_UNIX_SOCK)
