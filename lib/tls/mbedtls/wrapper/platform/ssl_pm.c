@@ -787,6 +787,7 @@ no_mem:
 
 int x509_pm_load_file(X509 *x, const char *path)
 {
+#if defined(MBEDTLS_FS_IO)
     int ret;
     struct x509_pm *x509_pm = (struct x509_pm *)x->x509_pm;
 
@@ -813,11 +814,13 @@ failed:
     ssl_mem_free(x509_pm->x509_crt);
     x509_pm->x509_crt = NULL;
 no_mem:
+#endif
     return -1;
 }
 
 int x509_pm_load_path(X509 *x, const char *path)
 {
+#if defined(MBEDTLS_FS_IO)
     int ret;
     struct x509_pm *x509_pm = (struct x509_pm *)x->x509_pm;
 
@@ -844,6 +847,7 @@ failed:
     ssl_mem_free(x509_pm->x509_crt);
     x509_pm->x509_crt = NULL;
 no_mem:
+#endif
     return -1;
 }
 

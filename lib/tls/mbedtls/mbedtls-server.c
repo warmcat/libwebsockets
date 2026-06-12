@@ -181,7 +181,11 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 	mbedtls_x509_crt_init(&extras);
 
 	if (cert)
+#if defined(MBEDTLS_FS_IO)
 		n = mbedtls_x509_crt_parse_file(&extras, cert);
+#else
+		n = -1; /* can't parse file if we don't have file I/O */
+#endif
 	else if (mem_cert && mem_cert_len)
 		n = mbedtls_x509_crt_parse(&extras,
 									(const unsigned char *)mem_cert,
