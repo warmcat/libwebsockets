@@ -1035,21 +1035,21 @@ void _ssl_set_alpn_list(const SSL *ssl)
 {
 #if defined(LWS_HAVE_mbedtls_ssl_conf_alpn_protocols)
 	if (ssl->alpn_protos) {
-		fprintf(stderr, "_ssl_set_alpn_list: setting alpn from ssl->alpn_protos. [0]='%s'\n", ssl->alpn_protos[0] ? ssl->alpn_protos[0] : "NULL");
+		lwsl_info("%s: setting alpn from ssl->alpn_protos. [0]='%s'\n", __func__, ssl->alpn_protos[0] ? ssl->alpn_protos[0] : "NULL");
 		if (mbedtls_ssl_conf_alpn_protocols(&((struct ssl_pm *)(ssl->ssl_pm))->conf, (const char **)ssl->alpn_protos))
-			fprintf(stderr, "mbedtls_ssl_conf_alpn_protocols failed\n");
+			lwsl_err("%s: mbedtls_ssl_conf_alpn_protocols failed\n", __func__);
 
 		return;
 	}
 	if (!ssl->ctx->alpn_protos) {
-		fprintf(stderr, "_ssl_set_alpn_list: no alpn protos\n");
+		lwsl_info("%s: no alpn protos\n", __func__);
 		return;
 	}
 
 	if (mbedtls_ssl_conf_alpn_protocols(&((struct ssl_pm *)(ssl->ssl_pm))->conf, (const char **)ssl->ctx->alpn_protos))
-		fprintf(stderr, "mbedtls_ssl_conf_alpn_protocols failed\n");
+		lwsl_err("%s: mbedtls_ssl_conf_alpn_protocols failed\n", __func__);
 #else
-	fprintf(stderr, "mbedtls_ssl_conf_alpn_protocols absent\n");
+	lwsl_info("%s: mbedtls_ssl_conf_alpn_protocols absent\n", __func__);
 #endif
 }
 
@@ -1065,7 +1065,7 @@ void SSL_get0_alpn_selected(const SSL *ssl, const unsigned char **data,
 	else
 		*len = 0;
 #else
-	fprintf(stderr, "mbedtls_ssl_conf_alpn_protocols absent\n");
+	lwsl_info("%s: mbedtls_ssl_conf_alpn_protocols absent\n", __func__);
 	*len = 0;
 #endif
 }
