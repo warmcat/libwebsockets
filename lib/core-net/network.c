@@ -290,7 +290,7 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 #ifdef LWS_WITH_UNIX_SOCK
 	struct sockaddr_un serv_unix;
 #endif
-#if defined(LWS_WITH_IPV6) && !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
+#if defined(LWS_WITH_IPV6) && !defined(LWS_PLAT_OPTEE)
 	struct sockaddr_in6 serv_addr6;
 #endif
 	struct sockaddr_in serv_addr4;
@@ -337,7 +337,18 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 		// lwsl_hexdump_notice(v, n);
 		break;
 #endif
-#if defined(LWS_WITH_IPV6) && !defined(LWS_PLAT_FREERTOS)
+#if defined(LWS_WITH_IPV6)
+#if defined(LWS_PLAT_FREERTOS)
+	case AF_INET6:
+		v = (struct sockaddr *)&serv_addr6;
+		n = sizeof(struct sockaddr_in6);
+		memset(&serv_addr6, 0, sizeof(serv_addr6));
+		serv_addr6.sin6_family = AF_INET6;
+		serv_addr6.sin6_port = (uint16_t)htons((uint16_t)port);
+		if (iface)
+			serv_addr6.sin6_scope_id = (uint32_t)lws_get_addr_scope(wsi, iface);
+		break;
+#else
 	case AF_INET6:
 		v = (struct sockaddr *)&serv_addr6;
 		n = sizeof(struct sockaddr_in6);
@@ -363,6 +374,7 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 
 		serv_addr6.sin6_port = (uint16_t)htons((uint16_t)port);
 		break;
+#endif
 #endif
 
 	case AF_INET:
