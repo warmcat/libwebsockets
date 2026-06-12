@@ -472,10 +472,37 @@ lws_cookie_attach_cookies(struct lws *wsi, char *buf, char *end)
 	if (!wsi)
 		return -1;
 
-	stash = wsi->stash ? wsi->stash : lws_get_network_wsi(wsi)->stash;
-	if (!stash || (!stash->cis[CIS_HOST] && !stash->cis[CIS_ADDRESS]) ||
-			   !stash->cis[CIS_PATH])
-		return -1;
+	/*
+	 * stash is only guaranteed during the connect phase; lws frees it
+	 * early when LWS_WITH_SOCKS5 is on. Fall back to HTTP headers
+	 * (same pattern as lws_cookie_write_nsc()).
+	 */
+	{
+		const char *fb_domain, *fb_path;
+
+		stash = wsi->stash ? wsi->stash :
+			lws_get_network_wsi(wsi)->stash;
+		if (stash && stash->cis[CIS_HOST] &&
+			    stash->cis[CIS_PATH]) {
+			fb_domain = stash->cis[CIS_HOST] ?
+				stash->cis[CIS_HOST] :
+				stash->cis[CIS_ADDRESS];
+			fb_path   = stash->cis[CIS_PATH];
+		} else {
+			fb_domain = lws_hdr_simple_ptr(wsi,
+					_WSI_TOKEN_CLIENT_HOST);
+			if (!fb_domain)
+				fb_domain = lws_hdr_simple_ptr(wsi,
+					_WSI_TOKEN_CLIENT_PEER_ADDRESS);
+			fb_path = lws_hdr_simple_ptr(wsi,
+					_WSI_TOKEN_CLIENT_URI);
+		}
+		if (!fb_domain || !fb_path)
+			return -1;
+
+		domain = fb_domain;
+		path = fb_path;
+	}
 
 	l1 = wsi->a.context->l1;
 	if (!l1 || !wsi->a.context->nsc){
@@ -484,9 +511,6 @@ lws_cookie_attach_cookies(struct lws *wsi, char *buf, char *end)
 	}
 
 	memset(&c, 0, sizeof(c));
-
-	domain = stash->cis[CIS_HOST] ? stash->cis[CIS_HOST] : stash->cis[CIS_ADDRESS];
-	path = stash->cis[CIS_PATH];
 
 	if (!domain || !path)
 		return -1;
