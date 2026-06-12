@@ -368,11 +368,12 @@ lws_cache_heap_write(struct lws_cache_ttl_lru *_c, const char *specific_key,
 	 * caching a single large item even if it is above the limits
 	 */
 
-	while ((cache->cache.info.max_footprint &&
+	while (((cache->cache.info.max_footprint &&
 	        cache->cache.current_footprint + size >
 					     cache->cache.info.max_footprint) ||
 	       (cache->cache.info.max_items &&
-		cache->items_lru.count + 1 > cache->cache.info.max_items))
+		cache->items_lru.count + 1 > cache->cache.info.max_items)) &&
+	       cache->items_lru.head)
 		lws_cache_item_evict_lru(cache);
 
 	/* remove any existing entry of the same key */
