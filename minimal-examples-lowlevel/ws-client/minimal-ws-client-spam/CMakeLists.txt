@@ -29,7 +29,7 @@ if (requirements)
        #
 	set(PORT_WCS_SRV "7620")
 	if ("$ENV{SAI_INSTANCE_IDX}")
-		math(EXPR PORT_WCS_SRV "7621 + $ENV{SAI_INSTANCE_IDX}")
+		math(EXPR PORT_WCS_SRV \"7621 + ($ENV{SAI_INSTANCE_IDX} * 50)\")
 	endif()
 
 # hack

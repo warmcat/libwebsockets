@@ -39,7 +39,7 @@ if (requirements)
        #
        set(PORT_HCM_SRV "6670")
        if ("$ENV{SAI_INSTANCE_IDX}")
-	       math(EXPR PORT_HCM_SRV "6671 + $ENV{SAI_INSTANCE_IDX}")
+	       math(EXPR PORT_HCM_SRV \"6671 + ($ENV{SAI_INSTANCE_IDX} * 50)\")
        endif()
 
 # hack

@@ -40,6 +40,52 @@ lws_tls_quic_vhost_init(lws_tls_ctx *ctx)
 	return 0;
 }
 
+static void
+schannel_sanitize_client_hello(uint8_t *out, size_t out_len)
+{
+       if (out_len < 38) return;
+       if (out[0] != 0x01) return;
+
+       size_t hs_len = (out[1] << 16) | (out[2] << 8) | out[3];
+       if (hs_len + 4 > out_len) return;
+
+       size_t p = 4 + 2 + 32;
+
+       if (p >= out_len) return;
+       uint8_t sid_len = out[p++];
+       p += sid_len;
+
+       if (p + 2 > out_len) return;
+       uint16_t cs_len = (out[p] << 8) | out[p+1];
+       p += 2 + cs_len;
+
+       if (p >= out_len) return;
+       uint8_t cm_len = out[p++];
+       p += cm_len;
+
+       if (p + 2 > out_len) return;
+       uint16_t ext_len = (out[p] << 8) | out[p+1];
+       p += 2;
+
+       if (p + ext_len > out_len) return;
+
+       size_t end = p + ext_len;
+       lwsl_notice("Sanitizing %d bytes of extensions at %d\n", (int)ext_len, (int)p);
+       while (p + 4 <= end) {
+               uint16_t type = (out[p] << 8) | out[p+1];
+               uint16_t len = (out[p+2] << 8) | out[p+3];
+               if (p + 4 + len > end)
+                       break;
+
+               if (type == 0x0023 || type == 0x0017 || type == 0xFF01) {
+                       lwsl_notice("Sanitized extension %04X -> 0015\n", type);
+                       out[p] = 0x00;
+                       out[p+1] = 0x15;
+               }
+               p += 4 + len;
+       }
+}
+
 int
 lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 {
@@ -385,6 +431,9 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 		if (out && out_len && *out_len >= out_bufs[0].cbBuffer) {
 			memcpy(out, out_bufs[0].pvBuffer, out_bufs[0].cbBuffer);
 			*out_len = out_bufs[0].cbBuffer;
+                       schannel_sanitize_client_hello(out, *out_len);
+                       lwsl_notice("SCHANNEL GENERATED TLS PAYLOAD (%d bytes):\n", (int)*out_len);
+                       lwsl_hexdump_notice(out, *out_len);
 		} else if (out && out_len) {
 			*out_len = 0; /* buffer too small to copy */
 		}

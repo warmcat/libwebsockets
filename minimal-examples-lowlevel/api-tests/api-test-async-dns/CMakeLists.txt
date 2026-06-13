@@ -15,7 +15,7 @@ if (requirements)
 	add_executable(${SAMP} ${SRCS})
 	set(PORT_ADNS_SRV "5353")
 	if ("$ENV{SAI_INSTANCE_IDX}")
-		math(EXPR PORT_ADNS_SRV "5353 + $ENV{SAI_INSTANCE_IDX}")
+		math(EXPR PORT_ADNS_SRV \"5353 + ($ENV{SAI_INSTANCE_IDX} * 50)\")
 	endif()
 
 	if (NOT WIN32)

@@ -18,7 +18,7 @@ if (requirements)
 	add_executable(${SAMP} ${SRCS})
 	set(PORT_HC_RXFLOW_SRV "7250")
 	if ("$ENV{SAI_INSTANCE_IDX}")
-		math(EXPR PORT_HC_RXFLOW_SRV "7251 + $ENV{SAI_INSTANCE_IDX}")
+		math(EXPR PORT_HC_RXFLOW_SRV \"7251 + ($ENV{SAI_INSTANCE_IDX} * 50)\")
 	endif()
 
 	if (NOT WIN32 AND LWS_WITH_SERVER AND LWS_WITH_TLS)

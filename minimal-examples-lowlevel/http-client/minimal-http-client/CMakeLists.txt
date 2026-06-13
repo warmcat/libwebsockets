@@ -64,7 +64,7 @@ if (requirements)
 	#
 	set(PORT_HC_SRV "7050")
 	if ("$ENV{SAI_INSTANCE_IDX}")
-		math(EXPR PORT_HC_SRV "7051 + $ENV{SAI_INSTANCE_IDX}")
+		math(EXPR PORT_HC_SRV \"7051 + ($ENV{SAI_INSTANCE_IDX} * 50)\")
 	endif()
 
 	if (NOT WIN32 AND LWS_WITH_SERVER AND LWS_WITH_TLS)

@@ -112,7 +112,7 @@ if (requirements)
 
 	set(PORT_HSEF_SRV "961")
 	if ("$ENV{SAI_INSTANCE_IDX}")
-		math(EXPR PORT_HSEF_SRV "962 + $ENV{SAI_INSTANCE_IDX}")
+		math(EXPR PORT_HSEF_SRV \"9642 + ($ENV{SAI_INSTANCE_IDX} * 50)\")
 	endif()
 
 	if (websockets_shared)

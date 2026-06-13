@@ -494,6 +494,9 @@ lws_quic_encrypt_payload(struct lws_quic_keys *keys, uint8_t *packet, size_t pac
 	size_t payload_len = packet_len - payload_offset;
 	int i;
 
+       /* Set the PN length bits (pn_len is 1 to 4) BEFORE any AAD or encryption */
+       packet[0] |= (pn_len - 1);
+
 	/* 1. Construct the AEAD Nonce: IV ^ full_pn */
 	memcpy(nonce, keys->iv_tx, 12);
 	for (i = 0; i < 8; i++)

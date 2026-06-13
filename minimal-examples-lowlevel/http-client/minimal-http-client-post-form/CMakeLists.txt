@@ -30,7 +30,7 @@ if (requirements)
 	#
 	set(PORT_HCP_SRV "7340")
 	if ("$ENV{SAI_INSTANCE_IDX}")
-		math(EXPR PORT_HCP_SRV "7341 + $ENV{SAI_INSTANCE_IDX}")
+		math(EXPR PORT_HCP_SRV \"7341 + ($ENV{SAI_INSTANCE_IDX} * 50)\")
 	endif()
 
 # hack

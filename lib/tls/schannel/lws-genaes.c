@@ -228,16 +228,17 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 
 			/* Process AAD if present */
 			if (in && len) {
-				uint8_t *authData = NULL;
-
-				/* Allocate and copy auth data for alignment */
-				authData = lws_malloc(len, "genaes aad");
-				if (!authData) {
+                               /* Allocate and copy auth data for alignment and persist it across chained calls */
+                               if (ctx->u.pbAuthData) {
+                                       lws_free(ctx->u.pbAuthData);
+                               }
+                               ctx->u.pbAuthData = lws_malloc(len, "genaes aad");
+                               if (!ctx->u.pbAuthData) {
 					return -1;
 				}
-				memcpy(authData, in, len);
+                               memcpy(ctx->u.pbAuthData, in, len);
 
-				authInfo->pbAuthData = (PUCHAR)authData;
+                               authInfo->pbAuthData = (PUCHAR)ctx->u.pbAuthData;
 				authInfo->cbAuthData = (ULONG)len;
 
 				if (ctx->op == LWS_GAESO_ENC)
@@ -246,8 +247,6 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 				else
 					status = BCryptDecrypt(ctx->u.hKey, NULL, 0, authInfo,
 							       authInfo->pbMacContext, authInfo->cbMacContext, NULL, 0, &result_len, 0);
-
-				lws_free(authData);
 
 				if (!BCRYPT_SUCCESS(status)) {
 					lwsl_err("lws_genaes_crypt: GCM AAD failed: 0x%x\n",
@@ -295,14 +294,17 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 				return -1;
 			}
 
-			if (ctx->op == LWS_GAESO_ENC)
+                       if (ctx->op == LWS_GAESO_ENC) {
 				status = BCryptEncrypt(ctx->u.hKey, (PUCHAR)in_aligned, (ULONG)len,
 						       authInfo, authInfo->pbMacContext, authInfo->cbMacContext, (PUCHAR)out_aligned,
 						       (ULONG)len, &result_len, 0);
-			else
+                       } else {
+                               if (stream_block_16 && taglen && taglen <= ctx->u.cbTag)
+                                       memcpy(ctx->u.pbTag, stream_block_16, taglen);
 				status = BCryptDecrypt(ctx->u.hKey, (PUCHAR)in_aligned, (ULONG)len,
 						       authInfo, authInfo->pbMacContext, authInfo->cbMacContext, (PUCHAR)out_aligned,
 						       (ULONG)len, &result_len, 0);
+                       }
 
 			if (BCRYPT_SUCCESS(status))
 				memcpy(out, out_aligned, len);

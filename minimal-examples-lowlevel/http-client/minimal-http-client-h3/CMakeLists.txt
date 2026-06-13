@@ -24,9 +24,35 @@ if (requirements)
 		target_link_libraries(${SAMP} websockets ${LIBWEBSOCKETS_DEP_LIBS})
 	endif()
 
-	add_test(NAME http-client-h3 COMMAND lws-minimal-http-client-h3)
-	set_tests_properties(http-client-h3
-			     PROPERTIES
-			     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-client/minimal-http-client-h3
-			     TIMEOUT 30)
+	set(PORT_H3_SRV "7060")
+	if ("$ENV{SAI_INSTANCE_IDX}")
+		math(EXPR PORT_H3_SRV \"7061 + ($ENV{SAI_INSTANCE_IDX} * 50)\")
+	endif()
+
+	if (NOT WIN32 AND LWS_WITH_SERVER AND LWS_WITH_TLS)
+		add_test(NAME st_hc_h3_srv COMMAND
+			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
+					hc_h3_srv
+					$<TARGET_FILE:test-server>
+					-r ${CMAKE_BINARY_DIR}/share/libwebsockets-test-server/
+					-s --port ${PORT_H3_SRV} )
+		add_test(NAME ki_hc_h3_srv COMMAND
+			${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh hc_h3_srv
+					$<TARGET_FILE_NAME:test-server> --port ${PORT_H3_SRV})
+
+		set_tests_properties(st_hc_h3_srv PROPERTIES
+							 WORKING_DIRECTORY .
+							 FIXTURES_SETUP hc_h3_srv
+							 TIMEOUT 800)
+		set_tests_properties(ki_hc_h3_srv PROPERTIES
+							 FIXTURES_CLEANUP hc_h3_srv)
+
+		add_test(NAME minimal-http-client-h3 COMMAND lws-minimal-http-client-h3 -l --server localhost -p ${PORT_H3_SRV})
+		set_tests_properties(minimal-http-client-h3
+				     PROPERTIES
+				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-client/minimal-http-client-h3
+				     FIXTURES_REQUIRED "hc_h3_srv"
+				     TIMEOUT 30)
+	endif()
+	target_include_directories(lws-minimal-http-client-h3 PRIVATE /lib)
 endif()

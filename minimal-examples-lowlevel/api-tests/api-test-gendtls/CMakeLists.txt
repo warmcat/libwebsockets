@@ -25,7 +25,7 @@ if (requirements)
 
 	set(GENDTLS_PORT "7890")
 	if ("$ENV{SAI_INSTANCE_IDX}")
-		math(EXPR GENDTLS_PORT "7890 + $ENV{SAI_INSTANCE_IDX}")
+		math(EXPR GENDTLS_PORT \"7890 + ($ENV{SAI_INSTANCE_IDX} * 50)\")
 	endif()
 
 	add_test(NAME api-test-gendtls COMMAND ${SAMP})

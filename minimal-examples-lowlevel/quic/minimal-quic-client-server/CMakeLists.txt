@@ -24,9 +24,9 @@ if (requirements)
 	endif()
 
 	if (LWS_WITH_MINIMAL_EXAMPLES)
-		set(PORT_QCS "7681")
+		set(PORT_QCS "7691")
 		if ("$ENV{SAI_INSTANCE_IDX}")
-			math(EXPR PORT_QCS "7681 + $ENV{SAI_INSTANCE_IDX}")
+			math(EXPR PORT_QCS \"7691 + ($ENV{SAI_INSTANCE_IDX} * 50)\")
 		endif()
 
 		find_program(H3SPEC_EXECUTABLE h3spec)
