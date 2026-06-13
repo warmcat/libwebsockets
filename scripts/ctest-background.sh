@@ -27,7 +27,11 @@ fi
 # We shift off $1 (the background fixture name) so that "$@" contains only the executable and its args.
 shift
 
-"$@" -d1039 2>/tmp/ctest-background-$J 1>/dev/null 0</dev/null &
+if command -v catchsegv >/dev/null 2>&1; then
+    catchsegv "$@" -d1039 2>/tmp/ctest-background-$J 1>/dev/null 0</dev/null &
+else
+    "$@" -d1039 2>/tmp/ctest-background-$J 1>/dev/null 0</dev/null &
+fi
 echo $! > /tmp/sai-ctest-$J
 
 # really we want to loop until the listen port is up

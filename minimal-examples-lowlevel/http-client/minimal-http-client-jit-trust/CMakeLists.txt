@@ -43,9 +43,9 @@ if (requirements)
 	
 	sai_resource(warmcat_conns 1 40 http_client_warmcat)
 
-	set(PORT_HC_JIT_SRV "7270")
+	set(PORT_HC_JIT_SRV "10050")
 	if ("$ENV{SAI_INSTANCE_IDX}")
-		math(EXPR PORT_HC_JIT_SRV "7271 + $ENV{SAI_INSTANCE_IDX}")
+		math(EXPR PORT_HC_JIT_SRV "10051 + ($ENV{SAI_INSTANCE_IDX} * 1000)")
 	endif()
 
 	if (NOT WIN32 AND LWS_WITH_SERVER AND LWS_WITH_TLS)

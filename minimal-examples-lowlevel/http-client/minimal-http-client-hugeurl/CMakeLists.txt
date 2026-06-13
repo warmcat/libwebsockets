@@ -16,9 +16,9 @@ require_lws_config(LWS_WITH_TLS 1 requirements)
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
 
-	set(PORT_HC_HUGE_SRV "7260")
+	set(PORT_HC_HUGE_SRV "10040")
 	if ("$ENV{SAI_INSTANCE_IDX}")
-		math(EXPR PORT_HC_HUGE_SRV "7261 + $ENV{SAI_INSTANCE_IDX}")
+		math(EXPR PORT_HC_HUGE_SRV "10041 + ($ENV{SAI_INSTANCE_IDX} * 1000)")
 	endif()
 
 	if (NOT WIN32 AND LWS_WITH_SERVER AND LWS_WITH_TLS)

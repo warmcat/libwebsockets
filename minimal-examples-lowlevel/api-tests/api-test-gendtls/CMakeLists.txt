@@ -23,9 +23,9 @@ if (requirements)
 		target_link_libraries(${SAMP} websockets ${LIBWEBSOCKETS_DEP_LIBS})
 	endif()
 
-	set(GENDTLS_PORT "7890")
+	set(GENDTLS_PORT "10010")
 	if ("$ENV{SAI_INSTANCE_IDX}")
-		math(EXPR GENDTLS_PORT "7890 + $ENV{SAI_INSTANCE_IDX}")
+		math(EXPR GENDTLS_PORT "10011 + ($ENV{SAI_INSTANCE_IDX} * 1000)")
 	endif()
 
 	add_test(NAME api-test-gendtls COMMAND ${SAMP})

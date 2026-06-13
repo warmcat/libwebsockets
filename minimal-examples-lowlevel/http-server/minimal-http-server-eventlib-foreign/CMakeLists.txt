@@ -110,9 +110,9 @@ if (requirements)
 	# regardless of how many build and tests in parallel.
 	#
 
-	set(PORT_HSEF_SRV "961")
+	set(PORT_HSEF_SRV "10100")
 	if ("$ENV{SAI_INSTANCE_IDX}")
-		math(EXPR PORT_HSEF_SRV "962 + $ENV{SAI_INSTANCE_IDX}")
+		math(EXPR PORT_HSEF_SRV "10101 + ($ENV{SAI_INSTANCE_IDX} * 1000)")
 	endif()
 
 	if (websockets_shared)
