@@ -17,6 +17,8 @@
 
 static int interrupted, bad = 1, status;
 static struct lws *client_wsi;
+static int _argc;
+static const char **_argv;
 
 static const lws_retry_bo_t retry = {
 	.secs_since_valid_ping = 3,
@@ -108,6 +110,8 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 	struct lws_context *context = mgr->parent;
 	struct lws_client_connect_info i;
 
+	const char *p;
+
 	if (current != LWS_SYSTATE_OPERATIONAL || target != LWS_SYSTATE_OPERATIONAL)
 		return 0;
 
@@ -117,6 +121,13 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 	i.context = context;
 	i.port = 443;
 	i.address = "libwebsockets.org";
+
+	if ((p = lws_cmdline_option(_argc, _argv, "--server")))
+		i.address = p;
+
+	if ((p = lws_cmdline_option(_argc, _argv, "-p")))
+		i.port = atoi(p);
+
 	i.path = "/index.html";
 	i.host = i.address;
 	i.origin = i.address;
@@ -125,6 +136,9 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 	/* Force ALPN to h3 and use QUIC */
 	i.alpn = "h3";
 	i.ssl_connection = LCCSCF_USE_SSL;
+
+	if (lws_cmdline_option(_argc, _argv, "-l"))
+		i.ssl_connection |= LCCSCF_ALLOW_SELFSIGNED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
 	
 	i.protocol = protocols[0].name;
 	i.pwsi = &client_wsi;
@@ -151,6 +165,9 @@ int main(int argc, const char **argv)
 	struct lws_context_creation_info info;
 	struct lws_context *context;
 	int n = 0;
+
+	_argc = argc;
+	_argv = argv;
 
 	signal(SIGINT, sigint_handler);
 

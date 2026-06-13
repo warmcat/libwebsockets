@@ -28,9 +28,9 @@ if (requirements)
 	# instantiate the server per sai builder instance, they are running in the same
 	# machine context in parallel so they can tread on each other otherwise
 	#
-	set(PORT_HCP_SRV "7340")
+	set(PORT_HCP_SRV "10070")
 	if ("$ENV{SAI_INSTANCE_IDX}")
-		math(EXPR PORT_HCP_SRV "7341 + $ENV{SAI_INSTANCE_IDX}")
+		math(EXPR PORT_HCP_SRV "10071 + ($ENV{SAI_INSTANCE_IDX} * 1000)")
 	endif()
 
 # hack

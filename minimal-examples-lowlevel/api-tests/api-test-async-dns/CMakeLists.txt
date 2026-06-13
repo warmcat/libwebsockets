@@ -13,9 +13,9 @@ require_lws_config(LWS_WITH_SERVER 1 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
-	set(PORT_ADNS_SRV "5353")
+	set(PORT_ADNS_SRV "10000")
 	if ("$ENV{SAI_INSTANCE_IDX}")
-		math(EXPR PORT_ADNS_SRV "5353 + $ENV{SAI_INSTANCE_IDX}")
+		math(EXPR PORT_ADNS_SRV "10001 + ($ENV{SAI_INSTANCE_IDX} * 1000)")
 	endif()
 
 	if (NOT WIN32)
