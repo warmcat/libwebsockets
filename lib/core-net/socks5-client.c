@@ -236,7 +236,11 @@ lws_socks5c_greet(struct lws *wsi, const char **pcce)
 		return -1;
 	}
 	// lwsl_hexdump_notice(pt->serv_buf, plen);
-	n = (int)send(wsi->desc.sockfd, (char *)pt->serv_buf, (size_t)plen,
+	n = (int)send(wsi->desc.sockfd, (char *)pt->serv_buf,
+#if defined(WIN32)
+		      (int)
+#endif
+		      (size_t)plen,
 		      MSG_NOSIGNAL);
 	if (n < 0) {
 		lwsl_wsi_debug(wsi, "ERROR writing socks greeting");
@@ -333,6 +337,9 @@ socks_send_msg_fail:
 socks_send:
 		// lwsl_hexdump_notice(pt->serv_buf, len);
 		n = (int)send(wsi->desc.sockfd, (char *)pt->serv_buf,
+#if defined(WIN32)
+			      (int)
+#endif
 			      (size_t)len, MSG_NOSIGNAL);
 		if (n < 0) {
 			lwsl_wsi_debug(wsi, "ERROR writing to socks proxy");
