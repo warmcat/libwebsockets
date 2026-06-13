@@ -336,10 +336,10 @@ int main(int argc, const char **argv)
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 
 #if defined(WIN32) && defined(LWS_WITH_SCHANNEL)
-	if (!is_quic_supported_on_os()) {
-		lwsl_user("SChannel QUIC requires Windows 11+ / Server 2022+\n");
-		return 0;
-	}
+       // if (!is_quic_supported_on_os()) {
+       //      lwsl_user("SChannel QUIC requires Windows 11+ / Server 2022+\n");
+       //      return 0;
+       // }
 #endif
 
 	if (lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
@@ -349,7 +349,14 @@ int main(int argc, const char **argv)
 
 	p = lws_cmdline_option(argc, argv, "-p");
 	if (p)
-		port = atoi(p);
+		{
+			int __pt = atoi(p);
+			if (__pt < 0 || __pt > 65535) {
+				lwsl_err("Port %d is outside valid 16-bit range\n", __pt);
+				return 1;
+			}
+			port = __pt;
+		}
 
 	if (lws_cmdline_option(argc, argv, "-s"))
 		server_only = 1;
@@ -369,7 +376,8 @@ int main(int argc, const char **argv)
 	info.port                               = 7681;
 	info.protocols                          = protocols;
 	info.options                            = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
-						  LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
+                                                 LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
+                                                 LWS_SERVER_OPTION_DISABLE_IPV6;
 
 	context = lws_create_context(&info);
 	if (!context) {
@@ -407,7 +415,7 @@ int main(int argc, const char **argv)
 
 	if (!p) {
 		/* Explicitly instantiate a UDP listener socket and bind it to QUIC! */
-		if (!lws_create_adopt_udp(vh, "127.0.0.1", port, LWS_CAUDP_BIND,
+               if (!lws_create_adopt_udp(vh, NULL, port, LWS_CAUDP_BIND,
 						"quic-test-protocol", NULL, NULL, NULL,
 						NULL, "quic_listen")) {
 			lwsl_err("Failed to bind QUIC UDP listener\n");

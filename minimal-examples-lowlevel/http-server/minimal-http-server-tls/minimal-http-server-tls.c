@@ -118,7 +118,14 @@ int main(int argc, const char **argv)
 	if (!info.port)
 		info.port = 7681;
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PORT].sw)))
-		info.port = atoi(p);
+		{
+			int __pt = atoi(p);
+			if (__pt < 0 || __pt > 65535) {
+				lwsl_err("Port %d is outside valid 16-bit range\n", __pt);
+				return 1;
+			}
+			info.port = __pt;
+		}
 	info.mounts = &mount;
 	info.error_document_404 = "/404.html";
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |

@@ -2,26 +2,45 @@
 
 ## Overview
 
-Please make high quality, not lazy, implementation decisions, because the code will have to be
-maintained for a long time.  And everybody, LLM or person, is able to work better if we keep
-the code clean and to a high standard to start with.
+Please err on the side of high quality, not lazy, implementation decisions, because the code
+will have to be maintained for a long time.  And everybody, LLM or person, is able to work
+better if we keep the code clean and to a high standard to start with.
 
 Even if your instructions don't include specific admonishment about quality, it is always
 necessary.
 
 Our work should follow the existing usage of apis in the project as much as possible.
 
+## Interacting
+
+We will be working on the same sources, do not build into ./build since I will be using it; make
+your own ./build-agy or whatever.
+
+While the idea is you should modify and test sources towards some goal, please do NOT modify the
+git state unless directly asked.
+
+Often although we are working on the same sources, they are being tested on devices you don't have
+access to.  So you must ask for access to data state on those remote machines; looking at the local
+machine you are running on for config or data state directly is of zero use in those circumstances.
+
+If you are unable to complete something the user expects from the interaction with you, you
+must clearly explain to the user which parts are incomplete and need further work.
+
 ## Coding
 
-We avoid things like `scanf` for carefully parsing with code, eg with `lws_tokenize` or similar.
+We are very concerned about security, architecturally and in the code.  We avoid using:
 
-We avoid `FILE *` and use apis like open(), read().
+ - things like `scanf` for carefully parsing with code, eg with `lws_tokenize` or similar.
 
-We avoid casual linked-lists and use `lws_dll2_t`.
+ - `FILE *` and use apis like open(), read().
 
-We consider using lwsac instead of discrete allocations, if the pattern of allocations will benefit from it.
+ - casual linked-lists and use `lws_dll2_t`.
 
-We consider using lws_struct to convert between sqlite storage <-> structs <-> JSON
+We consider using:
+
+ - lwsac instead of discrete allocations, if the pattern of allocations will benefit from it.
+
+ - lws_struct to convert between sqlite storage <-> structs <-> JSON
 
 ## Appropriate locality
 
@@ -31,10 +50,14 @@ makes sense it's possible.
 
 ## Security
 
-Please bear in mind what parts of the system are secrets and look after the security of them.
+Please bear in mind:
 
-In particular, all web pieces are made available on the internet with a strict CSP.  That means
-** no inline styles or scripts ** .  You can find the web pieces (JS, HTML, css) in ./assets/
+ - which parts of the system are secrets, and look after the security of them.
+ - all external data is untrusted and should be assumed to be part of an attack until
+   we have validated it to be within a range and type we expect and can safely consume.
+
+ - all web pieces are served with a strict CSP.  That means ** no inline styles or scripts ** .
+   You can usually find the web pieces (JS, HTML, css) in ./assets/
 
 ## Build testing
 
@@ -48,3 +71,6 @@ commands for the platform.
 minimal-examples-lowlevel/http-client/minimal-http-client-post/CMakeLists.txt shows how to use the fixtures
 stuff to magic peers into being while being sensitive to parallel CI using `$ENV{SAI_INSTANCE_IDX}` to make
 unique ports.
+
+In the case you can build and run ctest meaningfully, please do confirm the build passes before completing
+work on your goal.

@@ -25,7 +25,14 @@ int main(int argc, const char **argv)
 
 	info.port = 5353;
 	if ((p = lws_cmdline_option(argc, argv, "-p")))
-		info.port = atoi(p);
+		{
+			int __pt = atoi(p);
+			if (__pt < 0 || __pt > 65535) {
+				lwsl_err("Port %d is outside valid 16-bit range\n", __pt);
+				return 1;
+			}
+			info.port = __pt;
+		}
 
 	const struct lws_protocols my_protocols[] = {
 		lws_auth_dns_protocols[0],

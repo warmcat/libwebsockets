@@ -24,10 +24,8 @@ if (requirements)
 	endif()
 
 	if (LWS_WITH_MINIMAL_EXAMPLES)
-		set(PORT_QCS "7681")
-		if ("$ENV{SAI_INSTANCE_IDX}")
-			math(EXPR PORT_QCS "7681 + $ENV{SAI_INSTANCE_IDX}")
-		endif()
+		lws_get_free_port(PORT_QCS)
+		lws_get_free_port(PORT_QCS_CLIENT)
 
 		find_program(H3SPEC_EXECUTABLE h3spec)
 		if (H3SPEC_EXECUTABLE AND LWS_WITH_HTTP3)
@@ -55,7 +53,7 @@ if (requirements)
 					     TIMEOUT 120)
 		endif()
 
-		add_test(NAME ${SAMP} COMMAND ${SAMP} -p 1${PORT_QCS})
+		add_test(NAME ${SAMP} COMMAND ${SAMP} -p ${PORT_QCS_CLIENT})
 		set_tests_properties(${SAMP} PROPERTIES
 					     WORKING_DIRECTORY .
 					     TIMEOUT 20)

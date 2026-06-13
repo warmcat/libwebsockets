@@ -16,10 +16,7 @@ require_lws_config(LWS_WITH_TLS 1 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
-	set(PORT_HC_RXFLOW_SRV "7250")
-	if ("$ENV{SAI_INSTANCE_IDX}")
-		math(EXPR PORT_HC_RXFLOW_SRV "7251 + $ENV{SAI_INSTANCE_IDX}")
-	endif()
+	lws_get_free_port(PORT_HC_RXFLOW_SRV)
 
 	if (NOT WIN32 AND LWS_WITH_SERVER AND LWS_WITH_TLS)
 		add_test(NAME st_hc_rxflow_srv COMMAND

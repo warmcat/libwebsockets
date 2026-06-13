@@ -156,7 +156,14 @@ int main(int argc, const char **argv)
 	}
 
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PORT].sw)))
-		port = atoi(p);
+		{
+			int __pt = atoi(p);
+			if (__pt < 0 || __pt > 65535) {
+				lwsl_err("Port %d is outside valid 16-bit range\n", __pt);
+				return 1;
+			}
+			port = __pt;
+		}
 
 	info.fd_limit_per_thread = 1 + 1 + 1;
 

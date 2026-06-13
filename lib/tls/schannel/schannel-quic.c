@@ -40,6 +40,125 @@ lws_tls_quic_vhost_init(lws_tls_ctx *ctx)
 	return 0;
 }
 
+static void
+schannel_sanitize_client_hello(uint8_t *out, size_t out_len)
+{
+       if (out_len < 38) return;
+       if (out[0] != 0x01) return;
+
+       size_t hs_len = (out[1] << 16) | (out[2] << 8) | out[3];
+       if (hs_len + 4 > out_len) return;
+
+       size_t p = 4 + 2 + 32;
+
+       if (p >= out_len) return;
+       uint8_t sid_len = out[p++];
+       p += sid_len;
+
+       if (p + 2 > out_len) return;
+       uint16_t cs_len = (out[p] << 8) | out[p+1];
+       p += 2 + cs_len;
+
+       if (p >= out_len) return;
+       uint8_t cm_len = out[p++];
+       p += cm_len;
+
+       if (p + 2 > out_len) return;
+       uint16_t ext_len = (out[p] << 8) | out[p+1];
+       p += 2;
+
+       if (p + ext_len > out_len) return;
+
+       size_t end = p + ext_len;
+       lwsl_notice("Sanitizing %d bytes of extensions at %d\n", (int)ext_len, (int)p);
+       while (p + 4 <= end) {
+               uint16_t type = (out[p] << 8) | out[p+1];
+               uint16_t len = (out[p+2] << 8) | out[p+3];
+               if (p + 4 + len > end)
+                       break;
+
+               if (type == 0x0023 || type == 0x0017 || type == 0xFF01) {
+                       lwsl_notice("Sanitized extension %04X -> 0015\n", type);
+                       out[p] = 0x00;
+                       out[p+1] = 0x15;
+               }
+               p += 4 + len;
+       }
+}
+
+static void
+schannel_extract_client_hello_tp(struct lws *wsi, const uint8_t *in, size_t in_len)
+{
+       size_t i = 0;
+
+       if (wsi->tls.quic_tp_recv) return;
+
+       while (i + 4 <= in_len && !wsi->tls.quic_tp_recv) {
+               uint8_t msg_type = in[i];
+               size_t hs_len = (in[i+1] << 16) | (in[i+2] << 8) | in[i+3];
+
+               if (i + 4 + hs_len > in_len)
+                       break;
+
+               if (msg_type == 1) { /* ClientHello */
+                       size_t p = i + 4 + 2 + 32;
+                       if (p >= in_len) goto next_msg;
+                       uint8_t sid_len = in[p++];
+                       p += sid_len;
+                       if (p + 2 > in_len) goto next_msg;
+                       uint16_t cs_len = (in[p] << 8) | in[p+1];
+                       p += 2 + cs_len;
+                       if (p >= in_len) goto next_msg;
+                       uint8_t cm_len = in[p++];
+                       p += cm_len;
+                       if (p + 2 > in_len) goto next_msg;
+                       uint16_t ext_len = (in[p] << 8) | in[p+1];
+                       p += 2;
+                       size_t end = p + ext_len;
+                       if (end > i + 4 + hs_len) end = i + 4 + hs_len;
+
+                       while (p + 4 <= end) {
+                               uint16_t type = (in[p] << 8) | in[p+1];
+                               uint16_t len = (in[p+2] << 8) | in[p+3];
+                               if (p + 4 + len > end) break;
+                               if (type == 57) {
+                                       wsi->tls.quic_tp_recv = lws_malloc(len, "quic_tp_recv");
+                                       if (wsi->tls.quic_tp_recv) {
+                                               memcpy((void *)wsi->tls.quic_tp_recv, &in[p+4], len);
+                                               wsi->tls.quic_tp_recv_len = len;
+                                       }
+                                       break;
+                               }
+                               p += 4 + len;
+                       }
+               } else if (msg_type == 8) { /* EncryptedExtensions */
+                       size_t p = i + 4;
+                       if (p + 2 > in_len) goto next_msg;
+                       uint16_t ext_len = (in[p] << 8) | in[p+1];
+                       p += 2;
+                       size_t end = p + ext_len;
+                       if (end > i + 4 + hs_len) end = i + 4 + hs_len;
+
+                       while (p + 4 <= end) {
+                               uint16_t type = (in[p] << 8) | in[p+1];
+                               uint16_t len = (in[p+2] << 8) | in[p+3];
+                               if (p + 4 + len > end) break;
+                               if (type == 57) {
+                                       wsi->tls.quic_tp_recv = lws_malloc(len, "quic_tp_recv");
+                                       if (wsi->tls.quic_tp_recv) {
+                                               memcpy((void *)wsi->tls.quic_tp_recv, &in[p+4], len);
+                                               wsi->tls.quic_tp_recv_len = len;
+                                       }
+                                       break;
+                               }
+                               p += 4 + len;
+                       }
+               }
+next_msg:
+               i += 4 + hs_len;
+       }
+}
+
 int
 lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 {
@@ -139,6 +258,10 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 		memcpy(conn->rx_buf + conn->rx_len, in, in_len);
 		conn->rx_len += in_len;
 	}
+
+       if (conn->rx_len > 0 && !lwsi_role_client(wsi)) {
+               schannel_extract_client_hello_tp(wsi, conn->rx_buf, conn->rx_len);
+       }
 
 	memset(&alpn_u, 0, sizeof(alpn_u));
 	memset(&tp_u, 0, sizeof(tp_u));
@@ -254,17 +377,8 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 		}
 	}
 
-	if (conn->rx_len > 0 && lwsi_role_client(wsi) && !wsi->tls.quic_tp_recv) {
-		SUBSCRIBE_GENERIC_TLS_EXTENSION *sub = (SUBSCRIBE_GENERIC_TLS_EXTENSION *)sub_u.buf;
-		sub->Flags = 0;
-		sub->SubscriptionsCount = 1;
-		sub->Subscriptions[0].ExtensionType = LWS_SCH_QUIC_TP_EXT_TYPE;
-		sub->Subscriptions[0].HandshakeType = LWS_SCH_QUIC_TP_HS_TYPE_ENCRYPTED_EXT;
-
-		in_bufs[num_in_bufs].BufferType = SECBUFFER_SUBSCRIBE_GENERIC_TLS_EXTENSION;
-		in_bufs[num_in_bufs].cbBuffer = (unsigned long)(offsetof(SUBSCRIBE_GENERIC_TLS_EXTENSION, Subscriptions) + sizeof(sub->Subscriptions[0]));
-		in_bufs[num_in_bufs].pvBuffer = sub;
-		num_in_bufs++;
+       if (conn->rx_len > 0) {
+               schannel_extract_client_hello_tp(wsi, conn->rx_buf, conn->rx_len);
 	}
 
 	if (num_in_bufs > 0) {
@@ -282,13 +396,6 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 	out_bufs[1].cbBuffer = 2; /* MSQUIC uses 2 bytes for AlertBufferRaw */
 	out_bufs[1].pvBuffer = alert_u.buf;
 	out_desc.cBuffers++;
-
-	if (conn->rx_len > 0 && lwsi_role_client(wsi) && !wsi->tls.quic_tp_recv) {
-		out_bufs[out_desc.cBuffers].BufferType = SECBUFFER_SUBSCRIBE_GENERIC_TLS_EXTENSION;
-		out_bufs[out_desc.cBuffers].cbBuffer = 0;
-		out_bufs[out_desc.cBuffers].pvBuffer = NULL;
-		out_desc.cBuffers++;
-	}
 
 	uint8_t sec_traf_buf[4][LWS_SCH_MAX_TRAFFIC_SECRET_SIZE];
 	memset(sec_traf_buf, 0, sizeof(sec_traf_buf));
@@ -385,6 +492,9 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 		if (out && out_len && *out_len >= out_bufs[0].cbBuffer) {
 			memcpy(out, out_bufs[0].pvBuffer, out_bufs[0].cbBuffer);
 			*out_len = out_bufs[0].cbBuffer;
+                       // schannel_sanitize_client_hello(out, *out_len);
+                       lwsl_notice("SCHANNEL GENERATED TLS PAYLOAD (%d bytes):\n", (int)*out_len);
+                       lwsl_hexdump_notice(out, *out_len);
 		} else if (out && out_len) {
 			*out_len = 0; /* buffer too small to copy */
 		}
@@ -481,6 +591,17 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 		}
 
 		if (status == SEC_E_OK) {
+#if defined(SECPKG_ATTR_APPLICATION_PROTOCOL) || defined(SECPKG_ATTR_APP_DATA)
+                       SecPkgContext_ApplicationProtocol alpn_result;
+                       if (QueryContextAttributes(&conn->ctxt, SECPKG_ATTR_APPLICATION_PROTOCOL, &alpn_result) == SEC_E_OK) {
+                               if (alpn_result.ProtoNegoStatus == SecApplicationProtocolNegotiationStatus_Success) {
+                                       if (alpn_result.ProtocolIdSize < sizeof(wsi->alpn)) {
+                                               memcpy(wsi->alpn, alpn_result.ProtocolId, alpn_result.ProtocolIdSize);
+                                               wsi->alpn[alpn_result.ProtocolIdSize] = '\0';
+                                       }
+                               }
+                       }
+#endif
 			conn->f_handshake_finished = 1;
 			return 0;
 		}

@@ -158,7 +158,14 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 	i.alpn			= "http/1.1";
 	i.address		= server;
 	i.host			= server;
-	i.port			= atoi(port);
+	{
+		int __pt = atoi(port);
+		if (__pt < 0 || __pt > 65535) {
+			lwsl_err("Port %d is outside valid 16-bit range\n", __pt);
+			return 1;
+		}
+		i.port = (uint16_t)__pt;
+	}
 	i.local_protocol_name	= "raw-test";
 
 	waiting = lws_snprintf((char *)buf, sizeof(buf), "GET / HTTP/1.1\xaHost: libwebsockets.org\xa\xa");

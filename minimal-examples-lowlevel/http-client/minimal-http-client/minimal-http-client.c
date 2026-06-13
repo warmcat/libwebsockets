@@ -292,7 +292,14 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		i.ssl_connection |= LCCSCF_H2_PRIOR_KNOWLEDGE;
 
 	if ((p = lws_cmdline_option(a->argc, a->argv, "-p")))
-		i.port = atoi(p);
+		{
+			int __pt = atoi(p);
+			if (__pt < 0 || __pt > 65535) {
+				lwsl_err("Port %d is outside valid 16-bit range\n", __pt);
+				return 1;
+			}
+			i.port = (uint16_t)__pt;
+		}
 
 	if ((p = lws_cmdline_option(a->argc, a->argv, "--user")))
 		ba_user = p;

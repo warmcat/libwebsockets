@@ -12,7 +12,7 @@ set(requirements 1)
 set(MBEDTLS 0)
 require_lws_config(LWS_ROLE_H1 1 requirements)
 require_lws_config(LWS_WITH_CLIENT 1 requirements)
-require_lws_config(LWS_WITH_TLS 1 requirements)
+require_lws_config(LWS_WITH_TCP_TLS 1 requirements)
 require_lws_config(LWS_WITH_SYS_STATE 1 requirements)
 # ctest for this requires server
 require_lws_config(LWS_WITH_SERVER 1 requirements)
@@ -37,10 +37,9 @@ if (requirements)
        # instantiate the server per sai builder instance, they are running in the same
        # machine context in parallel so they can tread on each other otherwise
        #
-       set(PORT_HCM_SRV "6670")
-       if ("$ENV{SAI_INSTANCE_IDX}")
-	       math(EXPR PORT_HCM_SRV "6671 + $ENV{SAI_INSTANCE_IDX}")
-       endif()
+       lws_get_free_port(PORT_HCM_SRV)
+       lws_get_free_port(PORT_HCMP_SRV)
+
 
 # hack
 if (NOT WIN32 AND LWS_WITH_SERVER)
@@ -52,7 +51,7 @@ if (NOT WIN32 AND LWS_WITH_SERVER)
 if (WIN32)
 	add_test(NAME st_hcm_srv COMMAND cmd.exe /c start /b $<TARGET_FILE:lws-minimal-http-server-tls> -p ${PORT_HCM_SRV})
 	add_test(NAME ki_hcm_srv COMMAND taskkill /F /IM $<TARGET_FILE_NAME:lws-minimal-http-server-tls> /T)
-	add_test(NAME st_hcmp_srv COMMAND cmd.exe /c start /b $<TARGET_FILE:test-server> -s --port 1${PORT_HCM_SRV})
+	add_test(NAME st_hcmp_srv COMMAND cmd.exe /c start /b $<TARGET_FILE:test-server> -s --port ${PORT_HCMP_SRV})
 	add_test(NAME ki_hcmp_srv COMMAND taskkill /F /IM $<TARGET_FILE_NAME:test-server> /T)
 else()
 	#
@@ -71,11 +70,11 @@ else()
 				${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 					hcmp_srv ${VALGRIND} --tool=memcheck $<TARGET_FILE:test-server> -s
 					-r ${CMAKE_BINARY_DIR}/share/libwebsockets-test-server/
-					--port 1${PORT_HCM_SRV})
+					--port ${PORT_HCMP_SRV})
 		add_test(NAME ki_hcmp_srv COMMAND
 				${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
 					hcmp_srv ${VALGRIND} $<TARGET_FILE_NAME:test-server>
-					--port 1${PORT_HCM_SRV})
+					--port ${PORT_HCMP_SRV})
 	else()
 		add_test(NAME st_hcm_srv COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
@@ -89,11 +88,11 @@ else()
 				${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 					hcmp_srv $<TARGET_FILE:test-server> -s
 					-r ${CMAKE_BINARY_DIR}/share/libwebsockets-test-server/
-					--port 1${PORT_HCM_SRV} )
+					--port ${PORT_HCMP_SRV} )
 		add_test(NAME ki_hcmp_srv COMMAND
 				${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
 					hcmp_srv $<TARGET_FILE_NAME:test-server>
-					--port 1${PORT_HCM_SRV})
+					--port ${PORT_HCMP_SRV})
 	endif()
 endif()
 
@@ -111,7 +110,7 @@ endif()
        		WORKING_DIRECTORY .
 		FIXTURES_SETUP hcmp_srv
 		TIMEOUT 800)
-	set_property(TEST st_hcmp_srv PROPERTY ENVIRONMENT SAI_LIST_PORT=1${PORT_HCM_SRV} )
+	set_property(TEST st_hcmp_srv PROPERTY ENVIRONMENT SAI_LIST_PORT=${PORT_HCMP_SRV} )
 	set_property(TEST st_hcmp_srv PROPERTY ENVIRONMENT VENDOR=$ENV{VENDOR} )
 
 	set_tests_properties(ki_hcmp_srv PROPERTIES
@@ -170,26 +169,26 @@ endif()
 
 	# POSTs against local http-server-form-post
 	add_test(NAME http-client-multi-post COMMAND lws-minimal-http-client-multi
-			--post -l --port 1${PORT_HCM_SRV} -d1151)
+			--post -l --port ${PORT_HCMP_SRV} -d1151)
 	add_test(NAME http-client-multi-post-h1 COMMAND lws-minimal-http-client-multi
-			--post --h1 -l --port 1${PORT_HCM_SRV} -d1151)
+			--post --h1 -l --port ${PORT_HCMP_SRV} -d1151)
 	add_test(NAME http-client-multi-post-pipe COMMAND lws-minimal-http-client-multi
-			--post -p -l --port 1${PORT_HCM_SRV} -d1151)
+			--post -p -l --port ${PORT_HCMP_SRV} -d1151)
 	if (VALGRIND)
 		add_test(NAME http-client-multi-post-h1-pipe COMMAND ${VALGRIND} --tool=memcheck $<TARGET_FILE:lws-minimal-http-client-multi>
-			--post --h1 -p -l --port 1${PORT_HCM_SRV} -d1151)	
+			--post --h1 -p -l --port ${PORT_HCMP_SRV} -d1151)	
 	else()
 		add_test(NAME http-client-multi-post-h1-pipe COMMAND lws-minimal-http-client-multi
-			--post --h1 -p -l --port 1${PORT_HCM_SRV} -d1151)
+			--post --h1 -p -l --port ${PORT_HCMP_SRV} -d1151)
 	endif()
 	add_test(NAME http-client-multi-post-stag COMMAND lws-minimal-http-client-multi
-			--post -s -l -d1151 --port 1${PORT_HCM_SRV} -d1151)
+			--post -s -l -d1151 --port ${PORT_HCMP_SRV} -d1151)
 	add_test(NAME http-client-multi-post-stag-h1 COMMAND lws-minimal-http-client-multi
-			--post --h1 -d1151 -s -l --port 1${PORT_HCM_SRV} -d1151)
+			--post --h1 -d1151 -s -l --port ${PORT_HCMP_SRV} -d1151)
 	add_test(NAME http-client-multi-post-stag-pipe COMMAND lws-minimal-http-client-multi
-			--post -p -s -l --port 1${PORT_HCM_SRV} -d1151)
+			--post -p -s -l --port ${PORT_HCMP_SRV} -d1151)
 	add_test(NAME http-client-multi-post-stag-h1-pipe COMMAND lws-minimal-http-client-multi
-			--post --h1 -p -s -l --port 1${PORT_HCM_SRV} -d1151)
+			--post --h1 -p -s -l --port ${PORT_HCMP_SRV} -d1151)
 	set_tests_properties(http-client-multi-post
 			     http-client-multi-post-h1
 			     http-client-multi-post-pipe

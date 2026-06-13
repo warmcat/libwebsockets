@@ -127,3 +127,31 @@ MACRO(sai_resource SR_NAME SR_AMOUNT SR_LEASE SR_SCOPE)
 	endif()
 ENDMACRO()
 
+
+function(lws_get_free_port VAR_NAME)
+    if (WIN32)
+        set(COUNTER_FILE "$ENV{TEMP}/lws_port_counter")
+    else()
+        set(COUNTER_FILE "/tmp/lws_port_counter")
+    endif()
+
+    file(LOCK "${COUNTER_FILE}.lock" GUARD PROCESS TIMEOUT 10)
+
+    if (EXISTS "${COUNTER_FILE}")
+        file(READ "${COUNTER_FILE}" port)
+        string(STRIP "${port}" port)
+    else()
+        set(port 32768)
+    endif()
+
+    if (port GREATER 60000)
+        set(port 32768)
+    endif()
+
+    math(EXPR next_port "${port} + 1")
+    file(WRITE "${COUNTER_FILE}" "${next_port}")
+
+    file(LOCK "${COUNTER_FILE}.lock" RELEASE)
+
+    set(${VAR_NAME} ${port} PARENT_SCOPE)
+endfunction()

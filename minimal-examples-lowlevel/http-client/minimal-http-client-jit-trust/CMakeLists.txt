@@ -43,10 +43,7 @@ if (requirements)
 	
 	sai_resource(warmcat_conns 1 40 http_client_warmcat)
 
-	set(PORT_HC_JIT_SRV "7270")
-	if ("$ENV{SAI_INSTANCE_IDX}")
-		math(EXPR PORT_HC_JIT_SRV "7271 + $ENV{SAI_INSTANCE_IDX}")
-	endif()
+	lws_get_free_port(PORT_HC_JIT_SRV)
 
 	if (NOT WIN32 AND LWS_WITH_SERVER AND LWS_WITH_TLS)
 		add_test(NAME st_hc_jit_srv COMMAND
