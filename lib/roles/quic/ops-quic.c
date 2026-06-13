@@ -1451,9 +1451,6 @@ send_frames:
 #if defined(ENETUNREACH)
 			    || e == ENETUNREACH
 #endif
-#if defined(ECONNREFUSED)
-			    || e == ECONNREFUSED
-#endif
 #if defined(EADDRNOTAVAIL)
 			    || e == EADDRNOTAVAIL
 #endif
