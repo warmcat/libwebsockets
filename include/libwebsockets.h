@@ -212,7 +212,7 @@ typedef pthread_mutex_t lws_mutex_t;
 #endif
 #endif /* freertos */
 
-#define LWS_POSIX_LENGTH_CAST(x) (x)
+#define LWS_POSIX_LENGTH_CAST(x) ((size_t)(x))
 
 #if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
 #include <sys/capability.h>

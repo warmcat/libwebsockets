@@ -260,18 +260,12 @@ lws_ssl_capable_read_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 		socklen_t slt = sizeof(wsi->udp->sa46);
 
 		n = (int)recvfrom(wsi->desc.sockfd, (char *)buf,
-#if defined(WIN32)
-				(int)
-#endif
-				len, 0,
+				LWS_POSIX_LENGTH_CAST(len), 0,
 				sa46_sockaddr(&wsi->udp->sa46), &slt);
 	} else
 #endif
 		n = (int)recv(wsi->desc.sockfd, (char *)buf,
-#if defined(WIN32)
-				(int)
-#endif
-				len, 0);
+				LWS_POSIX_LENGTH_CAST(len), 0);
 
 #if defined(LWS_WITH_LATENCY)
 	{
@@ -343,39 +337,24 @@ lws_ssl_capable_write_no_ssl(struct lws *wsi, unsigned char *buf, size_t len)
 
 		if (lws_has_buffered_out(wsi))
 			n = (int)sendto(wsi->desc.sockfd, (const char *)buf,
-#if defined(WIN32)
-				(int)
-#endif
-				   len, 0, sa46_sockaddr(&wsi->udp->sa46_pending),
+				   LWS_POSIX_LENGTH_CAST(len), 0, sa46_sockaddr(&wsi->udp->sa46_pending),
 				   sa46_socklen(&wsi->udp->sa46_pending));
 		else
 			n = (int)sendto(wsi->desc.sockfd, (const char *)buf,
-#if defined(WIN32)
-				(int)
-#endif
-				   len, 0, sa46_sockaddr(&wsi->udp->sa46),
+				   LWS_POSIX_LENGTH_CAST(len), 0, sa46_sockaddr(&wsi->udp->sa46),
 				   sa46_socklen(&wsi->udp->sa46));
 
 		if (n < 0 && LWS_ERRNO == LWS_EISCONN)
 			n = (int)sendto(wsi->desc.sockfd, (const char *)buf,
-#if defined(WIN32)
-				(int)
-#endif
-				   len, 0, NULL, 0);
+				   LWS_POSIX_LENGTH_CAST(len), 0, NULL, 0);
 	} else
 #endif
 		if (wsi->role_ops->file_handle)
 			n = (int)write((int)(lws_intptr_t)wsi->desc.filefd, buf,
-#if defined(WIN32)
-				(int)
-#endif
-					len);
+					LWS_POSIX_LENGTH_CAST(len));
 		else
 			n = (int)send(wsi->desc.sockfd, (char *)buf,
-#if defined(WIN32)
-				(int)
-#endif
-					len, MSG_NOSIGNAL);
+					LWS_POSIX_LENGTH_CAST(len), MSG_NOSIGNAL);
 //	lwsl_info("%s: sent len %d result %d", __func__, len, n);
 
 #if defined(LWS_WITH_LATENCY)
