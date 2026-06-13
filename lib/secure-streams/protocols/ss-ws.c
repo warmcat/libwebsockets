@@ -192,14 +192,20 @@ secstream_ws(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		if ((f & LWSSS_FLAG_SOM) && wsi->ws->last_valid && !wsi->ws->last_fin) {
 			lwsl_ss_err(h, "%s TX: Illegal LWSSS_FLAG_SOM after previous frame without LWSSS_FLAG_EOM", h->policy ? h->policy->streamtype : "unknown");
+			lwsl_err("Dumping cutting-in payload: %.*s\n", (int)buflen, buf + LWS_PRE);
+			lwsl_hexdump_err(buf + LWS_PRE, buflen);
 			assert(0);
 		}
 		if (!(f & LWSSS_FLAG_SOM) && wsi->ws->last_valid && wsi->ws->last_fin) {
 			lwsl_ss_err(h, "%s TX: Missing LWSSS_FLAG_SOM after previous frame with LWSSS_FLAG_EOM", h->policy ? h->policy->streamtype : "unknown");
+			lwsl_err("Dumping payload: %.*s\n", (int)buflen, buf + LWS_PRE);
+			lwsl_hexdump_err(buf + LWS_PRE, buflen);
 			assert(0);
 		}
 		if (!(f & LWSSS_FLAG_SOM) && !wsi->ws->last_valid) {
 			lwsl_ss_err(h, "%s TX: Missing LWSSS_FLAG_SOM on first frame", h->policy ? h->policy->streamtype : "unknown");
+			lwsl_err("Dumping payload: %.*s\n", (int)buflen, buf + LWS_PRE);
+			lwsl_hexdump_err(buf + LWS_PRE, buflen);
 			assert(0);
 		}
 

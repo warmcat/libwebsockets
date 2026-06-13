@@ -28,19 +28,12 @@ if (requirements)
 	endif()
 
 	if (NOT WIN32)
-		set(PORT_DHT_SRV  "15000")
-		set(PORT_DHT_CLI  "15200")
-		set(PORT_DHT_BULK "15400")
-		set(PORT_DHT_GEN  "15600")
-		set(PORT_DHT_MAN  "15800")
 
-		if ("$ENV{SAI_INSTANCE_IDX}")
-			math(EXPR PORT_DHT_SRV  "15000 + $ENV{SAI_INSTANCE_IDX}")
-			math(EXPR PORT_DHT_CLI  "15200 + $ENV{SAI_INSTANCE_IDX}")
-			math(EXPR PORT_DHT_BULK "15400 + $ENV{SAI_INSTANCE_IDX}")
-			math(EXPR PORT_DHT_GEN  "15600 + $ENV{SAI_INSTANCE_IDX}")
-			math(EXPR PORT_DHT_MAN  "15800 + $ENV{SAI_INSTANCE_IDX}")
-		endif()
+		lws_get_free_port(PORT_DHT_SRV)
+		lws_get_free_port(PORT_DHT_CLI)
+		lws_get_free_port(PORT_DHT_BULK)
+		lws_get_free_port(PORT_DHT_GEN)
+		lws_get_free_port(PORT_DHT_MAN)
 
 		add_test(NAME st_raw_dht_srv COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh

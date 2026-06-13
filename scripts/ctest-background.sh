@@ -64,6 +64,12 @@ else
 				ps -fp $! >&2
 				echo "Background process logs:" >&2
 				cat /tmp/ctest-background-$J >&2
+				if command -v pgrep >/dev/null 2>&1; then
+					CPIDS=`pgrep -P $!`
+					for i in $CPIDS ; do
+						kill -9 $i 2>/dev/null
+					done
+				fi
 				kill -9 $! 2>/dev/null
 				exit 1
 			fi
@@ -96,6 +102,12 @@ else
 				cat /tmp/ctest-background-$J >&2
 				echo "Netstat output:" >&2
 				netstat -an >&2
+				if command -v pgrep >/dev/null 2>&1; then
+					CPIDS=`pgrep -P $!`
+					for i in $CPIDS ; do
+						kill -9 $i 2>/dev/null
+					done
+				fi
 				kill -9 $! 2>/dev/null
 				exit 1
 			fi

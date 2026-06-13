@@ -253,7 +253,14 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 
 		lws_context_info_defaults(&info, NULL);info.vhost_name		= "dht";
                 info.pvo		= pvos;
-		info.port		= atoi(port_buf);
+		{
+			int __pt = atoi(port_buf);
+			if (__pt < 0 || __pt > 65535) {
+				lwsl_err("Port %d is outside valid 16-bit range\n", __pt);
+				return 1;
+			}
+			info.port = __pt;
+		}
 		info.protocols		= app_protocols;
                 info.options		= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
                 vh = lws_create_vhost(cx, &info);
@@ -309,7 +316,14 @@ int main(int argc, const char **argv)
 	pvos[1].value = storage_path;
 
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_P].sw)))
-		dht_port = atoi(p);
+		{
+			int __pt = atoi(p);
+			if (__pt < 0 || __pt > 65535) {
+				lwsl_err("Port %d is outside valid 16-bit range\n", __pt);
+				return 1;
+			}
+			dht_port = __pt;
+		}
 
 	lws_snprintf(port_buf, sizeof(port_buf), "%d", dht_port);
 

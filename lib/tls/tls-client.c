@@ -232,6 +232,9 @@ lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1)
 		/* ...connect1 already handled caliper if SSL_accept done */
 
 		lws_tls_server_conn_alpn(wsi);
+#else
+		*pcce = "TCP TLS disabled";
+		return CCTLS_RETURN_ERROR;
 #endif
 	} else
 		wsi->tls.ssl = NULL;

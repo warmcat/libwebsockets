@@ -246,7 +246,14 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 
 			p = lws_cmdline_option_cx(cx, "--port");
 			if (p)
-				i.port = (uint16_t)atoi(p);
+				{
+					int __pt = atoi(p);
+					if (__pt < 0 || __pt > 65535) {
+						lwsl_err("Port %d is outside valid 16-bit range\n", __pt);
+						return 1;
+					}
+					i.port = (uint16_t)__pt;
+				}
 
 			if (lws_cmdline_option_cx(cx, "--form1"))
 				i.path			= "/form1";
