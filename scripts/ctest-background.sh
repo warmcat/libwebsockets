@@ -27,11 +27,7 @@ fi
 # We shift off $1 (the background fixture name) so that "$@" contains only the executable and its args.
 shift
 
-if command -v catchsegv >/dev/null 2>&1; then
-    catchsegv "$@" -d1039 2>/tmp/ctest-background-$J 1>/dev/null 0</dev/null &
-else
-    "$@" -d1039 2>/tmp/ctest-background-$J 1>/dev/null 0</dev/null &
-fi
+"$@" -d1039 2>/tmp/ctest-background-$J 1>/dev/null 0</dev/null &
 echo $! > /tmp/sai-ctest-$J
 
 # really we want to loop until the listen port is up
@@ -68,6 +64,12 @@ else
 				ps -fp $! >&2
 				echo "Background process logs:" >&2
 				cat /tmp/ctest-background-$J >&2
+				if command -v pgrep >/dev/null 2>&1; then
+					CPIDS=`pgrep -P $!`
+					for i in $CPIDS ; do
+						kill -9 $i 2>/dev/null
+					done
+				fi
 				kill -9 $! 2>/dev/null
 				exit 1
 			fi
@@ -100,6 +102,12 @@ else
 				cat /tmp/ctest-background-$J >&2
 				echo "Netstat output:" >&2
 				netstat -an >&2
+				if command -v pgrep >/dev/null 2>&1; then
+					CPIDS=`pgrep -P $!`
+					for i in $CPIDS ; do
+						kill -9 $i 2>/dev/null
+					done
+				fi
 				kill -9 $! 2>/dev/null
 				exit 1
 			fi

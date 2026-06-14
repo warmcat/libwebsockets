@@ -30,7 +30,15 @@ cat /tmp/ctest-background-$J
 
 echo "Trying SIGTERM..."
 
-kill $PI
+CPIDS=""
+if command -v pgrep >/dev/null 2>&1; then
+	CPIDS=`pgrep -P $PI`
+fi
+
+kill $PI 2>/dev/null
+for i in $CPIDS ; do
+	kill $i 2>/dev/null
+done
 
 #
 # 100ms intervals, 100 = 10s
@@ -49,7 +57,10 @@ done
 
 echo "Trying SIGKILL..."
 
-kill -9 $PI
+kill -9 $PI 2>/dev/null
+for i in $CPIDS ; do
+	kill -9 $i 2>/dev/null
+done
 
 #
 # 100ms intervals, 100 = 10s

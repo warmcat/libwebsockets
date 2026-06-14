@@ -11,6 +11,18 @@ necessary.
 
 Our work should follow the existing usage of apis in the project as much as possible.
 
+## Interacting
+
+We will be working on the same sources, do not build into ./build since I will be using it; make
+your own ./build-agy or whatever.
+
+While the idea is you should modify and test sources towards some goal, please do NOT modify the
+git state unless directly asked.
+
+Often although we are working on the same sources, they are being tested on devices you don't have
+access to.  So you must ask for access to data state on those remote machines; looking at the local
+machine you are running on for config or data state directly is of zero use in those circumstances.
+
 ## Coding
 
 We avoid things like `scanf` for carefully parsing with code, eg with `lws_tokenize` or similar.
@@ -32,8 +44,10 @@ makes sense it's possible.
 ## Security
 
 Please bear in mind what parts of the system are secrets and look after the security of them.
+Please bear in mind for lws, all external data is untrusted and should be assumed to be part of an
+attack until we have validated it to be within a range and type we expect and can safelt consume.
 
-In particular, all web pieces are made available on the internet with a strict CSP.  That means
+All web pieces are made available on the internet with a strict CSP.  That means
 ** no inline styles or scripts ** .  You can find the web pieces (JS, HTML, css) in ./assets/
 
 ## Build testing
@@ -48,3 +62,6 @@ commands for the platform.
 minimal-examples-lowlevel/http-client/minimal-http-client-post/CMakeLists.txt shows how to use the fixtures
 stuff to magic peers into being while being sensitive to parallel CI using `$ENV{SAI_INSTANCE_IDX}` to make
 unique ports.
+
+In the case you can build and run ctest meaningfully, please do confirm the build passes before completing
+work on your goal.
