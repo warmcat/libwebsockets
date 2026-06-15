@@ -156,7 +156,7 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
                /* fallthru */
 	case LRS_H1C_ISSUE_HANDSHAKE:
 
-		lwsl_debug("%s: LRS_H1C_ISSUE_HANDSHAKE\n", __func__);
+		// lwsl_debug("%s: LRS_H1C_ISSUE_HANDSHAKE\n", __func__);
 
 		/*
 		 * we are under PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE
@@ -203,7 +203,7 @@ start_ws_handshake:
 		 * to notice our state and not resend the preface...
 		 */
 
-		lwsl_debug("%s: LRS_H1C_ISSUE_HANDSHAKE fallthru\n", __func__);
+		// lwsl_debug("%s: LRS_H1C_ISSUE_HANDSHAKE fallthru\n", __func__);
 
 		/* fallthru */
 

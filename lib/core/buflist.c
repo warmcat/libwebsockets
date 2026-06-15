@@ -37,7 +37,8 @@ lws_buflist_append_segment(struct lws_buflist **head, const uint8_t *buf,
 	struct lws_buflist *nbuf;
 	int first = !*head;
 	void *p = *head;
-	int sanity = 1024;
+	int sanity = 8192;
+	size_t tot = len;
 
 	if (!buf)
 		return -1;
@@ -46,6 +47,11 @@ lws_buflist_append_segment(struct lws_buflist **head, const uint8_t *buf,
 
 	/* append at the tail */
 	while (*head) {
+		tot += (*head)->len;
+		if (tot > LWS_BUFLIST_OOM_LIMIT) {
+			lwsl_err("%s: buflist reached sanity limit bytes\n", __func__);
+			return -1;
+		}
 		if (!--sanity) {
 			lwsl_err("%s: buflist reached sanity limit\n", __func__);
 			return -1;
@@ -87,7 +93,8 @@ lws_buflist_append_segment_take_ownership(struct lws_buflist **head, uint8_t *bu
 {
 	struct lws_buflist *nbuf;
 	int first = !*head;
-	int sanity = 1024;
+	int sanity = 8192;
+	size_t tot = len;
 
 	if (!buf)
 		return -1;
@@ -96,6 +103,11 @@ lws_buflist_append_segment_take_ownership(struct lws_buflist **head, uint8_t *bu
 
 	/* append at the tail */
 	while (*head) {
+		tot += (*head)->len;
+		if (tot > LWS_BUFLIST_OOM_LIMIT) {
+			lwsl_err("%s: buflist reached sanity limit bytes\n", __func__);
+			return -1;
+		}
 		if (!--sanity) {
 			lwsl_err("%s: buflist reached sanity limit\n", __func__);
 			return -1;
@@ -342,6 +354,230 @@ lws_buflist_get_frag_start_or_NULL(struct lws_buflist **head)
 
 	return ((uint8_t *)b) + sizeof(*b) + LWS_PRE;
 }
+
+/* --- lws_buflist2 --- */
+
+struct lws_buflist2 {
+	struct lws_dll2 list;
+	size_t len;
+	size_t pos;
+	void *heap_alloc;
+};
+
+int
+lws_buflist2_append_segment(struct lws_buflist2_owner *owner, const uint8_t *buf,
+			    size_t len)
+{
+	struct lws_buflist2 *nbuf;
+	int first = !owner->owner.head;
+	size_t limit = owner->limit ? owner->limit : LWS_BUFLIST_OOM_LIMIT;
+
+	if (!buf)
+		return -1;
+
+	assert(len);
+
+	if (owner->total_len + len > limit) {
+		lwsl_err("%s: buflist reached sanity limit bytes (len %zu, tot %zu, limit %zu)\n",
+			 __func__, len, owner->total_len, limit);
+		return -1;
+	}
+
+	nbuf = (struct lws_buflist2 *)lws_malloc(sizeof(struct lws_buflist2) +
+						 len + LWS_PRE + 1, __func__);
+	if (!nbuf) {
+		lwsl_err("%s: OOM\n", __func__);
+		return -1;
+	}
+
+	lws_dll2_clear(&nbuf->list);
+	nbuf->len = len;
+	nbuf->pos = 0;
+	nbuf->heap_alloc = NULL;
+
+	/* whoever consumes this might need LWS_PRE from the start... */
+	memcpy((uint8_t *)nbuf + sizeof(*nbuf) + LWS_PRE, buf, len);
+
+	lws_dll2_add_tail(&nbuf->list, &owner->owner);
+	owner->total_len += len;
+
+	return first; /* returns 1 if first segment just created */
+}
+
+int
+lws_buflist2_append_segment_take_ownership(struct lws_buflist2_owner *owner, uint8_t *buf, size_t len)
+{
+	struct lws_buflist2 *nbuf;
+	int first = !owner->owner.head;
+	size_t limit = owner->limit ? owner->limit : LWS_BUFLIST_OOM_LIMIT;
+
+	if (!buf)
+		return -1;
+
+	assert(len);
+
+	if (owner->total_len + len > limit) {
+		lwsl_err("%s: buflist reached sanity limit bytes (len %zu, tot %zu, limit %zu)\n",
+			 __func__, len, owner->total_len, limit);
+		return -1;
+	}
+
+	nbuf = (struct lws_buflist2 *)lws_malloc(sizeof(struct lws_buflist2), __func__);
+	if (!nbuf) {
+		lwsl_err("%s: OOM\n", __func__);
+		return -1;
+	}
+
+	lws_dll2_clear(&nbuf->list);
+	nbuf->len = len;
+	nbuf->pos = 0;
+	nbuf->heap_alloc = buf;
+
+	lws_dll2_add_tail(&nbuf->list, &owner->owner);
+	owner->total_len += len;
+
+	return first; /* returns 1 if first segment just created */
+}
+
+static int
+lws_buflist2_destroy_segment(struct lws_buflist2_owner *owner)
+{
+	struct lws_buflist2 *old;
+	
+	if (!owner->owner.head)
+		return 1;
+		
+	old = (struct lws_buflist2 *)owner->owner.head;
+	owner->total_len -= old->len;
+	lws_dll2_remove(&old->list);
+
+	if (old->heap_alloc)
+		lws_free(old->heap_alloc);
+	lws_free(old);
+
+	return !owner->owner.head; /* returns 1 if last segment just destroyed */
+}
+
+void
+lws_buflist2_destroy_all_segments(struct lws_buflist2_owner *owner)
+{
+	while (owner->owner.head)
+		lws_buflist2_destroy_segment(owner);
+}
+
+size_t
+lws_buflist2_next_segment_len(struct lws_buflist2_owner *owner, uint8_t **buf)
+{
+	struct lws_buflist2 *b;
+
+	if (buf)
+		*buf = NULL;
+
+	if (!owner->owner.head)
+		return 0;
+
+	b = (struct lws_buflist2 *)owner->owner.head;
+
+	if (!b->len && b->list.next)
+		if (lws_buflist2_destroy_segment(owner))
+			return 0;
+
+	if (!owner->owner.head)
+		return 0;
+		
+	b = (struct lws_buflist2 *)owner->owner.head;
+	assert(b->pos < b->len);
+
+	if (buf) {
+		if (b->heap_alloc)
+			*buf = ((uint8_t *)b->heap_alloc) + b->pos;
+		else
+			*buf = ((uint8_t *)b) + sizeof(*b) + b->pos + LWS_PRE;
+	}
+
+	return b->len - b->pos;
+}
+
+size_t
+lws_buflist2_use_segment(struct lws_buflist2_owner *owner, size_t len)
+{
+	struct lws_buflist2 *b;
+
+	if (!owner->owner.head)
+		return 0;
+		
+	b = (struct lws_buflist2 *)owner->owner.head;
+	assert(len);
+	assert(b->pos + len <= b->len);
+
+	b->pos = b->pos + (size_t)len;
+
+	assert(b->pos <= b->len);
+
+	if (b->pos < b->len)
+		return (unsigned int)(b->len - b->pos);
+
+	if (lws_buflist2_destroy_segment(owner))
+		/* last segment was just destroyed */
+		return 0;
+
+	return lws_buflist2_next_segment_len(owner, NULL);
+}
+
+int
+lws_buflist2_fragment_use(struct lws_buflist2_owner *owner, uint8_t *buf,
+			  size_t len, char *frag_first, char *frag_fin)
+{
+	uint8_t *obuf = buf;
+	size_t s;
+	struct lws_buflist2 *b;
+
+	if (!owner->owner.head)
+		return 0;
+		
+	b = (struct lws_buflist2 *)owner->owner.head;
+
+	s = b->len - b->pos;
+	if (s > len)
+		s = len;
+
+	if (frag_first)
+		*frag_first = !b->pos;
+
+	if (frag_fin)
+		*frag_fin = b->pos + s == b->len;
+
+	if (!buf || !len)
+		return 0;
+
+	if (b->heap_alloc)
+		memcpy(buf, ((uint8_t *)b->heap_alloc) + b->pos, s);
+	else
+		memcpy(buf, ((uint8_t *)b) + sizeof(*b) + LWS_PRE + b->pos, s);
+		
+	len -= s;
+	buf += s;
+	lws_buflist2_use_segment(owner, s);
+
+	return lws_ptr_diff(buf, obuf);
+}
+
+LWS_VISIBLE LWS_EXTERN void *
+lws_buflist2_get_frag_start_or_NULL(struct lws_buflist2_owner *owner)
+{
+	struct lws_buflist2 *b;
+
+	if (!owner->owner.head)
+		return NULL;	/* there is no segment to work on */
+		
+	b = (struct lws_buflist2 *)owner->owner.head;
+
+	if (b->heap_alloc)
+		return b->heap_alloc;
+
+	return ((uint8_t *)b) + sizeof(*b) + LWS_PRE;
+}
+
 
 lws_stateful_ret_t
 lws_flow_feed(lws_flow_t *flow)
