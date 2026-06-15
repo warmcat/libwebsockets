@@ -176,7 +176,7 @@ lws_ssl_client_bio_create(struct lws *wsi);
 int
 lws_ssl_client_connect2(struct lws *wsi, char *errbuf, size_t len);
 #else
-#define lws_ssl_client_connect2(_a, _b, _c) (0)
+#define lws_ssl_client_connect2(_a, _b, _c) (-1)
 #endif
 int
 lws_tls_fake_POLLIN_for_buffered(struct lws_context_per_thread *pt);

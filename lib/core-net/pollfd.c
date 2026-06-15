@@ -153,8 +153,8 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 	lws_pt_unlock(pt);
 
 	pa->fd = wsi->desc.sockfd;
-	lwsl_wsi_debug(wsi, "fd %d events %d -> %d", pa->fd, pa->prev_events,
-		pa->events);
+	//lwsl_wsi_debug(wsi, "fd %d events %d -> %d", pa->fd, pa->prev_events,
+	//	pa->events);
 
 	if (wsi->mux_substream)
 		return 0;
