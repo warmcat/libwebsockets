@@ -832,17 +832,21 @@ tp_ok:
 
 			if (ack_eliciting < 0) {
 				lwsl_wsi_notice(wsi, "QUIC RX: Frame parsing aborted");
+			if (ack_eliciting == -3) {
+				/* Peer closed the connection via CONNECTION_CLOSE. Drop silently without replying. */
+				lwsl_wsi_notice(nwsi ? nwsi : wsi, "QUIC RX: Peer closed connection. Dropping silently.");
 				if (nwsi && nwsi != wsi) {
-					if (ack_eliciting == -3) {
-						/* Peer closed the connection via CONNECTION_CLOSE. Drop silently without replying. */
-						lwsl_wsi_notice(nwsi, "QUIC RX: Peer closed connection. Dropping silently.");
-						lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NORMAL, "quic peer closed");
-						goto next_packet;
-					}
-					lws_quic_enter_closing_state(nwsi, ack_eliciting == -2 ? LWS_QUIC_ERR_PROTOCOL_VIOLATION : LWS_QUIC_ERR_FRAME_ENCODING_ERROR, 0, 0);
+					lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NORMAL, "quic peer closed");
 					goto next_packet;
 				}
 				return LWS_HPI_RET_PLEASE_CLOSE_ME;
+			}
+			/* We found an error and queued a CONNECTION_CLOSE frame */
+			if (nwsi) {
+				lws_quic_enter_closing_state(nwsi, ack_eliciting == -2 ? LWS_QUIC_ERR_PROTOCOL_VIOLATION : LWS_QUIC_ERR_FRAME_ENCODING_ERROR, 0, 0);
+				lws_callback_on_writable(nwsi);
+			}
+			goto next_packet;
 			} else if (ack_eliciting > 0) {
 				if (nwsi && nwsi->quic.qn) {
 					nwsi->quic.qn->needs_ack[level] = 1;
