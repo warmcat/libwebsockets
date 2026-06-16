@@ -325,6 +325,12 @@ lws_genrsa_destroy(struct lws_genrsa_ctx *ctx)
 	ctx->pub = NULL;
 }
 
+void
+lws_genrsa_destroy_elements(struct lws_gencrypto_keyelem *el)
+{
+        lws_gencrypto_destroy_elements(el, LWS_GENCRYPTO_RSA_KEYEL_COUNT);
+}
+
 int
 lws_genrsa_render_pkey_asn1(struct lws_genrsa_ctx *ctx, int _private,
 			    uint8_t *pkey_asn1, size_t pkey_asn1_len)

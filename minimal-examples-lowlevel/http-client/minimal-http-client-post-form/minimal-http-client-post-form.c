@@ -394,7 +394,7 @@ int main(int argc, const char **argv)
 	info.register_notifier_list	= app_notifier_list;
 	info.fd_limit_per_thread = (unsigned int)(1 + 1 + 1);
 
-#if defined(LWS_WITH_MBEDTLS) || defined(USE_WOLFSSL)
+#if defined(LWS_WITH_MBEDTLS) || defined(USE_WOLFSSL) || defined(LWS_WITH_OPENHITLS)
 	/*
 	 * OpenSSL uses the system trust store.  mbedTLS has to be told which
 	 * CA to trust explicitly.

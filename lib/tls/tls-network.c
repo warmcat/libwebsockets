@@ -399,6 +399,9 @@ lws_tls_cleanup_process(void)
 #elif defined(LWS_WITH_BEARSSL)
 	if (tls_ops_bearssl.process_cleanup)
 		tls_ops_bearssl.process_cleanup();
+#elif defined(LWS_WITH_OPENHITLS)
+	if (tls_ops_openhitls.process_cleanup)
+		tls_ops_openhitls.process_cleanup();
 #else
 	if (tls_ops_openssl.process_cleanup)
 		tls_ops_openssl.process_cleanup();

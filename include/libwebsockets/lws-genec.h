@@ -22,6 +22,10 @@
  * IN THE SOFTWARE.
  */
 
+#if defined(LWS_WITH_OPENHITLS)
+#include <crypt_eal_pkey.h>
+#endif
+
 enum enum_genec_alg {
 	LEGENEC_UNKNOWN,
 
@@ -57,6 +61,8 @@ struct lws_genec_ctx {
 	br_ec_private_key priv;
 	void *kbuf_priv;
 	void *kbuf_pub;
+#elif defined(LWS_WITH_OPENHITLS)
+	CRYPT_EAL_PkeyCtx *ctx[2];
 #else
 	EVP_PKEY_CTX *ctx[2];
 #endif

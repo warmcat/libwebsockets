@@ -290,7 +290,8 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 
 #if defined(LWS_WITH_TLS) && defined(LWS_HAVE_SSL_CTX_set1_param) && \
 	!defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_GNUTLS) && \
-	!defined(LWS_WITH_BEARSSL)
+	!defined(LWS_WITH_BEARSSL) && \
+	!defined(LWS_WITH_OPENHITLS)
 	case LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS:
 		if (crl_path[0]) {
 			/* Enable CRL checking of the server certificate */

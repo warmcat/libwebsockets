@@ -729,7 +729,8 @@ lws_transport_mux_destroy_channel(lws_transport_mux_ch_t **_mc)
 {
 	lws_transport_mux_ch_t *mc = *_mc;
 	lws_transport_mux_t *tm;
-	const lws_txp_mux_parse_cbs_t *cpath_ops, *ppath_ops;
+	const lws_transport_client_ops_t *cpath_ops;
+	const lws_transport_proxy_ops_t *ppath_ops;
 	lws_transport_priv_t priv;
 
 	if (!mc)

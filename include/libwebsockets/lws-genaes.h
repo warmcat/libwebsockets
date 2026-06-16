@@ -41,6 +41,9 @@
 #include <psa/crypto.h>
 #endif
 #endif
+#if defined(LWS_WITH_OPENHITLS)
+#include <crypt_eal_cipher.h>
+#endif
 
 enum enum_aes_modes {
 	LWS_GAESM_CBC,
@@ -112,6 +115,8 @@ struct lws_genaes_ctx {
 	const br_block_cbcenc_class *cbcenc_vtable;
 	const br_block_cbcdec_class *cbcdec_vtable;
 	const br_block_ctr_class *ctr_vtable;
+#elif defined(LWS_WITH_OPENHITLS)
+	CRYPT_EAL_CipherCtx *ctx;
 #else
 	EVP_CIPHER_CTX *ctx;
 	const EVP_CIPHER *cipher;
