@@ -239,7 +239,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 			if (!basename[0]) basename = "index.html";
 			
 			lws_snprintf(path, sizeof(path), "%s/%s", out_dir, basename);
-			pss->fd = open(path, LWS_O_WRONLY | O_CREAT | O_TRUNC, 0644);
+			pss->fd = open(path, LWS_O_WRONLY | O_CREAT | O_TRUNC, 0640);
 			if (pss->fd < 0) {
 				lwsl_err("Failed to open %s for writing\n", path);
 			} else {

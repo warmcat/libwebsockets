@@ -507,7 +507,7 @@ int main(int argc, char **argv)
 	 * simplify getting started without having to take care about
 	 * permissions or running as root, set to /tmp/.lwsts-lock
 	 */
-	if (daemonize && lws_daemonize("/tmp/.lwsts-lock")) {
+	if (daemonize && lws_daemonize("/tmp/.lwsts-lock")) { // NOSONAR
 		fprintf(stderr, "Failed to daemonize\n");
 		return 10;
 	}

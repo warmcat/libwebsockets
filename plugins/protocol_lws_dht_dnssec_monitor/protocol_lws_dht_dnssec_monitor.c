@@ -1335,11 +1335,11 @@ handle_req_create_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 	int n, fd;
 
 	lws_snprintf(p1, sizeof(p1), "%s/domains/%s", vhd->base_dir, a->domain);
-	if (mkdir(p1, 0755) < 0 && errno != EEXIST)
+	if (mkdir(p1, 0750) < 0 && errno != EEXIST)
 		lwsl_notice("%s: Failed to create domain dir\n", __func__);
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/conf.d", vhd->base_dir, a->domain);
-	if (mkdir(d_path, 0755) < 0 && errno != EEXIST)
+	if (mkdir(d_path, 0750) < 0 && errno != EEXIST)
 		lwsl_notice("%s: Failed to create conf.d dir\n", __func__);
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/conf.d/%s.json", vhd->base_dir, a->domain, a->subdomain);
@@ -1416,7 +1416,7 @@ handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_
 	}
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s", vhd->base_dir, a->domain);
-	if (mkdir(d_path, 0755) < 0 && errno != EEXIST) {
+	if (mkdir(d_path, 0750) < 0 && errno != EEXIST) {
 		lwsl_notice("%s: mkdir %s failed: %d\n", __func__, d_path, errno);
 	}
 
@@ -1428,14 +1428,14 @@ handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_
 		while ((slash = (char *)strchr(p, '/')) != NULL) {
 			*slash = '\0';
 			lws_snprintf(p1 + strlen(p1), sizeof(p1) - strlen(p1), "/%s", p);
-			if (mkdir(p1, 0755) < 0 && errno != EEXIST) {
+			if (mkdir(p1, 0750) < 0 && errno != EEXIST) {
 				lwsl_notice("%s: mkdir %s failed: %d\n", __func__, p1, errno);
 			}
 			*slash = '/';
 			p = slash + 1;
 		}
 		lws_snprintf(p1 + strlen(p1), sizeof(p1) - strlen(p1), "/%s", p);
-		if (mkdir(p1, 0755) < 0 && errno != EEXIST) {
+		if (mkdir(p1, 0750) < 0 && errno != EEXIST) {
 			lwsl_notice("%s: mkdir %s failed: %d\n", __func__, p1, errno);
 		}
 	}
@@ -1527,7 +1527,7 @@ handle_req_save_dns_challenge(struct vhd *vhd, struct pss *root_pss, struct moni
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/dns/%s.zone.acme", vhd->base_dir, a->domain, a->domain);
 
-	int fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+	int fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0640);
 	if (fd >= 0) {
 		if (write(fd, a->zone_buf, (size_t)a->zone_len) == (ssize_t)a->zone_len) {
 			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\"}\n", a->req);
@@ -1718,7 +1718,7 @@ handle_req_set_acme_config(struct vhd *vhd, struct pss *root_pss, struct monitor
 	int n, fd;
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/acme_config.json", vhd->base_dir);
-	fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+	fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0640);
 	if (fd >= 0) {
 		if (vhd->proxy_uid != (uid_t)-1 || vhd->proxy_gid != (gid_t)-1)
 			fchown(fd, vhd->proxy_uid, vhd->proxy_gid);
@@ -1756,7 +1756,7 @@ handle_req_set_domain_acme(struct vhd *vhd, struct pss *root_pss, struct monitor
 	if (a->enabled) {
 		unlink(d_path);
 	} else {
-		int fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+		int fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0640);
 		if (fd >= 0) {
 			if (vhd->proxy_uid != (uid_t)-1 || vhd->proxy_gid != (gid_t)-1)
 				fchown(fd, vhd->proxy_uid, vhd->proxy_gid);
@@ -1825,7 +1825,7 @@ handle_req_update_whois(struct vhd *vhd, struct pss *root_pss, struct monitor_re
 	if (a->domain[0] && a->zone_buf) {
 		char path[1024];
 		lws_snprintf(path, sizeof(path), "%s/domains/%s/whois.json", vhd->base_dir, a->domain);
-		int fd = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+		int fd = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0640);
 		if (fd >= 0) {
 			if (vhd->proxy_uid != (uid_t)-1 || vhd->proxy_gid != (gid_t)-1)
 				fchown(fd, vhd->proxy_uid, vhd->proxy_gid);
@@ -1957,7 +1957,7 @@ handle_req_set_dist_server_domain(struct vhd *vhd, struct pss *root_pss, struct 
 	if (!a->domain[0]) {
 		unlink(path);
 	} else {
-		fd = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+		fd = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0640);
 		if (fd >= 0) {
 			if (write(fd, a->domain, strlen(a->domain)) < 0) {
 				lwsl_err("%s: Failed writing dist server domain\n", __func__);

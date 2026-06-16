@@ -883,14 +883,14 @@ matched:
 
 					/* p1 is tag (or class1), p2 is class (or class2) */
 					/* check if 'tag' argument matches p1 */
-					if (tag_len == p1_len && !memcmp(tag, p, p1_len)) {
+					if (p1_len && tag_len == p1_len && !memcmp(tag, p, p1_len)) {
 						/* we matched p1, now check if element has p2 as class */
 						if (lhp_element_has_class(ps, p2, p2_len))
 							goto matched;
 					}
 
 					/* check if 'tag' argument matches p2 */
-					if (tag_len == p2_len && !memcmp(tag, p2, p2_len)) {
+					if (p2_len && tag_len == p2_len && !memcmp(tag, p2, p2_len)) {
 						/* we matched p2. */
 						if (is_class_selector) {
 							/* .class1.class2: check if element has p1 as class */

@@ -24,7 +24,7 @@ static struct option options[] = {
 };
 #endif
 
-static const char *index_filepath = "/tmp/lws-fts-test-index";
+static const char *index_filepath = "/tmp/lws-fts-test-index"; // NOSONAR
 static char filepath[256];
 
 int main(int argc, char * const * argv)

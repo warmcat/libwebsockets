@@ -179,14 +179,14 @@ verb_put_handler(struct lws_dht_ctx *ctx, struct vhd_dht_store *vhd, const struc
 		lws_snprintf(path, sizeof(path), "%s/%s", vhd->storage_path, frag->safe_hash);
 		lwsl_user("%s: PUT targeting filepath: %s\n", __func__, path);
 
-		if (mkdir(vhd->storage_path, 0777) < 0 && errno != EEXIST) {
+		if (mkdir(vhd->storage_path, 0770) < 0 && errno != EEXIST) {
 			lwsl_err("%s: Failed to create storage dir %s (errno %d)\n", __func__,
 				 vhd->storage_path, errno);
 		} else {
 			lwsl_user("%s: Storage dir %s is verified\n", __func__, vhd->storage_path);
 		}
 
-		frag->fd = open(path, O_RDWR | O_CREAT | O_TRUNC, 0666);
+		frag->fd = open(path, O_RDWR | O_CREAT | O_TRUNC, 0660);
 		if (frag->fd < 0) {
 			lwsl_err("%s: Failed to open %s (errno %d)\n", __func__, path, errno);
 			lws_dll2_remove(&frag->list);
@@ -349,7 +349,7 @@ verb_rsp_handler(struct lws_dht_ctx *ctx, struct vhd_dht_store *vhd, const struc
 		frag->total_len = msg->len;
 		lws_dll2_add_tail(&frag->list, &vhd->fragments);
 
-		frag->fd = open(frag->safe_hash, O_RDWR | O_CREAT | O_TRUNC, 0666);
+		frag->fd = open(frag->safe_hash, O_RDWR | O_CREAT | O_TRUNC, 0660);
 		if (frag->fd < 0) return -1;
 		if (lws_genhash_init(&frag->ctx, LWS_DHT_STORE_GENHASH)) return -1;
 		frag->hash_init_done = 1;

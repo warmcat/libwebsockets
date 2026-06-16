@@ -27,10 +27,10 @@
 #include <private-lib-core.h>
 
 LWS_SS_USER_TYPEDEF
+	lws_sorted_usec_list_t		sul;
 	lws_flow_t			flow;
 	lhp_ctx_t			lhp; /* html ss owns html parser */
 	lws_dl_rend_t			drt;
-	lws_sorted_usec_list_t		sul;
 	lws_display_render_state_t	*rs;
 	struct lws_context		*cx;
 } htmlss_t;

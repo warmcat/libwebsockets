@@ -356,7 +356,10 @@ lws_display_get_ids_boxes(lws_display_render_state_t *rs)
 		lws_fx_t t2;
 
 		if (!dlo) {
-			rs->sp--;
+			if (rs->sp > 0)
+				rs->sp--;
+			else
+				break;
 			continue;
 		}
 
@@ -448,7 +451,10 @@ lws_display_list_render_line(lws_display_render_state_t *rs)
 		lws_fx_t t2;
 
 		if (!dlo) {
-			rs->sp--;
+			if (rs->sp > 0)
+				rs->sp--;
+			else
+				break;
 			continue;
 		}
 

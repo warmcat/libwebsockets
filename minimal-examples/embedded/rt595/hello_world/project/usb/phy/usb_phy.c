@@ -50,7 +50,7 @@ void *USB_EhciPhyGetBase(uint8_t controllerId)
             usbphy_base[newinstance++] = usbphy_base_temp[instance];
         }
     }
-    if (controllerId > newinstance)
+    if (controllerId >= newinstance)
     {
         return NULL;
     }

@@ -836,7 +836,7 @@ lws_acme_load_create_auth_keys(struct per_vhost_data__lws_acme_client *vhd,
 	if (lws_jwk_save(&vhd->jwk, vhd->active_cert->pvop[LWS_TLS_SET_AUTH_PATH])) {
         lwsl_vhost_notice(vhd->vhost, "falling back to ACME footprint IPC to save %s", vhd->active_cert->pvop[LWS_TLS_SET_AUTH_PATH]);
         char tmp_path[256];
-        lws_snprintf(tmp_path, sizeof(tmp_path), "/tmp/lws-acme-auth-%d.jwk", getpid());
+        lws_snprintf(tmp_path, sizeof(tmp_path), "/tmp/lws-acme-auth-%d.jwk", getpid()); // NOSONAR
         if (!lws_jwk_save(&vhd->jwk, tmp_path)) {
             int fd = open(tmp_path, O_RDONLY);
             int success = 0;
@@ -1057,15 +1057,15 @@ lws_acme_scan_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 			const char *env_dir = (cfg->acme && cfg->acme->directory_url && (char *)strstr(cfg->acme->directory_url, "staging")) ? "staging" : "production";
 			lws_snprintf(certs_dir, sizeof(dir_path), "%s/domains/%s/certs", vhd->dns_base_dir, scan_ctx->domain);
 #if !defined(WIN32) && !defined(LWS_WITH_ESP32)
-			mkdir(certs_dir, 0755);
+			mkdir(certs_dir, 0750);
 #endif
 			lws_snprintf(certs_dir, sizeof(dir_path), "%s/domains/%s/certs/%s", vhd->dns_base_dir, scan_ctx->domain, env_dir);
 #if !defined(WIN32) && !defined(LWS_WITH_ESP32)
-			mkdir(certs_dir, 0755);
+			mkdir(certs_dir, 0750);
 #endif
 			lws_snprintf(certs_dir, sizeof(dir_path), "%s/domains/%s/certs/%s/crt", vhd->dns_base_dir, scan_ctx->domain, env_dir);
 #if !defined(WIN32) && !defined(LWS_WITH_ESP32)
-			mkdir(certs_dir, 0755);
+			mkdir(certs_dir, 0750);
 #endif
 			lws_snprintf(certs_dir, sizeof(dir_path), "%s/domains/%s/certs/%s/key", vhd->dns_base_dir, scan_ctx->domain, env_dir);
 #if !defined(WIN32) && !defined(LWS_WITH_ESP32)

@@ -1002,7 +1002,7 @@ lws_create_vhost(struct lws_context *context,
 		uint8_t seen = 0;
 
 		for (n = 0; n < m; n++)
-			if (!memcmp(&lwsp[n], &lws_async_dns_protocol, sizeof(struct lws_protocols))) {
+			if (lwsp[n].name && !strcmp(lwsp[n].name, lws_async_dns_protocol.name)) {
 				/* Already defined */
 				seen = 1;
 				break;

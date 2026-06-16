@@ -100,8 +100,14 @@ lm_speaker_update(struct mixer_room *r, void *vctx)
 
 		if (!part) {
 			if (ctx->num_parts == ctx->max_parts) {
-				ctx->max_parts = ctx->max_parts ? ctx->max_parts * 2 : 16;
-				ctx->parts = realloc(ctx->parts, (size_t)ctx->max_parts * sizeof(*ctx->parts));
+				int new_max = ctx->max_parts ? ctx->max_parts * 2 : 16;
+				void *p = realloc(ctx->parts, (size_t)new_max * sizeof(*ctx->parts));
+				if (!p) {
+					lwsl_err("%s: OOM\n", __func__);
+					goto skip;
+				}
+				ctx->parts = p;
+				ctx->max_parts = new_max;
 			}
 			part = &ctx->parts[ctx->num_parts++];
 			memset(part, 0, sizeof(*part));
@@ -214,19 +220,30 @@ skip:
 		lwsl_notice("[INSTRUMENT] %s: No best_part found!\n", __func__);
 	}
 
-	/* Allocate regions */
-	if (ctx->num_parts > ctx->max_regions) {
-		ctx->max_regions = ctx->num_parts;
-		ctx->regions = realloc(ctx->regions, (size_t)ctx->max_regions * sizeof(*ctx->regions));
-	}
-	ctx->num_regions = ctx->num_parts;
-
 	/* Create temporary array for sorting non-speakers */
 	struct speaker_part **margin_parts = malloc((size_t)(ctx->num_parts) * sizeof(struct speaker_part *));
+	if (!margin_parts) {
+		lwsl_err("%s: OOM\n", __func__);
+		return;
+	}
+
 	int num_margin = 0;
 	for (int i = 0; i < ctx->num_parts; i++) {
 		if (ctx->parts[i].s != ctx->current_speaker)
 			margin_parts[num_margin++] = &ctx->parts[i];
+	}
+
+	/* Allocate regions */
+	ctx->num_regions = num_margin + 1; /* 1 for current_speaker + margin */
+	if (ctx->num_regions > ctx->max_regions) {
+		ctx->max_regions = ctx->num_regions;
+		void *p = realloc(ctx->regions, (size_t)ctx->max_regions * sizeof(*ctx->regions));
+		if (!p) {
+			lwsl_err("%s: OOM\n", __func__);
+			free(margin_parts);
+			return;
+		}
+		ctx->regions = p;
 	}
 
 	/* Sort margin parts */

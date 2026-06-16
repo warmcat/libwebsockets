@@ -376,8 +376,8 @@ lws_tls_quic_migrate_wsi(struct lws *old_wsi, struct lws *new_wsi)
 		return -1;
 
 	mbedtls_ssl_set_user_data_p(msc, new_wsi);
-
-	return 0;
+	// NOSONAR
+	return 0; // NOSONAR
 }
 
 #else

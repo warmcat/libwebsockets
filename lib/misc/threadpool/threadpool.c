@@ -638,7 +638,7 @@ lws_threadpool_worker(void *d)
 				then = lws_now_usecs();
 				if (lws_threadpool_worker_sync(pool, task)) {
 					lwsl_notice("%s: Sync failed\n", __func__);
-					goto doneski;
+					break;
 				}
 				us_accrue(&task->acc_syncing, then);
 				break;
@@ -1140,16 +1140,32 @@ lws_threadpool_task_status_wsi(struct lws *wsi,
 void
 lws_threadpool_task_sync(struct lws_threadpool_task *task, int stop)
 {
+	struct lws_threadpool *tp;
+	int n;
+
 	lwsl_debug("%s\n", __func__);
 	if (!task)
 		return;
 
-	if (stop)
+	tp = task->tp;
+
+	pthread_mutex_lock(&tp->lock);
+
+	for (n = 0; n < tp->threads_in_pool; n++) {
+		if (tp->pool_list[n].task == task) {
+			pthread_mutex_lock(&tp->pool_list[n].lock);
+			if (stop)
+				state_transition(task, LWS_TP_STATUS_STOPPING);
+			pthread_cond_signal(&task->wake_idle);
+			pthread_mutex_unlock(&tp->pool_list[n].lock);
+			break;
+		}
+	}
+
+	if (n == tp->threads_in_pool && stop)
 		state_transition(task, LWS_TP_STATUS_STOPPING);
 
-	pthread_mutex_lock(&task->tp->lock);
-	pthread_cond_signal(&task->wake_idle);
-	pthread_mutex_unlock(&task->tp->lock);
+	pthread_mutex_unlock(&tp->lock);
 }
 
 int

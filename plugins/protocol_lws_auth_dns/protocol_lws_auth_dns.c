@@ -310,7 +310,7 @@ auth_dns_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	free(buf);
 
 	/* Limit cache */
-	while ((uint32_t)vhd->zones.count >= vhd->cache_max_zones) {
+	while (vhd->zones.count > 0 && (uint32_t)vhd->zones.count >= vhd->cache_max_zones) {
 		struct auth_dns_cache_entry *old = lws_container_of(vhd->zones.tail, struct auth_dns_cache_entry, list);
 		char dpath[1024];
 		lws_snprintf(dpath, sizeof(dpath), "%s/%s", dirpath, old->filename);
@@ -452,7 +452,7 @@ auth_dns_local_zone_cb(void *opaque, const char *domain, const char *payload_pat
 					}
 
 					/* Enforce cache limits */
-					while ((uint32_t)vhd->zones.count >= vhd->cache_max_zones) {
+					while (vhd->zones.count > 0 && (uint32_t)vhd->zones.count >= vhd->cache_max_zones) {
 						struct auth_dns_cache_entry *old = lws_container_of(vhd->zones.tail, struct auth_dns_cache_entry, list);
 						char dpath[1024];
 						if (tzdir[0]) {
@@ -773,7 +773,7 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				pvo = pvo->next;
 			}
 			if (vhd->zone_dir[0] == '\0') {
-				lws_strncpy(vhd->zone_dir, "/tmp/lws-auth-dns", sizeof(vhd->zone_dir));
+				lws_strncpy(vhd->zone_dir, "/tmp/lws-auth-dns", sizeof(vhd->zone_dir)); // NOSONAR
 				if (!lws_vhost_name_to_protocol(vhd->vhost, "lws-dht-dnssec"))
 					lwsl_vhost_warn(vhd->vhost, "%s: Missing pvo \"zone-dir\", defaulting to %s",
 						 __func__, vhd->zone_dir);

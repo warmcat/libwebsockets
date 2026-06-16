@@ -288,7 +288,27 @@ lws_extip_report(struct lws_context *cx, lws_extip_src_t src,
 		lwsl_notice("EXTIP_DEBUG: lws_extip_report called with IP %s\n", buf_dbg);
 	}
 
-	if (memcmp(&old, target, sizeof(*target))) {
+	int changed = 0;
+
+	if (old.sa4.sin_family != target->sa4.sin_family)
+		changed = 1;
+	else if (target->sa4.sin_family == AF_INET) {
+		if (old.sa4.sin_port != target->sa4.sin_port ||
+		    memcmp(&old.sa4.sin_addr, &target->sa4.sin_addr,
+			   sizeof(old.sa4.sin_addr)))
+			changed = 1;
+	}
+#if defined(LWS_WITH_IPV6)
+	else if (target->sa6.sin6_family == AF_INET6) {
+		if (old.sa6.sin6_port != target->sa6.sin6_port ||
+		    old.sa6.sin6_scope_id != target->sa6.sin6_scope_id ||
+		    memcmp(&old.sa6.sin6_addr, &target->sa6.sin6_addr,
+			   sizeof(old.sa6.sin6_addr)))
+			changed = 1;
+	}
+#endif
+
+	if (changed) {
 #if defined(LWS_WITH_IPV6)
 		int c = 0;
 #endif

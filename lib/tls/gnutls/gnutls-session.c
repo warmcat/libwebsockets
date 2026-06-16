@@ -292,14 +292,13 @@ lws_tls_session_new_gnutls(struct lws *wsi)
 	lws_vhost_unlock(vh); /* } vh --------------  */
 	lws_context_unlock(vh->context); /* } cx --------------  */
 
-	lwsl_tlssess("%s: %s %s, (%s:%u)\n", __func__,
 #if (_LWS_ENABLED_LOGS & LLL_INFO)
-		     disposition,
-#else
-		     "",
-#endif
-		     buf, vh->name,
+	lwsl_tlssess("%s: %s %s, (%s:%u)\n", __func__, disposition, buf, vh->name,
 		     (unsigned int)vh->tls_sessions.count);
+#else
+	lwsl_tlssess("%s: %s %s, (%s:%u)\n", __func__, "", buf, vh->name,
+		     (unsigned int)vh->tls_sessions.count);
+#endif
 
 	return 1;
 

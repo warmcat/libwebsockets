@@ -171,6 +171,19 @@ LWS_VISIBLE LWS_EXTERN int
 lws_sa46_compare_ads(const lws_sockaddr46 *sa46a, const lws_sockaddr46 *sa46b);
 
 /**
+ * lws_sa46_compare_sin6_addr() - compare two sin6_addr objects safely
+ *
+ * \param a: first
+ * \param b: second
+ *
+ * Returns 0 if equal, else non-zero.  Operates directly on the s6_addr
+ * array to avoid static analysis warnings about padding in the struct.
+ */
+#if defined(LWS_WITH_IPV6)
+#define lws_sa46_compare_sin6_addr(a, b) memcmp((a)->s6_addr, (b)->s6_addr, 16)
+#endif
+
+/**
  * lws_sa46_on_net() - checks if an sa46 is on the subnet represented by another
  *
  * \param sa46a: first

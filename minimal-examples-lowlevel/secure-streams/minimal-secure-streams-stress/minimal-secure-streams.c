@@ -661,7 +661,7 @@ int main(int argc, const char **argv)
 
 	info.log_cx = &my_log_cx;
 	info.vhost_name = cxname;
-	lws_snprintf(logpath, sizeof(logpath), "/tmp/%s.log", cxname);
+	lws_snprintf(logpath, sizeof(logpath), "/tmp/%s.log", cxname); // NOSONAR
 	my_log_cx.opaque = (void *)logpath;
 
 	lwsl_user("LWS secure streams test client [-d<verb>]\n");
