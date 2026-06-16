@@ -24,11 +24,11 @@
 
 #include "private-lib-core.h"
 #include "private-lib-tls.h"
+#if defined(LWS_WITH_OPENHITLS)
+#include "openhitls/private.h"
+#endif
 
-#if defined(LWS_HAVE_SSL_CTX_set_keylog_callback) && defined(LWS_WITH_NETWORK) && \
-	defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS) && \
-	!defined(LWS_WITH_GNUTLS) && !defined(LWS_WITH_BEARSSL) && \
-	(defined(LWS_WITH_CLIENT) || defined(LWS_WITH_SERVER))
+#if defined(LWS_WITH_TLS_KEYLOG) && !defined(LWS_WITH_OPENHITLS)
 void
 lws_klog_dump(const SSL *ssl, const char *line)
 {
@@ -66,7 +66,7 @@ lws_klog_dump(const SSL *ssl, const char *line)
 	}
 
 	wx += strlen(line) + 1;
-	w += (size_t)write(fd, line, 
+	w += (size_t)write(fd, line,
 #if defined(WIN32)
 			(unsigned int)
 #endif
@@ -83,7 +83,9 @@ lws_klog_dump(const SSL *ssl, const char *line)
 
 
 #if defined(LWS_WITH_NETWORK)
-#if (!defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_BEARSSL) && !defined(LWS_WITH_SCHANNEL) && defined(OPENSSL_VERSION_NUMBER) && \
+#if (!defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_BEARSSL) && \
+	!defined(LWS_WITH_SCHANNEL) && !defined(LWS_WITH_OPENHITLS) && \
+	defined(OPENSSL_VERSION_NUMBER) && \
 				  OPENSSL_VERSION_NUMBER >= 0x10002000L)
 static int
 alpn_cb(SSL *s, const unsigned char **out, unsigned char *outlen,
@@ -99,6 +101,47 @@ alpn_cb(SSL *s, const unsigned char **out, unsigned char *outlen,
 #endif
 
 	return SSL_TLSEXT_ERR_OK;
+}
+#endif
+
+#if defined(LWS_WITH_OPENHITLS)
+static int32_t
+alpn_cb_openhitls(HITLS_Ctx *ctx, uint8_t **selectedProto,
+		  uint8_t *selectedProtoLen, uint8_t *clientAlpnList,
+		  uint32_t clientAlpnListSize, void *arg)
+{
+	const struct alpn_ctx *alpn_ctx = (const struct alpn_ctx *)arg;
+	int32_t ret;
+
+	(void)ctx;
+
+	if (!selectedProto || !selectedProtoLen || !alpn_ctx ||
+	    !alpn_ctx->len)
+		return HITLS_ALPN_ERR_ALERT_FATAL;
+
+	if (!clientAlpnList || !clientAlpnListSize)
+		return HITLS_ALPN_ERR_NOACK;
+
+	*selectedProto = NULL;
+	*selectedProtoLen = 0;
+
+	ret = HITLS_SelectAlpnProtocol(selectedProto, selectedProtoLen,
+				       alpn_ctx->data, alpn_ctx->len,
+				       clientAlpnList, clientAlpnListSize);
+	if (ret == HITLS_SUCCESS)
+		return (*selectedProto && *selectedProtoLen) ?
+				HITLS_ALPN_ERR_OK : HITLS_ALPN_ERR_NOACK;
+
+	if (ret == HITLS_NULL_INPUT || ret == HITLS_CONFIG_INVALID_LENGTH) {
+		lwsl_err("%s: OpenHiTLS ALPN select failed: 0x%x\n",
+			 __func__, (unsigned int)ret);
+		return HITLS_ALPN_ERR_ALERT_FATAL;
+	}
+
+	lwsl_info("%s: OpenHiTLS ALPN had no protocol match: 0x%x\n",
+		  __func__, (unsigned int)ret);
+
+	return HITLS_ALPN_ERR_NOACK;
 }
 #endif
 
@@ -214,7 +257,7 @@ lws_context_init_alpn(struct lws_vhost *vhost)
 {
 #if defined(LWS_WITH_MBEDTLS) || defined(LWS_WITH_BEARSSL) || (defined(OPENSSL_VERSION_NUMBER) && \
 				  OPENSSL_VERSION_NUMBER >= 0x10002000L) || \
-				  defined(LWS_WITH_GNUTLS)
+				  defined(LWS_WITH_GNUTLS) || defined(LWS_WITH_OPENHITLS)
 	const char *alpn_comma = vhost->context->tls.alpn_default;
 
 	if (vhost->tls.alpn)
@@ -236,6 +279,9 @@ lws_context_init_alpn(struct lws_vhost *vhost)
 #elif defined(LWS_WITH_MBEDTLS)
 	/* mbedTLS ALPN is configured per-vhost */
 	lws_mbedtls_set_alpn(vhost->tls.ssl_ctx, alpn_comma);
+#elif defined(LWS_WITH_OPENHITLS)
+	HITLS_CFG_SetAlpnProtosSelectCb(vhost->tls.ssl_ctx, alpn_cb_openhitls,
+					&vhost->tls.alpn_ctx);
 #else
 	SSL_CTX_set_alpn_select_cb(vhost->tls.ssl_ctx, alpn_cb,
 				   &vhost->tls.alpn_ctx);
@@ -254,7 +300,7 @@ lws_tls_server_conn_alpn(struct lws *wsi)
 {
 #if defined(LWS_WITH_MBEDTLS) || defined(LWS_WITH_BEARSSL) || (defined(OPENSSL_VERSION_NUMBER) && \
 				  OPENSSL_VERSION_NUMBER >= 0x10002000L) || \
-				  defined(LWS_WITH_GNUTLS)
+				  defined(LWS_WITH_GNUTLS) || defined(LWS_WITH_OPENHITLS)
 	const unsigned char *name = NULL;
 	char cstr[10];
 	unsigned int len = 0;
@@ -272,6 +318,16 @@ lws_tls_server_conn_alpn(struct lws *wsi)
 		if (gnutls_alpn_get_selected_protocol((gnutls_session_t)wsi->tls.ssl, &selected) == 0) {
 			name = selected.data;
 			len = selected.size;
+		}
+	}
+#elif defined(LWS_WITH_OPENHITLS)
+	{
+		uint8_t *proto;
+		uint32_t protoLen;
+		if (HITLS_GetSelectedAlpnProto((HITLS_Ctx *)wsi->tls.ssl,
+						       &proto, &protoLen) == HITLS_SUCCESS) {
+			name = proto;
+			len = protoLen;
 		}
 	}
 #elif defined(LWS_WITH_BEARSSL)

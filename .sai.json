@@ -172,6 +172,10 @@
 			"cmake":	"-DLWS_ROLE_QUIC=1 -DLWS_WITH_WOLFSSL=1 -DLWS_WOLFSSL_INCLUDE_DIRS=/usr/local/include -DLWS_WOLFSSL_LIBRARIES=/usr/local/lib/libwolfssl.so -DLWS_WITH_MINIMAL_EXAMPLES=0",
 			"platforms":	"none, rocky9/aarch64-a72a55-rk3588/gcc"
 		},
+                "openhitls": {
+                        "cmake":        "-DLWS_WITH_OPENHITLS=1 -DOPENHITLS_INCLUDE_DIRS=/opt/openhitls/include -DOPENHITLS_LIBRARIES=/opt/openhitls/build/libhitls_tls.so;/opt/openhitls/build/libhitls_pki.so;/opt/openhitls/build/libhitls_crypto.so;/opt/openhitls/build/libhitls_bsl.so;/opt/openhitls/build/libhitls_auth.so",
+			"platforms":	"none, rocky9/aarch64-a72a55-rk3588/gcc"
+		},
 		"default-noexamples": {
 			"cmake":	"-DLWS_WITH_MINIMAL_EXAMPLES=0",
 			"platforms":	"freebsd/aarch64/llvm"

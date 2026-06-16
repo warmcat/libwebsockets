@@ -1,106 +1,80 @@
+/*
+ * lws-api-test-gencrypto
+ *
+ * Written in 2010-2018 by Andy Green <andy@warmcat.com>
+ *
+ * This file is made available under the Creative Commons CC0 1.0
+ * Universal Public Domain Dedication.
+ */
+
 #include <libwebsockets.h>
-#include <string.h>
-#include <stdio.h>
 
-void print_hex(const char *name, const uint8_t *data, size_t len) {
-    printf("%s:\n", name);
-    for (size_t i = 0; i < len; i++) {
-        printf("%02x", data[i]);
-    }
-    printf("\n");
-}
 
-int main(int argc, const char **argv) {
-    struct lws_context_creation_info info;
-    struct lws_context *context;
+enum {
+	LWS_SW_D,
+	LWS_SW_HELP,
+};
 
-    memset(&info, 0, sizeof info);
-    lws_cmdline_option_handle_builtin(argc, argv, &info);
-    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-    context = lws_create_context(&info);
-    if (!context) {
-        printf("FAILED to create context\n");
-        return 1;
-    }
+static const struct lws_switches switches[] = {
+	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
 
-    uint8_t dcid[] = {0xB3, 0xA6, 0xDB, 0x3C, 0x87, 0x0C, 0x3E, 0x99};
-    uint8_t salt[] = {0x38, 0x76, 0x2c, 0xf7, 0xf5, 0x59, 0x34, 0xb3, 0x4d, 0x17, 0x9a, 0xe6, 0xa4, 0xc8, 0x0c, 0xad, 0xcc, 0xbb, 0x7f, 0x0a};
+int
+test_genaes(struct lws_context *context);
+int
+test_genec(struct lws_context *context);
+int
+test_genrsa(struct lws_context *context);
 
-    uint8_t initial_secret[32];
-    lws_genhkdf_extract(LWS_GENHMAC_TYPE_SHA256, salt, sizeof(salt), dcid, sizeof(dcid), initial_secret);
-    print_hex("initial_secret", initial_secret, 32);
+#if defined(LWS_WITH_MBEDTLS) && defined(LWS_WITH_TLS)
+/* int
+test_mbedtls_cipherlist(struct lws_context *context); */
+#endif
 
-    uint8_t client_secret[32];
-    lws_genhkdf_expand_label(LWS_GENHMAC_TYPE_SHA256, initial_secret, 32, "client in", NULL, 0, client_secret, 32);
-    print_hex("client_secret", client_secret, 32);
+int main(int argc, const char **argv)
+{
+	struct lws_context_creation_info info;
+	struct lws_context *context;
+	const char *p;
+	int result = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
+	(void)switches;
 
-    uint8_t quic_key[16];
-    lws_genhkdf_expand_label(LWS_GENHMAC_TYPE_SHA256, client_secret, 32, "quic key", NULL, 0, quic_key, 16);
-    print_hex("quic_key", quic_key, 16);
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
 
-    uint8_t quic_iv[12];
-    lws_genhkdf_expand_label(LWS_GENHMAC_TYPE_SHA256, client_secret, 32, "quic iv", NULL, 0, quic_iv, 12);
-    print_hex("quic_iv", quic_iv, 12);
 
-    uint8_t quic_hp[16];
-    lws_genhkdf_expand_label(LWS_GENHMAC_TYPE_SHA256, client_secret, 32, "quic hp", NULL, 0, quic_hp, 16);
-    print_hex("quic_hp", quic_hp, 16);
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
+		logs = atoi(p);
 
-    uint8_t header[] = {0xC1, 0x00, 0x00, 0x00, 0x01, 0x08, 0xB3, 0xA6, 0xDB, 0x3C, 0x87, 0x0C, 0x3E, 0x99, 0x08, 0x24, 0x5E, 0x0D, 0x1C, 0x06, 0xB7, 0x47, 0xDE, 0x00, 0x44, 0x96, 0x00, 0x00};
-    uint8_t payload[1156];
-    memset(payload, 0, sizeof(payload));
+	lws_set_log_level(logs, NULL);
+	lwsl_user("LWS gencrypto apis tests\n");
 
-    // Copy the actual unencrypted ClientHello prefix
-    uint8_t ch[] = {0x06, 0x00, 0x41, 0xA3, 0x01, 0x00, 0x01, 0x9F, 0x03, 0x03, 0x41, 0x00, 0x3D, 0x5D, 0x35, 0x60, 0x02, 0xA4, 0x04, 0x21, 0xFF, 0xEA, 0x95, 0x82, 0xA0, 0xDF, 0xC0, 0x68, 0x16, 0xCB, 0x26, 0x8E, 0xF3, 0x5A, 0xE5, 0xA3, 0xE5, 0x6C, 0xED, 0xA7, 0x5A, 0x62, 0x00, 0x00, 0x04, 0x13, 0x02, 0x13, 0x01, 0x01, 0x00, 0x01, 0x72, 0x00, 0x00, 0x00, 0x16, 0x00, 0x14, 0x00, 0x00, 0x11, 0x6C, 0x69, 0x62, 0x77, 0x65, 0x62, 0x73, 0x6F, 0x63, 0x6B, 0x65, 0x74, 0x73, 0x2E, 0x6F, 0x72, 0x67};
-    memcpy(payload, ch, sizeof(ch));
+	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
+#if defined(LWS_WITH_NETWORK)
+	info.port = CONTEXT_PORT_NO_LISTEN;
+#endif
+	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 
-    uint64_t full_pn = 0;
-    uint8_t nonce[12];
-    memcpy(nonce, quic_iv, 12);
-    for (int i = 0; i < 8; i++) {
-        nonce[11 - i] ^= (uint8_t)(full_pn >> (i * 8));
-    }
+	context = lws_create_context(&info);
+	if (!context) {
+		lwsl_err("lws init failed\n");
+		return 1;
+	}
 
-    struct lws_genaes_ctx aead;
-    struct lws_gencrypto_keyelem el;
-    el.buf = quic_key;
-    el.len = 16;
-    lws_genaes_create(&aead, LWS_GAESO_ENC, LWS_GAESM_GCM, &el, LWS_GAESP_NO_PADDING, NULL);
+	result |= test_genaes(context);
+	result |= test_genec(context);
+	result |= test_genrsa(context);
 
-    uint8_t tag[16];
-    size_t iv_len = 12;
-    lws_genaes_crypt(&aead, header, sizeof(header), NULL, nonce, tag, &iv_len, 16);
+#if defined(LWS_WITH_MBEDTLS) && defined(LWS_WITH_TLS)
+	/* result |= test_mbedtls_cipherlist(context); */ /* Requires static linking to access inner OpenSSL shim symbols */
+#endif
 
-    uint8_t ciphertext[1156];
-    lws_genaes_crypt(&aead, payload, sizeof(payload), ciphertext, NULL, NULL, NULL, 16);
-    lws_genaes_destroy(&aead, tag, 16);
+	lwsl_user("Completed: %s\n", result ? "FAIL" : "PASS");
 
-    uint8_t encrypted_packet[1200];
-    memcpy(encrypted_packet, header, sizeof(header));
-    memcpy(encrypted_packet + sizeof(header), ciphertext, sizeof(ciphertext));
-    memcpy(encrypted_packet + sizeof(header) + sizeof(ciphertext), tag, 16);
+	lws_context_destroy(context);
 
-    print_hex("Encrypted packet before HP", encrypted_packet, 48);
-
-    uint8_t sample[16];
-    memcpy(sample, encrypted_packet + 26 + 4, 16);
-
-    struct lws_genaes_ctx hp;
-    el.buf = quic_hp;
-    el.len = 16;
-    lws_genaes_create(&hp, LWS_GAESO_ENC, LWS_GAESM_ECB, &el, LWS_GAESP_NO_PADDING, NULL);
-
-    uint8_t mask[16];
-    size_t zero = 0;
-    lws_genaes_crypt(&hp, sample, 16, mask, NULL, NULL, &zero, 16);
-    lws_genaes_destroy(&hp, NULL, 0);
-
-    encrypted_packet[0] ^= mask[0] & 0x0f;
-    encrypted_packet[26] ^= mask[1];
-    encrypted_packet[27] ^= mask[2];
-
-    print_hex("Encrypted packet after HP", encrypted_packet, 48);
-
-    lws_context_destroy(context);
-    return 0;
+	return result;
 }

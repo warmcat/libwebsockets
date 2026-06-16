@@ -524,7 +524,7 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 		return 1;
 	}
 	/* Added for sniffing packets on hub side */
-#if defined(LWS_HAVE_SSL_CTX_set_keylog_callback) && \
+#if defined(LWS_WITH_TLS_KEYLOG) && \
 		defined(LWS_WITH_TLS) && (defined(LWS_WITH_CLIENT) || defined(LWS_WITH_SERVER))
 	SSL_CTX_set_keylog_callback(tls->ssl_ctx, lws_klog_dump);
 #endif

@@ -1,7 +1,7 @@
 #
 # libwebsockets - small server side websockets and web server implementation
 #
-# Copyright (C) 2010 - 2022 Andy Green <andy@warmcat.com>
+# Copyright (C) 2010 - 2026 Andy Green <andy@warmcat.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to
@@ -256,10 +256,11 @@ option(LWS_WITH_BEARSSL "Use BearSSL replacement for OpenSSL. When setting this,
 set(LWS_BEARSSL_PROFILE "full" CACHE STRING "BearSSL profile to use (e.g. full, client, minimal)")
 option(LWS_WITH_BORINGSSL "Use BoringSSL replacement for OpenSSL" OFF)
 option(LWS_WITH_AWSLC "Use AWSLC replacement for OpenSSL" OFF)
+option(LWS_WITH_OPENHITLS "Use OpenHITLS replacement for OpenSSL. When setting this, you also may need to specify OPENHITLS_LIBRARIES and OPENHITLS_INCLUDE_DIRS" OFF)
 option(LWS_WITH_CYASSL "Use CyaSSL replacement for OpenSSL. When setting this, you also need to specify LWS_CYASSL_LIBRARIES and LWS_CYASSL_INCLUDE_DIRS" OFF)
 option(LWS_WITH_WOLFSSL "Use wolfSSL replacement for OpenSSL. When setting this, you also may need to specify LWS_WOLFSSL_LIBRARIES and LWS_WOLFSSL_INCLUDE_DIRS" OFF)
 
-if (LWS_WITH_HTTP3 AND LWS_WITH_SSL AND NOT (LWS_WITH_BORINGSSL OR LWS_WITH_AWSLC OR LWS_WITH_MBEDTLS OR LWS_WITH_WOLFSSL OR LWS_WITH_CYASSL OR LWS_WITH_GNUTLS OR LWS_WITH_BEARSSL OR LWS_WITH_SCHANNEL OR ESP_PLATFORM OR LWS_WITH_ESP32))
+if (LWS_WITH_HTTP3 AND LWS_WITH_SSL AND NOT (LWS_WITH_BORINGSSL OR LWS_WITH_AWSLC OR LWS_WITH_MBEDTLS OR LWS_WITH_WOLFSSL OR LWS_WITH_CYASSL OR LWS_WITH_GNUTLS OR LWS_WITH_BEARSSL OR LWS_WITH_SCHANNEL OR ESP_PLATFORM OR LWS_WITH_ESP32 OR LWS_WITH_OPENHITLS))
        option(LWS_WITH_GNUTLS "Use GnuTLS for SSL" ON)
 else()
        set(LWS_WITH_GNUTLS OFF CACHE BOOL "Use GnuTLS for SSL" FORCE)
@@ -275,7 +276,7 @@ if (NOT (LWS_WITH_BORINGSSL OR LWS_WITH_AWSLC OR LWS_WITH_MBEDTLS OR LWS_WITH_WO
     set(LWS_WITH_HTTP3 0)
 endif()
 
-if (WIN32 AND NOT (LWS_WITH_BORINGSSL OR LWS_WITH_AWSLC OR LWS_WITH_MBEDTLS OR LWS_WITH_WOLFSSL OR LWS_WITH_CYASSL OR LWS_WITH_BEARSSL OR LWS_WITH_GNUTLS))
+if (WIN32 AND NOT (LWS_WITH_BORINGSSL OR LWS_WITH_AWSLC OR LWS_WITH_MBEDTLS OR LWS_WITH_WOLFSSL OR LWS_WITH_CYASSL OR LWS_WITH_BEARSSL OR LWS_WITH_GNUTLS OR LWS_WITH_OPENHITLS))
 	set(LWS_SCHANNEL_DEFAULT ON)
 else()
 	set(LWS_SCHANNEL_DEFAULT OFF)
@@ -294,6 +295,12 @@ else()
 	set(DEFAULT_TCP_TLS OFF)
 endif()
 option(LWS_WITH_TCP_TLS "Compile TCP TLS specific files" ${DEFAULT_TCP_TLS})
+
+if (LWS_WITH_OPENHITLS)
+	set(LWS_WITH_SSL ON)
+endif()
+
+
 
 #
 # Event library options (may select multiple, or none for default poll()
@@ -1097,8 +1104,10 @@ if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR COMPILER_IS_CLANG)
 	# always warn all and generate debug info
 	if (UNIX AND NOT LWS_PLAT_FREERTOS)
 		set(CMAKE_C_FLAGS "-Wall -Wextra -Wno-unused-parameter -Wconversion -Wsign-compare -Wstrict-aliasing ${VISIBILITY_FLAG} -Wundef ${GCOV_FLAGS} ${CMAKE_C_FLAGS} ${ASAN_FLAGS}" )
+		set(CMAKE_CXX_FLAGS "-Wall -Wextra -Wno-unused-parameter -Wconversion -Wsign-compare -Wstrict-aliasing ${VISIBILITY_FLAG} -Wundef ${GCOV_FLAGS} ${CMAKE_CXX_FLAGS} ${ASAN_FLAGS}" )
 	else()
 		set(CMAKE_C_FLAGS "-Wall -Wsign-compare ${VISIBILITY_FLAG} ${GCOV_FLAGS} ${CMAKE_C_FLAGS}" )
+		set(CMAKE_CXX_FLAGS "-Wall -Wsign-compare ${VISIBILITY_FLAG} ${GCOV_FLAGS} ${CMAKE_CXX_FLAGS} ${ASAN_FLAGS}" )
 	endif()
 
 	if (PICO_SDK_PATH)
@@ -1115,8 +1124,10 @@ if (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR COMPILER_IS_CLANG)
 
 	if (LWS_SUPPRESS_DEPRECATED_API_WARNINGS)
 		set(CMAKE_C_FLAGS "-Wno-deprecated ${CMAKE_C_FLAGS}")
+		set(CMAKE_CXX_FLAGS "-Wno-deprecated ${CMAKE_CXX_FLAGS}")
 		if (LWS_GCC_HAS_NO_DEPRECATED_DECLARATIONS)
 			set(CMAKE_C_FLAGS "-Wno-deprecated-declarations ${CMAKE_C_FLAGS}")
+			set(CMAKE_CXX_FLAGS "-Wno-deprecated-declarations ${CMAKE_CXX_FLAGS}")
 		endif()
 	endif()
 endif ()
@@ -1136,7 +1147,13 @@ if (COMPILER_IS_CLANG)
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-deprecated-declarations" )
 	if (UNIX AND LWS_HAVE_PTHREAD_H)
 		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pthread -Wno-error=unused-command-line-argument" )
+		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread -Wno-error=unused-command-line-argument" )
 	endif()
+endif()
+
+if (LWS_WITH_ASAN)
+	set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${ASAN_FLAGS}")
+	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${ASAN_FLAGS}")
 endif()
 
 if (${CMAKE_SYSTEM_NAME} MATCHES "SunOS")

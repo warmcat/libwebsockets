@@ -254,6 +254,13 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 	switch (pk_algo) {
 	case GNUTLS_PK_RSA:
 		jwk->kty = LWS_GENCRYPTO_KTY_RSA;
+
+		if (rsa_min_bits && bits < (unsigned int)rsa_min_bits) {
+			lwsl_err("%s: key bits %u less than minimum %d\n",
+				 __func__, bits, rsa_min_bits);
+			goto bail1;
+		}
+
 		if (gnutls_pubkey_export_rsa_raw(pubkey, &pk_m, &pk_e) < 0)
 			goto bail1;
 
@@ -288,6 +295,13 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 		}
 
 		if (!c_name) {
+			gnutls_free(pk_x.data);
+			gnutls_free(pk_y.data);
+			goto bail1;
+		}
+
+		if (!curves) {
+			lwsl_err("%s: ec curves not allowed\n", __func__);
 			gnutls_free(pk_x.data);
 			gnutls_free(pk_y.data);
 			goto bail1;
@@ -362,6 +376,17 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 		if (gnutls_privkey_export_rsa_raw(pkey, &m, &e, &d, &p, &q, &u, &exp1, &exp2) < 0)
 			goto bail;
 
+		if (m.size != jwk->e[LWS_GENCRYPTO_RSA_KEYEL_N].len ||
+		    memcmp(m.data, jwk->e[LWS_GENCRYPTO_RSA_KEYEL_N].buf, m.size) ||
+		    e.size != jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].len ||
+		    memcmp(e.data, jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].buf, e.size)) {
+			lwsl_err("%s: privkey doesn't match jwk pubkey\n", __func__);
+			gnutls_free(m.data); gnutls_free(e.data); gnutls_free(d.data);
+			gnutls_free(p.data); gnutls_free(q.data); gnutls_free(u.data);
+			gnutls_free(exp1.data); gnutls_free(exp2.data);
+			goto bail;
+		}
+
 		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_D].buf = lws_malloc((size_t)d.size, "certjwk");
 		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_D].len = d.size;
 		memcpy(jwk->e[LWS_GENCRYPTO_RSA_KEYEL_D].buf, d.data, d.size);
@@ -401,6 +426,12 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 
 		if (gnutls_privkey_export_ecc_raw(pkey, &curve, &x, &y, &k) < 0)
 			goto bail;
+
+		if (x.size != jwk->e[LWS_GENCRYPTO_EC_KEYEL_X].len) {
+			lwsl_err("%s: EC privkey doesn't match jwk pubkey\n", __func__);
+			gnutls_free(x.data); gnutls_free(y.data); gnutls_free(k.data);
+			goto bail;
+		}
 
 		jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].buf = lws_malloc((size_t)k.size, "certjwk");
 		jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].len = k.size;

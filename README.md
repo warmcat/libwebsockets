@@ -21,18 +21,20 @@ quic/h3 is enabled for build by default... necessitating GnuTLS instead of OpenS
 
 | TLS Library | Server TLS | Client TLS | QUIC Transport (TLS 1.3) | WSS / HTTPS | MQTT over TLS | ALPN (HTTP/2) | DTLS (WebRTC) | Session Cache | JIT Trust | GenCrypto |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **GnuTLS** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
-| **OpenSSL** | **Yes** | **Yes** | **No*** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** |
-| **LibreSSL** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
-| **AWS-LC** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
+| **GnuTLS**    | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
+| **OpenSSL**   | **Yes** | **Yes** | **No*** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** |
+| **LibreSSL**  | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
+| **AWS-LC**    | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
 | **BoringSSL** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
-| **wolfSSL** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
-| **mbedTLS** | **Yes** | **Yes** | Needs patch | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** |
-| **SChannel** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
-| **BearSSL** | **Yes** | **Yes** | **No** | **Yes** | **Yes** | **Yes** | **No** | **Yes** | **Yes** | **Yes** |
+| **wolfSSL**   | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
+| **mbedTLS**   | **Yes** | **Yes** | Needs patch | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** |
+| **SChannel**  | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
+| **BearSSL**   | **Yes** | **Yes** | **No** | **Yes** | **Yes** | **Yes** | **No** | **Yes** | **Yes** | **Yes** |
+| **OpenHiTLS** | **Yes** | **Yes** | **No** | **Yes** | **Yes** | **Yes** | Yes (not SRTP) | **Yes** | **Yes** | **Yes** |
+
 
 \* *Note: 1) Upstream OpenSSL does not provide the necessary QUIC TLS API (`SSL_set_quic_method`) to act as a cryptographic engine for LWS's QUIC transport. If you need QUIC/HTTP3 support, we recommend using BoringSSL, GnuTLS, WolfSSL, or the `quictls` fork of OpenSSL.*
-
+\* *Note: 2) OpenHiTLS does not provide the necessary QUIC TLS API *
 
  - DHT support built-in: `-DLWS_WITH_DHT=1`
 
