@@ -428,6 +428,10 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 			nwsi = lws_get_network_wsi(nwsi);
 		}
 		qn = nwsi ? nwsi->quic.qn : NULL;
+		
+		if (!nwsi || !qn)
+			return -1;
+
 
 		if (qn && qn->is_closing) {
 			/* If the connection is closing (e.g. critical stream closed), stop parsing frames */
@@ -642,6 +646,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 			}
 			
 			pos += (size_t)reason_len;
+			(void)pos;
 			return -3; /* Terminate parsing and connection cleanly (Peer closed) */
 		}
 
@@ -1119,7 +1124,7 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 {
 	struct lws_quic_netconn *qn = wsi->quic.qn;
 	size_t pos = 0, consumed;
-	uint64_t param_id, param_len, val;
+	uint64_t param_id, param_len, val = 0;
 	uint64_t seen_params[64];
 	size_t num_seen = 0;
 
@@ -1142,7 +1147,7 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 
 		lwsl_wsi_info(wsi, "QUIC TP: ID 0x%llx, len %llu", (unsigned long long)param_id, (unsigned long long)param_len);
 			if (param_id >= 4 && param_id <= 7) {
-				uint64_t v;
+				uint64_t v = 0;
 				if (lws_quic_parse_varint(&buf[pos], param_len, &v) == param_len)
 					lwsl_wsi_info(wsi, "QUIC TP FLOW CONTROL param 0x%llx = %llu", (unsigned long long)param_id, (unsigned long long)v);
 			}

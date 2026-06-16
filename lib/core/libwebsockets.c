@@ -820,6 +820,7 @@ lws_http_rel_to_url(char *dest, size_t len, const char *base, const char *rel)
 		if (d && base[n] == '/') {
 			n++;
 			ps = n;
+			(void)ps;
 			//if (rel[0] == '/') {
 				break;
 			//}
@@ -835,6 +836,7 @@ lws_http_rel_to_url(char *dest, size_t len, const char *base, const char *rel)
 	/* if we did not have a '/' after the hostname, add one */
 	if (dest[n - 1] != '/') {
 		ps = n;
+		(void)ps;
 		dest[n++] = '/';
 	}
 

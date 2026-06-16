@@ -399,6 +399,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	struct lws_context *context = NULL;
 #if !defined(LWS_WITH_NO_LOGS)
 	const char *s = "IPv6-absent";
+	(void)s;
 #endif
 #if defined(LWS_WITH_FILE_OPS)
 	struct lws_plat_file_ops *prev;
@@ -1236,7 +1237,6 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 
 #if !defined(LWS_PLAT_BAREMETAL) && defined(LWS_WITH_NETWORK)
-	n = 0;
 #endif
 #if defined(LWS_WITH_NETWORK)
 

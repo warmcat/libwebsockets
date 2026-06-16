@@ -947,6 +947,7 @@ str_val:
 					 username, realm, nonce, uri,
 					 response, algo);
 		}
+		(void)n;
 
 		lwsl_hexdump(tmp_digest, l);
 
@@ -1329,6 +1330,8 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 			mp = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI);
 			ml = lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_URI);
+			(void)mp;
+			(void)ml;
 
 			if (wsi->http.ah->pos + pl + 1 >= wsi->http.ah->data_length) {
 				lwsl_warn("%s: redirect path exceeds ah size\n", __func__);

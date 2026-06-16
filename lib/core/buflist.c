@@ -305,7 +305,6 @@ lws_buflist_fragment_use(struct lws_buflist **head, uint8_t *buf,
 		return 0;
 
 	memcpy(buf, ((uint8_t *)((*head) + 1)) + LWS_PRE + (*head)->pos, s);
-	len -= s;
 	buf += s;
 	lws_buflist_use_segment(head, s);
 
@@ -554,8 +553,6 @@ lws_buflist2_fragment_use(struct lws_buflist2_owner *owner, uint8_t *buf,
 		memcpy(buf, ((uint8_t *)b->heap_alloc) + b->pos, s);
 	else
 		memcpy(buf, ((uint8_t *)b) + sizeof(*b) + LWS_PRE + b->pos, s);
-		
-	len -= s;
 	buf += s;
 	lws_buflist2_use_segment(owner, s);
 

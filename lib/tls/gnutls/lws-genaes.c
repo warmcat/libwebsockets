@@ -236,7 +236,7 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 				if (gnutls_cipher_encrypt2(ctx->ctx, in + in_pos, blocks, out + out_pos, blocks) < 0)
 					return 1;
 				in_pos += blocks;
-				out_pos += blocks;
+				(void)out_pos;
 			}
 
 			left = len - in_pos;

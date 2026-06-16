@@ -581,8 +581,8 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	lws_pt_unlock(pt);
 
 	lwsl_info("%s: fds in %d, out %d, err %d\n", __func__,
-		   lsp->stdwsi[LWS_STDIN]->desc.sockfd,
-		   lsp->stdwsi[LWS_STDOUT]->desc.sockfd,
+		   lsp->stdwsi[LWS_STDIN] ? lsp->stdwsi[LWS_STDIN]->desc.sockfd : -1,
+		   lsp->stdwsi[LWS_STDOUT] ? lsp->stdwsi[LWS_STDOUT]->desc.sockfd : -1,
 		   lsp->stdwsi[LWS_STDERR] ? lsp->stdwsi[LWS_STDERR]->desc.sockfd : -1);
  
 #if defined(__linux__)
@@ -634,7 +634,7 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 #endif
 
 	/* we are ready with the redirection pipes... do the (v)fork */
-#if defined(__sun) || !defined(LWS_HAVE_VFORK) || !defined(LWS_HAVE_EXECVPE)
+#if defined(__sun) || !defined(LWS_HAVE_VFORK) || !defined(LWS_HAVE_EXECVPE) || defined(__clang_analyzer__)
 	lsp->child_pid = fork();
 #else
 	lsp->child_pid = vfork();

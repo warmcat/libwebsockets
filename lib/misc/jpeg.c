@@ -1257,7 +1257,7 @@ static lws_stateful_ret_t
 interval_restart(lws_jpeg_t *j)
 {
 	lws_stateful_ret_t r;
-	uint8_t c;
+	uint8_t c = 0;
 
 	switch (j->fs_ir_phase) {
 	case 0:
