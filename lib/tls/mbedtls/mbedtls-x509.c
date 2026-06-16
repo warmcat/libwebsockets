@@ -460,6 +460,13 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 
 	if (PSA_KEY_TYPE_IS_RSA(type)) {
 		jwk->kty = LWS_GENCRYPTO_KTY_RSA;
+
+		if (rsa_min_bits && psa_get_key_bits(&attr) < (size_t)rsa_min_bits) {
+			lwsl_err("%s: key bits %u less than minimum %d\n",
+				 __func__, (unsigned)psa_get_key_bits(&attr), rsa_min_bits);
+			goto bail;
+		}
+
 		/* RSAPublicKey ::= SEQUENCE */
 		if (mbedtls_asn1_get_tag(&p, end, &asn1_len, MBEDTLS_ASN1_CONSTRUCTED | MBEDTLS_ASN1_SEQUENCE)) goto bail;
 		/* Modulus N */
@@ -544,6 +551,13 @@ bail:
 		jwk->kty = LWS_GENCRYPTO_KTY_RSA;
 		rsactx = mbedtls_pk_rsa(x509->cert.MBEDTLS_PRIVATE_V30_ONLY(pk));
 
+		if (rsa_min_bits && mbedtls_pk_get_bitlen(&x509->cert.MBEDTLS_PRIVATE_V30_ONLY(pk)) < (size_t)rsa_min_bits) {
+			lwsl_err("%s: key bits %u less than minimum %d\n",
+				 __func__, (unsigned)mbedtls_pk_get_bitlen(&x509->cert.MBEDTLS_PRIVATE_V30_ONLY(pk)),
+				 rsa_min_bits);
+			goto bail;
+		}
+
 		mpi[LWS_GENCRYPTO_RSA_KEYEL_E] = &rsactx->MBEDTLS_PRIVATE(E);
 		mpi[LWS_GENCRYPTO_RSA_KEYEL_N] = &rsactx->MBEDTLS_PRIVATE(N);
 		mpi[LWS_GENCRYPTO_RSA_KEYEL_D] = &rsactx->MBEDTLS_PRIVATE(D);
@@ -564,6 +578,11 @@ bail:
 		mpi[LWS_GENCRYPTO_EC_KEYEL_X] = &ecpctx->MBEDTLS_PRIVATE(Q).MBEDTLS_PRIVATE(X);
 		mpi[LWS_GENCRYPTO_EC_KEYEL_D] = &ecpctx->MBEDTLS_PRIVATE(d);
 		mpi[LWS_GENCRYPTO_EC_KEYEL_Y] = &ecpctx->MBEDTLS_PRIVATE(Q).MBEDTLS_PRIVATE(Y);
+
+		if (!curves) {
+			lwsl_err("%s: ec curves not allowed\n", __func__);
+			goto bail;
+		}
 
 		if (lws_genec_confirm_curve_allowed_by_tls_id(curves,
 				(int)ecpctx->MBEDTLS_PRIVATE(grp).id, jwk))
@@ -647,9 +666,22 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 		
 		/* Modulus N */
 		if (mbedtls_asn1_get_tag(&p, end, &asn1_len, MBEDTLS_ASN1_INTEGER)) goto bail;
+		if (*p == 0x00) { p++; asn1_len--; }
+		if (asn1_len != jwk->e[LWS_GENCRYPTO_RSA_KEYEL_N].len ||
+		    memcmp(p, jwk->e[LWS_GENCRYPTO_RSA_KEYEL_N].buf, asn1_len)) {
+			lwsl_err("%s: privkey N doesn't match jwk pubkey\n", __func__);
+			goto bail;
+		}
 		p += asn1_len;
+
 		/* Exponent E */
 		if (mbedtls_asn1_get_tag(&p, end, &asn1_len, MBEDTLS_ASN1_INTEGER)) goto bail;
+		if (*p == 0x00) { p++; asn1_len--; }
+		if (asn1_len != jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].len ||
+		    memcmp(p, jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].buf, asn1_len)) {
+			lwsl_err("%s: privkey E doesn't match jwk pubkey\n", __func__);
+			goto bail;
+		}
 		p += asn1_len;
 
 		/* Exponent D */
@@ -767,6 +799,25 @@ bail:
 			goto bail;
 		}
 		rsactx = mbedtls_pk_rsa(pk);
+
+		{
+			mbedtls_mpi tmpN, tmpE;
+			int match = 0;
+			mbedtls_mpi_init(&tmpN);
+			mbedtls_mpi_init(&tmpE);
+			mbedtls_mpi_read_binary(&tmpN, jwk->e[LWS_GENCRYPTO_RSA_KEYEL_N].buf, jwk->e[LWS_GENCRYPTO_RSA_KEYEL_N].len);
+			mbedtls_mpi_read_binary(&tmpE, jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].buf, jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].len);
+			if (mbedtls_mpi_cmp_mpi(&tmpN, &rsactx->MBEDTLS_PRIVATE(N)) ||
+			    mbedtls_mpi_cmp_mpi(&tmpE, &rsactx->MBEDTLS_PRIVATE(E))) {
+				lwsl_err("%s: privkey doesn't match jwk pubkey\n", __func__);
+			} else {
+				match = 1;
+			}
+			mbedtls_mpi_free(&tmpN);
+			mbedtls_mpi_free(&tmpE);
+			if (!match) goto bail;
+		}
+
 		mpi[LWS_GENCRYPTO_RSA_KEYEL_D] = &rsactx->MBEDTLS_PRIVATE(D);
 		mpi[LWS_GENCRYPTO_RSA_KEYEL_P] = &rsactx->MBEDTLS_PRIVATE(P);
 		mpi[LWS_GENCRYPTO_RSA_KEYEL_Q] = &rsactx->MBEDTLS_PRIVATE(Q);

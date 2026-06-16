@@ -338,6 +338,9 @@ plugins and lwsws.
 
  - If cpu and memory is not super restricted and you care about TLS speed,
    OpenSSL or a directly compatible variant like Boring SSL is a good choice.
+
+ - To build with openHITLS (from https://gitcode.com/openhitls/openhitls.git example shown if built in `/opt/openhitls/build`) , use:
+   `cmake .. -DLWS_WITH_OPENHITLS=1 -DOPENHITLS_INCLUDE_DIRS=/opt/openhitls/include -DOPENHITLS_LIBRARIES=/opt/openhitls/build/libhitls_tls.so;/opt/openhitls/build/libhitls_pki.so;/opt/openhitls/build/libhitls_crypto.so;/opt/openhitls/build/libhitls_bsl.so;/opt/openhitls/build/libhitls_auth.so`
  
 Just building lws against stock Fedora OpenSSL or stock Fedora mbedTLS, for
 SSL handhake mbedTLS takes ~36ms and OpenSSL takes ~1ms on the same x86_64

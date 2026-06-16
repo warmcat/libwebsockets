@@ -42,7 +42,7 @@ static struct my_conn {
 static struct lws_context *context;
 static int interrupted;
 
-#if defined(LWS_WITH_MBEDTLS) || defined(USE_WOLFSSL)
+#if defined(LWS_WITH_MBEDTLS) || defined(USE_WOLFSSL) || defined(LWS_WITH_OPENHITLS)
 /*
  * OpenSSL uses the system trust store.  mbedTLS / WolfSSL have to be told which
  * CA to trust explicitly.
@@ -352,7 +352,7 @@ int main(int argc, const char **argv)
 	info.fd_limit_per_thread = 1 + 1 + 1;
 	info.extensions = extensions;
 
-#if defined(LWS_WITH_MBEDTLS) || defined(USE_WOLFSSL)
+#if defined(LWS_WITH_MBEDTLS) || defined(USE_WOLFSSL) || defined(LWS_WITH_OPENHITLS)
 	/*
 	 * OpenSSL uses the system trust store.  mbedTLS / WolfSSL have to be
 	 * told which CA to trust explicitly.

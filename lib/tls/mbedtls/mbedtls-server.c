@@ -456,14 +456,6 @@ lws_tls_acme_sni_cert_destroy(struct lws_vhost *vhost)
 #endif
 
 #if defined(LWS_WITH_JOSE)
-static int
-_rngf(void *context, unsigned char *buf, size_t len)
-{
-	if ((size_t)lws_get_random(context, buf, len) == len)
-		return 0;
-	return -1;
-}
-
 int
 lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[],
 			    uint8_t *dcsr, size_t csr_len, char **privkey_pem,
