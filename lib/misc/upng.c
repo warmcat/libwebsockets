@@ -232,7 +232,10 @@ lws_upng_emit_next_line(lws_upng_t *u, const uint8_t **ppix,
 	unsigned long		obp;
 	lws_stateful_ret_t	ret = LWS_SRET_OK;
 
-	*ppix = NULL;
+	if (ppix)
+		*ppix = NULL;
+	if (!u || !ppix || !pos || !size)
+		return LWS_SRET_FATAL + 100;
 
 	u->hold_at_metadata = hold_at_metadata;
 
@@ -558,11 +561,13 @@ lws_upng_decode(lws_upng_t* u, const uint8_t **_pos, size_t *_size)
 
 				switch (u->sctr) {
 				case 0:
+					if (!pos) goto bail;
 					u->acc = (uint32_t)((*pos++) << 8);
 					u->sctr++;
 					continue;
 
 				case 1:
+					if (!pos) goto bail;
 					u->acc |= *pos++;
 
 					if (u->acc % 31)
@@ -631,8 +636,10 @@ lws_upng_decode(lws_upng_t* u, const uint8_t **_pos, size_t *_size)
 	}
 
 bail:
-	*_pos = pos;
-	*_size = lws_ptr_diff_size_t(end, pos);
+	if (_pos)
+		*_pos = pos;
+	if (_size)
+		*_size = lws_ptr_diff_size_t(end, pos);
 
 	return r;
 }

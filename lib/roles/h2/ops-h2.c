@@ -335,7 +335,6 @@ drain:
 	/* service incoming data */
 
 	if (ebuf.len) {
-		n = 0;
 #if defined(LWS_WITH_LATENCY)
 		lws_usec_t _h2_read_start = lws_now_usecs();
 #endif
@@ -1123,6 +1122,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 					 LWS_PRE,
 				         strlen(w->h2.pending_status_body +
 					        LWS_PRE), LWS_WRITE_HTTP_FINAL);
+			(void)n;
 			lws_free_set_NULL(w->h2.pending_status_body);
 			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 					   "h2 end stream 1");
