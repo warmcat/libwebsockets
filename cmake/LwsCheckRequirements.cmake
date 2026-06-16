@@ -130,9 +130,9 @@ ENDMACRO()
 
 function(lws_get_free_port VAR_NAME)
     if (WIN32)
-        set(COUNTER_FILE "$ENV{TEMP}/lws_port_counter")
+        set(COUNTER_FILE "$ENV{TEMP}/lws_port_counter_$ENV{USERNAME}")
     else()
-        set(COUNTER_FILE "/tmp/lws_port_counter")
+        set(COUNTER_FILE "/tmp/lws_port_counter_$ENV{USER}")
     endif()
 
     file(LOCK "${COUNTER_FILE}.lock" GUARD PROCESS TIMEOUT 10)
