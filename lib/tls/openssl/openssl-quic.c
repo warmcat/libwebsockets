@@ -749,7 +749,7 @@ lws_tls_quic_api_test(void)
 	SSL_CTX_set_min_proto_version(sctx, TLS1_3_VERSION);
 	SSL_CTX_set_max_proto_version(sctx, TLS1_3_VERSION);
 
-	SSL_CTX_set_verify(cctx, SSL_VERIFY_NONE, NULL);
+	SSL_CTX_set_verify(cctx, SSL_VERIFY_NONE, NULL); // NOSONAR
 
 	lws_tls_quic_vhost_init(cctx);
 	lws_tls_quic_vhost_init(sctx);

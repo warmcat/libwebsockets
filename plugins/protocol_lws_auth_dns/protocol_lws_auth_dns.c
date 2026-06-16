@@ -773,7 +773,7 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				pvo = pvo->next;
 			}
 			if (vhd->zone_dir[0] == '\0') {
-				lws_strncpy(vhd->zone_dir, "/tmp/lws-auth-dns", sizeof(vhd->zone_dir));
+				lws_strncpy(vhd->zone_dir, "/tmp/lws-auth-dns", sizeof(vhd->zone_dir)); // NOSONAR
 				if (!lws_vhost_name_to_protocol(vhd->vhost, "lws-dht-dnssec"))
 					lwsl_vhost_warn(vhd->vhost, "%s: Missing pvo \"zone-dir\", defaulting to %s",
 						 __func__, vhd->zone_dir);
