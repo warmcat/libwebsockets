@@ -869,7 +869,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 
 	vh->tls.tcr = tcr;
 
-#if defined(LWS_HAVE_SSL_CTX_set_keylog_callback) && \
+#if defined(LWS_WITH_TLS_KEYLOG) && \
 		defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
 	if (vh->context->keylog_file[0])
 		SSL_CTX_set_keylog_callback(vh->tls.ssl_client_ctx, lws_klog_dump);

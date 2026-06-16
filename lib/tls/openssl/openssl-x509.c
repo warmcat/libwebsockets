@@ -483,21 +483,18 @@ int
 lws_x509_verify(struct lws_x509_cert *x509, struct lws_x509_cert *trusted,
 		const char *common_name)
 {
-	char c[32], *p;
+	char c[128];
 	int ret;
 
 	if (common_name) {
 		const X509_NAME *xn = X509_get_subject_name(x509->cert);
 		if (!xn)
 			return -1;
-		X509_NAME_oneline((X509_NAME *)xn, c, (int)sizeof(c) - 2);
-		p = (char *)strstr(c, "/CN=");
-		if (p)
-			p = p + 4;
-		else
-			p = c;
+		
+		if (X509_NAME_get_text_by_NID((X509_NAME *)xn, NID_commonName, c, sizeof(c)) < 0)
+			return -1;
 
-		if (strcmp(p, common_name)) {
+		if (strcmp(c, common_name)) {
 			lwsl_err("%s: common name mismatch\n", __func__);
 			return -1;
 		}

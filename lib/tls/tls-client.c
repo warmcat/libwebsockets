@@ -141,7 +141,8 @@ int lws_context_init_client_ssl(const struct lws_context_creation_info *info,
 	if (vhost->tls.ssl_client_ctx)
 		return 0;
 
-#if !defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_BEARSSL)
+#if !defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_BEARSSL) && \
+	!defined(LWS_WITH_OPENHITLS)
 	if (info->provided_client_ssl_ctx) {
 		/* use the provided OpenSSL context if given one */
 		vhost->tls.ssl_client_ctx = info->provided_client_ssl_ctx;
