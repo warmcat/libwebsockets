@@ -234,8 +234,8 @@ lws_context_init_alpn(struct lws_vhost *vhost)
 #elif defined(LWS_WITH_BEARSSL)
 	/* BearSSL ALPN is set per-session, nothing to do here for CTX */
 #elif defined(LWS_WITH_MBEDTLS)
-	SSL_CTX_set_alpn_select_cb(vhost->tls.ssl_ctx, NULL,
-				   &vhost->tls.alpn_ctx);
+	/* mbedTLS ALPN is configured per-vhost */
+	lws_mbedtls_set_alpn(vhost->tls.ssl_ctx, alpn_comma);
 #else
 	SSL_CTX_set_alpn_select_cb(vhost->tls.ssl_ctx, alpn_cb,
 				   &vhost->tls.alpn_ctx);
@@ -280,6 +280,9 @@ lws_tls_server_conn_alpn(struct lws *wsi)
 		name = (const unsigned char *)br_ssl_engine_get_selected_protocol(&conn->u.engine);
 		len = name ? (unsigned int)strlen((const char *)name) : 0;
 	}
+#elif defined(LWS_WITH_MBEDTLS)
+	name = (const unsigned char *)mbedtls_ssl_get_alpn_protocol(&wsi->tls.ssl->ssl);
+	len = name ? (unsigned int)strlen((const char *)name) : 0;
 #else
 	SSL_get0_alpn_selected(wsi->tls.ssl, &name, &len);
 #endif
