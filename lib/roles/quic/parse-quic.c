@@ -425,7 +425,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 		struct lws_quic_netconn *qn;
 		/* ALPN negotiation during a previous frame might have migrated the network WSI! */
 		if (nwsi && !nwsi->quic.qn) {
-			nwsi = lws_get_network_wsi(nwsi);
+			nwsi = lws_get_quic_network_wsi(nwsi);
 		}
 		qn = nwsi ? nwsi->quic.qn : NULL;
 		
