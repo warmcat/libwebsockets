@@ -781,7 +781,7 @@ lws_tls_quic_rx_crypto(struct lws *wsi, int level, const uint8_t *buf, size_t le
 			wolfSSL_get0_alpn_selected(wsi->tls.ssl, &prot, &plen);
 #elif defined(LWS_WITH_MBEDTLS)
 #if defined(LWS_HAVE_mbedtls_ssl_get_alpn_protocol)
-			const char *alpn = mbedtls_ssl_get_alpn_protocol(SSL_mbedtls_ssl_context_from_SSL(wsi->tls.ssl));
+			const char *alpn = mbedtls_ssl_get_alpn_protocol(&wsi->tls.ssl->ssl);
 			if (alpn) {
 				prot = (const unsigned char *)alpn;
 				plen = (unsigned int)strlen(alpn);

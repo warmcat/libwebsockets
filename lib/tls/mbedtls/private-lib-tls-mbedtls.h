@@ -24,12 +24,36 @@
  *  gencrypto mbedtls-specific helper declarations
  */
 
+#ifndef LWS_PRIVATE_LIB_TLS_MBEDTLS_H
+#define LWS_PRIVATE_LIB_TLS_MBEDTLS_H
+
 #include <mbedtls/x509_crl.h>
+#include <mbedtls/net_sockets.h>
 #include <errno.h>
 
 struct lws_x509_cert {
 	mbedtls_x509_crt cert; /* has a .next for linked-list / chain */
 };
+typedef struct lws_x509_cert lws_tls_x509;
+
+struct lws_tls_ctx {
+	mbedtls_ssl_config conf;
+	mbedtls_x509_crt *chain;
+	mbedtls_x509_crt *ca_chain;
+	mbedtls_pk_context *key;
+	char alpn_strings[128];
+	const char *alpn_protocols[8];
+};
+
+struct lws_tls_conn {
+	mbedtls_ssl_context ssl;
+	mbedtls_net_context net;
+	struct lws_tls_ctx *ctx;
+};
+
+typedef struct lws_tls_conn lws_tls_conn;
+typedef struct lws_tls_ctx lws_tls_ctx;
+typedef void lws_tls_bio;
 
 typedef struct lws_mbedtls_x509_authority
 {
@@ -46,6 +70,9 @@ lws_gencrypto_mbedtls_hash_to_MD_TYPE(enum lws_genhash_types hash_type);
 
 int
 lws_gencrypto_mbedtls_rngf(void *context, unsigned char *buf, size_t len);
+
+void mbedtls_quic_bio_free(struct lws *wsi);
+void lws_mbedtls_set_alpn(struct lws_tls_ctx *ctx, const char *alpn_comma);
 
 int
 lws_tls_session_new_mbedtls(struct lws *wsi);
@@ -91,3 +118,4 @@ int mbedtls_asn1_get_bitstring_null(unsigned char **p, const unsigned char *end,
 						  mbedtls_x509_name *cur);
 #endif
 
+#endif

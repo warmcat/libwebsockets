@@ -319,19 +319,16 @@ lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
 
 #if defined(LWS_WITH_NETWORK)
 
-mbedtls_x509_crt *
-ssl_ctx_get_mbedtls_x509_crt(lws_tls_ctx *ssl_ctx);
-
-mbedtls_x509_crt *
-ssl_get_peer_mbedtls_x509_crt(lws_tls_conn *ssl);
-
 int
 lws_tls_vhost_cert_info(struct lws_vhost *vhost, enum lws_tls_cert_info type,
 		        union lws_tls_cert_info_results *buf, size_t len)
 {
 	mbedtls_x509_crt *x509;
 
-	x509 = ssl_ctx_get_mbedtls_x509_crt(vhost->tls.ssl_ctx);
+	if (!vhost->tls.ssl_ctx)
+		return -1;
+
+	x509 = vhost->tls.ssl_ctx->chain;
 
 	return lws_tls_mbedtls_cert_info(x509, type, buf, len);
 }
@@ -347,14 +344,14 @@ lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
 	if (!wsi->tls.ssl)
 		return -1;
 
-	x509 = ssl_get_peer_mbedtls_x509_crt(wsi->tls.ssl);
+	x509 = (mbedtls_x509_crt *)mbedtls_ssl_get_peer_cert(&wsi->tls.ssl->ssl);
 
 	if (!x509)
 		return -1;
 
 	switch (type) {
 	case LWS_TLS_CERT_INFO_VERIFIED:
-		buf->verified = SSL_get_verify_result(wsi->tls.ssl) == X509_V_OK;
+		buf->verified = mbedtls_ssl_get_verify_result(&wsi->tls.ssl->ssl) == 0;
 		return 0;
 	default:
 		return lws_tls_mbedtls_cert_info(x509, type, buf, len);

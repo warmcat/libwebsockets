@@ -304,7 +304,11 @@ function tryReload() {
     console.log("Server disconnected. Waiting for it to come back...");
     const checkServer = async () => {
         try {
-            const resp = await fetch(window.location.href, { method: "HEAD" });
+            const u = new URL(window.location.href);
+            if (u.origin !== window.location.origin) {
+                return;
+            }
+            const resp = await fetch(u.href, { method: "HEAD" });
             if (resp.ok) {
                 window.location.reload();
             } else {

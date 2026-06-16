@@ -120,7 +120,7 @@ lws_tls_reuse_session(struct lws *wsi)
 	lwsl_tlssess("%s: %s\n", __func__, (const char *)&ts[1]);
 	wsi->tls_session_reused = 1;
 
-	msc = SSL_mbedtls_ssl_context_from_SSL(wsi->tls.ssl);
+	msc = &wsi->tls.ssl->ssl;
 	if (mbedtls_ssl_set_session(msc, &session)) {
 		/* Failed to set session, clean up and bail */
 	}
@@ -215,7 +215,7 @@ lws_tls_session_new_mbedtls(struct lws *wsi)
 
 	nl = strlen(buf);
 
-	msc = SSL_mbedtls_ssl_context_from_SSL(wsi->tls.ssl);
+	msc = &wsi->tls.ssl->ssl;
 
 	mbedtls_ssl_session_init(&temp_session);
 

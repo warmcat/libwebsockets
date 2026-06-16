@@ -38,12 +38,12 @@ lws_ssl_destroy(struct lws_vhost *vhost)
 		return;
 
 	if (vhost->tls.ssl_ctx)
-		SSL_CTX_free(vhost->tls.ssl_ctx);
+		lws_tls_vhost_backend_free_ctx(vhost->tls.ssl_ctx);
 	if (!vhost->tls.user_supplied_ssl_ctx && vhost->tls.ssl_client_ctx)
-		SSL_CTX_free(vhost->tls.ssl_client_ctx);
+		lws_tls_vhost_backend_free_ctx(vhost->tls.ssl_client_ctx);
 
 	if (vhost->tls.x509_client_CA)
-		X509_free(vhost->tls.x509_client_CA);
+		lws_free(vhost->tls.x509_client_CA);
 }
 
 #if defined(LWS_WITH_TCP_TLS)
@@ -58,7 +58,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 		return lws_ssl_capable_read_no_ssl(wsi, buf, len);
 
 	errno = 0;
-	n = SSL_read(wsi->tls.ssl, buf, (int)len);
+	n = mbedtls_ssl_read(&wsi->tls.ssl->ssl, buf, len);
 #if defined(LWS_PLAT_FREERTOS)
 	if (!n && errno == LWS_ENOTCONN) {
 		lwsl_debug("%s: SSL_read ENOTCONN\n", lws_wsi_tag(wsi));
@@ -66,16 +66,16 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 	}
 #endif
 
-	lwsl_debug("%s: %s: SSL_read says %d\n", __func__, lws_wsi_tag(wsi), n);
+	lwsl_debug("%s: %s: mbedtls_ssl_read says %d\n", __func__, lws_wsi_tag(wsi), n);
 	/* manpage: returning 0 means connection shut down */
-	if (!n) {
+	if (!n || n == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) {
 		wsi->socket_is_permanently_unusable = 1;
 
 		return LWS_SSL_CAPABLE_ERROR;
 	}
 
 	if (n < 0) {
-		m = SSL_get_error(wsi->tls.ssl, n);
+		m = n;
 		lwsl_debug("%s: %s: ssl err %d errno %d\n", __func__, lws_wsi_tag(wsi), m, errno);
 		if (errno == LWS_ENOTCONN)
 			/* If the socket isn't connected anymore, bail out. */
@@ -86,16 +86,12 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 			goto do_err1;
 #endif
 
-		if (m == SSL_ERROR_ZERO_RETURN ||
-		    m == SSL_ERROR_SYSCALL)
-			goto do_err;
-
-		if (m == SSL_ERROR_WANT_READ || SSL_want_read(wsi->tls.ssl)) {
+		if (m == MBEDTLS_ERR_SSL_WANT_READ) {
 			lwsl_debug("%s: WANT_READ\n", __func__);
 			lwsl_debug("%s: LWS_SSL_CAPABLE_MORE_SERVICE_READ\n", lws_wsi_tag(wsi));
 			return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
 		}
-		if (m == SSL_ERROR_WANT_WRITE || SSL_want_write(wsi->tls.ssl)) {
+		if (m == MBEDTLS_ERR_SSL_WANT_WRITE) {
 			lwsl_info("%s: WANT_WRITE\n", __func__);
 			lwsl_debug("%s: LWS_SSL_CAPABLE_MORE_SERVICE_WRITE\n", lws_wsi_tag(wsi));
 			wsi->tls_read_wanted_write = 1;
@@ -107,7 +103,6 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 do_err1:
 		wsi->socket_is_permanently_unusable = 1;
 
-do_err:
 #if defined(LWS_WITH_SYS_METRICS)
 	if (wsi->a.vhost)
 		lws_metric_event(wsi->a.vhost->mt_traffic_rx, METRES_NOGO, 0);
@@ -144,7 +139,7 @@ do_err:
 	if (!wsi->tls.ssl)
 		goto bail;
 
-	if (SSL_pending(wsi->tls.ssl)) {
+	if (mbedtls_ssl_get_bytes_avail(&wsi->tls.ssl->ssl)) {
 		if (lws_dll2_is_detached(&wsi->tls.dll_pending_tls))
 			lws_dll2_add_head(&wsi->tls.dll_pending_tls,
 					  &pt->tls.dll_pending_tls_owner);
@@ -164,7 +159,7 @@ lws_ssl_pending(struct lws *wsi)
 	if (!wsi->tls.ssl)
 		return 0;
 
-	return SSL_pending(wsi->tls.ssl);
+	return (int)mbedtls_ssl_get_bytes_avail(&wsi->tls.ssl->ssl);
 }
 
 int
@@ -185,7 +180,7 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 	if (!wsi->tls.ssl)
 		return lws_ssl_capable_write_no_ssl(wsi, buf, len);
 
-	n = SSL_write(wsi->tls.ssl, buf, (int)len);
+	n = mbedtls_ssl_write(&wsi->tls.ssl->ssl, buf, len);
 	if (n > 0) {
 #if defined(LWS_WITH_SYS_METRICS)
 		if (wsi->a.vhost)
@@ -195,20 +190,18 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 		return n;
 	}
 
-	m = SSL_get_error(wsi->tls.ssl, n);
-	if (m != SSL_ERROR_SYSCALL) {
-		if (m == SSL_ERROR_WANT_READ || SSL_want_read(wsi->tls.ssl)) {
-			lwsl_notice("%s: want read\n", __func__);
+	m = n;
+	if (m == MBEDTLS_ERR_SSL_WANT_READ) {
+		lwsl_notice("%s: want read\n", __func__);
 
-			return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
-		}
+		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
+	}
 
-		if (m == SSL_ERROR_WANT_WRITE || SSL_want_write(wsi->tls.ssl)) {
-			lws_set_blocking_send(wsi);
-			lwsl_debug("%s: want write\n", __func__);
+	if (m == MBEDTLS_ERR_SSL_WANT_WRITE) {
+		lws_set_blocking_send(wsi);
+		lwsl_debug("%s: want write\n", __func__);
 
-			return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
-		}
+		return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
 	}
 
 	lwsl_debug("%s failed: %d\n",__func__, m);
@@ -227,31 +220,9 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 int openssl_SSL_CTX_private_data_index;
 
 void
-lws_ssl_info_callback(const SSL *ssl, int where, int ret)
+lws_ssl_info_callback(const lws_tls_conn *ssl, int where, int ret)
 {
-	struct lws *wsi;
-	struct lws_context *context;
-	struct lws_ssl_info si;
-
-	context = (struct lws_context *)SSL_CTX_get_ex_data(
-					SSL_get_SSL_CTX(ssl),
-					openssl_SSL_CTX_private_data_index);
-	if (!context)
-		return;
-	wsi = wsi_from_fd(context, SSL_get_fd(ssl));
-	if (!wsi)
-		return;
-
-	if (!(where & wsi->a.vhost->tls.ssl_info_event_mask))
-		return;
-
-	si.where = where;
-	si.ret = ret;
-
-	if (user_callback_handle_rxflow(wsi->a.protocol->callback,
-					wsi, LWS_CALLBACK_SSL_INFO,
-					wsi->user_space, &si, 0))
-		lws_set_timeout(wsi, PENDING_TIMEOUT_KILLED_BY_SSL_INFO, -1);
+	/* OpenSSL specific */
 }
 
 
@@ -280,14 +251,16 @@ lws_ssl_close(struct lws *wsi)
 	lws_sess_cache_synth_cb(&wsi->tls.sul_cb_synth);
 #endif
 
-	n = SSL_get_fd(wsi->tls.ssl);
-	if (!wsi->socket_is_permanently_unusable)
-		SSL_shutdown(wsi->tls.ssl);
+	n = wsi->desc.sockfd;
+	if (!wsi->socket_is_permanently_unusable) {
+		mbedtls_ssl_close_notify(&wsi->tls.ssl->ssl);
+	}
 	compatible_close(n);
 #if defined(LWS_ROLE_QUIC)
 	mbedtls_quic_bio_free(wsi);
 #endif
-	SSL_free(wsi->tls.ssl);
+	mbedtls_ssl_free(&wsi->tls.ssl->ssl);
+	lws_free(wsi->tls.ssl);
 	wsi->tls.ssl = NULL;
 
 	lws_tls_restrict_return(wsi);
@@ -307,7 +280,7 @@ lws_ssl_SSL_CTX_destroy(struct lws_vhost *vhost)
 		lws_tls_vhost_backend_free_ctx(vhost->tls.ssl_ctx);
 
 	if (!vhost->tls.user_supplied_ssl_ctx && vhost->tls.ssl_client_ctx)
-		SSL_CTX_free(vhost->tls.ssl_client_ctx);
+		lws_tls_vhost_backend_free_ctx(vhost->tls.ssl_client_ctx);
 #if defined(LWS_WITH_ACME)
 	lws_tls_acme_sni_cert_destroy(vhost);
 #endif
@@ -324,44 +297,33 @@ lws_tls_ctx_from_wsi(struct lws *wsi)
 	if (!wsi->tls.ssl)
 		return NULL;
 
-	return SSL_get_SSL_CTX(wsi->tls.ssl);
+	return wsi->tls.ssl->ctx;
 }
 
 enum lws_ssl_capable_status
 __lws_tls_shutdown(struct lws *wsi)
 {
-	int n = SSL_shutdown(wsi->tls.ssl);
+	int n = mbedtls_ssl_close_notify(&wsi->tls.ssl->ssl);
 
-	lwsl_debug("SSL_shutdown=%d for fd %d\n", n, wsi->desc.sockfd);
+	lwsl_debug("mbedtls_ssl_close_notify=%d for fd %d\n", n, wsi->desc.sockfd);
 
-	switch (n) {
-	case 1: /* successful completion */
+	if (n == 0) {
+		/* successful completion */
 		(void)shutdown(wsi->desc.sockfd, SHUT_WR);
 		return LWS_SSL_CAPABLE_DONE;
+	}
 
-	case 0: /* needs a retry */
+	if (n == MBEDTLS_ERR_SSL_WANT_READ) {
 		__lws_change_pollfd(wsi, 0, LWS_POLLIN);
 		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
-
-	default: /* fatal error, or WANT */
-		n = SSL_get_error(wsi->tls.ssl, n);
-		if (n != SSL_ERROR_SYSCALL && n != SSL_ERROR_SSL) {
-			if (SSL_want_read(wsi->tls.ssl)) {
-				lwsl_debug("(wants read)\n");
-				__lws_change_pollfd(wsi, 0, LWS_POLLIN);
-				return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
-			}
-			if (SSL_want_write(wsi->tls.ssl)) {
-				lwsl_debug("(wants write)\n");
-				__lws_change_pollfd(wsi, 0, LWS_POLLOUT);
-				return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
-			}
-			lwsl_debug("(wants read)\n");
-			__lws_change_pollfd(wsi, 0, LWS_POLLIN);
-			return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
-		}
-		return LWS_SSL_CAPABLE_ERROR;
 	}
+
+	if (n == MBEDTLS_ERR_SSL_WANT_WRITE) {
+		__lws_change_pollfd(wsi, 0, LWS_POLLOUT);
+		return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
+	}
+
+	return LWS_SSL_CAPABLE_ERROR;
 }
 
 
@@ -378,6 +340,23 @@ const struct lws_tls_ops tls_ops_mbedtls = {
 void
 lws_tls_vhost_backend_free_ctx(lws_tls_ctx *ctx)
 {
-	if (ctx)
-		SSL_CTX_free(ctx);
+	if (!ctx)
+		return;
+
+	mbedtls_ssl_config_free(&ctx->conf);
+
+	if (ctx->chain) {
+		mbedtls_x509_crt_free(ctx->chain);
+		lws_free(ctx->chain);
+	}
+	if (ctx->ca_chain) {
+		mbedtls_x509_crt_free(ctx->ca_chain);
+		lws_free(ctx->ca_chain);
+	}
+	if (ctx->key) {
+		mbedtls_pk_free(ctx->key);
+		lws_free(ctx->key);
+	}
+
+	lws_free(ctx);
 }

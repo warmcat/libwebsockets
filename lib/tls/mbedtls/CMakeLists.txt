@@ -29,49 +29,7 @@
 #
 # and keep everything else private
 
-include_directories(wrapper/include wrapper/include/internal)
-
- 	set(LWS_WITH_SSL ON)
- 	
-	include_directories(wrapper/include)
-	include_directories(wrapper/include/platform)
-	include_directories(wrapper/include/internal)
-	include_directories(wrapper/include/openssl)
- 	
- 	if (LWS_WITH_NETWORK)
-		list(APPEND HDR_PRIVATE
-			tls/mbedtls/wrapper/include/internal/ssl3.h
-			tls/mbedtls/wrapper/include/internal/ssl_cert.h
-			tls/mbedtls/wrapper/include/internal/ssl_code.h
-			tls/mbedtls/wrapper/include/internal/ssl_dbg.h
-			tls/mbedtls/wrapper/include/internal/ssl_lib.h
-			tls/mbedtls/wrapper/include/internal/ssl_methods.h
-			tls/mbedtls/wrapper/include/internal/ssl_pkey.h
-			tls/mbedtls/wrapper/include/internal/ssl_stack.h
-			tls/mbedtls/wrapper/include/internal/ssl_types.h
-			tls/mbedtls/wrapper/include/internal/ssl_x509.h
-			tls/mbedtls/wrapper/include/internal/tls1.h
-			tls/mbedtls/wrapper/include/internal/x509_vfy.h)
-	
-		list(APPEND HDR_PRIVATE
-			tls/mbedtls/wrapper/include/openssl/ssl.h)
-	
-		list(APPEND HDR_PRIVATE
-			tls/mbedtls/wrapper/include/platform/ssl_pm.h
-			tls/mbedtls/wrapper/include/platform/ssl_port.h)
-	
-		list(APPEND SOURCES
-			tls/mbedtls/wrapper/library/ssl_cert.c
-			tls/mbedtls/wrapper/library/ssl_lib.c
-			tls/mbedtls/wrapper/library/ssl_methods.c
-			tls/mbedtls/wrapper/library/ssl_pkey.c
-			tls/mbedtls/wrapper/library/ssl_stack.c
-			tls/mbedtls/wrapper/library/ssl_x509.c)
-	
-		list(APPEND SOURCES
-			tls/mbedtls/wrapper/platform/ssl_pm.c
-			tls/mbedtls/wrapper/platform/ssl_port.c)
-	endif()
+	set(LWS_WITH_SSL ON)
 
 	set(_WANT_MBT 0)
 	if (NOT LWS_PLAT_FREERTOS)
