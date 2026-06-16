@@ -191,7 +191,7 @@ add_peer_strike(struct vhd_dht_dnssec *vhd, const lws_sockaddr46 *sa)
 		if (n->sa.sa4.sin_family == sa->sa4.sin_family) {
 			if (n->sa.sa4.sin_family == AF_INET && !memcmp(&n->sa.sa4.sin_addr, &sa->sa4.sin_addr, 4)) {
 				ns = n; break;
-			} else if (n->sa.sa4.sin_family == AF_INET6 && !memcmp(&n->sa.sa6.sin6_addr, &sa->sa6.sin6_addr, 16)) {
+			} else if (n->sa.sa4.sin_family == AF_INET6 && !lws_sa46_compare_sin6_addr(&n->sa.sa6.sin6_addr, &sa->sa6.sin6_addr)) {
 				ns = n; break;
 			}
 		}
@@ -235,7 +235,7 @@ dht_dnssec_blacklist_cb(const struct sockaddr *saddr, size_t salen)
 			if (n->sa.sa4.sin_family == AF_INET && !memcmp(&n->sa.sa4.sin_addr, &sa->sa4.sin_addr, 4)) {
 				if (n->count >= 5) return 1;
 				return 0;
-			} else if (n->sa.sa4.sin_family == AF_INET6 && !memcmp(&n->sa.sa6.sin6_addr, &sa->sa6.sin6_addr, 16)) {
+			} else if (n->sa.sa4.sin_family == AF_INET6 && !lws_sa46_compare_sin6_addr(&n->sa.sa6.sin6_addr, &sa->sa6.sin6_addr)) {
 				if (n->count >= 5) return 1;
 				return 0;
 			}
@@ -260,7 +260,7 @@ notify_fetch_completion_cb(void *opaque, const char *domain, int status)
 			if (n->sa.sa4.sin_family == trk->sa.sa4.sin_family) {
 				int match = 0;
 				if (n->sa.sa4.sin_family == AF_INET && !memcmp(&n->sa.sa4.sin_addr, &trk->sa.sa4.sin_addr, 4)) match = 1;
-				else if (n->sa.sa4.sin_family == AF_INET6 && !memcmp(&n->sa.sa6.sin6_addr, &trk->sa.sa6.sin6_addr, 16)) match = 1;
+				else if (n->sa.sa4.sin_family == AF_INET6 && !lws_sa46_compare_sin6_addr(&n->sa.sa6.sin6_addr, &trk->sa.sa6.sin6_addr)) match = 1;
 				if (match) {
 					lws_dll2_remove(d);
 					lws_sul_cancel(&n->sul_expire);
@@ -802,7 +802,7 @@ dht_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 								int pfd;
 
 								lws_snprintf(tmp_ppath, sizeof(tmp_ppath), "%s/tmp/%s.%08X.payload", vhd->storage_path, frag->safe_hash, frag->temp_token);
-								pfd = open(tmp_ppath, O_RDWR | O_CREAT | O_TRUNC, 0666);
+								pfd = open(tmp_ppath, O_RDWR | O_CREAT | O_TRUNC, 0660);
 								if (pfd >= 0) {
 									if (write(pfd, map.buf[LJWS_PYLD], (size_t)map.len[LJWS_PYLD]) != (ssize_t)map.len[LJWS_PYLD]) {
 										lwsl_err("%s: Failed to write payload\n", __func__);
@@ -965,9 +965,9 @@ dht_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 			vhd->storage_path, frag->safe_hash, frag->safe_hash + 2, frag->safe_hash,
 			(unsigned long long)ttl_expiry, (unsigned long long)sig_expiry, (unsigned long long)serial);
 
-		if (mkdir(dir1, 0777) < 0 && errno != EEXIST)
+		if (mkdir(dir1, 0770) < 0 && errno != EEXIST)
 			lwsl_err("%s: Failed to create %s\n", __func__, dir1);
-		if (mkdir(dir2, 0777) < 0 && errno != EEXIST)
+		if (mkdir(dir2, 0770) < 0 && errno != EEXIST)
 			lwsl_err("%s: Failed to create %s\n", __func__, dir2);
 
 		/* Sweep old payload files for this hash before moving the new one in */
@@ -1016,9 +1016,9 @@ dht_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 							lws_snprintf(cpath, sizeof(cpath), "%s/%s.zone", req->cache_dir, req->domain);
 							int fpin = open(final_ppath, O_RDONLY);
 							if (fpin >= 0) {
-								if (mkdir(req->cache_dir, 0777) < 0 && errno != EEXIST)
+								if (mkdir(req->cache_dir, 0770) < 0 && errno != EEXIST)
 									lwsl_err("%s: Failed to create cache directory %s\n", __func__, req->cache_dir);
-								int fpout = open(cpath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+								int fpout = open(cpath, O_WRONLY | O_CREAT | O_TRUNC, 0640);
 								if (fpout >= 0) {
 									char cbuf[4096];
 									ssize_t cn;
@@ -1469,14 +1469,14 @@ verb_put_handler(struct vhd_dht_dnssec *vhd, struct lws_dht_verb_dispatch_args *
 		lws_dll2_add_tail(&frag->list, &vhd->fragments);
 
 		lws_snprintf(path, sizeof(path), "%s/tmp", vhd->storage_path);
-		if (mkdir(path, 0777) < 0 && errno != EEXIST) {
+		if (mkdir(path, 0770) < 0 && errno != EEXIST) {
 			lwsl_err("%s: Failed to create storage tmp dir %s (errno %d)\n", __func__, path, errno);
 		}
 
 		lws_snprintf(path, sizeof(path), "%s/tmp/%s.%08X", vhd->storage_path, frag->safe_hash, frag->temp_token);
 		lwsl_user("%s: Target tmp path: %s\n", __func__, path);
 
-		frag->fd = open(path, O_RDWR | O_CREAT | O_TRUNC, 0666);
+		frag->fd = open(path, O_RDWR | O_CREAT | O_TRUNC, 0660);
 		if (frag->fd < 0) {
 			lwsl_err("%s: Failed to open %s (errno %d)\n", __func__, path, errno);
 			lws_dll2_remove(&frag->list);
@@ -1724,12 +1724,12 @@ verb_rsp_handler(struct vhd_dht_dnssec *vhd, struct lws_dht_verb_dispatch_args *
 
 		char path[256];
 		lws_snprintf(path, sizeof(path), "%s/tmp", vhd->storage_path);
-		if (mkdir(path, 0777) < 0 && errno != EEXIST) {
+		if (mkdir(path, 0770) < 0 && errno != EEXIST) {
 			lwsl_err("%s: Failed to create tmp dir %s\n", __func__, path);
 		}
 		lws_snprintf(path, sizeof(path), "%s/tmp/%s.%08X", vhd->storage_path, frag->safe_hash, frag->temp_token);
 
-		frag->fd = open(path, O_RDWR | O_CREAT | O_TRUNC, 0666);
+		frag->fd = open(path, O_RDWR | O_CREAT | O_TRUNC, 0660);
 		if (frag->fd < 0) return -1;
 		if (lws_genhash_init(&frag->ctx, LWS_DHT_STORE_GENHASH)) return -1;
 		frag->hash_init_done = 1;
@@ -1961,7 +1961,7 @@ dht_dnssec_sul_bootstrap_cb(struct lws_sorted_usec_list *sul)
 							if (((struct sockaddr_in *)rp->ai_addr)->sin_addr.s_addr == htonl(INADDR_LOOPBACK))
 								is_self = 1;
 						} else if (rp->ai_family == AF_INET6) {
-							if (memcmp(&((struct sockaddr_in6 *)rp->ai_addr)->sin6_addr, &in6addr_loopback, sizeof(struct in6_addr)) == 0)
+							if (lws_sa46_compare_sin6_addr(&((struct sockaddr_in6 *)rp->ai_addr)->sin6_addr, &in6addr_loopback) == 0)
 								is_self = 1;
 						}
 					}
@@ -2105,7 +2105,7 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 				if (n->sa.sa4.sin_family == from->sa_family) {
 					if (n->sa.sa4.sin_family == AF_INET && !memcmp(&n->sa.sa4.sin_addr, &((const struct sockaddr_in *)from)->sin_addr, 4)) {
 						nrl = n; break;
-					} else if (n->sa.sa4.sin_family == AF_INET6 && !memcmp(&n->sa.sa6.sin6_addr, &((const struct sockaddr_in6 *)from)->sin6_addr, 16)) {
+					} else if (n->sa.sa4.sin_family == AF_INET6 && !lws_sa46_compare_sin6_addr(&n->sa.sa6.sin6_addr, &((const struct sockaddr_in6 *)from)->sin6_addr)) {
 						nrl = n; break;
 					}
 				}
@@ -2510,7 +2510,7 @@ verb_notify_handler(struct lws_dht_ctx *ctx, struct vhd_dht_dnssec *vhd, const s
 			if (ns->sa.sa4.sin_family == sa46.sa4.sin_family) {
 				if (ns->sa.sa4.sin_family == AF_INET && !memcmp(&ns->sa.sa4.sin_addr, &sa46.sa4.sin_addr, 4)) {
 					strikes = ns->count; break;
-				} else if (ns->sa.sa4.sin_family == AF_INET6 && !memcmp(&ns->sa.sa6.sin6_addr, &sa46.sa6.sin6_addr, 16)) {
+				} else if (ns->sa.sa4.sin_family == AF_INET6 && !lws_sa46_compare_sin6_addr(&ns->sa.sa6.sin6_addr, &sa46.sa6.sin6_addr)) {
 					strikes = ns->count; break;
 				}
 			}
@@ -3431,7 +3431,7 @@ do_keygen(struct lws_context *context, struct lws_dht_dnssec_keygen_args *args)
 					char pub_filename[256];
 					lws_snprintf(pub_filename, sizeof(pub_filename), "%s/%s.%s.key", wd, domain, is_ksk ? "ksk" : "zsk");
 
-					fd = open(pub_filename, LWS_O_CREAT | LWS_O_TRUNC | LWS_O_WRONLY, 0644);
+					fd = open(pub_filename, LWS_O_CREAT | LWS_O_TRUNC | LWS_O_WRONLY, 0640);
 					if (fd >= 0) {
 						char outbuf[4096];
 						int n = lws_snprintf(outbuf, sizeof(outbuf), "%s. IN DNSKEY %d 3 %d %s\n", domain, flags, alg, b64_key);
@@ -3467,7 +3467,7 @@ do_keygen(struct lws_context *context, struct lws_dht_dnssec_keygen_args *args)
 								if (!lws_genhash_update(&hash_ctx, payload, (size_t)name_len + rdata_len)) {
 									lws_genhash_destroy(&hash_ctx, digest);
 
-									int ds_fd = open(ds_filename, LWS_O_CREAT | LWS_O_TRUNC | LWS_O_WRONLY, 0644);
+									int ds_fd = open(ds_filename, LWS_O_CREAT | LWS_O_TRUNC | LWS_O_WRONLY, 0640);
 									if (ds_fd >= 0) {
 										char ds_summary[1024];
 										char hex[128];
@@ -3516,7 +3516,7 @@ do_keygen(struct lws_context *context, struct lws_dht_dnssec_keygen_args *args)
 					char pub_filename[256];
 					lws_snprintf(pub_filename, sizeof(pub_filename), "%s/%s.%s.key", wd, domain, is_ksk ? "ksk" : "zsk");
 
-					fd = open(pub_filename, LWS_O_CREAT | LWS_O_TRUNC | LWS_O_WRONLY, 0644);
+					fd = open(pub_filename, LWS_O_CREAT | LWS_O_TRUNC | LWS_O_WRONLY, 0640);
 					if (fd >= 0) {
 						char outbuf[1024];
 						int n = lws_snprintf(outbuf, sizeof(outbuf), "%s. IN DNSKEY %d 3 %d %s\n", domain, flags, alg, b64_key);
@@ -3554,7 +3554,7 @@ do_keygen(struct lws_context *context, struct lws_dht_dnssec_keygen_args *args)
 								if (!lws_genhash_update(&hash_ctx, payload, (size_t)name_len + rdata_len)) {
 									lws_genhash_destroy(&hash_ctx, digest);
 
-									int ds_fd = open(ds_filename, LWS_O_CREAT | LWS_O_TRUNC | LWS_O_WRONLY, 0644);
+									int ds_fd = open(ds_filename, LWS_O_CREAT | LWS_O_TRUNC | LWS_O_WRONLY, 0640);
 									if (ds_fd >= 0) {
 										char ds_summary[1024];
 										char hex[128];
@@ -4644,7 +4644,7 @@ do_importnsd(struct lws_context *context, struct lws_dht_dnssec_importnsd_args *
 
 		char pub_filename[256];
 		lws_snprintf(pub_filename, sizeof(pub_filename), "%s.%s.key", domain, is_ksk ? "ksk" : "zsk");
-		fd = open(pub_filename, LWS_O_CREAT | LWS_O_TRUNC | LWS_O_WRONLY, 0644);
+		fd = open(pub_filename, LWS_O_CREAT | LWS_O_TRUNC | LWS_O_WRONLY, 0640);
 		if (fd >= 0) {
 			char outbuf[16384]; // large for RSA keys
 			int rn = lws_snprintf(outbuf, sizeof(outbuf), "%s IN DNSKEY %d 3 %d %s\n", parsed_domain, flags, alg, b64);
@@ -4679,7 +4679,7 @@ do_importnsd(struct lws_context *context, struct lws_dht_dnssec_importnsd_args *
 				if (!lws_genhash_update(&hash_ctx, payload, (size_t)name_len + rdata_len)) {
 					lws_genhash_destroy(&hash_ctx, digest);
 
-					int ds_fd = open(ds_filename, LWS_O_CREAT | LWS_O_TRUNC | LWS_O_WRONLY, 0644);
+					int ds_fd = open(ds_filename, LWS_O_CREAT | LWS_O_TRUNC | LWS_O_WRONLY, 0640);
 					if (ds_fd >= 0) {
 						char ds_summary[1024];
 						char thex[128];

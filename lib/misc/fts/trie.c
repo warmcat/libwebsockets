@@ -1165,6 +1165,8 @@ lws_fts_serialize(struct lws_fts *t)
 
 		fp->ofs = t->c + (unsigned int)bp;
 		n = (int)strlen(fp->filepath);
+		if (15 + n > (int)sizeof(buf))
+			goto bail;
 		spill(15 + n, 0);
 
 		bp += wq32(&buf[bp], fp->line_table_ofs);
@@ -1279,6 +1281,9 @@ lws_fts_serialize(struct lws_fts *t)
 
 		e1 = e->child_list;
 		while (e1) {
+			if ((5 * MAX_VLI) + e1->suffix_len + 1 > sizeof(buf))
+				goto bail;
+
 			spill((5 * MAX_VLI) + e1->suffix_len + 1, 0);
 
 			bp += wq32(&buf[bp], e1->ofs);
@@ -1321,6 +1326,8 @@ lws_fts_serialize(struct lws_fts *t)
 		if (do_parent) {
 			do_parent = 0;
 			sp--;
+			if (sp < 0)
+				break;
 		}
 
 		if (s[sp]->sibling)

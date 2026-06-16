@@ -40,44 +40,31 @@ void *SDK_Malloc(size_t size, size_t alignbytes)
 
     alignedsize += alignbytes + sizeof(mem_align_cb_t);
 
-    union
-    {
-        void *pointer_value;
-        uint32_t unsigned_value;
-    } p_align_addr, p_addr;
+    uint8_t *p_addr = (uint8_t *)malloc(alignedsize);
 
-    p_addr.pointer_value = malloc(alignedsize);
-
-    if (p_addr.pointer_value == NULL)
+    if (p_addr == NULL)
     {
         return NULL;
     }
 
-    p_align_addr.unsigned_value = SDK_SIZEALIGN(p_addr.unsigned_value + sizeof(mem_align_cb_t), alignbytes);
+    uint8_t *p_align_addr = (uint8_t *)(uintptr_t)SDK_SIZEALIGN((uintptr_t)p_addr + sizeof(mem_align_cb_t), alignbytes);
 
-    p_cb             = (mem_align_cb_t *)(p_align_addr.unsigned_value - 4U);
+    p_cb             = (mem_align_cb_t *)(p_align_addr - 4U);
     p_cb->identifier = SDK_MEM_MAGIC_NUMBER;
-    p_cb->offset     = (uint16_t)(p_align_addr.unsigned_value - p_addr.unsigned_value);
+    p_cb->offset     = (uint16_t)(p_align_addr - p_addr);
 
-    return p_align_addr.pointer_value;
+    return p_align_addr;
 }
 
 void SDK_Free(void *ptr)
 {
-    union
-    {
-        void *pointer_value;
-        uint32_t unsigned_value;
-    } p_free;
-    p_free.pointer_value = ptr;
-    mem_align_cb_t *p_cb = (mem_align_cb_t *)(p_free.unsigned_value - 4U);
+    uint8_t *p_free = (uint8_t *)ptr;
+    mem_align_cb_t *p_cb = (mem_align_cb_t *)(p_free - 4U);
 
     if (p_cb->identifier != SDK_MEM_MAGIC_NUMBER)
     {
         return;
     }
 
-    p_free.unsigned_value = p_free.unsigned_value - p_cb->offset;
-
-    free(p_free.pointer_value);
+    free(p_free - p_cb->offset);
 }

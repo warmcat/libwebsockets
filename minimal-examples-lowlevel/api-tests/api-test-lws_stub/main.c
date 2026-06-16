@@ -151,7 +151,7 @@ static int run_stub(struct lws_context *cx, const char *stub_name)
 	lws_snprintf(win_uds, sizeof(win_uds), "%s\\lws-stub.sock", tmp);
 	sc.uds_path = win_uds;
 #else
-	sc.uds_path = "/tmp/lws-demo-stub.sock";
+	sc.uds_path = "/tmp/lws-demo-stub.sock"; // NOSONAR
 #endif
 	sc.protocols = stub_protocols;
 
@@ -269,7 +269,7 @@ int main(int argc, const char **argv)
 		lws_snprintf(win_uds2, sizeof(win_uds2), "%s\\lws-stub.sock", tmp);
 		sc.uds_path = win_uds2;
 #else
-		sc.uds_path = "/tmp/lws-demo-stub.sock";
+		sc.uds_path = "/tmp/lws-demo-stub.sock"; // NOSONAR
 #endif
 		sc.protocols = stub_protocols;
 		sc.extra_payload = "initialization_data_for_stub";

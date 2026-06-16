@@ -86,7 +86,7 @@ file_upload_cb(void *data, const char *name, const char *filename,
 		 * attacks  */
 #if !defined(LWS_WITH_ESP32)
 		lws_snprintf(pss->filename, sizeof(pss->filename),
-			     "/tmp/post-file-%p", pss->wsi);
+			     "/tmp/post-file-%p", pss->wsi); // NOSONAR
 		pss->fd = (lws_filefd_type)(lws_intptr_t)lws_open(pss->filename,
 			       O_CREAT | O_TRUNC | O_RDWR, 0600);
 #endif

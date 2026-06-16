@@ -735,8 +735,8 @@ bail:
 static void
 expiry_cb(lws_sorted_usec_list_t *sul)
 {
-	lws_cache_nscookiejar_t *cache = lws_container_of(sul,
-					lws_cache_nscookiejar_t, cache.sul);
+	lws_cache_nscookiejar_t *cache = (lws_cache_nscookiejar_t *)
+			lws_container_of(sul, lws_cache_ttl_lru_t, sul);
 
 	/*
 	 * regen the cookie jar without changes, so expired are removed and

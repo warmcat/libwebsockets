@@ -43,6 +43,7 @@
 	#include <chrono>
 	#include <system_error>
 	#include <process.h>
+	#include <type_traits>
 
 	#define _STD_THREAD_INVALID_HANDLE 0
 	namespace std
@@ -75,7 +76,13 @@
 				other.mHandle = _STD_THREAD_INVALID_HANDLE;
 				other.mThreadId.clear();
 			}
-			template<class Function, class... Args>
+			template<class Function, class... Args,
+			         class = typename std::enable_if<
+			             !std::is_same<
+			                 typename std::decay<Function>::type,
+			                 thread
+			             >::value
+			         >::type>
 			explicit thread(Function&& f, Args&&... args)
 			{
 				typedef decltype(std::bind(f, args...)) Call;
@@ -115,7 +122,7 @@
 			{
 				if (joinable())
 				  std::terminate();
-				swap(std::forward<thread>(other));
+				swap(std::move(other));
 				return *this;
 			}
 			void swap(thread&& other) noexcept

@@ -391,7 +391,7 @@ lws_diskcache_trim(struct lws_diskcache_scan *lds)
 			p = lp_to_fe(lp, sorted);
 
 			p->prev = op;
-			op = &p->prev;
+			op = p;
 			lp = p->sorted;
 		}
 
@@ -400,10 +400,9 @@ lws_diskcache_trim(struct lws_diskcache_scan *lds)
 		 * .prev)... it's oldest-first now...
 		 */
 
-		lp = op;
+		p = op;
 
-		while (lp && lds->agg_size > cache_size_limit) {
-			p = lp_to_fe(lp, prev);
+		while (p && lds->agg_size > cache_size_limit) {
 
 			lws_snprintf(filepath, sizeof(filepath), "%s/%c/%c/%s",
 				     lds->cache_dir_base, p->name[0],
@@ -417,7 +416,7 @@ lws_diskcache_trim(struct lws_diskcache_scan *lds)
 				lwsl_notice("%s: Failed to unlink %s\n",
 					    __func__, filepath);
 
-			lp = p->prev;
+			p = p->prev;
 		}
 
 		if (files_trimmed)

@@ -1619,8 +1619,8 @@ input[type="submit"].link_post.pushover_button {
 
 	div#inside {
 		margin-left: calc(
-			10px +   /* header#nav padding-left */
-			18px +   /* #logo width + padding l/r */
+			10px + /* header#nav padding-left */
+			18px + /* #logo width + padding l/r */
 			0.25rem + /* header#nav a margin-right for logo */
 			0.25rem   /* header#nav a margin-left for first link in header#nav */
 		);

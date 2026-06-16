@@ -77,7 +77,8 @@ int main(int argc, const char **argv)
 		goto bail;
 	}
 
-	if (memcmp(res->ns.name, expected_spki, (size_t)res->ns.len)) {
+	if (memcmp(big + sizeof(*res) - sizeof(res->ns.name),
+		   expected_spki, (size_t)res->ns.len)) {
 		lwsl_err("SPKI content mismatch\n");
 		ret = 1;
 		goto bail;

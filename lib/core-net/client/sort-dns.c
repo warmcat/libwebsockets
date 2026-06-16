@@ -262,9 +262,9 @@ lws_sort_dns_scomp(struct lws_context_per_thread *pt, const lws_route_t *sa,
 	 * If SA = D, then prefer SA.  Similarly, if SB = D, then prefer SB.
 	 */
 
-	if (!memcmp(&sa6->sin6_addr, &dst->sin6_addr, 16))
+	if (!memcmp(sa6->sin6_addr.s6_addr, dst->sin6_addr.s6_addr, 16))
 		return SAS_PREFER_A;
-	if (!memcmp(&sb6->sin6_addr, &dst->sin6_addr, 16))
+	if (!memcmp(sb6->sin6_addr.s6_addr, dst->sin6_addr.s6_addr, 16))
 		return SAS_PREFER_B;
 
 	/*

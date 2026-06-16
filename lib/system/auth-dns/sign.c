@@ -141,7 +141,7 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 		    e == LWS_TOKZE_TOKEN_CHUNK || e == LWS_TOKZE_QUOTED_STRING_CHUNK) {
 			if (num_toks < 64) {
 				n = (int)ts.token_len;
-				if (tok_ofs + n > (int)sizeof(toks[0]) - 1)
+				if (n > (int)sizeof(toks[0]) - 1 - tok_ofs)
 					n = (int)sizeof(toks[0]) - 1 - tok_ofs;
 				if (n > 0) {
 					memcpy(toks[num_toks] + tok_ofs, ts.token, (size_t)n);
@@ -151,7 +151,8 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 			}
 
 			if (e == LWS_TOKZE_TOKEN || e == LWS_TOKZE_QUOTED_STRING || e == LWS_TOKZE_INTEGER) {
-				num_toks++;
+				if (num_toks < 64)
+					num_toks++;
 				tok_ofs = 0;
 			}
 		}
