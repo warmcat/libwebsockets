@@ -1529,7 +1529,7 @@ pkt_add_hdrs:
 				goto failed;
 			}
 
-			n = sprintf(buf, "%d", ac->len);
+			n = lws_snprintf(buf, sizeof(buf), "%d", ac->len);
 			if (lws_add_http_header_by_token(wsi,
 						WSI_TOKEN_HTTP_CONTENT_LENGTH,
 						(uint8_t *)buf, n, pp, pend)) {

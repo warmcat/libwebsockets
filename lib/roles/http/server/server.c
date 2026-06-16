@@ -884,7 +884,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 	if (spin == 5)
 		lwsl_err("symlink loop %s \n", path);
 
-	n = sprintf(sym, "%08llX%08lX",
+	n = lws_snprintf(sym, sizeof(sym), "%08llX%08lX",
 		    (unsigned long long)lws_vfs_get_length(wsi->http.fop_fd),
 		    (unsigned long)lws_vfs_get_mod_time(wsi->http.fop_fd));
 
@@ -927,13 +927,13 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 			if (m->cache_max_age && m->cache_reusable) {
 				if (!m->cache_revalidate) {
 					cc = cache_control;
-					cclen = sprintf(cache_control,
+					cclen = lws_snprintf(cache_control, sizeof(cache_control),
 						"%s, max-age=%u",
 						intermediates[wsi->cache_intermediaries],
 						m->cache_max_age);
 				} else {
 					cc = cache_control;
-                                        cclen = sprintf(cache_control,
+                                        cclen = lws_snprintf(cache_control, sizeof(cache_control),
                                         	"must-revalidate, %s, max-age=%u",
                                                 intermediates[wsi->cache_intermediaries],
                                                 m->cache_max_age);
@@ -3309,17 +3309,17 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 
 	if (wsi->cache_no) {
 		cc = cache_control;
-		cclen = sprintf(cache_control, "no-cache");
+		cclen = lws_snprintf(cache_control, sizeof(cache_control), "no-cache");
 	}
 	else if (wsi->cache_secs && wsi->cache_reuse) {
 		if (!wsi->cache_revalidate) {
 			cc = cache_control;
-			cclen = sprintf(cache_control, "%s, max-age=%u",
+			cclen = lws_snprintf(cache_control, sizeof(cache_control), "%s, max-age=%u",
                          intermediates[wsi->cache_intermediaries],
                          wsi->cache_secs);
 		} else {
 			cc = cache_control;
-			cclen = sprintf(cache_control,
+			cclen = lws_snprintf(cache_control, sizeof(cache_control),
                          "must-revalidate, %s, max-age=%u",
                          intermediates[wsi->cache_intermediaries],
                          wsi->cache_secs);
@@ -3926,7 +3926,7 @@ skip:
 		if (args->final && args->len + 7 >= args->max_len)
 			return -1;
 
-		n = sprintf(buffer, "%X\x0d\x0a", args->len);
+		n = lws_snprintf(buffer, sizeof(buffer), "%X\x0d\x0a", args->len);
 
 		args->p -= n;
 		memcpy(args->p, buffer, (unsigned int)n);

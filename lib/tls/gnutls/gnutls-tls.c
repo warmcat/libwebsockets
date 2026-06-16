@@ -47,9 +47,9 @@ lws_gnutls_keylog_cb(gnutls_session_t session, const char *label, const gnutls_d
 		return 0;
 
 	for (i = 0; i < crandom.size; i++)
-		sprintf(&crand_hex[i * 2], "%02x", crandom.data[i]);
+		lws_snprintf(&crand_hex[i * 2], sizeof(crand_hex) - (i * 2), "%02x", crandom.data[i]);
 	for (i = 0; i < secret->size; i++)
-		sprintf(&secret_hex[i * 2], "%02x", secret->data[i]);
+		lws_snprintf(&secret_hex[i * 2], sizeof(secret_hex) - (i * 2), "%02x", secret->data[i]);
 
 	fd = open(wsi->a.context->keylog_file, O_WRONLY | O_CREAT | O_APPEND, 0600);
 	if (fd < 0)

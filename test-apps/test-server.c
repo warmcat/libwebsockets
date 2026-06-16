@@ -560,14 +560,14 @@ int main(int argc, char **argv)
 			return -1;
 		}
 		if (!cert_path[0])
-			sprintf(cert_path, "%s/libwebsockets-test-server.pem",
+			lws_snprintf(cert_path, sizeof(cert_path), "%s/libwebsockets-test-server.pem",
 								resource_path);
 		if (strlen(resource_path) > sizeof(key_path) - 32) {
 			lwsl_err("resource path too long\n");
 			return -1;
 		}
 		if (!key_path[0])
-			sprintf(key_path, "%s/libwebsockets-test-server.key.pem",
+			lws_snprintf(key_path, sizeof(key_path), "%s/libwebsockets-test-server.key.pem",
 								resource_path);
 #if defined(LWS_WITH_TLS)
 		info.ssl_cert_filepath = cert_path;
