@@ -256,6 +256,9 @@ static DictTreeNode *find_tree_node(DataFile::pixels_t::const_iterator begin,
                                     DictTreeNode *root)
 {
     DictTreeNode* node = root;
+    if (!node)
+        return nullptr;
+
     while (begin != end)
     {
         uint8_t pixel = *begin++;

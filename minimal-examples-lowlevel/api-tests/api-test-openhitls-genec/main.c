@@ -405,7 +405,7 @@ test_edge_cases(struct lws_context *context)
 	 *   b) lws_genecdsa_set_key on an ECDH context -> -1
 	 */
 	{
-		const char *crv = "P-256";
+		uint8_t crv[] = "P-256";
 		struct lws_gencrypto_keyelem dummy[LWS_GENCRYPTO_EC_KEYEL_COUNT];
 
 		/* D.3a: ECDH set_key on ECDSA ctx */
@@ -414,7 +414,7 @@ test_edge_cases(struct lws_context *context)
 			return 1;
 		}
 		memset(dummy, 0, sizeof(dummy));
-		dummy[LWS_GENCRYPTO_EC_KEYEL_CRV].buf = (uint8_t *)crv;
+		dummy[LWS_GENCRYPTO_EC_KEYEL_CRV].buf = crv;
 		dummy[LWS_GENCRYPTO_EC_KEYEL_CRV].len = 6;
 		n = lws_genecdh_set_key(&ctx, dummy, LDHS_OURS);
 		if (n != -1) {
@@ -431,7 +431,7 @@ test_edge_cases(struct lws_context *context)
 			return 1;
 		}
 		memset(dummy, 0, sizeof(dummy));
-		dummy[LWS_GENCRYPTO_EC_KEYEL_CRV].buf = (uint8_t *)crv;
+		dummy[LWS_GENCRYPTO_EC_KEYEL_CRV].buf = crv;
 		dummy[LWS_GENCRYPTO_EC_KEYEL_CRV].len = 6;
 		n = lws_genecdsa_set_key(&ctx, dummy);
 		if (n != -1) {

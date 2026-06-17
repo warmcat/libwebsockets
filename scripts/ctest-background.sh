@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # $SAI_LIST_PORT - optional, if present the ipv4 port number to wait on existing
 # $SAI_INSTANCE_IDX - which instance of sai, 0+

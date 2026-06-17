@@ -423,7 +423,7 @@ lws_x509_parse_from_pem(struct lws_x509_cert *x509, const void *pem, size_t len)
 		buf.data = pem_copy;
 		buf.dataLen = (uint32_t)len;
 	} else {
-		buf.data = (uint8_t *)pem;
+		buf.data = (uint8_t *)(lws_intptr_t)pem;
 		buf.dataLen = (uint32_t)len - 1;
 	}
 
@@ -822,7 +822,7 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk, void *pem,
 	}
 
 	if (passphrase) {
-		pwd_buf.data = (uint8_t *)passphrase;
+		pwd_buf.data = (uint8_t *)(lws_intptr_t)passphrase;
 		pwd_buf.dataLen = (uint32_t)strlen(passphrase);
 	}
 	ret = CRYPT_EAL_DecodeBuffKey(BSL_FORMAT_PEM, CRYPT_ENCDEC_UNKNOW, &pem_buf, pwd_buf.data, pwd_buf.dataLen, &pkey);

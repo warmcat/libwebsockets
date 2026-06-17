@@ -302,8 +302,8 @@ lws_extip_report(struct lws_context *cx, lws_extip_src_t src,
 	else if (target->sa6.sin6_family == AF_INET6) {
 		if (old.sa6.sin6_port != target->sa6.sin6_port ||
 		    old.sa6.sin6_scope_id != target->sa6.sin6_scope_id ||
-		    memcmp(&old.sa6.sin6_addr, &target->sa6.sin6_addr,
-			   sizeof(old.sa6.sin6_addr)))
+		    memcmp(old.sa6.sin6_addr.s6_addr, target->sa6.sin6_addr.s6_addr,
+			   sizeof(old.sa6.sin6_addr.s6_addr)))
 			changed = 1;
 	}
 #endif

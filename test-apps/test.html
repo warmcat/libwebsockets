@@ -166,7 +166,7 @@ initiate the close, which it does with code 1001 and reason "Seeya".
        <label for="tab-4">Server info</label>
 
        <div class="content">
-<div id="ot" class="group2">
+<div id="si" class="group2">
       <table>
        <tr>
 	<td id=s_statustd align=center class="wsstatus">
@@ -198,7 +198,7 @@ whenever the information changes server-side.
        <label for="tab-5">POST</label>
 
        <div class="content">
-<div id="ot" class="group2">
+<div id="post" class="group2">
       <table width=100%>
        <tr>
 	        <td colspan=1>
@@ -209,7 +209,7 @@ whenever the information changes server-side.
 This tests POST handling in lws.
 </td></tr>
 	<tr>
-	<td align=center colspan=2 class=tdform><div id=postinfo>
+	<td align=center colspan=2 class=tdform><div id="postinfo1">
 	FORM 1: send with urlencoded POST body args<br>
 	<form action="formtest" method="post">
  <span class="f12">Some text: </span>
@@ -221,7 +221,7 @@ This tests POST handling in lws.
 
 
 	<tr>
-	<td align=center colspan=2 class=tdform><div id=postinfo >
+	<td align=center colspan=2 class=tdform><div id="postinfo2">
 	FORM 2: send with multipart/form-data<br>
 	(can handle file upload, test limited to 100KB)<br>
 	<form name=multipart action="formtest" method="post"

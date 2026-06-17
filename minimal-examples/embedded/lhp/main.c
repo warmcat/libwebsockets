@@ -103,6 +103,7 @@ static int
 do_reboot(void)
 {
 	esp_restart();
+	return 0;
 }
 
 static int

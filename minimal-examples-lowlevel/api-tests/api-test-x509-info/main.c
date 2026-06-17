@@ -39,7 +39,7 @@ test_cert_info(struct lws_x509_cert *x509, enum lws_tls_cert_info type, const ch
 	union lws_tls_cert_info_results *buf = (union lws_tls_cert_info_results *)big;
 	int ret;
 
-	memset(big, 0, sizeof(big));
+	lws_explicit_bzero(big, sizeof(big));
 	ret = lws_x509_info(x509, type, buf, sizeof(big) - sizeof(*buf) + sizeof(buf->ns.name));
 	lwsl_user("\n=== %s ===", name);
 	lwsl_user("Return: %d", ret);
@@ -88,7 +88,7 @@ expect_cert_info_string(struct lws_x509_cert *x509,
 	size_t len = sizeof(big) - sizeof(*buf) + sizeof(buf->ns.name);
 	int ret;
 
-	memset(big, 0, sizeof(big));
+	lws_explicit_bzero(big, sizeof(big));
 	ret = lws_x509_info(x509, type, buf, len);
 	if (ret) {
 		lwsl_err("%s: %s returned %d", __func__, name, ret);
@@ -113,7 +113,7 @@ expect_cert_info_small_buffer(struct lws_x509_cert *x509,
 		(union lws_tls_cert_info_results *)small;
 	int ret;
 
-	memset(small, 0, sizeof(small));
+	lws_explicit_bzero(small, sizeof(small));
 	ret = lws_x509_info(x509, type, buf, 2);
 	if (ret != -1) {
 		lwsl_err("%s: %s small buffer returned %d", __func__, name,

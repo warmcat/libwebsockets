@@ -640,7 +640,7 @@ lws_openhitls_add_dn(BslList *dn, BslCid cid, const char *value)
 
 	memset(&name, 0, sizeof(name));
 	name.cid = cid;
-	name.data = (uint8_t *)value;
+	name.data = (uint8_t *)(lws_intptr_t)value;
 	name.dataLen = (uint32_t)strlen(value);
 
 	return HITLS_X509_AddDnName(dn, &name, 1) != HITLS_PKI_SUCCESS;
@@ -896,7 +896,7 @@ lws_openhitls_csr_add_subject(const char *elements[], HITLS_X509_Csr *csr)
 		}
 
 		dn.cid = dn_cid[n];
-		dn.data = (uint8_t *)(elements[n][0] ? elements[n] : "none");
+		dn.data = (uint8_t *)(lws_intptr_t)(elements[n][0] ? elements[n] : "none");
 		dn.dataLen = (uint32_t)strlen((const char *)dn.data);
 		if (HITLS_X509_CsrCtrl(csr, HITLS_X509_ADD_SUBJECT_NAME,
 				       &dn, 1) != HITLS_PKI_SUCCESS) {

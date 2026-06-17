@@ -347,7 +347,8 @@ lws_genec_new_keypair(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 	const EC_POINT *pubkey;
 	EVP_PKEY *pkey = NULL;
 	int ret = -29, n, m;
-	BIGNUM *bn[3];
+	BIGNUM *bn_x = NULL, *bn_y = NULL;
+	const BIGNUM *cbn[3];
 	EC_KEY *ec;
 
 	curve = lws_genec_curve(ctx->curve_table, curve_name);
@@ -395,20 +396,23 @@ lws_genec_new_keypair(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 		goto bail1;
 	}
 
-	bn[0] = BN_new();
-	bn[1] = (BIGNUM *)EC_KEY_get0_private_key(ec);
-	bn[2] = BN_new();
+	bn_x = BN_new();
+	bn_y = BN_new();
 
 #if defined(LWS_HAVE_EC_POINT_get_affine_coordinates)
 	if (EC_POINT_get_affine_coordinates(EC_KEY_get0_group(ec),
 #else
 	if (EC_POINT_get_affine_coordinates_GFp(EC_KEY_get0_group(ec),
 #endif
-		        pubkey, bn[0], bn[2], NULL) != 1) {
+		        pubkey, bn_x, bn_y, NULL) != 1) {
 		lwsl_err("%s: EC_POINT_get_affine_coordinates_GFp failed\n",
 			 __func__);
 		goto bail2;
 	}
+
+	cbn[0] = bn_x;
+	cbn[1] = EC_KEY_get0_private_key(ec);
+	cbn[2] = bn_y;
 
 	el[LWS_GENCRYPTO_EC_KEYEL_CRV].len = (uint32_t)strlen(curve_name) + 1;
 	el[LWS_GENCRYPTO_EC_KEYEL_CRV].buf =
@@ -427,7 +431,7 @@ lws_genec_new_keypair(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 		if (!el[n].buf)
 			goto bail2;
 
-		m = BN_bn2binpad(bn[n - 1], el[n].buf, (int32_t)el[n].len);
+		m = BN_bn2binpad(cbn[n - 1], el[n].buf, (int32_t)el[n].len);
 		if ((uint32_t)m != el[n].len)
 			goto bail2;
 	}
@@ -437,8 +441,8 @@ lws_genec_new_keypair(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 	ret = 0;
 
 bail2:
-	BN_clear_free(bn[0]);
-	BN_clear_free(bn[2]);
+	BN_clear_free(bn_x);
+	BN_clear_free(bn_y);
 bail1:
 	EVP_PKEY_free(pkey);
 bail:

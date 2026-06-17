@@ -1028,7 +1028,7 @@ lws_tls_openssl_add_nid(X509_NAME *name, int nid, const char *value)
 		value = "none";
 
 	e = X509_NAME_ENTRY_create_by_NID(NULL, nid, MBSTRING_ASC,
-					  (unsigned char *)value, -1);
+					  (const unsigned char *)value, -1);
 	if (!e)
 		return 1;
 	n = X509_NAME_add_entry(name, e, -1, 0);
