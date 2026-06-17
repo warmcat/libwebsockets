@@ -10,7 +10,7 @@
  #include <libwebsockets.h>
  #include <stdlib.h>
  
- #if !defined(LWS_WITH_GNUTLS)
+ #if !defined(LWS_WITH_GNUTLS) && !(defined(LWS_WITH_MBEDTLS) && defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000)
  static int
  test_genrsa_roundtrips(struct lws_context *context)
  {
@@ -297,21 +297,21 @@ bail:
 int
 test_genrsa(struct lws_context *context)
 {
-#if !defined(LWS_WITH_GNUTLS)
+#if !defined(LWS_WITH_GNUTLS) && !(defined(LWS_WITH_MBEDTLS) && defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000)
 	if (test_genrsa_roundtrips(context))
 		goto bail;
 
 	if (test_genrsa_fixed_vectors(context))
 		goto bail;
 #else
-	lwsl_notice("%s: Skipping RSA encrypt/decrypt tests (unsupported on GnuTLS)\n", __func__);
+	lwsl_notice("%s: Skipping RSA encrypt/decrypt tests (unsupported on this backend)\n", __func__);
 #endif
 
 	lwsl_notice("%s: selftest OK\n", __func__);
 
 	return 0;
 
-#if !defined(LWS_WITH_GNUTLS)
+#if !defined(LWS_WITH_GNUTLS) && !(defined(LWS_WITH_MBEDTLS) && defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000)
 bail:
 	lwsl_err("%s: selftest failed ++++++++++++++++++++\n", __func__);
 
