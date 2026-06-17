@@ -2558,7 +2558,19 @@ lws_h2_client_handshake(struct lws *wsi)
 	 * receives an unexpected stream identifier MUST respond with a
 	 * connection error (Section 5.4.1) of type PROTOCOL_ERROR.
 	 */
-	unsigned int sid = nwsi->h2.h2n->highest_sid_opened + 2;
+	unsigned int sid = wsi->mux.my_sid;
+
+	/*
+	 * If this stream was already bound to a sid (the first client stream is
+	 * bound to sid 1 at the h2 upgrade), keep it.  Only streams that don't
+	 * yet have a sid get one allocated here, at header-send time, so that
+	 * concurrently-opening streams still get monotonically-increasing sids.
+	 * Without this guard the first stream's sid 1 was overwritten with
+	 * highest_sid_opened + 2 (= 3), which strict servers (e.g. Google's GFE)
+	 * reject with PROTOCOL_ERROR since the first client stream must be 1.
+	 */
+	if (!sid)
+		sid = nwsi->h2.h2n->highest_sid_opened + 2;
 
 	lwsl_debug("%s\n", __func__);
 
@@ -2570,7 +2582,9 @@ lws_h2_client_handshake(struct lws *wsi)
 	 * open streams in ascending sid order
 	 */
 
-	wsi->mux.my_sid = nwsi->h2.h2n->highest_sid_opened = sid;
+	wsi->mux.my_sid = sid;
+	if (sid > nwsi->h2.h2n->highest_sid_opened)
+		nwsi->h2.h2n->highest_sid_opened = sid;
 	lwsl_info("%s: %s: assigning SID %d at header send\n", __func__,
 			lws_wsi_tag(wsi), sid);
 
@@ -2663,16 +2677,14 @@ lws_h2_client_handshake(struct lws *wsi)
 
 //	n = lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_ORIGIN);
 //	simp = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ORIGIN);
-#if 0
+	/*
+	 * h2 carries the request authority in the :authority pseudo-header,
+	 * not a Host header (RFC 7540 8.1.2.3).  Sending only Host (as this
+	 * path used to) makes strict servers such as Google's GFE reject the
+	 * stream with PROTOCOL_ERROR; :authority is accepted by all h2 servers.
+	 */
 	if (n && simp && lws_add_http_header_by_token(wsi,
 				WSI_TOKEN_HTTP_COLON_AUTHORITY,
-				(unsigned char *)simp, n, &p, end))
-		goto fail_length;
-#endif
-
-
-	if (/*!wsi->client_h2_alpn && */n && simp &&
-	    lws_add_http_header_by_token(wsi, WSI_TOKEN_HOST,
 				(unsigned char *)simp, n, &p, end))
 		goto fail_length;
 

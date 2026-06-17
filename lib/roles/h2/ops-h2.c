@@ -78,12 +78,19 @@ const struct http2_settings lws_h2_stock_settings = { {
 	 * way to precisely control it when we do want to.
 	 */
 	/* H2SET_MAX_FRAME_SIZE */		       16384,
-	/* H2SET_MAX_HEADER_LIST_SIZE */	        4096,
+	/* H2SET_MAX_HEADER_LIST_SIZE */	       65536,
 	/*< This advisory setting informs a peer of the maximum size of
 	 * header list that the sender is prepared to accept, in octets.
 	 * The value is based on the uncompressed size of header fields,
 	 * including the length of the name and value in octets plus an
 	 * overhead of 32 octets for each header field.
+	 *
+	 * The previous stock value of 4096 is smaller than the response
+	 * headers many real servers send (github.com, Google's GFE,
+	 * wikipedia), and the public http2_settings[] override can't reach
+	 * this index, so such servers' streams were GOAWAY'd with
+	 * ENHANCE_YOUR_CALM.  The actual header storage is still bounded by
+	 * max_http_header_data.
 	 */
 	/* H2SET_RESERVED7 */				   0,
 	/* H2SET_ENABLE_CONNECT_PROTOCOL */		   1,
