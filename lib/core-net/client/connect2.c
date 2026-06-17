@@ -59,6 +59,7 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 	char buckname[32];
 #endif
 	int n;
+	uint8_t naddr[16];
 
 	memset(&hints, 0, sizeof(hints));
 	*result = NULL;
@@ -77,6 +78,15 @@ lws_getaddrinfo46(struct lws *wsi, const char *ads, struct addrinfo **result)
 	{
 		hints.ai_family = PF_UNSPEC;
 	}
+
+	/*
+	 * If the address is already a numeric IPv4 or IPv6 literal, set
+	 * AI_NUMERICHOST so that getaddrinfo() resolves it locally without
+	 * issuing any DNS query (which would be wrong, and on lwIP/FreeRTOS
+	 * would produce a spurious DNS A request for a link-local address).
+	 */
+	if (lws_parse_numeric_address(ads, naddr, sizeof(naddr)) > 0)
+		hints.ai_flags |= AI_NUMERICHOST;
 
 #if defined(LWS_WITH_CONMON)
 	wsi->conmon_datum = lws_now_usecs();
