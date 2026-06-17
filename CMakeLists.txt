@@ -256,7 +256,7 @@ option(LWS_WITH_BEARSSL "Use BearSSL replacement for OpenSSL. When setting this,
 set(LWS_BEARSSL_PROFILE "full" CACHE STRING "BearSSL profile to use (e.g. full, client, minimal)")
 option(LWS_WITH_BORINGSSL "Use BoringSSL replacement for OpenSSL" OFF)
 option(LWS_WITH_AWSLC "Use AWSLC replacement for OpenSSL" OFF)
-option(LWS_WITH_OPENHITLS "Use OpenHITLS replacement for OpenSSL. When setting this, you also may need to specify OPENHITLS_LIBRARIES and OPENHITLS_INCLUDE_DIRS" OFF)
+option(LWS_WITH_OPENHITLS "Use openHITLS replacement for OpenSSL. When setting this, you also may need to specify OPENHITLS_LIBRARIES and OPENHITLS_INCLUDE_DIRS" OFF)
 option(LWS_WITH_CYASSL "Use CyaSSL replacement for OpenSSL. When setting this, you also need to specify LWS_CYASSL_LIBRARIES and LWS_CYASSL_INCLUDE_DIRS" OFF)
 option(LWS_WITH_WOLFSSL "Use wolfSSL replacement for OpenSSL. When setting this, you also may need to specify LWS_WOLFSSL_LIBRARIES and LWS_WOLFSSL_INCLUDE_DIRS" OFF)
 

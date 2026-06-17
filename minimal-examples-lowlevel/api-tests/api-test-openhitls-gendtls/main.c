@@ -271,8 +271,8 @@ bail:
 static int
 exchange_appdata(struct lws_gendtls_ctx *client, struct lws_gendtls_ctx *server)
 {
-	static const uint8_t msg1[] = "first OpenHiTLS DTLS record";
-	static const uint8_t msg2[] = "second OpenHiTLS DTLS record";
+	static const uint8_t msg1[] = "first openHiTLS DTLS record";
+	static const uint8_t msg2[] = "second openHiTLS DTLS record";
 	uint8_t rec1[2048], rec2[2048], rx[128];
 	int n1, n2, n3, r1, r2;
 
@@ -381,7 +381,7 @@ main(int argc, const char **argv)
 		};
 
 		if (!lws_gendtls_create(&srtp_ctx, &ci)) {
-			lwsl_err("%s: OpenHiTLS accepted unsupported DTLS-SRTP\n",
+			lwsl_err("%s: openHiTLS accepted unsupported DTLS-SRTP\n",
 				 __func__);
 			lws_gendtls_destroy(&srtp_ctx);
 			goto bail_context;

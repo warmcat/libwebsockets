@@ -1,7 +1,7 @@
 /*
  * lws-api-test-openhitls-genrsa
  *
- * Unit tests for OpenHiTLS RSA operations in lib/tls/openhitls/lws-genrsa.c
+ * Unit tests for openHiTLS RSA operations in lib/tls/openhitls/lws-genrsa.c
  *
  * Covers:
  *   - lws_genrsa_new_keypair  (key generation)
@@ -511,7 +511,7 @@ test_sign_verify_pss(struct lws_context *context)
 	n = lws_genrsa_hash_sign(&ctx, hash, LWS_GENHASH_TYPE_SHA256,
 				 sig, key_bytes);
 	if (n < 0) {
-		lwsl_user("    skipped - OpenHiTLS PSS signing unsupported in this build\n");
+		lwsl_user("    skipped - openHiTLS PSS signing unsupported in this build\n");
 		ret = 0;
 		goto bail;
 	}
@@ -639,7 +639,7 @@ main(int argc, const char **argv)
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);
-	lwsl_user("LWS API selftest: OpenHiTLS RSA (lws-genrsa)\n");
+	lwsl_user("LWS API selftest: openHiTLS RSA (lws-genrsa)\n");
 
 	memset(&info, 0, sizeof(info));
 	info.port = CONTEXT_PORT_NO_LISTEN;
@@ -676,7 +676,7 @@ main(int argc, const char **argv)
 int
 main(void)
 {
-	lwsl_user("LWS API selftest: OpenHiTLS RSA - skipped (needs "
+	lwsl_user("LWS API selftest: openHiTLS RSA - skipped (needs "
 		  "LWS_WITH_OPENHITLS && LWS_WITH_GENCRYPTO)\n");
 
 	return 0;

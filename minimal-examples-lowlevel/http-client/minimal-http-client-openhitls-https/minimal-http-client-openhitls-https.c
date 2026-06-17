@@ -8,7 +8,7 @@
  *
  * This demonstrates a minimal https client that connects to a local TLS server,
  * performs a GET, and verifies it receives an HTTP 200 response.  Gated to
- * compile only under OpenHiTLS builds.
+ * compile only under openHiTLS builds.
  */
 
 #include <libwebsockets.h>

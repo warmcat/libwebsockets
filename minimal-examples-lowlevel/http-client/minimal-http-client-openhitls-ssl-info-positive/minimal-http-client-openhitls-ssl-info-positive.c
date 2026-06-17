@@ -6,7 +6,7 @@
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
  *
- * Verifies a successful OpenHiTLS HTTPS exchange while SSL info callbacks
+ * Verifies a successful openHiTLS HTTPS exchange while SSL info callbacks
  * are enabled on the vhost.  The server sends the response in multiple
  * writes so the client and server exercise buffered TLS read / write flow
  * before the connection closes cleanly.

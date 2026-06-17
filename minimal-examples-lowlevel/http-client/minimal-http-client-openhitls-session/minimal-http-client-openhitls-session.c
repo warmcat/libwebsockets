@@ -6,12 +6,12 @@
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
  *
- * This demonstrates TLS session reuse with OpenHiTLS.  The program performs
+ * This demonstrates TLS session reuse with openHiTLS.  The program performs
  * two sequential HTTPS (or WSS) connections to the same TLS server within a
  * single lws_context, and verifies that the second connection reuses the
  * cached TLS session via lws_tls_session_is_reused().
  *
- * Gated to compile only under OpenHiTLS + TLS sessions builds.
+ * Gated to compile only under openHiTLS + TLS sessions builds.
  */
 
 #include <libwebsockets.h>
@@ -363,7 +363,7 @@ int main(int argc, const char **argv)
 		n = lws_service(context, 0);
 
 	/*
-	 * OpenHiTLS currently traps in context teardown when a WSS client and
+	 * openHiTLS currently traps in context teardown when a WSS client and
 	 * embedded TLS server share the same context.  The test outcome is
 	 * already determined once the event loop exits, so let process exit
 	 * reclaim the context in this specific mode.

@@ -21,7 +21,7 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  *
- * OpenHiTLS TLS client implementation
+ * openHiTLS TLS client implementation
  */
 
 #include <hitls_pki_errno.h>
@@ -233,7 +233,7 @@ static int lws_openhitls_store_ctx_set_error(HITLS_CERT_StoreCtx *store_ctx,
 }
 
 /*
- * OpenHiTLS verify callback return convention:
+ * openHiTLS verify callback return convention:
  *   return 0 (HITLS_PKI_SUCCESS) = OK / override and accept
  *   return non-zero              = reject / propagate error
  * Note: the first argument is errCode (0 = cert passed, non-zero = cert failed),
@@ -272,7 +272,7 @@ static int32_t OpenHiTLS_client_verify_callback(int32_t verify_code,
 					HITLS_X509_STORECTX_GET_ERROR, &vr,
 					sizeof(int32_t));
 		if (vr != HITLS_X509_V_OK) {
-			/* OpenHiTLS uses ROOT_CERT_NOT_FOUND for self-signed
+			/* openHiTLS uses ROOT_CERT_NOT_FOUND for self-signed
 			 * certs */
 			if (vr == HITLS_X509_ERR_ROOT_CERT_NOT_FOUND &&
 			    wsi->tls.use_ssl & LCCSCF_ALLOW_SELFSIGNED) {
@@ -372,7 +372,7 @@ static int32_t OpenHiTLS_client_verify_callback(int32_t verify_code,
 		}
 	}
 	/*
-	 * Both lws user callback and OpenHiTLS verify callback use
+	 * Both lws user callback and openHiTLS verify callback use
 	 * 0 = OK, so pass through directly.
 	 *
 	 */
@@ -451,7 +451,7 @@ int lws_ssl_client_bio_create(struct lws *wsi)
 	HITLS_SetVerifyCb(ssl, OpenHiTLS_client_verify_callback);
 
 	/*
-	 * OpenHiTLS may abort the handshake with
+	 * openHiTLS may abort the handshake with
 	 * HITLS_CERT_ERR_VERIFY_CERT_CHAIN before the verify callback is
 	 * ever called (e.g. when the server cert chain cannot be built to a
 	 * trusted root).  Set VerifyNoneSupport so the handshake is allowed
@@ -859,7 +859,7 @@ int lws_tls_client_create_vhost_context(
 			goto bail_cfg;
 		}
 	} else if (cipher_list || info->client_tls_1_3_plus_cipher_list) {
-		lwsl_info("%s: OpenHiTLS ignores OpenSSL cipher-list fields; "
+		lwsl_info("%s: openHiTLS ignores OpenSSL cipher-list fields; "
 			  "use client_tls_ciphers_iana\n", __func__);
 	}
 

@@ -133,12 +133,12 @@ alpn_cb_openhitls(HITLS_Ctx *ctx, uint8_t **selectedProto,
 				HITLS_ALPN_ERR_OK : HITLS_ALPN_ERR_NOACK;
 
 	if (ret == HITLS_NULL_INPUT || ret == HITLS_CONFIG_INVALID_LENGTH) {
-		lwsl_err("%s: OpenHiTLS ALPN select failed: 0x%x\n",
+		lwsl_err("%s: openHiTLS ALPN select failed: 0x%x\n",
 			 __func__, (unsigned int)ret);
 		return HITLS_ALPN_ERR_ALERT_FATAL;
 	}
 
-	lwsl_info("%s: OpenHiTLS ALPN had no protocol match: 0x%x\n",
+	lwsl_info("%s: openHiTLS ALPN had no protocol match: 0x%x\n",
 		  __func__, (unsigned int)ret);
 
 	return HITLS_ALPN_ERR_NOACK;

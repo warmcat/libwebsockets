@@ -7,7 +7,7 @@
  * Universal Public Domain Dedication.
  *
  * Verifies successful SNI-based vhost and certificate selection with
- * OpenHiTLS.  Two TLS vhosts share a single listen port, and the client
+ * openHiTLS.  Two TLS vhosts share a single listen port, and the client
  * connects to each by name while dialing 127.0.0.1.
  */
 
@@ -425,7 +425,7 @@ int main(int argc, const char **argv)
 
 done:
 	/*
-	 * The explicit multi-vhost OpenHiTLS teardown currently aborts after
+	 * The explicit multi-vhost openHiTLS teardown currently aborts after
 	 * the successful SNI coverage path completes.  Exit the short-lived
 	 * test process directly once the assertions are finished.
 	 */

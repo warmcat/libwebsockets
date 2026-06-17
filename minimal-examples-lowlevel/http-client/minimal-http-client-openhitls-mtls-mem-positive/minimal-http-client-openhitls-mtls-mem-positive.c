@@ -6,10 +6,10 @@
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
  *
- * Verifies a successful OpenHiTLS mutual TLS handshake using in-memory
+ * Verifies a successful openHiTLS mutual TLS handshake using in-memory
  * server leaf cert/key and client CA / cert / key material.  The server still
  * loads the CA used for client-cert trust from a local PEM file because the
- * current OpenHiTLS server backend only wires that trust path through
+ * current openHiTLS server backend only wires that trust path through
  * `ssl_ca_filepath`.
  */
 

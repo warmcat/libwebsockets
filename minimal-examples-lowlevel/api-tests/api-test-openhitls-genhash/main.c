@@ -1,7 +1,7 @@
 /*
  * lws-api-test-openhitls-genhash
  *
- * unit tests for OpenHiTLS generic hash / HMAC abstraction
+ * unit tests for openHiTLS generic hash / HMAC abstraction
  *
  * Tests lws_genhash_init/update/destroy for MD5, SHA1, SHA256, SHA384, SHA512
  * and lws_genhmac_init/update/destroy for SHA256, SHA384, SHA512.
@@ -449,7 +449,7 @@ main(int argc, const char **argv)
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);
-	lwsl_user("LWS API selftest: OpenHiTLS genhash / genhmac\n");
+	lwsl_user("LWS API selftest: openHiTLS genhash / genhmac\n");
 
 	memset(&info, 0, sizeof(info));
 #if defined(LWS_WITH_NETWORK)

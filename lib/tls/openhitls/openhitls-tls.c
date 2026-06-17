@@ -21,7 +21,7 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  *
- * OpenHiTLS TLS context and global initialization
+ * openHiTLS TLS context and global initialization
  */
 
 #include "private-lib-core.h"
@@ -54,7 +54,7 @@ lws_tls_err_describe_clear(void)
 static void
 lws_openssl_lock_callback(int mode, int type, const char *file, int line)
 {
-	/* OpenHiTLS does not support this locking mechanism */
+	/* openHiTLS does not support this locking mechanism */
 	(void)file;
 	(void)line;
 	(void)mode;
@@ -64,7 +64,7 @@ lws_openssl_lock_callback(int mode, int type, const char *file, int line)
 static unsigned long
 lws_openssl_thread_id(void)
 {
-	/* OpenHiTLS does not support this threading mechanism */
+	/* openHiTLS does not support this threading mechanism */
 	return 0;
 }
 #endif
@@ -95,12 +95,12 @@ lws_context_init_ssl_library(struct lws_context *cx,
 	}
 
 #if defined(LWS_WITH_NETWORK)
-	/* OpenHiTLS does not require ex indexes like OpenSSL */
+	/* openHiTLS does not require ex indexes like OpenSSL */
 #endif
 
 #if LWS_MAX_SMP != 1
 		/*
-		 * OpenHiTLS does not support this locking mechanism
+		 * openHiTLS does not support this locking mechanism
 		 */
 
 		(void)lws_openssl_thread_id;
@@ -119,7 +119,7 @@ lws_context_deinit_ssl_library(struct lws_context *context)
 		return;
 #endif
 	(void)context;
-	/* OpenHiTLS does not require global cleanup */
+	/* openHiTLS does not require global cleanup */
 }
 
 int

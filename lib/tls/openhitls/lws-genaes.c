@@ -22,7 +22,7 @@
  * IN THE SOFTWARE.
  *
  *  lws_genaes provides an AES abstraction api in lws that works the
- *  same whether you are using openssl or OpenHiTLS cipher functions underneath.
+ *  same whether you are using openssl or openHiTLS cipher functions underneath.
  */
 #include "private-lib-core.h"
 #include "private.h"
@@ -241,7 +241,7 @@ int lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 	ctx->taglen = 0;
 	memset(ctx->tag, 0, sizeof(ctx->tag));
 
-	/* engine parameter is not used for OpenHiTLS */
+	/* engine parameter is not used for openHiTLS */
 	(void)engine;
 
 	cipherId = lws_genaes_mode_to_hitls_cipher_id(mode, el->len);

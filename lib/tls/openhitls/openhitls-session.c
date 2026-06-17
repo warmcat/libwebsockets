@@ -391,7 +391,7 @@ lws_tls_session_dump_save(struct lws_vhost *vh, const char *host, uint16_t port,
 	if (d.blob) {
 		uint32_t used_len = 0;
 		/*
-		 * OpenHiTLS serializes its own native session format here.
+		 * openHiTLS serializes its own native session format here.
 		 * These blobs are intentionally backend-private and are not
 		 * compatible with OpenSSL SSL_SESSION DER.
 		 */
@@ -467,7 +467,7 @@ lws_tls_session_dump_load(struct lws_vhost *vh, const char *host, uint16_t port,
 	if (!sess)
 		goto bail;
 
-	/* See save path: the cold-storage blob is OpenHiTLS-native only. */
+	/* See save path: the cold-storage blob is openHiTLS-native only. */
 	if (d.blob_len > UINT32_MAX ||
 	    HITLS_SESS_Decode(&sess, d.blob, (uint32_t)d.blob_len) !=
 								HITLS_SUCCESS) {

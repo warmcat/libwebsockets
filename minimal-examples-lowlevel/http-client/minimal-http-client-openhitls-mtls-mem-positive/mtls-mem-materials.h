@@ -3,7 +3,7 @@
  *
  * Reuses the local CA / server / client chain created for the file-backed
  * mTLS positive test, but embeds the server leaf cert/key and the full client
- * trust+identity material directly in memory so the OpenHiTLS *_mem branches
+ * trust+identity material directly in memory so the openHiTLS *_mem branches
  * are exercised on successful handshakes.
  */
 

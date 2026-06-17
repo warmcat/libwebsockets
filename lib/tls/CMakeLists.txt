@@ -448,7 +448,7 @@ if (LWS_WITH_SSL)
 		message("OpenHITLS libraries: ${OPENHITLS_LIBRARIES}")
 		if (OPENHITLS_INCLUDE_DIRS)
 			set(LWS_PUBLIC_INCLUDES ${LWS_PUBLIC_INCLUDES} "${OPENHITLS_INCLUDE_DIRS}")
-			# Add the subdirectories that OpenHiTLS headers need
+			# Add the subdirectories that openHiTLS headers need
 			if (EXISTS "${OPENHITLS_INCLUDE_DIRS}/bsl")
 				set(LWS_PUBLIC_INCLUDES ${LWS_PUBLIC_INCLUDES} "${OPENHITLS_INCLUDE_DIRS}/bsl")
 			endif()

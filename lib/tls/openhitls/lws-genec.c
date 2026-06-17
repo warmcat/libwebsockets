@@ -22,7 +22,7 @@
  * IN THE SOFTWARE.
  *
  *  lws_genec provides an EC abstraction api in lws that works the
- *  same whether you are using openssl or OpenHiTLS crypto functions underneath.
+ *  same whether you are using openssl or openHiTLS crypto functions underneath.
  */
 #include "private-lib-core.h"
 #include "private.h"
@@ -118,7 +118,7 @@ lws_ecdsa_sig_der_to_jws(const uint8_t *der_sig, uint32_t der_len, int keybytes,
 	return 0;
 }
 
-/* Initialize OpenHiTLS random number generator if not already done
+/* Initialize openHiTLS random number generator if not already done
  * This is exported for use by lws-genrsa.c as well */
 int lws_hitls_init_rand(void)
 {
@@ -126,7 +126,7 @@ int lws_hitls_init_rand(void)
 		return 0;
 
 	/*
-	 * Prefer OpenHiTLS CTR-DRBG path and tolerate repeat init from
+	 * Prefer openHiTLS CTR-DRBG path and tolerate repeat init from
 	 * other callsites.
 	 */
 	int32_t ret = CRYPT_EAL_RandInit(CRYPT_RAND_SHA256, NULL, NULL,
@@ -154,7 +154,7 @@ lws_genecdh_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 	ctx->context = context;
 	ctx->ctx[0] = NULL;
 	ctx->ctx[1] = NULL;
-	/* Use OpenHiTLS curve table if NULL is passed */
+	/* Use openHiTLS curve table if NULL is passed */
 	ctx->curve_table = curve_table ? curve_table : lws_ec_curves;
 	ctx->genec_alg = LEGENEC_ECDH;
 
@@ -168,7 +168,7 @@ lws_genecdsa_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 	ctx->context = context;
 	ctx->ctx[0] = NULL;
 	ctx->ctx[1] = NULL;
-	/* Use OpenHiTLS curve table if NULL is passed */
+	/* Use openHiTLS curve table if NULL is passed */
 	ctx->curve_table = curve_table ? curve_table : lws_ec_curves;
 	ctx->genec_alg = LEGENEC_ECDSA;
 
@@ -542,10 +542,10 @@ lws_genecdsa_hash_sign_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
 		return -1;
 	}
 
-	/* Sign into temporary buffer - OpenHiTLS returns DER-encoded signature */
+	/* Sign into temporary buffer - openHiTLS returns DER-encoded signature */
 	outLen = sizeof(der_buf);
 
-	/* OpenHiTLS native ECDSA sign */
+	/* openHiTLS native ECDSA sign */
 	ret = CRYPT_EAL_PkeySignData(ctx->ctx[0], in,
 				     (uint32_t)lws_genhash_size(hash_type),
 				     der_buf, &outLen);
@@ -581,7 +581,7 @@ lws_genecdsa_hash_sig_verify_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
 		return -1;
 	}
 
-	/* OpenHiTLS native ECDSA verify */
+	/* openHiTLS native ECDSA verify */
 	uint8_t der_sig[256];
 	int der_len = lws_ecdsa_sig_jws_to_der(sig, keybytes, der_sig, sizeof(der_sig));
 	if (der_len < 0) {
@@ -628,7 +628,7 @@ lws_genecdh_compute_shared_secret(struct lws_genec_ctx *ctx, uint8_t *ss,
 }
 
 /*
- * OpenHiTLS currently exposes CRYPT_PKEY_ED25519 but not CRYPT_PKEY_ED448 in
+ * openHiTLS currently exposes CRYPT_PKEY_ED25519 but not CRYPT_PKEY_ED448 in
  * the public EAL pkey API.  Keep Ed448 as an explicit unsupported boundary.
  */
 #define LWS_OPENHITLS_ED25519_KEYLEN		32
@@ -652,7 +652,7 @@ lws_openhitls_eddsa_alg_from_curve(const struct lws_gencrypto_keyelem *el,
 
 	if ((crv->len == 5 || crv->len == 6) &&
 	    !strncmp((const char *)crv->buf, "Ed448", 5))
-		lwsl_notice("%s: OpenHiTLS Ed448 is not supported\n", __func__);
+		lwsl_notice("%s: openHiTLS Ed448 is not supported\n", __func__);
 
 	return -1;
 }
@@ -670,7 +670,7 @@ lws_openhitls_eddsa_curve_name_to_alg(const char *curve_name,
 	}
 
 	if (!strcmp(curve_name, "Ed448"))
-		lwsl_notice("%s: OpenHiTLS Ed448 is not supported\n", __func__);
+		lwsl_notice("%s: openHiTLS Ed448 is not supported\n", __func__);
 
 	return -1;
 }

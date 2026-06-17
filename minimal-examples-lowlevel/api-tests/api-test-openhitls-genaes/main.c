@@ -1,7 +1,7 @@
 /*
  * lws-api-test-openhitls-genaes
  *
- * Unit tests for the OpenHiTLS AES abstraction layer in
+ * Unit tests for the openHiTLS AES abstraction layer in
  * lib/tls/openhitls/lws-genaes.c
  *
  * Tests:
@@ -476,7 +476,7 @@ main(int argc, const char **argv)
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);
-	lwsl_user("LWS API selftest: OpenHiTLS genaes\n");
+	lwsl_user("LWS API selftest: openHiTLS genaes\n");
 
 	memset(&info, 0, sizeof(info));
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
@@ -509,7 +509,7 @@ main(int argc, const char **argv)
 int
 main(int argc, const char **argv)
 {
-	lwsl_user("LWS API selftest: OpenHiTLS genaes (SKIP)\n");
+	lwsl_user("LWS API selftest: openHiTLS genaes (SKIP)\n");
 
 	return 0;
 }

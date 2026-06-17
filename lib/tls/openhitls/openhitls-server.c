@@ -21,7 +21,7 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  *
- * OpenHiTLS TLS server implementation
+ * openHiTLS TLS server implementation
  */
 
 #include "private-lib-core.h"
@@ -57,7 +57,7 @@ lws_openhitls_log_error_string(const char *prefix, const char *subject,
 }
 
 /*
- * OpenHiTLS verify callback return convention:
+ * openHiTLS verify callback return convention:
  *   return 0 = OK / accept
  *   return non-zero = reject / propagate error
  *
@@ -420,7 +420,7 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 			return 1;
 		}
 	} else if (info->ssl_cipher_list || info->tls1_3_plus_cipher_list) {
-		lwsl_info("%s: OpenHiTLS ignores OpenSSL cipher-list fields; "
+		lwsl_info("%s: openHiTLS ignores OpenSSL cipher-list fields; "
 			  "use tls_ciphers_iana\n", __func__);
 	}
 
@@ -810,7 +810,7 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 		goto bail;
 
 	/*
-	 * OpenHiTLS PKI copies ctrl payloads into the cert; the temporary DN
+	 * openHiTLS PKI copies ctrl payloads into the cert; the temporary DN
 	 * and SAN lists remain caller-owned and must be freed after ctrl.
 	 */
 	if (lws_openhitls_prepare_san(&san, san_a, san_b))
@@ -890,7 +890,7 @@ lws_openhitls_csr_add_subject(const char *elements[], HITLS_X509_Csr *csr)
 	for (n = 0; n < LWS_TLS_REQ_ELEMENT_COUNT; n++) {
 		if (dn_cid[n] == BSL_CID_UNKNOWN || !elements[n]) {
 			if (n == LWS_TLS_REQ_ELEMENT_EMAIL && elements[n])
-				lwsl_debug("%s: OpenHiTLS PKI omits email DN\n",
+				lwsl_debug("%s: openHiTLS PKI omits email DN\n",
 					   __func__);
 			continue;
 		}

@@ -21,7 +21,7 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  *
- * OpenHiTLS core SSL/TLS operations
+ * openHiTLS core SSL/TLS operations
  */
 
 #include "private-lib-core.h"
@@ -533,7 +533,7 @@ lws_ssl_context_destroy(struct lws_context *context)
 {
 	(void)context;
 
-	/* OpenHiTLS doesn't require global cleanup */
+	/* openHiTLS doesn't require global cleanup */
 }
 
 lws_tls_ctx *

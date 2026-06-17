@@ -6,7 +6,7 @@
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
  *
- * Verifies a successful OpenHiTLS mutual TLS handshake using certificate
+ * Verifies a successful openHiTLS mutual TLS handshake using certificate
  * files on both sides.  The client trusts a local test CA, presents a client
  * certificate and encrypted private key from files, and then validates:
  *
@@ -329,7 +329,7 @@ int main(int argc, const char **argv)
 	info.ssl_cert_filepath = TEST_SERVER_CERT;
 	info.ssl_private_key_filepath = TEST_SERVER_KEY;
 	/*
-	 * The current OpenHiTLS server setup path binds the server password
+	 * The current openHiTLS server setup path binds the server password
 	 * callback before it knows only the client key is encrypted.
 	 */
 	info.ssl_private_key_password = TEST_CLIENT_KEY_PASS;

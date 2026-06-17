@@ -1,7 +1,7 @@
 /*
  * lws-api-test-openhitls-acme-csr
  *
- * Focused OpenHiTLS ACME temporary certificate and CSR tests.
+ * Focused openHiTLS ACME temporary certificate and CSR tests.
  */
 
 #include <libwebsockets.h>
@@ -282,7 +282,7 @@ main(int argc, const char **argv)
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);
-	lwsl_user("LWS API selftest: OpenHiTLS ACME CSR\n");
+	lwsl_user("LWS API selftest: openHiTLS ACME CSR\n");
 
 	if (init_openhitls())
 		e = 1;

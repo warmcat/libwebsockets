@@ -200,7 +200,7 @@ lws_openhitls_apply_cipher_suites(HITLS_Config *config, const char *list,
 	if (!count || bad)
 		return -1;
 
-	/* OpenHiTLS backend now consumes only RFC/IANA suite names from
+	/* openHiTLS backend now consumes only RFC/IANA suite names from
 	 * tls_ciphers_iana / client_tls_ciphers_iana; OpenSSL cipher
 	 * expression and alias conversion is intentionally not provided.
 	 */

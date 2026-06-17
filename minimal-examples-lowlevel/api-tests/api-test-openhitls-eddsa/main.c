@@ -1,7 +1,7 @@
 /*
  * lws-api-test-openhitls-eddsa
  *
- * Unit tests for OpenHiTLS EdDSA / OKP generic crypto.
+ * Unit tests for openHiTLS EdDSA / OKP generic crypto.
  */
 
 #include <libwebsockets.h>
@@ -32,8 +32,8 @@ copy_okp_public(struct lws_gencrypto_keyelem *dst,
 static int
 test_ed25519_roundtrip(void)
 {
-	static const uint8_t msg[] = "OpenHiTLS Ed25519 generic signing";
-	static const uint8_t bad_msg[] = "OpenHiTLS Ed25519 bad payload";
+	static const uint8_t msg[] = "openHiTLS Ed25519 generic signing";
+	static const uint8_t bad_msg[] = "openHiTLS Ed25519 bad payload";
 	struct lws_gencrypto_keyelem key[LWS_GENCRYPTO_MAX_KEYEL_COUNT];
 	struct lws_gencrypto_keyelem pub[LWS_GENCRYPTO_MAX_KEYEL_COUNT];
 	struct lws_genec_ctx signer, verifier, imported;

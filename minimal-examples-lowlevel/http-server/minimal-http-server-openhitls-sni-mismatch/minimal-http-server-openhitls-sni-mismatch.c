@@ -296,7 +296,7 @@ int main(int argc, const char **argv)
         lwsl_user("Stage %d: Completed\n\n", stage);
 
         /*
-         * OpenHiTLS currently traps in context teardown when a client
+         * openHiTLS currently traps in context teardown when a client
          * and embedded TLS server share the same context.  The test
          * verdict is known when the loop exits, so allow process exit
          * to reclaim it.

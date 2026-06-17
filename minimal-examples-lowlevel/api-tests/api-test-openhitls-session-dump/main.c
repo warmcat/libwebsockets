@@ -1,7 +1,7 @@
 /*
  * lws-api-test-openhitls-session-dump
  *
- * Focused tests for OpenHiTLS session dump/load cold-storage blobs.
+ * Focused tests for openHiTLS session dump/load cold-storage blobs.
  */
 
 #include <libwebsockets.h>
@@ -319,7 +319,7 @@ main(int argc, const char **argv)
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);
-	lwsl_user("LWS API selftest: OpenHiTLS session dump\n");
+	lwsl_user("LWS API selftest: openHiTLS session dump\n");
 
 	if (init_openhitls())
 		e = 1;

@@ -21,7 +21,7 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
  *
- * OpenHiTLS generic DTLS operations
+ * openHiTLS generic DTLS operations
  */
 
 #include "private-lib-core.h"
@@ -278,9 +278,9 @@ lws_gendtls_create(struct lws_gendtls_ctx *ctx,
 	ctx->timeout_ms = info->timeout_ms ? info->timeout_ms :
 					     LWS_OPENHITLS_GENDTLS_TIMEOUT_DEFAULT;
 
-	/* OpenHiTLS supports plain DTLS here; DTLS-SRTP is an explicit gap. */
+	/* openHiTLS supports plain DTLS here; DTLS-SRTP is an explicit gap. */
 	if (info->use_srtp) {
-		lwsl_err("%s: OpenHiTLS DTLS-SRTP is not supported\n",
+		lwsl_err("%s: openHiTLS DTLS-SRTP is not supported\n",
 			 __func__);
 		return -1;
 	}

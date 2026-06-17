@@ -8,7 +8,7 @@
  *
  * This demonstrates a WSS client connecting to an embedded WS echo server
  * within the same lws_context, sending a test message, and verifying the
- * echoed response matches.  Gated to compile only under OpenHiTLS + WS builds.
+ * echoed response matches.  Gated to compile only under openHiTLS + WS builds.
  */
 
 #include <libwebsockets.h>
@@ -314,7 +314,7 @@ int main(int argc, const char **argv)
 		n = lws_service(context, 0);
 
 	/*
-	 * OpenHiTLS currently traps in context teardown when a WSS client and
+	 * openHiTLS currently traps in context teardown when a WSS client and
 	 * embedded TLS server share the same context.  The test verdict is
 	 * known when the loop exits, so allow process exit to reclaim it.
 	 */

@@ -1,7 +1,7 @@
 /*
  * lws-api-test-openhitls-genec
  *
- * Unit tests for OpenHiTLS EC cryptography (lws-genec.c):
+ * Unit tests for openHiTLS EC cryptography (lws-genec.c):
  *   - ECDH key generation and shared secret computation
  *   - ECDSA sign / verify roundtrip
  *   - Curve interoperability (P-256, P-384)
@@ -599,7 +599,7 @@ main(int argc, const char **argv)
 		logs = atoi(p);
 
 	lws_set_log_level(logs, NULL);
-	lwsl_user("LWS API selftest: OpenHiTLS genec (EC crypto)\n");
+	lwsl_user("LWS API selftest: openHiTLS genec (EC crypto)\n");
 
 	memset(&info, 0, sizeof(info));
 	info.port = CONTEXT_PORT_NO_LISTEN;
@@ -641,7 +641,7 @@ main(int argc, const char **argv)
 int
 main(void)
 {
-	lwsl_user("LWS API selftest: OpenHiTLS genec: skipped "
+	lwsl_user("LWS API selftest: openHiTLS genec: skipped "
 		  "(LWS_WITH_OPENHITLS or LWS_WITH_GENCRYPTO not enabled)\n");
 
 	return 0;

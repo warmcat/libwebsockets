@@ -30,11 +30,11 @@ quic/h3 is enabled for build by default... necessitating GnuTLS instead of OpenS
 | **mbedTLS**   | **Yes** | **Yes** | Needs patch | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** |
 | **SChannel**  | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
 | **BearSSL**   | **Yes** | **Yes** | **No** | **Yes** | **Yes** | **Yes** | **No** | **Yes** | **Yes** | **Yes** |
-| **OpenHiTLS** | **Yes** | **Yes** | **No** | **Yes** | **Yes** | **Yes** | Yes (not SRTP) | **Yes** | **Yes** | **Yes** |
+| **openHiTLS** | **Yes** | **Yes** | **No** | **Yes** | **Yes** | **Yes** | Yes (not SRTP) | **Yes** | **Yes** | **Yes** |
 
 
 \* *Note: 1) Upstream OpenSSL does not provide the necessary QUIC TLS API (`SSL_set_quic_method`) to act as a cryptographic engine for LWS's QUIC transport. If you need QUIC/HTTP3 support, we recommend using BoringSSL, GnuTLS, WolfSSL, or the `quictls` fork of OpenSSL.*
-\* *Note: 2) OpenHiTLS does not provide the necessary QUIC TLS API *
+\* *Note: 2) openHiTLS does not provide the necessary QUIC TLS API *
 
  - DHT support built-in: `-DLWS_WITH_DHT=1`
 

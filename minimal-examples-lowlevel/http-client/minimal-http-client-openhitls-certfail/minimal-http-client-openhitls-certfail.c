@@ -6,13 +6,13 @@
  * This file is made available under the Creative Commons CC0 1.0
  * Universal Public Domain Dedication.
  *
- * Verifies OpenHiTLS correctly rejects TLS handshakes when certificate
+ * Verifies openHiTLS correctly rejects TLS handshakes when certificate
  * verification fails:
  *   R6: Self-signed cert rejected without LCCSCF_ALLOW_SELFSIGNED
  *   R7: Hostname mismatch (CN/SAN != connected hostname)
  *   R8: mTLS client cert required but not provided
  *
- * Gated to compile only under OpenHiTLS builds.
+ * Gated to compile only under openHiTLS builds.
  */
 
 #include <libwebsockets.h>

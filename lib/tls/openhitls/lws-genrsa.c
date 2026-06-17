@@ -22,7 +22,7 @@
  * IN THE SOFTWARE.
  *
  *  lws_genrsa provides an RSA abstraction api in lws that works the
- *  same whether you are using openssl or OpenHiTLS crypto functions underneath.
+ *  same whether you are using openssl or openHiTLS crypto functions underneath.
  */
 #include "private-lib-core.h"
 #include "private.h"
