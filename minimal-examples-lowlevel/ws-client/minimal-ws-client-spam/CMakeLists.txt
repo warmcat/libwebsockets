@@ -27,10 +27,7 @@ if (requirements)
        # instantiate the server per sai builder instance, they are running in the same
        # machine context in parallel so they can tread on each other otherwise
        #
-	set(PORT_WCS_SRV "7620")
-	if ("$ENV{SAI_INSTANCE_IDX}")
-		math(EXPR PORT_WCS_SRV "7621 + $ENV{SAI_INSTANCE_IDX}")
-	endif()
+	lws_get_free_port(PORT_WCS_SRV)
 
 # hack
 if (WIN32)

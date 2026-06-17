@@ -287,6 +287,12 @@ test_qif_roundtrip(struct lws_context *ctx, const char *filepath)
 		lws_add_http3_header_by_name(wsi, (unsigned char *)name_colon, (unsigned char *)val, (int)strlen(val), &p, end);
 	}
 	
+	for (i = 0; i < s_state.num_headers; i++) {
+		free(s_state.names[i]);
+		free(s_state.values[i]);
+	}
+	s_state.num_headers = 0;
+	
 	fclose(f);
 	lws_qpack_destroy_dynamic_header(&qctx);
 	lws_qpack_tx_encoder_destroy(&tx_enc);

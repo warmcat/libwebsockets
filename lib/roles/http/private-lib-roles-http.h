@@ -36,6 +36,14 @@
 
 #define lwsi_role_http(wsi) (lwsi_role_h1(wsi) || lwsi_role_h2(wsi) || lwsi_role_h3(wsi))
 
+struct http2_settings {
+	uint32_t s[H2SET_COUNT];
+};
+
+struct lws_vhost_role_h2 {
+	struct http2_settings set;
+};
+
 enum http_version {
 	HTTP_VERSION_1_0,
 	HTTP_VERSION_1_1,
@@ -333,8 +341,12 @@ lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file, unsigne
 int
 lws_unauthorised_basic_auth(struct lws *wsi);
 
+#if defined(LWS_ROLE_H1)
 int
 lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len);
+#else
+#define lws_read_h1(_a, _b, _c) (0)
+#endif
 
 void
 _lws_header_table_reset(struct allocated_headers *ah);
@@ -361,11 +373,4 @@ lws_http_date_render_from_unix(char *buf, size_t len, const time_t *t);
 int
 lws_http_date_parse_unix(const char *b, size_t len, time_t *t);
 
-enum {
-	CCTLS_RETURN_ERROR		= -1,
-	CCTLS_RETURN_DONE		= 0,
-	CCTLS_RETURN_RETRY		= 1,
-};
 
-int
-lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1);

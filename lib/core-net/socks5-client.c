@@ -1,7 +1,7 @@
 /*
  * libwebsockets - small server side websockets and web server implementation
  *
- * Copyright (C) 2010 - 2020 Andy Green <andy@warmcat.com>
+ * Copyright (C) 2010 - 2026 Andy Green <andy@warmcat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -236,8 +236,8 @@ lws_socks5c_greet(struct lws *wsi, const char **pcce)
 		return -1;
 	}
 	// lwsl_hexdump_notice(pt->serv_buf, plen);
-	n = (int)send(wsi->desc.sockfd, (char *)pt->serv_buf, (size_t)plen,
-		      MSG_NOSIGNAL);
+	n = (int)send(wsi->desc.sockfd, (char *)pt->serv_buf,
+		      LWS_POSIX_LENGTH_CAST(plen), MSG_NOSIGNAL);
 	if (n < 0) {
 		lwsl_wsi_debug(wsi, "ERROR writing socks greeting");
 		*pcce = "socks write failed";
@@ -333,7 +333,7 @@ socks_send_msg_fail:
 socks_send:
 		// lwsl_hexdump_notice(pt->serv_buf, len);
 		n = (int)send(wsi->desc.sockfd, (char *)pt->serv_buf,
-			      (size_t)len, MSG_NOSIGNAL);
+			      LWS_POSIX_LENGTH_CAST(len), MSG_NOSIGNAL);
 		if (n < 0) {
 			lwsl_wsi_debug(wsi, "ERROR writing to socks proxy");
 			*pcce = "socks write fail";

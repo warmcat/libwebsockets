@@ -246,7 +246,14 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 
 			p = lws_cmdline_option_cx(cx, "--port");
 			if (p)
-				i.port = (uint16_t)atoi(p);
+				{
+					int __pt = atoi(p);
+					if (__pt < 0 || __pt > 65535) {
+						lwsl_err("Port %d is outside valid 16-bit range\n", __pt);
+						return 1;
+					}
+					i.port = (uint16_t)__pt;
+				}
 
 			if (lws_cmdline_option_cx(cx, "--form1"))
 				i.path			= "/form1";
@@ -322,7 +329,7 @@ int main(int argc, const char **argv)
 	 */
 	info.fd_limit_per_thread = (unsigned int)(1 + count_clients + 1);
 
-#if defined(LWS_WITH_MBEDTLS) || defined(USE_WOLFSSL)
+#if defined(LWS_WITH_MBEDTLS) || defined(USE_WOLFSSL) || defined(LWS_WITH_OPENHITLS)
 	/*
 	 * OpenSSL uses the system trust store.  mbedTLS has to be told which
 	 * CA to trust explicitly.

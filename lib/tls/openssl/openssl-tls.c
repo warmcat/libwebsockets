@@ -80,21 +80,6 @@ int
 lws_context_init_ssl_library(struct lws_context *cx,
                              const struct lws_context_creation_info *info)
 {
-#ifdef USE_WOLFSSL
-#ifdef USE_OLD_CYASSL
-	lwsl_cx_info(cx, " Compiled with CyaSSL support");
-#else
-	lwsl_cx_info(cx, " Compiled with wolfSSL support");
-#endif
-#else
-#if defined(LWS_WITH_BORINGSSL)
-	lwsl_cx_info(cx, " Compiled with BoringSSL support");
-#elif defined(LWS_WITH_AWSLC)
-	lwsl_cx_info(cx, " Compiled with AWS-LC support");
-#else
-	lwsl_cx_info(cx, " Compiled with OpenSSL support");
-#endif
-#endif
 	if (!lws_check_opt(info->options, LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT)) {
 #if !defined(LWS_WITH_MBEDTLS) && defined(LWS_WITH_NETWORK)
 		if (!info->provided_client_ssl_ctx)
@@ -107,7 +92,6 @@ lws_context_init_ssl_library(struct lws_context *cx,
 	/* basic openssl init */
 
 	if (!openssl_contexts_using_global_init++) {
-		lwsl_cx_info(cx, "Doing SSL library init");
 
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
 		SSL_library_init();

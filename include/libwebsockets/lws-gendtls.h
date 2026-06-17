@@ -48,6 +48,10 @@
 #define SECURITY_WIN32
 #include <security.h>
 #include <schannel.h>
+#elif defined(LWS_WITH_OPENHITLS)
+#include <hitls.h>
+#include <hitls_config.h>
+#include <bsl_uio.h>
 #else /* OpenSSL */
 #include <openssl/ssl.h>
 #endif
@@ -106,6 +110,18 @@ struct lws_gendtls_ctx {
 	/* Store the client address for SChannel DTLS ACCEPT */
 	struct sockaddr_storage			client_addr;
 	size_t					client_addr_len;
+#elif defined(LWS_WITH_OPENHITLS)
+	HITLS_Ctx				*ctx;
+	HITLS_Config				*config;
+	BSL_UIO					*uio;
+	BSL_UIO_Method				*uio_method;
+	struct lws_buflist			*rx_head;
+	struct lws_buflist			*tx_head;
+	struct lws_context			*context;
+	int					mode;
+	unsigned int				mtu;
+	unsigned int				timeout_ms;
+	int					handshake_done;
 #else /* OpenSSL */
 	void					*ssl; /* SSL * */
 	/* OpenSSL Bio mems are handled internally via SSL_set_bio */

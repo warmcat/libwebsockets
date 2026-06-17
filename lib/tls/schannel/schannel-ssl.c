@@ -42,7 +42,7 @@ lws_tls_schannel_realloc_buffer(struct lws_tls_schannel_conn *conn, size_t new_s
 	return 0;
 }
 
-	int
+int
 lws_ssl_client_bio_create(struct lws *wsi)
 {
 	struct lws_tls_schannel_conn *conn;
@@ -92,6 +92,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	return 0;
 }
 
+#if defined(LWS_WITH_TCP_TLS)
 	enum lws_ssl_capable_status
 lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
 {
@@ -338,6 +339,7 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 
 	return 0;
 }
+#endif
 
 enum lws_ssl_capable_status
 lws_tls_server_accept(struct lws *wsi)

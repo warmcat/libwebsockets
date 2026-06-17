@@ -1276,7 +1276,7 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 					      lws_dll2_get_head(&context->sinks)) {
 				sn = lws_container_of(d, lws_ss_sinks_t, list);
 
-				if (!strcmp(sn->info.streamtype, ssi->streamtype)) {
+				if (sn->info.streamtype && ssi->streamtype && !strcmp(sn->info.streamtype, ssi->streamtype)) {
 					lws_ss_handle_t *has;
 
 					/*

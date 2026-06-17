@@ -44,6 +44,11 @@
 #include <psa/crypto.h>
 #endif
 
+#if defined(LWS_WITH_OPENHITLS)
+#include <crypt_eal_md.h>
+#include <crypt_eal_mac.h>
+#endif
+
 
 enum lws_genhash_types {
 	LWS_GENHASH_TYPE_UNKNOWN,
@@ -97,6 +102,8 @@ struct lws_genhash_ctx {
 		br_sha384_context sha384;
 		br_sha512_context sha512;
 	} u;
+#elif defined(LWS_WITH_OPENHITLS)
+	CRYPT_EAL_MdCTX *ctx;
 #else
         const EVP_MD *evp_type;
         EVP_MD_CTX *mdctx;
@@ -125,6 +132,8 @@ struct lws_genhmac_ctx {
 #elif defined(LWS_WITH_BEARSSL)
 	br_hmac_key_context hmac_key;
 	br_hmac_context ctx;
+#elif defined(LWS_WITH_OPENHITLS)
+	CRYPT_EAL_MacCtx *ctx;
 #else
 	const EVP_MD *evp_type;
 

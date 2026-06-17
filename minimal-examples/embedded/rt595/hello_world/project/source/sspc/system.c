@@ -55,7 +55,14 @@ space_available(vcring_t *v)
 int
 append_vcring(vcring_t *v, const uint8_t *b, size_t l)
 {
-	size_t r = sizeof(v->log_ring) - v->lrh;
+	size_t r;
+
+	if (v->lrh >= sizeof(v->log_ring))
+		v->lrh = 0;
+	if (v->lrt >= sizeof(v->log_ring))
+		v->lrt = 0;
+
+	r = sizeof(v->log_ring) - v->lrh;
 
 	if (v->lrt < v->lrh) {
 		/* ---t=====h--- */
@@ -76,6 +83,9 @@ append_vcring(vcring_t *v, const uint8_t *b, size_t l)
 	}
 
 	/* ===h------t===   or   ht---------  */
+
+	if (v->lrt < v->lrh)
+		return -1;
 
 	r = v->lrt - v->lrh;
 	if (!r) {
@@ -227,6 +237,8 @@ int gettimeofday(struct timeval *tv, void *tx)
 
 	tv->tv_sec = u / 1000000;
 	tv->tv_usec = u - (tv->tv_sec * 1000000);
+
+	return 0;
 }
 
 long long atoll(const char *s)

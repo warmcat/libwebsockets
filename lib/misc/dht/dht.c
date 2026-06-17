@@ -368,7 +368,7 @@ lws_dht_get_ts(struct lws_dht_ctx *ctx, const struct sockaddr *dest, size_t sale
 				struct sockaddr_in6 *sin1 = (struct sockaddr_in6 *)&dts->sa;
 				struct sockaddr_in6 *sin2 = (struct sockaddr_in6 *)dest;
 
-				if (!memcmp(&sin1->sin6_addr, &sin2->sin6_addr, 16) &&
+				if (!memcmp(sin1->sin6_addr.s6_addr, sin2->sin6_addr.s6_addr, 16) &&
 				    sin1->sin6_port == sin2->sin6_port)
 					match = 1;
 				break;

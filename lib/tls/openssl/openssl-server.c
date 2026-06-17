@@ -524,7 +524,7 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 		return 1;
 	}
 	/* Added for sniffing packets on hub side */
-#if defined(LWS_HAVE_SSL_CTX_set_keylog_callback) && \
+#if defined(LWS_WITH_TLS_KEYLOG) && \
 		defined(LWS_WITH_TLS) && (defined(LWS_WITH_CLIENT) || defined(LWS_WITH_SERVER))
 	SSL_CTX_set_keylog_callback(tls->ssl_ctx, lws_klog_dump);
 #endif
@@ -767,6 +767,7 @@ lws_tls_server_abort_connection(struct lws *wsi)
 	return LWS_SSL_CAPABLE_DONE;
 }
 
+#if defined(LWS_WITH_TCP_TLS)
 enum lws_ssl_capable_status
 lws_tls_server_accept(struct lws *wsi)
 {
@@ -845,6 +846,7 @@ lws_tls_server_accept(struct lws *wsi)
 
 	return LWS_SSL_CAPABLE_ERROR;
 }
+#endif
 
 #if defined(LWS_WITH_ACME)
 static int

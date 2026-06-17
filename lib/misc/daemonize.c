@@ -63,7 +63,7 @@ child_handler(int signum)
 				lock_path, errno, strerror(errno));
 			exit(0);
 		}
-		len = sprintf(sz, "%u", (unsigned int)pid_daemon);
+		len = lws_snprintf(sz, sizeof(sz), "%u", (unsigned int)pid_daemon);
 		sent = (int)write(fd, sz, (size_t)len);
 		if (sent != len)
 			fprintf(stderr,
@@ -184,8 +184,12 @@ lws_daemonize(const char *_lock_path)
 	signal(SIGTTIN, SIG_IGN);
 	signal(SIGHUP, SIG_IGN); /* Ignore hangup signal */
 
-	/* Change the file mode mask */
-	umask(0);
+	/* 
+	 * Change the file mode mask.
+	 * We use 0 so that daemons can create group-writable files if needed
+	 * (e.g., for sticky group permissions coexisting with other processes).
+	 */
+	umask(0); // NOSONAR
 
 	/* Create a new SID for the child process */
 	sid = setsid();

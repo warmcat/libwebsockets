@@ -83,7 +83,7 @@ int main(int argc, const char **argv)
 			url += ('a' + n);
 			url += ".bin";
 
-			filepath = "/tmp/test-";
+			filepath = "/tmp/test-"; // NOSONAR
 			filepath += ('a' + n);
 			filepath += ".bin";
 

@@ -494,6 +494,9 @@ lws_quic_encrypt_payload(struct lws_quic_keys *keys, uint8_t *packet, size_t pac
 	size_t payload_len = packet_len - payload_offset;
 	int i;
 
+       /* Set the PN length bits (pn_len is 1 to 4) BEFORE any AAD or encryption */
+       packet[0] |= (pn_len - 1);
+
 	/* 1. Construct the AEAD Nonce: IV ^ full_pn */
 	memcpy(nonce, keys->iv_tx, 12);
 	for (i = 0; i < 8; i++)
@@ -778,7 +781,7 @@ lws_tls_quic_rx_crypto(struct lws *wsi, int level, const uint8_t *buf, size_t le
 			wolfSSL_get0_alpn_selected(wsi->tls.ssl, &prot, &plen);
 #elif defined(LWS_WITH_MBEDTLS)
 #if defined(LWS_HAVE_mbedtls_ssl_get_alpn_protocol)
-			const char *alpn = mbedtls_ssl_get_alpn_protocol(SSL_mbedtls_ssl_context_from_SSL(wsi->tls.ssl));
+			const char *alpn = mbedtls_ssl_get_alpn_protocol(&wsi->tls.ssl->ssl);
 			if (alpn) {
 				prot = (const unsigned char *)alpn;
 				plen = (unsigned int)strlen(alpn);
@@ -797,6 +800,9 @@ lws_tls_quic_rx_crypto(struct lws *wsi, int level, const uint8_t *buf, size_t le
 				lws_strncpy(wsi->alpn, (const char *)prot, plen + 1);
 				lwsl_wsi_notice(wsi, "QUIC ALPN negotiated: %s", wsi->alpn);
 				lws_role_call_alpn_negotiated(wsi, wsi->alpn);
+                       } else if (wsi->alpn[0]) {
+                               lwsl_wsi_notice(wsi, "QUIC ALPN already negotiated: %s", wsi->alpn);
+                               lws_role_call_alpn_negotiated(wsi, wsi->alpn);
 			} else {
 				lwsl_wsi_err(wsi, "QUIC requires ALPN, but none was negotiated!");
 				lws_quic_enter_closing_state(wsi, 0x0100 + 120 /* no_application_protocol */, 0, 0);

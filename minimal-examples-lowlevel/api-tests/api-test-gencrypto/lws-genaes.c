@@ -823,6 +823,438 @@ bail:
 }
 //#endif
 
+struct lws_genaes_hex_case {
+	const char *name;
+	enum enum_aes_modes mode;
+	enum enum_aes_padding padding;
+	const char *key_hex;
+	const char *iv_hex;
+	const char *in_hex;
+	const char *out_hex;
+};
+
+struct lws_genaes_gcm_hex_case {
+	const char *name;
+	const char *key_hex;
+	const char *iv_hex;
+	const char *aad_hex;
+	const char *pt_hex;
+	const char *ct_hex;
+	const char *tag_hex;
+};
+
+struct lws_genaes_padding_hex_case {
+	const char *name;
+	enum enum_aes_modes mode;
+	const char *key_hex;
+	const char *iv_hex;
+	const char *pt_hex;
+	const char *ct_hex;
+};
+
+static size_t
+lws_genaes_hex_to_buf(const char *hex, uint8_t *buf, size_t len)
+{
+	int n;
+
+	if (!hex || !*hex)
+		return 0;
+
+	n = lws_hex_to_byte_array(hex, buf, (int)len);
+	if (n < 0)
+		return 0;
+
+	return (size_t)n;
+}
+
+static void
+lws_genaes_reset_state(enum enum_aes_modes mode, const uint8_t *iv_src,
+		       size_t iv_len, uint8_t *iv, uint8_t **ivp, uint8_t *sb,
+		       uint8_t **sbp, size_t *off, size_t **offp)
+{
+	*ivp = NULL;
+	*sbp = NULL;
+	*offp = NULL;
+	*off = 0;
+
+	if (iv_src && iv_len)
+		memcpy(iv, iv_src, iv_len);
+
+	switch (mode) {
+	case LWS_GAESM_ECB:
+		break;
+	case LWS_GAESM_CTR:
+		*ivp = iv;
+		memset(sb, 0, 16);
+		*sbp = sb;
+		*offp = off;
+		break;
+	case LWS_GAESM_CFB128:
+	case LWS_GAESM_OFB:
+		*ivp = iv;
+		*offp = off;
+		break;
+	default:
+		if (iv_src && iv_len)
+			*ivp = iv;
+		break;
+	}
+}
+
+static int
+lws_genaes_run_hex_case(const struct lws_genaes_hex_case *tc)
+{
+	struct lws_genaes_ctx ctx;
+	struct lws_gencrypto_keyelem e;
+	uint8_t key[64], iv_src[32], iv[32], in[2048], out[2048], res[2048],
+		res1[2048], sb[16];
+	uint8_t *ivp, *sbp;
+	size_t key_len, iv_len, in_len, out_len, off;
+	size_t *offp;
+
+	key_len = lws_genaes_hex_to_buf(tc->key_hex, key, sizeof(key));
+	iv_len = lws_genaes_hex_to_buf(tc->iv_hex, iv_src, sizeof(iv_src));
+	in_len = lws_genaes_hex_to_buf(tc->in_hex, in, sizeof(in));
+	out_len = lws_genaes_hex_to_buf(tc->out_hex, out, sizeof(out));
+	if (!key_len || in_len != out_len) {
+		lwsl_err("%s: bad vector '%s'\n", __func__, tc->name);
+		return -1;
+	}
+
+	e.buf = key;
+	e.len = (uint32_t)key_len;
+
+	lws_genaes_reset_state(tc->mode, iv_src, iv_len, iv, &ivp, sb, &sbp,
+			       &off, &offp);
+	if (lws_genaes_create(&ctx, LWS_GAESO_ENC, tc->mode, &e,
+			      tc->padding, NULL)) {
+		lwsl_err("%s: %s enc create failed\n", __func__, tc->name);
+		return -1;
+	}
+	if (lws_genaes_crypt(&ctx, in, in_len, res, ivp, sbp, offp, 0)) {
+		lwsl_err("%s: %s enc failed\n", __func__, tc->name);
+		goto bail_enc;
+	}
+	if (lws_genaes_destroy(&ctx, NULL, 0)) {
+		lwsl_err("%s: %s enc destroy failed\n", __func__, tc->name);
+		return -1;
+	}
+	if (lws_timingsafe_bcmp(out, res, (unsigned int)out_len)) {
+		lwsl_err("%s: %s enc mismatch\n", __func__, tc->name);
+		lwsl_hexdump_notice(res, out_len);
+		return -1;
+	}
+
+	lws_genaes_reset_state(tc->mode, iv_src, iv_len, iv, &ivp, sb, &sbp,
+			       &off, &offp);
+	if (lws_genaes_create(&ctx, LWS_GAESO_DEC, tc->mode, &e,
+			      tc->padding, NULL)) {
+		lwsl_err("%s: %s dec create failed\n", __func__, tc->name);
+		return -1;
+	}
+	if (lws_genaes_crypt(&ctx, out, out_len, res1, ivp, sbp, offp, 0)) {
+		lwsl_err("%s: %s dec failed\n", __func__, tc->name);
+		goto bail_dec;
+	}
+	if (lws_genaes_destroy(&ctx, NULL, 0)) {
+		lwsl_err("%s: %s dec destroy failed\n", __func__, tc->name);
+		return -1;
+	}
+	if (lws_timingsafe_bcmp(in, res1, (unsigned int)in_len)) {
+		lwsl_err("%s: %s dec mismatch\n", __func__, tc->name);
+		lwsl_hexdump_notice(res1, in_len);
+		return -1;
+	}
+
+	return 0;
+
+bail_dec:
+	lws_genaes_destroy(&ctx, NULL, 0);
+
+	return -1;
+
+bail_enc:
+	lws_genaes_destroy(&ctx, NULL, 0);
+
+	return -1;
+}
+
+static int
+lws_genaes_run_padding_hex_case(const struct lws_genaes_padding_hex_case *tc)
+{
+	struct lws_genaes_ctx ctx;
+	struct lws_gencrypto_keyelem e;
+	uint8_t key[64], iv_src[32], iv[32], pt[2048], ct[2048], res[2048],
+		res1[2048], sb[16];
+	uint8_t *ivp, *sbp;
+	size_t key_len, iv_len, pt_len, ct_len, off, enc_tail_len;
+	size_t *offp;
+
+	key_len = lws_genaes_hex_to_buf(tc->key_hex, key, sizeof(key));
+	iv_len = lws_genaes_hex_to_buf(tc->iv_hex, iv_src, sizeof(iv_src));
+	pt_len = lws_genaes_hex_to_buf(tc->pt_hex, pt, sizeof(pt));
+	ct_len = lws_genaes_hex_to_buf(tc->ct_hex, ct, sizeof(ct));
+	if (!key_len || !pt_len || !ct_len) {
+		lwsl_err("%s: bad padding vector '%s'\n", __func__, tc->name);
+		return -1;
+	}
+	if (tc->mode != LWS_GAESM_CBC) {
+		lwsl_err("%s: unsupported padding mode %d in '%s'\n",
+			 __func__, tc->mode, tc->name);
+		return -1;
+	}
+
+	e.buf = key;
+	e.len = (uint32_t)key_len;
+
+	lws_genaes_reset_state(tc->mode, iv_src, iv_len, iv, &ivp, sb, &sbp,
+			       &off, &offp);
+	if (lws_genaes_create(&ctx, LWS_GAESO_ENC, tc->mode, &e,
+			      LWS_GAESP_WITH_PADDING, NULL)) {
+		lwsl_err("%s: %s enc create failed\n", __func__, tc->name);
+		return -1;
+	}
+	if (lws_genaes_crypt(&ctx, pt, pt_len, res, ivp, sbp, offp, 0)) {
+		lwsl_err("%s: %s enc failed\n", __func__, tc->name);
+		goto bail_enc;
+	}
+	if (ct_len < pt_len) {
+		lwsl_err("%s: %s bad CBC padding lengths\n",
+			 __func__, tc->name);
+		goto bail_enc;
+	}
+
+	enc_tail_len = ct_len - pt_len;
+	if (lws_genaes_destroy(&ctx, res + pt_len, enc_tail_len)) {
+		lwsl_err("%s: %s enc destroy failed\n", __func__,
+			 tc->name);
+		return -1;
+	}
+
+	if (lws_timingsafe_bcmp(ct, res, (unsigned int)ct_len)) {
+		lwsl_err("%s: %s enc mismatch\n", __func__, tc->name);
+		lwsl_hexdump_notice(res, ct_len);
+		return -1;
+	}
+
+	lws_genaes_reset_state(tc->mode, iv_src, iv_len, iv, &ivp, sb, &sbp,
+			       &off, &offp);
+	if (lws_genaes_create(&ctx, LWS_GAESO_DEC, tc->mode, &e,
+			      LWS_GAESP_WITH_PADDING, NULL)) {
+		lwsl_err("%s: %s dec create failed\n", __func__, tc->name);
+		return -1;
+	}
+	if (lws_genaes_crypt(&ctx, ct, ct_len, res1, ivp, sbp, offp, 0)) {
+		lwsl_err("%s: %s dec failed\n", __func__, tc->name);
+		goto bail_dec;
+	}
+	if (lws_genaes_destroy(&ctx, NULL, 0)) {
+		lwsl_err("%s: %s dec destroy failed\n", __func__, tc->name);
+		return -1;
+	}
+	if (lws_timingsafe_bcmp(pt, res1, (unsigned int)pt_len)) {
+		lwsl_err("%s: %s dec mismatch\n", __func__, tc->name);
+		lwsl_hexdump_notice(res1, pt_len);
+		return -1;
+	}
+
+	return 0;
+
+bail_dec:
+	lws_genaes_destroy(&ctx, NULL, 0);
+
+	return -1;
+
+bail_enc:
+	lws_genaes_destroy(&ctx, NULL, 0);
+
+	return -1;
+}
+
+static int
+lws_genaes_run_gcm_hex_case(const struct lws_genaes_gcm_hex_case *tc)
+{
+	struct lws_genaes_ctx ctx;
+	struct lws_gencrypto_keyelem e;
+	uint8_t key[64], iv[2048], aad[2048], pt[2048], ct[2048], tag[64],
+		res[2048], out_tag[64];
+	size_t key_len, iv_len, aad_len, pt_len, ct_len, tag_len, iv_off;
+
+	key_len = lws_genaes_hex_to_buf(tc->key_hex, key, sizeof(key));
+	iv_len = lws_genaes_hex_to_buf(tc->iv_hex, iv, sizeof(iv));
+	aad_len = lws_genaes_hex_to_buf(tc->aad_hex, aad, sizeof(aad));
+	pt_len = lws_genaes_hex_to_buf(tc->pt_hex, pt, sizeof(pt));
+	ct_len = lws_genaes_hex_to_buf(tc->ct_hex, ct, sizeof(ct));
+	tag_len = lws_genaes_hex_to_buf(tc->tag_hex, tag, sizeof(tag));
+	if (!key_len || pt_len != ct_len || !tag_len) {
+		lwsl_err("%s: bad GCM vector '%s'\n", __func__, tc->name);
+		return -1;
+	}
+
+	e.buf = key;
+	e.len = (uint32_t)key_len;
+
+	if (lws_genaes_create(&ctx, LWS_GAESO_ENC, LWS_GAESM_GCM, &e, 0, NULL)) {
+		lwsl_err("%s: %s enc create failed\n", __func__, tc->name);
+		return -1;
+	}
+
+	iv_off = iv_len;
+	if (lws_genaes_crypt(&ctx, aad, aad_len, NULL, iv, tag, &iv_off,
+			     (int)tag_len)) {
+		lwsl_err("%s: %s enc aad failed\n", __func__, tc->name);
+		goto bail_enc;
+	}
+	if (pt_len &&
+	    lws_genaes_crypt(&ctx, pt, pt_len, res, NULL, NULL, NULL, 0)) {
+		lwsl_err("%s: %s enc data failed\n", __func__, tc->name);
+		goto bail_enc;
+	}
+	if (lws_genaes_destroy(&ctx, out_tag, tag_len)) {
+		lwsl_err("%s: %s enc destroy failed\n", __func__, tc->name);
+		return -1;
+	}
+	if ((pt_len && lws_timingsafe_bcmp(ct, res, (unsigned int)ct_len)) ||
+	    lws_timingsafe_bcmp(tag, out_tag, (unsigned int)tag_len)) {
+		lwsl_err("%s: %s enc mismatch\n", __func__, tc->name);
+		return -1;
+	}
+
+	if (lws_genaes_create(&ctx, LWS_GAESO_DEC, LWS_GAESM_GCM, &e, 0, NULL)) {
+		lwsl_err("%s: %s dec create failed\n", __func__, tc->name);
+		return -1;
+	}
+
+	iv_off = iv_len;
+	if (lws_genaes_crypt(&ctx, aad, aad_len, NULL, iv, tag, &iv_off,
+			     (int)tag_len)) {
+		lwsl_err("%s: %s dec aad failed\n", __func__, tc->name);
+		goto bail_dec;
+	}
+	if (ct_len &&
+	    lws_genaes_crypt(&ctx, ct, ct_len, res, NULL, NULL, NULL, 0)) {
+		lwsl_err("%s: %s dec data failed\n", __func__, tc->name);
+		goto bail_dec;
+	}
+	if (lws_genaes_destroy(&ctx, out_tag, tag_len)) {
+		lwsl_err("%s: %s dec destroy failed\n", __func__, tc->name);
+		return -1;
+	}
+	if (pt_len && lws_timingsafe_bcmp(pt, res, (unsigned int)pt_len)) {
+		lwsl_err("%s: %s dec mismatch\n", __func__, tc->name);
+		return -1;
+	}
+
+	return 0;
+
+bail_dec:
+	lws_genaes_destroy(&ctx, NULL, 0);
+
+	return -1;
+
+bail_enc:
+	lws_genaes_destroy(&ctx, NULL, 0);
+
+	return -1;
+}
+
+static int
+test_genaes_branch_matrix(void)
+{
+	static const struct lws_genaes_hex_case basic_cases[] = {
+		{ "cbc128-kat", LWS_GAESM_CBC, LWS_GAESP_NO_PADDING,
+		  "00000000000000000000000000000000",
+		  "00000000000000000000000000000000",
+		  "f34481ec3cc627bacd5dc3fb08f273e6",
+		  "0336763e966d92595a567cc9ce537f5e" },
+		{ "cbc192-kat", LWS_GAESM_CBC, LWS_GAESP_NO_PADDING,
+		  "000000000000000000000000000000000000000000000000",
+		  "00000000000000000000000000000000",
+		  "1b077a6af4b7f98229de786d7516b639",
+		  "275cfc0413d8ccb70513c3859b1d0f72" },
+		{ "ecb192-kat", LWS_GAESM_ECB, LWS_GAESP_NO_PADDING,
+		  "61396c530cc1749a5bab6fbcf906fe672d0c4ab201af4554",
+		  "",
+		  "60bcdb9416bac08d7fd0d780353740a5",
+		  "24f40c4eecd9c49825000fcb4972647a" },
+		{ "ecb256-kat", LWS_GAESM_ECB, LWS_GAESP_NO_PADDING,
+		  "cc22da787f375711c76302bef0979d8eddf842829c2b99ef3dd04e23e54cc24b",
+		  "",
+		  "ccc62c6b0a09a671d64456818db29a4d",
+		  "df8634ca02b13a125b786e1dce90658b" },
+		{ "ctr192-kat", LWS_GAESM_CTR, LWS_GAESP_NO_PADDING,
+		  "8e73b0f7da0e6452c810f32b809079e562f8ead2522c6b7b",
+		  "f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff",
+		  "6bc1bee22e409f96e93d7e117393172a",
+		  "1abc932417521ca24f2b0459fe7e6e0b" },
+		{ "ctr256-kat", LWS_GAESM_CTR, LWS_GAESP_NO_PADDING,
+		  "603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4",
+		  "f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff",
+		  "6bc1bee22e409f96e93d7e117393172a",
+		  "601ec313775789a5b7a7f504bbf3d228" },
+		{ "xts128-kat", LWS_GAESM_XTS, LWS_GAESP_NO_PADDING,
+		  "a1b90cba3f06ac353b2c343876081762090923026e91771815f29dab01932f2f",
+		  "4faef7117cda59c66e4b92013e768ad5",
+		  "ebabce95b14d3c8d6fb350390790311c",
+		  "778ae8b43cb98d5a825081d5be471c63" },
+	};
+	static const struct lws_genaes_gcm_hex_case gcm_cases[] = {
+		{ "gcm128-kat",
+		  "af2904e234458af8ce0d616866c981fc",
+		  "ef6381fdeb7877845f46edcd",
+		  "41946f4a8304875ab3db0dec08d6c990",
+		  "13836338abcfc03b89dd93f1dd691b01",
+		  "b13b49e06b9e615a86d4c17ac10da212",
+		  "ac8af4dc584da9a6" },
+		{ "gcm192-empty",
+		  "aa740abfadcda779220d3b406c5d7ec09a77fe9d94104539",
+		  "ab2265b4c168955561f04315",
+		  "",
+		  "",
+		  "",
+		  "f149e2b5f0adaa9842ca5f45b768a8fc" },
+	};
+	static const struct lws_genaes_padding_hex_case padding_cases[] = {
+		{ "cbc128-pkcs7",
+		  LWS_GAESM_CBC,
+		  "000102030405060708090a0b0c0d0e0f",
+		  "000102030405060708090a0b0c0d0e0f",
+		  "000102030405060708090a0b0c0d0e0f",
+		  "c6a13b37878f5b826f4f8162a1c8d879b1a29273be2c4207a5ace393398cb6fb" },
+	};
+	unsigned int n;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(basic_cases); n++) {
+#if defined(LWS_WITH_GNUTLS)
+		if (basic_cases[n].mode == LWS_GAESM_CTR ||
+		    basic_cases[n].mode == LWS_GAESM_XTS)
+			continue;
+#endif
+#if defined(LWS_WITH_MBEDTLS) && defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x04000000
+		if (basic_cases[n].mode == LWS_GAESM_XTS)
+			continue;
+#endif
+		if (lws_genaes_run_hex_case(&basic_cases[n])) {
+			lwsl_err("%s: basic_cases[%d] failed\n", __func__, n);
+			return -1;
+		}
+	}
+
+	for (n = 0; n < LWS_ARRAY_SIZE(gcm_cases); n++)
+		if (lws_genaes_run_gcm_hex_case(&gcm_cases[n])) {
+			lwsl_err("%s: gcm_cases[%d] failed\n", __func__, n);
+			return -1;
+		}
+
+	for (n = 0; n < LWS_ARRAY_SIZE(padding_cases); n++)
+		if (lws_genaes_run_padding_hex_case(&padding_cases[n])) {
+			lwsl_err("%s: padding_cases[%d] failed\n", __func__, n);
+			return -1;
+		}
+
+	return 0;
+}
+
 int
 test_genaes(struct lws_context *context)
 {
@@ -872,7 +1304,8 @@ test_genaes(struct lws_context *context)
 //#if !defined(LWS_WITH_SCHANNEL)
 	if (test_genaes_gcm())
 		goto bail;
-//#endif
+	if (test_genaes_branch_matrix())
+		goto bail;
 
 	/* end */
 

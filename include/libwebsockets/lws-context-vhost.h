@@ -340,7 +340,7 @@ struct lws_context_creation_info {
 	/**< VHOST: NULL or array of lws_extension structs listing the
 	 * extensions this context supports. */
 #endif
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 	const struct lws_token_limits *token_limits;
 	/**< CONTEXT: NULL or struct lws_token_limits pointer which is
 	 * initialized with a token length limit for each possible WSI_TOKEN_ */
@@ -359,12 +359,14 @@ struct lws_context_creation_info {
 	 *
 	 * Eg, "badrobot" "404 Not Found"
 	 */
+#endif
 	const struct lws_protocol_vhost_options *pvo;
 	/**< VHOST: pointer to optional linked list of per-vhost
 	 * options made accessible to protocols */
 	const char *log_filepath;
 	/**< VHOST: filepath to append logs to... this is opened before
 	 *		any dropping of initial privileges */
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 	const struct lws_http_mount *mounts;
 	/**< VHOST: optional linked list of mounts for this vhost */
 	const char *server_string;
@@ -375,6 +377,7 @@ struct lws_context_creation_info {
 	/**< VHOST: If non-NULL, when asked to serve a non-existent file,
 	 *          lws attempts to server this url path instead.  Eg,
 	 *          "/404.html" */
+#endif
 	int port;
 	/**< VHOST: Port to listen on. Use CONTEXT_PORT_NO_LISTEN to suppress
 	 * listening for a client. Use CONTEXT_PORT_NO_LISTEN_SERVER if you are
@@ -388,6 +391,7 @@ struct lws_context_creation_info {
 	 * If options specifies LWS_SERVER_OPTION_UNIX_SOCK, you should set
 	 * port to 0 */
 
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 	unsigned int http_proxy_port;
 	/**< VHOST: If http_proxy_address was non-NULL, uses this port */
 	unsigned int max_http_header_data2;
@@ -400,11 +404,13 @@ struct lws_context_creation_info {
 	 * is nonzero, this will be used in place of the default.  It's
 	 * like this for compatibility with the original short version:
 	 * this is unsigned int length. */
+#endif
 
 	int keepalive_timeout;
 	/**< VHOST: (default = 0 = 5s, 31s for http/2) seconds to allow remote
 	 * client to hold on to an idle HTTP/1.1 connection.  Timeout lifetime
 	 * applied to idle h2 network connections */
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 	uint32_t	http2_settings[7];
 	/**< VHOST:  if http2_settings[0] is nonzero, the values given in
 	 *	      http2_settings[1]..[6] are used instead of the lws
@@ -623,13 +629,14 @@ struct lws_context_creation_info {
 
 #endif
 
-#if !defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_BEARSSL)
+#if !defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_BEARSSL) && \
+	!defined(LWS_WITH_OPENHITLS)
 	SSL_CTX *provided_client_ssl_ctx;
 	/**< CONTEXT: If non-null, swap out libwebsockets ssl
 	  * implementation for the one provided by provided_ssl_ctx.
 	  * Libwebsockets no longer is responsible for freeing the context
 	  * if this option is selected. */
-#else /* WITH_MBEDTLS */
+#elif defined(LWS_WITH_MBEDTLS)
 	const char *mbedtls_client_preload_filepath;
 	/**< CONTEXT: If NULL, no effect.  Otherwise it should point to a
 	 * filepath where every created client SSL_CTX is preloaded from the

@@ -212,7 +212,7 @@ typedef pthread_mutex_t lws_mutex_t;
 #endif
 #endif /* freertos */
 
-#define LWS_POSIX_LENGTH_CAST(x) (x)
+#define LWS_POSIX_LENGTH_CAST(x) ((size_t)(x))
 
 #if defined(LWS_HAVE_SYS_CAPABILITY_H) && defined(LWS_HAVE_LIBCAP)
 #include <sys/capability.h>
@@ -439,6 +439,15 @@ typedef struct gnutls_session_int SSL;
 typedef struct lws_tls_gnutls_ctx SSL_CTX;
 typedef void BIO;
 typedef struct gnutls_x509_crt_int X509;
+#elif defined(LWS_WITH_OPENHITLS)
+#include <hitls_type.h>
+#include <hitls_cert_type.h>
+#include <hitls_pki_cert.h>
+typedef HITLS_Ctx SSL;
+typedef HITLS_Config SSL_CTX;
+typedef void BIO;
+typedef HITLS_X509_Cert X509;
+typedef HITLS_CERT_StoreCtx X509_STORE_CTX;
 #else
 #include <openssl/ssl.h>
 #if !defined(LWS_WITH_MBEDTLS)
@@ -604,7 +613,14 @@ int getsockopt(int sockfd, int level, int optname,
 int connect(int sockfd, const struct sockaddr *addr,
                    socklen_t addrlen);
 
+#if defined(ESP_PLATFORM)
+/* IDF v6 (picolibc) makes errno thread-local; a plain "extern int errno" makes
+ * lws objects reference it non-TLS and fail to link ("TLS definition ...
+ * mismatches non-TLS reference"). Use the platform's real errno. */
+#include <errno.h>
+#else
 extern int errno;
+#endif
 
 uint16_t ntohs(uint16_t netshort);
 uint16_t htons(uint16_t hostshort);

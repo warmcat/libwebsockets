@@ -728,8 +728,17 @@ void
 lws_transport_mux_destroy_channel(lws_transport_mux_ch_t **_mc)
 {
 	lws_transport_mux_ch_t *mc = *_mc;
-	lws_transport_mux_t *tm = lws_container_of(mc->list.owner,
+	lws_transport_mux_t *tm;
+	const lws_transport_client_ops_t *cpath_ops;
+	const lws_transport_proxy_ops_t *ppath_ops;
+	lws_transport_priv_t priv;
+
+	if (!mc)
+		return;
+
+	tm = lws_container_of(mc->list.owner,
 						lws_transport_mux_t, owner);
+	*_mc = NULL;
 
 	lwsl_notice("%s: mux ch %u\n", __func__, mc->ch_idx);
 
@@ -738,35 +747,35 @@ lws_transport_mux_destroy_channel(lws_transport_mux_ch_t **_mc)
 		tm->_open[mc->ch_idx >> 5] &= (lws_mux_ch_idx_t)
 						~(1 << (mc->ch_idx & 31));
 
+	cpath_ops = tm->info.txp_cpath.ops_in;
+	ppath_ops = tm->info.txp_ppath.ops_in;
+	priv = mc->priv;
+
+	lws_sul_cancel(&mc->sul);
+	lws_dll2_remove(&mc->list_pending_tx);
+	lws_dll2_remove(&mc->list);
+
 	/*
 	 * We must report channel closure... client side
 	 */
 
-	if (tm->info.txp_cpath.ops_in &&
-	    tm->info.txp_cpath.ops_in->event_closed) {
+	if (cpath_ops && cpath_ops->event_closed) {
 		lwsl_notice("%s: calling %s event closed\n", __func__,
-				tm->info.txp_cpath.ops_in->name);
-		tm->info.txp_cpath.ops_in->event_closed((lws_transport_priv_t)mc);
+				cpath_ops->name);
+		cpath_ops->event_closed((lws_transport_priv_t)mc);
 	}
 
 	/*
 	 * We must report channel closure... proxy side
 	 */
 
-	if (tm->info.txp_ppath.ops_in &&
-	    tm->info.txp_ppath.ops_in->event_close_conn) {
+	if (ppath_ops && ppath_ops->event_close_conn) {
 		lwsl_notice("%s: calling %s event_close_conn\n", __func__,
-				tm->info.txp_ppath.ops_in->name);
-		tm->info.txp_ppath.ops_in->event_close_conn(
-				(lws_transport_priv_t)mc->priv);
+				ppath_ops->name);
+		ppath_ops->event_close_conn(priv);
 	}
 
-	lws_sul_cancel(&mc->sul);
-	lws_dll2_remove(&mc->list_pending_tx);
-	lws_dll2_remove(&mc->list);
-
 	free(mc);
-	*_mc = NULL;
 }
 
 lws_transport_mux_t *

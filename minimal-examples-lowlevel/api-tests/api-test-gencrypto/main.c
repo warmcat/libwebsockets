@@ -25,9 +25,7 @@ test_genaes(struct lws_context *context);
 int
 test_genec(struct lws_context *context);
 int
-test_genhkdf(struct lws_context *context);
-int
-test_genchacha(struct lws_context *context);
+test_genrsa(struct lws_context *context);
 
 #if defined(LWS_WITH_MBEDTLS) && defined(LWS_WITH_TLS)
 /* int
@@ -38,7 +36,8 @@ int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	struct lws_context *context;
-	int result = 0;
+	const char *p;
+	int result = 0, logs = LLL_USER | LLL_ERR | LLL_WARN | LLL_NOTICE;
 	(void)switches;
 
 	if (lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
@@ -47,11 +46,13 @@ int main(int argc, const char **argv)
 	}
 
 
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_D].sw)))
+		logs = atoi(p);
 
+	lws_set_log_level(logs, NULL);
 	lwsl_user("LWS gencrypto apis tests\n");
 
-	lws_context_info_defaults(&info, NULL);
-	lws_cmdline_option_handle_builtin(argc, argv, &info);
+	memset(&info, 0, sizeof info); /* otherwise uninitialized garbage */
 #if defined(LWS_WITH_NETWORK)
 	info.port = CONTEXT_PORT_NO_LISTEN;
 #endif
@@ -65,8 +66,7 @@ int main(int argc, const char **argv)
 
 	result |= test_genaes(context);
 	result |= test_genec(context);
-	result |= test_genhkdf(context);
-	result |= test_genchacha(context);
+	result |= test_genrsa(context);
 
 #if defined(LWS_WITH_MBEDTLS) && defined(LWS_WITH_TLS)
 	/* result |= test_mbedtls_cipherlist(context); */ /* Requires static linking to access inner OpenSSL shim symbols */

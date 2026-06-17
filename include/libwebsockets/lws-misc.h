@@ -54,6 +54,9 @@ struct lws_buflist;
  * Returns -1 on OOM, 1 if this was the first segment on the list, and 0 if
  * it was a subsequent segment.
  */
+
+#define LWS_BUFLIST_OOM_LIMIT (2 * 1024 * 1024)
+
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_buflist_append_segment(struct lws_buflist **head, const uint8_t *buf,
 			   size_t len);
@@ -211,6 +214,139 @@ lws_buflist_describe(struct lws_buflist **head, void *id, const char *reason);
  */
 LWS_VISIBLE LWS_EXTERN void *
 lws_buflist_get_frag_start_or_NULL(struct lws_buflist **head);
+
+
+/* --- lws_buflist2 (doubly-linked) --- */
+
+struct lws_buflist2_owner {
+	struct lws_dll2_owner	owner;
+	size_t			total_len;
+	size_t			limit;
+};
+
+struct lws_buflist2;
+
+/**
+ * lws_buflist2_append_segment(): add buffer to buflist2 at tail
+ *
+ * \param owner: list owner
+ * \param buf: buffer to stash
+ * \param len: length of buffer to stash
+ *
+ * Returns -1 on OOM, 1 if this was the first segment on the list, and 0 if
+ * it was a subsequent segment.
+ */
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
+lws_buflist2_append_segment(struct lws_buflist2_owner *owner, const uint8_t *buf,
+			    size_t len);
+
+/**
+ * lws_buflist2_append_segment_take_ownership(): add buffer to buflist2 at tail
+ *
+ * \param owner: list owner
+ * \param buf: buffer to stash, must be allocated by lws_malloc
+ * \param len: length of buffer to stash
+ *
+ * Returns -1 on OOM, 1 if this was the first segment on the list, and 0 if
+ * it was a subsequent segment. The buflist takes ownership of \p buf and
+ * will free it using lws_free() when it is exhausted.
+ */
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
+lws_buflist2_append_segment_take_ownership(struct lws_buflist2_owner *owner, uint8_t *buf, size_t len);
+
+/**
+ * lws_buflist2_next_segment_len(): number of bytes left in current segment
+ *
+ * \param owner: list owner
+ * \param buf: if non-NULL, *buf is written with the address of the start of
+ *		the remaining data in the segment
+ *
+ * Returns the number of bytes left in the current segment.  0 indicates
+ * that the buflist is empty (there are no segments on the buflist).
+ */
+LWS_VISIBLE LWS_EXTERN size_t
+lws_buflist2_next_segment_len(struct lws_buflist2_owner *owner, uint8_t **buf);
+
+/**
+ * lws_buflist2_use_segment(): remove len bytes from the current segment
+ *
+ * \param owner: list owner
+ * \param len: number of bytes to mark as used
+ *
+ * If len is less than the remaining length of the current segment, the position
+ * in the current segment is simply advanced and it returns.
+ *
+ * If len uses up the remaining length of the current segment, then the segment
+ * is deleted and the list head moves to the next segment if any.
+ *
+ * Returns the number of bytes left in the current segment.  0 indicates
+ * that the buflist is empty (there are no segments on the buflist).
+ */
+LWS_VISIBLE LWS_EXTERN size_t
+lws_buflist2_use_segment(struct lws_buflist2_owner *owner, size_t len);
+
+/**
+ * lws_buflist2_total_len(): Get the total size of the buflist
+ *
+ * \param owner: list owner
+ *
+ * Returns the total number of bytes held on all segments of the buflist
+ */
+static LWS_INLINE size_t
+lws_buflist2_total_len(struct lws_buflist2_owner *owner) { return owner->total_len; }
+
+/**
+ * lws_buflist2_fragment_use(): copy and consume <= 1 frag from buflist head
+ *
+ * \param owner: list owner
+ * \param buf: NULL, buffer to copy linearly into
+ * \param len: length of buffer available
+ * \param frag_first: pointer to char written on exit to if this is start of frag
+ * \param frag_fin: pointer to char written on exit to if this is end of frag
+ *
+ * Copies all or part of the fragment at the start of a buflist from the head
+ * into the output buffer \p buf for up to length \p len, and consumes the
+ * buflist content that was copied out.
+ *
+ * Since it was consumed, calling again will resume copying out and consuming
+ * from as far as it got the first time.
+ *
+ * It's legal for buf to be NULL and / or len = 0.  In this case nothing is
+ * "used" and the effect is to set `frag_first` according to if we are at the
+ * start of the fragment and 0 is returned.
+ *
+ * Returns the number of bytes written into \p buf.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_buflist2_fragment_use(struct lws_buflist2_owner *owner, uint8_t *buf,
+			  size_t len, char *frag_first, char *frag_fin);
+
+/**
+ * lws_buflist2_destroy_all_segments(): free all segments on the list
+ *
+ * \param owner: list owner
+ *
+ * This frees everything on the list unconditionally.  The owner is reset.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_buflist2_destroy_all_segments(struct lws_buflist2_owner *owner);
+
+/**
+ * lws_buflist2_get_frag_start_or_NULL(): get pointer to start of fragment
+ *
+ * \param owner: list owner
+ *
+ * This gets you a pointer to the start of the fragment payload, no matter
+ * how much of it you may have 'used' already.  This is useful for schemes
+ * where you prepend something to the payload and need to reference it no
+ * matter how much of it you have consumed or the fragmentation details.
+ *
+ * If the buflist is empty, it will return NULL.
+ */
+LWS_VISIBLE LWS_EXTERN void *
+lws_buflist2_get_frag_start_or_NULL(struct lws_buflist2_owner *owner);
+
+
 
 /**
  * lws_crc32(): calculate CRC32 of a buffer

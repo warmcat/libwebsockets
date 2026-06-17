@@ -211,6 +211,7 @@ lws_ssl_destroy(struct lws_vhost *vhost)
 #endif
 }
 
+#if defined(LWS_WITH_TCP_TLS)
 int
 lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 {
@@ -440,6 +441,7 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 
 	return LWS_SSL_CAPABLE_ERROR;
 }
+#endif
 
 void
 lws_ssl_info_callback(const SSL *ssl, int where, int ret)

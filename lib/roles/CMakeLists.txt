@@ -43,11 +43,11 @@ if (LWS_ROLE_DBUS AND NOT LWS_PLAT_FREERTOS)
 	add_subdir_include_directories(dbus)
 endif()
 
-if (LWS_ROLE_H1 OR LWS_ROLE_H2)
+if (LWS_ROLE_H1 OR LWS_ROLE_H2 OR LWS_ROLE_H3)
 	add_subdir_include_directories(http)
 endif()
 
-if (LWS_ROLE_H1)
+if (LWS_ROLE_H1 OR LWS_ROLE_H2 OR LWS_ROLE_H3)
 	add_subdir_include_directories(h1)
 endif()
 
@@ -87,7 +87,7 @@ if (NOT LWS_WITHOUT_SERVER OR LWS_WITH_SECURE_STREAMS_PROCESS_API)
 	add_subdir_include_directories(listen)
 endif()
 
-if (LWS_WITH_CLIENT AND (LWS_ROLE_H1 OR LWS_ROLE_H2))
+if (LWS_WITH_CLIENT AND (LWS_ROLE_H1 OR LWS_ROLE_H2 OR LWS_ROLE_H3))
 	list(APPEND SOURCES
 		roles/http/client/client-http.c)
 endif()

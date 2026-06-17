@@ -293,21 +293,6 @@ static int lws_frag_end(struct lws *wsi)
 	return 0;
 }
 
-int
-lws_hdr_extant(struct lws *wsi, enum lws_token_indexes h)
-{
-	struct allocated_headers *ah = wsi->http.ah;
-	int n;
-
-	if (!ah)
-		return 0;
-
-	n = ah->frag_index[h];
-	if (!n)
-		return 0;
-
-	return !!(ah->frags[n].flags & 2);
-}
 
 static void lws_dump_header(struct lws *wsi, int hdr)
 {
@@ -1493,7 +1478,7 @@ int lws_add_http2_header_status(struct lws *wsi, unsigned int code,
 
 	wsi->h2.send_END_STREAM = 0; // !!(code >= 400);
 
-	n = sprintf((char *)status, "%u", code);
+	n = lws_snprintf((char *)status, sizeof(status), "%u", code);
 	if (lws_add_http2_header_by_token(wsi, WSI_TOKEN_HTTP_COLON_STATUS,
 					  status, n, p, end))
 

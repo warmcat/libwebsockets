@@ -92,7 +92,6 @@ uint32_t CACHE64_GetInstanceByAddr(uint32_t address)
  */
 status_t CACHE64_Init(CACHE64_POLSEL_Type *base, const cache64_config_t *config)
 {
-    volatile uint32_t *topReg = &base->REG0_TOP;
     uint32_t i;
     uint32_t polsel = 0;
 
@@ -105,10 +104,16 @@ status_t CACHE64_Init(CACHE64_POLSEL_Type *base, const cache64_config_t *config)
 
     for (i = 0; i < CACHE64_REGION_NUM - 1U; i++)
     {
+        uint32_t top;
+
         assert((config->boundaryAddr[i] & (CACHE64_REGION_ALIGNMENT - 1U)) == 0U);
-        ((volatile uint32_t *)topReg)[i] = config->boundaryAddr[i] >= CACHE64_REGION_ALIGNMENT ?
+        top = config->boundaryAddr[i] >= CACHE64_REGION_ALIGNMENT ?
                                                config->boundaryAddr[i] - CACHE64_REGION_ALIGNMENT :
                                                0U;
+        if (i == 0)
+            base->REG0_TOP = top;
+        else if (i == 1)
+            base->REG1_TOP = top;
     }
 
     for (i = 0; i < CACHE64_REGION_NUM; i++)

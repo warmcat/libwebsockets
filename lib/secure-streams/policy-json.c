@@ -1275,6 +1275,9 @@ lws_ss_policy_parse(struct lws_context *context, const uint8_t *buf, size_t len)
 	struct policy_cb_args *args = (struct policy_cb_args *)context->pol_args;
 	int m;
 
+	if (!args)
+		return -1;
+
 #if !defined(LWS_PLAT_FREERTOS) && !defined(LWS_PLAT_OPTEE)
 	if (args->jctx.line < 2 && buf[0] != '{' && !args->parse_data)
 		return lws_ss_policy_parse_file(context, (const char *)buf);

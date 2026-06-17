@@ -89,6 +89,7 @@ const struct lws_protocols *available_secstream_protocols[] = {
 };
 #endif
 
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 static const char * const mount_protocols[] = {
 	"http://",
 	"https://",
@@ -98,6 +99,7 @@ static const char * const mount_protocols[] = {
 	">https://",
 	"callback://"
 };
+#endif
 
 const struct lws_role_ops *
 lws_role_by_name(const char *name)
@@ -698,7 +700,9 @@ lws_create_vhost(struct lws_context *context,
 		 const struct lws_context_creation_info *info)
 {
 	struct lws_vhost *vh, **vh1 = &context->vhost_list;
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	const struct lws_http_mount *mounts;
+#endif
 	const struct lws_protocols *pcols = info->protocols;
 #ifdef LWS_WITH_PLUGINS
 	struct lws_plugin *plugin = context->plugin_list;
@@ -833,7 +837,9 @@ lws_create_vhost(struct lws_context *context,
 
 	vh->options			= info->options;
 	vh->pvo				= info->pvo;
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	vh->headers			= info->headers;
+#endif
 	vh->user			= info->user;
 	vh->finalize			= info->finalize;
 	vh->finalize_arg		= info->finalize_arg;
@@ -996,7 +1002,7 @@ lws_create_vhost(struct lws_context *context,
 		uint8_t seen = 0;
 
 		for (n = 0; n < m; n++)
-			if (!memcmp(&lwsp[n], &lws_async_dns_protocol, sizeof(struct lws_protocols))) {
+			if (lwsp[n].name && !strcmp(lwsp[n].name, lws_async_dns_protocol.name)) {
 				/* Already defined */
 				seen = 1;
 				break;
@@ -1128,6 +1134,7 @@ lws_create_vhost(struct lws_context *context,
 			    vh->name, buf, vh->count_protocols,
 			    LWS_IPV6_ENABLED(vh) ? "on" : "off");
 	}
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	mounts = info->mounts;
 	while (mounts) {
 		(void)mount_protocols[0];
@@ -1138,6 +1145,7 @@ lws_create_vhost(struct lws_context *context,
 
 		mounts = mounts->mount_next;
 	}
+#endif
 
 	vh->listen_port = info->port;
 
@@ -1998,10 +2006,13 @@ int
 lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 {
 #if defined(LWS_WITH_TLS)
+#if defined(LWS_ROLE_H1)
 	const char *my_alpn = lws_wsi_client_stash_item(wsi, CIS_ALPN,
 							_WSI_TOKEN_CLIENT_ALPN);
 #endif
+#endif
 #if defined(LWS_WITH_TLS)
+#if defined(LWS_ROLE_H1)
 	char newconn_cannot_use_h1 = 0;
 
 	if ((wsi->tls.use_ssl & LCCSCF_USE_SSL) &&
@@ -2011,6 +2022,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 		 * not list h1 as a choice ==> he can't bind to existing h1
 		 */
 		newconn_cannot_use_h1 = 1;
+#endif
 #endif
 
 	if (!lws_dll2_is_detached(&wsi->dll2_cli_txn_queue)) {
@@ -2062,7 +2074,9 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 		    w->cli_hostname_copy && !strcmp(adsin, w->cli_hostname_copy) &&
 		    /* same endpoint hostname */
 #if defined(LWS_WITH_TLS)
+#if defined(LWS_ROLE_H1)
 		   !(newconn_cannot_use_h1 && w->role_ops == &role_ops_h1) &&
+#endif
 		   /* if we can't use h1, old guy must not be h1 */
 		    (wsi->tls.use_ssl & LCCSCF_USE_SSL) ==
 		     (w->tls.use_ssl & LCCSCF_USE_SSL) &&

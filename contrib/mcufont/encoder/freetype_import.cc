@@ -35,7 +35,7 @@ class _FT_Library
 {
 public:
     _FT_Library() { checkFT(FT_Init_FreeType(&m_lib)); }
-    ~_FT_Library() { checkFT(FT_Done_FreeType(m_lib)); }
+    ~_FT_Library() { FT_Done_FreeType(m_lib); }
     operator FT_Library() { return m_lib; }
 
 private:
@@ -51,7 +51,7 @@ public:
         checkFT(FT_New_Memory_Face(lib, (const unsigned char *)&data[0],
                                    data.size(), 0, &m_face));
     }
-    ~_FT_Face() { checkFT(FT_Done_Face(m_face)); }
+    ~_FT_Face() { FT_Done_Face(m_face); }
     operator FT_Face() { return m_face; }
     FT_Face operator->() { return m_face; }
 

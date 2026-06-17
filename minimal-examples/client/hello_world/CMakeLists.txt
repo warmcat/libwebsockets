@@ -11,6 +11,7 @@ require_lws_config(LWS_WITH_SECURE_STREAMS_AUTH_SIGV4 0 requirements)
 
 # uses system trust store
 require_lws_config(LWS_WITH_MBEDTLS 0 requirements)
+require_lws_config(LWS_WITH_OPENHITLS 0 requirements)
 require_lws_config(LWS_WITH_WOLFSSL 0 requirements)
 require_lws_config(LWS_WITH_CYASSL 0 requirements)
 
@@ -191,4 +192,3 @@ if (requirements)
 	### <--- related to ctest / CI END
 
 endif()
-

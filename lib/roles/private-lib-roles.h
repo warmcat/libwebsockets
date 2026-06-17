@@ -379,7 +379,7 @@ extern const struct lws_role_ops role_ops_raw_skt, role_ops_raw_file,
 
 /* bring in role private declarations */
 
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
  #include "private-lib-roles-http.h"
 #else
  #define lwsi_role_http(wsi) (0)

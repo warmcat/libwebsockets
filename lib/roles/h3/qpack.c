@@ -395,7 +395,7 @@ lws_add_http3_header_by_token(struct lws *wsi, enum lws_token_indexes token,
 	int n;
 
 	if (static_idx != -1) {
-		const char *static_val;
+		const char *static_val = NULL;
 		lws_qpack_get_static_token(static_idx, NULL, &static_val);
 		if (static_val && length == (int)strlen(static_val) && !strncmp(static_val, (const char *)value, (size_t)length)) {
 			n = lws_qpack_encode_static(*p, lws_ptr_diff_size_t(end, *p), static_idx);
@@ -784,8 +784,10 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 				
 				/* lwsl_user("EMIT: opcode=%02x idx=%d name=%s val=%s val_len=%d\n", state->opcode, idx, name ? name : "null", val ? val : "null", val ? (int)strlen(val) : 0); */
 				
-				if (cb) cb(user, idx, name, name ? strlen(name) : 0, val, val ? strlen(val) : 0);
-				
+				if (cb) {
+					if (cb(user, idx, name, name ? strlen(name) : 0, val, val ? strlen(val) : 0))
+						return 1;
+				}				
 				state->state = LQP_DEC_INSTRUCTION;
 			}
 			break;
@@ -1310,7 +1312,7 @@ lws_qpack_tx_insert(struct lws_qpack_tx_encoder *enc, const char *name, size_t n
 	int hdr_len = 32 + (int)name_len + (int)val_len;
 	int n;
 	
-	if (!enc || !enc->entries || hdr_len > (int)enc->virtual_payload_max)
+	if (!enc || !enc->entries || !enc->num_entries || hdr_len > (int)enc->virtual_payload_max)
 		return -1;
 		
 	/* Evict until we have space */

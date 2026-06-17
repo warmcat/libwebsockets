@@ -62,7 +62,9 @@ secstream_h3(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			lwsl_notice("%s: h3 client %s entering LONG_POLL\n",
 					__func__, lws_wsi_tag(wsi));
 			/* H3 uses the same long poll as H2 since it maps to the same HTTP stream behavior */
+#if defined(LWS_ROLE_H2)
 			lws_h2_client_stream_long_poll_rxonly(wsi);
+#endif
 		}
 		return n;
 
@@ -207,10 +209,15 @@ static int
 secstream_tx_credit_est_h3(lws_ss_handle_t *h)
 {
 	if (h->wsi) {
+#if defined(LWS_ROLE_H2)
 		lwsl_info("%s: %s: est %d\n", __func__, lws_ss_tag(h),
 				lws_h2_get_peer_txcredit_estimate(h->wsi));
 
 		return lws_h2_get_peer_txcredit_estimate(h->wsi);
+#else
+		lwsl_info("%s: %s: est 0 (H2 disabled)\n", __func__, lws_ss_tag(h));
+		return 0;
+#endif
 	}
 
 	lwsl_info("%s: %s: Unknown (0)\n", __func__, lws_ss_tag(h));

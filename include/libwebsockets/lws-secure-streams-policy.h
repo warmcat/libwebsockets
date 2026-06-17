@@ -243,7 +243,7 @@ typedef struct lws_ss_policy {
 
 	union {
 
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_WS)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_WS) || defined(LWS_ROLE_H3)
 
 		/* details for http-related protocols... */
 

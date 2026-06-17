@@ -23,10 +23,7 @@ if (requirements)
 		target_link_libraries(${SAMP} websockets ${LIBWEBSOCKETS_DEP_LIBS})
 	endif()
 
-	set(GENDTLS_PORT "7890")
-	if ("$ENV{SAI_INSTANCE_IDX}")
-		math(EXPR GENDTLS_PORT "7890 + $ENV{SAI_INSTANCE_IDX}")
-	endif()
+	lws_get_free_port(GENDTLS_PORT)
 
 	add_test(NAME api-test-gendtls COMMAND ${SAMP})
 	add_test(NAME api-test-gendtls-udp COMMAND ${SAMP} --udp --port ${GENDTLS_PORT})

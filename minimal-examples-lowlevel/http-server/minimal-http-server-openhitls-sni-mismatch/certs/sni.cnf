@@ -1,0 +1,3 @@
+[req]
+distinguished_name = sni.com
+[req_prototype = https

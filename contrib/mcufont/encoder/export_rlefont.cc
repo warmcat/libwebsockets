@@ -106,10 +106,10 @@ void write_source(std::ostream &out, std::string _name, const DataFile &datafile
     out32(&hdr[MCUFO_FLAGS_VER], (datafile.GetFontInfo().flags << 8) | RLEFONT_FORMAT_VERSION);
     out32(&hdr[MCUFO_FOFS_FULLNAME], (uint32_t)lseek(fd, 0, SEEK_END));
     if (write(fd, datafile.GetFontInfo().name.c_str(),
-	      strlen(datafile.GetFontInfo().name.c_str()) + 1) < 0)
+	      datafile.GetFontInfo().name.length() + 1) < 0)
 	    goto fail;
     out32(&hdr[MCUFO_FOFS_NAME], (uint32_t)lseek(fd, 0, SEEK_END));
-    if (write(fd, name.c_str(), strlen(name.c_str()) + 1) < 0)
+    if (write(fd, name.c_str(), name.length() + 1) < 0)
 	    goto fail;
     out32(&hdr[MCUFO_FOFS_DICT_DATA], (uint32_t)lseek(fd, 0, SEEK_END));
 

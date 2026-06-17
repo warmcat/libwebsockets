@@ -274,10 +274,21 @@ lws_x509_parse_from_pem(struct lws_x509_cert *x509, const void *pem, size_t len)
 int
 lws_x509_verify(struct lws_x509_cert *x509, struct lws_x509_cert *trusted, const char *common_name)
 {
-	DWORD dwFlags = 0;
+       DWORD dwFlags = CERT_STORE_SIGNATURE_FLAG;
+       char cn[256];
 
-	if (CertVerifySubjectCertificateContext(x509->cert, trusted->cert, &dwFlags))
-		/* Checked signature against issuer? API docs say "checks the validity... by using the issuer". */
+       if (common_name) {
+               if (!CertGetNameStringA(x509->cert, CERT_NAME_ATTR_TYPE, 0, szOID_COMMON_NAME, cn, sizeof(cn))) {
+                       lwsl_err("%s: CertGetNameStringA failed\n", __func__);
+                       return -1;
+               }
+               if (strcmp(cn, common_name)) {
+                       lwsl_err("%s: common name mismatch (expected %s, got %s)\n", __func__, common_name, cn);
+                       return -1;
+               }
+       }
+
+       if (CertVerifySubjectCertificateContext(x509->cert, trusted->cert, &dwFlags) && (dwFlags == 0))
 		return 0;
 
 	return -1;
@@ -382,6 +393,12 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 		BCRYPT_RSAKEY_BLOB *rsablob = lws_malloc(dwBlobLen, "rsa pub");
 		if (rsablob) {
 			if (BCRYPT_SUCCESS(BCryptExportKey(hKey, NULL, BCRYPT_RSAPUBLIC_BLOB, (PUCHAR)rsablob, dwBlobLen, &dwBlobLen, 0))) {
+				if (rsa_min_bits && rsablob->cbModulus * 8 < (uint32_t)rsa_min_bits) {
+					lwsl_err("%s: key bits %d less than minimum %d\n", __func__,
+						 rsablob->cbModulus * 8, rsa_min_bits);
+					lws_free(rsablob);
+					goto bail;
+				}
 				/* Convert blob to JWK elements */
 				/* n, e */
 				uint8_t *p = (uint8_t *)(rsablob + 1);
@@ -406,6 +423,11 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 	status = BCryptExportKey(hKey, NULL, BCRYPT_ECCPUBLIC_BLOB, NULL, 0, &dwBlobLen, 0);
 	if (!BCRYPT_SUCCESS(status))
 		goto bail;
+
+	if (!curves) {
+		lwsl_err("%s: ec curves not allowed\n", __func__);
+		goto bail;
+	}
 
 	jwk->kty = LWS_GENCRYPTO_KTY_EC;
 	BCRYPT_ECCKEY_BLOB *eccblob = lws_malloc(dwBlobLen, "ec pub");
@@ -540,10 +562,30 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 	/* Read RSA fields */
 	jwk->kty = LWS_GENCRYPTO_KTY_RSA;
 
-	if (lws_asn1_read_integer(&p, end, &jwk->e[LWS_GENCRYPTO_RSA_KEYEL_N]) < 0)
-		goto bail;
-	if (lws_asn1_read_integer(&p, end, &jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E]) < 0)
-		goto bail;
+	{
+		struct lws_gencrypto_keyelem tmp_n = {0}, tmp_e = {0};
+
+		if (lws_asn1_read_integer(&p, end, &tmp_n) < 0)
+			goto bail;
+		if (lws_asn1_read_integer(&p, end, &tmp_e) < 0) {
+			lws_free(tmp_n.buf);
+			goto bail;
+		}
+
+		if (tmp_n.len != jwk->e[LWS_GENCRYPTO_RSA_KEYEL_N].len ||
+		    memcmp(tmp_n.buf, jwk->e[LWS_GENCRYPTO_RSA_KEYEL_N].buf, tmp_n.len) ||
+		    tmp_e.len != jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].len ||
+		    memcmp(tmp_e.buf, jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].buf, tmp_e.len)) {
+			lwsl_err("%s: privkey doesn't match jwk pubkey\n", __func__);
+			lws_free(tmp_n.buf);
+			lws_free(tmp_e.buf);
+			goto bail;
+		}
+
+		lws_free(tmp_n.buf);
+		lws_free(tmp_e.buf);
+	}
+
 	if (lws_asn1_read_integer(&p, end, &jwk->e[LWS_GENCRYPTO_RSA_KEYEL_D]) < 0)
 		goto bail;
 	if (lws_asn1_read_integer(&p, end, &jwk->e[LWS_GENCRYPTO_RSA_KEYEL_P]) < 0)

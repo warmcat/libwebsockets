@@ -67,6 +67,11 @@ _lws_destroy_ah(struct lws_context_per_thread *pt, struct allocated_headers *ah)
 			lwsl_info("%s: freed ah %p : pool length %u\n",
 				    __func__, ah,
 				    (unsigned int)pt->http.ah_pool_length);
+			/* Remove any dangling wsi references to the ah we are about to free */
+			if (ah->wsi) {
+				ah->wsi->http.ah = NULL;
+				ah->wsi = NULL;
+			}
 			if (ah->data)
 				lws_free(ah->data);
 			lws_free(ah);
@@ -465,6 +470,22 @@ lws_hdr_fragment_length(struct lws *wsi, enum lws_token_indexes h, int frag_idx)
 	} while (frag_idx-- && n);
 
 	return 0;
+}
+
+int
+lws_hdr_extant(struct lws *wsi, enum lws_token_indexes h)
+{
+	struct allocated_headers *ah = wsi->http.ah;
+	int n;
+
+	if (!ah)
+		return 0;
+
+	n = ah->frag_index[h];
+	if (!n)
+		return 0;
+
+	return !!(ah->frags[n].flags & 2);
 }
 
 int lws_hdr_total_length(struct lws *wsi, enum lws_token_indexes h)

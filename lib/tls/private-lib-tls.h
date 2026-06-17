@@ -67,13 +67,12 @@
    #undef MBEDTLS_CONFIG_FILE
    #define MBEDTLS_CONFIG_FILE <mbedtls/esp_config.h>
   #endif
-  #include <mbedtls/ssl.h>
+   #include <mbedtls/ssl.h>
 #if !defined(LWS_HAVE_MBEDTLS_V4)
   #include <mbedtls/aes.h>
   #include <mbedtls/gcm.h>
 #endif
   #include <mbedtls/x509_crt.h>
-  #include "ssl.h" /* wrapper !!!! */
  #else /* not esp32 */
   #if defined(LWS_WITH_MBEDTLS)
    #include <mbedtls/ssl.h>
@@ -89,15 +88,12 @@
 #else
    #include <psa/crypto.h>
 #endif
-  #if defined(LWS_AMAZON_LINUX)
-   #include "ssl.h" /* wrapper !!!! */
-  #else
-   #include "openssl/ssl.h" /* wrapper !!!! */
-  #endif
   #elif defined(LWS_WITH_GNUTLS)
    #include <gnutls/gnutls.h>
    #include <gnutls/abstract.h>
    #include <gnutls/crypto.h>
+  #elif defined(LWS_WITH_OPENHITLS)
+   #include "openhitls/private.h"
   #else
    #include <openssl/ssl.h>
    #include <openssl/evp.h>
@@ -173,6 +169,10 @@ typedef struct lws_tls_schannel_x509 lws_tls_x509;
 #include "gnutls/private.h"
 #elif defined(LWS_WITH_BEARSSL)
 #include "bearssl/private-lib-tls-bearssl.h"
+#elif defined(LWS_WITH_MBEDTLS)
+#include "mbedtls/private-lib-tls-mbedtls.h"
+#elif defined(LWS_WITH_OPENHITLS)
+/* openhitls types are already defined in openhitls/private.h */
 #else
 typedef SSL lws_tls_conn;
 typedef SSL_CTX lws_tls_ctx;
@@ -205,6 +205,15 @@ int
 lws_tls_quic_tx_crypto_cb(struct lws *wsi, int level, const uint8_t *buf, size_t len);
 #endif
 
+enum {
+	CCTLS_RETURN_ERROR		= -1,
+	CCTLS_RETURN_DONE		= 0,
+	CCTLS_RETURN_RETRY		= 1,
+};
+
+int
+lws_client_create_tls(struct lws *wsi, const char **pcce, int do_c1);
+
 int
 lws_context_init_ssl_library(struct lws_context *cx,
 			     const struct lws_context_creation_info *info);
@@ -214,6 +223,7 @@ lws_context_deinit_ssl_library(struct lws_context *context);
 
 extern const struct lws_tls_ops tls_ops_openssl, tls_ops_mbedtls, tls_ops_schannel,
 				 tls_ops_gnutls, tls_ops_bearssl;
+extern const struct lws_tls_ops tls_ops_openhitls;
 
 struct lws_ec_valid_curves {
 	int id;
@@ -227,9 +237,11 @@ extern int openssl_websocket_private_data_index;
 void
 lws_tls_err_describe_clear(void);
 
+#if !defined(LWS_WITH_MBEDTLS)
 int
 lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 			  union lws_tls_cert_info_results *buf, size_t len);
+#endif
 int
 lws_tls_check_all_cert_lifetimes(struct lws_context *context);
 

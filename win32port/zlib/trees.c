@@ -1034,6 +1034,7 @@ int ZLIB_INTERNAL _tr_tally (s, dist, lc)
         /* lc is the unmatched char */
         s->dyn_ltree[lc].Freq++;
     } else {
+        unsigned dcode;
         s->matches++;
         /* Here, lc is the match length - MIN_MATCH */
         dist--;             /* dist = match distance - 1 */
@@ -1041,8 +1042,11 @@ int ZLIB_INTERNAL _tr_tally (s, dist, lc)
                (ush)lc <= (ush)(MAX_MATCH-MIN_MATCH) &&
                (ush)d_code(dist) < (ush)D_CODES,  "_tr_tally: bad match");
 
+        if (lc > 255) lc = 255; /* satisfy static analyzer */
         s->dyn_ltree[_length_code[lc]+LITERALS+1].Freq++;
-        s->dyn_dtree[d_code(dist)].Freq++;
+        dcode = d_code(dist);
+        if (dcode >= D_CODES) dcode = D_CODES - 1; /* satisfy static analyzer */
+        s->dyn_dtree[dcode].Freq++;
     }
 
 #ifdef TRUNCATE_BLOCK
@@ -1102,6 +1106,7 @@ local void compress_block(s, ltree, dtree)
             dist--; /* dist is now the match distance - 1 */
             code = d_code(dist);
             Assert (code < D_CODES, "bad d_code");
+            if (code >= D_CODES) code = D_CODES - 1; /* satisfy static analyzer */
 
             send_code(s, code, dtree);       /* send the distance code */
             extra = extra_dbits[code];

@@ -97,7 +97,7 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 		break;
 #endif
 
-#if defined(LWS_CLIENT_HTTP_PROXYING) && (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2))
+#if defined(LWS_CLIENT_HTTP_PROXYING) && (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
 
 	case LRS_WAITING_PROXY_REPLY:
 
@@ -156,7 +156,7 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
                /* fallthru */
 	case LRS_H1C_ISSUE_HANDSHAKE:
 
-		lwsl_debug("%s: LRS_H1C_ISSUE_HANDSHAKE\n", __func__);
+		// lwsl_debug("%s: LRS_H1C_ISSUE_HANDSHAKE\n", __func__);
 
 		/*
 		 * we are under PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE
@@ -203,7 +203,7 @@ start_ws_handshake:
 		 * to notice our state and not resend the preface...
 		 */
 
-		lwsl_debug("%s: LRS_H1C_ISSUE_HANDSHAKE fallthru\n", __func__);
+		// lwsl_debug("%s: LRS_H1C_ISSUE_HANDSHAKE fallthru\n", __func__);
 
 		/* fallthru */
 
@@ -328,7 +328,7 @@ hs2:
 		if (lwsi_state(wsi) == LRS_IDLING) {
 			lwsi_set_state(wsi, LRS_WAITING_SERVER_REPLY);
 			wsi->hdr_parsing_completed = 0;
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 			wsi->http.ah->parser_state = WSI_TOKEN_NAME_PART;
 			wsi->http.ah->lextable_pos = 0;
 			wsi->http.ah->unk_pos = 0;
@@ -358,7 +358,7 @@ hs2:
 			break;
 		}
 client_http_body_sent:
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 		/* prepare ourselves to do the parsing */
 		wsi->http.ah->parser_state = WSI_TOKEN_NAME_PART;
 		wsi->http.ah->lextable_pos = 0;
@@ -396,7 +396,7 @@ client_http_body_sent:
 		if (!(pollfd->revents & LWS_POLLIN))
 			break;
 
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 		/* interpret the server response
 		 *
 		 *  HTTP/1.1 101 Switching Protocols
@@ -509,7 +509,7 @@ bail3:
 	return 0;
 }
 
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 
 int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed_client(struct lws *wsi)
@@ -947,6 +947,7 @@ str_val:
 					 username, realm, nonce, uri,
 					 response, algo);
 		}
+		(void)n;
 
 		lwsl_hexdump(tmp_digest, l);
 
@@ -1027,7 +1028,7 @@ bail:
 }
 #endif
 
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 
 int
 lws_http_is_redirected_to_get(struct lws *wsi)
@@ -1329,6 +1330,8 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 			mp = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI);
 			ml = lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_URI);
+			(void)mp;
+			(void)ml;
 
 			if (wsi->http.ah->pos + pl + 1 >= wsi->http.ah->data_length) {
 				lwsl_warn("%s: redirect path exceeds ah size\n", __func__);
@@ -1444,7 +1447,11 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 #if defined (LWS_ROLE_H2)
 						    &role_ops_h2);
 #else
-						    &role_ops_raw);
+#if defined (LWS_ROLE_H3)
+						    &role_ops_h3);
+#else
+						    NULL);
+#endif
 #endif
 #endif
 				ww->user_space = NULL;
@@ -2160,7 +2167,7 @@ lws_generate_client_handshake(struct lws *wsi, char *pkt, size_t pkt_len)
 	return p;
 }
 
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 #if defined(LWS_WITH_HTTP_BASIC_AUTH)
 
 int

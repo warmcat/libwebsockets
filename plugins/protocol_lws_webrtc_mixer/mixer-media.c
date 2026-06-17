@@ -683,7 +683,7 @@ process_session_media(struct mixer_media_session *s)
 					   if (dbg_hex++ < 25) {
 					   char hexbuf[128] = {0};
 					   int max = in_len > 24 ? 24 : (int)in_len;
-					   for(int h=0; h<max; h++) sprintf(hexbuf + strlen(hexbuf), "%02x ", in_data[h]);
+					   for(int h=0; h<max; h++) lws_snprintf(hexbuf + strlen(hexbuf), sizeof(hexbuf) - strlen(hexbuf), "%02x ", in_data[h]);
 					   lwsl_notice("AV1 RAW IN (len %zu, marker %d): %s\n", in_len, msg->marker, hexbuf);
 					   }
 					   */

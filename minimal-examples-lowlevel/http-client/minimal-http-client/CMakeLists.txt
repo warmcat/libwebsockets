@@ -62,10 +62,7 @@ if (requirements)
 	#
 	# Tests against built server running locally (needs daemonization...)
 	#
-	set(PORT_HC_SRV "7050")
-	if ("$ENV{SAI_INSTANCE_IDX}")
-		math(EXPR PORT_HC_SRV "7051 + $ENV{SAI_INSTANCE_IDX}")
-	endif()
+	lws_get_free_port(PORT_HC_SRV)
 
 	if (NOT WIN32 AND LWS_WITH_SERVER AND LWS_WITH_TLS)
 		add_test(NAME st_hc_srv COMMAND

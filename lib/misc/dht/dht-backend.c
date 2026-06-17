@@ -142,7 +142,9 @@ lws_dht_periodic_cb(lws_sorted_usec_list_t *sul)
 		sr = ctx->searches;
 		while (sr) {
 			if (!sr->done) {
-				time_t tm = sr->step_time + LWS_DHT_PING_TIMEOUT_SECS + ((lws_get_random(ctx->vhost->context, &tm, sizeof(tm)), tm) % 10);
+				time_t tm;
+				lws_get_random(ctx->vhost->context, &tm, sizeof(tm));
+				tm = sr->step_time + LWS_DHT_PING_TIMEOUT_SECS + (tm % 10);
 				if (ctx->search_time == 0 || ctx->search_time > tm)
 					ctx->search_time = tm;
 			}

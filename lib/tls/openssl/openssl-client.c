@@ -492,6 +492,7 @@ no_client_cert:
 	return 1;
 }
 
+#if defined(LWS_WITH_TCP_TLS)
 enum lws_ssl_capable_status
 lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 {
@@ -653,6 +654,7 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 	return 0;
 #endif
 }
+#endif
 
 int
 lws_tls_client_vhost_extra_cert_mem(struct lws_vhost *vh,
@@ -867,7 +869,7 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 
 	vh->tls.tcr = tcr;
 
-#if defined(LWS_HAVE_SSL_CTX_set_keylog_callback) && \
+#if defined(LWS_WITH_TLS_KEYLOG) && \
 		defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
 	if (vh->context->keylog_file[0])
 		SSL_CTX_set_keylog_callback(vh->tls.ssl_client_ctx, lws_klog_dump);

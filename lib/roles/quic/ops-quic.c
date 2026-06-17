@@ -121,7 +121,11 @@ lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t acked_pn)
 			lws_free(f);
 
 			struct lws *child = lws_quic_stream_find(nwsi, sid);
-			if (child && (lwsi_state(child) == LRS_FLUSHING_BEFORE_CLOSE || child->http.deferred_transaction_completed)) {
+			if (child && (lwsi_state(child) == LRS_FLUSHING_BEFORE_CLOSE
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
+			    || child->http.deferred_transaction_completed
+#endif
+			)) {
 				lws_callback_on_writable(child);
 			}
 		}
@@ -828,17 +832,21 @@ tp_ok:
 
 			if (ack_eliciting < 0) {
 				lwsl_wsi_notice(wsi, "QUIC RX: Frame parsing aborted");
+			if (ack_eliciting == -3) {
+				/* Peer closed the connection via CONNECTION_CLOSE. Drop silently without replying. */
+				lwsl_wsi_notice(nwsi ? nwsi : wsi, "QUIC RX: Peer closed connection. Dropping silently.");
 				if (nwsi && nwsi != wsi) {
-					if (ack_eliciting == -3) {
-						/* Peer closed the connection via CONNECTION_CLOSE. Drop silently without replying. */
-						lwsl_wsi_notice(nwsi, "QUIC RX: Peer closed connection. Dropping silently.");
-						lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NORMAL, "quic peer closed");
-						goto next_packet;
-					}
-					lws_quic_enter_closing_state(nwsi, ack_eliciting == -2 ? LWS_QUIC_ERR_PROTOCOL_VIOLATION : LWS_QUIC_ERR_FRAME_ENCODING_ERROR, 0, 0);
+					lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NORMAL, "quic peer closed");
 					goto next_packet;
 				}
 				return LWS_HPI_RET_PLEASE_CLOSE_ME;
+			}
+			/* We found an error and queued a CONNECTION_CLOSE frame */
+			if (nwsi) {
+				lws_quic_enter_closing_state(nwsi, ack_eliciting == -2 ? LWS_QUIC_ERR_PROTOCOL_VIOLATION : LWS_QUIC_ERR_FRAME_ENCODING_ERROR, 0, 0);
+				lws_callback_on_writable(nwsi);
+			}
+			goto next_packet;
 			} else if (ack_eliciting > 0) {
 				if (nwsi && nwsi->quic.qn) {
 					nwsi->quic.qn->needs_ack[level] = 1;
@@ -1433,8 +1441,36 @@ send_frames:
 #endif
 		}
 		if (n < 0) {
-			lwsl_wsi_err(wsi, "QUIC TX: Write failed, errno=%d", LWS_ERRNO);
-			return LWS_HP_RET_BAIL_OK;
+			int e = LWS_ERRNO;
+			if (e == LWS_EAGAIN || e == LWS_EWOULDBLOCK || e == LWS_EINTR
+#if defined(EPIPE)
+			    || e == EPIPE
+#endif
+#if defined(EHOSTUNREACH)
+			    || e == EHOSTUNREACH
+#endif
+#if defined(ENETDOWN)
+			    || e == ENETDOWN
+#endif
+#if defined(ENETUNREACH)
+			    || e == ENETUNREACH
+#endif
+#if defined(EADDRNOTAVAIL)
+			    || e == EADDRNOTAVAIL
+#endif
+#if defined(EDESTADDRREQ)
+			    || e == EDESTADDRREQ
+#endif
+#if defined(ENOBUFS)
+			    || e == ENOBUFS
+#endif
+			) {
+				lwsl_wsi_info(wsi, "QUIC TX: dropping packet (transient tx error), errno=%d", e);
+				n = (int)send_len;
+			} else {
+				lwsl_wsi_err(wsi, "QUIC TX: Write failed, errno=%d", e);
+				return LWS_HP_RET_BAIL_OK;
+			}
 		}
 
 		qn->bytes_sent += (uint64_t)n;

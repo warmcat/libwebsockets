@@ -25,7 +25,7 @@
 #include "private-lib-core.h"
 #include "private-lib-tls.h"
 
-#if (defined(LWS_HAVE_SSL_CTX_set_keylog_callback) || defined(LWS_WITH_GNUTLS)) && \
+#if defined(LWS_WITH_TLS_KEYLOG) && \
     defined(LWS_WITH_TLS) && (defined(LWS_WITH_CLIENT) || defined(LWS_WITH_SERVER))
 
 static int
@@ -47,9 +47,9 @@ lws_gnutls_keylog_cb(gnutls_session_t session, const char *label, const gnutls_d
 		return 0;
 
 	for (i = 0; i < crandom.size; i++)
-		sprintf(&crand_hex[i * 2], "%02x", crandom.data[i]);
+		lws_snprintf(&crand_hex[i * 2], sizeof(crand_hex) - (i * 2), "%02x", crandom.data[i]);
 	for (i = 0; i < secret->size; i++)
-		sprintf(&secret_hex[i * 2], "%02x", secret->data[i]);
+		lws_snprintf(&secret_hex[i * 2], sizeof(secret_hex) - (i * 2), "%02x", secret->data[i]);
 
 	fd = open(wsi->a.context->keylog_file, O_WRONLY | O_CREAT | O_APPEND, 0600);
 	if (fd < 0)
@@ -281,7 +281,7 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 
 	gnutls_session_set_ptr(session, wsi);
 
-#if (defined(LWS_HAVE_SSL_CTX_set_keylog_callback) || defined(LWS_WITH_GNUTLS)) && \
+#if defined(LWS_WITH_TLS_KEYLOG) && \
     defined(LWS_WITH_TLS) && (defined(LWS_WITH_CLIENT) || defined(LWS_WITH_SERVER))
 	gnutls_session_set_keylog_function(session, lws_gnutls_keylog_cb);
 #endif
@@ -350,7 +350,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	gnutls_server_name_set(session, GNUTLS_NAME_DNS, hostname, strlen(hostname));
 	gnutls_session_set_ptr(session, wsi);
 
-#if (defined(LWS_HAVE_SSL_CTX_set_keylog_callback) || defined(LWS_WITH_GNUTLS)) && \
+#if defined(LWS_WITH_TLS_KEYLOG) && \
     defined(LWS_WITH_TLS) && (defined(LWS_WITH_CLIENT) || defined(LWS_WITH_SERVER))
 	gnutls_session_set_keylog_function(session, lws_gnutls_keylog_cb);
 #endif

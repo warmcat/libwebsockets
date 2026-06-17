@@ -124,7 +124,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 
 	unsigned st;
 
-	if (!wsi->tls.use_ssl)
+	if (!wsi->tls.ssl)
 		return lws_ssl_capable_read_no_ssl(wsi, buf, len);
 
 	if (!conn)
@@ -208,7 +208,7 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 	unsigned char *abuf;
 	unsigned st;
 
-	if (!wsi->tls.use_ssl)
+	if (!wsi->tls.ssl)
 		return lws_ssl_capable_write_no_ssl(wsi, buf, len);
 
 	if (!conn)
@@ -265,7 +265,7 @@ int lws_ssl_pending(struct lws *wsi)
 	struct lws_tls_conn *conn = (struct lws_tls_conn *)wsi->tls.ssl;
 	size_t alen;
 
-	if (!wsi->tls.use_ssl)
+	if (!wsi->tls.ssl)
 		return lws_ssl_pending_no_ssl(wsi);
 
 	if (!conn)

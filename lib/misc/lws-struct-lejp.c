@@ -241,11 +241,11 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 		if (!ctx->path_match || !pmap)
 			return 0;
 
-		map = &args->map_st[ctx->pst_sp - 1][ctx->path_match - 1];
-		n = args->map_entries_st[ctx->pst_sp - 1];
-
 		if (!ctx->pst_sp)
 			return 0;
+
+		map = &args->map_st[ctx->pst_sp - 1][ctx->path_match - 1];
+		n = args->map_entries_st[ctx->pst_sp - 1];
 
 		if (pmap->type != LSMT_LIST && pmap->type != LSMT_CHILD_PTR)
 			return 1;

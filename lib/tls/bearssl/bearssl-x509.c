@@ -42,9 +42,17 @@ void lws_x509_destroy(struct lws_x509_cert **x509) {
 
 int lws_x509_parse_from_pem(struct lws_x509_cert *x509, const void *pem, size_t len) {
 	lws_filepos_t amount;
+	br_x509_decoder_context dc;
 	/* lws_tls_alloc_pem_to_der_file handles the base64/PEM decoding for us */
 	if (!lws_tls_alloc_pem_to_der_file(NULL, NULL, pem, len, &x509->der, &amount)) {
 		x509->der_len = (size_t)amount;
+		br_x509_decoder_init(&dc, NULL, NULL);
+		br_x509_decoder_push(&dc, x509->der, x509->der_len);
+		if (br_x509_decoder_last_error(&dc) != 0) {
+			lws_free(x509->der);
+			x509->der = NULL;
+			return -1;
+		}
 		return 0;
 	}
 	return -1;
@@ -260,7 +268,7 @@ int lws_x509_info(struct lws_x509_cert *x509, enum lws_tls_cert_info type, union
 	return -1;
 }
 
-int lws_x509_verify(struct lws_x509_cert *x509, struct lws_x509_cert *trusted, const char *common_name) { return -1; }
+int lws_x509_verify(struct lws_x509_cert *x509, struct lws_x509_cert *trusted, const char *common_name);
 
 #if defined(LWS_WITH_JOSE)
 int lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
@@ -307,6 +315,11 @@ int lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 	case BR_KEYTYPE_EC:
 		lwsl_notice("%s: EC key\n", __func__);
 		jwk->kty = LWS_GENCRYPTO_KTY_EC;
+
+		if (!curves) {
+			lwsl_err("%s: ec curves not allowed\n", __func__);
+			goto bail;
+		}
 
 		if (lws_genec_confirm_curve_allowed_by_tls_id(curves, pk->key.ec.curve, jwk))
 			goto bail;
@@ -390,6 +403,34 @@ int lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 		if (!rsa) goto bail;
 
 		uint32_t pubexp = br_rsa_compute_pubexp_get_default()(rsa);
+
+		{
+			uint32_t jwk_e = 0;
+			for (size_t i = 0; i < jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].len; i++) {
+				jwk_e = (jwk_e << 8) | jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].buf[i];
+			}
+			if (pubexp != jwk_e) {
+				lwsl_err("%s: privkey E doesn't match jwk pubkey\n", __func__);
+				goto bail;
+			}
+
+			size_t nlen = br_rsa_compute_modulus_get_default()(NULL, rsa);
+			if (nlen != jwk->e[LWS_GENCRYPTO_RSA_KEYEL_N].len) {
+				lwsl_err("%s: privkey N len doesn't match jwk pubkey\n", __func__);
+				goto bail;
+			}
+
+			uint8_t *tmp_n = lws_malloc(nlen, "tmpN");
+			if (!tmp_n) goto bail;
+			br_rsa_compute_modulus_get_default()(tmp_n, rsa);
+			if (memcmp(tmp_n, jwk->e[LWS_GENCRYPTO_RSA_KEYEL_N].buf, nlen)) {
+				lws_free(tmp_n);
+				lwsl_err("%s: privkey N doesn't match jwk pubkey\n", __func__);
+				goto bail;
+			}
+			lws_free(tmp_n);
+		}
+
 		size_t dlen = br_rsa_compute_privexp_get_default()(NULL, rsa, pubexp);
 
 		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_D].buf = lws_malloc(dlen, "certjwk");
@@ -758,4 +799,89 @@ lws_x509_create_self_signed(struct lws_context *context,
 {
 	lwsl_err("%s: not supported on bearssl\n", __func__);
 	return 1;
+}
+
+int lws_x509_verify(struct lws_x509_cert *x509, struct lws_x509_cert *trusted, const char *common_name) {
+	br_x509_minimal_context mc;
+	br_x509_trust_anchor ta;
+	br_x509_decoder_context dc;
+	br_x509_pkey *pk;
+	struct dn_append_ctx dn_ctx;
+	int err;
+
+	memset(&dn_ctx, 0, sizeof(dn_ctx));
+	br_x509_decoder_init(&dc, append_dn, &dn_ctx);
+	br_x509_decoder_push(&dc, trusted->der, trusted->der_len);
+	pk = br_x509_decoder_get_pkey(&dc);
+	if (!pk) {
+		if (dn_ctx.data) lws_free(dn_ctx.data);
+		return -1;
+	}
+
+	memset(&ta, 0, sizeof(ta));
+	ta.flags = 0;
+	ta.dn.data = dn_ctx.data;
+	ta.dn.len = dn_ctx.len;
+	if (br_x509_decoder_isCA(&dc)) {
+		ta.flags |= BR_X509_TA_CA;
+	}
+
+	switch (pk->key_type) {
+	case BR_KEYTYPE_RSA:
+		ta.pkey.key_type = BR_KEYTYPE_RSA;
+		ta.pkey.key.rsa.n = pk->key.rsa.n;
+		ta.pkey.key.rsa.nlen = pk->key.rsa.nlen;
+		ta.pkey.key.rsa.e = pk->key.rsa.e;
+		ta.pkey.key.rsa.elen = pk->key.rsa.elen;
+		break;
+	case BR_KEYTYPE_EC:
+		ta.pkey.key_type = BR_KEYTYPE_EC;
+		ta.pkey.key.ec.curve = pk->key.ec.curve;
+		ta.pkey.key.ec.q = pk->key.ec.q;
+		ta.pkey.key.ec.qlen = pk->key.ec.qlen;
+		break;
+	default:
+		if (dn_ctx.data) lws_free(dn_ctx.data);
+		return -1;
+	}
+
+	br_x509_minimal_init(&mc, &br_sha256_vtable, &ta, 1);
+	br_x509_minimal_set_rsa(&mc, br_rsa_pkcs1_vrfy_get_default());
+	br_x509_minimal_set_ecdsa(&mc, br_ec_get_default(), br_ecdsa_vrfy_asn1_get_default());
+
+	br_x509_minimal_set_hash(&mc, br_sha256_ID, &br_sha256_vtable);
+	br_x509_minimal_set_hash(&mc, br_sha384_ID, &br_sha384_vtable);
+	br_x509_minimal_set_hash(&mc, br_sha512_ID, &br_sha512_vtable);
+	br_x509_minimal_set_hash(&mc, br_sha1_ID, &br_sha1_vtable);
+
+	if (common_name) {
+		static const unsigned char OID_CN[] = { 3, 0x55, 0x04, 0x03 };
+		br_name_element name_elts[1];
+		char name_buf[256];
+
+		name_elts[0].oid = OID_CN;
+		name_elts[0].buf = name_buf;
+		name_elts[0].len = sizeof(name_buf);
+		name_elts[0].status = 0;
+
+		br_x509_minimal_set_name_elements(&mc, name_elts, 1);
+		mc.vtable->start_chain(&mc.vtable, common_name);
+		mc.vtable->start_cert(&mc.vtable, (uint32_t)x509->der_len);
+		mc.vtable->append(&mc.vtable, x509->der, x509->der_len);
+		mc.vtable->end_cert(&mc.vtable);
+		err = (int)mc.vtable->end_chain(&mc.vtable);
+	} else {
+		mc.vtable->start_chain(&mc.vtable, NULL);
+		mc.vtable->start_cert(&mc.vtable, (uint32_t)x509->der_len);
+		mc.vtable->append(&mc.vtable, x509->der, x509->der_len);
+		mc.vtable->end_cert(&mc.vtable);
+		err = (int)mc.vtable->end_chain(&mc.vtable);
+	}
+
+	if (dn_ctx.data) lws_free(dn_ctx.data);
+
+	if (err == 0 || err == BR_ERR_X509_OK)
+		return 0;
+
+	return -1;
 }

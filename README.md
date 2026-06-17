@@ -4,26 +4,37 @@
 
 ** NEW features available on main **
 
- - Support for SChannel (windows native TLS), GnuTLS, and BearSSL added
- - QUIC + H3 + Webtranspoer implementation, using aws-lc, wolfssl, boringssl, libressl, gnutls, and schannel (OpenSSL and mbedtls are not compatible, but are fine for h1/h2)
+ - Support for SChannel (windows native TLS, no need for OpenSSL build!), GnuTLS, and BearSSL added
+ - QUIC + H3 + Webtranspoer implementation, using aws-lc, wolfssl, boringssl, libressl, gnutls, and schannel (OpenSSL is h1/h2 -only, mbedtls can do it via a patch)
 
- - On Windows, Schannel is the default, else GnuTLS is the default if you are want h3, otherwise OpenSSL
+|LWS version|Platform|Protocols|Default TLS|
+|---|---|---|---|
+|<= 4.5|non-FreeRTOS|any|OpenSSL|
+|<= 4.5|FreeRTOS|any|mbedTLS|
+|5.0+|Windows|any|schannel|
+|5.0+|*nix|h1, h2|OpenSSL|
+|5.0+|*nix|quic/h3|GnuTLS|
+|5.0+|FreeRTOS|any|mbedTLS|
+
+quic/h3 is enabled for build by default... necessitating GnuTLS instead of OpenSSL to make quic/h3 work.
 
 
 | TLS Library | Server TLS | Client TLS | QUIC Transport (TLS 1.3) | WSS / HTTPS | MQTT over TLS | ALPN (HTTP/2) | DTLS (WebRTC) | Session Cache | JIT Trust | GenCrypto |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **GnuTLS** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
-| **OpenSSL** | **Yes** | **Yes** | **No*** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** |
-| **LibreSSL** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
-| **AWS-LC** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
+| **GnuTLS**    | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
+| **OpenSSL**   | **Yes** | **Yes** | **No*** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** |
+| **LibreSSL**  | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
+| **AWS-LC**    | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
 | **BoringSSL** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
-| **wolfSSL** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
-| **mbedTLS** | **Yes** | **Yes** | **No** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** |
-| **SChannel** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
-| **BearSSL** | **Yes** | **Yes** | **No** | **Yes** | **Yes** | **Yes** | **No** | **Yes** | **Yes** | **Yes** |
+| **wolfSSL**   | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
+| **mbedTLS**   | **Yes** | **Yes** | Needs patch | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** |
+| **SChannel**  | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **No** | **Yes** |
+| **BearSSL**   | **Yes** | **Yes** | **No** | **Yes** | **Yes** | **Yes** | **No** | **Yes** | **Yes** | **Yes** |
+| **openHiTLS** | **Yes** | **Yes** | **No** | **Yes** | **Yes** | **Yes** | Yes (not SRTP) | **Yes** | **Yes** | **Yes** |
+
 
 \* *Note: 1) Upstream OpenSSL does not provide the necessary QUIC TLS API (`SSL_set_quic_method`) to act as a cryptographic engine for LWS's QUIC transport. If you need QUIC/HTTP3 support, we recommend using BoringSSL, GnuTLS, WolfSSL, or the `quictls` fork of OpenSSL.*
-
+\* *Note: 2) openHiTLS does not provide the necessary QUIC TLS API *
 
  - DHT support built-in: `-DLWS_WITH_DHT=1`
 

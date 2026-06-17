@@ -11,7 +11,7 @@ set(SRCS minimal-http-server-tls.c)
 set(requirements 1)
 require_lws_config(LWS_ROLE_H1 1 requirements)
 require_lws_config(LWS_WITH_SERVER 1 requirements)
-require_lws_config(LWS_WITH_TLS 1 requirements)
+require_lws_config(LWS_WITH_TCP_TLS 1 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})

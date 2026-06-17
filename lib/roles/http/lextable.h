@@ -1,4 +1,4 @@
-#if !defined(LWS_HTTP_HEADERS_ALL) && !defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && !defined(LWS_ROLE_WS) && !defined(LWS_ROLE_H2)
+#if !defined(LWS_HTTP_HEADERS_ALL) && !defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && !defined(LWS_ROLE_WS) && !(defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
 	/* 0: 0: get  */
 	/* 1: 1: post  */
 	/* 2: 3: host: */
@@ -543,7 +543,7 @@
 /* total size 687 bytes */
 #endif
 
-#if !defined(LWS_HTTP_HEADERS_ALL) &&  defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && !defined(LWS_ROLE_WS) && !defined(LWS_ROLE_H2)
+#if !defined(LWS_HTTP_HEADERS_ALL) &&  defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && !defined(LWS_ROLE_WS) && !(defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
 	/* 0: 0: get  */
 	/* 1: 1: post  */
 	/* 2: 2: options  */
@@ -1332,7 +1332,7 @@
 /* total size 993 bytes */
 #endif
 
-#if !defined(LWS_HTTP_HEADERS_ALL) && !defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) &&  defined(LWS_ROLE_WS) && !defined(LWS_ROLE_H2)
+#if !defined(LWS_HTTP_HEADERS_ALL) && !defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) &&  defined(LWS_ROLE_WS) && !(defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
 	/* 0: 0: get  */
 	/* 1: 1: post  */
 	/* 2: 3: host: */
@@ -2197,7 +2197,7 @@
 /* total size 1113 bytes */
 #endif
 
-#if !defined(LWS_HTTP_HEADERS_ALL) &&  defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) &&  defined(LWS_ROLE_WS) && !defined(LWS_ROLE_H2)
+#if !defined(LWS_HTTP_HEADERS_ALL) &&  defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) &&  defined(LWS_ROLE_WS) && !(defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
 	/* 0: 0: get  */
 	/* 1: 1: post  */
 	/* 2: 2: options  */
@@ -2280,6 +2280,7 @@
 	/* 78: 84: replay-nonce: */
 	/* 79: 86: x-auth-token: */
 	/* 80: 87: x-amzn-dss-signature: */
+	/* 81: 88:  */
 /* pos 0000:   0 */    0x67 /* 'g' */, 0x3D, 0x00  /* (to 0x003D state   1) */,
                        0x70 /* 'p' */, 0x3F, 0x00  /* (to 0x0042 state   5) */,
                        0x68 /* 'h' */, 0x4E, 0x00  /* (to 0x0054 state  10) */,
@@ -3081,7 +3082,7 @@
 /* total size 1113 bytes */
 #endif
 
-#if !defined(LWS_HTTP_HEADERS_ALL) && !defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && !defined(LWS_ROLE_WS) &&  defined(LWS_ROLE_H2)
+#if !defined(LWS_HTTP_HEADERS_ALL) && !defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && !defined(LWS_ROLE_WS) &&  (defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
 	/* 0: 0: get  */
 	/* 1: 1: post  */
 	/* 2: 3: host: */
@@ -3154,6 +3155,7 @@
 	/* 68: 85: :protocol */
 	/* 69: 86: x-auth-token: */
 	/* 70: 87: x-amzn-dss-signature: */
+	/* 71: 88:  */
 /* pos 0000:   0 */    0x67 /* 'g' */, 0x40, 0x00  /* (to 0x0040 state   1) */,
                        0x70 /* 'p' */, 0x42, 0x00  /* (to 0x0045 state   5) */,
                        0x68 /* 'h' */, 0x51, 0x00  /* (to 0x0057 state  10) */,
@@ -4015,7 +4017,7 @@
 /* total size 1202 bytes */
 #endif
 
-#if !defined(LWS_HTTP_HEADERS_ALL) &&  defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && !defined(LWS_ROLE_WS) &&  defined(LWS_ROLE_H2)
+#if !defined(LWS_HTTP_HEADERS_ALL) &&  defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && !defined(LWS_ROLE_WS) &&  (defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
 	/* 0: 0: get  */
 	/* 1: 1: post  */
 	/* 2: 2: options  */
@@ -4095,6 +4097,7 @@
 	/* 75: 85: :protocol */
 	/* 76: 86: x-auth-token: */
 	/* 77: 87: x-amzn-dss-signature: */
+	/* 78: 88:  */
 /* pos 0000:   0 */    0x67 /* 'g' */, 0x40, 0x00  /* (to 0x0040 state   1) */,
                        0x70 /* 'p' */, 0x42, 0x00  /* (to 0x0045 state   5) */,
                        0x68 /* 'h' */, 0x51, 0x00  /* (to 0x0057 state  10) */,
@@ -4956,7 +4959,7 @@
 /* total size 1202 bytes */
 #endif
 
-#if !defined(LWS_HTTP_HEADERS_ALL) && !defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) &&  defined(LWS_ROLE_WS) &&  defined(LWS_ROLE_H2)
+#if !defined(LWS_HTTP_HEADERS_ALL) && !defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) &&  defined(LWS_ROLE_WS) &&  (defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
 	/* 0: 0: get  */
 	/* 1: 1: post  */
 	/* 2: 3: host: */
@@ -5039,6 +5042,7 @@
 	/* 78: 85: :protocol */
 	/* 79: 86: x-auth-token: */
 	/* 80: 87: x-amzn-dss-signature: */
+	/* 81: 88:  */
 /* pos 0000:   0 */    0x67 /* 'g' */, 0x40, 0x00  /* (to 0x0040 state   1) */,
                        0x70 /* 'p' */, 0x42, 0x00  /* (to 0x0045 state   5) */,
                        0x68 /* 'h' */, 0x51, 0x00  /* (to 0x0057 state  10) */,
@@ -5900,7 +5904,7 @@
 /* total size 1202 bytes */
 #endif
 
-#if defined(LWS_HTTP_HEADERS_ALL) || ( defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) &&  defined(LWS_ROLE_WS) &&  defined(LWS_ROLE_H2))
+#if defined(LWS_HTTP_HEADERS_ALL) || ( defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) &&  defined(LWS_ROLE_WS) &&  (defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)))
 	/* 0: 0: get  */
 	/* 1: 1: post  */
 	/* 2: 2: options  */
@@ -5990,6 +5994,7 @@
 	/* 85: 85: :protocol */
 	/* 86: 86: x-auth-token: */
 	/* 87: 87: x-amzn-dss-signature: */
+	/* 88: 88:  */
 /* pos 0000:   0 */    0x67 /* 'g' */, 0x40, 0x00  /* (to 0x0040 state   1) */,
                        0x70 /* 'p' */, 0x42, 0x00  /* (to 0x0045 state   5) */,
                        0x68 /* 'h' */, 0x51, 0x00  /* (to 0x0057 state  10) */,
@@ -6853,42 +6858,42 @@
 
 
 /*
-#if !defined(LWS_HTTP_HEADERS_ALL) && !defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && !defined(LWS_ROLE_WS) && !defined(LWS_ROLE_H2)
+#if !defined(LWS_HTTP_HEADERS_ALL) && !defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && !defined(LWS_ROLE_WS) && !(defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
 static uint8_t lws_header_implies_psuedoheader_map[] = {
 	0x03,0x00,0x00,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
 };
 #endif
-#if !defined(LWS_HTTP_HEADERS_ALL) &&  defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && !defined(LWS_ROLE_WS) && !defined(LWS_ROLE_H2)
+#if !defined(LWS_HTTP_HEADERS_ALL) &&  defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && !defined(LWS_ROLE_WS) && !(defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
 static uint8_t lws_header_implies_psuedoheader_map[] = {
 	0x07,0x00,0x00,0x00,0x00,0x00,0x00,0x0e,0x04,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
 };
 #endif
-#if !defined(LWS_HTTP_HEADERS_ALL) && !defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) &&  defined(LWS_ROLE_WS) && !defined(LWS_ROLE_H2)
+#if !defined(LWS_HTTP_HEADERS_ALL) && !defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) &&  defined(LWS_ROLE_WS) && !(defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
 static uint8_t lws_header_implies_psuedoheader_map[] = {
 	0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x04,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
 };
 #endif
-#if !defined(LWS_HTTP_HEADERS_ALL) &&  defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) &&  defined(LWS_ROLE_WS) && !defined(LWS_ROLE_H2)
+#if !defined(LWS_HTTP_HEADERS_ALL) &&  defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) &&  defined(LWS_ROLE_WS) && !(defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
 static uint8_t lws_header_implies_psuedoheader_map[] = {
 	0x07,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x38,0x10,0x00,0x00,0x00,0x00,0x00,0x00,
 };
 #endif
-#if !defined(LWS_HTTP_HEADERS_ALL) && !defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && !defined(LWS_ROLE_WS) &&  defined(LWS_ROLE_H2)
+#if !defined(LWS_HTTP_HEADERS_ALL) && !defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && !defined(LWS_ROLE_WS) &&  (defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
 static uint8_t lws_header_implies_psuedoheader_map[] = {
 	0x03,0x00,0x80,0x0f,0x00,0x00,0x00,0x00,0x12,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
 };
 #endif
-#if !defined(LWS_HTTP_HEADERS_ALL) &&  defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && !defined(LWS_ROLE_WS) &&  defined(LWS_ROLE_H2)
+#if !defined(LWS_HTTP_HEADERS_ALL) &&  defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) && !defined(LWS_ROLE_WS) &&  (defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
 static uint8_t lws_header_implies_psuedoheader_map[] = {
 	0x07,0x00,0x00,0x3e,0x00,0x00,0x00,0x80,0x03,0x09,0x00,0x00,0x00,0x00,0x00,0x00,
 };
 #endif
-#if !defined(LWS_HTTP_HEADERS_ALL) && !defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) &&  defined(LWS_ROLE_WS) &&  defined(LWS_ROLE_H2)
+#if !defined(LWS_HTTP_HEADERS_ALL) && !defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) &&  defined(LWS_ROLE_WS) &&  (defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
 static uint8_t lws_header_implies_psuedoheader_map[] = {
 	0x03,0x00,0x00,0x00,0x3e,0x00,0x00,0x00,0x00,0x48,0x00,0x00,0x00,0x00,0x00,0x00,
 };
 #endif
-#if defined(LWS_HTTP_HEADERS_ALL) || ( defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) &&  defined(LWS_ROLE_WS) &&  defined(LWS_ROLE_H2))
+#if defined(LWS_HTTP_HEADERS_ALL) || ( defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) &&  defined(LWS_ROLE_WS) &&  (defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)))
 static uint8_t lws_header_implies_psuedoheader_map[] = {
 	0x07,0x00,0x00,0x00,0xf8,0x00,0x00,0x00,0x00,0x0e,0x24,0x00,0x00,0x00,0x00,0x00,
 };

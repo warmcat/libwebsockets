@@ -135,13 +135,20 @@ struct lws_lws_tls {
 
 void
 lws_context_init_alpn(struct lws_vhost *vhost);
+#if defined(LWS_WITH_TCP_TLS)
 int LWS_WARN_UNUSED_RESULT
 lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len);
 int LWS_WARN_UNUSED_RESULT
 lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len);
 int LWS_WARN_UNUSED_RESULT
 lws_ssl_pending(struct lws *wsi);
-#if defined(LWS_WITH_SERVER)
+#else
+#define lws_ssl_capable_read lws_ssl_capable_read_no_ssl
+#define lws_ssl_capable_write lws_ssl_capable_write_no_ssl
+#define lws_ssl_pending lws_ssl_pending_no_ssl
+#endif
+
+#if defined(LWS_WITH_SERVER) && defined(LWS_WITH_TCP_TLS)
 int LWS_WARN_UNUSED_RESULT
 lws_server_socket_service_ssl(struct lws *new_wsi, lws_sockfd_type accept_fd,
 				char is_pollin);
@@ -165,8 +172,12 @@ lws_ssl_remove_wsi_from_buffered_list(struct lws *wsi);
 int
 lws_ssl_client_bio_create(struct lws *wsi);
 
+#if defined(LWS_WITH_TCP_TLS)
 int
 lws_ssl_client_connect2(struct lws *wsi, char *errbuf, size_t len);
+#else
+#define lws_ssl_client_connect2(_a, _b, _c) (-1)
+#endif
 int
 lws_tls_fake_POLLIN_for_buffered(struct lws_context_per_thread *pt);
 int

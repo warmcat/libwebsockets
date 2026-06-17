@@ -118,7 +118,7 @@ int main(int argc, const char **argv)
 	info.protocols = protocols;
 	info.timeout_secs = 10;
 	info.connect_timeout_secs = 30;
-#if defined(LWS_WITH_MBEDTLS) || defined(USE_WOLFSSL)
+#if defined(LWS_WITH_MBEDTLS) || defined(USE_WOLFSSL) || defined(LWS_WITH_OPENHITLS)
 	/*
 	 * OpenSSL uses the system trust store.  mbedTLS has to be told which
 	 * CA to trust explicitly.
@@ -150,7 +150,14 @@ int main(int argc, const char **argv)
 		i.address = p;
 
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PORT].sw)))
-		i.port = atoi(p);
+		{
+			int __pt = atoi(p);
+			if (__pt < 0 || __pt > 65535) {
+				lwsl_err("Port %d is outside valid 16-bit range\n", __pt);
+				return 1;
+			}
+			i.port = (uint16_t)__pt;
+		}
 
 	i.path = "/";
 	i.host = i.address;

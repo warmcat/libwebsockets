@@ -37,6 +37,10 @@
 #include <mach-o/dyld.h>
 #endif
 
+#if defined(__FreeBSD__)
+#include <sys/sysctl.h>
+#endif
+
 #if defined(LWS_WITH_CLIENT)
 struct lws_stub_req {
 	struct lws_dll2			list;
@@ -109,6 +113,15 @@ lws_stub_spawn(const struct lws_stub_config *config)
 		int m = (int)readlink("/proc/self/exe", mgr->exe_path, sizeof(mgr->exe_path) - 1);
 		if (m > 0) {
 			mgr->exe_path[m] = '\0';
+			exe_path = mgr->exe_path;
+		}
+	}
+#elif defined(__FreeBSD__)
+	{
+		int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1 };
+		size_t cb = sizeof(mgr->exe_path);
+		if (sysctl(mib, 4, mgr->exe_path, &cb, NULL, 0) == 0) {
+			mgr->exe_path[cb] = '\0';
 			exe_path = mgr->exe_path;
 		}
 	}

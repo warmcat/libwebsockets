@@ -24,6 +24,23 @@
 
 #include "private-lib-core.h"
 
+#if !defined(LWS_ROLE_H1) && !defined(LWS_ROLE_H2)
+static const char * const http_methods[] = {
+	"GET", "POST", "OPTIONS", "HEAD", "PUT", "PATCH", "DELETE", "CONNECT"
+};
+
+int
+_lws_is_http_method(const char *method)
+{
+	if (method)
+		for (int n = 0; n < (int)LWS_ARRAY_SIZE(http_methods); n++)
+			if (!strcmp(method, http_methods[n]))
+				return 1;
+
+	return 0;
+}
+#endif
+
 #if !defined(WIN32)
 #include <netdb.h>
 #endif

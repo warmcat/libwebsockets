@@ -399,6 +399,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	struct lws_context *context = NULL;
 #if !defined(LWS_WITH_NO_LOGS)
 	const char *s = "IPv6-absent";
+	(void)s;
 #endif
 #if defined(LWS_WITH_FILE_OPS)
 	struct lws_plat_file_ops *prev;
@@ -761,7 +762,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->lcg[LWSLCG_VHOST].tag_prefix = "vh";
 	context->lcg[LWSLCG_WSI_SERVER].tag_prefix = "wsisrv"; /* adopted */
 
-#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT)
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT) || defined(LWS_ROLE_QUIC)
 	context->lcg[LWSLCG_WSI_MUX].tag_prefix = "mux"; /* a mux child wsi */
 #endif
 
@@ -999,6 +1000,8 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->tls_ops = &tls_ops_gnutls;
 #elif defined(LWS_WITH_BEARSSL)
 	context->tls_ops = &tls_ops_bearssl;
+#elif defined(LWS_WITH_OPENHITLS)
+	context->tls_ops = &tls_ops_openhitls;
 #else
 	context->tls_ops = &tls_ops_openssl;
 #endif
@@ -1053,7 +1056,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 
 #if defined(LWS_WITH_SERVER)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	context->reject_service_keywords = info->reject_service_keywords;
+#endif
 #endif
 	if (info->external_baggage_free_on_destroy)
 		context->external_baggage_free_on_destroy =
@@ -1141,7 +1146,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 	}
 
 #if defined(LWS_WITH_NETWORK)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	context->token_limits = info->token_limits;
+#endif
 #endif
 
 
@@ -1183,7 +1190,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 		context->timeout_secs = info->timeout_secs;
 #endif /* WITH_NETWORK */
 
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if defined(LWS_WITH_NETWORK) && (defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3))
 	if (info->max_http_header_data)
 		context->max_http_header_data = info->max_http_header_data;
 	else
@@ -1232,7 +1239,6 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 
 #if !defined(LWS_PLAT_BAREMETAL) && defined(LWS_WITH_NETWORK)
-	n = 0;
 #endif
 #if defined(LWS_WITH_NETWORK)
 
@@ -1359,11 +1365,13 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 #if defined(LWS_WITH_NETWORK)
 #if defined(LWS_WITH_SERVER)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	if (info->server_string) {
 		context->server_string = info->server_string;
 		context->server_string_len = (short)
 				strlen(context->server_string);
 	}
+#endif
 #endif
 #endif
 

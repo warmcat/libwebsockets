@@ -107,7 +107,7 @@ callback_client_loopback_test(struct lws *wsi, enum lws_callback_reasons reason,
 				i.ssl_connection = 1;
 				p += 5;
 			} else {
-				sprintf(buf, "Arg %s is not in format ws://xxx or wss://xxx\n", p);
+				lws_snprintf(buf, sizeof(buf), "Arg %s is not in format ws://xxx or wss://xxx\n", p);
 				lws_return_http_status(wsi, 400, buf);
 				return -1;
 			}
