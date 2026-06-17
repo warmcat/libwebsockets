@@ -2339,7 +2339,10 @@ lws_acme_core_cert_aging(struct per_vhost_data__lws_acme_client *vhd,
 			 const struct lws_acme_cert_aging_args *caa)
 {
 	if (!vhd || !vhd->cert_configs.head) {
-		lwsl_vhost_notice(vhd->vhost, "acme_aging: aborting, no vhd or cert_configs.head is empty\n");
+		if (vhd)
+			lwsl_vhost_notice(vhd->vhost, "acme_aging: aborting, cert_configs.head is empty\n");
+		else
+			lwsl_notice("acme_aging: aborting, no vhd\n");
 		return 0;
 	}
 
