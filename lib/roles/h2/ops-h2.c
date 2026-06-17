@@ -1367,6 +1367,22 @@ next_child:
 
 	// lws_wsi_mux_dump_waiting_children(wsi);
 
+	/*
+	 * The mux network connection may have queued protocol sends of its own
+	 * (e.g. a connection-level WINDOW_UPDATE granting the peer rx credit)
+	 * that are not associated with any child stream's writeable request.
+	 * lws_wsi_mux_action_pending_writeable_reqs() below only looks at child
+	 * streams, so if no child currently wants POLLOUT (e.g. a bodyless GET
+	 * whose stream is already HALF_CLOSED_LOCAL) it would clear POLLOUT and
+	 * the queued pps would never be flushed, stalling the transfer.  Keep
+	 * POLLOUT asserted while the netconn still has pps pending.
+	 */
+	if (wsi->h2.h2n && wsi->h2.h2n->pps) {
+		if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
+			return -1;
+		return 0;
+	}
+
 	if (lws_wsi_mux_action_pending_writeable_reqs(wsi))
 		return -1;
 
