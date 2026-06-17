@@ -237,6 +237,8 @@ int gettimeofday(struct timeval *tv, void *tx)
 
 	tv->tv_sec = u / 1000000;
 	tv->tv_usec = u - (tv->tv_sec * 1000000);
+
+	return 0;
 }
 
 long long atoll(const char *s)

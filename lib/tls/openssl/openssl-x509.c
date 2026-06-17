@@ -100,7 +100,7 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 	int tag, xclass, r = 1;
 	long xlen, loc;
 #endif
-	const X509_NAME *xn;
+	X509_NAME *xn;
 #if !defined(LWS_PLAT_OPTEE)
 	char *p, *p1;
 	size_t rl;
@@ -140,7 +140,7 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 		xn = X509_get_subject_name(x509);
 		if (!xn)
 			return -1;
-		X509_NAME_oneline((X509_NAME *)xn, buf->ns.name, (int)len - 2);
+		X509_NAME_oneline(xn, buf->ns.name, (int)len - 2);
 		p = (char *)strstr(buf->ns.name, "/CN=");
 		if (p) {
 			p += 4;
@@ -159,7 +159,7 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 		xn = X509_get_issuer_name(x509);
 		if (!xn)
 			return -1;
-		X509_NAME_oneline((X509_NAME *)xn, buf->ns.name, (int)len - 1);
+		X509_NAME_oneline(xn, buf->ns.name, (int)len - 1);
 		buf->ns.len = (int)strlen(buf->ns.name);
 		return 0;
 
@@ -487,11 +487,11 @@ lws_x509_verify(struct lws_x509_cert *x509, struct lws_x509_cert *trusted,
 	int ret;
 
 	if (common_name) {
-		const X509_NAME *xn = X509_get_subject_name(x509->cert);
+		X509_NAME *xn = X509_get_subject_name(x509->cert);
 		if (!xn)
 			return -1;
 		
-		if (X509_NAME_get_text_by_NID((X509_NAME *)xn, NID_commonName, c, sizeof(c)) < 0)
+		if (X509_NAME_get_text_by_NID(xn, NID_commonName, c, sizeof(c)) < 0)
 			return -1;
 
 		if (strcmp(c, common_name)) {
@@ -899,7 +899,7 @@ X509_extension_helper(X509 *x, X509V3_CTX *ctx, int nid, const char *value)
 {
 	X509_EXTENSION *ex;
 
-	ex = X509V3_EXT_conf_nid(NULL, ctx, nid, (char *)value);
+	ex = X509V3_EXT_conf_nid(NULL, ctx, nid, (char *)(lws_intptr_t)value);
 	if (!ex)
 		return 1;
 

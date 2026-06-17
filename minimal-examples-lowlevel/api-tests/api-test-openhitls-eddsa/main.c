@@ -121,6 +121,7 @@ test_ed448_explicitly_unsupported(void)
 	struct lws_gencrypto_keyelem key[LWS_GENCRYPTO_MAX_KEYEL_COUNT];
 	struct lws_genec_ctx ctx;
 	uint8_t x[57] = {0};
+	uint8_t crv[] = "Ed448";
 	int ret = 1;
 
 	memset(key, 0, sizeof(key));
@@ -137,7 +138,7 @@ test_ed448_explicitly_unsupported(void)
 		goto bail;
 	}
 
-	key[LWS_GENCRYPTO_OKP_KEYEL_CRV].buf = (uint8_t *)"Ed448";
+	key[LWS_GENCRYPTO_OKP_KEYEL_CRV].buf = crv;
 	key[LWS_GENCRYPTO_OKP_KEYEL_CRV].len = 6;
 	key[LWS_GENCRYPTO_OKP_KEYEL_X].buf = x;
 	key[LWS_GENCRYPTO_OKP_KEYEL_X].len = sizeof(x);

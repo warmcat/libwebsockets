@@ -1272,9 +1272,10 @@ again:
 			 * including the decrypted signature
 			 */
 			otmp = sshd_zalloc(m);
-			if (!otmp)
-				/* ua_fail1 frees bn_e, bn_n and rsa */
-				goto ua_fail1;
+			if (!otmp) {
+				lws_genrsa_destroy(&ctx);
+				goto ua_fail;
+			}
 
 			n = lws_genrsa_public_decrypt(&ctx, pp, m, otmp, m);
 			if (n > 0) {
@@ -1871,10 +1872,6 @@ ch_fail:
 			pss->parser_state = SSH_KEX_STATE_SKIP;
 			break;
 
-#if !defined(MBEDTLS_VERSION_NUMBER) || MBEDTLS_VERSION_NUMBER < 0x03000000
-ua_fail1:
-#endif
-			lws_genrsa_destroy(&ctx);
 ua_fail:
 			write_task(pss, NULL, SSH_WT_UA_FAILURE);
 ua_fail_silently:

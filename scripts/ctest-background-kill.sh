@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # $SAI_INSTANCE_IDX - which instance of sai, 0+
 # $1  - background fixture name, unique within test space, like "multipostlocalsrv"

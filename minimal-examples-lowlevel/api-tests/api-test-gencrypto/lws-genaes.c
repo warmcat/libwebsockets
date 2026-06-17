@@ -1230,6 +1230,10 @@ test_genaes_branch_matrix(void)
 		    basic_cases[n].mode == LWS_GAESM_XTS)
 			continue;
 #endif
+#if defined(LWS_WITH_MBEDTLS) && defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x04000000
+		if (basic_cases[n].mode == LWS_GAESM_XTS)
+			continue;
+#endif
 		if (lws_genaes_run_hex_case(&basic_cases[n])) {
 			lwsl_err("%s: basic_cases[%d] failed\n", __func__, n);
 			return -1;
