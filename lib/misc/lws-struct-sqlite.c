@@ -182,7 +182,7 @@ lws_struct_sq3_deserialize(sqlite3 *pdb, const char *filter, const char *order,
 			   struct lwsac **ac, int start, int _limit)
 {
 	int limit = _limit < 0 ? -_limit : _limit;
-	char s[768], results[512], where[250];
+	char s[768], results[512], where[512];
 	lws_struct_args_t a;
 	int n, m;
 
