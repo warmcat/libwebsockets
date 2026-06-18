@@ -258,8 +258,10 @@ int main(int argc, const char **argv)
 	 * may run before the lws context was created.
 	 */
 
-	while (!context && n++ < 30)
+	while (!context && n < 30) {
+		n++;
 		usleep(10000);
+	}
 
 	if (!context) {
 		lwsl_err("%s: context didn't start\n", __func__);

@@ -257,12 +257,12 @@ newline(lhp_ctx_t *ctx, lhp_pstack_t *psb, lhp_pstack_t *ps,
 			lws_fx_sub(&t1, &ew, &w);
 			lws_fx_div(&t1, &t1, &two);
 			lws_fx_add(&add, &add, &t1);
-			goto fixup;
+			goto fixup_l;
 		case LCSP_PROPVAL_RIGHT:
 			lws_fx_sub(&add, &ew, &w);
 			lws_fx_sub(&add, &add, &d->box.x);
 
-fixup:
+fixup_l:
 			lws_fx_add(&t1, &add, &w);
 			if (lws_fx_comp(&t1, &psb->widest) > 0)
 				psb->widest = t1;
@@ -699,7 +699,7 @@ lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 			trow = NULL;
 			pst->td_idx = 0;
 
-			goto do_rect;
+			goto do_rect_l;
 
 		case LHP_ELEM_TD:
 			if (!psb) {
@@ -732,7 +732,7 @@ lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 			if (pst->dlo->table_rows.tail)
 				trow = lws_container_of(pst->dlo->table_rows.tail, lhp_table_row_t, list);
 
-			goto do_rect;
+			goto do_rect_l;
 
 		case LHP_ELEM_TABLE:
 			ps->is_table = 1;
@@ -740,7 +740,7 @@ lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 		case LHP_ELEM_DIV:
 			if (psb && ((psb->runon & 1) || psb->curx.whole > 0))
 				newline(ctx, psb, psb, drt->dl);
-			goto do_rect;
+			goto do_rect_l;
 
 		default: /* treat unknown elements as generic blocks (divs) if they match our list */
 			if (!elem_match && psb && !ps->dlo && ps->css_display &&
@@ -759,11 +759,11 @@ lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 				if (psb && (psb->runon & 1) &&
 				    !lhp_is_inline(ps))
 					newline(ctx, psb, psb, drt->dl);
-				goto do_rect;
+				goto do_rect_l;
 			}
 			break;
 
-do_rect:
+do_rect_l:
 			lws_fx_set(box.x, 0, 0);
 			lws_fx_set(box.y, 0, 0);
 			lws_fx_set(box.h, 0, 0);
@@ -1020,8 +1020,9 @@ do_rect:
 						if (p >= end) break;
 						unsigned int v = 0;
 						int d = 0;
-						while (p < end && d++ < 6 && ((*p >= '0' && *p <= '9') ||
+						while (p < end && d < 6 && ((*p >= '0' && *p <= '9') ||
 						       (*p >= 'a' && *p <= 'f') || (*p >= 'A' && *p <= 'F'))) {
+							d++;
 							int c = *p++;
 							if (c >= '0' && c <= '9') v = (v << 4) | (unsigned int)(c - '0');
 							else if (c >= 'a' && c <= 'f') v = (v << 4) | (unsigned int)(c - 'a' + 10);
@@ -1117,7 +1118,7 @@ do_rect:
 
 			pst->tr_idx++;
 			pst->td_idx = 0;
-			goto do_end_rect;
+			goto do_end_rect_l;
 
 		case LHP_ELEM_TD:
 			pst = ps;
@@ -1128,14 +1129,14 @@ do_rect:
 				break;
 			}
 			pst->td_idx++;
-			goto do_end_rect;
+			goto do_end_rect_l;
 
 
 			/* fallthru */
 
 		case LHP_ELEM_TABLE:
 		case LHP_ELEM_DIV:
-			goto do_end_rect;
+			goto do_end_rect_l;
 
 		default:
 			if (!elem_match && psb && ps && ps->css_display && !ps->dlo &&
@@ -1147,10 +1148,10 @@ do_rect:
 			}
 
 			if (elem_match > LHP_ELEM_IMG)
-				goto do_end_rect;
+				goto do_end_rect_l;
 			break;
 
-do_end_rect:
+do_end_rect_l:
 			ox = ps->curx;
 
 			if (lws_fx_comp(&ox, &ps->widest) > 0)

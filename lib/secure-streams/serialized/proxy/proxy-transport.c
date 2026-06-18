@@ -331,81 +331,83 @@ lws_ssproxy_txp_proxy_can_write(lws_transport_priv_t priv
 		break;
 	}
 do_write_nz:
-	if (!n)
-		return LWSSSSRET_OK;
+	while (1) {
+		if (!n)
+			return LWSSSSRET_OK;
 
-	if (
+		if (
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
-	    fic &&
+		    fic &&
 #endif
-			lws_fi(fic, "ssproxy_client_write_fail"))
-		n = -1;
-	else {
-		si = csi = (size_t)n;
-		n = conn->txp_path.ops_onw->proxy_write(conn->txp_path.priv_onw,
-						  (uint8_t *)cp, &csi);
-	}
+				lws_fi(fic, "ssproxy_client_write_fail"))
+			n = -1;
+		else {
+			si = csi = (size_t)n;
+			n = conn->txp_path.ops_onw->proxy_write(conn->txp_path.priv_onw,
+							  (uint8_t *)cp, &csi);
+		}
 
-	if (n < 0) {
-		lwsl_info("%s: WRITEABLE: %d\n", __func__, n);
+		if (n < 0) {
+			lwsl_info("%s: WRITEABLE: %d\n", __func__, n);
 
-		goto hangup;
-	}
+			goto hangup;
+		}
 
-	switch (conn->state) {
-	case LPCSPROX_REPORTING_FAIL:
-		goto hangup;
-	case LPCSPROX_OPERATIONAL:
-		if (pay) {
-			if (si == csi)
-				lws_dsh_free((void **)&p);
-			else
-				lws_dsh_consume(conn->dsh, KIND_SS_TO_P, csi);
+		switch (conn->state) {
+		case LPCSPROX_REPORTING_FAIL:
+			goto hangup;
+		case LPCSPROX_OPERATIONAL:
+			if (pay) {
+				if (si == csi)
+					lws_dsh_free((void **)&p);
+				else
+					lws_dsh_consume(conn->dsh, KIND_SS_TO_P, csi);
 
-			/*
-			 * Did we go below the rx flow threshold for
-			 * this dsh?
-			 */
-
-			if (conn->onward_in_flow_control &&
-			    conn->ss->policy->proxy_buflen_rxflow_on_above &&
-			    conn->ss->wsi &&
-			    lws_dsh_get_size(conn->dsh, KIND_SS_TO_P) <
-			      conn->ss->policy->proxy_buflen_rxflow_off_below) {
-				lwsl_user("%s: %s: rxflow enabling rx (%lu / %lu, lwm %lu)\n", __func__,
-					  lws_wsi_tag(conn->ss->wsi),
-					  (unsigned long)lws_dsh_get_size(conn->dsh, KIND_SS_TO_P),
-					  (unsigned long)conn->ss->policy->proxy_buflen,
-					  (unsigned long)conn->ss->policy->proxy_buflen_rxflow_off_below);
 				/*
-				 * Resume receiving taking in rx once
-				 * below the low threshold
+				 * Did we go below the rx flow threshold for
+				 * this dsh?
 				 */
-				lws_rx_flow_control(conn->ss->wsi,
-						    LWS_RXFLOW_ALLOW);
-				conn->onward_in_flow_control = 0;
-			}
-		}
-		if (!lws_dsh_get_head(conn->dsh, KIND_SS_TO_P,
-				     (void **)&p, &si)) {
 
-			if (conn->txp_path.ops_onw->proxy_check_write_more &&
-			    conn->txp_path.ops_onw->proxy_check_write_more(
-					conn->txp_path.priv_onw)) {
-				cp = p;
-				pay = 1;
-				n = (int)si;
-				goto do_write_nz;
+				if (conn->onward_in_flow_control &&
+				    conn->ss->policy->proxy_buflen_rxflow_on_above &&
+				    conn->ss->wsi &&
+				    lws_dsh_get_size(conn->dsh, KIND_SS_TO_P) <
+				      conn->ss->policy->proxy_buflen_rxflow_off_below) {
+					lwsl_user("%s: %s: rxflow enabling rx (%lu / %lu, lwm %lu)\n", __func__,
+						  lws_wsi_tag(conn->ss->wsi),
+						  (unsigned long)lws_dsh_get_size(conn->dsh, KIND_SS_TO_P),
+						  (unsigned long)conn->ss->policy->proxy_buflen,
+						  (unsigned long)conn->ss->policy->proxy_buflen_rxflow_off_below);
+					/*
+					 * Resume receiving taking in rx once
+					 * below the low threshold
+					 */
+					lws_rx_flow_control(conn->ss->wsi,
+							    LWS_RXFLOW_ALLOW);
+					conn->onward_in_flow_control = 0;
+				}
 			}
+			if (!lws_dsh_get_head(conn->dsh, KIND_SS_TO_P,
+					     (void **)&p, &si)) {
 
-			conn->txp_path.ops_onw->proxy_req_write(
-					conn->txp_path.priv_onw);
+				if (conn->txp_path.ops_onw->proxy_check_write_more &&
+				    conn->txp_path.ops_onw->proxy_check_write_more(
+						conn->txp_path.priv_onw)) {
+					cp = p;
+					pay = 1;
+					n = (int)si;
+					continue;
+				}
+
+				conn->txp_path.ops_onw->proxy_req_write(
+						conn->txp_path.priv_onw);
+			}
+		default:
+			break;
 		}
-	default:
-		break;
+
+		return LWSSSSRET_OK;
 	}
-
-	return LWSSSSRET_OK;
 
 hangup:
 	return LWSSSSRET_DISCONNECT_ME;

@@ -359,14 +359,22 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 				 */
 				lwsl_debug("%s: PEEKed 0 (from_pollin %d)\n",
 					  __func__, from_pollin);
-				if (!from_pollin)
+				if (!from_pollin) {
 					/*
 					 * If this wasn't actually info from a
 					 * pollin let it go around again until
 					 * either data came or we still get told
 					 * zero length peek AND POLLIN
 					 */
-					goto punt;
+					if (lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
+						lwsl_err("%s: change_pollfd failed\n",
+							  __func__);
+						return -1;
+					}
+
+					lwsl_info("SSL_ERROR_WANT_READ\n");
+					return 0;
+				}
 
 				/*
 				 * treat as remote closed
@@ -377,14 +385,13 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 			if (s < 0 && (LWS_ERRNO == LWS_EAGAIN ||
 				      LWS_ERRNO == LWS_EWOULDBLOCK)) {
 
-punt:
 				/*
 				 * well, we get no way to know ssl or not
 				 * so go around again waiting for something
 				 * to come and give us a hint, or timeout the
 				 * connection.
 				 */
-				// lwsl_notice("%s: %s: punting (no data peeked), adding POLLIN\n", __func__, lws_wsi_tag(wsi));
+				// lwsl_notice("%s: %s: punting (no data peeked)\n", __func__, lws_wsi_tag(wsi));
 				if (lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
 					lwsl_err("%s: change_pollfd failed\n",
 						  __func__);

@@ -686,7 +686,6 @@ myss_state(void *userobj, void *sh, lws_ss_constate_t state,
 		lwsl_warn("%s: ======= FAILING ON UNEXPECTED STATE %s\n",
 				__func__, lws_ss_state_name(state));
 
-fail:
 		m->result_reported = 1;
 		tests_fail++;
 		/* we'll start the next test next time around the event loop */
@@ -696,14 +695,17 @@ fail:
 		return LWSSSSRET_DESTROY_ME;
 	}
 
-
 	if (state == curr_test->must_see) {
 
 		if (curr_test->eom_pass != m->rx_seen) {
 			lwsl_notice("%s: failing on rx %d, expected %d\n",
 				    __func__, (int)m->rx_seen,
 				    (int)curr_test->eom_pass);
-			goto fail;
+			m->result_reported = 1;
+			tests_fail++;
+			lws_sul_schedule(context, 0, &sul_next_test, tests_start_next, 1);
+			h = NULL;
+			return LWSSSSRET_DESTROY_ME;
 		}
 
 		lwsl_warn("%s: ++++++++ saw expected state %s\n",

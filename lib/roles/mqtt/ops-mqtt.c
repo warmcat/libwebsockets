@@ -88,7 +88,7 @@ rops_handle_POLLIN_mqtt(struct lws_context_per_thread *pt, struct lws *wsi,
 
 	/* 3: buflist needs to be drained
 	 */
-read:
+	do {
 	// lws_buflist_describe(&wsi->buflist, wsi, __func__);
 	ebuf.len = (int)lws_buflist_next_segment_len(&wsi->buflist, &ebuf.token);
 	if (ebuf.len) {
@@ -172,12 +172,12 @@ drain:
 
 	ebuf.token = NULL;
 
-	pending = (unsigned int)lws_ssl_pending(wsi);
-	if (pending) {
-		pending = pending > wsi->a.context->pt_serv_buf_size ?
-			wsi->a.context->pt_serv_buf_size : pending;
-		goto read;
-	}
+		pending = (unsigned int)lws_ssl_pending(wsi);
+		if (pending) {
+			pending = pending > wsi->a.context->pt_serv_buf_size ?
+				wsi->a.context->pt_serv_buf_size : pending;
+		}
+	} while (pending);
 
 	if (buffered && /* were draining, now nothing left */
 	    !lws_buflist_next_segment_len(&wsi->buflist, NULL)) {

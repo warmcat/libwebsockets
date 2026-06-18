@@ -939,7 +939,7 @@ payload_ff:
 					 * Don't allow to see connected more
 					 * than once for one connection
 					 */
-					goto swallow;
+					goto swallow_l;
 
 				lws_ss_serialize_state_transition(h, state,
 							LPCSCLI_OPERATIONAL);
@@ -1007,7 +1007,7 @@ payload_ff:
 				}
 			}
 
-swallow:
+swallow_l:
 			break;
 
 		default:

@@ -590,11 +590,9 @@ int
 lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 {
 #if !defined(USE_WOLFSSL)
-	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-	char *p = (char *)&pt->serv_buf[0];
+	char buf[256];
 	const char *es, *type = "";
 	unsigned int avoid = 0;
-	char *sb = p;
 	long n;
 
 	errno = 0;
@@ -641,7 +639,7 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 		return 0;
 	}
 
-	es = ERR_error_string(LWS_TLS_ERR_CAST(n), sb);
+	es = ERR_error_string(LWS_TLS_ERR_CAST(n), buf);
 	lws_snprintf(ebuf, ebuf_len,
 		"server's cert didn't look good, %s X509_V_ERR = %ld: %s\n",
 		 type, n, es);
@@ -729,9 +727,10 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 
 	if (!method) {
 		const char *es;
+		char buf[256];
 
 		error = ERR_peek_error();
-		es = ERR_error_string(LWS_TLS_ERR_CAST(ERR_get_error()), (char *)vh->context->pt[0].serv_buf);
+		es = ERR_error_string(LWS_TLS_ERR_CAST(ERR_get_error()), buf);
 		lwsl_err("problem creating ssl method %lu: %s\n",
 			error, es);
 		return 1;
@@ -836,9 +835,10 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	vh->tls.ssl_client_ctx = SSL_CTX_new(method);
 	if (!vh->tls.ssl_client_ctx) {
 		const char *es;
+		char buf[256];
 
 		error = ERR_peek_error();
-		es = ERR_error_string(LWS_TLS_ERR_CAST(ERR_get_error()), (char *)vh->context->pt[0].serv_buf);
+		es = ERR_error_string(LWS_TLS_ERR_CAST(ERR_get_error()), buf);
 		lwsl_err("problem creating ssl context %lu: %s\n",
 			error, es);
 		return 1;

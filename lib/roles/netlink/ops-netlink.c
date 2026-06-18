@@ -375,7 +375,7 @@ second_half:
 			lws_pt_lock(pt, __func__);
 			_lws_route_remove(pt, &robj, 0);
 			lws_pt_unlock(pt);
-			goto inform;
+			goto inform_l;
 
 		case RTM_NEWROUTE:
 
@@ -453,7 +453,7 @@ second_half:
 			 */
 			_lws_route_pt_close_unroutable(pt);
 
-inform:
+inform_l:
 #if defined(_DEBUG)
 			route_change = 1;
 #endif
@@ -483,7 +483,7 @@ inform:
 			lws_pt_unlock(pt);
 			_lws_route_pt_close_unroutable(pt);
 			if (removed > 0)
-				goto inform;
+				goto inform_l;
 			break;
 
 		case RTM_NEWADDR:

@@ -88,9 +88,9 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 		case LW5CHS_RET_RET0:
 			return 0;
 		case LW5CHS_RET_BAIL3:
-			goto bail3;
+			goto bail3_l;
 		case LW5CHS_RET_STARTHS:
-			goto start_ws_handshake;
+			goto start_ws_handshake_l;
 		default:
 			break;
 		}
@@ -109,7 +109,7 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 				  lws_wsi_tag(wsi), pollfd->fd);
 
 			cce = "proxy conn dead";
-			goto bail3;
+			goto bail3_l;
 		}
 
 		n = (int)recv(wsi->desc.sockfd, sb, context->pt_serv_buf_size, 0);
@@ -120,7 +120,7 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 			}
 			lwsl_err("ERROR reading from proxy socket\n");
 			cce = "proxy read err";
-			goto bail3;
+			goto bail3_l;
 		}
 
 		/* sanity check what we were sent... */
@@ -130,7 +130,7 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 			      (sb[7] != '0' && sb[7] != '1') || sb[8] != ' ') {
 			/* lwsl_hexdump_notice(sb, n); */
 			cce = "http_proxy fail";
-			goto bail3;
+			goto bail3_l;
 		}
 
 		/* it's h1 alright... what's his logical response code? */
@@ -139,7 +139,7 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 			lws_snprintf(sb, 20, "http_proxy -> %u",
 				     (unsigned int)n);
 			cce = sb;
-			goto bail3;
+			goto bail3_l;
 		}
 
 		lwsl_info("%s: proxy connection established\n", __func__);
@@ -166,12 +166,12 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 		 * happening at a time when there's no real connection yet
 		 */
 #if defined(LWS_WITH_SOCKS5)
-start_ws_handshake:
+start_ws_handshake_l:
 #endif
 		if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
 			cce = "unable to clear POLLOUT";
 			/* turn whatever went wrong into a clean close */
-			goto bail3;
+			goto bail3_l;
 		}
 
 #if defined(LWS_ROLE_H2) || defined(LWS_WITH_TLS)
@@ -192,7 +192,7 @@ start_ws_handshake:
 #if defined(LWS_WITH_TLS)
 		n = lws_client_create_tls(wsi, &cce, 1);
 		if (n == CCTLS_RETURN_ERROR)
-			goto bail3;
+			goto bail3_l;
 		if (n == CCTLS_RETURN_RETRY)
 			return 0;
 
@@ -215,7 +215,7 @@ start_ws_handshake:
 				return 0;
 			if (n < 0) {
 				cce = ebuf;
-				goto bail3;
+				goto bail3_l;
 			}
 		} else {
 			wsi->tls.ssl = NULL;
@@ -249,7 +249,7 @@ start_ws_handshake:
 			if (wsi->client_h2_alpn)
 				if (lws_h2_issue_preface(wsi)) {
 					cce = "error sending h2 preface";
-					goto bail3;
+					goto bail3_l;
 				}
 
 		//	lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE2);
@@ -383,14 +383,14 @@ client_http_body_sent:
 				lwsl_debug("Server conn %s (fd=%d) dead\n",
 						lws_wsi_tag(wsi), pollfd->fd);
 				cce = "Peer hung up";
-				goto bail3;
+				goto bail3_l;
 			}
 		}
 
 		if (pollfd->revents & LWS_POLLOUT)
 			if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
 				cce = "Unable to clear POLLOUT";
-				goto bail3;
+				goto bail3_l;
 			}
 
 		if (!(pollfd->revents & LWS_POLLIN))
@@ -424,7 +424,7 @@ client_http_body_sent:
 					buffered, eb.len);
 			if (buffered < 0) {
 				cce = "read failed";
-				goto bail3;
+				goto bail3_l;
 			}
 			if (eb.len <= 0)
 				return 0;
@@ -435,7 +435,7 @@ client_http_body_sent:
 			if (lws_parse(wsi, eb.token, &n)) {
 				lwsl_warn("problems parsing header\n");
 				cce = "problems parsing header";
-				goto bail3;
+				goto bail3_l;
 			}
 
 			m = eb.len - n;
@@ -457,7 +457,7 @@ client_http_body_sent:
 			if (lws_buflist_aware_finished_consuming(wsi, &eb, m,
 								 buffered,
 								 __func__))
-			        goto bail3;
+			        goto bail3_l;
 
 			/*
 			 * coverity: uncomment if extended
@@ -490,7 +490,7 @@ client_http_body_sent:
 		 */
 		return lws_client_interpret_server_handshake(wsi);
 
-bail3:
+bail3_l:
 		lwsl_info("%s: closing conn at LWS_CONNMODE...SERVER_REPLY, %s, state 0x%x\n",
 				__func__, lws_wsi_tag(wsi), lwsi_state(wsi));
 		if (cce)
@@ -1079,7 +1079,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			}
 #else
 			cce = "h1 not built";
-			goto bail3;
+			goto bail3_l;
 #endif
 		}
 
@@ -1114,7 +1114,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		if (wsi->do_ws && !p) {
 			lwsl_info("no URI\n");
 			cce = "HS: URI missing";
-			goto bail3;
+			goto bail3_l;
 		}
 		*/
 		if (!p) {
@@ -1124,7 +1124,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		if (!p) {
 			cce = "HS: URI missing";
 			lwsl_info("no URI\n");
-			goto bail3;
+			goto bail3_l;
 		}
 #if defined(LWS_ROLE_H2)
 	} else {
@@ -1132,7 +1132,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		if (!p) {
 			cce = "HS: :status missing";
 			lwsl_info("no status\n");
-			goto bail3;
+			goto bail3_l;
 		}
 #endif
 	}
@@ -1140,7 +1140,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	if (!p) {
 		cce = "HS: :status missing";
 		lwsl_info("no status\n");
-		goto bail3;
+		goto bail3_l;
 	}
 #endif
 	n = atoi(p);
@@ -1185,7 +1185,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 					if (hnames_cis[m] &&
 					    wsi->stash->cis[m] &&
 					    lws_hdr_simple_create(wsi, hnames_cis[m], wsi->stash->cis[m]))
-						goto bail3;
+						goto bail3_l;
 
 			wsi->hdr_parsing_completed = 0;
 			wsi->http.ah->ues = URIES_IDLE;
@@ -1195,7 +1195,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		}
 
 		if (auth_res)
-			goto bail3;
+			goto bail3_l;
 
 		opaque = wsi->a.opaque_user_data;
 		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "digest_auth_step2");
@@ -1217,7 +1217,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_LOCATION);
 		if (!p) {
 			cce = "HS: Redirect code but no Location";
-			goto bail3;
+			goto bail3_l;
 		}
 
 #if defined(LWS_WITH_CONMON)
@@ -1247,7 +1247,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 					LWS_CALLBACK_CLIENT_HTTP_REDIRECT,
 					wsi->user_space, p, (unsigned int)n)) {
 			cce = "HS: user code rejected redirect";
-			goto bail3;
+			goto bail3_l;
 		}
 
 		/* Relative reference absolute path */
@@ -1268,7 +1268,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			puri = lws_parse_uri_create(p);
 			if (!puri) {
 				cce = "HS: URI did not parse";
-				goto bail3;
+				goto bail3_l;
 			}
 			prot = puri->scheme;
 			ads = puri->host;
@@ -1335,7 +1335,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 
 			if (wsi->http.ah->pos + pl + 1 >= wsi->http.ah->data_length) {
 				lwsl_warn("%s: redirect path exceeds ah size\n", __func__);
-				goto bail3;
+				goto bail3_l;
 			}
 			memcpy(wsi->http.ah->data + wsi->http.ah->pos + 1, path, pl + 1u);
 			wsi->http.ah->data[wsi->http.ah->pos] = '/';
@@ -1356,7 +1356,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 					lwsl_err("%s: failed to realloc stash for redirect\n", __func__);
 					lws_free(ostash);
 					cce = "HS: stash realloc failed";
-					goto bail3;
+					goto bail3_l;
 				}
 				lws_free(ostash);
 			}
@@ -1369,19 +1369,19 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		if ((wsi->tls.use_ssl & LCCSCF_USE_SSL) && !ssl &&
 		     !(wsi->flags & LCCSCF_ACCEPT_TLS_DOWNGRADE_REDIRECTS)) {
 			cce = "HS: Redirect attempted SSL downgrade";
-			goto bail3;
+			goto bail3_l;
 		}
 #endif
 
 		if (!ads) /* make coverity happy */ {
 			cce = "no ads";
-			goto bail3;
+			goto bail3_l;
 		}
 
 		if (!lws_client_reset(&wsi, ssl, ads, port, path, ads, 1)) {
 			lwsl_err("Redirect failed\n");
 			cce = "HS: Redirect failed";
-			goto bail3;
+			goto bail3_l;
 		}
 
 		/*
@@ -1557,7 +1557,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 					    wsi->user_space, NULL, 0)) {
 			wsi->http.ah = ah1;
 			cce = "HS: disallowed at ESTABLISHED";
-			goto bail3;
+			goto bail3_l;
 		}
 
 		wsi->http.ah = ah1;
@@ -1605,13 +1605,13 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	case 2:
 		goto bail2;
 	case 3:
-		goto bail3;
+		goto bail3_l;
 	}
 
 	return 0;
 #endif
 
-bail3:
+bail3_l:
 	close_reason = LWS_CLOSE_STATUS_NOSTATUS;
 
 bail2:

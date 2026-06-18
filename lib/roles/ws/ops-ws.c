@@ -476,8 +476,10 @@ spill:
 					  LWS_SERVER_OPTION_VALIDATE_UTF8) &&
 			    wsi->ws->rx_ubuf_head > 2 &&
 			    lws_check_utf8(&wsi->ws->utf8, pp + 2,
-					   wsi->ws->rx_ubuf_head - 2))
-				goto utf8_fail;
+					   wsi->ws->rx_ubuf_head - 2)) {
+				lwsl_notice("utf8 error\n");
+				return LWS_HPI_RET_PLEASE_CLOSE_ME;
+			}
 
 			/* is this an acknowledgment of our close? */
 			if (lwsi_state(wsi) == LRS_AWAITING_CLOSE_ACK) {
@@ -688,11 +690,15 @@ drain_extension:
 			    wsi->ws->check_utf8 && !wsi->ws->defeat_check_utf8) {
 				if (lws_check_utf8(&wsi->ws->utf8,
 						   pmdrx.eb_out.token,
-						   (size_t)pmdrx.eb_out.len)) {
+						   (unsigned int)pmdrx.eb_out.len)) {
 					lws_close_reason(wsi,
 						LWS_CLOSE_STATUS_INVALID_PAYLOAD,
 						(uint8_t *)"bad utf8", 8);
-					goto utf8_fail;
+					lwsl_notice("utf8 error\n");
+					lwsl_hexdump_notice(pmdrx.eb_out.token,
+							    (size_t)pmdrx.eb_out.len);
+
+					return LWS_HPI_RET_PLEASE_CLOSE_ME;
 				}
 
 				/* we are ending partway through utf-8 character? */
@@ -707,12 +713,11 @@ drain_extension:
 					lws_close_reason(wsi,
 						LWS_CLOSE_STATUS_INVALID_PAYLOAD,
 						(uint8_t *)"partial utf8", 12);
-utf8_fail:
 					lwsl_notice("utf8 error\n");
 					lwsl_hexdump_notice(pmdrx.eb_out.token,
 							    (size_t)pmdrx.eb_out.len);
 
-					goto ret_asking_close;
+					return LWS_HPI_RET_PLEASE_CLOSE_ME;
 				}
 			}
 
@@ -1131,7 +1136,7 @@ rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 
 	/* 3: buflist needs to be drained
 	 */
-read:
+	do {
 	//lws_buflist_describe(&wsi->buflist, wsi, __func__);
 	ebuf.len = (int)lws_buflist_next_segment_len(&wsi->buflist,
 						     &ebuf.token);
@@ -1307,15 +1312,15 @@ drain:
 					return LWS_HPI_RET_PLEASE_CLOSE_ME;
 			}
 #endif
-			goto read;
-		}
-		else
+		} else {
 			/*
 			 * Something has gone wrong, we are spinning...
 			 * let's bail on this connection
 			 */
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+		}
 	}
+	} while (pending);
 
 	if (buffered && /* were draining, now nothing left */
 	    !lws_buflist_next_segment_len(&wsi->buflist, NULL)) {

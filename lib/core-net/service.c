@@ -800,7 +800,7 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 				lwsl_wsi_debug(wsi, "Session Socket %d dead",
 						    pollfd->fd);
 
-				goto close_and_handled;
+				goto close_and_handled_l;
 			}
 
 			/*
@@ -835,7 +835,7 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 				lws_latency_note(pt, _tls_shut_start, 2000, "tls_shut:%dms", ms);
 		}
 #endif
-			goto close_and_handled;
+			goto close_and_handled_l;
 
 		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
 		case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
@@ -894,7 +894,7 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	case LWS_HPI_RET_PLEASE_CLOSE_ME:
 		//lwsl_notice("%s: %s pollin says please close me\n", __func__,
 		//		wsi->role_ops->name);
-close_and_handled:
+close_and_handled_l:
 		lwsl_wsi_debug(wsi, "Close and handled");
 		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
 				   "close_and_handled");

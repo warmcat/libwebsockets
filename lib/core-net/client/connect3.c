@@ -342,12 +342,11 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	 * We have a sorted dll2 list with the head one most preferable
 	 */
 
-next_dns_result:
-
-	cce = "Unable to connect";
-
 	if (!wsi->dns_sorted_list.count)
 		goto failed1;
+
+	while (wsi->dns_sorted_list.count) {
+		cce = "Unable to connect";
 
 	/*
 	 * Copy the wsi head sorted dns result into the wsi->sa46_peer, and
@@ -865,12 +864,11 @@ try_next_dns_result_closesock:
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
 
 try_next_dns_result:
-	lws_sul_cancel(&wsi->sul_connect_timeout);
+		lws_sul_cancel(&wsi->sul_connect_timeout);
 #if defined(WIN32)
-	lws_sul_cancel(&wsi->win32_sul_connect_async_check);
+		lws_sul_cancel(&wsi->win32_sul_connect_async_check);
 #endif
-	if (lws_dll2_get_head(&wsi->dns_sorted_list))
-		goto next_dns_result;
+	}
 
 	lws_addrinfo_clean(wsi);
 	lws_inform_client_conn_fail(wsi, (void *)cce, strlen(cce));

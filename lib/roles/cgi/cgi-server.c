@@ -773,10 +773,11 @@ post_hpack_recode:
 				    wsi->http.cgi->match[1], wsi->hdr_state);
 		if (!c)
 			return -1;
-		switch (wsi->hdr_state) {
-		case LCHS_HEADER:
-			hdr:
-			for (n = 0; n < SIGNIFICANT_HDR_COUNT; n++) {
+		do {
+			int reprocess = 0;
+			switch (wsi->hdr_state) {
+			case LCHS_HEADER:
+				for (n = 0; n < SIGNIFICANT_HDR_COUNT; n++) {
 				/*
 				 * significant headers with
 				 * numeric decimal payloads
@@ -857,7 +858,8 @@ post_hpack_recode:
 			for (n = 0; n < SIGNIFICANT_HDR_COUNT; n++)
 				wsi->http.cgi->match[n] = 0;
 			wsi->http.cgi->lp = 0;
-			goto hdr;
+			reprocess = 1;
+			break;
 
 		case LCHS_LF2:
 		case LCHS_SINGLE_0A:
@@ -884,8 +886,11 @@ post_hpack_recode:
 			wsi->http.cgi->lp = 0;
 			break;
 		case LHCS_PAYLOAD:
-			break;
-		}
+				break;
+			}
+			if (!reprocess)
+				break;
+		} while (1);
 
 agin:
 		/* ran out of input, ended the hdrs, or filled up the hdrs buf */
@@ -1103,6 +1108,7 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 
 	/* check all the subprocesses on the cgi list */
 	while (*pcgi) {
+		int do_finish = 0;
 		/* get the next one first as list may change */
 		cgi = *pcgi;
 		pcgi = &(*pcgi)->cgi_list;
@@ -1115,25 +1121,25 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 			cgi->chunked_grace++;
 			if (cgi->chunked_grace < 5)
 				continue;
-			goto finish_him;
+			do_finish = 1;
 		}
 
 		/* finish sending cached headers */
-		if (cgi->headers_buf)
+		if (!do_finish && cgi->headers_buf)
 			continue;
 
 		/* wait for stdout to be drained */
-		if (cgi->content_length > cgi->content_length_seen)
+		if (!do_finish && cgi->content_length > cgi->content_length_seen)
 			continue;
 
-		if (cgi->content_length)
+		if (!do_finish && cgi->content_length)
 			lwsl_wsi_debug(cgi->wsi, "expected cont len seen: %lld",
 				  (unsigned long long)cgi->content_length_seen);
 
 		/* reap it */
-		if (waitpid(cgi->lsp->child_pid, &status, WNOHANG) > 0) {
+		if (do_finish || waitpid(cgi->lsp->child_pid, &status, WNOHANG) > 0) {
 
-			if (!cgi->content_length) {
+			if (!do_finish && !cgi->content_length) {
 				/*
 				 * well, if he sends chunked...
 				 * give him 2s after the
@@ -1142,7 +1148,6 @@ lws_cgi_kill_terminated(struct lws_context_per_thread *pt)
 				cgi->chunked_grace += 4;
 				continue;
 			}
-finish_him:
 			lwsl_cx_debug(pt->context, "found PID %d on cgi list",
 						   cgi->lsp->child_pid);
 

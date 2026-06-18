@@ -429,7 +429,7 @@ callback_audio(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 			s = (vhd->wpos - vhd->porcpos) % LWS_ARRAY_SIZE(vhd->p);
 			if (s < vhd->porc_spf)
-				goto eol;
+				break;
 
 			while (m < vhd->porc_spf) {
 				vhd->porcbuf[m++] = avhd->p[vhd->porcpos];
@@ -454,7 +454,6 @@ callback_audio(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			vhd->last_wake_detect = det;
 		}
 
-eol:
 		vhd->wpos = (vhd->wpos + n) % LWS_ARRAY_SIZE(vhd->p);
 		break;
 

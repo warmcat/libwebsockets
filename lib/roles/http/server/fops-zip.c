@@ -527,7 +527,7 @@ lws_fops_zip_read(lws_fop_fd_t fd, lws_filepos_t *amount, uint8_t *buf,
 		priv->inflate.avail_out = (unsigned int)len;
 		priv->inflate.next_out = buf;
 
-spin:
+		do {
 		if (!priv->inflate.avail_in) {
 			rlen = sizeof(priv->rbuf);
 			if (rlen > eff_size(priv) - (cur - priv->content_start))
@@ -558,9 +558,8 @@ spin:
 			return ret;
 		}
 
-		if (!priv->inflate.avail_in && priv->inflate.avail_out &&
-		     cur != priv->content_start + priv->hdr.comp_size)
-			goto spin;
+		} while (!priv->inflate.avail_in && priv->inflate.avail_out &&
+		         cur != priv->content_start + priv->hdr.comp_size);
 
 		*amount = len - priv->inflate.avail_out;
 

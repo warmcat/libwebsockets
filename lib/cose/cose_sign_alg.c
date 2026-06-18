@@ -49,17 +49,17 @@ lws_cose_sign_alg_create(struct lws_context *cx, const lws_cose_key_t *ck,
 		crv = "P-256";
 		gh = LWS_GENHASH_TYPE_SHA256;
 		alg->keybits = 256;
-		goto ecdsa;
+		goto ecdsa_l;
 	case LWSCOSE_WKAECDSA_ALG_ES384: /* ECDSA w/ SHA-384 */
 		crv = "P-384";
 		gh = LWS_GENHASH_TYPE_SHA384;
 		alg->keybits = 384;
-		goto ecdsa;
+		goto ecdsa_l;
 	case LWSCOSE_WKAECDSA_ALG_ES512: /* ECDSA w/ SHA-512 */
 		crv = "P-521";
 		gh = LWS_GENHASH_TYPE_SHA512;
 		alg->keybits = 521;
-ecdsa:
+ecdsa_l:
 
 		/* the key is good for this? */
 
@@ -101,20 +101,20 @@ ecdsa:
 	case LWSCOSE_WKAHMAC_256_64:
 		ghm = LWS_GENHMAC_TYPE_SHA256;
 		alg->keybits = 64;
-		goto hmac;
+		goto hmac_l;
 	case LWSCOSE_WKAHMAC_256_256:
 		ghm = LWS_GENHMAC_TYPE_SHA256;
 		alg->keybits = 256;
-		goto hmac;
+		goto hmac_l;
 	case LWSCOSE_WKAHMAC_384_384:
 		ghm = LWS_GENHMAC_TYPE_SHA384;
 		alg->keybits = 384;
-		goto hmac;
+		goto hmac_l;
 	case LWSCOSE_WKAHMAC_512_512:
 		ghm = LWS_GENHMAC_TYPE_SHA512;
 		alg->keybits = 512;
 
-hmac:
+hmac_l:
 		if (lws_cose_key_checks(ck, LWSCOSE_WKKTV_SYMMETRIC,
 					cose_alg, op, NULL))
 			goto bail_hmac;
@@ -129,16 +129,16 @@ hmac:
 
 	case LWSCOSE_WKARSA_ALG_RS256:
 		gh = LWS_GENHASH_TYPE_SHA256;
-		goto rsassa;
+		goto rsassa_l;
 
 	case LWSCOSE_WKARSA_ALG_RS384:
 		gh = LWS_GENHASH_TYPE_SHA384;
-		goto rsassa;
+		goto rsassa_l;
 
 	case LWSCOSE_WKARSA_ALG_RS512:
 		gh = LWS_GENHASH_TYPE_SHA512;
 
-rsassa:
+rsassa_l:
 		if (lws_cose_key_checks(ck, LWSCOSE_WKKTV_RSA, cose_alg,
 					op, NULL))
 			goto bail_hmac;

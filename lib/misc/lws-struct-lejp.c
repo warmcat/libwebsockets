@@ -413,7 +413,7 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 		case LSMT_STRING_CHAR_ARRAY:
 			s = (char *)(u + map->ofs);
 			lim = map->aux - 1;
-			goto chunk_copy;
+			goto chunk_copy_l;
 
 		case LSMT_STRING_PTR:
 			pp = (char **)(u + map->ofs);
@@ -423,7 +423,7 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 				goto cleanup;
 			*pp = s;
 
-chunk_copy:
+chunk_copy_l:
 			s[lim] = '\0';
 			/* copy up to lim from the string chunk ac first */
 			lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1,
@@ -559,6 +559,7 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 	*buf = '\0';
 
 	while (len > sizeof(dbuf) + 20) {
+		int do_up = 0;
 		j = &js->st[js->sp];
 		map = &j->map[j->map_entry];
 		q = j->obj + map->ofs;
@@ -570,19 +571,24 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 		case LSMT_STRING_PTR:
 		case LSMT_CHILD_PTR:
 			q = (char *)*(char **)q;
-			if (!q)
-				goto up;
+			if (!q) {
+				do_up = 1;
+				goto check_up;
+			}
 			break;
 
 		case LSMT_LIST:
 			o = (struct lws_dll2_owner *)q;
 			p = j->dllpos = lws_dll2_get_head(o);
-			if (!p)
-				goto up;
+			if (!p) {
+				do_up = 1;
+				goto check_up;
+			}
 			break;
 
 		case LSMT_BLOB_PTR:
-			goto up;
+			do_up = 1;
+			goto check_up;
 
 		default:
 			break;
@@ -670,7 +676,8 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 			if (!j->dllpos) {
 				*buf++ = ']';
 				len--;
-				goto up;
+				do_up = 1;
+				goto check_up;
 			}
 
 			n = j->idt;
@@ -816,80 +823,86 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 
 		if (js->remaining)
 			continue;
-up:
-		if (++j->map_entry < j->map_entries)
-			continue;
 
-		if (!js->sp)
-			continue;
-		js->sp--;
-		if (!js->sp) {
-			lws_struct_pretty(js, &buf, &len);
-			*buf++ = '}';
-			len--;
-			lws_struct_pretty(js, &buf, &len);
+		do_up = 1;
 
-			*written = olen - len;
-			*buf = '\0'; /* convenience, a NUL after the official end */
+check_up:
+		if (do_up) {
+			while (1) {
+				if (++j->map_entry < j->map_entries)
+					break;
 
-			return LSJS_RESULT_FINISH;
+				if (!js->sp)
+					break;
+				js->sp--;
+				if (!js->sp) {
+					lws_struct_pretty(js, &buf, &len);
+					*buf++ = '}';
+					len--;
+					lws_struct_pretty(js, &buf, &len);
+
+					*written = olen - len;
+					*buf = '\0'; /* convenience, a NUL after the official end */
+
+					return LSJS_RESULT_FINISH;
+				}
+				js->offset = 0;
+				j = &js->st[js->sp];
+				map = &j->map[j->map_entry];
+
+				if (map->type == LSMT_CHILD_PTR) {
+					lws_struct_pretty(js, &buf, &len);
+					*buf++ = '}';
+					len--;
+
+					/* we have done the singular child pointer */
+
+					js->offset = 0;
+					continue;
+				}
+
+				if (map->type != LSMT_LIST)
+					break;
+				/*
+				 * we are coming back up to an array map, it means we should
+				 * advance to the next array member if there is one
+				 */
+
+				lws_struct_pretty(js, &buf, &len);
+				*buf++ = '}';
+				len--;
+
+				p = j->dllpos = j->dllpos->next;
+				if (j->dllpos) {
+					/*
+					 * there was another item in the array to do... let's
+					 * move on to that and do it
+					 */
+					*buf++ = ',';
+					len--;
+					lws_struct_pretty(js, &buf, &len);
+					js->offset = 0;
+					j = &js->st[++js->sp];
+					j->map_entry = 0;
+					map = &j->map[j->map_entry];
+
+					*buf++ = '{';
+					len--;
+					lws_struct_pretty(js, &buf, &len);
+
+					j->subsequent = 0;
+					j->obj = ((char *)p) - j->map->ofs_clist;
+					break;
+				}
+
+				/* there are no further items in the array */
+
+				js->offset = 0;
+				lws_struct_pretty(js, &buf, &len);
+				*buf++ = ']';
+				len--;
+			}
 		}
-		js->offset = 0;
-		j = &js->st[js->sp];
-		map = &j->map[j->map_entry];
-
-		if (map->type == LSMT_CHILD_PTR) {
-			lws_struct_pretty(js, &buf, &len);
-			*buf++ = '}';
-			len--;
-
-			/* we have done the singular child pointer */
-
-			js->offset = 0;
-			goto up;
-		}
-
-		if (map->type != LSMT_LIST)
-			continue;
-		/*
-		 * we are coming back up to an array map, it means we should
-		 * advance to the next array member if there is one
-		 */
-
-		lws_struct_pretty(js, &buf, &len);
-		*buf++ = '}';
-		len--;
-
-		p = j->dllpos = j->dllpos->next;
-		if (j->dllpos) {
-			/*
-			 * there was another item in the array to do... let's
-			 * move on to that and do it
-			 */
-			*buf++ = ',';
-			len--;
-			lws_struct_pretty(js, &buf, &len);
-			js->offset = 0;
-			j = &js->st[++js->sp];
-			j->map_entry = 0;
-			map = &j->map[j->map_entry];
-
-			*buf++ = '{';
-			len--;
-			lws_struct_pretty(js, &buf, &len);
-
-			j->subsequent = 0;
-			j->obj = ((char *)p) - j->map->ofs_clist;
-			continue;
-		}
-
-		/* there are no further items in the array */
-
-		js->offset = 0;
-		lws_struct_pretty(js, &buf, &len);
-		*buf++ = ']';
-		len--;
-		goto up;
 	}
 
 	*written = olen - len;

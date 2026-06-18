@@ -860,19 +860,7 @@ lws_css_cascade_atr_match(lhp_ctx_t *ctx, lhp_pstack_t *ps, const char *tag,
 			}
 
 			if (nl == tag_len && !memcmp(p, tag, tag_len)) {
-matched:
-				{
-				lcsp_stanza_ptr_t *sp = lwsac_use_zero(
-						&ctx->cascadeac,
-						sizeof(*sp), LHP_AC_GRANULE);
-				if (!sp)
-					return 1;
-
-				sp->stz = stz;
-				lws_dll2_add_tail(&sp->list,
-						  &ctx->active_stanzas);
-				break;
-				}
+				goto matched;
 			} else {
 				/* check for tag.class or .class.class */
 				const char *dot = memchr(p, '.', nl);
@@ -907,7 +895,21 @@ matched:
 					}
 				}
 			}
+			continue;
 
+matched:
+			{
+				lcsp_stanza_ptr_t *sp = lwsac_use_zero(
+						&ctx->cascadeac,
+						sizeof(*sp), LHP_AC_GRANULE);
+				if (!sp)
+					return 1;
+
+				sp->stz = stz;
+				lws_dll2_add_tail(&sp->list,
+						  &ctx->active_stanzas);
+				break;
+			}
 		} lws_end_foreach_dll(z);
 
 	} lws_end_foreach_dll(q);
@@ -1280,11 +1282,23 @@ lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len)
 
 	assert(drt);
 
-	if (!*len && ctx->is_css && ctx->await_css_done && ctx->finish_css)
-		goto finish_css;
+	if (!*len && ctx->is_css && ctx->await_css_done && ctx->finish_css) {
+		r = ctx->await_css_done;
+		ctx->u.s = 0;
+		ctx->tag = NULL;
+		ctx->tag_len = 0;
+		ctx->npos = 0;
+		ctx->state = LHPS_TAG;
+		ctx->await_css_done = 0;
+		ctx->finish_css = 0;
+		if (r)
+			return LWS_SRET_AWAIT_RETRY;
+		ctx->u.f.closing = 1;
+	}
 
 	while (*len) {
 		uint8_t c = *(*buf)++;
+		int is_term = 0;
 
 		(*len)--;
 
@@ -2180,10 +2194,12 @@ done_amp:
 					break;
 				}
 				//lwsl_notice("close curly cssval_state %d\n", ctx->cssval_state);
-				if (ctx->cssval_state || ctx->npos)
-					goto for_term;
-				ctx->npos = 0;
-				break;
+				if (ctx->cssval_state || ctx->npos) {
+					is_term = 1;
+				} else {
+					ctx->npos = 0;
+					break;
+				}
 			}
 			if (c == '/') {
 				ctx->state = LCSPS_CCOM_S1;
@@ -2212,10 +2228,12 @@ done_amp:
 						ctx->npos = 0;
 					}
 
-					if (ctx->cssval_state)
-						goto for_term;
-					ctx->npos = 0;
-					break;
+					if (ctx->cssval_state) {
+						is_term = 1;
+					} else {
+						ctx->npos = 0;
+						break;
+					}
 				}
 
 				if (ctx->cssval_state == (int16_t)-1 &&
@@ -2341,16 +2359,16 @@ issue_post:
 				}
 
 
-				if (ctx->npos >= LHP_STRING_CHUNK) {
-					lwsl_err("%s: prop value string too long\n", __func__);
-					goto oom;
+				if (!is_term) {
+					if (ctx->npos >= LHP_STRING_CHUNK) {
+						lwsl_err("%s: prop value string too long\n", __func__);
+						goto oom;
+					}
+
+					ctx->buf[ctx->npos++] = (char)c;
 				}
 
-				ctx->buf[ctx->npos++] = (char)c;
-
 				/* well-known property value strings */
-
-for_term:
 
 				if (ctx->npos == 5 && !memcmp(ctx->buf, "calc(", 5)) {
 					int nested = 1;
@@ -2553,8 +2571,6 @@ for_term:
 			}
 			if (ctx->state_css_comm == LCSPS_CSS_OUTER &&
 			    c == '/' && ctx->u.f.first) {
-
-finish_css:
 				r = ctx->await_css_done;
 				// lwsl_warn("leaving css for tag");
 				ctx->u.s = 0;
@@ -2689,8 +2705,19 @@ finish_css:
 			break;
 
 		}
-		if (!*len && ctx->is_css && ctx->await_css_done && ctx->finish_css)
-			goto finish_css;
+		if (!*len && ctx->is_css && ctx->await_css_done && ctx->finish_css) {
+			r = ctx->await_css_done;
+			ctx->u.s = 0;
+			ctx->tag = NULL;
+			ctx->tag_len = 0;
+			ctx->npos = 0;
+			ctx->state = LHPS_TAG;
+			ctx->await_css_done = 0;
+			ctx->finish_css = 0;
+			if (r)
+				return LWS_SRET_AWAIT_RETRY;
+			ctx->u.f.closing = 1;
+		}
 	}
 
 	if (!ctx->u.f.default_css && ctx->flags & LHP_FLAG_DOCUMENT_END) {

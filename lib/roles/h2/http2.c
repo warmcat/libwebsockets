@@ -887,8 +887,10 @@ int lws_h2_do_pps_send(struct lws *wsi)
 		*p++ = (uint8_t)(pps->u.ga.err);
 		q = (unsigned char *)pps->u.ga.str;
 		n = 0;
-		while (*q && n++ < (int)sizeof(pps->u.ga.str))
+		while (*q && n < (int)sizeof(pps->u.ga.str)) {
+			n++;
 			*p++ = *q++;
+		}
 		h2n->we_told_goaway = 1;
 		n = lws_h2_frame_write(wsi, LWS_H2_FRAME_TYPE_GOAWAY, 0,
 				       LWS_H2_STREAM_ID_MASTER,
@@ -1332,7 +1334,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 
 			if (lws_h2_update_peer_txcredit(h2n->swsi,
 					h2n->swsi->mux.my_sid, 4 * 65536))
-				goto cleanup_wsi;
+				goto cleanup_wsi_l;
 		}
 
 		/*
@@ -1397,7 +1399,7 @@ update_end_headers:
 		lwsl_debug("END_HEADERS %d\n", h2n->swsi->h2.END_HEADERS);
 		break;
 
-cleanup_wsi:
+cleanup_wsi_l:
 
 		return 1;
 

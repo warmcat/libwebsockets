@@ -476,8 +476,12 @@ lws_process_ws_upgrade(struct lws *wsi)
 					    LWS_TOKENIZE_F_RFC7230_DELIMS |
 					    LWS_TOKENIZE_F_MINUS_NONTERM);
 		n = lws_hdr_copy(wsi, buf, sizeof(buf) - 1, WSI_TOKEN_CONNECTION);
-		if (n <= 0)
-			goto bad_conn_format;
+		if (n <= 0) {
+			lwsl_err("%s: malformed or absent conn hdr\n",
+				 __func__);
+
+			return 1;
+		}
 		ts.len = (unsigned int)n;
 
 		do {
@@ -492,7 +496,6 @@ lws_process_ws_upgrade(struct lws *wsi)
 				break;
 
 			default: /* includes ENDED */
-	bad_conn_format:
 				lwsl_err("%s: malformed or absent conn hdr\n",
 					 __func__);
 
@@ -964,7 +967,10 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 				   (unsigned int)pmdrx.eb_out.len)) {
 			lws_close_reason(wsi, LWS_CLOSE_STATUS_INVALID_PAYLOAD,
 					 (uint8_t *)"bad utf8", 8);
-			goto utf8_fail;
+			lwsl_info("utf8 error\n");
+			lwsl_hexdump_info(pmdrx.eb_out.token, (size_t)pmdrx.eb_out.len);
+
+			return -1;
 		}
 
 		/* we are ending partway through utf-8 character? */
@@ -974,7 +980,6 @@ lws_ws_frame_rest_is_payload(struct lws *wsi, uint8_t **buf, size_t len)
 			lws_close_reason(wsi, LWS_CLOSE_STATUS_INVALID_PAYLOAD,
 					 (uint8_t *)"partial utf8", 12);
 
-utf8_fail:
 			lwsl_info("utf8 error\n");
 			lwsl_hexdump_info(pmdrx.eb_out.token, (size_t)pmdrx.eb_out.len);
 

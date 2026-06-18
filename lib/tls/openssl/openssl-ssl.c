@@ -277,8 +277,16 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 	if (n <= 0) {
 		m = lws_ssl_get_error(wsi, n);
                lwsl_debug("%s: ssl err %d errno %d\n", lws_wsi_tag(wsi), m, LWS_ERRNO);
-		if (m == SSL_ERROR_ZERO_RETURN) /* cleanly shut down */
-			goto do_err;
+                if (m == SSL_ERROR_ZERO_RETURN) { /* cleanly shut down */
+#if defined(LWS_WITH_SYS_METRICS)
+                        if (wsi->a.vhost)
+                                lws_metric_event(wsi->a.vhost->mt_traffic_rx,
+                                                 METRES_NOGO, 0);
+#endif
+                        __lws_ssl_remove_wsi_from_buffered_list(wsi);
+
+                        return LWS_SSL_CAPABLE_ERROR;
+                }
 
 		if (m == SSL_ERROR_SSL)
 		    lws_tls_err_describe_clear();
@@ -291,7 +299,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 			/* unclean, eg closed conn */
 
 			wsi->socket_is_permanently_unusable = 1;
-do_err:
+
 #if defined(LWS_WITH_SYS_METRICS)
 		if (wsi->a.vhost)
 			lws_metric_event(wsi->a.vhost->mt_traffic_rx,

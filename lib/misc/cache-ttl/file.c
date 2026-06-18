@@ -164,7 +164,7 @@ nscookiejar_iterate(lws_cache_nscookiejar_t *cache, int fd,
 
 		lwsl_debug("%s: n %d, m %d\n", __func__, n, m);
 
-read:
+
 		if ((size_t)n >= sizeof(temp) - 1)
 			/* there's no space left in temp */
 			n1s = 0;
@@ -239,7 +239,7 @@ read:
 				goto bail;
 			}
 
-			goto read;
+			break;
 		}
 
 		if (m) {

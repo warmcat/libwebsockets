@@ -141,6 +141,11 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 	if (n == MBEDTLS_ERR_SSL_WANT_READ)
 		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
 
+#if defined(MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET)
+	if (n == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET)
+		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
+#endif
+
 	if (n == MBEDTLS_ERR_SSL_WANT_WRITE)
 		return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
 

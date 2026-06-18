@@ -205,7 +205,7 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 		}
 	}
 
-read:
+	do {
 	/* 3: network wsi buflist needs to be drained */
 
 	// lws_buflist_describe(&wsi->buflist, wsi, __func__);
@@ -413,11 +413,8 @@ drain:
 	}
 #endif
 
-	pending = (unsigned int)lws_ssl_pending(wsi);
-	if (pending) {
-		// lwsl_info("going around\n");
-		goto read;
-	}
+		pending = (unsigned int)lws_ssl_pending(wsi);
+	} while (pending);
 
 	return LWS_HPI_RET_HANDLED;
 }
@@ -1139,6 +1136,13 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 
 #if defined(LWS_WITH_CLIENT)
 		if (lwsi_state(w) == LRS_H2_WAITING_TO_SEND_HEADERS) {
+			if (w->mux.my_sid != 1 && (!wsi->client_mux_migrated ||
+			    (wsi->h2.h2n->swsi && lwsi_state(wsi->h2.h2n->swsi) == LRS_H2_WAITING_TO_SEND_HEADERS))) {
+				lwsl_info("%s: waiting for sid 1 to send headers\n", __func__);
+				wa = &wsi->mux.child_list;
+				goto next_child;
+			}
+
 			if (lws_h2_client_handshake(w))
 				return -1;
 

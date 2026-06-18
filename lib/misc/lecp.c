@@ -421,7 +421,7 @@ lecp_parse(struct lecp_ctx *ctx, const uint8_t *cbor, size_t len)
 					ctx->item.u.i64 = (int64_t)sm;
 					goto issue;
 				}
-				goto i2;
+				goto i2_l;
 
 			case LWS_CBOR_MAJTYP_INT_NEG:
 				ctx->present = LECPCB_VAL_NUM_INT;
@@ -429,7 +429,7 @@ lecp_parse(struct lecp_ctx *ctx, const uint8_t *cbor, size_t len)
 					ctx->item.u.i64 = (-1ll) - (int64_t)sm;
 					goto issue;
 				}
-i2:
+i2_l:
 				if (sm >= LWS_CBOR_RESERVED)
 					goto bad_coding;
 				ctx->item.u.u64 = 0;
@@ -480,7 +480,7 @@ i2:
 				}
 
 				if (sm < LWS_CBOR_RESERVED)
-					goto i2;
+					goto i2_l;
 
 				if (sm != LWS_CBOR_INDETERMINITE)
 					goto bad_coding;
@@ -543,7 +543,7 @@ i2:
 				}
 
 				if (sm < LWS_CBOR_RESERVED)
-					goto i2;
+					goto i2_l;
 
 				if (sm != LWS_CBOR_INDETERMINITE)
 					goto bad_coding;
@@ -585,7 +585,7 @@ push_a:
 				}
 
 				if (sm < LWS_CBOR_RESERVED)
-					goto i2;
+					goto i2_l;
 
 				if (sm != LWS_CBOR_INDETERMINITE)
 					goto bad_coding;
@@ -609,7 +609,7 @@ push_m:
 				 * We have to do more stuff to get the tag
 				 * number...
 				 */
-				goto i2;
+				goto i2_l;
 
 			case LWS_CBOR_MAJTYP_FLOAT:
 				/*
@@ -873,7 +873,7 @@ push_m:
 			if (sm >= LWS_CBOR_RESERVED)
 				goto bad_coding;
 
-			goto i2;
+			goto i2_l;
 
 		default:
 			assert(0);
@@ -1100,19 +1100,19 @@ format_scan(const char *fmt)
 		case ']':
 			if (stack[sp] != '[')
 				goto mismatch;
-			goto pop;
+			goto pop_l;
 		case ')':
 			if (stack[sp] != '(')
 				goto mismatch;
-			goto pop;
+			goto pop_l;
 		case '}':
 			if (stack[sp] != '{')
 				goto mismatch;
-			goto pop;
+			goto pop_l;
 		case '>':
 			if (stack[sp] != '<')
 				goto mismatch;
-pop:
+pop_l:
 			if (sp) {
 				sp--;
 				break;
@@ -1340,14 +1340,14 @@ lws_lec_vsprintf(lws_lec_pctx_t *ctx, const char *fmt, va_list args)
 					return LWS_LECPCTX_RET_FAIL;
 				lws_lec_int(ctx, LWS_CBOR_MAJTYP_ARRAY, n == -1,
 							(uint64_t)n);
-				goto stack_push;
+				goto stack_push_l;
 			case '{':
 				n = format_scan(&fmt[ctx->fmt_pos]);
 				if (n == -2)
 					return LWS_LECPCTX_RET_FAIL;
 				lws_lec_int(ctx, LWS_CBOR_MAJTYP_MAP, n == -1,
 							(uint64_t)n);
-				goto stack_push;
+				goto stack_push_l;
 			case '(':
 				/* must be preceded by a number */
 				goto fail;
@@ -1552,7 +1552,7 @@ lws_lec_vsprintf(lws_lec_pctx_t *ctx, const char *fmt, va_list args)
 				c = fmt[ctx->fmt_pos];
 				if (c != '(')
 					goto fail;
-				goto tag_body;
+				goto tag_body_l;
 #if defined(LWS_WITH_CBOR_FLOAT)
 			case 'f': /* floating point double */
 				dbl = va_arg(args, double);
@@ -1634,7 +1634,7 @@ lws_lec_vsprintf(lws_lec_pctx_t *ctx, const char *fmt, va_list args)
 				ctx->item.u.i64--;
 
 			if (c == '(') { /* tag qualifier */
-tag_body:
+tag_body_l:
 				n = format_scan(&fmt[ctx->fmt_pos]);
 				if (n == -2)
 					goto fail;
@@ -1647,7 +1647,7 @@ tag_body:
 				lws_lec_int(ctx, LWS_CBOR_MAJTYP_TAG, 0,
 							ctx->item.u.u64);
 
-stack_push:
+stack_push_l:
 				if (ctx->sp >= sizeof(ctx->stack))
 					return LWS_LECPCTX_RET_FAIL;
 				ctx->stack[ctx->sp] = (uint8_t)c;
@@ -1686,7 +1686,7 @@ stack_push:
 						    LWS_CBOR_MAJTYP_BSTR, 1, 0);
 			c = '<';
 			n = 0;
-			goto stack_push;
+			goto stack_push_l;
 		}
 
 		ctx->fmt_pos++;

@@ -99,9 +99,12 @@ lwsac_use_cached_file_end(lwsac_cached_file_t *cache)
 	if (!lachead->refcount)
 		lwsl_err("%s: html refcount zero on entry\n", __func__);
 
-	if (lachead->refcount && !--lachead->refcount && lachead->detached) {
-		*cache = NULL; /* not usable any more */
-		lwsac_free(&lac);
+	if (lachead->refcount) {
+		lachead->refcount--;
+		if (!lachead->refcount && lachead->detached) {
+			*cache = NULL; /* not usable any more */
+			lwsac_free(&lac);
+		}
 	}
 }
 

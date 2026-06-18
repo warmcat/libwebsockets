@@ -998,14 +998,23 @@ lws_x509_create_cert(struct lws_context *context,
 
 		time(&t);
 		t -= 86400;
+#if defined(LWS_HAVE_GMTIME_R)
+		struct tm tm_s;
+		tm = gmtime_r(&t, &tm_s);
+#else
 		tm = gmtime(&t);
+#endif
 		lws_snprintf(not_before, sizeof(not_before), "%04d%02d%02d%02d%02d%02d",
 			tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
 			tm->tm_hour, tm->tm_min, tm->tm_sec);
 
 		t += 86400;
 		t += (time_t)(info->validity_days ? info->validity_days : 365) * 24 * 3600;
+#if defined(LWS_HAVE_GMTIME_R)
+		tm = gmtime_r(&t, &tm_s);
+#else
 		tm = gmtime(&t);
+#endif
 		lws_snprintf(not_after, sizeof(not_after), "%04d%02d%02d%02d%02d%02d",
 			tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
 			tm->tm_hour, tm->tm_min, tm->tm_sec);

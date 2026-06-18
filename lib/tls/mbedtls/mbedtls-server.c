@@ -426,6 +426,16 @@ lws_tls_server_accept(struct lws *wsi)
 		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
 	}
 
+#if defined(MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET)
+	if (n == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET) {
+		if (!wsi->tls.ssl_accept_in_bg && lws_change_pollfd(wsi, 0, LWS_POLLIN)) {
+			lwsl_info("%s: WANT_READ change_pollfd failed\n", __func__);
+			return LWS_SSL_CAPABLE_ERROR;
+		}
+		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
+	}
+#endif
+
 	if (n == MBEDTLS_ERR_SSL_WANT_WRITE) {
 		if (!wsi->tls.ssl_accept_in_bg && lws_change_pollfd(wsi, 0, LWS_POLLOUT)) {
 			lwsl_info("%s: WANT_WRITE change_pollfd failed\n", __func__);

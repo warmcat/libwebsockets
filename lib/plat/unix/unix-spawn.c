@@ -928,20 +928,38 @@ lws_spawn_prepare_self_cgroup(const char *user, const char *group)
 	lws_snprintf(path, sizeof(path), "/sys/fs/cgroup%s", self_cgroup);
 
 	if (user) {
+#if defined(LWS_HAVE_GETPWNAM_R)
+		struct passwd pwd, *result;
+		char buf[1024];
+
+		getpwnam_r(user, &pwd, buf, sizeof(buf), &result);
+		if (result)
+			uid = result->pw_uid;
+#else
 		struct passwd *pwd;
 
 		pwd = getpwnam(user);
 		if (pwd)
 			uid = pwd->pw_uid;
+#endif
 		else
 			lwsl_warn("%s: user '%s' not found\n", __func__, user);
 	}
 	if (group) {
+#if defined(LWS_HAVE_GETGRNAM_R)
+		struct group grp, *result;
+		char buf[1024];
+ 
+		getgrnam_r(group, &grp, buf, sizeof(buf), &result);
+		if (result)
+			gid = result->gr_gid;
+#else
 		struct group *grp;
  
 		grp = getgrnam(group);
 		if (grp)
 			gid = grp->gr_gid;
+#endif
 		else
 			lwsl_warn("%s: group '%s' not found\n", __func__, group);
 	}

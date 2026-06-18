@@ -287,19 +287,19 @@ lws_socks5c_handle_state(struct lws *wsi, struct lws_pollfd *pollfd,
 
 	case LRS_WAITING_SOCKS_GREETING_REPLY:
 		if (pt->serv_buf[0] != SOCKS_VERSION_5)
-			goto socks_reply_fail;
+			goto socks_reply_fail_l;
 
 		if (pt->serv_buf[1] == SOCKS_AUTH_NO_AUTH) {
 			lwsl_wsi_client(wsi, "SOCKS GR: No Auth Method");
 			if (lws_socks5c_generate_msg(wsi, SOCKS_MSG_CONNECT,
 						     &len)) {
 				lwsl_wsi_err(wsi, "generate connect msg fail");
-				goto socks_send_msg_fail;
+				goto socks_send_msg_fail_l;
 			}
 			conn_mode = LRS_WAITING_SOCKS_CONNECT_REPLY;
 			pending_timeout =
 			   PENDING_TIMEOUT_AWAITING_SOCKS_CONNECT_REPLY;
-			goto socks_send;
+			goto socks_send_l;
 		}
 
 		if (pt->serv_buf[1] == SOCKS_AUTH_USERNAME_PASSWORD) {
@@ -307,30 +307,30 @@ lws_socks5c_handle_state(struct lws *wsi, struct lws_pollfd *pollfd,
 			if (lws_socks5c_generate_msg(wsi,
 					   SOCKS_MSG_USERNAME_PASSWORD,
 					   &len))
-				goto socks_send_msg_fail;
+				goto socks_send_msg_fail_l;
 			conn_mode = LRS_WAITING_SOCKS_AUTH_REPLY;
 			pending_timeout =
 			      PENDING_TIMEOUT_AWAITING_SOCKS_AUTH_REPLY;
-			goto socks_send;
+			goto socks_send_l;
 		}
-		goto socks_reply_fail;
+		goto socks_reply_fail_l;
 
 	case LRS_WAITING_SOCKS_AUTH_REPLY:
 		if (pt->serv_buf[0] != SOCKS_SUBNEGOTIATION_VERSION_1 ||
 		    pt->serv_buf[1] !=
 				    SOCKS_SUBNEGOTIATION_STATUS_SUCCESS)
-			goto socks_reply_fail;
+			goto socks_reply_fail_l;
 
 		lwsl_wsi_client(wsi, "SOCKS password OK, sending connect");
 		if (lws_socks5c_generate_msg(wsi, SOCKS_MSG_CONNECT, &len)) {
-socks_send_msg_fail:
+socks_send_msg_fail_l:
 			*pcce = "socks gen msg fail";
 			return LW5CHS_RET_BAIL3;
 		}
 		conn_mode = LRS_WAITING_SOCKS_CONNECT_REPLY;
 		pending_timeout =
 			   PENDING_TIMEOUT_AWAITING_SOCKS_CONNECT_REPLY;
-socks_send:
+socks_send_l:
 		// lwsl_hexdump_notice(pt->serv_buf, len);
 		n = (int)send(wsi->desc.sockfd, (char *)pt->serv_buf,
 			      LWS_POSIX_LENGTH_CAST(len), MSG_NOSIGNAL);
@@ -345,7 +345,7 @@ socks_send:
 		lwsi_set_state(wsi, (lws_wsi_state_t)conn_mode);
 		break;
 
-socks_reply_fail:
+socks_reply_fail_l:
 		lwsl_wsi_err(wsi, "socks reply: v%d, err %d",
 			     pt->serv_buf[0], pt->serv_buf[1]);
 		*pcce = "socks reply fail";
@@ -354,7 +354,7 @@ socks_reply_fail:
 	case LRS_WAITING_SOCKS_CONNECT_REPLY:
 		if (pt->serv_buf[0] != SOCKS_VERSION_5 ||
 		    pt->serv_buf[1] != SOCKS_REQUEST_REPLY_SUCCESS)
-			goto socks_reply_fail;
+			goto socks_reply_fail_l;
 
 		lwsl_wsi_client(wsi, "socks connect OK");
 
