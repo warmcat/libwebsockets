@@ -978,6 +978,21 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 		lws_buflist_use_segment(&wsi->buflist, blen);
 
 		wsi->http.rx_content_length -= blen;
+		/*
+		 * Keep rx_content_remain in step with the body we just
+		 * delivered from the deferred buflist.  The inline DATA path in
+		 * lws_read_h1() and the HTTP_BODY_COMPLETION decision both track
+		 * rx_content_remain (initialized to the full content-length);
+		 * if we only decrement rx_content_length here, a body that is
+		 * split across the DEFERRING_ACTION boundary (some stashed here,
+		 * the rest arriving later inline) leaves rx_content_remain stuck
+		 * at the stashed byte count, so completion never fires and the
+		 * request times out.
+		 */
+		if (wsi->http.rx_content_remain >= blen)
+			wsi->http.rx_content_remain -= blen;
+		else
+			wsi->http.rx_content_remain = 0;
 	}
 
 	if (!wsi->buflist)
