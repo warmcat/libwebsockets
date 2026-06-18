@@ -91,6 +91,13 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 			lwsl_debug("%s: LWS_SSL_CAPABLE_MORE_SERVICE_READ\n", lws_wsi_tag(wsi));
 			return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
 		}
+#if defined(MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET)
+		if (m == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET) {
+			lwsl_debug("%s: RECEIVED_NEW_SESSION_TICKET\n", __func__);
+			lwsl_debug("%s: LWS_SSL_CAPABLE_MORE_SERVICE_READ\n", lws_wsi_tag(wsi));
+			return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
+		}
+#endif
 		if (m == MBEDTLS_ERR_SSL_WANT_WRITE) {
 			lwsl_info("%s: WANT_WRITE\n", __func__);
 			lwsl_debug("%s: LWS_SSL_CAPABLE_MORE_SERVICE_WRITE\n", lws_wsi_tag(wsi));
@@ -196,6 +203,14 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 
 		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
 	}
+
+#if defined(MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET)
+	if (m == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET) {
+		lwsl_notice("%s: want read (ticket)\n", __func__);
+
+		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
+	}
+#endif
 
 	if (m == MBEDTLS_ERR_SSL_WANT_WRITE) {
 		lws_set_blocking_send(wsi);
@@ -317,6 +332,13 @@ __lws_tls_shutdown(struct lws *wsi)
 		__lws_change_pollfd(wsi, 0, LWS_POLLIN);
 		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
 	}
+
+#if defined(MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET)
+	if (n == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET) {
+		__lws_change_pollfd(wsi, 0, LWS_POLLIN);
+		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
+	}
+#endif
 
 	if (n == MBEDTLS_ERR_SSL_WANT_WRITE) {
 		__lws_change_pollfd(wsi, 0, LWS_POLLOUT);

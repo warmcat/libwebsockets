@@ -969,7 +969,8 @@ secstream_connect_munge_mqtt(lws_ss_handle_t *h, char *buf, size_t len,
 				LWS_SYSBLOB_TYPE_MQTT_CLIENT_ID, 0);
 
 	/* If LWS_SYSBLOB_TYPE_MQTT_CLIENT_ID is set */
-	if (b && (blen = lws_system_blob_get_size(b))) {
+	blen = b ? lws_system_blob_get_size(b) : 0;
+	if (blen) {
 		if (blen > LWS_MQTT_MAX_CIDLEN) {
 			lwsl_err("%s - Client ID too long.\n",
 				 __func__);
@@ -995,7 +996,8 @@ secstream_connect_munge_mqtt(lws_ss_handle_t *h, char *buf, size_t len,
 				LWS_SYSBLOB_TYPE_MQTT_USERNAME, 0);
 
 	/* If LWS_SYSBLOB_TYPE_MQTT_USERNAME is set */
-	if (b && (blen = lws_system_blob_get_size(b))) {
+	blen = b ? lws_system_blob_get_size(b) : 0;
+	if (blen) {
 		p = (uint8_t *)lws_zalloc(blen+1, __func__);
 		if (!p)
 			return -1;
@@ -1013,7 +1015,8 @@ secstream_connect_munge_mqtt(lws_ss_handle_t *h, char *buf, size_t len,
 				LWS_SYSBLOB_TYPE_MQTT_PASSWORD, 0);
 
 	/* If LWS_SYSBLOB_TYPE_MQTT_PASSWORD is set */
-	if (b && (blen = lws_system_blob_get_size(b))) {
+	blen = b ? lws_system_blob_get_size(b) : 0;
+	if (blen) {
 		p = (uint8_t *)lws_zalloc(blen+1, __func__);
 		if (!p)
 			return -1;

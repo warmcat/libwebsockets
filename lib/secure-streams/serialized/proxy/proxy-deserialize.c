@@ -318,7 +318,7 @@ lws_ss_proxy_deserialize_parse(struct lws_ss_serialization_parser *par,
 				/* fallthru - handle 0-length payload */
 
 				if (!(par->flags & LWSSS_FLAG_RIDESHARE))
-					goto payload_ff;
+					goto payload_ff_l;
 				goto hangup;
 
 			/*
@@ -367,7 +367,7 @@ lws_ss_proxy_deserialize_parse(struct lws_ss_serialization_parser *par,
 			/* fallthru - handle 0-length payload */
 
 		case RPAR_PAYLOAD:
-payload_ff:
+payload_ff_l:
 			n = (int)len + 1;
 			if (n > par->rem)
 				n = par->rem;

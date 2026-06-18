@@ -541,7 +541,8 @@ lws_sql_purify(char *escaped, const char *string, size_t len)
 	const char *p = string;
 	char *q = escaped;
 
-	while (*p && len-- > 2) {
+	while (*p && len > 2) {
+		len--;
 		if (*p == '\'') {
 			*q++ = '\'';
 			*q++ = '\'';
@@ -580,7 +581,8 @@ lws_json_purify(char *escaped, const char *string, int len, int *in_used)
 		return escaped;
 	}
 
-	while (*p && len-- > 6) {
+	while (*p && len > 6) {
+		len--;
 		if (*p == '\t') {
 			p++;
 			*q++ = '\\';
@@ -686,7 +688,8 @@ lws_urlencode(char *escaped, const char *string, int len)
 	const char *p = string;
 	char *q = escaped;
 
-	while (*p && len-- > 3) {
+	while (*p && len > 3) {
+		len--;
 		if (*p == ' ') {
 			*q++ = '+';
 			p++;
@@ -1027,7 +1030,7 @@ lws_tokenize(struct lws_tokenize *ts)
 			case LWS_TOKZS_TOKEN_POST_TERMINAL:
 				continue;
 			case LWS_TOKZS_QUOTED_STRING:
-				goto agg;
+				goto agg_l;
 			case LWS_TOKZS_TOKEN:
 				/* we want to scan forward to look for = */
 
@@ -1101,7 +1104,7 @@ lws_tokenize(struct lws_tokenize *ts)
 			if (flo)
 				return LWS_TOKZE_ERR_MALFORMED_FLOAT;
 			flo = 1;
-			goto agg;
+			goto agg_l;
 		}
 
 		/*
@@ -1152,7 +1155,7 @@ lws_tokenize(struct lws_tokenize *ts)
 				return LWS_TOKZE_DELIMITER;
 
 			case LWS_TOKZS_QUOTED_STRING:
-agg:
+agg_l:
 				ts->collect[ts->token_len++] = c;
 				if (ts->token_len == sizeof(ts->collect) - 1) {
 					if (ts->flags & LWS_TOKENIZE_F_CHUNK) {
@@ -1196,7 +1199,7 @@ agg:
 			ts->token = ts->collect; //ts->start - 1;
 			ts->collect[0] = c;
 			ts->token_len = 1;
-			goto checknum;
+			goto checknum_l;
 
 		case LWS_TOKZS_QUOTED_STRING:
 		case LWS_TOKZS_TOKEN:
@@ -1211,7 +1214,7 @@ agg:
 				return LWS_TOKZE_TOO_LONG;
 			}
 			ts->collect[ts->token_len] = '\0';
-checknum:
+checknum_l:
 			if (!(ts->flags & LWS_TOKENIZE_F_NO_INTEGERS)) {
 				if (c < '0' || c > '9')
 					num = 0;
@@ -1374,7 +1377,7 @@ lws_strexp_expand(lws_strexp_t *exp, const char *in, size_t len,
 			if (*in == '}') {
 				exp->name[exp->name_pos] = '\0';
 				exp->state = LWS_EXPS_DRAIN;
-				goto drain;
+				goto drain_l;
 			}
 			if (exp->name_pos >= sizeof(exp->name) - 1)
 				return LSTRX_FATAL_NAME_TOO_LONG;
@@ -1383,7 +1386,7 @@ lws_strexp_expand(lws_strexp_t *exp, const char *in, size_t len,
 			break;
 
 		case LWS_EXPS_DRAIN:
-drain:
+drain_l:
 			*pused_in = used;
 			n = exp->cb(exp->priv, exp->name, exp->out, &exp->pos,
 				    exp->olen, &exp->exp_ofs);

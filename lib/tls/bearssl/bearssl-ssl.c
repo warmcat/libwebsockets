@@ -130,74 +130,75 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 	if (!conn)
 		return LWS_SSL_CAPABLE_ERROR;
 
-again:
-	/* 1. Drain whatever is already decrypted */
-	st = br_ssl_engine_current_state(&conn->u.engine);
-	if (st == BR_SSL_CLOSED)
-		return LWS_SSL_CAPABLE_ERROR;
+	do {
+		/* 1. Drain whatever is already decrypted */
+		st = br_ssl_engine_current_state(&conn->u.engine);
+		if (st == BR_SSL_CLOSED)
+			return LWS_SSL_CAPABLE_ERROR;
 
-	if (st & BR_SSL_RECVAPP) {
-		abuf = br_ssl_engine_recvapp_buf(&conn->u.engine, &alen);
-		if (alen == 0) {
-			br_ssl_engine_recvapp_ack(&conn->u.engine, 0);
-			/* empty record consumed, pump again to get actual data */
-		} else {
-			if (alen > len)
-				alen = len;
-			memcpy(buf, abuf, alen);
-			br_ssl_engine_recvapp_ack(&conn->u.engine, alen);
+		if (st & BR_SSL_RECVAPP) {
+			abuf = br_ssl_engine_recvapp_buf(&conn->u.engine, &alen);
+			if (alen == 0) {
+				br_ssl_engine_recvapp_ack(&conn->u.engine, 0);
+				/* empty record consumed, pump again to get actual data */
+			} else {
+				if (alen > len)
+					alen = len;
+				memcpy(buf, abuf, alen);
+				br_ssl_engine_recvapp_ack(&conn->u.engine, alen);
 
-			if (lws_ssl_pending(wsi)) {
-				if (lws_dll2_is_detached(&wsi->tls.dll_pending_tls))
-					lws_dll2_add_head(&wsi->tls.dll_pending_tls,
-							  &pt->tls.dll_pending_tls_owner);
-			} else
-				lws_ssl_remove_wsi_from_buffered_list(wsi);
+				if (lws_ssl_pending(wsi)) {
+					if (lws_dll2_is_detached(&wsi->tls.dll_pending_tls))
+						lws_dll2_add_head(&wsi->tls.dll_pending_tls,
+								  &pt->tls.dll_pending_tls_owner);
+				} else
+					lws_ssl_remove_wsi_from_buffered_list(wsi);
 
-			return (int)alen;
+				return (int)alen;
+			}
 		}
-	}
 
-	/* 2. Pump the engine to read from socket and decrypt */
-	int pump_ret = lws_bearssl_pump(wsi);
+		/* 2. Pump the engine to read from socket and decrypt */
+		int pump_ret = lws_bearssl_pump(wsi);
 
-	/* 3. Check again if anything was decrypted */
-	st = br_ssl_engine_current_state(&conn->u.engine);
-	if (st == BR_SSL_CLOSED)
-		return LWS_SSL_CAPABLE_ERROR;
+		/* 3. Check again if anything was decrypted */
+		st = br_ssl_engine_current_state(&conn->u.engine);
+		if (st == BR_SSL_CLOSED)
+			return LWS_SSL_CAPABLE_ERROR;
 
-	if (st & BR_SSL_RECVAPP) {
-		abuf = br_ssl_engine_recvapp_buf(&conn->u.engine, &alen);
-		if (alen == 0) {
-			br_ssl_engine_recvapp_ack(&conn->u.engine, 0);
-			goto again;
-		} else {
-			if (alen > len)
-				alen = len;
-			memcpy(buf, abuf, alen);
-			br_ssl_engine_recvapp_ack(&conn->u.engine, alen);
+		if (st & BR_SSL_RECVAPP) {
+			abuf = br_ssl_engine_recvapp_buf(&conn->u.engine, &alen);
+			if (alen == 0) {
+				br_ssl_engine_recvapp_ack(&conn->u.engine, 0);
+				continue;
+			} else {
+				if (alen > len)
+					alen = len;
+				memcpy(buf, abuf, alen);
+				br_ssl_engine_recvapp_ack(&conn->u.engine, alen);
 
-			if (lws_ssl_pending(wsi)) {
-				if (lws_dll2_is_detached(&wsi->tls.dll_pending_tls))
-					lws_dll2_add_head(&wsi->tls.dll_pending_tls,
-							  &pt->tls.dll_pending_tls_owner);
-			} else
-				lws_ssl_remove_wsi_from_buffered_list(wsi);
+				if (lws_ssl_pending(wsi)) {
+					if (lws_dll2_is_detached(&wsi->tls.dll_pending_tls))
+						lws_dll2_add_head(&wsi->tls.dll_pending_tls,
+								  &pt->tls.dll_pending_tls_owner);
+				} else
+					lws_ssl_remove_wsi_from_buffered_list(wsi);
 
-			return (int)alen;
+				return (int)alen;
+			}
 		}
-	}
 
-	lws_ssl_remove_wsi_from_buffered_list(wsi);
+		lws_ssl_remove_wsi_from_buffered_list(wsi);
 
-	if (pump_ret < 0)
-		return LWS_SSL_CAPABLE_ERROR;
+		if (pump_ret < 0)
+			return LWS_SSL_CAPABLE_ERROR;
 
-	st = br_ssl_engine_current_state(&conn->u.engine);
-	if (st & BR_SSL_SENDREC)
-		return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
+		st = br_ssl_engine_current_state(&conn->u.engine);
+		if (st & BR_SSL_SENDREC)
+			return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
 
-	return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
+		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
+	} while (1);
 }
 
 int

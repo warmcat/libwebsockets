@@ -126,70 +126,69 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	/*
 	 * is there anybody with pending stuff that needs service forcing?
 	 */
-	if (lws_service_adjust_timeout(context, 1, tsi)) {
-again:
-		a = 0;
-		if (timeout_us) {
-			lws_usec_t us;
+	do {
+		if (lws_service_adjust_timeout(context, 1, tsi)) {
+			a = 0;
+			if (timeout_us) {
+				lws_usec_t us;
 
-			lws_pt_lock(pt, __func__);
-			/* don't stay in poll wait longer than next hr timeout */
-			us = __lws_sul_service_ripe(pt->pt_sul_owner,
-						    LWS_COUNT_PT_SUL_OWNERS,
-						    lws_now_usecs());
-			if (us && us < timeout_us)
-				timeout_us = us;
+				lws_pt_lock(pt, __func__);
+				/* don't stay in poll wait longer than next hr timeout */
+				us = __lws_sul_service_ripe(pt->pt_sul_owner,
+							    LWS_COUNT_PT_SUL_OWNERS,
+							    lws_now_usecs());
+				if (us && us < timeout_us)
+					timeout_us = us;
 
-			lws_pt_unlock(pt);
-		}
+				lws_pt_unlock(pt);
+			}
 
-		n = poll(pt->fds, pt->fds_count, timeout_us / LWS_US_PER_MS);
+			n = poll(pt->fds, pt->fds_count, timeout_us / LWS_US_PER_MS);
 
-		m = 0;
+			m = 0;
 
-		if (pt->context->tls_ops &&
-		    pt->context->tls_ops->fake_POLLIN_for_buffered)
-			m = pt->context->tls_ops->fake_POLLIN_for_buffered(pt);
+			if (pt->context->tls_ops &&
+			    pt->context->tls_ops->fake_POLLIN_for_buffered)
+				m = pt->context->tls_ops->fake_POLLIN_for_buffered(pt);
 
-		if (/*!pt->ws.rx_draining_ext_list && */!m && !n) /* nothing to do */
-			return 0;
-	} else
-		a = 1;
-
-	m = lws_service_flag_pending(context, tsi);
-	if (m)
-		c = -1; /* unknown limit */
-	else
-		if (n < 0) {
-			if (LWS_ERRNO != LWS_EINTR)
-				return -1;
-			return 0;
+			if (/*!pt->ws.rx_draining_ext_list && */!m && !n) /* nothing to do */
+				return 0;
 		} else
-			c = n;
+			a = 1;
 
-	/* any socket with events to service? */
-	for (n = 0; n < (int)pt->fds_count && c; n++) {
-		if (!pt->fds[n].revents)
-			continue;
-
-		c--;
-#if 0
-		if (pt->fds[n].fd == pt->dummy_pipe_fds[0]) {
-			if (read(pt->fds[n].fd, &buf, 1) != 1)
-				lwsl_err("Cannot read from dummy pipe.");
-			continue;
-		}
-#endif
-		m = lws_service_fd_tsi(context, &pt->fds[n], tsi);
-		if (m < 0)
-			return -1;
-		/* if something closed, retry this slot */
+		m = lws_service_flag_pending(context, tsi);
 		if (m)
-			n--;
-	}
+			c = -1; /* unknown limit */
+		else
+			if (n < 0) {
+				if (LWS_ERRNO != LWS_EINTR)
+					return -1;
+				return 0;
+			} else
+				c = n;
 
-	if (a)
-		goto again;
+		/* any socket with events to service? */
+		for (n = 0; n < (int)pt->fds_count && c; n++) {
+			if (!pt->fds[n].revents)
+				continue;
+
+			c--;
+#if 0
+			if (pt->fds[n].fd == pt->dummy_pipe_fds[0]) {
+				if (read(pt->fds[n].fd, &buf, 1) != 1)
+					lwsl_err("Cannot read from dummy pipe.");
+				continue;
+			}
+#endif
+			m = lws_service_fd_tsi(context, &pt->fds[n], tsi);
+			if (m < 0)
+				return -1;
+			/* if something closed, retry this slot */
+			if (m)
+				n--;
+		}
+
+	} while (a);
 
 	return 0;
 }

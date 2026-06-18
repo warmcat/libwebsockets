@@ -314,6 +314,11 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 		if (err == MBEDTLS_ERR_SSL_WANT_READ || err == MBEDTLS_ERR_SSL_WANT_WRITE)
 			return 1; /* wanting more */
 
+#if defined(MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET)
+		if (err == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET)
+			return 1;
+#endif
+
 		lwsl_wsi_err(wsi, "mbedtls_ssl_handshake failed: hs_n %d", hs_n);
 		return -1;
 	}

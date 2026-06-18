@@ -564,7 +564,7 @@ lws_fts_fill(struct lws_fts *t, uint32_t file_index, const char *buf,
 
 	t->agg_raw_input += len;
 
-resume:
+	while (len) {
 
 	chars = 0;
 	lbh = (off_t)t->c;
@@ -1081,7 +1081,7 @@ after:
 
 	if (len) {
 		t->lines_in_unsealed_linetable = 0;
-		goto resume;
+	}
 	}
 
 	/* dump the collected per-input instance and line data, and free it */

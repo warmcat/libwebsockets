@@ -134,7 +134,10 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 	int tok_ofs = 0;
 	do {
 		e = lws_tokenize(&ts);
-		if (e == LWS_TOKZE_ENDED || ++max_tokens > 2048)
+		if (e == LWS_TOKZE_ENDED)
+			break;
+		max_tokens++;
+		if (max_tokens > 2048)
 			break;
 
 		if (e == LWS_TOKZE_TOKEN || e == LWS_TOKZE_QUOTED_STRING || e == LWS_TOKZE_INTEGER ||
@@ -1469,9 +1472,18 @@ lws_auth_dns_sign_rrsets(struct lws_auth_dns_sign_info *info, struct auth_dns_zo
 													lws_b64_encode_string((const char *)sig, sig_len, b64, sizeof(b64));
 													char tb[2048], exp_str[32], inc_str[32];
 													time_t exp_t = (time_t)exp, inc_t = (time_t)inc;
+#if defined(LWS_HAVE_GMTIME_R)
+													struct tm tm_info_s;
+													struct tm *tm_info = gmtime_r(&exp_t, &tm_info_s);
+#else
 													struct tm *tm_info = gmtime(&exp_t);
+#endif
 													if (tm_info) strftime(exp_str, sizeof(exp_str), "%Y%m%d%H%M%S", tm_info); else lws_strncpy(exp_str, "ERROR", sizeof(exp_str));
+#if defined(LWS_HAVE_GMTIME_R)
+													tm_info = gmtime_r(&inc_t, &tm_info_s);
+#else
 													tm_info = gmtime(&inc_t);
+#endif
 													if (tm_info) strftime(inc_str, sizeof(inc_str), "%Y%m%d%H%M%S", tm_info); else lws_strncpy(inc_str, "ERROR", sizeof(inc_str));
 
 													lws_snprintf(tb, sizeof(tb), "%d %d %d %u %s %s %d %s %s", rs->type, active_alg, labels, rs->ttl, exp_str, inc_str, keytag, z->origin, b64);

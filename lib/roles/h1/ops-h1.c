@@ -87,7 +87,7 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 #endif
 		    )
 			 /* we gave the read buffer to RAW handler already */
-			goto read_ok;
+			return lws_ptr_diff(buf, oldbuf);
 
 		/*
 		 * It's possible that we've exhausted our data already, or
@@ -100,14 +100,14 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 
 		if (!wsi->hdr_parsing_completed)
 			/* More header content on the way */
-			goto read_ok;
+			return lws_ptr_diff(buf, oldbuf);
 
 		switch (lwsi_state(wsi)) {
 			case LRS_ESTABLISHED:
 			case LRS_HEADERS:
-				goto read_ok;
+				return lws_ptr_diff(buf, oldbuf);
 			case LRS_ISSUING_FILE:
-				goto read_ok;
+				return lws_ptr_diff(buf, oldbuf);
 			case LRS_DISCARD_BODY:
 			case LRS_BODY:
 				wsi->http.rx_content_remain =
@@ -300,7 +300,6 @@ ws_mode:
 		goto bail;
 	}
 
-read_ok:
 	/* Nothing more to do for now */
 //	lwsl_info("%s: %p: read_ok, used %ld (len %d, state %d)\n", __func__,
 //		  wsi, (long)(buf - oldbuf), (int)len, wsi->state);

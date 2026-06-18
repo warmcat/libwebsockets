@@ -328,8 +328,9 @@ lws_asn1_read_integer(const uint8_t **p, const uint8_t *end, struct lws_gencrypt
 	const uint8_t *val;
 	size_t len, vlen;
 
-	if (*p >= end || *(*p)++ != 0x02)
+	if (*p >= end || **p != 0x02)
 		return -1; /* Expect INTEGER tag */
+	(*p)++;
 
 	if (lws_asn1_read_length(p, end, &len) < 0)
 		return -1;
@@ -497,8 +498,9 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 	end = der + dwLen;
 
 	/* Try parsing SEQUENCE */
-	if (p >= end || *p++ != 0x30)
+	if (p >= end || *p != 0x30)
 		goto bail; /* SEQUENCE */
+	p++;
 
 	if (lws_asn1_read_length(&p, end, &seq_len) < 0)
 		goto bail;
@@ -511,8 +513,9 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 	   */
 
 	/* Read version */
-	if (p >= end || *p++ != 0x02)
+	if (p >= end || *p != 0x02)
 		goto bail; /* INTEGER */
+	p++;
 
 	if (lws_asn1_read_length(&p, end, &ver_len) < 0)
 		goto bail;
@@ -534,22 +537,25 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 		p += alg_len;
 
 		/* Expect OCTET STRING */
-		if (p >= end || *p++ != 0x04)
+		if (p >= end || *p != 0x04)
 			goto bail;
+		p++;
 		size_t oct_len;
 		if (lws_asn1_read_length(&p, end, &oct_len) < 0)
 			goto bail;
 
 		/* Now p points to inner key (RSAPrivateKey usually).
 		   It should be a SEQUENCE again. */
-		if (p >= end || *p++ != 0x30)
+		if (p >= end || *p != 0x30)
 			goto bail;
+		p++;
 		if (lws_asn1_read_length(&p, end, &seq_len) < 0)
 			goto bail;
 
 		/* Read inner version */
-		if (p >= end || *p++ != 0x02)
+		if (p >= end || *p != 0x02)
 			goto bail;
+		p++;
 		if (lws_asn1_read_length(&p, end, &ver_len) < 0)
 			goto bail;
 		p += ver_len;
@@ -798,16 +804,25 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 		/* Sequence { Version, AlgorithmIdentifier { OID ... } ... } */
 		kp = key_der;
 		kend = key_der + key_der_len;
-		if (kp < kend && *kp++ == 0x30 && lws_asn1_read_length(&kp, kend, &seq_len) == 0) {
-			/* Check for version 0 */
-			if (kp < kend && *kp++ == 0x02 && lws_asn1_read_length(&kp, kend, &ver_len) == 0) {
-				kp += ver_len;
-				/* Next is AlgorithmIdentifier Sequence */
-				if (kp < kend && *kp++ == 0x30 && lws_asn1_read_length(&kp, kend, &alg_len) == 0) {
-					/* Check OID: 1.2.840.10045.2.1 is 06 07 2A 86 48 CE 3D 02 01 */
-					/* ec_oid is already declared at the top */
-					if (alg_len >= sizeof(ec_oid) && !memcmp(kp, ec_oid, sizeof(ec_oid))) {
-						is_ec = 1;
+		if (kp < kend && *kp == 0x30) {
+			kp++;
+			if (lws_asn1_read_length(&kp, kend, &seq_len) == 0) {
+				/* Check for version 0 */
+				if (kp < kend && *kp == 0x02) {
+					kp++;
+					if (lws_asn1_read_length(&kp, kend, &ver_len) == 0) {
+						kp += ver_len;
+						/* Next is AlgorithmIdentifier Sequence */
+						if (kp < kend && *kp == 0x30) {
+							kp++;
+							if (lws_asn1_read_length(&kp, kend, &alg_len) == 0) {
+								/* Check OID: 1.2.840.10045.2.1 is 06 07 2A 86 48 CE 3D 02 01 */
+								/* ec_oid is already declared at the top */
+								if (alg_len >= sizeof(ec_oid) && !memcmp(kp, ec_oid, sizeof(ec_oid))) {
+									is_ec = 1;
+								}
+							}
+						}
 					}
 				}
 			}
@@ -945,11 +960,12 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 	pkcs1_ptr = key_der;
 	pkcs1_len = key_der_len;
 
-	if (kp >= kend || *kp++ != 0x30) {
+	if (kp >= kend || *kp != 0x30) {
 		lwsl_err("%s: Failed to find SEQUENCE tag at start of key\n", __func__);
 		lws_free(key_der);
 		goto cleanup;
 	}
+	kp++;
 	if (lws_asn1_read_length(&kp, kend, &seq_len) < 0) {
 		lwsl_err("%s: Failed to read key SEQUENCE length\n", __func__);
 		lws_free(key_der);
@@ -957,11 +973,12 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 	}
 
 	/* Check for version */
-	if (kp >= kend || *kp++ != 0x02) {
+	if (kp >= kend || *kp != 0x02) {
 		lwsl_err("%s: Failed to find version tag\n", __func__);
 		lws_free(key_der);
 		goto cleanup;
 	}
+	kp++;
 	if (lws_asn1_read_length(&kp, kend, &ver_len) < 0) {
 		lwsl_err("%s: Failed to read version length\n", __func__);
 		lws_free(key_der);
@@ -982,12 +999,13 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 			goto cleanup;
 		}
 		kp += alg_len;
-		if (kp >= kend || *kp++ != 0x04) {
+		if (kp >= kend || *kp != 0x04) {
 			lwsl_err("%s: PKCS#8 Failed to find OCTET STRING (0x04) tag\n", __func__);
 			lws_free(key_der);
 
 			goto cleanup;
 		}
+		kp++;
 		if (lws_asn1_read_length(&kp, kend, &oct_len) < 0) {
 			lwsl_err("%s: PKCS#8 Failed to read octet length\n", __func__);
 			lws_free(key_der);
@@ -997,12 +1015,13 @@ lws_tls_schannel_cert_info_load(struct lws_context *context,
 
 		pkcs1_seq_start = kp;
 
-		if (kp >= kend || *kp++ != 0x30) {
+		if (kp >= kend || *kp != 0x30) {
 			lwsl_err("%s: PKCS#8 Failed to find inner SEQUENCE\n", __func__);
 			lws_free(key_der);
 
 			goto cleanup;
 		}
+		kp++;
 		if (lws_asn1_read_length(&kp, kend, &seq_len) < 0) {
 			lwsl_err("%s: PKCS#8 Failed to read inner SEQUENCE length\n", __func__);
 			lws_free(key_der);

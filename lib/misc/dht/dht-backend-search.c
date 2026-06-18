@@ -410,20 +410,20 @@ lws_dht_search(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, int port, int 
 		 */
 		int i;
 		sr->done = 0;
-again:
-		for (i = 0; i < sr->numnodes; i++) {
-			struct search_node *n;
+		i = 0;
+		while (i < sr->numnodes) {
+			struct search_node *n = &sr->nodes[i];
 
-			n = &sr->nodes[i];
 			/* Discard any doubtful nodes. */
 			if (n->pinged >= LWS_DHT_MAX_PING_FAILURES || n->reply_time < ctx->now.tv_sec - LWS_DHT_NODE_EXPIRE_SECS) {
 				flush_search_node(n, sr);
-				goto again;
+				continue;
 			}
 			n->pinged	= 0;
 			n->token_len	= 0;
 			n->replied	= 0;
 			n->acked	= 0;
+			i++;
 		}
 	} else {
 		sr = new_search(ctx);

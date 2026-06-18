@@ -102,6 +102,7 @@ callback_httpbin(struct lws *wsi, enum lws_callback_reasons reason,
 
 		lws_callback_on_writable(wsi);
 		return 0;
+	}
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
 
@@ -156,7 +157,6 @@ callback_httpbin(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_callback_on_writable(wsi);
 			}
 		}
-	}
 		return 0;
 
 	case LWS_CALLBACK_CLOSED_HTTP:

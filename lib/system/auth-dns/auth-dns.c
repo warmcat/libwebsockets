@@ -137,7 +137,10 @@ lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *z
 				int max_tokens = 0;
 				do {
 					e = lws_tokenize(&ts);
-					if (e == LWS_TOKZE_ENDED || ++max_tokens > 256)
+					if (e == LWS_TOKZE_ENDED)
+						break;
+					max_tokens++;
+					if (max_tokens > 256)
 						break;
 
 					if (e == LWS_TOKZE_TOKEN || e == LWS_TOKZE_QUOTED_STRING || e == LWS_TOKZE_INTEGER) {

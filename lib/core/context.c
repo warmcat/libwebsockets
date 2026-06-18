@@ -2148,7 +2148,7 @@ lws_context_destroy(struct lws_context *context)
 			if (pt->inside_lws_service) {
 				pt->event_loop_pt_unused = 1;
 				deferred_pt = 1;
-				goto next;
+				goto next_l;
 			}
 
 			/*
@@ -2193,7 +2193,7 @@ lws_context_destroy(struct lws_context *context)
 				context->event_loop_ops->destroy_pt(context, n);
 			}
 
-next:
+next_l:
 			lws_pt_unlock(pt);
 
 			pt++;

@@ -607,7 +607,7 @@ _lws_upng_inflate_data(inflator_ctx_t *inf)
 			else
 				val = inf->bitlenD[inf->i - inf->hlit - 1];
 
-			goto fill;
+			goto fill_l;
 
 		case UPNS_ID_BL_GB_BTYPE_2_17: /*repeat "0" 3-10 times */
 			r = read_bits(inf, 3, &tu);
@@ -616,7 +616,7 @@ _lws_upng_inflate_data(inflator_ctx_t *inf)
 			count = tu + 3;
 
 			val = 0;
-			goto fill;
+			goto fill_l;
 
 		case UPNS_ID_BL_GB_BTYPE_2_18: /*repeat "0" 11-138 times */
 			r = read_bits(inf, 7, &tu);
@@ -624,7 +624,7 @@ _lws_upng_inflate_data(inflator_ctx_t *inf)
 				return r;
 			count = tu + 11;
 			val = 0;
-fill:
+fill_l:
 
 			if (inf->i + count > inf->hlit + inf->hdist) {
 				lwsl_err("%s: inf->i (%d) > %d\n", __func__,

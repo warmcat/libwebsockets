@@ -285,8 +285,11 @@ lws_client_ws_upgrade(struct lws *wsi, const char **cce)
 		lws_tokenize_init(&ts, buf, LWS_TOKENIZE_F_COMMA_SEP_LIST |
 					    LWS_TOKENIZE_F_MINUS_NONTERM);
 		n = lws_hdr_copy(wsi, buf, sizeof(buf) - 1, WSI_TOKEN_CONNECTION);
-		if (n <= 0) /* won't fit, or absent */
-			goto bad_conn_format;
+		if (n <= 0) { /* won't fit, or absent */
+			lwsl_wsi_info(wsi, "malformed connection '%s'", buf);
+			*cce = "HS: UPGRADE malformed";
+			goto bail3;
+		}
 		ts.len = (unsigned int)n;
 
 		do {
@@ -301,7 +304,6 @@ lws_client_ws_upgrade(struct lws *wsi, const char **cce)
 				break;
 
 			default: /* includes ENDED found by the tokenizer itself */
-	bad_conn_format:
 				lwsl_wsi_info(wsi, "malformed connection '%s'", buf);
 				*cce = "HS: UPGRADE malformed";
 				goto bail3;
@@ -351,8 +353,10 @@ lws_client_ws_upgrade(struct lws *wsi, const char **cce)
 			okay = 1;
 			continue;
 		}
-		while (*pc && *pc++ != ',')
-			;
+		while (*pc && *pc != ',')
+			pc++;
+		if (*pc == ',')
+			pc++;
 		while (*pc == ' ')
 			pc++;
 	}

@@ -311,7 +311,7 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 			break;
 		case LEJP_MEMBERS:
 			if (c == '}')
-				goto pop_level;
+				goto pop_level_l;
 			ctx->st[ctx->sp].s = LEJP_M_P;
 			goto redo_character;
 		case LEJP_M_P:
@@ -541,9 +541,9 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 					lejp_check_path_match(ctx);
 				if (ctx->outer_array && !ctx->sp) { /* ended on ] */
 					n = LEJPCB_ARRAY_END;
-					goto completed;
+					goto completed_l;
 				}
-				goto array_end;
+				goto array_end_l;
 
 			case 't': /* true */
 				ctx->uni = 0;
@@ -741,7 +741,7 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 
 				if (ctx->outer_array && !ctx->sp) { /* ended on ] */
 					n = LEJPCB_ARRAY_END;
-					goto completed;
+					goto completed_l;
 				}
 
 				if (ctx->pst_sp && !ctx->sp)
@@ -756,24 +756,15 @@ lejp_parse(struct lejp_ctx *ctx, const unsigned char *json, int len)
 			}
 			if (!ctx->sp) {
 				n = LEJPCB_OBJECT_END;
-completed:
-				ctx->path_match = 0;
-				//lejp_check_path_match(ctx);
-				if ((n && ctx->pst[ctx->pst_sp].callback(ctx, (char)n)) ||
-				    ctx->pst[ctx->pst_sp].callback(ctx,
-							    LEJPCB_COMPLETE))
-					goto reject_callback;
-
-				/* done, return unused amount */
-				return len;
+				goto completed_l;
 			}
 
 			/* pop */
-pop_level:
+pop_level_l:
 			comp = 0;
 			if (!ctx->sp) {
 				comp = 1;
-				goto def_end;
+				goto def_end_l;
 			}
 			ctx->sp--;
 			if (ctx->sp) {
@@ -791,21 +782,21 @@ pop_level:
 				 * smaller than the matching point
 				 */
 				ctx->path_match = 0;
-def_end:
+def_end_l:
 			lejp_check_path_match(ctx);
 			if (ctx->pst[ctx->pst_sp].callback(ctx,
 							   LEJPCB_OBJECT_END))
 				goto reject_callback;
 			if (comp) {
 				n = 0;
-				goto completed;
+				goto completed_l;
 			}
 			if (ctx->pst_sp > 1 && !ctx->sp)
 				lejp_parser_pop(ctx);
 			break;
 
 		case LEJP_MP_ARRAY_END:
-array_end:
+array_end_l:
 			ctx->path[ctx->pst[ctx->pst_sp].ppos] = '\0';
 			if (c == ',') {
 				/* increment this stack level's index */
@@ -884,6 +875,14 @@ redo_character:
 
 	return LEJP_CONTINUE;
 
+completed_l:
+	ctx->path_match = 0;
+	if ((n && ctx->pst[ctx->pst_sp].callback(ctx, (char)n)) ||
+	    ctx->pst[ctx->pst_sp].callback(ctx, LEJPCB_COMPLETE))
+		goto reject_callback;
+
+	/* done, return unused amount */
+	return len;
 
 reject_callback:
 	ret = LEJP_REJECT_CALLBACK;

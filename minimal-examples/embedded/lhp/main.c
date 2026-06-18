@@ -525,7 +525,8 @@ app_main(void)
 
 
 spin:
-	vTaskDelay(10);
-	taskYIELD();
-	goto spin;
+	while (1) {
+		vTaskDelay(10);
+		taskYIELD();
+	}
 }

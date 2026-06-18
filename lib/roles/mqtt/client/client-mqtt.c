@@ -210,7 +210,7 @@ lws_mqtt_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 		case LW5CHS_RET_RET0:
 			return 0;
 		case LW5CHS_RET_BAIL3:
-			goto bail3;
+			goto bail3_l;
 		case LW5CHS_RET_STARTHS:
 
 			/*
@@ -227,7 +227,7 @@ lws_mqtt_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 			case 1:
 				return 0;
 			default:
-				goto bail3;
+				goto bail3_l;
 			}
 
 			break;
@@ -270,7 +270,7 @@ lws_mqtt_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 				return 0;
 			if (n < 0) {
 				cce = erbuf;
-				goto bail3;
+				goto bail3_l;
 			}
 		} else
 			wsi->tls.ssl = NULL;
@@ -379,7 +379,7 @@ start_ws_handshake:
 		return 0;
 
 #if defined(LWS_WITH_TLS) || defined(LWS_WITH_SOCKS5)
-bail3:
+bail3_l:
 #endif
 		lwsl_info("closing conn at LWS_CONNMODE...SERVER_REPLY\n");
 		if (cce)

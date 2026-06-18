@@ -398,7 +398,7 @@ lws_cose_sign_payload_chunk(struct lws_cose_sign_context *csc,
 			lws_lec_int(csc->info.lec, LWS_CBOR_MAJTYP_ARRAY, 0,
 					csc->algs.count);
 			csc->tli = ST_INNER_PROTECTED;
-			goto inner_protected;
+			goto inner_protected_l;
 		}
 		csc->tli = ST_OUTER_SIGN1_SIGNATURE;
 		csc->along = 0;
@@ -429,13 +429,13 @@ lws_cose_sign_payload_chunk(struct lws_cose_sign_context *csc,
 			lws_lec_int(csc->info.lec, LWS_CBOR_MAJTYP_ARRAY, 0,
 					csc->algs.count);
 			csc->tli = ST_INNER_PROTECTED;
-			goto inner_protected;
+			goto inner_protected_l;
 		}
 
 		break;
 
 	case ST_INNER_PROTECTED:
-inner_protected:
+inner_protected_l:
 
 		/*
 		 * We need to list and emit any outer protected data as a map

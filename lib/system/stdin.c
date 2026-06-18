@@ -79,11 +79,11 @@ callback_system_stdin(struct lws *wsi, enum lws_callback_reasons reason, void *u
 			while (p < end) {
 				if (esc) {
 					esc = 0;
-					goto next;
+					goto next_l;
 				}
 				if (*p == '\\') {
 					esc = 1;
-					goto next;
+					goto next_l;
 				}
 				if (*p == '\n' || *p == ' ') {
 					*p = '\0';
@@ -94,7 +94,7 @@ callback_system_stdin(struct lws *wsi, enum lws_callback_reasons reason, void *u
 					}
 					s = p + 1;
 				}
-next:
+next_l:
 				p++;
 			}
 			if (p != s)

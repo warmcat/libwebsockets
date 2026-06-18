@@ -298,7 +298,7 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 
 			cv = i2v_GENERAL_NAMES((X509V3_EXT_METHOD*)method, akid->issuer, NULL);
 			if (!cv)
-				goto bail_ak;
+				goto bail_ak_l;
 
 		        for (j = 0; j < OPENSSL_sk_num((const OPENSSL_STACK *)cv); j++) {
 		            CONF_VALUE *nval = OPENSSL_sk_value((const OPENSSL_STACK *)cv, j);
@@ -320,7 +320,7 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 		        }
 		}
 
-bail_ak:
+bail_ak_l:
 #endif
 		AUTHORITY_KEYID_free(akid);
 

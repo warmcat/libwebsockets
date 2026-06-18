@@ -232,8 +232,9 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 		m = SSL_CTX_use_certificate_chain_file(vhost->tls.ssl_ctx, cert);
 		if (m != 1) {
 			const char *s;
+			char buf[256];
 			error = ERR_peek_error();
-			s = ERR_error_string(LWS_TLS_ERR_CAST(ERR_get_error()), (char *)vhost->context->pt[0].serv_buf);
+			s = ERR_error_string(LWS_TLS_ERR_CAST(ERR_get_error()), buf);
 
 			lwsl_err("problem getting cert '%s' %lu: %s\n",
 				 cert, error, s);
@@ -249,8 +250,9 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 			if (SSL_CTX_use_PrivateKey_file(vhost->tls.ssl_ctx, private_key,
 							SSL_FILETYPE_PEM) != 1) {
 				const char *s;
+				char buf[256];
 				error = ERR_peek_error();
-				s = ERR_error_string(LWS_TLS_ERR_CAST(ERR_get_error()), (char *)vhost->context->pt[0].serv_buf);
+				s = ERR_error_string(LWS_TLS_ERR_CAST(ERR_get_error()), buf);
 				lwsl_err("ssl problem getting key '%s' %lu: %s\n",
 					 private_key, error, s);
 				return 1;
@@ -378,10 +380,10 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 	/* set the local certificate from CertFile */
 	m = SSL_CTX_use_certificate_chain_file(vhost->tls.ssl_ctx, cert);
 	if (m != 1) {
+		char buf[256];
 		error = ERR_get_error();
 		lwsl_err("problem getting cert '%s' %lu: %s\n",
-			 cert, error, ERR_error_string(LWS_TLS_ERR_CAST(error),
-			       (char *)vhost->context->pt[0].serv_buf));
+			 cert, error, ERR_error_string(LWS_TLS_ERR_CAST(error), buf));
 
 		return 1;
 	}
@@ -393,11 +395,11 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 		/* set the private key from KeyFile */
 		if (SSL_CTX_use_PrivateKey_file(vhost->tls.ssl_ctx, private_key,
 					        SSL_FILETYPE_PEM) != 1) {
+			char buf[256];
 			error = ERR_get_error();
 			lwsl_err("ssl problem getting key '%s' %lu: %s\n",
 				 private_key, error,
-				 ERR_error_string(LWS_TLS_ERR_CAST(error),
-				      (char *)vhost->context->pt[0].serv_buf));
+				 ERR_error_string(LWS_TLS_ERR_CAST(error), buf));
 			return 1;
 		}
 	}
@@ -506,8 +508,9 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 
 	if (!method) {
 		const char *s;
+		char buf[256];
 		error = ERR_peek_error();
-		s = ERR_error_string(LWS_TLS_ERR_CAST(ERR_get_error()), (char *)vhost->context->pt[0].serv_buf);
+		s = ERR_error_string(LWS_TLS_ERR_CAST(ERR_get_error()), buf);
 
 		lwsl_err("problem creating ssl method %lu: %s\n",
 				error, s);
@@ -516,9 +519,10 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 	tls->ssl_ctx = SSL_CTX_new(method);	/* create context */
 	if (!tls->ssl_ctx) {
 		const char *s;
+		char buf[256];
 
 		error = ERR_peek_error();
-		s = ERR_error_string(LWS_TLS_ERR_CAST(ERR_get_error()), (char *)vhost->context->pt[0].serv_buf);
+		s = ERR_error_string(LWS_TLS_ERR_CAST(ERR_get_error()), buf);
 		lwsl_err("problem creating ssl context %lu: %s\n",
 				error, s);
 		return 1;

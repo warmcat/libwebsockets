@@ -748,7 +748,7 @@ lws_display_uc8176_spi_blit(struct lws_display_state *lds, const uint8_t *src,
 				pack_native_pixel(priv->nplanes, lo,
 						  plane_line_bytes, n, (uint8_t)3);
 
-			goto go;
+			goto go_l;
 		}
 
 		if (ic->greyscale)
@@ -786,7 +786,7 @@ lws_display_uc8176_spi_blit(struct lws_display_state *lds, const uint8_t *src,
 
 				pc += 3;
 			}
-go:
+go_l:
 		/* must be u32-aligned for DMA... */
 		lo = priv->line[box->y.whole & 1] +
 				((priv->upd.x.whole / 8) / 4);
@@ -891,7 +891,7 @@ go:
 			if (!priv->partbuf_len) {
 				lwsl_err("%s: partbuf_len is zero\n", __func__);
 				priv->partial = 0;
-				goto fully;
+				goto fully_l;
 			}
 
 			/*
@@ -978,7 +978,7 @@ go:
 
 			break;
 		}
-fully:
+fully_l:
 		/* full update */
 
 		priv->nplanes = 1 + ((ic->greyscale && ic->palette_depth > 2) ||

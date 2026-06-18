@@ -97,116 +97,124 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	/*
 	 * is there anybody with pending stuff that needs service forcing?
 	 */
-#if !defined(LWS_AMAZON_RTOS)
-again:
-#endif
-	n = 0;
-	if (lws_service_adjust_timeout(context, 1, tsi)) {
 #if defined(LWS_AMAZON_RTOS)
-again:
-#endif /* LWS_AMAZON_RTOS */
+	int skip_adjust = 0;
+#endif
 
-		a = 0;
-		if (timeout_us) {
-			lws_usec_t us;
+	do {
+		int adjust_res;
+		n = 0;
+#if defined(LWS_AMAZON_RTOS)
+		if (skip_adjust)
+			adjust_res = 1;
+		else
+#endif
+		adjust_res = lws_service_adjust_timeout(context, 1, tsi);
 
-			lws_pt_lock(pt, __func__);
-			/* don't stay in poll wait longer than next hr timeout */
-			us = __lws_sul_service_ripe(pt->pt_sul_owner,
-						    LWS_COUNT_PT_SUL_OWNERS,
-						    lws_now_usecs());
-			if (us && us < timeout_us)
-				timeout_us = us;
+		if (adjust_res) {
+			a = 0;
+#if defined(LWS_AMAZON_RTOS)
+			skip_adjust = 1;
+#endif
+			if (timeout_us) {
+				lws_usec_t us;
 
-			lws_pt_unlock(pt);
-		}
+				lws_pt_lock(pt, __func__);
+				/* don't stay in poll wait longer than next hr timeout */
+				us = __lws_sul_service_ripe(pt->pt_sul_owner,
+							    LWS_COUNT_PT_SUL_OWNERS,
+							    lws_now_usecs());
+				if (us && us < timeout_us)
+					timeout_us = us;
 
-	//	n = poll(pt->fds, pt->fds_count, timeout_ms);
-		{
-			fd_set readfds, writefds, errfds;
-			struct timeval tv = { timeout_us / LWS_US_PER_SEC,
-					      timeout_us % LWS_US_PER_SEC }, *ptv = &tv;
-			int max_fd = 0;
-			FD_ZERO(&readfds);
-			FD_ZERO(&writefds);
-			FD_ZERO(&errfds);
-
-			for (n = 0; n < (int)pt->fds_count; n++) {
-				pt->fds[n].revents = 0;
-				if (pt->fds[n].fd >= max_fd)
-					max_fd = pt->fds[n].fd;
-				if (pt->fds[n].events & LWS_POLLIN)
-					FD_SET(pt->fds[n].fd, &readfds);
-				if (pt->fds[n].events & LWS_POLLOUT)
-					FD_SET(pt->fds[n].fd, &writefds);
-				FD_SET(pt->fds[n].fd, &errfds);
+				lws_pt_unlock(pt);
 			}
 
-			vpt->inside_poll = 1;
-			lws_memory_barrier();
-			n = select(max_fd + 1, &readfds, &writefds, &errfds, ptv);
-			vpt->inside_poll = 0;
-			lws_memory_barrier();
-			n = 0;
+		//	n = poll(pt->fds, pt->fds_count, timeout_ms);
+			{
+				fd_set readfds, writefds, errfds;
+				struct timeval tv = { timeout_us / LWS_US_PER_SEC,
+						      timeout_us % LWS_US_PER_SEC }, *ptv = &tv;
+				int max_fd = 0;
+				FD_ZERO(&readfds);
+				FD_ZERO(&writefds);
+				FD_ZERO(&errfds);
 
-			for (m = 0; m < (int)pt->fds_count; m++) {
-				c = 0;
-				if (FD_ISSET(pt->fds[m].fd, &readfds)) {
-					pt->fds[m].revents |= LWS_POLLIN;
-					c = 1;
-				}
-				if (FD_ISSET(pt->fds[m].fd, &writefds)) {
-					pt->fds[m].revents |= LWS_POLLOUT;
-					c = 1;
-				}
-				if (FD_ISSET(pt->fds[m].fd, &errfds)) {
-					// lwsl_notice("errfds %d\n", pt->fds[m].fd);
-					pt->fds[m].revents |= LWS_POLLHUP;
-					c = 1;
+				for (n = 0; n < (int)pt->fds_count; n++) {
+					pt->fds[n].revents = 0;
+					if (pt->fds[n].fd >= max_fd)
+						max_fd = pt->fds[n].fd;
+					if (pt->fds[n].events & LWS_POLLIN)
+						FD_SET(pt->fds[n].fd, &readfds);
+					if (pt->fds[n].events & LWS_POLLOUT)
+						FD_SET(pt->fds[n].fd, &writefds);
+					FD_SET(pt->fds[n].fd, &errfds);
 				}
 
-				if (c)
-					n++;
+				vpt->inside_poll = 1;
+				lws_memory_barrier();
+				n = select(max_fd + 1, &readfds, &writefds, &errfds, ptv);
+				vpt->inside_poll = 0;
+				lws_memory_barrier();
+				n = 0;
+
+				for (m = 0; m < (int)pt->fds_count; m++) {
+					c = 0;
+					if (FD_ISSET(pt->fds[m].fd, &readfds)) {
+						pt->fds[m].revents |= LWS_POLLIN;
+						c = 1;
+					}
+					if (FD_ISSET(pt->fds[m].fd, &writefds)) {
+						pt->fds[m].revents |= LWS_POLLOUT;
+						c = 1;
+					}
+					if (FD_ISSET(pt->fds[m].fd, &errfds)) {
+						// lwsl_notice("errfds %d\n", pt->fds[m].fd);
+						pt->fds[m].revents |= LWS_POLLHUP;
+						c = 1;
+					}
+
+					if (c)
+						n++;
+				}
 			}
-		}
 
-		m = 0;
+			m = 0;
 
-	#if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
-		m |= !!pt->ws.rx_draining_ext_list;
-	#endif
+		#if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
+			m |= !!pt->ws.rx_draining_ext_list;
+		#endif
 
 #if defined(LWS_WITH_TLS)
-		if (pt->context->tls_ops &&
-		    pt->context->tls_ops->fake_POLLIN_for_buffered)
-			m |= pt->context->tls_ops->fake_POLLIN_for_buffered(pt);
+			if (pt->context->tls_ops &&
+			    pt->context->tls_ops->fake_POLLIN_for_buffered)
+				m |= pt->context->tls_ops->fake_POLLIN_for_buffered(pt);
 #endif
-		if (!m && !n)
-			return 0;
-	} else
-		a = 1;
+			if (!m && !n)
+				return 0;
+		} else
+			a = 1;
 
-	m = lws_service_flag_pending(context, tsi);
-	c = m ? -1 : n;
+		m = lws_service_flag_pending(context, tsi);
+		c = m ? -1 : n;
 
-	/* any socket with events to service? */
-	for (n = 0; n < (int)pt->fds_count && c; n++) {
-		if (!pt->fds[n].revents)
-			continue;
+		/* any socket with events to service? */
+		for (n = 0; n < (int)pt->fds_count && c; n++) {
+			if (!pt->fds[n].revents)
+				continue;
 
-		c--;
+			c--;
 
-		m = lws_service_fd_tsi(context, &pt->fds[n], tsi);
-		if (m < 0)
-			return -1;
-		/* if something closed, retry this slot */
-		if (m)
-			n--;
-	}
-	lws_service_do_ripe_rxflow(pt);
+			m = lws_service_fd_tsi(context, &pt->fds[n], tsi);
+			if (m < 0)
+				return -1;
+			/* if something closed, retry this slot */
+			if (m)
+				n--;
+		}
+		lws_service_do_ripe_rxflow(pt);
 
-	if (a)
-		goto again;
+	} while (a);
 
 	return 0;
 }

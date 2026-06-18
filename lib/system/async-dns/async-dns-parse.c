@@ -53,100 +53,94 @@ lws_adns_parse_label(const uint8_t *pkt, int len, const uint8_t *ls, int budget,
 		return 1;
 	}
 
-again1:
-	if (ls >= e)
-		return -1;
-
-	if (((*ls) & 0xc0) == 0xc0) {
-		if (budget < 2)
+	do {
+		if (ls >= e)
 			return -1;
-		/* pointer into message pkt to name to actually use */
-		n = lws_ser_ru16be(ls) & 0x3fff;
-               if (n < DHO_SIZEOF || n >= len) {
-			lwsl_notice("%s: illegal name pointer\n", __func__);
+
+		if (((*ls) & 0xc0) == 0xc0) {
+			if (budget < 2)
+				return -1;
+			/* pointer into message pkt to name to actually use */
+			n = lws_ser_ru16be(ls) & 0x3fff;
+		       if (n < DHO_SIZEOF || n >= len) {
+				lwsl_notice("%s: illegal name pointer\n", __func__);
+
+				return -1;
+			}
+
+			/* dereference the label pointer */
+
+			/*
+			 * If this is the first pointer we encountered, the consumption
+			 * of the input from the caller's perspective ends here (plus
+			 * the 2-byte pointer).
+			 */
+			if (consumed == -1)
+				consumed = lws_ptr_diff(ls, ols) + 2;
+
+			ls = pkt + n;
+
+			/* are we being fuzzed or messed with? */
+			if (((*ls) & 0xc0) == 0xc0) {
+				/* ... pointer to pointer is unreasonable */
+				lwsl_notice("%s: label ptr to ptr invalid\n", __func__);
+
+				return -1;
+			} /* loops of pointers are not allowed, but ptr->label->ptr is */
+			pointer = 1;
+		}
+
+		if (ls >= e)
+			return -1;
+
+		ll = *ls++;
+		if (ls + ll + 1 > e) {
+			lwsl_notice("%s: label len invalid, %d vs %d\n", __func__,
+				    lws_ptr_diff((ls + ll + 1), pkt), lws_ptr_diff(e, pkt));
 
 			return -1;
 		}
 
-		/* dereference the label pointer */
-
 		/*
-		 * If this is the first pointer we encountered, the consumption
-		 * of the input from the caller's perspective ends here (plus
-		 * the 2-byte pointer).
+		 * If we are following a pointer, ls is not linearly related to ols any
+		 * more.  So we can't check it against the budget from ols.
+		 *
+		 * We already checked that the new ls and the label length are within
+		 * the packet boundaries (e).
 		 */
-		if (consumed == -1)
-			consumed = lws_ptr_diff(ls, ols) + 2;
 
-		ls = pkt + n;
-
-		/* are we being fuzzed or messed with? */
-		if (((*ls) & 0xc0) == 0xc0) {
-			/* ... pointer to pointer is unreasonable */
-			lwsl_notice("%s: label ptr to ptr invalid\n", __func__);
+		if (!pointer && ll > lws_ptr_diff_size_t(ls, ols) + (size_t)budget) {
+			lwsl_notice("%s: label too long %d vs %d (rem budget %d)\n",
+					__func__, ll, budget,
+					(int)(lws_ptr_diff_size_t(ls, ols) + (size_t)budget));
 
 			return -1;
-		} /* loops of pointers are not allowed, but ptr->label->ptr is */
-		pointer = 1;
-	}
+		}
 
-	if (ls >= e)
-		return -1;
+		if ((unsigned int)(ll + 2 + readsize) > dl) {
+			lwsl_notice("%s: qname too large\n", __func__);
 
-	ll = *ls++;
-	if (ls + ll + 1 > e) {
-		lwsl_notice("%s: label len invalid, %d vs %d\n", __func__,
-			    lws_ptr_diff((ls + ll + 1), pkt), lws_ptr_diff(e, pkt));
+			return -1;
+		}
 
-		return -1;
-	}
+		/* copy the label content into place */
 
-	/*
-	 * If we are following a pointer, ls is not linearly related to ols any
-	 * more.  So we can't check it against the budget from ols.
-	 *
-	 * We already checked that the new ls and the label length are within
-	 * the packet boundaries (e).
-	 */
+		memcpy(*dest, ls, ll);
+		(*dest)[ll] = '.';
+		(*dest)[ll + 1] = '\0';
+		*dest += ll + 1;
+		ls += ll;
+		readsize += ll + 1;
 
-	if (!pointer && ll > lws_ptr_diff_size_t(ls, ols) + (size_t)budget) {
-		lwsl_notice("%s: label too long %d vs %d (rem budget %d)\n",
-				__func__, ll, budget,
-				(int)(lws_ptr_diff_size_t(ls, ols) + (size_t)budget));
+		if (pointer && !*ls) {
+			/*
+			 * special fun rule... if whole qname was a pointer label,
+			 * it has no 00 terminator afterwards
+			 */
 
-		return -1;
-	}
-
-	if ((unsigned int)(ll + 2 + readsize) > dl) {
-		lwsl_notice("%s: qname too large\n", __func__);
-
-		return -1;
-	}
-
-	/* copy the label content into place */
-
-	memcpy(*dest, ls, ll);
-	(*dest)[ll] = '.';
-	(*dest)[ll + 1] = '\0';
-	*dest += ll + 1;
-	ls += ll;
-	readsize += ll + 1;
-
-	if (pointer) {
-		if (*ls)
-			goto again1;
-
-		/*
-		 * special fun rule... if whole qname was a pointer label,
-		 * it has no 00 terminator afterwards
-		 */
-
-		return consumed;
-	}
-
-
-	if (*ls)
-		goto again1;
+			return consumed;
+		}
+	} while (*ls);
 
 	ls++;
 
@@ -194,7 +188,8 @@ lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
 	lws_strncpy(stack[0].name, expname, sizeof(stack[0].name));
 	stack[0].enl = (int)strlen(expname);
 
-start:
+	do {
+		int restart = 0;
 	ansc = lws_ser_ru16be(pkt + DHO_NANSWERS) + lws_ser_ru16be(pkt + DHO_NAUTH);
 	p = pkt + DHO_SIZEOF;
 	inq = 1;
@@ -393,7 +388,8 @@ do_cb:
 			stack[stp].enl = lws_ptr_diff(sp, stack[stp].name);
 			/* when we unstack, resume from here */
 			stack[stp].p = pay + rrpaylen;
-			goto start;
+			restart = 1;
+			break;
 
 		case LWS_ADNS_RECORD_RRSIG:
 		case LWS_ADNS_RECORD_DNSKEY:
@@ -414,9 +410,18 @@ do_cb:
 			break;
 		}
 
+		if (restart)
+			break;
+
 skip:
 		p += rrpaylen;
 	}
+
+		if (restart)
+			continue;
+
+		break;
+	} while (1);
 
 	if (!stp)
 		return 1; /* we didn't find anything, but we didn't error */

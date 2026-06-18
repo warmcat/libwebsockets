@@ -246,30 +246,12 @@ lws_urldecode_s_process(struct lws_urldecode_stateful *s, const char *in,
 		/* states for multipart / mime style */
 
 		case MT_LOOK_BOUND_IN:
-retry_as_first:
-			if (*in == s->mime_boundary[s->mp] &&
-			    s->mime_boundary[s->mp]) {
-				in++;
-				s->mp++;
-				if (!s->mime_boundary[s->mp]) {
-					s->mp = 0;
-					s->state = MT_IGNORE1;
-
-					if (s->output(s->data, s->name,
-						      &s->out, s->pos,
-						      LWS_UFS_FINAL_CONTENT))
-						return -1;
-
-					s->pos = 0;
-
-					s->content_disp[0] = '\0';
-					s->name[0] = '\0';
-					s->content_disp_filename[0] = '\0';
-					s->boundary_real_crlf = 1;
+			while (s->mp) {
+				if (*in == s->mime_boundary[s->mp] &&
+				    s->mime_boundary[s->mp]) {
+					break;
 				}
-				continue;
-			}
-			if (s->mp) {
+
 				n = 0;
 				if (!s->boundary_real_crlf)
 					n = 2;
@@ -303,8 +285,32 @@ retry_as_first:
 						extra -= chunk;
 					}
 					s->mp = 0;
-					goto retry_as_first;
+					continue;
 				}
+				break;
+			}
+
+			if (*in == s->mime_boundary[s->mp] &&
+			    s->mime_boundary[s->mp]) {
+				in++;
+				s->mp++;
+				if (!s->mime_boundary[s->mp]) {
+					s->mp = 0;
+					s->state = MT_IGNORE1;
+
+					if (s->output(s->data, s->name,
+						      &s->out, s->pos,
+						      LWS_UFS_FINAL_CONTENT))
+						return -1;
+
+					s->pos = 0;
+
+					s->content_disp[0] = '\0';
+					s->name[0] = '\0';
+					s->content_disp_filename[0] = '\0';
+					s->boundary_real_crlf = 1;
+				}
+				continue;
 			}
 
 			s->out[s->pos++] = *in;
@@ -380,18 +386,18 @@ retry_as_first:
 						      LWS_UFS_OPEN))
 						return -1;
 				s->state = MT_IGNORE2;
-				goto done;
+				goto done_l;
 			}
 			if (*in == ';') {
 				s->subname = 1;
 				s->temp[0] = '\0';
 				s->mp = 0;
-				goto done;
+				goto done_l;
 			}
 
 			if (*in == '\"') {
 				s->inside_quote = !!((s->inside_quote ^ 1) & 1);
-				goto done;
+				goto done_l;
 			}
 
 			if (s->subname) {
@@ -399,12 +405,12 @@ retry_as_first:
 					s->temp[s->mp] = '\0';
 					s->subname = 0;
 					s->mp = 0;
-					goto done;
+					goto done_l;
 				}
 				if (s->mp < (int)sizeof(s->temp) - 1 &&
 				    (*in != ' ' || s->inside_quote))
 					s->temp[s->mp++] = *in;
-				goto done;
+				goto done_l;
 			}
 
 			if (!s->temp[0]) {
@@ -412,7 +418,7 @@ retry_as_first:
 					s->content_disp[s->mp++] = *in;
 				if (s->mp < (int)sizeof(s->content_disp))
 					s->content_disp[s->mp] = '\0';
-				goto done;
+				goto done_l;
 			}
 
 			if (!strcmp(s->temp, "name")) {
@@ -421,16 +427,16 @@ retry_as_first:
 				else
 					s->mp = (int)sizeof(s->name) - 1;
 				s->name[s->mp] = '\0';
-				goto done;
+				goto done_l;
 			}
 
 			if (!strcmp(s->temp, "filename")) {
 				if (s->mp < (int)sizeof(s->content_disp_filename) - 1)
 					s->content_disp_filename[s->mp++] = *in;
 				s->content_disp_filename[s->mp] = '\0';
-				goto done;
+				goto done_l;
 			}
-done:
+done_l:
 			in++;
 			break;
 

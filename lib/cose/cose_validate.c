@@ -489,28 +489,28 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 				cps->info.sigtype = SIGTYPE_MAC;
 				break;
 			default:
-				goto unexpected_tag;
+				goto unexpected_tag_l;
 			}
 			break;
 		case SIGTYPE_MULTI:
 			if (ctx->item.u.u64 != LWSCOAP_CONTENTFORMAT_COSE_SIGN)
-				goto unexpected_tag;
+				goto unexpected_tag_l;
 			break;
 		case SIGTYPE_SINGLE:
 			if (ctx->item.u.u64 != LWSCOAP_CONTENTFORMAT_COSE_SIGN1)
-				goto unexpected_tag;
+				goto unexpected_tag_l;
 			break;
 		case SIGTYPE_COUNTERSIGNED:
 			if (ctx->item.u.u64 != LWSCOAP_CONTENTFORMAT_COSE_SIGN)
-				goto unexpected_tag;
+				goto unexpected_tag_l;
 			break;
 		case SIGTYPE_MAC0:
 			if (ctx->item.u.u64 != LWSCOAP_CONTENTFORMAT_COSE_MAC0)
-				goto unexpected_tag;
+				goto unexpected_tag_l;
 			break;
 		case SIGTYPE_MAC:
 			if (ctx->item.u.u64 != LWSCOAP_CONTENTFORMAT_COSE_MAC) {
-unexpected_tag:
+unexpected_tag_l:
 				lwsl_warn("%s: unexpected tag %d\n", __func__,
 						(int)ctx->item.u.u64);
 				goto bail;

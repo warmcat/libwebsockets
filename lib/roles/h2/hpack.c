@@ -1030,16 +1030,33 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 		break;
 
 	case HPKS_HLEN: /* [ H | 7+ ] */
-		h2n->huff = !!(c & 0x80);
-		h2n->hpack_pos = 0;
-		h2n->hpack_len = c & 0x7f;
+	case HPKS_HLEN_EXT:
+		if (h2n->hpack == HPKS_HLEN) {
+			h2n->huff = !!(c & 0x80);
+			h2n->hpack_pos = 0;
+			h2n->hpack_len = c & 0x7f;
 
-		if (h2n->hpack_len == 0x7f) {
-			h2n->hpack_m = 0x7f;
-			h2n->hpack_len = 0;
-			h2n->ext_count = 0;
-			h2n->hpack = HPKS_HLEN_EXT;
-			break;
+			if (h2n->hpack_len == 0x7f) {
+				h2n->hpack_m = 0x7f;
+				h2n->hpack_len = 0;
+				h2n->ext_count = 0;
+				h2n->hpack = HPKS_HLEN_EXT;
+				break;
+			}
+		} else {
+			if (h2n->ext_count > 24) {
+				lwsl_notice("%s: HPACK integer overflow\n", __func__);
+				lws_h2_goaway(nwsi, H2_ERR_COMPRESSION_ERROR,
+					      "HPACK integer exceeds uint32 range");
+				return 1;
+			}
+			h2n->hpack_len = (uint32_t)((unsigned int)h2n->hpack_len |
+					(unsigned int)((c & 0x7f) << h2n->ext_count));
+			h2n->ext_count = (uint8_t)(h2n->ext_count + 7);
+			if (c & 0x80) /* extended integer not complete yet */
+				break;
+
+			h2n->hpack_len += h2n->hpack_m;
 		}
 
 		if (h2n->value && !h2n->hpack_len) {
@@ -1048,7 +1065,6 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 			goto fin;
 		}
 
-pre_data:
 		h2n->hpack = HPKS_DATA;
 		if (!h2n->value || !h2n->hdr_idx) {
 			ah->parser_state = WSI_TOKEN_NAME_PART;
@@ -1097,22 +1113,6 @@ pre_data:
 			break;
 		}
 		break;
-
-	case HPKS_HLEN_EXT:
-		if (h2n->ext_count > 24) {
-			lwsl_notice("%s: HPACK integer overflow\n", __func__);
-			lws_h2_goaway(nwsi, H2_ERR_COMPRESSION_ERROR,
-				      "HPACK integer exceeds uint32 range");
-			return 1;
-		}
-		h2n->hpack_len = (uint32_t)((unsigned int)h2n->hpack_len |
-				(unsigned int)((c & 0x7f) << h2n->ext_count));
-		h2n->ext_count = (uint8_t)(h2n->ext_count + 7);
-		if (c & 0x80) /* extended integer not complete yet */
-			break;
-
-		h2n->hpack_len += h2n->hpack_m;
-		goto pre_data;
 
 	case HPKS_DATA:
 		//lwsl_header(" 0x%02X huff %d\n", c, h2n->huff);
@@ -1163,7 +1163,7 @@ pre_data:
 						case LPUR_CONTINUE:
 							break;
 						case LPUR_SWALLOW:
-							goto swallow;
+							goto swallow_l;
 						case LPUR_EXCESSIVE:
 						case LPUR_FORBID:
 							lws_h2_goaway(nwsi,
@@ -1211,7 +1211,7 @@ pre_data:
 				    lws_parse(wsi, &c1, &plen))
 					h2n->unknown_header = 1;
 			}
-swallow:
+swallow_l:
 			(void)n;
 		} // for n
 

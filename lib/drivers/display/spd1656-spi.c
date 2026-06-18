@@ -381,7 +381,7 @@ lws_display_spd1656_spi_blit(struct lws_display_state *lds, const uint8_t *src,
 		if (!pc) {
 			for (n = 0; n < ic->wh_px[0].whole; n++)
 				pack_native_pixel(lo, n, 1 /* white */);
-			goto go;
+			goto go_l;
 		}
 
 		if (ic->greyscale)
@@ -410,7 +410,7 @@ lws_display_spd1656_spi_blit(struct lws_display_state *lds, const uint8_t *src,
 				pc += 3;
 			}
 
-go:
+go_l:
 		/* priv->line is already allocated for DMA */
 		desc.flags = LWS_SPI_FLAG_DMA_BOUNCE_NOT_NEEDED;
 		desc.flags |= box->y.whole + 1 != ic->wh_px[1].whole ?

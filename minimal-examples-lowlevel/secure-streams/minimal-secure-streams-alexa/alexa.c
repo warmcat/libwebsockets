@@ -337,69 +337,70 @@ ss_avs_metadata_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 
 	case LAMP3STATE_SPOOLING:
 
-		if (m->dribble)
-			goto draining;
+		if (m->dribble) {
+			/* fallthru */
+		} else {
+			if (len) {
+				/*
+				 * We are shoving encoded mp3 into mpg123-allocated heap
+				 * buffers... unfortunately mpg123 doesn't seem to
+				 * expose where it is in its allocated input so we can
+				 * track how much is stashed.  Instead while in playback
+				 * mode, we assume 64kbps mp3 encoding, ie, 8KB/s, and
+				 * run a sul that allows an additional 2KB tx credit
+				 * every 250ms, with 4KB initial credit.
+				 */
+				lwsl_notice("%s: SPOOL %d\n", __func__, (int)len);
+				mpg123_feed(m->mh, buf, len);
 
-		if (len) {
-			/*
-			 * We are shoving encoded mp3 into mpg123-allocated heap
-			 * buffers... unfortunately mpg123 doesn't seem to
-			 * expose where it is in its allocated input so we can
-			 * track how much is stashed.  Instead while in playback
-			 * mode, we assume 64kbps mp3 encoding, ie, 8KB/s, and
-			 * run a sul that allows an additional 2KB tx credit
-			 * every 250ms, with 4KB initial credit.
-			 */
-			lwsl_notice("%s: SPOOL %d\n", __func__, (int)len);
-			mpg123_feed(m->mh, buf, len);
+				if (m->first_mp3) {
+					lws_sul_schedule(context, 0, &m->sul,
+							 use_buffer_250ms, 1);
+			//		lws_ss_add_peer_tx_credit(m->ss,
+			//			len + (MAX_MP3_IN_BUFFERING_BYTES / 2));
+					play_mp3(m->mh, NULL, NULL);
+				} //else
+			//		lws_ss_add_peer_tx_credit(m->ss, len);
+				m->first_mp3 = 0;
+			}
 
-			if (m->first_mp3) {
-				lws_sul_schedule(context, 0, &m->sul,
-						 use_buffer_250ms, 1);
-		//		lws_ss_add_peer_tx_credit(m->ss,
-		//			len + (MAX_MP3_IN_BUFFERING_BYTES / 2));
-				play_mp3(m->mh, NULL, NULL);
-			} //else
-		//		lws_ss_add_peer_tx_credit(m->ss, len);
-			m->first_mp3 = 0;
-		}
-
-		if (flags & LWSSS_FLAG_EOM) {
-			/*
-			 * This means one "message" / mime part with mp3 data
-			 * has finished coming in.  But there may be whole other
-			 * parts with other mp3s following, with potentially
-			 * different mp3 parameters.  So we want to tell this
-			 * one to drain and finish and destroy the current mp3
-			 * object before we go on.
-			 *
-			 * But not knowing the length of the current one, there
-			 * will already be outstanding tx credit at the server,
-			 * so it's going to spam us with the next part before we
-			 * have the new mp3 sink for it.
-			 */
-			lwsl_notice("%s: EOM\n", __func__);
-			m->mp3_mime_match = 0;
-			m->seen = 0;
-			m->mp3_state = LAMP3STATE_DRAINING;
-			/* from input POV, we're no longer inside an mp3 */
-			m->inside_mp3 = 0;
-			if (m->mh)
-				play_mp3(NULL, drain_end_cb, m);
+			if (flags & LWSSS_FLAG_EOM) {
+				/*
+				 * This means one "message" / mime part with mp3 data
+				 * has finished coming in.  But there may be whole other
+				 * parts with other mp3s following, with potentially
+				 * different mp3 parameters.  So we want to tell this
+				 * one to drain and finish and destroy the current mp3
+				 * object before we go on.
+				 *
+				 * But not knowing the length of the current one, there
+				 * will already be outstanding tx credit at the server,
+				 * so it's going to spam us with the next part before we
+				 * have the new mp3 sink for it.
+				 */
+				lwsl_notice("%s: EOM\n", __func__);
+				m->mp3_mime_match = 0;
+				m->seen = 0;
+				m->mp3_state = LAMP3STATE_DRAINING;
+				/* from input POV, we're no longer inside an mp3 */
+				m->inside_mp3 = 0;
+				if (m->mh)
+					play_mp3(NULL, drain_end_cb, m);
 #if 0
-			/*
-			 * Put a hold on bringing in any more data
-			 */
-			lws_sul_cancel(&m->sul);
+				/*
+				 * Put a hold on bringing in any more data
+				 */
+				lws_sul_cancel(&m->sul);
 #endif
-			/* destroy our copy of the handle */
-			m->mh = NULL;
+				/* destroy our copy of the handle */
+				m->mh = NULL;
+			}
+			break;
 		}
-		break;
+		/* fallthru */
 
 	case LAMP3STATE_DRAINING:
 
-draining:
 		if (buf && len && m->inside_mp3) {
 			lwsl_notice("%s: DRAINING: stashing %d: %d %d %d\n",
 				    __func__, (int)len, !!(flags & LWSSS_FLAG_EOM),

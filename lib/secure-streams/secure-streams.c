@@ -1096,9 +1096,9 @@ lws_ss_adopt_raw(struct lws_ss_handle *h, lws_sock_file_fd_type fd)
 	return 0;
 
 bail:
-	r = lws_ss_event_helper(h, LWSSSCS_DISCONNECTED);
-	if (r)
-		goto bail;
+	do {
+		r = lws_ss_event_helper(h, LWSSSCS_DISCONNECTED);
+	} while (r);
 
 	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
 					   "ss adopt skt fail");

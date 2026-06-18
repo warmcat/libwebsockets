@@ -724,7 +724,7 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				    ts.token_len == 8) {
 					e = lws_tokenize(&ts);
 					if (e != LWS_TOKZE_TOKEN)
-						goto malformed;
+						goto malformed_l;
 					h->u.http.boundary[0] = '\x0d';
 					h->u.http.boundary[1] = '\x0a';
 					h->u.http.boundary[2] = '-';
@@ -751,7 +751,7 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			// lws_header_table_detach(wsi, 0);
 		}
 		break;
-malformed:
+malformed_l:
 		lwsl_notice("%s: malformed multipart header\n", __func__);
 		return -1;
 #else

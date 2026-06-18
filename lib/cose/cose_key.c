@@ -328,10 +328,10 @@ cb_cose_key(struct lecp_ctx *ctx, char reason)
 	case LECPCB_OBJECT_START:
 		if (cps->ck)
 			break;
-		goto ak;
+		goto ak_l;
 	case LECPCB_ARRAY_ITEM_START:
 		if (cps->pkey_set && ctx->pst[ctx->pst_sp].ppos == 2) {
-			ak:
+			ak_l:
 			cps->ck = lws_zalloc(sizeof(*cps->ck), __func__);
 			if (!cps->ck)
 				goto bail;

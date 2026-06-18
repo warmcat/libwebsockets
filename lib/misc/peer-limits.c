@@ -120,16 +120,17 @@ lws_get_or_create_peer(struct lws_vhost *vhost, lws_sockfd_type sockfd)
 	lws_start_foreach_ll(struct lws_peer *, peerx,
 			     context->pl_hash_table[hash]) {
 		if (peerx->sa46.sa4.sin_family == sa46.sa4.sin_family) {
+			int hit = 0;
 #if defined(LWS_WITH_IPV6)
 			if (sa46.sa4.sin_family == AF_INET6 &&
 			    !memcmp(q, &peerx->sa46.sa6.sin6_addr, rlen))
-				goto hit;
+				hit = 1;
 #endif
 			if (sa46.sa4.sin_family == AF_INET &&
-			    !memcmp(q, &peerx->sa46.sa4.sin_addr, rlen)) {
-#if defined(LWS_WITH_IPV6)
-hit:
-#endif
+			    !memcmp(q, &peerx->sa46.sa4.sin_addr, rlen))
+				hit = 1;
+
+			if (hit) {
 				lws_context_unlock(context); /* === */
 
 				return peerx;

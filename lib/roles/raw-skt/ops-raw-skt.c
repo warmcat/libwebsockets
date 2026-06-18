@@ -168,12 +168,12 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 				 * go down the tls path on it now if that's what
 				 * we want
 				 */
-				goto post_rx;
+				goto post_rx_l;
 
 			default:
 				break;
 			}
-			goto post_rx;
+			goto post_rx_l;
 #endif
 		default:
 			ebuf.token = NULL;
@@ -207,7 +207,7 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 #if defined(LWS_WITH_UDP)
 			if (lws_fi(&wsi->fic, "udp_rx_loss")) {
 				n = ebuf.len;
-				goto post_rx;
+				goto post_rx_l;
 			}
 #endif
 
@@ -216,7 +216,7 @@ rops_handle_POLLIN_raw_skt(struct lws_context_per_thread *pt, struct lws *wsi,
 							wsi->user_space, ebuf.token,
 							(unsigned int)ebuf.len);
 #if defined(LWS_WITH_UDP) || defined(LWS_WITH_SOCKS5)
-post_rx:
+post_rx_l:
 #endif
 			if (n < 0) {
 				lwsl_wsi_info(wsi, "LWS_CALLBACK_RAW_RX_fail");
