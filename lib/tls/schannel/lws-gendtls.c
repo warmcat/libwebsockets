@@ -431,7 +431,7 @@ lws_gendtls_get_rx(struct lws_gendtls_ctx *ctx, uint8_t *out, size_t max_len)
 		return 0; /* Wait for more */
 	}
 
-	if (status != SEC_E_OK) {
+       if (status != SEC_E_OK && status != SEC_I_CONTEXT_EXPIRED && status != SEC_E_CONTEXT_EXPIRED) {
 		lwsl_err("%s: %s DecryptMessage failed: 0x%x\n", __func__,
             ctx->mode == LWS_GENDTLS_MODE_SERVER ? "Server" : "Client", (unsigned int)status);
 		lws_free(buf);

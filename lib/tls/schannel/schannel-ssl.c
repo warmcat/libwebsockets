@@ -99,7 +99,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
 	struct lws_tls_schannel_conn *conn = wsi->tls.ssl;
 	struct lws_tls_schannel_ctx *ctx = wsi->a.vhost->tls.ssl_client_ctx;
 	SecBufferDesc out_desc, in_desc;
-	SecBuffer out_buf[1], in_buf[2];
+       SecBuffer out_buf[1], in_buf[3];
 	ULONG req_attrs, ret_attrs;
 	SECURITY_STATUS status;
 	ssize_t n;
@@ -111,9 +111,6 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
 		    ISC_REQ_CONFIDENTIALITY | ISC_REQ_STREAM |
 		    ISC_REQ_ALLOCATE_MEMORY | ISC_REQ_MANUAL_CRED_VALIDATION |
 		    ISC_REQ_USE_SUPPLIED_CREDS;
-
-	if (conn->f_handshake_finished)
-		return LWS_SSL_CAPABLE_DONE;
 
 	/* If we have pending output from previous step, try to send it */
 	if (conn->tx_buf && conn->tx_pos < conn->tx_len) {
@@ -132,80 +129,81 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
 		conn->tx_pos = 0;
 	}
 
+       if (conn->f_handshake_finished)
+               return LWS_SSL_CAPABLE_DONE;
+
+
+       uint8_t alpn_buf[256];
+       size_t alpn_len = 0;
+
+       /* ALPN */
+       if (conn->alpn[0]) {
+               uint32_t proto_lists_size = 0;
+               uint32_t proto_id_type = 2; /* SecApplicationProtocolNegotiationExt_ALPN */
+               uint16_t list_size = 0;
+
+               uint8_t *pData = alpn_buf + 10; /* Skip 10 bytes header */
+               char temp[64];
+               lws_strncpy(temp, conn->alpn, sizeof(temp));
+               const char *p = temp;
+               const char *end = p + strlen(p);
+
+               while (p < end) {
+                       const char *comma = strchr(p, ',');
+                       size_t item_len;
+                       if (comma) item_len = comma - p;
+                       else item_len = strlen(p);
+
+                       if (item_len > 0 && item_len < 256) {
+                               if (pData + 1 + item_len > alpn_buf + sizeof(alpn_buf)) break;
+                               *pData++ = (uint8_t)item_len;
+                               memcpy(pData, p, item_len);
+                               pData += item_len;
+                       }
+
+                       if (comma) p = comma + 1;
+                       else break;
+               }
+
+               list_size = (uint16_t)(pData - (alpn_buf + 10));
+               proto_lists_size = 6 + list_size;
+
+               memcpy(alpn_buf, &proto_lists_size, 4);
+               memcpy(alpn_buf + 4, &proto_id_type, 4);
+               memcpy(alpn_buf + 8, &list_size, 2);
+               alpn_len = (size_t)(pData - alpn_buf);
+       }
+
 	if (!conn->f_context_init) {
 		/* Initial call */
 		SecBuffer in_bufs[1];
 		SecBufferDesc in_desc_initial;
-		uint8_t alpn_buf[256];
 
-		out_buf[0].BufferType = SECBUFFER_TOKEN;
-		out_buf[0].cbBuffer = 0;
-		out_buf[0].pvBuffer = NULL;
-		out_desc.cBuffers = 1;
-		out_desc.pBuffers = out_buf;
-		out_desc.ulVersion = SECBUFFER_VERSION;
-
+               in_bufs[0].BufferType = SECBUFFER_EMPTY;
+               in_bufs[0].pvBuffer = NULL;
+               in_bufs[0].cbBuffer = 0;
 		in_desc_initial.cBuffers = 0;
-		in_desc_initial.pBuffers = NULL;
+               in_desc_initial.pBuffers = in_bufs;
 		in_desc_initial.ulVersion = SECBUFFER_VERSION;
 
-		/* ALPN */
-		if (conn->alpn[0]) {
-			/* Construct APPLICATION_PROTOCOLS buffer */
-			/* Structure: SecApplicationProtocolNegotiationExt_ALPN */
-			/* unsigned long Status;
-			   unsigned long ProtoIdType;
-			   unsigned long ProtocolListSize;
-			   unsigned char ProtocolList[ANYSIZE_ARRAY];
-			   */
-
-			uint32_t proto_lists_size = 0;
-			uint32_t proto_id_type = 2; /* SecApplicationProtocolNegotiationExt_ALPN */
-			uint16_t list_size = 0;
-
-			uint8_t *pData = alpn_buf + 10; /* Skip 10 bytes header */
-
-			/* Parse comma separated list */
-			char temp[64];
-			lws_strncpy(temp, conn->alpn, sizeof(temp));
-			const char *p = temp;
-			const char *end = p + strlen(p);
-
-			while (p < end) {
-				const char *comma = strchr(p, ',');
-				size_t item_len;
-				if (comma) item_len = comma - p;
-				else item_len = strlen(p);
-
-				if (item_len > 0 && item_len < 256) {
-					if (pData + 1 + item_len > alpn_buf + sizeof(alpn_buf)) break;
-					*pData++ = (uint8_t)item_len;
-					memcpy(pData, p, item_len);
-					pData += item_len;
-				}
-
-				if (comma) p = comma + 1;
-				else break;
-			}
-
-			list_size = (uint16_t)(pData - (alpn_buf + 10));
-			proto_lists_size = 6 + list_size;
-
-			memcpy(alpn_buf, &proto_lists_size, 4);
-			memcpy(alpn_buf + 4, &proto_id_type, 4);
-			memcpy(alpn_buf + 8, &list_size, 2);
-
+               if (alpn_len > 0) {
 			in_bufs[0].BufferType = SECBUFFER_APPLICATION_PROTOCOLS;
 			in_bufs[0].pvBuffer = alpn_buf;
-			in_bufs[0].cbBuffer = (unsigned long)(pData - alpn_buf);
-
+                       in_bufs[0].cbBuffer = (unsigned long)alpn_len;
 			in_desc_initial.cBuffers = 1;
-			in_desc_initial.pBuffers = in_bufs;
 		}
+
+               out_buf[0].BufferType = SECBUFFER_TOKEN;
+               out_buf[0].cbBuffer = 0;
+               out_buf[0].pvBuffer = NULL;
+               out_desc.cBuffers = 1;
+               out_desc.pBuffers = out_buf;
+               out_desc.ulVersion = SECBUFFER_VERSION;
 
 		status = InitializeSecurityContextA(&ctx->cred, NULL, conn->hostname, req_attrs, 0, 0,
 				(in_desc_initial.cBuffers > 0) ? &in_desc_initial : NULL,
 				0, &conn->ctxt, &out_desc, &ret_attrs, NULL);
+               lwsl_notice("%s: InitSecCtx (initial) returned 0x%x\n", __func__, (int)status);
 
 		conn->f_context_init = 1;
 	} else {
@@ -231,6 +229,14 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
 		in_buf[1].pvBuffer = NULL;
 		in_buf[1].cbBuffer = 0;
 		in_desc.cBuffers = 2;
+
+               if (alpn_len > 0) {
+                       in_buf[2].BufferType = SECBUFFER_APPLICATION_PROTOCOLS;
+                       in_buf[2].pvBuffer = alpn_buf;
+                       in_buf[2].cbBuffer = (unsigned long)alpn_len;
+                       in_desc.cBuffers = 3;
+               }
+
 		in_desc.pBuffers = in_buf;
 		in_desc.ulVersion = SECBUFFER_VERSION;
 
@@ -243,7 +249,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
 
 		status = InitializeSecurityContextA(&ctx->cred, &conn->ctxt, conn->hostname, req_attrs, 0, 0,
 				&in_desc, 0, NULL, &out_desc, &ret_attrs, NULL);
-
+               lwsl_notice("%s: InitSecCtx (cont) returned 0x%x\n", __func__, (int)status);
 	}
 
 	if (status == SEC_E_INCOMPLETE_MESSAGE) {
@@ -275,18 +281,6 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
 			conn->tx_len = out_buf[0].cbBuffer;
 			conn->tx_pos = 0;
 			FreeContextBuffer(out_buf[0].pvBuffer);
-
-			n = send(wsi->desc.sockfd, (char *)conn->tx_buf, (int)conn->tx_len, 0);
-			if (n < 0) {
-				if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
-					return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
-			} else {
-				conn->tx_pos += n;
-				if (conn->tx_pos == conn->tx_len) {
-					lws_free_set_NULL(conn->tx_buf);
-					conn->tx_len = 0;
-				}
-			}
 		}
 
 		if (in_buf[1].BufferType == SECBUFFER_EXTRA && in_buf[1].cbBuffer > 0) {
@@ -302,23 +296,41 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
 
 			/* Check ALPN Negotiation Result */
 			SecPkgContext_ApplicationProtocol alpn_result;
-			if (QueryContextAttributes(&conn->ctxt, SECPKG_ATTR_APPLICATION_PROTOCOL, &alpn_result) == SEC_E_OK) {
+                       SECURITY_STATUS alpn_stat = QueryContextAttributes(&conn->ctxt, SECPKG_ATTR_APPLICATION_PROTOCOL, &alpn_result);
+                       lwsl_notice("%s: ALPN query status 0x%x, NegoStatus %d\n", __func__, (int)alpn_stat, alpn_stat == SEC_E_OK ? (int)alpn_result.ProtoNegoStatus : -1);
+                       if (alpn_stat == SEC_E_OK) {
 				if (alpn_result.ProtoNegoStatus == SecApplicationProtocolNegotiationStatus_Success) {
 					/* Inform LWS about negotiated protocol */
 					char negotiated[64];
 					if (alpn_result.ProtocolIdSize < sizeof(negotiated)) {
 						memcpy(negotiated, alpn_result.ProtocolId, alpn_result.ProtocolIdSize);
 						negotiated[alpn_result.ProtocolIdSize] = 0;
+                                               lwsl_notice("%s: ALPN negotiated %s\n", __func__, negotiated);
 						lws_role_call_alpn_negotiated(wsi, negotiated);
 					}
 				}
 			}
+               }
 
-			return LWS_SSL_CAPABLE_DONE;
+               if (conn->tx_buf) {
+                       n = send(wsi->desc.sockfd, (char *)conn->tx_buf, (int)conn->tx_len, 0);
+                       if (n < 0) {
+                               if (LWS_ERRNO == LWS_EAGAIN || LWS_ERRNO == LWS_EWOULDBLOCK)
+                                       return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
+                       } else {
+                               conn->tx_pos += n;
+                               if (conn->tx_pos == conn->tx_len) {
+                                       lws_free_set_NULL(conn->tx_buf);
+                                       conn->tx_len = 0;
+                               } else {
+                                       return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
+                               }
+                       }
 		}
 
-		if (conn->tx_buf)
-			return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
+               if (status == SEC_E_OK) {
+                       return LWS_SSL_CAPABLE_DONE;
+               }
 
 		return LWS_SSL_CAPABLE_MORE_SERVICE_READ;
 	}
@@ -567,13 +579,13 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 		return lws_ssl_capable_read(wsi, buf, len);
 	}
 
-	if (status != SEC_E_OK && status != SEC_I_RENEGOTIATE && status != SEC_I_CONTEXT_EXPIRED) {
+       if (status != SEC_E_OK && status != SEC_I_RENEGOTIATE && status != SEC_I_CONTEXT_EXPIRED && status != SEC_E_CONTEXT_EXPIRED) {
 		lwsl_err("%s: DecryptMessage failed 0x%x\n", __func__, (int)status);
 		return LWS_SSL_CAPABLE_ERROR;
 	}
 
 	if (status == SEC_E_OK || status == SEC_I_RENEGOTIATE ||
-	    status == SEC_I_CONTEXT_EXPIRED) {
+           status == SEC_I_CONTEXT_EXPIRED || status == SEC_E_CONTEXT_EXPIRED) {
 		int i;
 		uint8_t *dec_data = NULL;
 		size_t dec_len = 0;
@@ -601,6 +613,31 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 			n = (int)copy_len; /* Return value */
 			lwsl_wsi_debug(wsi, "decrypted %d bytes, copied %d to user\n", (int)dec_len, (int)n);
 		} else {
+                       if (status == SEC_I_CONTEXT_EXPIRED || status == SEC_E_CONTEXT_EXPIRED)
+                               return LWS_SSL_CAPABLE_ERROR;
+                       if (status == SEC_I_RENEGOTIATE) {
+                               int ret;
+                               lwsl_notice("%s: Renegotiation requested\n", __func__);
+                               conn->f_handshake_finished = 0;
+                               for (i = 0; i < 4; i++) {
+                                       if (msg_buf[i].BufferType == SECBUFFER_EXTRA) {
+                                               memmove(conn->rx_buf, msg_buf[i].pvBuffer, msg_buf[i].cbBuffer);
+                                               conn->rx_len = msg_buf[i].cbBuffer;
+                                               break;
+                                       }
+                               }
+                               if (i == 4) conn->rx_len = 0;
+
+                               if (lwsi_role_client(wsi))
+                                       ret = lws_tls_client_connect(wsi, NULL, 0);
+                               else
+                                       ret = lws_tls_server_accept(wsi);
+
+                               if (ret == LWS_SSL_CAPABLE_DONE)
+                                       return lws_ssl_capable_read(wsi, buf, len);
+                               return ret;
+                       }
+
 			/* Handshake message or empty record. Recurse to read next record. */
 			/* But first move extra data */
 			for (i = 0; i < 4; i++) {
