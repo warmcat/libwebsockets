@@ -457,3 +457,7 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 struct lws *
 lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 			     const struct addrinfo *result, int n, void *opaque);
+
+struct lws *
+lws_client_connect_3_https_cb(struct lws *wsi, const char *ads,
+			      const struct addrinfo *result, int n, void *opaque);

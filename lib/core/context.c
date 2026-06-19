@@ -1622,6 +1622,17 @@ lws_create_context(const struct lws_context_creation_info *info)
 			lwsl_cx_err(context, "Failed to init ALPN cache");
 			goto bail;
 		}
+
+		cci.name		= "H3CAP";
+		cci.max_footprint	= 4096;
+		cci.max_items		= 256;
+		cci.max_payload		= 8; /* Just an enum */
+
+		context->h3_cap_cache = lws_cache_create(&cci);
+		if (!context->h3_cap_cache) {
+			lwsl_cx_err(context, "Failed to init H3CAP cache");
+			goto bail;
+		}
 	}
 #endif
 
@@ -2455,6 +2466,7 @@ next_l:
 
 #if defined(LWS_WITH_CLIENT)
 		lws_cache_destroy(&context->alpn_cache);
+		lws_cache_destroy(&context->h3_cap_cache);
 #endif
 
 

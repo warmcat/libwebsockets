@@ -490,7 +490,11 @@ solo:
 
 
 #if defined(LWS_WITH_TLS)
-		/* we will skip HTTPS DNS query on this wsi to prevent double binding */
+		if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
+			lws_async_dns_query(wsi->a.context, wsi->tsi, adsin,
+					LWS_ADNS_RECORD_HTTPS, lws_client_connect_3_https_cb,
+					NULL, wsi, NULL);
+		}
 #endif
 		n = lws_async_dns_query(wsi->a.context, wsi->tsi, adsin,
 				LWS_ADNS_RECORD_A, lws_client_connect_3_connect,
