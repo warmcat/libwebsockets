@@ -12,9 +12,9 @@
 <header></header>
 <article>
 
-<table><tr><td>
+<table role="presentation"><tr><td>
 
-<table width=800px>
+<table width=800px role="presentation">
  <tr>
   <td valign=middle align=center>
    <a href="https://libwebsockets.org">
@@ -44,7 +44,7 @@ have the test server send a big picture by http.
        
        <div class="content">
         <div id="dumb" class="group2">
-         <table>
+         <table role="presentation">
           <tr>
 	   <td id=wsdi_statustd align=center class="wsstatus">
 	     <span id=wsdi_status>Websocket connection not initialized
@@ -78,7 +78,7 @@ to zero just this connection's number.
        
     <div class="content">
      <div id="mirror" class="group2">
-      <table>
+      <table role="presentation">
        <tr>
 	 <td colspan=1 id=wslm_statustd align=center class="wsstatus">
 	 <span id=wslm_status>Websocket connection not initialized</span>
@@ -104,7 +104,7 @@ shared canvas when run.
         </td>
        </tr>
        <tr>
-	<td colspan=2>Drawing color:
+	<td colspan=2><label for="color">Drawing color:</label>
 	  <select id="color">
 		<option value=#000000>Black</option>
 		<option value=#0000ff>Blue</option>
@@ -128,7 +128,7 @@ shared canvas when run.
      
        <div class="content">
 <div id="ot" class="group2">
-      <table>
+      <table role="presentation">
        <tr>
         <td>
 
@@ -170,7 +170,7 @@ initiate the close, which it does with code 1001 and reason "Seeya".
 
        <div class="content">
 <div id="si" class="group2">
-      <table>
+      <table role="presentation">
        <tr>
 	<td id=s_statustd align=center class="wsstatus">
 	 <div id=s_status>Websocket connection not initialized</div>
@@ -202,7 +202,7 @@ whenever the information changes server-side.
 
        <div class="content">
 <div id="post" class="group2">
-      <table width=100%>
+      <table width=100% role="presentation">
        <tr>
 	        <td colspan=1>
 <span class="title">POST Form testing</span>
@@ -215,8 +215,8 @@ This tests POST handling in lws.
 	<td align=center colspan=2 class=tdform><div id="postinfo1">
 	FORM 1: send with urlencoded POST body args<br>
 	<form action="formtest" method="post">
- <span class="f12">Some text: </span>
-  <input type="text" name="text" value="Give me some text"><br>
+ <label for="text1" class="f12">Some text: </label>
+  <input type="text" id="text1" name="text" value="Give me some text"><br>
   <input type="submit" name="send" value="Send the form">
 	</form>
 	</div></td>
@@ -229,9 +229,10 @@ This tests POST handling in lws.
 	(can handle file upload, test limited to 100KB)<br>
 	<form name=multipart action="formtest" method="post"
 	      enctype="multipart/form-data">
-  <span class="f12">Some text: </span>
-  <input type="text" name="text" value="Give me some text">
+  <label for="text2" class="f12">Some text: </label>
+  <input type="text" id="text2" name="text" value="Give me some text">
 <br>
+  <label for="file" class="f12">Choose file: </label>
   <input type="file" name="file" id="file" size="20">&nbsp;
    <span id=file_info class="f12"></span><br>
     <input type="submit" id="upload" name="upload" disabled=1 value="Upload">

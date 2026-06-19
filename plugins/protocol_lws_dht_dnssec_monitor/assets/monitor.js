@@ -125,7 +125,7 @@ class ZoneFile {
         if (soaIdx !== -1) {
             record.parsed = {
                 name: tokens[0],
-                ttl: soaIdx > 2 && !isNaN(tokens[1]) ? tokens[1] : '',
+                ttl: soaIdx > 2 && !Number.isNaN(Number(tokens[1])) ? tokens[1] : '',
                 clazz: 'IN',
                 mname: tokens[soaIdx + 1] || '',
                 rname: tokens[soaIdx + 2] || '',
@@ -805,11 +805,7 @@ function selectDomain(domain) {
 function formatExpiryInterval(timestampSec) {
     if (!timestampSec) return 'Unknown';
     let diff = timestampSec - Math.floor(Date.now() / 1000);
-    if (diff > 0) {
-        return Math.floor(diff / 86400) + 'd';
-    } else {
-        return Math.floor(diff / 86400) + 'd';
-    }
+    return Math.floor(diff / 86400) + 'd';
 }
 
 function renderWhoisHeader() {
@@ -1054,7 +1050,7 @@ function updateGlobalTlsTable() {
                 let parseDays = (str) => {
                     if (!str) return null;
                     let m = str.match(/(\d+)\s*days?/i);
-                    return m ? parseInt(m[1], 10) : null;
+                    return m ? Number.parseInt(m[1], 10) : null;
                 };
                 let d1 = parseDays(cached.local_msg);
                 let d2 = parseDays(cached.msg);
@@ -1215,8 +1211,8 @@ function renderZoneTable() {
             portInput.onclick = (e) => e.stopPropagation();
             portInput.onchange = (e) => {
                 let p = e.target.value.trim();
-                let pnum = parseInt(p, 10);
-                if (!p || isNaN(pnum) || pnum <= 0 || pnum > 65535) {
+                let pnum = Number.parseInt(p, 10);
+                if (!p || Number.isNaN(pnum) || pnum <= 0 || pnum > 65535) {
                     sendReq({ req: 'delete_tls', domain: currentDomain, subdomain: fqdn });
                     if (window.activeTls) window.activeTls = window.activeTls.filter(x => x.fqdn !== fqdn);
                     document.getElementById(`cert-status-${fqdn}`).innerText = '';
@@ -1244,7 +1240,7 @@ function renderZoneTable() {
             };
 
             if (portInput.value) {
-                let pnum = parseInt(portInput.value, 10);
+                let pnum = Number.parseInt(portInput.value, 10);
                 if (!window.certStatusCache[fqdn + ':' + pnum] && !certCheckTimers[fqdn] && !certCheckQueue.some(q => q.fqdn === fqdn && q.port === pnum)) {
                     certCheckQueue.push({fqdn: fqdn, port: pnum, domain: currentDomain});
                 }
@@ -1708,7 +1704,7 @@ function initApp() {
                 state: document.getElementById('acme-state').value.trim(),
                 locality: document.getElementById('acme-locality').value.trim(),
                 profile: document.getElementById('acme-profile') ? document.getElementById('acme-profile').value : '',
-                sign_validity_days: document.getElementById('acme-sign-validity') ? parseInt(document.getElementById('acme-sign-validity').value, 10) || 21 : 21
+                sign_validity_days: document.getElementById('acme-sign-validity') ? Number.parseInt(document.getElementById('acme-sign-validity').value, 10) || 21 : 21
             });
         };
     }

@@ -46,14 +46,14 @@
                     <input type="password" id="login-password" name="password" required autocomplete="current-password">
                 </div>
                 <div class="input-group" id="totp-group">
-                    <label>Authenticator Code (6-digit)</label>
+                    <label for="totp-digit-1" id="totp-label">Authenticator Code (6-digit)</label>
                     <div class="totp-boxes">
-                        <input type="text" class="totp-box" maxlength="1" pattern="[0-9]" inputmode="numeric" autocomplete="one-time-code">
-                        <input type="text" class="totp-box" maxlength="1" pattern="[0-9]" inputmode="numeric">
-                        <input type="text" class="totp-box" maxlength="1" pattern="[0-9]" inputmode="numeric">
-                        <input type="text" class="totp-box" maxlength="1" pattern="[0-9]" inputmode="numeric">
-                        <input type="text" class="totp-box" maxlength="1" pattern="[0-9]" inputmode="numeric">
-                        <input type="text" class="totp-box" maxlength="1" pattern="[0-9]" inputmode="numeric">
+                        <input type="text" id="totp-digit-1" class="totp-box" maxlength="1" pattern="[0-9]" inputmode="numeric" autocomplete="one-time-code" aria-labelledby="totp-label" aria-label="Digit 1">
+                        <input type="text" id="totp-digit-2" class="totp-box" maxlength="1" pattern="[0-9]" inputmode="numeric" aria-labelledby="totp-label" aria-label="Digit 2">
+                        <input type="text" id="totp-digit-3" class="totp-box" maxlength="1" pattern="[0-9]" inputmode="numeric" aria-labelledby="totp-label" aria-label="Digit 3">
+                        <input type="text" id="totp-digit-4" class="totp-box" maxlength="1" pattern="[0-9]" inputmode="numeric" aria-labelledby="totp-label" aria-label="Digit 4">
+                        <input type="text" id="totp-digit-5" class="totp-box" maxlength="1" pattern="[0-9]" inputmode="numeric" aria-labelledby="totp-label" aria-label="Digit 5">
+                        <input type="text" id="totp-digit-6" class="totp-box" maxlength="1" pattern="[0-9]" inputmode="numeric" aria-labelledby="totp-label" aria-label="Digit 6">
                     </div>
                     <input type="hidden" id="login-totp" name="totp">
                 </div>

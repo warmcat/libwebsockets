@@ -16,7 +16,7 @@ let lastStats = null;
 function resizeCanvas() {
     let p = canvas.parentElement;
     let s = window.getComputedStyle(p);
-    canvas.width = p.clientWidth - parseFloat(s.paddingLeft) - parseFloat(s.paddingRight);
+    canvas.width = p.clientWidth - Number.parseFloat(s.paddingLeft) - Number.parseFloat(s.paddingRight);
     canvas.height = Math.max(250, p.clientHeight - 60);
 }
 window.addEventListener('resize', resizeCanvas);

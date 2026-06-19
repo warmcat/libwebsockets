@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
  <head>
+  <title>LWS Example</title>
   <meta charset=utf-8 http-equiv="Content-Language" content="en"/>
   <link rel="stylesheet" type="text/css" href="deaddrop.css"/>
   <script src="deaddrop.js"></script>
@@ -12,8 +13,8 @@
 	<div class="uplbox">
 		<table id="ddrop">
 			<tr>
-				<th>Drag and drop files</th>
-				<th>Paste text to upload:</th>
+				<th scope="col" id="th-drag">Drag and drop files</th>
+				<th scope="col" id="th-paste">Paste text to upload:</th>
 			</tr>
 			<tr>
 				<td rowspan="3">
@@ -21,20 +22,20 @@
 				</td>
 				<td>
 					<form name="textupload" action="upload" method="post" enctype="multipart/form-data">
-						<textarea id="text_content" class="dd-textarea" placeholder="Paste content here"></textarea>
+						<textarea id="text_content" class="dd-textarea" placeholder="Paste content here" aria-label="Paste content to upload"></textarea>
 						<br>
 						<input id="upl_text" type="submit" value="Upload Text" class="ubtn" disabled>
 					</form>
 				</td>
 			</tr>
 			<tr>
-				<th>... or select files to upload</th>
+				<th scope="col" id="th-select">... or select files to upload</th>
 			</tr>
 			<tr>
 				<td>
 					<span id="size"></span><br>
 					<form name="multipart" action="upload" method="post" enctype="multipart/form-data">
-						<input multiple type="file" name="file" id="file" size="20">
+						<input multiple type="file" name="file" id="file" size="20" aria-label="Select files to upload">
 						<span id="file_info" class="dd-fileinfo"></span>
 						<br>
 						<input id="upl" type="submit" name="Upload" value="Upload" class="ubtn" disabled>
@@ -43,20 +44,42 @@
 			</tr>
 			<tr>
 				<td colspan="2">
-					<table id="ongoing" class="nb"></table>
+					<table id="ongoing" class="nb">
+						<thead>
+							<tr class="sr-only">
+								<th scope="col">Status</th>
+								<th scope="col">Size</th>
+								<th scope="col">Filename</th>
+							</tr>
+						</thead>
+						<tbody id="ongoing-tbody"></tbody>
+					</table>
 				</td>
 			</tr>
 			<tr>
 				<td colspan="2">
 					<div id="dd-list" class="dd-list">
 						<table class="nb">
+							<thead>
+								<tr class="sr-only">
+									<th scope="col">Size</th>
+									<th scope="col">Modified</th>
+									<th scope="col">Actions</th>
+									<th scope="col">Filename</th>
+								</tr>
+							</thead>
 							<tbody id="files-tbody"></tbody>
 						</table>
 					</div>
 					<div id="connected-users-list" class="connected-users">
 						<table class="nb">
 							<thead>
-								<tr><th>User</th><th>IP Address</th><th>Platform</th><th>Client</th></tr>
+								<tr>
+									<th scope="col">User</th>
+									<th scope="col">IP Address</th>
+									<th scope="col">Platform</th>
+									<th scope="col">Client</th>
+								</tr>
 							</thead>
 							<tbody id="users-tbody"></tbody>
 						</table>

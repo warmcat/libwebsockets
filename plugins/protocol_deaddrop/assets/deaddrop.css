@@ -15,7 +15,7 @@ a { color: #007bff; text-decoration: none; }
 
 a:hover { text-decoration: underline; }
 .container { max-width: max-content; margin: auto; background: white; padding: 2em; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
-div.title { display: flex; align-items: center; gap: .5em; text-align: left; font-family: 'Bungee Tint'; font-size: 2em; font-weight: bold; line-height:100%}
+div.title { display: flex; align-items: center; gap: .5em; text-align: left; font-family: 'Bungee Tint', sans-serif; font-size: 2em; font-weight: bold; line-height:100%}
 
 div.title img { margin: 0; }
 .nb {
@@ -169,4 +169,15 @@ img.delbtn {
 
 .fade-out {
 	animation: fadeOut 0.5s ease-out forwards;
+}
+
+.sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	border: 0;
 }
