@@ -640,7 +640,15 @@ lws_plat_mbedtls_net_send(void *ctx, const uint8_t *buf, size_t len)
 		return ret;
 
 	en = LWS_ERRNO;
-	if (en == EAGAIN || en == EWOULDBLOCK)
+	/*
+	 * On Windows LWS_ERRNO is WSAGetLastError(), so a full socket send
+	 * buffer reports WSAEWOULDBLOCK, not the CRT EWOULDBLOCK.  Without
+	 * matching it here a backed-up send (e.g. a large HTTP/2 upload) is
+	 * misreported as a fatal MBEDTLS_ERR_NET_SEND_FAILED instead of a
+	 * retryable want-write, killing the connection.  net_recv() below
+	 * already handles WSAEWOULDBLOCK; mirror it.
+	 */
+	if (en == EAGAIN || en == EWOULDBLOCK || en == WSAEWOULDBLOCK)
 		return MBEDTLS_ERR_SSL_WANT_WRITE;
 
 	ret = WSAGetLastError();
