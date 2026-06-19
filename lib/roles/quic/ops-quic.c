@@ -1038,7 +1038,15 @@ rops_handle_POLLOUT_quic(struct lws *wsi)
 
 #if defined(LWS_WITH_TLS)
 		if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
-			/* The BIO was already created in connect.c, just init QUIC TLS */
+			if (!wsi->tls.ssl) {
+				const char *cce = NULL;
+				if (lws_client_create_tls(wsi, &cce, 0) == CCTLS_RETURN_ERROR) {
+					lwsl_wsi_err(wsi, "Failed to create TLS BIO: %s", cce ? cce : "unknown");
+					return LWS_HP_RET_BAIL_DIE;
+				}
+			}
+
+			/* The BIO was already created, just init QUIC TLS */
 			if (lws_tls_quic_init(wsi, quic_secret_cb)) {
 				lwsl_wsi_err(wsi, "Failed to init QUIC TLS");
 				return LWS_HP_RET_BAIL_DIE;
@@ -2362,6 +2370,30 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
                 wsi->client_mux_substream = 0;
 #endif
 	nwsi->quic.qn->alpn_migrated = 1;
+
+#if defined(LWS_WITH_CLIENT)
+	/* 
+	 * QUIC succeeded! Resolve the race by cancelling the grace timer 
+	 * and killing parallel TCP connections. 
+	 */
+	if (lwsi_role_client(wsi)) {
+		lws_sul_cancel(&wsi->sul_h3_grace);
+		
+		for (int i = 0; i < wsi->parallel_count; i++) {
+			if (wsi->parallel_conns[i].is_valid) {
+				lws_remove_parallel_fd_safely(wsi, i);
+			}
+		}
+		wsi->parallel_count = 0;
+
+		if (wsi->a.context->h3_cap_cache && wsi->stash && wsi->stash->cis[CIS_HOST]) {
+			lws_h3_state_t state = LWS_H3_STATE_KNOWN_GOOD;
+			lws_cache_write_through(wsi->a.context->h3_cap_cache, wsi->stash->cis[CIS_HOST], 
+						(const uint8_t *)&state, sizeof(state), 
+						lws_now_usecs() + (3600ll * LWS_US_PER_SEC), NULL);
+		}
+	}
+#endif
 
 	/* 
 	 * The quic child stream is migrating to be a child of nwsi. 

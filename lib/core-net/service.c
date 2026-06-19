@@ -146,6 +146,14 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 	if (wsi->socket_is_permanently_unusable)
 		return 0;
 
+#if defined(LWS_WITH_CLIENT)
+	/* Intercept POLLOUT for parallel sockets if we are racing H3 */
+	if (pollfd && pollfd->fd != wsi->desc.sockfd) {
+		lws_client_connect_3_connect(wsi, NULL, NULL, 0, pollfd);
+		return 0;
+	}
+#endif
+
 	vwsi->leave_pollout_active = 0;
 	vwsi->handling_pollout = 1;
 	/*

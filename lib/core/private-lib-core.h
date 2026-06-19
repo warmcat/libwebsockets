@@ -435,6 +435,13 @@ typedef struct lws_buflist {
 	void					*heap_alloc;
 } lws_buflist_t;
 
+typedef enum {
+	LWS_H3_STATE_UNKNOWN,
+	LWS_H3_STATE_HTTPS_RECORD_EXISTS,
+	LWS_H3_STATE_ALTSVC_EXISTS,
+	LWS_H3_STATE_KNOWN_GOOD,
+	LWS_H3_STATE_FAILED_IGNORE
+} lws_h3_state_t;
 
 /*
  * the rest is managed per-context, that includes
@@ -588,6 +595,7 @@ struct lws_context {
 
 #if defined(LWS_WITH_CLIENT)
 	struct lws_cache_ttl_lru *alpn_cache;
+	struct lws_cache_ttl_lru *h3_cap_cache;
 #endif
 
 #if defined(LWS_WITH_SYS_NTPCLIENT)

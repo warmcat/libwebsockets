@@ -252,13 +252,17 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 	struct gnutls_quic_bio *b;
 	gnutls_session_t session;
 
-	if (!wsi->tls.ssl)
+	if (!wsi->tls.ssl) {
+		lwsl_err("lws_tls_quic_init: wsi->tls.ssl is NULL\n");
 		return -1;
+	}
 
 	int ret;
 	session = (gnutls_session_t)wsi->tls.ssl;
-	if (!session)
+	if (!session) {
+		lwsl_err("lws_tls_quic_init: session is NULL\n");
 		return -1;
+	}
 
 	/* Enforce QUIC requirements: TLS 1.3 only, NO compatibility mode (empty legacy_session_id) */
 	ret = gnutls_priority_set_direct(session, "NORMAL:-VERS-ALL:+VERS-TLS1.3:%DISABLE_TLS13_COMPAT_MODE", NULL);
@@ -302,10 +306,26 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 	}
 
 	if (wsi->alpn[0]) {
-		gnutls_datum_t alpn;
-		alpn.data = (uint8_t *)wsi->alpn;
-		alpn.size = (unsigned int)strlen(wsi->alpn);
-		gnutls_alpn_set_protocols(session, &alpn, 1, GNUTLS_ALPN_MANDATORY);
+		gnutls_datum_t alpn[4];
+		unsigned int i = 0;
+		char *p = wsi->alpn;
+		char *end = p + strlen(p);
+		
+		while (p < end && i < 4) {
+			char *comma = strchr(p, ',');
+			alpn[i].data = (uint8_t *)p;
+			if (comma) {
+				alpn[i].size = (unsigned int)(comma - p);
+				p = comma + 1;
+			} else {
+				alpn[i].size = (unsigned int)(end - p);
+				p = end;
+			}
+			/* Replace comma with NUL for cleaner logging, though gnutls only uses size */
+			if (comma) *comma = '\0';
+			i++;
+		}
+		gnutls_alpn_set_protocols(session, alpn, i, GNUTLS_ALPN_MANDATORY);
 	} else if (wsi->a.vhost && wsi->a.vhost->tls.alpn_ctx.len) {
 		gnutls_datum_t alpn[4];
 		unsigned int i = 0, p = 0;
@@ -321,8 +341,10 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 	wsi->tls.quic_secret_cb = cb;
 
 	b = lws_zalloc(sizeof(*b), "quic bio");
-	if (!b)
+	if (!b) {
+		lwsl_err("lws_tls_quic_init: failed to allocate bio\n");
 		return -1;
+	}
 
 	b->session = session;
 
