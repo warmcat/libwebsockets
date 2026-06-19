@@ -528,8 +528,6 @@ deaddrop_handler_server_http(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 
 	memset(pss, 0, sizeof(*pss));
 	pss->user[0] = '\0';
-
-	pss->user[0] = '\0';
 	/* Correctly get username after lws basic auth processing */
 	if (lws_hdr_copy(wsi, pss->user, sizeof(pss->user),
 			 WSI_TOKEN_HTTP_AUTHORIZATION) > 0 &&

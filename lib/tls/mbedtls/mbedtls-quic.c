@@ -323,9 +323,6 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 		return -1;
 	}
 
-	if (wsi->quic.qn && !wsi->quic.qn->handshake_done)
-		return 0;
-
 	return 0;
 }
 

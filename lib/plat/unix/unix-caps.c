@@ -51,7 +51,7 @@ _lws_plat_apply_caps(unsigned int mode, const cap_value_t *cv, int count)
 int
 lws_plat_user_to_uid(const char *username, uid_t *puid)
 {
-	struct passwd *p;
+	struct passwd *p = NULL;
 
 	if (!username || !username[0])
 		return 1;
@@ -90,7 +90,7 @@ lws_plat_user_to_uid(const char *username, uid_t *puid)
 int
 lws_plat_group_to_gid(const char *groupname, gid_t *pgid)
 {
-	struct group *g;
+	struct group *g = NULL;
 
 	if (!groupname || !groupname[0])
 		return 1;
@@ -157,8 +157,8 @@ lws_plat_user_colon_group_to_ids(const char *u_colon_g, uid_t *puid, gid_t *pgid
 int
 lws_plat_drop_app_privileges(struct lws_context *context, int actually_drop)
 {
-	struct passwd *p;
-	struct group *g;
+	struct passwd *p = NULL;
+	struct group *g = NULL;
 
 	/* if he gave us the groupname, align gid to match it */
 

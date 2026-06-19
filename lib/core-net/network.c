@@ -188,7 +188,7 @@ lws_get_addresses(struct lws_vhost *vh, void *ads, char *name,
 const char *
 lws_get_peer_simple_fd(lws_sockfd_type fd, char *name, size_t namelen)
 {
-	lws_sockaddr46 sa46;
+	lws_sockaddr46 sa46 = {0};
 	socklen_t len = sizeof(sa46);
 
 	if (getpeername(fd, (struct sockaddr *)&sa46, &len) < 0) {
@@ -225,9 +225,9 @@ lws_get_peer_addresses(struct lws *wsi, lws_sockfd_type fd, char *name,
 #ifndef LWS_PLAT_OPTEE
 	socklen_t len;
 #ifdef LWS_WITH_IPV6
-	struct sockaddr_in6 sin6;
+	struct sockaddr_in6 sin6 = {0};
 #endif
-	struct sockaddr_in sin4;
+	struct sockaddr_in sin4 = {0};
 	void *p;
 
 	if (!lws_socket_is_valid(fd))

@@ -132,7 +132,7 @@ http_postbody:
 		if (wsi->http.content_length_given && !wsi->http.rx_content_remain)
 			goto postbody_completion;
 
-		while (len && (!wsi->http.content_length_given || wsi->http.rx_content_remain)) {
+		if (len && (!wsi->http.content_length_given || wsi->http.rx_content_remain)) {
 			/* Copy as much as possible, up to the limit of:
 			 * what we have in the read buffer (len)
 			 * remaining portion of the POST body (content_remain)

@@ -929,7 +929,7 @@ lws_spawn_prepare_self_cgroup(const char *user, const char *group)
 
 	if (user) {
 #if defined(LWS_HAVE_GETPWNAM_R)
-		struct passwd pwd, *result;
+		struct passwd pwd, *result = NULL;
 		char buf[1024];
 
 		getpwnam_r(user, &pwd, buf, sizeof(buf), &result);
@@ -947,7 +947,7 @@ lws_spawn_prepare_self_cgroup(const char *user, const char *group)
 	}
 	if (group) {
 #if defined(LWS_HAVE_GETGRNAM_R)
-		struct group grp, *result;
+		struct group grp, *result = NULL;
 		char buf[1024];
  
 		getgrnam_r(group, &grp, buf, sizeof(buf), &result);
