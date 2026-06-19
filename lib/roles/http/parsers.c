@@ -96,6 +96,7 @@ _lws_header_table_reset(struct allocated_headers *ah)
 	ah->lextable_pos = 0;
 	ah->unk_pos = 0;
 #if defined(LWS_WITH_CUSTOM_HEADERS)
+	ah->unk_value_pos = 0;
 	ah->unk_ll_head = 0;
 	ah->unk_ll_tail = 0;
 #endif
@@ -612,7 +613,7 @@ lws_hdr_custom_length(struct lws *wsi, const char *name, int nlen)
 {
 	ah_data_idx_t ll;
 
-	if (!wsi->http.ah || wsi->mux_substream)
+	if (!wsi->http.ah)
 		return -1;
 
 	ll = wsi->http.ah->unk_ll_head;
@@ -638,7 +639,7 @@ lws_hdr_custom_copy(struct lws *wsi, char *dst, int len, const char *name,
 	ah_data_idx_t ll;
 	int n;
 
-	if (!wsi->http.ah || wsi->mux_substream)
+	if (!wsi->http.ah)
 		return -1;
 
 	*dst = '\0';
@@ -671,7 +672,7 @@ lws_hdr_custom_name_foreach(struct lws *wsi, lws_hdr_custom_fe_cb_t cb,
 {
 	ah_data_idx_t ll;
 
-	if (!wsi->http.ah || wsi->mux_substream)
+	if (!wsi->http.ah)
 		return -1;
 
 	ll = wsi->http.ah->unk_ll_head;
@@ -1221,10 +1222,18 @@ swallow:
 #endif
 			}
 
-			if (lws_pos_in_bounds(wsi))
-				return LPR_FAIL;
+			/*
+			 * For mux (h2) substreams the hpack decoder captures
+			 * the header name itself (including building the
+			 * unknown-header storage), so we must not also lay the
+			 * name bytes down here and double-advance ah->pos.
+			 */
+			if (!wsi->mux_substream) {
+				if (lws_pos_in_bounds(wsi))
+					return LPR_FAIL;
 
-			ah->data[ah->pos++] = (char)c;
+				ah->data[ah->pos++] = (char)c;
+			}
 			pos = ah->lextable_pos;
 
 #if defined(LWS_WITH_CUSTOM_HEADERS)
