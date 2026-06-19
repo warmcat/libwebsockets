@@ -1910,6 +1910,24 @@ lws_http_action(struct lws *wsi)
 			lwsl_debug("%s: explicit 0 content-length\n", __func__);
 		}
 	}
+#if defined(LWS_ROLE_H2)
+	else if (lwsi_role_h2(wsi) && wsi->mux_substream && wsi->h2.END_STREAM) {
+		/*
+		 * h2 with no Content-Length, but END_STREAM already arrived on
+		 * the HEADERS: the request body is empty and complete.  Without
+		 * this, a body-bearing method (POST/PUT/PATCH) would be left
+		 * waiting on the 100MB default above for a body that will never
+		 * come, stalling the request until it times out.  Treat it as an
+		 * explicit zero-length body, exactly as an explicit
+		 * "Content-Length: 0" would (h3 does the equivalent in ops-h3.c).
+		 */
+		wsi->http.rx_content_remain = wsi->http.rx_content_length = 0;
+		wsi->http.content_length_given = 1;
+		wsi->http.content_length_explicitly_zero = 1;
+		lwsl_debug("%s: h2 END_STREAM, no content-length: empty body\n",
+			   __func__);
+	}
+#endif
 
 	if (wsi->mux_substream) {
 		wsi->http.request_version = HTTP_VERSION_2;
