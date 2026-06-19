@@ -241,6 +241,17 @@ struct client_info_stash {
 #define lws_wsi_is_udp(___wsi) (!!___wsi->udp)
 #endif
 
+#if defined(LWS_WITH_CLIENT)
+#define LWS_MAX_PARALLEL_CONNS 3
+struct lws_client_parallel_conn {
+	lws_sock_file_fd_type	desc;
+	int			position_in_fds_table;
+	lws_sockaddr46		sa46_peer;
+	lws_usec_t		connect_start;
+	uint8_t			is_valid;
+};
+#endif
+
 #define LWS_H2_FRAME_HEADER_LENGTH 9
 
 lws_usec_t
@@ -861,6 +872,10 @@ struct lws {
 	struct client_info_stash	*stash;
 	char				*cli_hostname_copy;
 	char				alpn_discovered[8];
+
+	struct lws_client_parallel_conn parallel_conns[LWS_MAX_PARALLEL_CONNS];
+	lws_sorted_usec_list_t		sul_happy_eyeballs;
+	uint8_t				parallel_count;
 
 
 #if defined(LWS_WITH_CONMON)
@@ -1828,6 +1843,11 @@ void
 lws_4to6(uint8_t *v6addr, const uint8_t *v4addr);
 void
 lws_sa46_4to6(lws_sockaddr46 *sa46, const uint8_t *v4addr, uint16_t port);
+
+#if defined(LWS_WITH_CLIENT)
+void
+lws_remove_parallel_fd_safely(struct lws *wsi, int pidx);
+#endif
 
 #ifdef __cplusplus
 };

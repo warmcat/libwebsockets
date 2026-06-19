@@ -436,8 +436,21 @@ __remove_wsi_socket_from_fds(struct lws *wsi)
 						  (int)pt->fds[m].fd, m,
 						  pt->fds_count);
 				// assert(0);
-			} else
-				end_wsi->position_in_fds_table = m;
+			} else {
+#if defined(LWS_WITH_CLIENT)
+				int p = -1;
+				for (int i = 0; i < end_wsi->parallel_count; i++) {
+					if (end_wsi->parallel_conns[i].is_valid && end_wsi->parallel_conns[i].desc.sockfd == v) {
+						p = i;
+						break;
+					}
+				}
+				if (p != -1)
+					end_wsi->parallel_conns[p].position_in_fds_table = m;
+				else
+#endif
+					end_wsi->position_in_fds_table = m;
+			}
 		}
 
 		/* removed wsi has no position any more */

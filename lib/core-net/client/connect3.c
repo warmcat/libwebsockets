@@ -64,6 +64,16 @@ lws_client_conn_wait_timeout(lws_sorted_usec_list_t *sul)
 }
 
 void
+lws_client_happy_eyeballs_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws *wsi = lws_container_of(sul, struct lws,
+					   sul_happy_eyeballs);
+
+	lwsl_wsi_info(wsi, "happy eyeballs timer fired, initiating parallel connect");
+	lws_client_connect_3_connect(wsi, NULL, NULL, 0, NULL);
+}
+
+void
 lws_client_dns_retry_timeout(lws_sorted_usec_list_t *sul)
 {
 	struct lws *wsi = lws_container_of(sul, struct lws,
@@ -95,7 +105,7 @@ typedef enum {
 } lcccr_t;
 
 static lcccr_t
-lws_client_connect_check(struct lws *wsi, int *real_errno)
+lws_client_connect_check(struct lws *wsi, lws_sockfd_type fd, int *real_errno)
 {
 #if !defined(LWS_WITH_NO_LOGS)
 	char t16[16];
@@ -114,7 +124,7 @@ lws_client_connect_check(struct lws *wsi, int *real_errno)
 	 */
 
 #if !defined(WIN32)
-	if (!getsockopt(wsi->desc.sockfd, SOL_SOCKET, SO_ERROR, &e, &sl)) {
+	if (!getsockopt(fd, SOL_SOCKET, SO_ERROR, &e, &sl)) {
 
 		en = LWS_ERRNO;
 		if (!e) {
@@ -124,7 +134,7 @@ lws_client_connect_check(struct lws *wsi, int *real_errno)
 			return LCCCR_CONNECTED;
 		}
 
-		lwsl_wsi_notice(wsi, "getsockopt fd %d says %s", wsi->desc.sockfd,
+		lwsl_wsi_notice(wsi, "getsockopt fd %d says %s", fd,
 				lws_errno_describe(e, t16, sizeof(t16)));
 
 		*real_errno = e;
@@ -138,20 +148,20 @@ lws_client_connect_check(struct lws *wsi, int *real_errno)
 
 	FD_ZERO(&write_set);
 	FD_ZERO(&except_set);
-	FD_SET(wsi->desc.sockfd, &write_set);
-	FD_SET(wsi->desc.sockfd, &except_set);
+	FD_SET(fd, &write_set);
+	FD_SET(fd, &except_set);
 
 	tv.tv_sec = 0;
 	tv.tv_usec = 0;
 
-	ret = select((int)wsi->desc.sockfd + 1, NULL, &write_set, &except_set, &tv);
-	if (FD_ISSET(wsi->desc.sockfd, &write_set)) {
+	ret = select((int)fd + 1, NULL, &write_set, &except_set, &tv);
+	if (FD_ISSET(fd, &write_set)) {
 		/* actually connected */
 		lwsl_wsi_debug(wsi, "select write fd set, conn OK");
 		return LCCCR_CONNECTED;
 	}
 
-	if (FD_ISSET(wsi->desc.sockfd, &except_set)) {
+	if (FD_ISSET(fd, &except_set)) {
 		/* Failed to connect */
 		lwsl_wsi_notice(wsi, "connect failed, select exception fd set");
 		return LCCCR_FAILED;
@@ -178,6 +188,47 @@ lws_client_connect_check(struct lws *wsi, int *real_errno)
  * connect again with the next dns result.
  */
 
+#if defined(LWS_WITH_CLIENT)
+
+void
+lws_remove_parallel_fd_safely(struct lws *wsi, int pidx)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	int hole_pos = wsi->parallel_conns[pidx].position_in_fds_table;
+	int last_pos = (int)pt->fds_count - 1;
+	int saved_pos = wsi->position_in_fds_table;
+	lws_sock_file_fd_type saved_fd = wsi->desc;
+
+	wsi->desc.sockfd = wsi->parallel_conns[pidx].desc.sockfd;
+	wsi->position_in_fds_table = hole_pos;
+
+	__remove_wsi_socket_from_fds(wsi);
+	compatible_close(wsi->parallel_conns[pidx].desc.sockfd);
+	wsi->parallel_conns[pidx].is_valid = 0;
+
+	wsi->desc = saved_fd;
+
+	if (saved_pos == last_pos)
+		wsi->position_in_fds_table = hole_pos;
+	else
+		wsi->position_in_fds_table = saved_pos;
+
+	for (int i = 0; i < wsi->parallel_count; i++) {
+		if (wsi->parallel_conns[i].is_valid && wsi->parallel_conns[i].position_in_fds_table == last_pos) {
+			wsi->parallel_conns[i].position_in_fds_table = hole_pos;
+		}
+	}
+}
+
+static void
+promote_parallel_fd(struct lws *wsi, int pidx)
+{
+	wsi->desc.sockfd = wsi->parallel_conns[pidx].desc.sockfd;
+	wsi->position_in_fds_table = wsi->parallel_conns[pidx].position_in_fds_table;
+	wsi->parallel_conns[pidx].is_valid = 0;
+}
+#endif
+
 struct lws *
 lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 			     const struct addrinfo *result, int n, void *opaque)
@@ -197,6 +248,11 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	int cfail;
 #endif
 	int m, af = 0, en;
+	int is_parallel = 0;
+	int pidx = -1;
+	lws_sockfd_type new_fd = LWS_SOCK_INVALID;
+	int saved_pos = -1;
+	lws_sock_file_fd_type saved_fd;
 
 	/*
 	 * If we come here with result set, we need to convert getaddrinfo
@@ -264,45 +320,79 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	 * actually connected.
 	 */
 
+	struct lws_pollfd *pollfd = (struct lws_pollfd *)opaque;
+	lws_sockfd_type check_fd = pollfd ? pollfd->fd : LWS_SOCK_INVALID;
+
 	if (lwsi_state(wsi) == LRS_WAITING_CONNECT &&
-	    lws_socket_is_valid(wsi->desc.sockfd)) {
+	    (lws_socket_is_valid(wsi->desc.sockfd) || wsi->parallel_count > 0)) {
 		if (!wsi->sul_connect_timeout.list.owner)
 			/* no ongoing timeout for one */
 			goto connect_to;
 
-		/*
-		 * If the connection failed, the OS-level errno may be
-		 * something like EINPROGRESS rather than the actual problem
-		 * that prevented a connection. This value will represent the
-		 * “real” problem that we should report to the caller.
-		 */
-		int real_errno = 0;
+		if (check_fd != LWS_SOCK_INVALID) {
+			int real_errno = 0;
+			int pidx = -1;
 
-		switch (lws_client_connect_check(wsi, &real_errno)) {
-		case LCCCR_CONNECTED:
-			/*
-			 * Oh, it has happened...
-			 */
-			goto conn_good;
-		case LCCCR_CONTINUE:
+			if (check_fd != wsi->desc.sockfd) {
+				for (m = 0; m < wsi->parallel_count; m++)
+					if (wsi->parallel_conns[m].is_valid && wsi->parallel_conns[m].desc.sockfd == check_fd)
+						pidx = m;
+				if (pidx == -1)
+					return NULL; /* obsolete parallel check? */
+			}
+
+			switch (lws_client_connect_check(wsi, check_fd, &real_errno)) {
+			case LCCCR_CONNECTED:
+				lws_sul_cancel(&wsi->sul_happy_eyeballs);
+				if (pidx != -1)
+					promote_parallel_fd(wsi, pidx);
+				/* close all remaining parallel */
+				for (m = 0; m < wsi->parallel_count; m++)
+						/* A parallel socket failed. Just close it and remove from fds */
+						lws_remove_parallel_fd_safely(wsi, m);
+				wsi->parallel_count = 0;
+				goto conn_good;
+			case LCCCR_CONTINUE:
 #if defined(WIN32)
-			lws_sul_schedule(wsi->a.context, 0, &wsi->win32_sul_connect_async_check,
-				lws_client_win32_conn_async_check,
-				wsi->a.context->win32_connect_check_interval_usec);
+				lws_sul_schedule(wsi->a.context, 0, &wsi->win32_sul_connect_async_check,
+					lws_client_win32_conn_async_check,
+					wsi->a.context->win32_connect_check_interval_usec);
 #endif
+				return NULL;
 
-			return NULL;
+			default:
+				if (!real_errno)
+					real_errno = LWS_ERRNO;
+				lws_snprintf(dcce, sizeof(dcce), "conn fail: %s",
+					     lws_errno_describe(real_errno, t16, sizeof(t16)));
+				cce = dcce;
+				lwsl_wsi_debug(wsi, "%s", dcce);
+				lws_metrics_caliper_report(wsi->cal_conn, METRES_NOGO);
 
-		default:
-			if (!real_errno)
-				real_errno = LWS_ERRNO;
-			lws_snprintf(dcce, sizeof(dcce), "conn fail: %s",
-				     lws_errno_describe(real_errno, t16, sizeof(t16)));
-
-			cce = dcce;
-			lwsl_wsi_debug(wsi, "%s", dcce);
-			lws_metrics_caliper_report(wsi->cal_conn, METRES_NOGO);
-			goto try_next_dns_result_fds;
+				if (pidx != -1) {
+					lws_remove_parallel_fd_safely(wsi, pidx);
+					return wsi; /* keep waiting for others */
+				} else {
+					/* primary failed */
+					__remove_wsi_socket_from_fds(wsi);
+					compatible_close(wsi->desc.sockfd);
+					wsi->desc.sockfd = LWS_SOCK_INVALID;
+					/* if we have a parallel running, promote it */
+					for (m = 0; m < wsi->parallel_count; m++) {
+						if (wsi->parallel_conns[m].is_valid) {
+							promote_parallel_fd(wsi, m);
+							return wsi;
+						}
+					}
+					/* all failed */
+					wsi->parallel_count = 0;
+					goto try_next_dns_result;
+				}
+			}
+		} else {
+			/* timer fired, or no specific fd. Just proceed to pop next if available */
+			if (!wsi->dns_sorted_list.count || wsi->parallel_count >= LWS_MAX_PARALLEL_CONNS)
+				return wsi;
 		}
 	}
 
@@ -383,7 +473,12 @@ ads_known:
 	 * socket and add to the fds
 	 */
 
-	if (!lws_socket_is_valid(wsi->desc.sockfd)) {
+	if (!lws_socket_is_valid(wsi->desc.sockfd) || wsi->parallel_count < LWS_MAX_PARALLEL_CONNS) {
+
+		is_parallel = lws_socket_is_valid(wsi->desc.sockfd);
+		pidx = is_parallel ? wsi->parallel_count++ : -1;
+		new_fd = LWS_SOCK_INVALID;
+		saved_pos = -1;
 
 		if (wsi->a.context->event_loop_ops->check_client_connect_ok &&
 		    wsi->a.context->event_loop_ops->check_client_connect_ok(wsi)
@@ -395,22 +490,22 @@ ads_known:
 #if defined(LWS_WITH_UNIX_SOCK)
 		if (wsi->unix_skt) {
 			af = AF_UNIX;
-			wsi->desc.sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
+			new_fd = socket(AF_UNIX, SOCK_STREAM, 0);
 		}
 		else
 #endif
 		{
 			af = wsi->sa46_peer.sa4.sin_family;
 #if defined(LWS_WITH_UDP)
-			wsi->desc.sockfd = socket(wsi->sa46_peer.sa4.sin_family,
+			new_fd = socket(wsi->sa46_peer.sa4.sin_family,
 						  (wsi->udp || !strcmp(wsi->role_ops->name, "quic")) ? SOCK_DGRAM : SOCK_STREAM, 0);
 #else
-			wsi->desc.sockfd = socket(wsi->sa46_peer.sa4.sin_family,
+			new_fd = socket(wsi->sa46_peer.sa4.sin_family,
 						  (!strcmp(wsi->role_ops->name, "quic")) ? SOCK_DGRAM : SOCK_STREAM, 0);
 #endif
 		}
 
-		if (!lws_socket_is_valid(wsi->desc.sockfd)) {
+		if (!lws_socket_is_valid(new_fd)) {
 			en = LWS_ERRNO;
 
 			lws_snprintf(dcce, sizeof(dcce),
@@ -418,13 +513,14 @@ ads_known:
 				     lws_errno_describe(en, t16, sizeof(t16)));
 			cce = dcce;
 			lwsl_wsi_warn(wsi, "%s", dcce);
+			if (is_parallel) wsi->parallel_count--;
 			goto try_next_dns_result;
 		}
 
 #if defined(LWS_WITH_UDP)
-		if (!wsi->udp && strcmp(wsi->role_ops->name, "quic") != 0 && lws_plat_set_socket_options(wsi->a.vhost, wsi->desc.sockfd,
+		if (!wsi->udp && strcmp(wsi->role_ops->name, "quic") != 0 && lws_plat_set_socket_options(wsi->a.vhost, new_fd,
 #else
-		if (strcmp(wsi->role_ops->name, "quic") != 0 && lws_plat_set_socket_options(wsi->a.vhost, wsi->desc.sockfd,
+		if (strcmp(wsi->role_ops->name, "quic") != 0 && lws_plat_set_socket_options(wsi->a.vhost, new_fd,
 #endif
 #if defined(LWS_WITH_UNIX_SOCK)
 						wsi->unix_skt)) {
@@ -438,7 +534,9 @@ ads_known:
 				     lws_errno_describe(en, t16, sizeof(t16)));
 			cce = dcce;
 			lwsl_wsi_warn(wsi, "%s", dcce);
-			goto try_next_dns_result_closesock;
+			compatible_close(new_fd);
+			if (is_parallel) wsi->parallel_count--;
+			goto try_next_dns_result;
 		}
 
 #if defined(LWS_WITH_UDP)
@@ -446,14 +544,16 @@ ads_known:
 #else
 		if (!strcmp(wsi->role_ops->name, "quic")) {
 #endif
-			if (lws_plat_set_nonblocking(wsi->desc.sockfd)) {
+			if (lws_plat_set_nonblocking(new_fd)) {
 				cce = "conn fail: set nonblocking";
-				goto try_next_dns_result_closesock;
+				compatible_close(new_fd);
+				if (is_parallel) wsi->parallel_count--;
+				goto try_next_dns_result;
 			}
 		}
 
 		/* apply requested socket options */
-		if (lws_plat_set_socket_options_ip(wsi->desc.sockfd,
+		if (lws_plat_set_socket_options_ip(new_fd,
 						   wsi->c_pri, wsi->flags))
 			lwsl_wsi_warn(wsi, "unable to set ip options");
 
@@ -466,8 +566,24 @@ ads_known:
 					     "conn fail: sock accept");
 				cce = dcce;
 				lwsl_wsi_warn(wsi, "%s", dcce);
-				goto try_next_dns_result_closesock;
+				compatible_close(new_fd);
+				if (is_parallel) wsi->parallel_count--;
+				goto try_next_dns_result;
 			}
+
+		if (is_parallel) {
+			wsi->parallel_conns[pidx].desc.sockfd = new_fd;
+			wsi->parallel_conns[pidx].is_valid = 1;
+			wsi->parallel_conns[pidx].position_in_fds_table = LWS_NO_FDS_POS;
+			
+			/* setup swap */
+			saved_pos = wsi->position_in_fds_table;
+			saved_fd = wsi->desc;
+			wsi->desc.sockfd = new_fd;
+			wsi->position_in_fds_table = LWS_NO_FDS_POS;
+		} else {
+			wsi->desc.sockfd = new_fd;
+		}
 
 		lws_pt_lock(pt, __func__);
 		if (__insert_wsi_socket_into_fds(wsi->a.context, wsi)) {
@@ -475,7 +591,13 @@ ads_known:
 				     "conn fail: insert fd");
 			cce = dcce;
 			lws_pt_unlock(pt);
-			goto try_next_dns_result_closesock;
+			compatible_close(new_fd);
+			if (is_parallel) {
+				wsi->parallel_count--;
+				wsi->position_in_fds_table = saved_pos;
+				wsi->desc = saved_fd;
+			}
+			goto try_next_dns_result;
 		}
 		lws_pt_unlock(pt);
 
@@ -692,7 +814,6 @@ ads_known:
 			}
 #endif
 #endif
-
 			goto try_next_dns_result_fds;
 		}
 
@@ -704,6 +825,13 @@ ads_known:
 			goto conn_good;
 #endif
 
+		if (is_parallel) {
+			/* restore swap */
+			wsi->parallel_conns[pidx].position_in_fds_table = wsi->position_in_fds_table;
+			wsi->position_in_fds_table = saved_pos;
+			wsi->desc = saved_fd;
+		}
+
 		/*
 		 * The connection attempt is ongoing asynchronously... let's set
 		 * a specialized timeout for this connect attempt completion, it
@@ -714,6 +842,14 @@ ads_known:
 				 lws_client_conn_wait_timeout,
 				 wsi->a.context->timeout_secs *
 						 LWS_USEC_PER_SEC);
+
+		/* schedule happy eyeballs timer if we have more dns results */
+		if (wsi->dns_sorted_list.count) {
+			extern void lws_client_happy_eyeballs_cb(lws_sorted_usec_list_t *sul);
+			lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->sul_happy_eyeballs,
+					lws_client_happy_eyeballs_cb,
+					200 * LWS_US_PER_MS);
+		}
 #if defined(WIN32)
 		/*
 		 * Windows is not properly POSIX, we have to manually schedule a
@@ -738,6 +874,31 @@ ads_known:
 	}
 
 conn_good:
+
+	if (is_parallel) {
+		/* promote parallel to primary right away */
+		wsi->parallel_conns[pidx].position_in_fds_table = wsi->position_in_fds_table;
+		wsi->position_in_fds_table = saved_pos;
+		wsi->desc = saved_fd;
+
+		/* kill primary */
+		lws_pt_lock(pt, __func__);
+		__remove_wsi_socket_from_fds(wsi);
+		lws_pt_unlock(pt);
+		compatible_close(wsi->desc.sockfd);
+
+		promote_parallel_fd(wsi, pidx);
+	}
+
+#if defined(LWS_WITH_CLIENT)
+	/* kill all remaining parallel connections */
+	for (int i = 0; i < wsi->parallel_count; i++) {
+		if (wsi->parallel_conns[i].is_valid) {
+			lws_remove_parallel_fd_safely(wsi, i);
+		}
+	}
+	wsi->parallel_count = 0;
+#endif
 
 	/*
 	 * The connection has happened
@@ -853,17 +1014,39 @@ connect_to:
 
 try_next_dns_result_fds:
 	lws_pt_lock(pt, __func__);
-	__remove_wsi_socket_from_fds(wsi);
+	if (is_parallel) {
+		/* If we're failing after swap was restored, we need to manually swap it back temporarily */
+		if (wsi->desc.sockfd != new_fd) {
+			wsi->desc.sockfd = new_fd;
+			wsi->position_in_fds_table = wsi->parallel_conns[pidx].position_in_fds_table;
+		}
+		__remove_wsi_socket_from_fds(wsi);
+		wsi->parallel_conns[pidx].is_valid = 0;
+	} else {
+		__remove_wsi_socket_from_fds(wsi);
+	}
 	lws_pt_unlock(pt);
 
-try_next_dns_result_closesock:
 	/*
 	 * We are killing the socket but leaving
 	 */
-	compatible_close(wsi->desc.sockfd);
-	wsi->desc.sockfd = LWS_SOCK_INVALID;
+	if (is_parallel) {
+		compatible_close(new_fd);
+		/* restore primary */
+		wsi->position_in_fds_table = saved_pos;
+		wsi->desc = saved_fd;
+	} else {
+		compatible_close(wsi->desc.sockfd);
+		wsi->desc.sockfd = LWS_SOCK_INVALID;
+	}
 
 try_next_dns_result:
+	if (is_parallel) {
+		wsi->parallel_count--;
+		/* a parallel connection failed, but the primary is still connecting */
+		return wsi;
+	}
+
 		lws_sul_cancel(&wsi->sul_connect_timeout);
 #if defined(WIN32)
 		lws_sul_cancel(&wsi->win32_sul_connect_async_check);
