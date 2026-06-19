@@ -356,6 +356,7 @@ struct lws_context_per_thread {
 	lws_sorted_usec_list_t sul_peer_limits;
 #endif
 
+
 #if !defined(LWS_PLAT_FREERTOS)
 	struct lws *fake_wsi;   /* used for callbacks where there's no wsi */
 #endif
@@ -875,6 +876,7 @@ struct lws {
 
 	struct lws_client_parallel_conn parallel_conns[LWS_MAX_PARALLEL_CONNS];
 	lws_sorted_usec_list_t		sul_happy_eyeballs;
+	lws_sorted_usec_list_t		sul_h3_grace;
 	uint8_t				parallel_count;
 
 
@@ -1017,6 +1019,9 @@ struct lws {
 	char tsi; /* thread service index we belong to */
 	char protocol_interpret_idx;
 	char redirects;
+#if defined(LWS_WITH_CLIENT)
+	char			conn_race_log[32];
+#endif
 	uint8_t rxflow_bitmap;
 	uint8_t bound_vhost_index;
 	uint8_t lsp_channel; /* which of stdin/out/err */

@@ -74,6 +74,61 @@ lws_client_happy_eyeballs_cb(lws_sorted_usec_list_t *sul)
 }
 
 void
+lws_client_h3_grace_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws *wsi = lws_container_of(sul, struct lws, sul_h3_grace);
+
+	lwsl_wsi_notice(wsi, "H3 grace timer expired, abandoning QUIC race");
+
+	/* Mark H3 as FAILED in cache with 5s TTL */
+	if (wsi->a.context->h3_cap_cache && wsi->stash && wsi->stash->cis[CIS_HOST]) {
+		lws_h3_state_t state = LWS_H3_STATE_FAILED_IGNORE;
+		lws_cache_write_through(wsi->a.context->h3_cap_cache, wsi->stash->cis[CIS_HOST], 
+					(const uint8_t *)&state, sizeof(state), 
+					lws_now_usecs() + (5000000ll), NULL);
+	}
+
+	/* Abort QUIC and revert to TCP */
+	if (wsi->role_ops && strcmp(wsi->role_ops->name, "quic") == 0) {
+		if (lws_socket_is_valid(wsi->desc.sockfd)) {
+			struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+			lws_pt_lock(pt, __func__);
+			__remove_wsi_socket_from_fds(wsi);
+			lws_pt_unlock(pt);
+			compatible_close(wsi->desc.sockfd);
+			wsi->desc.sockfd = LWS_SOCK_INVALID;
+		}
+
+		if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_close_kill_connection))
+			lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_close_kill_connection).close_kill_connection(wsi, LWS_CLOSE_STATUS_NOSTATUS);
+
+		const struct lws_role_ops *r = lws_role_by_name("h2");
+		if (!r) r = lws_role_by_name("h1");
+		if (r) {
+			lws_role_transition(wsi, LWSIFR_CLIENT, LRS_WAITING_CONNECT, r);
+		}
+
+		/* Promote the first parallel TCP connection */
+		int first_valid = -1;
+		for (int i = 0; i < wsi->parallel_count; i++) {
+			if (wsi->parallel_conns[i].is_valid) {
+				first_valid = i;
+				break;
+			}
+		}
+		if (first_valid != -1) {
+			wsi->desc.sockfd = wsi->parallel_conns[first_valid].desc.sockfd;
+			wsi->position_in_fds_table = wsi->parallel_conns[first_valid].position_in_fds_table;
+			wsi->parallel_conns[first_valid].is_valid = 0;
+			/* We changed the primary fd, the event loop will trigger POLLOUT if it's connected */
+		} else {
+			/* No TCP sockets survived? Fail connection. */
+			lws_client_connect_3_connect(wsi, NULL, NULL, 0, NULL);
+		}
+	}
+}
+
+void
 lws_client_dns_retry_timeout(lws_sorted_usec_list_t *sul)
 {
 	struct lws *wsi = lws_container_of(sul, struct lws,
@@ -145,6 +200,22 @@ lws_client_connect_check(struct lws *wsi, lws_sockfd_type fd, int *real_errno)
 	fd_set write_set, except_set;
 	struct timeval tv;
 	int ret;
+
+#if defined(LWS_WITH_UNIX_SOCK)
+	if (wsi->unix_skt) {
+		char buf;
+		int n = recv((int)fd, &buf, 1, MSG_PEEK);
+		if (n >= 0 || LWS_ERRNO == WSAEWOULDBLOCK) {
+			lwsl_wsi_debug(wsi, "AF_UNIX recv MSG_PEEK ok, conn OK");
+			return LCCCR_CONNECTED;
+		}
+		en = LWS_ERRNO;
+		if (en == WSAENOTCONN)
+			return LCCCR_CONTINUE;
+		*real_errno = en;
+		return LCCCR_FAILED;
+	}
+#endif
 
 	FD_ZERO(&write_set);
 	FD_ZERO(&except_set);
@@ -230,6 +301,21 @@ promote_parallel_fd(struct lws *wsi, int pidx)
 #endif
 
 struct lws *
+lws_client_connect_3_https_cb(struct lws *wsi, const char *ads,
+			      const struct addrinfo *result, int n, void *opaque)
+{
+	struct lws *real_wsi = (struct lws *)opaque;
+	if (n == 0 && result && real_wsi->a.context->h3_cap_cache) {
+		lws_h3_state_t state = LWS_H3_STATE_HTTPS_RECORD_EXISTS;
+		/* Cache the capability with a 1 hour TTL */
+		lws_cache_write_through(real_wsi->a.context->h3_cap_cache, ads,
+					(const uint8_t *)&state, sizeof(state),
+					lws_now_usecs() + (3600ll * LWS_US_PER_SEC), NULL);
+	}
+	return real_wsi;
+}
+
+struct lws *
 lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 			     const struct addrinfo *result, int n, void *opaque)
 {
@@ -293,7 +379,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	if (!lws_dll2_is_detached(&wsi->dll2_cli_txn_queue))
 		return wsi;
 
-	if (n &&  /* calling back with a problem */
+	if (n < 0 &&  /* calling back with a problem */
 	    !wsi->dns_sorted_list.count && /* there's no results */
 	    !lws_socket_is_valid(wsi->desc.sockfd) && /* no attempt ongoing */
 	    !wsi->speculative_connect_owner.count /* no spec attempt */ ) {
@@ -323,11 +409,37 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	struct lws_pollfd *pollfd = (struct lws_pollfd *)opaque;
 	lws_sockfd_type check_fd = pollfd ? pollfd->fd : LWS_SOCK_INVALID;
 
-	if (lwsi_state(wsi) == LRS_WAITING_CONNECT &&
+	int is_quic_race = (wsi->role_ops && !strcmp(wsi->role_ops->name, "quic") && wsi->sul_h3_grace.list.owner);
+	if ((lwsi_state(wsi) == LRS_WAITING_CONNECT || is_quic_race) &&
 	    (lws_socket_is_valid(wsi->desc.sockfd) || wsi->parallel_count > 0)) {
-		if (!wsi->sul_connect_timeout.list.owner)
+		if (lwsi_state(wsi) == LRS_WAITING_CONNECT && !wsi->sul_connect_timeout.list.owner)
 			/* no ongoing timeout for one */
 			goto connect_to;
+
+		if (check_fd == LWS_SOCK_INVALID) {
+#if defined(WIN32)
+			/* on Windows, FD_CONNECT and sul async check pass NULL opaque.
+			 * we need to check the primary fd and parallel fds until we find one
+			 * that completed or failed. */
+			if (lws_socket_is_valid(wsi->desc.sockfd)) {
+				int real_errno = 0;
+				if (lws_client_connect_check(wsi, wsi->desc.sockfd, &real_errno) != LCCCR_CONTINUE) {
+					check_fd = wsi->desc.sockfd;
+				}
+			}
+			if (check_fd == LWS_SOCK_INVALID) {
+				for (m = 0; m < wsi->parallel_count; m++) {
+					if (wsi->parallel_conns[m].is_valid) {
+						int real_errno = 0;
+						if (lws_client_connect_check(wsi, wsi->parallel_conns[m].desc.sockfd, &real_errno) != LCCCR_CONTINUE) {
+							check_fd = wsi->parallel_conns[m].desc.sockfd;
+							break;
+						}
+					}
+				}
+			}
+#endif
+		}
 
 		if (check_fd != LWS_SOCK_INVALID) {
 			int real_errno = 0;
@@ -343,6 +455,19 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 
 			switch (lws_client_connect_check(wsi, check_fd, &real_errno)) {
 			case LCCCR_CONNECTED:
+				if (is_quic_race && pidx != -1) {
+					int saved_pos_tmp = wsi->position_in_fds_table;
+					lws_sock_file_fd_type saved_fd_tmp = wsi->desc;
+					lwsl_wsi_notice(wsi, "TCP connected, waiting for QUIC grace");
+					wsi->desc.sockfd = wsi->parallel_conns[pidx].desc.sockfd;
+					wsi->position_in_fds_table = wsi->parallel_conns[pidx].position_in_fds_table;
+					if (lws_change_pollfd(wsi, LWS_POLLOUT, 0)) {
+						/* ignore */
+					}
+					wsi->desc = saved_fd_tmp;
+					wsi->position_in_fds_table = saved_pos_tmp;
+					return NULL;
+				}
 				lws_sul_cancel(&wsi->sul_happy_eyeballs);
 				if (pidx != -1)
 					promote_parallel_fd(wsi, pidx);
@@ -496,13 +621,13 @@ ads_known:
 #endif
 		{
 			af = wsi->sa46_peer.sa4.sin_family;
+			int want_udp = 0;
 #if defined(LWS_WITH_UDP)
-			new_fd = socket(wsi->sa46_peer.sa4.sin_family,
-						  (wsi->udp || !strcmp(wsi->role_ops->name, "quic")) ? SOCK_DGRAM : SOCK_STREAM, 0);
+			want_udp = wsi->udp || (wsi->role_ops && !strcmp(wsi->role_ops->name, "quic") && !is_parallel);
 #else
-			new_fd = socket(wsi->sa46_peer.sa4.sin_family,
-						  (!strcmp(wsi->role_ops->name, "quic")) ? SOCK_DGRAM : SOCK_STREAM, 0);
+			want_udp = (wsi->role_ops && !strcmp(wsi->role_ops->name, "quic") && !is_parallel);
 #endif
+			new_fd = socket(wsi->sa46_peer.sa4.sin_family, want_udp ? SOCK_DGRAM : SOCK_STREAM, 0);
 		}
 
 		if (!lws_socket_is_valid(new_fd)) {
@@ -560,17 +685,6 @@ ads_known:
 		lwsl_wsi_debug(wsi, "WAITING_CONNECT");
 		lwsi_set_state(wsi, LRS_WAITING_CONNECT);
 
-		if (wsi->a.context->event_loop_ops->sock_accept)
-			if (wsi->a.context->event_loop_ops->sock_accept(wsi)) {
-				lws_snprintf(dcce, sizeof(dcce),
-					     "conn fail: sock accept");
-				cce = dcce;
-				lwsl_wsi_warn(wsi, "%s", dcce);
-				compatible_close(new_fd);
-				if (is_parallel) wsi->parallel_count--;
-				goto try_next_dns_result;
-			}
-
 		if (is_parallel) {
 			wsi->parallel_conns[pidx].desc.sockfd = new_fd;
 			wsi->parallel_conns[pidx].is_valid = 1;
@@ -584,6 +698,24 @@ ads_known:
 		} else {
 			wsi->desc.sockfd = new_fd;
 		}
+
+		if (wsi->a.context->event_loop_ops->sock_accept)
+			if (wsi->a.context->event_loop_ops->sock_accept(wsi)) {
+				lws_snprintf(dcce, sizeof(dcce),
+					     "conn fail: sock accept");
+				cce = dcce;
+				lwsl_wsi_warn(wsi, "%s", dcce);
+				if (is_parallel) {
+					wsi->position_in_fds_table = saved_pos;
+					wsi->desc = saved_fd;
+					wsi->parallel_conns[pidx].is_valid = 0;
+					wsi->parallel_count--;
+				} else {
+					wsi->desc.sockfd = LWS_SOCK_INVALID;
+				}
+				compatible_close(new_fd);
+				goto try_next_dns_result;
+			}
 
 		lws_pt_lock(pt, __func__);
 		if (__insert_wsi_socket_into_fds(wsi->a.context, wsi)) {
@@ -843,8 +975,8 @@ ads_known:
 				 wsi->a.context->timeout_secs *
 						 LWS_USEC_PER_SEC);
 
-		/* schedule happy eyeballs timer if we have more dns results */
-		if (wsi->dns_sorted_list.count) {
+		/* schedule happy eyeballs timer if we have more dns results and the event loop supports it */
+		if (wsi->dns_sorted_list.count && !strcmp(wsi->a.context->event_loop_ops->name, "poll")) {
 			extern void lws_client_happy_eyeballs_cb(lws_sorted_usec_list_t *sul);
 			lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->sul_happy_eyeballs,
 					lws_client_happy_eyeballs_cb,
@@ -871,6 +1003,27 @@ ads_known:
 #endif
 
 		return wsi;
+	} else if (!is_parallel && wsi->role_ops && !strcmp(wsi->role_ops->name, "quic")) {
+		/* QUIC connect immediately succeeds. Schedule grace and happy eyeballs. */
+		uint32_t grace_us = 200000;
+		if (wsi->a.context->h3_cap_cache && wsi->stash && wsi->stash->cis[CIS_HOST]) {
+			const void *item = NULL;
+			size_t item_len = 0;
+			if (!lws_cache_item_get(wsi->a.context->h3_cap_cache, wsi->stash->cis[CIS_HOST], &item, &item_len)) {
+				lws_h3_state_t state = *(lws_h3_state_t *)item;
+				if (state == LWS_H3_STATE_KNOWN_GOOD || state == LWS_H3_STATE_HTTPS_RECORD_EXISTS)
+					grace_us = 3000000;
+			}
+		}
+		lwsl_wsi_notice(wsi, "QUIC socket created, starting grace timer %uus", grace_us);
+		lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->sul_h3_grace,
+				 lws_client_h3_grace_cb, grace_us);
+
+		if (wsi->dns_sorted_list.count && !strcmp(wsi->a.context->event_loop_ops->name, "poll")) {
+			extern void lws_client_happy_eyeballs_cb(lws_sorted_usec_list_t *sul);
+			lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->sul_happy_eyeballs,
+					lws_client_happy_eyeballs_cb, 1);
+		}
 	}
 
 conn_good:
@@ -891,13 +1044,18 @@ conn_good:
 	}
 
 #if defined(LWS_WITH_CLIENT)
-	/* kill all remaining parallel connections */
-	for (int i = 0; i < wsi->parallel_count; i++) {
-		if (wsi->parallel_conns[i].is_valid) {
-			lws_remove_parallel_fd_safely(wsi, i);
+	int is_quic_race = (wsi->role_ops && !strcmp(wsi->role_ops->name, "quic") && wsi->sul_h3_grace.list.owner);
+	if (!is_quic_race) {
+		/* kill all remaining parallel connections */
+		for (int i = 0; i < wsi->parallel_count; i++) {
+			if (wsi->parallel_conns[i].is_valid) {
+				lws_remove_parallel_fd_safely(wsi, i);
+			}
 		}
+		wsi->parallel_count = 0;
+	} else {
+		lwsl_wsi_notice(wsi, "QUIC reached conn_good, keeping %d parallel TCP sockets alive", wsi->parallel_count);
 	}
-	wsi->parallel_count = 0;
 #endif
 
 	/*

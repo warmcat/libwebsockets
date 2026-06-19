@@ -165,6 +165,7 @@ typedef struct lws_tls_schannel_conn lws_tls_conn;
 typedef struct lws_tls_schannel_ctx lws_tls_ctx;
 typedef struct lws_tls_schannel_bio lws_tls_bio;
 typedef struct lws_tls_schannel_x509 lws_tls_x509;
+int lws_tls_schannel_server_conn_alpn(struct lws *wsi);
 #elif defined(LWS_WITH_GNUTLS)
 #include "gnutls/private.h"
 #elif defined(LWS_WITH_BEARSSL)

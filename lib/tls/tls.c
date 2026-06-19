@@ -371,6 +371,8 @@ lws_tls_server_conn_alpn(struct lws *wsi)
 
 	return lws_role_call_alpn_negotiated(wsi, (const char *)cstr);
 
+#elif defined(LWS_WITH_SCHANNEL)
+       return lws_tls_schannel_server_conn_alpn(wsi);
 #else
 	lwsl_err("%s: openssl/gnutls too old\n", __func__);
 #endif

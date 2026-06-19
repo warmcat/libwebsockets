@@ -749,7 +749,8 @@ just_kill_connection:
 		 wsi->role_ops == &role_ops_ws) ||
 #endif
 	     lwsi_state(wsi) == LRS_WAITING_DNS ||
-	     lwsi_state(wsi) == LRS_WAITING_CONNECT) &&
+	     lwsi_state(wsi) == LRS_WAITING_CONNECT ||
+	     (lwsi_role_client(wsi) && lwsi_state(wsi) == LRS_UNCONNECTED)) &&
 	     !wsi->already_did_cce && wsi->a.protocol &&
 	     !wsi->close_is_redirect) {
 		static const char _reason[] = "closed before established";

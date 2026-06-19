@@ -359,7 +359,7 @@ lws_tls_server_accept(struct lws *wsi)
 	struct lws_tls_schannel_conn *conn = wsi->tls.ssl;
 	struct lws_tls_schannel_ctx *ctx = wsi->tls.ctx_ref ? wsi->tls.ctx_ref->ctx : wsi->a.vhost->tls.ssl_ctx;
 	SecBufferDesc out_desc, in_desc;
-	SecBuffer out_buf[1], in_buf[2];
+       SecBuffer out_buf[1], in_buf[3];
 	ULONG req_attrs, ret_attrs;
 	SECURITY_STATUS status;
 	ssize_t n;
@@ -406,6 +406,34 @@ lws_tls_server_accept(struct lws *wsi)
         lwsl_info("%s: recv %d bytes client hello\n", __func__, (int)n);
 	}
 
+       uint8_t alpn_buf[256];
+       size_t alpn_len = 0;
+
+       if (wsi->a.vhost->tls.alpn) {
+               uint8_t *pData = alpn_buf + 10;
+               uint32_t ext_type = 2, total_list_size; /* 2 = SecApplicationProtocolNegotiationExt_ALPN */
+               uint16_t list_size;
+               const char *p = wsi->a.vhost->tls.alpn;
+
+               while (p && *p) {
+                       const char *comma = strchr(p, ',');
+                       size_t item_len = comma ? (size_t)(comma - p) : strlen(p);
+                       if (item_len > 255 || (pData + item_len + 1 - alpn_buf) > 256) break;
+                       *pData++ = (uint8_t)item_len;
+                       memcpy(pData, p, item_len);
+                       pData += item_len;
+                       if (comma) p = comma + 1;
+                       else break;
+               }
+
+               list_size = (uint16_t)(pData - (alpn_buf + 10));
+               total_list_size = 6 + list_size;
+               memcpy(alpn_buf, &total_list_size, 4);
+               memcpy(alpn_buf + 4, &ext_type, 4);
+               memcpy(alpn_buf + 8, &list_size, 2);
+               alpn_len = (size_t)(pData - alpn_buf);
+       }
+
 	in_buf[0].BufferType = SECBUFFER_TOKEN;
 	in_buf[0].pvBuffer = conn->rx_buf;
 	in_buf[0].cbBuffer = (unsigned long)conn->rx_len;
@@ -413,6 +441,14 @@ lws_tls_server_accept(struct lws *wsi)
 	in_buf[1].pvBuffer = NULL;
 	in_buf[1].cbBuffer = 0;
 	in_desc.cBuffers = 2;
+
+       if (alpn_len > 0) {
+               in_buf[2].BufferType = SECBUFFER_APPLICATION_PROTOCOLS;
+               in_buf[2].pvBuffer = alpn_buf;
+               in_buf[2].cbBuffer = (unsigned long)alpn_len;
+               in_desc.cBuffers = 3;
+       }
+
 	in_desc.pBuffers = in_buf;
 	in_desc.ulVersion = SECBUFFER_VERSION;
 
@@ -491,6 +527,16 @@ lws_tls_server_accept(struct lws *wsi)
 		if (status == SEC_E_OK) {
 			conn->f_handshake_finished = 1;
 			QueryContextAttributes(&conn->ctxt, SECPKG_ATTR_STREAM_SIZES, &conn->stream_sizes);
+
+                       if (lws_ssl_pending(wsi) &&
+                           lws_dll2_is_detached(&wsi->tls.dll_pending_tls)) {
+                               struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+                               lws_pt_lock(pt, __func__);
+                               lws_dll2_add_head(&wsi->tls.dll_pending_tls,
+                                                 &pt->tls.dll_pending_tls_owner);
+                               lws_pt_unlock(pt);
+                       }
+
 			return LWS_SSL_CAPABLE_DONE;
 		}
 
@@ -500,6 +546,29 @@ lws_tls_server_accept(struct lws *wsi)
 
 	lwsl_err("%s: AcceptSecurityContext failed 0x%x\n", __func__, (int)status);
 	return LWS_SSL_CAPABLE_ERROR;
+}
+
+int
+lws_tls_schannel_server_conn_alpn(struct lws *wsi)
+{
+       struct lws_tls_schannel_conn *conn = wsi->tls.ssl;
+       SecPkgContext_ApplicationProtocol alpn_result;
+       SECURITY_STATUS alpn_stat;
+
+       if (!conn || !conn->f_handshake_finished)
+               return 0;
+
+       alpn_stat = QueryContextAttributes(&conn->ctxt, SECPKG_ATTR_APPLICATION_PROTOCOL, &alpn_result);
+       if (alpn_stat == SEC_E_OK && alpn_result.ProtoNegoStatus == SecApplicationProtocolNegotiationStatus_Success) {
+               char cstr[64];
+               if (alpn_result.ProtocolIdSize < sizeof(cstr)) {
+                       memcpy(cstr, alpn_result.ProtocolId, alpn_result.ProtocolIdSize);
+                       cstr[alpn_result.ProtocolIdSize] = 0;
+                       lwsl_notice("%s: ALPN negotiated %s\n", __func__, cstr);
+                       return lws_role_call_alpn_negotiated(wsi, cstr);
+               }
+       }
+       return 0;
 }
 
 	int
@@ -616,7 +685,6 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
                        if (status == SEC_I_CONTEXT_EXPIRED || status == SEC_E_CONTEXT_EXPIRED)
                                return LWS_SSL_CAPABLE_ERROR;
                        if (status == SEC_I_RENEGOTIATE) {
-                               int ret;
                                lwsl_notice("%s: Renegotiation requested\n", __func__);
                                conn->f_handshake_finished = 0;
                                for (i = 0; i < 4; i++) {
@@ -628,14 +696,19 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
                                }
                                if (i == 4) conn->rx_len = 0;
 
-                               if (lwsi_role_client(wsi))
-                                       ret = lws_tls_client_connect(wsi, NULL, 0);
-                               else
-                                       ret = lws_tls_server_accept(wsi);
-
-                               if (ret == LWS_SSL_CAPABLE_DONE)
-                                       return lws_ssl_capable_read(wsi, buf, len);
-                               return ret;
+                               if (lwsi_role_client(wsi)) {
+                                       if (lws_tls_client_connect(wsi, NULL, 0) == 0) {
+                                               lwsl_notice("Client renegotiation complete, recursing\n");
+                                               return lws_ssl_capable_read(wsi, buf, len);
+                                       }
+                                       return LWS_SSL_CAPABLE_ERROR;
+                               } else {
+                                       if (lws_tls_server_accept(wsi) == LWS_SSL_CAPABLE_DONE) {
+                                               lwsl_notice("Server renegotiation complete, recursing\n");
+                                               return lws_ssl_capable_read(wsi, buf, len);
+                                       }
+                                       return LWS_SSL_CAPABLE_ERROR;
+                               }
                        }
 
 			/* Handshake message or empty record. Recurse to read next record. */

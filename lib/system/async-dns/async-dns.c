@@ -1250,16 +1250,22 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 
 	c = (qtype & LWS_ADNS_NOCACHE) ? NULL : lws_adns_get_cache(dns, name);
 	qtype = (adns_query_type_t)(qtype & ~(uint32_t)LWS_ADNS_NOCACHE);
-	if (c && qtype != LWS_ADNS_RECORD_A && qtype != LWS_ADNS_RECORD_AAAA) {
-		lws_adns_rr_t *rr = c->rr_results;
+	if (c) {
 		int found = 0;
-		while (rr) {
-			if (rr->type == qtype) {
+		if (qtype == LWS_ADNS_RECORD_A || qtype == LWS_ADNS_RECORD_AAAA) {
+			if (c->results)
 				found = 1;
-				break;
+		} else {
+			lws_adns_rr_t *rr = c->rr_results;
+			while (rr) {
+				if (rr->type == qtype) {
+					found = 1;
+					break;
+				}
+				rr = rr->next;
 			}
-			rr = rr->next;
 		}
+
 		if (!found) {
 			lwsl_cx_info(context, "%s: cached but missing 0x%x, bypassing", name, qtype);
 			lws_dll2_remove(&c->list); /* Remove from cache list, let sul expire it */
