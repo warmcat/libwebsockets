@@ -29,6 +29,7 @@ enum {
 	LWS_SW_TEST_HANDSHAKE,
 	LWS_SW_P,
 	LWS_SW_S,
+	LWS_SW_STATS_PORT,
 	LWS_SW_HELP,
 };
 
@@ -47,6 +48,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_TEST_HANDSHAKE]	= { "--test-handshake", "Enable --test-handshake feature" },
 	[LWS_SW_P]	= { "-p",              "Port number to listen or connect on" },
 	[LWS_SW_S]	= { "-s",              "Use TLS / https" },
+	[LWS_SW_STATS_PORT] = { "--stats-port", "Port for HTTP stats vhost (default: dht-port + 100)" },
 	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
 };
 
@@ -65,6 +67,7 @@ int retcode = 1;
 int interrupted;
 int use_stdin;
 char port_buf[16];
+char stats_port_buf[16];
 const char *storage_path = "./dht-store";
 static struct lws_context *cx;
 
@@ -235,7 +238,7 @@ app_system_state_nf(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		};
 
 		lws_context_info_defaults(&info, NULL);info.vhost_name		= "http";
-                info.port		= atoi(port_buf) + 100;
+                info.port		= atoi(stats_port_buf);
                 info.protocols		= app_protocols;
                 info.mounts		= &mount_stats;
                 info.pvo		= &pvo_stats;
@@ -326,6 +329,11 @@ int main(int argc, const char **argv)
 		}
 
 	lws_snprintf(port_buf, sizeof(port_buf), "%d", dht_port);
+
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_STATS_PORT].sw)))
+		lws_snprintf(stats_port_buf, sizeof(stats_port_buf), "%d", atoi(p));
+	else
+		lws_snprintf(stats_port_buf, sizeof(stats_port_buf), "%d", dht_port + 100);
 
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_TARGET_IP].sw)))
 		pvos[5].value = p;
