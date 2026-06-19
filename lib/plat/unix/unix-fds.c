@@ -41,8 +41,16 @@ wsi_from_fd(const struct lws_context *context, int fd)
 	done = &p[context->max_fds];
 
 	while (p != done) {
-		if (*p && (*p)->desc.sockfd == fd)
-			return *p;
+		if (*p) {
+			if ((*p)->desc.sockfd == fd)
+				return *p;
+#if defined(LWS_WITH_CLIENT)
+			for (int j = 0; j < (*p)->parallel_count; j++) {
+				if ((*p)->parallel_conns[j].is_valid && (*p)->parallel_conns[j].desc.sockfd == fd)
+					return *p;
+			}
+#endif
+		}
 		p++;
 	}
 
@@ -54,6 +62,16 @@ int
 sanity_assert_no_wsi_traces(const struct lws_context *context, struct lws *wsi)
 {
 	struct lws **p, **done;
+	int occurrences = 0;
+	int expected = 0;
+
+#if defined(LWS_WITH_CLIENT)
+	if (lws_socket_is_valid(wsi->desc.sockfd))
+		expected++;
+	for (int i = 0; i < wsi->parallel_count; i++)
+		if (wsi->parallel_conns[i].is_valid)
+			expected++;
+#endif
 
 	if (!context->max_fds_unrelated_to_ulimit)
 		/* can't tell */
@@ -64,15 +82,18 @@ sanity_assert_no_wsi_traces(const struct lws_context *context, struct lws *wsi)
 	p = context->lws_lookup;
 	done = &p[context->max_fds];
 
-	/* confirm the wsi doesn't already exist */
+	/* count occurrences of wsi in lookup table */
 
-	while (p != done && *p != wsi)
+	while (p != done) {
+		if (*p == wsi)
+			occurrences++;
 		p++;
+	}
 
-	if (p == done)
+	if (occurrences <= expected)
 		return 0;
 
-	assert(0); /* this wsi is still mentioned inside lws */
+	assert(0); /* this wsi is still mentioned inside lws too many times */
 
 	return 1;
 }
@@ -106,8 +127,18 @@ sanity_assert_no_sockfd_traces(const struct lws_context *context,
 
 	/* confirm the sfd not already in use */
 
-	while (p != done && (!*p || (*p)->desc.sockfd != sfd))
+	while (p != done) {
+		if (*p && (*p)->desc.sockfd == sfd) {
+#if defined(LWS_WITH_CLIENT)
+			if ((*p)->parallel_count > 0) {
+				p++;
+				continue;
+			}
+#endif
+			break;
+		}
 		p++;
+	}
 
 	if (p == done)
 		return 0;
@@ -199,8 +230,18 @@ delete_from_fd(const struct lws_context *context, int fd)
 
 #if defined(_DEBUG)
 	p = context->lws_lookup;
-	while (p != done && (!*p || (*p)->desc.sockfd != fd))
+	while (p != done) {
+		if (*p && (*p)->desc.sockfd == fd) {
+#if defined(LWS_WITH_CLIENT)
+			if ((*p)->parallel_count > 0) {
+				p++;
+				continue;
+			}
+#endif
+			break;
+		}
 		p++;
+	}
 
 	if (p != done) {
 		lwsl_err("%s: fd %d in lws_lookup again at %d\n", __func__,

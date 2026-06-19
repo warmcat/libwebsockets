@@ -701,6 +701,15 @@ just_kill_connection:
 #if defined(WIN32)
 	lws_sul_cancel(&wsi->win32_sul_connect_async_check);
 #endif
+#if defined(LWS_WITH_CLIENT)
+	lws_sul_cancel(&wsi->sul_happy_eyeballs);
+	for (int m = 0; m < wsi->parallel_count; m++) {
+		if (wsi->parallel_conns[m].is_valid) {
+			lws_remove_parallel_fd_safely(wsi, m);
+		}
+	}
+	wsi->parallel_count = 0;
+#endif
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 	lws_async_dns_cancel(wsi);
 #endif
