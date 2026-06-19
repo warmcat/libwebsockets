@@ -30,6 +30,7 @@ if (requirements)
 	if (NOT WIN32)
 
 		lws_get_free_port(PORT_DHT_SRV)
+		lws_get_free_port(PORT_DHT_HTTP)
 		lws_get_free_port(PORT_DHT_CLI)
 		lws_get_free_port(PORT_DHT_BULK)
 		lws_get_free_port(PORT_DHT_GEN)
@@ -39,7 +40,7 @@ if (requirements)
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 			raw_dht_srv
 			$<TARGET_FILE:lws-minimal-raw-dht>
-			-d 1039 -s dht-store-srv -p ${PORT_DHT_SRV})
+			-d 1039 -s dht-store-srv -p ${PORT_DHT_SRV} --stats-port ${PORT_DHT_HTTP})
 		set_tests_properties(st_raw_dht_srv PROPERTIES
 			WORKING_DIRECTORY .
 			FIXTURES_SETUP raw_dht_srv
