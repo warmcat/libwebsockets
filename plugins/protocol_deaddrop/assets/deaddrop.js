@@ -80,7 +80,7 @@
 	}
 
 	function clear_errors() {
-		var n, t = document.getElementById("ongoing");
+		var n, t = document.getElementById("ongoing-tbody");
 
 		for (n = 0; n < t.rows.length; n++)
 			if (t.rows[n].cells[0].classList.contains("err"))
@@ -91,7 +91,7 @@
 	 * Generic uploader: takes FormData, a display name and a display size
 	 */
 	function _do_upload(formData, displayName, displaySize) {
-		var t = document.getElementById("ongoing");
+		var t = document.getElementById("ongoing-tbody");
 		var row = t.insertRow(0), c1 = row.insertCell(0),
 		    c2 = row.insertCell(1), c3 = row.insertCell(2);
 

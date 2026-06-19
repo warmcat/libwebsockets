@@ -374,7 +374,7 @@ function renderNodeControls(node, container) {
             input.value = ctrl.val;
 
             input.oninput = (e) => {
-                const newVal = parseFloat(e.target.value);
+                const newVal = Number.parseFloat(e.target.value);
                 valSpan.innerText = newVal;
                 applyControl(node, ctrl, newVal);
             };
@@ -501,7 +501,7 @@ async function discoverLocalCapabilities() {
                     min = finalRange.min;
                     max = finalRange.max;
                     step = finalRange.step || 1;
-                    val = saved !== null ? parseFloat(saved) : settings[name] || min;
+                    val = saved !== null ? Number.parseFloat(saved) : settings[name] || min;
                 }
 
                 console.log(`Adding video control ${name} as ${type}`, cap);
@@ -559,11 +559,11 @@ async function discoverLocalCapabilities() {
                      max = caps[name]?.max || 1.0;
                      step = caps[name]?.step || 0.01;
                      const def = settings[name] !== undefined ? settings[name] : max;
-                     val = saved !== null ? parseFloat(saved) : def;
+                     val = saved !== null ? Number.parseFloat(saved) : def;
                 } else if (type === 'boolean') {
                     // For boolean, val 1.0 = true, 0.0 = false
                     const def = settings[name] !== undefined ? (settings[name] ? 1.0 : 0.0) : 1.0;
-                    val = saved !== null ? parseFloat(saved) : def;
+                    val = saved !== null ? Number.parseFloat(saved) : def;
                 }
 
                 console.log(`Adding control ${name} as ${type}`);
@@ -590,7 +590,7 @@ async function discoverLocalCapabilities() {
             min: 0,
             max: 2.0,
             step: 0.05,
-            val: savedSoft !== null ? parseFloat(savedSoft) : 1.0
+            val: savedSoft !== null ? Number.parseFloat(savedSoft) : 1.0
         });
 
         if (!audioCtx) {
@@ -599,7 +599,7 @@ async function discoverLocalCapabilities() {
                 const source = audioCtx.createMediaStreamSource(localStream);
                 gainNode = audioCtx.createGain();
                 const savedSoft = localStorage.getItem(`${STORAGE_CTRL_PREFIX}${aNode.id}_software-gain`);
-                gainNode.gain.value = savedSoft !== null ? parseFloat(savedSoft) : 1.0;
+                gainNode.gain.value = savedSoft !== null ? Number.parseFloat(savedSoft) : 1.0;
                 source.connect(gainNode);
             } catch (e) {
                 console.error("AudioContext failed:", e);
@@ -618,7 +618,7 @@ async function discoverLocalCapabilities() {
             min: 0,
             max: 1.0,
             step: 0.05,
-            val: savedVol !== null ? parseFloat(savedVol) : 1.0
+            val: savedVol !== null ? Number.parseFloat(savedVol) : 1.0
         });
         // Sinks don't support constraints in the same way, so we purely use soft controls/setSinkId
     }

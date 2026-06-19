@@ -64,29 +64,29 @@
             </section>
             <section class="panel detail-panel hidden-panel" id="detail-panel">
                 <div class="panel-header">
-                    <div class="title-group"><table><tr><td>
-                        <button id="btn-back-domains" class="btn secondary">&larr; Back</button>
-			</td></tr><tr><td>
+                    <div class="title-group">
+                        <div class="title-actions">
+                            <button id="btn-back-domains" class="btn secondary">&larr; Back</button>
+                        </div>
                         <h2 id="detail-title"><span>---</span></h2>
-			</td></tr></table>
                     </div>
                     <div id="whois-header" class="whois-header"></div>
                     <div class="actions-group">
-                        <table id="actions-table" class="actions-table">
-                            <tr><td class="actions-cell"><div id="dnssec-status"></div></td></tr>
-                            <tr><td class="actions-cell"><button id="btn-save-zonefile" class="btn primary" disabled>Save<br>Zonefile</button></td></tr>
-                            <tr><td class="actions-cell">
+                        <div id="actions-table" class="actions-table">
+                            <div class="actions-cell"><div id="dnssec-status"></div></div>
+                            <div class="actions-cell"><button id="btn-save-zonefile" class="btn primary" disabled>Save<br>Zonefile</button></div>
+                            <div class="actions-cell">
                                 <label class="domain-acme-label" title="Enable Let's Encrypt automated certificate fetching for this domain">
                                     <input type="checkbox" id="cb-domain-acme-enable"> ACME Enabled
                                 </label>
-                            </td></tr>
-                        </table>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
                 <div class="ext-raw-editor raw-editor-container">
                     <div id="raw-zone-backdrop" aria-hidden="true"></div>
-                    <textarea id="raw-zone-editor" spellcheck="false" placeholder="; Raw zone file contents..."></textarea>
+                    <textarea id="raw-zone-editor" spellcheck="false" placeholder="; Raw zone file contents..." aria-label="Raw zone file contents"></textarea>
                 </div>
 
 
@@ -194,7 +194,7 @@
                             <button id="btn-acme-save" class="btn primary">Save Global Settings</button>
                         </div>
                         <div class="acme-log-container">
-                            <label>Recent ACME Log</label>
+                            <label for="acme-log">Recent ACME Log</label>
                             <textarea id="acme-log" readonly rows="8"></textarea>
                         </div>
                     </div>
@@ -221,7 +221,7 @@
                             <h3>Distribution Server Certificate</h3>
                             <p class="help-text">The TLS certificate and private key used by the distribution server.</p>
                             <div class="input-group mb-10">
-                                <input type="text" id="dist-server-domain" placeholder="e.g., dist.example.com" class="form-input">
+                                <input type="text" id="dist-server-domain" placeholder="e.g., dist.example.com" class="form-input" aria-label="Distribution Server Domain">
                             </div>
                             <button id="btn-dist-download-server" class="btn primary">Download Server Cert + Key</button>
                         </div>
@@ -291,7 +291,7 @@
             <h3>Registrar DNSSEC Info</h3>
             <p class="modal-help-text">Copy this information to your domain registrar's DNSSEC configuration panel.</p>
             <div class="form-group">
-                <textarea id="textarea-dnssec-info" rows="5" readonly class="dnssec-info-textarea"></textarea>
+                <textarea id="textarea-dnssec-info" rows="5" readonly class="dnssec-info-textarea" aria-label="Registrar DNSSEC Info"></textarea>
             </div>
             <div class="modal-actions">
                 <button id="btn-dnssec-info-close" class="btn hollow">Close</button>

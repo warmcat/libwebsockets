@@ -25,8 +25,8 @@
  */
 
 enum lws_event_lib_ops_flags {
-	LELOF_ISPOLL				= (1 >> 0),
-	LELOF_DESTROY_FINAL			= (1 >> 1),
+	LELOF_ISPOLL				= (1 << 0),
+	LELOF_DESTROY_FINAL			= (1 << 1),
 };
 
 enum {

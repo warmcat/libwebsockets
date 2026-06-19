@@ -1,55 +1,55 @@
 
 span.title {
 	font-size:18pt;
-	font-family: Arial;
+	font-family: Arial, sans-serif;
 	font-weight:normal;
 	text-align:center;
 	color:#000000;
 }
 span.mount {
 	font-size:10pt;
-	font-family: Arial;
+	font-family: Arial, sans-serif;
 	font-weight:normal;
 	text-align:center;
 	color:#000000;
 }
 span.mountname {
 	font-size:14pt;
-	font-family: Arial;
+	font-family: Arial, sans-serif;
 	font-weight:bold;
 	text-align:center;
 	color:#404010;
 }
 span.n {
 	font-size:12pt;
-	font-family: Arial;
+	font-family: Arial, sans-serif;
 	font-weight:normal;
 	text-align:center;
 	color:#808020;
 }
 span.v {
 	font-size:12pt;
-	font-family: Arial;
+	font-family: Arial, sans-serif;
 	font-weight:bold;
 	text-align:center;
 	color:#202020;
 }
 span.m1 {
 	font-size:12pt;
-	font-family: Arial;
+	font-family: Arial, sans-serif;
 	font-weight:bold;
 	text-align:center;
 	color:#202020;
 }
 span.m2 {
 	font-size:12pt;
-	font-family: Arial;
+	font-family: Arial, sans-serif;
 	font-weight:normal;
 	text-align:center;
 	color:#202020;
 }
 
-.browser { font-size:12pt; font-family: Arial; font-weight:normal; text-align:center; color:#ffff00; vertical-align:middle; text-align:center; background:#d0b070; padding:12px; -webkit-border-radius:10px; border-radius:10px;}
+.browser { font-size:12pt; font-family: Arial, sans-serif; font-weight:normal; text-align:center; color:#ffff00; vertical-align:middle; background:#d0b070; padding:12px; -webkit-border-radius:10px; border-radius:10px;}
 .group2 { vertical-align:middle;
 	text-align:center;
 	background:#f0f0e0; 
@@ -58,7 +58,7 @@ span.m2 {
 	border-radius:10px; }
 .explain { vertical-align:middle;
 	text-align:center;
-	background:#f0f0c0; padding:12px;
+	background:#f0f0c0;
 	-webkit-border-radius:10px;
 	border-radius:10px;
 	color:#404000;
@@ -77,7 +77,7 @@ td.wsstatus { vertical-align:middle; width:200px; height:50px;
 	margin:10px;
 	border-radius:8px;
 	border: 1px solid black;
-	border-collapse: collapse;font-size:18pt; font-family: Arial; font-weight:normal; text-align:center; color:#000000; 
+	border-collapse: collapse;font-size:18pt; font-family: Arial, sans-serif; font-weight:normal; 
 	color:#404000; }
 	
 td.l { vertical-align:middle;
@@ -188,3 +188,14 @@ span.f12 { font-size:12pt }
 		padding:3px; 
 		-webkit-border-radius:3px; 
 		border-radius:3px; }
+
+.sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	border: 0;
+}

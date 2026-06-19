@@ -72,8 +72,8 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 		 * timeout protection set in client-handshake.c
 		 */
 		if (pollfd->revents & LWS_POLLOUT)
-			if (lws_client_connect_3_connect(wsi, NULL, NULL, 0, NULL) == NULL) {
-				lwsl_client("closed\n");
+			if (lws_client_connect_3_connect(wsi, NULL, NULL, 0, pollfd) == NULL) {
+				lwsl_client("closed\\n");
 				return LWS_HPI_RET_WSI_ALREADY_DIED;
 			}
 		break;

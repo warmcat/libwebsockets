@@ -258,7 +258,7 @@ lws_mqtt_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd,
 		 * timeout protection set in client-handshake.c
 		 */
 		if (pollfd->revents & LWS_POLLOUT)
-			lws_client_connect_3_connect(wsi, NULL, NULL, 0, NULL);
+			lws_client_connect_3_connect(wsi, NULL, NULL, 0, pollfd);
 		break;
 
 #if defined(LWS_WITH_TLS)

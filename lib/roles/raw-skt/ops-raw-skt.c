@@ -243,7 +243,7 @@ try_pollout:
 
 #if defined(LWS_WITH_CLIENT)
 	if (lwsi_state(wsi) == LRS_WAITING_CONNECT) {
-	    if (!lws_client_connect_3_connect(wsi, NULL, NULL, 0, NULL))
+	    if (!lws_client_connect_3_connect(wsi, NULL, NULL, 0, pollfd))
 		return LWS_HPI_RET_WSI_ALREADY_DIED;
 
 	    if (lws_raw_skt_connect(wsi) < 0)

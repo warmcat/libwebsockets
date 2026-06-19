@@ -1038,14 +1038,38 @@ try_next_dns_result_fds:
 	} else {
 		compatible_close(wsi->desc.sockfd);
 		wsi->desc.sockfd = LWS_SOCK_INVALID;
+		
+#if defined(LWS_WITH_CLIENT)
+		/* promote a parallel connection to primary if possible */
+		int first_valid = -1;
+		for (int i = 0; i < wsi->parallel_count; i++) {
+			if (wsi->parallel_conns[i].is_valid) {
+				first_valid = i;
+				break;
+			}
+		}
+		if (first_valid != -1) {
+			wsi->desc.sockfd = wsi->parallel_conns[first_valid].desc.sockfd;
+			wsi->position_in_fds_table = wsi->parallel_conns[first_valid].position_in_fds_table;
+			wsi->parallel_conns[first_valid].is_valid = 0;
+		}
+#endif
 	}
 
 try_next_dns_result:
-	if (is_parallel) {
-		wsi->parallel_count--;
-		/* a parallel connection failed, but the primary is still connecting */
-		return wsi;
+#if defined(LWS_WITH_CLIENT)
+	{
+		int any_valid = lws_socket_is_valid(wsi->desc.sockfd);
+		for (int i = 0; i < wsi->parallel_count; i++) {
+			if (wsi->parallel_conns[i].is_valid)
+				any_valid = 1;
+		}
+		if (any_valid) {
+			/* some connection is still running */
+			return wsi;
+		}
 	}
+#endif
 
 		lws_sul_cancel(&wsi->sul_connect_timeout);
 #if defined(WIN32)
