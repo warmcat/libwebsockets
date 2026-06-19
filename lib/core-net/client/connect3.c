@@ -1015,7 +1015,7 @@ ads_known:
 					grace_us = 3000000;
 			}
 		}
-		lwsl_wsi_notice(wsi, "QUIC socket created, starting grace timer %uus", grace_us);
+		lwsl_wsi_notice(wsi, "QUIC socket created, starting grace timer %uus", (unsigned int)grace_us);
 		lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->sul_h3_grace,
 				 lws_client_h3_grace_cb, grace_us);
 
