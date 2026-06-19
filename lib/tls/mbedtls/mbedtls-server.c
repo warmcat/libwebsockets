@@ -351,7 +351,7 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 		return 1;
 	}
 
-	conn->net.MBEDTLS_PRIVATE_V30_ONLY(fd) = accept_fd;
+	conn->net.MBEDTLS_PRIVATE_V30_ONLY(fd) = (int)accept_fd;
 	mbedtls_ssl_set_bio(&conn->ssl, &conn->net, lws_plat_mbedtls_net_send, lws_plat_mbedtls_net_recv, NULL);
 
 	return 0;
