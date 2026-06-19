@@ -2987,9 +2987,10 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				uint8_t *h_start = hdr_buf + LWS_PRE;
 				uint8_t *h_p = h_start;
 				uint8_t *h_end = hdr_buf + sizeof(hdr_buf) - 1;
-				if (lws_add_http_common_headers(wsi, HTTP_STATUS_FOUND, "text/html", 0, &h_p, h_end)) return lws_http_transaction_completed(wsi);
-				if (lws_add_http_header_by_name(wsi, (unsigned char *)"location:", (unsigned char *)loc, (int)strlen(loc), &h_p, h_end)) return lws_http_transaction_completed(wsi);
-				if (lws_finalize_write_http_header(wsi, h_start, &h_p, h_end)) return lws_http_transaction_completed(wsi);
+				if (lws_add_http_common_headers(wsi, HTTP_STATUS_FOUND, "text/html", 0, &h_p, h_end) ||
+				    lws_add_http_header_by_name(wsi, (unsigned char *)"location:", (unsigned char *)loc, (int)strlen(loc), &h_p, h_end) ||
+				    lws_finalize_write_http_header(wsi, h_start, &h_p, h_end))
+					return 1;
 				return lws_http_transaction_completed(wsi);
 			}
 
@@ -3022,9 +3023,10 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			uint8_t *h_start = hdr_buf + LWS_PRE;
 			uint8_t *h_p = h_start;
 			uint8_t *h_end = hdr_buf + sizeof(hdr_buf) - 1;
-			if (lws_add_http_common_headers(wsi, HTTP_STATUS_FOUND, "text/html", 0, &h_p, h_end)) return lws_http_transaction_completed(wsi);
-			if (lws_add_http_header_by_name(wsi, (unsigned char *)"location:", (unsigned char *)loc, (int)strlen(loc), &h_p, h_end)) return lws_http_transaction_completed(wsi);
-			if (lws_finalize_write_http_header(wsi, h_start, &h_p, h_end)) return lws_http_transaction_completed(wsi);
+			if (lws_add_http_common_headers(wsi, HTTP_STATUS_FOUND, "text/html", 0, &h_p, h_end) ||
+			    lws_add_http_header_by_name(wsi, (unsigned char *)"location:", (unsigned char *)loc, (int)strlen(loc), &h_p, h_end) ||
+			    lws_finalize_write_http_header(wsi, h_start, &h_p, h_end))
+				return 1;
 			return lws_http_transaction_completed(wsi);
 		}
 

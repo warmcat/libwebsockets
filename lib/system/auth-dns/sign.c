@@ -702,7 +702,7 @@ cmp_rrset(const void *a, const void *b)
 {
 	const struct auth_dns_rrset *ra = *(const struct auth_dns_rrset **)a;
 	const struct auth_dns_rrset *rb = *(const struct auth_dns_rrset **)b;
-	uint8_t w1[256], w2[256];
+	uint8_t w1[256] = {0}, w2[256] = {0};
 	size_t l1 = sizeof(w1), l2 = sizeof(w2);
 
 	name_to_wire(ra->name, _sort_ctx.origin, w1, &l1);

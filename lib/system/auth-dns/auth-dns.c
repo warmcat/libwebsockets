@@ -94,7 +94,7 @@ lws_auth_dns_parse_zone_buf(const char *buf, size_t len, struct auth_dns_zone *z
 	int in_parens = 0;
 	int in_comment = 0;
 
-	char line_accum[16384];
+	char line_accum[16384] = {0};
 	size_t lptr = 0;
 	int loop_cycles = 0;
 

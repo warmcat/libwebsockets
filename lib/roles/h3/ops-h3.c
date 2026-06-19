@@ -554,9 +554,8 @@ lws_h3_parse_varint_accum(struct lws *wsi, const uint8_t **pbuf, size_t *plen, u
 static int
 rops_client_bind_h3(struct lws *wsi, const struct lws_client_connect_info *i)
 {
-	if (!i)
-		return 0;
-
+	(void)wsi;
+	(void)i;
 	/* 
 	 * If alpn was specified as h3, we want to start as quic, 
 	 * and when ALPN confirms h3, the streams transition to h3.

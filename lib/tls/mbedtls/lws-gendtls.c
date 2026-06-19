@@ -319,9 +319,6 @@ lws_gendtls_get_rx(struct lws_gendtls_ctx *ctx, uint8_t *out, size_t max_len)
 		return -1;
 	}
 
-	if (ret == 0) /* EOF */
-		return -1;
-
 	return -1;
 }
 
