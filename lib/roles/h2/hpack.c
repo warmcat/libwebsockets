@@ -1070,6 +1070,27 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 			ah->parser_state = WSI_TOKEN_NAME_PART;
 			ah->lextable_pos = 0;
 			h2n->unknown_header = 0;
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+			/*
+			 * h2 doesn't use the h1 header text parser to lay down
+			 * the unknown-header storage (the name comes in via
+			 * hpack one char at a time and the value never passes
+			 * through the h1 value collector).  So for substreams
+			 * we build the UHO entry ourselves as the name/value
+			 * are decoded: speculatively reserve the entry header
+			 * before the name now, then finalize (or abandon, if it
+			 * turns out to be a header lws knows) at name complete.
+			 */
+			if (wsi->mux_substream && !h2n->value) {
+				ah->unk_pos = 0;
+				if (ah->pos + UHO_NAME <
+				    wsi->a.context->max_http_header_data) {
+					ah->unk_pos = ah->pos;
+					for (n = 0; n < UHO_NAME; n++)
+						ah->data[ah->pos++] = 0;
+				}
+			}
+#endif
 			break;
 		}
 
@@ -1181,8 +1202,14 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 							    __func__);
 						return 1;
 					}
-				} //else
-					//lwsl_header("ignoring %c\n", c1);
+				}
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+				else if (wsi->mux_substream && ah->unk_pos &&
+					 ah->unk_value_pos && ah->pos + 1 <
+					 wsi->a.context->max_http_header_data)
+					/* collect unknown-header value byte */
+					ah->data[ah->pos++] = (char)c1;
+#endif
 			} else {
 				/*
 				 * Convert name using existing parser,
@@ -1206,6 +1233,19 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 						"Uppercase literal hpack hdr");
 					return 1;
 				}
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+				/*
+				 * Speculatively collect the name into the UHO
+				 * entry we reserved.  We must do this before
+				 * lws_parse() below: if it recognizes a known
+				 * header it does lws_frag_start() using the
+				 * current ah->pos, which has to already point
+				 * past the name we are stashing here.
+				 */
+				if (ah->unk_pos &&
+				    ah->pos + 1 < wsi->a.context->max_http_header_data)
+					ah->data[ah->pos++] = (char)c1;
+#endif
 				plen = 1;
 				if (!h2n->unknown_header &&
 				    lws_parse(wsi, &c1, &plen))
@@ -1258,6 +1298,38 @@ fin:
 				wsi->seen_nonpseudoheader = 1;
 			}
 		}
+
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+		/*
+		 * The name part just completed.  If lws didn't recognize it,
+		 * finalize the UHO entry we have been building (the name is
+		 * stored with a trailing ':' to match the h1 storage format,
+		 * which is what the lws_hdr_custom_*() accessors expect) and
+		 * link it into the unknown-header list.  Otherwise drop the
+		 * speculative name (the recognized header's value frag was
+		 * already located past it by the lws header parser).
+		 */
+		if (wsi->mux_substream && ah->unk_pos && !h2n->value) {
+			if (h2n->unknown_header &&
+			    ah->pos + 1 < wsi->a.context->max_http_header_data) {
+				ah->data[ah->pos++] = ':';
+				lws_ser_wu16be((uint8_t *)&ah->data[ah->unk_pos +
+								    UHO_NLEN],
+					(uint16_t)((ah->pos - ah->unk_pos) -
+						   UHO_NAME));
+				if (!ah->unk_ll_head)
+					ah->unk_ll_head = ah->unk_pos;
+				if (ah->unk_ll_tail)
+					lws_ser_wu32be((uint8_t *)&ah->data[
+						ah->unk_ll_tail + UHO_LL],
+						ah->unk_pos);
+				ah->unk_ll_tail = ah->unk_pos;
+				ah->unk_value_pos = ah->pos;
+			} else
+				/* known header, or no room: drop capture */
+				ah->unk_pos = 0;
+		}
+#endif
 
 		/* we have the header */
 		if (!h2n->value) {
@@ -1354,6 +1426,20 @@ add_it:
 
 		if (lws_hpack_handle_pseudo_rules(nwsi, wsi, m))
 			return 1;
+
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+		/*
+		 * Value part complete: if we were collecting an unknown
+		 * header, record the value length to finish the UHO entry.
+		 */
+		if (wsi->mux_substream && ah->unk_pos && ah->unk_value_pos) {
+			lws_ser_wu16be((uint8_t *)&ah->data[ah->unk_pos +
+							    UHO_VLEN],
+				(uint16_t)(ah->pos - ah->unk_value_pos));
+			ah->unk_pos = 0;
+			ah->unk_value_pos = 0;
+		}
+#endif
 
 		h2n->is_first_header_char = 1;
 		h2n->hpack = HPKS_TYPE;
