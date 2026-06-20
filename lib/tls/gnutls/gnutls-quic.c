@@ -54,8 +54,10 @@ gnutls_quic_bio_push(gnutls_transport_ptr_t ptr, const void *buf, size_t len)
 static ssize_t
 gnutls_quic_bio_pull(gnutls_transport_ptr_t ptr, void *buf, size_t len)
 {
+	struct gnutls_quic_bio *b = (struct gnutls_quic_bio *)ptr;
 	/* We don't pull from the Record Layer. QUIC data is pushed via gnutls_handshake_write. */
-	return (ssize_t)len;
+	gnutls_transport_set_errno(b->session, EAGAIN);
+	return -1;
 }
 
 static int

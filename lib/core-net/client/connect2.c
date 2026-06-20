@@ -377,6 +377,9 @@ solo:
 				if (wsi->udp) {
 					struct lws_client_connect_info i;
 					wsi->tried_quic = 1;
+#if defined(LWS_ROLE_QUIC)
+					wsi->quic.quic_race_start_us = lws_now_usecs();
+#endif
 					memset(&i, 0, sizeof(i));
 					i.method = "QUIC";
 					i.alpn = "h3";

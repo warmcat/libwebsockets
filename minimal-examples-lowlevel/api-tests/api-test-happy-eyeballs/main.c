@@ -114,6 +114,9 @@ static struct lws *client_wsi = NULL;
 static int established_success = 0;
 static int next_step = 0;
 
+static int port_tcp = 7681;
+static int port_quic = 7682;
+
 static void
 start_client_connection(void)
 {
@@ -122,7 +125,7 @@ start_client_connection(void)
 	memset(&i, 0, sizeof(i));
 	i.context = context;
 	i.vhost = lws_get_vhost_by_name(context, "client");
-	i.port = 7681;
+	i.port = port_tcp;
 	i.address = "localhost";
 	i.host = "localhost";
 	i.origin = "localhost";
@@ -227,14 +230,17 @@ callback_tcp_server(struct lws *wsi, enum lws_callback_reasons reason,
 		{
 			uint8_t buf[LWS_PRE + 2048], *start = &buf[LWS_PRE], *p = start,
 				*end = &buf[sizeof(buf) - 1];
+			char altsvc[64];
+			int altsvc_len;
 
 			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
 					"text/html",
 					13, &p, end))
 				return 1;
 			/* Inject Alt-Svc pointing to our QUIC vhost */
+			altsvc_len = lws_snprintf(altsvc, sizeof(altsvc), "h3=\":%d\"", port_quic);
 			if (lws_add_http_header_by_name(wsi, (unsigned char *)"alt-svc:",
-					(unsigned char *)"h3=\":7682\"", 9, &p, end))
+					(unsigned char *)altsvc, altsvc_len, &p, end))
 				return 1;
 			if (lws_finalize_write_http_header(wsi, start, &p, end))
 				return 1;
@@ -270,10 +276,16 @@ void sigint_handler(int sig)
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
+	const char *p;
 
 	lws_context_info_defaults(&info, NULL);
 	info.fd_limit_per_thread = 0;
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
+
+	if ((p = lws_cmdline_option(argc, argv, "-p")))
+		port_tcp = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, "-q")))
+		port_quic = atoi(p);
 
 	signal(SIGINT, sigint_handler);
 
@@ -305,15 +317,22 @@ int main(int argc, const char **argv)
 		goto bail;
 	}
 
-	if (!lws_create_adopt_udp(vh_quic_server, NULL, 7682, LWS_CAUDP_BIND,
+	if (!lws_create_adopt_udp(vh_quic_server, NULL, port_quic, LWS_CAUDP_BIND,
 				  "http", NULL, NULL, NULL,
 				  NULL, "quic_listen")) {
-		lwsl_err("Failed to bind QUIC UDP listener\n");
+		lwsl_err("Failed to bind QUIC UDP listener (IPv6)\n");
+		goto bail;
+	}
+
+	if (!lws_create_adopt_udp(vh_quic_server, "127.0.0.1", port_quic, LWS_CAUDP_BIND,
+				  "http", NULL, NULL, NULL,
+				  NULL, "quic_listen")) {
+		lwsl_err("Failed to bind QUIC UDP listener (IPv4)\n");
 		goto bail;
 	}
 
 	/* TCP server */
-	info.port = 7681;
+	info.port = port_tcp;
 	info.vhost_name = "tcp-server";
 	info.listen_accept_role = "h2";
 	info.listen_accept_protocol = "http";

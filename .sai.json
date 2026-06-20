@@ -140,7 +140,7 @@
 			"cmake":	"-DLWS_WITH_SYS_FAULT_INJECTION=1 -DLWS_WITH_MINIMAL_EXAMPLES=1 -DLWS_WITH_CBOR=1"
 		},
 		"esp32-heltec": {
-                        "cmake":        "-DLWS_IPV6=1",
+                        "cmake":        "-DLWS_WITH_JPEG=0 -DLWS_WITH_UPNG=0 -DLWS_WITH_DLO=0 -DLWS_WITH_LHP=0 -DLWS_WITH_GZINFLATE=0 -DLWS_WITH_STUB=0 ",
                         "cpack":        "esp-heltec-wb32",
                         "platforms":    "none, freertos-espidf/xl6-esp32/gcc"
                 },

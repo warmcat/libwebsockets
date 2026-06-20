@@ -1626,7 +1626,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 		cci.name		= "H3CAP";
 		cci.max_footprint	= 4096;
 		cci.max_items		= 256;
-		cci.max_payload		= 8; /* Just an enum */
+		cci.max_payload		= sizeof(lws_h3_cap_info_t);
 
 		context->h3_cap_cache = lws_cache_create(&cci);
 		if (!context->h3_cap_cache) {

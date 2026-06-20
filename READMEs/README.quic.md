@@ -1,8 +1,36 @@
+# Overiew of quic / h3 considerations
+
+## Quic is the UDP-based transport underlying h3
+
+`LWS_WITH_HTTP3` is enabled by default in lws, whenever that's enabled it auto-enabled `LWS_WITH_QUIC`.  So you can just think of it as QUIC / HTTP3 / UDP / WebTransport or not.
+
+## There are many situations in the world, client h3 is blocked and has to fall back to h2
+
+Unless you control the client network environment, you can bet on quic/h3 UDP :443 being blocked eg, by corporate firewalls.  It means for general use, you can only choose to combine h3 **in addition** to h1 / h2 as a fallback.
+
+## That's unfortunate because h3 is much cheaper on memory
+
+"TCP TLS" as used on h1 / h2 requires about 40KB per tcp connection.  quic tls is much cheaper, a few KB + ~4KB for qpack / h3 dynamic headers.
+
+## h3 does not have to be provided on h2 addresses or ports
+
+There are two ways that clients can hear about h3... first is a DNS record called "HTTP3" which if it exists, points to the addresses and ports you should be able to connect to it on.  Note these addresses don't have to be the main domain or :443.  Second, if you defaulted or fell back to h2, then the h2 server can serve a header called "alt-svc" which may, again, tell you where to go to get h3 service.
+
+## lws has sophisticated parallel try and fallback mechanisms
+
+Lws has combined support for "happy eyeballs" client connection optimization.  I
+
+## Only some TLS libraries support Quic compatibly with lws
+
+ - TLS libraries compatible with h3 + lws: Gnutls, Boringssl, Libressl, AWS-LC, WolfSSL, schannel
+ - On Windows, the default is now schannel, the built-in tls library.
+ - OpenSSL is not compatible with lws quic/h3.  This was the default for lws, it still is for LWS_WITH_HTTP3=0
+ - With LWS_WITH_HTTP3=1 on non-windows, then the new default is gnutls.  This is very mature and supported everywhere.
+ - Mbedtls is not compatible with quic/h3 as of 2026-06.  However, we provide a small OOT patch on mbedtls that makes it compatible (https://libwebsockets.org/git/mbedtls/log?h=development ).  lws detects if the patch is applied and enables quic/h3 build with mbedtls.
+
 # libwebsockets QUIC and TLS Backends
 
-Libwebsockets supports the QUIC transport protocol (RFC 9000) using a variety of TLS backends. Since QUIC relies on TLS 1.3 for its cryptographic handshake and secret derivation, configuring your chosen TLS library correctly is essential.
-
-This guide outlines how to clone, build, and link each supported TLS backend for use with lws QUIC, specifically targeting the `lws-minimal-quic-client-server` tests.
+clone, build, and link each supported TLS backend for use with lws QUIC, specifically targeting the `lws-minimal-quic-client-server` tests.
 
 ## General Considerations
 

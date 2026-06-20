@@ -1,5 +1,5 @@
-project(lws-minimal-secure-streams-cpp CXX)
 cmake_minimum_required(VERSION 3.10)
+project(lws-minimal-secure-streams-cpp C)
 find_package(libwebsockets CONFIG REQUIRED)
 list(APPEND CMAKE_MODULE_PATH ${LWS_CMAKE_DIR})
 include(CheckCSourceCompiles)
@@ -18,6 +18,7 @@ require_lws_config(LWS_WITH_SECURE_STREAMS_STATIC_POLICY_ONLY 0 requirements)
 require_lws_config(USE_WOLFSSL 0 requirements)
 
 if (requirements)
+	enable_language(CXX)
 	add_executable(${SAMP} main.cxx)
 
 	if (LWS_CTEST_INTERNET_AVAILABLE)

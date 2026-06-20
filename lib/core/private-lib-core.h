@@ -443,6 +443,14 @@ typedef enum {
 	LWS_H3_STATE_FAILED_IGNORE
 } lws_h3_state_t;
 
+#define LWS_QUIC_GRACE_DEFAULT_US 2000000
+#define LWS_QUIC_GRACE_MARGIN_US  200000
+
+typedef struct {
+	lws_h3_state_t state;
+	uint32_t latency_us;
+} lws_h3_cap_info_t;
+
 /*
  * the rest is managed per-context, that includes
  *

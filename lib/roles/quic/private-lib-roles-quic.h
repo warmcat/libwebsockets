@@ -376,11 +376,13 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 #define LWS_QUIC_DEFAULT_PTO_US 500000 /* 500ms baseline PTO for early dev */
 
 struct _lws_quic_related {
-	struct lws_quic_netconn *qn; /* malloc'd for root net conn */
-	struct lws_quic_stream *qs; /* malloc'd for stream child wsi */
+        struct lws_quic_netconn *qn; /* malloc'd for root net conn */
+        struct lws_quic_stream *qs; /* malloc'd for stream child wsi */
 
-	uint8_t initialized:1;
-	uint8_t tx_blocked_sent:1;
+        lws_usec_t quic_race_start_us;
+
+        uint8_t initialized:1;
+        uint8_t tx_blocked_sent:1;
 };
 
 #endif

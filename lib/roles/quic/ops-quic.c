@@ -2259,6 +2259,11 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	struct lws *nwsi;
 	const struct lws_role_ops *role;
 
+#if defined(LWS_WITH_CLIENT)
+	if (lwsi_role_client(wsi))
+		lws_sul_cancel(&wsi->sul_h3_grace);
+#endif
+
 	if (strcmp(alpn, "h3") && strcmp(alpn, "lws-quic"))
 		return 0;
 
@@ -2373,11 +2378,9 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 
 #if defined(LWS_WITH_CLIENT)
 	/* 
-	 * QUIC succeeded! Resolve the race by cancelling the grace timer 
-	 * and killing parallel TCP connections. 
+	 * QUIC succeeded! Resolve the race by killing parallel TCP connections. 
 	 */
 	if (lwsi_role_client(wsi)) {
-		lws_sul_cancel(&wsi->sul_h3_grace);
 		
 		for (int i = 0; i < wsi->parallel_count; i++) {
 			if (wsi->parallel_conns[i].is_valid) {
@@ -2387,9 +2390,12 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 		wsi->parallel_count = 0;
 
 		if (wsi->a.context->h3_cap_cache && wsi->stash && wsi->stash->cis[CIS_HOST]) {
-			lws_h3_state_t state = LWS_H3_STATE_KNOWN_GOOD;
-			lws_cache_write_through(wsi->a.context->h3_cap_cache, wsi->stash->cis[CIS_HOST], 
-						(const uint8_t *)&state, sizeof(state), 
+			lws_h3_cap_info_t cap;
+			cap.state = LWS_H3_STATE_KNOWN_GOOD;
+			cap.latency_us = (uint32_t)(lws_now_usecs() - wsi->quic.quic_race_start_us);
+
+			lws_cache_write_through(wsi->a.context->h3_cap_cache, wsi->stash->cis[CIS_HOST],
+						(const uint8_t *)&cap, sizeof(cap),
 						lws_now_usecs() + (3600ll * LWS_US_PER_SEC), NULL);
 		}
 	}
