@@ -335,14 +335,11 @@ lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
 		return;
 
 #if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
-	if (wsi->udp && wsi->tried_quic && wsi->role_ops && !strcmp(wsi->role_ops->name, "quic")) {
-		const char *path = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI);
-		const char *host = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST);
-		const char *ads = wsi->cli_hostname_copy;
+	if (wsi->tried_quic && wsi->role_ops && !strcmp(wsi->role_ops->name, "quic")) {
+		const char *path = wsi->stash ? wsi->stash->cis[CIS_PATH] : lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI);
+		const char *host = wsi->stash ? wsi->stash->cis[CIS_HOST] : lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST);
+		const char *ads = wsi->stash ? wsi->stash->cis[CIS_ADDRESS] : wsi->cli_hostname_copy;
 		
-		if (!ads && wsi->stash) 
-			ads = wsi->stash->cis[CIS_ADDRESS];
-
 		if (wsi->dns_sorted_list.count) {
 			struct lws_dll2 *d = lws_dll2_get_head(&wsi->dns_sorted_list);
 			lws_dns_sort_t *ds = lws_container_of(d, lws_dns_sort_t, list);
@@ -361,6 +358,8 @@ lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
 			}
 		}
 			
+		if (!ads) ads = host;
+		
 		if (ads && host && path) {
 			wsi->tried_quic = 0;
 			lwsl_wsi_notice(wsi, "QUIC connection failed, falling back to TCP");

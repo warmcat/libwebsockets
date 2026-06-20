@@ -581,30 +581,35 @@ single:
 
 check_quic:
 #if defined(LWS_ROLE_QUIC)
-        if (!vhost->context->lws_stub &&
-            LWS_SSL_ENABLED(vhost) &&
-            !lws_vhost_foreach_listen_wsi(vhost->context, &a, check_extant_quic)) {
-                
+	{
+		const char *alpn = vhost->tls.alpn ? vhost->tls.alpn : vhost->context->tls.alpn_default;
+		if (!vhost->context->lws_stub &&
+		    LWS_SSL_ENABLED(vhost) &&
+		    alpn &&
+		    (strstr(alpn, "h3") || strstr(alpn, "lws-quic")) &&
+		    !lws_vhost_foreach_listen_wsi(vhost->context, &a, check_extant_quic)) {
+			
 #if defined(LWS_WITH_IPV6)
-                if (LWS_IPV6_ENABLED(vhost)) {
-                        const char *ads6 = vhost->iface ? vhost->iface : "::";
-                        if (!lws_create_adopt_udp(vhost, ads6, vhost->listen_port,
-                                                  LWS_CAUDP_BIND, "quic", vhost->iface, NULL,
-                                                  NULL, NULL, "quic_listen")) {
-                                lwsl_vhost_err(vhost, "Failed to bind QUIC IPv6 UDP listener");
-                        }
-                }
+			if (LWS_IPV6_ENABLED(vhost)) {
+				const char *ads6 = vhost->iface ? vhost->iface : "::";
+				if (!lws_create_adopt_udp(vhost, ads6, vhost->listen_port,
+							  LWS_CAUDP_BIND, "quic", vhost->iface, NULL,
+							  NULL, NULL, "quic_listen")) {
+					lwsl_vhost_err(vhost, "Failed to bind QUIC IPv6 UDP listener");
+				}
+			}
 #endif
-                if (!vhost->iface || !LWS_IPV6_ENABLED(vhost) || 
-                    (vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE)) {
-                        const char *ads4 = vhost->iface ? vhost->iface : "0.0.0.0";
-                        if (!lws_create_adopt_udp(vhost, ads4, vhost->listen_port,
-                                                  LWS_CAUDP_BIND, "quic", vhost->iface, NULL,
-                                                  NULL, NULL, "quic_listen")) {
-                                lwsl_vhost_err(vhost, "Failed to bind QUIC IPv4 UDP listener");
-                        }
-                }
-        }
+			if (!vhost->iface || !LWS_IPV6_ENABLED(vhost) || 
+			    (vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE)) {
+				const char *ads4 = vhost->iface ? vhost->iface : "0.0.0.0";
+				if (!lws_create_adopt_udp(vhost, ads4, vhost->listen_port,
+							  LWS_CAUDP_BIND, "quic", vhost->iface, NULL,
+							  NULL, NULL, "quic_listen")) {
+					lwsl_vhost_err(vhost, "Failed to bind QUIC IPv4 UDP listener");
+				}
+			}
+		}
+	}
 #endif
 	return 0;
 }

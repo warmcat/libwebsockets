@@ -82,9 +82,11 @@ lws_client_h3_grace_cb(lws_sorted_usec_list_t *sul)
 
 	/* Mark H3 as FAILED in cache with 5s TTL */
 	if (wsi->a.context->h3_cap_cache && wsi->stash && wsi->stash->cis[CIS_HOST]) {
-		lws_h3_state_t state = LWS_H3_STATE_FAILED_IGNORE;
+		lws_h3_cap_info_t cap;
+		memset(&cap, 0, sizeof(cap));
+		cap.state = LWS_H3_STATE_FAILED_IGNORE;
 		lws_cache_write_through(wsi->a.context->h3_cap_cache, wsi->stash->cis[CIS_HOST], 
-					(const uint8_t *)&state, sizeof(state), 
+					(const uint8_t *)&cap, sizeof(cap), 
 					lws_now_usecs() + (5000000ll), NULL);
 	}
 
@@ -102,12 +104,6 @@ lws_client_h3_grace_cb(lws_sorted_usec_list_t *sul)
 		if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_close_kill_connection))
 			lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_close_kill_connection).close_kill_connection(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 
-		const struct lws_role_ops *r = lws_role_by_name("h2");
-		if (!r) r = lws_role_by_name("h1");
-		if (r) {
-			lws_role_transition(wsi, LWSIFR_CLIENT, LRS_WAITING_CONNECT, r);
-		}
-
 		/* Promote the first parallel TCP connection */
 		int first_valid = -1;
 		for (int i = 0; i < wsi->parallel_count; i++) {
@@ -117,6 +113,11 @@ lws_client_h3_grace_cb(lws_sorted_usec_list_t *sul)
 			}
 		}
 		if (first_valid != -1) {
+			const struct lws_role_ops *r = lws_role_by_name("h2");
+			if (!r) r = lws_role_by_name("h1");
+			if (r) {
+				lws_role_transition(wsi, LWSIFR_CLIENT, LRS_WAITING_CONNECT, r);
+			}
 			wsi->desc.sockfd = wsi->parallel_conns[first_valid].desc.sockfd;
 			wsi->position_in_fds_table = wsi->parallel_conns[first_valid].position_in_fds_table;
 			wsi->parallel_conns[first_valid].is_valid = 0;
@@ -410,7 +411,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	lws_sockfd_type check_fd = pollfd ? pollfd->fd : LWS_SOCK_INVALID;
 
 	int is_quic_race = (wsi->role_ops && !strcmp(wsi->role_ops->name, "quic") && wsi->sul_h3_grace.list.owner);
-	if ((lwsi_state(wsi) == LRS_WAITING_CONNECT || is_quic_race) &&
+	if ((lwsi_state(wsi) == LRS_WAITING_CONNECT || (is_quic_race && pollfd != NULL)) &&
 	    (lws_socket_is_valid(wsi->desc.sockfd) || wsi->parallel_count > 0)) {
 		if (lwsi_state(wsi) == LRS_WAITING_CONNECT && !wsi->sul_connect_timeout.list.owner)
 			/* no ongoing timeout for one */
@@ -1005,14 +1006,17 @@ ads_known:
 		return wsi;
 	} else if (!is_parallel && wsi->role_ops && !strcmp(wsi->role_ops->name, "quic")) {
 		/* QUIC connect immediately succeeds. Schedule grace and happy eyeballs. */
-		uint32_t grace_us = 200000;
+		uint32_t grace_us = LWS_QUIC_GRACE_DEFAULT_US;
 		if (wsi->a.context->h3_cap_cache && wsi->stash && wsi->stash->cis[CIS_HOST]) {
 			const void *item = NULL;
 			size_t item_len = 0;
-			if (!lws_cache_item_get(wsi->a.context->h3_cap_cache, wsi->stash->cis[CIS_HOST], &item, &item_len)) {
-				lws_h3_state_t state = *(lws_h3_state_t *)item;
-				if (state == LWS_H3_STATE_KNOWN_GOOD || state == LWS_H3_STATE_HTTPS_RECORD_EXISTS)
-					grace_us = 3000000;
+			if (!lws_cache_item_get(wsi->a.context->h3_cap_cache, wsi->stash->cis[CIS_HOST], &item, &item_len) &&
+			    item_len == sizeof(lws_h3_cap_info_t)) {
+				const lws_h3_cap_info_t *cap = (const lws_h3_cap_info_t *)item;
+				if (cap->state == LWS_H3_STATE_KNOWN_GOOD)
+					grace_us = cap->latency_us + LWS_QUIC_GRACE_MARGIN_US;
+				else if (cap->state == LWS_H3_STATE_HTTPS_RECORD_EXISTS)
+					grace_us = LWS_QUIC_GRACE_DEFAULT_US;
 			}
 		}
 		lwsl_wsi_notice(wsi, "QUIC socket created, starting grace timer %uus", (unsigned int)grace_us);

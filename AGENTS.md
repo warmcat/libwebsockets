@@ -16,6 +16,9 @@ Our work should follow the existing usage of apis in the project as much as poss
 We will be working on the same sources, do not build into ./build since I will be using it; make
 your own ./build-agy or whatever.
 
+Use cmake .. --fresh in order to force the build dir to align with your options no matter what
+was in there before.
+
 While the idea is you should modify and test sources towards some goal, please do NOT modify the
 git state unless directly asked.
 
@@ -69,8 +72,8 @@ cross-platform, and not include shellscripts, instead use cmake / ctest commands
 commands for the platform.
 
 minimal-examples-lowlevel/http-client/minimal-http-client-post/CMakeLists.txt shows how to use the fixtures
-stuff to magic peers into being while being sensitive to parallel CI using `$ENV{SAI_INSTANCE_IDX}` to make
-unique ports.
+stuff to magic peers into being while being sensitive to parallel CI using a CMake unique socket allocator
+function to make unique ports.
 
 In the case you can build and run ctest meaningfully, please do confirm the build passes before completing
 work on your goal.

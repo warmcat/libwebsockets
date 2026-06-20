@@ -28,7 +28,9 @@
 #include "openhitls/private.h"
 #endif
 
-#if defined(LWS_WITH_TLS_KEYLOG) && !defined(LWS_WITH_OPENHITLS)
+#if defined(LWS_WITH_TLS_KEYLOG) && !defined(LWS_WITH_OPENHITLS) && \
+	!defined(LWS_WITH_GNUTLS) && !defined(LWS_WITH_MBEDTLS) && \
+	!defined(LWS_WITH_BEARSSL) && !defined(LWS_WITH_SCHANNEL)
 void
 lws_klog_dump(const SSL *ssl, const char *line)
 {
