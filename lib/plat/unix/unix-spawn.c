@@ -455,40 +455,31 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 
 	/* create pipes for [stdin|stdout] and [stderr] */
 
-	for (n = 0; n < 3; n++) {
-		if (i->pty_mode && n != LWS_STDIN) {
-			if (n == LWS_STDOUT) {
-				int master = posix_openpt(O_RDWR | O_NOCTTY);
-				if (master >= 0) {
-					if (grantpt(master) == 0 && unlockpt(master) == 0) {
-						char *slavename = ptsname(master);
-						if (slavename) {
-							int slave = open(slavename, O_RDWR | O_NOCTTY);
-							if (slave >= 0) {
-								struct termios t;
-								tcgetattr(slave, &t);
-								t.c_iflag &= (tcflag_t)~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
-								t.c_oflag &= (tcflag_t)~OPOST;
-								t.c_lflag &= (tcflag_t)~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
-								t.c_cflag &= (tcflag_t)~(CSIZE | PARENB);
-								t.c_cflag |= CS8;
-								tcsetattr(slave, TCSANOW, &t);
-								lsp->pipe_fds[n][0] = master;
-								lsp->pipe_fds[n][1] = slave;
-							}
-						}
-					}
+	if (i->pty_mode) {
+		int master = posix_openpt(O_RDWR | O_NOCTTY);
+		if (master >= 0 && grantpt(master) == 0 && unlockpt(master) == 0) {
+			char *slavename = ptsname(master);
+			if (slavename) {
+				int slave = open(slavename, O_RDWR | O_NOCTTY);
+				if (slave >= 0) {
+					/* map stdin, stdout, stderr to the PTY slave */
+					lsp->pipe_fds[LWS_STDIN][0] = slave;   /* child reads from slave */
+					lsp->pipe_fds[LWS_STDIN][1] = master;  /* parent writes to master */
+					lsp->pipe_fds[LWS_STDOUT][0] = master; /* parent reads from master */
+					lsp->pipe_fds[LWS_STDOUT][1] = slave;  /* child writes to slave */
+					lsp->pipe_fds[LWS_STDERR][0] = -1;     /* no separate reader for stderr */
+					lsp->pipe_fds[LWS_STDERR][1] = slave;  /* child writes to slave */
 				}
-				if (lsp->pipe_fds[n][0] == -1) {
-					lwsl_err("%s: posix_openpt failed\n", __func__);
-					goto bail1;
-				}
-			} else {
-				/* STDERR: fuse into STDOUT's pty */
-				lsp->pipe_fds[n][0] = -1; /* parent has no separate reader */
-				lsp->pipe_fds[n][1] = lsp->pipe_fds[LWS_STDOUT][1]; /* child dup2s this */
 			}
-		} else {
+		}
+		if (lsp->pipe_fds[LWS_STDOUT][0] == -1) {
+			lwsl_err("%s: posix_openpt failed\n", __func__);
+			goto bail1;
+		}
+	}
+
+	for (n = 0; n < 3; n++) {
+		if (!i->pty_mode) {
 			if (pipe(lsp->pipe_fds[n]) == -1)
 				goto bail1;
 		}
@@ -783,6 +774,7 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 			setsid();
 #if !defined(__sun) && !defined(__HAIKU__) && !defined(__CYGWIN__)
 			ioctl(0, TIOCSCTTY, 1);
+			tcsetpgrp(0, getpgrp());
 #endif
 		}
 	}
