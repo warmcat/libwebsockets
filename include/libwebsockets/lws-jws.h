@@ -541,7 +541,7 @@ struct lws_jwt_sign_set_cookie {
 	/**< entry: audience */
 	const char			*cookie_name;
 	/**< entry: the name of the cookie */
-	char				sub[33];
+	char				sub[65];
 	/**< sign-entry, validate-exit: subject */
 	const char			*extra_json;
 	/**< sign-entry, validate-exit:

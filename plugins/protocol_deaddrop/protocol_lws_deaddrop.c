@@ -537,7 +537,7 @@ deaddrop_handler_server_http(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 	} else {
 		pss->user[0] = '\0'; /* flush raw headers if basic auth skipped */
 		if (vhd->has_jwk) {
-			struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, wsi);
+			struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, wsi, NULL);
 			if (ja) {
 				const char *sub = lws_jwt_auth_get_sub(ja);
 				if (sub) {
@@ -748,7 +748,7 @@ deaddrop_handler_server_ws_filter_protocol_connection(struct vhd_deaddrop *vhd,
 					if (cookie_buf)
 						free(cookie_buf);
 				} else {
-					struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, wsi);
+					struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, wsi, NULL);
 					if (ja) {
 						const char *sub = lws_jwt_auth_get_sub(ja);
 						if (sub) {

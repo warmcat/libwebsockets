@@ -2921,7 +2921,7 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION:
 		if (vhd && vhd->root_process_active) {
-			struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL);
+			struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL, NULL);
 			if (!ja) {
 				lwsl_notice("%s: No valid JWT found, bounced proxy UI connection\n", __func__);
 				return -1;
