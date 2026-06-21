@@ -34,6 +34,7 @@
 #include <stdlib.h>
 #include <fcntl.h>
 #include <termios.h>
+#include <sys/ioctl.h>
 
 #if defined(__linux__)
 #include <sys/stat.h>
@@ -776,6 +777,13 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 				if (i->pty_mode && m == LWS_STDOUT)
 					cfd[LWS_STDERR] = -1; /* Prevent double close */
 			}
+		}
+
+		if (i->pty_mode) {
+			setsid();
+#if !defined(__sun) && !defined(__HAIKU__) && !defined(__CYGWIN__)
+			ioctl(0, TIOCSCTTY, 1);
+#endif
 		}
 	}
 
