@@ -44,7 +44,8 @@ typedef int (*lws_jwt_auth_cb_t)(struct lws_jwt_auth *ja, int state, void *user)
 LWS_VISIBLE LWS_EXTERN struct lws_jwt_auth *
 lws_jwt_auth_create(struct lws *wsi, struct lws_jwk *jwk,
                     const char *cookie_name,
-                    lws_jwt_auth_cb_t cb, void *user);
+                    lws_jwt_auth_cb_t cb, void *user,
+                    const char **reason);
 
 /**
  * lws_jwt_auth_query_grant() - Extract a dynamic grant level
@@ -127,7 +128,7 @@ lws_jwt_auth_count_grants(struct lws_jwt_auth *ja);
  * recalculates exp, and safely shifts the SUL timer natively.
  */
 LWS_VISIBLE LWS_EXTERN int
-lws_jwt_auth_update(struct lws_jwt_auth *ja, const char *jwt);
+lws_jwt_auth_update(struct lws_jwt_auth *ja, const char *jwt, const char **reason);
 
 /**
  * lws_jwt_auth_destroy() - Gracefully cancels SUL instances and frees the allocation

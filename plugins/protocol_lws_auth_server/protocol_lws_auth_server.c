@@ -806,7 +806,7 @@ lws_auth_api_sso_exchange(struct lws *wsi, struct per_vhost_data__auth_server *v
 		}
 	}
 
-	struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL);
+	struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL, NULL);
 	int was_refreshed = 0;
 
 	if (ja) {
@@ -1052,7 +1052,7 @@ lws_auth_api_device_approve(struct lws *wsi, struct per_vhost_data__auth_server 
 		goto send;
 	}
 
-	struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL);
+	struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL, NULL);
 	uint32_t uid = 0;
 	if (ja) {
 		uid = lws_jwt_auth_get_uid(ja);
@@ -2148,7 +2148,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 
 		if (in && (!strcmp((const char *)in, "/admin"))) {
-			struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL);
+			struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL, NULL);
 			if (!ja || lws_jwt_auth_query_grant(ja, "*") < 1) {
 				if (ja) lws_jwt_auth_destroy(&ja);
 				lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, "Forbidden");
@@ -2213,7 +2213,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		if (in && (!strcmp((const char *)in, "/device"))) {
-			struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL);
+			struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL, NULL);
 			if (!ja || lws_jwt_auth_query_grant(ja, "*") < 1) {
 				if (ja) lws_jwt_auth_destroy(&ja);
 				lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, "Forbidden");
@@ -2446,7 +2446,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				if (vhd->cookie_name[0]) {
 					uint32_t suid = 0;
 					int was_refreshed = 0;
-					struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL);
+					struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL, NULL);
 
 					if (ja) {
 						suid = lws_jwt_auth_get_uid(ja);
@@ -3145,7 +3145,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION:
 	{
-		struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL);
+		struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL, NULL);
 		int gl = ja ? lws_jwt_auth_query_grant(ja, "*") : -1;
 
 		lwsl_notice("%s: FILTER_PROTOCOL_CONNECTION: ja=%p, wildcard grant level=%d\n",

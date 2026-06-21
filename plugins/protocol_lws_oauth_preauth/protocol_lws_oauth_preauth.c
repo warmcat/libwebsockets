@@ -119,7 +119,7 @@ callback_lws_oauth_preauth(struct lws *wsi, enum lws_callback_reasons reason,
 		/* Determine role */
 		pss->is_listener = 0;
 		if (vhd->jwk.kty) {
-			struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL);
+			struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL, NULL);
 			if (ja && lws_jwt_auth_get_uid(ja) > 0) {
 				pss->is_listener = 1;
 			}

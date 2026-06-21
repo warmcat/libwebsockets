@@ -461,18 +461,30 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 			char *slavename = ptsname(master);
 			if (slavename) {
 				int slave = open(slavename, O_RDWR | O_NOCTTY);
-				if (slave >= 0) {
-					/* map stdin, stdout, stderr to the PTY slave */
-					lsp->pipe_fds[LWS_STDIN][0] = slave;   /* child reads from slave */
-					lsp->pipe_fds[LWS_STDIN][1] = master;  /* parent writes to master */
-					lsp->pipe_fds[LWS_STDOUT][0] = master; /* parent reads from master */
-					lsp->pipe_fds[LWS_STDOUT][1] = slave;  /* child writes to slave */
-					lsp->pipe_fds[LWS_STDERR][0] = -1;     /* no separate reader for stderr */
-					lsp->pipe_fds[LWS_STDERR][1] = slave;  /* child writes to slave */
-				}
+					if (slave >= 0) {
+						struct termios t;
+
+						if (!tcgetattr(slave, &t)) {
+							if (i->disable_ctrlc) {
+								t.c_lflag &= ~(tcflag_t)(ISIG | ECHO | ICANON);
+							} else {
+								t.c_lflag |= ISIG | ECHO | ICANON;
+								t.c_cc[VINTR] = 3; /* ^C */
+							}
+							tcsetattr(slave, TCSANOW, &t);
+						}
+
+						/* map stdin, stdout, stderr to the PTY slave */
+						lsp->pipe_fds[LWS_STDIN][0] = slave;   /* child reads from slave */
+						lsp->pipe_fds[LWS_STDIN][1] = master;  /* parent rw to master */
+						lsp->pipe_fds[LWS_STDOUT][0] = -1;     /* fused with stdin */
+						lsp->pipe_fds[LWS_STDOUT][1] = slave;  /* child writes to slave */
+						lsp->pipe_fds[LWS_STDERR][0] = -1;     /* no separate reader for stderr */
+						lsp->pipe_fds[LWS_STDERR][1] = slave;  /* child writes to slave */
+					}
 			}
 		}
-		if (lsp->pipe_fds[LWS_STDOUT][0] == -1) {
+		if (lsp->pipe_fds[LWS_STDIN][0] == -1) {
 			lwsl_err("%s: posix_openpt failed\n", __func__);
 			goto bail1;
 		}
@@ -563,9 +575,16 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		}
 	}
 
-	if (lws_change_pollfd(lsp->stdwsi[LWS_STDIN], LWS_POLLIN, LWS_POLLOUT))
-		goto bail3_unlock;
-	if (lws_change_pollfd(lsp->stdwsi[LWS_STDOUT], LWS_POLLOUT, LWS_POLLIN))
+	if (lsp->stdwsi[LWS_STDIN]) {
+		if (i->pty_mode) {
+			if (lws_change_pollfd(lsp->stdwsi[LWS_STDIN], 0, LWS_POLLIN | LWS_POLLOUT))
+				goto bail3_unlock;
+		} else {
+			if (lws_change_pollfd(lsp->stdwsi[LWS_STDIN], LWS_POLLIN, LWS_POLLOUT))
+				goto bail3_unlock;
+		}
+	}
+	if (lsp->stdwsi[LWS_STDOUT] && lws_change_pollfd(lsp->stdwsi[LWS_STDOUT], LWS_POLLOUT, LWS_POLLIN))
 		goto bail3_unlock;
 	if (lsp->stdwsi[LWS_STDERR] && lws_change_pollfd(lsp->stdwsi[LWS_STDERR], LWS_POLLOUT, LWS_POLLIN))
 		goto bail3_unlock;
@@ -662,8 +681,10 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 			if (lsp->pipe_fds[n][n != 0] >= 0) {
 				close(lsp->pipe_fds[n][n != 0]);
 				/* if fused, prevent double close */
-				if (i->pty_mode && n == LWS_STDOUT)
+				if (i->pty_mode && n == LWS_STDIN) {
+					lsp->pipe_fds[LWS_STDOUT][1] = -1;
 					lsp->pipe_fds[LWS_STDERR][1] = -1;
+				}
 			}
 		}
 
@@ -765,15 +786,17 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		for (m = 0; m < 3; m++) {
 			if (cfd[m] >= 0 && cfd[m] != 0 && cfd[m] != 1 && cfd[m] != 2) {
 				close(cfd[m]);
-				if (i->pty_mode && m == LWS_STDOUT)
+				if (i->pty_mode && m == LWS_STDIN) {
+					cfd[LWS_STDOUT] = -1; /* Prevent double close */
 					cfd[LWS_STDERR] = -1; /* Prevent double close */
+				}
 			}
 		}
 
 		if (i->pty_mode) {
 			setsid();
 #if !defined(__sun) && !defined(__HAIKU__) && !defined(__CYGWIN__)
-			ioctl(0, TIOCSCTTY, 1);
+			ioctl(0, TIOCSCTTY, 0);
 			tcsetpgrp(0, getpgrp());
 #endif
 		}

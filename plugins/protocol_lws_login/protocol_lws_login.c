@@ -597,7 +597,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!service_name)
 			service_name = "";
 
-		ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, lws_login_jwt_auth_cb, wsi);
+		ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, lws_login_jwt_auth_cb, wsi, NULL);
 		if (ja) {
 			int epoch_ok = 1;
 			if (vhd->db) {
@@ -723,7 +723,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 		}
 
-		ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, lws_login_jwt_auth_cb, wsi);
+		ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, lws_login_jwt_auth_cb, wsi, NULL);
 		if (ja) {
 			const char *did = lws_jwt_auth_get_did(ja);
 			if (did && vhd->db) {
@@ -878,7 +878,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			return 0; /* Fall through to LWS_CALLBACK_HTTP_BODY */
 
 		if (!pss->ja)
-			pss->ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, lws_login_jwt_auth_cb, wsi);
+			pss->ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, lws_login_jwt_auth_cb, wsi, NULL);
 
 		if (pss->ja) {
 			int level = lws_jwt_auth_query_grant(pss->ja, service_name);

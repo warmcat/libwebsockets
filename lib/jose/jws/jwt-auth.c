@@ -164,7 +164,7 @@ jwt_auth_lejp_cb(struct lejp_ctx *ctx, char reason)
 }
 
 int
-lws_jwt_auth_update(struct lws_jwt_auth *ja, const char *jwt)
+lws_jwt_auth_update(struct lws_jwt_auth *ja, const char *jwt, const char **reason)
 {
 	char temp[2048], out[2048];
 	size_t out_len = sizeof(out);
@@ -181,6 +181,8 @@ lws_jwt_auth_update(struct lws_jwt_auth *ja, const char *jwt)
 	if (lws_jwt_signed_validate(ja->cx, ja->jwk, "ES256,ES384,ES512,RS256,RS384,RS512,HS256",
 				    jwt, strlen(jwt), temp, sizeof(temp), out, &out_len)) {
 		lwsl_err("%s: Verification failed\n", __func__);
+		if (reason)
+			*reason = "JWT signature verification failed";
 		return -1;
 	}
 
@@ -192,6 +194,8 @@ lws_jwt_auth_update(struct lws_jwt_auth *ja, const char *jwt)
 
 	if (m < 0 && m != LEJP_REJECT_UNKNOWN) {
 		lwsl_err("%s: JSON decode failed\n", __func__);
+		if (reason)
+			*reason = "Failed to parse JWT payload JSON";
 		return -1;
 	}
 
@@ -202,19 +206,26 @@ lws_jwt_auth_update(struct lws_jwt_auth *ja, const char *jwt)
 
 struct lws_jwt_auth *
 lws_jwt_auth_create(struct lws *wsi, struct lws_jwk *jwk,
-                    const char *cookie_name,
-                    lws_jwt_auth_cb_t cb, void *user)
+		    const char *cookie_name,
+		    lws_jwt_auth_cb_t cb, void *user,
+		    const char **reason)
 {
 	char jwt[8192];
 	size_t jwt_len = sizeof(jwt);
 	struct lws_jwt_auth *ja;
 
-	if (lws_http_cookie_get(wsi, cookie_name, jwt, &jwt_len))
+	if (lws_http_cookie_get(wsi, cookie_name, jwt, &jwt_len)) {
+		if (reason)
+			*reason = "Cookie not found";
 		return NULL;
+	}
 
 	ja = malloc(sizeof(*ja));
-	if (!ja)
+	if (!ja) {
+		if (reason)
+			*reason = "OOM";
 		return NULL;
+	}
 
 	memset(ja, 0, sizeof(*ja));
 	ja->cx = lws_get_context(wsi);
@@ -224,7 +235,7 @@ lws_jwt_auth_create(struct lws *wsi, struct lws_jwk *jwk,
 	ja->user = user;
 	lws_strncpy(ja->cookie_name, cookie_name, sizeof(ja->cookie_name));
 
-	if (lws_jwt_auth_update(ja, jwt)) {
+	if (lws_jwt_auth_update(ja, jwt, reason)) {
 		free(ja);
 		return NULL;
 	}
