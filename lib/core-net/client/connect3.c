@@ -1019,14 +1019,18 @@ ads_known:
 					grace_us = LWS_QUIC_GRACE_DEFAULT_US;
 			}
 		}
-		lwsl_wsi_notice(wsi, "QUIC socket created, starting grace timer %uus", (unsigned int)grace_us);
-		lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->sul_h3_grace,
-				 lws_client_h3_grace_cb, grace_us);
+		if (wsi->disable_h3_fallback) {
+			lwsl_wsi_notice(wsi, "QUIC socket created, H3 fallback disabled");
+		} else {
+			lwsl_wsi_notice(wsi, "QUIC socket created, starting grace timer %uus", (unsigned int)grace_us);
+			lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->sul_h3_grace,
+					 lws_client_h3_grace_cb, grace_us);
 
-		if (wsi->dns_sorted_list.count && !strcmp(wsi->a.context->event_loop_ops->name, "poll")) {
-			extern void lws_client_happy_eyeballs_cb(lws_sorted_usec_list_t *sul);
-			lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->sul_happy_eyeballs,
-					lws_client_happy_eyeballs_cb, 1);
+			if (wsi->dns_sorted_list.count && !strcmp(wsi->a.context->event_loop_ops->name, "poll")) {
+				extern void lws_client_happy_eyeballs_cb(lws_sorted_usec_list_t *sul);
+				lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->sul_happy_eyeballs,
+						lws_client_happy_eyeballs_cb, 1);
+			}
 		}
 	}
 
