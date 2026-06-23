@@ -49,6 +49,7 @@ static const char * const paths_global[] = {
 	"global.ip-limit-ah",
 	"global.ip-limit-wsi",
 	"global.rlimit-nofile",
+	"global.cpd-bypass",
 };
 
 enum lejp_global_paths {
@@ -69,6 +70,7 @@ enum lejp_global_paths {
 	LWJPGP_IP_LIMIT_AH,
 	LWJPGP_IP_LIMIT_WSI,
 	LWJPGP_FD_LIMIT_PT,
+	LEJPGP_CPD_BYPASS,
 };
 
 static const char * const paths_vhosts[] = {
@@ -392,6 +394,10 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 	case LWJPGP_INIT_SSL:
 		if (arg_to_bool(ctx->buf))
 			a->info->options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+		return 0;
+	case LEJPGP_CPD_BYPASS:
+		if (arg_to_bool(ctx->buf))
+			a->info->options |= LWS_SERVER_OPTION_CPD_BYPASS;
 		return 0;
 	case LEJPGP_SERVER_STRING:
 #if defined(LWS_WITH_SERVER)

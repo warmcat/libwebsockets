@@ -278,6 +278,9 @@
 #define LWS_SERVER_OPTION_ALLOW_EARLY_DATA                      (1ll << 47)
         /**< (VH) Accept 0-RTT early data for QUIC/TLS 1.3 connections */
 
+#define LWS_SERVER_OPTION_CPD_BYPASS                            (1ll << 48)
+        /**< (CTX) Bypass Captive Portal Detection and immediately assume internet is OK */
+
         /****** add new things just above ---^ ******/
 
 
