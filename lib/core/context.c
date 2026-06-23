@@ -1856,13 +1856,18 @@ free_context_fail2:
 int
 lws_system_cpd_start(struct lws_context *cx)
 {
-	cx->captive_portal_detect = LWS_CPD_UNKNOWN;
+        if (cx->options & LWS_SERVER_OPTION_CPD_BYPASS) {
+                lws_system_cpd_set(cx, LWS_CPD_INTERNET_OK);
+                return 0;
+        }
 
-	/* if there's a platform implementation, use it */
+        cx->captive_portal_detect = LWS_CPD_UNKNOWN;
 
-	if (lws_system_get_ops(cx) &&
-	    lws_system_get_ops(cx)->captive_portal_detect_request)
-		return lws_system_get_ops(cx)->captive_portal_detect_request(cx);
+        /* if there's a platform implementation, use it */
+
+        if (lws_system_get_ops(cx) &&
+            lws_system_get_ops(cx)->captive_portal_detect_request)
+                return lws_system_get_ops(cx)->captive_portal_detect_request(cx);
 
 #if defined(LWS_WITH_SECURE_STREAMS)
 	/*

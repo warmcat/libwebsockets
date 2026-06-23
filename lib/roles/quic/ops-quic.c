@@ -1084,8 +1084,12 @@ rops_handle_POLLOUT_quic(struct lws *wsi)
 				(unsigned long long)f->sent_in_pn, (unsigned long long)now, (unsigned long long)f->sent_time_us,
 				(long long)(now - f->sent_time_us));
 
+			/* Use the PTO delay that triggered this sweep, not the newly doubled one */
+			lws_usec_t sweep_pto_delay = LWS_QUIC_DEFAULT_PTO_US << (qn->pto_count > 0 ? qn->pto_count - 1 : 0);
+			if (sweep_pto_delay > 10000000) sweep_pto_delay = 10000000;
+
 			/* Allow a 5ms epsilon for timer jitter */
-			if (now + 5000 >= f->sent_time_us + pto_delay) {
+			if (now + 5000 >= f->sent_time_us + sweep_pto_delay) {
 				lwsl_notice("PTO Sweep: Packet %llu (type 0x%02x) lost! Retransmitting!\n", (unsigned long long)f->sent_in_pn, f->type);
 
 				/* PMTUD Black Hole Detection */
