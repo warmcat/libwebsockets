@@ -1011,6 +1011,8 @@ rops_handle_POLLOUT_quic(struct lws *wsi)
 	int blocked = 0;
 	uint8_t pkt[2048]; memset(pkt, 0, sizeof(pkt));
 
+	wsi->mux.requested_POLLOUT = 0;
+
 	// lwsl_notice("QUIC TX: POLLOUT called for %s, qn=%p, is_server=%d\n", lws_wsi_tag(wsi), qn, qn ? qn->is_server : -1);
 
 	if (!qn) {
