@@ -304,6 +304,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 	wsi->a.protocol = &wsi->a.vhost->protocols[0];
 	wsi->client_pipeline = !!(i->ssl_connection & LCCSCF_PIPELINE);
+    wsi->disable_h3_fallback = !!i->disable_h3_fallback;
 	wsi->client_no_follow_redirect = !!(i->ssl_connection &
 					    LCCSCF_HTTP_NO_FOLLOW_REDIRECT);
 

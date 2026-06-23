@@ -277,6 +277,12 @@ struct lws_client_connect_info {
 	 */
 #endif
 
+	uint8_t         disable_h3_fallback;
+	/**< non-zero to disable the Happy Eyeballs QUIC fallback timer.
+	 * When set, QUIC connections will wait for the full connect timeout
+	 * instead of falling back to TCP after the H3 grace period.
+	 */
+
 	/* Add new things just above here ---^
 	 * This is part of the ABI, don't needlessly break compatibility
 	 *
@@ -285,7 +291,7 @@ struct lws_client_connect_info {
 	 * was not built against the newer headers.
 	 */
 
-	void *_unused[4]; /**< dummy */
+	void *_unused[3]; /**< dummy */
 };
 
 /**

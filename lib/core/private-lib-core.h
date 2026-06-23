@@ -443,7 +443,7 @@ typedef enum {
 	LWS_H3_STATE_FAILED_IGNORE
 } lws_h3_state_t;
 
-#define LWS_QUIC_GRACE_DEFAULT_US 2000000
+#define LWS_QUIC_GRACE_DEFAULT_US 30000000
 #define LWS_QUIC_GRACE_MARGIN_US  200000
 
 typedef struct {

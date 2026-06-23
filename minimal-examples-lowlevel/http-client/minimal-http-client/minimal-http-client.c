@@ -329,6 +329,7 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 		i.method = "QUIC";
 		i.address = "cloudflare-quic.com";
 		i.port = 443;
+		i.disable_h3_fallback = 1;
 	}
 
 	if (lws_cmdline_option(a->argc, a->argv, "--h2-prior-knowledge"))
