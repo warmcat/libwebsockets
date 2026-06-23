@@ -17,6 +17,8 @@ Commandline option|Meaning
 -l| Connect to https://localhost:7681 and accept selfsigned cert
 --h1|Specify http/1.1 only using ALPN, rejects h2 even if server supports it
 --server <name>|set server name to connect to
+--url <URL>|Parse and connect to URL (overrides --server and --path)
+--output-dir <DIR>|Directory to save payload into
 -k|Apply tls option LCCSCF_ALLOW_INSECURE
 -j|Apply tls option LCCSCF_ALLOW_SELFSIGNED
 -m|Apply tls option LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK
