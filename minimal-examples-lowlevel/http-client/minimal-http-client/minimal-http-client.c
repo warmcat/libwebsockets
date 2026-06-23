@@ -19,6 +19,8 @@ enum {
 	LWS_SW_EXPECTED_EXIT,
 	LWS_SW_C,
 	LWS_SW_W,
+	LWS_SW_URL,
+	LWS_SW_OUTPUT_DIR,
 	LWS_SW_HELP,
 };
 
@@ -27,13 +29,22 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_EXPECTED_EXIT]	= { "--expected-exit", "Enable --expected-exit feature" },
 	[LWS_SW_C]	= { "-c",              "Client connections" },
 	[LWS_SW_W]	= { "-w",              "Enable -w feature" },
+	[LWS_SW_URL]    = { "--url",           "Parse and connect to URL" },
+	[LWS_SW_OUTPUT_DIR] = { "--output-dir", "Save payload to dir" },
 	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
 };
 
 #include <string.h>
 #include <signal.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 static int interrupted, bad = 1, status, conmon, close_after_start;
+static int out_fd = -1;
+static const char *out_dir = NULL;
+static const char *request_path = "/";
+static char url_path[256];
+static char url_buf[256];
 #if defined(LWS_WITH_HTTP2)
 static int long_poll;
 #endif
@@ -112,6 +123,24 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 			status = (int)lws_http_client_http_response(wsi);
 			lwsl_user("Connected with server response: %d\n", status);
 
+			if (out_dir && status == 200) {
+				char filepath[512];
+				const char *basename = strrchr(request_path, '/');
+				if (basename)
+					basename++;
+				else
+					basename = request_path;
+				if (!basename || !*basename)
+					basename = "index.html";
+
+				snprintf(filepath, sizeof(filepath), "%s/%s", out_dir, basename);
+				out_fd = open(filepath, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+				if (out_fd < 0)
+					lwsl_err("Failed to open output file %s\n", filepath);
+				else
+					lwsl_user("Saving payload to %s\n", filepath);
+			}
+
 #if defined(LWS_WITH_ALLOC_METADATA_LWS)
 			_lws_alloc_metadata_dump_lws(lws_alloc_metadata_dump_stdout, NULL);
 #endif
@@ -163,6 +192,12 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	/* chunks of chunked content, with header removed */
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
 		lwsl_user("RECEIVE_CLIENT_HTTP_READ: read %d\n", (int)len);
+		if (out_fd >= 0) {
+			if (write(out_fd, in, len) < 0) {
+				lwsl_err("Failed to write to output file\n");
+				return -1;
+			}
+		}
 #if defined(LWS_WITH_HTTP2)
 		if (long_poll) {
 			char dotstar[128];
@@ -195,6 +230,10 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		lwsl_user("LWS_CALLBACK_COMPLETED_CLIENT_HTTP\n");
+		if (out_fd >= 0) {
+			close(out_fd);
+			out_fd = -1;
+		}
 		interrupted = 1;
 		bad = status != 200;
 		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
@@ -202,6 +241,10 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
 		lwsl_user("LWS_CALLBACK_CLOSED_CLIENT_HTTP\n");
+		if (out_fd >= 0) {
+			close(out_fd);
+			out_fd = -1;
+		}
 		interrupted = 1;
 		bad = status != 200;
 		lws_cancel_service(lws_get_context(wsi)); /* abort poll wait */
@@ -343,10 +386,27 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 	if ((p = lws_cmdline_option(a->argc, a->argv, "--server")))
 		i.address = p;
 
+	if ((p = lws_cmdline_option(a->argc, a->argv, "--output-dir")))
+		out_dir = p;
+
 	if ((p = lws_cmdline_option(a->argc, a->argv, "--path")))
-		i.path = p;
-	else
-		i.path = "/";
+		request_path = p;
+
+	if ((p = lws_cmdline_option(a->argc, a->argv, "--url"))) {
+		const char *prot, *address, *path;
+		int url_port;
+		lws_strncpy(url_buf, p, sizeof(url_buf));
+		if (lws_parse_uri(url_buf, &prot, &address, &url_port, &path)) {
+			lwsl_err("Failed to parse URL\n");
+			return 1;
+		}
+		i.address = address;
+		i.port = url_port;
+		snprintf(url_path, sizeof(url_path), "/%s", path);
+		request_path = url_path;
+	}
+
+	i.path = request_path;
 
 	i.host = i.address;
 	i.origin = i.address;

@@ -26,8 +26,17 @@ Often although we are working on the same sources, they are being tested on devi
 access to.  So you must ask for access to data state on those remote machines; looking at the local
 machine you are running on for config or data state directly is of zero use in those circumstances.
 
-If you are unable to complete something the user expects from the interaction with you, you
+## Completeness
+
+If you are unable to complete something your coding partner expects from the interaction with you, you
 must clearly explain to the user which parts are incomplete and need further work.
+
+Often adding / modifying or removing features has a very strong expectation that you will
+also take responsibility about certain side-effects.  For example, adding a switch to a
+minimal example always means modifying the associated --help and the example's markdown
+accordingly.  If we add significant new code, it must also bring with it api-test or other
+example code to confirm it works properly.  These side-effects are expected to be taken
+care of in the same phase of work, not "later", and even if not explicitly requested.
 
 ## Coding
 
@@ -44,6 +53,8 @@ We consider using:
  - lwsac instead of discrete allocations, if the pattern of allocations will benefit from it.
 
  - lws_struct to convert between sqlite storage <-> structs <-> JSON
+
+We are very concerned about portability and all builds occur with -Werror -Wall -Wextra.
 
 ## Appropriate locality
 
