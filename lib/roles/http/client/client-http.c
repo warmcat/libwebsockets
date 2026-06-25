@@ -2524,7 +2524,7 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 #endif
 	}
 
-	r = (int)wsi->http.ah->http_response;
+	r = wsi->http.ah ? (int)wsi->http.ah->http_response : 0;
 
 #if defined(LWS_WITH_TLS)
 	cisin[CIS_ALPN]		= wsi->alpn;

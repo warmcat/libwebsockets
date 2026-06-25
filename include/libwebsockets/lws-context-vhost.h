@@ -281,6 +281,9 @@
 #define LWS_SERVER_OPTION_CPD_BYPASS                            (1ll << 48)
         /**< (CTX) Bypass Captive Portal Detection and immediately assume internet is OK */
 
+#define LWS_SERVER_OPTION_QUIC_PAD_CRYPTO                       (1ll << 49)
+        /**< (VH) Pad the QUIC handshake crypto data to artificially hit anti-amplification limits */
+
         /****** add new things just above ---^ ******/
 
 

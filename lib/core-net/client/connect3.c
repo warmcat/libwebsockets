@@ -683,6 +683,19 @@ ads_known:
 						   wsi->c_pri, wsi->flags))
 			lwsl_wsi_warn(wsi, "unable to set ip options");
 
+#if !defined(WIN32) && !defined(_WIN32)
+                if (wsi->role_ops && !strcmp(wsi->role_ops->name, "quic")) {
+                        int opt = 1;
+                        int tos = 0x02;
+                        setsockopt(new_fd, IPPROTO_IP, IP_RECVTOS, &opt, sizeof(opt));
+                        setsockopt(new_fd, IPPROTO_IP, IP_TOS, &tos, sizeof(tos));
+#if defined(LWS_WITH_IPV6)
+                        setsockopt(new_fd, IPPROTO_IPV6, IPV6_RECVTCLASS, &opt, sizeof(opt));
+                        setsockopt(new_fd, IPPROTO_IPV6, IPV6_TCLASS, &tos, sizeof(tos));
+#endif
+                }
+#endif
+
 		lwsl_wsi_debug(wsi, "WAITING_CONNECT");
 		lwsi_set_state(wsi, LRS_WAITING_CONNECT);
 

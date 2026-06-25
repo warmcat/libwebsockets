@@ -59,7 +59,8 @@ lws_quic_pto_cb(lws_sorted_usec_list_t *sul)
 		/* Always ensure the timer is running as long as there is data in flight! */
 		for (int i = 0; i < LWS_QUIC_LEVEL_COUNT; i++) {
 			if (qn->in_flight[i].count) {
-				lws_usec_t pto_delay = LWS_QUIC_DEFAULT_PTO_US << qn->pto_count;
+				lws_usec_t pto_base = qn->smoothed_rtt ? (qn->smoothed_rtt + (4 * qn->rttvar) + 25000) : LWS_QUIC_DEFAULT_PTO_US;
+				lws_usec_t pto_delay = pto_base << qn->pto_count;
 				if (pto_delay > 10000000)
 					pto_delay = 10000000;
 				lws_sul_schedule(qn->nwsi->a.context, 0, &qn->pto_sul, lws_quic_pto_cb, pto_delay);
@@ -133,6 +134,20 @@ lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t acked_pn)
 
 	if (bytes_acked) {
 		qn->pto_count = 0;
+
+		/* Update RTT Estimator (RFC 9002 5.3) */
+		if (rtt > 0) {
+			qn->latest_rtt = rtt;
+			if (!qn->smoothed_rtt) {
+				qn->smoothed_rtt = rtt;
+				qn->rttvar = rtt / 2;
+			} else {
+				lws_usec_t rtt_diff = qn->smoothed_rtt > rtt ? (qn->smoothed_rtt - rtt) : (rtt - qn->smoothed_rtt);
+				qn->rttvar = (3 * qn->rttvar + rtt_diff) / 4;
+				qn->smoothed_rtt = (7 * qn->smoothed_rtt + rtt) / 8;
+			}
+		}
+
 		if (qn->cc_ops && qn->cc_ops->on_ack)
 			qn->cc_ops->on_ack(nwsi, bytes_acked, rtt);
 
@@ -222,11 +237,41 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 	socklen_t slen = sizeof(sa46);
 
 #if defined(WIN32) || defined(_WIN32)
-	n = recvfrom(wsi->desc.sockfd, (char *)pt->serv_buf, (int)wsi->a.context->pt_serv_buf_size, 0,
-		     sa46_sockaddr(&sa46), &slen);
+        n = recvfrom(wsi->desc.sockfd, (char *)pt->serv_buf, (int)wsi->a.context->pt_serv_buf_size, 0,
+                     sa46_sockaddr(&sa46), &slen);
 #else
-	n = (int)recvfrom(wsi->desc.sockfd, (void *)pt->serv_buf, wsi->a.context->pt_serv_buf_size, 0,
-			  sa46_sockaddr(&sa46), &slen);
+        struct iovec iov;
+        struct msghdr msg;
+        uint8_t cmsg_buf[256];
+        
+        iov.iov_base = (void *)pt->serv_buf;
+        iov.iov_len = wsi->a.context->pt_serv_buf_size;
+
+        memset(&msg, 0, sizeof(msg));
+        msg.msg_name = sa46_sockaddr(&sa46);
+        msg.msg_namelen = slen;
+        msg.msg_iov = &iov;
+        msg.msg_iovlen = 1;
+        msg.msg_control = cmsg_buf;
+        msg.msg_controllen = sizeof(cmsg_buf);
+
+        n = (int)recvmsg(wsi->desc.sockfd, &msg, 0);
+        slen = msg.msg_namelen;
+        
+        uint8_t ecn_tos = 0;
+        if (n > 0) {
+                struct cmsghdr *cmsg;
+                for (cmsg = CMSG_FIRSTHDR(&msg); cmsg != NULL; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
+                        if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_TOS) {
+                                ecn_tos = *(uint8_t *)CMSG_DATA(cmsg);
+                        }
+#if defined(LWS_WITH_IPV6)
+                        else if (cmsg->cmsg_level == IPPROTO_IPV6 && cmsg->cmsg_type == IPV6_TCLASS) {
+                                ecn_tos = *(uint8_t *)CMSG_DATA(cmsg);
+                        }
+#endif
+                }
+        }
 #endif
 
 	if (n <= 0) {
@@ -370,6 +415,61 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 			return LWS_HPI_RET_HANDLED;
 		}
 
+		struct lws_quic_cid valid_retry_scid;
+		memset(&valid_retry_scid, 0, sizeof(valid_retry_scid));
+
+		if (getenv("LWS_QUIC_FORCE_RETRY")) {
+			int scid_pos_tmp = 6 + dcid_len;
+			size_t t_off = (size_t)scid_pos_tmp + 1 + scid.len;
+			uint64_t t_len = 0;
+			size_t t_cons = lws_quic_parse_varint(&p[t_off], (size_t)n - t_off, &t_len);
+			if (!t_cons) return LWS_HPI_RET_HANDLED;
+
+			uint8_t peer_ip[16] = {0};
+			size_t peer_ip_len = 0;
+			if (sa46.sa4.sin_family == AF_INET) {
+				memcpy(peer_ip, &sa46.sa4.sin_addr, 4);
+				peer_ip_len = 4;
+			} else {
+				memcpy(peer_ip, &sa46.sa6.sin6_addr, 16);
+				peer_ip_len = 16;
+			}
+
+			if (t_len == 0) {
+				uint8_t retry_pkt[1200];
+				uint8_t *rp = retry_pkt;
+				*rp++ = 0xf0; /* Long Header, Retry */
+				memcpy(rp, &p[1], 4); rp += 4; /* Version */
+				*rp++ = scid.len;
+				if (scid.len) { memcpy(rp, scid.id, scid.len); rp += scid.len; }
+				struct lws_quic_cid retry_scid;
+				retry_scid.len = 8;
+				lws_get_random(wsi->a.context, retry_scid.id, 8);
+				*rp++ = retry_scid.len;
+				memcpy(rp, retry_scid.id, retry_scid.len); rp += retry_scid.len;
+				size_t tok_out_len = 0;
+				if (!lws_quic_create_retry_token(wsi, dcid.id, dcid.len, retry_scid.id, retry_scid.len, peer_ip, peer_ip_len, rp, &tok_out_len)) {
+					rp += tok_out_len;
+					uint8_t tag[16];
+					if (!lws_quic_create_retry_tag(dcid.id, dcid.len, retry_pkt, (size_t)(rp - retry_pkt), tag)) {
+						memcpy(rp, tag, 16); rp += 16;
+						lwsl_wsi_notice(wsi, "QUIC RX: Forcing Retry, sending Retry packet!");
+#if defined(WIN32) || defined(_WIN32)
+						sendto(wsi->desc.sockfd, (char *)retry_pkt, (int)(rp - retry_pkt), 0, sa46_sockaddr(&sa46), slen);
+#else
+						sendto(wsi->desc.sockfd, (void *)retry_pkt, (size_t)(rp - retry_pkt), 0, sa46_sockaddr(&sa46), slen);
+#endif
+					}
+				}
+				return LWS_HPI_RET_HANDLED;
+			} else {
+				if (lws_quic_validate_retry_token(wsi, &p[t_off + t_cons], (size_t)t_len, peer_ip, peer_ip_len, &dcid, &valid_retry_scid)) {
+					lwsl_wsi_notice(wsi, "QUIC RX: Invalid Retry Token, dropping Initial packet");
+					return LWS_HPI_RET_HANDLED;
+				}
+			}
+		}
+
 		/* 1.5 Instantiate new QUIC network connection */
 		nwsi = lws_create_new_server_wsi(wsi->a.vhost, wsi->tsi, 0, "quic child");
 		if (!nwsi) {
@@ -441,6 +541,8 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 		/* Save the original DCID to route subsequent Initial packets */
 		nwsi->quic.qn->orig_dcid = dcid;
 
+		nwsi->quic.qn->retry_scid = valid_retry_scid;
+
 		/* Generate our own 8-byte Local CID */
 		nwsi->quic.qn->loc_cid.len = 8;
 		lws_get_random(wsi->a.context, nwsi->quic.qn->loc_cid.id, 8);
@@ -480,6 +582,20 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 
 			LWS_QUIC_WRITE_TP_BUF(0x0F, nwsi->quic.qn->loc_cid.id, nwsi->quic.qn->loc_cid.len);
 			LWS_QUIC_WRITE_TP_BUF(0x00, nwsi->quic.qn->orig_dcid.id, nwsi->quic.qn->orig_dcid.len);
+			if (nwsi->quic.qn->retry_scid.len) {
+				LWS_QUIC_WRITE_TP_BUF(0x10, nwsi->quic.qn->retry_scid.id, nwsi->quic.qn->retry_scid.len);
+			}
+
+			if (wsi->a.vhost->options & LWS_SERVER_OPTION_QUIC_PAD_CRYPTO) {
+				lwsl_notice("QUIC TX: Padding handshake crypto data to artificially hit anti-amplification limits\n");
+				/* Append a 3000-byte dummy transport parameter with reserved ID 0x31 */
+				if (lws_ptr_diff_size_t(tp_end, tp) < 3003) goto tp_overflow;
+				*tp++ = 0x31;
+				*tp++ = 0x4B; /* 2-byte varint for length 3000 (0x4BB8 = 0x4000 | 3000) */
+				*tp++ = 0xB8;
+				memset(tp, 0, 3000);
+				tp += 3000;
+			}
 
 			lws_tls_quic_set_transport_parameters(nwsi, nwsi->quic.qn->local_tp_buf, (size_t)(tp - nwsi->quic.qn->local_tp_buf));
 			
@@ -573,11 +689,39 @@ tp_ok:
 			n--;
 			continue;
 		}
-
 		if (p[0] & 0x80) {
 			uint8_t type = (uint8_t)((p[0] & 0x30) >> 4);
 			if (type == 0) level = LWS_QUIC_LEVEL_INITIAL;
 			else if (type == 2) level = LWS_QUIC_LEVEL_HANDSHAKE;
+			else if (type == 3) {
+				if (nwsi && nwsi->quic.qn && !nwsi->quic.qn->is_server) {
+					size_t tag_pos = (size_t)n - 16;
+					int client_scid_pos = 6 + dcid_len;
+					size_t tok_pos = (size_t)client_scid_pos + 1 + scid.len;
+					if (n >= 16 && tag_pos >= tok_pos) {
+						if (!lws_quic_validate_retry_tag(nwsi->quic.qn, p, tag_pos, &p[tag_pos])) {
+							nwsi->quic.qn->retry_scid = scid;
+							nwsi->quic.qn->rem_cid = scid;
+							nwsi->quic.qn->retry_token_len = tag_pos - tok_pos;
+							if (nwsi->quic.qn->retry_token_len > sizeof(nwsi->quic.qn->retry_token))
+								nwsi->quic.qn->retry_token_len = sizeof(nwsi->quic.qn->retry_token);
+							memcpy(nwsi->quic.qn->retry_token, &p[tok_pos], nwsi->quic.qn->retry_token_len);
+							
+							/* Reset Initial packet number space and derive new keys */
+							lws_quic_derive_initial_keys(nwsi, &scid);
+							
+							/* Re-arm writable to send the new Initial packet */
+							lws_callback_on_writable(nwsi);
+							lwsl_wsi_notice(wsi, "QUIC RX: Accepted Retry packet, resending Initial!");
+							break; /* Drop remaining datagram */
+						} else {
+							lwsl_wsi_notice(wsi, "QUIC RX: Invalid Retry Integrity Tag, dropping packet");
+							break;
+						}
+					}
+				}
+				break;
+			}
 			else {
 				lwsl_wsi_notice(wsi, "QUIC RX: Unsupported long header type %d", type);
 				break;
@@ -700,8 +844,16 @@ tp_ok:
 			lwsl_wsi_notice(wsi, "QUIC RX: Key Update completed successfully");
 		}
 		
-		if (nwsi->quic.qn)
-			nwsi->quic.qn->rx_packets_since_update++;
+		        if (nwsi->quic.qn) {
+                nwsi->quic.qn->rx_packets_since_update++;
+
+#if !defined(WIN32) && !defined(_WIN32)
+                int ecn = ecn_tos & 0x03;
+                if (ecn == 1)      nwsi->quic.qn->ecn_rx_ect1++;
+                else if (ecn == 2) nwsi->quic.qn->ecn_rx_ect0++;
+                else if (ecn == 3) nwsi->quic.qn->ecn_rx_ce++;
+#endif
+        }
 
 		if (nwsi->quic.qn && level == LWS_QUIC_LEVEL_HANDSHAKE) {
 			nwsi->quic.qn->address_validated = 1;
@@ -1032,9 +1184,10 @@ rops_handle_POLLOUT_quic(struct lws *wsi)
 		return LWS_HP_RET_DROP_POLLOUT;
 	}
 
-	lws_usec_t pto_delay = LWS_QUIC_DEFAULT_PTO_US << qn->pto_count;
-	if (pto_delay > 10000000)
-		pto_delay = 10000000;
+	        lws_usec_t pto_base = qn->smoothed_rtt ? (qn->smoothed_rtt + (4 * qn->rttvar) + 25000) : LWS_QUIC_DEFAULT_PTO_US;
+        lws_usec_t pto_delay = pto_base << qn->pto_count;
+        if (pto_delay > 10000000)
+                pto_delay = 10000000;
 
 	if (!wsi->quic.initialized && !qn->is_server) {
 		wsi->quic.initialized = 1;
@@ -1086,7 +1239,8 @@ rops_handle_POLLOUT_quic(struct lws *wsi)
 				(long long)(now - f->sent_time_us));
 
 			/* Use the PTO delay that triggered this sweep, not the newly doubled one */
-			lws_usec_t sweep_pto_delay = LWS_QUIC_DEFAULT_PTO_US << (qn->pto_count > 0 ? qn->pto_count - 1 : 0);
+			lws_usec_t sweep_pto_base = qn->smoothed_rtt ? (qn->smoothed_rtt + (4 * qn->rttvar) + 25000) : LWS_QUIC_DEFAULT_PTO_US;
+			lws_usec_t sweep_pto_delay = sweep_pto_base << (qn->pto_count > 0 ? qn->pto_count - 1 : 0);
 			if (sweep_pto_delay > 10000000) sweep_pto_delay = 10000000;
 
 			/* Allow a 5ms epsilon for timer jitter */
@@ -1229,18 +1383,29 @@ send_frames:
 
 		/* 1.5 Generate ACK frame if needed */
 		if (qn->needs_ack[level]) {
-			*p++ = LWS_QUIC_FT_ACK;
-			p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), qn->highest_rx_pn[level]); /* Largest Acknowledged */
-			p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), 0); /* ACK Delay (0 for now) */
-			p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), 0); /* ACK Range Count */
-			uint64_t first_ack_range = 0;
-			uint64_t bm = qn->rx_pn_bitmask[level] >> 1;
-			while (bm & 1) {
-				first_ack_range++;
-				bm >>= 1;
-			}
-			p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), first_ack_range); /* First ACK Range */
-			qn->needs_ack[level] = 0;
+                        if (qn->ecn_rx_ect0 || qn->ecn_rx_ect1 || qn->ecn_rx_ce) {
+                                *p++ = 0x03; /* ACK_ECN */
+                        } else {
+                                *p++ = LWS_QUIC_FT_ACK; /* ACK (0x02) */
+                        }
+                        p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), qn->highest_rx_pn[level]); /* Largest Acknowledged */
+                        p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), 0); /* ACK Delay (0 for now) */
+                        p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), 0); /* ACK Range Count */
+                        uint64_t first_ack_range = 0;
+                        uint64_t bm = qn->rx_pn_bitmask[level] >> 1;
+                        while (bm & 1) {
+                                first_ack_range++;
+                                bm >>= 1;
+                        }
+                        p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), first_ack_range); /* First ACK Range */
+                        
+                        if (qn->ecn_rx_ect0 || qn->ecn_rx_ect1 || qn->ecn_rx_ce) {
+                                p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), qn->ecn_rx_ect0);
+                                p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), qn->ecn_rx_ect1);
+                                p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), qn->ecn_rx_ce);
+                        }
+                        
+                        qn->needs_ack[level] = 0;
 		}
 
 		/* 2. Bundle frames from pending_tx until MTU is reached */
@@ -1397,9 +1562,7 @@ send_frames:
 		/* Fill in Length for Initial/Handshake packets */
 		if (level == LWS_QUIC_LEVEL_INITIAL || level == LWS_QUIC_LEVEL_HANDSHAKE) {
 			uint16_t quic_len = (uint16_t)(payload_len + 2 + 16); /* PN (2) + AEAD Tag (16) */
-			uint8_t *len_ptr = pkt + 1 + 4 + 1 + qn->rem_cid.len + 1 + qn->loc_cid.len;
-			if (level == LWS_QUIC_LEVEL_INITIAL)
-				len_ptr++; /* Skip Token Length */
+			uint8_t *len_ptr = pkt + pn_offset - 2;
 			len_ptr[0] = (uint8_t)(0x40 | ((quic_len >> 8) & 0x3F));
 			len_ptr[1] = (uint8_t)(quic_len & 0xFF);
 		}
@@ -1940,6 +2103,21 @@ rops_adoption_bind_quic(struct lws *wsi, int type, const char *vh_prot_name)
 		}
 #endif
 
+		/* Configure socket for ECN (Explicit Congestion Notification) */
+#if !defined(WIN32) && !defined(_WIN32)
+                int opt = 1;
+                setsockopt(wsi->desc.sockfd, IPPROTO_IP, IP_RECVTOS, &opt, sizeof(opt));
+#if defined(LWS_WITH_IPV6)
+                setsockopt(wsi->desc.sockfd, IPPROTO_IPV6, IPV6_RECVTCLASS, &opt, sizeof(opt));
+#endif
+                /* Send ECT(0) (0x02) on outgoing QUIC packets */
+                int tos = 0x02;
+                setsockopt(wsi->desc.sockfd, IPPROTO_IP, IP_TOS, &tos, sizeof(tos));
+#if defined(LWS_WITH_IPV6)
+                setsockopt(wsi->desc.sockfd, IPPROTO_IPV6, IPV6_TCLASS, &tos, sizeof(tos));
+#endif
+#endif
+
 		/* Initialize Flow Control Credits */
 		int32_t init_cr = wsi->txc.manual_initial_tx_credit;
 		if (!init_cr)
@@ -2347,6 +2525,12 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	nwsi = lws_create_new_server_wsi(wsi->a.vhost, wsi->tsi, 0, "quic_nwsi");
 	if (!nwsi)
 		return 1;
+
+#if defined(LWS_WITH_CLIENT)
+	if (wsi->cli_hostname_copy)
+		nwsi->cli_hostname_copy = lws_strdup(wsi->cli_hostname_copy);
+	nwsi->c_port = wsi->c_port;
+#endif
 
 	/* Transfer the socket fd and fds table entry if valid */
 	nwsi->desc = wsi->desc;

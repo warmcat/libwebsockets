@@ -109,8 +109,14 @@ struct _lws_h3_related {
 	uint64_t rx_frame_len;
 	uint64_t rx_frame_payload_read;
 	
-	uint8_t rx_varint_buf[8];
+	uint8_t rx_varint_buf[16];
 	uint8_t rx_varint_len;
+	
+	uint8_t rx_setting_state; /* 0: id, 1: val */
+	uint64_t rx_setting_id;
+	
+	uint8_t rx_dec_instr_buf[16];
+	uint8_t rx_dec_instr_len;
 };
 
 /* Internal QPACK API */

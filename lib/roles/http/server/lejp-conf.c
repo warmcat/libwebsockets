@@ -50,6 +50,7 @@ static const char * const paths_global[] = {
 	"global.ip-limit-wsi",
 	"global.rlimit-nofile",
 	"global.cpd-bypass",
+	"global.quic-pad-crypto",
 };
 
 enum lejp_global_paths {
@@ -71,6 +72,7 @@ enum lejp_global_paths {
 	LWJPGP_IP_LIMIT_WSI,
 	LWJPGP_FD_LIMIT_PT,
 	LEJPGP_CPD_BYPASS,
+	LEJPGP_QUIC_PAD_CRYPTO,
 };
 
 static const char * const paths_vhosts[] = {
@@ -399,6 +401,10 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 		if (arg_to_bool(ctx->buf))
 			a->info->options |= LWS_SERVER_OPTION_CPD_BYPASS;
 		return 0;
+	case LEJPGP_QUIC_PAD_CRYPTO:
+		if (arg_to_bool(ctx->buf))
+			a->info->options |= LWS_SERVER_OPTION_QUIC_PAD_CRYPTO;
+		return 0;
 	case LEJPGP_SERVER_STRING:
 #if defined(LWS_WITH_SERVER)
 		a->info->server_string = a->p;
@@ -472,7 +478,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 #endif
 
 	if (reason == LEJPCB_OBJECT_START && ctx->path_match == LEJPVP + 1) {
-		uint32_t i[4];
+		uint64_t i[4];
 #if defined(LWS_WITH_SERVER)
 		const char *ss;
 #endif
@@ -491,6 +497,7 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 			LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 			LWS_SERVER_OPTION_UV_NO_SIGSEGV_SIGFPE_SPIN |
 			LWS_SERVER_OPTION_LIBEVENT |
+			LWS_SERVER_OPTION_QUIC_PAD_CRYPTO |
 			LWS_SERVER_OPTION_LIBEV
 				);
 #if defined(LWS_WITH_SERVER)
@@ -500,12 +507,12 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 
 		memset(a->info, 0, sizeof(*a->info));
 
-		a->info->count_threads = i[0];
+		a->info->count_threads = (unsigned int)i[0];
 		a->info->options = i[1];
 #if defined(LWS_WITH_SERVER)
 		a->info->server_string = ss;
 #endif
-		a->info->timeout_secs = i[3];
+		a->info->timeout_secs = (unsigned int)i[3];
 
 		a->info->protocols = a->protocols;
 		a->info->pprotocols = a->pprotocols;

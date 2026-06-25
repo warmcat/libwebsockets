@@ -32,6 +32,10 @@
 struct lws_tls_gnutls_ctx {
 	gnutls_certificate_credentials_t creds;
 	gnutls_priority_t priority;
+#if GNUTLS_VERSION_NUMBER >= 0x030603
+	gnutls_datum_t ticket_key;
+	uint8_t ticket_key_valid;
+#endif
 };
 
 struct lws_x509_cert {

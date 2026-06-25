@@ -761,30 +761,40 @@ lws_quic_enter_closing_state(nwsi, LWS_QPACK_ENCODER_STREAM_ERROR, 0, 1);
 			return 0;
 		} else if (wsi->h3.stream_type == 0x03) {
 			lwsl_wsi_debug(wsi, "H3 RX: Decoder Stream data len %d", (int)len);
-			size_t i = 0;
-			while (i < len) {
-				uint8_t b = buf[i];
+			
+			while (len > 0) {
+				if (wsi->h3.rx_dec_instr_len > 0) {
+					size_t to_copy = 16 - wsi->h3.rx_dec_instr_len;
+					if (to_copy > len) to_copy = len;
+					memcpy(&wsi->h3.rx_dec_instr_buf[wsi->h3.rx_dec_instr_len], buf, to_copy);
+					wsi->h3.rx_dec_instr_len += (uint8_t)to_copy;
+					buf += to_copy;
+					len -= to_copy;
+				}
+
+				const uint8_t *p = wsi->h3.rx_dec_instr_len > 0 ? wsi->h3.rx_dec_instr_buf : buf;
+				size_t plen = wsi->h3.rx_dec_instr_len > 0 ? wsi->h3.rx_dec_instr_len : len;
+				
+				if (plen == 0) break;
+
+				uint8_t b = p[0];
+				size_t consumed = 0;
+
 				if ((b & 0x80) == 0x80) { /* Header Acknowledgement */
 					uint64_t stream_id;
-					size_t consumed = lws_quic_parse_varint_prefix(&buf[i], len - i, 7, &stream_id);
+					consumed = lws_quic_parse_varint_prefix(p, plen, 7, &stream_id);
 					if (consumed) {
 						lwsl_wsi_info(wsi, "QPACK Header Ack stream_id=%llu", (unsigned long long)stream_id);
-						i += consumed;
-						continue;
 					}
-					break;
 				} else if ((b & 0xc0) == 0x40) { /* Stream Cancellation */
 					uint64_t stream_id;
-					size_t consumed = lws_quic_parse_varint_prefix(&buf[i], len - i, 6, &stream_id);
+					consumed = lws_quic_parse_varint_prefix(p, plen, 6, &stream_id);
 					if (consumed) {
 						lwsl_wsi_info(wsi, "QPACK Stream Cancel stream_id=%llu", (unsigned long long)stream_id);
-						i += consumed;
-						continue;
 					}
-					break;
 				} else if ((b & 0xc0) == 0x00) { /* Insert Count Increment */
 					uint64_t inc;
-					size_t consumed = lws_quic_parse_varint_prefix(&buf[i], len - i, 6, &inc);
+					consumed = lws_quic_parse_varint_prefix(p, plen, 6, &inc);
 					if (consumed) {
 						if (inc == 0) {
 							struct lws *nwsi = lws_get_quic_network_wsi(wsi);
@@ -794,14 +804,34 @@ lws_quic_enter_closing_state(nwsi, LWS_QPACK_ENCODER_STREAM_ERROR, 0, 1);
 						if (wsi->h3.h3n)
 							wsi->h3.h3n->qpack_tx_encoder.known_received_count += (uint32_t)inc;
 						lwsl_wsi_info(wsi, "QPACK Insert Count Increment inc=%llu known=%u", (unsigned long long)inc, (unsigned int)(wsi->h3.h3n ? wsi->h3.h3n->qpack_tx_encoder.known_received_count : 0));
-						i += consumed;
-						continue;
+					}
+				} else {
+					consumed = 1; /* Unknown instruction */
+				}
+
+				if (consumed) {
+					if (wsi->h3.rx_dec_instr_len > 0) {
+						if (consumed < wsi->h3.rx_dec_instr_len) {
+							memmove(wsi->h3.rx_dec_instr_buf, wsi->h3.rx_dec_instr_buf + consumed, wsi->h3.rx_dec_instr_len - consumed);
+							wsi->h3.rx_dec_instr_len -= (uint8_t)consumed;
+						} else {
+							wsi->h3.rx_dec_instr_len = 0;
+						}
+					} else {
+						buf += consumed;
+						len -= consumed;
+					}
+				} else {
+					/* Not enough data */
+					if (wsi->h3.rx_dec_instr_len == 0) {
+						memcpy(wsi->h3.rx_dec_instr_buf, buf, len);
+						wsi->h3.rx_dec_instr_len = (uint8_t)len;
+						buf += len;
+						len = 0;
 					}
 					break;
 				}
-				i++;
 			}
-			buf += len; len = 0;
 			return 0;
 		}
 		if (wsi->h3.rx_frame_state == 0) {
@@ -926,48 +956,43 @@ lws_quic_enter_closing_state(nwsi, LWS_QPACK_ENCODER_STREAM_ERROR, 0, 1);
 				}
 			} else if (wsi->h3.stream_type == 0x00 && wsi->h3.rx_frame_type == 0x04) {
 				/* Parse SETTINGS frame */
-				size_t i = 0;
-				while (i < chunk) {
-					/* Need to parse identifier (varint) and value (varint) */
-					/* For now, just check if it's an HTTP/2 setting! (HTTP/3 7.2.4.1) */
-					/* Proper parsing requires state, but if we just check bytes: */
-					uint64_t id, val;
-					const uint8_t *p = buf + i;
-					size_t clen = chunk - i;
-					size_t consumed = lws_quic_parse_varint(p, clen, &id);
-					if (consumed) {
-						p += consumed; clen -= consumed; i += consumed;
-						consumed = lws_quic_parse_varint(p, clen, &val);
-						if (consumed) {
-							i += consumed;
-							if (id == 0x00 || id == 0x02 || id == 0x03 || id == 0x04 || id == 0x05) {
-								/* Prohibited HTTP/2 setting */
-								struct lws *nwsi = lws_get_quic_network_wsi(wsi);
-								lws_quic_enter_closing_state(nwsi, LWS_H3_SETTINGS_ERROR, 0, 1);
-								return 1;
-							} else if (id == 0x01) { /* SETTINGS_QPACK_MAX_TABLE_CAPACITY */
-								if (wsi->h3.h3n) {
-									wsi->h3.h3n->qpack_tx_encoder.virtual_payload_max = (uint32_t)val;
-								}
-							} else if (id == 0x08) {
-								/* SETTINGS_ENABLE_WEB_SOCKETS */
-								struct lws *nwsi = lws_get_quic_network_wsi(wsi);
-								if (nwsi && nwsi->h3.h3n)
-									nwsi->h3.h3n->peer_supports_ws = 1;
-							} else if (id == LWS_H3_SETTINGS_H3_DATAGRAM) {
-								struct lws *nwsi = lws_get_quic_network_wsi(wsi);
-								if (nwsi && nwsi->h3.h3n)
-									nwsi->h3.h3n->peer_supports_h3_datagram = 1;
-							} else if (id == LWS_H3_SETTINGS_ENABLE_WEBTRANSPORT) {
-								struct lws *nwsi = lws_get_quic_network_wsi(wsi);
-								if (nwsi && nwsi->h3.h3n)
-									nwsi->h3.h3n->peer_supports_webtransport = 1;
+				const uint8_t *p = buf;
+				size_t clen = chunk;
+				while (clen > 0) {
+					if (wsi->h3.rx_setting_state == 0) {
+						if (!lws_h3_parse_varint_accum(wsi, &p, &clen, &wsi->h3.rx_setting_id))
+							break;
+						wsi->h3.rx_setting_state = 1;
+					}
+					if (clen > 0 && wsi->h3.rx_setting_state == 1) {
+						uint64_t val;
+						if (!lws_h3_parse_varint_accum(wsi, &p, &clen, &val))
+							break;
+						wsi->h3.rx_setting_state = 0;
+						uint64_t id = wsi->h3.rx_setting_id;
+						if (id == 0x00 || id == 0x02 || id == 0x03 || id == 0x04 || id == 0x05) {
+							/* Prohibited HTTP/2 setting */
+							struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+							lws_quic_enter_closing_state(nwsi, LWS_H3_SETTINGS_ERROR, 0, 1);
+							return 1;
+						} else if (id == 0x01) { /* SETTINGS_QPACK_MAX_TABLE_CAPACITY */
+							if (wsi->h3.h3n) {
+								wsi->h3.h3n->qpack_tx_encoder.virtual_payload_max = (uint32_t)val;
 							}
-						} else {
-							i++; /* Malformed but skip to consume */
+						} else if (id == 0x08) {
+							/* SETTINGS_ENABLE_WEB_SOCKETS */
+							struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+							if (nwsi && nwsi->h3.h3n)
+								nwsi->h3.h3n->peer_supports_ws = 1;
+						} else if (id == LWS_H3_SETTINGS_H3_DATAGRAM) {
+							struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+							if (nwsi && nwsi->h3.h3n)
+								nwsi->h3.h3n->peer_supports_h3_datagram = 1;
+						} else if (id == LWS_H3_SETTINGS_ENABLE_WEBTRANSPORT) {
+							struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+							if (nwsi && nwsi->h3.h3n)
+								nwsi->h3.h3n->peer_supports_webtransport = 1;
 						}
-					} else {
-						i++;
 					}
 				}
 			}

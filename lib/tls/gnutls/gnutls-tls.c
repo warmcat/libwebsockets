@@ -87,6 +87,12 @@ lws_tls_vhost_backend_free_ctx(lws_tls_ctx *ctx)
 
 	gnutls_certificate_free_credentials(ctx->creds);
 	gnutls_priority_deinit(ctx->priority);
+#if GNUTLS_VERSION_NUMBER >= 0x030603
+	if (ctx->ticket_key_valid) {
+		gnutls_free(ctx->ticket_key.data);
+		ctx->ticket_key_valid = 0;
+	}
+#endif
 	lws_free(ctx);
 }
 
@@ -112,6 +118,11 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 		vhost->tls.ssl_ctx = NULL;
 		return 1;
 	}
+
+#if GNUTLS_VERSION_NUMBER >= 0x030603
+	if (gnutls_session_ticket_key_generate(&vhost->tls.ssl_ctx->ticket_key) == 0)
+		vhost->tls.ssl_ctx->ticket_key_valid = 1;
+#endif
 
 	return 0;
 }

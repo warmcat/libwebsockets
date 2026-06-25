@@ -197,7 +197,8 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 		if (is_crypto) {
 			if (lws_tls_quic_rx_crypto(nwsi, level, buf, len) < 0) {
 				lwsl_wsi_notice(nwsi, "QUIC RX: TLS Crypto processing failed");
-				return; /* PROTOCOL_VIOLATION */
+				lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_PROTOCOL_VIOLATION, 0, 0);
+				return;
 			}
 			if (nwsi && !nwsi->quic.qn) {
 				nwsi = lws_get_quic_network_wsi(nwsi);
@@ -273,7 +274,8 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 					if (is_crypto) {
 						if (lws_tls_quic_rx_crypto(nwsi, level, c->data, c->len) < 0) {
 							lwsl_wsi_notice(nwsi, "QUIC RX: TLS Crypto processing failed");
-							return; /* PROTOCOL_VIOLATION */
+							lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_PROTOCOL_VIOLATION, 0, 0);
+							return;
 						}
 						if (nwsi && !nwsi->quic.qn) {
 							nwsi = lws_get_quic_network_wsi(nwsi);
@@ -591,8 +593,32 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 			consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &final_size);
 			if (!consumed) return -1;
 			pos += consumed;
-			lwsl_wsi_info(nwsi, "QUIC RX: Parsed RESET_STREAM! stream_id %llu, err %llu",
-				(unsigned long long)stream_id, (unsigned long long)app_err_code);
+			lwsl_wsi_info(nwsi, "QUIC RX: Parsed RESET_STREAM! stream_id %llu, err %llu, final_size %llu",
+				(unsigned long long)stream_id, (unsigned long long)app_err_code, (unsigned long long)final_size);
+			
+			if (wsi_child && wsi_child->quic.qs) {
+				if (wsi_child->quic.qs->fin_received && wsi_child->quic.qs->rx_final_size != final_size) {
+					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FINAL_SIZE_ERROR, type, 0);
+					return -1;
+				}
+				wsi_child->quic.qs->fin_received = 1;
+				wsi_child->quic.qs->rx_final_size = final_size;
+				
+				if (final_size > wsi_child->quic.qs->rx_max_data) {
+					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FLOW_CONTROL_ERROR, type, 0);
+					return -1;
+				}
+				if (final_size > wsi_child->quic.qs->highest_rx_offset) {
+					uint64_t diff = final_size - wsi_child->quic.qs->highest_rx_offset;
+					wsi_child->quic.qs->highest_rx_offset = final_size;
+					nwsi->quic.qn->highest_rx_offset += diff;
+					if (nwsi->quic.qn->highest_rx_offset > nwsi->quic.qn->rx_max_data) {
+						lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FLOW_CONTROL_ERROR, type, 0);
+						return -1;
+					}
+				}
+			}
+
 			struct lws *child = nwsi->mux.child_list;
 			while (child) {
 				if (child->mux.my_sid == stream_id) {
@@ -920,6 +946,14 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 				}
 
 				if (!wsi_child) {
+					/* Enforce MAX_STREAMS limit before creating a new stream */
+					uint64_t limit = is_unidirectional ? qn->max_streams_unidi_local : qn->max_streams_bidi_local;
+					if ((stream_id >> 2) >= limit) {
+						lwsl_wsi_notice(nwsi, "QUIC RX: Stream ID %llu exceeds limit", (unsigned long long)stream_id);
+						lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_STREAM_LIMIT_ERROR, type, 0);
+						return -1;
+					}
+
 					/* Peer initiated a new stream. We must create a child WSI! */
 					wsi_child = lws_create_new_server_wsi(nwsi->a.vhost, nwsi->tsi, LWSLCG_WSI_MUX, "quic stream");
 					if (!wsi_child) return -1;
@@ -1024,8 +1058,17 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 				/* Deliver stream data via Reassembly Buffer */
 				if (wsi_child && wsi_child->quic.qs) {
 					if (fin) {
+						if (wsi_child->quic.qs->fin_received && wsi_child->quic.qs->rx_final_size != offset + len) {
+							lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FINAL_SIZE_ERROR, type, 0);
+							return -1;
+						}
 						wsi_child->quic.qs->fin_received = 1;
 						wsi_child->quic.qs->rx_final_size = offset + len;
+					} else {
+						if (wsi_child->quic.qs->fin_received && offset + len > wsi_child->quic.qs->rx_final_size) {
+							lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FINAL_SIZE_ERROR, type, 0);
+							return -1;
+						}
 					}
 					if (len || fin) {
 						lws_quic_rx_reassemble(nwsi, wsi_child, wsi_child->quic.qs,
@@ -1253,6 +1296,18 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 			} else return -1;
 			break;
 		case 0x10: /* retry_source_connection_id */
+			if (qn->is_server) {
+				/* Client cannot send these */
+				lwsl_wsi_err(wsi, "QUIC TP error: Client sent server-only parameter %llu", (unsigned long long)param_id);
+				return -1;
+			}
+			if (qn->retry_scid.len) {
+				if (param_len != qn->retry_scid.len || memcmp(&buf[pos], qn->retry_scid.id, param_len)) {
+					lwsl_wsi_err(wsi, "QUIC TP error: retry_source_connection_id mismatch");
+					return -1;
+				}
+			}
+			break;
 		case 0x02: /* stateless_reset_token */
 		case 0x0d: /* preferred_address */
 			if (qn->is_server) {

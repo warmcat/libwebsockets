@@ -1601,6 +1601,7 @@ static const struct lws_switches builtins[] = {
 	{ "--h2", "Force HTTP/2 (client)" },
 	{ "--h3", "Force HTTP/3 (client)" },
 	{ "--cpd-bypass", "Bypass captive portal detect" },
+	{ "--quic-pad-crypto", "Pad QUIC Handshake Crypto for tests" },
 	{ "-h", "Print this help" },
 	{ "--help", "Print this help" },
 };
@@ -1618,6 +1619,7 @@ enum opts {
 	OPT_H2,
 	OPT_H3,
 	OPT_CPD_BYPASS,
+	OPT_QUIC_PAD_CRYPTO,
 	OPT_HELP1,
 	OPT_HELP2,
 };
@@ -1891,6 +1893,9 @@ lws_cmdline_option_handle_builtin(int argc, const char **argv,
 			break;
 		case OPT_CPD_BYPASS:
 			info->options |= LWS_SERVER_OPTION_CPD_BYPASS;
+			break;
+		case OPT_QUIC_PAD_CRYPTO:
+			info->options |= LWS_SERVER_OPTION_QUIC_PAD_CRYPTO;
 			break;
 
 		case OPT_HELP1:
