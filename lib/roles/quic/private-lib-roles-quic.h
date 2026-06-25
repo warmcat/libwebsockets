@@ -214,7 +214,7 @@ struct lws_quic_netconn {
 	struct lws_quic_cid	rem_cid; /* Remote peer's Connection ID */
 	struct lws_quic_cid	orig_dcid; /* Original Destination Connection ID from client */
 
-	uint8_t			local_tp_buf[128]; /* buffer for transport parameters */
+	uint8_t			local_tp_buf[4096]; /* buffer for transport parameters */
 
 	/* Array of pointers to lazily allocated key material */
 	struct lws_quic_keys	*keys[LWS_QUIC_LEVEL_COUNT];
@@ -298,6 +298,11 @@ struct lws_quic_netconn {
 	uint8_t			path_challenge[8];
 	uint8_t			path_challenge_pending:1;
 
+	/* ECN (Explicit Congestion Notification) */
+	uint64_t		ecn_rx_ect0;
+	uint64_t		ecn_rx_ect1;
+	uint64_t		ecn_rx_ce;
+
 	uint8_t			is_server:1;
 	uint8_t			handshake_done:1;
 	uint8_t			tp_parsed:1;
@@ -311,6 +316,11 @@ struct lws_quic_netconn {
 	uint8_t			rx_key_phase:1;
 	uint8_t			tx_key_phase:1;
 	uint8_t			key_update_pending:1;
+
+	/* QUIC Stateless Retry */
+	uint8_t			retry_token[128];
+	size_t			retry_token_len;
+	struct lws_quic_cid	retry_scid;
 };
 
 extern const struct lws_cc_ops lws_cc_ops_newreno;
@@ -386,5 +396,25 @@ struct _lws_quic_related {
         uint8_t initialized:1;
         uint8_t tx_blocked_sent:1;
 };
+
+
+int
+lws_quic_validate_retry_tag(struct lws_quic_netconn *qn, const uint8_t *pkt, size_t len, const uint8_t *tag);
+
+int
+lws_quic_create_retry_token(struct lws *wsi,
+                            const uint8_t *client_dcid, size_t dcid_len,
+                            const uint8_t *retry_scid, size_t rscid_len,
+                            const uint8_t *client_ip, size_t ip_len,
+                            uint8_t *out_token, size_t *out_token_len);
+
+int
+lws_quic_validate_retry_token(struct lws *wsi, const uint8_t *token, size_t token_len,
+                              const uint8_t *client_ip, size_t ip_len,
+                              struct lws_quic_cid *orig_dcid,
+                              struct lws_quic_cid *retry_scid);
+int
+lws_quic_create_retry_tag(const uint8_t *client_dcid, size_t dcid_len,
+                          const uint8_t *pkt, size_t len, uint8_t *tag_out);
 
 #endif

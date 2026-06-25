@@ -327,7 +327,7 @@ int main(int argc, const char **argv)
 	 * It will just allocate for 1 internal and 1 (+ 1 http2 nwsi) that we
 	 * will use.
 	 */
-	info.fd_limit_per_thread = (unsigned int)(1 + count_clients + 1);
+	info.fd_limit_per_thread = (unsigned int)(1 + count_clients + 3);
 
 #if defined(LWS_WITH_MBEDTLS) || defined(USE_WOLFSSL) || defined(LWS_WITH_OPENHITLS)
 	/*

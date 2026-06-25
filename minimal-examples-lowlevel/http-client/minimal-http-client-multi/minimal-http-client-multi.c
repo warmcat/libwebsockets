@@ -58,6 +58,7 @@ enum {
 	LWS_SW_OUTDIR,
 	LWS_SW_SAVE_TICKET,
 	LWS_SW_LOAD_TICKET,
+	LWS_SW_SEQ,
 	LWS_SW_HELP,
 };
 
@@ -83,7 +84,8 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_OUTDIR]	= { "-O",              "Output directory for downloads" },
 	[LWS_SW_SAVE_TICKET] = { "--save-ticket", "Path to save TLS session ticket" },
 	[LWS_SW_LOAD_TICKET] = { "--load-ticket", "Path to load TLS session ticket" },
-	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+	[LWS_SW_SEQ]         = { "--seq", "Run sequentially" },
+	[LWS_SW_HELP]	= { "--help", 		"Show this help information" },
 };
 
 #include <string.h>
@@ -106,11 +108,14 @@ static int completed, failed, stagger_idx, posting, count = COUNT,
 #if defined(LWS_WITH_TLS_SESSIONS)
 	   reuse,
 #endif
-	   staggered;
+	   staggered, sequential;
 static lws_sorted_usec_list_t sul_stagger;
 static struct lws_client_connect_info i;
 static struct lws *client_wsi[COUNT];
-static char conn_state[COUNT];
+static int conn_state[COUNT];
+
+static void
+lws_try_client_connection(struct lws_client_connect_info *ii, int m);
 static char intr;
 static struct lws_context *context;
 
@@ -439,6 +444,8 @@ finished:
 		 * destroy to happen after we exited this service for each pt
 		 */
 		lws_context_destroy(lws_get_context(wsi));
+	} else if (sequential) {
+		lws_try_client_connection(&i, completed);
 	}
 
 	return 0;
@@ -519,7 +526,9 @@ system_notify_cb(lws_state_manager_t *mgr, lws_state_notify_link_t *link,
 
 	/* all the system prerequisites are ready */
 
-	if (!staggered)
+	if (sequential)
+		lws_try_client_connection(&i, 0);
+	else if (!staggered)
 		/*
 		 * just pile on all the connections at once, testing the
 		 * pipeline queuing before the first is connected
@@ -654,6 +663,7 @@ int main(int argc, const char **argv)
 					signal(SIGINT, sigint_handler);
 
 	staggered = !!lws_cmdline_option(argc, argv, switches[LWS_SW_S].sw);
+	sequential = !!lws_cmdline_option(argc, argv, switches[LWS_SW_SEQ].sw);
 
 	lwsl_user("LWS minimal http client [-s (staggered)] [-p (pipeline)]\n");
 	lwsl_user("   [-l (localhost)] [-d <logs>]\n");

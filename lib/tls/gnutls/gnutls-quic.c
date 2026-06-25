@@ -119,6 +119,12 @@ gnutls_quic_secret_func(gnutls_session_t session,
 	return 0;
 }
 
+static void
+lws_gnutls_debug_log(int level, const char *msg)
+{
+	lwsl_notice("GNUTLS DEBUG [%d]: %s", level, msg);
+}
+
 static int
 gnutls_quic_read_func(gnutls_session_t session,
 		      gnutls_record_encryption_level_t level,
@@ -141,13 +147,21 @@ gnutls_quic_read_func(gnutls_session_t session,
 	case GNUTLS_ENCRYPTION_LEVEL_INITIAL:
 		qlevel = 0; /* LWS_QUIC_LEVEL_INITIAL */
 		break;
+	case GNUTLS_ENCRYPTION_LEVEL_EARLY:
+		qlevel = 1; /* LWS_QUIC_LEVEL_EARLY */
+		break;
 	case GNUTLS_ENCRYPTION_LEVEL_HANDSHAKE:
 		qlevel = 2; /* LWS_QUIC_LEVEL_HANDSHAKE */
 		break;
 	case GNUTLS_ENCRYPTION_LEVEL_APPLICATION:
-		qlevel = 1; /* LWS_QUIC_LEVEL_APP */
+		qlevel = 3; /* LWS_QUIC_LEVEL_APP */
 		break;
 	default:
+		return 0;
+	}
+
+	if (data_size == 5 && ((const uint8_t *)data)[0] == 24) {
+		lwsl_wsi_notice(wsi, "QUIC TLS TX: dropping 5-byte KeyUpdate message");
 		return 0;
 	}
 
@@ -358,6 +372,28 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 
 	gnutls_session_set_ptr(session, wsi);
 	gnutls_handshake_set_secret_function(session, gnutls_quic_secret_func);
+
+	static int logged_init = 0;
+	if (!logged_init) {
+		gnutls_global_set_log_level(9);
+		gnutls_global_set_log_function(lws_gnutls_debug_log);
+		logged_init = 1;
+	}
+
+#if defined(LWS_WITH_SERVER) && defined(LWS_WITH_TLS_SESSIONS)
+	if (!lwsi_role_client(wsi)) {
+#if GNUTLS_VERSION_NUMBER >= 0x030603
+		if (wsi->a.vhost && wsi->a.vhost->tls.ssl_ctx) {
+			if (wsi->a.vhost->tls.ssl_ctx->ticket_key_valid) {
+				lwsl_notice("%s: enabling server session tickets\n", __func__);
+				gnutls_session_ticket_enable_server(session, &wsi->a.vhost->tls.ssl_ctx->ticket_key);
+			} else {
+				lwsl_notice("%s: ticket_key_valid is 0\n", __func__);
+			}
+		}
+#endif
+	}
+#endif
 	gnutls_handshake_set_read_function(session, gnutls_quic_read_func);
 
 	gnutls_session_ext_register(session, "quic_transport_parameters",
@@ -366,6 +402,11 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 				    gnutls_quic_ext_send_func,
 				    NULL, NULL, NULL,
 				    GNUTLS_EXT_FLAG_CLIENT_HELLO | GNUTLS_EXT_FLAG_EE);
+
+#if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_TLS_SESSIONS)
+	if (lwsi_role_client(wsi))
+		lws_tls_reuse_session(wsi);
+#endif
 
 	return 0;
 }
@@ -415,6 +456,15 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 
 	n = gnutls_handshake(session);
 
+#if defined(LWS_WITH_SERVER) && defined(LWS_WITH_TLS_SESSIONS)
+	if (n == GNUTLS_E_SUCCESS && !lwsi_role_client(wsi) && wsi->quic.qn && !wsi->quic.qn->handshake_done) {
+#if GNUTLS_VERSION_NUMBER >= 0x030603
+		int r = gnutls_session_ticket_send(session, 1, 0);
+		lwsl_notice("%s: gnutls_session_ticket_send returned %d\n", __func__, r);
+#endif
+	}
+#endif
+
 	if (out_len)
 		*out_len = b->out_len;
 
@@ -428,8 +478,13 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 		}
 	}
 
-	if (n == GNUTLS_E_SUCCESS)
+	if (n == GNUTLS_E_SUCCESS) {
+#if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_TLS_SESSIONS)
+		if (lwsi_role_client(wsi))
+			lws_tls_session_new_gnutls(wsi);
+#endif
 		return 0;
+	}
 
 	if (n == GNUTLS_E_AGAIN || n == GNUTLS_E_INTERRUPTED)
 		return 1;

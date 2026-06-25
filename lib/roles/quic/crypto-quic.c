@@ -879,3 +879,186 @@ lws_rx_is_early_data(struct lws *wsi)
 
 	return 0;
 }
+
+static const uint8_t quic_v1_retry_key[] = {
+        0xbe, 0x0c, 0x69, 0x0b, 0x9f, 0x66, 0x57, 0x5a,
+        0x1d, 0x76, 0x6b, 0x54, 0xe3, 0x68, 0xc8, 0x4e
+};
+static const uint8_t quic_v1_retry_nonce[] = {
+        0x46, 0x15, 0x99, 0xd3, 0x5d, 0x63, 0x2b, 0xf2,
+        0x23, 0x98, 0x25, 0xbb
+};
+
+int
+lws_quic_validate_retry_tag(struct lws_quic_netconn *qn, const uint8_t *pkt, size_t len, const uint8_t *tag)
+{
+        struct lws_genaes_ctx aead;
+        uint8_t computed_tag[16];
+        uint8_t pseudo_pkt[2048];
+        size_t pseudo_len;
+
+        if (!qn->rem_cid.len || len + 1 + qn->rem_cid.len > sizeof(pseudo_pkt))
+                return -1;
+
+        pseudo_pkt[0] = qn->rem_cid.len;
+        memcpy(pseudo_pkt + 1, qn->rem_cid.id, qn->rem_cid.len);
+        memcpy(pseudo_pkt + 1 + qn->rem_cid.len, pkt, len);
+        pseudo_len = 1 + qn->rem_cid.len + len;
+
+        struct lws_gencrypto_keyelem keys[1];
+        keys[0].buf = (uint8_t *)quic_v1_retry_key;
+        keys[0].len = sizeof(quic_v1_retry_key);
+
+        if (lws_genaes_create(&aead, LWS_GAESO_ENC, LWS_GAESM_GCM, keys, LWS_GAESP_NO_PADDING, NULL))
+                return -1;
+
+        size_t iv_len = 12;
+        if (lws_genaes_crypt(&aead, pseudo_pkt, pseudo_len,
+                             NULL, (uint8_t *)quic_v1_retry_nonce, computed_tag, &iv_len, 16)) {
+                lws_genaes_destroy(&aead, NULL, 0);
+                return -1;
+        }
+
+        if (lws_genaes_destroy(&aead, computed_tag, 16))
+                return -1;
+
+        if (lws_timingsafe_bcmp(tag, computed_tag, 16))
+                return -1;
+
+        return 0;
+}
+
+int
+lws_quic_create_retry_token(struct lws *wsi,
+                            const uint8_t *client_dcid, size_t dcid_len,
+                            const uint8_t *retry_scid, size_t rscid_len,
+                            const uint8_t *client_ip, size_t ip_len,
+                            uint8_t *out_token, size_t *out_token_len)
+{
+        struct lws_genaes_ctx aead;
+        uint8_t pt[256];
+        size_t pt_len = 0;
+        uint8_t nonce[12];
+
+        lws_get_random(wsi->a.context, nonce, 12);
+
+        pt[pt_len++] = (uint8_t)dcid_len;
+        memcpy(&pt[pt_len], client_dcid, dcid_len);
+        pt_len += dcid_len;
+
+        pt[pt_len++] = (uint8_t)rscid_len;
+        memcpy(&pt[pt_len], retry_scid, rscid_len);
+        pt_len += rscid_len;
+
+        pt[pt_len++] = (uint8_t)ip_len;
+        memcpy(&pt[pt_len], client_ip, ip_len);
+        pt_len += ip_len;
+
+        struct lws_gencrypto_keyelem keys[1];
+        keys[0].buf = wsi->a.context->quic_retry_secret;
+        keys[0].len = 16;
+
+        if (lws_genaes_create(&aead, LWS_GAESO_ENC, LWS_GAESM_GCM, keys, LWS_GAESP_NO_PADDING, NULL))
+                return -1;
+
+        memcpy(out_token, nonce, 12);
+        size_t iv_len = 12;
+        if (lws_genaes_crypt(&aead, pt, pt_len, out_token + 12, nonce, out_token + 12 + pt_len, &iv_len, 16)) {
+                lws_genaes_destroy(&aead, NULL, 0);
+                return -1;
+        }
+        if (lws_genaes_destroy(&aead, out_token + 12 + pt_len, 16))
+                return -1;
+
+        *out_token_len = 12 + pt_len + 16;
+        return 0;
+}
+
+int
+lws_quic_validate_retry_token(struct lws *wsi, const uint8_t *token, size_t token_len,
+                              const uint8_t *client_ip, size_t ip_len,
+                              struct lws_quic_cid *orig_dcid,
+                              struct lws_quic_cid *retry_scid)
+{
+        struct lws_genaes_ctx aead;
+        uint8_t pt[256];
+        size_t ct_len;
+        uint8_t tag[16];
+
+        if (token_len < 12 + 16 + 1)
+                return -1;
+        ct_len = token_len - 12 - 16;
+        if (ct_len > sizeof(pt))
+                return -1;
+
+        struct lws_gencrypto_keyelem keys[1];
+        keys[0].buf = wsi->a.context->quic_retry_secret;
+        keys[0].len = 16;
+
+        if (lws_genaes_create(&aead, LWS_GAESO_DEC, LWS_GAESM_GCM, keys, LWS_GAESP_NO_PADDING, NULL))
+                return -1;
+
+        size_t iv_len = 12;
+        memcpy(tag, token + 12 + ct_len, 16);
+        if (lws_genaes_crypt(&aead, token + 12, ct_len, pt, (uint8_t *)token, tag, &iv_len, 16)) {
+                lws_genaes_destroy(&aead, NULL, 0);
+                return -1;
+        }
+        if (lws_genaes_destroy(&aead, tag, 16))
+                return -1;
+
+        size_t p = 0;
+        if (p >= ct_len) return -1;
+        orig_dcid->len = pt[p++];
+        if (p + orig_dcid->len > ct_len) return -1;
+        memcpy(orig_dcid->id, &pt[p], orig_dcid->len);
+        p += orig_dcid->len;
+
+        if (p >= ct_len) return -1;
+        retry_scid->len = pt[p++];
+        if (p + retry_scid->len > ct_len) return -1;
+        memcpy(retry_scid->id, &pt[p], retry_scid->len);
+        p += retry_scid->len;
+
+        if (p >= ct_len) return -1;
+        if (pt[p++] != ip_len) return -1;
+        if (p + ip_len > ct_len) return -1;
+        if (memcmp(&pt[p], client_ip, ip_len)) return -1;
+
+        return 0;
+}
+
+int
+lws_quic_create_retry_tag(const uint8_t *client_dcid, size_t dcid_len,
+                          const uint8_t *pkt, size_t len, uint8_t *tag_out)
+{
+        struct lws_genaes_ctx aead;
+        uint8_t pseudo_pkt[2048];
+        size_t pseudo_len;
+
+        if (!dcid_len || len + 1 + dcid_len > sizeof(pseudo_pkt))
+                return -1;
+
+        pseudo_pkt[0] = (uint8_t)dcid_len;
+        memcpy(pseudo_pkt + 1, client_dcid, dcid_len);
+        memcpy(pseudo_pkt + 1 + dcid_len, pkt, len);
+        pseudo_len = 1 + dcid_len + len;
+
+        struct lws_gencrypto_keyelem keys[1];
+        keys[0].buf = (uint8_t *)quic_v1_retry_key;
+        keys[0].len = sizeof(quic_v1_retry_key);
+
+        if (lws_genaes_create(&aead, LWS_GAESO_ENC, LWS_GAESM_GCM, keys, LWS_GAESP_NO_PADDING, NULL))
+                return -1;
+
+        size_t iv_len = 12;
+        if (lws_genaes_crypt(&aead, pseudo_pkt, pseudo_len,
+                             NULL, (uint8_t *)quic_v1_retry_nonce, tag_out, &iv_len, 16)) {
+                lws_genaes_destroy(&aead, NULL, 0);
+                return -1;
+        }
+        if (lws_genaes_destroy(&aead, tag_out, 16))
+                return -1;
+
+        return 0;
+}

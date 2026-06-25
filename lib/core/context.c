@@ -1795,6 +1795,9 @@ lws_create_context(const struct lws_context_creation_info *info)
 	lws_cancel_service(context);
 #endif
 
+	lws_get_random(context, context->quic_retry_secret,
+		       sizeof(context->quic_retry_secret));
+
 	return context;
 
 early_bail:
