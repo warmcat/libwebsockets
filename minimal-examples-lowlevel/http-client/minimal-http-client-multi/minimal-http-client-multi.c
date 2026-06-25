@@ -239,7 +239,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 			if (!basename[0]) basename = "index.html";
 			
 			lws_snprintf(path, sizeof(path), "%s/%s", out_dir, basename);
-			pss->fd = open(path, LWS_O_WRONLY | O_CREAT | O_TRUNC, 0640);
+			pss->fd = open(path, LWS_O_WRONLY | O_CREAT | O_TRUNC, 0644);
 			if (pss->fd < 0) {
 				lwsl_err("Failed to open %s for writing\n", path);
 			} else {
@@ -283,6 +283,8 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	/* chunks of chunked content, with header removed */
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
 		lwsl_user("RECEIVE_CLIENT_HTTP_READ: conn %d: read %d\n", idx, (int)len);
+		if (!pss)
+			break;
 		if (pss->fd >= 0) {
 			if (write(pss->fd, in, (unsigned int)len) != (ssize_t)len)
 				lwsl_err("Write failed\n");
@@ -317,6 +319,8 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_COMPLETED_CLIENT_HTTP:
 		lwsl_user("LWS_CALLBACK_COMPLETED_CLIENT_HTTP %s: idx %d\n",
 			  lws_wsi_tag(wsi), idx);
+		if (!pss)
+			break;
 		if (pss->fd >= 0) {
 			close(pss->fd);
 			pss->fd = -1;
@@ -329,6 +333,9 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
 		lwsl_info("%s: closed: %s\n", __func__, lws_wsi_tag(wsi));
+
+		if (!pss)
+			break;
 
 		if (pss->fd >= 0) {
 			close(pss->fd);
@@ -460,7 +467,7 @@ my_metric_report(lws_metric_pub_t *mp)
 	return 1;
 }
 
-static const lws_system_ops_t system_ops = {
+static lws_system_ops_t system_ops = {
 	.metric_report = my_metric_report,
 };
 
@@ -608,6 +615,11 @@ stagger_cb(lws_sorted_usec_list_t *sul)
 	lws_sul_schedule(context, 0, &sul_stagger, stagger_cb, next);
 }
 
+static int custom_cpd_bypass(struct lws_context *cx) {
+        lws_system_cpd_set(cx, LWS_CPD_INTERNET_OK);
+        return 0;
+}
+
 int main(int argc, const char **argv)
 {
 	lws_state_notify_link_t notifier = { { NULL, NULL, NULL },
@@ -661,8 +673,17 @@ int main(int argc, const char **argv)
 	info.pcontext = &context;
 
 #if defined(LWS_WITH_SYS_METRICS)
-	info.system_ops = &system_ops;
+        info.system_ops = &system_ops;
 #endif
+        if (lws_cmdline_option(argc, argv, "--cpd-bypass")) {
+#if defined(LWS_WITH_SYS_METRICS)
+                system_ops.captive_portal_detect_request = custom_cpd_bypass;
+#else
+                static lws_system_ops_t sops;
+                sops.captive_portal_detect_request = custom_cpd_bypass;
+                info.system_ops = &sops;
+#endif
+        }
 
 #if defined(LWS_WITH_MBEDTLS) || defined(USE_WOLFSSL) || defined(LWS_WITH_OPENHITLS)
 	/*
@@ -701,9 +722,17 @@ int main(int argc, const char **argv)
 #endif
 
 	i.context = context;
-	i.ssl_connection = LCCSCF_USE_SSL |
-			   LCCSCF_H2_QUIRK_OVERFLOWS_TXCR |
-			   LCCSCF_H2_QUIRK_NGHTTP2_END_STREAM;
+	i.ssl_connection = LCCSCF_USE_SSL | LCCSCF_H2_QUIRK_OVERFLOWS_TXCR | LCCSCF_H2_QUIRK_NGHTTP2_END_STREAM;
+
+	if (lws_cmdline_option(argc, argv, "-j"))
+		i.ssl_connection |= LCCSCF_ALLOW_SELFSIGNED;
+	if (lws_cmdline_option(argc, argv, "-k"))
+		i.ssl_connection |= LCCSCF_ALLOW_INSECURE;
+	if (lws_cmdline_option(argc, argv, "-m"))
+		i.ssl_connection |= LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+	if (lws_cmdline_option(argc, argv, "-e"))
+		i.ssl_connection |= LCCSCF_ALLOW_EXPIRED;
+
 
 	if (lws_cmdline_option(argc, argv, switches[LWS_SW_POST].sw)) {
 		posting = 1;
@@ -726,6 +755,9 @@ int main(int argc, const char **argv)
 #endif
 
 	/* force h1 even if h2 available */
+	if (lws_cmdline_option(argc, argv, "--h3"))
+		i.alpn = "h3";
+
 	if (lws_cmdline_option(argc, argv, "--h1"))
 		i.alpn = "http/1.1";
 
@@ -767,6 +799,7 @@ int main(int argc, const char **argv)
 			if (count == 1024) break;
 		}
 	}
+	int default_urls = 0;
 	if (count == 0) {
 		/* Fallback to default */
 		lws_strncpy(reqs[0].address, "libwebsockets.org", sizeof(reqs[0].address));
@@ -776,6 +809,7 @@ int main(int argc, const char **argv)
 		else
 			lws_strncpy(reqs[0].path, "/", sizeof(reqs[0].path));
 		count = 8;
+		default_urls = 1;
 
 		if (lws_cmdline_option(argc, argv, switches[LWS_SW_L].sw)) {
 			reqs[0].port = 7681;
@@ -809,10 +843,14 @@ int main(int argc, const char **argv)
 			c_opt = count;
 	}
 
-	for (int j = 1; j < c_opt; j++) {
-		lws_strncpy(reqs[j].address, reqs[0].address, sizeof(reqs[j].address));
-		reqs[j].port = reqs[0].port;
-		lws_strncpy(reqs[j].path, reqs[0].path, sizeof(reqs[j].path));
+	if (count <= 1 || default_urls) {
+		for (int j = 1; j < c_opt; j++) {
+			reqs[j] = reqs[0];
+		}
+	} else {
+		/* If explicit URLs were provided, don't overwrite them. 
+		 * If -c was larger than the provided URLs, limit it. */
+		c_opt = count;
 	}
 	count = c_opt;
 

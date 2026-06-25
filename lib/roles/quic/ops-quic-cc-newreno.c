@@ -23,6 +23,7 @@ struct lws_quic_cc_newreno {
 	lws_usec_t		congestion_recovery_start_time;
 
 	lws_usec_t		last_pacing_time;
+	size_t			pacing_credit;
 };
 
 static void
@@ -47,6 +48,7 @@ newreno_init(struct lws *nwsi)
 	st->bytes_in_flight = 0;
 	st->congestion_recovery_start_time = 0;
 	st->last_pacing_time = lws_now_usecs();
+	st->pacing_credit = st->cwnd; /* initial burst allowed */
 
 	lwsl_cx_info(nwsi->a.context, "QUIC NewReno: init cwnd=%zu, mtu=%u", st->cwnd, mtu);
 }
@@ -60,7 +62,10 @@ newreno_on_sent(struct lws *nwsi, size_t bytes)
 	if (!st) return;
 
 	st->bytes_in_flight += bytes;
-	st->last_pacing_time = lws_now_usecs();
+	if (st->pacing_credit >= bytes)
+		st->pacing_credit -= bytes;
+	else
+		st->pacing_credit = 0;
 }
 
 static void
@@ -158,16 +163,32 @@ newreno_get_pacing_delay(struct lws *nwsi, size_t bytes_to_send)
 	if (rtt < 1000)
 		rtt = 1000; /* Minimum 1ms for pacing math */
 
-	/* Pacing Rate R = cwnd / srtt (bytes per microsecond) */
-	/* Delay = bytes_to_send / R = (bytes_to_send * srtt) / cwnd */
-	delay_us = (lws_usec_t)(((uint64_t)bytes_to_send * (uint64_t)rtt) / (uint64_t)st->cwnd);
+	lws_usec_t now = lws_now_usecs();
+	lws_usec_t elapsed = now - st->last_pacing_time;
+	st->last_pacing_time = now;
 
-	/* Allow burst up to a fraction, so return 0 if last send is old enough */
-	lws_usec_t elapsed = lws_now_usecs() - st->last_pacing_time;
-	if (elapsed >= delay_us)
+	/* Replenish credit based on elapsed time: R = cwnd / srtt */
+	size_t credit_added = (size_t)(((uint64_t)elapsed * (uint64_t)st->cwnd) / (uint64_t)rtt);
+	st->pacing_credit += credit_added;
+
+	/* Cap credit to max burst to prevent micro-bursts (e.g. 10 packets) */
+	size_t max_burst = 10 * (lws_get_vhost(nwsi)->quic_mtu ? lws_get_vhost(nwsi)->quic_mtu : 1280);
+	if (st->pacing_credit > max_burst)
+		st->pacing_credit = max_burst;
+
+	if (st->pacing_credit >= bytes_to_send) {
+		/* We have enough credit to send this packet */
 		return 0;
+	}
 
-	return delay_us - elapsed;
+	/* Not enough credit. Calculate how long it will take to earn the missing credit. */
+	size_t missing_credit = bytes_to_send - st->pacing_credit;
+	delay_us = (lws_usec_t)(((uint64_t)missing_credit * (uint64_t)rtt) / (uint64_t)st->cwnd);
+
+	if (delay_us == 0)
+		delay_us = 1;
+
+	return delay_us;
 }
 
 const struct lws_cc_ops lws_cc_ops_newreno = {

@@ -229,11 +229,15 @@ lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 
 	assert(wsi->role_ops);
 
+	lwsl_notice("%s: lws_write calling write_role_protocol on %s\n", __func__, lws_wsi_tag(wsi));
+
 	if (!lws_rops_fidx(wsi->role_ops, LWS_ROPS_write_role_protocol))
 		m = lws_issue_raw(wsi, buf, len);
 	else
 		m = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_write_role_protocol).
 				write_role_protocol(wsi, buf, len, &wp);
+	
+	lwsl_notice("%s: lws_write write_role_protocol returned %d\n", __func__, m);
 
 #if defined(LWS_WITH_SYS_METRICS)
 	if (wsi->a.vhost)

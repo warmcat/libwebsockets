@@ -347,7 +347,7 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 #if defined(LWS_WITH_FREERTOS)
 	if (owner->count >= 16)
 #else
-	if (owner->count >= 64)
+	if (owner->count >= 4096)
 #endif
 	{
 		lwsl_wsi_notice(nwsi, "QUIC RX: Dropping future chunk, reassembly buffer full");
@@ -941,7 +941,8 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 						wsi_child->quic.qs->is_unidirectional = (uint8_t)((stream_id & 0x02) != 0 ? 1 : 0);
 						wsi_child->quic.qs->is_server_initiated = (uint8_t)((stream_id & 0x01) != 0 ? 1 : 0);
 						wsi_child->quic.qs->rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
-						wsi_child->quic.qs->rx_window_size = LWS_QUIC_DEFAULT_WINDOW;
+						wsi_child->quic.qs->advertised_rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
+		wsi_child->quic.qs->rx_window_size = LWS_QUIC_DEFAULT_WINDOW;
 						wsi_child->quic.qs->last_rx_update_us = lws_now_usecs();
 					} else {
 						lws_close_free_wsi(wsi_child, LWS_CLOSE_STATUS_NOSTATUS, "quic stream oom");
@@ -1069,7 +1070,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 						lwsl_wsi_notice(nwsi, "QUIC RX: Stream ID %llu exceeds limit", (unsigned long long)stream_id);
 						lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_STREAM_LIMIT_ERROR, type, 0);
 						return -1;
-					}
+}
 				}
 
 				if (!is_peer_initiated) {
@@ -1080,10 +1081,15 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 						lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_STREAM_STATE_ERROR, type, 0);
 						return -1;
 					}
+					if (is_unidirectional && type == LWS_QUIC_FT_STREAM_DATA_BLOCKED) {
+						lwsl_wsi_notice(nwsi, "QUIC RX: STREAM_DATA_BLOCKED on receive-only stream ID %llu",
+							(unsigned long long)stream_id);
+						lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_STREAM_STATE_ERROR, type, 0);
+						return -1;
+					}
 				} else {
-					if (is_unidirectional) {
-						lwsl_wsi_notice(nwsi, "QUIC RX: %s on receive-only stream ID %llu", 
-							type == LWS_QUIC_FT_MAX_STREAM_DATA ? "MAX_STREAM_DATA" : "STREAM_DATA_BLOCKED",
+					if (is_unidirectional && type == LWS_QUIC_FT_MAX_STREAM_DATA) {
+						lwsl_wsi_notice(nwsi, "QUIC RX: MAX_STREAM_DATA on receive-only stream ID %llu",
 							(unsigned long long)stream_id);
 						lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_STREAM_STATE_ERROR, type, 0);
 						return -1;
@@ -1194,7 +1200,7 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 			break;
 		case 0x05: /* initial_max_stream_data_bidi_local */
 			if (lws_quic_parse_varint(&buf[pos], param_len, &val) == param_len) {
-				qn->peer_initial_max_stream_data_bidi_local = val;
+				qn->peer_initial_max_stream_data_bidi_local = val; 
 			} else return -1;
 			break;
 		case 0x06: /* initial_max_stream_data_bidi_remote */

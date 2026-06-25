@@ -702,6 +702,9 @@ just_kill_connection:
 #endif
 #if defined(LWS_WITH_CLIENT)
 	lws_sul_cancel(&wsi->sul_happy_eyeballs);
+#if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
+	lws_sul_cancel(&wsi->sul_h3_grace);
+#endif
 	for (int m = 0; m < wsi->parallel_count; m++) {
 		if (wsi->parallel_conns[m].is_valid) {
 			lws_remove_parallel_fd_safely(wsi, m);

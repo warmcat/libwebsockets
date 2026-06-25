@@ -1643,7 +1643,7 @@ int lws_wsi_mux_apply_queue(struct lws *wsi) {
 #if defined(LWS_ROLE_H2)
 		struct lws *w = lws_container_of(d, struct lws, dll2_cli_txn_queue);
 
-		if (lwsi_role_http(wsi) &&
+		if (lwsi_role_h2(wsi) &&
 				lwsi_state(w) == LRS_H2_WAITING_TO_SEND_HEADERS) {
 			lwsl_wsi_info(w, "cli pipeq to be h2");
 
@@ -1654,6 +1654,21 @@ int lws_wsi_mux_apply_queue(struct lws *wsi) {
 
 			/* attach ourselves as an h2 stream */
 			lws_wsi_h2_adopt(wsi, w);
+		}
+#endif
+
+#if defined(LWS_ROLE_H3)
+		if (lwsi_role_h3(wsi) &&
+				lwsi_state(w) == LRS_H2_WAITING_TO_SEND_HEADERS) {
+			lwsl_wsi_info(w, "cli pipeq to be h3");
+
+			lwsi_set_state(w, LRS_H1C_ISSUE_HANDSHAKE2);
+
+			/* remove ourselves from client queue */
+			lws_dll2_remove(&w->dll2_cli_txn_queue);
+
+			/* attach ourselves as an h3 stream */
+			lws_wsi_h3_adopt(wsi, w);
 		}
 #endif
 

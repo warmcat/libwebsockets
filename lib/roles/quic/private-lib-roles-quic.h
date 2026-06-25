@@ -191,6 +191,7 @@ struct lws_quic_stream {
 	
 	uint64_t		tx_max_data;
 	uint64_t		rx_max_data;
+	uint64_t		advertised_rx_max_data;
 	uint64_t		rx_window_size;
 	uint64_t		highest_rx_offset;
 	lws_usec_t		last_rx_update_us;
@@ -233,6 +234,7 @@ struct lws_quic_netconn {
 	uint64_t		peer_max_datagram_frame_size;
 
 	uint64_t		rx_max_data;
+	uint64_t		advertised_rx_max_data;
 	uint64_t		rx_window_size;
 	uint64_t		highest_rx_offset;
 	lws_usec_t		last_rx_update_us;
