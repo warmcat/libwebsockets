@@ -2530,15 +2530,6 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 	cisin[CIS_ALPN]		= wsi->alpn;
 #endif
 
-	{
-		void *opaque = wsi->stash ? wsi->stash->opaque_user_data : NULL;
-
-		if (lws_client_stash_create(wsi, cisin))
-			return NULL;
-
-		wsi->stash->opaque_user_data = opaque;
-	}
-
 	if (!port) {
 		lwsl_info("%s: forcing port 443\n", __func__);
 
@@ -2562,7 +2553,19 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 		    __func__, r, cisin[CIS_METHOD], address,
 		    port, path, ssl, cisin[CIS_ALPN]);
 
+	{
+		void *opaque = wsi->stash ? wsi->stash->opaque_user_data : NULL;
+
+		if (lws_client_stash_create(wsi, cisin))
+			return NULL;
+
+		wsi->stash->opaque_user_data = opaque;
+	}
+
 	lws_pt_lock(pt, __func__);
+#if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
+	lws_sul_cancel(&wsi->sul_h3_grace);
+#endif
 	__remove_wsi_socket_from_fds(wsi);
 	lws_pt_unlock(pt);
 

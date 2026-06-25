@@ -1142,6 +1142,9 @@ lws_adns_scan_hostsfile(const char *name, uint8_t *ads, size_t adslen, int qtype
 			    !memcmp(name, ts.token, ts.token_len)) {
 				/* it's a hit */
 				if ((qtype == LWS_ADNS_RECORD_A && l == 4) ||
+#if defined(LWS_WITH_IPV6)
+				    (qtype == LWS_ADNS_RECORD_A && l == 16) ||
+#endif
 				    (qtype == LWS_ADNS_RECORD_AAAA && l == 16) ||
 				    (qtype != LWS_ADNS_RECORD_A && qtype != LWS_ADNS_RECORD_AAAA)) {
 					ret = (int)l;
@@ -1150,7 +1153,10 @@ lws_adns_scan_hostsfile(const char *name, uint8_t *ads, size_t adslen, int qtype
 			}
 			if (ts.e == LWS_TOKZE_TOKEN && !had_ads && ts.token_len < 50) {
 				/* we're getting an ipv4 or ipv6 numads */
-				l = lws_parse_numeric_address(ts.token, ads, adslen);
+				char temp_ads[64];
+				memcpy(temp_ads, ts.token, ts.token_len);
+				temp_ads[ts.token_len] = '\0';
+				l = lws_parse_numeric_address(temp_ads, ads, adslen);
 				had_ads = 1;
 			}
 

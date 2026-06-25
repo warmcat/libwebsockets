@@ -329,6 +329,11 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 			return -1;
 		}
 		lwsl_debug("H3_TRACE: wsi %p lws_http_action returned 0 (success)\n", wsi);
+
+		/* Detach the ah now that headers are processed, to prevent ah pool exhaustion */
+		lws_header_table_detach(wsi, 0);
+		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+
 		return 0;
 	}
 #endif
@@ -612,6 +617,11 @@ lws_h3_create_unidi_stream(struct lws *nwsi, uint8_t type)
 		cwsi->txc.peer_tx_cr_est = 65535;
 	}
 	cwsi->quic.qs->stream_id = qn->next_stream_id_unidi_local;
+
+	cwsi->quic.qs->rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
+	cwsi->quic.qs->advertised_rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
+	cwsi->quic.qs->rx_window_size = LWS_QUIC_DEFAULT_WINDOW;
+	cwsi->quic.qs->last_rx_update_us = lws_now_usecs();
 
 	/* We're doing client unidi streams */
 	lws_wsi_mux_insert(cwsi, nwsi, (unsigned int)qn->next_stream_id_unidi_local);
@@ -967,7 +977,7 @@ lws_quic_enter_closing_state(nwsi, LWS_QPACK_ENCODER_STREAM_ERROR, 0, 1);
 			len -= chunk;
 
 			/* Replenish flow control window */
-			lws_wsi_tx_credit(wsi, LWSTXCR_PEER_TO_US, (int)chunk);
+			lwsl_notice("H3 RX: Replenishing %d bytes", (int)chunk); lws_wsi_tx_credit(wsi, LWSTXCR_PEER_TO_US, (int)chunk);
 
 			if (wsi->h3.rx_frame_payload_read == wsi->h3.rx_frame_len) {
 				if (wsi->h3.stream_type == 0x00 && wsi->h3.rx_frame_type == 0x04) {
@@ -1481,6 +1491,11 @@ lws_wsi_h3_adopt(struct lws *parent_wsi, struct lws *wsi)
 	wsi->client_mux_substream = 1;
 #endif
 
+	if (wsi->quic.qn) {
+		lws_free(wsi->quic.qn);
+		wsi->quic.qn = NULL;
+	}
+
 	wsi->quic.qs = lws_zalloc(sizeof(*wsi->quic.qs), "quic stream");
 	if (!wsi->quic.qs)
 		return NULL;
@@ -1494,6 +1509,11 @@ lws_wsi_h3_adopt(struct lws *parent_wsi, struct lws *wsi)
 	sid = qn->next_stream_id_bidi_local;
 	wsi->quic.qs->stream_id = sid;
 	qn->next_stream_id_bidi_local += 4;
+
+	wsi->quic.qs->rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
+	wsi->quic.qs->advertised_rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
+	wsi->quic.qs->rx_window_size = LWS_QUIC_DEFAULT_WINDOW;
+	wsi->quic.qs->last_rx_update_us = lws_now_usecs();
 
 	wsi->mux_substream = 1;
 #if defined(LWS_WITH_CLIENT)

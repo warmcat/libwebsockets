@@ -405,6 +405,7 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 
 		/* Initialize RX Flow Control limits */
 		nwsi->quic.qn->rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
+		nwsi->quic.qn->advertised_rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
 		nwsi->quic.qn->rx_window_size = LWS_QUIC_DEFAULT_WINDOW;
 		nwsi->quic.qn->last_rx_update_us = lws_now_usecs();
 		nwsi->txc.peer_tx_cr_est = LWS_QUIC_DEFAULT_WINDOW; /* How much the peer can write to us */
@@ -468,7 +469,7 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 		tp += (_len); \
 	} while (0)
 
-			LWS_QUIC_WRITE_TP_VARINT(0x04, LWS_QUIC_DEFAULT_WINDOW);
+			lwsl_notice("QUIC CLIENT: Writing TP buffer! buf size %d", (int)(tp - wsi->quic.qn->local_tp_buf)); LWS_QUIC_WRITE_TP_VARINT(0x04, LWS_QUIC_DEFAULT_WINDOW);
 			LWS_QUIC_WRITE_TP_VARINT(0x05, LWS_QUIC_DEFAULT_WINDOW);
 			LWS_QUIC_WRITE_TP_VARINT(0x06, LWS_QUIC_DEFAULT_WINDOW);
 			LWS_QUIC_WRITE_TP_VARINT(0x07, LWS_QUIC_DEFAULT_WINDOW);
@@ -1517,6 +1518,19 @@ send_frames:
 		 */
 		if (qn->pending_tx[level].count)
 			lws_callback_on_writable(wsi);
+            
+		/*
+		 * If we successfully sent application-level data, the pending_tx buffer
+		 * has shrunk. We MUST wake up the child streams because they may have
+		 * been stalled by the application-layer pacing throttle in tx_credit!
+		 */
+		if (level == LWS_QUIC_LEVEL_APP && send_len > 0) {
+			struct lws *curr = wsi->mux.child_list;
+			while (curr) {
+				lws_callback_on_writable(curr);
+				curr = curr->mux.sibling_list;
+			}
+		}
 	}
 
 	qn->pto_probe_needed = 0;
@@ -1566,10 +1580,16 @@ send_frames:
 					goto next_child;
 				}
 				
-                                  wa = wsi2; /* wsi2 is updated to point to the next element by move_child_to_tail */
+                wa = wsi2;
 				w->mux.requested_POLLOUT = 0;
 
-				int32_t usable_credit = w->txc.tx_cr;
+                int is_peer_initiated = (w->mux.my_sid & 1) != (qn->is_server ? 1 : 0);
+                int is_unidiri = (w->mux.my_sid & 2);
+                if (is_peer_initiated && is_unidiri) {
+                        goto next_child;
+                }
+
+                int32_t usable_credit = w->txc.tx_cr;
 				if (lws_rops_fidx(w->role_ops, LWS_ROPS_tx_credit)) {
 					usable_credit = lws_rops_func_fidx(w->role_ops, LWS_ROPS_tx_credit).
 								tx_credit(w, LWSTXCR_US_TO_PEER, 0);
@@ -1646,11 +1666,13 @@ next_child:
 
 static int
 rops_write_role_protocol_quic(struct lws *wsi, unsigned char *buf, size_t len,
-			      enum lws_write_protocol *wp)
+                              enum lws_write_protocol *wp)
 {
 	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
 	struct lws_quic_netconn *qn = nwsi ? nwsi->quic.qn : wsi->quic.qn;
 	struct lws_quic_tx_frame *f;
+
+	lwsl_notice("%s: entry len=%d, wsi=%s, nwsi=%s, qn=%p\n", __func__, (int)len, lws_wsi_tag(wsi), lws_wsi_tag(nwsi), qn);
 
 	if (!qn)
 		return -1;
@@ -1700,6 +1722,7 @@ rops_write_role_protocol_quic(struct lws *wsi, unsigned char *buf, size_t len,
 
 	lwsl_info("QUIC TX WRITE: Stream %llu. Requested: %d, Stream tx_cr: %d, Conn tx_cr: %d\n", wsi->quic.qs ? (unsigned long long)wsi->quic.qs->stream_id : 0, (int)len, (int)wsi->txc.tx_cr, nwsi ? (int)nwsi->txc.tx_cr : -1);
 
+	lwsl_notice("%s: allocating frame of size %d\n", __func__, (int)(sizeof(*f) + len));
 	/* Allocate frame struct + payload buffer natively */
 	f = lws_zalloc(sizeof(*f) + len, "quic tx frame");
 	if (!f)
@@ -1713,8 +1736,10 @@ rops_write_role_protocol_quic(struct lws *wsi, unsigned char *buf, size_t len,
 	f->data = (uint8_t *)&f[1];
 	f->len = len;
 
+	lwsl_notice("%s: copying data from buf=%p to f->data=%p\n", __func__, buf, f->data);
 	/* Copy the user payload */
 	memcpy(f->data, buf, len);
+	lwsl_notice("%s: copied data\n", __func__);
 
 	if (((*wp) & 0x1f) == LWS_WRITE_QUIC_DATAGRAM) {
 		/* It's a DATAGRAM frame */
@@ -1823,6 +1848,7 @@ rops_client_bind_quic(struct lws *wsi, const struct lws_client_connect_info *i)
 		wsi->txc.tx_cr = init_cr;
 		
 		wsi->quic.qn->rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
+		wsi->quic.qn->advertised_rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
 		wsi->quic.qn->rx_window_size = LWS_QUIC_DEFAULT_WINDOW;
 		wsi->quic.qn->last_rx_update_us = lws_now_usecs();
 
@@ -1864,7 +1890,7 @@ rops_client_bind_quic(struct lws *wsi, const struct lws_client_connect_info *i)
 		tp += (_len); \
 	} while (0)
 
-			LWS_QUIC_WRITE_TP_VARINT(0x04, 1048576);
+			lwsl_notice("QUIC CLIENT: Writing TP buffer! buf size %d", (int)(tp - wsi->quic.qn->local_tp_buf)); LWS_QUIC_WRITE_TP_VARINT(0x04, 1048576);
 			LWS_QUIC_WRITE_TP_VARINT(0x05, 1048576);
 			LWS_QUIC_WRITE_TP_VARINT(0x06, 1048576);
 			LWS_QUIC_WRITE_TP_VARINT(0x07, 1048576);
@@ -1941,22 +1967,28 @@ static int
 rops_callback_on_writable_quic(struct lws *wsi)
 {
 	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+	int already;
+
+	if (!nwsi) return 0;
 
 	if (wsi->mux.requested_POLLOUT) {
-		lwsl_info("rops_callback_on_writable_quic: %s already pending writable\n", lws_wsi_tag(wsi));
+		// lwsl_info("rops_callback_on_writable_quic: %s already pending writable\n", lws_wsi_tag(wsi));
 	} else {
 		lwsl_info("rops_callback_on_writable_quic: marking %s as pending writable (nwsi=%s)\n", lws_wsi_tag(wsi), lws_wsi_tag(nwsi));
 	}
 
-	lws_wsi_mux_mark_parents_needing_writeable(wsi);
+	already = lws_wsi_mux_mark_parents_needing_writeable(wsi);
 
 	/* for network action, act only on the network wsi */
-	if (nwsi && nwsi != wsi)
+	if (already && nwsi && nwsi != wsi)
 		return lws_callback_on_writable(nwsi);
 
 	/* If we are the network wsi but we have a listener parent (shared UDP port), propagate to it */
-	if (wsi->mux.parent_wsi)
+	if (already && wsi->mux.parent_wsi)
 		return lws_callback_on_writable(wsi->mux.parent_wsi);
+
+	if (already)
+		return 1;
 
 	return 0; /* not handled, let core handle it */
 }
@@ -2150,7 +2182,7 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 
 			if (wsi->quic.qs) {
 				wsi->quic.qs->rx_max_data += (uint64_t)(add > 0 ? add : 0);
-				uint64_t ungranted = wsi->quic.qs->rx_max_data - wsi->quic.qs->highest_rx_offset;
+				uint64_t ungranted = wsi->quic.qs->advertised_rx_max_data - wsi->quic.qs->highest_rx_offset;
 				
 				if (nwsi && nwsi->a.context->quic_tx_credit_cb) {
 					uint64_t new_win = nwsi->a.context->quic_tx_credit_cb(
@@ -2159,7 +2191,7 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 					if (new_win > wsi->quic.qs->rx_window_size && new_win <= LWS_QUIC_MAX_WINDOW) {
 						wsi->quic.qs->rx_max_data += (new_win - wsi->quic.qs->rx_window_size);
 						wsi->quic.qs->rx_window_size = new_win;
-						ungranted = wsi->quic.qs->rx_max_data - wsi->quic.qs->highest_rx_offset;
+						ungranted = wsi->quic.qs->advertised_rx_max_data - wsi->quic.qs->highest_rx_offset;
 					}
 				}
 
@@ -2167,17 +2199,18 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 					wsi->quic.qs->last_rx_update_us = now;
 					struct lws_quic_tx_frame *f_msd = lws_zalloc(sizeof(*f_msd), "quic msd");
 					if (f_msd) {
-						f_msd->type = LWS_QUIC_FT_MAX_STREAM_DATA;
+						lwsl_notice("QUIC: Generating MAX_STREAM_DATA limit %llu", (unsigned long long)wsi->quic.qs->rx_max_data); f_msd->type = LWS_QUIC_FT_MAX_STREAM_DATA;
 						f_msd->stream_id = wsi->mux.my_sid;
 						f_msd->limit = wsi->quic.qs->rx_max_data;
-						lws_dll2_add_head(&f_msd->list, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
+						wsi->quic.qs->advertised_rx_max_data = wsi->quic.qs->rx_max_data;
+						lws_dll2_add_tail(&f_msd->list, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
 					}
 				}
 			}
 
 			if (nwsi) {
 				qn->rx_max_data += (uint64_t)(add > 0 ? add : 0);
-				uint64_t ungranted = qn->rx_max_data - qn->highest_rx_offset;
+				uint64_t ungranted = qn->advertised_rx_max_data - qn->highest_rx_offset;
 
 				if (nwsi->a.context->quic_tx_credit_cb) {
 					uint64_t new_win = nwsi->a.context->quic_tx_credit_cb(
@@ -2186,7 +2219,7 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 					if (new_win > qn->rx_window_size && new_win <= LWS_QUIC_MAX_WINDOW) {
 						qn->rx_max_data += (new_win - qn->rx_window_size);
 						qn->rx_window_size = new_win;
-						ungranted = qn->rx_max_data - qn->highest_rx_offset;
+						ungranted = qn->advertised_rx_max_data - qn->highest_rx_offset;
 					}
 				}
 
@@ -2196,7 +2229,8 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 					if (f_md) {
 						f_md->type = LWS_QUIC_FT_MAX_DATA;
 						f_md->limit = qn->rx_max_data;
-						lws_dll2_add_head(&f_md->list, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
+						qn->advertised_rx_max_data = qn->rx_max_data;
+						lws_dll2_add_tail(&f_md->list, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
 					}
 					lws_callback_on_writable(nwsi);
 				}
@@ -2229,9 +2263,32 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 	}
 
 	if (peer_to_us == LWSTXCR_US_TO_PEER) {
+		/*
+		 * How much can we write to the peer?
+		 * Min of stream's local tx credit and the nwsi's global tx credit.
+		 */
 		int cr = wsi->txc.tx_cr;
 		if (nwsi && nwsi->txc.tx_cr < cr)
 			cr = nwsi->txc.tx_cr;
+
+		/* 
+		 * Throttle application-layer writes if the QUIC pending_tx list is growing too large.
+		 * On WAN links, the CC limits the physical sending rate. If we don't throttle
+		 * the application, it will buffer the entire file into RAM, consuming MBs of memory.
+		 */
+		if (nwsi && nwsi->quic.qn) {
+			size_t queued_bytes = 0;
+			lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&nwsi->quic.qn->pending_tx[LWS_QUIC_LEVEL_APP])) {
+				struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
+				queued_bytes += f->len;
+			} lws_end_foreach_dll(d);
+
+			/* Cap at 64KB of buffered TX frames to pace application */
+			if (queued_bytes >= 65536)
+				cr = 0;
+			else if (cr > (int)(65536 - queued_bytes))
+				cr = (int)(65536 - queued_bytes);
+		}
 
 		/*
 		 * Accounts for H3 framing overhead (DATA/HEADERS frame type + length: max 9 bytes).
@@ -2326,6 +2383,7 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	wsi->quic.qs = lws_zalloc(sizeof(*wsi->quic.qs), "quic stream");
 	if (wsi->quic.qs) {
 		wsi->quic.qs->rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
+		wsi->quic.qs->advertised_rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
 		wsi->quic.qs->rx_window_size = LWS_QUIC_DEFAULT_WINDOW;
 		wsi->quic.qs->last_rx_update_us = lws_now_usecs();
 	} else {
@@ -2366,11 +2424,11 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	}
 #endif
 #if defined(LWS_WITH_CLIENT)
-	if (!strcmp(alpn, "h3") && lwsi_role_client(wsi)) {
-		wsi->client_h2_alpn = 1;
-		wsi->client_mux_migrated = 1;
-		wsi->hdr_parsing_completed = 0;
-	}
+        if (!strcmp(alpn, "h3") && lwsi_role_client(wsi)) {
+                wsi->client_h2_alpn = 1;
+                wsi->client_mux_migrated = 1;
+                wsi->hdr_parsing_completed = 0;
+        }
 #endif
 
 	wsi->mux_substream = 1;
@@ -2438,7 +2496,19 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	/* We are ready to send headers! */
 	lws_callback_on_writable(wsi);
 
+#if defined(LWS_WITH_CLIENT)
+	if (!strcmp(alpn, "h3") && lwsi_role_client(wsi)) {
+		lws_wsi_mux_apply_queue(wsi);
+	}
+#endif
+
 	return 0;
+}
+
+static int
+rops_destroy_role_quic(struct lws *wsi)
+{
+	return rops_close_kill_connection_quic(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 }
 
 static const lws_rops_t rops_table_quic[] = {
@@ -2449,9 +2519,10 @@ static const lws_rops_t rops_table_quic[] = {
 	/*  5 */ { .write_role_protocol	  = rops_write_role_protocol_quic },
 	/*  6 */ { .alpn_negotiated	  = rops_alpn_negotiated_quic },
 	/*  7 */ { .close_kill_connection = rops_close_kill_connection_quic },
-	/*  8 */ { .adoption_bind	  = rops_adoption_bind_quic },
+	/*  8 */ { .destroy_role          = rops_destroy_role_quic },
+	/*  9 */ { .adoption_bind	  = rops_adoption_bind_quic },
 #if defined(LWS_WITH_CLIENT)
-	/*  9 */ { .client_bind		  = rops_client_bind_quic },
+	/* 10 */ { .client_bind		  = rops_client_bind_quic },
 #endif
 };
 
@@ -2478,9 +2549,9 @@ const struct lws_role_ops role_ops_quic = {
 	  /* LWS_ROPS_close_role */
 	  /* LWS_ROPS_close_kill_connection */		0x07,
 	  /* LWS_ROPS_destroy_role */
-	  /* LWS_ROPS_adoption_bind */			0x08,
+	  /* LWS_ROPS_adoption_bind */			0x89,
 #if defined(LWS_WITH_CLIENT)
-	  /* LWS_ROPS_client_bind */                    0x90,
+	  /* LWS_ROPS_client_bind */                    0xA0,
 	  /* LWS_ROPS_issue_keepalive */
 #else
 	  /* LWS_ROPS_client_bind */                    0x00,
