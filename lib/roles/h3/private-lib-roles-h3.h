@@ -60,6 +60,9 @@ extern const struct lws_role_ops role_ops_h3;
 struct lws *
 lws_wsi_h3_adopt(struct lws *parent_wsi, struct lws *wsi);
 
+int
+lws_wsi_h3_can_adopt(struct lws *parent_wsi);
+
 
 
 struct lws_h3_netconn {

@@ -513,7 +513,7 @@ _lws_vhost_init_server(const struct lws_context_creation_info *info,
 	 */
 	if (LWS_UNIX_SOCK_ENABLED(vhost)) {
 		a.af = AF_UNIX;
-		goto single;
+		return _lws_vhost_init_server_af(&a);
 	}
 #endif
 

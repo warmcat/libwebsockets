@@ -239,6 +239,10 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
                                                         if (lws_http_transaction_completed_client(wsi_child)) {
                                                                 lwsl_info("Transaction completed and wsi closed\n");
                                                                 wsi_child = NULL;
+                                                        } else {
+                                                                lwsl_wsi_info(wsi_child, "Transaction completed! Closing QUIC stream WSI");
+                                                                lws_close_free_wsi(wsi_child, LWS_CLOSE_STATUS_NOSTATUS, "quic client stream fin");
+                                                                wsi_child = NULL;
                                                         }
 #endif
                                                 } else {
@@ -313,6 +317,10 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 										wsi_child->client_mux_substream = 1;
 										if (lws_http_transaction_completed_client(wsi_child)) {
 											lwsl_info("Transaction completed and wsi closed\n");
+											wsi_child = NULL;
+										} else {
+											lwsl_wsi_info(wsi_child, "Transaction completed! Closing QUIC stream WSI");
+											lws_close_free_wsi(wsi_child, LWS_CLOSE_STATUS_NOSTATUS, "quic client stream fin");
 											wsi_child = NULL;
 										}
 #endif
@@ -739,10 +747,13 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 			}
 			lwsl_wsi_info(nwsi, "QUIC RX: Parsed MAX/BLOCKED STREAMS! max_streams %llu", (unsigned long long)max_streams);
 			if (qn) {
-				if (type == LWS_QUIC_FT_MAX_STREAMS_BIDI)
+				if (type == LWS_QUIC_FT_MAX_STREAMS_BIDI) {
 					qn->max_streams_bidi_remote = max_streams;
-				else if (type == LWS_QUIC_FT_MAX_STREAMS_UNIDI)
+					lws_wsi_mux_apply_queue(nwsi);
+				} else if (type == LWS_QUIC_FT_MAX_STREAMS_UNIDI) {
 					qn->max_streams_unidi_remote = max_streams;
+					lws_wsi_mux_apply_queue(nwsi);
+				}
 			}
 			break;
 		}
@@ -939,11 +950,21 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 				int is_locally_initiated = lwsi_role_client(nwsi) ? !(stream_id & 1) : (stream_id & 1);
 
 				if (is_locally_initiated) {
-					if (is_unidirectional || !wsi_child) {
+					uint64_t next_sid = is_unidirectional ? qn->next_stream_id_unidi_local : qn->next_stream_id_bidi_local;
+
+					if (is_unidirectional || (!wsi_child && stream_id >= next_sid)) {
 						lwsl_wsi_notice(nwsi, "QUIC RX: Invalid STREAM frame on stream ID %llu (is_locally_initiated=1)", (unsigned long long)stream_id);
 						/* RFC 9000 19.8: A receiver MUST terminate the connection with STREAM_STATE_ERROR if it receives a STREAM frame for a locally-initiated stream that has not yet been created, or for a send-only stream */
 						lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_STREAM_STATE_ERROR, type, 0);
 						return -1;
+					}
+
+					/* If wsi_child is NULL, it means the stream was already closed!
+					 * We should ignore the frame! */
+					if (!wsi_child) {
+						/* Skip payload */
+						pos += len;
+						continue;
 					}
 				}
 
