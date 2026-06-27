@@ -54,6 +54,19 @@ lws_quic_pto_cb(lws_sorted_usec_list_t *sul)
 		LWS_RATELIMIT_DEFINE_STATIC(rl);
 		lwsl_ratelimit_info(&rl, 1000000, "QUIC PTO Timer Fired! Forcing POLLOUT for retransmission sweep\n");
 #endif
+		/* Add a PING frame to force a packet out if we don't have pending tx */
+		for (int i = 0; i < LWS_QUIC_LEVEL_COUNT; i++) {
+			if (qn->in_flight[i].count) {
+				struct lws_quic_tx_frame *ping = lws_zalloc(sizeof(*ping), "pto ping");
+				if (ping) {
+					ping->type = LWS_QUIC_FT_PING;
+					lws_dll2_add_tail(&ping->list, &qn->pending_tx[i]);
+					lwsl_wsi_notice(qn->nwsi, "QUIC PTO: Enqueued PING for level %d", i);
+				}
+				break;
+			}
+		}
+
 		lws_callback_on_writable(qn->nwsi);
 
 		/* Always ensure the timer is running as long as there is data in flight! */
@@ -580,8 +593,8 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 			LWS_QUIC_WRITE_TP_VARINT(0x05, LWS_QUIC_DEFAULT_WINDOW);
 			LWS_QUIC_WRITE_TP_VARINT(0x06, LWS_QUIC_DEFAULT_WINDOW);
 			LWS_QUIC_WRITE_TP_VARINT(0x07, LWS_QUIC_DEFAULT_WINDOW);
-			LWS_QUIC_WRITE_TP_VARINT(0x08, 1024);
-			LWS_QUIC_WRITE_TP_VARINT(0x09, 1024);
+			LWS_QUIC_WRITE_TP_VARINT(0x08, nwsi->quic.qn->max_streams_bidi_local);
+			LWS_QUIC_WRITE_TP_VARINT(0x09, nwsi->quic.qn->max_streams_unidi_local);
 			LWS_QUIC_WRITE_TP_VARINT(0x20, 65535);
 			LWS_QUIC_WRITE_TP_VARINT(0x01, 30000);
 
@@ -1307,7 +1320,7 @@ send_frames:
 			continue;
 		}
 
-		lwsl_wsi_info(wsi, "QUIC TX: Processing level %d. pending=%d, needs_ack=%d", level, qn->pending_tx[level].count, qn->needs_ack[level]);
+		lwsl_wsi_notice(wsi, "QUIC TX: Processing level %d. pending=%d, needs_ack=%d, pto_needed=%d", level, qn->pending_tx[level].count, qn->needs_ack[level], qn->pto_probe_needed);
 
 		uint32_t mtu = qn->current_mtu ? qn->current_mtu : 1280;
 
@@ -1467,11 +1480,13 @@ send_frames:
 			if (send_len < f->len && (type & 0xf8) == LWS_QUIC_FT_STREAM) {
 				type &= 0xfe; /* Clear FIN bit for intermediate fragment */
 			}
-			lwsl_notice("QUIC TX: Serializing frame type 0x%02x\n", type);
+			// lwsl_notice("QUIC TX: Serializing frame type 0x%02x\n", type);
 			*p++ = type;
 
 			/* Serialize frame-specific headers */
-			if (type == LWS_QUIC_FT_CRYPTO) {
+			if (type == LWS_QUIC_FT_PING) {
+				/* PING has no payload or additional headers */
+			} else if (type == LWS_QUIC_FT_CRYPTO) {
 				p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->offset);
 				p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), send_len);
 			} else if ((type & 0xf8) == LWS_QUIC_FT_STREAM) {
@@ -1739,15 +1754,15 @@ send_frames:
 		qn->handshake_done, (int)wsi->txc.tx_cr, (nwsi ? (int)nwsi->txc.tx_cr : 0));
 	if (qn && qn->handshake_done) {
 		if (lws_wsi_txc_check_skint(&wsi->txc, (int32_t)wsi->txc.tx_cr))
-			return LWS_HP_RET_DROP_POLLOUT;
+			goto end_children;
 		if (nwsi && lws_wsi_txc_check_skint(&nwsi->txc, (int32_t)nwsi->txc.tx_cr))
-			return LWS_HP_RET_DROP_POLLOUT;
+			goto end_children;
 
 		struct lws **wsi2 = &wsi->mux.child_list;
 
         {
                 struct lws *curr = wsi->mux.child_list;
-                int sanity = 1000;
+                int sanity = 1000000;
                 lwsl_info("QUIC TX POLLOUT: nwsi=%s, tx_cr=%d\n", lws_wsi_tag(wsi), (int)wsi->txc.tx_cr);
                 while (curr && sanity--) {
                         lwsl_info("QUIC TX POLLOUT:   child: %s, requested_POLLOUT=%d, tx_cr=%d\n", 
@@ -1756,7 +1771,7 @@ send_frames:
                 }
         }
 		if (*wsi2) {
-			int sanity = 1000;
+			int sanity = 1000000;
 			do {
 				struct lws *w, **wa;
 				
@@ -1807,7 +1822,8 @@ send_frames:
 					goto next_child;
 				}
 
-				lwsl_info("QUIC TX POLLOUT: calling perform_user_POLLOUT/lws_callback_as_writeable for child %s\n", lws_wsi_tag(w));
+
+                                lwsl_info("QUIC TX POLLOUT: calling perform_user_POLLOUT/lws_callback_as_writeable for child %s\n", lws_wsi_tag(w));
 				if (lws_rops_fidx(w->role_ops, LWS_ROPS_perform_user_POLLOUT)) {
 					if (lws_rops_func_fidx(w->role_ops, LWS_ROPS_perform_user_POLLOUT).
 									perform_user_POLLOUT(w) == -1) {
@@ -1837,6 +1853,7 @@ next_child:
 			} while (wsi2 && *wsi2 && wsi->txc.tx_cr > 0 && (!nwsi || nwsi->txc.tx_cr > 0));
 		}
 
+end_children:
 		lwsl_info("QUIC TX POLLOUT: calling lws_wsi_mux_action_pending_writeable_reqs\n");
 		
 		int can_process_children = (qn->handshake_done && wsi->txc.tx_cr > 0 && (!nwsi || nwsi->txc.tx_cr > 0));
@@ -2092,8 +2109,8 @@ rops_client_bind_quic(struct lws *wsi, const struct lws_client_connect_info *i)
 			LWS_QUIC_WRITE_TP_VARINT(0x05, 1048576);
 			LWS_QUIC_WRITE_TP_VARINT(0x06, 1048576);
 			LWS_QUIC_WRITE_TP_VARINT(0x07, 1048576);
-			LWS_QUIC_WRITE_TP_VARINT(0x08, 1024);
-			LWS_QUIC_WRITE_TP_VARINT(0x09, 1024);
+			LWS_QUIC_WRITE_TP_VARINT(0x08, wsi->quic.qn->max_streams_bidi_local);
+			LWS_QUIC_WRITE_TP_VARINT(0x09, wsi->quic.qn->max_streams_unidi_local);
 			LWS_QUIC_WRITE_TP_VARINT(0x20, 65535);
 			LWS_QUIC_WRITE_TP_VARINT(0x01, 30000);
 
@@ -2199,9 +2216,6 @@ rops_callback_on_writable_quic(struct lws *wsi)
 	/* If we are the network wsi but we have a listener parent (shared UDP port), propagate to it */
 	if (already && wsi->mux.parent_wsi)
 		return lws_callback_on_writable(wsi->mux.parent_wsi);
-
-	if (already)
-		return 1;
 
 	return 0; /* not handled, let core handle it */
 }
@@ -2642,6 +2656,18 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	wsi->txc.peer_tx_cr_est = init_cr;
 	wsi->txc.tx_cr = init_cr;
 
+        /* Transfer active connection and pipeline queue from child to network WSI */ 
+        if (!lws_dll2_is_detached(&wsi->dll_cli_active_conns)) { 
+                lws_dll2_remove(&wsi->dll_cli_active_conns); 
+                lws_dll2_add_tail(&nwsi->dll_cli_active_conns, &wsi->a.vhost->dll_cli_active_conns_owner); 
+        } 
+        lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, 
+                        wsi->dll2_cli_txn_queue_owner.head) { 
+                struct lws *ww = lws_container_of(d, struct lws, dll2_cli_txn_queue); 
+                lws_dll2_remove(&ww->dll2_cli_txn_queue); 
+                lws_dll2_add_tail(&ww->dll2_cli_txn_queue, &nwsi->dll2_cli_txn_queue_owner); 
+        } lws_end_foreach_dll_safe(d, d1); 
+
 	lwsl_info("rops_alpn_negotiated_quic: old_wsi=%p\n", wsi);
 	lwsl_info("rops_alpn_negotiated_quic: new_nwsi=%p\n", nwsi);
 	lwsl_info("rops_alpn_negotiated_quic: qn=%p\n", nwsi->quic.qn);
@@ -2737,9 +2763,9 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	lws_callback_on_writable(wsi);
 
 #if defined(LWS_WITH_CLIENT)
-	if (!strcmp(alpn, "h3") && lwsi_role_client(wsi)) {
-		lws_wsi_mux_apply_queue(wsi);
-	}
+        if (!strcmp(alpn, "h3") && lwsi_role_client(wsi)) {
+                lws_wsi_mux_apply_queue(nwsi);
+        }
 #endif
 
 	return 0;

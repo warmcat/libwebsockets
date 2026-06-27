@@ -286,15 +286,14 @@ lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(struct lws *wsi)
 							lwsi_state(wsi));
 
 		if (lwsi_state(wsi) == LRS_UNCONNECTED) {
-			if (lwsi_role_h2(w) || lwsi_role_h3(w))
+			if (lwsi_role_h2(w) || (w->role_ops && !strcmp(w->role_ops->name, "quic")))
 				lwsi_set_state(wsi,
 					       LRS_H2_WAITING_TO_SEND_HEADERS);
 			else
 				lwsi_set_state(wsi, LRS_H1C_ISSUE_HANDSHAKE2);
 		}
 
-		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
-				(int)wsi->a.context->timeout_secs);
+		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
 		return lws_client_connect_4_established(wsi, w, 0);
 	}

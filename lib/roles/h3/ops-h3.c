@@ -1498,6 +1498,26 @@ const struct lws_role_ops role_ops_h3 = {
 	/* file_handle */		0,
 };
 
+int
+lws_wsi_h3_can_adopt(struct lws *parent_wsi)
+{
+        struct lws *nwsi = lws_get_network_wsi(parent_wsi);
+        struct lws_quic_netconn *qn = nwsi->quic.qn;
+        uint64_t next_id;
+
+        if (!qn)
+                return 0;
+
+        next_id = qn->next_stream_id_bidi_local;
+        if (next_id == 0)
+                next_id = 4;
+
+        if (next_id / 4 >= qn->max_streams_bidi_remote)
+                return 0; /* limit reached */
+
+        return 1;
+}
+
 struct lws *
 lws_wsi_h3_adopt(struct lws *parent_wsi, struct lws *wsi)
 {

@@ -1556,6 +1556,12 @@ struct lws *lws_wsi_mux_move_child_to_tail(struct lws **wsi2) {
 int lws_wsi_mux_action_pending_writeable_reqs(struct lws *wsi) {
 	struct lws *w = wsi->mux.child_list;
 
+	if (wsi->mux.requested_POLLOUT) {
+		if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
+			return -1;
+		return 0;
+	}
+
 	while (w) {
 		if (w->mux.requested_POLLOUT) {
 			if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
@@ -1640,9 +1646,12 @@ int lws_wsi_mux_apply_queue(struct lws *wsi) {
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 			wsi->dll2_cli_txn_queue_owner.head) {
-#if defined(LWS_ROLE_H2)
 		struct lws *w = lws_container_of(d, struct lws, dll2_cli_txn_queue);
 
+		lwsl_wsi_notice(wsi, "evaluating queued conn %s (state 0x%x, par role %s)",
+				lws_wsi_tag(w), lwsi_state(w), wsi->role_ops ? wsi->role_ops->name : "none");
+
+#if defined(LWS_ROLE_H2)
 		if (lwsi_role_h2(wsi) &&
 				lwsi_state(w) == LRS_H2_WAITING_TO_SEND_HEADERS) {
 			lwsl_wsi_info(w, "cli pipeq to be h2");
@@ -1651,6 +1660,8 @@ int lws_wsi_mux_apply_queue(struct lws *wsi) {
 
 			/* remove ourselves from client queue */
 			lws_dll2_remove(&w->dll2_cli_txn_queue);
+			lws_set_timeout(w, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
+					(int)wsi->a.context->timeout_secs);
 
 			/* attach ourselves as an h2 stream */
 			lws_wsi_h2_adopt(wsi, w);
@@ -1658,14 +1669,22 @@ int lws_wsi_mux_apply_queue(struct lws *wsi) {
 #endif
 
 #if defined(LWS_ROLE_H3)
-		if (lwsi_role_h3(wsi) &&
+		if ((wsi->role_ops && !strcmp(wsi->role_ops->name, "quic")) &&
 				lwsi_state(w) == LRS_H2_WAITING_TO_SEND_HEADERS) {
-			lwsl_wsi_info(w, "cli pipeq to be h3");
+			
+			if (!lws_wsi_h3_can_adopt(wsi)) {
+				lwsl_wsi_notice(wsi, "h3 can_adopt returned false!");
+				break;
+			}
+
+			lwsl_wsi_notice(w, "cli pipeq to be h3");
 
 			lwsi_set_state(w, LRS_H1C_ISSUE_HANDSHAKE2);
 
 			/* remove ourselves from client queue */
 			lws_dll2_remove(&w->dll2_cli_txn_queue);
+			lws_set_timeout(w, PENDING_TIMEOUT_AWAITING_CLIENT_HS_SEND,
+					(int)wsi->a.context->timeout_secs);
 
 			/* attach ourselves as an h3 stream */
 			lws_wsi_h3_adopt(wsi, w);
