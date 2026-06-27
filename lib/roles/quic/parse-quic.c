@@ -799,7 +799,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 					f_pr->len = 8;
 					f_pr->data = (uint8_t *)&f_pr[1];
 					memcpy(f_pr->data, path_data, 8);
-					lws_dll2_add_tail(&f_pr->list, &nwsi->quic.qn->pending_tx[level]);
+					lws_dll2_add_head(&f_pr->list, &nwsi->quic.qn->pending_tx[level]);
 					lws_callback_on_writable(nwsi);
 				}
 			} else if (type == LWS_QUIC_FT_PATH_RESPONSE && nwsi->quic.qn) {
@@ -820,6 +820,8 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 				/* Clients SHOULD NOT send HANDSHAKE_DONE. Server MUST treat as PROTOCOL_VIOLATION */
 				lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_PROTOCOL_VIOLATION, type, 0);
 				return -1;
+			} else {
+				lws_quic_discard_keys(nwsi, LWS_QUIC_LEVEL_HANDSHAKE);
 			}
 			break;
 

@@ -279,6 +279,8 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 		return LWS_HPI_RET_HANDLED;
 	}
 
+	int orig_n = n;
+
 #if 0
 	{
 		char buf_peer[64], buf_recv[64];
@@ -349,8 +351,11 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 
 		/* The client MUST update its remote CID to the server's SCID from the first response */
 		if ((p[0] & 0x80) && scid.len) {
-			if (nwsi->quic.qn->rem_cid.len != scid.len || memcmp(nwsi->quic.qn->rem_cid.id, scid.id, scid.len)) {
-				nwsi->quic.qn->rem_cid = scid;
+			uint8_t type = (p[0] & 0x30) >> 4;
+			if (type != LWS_QUIC_PT_RETRY) {
+				if (nwsi->quic.qn->rem_cid.len != scid.len || memcmp(nwsi->quic.qn->rem_cid.id, scid.id, scid.len)) {
+					nwsi->quic.qn->rem_cid = scid;
+				}
 			}
 		}
 	} else {
@@ -417,7 +422,6 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 
 		struct lws_quic_cid valid_retry_scid;
 		memset(&valid_retry_scid, 0, sizeof(valid_retry_scid));
-
 		if (getenv("LWS_QUIC_FORCE_RETRY")) {
 			int scid_pos_tmp = 6 + dcid_len;
 			size_t t_off = (size_t)scid_pos_tmp + 1 + scid.len;
@@ -462,6 +466,7 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 					}
 				}
 				return LWS_HPI_RET_HANDLED;
+
 			} else {
 				if (lws_quic_validate_retry_token(wsi, &p[t_off + t_cons], (size_t)t_len, peer_ip, peer_ip_len, &dcid, &valid_retry_scid)) {
 					lwsl_wsi_notice(wsi, "QUIC RX: Invalid Retry Token, dropping Initial packet");
@@ -691,9 +696,9 @@ tp_ok:
 		}
 		if (p[0] & 0x80) {
 			uint8_t type = (uint8_t)((p[0] & 0x30) >> 4);
-			if (type == 0) level = LWS_QUIC_LEVEL_INITIAL;
-			else if (type == 2) level = LWS_QUIC_LEVEL_HANDSHAKE;
-			else if (type == 3) {
+			if (type == LWS_QUIC_PT_INITIAL) level = LWS_QUIC_LEVEL_INITIAL;
+			else if (type == LWS_QUIC_PT_HANDSHAKE) level = LWS_QUIC_LEVEL_HANDSHAKE;
+			else if (type == LWS_QUIC_PT_RETRY) {
 				if (nwsi && nwsi->quic.qn && !nwsi->quic.qn->is_server) {
 					size_t tag_pos = (size_t)n - 16;
 					int client_scid_pos = 6 + dcid_len;
@@ -707,8 +712,14 @@ tp_ok:
 								nwsi->quic.qn->retry_token_len = sizeof(nwsi->quic.qn->retry_token);
 							memcpy(nwsi->quic.qn->retry_token, &p[tok_pos], nwsi->quic.qn->retry_token_len);
 							
-							/* Reset Initial packet number space and derive new keys */
-							lws_quic_derive_initial_keys(nwsi, &scid);
+							/* RFC 9000 17.2.5.1: The client MUST NOT change the cryptographic keys it uses for Initial packets */
+							/* But it MUST reset its Initial packet number space */
+							if (nwsi->quic.qn->keys[LWS_QUIC_LEVEL_INITIAL]) {
+								nwsi->quic.qn->keys[LWS_QUIC_LEVEL_INITIAL]->pn_tx = 0;
+								nwsi->quic.qn->keys[LWS_QUIC_LEVEL_INITIAL]->pn_rx_largest = 0;
+							}
+							nwsi->quic.qn->highest_rx_pn[LWS_QUIC_LEVEL_INITIAL] = 0;
+							nwsi->quic.qn->rx_pn_bitmask[LWS_QUIC_LEVEL_INITIAL] = 0;
 							
 							/* Re-arm writable to send the new Initial packet */
 							lws_callback_on_writable(nwsi);
@@ -863,7 +874,9 @@ tp_ok:
 			lws_quic_discard_keys(nwsi, LWS_QUIC_LEVEL_INITIAL);
 		} else if (level == LWS_QUIC_LEVEL_APP) {
 			lws_quic_discard_keys(nwsi, LWS_QUIC_LEVEL_INITIAL);
-			lws_quic_discard_keys(nwsi, LWS_QUIC_LEVEL_HANDSHAKE);
+			if (nwsi->quic.qn && nwsi->quic.qn->is_server) {
+				lws_quic_discard_keys(nwsi, LWS_QUIC_LEVEL_HANDSHAKE);
+			}
 		}
 
 		lwsl_wsi_info(wsi, "QUIC RX: SUCCESS! Decrypted %d bytes of payload", dec_len);
@@ -948,7 +961,7 @@ tp_ok:
 				nwsi->quic.qn->address_validated = 0;
 
 				/* Reset Path Bytes for Anti-Amplification tracking */
-				nwsi->quic.qn->bytes_received = 0;
+				nwsi->quic.qn->bytes_received = (uint64_t)orig_n;
 				nwsi->quic.qn->bytes_sent = 0;
 
 				/* Initiate Path Validation (Generate PATH_CHALLENGE) */
@@ -961,7 +974,7 @@ tp_ok:
 					memcpy(nwsi->quic.qn->path_challenge, f_pc->data, 8);
 					nwsi->quic.qn->path_challenge_pending = 1;
 
-					lws_dll2_add_tail(&f_pc->list, &nwsi->quic.qn->pending_tx[LWS_QUIC_LEVEL_APP]);
+					lws_dll2_add_head(&f_pc->list, &nwsi->quic.qn->pending_tx[LWS_QUIC_LEVEL_APP]);
 					lws_callback_on_writable(nwsi);
 				}
 			}
@@ -1253,6 +1266,7 @@ rops_handle_POLLOUT_quic(struct lws *wsi)
 					if (f->sent_in_pn == qn->pmtud_probe_pn) {
 						/* Active probe was lost */
 						qn->pmtud_probe_pn = 0;
+						qn->pmtud_state = 2; /* SEARCH_COMPLETE, stop probing */
 					} else if (f->packet_size >= qn->current_mtu - 16) {
 						qn->consecutive_mtu_losses++;
 						if (qn->consecutive_mtu_losses >= 3) {
@@ -1299,11 +1313,21 @@ send_frames:
 
 		/* Enforce RFC 9000 Anti-Amplification Limit (Section 8.1) for servers */
 		if (qn->is_server && !qn->address_validated) {
-			if (qn->bytes_sent + mtu > 3 * qn->bytes_received) {
+			uint64_t allowance = 3 * qn->bytes_received;
+			if (qn->bytes_sent >= allowance) {
 				lwsl_notice("QUIC TX: Anti-Amplification limit reached! Sent: %llu, Recv: %llu. Blocking send.\n",
 					    (unsigned long long)qn->bytes_sent, (unsigned long long)qn->bytes_received);
 				blocked = 1;
 				break; /* Block sending further datagrams */
+			}
+			uint64_t remaining = allowance - qn->bytes_sent;
+			if (mtu > remaining) {
+				mtu = (uint32_t)remaining;
+			}
+			if (mtu < 48) { /* Too small to send anything useful */
+				lwsl_notice("QUIC TX: Anti-Amplification remaining (%llu) too small. Blocking send.\n", (unsigned long long)remaining);
+				blocked = 1;
+				break;
 			}
 		}
 
@@ -1360,7 +1384,13 @@ send_frames:
 
 			if (level == LWS_QUIC_LEVEL_INITIAL) {
 				/* Token Length */
-				*p++ = 0x00;
+				if (!qn->is_server && qn->retry_token_len > 0) {
+					p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), qn->retry_token_len);
+					memcpy(p, qn->retry_token, qn->retry_token_len);
+					p += qn->retry_token_len;
+				} else {
+					*p++ = 0x00;
+				}
 			}
 			/* Length (2-byte varint, will fill in later) */
 			*p++ = 0x40; *p++ = 0x00;
@@ -1414,7 +1444,7 @@ send_frames:
 
 			/* Check if frame fits in remaining MTU (leaving room for headers and 16-byte AEAD tag) */
 			size_t frame_header_max_len = 1 + 8 + 8;
-			size_t max_udp_payload = qn->current_mtu ? (qn->current_mtu > 48 ? qn->current_mtu - 48 : 1200) : 1200;
+			size_t max_udp_payload = mtu > 48 ? mtu - 48 : 1200;
 			if (max_udp_payload > 1200 && !qn->handshake_done) max_udp_payload = 1200; /* RFC 9000 Section 14.1 */
 			if (max_udp_payload > sizeof(pkt)) max_udp_payload = sizeof(pkt);
 
@@ -1423,7 +1453,11 @@ send_frames:
 
 			size_t send_len = f->len;
 			if ((size_t)(p - pkt) + frame_header_max_len + send_len + 32 > max_udp_payload) {
-				send_len = max_udp_payload - (size_t)(p - pkt) - frame_header_max_len - 32;
+				if ((f->type & 0xf8) == LWS_QUIC_FT_STREAM || f->type == LWS_QUIC_FT_CRYPTO) {
+					send_len = max_udp_payload - (size_t)(p - pkt) - frame_header_max_len - 32;
+				} else {
+					break; /* Non-fragmentable frame doesn't fit */
+				}
 			}
 			if (send_len == 0 && f->len > 0)
 				break;
@@ -1433,6 +1467,7 @@ send_frames:
 			if (send_len < f->len && (type & 0xf8) == LWS_QUIC_FT_STREAM) {
 				type &= 0xfe; /* Clear FIN bit for intermediate fragment */
 			}
+			lwsl_notice("QUIC TX: Serializing frame type 0x%02x\n", type);
 			*p++ = type;
 
 			/* Serialize frame-specific headers */
@@ -1548,7 +1583,7 @@ send_frames:
 		}
 
 		/* PMTUD: Send a probe if we are searching and don't currently have a probe in flight */
-		if (level == LWS_QUIC_LEVEL_APP && qn->pmtud_state == 1 && qn->pmtud_probe_pn == 0) {
+		if (level == LWS_QUIC_LEVEL_APP && qn->pmtud_state == 1 && qn->pmtud_probe_pn == 0 && !(qn->is_server && !qn->address_validated)) {
 			size_t target_payload_len = qn->probed_mtu - header_len - 16;
 			if (payload_len < target_payload_len) {
 				memset(p, LWS_QUIC_FT_PADDING, target_payload_len - payload_len);
