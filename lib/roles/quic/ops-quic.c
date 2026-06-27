@@ -493,8 +493,8 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 		nwsi->quic.qn->nwsi = nwsi;
 		nwsi->quic.qn->is_server = 1;
 		nwsi->quic.qn->version = pkt_version;
-		nwsi->quic.qn->max_streams_bidi_local = 1024;
-		nwsi->quic.qn->max_streams_unidi_local = 1024;
+		nwsi->quic.qn->max_streams_bidi_local = 100;
+		nwsi->quic.qn->max_streams_unidi_local = 100;
 
 		nwsi->quic.qn->current_mtu = 1280;
 		nwsi->quic.qn->probed_mtu = 1380; /* first probe size */
@@ -2251,6 +2251,27 @@ lws_quic_stream_cleanup(struct lws *wsi)
 			}
 			
 			if (nwsi) lws_callback_on_writable(nwsi);
+		}
+
+		/* If this was a remote-initiated stream, increase our limit and notify peer */
+		int is_unidirectional = (sid & 2) != 0;
+		int is_remote_initiated = (qn->is_server && (sid & 1) == 0) || (!qn->is_server && (sid & 1) == 1);
+		
+		if (is_remote_initiated) {
+			struct lws_quic_tx_frame *f_max = lws_zalloc(sizeof(*f_max), "quic max strm");
+			if (f_max) {
+				if (!is_unidirectional) {
+					qn->max_streams_bidi_local++;
+					f_max->type = LWS_QUIC_FT_MAX_STREAMS_BIDI;
+					f_max->limit = qn->max_streams_bidi_local;
+				} else {
+					qn->max_streams_unidi_local++;
+					f_max->type = LWS_QUIC_FT_MAX_STREAMS_UNIDI;
+					f_max->limit = qn->max_streams_unidi_local;
+				}
+				lws_dll2_add_tail(&f_max->list, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
+				if (nwsi) lws_callback_on_writable(nwsi);
+			}
 		}
 
 		for (i = 0; i < LWS_QUIC_LEVEL_COUNT; i++) {
