@@ -91,6 +91,12 @@ struct lws_quic_keys {
 	uint8_t		valid:1;
 };
 
+/* QUIC Long Header Packet Types (RFC 9000, Section 17.2) */
+#define LWS_QUIC_PT_INITIAL		0
+#define LWS_QUIC_PT_0RTT		1
+#define LWS_QUIC_PT_HANDSHAKE		2
+#define LWS_QUIC_PT_RETRY		3
+
 /* QUIC Frame Types (RFC 9000) */
 enum lws_quic_frame_type {
 	LWS_QUIC_FT_PADDING			= 0x00,
