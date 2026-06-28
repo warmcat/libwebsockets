@@ -688,7 +688,7 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 			}
 		}
 
-		lsp->pipes_alive = i->pty_mode ? 2 : 3;
+		lsp->pipes_alive = i->pty_mode ? 1 : 3;
 		lsp->created = lws_now_usecs();
 
 		lwsl_info("%s: lsp %p spawned PID %d\n", __func__, lsp,

@@ -9,7 +9,7 @@ const statsBody = document.getElementById('stats-current-body');
 const canvas = document.getElementById('dhtChart');
 const ctx = canvas.getContext('2d');
 
-let chartData = Array(60).fill(null).map(() => ({ tx: 0, rx: 0, drop: 0 }));
+let chartData = new Array(60).fill(null).map(() => ({ tx: 0, rx: 0, drop: 0 }));
 let maxEvents = 10;
 let lastStats = null;
 

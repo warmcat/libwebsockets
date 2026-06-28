@@ -447,10 +447,13 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 			if (sa46.sa4.sin_family == AF_INET) {
 				memcpy(peer_ip, &sa46.sa4.sin_addr, 4);
 				peer_ip_len = 4;
-			} else {
+			}
+#if defined(LWS_WITH_IPV6)
+			else {
 				memcpy(peer_ip, &sa46.sa6.sin6_addr, 16);
 				peer_ip_len = 16;
 			}
+#endif
 
 			if (t_len == 0) {
 				uint8_t retry_pkt[1200];
@@ -2656,6 +2659,7 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	wsi->txc.peer_tx_cr_est = init_cr;
 	wsi->txc.tx_cr = init_cr;
 
+#if defined(LWS_WITH_CLIENT)
         /* Transfer active connection and pipeline queue from child to network WSI */ 
         if (!lws_dll2_is_detached(&wsi->dll_cli_active_conns)) { 
                 lws_dll2_remove(&wsi->dll_cli_active_conns); 
@@ -2667,6 +2671,7 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
                 lws_dll2_remove(&ww->dll2_cli_txn_queue); 
                 lws_dll2_add_tail(&ww->dll2_cli_txn_queue, &nwsi->dll2_cli_txn_queue_owner); 
         } lws_end_foreach_dll_safe(d, d1); 
+#endif
 
 	lwsl_info("rops_alpn_negotiated_quic: old_wsi=%p\n", wsi);
 	lwsl_info("rops_alpn_negotiated_quic: new_nwsi=%p\n", nwsi);

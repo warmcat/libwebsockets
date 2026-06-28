@@ -134,7 +134,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 					basename = "index.html";
 
 				snprintf(filepath, sizeof(filepath), "%s/%s", out_dir, basename);
-				out_fd = open(filepath, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+				out_fd = open(filepath, O_CREAT | O_WRONLY | O_TRUNC, 0600);
 				if (out_fd < 0)
 					lwsl_err("Failed to open output file %s\n", filepath);
 				else

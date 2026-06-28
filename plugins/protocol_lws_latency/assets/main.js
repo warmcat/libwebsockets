@@ -6,7 +6,7 @@ const eventsVal = document.getElementById('events-val');
 const canvas = document.getElementById('latencyChart');
 const ctx = canvas.getContext('2d');
 
-let chartSecs = Array(60).fill(null).map(() => ({ sleep: 0, active: 0, events: 0, worst: 0 }));
+let chartSecs = new Array(60).fill(null).map(() => ({ sleep: 0, active: 0, events: 0, worst: 0 }));
 let maxEvents = 2000;
 let worstLatencies = []; // Table of worst latencies seen
 
