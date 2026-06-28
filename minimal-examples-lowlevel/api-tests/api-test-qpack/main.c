@@ -368,7 +368,11 @@ test_qif_file(const char *filepath)
 	}
 	
 	/* Pass 2: Header blocks */
-	lseek(fd, 0, SEEK_SET);
+	if (lseek(fd, 0, SEEK_SET) < 0) {
+		lwsl_err("lseek failed\n");
+		fails++;
+		goto done;
+	}
 	while (1) {
 		s = read(fd, header, 12);
 		if (s == 0) break;
@@ -406,6 +410,7 @@ test_qif_file(const char *filepath)
 		}
 	}
 	
+done:
 	close(fd);
 	if (states)
 		free(states);
