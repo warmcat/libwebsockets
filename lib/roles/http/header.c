@@ -87,7 +87,7 @@ lws_add_http_header_by_name(struct lws *wsi, const unsigned char *name,
 						    value, length, p, end);
 #endif
 #ifdef LWS_WITH_HTTP2
-	if (lws_wsi_is_h2(wsi))
+	if (wsi && lws_wsi_is_h2(wsi))
 		return lws_add_http2_header_by_name(wsi, name,
 						    value, length, p, end);
 #endif
@@ -143,7 +143,7 @@ int lws_finalize_http_header(struct lws *wsi, unsigned char **p,
 	}
 #endif
 #ifdef LWS_WITH_HTTP2
-	if (lws_wsi_is_h2(wsi))
+	if (wsi && lws_wsi_is_h2(wsi))
 		return 0;
 #endif
 	if ((lws_intptr_t)(end - *p) < 3)
@@ -185,7 +185,7 @@ lws_add_http_header_by_token(struct lws *wsi, enum lws_token_indexes token,
 						     length, p, end);
 #endif
 #ifdef LWS_WITH_HTTP2
-	if (lws_wsi_is_h2(wsi))
+	if (wsi && lws_wsi_is_h2(wsi))
 		return lws_add_http2_header_by_token(wsi, token, value,
 						     length, p, end);
 #endif
