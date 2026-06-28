@@ -652,54 +652,61 @@ dht_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 						else hashtype = (enum lws_genhash_types)0;
 
 						if (hashtype != (enum lws_genhash_types)0 && !lws_genhash_init(&hash_ctx, hashtype)) {
-							uint8_t key_data[1024];
-							size_t key_len = 0;
+							uint8_t flags_proto_algo[4];
+							int hash_ok = 1;
 
-							key_data[key_len++] = 257 >> 8; /* Flags (KSK) */
-							key_data[key_len++] = 257 & 0xff;
-							key_data[key_len++] = 3; /* Protocol */
-							key_data[key_len++] = frag->algo; /* Algorithm */
+							flags_proto_algo[0] = 257 >> 8; /* Flags (KSK) */
+							flags_proto_algo[1] = 257 & 0xff;
+							flags_proto_algo[2] = 3; /* Protocol */
+							flags_proto_algo[3] = frag->algo; /* Algorithm */
 
-							if (jwk.kty == LWS_GENCRYPTO_KTY_EC) {
-								memcpy(key_data + key_len, jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].buf, jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len);
-								key_len += jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len;
-								memcpy(key_data + key_len, jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].buf, jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len);
-								key_len += jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len;
-							} else if (jwk.kty == LWS_GENCRYPTO_KTY_RSA) {
-								uint8_t *e_buf = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_E].buf;
-								size_t e_len = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_E].len;
+							hash_ok = (lws_genhash_update(&hash_ctx, wire, (size_t)wire_len) == 0) &&
+								  (lws_genhash_update(&hash_ctx, flags_proto_algo, 4) == 0);
 
-								/* Remove leading zero bytes from E if any */
-								while (e_len > 1 && *e_buf == 0) {
-									e_buf++;
-									e_len--;
+							if (hash_ok) {
+								if (jwk.kty == LWS_GENCRYPTO_KTY_EC) {
+									hash_ok = (lws_genhash_update(&hash_ctx, jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].buf, jwk.e[LWS_GENCRYPTO_EC_KEYEL_X].len) == 0) &&
+										  (lws_genhash_update(&hash_ctx, jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].buf, jwk.e[LWS_GENCRYPTO_EC_KEYEL_Y].len) == 0);
+								} else if (jwk.kty == LWS_GENCRYPTO_KTY_RSA) {
+									uint8_t *e_buf = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_E].buf;
+									size_t e_len = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_E].len;
+
+									/* Remove leading zero bytes from E if any */
+									while (e_len > 1 && *e_buf == 0) {
+										e_buf++;
+										e_len--;
+									}
+
+									if (e_len <= 255) {
+										uint8_t el[1];
+										el[0] = (uint8_t)e_len;
+										hash_ok = (lws_genhash_update(&hash_ctx, el, 1) == 0);
+									} else {
+										uint8_t el[3];
+										el[0] = 0;
+										el[1] = (uint8_t)(e_len >> 8);
+										el[2] = (uint8_t)(e_len & 0xff);
+										hash_ok = (lws_genhash_update(&hash_ctx, el, 3) == 0);
+									}
+
+									if (hash_ok)
+										hash_ok = (lws_genhash_update(&hash_ctx, e_buf, e_len) == 0);
+
+									uint8_t *n_buf = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].buf;
+									size_t n_len = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].len;
+
+									/* Remove leading zero bytes from N if any */
+									while (n_len > 1 && *n_buf == 0) {
+										n_buf++;
+										n_len--;
+									}
+
+									if (hash_ok)
+										hash_ok = (lws_genhash_update(&hash_ctx, n_buf, n_len) == 0);
 								}
-
-								if (e_len <= 255) {
-									key_data[key_len++] = (uint8_t)e_len;
-								} else {
-									key_data[key_len++] = 0;
-									key_data[key_len++] = (uint8_t)(e_len >> 8);
-									key_data[key_len++] = (uint8_t)(e_len & 0xff);
-								}
-								memcpy(key_data + key_len, e_buf, e_len);
-								key_len += e_len;
-
-								uint8_t *n_buf = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].buf;
-								size_t n_len = jwk.e[LWS_GENCRYPTO_RSA_KEYEL_N].len;
-
-								/* Remove leading zero bytes from N if any */
-								while (n_len > 1 && *n_buf == 0) {
-									n_buf++;
-									n_len--;
-								}
-
-								memcpy(key_data + key_len, n_buf, n_len);
-								key_len += n_len;
 							}
 
-							if (lws_genhash_update(&hash_ctx, wire, (size_t)wire_len) == 0 &&
-								lws_genhash_update(&hash_ctx, key_data, key_len) == 0) {
+							if (hash_ok) {
 								lws_genhash_destroy(&hash_ctx, digest);
 
 								if (frag->ds_digest_len > 0 && memcmp(digest, frag->ds_digest, frag->ds_digest_len) == 0) {
