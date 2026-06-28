@@ -342,6 +342,8 @@ lws_threadpool_tsi_context(struct lws_context *context, int tsi)
 	while (tp) {
 		int n;
 
+		pthread_mutex_lock(&tp->lock); /* ======================== tpool lock */
+
 		/* for the running (syncing...) tasks... */
 
 		for (n = 0; n < tp->threads_in_pool; n++) {
@@ -370,8 +372,6 @@ lws_threadpool_tsi_context(struct lws_context *context, int tsi)
 		}
 
 		/* for the done tasks... */
-
-		pthread_mutex_lock(&tp->lock); /* ======================== tpool lock */
 
 		c = &tp->task_done_head;
 
