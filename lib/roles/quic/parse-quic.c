@@ -573,7 +573,6 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 			consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &stream_id);
 			if (!consumed) return -1;
 			
-			if (!qn) return -1;
 			int is_peer_initiated = (stream_id & 1) != (qn->is_server ? 1 : 0);
 			int is_unidirectional = (stream_id & 2);
 			struct lws *wsi_child = lws_quic_stream_find(nwsi, stream_id);
@@ -689,7 +688,6 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 			consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &stream_id);
 			if (!consumed) return -1;
 			
-			if (!qn) return -1;
 			int is_peer_initiated = (stream_id & 1) != (qn->is_server ? 1 : 0);
 			int is_unidirectional = (stream_id & 2);
 			struct lws *wsi_child = lws_quic_stream_find(nwsi, stream_id);
