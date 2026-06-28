@@ -1219,7 +1219,8 @@ try_next_dns_result_fds:
 		wsi->position_in_fds_table = saved_pos;
 		wsi->desc = saved_fd;
 	} else {
-		compatible_close(wsi->desc.sockfd);
+		if (lws_socket_is_valid(wsi->desc.sockfd))
+			compatible_close(wsi->desc.sockfd);
 		wsi->desc.sockfd = LWS_SOCK_INVALID;
 		
 #if defined(LWS_WITH_CLIENT)
