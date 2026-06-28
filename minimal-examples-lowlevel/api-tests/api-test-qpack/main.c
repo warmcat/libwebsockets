@@ -395,6 +395,11 @@ test_qif_file(const char *filepath)
 		if (s != (ssize_t)len) break;
 		
 		if (stream_id != 0) {
+			if (stream_id > 100000) {
+				lwsl_err("stream_id %llu too large\n", (unsigned long long)stream_id);
+				fails++;
+				break;
+			}
 			if (stream_id >= states_len) {
 				uint64_t new_len = stream_id + 64;
 				struct lws_qpack_stream_state *ns = realloc(states, (size_t)(new_len * sizeof(*states)));
