@@ -1654,7 +1654,7 @@ lws_async_dns_get_alpn(struct lws_context *context, const char *name, const char
 
 	/* TargetName: sequence of labels ending in 0 */
 	limit = 128;
-	while (pos < paylen && rr[pos] && limit--) {
+	while (limit-- && pos < paylen && rr[pos]) {
 		if (pos + rr[pos] + 1 > paylen)
 			return 0;
 		pos += rr[pos] + 1;
@@ -1665,7 +1665,7 @@ lws_async_dns_get_alpn(struct lws_context *context, const char *name, const char
 
 	/* SvcParams */
 	limit = 128;
-	while (pos + 4 <= paylen && limit--) {
+	while (limit-- && pos + 4 <= paylen) {
 		uint16_t key = (uint16_t)((rr[pos] << 8) | rr[pos + 1]);
 		uint16_t len = (uint16_t)((rr[pos + 2] << 8) | rr[pos + 3]);
 		pos += 4;
@@ -1676,7 +1676,7 @@ lws_async_dns_get_alpn(struct lws_context *context, const char *name, const char
 		if (key == 1) { /* alpn */
 			uint16_t i = 0;
 			int limit2 = 128;
-			while (i < len && limit2--) {
+			while (limit2-- && i < len) {
 				uint8_t slen = rr[pos + i];
 				if (i + 1 + slen > len)
 					break;

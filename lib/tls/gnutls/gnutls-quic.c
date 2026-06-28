@@ -119,11 +119,7 @@ gnutls_quic_secret_func(gnutls_session_t session,
 	return 0;
 }
 
-static void
-lws_gnutls_debug_log(int level, const char *msg)
-{
-	lwsl_notice("GNUTLS DEBUG [%d]: %s", level, msg);
-}
+
 
 static int
 gnutls_quic_read_func(gnutls_session_t session,
@@ -373,12 +369,7 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 	gnutls_session_set_ptr(session, wsi);
 	gnutls_handshake_set_secret_function(session, gnutls_quic_secret_func);
 
-	static int logged_init = 0;
-	if (!logged_init) {
-		gnutls_global_set_log_level(9);
-		gnutls_global_set_log_function(lws_gnutls_debug_log);
-		logged_init = 1;
-	}
+
 
 #if defined(LWS_WITH_SERVER) && defined(LWS_WITH_TLS_SESSIONS)
 	if (!lwsi_role_client(wsi)) {

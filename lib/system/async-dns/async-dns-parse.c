@@ -62,7 +62,7 @@ lws_adns_parse_label(const uint8_t *pkt, int len, const uint8_t *ls, int budget,
 				return -1;
 			/* pointer into message pkt to name to actually use */
 			n = lws_ser_ru16be(ls) & 0x3fff;
-		       if (n < DHO_SIZEOF || n >= len) {
+		       if (n < DHO_SIZEOF || n >= LWS_ADNS_MAX_PAYLOAD || n >= len) {
 				lwsl_notice("%s: illegal name pointer\n", __func__);
 
 				return -1;
@@ -94,7 +94,7 @@ lws_adns_parse_label(const uint8_t *pkt, int len, const uint8_t *ls, int budget,
 			return -1;
 
 		ll = *ls++;
-		if (ls + ll + 1 > e) {
+		if (ll > 63 || ls + ll + 1 > e) {
 			lwsl_notice("%s: label len invalid, %d vs %d\n", __func__,
 				    lws_ptr_diff((ls + ll + 1), pkt), lws_ptr_diff(e, pkt));
 

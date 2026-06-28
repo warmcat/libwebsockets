@@ -1009,20 +1009,24 @@ lws_quic_validate_retry_token(struct lws *wsi, const uint8_t *token, size_t toke
 
         size_t p = 0;
         orig_dcid->len = pt[p++];
-        if (p + orig_dcid->len > ct_len) return -1;
-        memcpy(orig_dcid->id, &pt[p], orig_dcid->len);
+        if (p + orig_dcid->len > ct_len || p + orig_dcid->len > sizeof(pt)) return -1;
+        if (orig_dcid->len > sizeof(orig_dcid->id)) return -1;
+        if (orig_dcid->len)
+                memcpy(orig_dcid->id, pt + p, orig_dcid->len);
         p += orig_dcid->len;
 
-        if (p >= ct_len) return -1;
+        if (p >= ct_len || p >= sizeof(pt)) return -1;
         retry_scid->len = pt[p++];
-        if (p + retry_scid->len > ct_len) return -1;
-        memcpy(retry_scid->id, &pt[p], retry_scid->len);
+        if (p + retry_scid->len > ct_len || p + retry_scid->len > sizeof(pt)) return -1;
+        if (retry_scid->len > sizeof(retry_scid->id)) return -1;
+        if (retry_scid->len)
+                memcpy(retry_scid->id, pt + p, retry_scid->len);
         p += retry_scid->len;
 
-        if (p >= ct_len) return -1;
+        if (p >= ct_len || p >= sizeof(pt)) return -1;
         if (pt[p++] != ip_len) return -1;
-        if (p + ip_len > ct_len) return -1;
-        if (memcmp(&pt[p], client_ip, ip_len)) return -1;
+        if (p + ip_len > ct_len || p + ip_len > sizeof(pt)) return -1;
+        if (ip_len && memcmp(pt + p, client_ip, ip_len)) return -1;
 
         return 0;
 }
