@@ -977,8 +977,7 @@ lws_spawn_prepare_self_cgroup(const char *user, const char *group)
 		struct group grp, *result = NULL;
 		char buf[1024];
  
-		getgrnam_r(group, &grp, buf, sizeof(buf), &result);
-		if (result)
+		if (!getgrnam_r(group, &grp, buf, sizeof(buf), &result) && result)
 			gid = result->gr_gid;
 #else
 		struct group *grp;
