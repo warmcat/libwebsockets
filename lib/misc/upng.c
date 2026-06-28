@@ -360,7 +360,7 @@ static const uint8_t magic[] = { 137, 80, 78, 71, 13, 10, 26, 10 };
 static lws_stateful_ret_t
 lws_upng_decode(lws_upng_t* u, const uint8_t **_pos, size_t *_size)
 {
-	const uint8_t *pos = _pos ? *_pos : NULL, *end = pos + *_size;
+	const uint8_t *pos = _pos ? *_pos : NULL, *end = pos + (_size ? *_size : 0);
 	lws_stateful_ret_t r = LWS_SRET_FATAL + 60;
 	size_t m;
 
