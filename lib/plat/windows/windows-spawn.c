@@ -325,6 +325,22 @@ windows_pipe_poll_hack(lws_sorted_usec_list_t *sul)
 	lws_sul_schedule(lsp->context, 0, &lsp->sul_poll,
 			 windows_pipe_poll_hack, 50 * LWS_US_PER_MS);
 
+	if (lsp->child_pid) {
+		DWORD ex = STILL_ACTIVE;
+		if (GetExitCodeProcess(lsp->child_pid, &ex) && ex != STILL_ACTIVE) {
+			if (lsp->hPC) {
+				HMODULE hKernel32 = GetModuleHandleW(L"kernel32.dll");
+				PFN_CLOSE_PSEUDO_CONSOLE pClosePseudoConsole = NULL;
+				if (hKernel32) {
+					pClosePseudoConsole = (PFN_CLOSE_PSEUDO_CONSOLE)GetProcAddress(hKernel32, "ClosePseudoConsole");
+					if (pClosePseudoConsole)
+						pClosePseudoConsole(lsp->hPC);
+				}
+				lsp->hPC = NULL;
+			}
+		}
+	}
+
 	wsi = lsp->stdwsi[LWS_STDOUT];
 	wsi1 = lsp->stdwsi[LWS_STDERR];
 	if (wsi && lsp->pipe_fds[LWS_STDOUT][0] != NULL) {
@@ -612,13 +628,14 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 		psi = (STARTUPINFOA *)&si;
 	}
 
-	psi->hStdInput	= lsp->pipe_fds[LWS_STDIN][0];
-	psi->hStdOutput	= lsp->pipe_fds[LWS_STDOUT][1];
-	psi->hStdError	= lsp->pipe_fds[LWS_STDERR][1];
-	psi->dwFlags	= STARTF_USESTDHANDLES;
+	if (!pty_active) {
+		psi->hStdInput	= lsp->pipe_fds[LWS_STDIN][0];
+		psi->hStdOutput	= lsp->pipe_fds[LWS_STDOUT][1];
+		psi->hStdError	= lsp->pipe_fds[LWS_STDERR][1];
+		psi->dwFlags	= STARTF_USESTDHANDLES;
+		creation_flags |= CREATE_NO_WINDOW;
+	}
 	psi->wShowWindow	= TRUE;
-
-	creation_flags |= CREATE_NO_WINDOW;
 
 	if (!CreateProcessA(NULL, cli, NULL, NULL, TRUE, creation_flags, NULL, NULL, psi, &pi)) {
 		lwsl_err("%s: CreateProcess failed 0x%lx\n", __func__,

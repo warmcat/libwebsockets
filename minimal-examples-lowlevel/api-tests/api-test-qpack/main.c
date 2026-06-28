@@ -391,6 +391,12 @@ test_qif_file(const char *filepath)
 		len = ((uint32_t)header[8] << 24) | ((uint32_t)header[9] << 16) |
 		      ((uint32_t)header[10] << 8) | header[11];
 		      
+		if (len > sizeof(buf)) {
+			lwsl_err("Too big block %u\n", (unsigned int)len);
+			fails++;
+			break;
+		}
+
 		s = read(fd, buf, len);
 		if (s != (ssize_t)len) break;
 		

@@ -275,13 +275,17 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
         if (n > 0) {
                 struct cmsghdr *cmsg;
                 for (cmsg = CMSG_FIRSTHDR(&msg); cmsg != NULL; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
+#if defined(IP_TOS)
                         if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_TOS) {
                                 ecn_tos = *(uint8_t *)CMSG_DATA(cmsg);
                         }
+#endif
 #if defined(LWS_WITH_IPV6)
-                        else if (cmsg->cmsg_level == IPPROTO_IPV6 && cmsg->cmsg_type == IPV6_TCLASS) {
+#if defined(IPV6_TCLASS)
+                        if (cmsg->cmsg_level == IPPROTO_IPV6 && cmsg->cmsg_type == IPV6_TCLASS) {
                                 ecn_tos = *(uint8_t *)CMSG_DATA(cmsg);
                         }
+#endif
 #endif
                 }
         }
@@ -2161,19 +2165,29 @@ rops_adoption_bind_quic(struct lws *wsi, int type, const char *vh_prot_name)
 		/* Configure socket for ECN (Explicit Congestion Notification) */
 #if !defined(WIN32) && !defined(_WIN32)
                 int opt = 1;
+                (void)opt;
+#if defined(IP_RECVTOS)
                 if (setsockopt(wsi->desc.sockfd, IPPROTO_IP, IP_RECVTOS, &opt, sizeof(opt)))
                     lwsl_wsi_info(wsi, "setsockopt IP_RECVTOS failed\n");
+#endif
 #if defined(LWS_WITH_IPV6)
+#if defined(IPV6_RECVTCLASS)
                 if (setsockopt(wsi->desc.sockfd, IPPROTO_IPV6, IPV6_RECVTCLASS, &opt, sizeof(opt)))
                     lwsl_wsi_info(wsi, "setsockopt IPV6_RECVTCLASS failed\n");
 #endif
+#endif
                 /* Send ECT(0) (0x02) on outgoing QUIC packets */
                 int tos = 0x02;
+                (void)tos;
+#if defined(IP_TOS)
                 if (setsockopt(wsi->desc.sockfd, IPPROTO_IP, IP_TOS, &tos, sizeof(tos)))
                     lwsl_wsi_info(wsi, "setsockopt IP_TOS failed\n");
+#endif
 #if defined(LWS_WITH_IPV6)
+#if defined(IPV6_TCLASS)
                 if (setsockopt(wsi->desc.sockfd, IPPROTO_IPV6, IPV6_TCLASS, &tos, sizeof(tos)))
                     lwsl_wsi_info(wsi, "setsockopt IPV6_TCLASS failed\n");
+#endif
 #endif
 #endif
 

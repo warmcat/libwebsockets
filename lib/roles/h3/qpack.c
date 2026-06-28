@@ -249,11 +249,14 @@ lws_qpack_encode_string(unsigned char *buf, size_t buf_len, const char *str, siz
 	return (int)(pos + len);
 }
 
+#if 0
 static struct lws_qpack_tx_table_entry *
 lws_qpack_tx_find(struct lws_qpack_tx_encoder *enc, const char *name, size_t name_len, const char *val, size_t val_len);
 
 static int
 lws_qpack_tx_insert(struct lws_qpack_tx_encoder *enc, const char *name, size_t name_len, const char *val, size_t val_len, int static_name_idx);
+#endif
+
 
 LWS_VISIBLE int
 lws_qpack_encode_prefix(unsigned char *buf, size_t buf_len, uint64_t ric, uint64_t base, uint64_t max_entries)
@@ -344,7 +347,6 @@ lws_add_http3_header_by_name(struct lws *wsi, const unsigned char *name,
 	int name_len = (int)strlen((const char *)name);
 	int n;
 	char lower_name[256];
-	struct lws_qpack_tx_encoder *enc = wsi ? wsi->h3.qpack_tx_encoder : NULL;
 
 	if (name_len && name[name_len - 1] == ':')
 		name_len--;
@@ -353,30 +355,6 @@ lws_add_http3_header_by_name(struct lws *wsi, const unsigned char *name,
 	for (n = 0; n < name_len; n++)
 		lower_name[n] = (char)tolower((int)name[n]);
 	lower_name[name_len] = '\0';
-
-	if (enc) {
-		struct lws_qpack_tx_table_entry *dte = lws_qpack_tx_find(enc, lower_name, (size_t)name_len, (const char *)value, (size_t)length);
-		if (dte) {
-				if (dte->insert_index + 1 > wsi->http.h3_req_ric)
-					wsi->http.h3_req_ric = dte->insert_index + 1;
-				n = lws_qpack_tx_encode_dynamic_index(*p, lws_ptr_diff_size_t(end, *p), dte->insert_index, wsi->http.h3_base);
-			if (n >= 0) {
-				*p += n;
-				return 0;
-			}
-		}
-		
-		int new_idx = lws_qpack_tx_insert(enc, lower_name, (size_t)name_len, (const char *)value, (size_t)length, -1);
-		if (new_idx >= 0) {
-			if ((uint32_t)new_idx + 1 > wsi->http.h3_req_ric)
-				wsi->http.h3_req_ric = (uint32_t)new_idx + 1;
-			n = lws_qpack_tx_encode_dynamic_name_ref(*p, lws_ptr_diff_size_t(end, *p), (uint32_t)new_idx, wsi->http.h3_base, (const char *)value, (size_t)length);
-			if (n >= 0) {
-				*p += n;
-				return 0;
-			}
-		}
-	}
 
 	n = lws_qpack_encode_literal_with_literal_name(*p, lws_ptr_diff_size_t(end, *p), lower_name, (size_t)name_len, (const char *)value, (size_t)length);
 	if (n < 0) return 1;
@@ -391,7 +369,6 @@ lws_add_http3_header_by_token(struct lws *wsi, enum lws_token_indexes token,
 			      unsigned char **p, unsigned char *end)
 {
 	int static_idx = lws_qpack_find_static_index((int)token, (const char *)value, length);
-	struct lws_qpack_tx_encoder *enc = wsi ? wsi->h3.qpack_tx_encoder : NULL;
 	int n;
 
 	if (static_idx != -1) {
@@ -400,25 +377,6 @@ lws_add_http3_header_by_token(struct lws *wsi, enum lws_token_indexes token,
 		if (static_val && length == (int)strlen(static_val) && !strncmp(static_val, (const char *)value, (size_t)length)) {
 			n = lws_qpack_encode_static(*p, lws_ptr_diff_size_t(end, *p), static_idx);
 		} else {
-			if (enc) {
-				const unsigned char *name = lws_token_to_string(token);
-				if (name) {
-					int name_len = (int)strlen((const char *)name);
-					if (name_len && name[name_len - 1] == ':') name_len--;
-					struct lws_qpack_tx_table_entry *dte = lws_qpack_tx_find(enc, (const char *)name, (size_t)name_len, (const char *)value, (size_t)length);
-					if (dte) {
-						if (dte->insert_index + 1 > wsi->http.h3_req_ric) wsi->http.h3_req_ric = dte->insert_index + 1;
-						n = lws_qpack_tx_encode_dynamic_index(*p, lws_ptr_diff_size_t(end, *p), dte->insert_index, wsi->http.h3_base);
-						if (n >= 0) { *p += n; return 0; }
-					}
-					int new_idx = lws_qpack_tx_insert(enc, (const char *)name, (size_t)name_len, (const char *)value, (size_t)length, static_idx);
-					if (new_idx >= 0) {
-						if ((uint32_t)new_idx + 1 > wsi->http.h3_req_ric) wsi->http.h3_req_ric = (uint32_t)new_idx + 1;
-						n = lws_qpack_tx_encode_dynamic_name_ref(*p, lws_ptr_diff_size_t(end, *p), (uint32_t)new_idx, wsi->http.h3_base, (const char *)value, (size_t)length);
-						if (n >= 0) { *p += n; return 0; }
-					}
-				}
-			}
 			n = lws_qpack_encode_literal_with_name_ref(*p, lws_ptr_diff_size_t(end, *p), static_idx, (const char *)value, (size_t)length);
 		}
 	} else {
@@ -1273,6 +1231,7 @@ lws_qpack_tx_encode_dynamic_name_ref(unsigned char *buf, size_t buf_len, uint32_
 	return ret + n;
 }
 
+#if 0
 static struct lws_qpack_tx_table_entry *
 lws_qpack_tx_find(struct lws_qpack_tx_encoder *enc, const char *name, size_t name_len, const char *val, size_t val_len)
 {
@@ -1383,6 +1342,7 @@ lws_qpack_tx_insert(struct lws_qpack_tx_encoder *enc, const char *name, size_t n
 	
 	return (int)dte->insert_index;
 }
+#endif
 
 LWS_VISIBLE void
 lws_qpack_tx_encoder_destroy(struct lws_qpack_tx_encoder *enc)

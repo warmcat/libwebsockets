@@ -37,7 +37,9 @@ static const struct lws_switches switches[] = {
 #include <string.h>
 #include <signal.h>
 #include <fcntl.h>
+#if !defined(WIN32)
 #include <unistd.h>
+#endif
 
 static int interrupted, bad = 1, status, conmon, close_after_start;
 static int out_fd = -1;
@@ -193,7 +195,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ:
 		lwsl_user("RECEIVE_CLIENT_HTTP_READ: read %d\n", (int)len);
 		if (out_fd >= 0) {
-			if (write(out_fd, in, len) < 0) {
+			if (write(out_fd, in, LWS_POSIX_LENGTH_CAST(len)) < 0) {
 				lwsl_err("Failed to write to output file\n");
 				return -1;
 			}
