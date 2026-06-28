@@ -344,7 +344,7 @@ lws_add_http3_header_by_name(struct lws *wsi, const unsigned char *name,
 	int name_len = (int)strlen((const char *)name);
 	int n;
 	char lower_name[256];
-	struct lws_qpack_tx_encoder *enc = NULL; /* wsi ? wsi->h3.qpack_tx_encoder : NULL; */
+	struct lws_qpack_tx_encoder *enc = wsi ? wsi->h3.qpack_tx_encoder : NULL;
 
 	if (name_len && name[name_len - 1] == ':')
 		name_len--;
@@ -391,7 +391,7 @@ lws_add_http3_header_by_token(struct lws *wsi, enum lws_token_indexes token,
 			      unsigned char **p, unsigned char *end)
 {
 	int static_idx = lws_qpack_find_static_index((int)token, (const char *)value, length);
-	struct lws_qpack_tx_encoder *enc = NULL; /* wsi ? wsi->h3.qpack_tx_encoder : NULL; */
+	struct lws_qpack_tx_encoder *enc = wsi ? wsi->h3.qpack_tx_encoder : NULL;
 	int n;
 
 	if (static_idx != -1) {
