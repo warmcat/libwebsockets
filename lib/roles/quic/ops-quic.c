@@ -2430,8 +2430,7 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 		if (peer_to_us == LWSTXCR_PEER_TO_US) {
 			/* We want to tell the peer they can write an additional "add" bytes to us */
 			wsi->txc.peer_tx_cr_est += add;
-			if (nwsi)
-				nwsi->txc.peer_tx_cr_est += add;
+			nwsi->txc.peer_tx_cr_est += add;
 
 			lws_usec_t now = lws_now_usecs();
 
@@ -2439,7 +2438,7 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 				wsi->quic.qs->rx_max_data += (uint64_t)(add > 0 ? add : 0);
 				uint64_t ungranted = wsi->quic.qs->advertised_rx_max_data - wsi->quic.qs->highest_rx_offset;
 				
-				if (nwsi && nwsi->a.context->quic_tx_credit_cb) {
+				if (nwsi->a.context->quic_tx_credit_cb) {
 					uint64_t new_win = nwsi->a.context->quic_tx_credit_cb(
 						wsi, wsi->quic.qs->rx_window_size, (uint64_t)(add > 0 ? add : 0), 
 						(uint64_t)(now - wsi->quic.qs->last_rx_update_us));
@@ -2463,42 +2462,40 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 				}
 			}
 
-			if (nwsi) {
-				qn->rx_max_data += (uint64_t)(add > 0 ? add : 0);
-				uint64_t ungranted = qn->advertised_rx_max_data - qn->highest_rx_offset;
+			qn->rx_max_data += (uint64_t)(add > 0 ? add : 0);
+			uint64_t ungranted = qn->advertised_rx_max_data - qn->highest_rx_offset;
 
-				if (nwsi->a.context->quic_tx_credit_cb) {
-					uint64_t new_win = nwsi->a.context->quic_tx_credit_cb(
-						nwsi, qn->rx_window_size, (uint64_t)(add > 0 ? add : 0), 
-						(uint64_t)(now - qn->last_rx_update_us));
-					if (new_win > qn->rx_window_size && new_win <= LWS_QUIC_MAX_WINDOW) {
-						qn->rx_max_data += (new_win - qn->rx_window_size);
-						qn->rx_window_size = new_win;
-						ungranted = qn->advertised_rx_max_data - qn->highest_rx_offset;
-					}
-				}
-
-				if (ungranted < qn->rx_window_size / 2) {
-					qn->last_rx_update_us = now;
-					struct lws_quic_tx_frame *f_md = lws_zalloc(sizeof(*f_md), "quic md");
-					if (f_md) {
-						f_md->type = LWS_QUIC_FT_MAX_DATA;
-						f_md->limit = qn->rx_max_data;
-						qn->advertised_rx_max_data = qn->rx_max_data;
-						lws_dll2_add_tail(&f_md->list, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
-					}
-					lws_callback_on_writable(nwsi);
+			if (nwsi->a.context->quic_tx_credit_cb) {
+				uint64_t new_win = nwsi->a.context->quic_tx_credit_cb(
+					nwsi, qn->rx_window_size, (uint64_t)(add > 0 ? add : 0), 
+					(uint64_t)(now - qn->last_rx_update_us));
+				if (new_win > qn->rx_window_size && new_win <= LWS_QUIC_MAX_WINDOW) {
+					qn->rx_max_data += (new_win - qn->rx_window_size);
+					qn->rx_window_size = new_win;
+					ungranted = qn->advertised_rx_max_data - qn->highest_rx_offset;
 				}
 			}
 
-			lws_callback_on_writable(nwsi ? nwsi : wsi);
+			if (ungranted < qn->rx_window_size / 2) {
+				qn->last_rx_update_us = now;
+				struct lws_quic_tx_frame *f_md = lws_zalloc(sizeof(*f_md), "quic md");
+				if (f_md) {
+					f_md->type = LWS_QUIC_FT_MAX_DATA;
+					f_md->limit = qn->rx_max_data;
+					qn->advertised_rx_max_data = qn->rx_max_data;
+					lws_dll2_add_tail(&f_md->list, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
+				}
+				lws_callback_on_writable(nwsi);
+			}
+
+			lws_callback_on_writable(nwsi);
 			return 0;
 		}
 
 		/* We're being told we can write an additional "add" bytes to the peer */
 		wsi->txc.tx_cr += add;
 		wsi->quic.tx_blocked_sent = 0;
-		if (nwsi && nwsi != wsi) {
+		if (nwsi != wsi) {
 			nwsi->txc.tx_cr += add;
 			nwsi->quic.tx_blocked_sent = 0;
 		}
@@ -2523,7 +2520,7 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 		 * Min of stream's local tx credit and the nwsi's global tx credit.
 		 */
 		int cr = wsi->txc.tx_cr;
-		if (nwsi && nwsi->txc.tx_cr < cr)
+		if (nwsi->txc.tx_cr < cr)
 			cr = nwsi->txc.tx_cr;
 
 		/* 
@@ -2531,7 +2528,7 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 		 * On WAN links, the CC limits the physical sending rate. If we don't throttle
 		 * the application, it will buffer the entire file into RAM, consuming MBs of memory.
 		 */
-		if (nwsi && nwsi->quic.qn) {
+		if (nwsi->quic.qn) {
 			size_t queued_bytes = 0;
 			lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&nwsi->quic.qn->pending_tx[LWS_QUIC_LEVEL_APP])) {
 				struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
@@ -2557,12 +2554,12 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 			cr = 0;
 
 		lwsl_info("rops_tx_credit_quic: LWSTXCR_US_TO_PEER returning %d (wsi->txc.tx_cr=%d, nwsi->txc.tx_cr=%d)\n",
-			  cr, (int)wsi->txc.tx_cr, nwsi ? (int)nwsi->txc.tx_cr : -1);
+			  cr, (int)wsi->txc.tx_cr, (int)nwsi->txc.tx_cr);
 		return cr; /* how much we can write to peer */
 	}
 
 	n = wsi->txc.peer_tx_cr_est; /* how much peer can write to us */
-	if (nwsi && n > nwsi->txc.peer_tx_cr_est)
+	if (n > nwsi->txc.peer_tx_cr_est)
 		n = nwsi->txc.peer_tx_cr_est;
 
 	lwsl_info("rops_tx_credit_quic: returning %d\n", n);
