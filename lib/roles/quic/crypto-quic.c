@@ -1008,7 +1008,6 @@ lws_quic_validate_retry_token(struct lws *wsi, const uint8_t *token, size_t toke
                 return -1;
 
         size_t p = 0;
-        if (p >= ct_len) return -1;
         orig_dcid->len = pt[p++];
         if (p + orig_dcid->len > ct_len) return -1;
         memcpy(orig_dcid->id, &pt[p], orig_dcid->len);
