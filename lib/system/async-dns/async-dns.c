@@ -1647,18 +1647,25 @@ lws_async_dns_get_alpn(struct lws_context *context, const char *name, const char
 	uint16_t paylen;
 	const uint8_t *rr = lws_async_dns_get_rr_cache(context, name, LWS_ADNS_RECORD_HTTPS, &paylen);
 	int pos = 2;
+	int limit;
 
 	if (!rr || paylen < 3)
 		return 0;
 
 	/* TargetName: sequence of labels ending in 0 */
-	while (pos < paylen && rr[pos]) {
+	limit = 128;
+	while (pos < paylen && rr[pos] && limit--) {
+		if (pos + rr[pos] + 1 > paylen)
+			return 0;
 		pos += rr[pos] + 1;
 	}
+	if (pos >= paylen)
+		return 0;
 	pos++; /* Skip the 0 length label */
 
 	/* SvcParams */
-	while (pos + 4 <= paylen) {
+	limit = 128;
+	while (pos + 4 <= paylen && limit--) {
 		uint16_t key = (uint16_t)((rr[pos] << 8) | rr[pos + 1]);
 		uint16_t len = (uint16_t)((rr[pos + 2] << 8) | rr[pos + 3]);
 		pos += 4;
@@ -1667,14 +1674,15 @@ lws_async_dns_get_alpn(struct lws_context *context, const char *name, const char
 			break;
 
 		if (key == 1) { /* alpn */
-			int i = 0;
-			while (i < len) {
+			uint16_t i = 0;
+			int limit2 = 128;
+			while (i < len && limit2--) {
 				uint8_t slen = rr[pos + i];
 				if (i + 1 + slen > len)
 					break;
-				if (slen == strlen(alpn) && !strncmp((const char *)&rr[pos + i + 1], alpn, slen))
+				if (slen == strlen(alpn) && !strncmp((const char *)&rr[pos + i + 1], alpn, strlen(alpn)))
 					return 1;
-				i += slen + 1;
+				i = (uint16_t)(i + slen + 1);
 			}
 		}
 		pos += len;
