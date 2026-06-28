@@ -2161,15 +2161,19 @@ rops_adoption_bind_quic(struct lws *wsi, int type, const char *vh_prot_name)
 		/* Configure socket for ECN (Explicit Congestion Notification) */
 #if !defined(WIN32) && !defined(_WIN32)
                 int opt = 1;
-                setsockopt(wsi->desc.sockfd, IPPROTO_IP, IP_RECVTOS, &opt, sizeof(opt));
+                if (setsockopt(wsi->desc.sockfd, IPPROTO_IP, IP_RECVTOS, &opt, sizeof(opt)))
+                    lwsl_wsi_info(wsi, "setsockopt IP_RECVTOS failed\n");
 #if defined(LWS_WITH_IPV6)
-                setsockopt(wsi->desc.sockfd, IPPROTO_IPV6, IPV6_RECVTCLASS, &opt, sizeof(opt));
+                if (setsockopt(wsi->desc.sockfd, IPPROTO_IPV6, IPV6_RECVTCLASS, &opt, sizeof(opt)))
+                    lwsl_wsi_info(wsi, "setsockopt IPV6_RECVTCLASS failed\n");
 #endif
                 /* Send ECT(0) (0x02) on outgoing QUIC packets */
                 int tos = 0x02;
-                setsockopt(wsi->desc.sockfd, IPPROTO_IP, IP_TOS, &tos, sizeof(tos));
+                if (setsockopt(wsi->desc.sockfd, IPPROTO_IP, IP_TOS, &tos, sizeof(tos)))
+                    lwsl_wsi_info(wsi, "setsockopt IP_TOS failed\n");
 #if defined(LWS_WITH_IPV6)
-                setsockopt(wsi->desc.sockfd, IPPROTO_IPV6, IPV6_TCLASS, &tos, sizeof(tos));
+                if (setsockopt(wsi->desc.sockfd, IPPROTO_IPV6, IPV6_TCLASS, &tos, sizeof(tos)))
+                    lwsl_wsi_info(wsi, "setsockopt IPV6_TCLASS failed\n");
 #endif
 #endif
 
