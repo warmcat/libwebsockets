@@ -76,7 +76,10 @@ callback_stub_server(struct lws *wsi, enum lws_callback_reasons reason,
 #if !defined(WIN32)
 			if (!in) {
 				uint8_t buf[4096];
-				int n = (int)read(lws_get_socket_fd(wsi), buf, sizeof(buf));
+				int n, fd = lws_get_socket_fd(wsi);
+				if (fd < 0)
+					return -1;
+				n = (int)read(fd, buf, sizeof(buf));
 				if (n <= 0)
 					return -1;
 				lwsl_notice("STUB-OUTPUT: %.*s", n, (const char *)buf);
