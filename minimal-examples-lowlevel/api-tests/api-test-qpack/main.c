@@ -324,6 +324,11 @@ test_qif_file(const char *filepath)
 	
 	states_len = 64;
 	states = calloc(states_len, sizeof(*states));
+	if (!states) {
+		lwsl_err("OOM\n");
+		fails++;
+		goto done;
+	}
 	
 	/* Encoder stream starts directly with instructions, no prefix */
 	states[0].state = LQP_DEC_INSTRUCTION;
