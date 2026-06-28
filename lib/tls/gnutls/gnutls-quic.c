@@ -542,7 +542,7 @@ test_secret_cb(struct lws *wsi, enum lws_tls_quic_secret_type type,
 int
 lws_tls_quic_api_test(void)
 {
-	struct lws wsi_client, wsi_server;
+	struct lws wsi_client = {0}, wsi_server = {0};
 	gnutls_session_t csession = NULL, ssession = NULL;
 	gnutls_certificate_credentials_t s_cred = NULL;
 	gnutls_certificate_credentials_t c_cred = NULL;
@@ -555,8 +555,7 @@ lws_tls_quic_api_test(void)
 	const uint8_t *rtp = NULL;
 	size_t rtp_len = 0;
 
-	memset(&wsi_client, 0, sizeof(wsi_client));
-	memset(&wsi_server, 0, sizeof(wsi_server));
+
 
 	gnutls_certificate_allocate_credentials(&s_cred);
 	gnutls_certificate_set_x509_key_file(s_cred, "../dummy.pem", "../dummy.pem", GNUTLS_X509_FMT_PEM);
