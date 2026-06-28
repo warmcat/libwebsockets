@@ -263,7 +263,7 @@ lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
 		/* carefully validate the claimed RR payload length */
 
 		rrpaylen = lws_ser_ru16be(&p[8]);
-		if (p + 10 + rrpaylen > e) { /* it may be == e */
+		if (rrpaylen > len || p + 10 + rrpaylen > e) { /* it may be == e */
 			lwsl_notice("%s: invalid RR data length\n", __func__);
 
 			return -1;

@@ -409,8 +409,6 @@ lws_addrinfo_clean(struct lws *wsi)
 static void
 lws_async_worker_wait_and_reap(struct lws *wsi)
 {
-	if (!wsi->async_worker_job)
-		return;
 
 	while (1) {
 		pthread_mutex_lock(&wsi->a.context->async_worker_mutex);
