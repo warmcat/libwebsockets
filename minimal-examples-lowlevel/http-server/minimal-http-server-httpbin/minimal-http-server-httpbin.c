@@ -70,10 +70,10 @@ callback_httpbin(struct lws *wsi, enum lws_callback_reasons reason,
 			uri = temp_uri;
 		}
 
-		if (!strncmp(uri, "/httpbin", 8))
+		if (uri && !strncmp(uri, "/httpbin", 8))
 			uri += 8;
 
-		lws_snprintf(pss->path, sizeof(pss->path), "%s", uri);
+		lws_snprintf(pss->path, sizeof(pss->path), "%s", uri ? uri : "");
 		uri = pss->path;
 		pss->wsi = wsi;
 		pss->status_code = 200;
