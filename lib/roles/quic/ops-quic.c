@@ -2552,8 +2552,6 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 		else
 			cr = 0;
 
-		if (cr < 0)
-			cr = 0;
 		lwsl_info("rops_tx_credit_quic: LWSTXCR_US_TO_PEER returning %d (wsi->txc.tx_cr=%d, nwsi->txc.tx_cr=%d)\n",
 			  cr, (int)wsi->txc.tx_cr, nwsi ? (int)nwsi->txc.tx_cr : -1);
 		return cr; /* how much we can write to peer */
