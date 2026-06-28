@@ -749,10 +749,14 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 			if (qn) {
 				if (type == LWS_QUIC_FT_MAX_STREAMS_BIDI) {
 					qn->max_streams_bidi_remote = max_streams;
+#if defined(LWS_WITH_CLIENT)
 					lws_wsi_mux_apply_queue(nwsi);
+#endif
 				} else if (type == LWS_QUIC_FT_MAX_STREAMS_UNIDI) {
 					qn->max_streams_unidi_remote = max_streams;
+#if defined(LWS_WITH_CLIENT)
 					lws_wsi_mux_apply_queue(nwsi);
+#endif
 				}
 			}
 			break;
@@ -964,6 +968,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 					if (!wsi_child) {
 						/* Skip payload */
 						pos += len;
+						ack_eliciting = 1;
 						continue;
 					}
 				}

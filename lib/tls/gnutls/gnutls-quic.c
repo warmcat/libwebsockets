@@ -460,6 +460,7 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 	if (n == GNUTLS_E_SUCCESS && !lwsi_role_client(wsi) && wsi->quic.qn && !wsi->quic.qn->handshake_done) {
 #if GNUTLS_VERSION_NUMBER >= 0x030603
 		int r = gnutls_session_ticket_send(session, 1, 0);
+		(void)r;
 		lwsl_notice("%s: gnutls_session_ticket_send returned %d\n", __func__, r);
 #endif
 	}

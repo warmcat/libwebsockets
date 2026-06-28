@@ -317,7 +317,7 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 #endif
 	} else {
 #if defined(USE_WOLFSSL)
-		wolfif (SSL_set_quic_transport_params(wsi->tls.ssl, wsi->tls.quic_tp_send, wsi->tls.quic_tp_send_len) != 1) lwsl_err("SSL_set_quic_transport_params FAILED!");
+		if (wolfSSL_set_quic_transport_params(wsi->tls.ssl, wsi->tls.quic_tp_send, wsi->tls.quic_tp_send_len) != 1) lwsl_err("SSL_set_quic_transport_params FAILED!");
 #else
 		if (SSL_set_quic_transport_params(wsi->tls.ssl, wsi->tls.quic_tp_send, wsi->tls.quic_tp_send_len) != 1) lwsl_err("SSL_set_quic_transport_params FAILED!");
 #endif
