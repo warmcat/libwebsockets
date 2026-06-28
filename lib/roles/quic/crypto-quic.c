@@ -823,7 +823,7 @@ lws_tls_quic_rx_crypto(struct lws *wsi, int level, const uint8_t *buf, size_t le
 	}
 
 	lws_free(out);
-	return n < 0 ? -1 : 0;
+	return 0;
 }
 
 LWS_VISIBLE LWS_EXTERN enum lws_0rtt_status
