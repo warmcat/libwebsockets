@@ -1165,6 +1165,8 @@ lws_fts_serialize(struct lws_fts *t)
 
 		fp->ofs = t->c + (unsigned int)bp;
 		n = (int)strlen(fp->filepath);
+		if (n > (int)sizeof(fp->filepath))
+			goto bail;
 		if (15 + n > (int)sizeof(buf))
 			goto bail;
 		spill(15 + n, 0);
