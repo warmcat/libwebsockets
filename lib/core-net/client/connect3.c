@@ -687,11 +687,15 @@ ads_known:
                 if (wsi->role_ops && !strcmp(wsi->role_ops->name, "quic")) {
                         int opt = 1;
                         int tos = 0x02;
-                        setsockopt(new_fd, IPPROTO_IP, IP_RECVTOS, &opt, sizeof(opt));
-                        setsockopt(new_fd, IPPROTO_IP, IP_TOS, &tos, sizeof(tos));
+                        if (setsockopt(new_fd, IPPROTO_IP, IP_RECVTOS, &opt, sizeof(opt)))
+                                lwsl_wsi_debug(wsi, "failed to set IP_RECVTOS");
+                        if (setsockopt(new_fd, IPPROTO_IP, IP_TOS, &tos, sizeof(tos)))
+                                lwsl_wsi_debug(wsi, "failed to set IP_TOS");
 #if defined(LWS_WITH_IPV6)
-                        setsockopt(new_fd, IPPROTO_IPV6, IPV6_RECVTCLASS, &opt, sizeof(opt));
-                        setsockopt(new_fd, IPPROTO_IPV6, IPV6_TCLASS, &tos, sizeof(tos));
+                        if (setsockopt(new_fd, IPPROTO_IPV6, IPV6_RECVTCLASS, &opt, sizeof(opt)))
+                                lwsl_wsi_debug(wsi, "failed to set IPV6_RECVTCLASS");
+                        if (setsockopt(new_fd, IPPROTO_IPV6, IPV6_TCLASS, &tos, sizeof(tos)))
+                                lwsl_wsi_debug(wsi, "failed to set IPV6_TCLASS");
 #endif
                 }
 #endif
