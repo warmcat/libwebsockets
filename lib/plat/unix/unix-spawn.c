@@ -797,7 +797,11 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 			setsid();
 #if !defined(__sun) && !defined(__HAIKU__) && !defined(__CYGWIN__)
 			ioctl(0, TIOCSCTTY, 0);
-			tcsetpgrp(0, getpgrp());
+			{
+				pid_t pgrp = getpgrp();
+				if (pgrp >= 0)
+					tcsetpgrp(0, pgrp);
+			}
 #endif
 		}
 	}
