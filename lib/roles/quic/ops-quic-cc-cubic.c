@@ -179,7 +179,7 @@ cubic_on_ack(struct lws *nwsi, size_t bytes_acked, lws_usec_t rtt)
 		uint64_t target_bytes = target_mss * mtu;
 		if (target_bytes > st->cwnd) {
 			/* Standard CUBIC cwnd increment per ACK */
-			size_t cwnd_inc = (mtu * (target_bytes - st->cwnd)) / st->cwnd;
+			size_t cwnd_inc = (mtu * (target_bytes - st->cwnd)) / (st->cwnd ? st->cwnd : 1);
 			if (cwnd_inc == 0) cwnd_inc = 1; /* ensure forward progress */
 			st->cwnd += cwnd_inc;
 		}
