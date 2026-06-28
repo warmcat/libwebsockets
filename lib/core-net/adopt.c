@@ -805,8 +805,11 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		if (sock.sockfd == LWS_SOCK_INVALID)
 			goto resume;
 
-		lws_plat_apply_FD_CLOEXEC((int)sock.sockfd);
-		lws_plat_set_nonblocking(sock.sockfd);
+		if (lws_plat_apply_FD_CLOEXEC((int)sock.sockfd) ||
+		    lws_plat_set_nonblocking(sock.sockfd)) {
+			compatible_close(sock.sockfd);
+			goto resume;
+		}
 
 #if defined(LWS_WITH_IPV6) && defined(IPV6_V6ONLY)
 		if (s->dest.sa4.sin_family == AF_INET6 &&
@@ -841,8 +844,10 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		/* Bind the udp socket to a particular network interface */
 
 		if (opaque &&
-		    lws_plat_BINDTODEVICE(sock.sockfd, (const char *)opaque))
+		    lws_plat_BINDTODEVICE(sock.sockfd, (const char *)opaque)) {
+			compatible_close(sock.sockfd);
 			goto resume;
+		}
 
 		if (wsi->do_bind &&
 		    bind(sock.sockfd, sa46_sockaddr(&s->dest),
@@ -852,6 +857,7 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 			 sa46_socklen(&s->dest)
 		) == -1) {
 			lwsl_err("%s: bind failed\n", __func__);
+			compatible_close(sock.sockfd);
 			goto resume;
 		}
 
@@ -965,8 +971,9 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 	if (sock.sockfd == LWS_SOCK_INVALID)
 		goto bail;
 
-	lws_plat_apply_FD_CLOEXEC((int)sock.sockfd);
-	lws_plat_set_nonblocking(sock.sockfd);
+	if (lws_plat_apply_FD_CLOEXEC((int)sock.sockfd) ||
+	    lws_plat_set_nonblocking(sock.sockfd))
+		goto resume;
 
 #if defined(LWS_WITH_IPV6) && defined(IPV6_V6ONLY)
 	if (dest.sa4.sin_family == AF_INET6 &&
