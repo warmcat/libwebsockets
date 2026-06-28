@@ -513,8 +513,6 @@ lws_cookie_attach_cookies(struct lws *wsi, char *buf, char *end)
 	memset(&c, 0, sizeof(c));
 
 
-	if (!domain || !path)
-		return -1;
 
 	path_len = strlen(path);
 
