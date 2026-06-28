@@ -273,7 +273,7 @@ cubic_get_pacing_delay(struct lws *nwsi, size_t bytes_to_send)
 
 	/* Not enough credit. Calculate how long it will take to earn the missing credit. */
 	size_t missing_credit = bytes_to_send - st->pacing_credit;
-	delay_us = (lws_usec_t)(((uint64_t)missing_credit * (uint64_t)rtt) / (uint64_t)st->cwnd);
+	delay_us = (lws_usec_t)(((uint64_t)missing_credit * (uint64_t)rtt) / (uint64_t)(st->cwnd ? st->cwnd : 1));
 
 	if (delay_us == 0)
 		delay_us = 1;
