@@ -194,12 +194,14 @@ mixer_media_session_destroy(struct mixer_media_session *s)
     /* Resources */
 	if (s->ring_pcm) lws_ring_destroy(s->ring_pcm);
 	if (s->ring_buffer) free(s->ring_buffer);
-
-	if (s->decoder) opus_decoder_destroy(s->decoder);
-	if (s->encoder) opus_encoder_destroy(s->encoder);
-
-	if (s->decoder) opus_decoder_destroy(s->decoder);
-	if (s->encoder) opus_encoder_destroy(s->encoder);
+	if (s->decoder) {
+		opus_decoder_destroy(s->decoder);
+		s->decoder = NULL;
+	}
+	if (s->encoder) {
+		opus_encoder_destroy(s->encoder);
+		s->encoder = NULL;
+	}
 
 	struct participant *pp = (struct participant *)s->parent_p;
 	if (s->compositor_pad) {
