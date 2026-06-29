@@ -1276,6 +1276,9 @@ drain:
 		ebuf.len = 0;
 	} while (m);
 
+	if (lws_is_flowcontrolled(wsi))
+		return LWS_HPI_RET_HANDLED;
+
 	if (wsi->http.ah
 #if defined(LWS_WITH_CLIENT)
 			&& !wsi->client_h2_alpn

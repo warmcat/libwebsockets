@@ -342,18 +342,19 @@ lws_rxflow_cache(struct lws *wsi, unsigned char *buf, size_t n, size_t len)
 	/* his RX is flowcontrolled, don't send remaining now */
 	blen = lws_buflist_next_segment_len(&wsi->buflist, &buffered);
 	if (blen) {
-		if (buf >= buffered && buf + len <= buffered + blen &&
-		    blen != (size_t)len) {
-			/*
-			 * rxflow while we were spilling prev rxflow
-			 *
-			 * len indicates how much was unused, then... so trim
-			 * the head buflist to match that situation
-			 */
+		if (buf >= buffered && buf + len <= buffered + blen) {
+			if (blen != (size_t)len) {
+				/*
+				 * rxflow while we were spilling prev rxflow
+				 *
+				 * len indicates how much was unused, then... so trim
+				 * the head buflist to match that situation
+				 */
 
-			lws_buflist_use_segment(&wsi->buflist, blen - len);
-			lwsl_wsi_debug(wsi, "trim existing rxflow %d -> %d",
-					    (int)blen, (int)len);
+				lws_buflist_use_segment(&wsi->buflist, blen - len);
+				lwsl_wsi_debug(wsi, "trim existing rxflow %d -> %d",
+						    (int)blen, (int)len);
+			}
 
 			return LWSRXFC_TRIMMED;
 		}
