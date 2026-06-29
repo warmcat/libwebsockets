@@ -370,13 +370,8 @@ windows_pipe_poll_hack(lws_sorted_usec_list_t *sul)
 			 * handle a still-extant stderr we'll get it next time
 			 */
 		} else if (br) {
-			struct lws_context_per_thread *pt = &wsi->a.context->pt[wsi->tsi];
-			if (ReadFile(lsp->pipe_fds[LWS_STDOUT][0], pt->serv_buf,
-				     wsi->a.context->pt_serv_buf_size, &br, NULL) && br > 0) {
-				wsi->a.protocol->callback(wsi,
-							LWS_CALLBACK_RAW_RX_FILE,
-							wsi->user_space, pt->serv_buf, (size_t)br);
-			}
+			wsi->a.protocol->callback(wsi, LWS_CALLBACK_RAW_RX_FILE,
+						wsi->user_space, NULL, 0);
 		}
 	}
 
@@ -402,13 +397,8 @@ windows_pipe_poll_hack(lws_sorted_usec_list_t *sul)
 			 * lsp may have been destroyed above
 			 */
 		} else if (br) {
-			struct lws_context_per_thread *pt = &wsi1->a.context->pt[wsi1->tsi];
-			if (ReadFile(lsp->pipe_fds[LWS_STDERR][0], pt->serv_buf,
-				     wsi1->a.context->pt_serv_buf_size, &br, NULL) && br > 0) {
-				wsi1->a.protocol->callback(wsi1,
-							LWS_CALLBACK_RAW_RX_FILE,
-							wsi1->user_space, pt->serv_buf, (size_t)br);
-			}
+			wsi1->a.protocol->callback(wsi1, LWS_CALLBACK_RAW_RX_FILE,
+						wsi1->user_space, NULL, 0);
 		}
 	}
 }
