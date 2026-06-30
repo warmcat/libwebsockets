@@ -1012,7 +1012,7 @@ rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 	unsigned int pending = 0;
 	struct lws_tokens ebuf;
 	char buffered = 0;
-	int n = 0, m, sanity = 100;
+	int n = 0, m, sanity = 10000;
 
 	if (!wsi->ws) {
 		lwsl_err("ws role wsi with no ws\n");
@@ -1316,10 +1316,14 @@ drain:
 			}
 #endif
 		} else {
+			static lws_log_ratelimit_t rl = { 0, 0 };
 			/*
 			 * Something has gone wrong, we are spinning...
 			 * let's bail on this connection
 			 */
+			lwsl_ratelimit_err(&rl, 1 * LWS_US_PER_SEC,
+					   "ws %s: dropping connection due to sanity loop limit\n",
+					   lws_wsi_tag(wsi));
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
 	}
