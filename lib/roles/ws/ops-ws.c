@@ -1077,7 +1077,8 @@ rops_handle_POLLIN_ws(struct lws_context_per_thread *pt, struct lws *wsi,
 	}
 #if !defined(LWS_WITHOUT_EXTENSIONS)
 	if (wsi->ws->tx_draining_ext) {
-		lws_handle_POLLOUT_event(wsi, pollfd);
+		if (lws_handle_POLLOUT_event(wsi, pollfd))
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		//lwsl_notice("%s: tx drain\n", __func__);
 		/*
 		 * We cannot deal with new RX until the TX ext path has
