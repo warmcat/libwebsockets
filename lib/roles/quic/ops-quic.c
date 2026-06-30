@@ -54,6 +54,7 @@ lws_quic_pto_cb(lws_sorted_usec_list_t *sul)
 		LWS_RATELIMIT_DEFINE_STATIC(rl);
 		lwsl_ratelimit_info(&rl, 1000000, "QUIC PTO Timer Fired! Forcing POLLOUT for retransmission sweep\n");
 #endif
+		int sent_ping = 0;
 		/* Add a PING frame to force a packet out if we don't have pending tx */
 		for (int i = 0; i < LWS_QUIC_LEVEL_COUNT; i++) {
 			if (qn->in_flight[i].count) {
@@ -63,22 +64,40 @@ lws_quic_pto_cb(lws_sorted_usec_list_t *sul)
 					lws_dll2_add_tail(&ping->list, &qn->pending_tx[i]);
 					lwsl_wsi_notice(qn->nwsi, "QUIC PTO: Enqueued PING for level %d", i);
 				}
+				sent_ping = 1;
 				break;
 			}
 		}
 
+		if (!sent_ping && !qn->is_server && !qn->handshake_done) {
+			int target_level = LWS_QUIC_LEVEL_INITIAL;
+			if (qn->keys[LWS_QUIC_LEVEL_HANDSHAKE]) target_level = LWS_QUIC_LEVEL_HANDSHAKE;
+			struct lws_quic_tx_frame *ping = lws_zalloc(sizeof(*ping), "pto ping");
+			if (ping) {
+				ping->type = LWS_QUIC_FT_PING;
+				lws_dll2_add_tail(&ping->list, &qn->pending_tx[target_level]);
+				lwsl_wsi_notice(qn->nwsi, "QUIC PTO: Enqueued PING for level %d (no in-flight, client handshake incomplete)", target_level);
+			}
+			sent_ping = 1;
+		}
+
 		lws_callback_on_writable(qn->nwsi);
 
-		/* Always ensure the timer is running as long as there is data in flight! */
+		/* Always ensure the timer is running as long as there is data in flight, or client handshake incomplete! */
+		int any_in_flight = 0;
 		for (int i = 0; i < LWS_QUIC_LEVEL_COUNT; i++) {
 			if (qn->in_flight[i].count) {
-				lws_usec_t pto_base = qn->smoothed_rtt ? (qn->smoothed_rtt + (4 * qn->rttvar) + 25000) : LWS_QUIC_DEFAULT_PTO_US;
-				lws_usec_t pto_delay = pto_base << qn->pto_count;
-				if (pto_delay > 10000000)
-					pto_delay = 10000000;
-				lws_sul_schedule(qn->nwsi->a.context, 0, &qn->pto_sul, lws_quic_pto_cb, pto_delay);
+				any_in_flight = 1;
 				break;
 			}
+		}
+
+		if (any_in_flight || (!qn->is_server && !qn->handshake_done)) {
+			lws_usec_t pto_base = qn->smoothed_rtt ? (qn->smoothed_rtt + (4 * qn->rttvar) + 25000) : LWS_QUIC_DEFAULT_PTO_US;
+			lws_usec_t pto_delay = pto_base << qn->pto_count;
+			if (pto_delay > 10000000)
+				pto_delay = 10000000;
+			lws_sul_schedule(qn->nwsi->a.context, 0, &qn->pto_sul, lws_quic_pto_cb, pto_delay);
 		}
 	}
 }
@@ -146,6 +165,7 @@ lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t acked_pn)
 	} lws_end_foreach_dll_safe(d, d1);
 
 	if (bytes_acked) {
+		lws_callback_on_writable(nwsi);
 		qn->pto_count = 0;
 
 		/* Update RTT Estimator (RFC 9002 5.3) */
@@ -185,7 +205,11 @@ lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t acked_pn)
 		}
 	}
 	if (!any_in_flight) {
-		lws_sul_cancel(&qn->pto_sul);
+		if (!qn->is_server && !qn->handshake_done) {
+			/* Keep PTO timer running to probe if server gets blocked (RFC 9002 6.2.2.1) */
+		} else {
+			lws_sul_cancel(&qn->pto_sul);
+		}
 	}
 }
 
@@ -1736,8 +1760,10 @@ send_frames:
 		/*
 		 * If we still have pending frames we couldn't fit, request another POLLOUT
 		 */
-		if (qn->pending_tx[level].count)
+		if (qn->pending_tx[level].count) {
+			lwsl_wsi_notice(wsi, "QUIC TX: requesting POLLOUT because pending_tx[level=%d].count=%d", level, qn->pending_tx[level].count);
 			lws_callback_on_writable(wsi);
+		}
             
 		/*
 		 * If we successfully sent application-level data, the pending_tx buffer
@@ -1747,6 +1773,7 @@ send_frames:
 		if (level == LWS_QUIC_LEVEL_APP && send_len > 0) {
 			struct lws *curr = wsi->mux.child_list;
 			while (curr) {
+				lwsl_wsi_notice(wsi, "QUIC TX: requesting POLLOUT for child %s", lws_wsi_tag(curr));
 				lws_callback_on_writable(curr);
 				curr = curr->mux.sibling_list;
 			}
@@ -1801,7 +1828,6 @@ send_frames:
 				}
 				
                 wa = wsi2;
-				w->mux.requested_POLLOUT = 0;
 
                 int is_peer_initiated = (w->mux.my_sid & 1) != (qn->is_server ? 1 : 0);
                 int is_unidiri = (w->mux.my_sid & 2);
@@ -1829,8 +1855,9 @@ send_frames:
 					goto next_child;
 				}
 
+                w->mux.requested_POLLOUT = 0;
 
-                                lwsl_info("QUIC TX POLLOUT: calling perform_user_POLLOUT/lws_callback_as_writeable for child %s\n", lws_wsi_tag(w));
+                lwsl_info("QUIC TX POLLOUT: calling perform_user_POLLOUT/lws_callback_as_writeable for child %s\n", lws_wsi_tag(w));
 				if (lws_rops_fidx(w->role_ops, LWS_ROPS_perform_user_POLLOUT)) {
 					if (lws_rops_func_fidx(w->role_ops, LWS_ROPS_perform_user_POLLOUT).
 									perform_user_POLLOUT(w) == -1) {
@@ -1872,12 +1899,15 @@ end_children:
 			}
 		}
 
+		lwsl_wsi_notice(wsi, "QUIC TX: blocked=%d, have_pending_tx=%d, can_process_children=%d", blocked, have_pending_tx, can_process_children);
 		if (blocked || (!have_pending_tx && !can_process_children)) {
+			lwsl_wsi_notice(wsi, "QUIC TX: dropping POLLOUT manually (LWS_POLLOUT, 0)");
 			/* We are blocked by QUIC limits, or have nothing to send and children can't write.
 			 * Stop asking the OS for POLLOUT. We will re-enable it when POLLIN brings ACKs. */
 			if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
 				return LWS_HP_RET_BAIL_DIE;
 		} else {
+			lwsl_wsi_notice(wsi, "QUIC TX: calling lws_wsi_mux_action_pending_writeable_reqs (wsi->mux.requested_POLLOUT=%d)", wsi->mux.requested_POLLOUT);
 			if (lws_wsi_mux_action_pending_writeable_reqs(wsi))
 				return LWS_HP_RET_BAIL_DIE;
 		}
@@ -2264,8 +2294,19 @@ lws_quic_stream_cleanup(struct lws *wsi)
 	if (qn) {
 		uint64_t sid = wsi->quic.qs->stream_id;
 
+		int is_abort = (!wsi->quic.qs->fin_received || !wsi->quic.qs->fin_delivered);
+		
+		/* If this is a unidirectional stream, adjust abort logic */
+		int is_unidirectional = (sid & 2) != 0;
+		int is_remote_initiated = (qn->is_server && (sid & 1) == 0) || (!qn->is_server && (sid & 1) == 1);
+		int we_are_sender = (qn->is_server == is_remote_initiated) ? 1 : 0;
+		if (is_unidirectional) {
+			we_are_sender = is_remote_initiated ? 0 : 1;
+			is_abort = we_are_sender ? !wsi->quic.qs->fin_delivered : !wsi->quic.qs->fin_received;
+		}
+
 		/* If we're closing the stream before FINs were exchanged, notify the peer */
-		if (!wsi->quic.qs->fin_received || !wsi->quic.qs->fin_delivered) {
+		if (is_abort) {
 			/* Send RESET_STREAM to notify the peer that we're abandoning the stream */
 			struct lws_quic_tx_frame *f_reset = lws_zalloc(sizeof(*f_reset), "quic reset");
 			if (f_reset) {
@@ -2289,9 +2330,6 @@ lws_quic_stream_cleanup(struct lws *wsi)
 		}
 
 		/* If this was a remote-initiated stream, increase our limit and notify peer */
-		int is_unidirectional = (sid & 2) != 0;
-		int is_remote_initiated = (qn->is_server && (sid & 1) == 0) || (!qn->is_server && (sid & 1) == 1);
-		
 		if (is_remote_initiated) {
 			struct lws_quic_tx_frame *f_max = lws_zalloc(sizeof(*f_max), "quic max strm");
 			if (f_max) {
@@ -2309,24 +2347,26 @@ lws_quic_stream_cleanup(struct lws *wsi)
 			}
 		}
 
-		for (i = 0; i < LWS_QUIC_LEVEL_COUNT; i++) {
-			/* Purge pending_tx */
-			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->pending_tx[i].head) {
-				struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
-				if (f->stream_id == sid && f->type != LWS_QUIC_FT_RESET_STREAM && f->type != LWS_QUIC_FT_STOP_SENDING) {
-					lws_dll2_remove(&f->list);
-					lws_free(f);
-				}
-			} lws_end_foreach_dll_safe(d, d1);
+		if (is_abort) {
+			for (i = 0; i < LWS_QUIC_LEVEL_COUNT; i++) {
+				/* Purge pending_tx */
+				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->pending_tx[i].head) {
+					struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
+					if (f->stream_id == sid && f->type != LWS_QUIC_FT_RESET_STREAM && f->type != LWS_QUIC_FT_STOP_SENDING) {
+						lws_dll2_remove(&f->list);
+						lws_free(f);
+					}
+				} lws_end_foreach_dll_safe(d, d1);
 
-			/* Purge in_flight */
-			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->in_flight[i].head) {
-				struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
-				if (f->stream_id == sid) {
-					lws_dll2_remove(&f->list);
-					lws_free(f);
-				}
-			} lws_end_foreach_dll_safe(d, d1);
+				/* Purge in_flight */
+				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->in_flight[i].head) {
+					struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
+					if (f->stream_id == sid) {
+						lws_dll2_remove(&f->list);
+						lws_free(f);
+					}
+				} lws_end_foreach_dll_safe(d, d1);
+			}
 		}
 	}
 

@@ -208,16 +208,21 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 				}
 			}
 		} else if (wsi_child) {
+			int is_final = (wsi_child && qs && qs->fin_received && *expected_offset + len == qs->rx_final_size && !qs->fin_delivered);
+			if (is_final) {
+				qs->fin_delivered = 1;
+			}
+
 #if defined(LWS_ROLE_H3)
-			lwsl_wsi_info(wsi_child, "QUIC RX: rx_reassemble for stream ID, role_ops=%p, role_ops_h3=%p, len=%d", wsi_child->role_ops, &role_ops_h3, (int)len);
-			if (wsi_child->role_ops == &role_ops_h3) {
+			lwsl_wsi_info(wsi_child, "QUIC RX: rx_reassemble for stream ID, role_ops=%p, role_ops_h3=%p, len=%d", wsi_child ? wsi_child->role_ops : NULL, &role_ops_h3, (int)len);
+			if (wsi_child && wsi_child->role_ops == &role_ops_h3) {
 				lwsl_wsi_info(wsi_child, "QUIC RX: Delivering %d bytes to H3!", (int)len);
 				if (lws_h3_rx_stream_data(wsi_child, buf, len)) {
 					wsi_child = NULL;
 				}
 			} else
 #endif
-			if (wsi_child->a.protocol && wsi_child->a.protocol->callback) {
+			if (wsi_child && wsi_child->a.protocol && wsi_child->a.protocol->callback) {
 				/* Application Stream Data */
 				enum lws_callback_reasons reason = lwsi_role_client(wsi_child) ?
 					LWS_CALLBACK_QT_CLIENT_RECEIVE : LWS_CALLBACK_QT_SERVER_RECEIVE;
@@ -228,26 +233,25 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 				}
 			}
 
-                        if (wsi_child && qs && qs->fin_received && *expected_offset + len == qs->rx_final_size && !qs->fin_delivered) {
-                                qs->fin_delivered = 1;
+			if (is_final && wsi_child) {
 #if defined(LWS_ROLE_H3)
-                                if (wsi_child->role_ops == &role_ops_h3) {
-                                        if (!qs->is_unidirectional) {
-                                                if (lwsi_role_client(wsi_child)) {
+				if (wsi_child->role_ops == &role_ops_h3) {
+					if (!qs->is_unidirectional) {
+						if (lwsi_role_client(wsi_child)) {
 #if defined(LWS_WITH_CLIENT)
-                                                        wsi_child->client_mux_substream = 1;
-                                                        if (lws_http_transaction_completed_client(wsi_child)) {
-                                                                lwsl_info("Transaction completed and wsi closed\n");
-                                                                wsi_child = NULL;
-                                                        } else {
-                                                                lwsl_wsi_info(wsi_child, "Transaction completed! Closing QUIC stream WSI");
-                                                                lws_close_free_wsi(wsi_child, LWS_CLOSE_STATUS_NOSTATUS, "quic client stream fin");
-                                                                wsi_child = NULL;
-                                                        }
+							wsi_child->client_mux_substream = 1;
+							if (lws_http_transaction_completed_client(wsi_child)) {
+								lwsl_info("Transaction completed and wsi closed\n");
+								wsi_child = NULL;
+							} else {
+								lwsl_wsi_info(wsi_child, "Transaction completed! Closing QUIC stream WSI");
+								lws_close_free_wsi(wsi_child, LWS_CLOSE_STATUS_NOSTATUS, "quic client stream fin");
+								wsi_child = NULL;
+							}
 #endif
-                                                } else {
+						} else {
 #if defined(LWS_WITH_CLIENT)
-                                                        wsi_child->client_mux_substream = 0;
+							wsi_child->client_mux_substream = 0;
 #endif
                                                 }
                                         } else {
