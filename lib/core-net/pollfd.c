@@ -170,23 +170,17 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 	}
 #endif
 
-	if (context->event_loop_ops->io) {
-		if (_and & LWS_POLLIN)
-			context->event_loop_ops->io(wsi,
-					LWS_EV_STOP | LWS_EV_READ);
+	if (_and & LWS_POLLIN)
+		_lws_event_loop_ops_io(wsi, LWS_EV_STOP | LWS_EV_READ);
 
-		if (_or & LWS_POLLIN)
-			context->event_loop_ops->io(wsi,
-					LWS_EV_START | LWS_EV_READ);
+	if (_or & LWS_POLLIN)
+		_lws_event_loop_ops_io(wsi, LWS_EV_START | LWS_EV_READ);
 
-		if (_and & LWS_POLLOUT)
-			context->event_loop_ops->io(wsi,
-					LWS_EV_STOP | LWS_EV_WRITE);
+	if (_and & LWS_POLLOUT)
+		_lws_event_loop_ops_io(wsi, LWS_EV_STOP | LWS_EV_WRITE);
 
-		if (_or & LWS_POLLOUT)
-			context->event_loop_ops->io(wsi,
-					LWS_EV_START | LWS_EV_WRITE);
-	}
+	if (_or & LWS_POLLOUT)
+		_lws_event_loop_ops_io(wsi, LWS_EV_START | LWS_EV_WRITE);
 
 	/*
 	 * if we changed something in this pollfd...
@@ -484,6 +478,26 @@ __remove_wsi_socket_from_fds(struct lws *wsi)
 //	__dump_fds(pt, "post remove");
 
 	return ret;
+}
+
+void
+_lws_event_loop_ops_io(struct lws *wsi, unsigned int flags)
+{
+	struct lws_context *context = wsi->a.context;
+
+#if defined(LWS_WITH_CLIENT)
+	if (context->event_loop_ops->io_parallel && wsi->parallel_count > 0) {
+		for (int i = 0; i < wsi->parallel_count; i++) {
+			if (wsi->parallel_conns[i].is_valid &&
+			    wsi->parallel_conns[i].desc.sockfd == wsi->desc.sockfd) {
+				context->event_loop_ops->io_parallel(wsi, i, flags);
+				return;
+			}
+		}
+	}
+#endif
+	if (context->event_loop_ops->io)
+		context->event_loop_ops->io(wsi, flags);
 }
 
 int

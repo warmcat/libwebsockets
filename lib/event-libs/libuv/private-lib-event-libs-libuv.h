@@ -78,6 +78,9 @@ struct lws_io_watcher_libuv {
 
 struct lws_wsi_eventlibs_libuv {
 	struct lws_io_watcher_libuv	w_read;
+#if defined(LWS_WITH_CLIENT)
+	struct lws_io_watcher_libuv	racing[LWS_MAX_PARALLEL_CONNS];
+#endif
 };
 
 uv_loop_t *

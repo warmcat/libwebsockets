@@ -34,4 +34,11 @@ struct lws_wsi_eventlibs_uloop {
 	struct lws				*wsi;
 	struct uloop_fd				fd;
 	unsigned int				actual_events;
+#if defined(LWS_WITH_CLIENT)
+	struct {
+		struct lws			*wsi;
+		struct uloop_fd			fd;
+		unsigned int			actual_events;
+	} racing[LWS_MAX_PARALLEL_CONNS];
+#endif
 };

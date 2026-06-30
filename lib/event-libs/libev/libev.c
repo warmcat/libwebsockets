@@ -427,6 +427,77 @@ elops_wsi_logical_close_ev(struct lws *wsi)
         return 0;
 }
 
+#if defined(LWS_WITH_CLIENT)
+static int
+elops_sock_accept_parallel_ev(struct lws *wsi, lws_sockfd_type fd, int pidx)
+{
+	struct lws_wsi_eventlibs_libev *w = wsi_to_priv_ev(wsi);
+
+	w->racing[pidx].w_read.context = wsi->a.context;
+	w->racing[pidx].w_write.context = wsi->a.context;
+
+	ev_io_init(&w->racing[pidx].w_read.watcher, lws_accept_cb, fd, EV_READ);
+	ev_io_init(&w->racing[pidx].w_write.watcher, lws_accept_cb, fd, EV_WRITE);
+
+	return 0;
+}
+
+static void
+elops_io_parallel_ev(struct lws *wsi, int pidx, unsigned int flags)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	struct lws_pt_eventlibs_libev *ptpr = pt_to_priv_ev(pt);
+	struct lws_wsi_eventlibs_libev *w = wsi_to_priv_ev(wsi);
+
+	if (!ptpr->io_loop || pt->is_destroyed)
+		return;
+
+	if (flags & LWS_EV_START) {
+		if (flags & LWS_EV_WRITE)
+			ev_io_start(ptpr->io_loop, &w->racing[pidx].w_write.watcher);
+		if (flags & LWS_EV_READ)
+			ev_io_start(ptpr->io_loop, &w->racing[pidx].w_read.watcher);
+	} else {
+		if (flags & LWS_EV_WRITE)
+			ev_io_stop(ptpr->io_loop, &w->racing[pidx].w_write.watcher);
+		if (flags & LWS_EV_READ)
+			ev_io_stop(ptpr->io_loop, &w->racing[pidx].w_read.watcher);
+	}
+}
+
+static void
+elops_close_handle_manually_parallel_ev(struct lws *wsi, int pidx)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	struct lws_pt_eventlibs_libev *ptpr = pt_to_priv_ev(pt);
+	struct lws_wsi_eventlibs_libev *w = wsi_to_priv_ev(wsi);
+
+	ev_io_stop(ptpr->io_loop, &w->racing[pidx].w_read.watcher);
+	ev_io_stop(ptpr->io_loop, &w->racing[pidx].w_write.watcher);
+
+	compatible_close(wsi->parallel_conns[pidx].desc.sockfd);
+}
+
+static int
+elops_promote_parallel_ev(struct lws *wsi, int pidx)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	struct lws_pt_eventlibs_libev *ptpr = pt_to_priv_ev(pt);
+	struct lws_wsi_eventlibs_libev *w = wsi_to_priv_ev(wsi);
+
+	/* stop primary */
+	ev_io_stop(ptpr->io_loop, &w->w_read.watcher);
+	ev_io_stop(ptpr->io_loop, &w->w_write.watcher);
+
+	/* copy racing to primary */
+	w->w_read = w->racing[pidx].w_read;
+	w->w_write = w->racing[pidx].w_write;
+
+	memset(&w->racing[pidx], 0, sizeof(w->racing[pidx]));
+	return 0;
+}
+#endif
+
 static const struct lws_event_loop_ops event_loop_ops_ev = {
 	/* name */			"libev",
 	/* init_context */		elops_init_context_ev,
@@ -444,6 +515,15 @@ static const struct lws_event_loop_ops event_loop_ops_ev = {
 	/* destroy wsi */		elops_destroy_wsi_ev,
 	/* foreign_thread */		NULL,
 	/* fake_POLLIN */		NULL,
+
+#if defined(LWS_WITH_CLIENT)
+	/* sock_accept_parallel */	elops_sock_accept_parallel_ev,
+	/* io_parallel */		elops_io_parallel_ev,
+	/* close_handle_manually_parallel */ elops_close_handle_manually_parallel_ev,
+	/* promote_parallel */		elops_promote_parallel_ev,
+#else
+	NULL, NULL, NULL, NULL,
+#endif
 
 	/* flags */			0,
 

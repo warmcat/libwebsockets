@@ -1400,6 +1400,9 @@ __lws_vhost_unbind_wsi(struct lws *wsi); /* req cx + vh lock */
 
 void
 __lws_set_timeout(struct lws *wsi, enum pending_timeout reason, int secs);
+void
+_lws_event_loop_ops_io(struct lws *wsi, unsigned int flags);
+
 int
 __lws_change_pollfd(struct lws *wsi, int _and, int _or);
 

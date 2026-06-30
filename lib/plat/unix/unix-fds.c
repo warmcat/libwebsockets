@@ -280,8 +280,8 @@ lws_plat_insert_socket_into_fds(struct lws_context *context, struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 
-	if (context->event_loop_ops->io)
-		context->event_loop_ops->io(wsi, LWS_EV_START | LWS_EV_READ);
+	if (context->event_loop_ops->io || context->event_loop_ops->io_parallel)
+		_lws_event_loop_ops_io(wsi, LWS_EV_START | LWS_EV_READ);
 
 	pt->fds[pt->fds_count++].revents = 0;
 }
@@ -292,8 +292,8 @@ lws_plat_delete_socket_from_fds(struct lws_context *context,
 {
 	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
 
-	if (context->event_loop_ops->io)
-		context->event_loop_ops->io(wsi,
+	if (context->event_loop_ops->io || context->event_loop_ops->io_parallel)
+		_lws_event_loop_ops_io(wsi,
 				LWS_EV_STOP | LWS_EV_READ | LWS_EV_WRITE);
 
 	pt->fds_count--;

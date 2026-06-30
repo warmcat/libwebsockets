@@ -46,4 +46,10 @@ struct lws_io_watcher_libevent {
 struct lws_wsi_eventlibs_libevent {
 	struct lws_io_watcher_libevent w_read;
 	struct lws_io_watcher_libevent w_write;
+#if defined(LWS_WITH_CLIENT)
+	struct {
+		struct lws_io_watcher_libevent w_read;
+		struct lws_io_watcher_libevent w_write;
+	} racing[LWS_MAX_PARALLEL_CONNS];
+#endif
 };

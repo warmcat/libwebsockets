@@ -476,6 +476,114 @@ elops_wsi_logical_close_glib(struct lws *wsi)
 	return 0;
 }
 
+#if defined(LWS_WITH_CLIENT)
+static int
+elops_sock_accept_parallel_glib(struct lws *wsi, lws_sockfd_type fd, int pidx)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	struct lws_wsi_eventlibs_glib *wsipr = wsi_to_priv_glib(wsi);
+
+	if (wsipr->racing[pidx].source)
+		return 0;
+
+	wsipr->racing[pidx].source = (struct lws_io_watcher_glib_subclass *)
+			g_source_new((GSourceFuncs *)&lws_glib_source_ops,
+						sizeof(*wsipr->racing[pidx].source));
+	if (!wsipr->racing[pidx].source)
+		return 1;
+
+	wsipr->racing[pidx].context = wsi->a.context;
+	wsipr->racing[pidx].source->wsi = wsi;
+
+	wsipr->racing[pidx].source->tag = g_source_add_unix_fd((GSource *)wsipr->racing[pidx].source,
+						fd, (GIOCondition)LWS_POLLIN);
+	wsipr->racing[pidx].actual_events = LWS_POLLIN;
+
+	g_source_set_callback((GSource *)wsipr->racing[pidx].source,
+			G_SOURCE_FUNC(lws_service_fd), wsi->a.context, NULL);
+
+	g_source_attach((GSource *)wsipr->racing[pidx].source, pt_to_g_main_context(pt));
+
+	return 0;
+}
+
+static void
+elops_io_parallel_glib(struct lws *wsi, int pidx, unsigned int flags)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	struct lws_wsi_eventlibs_glib *wsipr = wsi_to_priv_glib(wsi);
+	GIOCondition cond = wsipr->racing[pidx].actual_events | G_IO_ERR;
+
+	if (!pt_to_loop(pt) || wsi->a.context->being_destroyed ||
+	    pt->is_destroyed)
+		return;
+
+	if (!wsipr->racing[pidx].source)
+		return;
+
+	if (flags & LWS_EV_READ) {
+		if (flags & LWS_EV_STOP)
+			cond &= (unsigned int)~(G_IO_IN | G_IO_HUP);
+		else
+			cond |= G_IO_IN | G_IO_HUP;
+	}
+
+	if (flags & LWS_EV_WRITE) {
+		if (flags & LWS_EV_STOP)
+			cond &= (unsigned int)~G_IO_OUT;
+		else
+			cond |= G_IO_OUT;
+	}
+
+	wsipr->racing[pidx].actual_events = (uint8_t)cond;
+
+	g_source_modify_unix_fd((GSource *)wsipr->racing[pidx].source, wsipr->racing[pidx].source->tag,
+				cond);
+}
+
+static void
+elops_close_handle_manually_parallel_glib(struct lws *wsi, int pidx)
+{
+	struct lws_wsi_eventlibs_glib *wsipr = wsi_to_priv_glib(wsi);
+
+	if (!wsipr->racing[pidx].source)
+		return;
+
+	if (wsipr->racing[pidx].source->tag) {
+		g_source_remove_unix_fd((GSource *)wsipr->racing[pidx].source,
+					wsipr->racing[pidx].source->tag);
+		wsipr->racing[pidx].source->tag = NULL;
+	}
+
+	g_source_destroy((GSource *)wsipr->racing[pidx].source);
+	g_source_unref((GSource *)wsipr->racing[pidx].source);
+	wsipr->racing[pidx].source = NULL;
+
+	compatible_close(wsi->parallel_conns[pidx].desc.sockfd);
+}
+
+static int
+elops_promote_parallel_glib(struct lws *wsi, int pidx)
+{
+	struct lws_wsi_eventlibs_glib *wsipr = wsi_to_priv_glib(wsi);
+
+	if (wsipr->w_read.source) {
+		if (wsipr->w_read.source->tag) {
+			g_source_remove_unix_fd((GSource *)wsipr->w_read.source,
+						wsipr->w_read.source->tag);
+			wsipr->w_read.source->tag = NULL;
+		}
+
+		g_source_destroy((GSource *)wsipr->w_read.source);
+		g_source_unref((GSource *)wsipr->w_read.source);
+	}
+
+	wsipr->w_read = wsipr->racing[pidx];
+	memset(&wsipr->racing[pidx], 0, sizeof(wsipr->racing[pidx]));
+	return 0;
+}
+#endif
+
 static const struct lws_event_loop_ops event_loop_ops_glib = {
 	/* name */			"glib",
 	/* init_context */		elops_init_context_glib,
@@ -494,12 +602,21 @@ static const struct lws_event_loop_ops event_loop_ops_glib = {
 	/* foreign_thread */		NULL,
 	/* fake_POLLIN */		NULL,
 
+#if defined(LWS_WITH_CLIENT)
+	/* sock_accept_parallel */	elops_sock_accept_parallel_glib,
+	/* io_parallel */		elops_io_parallel_glib,
+	/* close_handle_manually_parallel */ elops_close_handle_manually_parallel_glib,
+	/* promote_parallel */		elops_promote_parallel_glib,
+#else
+	NULL, NULL, NULL, NULL,
+#endif
+
 	/* flags */			LELOF_DESTROY_FINAL,
 
 	/* evlib_size_ctx */	0,
 	/* evlib_size_pt */	sizeof(struct lws_pt_eventlibs_glib),
 	/* evlib_size_vh */	0,
-	/* evlib_size_wsi */	sizeof(struct lws_io_watcher_glib),
+	/* evlib_size_wsi */	sizeof(struct lws_wsi_eventlibs_glib),
 };
 
 #if defined(LWS_WITH_EVLIB_PLUGINS)

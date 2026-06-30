@@ -16,6 +16,12 @@ struct lws_pt_eventlibs_sdevent {
 struct lws_wsi_watcher_sdevent {
 	struct sd_event_source *source;
 	uint32_t events;
+#if defined(LWS_WITH_CLIENT)
+	struct {
+		struct sd_event_source *source;
+		uint32_t events;
+	} racing[LWS_MAX_PARALLEL_CONNS];
+#endif
 };
 
 static int
@@ -407,6 +413,90 @@ destroy_pt_sd(struct lws_context *context, int tsi)
 	}
 }
 
+#if defined(LWS_WITH_CLIENT)
+static int
+sock_accept_parallel_sd(struct lws *wsi, lws_sockfd_type fd, int pidx)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+
+	sd_event_add_io(pt_to_priv_sd(pt)->io_loop,
+			&wsi_to_priv_sd(wsi)->racing[pidx].source,
+			fd,
+			wsi_to_priv_sd(wsi)->racing[pidx].events,
+			sock_accept_handler,
+			wsi);
+
+	return 0;
+}
+
+static void
+io_parallel_sd(struct lws *wsi, int pidx, unsigned int flags)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+
+	if (!pt_to_priv_sd(pt)->io_loop ||
+	    !wsi_to_priv_sd(wsi)->racing[pidx].source ||
+	    pt->is_destroyed)
+		return;
+
+	if (flags & LWS_EV_START) {
+		if (flags & LWS_EV_WRITE)
+			wsi_to_priv_sd(wsi)->racing[pidx].events |= EPOLLOUT;
+
+		if (flags & LWS_EV_READ)
+			wsi_to_priv_sd(wsi)->racing[pidx].events |= EPOLLIN;
+
+		sd_event_source_set_io_events(wsi_to_priv_sd(wsi)->racing[pidx].source,
+					      wsi_to_priv_sd(wsi)->racing[pidx].events);
+		sd_event_source_set_enabled(wsi_to_priv_sd(wsi)->racing[pidx].source,
+					    SD_EVENT_ONESHOT);
+	} else {
+		if (flags & LWS_EV_WRITE)
+			wsi_to_priv_sd(wsi)->racing[pidx].events &= (uint32_t)(~EPOLLOUT);
+
+		if (flags & LWS_EV_READ)
+			wsi_to_priv_sd(wsi)->racing[pidx].events &= (uint32_t)(~EPOLLIN);
+
+		sd_event_source_set_io_events(wsi_to_priv_sd(wsi)->racing[pidx].source,
+					      wsi_to_priv_sd(wsi)->racing[pidx].events);
+
+		if (!(wsi_to_priv_sd(wsi)->racing[pidx].events & (EPOLLIN | EPOLLOUT)))
+			sd_event_source_set_enabled(wsi_to_priv_sd(wsi)->racing[pidx].source,
+						    SD_EVENT_ONESHOT);
+		else
+			sd_event_source_set_enabled(wsi_to_priv_sd(wsi)->racing[pidx].source,
+						    SD_EVENT_OFF);
+	}
+}
+
+static void
+close_handle_manually_parallel_sd(struct lws *wsi, int pidx)
+{
+	if (wsi_to_priv_sd(wsi)->racing[pidx].source) {
+		sd_event_source_set_enabled(wsi_to_priv_sd(wsi)->racing[pidx].source, SD_EVENT_OFF);
+		sd_event_source_unref(wsi_to_priv_sd(wsi)->racing[pidx].source);
+		wsi_to_priv_sd(wsi)->racing[pidx].source = NULL;
+	}
+
+	compatible_close(wsi->parallel_conns[pidx].desc.sockfd);
+}
+
+static int
+promote_parallel_sd(struct lws *wsi, int pidx)
+{
+	if (wsi_to_priv_sd(wsi)->source) {
+		sd_event_source_set_enabled(wsi_to_priv_sd(wsi)->source, SD_EVENT_OFF);
+		sd_event_source_unref(wsi_to_priv_sd(wsi)->source);
+	}
+
+	wsi_to_priv_sd(wsi)->source = wsi_to_priv_sd(wsi)->racing[pidx].source;
+	wsi_to_priv_sd(wsi)->events = wsi_to_priv_sd(wsi)->racing[pidx].events;
+
+	memset(&wsi_to_priv_sd(wsi)->racing[pidx], 0, sizeof(wsi_to_priv_sd(wsi)->racing[pidx]));
+	return 0;
+}
+#endif
+
 const struct lws_event_loop_ops event_loop_ops_sdevent = {
 		.name				= "sdevent",
 		.init_context			= NULL,
@@ -422,6 +512,12 @@ const struct lws_event_loop_ops event_loop_ops_sdevent = {
 		.run_pt				= run_pt_sd,
 		.destroy_pt			= destroy_pt_sd,
 		.destroy_wsi			= wsi_destroy_sd,
+#if defined(LWS_WITH_CLIENT)
+		.sock_accept_parallel		= sock_accept_parallel_sd,
+		.io_parallel			= io_parallel_sd,
+		.close_handle_manually_parallel = close_handle_manually_parallel_sd,
+		.promote_parallel		= promote_parallel_sd,
+#endif
 
 		.flags				= 0,
 
