@@ -57,5 +57,8 @@ struct lws_io_watcher_glib {
 
 struct lws_wsi_eventlibs_glib {
 	struct lws_io_watcher_glib w_read;
+#if defined(LWS_WITH_CLIENT)
+	struct lws_io_watcher_glib racing[LWS_MAX_PARALLEL_CONNS];
+#endif
 };
 

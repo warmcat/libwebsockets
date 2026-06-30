@@ -910,6 +910,98 @@ elops_foreign_thread_uv(struct lws_context *cx, int tsi)
 	return !uv_thread_equal(&th, &ptpriv->uv_thread);
 }
 
+#if defined(LWS_WITH_CLIENT)
+static int
+elops_sock_accept_parallel_uv(struct lws *wsi, lws_sockfd_type fd, int pidx)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	struct lws_pt_eventlibs_libuv *ptpriv = pt_to_priv_uv(pt);
+	struct lws_io_watcher_libuv *w_read = &wsi_to_priv_uv(wsi)->racing[pidx];
+	int n;
+
+	if (!ptpriv->thread_valid) {
+		ptpriv->uv_thread = uv_thread_self();
+		ptpriv->thread_valid = 1;
+	}
+
+	w_read->context = wsi->a.context;
+
+	w_read->pwatcher = lws_malloc(sizeof(*w_read->pwatcher), "uvh_p");
+	if (!w_read->pwatcher)
+		return -1;
+
+	n = uv_poll_init_socket(pt_to_priv_uv(pt)->io_loop, w_read->pwatcher, fd);
+
+	if (n) {
+		lwsl_wsi_err(wsi, "uv_poll_init failed %d", n);
+		lws_free(w_read->pwatcher);
+		w_read->pwatcher = NULL;
+		return -1;
+	}
+
+	((uv_handle_t *)w_read->pwatcher)->data = (void *)wsi;
+	ptpriv->extant_handles++;
+	return 0;
+}
+
+static void
+elops_io_parallel_uv(struct lws *wsi, int pidx, unsigned int flags)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	struct lws_io_watcher_libuv *w = &(wsi_to_priv_uv(wsi)->racing[pidx]);
+	int current_events = w->actual_events & (UV_READABLE | UV_WRITABLE);
+
+	if (!pt_to_priv_uv(pt)->io_loop || !w->context)
+		return;
+
+	if (!w->pwatcher || wsi->told_event_loop_closed)
+		return;
+
+	if (flags & LWS_EV_START) {
+		if (flags & LWS_EV_WRITE) current_events |= UV_WRITABLE;
+		if (flags & LWS_EV_READ) current_events |= UV_READABLE;
+		uv_poll_start(w->pwatcher, current_events, lws_io_cb);
+	} else {
+		if (flags & LWS_EV_WRITE) current_events &= ~UV_WRITABLE;
+		if (flags & LWS_EV_READ) current_events &= ~UV_READABLE;
+		if (!(current_events & (UV_READABLE | UV_WRITABLE)))
+			uv_poll_stop(w->pwatcher);
+		else
+			uv_poll_start(w->pwatcher, current_events, lws_io_cb);
+	}
+	w->actual_events = (uint8_t)current_events;
+}
+
+static void
+elops_close_handle_manually_parallel_uv(struct lws *wsi, int pidx)
+{
+	uv_handle_t *h = (uv_handle_t *)wsi_to_priv_uv(wsi)->racing[pidx].pwatcher;
+
+	if (!h)
+		return;
+
+	h->data = (void *)(lws_intptr_t)wsi->parallel_conns[pidx].desc.sockfd;
+	wsi_to_priv_uv(wsi)->racing[pidx].pwatcher = NULL;
+	uv_close(h, lws_libuv_closewsi_m);
+}
+
+static int
+elops_promote_parallel_uv(struct lws *wsi, int pidx)
+{
+	struct lws_wsi_eventlibs_libuv *w = wsi_to_priv_uv(wsi);
+	uv_handle_t *h = (uv_handle_t *)w->w_read.pwatcher;
+
+	if (h) {
+		h->data = (void *)LWS_SOCK_INVALID;
+		uv_close(h, lws_libuv_closewsi_m);
+	}
+
+	w->w_read = w->racing[pidx];
+	memset(&w->racing[pidx], 0, sizeof(w->racing[pidx]));
+	return 0;
+}
+#endif
+
 static const struct lws_event_loop_ops event_loop_ops_uv = {
 	/* name */			"libuv",
 	/* init_context */		elops_init_context_uv,
@@ -928,12 +1020,21 @@ static const struct lws_event_loop_ops event_loop_ops_uv = {
 	/* foreign_thread */		elops_foreign_thread_uv,
 	/* fake_POLLIN */		NULL,
 
+#if defined(LWS_WITH_CLIENT)
+	/* sock_accept_parallel */	elops_sock_accept_parallel_uv,
+	/* io_parallel */		elops_io_parallel_uv,
+	/* close_handle_manually_parallel */ elops_close_handle_manually_parallel_uv,
+	/* promote_parallel */		elops_promote_parallel_uv,
+#else
+	NULL, NULL, NULL, NULL,
+#endif
+
 	/* flags */			0,
 
 	/* evlib_size_ctx */	sizeof(struct lws_context_eventlibs_libuv),
 	/* evlib_size_pt */	sizeof(struct lws_pt_eventlibs_libuv),
 	/* evlib_size_vh */	0,
-	/* evlib_size_wsi */	sizeof(struct lws_io_watcher_libuv),
+	/* evlib_size_wsi */	sizeof(struct lws_wsi_eventlibs_libuv),
 };
 
 #if defined(LWS_WITH_EVLIB_PLUGINS)

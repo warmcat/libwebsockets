@@ -101,7 +101,7 @@ lws_uloop_cb(struct uloop_fd *ufd, unsigned int revents)
 	struct lws_context_per_thread *pt;
 	struct lws_pollfd eventfd;
 
-	eventfd.fd = wu->wsi->desc.sockfd;
+	eventfd.fd = ufd->fd;
 	eventfd.events = 0;
 	eventfd.revents = 0;
 
@@ -285,6 +285,66 @@ elops_init_vhost_listen_wsi_uloop(struct lws *wsi)
 	return 0;
 }
 
+#if defined(LWS_WITH_CLIENT)
+static int
+elops_sock_accept_parallel_uloop(struct lws *wsi, lws_sockfd_type fd, int pidx)
+{
+	struct lws_wsi_eventlibs_uloop *wu = wsi_to_priv_uloop(wsi);
+
+	wu->racing[pidx].wsi = wsi;
+	wu->racing[pidx].fd.fd = fd;
+	wu->racing[pidx].fd.cb = lws_uloop_cb;
+	uloop_fd_add(&wu->racing[pidx].fd, ULOOP_READ);
+	wu->racing[pidx].actual_events = ULOOP_READ;
+
+	return 0;
+}
+
+static void
+elops_io_parallel_uloop(struct lws *wsi, int pidx, unsigned int flags)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	struct lws_wsi_eventlibs_uloop *wu = wsi_to_priv_uloop(wsi);
+	unsigned int ulf = (unsigned int)(((flags & LWS_EV_WRITE) ? ULOOP_WRITE : 0) |
+			    ((flags & LWS_EV_READ) ? ULOOP_READ : 0)), u;
+
+	if (wsi->a.context->being_destroyed || pt->is_destroyed)
+		return;
+
+	u = wu->racing[pidx].actual_events;
+	if (flags & LWS_EV_START)
+		u |= ulf;
+	if (flags & LWS_EV_STOP)
+		u &= ~ulf;
+
+	uloop_fd_add(&wu->racing[pidx].fd, u);
+	wu->racing[pidx].actual_events = u;
+}
+
+static void
+elops_close_handle_manually_parallel_uloop(struct lws *wsi, int pidx)
+{
+	struct lws_wsi_eventlibs_uloop *wu = wsi_to_priv_uloop(wsi);
+
+	uloop_fd_delete(&wu->racing[pidx].fd);
+	compatible_close(wsi->parallel_conns[pidx].desc.sockfd);
+}
+
+static int
+elops_promote_parallel_uloop(struct lws *wsi, int pidx)
+{
+	struct lws_wsi_eventlibs_uloop *wu = wsi_to_priv_uloop(wsi);
+
+	uloop_fd_delete(&wu->fd);
+
+	wu->fd = wu->racing[pidx].fd;
+	wu->actual_events = wu->racing[pidx].actual_events;
+
+	memset(&wu->racing[pidx], 0, sizeof(wu->racing[pidx]));
+	return 0;
+}
+#endif
+
 static const struct lws_event_loop_ops event_loop_ops_uloop = {
 	/* name */			"uloop",
 	/* init_context */		NULL,
@@ -302,6 +362,15 @@ static const struct lws_event_loop_ops event_loop_ops_uloop = {
 	/* destroy wsi */		elops_destroy_wsi_uloop,
 	/* foreign_thread */		NULL,
 	/* fake_POLLIN */		NULL,
+
+#if defined(LWS_WITH_CLIENT)
+	/* sock_accept_parallel */	elops_sock_accept_parallel_uloop,
+	/* io_parallel */		elops_io_parallel_uloop,
+	/* close_handle_manually_parallel */ elops_close_handle_manually_parallel_uloop,
+	/* promote_parallel */		elops_promote_parallel_uloop,
+#else
+	NULL, NULL, NULL, NULL,
+#endif
 
 	/* flags */			0,
 

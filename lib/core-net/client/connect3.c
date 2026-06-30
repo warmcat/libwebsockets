@@ -275,7 +275,10 @@ lws_remove_parallel_fd_safely(struct lws *wsi, int pidx)
 	wsi->position_in_fds_table = hole_pos;
 
 	__remove_wsi_socket_from_fds(wsi);
-	compatible_close(wsi->parallel_conns[pidx].desc.sockfd);
+	if (wsi->a.context->event_loop_ops->close_handle_manually_parallel)
+		wsi->a.context->event_loop_ops->close_handle_manually_parallel(wsi, pidx);
+	else
+		compatible_close(wsi->parallel_conns[pidx].desc.sockfd);
 	wsi->parallel_conns[pidx].is_valid = 0;
 
 	wsi->desc = saved_fd;
@@ -529,14 +532,10 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 			 * sockets; adopting one corrupts the wsi's fds-table
 			 * bookkeeping (position_in_fds_table).  The happy-eyeballs
 			 * timer is already gated on the "poll" loop where it is
-			 * scheduled, but the win32 async connect-check is scheduled
-			 * regardless of the loop, so gate the parallel fan-out here
-			 * too.
 			 */
 			if (!wsi->dns_sorted_list.count ||
-			    wsi->parallel_count >= LWS_MAX_PARALLEL_CONNS ||
-			    !(wsi->a.context->event_loop_ops->flags & LELOF_ISPOLL))
-				return wsi;
+		    wsi->parallel_count >= LWS_MAX_PARALLEL_CONNS)
+			return wsi;
 		}
 	}
 
@@ -745,7 +744,20 @@ ads_known:
 			wsi->desc.sockfd = new_fd;
 		}
 
-		if (wsi->a.context->event_loop_ops->sock_accept)
+		if (is_parallel && wsi->a.context->event_loop_ops->sock_accept_parallel) {
+			if (wsi->a.context->event_loop_ops->sock_accept_parallel(wsi, new_fd, pidx)) {
+				lws_snprintf(dcce, sizeof(dcce),
+					     "conn fail: sock accept");
+				cce = dcce;
+				lwsl_wsi_warn(wsi, "%s", dcce);
+				wsi->position_in_fds_table = saved_pos;
+				wsi->desc = saved_fd;
+				wsi->parallel_conns[pidx].is_valid = 0;
+				wsi->parallel_count--;
+				compatible_close(new_fd);
+				goto try_next_dns_result;
+			}
+		} else if (!is_parallel && wsi->a.context->event_loop_ops->sock_accept) {
 			if (wsi->a.context->event_loop_ops->sock_accept(wsi)) {
 				lws_snprintf(dcce, sizeof(dcce),
 					     "conn fail: sock accept");
@@ -762,6 +774,7 @@ ads_known:
 				compatible_close(new_fd);
 				goto try_next_dns_result;
 			}
+		}
 
 		lws_pt_lock(pt, __func__);
 		if (__insert_wsi_socket_into_fds(wsi->a.context, wsi)) {
@@ -769,7 +782,10 @@ ads_known:
 				     "conn fail: insert fd");
 			cce = dcce;
 			lws_pt_unlock(pt);
-			compatible_close(new_fd);
+			if (is_parallel && wsi->a.context->event_loop_ops->close_handle_manually_parallel)
+				wsi->a.context->event_loop_ops->close_handle_manually_parallel(wsi, pidx);
+			else
+				compatible_close(new_fd);
 			if (is_parallel) {
 				wsi->parallel_count--;
 				wsi->position_in_fds_table = saved_pos;
@@ -1022,7 +1038,7 @@ ads_known:
 						 LWS_USEC_PER_SEC);
 
 		/* schedule happy eyeballs timer if we have more dns results and the event loop supports it */
-		if (wsi->dns_sorted_list.count && (wsi->a.context->event_loop_ops->flags & LELOF_ISPOLL)) {
+		if (wsi->dns_sorted_list.count) {
 			extern void lws_client_happy_eyeballs_cb(lws_sorted_usec_list_t *sul);
 			lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->sul_happy_eyeballs,
 					lws_client_happy_eyeballs_cb,
@@ -1071,7 +1087,7 @@ ads_known:
 			lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->sul_h3_grace,
 					 lws_client_h3_grace_cb, grace_us);
 
-			if (wsi->dns_sorted_list.count && (wsi->a.context->event_loop_ops->flags & LELOF_ISPOLL)) {
+			if (wsi->dns_sorted_list.count) {
 				extern void lws_client_happy_eyeballs_cb(lws_sorted_usec_list_t *sul);
 				lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->sul_happy_eyeballs,
 						lws_client_happy_eyeballs_cb, 1);
@@ -1091,7 +1107,11 @@ conn_good:
 		lws_pt_lock(pt, __func__);
 		__remove_wsi_socket_from_fds(wsi);
 		lws_pt_unlock(pt);
-		compatible_close(wsi->desc.sockfd);
+
+		if (wsi->a.context->event_loop_ops->promote_parallel)
+			wsi->a.context->event_loop_ops->promote_parallel(wsi, pidx);
+		else
+			compatible_close(wsi->desc.sockfd);
 
 		promote_parallel_fd(wsi, pidx);
 	}
@@ -1242,7 +1262,10 @@ try_next_dns_result_fds:
 	 * We are killing the socket but leaving
 	 */
 	if (is_parallel) {
-		compatible_close(new_fd);
+		if (wsi->a.context->event_loop_ops->close_handle_manually_parallel)
+			wsi->a.context->event_loop_ops->close_handle_manually_parallel(wsi, pidx);
+		else
+			compatible_close(new_fd);
 		/* restore primary */
 		wsi->position_in_fds_table = saved_pos;
 		wsi->desc = saved_fd;

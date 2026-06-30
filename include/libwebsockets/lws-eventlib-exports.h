@@ -70,6 +70,14 @@ struct lws_event_loop_ops {
 	/* optional: custom implementation for faking POLLIN for buffered.
 	 *           return nonzero if any wsi faked */
 	int (*fake_POLLIN_override)(struct lws_context *context, int tsi);
+	/* init a racing parallel connect handle */
+	int (*sock_accept_parallel)(struct lws *wsi, lws_sockfd_type fd, int pidx);
+	/* control racing wsi active events */
+	void (*io_parallel)(struct lws *wsi, int pidx, unsigned int flags);
+	/* close racing handle manually */
+	void (*close_handle_manually_parallel)(struct lws *wsi, int pidx);
+	/* promote parallel handle to primary */
+	int (*promote_parallel)(struct lws *wsi, int pidx);
 
 	uint8_t	flags;
 
