@@ -424,7 +424,7 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 #if defined(LWS_WITH_SERVER)
 	if (!nwsi) {
 		if (!(p[0] & 0x80) || ((p[0] & 0x30) >> 4) != 0) {
-			lwsl_wsi_notice(wsi, "QUIC RX: Unknown DCID and not Initial, dropping");
+			// lwsl_wsi_notice(wsi, "QUIC RX: Unknown DCID and not Initial, dropping");
 			return LWS_HPI_RET_HANDLED;
 		}
 
@@ -1241,7 +1241,7 @@ rops_handle_POLLOUT_quic(struct lws *wsi)
 		return LWS_HP_RET_DROP_POLLOUT;
 	}
 
-	        lws_usec_t pto_base = qn->smoothed_rtt ? (qn->smoothed_rtt + (4 * qn->rttvar) + 25000) : LWS_QUIC_DEFAULT_PTO_US;
+	lws_usec_t pto_base = qn->smoothed_rtt ? (qn->smoothed_rtt + (4 * qn->rttvar) + 25000) : LWS_QUIC_DEFAULT_PTO_US;
         lws_usec_t pto_delay = pto_base << qn->pto_count;
         if (pto_delay > 10000000)
                 pto_delay = 10000000;
@@ -1265,7 +1265,7 @@ rops_handle_POLLOUT_quic(struct lws *wsi)
 				return LWS_HP_RET_BAIL_DIE;
 			}
 			/* Kick off the handshake */
-			lwsl_wsi_notice(wsi, "Kicking off QUIC TLS handshake");
+			// lwsl_wsi_notice(wsi, "Kicking off QUIC TLS handshake");
 			lws_tls_quic_rx_crypto(wsi, LWS_QUIC_LEVEL_INITIAL, NULL, 0);
 		}
 #endif
@@ -1302,7 +1302,7 @@ rops_handle_POLLOUT_quic(struct lws *wsi)
 
 			/* Allow a 5ms epsilon for timer jitter */
 			if (now + 5000 >= f->sent_time_us + sweep_pto_delay) {
-				lwsl_notice("PTO Sweep: Packet %llu (type 0x%02x) lost! Retransmitting!\n", (unsigned long long)f->sent_in_pn, f->type);
+				// lwsl_notice("PTO Sweep: Packet %llu (type 0x%02x) lost! Retransmitting!\n", (unsigned long long)f->sent_in_pn, f->type);
 
 				/* PMTUD Black Hole Detection */
 				if (f->sent_in_pn != last_lost_pn) {
@@ -1351,7 +1351,7 @@ send_frames:
 			continue;
 		}
 
-		lwsl_wsi_notice(wsi, "QUIC TX: Processing level %d. pending=%d, needs_ack=%d, pto_needed=%d", level, qn->pending_tx[level].count, qn->needs_ack[level], qn->pto_probe_needed);
+		// lwsl_wsi_notice(wsi, "QUIC TX: Processing level %d. pending=%d, needs_ack=%d, pto_needed=%d", level, qn->pending_tx[level].count, qn->needs_ack[level], qn->pto_probe_needed);
 
 		uint32_t mtu = qn->current_mtu ? qn->current_mtu : 1280;
 
@@ -1365,9 +1365,9 @@ send_frames:
 				break; /* Block sending further datagrams */
 			}
 			uint64_t remaining = allowance - qn->bytes_sent;
-			if (mtu > remaining) {
+			if (mtu > remaining)
 				mtu = (uint32_t)remaining;
-			}
+
 			if (mtu < 48) { /* Too small to send anything useful */
 				lwsl_notice("QUIC TX: Anti-Amplification remaining (%llu) too small. Blocking send.\n", (unsigned long long)remaining);
 				blocked = 1;
@@ -1636,7 +1636,7 @@ send_frames:
 				p += (target_payload_len - payload_len);
 				payload_len = target_payload_len;
 				qn->pmtud_probe_pn = my_pn;
-				lwsl_wsi_notice(wsi, "QUIC TX: Sending PMTUD probe %llu (size %d)", (unsigned long long)my_pn, (int)qn->probed_mtu);
+				// lwsl_wsi_notice(wsi, "QUIC TX: Sending PMTUD probe %llu (size %d)", (unsigned long long)my_pn, (int)qn->probed_mtu);
 			}
 		}
 
@@ -1655,7 +1655,7 @@ send_frames:
 		/* 3. Encrypt payload and mask header */
 		n = lws_quic_encrypt_payload(qn->keys[level], pkt, (size_t)(p - pkt), pn_offset, 2, my_pn);
 		if (n < 0) {
-			lwsl_wsi_err(wsi, "QUIC TX: Payload encryption failed");
+			lwsl_wsi_warn(wsi, "QUIC TX: Payload encryption failed");
 			return LWS_HP_RET_BAIL_OK;
 		}
 
@@ -1678,7 +1678,7 @@ send_frames:
 			d = d->prev;
 		}
 
-		lwsl_wsi_debug(wsi, "QUIC TX TELEMETRY: Sending packet of %d bytes to network (level %d)", (int)send_len, level);
+		// lwsl_wsi_debug(wsi, "QUIC TX TELEMETRY: Sending packet of %d bytes to network (level %d)", (int)send_len, level);
 
 		/* Fault Injection for dropping UDP packets (simulating packet loss) */
 		if (lws_fi(&wsi->fic, "quic_tx_drop")) {
@@ -1754,14 +1754,14 @@ send_frames:
 		if (ack_eliciting && qn->cc_ops && qn->cc_ops->on_sent)
 			qn->cc_ops->on_sent(wsi, send_len);
 
-		lwsl_wsi_info(wsi, "QUIC TX: Sent %d bytes, bundled frames into PN %llu",
-				n, (unsigned long long)my_pn);
+		// lwsl_wsi_info(wsi, "QUIC TX: Sent %d bytes, bundled frames into PN %llu",
+		//		n, (unsigned long long)my_pn);
 
 		/*
 		 * If we still have pending frames we couldn't fit, request another POLLOUT
 		 */
 		if (qn->pending_tx[level].count) {
-			lwsl_wsi_notice(wsi, "QUIC TX: requesting POLLOUT because pending_tx[level=%d].count=%d", level, qn->pending_tx[level].count);
+			// lwsl_wsi_notice(wsi, "QUIC TX: requesting POLLOUT because pending_tx[level=%d].count=%d", level, qn->pending_tx[level].count);
 			lws_callback_on_writable(wsi);
 		}
             
@@ -1773,7 +1773,7 @@ send_frames:
 		if (level == LWS_QUIC_LEVEL_APP && send_len > 0) {
 			struct lws *curr = wsi->mux.child_list;
 			while (curr) {
-				lwsl_wsi_notice(wsi, "QUIC TX: requesting POLLOUT for child %s", lws_wsi_tag(curr));
+				// lwsl_wsi_notice(wsi, "QUIC TX: requesting POLLOUT for child %s", lws_wsi_tag(curr));
 				lws_callback_on_writable(curr);
 				curr = curr->mux.sibling_list;
 			}
@@ -1899,15 +1899,15 @@ end_children:
 			}
 		}
 
-		lwsl_wsi_notice(wsi, "QUIC TX: blocked=%d, have_pending_tx=%d, can_process_children=%d", blocked, have_pending_tx, can_process_children);
+		// lwsl_wsi_notice(wsi, "QUIC TX: blocked=%d, have_pending_tx=%d, can_process_children=%d", blocked, have_pending_tx, can_process_children);
 		if (blocked || (!have_pending_tx && !can_process_children)) {
-			lwsl_wsi_notice(wsi, "QUIC TX: dropping POLLOUT manually (LWS_POLLOUT, 0)");
+			// lwsl_wsi_notice(wsi, "QUIC TX: dropping POLLOUT manually (LWS_POLLOUT, 0)");
 			/* We are blocked by QUIC limits, or have nothing to send and children can't write.
 			 * Stop asking the OS for POLLOUT. We will re-enable it when POLLIN brings ACKs. */
 			if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
 				return LWS_HP_RET_BAIL_DIE;
 		} else {
-			lwsl_wsi_notice(wsi, "QUIC TX: calling lws_wsi_mux_action_pending_writeable_reqs (wsi->mux.requested_POLLOUT=%d)", wsi->mux.requested_POLLOUT);
+			// lwsl_wsi_notice(wsi, "QUIC TX: calling lws_wsi_mux_action_pending_writeable_reqs (wsi->mux.requested_POLLOUT=%d)", wsi->mux.requested_POLLOUT);
 			if (lws_wsi_mux_action_pending_writeable_reqs(wsi))
 				return LWS_HP_RET_BAIL_DIE;
 		}
@@ -1924,7 +1924,7 @@ rops_write_role_protocol_quic(struct lws *wsi, unsigned char *buf, size_t len,
 	struct lws_quic_netconn *qn = nwsi ? nwsi->quic.qn : wsi->quic.qn;
 	struct lws_quic_tx_frame *f;
 
-	lwsl_notice("%s: entry len=%d, wsi=%s, nwsi=%s, qn=%p\n", __func__, (int)len, lws_wsi_tag(wsi), lws_wsi_tag(nwsi), qn);
+	// lwsl_notice("%s: entry len=%d, wsi=%s, nwsi=%s, qn=%p\n", __func__, (int)len, lws_wsi_tag(wsi), lws_wsi_tag(nwsi), qn);
 
 	if (!qn)
 		return -1;
@@ -1974,7 +1974,7 @@ rops_write_role_protocol_quic(struct lws *wsi, unsigned char *buf, size_t len,
 
 	lwsl_info("QUIC TX WRITE: Stream %llu. Requested: %d, Stream tx_cr: %d, Conn tx_cr: %d\n", wsi->quic.qs ? (unsigned long long)wsi->quic.qs->stream_id : 0, (int)len, (int)wsi->txc.tx_cr, nwsi ? (int)nwsi->txc.tx_cr : -1);
 
-	lwsl_notice("%s: allocating frame of size %d\n", __func__, (int)(sizeof(*f) + len));
+	// lwsl_notice("%s: allocating frame of size %d\n", __func__, (int)(sizeof(*f) + len));
 	/* Allocate frame struct + payload buffer natively */
 	f = lws_zalloc(sizeof(*f) + len, "quic tx frame");
 	if (!f)
@@ -1988,10 +1988,10 @@ rops_write_role_protocol_quic(struct lws *wsi, unsigned char *buf, size_t len,
 	f->data = (uint8_t *)&f[1];
 	f->len = len;
 
-	lwsl_notice("%s: copying data from buf=%p to f->data=%p\n", __func__, buf, f->data);
+	// lwsl_notice("%s: copying data from buf=%p to f->data=%p\n", __func__, buf, f->data);
 	/* Copy the user payload */
 	memcpy(f->data, buf, len);
-	lwsl_notice("%s: copied data\n", __func__);
+	// lwsl_notice("%s: copied data\n", __func__);
 
 	if (((*wp) & 0x1f) == LWS_WRITE_QUIC_DATAGRAM) {
 		/* It's a DATAGRAM frame */

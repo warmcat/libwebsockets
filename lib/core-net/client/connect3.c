@@ -763,14 +763,7 @@ ads_known:
 					     "conn fail: sock accept");
 				cce = dcce;
 				lwsl_wsi_warn(wsi, "%s", dcce);
-				if (is_parallel) {
-					wsi->position_in_fds_table = saved_pos;
-					wsi->desc = saved_fd;
-					wsi->parallel_conns[pidx].is_valid = 0;
-					wsi->parallel_count--;
-				} else {
-					wsi->desc.sockfd = LWS_SOCK_INVALID;
-				}
+				wsi->desc.sockfd = LWS_SOCK_INVALID;
 				compatible_close(new_fd);
 				goto try_next_dns_result;
 			}
