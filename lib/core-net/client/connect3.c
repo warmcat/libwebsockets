@@ -516,8 +516,26 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 				}
 			}
 		} else {
-			/* timer fired, or no specific fd. Just proceed to pop next if available */
-			if (!wsi->dns_sorted_list.count || wsi->parallel_count >= LWS_MAX_PARALLEL_CONNS)
+			/*
+			 * A connect-completion timer fired (happy-eyeballs, or
+			 * the win32 async connect-check) with no specific fd that
+			 * completed yet.  Falling through from here opens an
+			 * additional *parallel* connect socket on the same wsi.
+			 *
+			 * That is only safe on the lws "poll" core loop, which
+			 * itself polls every fd in pt->fds.  A foreign event loop
+			 * (event_lib_custom: libuv/libev/libevent/glib/sd) tracks
+			 * one fd per wsi and cannot poll the extra parallel
+			 * sockets; adopting one corrupts the wsi's fds-table
+			 * bookkeeping (position_in_fds_table).  The happy-eyeballs
+			 * timer is already gated on the "poll" loop where it is
+			 * scheduled, but the win32 async connect-check is scheduled
+			 * regardless of the loop, so gate the parallel fan-out here
+			 * too.
+			 */
+			if (!wsi->dns_sorted_list.count ||
+			    wsi->parallel_count >= LWS_MAX_PARALLEL_CONNS ||
+			    !(wsi->a.context->event_loop_ops->flags & LELOF_ISPOLL))
 				return wsi;
 		}
 	}
@@ -1004,7 +1022,7 @@ ads_known:
 						 LWS_USEC_PER_SEC);
 
 		/* schedule happy eyeballs timer if we have more dns results and the event loop supports it */
-		if (wsi->dns_sorted_list.count && !strcmp(wsi->a.context->event_loop_ops->name, "poll")) {
+		if (wsi->dns_sorted_list.count && (wsi->a.context->event_loop_ops->flags & LELOF_ISPOLL)) {
 			extern void lws_client_happy_eyeballs_cb(lws_sorted_usec_list_t *sul);
 			lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->sul_happy_eyeballs,
 					lws_client_happy_eyeballs_cb,
@@ -1053,7 +1071,7 @@ ads_known:
 			lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->sul_h3_grace,
 					 lws_client_h3_grace_cb, grace_us);
 
-			if (wsi->dns_sorted_list.count && !strcmp(wsi->a.context->event_loop_ops->name, "poll")) {
+			if (wsi->dns_sorted_list.count && (wsi->a.context->event_loop_ops->flags & LELOF_ISPOLL)) {
 				extern void lws_client_happy_eyeballs_cb(lws_sorted_usec_list_t *sul);
 				lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->sul_happy_eyeballs,
 						lws_client_happy_eyeballs_cb, 1);

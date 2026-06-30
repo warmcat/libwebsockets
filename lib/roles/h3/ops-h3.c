@@ -1222,10 +1222,10 @@ rops_alpn_negotiated_h3(struct lws *wsi, const char *alpn)
 static int
 rops_close_kill_connection_h3(struct lws *wsi, enum lws_close_status reason)
 {
+	lws_quic_stream_cleanup(wsi);
+
 	if (wsi->mux.parent_wsi)
 		lws_wsi_mux_sibling_disconnect(wsi);
-
-	lws_quic_stream_cleanup(wsi);
 
 	return 0;
 }
