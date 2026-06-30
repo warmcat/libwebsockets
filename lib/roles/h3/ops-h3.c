@@ -1002,7 +1002,7 @@ lws_quic_enter_closing_state(nwsi, LWS_QPACK_ENCODER_STREAM_ERROR, 0, 1);
 			len -= chunk;
 
 			/* Replenish flow control window */
-			lwsl_notice("H3 RX: Replenishing %d bytes", (int)chunk); lws_wsi_tx_credit(wsi, LWSTXCR_PEER_TO_US, (int)chunk);
+			// lwsl_notice("H3 RX: Replenishing %d bytes", (int)chunk); lws_wsi_tx_credit(wsi, LWSTXCR_PEER_TO_US, (int)chunk);
 
 			if (wsi->h3.rx_frame_payload_read == wsi->h3.rx_frame_len) {
 				if (wsi->h3.stream_type == 0x00 && wsi->h3.rx_frame_type == 0x04) {
