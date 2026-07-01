@@ -835,8 +835,9 @@ lws_create_vhost(struct lws_context *context,
 			vh->count_protocols++)
 				;
 
-	vh->options			= info->options;
-	vh->pvo				= info->pvo;
+	vh->options                     = info->options;
+	vh->quic_preferred_addresses    = info->quic_preferred_addresses;
+	vh->pvo                         = info->pvo;
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	vh->headers			= info->headers;
 #endif
@@ -879,8 +880,8 @@ lws_create_vhost(struct lws_context *context,
 	if (info->tls1_3_plus_cipher_list)
 		vh->tls.cfg_tls1_3_plus_cipher_list = lws_strdup(info->tls1_3_plus_cipher_list);
 #if defined(LWS_WITH_CLIENT)
-	if (info->client_ssl_cipher_list)
-		vh->tls.cfg_tls_client_cipher_list = lws_strdup(info->client_ssl_cipher_list);
+        if (info->client_ssl_cipher_list)
+                vh->tls.cfg_tls_client_cipher_list = lws_strdup(info->client_ssl_cipher_list);
 #endif
 	if (info->tls_ciphers_iana)
 		vh->tls.cfg_tls_ciphers_iana = lws_strdup(info->tls_ciphers_iana);
@@ -2101,7 +2102,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 			 * h2: if in usable state already: just use it without
 			 *     going through the queue
 			 */
-			if (w->client_h2_alpn && w->client_mux_migrated &&
+			if (lwsi_role_h2(w) && w->client_h2_alpn && w->client_mux_migrated &&
 			    (lwsi_state(w) == LRS_H2_WAITING_TO_SEND_HEADERS ||
 			     lwsi_state(w) == LRS_ESTABLISHED ||
 			     lwsi_state(w) == LRS_IDLING)) {
@@ -2130,13 +2131,14 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 			 * h3: if in usable state already: just use it without
 			 *     going through the queue
 			 */
-			if (lwsi_role_h3(w) && w->client_h2_alpn && w->client_mux_migrated &&
+			if ((w->role_ops && !strcmp(w->role_ops->name, "quic")) && w->client_h2_alpn && w->client_mux_migrated &&
 			    (lwsi_state(w) == LRS_H2_WAITING_TO_SEND_HEADERS ||
 			     lwsi_state(w) == LRS_ESTABLISHED ||
 			     lwsi_state(w) == LRS_IDLING)) {
 
 				lwsl_wsi_info(w, "just join h3 directly 0x%x",
 						   lwsi_state(w));
+
 
 				if (lwsi_state(w) == LRS_IDLING)
 					_lws_generic_transaction_completed_active_conn(&w, 0);

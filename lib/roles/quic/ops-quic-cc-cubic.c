@@ -255,31 +255,43 @@ cubic_get_pacing_delay(struct lws *nwsi, size_t bytes_to_send)
 
 	lws_usec_t now = lws_now_usecs();
 	lws_usec_t elapsed = now - st->last_pacing_time;
-	st->last_pacing_time = now;
 
 	/* Replenish credit based on elapsed time: R = cwnd / srtt */
 	size_t credit_added = (size_t)(((uint64_t)elapsed * (uint64_t)st->cwnd) / (uint64_t)rtt);
 	st->pacing_credit += credit_added;
 
-	/* Cap credit to max burst to prevent micro-bursts (e.g. 10 packets) */
-	size_t max_burst = 10 * (lws_get_vhost(nwsi)->quic_mtu ? lws_get_vhost(nwsi)->quic_mtu : 1280);
+	/*
+	 * Cap credit to max burst (64 packets) to prevent very large bursts
+	 * while still allowing good throughput for large concurrent stream
+	 * queues (e.g. 1999 streams in the multiplexing test).
+	 */
+	size_t max_burst = 64 * (lws_get_vhost(nwsi)->quic_mtu ? lws_get_vhost(nwsi)->quic_mtu : 1280);
 	if (st->pacing_credit > max_burst)
 		st->pacing_credit = max_burst;
 
 	if (st->pacing_credit >= bytes_to_send) {
-		/* We have enough credit to send this packet */
+		/*
+		 * Enough credit to send this packet: consume credit and
+		 * record the time only when we actually allow a send.
+		 * See newreno equivalent for the rationale.
+		 */
+		st->last_pacing_time = now;
 		return 0;
 	}
 
-	/* Not enough credit. Calculate how long it will take to earn the missing credit. */
+	/* Not enough credit. Calculate how long to wait for the missing credit. */
 	size_t missing_credit = bytes_to_send - st->pacing_credit;
 	delay_us = (lws_usec_t)(((uint64_t)missing_credit * (uint64_t)rtt) / (uint64_t)(st->cwnd ? st->cwnd : 1));
 
 	if (delay_us == 0)
 		delay_us = 1;
 
+	/* Do NOT update last_pacing_time here: credit already earned in
+	 * pacing_credit is preserved for the next call. */
+
 	return delay_us;
 }
+
 
 const struct lws_cc_ops lws_cc_ops_cubic = {
 	.init			= cubic_init,

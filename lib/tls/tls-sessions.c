@@ -62,6 +62,8 @@ lws_tls_session_tag_from_wsi(struct lws *wsi, char *buf, size_t len)
 	lws_tls_session_tag_discrete(wsi->a.vhost->name, host, wsi->c_port,
 				     buf, len);
 
+	lwsl_notice("lws_tls_session_tag_from_wsi: generated tag '%s' for host '%s'\n", buf, host);
+
 	return 0;
 }
 
