@@ -227,6 +227,10 @@ struct lws_client_connect_info {
 	 * to the client connection.
 	 */
 
+	struct lws      *quic_migrate_from_wsi;
+	/**< If set, this connection acts as a Make-Before-Break migration probe for
+	 * the existing QUIC network connection in quic_migrate_from_wsi. */
+
 	uint8_t		priority;
 	/**< 0 means normal priority... otherwise sets the IP priority on
 	 * packets coming from this connection, from 1 - 7.  Setting 7

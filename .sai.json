@@ -65,6 +65,15 @@
                                 "cd build && SAI_CPACK=\"-G DEB\" ${cpack}"
 			]
 		},
+
+		"linux-debian13/x86_64-amd/gcc": {
+			"default": false,
+                        "build": [
+				"${cmake}"
+			]
+		},
+
+
 #                "netbsd/aarch64BE-bcm2837-a53/gcc": {
 #                        "default": false,
 #                        "build": [
@@ -309,6 +318,11 @@
 			"platforms":	"none, coverity/x86_64/gcc",
 			"cpack":	"export STAMP=`git log -1 --pretty=format:%h` && rm -f libwebsockets.tar.xz && tar cJvf libwebsockets.tar.xz cov-int && script -e -q -c \"cat /etc/coverity/secrets.sh | lws-minimal-http-client-post-form --h1 https://scan.coverity.com:443/builds?project=warmcat%2Flibwebsockets --form file=@libwebsockets.tar.xz --form version=${STAMP} --form 'description=lws qa'\" /dev/null",
 			"branches":	"coverity"
+		},
+
+		"qir": {
+			"cmake":    "cd /opt/quic-interop-runner ; source venv/bin/activate ; rm -rf logs_* ; export QIR_LWS_BRANCH=main ; cd /opt/quic-interop-runner/lws ; if [ \"`docker ps -q`\" ] ; then docker kill $(docker ps -q) ; fi ;  docker system prune -a --volumes -f && docker build --build-arg QIR_LWS_BRANCH=${QIR_LWS_BRANCH} -t lws-quic-interop . --no-cache && cd .. && python3 run.py -c lws -s lws --delete-successful-logs",
+			"platforms":	"none, linux-debian13/x86_64-amd/gcc"
 		}
 
 #		,

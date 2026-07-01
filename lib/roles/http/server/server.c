@@ -787,7 +787,7 @@ lws_http_serve(struct lws *wsi, char *uri, const char *origin,
 #endif
 	int spin = 0;
 #endif
-	char path[256], sym[2048];
+	char path[1024], sym[2048];
 	unsigned char *p = (unsigned char *)sym + 32 + LWS_PRE, *start = p;
 	unsigned char *end = p + sizeof(sym) - 32 - LWS_PRE;
 #if !defined(WIN32) && !defined(LWS_PLAT_FREERTOS)
@@ -3604,11 +3604,16 @@ int lws_serve_http_file_fragment(struct lws *wsi)
 
 			if (!txc) {
 				/*
-				 * We shouldn't've been able to get the
-				 * WRITEABLE if we are skint
+				 * tx credit is 0. This can happen because the
+				 * QUIC pending_tx buffer throttle (64KB cap) kicked
+				 * in *between* the POLLOUT handler's check and here.
+				 * lws_callback_on_writable propagates requested_POLLOUT
+				 * up the full parent chain so the post-ACK wakeup loop
+				 * can restart us once the buffer drains.
 				 */
 				lwsl_notice("%s: %s: no tx credit\n", __func__,
 						lws_wsi_tag(wsi));
+				lws_callback_on_writable(wsi);
 
 				return 0;
 			}

@@ -608,8 +608,7 @@ int lws_has_buffered_out(struct lws *wsi) {
 				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->pending_tx[i].head) {
 					struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
 					if (((f->type & 0xf8) == LWS_QUIC_FT_STREAM && f->stream_id == sid) ||
-					    (f->type == LWS_QUIC_FT_STREAM_DATA_BLOCKED && f->stream_id == sid) ||
-					    f->type == LWS_QUIC_FT_DATA_BLOCKED) {
+					    (f->type == LWS_QUIC_FT_STREAM_DATA_BLOCKED && f->stream_id == sid)) {
 						lwsl_notice("lws_has_buffered_out: %s has pending_tx stream/blocked frame on sid %llu\n", lws_wsi_tag(wsi), (unsigned long long)sid);
 						return 1;
 					}
@@ -618,8 +617,7 @@ int lws_has_buffered_out(struct lws *wsi) {
 				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->in_flight[i].head) {
 					struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
 					if (((f->type & 0xf8) == LWS_QUIC_FT_STREAM && f->stream_id == sid) ||
-					    (f->type == LWS_QUIC_FT_STREAM_DATA_BLOCKED && f->stream_id == sid) ||
-					    f->type == LWS_QUIC_FT_DATA_BLOCKED) {
+					    (f->type == LWS_QUIC_FT_STREAM_DATA_BLOCKED && f->stream_id == sid)) {
 						lwsl_notice("lws_has_buffered_out: %s has in_flight stream/blocked frame on sid %llu\n", lws_wsi_tag(wsi), (unsigned long long)sid);
 						return 1;
 					}
@@ -1511,7 +1509,7 @@ int lws_wsi_mux_mark_parents_needing_writeable(struct lws *wsi) {
 	wsi2 = wsi;
 	while (wsi2) {
 		wsi2->mux.requested_POLLOUT = 1;
-		lwsl_wsi_info(wsi2, "sid %u, pending writable", wsi2->mux.my_sid);
+		lwsl_wsi_debug(wsi2, "sid %u, pending writable", wsi2->mux.my_sid);
 		wsi2 = wsi2->mux.parent_wsi;
 	}
 
@@ -1650,6 +1648,8 @@ int lws_wsi_mux_apply_queue(struct lws *wsi) {
 
 		lwsl_wsi_notice(wsi, "evaluating queued conn %s (state 0x%x, par role %s)",
 				lws_wsi_tag(w), lwsi_state(w), wsi->role_ops ? wsi->role_ops->name : "none");
+        lwsl_notice("AGY-MUX: parent role=%s, child state=0x%x (expected 0x%x)\n",
+                wsi->role_ops ? wsi->role_ops->name : "none", lwsi_state(w), LRS_H2_WAITING_TO_SEND_HEADERS);
 
 #if defined(LWS_ROLE_H2)
 		if (lwsi_role_h2(wsi) &&
@@ -1669,7 +1669,7 @@ int lws_wsi_mux_apply_queue(struct lws *wsi) {
 #endif
 
 #if defined(LWS_ROLE_H3)
-		if ((wsi->role_ops && !strcmp(wsi->role_ops->name, "quic")) &&
+		if ((wsi->role_ops && (!strcmp(wsi->role_ops->name, "quic") || !strcmp(wsi->role_ops->name, "h3"))) &&
 				lwsi_state(w) == LRS_H2_WAITING_TO_SEND_HEADERS) {
 			
 			if (!lws_wsi_h3_can_adopt(wsi)) {

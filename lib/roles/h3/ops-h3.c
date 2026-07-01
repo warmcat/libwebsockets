@@ -167,7 +167,39 @@ lws_h3_client_handshake(struct lws *wsi)
 static int
 rops_perform_user_POLLOUT_h3(struct lws *wsi)
 {
+#if defined(LWS_WITH_HTTP2)
+	if (wsi->h2.pending_status_body) {
+		int n = lws_write(wsi, (uint8_t *)wsi->h2.pending_status_body +
+					 LWS_PRE,
+				 strlen(wsi->h2.pending_status_body +
+					 LWS_PRE), LWS_WRITE_HTTP_FINAL);
+		(void)n;
+		lws_free_set_NULL(wsi->h2.pending_status_body);
+		lwsl_wsi_notice(wsi, "closing stream after sending pending status body");
+		return -1;
+	}
+#endif
+
 	lwsl_wsi_info(wsi, "rops_perform_user_POLLOUT_h3: entry, state=%d", lwsi_state(wsi));
+
+	/*
+	 * For QUIC/H3, lws_has_buffered_out() also checks QUIC pending_tx
+	 * for stream frames.  But those are drained by the QUIC POLLOUT
+	 * handler, not by lws_issue_raw().  Only check buflist_out here —
+	 * blocking on QUIC pending_tx prevents the H3 state machine from
+	 * ever progressing past this point for client streams whose HEADERS
+	 * STREAM frames are still in the QUIC TX queue.
+	 */
+	if (wsi->buflist_out) {
+		lwsl_wsi_debug(wsi, "%s: completing partial", __func__);
+		if (lws_issue_raw(wsi, NULL, 0) < 0) {
+			lwsl_wsi_info(wsi, "%s signalling to close", __func__);
+			wsi->socket_is_permanently_unusable = 1;
+			return -1;
+		}
+		if (wsi->buflist_out)
+			return 0;
+	}
 
 #if defined(LWS_WITH_SERVER)
 	if (wsi->http.deferred_transaction_completed) {
@@ -177,6 +209,9 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 				wsi->socket_is_permanently_unusable = 1;
 				return -1;
 			}
+		} else {
+			lws_callback_on_writable(wsi);
+			wsi->mux.requested_POLLOUT = 1;
 		}
 		return 0;
 	}
@@ -187,6 +222,8 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 			wsi->socket_is_permanently_unusable = 1;
 			return -1;
 		}
+		lws_callback_on_writable(wsi);
+		wsi->mux.requested_POLLOUT = 1;
 		return 0;
 	}
 
@@ -244,6 +281,16 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 						tx_credit(wsi, LWSTXCR_US_TO_PEER, 0);
 		}
 		if (lws_wsi_txc_check_skint(&wsi->txc, usable_credit)) {
+			/*
+			 * No TX credit — either QUIC peer flow control is
+			 * exhausted, or the pending_tx buffer throttle (64KB cap
+			 * in rops_tx_credit_quic) is full.  Call
+			 * lws_callback_on_writable() which for QUIC will invoke
+			 * lws_wsi_mux_mark_parents_needing_writeable(), propagating
+			 * requested_POLLOUT up the full parent chain to nwsi so the
+			 * post-ACK wakeup loop can find and restart us.
+			 */
+			lws_callback_on_writable(wsi);
 			return 0;
 		}
 
@@ -261,15 +308,8 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 				return -1;
 		}
 		if (!n) {
-			int32_t usable_credit2 = wsi->txc.tx_cr;
-			if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_tx_credit)) {
-				usable_credit2 = lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_tx_credit).
-							tx_credit(wsi, LWSTXCR_US_TO_PEER, 0);
-			}
-			if (usable_credit2 > 0) {
-				lws_callback_on_writable(wsi);
-				wsi->mux.requested_POLLOUT = 1;
-			}
+			lws_callback_on_writable(wsi);
+			wsi->mux.requested_POLLOUT = 1;
 		}
 
 		return 0;
@@ -324,15 +364,26 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 			lwsl_debug("H3_TRACE: wsi %p lws_http_action failed, returning %d\n", wsi, n);
 			return -1;
 		}
-		if (n > 0) {
+		if (n > 0
+#if defined(LWS_WITH_HTTP2)
+		    && !wsi->h2.pending_status_body
+#endif
+		) {
 			lwsl_wsi_notice(wsi, "closing stream after h3 action completed (%d)", n);
-			return -1;
+			lwsi_set_state(wsi, LRS_FLUSHING_BEFORE_CLOSE);
+			return 0;
 		}
 		lwsl_debug("H3_TRACE: wsi %p lws_http_action returned 0 (success)\n", wsi);
 
 		/* Detach the ah now that headers are processed, to prevent ah pool exhaustion */
 		lws_header_table_detach(wsi, 0);
 		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+
+		/* We are returning 0 because the file might be read synchronously and FIN queued,
+		 * but not sent yet. We need to preserve requested_POLLOUT so it gets polled
+		 * again and transitions properly. */
+		lws_callback_on_writable(wsi);
+		wsi->mux.requested_POLLOUT = 1;
 
 		return 0;
 	}
@@ -1002,7 +1053,8 @@ lws_quic_enter_closing_state(nwsi, LWS_QPACK_ENCODER_STREAM_ERROR, 0, 1);
 			len -= chunk;
 
 			/* Replenish flow control window */
-			// lwsl_notice("H3 RX: Replenishing %d bytes", (int)chunk); lws_wsi_tx_credit(wsi, LWSTXCR_PEER_TO_US, (int)chunk);
+			// lwsl_notice("H3 RX: Replenishing %d bytes", (int)chunk);
+			lws_wsi_tx_credit(wsi, LWSTXCR_PEER_TO_US, (int)chunk);
 
 			if (wsi->h3.rx_frame_payload_read == wsi->h3.rx_frame_len) {
 				if (wsi->h3.stream_type == 0x00 && wsi->h3.rx_frame_type == 0x04) {
@@ -1199,18 +1251,23 @@ rops_alpn_negotiated_h3(struct lws *wsi, const char *alpn)
 	wsi->h3.h3n = nwsi->h3.h3n;
 	wsi->h3.qpack_tx_encoder = nwsi->h3.qpack_tx_encoder;
 
-	/* If we are the network wsi, we must notify our children! */
-	if (wsi == nwsi) {
+	/* Notify all children and update their h3n */
+	{
 		struct lws *child = nwsi->mux.child_list;
 		lwsl_wsi_info(wsi, "H3 ALPN Negotiated, child_list=%p", child);
 		while (child) {
 			lwsl_wsi_info(child, "H3 ALPN child state=%d", lwsi_state(child));
+			child->h3.h3n = nwsi->h3.h3n;
+			child->h3.qpack_tx_encoder = nwsi->h3.qpack_tx_encoder;
+
 			if (lwsi_state(child) == LRS_UNCONNECTED || lwsi_state(child) == LRS_WAITING_CONNECT) {
 				lwsl_wsi_info(child, "H3 ALPN Negotiated, transitioning child");
 				lws_role_transition(child, lwsi_role_client(nwsi) ? LWSIFR_CLIENT : LWSIFR_SERVER, LRS_H2_WAITING_TO_SEND_HEADERS, &role_ops_h3);
-				child->h3.h3n = nwsi->h3.h3n;
-				child->h3.qpack_tx_encoder = nwsi->h3.qpack_tx_encoder;
 				lws_callback_on_writable(child);
+			} else if (child->role_ops && !strcmp(child->role_ops->name, "quic")) {
+				/* Server-side peer-initiated stream adopted during 0-RTT! Transition it to H3 now. */
+				lwsl_wsi_info(child, "H3 ALPN Negotiated, transitioning 0-RTT child to H3");
+				lws_role_transition(child, lwsi_role_client(nwsi) ? LWSIFR_CLIENT : LWSIFR_SERVER, LRS_ESTABLISHED, &role_ops_h3);
 			}
 			child = child->mux.sibling_list;
 		}
@@ -1328,8 +1385,12 @@ rops_write_role_protocol_h3(struct lws *wsi, unsigned char *buf, size_t len,
 
 	{
 		struct lws *nwsi = lws_get_quic_network_wsi(wsi);
-		if (nwsi && lws_rops_fidx(nwsi->role_ops, LWS_ROPS_write_role_protocol)) {
-			n = lws_rops_func_fidx(nwsi->role_ops, LWS_ROPS_write_role_protocol).
+		const struct lws_role_ops *role = nwsi ? nwsi->role_ops : NULL;
+		if (role && !strcmp(role->name, "h3")) {
+			role = lws_role_by_name("quic");
+		}
+		if (nwsi && role && lws_rops_fidx(role, LWS_ROPS_write_role_protocol)) {
+			n = lws_rops_func_fidx(role, LWS_ROPS_write_role_protocol).
 					write_role_protocol(wsi, (is_http || is_headers) ? pre : buf, len, wp);
 			if (n <= 0)
 				return n;
@@ -1353,9 +1414,8 @@ rops_callback_on_writable_h3(struct lws *wsi)
 {
 	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
 
-	if (wsi->mux.requested_POLLOUT) {
+	if (wsi->mux.requested_POLLOUT)
 		lwsl_debug("already pending writable\n");
-	}
 
 	lws_wsi_mux_mark_parents_needing_writeable(wsi);
 
@@ -1512,8 +1572,13 @@ lws_wsi_h3_can_adopt(struct lws *parent_wsi)
         if (next_id == 0)
                 next_id = 4;
 
-        if (next_id / 4 >= qn->max_streams_bidi_remote)
-                return 0; /* limit reached */
+        if (next_id / 4 >= qn->max_streams_bidi_remote) {
+		/* Allow if we are doing 0-RTT but haven't received/cached the peer's limit */
+		if (qn->early_data_status == LWS_0RTT_STATUS_ATTEMPTED && !qn->max_streams_bidi_remote)
+			return 1;
+		
+		return 0; /* limit reached */
+	}
 
         return 1;
 }
@@ -1564,6 +1629,9 @@ lws_wsi_h3_adopt(struct lws *parent_wsi, struct lws *wsi)
 #if defined(LWS_WITH_CLIENT)
 	wsi->client_h2_alpn = 1;
 #endif
+
+	if (!qn->is_server && qn->early_data_status == LWS_0RTT_STATUS_ATTEMPTED)
+		wsi->quic.qs->opted_into_early_data = 1;
 
 	lws_wsi_mux_insert(wsi, nwsi, (unsigned int)sid);
 

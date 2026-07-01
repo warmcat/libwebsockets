@@ -128,6 +128,43 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 }
 
 #if defined(LWS_WITH_SERVER)
+
+#if GNUTLS_VERSION_NUMBER >= 0x030605
+struct lws_gnutls_ar_entry {
+        lws_dll2_t list;
+        size_t size;
+        uint8_t key[128];
+};
+
+static int
+lws_gnutls_anti_replay_db_add(void *db_ptr, long int exp_time,
+                              const gnutls_datum_t *key,
+                              const gnutls_datum_t *data)
+{
+        lws_dll2_owner_t *owner = (lws_dll2_owner_t *)db_ptr;
+        struct lws_gnutls_ar_entry *e;
+
+        lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(owner)) {
+                e = lws_container_of(d, struct lws_gnutls_ar_entry, list);
+                if (e->size == key->size && !memcmp(e->key, key->data, key->size))
+                        return GNUTLS_E_DB_ENTRY_EXISTS;
+        } lws_end_foreach_dll(d);
+
+        if (owner->count >= 256) {
+                e = lws_container_of(lws_dll2_get_head(owner), struct lws_gnutls_ar_entry, list);
+                lws_dll2_remove(&e->list);
+                lws_free(e);
+        }
+
+        e = lws_zalloc(sizeof(*e), "anti_replay");
+        if (!e) return GNUTLS_E_MEMORY_ERROR;
+        e->size = key->size < sizeof(e->key) ? key->size : sizeof(e->key);
+        memcpy(e->key, key->data, e->size);
+        lws_dll2_add_tail(&e->list, owner);
+        return 0;
+}
+#endif
+
 int
 lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 				  struct lws_vhost *vhost, struct lws *wsi)
@@ -161,6 +198,21 @@ lws_tls_server_vhost_backend_init(const struct lws_context_creation_info *info,
 		lwsl_err("%s: failed to load certs\n", __func__);
 		return 1;
 	}
+
+#if GNUTLS_VERSION_NUMBER >= 0x030605
+        if (gnutls_anti_replay_init((gnutls_anti_replay_t *)&vhost->tls.anti_replay) < 0) {
+                lwsl_err("%s: failed to init anti-replay\n", __func__);
+                return 1;
+        }
+        
+        lws_dll2_owner_t *ar_owner = lws_zalloc(sizeof(*ar_owner), "anti_replay_owner");
+        if (ar_owner) {
+                vhost->tls.anti_replay_owner = ar_owner;
+                gnutls_anti_replay_set_ptr((gnutls_anti_replay_t)vhost->tls.anti_replay, ar_owner);
+                gnutls_anti_replay_set_add_function((gnutls_anti_replay_t)vhost->tls.anti_replay,
+                                                    (gnutls_db_add_func)lws_gnutls_anti_replay_db_add);
+        }
+#endif
 
 	return 0;
 }
@@ -275,13 +327,47 @@ lws_gnutls_server_name_cb(gnutls_session_t session)
 	return 0;
 }
 
+// static void my_gnutls_log(int level, const char *msg) {
+//     fprintf(stderr, "GNUTLS_LOG[%d]: %s", level, msg);
+//     fflush(stderr);
+// }
+
 int
 lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 {
 	gnutls_session_t session;
 
-	if (gnutls_init(&session, GNUTLS_SERVER) < 0)
+	unsigned int flags = GNUTLS_SERVER;
+#if GNUTLS_VERSION_NUMBER >= 0x030605
+        if (wsi->a.vhost && (wsi->a.vhost->options & LWS_SERVER_OPTION_ALLOW_EARLY_DATA)) {
+                flags |= GNUTLS_ENABLE_EARLY_DATA;
+#if defined(LWS_ROLE_QUIC) && GNUTLS_VERSION_NUMBER >= 0x030702
+                extern const struct lws_role_ops role_ops_quic;
+                if (wsi->role_ops == &role_ops_quic) {
+                        flags |= GNUTLS_NO_END_OF_EARLY_DATA;
+                        lwsl_notice("gnutls_init: enabling server 0-RTT with GNUTLS_NO_END_OF_EARLY_DATA\n");
+                } else
+#endif
+                lwsl_notice("gnutls_init: enabling server 0-RTT/early data\n");
+        }
+#endif
+	if (gnutls_init(&session, flags) < 0)
 		return 1;
+	// gnutls_global_set_log_level(99);
+	// gnutls_global_set_log_function(my_gnutls_log);
+	if (0)
+		return 1;
+
+#if GNUTLS_VERSION_NUMBER >= 0x030605
+        if (flags & GNUTLS_ENABLE_EARLY_DATA) {
+                gnutls_record_set_max_early_data_size(session, 0xFFFFFFFF);
+                if (wsi->a.vhost->tls.anti_replay)
+                        gnutls_anti_replay_enable(session, (gnutls_anti_replay_t)wsi->a.vhost->tls.anti_replay);
+        }
+#endif
+
+       // gnutls_global_set_log_level(99);
+       // gnutls_global_set_log_function(my_gnutls_log);
 
 	wsi->tls.ssl = (lws_tls_conn *)session;
 
@@ -349,7 +435,25 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		p++;
 	}
 
-	if (gnutls_init(&session, GNUTLS_CLIENT) < 0)
+	unsigned int flags = GNUTLS_CLIENT;
+#if GNUTLS_VERSION_NUMBER >= 0x030605
+	if (wsi->flags & LCCSCF_ALLOW_EARLY_DATA) {
+		flags |= GNUTLS_ENABLE_EARLY_DATA;
+#if defined(LWS_ROLE_QUIC) && GNUTLS_VERSION_NUMBER >= 0x030702
+		extern const struct lws_role_ops role_ops_quic;
+		if (wsi->role_ops == &role_ops_quic) {
+			flags |= GNUTLS_NO_END_OF_EARLY_DATA;
+			lwsl_notice("gnutls_init: enabling client 0-RTT with GNUTLS_NO_END_OF_EARLY_DATA\n");
+		} else
+#endif
+		lwsl_notice("gnutls_init: enabling client 0-RTT/early data\n");
+	}
+#endif
+	if (gnutls_init(&session, flags) < 0)
+		return 1;
+	// gnutls_global_set_log_level(99);
+	// gnutls_global_set_log_function(my_gnutls_log);
+	if (0)
 		return 1;
 
 	wsi->tls.ssl = (lws_tls_conn *)session;
@@ -389,6 +493,21 @@ lws_ssl_client_bio_create(struct lws *wsi)
 void
 lws_ssl_SSL_CTX_destroy(struct lws_vhost *vhost)
 {
+#if GNUTLS_VERSION_NUMBER >= 0x030605
+        if (vhost->tls.anti_replay) {
+                lws_dll2_owner_t *owner = (lws_dll2_owner_t *)vhost->tls.anti_replay_owner;
+                if (owner) {
+                        lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(owner)) {
+                                lws_dll2_remove(d);
+                                lws_free(lws_container_of(d, struct lws_gnutls_ar_entry, list));
+                        } lws_end_foreach_dll_safe(d, d1);
+                        lws_free(owner);
+                }
+                gnutls_anti_replay_deinit((gnutls_anti_replay_t)vhost->tls.anti_replay);
+                vhost->tls.anti_replay = NULL;
+                vhost->tls.anti_replay_owner = NULL;
+        }
+#endif
 	if (vhost->tls.ssl_ctx) {
 		lws_tls_vhost_backend_free_ctx(vhost->tls.ssl_ctx);
 		vhost->tls.ssl_ctx = NULL;
@@ -623,18 +742,23 @@ lws_tls_session_is_reused(struct lws *wsi)
 	return (int)gnutls_session_is_resumed((gnutls_session_t)wsi->tls.ssl);
 }
 
+#if !defined(LWS_WITH_TLS_SESSIONS)
 int
 lws_tls_session_dump_save(struct lws_vhost *vh, const char *host, uint16_t port,
-			   int (*cb)(struct lws_context *, struct lws_tls_session_dump *), void *user)
+			   lws_tls_sess_cb_t cb_save, void *opq)
 {
 	return -1;
 }
 
 int
 lws_tls_session_dump_load(struct lws_vhost *vh, const char *host, uint16_t port,
-			   int (*cb)(struct lws_context *, struct lws_tls_session_dump *), void *user)
+			   lws_tls_sess_cb_t cb_load, void *opq)
 {
 	return -1;
 }
+#endif
+
+
+
 
 #endif

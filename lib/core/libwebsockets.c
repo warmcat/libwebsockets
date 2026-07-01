@@ -1602,6 +1602,8 @@ static const struct lws_switches builtins[] = {
 	{ "--h3", "Force HTTP/3 (client)" },
 	{ "--cpd-bypass", "Bypass captive portal detect" },
 	{ "--quic-pad-crypto", "Pad QUIC Handshake Crypto for tests" },
+	{ "--quic-only-latest", "Force QUIC to use the latest supported version (e.g. v2)" },
+	{ "--0rtt", "Allow QUIC 0-RTT early data" },
 	{ "-h", "Print this help" },
 	{ "--help", "Print this help" },
 };
@@ -1620,6 +1622,8 @@ enum opts {
 	OPT_H3,
 	OPT_CPD_BYPASS,
 	OPT_QUIC_PAD_CRYPTO,
+	OPT_QUIC_ONLY_LATEST,
+	OPT_0RTT,
 	OPT_HELP1,
 	OPT_HELP2,
 };
@@ -1896,6 +1900,12 @@ lws_cmdline_option_handle_builtin(int argc, const char **argv,
 			break;
 		case OPT_QUIC_PAD_CRYPTO:
 			info->options |= LWS_SERVER_OPTION_QUIC_PAD_CRYPTO;
+			break;
+		case OPT_QUIC_ONLY_LATEST:
+			info->options |= LWS_SERVER_OPTION_QUIC_LATEST_VERSION;
+			break;
+		case OPT_0RTT:
+			info->options |= LWS_SERVER_OPTION_ALLOW_EARLY_DATA;
 			break;
 
 		case OPT_HELP1:

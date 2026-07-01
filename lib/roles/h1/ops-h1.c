@@ -111,6 +111,13 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 			case LRS_DOING_TRANSACTION:
 				if (!lwsi_role_h1(wsi))
 					break;
+				/* 
+				 * Consume and discard spurious pipelined data 
+				 * while we are actively sending a response.
+				 * This avoids CPU spins from stashing it, and 
+				 * allows the current transaction to complete.
+				 */
+				buf += len;
 				return lws_ptr_diff(buf, oldbuf);
 			case LRS_DISCARD_BODY:
 			case LRS_BODY:
