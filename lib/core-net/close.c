@@ -507,7 +507,14 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 
 #if defined(LWS_WITH_CLIENT)
 #if defined(LWS_WITH_TLS_SESSIONS) && defined(LWS_WITH_GNUTLS)
-	lws_tls_session_new_gnutls(wsi);
+	/*
+	 * For multiplexed connections (H3/H2), the TLS session belongs
+	 * to the network-level WSI, not to individual stream WSIs.  Don't
+	 * perform the (expensive) session ticket snapshot on every mux
+	 * substream close — only on the actual network wsi.
+	 */
+	if (!wsi->client_mux_substream)
+		lws_tls_session_new_gnutls(wsi);
 #endif
 
 	lws_free_set_NULL(wsi->cli_hostname_copy);

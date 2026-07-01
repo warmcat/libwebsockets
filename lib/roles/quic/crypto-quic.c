@@ -25,6 +25,8 @@
 #include "private-lib-core.h"
 #include "roles/quic/private-lib-roles-quic.h"
 
+extern const struct lws_role_ops role_ops_h3;
+
 static const uint8_t quic_v1_initial_salt[20] = {
 	0x38, 0x76, 0x2c, 0xf7, 0xf5, 0x59, 0x34, 0xb3,
 	0x4d, 0x17, 0x9a, 0xe6, 0xa4, 0xc8, 0x0c, 0xad,
@@ -93,7 +95,7 @@ lws_quic_derive_initial_keys(struct lws *wsi, const struct lws_quic_cid *dcid)
 	if (!k)
 		return -1;
 
-	if (wsi->quic.qn->version == LWS_QUIC_VERSION_2) {
+	if (wsi->quic.qn->original_version == LWS_QUIC_VERSION_2) {
 		salt = quic_v2_initial_salt;
 		salt_len = sizeof(quic_v2_initial_salt);
 	} else {
@@ -166,16 +168,23 @@ lws_quic_initiate_key_update(struct lws *wsi)
 	qn = nwsi->quic.qn;
 	
 	/* We only update keys if the handshake is done and we have APP keys */
-	if (!qn->handshake_done || !qn->keys[LWS_QUIC_LEVEL_APP])
+	if (!qn->handshake_done || !qn->keys[LWS_QUIC_LEVEL_APP]) {
+		lwsl_wsi_notice(wsi, "QUIC Key Update failed: handshake_done=%d, app_keys=%p",
+			qn->handshake_done, qn->keys[LWS_QUIC_LEVEL_APP]);
 		return -1;
+	}
 		
 	/* If an update is already pending, wait for it to be echoed/completed */
-	if (qn->key_update_pending)
+	if (qn->key_update_pending) {
+		lwsl_wsi_notice(wsi, "QUIC Key Update ignored: pending");
 		return -1;
+	}
 
 	/* Derive the new TX keys */
-	if (lws_quic_update_keys(qn->keys[LWS_QUIC_LEVEL_APP], 0))
+	if (lws_quic_update_keys(qn->keys[LWS_QUIC_LEVEL_APP], 0)) {
+		lwsl_wsi_err(wsi, "QUIC Key Update failed: lws_quic_update_keys error");
 		return -1;
+	}
 		
 	/* Flip the TX key phase bit */
 	qn->tx_key_phase ^= 1;
@@ -185,6 +194,8 @@ lws_quic_initiate_key_update(struct lws *wsi)
 	
 	/* Reset the packet counter for AEAD limits */
 	qn->tx_packets_since_update = 0;
+
+	lwsl_wsi_notice(wsi, "QUIC TX: Key Update Initiated! tx_key_phase is now %d", qn->tx_key_phase);
 
 	return 0;
 }
@@ -213,22 +224,27 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
 	case LWS_TLS_QUIC_SECRET_CLIENT_EARLY:
 		level = LWS_QUIC_LEVEL_EARLY;
 		is_rx = qn->is_server ? 1 : 0;
+		lwsl_notice("lws_quic_set_keys: CLIENT_EARLY (is_rx=%d, len=%d)\n", is_rx, (int)secret_len);
 		break;
 	case LWS_TLS_QUIC_SECRET_CLIENT_HANDSHAKE:
 		level = LWS_QUIC_LEVEL_HANDSHAKE;
 		is_rx = qn->is_server ? 1 : 0;
+		lwsl_notice("lws_quic_set_keys: CLIENT_HANDSHAKE (is_rx=%d, len=%d)\n", is_rx, (int)secret_len);
 		break;
 	case LWS_TLS_QUIC_SECRET_SERVER_HANDSHAKE:
 		level = LWS_QUIC_LEVEL_HANDSHAKE;
 		is_rx = qn->is_server ? 0 : 1;
+		lwsl_notice("lws_quic_set_keys: SERVER_HANDSHAKE (is_rx=%d, len=%d)\n", is_rx, (int)secret_len);
 		break;
 	case LWS_TLS_QUIC_SECRET_CLIENT_APPLICATION:
 		level = LWS_QUIC_LEVEL_APP;
 		is_rx = qn->is_server ? 1 : 0;
+		lwsl_notice("lws_quic_set_keys: CLIENT_APP (is_rx=%d, len=%d)\n", is_rx, (int)secret_len);
 		break;
 	case LWS_TLS_QUIC_SECRET_SERVER_APPLICATION:
 		level = LWS_QUIC_LEVEL_APP;
 		is_rx = qn->is_server ? 0 : 1;
+		lwsl_notice("lws_quic_set_keys: SERVER_APP (is_rx=%d, len=%d)\n", is_rx, (int)secret_len);
 		break;
 	default:
 		return -1;
@@ -238,6 +254,11 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
 		k = lws_zalloc(sizeof(*k), "quic_keys");
 		if (!k) return -1;
 		qn->keys[level] = k;
+
+		/* Inherit packet number spaces between 0-RTT and 1-RTT */
+		if (level == LWS_QUIC_LEVEL_APP && qn->keys[LWS_QUIC_LEVEL_EARLY]) {
+			k->pn_tx = qn->keys[LWS_QUIC_LEVEL_EARLY]->pn_tx;
+		}
 	} else {
 		k = qn->keys[level];
 	}
@@ -266,23 +287,66 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
 	if (type == LWS_TLS_QUIC_SECRET_CLIENT_EARLY && !qn->is_server) {
 		qn->early_data_status = LWS_0RTT_STATUS_ATTEMPTED;
 
-		/* The initial stream is currently also the network wsi, because ALPN
-		 * hasn't migrated it yet. If it returns 1, it opts into 0-RTT. */
-		if (wsi->a.protocol && wsi->a.protocol->callback) {
-			int ret = wsi->a.protocol->callback(wsi,
-					LWS_CALLBACK_CLIENT_ESTABLISHED_EARLY,
-					wsi->user_space, NULL, 0);
-			if (ret == 1) {
-				lwsl_wsi_notice(wsi, "Stream %s opted into 0-RTT", lws_wsi_tag(wsi));
-				if (wsi->quic.qs)
-					wsi->quic.qs->opted_into_early_data = 1;
-				lws_callback_on_writable(wsi);
-			} else {
-				lwsl_wsi_notice(wsi, "Stream %s ignored 0-RTT", lws_wsi_tag(wsi));
+		/* Trigger ALPN migration immediately to create nwsi and transition wsi to h3 */
+		lws_role_call_alpn_negotiated(wsi, "h3");
+
+		struct lws *nwsi = lws_get_network_wsi(wsi);
+		if (nwsi) {
+			lws_wsi_mux_apply_queue(nwsi);
+			struct lws *w = nwsi->mux.child_list;
+			while (w) {
+				if (w->a.protocol && w->a.protocol->callback) {
+					int ret = w->a.protocol->callback(w,
+							LWS_CALLBACK_CLIENT_ESTABLISHED_EARLY,
+							w->user_space, NULL, 0);
+					if (ret == 1) {
+						lwsl_wsi_notice(w, "Stream %s opted into 0-RTT", lws_wsi_tag(w));
+						
+						if (!w->quic.qs) {
+							w->quic.qs = lws_zalloc(sizeof(*w->quic.qs), "quic stream");
+							if (w->quic.qs) {
+								w->quic.qs->wsi = w;
+								w->quic.qs->stream_id = (w == wsi) ? 0 : w->mux.my_sid;
+								w->quic.qs->rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
+								w->quic.qs->advertised_rx_max_data = LWS_QUIC_DEFAULT_WINDOW;
+								w->quic.qs->rx_window_size = LWS_QUIC_DEFAULT_WINDOW;
+								w->quic.qs->last_rx_update_us = lws_now_usecs();
+							}
+						}
+
+						lws_role_transition(w, LWSIFR_CLIENT, LRS_H2_WAITING_TO_SEND_HEADERS, &role_ops_h3);
+
+						if (w->quic.qs)
+							w->quic.qs->opted_into_early_data = 1;
+
+						lws_callback_on_writable(w);
+					} else {
+						lwsl_wsi_notice(w, "Stream %s ignored 0-RTT", lws_wsi_tag(w));
+					}
+				}
+				w = w->mux.sibling_list;
 			}
 		}
 	} else if (type == LWS_TLS_QUIC_SECRET_CLIENT_EARLY && qn->is_server) {
 		qn->early_data_status = LWS_0RTT_STATUS_ACCEPTED;
+		
+		/* On server, migrate connection to H3 immediately to support 0-RTT stream adoption */
+		const unsigned char *prot = NULL;
+		unsigned int plen = 0;
+#if defined(LWS_WITH_GNUTLS)
+		gnutls_datum_t dt;
+		if (gnutls_alpn_get_selected_protocol(wsi->tls.ssl, &dt) >= 0) {
+			prot = dt.data;
+			plen = dt.size;
+		}
+#endif
+		if (plen) {
+			lws_strncpy(wsi->alpn, (const char *)prot, plen + 1);
+		} else {
+			lws_strncpy(wsi->alpn, "h3", sizeof(wsi->alpn));
+		}
+		lwsl_wsi_notice(wsi, "QUIC Server 0-RTT ALPN: %s", wsi->alpn);
+		lws_role_call_alpn_negotiated(wsi, wsi->alpn);
 	}
 
 	return 0;
@@ -311,26 +375,38 @@ lws_quic_update_keys(struct lws_quic_keys *k, int is_rx)
 	size_t key_len = (k->cipher_type == 0) ? 16 : 32;
 
 	if (is_rx) {
-		enum lws_genhmac_types hash_type = (k->secret_len == 48) ? LWS_GENHMAC_TYPE_SHA384 : LWS_GENHMAC_TYPE_SHA256;
-		if (lws_genhkdf_expand_label(hash_type, k->secret_rx, k->secret_len, "quic ku", NULL, 0, new_secret, k->secret_len)) return -1;
-		memcpy(k->secret_rx, new_secret, k->secret_len);
-		
-		if (lws_genhkdf_expand_label(hash_type, new_secret, k->secret_len, "quic key", NULL, 0, k->key_aead_rx, key_len)) return -1;
-		if (lws_genhkdf_expand_label(hash_type, new_secret, k->secret_len, "quic iv", NULL, 0, k->iv_rx, 12)) return -1;
-		
-		k->el_aead_rx.buf = k->key_aead_rx;
-		k->el_aead_rx.len = (uint32_t)key_len;
-	} else {
-		enum lws_genhmac_types hash_type = (k->secret_len == 48) ? LWS_GENHMAC_TYPE_SHA384 : LWS_GENHMAC_TYPE_SHA256;
-		if (lws_genhkdf_expand_label(hash_type, k->secret_tx, k->secret_len, "quic ku", NULL, 0, new_secret, k->secret_len)) return -1;
-		memcpy(k->secret_tx, new_secret, k->secret_len);
-		
-		if (lws_genhkdf_expand_label(hash_type, new_secret, k->secret_len, "quic key", NULL, 0, k->key_aead_tx, key_len)) return -1;
-		if (lws_genhkdf_expand_label(hash_type, new_secret, k->secret_len, "quic iv", NULL, 0, k->iv_tx, 12)) return -1;
-		
-		k->el_aead_tx.buf = k->key_aead_tx;
-		k->el_aead_tx.len = (uint32_t)key_len;
-	}
+                enum lws_genhmac_types hash_type = (k->secret_len == 48) ? LWS_GENHMAC_TYPE_SHA384 : LWS_GENHMAC_TYPE_SHA256;
+                if (lws_genhkdf_expand_label(hash_type, k->secret_rx, k->secret_len, "quic ku", NULL, 0, new_secret, k->secret_len)) return -1;
+                memcpy(k->secret_rx, new_secret, k->secret_len);
+
+                if (lws_genhkdf_expand_label(hash_type, new_secret, k->secret_len, "quic key", NULL, 0, k->key_aead_rx, key_len)) return -1;
+                if (lws_genhkdf_expand_label(hash_type, new_secret, k->secret_len, "quic iv", NULL, 0, k->iv_rx, 12)) return -1;
+
+                k->el_aead_rx.buf = k->key_aead_rx;
+                k->el_aead_rx.len = (uint32_t)key_len;
+#if defined(LWS_WITH_GNUTLS)
+                if (k->aead_rx) {
+                        gnutls_aead_cipher_deinit((gnutls_aead_cipher_hd_t)k->aead_rx);
+                        k->aead_rx = NULL;
+                }
+#endif
+        } else {
+                enum lws_genhmac_types hash_type = (k->secret_len == 48) ? LWS_GENHMAC_TYPE_SHA384 : LWS_GENHMAC_TYPE_SHA256;
+                if (lws_genhkdf_expand_label(hash_type, k->secret_tx, k->secret_len, "quic ku", NULL, 0, new_secret, k->secret_len)) return -1;
+                memcpy(k->secret_tx, new_secret, k->secret_len);
+
+                if (lws_genhkdf_expand_label(hash_type, new_secret, k->secret_len, "quic key", NULL, 0, k->key_aead_tx, key_len)) return -1;
+                if (lws_genhkdf_expand_label(hash_type, new_secret, k->secret_len, "quic iv", NULL, 0, k->iv_tx, 12)) return -1;
+
+                k->el_aead_tx.buf = k->key_aead_tx;
+                k->el_aead_tx.len = (uint32_t)key_len;
+#if defined(LWS_WITH_GNUTLS)
+                if (k->aead_tx) {
+                        gnutls_aead_cipher_deinit((gnutls_aead_cipher_hd_t)k->aead_tx);
+                        k->aead_tx = NULL;
+                }
+#endif
+        }
 
 	lws_explicit_bzero(new_secret, sizeof(new_secret));
 	return 0;
@@ -344,16 +420,19 @@ lws_quic_unmask_header(struct lws_quic_keys *keys, uint8_t *packet, size_t packe
 	uint8_t pn_len;
 
 	if (sample_offset + 16 > packet_len)
-		return -1; /* Truncated packet */
+		{ lwsl_notice("unmask: Truncated\n"); return -1; }
 
 	memcpy(sample, &packet[sample_offset], 16);
 
 	if (keys->cipher_type == 0 || keys->cipher_type == 2) {
 		/* AES-GCM uses AES-ECB for Header Protection */
 		struct lws_genaes_ctx hp;
-		if (lws_genaes_create(&hp, LWS_GAESO_ENC, LWS_GAESM_ECB, &keys->el_hp_rx, LWS_GAESP_NO_PADDING, NULL))
-			return -1;
+		if (lws_genaes_create(&hp, LWS_GAESO_ENC, LWS_GAESM_ECB, &keys->el_hp_rx, LWS_GAESP_NO_PADDING, NULL)) {
+                        lwsl_notice("unmask: genaes_create failed, el_hp_rx.len=%d, cipher_type=%d, valid=%d, el_aead_rx.len=%d\n", (int)keys->el_hp_rx.len, (int)keys->cipher_type, (int)keys->valid, (int)keys->el_aead_rx.len);
+                        return -1;
+                }
 		if (lws_genaes_crypt(&hp, sample, 16, mask, NULL, NULL, NULL, 0)) {
+                        lwsl_notice("unmask: genaes_crypt failed\n");
 			lws_genaes_destroy(&hp, NULL, 0);
 			return -1;
 		}
@@ -651,44 +730,104 @@ lws_tls_quic_rx_crypto(struct lws *wsi, int level, const uint8_t *buf, size_t le
 		return -1;
 
 	if (len > 0 && wsi->quic.qn) {
+		if (wsi->quic.qn->crypto_rx_buf_len[level] > 0) {
+			uint8_t *new_buf = lws_realloc(wsi->quic.qn->crypto_rx_buf[level],
+						       wsi->quic.qn->crypto_rx_buf_len[level] + len,
+						       "crypto rx buf");
+			if (!new_buf) {
+				lws_free(out);
+				return -1;
+			}
+			memcpy(new_buf + wsi->quic.qn->crypto_rx_buf_len[level], buf, len);
+			wsi->quic.qn->crypto_rx_buf[level] = new_buf;
+			wsi->quic.qn->crypto_rx_buf_len[level] += len;
+			
+			buf = wsi->quic.qn->crypto_rx_buf[level];
+			len = wsi->quic.qn->crypto_rx_buf_len[level];
+		}
+
 		lwsl_wsi_notice(wsi, "lws_tls_quic_rx_crypto: level %d, len %zu, buf[0]=%d", level, len, buf[0]);
 		lwsl_hexdump_notice(buf, len > 32 ? 32 : len);
-		size_t i = 0;
-		while (i < len) {
-			if (wsi->quic.qn->crypto_rx_expected_msg_len[level] > 0) {
-				size_t consume = wsi->quic.qn->crypto_rx_expected_msg_len[level];
-				if (consume > len - i)
-					consume = len - i;
-				wsi->quic.qn->crypto_rx_expected_msg_len[level] -= consume;
-				i += consume;
-				continue;
+		
+		size_t scan = 0;
+		size_t complete_len = 0;
+		while (scan < len) {
+			if (len - scan < 4) {
+				break;
 			}
-			
-			/* We are at the start of a new Handshake message! */
-			uint8_t type = buf[i];
-			lwsl_wsi_notice(wsi, "QUIC RX CRYPTO: checking message type %d at offset %zu", type, i);
+
+			uint8_t type = buf[scan];
+			lwsl_wsi_notice(wsi, "QUIC RX CRYPTO: checking message type %d at offset %zu", type, scan);
 			if (type == 24 || type == 5) {
 				lwsl_wsi_notice(wsi, "QUIC RX CRYPTO: Illegal TLS Handshake type %d", type);
 				lws_quic_enter_closing_state(wsi, 0x0100 + 10 /* unexpected_message */, 0, 0);
 				lws_free(out);
 				return -1;
 			}
-			
-			if (i + 3 >= len) {
-				/* Fragmented header - extremely rare in h3spec, but we'd need to handle it.
-				 * For now, assume headers are not fragmented across chunks. */
+
+			uint32_t msg_len = ((uint32_t)buf[scan+1] << 16) | ((uint32_t)buf[scan+2] << 8) | buf[scan+3];
+			if (scan + 4 + msg_len > len) {
 				break;
 			}
 			
-			uint32_t msg_len = ((uint32_t)buf[i+1] << 16) | ((uint32_t)buf[i+2] << 8) | buf[i+3];
-			wsi->quic.qn->crypto_rx_expected_msg_len[level] = msg_len;
-			lwsl_wsi_notice(wsi, "QUIC RX CRYPTO: Expecting %u bytes for message type %d", msg_len, type);
-			i += 4;
+			scan += 4 + msg_len;
+			complete_len = scan;
+		}
+
+		if (complete_len == 0) {
+			if (wsi->quic.qn->crypto_rx_buf_len[level] == 0) {
+				uint8_t *new_buf = lws_malloc(len, "crypto rx buf");
+				if (!new_buf) {
+					lws_free(out);
+					return -1;
+				}
+				memcpy(new_buf, buf, len);
+				wsi->quic.qn->crypto_rx_buf[level] = new_buf;
+				wsi->quic.qn->crypto_rx_buf_len[level] = len;
+			}
+			lws_free(out);
+			return 0;
+		}
+
+		n = lws_tls_quic_advance_handshake(wsi, level, buf, complete_len, out, &out_len);
+
+		{
+			struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+			if (nwsi) wsi = nwsi;
+		}
+
+		if (n < 0) {
+			goto error_handling;
+		}
+
+		size_t remainder = len - complete_len;
+		if (remainder > 0) {
+			if (wsi->quic.qn->crypto_rx_buf_len[level] == 0) {
+				uint8_t *new_buf = lws_malloc(remainder, "crypto rx buf");
+				if (new_buf) {
+					memcpy(new_buf, buf + complete_len, remainder);
+					wsi->quic.qn->crypto_rx_buf[level] = new_buf;
+				}
+			} else {
+				memmove(wsi->quic.qn->crypto_rx_buf[level], buf + complete_len, remainder);
+			}
+			wsi->quic.qn->crypto_rx_buf_len[level] = remainder;
+		} else {
+			if (wsi->quic.qn->crypto_rx_buf_len[level] > 0) {
+				lws_free(wsi->quic.qn->crypto_rx_buf[level]);
+				wsi->quic.qn->crypto_rx_buf[level] = NULL;
+				wsi->quic.qn->crypto_rx_buf_len[level] = 0;
+			}
+		}
+	} else {
+		n = lws_tls_quic_advance_handshake(wsi, level, buf, len, out, &out_len);
+		{
+			struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+			if (nwsi) wsi = nwsi;
 		}
 	}
 
-	n = lws_tls_quic_advance_handshake(wsi, level, buf, len, out, &out_len);
-
+error_handling:
 	if (n < 0) {
 #if defined(LWS_WITH_GNUTLS)
 		int alert_level = 0;

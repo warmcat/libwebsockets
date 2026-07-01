@@ -677,8 +677,6 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 
 		if (!lws_is_flowcontrolled(wsi) &&
 		    lwsi_state(wsi) != LRS_DEFERRING_ACTION &&
-		    lwsi_state(wsi) != LRS_ISSUING_FILE &&
-		    lwsi_state(wsi) != LRS_DOING_TRANSACTION &&
 		    lwsi_state(wsi) != LRS_AWAITING_FILE_READ &&
 		    lwsi_state(wsi) != LRS_AWAITING_SSL_ACCEPT) {
 			forced = 1;

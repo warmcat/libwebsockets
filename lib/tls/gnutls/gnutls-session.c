@@ -97,12 +97,14 @@ lws_tls_reuse_session(struct lws *wsi)
 	ts = __lws_tls_session_lookup_by_name(wsi->a.vhost, buf);
 
 	if (!ts) {
-		lwsl_tlssess("%s: no existing session for %s\n", __func__, buf);
+		lwsl_notice("%s: no existing session for %s\n", __func__, buf);
 		goto bail;
 	}
 
-	if (!ts->ser_data || !ts->ser_data->data) /* cache entry is invalid */
+	if (!ts->ser_data || !ts->ser_data->data) { /* cache entry is invalid */
+		lwsl_notice("%s: cache entry invalid for %s\n", __func__, buf);
 		goto bail;
+	}
 
 	if (gnutls_session_set_data((gnutls_session_t)wsi->tls.ssl,
 				     ts->ser_data->data,
@@ -111,7 +113,7 @@ lws_tls_reuse_session(struct lws *wsi)
 		goto bail;
 	}
 
-	lwsl_tlssess("%s: resumed session for %s\n", __func__, (const char *)&ts[1]);
+	lwsl_notice("%s: resumed session for %s\n", __func__, (const char *)&ts[1]);
 	wsi->tls_session_reused = 1;
 
 	/* keep our session list sorted in lru -> mru order */
@@ -192,12 +194,29 @@ lws_tls_session_new_gnutls(struct lws *wsi)
 
 	nl = strlen(buf);
 
+	/* Check if a session ticket has actually been received (TLS 1.3 requirement) */
+	unsigned sess_flags = gnutls_session_get_flags((gnutls_session_t)wsi->tls.ssl);
+	lwsl_notice("%s: QUIC session ticket check: flags=0x%x, has_ticket=%d\n", __func__,
+		    sess_flags, !!(sess_flags & GNUTLS_SFLAGS_SESSION_TICKET));
+
 	int ret = gnutls_session_get_data2((gnutls_session_t)wsi->tls.ssl, &gd);
+	lwsl_notice("%s: gnutls_session_get_data2 ret=%d, len=%u\n", __func__, ret, gd.size);
 	if (ret != GNUTLS_E_SUCCESS) {
 		if (ret == GNUTLS_E_INTERNAL_ERROR)
-			lwsl_debug("%s: gnutls_session_get_data2 failed: %d (%s)\n", __func__, ret, gnutls_strerror(ret));
+			lwsl_notice("%s: gnutls_session_get_data2 INTERNAL_ERROR (no ticket yet?): %s\n", __func__, gnutls_strerror(ret));
 		else
-			lwsl_tlssess("%s: gnutls_session_get_data2 failed: %d (%s)\n", __func__, ret, gnutls_strerror(ret));
+			lwsl_notice("%s: gnutls_session_get_data2 failed: %d (%s)\n", __func__, ret, gnutls_strerror(ret));
+		return 0;
+	}
+
+	/* A real TLS 1.3 session ticket is always well over 32 bytes.
+	 * GnuTLS may return a 4-byte placeholder before NewSessionTicket
+	 * arrives.  Reject any suspiciously small blob to avoid persisting
+	 * a useless stub that will fail to resume on next connection. */
+	if (gd.size < 32) {
+		lwsl_notice("%s: session data too small (%u bytes), ignoring stub ticket\n",
+			    __func__, gd.size);
+		gnutls_free(gd.data);
 		return 0;
 	}
 
@@ -315,4 +334,154 @@ lws_tls_session_cache(struct lws_vhost *vh, uint32_t ttl)
 {
 	/* Default to 1hr max recommendation from RFC5246 F.1.4 */
 	vh->tls.tls_session_cache_ttl = !ttl ? 3600 : ttl;
+}
+
+static lws_tls_scm_t *
+lws_tls_session_add_entry(struct lws_vhost *vh, const char *tag)
+{
+	lws_tls_scm_t *ts;
+	size_t nl = strlen(tag);
+
+	if (vh->tls_sessions.count == (vh->tls_session_cache_max ?
+				      vh->tls_session_cache_max : 10)) {
+		/*
+		 * We have reached the vhost's session cache limit,
+		 * prune the LRU / head
+		 */
+		ts = lws_container_of(vh->tls_sessions.head,
+				      lws_tls_scm_t, list);
+
+		if (ts) {
+			lwsl_tlssess("%s: pruning oldest session\n", __func__);
+			/* Note: we are already holding vh lock when calling this */
+			__lws_tls_session_destroy(ts);
+		}
+	}
+
+	ts = lws_malloc(sizeof(*ts) + nl + 1, __func__);
+	if (!ts)
+		return NULL;
+
+	memset(ts, 0, sizeof(*ts));
+	memcpy(&ts[1], tag, nl + 1);
+
+	lws_dll2_add_tail(&ts->list, &vh->tls_sessions);
+
+	return ts;
+}
+
+int
+lws_tls_session_dump_save(struct lws_vhost *vh, const char *host, uint16_t port,
+			   lws_tls_sess_cb_t cb_save, void *opq)
+{
+	struct lws_tls_session_dump d;
+	lws_tls_scm_t *ts;
+	int ret = 1;
+	void *v;
+
+	if (vh->options & LWS_SERVER_OPTION_DISABLE_TLS_SESSION_CACHE)
+		return 1;
+
+	lws_tls_session_tag_discrete(vh->name, host, port, d.tag, sizeof(d.tag));
+
+	lws_context_lock(vh->context, __func__); /* -------------- cx { */
+	lws_vhost_lock(vh); /* -------------- vh { */
+
+	ts = __lws_tls_session_lookup_by_name(vh, d.tag);
+	if (!ts || !ts->ser_data || !ts->ser_data->data)
+		goto bail;
+
+	d.blob_len = ts->ser_data->len;
+	v = d.blob = lws_malloc(d.blob_len, __func__);
+	if (!d.blob)
+		goto bail;
+
+	memcpy(d.blob, ts->ser_data->data, d.blob_len);
+	d.opaque = opq;
+
+	if (cb_save(vh->context, &d))
+		lwsl_notice("%s: save failed\n", __func__);
+	else
+		ret = 0;
+
+	lws_free(v);
+
+bail:
+	lws_vhost_unlock(vh); /* } vh --------------  */
+	lws_context_unlock(vh->context); /* } cx --------------  */
+
+	return ret;
+}
+
+int
+lws_tls_session_dump_load(struct lws_vhost *vh, const char *host, uint16_t port,
+			   lws_tls_sess_cb_t cb_load, void *opq)
+{
+	struct lws_tls_session_dump d;
+	lws_tls_scm_t *ts;
+	void *v;
+
+	if (vh->options & LWS_SERVER_OPTION_DISABLE_TLS_SESSION_CACHE)
+		return 1;
+
+	d.opaque = opq;
+	lws_tls_session_tag_discrete(vh->name, host, port, d.tag, sizeof(d.tag));
+	lwsl_notice("%s: looking for tag %s\n", __func__, d.tag);
+
+	lws_context_lock(vh->context, __func__); /* -------------- cx { */
+	lws_vhost_lock(vh); /* -------------- vh { */
+
+	ts = __lws_tls_session_lookup_by_name(vh, d.tag);
+	if (ts) {
+		/* session already in cache — no need to load from cold storage */
+		lwsl_notice("%s: session already exists for %s\n", __func__, d.tag);
+		goto bail1;
+	}
+
+	if (cb_load(vh->context, &d)) {
+		lwsl_warn("%s: load failed\n", __func__);
+		goto bail1;
+	}
+
+	/* cb_load allocated the blob; insert it into the session cache */
+	v = d.blob;
+
+	ts = lws_tls_session_add_entry(vh, d.tag);
+	if (!ts) {
+		lwsl_warn("%s: unable to add cache entry\n", __func__);
+		free(v);
+		goto bail1;
+	}
+
+	if (!ts->ser_data) {
+		ts->ser_data = lws_malloc(sizeof(*ts->ser_data), __func__);
+		if (!ts->ser_data) {
+			free(v);
+			goto bail1;
+		}
+		memset(ts->ser_data, 0, sizeof(*ts->ser_data));
+	}
+
+	ts->ser_data->data = lws_malloc(d.blob_len, __func__);
+	if (!ts->ser_data->data) {
+		free(v);
+		goto bail1;
+	}
+
+	memcpy(ts->ser_data->data, v, d.blob_len);
+	ts->ser_data->len = d.blob_len;
+	free(v);
+
+	lwsl_tlssess("%s: session loaded OK\n", __func__);
+
+	lws_vhost_unlock(vh); /* } vh --------------  */
+	lws_context_unlock(vh->context); /* } cx --------------  */
+
+	return 0;
+
+bail1:
+	lws_vhost_unlock(vh); /* } vh --------------  */
+	lws_context_unlock(vh->context); /* } cx --------------  */
+
+	return 1;
 }

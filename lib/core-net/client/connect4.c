@@ -135,7 +135,7 @@ lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 
 send_hs:
 
-#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 	if (wsi_piggyback &&
 	    !lws_dll2_is_detached(&wsi->dll2_cli_txn_queue)) {
 		/*
@@ -250,7 +250,11 @@ send_hs:
 #if defined(LWS_ROLE_QUIC)
 			if ((meth && !strcmp(meth, "QUIC")) ||
 			    !strcmp(wsi->role_ops->name, "quic")) {
-				lwsi_set_state(wsi, LRS_WAITING_SSL);
+				if (wsi->quic.migrate_from_wsi) {
+					lwsi_set_state(wsi, LRS_ESTABLISHED);
+				} else {
+					lwsi_set_state(wsi, LRS_WAITING_SSL);
+				}
 				wsi->hdr_parsing_completed = 1;
 				lws_callback_on_writable(wsi);
 				return wsi;

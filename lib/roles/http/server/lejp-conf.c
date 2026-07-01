@@ -51,6 +51,9 @@ static const char * const paths_global[] = {
 	"global.rlimit-nofile",
 	"global.cpd-bypass",
 	"global.quic-pad-crypto",
+	"global.allow-early-data",
+	"global.quic-only-latest",
+	"global.quic-early-key-update",
 };
 
 enum lejp_global_paths {
@@ -73,6 +76,9 @@ enum lejp_global_paths {
 	LWJPGP_FD_LIMIT_PT,
 	LEJPGP_CPD_BYPASS,
 	LEJPGP_QUIC_PAD_CRYPTO,
+	LEJPGP_ALLOW_EARLY_DATA,
+	LEJPGP_QUIC_ONLY_LATEST,
+	LEJPGP_QUIC_EARLY_KEY_UPDATE,
 };
 
 static const char * const paths_vhosts[] = {
@@ -168,6 +174,7 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].dht[]",
 #endif
 	"vhosts[].quic-mtu",
+	"vhosts[].quic-preferred-addresses",
 };
 
 enum lejp_vhost_paths {
@@ -265,6 +272,7 @@ enum lejp_vhost_paths {
 	LEJPVP_DHT,
 #endif
 	LEJPVP_QUIC_MTU,
+	LEJPVP_QUIC_PREFERRED_ADDRESSES,
 };
 
 #define MAX_PLUGIN_DIRS 10
@@ -405,6 +413,18 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 		if (arg_to_bool(ctx->buf))
 			a->info->options |= LWS_SERVER_OPTION_QUIC_PAD_CRYPTO;
 		return 0;
+	case LEJPGP_ALLOW_EARLY_DATA:
+		if (arg_to_bool(ctx->buf))
+			a->info->options |= LWS_SERVER_OPTION_ALLOW_EARLY_DATA;
+		return 0;
+	case LEJPGP_QUIC_ONLY_LATEST:
+		if (arg_to_bool(ctx->buf))
+			a->info->options |= LWS_SERVER_OPTION_QUIC_LATEST_VERSION;
+		return 0;
+	case LEJPGP_QUIC_EARLY_KEY_UPDATE:
+		if (arg_to_bool(ctx->buf))
+			a->info->options |= LWS_SERVER_OPTION_QUIC_EARLY_KEY_UPDATE;
+		return 0;
 	case LEJPGP_SERVER_STRING:
 #if defined(LWS_WITH_SERVER)
 		a->info->server_string = a->p;
@@ -498,6 +518,8 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 			LWS_SERVER_OPTION_UV_NO_SIGSEGV_SIGFPE_SPIN |
 			LWS_SERVER_OPTION_LIBEVENT |
 			LWS_SERVER_OPTION_QUIC_PAD_CRYPTO |
+			LWS_SERVER_OPTION_ALLOW_EARLY_DATA |
+			LWS_SERVER_OPTION_QUIC_EARLY_KEY_UPDATE |
 			LWS_SERVER_OPTION_LIBEV
 				);
 #if defined(LWS_WITH_SERVER)
@@ -1174,6 +1196,10 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	case LEJPVP_QUIC_MTU:
 		a->info->quic_mtu = (uint32_t)atoi(ctx->buf);
 		return 0;
+	case LEJPVP_QUIC_PREFERRED_ADDRESSES:
+		a->info->quic_preferred_addresses = a->p;
+		lwsl_notice("Parsed quic-preferred-addresses: %s\n", a->p);
+		break;
 #endif
 
 	case LEJPVP_LISTEN_ACCEPT_ROLE:
