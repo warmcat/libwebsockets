@@ -284,6 +284,9 @@
 #define LWS_SERVER_OPTION_QUIC_PAD_CRYPTO                       (1ll << 49)
         /**< (VH) Pad the QUIC handshake crypto data to artificially hit anti-amplification limits */
 
+#define LWS_SERVER_OPTION_QUIC_LATEST_VERSION                   (1ll << 50)
+        /**< (CTX) Force client to initiate QUIC connections using the latest supported version (e.g. v2) */
+
         /****** add new things just above ---^ ******/
 
 

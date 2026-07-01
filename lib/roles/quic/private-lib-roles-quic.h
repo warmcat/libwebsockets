@@ -29,8 +29,8 @@ extern const struct lws_role_ops role_ops_quic;
 
 #define LWS_QUIC_MAX_CID_LEN 20
 
-#define LWS_QUIC_VERSION_1 0x00000001
-#define LWS_QUIC_VERSION_2 0x709a50c4
+#define LWS_QUIC_VERSION_1 0x1
+#define LWS_QUIC_VERSION_2 0x6b3343cf
 
 #define LWS_QUIC_DEFAULT_WINDOW (1024 * 1024)
 #define LWS_QUIC_MAX_WINDOW     (16 * 1024 * 1024)
@@ -247,6 +247,8 @@ struct lws_quic_netconn {
 
 	uint64_t		next_stream_id_bidi_local;
 	uint64_t		next_stream_id_unidi_local;
+	uint64_t		next_stream_id_bidi_remote;
+	uint64_t		next_stream_id_unidi_remote;
 
 	/* Frames waiting to be bundled into outgoing packets */
 	lws_dll2_owner_t	pending_tx[LWS_QUIC_LEVEL_COUNT];

@@ -232,6 +232,10 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 	switch (reason) {
 
+	case LWS_CALLBACK_CLIENT_ESTABLISHED_EARLY:
+		lwsl_user("LWS_CALLBACK_CLIENT_ESTABLISHED_EARLY: idx: %d, opting into 0-RTT\n", idx);
+		return 1;
+
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
 		lwsl_user("LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: idx: %d, resp %u\n",
 				idx, lws_http_client_http_response(wsi));
@@ -766,7 +770,10 @@ int main(int argc, const char **argv)
 
 	/* force h1 even if h2 available */
 	if (lws_cmdline_option(argc, argv, "--h3"))
-		i.alpn = "h3";
+		info.alpn = "h3";
+
+	if (lws_cmdline_option(argc, argv, "--quicv2"))
+		info.options |= LWS_SERVER_OPTION_QUIC_LATEST_VERSION;
 
 	if (lws_cmdline_option(argc, argv, "--h1"))
 		i.alpn = "http/1.1";

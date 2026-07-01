@@ -250,6 +250,8 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 		wsi->keep_warm_secs = 5;
 
 	wsi->flags = i->ssl_connection;
+	if (i->context->options & LWS_SERVER_OPTION_ALLOW_EARLY_DATA)
+		wsi->flags |= LCCSCF_ALLOW_EARLY_DATA;
 
 	wsi->c_pri = i->priority;
 
@@ -347,7 +349,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	}
 
 #if defined(LWS_WITH_TLS)
-	wsi->tls.use_ssl = (unsigned int)i->ssl_connection;
+	wsi->tls.use_ssl = (unsigned int)wsi->flags;
 #else
 	if (i->ssl_connection & LCCSCF_USE_SSL) {
 		lwsl_wsi_err(wsi, "lws not configured for tls");

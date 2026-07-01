@@ -747,7 +747,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 				lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FRAME_ENCODING_ERROR, type, 0);
 				return -1;
 			}
-			lwsl_wsi_info(nwsi, "QUIC RX: Parsed MAX/BLOCKED STREAMS! max_streams %llu", (unsigned long long)max_streams);
+			lwsl_wsi_notice(nwsi, "QUIC RX: Parsed MAX/BLOCKED STREAMS! max_streams %llu", (unsigned long long)max_streams);
 			if (qn) {
 				if (type == LWS_QUIC_FT_MAX_STREAMS_BIDI) {
 					qn->max_streams_bidi_remote = max_streams;

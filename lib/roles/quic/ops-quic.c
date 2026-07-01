@@ -1532,23 +1532,23 @@ send_frames:
 				if (type & 0x01) /* LEN */
 					p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), send_len);
 			} else if (type == LWS_QUIC_FT_MAX_DATA || type == LWS_QUIC_FT_DATA_BLOCKED) {
-				p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->limit);
+				p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->limit); lwsl_err("QUIC TX: Serialized MAX_STREAMS! limit %llu\n", (unsigned long long)f->limit);
 			} else if (type == LWS_QUIC_FT_MAX_STREAM_DATA || type == LWS_QUIC_FT_STREAM_DATA_BLOCKED) {
 				//lwsl_notice( "QUIC TX: Formatting MAX_STREAM_DATA for stream %llu", (unsigned long long)f->stream_id);
                                 p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->stream_id);
-				p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->limit);
+				p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->limit); lwsl_err("QUIC TX: Serialized MAX_STREAMS! limit %llu\n", (unsigned long long)f->limit);
 			} else if (type == LWS_QUIC_FT_RESET_STREAM) {
 				//lwsl_notice( "QUIC TX: Formatting MAX_STREAM_DATA for stream %llu", (unsigned long long)f->stream_id);
                                 p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->stream_id);
 				p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->offset); /* app_err_code */
-				p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->limit); /* final_size */
+				p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->limit); lwsl_err("QUIC TX: Serialized MAX_STREAMS! limit %llu\n", (unsigned long long)f->limit); /* final_size */
 			} else if (type == LWS_QUIC_FT_STOP_SENDING) {
 				//lwsl_notice( "QUIC TX: Formatting MAX_STREAM_DATA for stream %llu", (unsigned long long)f->stream_id);
                                 p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->stream_id);
 				p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->offset); /* app_err_code */
 			} else if (type == LWS_QUIC_FT_MAX_STREAMS_BIDI || type == LWS_QUIC_FT_MAX_STREAMS_UNIDI ||
 				   type == LWS_QUIC_FT_STREAMS_BLOCKED_BIDI || type == LWS_QUIC_FT_STREAMS_BLOCKED_UNIDI) {
-				p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->limit);
+				p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->limit); lwsl_err("QUIC TX: Serialized MAX_STREAMS! limit %llu\n", (unsigned long long)f->limit);
 			} else if (type == LWS_QUIC_FT_NEW_CONNECTION_ID) {
 				//lwsl_notice( "QUIC TX: Formatting MAX_STREAM_DATA for stream %llu", (unsigned long long)f->stream_id);
                                 p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->stream_id); /* seq */
@@ -1911,6 +1911,9 @@ end_children:
 			if (lws_wsi_mux_action_pending_writeable_reqs(wsi))
 				return LWS_HP_RET_BAIL_DIE;
 		}
+                
+                if (have_pending_tx)
+                        return LWS_HP_RET_BAIL_OK;
 	}
 
 	return LWS_HP_RET_DROP_POLLOUT;
@@ -2076,7 +2079,8 @@ rops_client_bind_quic(struct lws *wsi, const struct lws_client_connect_info *i)
 
 		wsi->quic.qn->nwsi = wsi;
 		wsi->quic.qn->is_server = 0;
-		wsi->quic.qn->version = LWS_QUIC_VERSION_1;
+		wsi->quic.qn->version = (wsi->a.context->options & LWS_SERVER_OPTION_QUIC_LATEST_VERSION) ? 
+                                        LWS_QUIC_VERSION_2 : LWS_QUIC_VERSION_1;
 		wsi->quic.qn->max_streams_bidi_local = 1024;
 		wsi->quic.qn->max_streams_unidi_local = 1024;
 
@@ -2352,7 +2356,10 @@ lws_quic_stream_cleanup(struct lws *wsi)
 				/* Purge pending_tx */
 				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->pending_tx[i].head) {
 					struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
-					if (f->stream_id == sid && f->type != LWS_QUIC_FT_RESET_STREAM && f->type != LWS_QUIC_FT_STOP_SENDING) {
+					int is_stream_frame = ((f->type & 0xf8) == LWS_QUIC_FT_STREAM) ||
+							      (f->type == LWS_QUIC_FT_MAX_STREAM_DATA) ||
+							      (f->type == LWS_QUIC_FT_STREAM_DATA_BLOCKED);
+					if (is_stream_frame && f->stream_id == sid) {
 						lws_dll2_remove(&f->list);
 						lws_free(f);
 					}
@@ -2361,7 +2368,10 @@ lws_quic_stream_cleanup(struct lws *wsi)
 				/* Purge in_flight */
 				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->in_flight[i].head) {
 					struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
-					if (f->stream_id == sid) {
+					int is_stream_frame = ((f->type & 0xf8) == LWS_QUIC_FT_STREAM) ||
+							      (f->type == LWS_QUIC_FT_MAX_STREAM_DATA) ||
+							      (f->type == LWS_QUIC_FT_STREAM_DATA_BLOCKED);
+					if (is_stream_frame && f->stream_id == sid) {
 						lws_dll2_remove(&f->list);
 						lws_free(f);
 					}
