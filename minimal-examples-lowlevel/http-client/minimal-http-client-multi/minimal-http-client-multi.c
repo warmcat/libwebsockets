@@ -645,12 +645,12 @@ int main(int argc, const char **argv)
 	int pl = 0;
 #endif
 
-	lws_context_info_defaults(&info, NULL);memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
+	lws_context_info_defaults(&info, NULL);
 
-	lws_cmdline_option_handle_builtin(argc, argv, &info);
+        lws_cmdline_option_handle_builtin(argc, argv, &info);
 
 	info.signal_cb = signal_cb;
-	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+	info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 
 	if (lws_cmdline_option(argc, argv, switches[LWS_SW_UV].sw))
 		info.options |= LWS_SERVER_OPTION_LIBUV;
@@ -721,7 +721,30 @@ int main(int argc, const char **argv)
 		 */
 		info.simultaneous_ssl_handshake_restriction = atoi(p);
 
-	context = lws_create_context(&info);
+        if ((p = lws_cmdline_option(argc, argv, "--tls13-ciphers"))) {
+                info.client_tls_1_3_plus_cipher_list = p;
+                info.client_ssl_cipher_list = p;
+        }
+        
+        lwsl_notice("AGY-DEBUG: minimal: before TESTCASE check, client_ssl_cipher_list is '%s'\n", info.client_ssl_cipher_list ? info.client_ssl_cipher_list : "NULL");
+
+        const char *testcase = getenv("TESTCASE");
+        if (testcase && !strcmp(testcase, "chacha20")) {
+#if defined(LWS_WITH_GNUTLS)
+                info.client_tls_1_3_plus_cipher_list = "NORMAL:-CIPHER-ALL:-AES-256-GCM:-AES-128-GCM:-AES-128-CCM:-AES-128-CCM-8:+CHACHA20-POLY1305";
+                info.client_ssl_cipher_list = "NORMAL:-CIPHER-ALL:-AES-256-GCM:-AES-128-GCM:-AES-128-CCM:-AES-128-CCM-8:+CHACHA20-POLY1305";
+#else
+                info.client_tls_1_3_plus_cipher_list = "TLS_CHACHA20_POLY1305_SHA256";
+                info.client_ssl_cipher_list = "TLS_CHACHA20_POLY1305_SHA256";
+#endif
+        }
+
+        /* lws_context_info_defaults sets LWS_SERVER_OPTION_EXPLICIT_VHOSTS by default now,
+         * which skips creating the default vhost using our info struct. Clear it so
+         * our TLS cipher overrides are actually used to create the default vhost! */
+        info.options &= ~(uint64_t)LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
+
+        context = lws_create_context(&info);
 	if (!context) {
 		lwsl_err("lws init failed\n");
 		return 1;
@@ -770,10 +793,12 @@ int main(int argc, const char **argv)
 
 	/* force h1 even if h2 available */
 	if (lws_cmdline_option(argc, argv, "--h3"))
-		info.alpn = "h3";
+		i.alpn = "h3";
 
 	if (lws_cmdline_option(argc, argv, "--quicv2"))
 		info.options |= LWS_SERVER_OPTION_QUIC_LATEST_VERSION;
+
+
 
 	if (lws_cmdline_option(argc, argv, "--h1"))
 		i.alpn = "http/1.1";

@@ -276,10 +276,33 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 		return -1;
 	}
 
+	const char *user_ciphers = NULL;
+	char priority[256];
+
+#if defined(LWS_WITH_CLIENT)
+        if (wsi->quic.qn && !wsi->quic.qn->is_server) {
+                user_ciphers = wsi->a.vhost->tls.cfg_tls_client_cipher_list;
+                lwsl_notice("AGY-DEBUG: gnutls_quic_init (client): cfg_tls_client_cipher_list = %s\n", user_ciphers ? user_ciphers : "NULL");
+        } else
+#endif
+	{
+		user_ciphers = wsi->a.vhost->tls.cfg_ssl_cipher_list;
+		lwsl_notice("gnutls_quic_init (server): cfg_ssl_cipher_list = %s\n", user_ciphers ? user_ciphers : "NULL");
+	}
+
+	if (user_ciphers) {
+		lws_snprintf(priority, sizeof(priority), "%s:%%DISABLE_TLS13_COMPAT_MODE", user_ciphers);
+	} else {
+		lws_snprintf(priority, sizeof(priority), "NORMAL:-VERS-ALL:+VERS-TLS1.3:%%DISABLE_TLS13_COMPAT_MODE");
+	}
+
+	lwsl_notice("AGY-DEBUG: gnutls_quic_init priority string used = %s\n", priority);
+
 	/* Enforce QUIC requirements: TLS 1.3 only, NO compatibility mode (empty legacy_session_id) */
-	ret = gnutls_priority_set_direct(session, "NORMAL:-VERS-ALL:+VERS-TLS1.3:%DISABLE_TLS13_COMPAT_MODE", NULL);
+	ret = gnutls_priority_set_direct(session, priority, NULL);
 	if (ret < 0) {
-		lwsl_err("gnutls_priority_set_direct failed: %s\n", gnutls_strerror(ret));
+		lwsl_notice("gnutls_priority_set_direct failed: %s\n", gnutls_strerror(ret));
+		lwsl_notice("AGY-DEBUG: gnutls_priority_set_direct failed: %s\n", gnutls_strerror(ret));
 	}
 
 	if (!wsi->tls.quic_tp_send) {

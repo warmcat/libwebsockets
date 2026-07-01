@@ -285,6 +285,7 @@ struct lws_quic_netconn {
 	uint64_t		bytes_sent;
 
 	uint32_t		version;
+	uint32_t		original_version;
 
 	uint64_t		conn_close_err;
 	size_t			crypto_rx_expected_msg_len[4];

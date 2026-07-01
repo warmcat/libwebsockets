@@ -879,8 +879,8 @@ lws_create_vhost(struct lws_context *context,
 	if (info->tls1_3_plus_cipher_list)
 		vh->tls.cfg_tls1_3_plus_cipher_list = lws_strdup(info->tls1_3_plus_cipher_list);
 #if defined(LWS_WITH_CLIENT)
-	if (info->client_ssl_cipher_list)
-		vh->tls.cfg_tls_client_cipher_list = lws_strdup(info->client_ssl_cipher_list);
+        if (info->client_ssl_cipher_list)
+                vh->tls.cfg_tls_client_cipher_list = lws_strdup(info->client_ssl_cipher_list);
 #endif
 	if (info->tls_ciphers_iana)
 		vh->tls.cfg_tls_ciphers_iana = lws_strdup(info->tls_ciphers_iana);

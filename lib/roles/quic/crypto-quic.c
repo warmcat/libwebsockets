@@ -93,7 +93,7 @@ lws_quic_derive_initial_keys(struct lws *wsi, const struct lws_quic_cid *dcid)
 	if (!k)
 		return -1;
 
-	if (wsi->quic.qn->version == LWS_QUIC_VERSION_2) {
+	if (wsi->quic.qn->original_version == LWS_QUIC_VERSION_2) {
 		salt = quic_v2_initial_salt;
 		salt_len = sizeof(quic_v2_initial_salt);
 	} else {

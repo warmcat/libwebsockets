@@ -397,6 +397,13 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 				if (nwsi->quic.qn->rem_cid.len != scid.len || memcmp(nwsi->quic.qn->rem_cid.id, scid.id, scid.len)) {
 					nwsi->quic.qn->rem_cid = scid;
 				}
+
+				/* Check if the server upgraded the version (Compatible Version Negotiation) */
+				uint32_t pkt_version = ((uint32_t)p[1] << 24) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 8) | p[4];
+				if (pkt_version != nwsi->quic.qn->version && pkt_version == LWS_QUIC_VERSION_2) {
+					nwsi->quic.qn->version = pkt_version;
+					lwsl_wsi_notice(wsi, "QUIC RX: Upgraded to QUIC v2 via Compatible Version Negotiation");
+				}
 			}
 		}
 	} else {
@@ -537,6 +544,7 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 		nwsi->quic.qn->nwsi = nwsi;
 		nwsi->quic.qn->is_server = 1;
 		nwsi->quic.qn->version = pkt_version;
+		nwsi->quic.qn->original_version = pkt_version;
 		nwsi->quic.qn->max_streams_bidi_local = 100;
 		nwsi->quic.qn->max_streams_unidi_local = 100;
 
@@ -634,6 +642,22 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 			if (nwsi->quic.qn->retry_scid.len) {
 				LWS_QUIC_WRITE_TP_BUF(0x10, nwsi->quic.qn->retry_scid.id, nwsi->quic.qn->retry_scid.len);
 			}
+                        if (wsi->a.context->options & LWS_SERVER_OPTION_QUIC_LATEST_VERSION) {
+                                uint8_t vi_buf[12];
+                                vi_buf[0] = (uint8_t)(nwsi->quic.qn->version >> 24);
+                                vi_buf[1] = (uint8_t)(nwsi->quic.qn->version >> 16);
+                                vi_buf[2] = (uint8_t)(nwsi->quic.qn->version >> 8);
+                                vi_buf[3] = (uint8_t)(nwsi->quic.qn->version);
+                                vi_buf[4] = (uint8_t)(LWS_QUIC_VERSION_1 >> 24);
+                                vi_buf[5] = (uint8_t)(LWS_QUIC_VERSION_1 >> 16);
+                                vi_buf[6] = (uint8_t)(LWS_QUIC_VERSION_1 >> 8);
+                                vi_buf[7] = (uint8_t)(LWS_QUIC_VERSION_1);
+                                vi_buf[8] = (uint8_t)(LWS_QUIC_VERSION_2 >> 24);
+                                vi_buf[9] = (uint8_t)(LWS_QUIC_VERSION_2 >> 16);
+                                vi_buf[10] = (uint8_t)(LWS_QUIC_VERSION_2 >> 8);
+                                vi_buf[11] = (uint8_t)(LWS_QUIC_VERSION_2);
+                                LWS_QUIC_WRITE_TP_BUF(0x11, vi_buf, 12);
+                        }
 
 			if (wsi->a.vhost->options & LWS_SERVER_OPTION_QUIC_PAD_CRYPTO) {
 				lwsl_notice("QUIC TX: Padding handshake crypto data to artificially hit anti-amplification limits\n");
@@ -739,10 +763,24 @@ tp_ok:
 			continue;
 		}
 		if (p[0] & 0x80) {
-			uint8_t type = (uint8_t)((p[0] & 0x30) >> 4);
-			if (type == LWS_QUIC_PT_INITIAL) level = LWS_QUIC_LEVEL_INITIAL;
-			else if (type == LWS_QUIC_PT_HANDSHAKE) level = LWS_QUIC_LEVEL_HANDSHAKE;
-			else if (type == LWS_QUIC_PT_RETRY) {
+			                        uint8_t type = (uint8_t)((p[0] & 0x30) >> 4);
+                        uint32_t parsed_pkt_version = (uint32_t)((p[1] << 24) | (p[2] << 16) | (p[3] << 8) | p[4]);
+                        int is_v2 = (parsed_pkt_version == LWS_QUIC_VERSION_2) || 
+                                    (nwsi && nwsi->quic.qn && nwsi->quic.qn->version == LWS_QUIC_VERSION_2);
+                        
+                        uint8_t v1_type = type;
+                        if (is_v2) {
+                                switch (type) {
+                                case 0: v1_type = LWS_QUIC_PT_RETRY; break;
+                                case 1: v1_type = LWS_QUIC_PT_INITIAL; break;
+                                case 2: v1_type = LWS_QUIC_PT_0RTT; break;
+                                case 3: v1_type = LWS_QUIC_PT_HANDSHAKE; break;
+                                }
+                        }
+
+                        if (v1_type == LWS_QUIC_PT_INITIAL) level = LWS_QUIC_LEVEL_INITIAL;
+                        else if (v1_type == LWS_QUIC_PT_HANDSHAKE) level = LWS_QUIC_LEVEL_HANDSHAKE;
+                        else if (v1_type == LWS_QUIC_PT_RETRY) {
 				if (nwsi && nwsi->quic.qn && !nwsi->quic.qn->is_server) {
 					size_t tag_pos = (size_t)n - 16;
 					int client_scid_pos = 6 + dcid_len;
@@ -1409,10 +1447,17 @@ send_frames:
 		size_t header_len = 0;
 
 		if (level == LWS_QUIC_LEVEL_INITIAL || level == LWS_QUIC_LEVEL_HANDSHAKE) {
-			if (level == LWS_QUIC_LEVEL_INITIAL)
-				*p++ = 0xc0 | 0x00 | 0x01; /* Long Header, Initial, 2-byte PN */
-			else
-				*p++ = 0xc0 | 0x20 | 0x01; /* Long Header, Handshake, 2-byte PN */
+			if (level == LWS_QUIC_LEVEL_INITIAL) {
+                                if (qn->version == LWS_QUIC_VERSION_2)
+                                        *p++ = 0xc0 | 0x10 | 0x01; /* v2 Initial */
+                                else
+                                        *p++ = 0xc0 | 0x00 | 0x01; /* v1 Initial */
+                        } else {
+                                if (qn->version == LWS_QUIC_VERSION_2)
+                                        *p++ = 0xc0 | 0x30 | 0x01; /* v2 Handshake */
+                                else
+                                        *p++ = 0xc0 | 0x20 | 0x01; /* v1 Handshake */
+                        }
 
 			/* Version */
 			*p++ = (uint8_t)(qn->version >> 24);
@@ -2079,8 +2124,8 @@ rops_client_bind_quic(struct lws *wsi, const struct lws_client_connect_info *i)
 
 		wsi->quic.qn->nwsi = wsi;
 		wsi->quic.qn->is_server = 0;
-		wsi->quic.qn->version = (wsi->a.context->options & LWS_SERVER_OPTION_QUIC_LATEST_VERSION) ? 
-                                        LWS_QUIC_VERSION_2 : LWS_QUIC_VERSION_1;
+		wsi->quic.qn->version = LWS_QUIC_VERSION_1;
+		wsi->quic.qn->original_version = LWS_QUIC_VERSION_1;
 		wsi->quic.qn->max_streams_bidi_local = 1024;
 		wsi->quic.qn->max_streams_unidi_local = 1024;
 
@@ -2156,6 +2201,22 @@ rops_client_bind_quic(struct lws *wsi, const struct lws_client_connect_info *i)
 			LWS_QUIC_WRITE_TP_VARINT(0x01, 30000);
 
 			LWS_QUIC_WRITE_TP_BUF(0x0F, wsi->quic.qn->loc_cid.id, wsi->quic.qn->loc_cid.len);
+                        if (wsi->a.context->options & LWS_SERVER_OPTION_QUIC_LATEST_VERSION) {
+                                uint8_t vi_buf[12];
+                                vi_buf[0] = (uint8_t)(LWS_QUIC_VERSION_1 >> 24);
+                                vi_buf[1] = (uint8_t)(LWS_QUIC_VERSION_1 >> 16);
+                                vi_buf[2] = (uint8_t)(LWS_QUIC_VERSION_1 >> 8);
+                                vi_buf[3] = (uint8_t)(LWS_QUIC_VERSION_1);
+                                vi_buf[4] = (uint8_t)(LWS_QUIC_VERSION_1 >> 24);
+                                vi_buf[5] = (uint8_t)(LWS_QUIC_VERSION_1 >> 16);
+                                vi_buf[6] = (uint8_t)(LWS_QUIC_VERSION_1 >> 8);
+                                vi_buf[7] = (uint8_t)(LWS_QUIC_VERSION_1);
+                                vi_buf[8] = (uint8_t)(LWS_QUIC_VERSION_2 >> 24);
+                                vi_buf[9] = (uint8_t)(LWS_QUIC_VERSION_2 >> 16);
+                                vi_buf[10] = (uint8_t)(LWS_QUIC_VERSION_2 >> 8);
+                                vi_buf[11] = (uint8_t)(LWS_QUIC_VERSION_2);
+                                LWS_QUIC_WRITE_TP_BUF(0x11, vi_buf, 12);
+                        }
 
 			lws_tls_quic_set_transport_parameters(wsi, wsi->quic.qn->local_tp_buf, (size_t)(tp - wsi->quic.qn->local_tp_buf));
 			

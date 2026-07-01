@@ -92,6 +92,14 @@ lws_quic_get_pn_offset(const uint8_t *buf, size_t len, size_t *payload_len)
 	/* Long Header (Form = 1) */
 	type = (buf[0] & 0x30) >> 4;
 
+	uint32_t version = (uint32_t)((buf[1] << 24) | (buf[2] << 16) | (buf[3] << 8) | buf[4]);
+	if (version == LWS_QUIC_VERSION_2) {
+		if (type == 1) type = 0;
+		else if (type == 0) type = 3;
+		else if (type == 2) type = 1;
+		else if (type == 3) type = 2;
+	}
+
 	/* Skip Version (4 bytes) */
 	pos += 4;
 
@@ -1234,7 +1242,7 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 		/* Check for duplicates */
 		for (size_t i = 0; i < num_seen; i++) {
 			if (seen_params[i] == param_id) {
-				lwsl_wsi_err(wsi, "QUIC TP error: Duplicate parameter ID %llu", (unsigned long long)param_id);
+						lwsl_wsi_err(wsi, "QUIC TP error: Duplicate parameter ID %llu", (unsigned long long)param_id);
 				return -1;
 			}
 		}
@@ -1242,6 +1250,28 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 			seen_params[num_seen++] = param_id;
 
 		switch (param_id) {
+		case 0x11: { /* version_information */
+			if (param_len < 4 || (param_len % 4) != 0) {
+				lwsl_wsi_err(wsi, "QUIC TP error: version_information bad length");
+				return -1;
+			}
+			if (qn->is_server && (wsi->a.context->options & LWS_SERVER_OPTION_QUIC_LATEST_VERSION)) {
+				size_t offset = 4;
+				while (offset < param_len) {
+					uint32_t av = ((uint32_t)buf[pos + offset] << 24) |
+						      ((uint32_t)buf[pos + offset + 1] << 16) |
+						      ((uint32_t)buf[pos + offset + 2] << 8) |
+						      ((uint32_t)buf[pos + offset + 3]);
+					if (av == LWS_QUIC_VERSION_2) {
+						qn->version = LWS_QUIC_VERSION_2;
+						lwsl_wsi_notice(wsi, "QUIC: Upgrading to QUIC v2 via Compatible Version Negotiation");
+						break;
+					}
+					offset += 4;
+				}
+			}
+			break;
+		}
 		case 0x0f: /* initial_source_connection_id */
 			seen_initial_source_cid = 1;
 			break;
