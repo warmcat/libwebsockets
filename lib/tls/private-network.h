@@ -102,6 +102,11 @@ struct lws_vhost_tls {
 	uint32_t tls_session_cache_ttl;
 #endif
 
+#if defined(LWS_WITH_GNUTLS)
+	struct gnutls_anti_replay_st *anti_replay;
+	void *anti_replay_owner;
+#endif
+
 	unsigned int user_supplied_ssl_ctx:1;
 	unsigned int skipped_certs:1;
 };

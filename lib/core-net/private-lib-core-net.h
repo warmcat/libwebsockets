@@ -540,6 +540,8 @@ struct lws_vhost {
 
 	uint64_t options;
 
+	const char *quic_preferred_addresses;
+
 	struct lws_context *context;
 	struct lws_vhost *vhost_next;
 

@@ -29,8 +29,8 @@ extern const struct lws_role_ops role_ops_quic;
 
 #define LWS_QUIC_MAX_CID_LEN 20
 
-#define LWS_QUIC_VERSION_1 0x00000001
-#define LWS_QUIC_VERSION_2 0x709a50c4
+#define LWS_QUIC_VERSION_1 0x1
+#define LWS_QUIC_VERSION_2 0x6b3343cf
 
 #define LWS_QUIC_DEFAULT_WINDOW (1024 * 1024)
 #define LWS_QUIC_MAX_WINDOW     (16 * 1024 * 1024)
@@ -169,6 +169,8 @@ struct lws_quic_tx_frame {
 	lws_usec_t		sent_time_us;
 	size_t			wire_len;
 	uint16_t		packet_size;
+	lws_sockaddr46		dest_sa46;
+	uint8_t			has_dest;
 };
 
 struct lws_quic_rx_chunk {
@@ -247,6 +249,8 @@ struct lws_quic_netconn {
 
 	uint64_t		next_stream_id_bidi_local;
 	uint64_t		next_stream_id_unidi_local;
+	uint64_t		next_stream_id_bidi_remote;
+	uint64_t		next_stream_id_unidi_remote;
 
 	/* Frames waiting to be bundled into outgoing packets */
 	lws_dll2_owner_t	pending_tx[LWS_QUIC_LEVEL_COUNT];
@@ -283,10 +287,13 @@ struct lws_quic_netconn {
 	uint64_t		bytes_sent;
 
 	uint32_t		version;
+	uint32_t		original_version;
 
-	uint64_t		conn_close_err;
-	size_t			crypto_rx_expected_msg_len[4];
-	uint8_t			highest_rx_level;
+	uint64_t                conn_close_err;
+	size_t                  crypto_rx_expected_msg_len[4];
+	uint8_t                 *crypto_rx_buf[4];
+	size_t                  crypto_rx_buf_len[4];
+	uint8_t                 highest_rx_level;
 	uint8_t			pto_count;
 
 	/* Key Update Tracking */
@@ -303,6 +310,7 @@ struct lws_quic_netconn {
 	/* Path Validation (RFC 9000 Section 8.2) */
 	uint8_t			path_challenge[8];
 	uint8_t			path_challenge_pending:1;
+	struct lws              *migration_probing_wsi;
 
 	/* ECN (Explicit Congestion Notification) */
 	uint64_t		ecn_rx_ect0;
@@ -313,7 +321,7 @@ struct lws_quic_netconn {
 	uint8_t			handshake_done:1;
 	uint8_t			tp_parsed:1;
 	uint8_t			alpn_migrated:1;
-	uint8_t			pto_probe_needed:1;
+	uint8_t			pto_probe_needed:2;
 	uint8_t			address_validated:1;
 	uint8_t			is_closing:1;
 
@@ -329,6 +337,16 @@ struct lws_quic_netconn {
 	struct lws_quic_cid	retry_scid;
 };
 
+struct lws_quic_cc_newreno {
+	size_t			cwnd;
+	size_t			ssthresh;
+	size_t			bytes_in_flight;
+	lws_usec_t		congestion_recovery_start_time;
+
+	lws_usec_t		last_pacing_time;
+	size_t			pacing_credit;
+};
+
 extern const struct lws_cc_ops lws_cc_ops_newreno;
 
 int
@@ -339,6 +357,9 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
 
 void
 lws_quic_keys_destroy(struct lws_quic_keys *keys);
+
+void
+lws_quic_queue_path_challenge(struct lws *nwsi);
 
 int
 lws_quic_update_keys(struct lws_quic_keys *k, int is_rx);
@@ -364,10 +385,14 @@ size_t
 lws_quic_write_varint(uint8_t *buf, size_t len, uint64_t val);
 
 int
-lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payload_len);
+lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payload_len, const lws_sockaddr46 *sa46);
 
 void
 lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t acked_pn);
+void
+
+lws_quic_detect_loss(struct lws *nwsi, int level, uint64_t largest_acked);
+
 
 void
 lws_quic_discard_keys(struct lws *nwsi, int level);
@@ -396,6 +421,8 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 struct _lws_quic_related {
         struct lws_quic_netconn *qn; /* malloc'd for root net conn */
         struct lws_quic_stream *qs; /* malloc'd for stream child wsi */
+
+        struct lws *migrate_from_wsi; /* if set, this nwsi is migrating from an existing nwsi */
 
         lws_usec_t quic_race_start_us;
 

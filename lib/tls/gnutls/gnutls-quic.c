@@ -276,10 +276,31 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 		return -1;
 	}
 
+	const char *user_ciphers = NULL;
+	char priority[256];
+
+#if defined(LWS_WITH_CLIENT)
+        if (wsi->quic.qn && !wsi->quic.qn->is_server) {
+                user_ciphers = wsi->a.vhost ? wsi->a.vhost->tls.cfg_tls_client_cipher_list : NULL;
+        } else
+#endif
+	{
+		user_ciphers = wsi->a.vhost ? wsi->a.vhost->tls.cfg_ssl_cipher_list : NULL;
+	}
+
+	if (user_ciphers) {
+		lws_snprintf(priority, sizeof(priority), "%s:%%DISABLE_TLS13_COMPAT_MODE", user_ciphers);
+	} else {
+		lws_snprintf(priority, sizeof(priority), "NORMAL:-VERS-ALL:+VERS-TLS1.3:%%DISABLE_TLS13_COMPAT_MODE");
+	}
+
+	lwsl_notice("AGY-DEBUG: gnutls_quic_init priority string used = %s\n", priority);
+
 	/* Enforce QUIC requirements: TLS 1.3 only, NO compatibility mode (empty legacy_session_id) */
-	ret = gnutls_priority_set_direct(session, "NORMAL:-VERS-ALL:+VERS-TLS1.3:%DISABLE_TLS13_COMPAT_MODE", NULL);
+	ret = gnutls_priority_set_direct(session, priority, NULL);
 	if (ret < 0) {
-		lwsl_err("gnutls_priority_set_direct failed: %s\n", gnutls_strerror(ret));
+		lwsl_notice("gnutls_priority_set_direct failed: %s\n", gnutls_strerror(ret));
+		lwsl_notice("AGY-DEBUG: gnutls_priority_set_direct failed: %s\n", gnutls_strerror(ret));
 	}
 
 	if (!wsi->tls.quic_tp_send) {
@@ -441,14 +462,32 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 				*out_len = 0;
 			return -1;
 		}
-		if (gnutls_handshake_write(session, glevel, in, in_len) < 0)
-			return -1;
+		int hw = gnutls_handshake_write(session, glevel, in, in_len);
+		if (hw < 0) {
+			lwsl_err("gnutls_handshake_write failed: %d\n", hw);
+			return hw;
+		}
 	}
 
+#if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_TLS_SESSIONS)
+	/* 
+	 * Try to cache any newly available session data (like NewSessionTicket)
+	 * BEFORE calling gnutls_handshake, because gnutls_handshake sets
+	 * handshake_in_progress=1 and causes gnutls_session_get_data2 to fail with -408.
+	 */
+	if (lwsi_role_client(wsi) && wsi->quic.qn && wsi->quic.qn->handshake_done)
+		lws_tls_session_new_gnutls(wsi);
+#endif
+
 	n = gnutls_handshake(session);
+	lwsl_notice("gnutls_handshake returned %d\n", n);
+
+	struct lws *active_wsi = (struct lws *)gnutls_session_get_ptr(session);
+	if (!active_wsi)
+		active_wsi = wsi;
 
 #if defined(LWS_WITH_SERVER) && defined(LWS_WITH_TLS_SESSIONS)
-	if (n == GNUTLS_E_SUCCESS && !lwsi_role_client(wsi) && wsi->quic.qn && !wsi->quic.qn->handshake_done) {
+	if (n == GNUTLS_E_SUCCESS && !lwsi_role_client(active_wsi) && active_wsi->quic.qn && !active_wsi->quic.qn->handshake_done) {
 #if GNUTLS_VERSION_NUMBER >= 0x030603
 		int r = gnutls_session_ticket_send(session, 1, 0);
 		(void)r;
@@ -462,8 +501,8 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 
 	for (l = 0; l < 4; l++) {
 		if (b->other_out_len[l]) {
-			if (wsi->quic.qn) {
-				lws_tls_quic_tx_crypto_cb(wsi, l, b->other_out[l], b->other_out_len[l]);
+			if (active_wsi->quic.qn) {
+				lws_tls_quic_tx_crypto_cb(active_wsi, l, b->other_out[l], b->other_out_len[l]);
 			}
 			lws_free_set_NULL(b->other_out[l]);
 			b->other_out_len[l] = 0;
@@ -472,14 +511,15 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 
 	if (n == GNUTLS_E_SUCCESS) {
 #if defined(LWS_WITH_CLIENT) && defined(LWS_WITH_TLS_SESSIONS)
-		if (lwsi_role_client(wsi))
-			lws_tls_session_new_gnutls(wsi);
+		if (lwsi_role_client(active_wsi))
+			lws_tls_session_new_gnutls(active_wsi);
 #endif
 		return 0;
 	}
 
-	if (n == GNUTLS_E_AGAIN || n == GNUTLS_E_INTERRUPTED)
+	if (n == GNUTLS_E_AGAIN || n == GNUTLS_E_INTERRUPTED) {
 		return 1;
+	}
 
 	lwsl_err("gnutls_handshake failed: %d\n", n);
 	return n < 0 ? n : -1;

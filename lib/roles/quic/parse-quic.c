@@ -92,6 +92,14 @@ lws_quic_get_pn_offset(const uint8_t *buf, size_t len, size_t *payload_len)
 	/* Long Header (Form = 1) */
 	type = (buf[0] & 0x30) >> 4;
 
+	uint32_t version = (uint32_t)((buf[1] << 24) | (buf[2] << 16) | (buf[3] << 8) | buf[4]);
+	if (version == LWS_QUIC_VERSION_2) {
+		if (type == 1) type = 0;
+		else if (type == 0) type = 3;
+		else if (type == 2) type = 1;
+		else if (type == 3) type = 2;
+	}
+
 	/* Skip Version (4 bytes) */
 	pos += 4;
 
@@ -340,8 +348,11 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 					}
 
 					if (!is_crypto && !wsi_child) {
-						lws_dll2_remove(&c->list);
-						lws_free(c);
+                                                /*
+                                                 * The WSI was closed and freed. Its cleanup routine
+                                                 * already freed all buffered chunks, including c.
+                                                 * We must not touch c, qs or the list anymore.
+                                                 */
 						return;
 					}
 
@@ -412,14 +423,43 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 struct lws *
 lws_quic_stream_find(struct lws *nwsi, uint64_t stream_id)
 {
-	struct lws *wsi_child = nwsi->mux.child_list;
-	while (wsi_child) {
-		if (wsi_child->quic.qs && wsi_child->quic.qs->stream_id == stream_id)
-			return wsi_child;
-		if (wsi_child->mux.my_sid == stream_id) /* Fallback */
-			return wsi_child;
-		wsi_child = wsi_child->mux.sibling_list;
+	struct lws_quic_netconn *qn = nwsi ? nwsi->quic.qn : NULL;
+	struct lws *wsi_child;
+
+	if (!qn) {
+		wsi_child = nwsi ? nwsi->mux.child_list : NULL;
+		while (wsi_child) {
+			if (wsi_child->quic.qs && wsi_child->quic.qs->stream_id == stream_id)
+				return wsi_child;
+			if (wsi_child->mux.my_sid == (unsigned int)stream_id)
+				return wsi_child;
+			wsi_child = wsi_child->mux.sibling_list;
+		}
+		return NULL;
 	}
+
+	if (qn->nwsi) {
+		wsi_child = qn->nwsi->mux.child_list;
+		while (wsi_child) {
+			if (wsi_child->quic.qs && wsi_child->quic.qs->stream_id == stream_id)
+				return wsi_child;
+			if (wsi_child->mux.my_sid == (unsigned int)stream_id)
+				return wsi_child;
+			wsi_child = wsi_child->mux.sibling_list;
+		}
+	}
+
+	if (qn->migration_probing_wsi) {
+		wsi_child = qn->migration_probing_wsi->mux.child_list;
+		while (wsi_child) {
+			if (wsi_child->quic.qs && wsi_child->quic.qs->stream_id == stream_id)
+				return wsi_child;
+			if (wsi_child->mux.my_sid == (unsigned int)stream_id)
+				return wsi_child;
+			wsi_child = wsi_child->mux.sibling_list;
+		}
+	}
+
 	return NULL;
 }
 
@@ -428,7 +468,7 @@ lws_quic_stream_find(struct lws *nwsi, uint64_t stream_id)
  * Parses QUIC frames from a decrypted payload and routes them.
  */
 int
-lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payload_len)
+lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payload_len, const lws_sockaddr46 *sa46)
 {
 	size_t pos = 0;
 	uint64_t type, offset, len;
@@ -565,6 +605,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 					pos += consumed;
 				}
 			}
+			lws_quic_detect_loss(nwsi, level, largest_ack);
 			break;
 		}
 
@@ -591,7 +632,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 			}
 
 			if (!is_peer_initiated) {
-				if (is_unidirectional || !wsi_child) {
+				if (is_unidirectional) {
 					lwsl_wsi_notice(nwsi, "QUIC RX: Invalid RESET_STREAM on stream ID %llu", (unsigned long long)stream_id);
 					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_STREAM_STATE_ERROR, type, 0);
 					return -1;
@@ -707,9 +748,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 
 			if (!is_peer_initiated) {
 				if (!wsi_child) {
-					lwsl_wsi_notice(nwsi, "QUIC RX: STOP_SENDING on non-existing stream ID %llu", (unsigned long long)stream_id);
-					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_STREAM_STATE_ERROR, type, 0);
-					return -1;
+					// Ignore STOP_SENDING for closed streams
 				}
 			} else {
 				if (is_unidirectional) {
@@ -747,18 +786,22 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 				lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FRAME_ENCODING_ERROR, type, 0);
 				return -1;
 			}
-			lwsl_wsi_info(nwsi, "QUIC RX: Parsed MAX/BLOCKED STREAMS! max_streams %llu", (unsigned long long)max_streams);
+			lwsl_wsi_notice(nwsi, "QUIC RX: Parsed MAX/BLOCKED STREAMS! max_streams %llu", (unsigned long long)max_streams);
 			if (qn) {
 				if (type == LWS_QUIC_FT_MAX_STREAMS_BIDI) {
-					qn->max_streams_bidi_remote = max_streams;
+					if (max_streams > qn->max_streams_bidi_remote) {
+						qn->max_streams_bidi_remote = max_streams;
 #if defined(LWS_WITH_CLIENT)
-					lws_wsi_mux_apply_queue(nwsi);
+						lws_wsi_mux_apply_queue(nwsi);
 #endif
+					}
 				} else if (type == LWS_QUIC_FT_MAX_STREAMS_UNIDI) {
-					qn->max_streams_unidi_remote = max_streams;
+					if (max_streams > qn->max_streams_unidi_remote) {
+						qn->max_streams_unidi_remote = max_streams;
 #if defined(LWS_WITH_CLIENT)
-					lws_wsi_mux_apply_queue(nwsi);
+						lws_wsi_mux_apply_queue(nwsi);
 #endif
+					}
 				}
 			}
 			break;
@@ -816,6 +859,10 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 					f_pr->len = 8;
 					f_pr->data = (uint8_t *)&f_pr[1];
 					memcpy(f_pr->data, path_data, 8);
+					if (sa46) {
+						f_pr->dest_sa46 = *sa46;
+						f_pr->has_dest = 1;
+					}
 					lws_dll2_add_head(&f_pr->list, &nwsi->quic.qn->pending_tx[level]);
 					lws_callback_on_writable(nwsi);
 				}
@@ -824,6 +871,47 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 					lwsl_wsi_notice(nwsi, "QUIC RX: Path validated via PATH_RESPONSE!");
 					nwsi->quic.qn->address_validated = 1;
 					nwsi->quic.qn->path_challenge_pending = 0;
+					
+					if (nwsi->quic.qn->migration_probing_wsi == nwsi) {
+						struct lws *old_nwsi = nwsi->quic.qn->nwsi;
+						/* Reparent the connection! */
+						nwsi->quic.qn->nwsi = nwsi;
+						nwsi->quic.qn->migration_probing_wsi = NULL;
+						
+						if (old_nwsi && old_nwsi != nwsi) {
+							lwsl_wsi_notice(nwsi, "QUIC: Active Migration Make-Before-Break Complete! Closing old nwsi.");
+							old_nwsi->quic.qn = NULL; /* Detach so close doesn't free it */
+
+							/* Transition new nwsi to established state and cancel its timeout/grace timers */
+							lwsi_set_state(nwsi, LRS_ESTABLISHED);
+							lws_set_timeout(nwsi, NO_PENDING_TIMEOUT, 0);
+							lws_sul_cancel(&nwsi->sul_h3_grace);
+							lws_sul_cancel(&nwsi->sul_happy_eyeballs);
+							lws_sul_cancel(&nwsi->sul_connect_timeout);
+
+							/* Reparent all child streams to the new nwsi */
+							struct lws *w = old_nwsi->mux.child_list;
+							while (w) {
+								w->mux.parent_wsi = nwsi;
+								w = w->mux.sibling_list;
+							}
+							nwsi->mux.child_list = old_nwsi->mux.child_list;
+							old_nwsi->mux.child_list = NULL;
+							nwsi->mux.child_count = old_nwsi->mux.child_count;
+							old_nwsi->mux.child_count = 0;
+							nwsi->mux.highest_sid = old_nwsi->mux.highest_sid;
+
+#if defined(LWS_WITH_TLS)
+							extern int lws_tls_quic_migrate_wsi(struct lws *old_wsi, struct lws *new_wsi);
+							/* Move TLS object so we can decrypt NEW_SESSION_TICKET and KeyUpdate */
+							nwsi->tls = old_nwsi->tls;
+							memset(&old_nwsi->tls, 0, sizeof(old_nwsi->tls));
+							lws_tls_quic_migrate_wsi(old_nwsi, nwsi);
+#endif
+
+							lws_close_free_wsi(old_nwsi, LWS_CLOSE_STATUS_NOSTATUS, "migrated");
+						}
+					}
 				} else {
 					lwsl_wsi_notice(nwsi, "QUIC RX: Spurious or mismatched PATH_RESPONSE, ignoring");
 				}
@@ -1234,7 +1322,7 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 		/* Check for duplicates */
 		for (size_t i = 0; i < num_seen; i++) {
 			if (seen_params[i] == param_id) {
-				lwsl_wsi_err(wsi, "QUIC TP error: Duplicate parameter ID %llu", (unsigned long long)param_id);
+						lwsl_wsi_err(wsi, "QUIC TP error: Duplicate parameter ID %llu", (unsigned long long)param_id);
 				return -1;
 			}
 		}
@@ -1242,6 +1330,28 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 			seen_params[num_seen++] = param_id;
 
 		switch (param_id) {
+		case 0x11: { /* version_information */
+			if (param_len < 4 || (param_len % 4) != 0) {
+				lwsl_wsi_err(wsi, "QUIC TP error: version_information bad length");
+				return -1;
+			}
+			if (qn->is_server && (wsi->a.context->options & LWS_SERVER_OPTION_QUIC_LATEST_VERSION)) {
+				size_t offset = 4;
+				while (offset < param_len) {
+					uint32_t av = ((uint32_t)buf[pos + offset] << 24) |
+						      ((uint32_t)buf[pos + offset + 1] << 16) |
+						      ((uint32_t)buf[pos + offset + 2] << 8) |
+						      ((uint32_t)buf[pos + offset + 3]);
+					if (av == LWS_QUIC_VERSION_2) {
+						qn->version = LWS_QUIC_VERSION_2;
+						lwsl_wsi_notice(wsi, "QUIC: Upgrading to QUIC v2 via Compatible Version Negotiation");
+						break;
+					}
+					offset += 4;
+				}
+			}
+			break;
+		}
 		case 0x0f: /* initial_source_connection_id */
 			seen_initial_source_cid = 1;
 			break;
@@ -1339,15 +1449,58 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 			}
 			break;
 		case 0x02: /* stateless_reset_token */
+			if (qn->is_server) {
+				/* Client cannot send these */
+				lwsl_wsi_err(wsi, "QUIC TP error: Client sent server-only parameter %llu", (unsigned long long)param_id);
+				return -1;
+			}
+			if (param_len != 16) {
+				lwsl_wsi_err(wsi, "QUIC TP error: stateless_reset_token length %llu != 16", (unsigned long long)param_len);
+				return -1;
+			}
+			break;
 		case 0x0d: /* preferred_address */
 			if (qn->is_server) {
 				/* Client cannot send these */
 				lwsl_wsi_err(wsi, "QUIC TP error: Client sent server-only parameter %llu", (unsigned long long)param_id);
 				return -1;
 			}
-			if (param_id == 0x02 && param_len != 16) {
-				lwsl_wsi_err(wsi, "QUIC TP error: stateless_reset_token length %llu != 16", (unsigned long long)param_len);
-				return -1;
+			if (param_len >= 4+2+16+2+1+16) {
+				/* Pick IPv4 if present, else IPv6 */
+				char addr_str[64];
+				int port = 0;
+				struct lws_client_connect_info i;
+
+				/* Try IPv4 first (RFC says it's 4 bytes IP + 2 bytes port) */
+				uint32_t ip4;
+				memcpy(&ip4, &buf[pos], 4);
+				if (ip4 != 0) {
+					lws_snprintf(addr_str, sizeof(addr_str), "%u.%u.%u.%u",
+						buf[pos], buf[pos+1], buf[pos+2], buf[pos+3]);
+					port = (buf[pos+4] << 8) | buf[pos+5];
+				} else {
+					/* Try IPv6 */
+					const uint8_t *v6 = &buf[pos+6];
+					lws_snprintf(addr_str, sizeof(addr_str), "[%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x]",
+						v6[0], v6[1], v6[2], v6[3], v6[4], v6[5], v6[6], v6[7],
+						v6[8], v6[9], v6[10], v6[11], v6[12], v6[13], v6[14], v6[15]);
+					port = (buf[pos+22] << 8) | buf[pos+23];
+				}
+
+				if (port > 0) {
+					lwsl_wsi_notice(wsi, "QUIC TP: Migrating to preferred_address %s:%d", addr_str, port);
+					memset(&i, 0, sizeof(i));
+					i.context = wsi->a.context;
+					i.vhost = wsi->a.vhost;
+					i.address = addr_str;
+					i.host = addr_str;
+					i.origin = addr_str;
+					i.port = port;
+					i.ssl_connection = LCCSCF_USE_SSL | LCCSCF_ALLOW_INSECURE;
+					i.quic_migrate_from_wsi = qn->nwsi;
+
+					lws_client_connect_via_info(&i);
+				}
 			}
 			break;
 		default:

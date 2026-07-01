@@ -16,15 +16,6 @@
 #include "private-lib-core.h"
 #include "private-lib-roles-quic.h"
 
-struct lws_quic_cc_newreno {
-	size_t			cwnd;
-	size_t			ssthresh;
-	size_t			bytes_in_flight;
-	lws_usec_t		congestion_recovery_start_time;
-
-	lws_usec_t		last_pacing_time;
-	size_t			pacing_credit;
-};
 
 static void
 newreno_init(struct lws *nwsi)
@@ -106,6 +97,20 @@ newreno_on_ack(struct lws *nwsi, size_t bytes_acked, lws_usec_t rtt)
 }
 
 static void
+newreno_on_discard(struct lws *nwsi, size_t bytes_discarded)
+{
+        struct lws_quic_netconn *qn = nwsi->quic.qn;
+        struct lws_quic_cc_newreno *st = (struct lws_quic_cc_newreno *)qn->cc_state;
+
+        if (!st) return;
+
+        if (st->bytes_in_flight >= bytes_discarded)
+                st->bytes_in_flight -= bytes_discarded;
+        else
+                st->bytes_in_flight = 0;
+}
+
+static void
 newreno_on_loss(struct lws *nwsi, size_t bytes_lost)
 {
 	struct lws_quic_netconn *qn = nwsi->quic.qn;
@@ -165,28 +170,43 @@ newreno_get_pacing_delay(struct lws *nwsi, size_t bytes_to_send)
 
 	lws_usec_t now = lws_now_usecs();
 	lws_usec_t elapsed = now - st->last_pacing_time;
-	st->last_pacing_time = now;
 
 	/* Replenish credit based on elapsed time: R = cwnd / srtt */
 	size_t credit_added = (size_t)(((uint64_t)elapsed * (uint64_t)st->cwnd) / (uint64_t)rtt);
 	st->pacing_credit += credit_added;
 
-	/* Cap credit to max burst to prevent micro-bursts (e.g. 10 packets) */
-	size_t max_burst = 10 * (lws_get_vhost(nwsi)->quic_mtu ? lws_get_vhost(nwsi)->quic_mtu : 1280);
+	/*
+	 * Cap credit to max burst (64 packets) to prevent very large bursts
+	 * while still allowing good throughput for large concurrent stream
+	 * queues (e.g. 1999 streams in the multiplexing test).
+	 */
+	size_t max_burst = 64 * (lws_get_vhost(nwsi)->quic_mtu ? lws_get_vhost(nwsi)->quic_mtu : 1280);
 	if (st->pacing_credit > max_burst)
 		st->pacing_credit = max_burst;
 
 	if (st->pacing_credit >= bytes_to_send) {
-		/* We have enough credit to send this packet */
+		/*
+		 * Enough credit to send this packet: consume credit and
+		 * record the time only when we actually allow a send.
+		 * This is critical: if we updated last_pacing_time even
+		 * when blocking, the next call after a short timer would
+		 * compute elapsed ≈ 0 → near-zero credit added → endless
+		 * tight-loop stall.
+		 */
+		st->last_pacing_time = now;
 		return 0;
 	}
 
-	/* Not enough credit. Calculate how long it will take to earn the missing credit. */
+	/* Not enough credit. Calculate how long to wait for the missing credit. */
 	size_t missing_credit = bytes_to_send - st->pacing_credit;
 	delay_us = (lws_usec_t)(((uint64_t)missing_credit * (uint64_t)rtt) / (uint64_t)st->cwnd);
 
 	if (delay_us == 0)
 		delay_us = 1;
+
+	/* Do NOT update last_pacing_time here: the credit already earned
+	 * (credit_added) is preserved in st->pacing_credit, and next call
+	 * the elapsed time from *now* will be added on top of it. */
 
 	return delay_us;
 }
@@ -196,6 +216,7 @@ const struct lws_cc_ops lws_cc_ops_newreno = {
 	.on_sent		= newreno_on_sent,
 	.on_ack			= newreno_on_ack,
 	.on_loss		= newreno_on_loss,
+	.on_discard		= newreno_on_discard,
 	.can_send		= newreno_can_send,
 	.get_pacing_delay	= newreno_get_pacing_delay,
 };

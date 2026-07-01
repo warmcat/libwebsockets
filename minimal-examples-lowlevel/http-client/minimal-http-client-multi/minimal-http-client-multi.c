@@ -98,7 +98,7 @@ static const struct lws_switches switches[] = {
 #include <unistd.h>
 #endif
 
-#define COUNT 1024
+#define COUNT 4096
 
 struct cliuser {
 	int index;
@@ -126,11 +126,11 @@ static char save_ticket[256];
 static char load_ticket[256];
 
 struct req {
-	char address[128];
+	char path[512];
+	char address[256];
 	int port;
-	char path[128];
 };
-static struct req reqs[1024];
+static struct req reqs[COUNT];
 
 struct pss {
 	char body_part;
@@ -232,6 +232,10 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 
 	switch (reason) {
 
+	case LWS_CALLBACK_CLIENT_ESTABLISHED_EARLY:
+		lwsl_user("LWS_CALLBACK_CLIENT_ESTABLISHED_EARLY: idx: %d, opting into 0-RTT\n", idx);
+		return 1;
+
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
 		lwsl_user("LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP: idx: %d, resp %u\n",
 				idx, lws_http_client_http_response(wsi));
@@ -257,15 +261,12 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 #if defined(LWS_WITH_TLS_SESSIONS) && !defined(LWS_WITH_MBEDTLS) && !defined(WIN32)
 		if (lws_tls_session_is_reused(wsi))
 			reuse++;
-		else
-			/*
-			 * Attempt to store any new session into
-			 * external storage
-			 */
-			if (lws_tls_session_dump_save(lws_get_vhost_by_name(context, "default"),
-					i.host, (uint16_t)i.port,
-					sess_save_cb, save_ticket))
-		lwsl_warn("%s: session save failed\n", __func__);
+		/*
+		 * Don't attempt to save the session here: the NewSessionTicket
+		 * arrives asynchronously AFTER this callback fires, so the
+		 * vhost session cache is empty or has only a stub at this
+		 * point.  The deferred save happens after the event loop exits.
+		 */
 #endif
 		break;
 
@@ -439,11 +440,10 @@ finished:
 			lwsl_err("Done: failed: %d\n", failed);
 		intr = 1;
 		/*
-		 * This is how we can exit the event loop even when it's an
-		 * event library backing it... it will start and stage the
-		 * destroy to happen after we exited this service for each pt
+		 * Exit the loop by cancelling service so we can save TLS
+		 * sessions in main() before actually destroying the context.
 		 */
-		lws_context_destroy(lws_get_context(wsi));
+		lws_cancel_service(lws_get_context(wsi));
 	} else if (sequential) {
 		lws_try_client_connection(&i, completed);
 	}
@@ -502,7 +502,8 @@ lws_try_client_connection(struct lws_client_connect_info *ii, int m)
 			lwsl_user("%s: failed: conn idx %d\n", __func__, m);
 			if (++completed == count) {
 				lwsl_user("Done: failed: %d\n", failed);
-				lws_context_destroy(context);
+				intr = 1;
+				lws_cancel_service(context);
 			}
 		}
 	} else {
@@ -556,7 +557,8 @@ signal_cb(void *handle, int signum)
 		lwsl_err("%s: signal %d\n", __func__, signum);
 		break;
 	}
-	lws_context_destroy(context);
+	intr = 1;
+	lws_cancel_service(context);
 }
 
 static void
@@ -612,7 +614,7 @@ stagger_cb(lws_sorted_usec_list_t *sul)
 	if (stagger_idx == count)
 		return;
 
-	next = 150 * LWS_US_PER_MS;
+	if (count > 100) next = 1 * LWS_US_PER_MS; else next = 150 * LWS_US_PER_MS;
 	if (stagger_idx == count - 1)
 		next += 400 * LWS_US_PER_MS;
 
@@ -641,12 +643,14 @@ int main(int argc, const char **argv)
 	int pl = 0;
 #endif
 
-	lws_context_info_defaults(&info, NULL);memset(&i, 0, sizeof i); /* otherwise uninitialized garbage */
+	lws_context_info_defaults(&info, NULL);
 
-	lws_cmdline_option_handle_builtin(argc, argv, &info);
+        lws_cmdline_option_handle_builtin(argc, argv, &info);
+
+	info.timeout_secs = 120;
 
 	info.signal_cb = signal_cb;
-	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+	info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 
 	if (lws_cmdline_option(argc, argv, switches[LWS_SW_UV].sw))
 		info.options |= LWS_SERVER_OPTION_LIBUV;
@@ -717,7 +721,56 @@ int main(int argc, const char **argv)
 		 */
 		info.simultaneous_ssl_handshake_restriction = atoi(p);
 
-	context = lws_create_context(&info);
+        if ((p = lws_cmdline_option(argc, argv, "--tls13-ciphers"))) {
+                info.client_tls_1_3_plus_cipher_list = p;
+                info.client_ssl_cipher_list = p;
+        }
+        
+        lwsl_notice("AGY-DEBUG: minimal: before TESTCASE check, client_ssl_cipher_list is '%s'\n", info.client_ssl_cipher_list ? info.client_ssl_cipher_list : "NULL");
+
+        const char *testcase = getenv("TESTCASE");
+        if (testcase && !strcmp(testcase, "chacha20")) {
+#if defined(LWS_WITH_GNUTLS)
+                info.client_tls_1_3_plus_cipher_list = "NORMAL:-CIPHER-ALL:-AES-256-GCM:-AES-128-GCM:-AES-128-CCM:-AES-128-CCM-8:+CHACHA20-POLY1305";
+                info.client_ssl_cipher_list = "NORMAL:-CIPHER-ALL:-AES-256-GCM:-AES-128-GCM:-AES-128-CCM:-AES-128-CCM-8:+CHACHA20-POLY1305";
+#else
+                info.client_tls_1_3_plus_cipher_list = "TLS_CHACHA20_POLY1305_SHA256";
+                info.client_ssl_cipher_list = "TLS_CHACHA20_POLY1305_SHA256";
+#endif
+        }
+
+#if defined(LWS_WITH_TLS_SESSIONS) && !defined(LWS_WITH_MBEDTLS) && !defined(WIN32)
+        /*
+         * When the QIR harness sets TESTCASE=zerortt it does not pass
+         * --save-ticket / --load-ticket / --0rtt on the command line.
+         * Auto-configure the ticket persistence path so that phase 1
+         * saves the ticket and phase 2 can load it and attempt 0-RTT,
+         * provided the caller hasn't already set an explicit path.
+         */
+        if (testcase && !strcmp(testcase, "zerortt")) {
+                if (!save_ticket[0])
+                        lws_strncpy(save_ticket, "/tmp/lws_session_ticket",
+                                    sizeof(save_ticket));
+                if (!load_ticket[0])
+                        lws_strncpy(load_ticket, "/tmp/lws_session_ticket",
+                                    sizeof(load_ticket));
+                lwsl_notice("%s: TESTCASE=zerortt: ticket path '%s'\n",
+                            __func__, save_ticket);
+        }
+#endif
+
+        if (lws_cmdline_option(argc, argv, "--quicv2"))
+                info.options |= LWS_SERVER_OPTION_QUIC_LATEST_VERSION;
+
+        if (lws_cmdline_option(argc, argv, "--quic-early-key-update"))
+                info.options |= LWS_SERVER_OPTION_QUIC_EARLY_KEY_UPDATE;
+
+        /* lws_context_info_defaults sets LWS_SERVER_OPTION_EXPLICIT_VHOSTS by default now,
+         * which skips creating the default vhost using our info struct. Clear it so
+         * our TLS cipher overrides are actually used to create the default vhost! */
+        info.options &= ~(uint64_t)LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
+
+        context = lws_create_context(&info);
 	if (!context) {
 		lwsl_err("lws init failed\n");
 		return 1;
@@ -768,6 +821,14 @@ int main(int argc, const char **argv)
 	if (lws_cmdline_option(argc, argv, "--h3"))
 		i.alpn = "h3";
 
+	if (lws_cmdline_option(argc, argv, "--quicv2"))
+		info.options |= LWS_SERVER_OPTION_QUIC_LATEST_VERSION;
+	
+	if (lws_cmdline_option(argc, argv, "--quic-early-key-update"))
+		info.options |= LWS_SERVER_OPTION_QUIC_EARLY_KEY_UPDATE;
+
+
+
 	if (lws_cmdline_option(argc, argv, "--h1"))
 		i.alpn = "http/1.1";
 
@@ -806,7 +867,7 @@ int main(int argc, const char **argv)
 					lws_strncpy(reqs[count].address, url, sizeof(reqs[count].address));
 			}
 			count++;
-			if (count == 1024) break;
+			if (count == COUNT) break;
 		}
 	}
 	int default_urls = 0;
@@ -846,6 +907,10 @@ int main(int argc, const char **argv)
 	if (lws_cmdline_option(argc, argv, switches[LWS_SW_NO_TLS].sw))
 		i.ssl_connection &= ~(LCCSCF_USE_SSL);
 
+	if (lws_cmdline_option(argc, argv, "--0rtt") ||
+	    (testcase && !strcmp(testcase, "zerortt")))
+		i.ssl_connection |= LCCSCF_ALLOW_EARLY_DATA;
+
 	int c_opt = count;
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_C].sw))) {
 		c_opt = atoi(p);
@@ -878,9 +943,11 @@ int main(int argc, const char **argv)
 	/*
 	 * Attempt to preload a session from external storage
 	 */
-	if (lws_tls_session_dump_load(lws_get_vhost_by_name(context, "default"),
-				  i.host, (uint16_t)i.port, sess_load_cb, load_ticket))
-		lwsl_warn("%s: session load failed\n", __func__);
+	if (load_ticket[0]) {
+		if (lws_tls_session_dump_load(lws_get_vhost_by_name(context, "default"),
+					  i.host, (uint16_t)reqs[0].port, sess_load_cb, load_ticket))
+			lwsl_warn("%s: session load failed\n", __func__);
+	}
 #endif
 
 	start = us();
@@ -898,6 +965,32 @@ int main(int argc, const char **argv)
 #endif
 
 	lwsl_user("Duration: %lldms\n", (us() - start) / 1000);
+
+#if defined(LWS_WITH_TLS_SESSIONS) && !defined(LWS_WITH_MBEDTLS) && !defined(WIN32)
+	/*
+	 * Save TLS session AFTER the event loop, not at ESTABLISHED time.
+	 * The TLS 1.3 NewSessionTicket arrives from the server asynchronously
+	 * after the HTTP response begins.  By the time we reach here the
+	 * session is fully cached in-memory and ready for disk persistence.
+	 * This is especially important for zerortt: phase 2 is a separate
+	 * process and needs the ticket on disk to attempt early data.
+	 */
+	lwsl_user("save_ticket = %s\n", save_ticket);
+	if (save_ticket[0]) {
+		struct lws_vhost *save_vh = lws_get_vhost_by_name(context, "default");
+		if (save_vh) {
+			if (lws_tls_session_dump_save(save_vh, i.host,
+						      (uint16_t)reqs[0].port,
+						      sess_save_cb, save_ticket))
+				lwsl_warn("%s: deferred session save failed\n",
+					  __func__);
+			else
+				lwsl_notice("%s: session saved to %s\n",
+					    __func__, save_ticket);
+		}
+	}
+#endif
+
 	lws_context_destroy(context);
 
 	lwsl_user("Exiting with %d\n", failed || completed != count);
