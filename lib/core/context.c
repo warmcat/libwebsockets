@@ -1501,36 +1501,38 @@ lws_create_context(const struct lws_context_creation_info *info)
 #endif
 		pp[n] = NULL;
 
-		memset(&ii, 0, sizeof(ii));
-		ii.vhost_name	= "system";
-		ii.pprotocols	= pp;
-		ii.port		= CONTEXT_PORT_NO_LISTEN;
-		ii.options	= LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS;
+		if (n) {
+			memset(&ii, 0, sizeof(ii));
+			ii.vhost_name	= "system";
+			ii.pprotocols	= pp;
+			ii.port		= CONTEXT_PORT_NO_LISTEN;
+			ii.options	= LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS;
 
-		ccop = context->protocols_copy;
-		context->protocols_copy = NULL;
+			ccop = context->protocols_copy;
+			context->protocols_copy = NULL;
 
-		if (lws_fi(&context->fic, "ctx_createfail_sys_vh"))
-			vh = NULL;
-		else
-			vh = lws_create_vhost(context, &ii);
-		if (!vh) {
-			lwsl_cx_err(context, "failed to create system vhost");
-			goto bail_libuv_aware;
-		}
+			if (lws_fi(&context->fic, "ctx_createfail_sys_vh"))
+				vh = NULL;
+			else
+				vh = lws_create_vhost(context, &ii);
+			if (!vh) {
+				lwsl_cx_err(context, "failed to create system vhost");
+				goto bail_libuv_aware;
+			}
 
-		context->protocols_copy = ccop;
+			context->protocols_copy = ccop;
 
-		context->vhost_system = vh;
+			context->vhost_system = vh;
 
-		if (lws_protocol_init_vhost(vh, NULL) ||
-		    lws_fi(&context->fic, "ctx_createfail_sys_vh_init")) {
-			lwsl_cx_err(context, "failed to init system vhost");
-			goto bail_libuv_aware;
-		}
+			if (lws_protocol_init_vhost(vh, NULL) ||
+			    lws_fi(&context->fic, "ctx_createfail_sys_vh_init")) {
+				lwsl_cx_err(context, "failed to init system vhost");
+				goto bail_libuv_aware;
+			}
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
-		lws_async_dns_init(context);
+			lws_async_dns_init(context);
 #endif
+		}
 	}
 
 #if defined(LWS_WITH_SYS_STATE)
