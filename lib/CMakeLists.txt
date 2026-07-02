@@ -429,8 +429,8 @@ endif()
 file(WRITE "${PROJECT_BINARY_DIR}/libwebsockets.pc"
 "prefix=\"${CMAKE_INSTALL_PREFIX}\"
 exec_prefix=\${prefix}
-libdir=\${exec_prefix}/${LWS_INSTALL_LIB_DIR}
-includedir=\${prefix}/${LWS_INSTALL_INCLUDE_DIR}
+libdir=${PKG_CONFIG_LIBDIR}
+includedir=${PKG_CONFIG_INCLUDEDIR}
 
 Name: libwebsockets
 Description: Websockets server and client library
@@ -451,8 +451,8 @@ endif()
 file(WRITE "${PROJECT_BINARY_DIR}/libwebsockets_static.pc"
 "prefix=\"${CMAKE_INSTALL_PREFIX}\"
 exec_prefix=\${prefix}
-libdir=\${exec_prefix}/${LWS_INSTALL_LIB_DIR}
-includedir=\${prefix}/${LWS_INSTALL_INCLUDE_DIR}
+libdir=${PKG_CONFIG_LIBDIR}
+includedir=${PKG_CONFIG_INCLUDEDIR}
 
 Name: libwebsockets_static
 Description: Websockets server and client static library
