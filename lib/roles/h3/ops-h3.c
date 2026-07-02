@@ -169,6 +169,17 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 {
 	lwsl_wsi_info(wsi, "rops_perform_user_POLLOUT_h3: entry, state=%d", lwsi_state(wsi));
 
+	if (lws_has_buffered_out(wsi)) {
+		lwsl_wsi_debug(wsi, "%s: completing partial", __func__);
+		if (lws_issue_raw(wsi, NULL, 0) < 0) {
+			lwsl_wsi_info(wsi, "%s signalling to close", __func__);
+			wsi->socket_is_permanently_unusable = 1;
+			return -1;
+		}
+		if (lws_has_buffered_out(wsi))
+			return 0;
+	}
+
 #if defined(LWS_WITH_SERVER)
 	if (wsi->http.deferred_transaction_completed) {
 		if (!lws_has_buffered_out(wsi)) {

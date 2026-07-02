@@ -281,13 +281,11 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 
 #if defined(LWS_WITH_CLIENT)
         if (wsi->quic.qn && !wsi->quic.qn->is_server) {
-                user_ciphers = wsi->a.vhost->tls.cfg_tls_client_cipher_list;
-                lwsl_notice("AGY-DEBUG: gnutls_quic_init (client): cfg_tls_client_cipher_list = %s\n", user_ciphers ? user_ciphers : "NULL");
+                user_ciphers = wsi->a.vhost ? wsi->a.vhost->tls.cfg_tls_client_cipher_list : NULL;
         } else
 #endif
 	{
-		user_ciphers = wsi->a.vhost->tls.cfg_ssl_cipher_list;
-		lwsl_notice("gnutls_quic_init (server): cfg_ssl_cipher_list = %s\n", user_ciphers ? user_ciphers : "NULL");
+		user_ciphers = wsi->a.vhost ? wsi->a.vhost->tls.cfg_ssl_cipher_list : NULL;
 	}
 
 	if (user_ciphers) {
