@@ -680,6 +680,20 @@ set(LWS_INSTALL_INCLUDE_DIR   ${CMAKE_INSTALL_INCLUDEDIR} CACHE PATH "Installati
 set(LWS_INSTALL_EXAMPLES_DIR  ${CMAKE_INSTALL_BINDIR} CACHE PATH "Installation directory for example files")
 set(LWS_INSTALL_PLUGIN_DIR    "${CMAKE_INSTALL_PREFIX}/share/libwebsockets-test-server/plugins" CACHE PATH "Installation directory for plugins")
 
+if(IS_ABSOLUTE "${LWS_INSTALL_LIB_DIR}")
+	set(LWS_ABSOLUTE_INSTALL_LIBDIR "${LWS_INSTALL_LIB_DIR}")
+	set(PKG_CONFIG_LIBDIR "${LWS_INSTALL_LIB_DIR}")
+else()
+	set(LWS_ABSOLUTE_INSTALL_LIBDIR "${CMAKE_INSTALL_PREFIX}/${LWS_INSTALL_LIB_DIR}")
+	set(PKG_CONFIG_LIBDIR "\${exec_prefix}/${LWS_INSTALL_LIB_DIR}")
+endif()
+
+if(IS_ABSOLUTE "${LWS_INSTALL_INCLUDE_DIR}")
+	set(PKG_CONFIG_INCLUDEDIR "${LWS_INSTALL_INCLUDE_DIR}")
+else()
+	set(PKG_CONFIG_INCLUDEDIR "\${prefix}/${LWS_INSTALL_INCLUDE_DIR}")
+endif()
+
 # if you gave LWS_WITH_MINIZ, point to MINIZ here if not found
 # automatically
 
@@ -1483,7 +1497,7 @@ file(RELATIVE_PATH
     "${LWS_ABSOLUTE_INSTALL_INCLUDE_DIR}") # Calculate the relative directory from the cmake dir.
 
 if (DEFINED REL_INCLUDE_DIR)
-    set(LWS__INCLUDE_DIRS "${LWS_CMAKE_DIR}/${REL_INCLUDE_DIR}")
+    set(LWS__INCLUDE_DIRS "\${LWS_CMAKE_DIR}/${REL_INCLUDE_DIR}")
 endif()
 
 set(STRIPPED_LIB_LIST_AT_END "")
