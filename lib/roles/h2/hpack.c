@@ -274,6 +274,9 @@ static int lws_frag_append(struct lws *wsi, unsigned char c)
 {
 	struct allocated_headers *ah = wsi->http.ah;
 
+	if ((unsigned int)ah->pos >= wsi->a.context->max_http_header_data)
+		return 1;
+
 	ah->data[ah->pos++] = (char)c;
 	ah->frags[ah->nfrag].len++;
 
