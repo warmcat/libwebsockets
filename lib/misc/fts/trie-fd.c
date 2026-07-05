@@ -862,6 +862,10 @@ autocomp:
 
 		if (!s[sp].done_children && children) {
 			s[sp].done_children = 1;
+			if (sp + 1 >= (int)LWS_ARRAY_SIZE(s)) {
+				lwsl_err("%s: trie depth exceeded\n", __func__);
+				goto bail;
+			}
 			sp++;
 			memset(&s[sp], 0, sizeof(s[sp]));
 			s[sp].tifs = fileofs_tif_start;
