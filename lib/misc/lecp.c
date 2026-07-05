@@ -786,7 +786,7 @@ push_m:
 				if (lwcp_st_parent(ctx)->ordinal)
 					pst->ppos = st->p;
 				st->p = pst->ppos;
-				if (pst->ppos + ctx->npos > sizeof(ctx->path))
+				if (pst->ppos + ctx->npos >= sizeof(ctx->path))
 					goto reject_overflow;
 				memcpy(&ctx->path[pst->ppos], ctx->buf,
 				       (size_t)(ctx->npos + 1));
