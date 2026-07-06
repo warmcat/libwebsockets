@@ -91,7 +91,7 @@ lws_fts_filepath(struct lws_fts_file *jtf, int filepath_index, char *result,
 	size_t m;
 	off_t o;
 
-	if (filepath_index > jtf->filepaths)
+	if (filepath_index >= jtf->filepaths)
 		return 1;
 
 	if (lseek(jtf->fd, (off_t)(jtf->filepath_table + (4 * (unsigned int)filepath_index)),
