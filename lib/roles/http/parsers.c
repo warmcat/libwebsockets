@@ -996,7 +996,11 @@ lws_parse_urldecode(struct lws *wsi, uint8_t *_c)
 		ah->nfrag++;
 		if (ah->nfrag >= LWS_ARRAY_SIZE(ah->frags))
 			goto excessive;
+
 		ah->frags[ah->nfrag].offset = ++ah->pos;
+		if ((unsigned int)ah->pos >= wsi->a.context->max_http_header_data)
+			goto excessive;
+
 		ah->frags[ah->nfrag].len = 0;
 		ah->frags[ah->nfrag].nfrag = 0;
 
