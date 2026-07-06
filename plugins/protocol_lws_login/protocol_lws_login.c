@@ -644,8 +644,8 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		if (!vhd) {
-			lwsl_info("%s: ALLOWING (vhd is NULL !!! protocol init failed?)\n", __func__);
-			return 0;
+			lwsl_err("%s: DENYING (vhd is NULL !!! protocol init failed or unconfigured)\n", __func__);
+			return 1;
 		}
 
 		if (vhd->unauth_protocols) {

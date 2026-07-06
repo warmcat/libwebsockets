@@ -24,6 +24,10 @@
 
 #include <private-lib-core.h>
 
+#if !defined(WIN32) && !defined(_WIN32)
+#include <sys/ioctl.h>
+#endif
+
 static lws_handling_result_t
 rops_handle_POLLIN_raw_file(struct lws_context_per_thread *pt, struct lws *wsi,
 			    struct lws_pollfd *pollfd)
@@ -41,6 +45,14 @@ rops_handle_POLLIN_raw_file(struct lws_context_per_thread *pt, struct lws *wsi,
 	}
 
 	if (pollfd->revents & LWS_POLLIN) {
+#if !defined(WIN32) && !defined(_WIN32)
+		int bytes_available = 0;
+		if (ioctl(wsi->desc.sockfd, FIONREAD, &bytes_available) == 0 &&
+		    bytes_available == 0) {
+			lwsl_wsi_debug(wsi, "raw-file POLLIN with 0 bytes available, closing");
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+		}
+#endif
 		if (user_callback_handle_rxflow(wsi->a.protocol->callback,
 						wsi, LWS_CALLBACK_RAW_RX_FILE,
 						wsi->user_space, NULL, 0)) {
