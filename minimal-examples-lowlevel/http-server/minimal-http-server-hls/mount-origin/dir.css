@@ -1,0 +1,5 @@
+body { font-family: sans-serif; background: #1a1a1a; color: #eee; }
+.item { display: inline-block; margin: 10px; text-align: center; background: #333; padding: 10px; border-radius: 8px; }
+.thumb { width: 320px; height: 180px; object-fit: cover; background: #000; border-radius: 4px; }
+a { color: #4db8ff; text-decoration: none; }
+#auth-status { float: right; margin-top: 10px; margin-right: 20px; }

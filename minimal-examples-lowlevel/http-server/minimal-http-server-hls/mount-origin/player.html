@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>LWS Media Player</title>
+    <link rel="stylesheet" href="player.css">
+    <script src="hls.min.js" defer></script>
+    <script src="player.js" defer></script>
+</head>
+<body>
+
+    <div class="header">
+        <div id="auth-status"></div>
+        <script src="/lws-login-media/lws-login.js"></script>
+        <h2>LWS Media Player</h2>
+        <a href="hls/" class="back-link">← Back to Library</a>
+    </div>
+
+    <div class="player-container">
+        <video id="video" controls></video>
+    </div>
+
+    <div id="debug-panel" class="debug-panel">
+        <h3>Player Logs</h3>
+        <div id="debug-logs" class="debug-logs">Ready.</div>
+    </div>
+
+</body>
+</html>
