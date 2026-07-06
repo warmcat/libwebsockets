@@ -108,6 +108,10 @@ lws_read_h1(struct lws *wsi, unsigned char *buf, lws_filepos_t len)
 				return lws_ptr_diff(buf, oldbuf);
 			case LRS_ISSUING_FILE:
 				return lws_ptr_diff(buf, oldbuf);
+			case LRS_DOING_TRANSACTION:
+				if (!lwsi_role_h1(wsi))
+					break;
+				return lws_ptr_diff(buf, oldbuf);
 			case LRS_DISCARD_BODY:
 			case LRS_BODY:
 				wsi->http.rx_content_remain =
