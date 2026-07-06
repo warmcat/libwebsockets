@@ -325,10 +325,10 @@ report_raw_cbor(struct lecp_ctx *ctx)
 	if (!ctx->cbor_pos)
 		return 0;
 
+	ctx->cbor_pos = 0;                /* reset BEFORE callback */
+
 	if (pst->cb(ctx, LECPCB_LITERAL_CBOR))
 		return 1;
-
-	ctx->cbor_pos = 0;
 
 	return 0;
 }
@@ -388,10 +388,11 @@ lecp_parse(struct lecp_ctx *ctx, const uint8_t *cbor, size_t len)
 		 */
 
 		if (ctx->literal_cbor_report) {
+			if (ctx->cbor_pos >= sizeof(ctx->cbor)) {
+				if (report_raw_cbor(ctx))
+					goto reject_callback;
+			}
 			ctx->cbor[ctx->cbor_pos++] = c;
-			if (ctx->cbor_pos == sizeof(ctx->cbor) &&
-			    report_raw_cbor(ctx))
-				goto reject_callback;
 		}
 
 		switch (st->s) {
