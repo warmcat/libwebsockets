@@ -261,7 +261,28 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 		if (!ctx->ca_chain)
 			return 1;
 		mbedtls_x509_crt_init(ctx->ca_chain);
-		n = mbedtls_x509_crt_parse(ctx->ca_chain, ca_mem, ca_mem_len);
+		/*
+		 * mbedtls_x509_crt_parse() only treats the buffer as PEM when it
+		 * is NUL-terminated and the length includes that NUL; otherwise
+		 * it falls back to DER and PEM CAs fail with
+		 * MBEDTLS_ERR_X509_INVALID_FORMAT (-0x2180). Callers commonly
+		 * pass the content length without the terminator, so parse a
+		 * NUL-terminated copy when the buffer isn't already terminated.
+		 */
+		if (((const uint8_t *)ca_mem)[ca_mem_len - 1] == '\0')
+			n = mbedtls_x509_crt_parse(ctx->ca_chain, ca_mem,
+						   ca_mem_len);
+		else {
+			uint8_t *tmp = lws_malloc(ca_mem_len + 1, "ca_mem nul");
+
+			if (!tmp)
+				return 1;
+			memcpy(tmp, ca_mem, ca_mem_len);
+			tmp[ca_mem_len] = '\0';
+			n = mbedtls_x509_crt_parse(ctx->ca_chain, tmp,
+						   ca_mem_len + 1);
+			lws_free(tmp);
+		}
 		if (n != 0) {
 			lwsl_err("client CA: x509 parse failed: %d\n", n);
 			return 1;
