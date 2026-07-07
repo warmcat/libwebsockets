@@ -839,6 +839,8 @@ emit_string_char:
 			continue;
 		}
 		/* name part of name:value pair */
+		if (ctx->pst[ctx->pst_sp].ppos + 1u >= sizeof(ctx->path))
+			goto reject;
 		ctx->path[ctx->pst[ctx->pst_sp].ppos++] = (char)c;
 		continue;
 
@@ -846,8 +848,11 @@ add_stack_level:
 		/* push on to the object stack */
 		if (ctx->pst[ctx->pst_sp].ppos &&
 		    ctx->st[ctx->sp].s != LEJP_MP_COMMA_OR_END &&
-		    ctx->st[ctx->sp].s != LEJP_MP_ARRAY_END)
+		    ctx->st[ctx->sp].s != LEJP_MP_ARRAY_END) {
+			if (ctx->pst[ctx->pst_sp].ppos + 1u >= sizeof(ctx->path))
+				goto reject;
 			ctx->path[ctx->pst[ctx->pst_sp].ppos++] = '.';
+		}
 
 		ctx->st[ctx->sp].p = (char)ctx->pst[ctx->pst_sp].ppos;
 		ctx->st[ctx->sp].i = (char)ctx->ipos;
