@@ -1357,12 +1357,12 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		 * transitions to the "closed" state when the first frame for
 		 * stream 7 is sent or received.
 		 */
-		lws_start_foreach_ll(struct lws *, w, wsi->mux.child_list) {
+		lws_start_foreach_ll_safe(struct lws *, w, wsi->mux.child_list,
+					  mux.sibling_list) {
 			if (w->mux.my_sid < h2n->sid &&
 			    w->h2.h2_state == LWS_H2_STATE_IDLE)
 				lws_close_free_wsi(w, 0, "h2 sid close");
-			assert(w->mux.sibling_list != w);
-		} lws_end_foreach_ll(w, mux.sibling_list);
+		} lws_end_foreach_ll_safe(w);
 
 		h2n->cont_exp = !(h2n->flags & LWS_H2_FLAG_END_HEADERS);
 		h2n->cont_exp_sid = h2n->sid;

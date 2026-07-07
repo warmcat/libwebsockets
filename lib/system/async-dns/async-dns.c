@@ -228,6 +228,11 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 		q->sent[0]++;
 		q->sent[1]++; /* match states to avoid ipv6 duplicate writeable loop */
 		q->asked = 1;
+	} else if (q->ipv4_only && q->qtype == LWS_ADNS_RECORD_A) {
+		which = 0;
+		q->sent[0]++;
+		q->sent[1]++; /* also mark ipv6 state sent to avoid AAAA query */
+		q->asked = 1;
 	} else if (!q->responded) {
 		/* must pick between ipv6 and ipv4 */
 		which = q->sent[0] >= q->sent[1];
@@ -1440,6 +1445,8 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 
 	q->qtype = (uint16_t)qtype;
 	q->want_dnssec = want_dnssec != 0;
+	if (wsi && wsi->a.vhost && lws_check_opt(wsi->a.vhost->options, LWS_SERVER_OPTION_DISABLE_IPV6))
+		q->ipv4_only = 1;
 	if (qtype & LWS_ADNS_SYNTHETIC)
 		q->is_synthetic = 1;
 #if defined(LWS_WITH_SYS_ASYNC_DNS_DNSSEC)

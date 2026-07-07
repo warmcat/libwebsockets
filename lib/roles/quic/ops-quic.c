@@ -1640,8 +1640,8 @@ send_frames:
 			}
 		}
 
-		/* Fill in Length for Initial/Handshake packets */
-		if (level == LWS_QUIC_LEVEL_INITIAL || level == LWS_QUIC_LEVEL_HANDSHAKE) {
+		/* Fill in Length for Initial/Handshake/0-RTT packets */
+		if (level == LWS_QUIC_LEVEL_INITIAL || level == LWS_QUIC_LEVEL_HANDSHAKE || level == LWS_QUIC_LEVEL_EARLY) {
 			uint16_t quic_len = (uint16_t)(payload_len + 2 + 16); /* PN (2) + AEAD Tag (16) */
 			uint8_t *len_ptr = pkt + pn_offset - 2;
 			len_ptr[0] = (uint8_t)(0x40 | ((quic_len >> 8) & 0x3F));
