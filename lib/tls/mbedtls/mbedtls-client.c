@@ -42,6 +42,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 {
 	struct lws_tls_conn *conn;
 	char hostname[128], *p;
+	char temp_alpn[128];
 	const char *alpn_comma = wsi->a.context->tls.alpn_default;
 
 	if (wsi->stash)
@@ -101,7 +102,6 @@ lws_ssl_client_bio_create(struct lws *wsi)
 		if (wsi->stash->cis[CIS_ALPN])
 			alpn_comma = wsi->stash->cis[CIS_ALPN];
 	} else {
-		char temp_alpn[128];
 		if (lws_hdr_copy(wsi, temp_alpn, sizeof(temp_alpn),
 				_WSI_TOKEN_CLIENT_ALPN) > 0)
 			alpn_comma = temp_alpn;
