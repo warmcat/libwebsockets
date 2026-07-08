@@ -633,6 +633,15 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 		    (ai->ai_family != AF_INET && ai->ai_family != AF_INET6))
 			goto next;
 
+		/*
+		* This wsi doesn't want ipv6 results (runtime
+		* LWS_SERVER_OPTION_DISABLE_IPV6, or IPv4 source address)
+		*/
+#if defined(LWS_WITH_IPV6)
+		if (!wsi->ipv6 && ai->ai_family == AF_INET6)
+			goto next;
+#endif
+
 		ds = lws_zalloc(sizeof(*ds), __func__);
 		if (!ds)
 			return 1;
