@@ -235,7 +235,7 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 		q->asked = 1;
 	} else if (!q->responded) {
 		/* must pick between ipv6 and ipv4 */
-		which = q->sent[0] >= q->sent[1];
+		which = q->sent[0] > q->sent[1];
 		q->sent[which]++;
 		q->asked = 3; /* want results for 4 & 6 before done */
 	} else
