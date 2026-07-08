@@ -1300,7 +1300,7 @@ lws_http_get_uri_and_method(struct lws *wsi, char **puri_ptr, int *puri_len)
 	return -1;
 }
 
-#if defined(LWS_WITH_HTTP_BASIC_AUTH)
+#if defined(LWS_WITH_HTTP_BASIC_AUTH) && defined(LWS_WITH_FILE_OPS)
 
 static int
 lws_authorization_rewrite(struct lws *wsi, const char *name, size_t len)
