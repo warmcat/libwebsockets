@@ -1808,6 +1808,10 @@ lws_http_evaluate_interceptors(struct lws *wsi, const struct lws_http_mount *hit
 				*uri_len = (int)m_interceptor->mountpoint_len;
 				return m_interceptor;
 			}
+		} else {
+			lwsl_err("%s: Interceptor protocol '%s' not found, denying access\n",
+				 __func__, m_interceptor->protocol);
+			return NULL; /* Fail CLOSED */
 		}
 		curr = m_interceptor;
 	}

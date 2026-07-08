@@ -2975,6 +2975,23 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 					}
 					sqlite3_finalize(stmt);
 				}
+
+				if (session_uid) {
+					char service_name[128] = {0};
+					lws_get_urlarg_by_name_safe(wsi, "service_name=", service_name, sizeof(service_name));
+					if (service_name[0]) {
+						struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL, NULL);
+						if (ja) {
+							int level = lws_jwt_auth_query_grant(ja, service_name);
+							lws_jwt_auth_destroy(&ja);
+							if (level < 1) { // Lacks required grant
+								session_uid = 0; // Force them to login screen
+							}
+						} else {
+							session_uid = 0;
+						}
+					}
+				}
 			}
 
 			if (!session_uid) {

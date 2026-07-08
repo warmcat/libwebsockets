@@ -138,17 +138,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 if (data.logged_in) {
-                    regToggleBox.classList.add('hidden');
-
                     if (data.lacks_grant) {
+                        regToggleBox.classList.remove('hidden');
                         renderAuthStatus(data, true);
                         subtitle.innerText = "Insufficient Privileges";
-                        /* The user requested getting rid of this error box entirely and standardizing.
-                           Since showNotif generates this other error box, let's remove it if the user doesn't want redundancy,
-                           or keep it if it's the notification. "I'd like to get rid of the first error box... and change it to this kind of simplified and standardized flow" */
-                        // showNotif('error', 'You lack the required grant to access this service.');
                         return;
                     }
+                    regToggleBox.classList.add('hidden');
 
                     if (clientId && redirectUri) {
                         /*alert("auth.js auth redirect -> " + `/api/authorize`); */ window.location.href = `/api/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state||'')}&response_type=code` + (codeChallenge ? `&code_challenge=${encodeURIComponent(codeChallenge)}` : '') + (codeChallengeMethod ? `&code_challenge_method=${encodeURIComponent(codeChallengeMethod)}` : '');
