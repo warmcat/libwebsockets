@@ -556,17 +556,27 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 		}
 	}
 
-	if (split_offset > 0 && split_offset < *out_len) {
-		size_t remainder = *out_len - split_offset;
+	if (out && out_len) {
+		if (split_offset > 0 && split_offset < *out_len) {
+			size_t remainder = *out_len - split_offset;
 
-		/*
-		 * We return the Initial bytes back to the caller in `out`, but we must
-		 * instantly push the Handshake bytes into the QUIC layer at Level 2,
-		 * because the caller does not loop to pull them!
-		 */
-		lws_tls_quic_tx_crypto_cb(wsi, 2 /* LWS_QUIC_LEVEL_HANDSHAKE */, out + split_offset, remainder);
+			/*
+			 * We return the Initial bytes back to the caller in `out`, but we must
+			 * instantly push the Handshake bytes into the QUIC layer at Level 2,
+			 * because the caller does not loop to pull them!
+			 */
+			lws_tls_quic_tx_crypto_cb(wsi, 2 /* LWS_QUIC_LEVEL_HANDSHAKE */, out + split_offset, remainder);
 
-		*out_len = split_offset;
+			*out_len = split_offset;
+		}
+	} else if (out_bufs[0].cbBuffer && out_bufs[0].pvBuffer) {
+		size_t len = out_bufs[0].cbBuffer;
+		if (split_offset > 0 && split_offset < len) {
+			size_t remainder = len - split_offset;
+			lws_tls_quic_tx_crypto_cb(wsi, 2 /* LWS_QUIC_LEVEL_HANDSHAKE */, (uint8_t *)out_bufs[0].pvBuffer + split_offset, remainder);
+			len = split_offset;
+		}
+		lws_tls_quic_tx_crypto_cb(wsi, level, out_bufs[0].pvBuffer, len);
 	}
 
 #else
