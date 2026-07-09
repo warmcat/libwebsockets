@@ -114,7 +114,10 @@ static const char * const canned_css =
         ".pie-timer circle{fill:none;stroke:#fff;stroke-width:10;stroke-dasharray:31.4;transition:stroke-dashoffset 1s linear;}"
         ".lws-login-refgirl{position:absolute;bottom:0px;right:-10px;height:120px;opacity:0.8;pointer-events:none;z-index:1;}"
         ".lws-preauth-widget{display:none;position:absolute;top:0;left:100%;margin-left:15px;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px;max-height:200px;overflow-y:auto;background:#2b2d31;box-shadow:0 8px 16px rgba(0,0,0,0.3);z-index:1000;min-width:280px;}"
-        ".lws-preauth-widget.active{display:block;}";
+        ".lws-preauth-widget.active{display:block;}"
+        ".lws-login-avatar-admin{color:#007bff;margin-right:6px;display:inline-block;vertical-align:middle;}"
+        ".lws-login-avatar-user{color:#333;margin-right:6px;display:inline-block;vertical-align:middle;}"
+        "@media(prefers-color-scheme:dark){.lws-login-avatar-user{color:#888;}}";
 
 static const char * const canned_js =
         "window.lwsLoginSilentRefresh=async function(){"
@@ -152,6 +155,10 @@ static const char * const canned_js =
         "window.lwsLoginRetry=0;"
         "var u='.lws-login-logout?redirect_uri='+encodeURIComponent(window.location.href);"
         "var a=st.is_admin?'<a class=\"lws-login-link\" href=\"'+st.auth_server_url+'/api/admin\">Admin Console</a>':'';"
+        "var av='<svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" stroke=\"currentColor\" stroke-width=\"2\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2\"></path><circle cx=\"12\" cy=\"7\" r=\"4\"></circle></svg>';"
+        "var gl=st.is_admin?255:(st.grant_level||0);"
+        "var ac=gl>=2?'lws-login-avatar-admin':'lws-login-avatar-user';"
+        "c+='<span class=\"'+ac+'\">'+av+'</span>';"
         "c+='<strong class=\"lws-login-identity\">'+st.identity+'</strong><br>';"
         "c+=a+' <a class=\"lws-login-link lws-login-logout\" href=\"'+u+'\">Logout</a>';"
         "if(!st.has_grant&&!st.is_admin)c+='<div class=\"lws-login-err\">login lacks grant</div><br>';"
