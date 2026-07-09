@@ -740,8 +740,13 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 		lws_get_random(wsi->a.context, nwsi->quic.qn->loc_cid.id, 8);
 
 		{
-			uint8_t *tp = nwsi->quic.qn->local_tp_buf;
-			uint8_t *tp_end = tp + sizeof(nwsi->quic.qn->local_tp_buf);
+			uint8_t *local_tp_buf = lws_malloc(4096, "quic tp scratch");
+			if (!local_tp_buf) {
+				lwsl_wsi_err(wsi, "OOM allocating tp scratch buffer");
+				return LWS_HPI_RET_HANDLED;
+			}
+			uint8_t *tp = local_tp_buf;
+			uint8_t *tp_end = tp + 4096;
 
 #define LWS_QUIC_WRITE_TP_VARINT(_id, _val) \
 	do { \
@@ -763,7 +768,7 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 		tp += (_len); \
 	} while (0)
 
-			lwsl_notice("QUIC CLIENT: Writing TP buffer! buf size %d", (int)(tp - nwsi->quic.qn->local_tp_buf)); LWS_QUIC_WRITE_TP_VARINT(0x04, LWS_QUIC_DEFAULT_WINDOW);
+			lwsl_notice("QUIC CLIENT: Writing TP buffer! buf size %d", (int)(tp - local_tp_buf)); LWS_QUIC_WRITE_TP_VARINT(0x04, LWS_QUIC_DEFAULT_WINDOW);
 			LWS_QUIC_WRITE_TP_VARINT(0x05, LWS_QUIC_DEFAULT_WINDOW);
 			LWS_QUIC_WRITE_TP_VARINT(0x06, LWS_QUIC_DEFAULT_WINDOW);
 			LWS_QUIC_WRITE_TP_VARINT(0x07, LWS_QUIC_DEFAULT_WINDOW);
@@ -894,15 +899,15 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
                                 }
                         }
 
-			lws_tls_quic_set_transport_parameters(nwsi, nwsi->quic.qn->local_tp_buf, (size_t)(tp - nwsi->quic.qn->local_tp_buf));
-			
+			lws_tls_quic_set_transport_parameters(nwsi, local_tp_buf, (size_t)(tp - local_tp_buf));
+			lws_free(local_tp_buf);
 			goto tp_ok;
 tp_overflow:
+			lws_free(local_tp_buf);
 			lwsl_wsi_err(wsi, "QUIC TX: tp buffer overflow");
 			lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS, "tp overflow");
 			return LWS_HPI_RET_HANDLED;
 tp_ok:
-			;
 #undef LWS_QUIC_WRITE_TP_VARINT
 #undef LWS_QUIC_WRITE_TP_BUF
 		}
@@ -2616,8 +2621,13 @@ rops_client_bind_quic(struct lws *wsi, const struct lws_client_connect_info *i)
 		}
 
 		{
-			uint8_t *tp = wsi->quic.qn->local_tp_buf;
-			uint8_t *tp_end = tp + sizeof(wsi->quic.qn->local_tp_buf);
+			uint8_t *local_tp_buf = lws_malloc(4096, "quic tp scratch");
+			if (!local_tp_buf) {
+				lwsl_wsi_err(wsi, "OOM allocating tp scratch buffer");
+				return 1;
+			}
+			uint8_t *tp = local_tp_buf;
+			uint8_t *tp_end = tp + 4096;
 
 #define LWS_QUIC_WRITE_TP_VARINT(_id, _val) \
 	do { \
@@ -2639,7 +2649,7 @@ rops_client_bind_quic(struct lws *wsi, const struct lws_client_connect_info *i)
 		tp += (_len); \
 	} while (0)
 
-			lwsl_notice("QUIC CLIENT: Writing TP buffer! buf size %d", (int)(tp - wsi->quic.qn->local_tp_buf)); LWS_QUIC_WRITE_TP_VARINT(0x04, 1048576);
+			lwsl_notice("QUIC CLIENT: Writing TP buffer! buf size %d", (int)(tp - local_tp_buf)); LWS_QUIC_WRITE_TP_VARINT(0x04, 1048576);
 			LWS_QUIC_WRITE_TP_VARINT(0x05, 1048576);
 			LWS_QUIC_WRITE_TP_VARINT(0x06, 1048576);
 			LWS_QUIC_WRITE_TP_VARINT(0x07, 1048576);
@@ -2666,10 +2676,11 @@ rops_client_bind_quic(struct lws *wsi, const struct lws_client_connect_info *i)
                                 LWS_QUIC_WRITE_TP_BUF(0x11, vi_buf, 12);
                         }
 
-			lws_tls_quic_set_transport_parameters(wsi, wsi->quic.qn->local_tp_buf, (size_t)(tp - wsi->quic.qn->local_tp_buf));
-			
+			lws_tls_quic_set_transport_parameters(wsi, local_tp_buf, (size_t)(tp - local_tp_buf));
+			lws_free(local_tp_buf);
 			goto tp_ok2;
 tp_overflow2:
+			lws_free(local_tp_buf);
 			lwsl_wsi_err(wsi, "QUIC TX: tp buffer overflow");
 			return 1;
 tp_ok2:

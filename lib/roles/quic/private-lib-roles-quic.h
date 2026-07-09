@@ -222,8 +222,6 @@ struct lws_quic_netconn {
 	struct lws_quic_cid	rem_cid; /* Remote peer's Connection ID */
 	struct lws_quic_cid	orig_dcid; /* Original Destination Connection ID from client */
 
-	uint8_t			local_tp_buf[4096]; /* buffer for transport parameters */
-
 	/* Array of pointers to lazily allocated key material */
 	struct lws_quic_keys	*keys[LWS_QUIC_LEVEL_COUNT];
 
