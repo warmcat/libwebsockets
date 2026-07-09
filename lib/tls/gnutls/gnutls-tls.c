@@ -336,10 +336,15 @@ int
 lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 {
 	gnutls_session_t session;
-
 	unsigned int flags = GNUTLS_SERVER;
+
+	if (!wsi->a.vhost) {
+		lwsl_err("%s: NULL vhost\n", __func__);
+		return 1;
+	}
+
 #if GNUTLS_VERSION_NUMBER >= 0x030605
-        if (wsi->a.vhost && (wsi->a.vhost->options & LWS_SERVER_OPTION_ALLOW_EARLY_DATA)) {
+        if (wsi->a.vhost->options & LWS_SERVER_OPTION_ALLOW_EARLY_DATA) {
                 flags |= GNUTLS_ENABLE_EARLY_DATA;
 #if defined(LWS_ROLE_QUIC) && GNUTLS_VERSION_NUMBER >= 0x030702
                 extern const struct lws_role_ops role_ops_quic;
@@ -493,7 +498,7 @@ lws_ssl_client_bio_create(struct lws *wsi)
 void
 lws_ssl_SSL_CTX_destroy(struct lws_vhost *vhost)
 {
-#if GNUTLS_VERSION_NUMBER >= 0x030605
+#if defined(LWS_WITH_SERVER) && GNUTLS_VERSION_NUMBER >= 0x030605
         if (vhost->tls.anti_replay) {
                 lws_dll2_owner_t *owner = (lws_dll2_owner_t *)vhost->tls.anti_replay_owner;
                 if (owner) {

@@ -568,6 +568,11 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 			pn -= (first_ack_range + 1);
 
 			/* 5. Additional ACK Ranges */
+			if (ack_range_count > (payload_len - pos) / 2) {
+				lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FRAME_ENCODING_ERROR, type, 0);
+				return -1;
+			}
+
 			for (uint64_t r = 0; r < ack_range_count; r++) {
 				uint64_t gap, ack_range;
 
@@ -636,6 +641,16 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 					lwsl_wsi_notice(nwsi, "QUIC RX: Invalid RESET_STREAM on stream ID %llu", (unsigned long long)stream_id);
 					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_STREAM_STATE_ERROR, type, 0);
 					return -1;
+				}
+				if (!wsi_child) {
+					/* It could be a stream we already closed and freed, or one we never created.
+					 * Check if we created it by comparing with next_stream_id. */
+					uint64_t next_id = is_unidirectional ? qn->next_stream_id_unidi_local : qn->next_stream_id_bidi_local;
+					if (stream_id >= next_id) {
+						lwsl_wsi_notice(nwsi, "QUIC RX: RESET_STREAM on uncreated stream ID %llu", (unsigned long long)stream_id);
+						lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_STREAM_STATE_ERROR, type, 0);
+						return -1;
+					}
 				}
 			}
 			pos += consumed;
@@ -748,6 +763,14 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 
 			if (!is_peer_initiated) {
 				if (!wsi_child) {
+					/* It could be a stream we already closed and freed, or one we never created.
+					 * Check if we created it by comparing with next_stream_id. */
+					uint64_t next_id = is_unidirectional ? qn->next_stream_id_unidi_local : qn->next_stream_id_bidi_local;
+					if (stream_id >= next_id) {
+						lwsl_wsi_notice(nwsi, "QUIC RX: STOP_SENDING on uncreated stream ID %llu", (unsigned long long)stream_id);
+						lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_STREAM_STATE_ERROR, type, 0);
+						return -1;
+					}
 					// Ignore STOP_SENDING for closed streams
 				}
 			} else {
@@ -885,8 +908,10 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 							/* Transition new nwsi to established state and cancel its timeout/grace timers */
 							lwsi_set_state(nwsi, LRS_ESTABLISHED);
 							lws_set_timeout(nwsi, NO_PENDING_TIMEOUT, 0);
+#if defined(LWS_WITH_CLIENT)
 							lws_sul_cancel(&nwsi->sul_h3_grace);
 							lws_sul_cancel(&nwsi->sul_happy_eyeballs);
+#endif
 							lws_sul_cancel(&nwsi->sul_connect_timeout);
 
 							/* Reparent all child streams to the new nwsi */
@@ -1459,6 +1484,7 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 				return -1;
 			}
 			break;
+#if defined(LWS_WITH_CLIENT)
 		case 0x0d: /* preferred_address */
 			if (qn->is_server) {
 				/* Client cannot send these */
@@ -1503,6 +1529,7 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 				}
 			}
 			break;
+#endif
 		default:
 			break;
 		}
