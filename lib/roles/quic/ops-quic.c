@@ -908,6 +908,7 @@ tp_overflow:
 			lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS, "tp overflow");
 			return LWS_HPI_RET_HANDLED;
 tp_ok:
+			;
 #undef LWS_QUIC_WRITE_TP_VARINT
 #undef LWS_QUIC_WRITE_TP_BUF
 		}
@@ -1495,8 +1496,6 @@ rops_handle_POLLOUT_quic(struct lws *wsi)
 	int eagain_blocked = 0;
 	uint8_t pkt[2048]; memset(pkt, 0, sizeof(pkt));
 
-	wsi->mux.requested_POLLOUT = 0;
-
 	// lwsl_notice("QUIC TX: POLLOUT called for %s, qn=%p, is_server=%d\n", lws_wsi_tag(wsi), qn, qn ? qn->is_server : -1);
 
 	if (!qn) {
@@ -1514,6 +1513,8 @@ rops_handle_POLLOUT_quic(struct lws *wsi)
 		}
 		return LWS_HP_RET_DROP_POLLOUT;
 	}
+
+	wsi->mux.requested_POLLOUT = 0;
 
 	lws_usec_t pto_base = qn->smoothed_rtt ? (qn->smoothed_rtt + (4 * qn->rttvar) + 25000) : LWS_QUIC_DEFAULT_PTO_US;
         lws_usec_t pto_delay = pto_base << qn->pto_count;

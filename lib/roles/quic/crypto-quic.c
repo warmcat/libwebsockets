@@ -725,6 +725,7 @@ lws_quic_encrypt_payload(struct lws_quic_keys *keys, uint8_t *packet, size_t pac
 int
 lws_tls_quic_rx_crypto(struct lws *wsi, int level, const uint8_t *buf, size_t len)
 {
+	struct lws *orig_wsi = wsi;
 	int n;
 
 	if (len > 0 && wsi->quic.qn) {
@@ -935,14 +936,14 @@ error_handling:
 		}
 #endif
 
-		if (wsi->role_ops) {
-			enum lws_callback_reasons cb = (enum lws_callback_reasons)wsi->role_ops->adoption_cb[lwsi_role_server(wsi)];
-			if (cb && wsi->a.protocol && wsi->a.protocol->callback) {
-				wsi->a.protocol->callback(wsi, cb, wsi->user_space, NULL, 0);
+		if (orig_wsi->role_ops) {
+			enum lws_callback_reasons cb = (enum lws_callback_reasons)orig_wsi->role_ops->adoption_cb[lwsi_role_server(orig_wsi)];
+			if (cb && orig_wsi->a.protocol && orig_wsi->a.protocol->callback) {
+				orig_wsi->a.protocol->callback(orig_wsi, cb, orig_wsi->user_space, NULL, 0);
 			}
 		}
 
-		lws_callback_on_writable(wsi);
+		lws_callback_on_writable(orig_wsi);
 	}
 
 	return 0;
