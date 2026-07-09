@@ -283,6 +283,7 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
 	/* For simplicity, we just mark valid and rely on tx/rx logic */
 	k->valid = 1;
 
+#if defined(LWS_WITH_CLIENT)
 	/* If this is the client deriving the early secret, check if the stream opts in */
 	if (type == LWS_TLS_QUIC_SECRET_CLIENT_EARLY && !qn->is_server) {
 		qn->early_data_status = LWS_0RTT_STATUS_ATTEMPTED;
@@ -327,7 +328,9 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
 				w = w->mux.sibling_list;
 			}
 		}
-	} else if (type == LWS_TLS_QUIC_SECRET_CLIENT_EARLY && qn->is_server) {
+	} else
+#endif
+	if (type == LWS_TLS_QUIC_SECRET_CLIENT_EARLY && qn->is_server) {
 		qn->early_data_status = LWS_0RTT_STATUS_ACCEPTED;
 		
 		/* On server, migrate connection to H3 immediately to support 0-RTT stream adoption */

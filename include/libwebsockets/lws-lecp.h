@@ -290,6 +290,7 @@ struct lecp_ctx {
 	uint8_t			pst_sp; /* parsing stack head */
 	uint8_t			outer_array;
 	uint8_t			cbor_pos;
+	uint8_t			cbor_len;
 	uint8_t			literal_cbor_report;
 	char			present; /* temp for cb reason to use */
 

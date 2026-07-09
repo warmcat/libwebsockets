@@ -749,10 +749,10 @@ int main(int argc, const char **argv)
          */
         if (testcase && !strcmp(testcase, "zerortt")) {
                 if (!save_ticket[0])
-                        lws_strncpy(save_ticket, "/tmp/lws_session_ticket",
+                        lws_strncpy(save_ticket, "./lws_session_ticket",
                                     sizeof(save_ticket));
                 if (!load_ticket[0])
-                        lws_strncpy(load_ticket, "/tmp/lws_session_ticket",
+                        lws_strncpy(load_ticket, "./lws_session_ticket",
                                     sizeof(load_ticket));
                 lwsl_notice("%s: TESTCASE=zerortt: ticket path '%s'\n",
                             __func__, save_ticket);
