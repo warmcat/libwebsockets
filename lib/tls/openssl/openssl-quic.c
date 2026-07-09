@@ -427,26 +427,33 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 
 	return 0;
 }
-
 int
 lws_tls_quic_set_transport_parameters(struct lws *wsi, const uint8_t *tp, size_t tp_len)
 {
-	wsi->tls.quic_tp_send = tp;
+	if (wsi->tls.quic_tp_send) {
+		lws_free((void *)wsi->tls.quic_tp_send);
+		wsi->tls.quic_tp_send = NULL;
+	}
+
+	uint8_t *p = lws_malloc(tp_len, "quic tp");
+	if (!p)
+		return -1;
+	memcpy(p, tp, tp_len);
+	wsi->tls.quic_tp_send = p;
 	wsi->tls.quic_tp_send_len = tp_len;
 
 	if (!wsi->tls.ssl)
 		return 0;
 
 #if defined(USE_WOLFSSL)
-	if (wolfSSL_set_quic_transport_params(wsi->tls.ssl, tp, tp_len) != 1)
+	if (wolfSSL_set_quic_transport_params(wsi->tls.ssl, p, tp_len) != 1)
 		return -1;
 #else
-	if (SSL_set_quic_transport_params(wsi->tls.ssl, tp, tp_len) != 1)
+	if (SSL_set_quic_transport_params(wsi->tls.ssl, p, tp_len) != 1)
 		return -1;
 #endif
 	return 0;
 }
-
 int
 lws_tls_quic_get_transport_parameters(struct lws *wsi, const uint8_t **tp, size_t *tp_len)
 {
@@ -687,7 +694,16 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 int
 lws_tls_quic_set_transport_parameters(struct lws *wsi, const uint8_t *tp, size_t tp_len)
 {
-	wsi->tls.quic_tp_send = tp;
+	if (wsi->tls.quic_tp_send) {
+		lws_free((void *)wsi->tls.quic_tp_send);
+		wsi->tls.quic_tp_send = NULL;
+	}
+
+	uint8_t *p = lws_malloc(tp_len, "quic tp");
+	if (!p)
+		return -1;
+	memcpy(p, tp, tp_len);
+	wsi->tls.quic_tp_send = p;
 	wsi->tls.quic_tp_send_len = tp_len;
 	return 0;
 }
