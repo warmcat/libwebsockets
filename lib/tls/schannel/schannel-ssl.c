@@ -897,6 +897,15 @@ lws_ssl_close(struct lws *wsi)
 		wsi->tls.ctx_ref = NULL;
 	}
 
+	if (wsi->tls.quic_tp_recv) {
+		lws_free((void *)wsi->tls.quic_tp_recv);
+		wsi->tls.quic_tp_recv = NULL;
+	}
+	if (wsi->tls.quic_tp_send) {
+		lws_free((void *)wsi->tls.quic_tp_send);
+		wsi->tls.quic_tp_send = NULL;
+	}
+
 	return 0;
 }
 

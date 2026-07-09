@@ -777,7 +777,12 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 		wsi->h3.stream_type = (uint8_t)type;
 		wsi->h3.type_set = 1;
 		if (type == 0x02) {
-			wsi->h3.qpack_dec_state.state = LQP_DEC_INSTRUCTION;
+			if (!wsi->h3.qpack_dec_state) {
+				wsi->h3.qpack_dec_state = lws_zalloc(sizeof(*wsi->h3.qpack_dec_state), "qpack dec state");
+				if (!wsi->h3.qpack_dec_state)
+					return 1;
+			}
+			wsi->h3.qpack_dec_state->state = LQP_DEC_INSTRUCTION;
 		}
 		buf += consumed;
 		len -= consumed;
@@ -802,10 +807,17 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 			struct lws_qpack_context *ctx = wsi->h3.h3n ? &wsi->h3.h3n->qpack_dec_ctx : NULL;
 			lwsl_wsi_info(wsi, "LWS_H3_RX_STREAM_DATA: Encoder Stream payload received, len=%d", (int)len);
 			
-			if (lws_qpack_decode_encoder_stream(&wsi->h3.qpack_dec_state, ctx, buf, len)) {
+			if (!wsi->h3.qpack_dec_state) {
+				wsi->h3.qpack_dec_state = lws_zalloc(sizeof(*wsi->h3.qpack_dec_state), "qpack dec state");
+				if (!wsi->h3.qpack_dec_state)
+					return 1;
+				wsi->h3.qpack_dec_state->state = LQP_DEC_INSTRUCTION;
+			}
+
+			if (lws_qpack_decode_encoder_stream(wsi->h3.qpack_dec_state, ctx, buf, len)) {
 				struct lws *nwsi = lws_get_quic_network_wsi(wsi);
 				lwsl_err("ERROR: QPACK_ENCODER_STREAM_ERROR!!!!\n");
-lws_quic_enter_closing_state(nwsi, LWS_QPACK_ENCODER_STREAM_ERROR, 0, 1);
+				lws_quic_enter_closing_state(nwsi, LWS_QPACK_ENCODER_STREAM_ERROR, 0, 1);
 				return 1;
 			}
 			buf += len; len = 0;
@@ -945,7 +957,12 @@ lws_quic_enter_closing_state(nwsi, LWS_QPACK_ENCODER_STREAM_ERROR, 0, 1);
 			if (!wsi->quic.qs || !wsi->quic.qs->is_unidirectional) {
 				if (wsi->h3.rx_frame_type == 0x01) { /* HEADERS */
 					struct lws_qpack_context *ctx = wsi->h3.h3n ? &wsi->h3.h3n->qpack_dec_ctx : NULL;
-					if (lws_qpack_decode_header_block(&wsi->h3.qpack_dec_state, ctx, buf, chunk, lws_h3_qpack_header_cb, wsi)) {
+					if (!wsi->h3.qpack_dec_state) {
+						wsi->h3.qpack_dec_state = lws_zalloc(sizeof(*wsi->h3.qpack_dec_state), "qpack dec state");
+						if (!wsi->h3.qpack_dec_state)
+							return 1;
+					}
+					if (lws_qpack_decode_header_block(wsi->h3.qpack_dec_state, ctx, buf, chunk, lws_h3_qpack_header_cb, wsi)) {
 						struct lws *nwsi = lws_get_quic_network_wsi(wsi);
 						lws_quic_enter_closing_state(nwsi, LWS_QPACK_DECOMPRESSION_FAILED, 0, 1);
 						return 1;
@@ -1198,6 +1215,10 @@ lws_quic_enter_closing_state(nwsi, LWS_QPACK_ENCODER_STREAM_ERROR, 0, 1);
 					}
 #endif
 				}
+				if (wsi->h3.rx_frame_type == 0x01 && wsi->h3.qpack_dec_state) {
+					lws_free(wsi->h3.qpack_dec_state);
+					wsi->h3.qpack_dec_state = NULL;
+				}
 				wsi->h3.rx_frame_state = 0; /* Next frame */
 			}
 		}
@@ -1280,6 +1301,11 @@ static int
 rops_close_kill_connection_h3(struct lws *wsi, enum lws_close_status reason)
 {
 	lws_quic_stream_cleanup(wsi);
+
+	if (wsi->h3.qpack_dec_state) {
+		lws_free(wsi->h3.qpack_dec_state);
+		wsi->h3.qpack_dec_state = NULL;
+	}
 
 	if (wsi->mux.parent_wsi)
 		lws_wsi_mux_sibling_disconnect(wsi);

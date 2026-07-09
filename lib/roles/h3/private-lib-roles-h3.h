@@ -91,7 +91,7 @@ struct lws_h3_netconn {
 struct _lws_h3_related {
 	struct lws_h3_netconn *h3n; /* malloc'd for root net conn */
 	struct lws_qpack_tx_encoder *qpack_tx_encoder;
-	struct lws_qpack_stream_state qpack_dec_state;
+	struct lws_qpack_stream_state *qpack_dec_state;
 	uint8_t h3_state;
 	uint8_t stream_type;
 	uint8_t type_set:1;

@@ -525,6 +525,15 @@ lws_ssl_close(struct lws *wsi)
 	SSL_free(wsi->tls.ssl);
 	wsi->tls.ssl = NULL;
 
+	if (wsi->tls.quic_tp_recv) {
+		lws_free((void *)wsi->tls.quic_tp_recv);
+		wsi->tls.quic_tp_recv = NULL;
+	}
+	if (wsi->tls.quic_tp_send) {
+		lws_free((void *)wsi->tls.quic_tp_send);
+		wsi->tls.quic_tp_send = NULL;
+	}
+
 	lws_tls_restrict_return(wsi);
 
 	// lwsl_notice("%s: ssl restr %d, simul %d\n", __func__,
