@@ -340,7 +340,7 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 
 	if (wsi->tls.quic_secret_cb == test_secret_cb) {
 		wsi->tls.quic_tp_send = out;
-		wsi->tls.quic_tp_recv_len = *out_len;
+		wsi->tls.quic_tp_recv_len = out_len ? *out_len : 0;
 		wsi->tls.quic_tp_recv = NULL;
 	} else {
 		if (out_len)
@@ -653,6 +653,18 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 			written = (size_t)read_n;
 		*out_len = written;
 		lwsl_info("QUIC TLS: BIO_read extracted %d bytes of TX data\n", (int)written);
+	} else {
+		size_t pending = (size_t)BIO_ctrl_pending(wbio);
+		if (pending > 0) {
+			uint8_t *exact_buf = lws_malloc(pending, "quic tx exact");
+			if (exact_buf) {
+				int read_n = BIO_read(wbio, exact_buf, (int)pending);
+				if (read_n > 0) {
+					lws_tls_quic_tx_crypto_cb(wsi, level, exact_buf, (size_t)read_n);
+				}
+				lws_free(exact_buf);
+			}
+		}
 	}
 
 	if (hs_n <= 0) {

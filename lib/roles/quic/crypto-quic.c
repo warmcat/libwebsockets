@@ -725,12 +725,7 @@ lws_quic_encrypt_payload(struct lws_quic_keys *keys, uint8_t *packet, size_t pac
 int
 lws_tls_quic_rx_crypto(struct lws *wsi, int level, const uint8_t *buf, size_t len)
 {
-	uint8_t *out = lws_malloc(32768, "quic rx crypto");
-	size_t out_len = 32768;
 	int n;
-
-	if (!out)
-		return -1;
 
 	if (len > 0 && wsi->quic.qn) {
 		if (wsi->quic.qn->crypto_rx_buf_len[level] > 0) {
@@ -738,7 +733,6 @@ lws_tls_quic_rx_crypto(struct lws *wsi, int level, const uint8_t *buf, size_t le
 						       wsi->quic.qn->crypto_rx_buf_len[level] + len,
 						       "crypto rx buf");
 			if (!new_buf) {
-				lws_free(out);
 				return -1;
 			}
 			memcpy(new_buf + wsi->quic.qn->crypto_rx_buf_len[level], buf, len);
@@ -764,7 +758,6 @@ lws_tls_quic_rx_crypto(struct lws *wsi, int level, const uint8_t *buf, size_t le
 			if (type == 24 || type == 5) {
 				lwsl_wsi_notice(wsi, "QUIC RX CRYPTO: Illegal TLS Handshake type %d", type);
 				lws_quic_enter_closing_state(wsi, 0x0100 + 10 /* unexpected_message */, 0, 0);
-				lws_free(out);
 				return -1;
 			}
 
@@ -781,18 +774,16 @@ lws_tls_quic_rx_crypto(struct lws *wsi, int level, const uint8_t *buf, size_t le
 			if (wsi->quic.qn->crypto_rx_buf_len[level] == 0) {
 				uint8_t *new_buf = lws_malloc(len, "crypto rx buf");
 				if (!new_buf) {
-					lws_free(out);
 					return -1;
 				}
 				memcpy(new_buf, buf, len);
 				wsi->quic.qn->crypto_rx_buf[level] = new_buf;
 				wsi->quic.qn->crypto_rx_buf_len[level] = len;
 			}
-			lws_free(out);
 			return 0;
 		}
 
-		n = lws_tls_quic_advance_handshake(wsi, level, buf, complete_len, out, &out_len);
+		n = lws_tls_quic_advance_handshake(wsi, level, buf, complete_len, NULL, NULL);
 
 		{
 			struct lws *nwsi = lws_get_quic_network_wsi(wsi);
@@ -823,7 +814,7 @@ lws_tls_quic_rx_crypto(struct lws *wsi, int level, const uint8_t *buf, size_t le
 			}
 		}
 	} else {
-		n = lws_tls_quic_advance_handshake(wsi, level, buf, len, out, &out_len);
+		n = lws_tls_quic_advance_handshake(wsi, level, buf, len, NULL, NULL);
 		{
 			struct lws *nwsi = lws_get_quic_network_wsi(wsi);
 			if (nwsi) wsi = nwsi;
@@ -855,13 +846,7 @@ error_handling:
 			lws_quic_enter_closing_state(wsi, 0x0100 + 10 /* unexpected_message fallback */, 0, 0);
 		}
 #endif
-		lws_free(out);
 		return -1;
-	}
-
-	if (out_len > 0) {
-		/* Pass the generated TX CRYPTO data back to the QUIC transport queues */
-		lws_tls_quic_tx_crypto_cb(wsi, level, out, out_len);
 	}
 
 
@@ -876,16 +861,14 @@ error_handling:
 			if (lws_quic_parse_transport_parameters(wsi, peer_tp, peer_tp_len) < 0) {
 				lwsl_wsi_err(wsi, "QUIC transport parameters validation failed");
 				lws_quic_enter_closing_state(wsi, LWS_QUIC_ERR_TRANSPORT_PARAMETER_ERROR, 0, 0);
-				lws_free(out);
 				return -1;
 			}
 		} else {
 			lwsl_wsi_debug(wsi, "lws_tls_quic_get_transport_parameters returned non-zero or NULL");
 		}
-		if (wsi->quic.qn->is_server && out_len > 0 && !wsi->quic.qn->tp_parsed) {
+		if (wsi->quic.qn->is_server && wsi->quic.qn->crypto_tx_offset[LWS_QUIC_LEVEL_INITIAL] > 0 && !wsi->quic.qn->tp_parsed) {
 			lwsl_wsi_err(wsi, "QUIC Peer provided no transport parameters in ClientHello!");
 			lws_quic_enter_closing_state(wsi, 0x0100 + 109 /* missing_extension */, 0, 0);
-			lws_free(out);
 			return -1;
 		}
 	}
@@ -896,7 +879,6 @@ error_handling:
 		if (!wsi->quic.qn->tp_parsed) {
 			lwsl_wsi_err(wsi, "QUIC Peer provided no transport parameters!");
 			lws_quic_enter_closing_state(wsi, 0x0100 + 109 /* missing_extension */, 0, 0);
-			lws_free(out);
 			return -1;
 		}
 
@@ -943,12 +925,11 @@ error_handling:
 				lwsl_wsi_notice(wsi, "QUIC ALPN negotiated: %s", wsi->alpn);
 				lws_role_call_alpn_negotiated(wsi, wsi->alpn);
                        } else if (wsi->alpn[0]) {
-                               lwsl_wsi_notice(wsi, "QUIC ALPN already negotiated: %s", wsi->alpn);
-                               lws_role_call_alpn_negotiated(wsi, wsi->alpn);
+                                lwsl_wsi_notice(wsi, "QUIC ALPN already negotiated: %s", wsi->alpn);
+                                lws_role_call_alpn_negotiated(wsi, wsi->alpn);
 			} else {
 				lwsl_wsi_err(wsi, "QUIC requires ALPN, but none was negotiated!");
 				lws_quic_enter_closing_state(wsi, 0x0100 + 120 /* no_application_protocol */, 0, 0);
-				lws_free(out);
 				return -1;
 			}
 		}
@@ -964,7 +945,6 @@ error_handling:
 		lws_callback_on_writable(wsi);
 	}
 
-	lws_free(out);
 	return 0;
 }
 
