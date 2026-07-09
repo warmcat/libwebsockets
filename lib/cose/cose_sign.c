@@ -456,11 +456,10 @@ inner_protected_l:
 			lws_lec_printf(&lec, "{1:%lld}",
 					     (long long)csc->alg->cose_alg);
 
-			lws_lec_init(&lec1, lb, sizeof(lb));
-			lws_lec_int(&lec1, LWS_CBOR_MAJTYP_BSTR, 0,
-					lec.used);
-			if (lws_lec_printf(csc->info.lec, "{1:%lld}",
-					     (long long)csc->alg->cose_alg) != LWS_LECPCTX_RET_FINISHED)
+			lws_lec_scratch(&lec);
+
+			if (lws_lec_printf(csc->info.lec, "%.*b",
+					     (int)lec.used, lec.start) != LWS_LECPCTX_RET_FINISHED)
 				/* coverity */
 				return 0;
 			break;

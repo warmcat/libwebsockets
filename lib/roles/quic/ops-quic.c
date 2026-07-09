@@ -285,6 +285,7 @@ lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t acked_pn)
 
 		{
 			struct lws_quic_cc_newreno *_cc = qn->cc_ops ? (struct lws_quic_cc_newreno *)qn->cc_state : NULL;
+			(void)_cc;
 			lwsl_notice("QUIC TX: ACK processing: bytes_acked=%zu, cc_bif=%zu cc_cwnd=%zu cc_pacing=%zu, in_flight_app=%d, pending_tx=%d, blocked=%d\n",
 				    bytes_acked,
 				    _cc ? _cc->bytes_in_flight : 0,
@@ -842,16 +843,22 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
                                                 if (sa.sa4.sin_family == AF_INET) {
                                                         sa4 = sa;
                                                         sa4.sa4.sin_port = htons((uint16_t)port);
+#if defined(LWS_WITH_IPV6)
                                                 } else {
                                                         sa6 = sa;
                                                         sa6.sa6.sin6_port = htons((uint16_t)port);
+#endif
                                                 }
                                         }
                                         p = comma ? comma + 1 : NULL;
                                 }
 
                                 /* We only send preferred_address if we have a valid address */
+#if defined(LWS_WITH_IPV6)
                                 if (sa4.sa4.sin_family == AF_INET || sa6.sa6.sin6_family == AF_INET6) {
+#else
+                                if (sa4.sa4.sin_family == AF_INET) {
+#endif
                                         uint8_t pref_buf[128];
                                         uint8_t *pb = pref_buf;
                                         
@@ -864,12 +871,16 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
                                         }
                                         
                                         /* IPv6 (16 bytes addr, 2 bytes port) */
+#if defined(LWS_WITH_IPV6)
                                         if (sa6.sa6.sin6_family == AF_INET6) {
                                                 memcpy(pb, sa6.sa6.sin6_addr.s6_addr, 16); pb += 16;
                                                 memcpy(pb, &sa6.sa6.sin6_port, 2); pb += 2;
                                         } else {
                                                 memset(pb, 0, 18); pb += 18;
                                         }
+#else
+                                        memset(pb, 0, 18); pb += 18;
+#endif
                                         
                                         /* CID Length (1 byte) */
                                         *pb++ = 8; /* Generating an 8-byte CID */
@@ -2866,7 +2877,7 @@ lws_quic_stream_cleanup(struct lws *wsi)
 				struct lws_quic_tx_frame *f_max =
 					lws_zalloc(sizeof(*f_max), "quic max strm");
 				if (f_max) {
-					f_max->stream_id = -1ULL;
+					f_max->stream_id = ~0ULL;
 					f_max->type = want_type;
 					f_max->limit = is_unidirectional ?
 						qn->max_streams_unidi_local :

@@ -325,6 +325,7 @@ report_raw_cbor(struct lecp_ctx *ctx)
 	if (!ctx->cbor_pos)
 		return 0;
 
+	ctx->cbor_len = ctx->cbor_pos;
 	ctx->cbor_pos = 0;                /* reset BEFORE callback */
 
 	if (pst->cb(ctx, LECPCB_LITERAL_CBOR))
