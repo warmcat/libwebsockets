@@ -592,8 +592,10 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	lws_dll2_remove(&curr->list);
 	wsi->sa46_peer = curr->dest;
 #if defined(LWS_WITH_UDP)
-	if (wsi->udp)
+	if (wsi->udp) {
 		wsi->udp->sa46 = curr->dest;
+		sa46_sockport(&wsi->udp->sa46, htons(port));
+	}
 #endif
 #if defined(LWS_WITH_ROUTING)
 	wsi->peer_route_uidx = curr->uidx;

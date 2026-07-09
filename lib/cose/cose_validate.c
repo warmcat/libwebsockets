@@ -947,13 +947,13 @@ unexpected_tag_l:
 		case ST_OUTER_UNPROTECTED:
 			sl = &cps->st[cps->sp];
 			hi = ph_index(cps);
-			if (sl->ph_pos[hi] + 3 + ctx->cbor_pos >
+			if (sl->ph_pos[hi] + 3 + ctx->cbor_len >
 					(int)sizeof(sl->ph[hi]) - 3)
 				/* more protected cbor than we can handle */
 				goto bail;
 			memcpy(sl->ph[hi] + 3 + sl->ph_pos[hi], ctx->cbor,
-			       ctx->cbor_pos);
-			sl->ph_pos[hi] += ctx->cbor_pos;
+			       ctx->cbor_len);
+			sl->ph_pos[hi] += ctx->cbor_len;
 			break;
 		}
 	}

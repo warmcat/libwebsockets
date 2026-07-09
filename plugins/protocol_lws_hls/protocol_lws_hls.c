@@ -37,7 +37,7 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!vhd)
 			return 1;
 
-		vhd->media_dir = "/tmp/media"; // default
+		vhd->media_dir = "./media"; // default
 		if ((pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "media-dir")))
 			vhd->media_dir = pvo->value;
 

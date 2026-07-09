@@ -801,7 +801,12 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 
 		if (wsi->mux.parent_wsi->h2.h2n &&
 		    wsi->mux.parent_wsi->h2.h2n->swsi == wsi) {
+			struct lws *nwsi = wsi->mux.parent_wsi;
 			wsi->mux.parent_wsi->h2.h2n->swsi = NULL;
+			lws_start_foreach_ll(struct lws *, sibling, nwsi->mux.child_list) {
+				if (sibling != wsi && lwsi_state(sibling) == LRS_H2_WAITING_TO_SEND_HEADERS)
+					lws_callback_on_writable(sibling);
+			} lws_end_foreach_ll(sibling, mux.sibling_list);
 		}
 
 		lws_wsi_mux_sibling_disconnect(wsi);

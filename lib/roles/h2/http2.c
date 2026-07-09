@@ -2758,6 +2758,13 @@ lws_h2_client_handshake(struct lws *wsi)
 	lws_h2_state(wsi, LWS_H2_STATE_OPEN);
 	lwsi_set_state(wsi, LRS_ESTABLISHED);
 
+	if (wsi->mux.my_sid == 1) {
+		lws_start_foreach_ll(struct lws *, w1, nwsi->mux.child_list) {
+			if (w1 != wsi && lwsi_state(w1) == LRS_H2_WAITING_TO_SEND_HEADERS)
+				lws_callback_on_writable(w1);
+		} lws_end_foreach_ll(w1, mux.sibling_list);
+	}
+
 	if (wsi->flags & LCCSCF_HTTP_MULTIPART_MIME)
 		lws_callback_on_writable(wsi);
 
