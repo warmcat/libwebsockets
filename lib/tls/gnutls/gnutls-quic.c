@@ -161,8 +161,8 @@ gnutls_quic_read_func(gnutls_session_t session,
 		return 0;
 	}
 
-	if (qlevel == b->target_level) {
-		if (!b->out || b->out_len + data_size > b->out_max)
+	if (b->out && qlevel == b->target_level) {
+		if (b->out_len + data_size > b->out_max)
 			return GNUTLS_E_MEMORY_ERROR;
 		memcpy(b->out + b->out_len, data, data_size);
 		b->out_len += data_size;
