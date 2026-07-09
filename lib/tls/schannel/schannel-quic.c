@@ -175,11 +175,16 @@ int
 lws_tls_quic_set_transport_parameters(struct lws *wsi, const uint8_t *tp, size_t tp_len)
 {
 #if defined(SECPKG_ATTR_APPLICATION_PROTOCOL) || defined(SECPKG_ATTR_APP_DATA)
-	/*
-	 * Transport parameter exchange on Windows using Schannel for QUIC
-	 * typically requires MsQuic or newer Windows 11 / Server 2022 APIs.
-	 */
-	wsi->tls.quic_tp_send = tp;
+	if (wsi->tls.quic_tp_send) {
+		lws_free((void *)wsi->tls.quic_tp_send);
+		wsi->tls.quic_tp_send = NULL;
+	}
+
+	uint8_t *p = lws_malloc(tp_len, "quic tp");
+	if (!p)
+		return -1;
+	memcpy(p, tp, tp_len);
+	wsi->tls.quic_tp_send = p;
 	wsi->tls.quic_tp_send_len = tp_len;
 	return 0;
 #else
