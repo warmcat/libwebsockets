@@ -2436,7 +2436,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				int lacks_grant = 0;
 				char sname[128] = {0};
 				char user_email[128] = {0};
-				char grants[256] = {0};
+				char grants[2048] = {0};
 				char *gp = grants, *gend = grants + sizeof(grants);
 				char logs[LWS_SSO_MAX_COOKIE] = {0};
 				lws_get_urlarg_by_name_safe(wsi, "service_name=", sname, sizeof(sname));
@@ -3184,7 +3184,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 	{
 		char op[32] = {0};
 		int req_uid = -1;
-		char new_grants[512] = {0};
+		char new_grants[2048] = {0};
 
 		char *gp;
 		if ((gp = (char *)strstr((const char *)in, "\"op\":\""))) {
@@ -3200,7 +3200,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		if ((gp = (char *)strstr((const char *)in, "\"grants\":\""))) {
 			gp += 10;
 			int i = 0;
-			while (*gp && *gp != '"' && i < 511)
+			while (*gp && *gp != '"' && i < (int)sizeof(new_grants) - 1)
 				new_grants[i++] = *gp++;
 		}
 
@@ -3311,7 +3311,17 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			char *p2 = new_grants;
 			while (*p2) {
 				char *comma = (char *)strchr(p2, ',');
-				if (comma) *comma = '\0';
+				char *semi = (char *)strchr(p2, ';');
+				char *delim = NULL;
+
+				if (comma && semi)
+					delim = (comma < semi) ? comma : semi;
+				else if (comma)
+					delim = comma;
+				else
+					delim = semi;
+
+				if (delim) *delim = '\0';
 				char *colon = (char *)strchr(p2, ':');
 				if (colon) {
 					*colon = '\0';
@@ -3334,8 +3344,8 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 						}
 					}
 				}
-				if (!comma) break;
-				p2 = comma + 1;
+				if (!delim) break;
+				p2 = delim + 1;
 			}
 			sqlite3_exec(vhd->db, "COMMIT;", NULL, NULL, NULL);
 		}
