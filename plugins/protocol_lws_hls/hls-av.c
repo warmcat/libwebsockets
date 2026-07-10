@@ -4,6 +4,34 @@
 
 #define HLS_SEGMENT_DUR 10
 
+static int64_t
+lws_hls_find_keyframe_ts(AVFormatContext *in_ctx, int video_idx, int64_t target_time_us)
+{
+	if (video_idx < 0)
+		return target_time_us;
+
+	AVStream *in_stream = in_ctx->streams[video_idx];
+	int64_t target_ts = av_rescale_q(target_time_us, AV_TIME_BASE_Q, in_stream->time_base);
+	if (av_seek_frame(in_ctx, video_idx, target_ts, AVSEEK_FLAG_BACKWARD) < 0)
+		return target_time_us;
+
+	AVPacket seek_pkt;
+	while (av_read_frame(in_ctx, &seek_pkt) >= 0) {
+		if (seek_pkt.stream_index == video_idx && (seek_pkt.flags & AV_PKT_FLAG_KEY)) {
+			int64_t seek_ts = seek_pkt.pts != AV_NOPTS_VALUE ? seek_pkt.pts : seek_pkt.dts;
+			int64_t pkt_time_us = av_rescale_q(seek_ts, in_stream->time_base, AV_TIME_BASE_Q);
+			if (pkt_time_us >= target_time_us) {
+				av_packet_unref(&seek_pkt);
+				return pkt_time_us;
+			}
+		}
+		av_packet_unref(&seek_pkt);
+	}
+
+	return target_time_us;
+}
+
+
 void *
 lws_hls_thumbnail_worker(void *d)
 {
@@ -294,6 +322,7 @@ lws_hls_serve_init(struct lws *wsi, const char *media_dir, const char *filename)
                 AVStream *out_stream = avformat_new_stream(out_ctx, NULL);
                 avcodec_parameters_copy(out_stream->codecpar, in_codecpar);
                 out_stream->codecpar->codec_tag = 0;
+                out_stream->time_base = in_stream->time_base;
         }
 
         struct hls_buffer hb;
@@ -308,11 +337,27 @@ lws_hls_serve_init(struct lws *wsi, const char *media_dir, const char *filename)
         AVDictionary *opts = NULL;
         av_dict_set(&opts, "movflags", "empty_moov+frag_keyframe+default_base_moof", 0);
 
+        char timescale_str[32];
+        for (unsigned int i = 0; i < out_ctx->nb_streams; i++) {
+                if (out_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+                        snprintf(timescale_str, sizeof(timescale_str), "%d", out_ctx->streams[i]->time_base.den);
+                        av_dict_set(&opts, "video_track_timescale", timescale_str, 0);
+                        break;
+                }
+        }
+
         if (avformat_write_header(out_ctx, &opts) < 0) {
-                /* Error */
+                av_dict_free(&opts);
+                if (out_ctx) {
+                        av_free(out_ctx->pb->buffer);
+                        av_free(out_ctx->pb);
+                        avformat_free_context(out_ctx);
+                }
+                avformat_close_input(&in_ctx);
+                free(hb.ptr);
+                return -1;
         }
         av_write_trailer(out_ctx);
-        av_dict_free(&opts);
         av_dict_free(&opts);
 
         if (out_ctx) {
@@ -328,9 +373,17 @@ lws_hls_serve_init(struct lws *wsi, const char *media_dir, const char *filename)
                 return -1;
         }
 
-        
-        size_t offset = find_moof_offset(hb.ptr, hb.size);
-        size_t send_size = hb.size - offset;
+        /*
+         * The init segment (EXT-X-MAP) must contain ftyp + moov only.
+         * If av_write_trailer produced a trailing moof+mdat, strip it.
+         * For init: send everything BEFORE the moof.
+         * (For media segments the opposite is done: send moof onwards.)
+         */
+        size_t moof_off = find_moof_offset(hb.ptr, hb.size);
+        size_t send_size = moof_off > 0 ? moof_off : hb.size;
+
+        lwsl_user("HLS: Init segment: total=%zu, moof_offset=%zu, "
+                  "sending=%zu (ftyp+moov)\n", hb.size, moof_off, send_size);
 
         pss->segment_buf = malloc(LWS_PRE + send_size);
         if (!pss->segment_buf) {
@@ -338,7 +391,7 @@ lws_hls_serve_init(struct lws *wsi, const char *media_dir, const char *filename)
                 return -1;
         }
 
-        memcpy(pss->segment_buf + LWS_PRE, hb.ptr + offset, send_size);
+        memcpy(pss->segment_buf + LWS_PRE, hb.ptr, send_size);
         pss->segment_len = send_size;
 
         pss->segment_pos = 0;
@@ -399,23 +452,7 @@ lws_hls_serve_manifest(struct lws *wsi, const char *media_dir, const char *filen
 	if (video_idx >= 0) {
 		for (int i = 1; i < total_segments; i++) {
 			int64_t target_time = (int64_t)i * HLS_SEGMENT_DUR * AV_TIME_BASE;
-			segment_starts[i] = (double)i * HLS_SEGMENT_DUR; // Default fallback
-			
-			if (av_seek_frame(fmt_ctx, -1, target_time, 0) >= 0) {
-				AVPacket seek_pkt;
-				while (av_read_frame(fmt_ctx, &seek_pkt) >= 0) {
-					if (seek_pkt.stream_index == video_idx) {
-						int64_t seek_ts = seek_pkt.pts != AV_NOPTS_VALUE ? seek_pkt.pts : seek_pkt.dts;
-						double pts = (double)seek_ts * av_q2d(fmt_ctx->streams[video_idx]->time_base);
-						if (pts >= (double)i * HLS_SEGMENT_DUR) {
-							segment_starts[i] = pts;
-							av_packet_unref(&seek_pkt);
-							break;
-						}
-					}
-					av_packet_unref(&seek_pkt);
-				}
-			}
+			segment_starts[i] = (double)lws_hls_find_keyframe_ts(fmt_ctx, video_idx, target_time) / AV_TIME_BASE;
 		}
 	} else {
 		for (int i = 1; i < total_segments; i++) {
@@ -429,6 +466,9 @@ lws_hls_serve_manifest(struct lws *wsi, const char *media_dir, const char *filen
 	int target_duration = HLS_SEGMENT_DUR;
 	for (int i = 0; i < total_segments; i++) {
 		double seg_dur = segment_starts[i+1] - segment_starts[i];
+		if (seg_dur <= 0.0) {
+			seg_dur = 0.1;
+		}
 		int seg_dur_int = (int)seg_dur;
 		if ((double)seg_dur_int < seg_dur)
 			seg_dur_int++;
@@ -455,6 +495,9 @@ lws_hls_serve_manifest(struct lws *wsi, const char *media_dir, const char *filen
 
 	for (int i = 0; i < total_segments; i++) {
 		double dur = segment_starts[i+1] - segment_starts[i];
+		if (dur <= 0.0) {
+			dur = 0.1;
+		}
 		size_t rem = m3u8_max - (size_t)(p_m3u8 - (m3u8 + LWS_PRE));
 		p_m3u8 += snprintf(p_m3u8, rem,
 			"#EXTINF:%f,\n"
@@ -554,6 +597,7 @@ lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filena
 		AVStream *out_stream = avformat_new_stream(out_ctx, NULL);
 		avcodec_parameters_copy(out_stream->codecpar, in_codecpar);
 		out_stream->codecpar->codec_tag = 0;
+		out_stream->time_base = in_stream->time_base;
 	}
 
 	struct hls_buffer hb;
@@ -586,7 +630,12 @@ lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filena
 		goto done;
 	}
 
-	/* Seek to segment start */
+	/*
+	 * Let FFmpeg's muxer handle negative DTS automatically.
+	 * This is equivalent to what `ffmpeg` CLI does for MP4 output.
+	 */
+	out_ctx->avoid_negative_ts = AVFMT_AVOID_NEG_TS_MAKE_NON_NEGATIVE;
+
 	int64_t start_time = (int64_t)segment_idx * HLS_SEGMENT_DUR * AV_TIME_BASE;
 	int64_t end_time = (int64_t)(segment_idx + 1) * HLS_SEGMENT_DUR * AV_TIME_BASE;
 	
@@ -629,25 +678,37 @@ lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filena
 			continue;
 		}
 
-		/* Check if we crossed segment boundary */
+		/*
+		 * Synthesize missing DTS/PTS (MKV has no DTS).
+		 * Must happen before boundary checks.
+		 */
+		if (pkt.dts == AV_NOPTS_VALUE) pkt.dts = pkt.pts;
+		if (pkt.pts == AV_NOPTS_VALUE) pkt.pts = pkt.dts;
+
+		/* Use PTS for boundary checks (always valid after synthesis) */
 		int64_t pkt_ts = pkt.pts != AV_NOPTS_VALUE ? pkt.pts : pkt.dts;
 		if (pkt_ts != AV_NOPTS_VALUE) {
 			int64_t pkt_time = av_rescale_q(pkt_ts, in_stream->time_base, AV_TIME_BASE_Q);
 
 			if (!started) {
 				if (has_video) {
-					if (in_stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO &&
-					    (pkt.flags & AV_PKT_FLAG_KEY) && pkt_time >= start_time) {
-						started = 1;
-						lwsl_user("HLS: Segment %d started writing video at pkt_time=%.3fs (pts=%lld, dts=%lld)\n",
-							  segment_idx, (double)pkt_time / AV_TIME_BASE, (long long)pkt.pts, (long long)pkt.dts);
-					} else {
-						if (in_stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
+					if (in_stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+						if ((pkt.flags & AV_PKT_FLAG_KEY) && pkt_time >= start_time) {
+							started = 1;
+							lwsl_user("HLS: Segment %d started writing video at pkt_time=%.3fs (pts=%lld, dts=%lld)\n",
+								  segment_idx, (double)pkt_time / AV_TIME_BASE, (long long)pkt.pts, (long long)pkt.dts);
+						} else {
 							video_packets_discarded++;
-						else
+							av_packet_unref(&pkt);
+							continue;
+						}
+					} else {
+						/* Audio: discard until video has started */
+						if (!started) {
 							audio_packets_discarded++;
-						av_packet_unref(&pkt);
-						continue;
+							av_packet_unref(&pkt);
+							continue;
+						}
 					}
 				} else {
 					if (pkt_time >= start_time) {
@@ -662,30 +723,26 @@ lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filena
 				}
 			}
 
-			/* Allow video packets up to end_time to complete GOP */
+			/* Stop at end of segment on next video keyframe */
 			if (pkt_time >= end_time && in_stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
 				if (pkt.flags & AV_PKT_FLAG_KEY) {
-					/* Reached next keyframe, stop segment */
 					lwsl_user("HLS: Segment %d reached next video keyframe at pkt_time=%.3fs (pts=%lld, dts=%lld). Stopping.\n",
 						  segment_idx, (double)pkt_time / AV_TIME_BASE, (long long)pkt.pts, (long long)pkt.dts);
 					av_packet_unref(&pkt);
 					break;
 				}
-			} else if (pkt_time >= end_time + (2 * AV_TIME_BASE)) {
-				/* Safety fallback to stop if too far past end */
-				lwsl_user("HLS: Segment %d safety fallback stop at pkt_time=%.3fs (pts=%lld, dts=%lld).\n",
-					  segment_idx, (double)pkt_time / AV_TIME_BASE, (long long)pkt.pts, (long long)pkt.dts);
+			}
+
+			/* Stop audio at segment boundary too */
+			if (pkt_time >= end_time && in_stream->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
 				av_packet_unref(&pkt);
-				break;
+				continue;
 			}
 		}
 
 		int out_stream_idx = stream_mapping[pkt.stream_index];
 		pkt.stream_index = out_stream_idx;
 		AVStream *out_stream = out_ctx->streams[out_stream_idx];
-		
-		if (pkt.dts == AV_NOPTS_VALUE) pkt.dts = pkt.pts;
-		if (pkt.pts == AV_NOPTS_VALUE) pkt.pts = pkt.dts;
 
 		pkt.pts = av_rescale_q_rnd(pkt.pts, in_stream->time_base, out_stream->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
 		pkt.dts = av_rescale_q_rnd(pkt.dts, in_stream->time_base, out_stream->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
