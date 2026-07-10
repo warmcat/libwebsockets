@@ -530,6 +530,7 @@ lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filena
 	int stream_index = 0;
 	int has_video = 0;
 	int video_idx = -1;
+	int audio_idx = -1;
 	
 	for (unsigned int i = 0; i < in_ctx->nb_streams; i++) {
 		AVStream *in_stream = in_ctx->streams[i];
@@ -544,6 +545,9 @@ lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filena
 		if (in_codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
 			has_video = 1;
 			video_idx = (int)i;
+		}
+		if (in_codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
+			audio_idx = (int)i;
 		}
 
 		stream_mapping[i] = stream_index++;
@@ -586,11 +590,19 @@ lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filena
 	int64_t start_time = (int64_t)segment_idx * HLS_SEGMENT_DUR * AV_TIME_BASE;
 	int64_t end_time = (int64_t)(segment_idx + 1) * HLS_SEGMENT_DUR * AV_TIME_BASE;
 	
+	lwsl_user("HLS: Segment %d requested. start_time=%lld (%.3fs), end_time=%lld (%.3fs)\n",
+		  segment_idx, (long long)start_time, (double)start_time / AV_TIME_BASE,
+		  (long long)end_time, (double)end_time / AV_TIME_BASE);
+
 	if (video_idx >= 0) {
 		int64_t target_ts = av_rescale_q(start_time, AV_TIME_BASE_Q, in_ctx->streams[video_idx]->time_base);
 		av_seek_frame(in_ctx, video_idx, target_ts, AVSEEK_FLAG_BACKWARD);
+		lwsl_user("HLS: Segment %d video seek requested to %lld (%.3fs)\n",
+			  segment_idx, (long long)target_ts, (double)start_time / AV_TIME_BASE);
 	} else {
 		av_seek_frame(in_ctx, -1, start_time, AVSEEK_FLAG_BACKWARD);
+		lwsl_user("HLS: Segment %d generic seek requested to %.3fs\n",
+			  segment_idx, (double)start_time / AV_TIME_BASE);
 	}
 
 	int64_t last_dts[32];
@@ -598,6 +610,16 @@ lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filena
 		last_dts[i] = AV_NOPTS_VALUE;
 	}
 	int started = 0;
+
+	/* Diagnostics variables */
+	int64_t first_video_pts = AV_NOPTS_VALUE, last_video_pts = AV_NOPTS_VALUE;
+	int64_t first_video_dts = AV_NOPTS_VALUE, last_video_dts = AV_NOPTS_VALUE;
+	int64_t first_audio_pts = AV_NOPTS_VALUE, last_audio_pts = AV_NOPTS_VALUE;
+	int64_t first_audio_dts = AV_NOPTS_VALUE, last_audio_dts = AV_NOPTS_VALUE;
+	int video_packets_written = 0, audio_packets_written = 0;
+	int video_packets_discarded = 0, audio_packets_discarded = 0;
+	AVRational video_out_time_base = {0, 0};
+	AVRational audio_out_time_base = {0, 0};
 
 	AVPacket pkt;
 	while (av_read_frame(in_ctx, &pkt) >= 0) {
@@ -617,14 +639,23 @@ lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filena
 					if (in_stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO &&
 					    (pkt.flags & AV_PKT_FLAG_KEY) && pkt_time >= start_time) {
 						started = 1;
+						lwsl_user("HLS: Segment %d started writing video at pkt_time=%.3fs (pts=%lld, dts=%lld)\n",
+							  segment_idx, (double)pkt_time / AV_TIME_BASE, (long long)pkt.pts, (long long)pkt.dts);
 					} else {
+						if (in_stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
+							video_packets_discarded++;
+						else
+							audio_packets_discarded++;
 						av_packet_unref(&pkt);
 						continue;
 					}
 				} else {
 					if (pkt_time >= start_time) {
 						started = 1;
+						lwsl_user("HLS: Segment %d started writing audio-only at pkt_time=%.3fs (pts=%lld, dts=%lld)\n",
+							  segment_idx, (double)pkt_time / AV_TIME_BASE, (long long)pkt.pts, (long long)pkt.dts);
 					} else {
+						audio_packets_discarded++;
 						av_packet_unref(&pkt);
 						continue;
 					}
@@ -635,11 +666,15 @@ lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filena
 			if (pkt_time >= end_time && in_stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
 				if (pkt.flags & AV_PKT_FLAG_KEY) {
 					/* Reached next keyframe, stop segment */
+					lwsl_user("HLS: Segment %d reached next video keyframe at pkt_time=%.3fs (pts=%lld, dts=%lld). Stopping.\n",
+						  segment_idx, (double)pkt_time / AV_TIME_BASE, (long long)pkt.pts, (long long)pkt.dts);
 					av_packet_unref(&pkt);
 					break;
 				}
 			} else if (pkt_time >= end_time + (2 * AV_TIME_BASE)) {
 				/* Safety fallback to stop if too far past end */
+				lwsl_user("HLS: Segment %d safety fallback stop at pkt_time=%.3fs (pts=%lld, dts=%lld).\n",
+					  segment_idx, (double)pkt_time / AV_TIME_BASE, (long long)pkt.pts, (long long)pkt.dts);
 				av_packet_unref(&pkt);
 				break;
 			}
@@ -667,12 +702,38 @@ lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filena
 			pkt.pts = pkt.dts;
 		}
 
+		/* Track stats for output packets */
+		if (in_stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+			if (first_video_pts == AV_NOPTS_VALUE) {
+				first_video_pts = pkt.pts;
+				first_video_dts = pkt.dts;
+			}
+			last_video_pts = pkt.pts;
+			last_video_dts = pkt.dts;
+			video_packets_written++;
+		} else if (in_stream->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
+			if (first_audio_pts == AV_NOPTS_VALUE) {
+				first_audio_pts = pkt.pts;
+				first_audio_dts = pkt.dts;
+			}
+			last_audio_pts = pkt.pts;
+			last_audio_dts = pkt.dts;
+			audio_packets_written++;
+		}
+
 		av_interleaved_write_frame(out_ctx, &pkt);
 		av_packet_unref(&pkt);
 	}
 	
 	av_write_trailer(out_ctx);
         av_dict_free(&opts);
+
+	if (video_idx >= 0 && stream_mapping[video_idx] >= 0) {
+		video_out_time_base = out_ctx->streams[stream_mapping[video_idx]]->time_base;
+	}
+	if (audio_idx >= 0 && stream_mapping[audio_idx] >= 0) {
+		audio_out_time_base = out_ctx->streams[stream_mapping[audio_idx]]->time_base;
+	}
 
 done:
 	if (out_ctx) {
@@ -702,6 +763,53 @@ done:
 	
         size_t offset = find_moof_offset(hb.ptr, hb.size);
         size_t send_size = hb.size - offset;
+
+	/* Calculate and log stats */
+	double video_duration_sec = 0.0;
+	double audio_duration_sec = 0.0;
+	double start_av_delta_sec = 0.0;
+	double end_av_delta_sec = 0.0;
+
+	if (first_video_pts != AV_NOPTS_VALUE && video_out_time_base.den > 0) {
+		video_duration_sec = (double)(last_video_pts - first_video_pts) * av_q2d(video_out_time_base);
+	}
+	if (first_audio_pts != AV_NOPTS_VALUE && audio_out_time_base.den > 0) {
+		audio_duration_sec = (double)(last_audio_pts - first_audio_pts) * av_q2d(audio_out_time_base);
+	}
+	if (first_video_pts != AV_NOPTS_VALUE && video_out_time_base.den > 0 &&
+	    first_audio_pts != AV_NOPTS_VALUE && audio_out_time_base.den > 0) {
+		double first_v_sec = (double)first_video_pts * av_q2d(video_out_time_base);
+		double first_a_sec = (double)first_audio_pts * av_q2d(audio_out_time_base);
+		double last_v_sec = (double)last_video_pts * av_q2d(video_out_time_base);
+		double last_a_sec = (double)last_audio_pts * av_q2d(audio_out_time_base);
+		start_av_delta_sec = first_a_sec - first_v_sec;
+		end_av_delta_sec = last_a_sec - last_v_sec;
+	}
+
+	lwsl_user("HLS: Segment %d summary:\n"
+		  "  Discarded: video=%d, audio=%d\n"
+		  "  Written: video=%d, audio=%d\n"
+		  "  Video output PTS: [%lld to %lld] (diff = %lld, %.3fs)\n"
+		  "  Video output DTS: [%lld to %lld]\n"
+		  "  Audio output PTS: [%lld to %lld] (diff = %lld, %.3fs)\n"
+		  "  Audio output DTS: [%lld to %lld]\n"
+		  "  First Audio-Video PTS delta: %.3fs\n"
+		  "  Last Audio-Video PTS delta: %.3fs\n"
+		  "  Segment size: %zu bytes (sent %zu bytes)\n",
+		  segment_idx,
+		  video_packets_discarded, audio_packets_discarded,
+		  video_packets_written, audio_packets_written,
+		  (long long)first_video_pts, (long long)last_video_pts,
+		  (long long)(last_video_pts - first_video_pts),
+		  video_duration_sec,
+		  (long long)first_video_dts, (long long)last_video_dts,
+		  (long long)first_audio_pts, (long long)last_audio_pts,
+		  (long long)(last_audio_pts - first_audio_pts),
+		  audio_duration_sec,
+		  (long long)first_audio_dts, (long long)last_audio_dts,
+		  start_av_delta_sec,
+		  end_av_delta_sec,
+		  hb.size, send_size);
 
         pss->segment_buf = malloc(LWS_PRE + send_size);
         if (!pss->segment_buf) {
