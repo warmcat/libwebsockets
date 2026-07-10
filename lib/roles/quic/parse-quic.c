@@ -185,8 +185,22 @@ void
 lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_stream *qs,
 		       uint64_t offset, uint8_t *buf, size_t len, int is_crypto, int level)
 {
-	uint64_t *expected_offset = is_crypto ? &nwsi->quic.qn->rx_crypto_offset[level] : &qs->rx_offset;
-	lws_dll2_owner_t *owner = is_crypto ? &nwsi->quic.qn->rx_crypto_chunks[level] : &qs->rx_chunks;
+	uint64_t *expected_offset;
+	lws_dll2_owner_t *owner;
+
+	if (is_crypto) {
+		if (nwsi && !nwsi->quic.qn)
+			nwsi = lws_get_quic_network_wsi(nwsi);
+		if (!nwsi || !nwsi->quic.qn)
+			return;
+		expected_offset = &nwsi->quic.qn->rx_crypto_offset[level];
+		owner = &nwsi->quic.qn->rx_crypto_chunks[level];
+	} else {
+		if (!qs)
+			return;
+		expected_offset = &qs->rx_offset;
+		owner = &qs->rx_chunks;
+	}
 
 	/* 1. If it's a past or overlapping frame, ignore it (simple version) */
 	if (offset + len <= *expected_offset && !(len == 0 && offset == *expected_offset))
@@ -208,12 +222,12 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 				lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_PROTOCOL_VIOLATION, 0, 0);
 				return;
 			}
-			if (nwsi && !nwsi->quic.qn) {
+			if (!nwsi->quic.qn) {
 				nwsi = lws_get_quic_network_wsi(nwsi);
-				if (nwsi && nwsi->quic.qn) {
-					expected_offset = &nwsi->quic.qn->rx_crypto_offset[level];
-					owner = &nwsi->quic.qn->rx_crypto_chunks[level];
-				}
+				if (!nwsi || !nwsi->quic.qn)
+					return;
+				expected_offset = &nwsi->quic.qn->rx_crypto_offset[level];
+				owner = &nwsi->quic.qn->rx_crypto_chunks[level];
 			}
 		} else if (wsi_child) {
 			int is_final = (wsi_child && qs && qs->fin_received && *expected_offset + len == qs->rx_final_size && !qs->fin_delivered);
@@ -293,12 +307,12 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 							lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_PROTOCOL_VIOLATION, 0, 0);
 							return;
 						}
-						if (nwsi && !nwsi->quic.qn) {
+						if (!nwsi->quic.qn) {
 							nwsi = lws_get_quic_network_wsi(nwsi);
-							if (nwsi && nwsi->quic.qn) {
-								expected_offset = &nwsi->quic.qn->rx_crypto_offset[level];
-								owner = &nwsi->quic.qn->rx_crypto_chunks[level];
-							}
+							if (!nwsi || !nwsi->quic.qn)
+								return;
+							expected_offset = &nwsi->quic.qn->rx_crypto_offset[level];
+							owner = &nwsi->quic.qn->rx_crypto_chunks[level];
 						}
 					} else if (wsi_child) {
 #if defined(LWS_ROLE_H3)
