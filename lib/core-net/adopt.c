@@ -1094,8 +1094,8 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 	else
 		wsi->retry_policy = vhost->retry_policy;
 	/*
-	 * lws_sort_dns() filters out IPv6 results if wsi->ipv6 == 0.
-	 * DNS server wsi should cache both IPv4 and IPv6 results
+	 * lws_sort_dns() filters out IPv6 results if wsi->ipv6 == 0, pick up
+	 * the vhost / context ipv6 policy
 	 */
 	wsi->ipv6 = !!LWS_IPV6_ENABLED(vhost);
 
