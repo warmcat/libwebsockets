@@ -323,33 +323,12 @@ lws_socks5c_handle_state(struct lws *wsi, struct lws_pollfd *pollfd,
 
 		lwsl_wsi_client(wsi, "SOCKS password OK, sending connect");
 		if (lws_socks5c_generate_msg(wsi, SOCKS_MSG_CONNECT, &len)) {
-socks_send_msg_fail_l:
-			*pcce = "socks gen msg fail";
-			return LW5CHS_RET_BAIL3;
+			goto socks_send_msg_fail_l;
 		}
 		conn_mode = LRS_WAITING_SOCKS_CONNECT_REPLY;
 		pending_timeout =
 			   PENDING_TIMEOUT_AWAITING_SOCKS_CONNECT_REPLY;
-socks_send_l:
-		// lwsl_hexdump_notice(pt->serv_buf, len);
-		n = (int)send(wsi->desc.sockfd, (char *)pt->serv_buf,
-			      LWS_POSIX_LENGTH_CAST(len), MSG_NOSIGNAL);
-		if (n < 0) {
-			lwsl_wsi_debug(wsi, "ERROR writing to socks proxy");
-			*pcce = "socks write fail";
-			return LW5CHS_RET_BAIL3;
-		}
-
-		lws_set_timeout(wsi, (enum pending_timeout)pending_timeout,
-				(int)wsi->a.context->timeout_secs);
-		lwsi_set_state(wsi, (lws_wsi_state_t)conn_mode);
-		break;
-
-socks_reply_fail_l:
-		lwsl_wsi_err(wsi, "socks reply: v%d, err %d",
-			     pt->serv_buf[0], pt->serv_buf[1]);
-		*pcce = "socks reply fail";
-		return LW5CHS_RET_BAIL3;
+		goto socks_send_l;
 
 	case LRS_WAITING_SOCKS_CONNECT_REPLY:
 		if (pt->serv_buf[0] != SOCKS_VERSION_5 ||
@@ -377,4 +356,29 @@ socks_reply_fail_l:
 	}
 
 	return LW5CHS_RET_NOTHING;
+
+socks_send_l:
+	// lwsl_hexdump_notice(pt->serv_buf, len);
+	n = (int)send(wsi->desc.sockfd, (char *)pt->serv_buf,
+		      LWS_POSIX_LENGTH_CAST(len), MSG_NOSIGNAL);
+	if (n < 0) {
+		lwsl_wsi_debug(wsi, "ERROR writing to socks proxy");
+		*pcce = "socks write fail";
+		return LW5CHS_RET_BAIL3;
+	}
+
+	lws_set_timeout(wsi, (enum pending_timeout)pending_timeout,
+			(int)wsi->a.context->timeout_secs);
+	lwsi_set_state(wsi, (lws_wsi_state_t)conn_mode);
+	return LW5CHS_RET_NOTHING;
+
+socks_send_msg_fail_l:
+	*pcce = "socks gen msg fail";
+	return LW5CHS_RET_BAIL3;
+
+socks_reply_fail_l:
+	lwsl_wsi_err(wsi, "socks reply: v%d, err %d",
+		     pt->serv_buf[0], pt->serv_buf[1]);
+	*pcce = "socks reply fail";
+	return LW5CHS_RET_BAIL3;
 }

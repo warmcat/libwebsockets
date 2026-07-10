@@ -41,6 +41,8 @@ lws_cose_val_alg_create(struct lws_context *cx, lws_cose_key_t *ck,
 	alg->cose_alg = cose_alg;
 	alg->cose_key = ck;
 
+	int type = 0;
+
 	switch (cose_alg) {
 
 	/* ECDSA algs */
@@ -49,18 +51,73 @@ lws_cose_val_alg_create(struct lws_context *cx, lws_cose_key_t *ck,
 		crv = "P-256";
 		gh = LWS_GENHASH_TYPE_SHA256;
 		alg->keybits = 256;
-		goto ecdsa_l;
+		type = 1;
+		break;
 	case LWSCOSE_WKAECDSA_ALG_ES384: /* ECDSA w/ SHA-384 */
 		crv = "P-384";
 		gh = LWS_GENHASH_TYPE_SHA384;
 		alg->keybits = 384;
-		goto ecdsa_l;
+		type = 1;
+		break;
 	case LWSCOSE_WKAECDSA_ALG_ES512: /* ECDSA w/ SHA-512 */
 		crv = "P-521";
 		gh = LWS_GENHASH_TYPE_SHA512;
 		alg->keybits = 521;
-ecdsa_l:
+		type = 1;
+		break;
 
+	case LWSCOSE_WKAEDDSA_ALG_EDDSA:
+		type = 2;
+		break;
+
+	/* HMAC algs */
+
+	case LWSCOSE_WKAHMAC_256_64:
+		ghm = LWS_GENHMAC_TYPE_SHA256;
+		alg->keybits = 64;
+		type = 3;
+		break;
+	case LWSCOSE_WKAHMAC_256_256:
+		ghm = LWS_GENHMAC_TYPE_SHA256;
+		alg->keybits = 256;
+		type = 3;
+		break;
+	case LWSCOSE_WKAHMAC_384_384:
+		ghm = LWS_GENHMAC_TYPE_SHA384;
+		alg->keybits = 384;
+		type = 3;
+		break;
+	case LWSCOSE_WKAHMAC_512_512:
+		ghm = LWS_GENHMAC_TYPE_SHA512;
+		alg->keybits = 512;
+		type = 3;
+		break;
+
+	/* RSASSA algs */
+
+	case LWSCOSE_WKARSA_ALG_RS256:
+		gh = LWS_GENHASH_TYPE_SHA256;
+		type = 4;
+		break;
+
+	case LWSCOSE_WKARSA_ALG_RS384:
+		gh = LWS_GENHASH_TYPE_SHA384;
+		type = 4;
+		break;
+
+	case LWSCOSE_WKARSA_ALG_RS512:
+		gh = LWS_GENHASH_TYPE_SHA512;
+		type = 4;
+		break;
+
+	default:
+		lwsl_warn("%s: unsupported alg %lld\n", __func__,
+				(long long)cose_alg);
+		goto bail_hmac;
+	}
+
+	switch (type) {
+	case 1: /* ECDSA */
 		/* the key is good for this? */
 
 		if (lws_cose_key_checks(ck, LWSCOSE_WKKTV_EC2, cose_alg,
@@ -80,10 +137,9 @@ ecdsa_l:
 			lwsl_notice("%s: ec key import fail\n", __func__);
 			goto bail_ecdsa2;
 		}
-
 		break;
 
-	case LWSCOSE_WKAEDDSA_ALG_EDDSA:
+	case 2: /* EDDSA */
 		if (lws_cose_key_checks(ck, LWSCOSE_WKKTV_OKP, cose_alg, op, NULL))
 			goto bail_ecdsa;
 
@@ -92,28 +148,9 @@ ecdsa_l:
 
 		if (lws_geneddsa_set_key(&alg->u.ecdsactx, ck->e))
 			goto bail_ecdsa2;
-
 		break;
 
-	/* HMAC algs */
-
-	case LWSCOSE_WKAHMAC_256_64:
-		ghm = LWS_GENHMAC_TYPE_SHA256;
-		alg->keybits = 64;
-		goto hmac_l;
-	case LWSCOSE_WKAHMAC_256_256:
-		ghm = LWS_GENHMAC_TYPE_SHA256;
-		alg->keybits = 256;
-		goto hmac_l;
-	case LWSCOSE_WKAHMAC_384_384:
-		ghm = LWS_GENHMAC_TYPE_SHA384;
-		alg->keybits = 384;
-		goto hmac_l;
-	case LWSCOSE_WKAHMAC_512_512:
-		ghm = LWS_GENHMAC_TYPE_SHA512;
-		alg->keybits = 512;
-
-hmac_l:
+	case 3: /* HMAC */
 		if (lws_cose_key_checks(ck, LWSCOSE_WKKTV_SYMMETRIC,
 					cose_alg, op, NULL))
 			goto bail_hmac;
@@ -121,23 +158,9 @@ hmac_l:
 		ke = &ck->e[LWS_GENCRYPTO_OCT_KEYEL_K];
 		if (lws_genhmac_init(&alg->u.hmacctx, ghm, ke->buf, ke->len))
 			goto bail_hmac;
-
 		break;
 
-	/* RSASSA algs */
-
-	case LWSCOSE_WKARSA_ALG_RS256:
-		gh = LWS_GENHASH_TYPE_SHA256;
-		goto rsassa_l;
-
-	case LWSCOSE_WKARSA_ALG_RS384:
-		gh = LWS_GENHASH_TYPE_SHA384;
-		goto rsassa_l;
-
-	case LWSCOSE_WKARSA_ALG_RS512:
-		gh = LWS_GENHASH_TYPE_SHA512;
-
-rsassa_l:
+	case 4: /* RSASSA */
 		if (lws_cose_key_checks(ck, LWSCOSE_WKKTV_RSA, cose_alg,
 					op, NULL))
 			goto bail_hmac;
@@ -152,11 +175,6 @@ rsassa_l:
 			goto bail_ecdsa1;
 		}
 		break;
-
-	default:
-		lwsl_warn("%s: unsupported alg %lld\n", __func__,
-				(long long)cose_alg);
-		goto bail_hmac;
 	}
 
 	return alg;

@@ -2028,8 +2028,17 @@ poll_again:
 				}
 
 				time(&t);
-				tm = localtime(&t);
-				strftime(timebuf, sizeof(timebuf), "%Y%m%d-%H%M%S", tm);
+#if defined(WIN32) || defined(_WIN32)
+				struct tm tmp;
+				tm = localtime_s(&tmp, &t) == 0 ? &tmp : NULL;
+#else
+				struct tm tmp;
+				tm = localtime_r(&t, &tmp);
+#endif
+				if (tm)
+					strftime(timebuf, sizeof(timebuf), "%Y%m%d-%H%M%S", tm);
+				else
+					timebuf[0] = '\0';
 
 				lws_strncpy(cert_ts, cert_latest, sizeof(cert_ts));
 				p = (char *)strstr(cert_ts, "-latest.crt");

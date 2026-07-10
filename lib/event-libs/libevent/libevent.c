@@ -466,9 +466,11 @@ elops_destroy_context2_event(struct lws_context *context)
 			event_base_loopexit(ptpr->io_loop, NULL);
 			continue;
 		}
-		while (budget-- &&
-		       (m = event_base_loop(ptpr->io_loop, EVLOOP_NONBLOCK)))
-			;
+		while (budget--) {
+			m = event_base_loop(ptpr->io_loop, EVLOOP_NONBLOCK);
+			if (!m)
+				break;
+		}
 
 		lwsl_cx_info(context, "event_base_free");
 

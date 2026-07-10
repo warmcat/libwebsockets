@@ -509,12 +509,8 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 				goto unexpected_tag_l;
 			break;
 		case SIGTYPE_MAC:
-			if (ctx->item.u.u64 != LWSCOAP_CONTENTFORMAT_COSE_MAC) {
-unexpected_tag_l:
-				lwsl_warn("%s: unexpected tag %d\n", __func__,
-						(int)ctx->item.u.u64);
-				goto bail;
-			}
+			if (ctx->item.u.u64 != LWSCOAP_CONTENTFORMAT_COSE_MAC)
+				goto unexpected_tag_l;
 			break;
 		}
 
@@ -959,6 +955,11 @@ unexpected_tag_l:
 	}
 
 	return 0;
+
+unexpected_tag_l:
+	lwsl_warn("%s: unexpected tag %d\n", __func__,
+			(int)ctx->item.u.u64);
+	goto bail;
 
 bail:
 

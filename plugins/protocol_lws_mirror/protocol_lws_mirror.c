@@ -291,10 +291,6 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_pthread_mutex_unlock(&v->lock); /* } vhost lock */
 		break;
 
-bail1:
-		lws_pthread_mutex_unlock(&v->lock); /* } vhost lock */
-		return 1;
-
 	case LWS_CALLBACK_CLOSED:
 		/* detach our pss from the mirror instance */
 		mi = pss->mi;
@@ -474,6 +470,10 @@ done2:
 	}
 
 	return 0;
+
+bail1:
+	lws_pthread_mutex_unlock(&v->lock); /* } vhost lock */
+	return 1;
 }
 
 #define LWS_PLUGIN_PROTOCOL_MIRROR { \
