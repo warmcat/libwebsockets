@@ -80,12 +80,15 @@ read_newest_file_in_dir(const char *dirpath, const char *suffix)
 	lws_snprintf(path, sizeof(path), "%s/%s", dirpath, best_name);
 	fd = open(path, O_RDONLY);
 	if (fd >= 0) {
-		if (fstat(fd, &st) == 0 && (buf = malloc((size_t)st.st_size + 1))) {
-			if (read(fd, buf, (size_t)st.st_size) == (ssize_t)st.st_size)
-				buf[st.st_size] = '\0';
-			else {
-				free(buf);
-				buf = NULL;
+		if (fstat(fd, &st) == 0) {
+			buf = malloc((size_t)st.st_size + 1);
+			if (buf) {
+				if (read(fd, buf, (size_t)st.st_size) == (ssize_t)st.st_size)
+					buf[st.st_size] = '\0';
+				else {
+					free(buf);
+					buf = NULL;
+				}
 			}
 		}
 		close(fd);

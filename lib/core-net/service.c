@@ -898,17 +898,7 @@ _lws_service_fd_tsi(struct lws_context *context, struct lws_pollfd *pollfd,
 	case LWS_HPI_RET_PLEASE_CLOSE_ME:
 		//lwsl_notice("%s: %s pollin says please close me\n", __func__,
 		//		wsi->role_ops->name);
-close_and_handled_l:
-		lwsl_wsi_debug(wsi, "Close and handled");
-		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
-				   "close_and_handled");
-		/*
-		 * pollfd may point to something else after the close
-		 * due to pollfd swapping scheme on delete on some platforms
-		 * we can't clear revents now because it'd be the wrong guy's
-		 * revents
-		 */
-		return 1;
+		goto close_and_handled_l;
 	default:
 		assert(0);
 	}
@@ -938,6 +928,18 @@ handled:
 	}
 #endif
 	return 0;
+
+close_and_handled_l:
+	lwsl_wsi_debug(wsi, "Close and handled");
+	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+			   "close_and_handled");
+	/*
+	 * pollfd may point to something else after the close
+	 * due to pollfd swapping scheme on delete on some platforms
+	 * we can't clear revents now because it'd be the wrong guy's
+	 * revents
+	 */
+	return 1;
 }
 
 int
