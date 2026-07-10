@@ -101,18 +101,19 @@ callback_lws_urlarg(struct lws *wsi, enum lws_callback_reasons reason,
 
 			pss->wlen = pss->alen;
 
-
-bail:
-			if (lws_http_transaction_completed(wsi))
-				return -1;
-
-			return 0;
+			goto bail;
 		}
 		break;
 
 	default:
 		break;
 	}
+
+	return 0;
+
+bail:
+	if (lws_http_transaction_completed(wsi))
+		return -1;
 
 	return 0;
 }

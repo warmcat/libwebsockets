@@ -328,10 +328,19 @@ cb_cose_key(struct lecp_ctx *ctx, char reason)
 	case LECPCB_OBJECT_START:
 		if (cps->ck)
 			break;
-		goto ak_l;
+		cps->ck = lws_zalloc(sizeof(*cps->ck), __func__);
+		if (!cps->ck)
+			goto bail;
+		cps->cose_state = 0;
+		cps->meta_idx = -1;
+		cps->gencrypto_eidx = -1;
+		cps->seen_count = 0;
+
+		if (cps->pkey_set)
+			lws_dll2_add_tail(&cps->ck->list, cps->pkey_set);
+		break;
 	case LECPCB_ARRAY_ITEM_START:
 		if (cps->pkey_set && ctx->pst[ctx->pst_sp].ppos == 2) {
-			ak_l:
 			cps->ck = lws_zalloc(sizeof(*cps->ck), __func__);
 			if (!cps->ck)
 				goto bail;
