@@ -2334,8 +2334,17 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			char cookie_hdr3[256], cookie_hdr3_host[256];
 			char exp[64];
 			time_t t = 0;
-			struct tm *tm = gmtime(&t);
-			strftime(exp, sizeof(exp), "%a, %d %b %Y %H:%M:%S GMT", tm);
+#if defined(WIN32) || defined(_WIN32)
+			struct tm tmp;
+			struct tm *tm = gmtime_s(&tmp, &t) == 0 ? &tmp : NULL;
+#else
+			struct tm tmp;
+			struct tm *tm = gmtime_r(&t, &tmp);
+#endif
+			if (tm)
+				strftime(exp, sizeof(exp), "%a, %d %b %Y %H:%M:%S GMT", tm);
+			else
+				exp[0] = '\0';
 
 			if (vhd->cookie_domain[0]) {
 				lws_snprintf(cookie_hdr1, sizeof(cookie_hdr1), "%s=; Path=/; Domain=%s; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", vhd->cookie_name, vhd->cookie_domain, exp);
@@ -2559,8 +2568,17 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 					char cookie_hdr1[256], cookie_hdr1_host[256], cookie_hdr2[256], cookie_hdr2_host[256], cookie_hdr3[256], cookie_hdr3_host[256];
 					char exp[64];
 					time_t t = 0;
-					struct tm *tm = gmtime(&t);
-					strftime(exp, sizeof(exp), "%a, %d %b %Y %H:%M:%S GMT", tm);
+#if defined(WIN32) || defined(_WIN32)
+					struct tm tmp;
+					struct tm *tm = gmtime_s(&tmp, &t) == 0 ? &tmp : NULL;
+#else
+					struct tm tmp;
+					struct tm *tm = gmtime_r(&t, &tmp);
+#endif
+					if (tm)
+						strftime(exp, sizeof(exp), "%a, %d %b %Y %H:%M:%S GMT", tm);
+					else
+						exp[0] = '\0';
 
 					if (vhd->cookie_domain[0]) {
 						lws_snprintf(cookie_hdr1, sizeof(cookie_hdr1), "%s=; Path=/; Domain=%s; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", vhd->cookie_name, vhd->cookie_domain, exp);

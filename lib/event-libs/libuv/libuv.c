@@ -381,9 +381,12 @@ elops_destroy_context1_uv(struct lws_context *context)
 
 		if (!pt->event_loop_foreign && pt_to_priv_uv(pt)->io_loop) {
 
-			while (budget-- && (m = uv_run(pt_to_priv_uv(pt)->io_loop,
-						  UV_RUN_NOWAIT)))
-					;
+			while (budget--) {
+				m = uv_run(pt_to_priv_uv(pt)->io_loop,
+						  UV_RUN_NOWAIT);
+				if (!m)
+					break;
+			}
 			if (m)
 				lwsl_cx_info(context, "tsi %d: unclosed", n);
 

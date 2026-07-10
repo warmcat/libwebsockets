@@ -99,19 +99,27 @@ getopt(nargc, nargv, ostr)
 
 	if (optreset || !*place) {		/* update scanning pointer */
 		optreset = 0;
-		if (optind >= nargc || *(place = nargv[optind]) != '-') {
+		if (optind >= nargc) {
 			place = EMSG;
 			return (-1);
 		}
-		if (place[1] && *++place == '-'	/* found "--" */
-		    && place[1] == '\0') {
-			++optind;
+		place = nargv[optind];
+		if (*place != '-') {
 			place = EMSG;
 			return (-1);
+		}
+		if (place[1]) {
+			place++;
+			if (*place == '-' && place[1] == '\0') {
+				++optind;
+				place = EMSG;
+				return (-1);
+			}
 		}
 	}					/* option letter okay? */
-	if ((optopt = (int)*place++) == (int)':' ||
-	    !(oli = (char *)strchr(ostr, optopt))) {
+	optopt = (int)*place++;
+	oli = (char *)strchr(ostr, optopt);
+	if (optopt == (int)':' || !oli) {
 		/*
 		 * if the user didn't specify '-' as an option,
 		 * assume it means -1.

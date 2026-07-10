@@ -3794,9 +3794,18 @@ int lws_dht_dnssec_bump_zone_serial(struct lws_context *context, const char *fil
 	old_serial[serial_len] = '\0';
 
 	time_t t = time(NULL);
-	struct tm *tm = gmtime(&t);
+#if defined(WIN32) || defined(_WIN32)
+	struct tm tmp;
+	struct tm *tm = gmtime_s(&tmp, &t) == 0 ? &tmp : NULL;
+#else
+	struct tm tmp;
+	struct tm *tm = gmtime_r(&t, &tmp);
+#endif
 	char new_date[16];
-	lws_snprintf(new_date, sizeof(new_date), "%04d%02d%02d", tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday);
+	if (tm)
+		lws_snprintf(new_date, sizeof(new_date), "%04d%02d%02d", tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday);
+	else
+		new_date[0] = '\0';
 
 	char new_serial[32];
 	if (strncmp(old_serial, new_date, 8) == 0 && serial_len >= 10) {
