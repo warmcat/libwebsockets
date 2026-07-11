@@ -163,6 +163,43 @@ lws_tls_check_cert_lifetime(struct lws_vhost *v)
 	union lws_tls_cert_info_results ir;
 	int n;
 
+	/* Check if the active cert context needs rotation under grace period policy */
+	if (v->tls.ssl_ctx && v->tls.cfg_alloc_cert_path && v->tls.cfg_key_path &&
+	    (strstr(v->tls.cfg_alloc_cert_path, "-latest.crt") ||
+	     strstr(v->tls.cfg_alloc_cert_path, "-latest-fullchain.crt"))) {
+		char resolved_cert[256];
+		char resolved_key[256];
+		time_t resolved_from = 0, resolved_to = 0;
+		union lws_tls_cert_info_results loaded_from, loaded_to;
+
+		/* Resolve what certificate path should be active right now */
+		if (lws_tls_resolve_grace_period_certs(v->context,
+						       v->tls.cfg_alloc_cert_path,
+						       v->tls.cfg_key_path,
+						       resolved_cert, sizeof(resolved_cert),
+						       resolved_key, sizeof(resolved_key)) == 0) {
+			/* Get validity of resolved cert file */
+			if (lws_tls_cert_get_x509_validity(v->context, resolved_cert,
+							   &resolved_from, &resolved_to) == 0) {
+				/* Get validity of currently loaded cert context */
+				if (lws_tls_vhost_cert_info(v, LWS_TLS_CERT_INFO_VALIDITY_FROM,
+							    &loaded_from, 0) == 0 &&
+				    lws_tls_vhost_cert_info(v, LWS_TLS_CERT_INFO_VALIDITY_TO,
+							    &loaded_to, 0) == 0) {
+					if (resolved_from != loaded_from.time ||
+					    resolved_to != loaded_to.time) {
+						lwsl_notice("%s: Active certificate for vhost %s is out of date. Rotating dynamically.\n",
+							    __func__, v->name);
+						lws_tls_cert_updated(v->context,
+								     v->tls.cfg_alloc_cert_path,
+								     v->tls.cfg_key_path,
+								     NULL, 0, NULL, 0);
+					}
+				}
+			}
+		}
+	}
+
 	if (v->tls.ssl_ctx && !v->tls.skipped_certs) {
 
 		if (now < 1542933698) /* Nov 23 2018 00:42 UTC */

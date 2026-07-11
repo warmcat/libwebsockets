@@ -193,6 +193,18 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 #if OPENSSL_VERSION_NUMBER >= 0x10100000L
 	int ret;
 #endif
+	char resolved_cert[256];
+	char resolved_key[256];
+
+	if (cert && private_key) {
+		if (lws_tls_resolve_grace_period_certs(vhost->context, cert, private_key,
+						       resolved_cert, sizeof(resolved_cert),
+						       resolved_key, sizeof(resolved_key)) == 0) {
+			cert = resolved_cert;
+			private_key = resolved_key;
+		}
+	}
+
 	int n = (int)lws_tls_generic_cert_checks(vhost, cert, private_key), m;
 
 	if (!cert && !private_key)
