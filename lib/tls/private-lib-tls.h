@@ -320,6 +320,16 @@ lws_tls_session_tag_discrete(const char *vhname, const char *host,
 int
 lws_tls_session_tag_from_wsi(struct lws *wsi, char *buf, size_t len);
 
+int
+lws_tls_resolve_grace_period_certs(struct lws_context *context,
+				   const char *certpath, const char *keypath,
+				   char *resolved_cert, size_t resolved_cert_len,
+				   char *resolved_key, size_t resolved_key_len);
+
+int
+lws_tls_cert_get_x509_validity(struct lws_context *context, const char *filepath,
+			       time_t *not_before, time_t *not_after);
+
 #else /* ! WITH_TLS */
 
 #define lws_tls_restrict_borrow(xxx) (0)
