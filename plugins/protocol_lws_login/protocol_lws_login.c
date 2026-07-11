@@ -980,9 +980,24 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 					}
 				}
 
-				lws_snprintf(fq_uri, sizeof(fq_uri), "%s://%s%s",
-					     lws_is_ssl(wsi) ? "https" : "http",
-					     h ? h : "localhost", path);
+				{
+					const char *scheme = "http";
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+					char proto[16] = "";
+
+					if (lws_hdr_custom_copy(wsi, proto, sizeof(proto), "x-forwarded-proto:", 18) > 0) {
+						if (!strcasecmp(proto, "https"))
+							scheme = "https";
+					} else
+#endif
+					if (lws_is_ssl(lws_get_network_wsi(wsi))) {
+						scheme = "https";
+					}
+
+					lws_snprintf(fq_uri, sizeof(fq_uri), "%s://%s%s",
+						     scheme,
+						     h ? h : "localhost", path);
+				}
 
 				if (lws_add_http_common_headers(wsi, HTTP_STATUS_FOUND, "text/html", 0, (unsigned char **)&p, (unsigned char *)end)) return 1;
 				if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie, (int)strlen(cookie), (unsigned char **)&p, (unsigned char *)end)) return 1;
@@ -1126,10 +1141,25 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 		}
 
-		lws_snprintf(fq_uri, sizeof(fq_uri), "%s://%s%s",
-			     lws_is_ssl(wsi) ? "https" : "http",
-			     h ? h : "localhost",
-			     path);
+		{
+			const char *scheme = "http";
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+			char proto[16] = "";
+
+			if (lws_hdr_custom_copy(wsi, proto, sizeof(proto), "x-forwarded-proto:", 18) > 0) {
+				if (!strcasecmp(proto, "https"))
+					scheme = "https";
+			} else
+#endif
+			if (lws_is_ssl(lws_get_network_wsi(wsi))) {
+				scheme = "https";
+			}
+
+			lws_snprintf(fq_uri, sizeof(fq_uri), "%s://%s%s",
+				     scheme,
+				     h ? h : "localhost",
+				     path);
+		}
 
 		lws_urlencode(urlenc_path, fq_uri, sizeof(urlenc_path));
 
