@@ -1506,8 +1506,14 @@ lws_http_proxy_start(struct lws *wsi, const struct lws_http_mount *hit,
 			 pslash + 1, uri_ptr + hit->mountpoint_len) - 1;
 	lws_clean_url(rpath);
 	n = (int)strlen(rpath);
-	if (n && rpath[n - 1] == '/')
-		n--;
+	{
+		int orig_had_slash = 0;
+		int u_len = (int)strlen(uri_ptr);
+		if (u_len && uri_ptr[u_len - 1] == '/')
+			orig_had_slash = 1;
+		if (!orig_had_slash && n && rpath[n - 1] == '/')
+			n--;
+	}
 
 	na = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_URI_ARGS);
 	if (na) {
@@ -1711,13 +1717,12 @@ lws_http_redirect_hit(struct lws_context_per_thread *pt, struct lws *wsi,
 	 * / at the end, we must redirect to add it so the browser
 	 * understands he is one "directory level" down.
 	 */
-	if ((hit->mountpoint_len > 1 ||
-	     (hit->origin_protocol == LWSMPRO_REDIR_HTTP ||
-	      hit->origin_protocol == LWSMPRO_REDIR_HTTPS)) &&
-	    (*s != '/' ||
-	     (hit->origin_protocol == LWSMPRO_REDIR_HTTP ||
-	      hit->origin_protocol == LWSMPRO_REDIR_HTTPS)) &&
-	    (hit->origin_protocol != LWSMPRO_CGI &&
+	if ((hit->origin_protocol == LWSMPRO_REDIR_HTTP ||
+	     hit->origin_protocol == LWSMPRO_REDIR_HTTPS) ||
+	    (hit->mountpoint_len > 1 &&
+	     (uri_ptr[0] && uri_ptr[strlen(uri_ptr) - 1] != '/') &&
+	     *s != '/' &&
+	     hit->origin_protocol != LWSMPRO_CGI &&
 	     hit->origin_protocol != LWSMPRO_CALLBACK)) {
 		char peer_buf[64];
 		unsigned char *start = pt->serv_buf + LWS_PRE, *p = start,
@@ -1743,30 +1748,29 @@ lws_http_redirect_hit(struct lws_context_per_thread *pt, struct lws *wsi,
 					    oprot[hit->origin_protocol & 1],
 					    hit->origin);
 		} else {
-			if (!lws_hdr_total_length(wsi, WSI_TOKEN_HOST)) {
+			const char *host_hdr = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST);
 #if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
-				if (!lws_hdr_total_length(wsi,
-						WSI_TOKEN_HTTP_COLON_AUTHORITY))
+			if (!host_hdr) {
+				host_hdr = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_AUTHORITY);
+			}
 #endif
-					goto bail_nuke_ah;
-#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
+			if (!host_hdr)
+				goto bail_nuke_ah;
+
+			if (host_hdr[0] == '+' || strchr(host_hdr, '/')) {
+				n = lws_snprintf((char *)end, 256, "%s/", uri_ptr);
+			} else {
 				n = lws_snprintf((char *)end, 256,
 				    "%s%s%s/", oprot[!!lws_is_ssl(wsi)],
-				    lws_hdr_simple_ptr(wsi,
-						WSI_TOKEN_HTTP_COLON_AUTHORITY),
-				    uri_ptr);
-#endif
-			} else
-				n = lws_snprintf((char *)end, 256,
-				    "%s%s%s/", oprot[!!lws_is_ssl(wsi)],
-				    lws_hdr_simple_ptr(wsi, WSI_TOKEN_HOST),
-				    uri_ptr);
+				    host_hdr, uri_ptr);
+			}
 		}
 
 		// lwsl_notice("%s: redirecting to '%s' (vhost port %d, peer %s)\n",
 		//	    __func__, (char *)end, wsi->a.vhost->listen_port, peer_buf);
 
 		lws_clean_url((char *)end);
+		n = (int)strlen((char *)end);
 		n = lws_http_redirect(wsi, HTTP_STATUS_MOVED_PERMANENTLY,
 				      end, n, &p, end);
 		if ((int)n < 0)
