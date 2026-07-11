@@ -3281,6 +3281,19 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 			return 1;
 		}
 		wsi->desc.sockfd = LWS_SOCK_INVALID;
+#if defined(LWS_WITH_EVENT_LIBS)
+		if (wsi->a.context->event_loop_ops->evlib_size_wsi) {
+			memcpy(nwsi->evlib_wsi, wsi->evlib_wsi, wsi->a.context->event_loop_ops->evlib_size_wsi);
+			memset(wsi->evlib_wsi, 0, wsi->a.context->event_loop_ops->evlib_size_wsi);
+
+			if (!strcmp(wsi->a.context->event_loop_ops->name, "libuv")) {
+				void **ppwatcher = (void **)nwsi->evlib_wsi;
+				if (ppwatcher && *ppwatcher) {
+					*(void **)(*ppwatcher) = nwsi;
+				}
+			}
+		}
+#endif
 		if (__insert_wsi_socket_into_fds(wsi->a.context, nwsi)) {
 			lws_pt_unlock(pt);
 			lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS, "fd table fail");
@@ -3447,7 +3460,11 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	}
 
 	/* Inform the H3 role that it negotiated ALPN */
-	lws_role_call_alpn_negotiated(wsi, alpn);
+	if (role && role != &role_ops_quic &&
+	    lws_rops_fidx(role, LWS_ROPS_alpn_negotiated)) {
+		(lws_rops_func_fidx(role, LWS_ROPS_alpn_negotiated)).
+			alpn_negotiated(wsi, alpn);
+	}
 
 	/* We are ready to send headers! */
 	lws_callback_on_writable(wsi);
