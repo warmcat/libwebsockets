@@ -131,9 +131,16 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 	uint8_t *p = NULL;
 	int n;
 
-	if ((!cert || !private_key) && (!mem_cert || !mem_privkey)) {
-		lwsl_notice("%s: no usable input\n", __func__);
-		return 0;
+	char resolved_cert[256];
+	char resolved_key[256];
+
+	if (cert && private_key) {
+		if (lws_tls_resolve_grace_period_certs(vhost->context, cert, private_key,
+						       resolved_cert, sizeof(resolved_cert),
+						       resolved_key, sizeof(resolved_key)) == 0) {
+			cert = resolved_cert;
+			private_key = resolved_key;
+		}
 	}
 
 	n = (int)lws_tls_generic_cert_checks(vhost, cert, private_key);

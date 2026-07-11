@@ -747,3 +747,232 @@ bail:
 
 	return res;
 }
+
+int
+lws_tls_cert_get_x509_validity(struct lws_context *context, const char *filepath,
+			       time_t *not_before, time_t *not_after)
+{
+	struct lws_x509_cert *x = NULL;
+	union lws_tls_cert_info_results cri, cri1;
+	uint8_t *p;
+	lws_filepos_t amount;
+	int res = -1;
+
+	if (alloc_file(context, filepath, &p, &amount))
+		return 1;
+
+	p[amount] = '\0';
+
+	if (lws_x509_create(&x))
+		goto bail;
+
+	if (lws_x509_parse_from_pem(x, p, (size_t)amount))
+		goto bail_destroy;
+
+	if (!lws_x509_info(x, LWS_TLS_CERT_INFO_VALIDITY_FROM, &cri, 0) &&
+	    !lws_x509_info(x, LWS_TLS_CERT_INFO_VALIDITY_TO, &cri1, 0)) {
+		if (not_before)
+			*not_before = cri.time;
+		if (not_after)
+			*not_after = cri1.time;
+		res = 0;
+	}
+
+bail_destroy:
+	lws_x509_destroy(&x);
+bail:
+	lws_free(p);
+
+	return res;
+}
+
+struct versioned_certs_scan {
+	const char *prefix;
+	const char *suffix;
+	char newest[256];
+	char previous[256];
+	int count;
+};
+
+static int
+lws_tls_versioned_certs_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
+{
+	struct versioned_certs_scan *scan = (struct versioned_certs_scan *)user;
+	size_t len_prefix = strlen(scan->prefix);
+	size_t len_name = strlen(lde->name);
+	size_t len_suffix = strlen(scan->suffix);
+
+	(void)dirpath;
+
+	/* Filter files that start with prefix, end with suffix, and have YYYYMMDD-HHMMSS in between */
+	if (lde->type == LDOT_FILE &&
+	    len_name == len_prefix + 16 + len_suffix &&
+	    !strncmp(lde->name, scan->prefix, len_prefix) &&
+	    !strcmp(lde->name + len_name - len_suffix, scan->suffix) &&
+	    lde->name[len_prefix] == '-') {
+		/* Check timestamp format: -YYYYMMDD-HHMMSS */
+		const char *ts = lde->name + len_prefix + 1;
+		int i;
+		int ok = 1;
+		for (i = 0; i < 15; i++) {
+			if (i == 8) {
+				if (ts[i] != '-') { ok = 0; break; }
+			} else {
+				if (ts[i] < '0' || ts[i] > '9') { ok = 0; break; }
+			}
+		}
+		if (ok) {
+			/* Since lws_dir sorts alphabetically, each match is newer than the previous one */
+			lws_strncpy(scan->previous, scan->newest, sizeof(scan->previous));
+			lws_strncpy(scan->newest, lde->name, sizeof(scan->newest));
+			scan->count++;
+		}
+	}
+	return 0;
+}
+
+static void
+lws_tls_find_versioned_certs(const char *filepath, char *dirpath, size_t dirpath_len,
+			     char *newest, size_t newest_len,
+			     char *previous, size_t previous_len)
+{
+	struct versioned_certs_scan scan;
+	char file_prefix[128];
+	const char *suffix = NULL;
+	const char *p;
+
+	newest[0] = '\0';
+	previous[0] = '\0';
+	dirpath[0] = '\0';
+
+	/* Find last separator to split path into directory and file */
+	p = strrchr(filepath, '/');
+#if defined(WIN32)
+	if (!p)
+		p = strrchr(filepath, '\\');
+#endif
+	if (!p)
+		return;
+
+	lws_strncpy(dirpath, filepath, lws_ptr_diff_size_t(p, filepath) + 2);
+
+	/* Determine suffix */
+	if (strstr(p, "-latest-fullchain.crt")) {
+		suffix = "-fullchain.crt";
+	} else if (strstr(p, "-latest.crt")) {
+		suffix = ".crt";
+	} else if (strstr(p, "-latest.key")) {
+		suffix = ".key";
+	} else {
+		/* Not a versioned path suffix we support */
+		return;
+	}
+
+	/* Extract prefix */
+	p++; /* skip separator */
+	const char *latest_ptr = strstr(p, "-latest");
+	if (!latest_ptr || lws_ptr_diff_size_t(latest_ptr, p) >= sizeof(file_prefix))
+		return;
+
+	lws_strncpy(file_prefix, p, lws_ptr_diff_size_t(latest_ptr, p) + 1);
+
+	memset(&scan, 0, sizeof(scan));
+	scan.prefix = file_prefix;
+	scan.suffix = suffix;
+
+	lws_dir(dirpath, &scan, lws_tls_versioned_certs_cb);
+
+	if (scan.newest[0])
+		lws_snprintf(newest, newest_len, "%s%s", dirpath, scan.newest);
+	if (scan.previous[0])
+		lws_snprintf(previous, previous_len, "%s%s", dirpath, scan.previous);
+}
+
+int
+lws_tls_resolve_grace_period_certs(struct lws_context *context,
+				   const char *certpath, const char *keypath,
+				   char *resolved_cert, size_t resolved_cert_len,
+				   char *resolved_key, size_t resolved_key_len)
+{
+	char dirpath_cert[256], newest_cert[256], previous_cert[256];
+	char dirpath_key[256], newest_key[256], previous_key[256];
+	time_t now = time(NULL);
+	time_t newest_not_before = 0;
+	time_t previous_not_after = 0;
+	lws_system_policy_t *policy = NULL;
+	char d_path[1024];
+	int grace_period = 900; /* 15 mins default */
+	int fd_cfg;
+
+	lws_strncpy(resolved_cert, certpath, resolved_cert_len);
+	lws_strncpy(resolved_key, keypath, resolved_key_len);
+
+	/* Check if it is a versioned path */
+	if (!strstr(certpath, "-latest.crt") && !strstr(certpath, "-latest-fullchain.crt"))
+		return 0;
+
+	lws_tls_find_versioned_certs(certpath, dirpath_cert, sizeof(dirpath_cert),
+				     newest_cert, sizeof(newest_cert),
+				     previous_cert, sizeof(previous_cert));
+
+	lws_tls_find_versioned_certs(keypath, dirpath_key, sizeof(dirpath_key),
+				     newest_key, sizeof(newest_key),
+				     previous_key, sizeof(previous_key));
+
+	if (!newest_cert[0] || !newest_key[0])
+		return 0;
+
+	if (lws_tls_cert_get_x509_validity(context, newest_cert, &newest_not_before, NULL)) {
+		/* Failed to read newest cert validity, fallback to newest on disk */
+		lws_strncpy(resolved_cert, newest_cert, resolved_cert_len);
+		lws_strncpy(resolved_key, newest_key, resolved_key_len);
+		return 0;
+	}
+
+	lws_snprintf(d_path, sizeof(d_path), "/etc/lwsws/acme/acme_config.json");
+	if (lws_system_parse_policy(context, "/etc/lwsws/policy", &policy) == 0 && policy) {
+		lws_snprintf(d_path, sizeof(d_path), "%s/acme_config.json", policy->dns_base_dir);
+		lws_system_policy_free(policy);
+	}
+
+	fd_cfg = open(d_path, O_RDONLY);
+	if (fd_cfg >= 0) {
+		char buf[1024];
+		ssize_t nr = read(fd_cfg, buf, sizeof(buf) - 1);
+		if (nr > 0) {
+			buf[nr] = '\0';
+			const char *grace_ptr = strstr(buf, "\"rotation-grace-period\"");
+			if (!grace_ptr)
+				grace_ptr = strstr(buf, "\"rotation_grace_period\"");
+			if (grace_ptr) {
+				const char *num_ptr = strchr(grace_ptr, ':');
+				if (num_ptr) {
+					num_ptr++;
+					while (*num_ptr == ' ' || *num_ptr == '\t')
+						num_ptr++;
+					if (*num_ptr >= '0' && *num_ptr <= '9')
+						grace_period = atoi(num_ptr);
+				}
+			}
+		}
+		close(fd_cfg);
+	}
+
+	/* If previous cert exists and is still valid, and we are within the grace period of the new cert */
+	if (previous_cert[0] && previous_key[0] &&
+	    !lws_tls_cert_get_x509_validity(context, previous_cert, NULL, &previous_not_after) &&
+	    now < previous_not_after &&
+	    now < newest_not_before + grace_period) {
+		lwsl_notice("%s: Deferring to previous cert %s (grace period: %llds left)\n",
+			    __func__, previous_cert, (long long)(newest_not_before + grace_period - now));
+		lws_strncpy(resolved_cert, previous_cert, resolved_cert_len);
+		lws_strncpy(resolved_key, previous_key, resolved_key_len);
+	} else {
+		lwsl_notice("%s: Using newest cert %s\n", __func__, newest_cert);
+		lws_strncpy(resolved_cert, newest_cert, resolved_cert_len);
+		lws_strncpy(resolved_key, newest_key, resolved_key_len);
+	}
+
+	return 0;
+}
+
