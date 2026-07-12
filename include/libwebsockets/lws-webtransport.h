@@ -41,5 +41,14 @@ lws_wt_create_stream(struct lws *wsi_session, int unidi);
 LWS_VISIBLE LWS_EXTERN int
 lws_wt_is_session(struct lws *wsi);
 
+LWS_VISIBLE LWS_EXTERN int
+lws_wt_is_unidi(struct lws *wsi);
+
+LWS_VISIBLE LWS_EXTERN struct lws *
+lws_wt_create_stream_from_child(struct lws *child_wsi, int unidi);
+
+LWS_VISIBLE LWS_EXTERN struct lws *
+lws_wt_get_session_wsi(struct lws *wsi);
+
 #endif /* LWS_ROLE_WT */
 #endif /* _LWS_WEBTRANSPORT_H */

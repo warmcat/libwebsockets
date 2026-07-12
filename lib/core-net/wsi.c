@@ -527,7 +527,7 @@ const struct lws_protocols *lws_get_protocol(struct lws *wsi) {
 	return wsi->a.protocol;
 }
 
-int lws_ensure_user_space(struct lws *wsi) {
+LWS_VISIBLE int lws_ensure_user_space(struct lws *wsi) {
 	if (!wsi->a.protocol)
 		return 0;
 
