@@ -367,6 +367,7 @@ lws_quic_keys_destroy(struct lws_quic_keys *keys)
                 gnutls_aead_cipher_deinit((gnutls_aead_cipher_hd_t)keys->aead_tx);
 #endif
 
+        lws_explicit_bzero(keys, sizeof(*keys));
         lws_free(keys);
 }
 

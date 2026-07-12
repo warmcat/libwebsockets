@@ -1061,6 +1061,16 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	if (!wsi->do_ws) {
 		/* we are being an http client...
 		 */
+#if defined(LWS_ROLE_WT)
+		if (wsi->a.protocol && !strcmp(wsi->a.protocol->name, "webtransport")) {
+			extern const struct lws_role_ops role_ops_wt;
+			lwsl_debug("%s: %s: transitioning to WebTransport client\n",
+				   __func__, lws_wsi_tag(wsi));
+			lws_role_transition(wsi, LWSIFR_CLIENT,
+					    LRS_ESTABLISHED, &role_ops_wt);
+			wsi->wt.is_session = 1;
+		} else
+#endif
 #if defined(LWS_ROLE_H2)
 		if (wsi->client_h2_alpn || wsi->client_mux_substream) {
 			lwsl_debug("%s: %s: transitioning to mux client\n",

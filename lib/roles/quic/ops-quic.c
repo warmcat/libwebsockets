@@ -1065,9 +1065,10 @@ tp_ok:
 			break;
 		}
 
-		/* 2. Parsing: Safely find the Packet Number offset */
-		size_t payload_len_stated;
-		size_t pn_offset = lws_quic_get_pn_offset(p, (size_t)n, &payload_len_stated);
+		size_t local_dcid_len = (nwsi && nwsi->quic.qn) ? nwsi->quic.qn->loc_cid.len : 8;
+		if (local_dcid_len == 0) local_dcid_len = 8;
+		size_t payload_len_stated = 0;
+		size_t pn_offset = lws_quic_get_pn_offset(p, (size_t)n, &payload_len_stated, local_dcid_len);
 		if (!pn_offset) {
 			lwsl_wsi_notice(wsi, "QUIC RX: Malformed or truncated packet");
 			break;
@@ -1500,18 +1501,23 @@ rops_handle_POLLOUT_quic(struct lws *wsi)
 
 	if (!qn) {
 		struct lws *w;
+		lws_handling_result_t hr_ret = LWS_HP_RET_DROP_POLLOUT;
 		if (wsi->mux.child_list) {
 			w = wsi->mux.child_list;
 			while (w) {
 				struct lws *next = w->mux.sibling_list;
 				if (w->mux.requested_POLLOUT) {
 					w->mux.requested_POLLOUT = 0;
-					rops_handle_POLLOUT_quic(w);
+					lws_handling_result_t hr_child = rops_handle_POLLOUT_quic(w);
+					if (hr_child == LWS_HP_RET_BAIL_DIE)
+						return LWS_HP_RET_BAIL_DIE;
+					if (hr_child == LWS_HP_RET_BAIL_OK)
+						hr_ret = LWS_HP_RET_BAIL_OK;
 				}
 				w = next;
 			}
 		}
-		return LWS_HP_RET_DROP_POLLOUT;
+		return hr_ret;
 	}
 
 	wsi->mux.requested_POLLOUT = 0;
@@ -2219,9 +2225,9 @@ send_frames:
         {
                 struct lws *curr = wsi->mux.child_list;
                 int sanity = 1000000;
-                lwsl_debug("QUIC TX POLLOUT: nwsi=%s, tx_cr=%d\n", lws_wsi_tag(wsi), (int)wsi->txc.tx_cr);
+                lwsl_notice("QUIC TX POLLOUT: nwsi=%s, tx_cr=%d\n", lws_wsi_tag(wsi), (int)wsi->txc.tx_cr);
                 while (curr && sanity--) {
-                        lwsl_debug("QUIC TX POLLOUT:   child: %s, requested_POLLOUT=%d, tx_cr=%d\n", 
+                        lwsl_notice("QUIC TX POLLOUT:   child: %s, requested_POLLOUT=%d, tx_cr=%d\n", 
                                     lws_wsi_tag(curr), curr->mux.requested_POLLOUT, (int)curr->txc.tx_cr);
                         curr = curr->mux.sibling_list;
                 }
@@ -2238,7 +2244,7 @@ send_frames:
 
 				wa = &(*wsi2)->mux.sibling_list;
 				
-				lwsl_debug("QUIC TX POLLOUT: visiting child %s, requested_POLLOUT=%d\n", lws_wsi_tag(*wsi2), (*wsi2)->mux.requested_POLLOUT);
+				lwsl_notice("QUIC TX POLLOUT: visiting child %s, requested_POLLOUT=%d\n", lws_wsi_tag(*wsi2), (*wsi2)->mux.requested_POLLOUT);
 
 				if (!(*wsi2)->mux.requested_POLLOUT)
 					goto next_child;
@@ -2331,6 +2337,11 @@ end_children:
 		int can_process_children = ((qn->handshake_done || qn->early_data_status == LWS_0RTT_STATUS_ATTEMPTED || qn->early_data_status == LWS_0RTT_STATUS_ACCEPTED) && wsi->txc.tx_cr > 0 && (!nwsi || nwsi->txc.tx_cr > 0));
 		int have_pending_tx = 0;
 		for (level = 0; level < LWS_QUIC_LEVEL_COUNT; level++) {
+			if (qn->pending_tx[level].count) {
+				lwsl_notice("AGY-DEBUG: pending_tx[%d].count = %d, keys = %p, hp_len = %d\n",
+					level, qn->pending_tx[level].count, qn->keys[level],
+					qn->keys[level] ? (int)qn->keys[level]->el_hp_tx.len : -1);
+			}
 			if (qn->pending_tx[level].count && qn->keys[level] && qn->keys[level]->el_hp_tx.len) {
 				if (level == LWS_QUIC_LEVEL_APP && qn->migration_probing_wsi) {
 					lws_start_foreach_dll(struct lws_dll2 *, d, qn->pending_tx[level].head) {
@@ -2349,11 +2360,16 @@ end_children:
 			}
 		}
 
-		if (!blocked && can_process_children && !have_pending_tx) {
+		if (!blocked && can_process_children) {
 			if (lws_wsi_mux_action_pending_writeable_reqs(wsi))
 				return LWS_HP_RET_BAIL_DIE;
 				
 			for (level = 0; level < LWS_QUIC_LEVEL_COUNT; level++) {
+				if (qn->pending_tx[level].count) {
+					lwsl_notice("AGY-DEBUG2: pending_tx[%d].count = %d, keys = %p, hp_len = %d\n",
+						level, qn->pending_tx[level].count, qn->keys[level],
+						qn->keys[level] ? (int)qn->keys[level]->el_hp_tx.len : -1);
+				}
 				if (qn->pending_tx[level].count && qn->keys[level] && qn->keys[level]->el_hp_tx.len) {
 					if (level == LWS_QUIC_LEVEL_APP && qn->migration_probing_wsi) {
 						lws_start_foreach_dll(struct lws_dll2 *, d, qn->pending_tx[level].head) {
@@ -2374,7 +2390,19 @@ end_children:
 		}
 
 		// lwsl_wsi_notice(wsi, "QUIC TX: blocked=%d, have_pending_tx=%d, can_process_children=%d", blocked, have_pending_tx, can_process_children);
-		if ((blocked && !eagain_blocked) || !have_pending_tx) {
+		int children_need_POLLOUT = 0;
+		{
+			struct lws *w_child = wsi->mux.child_list;
+			while (w_child) {
+				if (w_child->mux.requested_POLLOUT) {
+					children_need_POLLOUT = 1;
+					break;
+				}
+				w_child = w_child->mux.sibling_list;
+			}
+		}
+
+		if (((blocked && !eagain_blocked) || !have_pending_tx) && !children_need_POLLOUT) {
 			lwsl_notice("QUIC TX: dropping POLLOUT manually for %s (blocked=%d, eagain_blocked=%d, have_pending_tx=%d)\n", lws_wsi_tag(wsi), blocked, eagain_blocked, have_pending_tx);
 			/* We are blocked by QUIC limits, or have nothing to send right now.
 			 * Stop asking the OS for POLLOUT. We will re-enable it if children
@@ -3330,9 +3358,10 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	/* Initialize flow control credits for the new child stream */
 	int32_t init_cr = nwsi->txc.manual_initial_tx_credit;
 	if (!init_cr) {
-		if (nwsi->quic.qn && nwsi->quic.qn->peer_initial_max_stream_data_bidi_remote)
-			init_cr = (int32_t)nwsi->quic.qn->peer_initial_max_stream_data_bidi_remote;
-		else
+		if (nwsi->quic.qn && nwsi->quic.qn->peer_initial_max_stream_data_bidi_remote) {
+			uint64_t val = nwsi->quic.qn->peer_initial_max_stream_data_bidi_remote;
+			init_cr = (val > (uint64_t)INT32_MAX) ? INT32_MAX : (int32_t)val;
+		} else
 			init_cr = 65535;
 	}
 	wsi->txc.peer_tx_cr_est = init_cr;

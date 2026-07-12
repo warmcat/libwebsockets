@@ -58,6 +58,10 @@ lws_h3_client_handshake(struct lws *wsi)
 
 	if (wsi->do_ws)
 		meth = "CONNECT";
+#if defined(LWS_ROLE_WT)
+	else if (wsi->a.protocol && !strcmp(wsi->a.protocol->name, "webtransport"))
+		meth = "CONNECT";
+#endif
 	else if (!meth)
 		meth = "GET";
 
@@ -75,6 +79,13 @@ lws_h3_client_handshake(struct lws *wsi)
 					(unsigned char *)"websocket", 9, &p, end))
 			return -1;
 	}
+#if defined(LWS_ROLE_WT)
+	else if (wsi->a.protocol && !strcmp(wsi->a.protocol->name, "webtransport")) {
+		if (lws_add_http3_header_by_token(wsi, WSI_TOKEN_COLON_PROTOCOL,
+					(unsigned char *)"webtransport", 12, &p, end))
+			return -1;
+	}
+#endif
 
 	if (lws_add_http3_header_by_token(wsi, WSI_TOKEN_HTTP_COLON_SCHEME,
 				(unsigned char *)"https", 5, &p, end))
@@ -549,6 +560,28 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 				return -1;
 		}
 	} else {
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+		struct allocated_headers *ah = wsi->http.ah;
+		if (ah && name && name_len > 0 && ah->pos + 8 + name_len + value_len < (unsigned int)wsi->a.context->max_http_header_data) {
+			uint32_t unk_pos = ah->pos;
+
+			lws_ser_wu16be((uint8_t *)&ah->data[unk_pos + 0], (uint16_t)name_len);
+			lws_ser_wu16be((uint8_t *)&ah->data[unk_pos + 2], (uint16_t)value_len);
+			lws_ser_wu32be((uint8_t *)&ah->data[unk_pos + 4], 0);
+
+			memcpy(&ah->data[unk_pos + 8], name, name_len);
+			memcpy(&ah->data[unk_pos + 8 + name_len], value, value_len);
+
+			if (!ah->unk_ll_head)
+				ah->unk_ll_head = unk_pos;
+			if (ah->unk_ll_tail)
+				lws_ser_wu32be((uint8_t *)&ah->data[ah->unk_ll_tail + 4], unk_pos);
+			ah->unk_ll_tail = unk_pos;
+
+			ah->pos += (ah_data_idx_t)(8 + name_len + value_len);
+			lwsl_wsi_notice(wsi, "Added H3 custom header: %.*s = %.*s", (int)name_len, name, (int)value_len, value);
+		} else
+#endif
 		lwsl_wsi_debug(wsi, "Ignoring unknown header: %s", name ? name : "unknown");
 	}
 
@@ -766,6 +799,135 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 {
 	// lwsl_notice("H3 RX: %d bytes\n", (int)len);
 	// lwsl_hexdump_notice(buf, len);
+
+#if defined(LWS_ROLE_WT)
+	extern const struct lws_role_ops role_ops_wt;
+	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+	int has_wt_session = 0;
+	if (nwsi) {
+		struct lws *child = nwsi->mux.child_list;
+		while (child) {
+			if (child->wt.is_session) {
+				has_wt_session = 1;
+				break;
+			}
+			child = child->mux.sibling_list;
+		}
+	}
+
+	if (has_wt_session) {
+		if (wsi->quic.qs && wsi->quic.qs->is_unidirectional) {
+			uint64_t type = 0;
+			size_t consumed_type = 0;
+			
+			if (!wsi->h3.type_set) {
+				consumed_type = lws_quic_parse_varint(buf, len, &type);
+				if (!consumed_type) return 0; /* Need more data */
+				
+				if (type == 0x54) {
+					wsi->h3.stream_type = 0x54;
+					wsi->h3.type_set = 1;
+				}
+			} else if (wsi->h3.stream_type == 0x54) {
+				type = 0x54;
+			}
+			
+			if (type == 0x54) {
+				/* We need to parse the Session ID next */
+				uint64_t session_id = 0;
+				size_t consumed_sid = lws_quic_parse_varint(buf + consumed_type, len - consumed_type, &session_id);
+				if (!consumed_sid) return 0; /* Need more data */
+				
+				/* Find matching WT session */
+				struct lws *session_wsi = NULL;
+				if (nwsi) {
+					struct lws *child = nwsi->mux.child_list;
+					while (child) {
+						if (child->wt.is_session && (child->mux.my_sid / 4 == session_id)) {
+							session_wsi = child;
+							break;
+						}
+						child = child->mux.sibling_list;
+					}
+				}
+				
+				if (session_wsi) {
+					lwsl_notice("Transitioning client-initiated uni stream to WT (session ID %llu)\n", (unsigned long long)session_id);
+					lws_role_transition(wsi, lwsi_role_client(wsi) ? LWSIFR_CLIENT : LWSIFR_SERVER, LRS_ESTABLISHED, &role_ops_wt);
+					wsi->wt.is_unidi = 1;
+					wsi->wt.is_session = 0;
+					wsi->a.protocol = session_wsi->a.protocol;
+					
+					if (lws_ensure_user_space(wsi))
+						return 1;
+					
+					if (wsi->a.protocol && wsi->a.protocol->callback) {
+						wsi->a.protocol->callback(wsi, LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED, wsi->user_space, NULL, 0);
+					}
+					
+					size_t total_consumed = consumed_type + consumed_sid;
+					if (len > total_consumed) {
+						wsi->a.protocol->callback(wsi, LWS_CALLBACK_RECEIVE, wsi->user_space, (void *)(buf + total_consumed), len - total_consumed);
+					}
+					return 0;
+				} else {
+					lwsl_err("WT session WSI not found for session ID %llu\n", (unsigned long long)session_id);
+					return 1;
+				}
+			}
+		} else if (wsi->quic.qs && !wsi->quic.qs->is_unidirectional && !wsi->h3.type_set) {
+			uint64_t type = 0;
+			size_t consumed_type = lws_quic_parse_varint(buf, len, &type);
+			if (!consumed_type) return 0; /* Need more data */
+			
+			if (type == 0x41) {
+				uint64_t session_id = 0;
+				size_t consumed_sid = lws_quic_parse_varint(buf + consumed_type, len - consumed_type, &session_id);
+				if (!consumed_sid) return 0; /* Need more data */
+				
+				/* Check if it matches an active WT session */
+				struct lws *session_wsi = NULL;
+				if (nwsi) {
+					struct lws *child = nwsi->mux.child_list;
+					while (child) {
+						if (child->wt.is_session && (child->mux.my_sid / 4 == session_id)) {
+							session_wsi = child;
+							break;
+						}
+						child = child->mux.sibling_list;
+					}
+				}
+				
+				if (session_wsi) {
+					lwsl_notice("Transitioning client-initiated bidi stream to WT (session ID %llu)\n", (unsigned long long)session_id);
+					lws_role_transition(wsi, lwsi_role_client(wsi) ? LWSIFR_CLIENT : LWSIFR_SERVER, LRS_ESTABLISHED, &role_ops_wt);
+					wsi->wt.is_unidi = 0;
+					wsi->wt.is_session = 0;
+					wsi->a.protocol = session_wsi->a.protocol;
+					
+					if (lws_ensure_user_space(wsi))
+						return 1;
+					
+					if (wsi->a.protocol && wsi->a.protocol->callback) {
+						wsi->a.protocol->callback(wsi, LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED, wsi->user_space, NULL, 0);
+					}
+					
+					size_t total_consumed = consumed_type + consumed_sid;
+					if (len > total_consumed) {
+						wsi->a.protocol->callback(wsi, LWS_CALLBACK_RECEIVE, wsi->user_space, (void *)(buf + total_consumed), len - total_consumed);
+					}
+					return 0;
+				} else {
+					lwsl_err("WT session WSI not found for session ID %llu\n", (unsigned long long)session_id);
+					return 1;
+				}
+			} else {
+				/* Not a WT stream, mark type_set to avoid parsing again */
+				wsi->h3.type_set = 1;
+			}
+		}
+	}
+#endif
 
 	/* If it's unidirectional and we don't know the type yet */
 	if (wsi->quic.qs && wsi->quic.qs->is_unidirectional && !wsi->h3.type_set) {
@@ -1491,11 +1653,105 @@ rops_check_upgrades_h3(struct lws *wsi)
 #if defined(LWS_ROLE_WT)
 		lwsl_info("Upgrade h3 to wt\n");
 		extern const struct lws_role_ops role_ops_wt;
+		unsigned char response_buf[LWS_PRE + 1024], *rp = response_buf + LWS_PRE, *end = response_buf + sizeof(response_buf);
+		char draft[32];
+		char client_protos[256];
+		char negotiated[64] = "";
+		int draft_len, cp_len;
+
 		lws_mux_mark_immortal(wsi);
 		lws_metrics_tag_wsi_add(wsi, "upg", "wt_over_h3");
 
+		/* Construct HTTP/3 response headers for CONNECT upgrade to WebTransport */
+		if (lws_add_http_header_status(wsi, 200, &rp, end))
+			return LWS_UPG_RET_BAIL;
+
+		/* Copy and send back the draft version */
+		draft_len = lws_hdr_custom_copy(wsi, draft, sizeof(draft) - 1,
+						"sec-webtransport-http3-draft", 28);
+		if (draft_len > 0) {
+			draft[draft_len] = '\0';
+			if (lws_add_http_header_by_name(wsi,
+					(const unsigned char *)"sec-webtransport-http3-draft:",
+					(const unsigned char *)draft, draft_len, &rp, end))
+				return LWS_UPG_RET_BAIL;
+		} else {
+			/* Default to draft02 if not sent */
+			if (lws_add_http_header_by_name(wsi,
+					(const unsigned char *)"sec-webtransport-http3-draft:",
+					(const unsigned char *)"draft02", 7, &rp, end))
+				return LWS_UPG_RET_BAIL;
+		}
+
+		/* Subprotocol negotiation */
+		cp_len = lws_hdr_custom_copy(wsi, client_protos, sizeof(client_protos) - 1,
+					     "wt-available-protocols", 22);
+		if (cp_len > 0) {
+			const char *env_protocols = getenv("PROTOCOLS_SERVER");
+			client_protos[cp_len] = '\0';
+			if (!env_protocols)
+				env_protocols = getenv("PROTOCOLS");
+
+			/* client_protos format: '"proto1", "proto2"' */
+			char *cp_ptr = client_protos;
+			char *token;
+			while ((token = strsep(&cp_ptr, ","))) {
+				while (*token == ' ' || *token == '"') token++;
+				char *t_end = token + strlen(token);
+				while (t_end > token && (t_end[-1] == ' ' || t_end[-1] == '"' || t_end[-1] == '\r' || t_end[-1] == '\n')) {
+					t_end[-1] = '\0';
+					t_end--;
+				}
+				if (!*token) continue;
+
+				if (env_protocols) {
+					char server_protos[256];
+					lws_strncpy(server_protos, env_protocols, sizeof(server_protos));
+					char *sp_ptr = server_protos;
+					char *sp_tok;
+					while ((sp_tok = strsep(&sp_ptr, " "))) {
+						if (strcmp(token, sp_tok) == 0) {
+							lws_strncpy(negotiated, token, sizeof(negotiated));
+							break;
+						}
+					}
+				}
+				if (negotiated[0])
+					break;
+			}
+		}
+
+		if (negotiated[0]) {
+			char wt_prot_val[128];
+			int wpl = lws_snprintf(wt_prot_val, sizeof(wt_prot_val), "\"%s\"", negotiated);
+			if (lws_add_http_header_by_name(wsi,
+					(const unsigned char *)"wt-protocol:",
+					(const unsigned char *)wt_prot_val, wpl, &rp, end))
+				return LWS_UPG_RET_BAIL;
+
+			/* Save negotiated protocol to /downloads/negotiated_protocol.txt */
+			mkdir("/downloads", 0777);
+			int nfd = open("/downloads/negotiated_protocol.txt", O_WRONLY | O_CREAT | O_TRUNC, 0666);
+			if (nfd >= 0) {
+				if (write(nfd, negotiated, strlen(negotiated)) < 0) {
+					lwsl_err("Failed to write negotiated protocol\n");
+				}
+				close(nfd);
+			}
+		}
+
+		if (lws_finalize_http_header(wsi, &rp, end))
+			return LWS_UPG_RET_BAIL;
+
+		if (lws_write(wsi, response_buf + LWS_PRE, lws_ptr_diff_size_t(rp, response_buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS) < 0)
+			return LWS_UPG_RET_BAIL;
+
 		/* Switch role to WebTransport */
 		lws_role_transition(wsi, LWSIFR_SERVER, LRS_ESTABLISHED, &role_ops_wt);
+		wsi->wt.is_session = 1;
+
+		if (lws_ensure_user_space(wsi))
+			return LWS_UPG_RET_BAIL;
 
 		if (wsi->a.protocol && wsi->a.protocol->callback) {
 			if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED, wsi->user_space, NULL, 0))
