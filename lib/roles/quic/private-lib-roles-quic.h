@@ -377,7 +377,7 @@ size_t
 lws_quic_parse_varint(const uint8_t *buf, size_t len, uint64_t *val);
 
 size_t
-lws_quic_get_pn_offset(const uint8_t *buf, size_t len, size_t *payload_len);
+lws_quic_get_pn_offset(const uint8_t *buf, size_t len, size_t *payload_len, size_t dcid_len);
 
 size_t
 lws_quic_write_varint(uint8_t *buf, size_t len, uint64_t val);
