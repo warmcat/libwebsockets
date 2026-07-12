@@ -91,10 +91,13 @@ rops_close_kill_connection_wt(struct lws *wsi, enum lws_close_status reason)
 	return 0;
 }
 
+struct lws *
+lws_get_quic_network_wsi(struct lws *wsi);
+
 LWS_VISIBLE struct lws *
 lws_wt_create_stream(struct lws *wsi_session, int unidi)
 {
-	struct lws *nwsi = lws_get_network_wsi(wsi_session);
+	struct lws *nwsi = lws_get_quic_network_wsi(wsi_session);
 	struct lws_quic_netconn *qn = nwsi ? nwsi->quic.qn : NULL;
 	struct lws *cwsi;
 
@@ -179,10 +182,73 @@ lws_wt_is_session(struct lws *wsi)
 	return wsi->wt.is_session;
 }
 
+
+LWS_VISIBLE int
+lws_wt_is_unidi(struct lws *wsi)
+{
+	return wsi->quic.qs && wsi->quic.qs->is_unidirectional;
+}
+
+LWS_VISIBLE struct lws *
+lws_wt_create_stream_from_child(struct lws *child_wsi, int unidi)
+{
+	struct lws *quic_nwsi = lws_get_quic_network_wsi(child_wsi);
+	if (quic_nwsi) {
+		struct lws *child = quic_nwsi->mux.child_list;
+		while (child) {
+			if (child->wt.is_session) {
+				return lws_wt_create_stream(child, unidi);
+			}
+			child = child->mux.sibling_list;
+		}
+	}
+	return NULL;
+}
+
+LWS_VISIBLE struct lws *
+lws_wt_get_session_wsi(struct lws *wsi)
+{
+	struct lws *quic_nwsi = lws_get_quic_network_wsi(wsi);
+	if (quic_nwsi) {
+		struct lws *child = quic_nwsi->mux.child_list;
+		while (child) {
+			if (child->wt.is_session) {
+				return child;
+			}
+			child = child->mux.sibling_list;
+		}
+	}
+	return NULL;
+}
+
+static int
+rops_perform_user_POLLOUT_wt(struct lws *wsi)
+{
+	return lws_callback_as_writeable(wsi);
+}
+
+static int
+rops_callback_on_writable_wt(struct lws *wsi)
+{
+	struct lws *nwsi = lws_get_network_wsi(wsi);
+
+	lwsl_notice("rops_callback_on_writable_wt called for %s (nwsi=%s)\n",
+		    lws_wsi_tag(wsi), nwsi ? lws_wsi_tag(nwsi) : "none");
+
+	if (!nwsi)
+		return 0;
+
+	lws_wsi_mux_mark_parents_needing_writeable(wsi);
+
+	return lws_callback_on_writable(nwsi);
+}
+
 static const lws_rops_t rops_table_wt[] = {
 	/*  1 */ { .handle_POLLIN	  = rops_handle_POLLIN_wt },
 	/*  2 */ { .write_role_protocol	  = rops_write_role_protocol_wt },
 	/*  3 */ { .close_kill_connection = rops_close_kill_connection_wt },
+	/*  4 */ { .perform_user_POLLOUT  = rops_perform_user_POLLOUT_wt },
+	/*  5 */ { .callback_on_writable  = rops_callback_on_writable_wt },
 };
 
 const struct lws_role_ops role_ops_wt = {
@@ -196,17 +262,17 @@ const struct lws_role_ops role_ops_wt = {
 	  /* LWS_ROPS_init_vhost */
 	  /* LWS_ROPS_destroy_vhost */			0x00,
 	  /* LWS_ROPS_service_flag_pending */
-	  /* LWS_ROPS_handle_POLLIN */			0x10,
+	  /* LWS_ROPS_handle_POLLIN */			0x01,
 	  /* LWS_ROPS_handle_POLLOUT */
-	  /* LWS_ROPS_perform_user_POLLOUT */		0x00,
+	  /* LWS_ROPS_perform_user_POLLOUT */		0x04,
 	  /* LWS_ROPS_callback_on_writable */
-	  /* LWS_ROPS_tx_credit */			0x00,
+	  /* LWS_ROPS_tx_credit */			0x50,
 	  /* LWS_ROPS_write_role_protocol */
-	  /* LWS_ROPS_encapsulation_parent */		0x02,
+	  /* LWS_ROPS_encapsulation_parent */		0x20,
 	  /* LWS_ROPS_alpn_negotiated */
 	  /* LWS_ROPS_close_via_role_protocol */	0x00,
 	  /* LWS_ROPS_close_role */
-	  /* LWS_ROPS_close_kill_connection */		0x30,
+	  /* LWS_ROPS_close_kill_connection */		0x03,
 	  /* LWS_ROPS_destroy_role */
 	  /* LWS_ROPS_adoption_bind */			0x00,
 	  /* LWS_ROPS_client_bind */
