@@ -323,6 +323,8 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 		*p++ = 0x09; *p++ = 0x02; *p++ = 0x40; *p++ = 0x64;
 		/* max_idle_timeout (0x01), len 4, val 30000 */
 		*p++ = 0x01; *p++ = 0x04; *p++ = 0x80; *p++ = 0x00; *p++ = 0x75; *p++ = 0x30;
+		/* max_datagram_frame_size (0x20), len 4, val 65535 */
+		*p++ = 0x20; *p++ = 0x04; *p++ = 0x80; *p++ = 0x00; *p++ = 0xff; *p++ = 0xff;
 		/* initial_source_connection_id (0x0f) */
 		if (qn && qn->loc_cid.len > 0) {
 			if ((size_t)(p - dynamic_tp) + 2 + qn->loc_cid.len > sizeof(dynamic_tp)) {

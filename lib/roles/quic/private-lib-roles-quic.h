@@ -211,6 +211,8 @@ struct lws_quic_stream {
 	uint8_t			is_unidirectional:1;
 	uint8_t			is_server_initiated:1;
 	uint8_t			opted_into_early_data:1;
+	uint8_t			close_after_rx:1;
+	uint8_t			sent_fin:1;
 };
 
 

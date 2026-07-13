@@ -1562,23 +1562,24 @@ struct lws *lws_wsi_mux_move_child_to_tail(struct lws **wsi2) {
 
 int lws_wsi_mux_action_pending_writeable_reqs(struct lws *wsi) {
 	struct lws *w = wsi->mux.child_list;
+	struct lws *nwsi = lws_get_network_wsi(wsi);
 
 	if (wsi->mux.requested_POLLOUT) {
-		if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
+		if (lws_change_pollfd(nwsi, 0, LWS_POLLOUT))
 			return -1;
 		return 0;
 	}
 
 	while (w) {
 		if (w->mux.requested_POLLOUT) {
-			if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
+			if (lws_change_pollfd(nwsi, 0, LWS_POLLOUT))
 				return -1;
 			return 0;
 		}
 		w = w->mux.sibling_list;
 	}
 
-	if (lws_change_pollfd(wsi, LWS_POLLOUT, 0))
+	if (lws_change_pollfd(nwsi, LWS_POLLOUT, 0))
 		return -1;
 
 	return 0;
