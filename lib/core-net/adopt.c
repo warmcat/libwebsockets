@@ -805,6 +805,12 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		if (sock.sockfd == LWS_SOCK_INVALID)
 			goto resume;
 
+		{
+			int opt = 4 * 1024 * 1024;
+			setsockopt(sock.sockfd, SOL_SOCKET, SO_RCVBUF, (const char *)&opt, sizeof(opt));
+			setsockopt(sock.sockfd, SOL_SOCKET, SO_SNDBUF, (const char *)&opt, sizeof(opt));
+		}
+
 		if (lws_plat_apply_FD_CLOEXEC((int)sock.sockfd) ||
 		    lws_plat_set_nonblocking(sock.sockfd)) {
 			compatible_close(sock.sockfd);
@@ -973,6 +979,12 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 #endif
 	if (sock.sockfd == LWS_SOCK_INVALID)
 		goto bail;
+
+	{
+		int opt = 4 * 1024 * 1024;
+		setsockopt(sock.sockfd, SOL_SOCKET, SO_RCVBUF, (const char *)&opt, sizeof(opt));
+		setsockopt(sock.sockfd, SOL_SOCKET, SO_SNDBUF, (const char *)&opt, sizeof(opt));
+	}
 
 	if (lws_plat_apply_FD_CLOEXEC((int)sock.sockfd) ||
 	    lws_plat_set_nonblocking(sock.sockfd)) {

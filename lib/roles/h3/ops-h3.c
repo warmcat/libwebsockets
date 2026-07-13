@@ -1692,52 +1692,87 @@ rops_check_upgrades_h3(struct lws *wsi)
 			if (!env_protocols)
 				env_protocols = getenv("PROTOCOLS");
 
-			/* client_protos format: '"proto1", "proto2"' */
-			char *cp_ptr = client_protos;
-			char *token;
-			while ((token = strsep(&cp_ptr, ","))) {
-				while (*token == ' ' || *token == '"') token++;
-				char *t_end = token + strlen(token);
-				while (t_end > token && (t_end[-1] == ' ' || t_end[-1] == '"' || t_end[-1] == '\r' || t_end[-1] == '\n')) {
-					t_end[-1] = '\0';
-					t_end--;
-				}
-				if (!*token) continue;
+			struct lws_tokenize ts;
+			lws_tokenize_init(&ts, client_protos, LWS_TOKENIZE_F_COMMA_SEP_LIST |
+							      LWS_TOKENIZE_F_MINUS_NONTERM);
+			ts.len = (unsigned int)cp_len;
+			lws_tokenize_elem e;
 
-				if (env_protocols) {
-					char server_protos[256];
-					lws_strncpy(server_protos, env_protocols, sizeof(server_protos));
-					char *sp_ptr = server_protos;
-					char *sp_tok;
-					while ((sp_tok = strsep(&sp_ptr, " "))) {
-						if (strcmp(token, sp_tok) == 0) {
-							lws_strncpy(negotiated, token, sizeof(negotiated));
-							break;
+			do {
+				e = lws_tokenize(&ts);
+				if (e == LWS_TOKZE_TOKEN || e == LWS_TOKZE_QUOTED_STRING) {
+					char name[64];
+					if (!lws_tokenize_cstr(&ts, name, sizeof(name))) {
+						if (env_protocols) {
+							struct lws_tokenize ts_srv;
+							lws_tokenize_init(&ts_srv, env_protocols, LWS_TOKENIZE_F_MINUS_NONTERM);
+							lws_tokenize_elem e_srv;
+							do {
+								e_srv = lws_tokenize(&ts_srv);
+								if (e_srv == LWS_TOKZE_TOKEN || e_srv == LWS_TOKZE_QUOTED_STRING) {
+									char srv_name[64];
+									if (!lws_tokenize_cstr(&ts_srv, srv_name, sizeof(srv_name))) {
+										if (strcmp(name, srv_name) == 0) {
+											lws_strncpy(negotiated, name, sizeof(negotiated));
+											break;
+										}
+									}
+								}
+							} while (e_srv > 0);
 						}
 					}
 				}
 				if (negotiated[0])
 					break;
+			} while (e > 0);
+		}
+
+		if (!negotiated[0]) {
+			char *uri_ptr = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH);
+			int uri_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH);
+			lwsl_notice("H3 WT Upgrade: path '%.*s'\n", uri_len, uri_ptr ? uri_ptr : "NULL");
+			if (uri_ptr && uri_len > 0) {
+				const struct lws_http_mount *hit = lws_find_mount(wsi, uri_ptr, uri_len);
+				if (hit) {
+					lwsl_notice("H3 WT Upgrade: matched mount '%s', origin '%s', protocol '%s'\n",
+						    hit->mountpoint, hit->origin ? hit->origin : "NULL",
+						    hit->protocol ? hit->protocol : "NULL");
+					const char *name = hit->origin;
+					if (hit->protocol)
+						name = hit->protocol;
+					else if (!strncmp(name, "callback://", 11))
+						name += 11;
+					
+					lws_strncpy(negotiated, name, sizeof(negotiated));
+				} else {
+					lwsl_notice("H3 WT Upgrade: no mount matched path\n");
+				}
 			}
 		}
 
+		const struct lws_protocols *prot = NULL;
 		if (negotiated[0]) {
+			prot = lws_vhost_name_to_protocol(wsi->a.vhost, negotiated);
+		}
+		if (!prot) {
+			int n = wsi->a.vhost->default_protocol_index;
+			if (n < wsi->a.vhost->count_protocols) {
+				prot = &wsi->a.vhost->protocols[n];
+			}
+		}
+
+		if (prot) {
+			wsi->a.protocol = prot;
+			lwsl_notice("H3 WT Upgrade: bound to protocol '%s'\n", prot->name);
+
 			char wt_prot_val[128];
-			int wpl = lws_snprintf(wt_prot_val, sizeof(wt_prot_val), "\"%s\"", negotiated);
+			int wpl = lws_snprintf(wt_prot_val, sizeof(wt_prot_val), "\"%s\"", prot->name);
 			if (lws_add_http_header_by_name(wsi,
 					(const unsigned char *)"wt-protocol:",
 					(const unsigned char *)wt_prot_val, wpl, &rp, end))
 				return LWS_UPG_RET_BAIL;
-
-			/* Save negotiated protocol to /downloads/negotiated_protocol.txt */
-			mkdir("/downloads", 0777);
-			int nfd = open("/downloads/negotiated_protocol.txt", O_WRONLY | O_CREAT | O_TRUNC, 0666);
-			if (nfd >= 0) {
-				if (write(nfd, negotiated, strlen(negotiated)) < 0) {
-					lwsl_err("Failed to write negotiated protocol\n");
-				}
-				close(nfd);
-			}
+		} else {
+			lwsl_notice("H3 WT Upgrade: no WebTransport protocol found on vhost\n");
 		}
 
 		if (lws_finalize_http_header(wsi, &rp, end))
