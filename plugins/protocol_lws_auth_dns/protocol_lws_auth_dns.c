@@ -1232,6 +1232,10 @@ send_nxdomain:
 				rp += 12;
 
 				int qlen = (int)(q - (p + 12));
+				if ((size_t)(rp - dbuf) + 12 + (size_t)qlen > max_buf) {
+					lwsl_notice("DNS: response too large for buffer\n");
+					goto done;
+				}
 				memcpy(rp, p + 12, (size_t)qlen);
 				rp += qlen;
 
@@ -1276,8 +1280,9 @@ send_nxdomain:
 									struct auth_dns_rr *rr = lws_container_of(d2, struct auth_dns_rr, list);
 									size_t nlen = strlen(rs->name);
 									if ((size_t)(rp - dbuf) + 12 + nlen + 1 + rr->wire_rdata_len <= max_buf) {
-										if (name_to_wire(rs->name, matched_ce->zone.origin, rp, &max_buf) == 0) {
-											size_t written_len = strlen((char *)rp) + 1; /* Name length including root dot */
+										size_t rem = max_buf - (size_t)(rp - dbuf);
+										if (name_to_wire(rs->name, matched_ce->zone.origin, rp, &rem) == 0) {
+											size_t written_len = rem; /* Name length including root dot */
 											rp += written_len;
 											*rp++ = (uint8_t)(rs->type >> 8); *rp++ = (uint8_t)(rs->type & 0xff);
 											*rp++ = (uint8_t)(rs->class_ >> 8); *rp++ = (uint8_t)(rs->class_ & 0xff);
@@ -1310,6 +1315,10 @@ send_out:
 			rp[10] = 0; rp[11] = 0; /* ARCOUNT = 0 */
 			rp += 12;
 			int qlen = (int)(q - (p + 12));
+			if ((size_t)(rp - dbuf) + 12 + (size_t)qlen > max_buf) {
+				lwsl_notice("DNS: response too large for buffer\n");
+				goto done;
+			}
 			memcpy(rp, p + 12, (size_t)qlen);
 			rp += qlen;
 
@@ -1366,6 +1375,10 @@ after_refused:
 			rp[10] = (uint8_t)(added_opt >> 8); rp[11] = (uint8_t)(added_opt & 0xff);
 			rp += 12;
 			int qlen = (int)(q - (p + 12));
+			if ((size_t)(rp - dbuf) + 12 + (size_t)qlen > max_buf) {
+				lwsl_notice("DNS: response too large for buffer\n");
+				goto done;
+			}
 			memcpy(rp, p + 12, (size_t)qlen);
 			rp += qlen;
 

@@ -862,7 +862,7 @@ deaddrop_handler_server_ws_rx(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss
 	lws_snprintf(path, sizeof(path), "%s/%s", vhd->upload_dir,
 		     fname);
 
-#if defined(__linux__)
+#if !defined(WIN32) && !defined(_WIN32) && !defined(LWS_WITH_ESP32)
 	if (!realpath(path, resolved_path)) {
 		lwsl_wsi_warn(wsi, "delete: realpath failed %s", path);
 		return;

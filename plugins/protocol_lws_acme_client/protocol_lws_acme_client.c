@@ -986,7 +986,7 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 			ac->state = ACME_STATE_NEW_ACCOUNT;
 			lws_acme_report_status(vhd->vhost, LWS_CUS_REG, NULL);
 
-			strcpy(buf, ac->urls[JAD_NEW_ACCOUNT_URL]);
+			lws_strncpy(buf, ac->urls[JAD_NEW_ACCOUNT_URL], sizeof(buf));
 			cwsi = lws_acme_client_connect(vhd->context, vhd->vhost,
 					&ac->cwsi, &ac->i, buf, "POST");
 			if (!cwsi) {
@@ -1271,7 +1271,7 @@ pkt_add_hdrs:
 
 			ac->state = ACME_STATE_NEW_NONCE;
 
-			strcpy(buf, ac->urls[JAD_NEW_NONCE_URL]);
+			lws_strncpy(buf, ac->urls[JAD_NEW_NONCE_URL], sizeof(buf));
 			cwsi = lws_acme_client_connect(vhd->context, vhd->vhost,
 					&ac->cwsi, &ac->i, buf,
 					"GET");
@@ -1291,7 +1291,7 @@ pkt_add_hdrs:
 				 */
 				ac->state = ACME_STATE_NEW_ORDER;
 
-				strcpy(buf, ac->urls[JAD_NEW_ORDER_URL]);
+				lws_strncpy(buf, ac->urls[JAD_NEW_ORDER_URL], sizeof(buf));
 				cwsi = lws_acme_client_connect(vhd->context,
 						vhd->vhost, &ac->cwsi,
 						&ac->i, buf, "POST");
@@ -1322,7 +1322,7 @@ pkt_add_hdrs:
 			lws_acme_report_status(vhd->vhost, LWS_CUS_AUTH,
 					NULL);
 
-			strcpy(buf, ac->authz_url);
+			lws_strncpy(buf, ac->authz_url, sizeof(buf));
 			cwsi = lws_acme_client_connect(vhd->context,
 					vhd->vhost, &ac->cwsi,
 					&ac->i, buf, "POST");
@@ -1428,7 +1428,7 @@ poll_again:
 				goto failed;
 			}
 
-			strcpy(buf, ac->order_url);
+			lws_strncpy(buf, ac->order_url, sizeof(buf));
 			cwsi = lws_acme_client_connect(vhd->context, vhd->vhost,
 						       &ac->cwsi, &ac->i, buf,
 						       "POST");
@@ -1477,7 +1477,7 @@ poll_again:
 			lws_acme_report_status(vhd->vhost, LWS_CUS_REQ, NULL);
 			ac->goes_around = 0;
 
-			strcpy(buf, ac->finalize_url);
+			lws_strncpy(buf, ac->finalize_url, sizeof(buf));
 			cwsi = lws_acme_client_connect(vhd->context, vhd->vhost,
 						       &ac->cwsi, &ac->i, buf,
 						       "POST");
@@ -1501,7 +1501,7 @@ poll_again:
 
 					goto failed;
 				}
-				strcpy(buf, ac->order_url);
+				lws_strncpy(buf, ac->order_url, sizeof(buf));
 				cwsi = lws_acme_client_connect(vhd->context,
 						vhd->vhost,
 						&ac->cwsi, &ac->i, buf,
@@ -1518,7 +1518,7 @@ poll_again:
 
 			ac->state = ACME_STATE_DOWNLOAD_CERT;
 
-			strcpy(buf, ac->cert_url);
+			lws_strncpy(buf, ac->cert_url, sizeof(buf));
 			cwsi = lws_acme_client_connect(vhd->context, vhd->vhost,
 						       &ac->cwsi, &ac->i, buf,
 						       "POST");

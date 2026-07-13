@@ -118,7 +118,7 @@ mbedtls_quic_set_traffic_secrets(mbedtls_ssl_context *ssl,
 	struct lws *wsi = (struct lws *)mbedtls_ssl_get_user_data_p(ssl);
 	enum lws_tls_quic_secret_type ct, st;
 
-	if (!wsi || !wsi->tls.quic_secret_cb)
+	if (!wsi || !wsi->tls.quic_secret_cb || secret_len > 48)
 		return 0;
 
 	if (wsi->tls.quic_secret_cb == (lws_tls_quic_secret_cb)1)
