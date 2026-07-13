@@ -551,6 +551,11 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 								split_offset = secrets->MsgSequenceStart;
 						}
 
+						if (secrets->TrafficSecretSize > 48) {
+							lwsl_err("%s: TrafficSecretSize %zu exceeds 48\n", __func__, secrets->TrafficSecretSize);
+							return -1;
+						}
+
 						if (wsi->tls.quic_secret_cb(wsi, mapped_type, secrets->TrafficSecret, secrets->TrafficSecretSize) < 0) {
 							lwsl_err("%s: quic_secret_cb failed for type %d\n", __func__, mapped_type);
 							return -1;

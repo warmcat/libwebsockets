@@ -69,7 +69,7 @@ gnutls_quic_secret_func(gnutls_session_t session,
 	struct lws *wsi = (struct lws *)gnutls_session_get_ptr(session);
 	int is_client;
 
-	if (!wsi || !wsi->tls.quic_secret_cb)
+	if (!wsi || !wsi->tls.quic_secret_cb || secret_size > 48)
 		return 0;
 
 	if (wsi->a.vhost)
@@ -306,7 +306,7 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 	if (!wsi->tls.quic_tp_send) {
 		/* Construct dynamically to include loc_cid */
 		struct lws_quic_netconn *qn = wsi->quic.qn;
-		static uint8_t dynamic_tp[128];
+		uint8_t dynamic_tp[128];
 		uint8_t *p = dynamic_tp;
 
 		/* initial_max_stream_data_bidi_local (0x05), len 4, val 65535 */
@@ -325,6 +325,10 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 		*p++ = 0x01; *p++ = 0x04; *p++ = 0x80; *p++ = 0x00; *p++ = 0x75; *p++ = 0x30;
 		/* initial_source_connection_id (0x0f) */
 		if (qn && qn->loc_cid.len > 0) {
+			if ((size_t)(p - dynamic_tp) + 2 + qn->loc_cid.len > sizeof(dynamic_tp)) {
+				lwsl_err("loc_cid too large for TP buffer\n");
+				return -1;
+			}
 			*p++ = 0x0f;
 			*p++ = qn->loc_cid.len;
 			memcpy(p, qn->loc_cid.id, qn->loc_cid.len);
