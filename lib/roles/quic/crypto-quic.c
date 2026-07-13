@@ -514,7 +514,7 @@ lws_quic_decrypt_payload(struct lws_quic_keys *keys, uint8_t *packet, size_t pac
 
                 size_t ct_len = payload_len + 16;
                 size_t pt_len = payload_len;
-                uint8_t tmp[2048];
+                uint8_t tmp[4096];
                 if (ct_len > sizeof(tmp))
                         return -1;
                 memcpy(tmp, &packet[payload_offset], ct_len);
@@ -604,7 +604,7 @@ lws_quic_encrypt_payload(struct lws_quic_keys *keys, uint8_t *packet, size_t pac
                 hd = (gnutls_aead_cipher_hd_t)keys->aead_tx;
 
                 size_t ct_len = payload_len + 16;
-                uint8_t tmp[2048];
+                uint8_t tmp[4096];
                 if (payload_len > sizeof(tmp))
                         return -1;
                 memcpy(tmp, &packet[payload_offset], payload_len);
@@ -730,6 +730,10 @@ lws_tls_quic_rx_crypto(struct lws *wsi, int level, const uint8_t *buf, size_t le
 	int n;
 
 	if (len > 0 && wsi->quic.qn) {
+		if (wsi->quic.qn->crypto_rx_buf_len[level] + len > 262144) {
+			lwsl_wsi_err(wsi, "QUIC: CRYPTO reassembly buffer size limit exceeded on level %d", level);
+			return -1;
+		}
 		if (wsi->quic.qn->crypto_rx_buf_len[level] > 0) {
 			uint8_t *new_buf = lws_realloc(wsi->quic.qn->crypto_rx_buf[level],
 						       wsi->quic.qn->crypto_rx_buf_len[level] + len,
@@ -1063,6 +1067,7 @@ lws_quic_create_retry_token(struct lws *wsi,
         uint8_t pt[256];
         size_t pt_len = 0;
         uint8_t nonce[12];
+        uint64_t now = (uint64_t)lws_now_usecs();
 
         lws_get_random(wsi->a.context, nonce, 12);
 
@@ -1077,6 +1082,17 @@ lws_quic_create_retry_token(struct lws *wsi,
         pt[pt_len++] = (uint8_t)ip_len;
         memcpy(&pt[pt_len], client_ip, ip_len);
         pt_len += ip_len;
+
+        if (pt_len + 8 > sizeof(pt))
+                return -1;
+        pt[pt_len++] = (uint8_t)(now >> 56);
+        pt[pt_len++] = (uint8_t)(now >> 48);
+        pt[pt_len++] = (uint8_t)(now >> 40);
+        pt[pt_len++] = (uint8_t)(now >> 32);
+        pt[pt_len++] = (uint8_t)(now >> 24);
+        pt[pt_len++] = (uint8_t)(now >> 16);
+        pt[pt_len++] = (uint8_t)(now >> 8);
+        pt[pt_len++] = (uint8_t)now;
 
         struct lws_gencrypto_keyelem keys[1];
         keys[0].buf = wsi->a.context->quic_retry_secret;
@@ -1151,6 +1167,23 @@ lws_quic_validate_retry_token(struct lws *wsi, const uint8_t *token, size_t toke
         if (pt[p++] != ip_len) return -1;
         if (p + ip_len > ct_len || p + ip_len > sizeof(pt)) return -1;
         if (ip_len && memcmp(pt + p, client_ip, ip_len)) return -1;
+        p += ip_len;
+
+        if (p + 8 > ct_len || p + 8 > sizeof(pt)) return -1;
+        uint64_t token_time = ((uint64_t)pt[p] << 56) |
+                              ((uint64_t)pt[p+1] << 48) |
+                              ((uint64_t)pt[p+2] << 40) |
+                              ((uint64_t)pt[p+3] << 32) |
+                              ((uint64_t)pt[p+4] << 24) |
+                              ((uint64_t)pt[p+5] << 16) |
+                              ((uint64_t)pt[p+6] << 8) |
+                              pt[p+7];
+
+        uint64_t now = (uint64_t)lws_now_usecs();
+        if (now < token_time || now - token_time > 15ULL * 1000000ULL) {
+                lwsl_wsi_notice(wsi, "QUIC: Retry token expired. age = %lld us", (long long)(now - token_time));
+                return -1;
+        }
 
         return 0;
 }

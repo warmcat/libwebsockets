@@ -2290,7 +2290,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 			lws_get_urlarg_by_name_safe(wsi, "redirect_uri=", redirect_uri, sizeof(redirect_uri));
 			lws_urldecode(redirect_uri, redirect_uri, sizeof(redirect_uri));
-			if (!redirect_uri[0])
+			if (!redirect_uri[0] || !auth_verify_redirect_uri(vhd, NULL, redirect_uri))
 				lws_strncpy(redirect_uri, "/", sizeof(redirect_uri));
 
 			lwsl_notice("%s: Extracted redirect_uri: %s\n", __func__, redirect_uri);
@@ -2866,15 +2866,21 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 			/* Always add public grant to newly minted users */
 			sqlite3_exec(vhd->db, "INSERT OR IGNORE INTO services (name) VALUES ('public')", NULL, NULL, NULL);
-			char public_grant_query[256];
-			lws_snprintf(public_grant_query, sizeof(public_grant_query), "INSERT INTO grants (uid, service_id, grant_level) VALUES ((SELECT uid FROM users WHERE username='%s'), (SELECT service_id FROM services WHERE name='public'), 1)", email);
-			sqlite3_exec(vhd->db, public_grant_query, NULL, NULL, NULL);
+			sqlite3_stmt *gstmt = NULL;
+			if (sqlite3_prepare_v2(vhd->db, "INSERT INTO grants (uid, service_id, grant_level) VALUES ((SELECT uid FROM users WHERE username=?), (SELECT service_id FROM services WHERE name='public'), 1)", -1, &gstmt, NULL) == SQLITE_OK) {
+				sqlite3_bind_text(gstmt, 1, email, -1, SQLITE_TRANSIENT);
+				sqlite3_step(gstmt);
+				sqlite3_finalize(gstmt);
+			}
 
 			if (users_count == 1) {
 				sqlite3_exec(vhd->db, "INSERT OR IGNORE INTO services (service_id, name) VALUES (1, '*')", NULL, NULL, NULL);
-				char grant_query[256];
-				lws_snprintf(grant_query, sizeof(grant_query), "INSERT INTO grants (uid, service_id, grant_level) VALUES ((SELECT uid FROM users WHERE username='%s'), 1, 2)", email);
-				sqlite3_exec(vhd->db, grant_query, NULL, NULL, NULL);
+				gstmt = NULL;
+				if (sqlite3_prepare_v2(vhd->db, "INSERT INTO grants (uid, service_id, grant_level) VALUES ((SELECT uid FROM users WHERE username=?), 1, 2)", -1, &gstmt, NULL) == SQLITE_OK) {
+					sqlite3_bind_text(gstmt, 1, email, -1, SQLITE_TRANSIENT);
+					sqlite3_step(gstmt);
+					sqlite3_finalize(gstmt);
+				}
 			}
 
 			lws_snprintf(uri, sizeof(uri), "otpauth://totp/%s:%s?secret=%s&issuer=%s",

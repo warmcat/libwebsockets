@@ -44,8 +44,8 @@ set_encryption_secrets(WOLFSSL *ssl, enum wolfssl_encryption_level_t level,
 	struct lws *wsi = (struct lws *)SSL_get_app_data((SSL *)ssl);
 	enum lws_tls_quic_secret_type rt, wt;
 
-	if (!wsi)
-		return 1;
+	if (!wsi || secret_len > 48)
+		return 0;
 
 	switch (level) {
 	case wolfssl_encryption_early_data:
@@ -147,8 +147,8 @@ set_read_secret(SSL *ssl, enum ssl_encryption_level_t level,
 	struct lws *wsi = (struct lws *)SSL_get_app_data(ssl);
 	enum lws_tls_quic_secret_type t;
 
-	if (!wsi)
-		return 1;
+	if (!wsi || secret_len > 48)
+		return 0;
 
 	switch (level) {
 	case ssl_encryption_early_data:
@@ -178,8 +178,8 @@ set_write_secret(SSL *ssl, enum ssl_encryption_level_t level,
 	struct lws *wsi = (struct lws *)SSL_get_app_data(ssl);
 	enum lws_tls_quic_secret_type t;
 
-	if (!wsi)
-		return 1;
+	if (!wsi || secret_len > 48)
+		return 0;
 
 	switch (level) {
 	case ssl_encryption_early_data:
@@ -536,7 +536,7 @@ static void
 openssl_quic_keylog_cb(const SSL *ssl, const char *line)
 {
 	struct lws *wsi = (struct lws *)SSL_get_app_data(ssl);
-	enum lws_tls_quic_secret_type type;
+	enum lws_tls_quic_secret_type type = (enum lws_tls_quic_secret_type)-1;
 	const char *secret_hex = NULL;
 	uint8_t secret[64];
 	size_t len = 0;
@@ -561,7 +561,7 @@ openssl_quic_keylog_cb(const SSL *ssl, const char *line)
 		secret_hex = (char *)strchr(line + 24, ' ');
 	}
 
-	if (!secret_hex)
+	if (!secret_hex || (int)type == -1)
 		return;
 
 	secret_hex++; /* skip space */
@@ -572,6 +572,7 @@ openssl_quic_keylog_cb(const SSL *ssl, const char *line)
 	}
 
 	wsi->tls.quic_secret_cb(wsi, type, secret, len);
+	lws_explicit_bzero(secret, sizeof(secret));
 }
 
 int
