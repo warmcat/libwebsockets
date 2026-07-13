@@ -287,6 +287,19 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
                                         }
                                 }
 #endif
+				if (wsi_child && wsi_child->role_ops && (!strcmp(wsi_child->role_ops->name, "wt") || !strcmp(wsi_child->role_ops->name, "quic"))) {
+					if (qs->is_unidirectional) {
+						lwsl_wsi_notice(wsi_child, "QUIC/WT unidirectional stream received FIN. Flagging close_after_rx");
+						qs->close_after_rx = 1;
+					} else {
+						if (qs->sent_fin) {
+							lwsl_wsi_notice(wsi_child, "QUIC/WT bidi stream received FIN (sent_fin=1). Flagging close_after_rx");
+							qs->close_after_rx = 1;
+						} else {
+							lwsl_wsi_notice(wsi_child, "QUIC/WT bidi stream received FIN but sent_fin=0. Keeping open.");
+						}
+					}
+				}
                         }
 		}
 
@@ -364,6 +377,19 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 								}
 							}
 #endif
+							if (wsi_child && wsi_child->role_ops && (!strcmp(wsi_child->role_ops->name, "wt") || !strcmp(wsi_child->role_ops->name, "quic"))) {
+								if (qs->is_unidirectional) {
+									lwsl_wsi_notice(wsi_child, "QUIC/WT unidirectional stream received FIN (flushed). Flagging close_after_rx");
+									qs->close_after_rx = 1;
+								} else {
+									if (qs->sent_fin) {
+										lwsl_wsi_notice(wsi_child, "QUIC/WT bidi stream received FIN (flushed, sent_fin=1). Flagging close_after_rx");
+										qs->close_after_rx = 1;
+									} else {
+										lwsl_wsi_notice(wsi_child, "QUIC/WT bidi stream received FIN (flushed) but sent_fin=0. Keeping open.");
+									}
+								}
+							}
 						}
 					}
 
@@ -1005,14 +1031,16 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 				lwsl_wsi_notice(nwsi, "QUIC RX: Truncated DATAGRAM frame");
 				return -1;
 			}
-			lwsl_wsi_info(nwsi, "QUIC RX: Parsed DATAGRAM! len %llu", (unsigned long long)datagram_len);
+			lwsl_wsi_notice(nwsi, "QUIC RX: Parsed DATAGRAM! len %llu", (unsigned long long)datagram_len);
 
 			/* Parse Quarter Session ID for WebTransport */
 			uint64_t qsid = 0;
 			size_t qsid_len = lws_quic_parse_varint(&payload[pos], (size_t)datagram_len, &qsid);
+			lwsl_wsi_notice(nwsi, "QUIC RX: datagram qsid=%llu, qsid_len=%zu", (unsigned long long)qsid, qsid_len);
 			if (qsid_len > 0 && qsid_len <= (size_t)datagram_len) {
 				uint64_t sid = qsid * 4;
 				struct lws *wsi_session = lws_quic_stream_find(nwsi, sid);
+				lwsl_wsi_notice(nwsi, "QUIC RX: wsi_session found=%p (is_session=%d)", wsi_session, wsi_session ? wsi_session->wt.is_session : 0);
 				if (wsi_session && wsi_session->wt.is_session && wsi_session->a.protocol && wsi_session->a.protocol->callback) {
 					/* Route the datagram payload to the WebTransport session's callback */
 					wsi_session->a.protocol->callback(wsi_session, LWS_CALLBACK_RECEIVE,
@@ -1276,11 +1304,18 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 
 				if (!is_peer_initiated) {
 					if (!wsi_child) {
-						lwsl_wsi_notice(nwsi, "QUIC RX: %s on non-existing stream ID %llu", 
+						uint64_t next_id = is_unidirectional ? qn->next_stream_id_unidi_local : qn->next_stream_id_bidi_local;
+						if (stream_id >= next_id) {
+							lwsl_wsi_notice(nwsi, "QUIC RX: %s on never-created stream ID %llu", 
+								type == LWS_QUIC_FT_MAX_STREAM_DATA ? "MAX_STREAM_DATA" : "STREAM_DATA_BLOCKED",
+								(unsigned long long)stream_id);
+							lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_STREAM_STATE_ERROR, type, 0);
+							return -1;
+						}
+						lwsl_wsi_info(nwsi, "QUIC RX: Ignoring %s on already closed stream ID %llu",
 							type == LWS_QUIC_FT_MAX_STREAM_DATA ? "MAX_STREAM_DATA" : "STREAM_DATA_BLOCKED",
 							(unsigned long long)stream_id);
-						lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_STREAM_STATE_ERROR, type, 0);
-						return -1;
+						break;
 					}
 					if (is_unidirectional && type == LWS_QUIC_FT_STREAM_DATA_BLOCKED) {
 						lwsl_wsi_notice(nwsi, "QUIC RX: STREAM_DATA_BLOCKED on receive-only stream ID %llu",

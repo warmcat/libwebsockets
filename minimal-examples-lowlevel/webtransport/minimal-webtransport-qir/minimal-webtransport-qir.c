@@ -23,9 +23,10 @@ int lws_ensure_user_space(struct lws *wsi);
 static int interrupted;
 static int is_server;
 static char testcase[64] = "";
-static char requests_env[2048] = "";
+static char requests_env[32768] = "";
 static struct lws_context *context;
 static struct lws *first_session_wsi;
+static char global_endpoint[128] = "";
 
 struct request_item {
 	char url[512];
@@ -38,17 +39,48 @@ struct request_item {
 	int completed;
 };
 
-static struct request_item client_requests[64];
+static struct request_item client_requests[256];
 static int client_requests_count;
 
 struct server_request_item {
 	char endpoint[128];
 	char filename[128];
 	int started;
+	int completed;
 };
 
-static struct server_request_item server_requests[64];
+static struct server_request_item server_requests[256];
 static int server_requests_count;
+
+struct pending_datagram {
+	char filename[256];
+	int is_push; /* 1 for PUSH, 0 for GET */
+};
+
+static struct pending_datagram dg_queue[512];
+static int dg_queue_head;
+static int dg_queue_tail;
+
+static void enqueue_datagram(const char *filename, int is_push)
+{
+	if ((dg_queue_tail + 1) % 512 == dg_queue_head) {
+		lwsl_err("Datagram queue overflow!\n");
+		return;
+	}
+	struct pending_datagram *dg = &dg_queue[dg_queue_tail];
+	lws_strncpy(dg->filename, filename, sizeof(dg->filename));
+	dg->is_push = is_push;
+	dg_queue_tail = (dg_queue_tail + 1) % 512;
+}
+
+static struct pending_datagram *dequeue_datagram(void)
+{
+	if (dg_queue_head == dg_queue_tail)
+		return NULL;
+	struct pending_datagram *dg = &dg_queue[dg_queue_head];
+	dg_queue_head = (dg_queue_head + 1) % 512;
+	return dg;
+}
 
 struct pss_qir {
 	struct lws *wsi;
@@ -90,42 +122,22 @@ static void init_pss(struct pss_qir *pss)
 
 static int pss_is_file_sender(struct pss_qir *pss)
 {
-	if (pss->is_unidi) {
-		if (strstr(testcase, "unidirectional-receive")) {
-			return is_server && !pss->is_initiator;
-		}
-		if (strstr(testcase, "unidirectional-send")) {
-			return !is_server && pss->is_initiator;
-		}
-	} else {
-		if (strstr(testcase, "bidirectional-receive")) {
-			return is_server;
-		}
-		if (strstr(testcase, "bidirectional-send")) {
-			return !is_server;
-		}
-	}
-	return 0;
+	int local_is_sender = (strstr(testcase, "-receive") && is_server) ||
+			      (strstr(testcase, "-send") && !is_server) ||
+			      (strcmp(testcase, "transfer") == 0 && (is_server || !client_requests_count || client_requests[0].filename[0] == '\0'));
+	if (pss->is_unidi)
+		return local_is_sender && !pss->is_initiator;
+	return local_is_sender;
 }
 
 static int pss_is_file_receiver(struct pss_qir *pss)
 {
-	if (pss->is_unidi) {
-		if (strstr(testcase, "unidirectional-receive")) {
-			return !is_server && !pss->is_initiator;
-		}
-		if (strstr(testcase, "unidirectional-send")) {
-			return is_server && !pss->is_initiator;
-		}
-	} else {
-		if (strstr(testcase, "bidirectional-receive")) {
-			return !is_server;
-		}
-		if (strstr(testcase, "bidirectional-send")) {
-			return is_server;
-		}
-	}
-	return 0;
+	int local_is_receiver = (strstr(testcase, "-receive") && !is_server) ||
+				(strstr(testcase, "-send") && is_server) ||
+				(strcmp(testcase, "transfer") == 0 && !is_server && client_requests_count && client_requests[0].filename[0] != '\0');
+	if (pss->is_unidi)
+		return local_is_receiver && !pss->is_initiator;
+	return local_is_receiver;
 }
 
 #if defined(LWS_WITH_CUSTOM_HEADERS)
@@ -146,6 +158,14 @@ static void sigint_handler(int sig)
 {
 	interrupted = 1;
 }
+static void trim_trailing_whitespace(char *str)
+{
+	size_t len = strlen(str);
+	while (len > 0 && (str[len - 1] == ' ' || str[len - 1] == '\r' || str[len - 1] == '\n' || str[len - 1] == '\t')) {
+		str[len - 1] = '\0';
+		len--;
+	}
+}
 
 static int parse_client_requests(void)
 {
@@ -165,9 +185,10 @@ static int parse_client_requests(void)
 
 		struct request_item *item = &client_requests[client_requests_count];
 		lws_strncpy(item->url, token, sizeof(item->url));
+		trim_trailing_whitespace(item->url);
 
 		/* Parse URL: https://<host>:<port>/<endpoint>/<filename> */
-		char *p = token;
+		char *p = item->url;
 		if (strncmp(p, "https://", 8) == 0)
 			p += 8;
 
@@ -194,6 +215,7 @@ static int parse_client_requests(void)
 			lws_snprintf(item->endpoint, sizeof(item->endpoint), "/%s", p);
 			*next_slash = '/';
 			lws_strncpy(item->filename, next_slash + 1, sizeof(item->filename));
+			trim_trailing_whitespace(item->filename);
 		} else {
 			lws_snprintf(item->endpoint, sizeof(item->endpoint), "/%s", p);
 			item->filename[0] = '\0';
@@ -204,43 +226,42 @@ static int parse_client_requests(void)
 			break;
 	}
 
-	/* For bidirectional-send, we also need to parse files from REQUESTS_SERVER */
-	if (strstr(testcase, "bidirectional-send")) {
-		const char *sreqs = getenv("REQUESTS_SERVER");
-		if (sreqs && client_requests_count == 1 && client_requests[0].filename[0] == '\0') {
-			char sreqs_env[1024];
-			lws_strncpy(sreqs_env, sreqs, sizeof(sreqs_env));
-			char *sr_ptr = sreqs_env;
-			char *stoken;
-			int first = 1;
+	/* If we are the client and acting as the sender, we also need to parse files from REQUESTS_SERVER */
+	const char *sreqs = getenv("REQUESTS_SERVER");
+	if (sreqs && client_requests_count == 1 && client_requests[0].filename[0] == '\0') {
+		static char sreqs_env[32768];
+		lws_strncpy(sreqs_env, sreqs, sizeof(sreqs_env));
+		char *sr_ptr = sreqs_env;
+		char *stoken;
+		int first = 1;
 
-			while ((stoken = strsep(&sr_ptr, " "))) {
-				if (!*stoken)
-					continue;
+		while ((stoken = strsep(&sr_ptr, " "))) {
+			if (!*stoken)
+				continue;
 
-				/* format: <endpoint>/<filename> */
-				char *slash = strchr(stoken, '/');
-				if (!slash)
-					continue;
+			/* format: <endpoint>/<filename> */
+			char *slash = strchr(stoken, '/');
+			if (!slash)
+				continue;
 
-				*slash = '\0';
-				char filename[256];
-				lws_strncpy(filename, slash + 1, sizeof(filename));
-				*slash = '/';
+			*slash = '\0';
+			char filename[256];
+			lws_strncpy(filename, slash + 1, sizeof(filename));
+			trim_trailing_whitespace(filename);
+			*slash = '/';
 
-				if (first) {
-					lws_strncpy(client_requests[0].filename, filename, sizeof(client_requests[0].filename));
-					first = 0;
-				} else {
-					struct request_item *item = &client_requests[client_requests_count];
-					item->port = client_requests[0].port;
-					lws_strncpy(item->host, client_requests[0].host, sizeof(item->host));
-					lws_strncpy(item->endpoint, client_requests[0].endpoint, sizeof(item->endpoint));
-					lws_strncpy(item->filename, filename, sizeof(item->filename));
-					client_requests_count++;
-					if (client_requests_count >= (int)LWS_ARRAY_SIZE(client_requests))
-						break;
-				}
+			if (first) {
+				lws_strncpy(client_requests[0].filename, filename, sizeof(client_requests[0].filename));
+				first = 0;
+			} else {
+				struct request_item *item = &client_requests[client_requests_count];
+				item->port = client_requests[0].port;
+				lws_strncpy(item->host, client_requests[0].host, sizeof(item->host));
+				lws_strncpy(item->endpoint, client_requests[0].endpoint, sizeof(item->endpoint));
+				lws_strncpy(item->filename, filename, sizeof(item->filename));
+				client_requests_count++;
+				if (client_requests_count >= (int)LWS_ARRAY_SIZE(client_requests))
+					break;
 			}
 		}
 	}
@@ -275,6 +296,7 @@ static int parse_server_requests(void)
 		lws_snprintf(item->endpoint, sizeof(item->endpoint), "/%s", token);
 		*slash = '/';
 		lws_strncpy(item->filename, slash + 1, sizeof(item->filename));
+		trim_trailing_whitespace(item->filename);
 
 		server_requests_count++;
 		if (server_requests_count >= (int)LWS_ARRAY_SIZE(server_requests))
@@ -287,7 +309,19 @@ static int parse_server_requests(void)
 static void trigger_client_transfers(struct lws *wsi_session, const char *endpoint)
 {
 	int i;
+	int local_is_sender = (strstr(testcase, "-receive") && is_server) ||
+			      (strstr(testcase, "-send") && !is_server) ||
+			      (strcmp(testcase, "transfer") == 0 && (is_server || !client_requests_count || client_requests[0].filename[0] == '\0'));
+	int local_is_receiver = (strstr(testcase, "-receive") && !is_server) ||
+				(strstr(testcase, "-send") && is_server) ||
+				(strcmp(testcase, "transfer") == 0 && !is_server && client_requests_count && client_requests[0].filename[0] != '\0');
+
 	lwsl_user("trigger_client_transfers called for endpoint %s, client_requests_count=%d\n", endpoint, client_requests_count);
+	if (local_is_sender) {
+		lwsl_user("  Local node is sender, not initiating client transfers.\n");
+		return;
+	}
+
 	for (i = 0; i < client_requests_count; i++) {
 		struct request_item *item = &client_requests[i];
 		lwsl_user("  Client Request %d: url=%s endpoint=%s started=%d filename=%s\n", i, item->url, item->endpoint, item->started, item->filename);
@@ -338,35 +372,9 @@ static void trigger_client_transfers(struct lws *wsi_session, const char *endpoi
 					}
 				}
 			} else if (strstr(testcase, "datagram")) {
-				if (strstr(testcase, "-send")) {
-					/* Send PUSH <filename>\n<contents> as a datagram */
-					char filepath[512];
-					lws_snprintf(filepath, sizeof(filepath), "/www%s/%s", item->endpoint, item->filename);
-					int fd = open(filepath, O_RDONLY);
-					if (fd >= 0) {
-						struct stat st;
-						if (fstat(fd, &st) == 0) {
-							uint8_t dgbuf[LWS_PRE + 65536];
-							int hn = lws_snprintf((char *)&dgbuf[LWS_PRE], sizeof(dgbuf) - LWS_PRE, "PUSH %s\n", item->filename);
-							int rn = (int)read(fd, &dgbuf[LWS_PRE + hn], sizeof(dgbuf) - LWS_PRE - (size_t)hn);
-							if (rn >= 0) {
-								enum lws_write_protocol wp = LWS_WRITE_QUIC_DATAGRAM;
-								lws_write(wsi_session, &dgbuf[LWS_PRE], (size_t)(hn + rn), wp);
-								lwsl_user("Client sent datagram PUSH: %s (%d bytes)\n", item->filename, hn + rn);
-								item->completed = 1;
-							}
-						}
-						close(fd);
-					} else {
-						lwsl_err("Failed to open file %s for datagram send\n", filepath);
-					}
-				} else {
-					/* Send GET as a datagram */
-					uint8_t buf[LWS_PRE + 512];
-					size_t len = (size_t)lws_snprintf((char *)&buf[LWS_PRE], 512, "GET %s", item->filename);
-					enum lws_write_protocol wp = LWS_WRITE_QUIC_DATAGRAM;
-					lws_write(wsi_session, &buf[LWS_PRE], len, wp);
-					lwsl_user("Client sent datagram: GET %s\n", item->filename);
+				if (local_is_receiver) {
+					enqueue_datagram(item->filename, 0); /* 0 for GET */
+					lws_callback_on_writable(wsi_session);
 				}
 			}
 		}
@@ -376,7 +384,19 @@ static void trigger_client_transfers(struct lws *wsi_session, const char *endpoi
 static void trigger_server_transfers(struct lws *wsi_session, const char *endpoint)
 {
 	int i;
+	int local_is_sender = (strstr(testcase, "-receive") && is_server) ||
+			      (strstr(testcase, "-send") && !is_server) ||
+			      (strcmp(testcase, "transfer") == 0 && (is_server || !client_requests_count || client_requests[0].filename[0] == '\0'));
+	int local_is_receiver = (strstr(testcase, "-receive") && !is_server) ||
+				(strstr(testcase, "-send") && is_server) ||
+				(strcmp(testcase, "transfer") == 0 && !is_server && client_requests_count && client_requests[0].filename[0] != '\0');
+
 	lwsl_user("trigger_server_transfers called for endpoint %s, server_requests_count=%d\n", endpoint, server_requests_count);
+	if (local_is_sender) {
+		lwsl_user("  Local node is sender, not initiating server transfers.\n");
+		return;
+	}
+
 	for (i = 0; i < server_requests_count; i++) {
 		struct server_request_item *item = &server_requests[i];
 		lwsl_user("  Server Request %d: endpoint=%s started=%d filename=%s\n", i, item->endpoint, item->started, item->filename);
@@ -426,32 +446,9 @@ static void trigger_server_transfers(struct lws *wsi_session, const char *endpoi
 					}
 				}
 			} else if (strstr(testcase, "datagram")) {
-				if (strstr(testcase, "-send")) {
-					/* Send PUSH <filename>\n<contents> as a datagram */
-					char filepath[512];
-					lws_snprintf(filepath, sizeof(filepath), "/www%s/%s", item->endpoint, item->filename);
-					int fd = open(filepath, O_RDONLY);
-					if (fd >= 0) {
-						struct stat st;
-						if (fstat(fd, &st) == 0) {
-							uint8_t dgbuf[LWS_PRE + 65536];
-							int hn = lws_snprintf((char *)&dgbuf[LWS_PRE], sizeof(dgbuf) - LWS_PRE, "PUSH %s\n", item->filename);
-							int rn = (int)read(fd, &dgbuf[LWS_PRE + hn], sizeof(dgbuf) - LWS_PRE - (size_t)hn);
-							if (rn >= 0) {
-								enum lws_write_protocol wp = LWS_WRITE_QUIC_DATAGRAM;
-								lws_write(wsi_session, &dgbuf[LWS_PRE], (size_t)(hn + rn), wp);
-								lwsl_user("Server sent datagram PUSH: %s (%d bytes)\n", item->filename, hn + rn);
-							}
-						}
-						close(fd);
-					}
-				} else {
-					/* Send GET as a datagram */
-					uint8_t buf[LWS_PRE + 512];
-					size_t len = (size_t)lws_snprintf((char *)&buf[LWS_PRE], 512, "GET %s", item->filename);
-					enum lws_write_protocol wp = LWS_WRITE_QUIC_DATAGRAM;
-					lws_write(wsi_session, &buf[LWS_PRE], len, wp);
-					lwsl_user("Server sent datagram: GET %s\n", item->filename);
+				if (local_is_receiver) {
+					enqueue_datagram(item->filename, 0); /* 0 for GET */
+					lws_callback_on_writable(wsi_session);
 				}
 			}
 		}
@@ -528,6 +525,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 			if (path_len > 0) {
 				path[path_len] = '\0';
 				lws_strncpy(pss->endpoint, path, sizeof(pss->endpoint));
+				lws_strncpy(global_endpoint, path, sizeof(global_endpoint));
 			}
 			lwsl_user("Server WebTransport session established on %s\n", pss->endpoint);
 
@@ -536,16 +534,11 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 		} else {
 			pss->is_session = 0;
 			pss->is_unidi = lws_wt_is_unidi(wsi);
-			struct lws *swsi = lws_wt_get_session_wsi(wsi);
-			if (swsi) {
-				struct pss_qir *spss = (struct pss_qir *)lws_wsi_user(swsi);
-				if (spss) {
-					lws_strncpy(pss->endpoint, spss->endpoint, sizeof(pss->endpoint));
-				}
-			}
+			lws_strncpy(pss->endpoint, global_endpoint, sizeof(pss->endpoint));
 			lwsl_user("%s stream established (unidi=%d)\n", is_server ? "Server" : "Client", pss->is_unidi);
 
-			if (is_server && !pss->is_unidi) {
+			if (is_server && !pss->is_unidi &&
+			    lws_get_parent(wsi) && lws_wt_is_session(lws_get_parent(wsi))) {
 				/* Server receives files over client-initiated bidi streams.
 				 * Find first unstarted server request, assign it to this stream,
 				 * and trigger writable callback to send GET <filename>. */
@@ -580,6 +573,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 				if (!client_requests[i].session_wsi) {
 					lws_strncpy(pss->endpoint, client_requests[i].endpoint, sizeof(pss->endpoint));
 					client_requests[i].session_wsi = wsi;
+					lws_strncpy(global_endpoint, pss->endpoint, sizeof(global_endpoint));
 					break;
 				}
 			}
@@ -617,21 +611,69 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 		} else {
 			pss->is_session = 0;
 			pss->is_unidi = lws_wt_is_unidi(wsi);
-			struct lws *swsi = lws_wt_get_session_wsi(wsi);
-			if (swsi) {
-				struct pss_qir *spss = (struct pss_qir *)lws_wsi_user(swsi);
-				if (spss) {
-					lws_strncpy(pss->endpoint, spss->endpoint, sizeof(pss->endpoint));
-				}
-			}
+			lws_strncpy(pss->endpoint, global_endpoint, sizeof(pss->endpoint));
 			lwsl_user("Client stream established (unidi=%d)\n", pss->is_unidi);
 		}
 		break;
 
 		case LWS_CALLBACK_SERVER_WRITEABLE:
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
-		if (pss->is_session)
+		if (pss->is_session) {
+			struct pending_datagram *dg = dequeue_datagram();
+			if (dg) {
+				if (dg->is_push) {
+					/* Send PUSH <filename>\n<contents> as a datagram */
+					char filepath[512];
+					const char *endpoint = pss->endpoint[0] ? pss->endpoint : global_endpoint;
+					lws_snprintf(filepath, sizeof(filepath), "/www%s/%s", endpoint, dg->filename);
+					int fd = open(filepath, O_RDONLY);
+					if (fd >= 0) {
+						struct stat st;
+						if (fstat(fd, &st) == 0) {
+							uint8_t dgbuf[LWS_PRE + 65536];
+							int hn = lws_snprintf((char *)&dgbuf[LWS_PRE], sizeof(dgbuf) - LWS_PRE, "PUSH %s\n", dg->filename);
+							int rn = (int)read(fd, &dgbuf[LWS_PRE + hn], sizeof(dgbuf) - LWS_PRE - (size_t)hn);
+							if (rn >= 0) {
+								enum lws_write_protocol wp = LWS_WRITE_QUIC_DATAGRAM;
+								lws_write(wsi, &dgbuf[LWS_PRE], (size_t)(hn + rn), wp);
+								lwsl_user("Session WSI sent datagram PUSH: %s (%d bytes)\n", dg->filename, hn + rn);
+								usleep(5000); /* Pace datagram sends to prevent queue overflow */
+
+								/* Mark completed on client side (if we are the client sending PUSH) */
+								if (!is_server) {
+									int r_idx = -1;
+									int i;
+									for (i = 0; i < client_requests_count; i++) {
+										if (strcmp(client_requests[i].filename, dg->filename) == 0) {
+											r_idx = i;
+											break;
+										}
+									}
+									if (r_idx >= 0) {
+										client_requests[r_idx].completed = 1;
+										lwsl_user("Client datagram transfer completed: %s\n", dg->filename);
+									}
+								}
+							}
+						}
+						close(fd);
+					} else {
+						lwsl_err("Failed to open file %s for datagram PUSH\n", filepath);
+					}
+				} else {
+					/* Send GET <filename> as a datagram */
+					uint8_t buf[LWS_PRE + 512];
+					size_t len = (size_t)lws_snprintf((char *)&buf[LWS_PRE], 512, "GET %s", dg->filename);
+					enum lws_write_protocol wp = LWS_WRITE_QUIC_DATAGRAM;
+					lws_write(wsi, &buf[LWS_PRE], len, wp);
+					lwsl_user("Session WSI sent datagram GET: %s\n", dg->filename);
+					usleep(5000); /* Pace datagram sends to prevent queue overflow */
+				}
+				/* Request next writable callback to process remaining queue items */
+				lws_callback_on_writable(wsi);
+			}
 			break;
+		}
 
 		if (pss_is_file_sender(pss)) {
 			/* Sender: write file data */
@@ -639,14 +681,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 				break;
 			if (pss->fd_in < 0) {
 				char filepath[512];
-				const char *endpoint = pss->endpoint;
-				if (!endpoint[0]) {
-					struct lws *swsi = lws_wt_get_session_wsi(wsi);
-					if (swsi) {
-						struct pss_qir *spss = (struct pss_qir *)lws_wsi_user(swsi);
-						if (spss) endpoint = spss->endpoint;
-					}
-				}
+				const char *endpoint = pss->endpoint[0] ? pss->endpoint : global_endpoint;
 				lws_snprintf(filepath, sizeof(filepath), "/www%s/%s", endpoint, pss->filename);
 				pss->fd_in = open(filepath, O_RDONLY);
 				if (pss->fd_in >= 0) {
@@ -674,13 +709,22 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 						m = lws_write(wsi, p, (size_t)n, LWS_WRITE_BINARY | (is_final ? LWS_WRITE_H2_STREAM_END : LWS_WRITE_NO_FIN));
 						if (m < 0)
 							return -1;
-						if (!is_final)
+						if (m < n) {
+							/* Seek back the unwritten bytes and retry */
+							off_t diff = (off_t)(n - m);
+							lseek(pss->fd_in, -diff, SEEK_CUR);
+							pss->sent_len -= (size_t)diff;
 							lws_callback_on_writable(wsi);
-						else {
-							close(pss->fd_in);
-							pss->fd_in = -1;
-							pss->write_completed = 1;
-							lwsl_user("Sender completed file write: %zu bytes\n", pss->sent_len);
+						} else {
+							if (!is_final)
+								lws_callback_on_writable(wsi);
+							else {
+								close(pss->fd_in);
+								pss->fd_in = -1;
+								pss->write_completed = 1;
+								lwsl_user("Sender completed file write: %zu bytes\n", pss->sent_len);
+								return -1;
+							}
 						}
 					} else {
 						/* EOF or error */
@@ -688,6 +732,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 						pss->fd_in = -1;
 						pss->write_completed = 1;
 						lws_write(wsi, NULL, 0, LWS_WRITE_BINARY | LWS_WRITE_H2_STREAM_END);
+						return -1;
 					}
 				} else {
 					/* Unidirectional stream requires PUSH <filename>\n first */
@@ -696,9 +741,14 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 					m = lws_write(wsi, p, (size_t)n, LWS_WRITE_BINARY | LWS_WRITE_NO_FIN);
 					if (m < 0)
 						return -1;
-					pss->header_sent = 1;
-					lws_callback_on_writable(wsi);
-					lwsl_user("Sender sent PUSH %s\\n\n", pss->filename);
+					if (m < n) {
+						/* Throttled or partial, retry header next time */
+						lws_callback_on_writable(wsi);
+					} else {
+						pss->header_sent = 1;
+						lws_callback_on_writable(wsi);
+						lwsl_user("Sender sent PUSH %s\\n\n", pss->filename);
+					}
 				}
 			}
 		} else {
@@ -734,23 +784,8 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 				lwsl_user("Session WSI received datagram GET: %s\n", filename);
 
 				/* Respond by sending PUSH <filename>\n<contents> as a datagram */
-				char filepath[512];
-				lws_snprintf(filepath, sizeof(filepath), "/www%s/%s", pss->endpoint, filename);
-				int fd = open(filepath, O_RDONLY);
-				if (fd >= 0) {
-					struct stat st;
-					if (fstat(fd, &st) == 0) {
-						uint8_t dgbuf[LWS_PRE + 65536];
-						int hn = lws_snprintf((char *)&dgbuf[LWS_PRE], sizeof(dgbuf) - LWS_PRE, "PUSH %s\n", filename);
-						int rn = (int)read(fd, &dgbuf[LWS_PRE + hn], sizeof(dgbuf) - LWS_PRE - (size_t)hn);
-						if (rn >= 0) {
-							enum lws_write_protocol wp = LWS_WRITE_QUIC_DATAGRAM;
-							lws_write(wsi, &dgbuf[LWS_PRE], (size_t)(hn + rn), wp);
-							lwsl_user("Session WSI sent datagram PUSH: %s (%d bytes)\n", filename, hn + rn);
-						}
-					}
-					close(fd);
-				}
+				enqueue_datagram(filename, 1); /* 1 for PUSH */
+				lws_callback_on_writable(wsi);
 			} else if (payload_len > 5 && strncmp(payload, "PUSH ", 5) == 0) {
 				/* PUSH <filename>\n<data> */
 				char *newline = memchr(payload, '\n', payload_len);
@@ -792,6 +827,31 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 								client_requests[r_idx].completed = 1;
 								lwsl_user("Client datagram request index %d (%s) completed (datagram received)\n", r_idx, filename);
 							}
+						} else {
+							int r_idx = -1;
+							int i;
+							for (i = 0; i < server_requests_count; i++) {
+								if (strcmp(server_requests[i].filename, filename) == 0) {
+									r_idx = i;
+									break;
+								}
+							}
+							if (r_idx >= 0) {
+								server_requests[r_idx].completed = 1;
+								lwsl_user("Server datagram request index %d (%s) completed (datagram received)\n", r_idx, filename);
+								
+								int all_done = 1;
+								for (i = 0; i < server_requests_count; i++) {
+									if (!server_requests[i].completed) {
+										all_done = 0;
+										break;
+									}
+								}
+								if (all_done) {
+									lwsl_user("All server requests completed. Setting interrupted = 1 to exit.\n");
+									interrupted = 1;
+								}
+							}
 						}
 					}
 				}
@@ -829,14 +889,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 									}
 									/* Open file regardless of rem */
 									char dirpath[512], filepath[512];
-									const char *endpoint = pss->endpoint;
-									if (!endpoint[0]) {
-										struct lws *swsi = lws_wt_get_session_wsi(wsi);
-										if (swsi) {
-											struct pss_qir *spss = (struct pss_qir *)lws_wsi_user(swsi);
-											if (spss) endpoint = spss->endpoint;
-										}
-									}
+									const char *endpoint = pss->endpoint[0] ? pss->endpoint : global_endpoint;
 									lws_snprintf(dirpath, sizeof(dirpath), "/downloads%s", endpoint);
 									mkdir(dirpath, 0777);
 									lws_snprintf(filepath, sizeof(filepath), "%s/%s", dirpath, pss->filename);
@@ -866,14 +919,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 					/* Bidirectional: no header, just raw file contents */
 					if (pss->fd_out < 0) {
 						char dirpath[512], filepath[512];
-						const char *endpoint = pss->endpoint;
-						if (!endpoint[0]) {
-							struct lws *swsi = lws_wt_get_session_wsi(wsi);
-							if (swsi) {
-								struct pss_qir *spss = (struct pss_qir *)lws_wsi_user(swsi);
-								if (spss) endpoint = spss->endpoint;
-							}
-						}
+						const char *endpoint = pss->endpoint[0] ? pss->endpoint : global_endpoint;
 						lws_snprintf(dirpath, sizeof(dirpath), "/downloads%s", endpoint);
 						mkdir(dirpath, 0777);
 						lws_snprintf(filepath, sizeof(filepath), "%s/%s", dirpath, pss->filename);
@@ -903,14 +949,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 
 					/* Open local file from /www/<endpoint>/<filename> */
 					char filepath[512];
-					const char *endpoint = pss->endpoint;
-					if (!endpoint[0]) {
-						struct lws *swsi = lws_wt_get_session_wsi(wsi);
-						if (swsi) {
-							struct pss_qir *spss = (struct pss_qir *)lws_wsi_user(swsi);
-							if (spss) endpoint = spss->endpoint;
-						}
-					}
+					const char *endpoint = pss->endpoint[0] ? pss->endpoint : global_endpoint;
 					lws_snprintf(filepath, sizeof(filepath), "/www%s/%s", endpoint, pss->filename);
 					pss->fd_in = open(filepath, O_RDONLY);
 					if (pss->fd_in >= 0) {
@@ -943,6 +982,8 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 						} else {
 							lws_callback_on_writable(wsi);
 						}
+					} else {
+						lwsl_err("Sender WSI failed to open file %s\n", filepath);
 					}
 				}
 			}
@@ -961,6 +1002,10 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 			pss->fd_out = -1;
 		}
 		if (!pss->is_session) {
+			if (pss->is_unidi && pss->is_initiator) {
+				lwsl_user("Initiator unidirectional GET stream closed (not marking request completed yet)\n");
+				break;
+			}
 			if (!is_server) {
 				int r_idx = -1;
 				int i;
@@ -974,7 +1019,35 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 					client_requests[r_idx].completed = 1;
 					lwsl_user("Client transfer request index %d (%s) completed (stream closed)\n", r_idx, pss->filename);
 				}
+			} else {
+				int r_idx = -1;
+				int i;
+				for (i = 0; i < server_requests_count; i++) {
+					if (strcmp(server_requests[i].filename, pss->filename) == 0) {
+						r_idx = i;
+						break;
+					}
+				}
+				if (r_idx >= 0) {
+					server_requests[r_idx].completed = 1;
+					lwsl_user("Server transfer request index %d (%s) completed (stream closed)\n", r_idx, pss->filename);
+					
+					int all_done = 1;
+					for (i = 0; i < server_requests_count; i++) {
+						if (!server_requests[i].completed) {
+							all_done = 0;
+							break;
+						}
+					}
+					if (all_done) {
+						lwsl_user("All server requests completed. Setting interrupted = 1 to exit.\n");
+						interrupted = 1;
+					}
+				}
 			}
+		} else {
+			lwsl_user("%s session closed. Setting interrupted = 1 to exit.\n", is_server ? "Server" : "Client");
+			interrupted = 1;
 		}
 		lwsl_user("WSI closed\n");
 		break;
