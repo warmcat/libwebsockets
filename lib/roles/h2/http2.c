@@ -437,8 +437,17 @@ lws_pps_schedule(struct lws *wsi, struct lws_h2_protocol_send *pps)
 		return;
 	}
 
+	if (pps->type != LWS_H2_PPS_GOAWAY && h2n->pps_count >= 50) {
+		lwsl_warn("%s: too many pending protocol sends (%u), dropping conn\n",
+			  __func__, (unsigned int)h2n->pps_count);
+		lws_free(pps);
+		lws_h2_goaway(nwsi, H2_ERR_ENHANCE_YOUR_CALM, "too many pending pps");
+		return;
+	}
+
 	pps->next = h2n->pps;
 	h2n->pps = pps;
+	h2n->pps_count++;
 	lws_rx_flow_control(wsi, LWS_RXFLOW_REASON_APPLIES_DISABLE |
 				 LWS_RXFLOW_REASON_H2_PPS_PENDING);
 	lws_callback_on_writable(wsi);
@@ -740,6 +749,9 @@ int lws_h2_do_pps_send(struct lws *wsi)
 
 	if (!pps)
 		return 1;
+
+	if (h2n->pps_count)
+		h2n->pps_count--;
 
 	lwsl_info("%s: %s: %d\n", __func__, lws_wsi_tag(wsi), pps->type);
 
@@ -2007,6 +2019,11 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		lwsl_info("LWS_H2_FRAME_TYPE_RST_STREAM: sid %u: reason 0x%x\n",
 			  (unsigned int)h2n->sid,
 			  (unsigned int)h2n->hpack_e_dep);
+		if (h2n->swsi) {
+			lws_close_free_wsi(h2n->swsi, LWS_CLOSE_STATUS_NOSTATUS,
+					   "peer RST_STREAM");
+			h2n->swsi = NULL;
+		}
 		break;
 
 	case LWS_H2_FRAME_TYPE_COUNT: /* IGNORING FRAME */
