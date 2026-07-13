@@ -251,6 +251,7 @@ struct lws_h2_netconn {
 	char goaway_str[32]; /* for rx */
 	struct lws *swsi;
 	struct lws_h2_protocol_send *pps; /* linked list */
+	uint32_t pps_count;
 
 	enum http2_hpack_state hpack;
 	enum http2_hpack_type hpack_type;

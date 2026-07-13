@@ -1409,6 +1409,15 @@ void lws_wsi_mux_insert(struct lws *wsi, struct lws *parent_wsi,
 	if (!wsi->role_ops)
 		wsi->role_ops = parent_wsi->role_ops;
 
+#if defined(LWS_WITH_PEER_LIMITS)
+	if (parent_wsi->peer && !wsi->peer) {
+		wsi->peer = parent_wsi->peer;
+		lws_context_lock(wsi->a.context, "mux peer child adopt");
+		wsi->peer->count_wsi++;
+		lws_context_unlock(wsi->a.context);
+	}
+#endif
+
 	/* new guy's sibling is whoever was the first child before */
 	wsi->mux.sibling_list = parent_wsi->mux.child_list;
 
