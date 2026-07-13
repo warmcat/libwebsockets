@@ -1,6 +1,4 @@
 const DOM = {
-    urlInput: document.getElementById('server-url'),
-    hashInput: document.getElementById('cert-hash'),
     startBtn: document.getElementById('start-btn'),
     connStatus: document.getElementById('conn-status'),
     progressText: document.getElementById('progress-text'),
@@ -48,19 +46,14 @@ function hexString(buffer) {
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-function parseHash(hashStr) {
-    const cleaned = hashStr.replace(/[:\s]/g, '');
-    const bytes = new Uint8Array(cleaned.length / 2);
-    for (let i = 0; i < cleaned.length; i += 2) {
-        bytes[i / 2] = Number.parseInt(cleaned.substring(i, i + 2), 16);
-    }
-    return bytes;
-}
-
 async function generateTestPayload() {
     log('Generating 4MB random payload...');
     const buffer = new Uint8Array(BLOB_SIZE);
-    crypto.getRandomValues(buffer); // Generates 4MB of PRNG
+    const maxRandomChunk = 65536;
+    for (let offset = 0; offset < BLOB_SIZE; offset += maxRandomChunk) {
+        const chunk = buffer.subarray(offset, offset + maxRandomChunk);
+        crypto.getRandomValues(chunk);
+    }
     
     log('Calculating SHA-256 hash...');
     const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
@@ -84,16 +77,34 @@ async function sendStreamData(writer, data) {
     }
 }
 
+let leftover = null;
+
 async function receiveAndVerify(reader, expectedBytes) {
     const receivedData = new Uint8Array(expectedBytes);
     let bytesRead = 0;
+    
+    if (leftover && leftover.length > 0) {
+        const copyLen = Math.min(leftover.length, expectedBytes - bytesRead);
+        receivedData.set(leftover.subarray(0, copyLen), bytesRead);
+        bytesRead += copyLen;
+        if (copyLen < leftover.length) {
+            leftover = leftover.subarray(copyLen);
+        } else {
+            leftover = null;
+        }
+    }
     
     while (bytesRead < expectedBytes) {
         const { value, done } = await reader.read();
         if (done) break;
         
-        receivedData.set(value, bytesRead);
-        bytesRead += value.length;
+        const copyLen = Math.min(value.length, expectedBytes - bytesRead);
+        receivedData.set(value.subarray(0, copyLen), bytesRead);
+        bytesRead += copyLen;
+        
+        if (copyLen < value.length) {
+            leftover = value.subarray(copyLen);
+        }
     }
     
     if (bytesRead < expectedBytes) {
@@ -118,32 +129,23 @@ async function receiveAndVerify(reader, expectedBytes) {
 }
 
 async function startTest() {
+    leftover = null;
     try {
         DOM.startBtn.disabled = true;
         updateStatus('Connecting...', 'connecting');
         updateProgress(0);
         DOM.logContainer.innerHTML = '';
         
-        const url = DOM.urlInput.value;
-        const certHashStr = DOM.hashInput.value.trim();
-        
-        const options = {};
-        if (certHashStr) {
-            try {
-                const bytes = parseHash(certHashStr);
-                options.serverCertificateHashes = [{
-                    algorithm: "sha-256",
-                    value: bytes.buffer
-                }];
-                log('Using provided certificate hash for validation.');
-            } catch (e) {
-                log('Invalid certificate hash format.', 'error');
-                throw e;
-            }
+        let url = "https://localhost:7681/";
+        if (window.location.protocol.startsWith('http')) {
+            const base = new URL('../', window.location.href).href;
+            url = base.replace(/^http:/, 'https:');
         }
         
         log(`Connecting to WebTransport at ${url}`);
-        wt = new WebTransport(url, options);
+        wt = new WebTransport(url, {
+            protocols: ['webtransport-test']
+        });
         
         await wt.ready;
         updateStatus('Connected', 'connected');
@@ -177,7 +179,12 @@ async function startTest() {
         }
         
         log('Test Completed Successfully!', 'success');
-        await writer.close();
+        try {
+            writer.releaseLock();
+        } catch (e) {}
+        try {
+            reader.releaseLock();
+        } catch (e) {}
         wt.close();
         updateStatus('Disconnected', 'disconnected');
         

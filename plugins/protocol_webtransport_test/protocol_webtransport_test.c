@@ -21,10 +21,10 @@
 #include <string.h>
 #include <stdlib.h>
 
-#define BLOB_SIZE (4 * 1024 * 1024)
-#define HASH_SIZE 32
-#define TOTAL_SEND_SIZE (BLOB_SIZE + HASH_SIZE)
-#define TEST_ITERATIONS 10
+#define BLOB_SIZE		(4 * 1024 * 1024)
+#define HASH_SIZE		32
+#define TOTAL_SEND_SIZE		(BLOB_SIZE + HASH_SIZE)
+#define TEST_ITERATIONS		10
 
 struct vhd__wt_test {
 	uint8_t *blob;
@@ -98,7 +98,7 @@ callback_wt_test(struct lws *wsi, enum lws_callback_reasons reason,
 			vhd->blob = NULL;
 		}
 		break;
-
+	case LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED:
 	case LWS_CALLBACK_ESTABLISHED:
 		/* We only care about WebTransport child streams for data transfer */
 		if (lws_wt_is_session(wsi)) {
@@ -123,6 +123,13 @@ callback_wt_test(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 
 		to_send = TOTAL_SEND_SIZE - pss->send_pos;
+		{
+			int tx_cr = lws_wsi_tx_credit(wsi, LWSTXCR_US_TO_PEER, 0);
+			if (tx_cr <= 0)
+				break;
+			if (to_send > (size_t)tx_cr)
+				to_send = (size_t)tx_cr;
+		}
 		if (to_send > 65536)
 			to_send = 65536; /* write in chunks */
 
@@ -144,6 +151,7 @@ callback_wt_test(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 
 			m = lws_write(wsi, p, (unsigned int)to_send, LWS_WRITE_BINARY);
+			lwsl_info("WT WRITEABLE: send_pos %zu, to_send %zu, write_ret %d\n", pss->send_pos, to_send, m);
 			if (m < 0) {
 				lwsl_err("write error\n");
 				return -1;

@@ -241,6 +241,20 @@ lws_x509_info(struct lws_x509_cert *x509, enum lws_tls_cert_info type,
 	      union lws_tls_cert_info_results *buf, size_t len);
 
 /**
+ * lws_x509_cert_fingerprint() - Calculate the fingerprint of a certificate
+ *
+ * \param x509: the certificate to fingerprint
+ * \param type: the hash type (e.g., LWS_GENHASH_TYPE_SHA256)
+ * \param buf: buffer to receive the binary hash
+ * \param len: max length of the buffer
+ *
+ * Returns the hash length on success, or -1 on failure.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_x509_cert_fingerprint(struct lws_x509_cert *x509, int type,
+			  uint8_t *buf, size_t len);
+
+/**
  * lws_tls_peer_cert_info() - get information from the peer's TLS cert
  *
  * \param wsi: the connection to query
