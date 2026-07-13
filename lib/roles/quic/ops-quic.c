@@ -286,7 +286,7 @@ lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t acked_pn)
 		{
 			struct lws_quic_cc_newreno *_cc = qn->cc_ops ? (struct lws_quic_cc_newreno *)qn->cc_state : NULL;
 			(void)_cc;
-			lwsl_notice("QUIC TX: ACK processing: bytes_acked=%zu, cc_bif=%zu cc_cwnd=%zu cc_pacing=%zu, in_flight_app=%d, pending_tx=%d, blocked=%d\n",
+			lwsl_debug("QUIC TX: ACK processing: bytes_acked=%zu, cc_bif=%zu cc_cwnd=%zu cc_pacing=%zu, in_flight_app=%d, pending_tx=%d, blocked=%d\n",
 				    bytes_acked,
 				    _cc ? _cc->bytes_in_flight : 0,
 				    _cc ? _cc->cwnd : 0,
@@ -1059,11 +1059,13 @@ tp_ok:
 
 		int pn_space = (level == LWS_QUIC_LEVEL_EARLY || level == LWS_QUIC_LEVEL_APP) ? LWS_QUIC_LEVEL_APP : level;
 
-		/* Enforce 1200-byte padding for subsequent client-to-server Initial packets (RFC 9000 Section 14.1) */
-		if (level == LWS_QUIC_LEVEL_INITIAL && nwsi && nwsi->quic.qn && nwsi->quic.qn->is_server && n < 1200) {
-			lwsl_wsi_notice(wsi, "QUIC RX: Dropping under-padded Initial packet (len %d)", n);
-			break;
-		}
+		/*
+		 * Enforce 1200-byte padding for subsequent client-to-server Initial packets (RFC 9000 Section 14.1)
+		 * Note: RFC 9000 allows the client to stop padding Initial packets once it has received an
+		 * acknowledgment from the server or sent/received a packet other than Initial/VN. Therefore,
+		 * we MUST NOT discard subsequent unpadded Initial packets. The first Initial packet (which
+		 * instantiates the connection) is already checked and validated for 1200-byte padding earlier.
+		 */
 
 		size_t local_dcid_len = (nwsi && nwsi->quic.qn) ? nwsi->quic.qn->loc_cid.len : 8;
 		if (local_dcid_len == 0) local_dcid_len = 8;
@@ -1313,6 +1315,18 @@ tp_ok:
 			/* ALPN negotiation might have migrated the network WSI! */
 			if (nwsi && !nwsi->quic.qn) {
 				nwsi = lws_get_quic_network_wsi(nwsi);
+			}
+
+			if (nwsi) {
+				struct lws *w = nwsi->mux.child_list;
+				while (w) {
+					struct lws *next = w->mux.sibling_list;
+					if (w->quic.qs && w->quic.qs->close_after_rx) {
+						lwsl_wsi_notice(w, "QUIC RX Post-Processing: Closing stream WSI");
+						lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "quic post rx stream close");
+					}
+					w = next;
+				}
 			}
 
 			if (parse_res < 0) {
@@ -1615,11 +1629,15 @@ rops_handle_POLLOUT_quic(struct lws *wsi)
 					}
 				}
 
-				/* Packet lost! Move it back to pending_tx */
+				/* Packet lost! */
 				lws_dll2_remove(&f->list);
-				lws_dll2_add_head(&f->list, &qn->pending_tx[level]);
 				total_bytes_lost += f->wire_len;
-				f->wire_len = 0;
+				if ((f->type & 0xfe) == LWS_QUIC_FT_DATAGRAM) {
+					lws_free(f);
+				} else {
+					lws_dll2_add_head(&f->list, &qn->pending_tx[level]);
+					f->wire_len = 0;
+				}
 			}
 		} lws_end_foreach_dll_safe(d, d1);
 	}
@@ -1659,7 +1677,7 @@ send_frames:
 			continue;
 		}
 
-		// lwsl_wsi_notice(wsi, "QUIC TX: Processing level %d. pending=%d, needs_ack=%d, pto_needed=%d", level, qn->pending_tx[level].count, qn->needs_ack[pn_space], qn->pto_probe_needed);
+		lwsl_debug("QUIC TX: Processing level %d. pending=%d, needs_ack=%d, pto_needed=%d", level, qn->pending_tx[level].count, qn->needs_ack[pn_space], qn->pto_probe_needed);
 
 		/* Determine if we're allowed to send */
 		int is_congestion_limited = 0;
@@ -1885,6 +1903,8 @@ send_frames:
 				if ((f->type & 0xf8) == LWS_QUIC_FT_STREAM || f->type == LWS_QUIC_FT_CRYPTO) {
 					send_len = max_udp_payload - (size_t)(p - pkt) - frame_header_max_len - 32;
 				} else {
+					lwsl_notice("QUIC TX: Frame doesn't fit! type=0x%02x, len=%zu, p-pkt=%zu, max_udp_payload=%zu",
+						f->type, send_len, (size_t)(p - pkt), max_udp_payload);
 					break; /* Non-fragmentable frame doesn't fit */
 				}
 			}
@@ -1914,6 +1934,7 @@ send_frames:
 				if (type & 0x02) /* LEN */
 					p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), send_len);
 			} else if ((type & 0xfe) == LWS_QUIC_FT_DATAGRAM) {
+				lwsl_debug("QUIC TX: Serialized DATAGRAM frame! len=%zu", send_len);
 				if (type & 0x01) /* LEN */
 					p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), send_len);
 			} else if (type == LWS_QUIC_FT_MAX_DATA || type == LWS_QUIC_FT_DATA_BLOCKED) {
@@ -1986,7 +2007,6 @@ send_frames:
 				f->sent_time_us = lws_now_usecs();
 				f->wire_len = 0;
 				lws_dll2_add_tail(&f->list, &qn->in_flight[level]);
-
 
 				/* Schedule PTO timer since we have data in-flight */
 				lws_sul_schedule(wsi->a.context, 0, &qn->pto_sul, lws_quic_pto_cb, pto_delay);
@@ -2072,25 +2092,39 @@ send_frames:
 			lwsl_wsi_debug(wsi, "QUIC TX: Dropping packet via lws_fi fault injection!");
 			n = (int)send_len; /* Pretend it succeeded */
 		} else {
-#if defined(WIN32) || defined(_WIN32)
+			const lws_sockaddr46 *dest_sa46 = NULL;
 			if (has_packet_dest)
+				dest_sa46 = &packet_dest_sa46;
+			else if (wsi->udp)
+				dest_sa46 = &wsi->udp->sa46;
+			else if (wsi->mux_substream && wsi->mux.parent_wsi && wsi->mux.parent_wsi->udp)
+				dest_sa46 = &wsi->mux.parent_wsi->udp->sa46;
+
+			{
+				char adrbuf[64] = "none";
+				if (dest_sa46)
+					lws_sa46_write_numeric_address((lws_sockaddr46 *)dest_sa46, adrbuf, sizeof(adrbuf));
+				lwsl_debug("QUIC TX: sendto fd=%d, len=%zu, dest=%s, substream=%d, udp=%p",
+					    fd, send_len, adrbuf, wsi->mux_substream, wsi->udp);
+			}
+#if defined(WIN32) || defined(_WIN32)
+			if (dest_sa46)
 				n = sendto(fd, (const char *)pkt, (int)send_len, 0,
-					   sa46_sockaddr(&packet_dest_sa46), sa46_socklen(&packet_dest_sa46));
-			else if (wsi->mux_substream && wsi->udp)
-				n = sendto(fd, (const char *)pkt, (int)send_len, 0,
-					   sa46_sockaddr(&wsi->udp->sa46), sa46_socklen(&wsi->udp->sa46));
+					   sa46_sockaddr(dest_sa46), sa46_socklen(dest_sa46));
 			else
 				n = send(fd, (const char *)pkt, (int)send_len, 0);
 #else
-			if (has_packet_dest)
+			if (dest_sa46)
 				n = (int)sendto(fd, (const void *)pkt, send_len, 0,
-						sa46_sockaddr(&packet_dest_sa46), sa46_socklen(&packet_dest_sa46));
-			else if (wsi->mux_substream && wsi->udp)
-				n = (int)sendto(fd, (const void *)pkt, send_len, 0,
-						sa46_sockaddr(&wsi->udp->sa46), sa46_socklen(&wsi->udp->sa46));
+						sa46_sockaddr(dest_sa46), sa46_socklen(dest_sa46));
 			else
 				n = (int)send(fd, (const void *)pkt, send_len, 0);
 #endif
+			if (n < 0) {
+				lwsl_warn("QUIC TX: sendto/send failed: returned %d, errno=%d\n", n, LWS_ERRNO);
+			} else {
+				lwsl_debug("QUIC TX: sent %d bytes successfully\n", n);
+			}
 		}
 		if (n < 0) {
 			int e = LWS_ERRNO;
@@ -2225,9 +2259,9 @@ send_frames:
         {
                 struct lws *curr = wsi->mux.child_list;
                 int sanity = 1000000;
-                lwsl_notice("QUIC TX POLLOUT: nwsi=%s, tx_cr=%d\n", lws_wsi_tag(wsi), (int)wsi->txc.tx_cr);
+                lwsl_debug("QUIC TX POLLOUT: nwsi=%s, tx_cr=%d\n", lws_wsi_tag(wsi), (int)wsi->txc.tx_cr);
                 while (curr && sanity--) {
-                        lwsl_notice("QUIC TX POLLOUT:   child: %s, requested_POLLOUT=%d, tx_cr=%d\n", 
+                        lwsl_debug("QUIC TX POLLOUT:   child: %s, requested_POLLOUT=%d, tx_cr=%d\n", 
                                     lws_wsi_tag(curr), curr->mux.requested_POLLOUT, (int)curr->txc.tx_cr);
                         curr = curr->mux.sibling_list;
                 }
@@ -2244,7 +2278,7 @@ send_frames:
 
 				wa = &(*wsi2)->mux.sibling_list;
 				
-				lwsl_notice("QUIC TX POLLOUT: visiting child %s, requested_POLLOUT=%d\n", lws_wsi_tag(*wsi2), (*wsi2)->mux.requested_POLLOUT);
+				lwsl_debug("QUIC TX POLLOUT: visiting child %s, requested_POLLOUT=%d\n", lws_wsi_tag(*wsi2), (*wsi2)->mux.requested_POLLOUT);
 
 				if (!(*wsi2)->mux.requested_POLLOUT)
 					goto next_child;
@@ -2297,7 +2331,7 @@ send_frames:
 
                 w->mux.requested_POLLOUT = 0;
 
-				lwsl_notice("QUIC TX POLLOUT: calling perform_user_POLLOUT for child %s, usable_credit=%d, pending_tx=%d\n",
+				lwsl_debug("QUIC TX POLLOUT: calling perform_user_POLLOUT for child %s, usable_credit=%d, pending_tx=%d\n",
 					    lws_wsi_tag(w), (int)usable_credit, qn->pending_tx[LWS_QUIC_LEVEL_APP].count);
 
                 lwsl_debug("QUIC TX POLLOUT: calling perform_user_POLLOUT/lws_callback_as_writeable for child %s\n", lws_wsi_tag(w));
@@ -2337,11 +2371,6 @@ end_children:
 		int can_process_children = ((qn->handshake_done || qn->early_data_status == LWS_0RTT_STATUS_ATTEMPTED || qn->early_data_status == LWS_0RTT_STATUS_ACCEPTED) && wsi->txc.tx_cr > 0 && (!nwsi || nwsi->txc.tx_cr > 0));
 		int have_pending_tx = 0;
 		for (level = 0; level < LWS_QUIC_LEVEL_COUNT; level++) {
-			if (qn->pending_tx[level].count) {
-				lwsl_notice("AGY-DEBUG: pending_tx[%d].count = %d, keys = %p, hp_len = %d\n",
-					level, qn->pending_tx[level].count, qn->keys[level],
-					qn->keys[level] ? (int)qn->keys[level]->el_hp_tx.len : -1);
-			}
 			if (qn->pending_tx[level].count && qn->keys[level] && qn->keys[level]->el_hp_tx.len) {
 				if (level == LWS_QUIC_LEVEL_APP && qn->migration_probing_wsi) {
 					lws_start_foreach_dll(struct lws_dll2 *, d, qn->pending_tx[level].head) {
@@ -2365,11 +2394,6 @@ end_children:
 				return LWS_HP_RET_BAIL_DIE;
 				
 			for (level = 0; level < LWS_QUIC_LEVEL_COUNT; level++) {
-				if (qn->pending_tx[level].count) {
-					lwsl_notice("AGY-DEBUG2: pending_tx[%d].count = %d, keys = %p, hp_len = %d\n",
-						level, qn->pending_tx[level].count, qn->keys[level],
-						qn->keys[level] ? (int)qn->keys[level]->el_hp_tx.len : -1);
-				}
 				if (qn->pending_tx[level].count && qn->keys[level] && qn->keys[level]->el_hp_tx.len) {
 					if (level == LWS_QUIC_LEVEL_APP && qn->migration_probing_wsi) {
 						lws_start_foreach_dll(struct lws_dll2 *, d, qn->pending_tx[level].head) {
@@ -2403,7 +2427,7 @@ end_children:
 		}
 
 		if (((blocked && !eagain_blocked) || !have_pending_tx) && !children_need_POLLOUT) {
-			lwsl_notice("QUIC TX: dropping POLLOUT manually for %s (blocked=%d, eagain_blocked=%d, have_pending_tx=%d)\n", lws_wsi_tag(wsi), blocked, eagain_blocked, have_pending_tx);
+			lwsl_debug("QUIC TX: dropping POLLOUT manually for %s (blocked=%d, eagain_blocked=%d, have_pending_tx=%d)\n", lws_wsi_tag(wsi), blocked, eagain_blocked, have_pending_tx);
 			/* We are blocked by QUIC limits, or have nothing to send right now.
 			 * Stop asking the OS for POLLOUT. We will re-enable it if children
 			 * need to write. */
@@ -2411,8 +2435,20 @@ end_children:
 				return LWS_HP_RET_BAIL_DIE;
 		}
                 
-                if (have_pending_tx)
-                        return LWS_HP_RET_BAIL_OK;
+		{
+			struct lws *w = wsi->mux.child_list;
+			while (w) {
+				struct lws *next = w->mux.sibling_list;
+				if (w->quic.qs && w->quic.qs->close_after_rx) {
+					lwsl_wsi_notice(w, "QUIC TX Post-Processing: Closing stream WSI");
+					lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "quic post tx stream close");
+				}
+				w = next;
+			}
+		}
+
+		if (have_pending_tx)
+			return LWS_HP_RET_BAIL_OK;
 
 		/*
 		 * Check if any child still needs writeable service.
@@ -2491,25 +2527,13 @@ rops_write_role_protocol_quic(struct lws *wsi, unsigned char *buf, size_t len,
 
 	lwsl_debug("QUIC TX WRITE: Stream %llu. Requested: %d, Stream tx_cr: %d, Conn tx_cr: %d\n", wsi->quic.qs ? (unsigned long long)wsi->quic.qs->stream_id : 0, (int)len, (int)wsi->txc.tx_cr, nwsi ? (int)nwsi->txc.tx_cr : -1);
 
-	// lwsl_notice("%s: allocating frame of size %d\n", __func__, (int)(sizeof(*f) + len));
-	/* Allocate frame struct + payload buffer natively */
 	f = lws_zalloc(sizeof(*f) + len, "quic tx frame");
 	if (!f)
 		return -1;
 
-	f->type = LWS_QUIC_FT_STREAM | 0x02 | 0x04; /* STREAM | OFF | LEN */
-	if (((*wp) & LWS_WRITE_H2_STREAM_END) ||
-	    ((*wp) & 0x1f) == LWS_WRITE_HTTP_FINAL) {
-		f->type |= 0x01; /* FIN */
-		/* wsi->quic.qs->sent_fin = 1; could do if we had sent_fin flag */
-	}
 	f->data = (uint8_t *)&f[1];
 	f->len = len;
-
-	// lwsl_notice("%s: copying data from buf=%p to f->data=%p\n", __func__, buf, f->data);
-	/* Copy the user payload */
 	memcpy(f->data, buf, len);
-	// lwsl_notice("%s: copied data\n", __func__);
 
 	if (((*wp) & 0x1f) == LWS_WRITE_QUIC_DATAGRAM) {
 		/* It's a DATAGRAM frame */
@@ -2518,6 +2542,18 @@ rops_write_role_protocol_quic(struct lws *wsi, unsigned char *buf, size_t len,
 		f->offset = 0;
 		lwsl_debug("QUIC TX WRITE: Datagram len=%u\n", (unsigned int)f->len);
 	} else {
+		f->type = LWS_QUIC_FT_STREAM | 0x02 | 0x04; /* STREAM | OFF | LEN */
+		if (((*wp) & LWS_WRITE_H2_STREAM_END) ||
+		    ((*wp) & 0x1f) == LWS_WRITE_HTTP_FINAL) {
+			f->type |= 0x01; /* FIN */
+			if (wsi->quic.qs) {
+				wsi->quic.qs->sent_fin = 1;
+				if (wsi->quic.qs->is_unidirectional || wsi->quic.qs->fin_received) {
+					wsi->quic.qs->close_after_rx = 1;
+				}
+			}
+		}
+
 		if (!wsi->quic.qs) {
 			lwsl_wsi_err(wsi, "QUIC: Cannot send stream data without a quic stream structure!");
 			lws_free(f);
@@ -2550,8 +2586,8 @@ rops_write_role_protocol_quic(struct lws *wsi, unsigned char *buf, size_t len,
 		tx_level = LWS_QUIC_LEVEL_EARLY;
 	}
 
-	lwsl_info("QUIC TX: Enqueued STREAM frame for sid %llu, len %d, FIN=%d (level %d)\n", 
-		(unsigned long long)f->stream_id, (int)f->len, (f->type & 0x01), tx_level);
+	lwsl_debug("QUIC TX: Enqueued frame type=0x%02x, len=%d, tx_level=%d, pending_count=%d", 
+		f->type, (int)f->len, tx_level, qn->pending_tx[tx_level].count + 1);
 	lws_dll2_add_tail(&f->list, &qn->pending_tx[tx_level]);
 
 	/* Wake up the event loop to send the packet */
@@ -2840,7 +2876,7 @@ lws_quic_stream_cleanup(struct lws *wsi)
 	if (qn) {
 		uint64_t sid = wsi->quic.qs->stream_id;
 
-		int is_abort = (!wsi->quic.qs->fin_received || !wsi->quic.qs->fin_delivered);
+		int is_abort = (!wsi->quic.qs->fin_received || !wsi->quic.qs->sent_fin);
 		
 		/* If this is a unidirectional stream, adjust abort logic */
 		int is_unidirectional = (sid & 2) != 0;
@@ -2848,7 +2884,7 @@ lws_quic_stream_cleanup(struct lws *wsi)
 		int we_are_sender = (qn->is_server == is_remote_initiated) ? 1 : 0;
 		if (is_unidirectional) {
 			we_are_sender = is_remote_initiated ? 0 : 1;
-			is_abort = we_are_sender ? !wsi->quic.qs->fin_delivered : !wsi->quic.qs->fin_received;
+			is_abort = we_are_sender ? !wsi->quic.qs->sent_fin : !wsi->quic.qs->fin_received;
 		}
 
 		/* If we're closing the stream before FINs were exchanged, notify the peer */
@@ -2922,7 +2958,7 @@ lws_quic_stream_cleanup(struct lws *wsi)
 					f_max->limit = is_unidirectional ?
 						qn->max_streams_unidi_local :
 						qn->max_streams_bidi_local;
-					lwsl_notice("QUIC TX: Queued MAX_STREAMS_%s with limit %llu\n",
+					lwsl_debug("QUIC TX: Queued MAX_STREAMS_%s with limit %llu\n",
 						    is_unidirectional ? "UNIDI" : "BIDI",
 						    (unsigned long long)f_max->limit);
 					lws_dll2_add_tail(&f_max->list,
@@ -3090,7 +3126,9 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 
 			if (wsi->quic.qs) {
 				wsi->quic.qs->rx_max_data += (uint64_t)(add > 0 ? add : 0);
-				uint64_t ungranted = wsi->quic.qs->advertised_rx_max_data - wsi->quic.qs->highest_rx_offset;
+				uint64_t ungranted = 0;
+				if (wsi->quic.qs->advertised_rx_max_data > wsi->quic.qs->highest_rx_offset)
+					ungranted = wsi->quic.qs->advertised_rx_max_data - wsi->quic.qs->highest_rx_offset;
 				
 				if (nwsi->a.context->quic_tx_credit_cb) {
 					uint64_t new_win = nwsi->a.context->quic_tx_credit_cb(
@@ -3099,7 +3137,9 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 					if (new_win > wsi->quic.qs->rx_window_size && new_win <= LWS_QUIC_MAX_WINDOW) {
 						wsi->quic.qs->rx_max_data += (new_win - wsi->quic.qs->rx_window_size);
 						wsi->quic.qs->rx_window_size = new_win;
-						ungranted = wsi->quic.qs->advertised_rx_max_data - wsi->quic.qs->highest_rx_offset;
+						ungranted = 0;
+						if (wsi->quic.qs->advertised_rx_max_data > wsi->quic.qs->highest_rx_offset)
+							ungranted = wsi->quic.qs->advertised_rx_max_data - wsi->quic.qs->highest_rx_offset;
 					}
 				}
 
@@ -3118,7 +3158,9 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 			}
 
 			qn->rx_max_data += (uint64_t)(add > 0 ? add : 0);
-			uint64_t ungranted = qn->advertised_rx_max_data - qn->highest_rx_offset;
+			uint64_t ungranted = 0;
+			if (qn->advertised_rx_max_data > qn->highest_rx_offset)
+				ungranted = qn->advertised_rx_max_data - qn->highest_rx_offset;
 
 			if (nwsi->a.context->quic_tx_credit_cb) {
 				uint64_t new_win = nwsi->a.context->quic_tx_credit_cb(
@@ -3127,7 +3169,9 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 				if (new_win > qn->rx_window_size && new_win <= LWS_QUIC_MAX_WINDOW) {
 					qn->rx_max_data += (new_win - qn->rx_window_size);
 					qn->rx_window_size = new_win;
-					ungranted = qn->advertised_rx_max_data - qn->highest_rx_offset;
+					ungranted = 0;
+					if (qn->advertised_rx_max_data > qn->highest_rx_offset)
+						ungranted = qn->advertised_rx_max_data - qn->highest_rx_offset;
 				}
 			}
 
@@ -3235,11 +3279,13 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 		 */
 		if (cr > 9)
 			cr -= 9;
+		else if (cr > 0)
+			cr = 1;
 		else
 			cr = 0;
 
 		if (!cr && !add)
-			lwsl_notice("rops_tx_credit_quic: US_TO_PEER returning 0: "
+			lwsl_debug("rops_tx_credit_quic: US_TO_PEER returning 0: "
 				    "wsi_tx_cr=%d, nwsi_tx_cr=%d, queued=%zu, "
 				    "wsi=%s, nwsi=%s\n",
 				    (int)wsi->txc.tx_cr, (int)nwsi->txc.tx_cr,
@@ -3358,10 +3404,22 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	/* Initialize flow control credits for the new child stream */
 	int32_t init_cr = nwsi->txc.manual_initial_tx_credit;
 	if (!init_cr) {
-		if (nwsi->quic.qn && nwsi->quic.qn->peer_initial_max_stream_data_bidi_remote) {
-			uint64_t val = nwsi->quic.qn->peer_initial_max_stream_data_bidi_remote;
+		int is_bidi = (wsi->quic.qs && wsi->quic.qs->is_unidirectional == 0);
+		int is_remote_initiated = (wsi->quic.qs && wsi->quic.qs->is_server_initiated == nwsi->quic.qn->is_server ? 0 : 1);
+		uint64_t val = 0;
+		if (nwsi->quic.qn) {
+			if (is_bidi) {
+				if (is_remote_initiated)
+					val = nwsi->quic.qn->peer_initial_max_stream_data_bidi_local;
+				else
+					val = nwsi->quic.qn->peer_initial_max_stream_data_bidi_remote;
+			} else {
+				val = nwsi->quic.qn->peer_initial_max_stream_data_uni;
+			}
+		}
+		if (val)
 			init_cr = (val > (uint64_t)INT32_MAX) ? INT32_MAX : (int32_t)val;
-		} else
+		else
 			init_cr = 65535;
 	}
 	wsi->txc.peer_tx_cr_est = init_cr;

@@ -749,6 +749,47 @@ bail:
 }
 
 int
+lws_x509_cert_fingerprint(struct lws_x509_cert *x509, int type,
+			  uint8_t *buf, size_t len)
+{
+	union lws_tls_cert_info_results *res;
+	struct lws_genhash_ctx hctx;
+	size_t hash_len;
+	uint8_t *der;
+	int ret = -1;
+
+	hash_len = lws_genhash_size(type);
+	if (!hash_len || len < hash_len)
+		return -1;
+
+	der = lws_malloc(4096, "cert_fingerprint_der");
+	if (!der)
+		return -1;
+
+	res = (union lws_tls_cert_info_results *)der;
+
+	if (lws_x509_info(x509, LWS_TLS_CERT_INFO_DER_RAW, res, 4096))
+		goto bail;
+
+	if (lws_genhash_init(&hctx, type))
+		goto bail;
+
+	if (lws_genhash_update(&hctx, res->ns.name, (size_t)res->ns.len)) {
+		lws_genhash_destroy(&hctx, NULL);
+		goto bail;
+	}
+
+	if (lws_genhash_destroy(&hctx, buf))
+		goto bail;
+
+	ret = (int)hash_len;
+
+bail:
+	lws_free(der);
+	return ret;
+}
+
+int
 lws_tls_cert_get_x509_validity(struct lws_context *context, const char *filepath,
 			       time_t *not_before, time_t *not_after)
 {

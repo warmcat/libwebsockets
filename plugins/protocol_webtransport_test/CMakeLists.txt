@@ -35,4 +35,8 @@ if (requirements)
 	if (NOT LWS_WITH_PLUGINS_BUILTIN)
 		target_compile_definitions(${PLUGIN_NAME} PRIVATE LWS_BUILDING_SHARED)
 	endif()
+
+	install(DIRECTORY assets/
+		DESTINATION "share/libwebsockets-test-server/wt-assets"
+		COMPONENT examples)
 endif()
