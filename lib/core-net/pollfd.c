@@ -507,6 +507,11 @@ __lws_change_pollfd(struct lws *wsi, int _and, int _or)
 	struct lws_pollargs pa;
 	int ret = 0;
 
+	if (wsi && wsi->role_ops && !strcmp(wsi->role_ops->name, "quic")) {
+		lwsl_notice("AGY-DEBUG: __lws_change_pollfd for %s: position=%d, protocol=%p, event_pipe=%d, _and=%d, _or=%d\n",
+			lws_wsi_tag(wsi), wsi->position_in_fds_table, wsi->a.protocol, wsi->event_pipe, _and, _or);
+	}
+
 	if (!wsi || (!wsi->a.protocol && !wsi->event_pipe) ||
 	    wsi->position_in_fds_table == LWS_NO_FDS_POS)
 		return 0;

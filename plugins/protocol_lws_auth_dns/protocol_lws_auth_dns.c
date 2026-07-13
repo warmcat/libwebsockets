@@ -1033,6 +1033,7 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		uint8_t *dbuf = pss->buf + LWS_PRE;
 		uint8_t *rp = dbuf;
+		size_t max_buf = is_tcp ? (sizeof(pss->buf) - LWS_PRE) : (udp_payload_size < sizeof(pss->buf) - LWS_PRE ? udp_payload_size : sizeof(pss->buf) - LWS_PRE);
 		if (is_tcp) rp += 2;
 
 		rp[0] = (uint8_t)(id >> 8); rp[1] = (uint8_t)(id & 0xff);
@@ -1219,7 +1220,6 @@ send_nxdomain:
 					}
 				} lws_end_foreach_dll(cd);
 
-				size_t max_buf = is_tcp ? (sizeof(pss->buf) - LWS_PRE) : (udp_payload_size < sizeof(pss->buf) - LWS_PRE ? udp_payload_size : sizeof(pss->buf) - LWS_PRE);
 
 				rp[2] = (uint8_t)(rflags >> 8); rp[3] = (uint8_t)(rflags & 0xff);
 				rp[4] = 0; rp[5] = 1; /* QDCOUNT = 1 */
@@ -1326,7 +1326,6 @@ after_refused:
 			;
 		} else {
 			int anc = 0;
-			size_t max_buf = is_tcp ? (sizeof(pss->buf) - LWS_PRE) : (udp_payload_size < sizeof(pss->buf) - LWS_PRE ? udp_payload_size : sizeof(pss->buf) - LWS_PRE);
 			size_t total_size = lws_ptr_diff_size_t(rp, dbuf) + 12 + (size_t)(q - (p + 12));
 			lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&found_rs->rr_list)) {
 				struct auth_dns_rr *rr = lws_container_of(d, struct auth_dns_rr, list);
