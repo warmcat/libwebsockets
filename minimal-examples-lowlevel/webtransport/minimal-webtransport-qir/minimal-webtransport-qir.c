@@ -837,7 +837,10 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 						if (m < n) {
 							/* Seek back the unwritten bytes and retry */
 							off_t diff = (off_t)(n - m);
-							lseek(pss->fd_in, -diff, SEEK_CUR);
+							if (lseek(pss->fd_in, -diff, SEEK_CUR) == (off_t)-1) {
+								lwsl_err("lseek failed: %d\n", errno);
+								return -1;
+							}
 							pss->sent_len -= (size_t)diff;
 							lws_callback_on_writable(wsi);
 						} else {

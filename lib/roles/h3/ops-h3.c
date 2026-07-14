@@ -866,7 +866,7 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 					}
 					
 					size_t total_consumed = consumed_type + consumed_sid;
-					if (len > total_consumed) {
+					if (len > total_consumed && wsi->a.protocol && wsi->a.protocol->callback) {
 						wsi->a.protocol->callback(wsi, LWS_CALLBACK_RECEIVE, wsi->user_space, (void *)(buf + total_consumed), len - total_consumed);
 					}
 					return 0;
@@ -913,7 +913,7 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 					}
 					
 					size_t total_consumed = consumed_type + consumed_sid;
-					if (len > total_consumed) {
+					if (len > total_consumed && wsi->a.protocol && wsi->a.protocol->callback) {
 						wsi->a.protocol->callback(wsi, LWS_CALLBACK_RECEIVE, wsi->user_space, (void *)(buf + total_consumed), len - total_consumed);
 					}
 					return 0;

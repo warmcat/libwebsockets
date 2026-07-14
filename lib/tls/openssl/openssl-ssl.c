@@ -238,7 +238,7 @@ lws_ssl_capable_read(struct lws *wsi, unsigned char *buf, size_t len)
 	{
 		unsigned int ms = (unsigned int)((lws_now_usecs() - _lws_start) / 1000);
 		if (ms > 2) {
-			lws_latency_note(&wsi->a.context->pt[(int)wsi->tsi], _lws_start, 2000, "SSL_read:%dms", ms);
+			lws_latency_note(pt, _lws_start, 2000, "SSL_read:%dms", ms);
 		}
 	}
 #endif
@@ -381,6 +381,10 @@ lws_ssl_pending(struct lws *wsi)
 int
 lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 {
+#if defined(LWS_WITH_LATENCY)
+	struct lws_context *context = wsi->a.context;
+	struct lws_context_per_thread *pt = &context->pt[(int)wsi->tsi];
+#endif
 	int n, m;
 
 #if defined(LWS_TLS_LOG_PLAINTEXT_TX)
@@ -404,7 +408,7 @@ lws_ssl_capable_write(struct lws *wsi, unsigned char *buf, size_t len)
 		n = SSL_write(wsi->tls.ssl, buf, (int)(ssize_t)len);
 		unsigned int ms = (unsigned int)((lws_now_usecs() - _lws_start) / 1000);
 		if (ms > 2) {
-			lws_latency_note(&wsi->a.context->pt[(int)wsi->tsi], _lws_start, 2000, "SSL_write:%dms", ms);
+			lws_latency_note(pt, _lws_start, 2000, "SSL_write:%dms", ms);
 		}
 	}
 #else

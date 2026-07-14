@@ -43,7 +43,6 @@ static const struct lws_switches switches[] = {
 static const char *url = "wss://127.0.0.1:7681";
 static const char *devs_list = "/dev/video0";
 static const char *audio_dev = "default";
-static char *devices_copy = NULL;
 static const char *client_name;
 static uint32_t app_width = 1280;
 static uint32_t app_height = 720;
@@ -121,16 +120,33 @@ set_clock(lws_usec_t us)
 
 static void start_app_attach(struct lws_vhost *vh, const char *logical_name, const char *access_token)
 {
-	char *devices_copy_local = strdup(devs_list);
-	char *p = devices_copy_local, *token;
+	struct lws_tokenize ts;
+	lws_tokenize_elem e;
+	char token[256];
 
-        while ((token = strsep(&p, ","))) {
+	lws_tokenize_init(&ts, devs_list, LWS_TOKENIZE_F_COMMA_SEP_LIST |
+					  LWS_TOKENIZE_F_MINUS_NONTERM |
+					  LWS_TOKENIZE_F_SLASH_NONTERM |
+					  LWS_TOKENIZE_F_DOT_NONTERM |
+					  LWS_TOKENIZE_F_NO_INTEGERS |
+					  LWS_TOKENIZE_F_NO_FLOATS);
+
+	do {
+		e = lws_tokenize(&ts);
+		if (e != LWS_TOKZE_TOKEN)
+			continue;
+
+		if (lws_tokenize_cstr(&ts, token, sizeof(token))) {
+			lwsl_err("Token too long\n");
+			continue;
+		}
+
 		lwsl_notice("Attaching %s (audio %s) to WebRTC mixer\n", token, audio_dev);
-		if (cam_ops->attach(vh, url, token, audio_dev, client_name, app_width, app_height, access_token))
+		if (cam_ops->attach(vh, url, token, audio_dev, client_name,
+				    app_width, app_height, access_token))
 			lwsl_err("Failed to queue attach for %s\n", token);
-	}
 
-        free(devices_copy_local);
+	} while (e > 0);
 }
 
 static void pairing_indication(struct lws_vhost *vh, const char *logical_name, int start)
@@ -267,8 +283,6 @@ main(int argc, const char **argv)
 			break;
 
 	lws_context_destroy(cx);
-
-	if (devices_copy) free(devices_copy);
 
 	return 0;
 }

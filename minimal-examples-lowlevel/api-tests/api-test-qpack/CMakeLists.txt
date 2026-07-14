@@ -62,6 +62,7 @@ set(requirements 1)
 
 require_lws_config(LWS_WITH_HTTP3 1 requirements)
 require_lws_config(LWS_WITH_NETWORK 1 requirements)
+require_lws_config(LWS_WITH_DIR 1 requirements)
 
 if (requirements)
 	if (LWS_WITH_LS_QPACK)

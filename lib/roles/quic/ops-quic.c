@@ -2093,12 +2093,17 @@ send_frames:
 			n = (int)send_len; /* Pretend it succeeded */
 		} else {
 			const lws_sockaddr46 *dest_sa46 = NULL;
-			if (has_packet_dest)
-				dest_sa46 = &packet_dest_sa46;
-			else if (wsi->udp)
-				dest_sa46 = &wsi->udp->sa46;
-			else if (wsi->mux_substream && wsi->mux.parent_wsi && wsi->mux.parent_wsi->udp)
-				dest_sa46 = &wsi->mux.parent_wsi->udp->sa46;
+			struct lws *nwsi_quic = lws_get_quic_network_wsi(wsi);
+			int is_client = nwsi_quic ? lwsi_role_client(nwsi_quic) : lwsi_role_client(wsi);
+
+			if (!is_client) {
+				if (has_packet_dest)
+					dest_sa46 = &packet_dest_sa46;
+				else if (wsi->udp)
+					dest_sa46 = &wsi->udp->sa46;
+				else if (wsi->mux_substream && wsi->mux.parent_wsi && wsi->mux.parent_wsi->udp)
+					dest_sa46 = &wsi->mux.parent_wsi->udp->sa46;
+			}
 
 			{
 				char adrbuf[64] = "none";

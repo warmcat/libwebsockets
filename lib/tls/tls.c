@@ -758,7 +758,7 @@ lws_x509_cert_fingerprint(struct lws_x509_cert *x509, int type,
 	uint8_t *der;
 	int ret = -1;
 
-	hash_len = lws_genhash_size(type);
+	hash_len = lws_genhash_size((enum lws_genhash_types)type);
 	if (!hash_len || len < hash_len)
 		return -1;
 
@@ -771,7 +771,7 @@ lws_x509_cert_fingerprint(struct lws_x509_cert *x509, int type,
 	if (lws_x509_info(x509, LWS_TLS_CERT_INFO_DER_RAW, res, 4096))
 		goto bail;
 
-	if (lws_genhash_init(&hctx, type))
+	if (lws_genhash_init(&hctx, (enum lws_genhash_types)type))
 		goto bail;
 
 	if (lws_genhash_update(&hctx, res->ns.name, (size_t)res->ns.len)) {
@@ -827,6 +827,7 @@ bail:
 	return res;
 }
 
+#if defined(LWS_WITH_DIR)
 struct versioned_certs_scan {
 	const char *prefix;
 	const char *suffix;
@@ -928,6 +929,7 @@ lws_tls_find_versioned_certs(const char *filepath, char *dirpath, size_t dirpath
 	if (scan.previous[0])
 		lws_snprintf(previous, previous_len, "%s%s", dirpath, scan.previous);
 }
+#endif
 
 int
 lws_tls_resolve_grace_period_certs(struct lws_context *context,
@@ -935,19 +937,24 @@ lws_tls_resolve_grace_period_certs(struct lws_context *context,
 				   char *resolved_cert, size_t resolved_cert_len,
 				   char *resolved_key, size_t resolved_key_len)
 {
+#if defined(LWS_WITH_DIR)
 	char dirpath_cert[256], newest_cert[256], previous_cert[256];
 	char dirpath_key[256], newest_key[256], previous_key[256];
 	time_t now = time(NULL);
 	time_t newest_not_before = 0;
 	time_t previous_not_after = 0;
+#if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_FILE_OPS)
 	lws_system_policy_t *policy = NULL;
+#endif
 	char d_path[1024];
 	int grace_period = 900; /* 15 mins default */
 	int fd_cfg;
+#endif
 
 	lws_strncpy(resolved_cert, certpath, resolved_cert_len);
 	lws_strncpy(resolved_key, keypath, resolved_key_len);
 
+#if defined(LWS_WITH_DIR)
 	/* Check if it is a versioned path */
 	if (!strstr(certpath, "-latest.crt") && !strstr(certpath, "-latest-fullchain.crt"))
 		return 0;
@@ -971,10 +978,12 @@ lws_tls_resolve_grace_period_certs(struct lws_context *context,
 	}
 
 	lws_snprintf(d_path, sizeof(d_path), "/etc/lwsws/acme/acme_config.json");
+#if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_FILE_OPS)
 	if (lws_system_parse_policy(context, "/etc/lwsws/policy", &policy) == 0 && policy) {
 		lws_snprintf(d_path, sizeof(d_path), "%s/acme_config.json", policy->dns_base_dir);
 		lws_system_policy_free(policy);
 	}
+#endif
 
 	fd_cfg = open(d_path, O_RDONLY);
 	if (fd_cfg >= 0) {
@@ -1013,7 +1022,9 @@ lws_tls_resolve_grace_period_certs(struct lws_context *context,
 		lws_strncpy(resolved_cert, newest_cert, resolved_cert_len);
 		lws_strncpy(resolved_key, newest_key, resolved_key_len);
 	}
+#endif
 
 	return 0;
 }
+
 
