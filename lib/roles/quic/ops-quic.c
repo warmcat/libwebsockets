@@ -2093,12 +2093,17 @@ send_frames:
 			n = (int)send_len; /* Pretend it succeeded */
 		} else {
 			const lws_sockaddr46 *dest_sa46 = NULL;
-			if (has_packet_dest)
-				dest_sa46 = &packet_dest_sa46;
-			else if (wsi->udp)
-				dest_sa46 = &wsi->udp->sa46;
-			else if (wsi->mux_substream && wsi->mux.parent_wsi && wsi->mux.parent_wsi->udp)
-				dest_sa46 = &wsi->mux.parent_wsi->udp->sa46;
+			struct lws *nwsi_quic = lws_get_quic_network_wsi(wsi);
+			int is_client = nwsi_quic ? lwsi_role_client(nwsi_quic) : lwsi_role_client(wsi);
+
+			if (!is_client) {
+				if (has_packet_dest)
+					dest_sa46 = &packet_dest_sa46;
+				else if (wsi->udp)
+					dest_sa46 = &wsi->udp->sa46;
+				else if (wsi->mux_substream && wsi->mux.parent_wsi && wsi->mux.parent_wsi->udp)
+					dest_sa46 = &wsi->mux.parent_wsi->udp->sa46;
+			}
 
 			{
 				char adrbuf[64] = "none";
@@ -2249,6 +2254,25 @@ send_frames:
 		qn->handshake_done, (int)wsi->txc.tx_cr, (nwsi ? (int)nwsi->txc.tx_cr : 0));
 	/* Process stream queues for Application (1-RTT) and Early (0-RTT) data */
 	if (qn && (qn->handshake_done || qn->early_data_status == LWS_0RTT_STATUS_ATTEMPTED || qn->early_data_status == LWS_0RTT_STATUS_ACCEPTED)) {
+		/*
+		 * If the parent connection is blocked by congestion window or pacing,
+		 * we do not poll child streams to prevent buffering bloat.
+		 * However, we still proceed to end_children to allow ACKs and PTO probes to be flushed.
+		 */
+		if (qn->handshake_done &&
+		    !qn->pto_probe_needed &&
+		    qn->cc_ops &&
+		    qn->cc_ops->can_send &&
+		    !qn->cc_ops->can_send(wsi, qn->current_mtu))
+			goto end_children;
+
+		if (qn->handshake_done &&
+		    !qn->pto_probe_needed &&
+		    qn->cc_ops &&
+		    qn->cc_ops->get_pacing_delay &&
+		    qn->cc_ops->get_pacing_delay(wsi, qn->current_mtu) > 0)
+			goto end_children;
+
 		if (lws_wsi_txc_check_skint(&wsi->txc, (int32_t)wsi->txc.tx_cr))
 			goto end_children;
 		if (nwsi && lws_wsi_txc_check_skint(&nwsi->txc, (int32_t)nwsi->txc.tx_cr))
@@ -2256,25 +2280,28 @@ send_frames:
 
 		struct lws **wsi2 = &wsi->mux.child_list;
 
-        {
-                struct lws *curr = wsi->mux.child_list;
-                int sanity = 1000000;
-                lwsl_debug("QUIC TX POLLOUT: nwsi=%s, tx_cr=%d\n", lws_wsi_tag(wsi), (int)wsi->txc.tx_cr);
-                while (curr && sanity--) {
-                        lwsl_debug("QUIC TX POLLOUT:   child: %s, requested_POLLOUT=%d, tx_cr=%d\n", 
-                                    lws_wsi_tag(curr), curr->mux.requested_POLLOUT, (int)curr->txc.tx_cr);
-                        curr = curr->mux.sibling_list;
-                }
-        }
-		if (*wsi2) {
+		{
+			struct lws *curr = wsi->mux.child_list;
 			int sanity = 1000000;
+			lwsl_debug("QUIC TX POLLOUT: nwsi=%s, tx_cr=%d\n", lws_wsi_tag(wsi), (int)wsi->txc.tx_cr);
+			while (curr && sanity--) {
+				lwsl_debug("QUIC TX POLLOUT:   child: %s, requested_POLLOUT=%d, tx_cr=%d\n", 
+					    lws_wsi_tag(curr), curr->mux.requested_POLLOUT, (int)curr->txc.tx_cr);
+				curr = curr->mux.sibling_list;
+			}
+		}
+		if (*wsi2) {
+			int num_children = 0;
+			struct lws *curr = *wsi2;
+			while (curr) {
+				num_children++;
+				curr = curr->mux.sibling_list;
+			}
 			do {
 				struct lws *w, **wa;
 				
-				if (!sanity--) {
-					lwsl_wsi_warn(wsi, "POLLOUT multiplexer loop sanity limit reached, closing");
-					return LWS_HP_RET_BAIL_DIE;
-				}
+				if (num_children-- <= 0)
+					break;
 
 				wa = &(*wsi2)->mux.sibling_list;
 				

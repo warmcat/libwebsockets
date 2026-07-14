@@ -749,9 +749,6 @@ lws_tls_quic_rx_crypto(struct lws *wsi, int level, const uint8_t *buf, size_t le
 			len = wsi->quic.qn->crypto_rx_buf_len[level];
 		}
 
-		lwsl_wsi_notice(wsi, "lws_tls_quic_rx_crypto: level %d, len %zu, buf[0]=%d", level, len, buf[0]);
-		lwsl_hexdump_notice(buf, len > 32 ? 32 : len);
-		
 		size_t scan = 0;
 		size_t complete_len = 0;
 		while (scan < len) {
@@ -760,7 +757,6 @@ lws_tls_quic_rx_crypto(struct lws *wsi, int level, const uint8_t *buf, size_t le
 			}
 
 			uint8_t type = buf[scan];
-			lwsl_wsi_notice(wsi, "QUIC RX CRYPTO: checking message type %d at offset %zu", type, scan);
 			if (type == 24 || type == 5) {
 				lwsl_wsi_notice(wsi, "QUIC RX CRYPTO: Illegal TLS Handshake type %d", type);
 				lws_quic_enter_closing_state(wsi, 0x0100 + 10 /* unexpected_message */, 0, 0);
