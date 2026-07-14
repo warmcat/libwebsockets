@@ -286,7 +286,7 @@ lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t acked_pn)
 		{
 			struct lws_quic_cc_newreno *_cc = qn->cc_ops ? (struct lws_quic_cc_newreno *)qn->cc_state : NULL;
 			(void)_cc;
-			lwsl_notice("QUIC TX: ACK processing: bytes_acked=%zu, cc_bif=%zu cc_cwnd=%zu cc_pacing=%zu, in_flight_app=%d, pending_tx=%d, blocked=%d\n",
+			lwsl_debug("QUIC TX: ACK processing: bytes_acked=%zu, cc_bif=%zu cc_cwnd=%zu cc_pacing=%zu, in_flight_app=%d, pending_tx=%d, blocked=%d\n",
 				    bytes_acked,
 				    _cc ? _cc->bytes_in_flight : 0,
 				    _cc ? _cc->cwnd : 0,
@@ -1675,7 +1675,7 @@ send_frames:
 			continue;
 		}
 
-		lwsl_notice("QUIC TX: Processing level %d. pending=%d, needs_ack=%d, pto_needed=%d", level, qn->pending_tx[level].count, qn->needs_ack[pn_space], qn->pto_probe_needed);
+		lwsl_debug("QUIC TX: Processing level %d. pending=%d, needs_ack=%d, pto_needed=%d", level, qn->pending_tx[level].count, qn->needs_ack[pn_space], qn->pto_probe_needed);
 
 		/* Determine if we're allowed to send */
 		int is_congestion_limited = 0;
@@ -1932,7 +1932,7 @@ send_frames:
 				if (type & 0x02) /* LEN */
 					p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), send_len);
 			} else if ((type & 0xfe) == LWS_QUIC_FT_DATAGRAM) {
-				lwsl_notice("QUIC TX: Serialized DATAGRAM frame! len=%zu", send_len);
+				lwsl_debug("QUIC TX: Serialized DATAGRAM frame! len=%zu", send_len);
 				if (type & 0x01) /* LEN */
 					p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), send_len);
 			} else if (type == LWS_QUIC_FT_MAX_DATA || type == LWS_QUIC_FT_DATA_BLOCKED) {
@@ -2096,7 +2096,7 @@ send_frames:
 					lws_sa46_write_numeric_address(&packet_dest_sa46, adrbuf, sizeof(adrbuf));
 				else if (wsi->mux_substream && wsi->udp)
 					lws_sa46_write_numeric_address(&wsi->udp->sa46, adrbuf, sizeof(adrbuf));
-				lwsl_notice("QUIC TX: sendto fd=%d, len=%zu, dest=%s, substream=%d, udp=%p",
+				lwsl_debug("QUIC TX: sendto fd=%d, len=%zu, dest=%s, substream=%d, udp=%p",
 					    fd, send_len, adrbuf, wsi->mux_substream, wsi->udp);
 			}
 #if defined(WIN32) || defined(_WIN32)
@@ -2252,9 +2252,9 @@ send_frames:
         {
                 struct lws *curr = wsi->mux.child_list;
                 int sanity = 1000000;
-                lwsl_notice("QUIC TX POLLOUT: nwsi=%s, tx_cr=%d\n", lws_wsi_tag(wsi), (int)wsi->txc.tx_cr);
+                lwsl_debug("QUIC TX POLLOUT: nwsi=%s, tx_cr=%d\n", lws_wsi_tag(wsi), (int)wsi->txc.tx_cr);
                 while (curr && sanity--) {
-                        lwsl_notice("QUIC TX POLLOUT:   child: %s, requested_POLLOUT=%d, tx_cr=%d\n", 
+                        lwsl_debug("QUIC TX POLLOUT:   child: %s, requested_POLLOUT=%d, tx_cr=%d\n", 
                                     lws_wsi_tag(curr), curr->mux.requested_POLLOUT, (int)curr->txc.tx_cr);
                         curr = curr->mux.sibling_list;
                 }
@@ -2271,7 +2271,7 @@ send_frames:
 
 				wa = &(*wsi2)->mux.sibling_list;
 				
-				lwsl_notice("QUIC TX POLLOUT: visiting child %s, requested_POLLOUT=%d\n", lws_wsi_tag(*wsi2), (*wsi2)->mux.requested_POLLOUT);
+				lwsl_debug("QUIC TX POLLOUT: visiting child %s, requested_POLLOUT=%d\n", lws_wsi_tag(*wsi2), (*wsi2)->mux.requested_POLLOUT);
 
 				if (!(*wsi2)->mux.requested_POLLOUT)
 					goto next_child;
@@ -2324,7 +2324,7 @@ send_frames:
 
                 w->mux.requested_POLLOUT = 0;
 
-				lwsl_notice("QUIC TX POLLOUT: calling perform_user_POLLOUT for child %s, usable_credit=%d, pending_tx=%d\n",
+				lwsl_debug("QUIC TX POLLOUT: calling perform_user_POLLOUT for child %s, usable_credit=%d, pending_tx=%d\n",
 					    lws_wsi_tag(w), (int)usable_credit, qn->pending_tx[LWS_QUIC_LEVEL_APP].count);
 
                 lwsl_debug("QUIC TX POLLOUT: calling perform_user_POLLOUT/lws_callback_as_writeable for child %s\n", lws_wsi_tag(w));
@@ -2365,7 +2365,7 @@ end_children:
 		int have_pending_tx = 0;
 		for (level = 0; level < LWS_QUIC_LEVEL_COUNT; level++) {
 			if (qn->pending_tx[level].count) {
-				lwsl_notice("AGY-DEBUG: pending_tx[%d].count = %d, keys = %p, hp_len = %d\n",
+				lwsl_debug("AGY-DEBUG: pending_tx[%d].count = %d, keys = %p, hp_len = %d\n",
 					level, qn->pending_tx[level].count, qn->keys[level],
 					qn->keys[level] ? (int)qn->keys[level]->el_hp_tx.len : -1);
 			}
@@ -2393,7 +2393,7 @@ end_children:
 				
 			for (level = 0; level < LWS_QUIC_LEVEL_COUNT; level++) {
 				if (qn->pending_tx[level].count) {
-					lwsl_notice("AGY-DEBUG2: pending_tx[%d].count = %d, keys = %p, hp_len = %d\n",
+					lwsl_debug("AGY-DEBUG2: pending_tx[%d].count = %d, keys = %p, hp_len = %d\n",
 						level, qn->pending_tx[level].count, qn->keys[level],
 						qn->keys[level] ? (int)qn->keys[level]->el_hp_tx.len : -1);
 				}
@@ -2430,7 +2430,7 @@ end_children:
 		}
 
 		if (((blocked && !eagain_blocked) || !have_pending_tx) && !children_need_POLLOUT) {
-			lwsl_notice("QUIC TX: dropping POLLOUT manually for %s (blocked=%d, eagain_blocked=%d, have_pending_tx=%d)\n", lws_wsi_tag(wsi), blocked, eagain_blocked, have_pending_tx);
+			lwsl_debug("QUIC TX: dropping POLLOUT manually for %s (blocked=%d, eagain_blocked=%d, have_pending_tx=%d)\n", lws_wsi_tag(wsi), blocked, eagain_blocked, have_pending_tx);
 			/* We are blocked by QUIC limits, or have nothing to send right now.
 			 * Stop asking the OS for POLLOUT. We will re-enable it if children
 			 * need to write. */
@@ -2589,7 +2589,7 @@ rops_write_role_protocol_quic(struct lws *wsi, unsigned char *buf, size_t len,
 		tx_level = LWS_QUIC_LEVEL_EARLY;
 	}
 
-	lwsl_notice("QUIC TX: Enqueued frame type=0x%02x, len=%d, tx_level=%d, pending_count=%d", 
+	lwsl_debug("QUIC TX: Enqueued frame type=0x%02x, len=%d, tx_level=%d, pending_count=%d", 
 		f->type, (int)f->len, tx_level, qn->pending_tx[tx_level].count + 1);
 	lws_dll2_add_tail(&f->list, &qn->pending_tx[tx_level]);
 
@@ -2879,7 +2879,7 @@ lws_quic_stream_cleanup(struct lws *wsi)
 	if (qn) {
 		uint64_t sid = wsi->quic.qs->stream_id;
 
-		int is_abort = (!wsi->quic.qs->fin_received || !wsi->quic.qs->fin_delivered);
+		int is_abort = (!wsi->quic.qs->fin_received || !wsi->quic.qs->sent_fin);
 		
 		/* If this is a unidirectional stream, adjust abort logic */
 		int is_unidirectional = (sid & 2) != 0;
@@ -2887,7 +2887,7 @@ lws_quic_stream_cleanup(struct lws *wsi)
 		int we_are_sender = (qn->is_server == is_remote_initiated) ? 1 : 0;
 		if (is_unidirectional) {
 			we_are_sender = is_remote_initiated ? 0 : 1;
-			is_abort = we_are_sender ? !wsi->quic.qs->fin_delivered : !wsi->quic.qs->fin_received;
+			is_abort = we_are_sender ? !wsi->quic.qs->sent_fin : !wsi->quic.qs->fin_received;
 		}
 
 		/* If we're closing the stream before FINs were exchanged, notify the peer */
@@ -2961,7 +2961,7 @@ lws_quic_stream_cleanup(struct lws *wsi)
 					f_max->limit = is_unidirectional ?
 						qn->max_streams_unidi_local :
 						qn->max_streams_bidi_local;
-					lwsl_notice("QUIC TX: Queued MAX_STREAMS_%s with limit %llu\n",
+					lwsl_debug("QUIC TX: Queued MAX_STREAMS_%s with limit %llu\n",
 						    is_unidirectional ? "UNIDI" : "BIDI",
 						    (unsigned long long)f_max->limit);
 					lws_dll2_add_tail(&f_max->list,

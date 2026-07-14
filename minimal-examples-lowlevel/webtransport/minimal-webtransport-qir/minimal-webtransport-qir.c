@@ -10,23 +10,31 @@
  */
 
 #include <libwebsockets.h>
-#include <libwebsockets/lws-webtransport.h>
 #include <string.h>
 #include <stdlib.h>
 #include <signal.h>
 #include <fcntl.h>
+#if defined(_WIN32)
+#include <io.h>
+#include <direct.h>
+#define mkdir(path, mode) _mkdir(path)
+static void usleep(unsigned long l) { Sleep(l / 1000); }
+#else
 #include <unistd.h>
+#endif
 #include <sys/stat.h>
+#include <errno.h>
 
-int lws_ensure_user_space(struct lws *wsi);
+
 
 static int interrupted;
 static int is_server;
 static char testcase[64] = "";
-static char requests_env[32768] = "";
 static struct lws_context *context;
 static struct lws *first_session_wsi;
 static char global_endpoint[128] = "";
+
+
 
 struct request_item {
 	char url[512];
@@ -170,18 +178,30 @@ static void trim_trailing_whitespace(char *str)
 static int parse_client_requests(void)
 {
 	const char *reqs = getenv("REQUESTS_CLIENT");
+	struct lws_tokenize ts;
+	lws_tokenize_elem e;
+	char token[512];
+
 	if (!reqs)
 		reqs = getenv("REQUESTS");
 	if (!reqs)
 		return 0;
 
-	lws_strncpy(requests_env, reqs, sizeof(requests_env));
-	char *r_ptr = requests_env;
-	char *token;
+	lws_tokenize_init(&ts, reqs, LWS_TOKENIZE_F_MINUS_NONTERM |
+				      LWS_TOKENIZE_F_SLASH_NONTERM |
+				      LWS_TOKENIZE_F_DOT_NONTERM |
+				      LWS_TOKENIZE_F_COLON_NONTERM |
+				      LWS_TOKENIZE_F_NO_INTEGERS |
+				      LWS_TOKENIZE_F_NO_FLOATS);
 
-	while ((token = strsep(&r_ptr, " "))) {
-		if (!*token)
+	while ((e = lws_tokenize(&ts)) > 0) {
+		if (e != LWS_TOKZE_TOKEN)
 			continue;
+
+		if (lws_tokenize_cstr(&ts, token, sizeof(token))) {
+			lwsl_err("Client request URL too long\n");
+			continue;
+		}
 
 		struct request_item *item = &client_requests[client_requests_count];
 		lws_strncpy(item->url, token, sizeof(item->url));
@@ -229,14 +249,22 @@ static int parse_client_requests(void)
 	/* If we are the client and acting as the sender, we also need to parse files from REQUESTS_SERVER */
 	const char *sreqs = getenv("REQUESTS_SERVER");
 	if (sreqs && client_requests_count == 1 && client_requests[0].filename[0] == '\0') {
-		static char sreqs_env[32768];
-		lws_strncpy(sreqs_env, sreqs, sizeof(sreqs_env));
-		char *sr_ptr = sreqs_env;
-		char *stoken;
+		struct lws_tokenize sts;
+		lws_tokenize_elem se;
+		char stoken[256];
 		int first = 1;
 
-		while ((stoken = strsep(&sr_ptr, " "))) {
-			if (!*stoken)
+		lws_tokenize_init(&sts, sreqs, LWS_TOKENIZE_F_MINUS_NONTERM |
+					       LWS_TOKENIZE_F_SLASH_NONTERM |
+					       LWS_TOKENIZE_F_DOT_NONTERM |
+					       LWS_TOKENIZE_F_NO_INTEGERS |
+					       LWS_TOKENIZE_F_NO_FLOATS);
+
+		while ((se = lws_tokenize(&sts)) > 0) {
+			if (se != LWS_TOKZE_TOKEN)
+				continue;
+
+			if (lws_tokenize_cstr(&sts, stoken, sizeof(stoken)))
 				continue;
 
 			/* format: <endpoint>/<filename> */
@@ -272,17 +300,26 @@ static int parse_client_requests(void)
 static int parse_server_requests(void)
 {
 	const char *reqs = getenv("REQUESTS_SERVER");
+	struct lws_tokenize ts;
+	lws_tokenize_elem e;
+	char token[256];
+
 	if (!reqs)
 		reqs = getenv("REQUESTS");
 	if (!reqs)
 		return 0;
 
-	lws_strncpy(requests_env, reqs, sizeof(requests_env));
-	char *r_ptr = requests_env;
-	char *token;
+	lws_tokenize_init(&ts, reqs, LWS_TOKENIZE_F_MINUS_NONTERM |
+				      LWS_TOKENIZE_F_SLASH_NONTERM |
+				      LWS_TOKENIZE_F_DOT_NONTERM |
+				      LWS_TOKENIZE_F_NO_INTEGERS |
+				      LWS_TOKENIZE_F_NO_FLOATS);
 
-	while ((token = strsep(&r_ptr, " "))) {
-		if (!*token)
+	while ((e = lws_tokenize(&ts)) > 0) {
+		if (e != LWS_TOKZE_TOKEN)
+			continue;
+
+		if (lws_tokenize_cstr(&ts, token, sizeof(token)))
 			continue;
 
 		struct server_request_item *item = &server_requests[server_requests_count];
@@ -488,19 +525,30 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (env_protocols) {
 			char av_buf[512] = "";
-			char env_copy[512];
-			lws_strncpy(env_copy, env_protocols, sizeof(env_copy));
-			char *ec_ptr = env_copy;
-			char *tok;
+			struct lws_tokenize ts;
+			lws_tokenize_elem e;
+			char tok[128];
 			int first = 1;
-			while ((tok = strsep(&ec_ptr, " "))) {
-				if (!*tok) continue;
-				if (!first)
-					strcat(av_buf, ", ");
-				strcat(av_buf, "\"");
-				strcat(av_buf, tok);
-				strcat(av_buf, "\"");
-				first = 0;
+
+			lws_tokenize_init(&ts, env_protocols, LWS_TOKENIZE_F_MINUS_NONTERM |
+							      LWS_TOKENIZE_F_NO_INTEGERS |
+							      LWS_TOKENIZE_F_NO_FLOATS);
+
+			while ((e = lws_tokenize(&ts)) > 0) {
+				if (e != LWS_TOKZE_TOKEN)
+					continue;
+
+				if (lws_tokenize_cstr(&ts, tok, sizeof(tok)))
+					continue;
+
+				if (sizeof(av_buf) - strlen(av_buf) > strlen(tok) + 5) {
+					if (!first)
+						strcat(av_buf, ", ");
+					strcat(av_buf, "\"");
+					strcat(av_buf, tok);
+					strcat(av_buf, "\"");
+					first = 0;
+				}
 			}
 
 			if (lws_add_http_header_by_name(wsi,
@@ -528,6 +576,76 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_strncpy(global_endpoint, path, sizeof(global_endpoint));
 			}
 			lwsl_user("Server WebTransport session established on %s\n", pss->endpoint);
+
+			/* Save negotiated protocol to /downloads/negotiated_protocol.txt */
+			{
+				char client_protos[256];
+				char negotiated[64] = "";
+				int cp_len = lws_hdr_custom_copy(wsi, client_protos, sizeof(client_protos) - 1,
+								 "wt-available-protocols", 22);
+				if (cp_len > 0) {
+					const char *env_protocols = getenv("PROTOCOLS_SERVER");
+					client_protos[cp_len] = '\0';
+					if (!env_protocols)
+						env_protocols = getenv("PROTOCOLS");
+
+					if (env_protocols) {
+						/* client_protos format: '"proto1", "proto2"' */
+						struct lws_tokenize ts;
+						lws_tokenize_elem e;
+						char token[64];
+
+						lws_tokenize_init(&ts, client_protos, LWS_TOKENIZE_F_COMMA_SEP_LIST |
+											      LWS_TOKENIZE_F_MINUS_NONTERM |
+											      LWS_TOKENIZE_F_NO_INTEGERS |
+											      LWS_TOKENIZE_F_NO_FLOATS);
+
+						while ((e = lws_tokenize(&ts)) > 0) {
+							if (e != LWS_TOKZE_TOKEN && e != LWS_TOKZE_QUOTED_STRING)
+								continue;
+
+							if (lws_tokenize_cstr(&ts, token, sizeof(token)))
+								continue;
+
+							struct lws_tokenize sts;
+							lws_tokenize_elem se;
+							char sp_tok[64];
+
+							lws_tokenize_init(&sts, env_protocols, LWS_TOKENIZE_F_MINUS_NONTERM |
+													       LWS_TOKENIZE_F_NO_INTEGERS |
+													       LWS_TOKENIZE_F_NO_FLOATS);
+
+							while ((se = lws_tokenize(&sts)) > 0) {
+								if (se != LWS_TOKZE_TOKEN)
+									continue;
+
+								if (lws_tokenize_cstr(&sts, sp_tok, sizeof(sp_tok)))
+									continue;
+
+								if (strcmp(token, sp_tok) == 0) {
+									lws_strncpy(negotiated, token, sizeof(negotiated));
+									break;
+								}
+							}
+							if (negotiated[0])
+								break;
+						}
+					}
+				}
+
+				if (negotiated[0]) {
+					if (mkdir("/downloads", 0777) < 0 && errno != EEXIST) { // NOSONAR
+						lwsl_err("Failed to create /downloads: %d\n", errno);
+					}
+					int nfd = open("/downloads/negotiated_protocol.txt", O_WRONLY | O_CREAT | O_TRUNC, 0666); // NOSONAR
+					if (nfd >= 0) {
+						if (write(nfd, negotiated, LWS_POSIX_LENGTH_CAST(strlen(negotiated))) < 0) {
+							lwsl_err("Failed to write negotiated protocol\n");
+						}
+						close(nfd);
+					}
+				}
+			}
 
 			/* If server needs to request files, trigger them now */
 			trigger_server_transfers(wsi, pss->endpoint);
@@ -596,10 +714,12 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 					ne[-1] = '\0';
 					ne--;
 				}
-				mkdir("/downloads", 0777);
-				int nfd = open("/downloads/negotiated_protocol.txt", O_WRONLY | O_CREAT | O_TRUNC, 0666);
+				if (mkdir("/downloads", 0777) < 0 && errno != EEXIST) { // NOSONAR
+					lwsl_err("Failed to create /downloads: %d\n", errno);
+				}
+				int nfd = open("/downloads/negotiated_protocol.txt", O_WRONLY | O_CREAT | O_TRUNC, 0666); // NOSONAR
 				if (nfd >= 0) {
-					if (write(nfd, n_ptr, strlen(n_ptr)) < 0) {
+					if (write(nfd, n_ptr, LWS_POSIX_LENGTH_CAST(strlen(n_ptr))) < 0) {
 						lwsl_err("Failed to write negotiated protocol\n");
 					}
 					close(nfd);
@@ -632,26 +752,31 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 						if (fstat(fd, &st) == 0) {
 							uint8_t dgbuf[LWS_PRE + 65536];
 							int hn = lws_snprintf((char *)&dgbuf[LWS_PRE], sizeof(dgbuf) - LWS_PRE, "PUSH %s\n", dg->filename);
-							int rn = (int)read(fd, &dgbuf[LWS_PRE + hn], sizeof(dgbuf) - LWS_PRE - (size_t)hn);
-							if (rn >= 0) {
-								enum lws_write_protocol wp = LWS_WRITE_QUIC_DATAGRAM;
-								lws_write(wsi, &dgbuf[LWS_PRE], (size_t)(hn + rn), wp);
-								lwsl_user("Session WSI sent datagram PUSH: %s (%d bytes)\n", dg->filename, hn + rn);
-								usleep(5000); /* Pace datagram sends to prevent queue overflow */
+							if (hn > 0 && (size_t)hn < sizeof(dgbuf) - LWS_PRE) {
+								int rn = (int)read(fd, &dgbuf[LWS_PRE + hn], sizeof(dgbuf) - LWS_PRE - (size_t)hn);
+								if (rn >= 0) {
+									size_t total_len = (size_t)hn + (size_t)rn;
+									if (total_len <= sizeof(dgbuf) - LWS_PRE) {
+										enum lws_write_protocol wp = LWS_WRITE_QUIC_DATAGRAM;
+										lws_write(wsi, &dgbuf[LWS_PRE], total_len, wp);
+										lwsl_user("Session WSI sent datagram PUSH: %s (%zu bytes)\n", dg->filename, total_len);
+										usleep(5000); /* Pace datagram sends to prevent queue overflow */
 
-								/* Mark completed on client side (if we are the client sending PUSH) */
-								if (!is_server) {
-									int r_idx = -1;
-									int i;
-									for (i = 0; i < client_requests_count; i++) {
-										if (strcmp(client_requests[i].filename, dg->filename) == 0) {
-											r_idx = i;
-											break;
+										/* Mark completed on client side (if we are the client sending PUSH) */
+										if (!is_server) {
+											int r_idx = -1;
+											int i;
+											for (i = 0; i < client_requests_count; i++) {
+												if (strcmp(client_requests[i].filename, dg->filename) == 0) {
+													r_idx = i;
+													break;
+												}
+											}
+											if (r_idx >= 0) {
+												client_requests[r_idx].completed = 1;
+												lwsl_user("Client datagram transfer completed: %s\n", dg->filename);
+											}
 										}
-									}
-									if (r_idx >= 0) {
-										client_requests[r_idx].completed = 1;
-										lwsl_user("Client datagram transfer completed: %s\n", dg->filename);
 									}
 								}
 							}
@@ -723,7 +848,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 								pss->fd_in = -1;
 								pss->write_completed = 1;
 								lwsl_user("Sender completed file write: %zu bytes\n", pss->sent_len);
-								return -1;
+								return 0;
 							}
 						}
 					} else {
@@ -732,7 +857,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 						pss->fd_in = -1;
 						pss->write_completed = 1;
 						lws_write(wsi, NULL, 0, LWS_WRITE_BINARY | LWS_WRITE_H2_STREAM_END);
-						return -1;
+						return 0;
 					}
 				} else {
 					/* Unidirectional stream requires PUSH <filename>\n first */
@@ -803,12 +928,14 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 
 					char dirpath[512], filepath[512];
 					lws_snprintf(dirpath, sizeof(dirpath), "/downloads%s", pss->endpoint);
-					mkdir(dirpath, 0777);
+					if (mkdir(dirpath, 0777) < 0 && errno != EEXIST) { // NOSONAR
+						lwsl_err("Failed to create directory %s: %d\n", dirpath, errno);
+					}
 					lws_snprintf(filepath, sizeof(filepath), "%s/%s", dirpath, filename);
 
-					int fd = open(filepath, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+					int fd = open(filepath, O_WRONLY | O_CREAT | O_TRUNC, 0666); // NOSONAR
 					if (fd >= 0) {
-						if (write(fd, data_start, data_len) < 0) {
+						if (write(fd, data_start, LWS_POSIX_LENGTH_CAST(data_len)) < 0) {
 							lwsl_err("Failed to write datagram content\n");
 						}
 						close(fd);
@@ -891,14 +1018,16 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 									char dirpath[512], filepath[512];
 									const char *endpoint = pss->endpoint[0] ? pss->endpoint : global_endpoint;
 									lws_snprintf(dirpath, sizeof(dirpath), "/downloads%s", endpoint);
-									mkdir(dirpath, 0777);
+									if (mkdir(dirpath, 0777) < 0 && errno != EEXIST) { // NOSONAR
+										lwsl_err("Failed to create directory %s: %d\n", dirpath, errno);
+									}
 									lws_snprintf(filepath, sizeof(filepath), "%s/%s", dirpath, pss->filename);
-									pss->fd_out = open(filepath, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+									pss->fd_out = open(filepath, O_WRONLY | O_CREAT | O_TRUNC, 0666); // NOSONAR
 									
 									size_t rem = data_len - i - 1;
 									lwsl_user("RECEIVE: Opened file '%s' -> fd %d (rem=%zu bytes written)\n", filepath, pss->fd_out, rem);
 									if (pss->fd_out >= 0 && rem > 0) {
-										if (write(pss->fd_out, data + i + 1, rem) < 0) {
+										if (write(pss->fd_out, data + i + 1, LWS_POSIX_LENGTH_CAST(rem)) < 0) {
 											lwsl_err("Failed to write stream chunk\n");
 										}
 									}
@@ -908,7 +1037,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 						}
 					} else {
 						if (pss->fd_out >= 0) {
-							if (write(pss->fd_out, data, data_len) < 0) {
+							if (write(pss->fd_out, data, LWS_POSIX_LENGTH_CAST(data_len)) < 0) {
 								lwsl_err("Failed to write stream data\n");
 							}
 						} else {
@@ -921,13 +1050,15 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 						char dirpath[512], filepath[512];
 						const char *endpoint = pss->endpoint[0] ? pss->endpoint : global_endpoint;
 						lws_snprintf(dirpath, sizeof(dirpath), "/downloads%s", endpoint);
-						mkdir(dirpath, 0777);
+						if (mkdir(dirpath, 0777) < 0 && errno != EEXIST) { // NOSONAR
+							lwsl_err("Failed to create directory %s: %d\n", dirpath, errno);
+						}
 						lws_snprintf(filepath, sizeof(filepath), "%s/%s", dirpath, pss->filename);
-						pss->fd_out = open(filepath, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+						pss->fd_out = open(filepath, O_WRONLY | O_CREAT | O_TRUNC, 0666); // NOSONAR
 						lwsl_user("RECEIVE (bidi): Opened file '%s' -> fd %d\n", filepath, pss->fd_out);
 					}
 					if (pss->fd_out >= 0) {
-						if (write(pss->fd_out, data, data_len) < 0) {
+						if (write(pss->fd_out, data, LWS_POSIX_LENGTH_CAST(data_len)) < 0) {
 							lwsl_err("Failed to write stream data\n");
 						}
 					}
@@ -961,18 +1092,27 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 						if (lws_wt_is_unidi(wsi)) {
 							struct lws *cwsi = lws_wt_create_stream_from_child(wsi, 1);
 							if (cwsi) {
-								lws_ensure_user_space(cwsi);
-								struct pss_qir *cpss = (struct pss_qir *)lws_wsi_user(cwsi);
-								if (cpss) {
-									cpss->is_unidi = 1;
-									cpss->is_initiator = 0;
-									lws_strncpy(cpss->endpoint, endpoint, sizeof(cpss->endpoint));
-									lws_strncpy(cpss->filename, filename, sizeof(cpss->filename));
-									cpss->fd_in = pss->fd_in;
+								if (!lws_ensure_user_space(cwsi)) {
+									struct pss_qir *cpss = (struct pss_qir *)lws_wsi_user(cwsi);
+									if (cpss) {
+										cpss->is_unidi = 1;
+										cpss->is_initiator = 0;
+										lws_strncpy(cpss->endpoint, endpoint, sizeof(cpss->endpoint));
+										lws_strncpy(cpss->filename, filename, sizeof(cpss->filename));
+										cpss->fd_in = pss->fd_in;
+										pss->fd_in = -1;
+										cpss->file_len = pss->file_len;
+										lws_callback_on_writable(cwsi);
+										lwsl_user("Created server-initiated stream %p for unidirectional file response\n", cwsi);
+									} else {
+										lwsl_err("Child stream user space is NULL\n");
+										close(pss->fd_in);
+										pss->fd_in = -1;
+									}
+								} else {
+									lwsl_err("Failed to ensure user space for child stream\n");
+									close(pss->fd_in);
 									pss->fd_in = -1;
-									cpss->file_len = pss->file_len;
-									lws_callback_on_writable(cwsi);
-									lwsl_user("Created server-initiated stream %p for unidirectional file response\n", cwsi);
 								}
 							} else {
 								lwsl_err("Failed to create server-initiated stream for response\n");
