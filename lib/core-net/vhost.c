@@ -2110,10 +2110,28 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 				lwsl_wsi_info(w, "just join h2 directly 0x%x",
 						   lwsi_state(w));
 
-				if (lwsi_state(w) == LRS_IDLING)
+				if (lwsi_state(w) == LRS_IDLING) {
 					_lws_generic_transaction_completed_active_conn(&w, 0);
 
-				//lwsi_set_state(w, LRS_H1C_ISSUE_HANDSHAKE2);
+					/*
+					 * The connection was kept warm in
+					 * LRS_IDLING, which does not carry
+					 * LWSIFS_POCB, so its POLLOUT is never
+					 * serviced (lwsi_state_can_handle_POLLOUT()
+					 * is false).  If we adopt the new stream
+					 * while the network wsi is still IDLING, the
+					 * child-walking POLLOUT loop never runs, the
+					 * new stream's HEADERS are never sent
+					 * (lws_h2_client_handshake() is never
+					 * reached) and its response would not be read
+					 * either.  Put it back into the same
+					 * LRS_ESTABLISHED state it uses while actively
+					 * muxing, and drop the keep-warm idle timeout
+					 * since it is no longer idle.
+					 */
+					lwsi_set_state(w, LRS_ESTABLISHED);
+					lws_set_timeout(w, NO_PENDING_TIMEOUT, 0);
+				}
 
 				wsi->client_h2_alpn = 1;
 				lws_wsi_h2_adopt(w, wsi);
@@ -2140,8 +2158,16 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 						   lwsi_state(w));
 
 
-				if (lwsi_state(w) == LRS_IDLING)
+				if (lwsi_state(w) == LRS_IDLING) {
 					_lws_generic_transaction_completed_active_conn(&w, 0);
+
+					/* See the h2 branch above: a revived idle
+					 * mux connection must leave LRS_IDLING so its
+					 * POLLOUT is serviced and the new stream's
+					 * headers get sent. */
+					lwsi_set_state(w, LRS_ESTABLISHED);
+					lws_set_timeout(w, NO_PENDING_TIMEOUT, 0);
+				}
 
 				wsi->client_h2_alpn = 1;
 				if (lws_wsi_h3_adopt(w, wsi)) {
