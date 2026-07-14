@@ -26,6 +26,14 @@
 
 #if defined(LWS_WITH_NETWORK)
 #if defined(LWS_WITH_FILE_OPS)
+/*
+ * lws_system_parse_policy() parses a JSON policy file and so depends on the
+ * LEJP JSON parser.  Only build the real implementation when LEJP is enabled;
+ * otherwise provide a stub (in the #else below) that reports "no policy", so
+ * callers that reference it without gating on LWS_WITH_LEJP (eg, the ACME /
+ * versioned-cert path in tls.c) still link without pulling in lejp.
+ */
+#if defined(LWS_WITH_LEJP)
 
 static const char * const policy_paths[] = {
 	"dns_base_dir",
@@ -157,7 +165,19 @@ bail:
 	lws_system_policy_free(p);
 	return 1;
 }
-#endif
+
+#else /* !LWS_WITH_LEJP */
+
+int
+lws_system_parse_policy(struct lws_context *cx, const char *filepath,
+			lws_system_policy_t **_policy)
+{
+	*_policy = NULL;
+	return 1; /* no JSON parser available without LEJP */
+}
+
+#endif /* LWS_WITH_LEJP */
+#endif /* LWS_WITH_FILE_OPS */
 
 void
 lws_system_policy_free(lws_system_policy_t *policy)
