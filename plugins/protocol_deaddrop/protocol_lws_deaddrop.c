@@ -818,7 +818,7 @@ static void
 deaddrop_handler_server_ws_rx(struct vhd_deaddrop *vhd, struct pss_deaddrop *pss,
 		     struct lws *wsi, void *in, size_t len)
 {
-#if defined(__linux__)
+#if !defined(WIN32) && !defined(_WIN32) && !defined(LWS_WITH_ESP32)
 	char path[512], resolved_path[PATH_MAX];
 #else
 	char path[512];

@@ -294,14 +294,11 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 		lws_snprintf(priority, sizeof(priority), "NORMAL:-VERS-ALL:+VERS-TLS1.3:%%DISABLE_TLS13_COMPAT_MODE");
 	}
 
-	lwsl_notice("AGY-DEBUG: gnutls_quic_init priority string used = %s\n", priority);
 
 	/* Enforce QUIC requirements: TLS 1.3 only, NO compatibility mode (empty legacy_session_id) */
 	ret = gnutls_priority_set_direct(session, priority, NULL);
-	if (ret < 0) {
+	if (ret < 0)
 		lwsl_notice("gnutls_priority_set_direct failed: %s\n", gnutls_strerror(ret));
-		lwsl_notice("AGY-DEBUG: gnutls_priority_set_direct failed: %s\n", gnutls_strerror(ret));
-	}
 
 	if (!wsi->tls.quic_tp_send) {
 		/* Construct dynamically to include loc_cid */

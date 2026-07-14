@@ -713,6 +713,15 @@ LWS_VISIBLE LWS_EXTERN void *
 lws_wsi_user(struct lws *wsi);
 
 /**
+ * lws_ensure_user_space() - allocate user space for wsi if not already allocated
+ * \param wsi: lws connection
+ *
+ * returns 0 if user space exists or was allocated, else non-zero.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_ensure_user_space(struct lws *wsi);
+
+/**
  * lws_wsi_tsi() - get the service thread index the wsi is bound to
  * \param wsi: lws connection
  *

@@ -217,6 +217,16 @@ to be selected using "raw": "1"
 
 See also "apply-listen-accept" below.
 
+## Care about redirecting the trailing /
+
+In lws the mount applies at the URL folder, so a mount at /myapp actually works starting from /myapp/.
+
+This means you often need to add an additional redirect mount to do the last step for the user who
+may have typed .../myapp, to get them to .../myapp/ where the app actually takes over.
+
+        "mountpoint": "/git",
+        "origin": ">https://warmcat.com/git/",
+
 ## Lwsws Other vhost options
 
  - If the three options `host-ssl-cert`, `host-ssl-ca` and `host-ssl-key` are given, then the vhost supports SSL.
@@ -479,7 +489,7 @@ Auth before the ws upgrade, this is also possible.  In this case, the
 
 The mounts in lws allow you to stack up other plugins that run "before" the main mountpoint.
 There are two "interceptor plugins" provided which can be useful for this,
-`lws_login` and `lws_captcha_ratelimit`
+`lws_login` and `lws_captcha_ratelimit`, you can create your own based on these.
 
 To indicate you want to use an interceptor plugin for a mount, you add an
 "interceptor-path" entry to the original mount definition, pointing to the
