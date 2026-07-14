@@ -9,6 +9,9 @@ set(SAMP lws-minimal-webtransport-qir)
 set(SRCS minimal-webtransport-qir.c)
 
 set(requirements 1)
+require_lws_config(LWS_WITH_NETWORK 1 requirements)
+require_lws_config(LWS_WITH_CLIENT 1 requirements)
+require_lws_config(LWS_WITH_SERVER 1 requirements)
 require_lws_config(LWS_ROLE_WT 1 requirements)
 require_lws_config(LWS_WITH_HTTP3 1 requirements)
 

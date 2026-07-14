@@ -4,8 +4,8 @@
 
 ** NEW features available on main **
 
- - Support for SChannel (windows native TLS, no need for OpenSSL build!), GnuTLS, and BearSSL added
- - QUIC + H3 + Webtranspoer implementation, using aws-lc, wolfssl, boringssl, libressl, gnutls, and schannel (OpenSSL is h1/h2 -only, mbedtls can do it via a patch)
+ - Support for SChannel (windows native TLS, no need for OpenSSL build!), GnuTLS, openHiTLS and BearSSL added
+ - QUIC + H3 + Webtransport implementation, using aws-lc, wolfssl, boringssl, libressl, gnutls, and schannel (OpenSSL is h1/h2 -only; mbedtls can do it via a patch)
 
 |LWS version|Platform|Protocols|Default TLS|
 |---|---|---|---|
@@ -33,7 +33,7 @@ quic/h3 is enabled for build by default... necessitating GnuTLS instead of OpenS
 | **openHiTLS** | **Yes** | **Yes** | **No** | **Yes** | **Yes** | **Yes** | Yes (not SRTP) | **Yes** | **Yes** | **Yes** |
 
 
-\* *Note: 1) Upstream OpenSSL does not provide the necessary QUIC TLS API (`SSL_set_quic_method`) to act as a cryptographic engine for LWS's QUIC transport. If you need QUIC/HTTP3 support, we recommend using BoringSSL, GnuTLS, WolfSSL, or the `quictls` fork of OpenSSL.*
+\* *Note: 1) Upstream OpenSSL does not provide the necessary QUIC TLS API (`SSL_set_quic_method`) to act as a cryptographic engine for LWS's QUIC transport. If you need QUIC/HTTP3 support, we recommend using BoringSSL or GnuTLS.*
 \* *Note: 2) openHiTLS does not provide the necessary QUIC TLS API *
 
  - DHT support built-in: `-DLWS_WITH_DHT=1`
