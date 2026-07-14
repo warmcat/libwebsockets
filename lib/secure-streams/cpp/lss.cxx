@@ -31,9 +31,9 @@ static const char *pcols[] = {
 	"https://",
 	"h2://",	/* LWSSSP_H2 */
 	"h2s://",
-	"ws://",	/* LWSSSP_WS */
+	"ws://",	/* LWSSSP_WS */ // NOSONAR
 	"wss://",
-	"mqtt://",	/* LWSSSP_MQTT */
+	"mqtt://",	/* LWSSSP_MQTT */ // NOSONAR
 	"mqtts://",
 	"raw://",	/* LWSSSP_RAW */
 	"raws://",

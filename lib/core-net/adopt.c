@@ -807,8 +807,12 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 
 		{
 			int opt = 4 * 1024 * 1024;
-			setsockopt(sock.sockfd, SOL_SOCKET, SO_RCVBUF, (const char *)&opt, sizeof(opt));
-			setsockopt(sock.sockfd, SOL_SOCKET, SO_SNDBUF, (const char *)&opt, sizeof(opt));
+			if (setsockopt(sock.sockfd, SOL_SOCKET, SO_RCVBUF, (const char *)&opt, sizeof(opt)) < 0) {
+				lwsl_wsi_warn(wsi, "Failed to set SO_RCVBUF");
+			}
+			if (setsockopt(sock.sockfd, SOL_SOCKET, SO_SNDBUF, (const char *)&opt, sizeof(opt)) < 0) {
+				lwsl_wsi_warn(wsi, "Failed to set SO_SNDBUF");
+			}
 		}
 
 		if (lws_plat_apply_FD_CLOEXEC((int)sock.sockfd) ||
@@ -982,8 +986,12 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 
 	{
 		int opt = 4 * 1024 * 1024;
-		setsockopt(sock.sockfd, SOL_SOCKET, SO_RCVBUF, (const char *)&opt, sizeof(opt));
-		setsockopt(sock.sockfd, SOL_SOCKET, SO_SNDBUF, (const char *)&opt, sizeof(opt));
+		if (setsockopt(sock.sockfd, SOL_SOCKET, SO_RCVBUF, (const char *)&opt, sizeof(opt)) < 0) {
+			lwsl_wsi_warn(wsi, "Failed to set SO_RCVBUF");
+		}
+		if (setsockopt(sock.sockfd, SOL_SOCKET, SO_SNDBUF, (const char *)&opt, sizeof(opt)) < 0) {
+			lwsl_wsi_warn(wsi, "Failed to set SO_SNDBUF");
+		}
 	}
 
 	if (lws_plat_apply_FD_CLOEXEC((int)sock.sockfd) ||
