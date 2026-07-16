@@ -180,6 +180,8 @@ callback_sse(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	case LWS_CALLBACK_PROTOCOL_INIT:
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 				lws_get_protocol(wsi), sizeof(struct vhd));
+		if (!vhd)
+			return 1;
 		vhd->context = lws_get_context(wsi);
 		vhd->protocol = lws_get_protocol(wsi);
 		vhd->vhost = lws_get_vhost(wsi);

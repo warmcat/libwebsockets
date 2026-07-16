@@ -13,3 +13,76 @@ html, body {
     touch-action: none;
     outline: none;
 }
+
+.connection-overlay {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    width: 320px;
+    padding: 15px;
+    background: rgba(15, 15, 25, 0.75);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: #f0f0f5;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-size: 13px;
+    border-radius: 12px;
+    pointer-events: none;
+    z-index: 10;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    transition: all 0.3s ease;
+}
+
+.connection-overlay.wt {
+    border-color: rgba(46, 204, 113, 0.4);
+    box-shadow: 0 8px 32px 0 rgba(46, 204, 113, 0.1);
+}
+
+.connection-overlay.ws {
+    border-color: rgba(241, 196, 15, 0.4);
+    box-shadow: 0 8px 32px 0 rgba(241, 196, 15, 0.1);
+}
+
+.overlay-title {
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 10px;
+    letter-spacing: 0.5px;
+}
+
+.connection-overlay.wt .overlay-title {
+    color: #2ecc71;
+}
+
+.connection-overlay.ws .overlay-title {
+    color: #f1c40f;
+}
+
+.overlay-stats {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.overlay-json {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.json-text {
+    display: block;
+    font-family: monospace;
+    font-size: 11px;
+    background: rgba(0, 0, 0, 0.4);
+    padding: 6px;
+    border-radius: 6px;
+    word-break: break-all;
+    max-height: 80px;
+    overflow-y: auto;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    color: #a2a2d0;
+}
