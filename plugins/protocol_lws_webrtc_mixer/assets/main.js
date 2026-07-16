@@ -115,6 +115,12 @@ function updateView() {
     window.addEventListener('resize', adjustOverlaySize);
     displayVideo.addEventListener('resize', adjustOverlaySize);
     displayVideo.addEventListener('loadedmetadata', adjustOverlaySize);
+    displayVideo.addEventListener('click', () => {
+        if (displayVideo.paused) {
+            console.log("Video clicked, attempting manual play...");
+            displayVideo.play().catch(e => console.error("Manual play failed:", e));
+        }
+    });
 
     startFPSMonitor();
 }

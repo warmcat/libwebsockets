@@ -43,6 +43,7 @@ struct lws_webrtc_peer_media {
 	struct lws              *wsi_udp;
 	lws_sockaddr46          peer_sa46;
 	int                     has_peer_sa46;
+	uint8_t                 peer_stun_received;
 
 	struct lws_rtp_ctx      rtp_ctx_video;
 	struct lws_rtp_ctx      rtp_ctx_audio;

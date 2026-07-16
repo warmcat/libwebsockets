@@ -134,10 +134,11 @@ lws_gendtls_create(struct lws_gendtls_ctx *ctx,
 		goto bail;
 	}
 
-#if defined(GNUTLS_SRTP_AES128_CM_HMAC_SHA1_80) /* SRTP is supported in GnuTLS >= 3.1.4 */
+#if 1 /* SRTP is supported in GnuTLS >= 3.1.4 */
 	if (info->use_srtp) {
 		gnutls_srtp_profile_t profiles[4];
 		int n = 0;
+		int i;
 
 		if ((char *)strstr(info->use_srtp, "SRTP_AES128_CM_SHA1_80"))
 			profiles[n++] = GNUTLS_SRTP_AES128_CM_HMAC_SHA1_80;
@@ -148,10 +149,10 @@ lws_gendtls_create(struct lws_gendtls_ctx *ctx,
 		if ((char *)strstr(info->use_srtp, "SRTP_NULL_HMAC_SHA1_32"))
 			profiles[n++] = GNUTLS_SRTP_NULL_HMAC_SHA1_32;
 
-		if (n) {
-			ret = gnutls_srtp_set_profile_direct(ctx->session, profiles, n);
+		for (i = 0; i < n; i++) {
+			ret = gnutls_srtp_set_profile(ctx->session, profiles[i]);
 			if (ret != GNUTLS_E_SUCCESS) {
-				lwsl_err("%s: gnutls_srtp_set_profile_direct failed: %s\n",
+				lwsl_err("%s: gnutls_srtp_set_profile failed: %s\n",
 					 __func__, gnutls_strerror(ret));
 				goto bail;
 			}
@@ -244,8 +245,9 @@ lws_gendtls_set_cert_mem(struct lws_gendtls_ctx *ctx, const uint8_t *cert, size_
 	if (ctx->key_mem) {
 		gnutls_datum_t c = { ctx->cert_mem, (unsigned int)ctx->cert_len - 1 };
 		gnutls_datum_t k = { ctx->key_mem, (unsigned int)ctx->key_len - 1 };
+		gnutls_x509_crt_fmt_t fmt = (ctx->cert_mem[0] == '-') ? GNUTLS_X509_FMT_PEM : GNUTLS_X509_FMT_DER;
 
-		if (gnutls_certificate_set_x509_key_mem(ctx->cred, &c, &k, GNUTLS_X509_FMT_PEM) < 0) {
+		if (gnutls_certificate_set_x509_key_mem(ctx->cred, &c, &k, fmt) < 0) {
 			lwsl_err("%s: failed to set cert/key\n", __func__);
 			return -1;
 		}
@@ -271,8 +273,9 @@ lws_gendtls_set_key_mem(struct lws_gendtls_ctx *ctx, const uint8_t *key, size_t 
 	if (ctx->cert_mem) {
 		gnutls_datum_t c = { ctx->cert_mem, (unsigned int)ctx->cert_len - 1 };
 		gnutls_datum_t k = { ctx->key_mem, (unsigned int)ctx->key_len - 1 };
+		gnutls_x509_crt_fmt_t fmt = (ctx->cert_mem[0] == '-') ? GNUTLS_X509_FMT_PEM : GNUTLS_X509_FMT_DER;
 
-		if (gnutls_certificate_set_x509_key_mem(ctx->cred, &c, &k, GNUTLS_X509_FMT_PEM) < 0) {
+		if (gnutls_certificate_set_x509_key_mem(ctx->cred, &c, &k, fmt) < 0) {
 			lwsl_err("%s: failed to set cert/key\n", __func__);
 			return -1;
 		}
@@ -431,10 +434,10 @@ lws_gendtls_is_clean(struct lws_gendtls_ctx *ctx)
 const char *
 lws_gendtls_get_srtp_profile(struct lws_gendtls_ctx *ctx)
 {
-#if defined(GNUTLS_SRTP_AES128_CM_HMAC_SHA1_80)
+#if 1
 	gnutls_srtp_profile_t profile = 0;
 
-	if (gnutls_srtp_get_profile(ctx->session, &profile) != GNUTLS_E_SUCCESS)
+	if (gnutls_srtp_get_selected_profile(ctx->session, &profile) != GNUTLS_E_SUCCESS)
 		return NULL;
 
 	switch (profile) {
