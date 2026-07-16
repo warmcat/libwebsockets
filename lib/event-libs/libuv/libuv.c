@@ -531,6 +531,14 @@ elops_accept_uv(struct lws *wsi)
 
 	((uv_handle_t *)w_read->pwatcher)->data = (void *)wsi;
 
+	/*
+	 * A fresh poll watcher has just been attached to this wsi.  If the wsi
+	 * is being reused (eg, http->https redirect via lws_client_reset()),
+	 * told_event_loop_closed may still be latched from the previous close.
+	 * Clear it now that a new handle is live.
+	 */
+	wsi->told_event_loop_closed = 0;
+
 	ptpriv->extant_handles++;
 
 	lwsl_wsi_debug(wsi, "thr %d: sa left %d: dyn left: %d",
