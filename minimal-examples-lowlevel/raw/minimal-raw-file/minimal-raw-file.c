@@ -49,6 +49,8 @@ callback_raw_test(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_PROTOCOL_INIT:
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 				lws_get_protocol(wsi), sizeof(struct raw_vhd));
+		if (!vhd)
+			return 1;
 		vhd->filefd = lws_open(filepath, O_RDWR);
 		if (vhd->filefd == -1) {
 			lwsl_err("Unable to open %s\n", filepath);

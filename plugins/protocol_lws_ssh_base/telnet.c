@@ -135,6 +135,8 @@ lws_callback_raw_telnet(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 				lws_get_protocol(wsi),
 				sizeof(struct per_vhost_data__telnet));
+		if (!vhd)
+			return -1;
 		vhd->context = lws_get_context(wsi);
 		vhd->protocol = lws_get_protocol(wsi);
 		vhd->vhost = lws_get_vhost(wsi);

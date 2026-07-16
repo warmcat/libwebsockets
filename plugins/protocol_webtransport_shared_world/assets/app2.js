@@ -7,7 +7,27 @@ let shadowGenerator = null;
 let sunLight = null;
 let skyDome = null;
 let myAvatar = null;
+let camera = null;
 let currentSeed = 12345;
+let myPlayerId = null;
+
+const otherAvatars = {};
+const keys = {};
+
+let localX = 0;
+let localZ = 0;
+let localAngle = 0;
+let localIsMoving = false;
+
+const stats = {
+    sentCount: 0,
+    recvCount: 0,
+    lastSent: "",
+    lastRecv: ""
+};
+
+window.addEventListener("keydown", (e) => { keys[e.code] = true; });
+window.addEventListener("keyup", (e) => { keys[e.code] = false; });
 
 async function initEngine() {
     try {
@@ -30,24 +50,11 @@ function initScene() {
     const skyColor = new BABYLON.Color3(0.7, 0.8, 0.9);
     scene.clearColor = new BABYLON.Color4(skyColor.r, skyColor.g, skyColor.b, 1.0);
 
-    const camera = new BABYLON.FreeCamera("camera1", new BABYLON.Vector3(0, 100, -40), scene); // Start high to avoid spawning underground
-    camera.setTarget(BABYLON.Vector3.Zero());
-    camera.attachControl(canvas, true);
-    
-    // WASD Controls
-    camera.keysUp.push(87);    // W
-    camera.keysDown.push(83);  // S
-    camera.keysLeft.push(65);  // A
-    camera.keysRight.push(68); // D
-    camera.speed = 2.0;
+    camera = new BABYLON.TargetCamera("camera1", new BABYLON.Vector3(0, 100, -40), scene); // Start high to avoid spawning underground
     camera.maxZ = 4000;
 
-    // Enable Collisions and Gravity
     scene.collisionsEnabled = true;
     scene.gravity = new BABYLON.Vector3(0, -9.81, 0);
-    camera.checkCollisions = true;
-    camera.applyGravity = true;
-    camera.ellipsoid = new BABYLON.Vector3(2, 5, 2);
 
     // Click to capture mouse (Pointer Lock)
     canvas.addEventListener("click", () => {
@@ -79,6 +86,26 @@ function initScene() {
     skyMat.disableLighting = true;
     skyMat.emissiveColor = skyColor;
     skyDome.material = skyMat;
+}
+
+function updateCamera() {
+    if (!myAvatar) return;
+    const avatarPos = myAvatar.pathWrapper.position;
+    const angle = myAvatar.pathWrapper.rotation.y;
+    
+    const distance = 80;
+    const height = 30;
+    
+    const camX = avatarPos.x - Math.sin(angle) * distance;
+    const camZ = avatarPos.z - Math.cos(angle) * distance;
+    const camY = getTerrainHeight(camX, camZ, currentSeed) + height;
+    
+    // Smooth follow
+    camera.position.x = BABYLON.Scalar.Lerp(camera.position.x, camX, 0.1);
+    camera.position.y = BABYLON.Scalar.Lerp(camera.position.y, camY, 0.1);
+    camera.position.z = BABYLON.Scalar.Lerp(camera.position.z, camZ, 0.1);
+    
+    camera.setTarget(avatarPos);
 }
 
 function hash2D(x, y, seed) {
@@ -117,14 +144,12 @@ function fbm(x, y, octaves, seed) {
     for (let i = 0; i < octaves; i++) {
         total += smoothNoise2D(x * frequency, y * frequency, seed + i) * amplitude;
         maxVal += amplitude;
-        amplitude *= 0.5;
         frequency *= 2.0;
     }
 
     return total / maxVal;
 }
 
-// Function to calculate exact terrain height at any point
 function getTerrainHeight(px, pz, seed) {
     let n = fbm(px * 0.005, pz * 0.005, 4, seed);
     const distFromCenter = Math.sqrt(px * px + pz * pz);
@@ -213,15 +238,11 @@ function buildWorld(seed) {
 
 class Avatar {
     constructor(meshes, animationGroups, skeletons, scene) {
-        // Create a parent wrapper to handle translation and lookAt along the circle
         this.pathWrapper = new BABYLON.TransformNode("pathWrapper", scene);
-        
-        // Create an inner wrapper (kept for clean hierarchy, but with 0 rotation since the model faces +Z natively)
         this.offsetWrapper = new BABYLON.TransformNode("offsetWrapper", scene);
         this.offsetWrapper.parent = this.pathWrapper;
         this.offsetWrapper.rotation = new BABYLON.Vector3(0, 0, 0);
         
-        // Parent ALL imported root meshes to the offsetWrapper (this ensures the skeleton/bones are rotated too!)
         meshes.forEach(m => {
             if (!m.parent) {
                 m.parent = this.offsetWrapper;
@@ -232,53 +253,70 @@ class Avatar {
             m.receiveShadows = true;
         });
 
-        // The overall scale can be applied to the pathWrapper
         this.pathWrapper.scaling = new BABYLON.Vector3(10, 10, 10);
 
-        // Try playing via AnimationGroups (newer glTF/GLB)
-        if (animationGroups && animationGroups.length > 0) {
-            const walkAnim = animationGroups.find(ag => ag.name.toLowerCase().includes("walk")) || animationGroups[0];
-            walkAnim.play(true);
-        } 
-        // Fallback to older .babylon skeleton animations (like dummy3.babylon)
-        else if (skeletons && skeletons.length > 0) {
-            const skeleton = skeletons[0];
-            const ranges = skeleton.getAnimationRanges();
-            let walkRange = null;
-            
+        this.walkRange = null;
+        this.skeleton = null;
+        if (skeletons && skeletons.length > 0) {
+            this.skeleton = skeletons[0];
+            const ranges = this.skeleton.getAnimationRanges();
             if (ranges && ranges.length > 0) {
-                walkRange = ranges.find(r => r.name.toLowerCase().includes("walk")) || ranges[0];
-            }
-            
-            if (walkRange) {
-                scene.beginAnimation(skeleton, walkRange.from, walkRange.to, true, 1.0);
-            } else {
-                scene.beginAnimation(skeleton, 0, 100, true, 1.0);
+                this.walkRange = ranges.find(r => r.name.toLowerCase().includes("walk")) || ranges[0];
             }
         }
-
-        this.angle = 0;
-        this.radius = 20; // Radius of the circle to walk in
-        this.speed = 0.5;
-        this.center = new BABYLON.Vector3(0, 0, 0);
+        
+        this.animControl = null;
+        this.isMoving = false;
+        this.speed = 100.0;
+        this.rotationSpeed = 3.0;
     }
 
-    update(deltaTime) {
-        if (!this.pathWrapper) return;
+    setMoving(moving) {
+        if (this.isMoving === moving) return;
+        this.isMoving = moving;
+        if (moving) {
+            if (this.walkRange && this.skeleton) {
+                this.animControl = scene.beginAnimation(this.skeleton, this.walkRange.from, this.walkRange.to, true, 1.0);
+            }
+        } else {
+            if (this.animControl) {
+                this.animControl.pause();
+            }
+        }
+    }
+
+    dispose() {
+        if (this.pathWrapper) {
+            this.pathWrapper.dispose();
+        }
+    }
+}
+
+function colorAvatar(avatar, id) {
+    try {
+        if (!avatar || !avatar.pathWrapper) return;
+        console.log("Coloring avatar for player ID:", id);
+        const hue = (id * 137.5) % 360;
+        const color = BABYLON.Color3.FromHSV(hue, 0.8, 0.8);
         
-        this.angle -= (this.speed * deltaTime) / 1000.0;
-        
-        const px = this.center.x + Math.cos(this.angle) * this.radius;
-        const pz = this.center.z + Math.sin(this.angle) * this.radius;
-        const py = getTerrainHeight(px, pz, currentSeed);
-        
-        this.pathWrapper.position = new BABYLON.Vector3(px, py, pz);
-        
-        // Point the pathWrapper in the direction of travel (tangent of the circle)
-        const tx = this.center.x + Math.cos(this.angle - 0.1) * this.radius;
-        const tz = this.center.z + Math.sin(this.angle - 0.1) * this.radius;
-        const ty = getTerrainHeight(tx, tz, currentSeed);
-        this.pathWrapper.lookAt(new BABYLON.Vector3(tx, ty, tz));
+        const meshes = avatar.pathWrapper.getChildMeshes();
+        meshes.forEach(m => {
+            if (m.material) {
+                try {
+                    m.material = m.material.clone("mat-" + id);
+                    if (m.material.diffuseColor !== undefined) {
+                        m.material.diffuseColor = color;
+                    }
+                    if (m.material.albedoColor !== undefined) {
+                        m.material.albedoColor = color;
+                    }
+                } catch (e) {
+                    console.warn("Could not clone or color material for mesh", m.name, e);
+                }
+            }
+        });
+    } catch (e) {
+        console.error("Error in colorAvatar:", e);
     }
 }
 
@@ -293,27 +331,97 @@ async function loadAvatar() {
             return;
         }
         myAvatar = new Avatar(result.meshes, result.animationGroups, result.skeletons, scene);
-        console.log("Avatar loaded successfully!");
+        console.log("Local Avatar loaded successfully!");
+        if (myPlayerId !== null) {
+            colorAvatar(myAvatar, myPlayerId);
+        }
     } catch (e) {
         alert("Failed to load dummy3.babylon. Did you run 'cmake .. && make install'? Error: " + e.message);
         console.error("Failed to load avatar model:", e);
     }
 }
 
+async function spawnRemoteAvatar(id, x, z, angle, isMoving) {
+    if (otherAvatars[id]) return;
+    
+    console.log("Spawning remote avatar placeholder for player ID:", id, "at", x, z);
+    const placeholder = BABYLON.MeshBuilder.CreateSphere("placeholder-" + id, {diameter: 5}, scene);
+    placeholder.position = new BABYLON.Vector3(x, getTerrainHeight(x, z, currentSeed), z);
+    const mat = new BABYLON.StandardMaterial("placeholder-mat-" + id, scene);
+    mat.diffuseColor = new BABYLON.Color3(0.8, 0.2, 0.2);
+    placeholder.material = mat;
+    
+    otherAvatars[id] = { placeholder, avatar: null };
+    
+    let path = window.location.pathname;
+    if (!path.endsWith('/')) path += '/';
+    
+    try {
+        const result = await BABYLON.SceneLoader.ImportMeshAsync("", path, "dummy3.babylon", scene);
+        if (otherAvatars[id]) {
+            const currentPos = placeholder.position.clone();
+            placeholder.dispose();
+            
+            const avatar = new Avatar(result.meshes, result.animationGroups, result.skeletons, scene);
+            avatar.pathWrapper.position = currentPos;
+            avatar.pathWrapper.rotation.y = angle;
+            avatar.setMoving(isMoving);
+            
+            otherAvatars[id].avatar = avatar;
+            otherAvatars[id].placeholder = null;
+            colorAvatar(avatar, id);
+            console.log("Remote avatar mesh spawned successfully for player ID:", id);
+        } else {
+            result.meshes.forEach(m => m.dispose());
+        }
+    } catch (e) {
+        console.error("Failed to load remote avatar:", e);
+    }
+}
+
+function updateRemoteAvatar(id, x, z, angle, isMoving) {
+    const entry = otherAvatars[id];
+    if (entry) {
+        if (entry.avatar) {
+            entry.avatar.pathWrapper.position = new BABYLON.Vector3(x, getTerrainHeight(x, z, currentSeed), z);
+            entry.avatar.pathWrapper.rotation.y = angle;
+            entry.avatar.setMoving(isMoving);
+        } else if (entry.placeholder) {
+            entry.placeholder.position = new BABYLON.Vector3(x, getTerrainHeight(x, z, currentSeed), z);
+        }
+    } else {
+        spawnRemoteAvatar(id, x, z, angle, isMoving);
+    }
+}
+
+function removeRemoteAvatar(id) {
+    const entry = otherAvatars[id];
+    if (entry) {
+        if (entry.placeholder) entry.placeholder.dispose();
+        if (entry.avatar) entry.avatar.dispose();
+        delete otherAvatars[id];
+        console.log("Remote avatar removed for player ID:", id);
+    }
+}
+
 function tryReload() {
+    if (window.isReloading) return;
+    window.isReloading = true;
     console.log("Server disconnected. Waiting for it to come back...");
+    
     const checkServer = async () => {
         try {
-            const u = new URL(window.location.href);
-            if (u.origin !== window.location.origin) {
-                return;
+            const pathname = window.location.pathname;
+            if (/^[a-zA-Z0-9\/\-_\.]+$/.test(pathname)) {
+                const testUrl = pathname + "?cb=" + Date.now();
+                const resp = await fetch(testUrl, { method: "HEAD", cache: "no-store" });
+                if (resp.ok) {
+                    console.log("Server is back! Reloading page...");
+                    window.location.reload();
+                    return;
+                }
             }
-            const resp = await fetch(u.href, { method: "HEAD" });
-            if (resp.ok) {
-                window.location.reload();
-            } else {
-                setTimeout(checkServer, 2000);
-            }
+            setTimeout(checkServer, 2000);
         } catch (e) {
             setTimeout(checkServer, 2000);
         }
@@ -321,20 +429,179 @@ function tryReload() {
     setTimeout(checkServer, 2000);
 }
 
+function updateOverlay() {
+    const overlay = document.getElementById("connection-overlay");
+    if (!overlay) return;
+    
+    let typeText = "Connecting...";
+    let typeClass = "connection-overlay";
+    if (wtWriter) {
+        typeText = "WebTransport (HTTP/3)";
+        typeClass = "connection-overlay wt";
+    } else if (wsConn && wsConn.readyState === WebSocket.OPEN) {
+        typeText = "WebSocket (WSS)";
+        typeClass = "connection-overlay ws";
+    }
+    
+    overlay.className = typeClass;
+    overlay.innerHTML = `
+        <div class="overlay-title">${typeText}</div>
+        <div class="overlay-stats">
+            <div>Sent: <strong>${stats.sentCount}</strong></div>
+            <div>Recv: <strong>${stats.recvCount}</strong></div>
+        </div>
+        <div class="overlay-json">
+            <div><strong>Last Sent:</strong> <span class="json-text">${stats.lastSent || 'None'}</span></div>
+            <div><strong>Last Recv:</strong> <span class="json-text">${stats.lastRecv || 'None'}</span></div>
+        </div>
+    `;
+}
+
+function handleServerMessage(msg) {
+    console.log("handleServerMessage received raw:", msg);
+    const parts = msg.split(/}\s*{/);
+    for (let i = 0; i < parts.length; i++) {
+        let part = parts[i].trim();
+        if (!part) continue;
+        if (i > 0) part = "{" + part;
+        if (i < parts.length - 1) part = part + "}";
+        
+        try {
+            const obj = JSON.parse(part);
+            console.log("Parsed JSON message:", obj);
+            stats.recvCount++;
+            stats.lastRecv = part;
+            updateOverlay();
+            
+            if (obj.seed) {
+                myPlayerId = obj.player_id;
+                console.log("Welcome message. Player ID:", myPlayerId, "Seed:", obj.seed, "Players in list:", obj.players);
+                if (myAvatar) {
+                    colorAvatar(myAvatar, myPlayerId);
+                }
+                if (obj.seed !== currentSeed) {
+                    currentSeed = obj.seed;
+                    console.log("Received new seed:", currentSeed);
+                    buildWorld(currentSeed);
+                }
+                if (obj.players) {
+                    obj.players.forEach(p => {
+                        console.log("Spawning existing player ID:", p.id, "at pos", p.x, p.z);
+                        spawnRemoteAvatar(p.id, p.x, p.z, p.angle, p.isMoving);
+                    });
+                }
+            } else if (obj.join !== undefined) {
+                console.log("Player ID joined:", obj.join);
+                if (obj.join === myPlayerId) {
+                    if (myAvatar) {
+                        myAvatar.pathWrapper.position = new BABYLON.Vector3(0, getTerrainHeight(0, 0, currentSeed), 0);
+                    }
+                } else {
+                    spawnRemoteAvatar(obj.join, 0, 0, 0, false);
+                }
+            } else if (obj.leave !== undefined) {
+                console.log("Player ID left:", obj.leave);
+                removeRemoteAvatar(obj.leave);
+            } else if (obj.player_id !== undefined) {
+                console.log("Player ID update:", obj.player_id, "Pos:", obj.x, obj.z, "Angle:", obj.angle, "isMoving:", obj.isMoving);
+                if (obj.player_id === myPlayerId) {
+                    if (myAvatar) {
+                        myAvatar.pathWrapper.position = new BABYLON.Vector3(obj.x, getTerrainHeight(obj.x, obj.z, currentSeed), obj.z);
+                        myAvatar.pathWrapper.rotation.y = obj.angle;
+                        myAvatar.setMoving(obj.isMoving);
+                    }
+                } else {
+                    updateRemoteAvatar(obj.player_id, obj.x, obj.z, obj.angle, obj.isMoving);
+                }
+            }
+        } catch (e) {
+            console.error("Error parsing JSON part:", part, e);
+        }
+    }
+}
+
+let wtWriter = null;
+let wsConn = null;
+
+function sendUpdate(obj) {
+    const msg = JSON.stringify(obj);
+    stats.sentCount++;
+    stats.lastSent = msg;
+    updateOverlay();
+    
+    if (wtWriter) {
+        const encoder = new TextEncoder();
+        wtWriter.write(encoder.encode(msg)).catch(e => console.error("WT write error:", e));
+    } else if (wsConn && wsConn.readyState === WebSocket.OPEN) {
+        wsConn.send(msg);
+    }
+}
+
+let lastSentX = -999;
+let lastSentZ = -999;
+let lastSentAngle = -999;
+let lastSentMoving = false;
+
+setInterval(() => {
+    // 1. Calculate intended position change from keys
+    const deltaTime = 100; // tick interval
+    const dtSec = deltaTime / 1000.0;
+    let moving = false;
+    const speed = 100.0;
+    const rotationSpeed = 3.0;
+    
+    if (keys["KeyW"]) {
+        localX += Math.sin(localAngle) * speed * dtSec;
+        localZ += Math.cos(localAngle) * speed * dtSec;
+        moving = true;
+    }
+    if (keys["KeyS"]) {
+        localX -= Math.sin(localAngle) * speed * dtSec;
+        localZ -= Math.cos(localAngle) * speed * dtSec;
+        moving = true;
+    }
+    if (keys["KeyA"]) {
+        localAngle -= rotationSpeed * dtSec;
+        moving = true;
+    }
+    if (keys["KeyD"]) {
+        localAngle += rotationSpeed * dtSec;
+        moving = true;
+    }
+    localIsMoving = moving;
+    
+    // 2. Check if anything changed from last sent
+    if (myPlayerId !== null && (Math.abs(localX - lastSentX) > 0.05 ||
+        Math.abs(localZ - lastSentZ) > 0.05 ||
+        Math.abs(localAngle - lastSentAngle) > 0.01 ||
+        localIsMoving !== lastSentMoving)) {
+        
+        sendUpdate({
+            x: Number.parseFloat(localX.toFixed(2)),
+            z: Number.parseFloat(localZ.toFixed(2)),
+            angle: Number.parseFloat(localAngle.toFixed(2)),
+            isMoving: localIsMoving
+        });
+        
+        lastSentX = localX;
+        lastSentZ = localZ;
+        lastSentAngle = localAngle;
+        lastSentMoving = localIsMoving;
+    }
+}, 100);
+
 async function connectAndInit() {
     await initEngine();
     initScene();
     
     currentSeed = 12345;
     buildWorld(currentSeed);
-
-    // Kick off avatar loading
     loadAvatar();
 
     engine.runRenderLoop(function () {
         scene.render();
         if (myAvatar) {
-            myAvatar.update(engine.getDeltaTime());
+            updateCamera();
         }
     });
 
@@ -349,15 +616,18 @@ async function connectAndInit() {
     const wtUrl = `https://${host}${path}`;
 
     let connected = false;
+    updateOverlay();
 
     if (typeof WebTransport !== 'undefined') {
         try {
             console.log("Attempting WebTransport connection to", wtUrl);
-            const transport = new WebTransport(wtUrl);
+            const transport = new WebTransport(wtUrl, {
+                protocols: ['webtransport-shared-world']
+            });
             
             await Promise.race([
                 transport.ready,
-                new Promise((_, reject) => setTimeout(() => reject(new Error("WT timeout")), 3000))
+                new Promise((_, reject) => setTimeout(() => reject(new Error("WT timeout")), 10000))
             ]);
             
             console.log("WebTransport connected!");
@@ -365,30 +635,40 @@ async function connectAndInit() {
             const stream = await transport.createBidirectionalStream();
             if (stream) {
                 const streamReader = stream.readable.getReader();
-                const { value: data, done } = await streamReader.read();
-                if (done) {
-                    console.log("WT stream closed, waiting to reload...");
-                    tryReload();
-                } else if (data) {
-                    const msg = new TextDecoder().decode(data);
-                    const obj = JSON.parse(msg);
-                    if (obj.seed && obj.seed !== currentSeed) {
-                        currentSeed = obj.seed;
-                        console.log("Received WT seed:", currentSeed);
-                        buildWorld(currentSeed);
+                wtWriter = stream.writable.getWriter();
+                connected = true;
+                updateOverlay();
+                
+                (async () => {
+                    try {
+                        while (true) {
+                            const { value: data, done } = await streamReader.read();
+                            if (done) {
+                                console.log("WT stream done, reloading...");
+                                tryReload();
+                                break;
+                            }
+                            if (data) {
+                                const msg = new TextDecoder().decode(data);
+                                handleServerMessage(msg);
+                            }
+                        }
+                    } catch (e) {
+                        console.error("WT read error:", e);
+                        tryReload();
                     }
-                }
+                })();
             }
-            connected = true;
             
-            // Handle WT close
-            transport.closed.then(() => {
-                console.log("WT connection closed, waiting to reload...");
+            (async () => {
+                try {
+                    await transport.closed;
+                    console.log("WT session closed cleanly, reloading...");
+                } catch (e) {
+                    console.warn("WT session closed with error, reloading...", e);
+                }
                 tryReload();
-            }).catch(() => {
-                console.log("WT connection error, waiting to reload...");
-                tryReload();
-            });
+            })();
             
         } catch (e) {
             console.warn("WebTransport connection failed or timed out:", e);
@@ -399,27 +679,29 @@ async function connectAndInit() {
         try {
             console.log("Attempting WebSocket connection to", wsUrl);
             await new Promise((resolve, reject) => {
-                const ws = new WebSocket(wsUrl, "webtransport-shared-world");
-                ws.onmessage = (event) => {
+                wsConn = new WebSocket(wsUrl, "webtransport-shared-world");
+                wsConn.onmessage = (event) => {
                     try {
-                        const obj = JSON.parse(event.data);
-                        if (obj.seed && obj.seed !== currentSeed) {
-                            currentSeed = obj.seed;
-                            console.log("Received WS seed:", currentSeed);
-                            buildWorld(currentSeed);
-                            connected = true;
-                        }
+                        handleServerMessage(event.data);
                     } catch (e) {
                         console.error("Invalid WS message", e);
                     }
-                    resolve();
                 };
-                ws.onerror = reject;
-                ws.onclose = () => {
-                    console.log("WS connection closed, waiting to reload...");
+                wsConn.onerror = (err) => {
+                    console.error("WebSocket error:", err);
+                    tryReload();
+                    reject(new Error("WebSocket connection failed"));
+                };
+                wsConn.onclose = () => {
+                    console.log("WS connection closed, reloading...");
                     tryReload();
                 };
-                ws.onopen = () => console.log("WebSocket connected!");
+                wsConn.onopen = () => {
+                    console.log("WebSocket connected!");
+                    connected = true;
+                    updateOverlay();
+                    resolve();
+                };
                 
                 setTimeout(() => { if (!connected) reject(new Error("WS timeout")); }, 3000);
             });
