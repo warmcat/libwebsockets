@@ -1193,6 +1193,9 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 								int32_t cval = (val > (uint64_t)INT32_MAX) ? INT32_MAX : (int32_t)val;
 								wsi_child->txc.peer_tx_cr_est = cval;
 								wsi_child->txc.tx_cr = cval;
+							} else {
+								wsi_child->txc.peer_tx_cr_est = 65535;
+								wsi_child->txc.tx_cr = 65535;
 							}
 						} else {
 							if (qn->peer_initial_max_stream_data_bidi_remote) {
@@ -1200,6 +1203,9 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 								int32_t cval = (val > (uint64_t)INT32_MAX) ? INT32_MAX : (int32_t)val;
 								wsi_child->txc.peer_tx_cr_est = cval;
 								wsi_child->txc.tx_cr = cval;
+							} else {
+								wsi_child->txc.peer_tx_cr_est = 65535;
+								wsi_child->txc.tx_cr = 65535;
 							}
 						}
 					} else {
@@ -1208,6 +1214,9 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 							int32_t cval = (val > (uint64_t)INT32_MAX) ? INT32_MAX : (int32_t)val;
 							wsi_child->txc.peer_tx_cr_est = cval;
 							wsi_child->txc.tx_cr = cval;
+						} else {
+							wsi_child->txc.peer_tx_cr_est = 65535;
+							wsi_child->txc.tx_cr = 65535;
 						}
 					}
 				}
