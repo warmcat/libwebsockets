@@ -339,6 +339,15 @@ lws_wsi_h2_adopt(struct lws *parent_wsi, struct lws *wsi)
 	wsi->seen_nonpseudoheader = 0;
 #if defined(LWS_WITH_CLIENT)
 	wsi->client_mux_substream = 1;
+	/*
+	 * A reused client stream is a mux substream just like the first one.
+	 * Without this, HPACK skips capturing custom (non-indexed) response
+	 * headers into the ah unknown-header list (that capture is gated on
+	 * mux_substream), so a pooled client's 2nd+ request drops custom
+	 * response headers and leaves a stale list that lws_hdr_custom_*
+	 * subsequently walks out of bounds.
+	 */
+	wsi->mux_substream = 1;
 #endif
 	wsi->h2.initialized = 1;
 
