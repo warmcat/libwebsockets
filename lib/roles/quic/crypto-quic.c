@@ -886,14 +886,6 @@ error_handling:
 
 		wsi->quic.qn->handshake_done = 1;
 
-		/* Move any unsent 0-RTT (early) data frames to 1-RTT (app) level */
-		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-					   wsi->quic.qn->pending_tx[LWS_QUIC_LEVEL_EARLY].head) {
-			struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
-			lws_dll2_remove(&f->list);
-			lws_dll2_add_tail(&f->list, &wsi->quic.qn->pending_tx[LWS_QUIC_LEVEL_APP]);
-		} lws_end_foreach_dll_safe(d, d1);
-
 		if (wsi->quic.qn->is_server) {
 			struct lws_quic_tx_frame *f_hd = lws_zalloc(sizeof(*f_hd), "HANDSHAKE_DONE");
 			if (f_hd) {
