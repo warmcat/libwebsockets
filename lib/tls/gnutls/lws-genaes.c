@@ -55,6 +55,13 @@ lws_genaes_create(struct lws_genaes_ctx *ctx, enum enum_aes_operation op,
 	case LWS_GAESM_CFB8:
 		if (key.size == 16) alg = GNUTLS_CIPHER_AES_128_CFB8;
 		break;
+	case LWS_GAESM_CTR:
+		switch (key.size) {
+		case 16: alg = GNUTLS_CIPHER_AES_128_CBC; break;
+		case 24: alg = GNUTLS_CIPHER_AES_192_CBC; break;
+		case 32: alg = GNUTLS_CIPHER_AES_256_CBC; break;
+		}
+		break;
 	case LWS_GAESM_GCM:
 		switch (key.size) {
 		case 16: alg = GNUTLS_CIPHER_AES_128_GCM; break;
@@ -182,6 +189,54 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 		 uint8_t *stream_block_16, size_t *nc_or_iv_off, int taglen)
 {
 	int n;
+	(void)n;
+
+	if (ctx->mode == LWS_GAESM_CTR) {
+		uint8_t counter[16];
+		uint8_t keystream[16];
+		size_t offset = 0;
+
+		if (!iv_or_nonce_ctr_or_data_unit_16) {
+			lwsl_err("%s: CTR mode requires counter IV\n", __func__);
+			return -1;
+		}
+
+		memcpy(counter, iv_or_nonce_ctr_or_data_unit_16, 16);
+
+		while (offset < len) {
+			size_t block_len = len - offset;
+			if (block_len > 16)
+				block_len = 16;
+
+			/* Reset CBC IV to zero for single block encryption (ECB mode emulation) */
+			uint8_t zero_iv[16] = {0};
+			gnutls_cipher_set_iv(ctx->ctx, zero_iv, 16);
+
+			/* Encrypt the counter block */
+			if (gnutls_cipher_encrypt2(ctx->ctx, counter, 16, keystream, 16) < 0) {
+				lwsl_err("%s: CTR block encryption failed\n", __func__);
+				return -1;
+			}
+
+			/* XOR with input */
+			for (size_t i = 0; i < block_len; i++) {
+				out[offset + i] = in[offset + i] ^ keystream[i];
+			}
+
+			/* Increment counter (128-bit big-endian) */
+			for (int i = 15; i >= 0; i--) {
+				counter[i]++;
+				if (counter[i] != 0)
+					break;
+			}
+
+			offset += block_len;
+		}
+
+		/* Save updated counter back to IV buffer */
+		memcpy(iv_or_nonce_ctr_or_data_unit_16, counter, 16);
+		return 0;
+	}
 
 	if (ctx->mode == LWS_GAESM_CBC || ctx->mode == LWS_GAESM_ECB) {
 		if (!(ctx->op == LWS_GAESO_ENC && ctx->padding == LWS_GAESP_WITH_PADDING)) {
