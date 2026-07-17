@@ -1707,10 +1707,7 @@ send_frames:
 		/* Check congestion window - bypass for PTO probes and ACKs */
 		if (!qn->pto_probe_needed && !(qn->needs_ack[pn_space] && is_ack_allowed) && qn->cc_ops && qn->cc_ops->can_send && !qn->cc_ops->can_send(wsi, mtu)) {
 			is_congestion_limited = 1;
-#if (_LWS_ENABLED_LOGS & LLL_INFO)
-			LWS_RATELIMIT_DEFINE_STATIC(rl);
-			lwsl_ratelimit_info(&rl, 1000000, "QUIC TX: Congestion window full, blocking POLLOUT\n");
-#endif
+			lwsl_notice("AGY-DEBUG: Congestion window full at level %d, blocking POLLOUT\n", level);
 			blocked = 1;
 			break; /* Stop processing sending loops */
 		}
@@ -1719,6 +1716,7 @@ send_frames:
 		if (!qn->pto_probe_needed && !(qn->needs_ack[pn_space] && is_ack_allowed) && qn->cc_ops && qn->cc_ops->get_pacing_delay) {
 			lws_usec_t delay = qn->cc_ops->get_pacing_delay(wsi, mtu);
 			if (delay > 0) {
+				lwsl_notice("AGY-DEBUG: Pacing delay %llu us at level %d, scheduling timer\n", (unsigned long long)delay, level);
 				lws_sul_schedule(wsi->a.context, 0, &qn->pacer_sul, lws_quic_pacer_cb, delay);
 				blocked = 1;
 				break; /* Stop processing sending loops */
@@ -3269,6 +3267,8 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 					(struct lws_quic_cc_newreno *)nwsi->quic.qn->cc_state;
 				size_t debt = cc->bytes_in_flight + queued_bytes;
 				size_t headroom = (cc->cwnd > debt) ? cc->cwnd - debt : 0;
+				lwsl_notice("AGY-DEBUG: rops_tx_credit_quic: cwnd=%zu, bytes_in_flight=%zu, queued_bytes=%zu, headroom=%zu, cr_before=%d\n",
+					cc->cwnd, cc->bytes_in_flight, queued_bytes, headroom, cr);
 				if (headroom < mtu)
 					headroom = mtu; /* always allow 1 packet */
 				if (cr > (int)headroom)

@@ -1603,7 +1603,10 @@ static const struct lws_switches builtins[] = {
 	{ "--cpd-bypass", "Bypass captive portal detect" },
 	{ "--quic-pad-crypto", "Pad QUIC Handshake Crypto for tests" },
 	{ "--quic-only-latest", "Force QUIC to use the latest supported version (e.g. v2)" },
+	{ "--quic-force-retry", "Force QUIC to always send a Retry packet" },
 	{ "--0rtt", "Allow QUIC 0-RTT early data" },
+	{ "--quic-initial-cwnd", "Initial QUIC congestion window (cwnd) in bytes" },
+	{ "--0rtt-max-size", "Max QUIC 0-RTT early data size in bytes" },
 	{ "-h", "Print this help" },
 	{ "--help", "Print this help" },
 };
@@ -1623,7 +1626,10 @@ enum opts {
 	OPT_CPD_BYPASS,
 	OPT_QUIC_PAD_CRYPTO,
 	OPT_QUIC_ONLY_LATEST,
+	OPT_QUIC_FORCE_RETRY,
 	OPT_0RTT,
+	OPT_QUIC_INITIAL_CWND,
+	OPT_0RTT_MAX_SIZE,
 	OPT_HELP1,
 	OPT_HELP2,
 };
@@ -1904,8 +1910,17 @@ lws_cmdline_option_handle_builtin(int argc, const char **argv,
 		case OPT_QUIC_ONLY_LATEST:
 			info->options |= LWS_SERVER_OPTION_QUIC_LATEST_VERSION;
 			break;
+		case OPT_QUIC_FORCE_RETRY:
+			info->options |= LWS_SERVER_OPTION_QUIC_FORCE_RETRY;
+			break;
 		case OPT_0RTT:
 			info->options |= LWS_SERVER_OPTION_ALLOW_EARLY_DATA;
+			break;
+		case OPT_QUIC_INITIAL_CWND:
+			info->quic_initial_cwnd = (uint32_t)atoll(p);
+			break;
+		case OPT_0RTT_MAX_SIZE:
+			info->quic_0rtt_max_size = (uint32_t)atoll(p);
 			break;
 
 		case OPT_HELP1:

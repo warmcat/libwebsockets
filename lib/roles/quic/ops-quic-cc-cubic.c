@@ -92,7 +92,7 @@ cubic_init(struct lws *nwsi)
 	st->k = 0;
 	st->is_in_fast_convergence = 0;
 
-	lwsl_cx_info(nwsi->a.context, "QUIC CUBIC: init cwnd=%zu, mtu=%u", st->cwnd, mtu);
+	lwsl_notice("QUIC CUBIC: init cwnd=%zu, mtu=%u", st->cwnd, mtu);
 }
 
 static void
@@ -240,7 +240,12 @@ cubic_can_send(struct lws *nwsi, size_t bytes)
 
 	if (!st) return 0;
 
-	return (st->bytes_in_flight + bytes <= st->cwnd);
+	int ok = (st->bytes_in_flight + bytes <= st->cwnd);
+	if (!ok) {
+		lwsl_notice("AGY-DEBUG: cubic_can_send failed: bytes_in_flight=%zu, bytes=%zu, cwnd=%zu\n",
+			st->bytes_in_flight, bytes, st->cwnd);
+	}
+	return ok;
 }
 
 static lws_usec_t

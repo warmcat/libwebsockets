@@ -187,6 +187,8 @@ context_creation(int argc, const char **argv)
 	info.argc = argc;
 	info.argv = argv;
 
+	lws_cmdline_option_handle_builtin(argc, argv, &info);
+
 	context = lws_create_context(&info);
 	if (context == NULL) {
 		lwsl_err("libwebsocket init failed\n");
