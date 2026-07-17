@@ -629,7 +629,7 @@ lws_webrtc_create_offer(struct pss_webrtc *pss)
 	/* Default PTs for Offer */
 	pss->media->pt_audio = 111;
 	pss->media->pt_video_h264 = 102;
-	pss->media->pt_video_av1 = 104;
+	pss->media->pt_video_av1 = 0;
 	pss->media->pt_video = pss->media->pt_video_h264; /* Default to H264 */
 
 	pss->media->rtp_ctx_video.ts = (uint32_t)(lws_now_usecs() * 9 / 100);
@@ -651,7 +651,7 @@ lws_webrtc_create_offer(struct pss_webrtc *pss)
 
 	/* Video Section */
 	lws_snprintf(video_m, sizeof(video_m),
-			"m=video %u UDP/TLS/RTP/SAVPF %u %u\\r\\n"
+			"m=video %u UDP/TLS/RTP/SAVPF %u\\r\\n"
 			"c=IN IP4 0.0.0.0\\r\\n"
 			"a=rtcp-mux\\r\\n"
 			"a=ice-ufrag:%s\\r\\n"
@@ -663,22 +663,16 @@ lws_webrtc_create_offer(struct pss_webrtc *pss)
 			"a=msid:lws-stream lws-track-video\\r\\n"
 			"a=rtpmap:%u H264/90000\\r\\n"
 			"a=fmtp:%u level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e02a\\r\\n"
-			"a=rtpmap:%u AV1/90000\\r\\n"
-			"a=fmtp:%u profile=0;level-idx=5;tier=0\\r\\n"
-			"a=rtcp-fb:%u nack\\r\\n"
-			"a=rtcp-fb:%u nack pli\\r\\n"
 			"a=rtcp-fb:%u nack\\r\\n"
 			"a=rtcp-fb:%u nack pli\\r\\n"
 			"a=ssrc:%u cname:lws-video\\r\\n"
 			"a=ssrc:%u msid:lws-stream lws-track-video\\r\\n"
 			"%s"
 			"a=end-of-candidates\\r\\n",
-		vhd->udp_port, pss->media->pt_video_h264, pss->media->pt_video_av1,
+		vhd->udp_port, pss->media->pt_video_h264,
 		pss->ice_ufrag, pss->ice_pwd, vhd->fingerprint,
 		pss->media->pt_video_h264, pss->media->pt_video_h264,
-		pss->media->pt_video_av1, pss->media->pt_video_av1,
 		pss->media->pt_video_h264, pss->media->pt_video_h264,
-		pss->media->pt_video_av1, pss->media->pt_video_av1,
 		pss->media->ssrc_video, pss->media->ssrc_video, candidates);
 
 	/* Audio Section */
@@ -829,7 +823,7 @@ handle_candidate(struct pss_webrtc *pss, struct vhd_webrtc *vhd, const char *can
 
 	while (lws_tokenize(&ts) != LWS_TOKZE_ENDED) {
 		lwsl_notice("%s: Token: '%.*s' (len %d, type %d), state %d\n", __func__, (int)ts.token_len, ts.token, (int)ts.token_len, ts.e, state);
-		if (state == 0 && ts.token_len == 3 && !strncmp(ts.token, "udp", 3)) {
+		if (state == 0 && ts.token_len == 3 && !strncasecmp(ts.token, "udp", 3)) {
 			state = 1; /* Found Protocol udp */
 		} else if (state == 1) {
 			/* Priority */
@@ -852,6 +846,11 @@ handle_candidate(struct pss_webrtc *pss, struct vhd_webrtc *vhd, const char *can
 
 	if (state == 5 && port > 0) {
 		webrtc_pss_log(pss, "Found ICE Candidate: %s:%d\n", ip_str, port);
+
+		if (pss->media && pss->media->peer_stun_received) {
+			webrtc_pss_log(pss, "Skipping candidate parsing as ICE is already resolved via STUN.\n");
+			return 0;
+		}
 
 		if (lws_sa46_parse_numeric_address(ip_str, &pss->media->peer_sa46) < 0)
 			return -1;
@@ -1003,7 +1002,7 @@ lws_webrtc_parse_sdp_codecs(struct pss_webrtc *pss, const char *sdp_clean)
 					if (lws_tokenize(&ts) == LWS_TOKZE_TOKEN) {
 						if (!strncasecmp(ts.token, "H264/90000", 10)) {
 							/* We found H264. Map already populated in Pass 1. */
-						} else if (!strncasecmp(ts.token, "AV1/90000", 9)) {
+						} else if (0 && !strncasecmp(ts.token, "AV1/90000", 9)) {
 							pss->media->pt_video_av1 = (uint8_t)pt;
 						} else if (!strncasecmp(ts.token, "VP9/90000", 9)) {
 						} else if (!strncasecmp(ts.token, "opus/48000", 10)) {
@@ -1340,7 +1339,7 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 						lwsl_warn("  SDP Parsing: PT %d -> Token '%.*s'\n", pt, (int)ts.token_len, ts.token);
 						if (!strncasecmp(ts.token, "H264/90000", 10)) {
 							/* We found H264. Map already populated in Pass 1. */
-						} else if (!strncasecmp(ts.token, "AV1/90000", 9)) {
+						} else if (0 && !strncasecmp(ts.token, "AV1/90000", 9)) {
 							pss->media->pt_video_av1 = (uint8_t)pt;
 							lwsl_info("  Found AV1 PT: %d\n", pt);
 						} else if (!strncasecmp(ts.token, "VP9/90000", 9)) {
@@ -1733,9 +1732,14 @@ lws_shared_webrtc_callback(struct lws *wsi, enum lws_callback_reasons reason,
 
 			lwsl_notice("%s: Generating self-signed certificate (this may take a few seconds)...\n", __func__);
 			lws_usec_t t1 = lws_now_usecs();
-			if (lws_x509_create_self_signed(vhd->context, &vhd->cert_mem, &vhd->cert_len,
-						&vhd->key_mem, &vhd->key_len,
-						vhd->external_ip, 2048)) {
+			struct lws_x509_cert_gen_info cert_info;
+			memset(&cert_info, 0, sizeof(cert_info));
+			cert_info.san = vhd->external_ip[0] ? vhd->external_ip : "localhost";
+			cert_info.curve_name = "P-256";
+			cert_info.is_server = 1;
+
+			if (lws_x509_create_cert(vhd->context, &vhd->cert_mem, &vhd->cert_len,
+						&vhd->key_mem, &vhd->key_len, &cert_info)) {
 				lwsl_err("%s: Cert generation failed\n", __func__);
 				return -1;
 			}
@@ -1753,7 +1757,7 @@ lws_shared_webrtc_callback(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 
 			vhd->wsi_udp = lws_create_adopt_udp(vhd->vhost,
-					NULL, vhd->udp_port, LWS_CAUDP_BIND,
+					"0.0.0.0", vhd->udp_port, LWS_CAUDP_BIND,
 					"lws-webrtc-udp", NULL, NULL, NULL, NULL, NULL);
 			if (!vhd->wsi_udp) {
 				lwsl_err("%s: UDP socket creation failed\n", __func__);
@@ -2035,6 +2039,7 @@ webrtc_handle_stun(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrtc **
 			if (pss->media) {
 				pss->media->peer_sa46 = udp_desc->sa46;
 				pss->media->has_peer_sa46 = 1;
+				pss->media->peer_stun_received = 1;
 			}
 
 			int fd = (int)(lws_intptr_t)lws_get_socket_fd(wsi);
@@ -2350,6 +2355,7 @@ lws_shared_webrtc_udp_callback(struct lws *wsi, enum lws_callback_reasons reason
 
 		case LWS_CALLBACK_RAW_RX:
 			if (!vhd || !udp_desc) return 0;
+			lwsl_notice("%s: UDP packet received on port %u (len %zu)\n", __func__, vhd->udp_port, len);
 
 			/* Create pure IPv4 mapping for logic checks */
 			struct sockaddr_in pure_sin;
