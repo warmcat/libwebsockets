@@ -618,7 +618,7 @@ lws_hdr_custom_length(struct lws *wsi, const char *name, int nlen)
 
 	ll = wsi->http.ah->unk_ll_head;
 	while (ll) {
-		if (ll >= wsi->http.ah->data_length)
+		if (ll + UHO_NAME >= wsi->http.ah->data_length)
 			return -1;
 		if (nlen == lws_ser_ru16be(
 			(uint8_t *)&wsi->http.ah->data[ll + UHO_NLEN]) &&
@@ -646,7 +646,7 @@ lws_hdr_custom_copy(struct lws *wsi, char *dst, int len, const char *name,
 
 	ll = wsi->http.ah->unk_ll_head;
 	while (ll) {
-		if (ll >= wsi->http.ah->data_length)
+		if (ll + UHO_NAME >= wsi->http.ah->data_length)
 			return -1;
 		if (nlen == lws_ser_ru16be(
 			(uint8_t *)&wsi->http.ah->data[ll + UHO_NLEN]) &&
@@ -678,7 +678,7 @@ lws_hdr_custom_name_foreach(struct lws *wsi, lws_hdr_custom_fe_cb_t cb,
 	ll = wsi->http.ah->unk_ll_head;
 
 	while (ll) {
-		if (ll >= wsi->http.ah->data_length)
+		if (ll + UHO_NAME >= wsi->http.ah->data_length)
 			return -1;
 
 		cb(&wsi->http.ah->data[ll + UHO_NAME],
