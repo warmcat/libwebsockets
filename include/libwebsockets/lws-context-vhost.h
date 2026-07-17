@@ -1112,6 +1112,9 @@ struct lws_context_creation_info {
 	/**< VHOST: Comma-separated list of IPv4 and/or IPv6 preferred addresses (e.g., "1.2.3.4:443,[2001:db8::1]:443")
 	 * to send to the client during the handshake to facilitate Connection Migration. */
 
+	uint32_t			quic_initial_cwnd;
+	/**< CONTEXT: 0 for default (10 * MTU), or the desired initial congestion window in bytes */
+
 #if !defined(__STRICT_ANSI__)
 	void *_unused[1]; /**< dummy */
 #endif

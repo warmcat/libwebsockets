@@ -76,7 +76,10 @@ cubic_init(struct lws *nwsi)
 	st = (struct lws_quic_cc_cubic *)qn->cc_state;
 
 	/* RFC 9002: Initial Window */
-	st->cwnd = 10 * mtu;
+	if (nwsi->a.context->quic_initial_cwnd)
+		st->cwnd = nwsi->a.context->quic_initial_cwnd;
+	else
+		st->cwnd = 10 * mtu;
 	st->ssthresh = (size_t)-1; /* Infinity */
 	st->bytes_in_flight = 0;
 	st->congestion_recovery_start_time = 0;

@@ -866,6 +866,7 @@ struct lws_context {
 
 	lws_quic_tx_credit_cb_t quic_tx_credit_cb;
 	const struct lws_cc_ops *quic_cc_ops;
+	uint32_t quic_initial_cwnd;
 
 	uint8_t quic_retry_secret[16];
 };

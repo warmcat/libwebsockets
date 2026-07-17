@@ -59,6 +59,7 @@ enum {
 	LWS_SW_SAVE_TICKET,
 	LWS_SW_LOAD_TICKET,
 	LWS_SW_SEQ,
+	LWS_SW_QUIC_INITIAL_CWND,
 	LWS_SW_HELP,
 };
 
@@ -85,6 +86,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_SAVE_TICKET] = { "--save-ticket", "Path to save TLS session ticket" },
 	[LWS_SW_LOAD_TICKET] = { "--load-ticket", "Path to load TLS session ticket" },
 	[LWS_SW_SEQ]         = { "--seq", "Run sequentially" },
+	[LWS_SW_QUIC_INITIAL_CWND] = { "--quic-initial-cwnd", "Initial congestion window in bytes" },
 	[LWS_SW_HELP]	= { "--help", 		"Show this help information" },
 };
 
@@ -739,6 +741,12 @@ int main(int argc, const char **argv)
 #endif
         }
 
+        if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_QUIC_INITIAL_CWND].sw))) {
+                int val = atoi(p);
+                if (val > 0)
+                        info.quic_initial_cwnd = (uint32_t)val;
+        }
+
 #if defined(LWS_WITH_TLS_SESSIONS) && !defined(LWS_WITH_MBEDTLS) && !defined(WIN32)
         /*
          * When the QIR harness sets TESTCASE=zerortt it does not pass
@@ -756,6 +764,8 @@ int main(int argc, const char **argv)
                                     sizeof(load_ticket));
                 lwsl_notice("%s: TESTCASE=zerortt: ticket path '%s'\n",
                             __func__, save_ticket);
+                if (!info.quic_initial_cwnd)
+                        info.quic_initial_cwnd = 250000;
         }
 #endif
 
