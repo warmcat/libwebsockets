@@ -271,6 +271,16 @@ lws_remove_parallel_fd_safely(struct lws *wsi, int pidx)
 	int saved_pos = wsi->position_in_fds_table;
 	lws_sock_file_fd_type saved_fd = wsi->desc;
 
+	/*
+	 * An attempt that already failed (eg, synchronous connect() failure
+	 * like EHOSTUNREACH on an unroutable AAAA result) was invalidated and
+	 * its socket closed at the failure site; its fds-table position was
+	 * never assigned.  Removing it again would use the bogus position to
+	 * remove an unrelated fds slot and double-close a possibly-reused fd.
+	 */
+	if (!wsi->parallel_conns[pidx].is_valid || hole_pos == LWS_NO_FDS_POS)
+		return;
+
 	wsi->desc.sockfd = wsi->parallel_conns[pidx].desc.sockfd;
 	wsi->position_in_fds_table = hole_pos;
 
@@ -477,6 +487,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 					promote_parallel_fd(wsi, pidx);
 				/* close all remaining parallel */
 				for (m = 0; m < wsi->parallel_count; m++)
+					if (wsi->parallel_conns[m].is_valid)
 						/* A parallel socket failed. Just close it and remove from fds */
 						lws_remove_parallel_fd_safely(wsi, m);
 				wsi->parallel_count = 0;
