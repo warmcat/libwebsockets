@@ -1278,8 +1278,7 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 				 * Otherwise consume the properties before
 				 * completing the command
 				 */
-				lws_mqtt_vbi_init(&par->vbit);
-				par->state = LMQCPP_PUBACK_VH_PKT_ID;
+				par->state = LMQCPP_EAT_PROPERTIES_AND_COMPLETE;
 				break;
 			default:
 				lwsl_notice("%s: puback pr bad vbi\n", __func__);
