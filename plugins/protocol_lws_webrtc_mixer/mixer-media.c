@@ -1518,15 +1518,36 @@ init_participant_media(struct participant *p, enum lws_video_codec codec)
 	lws_snprintf(n_cfilt, sizeof(n_cfilt), "cfilt_%p", s);
 
 	s->appsrc = gst_element_factory_make("appsrc", n_appsrc);
-	s->decodebin = gst_element_factory_make("avdec_h264", n_dec);
+	
+	GstElement *decoder = NULL;
+	GstElement *parser = NULL;
+	GstCaps *caps = NULL;
+
+	if (codec == LWS_WEBRTC_CODEC_AV1) {
+		decoder = gst_element_factory_make("dav1ddec", n_dec);
+		if (!decoder)
+			decoder = gst_element_factory_make("avdec_av1", n_dec);
+		parser = gst_element_factory_make("av1parse", n_parse);
+		caps = gst_caps_new_empty_simple("video/x-av1");
+	} else {
+		decoder = gst_element_factory_make("avdec_h264", n_dec);
+		parser = gst_element_factory_make("h264parse", n_parse);
+		caps = gst_caps_new_simple("video/x-h264",
+				"stream-format", G_TYPE_STRING, "byte-stream",
+				"alignment", G_TYPE_STRING, "au",
+				NULL);
+	}
+
+	s->decodebin = decoder;
+
 	if (!s->decodebin) {
-		lwsl_err("%s: Critical: avdec_h264 not found, cannot build static chain\n", __func__);
+		lwsl_err("%s: Critical: Decoder not found for codec %d, cannot build static chain\n", __func__, codec);
+		if (caps) gst_caps_unref(caps);
 		return -1;
 	}
+
 	GstElement *que = gst_element_factory_make("queue", n_que);
 	g_object_set(G_OBJECT(que), "max-size-buffers", 0, "max-size-time", (guint64)0, "max-size-bytes", (guint)0, NULL);
-
-	GstElement *h264parse = gst_element_factory_make("h264parse", n_parse);
 
 	GstElement *deint = gst_element_factory_make("deinterlace", n_deint);
 	GstElement *vconv = gst_element_factory_make("videoconvert", n_vconv);
@@ -1534,8 +1555,9 @@ init_participant_media(struct participant *p, enum lws_video_codec codec)
 	GstElement *vrate = gst_element_factory_make("videorate", n_vrate);
 	GstElement *cfilter = gst_element_factory_make("capsfilter", n_cfilt);
 
-	if (!s->appsrc || !s->decodebin || !que || !h264parse || !deint || !vconv || !vscale || !vrate || !cfilter) {
+	if (!s->appsrc || !s->decodebin || !que || !parser || !deint || !vconv || !vscale || !vrate || !cfilter) {
 		lwsl_err("%s: Failed to create GStreamer elements\n", __func__);
+		if (caps) gst_caps_unref(caps);
 		return -1;
 	}
 
@@ -1544,10 +1566,6 @@ init_participant_media(struct participant *p, enum lws_video_codec codec)
 	g_object_set(G_OBJECT(cfilter), "caps", icaps, NULL);
 	gst_caps_unref(icaps);
 
-	GstCaps *caps = gst_caps_new_simple("video/x-h264",
-			"stream-format", G_TYPE_STRING, "byte-stream",
-			"alignment", G_TYPE_STRING, "au",
-			NULL);
 	g_object_set(G_OBJECT(s->appsrc), "caps", caps, "format", GST_FORMAT_TIME,
 			"is-live", TRUE, "do-timestamp", FALSE, NULL);
 	gst_caps_unref(caps);
@@ -1564,10 +1582,10 @@ init_participant_media(struct participant *p, enum lws_video_codec codec)
 		/* Set compositor pad to be as lenient as possible */
 		g_object_set(G_OBJECT(p->room->compositor), "latency", (GstClockTime)0, NULL);
 
-		gst_bin_add_many(GST_BIN(p->room->pipeline), s->appsrc, que, h264parse, s->decodebin, deint, vconv, vscale, vrate, cfilter, NULL);
+		gst_bin_add_many(GST_BIN(p->room->pipeline), s->appsrc, que, parser, s->decodebin, deint, vconv, vscale, vrate, cfilter, NULL);
 
-		/* Direct link: appsrc -> que -> h264parse -> avdec_h264 -> deinterlace -> vconv -> vscale -> videorate -> cfilter */
-		if (!gst_element_link_many(s->appsrc, que, h264parse, s->decodebin, deint, vconv, vscale, vrate, cfilter, NULL)) {
+		/* Direct link: appsrc -> que -> parser -> decoder -> deinterlace -> vconv -> vscale -> videorate -> cfilter */
+		if (!gst_element_link_many(s->appsrc, que, parser, s->decodebin, deint, vconv, vscale, vrate, cfilter, NULL)) {
 			lwsl_err("%s: Failed to link static participant chain\n", __func__);
 		}
 
@@ -1591,7 +1609,7 @@ init_participant_media(struct participant *p, enum lws_video_codec codec)
 
 		gst_element_sync_state_with_parent(s->appsrc);
 		gst_element_sync_state_with_parent(que);
-		gst_element_sync_state_with_parent(h264parse);
+		gst_element_sync_state_with_parent(parser);
 		gst_element_sync_state_with_parent(s->decodebin);
 		gst_element_sync_state_with_parent(deint);
 		gst_element_sync_state_with_parent(vconv);
