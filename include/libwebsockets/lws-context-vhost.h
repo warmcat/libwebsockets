@@ -221,6 +221,10 @@
 #define LWS_SERVER_OPTION_GLIB					 (1ll << 33)
 	/**< (CTX) Use glib event loop */
 
+#define LWS_SERVER_OPTION_QUIC_FORCE_RETRY			(1ll << 52)
+	/**< (VH) For QUIC, force the server to always send a Retry packet.
+	 * Normally used only for testing. */
+
 #define LWS_SERVER_OPTION_H2_PRIOR_KNOWLEDGE			 (1ll << 34)
 	/**< (VH) Tell the vhost to treat plain text http connections as
 	 * H2 with prior knowledge (no upgrade request involved)
@@ -1114,6 +1118,9 @@ struct lws_context_creation_info {
 
 	uint32_t			quic_initial_cwnd;
 	/**< CONTEXT: 0 for default (10 * MTU), or the desired initial congestion window in bytes */
+
+	uint32_t			quic_0rtt_max_size;
+	/**< CONTEXT: 0 for default (4096), or the desired max 0-RTT early data size */
 
 #if !defined(__STRICT_ANSI__)
 	void *_unused[1]; /**< dummy */

@@ -365,7 +365,7 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 
 #if GNUTLS_VERSION_NUMBER >= 0x030605
         if (flags & GNUTLS_ENABLE_EARLY_DATA) {
-                gnutls_record_set_max_early_data_size(session, 0xFFFFFFFF);
+                gnutls_record_set_max_early_data_size(session, wsi->a.context->quic_0rtt_max_size ? wsi->a.context->quic_0rtt_max_size : 0xFFFFFFFF);
                 if (wsi->a.vhost->tls.anti_replay)
                         gnutls_anti_replay_enable(session, (gnutls_anti_replay_t)wsi->a.vhost->tls.anti_replay);
         }

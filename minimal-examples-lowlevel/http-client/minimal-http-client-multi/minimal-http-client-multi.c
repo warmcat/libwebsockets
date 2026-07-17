@@ -749,20 +749,20 @@ int main(int argc, const char **argv)
 
 #if defined(LWS_WITH_TLS_SESSIONS) && !defined(LWS_WITH_MBEDTLS) && !defined(WIN32)
         /*
-         * When the QIR harness sets TESTCASE=zerortt it does not pass
-         * --save-ticket / --load-ticket / --0rtt on the command line.
-         * Auto-configure the ticket persistence path so that phase 1
+         * When --0rtt or the QIR harness (TESTCASE=zerortt) is used,
+         * auto-configure the ticket persistence path so that phase 1
          * saves the ticket and phase 2 can load it and attempt 0-RTT,
          * provided the caller hasn't already set an explicit path.
          */
-        if (testcase && !strcmp(testcase, "zerortt")) {
+        if ((info.options & LWS_SERVER_OPTION_ALLOW_EARLY_DATA) ||
+	    (testcase && !strcmp(testcase, "zerortt"))) {
                 if (!save_ticket[0])
                         lws_strncpy(save_ticket, "./lws_session_ticket",
                                     sizeof(save_ticket));
                 if (!load_ticket[0])
                         lws_strncpy(load_ticket, "./lws_session_ticket",
                                     sizeof(load_ticket));
-                lwsl_notice("%s: TESTCASE=zerortt: ticket path '%s'\n",
+                lwsl_notice("%s: early-data/zerortt: ticket path '%s'\n",
                             __func__, save_ticket);
                 if (!info.quic_initial_cwnd)
                         info.quic_initial_cwnd = 250000;

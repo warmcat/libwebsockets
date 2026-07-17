@@ -301,6 +301,7 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 		if (wsi->a.vhost && (wsi->a.vhost->options & LWS_SERVER_OPTION_ALLOW_EARLY_DATA)) {
 #if !defined(USE_WOLFSSL) && !defined(LWS_WITH_MBEDTLS)
 			SSL_set_early_data_enabled(wsi->tls.ssl, 1);
+			SSL_set_max_early_data(wsi->tls.ssl, wsi->a.context->quic_0rtt_max_size ? wsi->a.context->quic_0rtt_max_size : 0xFFFFFFFF);
 #endif
 		}
 		SSL_set_accept_state(wsi->tls.ssl);
@@ -626,6 +627,7 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 		if (wsi->a.vhost && (wsi->a.vhost->options & LWS_SERVER_OPTION_ALLOW_EARLY_DATA)) {
 #if !defined(USE_WOLFSSL) && !defined(LWS_WITH_MBEDTLS)
 			SSL_set_early_data_enabled(wsi->tls.ssl, 1);
+			SSL_set_max_early_data(wsi->tls.ssl, wsi->a.context->quic_0rtt_max_size ? wsi->a.context->quic_0rtt_max_size : 0xFFFFFFFF);
 #endif
 		}
 		SSL_set_accept_state(wsi->tls.ssl);

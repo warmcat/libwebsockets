@@ -44,7 +44,7 @@ newreno_init(struct lws *nwsi)
 	st->last_pacing_time = lws_now_usecs();
 	st->pacing_credit = st->cwnd; /* initial burst allowed */
 
-	lwsl_cx_info(nwsi->a.context, "QUIC NewReno: init cwnd=%zu, mtu=%u", st->cwnd, mtu);
+	lwsl_notice("QUIC NewReno: init cwnd=%zu, mtu=%u", st->cwnd, mtu);
 }
 
 static void
@@ -155,7 +155,12 @@ newreno_can_send(struct lws *nwsi, size_t bytes)
 
 	if (!st) return 0;
 
-	return (st->bytes_in_flight + bytes <= st->cwnd);
+	int ok = (st->bytes_in_flight + bytes <= st->cwnd);
+	if (!ok) {
+		lwsl_notice("AGY-DEBUG: newreno_can_send failed: bytes_in_flight=%zu, bytes=%zu, cwnd=%zu\n",
+			st->bytes_in_flight, bytes, st->cwnd);
+	}
+	return ok;
 }
 
 static lws_usec_t
