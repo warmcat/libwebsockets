@@ -1979,6 +1979,28 @@ do_more_inside_frame:
 
 		assert(encap != wsi);
 
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+		/*
+		 * The h1 path fires LWS_EXT_CB_PACKET_TX_PRESEND from
+		 * lws_issue_raw_ext_access(); this encapsulated path used to
+		 * bypass it, so permessage-deflate never got to set RSV1 (or
+		 * fix up the first-frame opcode) on the compressed frame it
+		 * already produced above -- peers then treated the deflated
+		 * payload as plain text.  Give active extensions the same
+		 * look at the assembled frame here.
+		 */
+		{
+			struct lws_tokens ebuf;
+
+			ebuf.token = buf - pre;
+			ebuf.len = (int)(len + (unsigned int)pre);
+
+			if (lws_ext_cb_active(wsi, LWS_EXT_CB_PACKET_TX_PRESEND,
+					      &ebuf, 0) < 0)
+				return -1;
+		}
+#endif
+
 		return lws_rops_func_fidx(encap->role_ops,
 				   LWS_ROPS_write_role_protocol).
 					write_role_protocol(wsi, buf - pre,
