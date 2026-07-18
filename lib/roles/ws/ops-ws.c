@@ -2093,6 +2093,15 @@ rops_callback_on_writable_ws(struct lws *wsi)
 						     encapsulation_parent(wsi);
 
 		assert(enc);
+		if (!enc)
+			/*
+			 * Mid-teardown: close_kill_connection already unlinked
+			 * us from the h2 parent (the close callback fires
+			 * after that).  Nothing can be scheduled any more; on
+			 * release builds the assert above is compiled out and
+			 * this used to segfault.
+			 */
+			return 1;
 		if (lws_rops_func_fidx(enc->role_ops,
 				       LWS_ROPS_callback_on_writable).
 						callback_on_writable(wsi))
