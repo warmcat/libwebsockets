@@ -68,6 +68,14 @@ lws_send_pipe_choked(struct lws *wsi)
 
 #if defined(LWS_WITH_HTTP2)
 	wsi_eff = lws_get_network_wsi(wsi);
+
+	/*
+	 * ws-over-h2: whole DATA frames parked on the stream awaiting h2
+	 * tx credit (see lws_h2_frame_write) mean the pipe is choked for
+	 * this stream even though the network wsi could accept bytes.
+	 */
+	if (wsi_eff != wsi && lws_has_buffered_out(wsi))
+		return 1;
 #else
 	wsi_eff = wsi;
 #endif

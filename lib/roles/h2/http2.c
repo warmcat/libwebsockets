@@ -704,6 +704,33 @@ int lws_h2_frame_write(struct lws *wsi, int type, int flags,
 		   sid, len, (int)wsi->txc.tx_cr, (int)nwsi->txc.tx_cr);
 
 	if (type == LWS_H2_FRAME_TYPE_DATA) {
+#if defined(LWS_ROLE_WS)
+		if (wsi->h23_stream_carries_ws &&
+		    (lws_has_buffered_out(wsi) ||
+		     lws_h2_tx_cr_get(wsi) < (int)len)) {
+			/*
+			 * ws-over-h2 (RFC 8441): not enough h2 flow-control
+			 * credit for this DATA frame (or earlier frames are
+			 * already parked and must keep their order).  Sending
+			 * DATA past the peer's advertised window is a
+			 * connection-fatal FLOW_CONTROL_ERROR, and unlike the
+			 * http file-serving path the ws user API has no seat
+			 * at the flow-control table -- so park the whole
+			 * frame (header included) on the stream's buflist and
+			 * send it from the POLLOUT servicing loop once
+			 * WINDOW_UPDATE restores credit (which re-arms every
+			 * mux child).  Credit is consumed at drain time.
+			 */
+			if (lws_buflist_append_segment(&wsi->buflist_out,
+					&buf[-LWS_H2_FRAME_HEADER_LENGTH],
+					len + LWS_H2_FRAME_HEADER_LENGTH) < 0)
+				return -1;
+
+			lws_callback_on_writable(wsi);
+
+			return (int)len;
+		}
+#endif
 		if (wsi->txc.tx_cr < (int)len)
 
 			lwsl_info("%s: %s: sending payload len %d"
@@ -722,6 +749,102 @@ int lws_h2_frame_write(struct lws *wsi, int type, int flags,
 
 	return n;
 }
+
+#if defined(LWS_ROLE_WS)
+/*
+ * Send as much parked ws-over-h2 DATA (see lws_h2_frame_write) as the
+ * stream's tx credit allows, oldest first.  Each parked buflist segment is one
+ * complete h2 frame: the 9-byte header (carrying the payload length) plus the
+ * payload.  h2 DATA is a byte stream, so a frame larger than the available
+ * credit is SPLIT: a chunk goes out under a fresh header and the stored
+ * header is rewritten in place for the remainder -- the peer's stream window
+ * (SETTINGS_INITIAL_WINDOW_SIZE) may be permanently smaller than a parked
+ * frame, so waiting for whole-frame credit can deadlock.  Flags (e.g.
+ * END_STREAM) are only sent with a frame's final chunk.  Returns <0 on a
+ * fatal write error; leftover bytes stay parked until the next WINDOW_UPDATE.
+ */
+int
+lws_h2_ws_drain_parked_tx(struct lws *nwsi, struct lws *wsi)
+{
+	uint8_t out[LWS_H2_FRAME_HEADER_LENGTH + 4096];
+
+	while (lws_has_buffered_out(wsi)) {
+		uint8_t *seg = NULL;
+		size_t sl = lws_buflist_next_segment_len(&wsi->buflist_out,
+							 &seg);
+		unsigned int plen, chunk, rem;
+		uint8_t type, flags, sid[4];
+		int cr;
+
+		if (!sl || !seg || sl < LWS_H2_FRAME_HEADER_LENGTH)
+			return -1;
+
+		plen = ((unsigned int)seg[0] << 16) |
+		       ((unsigned int)seg[1] << 8) | seg[2];
+		type = seg[3];
+		flags = seg[4];
+		memcpy(sid, &seg[5], 4);
+
+		if (sl < LWS_H2_FRAME_HEADER_LENGTH + plen)
+			return -1;
+
+		cr = lws_h2_tx_cr_get(wsi);
+		if (plen && cr <= 0)
+			/* still skint; WINDOW_UPDATE will re-arm us */
+			return 0;
+
+		chunk = plen;
+		if (chunk > (unsigned int)cr)
+			chunk = (unsigned int)cr;
+		if (chunk > sizeof(out) - LWS_H2_FRAME_HEADER_LENGTH)
+			chunk = sizeof(out) - LWS_H2_FRAME_HEADER_LENGTH;
+
+		out[0] = (uint8_t)(chunk >> 16);
+		out[1] = (uint8_t)(chunk >> 8);
+		out[2] = (uint8_t)chunk;
+		out[3] = type;
+		out[4] = chunk == plen ? flags : 0;
+		memcpy(&out[5], sid, 4);
+		memcpy(&out[LWS_H2_FRAME_HEADER_LENGTH],
+		       &seg[LWS_H2_FRAME_HEADER_LENGTH], chunk);
+
+		lws_h2_tx_cr_consume(wsi, (int)chunk);
+
+		/*
+		 * lws_issue_raw() either sends the bytes or copies any
+		 * remainder onto nwsi's own buflist, so the parked bytes can
+		 * be released either way.
+		 */
+		if (lws_issue_raw(nwsi, out,
+				  LWS_H2_FRAME_HEADER_LENGTH + chunk) < 0)
+			return -1;
+
+		if (chunk == plen) {
+			lws_buflist_use_segment(&wsi->buflist_out,
+					LWS_H2_FRAME_HEADER_LENGTH + plen);
+			continue;
+		}
+
+		/*
+		 * Partial send: stamp a header for the remainder over the
+		 * last 9 already-consumed bytes (the sent payload ended at
+		 * seg[chunk + 9], so seg[chunk..chunk+8] only covers spent
+		 * header/payload bytes for any chunk >= 1), then advance the
+		 * segment onto it.
+		 */
+		rem = plen - chunk;
+		seg[chunk + 0] = (uint8_t)(rem >> 16);
+		seg[chunk + 1] = (uint8_t)(rem >> 8);
+		seg[chunk + 2] = (uint8_t)rem;
+		seg[chunk + 3] = type;
+		seg[chunk + 4] = flags;
+		memcpy(&seg[chunk + 5], sid, 4);
+		lws_buflist_use_segment(&wsi->buflist_out, chunk);
+	}
+
+	return 0;
+}
+#endif
 
 static void lws_h2_set_bin(struct lws *wsi, int n, unsigned char *buf)
 {
