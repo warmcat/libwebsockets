@@ -706,7 +706,7 @@ int lws_h2_frame_write(struct lws *wsi, int type, int flags,
 	if (type == LWS_H2_FRAME_TYPE_DATA) {
 #if defined(LWS_ROLE_WS)
 		if (wsi->h23_stream_carries_ws &&
-		    (lws_has_buffered_out(wsi) ||
+		    (wsi->buflist_out ||
 		     lws_h2_tx_cr_get(wsi) < (int)len)) {
 			/*
 			 * ws-over-h2 (RFC 8441): not enough h2 flow-control
@@ -768,7 +768,13 @@ lws_h2_ws_drain_parked_tx(struct lws *nwsi, struct lws *wsi)
 {
 	uint8_t out[LWS_H2_FRAME_HEADER_LENGTH + 4096];
 
-	while (lws_has_buffered_out(wsi)) {
+	/*
+	 * Test the stream's own buflist directly: lws_has_buffered_out()
+	 * additionally reports the nwsi's buffer, which fills up whenever
+	 * lws_issue_raw() below takes a partial socket write and must not
+	 * keep us looping after our own parked frames are gone.
+	 */
+	while (wsi->buflist_out) {
 		uint8_t *seg = NULL;
 		size_t sl = lws_buflist_next_segment_len(&wsi->buflist_out,
 							 &seg);
