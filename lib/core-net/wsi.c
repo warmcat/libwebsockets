@@ -609,7 +609,7 @@ int lws_has_buffered_out(struct lws *wsi) {
 					struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
 					if (((f->type & 0xf8) == LWS_QUIC_FT_STREAM && f->stream_id == sid) ||
 					    (f->type == LWS_QUIC_FT_STREAM_DATA_BLOCKED && f->stream_id == sid)) {
-						lwsl_notice("lws_has_buffered_out: %s has pending_tx stream/blocked frame on sid %llu\n", lws_wsi_tag(wsi), (unsigned long long)sid);
+						lwsl_info("lws_has_buffered_out: %s has pending_tx stream/blocked frame on sid %llu\n", lws_wsi_tag(wsi), (unsigned long long)sid);
 						return 1;
 					}
 				} lws_end_foreach_dll_safe(d, d1);
@@ -618,7 +618,44 @@ int lws_has_buffered_out(struct lws *wsi) {
 					struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
 					if (((f->type & 0xf8) == LWS_QUIC_FT_STREAM && f->stream_id == sid) ||
 					    (f->type == LWS_QUIC_FT_STREAM_DATA_BLOCKED && f->stream_id == sid)) {
-						lwsl_notice("lws_has_buffered_out: %s has in_flight stream/blocked frame on sid %llu\n", lws_wsi_tag(wsi), (unsigned long long)sid);
+						lwsl_info("lws_has_buffered_out: %s has in_flight stream/blocked frame on sid %llu\n", lws_wsi_tag(wsi), (unsigned long long)sid);
+						return 1;
+					}
+				} lws_end_foreach_dll_safe(d, d1);
+			}
+		}
+	}
+#endif
+
+	return 0;
+}
+
+int lws_has_unsent_buffered_out(struct lws *wsi) {
+	if (wsi->buflist_out)
+		return 1;
+
+#if defined(LWS_ROLE_H2)
+	{
+		struct lws *nwsi = lws_get_network_wsi(wsi);
+
+		if (nwsi && nwsi->buflist_out)
+			return 1;
+	}
+#endif
+
+#if defined(LWS_ROLE_QUIC)
+	if (wsi->quic.qs) {
+		struct lws *nwsi = lws_get_network_wsi(wsi);
+		struct lws_quic_netconn *qn = nwsi ? nwsi->quic.qn : NULL;
+		if (qn) {
+			uint64_t sid = wsi->quic.qs->stream_id;
+			int i;
+
+			for (i = 0; i < LWS_QUIC_LEVEL_COUNT; i++) {
+				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->pending_tx[i].head) {
+					struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
+					if (((f->type & 0xf8) == LWS_QUIC_FT_STREAM && f->stream_id == sid) ||
+					    (f->type == LWS_QUIC_FT_STREAM_DATA_BLOCKED && f->stream_id == sid)) {
 						return 1;
 					}
 				} lws_end_foreach_dll_safe(d, d1);

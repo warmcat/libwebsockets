@@ -3282,12 +3282,14 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 		 * H3 frames it (adding overhead), resulting in a write request of `cr + overhead` bytes,
 		 * which exceeds the flow control window and blocks, causing issues on non-seekable streams.
 		 */
-		if (cr > 9)
-			cr -= 9;
-		else if (cr > 0)
-			cr = 1;
-		else
+		if (cr >= 3) {
+			if (cr > 9)
+				cr -= 9;
+			else
+				cr -= 2;
+		} else {
 			cr = 0;
+		}
 
 		if (!cr && !add)
 			lwsl_debug("rops_tx_credit_quic: US_TO_PEER returning 0: "

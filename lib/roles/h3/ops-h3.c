@@ -233,8 +233,10 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 			wsi->socket_is_permanently_unusable = 1;
 			return -1;
 		}
-		lws_callback_on_writable(wsi);
-		wsi->mux.requested_POLLOUT = 1;
+		if (lws_has_unsent_buffered_out(wsi)) {
+			lws_callback_on_writable(wsi);
+			wsi->mux.requested_POLLOUT = 1;
+		}
 		return 0;
 	}
 
