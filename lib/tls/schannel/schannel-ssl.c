@@ -151,7 +151,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
                while (p < end) {
                        const char *comma = strchr(p, ',');
                        size_t item_len;
-                       if (comma) item_len = comma - p;
+                       if (comma) item_len = lws_ptr_diff_size_t(comma, p);
                        else item_len = strlen(p);
 
                        if (item_len > 0 && item_len < 256) {
@@ -417,7 +417,7 @@ lws_tls_server_accept(struct lws *wsi)
 
                while (p && *p) {
                        const char *comma = strchr(p, ',');
-                       size_t item_len = comma ? (size_t)(comma - p) : strlen(p);
+                       size_t item_len = comma ? lws_ptr_diff_size_t(comma, p) : strlen(p);
                        if (item_len > 255 || (pData + item_len + 1 - alpn_buf) > 256) break;
                        *pData++ = (uint8_t)item_len;
                        memcpy(pData, p, item_len);

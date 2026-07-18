@@ -479,7 +479,26 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	lws_tls_reuse_session(wsi);
 #endif
 
-	if (wsi->a.vhost->tls.alpn_ctx.len) {
+	if (wsi->alpn[0]) {
+		gnutls_datum_t alpn[4];
+		unsigned int i = 0;
+		char *p = wsi->alpn;
+		char *end = p + strlen(p);
+		
+		while (p < end && i < 4) {
+			char *comma = strchr(p, ',');
+			alpn[i].data = (uint8_t *)p;
+			if (comma) {
+				alpn[i].size = (unsigned int)lws_ptr_diff_size_t(comma, p);
+				p = comma + 1;
+			} else {
+				alpn[i].size = (unsigned int)lws_ptr_diff_size_t(end, p);
+				p = end;
+			}
+			i++;
+		}
+		gnutls_alpn_set_protocols(session, alpn, i, 0);
+	} else if (wsi->a.vhost->tls.alpn_ctx.len) {
 		gnutls_datum_t alpn[4];
 		unsigned int i = 0, p = 0;
 		while (p < wsi->a.vhost->tls.alpn_ctx.len && i < 4) {
