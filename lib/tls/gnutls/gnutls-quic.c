@@ -351,10 +351,10 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 			char *comma = strchr(p, ',');
 			alpn[i].data = (uint8_t *)p;
 			if (comma) {
-				alpn[i].size = (unsigned int)(comma - p);
+				alpn[i].size = (unsigned int)lws_ptr_diff_size_t(comma, p);
 				p = comma + 1;
 			} else {
-				alpn[i].size = (unsigned int)(end - p);
+				alpn[i].size = (unsigned int)lws_ptr_diff_size_t(end, p);
 				p = end;
 			}
 			/* Replace comma with NUL for cleaner logging, though gnutls only uses size */

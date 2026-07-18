@@ -201,6 +201,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
 #if defined(LWS_WITH_TLS_SESSIONS)
 		lws_tls_session_new_gnutls(wsi);
 #endif
+		lws_tls_server_conn_alpn(wsi);
 		return LWS_SSL_CAPABLE_DONE;
 	}
 

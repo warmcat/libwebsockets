@@ -3502,7 +3502,7 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 		if (wsi->a.context->h3_cap_cache && wsi->stash && wsi->stash->cis[CIS_HOST]) {
 			lws_h3_cap_info_t cap;
 			cap.state = LWS_H3_STATE_KNOWN_GOOD;
-			cap.latency_us = (uint32_t)(lws_now_usecs() - wsi->quic.quic_race_start_us);
+			cap.latency_us = (uint32_t)(lws_now_usecs() - nwsi->quic.quic_race_start_us);
 
 			lws_cache_write_through(wsi->a.context->h3_cap_cache, wsi->stash->cis[CIS_HOST],
 						(const uint8_t *)&cap, sizeof(cap),

@@ -283,7 +283,7 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 
 		while (p && *p) {
 			const char *comma = strchr(p, ',');
-			size_t item_len = comma ? (size_t)(comma - p) : strlen(p);
+			size_t item_len = comma ? lws_ptr_diff_size_t(comma, p) : strlen(p);
 			if (item_len > 255 || (pData + item_len + 1 - alpn_u.buf) > 256) break;
 			*pData++ = (uint8_t)item_len;
 			memcpy(pData, p, item_len);
@@ -327,7 +327,7 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 
 		while (p && *p) {
 			const char *comma = strchr(p, ',');
-			size_t item_len = comma ? (size_t)(comma - p) : strlen(p);
+			size_t item_len = comma ? lws_ptr_diff_size_t(comma, p) : strlen(p);
 			if (item_len > 255 || (pData + item_len + 1 - alpn_u.buf) > 256) break;
 			*pData++ = (uint8_t)item_len;
 			memcpy(pData, p, item_len);
