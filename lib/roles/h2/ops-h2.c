@@ -1089,6 +1089,41 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 
 		/* priority 1: post compression-transform buffered output */
 
+#if defined(LWS_ROLE_WS)
+		if (w->h23_stream_carries_ws) {
+			/*
+			 * ws-over-h2: whole DATA frames parked by
+			 * lws_h2_frame_write() waiting for tx credit.  Gate
+			 * and re-arm on the stream's OWN buflist, not
+			 * lws_has_buffered_out(): that also reports the
+			 * nwsi's buffer (eg, another stream's partial socket
+			 * write), which must neither pull us into the drain
+			 * with nothing parked nor block re-arming the user
+			 * once our own frames are gone.  If nothing of ours
+			 * is parked, fall through to normal servicing.
+			 */
+			if (w->buflist_out) {
+				if (lws_h2_ws_drain_parked_tx(wsi, w) < 0) {
+					lwsl_info("%s signalling to close\n",
+						  __func__);
+					lws_close_free_wsi(w,
+						LWS_CLOSE_STATUS_NOSTATUS,
+						"h2 end stream 1");
+					wa = &wsi->mux.child_list;
+					goto next_child;
+				}
+				if (!w->buflist_out)
+					/* fully drained: let the user write */
+					lws_callback_on_writable(w);
+				/*
+				 * else still skint: stay quiet, the
+				 * WINDOW_UPDATE handler re-arms every child
+				 */
+				wa = &wsi->mux.child_list;
+				goto next_child;
+			}
+		} else
+#endif
 		if (lws_has_buffered_out(w)) {
 			lwsl_debug("%s: completing partial\n", __func__);
 			if (lws_issue_raw(w, NULL, 0) < 0) {

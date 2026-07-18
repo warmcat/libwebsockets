@@ -2081,6 +2081,26 @@ rops_callback_on_writable_ws(struct lws *wsi)
 }
 
 static int
+rops_tx_credit_ws(struct lws *wsi, char peer_to_us, int add)
+{
+#if defined(LWS_WITH_HTTP2)
+	/*
+	 * ws-over-h2: flow control belongs to the encapsulating h2 stream.
+	 * Delegate so lws_get_peer_write_allowance() reports the stream's
+	 * real tx window and so lws_wsi_tx_credit() can grant manual rx
+	 * credit (LCCSCF_H2_MANUAL_RXFLOW) on a ws-upgraded stream.
+	 */
+	if (lwsi_role_h2_ENCAPSULATION(wsi))
+		return lws_rops_func_fidx(&role_ops_h2, LWS_ROPS_tx_credit).
+					tx_credit(wsi, peer_to_us, add);
+#endif
+	(void)peer_to_us;
+	(void)add;
+
+	return -1; /* no guidance, like the rops being absent */
+}
+
+static int
 rops_init_vhost_ws(struct lws_vhost *vh,
 		   const struct lws_context_creation_info *info)
 {
@@ -2196,6 +2216,7 @@ static const lws_rops_t rops_table_ws[] = {
 	/* 10 */ { .close_kill_connection   = rops_close_kill_connection_ws },
 	/* 11 */ { .destroy_role	    = rops_destroy_role_ws },
 	/* 12 */ { .issue_keepalive	    = rops_issue_keepalive_ws },
+	/* 13 */ { .tx_credit		    = rops_tx_credit_ws },
 };
 
 const struct lws_role_ops role_ops_ws = {
@@ -2213,7 +2234,7 @@ const struct lws_role_ops role_ops_ws = {
 	  /* LWS_ROPS_handle_POLLOUT */
 	  /* LWS_ROPS_perform_user_POLLOUT */		0x50,
 	  /* LWS_ROPS_callback_on_writable */
-	  /* LWS_ROPS_tx_credit */			0x60,
+	  /* LWS_ROPS_tx_credit */			0x6d,
 	  /* LWS_ROPS_write_role_protocol */
 	  /* LWS_ROPS_encapsulation_parent */		0x70,
 	  /* LWS_ROPS_alpn_negotiated */
