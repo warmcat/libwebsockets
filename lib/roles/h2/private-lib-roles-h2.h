@@ -331,6 +331,10 @@ lws_h2_do_pps_send(struct lws *wsi);
 int
 lws_h2_frame_write(struct lws *wsi, int type, int flags, unsigned int sid,
 		   unsigned int len, unsigned char *buf);
+#if defined(LWS_ROLE_WS)
+int
+lws_h2_ws_drain_parked_tx(struct lws *nwsi, struct lws *wsi);
+#endif
 struct lws *
 lws_wsi_mux_from_id(struct lws *wsi, unsigned int sid);
 int
