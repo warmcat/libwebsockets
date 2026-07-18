@@ -1360,6 +1360,9 @@ lws_service_flag_pending(struct lws_context *context, int tsi);
 int
 lws_has_buffered_out(struct lws *wsi);
 
+int
+lws_has_unsent_buffered_out(struct lws *wsi);
+
 lws_handling_result_t LWS_WARN_UNUSED_RESULT
 lws_ws_client_rx_sm(struct lws *wsi, unsigned char c);
 
