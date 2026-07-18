@@ -592,12 +592,16 @@ check_accept:
 #endif
 
 	/*
-	 * Confirm his accept token is the one we precomputed
+	 * Confirm his accept token is the one we precomputed.  An extended
+	 * CONNECT reply (ws-over-h2, RFC 8441) has no key exchange and so no
+	 * accept token; p is NULL there and there is nothing to check.
 	 */
 
 	p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_ACCEPT);
-	if (strcmp(p, wsi->http.ah->initial_handshake_hash_base64)) {
-		lwsl_wsi_warn(wsi, "lws_client_int_s_hs: accept '%s' wrong vs '%s'", p,
+	if (!wsi->client_mux_substream &&
+	    (!p || strcmp(p, wsi->http.ah->initial_handshake_hash_base64))) {
+		lwsl_wsi_warn(wsi, "lws_client_int_s_hs: accept '%s' wrong vs '%s'",
+				  p ? p : "(null)",
 				  wsi->http.ah->initial_handshake_hash_base64);
 		*cce = "HS: Accept hash wrong";
 		goto bail2;
@@ -627,7 +631,15 @@ check_accept:
 	/* free up his parsing allocations */
 	lws_header_table_detach(wsi, 0);
 
-	lws_role_transition(wsi, LWSIFR_CLIENT, LRS_ESTABLISHED, &role_ops_ws);
+	/*
+	 * A ws stream carried inside an h2 connection (RFC 8441) must keep
+	 * the encapsulation visible in its role, like the server side does:
+	 * writes, writable requests and tx credit all route via the h2
+	 * parent based on lwsi_role_h2_ENCAPSULATION().
+	 */
+	lws_role_transition(wsi, LWSIFR_CLIENT |
+			    (wsi->client_mux_substream ? LWSIFR_P_ENCAP_H2 : 0),
+			    LRS_ESTABLISHED, &role_ops_ws);
 	lws_validity_confirmed(wsi);
 
 	wsi->rxflow_change_to = LWS_RXFLOW_ALLOW;
