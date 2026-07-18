@@ -1541,6 +1541,19 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 #endif
 			h2n->swsi->client_mux_substream = 1;
 			h2n->swsi->client_h2_alpn = 1;
+#if defined(LWS_ROLE_WS)
+			/*
+			 * If the original client ask was a ws connection, the
+			 * migrated stream carries it (RFC 8441 extended
+			 * CONNECT); without this the h2 client handshake
+			 * issues a plain GET and the ws ask is lost.
+			 */
+			if (wsi->ws) {
+				h2n->swsi->ws = wsi->ws;
+				wsi->ws = NULL;
+				h2n->swsi->do_ws = 1;
+			}
+#endif
 #if defined(LWS_WITH_CLIENT)
 			h2n->swsi->flags = wsi->flags;
 #if defined(LWS_WITH_CONMON)
@@ -2280,7 +2293,15 @@ lws_h2_parser(struct lws *wsi, unsigned char *in, lws_filepos_t _inlen,
 						   "\n", n);
 				}
 #if defined(LWS_WITH_CLIENT)
-				if (h2n->swsi->client_mux_substream) {
+				/*
+				 * A client stream carrying ws (RFC 8441) is
+				 * NOT http body: its DATA is ws framing that
+				 * must go through the ws parser via the
+				 * lws_read_h1() path below, like the server
+				 * side of the same situation.
+				 */
+				if (h2n->swsi->client_mux_substream &&
+				    !h2n->swsi->h23_stream_carries_ws) {
 					if (!h2n->swsi->a.protocol) {
 						lwsl_err("%s: %p doesn't have protocol\n",
 							 __func__, lws_wsi_tag(h2n->swsi));
@@ -2666,27 +2687,6 @@ lws_h2_client_handshake(struct lws *wsi)
 				(unsigned char *)path, n, &p, end))
 		goto fail_length;
 
-#if defined(LWS_ROLE_WS)
-	if (wsi->do_ws) {
-		const char *prot = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ORIGIN);
-		
-		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_VERSION,
-					(unsigned char *)"13", 2, &p, end))
-			goto fail_length;
-
-		if (!prot && wsi->stash && wsi->stash->cis[CIS_PROTOCOL])
-			prot = wsi->stash->cis[CIS_PROTOCOL];
-
-		if (prot) {
-			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_PROTOCOL,
-						(unsigned char *)prot, (int)strlen(prot), &p, end))
-				goto fail_length;
-		}
-
-		wsi->h23_stream_carries_ws = 1;
-	}
-#endif
-
 	n = lws_hdr_total_length(wsi, _WSI_TOKEN_CLIENT_HOST);
 	simp = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST);
 	if (!n && wsi->stash && wsi->stash->cis[CIS_ADDRESS]) {
@@ -2707,6 +2707,34 @@ lws_h2_client_handshake(struct lws *wsi)
 				(unsigned char *)simp, n, &p, end))
 		goto fail_length;
 
+#if defined(LWS_ROLE_WS)
+	if (wsi->do_ws) {
+		/*
+		 * These are regular headers, so they must come after every
+		 * pseudo-header (:authority is the last one above), or strict
+		 * peers fail the stream with "pseudoheader after normal hdrs".
+		 * The requested subprotocol list rides in the same header as
+		 * for h1 upgrades (RFC 8441 Sect 5).
+		 */
+		const char *prot = lws_hdr_simple_ptr(wsi,
+					_WSI_TOKEN_CLIENT_SENT_PROTOCOLS);
+
+		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_VERSION,
+					(unsigned char *)"13", 2, &p, end))
+			goto fail_length;
+
+		if (!prot && wsi->stash && wsi->stash->cis[CIS_PROTOCOL])
+			prot = wsi->stash->cis[CIS_PROTOCOL];
+
+		if (prot) {
+			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_PROTOCOL,
+						(unsigned char *)prot, (int)strlen(prot), &p, end))
+				goto fail_length;
+		}
+
+		wsi->h23_stream_carries_ws = 1;
+	}
+#endif
 
 	if (wsi->flags & LCCSCF_HTTP_MULTIPART_MIME) {
 		p1 = lws_http_multipart_headers(wsi, p);
