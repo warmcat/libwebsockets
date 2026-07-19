@@ -90,6 +90,13 @@ document.addEventListener('DOMContentLoaded', () => {
             <span class="auth-status-text">Logged in as ${data.email || 'Unknown User'}</span>
         </div>`;
 
+        if (data.is_admin) {
+            headerHtml += `<div class="auth-status-row auth-status-spacer" style="margin-top: 10px;">
+                <span class="auth-status-icon">🛠️</span>
+                <span class="auth-status-text"><a href="/api/admin" style="color: var(--primary-color, #007bff); text-decoration: none; font-weight: bold;">Admin Console</a></span>
+            </div>`;
+        }
+
         if (isDenied) {
             headerHtml += `<div class="auth-status-row error-row auth-status-spacer">
                 <span class="auth-status-icon">❌</span>
