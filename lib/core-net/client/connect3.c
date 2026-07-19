@@ -78,6 +78,25 @@ lws_client_h3_grace_cb(lws_sorted_usec_list_t *sul)
 {
 	struct lws *wsi = lws_container_of(sul, struct lws, sul_h3_grace);
 
+	if (!wsi->role_ops || strcmp(wsi->role_ops->name, "quic") != 0)
+		return;
+
+	int first_valid = -1;
+	for (int i = 0; i < wsi->parallel_count; i++) {
+		if (wsi->parallel_conns[i].is_valid) {
+			first_valid = i;
+			break;
+		}
+	}
+
+	if (first_valid == -1 && !wsi->dns_sorted_list.count) {
+		/* There are no parallel TCP sockets, and no more DNS results to try!
+		 * We cannot fallback to TCP. Do not abort the QUIC race, just
+		 * let it run until the overall connect timeout expires. */
+		lwsl_wsi_notice(wsi, "H3 grace timer expired, but no TCP fallback available. Keeping QUIC.");
+		return;
+	}
+
 	lwsl_wsi_notice(wsi, "H3 grace timer expired, abandoning QUIC race");
 
 	/* Mark H3 as FAILED in cache with 5s TTL */
@@ -91,41 +110,32 @@ lws_client_h3_grace_cb(lws_sorted_usec_list_t *sul)
 	}
 
 	/* Abort QUIC and revert to TCP */
-	if (wsi->role_ops && strcmp(wsi->role_ops->name, "quic") == 0) {
-		if (lws_socket_is_valid(wsi->desc.sockfd)) {
-			struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-			lws_pt_lock(pt, __func__);
-			__remove_wsi_socket_from_fds(wsi);
-			lws_pt_unlock(pt);
-			compatible_close(wsi->desc.sockfd);
-			wsi->desc.sockfd = LWS_SOCK_INVALID;
-		}
+	if (lws_socket_is_valid(wsi->desc.sockfd)) {
+		struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+		lws_pt_lock(pt, __func__);
+		__remove_wsi_socket_from_fds(wsi);
+		lws_pt_unlock(pt);
+		compatible_close(wsi->desc.sockfd);
+		wsi->desc.sockfd = LWS_SOCK_INVALID;
+	}
 
-		if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_close_kill_connection))
-			lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_close_kill_connection).close_kill_connection(wsi, LWS_CLOSE_STATUS_NOSTATUS);
+	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_close_kill_connection))
+		lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_close_kill_connection).close_kill_connection(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 
-		/* Promote the first parallel TCP connection */
-		int first_valid = -1;
-		for (int i = 0; i < wsi->parallel_count; i++) {
-			if (wsi->parallel_conns[i].is_valid) {
-				first_valid = i;
-				break;
-			}
+	/* Promote the first parallel TCP connection */
+	if (first_valid != -1) {
+		const struct lws_role_ops *r = lws_role_by_name("h2");
+		if (!r) r = lws_role_by_name("h1");
+		if (r) {
+			lws_role_transition(wsi, LWSIFR_CLIENT, LRS_WAITING_CONNECT, r);
 		}
-		if (first_valid != -1) {
-			const struct lws_role_ops *r = lws_role_by_name("h2");
-			if (!r) r = lws_role_by_name("h1");
-			if (r) {
-				lws_role_transition(wsi, LWSIFR_CLIENT, LRS_WAITING_CONNECT, r);
-			}
-			wsi->desc.sockfd = wsi->parallel_conns[first_valid].desc.sockfd;
-			wsi->position_in_fds_table = wsi->parallel_conns[first_valid].position_in_fds_table;
-			wsi->parallel_conns[first_valid].is_valid = 0;
-			/* We changed the primary fd, the event loop will trigger POLLOUT if it's connected */
-		} else {
-			/* No TCP sockets survived? Fail connection. */
-			lws_client_connect_3_connect(wsi, NULL, NULL, 0, NULL);
-		}
+		wsi->desc.sockfd = wsi->parallel_conns[first_valid].desc.sockfd;
+		wsi->position_in_fds_table = wsi->parallel_conns[first_valid].position_in_fds_table;
+		wsi->parallel_conns[first_valid].is_valid = 0;
+		/* We changed the primary fd, the event loop will trigger POLLOUT if it's connected */
+	} else {
+		/* No TCP sockets survived? Fail connection. */
+		lws_client_connect_3_connect(wsi, NULL, NULL, 0, NULL);
 	}
 }
 
