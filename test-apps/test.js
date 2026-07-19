@@ -7,7 +7,13 @@
 
 function san(s)
 {
-	return document.createTextNode(s);
+	if (typeof s !== 'string')
+		s = s.toString();
+	return s.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+		.replace(/"/g, "&quot;")
+		.replace(/'/g, "&#039;");
 }
 
 function check_file()
