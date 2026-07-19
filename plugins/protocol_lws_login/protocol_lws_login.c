@@ -1053,7 +1053,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		if (lws_login_ends_with(path, "/.lws-login-refresh")) {
 			char csrf[64] = {0};
 			size_t csrf_len = sizeof(csrf);
-			char refresh_session[16] = {0};
+			char refresh_session[128] = {0};
 			size_t refresh_session_len = sizeof(refresh_session);
 			int ck_len;
 

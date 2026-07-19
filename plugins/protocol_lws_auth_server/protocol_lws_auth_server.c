@@ -2442,6 +2442,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				}
 
 				int logged_in = 0;
+				int is_admin = 0;
 				int lacks_grant = 0;
 				char sname[128] = {0};
 				char user_email[128] = {0};
@@ -2519,11 +2520,14 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 						if (sqlite3_prepare_v2(vhd->db, "SELECT s.name, g.grant_level FROM grants g JOIN services s ON g.service_id = s.service_id WHERE g.uid = ?", -1, &stmt_u, NULL) == SQLITE_OK) {
 							sqlite3_bind_int(stmt_u, 1, (int)suid);
 							while (sqlite3_step(stmt_u) == SQLITE_ROW) {
+								const char *sname_db = (const char *)sqlite3_column_text(stmt_u, 0);
+								int gl = sqlite3_column_int(stmt_u, 1);
+								if (!strcmp(sname_db, "*") && gl >= 1)
+									is_admin = 1;
+
 								if (!first) gp += lws_snprintf(gp, lws_ptr_diff_size_t(gend, gp), ", ");
 								first = 0;
-								gp += lws_snprintf(gp, lws_ptr_diff_size_t(gend, gp), "\"%s\": %d",
-									(const char *)sqlite3_column_text(stmt_u, 0),
-									sqlite3_column_int(stmt_u, 1));
+								gp += lws_snprintf(gp, lws_ptr_diff_size_t(gend, gp), "\"%s\": %d", sname_db, gl);
 							}
 							sqlite3_finalize(stmt_u);
 						}
@@ -2642,8 +2646,8 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				pss->http_response_code = HTTP_STATUS_OK;
 				char pl[LWS_SSO_MAX_COOKIE + LWS_PRE];
 		                int len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE,
-					"{\"users_empty\":%d, \"csrf_token\":\"%s\", \"logged_in\":%d, \"lacks_grant\":%d, \"email\":\"%s\", \"strikes\":%d, \"grants\":{%s}, \"logs\":[%s]}",
-					users_empty, csrf, logged_in, lacks_grant, user_email, strikes, grants, logs);
+					"{\"users_empty\":%d, \"csrf_token\":\"%s\", \"logged_in\":%d, \"is_admin\":%d, \"lacks_grant\":%d, \"email\":\"%s\", \"strikes\":%d, \"grants\":{%s}, \"logs\":[%s]}",
+					users_empty, csrf, logged_in, is_admin, lacks_grant, user_email, strikes, grants, logs);
 				if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)pl, (size_t)len + LWS_PRE) < 0)
 					return -1;
 
