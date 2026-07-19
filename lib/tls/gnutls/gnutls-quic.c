@@ -400,11 +400,10 @@ lws_tls_quic_init(struct lws *wsi, lws_tls_quic_secret_cb cb)
 #if GNUTLS_VERSION_NUMBER >= 0x030603
 		if (wsi->a.vhost && wsi->a.vhost->tls.ssl_ctx) {
 			if (wsi->a.vhost->tls.ssl_ctx->ticket_key_valid) {
-				lwsl_notice("%s: enabling server session tickets\n", __func__);
+				// lwsl_notice("%s: enabling server session tickets\n", __func__);
 				gnutls_session_ticket_enable_server(session, &wsi->a.vhost->tls.ssl_ctx->ticket_key);
-			} else {
+			} else
 				lwsl_notice("%s: ticket_key_valid is 0\n", __func__);
-			}
 		}
 #endif
 	}
@@ -483,7 +482,7 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 #endif
 
 	n = gnutls_handshake(session);
-	lwsl_notice("gnutls_handshake returned %d\n", n);
+	// lwsl_notice("gnutls_handshake returned %d\n", n);
 
 	struct lws *active_wsi = (struct lws *)gnutls_session_get_ptr(session);
 	if (!active_wsi)
@@ -494,7 +493,7 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 #if GNUTLS_VERSION_NUMBER >= 0x030603
 		int r = gnutls_session_ticket_send(session, 1, 0);
 		(void)r;
-		lwsl_notice("%s: gnutls_session_ticket_send returned %d\n", __func__, r);
+		// lwsl_notice("%s: gnutls_session_ticket_send returned %d\n", __func__, r);
 #endif
 	}
 #endif
@@ -524,7 +523,7 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 		return 1;
 	}
 
-	lwsl_err("gnutls_handshake failed: %d\n", n);
+	lwsl_wsi_warn(active_wsi, "gnutls_handshake failed: %d\n", n);
 	return n < 0 ? n : -1;
 }
 

@@ -728,7 +728,7 @@ int main(int argc, const char **argv)
                 info.client_ssl_cipher_list = p;
         }
         
-        lwsl_notice("AGY-DEBUG: minimal: before TESTCASE check, client_ssl_cipher_list is '%s'\n", info.client_ssl_cipher_list ? info.client_ssl_cipher_list : "NULL");
+        // lwsl_notice("AGY-DEBUG: minimal: before TESTCASE check, client_ssl_cipher_list is '%s'\n", info.client_ssl_cipher_list ? info.client_ssl_cipher_list : "NULL");
 
         const char *testcase = getenv("TESTCASE");
         if (testcase && !strcmp(testcase, "chacha20")) {

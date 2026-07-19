@@ -224,27 +224,27 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
 	case LWS_TLS_QUIC_SECRET_CLIENT_EARLY:
 		level = LWS_QUIC_LEVEL_EARLY;
 		is_rx = qn->is_server ? 1 : 0;
-		lwsl_notice("lws_quic_set_keys: CLIENT_EARLY (is_rx=%d, len=%d)\n", is_rx, (int)secret_len);
+		// lwsl_notice("lws_quic_set_keys: CLIENT_EARLY (is_rx=%d, len=%d)\n", is_rx, (int)secret_len);
 		break;
 	case LWS_TLS_QUIC_SECRET_CLIENT_HANDSHAKE:
 		level = LWS_QUIC_LEVEL_HANDSHAKE;
 		is_rx = qn->is_server ? 1 : 0;
-		lwsl_notice("lws_quic_set_keys: CLIENT_HANDSHAKE (is_rx=%d, len=%d)\n", is_rx, (int)secret_len);
+		// lwsl_notice("lws_quic_set_keys: CLIENT_HANDSHAKE (is_rx=%d, len=%d)\n", is_rx, (int)secret_len);
 		break;
 	case LWS_TLS_QUIC_SECRET_SERVER_HANDSHAKE:
 		level = LWS_QUIC_LEVEL_HANDSHAKE;
 		is_rx = qn->is_server ? 0 : 1;
-		lwsl_notice("lws_quic_set_keys: SERVER_HANDSHAKE (is_rx=%d, len=%d)\n", is_rx, (int)secret_len);
+		// lwsl_notice("lws_quic_set_keys: SERVER_HANDSHAKE (is_rx=%d, len=%d)\n", is_rx, (int)secret_len);
 		break;
 	case LWS_TLS_QUIC_SECRET_CLIENT_APPLICATION:
 		level = LWS_QUIC_LEVEL_APP;
 		is_rx = qn->is_server ? 1 : 0;
-		lwsl_notice("lws_quic_set_keys: CLIENT_APP (is_rx=%d, len=%d)\n", is_rx, (int)secret_len);
+		// lwsl_notice("lws_quic_set_keys: CLIENT_APP (is_rx=%d, len=%d)\n", is_rx, (int)secret_len);
 		break;
 	case LWS_TLS_QUIC_SECRET_SERVER_APPLICATION:
 		level = LWS_QUIC_LEVEL_APP;
 		is_rx = qn->is_server ? 0 : 1;
-		lwsl_notice("lws_quic_set_keys: SERVER_APP (is_rx=%d, len=%d)\n", is_rx, (int)secret_len);
+		// lwsl_notice("lws_quic_set_keys: SERVER_APP (is_rx=%d, len=%d)\n", is_rx, (int)secret_len);
 		break;
 	default:
 		return -1;
@@ -924,13 +924,13 @@ error_handling:
 #endif
 			if (plen) {
 				lws_strncpy(wsi->alpn, (const char *)prot, plen + 1);
-				lwsl_wsi_notice(wsi, "QUIC ALPN negotiated: %s", wsi->alpn);
+				// lwsl_wsi_notice(wsi, "QUIC ALPN negotiated: %s", wsi->alpn);
 				lws_role_call_alpn_negotiated(wsi, wsi->alpn);
                        } else if (wsi->alpn[0]) {
                                 lwsl_wsi_notice(wsi, "QUIC ALPN already negotiated: %s", wsi->alpn);
                                 lws_role_call_alpn_negotiated(wsi, wsi->alpn);
 			} else {
-				lwsl_wsi_err(wsi, "QUIC requires ALPN, but none was negotiated!");
+				lwsl_wsi_warn(wsi, "QUIC requires ALPN, but none was negotiated!");
 				lws_quic_enter_closing_state(wsi, 0x0100 + 120 /* no_application_protocol */, 0, 0);
 				return -1;
 			}
@@ -939,9 +939,8 @@ error_handling:
 
 		if (orig_wsi->role_ops) {
 			enum lws_callback_reasons cb = (enum lws_callback_reasons)orig_wsi->role_ops->adoption_cb[lwsi_role_server(orig_wsi)];
-			if (cb && orig_wsi->a.protocol && orig_wsi->a.protocol->callback) {
+			if (cb && orig_wsi->a.protocol && orig_wsi->a.protocol->callback)
 				orig_wsi->a.protocol->callback(orig_wsi, cb, orig_wsi->user_space, NULL, 0);
-			}
 		}
 
 		lws_callback_on_writable(orig_wsi);

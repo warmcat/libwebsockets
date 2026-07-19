@@ -84,7 +84,7 @@ lws_quic_pto_cb(lws_sorted_usec_list_t *sul)
 					f->wire_len = 0; /* CRITICAL: Reset wire_len */
 					lws_dll2_add_tail(&f->list, &qn->pending_tx[i]);
 				} lws_end_foreach_dll_safe(d, d1);
-				lwsl_wsi_notice(qn->nwsi, "QUIC PTO: Retransmitting Initial/Handshake for level %d", i);
+				lwsl_wsi_info(qn->nwsi, "QUIC PTO: Retransmitting Initial/Handshake for level %d", i);
 				sent_ping = 1;
 			}
 		}
@@ -100,7 +100,7 @@ lws_quic_pto_cb(lws_sorted_usec_list_t *sul)
 				/* Add at HEAD so the PING is serialized first, before data frames
 				 * fill the MTU and cause pto_probe_needed to decrement prematurely */
 				lws_dll2_add_head(&ping->list, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
-				lwsl_wsi_notice(qn->nwsi, "QUIC PTO: Enqueued PING for level 3");
+				lwsl_wsi_info(qn->nwsi, "QUIC PTO: Enqueued PING for level 3");
                                 qn->pto_probe_needed = 1;
 			}
 			sent_ping = 1;
@@ -113,7 +113,7 @@ lws_quic_pto_cb(lws_sorted_usec_list_t *sul)
 			if (ping) {
 				ping->type = LWS_QUIC_FT_PING;
 				lws_dll2_add_tail(&ping->list, &qn->pending_tx[target_level]);
-				lwsl_wsi_notice(qn->nwsi, "QUIC PTO: Enqueued PING for level %d (no in-flight, handshake incomplete)", target_level);
+				lwsl_wsi_info(qn->nwsi, "QUIC PTO: Enqueued PING for level %d (no in-flight, handshake incomplete)", target_level);
 				qn->pto_probe_needed = 1;
 			}
 			sent_ping = 1;
@@ -326,7 +326,7 @@ lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t acked_pn)
 		if (!any_in_flight2) {
 			if (!qn->handshake_done) { /* was !qn->is_server && ... */
 				/* Keep PTO timer running to probe if peer gets blocked (RFC 9002 6.2.2.1) */
-				lwsl_notice("lws_quic_handle_ack: Keeping PTO timer active (no in-flight, handshake incomplete)\n");
+				lwsl_info("lws_quic_handle_ack: Keeping PTO timer active (no in-flight, handshake incomplete)\n");
 			} else {
 				lws_sul_cancel(&qn->pto_sul);
 			}
@@ -768,7 +768,8 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 		tp += (_len); \
 	} while (0)
 
-			lwsl_notice("QUIC CLIENT: Writing TP buffer! buf size %d", (int)(tp - local_tp_buf)); LWS_QUIC_WRITE_TP_VARINT(0x04, LWS_QUIC_DEFAULT_WINDOW);
+			// lwsl_notice("QUIC CLIENT: Writing TP buffer! buf size %d", (int)(tp - local_tp_buf));
+			LWS_QUIC_WRITE_TP_VARINT(0x04, LWS_QUIC_DEFAULT_WINDOW);
 			LWS_QUIC_WRITE_TP_VARINT(0x05, LWS_QUIC_DEFAULT_WINDOW);
 			LWS_QUIC_WRITE_TP_VARINT(0x06, LWS_QUIC_DEFAULT_WINDOW);
 			LWS_QUIC_WRITE_TP_VARINT(0x07, LWS_QUIC_DEFAULT_WINDOW);
@@ -1373,13 +1374,12 @@ int
 lws_tls_quic_tx_crypto_cb(struct lws *wsi, int level, const uint8_t *buf, size_t len)
 {
 	struct lws_quic_netconn *qn = wsi->quic.qn;
+	struct lws_quic_tx_frame *f;
 
 	if (!qn)
 		return -1;
 
-	lwsl_notice("QUIC TLS TX: %s generated %d bytes of crypto data for level %d\n", lws_wsi_tag(wsi), (int)len, level);
-	
-	struct lws_quic_tx_frame *f;
+	// lwsl_notice("QUIC TLS TX: %s generated %d bytes of crypto data for level %d\n", lws_wsi_tag(wsi), (int)len, level);
 
 	/* Allocate frame struct + payload buffer natively */
 	f = lws_zalloc(sizeof(*f) + len, "quic tx frame");
@@ -1707,7 +1707,7 @@ send_frames:
 		/* Check congestion window - bypass for PTO probes and ACKs */
 		if (!qn->pto_probe_needed && !(qn->needs_ack[pn_space] && is_ack_allowed) && qn->cc_ops && qn->cc_ops->can_send && !qn->cc_ops->can_send(wsi, mtu)) {
 			is_congestion_limited = 1;
-			lwsl_notice("AGY-DEBUG: Congestion window full at level %d, blocking POLLOUT\n", level);
+			// lwsl_notice("AGY-DEBUG: Congestion window full at level %d, blocking POLLOUT\n", level);
 			blocked = 1;
 			break; /* Stop processing sending loops */
 		}
@@ -1716,7 +1716,7 @@ send_frames:
 		if (!qn->pto_probe_needed && !(qn->needs_ack[pn_space] && is_ack_allowed) && qn->cc_ops && qn->cc_ops->get_pacing_delay) {
 			lws_usec_t delay = qn->cc_ops->get_pacing_delay(wsi, mtu);
 			if (delay > 0) {
-				lwsl_notice("AGY-DEBUG: Pacing delay %llu us at level %d, scheduling timer\n", (unsigned long long)delay, level);
+				// lwsl_notice("AGY-DEBUG: Pacing delay %llu us at level %d, scheduling timer\n", (unsigned long long)delay, level);
 				lws_sul_schedule(wsi->a.context, 0, &qn->pacer_sul, lws_quic_pacer_cb, delay);
 				blocked = 1;
 				break; /* Stop processing sending loops */
@@ -1932,7 +1932,7 @@ send_frames:
 				if (type & 0x02) /* LEN */
 					p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), send_len);
 			} else if ((type & 0xfe) == LWS_QUIC_FT_DATAGRAM) {
-				lwsl_debug("QUIC TX: Serialized DATAGRAM frame! len=%zu", send_len);
+				// lwsl_debug("QUIC TX: Serialized DATAGRAM frame! len=%zu", send_len);
 				if (type & 0x01) /* LEN */
 					p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), send_len);
 			} else if (type == LWS_QUIC_FT_MAX_DATA || type == LWS_QUIC_FT_DATA_BLOCKED) {
@@ -1952,7 +1952,8 @@ send_frames:
 				p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->offset); /* app_err_code */
 			} else if (type == LWS_QUIC_FT_MAX_STREAMS_BIDI || type == LWS_QUIC_FT_MAX_STREAMS_UNIDI ||
 				   type == LWS_QUIC_FT_STREAMS_BLOCKED_BIDI || type == LWS_QUIC_FT_STREAMS_BLOCKED_UNIDI) {
-				p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->limit); lwsl_err("QUIC TX: Serialized MAX_STREAMS! limit %llu\n", (unsigned long long)f->limit);
+				p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->limit);
+				// lwsl_wsi_info(wsi, "QUIC TX: Serialized MAX_STREAMS! limit %llu\n", (unsigned long long)f->limit);
 			} else if (type == LWS_QUIC_FT_NEW_CONNECTION_ID) {
 				//lwsl_notice( "QUIC TX: Formatting MAX_STREAM_DATA for stream %llu", (unsigned long long)f->stream_id);
                                 p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), f->stream_id); /* seq */
@@ -2717,7 +2718,9 @@ rops_client_bind_quic(struct lws *wsi, const struct lws_client_connect_info *i)
 		tp += (_len); \
 	} while (0)
 
-			lwsl_notice("QUIC CLIENT: Writing TP buffer! buf size %d", (int)(tp - local_tp_buf)); LWS_QUIC_WRITE_TP_VARINT(0x04, 1048576);
+			// lwsl_notice("QUIC CLIENT: Writing TP buffer! buf size %d", (int)(tp - local_tp_buf));
+
+			LWS_QUIC_WRITE_TP_VARINT(0x04, 1048576);
 			LWS_QUIC_WRITE_TP_VARINT(0x05, 1048576);
 			LWS_QUIC_WRITE_TP_VARINT(0x06, 1048576);
 			LWS_QUIC_WRITE_TP_VARINT(0x07, 1048576);
@@ -3267,8 +3270,8 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 					(struct lws_quic_cc_newreno *)nwsi->quic.qn->cc_state;
 				size_t debt = cc->bytes_in_flight + queued_bytes;
 				size_t headroom = (cc->cwnd > debt) ? cc->cwnd - debt : 0;
-				lwsl_notice("AGY-DEBUG: rops_tx_credit_quic: cwnd=%zu, bytes_in_flight=%zu, queued_bytes=%zu, headroom=%zu, cr_before=%d\n",
-					cc->cwnd, cc->bytes_in_flight, queued_bytes, headroom, cr);
+				// lwsl_notice("AGY-DEBUG: rops_tx_credit_quic: cwnd=%zu, bytes_in_flight=%zu, queued_bytes=%zu, headroom=%zu, cr_before=%d\n",
+				//	cc->cwnd, cc->bytes_in_flight, queued_bytes, headroom, cr);
 				if (headroom < mtu)
 					headroom = mtu; /* always allow 1 packet */
 				if (cr > (int)headroom)

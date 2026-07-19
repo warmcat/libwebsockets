@@ -581,7 +581,7 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 			ah->unk_ll_tail = unk_pos;
 
 			ah->pos += (ah_data_idx_t)(8 + name_len + value_len);
-			lwsl_wsi_notice(wsi, "Added H3 custom header: %.*s = %.*s", (int)name_len, name, (int)value_len, value);
+			// lwsl_wsi_notice(wsi, "Added H3 custom header: %.*s = %.*s", (int)name_len, name, (int)value_len, value);
 		} else
 #endif
 		lwsl_wsi_debug(wsi, "Ignoring unknown header: %s", name ? name : "unknown");

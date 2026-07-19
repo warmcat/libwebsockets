@@ -241,10 +241,10 @@ cubic_can_send(struct lws *nwsi, size_t bytes)
 	if (!st) return 0;
 
 	int ok = (st->bytes_in_flight + bytes <= st->cwnd);
-	if (!ok) {
-		lwsl_notice("AGY-DEBUG: cubic_can_send failed: bytes_in_flight=%zu, bytes=%zu, cwnd=%zu\n",
-			st->bytes_in_flight, bytes, st->cwnd);
-	}
+//	if (!ok) {
+//		lwsl_notice("AGY-DEBUG: cubic_can_send failed: bytes_in_flight=%zu, bytes=%zu, cwnd=%zu\n",
+//			st->bytes_in_flight, bytes, st->cwnd);
+//	}
 	return ok;
 }
 

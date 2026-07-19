@@ -1852,7 +1852,8 @@ lws_http_action(struct lws *wsi)
 	}
 
 	if (meth >= (int)LWS_ARRAY_SIZE(method_names)) {
-		lwsl_err("LWS_HTTP_ACTION_START: bailing due to invalid meth %d\n", meth);
+		char name[48];
+		lwsl_wsi_warn(wsi, "invalid method %d: %s", meth, lws_get_peer_simple(wsi, name, sizeof(name)));
 		goto bail_nuke_ah;
 	}
 
@@ -1862,7 +1863,8 @@ lws_http_action(struct lws *wsi)
 	/* we insist on absolute paths */
 
 	if (!uri_ptr || uri_ptr[0] != '/') {
-		lwsl_err("LWS_HTTP_ACTION_START: bailing due to missing or non-absolute uri_ptr\n");
+		char name[48];
+		lwsl_wsi_warn(wsi, "missing or non-absolute uri_ptr: %s", lws_get_peer_simple(wsi, name, sizeof(name)));
 		lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
 
 		goto bail_nuke_ah;
@@ -2660,7 +2662,7 @@ raw_transition:
 						 * We can't redirect a WSS upgrade to an HTML login page,
 						 * so we must immediately reject it with 401 Unauthorized.
 						 */
-						lwsl_notice("WS Upgrade rejected by interceptor\n");
+						// lwsl_notice("WS Upgrade rejected by interceptor\n");
 						lws_return_http_status(wsi, HTTP_STATUS_UNAUTHORIZED, NULL);
 						goto bail_nuke_ah;
 					}
