@@ -2001,10 +2001,24 @@ do_more_inside_frame:
 		}
 #endif
 
-		return lws_rops_func_fidx(encap->role_ops,
+		n = lws_rops_func_fidx(encap->role_ops,
 				   LWS_ROPS_write_role_protocol).
 					write_role_protocol(wsi, buf - pre,
 							    len + (unsigned int)pre, wp);
+		if (n < 0)
+			return n;
+
+		/*
+		 * The lws_write() contract is to report how much of the
+		 * CALLER's payload was accepted.  len here is the
+		 * post-extension (eg, permessage-deflate compressed) frame
+		 * size, which is routinely SMALLER than what the caller
+		 * passed in -- returning it (as this path used to) makes
+		 * well-behaved callers conclude the write failed short and
+		 * kill the connection.  The h1 path returns orig_len for
+		 * exactly this reason; do the same.
+		 */
+		return (int)orig_len;
 	}
 
 	switch ((*wp) & 0x1f) {
