@@ -23,6 +23,7 @@
 #endif
 
 #include <string.h>
+#include <stdlib.h>
 
 struct vhd_oauth_preauth {
 	struct lws_context *context;
@@ -31,6 +32,7 @@ struct vhd_oauth_preauth {
 	struct lws_dll2_owner listeners;
 	const char *cookie_name;
 	struct lws_jwk jwk;
+	unsigned int max_devices;
 };
 
 struct pss_oauth_preauth {
@@ -77,6 +79,7 @@ callback_lws_oauth_preauth(struct lws *wsi, enum lws_callback_reasons reason,
 	struct pss_oauth_preauth *pss = (struct pss_oauth_preauth *)user;
 	struct vhd_oauth_preauth *vhd = (struct vhd_oauth_preauth *)
 			lws_protocol_vh_priv_get(lws_get_vhost(wsi), lws_get_protocol(wsi));
+	char peerip[64];
 
 	switch (reason) {
 	case LWS_CALLBACK_PROTOCOL_INIT:
@@ -90,12 +93,15 @@ callback_lws_oauth_preauth(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd->context = lws_get_context(wsi);
 		vhd->vhost = lws_get_vhost(wsi);
 		vhd->cookie_name = "auth_session";
+		vhd->max_devices = 32;
 
 		{
 			const struct lws_protocol_vhost_options *pvo = (const struct lws_protocol_vhost_options *)in;
 			while (pvo) {
 				if (!strcmp(pvo->name, "cookie-name"))
 					vhd->cookie_name = pvo->value;
+				if (!strcmp(pvo->name, "max-devices"))
+					vhd->max_devices = (unsigned int)atoi(pvo->value);
 				if (!strcmp(pvo->name, "jwt-jwk")) {
 					if (pvo->value[0] == '{' || lws_jwk_load(&vhd->jwk, pvo->value, NULL, NULL)) {
 						if (lws_jwk_import(&vhd->jwk, NULL, NULL, pvo->value, strlen(pvo->value))) {
@@ -120,16 +126,20 @@ callback_lws_oauth_preauth(struct lws *wsi, enum lws_callback_reasons reason,
 		pss->is_listener = 0;
 		if (vhd->jwk.kty) {
 			struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL, NULL);
-			if (ja && lws_jwt_auth_get_uid(ja) > 0) {
+			if (ja && lws_jwt_auth_get_uid(ja) > 0)
 				pss->is_listener = 1;
-			}
+
 			if (ja)
 				lws_jwt_auth_destroy(&ja);
 		}
 
+		peerip[0] = '\0';
+		lws_get_peer_simple(wsi, peerip, sizeof(peerip));
+
 		if (pss->is_listener) {
-			lwsl_notice("%s: new listener connected\n", __func__);
+			lwsl_wsi_notice(wsi, "new oauth listener device_joined, peer: %s", peerip);
 			lws_dll2_add_tail(&pss->list, &vhd->listeners);
+
 			/* dump current waiters to the new listener */
 			lws_start_foreach_dll(struct lws_dll2 *, d, vhd->devices.head) {
 				struct pss_oauth_preauth *dpss = lws_container_of(d, struct pss_oauth_preauth, list);
@@ -141,7 +151,11 @@ callback_lws_oauth_preauth(struct lws *wsi, enum lws_callback_reasons reason,
 				}
 			} lws_end_foreach_dll(d);
 		} else {
-			lwsl_notice("%s: new device connected\n", __func__);
+			if (vhd->devices.count >= vhd->max_devices) {
+				lwsl_wsi_warn(wsi, "rejecting device: too many pending devices (%u)", vhd->devices.count);
+				return -1;
+			}
+			lwsl_wsi_notice(wsi, "new device connected, peer: %s", peerip);
 			pss->expires = lws_now_secs() + (5 * 60);
 			lws_set_timeout(wsi, PENDING_TIMEOUT_USER_OK, 5 * 60);
 			lws_dll2_add_tail(&pss->list, &vhd->devices);

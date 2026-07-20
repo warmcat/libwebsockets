@@ -15,6 +15,7 @@ This plugin provides a WebSocket-based waiting room for devices that have not ye
 |---|---|---|
 | `cookie-name` | The name of the HTTP cookie that carries the JWT for admin validation. | `auth_session` |
 | `jwt-jwk` | The JSON Web Key (JWK) string used to verify the JWT signature. Can be the literal JSON or a path to a file depending on LWS configuration. | N/A |
+| `max-devices` | Maximum number of unauthenticated devices allowed to be pending simultaneously to protect against resource exhaustion or DDoS attacks. | `32` |
 
 ## Operation
 
