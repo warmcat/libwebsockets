@@ -2870,6 +2870,40 @@ lws_h2_client_handshake(struct lws *wsi)
 				goto fail_length;
 		}
 
+#if !defined(LWS_WITHOUT_EXTENSIONS)
+		{
+			/*
+			 * Offer the vhost's extensions the same way the h1
+			 * upgrade does (RFC 8441 Sect 5 carries the ws
+			 * headers unchanged): without this the client can
+			 * never negotiate eg, permessage-deflate over h2.
+			 */
+			const struct lws_extension *ext =
+						wsi->a.vhost->ws.extensions;
+			char eb[256];
+			int el = 0;
+
+			while (ext && ext->callback) {
+				if (wsi->a.vhost->protocols[0].callback(wsi,
+				    LWS_CALLBACK_CLIENT_CONFIRM_EXTENSION_SUPPORTED,
+				    wsi->user_space, (char *)ext->name, 0)) {
+					ext++;
+					continue;
+				}
+				el += lws_snprintf(eb + (size_t)el,
+						   sizeof(eb) - (size_t)el,
+						   "%s%s", el ? "," : "",
+						   ext->client_offer);
+				ext++;
+			}
+			if (el &&
+			    lws_add_http_header_by_token(wsi,
+					WSI_TOKEN_EXTENSIONS,
+					(unsigned char *)eb, el, &p, end))
+				goto fail_length;
+		}
+#endif
+
 		wsi->h23_stream_carries_ws = 1;
 	}
 #endif
