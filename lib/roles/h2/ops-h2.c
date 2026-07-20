@@ -1139,6 +1139,33 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			goto next_child;
 		}
 
+#if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
+		/*
+		 * ws-over-h2: tx path extension with more to send (eg,
+		 * permessage-deflate whose compressed output exceeded its
+		 * chunk buffer).  The h1 path services this from
+		 * rops_handle_POLLOUT_ws() priority 5; this loop is the ONLY
+		 * POLLOUT servicing an encapsulated child ever gets, so it
+		 * must do the same -- while tx_draining_ext is set,
+		 * lws_send_pipe_choked() reports choked, so the user
+		 * callback will never write again and the connection wedges
+		 * for good.
+		 */
+		if (lwsi_role_ws(w) && lwsi_state(w) == LRS_ESTABLISHED &&
+		    w->ws && w->ws->tx_draining_ext) {
+			if (lws_write(w, NULL, 0, LWS_WRITE_CONTINUATION) < 0) {
+				lwsl_info("%s signalling to close\n", __func__);
+				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
+						   "h2 ws ext drain");
+				wa = &wsi->mux.child_list;
+				goto next_child;
+			}
+			lws_callback_on_writable(w);
+			wa = &wsi->mux.child_list;
+			goto next_child;
+		}
+#endif
+
 		/* priority 2: pre compression-transform buffered output */
 
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
