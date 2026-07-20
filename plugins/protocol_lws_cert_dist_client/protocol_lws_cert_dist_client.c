@@ -805,6 +805,7 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 			sc.stub_name = stub_name;
 			sc.uds_path = uds_path;
 			sc.protocols = stub_protocols;
+			sc.parent_protocol_name = "lws-cert-dist-client";
 
 			char rc[256];
 			memset(rc, 0, sizeof(rc));

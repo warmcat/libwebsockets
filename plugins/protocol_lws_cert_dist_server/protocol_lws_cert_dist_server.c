@@ -298,9 +298,12 @@ callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason
 		}
 		break;
 
+	case LWS_CALLBACK_RAW_CLOSE:
 	case LWS_CALLBACK_CLOSED:
-		if (pss->parser_valid) lejp_destruct(&pss->jctx);
-		if (pss->response) free(pss->response);
+		if (pss) {
+			if (pss->parser_valid) lejp_destruct(&pss->jctx);
+			if (pss->response) free(pss->response);
+		}
 		break;
 
 	default:
@@ -454,6 +457,7 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 			sc.stub_name = stub_name;
 			sc.uds_path = uds_path;
 			sc.protocols = stub_protocols;
+			sc.parent_protocol_name = "lws-cert-dist-server";
 
 			vhd->stub_mgr = lws_stub_spawn(&sc);
 			if (!vhd->stub_mgr)
@@ -542,11 +546,11 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_CLOSED:
-		if (vhd && !vhd->is_stub && pss->established) {
+		if (vhd && !vhd->is_stub && pss && pss->established) {
 			lws_dll2_remove(&pss->list);
 			if (pss->uds_tx) free(pss->uds_tx);
 			if (pss->uds_rx) free(pss->uds_rx);
-			if (pss->wsi_uds) {
+			if (pss->wsi_uds && pss->wsi_uds != (struct lws *)1) {
 				/* disconnect UDS safely */
 				lws_set_opaque_user_data(pss->wsi_uds, NULL);
 			}
@@ -556,7 +560,7 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_SERVER_WRITEABLE:
 		if (!vhd || vhd->is_stub)
                         break;
-		if (!pss->established)
+		if (!pss || !pss->established)
                         return -1;
 
 		/* If we have the payload from the UDS, write it to WSS */
@@ -570,6 +574,7 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 				lwsl_notice("%s: Sent complete cert update to WSS client for %s\n", __func__, pss->domain);
 				free(pss->uds_rx);
 				pss->uds_rx = NULL;
+				pss->wsi_uds = NULL;
 				/* Keep connection open for future updates */
 			}
 			break;
@@ -607,6 +612,28 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 		}
 		break;
+
+	case LWS_CALLBACK_RAW_RX_FILE: {
+		char buf[512];
+		ssize_t n;
+		int fd = (int)lws_get_socket_fd(wsi);
+
+		if (fd < 0)
+			return -1;
+
+		n = read(fd, buf, sizeof(buf) - 1);
+		if (n < 0) {
+			if (errno == EAGAIN || errno == EWOULDBLOCK)
+				return 0;
+			return -1;
+		}
+		if (n == 0)
+			return -1;
+
+		buf[n] = '\0';
+		lwsl_notice("[DIST-SERVER-STUB] %s", buf);
+		break;
+	}
 
 	default:
 		break;

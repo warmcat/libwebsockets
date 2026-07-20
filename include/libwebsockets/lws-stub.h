@@ -33,15 +33,16 @@
 struct lws_stub_manager;
 
 struct lws_stub_config {
-	struct lws_context *cx;
-	struct lws_vhost *vh;
-	const char *stub_name;         /* e.g. "distribution-client" */
-	const char *uds_path;          /* e.g. "/var/run/lws-cert-dist-stub.sock" */
-	const struct lws_protocols *protocols; /* Protocol array for the UDS server vhost */
-	const void *extra_payload;     /* Optional extra data to write to child stdin */
-	size_t extra_payload_len;
-	void *user;                    /* Opaque user pointer passed to vhost */
-	void (*connected_cb)(struct lws_stub_manager *mgr); /* Called when UDS connects */
+	struct lws_context		*cx;
+	struct lws_vhost		*vh;
+	const char			*stub_name;		/* e.g. "distribution-client" */
+	const char			*uds_path;		/* e.g. "/var/run/lws-cert-dist-stub.sock" */
+	const struct lws_protocols	*protocols;		/* Protocol array for the UDS server vhost */
+	const void			*extra_payload;		/* Optional extra data to write to child stdin */
+	size_t				extra_payload_len;
+	void				*user;			/* Opaque user pointer passed to vhost */
+	void (*connected_cb)(struct lws_stub_manager *mgr);	/* Called when UDS connects */
+	const char			*parent_protocol_name;	/* Protocol to bind parent pipes to */
 };
 
 struct lws_stub_manager;

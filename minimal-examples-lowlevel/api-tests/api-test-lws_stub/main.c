@@ -275,6 +275,7 @@ int main(int argc, const char **argv)
 		sc.uds_path = "/tmp/lws-demo-stub.sock"; // NOSONAR
 #endif
 		sc.protocols = stub_protocols;
+		sc.parent_protocol_name = "lws-demo-stub";
 		sc.extra_payload = "initialization_data_for_stub";
 		sc.extra_payload_len = strlen((const char *)sc.extra_payload) + 1;
 

@@ -155,8 +155,8 @@ lws_stub_spawn(const struct lws_stub_config *config)
 
 	spawn_info.exec_array = mgr->exec_array;
 	spawn_info.vh = mgr->vh;
-	if (mgr->protocols)
-		spawn_info.protocol_name = mgr->protocols[0].name;
+	if (config->parent_protocol_name)
+		spawn_info.protocol_name = config->parent_protocol_name;
 
 	mgr->lsp = lws_spawn_piped(&spawn_info);
 	if (mgr->lsp) {
@@ -420,6 +420,7 @@ lws_callback_stub_client(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 	}
 
+	case LWS_CALLBACK_RAW_CLOSE:
 	case LWS_CALLBACK_CLIENT_CLOSED:
 		mgr->wsi_client = NULL;
 		break;
