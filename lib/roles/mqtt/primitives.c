@@ -98,11 +98,16 @@ lws_mqtt_vbi_r(lws_mqtt_vbi *vbi, const uint8_t **in, size_t *len)
 		uint8_t u = *((*in)++);
 
 		(*len)--;
-		uint8_t multiplier = (uint8_t)(7 * vbi->consumed);
+		unsigned int multiplier = (unsigned int)(7 * vbi->consumed);
 		vbi->consumed++;
 		vbi->value = vbi->value + (uint32_t)((u & 0x7f) << multiplier);
-		if (!(u & 0x80))
+		if (!(u & 0x80)) {
+			if (vbi->value > 0x0FFFFFFF) {
+				lwsl_info("%s: vbi exceeds max\n", __func__);
+				return LMSPR_FAILED_FORMAT;
+			}
 			return LMSPR_COMPLETED; /* finished */
+		}
 	}
 
 	if (!vbi->budget) { /* should have ended on b7 = 0 and exited then... */

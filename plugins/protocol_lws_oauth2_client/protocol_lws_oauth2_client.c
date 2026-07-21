@@ -223,7 +223,7 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 
 			lws_urldecode(iss_in, iss_in, sizeof(iss_in));
-			if (strncmp(iss_in, vhd->remote_auth_url, strlen(iss_in))) {
+			if (strlen(iss_in) != strlen(vhd->remote_auth_url) || strcmp(iss_in, vhd->remote_auth_url)) {
 				lwsl_err("%s: Mix-up defense blocked callback for unknown iss %s\\n", __func__, iss_in);
 				lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, "Invalid issuer parameter");
 				return lws_http_transaction_completed(wsi);
@@ -232,7 +232,7 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 						   lws_dll2_get_head(&vhd->pending_auth_list)) {
 				struct pending_auth_state *s = lws_container_of(d, struct pending_auth_state, list);
-				if (!strcmp(s->state, state_in)) {
+				if (strlen(s->state) == strlen(state_in) && !lws_timingsafe_bcmp(s->state, state_in, (uint32_t)strlen(s->state))) {
 					ps = s;
 					break;
 				}
@@ -323,7 +323,7 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		// Found the finished state!
-		lws_snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=3600; SameSite=Lax",
+		lws_snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=3600; SameSite=Lax; Secure; HttpOnly",
 				 vhd->cookie_name, ps->token);
 
 		lws_strncpy(loc, ps->redirect_uri, sizeof(loc));

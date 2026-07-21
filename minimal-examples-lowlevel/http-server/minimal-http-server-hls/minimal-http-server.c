@@ -12,6 +12,7 @@ enum {
 	LWS_SW_H2_PRIOR_KNOWLEDGE,
 	LWS_SW_D,
 	LWS_SW_MEDIA_DIR,
+	LWS_SW_JWK,
 	LWS_SW_HELP,
 };
 
@@ -19,6 +20,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_H2_PRIOR_KNOWLEDGE]	= { "--h2-prior-knowledge", "Enable --h2-prior-knowledge feature" },
 	[LWS_SW_D]			= { "-d", "Debug logs (e.g. -d 15)" },
 	[LWS_SW_MEDIA_DIR]		= { "--media-dir", "Directory containing media files (default: ./media)" },
+	[LWS_SW_JWK]			= { "-j", "JWK for JWT auth" },
 	[LWS_SW_HELP]			= { "--help", "Show this help information" },
 };
 
@@ -39,7 +41,11 @@ static const struct lws_protocol_vhost_options pvo_csp = {
         "frame-ancestors 'none'; base-uri 'none'; form-action 'self';"
 };
 
-static const struct lws_protocol_vhost_options pvo = {
+static struct lws_protocol_vhost_options pvo_jwk = {
+	NULL, NULL, "jwt-jwk", ""
+};
+
+static struct lws_protocol_vhost_options pvo = {
 	NULL, &pvo_media, "lws-hls", ""
 };
 
@@ -128,6 +134,12 @@ int main(int argc, const char **argv)
 
 	if ((p = lws_cmdline_option(argc, argv, "-b")))
 		pvo_media.value = p;
+
+	if ((p = lws_cmdline_option(argc, argv, "-j"))) {
+		pvo_jwk.value = p;
+		pvo_jwk.next = pvo.options;
+		pvo.options = &pvo_jwk;
+	}
 
 	lwsl_user("LWS minimal http server HLS | visit http://localhost:7681\n");
 	lwsl_user("Media dir: %s\n", pvo_media.value);

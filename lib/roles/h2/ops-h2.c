@@ -969,6 +969,12 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 	 * Dump any stashed body
 	 */
 
+	if (lwsi_role_server(wsi) && !wsi->http.content_length_given && !wsi->http.rx_content_remain) {
+		uint64_t max_body = hit && hit->max_http_body_size ? hit->max_http_body_size :
+				    (wsi->a.vhost->max_http_body_size ? wsi->a.vhost->max_http_body_size : 100 * 1024 * 1024);
+		wsi->http.rx_content_remain = max_body;
+	}
+
 	while (((!wsi->http.content_length_given) ||
 		  wsi->http.rx_content_length) &&
 	       (blen = lws_buflist_next_segment_len(&wsi->buflist, &buffered))) {
@@ -976,6 +982,11 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 		if (wsi->http.content_length_given &&
 		    (size_t)wsi->http.rx_content_length < blen)
 			blen = (size_t)wsi->http.rx_content_length;
+
+		if (lwsi_role_server(wsi) && !wsi->http.content_length_given && wsi->http.rx_content_remain < blen) {
+			lwsl_warn("%s: deferred body exceeded max size\n", __func__);
+			return 1;
+		}
 
 		if (wsi->a.protocol->callback(wsi, LWS_CALLBACK_HTTP_BODY,
 				wsi->user_space, buffered, blen))

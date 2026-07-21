@@ -350,6 +350,8 @@ lws_callback_stub_client(struct lws *wsi, enum lws_callback_reasons reason,
 		     void *user, void *in, size_t len)
 {
 	struct lws_stub_manager *mgr = (struct lws_stub_manager *)lws_get_opaque_user_data(wsi);
+	if (!mgr)
+		return 0;
 
 	switch (reason) {
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:

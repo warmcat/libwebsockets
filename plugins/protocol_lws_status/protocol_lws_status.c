@@ -182,13 +182,18 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 				break;
 			}
 
+			char esc_ip[96];
+			char esc_ua[384];
 			strcpy(ip, "unknown");
 			lws_get_peer_simple(pss->walk_next->wsi, ip, sizeof(ip));
+			lws_json_purify(esc_ip, ip, sizeof(esc_ip), NULL);
+			lws_json_purify(esc_ua, pss->walk_next->user_agent, sizeof(esc_ua), NULL);
+			
 			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
 					"{\"peer\":\"%s\",\"time\":\"%ld\","
 					"\"ua\":\"%s\"}",
-					ip, (unsigned long)pss->walk_next->time_est,
-					pss->walk_next->user_agent);
+					esc_ip, (unsigned long)pss->walk_next->time_est,
+					esc_ua);
 			pss->walk_next = pss->walk_next->next;
 			if (!pss->walk_next)
 				pss->walk = WALK_FINAL;

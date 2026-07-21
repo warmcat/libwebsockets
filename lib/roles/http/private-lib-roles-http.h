@@ -289,6 +289,7 @@ struct _lws_http_mode_related {
 	unsigned int proxy_clientside:1;
 	unsigned int proxy_parent_chunked:1;
 #endif
+	uint8_t pipeline_count;
 #if defined(LWS_ROLE_H3)
 	unsigned char *h3_prefix_ptr;
 	uint32_t h3_base;

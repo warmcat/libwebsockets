@@ -340,7 +340,7 @@ stub_req_cb(struct lejp_ctx *ctx, char reason)
 
 		lwsl_notice("%s: LEJPCB_OBJECT_END reached, validating secret\n", __func__);
 
-		if (strcmp(a->secret, a->vhd->secret)) {
+		if (strlen(a->secret) != strlen(a->vhd->secret) || lws_timingsafe_bcmp(a->secret, a->vhd->secret, (uint32_t)strlen(a->secret))) {
 			lwsl_err("%s: Secret mismatch\n", __func__);
 			return 1;
 		}
@@ -433,13 +433,19 @@ stub_req_cb(struct lejp_ctx *ctx, char reason)
 		}
 
 		/* 4. Atomic symlink update */
+		char sym_tmp[512];
+		
 		lws_snprintf(sym, sizeof(sym), "%s/%s/fullchain.pem", a->vhd->base_dir, a->subdomain);
-		unlink(sym);
-		symlink(path, sym);
+		lws_snprintf(sym_tmp, sizeof(sym_tmp), "%s.tmp", sym);
+		unlink(sym_tmp);
+		symlink(path, sym_tmp);
+		rename(sym_tmp, sym);
 
 		lws_snprintf(sym, sizeof(sym), "%s/%s/privkey.pem", a->vhd->base_dir, a->subdomain);
-		unlink(sym);
-		symlink(path2, sym);
+		lws_snprintf(sym_tmp, sizeof(sym_tmp), "%s.tmp", sym);
+		unlink(sym_tmp);
+		symlink(path2, sym_tmp);
+		rename(sym_tmp, sym);
 
 		lwsl_notice("%s: Files updated for %s, active vhosts will rotate dynamically via proxy\n", __func__, a->subdomain);
 	}

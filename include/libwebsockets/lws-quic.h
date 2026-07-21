@@ -160,6 +160,7 @@ struct lws_cc_ops {
 	void (*on_ack)(struct lws *nwsi, size_t bytes_acked, lws_usec_t rtt);
 	void (*on_loss)(struct lws *nwsi, size_t bytes_lost);
 	void (*on_discard)(struct lws *nwsi, size_t bytes_discarded);
+	void (*on_persistent_congestion)(struct lws *nwsi);
 	int  (*can_send)(struct lws *nwsi, size_t bytes);
 	lws_usec_t (*get_pacing_delay)(struct lws *nwsi, size_t bytes_to_send);
 };

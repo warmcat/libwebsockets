@@ -291,6 +291,39 @@ lws_auth_totp_verify(const char *secret_b32, uint32_t code)
 }
 
 static int
+pbkdf2_sha512(const char *password, const char *salt, int iterations, uint8_t *out_hash)
+{
+	struct lws_genhmac_ctx ctx;
+	uint8_t u[64];
+	uint8_t salt_block[256];
+	size_t salt_len = strlen(salt);
+	int i, j;
+
+	if (salt_len > sizeof(salt_block) - 4) return -1;
+	memcpy(salt_block, salt, salt_len);
+	salt_block[salt_len] = 0;
+	salt_block[salt_len+1] = 0;
+	salt_block[salt_len+2] = 0;
+	salt_block[salt_len+3] = 1;
+
+	/* U_1 */
+	if (lws_genhmac_init(&ctx, LWS_GENHMAC_TYPE_SHA512, (const uint8_t *)password, strlen(password))) return -1;
+	if (lws_genhmac_update(&ctx, salt_block, salt_len + 4)) return -1;
+	if (lws_genhmac_destroy(&ctx, u)) return -1;
+	
+	memcpy(out_hash, u, 64);
+
+	for (i = 1; i < iterations; i++) {
+		if (lws_genhmac_init(&ctx, LWS_GENHMAC_TYPE_SHA512, (const uint8_t *)password, strlen(password))) return -1;
+		if (lws_genhmac_update(&ctx, u, 64)) return -1;
+		if (lws_genhmac_destroy(&ctx, u)) return -1;
+		for (j = 0; j < 64; j++)
+			out_hash[j] ^= u[j];
+	}
+	return 0;
+}
+
+static int
 lws_auth_issue_jwt(struct per_vhost_data__auth_server *vhd,
                    const char *username, uint32_t uid,
                    const char *claims_json,
@@ -496,7 +529,6 @@ lws_auth_check_credentials(struct per_vhost_data__auth_server *vhd,
 	sqlite3_stmt *stmt;
 	const char *query = "SELECT uid, password_hash, salt FROM users WHERE username = ?";
         const char *stored_hash, *salt;
-        struct lws_genhash_ctx ctx;
         uint8_t hash[64]; /* SHA-512 outputs 64 bytes */
 	char hex[129]; /* 64 * 2 + 1 */
 	int match = -1;
@@ -519,31 +551,16 @@ lws_auth_check_credentials(struct per_vhost_data__auth_server *vhd,
 
 	// lwsl_notice("CHECK_CREDENTIALS: user='%s'\n", username);
 
-	/* hash the input password with SHA-512 and salt */
-	if (!stored_hash || !salt || lws_genhash_init(&ctx, LWS_GENHASH_TYPE_SHA512)) {
-		lwsl_notice("CHECK_CREDENTIALS: init failed\n");
-		goto bail;
-	}
-
-	if (lws_genhash_update(&ctx, (const uint8_t *)salt, strlen(salt))) {
-		lwsl_notice("CHECK_CREDENTIALS: salt update failed\n");
-		goto bail;
-	}
-
-	if (lws_genhash_update(&ctx, (const uint8_t *)password, strlen(password))) {
-		lwsl_notice("CHECK_CREDENTIALS: pwd update failed\n");
-		goto bail;
-	}
-
-	if (lws_genhash_destroy(&ctx, hash)) {
-		lwsl_notice("CHECK_CREDENTIALS: hash destroy failed\n");
+	/* hash the input password with PBKDF2-SHA-512 and salt */
+	if (!stored_hash || !salt || pbkdf2_sha512(password, salt, 100000, hash)) {
+		lwsl_notice("CHECK_CREDENTIALS: pbkdf2 failed\n");
 		goto bail;
 	}
 
 	lws_genhash_render(LWS_GENHASH_TYPE_SHA512, hash, hex, sizeof(hex));
 	// lwsl_notice("CHECK_CREDENTIALS: Calculated hex='%s' (len %d)\n", hex, (int)strlen(hex));
 
-        if (!strcmp(stored_hash, hex)) {
+        if (strlen(stored_hash) == strlen(hex) && !lws_timingsafe_bcmp(stored_hash, hex, (uint32_t)strlen(stored_hash))) {
 		// lwsl_notice("CHECK_CREDENTIALS: MATCH OK!\n");
 		match = 0;
 	} else
@@ -762,7 +779,7 @@ auth_check_csrf(struct lws *wsi, struct per_vhost_data__auth_server *vhd, struct
 
 	lws_http_cookie_get(wsi, "auth_csrf", csrf_ck, &csrf_len);
 
-	if (!csrf_form || !csrf_ck[0] || strcmp(csrf_ck, csrf_form)) {
+	if (!csrf_form || !csrf_ck[0] || strlen(csrf_ck) != strlen(csrf_form) || lws_timingsafe_bcmp(csrf_ck, csrf_form, (uint32_t)strlen(csrf_ck))) {
 		char dbg_cookie[LWS_SSO_MAX_COOKIE] = {0};
 		if (lws_hdr_copy(wsi, dbg_cookie, sizeof(dbg_cookie), WSI_TOKEN_HTTP_COOKIE) < 0)
 			strncpy(dbg_cookie, "<overrun or empty>", sizeof(dbg_cookie) - 1);
@@ -860,12 +877,12 @@ lws_auth_api_sso_exchange(struct lws *wsi, struct per_vhost_data__auth_server *v
 		if (was_refreshed && vhd->cookie_name[0]) {
 			if (vhd->cookie_domain[0]) {
 				lws_snprintf(cookie_hdr, sizeof(cookie_hdr),
-					"%s=%s; Path=/; Domain=%s; Max-Age=%llu; HttpOnly; SameSite=None; Secure",
+					"%s=%s; Path=/; Domain=%s; Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
 					vhd->cookie_name, jwt, vhd->cookie_domain,
 					vhd->jwt_validity_secs);
 			} else {
 				lws_snprintf(cookie_hdr, sizeof(cookie_hdr),
-					"%s=%s; Path=/; Max-Age=%llu; HttpOnly; SameSite=None; Secure",
+					"%s=%s; Path=/; Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
 					vhd->cookie_name, jwt,
 					vhd->jwt_validity_secs);
 			}
@@ -1228,15 +1245,11 @@ lws_auth_api_reset_password(struct lws *wsi, struct per_vhost_data__auth_server 
 
 	uint8_t salt[16], hash[64];
 	char salt_hex[33], hash_hex[129];
-	struct lws_genhash_ctx ctx;
 
 	lws_get_random(vhd->context, salt, sizeof(salt));
 	lws_b64_encode_string((char *)salt, sizeof(salt), salt_hex, sizeof(salt_hex));
 
-	if (!lws_genhash_init(&ctx, LWS_GENHASH_TYPE_SHA512) &&
-	    !lws_genhash_update(&ctx, (const uint8_t *)salt_hex, strlen(salt_hex)) &&
-	    !lws_genhash_update(&ctx, (const uint8_t *)new_password, strlen(new_password)) &&
-	    !lws_genhash_destroy(&ctx, hash)) {
+	if (!pbkdf2_sha512(new_password, salt_hex, 100000, hash)) {
 
 		lws_genhash_render(LWS_GENHASH_TYPE_SHA512, hash, hash_hex, sizeof(hash_hex));
 
@@ -1453,12 +1466,12 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		if (vhd->cookie_name[0]) {
 			if (vhd->cookie_domain[0]) {
 				lws_snprintf(cookie_hdr, sizeof(cookie_hdr),
-					"%s=%s; Path=/; Domain=%s; Max-Age=%llu; HttpOnly; SameSite=None; Secure",
+					"%s=%s; Path=/; Domain=%s; Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
 					vhd->cookie_name, jwt, vhd->cookie_domain,
 					vhd->jwt_validity_secs);
 			} else {
 				lws_snprintf(cookie_hdr, sizeof(cookie_hdr),
-					"%s=%s; Path=/; Max-Age=%llu; HttpOnly; SameSite=None; Secure",
+					"%s=%s; Path=/; Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
 					vhd->cookie_name, jwt,
 					vhd->jwt_validity_secs);
 			}
@@ -1481,11 +1494,11 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 
 			if (vhd->cookie_domain[0]) {
 				lws_snprintf(refresh_hdr, sizeof(refresh_hdr),
-					"auth_refresh_session=%s; Path=/; Domain=%s; Max-Age=%llu; HttpOnly; SameSite=None; Secure",
+					"auth_refresh_session=%s; Path=/; Domain=%s; Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
 					refresh_code, vhd->cookie_domain, vhd->refresh_token_validity_secs);
 			} else {
 				lws_snprintf(refresh_hdr, sizeof(refresh_hdr),
-					"auth_refresh_session=%s; Path=/; Max-Age=%llu; HttpOnly; SameSite=None; Secure",
+					"auth_refresh_session=%s; Path=/; Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
 					refresh_code, vhd->refresh_token_validity_secs);
 			}
 		}
@@ -1530,11 +1543,28 @@ lws_auth_api_token(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		goto send;
 	}
 
-	if (sqlite3_prepare_v2(vhd->db, "SELECT 1 FROM oauth_clients WHERE client_id = ? AND client_secret_hash = ?", -1, &stmt, NULL) == SQLITE_OK) {
+	if (sqlite3_prepare_v2(vhd->db, "SELECT client_secret_hash FROM oauth_clients WHERE client_id = ?", -1, &stmt, NULL) == SQLITE_OK) {
 		sqlite3_bind_text(stmt, 1, client_id, -1, SQLITE_TRANSIENT);
-		sqlite3_bind_text(stmt, 2, client_secret ? client_secret : "", -1, SQLITE_TRANSIENT);
-		if (sqlite3_step(stmt) == SQLITE_ROW)
-			valid_client = 1;
+		if (sqlite3_step(stmt) == SQLITE_ROW) {
+			const char *stored_secret = (const char *)sqlite3_column_text(stmt, 0);
+			const char *cs = client_secret ? client_secret : "";
+			
+			/* F-97: Hash the incoming client_secret with SHA-256 */
+			struct lws_genhash_ctx hctx;
+			uint8_t hash[32];
+			char cs_hash_hex[65] = {0};
+			
+			if (!lws_genhash_init(&hctx, LWS_GENHASH_TYPE_SHA256) &&
+			    !lws_genhash_update(&hctx, cs, strlen(cs)) &&
+			    !lws_genhash_destroy(&hctx, hash)) {
+				
+				lws_hex_from_byte_array(hash, 32, cs_hash_hex, sizeof(cs_hash_hex));
+				
+				if (stored_secret && strlen(stored_secret) == strlen(cs_hash_hex) && 
+				    !lws_timingsafe_bcmp(stored_secret, cs_hash_hex, (uint32_t)strlen(cs_hash_hex)))
+					valid_client = 1;
+			}
+		}
 		sqlite3_finalize(stmt);
 	}
 
@@ -1603,13 +1633,13 @@ lws_auth_api_token(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 					q++;
 				}
 			}
-			if (strcmp(b64, stored_challenge)) {
+			if (strlen(b64) != strlen(stored_challenge) || lws_timingsafe_bcmp(b64, stored_challenge, (uint32_t)strlen(b64))) {
 				pss->http_response_code = HTTP_STATUS_BAD_REQUEST;
 				len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"invalid_grant\",\"error_description\":\"PKCE mismatch\"}");
 				goto send;
 			}
 		} else {
-			if (strcmp(code_verifier, stored_challenge)) {
+			if (strlen(code_verifier) != strlen(stored_challenge) || lws_timingsafe_bcmp(code_verifier, stored_challenge, (uint32_t)strlen(code_verifier))) {
 				pss->http_response_code = HTTP_STATUS_BAD_REQUEST;
 				len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"invalid_grant\",\"error_description\":\"PKCE mismatch\"}");
 				goto send;
@@ -1653,7 +1683,6 @@ lws_auth_api_register(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	char pl[1024 + LWS_PRE], peer[64], auto_salt[64] = {0}, hex[129] = {0}, totp_b32[64] = {0}, verify_hash[64] = {0};
         uint8_t salt_raw[16], hash[64], totp_bytes[10], vhash_raw[16];
         sqlite3_stmt *stmt_chk, *stmt;
-        struct lws_genhash_ctx ctx;
         int len, users_empty = 0;
         const char *user, *pass;
 
@@ -1765,10 +1794,7 @@ lws_auth_api_register(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 
 	uint64_t expires = (uint64_t)time(NULL) + 600;
 
-	if (!lws_genhash_init(&ctx, LWS_GENHASH_TYPE_SHA512) &&
-	    !lws_genhash_update(&ctx, auto_salt, strlen(auto_salt)) &&
-	    !lws_genhash_update(&ctx, pass, strlen(pass)) &&
-	    !lws_genhash_destroy(&ctx, hash)) {
+	if (!pbkdf2_sha512((const char *)pass, (const char *)auto_salt, 100000, hash)) {
 		lws_genhash_render(LWS_GENHASH_TYPE_SHA512, hash, hex, sizeof(hex));
 
 		if (sqlite3_prepare_v2(vhd->db, query, -1, &stmt, NULL) != SQLITE_OK)
@@ -2347,17 +2373,17 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				exp[0] = '\0';
 
 			if (vhd->cookie_domain[0]) {
-				lws_snprintf(cookie_hdr1, sizeof(cookie_hdr1), "%s=; Path=/; Domain=%s; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", vhd->cookie_name, vhd->cookie_domain, exp);
-				lws_snprintf(cookie_hdr2, sizeof(cookie_hdr2), "auth_csrf=; Path=/; Domain=%s; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", vhd->cookie_domain, exp);
-				lws_snprintf(cookie_hdr3, sizeof(cookie_hdr3), "auth_refresh_session=; Path=/; Domain=%s; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", vhd->cookie_domain, exp);
+				lws_snprintf(cookie_hdr1, sizeof(cookie_hdr1), "%s=; Path=/; Domain=%s; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", vhd->cookie_name, vhd->cookie_domain, exp);
+				lws_snprintf(cookie_hdr2, sizeof(cookie_hdr2), "auth_csrf=; Path=/; Domain=%s; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", vhd->cookie_domain, exp);
+				lws_snprintf(cookie_hdr3, sizeof(cookie_hdr3), "auth_refresh_session=; Path=/; Domain=%s; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", vhd->cookie_domain, exp);
 			} else {
-				lws_snprintf(cookie_hdr1, sizeof(cookie_hdr1), "%s=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", vhd->cookie_name, exp);
-				lws_snprintf(cookie_hdr2, sizeof(cookie_hdr2), "auth_csrf=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", exp);
-				lws_snprintf(cookie_hdr3, sizeof(cookie_hdr3), "auth_refresh_session=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", exp);
+				lws_snprintf(cookie_hdr1, sizeof(cookie_hdr1), "%s=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", vhd->cookie_name, exp);
+				lws_snprintf(cookie_hdr2, sizeof(cookie_hdr2), "auth_csrf=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", exp);
+				lws_snprintf(cookie_hdr3, sizeof(cookie_hdr3), "auth_refresh_session=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", exp);
 			}
-			lws_snprintf(cookie_hdr1_host, sizeof(cookie_hdr1_host), "%s=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", vhd->cookie_name, exp);
-			lws_snprintf(cookie_hdr2_host, sizeof(cookie_hdr2_host), "auth_csrf=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", exp);
-			lws_snprintf(cookie_hdr3_host, sizeof(cookie_hdr3_host), "auth_refresh_session=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", exp);
+			lws_snprintf(cookie_hdr1_host, sizeof(cookie_hdr1_host), "%s=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", vhd->cookie_name, exp);
+			lws_snprintf(cookie_hdr2_host, sizeof(cookie_hdr2_host), "auth_csrf=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", exp);
+			lws_snprintf(cookie_hdr3_host, sizeof(cookie_hdr3_host), "auth_refresh_session=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", exp);
 
 			char html[LWS_PRE + 1024];
 			char urlenc_path[512];
@@ -2503,12 +2529,12 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 							if (!lws_auth_generate_token(vhd, username, suid, peer, jwt, &jwt_len)) {
 								if (vhd->cookie_domain[0]) {
 									lws_snprintf(set_cookie_jwt, sizeof(set_cookie_jwt),
-										"%s=%s; Path=/; Domain=%s; Max-Age=%llu; HttpOnly; SameSite=None; Secure",
+										"%s=%s; Path=/; Domain=%s; Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
 										vhd->cookie_name, jwt, vhd->cookie_domain,
 										(unsigned long long)vhd->jwt_validity_secs);
 								} else {
 									lws_snprintf(set_cookie_jwt, sizeof(set_cookie_jwt),
-										"%s=%s; Path=/; Max-Age=%llu; HttpOnly; SameSite=None; Secure",
+										"%s=%s; Path=/; Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
 										vhd->cookie_name, jwt,
 										(unsigned long long)vhd->jwt_validity_secs);
 								}
@@ -2585,17 +2611,17 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 						exp[0] = '\0';
 
 					if (vhd->cookie_domain[0]) {
-						lws_snprintf(cookie_hdr1, sizeof(cookie_hdr1), "%s=; Path=/; Domain=%s; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", vhd->cookie_name, vhd->cookie_domain, exp);
-						lws_snprintf(cookie_hdr2, sizeof(cookie_hdr2), "auth_csrf=; Path=/; Domain=%s; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", vhd->cookie_domain, exp);
-						lws_snprintf(cookie_hdr3, sizeof(cookie_hdr3), "auth_refresh_session=; Path=/; Domain=%s; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", vhd->cookie_domain, exp);
+						lws_snprintf(cookie_hdr1, sizeof(cookie_hdr1), "%s=; Path=/; Domain=%s; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", vhd->cookie_name, vhd->cookie_domain, exp);
+						lws_snprintf(cookie_hdr2, sizeof(cookie_hdr2), "auth_csrf=; Path=/; Domain=%s; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", vhd->cookie_domain, exp);
+						lws_snprintf(cookie_hdr3, sizeof(cookie_hdr3), "auth_refresh_session=; Path=/; Domain=%s; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", vhd->cookie_domain, exp);
 					} else {
-						lws_snprintf(cookie_hdr1, sizeof(cookie_hdr1), "%s=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", vhd->cookie_name, exp);
-						lws_snprintf(cookie_hdr2, sizeof(cookie_hdr2), "auth_csrf=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", exp);
-						lws_snprintf(cookie_hdr3, sizeof(cookie_hdr3), "auth_refresh_session=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", exp);
+						lws_snprintf(cookie_hdr1, sizeof(cookie_hdr1), "%s=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", vhd->cookie_name, exp);
+						lws_snprintf(cookie_hdr2, sizeof(cookie_hdr2), "auth_csrf=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", exp);
+						lws_snprintf(cookie_hdr3, sizeof(cookie_hdr3), "auth_refresh_session=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", exp);
 					}
-					lws_snprintf(cookie_hdr1_host, sizeof(cookie_hdr1_host), "%s=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", vhd->cookie_name, exp);
-					lws_snprintf(cookie_hdr2_host, sizeof(cookie_hdr2_host), "auth_csrf=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", exp);
-					lws_snprintf(cookie_hdr3_host, sizeof(cookie_hdr3_host), "auth_refresh_session=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=None; Secure", exp);
+					lws_snprintf(cookie_hdr1_host, sizeof(cookie_hdr1_host), "%s=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", vhd->cookie_name, exp);
+					lws_snprintf(cookie_hdr2_host, sizeof(cookie_hdr2_host), "auth_csrf=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", exp);
+					lws_snprintf(cookie_hdr3_host, sizeof(cookie_hdr3_host), "auth_refresh_session=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", exp);
 
 					char refresh_tk[128] = {0};
 					size_t refresh_len = sizeof(refresh_tk);
@@ -2653,7 +2679,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 				if (!has_csrf) {
 					char cookie_hdr[128];
-					lws_snprintf(cookie_hdr, sizeof(cookie_hdr), "auth_csrf=%s; Path=/; SameSite=None; HttpOnly; Secure", csrf);
+					lws_snprintf(cookie_hdr, sizeof(cookie_hdr), "auth_csrf=%s; Path=/; SameSite=Lax; HttpOnly; Secure", csrf);
 					return send_auth_headers(wsi, pss, "application/json", cookie_hdr, set_cookie_jwt[0] ? set_cookie_jwt : NULL);
 				}
 

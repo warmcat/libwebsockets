@@ -467,6 +467,30 @@ lws_h3_parse_path(struct lws *wsi, const char *value, size_t value_len)
 		ah->frags[ah->nfrag].len++;
 	}
 
+	if (ah->ups == URIPS_SEEN_SLASH_DOT_DOT) {
+		if (ah->frags[ah->nfrag].len > 2) {
+			ah->pos--;
+			ah->frags[ah->nfrag].len--;
+			do {
+				ah->pos--;
+				ah->frags[ah->nfrag].len--;
+			} while (ah->frags[ah->nfrag].len > 1 &&
+				 ah->data[ah->pos] != '/');
+		}
+	}
+
+	{
+		int k;
+		char *p = &ah->data[ah->frags[ah->nfrag].offset];
+		int plen = ah->frags[ah->nfrag].len;
+		for (k = 0; k < plen; k++) {
+			if (p[k] == '\r' || p[k] == '\n') {
+				lws_quic_enter_closing_state(nwsi, LWS_H3_MESSAGE_ERROR, 0, 1);
+				return -1;
+			}
+		}
+	}
+
 	/* Seal fragment */
 	if ((int)ah->pos >= (int)wsi->a.context->max_http_header_data - 1) {
 		lwsl_wsi_err(wsi, "Header data overflow");
@@ -1063,6 +1087,13 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 			} else break;
 		} else if (wsi->h3.rx_frame_state == 1) {
 			if (lws_h3_parse_varint_accum(wsi, &buf, &len, &wsi->h3.rx_frame_len)) {
+				/* F-67: Bound rx_frame_len to prevent stream-wedging */
+				if (wsi->h3.rx_frame_len > 100 * 1024 * 1024) {
+					struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+					lwsl_wsi_notice(wsi, "H3 RX: frame len %llu exceeds 100MB bound", (unsigned long long)wsi->h3.rx_frame_len);
+					lws_quic_enter_closing_state(nwsi, 0x0100 /* LWS_H3_NO_ERROR + 0x0100 (FRAME_ERROR) */, 0, 1);
+					return 1;
+				}
 				wsi->h3.rx_frame_state = 2;
 				wsi->h3.rx_frame_payload_read = 0;
 				lwsl_wsi_info(wsi, "H3 RX: Frame Type %llu, Len %llu on stream type %d (unidi=%d)", 
