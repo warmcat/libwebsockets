@@ -3,6 +3,50 @@ document.addEventListener('DOMContentLoaded', function() {
         window.renderLwsLoginStatus('auth-status');
     }
 
+    var canDelete = false;
+    var cookies = document.cookie.split(';');
+    for (var i = 0; i < cookies.length; i++) {
+        var c = cookies[i].trim();
+        if (c.indexOf('auth_session=') === 0) {
+            var token = c.substring(13);
+            var parts = token.split('.');
+            if (parts.length === 3) {
+                try {
+                    var payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+                    if (payload && payload.grant) {
+                        var grants = payload.grant.split(',');
+                        if (grants.indexOf('*') !== -1 || grants.indexOf('hls:2') !== -1) {
+                            canDelete = true;
+                        }
+                    }
+                } catch (e) {}
+            }
+        }
+    }
+    
+    var delBtn = document.getElementById('delete-btn');
+    if (canDelete && delBtn) {
+        delBtn.classList.remove('hidden');
+        delBtn.addEventListener('click', function(event) {
+            event.preventDefault();
+            if (!confirm("Are you sure you want to delete this file?")) return;
+            var urlParams = new URLSearchParams(window.location.search);
+            var videoSrc = urlParams.get('v');
+            if (videoSrc) {
+                var filename = videoSrc.replace('hls/stream/', '');
+                fetch('hls/delete/' + filename, {
+                    method: 'POST'
+                }).then(function(res) {
+                    if (res.ok) {
+                        window.location.href = 'hls/';
+                    } else {
+                        alert('Failed to delete file');
+                    }
+                });
+            }
+        });
+    }
+
     var video = document.getElementById('video');
     
     var urlParams = new URLSearchParams(window.location.search);

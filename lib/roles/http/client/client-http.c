@@ -1489,7 +1489,13 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 		/* cannot be NULL, since it has nonzero length... coverity */
 		if (!simp)
 			goto bail2;
-		wsi->chunked = !strcmp(simp, "chunked");
+		if (!strcasecmp(simp, "chunked")) {
+			wsi->chunked = 1;
+		} else {
+			lwsl_err("%s: unsupported TE %s\n", __func__, simp);
+			cce = "HS: unsupported TE";
+			goto bail2;
+		}
 		/* first thing is hex, after payload there is crlf */
 		wsi->chunk_parser = ELCP_HEX;
 	}

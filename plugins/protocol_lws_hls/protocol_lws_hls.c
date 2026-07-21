@@ -33,6 +33,8 @@ stub_req_cb(struct lejp_ctx *ctx, char reason)
 		char filename[256];
 		lws_strncpy(filename, ctx->buf, sizeof(filename));
 		lws_filename_purify_inplace(filename);
+		if (strchr(filename, '/'))
+			return 0;
 		
 		char path[512];
 		lws_snprintf(path, sizeof(path), "%s/%s", vhd->media_dir, filename);
@@ -263,18 +265,24 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 			char filename[256];
 			lws_strncpy(filename, url + 9, sizeof(filename));
 			lws_filename_purify_inplace(filename);
+			if (strchr(filename, '/'))
+				goto err_404;
 			return lws_hls_serve_thumbnail(wsi, vhd->media_dir, filename);
 		}
 		else if (!strncmp(url, "/stream/", 8)) {
 			char filename[256];
 			lws_strncpy(filename, url + 8, sizeof(filename));
 			lws_filename_purify_inplace(filename);
+			if (strchr(filename, '/'))
+				goto err_404;
 			return lws_hls_serve_manifest(wsi, vhd->media_dir, filename);
 		}
 		else if (!strncmp(url, "/init/", 6)) {
 			char filename[256];
 			lws_strncpy(filename, url + 6, sizeof(filename));
 			lws_filename_purify_inplace(filename);
+			if (strchr(filename, '/'))
+				goto err_404;
 			return lws_hls_serve_init(wsi, vhd->media_dir, filename);
 		}
 		else if (!strncmp(url, "/segment/", 9)) {
@@ -291,6 +299,8 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 			strncpy(filename, p, fn_len);
 			filename[fn_len] = '\0';
 			lws_filename_purify_inplace(filename);
+			if (strchr(filename, '/'))
+				goto err_404;
 			
 			int segment_idx = atoi(sep + 1);
 			return lws_hls_serve_segment(wsi, vhd->media_dir, filename, segment_idx);
@@ -302,6 +312,10 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 			char filename[256];
 			lws_strncpy(filename, url + 8, sizeof(filename));
 			lws_filename_purify_inplace(filename);
+			if (strchr(filename, '/')) {
+				lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, "Not Found");
+				return -1;
+			}
 #if defined(LWS_WITH_STUB)
 			if (vhd->stub_mgr) {
 				char json[256];

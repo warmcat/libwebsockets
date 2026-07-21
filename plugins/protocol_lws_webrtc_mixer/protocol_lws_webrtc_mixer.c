@@ -233,10 +233,12 @@ broadcast_client_list(struct mixer_room *r, struct participant *exclude)
 			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), ",");
 
 		char stats_esc[128] = {0};
+		char name_esc[192] = {0};
 		lws_json_purify(stats_esc, part->stats, sizeof(stats_esc), NULL);
+		lws_json_purify(name_esc, part->name, sizeof(name_esc), NULL);
 
 		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{\"name\":\"%s\",\"joined\":%s,\"stats\":\"%s\"}",
-				part->name, part->joined ? "true" : "false", stats_esc);
+				name_esc, part->joined ? "true" : "false", stats_esc);
 	} lws_end_foreach_dll(d);
 
 	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "]}");

@@ -963,6 +963,9 @@ deaddrop_handler_server_ws_writeable(struct vhd_deaddrop *vhd, struct pss_deaddr
 		    p_fn[10] == '_' && p_fn[13] == '-' &&
 		    p_fn[16] == '-' && !strcmp(p_fn + 19, ".txt"))
 			is_text = 1;
+		char escaped_fname[256];
+		int in_used = 0;
+		lws_json_purify(escaped_fname, fname, sizeof(escaped_fname), &in_used);
 
 		p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
 				  "%c{\"name\":\"%s\", "
@@ -972,7 +975,7 @@ deaddrop_handler_server_ws_writeable(struct vhd_deaddrop *vhd, struct pss_deaddr
 				  "\"yours\":%d,"
 				  "\"is_text\":%d}",
 				  pss->first ? ' ' : ',',
-				  fname,
+				  escaped_fname,
 				  pss->dire->user,
 				  pss->dire->size,
 				  (unsigned long long)pss->dire->mtime,

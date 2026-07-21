@@ -222,6 +222,8 @@ struct lws_quic_netconn {
 
 	struct lws_quic_cid	loc_cid; /* Our local Connection ID */
 	struct lws_quic_cid	rem_cid; /* Remote peer's Connection ID */
+	uint64_t                highest_rx_cid_seq; /* F-55: Track NEW_CONNECTION_ID seq */
+	uint8_t                 rem_stateless_reset_token[16];
 	struct lws_quic_cid	orig_dcid; /* Original Destination Connection ID from client */
 
 	/* Array of pointers to lazily allocated key material */
@@ -240,6 +242,7 @@ struct lws_quic_netconn {
 	uint64_t		peer_initial_max_stream_data_bidi_remote;
 	uint64_t		peer_initial_max_stream_data_uni;
 	uint64_t		peer_max_datagram_frame_size;
+	uint64_t		peer_ack_delay_exponent;
 
 	uint64_t		rx_max_data;
 	uint64_t		advertised_rx_max_data;
@@ -311,11 +314,14 @@ struct lws_quic_netconn {
 	uint8_t			path_challenge[8];
 	uint8_t			path_challenge_pending:1;
 	struct lws              *migration_probing_wsi;
+	lws_sockaddr46		probing_sa46;
+	uint8_t			probing_sa46_valid:1;
 
 	/* ECN (Explicit Congestion Notification) */
 	uint64_t		ecn_rx_ect0;
 	uint64_t		ecn_rx_ect1;
 	uint64_t		ecn_rx_ce;
+	uint64_t		ecn_tx_ce; /* Track peer's reported ECN-CE to detect increases */
 
 	uint8_t			is_server:1;
 	uint8_t			handshake_done:1;
@@ -361,6 +367,11 @@ lws_quic_keys_destroy(struct lws_quic_keys *keys);
 void
 lws_quic_queue_path_challenge(struct lws *nwsi);
 
+void lws_quic_keys_free(struct lws_quic_keys *keys);
+
+void lws_quic_keys_release_aead_rx(struct lws_quic_keys *keys);
+void lws_quic_keys_release_aead_tx(struct lws_quic_keys *keys);
+
 int
 lws_quic_update_keys(struct lws_quic_keys *k, int is_rx);
 
@@ -388,9 +399,9 @@ int
 lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payload_len, const lws_sockaddr46 *sa46);
 
 void
-lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t acked_pn);
-void
+lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t acked_pn, int is_largest_ack, uint64_t ack_delay);
 
+void
 lws_quic_detect_loss(struct lws *nwsi, int level, uint64_t largest_acked);
 
 
@@ -432,7 +443,9 @@ struct _lws_quic_related {
 
 
 int
-lws_quic_validate_retry_tag(struct lws_quic_netconn *qn, const uint8_t *pkt, size_t len, const uint8_t *tag);
+lws_quic_validate_retry_tag(struct lws_quic_netconn *qn,
+			    const uint8_t *orig_dcid, size_t orig_dcid_len,
+			    const uint8_t *pkt, size_t len, const uint8_t *tag);
 
 int
 lws_quic_create_retry_token(struct lws *wsi,

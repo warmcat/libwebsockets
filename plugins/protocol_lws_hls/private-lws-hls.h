@@ -71,12 +71,19 @@ struct per_vhost_data__lws_hls {
 	
 	struct thumb_task *task_head;
 	struct thumb_task *task_tail;
+	char current_task_filename[256];
 	
 	struct thumb_cache *cache_head;
 	int cache_count;
 	
 	struct hls_file_index *index_head;
 	struct per_session_data__lws_hls *pss_list; /* active sessions */
+
+#if defined(LWS_WITH_STUB)
+	struct lws_stub_manager *stub_mgr;
+#endif
+	int has_jwk;
+	struct lws_jwk jwk;
 };
 
 struct hls_index_entry {
@@ -106,6 +113,12 @@ struct per_session_data__lws_hls {
 	/* Thumbnail async state */
 	int waiting_for_thumbnail;
 	char thumb_filename[256];
+	
+	int has_star_grant;
+
+	/* stub lejp parsing */
+	struct lejp_ctx jctx;
+	int parser_valid;
 };
 
 /* hls-av.c */

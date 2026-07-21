@@ -93,10 +93,15 @@ lws_jwe_encrypt_rsa_aes_gcm(struct lws_jwe *jwe, char *temp, int *temp_len)
 
 	/* Encrypt the CEK into EKEY to make the JWE Encrypted Key */
 
+	if (strncmp(jwe->jose.alg->alg, "RSA-OAEP", 8)) {
+		lwsl_err("%s: only RSA-OAEP is supported for RSA key wrap\n", __func__);
+		ret = -1;
+		goto bail;
+	}
+
 	int res = lws_genrsa_create(&rsactx, jwe->jws.jwk->e, jwe->jws.context,
-			!strcmp(jwe->jose.alg->alg,   "RSA-OAEP") ?
-				LGRSAM_PKCS1_OAEP_PSS : LGRSAM_PKCS1_1_5,
-			LWS_GENHASH_TYPE_SHA1 /* !!! */);
+				LGRSAM_PKCS1_OAEP_PSS,
+				LWS_GENHASH_TYPE_UNKNOWN);
 	if (res) {
 		lwsl_notice("%s: lws_genrsa_public_decrypt_create\n",
 			    __func__);
@@ -145,12 +150,16 @@ lws_jwe_auth_and_decrypt_rsa_aes_gcm(struct lws_jwe *jwe)
 
 	/* Decrypt the JWE Encrypted Key to get the direct CEK */
 
+	if (strncmp(jwe->jose.alg->alg, "RSA-OAEP", 8)) {
+		lwsl_err("%s: only RSA-OAEP is supported for RSA key wrap\n", __func__);
+		return -1;
+	}
+
 	int res = lws_genrsa_create(&rsactx, jwe->jws.jwk->e, jwe->jws.context,
-			!strcmp(jwe->jose.alg->alg,   "RSA-OAEP") ?
-				LGRSAM_PKCS1_OAEP_PSS : LGRSAM_PKCS1_1_5,
-			LWS_GENHASH_TYPE_SHA1 /* !!! */);
+					LGRSAM_PKCS1_OAEP_PSS,
+					LWS_GENHASH_TYPE_UNKNOWN);
 	if (res) {
-		lwsl_notice("%s: lws_genrsa_public_decrypt_create\n",
+		lwsl_notice("%s: lws_genrsa_create\n",
 			    __func__);
 		return res < -1 ? res : -1;
 	}

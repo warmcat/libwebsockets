@@ -169,6 +169,26 @@ int crypto_verify_32(const unsigned char *x,const unsigned char *y)
   return (int)((1 & ((differentbits - 1) >> 8)) - 1);
 }
 
+static int
+is_canonical(const unsigned char *s)
+{
+	static const unsigned char L[32] = {
+		0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58,
+		0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10
+	};
+	int i;
+
+	for (i = 31; i >= 0; i--) {
+		if (s[i] < L[i])
+			return 1;
+		if (s[i] > L[i])
+			return 0;
+	}
+	return 0; /* s == L is not canonical */
+}
+
 int crypto_sign_ed25519_open(
     unsigned char *m,unsigned long long *mlen,
     const unsigned char *sm,unsigned long long smlen,
@@ -186,6 +206,11 @@ int crypto_sign_ed25519_open(
   if (smlen < 64) {
 	  lwsl_notice("a\n");
 
+	  return -1;
+  }
+
+  if (!is_canonical(sm + 32)) {
+	  lwsl_notice("non-canonical s\n");
 	  return -1;
   }
 

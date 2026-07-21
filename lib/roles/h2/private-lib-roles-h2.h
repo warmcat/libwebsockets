@@ -280,6 +280,7 @@ struct lws_h2_netconn {
 	uint32_t highest_sid;
 	uint32_t highest_sid_opened;
 	uint32_t cont_exp_sid;
+	uint8_t cont_count;
 	uint32_t dep;
 	uint32_t goaway_last_sid;
 	uint32_t goaway_err;

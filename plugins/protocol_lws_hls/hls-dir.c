@@ -91,6 +91,9 @@ lws_hls_serve_dir(struct lws *wsi, const char *media_dir)
 		return -1;
 	}
 	
+	struct per_session_data__lws_hls *pss = (struct per_session_data__lws_hls *)lws_wsi_user(wsi);
+	int can_delete = pss ? pss->has_star_grant : 0;
+
 	char *p_html = html + LWS_PRE;
 	p_html += snprintf(p_html, html_size, 
 		"<html><head><title>LWS HLS Media</title>"
@@ -107,8 +110,11 @@ lws_hls_serve_dir(struct lws *wsi, const char *media_dir)
 			"<div class='item'>"
 			"<a href='../player.html?v=hls/stream/%s'>"
 			"<img class='thumb' src='preview/%s' alt='Thumbnail'>"
-			"<br>%s</a></div>",
-			ds.entries[i].name, ds.entries[i].name, ds.entries[i].name);
+			"<br>%s</a>%s%s%s</div>",
+			ds.entries[i].name, ds.entries[i].name, ds.entries[i].name,
+			can_delete ? "<button class='del-btn' onclick='delFile(this, event)' data-file='" : "",
+			can_delete ? ds.entries[i].name : "",
+			can_delete ? "'>&#x1F5D1;</button>" : "");
 	}
 	
 	size_t rem = html_size - (size_t)(p_html - (html + LWS_PRE));

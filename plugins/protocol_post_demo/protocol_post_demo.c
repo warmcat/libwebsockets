@@ -59,6 +59,9 @@ static const char * const param_names[] = {
 	"upload",
 };
 
+static const char *
+html_escape(const char *in, char *out, size_t out_size);
+
 enum enum_param_names {
 	EPN_TEXT,
 	EPN_SEND,
@@ -159,13 +162,16 @@ format_result(struct per_session_data__post_demo *pss)
 			    "<tr><td><b>%s</b></td><td>0"
 			    "</td><td>NULL</td></tr>",
 			    param_names[n]);
-		else
+		else {
+			char escaped[256];
+			html_escape(lws_spa_get_string(pss->spa, n), escaped, sizeof(escaped));
 			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
 			    "<tr><td><b>%s</b></td><td>%d"
 			    "</td><td>%s</td></tr>",
 			    param_names[n],
 			    lws_spa_get_length(pss->spa, n),
-			    lws_spa_get_string(pss->spa, n));
+			    escaped);
+		}
 	}
 
 	p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
@@ -177,6 +183,22 @@ format_result(struct per_session_data__post_demo *pss)
 
 bail:
 	return (int)lws_ptr_diff(p, start);
+}
+
+static const char *
+html_escape(const char *in, char *out, size_t out_size)
+{
+        char *p = out;
+        while (*in && p + 6 < out + out_size) {
+                if (*in == '<') { memcpy(p, "&lt;", 4); p += 4; }
+                else if (*in == '>') { memcpy(p, "&gt;", 4); p += 4; }
+                else if (*in == '&') { memcpy(p, "&amp;", 5); p += 5; }
+                else if (*in == '"') { memcpy(p, "&quot;", 6); p += 6; }
+                else *p++ = *in;
+                in++;
+        }
+        *p = '\0';
+        return out;
 }
 
 static int

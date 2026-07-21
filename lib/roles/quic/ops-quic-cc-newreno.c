@@ -147,6 +147,26 @@ newreno_on_loss(struct lws *nwsi, size_t bytes_lost)
 #endif
 }
 
+static void
+newreno_on_persistent_congestion(struct lws *nwsi)
+{
+	struct lws_quic_netconn *qn = nwsi->quic.qn;
+	struct lws_vhost *vh = lws_get_vhost(nwsi);
+	struct lws_quic_cc_newreno *st = (struct lws_quic_cc_newreno *)qn->cc_state;
+	uint32_t mtu = vh->quic_mtu ? vh->quic_mtu : 1280;
+
+	if (!st) return;
+
+	st->cwnd = 2 * mtu;
+	st->ssthresh = 2 * mtu;
+	st->congestion_recovery_start_time = lws_now_usecs();
+
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
+	LWS_RATELIMIT_DEFINE_STATIC(rl2);
+	lwsl_ratelimit_info(&rl2, 1000000, "QUIC NewReno: PERSISTENT CONGESTION, cwnd collapsed to %zu", st->cwnd);
+#endif
+}
+
 static int
 newreno_can_send(struct lws *nwsi, size_t bytes)
 {
@@ -155,13 +175,7 @@ newreno_can_send(struct lws *nwsi, size_t bytes)
 
 	if (!st) return 0;
 
-	int ok = (st->bytes_in_flight + bytes <= st->cwnd);
-//	if (!ok) {
-//		lwsl_notice("AGY-DEBUG: newreno_can_send failed: bytes_in_flight=%zu, bytes=%zu, cwnd=%zu\n",
-//			st->bytes_in_flight, bytes, st->cwnd);
-//	}
-
-	return ok;
+	return (st->bytes_in_flight + bytes <= st->cwnd);
 }
 
 static lws_usec_t
@@ -226,6 +240,7 @@ const struct lws_cc_ops lws_cc_ops_newreno = {
 	.on_ack			= newreno_on_ack,
 	.on_loss		= newreno_on_loss,
 	.on_discard		= newreno_on_discard,
+	.on_persistent_congestion = newreno_on_persistent_congestion,
 	.can_send		= newreno_can_send,
 	.get_pacing_delay	= newreno_get_pacing_delay,
 };
