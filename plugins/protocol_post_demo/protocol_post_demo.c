@@ -37,6 +37,7 @@
 #include <io.h>
 #endif
 #include <stdio.h>
+#include <errno.h>
 
 struct per_session_data__post_demo {
 	struct lws_spa *spa;
@@ -58,6 +59,9 @@ static const char * const param_names[] = {
 	"file",
 	"upload",
 };
+
+static const char *
+html_escape(const char *in, char *out, size_t out_size);
 
 enum enum_param_names {
 	EPN_TEXT,
@@ -159,13 +163,16 @@ format_result(struct per_session_data__post_demo *pss)
 			    "<tr><td><b>%s</b></td><td>0"
 			    "</td><td>NULL</td></tr>",
 			    param_names[n]);
-		else
+		else {
+			char escaped[256];
+			html_escape(lws_spa_get_string(pss->spa, n), escaped, sizeof(escaped));
 			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
 			    "<tr><td><b>%s</b></td><td>%d"
 			    "</td><td>%s</td></tr>",
 			    param_names[n],
 			    lws_spa_get_length(pss->spa, n),
-			    lws_spa_get_string(pss->spa, n));
+			    escaped);
+		}
 	}
 
 	p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p),
@@ -177,6 +184,22 @@ format_result(struct per_session_data__post_demo *pss)
 
 bail:
 	return (int)lws_ptr_diff(p, start);
+}
+
+static const char *
+html_escape(const char *in, char *out, size_t out_size)
+{
+        char *p = out;
+        while (*in && p + 6 < out + out_size) {
+                if (*in == '<') { memcpy(p, "&lt;", 4); p += 4; }
+                else if (*in == '>') { memcpy(p, "&gt;", 4); p += 4; }
+                else if (*in == '&') { memcpy(p, "&amp;", 5); p += 5; }
+                else if (*in == '"') { memcpy(p, "&quot;", 6); p += 6; }
+                else *p++ = *in;
+                in++;
+        }
+        *p = '\0';
+        return out;
 }
 
 static int
@@ -201,6 +224,13 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 
 			pss->filename[0] = '\0';
 			pss->file_length = 0;
+#if !defined(LWS_WITH_ESP32)
+#if defined(__MINGW32__)
+			pss->fd = -1;
+#else
+			pss->fd = LWS_INVALID_FILE;
+#endif
+#endif
 		}
 
 		/* let it parse the POST data */
@@ -272,6 +302,24 @@ callback_post_demo(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_spa_destroy(pss->spa);
 			pss->spa = NULL;
 		}
+#if !defined(LWS_WITH_ESP32)
+#if defined(__MINGW32__)
+		if (pss->fd != -1) {
+			close((int)pss->fd);
+			pss->fd = -1;
+		}
+#else
+		if (pss->fd != LWS_INVALID_FILE) {
+			close((int)(lws_intptr_t)pss->fd);
+			pss->fd = LWS_INVALID_FILE;
+		}
+#endif
+		if (pss->filename[0]) {
+			if (unlink(pss->filename) < 0)
+				lwsl_info("%s: unlink %s failed: %d\n", __func__, pss->filename, errno);
+			pss->filename[0] = '\0';
+		}
+#endif
 		break;
 
 	default:

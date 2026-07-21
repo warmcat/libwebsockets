@@ -535,10 +535,8 @@ lws_ssh_parse_plaintext(struct per_session_data__sshd *pss, uint8_t *p, size_t l
 	struct lws_genrsa_ctx ctx;
 	struct lws_ssh_channel *ch;
 	struct lws_subprotocol_scp *scp;
-	uint8_t *pp, *ps, hash[64];
-#if !defined(MBEDTLS_VERSION_NUMBER) || MBEDTLS_VERSION_NUMBER < 0x03000000
-	uint8_t *otmp = NULL;
-#endif
+	uint8_t *pp, *ps;
+	uint8_t hash[32];
 	uint32_t m;
 	int n;
 
@@ -740,6 +738,7 @@ again:
 				goto bail;
 
 			case SSH_MSG_CHANNEL_OPEN:
+				if (pss->ssh_auth_state != SSH_AUTH_STATE_GAVE_AUTH_IGNORE_REQS) goto bail;
 				state_get_string(pss, SSHS_NVC_CHOPEN_TYPE);
 				break;
 
@@ -759,6 +758,7 @@ again:
 				 *  uint32    terminal height, px (e.g., 480)
 				 *  string    encoded terminal modes
 				 */
+				if (pss->ssh_auth_state != SSH_AUTH_STATE_GAVE_AUTH_IGNORE_REQS) goto bail;
 				state_get_u32(pss, SSHS_NVC_CHRQ_RECIP);
 				break;
 
@@ -771,6 +771,7 @@ again:
 				 *  byte      SSH_MSG_CHANNEL_EOF
 				 *  uint32    recipient channel
 				 */
+				if (pss->ssh_auth_state != SSH_AUTH_STATE_GAVE_AUTH_IGNORE_REQS) goto bail;
 				state_get_u32(pss, SSHS_NVC_CH_EOF);
 				break;
 
@@ -788,6 +789,7 @@ again:
 				 * this message be delivered to the actual
 				 * destination, if possible.
 				 */
+				if (pss->ssh_auth_state != SSH_AUTH_STATE_GAVE_AUTH_IGNORE_REQS) goto bail;
 				state_get_u32(pss, SSHS_NVC_CH_CLOSE);
 				break;
 
@@ -798,6 +800,7 @@ again:
 				 *      uint32    recipient channel
 				 *      string    data
 				 */
+				if (pss->ssh_auth_state != SSH_AUTH_STATE_GAVE_AUTH_IGNORE_REQS) goto bail;
 				state_get_u32(pss, SSHS_NVC_CD_RECIP);
 				break;
 
@@ -811,6 +814,7 @@ again:
 				if (!pss->ch_list)
 					goto bail;
 
+				if (pss->ssh_auth_state != SSH_AUTH_STATE_GAVE_AUTH_IGNORE_REQS) goto bail;
 				state_get_u32(pss, SSHS_NVC_WA_RECIP);
 				break;
 			default:
@@ -992,6 +996,8 @@ again:
                         if (++pss->ctr != 4)
                                 break;
                         pss->ctr = 0;
+			if (pss->len == 0xffffffff || pss->len > 16 * 1024 * 1024 || pss->msg_len - pss->pos < pss->len)
+				goto bail;
 			pss->last_alloc = sshd_zalloc(pss->len + 1);
 			lwsl_debug("SSHS_GET_STRING_LEN_ALLOC: %p, state %d\n",
 				   pss->last_alloc, pss->state_after_string);
@@ -1265,48 +1271,11 @@ again:
 			m = lws_g32(&pp);
 			pp += m;
 			m = lws_g32(&pp);
-#if !defined(MBEDTLS_VERSION_NUMBER) || MBEDTLS_VERSION_NUMBER < 0x03000000
 
-			/*
-			 * decrypt it, resulting in an error, or some ASN1
-			 * including the decrypted signature
-			 */
-			otmp = sshd_zalloc(m);
-			if (!otmp) {
-				lws_genrsa_destroy(&ctx);
-				goto ua_fail;
-			}
-
-			n = lws_genrsa_public_decrypt(&ctx, pp, m, otmp, m);
-			if (n > 0) {
-				/* the decrypted sig is in ASN1 format */
-				m = 0;
-				while ((int)m < n) {
-					/* sig payload */
-					if (otmp[m] == 0x04 &&
-					    otmp[m + 1] == lws_genhash_size(
-						  pss->ua->hash_ctx.type)) {
-						m = (uint32_t)memcmp(&otmp[m + 2], hash,
-							(unsigned int)lws_genhash_size(pss->ua->hash_ctx.type));
-						break;
-					}
-					/* go into these */
-					if (otmp[m] == 0x30) {
-						m += 2;
-						continue;
-					}
-					/* otherwise skip payloads */
-					m += (uint32_t)(otmp[m + 1] + 2);
-				}
-			}
-
-			free(otmp);
-		#else
-			ctx.ctx->MBEDTLS_PRIVATE(len) = m;
 			n = lws_genrsa_hash_sig_verify(&ctx, hash,
 				(enum lws_genhash_types)rsa_hash_alg_from_ident(pss->ua->alg),
 				pp, m) == 0 ? 1 : 0;
-		#endif
+
 			lws_genrsa_destroy(&ctx);
 
 			/*
@@ -1380,6 +1349,19 @@ again:
 				pss->reason = 3;
 				goto ch_fail;
 			}
+			{
+				int count = 0;
+				struct lws_ssh_channel *c = pss->ch_list;
+				while (c) {
+					count++;
+					c = c->next;
+				}
+				if (count >= 8) {
+					lwsl_notice("Too many channels\n");
+					pss->reason = 4;
+					goto ch_fail;
+				}
+			}
 			lwsl_info("SSHS_NVC_CHOPEN_TYPE: creating session\n");
 			pss->ch_temp = sshd_zalloc(sizeof(*pss->ch_temp));
 			if (!pss->ch_temp)
@@ -1396,10 +1378,14 @@ again:
 			break;
 		case SSHS_NVC_CHOPEN_WINSIZE:
 			lwsl_info("Initial window set to %d\n", pss->len);
+			if (pss->len > 64 * 1024 * 1024)
+				pss->len = 64 * 1024 * 1024;
 			pss->ch_temp->window = (int32_t)pss->len;
 			state_get_u32(pss, SSHS_NVC_CHOPEN_PKTSIZE);
 			break;
 		case SSHS_NVC_CHOPEN_PKTSIZE:
+			if (pss->len > 16 * 1024 * 1024)
+				pss->len = 16 * 1024 * 1024;
 			pss->ch_temp->max_pkt = pss->len;
 			pss->ch_temp->peer_window_est = LWS_SSH_INITIAL_WINDOW;
 			pss->ch_temp->server_ch = (uint32_t)pss->next_ch_num++;
@@ -1436,6 +1422,8 @@ again:
 					pss->name, pss->rq_want_reply);
 
 			pss->ch_temp = ssh_get_server_ch(pss, pss->ch_recip);
+			if (!pss->ch_temp)
+				goto bail;
 
 			/* after this they differ by the request */
 
@@ -1685,6 +1673,8 @@ again:
 			pss->ch_recip = pss->len;
 
 			ch = ssh_get_server_ch(pss, pss->ch_recip);
+			if (!ch)
+				goto bail;
 			ch->peer_window_est -= (int32_t)pss->msg_len;
 
 			if (pss->msg_len < sizeof(pss->name))
@@ -1706,6 +1696,8 @@ again:
 			lwsl_info("SSHS_NVC_CD_DATA\n");
 
 			ch = ssh_get_server_ch(pss, pss->ch_recip);
+			if (!ch)
+				goto bail;
 			switch (ch->type) {
 			case SSH_CH_TYPE_SCP:
 				scp = &ch->sub->scp;
@@ -1718,6 +1710,9 @@ again:
 
 					/* Header triggers the transfer? */
 					if (pp[0] == 'C' && pp[pss->npos - 1] == '\x0a') {
+						char *fname;
+						uint64_t max_body;
+						
 						while (*pp != ' ' && *pp != '\x0a')
 							pp++;
 						if (*pp++ != ' ') {
@@ -1727,6 +1722,31 @@ again:
 							break;
 						}
 						scp->len = (uint64_t)atoll((const char *)pp);
+						max_body = 100 * 1024 * 1024; /* hard limit for SCP in plugin */
+						
+						if (scp->len > max_body) {
+							lwsl_notice("scp payload %llu exceeds max %llu\n",
+								    (unsigned long long)scp->len, (unsigned long long)max_body);
+							write_task(pss, ch, SSH_WT_SCP_ACK_ERROR);
+							pss->parser_state = SSHS_MSG_EAT_PADDING;
+							break;
+						}
+						
+						/* find filename and purify it */
+						fname = (char *)pp;
+						while (*fname != ' ' && *fname != '\x0a')
+							fname++;
+						if (*fname == ' ') {
+							char *end;
+							fname++;
+							end = fname;
+							while (*end != '\x0a' && *end != '\0')
+								end++;
+							*end = '\0';
+							lws_filename_purify_inplace(fname);
+							*end = '\x0a';
+						}
+
 						lwsl_notice("scp payload %llu expected\n",
 							    (unsigned long long)scp->len);
 						scp->ips = SSHS_SCP_PAYLOADIN;
@@ -1779,6 +1799,10 @@ again:
 		case SSHS_NVC_WA_ADD:
 			ch = ssh_get_server_ch(pss, pss->ch_recip);
 			if (ch) {
+				if ((uint64_t)ch->window + pss->len > 64 * 1024 * 1024) {
+					lwsl_notice("window too large\n");
+					goto bail;
+				}
 				ch->window += (int32_t)pss->len;
 				lwsl_notice("got additional window %d (now %d)\n",
 						pss->len, ch->window);
@@ -1884,7 +1908,7 @@ ua_fail_silently:
 			 * limit is 20 attempts).  If the threshold is
 			 * exceeded, the server SHOULD disconnect.
 			 */
-			if (pss->count_auth_attempts++ > 20)
+			if (++pss->count_auth_attempts > 20)
 				goto bail;
 
 			pss->parser_state = SSH_KEX_STATE_SKIP;
@@ -2337,6 +2361,7 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 			goto pac;
 
 		case SSH_WT_CHRQ_SUCC:
+			if (!ch) goto bail;
 			pp = ps + 5;
 			*pp++ = SSH_MSG_CHANNEL_SUCCESS;
 			lws_p32(pp, ch->sender_ch);
@@ -2345,6 +2370,7 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 			goto pac;
 
 		case SSH_WT_CHRQ_FAILURE:
+			if (!ch) goto bail;
 			pp = ps + 5;
 			*pp++ = SSH_MSG_CHANNEL_FAILURE;
 			lws_p32(pp, ch->sender_ch);
@@ -2353,6 +2379,7 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 			goto pac;
 
 		case SSH_WT_CH_CLOSE:
+			if (!ch) goto bail;
 			pp = ps + 5;
 			*pp++ = SSH_MSG_CHANNEL_CLOSE;
 			lws_p32(pp, ch->sender_ch);
@@ -2361,6 +2388,7 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 			goto pac;
 
 		case SSH_WT_CH_EOF:
+			if (!ch) goto bail;
 			pp = ps + 5;
 			*pp++ = SSH_MSG_CHANNEL_EOF;
 			lws_p32(pp, ch->sender_ch);
@@ -2370,6 +2398,7 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 
 		case SSH_WT_SCP_ACK_ERROR:
 		case SSH_WT_SCP_ACK_OKAY:
+			if (!ch) goto bail;
 			pp = ps + 5;
 			*pp++ = SSH_MSG_CHANNEL_DATA;
 			/* ps + 6 */
@@ -2385,6 +2414,7 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 			goto pac;
 
 		case SSH_WT_WINDOW_ADJUST:
+			if (!ch) goto bail;
 			pp = ps + 5;
 			*pp++ = SSH_MSG_CHANNEL_WINDOW_ADJUST;
 			/* ps + 6 */
@@ -2396,6 +2426,7 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 			goto pac;
 
 		case SSH_WT_EXIT_STATUS:
+			if (!ch) goto bail;
 			pp = ps + 5;
 			*pp++ = SSH_MSG_CHANNEL_REQUEST;
 			lws_p32(pp, ch->sender_ch);

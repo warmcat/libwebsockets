@@ -637,6 +637,7 @@ struct lws_vhost {
 	lws_dll2_owner_t	dht_owner;
 #endif
 
+	uint64_t max_http_body_size;
 };
 
 #if defined(LWS_WITH_DHT)

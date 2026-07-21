@@ -207,7 +207,7 @@ callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason
 		/* We need to generate the response */
 		if (!pss->parser_valid) break;
 
-		if (strcmp(pss->args.secret, vhd->secret)) {
+		if (strlen(pss->args.secret) != strlen(vhd->secret) || lws_timingsafe_bcmp(pss->args.secret, vhd->secret, (uint32_t)strlen(vhd->secret))) {
 			lwsl_err("%s: Secret mismatch\n", __func__);
 			return -1;
 		}
@@ -235,7 +235,7 @@ callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason
 				char current_hash[41];
 				lws_SHA1((unsigned char *)cert_buf, strlen(cert_buf), digest);
 				lws_hex_from_byte_array(digest, 20, current_hash, sizeof(current_hash));
-				if (!strcmp(current_hash, pss->args.hash)) {
+				if (strlen(current_hash) == strlen(pss->args.hash) && !lws_timingsafe_bcmp(current_hash, pss->args.hash, (uint32_t)strlen(current_hash))) {
 					lwsl_notice("%s: Hash matches %s, returning unchanged\n", __func__, pss->args.hash);
 					pss->response = malloc(LWS_PRE + 256);
 					if (pss->response) {

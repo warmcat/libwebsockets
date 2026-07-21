@@ -477,12 +477,12 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 	}
 
 	if (!strcmp(jose.alg->alg, "none")) {
-		/* "none" compact serialization has 2 blocks: jose.payload */
-		if (b != 2 || jwk)
-			return -1;
-
-		/* the lack of a key matches the lack of a signature */
-		return 0;
+		/*
+		 * For security reasons, we do not allow "none" in sig_confirm.
+		 * If an application explicitly wants to accept unsigned tokens,
+		 * it should not be calling a signature confirmation API.
+		 */
+		return -1;
 	}
 
 	/* all other have 3 blocks: jose.payload.sig */
@@ -551,13 +551,16 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 
 		/* SHA256/384/512 HMAC */
 
+		if (jwk->kty != LWS_GENCRYPTO_KTY_OCT)
+			return -1;
+
 		h_len = (int)lws_genhmac_size(jose.alg->hmac_type);
 
 		/* 6) compute HMAC over payload */
 
 		if (lws_genhmac_init(&ctx, jose.alg->hmac_type,
-				     jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].buf,
-				     jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].len))
+				     jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].buf,
+				     jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].len))
 			return -1;
 
 		/*

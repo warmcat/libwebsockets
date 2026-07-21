@@ -372,6 +372,7 @@ struct _lws_mqtt_related {
 	uint16_t		ack_pkt_id;
 	uint16_t		peer_ack_pkt_id;
 	uint16_t		sub_size;
+	uint32_t		peer_max_packet_size;
 
 #if defined(LWS_WITH_CLIENT)
 	uint8_t 		send_pingreq:1;

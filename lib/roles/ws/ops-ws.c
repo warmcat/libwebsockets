@@ -175,9 +175,9 @@ handle_first:
 
 		switch (wsi->ws->opcode) {
 		case LWSWSOPC_TEXT_FRAME:
-			wsi->ws->check_utf8 = lws_check_opt(
+			wsi->ws->check_utf8 = !lws_check_opt(
 				wsi->a.context->options,
-				LWS_SERVER_OPTION_VALIDATE_UTF8);
+				LWS_SERVER_OPTION_DISABLE_UTF8_VALIDATION);
 			/* fallthru */
 		case LWSWSOPC_BINARY_FRAME:
 			if (wsi->ws->opcode == LWSWSOPC_BINARY_FRAME)
@@ -266,6 +266,14 @@ handle_first:
 	case LWS_RXPS_04_FRAME_HDR_LEN:
 
 		wsi->ws->this_frame_masked = !!(c & 0x80);
+
+#if defined(LWS_WITH_SERVER)
+		if (lwsi_role_server(wsi) && !wsi->ws->this_frame_masked) {
+			lws_close_reason(wsi, LWS_CLOSE_STATUS_PROTOCOL_ERR,
+					 (uint8_t *)"client unmasked", 15);
+			goto ret_asking_close;
+		}
+#endif
 
 		switch (c & 0x7f) {
 		case 126:
@@ -367,9 +375,13 @@ handle_first:
 		wsi->lws_rx_parse_state = LWS_RXPS_04_FRAME_HDR_LEN64_1;
 		break;
 
-	case LWS_RXPS_04_FRAME_HDR_LEN64_1:
-		wsi->ws->rx_packet_length |= ((size_t)c);
-		if (wsi->ws->this_frame_masked)
+        case LWS_RXPS_04_FRAME_HDR_LEN64_1:
+                wsi->ws->rx_packet_length |= ((size_t)c);
+                if (wsi->ws->rx_packet_length > 0x10000000ull) {
+                        lwsl_err("huge ws frame\n");
+                        goto ret_asking_close;
+                }
+                if (wsi->ws->this_frame_masked)
 			wsi->lws_rx_parse_state =
 					LWS_RXPS_07_COLLECT_FRAME_KEY_1;
 		else

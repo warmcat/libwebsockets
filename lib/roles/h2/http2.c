@@ -1311,7 +1311,8 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		}
 		break;
 	case LWS_H2_FRAME_TYPE_PUSH_PROMISE:
-		lwsl_info("LWS_H2_FRAME_TYPE_PUSH_PROMISE complete frame\n");
+                h2n->cont_count = 0;
+                lwsl_info("LWS_H2_FRAME_TYPE_PUSH_PROMISE complete frame\n");
 		lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR, "Server only");
 		break;
 
@@ -1397,6 +1398,12 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			  (unsigned int)h2n->sid, (int)h2n->cont_exp,
 			  (int)h2n->cont_exp_sid);
 
+		if (++h2n->cont_count > 64) {
+			lws_h2_goaway(wsi, H2_ERR_ENHANCE_YOUR_CALM,
+				      "CONTINUATION flood");
+			return 1;
+		}
+
 		if (!h2n->cont_exp ||
 		     h2n->cont_exp_sid != h2n->sid ||
 		     !h2n->sid ||
@@ -1416,6 +1423,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 
 	case LWS_H2_FRAME_TYPE_HEADERS:
 		h2n->hpack_total_hdr_len = 0;
+		h2n->cont_count = 0;
 		lwsl_info("HEADERS: frame header: sid = %u\n",
 				(unsigned int)h2n->sid);
 		if (!h2n->sid) {

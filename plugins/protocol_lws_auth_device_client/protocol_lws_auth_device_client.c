@@ -293,8 +293,13 @@ callback_auth_device_client(struct lws *wsi, enum lws_callback_reasons reason, v
 				lws_strnncpy(session->access_token, p, al, sizeof(session->access_token));
 				lwsl_notice("Successfully paired and retrieved access token for %s!\n", session->logical_name);
 
-				char filename[128];
-				lws_snprintf(filename, sizeof(filename), ".lws-auth-token-%s", session->logical_name);
+				char filename[128], safe[64];
+				lws_strncpy(safe, session->logical_name, sizeof(safe));
+				lws_filename_purify_inplace(safe);
+				char *slash_p = safe;
+				while ((slash_p = strchr(slash_p, '/')))
+					*slash_p++ = '_';
+				lws_snprintf(filename, sizeof(filename), ".lws-auth-token-%s", safe);
 				int fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0600);
 				if (fd >= 0) {
 					if (write(fd, session->access_token, strlen(session->access_token)) < 0)
@@ -418,8 +423,13 @@ start_auth_flow(struct lws_vhost *vh, const char *mixer_url, const char *logical
 	lws_strncpy(session->logical_name, logical_name, sizeof(session->logical_name));
 	lws_dll2_add_tail(&session->list, &vhd->sessions);
 
-	char filename[128];
-	lws_snprintf(filename, sizeof(filename), ".lws-auth-token-%s", logical_name);
+	char filename[128], safe[64];
+	lws_strncpy(safe, logical_name, sizeof(safe));
+	lws_filename_purify_inplace(safe);
+	char *slash_p = safe;
+	while ((slash_p = strchr(slash_p, '/')))
+		*slash_p++ = '_';
+	lws_snprintf(filename, sizeof(filename), ".lws-auth-token-%s", safe);
 	int fd = open(filename, O_RDONLY);
 	if (fd >= 0) {
 		ssize_t n = read(fd, session->access_token, sizeof(session->access_token) - 1);

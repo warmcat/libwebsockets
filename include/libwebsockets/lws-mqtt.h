@@ -43,6 +43,7 @@ typedef struct lws_mqtt_str_st lws_mqtt_str_t;
 
 #define LWS_MQTT_MAX_AWSIOT_TOPICLEN  256
 #define LWS_MQTT_MAX_TOPICLEN  65535
+#define LWS_MQTT_MAX_PACKET_SIZE (1 * 1024 * 1024)
 #define LWS_MQTT_MAX_CIDLEN    128
 #define LWS_MQTT_RANDOM_CIDLEN 23 /* 3.1.3.1-5: Server MUST... between
 				     1 and 23 chars... */

@@ -232,6 +232,29 @@ cubic_on_loss(struct lws *nwsi, size_t bytes_lost)
 #endif
 }
 
+static void
+cubic_on_persistent_congestion(struct lws *nwsi)
+{
+	struct lws_quic_netconn *qn = nwsi->quic.qn;
+	struct lws_vhost *vh = lws_get_vhost(nwsi);
+	struct lws_quic_cc_cubic *st = (struct lws_quic_cc_cubic *)qn->cc_state;
+	uint32_t mtu = vh->quic_mtu ? vh->quic_mtu : 1280;
+
+	if (!st) return;
+
+	st->cwnd = 2 * mtu;
+	st->ssthresh = 2 * mtu;
+	st->epoch_start_time = 0;
+	st->w_max = st->cwnd;
+	st->k = 0;
+	st->congestion_recovery_start_time = lws_now_usecs();
+
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
+	LWS_RATELIMIT_DEFINE_STATIC(rl2);
+	lwsl_ratelimit_info(&rl2, 1000000, "QUIC CUBIC: PERSISTENT CONGESTION, cwnd collapsed to %zu", st->cwnd);
+#endif
+}
+
 static int
 cubic_can_send(struct lws *nwsi, size_t bytes)
 {
@@ -240,12 +263,7 @@ cubic_can_send(struct lws *nwsi, size_t bytes)
 
 	if (!st) return 0;
 
-	int ok = (st->bytes_in_flight + bytes <= st->cwnd);
-//	if (!ok) {
-//		lwsl_notice("AGY-DEBUG: cubic_can_send failed: bytes_in_flight=%zu, bytes=%zu, cwnd=%zu\n",
-//			st->bytes_in_flight, bytes, st->cwnd);
-//	}
-	return ok;
+	return (st->bytes_in_flight + bytes <= st->cwnd);
 }
 
 static lws_usec_t
@@ -306,6 +324,7 @@ const struct lws_cc_ops lws_cc_ops_cubic = {
 	.on_sent		= cubic_on_sent,
 	.on_ack			= cubic_on_ack,
 	.on_loss		= cubic_on_loss,
+	.on_persistent_congestion = cubic_on_persistent_congestion,
 	.can_send		= cubic_can_send,
 	.get_pacing_delay	= cubic_get_pacing_delay,
 };

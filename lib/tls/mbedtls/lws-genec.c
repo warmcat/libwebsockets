@@ -124,9 +124,15 @@ lws_genec_keypair_import(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 		    mbedtls_ecp_check_privkey(&ECDHCTX(ctx, grp),
 					      &ECDHCTX(ctx, d)))
 			goto bail1;
-		if (mbedtls_ecp_check_pubkey(&ECDHCTX(ctx, grp),
-					     &ECDHCTX(ctx, Q)))
-			goto bail1;
+		if (side == LDHS_THEIRS) {
+			if (mbedtls_ecp_check_pubkey(&ECDHCTX(ctx, grp),
+						     &ECDHCTX(ctx, Qp)))
+				goto bail1;
+		} else {
+			if (mbedtls_ecp_check_pubkey(&ECDHCTX(ctx, grp),
+						     &ECDHCTX(ctx, Q)))
+				goto bail1;
+		}
 		break;
 	case LEGENEC_ECDSA:
 		if (mbedtls_ecdsa_from_keypair(ctx->u.ctx_ecdsa, &kp))

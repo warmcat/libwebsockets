@@ -1430,6 +1430,33 @@ add_it:
 		if (lws_hpack_handle_pseudo_rules(nwsi, wsi, m))
 			return 1;
 
+		if (m == WSI_TOKEN_HTTP_COLON_PATH) {
+			if (ah->ups == URIPS_SEEN_SLASH_DOT_DOT) {
+				if (ah->frags[ah->nfrag].len > 2) {
+					ah->pos--;
+					ah->frags[ah->nfrag].len--;
+					do {
+						ah->pos--;
+						ah->frags[ah->nfrag].len--;
+					} while (ah->frags[ah->nfrag].len > 1 &&
+						 ah->data[ah->pos] != '/');
+				}
+			}
+			{
+				char *p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH);
+				int plen = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH);
+				if (p) {
+					int i;
+					for (i = 0; i < plen; i++) {
+						if (p[i] == '\r' || p[i] == '\n') {
+							lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR, "CRLF in path");
+							return 1;
+						}
+					}
+				}
+			}
+		}
+
 #if defined(LWS_WITH_CUSTOM_HEADERS)
 		/*
 		 * Value part complete: if we were collecting an unknown

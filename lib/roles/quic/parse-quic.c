@@ -543,6 +543,44 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 		if (!consumed) return -1;
 		pos += consumed;
 
+		/* Epoch Gating (RFC 9000 12.5) */
+		int is_allowed = 0;
+		switch (type) {
+		case LWS_QUIC_FT_PADDING:
+		case LWS_QUIC_FT_PING:
+			is_allowed = 1; /* Allowed in all spaces */
+			break;
+		case LWS_QUIC_FT_CRYPTO:
+		case LWS_QUIC_FT_ACK:
+		case LWS_QUIC_FT_ACK_ECN:
+		case 0x1c: /* CONNECTION_CLOSE */
+			/* Allowed in all spaces except 0-RTT (EARLY) */
+			if (level != LWS_QUIC_LEVEL_EARLY)
+				is_allowed = 1;
+			break;
+		case 0x1d: /* CONNECTION_CLOSE_APP */
+			/* Allowed in 0-RTT and 1-RTT */
+			if (level == LWS_QUIC_LEVEL_EARLY || level == LWS_QUIC_LEVEL_APP)
+				is_allowed = 1;
+			break;
+		case 0x07: /* NEW_TOKEN */
+			/* Allowed in 1-RTT */
+			if (level == LWS_QUIC_LEVEL_APP)
+				is_allowed = 1;
+			break;
+		default:
+			/* All other frames allowed in 0-RTT and 1-RTT */
+			if (level == LWS_QUIC_LEVEL_EARLY || level == LWS_QUIC_LEVEL_APP)
+				is_allowed = 1;
+			break;
+		}
+
+		if (!is_allowed) {
+			lwsl_wsi_notice(nwsi, "QUIC RX: Frame type 0x%x not allowed in encryption level %d", (unsigned int)type, level);
+			lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_PROTOCOL_VIOLATION, type, 0);
+			return -1;
+		}
+
 		switch (type) {
 		case LWS_QUIC_FT_PADDING:
 			/* Padding frame is exactly 1 byte. Just continue. */
@@ -565,6 +603,12 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 				return -1;
 			}
 
+			if (offset + len > 262144) {
+				lwsl_wsi_notice(nwsi, "QUIC RX: CRYPTO frame exceeds maximum buffer size");
+				lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_CRYPTO_BUFFER_EXCEEDED, type, 0);
+				return -1;
+			}
+
 			lwsl_wsi_info(nwsi, "QUIC RX: Parsed CRYPTO frame! level %d, offset %llu, len %llu",
 				level, (unsigned long long)offset, (unsigned long long)len);
 
@@ -578,6 +622,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 		case LWS_QUIC_FT_ACK:
 		case LWS_QUIC_FT_ACK_ECN: {
 			uint64_t largest_ack, ack_delay, ack_range_count, first_ack_range;
+			uint64_t limit_counter = 0;
 
 			/* 1. Largest Acknowledged */
 			consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &largest_ack);
@@ -588,6 +633,8 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 			consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &ack_delay);
 			if (!consumed) return -1;
 			pos += consumed;
+
+			uint64_t actual_ack_delay_us = ack_delay << (nwsi->quic.qn ? nwsi->quic.qn->peer_ack_delay_exponent : 3);
 
 			/* 3. ACK Range Count */
 			consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &ack_range_count);
@@ -609,7 +656,8 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 				return -1;
 			}
 			for (uint64_t i = 0; i <= first_ack_range; i++) {
-				lws_quic_handle_ack(nwsi, level, pn - i);
+				lws_quic_handle_ack(nwsi, level, pn - i, (i == 0) ? 1 : 0, actual_ack_delay_us);
+				if (++limit_counter > 100000) break;
 			}
 			pn -= (first_ack_range + 1);
 
@@ -641,19 +689,32 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 					return -1;
 				}
 				for (uint64_t i = 0; i <= ack_range; i++) {
-					lws_quic_handle_ack(nwsi, level, pn - i);
+					lws_quic_handle_ack(nwsi, level, pn - i, 0, 0);
+					if (++limit_counter > 100000) break;
 				}
 				pn -= (ack_range + 1);
 			}
 
 			/* 6. ECN Counts (if type == 0x03) */
 			if (type == LWS_QUIC_FT_ACK_ECN) {
-				uint64_t ecn;
-				/* ECT0, ECT1, ECN-CE */
-				for (int i = 0; i < 3; i++) {
-					consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &ecn);
-					if (!consumed) return -1;
-					pos += consumed;
+				uint64_t ect0, ect1, ecn_ce;
+				consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &ect0);
+				if (!consumed) return -1;
+				pos += consumed;
+				consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &ect1);
+				if (!consumed) return -1;
+				pos += consumed;
+				consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &ecn_ce);
+				if (!consumed) return -1;
+				pos += consumed;
+
+				/* F-61: React to ECN-CE increase as a congestion event */
+				if (qn && ecn_ce > qn->ecn_tx_ce) {
+					qn->ecn_tx_ce = ecn_ce;
+					if (qn->cc_ops && qn->cc_ops->on_loss) {
+						/* RFC 9002 §7.3.1: ECN-CE is treated identically to packet loss */
+						qn->cc_ops->on_loss(nwsi, 0); 
+					}
 				}
 			}
 			lws_quic_detect_loss(nwsi, level, largest_ack);
@@ -870,9 +931,9 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 #if defined(LWS_WITH_CLIENT)
 						lws_wsi_mux_apply_queue(nwsi);
 #endif
+                                        }
+                                }
 					}
-				}
-			}
 			break;
 		}
 
@@ -895,6 +956,15 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 				return -1;
 			}
 			if (pos + cid_len + 16 > payload_len) return -1;
+			
+			/* F-55: Store NEW_CONNECTION_ID if sequence is greater than current */
+			if (qn && seq >= qn->highest_rx_cid_seq) {
+				qn->highest_rx_cid_seq = seq;
+				qn->rem_cid.len = cid_len;
+				memcpy(qn->rem_cid.id, &payload[pos], cid_len);
+				memcpy(qn->rem_stateless_reset_token, &payload[pos + cid_len], 16);
+			}
+			
 			pos += cid_len + 16;
 			lwsl_wsi_info(nwsi, "QUIC RX: Parsed NEW_CONNECTION_ID! seq %llu", (unsigned long long)seq);
 			break;
@@ -982,6 +1052,25 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 
 							lws_close_free_wsi(old_nwsi, LWS_CLOSE_STATUS_NOSTATUS, "migrated");
 						}
+					} else if (nwsi->quic.qn->probing_sa46_valid) {
+						/* F-60: Server received PATH_RESPONSE, commit the migration address */
+						nwsi->udp->sa46 = nwsi->quic.qn->probing_sa46;
+						nwsi->quic.qn->probing_sa46_valid = 0;
+						lwsl_wsi_notice(nwsi, "QUIC Server: PATH_RESPONSE validated, committed migration address!");
+
+						/* Reset Congestion Control State (RFC 9000 9.3.3) */
+						if (nwsi->quic.qn->cc_ops && nwsi->quic.qn->cc_ops->init)
+							nwsi->quic.qn->cc_ops->init(nwsi);
+
+						/* Reset RTT estimator */
+						nwsi->quic.qn->smoothed_rtt = 0;
+						nwsi->quic.qn->rttvar = 0;
+						nwsi->quic.qn->latest_rtt = 0;
+
+						/* Reset PMTUD */
+						nwsi->quic.qn->current_mtu = 1280;
+						nwsi->quic.qn->probed_mtu = 1380;
+						nwsi->quic.qn->pmtud_state = 1;
 					}
 				} else {
 					lwsl_wsi_notice(nwsi, "QUIC RX: Spurious or mismatched PATH_RESPONSE, ignoring");
@@ -1359,10 +1448,12 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 				break;
 			}
 
-			lwsl_wsi_notice(nwsi, "QUIC RX: Unhandled frame type 0x%x, aborting parse",
-				      (unsigned int)type);
-			/* Unknown frame: we MUST abort parsing because we don't know its length! */
-			return -1;
+                        lwsl_wsi_notice(nwsi, "QUIC RX: Unhandled frame type 0x%x, aborting parse of packet",
+                                      (unsigned int)type);
+                        /* RFC 9000 12.4: If a frame of an unknown type is received, the endpoint MUST
+                         * respond with a connection error of type FRAME_ENCODING_ERROR. */
+                        lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FRAME_ENCODING_ERROR, type, 0);
+                        return -1;
 		}
 		if (type != LWS_QUIC_FT_PADDING && type != LWS_QUIC_FT_ACK && type != LWS_QUIC_FT_ACK_ECN && type != 0x1c && type != 0x1d) {
 			ack_eliciting = 1;
@@ -1412,8 +1503,11 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 				return -1;
 			}
 		}
-		if (num_seen < LWS_ARRAY_SIZE(seen_params))
-			seen_params[num_seen++] = param_id;
+		if (num_seen >= LWS_ARRAY_SIZE(seen_params)) {
+			lwsl_wsi_err(wsi, "QUIC TP error: Too many transport parameters");
+			return -1;
+		}
+		seen_params[num_seen++] = param_id;
 
 		switch (param_id) {
 		case 0x11: { /* version_information */
@@ -1462,8 +1556,9 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 				struct lws *nwsi = qn->nwsi ? qn->nwsi : wsi;
 				int64_t diff = (int64_t)val - 65535;
 				if (diff > 0) {
-					nwsi->txc.peer_tx_cr_est += (int32_t)diff;
-					nwsi->txc.tx_cr += (int32_t)diff;
+					int32_t clamped = (diff > INT32_MAX) ? INT32_MAX : (int32_t)diff;
+					nwsi->txc.peer_tx_cr_est += clamped;
+					nwsi->txc.tx_cr += clamped;
 				}
 			} else return -1;
 			break;
@@ -1498,6 +1593,7 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 					lwsl_wsi_err(wsi, "QUIC TP error: ack_delay_exponent %llu > 20", (unsigned long long)val);
 					return -1;
 				}
+				qn->peer_ack_delay_exponent = val;
 			} else return -1;
 			break;
 		case 0x20: /* max_datagram_frame_size */
@@ -1540,11 +1636,12 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 				lwsl_wsi_err(wsi, "QUIC TP error: Client sent server-only parameter %llu", (unsigned long long)param_id);
 				return -1;
 			}
-			if (param_len != 16) {
-				lwsl_wsi_err(wsi, "QUIC TP error: stateless_reset_token length %llu != 16", (unsigned long long)param_len);
-				return -1;
-			}
-			break;
+			                        if (param_len != 16) {
+                                lwsl_wsi_err(wsi, "QUIC TP error: stateless_reset_token length %llu != 16", (unsigned long long)param_len);
+                                return -1;
+                        }
+                        memcpy(qn->rem_stateless_reset_token, &buf[pos], 16);
+                        break;
 #if defined(LWS_WITH_CLIENT)
 		case 0x0d: /* preferred_address */
 			if (qn->is_server) {

@@ -140,6 +140,8 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		/* create the POST argument parser if not already existing */
 
 		if (!pss->spa) {
+			pss->fd = -1;
+			pss->filename[0] = '\0';
 			pss->spa = lws_spa_create(wsi, param_names,
 					LWS_ARRAY_SIZE(param_names), 1024,
 					file_upload_cb, pss);
@@ -188,6 +190,15 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (pss->spa) {
 			lws_spa_destroy(pss->spa);
 			pss->spa = NULL;
+		}
+		if (pss->fd != -1) {
+			close(pss->fd);
+			pss->fd = -1;
+		}
+		if (pss->filename[0]) {
+			if (unlink(pss->filename) < 0)
+				lwsl_notice("%s: unlink %s failed: %d\n", __func__, pss->filename, errno);
+			pss->filename[0] = '\0';
 		}
 		break;
 

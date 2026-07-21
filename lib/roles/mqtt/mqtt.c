@@ -270,6 +270,20 @@ lws_mqtt_set_client_established(struct lws *wsi)
 	return 0;
 }
 
+static int
+lws_mqtt_check_packet_size(struct lws *wsi, uint32_t size)
+{
+        uint32_t max_size = LWS_MQTT_MAX_PACKET_SIZE;
+        if (wsi->mqtt->peer_max_packet_size && wsi->mqtt->peer_max_packet_size < max_size)
+                max_size = wsi->mqtt->peer_max_packet_size;
+        
+        if (size > max_size) {
+                lwsl_wsi_notice(wsi, "MQTT packet too large: %u > %u", (unsigned int)size, (unsigned int)max_size);
+                return 1;
+        }
+        return 0;
+}
+
 static lws_mqtt_validate_topic_return_t
 lws_mqtt_validate_topic(const char *topic, size_t topiclen, uint8_t awsiot)
 {
@@ -596,6 +610,8 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 				break;
 			case LMSPR_COMPLETED:
 				par->cpkt_remlen = par->vbit.value;
+                                if (lws_mqtt_check_packet_size(wsi, par->cpkt_remlen))
+                                        goto send_protocol_error_and_close;
 				n = map_flags[ctl_pkt_type(par)];
 				lws_mqtt_str_init(&par->s_temp, par->temp,
 						  sizeof(par->temp), 0);
@@ -689,6 +705,8 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 				/* reset consumption counter */
 				par->consumed = 0;
 				par->props_len = par->vbit.value;
+				if (par->props_len > par->cpkt_remlen)
+					goto send_protocol_error_and_close;
 				lws_mqtt_vbi_init(&par->vbit);
 				par->state = LMQCPP_PROP_ID_VBI;
 				break;
@@ -707,6 +725,8 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 				break;
 			case LMSPR_COMPLETED:
 				par->cpkt_remlen = par->vbit.value;
+                                if (lws_mqtt_check_packet_size(wsi, par->cpkt_remlen))
+                                        goto send_protocol_error_and_close;
 				lwsl_debug("%s: PUBREC pkt len = %d\n",
 					   __func__, (int)par->cpkt_remlen);
 				if (par->cpkt_remlen < 2)
@@ -732,6 +752,9 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			par->cpkt_remlen -= 2;
 			par->n = 0;
 
+			if (par->cpkt_remlen)
+				goto send_protocol_error_and_close;
+
 			goto cmd_completion;
 
 		/* PUBREL */
@@ -743,6 +766,8 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 				break;
 			case LMSPR_COMPLETED:
 				par->cpkt_remlen = par->vbit.value;
+                                if (lws_mqtt_check_packet_size(wsi, par->cpkt_remlen))
+                                        goto send_protocol_error_and_close;
 				lwsl_debug("%s: PUBREL pkt len = %d\n",
 					   __func__, (int)par->cpkt_remlen);
 				if (par->cpkt_remlen < 2)
@@ -768,6 +793,9 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			par->cpkt_remlen -= 2;
 			par->n = 0;
 
+			if (par->cpkt_remlen)
+				goto send_protocol_error_and_close;
+
 			goto cmd_completion;
 
 		/* PUBCOMP */
@@ -779,6 +807,8 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 				break;
 			case LMSPR_COMPLETED:
 				par->cpkt_remlen = par->vbit.value;
+                                if (lws_mqtt_check_packet_size(wsi, par->cpkt_remlen))
+                                        goto send_protocol_error_and_close;
 				lwsl_debug("%s: PUBCOMP pkt len = %d\n",
 					   __func__, (int)par->cpkt_remlen);
 				if (par->cpkt_remlen < 2)
@@ -804,6 +834,9 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			par->cpkt_remlen -= 2;
 			par->n = 0;
 
+			if (par->cpkt_remlen)
+				goto send_protocol_error_and_close;
+
 			goto cmd_completion;
 
 		case LMQCPP_PUBLISH_PACKET:
@@ -822,6 +855,8 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 				break;
 			case LMSPR_COMPLETED:
 				par->cpkt_remlen = par->vbit.value;
+                                if (lws_mqtt_check_packet_size(wsi, par->cpkt_remlen))
+                                        goto send_protocol_error_and_close;
 				lwsl_debug("%s: PUBLISH pkt len = %d\n",
 					   __func__, (int)par->cpkt_remlen);
 				/* Move on to PUBLISH's variable header */
@@ -1000,6 +1035,8 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 				break;
 			case LMSPR_COMPLETED:
 				par->cpkt_remlen = par->vbit.value;
+                                if (lws_mqtt_check_packet_size(wsi, par->cpkt_remlen))
+                                        goto send_protocol_error_and_close;
 				lwsl_debug("%s: CONNACK pkt len = %d\n",
 					   __func__, (int)par->cpkt_remlen);
 				if (par->cpkt_remlen != 2)
@@ -1108,6 +1145,8 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 				break;
 			case LMSPR_COMPLETED:
 				par->cpkt_remlen = par->vbit.value;
+                                if (lws_mqtt_check_packet_size(wsi, par->cpkt_remlen))
+                                        goto send_protocol_error_and_close;
 				lwsl_debug("%s: SUBACK pkt len = %d\n",
 					   __func__, (int)par->cpkt_remlen);
 				if (par->cpkt_remlen <= 2)
@@ -1139,8 +1178,12 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 
 		case LMQCPP_SUBACK_PAYLOAD:
 		{
-			lws_mqtt_qos_levels_t qos = (lws_mqtt_qos_levels_t)*buf++;
+			lws_mqtt_qos_levels_t qos;
 
+			if (!len)
+				return 0;
+
+			qos = (lws_mqtt_qos_levels_t)*buf++;
 			len--;
 			switch (qos) {
 				case QOS0:
@@ -1178,6 +1221,8 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 				break;
 			case LMSPR_COMPLETED:
 				par->cpkt_remlen = par->vbit.value;
+                                if (lws_mqtt_check_packet_size(wsi, par->cpkt_remlen))
+                                        goto send_protocol_error_and_close;
 				lwsl_debug("%s: UNSUBACK pkt len = %d\n",
 					   __func__, (int)par->cpkt_remlen);
 				if (par->cpkt_remlen < 2)
@@ -1204,6 +1249,9 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			par->cpkt_remlen -= 2;
 			par->n = 0;
 
+			if (par->cpkt_remlen)
+				goto send_protocol_error_and_close;
+
 			goto cmd_completion;
 
 		case LMQCPP_PUBACK_PACKET:
@@ -1213,6 +1261,8 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 				break;
 			case LMSPR_COMPLETED:
 				par->cpkt_remlen = par->vbit.value;
+                                if (lws_mqtt_check_packet_size(wsi, par->cpkt_remlen))
+                                        goto send_protocol_error_and_close;
 				lwsl_info("%s: PUBACK pkt len = %d\n", __func__,
 					  (int)par->cpkt_remlen);
 				/*
@@ -1239,11 +1289,9 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			 * There are 3 fixed bytes and then a VBI for the
 			 * property section length
 			 */
+			if (!len)
+				return 0;
 			par->fixed_seen[par->fixed++] = *buf++;
-			if (len < par->cpkt_remlen - par->n) {
-				lwsl_notice("%s: len breakage 4\n", __func__);
-				return -1;
-			}
 			len--;
 			par->n++;
 			if (par->fixed == 2)
@@ -1265,6 +1313,8 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 				break;
 			case LMSPR_COMPLETED:
 				par->props_len = par->vbit.value;
+				if (par->props_len > par->cpkt_remlen - par->n)
+					goto send_protocol_error_and_close;
 				lwsl_info("%s: PUBACK props len = %d\n",
 					  __func__, (int)par->cpkt_remlen);
 				/*
@@ -1290,6 +1340,8 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			/*
 			 * TODO: stash the props
 			 */
+			if (!len)
+				return 0;
 			par->props_consumed++;
 			len--;
 			buf++;
@@ -1868,6 +1920,9 @@ bail1:
 			case LMSPR_NEED_MORE:
 				break;
 			case LMSPR_COMPLETED:
+				if (par->prop_id == LMQCPP_PROP_MAXIMUM_PACKET_SIZE_4BYTE) {
+					wsi->mqtt->peer_max_packet_size = par->vbit.value;
+				}
 				if (lws_mqtt_pconsume(par, par->vbit.consumed))
 					goto send_protocol_error_and_close;
 				break;

@@ -192,13 +192,16 @@ reply_404:
 
 		while (pss->fp && lws_ptr_diff_size_t(end, p) > 256) {
 			if (!pss->fp_init_done) {
+				char escaped_path[256];
+				int in_used = 0;
+				lws_json_purify(escaped_path, ((char *)(pss->fp + 1)) + pss->fp->matches_length, sizeof(escaped_path), &in_used);
+
 				p += lws_snprintf((char *)p,
 						lws_ptr_diff_size_t(end, p),
 					"%c{\"path\": \"%s\",\"matches\": %d,"
 					"\"origlines\": %d,"
 					"\"hits\": [", pss->first ? ' ' : ',',
-					((char *)(pss->fp + 1)) +
-						pss->fp->matches_length,
+					escaped_path,
 					pss->fp->matches,
 					pss->fp->lines_in_file);
 
@@ -209,6 +212,9 @@ reply_404:
 			} else {
 				while (pss->done < pss->fp->matches &&
 				       lws_ptr_diff(end, p) > 256) {
+					char escaped_s[256];
+					int in_used = 0;
+					lws_json_purify(escaped_s, *((const char **)&pss->li[2]), sizeof(escaped_s), &in_used);
 
 					p += lws_snprintf((char *)p,
 							lws_ptr_diff_size_t(end, p),
@@ -216,7 +222,7 @@ reply_404:
 						"\"s\":\"%s\"}",
 						!pss->done ? ' ' : ',',
 						pss->li[0], pss->li[1],
-						*((const char **)&pss->li[2]));
+						escaped_s);
 					pss->li += 2 + (sizeof(const char *) /
 							sizeof(uint32_t));
 					pss->done++;

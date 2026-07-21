@@ -1202,6 +1202,11 @@ lws_create_context(const struct lws_context_creation_info *info)
 		else
 			context->max_http_header_data = LWS_DEF_HEADER_LEN;
 
+	if (context->max_http_header_data > 32768) {
+		lwsl_warn("%s: capping max http header data to 32KB\n", __func__);
+		context->max_http_header_data = 32768;
+	}
+
 	if (info->max_http_header_pool)
 		context->max_http_header_pool = info->max_http_header_pool;
 	else

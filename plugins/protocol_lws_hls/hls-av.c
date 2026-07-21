@@ -16,17 +16,19 @@ lws_hls_thumbnail_worker(void *d)
                 while (!vhd->thread_exit && !vhd->task_head) {
                         pthread_cond_wait(&vhd->cond, &vhd->lock);
                 }
-                
                 if (vhd->thread_exit) {
                         pthread_mutex_unlock(&vhd->lock);
                         break;
                 }
-                
+
                 struct thumb_task *t = vhd->task_head;
                 vhd->task_head = t->next;
-                if (!vhd->task_head)
+                if (vhd->task_tail == t)
                         vhd->task_tail = NULL;
-                        
+
+                strncpy(vhd->current_task_filename, t->filename, sizeof(vhd->current_task_filename));
+                vhd->current_task_filename[sizeof(vhd->current_task_filename) - 1] = '\0';
+                
                 pthread_mutex_unlock(&vhd->lock);
                 
                 char filepath[512];
@@ -62,6 +64,9 @@ lws_hls_thumbnail_worker(void *d)
                                                 if (avcodec_open2(dec_ctx, decoder, NULL) == 0) {
                                                         frame = av_frame_alloc();
                                                         pkt = av_packet_alloc();
+                                                        
+                                                        int64_t target_ts = av_rescale_q(10 * AV_TIME_BASE, AV_TIME_BASE_Q, fmt_ctx->streams[video_idx]->time_base);
+                                                        av_seek_frame(fmt_ctx, video_idx, target_ts, AVSEEK_FLAG_BACKWARD);
                                                         
                                                         while (av_read_frame(fmt_ctx, pkt) >= 0) {
                                                                 if (pkt->stream_index == video_idx) {
@@ -148,6 +153,8 @@ lws_hls_thumbnail_worker(void *d)
                         }
                 }
                 
+                vhd->current_task_filename[0] = '\0';
+
                 pthread_mutex_unlock(&vhd->lock);
                 free(t);
                 

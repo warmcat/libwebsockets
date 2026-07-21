@@ -126,8 +126,10 @@ callback_lws_oauth_preauth(struct lws *wsi, enum lws_callback_reasons reason,
 		pss->is_listener = 0;
 		if (vhd->jwk.kty) {
 			struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL, NULL);
-			if (ja && lws_jwt_auth_get_uid(ja) > 0)
-				pss->is_listener = 1;
+			if (ja && lws_jwt_auth_get_uid(ja) > 0) {
+				if (lws_jwt_auth_query_grant(ja, "admin") > 0)
+					pss->is_listener = 1;
+			}
 
 			if (ja)
 				lws_jwt_auth_destroy(&ja);

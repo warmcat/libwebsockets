@@ -148,10 +148,15 @@ http_postbody:
 			 * what we have in the read buffer (len)
 			 * remaining portion of the POST body (content_remain)
 			 */
-			if (wsi->http.content_length_given)
+			if (wsi->http.content_length_given) {
 				body_chunk_len = min(wsi->http.rx_content_remain, len);
-			else
+			} else {
+				if (lwsi_role_server(wsi) && (lws_filepos_t)len > wsi->http.rx_content_remain) {
+					lwsl_warn("%s: body exceeded max size\n", __func__);
+					goto bail;
+				}
 				body_chunk_len = len;
+			}
 			wsi->http.rx_content_remain -= body_chunk_len;
 			// len -= body_chunk_len;
 #ifdef LWS_WITH_CGI
@@ -428,20 +433,20 @@ lws_h1_server_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 		case LWS_SSL_CAPABLE_ERROR:
 			goto fail;
 		case LWS_SSL_CAPABLE_MORE_SERVICE_READ:
-			if (wsi->pending_timeout)
+			if (wsi->pending_timeout && wsi->pending_timeout != PENDING_TIMEOUT_SHUTDOWN_FLUSH)
 				lws_set_timeout(wsi, (enum pending_timeout)wsi->pending_timeout,
 						wsi->pending_timeout == PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE ?
 						(int)lws_wsi_keepalive_timeout_eff(wsi) : (int)wsi->a.context->timeout_secs);
 			goto try_pollout;
 		case LWS_SSL_CAPABLE_MORE_SERVICE_WRITE:
-			if (wsi->pending_timeout)
+			if (wsi->pending_timeout && wsi->pending_timeout != PENDING_TIMEOUT_SHUTDOWN_FLUSH)
 				lws_set_timeout(wsi, (enum pending_timeout)wsi->pending_timeout,
 						wsi->pending_timeout == PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE ?
 						(int)lws_wsi_keepalive_timeout_eff(wsi) : (int)wsi->a.context->timeout_secs);
 			goto try_pollout;
 		}
 
-		if (wsi->pending_timeout)
+		if (wsi->pending_timeout && wsi->pending_timeout != PENDING_TIMEOUT_SHUTDOWN_FLUSH)
 			lws_set_timeout(wsi, (enum pending_timeout)wsi->pending_timeout,
 					wsi->pending_timeout == PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE ?
 					(int)lws_wsi_keepalive_timeout_eff(wsi) : (int)wsi->a.context->timeout_secs);

@@ -33,11 +33,10 @@ static const uint8_t quic_v1_initial_salt[20] = {
 	0xcc, 0xbb, 0x7f, 0x0a
 };
 
-static const uint8_t quic_v2_initial_salt[32] = {
-	0x0c, 0x20, 0x34, 0xeb, 0x2d, 0xcf, 0xeb, 0x4a,
-	0x14, 0x4e, 0x1b, 0x82, 0xf0, 0x93, 0x14, 0x06,
-	0xcb, 0xb9, 0x2e, 0xd3, 0x5b, 0x3e, 0x64, 0xf2,
-	0x71, 0xbc, 0x60, 0x7e, 0xb3, 0x26, 0x89, 0xc1
+static const uint8_t quic_v2_initial_salt[20] = {
+	0x0d, 0xed, 0xe3, 0xde, 0xf7, 0x00, 0xa6, 0xdb,
+	0x81, 0x93, 0x81, 0xbe, 0x6e, 0x26, 0x9d, 0xcb,
+	0xf9, 0xbd, 0x2e, 0xd9
 };
 
 static int
@@ -211,10 +210,6 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
 	if (!qn)
 		return -1;
 
-	if (qn->handshake_done && (type == LWS_TLS_QUIC_SECRET_CLIENT_APPLICATION || type == LWS_TLS_QUIC_SECRET_SERVER_APPLICATION)) {
-		lwsl_info("lws_quic_set_keys: ignoring post-handshake application secret update\n");
-		return 0;
-	}
 
 
 
@@ -263,21 +258,29 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
 		k = qn->keys[level];
 	}
 
-	if (is_rx) {
-		memcpy(k->secret_rx, secret, secret_len > 48 ? 48 : secret_len);
-		k->secret_len = secret_len;
-		if (secret_len == 48) k->cipher_type = 2; /* AES-256-GCM */
-		if (lws_quic_derive_key_iv_hp(k->secret_rx, secret_len, k->cipher_type, k->iv_rx, sizeof(k->iv_rx),
-					      &k->el_aead_rx, k->key_aead_rx, &k->el_hp_rx, k->key_hp_rx))
-			return -1;
-	} else {
-		memcpy(k->secret_tx, secret, secret_len > 48 ? 48 : secret_len);
-		k->secret_len = secret_len;
-		if (secret_len == 48) k->cipher_type = 2; /* AES-256-GCM */
-		if (lws_quic_derive_key_iv_hp(k->secret_tx, secret_len, k->cipher_type, k->iv_tx, sizeof(k->iv_tx),
-					      &k->el_aead_tx, k->key_aead_tx, &k->el_hp_tx, k->key_hp_tx))
-			return -1;
-	}
+        if (is_rx) {
+                if (level == LWS_QUIC_LEVEL_APP && k->valid && k->secret_rx[0] && qn->handshake_done) {
+                        lwsl_notice("%s: ignoring post-handshake TLS secret_rx update for APP level\n", __func__);
+                        return 0;
+                }
+                k->secret_len = secret_len > 48 ? 48 : secret_len;
+                memcpy(k->secret_rx, secret, k->secret_len);
+                if (k->cipher_type != 1) k->cipher_type = (k->secret_len == 48) ? 2 : 0;
+                if (lws_quic_derive_key_iv_hp(k->secret_rx, k->secret_len, k->cipher_type, k->iv_rx, sizeof(k->iv_rx),
+                                              &k->el_aead_rx, k->key_aead_rx, &k->el_hp_rx, k->key_hp_rx))
+                        return -1;
+        } else {
+                if (level == LWS_QUIC_LEVEL_APP && k->valid && k->secret_tx[0] && qn->handshake_done) {
+                        lwsl_notice("%s: ignoring post-handshake TLS secret_tx update for APP level\n", __func__);
+                        return 0;
+                }
+                k->secret_len = secret_len > 48 ? 48 : secret_len;
+                memcpy(k->secret_tx, secret, k->secret_len);
+                if (k->cipher_type != 1) k->cipher_type = (k->secret_len == 48) ? 2 : 0;
+                if (lws_quic_derive_key_iv_hp(k->secret_tx, k->secret_len, k->cipher_type, k->iv_tx, sizeof(k->iv_tx),
+                                              &k->el_aead_tx, k->key_aead_tx, &k->el_hp_tx, k->key_hp_tx))
+                        return -1;
+        }
 
 	/* We mark it valid once BOTH directions are derived (or if we only need one direction for early data) */
 	/* For simplicity, we just mark valid and rely on tx/rx logic */
@@ -369,6 +372,24 @@ lws_quic_keys_destroy(struct lws_quic_keys *keys)
 
         lws_explicit_bzero(keys, sizeof(*keys));
         lws_free(keys);
+}
+
+void lws_quic_keys_release_aead_rx(struct lws_quic_keys *keys) {
+#if defined(LWS_WITH_GNUTLS)
+        if (keys->aead_rx) {
+                gnutls_aead_cipher_deinit((gnutls_aead_cipher_hd_t)keys->aead_rx);
+                keys->aead_rx = NULL;
+        }
+#endif
+}
+
+void lws_quic_keys_release_aead_tx(struct lws_quic_keys *keys) {
+#if defined(LWS_WITH_GNUTLS)
+        if (keys->aead_tx) {
+                gnutls_aead_cipher_deinit((gnutls_aead_cipher_hd_t)keys->aead_tx);
+                keys->aead_tx = NULL;
+        }
+#endif
 }
 
 int
@@ -522,6 +543,7 @@ lws_quic_decrypt_payload(struct lws_quic_keys *keys, uint8_t *packet, size_t pac
                                                16, tmp, ct_len,
                                                &packet[payload_offset], &pt_len) < 0) {
                         lwsl_err("DECRYPT GCM tag check failed via gnutls_aead_cipher_decrypt\n");
+                        lws_explicit_bzero(&packet[payload_offset], payload_len);
                         return -1;
                 }
 #else
@@ -538,11 +560,13 @@ lws_quic_decrypt_payload(struct lws_quic_keys *keys, uint8_t *packet, size_t pac
 		if (lws_genaes_crypt(&aead, &packet[payload_offset], payload_len,
 				     &packet[payload_offset], nonce, tag, &iv_len, 16)) {
 			lws_genaes_destroy(&aead, NULL, 0);
+			lws_explicit_bzero(&packet[payload_offset], payload_len);
 			return -1;
 		}
 
 		if (lws_genaes_destroy(&aead, tag, 16)) { /* Checks tag */
 			lwsl_err("DECRYPT GCM tag check failed\n");
+			lws_explicit_bzero(&packet[payload_offset], payload_len);
 			return -1;
 		}
 #endif
@@ -557,11 +581,14 @@ lws_quic_decrypt_payload(struct lws_quic_keys *keys, uint8_t *packet, size_t pac
 		if (lws_genchacha_crypt(&aead, &packet[payload_offset], payload_len,
 				     &packet[payload_offset], nonce, packet, payload_offset, tag, 16)) {
 			lws_genchacha_destroy(&aead);
+			lws_explicit_bzero(&packet[payload_offset], payload_len);
 			return -1;
 		}
 
-		if (lws_genchacha_destroy(&aead))
+		if (lws_genchacha_destroy(&aead)) {
+			lws_explicit_bzero(&packet[payload_offset], payload_len);
 			return -1;
+		}
 	}
 
 	return (int)payload_len; /* Return the decrypted payload length */
@@ -1013,20 +1040,22 @@ static const uint8_t quic_v1_retry_nonce[] = {
 };
 
 int
-lws_quic_validate_retry_tag(struct lws_quic_netconn *qn, const uint8_t *pkt, size_t len, const uint8_t *tag)
+lws_quic_validate_retry_tag(struct lws_quic_netconn *qn,
+			    const uint8_t *orig_dcid, size_t orig_dcid_len,
+			    const uint8_t *pkt, size_t len, const uint8_t *tag)
 {
         struct lws_genaes_ctx aead;
         uint8_t computed_tag[16];
         uint8_t pseudo_pkt[2048];
         size_t pseudo_len;
 
-        if (!qn->rem_cid.len || len + 1 + qn->rem_cid.len > sizeof(pseudo_pkt))
+        if (!orig_dcid_len || len + 1 + orig_dcid_len > sizeof(pseudo_pkt))
                 return -1;
 
-        pseudo_pkt[0] = qn->rem_cid.len;
-        memcpy(pseudo_pkt + 1, qn->rem_cid.id, qn->rem_cid.len);
-        memcpy(pseudo_pkt + 1 + qn->rem_cid.len, pkt, len);
-        pseudo_len = 1 + qn->rem_cid.len + len;
+        pseudo_pkt[0] = (uint8_t)orig_dcid_len;
+        memcpy(pseudo_pkt + 1, orig_dcid, orig_dcid_len);
+        memcpy(pseudo_pkt + 1 + orig_dcid_len, pkt, len);
+        pseudo_len = 1 + orig_dcid_len + len;
 
         struct lws_gencrypto_keyelem keys[1];
         keys[0].buf = (uint8_t *)quic_v1_retry_key;
@@ -1175,7 +1204,7 @@ lws_quic_validate_retry_token(struct lws *wsi, const uint8_t *token, size_t toke
                               pt[p+7];
 
         uint64_t now = (uint64_t)lws_now_usecs();
-        if (now < token_time || now - token_time > 15ULL * 1000000ULL) {
+        if (now < token_time || now - token_time > 60ULL * 1000000ULL) {
                 lwsl_wsi_notice(wsi, "QUIC: Retry token expired. age = %lld us", (long long)(now - token_time));
                 return -1;
         }
