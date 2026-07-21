@@ -1054,6 +1054,11 @@ lws_parse(struct lws *wsi, unsigned char *buf, int *len)
 		(*len)--;
 		c = *buf++;
 
+		if (c == '\0') {
+			lwsl_info("%s: rejecting NUL in header\n", __func__);
+			return LPR_FAIL;
+		}
+
 		switch (ah->parser_state) {
 #if defined(LWS_WITH_CUSTOM_HEADERS)
 		case WSI_TOKEN_UNKNOWN_VALUE_PART:

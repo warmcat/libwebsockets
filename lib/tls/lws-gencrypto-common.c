@@ -268,13 +268,7 @@ static const struct lws_jose_jwe_alg lws_gencrypto_jwe_alg_map[] = {
 	 * A key of size 2048 bits or larger MUST be used with this algorithm.
 	 */
 
-	{	/* recommended-: RSAES-PKCS1-v1_5 */
-		LWS_GENHASH_TYPE_SHA256,
-		LWS_GENHMAC_TYPE_UNKNOWN,
-		LWS_JOSE_ENCTYPE_RSASSA_PKCS1_1_5,
-		LWS_JOSE_ENCTYPE_NONE,
-		"RSA1_5", NULL, 2048, 4096, 0
-	},
+
 	{	/* recommended+: RSAES OAEP using default parameters */
 		LWS_GENHASH_TYPE_SHA1,
 		LWS_GENHMAC_TYPE_UNKNOWN,

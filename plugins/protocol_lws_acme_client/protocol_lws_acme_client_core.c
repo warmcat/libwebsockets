@@ -732,8 +732,26 @@ lws_acme_client_connect(struct lws_context *context, struct lws_vhost *vh,
 	puri = lws_parse_uri_create(url);
 	if (!puri) {
 		lwsl_err("unable to parse uri %s\n", url);
-
 		return NULL;
+	}
+
+	{
+		const struct lws_protocols *prot = lws_vhost_name_to_protocol(vh, "lws-acme-client-core");
+		struct per_vhost_data__lws_acme_client *vhd = prot ? 
+			(struct per_vhost_data__lws_acme_client *)lws_protocol_vh_priv_get(vh, prot) : NULL;
+		
+		if (vhd && vhd->active_cert && vhd->active_cert->pvop[LWS_TLS_SET_DIR_URL]) {
+			lws_parse_uri_t *puri_dir = lws_parse_uri_create(vhd->active_cert->pvop[LWS_TLS_SET_DIR_URL]);
+			if (puri_dir) {
+				if (strcmp(puri_dir->host, puri->host)) {
+					lwsl_err("ACME SSRF attempt blocked! URL %s doesn't match dir host %s\n", url, puri_dir->host);
+					lws_parse_uri_destroy(&puri);
+					lws_parse_uri_destroy(&puri_dir);
+					return NULL;
+				}
+				lws_parse_uri_destroy(&puri_dir);
+			}
+		}
 	}
 
 	i->address = puri->host;
@@ -835,8 +853,17 @@ lws_acme_load_create_auth_keys(struct per_vhost_data__lws_acme_client *vhd,
 
 	if (lws_jwk_save(&vhd->jwk, vhd->active_cert->pvop[LWS_TLS_SET_AUTH_PATH])) {
         lwsl_vhost_notice(vhd->vhost, "falling back to ACME footprint IPC to save %s", vhd->active_cert->pvop[LWS_TLS_SET_AUTH_PATH]);
+        char tmp_dir[256];
         char tmp_path[256];
-        lws_snprintf(tmp_path, sizeof(tmp_path), "/tmp/lws-acme-auth-%d.jwk", getpid()); // NOSONAR
+        lws_strncpy(tmp_dir, "/tmp/lws-acme-auth-XXXXXX", sizeof(tmp_dir));
+        if (mkdtemp(tmp_dir)) {
+            lws_snprintf(tmp_path, sizeof(tmp_path), "%s/jwk", tmp_dir);
+        } else {
+            lwsl_vhost_warn(vhd->vhost, "unable to create secure temp dir for %s", vhd->active_cert->pvop[LWS_TLS_SET_AUTH_PATH]);
+            vhd->last_acme_failure = lws_now_usecs();
+            return 1;
+        }
+        
         if (!lws_jwk_save(&vhd->jwk, tmp_path)) {
             int fd = open(tmp_path, O_RDONLY);
             int success = 0;
@@ -860,6 +887,7 @@ lws_acme_load_create_auth_keys(struct per_vhost_data__lws_acme_client *vhd,
                 close(fd);
             }
             unlink(tmp_path);
+            rmdir(tmp_dir);
             if (!success) {
                 lwsl_vhost_warn(vhd->vhost, "unable to save %s via footprint IPC",
                         vhd->active_cert->pvop[LWS_TLS_SET_AUTH_PATH]);

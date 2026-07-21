@@ -593,6 +593,15 @@ callback_dht_object_store(struct lws* wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_DHT_VERB_DISPATCH: {
 		struct lws_dht_verb_dispatch_args *args =
 			(struct lws_dht_verb_dispatch_args *)in;
+		const char *h = args->msg->hash;
+
+		while (*h) {
+			if (!(*h >= '0' && *h <= '9') && !(*h >= 'a' && *h <= 'f') && !(*h >= 'A' && *h <= 'F')) {
+				lwsl_err("Invalid characters in DHT msg->hash\n");
+				return -1;
+			}
+			h++;
+		}
 
 		if (!strcmp(args->msg->verb, "PUT")) return verb_put_handler(args->ctx, vhd, args->msg, args->from, args->fromlen);
 		if (!strcmp(args->msg->verb, "GET")) return verb_get_handler(args->ctx, vhd, args->msg, args->from, args->fromlen);

@@ -200,6 +200,10 @@ lws_ranges_init(struct lws *wsi, struct lws_range_parsing *rp,
 	while (lws_ranges_next(rp)) {
 		rp->count_ranges++;
 		rp->agg += rp->end - rp->start + 1;
+		if (rp->count_ranges >= 64) {
+			lwsl_notice("Too many ranges\n");
+			return -1;
+		}
 	}
 
 	lwsl_debug("%s: count %d\n", __func__, rp->count_ranges);

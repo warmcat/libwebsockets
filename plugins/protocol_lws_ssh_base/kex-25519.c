@@ -382,6 +382,14 @@ kex_ecdh(struct per_session_data__sshd *pss, uint8_t *reply, uint32_t *plen)
 	 */
 	crypto_scalarmult_curve25519(pss->K, kex->eph_pri_key, kex->Q_C);
 
+	a = 0;
+	for (r = 0; r < (int)sizeof(pss->K); r++)
+		a |= pss->K[r];
+	if (!a) {
+		lwsl_notice("all zero shared secret K\n");
+		return SSH_DISCONNECT_KEY_EXCHANGE_FAILED;
+	}
+
 	/*
 	 * The whole 32 bytes of the number X are then converted into a big
 	 * integer k.  This conversion follows the network byte order. This

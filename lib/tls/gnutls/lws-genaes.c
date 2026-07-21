@@ -260,7 +260,10 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len,
 		return n;
 	}
 
-	if (iv_or_nonce_ctr_or_data_unit_16) {
+	if (ctx->mode == LWS_GAESM_ECB) {
+		uint8_t zero_iv[16] = {0};
+		gnutls_cipher_set_iv(ctx->ctx, zero_iv, 16);
+	} else if (iv_or_nonce_ctr_or_data_unit_16) {
 		if (ctx->mode != LWS_GAESM_GCM || !ctx->gnutls_gcm_initialized) {
 			size_t iv_len = (nc_or_iv_off && *nc_or_iv_off) ? *nc_or_iv_off : 16;
 			gnutls_cipher_set_iv(ctx->ctx, iv_or_nonce_ctr_or_data_unit_16, iv_len);

@@ -425,6 +425,9 @@ lws_qpack_huftable_decode(int pos, char c)
 {
 	int q = pos + !!c;
 
+	if (q < 0 || q >= (int)sizeof(lextable))
+		return 0xffff;
+
 	if (lextable_terms[q >> 3] & (1 << (q & 7))) /* terminal */
 		return lextable[q] | 0x8000;
 
@@ -681,7 +684,9 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 					int relative_idx = ctx ? (int)(ctx->dyn_table.insert_count - 1 - (uint32_t)absolute_idx) : -1;
 					
 					if (ctx && (uint32_t)absolute_idx >= ctx->dyn_table.insert_count) {
-						/* absolute_idx is larger than current insert_count, wait for more encoder stream */
+						/* F-62: absolute_idx is larger than current insert_count, wait for more encoder stream */
+						lwsl_err("QPACK STREAM_BLOCKED: absolute_idx %u >= insert_count %u, stream blocked, failing\n", absolute_idx, ctx->dyn_table.insert_count);
+						return 1;
 					}
 					
 					struct lws_qpack_dynamic_table_entry *dte = 
@@ -698,6 +703,10 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 					val = state->val_buf;
 				} else if ((state->opcode & 0xf0) == 0x40 || (state->opcode & 0xf0) == 0x60) {
 					int absolute_idx = (int)(state->base - (uint64_t)(unsigned int)state->hdr_idx - 1);
+					if (ctx && (uint32_t)absolute_idx >= ctx->dyn_table.insert_count) {
+						lwsl_err("QPACK STREAM_BLOCKED: absolute_idx %u >= insert_count %u, stream blocked, failing\n", absolute_idx, ctx->dyn_table.insert_count);
+						return 1;
+					}
 					int relative_idx = ctx ? (int)(ctx->dyn_table.insert_count - 1 - (uint32_t)absolute_idx) : -1;
 					struct lws_qpack_dynamic_table_entry *dte = 
 						lws_qpack_get_dynamic_entry(ctx, relative_idx);
@@ -714,6 +723,10 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 					val = state->val_buf;
 				} else if ((state->opcode & 0xf0) == 0x10) {
 					int absolute_idx = (int)(state->base + state->int_val);
+					if (ctx && (uint32_t)absolute_idx >= ctx->dyn_table.insert_count) {
+						lwsl_err("QPACK STREAM_BLOCKED: absolute_idx %u >= insert_count %u, stream blocked, failing\n", absolute_idx, ctx->dyn_table.insert_count);
+						return 1;
+					}
 					int relative_idx = ctx ? (int)(ctx->dyn_table.insert_count - 1 - (uint32_t)absolute_idx) : -1;
 					struct lws_qpack_dynamic_table_entry *dte = 
 						lws_qpack_get_dynamic_entry(ctx, relative_idx);
@@ -725,6 +738,10 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 					}
 				} else if ((state->opcode & 0xf0) == 0x00) {
 					int absolute_idx = (int)(state->base + (uint64_t)(unsigned int)state->hdr_idx);
+					if (ctx && (uint32_t)absolute_idx >= ctx->dyn_table.insert_count) {
+						lwsl_err("QPACK STREAM_BLOCKED: absolute_idx %u >= insert_count %u, stream blocked, failing\n", absolute_idx, ctx->dyn_table.insert_count);
+						return 1;
+					}
 					int relative_idx = ctx ? (int)(ctx->dyn_table.insert_count - 1 - (uint32_t)absolute_idx) : -1;
 					struct lws_qpack_dynamic_table_entry *dte = 
 						lws_qpack_get_dynamic_entry(ctx, relative_idx);
@@ -1010,7 +1027,8 @@ do_emit_enc:
 						lwsl_err("Insert Name Ref (dyn) failed: int_val=%d dte=%p\n", (int)state->hdr_idx, (void*)dte);
 					}
 				} else if ((state->opcode & 0xc0) == 0xc0) {
-					lws_qpack_get_static_token((int)state->hdr_idx, &tok, &name);
+					if (lws_qpack_get_static_token((int)state->hdr_idx, &tok, &name))
+						return 1;
 					state->val_buf[state->val_pos] = '\0';
 					lws_qpack_dynamic_insert(ctx, tok, name, name ? strlen(name) : 0, state->val_buf, state->val_pos);
 				} else if ((state->opcode & 0xc0) == 0x40) {

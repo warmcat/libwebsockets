@@ -97,9 +97,13 @@ lws_jwe_encrypt_rsa_aes_cbc_hs(struct lws_jwe *jwe,
 		return -1;
 	}
 
+	if (strncmp(jwe->jose.alg->alg, "RSA-OAEP", 8)) {
+		lwsl_err("%s: only RSA-OAEP is supported for RSA key wrap\n", __func__);
+		return -1;
+	}
+
 	int res = lws_genrsa_create(&rsactx, jwe->jws.jwk->e, jwe->jws.context,
-			!strcmp(jwe->jose.alg->alg,   "RSA-OAEP") ?
-					LGRSAM_PKCS1_OAEP_PSS : LGRSAM_PKCS1_1_5,
+					LGRSAM_PKCS1_OAEP_PSS,
 					LWS_GENHASH_TYPE_UNKNOWN);
 	if (res) {
 		lwsl_notice("%s: lws_genrsa_create\n",
@@ -152,9 +156,13 @@ lws_jwe_auth_and_decrypt_rsa_aes_cbc_hs(struct lws_jwe *jwe)
 
 	/* Decrypt the JWE Encrypted Key to get the raw MAC || CEK */
 
+	if (strncmp(jwe->jose.alg->alg, "RSA-OAEP", 8)) {
+		lwsl_err("%s: only RSA-OAEP is supported for RSA key unwrap\n", __func__);
+		return -1;
+	}
+
 	int res = lws_genrsa_create(&rsactx, jwe->jws.jwk->e, jwe->jws.context,
-			!strcmp(jwe->jose.alg->alg,   "RSA-OAEP") ?
-				LGRSAM_PKCS1_OAEP_PSS : LGRSAM_PKCS1_1_5,
+				LGRSAM_PKCS1_OAEP_PSS,
 				LWS_GENHASH_TYPE_UNKNOWN);
 	if (res) {
 		lwsl_notice("%s: lws_genrsa_public_decrypt_create\n",

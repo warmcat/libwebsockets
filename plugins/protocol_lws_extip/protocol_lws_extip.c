@@ -40,6 +40,7 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 #endif
+#include <errno.h>
 
 #define LENGTH_EXTIP_COOKIE		32
 
@@ -201,7 +202,8 @@ extip_client_sul_cb(struct lws_sorted_usec_list *sul)
 			if (need_tx) {
 				if (!vhd->ip[i].has_cookie) {
 					payload[0] = 'R';
-					plen = 1;
+					memset(payload + 1, 0, LENGTH_EXTIP_COOKIE);
+					plen = 1 + LENGTH_EXTIP_COOKIE;
 				} else {
 					payload[0] = 'P';
 					memcpy(payload + 1, vhd->ip[i].cookie, LENGTH_EXTIP_COOKIE);
@@ -319,7 +321,7 @@ callback_extip(struct lws *wsi, enum lws_callback_reasons reason, void *user, vo
 		if (!vhd || !in || !udp)
 			break;
 
-		if (vhd->is_server && len == 1 && buf[0] == 'R') {
+		if (vhd->is_server && len >= (1 + LENGTH_EXTIP_COOKIE) && buf[0] == 'R') {
 			reply[0] = 'C';
 			if (!generate_cookie(vhd, sa46_sockaddr(&udp->sa46), sa46_socklen(&udp->sa46), (uint8_t *)reply + 1)) {
 				lws_sa46_write_numeric_address((lws_sockaddr46 *)&udp->sa46, reply + 1 + LENGTH_EXTIP_COOKIE, sizeof(reply) - 2 - LENGTH_EXTIP_COOKIE);
@@ -361,9 +363,15 @@ callback_extip(struct lws *wsi, enum lws_callback_reasons reason, void *user, vo
 
 			if (len > 1 + LENGTH_EXTIP_COOKIE) {
 				lws_sockaddr46 sa46;
-				buf[len] = '\0';
+				char ip_str[64];
+				size_t l = len - (1 + LENGTH_EXTIP_COOKIE);
+				if (l >= sizeof(ip_str))
+					l = sizeof(ip_str) - 1;
+				memcpy(ip_str, buf + 1 + LENGTH_EXTIP_COOKIE, l);
+				ip_str[l] = '\0';
+				
 				memset(&sa46, 0, sizeof(sa46));
-				lws_sa46_parse_numeric_address(buf + 1 + LENGTH_EXTIP_COOKIE, &sa46);
+				lws_sa46_parse_numeric_address(ip_str, &sa46);
 				lwsl_notice("EXTIP_DEBUG: Client reporting online IP to lws_extip_report\n");
 				lws_extip_report(vhd->context, LWS_EXTIP_SRC_EXTIP, &sa46, sa46.sa4.sin_family == AF_INET ? AF_INET : AF_INET6, 1, NULL, 0);
 			}
@@ -380,12 +388,17 @@ callback_extip(struct lws *wsi, enum lws_callback_reasons reason, void *user, vo
 
 		if (len > 1 && buf[0] == 'I') {
 			lws_sockaddr46 sa46;
+			char ip_str[64];
+			size_t l = len - 1;
+			if (l >= sizeof(ip_str))
+				l = sizeof(ip_str) - 1;
+			memcpy(ip_str, buf + 1, l);
+			ip_str[l] = '\0';
 
-			buf[len] = '\0';
-			lwsl_notice("%s: extip client: reported IP change to %s\n", __func__, buf + 1);
+			lwsl_notice("%s: extip client: reported IP change to %s\n", __func__, ip_str);
 			
 			memset(&sa46, 0, sizeof(sa46));
-			lws_sa46_parse_numeric_address(buf + 1, &sa46);
+			lws_sa46_parse_numeric_address(ip_str, &sa46);
 			
 			vhd->ip[is_v6].has_cookie	= 0;
 			vhd->ip[is_v6].last_rx		= lws_now_usecs();

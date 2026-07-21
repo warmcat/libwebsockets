@@ -67,7 +67,8 @@ trigger_smtp_if_needed(struct per_vhost_data__smtp_client *vhd)
 	struct lws_client_connect_info i;
 	memset(&i, 0, sizeof(i));
 	i.context = vhd->cx;
-	i.port = 25;
+	i.port = 465;
+	i.ssl_connection = LCCSCF_USE_SSL | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
 	i.address = "127.0.0.1";
 	i.host = i.address;
 	i.origin = i.address;
@@ -77,6 +78,41 @@ trigger_smtp_if_needed(struct per_vhost_data__smtp_client *vhd)
 	i.method = "RAW";
 
 	vhd->wsi = lws_client_connect_via_info(&i);
+}
+
+static void
+smtp_sanitize_crlf(char *str)
+{
+	if (!str) return;
+	while (*str) {
+		if (*str == '\r' || *str == '\n')
+			*str = ' ';
+		str++;
+	}
+}
+
+static char *
+smtp_dot_stuff(const char *body)
+{
+	size_t len = strlen(body);
+	size_t i, j = 0, new_len = len;
+	
+	/* Calculate new length */
+	for (i = 0; i < len; i++) {
+		if (body[i] == '.' && (i == 0 || body[i-1] == '\n'))
+			new_len++;
+	}
+	
+	char *stuffed = malloc(new_len + 1);
+	if (!stuffed) return NULL;
+	
+	for (i = 0; i < len; i++) {
+		if (body[i] == '.' && (i == 0 || body[i-1] == '\n'))
+			stuffed[j++] = '.';
+		stuffed[j++] = body[i];
+	}
+	stuffed[j] = '\0';
+	return stuffed;
 }
 
 static int
@@ -112,7 +148,11 @@ lws_smtp_client_send_email(struct lws_context *cx, struct lws_vhost *vh, const l
 	e->from = strdup(email->from);
 	e->to = strdup(email->to);
 	e->subject = strdup(email->subject);
-	e->body = strdup(email->body);
+	e->body = smtp_dot_stuff(email->body);
+
+	smtp_sanitize_crlf(e->from);
+	smtp_sanitize_crlf(e->to);
+	smtp_sanitize_crlf(e->subject);
 
 	if (!e->from || !e->to || !e->subject || !e->body) {
 		if (e->from) free(e->from);
