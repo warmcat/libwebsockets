@@ -939,6 +939,27 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 			return lws_http_transaction_completed(wsi);
 		}
 #endif
+#if defined(LWS_WITH_HTTP_DIGEST_AUTH)
+
+		/* digest auth? */
+
+		if ((hit->auth_mask & AUTH_MODE_MASK) == LWSAUTHM_DIGEST_AUTH) {
+			switch (lws_check_digest_auth(wsi,
+						      hit->basic_auth_login_file,
+						      hit->basic_auth_realm)) {
+			case LCBA_CONTINUE:
+			case LCBA_AUTH_RETRY_KEEPALIVE:
+				break;
+			case LCBA_FAILED_AUTH:
+				return lws_unauthorised_digest_auth(wsi,
+						hit->basic_auth_realm);
+			case LCBA_END_TRANSACTION:
+				lws_return_http_status(wsi,
+						HTTP_STATUS_FORBIDDEN, NULL);
+				return lws_http_transaction_completed(wsi);
+			}
+		}
+#endif
 	}
 
 	methidx = lws_http_get_uri_and_method(wsi, &uri_ptr, &uri_len);
