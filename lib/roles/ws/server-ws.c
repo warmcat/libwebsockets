@@ -309,11 +309,15 @@ lws_process_ws_upgrade2(struct lws *wsi)
 		const char *ws_prot_digest_realm = NULL;
 
 		if (dpvos && dpvos->options &&
-		    !lws_pvo_get_str((void *)dpvos->options, "digest-auth",
-				     &ws_prot_digest_auth)) {
-			lws_pvo_get_str((void *)dpvos->options,
-					"digest-auth-realm",
-					&ws_prot_digest_realm);
+		    lws_pvo_search(dpvos->options, "digest-auth")) {
+			const struct lws_protocol_vhost_options *pvo_realm;
+
+			ws_prot_digest_auth = lws_pvo_search(dpvos->options,
+						     "digest-auth")->value;
+			pvo_realm = lws_pvo_search(dpvos->options,
+						   "digest-auth-realm");
+			if (pvo_realm)
+				ws_prot_digest_realm = pvo_realm->value;
 			switch (lws_check_digest_auth(wsi, ws_prot_digest_auth,
 						      ws_prot_digest_realm)) {
 			case LCBA_CONTINUE:
