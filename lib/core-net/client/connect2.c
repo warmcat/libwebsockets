@@ -263,7 +263,17 @@ lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(struct lws *wsi)
 		 */
 		return NULL;
 
-	switch (lws_vhost_active_conns(wsi, &w, adsin)) {
+	/*
+	 * Existing active conns registered themselves using their Host:
+	 * (wsi->cli_hostname_copy, from CIS_HOST above).  So we must probe
+	 * with our own Host: too, otherwise when the user's host and address
+	 * differ, eg, host carries a :port suffix, the strcmp() in
+	 * lws_vhost_active_conns() can never match and pipelining silently
+	 * degrades to a fresh connection per transaction.
+	 */
+
+	switch (lws_vhost_active_conns(wsi, &w, wsi->cli_hostname_copy ?
+					wsi->cli_hostname_copy : adsin)) {
 	case ACTIVE_CONNS_SOLO:
 		break;
 	case ACTIVE_CONNS_MUXED:
