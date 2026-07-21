@@ -144,6 +144,10 @@ __lws_reset_wsi(struct lws *wsi)
 		lws_free(wsi->http.digest_auth_hdr);
 		wsi->http.digest_auth_hdr = NULL;
 	}
+	if (wsi->http.digest_auth_nonce) {
+		lws_free(wsi->http.digest_auth_nonce);
+		wsi->http.digest_auth_nonce = NULL;
+	}
 #endif
 #endif
 

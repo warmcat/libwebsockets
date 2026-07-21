@@ -300,6 +300,40 @@ lws_process_ws_upgrade2(struct lws *wsi)
 		}
 	}
 #endif
+#if defined(LWS_WITH_HTTP_DIGEST_AUTH)
+	{
+		const struct lws_protocol_vhost_options *dpvos =
+			lws_vhost_protocol_options(wsi->a.vhost,
+						   wsi->a.protocol->name);
+		const char *ws_prot_digest_auth = NULL;
+		const char *ws_prot_digest_realm = NULL;
+
+		if (dpvos && dpvos->options &&
+		    lws_pvo_search(dpvos->options, "digest-auth")) {
+			const struct lws_protocol_vhost_options *pvo_realm;
+
+			ws_prot_digest_auth = lws_pvo_search(dpvos->options,
+						     "digest-auth")->value;
+			pvo_realm = lws_pvo_search(dpvos->options,
+						   "digest-auth-realm");
+			if (pvo_realm)
+				ws_prot_digest_realm = pvo_realm->value;
+			switch (lws_check_digest_auth(wsi, ws_prot_digest_auth,
+						      ws_prot_digest_realm)) {
+			case LCBA_CONTINUE:
+			case LCBA_AUTH_RETRY_KEEPALIVE:
+				break;
+			case LCBA_FAILED_AUTH:
+				return lws_unauthorised_digest_auth(wsi,
+						ws_prot_digest_realm);
+			case LCBA_END_TRANSACTION:
+				lws_return_http_status(wsi,
+						HTTP_STATUS_FORBIDDEN, NULL);
+				return lws_http_transaction_completed(wsi);
+			}
+		}
+	}
+#endif
 
 	/*
 	 * We are upgrading to ws, so http/1.1 + h2 and keepalive + pipelined
