@@ -1494,7 +1494,8 @@ enum lws_mount_protocols {
  */
 enum lws_authentication_mode {
 	LWSAUTHM_DEFAULT = 0, /**< default authenticate only if basic_auth_login_file is provided */
-	LWSAUTHM_BASIC_AUTH_CALLBACK = 1 << 28 /**< Basic auth with a custom verifier */
+	LWSAUTHM_BASIC_AUTH_CALLBACK = 1 << 28, /**< Basic auth with a custom verifier */
+	LWSAUTHM_DIGEST_AUTH = 2 << 28  /**< Digest auth via htdigest-format file (requires LWS_WITH_HTTP_DIGEST_AUTH) */
 };
 
 /** The authentication mode is stored in the top 4 bits of lws_http_mount.auth_mask */
@@ -1545,6 +1546,12 @@ struct lws_http_mount {
 
 	const char *basic_auth_login_file;
 	/**<NULL, or filepath to use to check basic auth logins against. (requires LWSAUTHM_DEFAULT) */
+
+	const char *basic_auth_realm;
+	/**< NULL (defaults to "lwsws"), or realm string sent in the WWW-Authenticate challenge
+	 * for both Basic and Digest auth. For Digest auth (LWSAUTHM_DIGEST_AUTH), this must
+	 * match the realm stored in the htdigest file.
+	 */
 
 	const char *cgi_chroot_path;
 	/**< NULL, or chroot patch for child cgi process */

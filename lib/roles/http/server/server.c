@@ -1412,6 +1412,502 @@ lws_check_basic_auth(struct lws *wsi, const char *basic_auth_login_file,
 
 #endif
 
+#if defined(LWS_WITH_HTTP_DIGEST_AUTH)
+
+/*
+ * Parse an htdigest-format file (username:realm:HA1hex\n per line).
+ * Returns 1 and copies HA1 hex into ha1_hex if the username:realm pair is
+ * found, otherwise returns 0.
+ */
+static int
+lws_find_htdigest_ha1(const char *filename, const char *username,
+		      const char *realm, char *ha1_hex, size_t ha1_hex_len)
+{
+	size_t ulen = strlen(username), rlen = strlen(realm);
+	char buf[256], cbuf[128];
+	int fd, n = 0, pos = 0, found = 0;
+	int field = 0, cpos = 0;
+	int umatch = 0, rmatch = 0;
+
+	if (!filename || !username || !realm)
+		return 0;
+
+	fd = lws_open(filename, O_RDONLY);
+	if (fd < 0) {
+		lwsl_err("can't open htdigest file: %s\n", filename);
+		return 0;
+	}
+
+	for (;;) {
+		char c;
+
+		if (pos == n) {
+			n = (int)read(fd, buf, sizeof(buf));
+			if (n <= 0) {
+				/* flush last line with no trailing newline */
+				if (field == 2 && umatch && rmatch && cpos > 0 &&
+				    (size_t)cpos < ha1_hex_len) {
+					memcpy(ha1_hex, cbuf, (size_t)cpos);
+					ha1_hex[cpos] = '\0';
+					found = 1;
+				}
+				break;
+			}
+			pos = 0;
+		}
+		c = buf[pos++];
+
+		if (c == '\r')
+			continue;
+
+		if (c == '\n') {
+			if (field == 2 && umatch && rmatch && cpos > 0 &&
+			    (size_t)cpos < ha1_hex_len) {
+				memcpy(ha1_hex, cbuf, (size_t)cpos);
+				ha1_hex[cpos] = '\0';
+				found = 1;
+				break;
+			}
+			/* reset for next line */
+			field = 0;
+			cpos = 0;
+			umatch = 0;
+			rmatch = 0;
+			continue;
+		}
+
+		if (c == ':' && field < 2) {
+			/* end of a colon-separated field */
+			cbuf[cpos] = '\0';
+			if (field == 0)
+				umatch = ((size_t)cpos == ulen &&
+					  !strncmp(cbuf, username, ulen));
+			else /* field == 1 */
+				rmatch = ((size_t)cpos == rlen &&
+					  !strncmp(cbuf, realm, rlen));
+			field++;
+			cpos = 0;
+			continue;
+		}
+
+		if (cpos < (int)sizeof(cbuf) - 1)
+			cbuf[cpos++] = c;
+	}
+
+	close(fd);
+
+	return found;
+}
+
+/*
+ * Send HTTP 401 Unauthorized with a Digest auth challenge.
+ * Generates a fresh random nonce, stores it in the wsi for later verification
+ * on keep-alive connections, and writes the response.
+ */
+int
+lws_unauthorised_digest_auth(struct lws *wsi, const char *realm)
+{
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+	unsigned char *start = pt->serv_buf + LWS_PRE,
+		      *p = start, *end = p + 2048;
+	char buf[256], nonce[33];
+	int n;
+
+	if (!realm)
+		realm = "lwsws";
+
+	/* Generate a fresh random nonce and remember it for later validation */
+	lws_free_set_NULL(wsi->http.digest_auth_nonce);
+	if (lws_hex_random(wsi->a.context, nonce, sizeof(nonce)))
+		return -1;
+
+	wsi->http.digest_auth_nonce = lws_strdup(nonce);
+	if (!wsi->http.digest_auth_nonce)
+		return -1;
+
+	if (lws_add_http_header_status(wsi, HTTP_STATUS_UNAUTHORIZED, &p, end))
+		return -1;
+
+	n = lws_snprintf(buf, sizeof(buf),
+			 "Digest realm=\"%s\", nonce=\"%s\", "
+			 "algorithm=MD5, qop=\"auth\"",
+			 realm, nonce);
+	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_WWW_AUTHENTICATE,
+					 (unsigned char *)buf, n, &p, end))
+		return -1;
+
+	if (lws_add_http_header_content_length(wsi, 0, &p, end))
+		return -1;
+
+	if (lws_finalize_http_header(wsi, &p, end))
+		return -1;
+
+	n = lws_write(wsi, start, lws_ptr_diff_size_t(p, start),
+		      LWS_WRITE_HTTP_HEADERS | LWS_WRITE_H2_STREAM_END);
+	if (n < 0)
+		return -1;
+
+	return lws_http_transaction_completed(wsi);
+}
+
+/* token indices matching the srv_digest_toks array below */
+#define SDT_DIGEST    0
+#define SDT_USERNAME  1
+#define SDT_REALM     2
+#define SDT_NONCE     3
+#define SDT_URI       4
+#define SDT_RESPONSE  5
+#define SDT_OPAQUE    6
+#define SDT_QOP       7
+#define SDT_ALGORITHM 8
+#define SDT_NC        9
+#define SDT_CNONCE   10
+
+static const char * const srv_digest_toks[] = {
+	"Digest",    /* SDT_DIGEST    */
+	"username",  /* SDT_USERNAME  */
+	"realm",     /* SDT_REALM     */
+	"nonce",     /* SDT_NONCE     */
+	"uri",       /* SDT_URI       */
+	"response",  /* SDT_RESPONSE  */
+	"opaque",    /* SDT_OPAQUE    */
+	"qop",       /* SDT_QOP       */
+	"algorithm", /* SDT_ALGORITHM */
+	"nc",        /* SDT_NC        */
+	"cnonce",    /* SDT_CNONCE    */
+};
+
+#define SDIGST_PEND_NAME_EQ  -1   /* expecting name= token */
+#define SDIGST_PEND_DELIM    -2   /* expecting comma delimiter */
+#define SDIGST_PEND_SKIP     -3   /* skip next value (unknown field) */
+
+/*
+ * Parse the incoming Authorization: Digest ... header and validate it against
+ * the specified htdigest file.  htdigest file format is one entry per line:
+ *
+ *   username:realm:HA1_hex
+ *
+ * where HA1_hex = lowercase hex MD5("username:realm:password").
+ *
+ * On success (LCBA_CONTINUE), rewrites WSI_TOKEN_HTTP_AUTHORIZATION to
+ * contain only the authenticated username, matching the Basic Auth behaviour.
+ */
+enum lws_check_basic_auth_results
+lws_check_digest_auth(struct lws *wsi, const char *htdigest_file,
+		      const char *realm)
+{
+#if defined(LWS_WITH_FILE_OPS)
+	char b64[512];
+	char username[64], req_realm[64], nonce_in[256], uri_in[256];
+	char response_hex[LWS_GENHASH_LARGEST * 2 + 1];
+	char cnonce[256], qop[32], nc_str[16];
+	/* ha1_hex is exactly 32 hex chars for MD5 */
+	char ha1_hex[LWS_GENHASH_LARGEST * 2 + 1];
+	char tmp[sizeof(ha1_hex) + sizeof(nonce_in) + sizeof(nc_str) +
+		 sizeof(cnonce) + sizeof(qop) +
+		 (LWS_GENHASH_LARGEST * 2 + 1) + 32];
+	char a2_hex[LWS_GENHASH_LARGEST * 2 + 1];
+	char expected_hex[LWS_GENHASH_LARGEST * 2 + 1];
+	uint8_t digest_raw[LWS_GENHASH_LARGEST];
+	struct lws_genhash_ctx hc;
+	struct lws_tokenize ts;
+	lws_tokenize_elem e;
+	int seen = 0, pend = SDIGST_PEND_NAME_EQ, m, fi, n;
+	const char *method, *eff_realm;
+	char *uri_ptr;
+	int uri_len;
+
+	if (!htdigest_file)
+		return LCBA_CONTINUE;
+
+	eff_realm = realm ? realm : "lwsws";
+
+	/* Did the client send an Authorization header? */
+	m = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_AUTHORIZATION);
+	if (!m)
+		return LCBA_FAILED_AUTH;
+
+	/* Disallow header fragmentation */
+	fi = wsi->http.ah->frag_index[WSI_TOKEN_HTTP_AUTHORIZATION];
+	if (wsi->http.ah->frags[fi].nfrag) {
+		lwsl_err("fragmented digest auth header not allowed\n");
+		return LCBA_FAILED_AUTH;
+	}
+
+	m = lws_hdr_copy(wsi, b64, sizeof(b64), WSI_TOKEN_HTTP_AUTHORIZATION);
+	if (m < 7)
+		return LCBA_END_TRANSACTION;
+
+	/* Initialise field buffers */
+	username[0] = '\0';
+	req_realm[0] = '\0';
+	nonce_in[0] = '\0';
+	uri_in[0] = '\0';
+	response_hex[0] = '\0';
+	cnonce[0] = '\0';
+	qop[0] = '\0';
+	nc_str[0] = '\0';
+
+	lws_tokenize_init(&ts, b64, LWS_TOKENIZE_F_MINUS_NONTERM |
+				    LWS_TOKENIZE_F_NO_INTEGERS |
+				    LWS_TOKENIZE_F_RFC7230_DELIMS);
+	do {
+		int do_str_val = 0;
+
+		e = lws_tokenize(&ts);
+		switch (e) {
+
+		case LWS_TOKZE_TOKEN:
+			if (pend >= 0 || pend == SDIGST_PEND_SKIP) {
+				do_str_val = 1;
+				break;
+			}
+
+			/* First token must be "Digest" */
+			if (!strncasecmp(ts.token, "Digest", ts.token_len) &&
+			    ts.token_len == 6) {
+				seen |= 1 << SDT_DIGEST;
+				break;
+			}
+			lwsl_err("digest auth: not a Digest authorization\n");
+			return LCBA_END_TRANSACTION;
+
+		case LWS_TOKZE_TOKEN_NAME_EQUALS:
+			if (!(seen & (1 << SDT_DIGEST)) ||
+			    pend != SDIGST_PEND_NAME_EQ)
+				return LCBA_END_TRANSACTION;
+
+			for (n = 0; n < (int)LWS_ARRAY_SIZE(srv_digest_toks); n++)
+				if (!strncasecmp(ts.token, srv_digest_toks[n],
+						 ts.token_len) &&
+				    srv_digest_toks[n][ts.token_len] == '\0')
+					break;
+
+			if (n == (int)LWS_ARRAY_SIZE(srv_digest_toks)) {
+				pend = SDIGST_PEND_SKIP; /* unknown field */
+				break;
+			}
+
+			pend = n;
+			break;
+
+		case LWS_TOKZE_QUOTED_STRING:
+			do_str_val = 1;
+			break;
+
+		case LWS_TOKZE_DELIMITER:
+			if (*ts.token == ',') {
+				if (pend != SDIGST_PEND_DELIM)
+					return LCBA_END_TRANSACTION;
+				pend = SDIGST_PEND_NAME_EQ;
+				break;
+			}
+			break;
+
+		case LWS_TOKZE_ENDED:
+			break;
+
+		default:
+			lwsl_err("digest auth: unexpected token %d\n", e);
+			return LCBA_END_TRANSACTION;
+		}
+
+		if (do_str_val) {
+			if (pend == SDIGST_PEND_SKIP) {
+				pend = SDIGST_PEND_DELIM;
+				continue;
+			}
+			if (pend < 0)
+				return LCBA_END_TRANSACTION;
+
+			switch (pend) {
+			case SDT_USERNAME:
+				if (ts.token_len >= (int)sizeof(username))
+					return LCBA_END_TRANSACTION;
+				strncpy(username, ts.token, ts.token_len);
+				username[ts.token_len] = '\0';
+				break;
+			case SDT_REALM:
+				if (ts.token_len >= (int)sizeof(req_realm))
+					return LCBA_END_TRANSACTION;
+				strncpy(req_realm, ts.token, ts.token_len);
+				req_realm[ts.token_len] = '\0';
+				break;
+			case SDT_NONCE:
+				if (ts.token_len >= (int)sizeof(nonce_in))
+					return LCBA_END_TRANSACTION;
+				strncpy(nonce_in, ts.token, ts.token_len);
+				nonce_in[ts.token_len] = '\0';
+				break;
+			case SDT_URI:
+				if (ts.token_len >= (int)sizeof(uri_in))
+					return LCBA_END_TRANSACTION;
+				strncpy(uri_in, ts.token, ts.token_len);
+				uri_in[ts.token_len] = '\0';
+				break;
+			case SDT_RESPONSE:
+				if (ts.token_len >= (int)sizeof(response_hex))
+					return LCBA_END_TRANSACTION;
+				strncpy(response_hex, ts.token, ts.token_len);
+				response_hex[ts.token_len] = '\0';
+				break;
+			case SDT_OPAQUE:
+				break; /* ignored */
+			case SDT_QOP:
+				if (ts.token_len >= (int)sizeof(qop))
+					return LCBA_END_TRANSACTION;
+				strncpy(qop, ts.token, ts.token_len);
+				qop[ts.token_len] = '\0';
+				break;
+			case SDT_ALGORITHM:
+				/* htdigest stores MD5-based HA1; reject others */
+				if (ts.token_len != 3 ||
+				    strncasecmp(ts.token, "MD5", 3)) {
+					lwsl_err("digest auth: only MD5 supported\n");
+					return LCBA_END_TRANSACTION;
+				}
+				break;
+			case SDT_NC:
+				if (ts.token_len >= (int)sizeof(nc_str))
+					return LCBA_END_TRANSACTION;
+				strncpy(nc_str, ts.token, ts.token_len);
+				nc_str[ts.token_len] = '\0';
+				break;
+			case SDT_CNONCE:
+				if (ts.token_len >= (int)sizeof(cnonce))
+					return LCBA_END_TRANSACTION;
+				strncpy(cnonce, ts.token, ts.token_len);
+				cnonce[ts.token_len] = '\0';
+				break;
+			}
+			seen |= 1 << pend;
+			pend = SDIGST_PEND_DELIM;
+		}
+	} while (e > 0);
+
+	/* Require at minimum: username, realm, nonce, response */
+	if (!(seen & (1 << SDT_USERNAME)) ||
+	    !(seen & (1 << SDT_REALM))    ||
+	    !(seen & (1 << SDT_NONCE))    ||
+	    !(seen & (1 << SDT_RESPONSE))) {
+		lwsl_err("digest auth: missing required fields (seen=0x%x)\n",
+			 seen);
+		return LCBA_END_TRANSACTION;
+	}
+
+	/* Verify realm matches our configuration */
+	if (strcmp(req_realm, eff_realm)) {
+		lwsl_err("digest auth: realm mismatch: got '%s', expected '%s'\n",
+			 req_realm, eff_realm);
+		return LCBA_FAILED_AUTH;
+	}
+
+	/*
+	 * Verify nonce if we stored one for this connection (keep-alive path).
+	 * For fresh connections a client may pre-emptively send credentials
+	 * from a previous challenge; we accept the digest computation in that
+	 * case even though we cannot confirm nonce freshness.
+	 */
+	if (wsi->http.digest_auth_nonce &&
+	    strcmp(nonce_in, wsi->http.digest_auth_nonce)) {
+		lwsl_err("digest auth: nonce mismatch\n");
+		return LCBA_FAILED_AUTH;
+	}
+
+	/* Look up the pre-hashed HA1 in the htdigest file */
+	if (!lws_find_htdigest_ha1(htdigest_file, username, eff_realm,
+				   ha1_hex, sizeof(ha1_hex))) {
+		lwsl_err("digest auth: user '%s' not found in htdigest\n",
+			 username);
+		return LCBA_FAILED_AUTH;
+	}
+
+	/*
+	 * Get the HTTP method for HA2 = MD5(method:uri).
+	 * H2 mux substreams carry the method in :method pseudo-header.
+	 */
+	method = NULL;
+#if defined(LWS_ROLE_H2)
+	if (wsi->mux_substream)
+		method = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD);
+	else
+#endif
+	{
+		int methidx = lws_http_get_uri_and_method(wsi, &uri_ptr,
+							  &uri_len);
+		if (methidx >= 0 &&
+		    methidx < (int)LWS_ARRAY_SIZE(method_names))
+			method = method_names[methidx];
+	}
+	if (!method)
+		method = "GET";
+
+	/* HA2 = MD5(method ":" uri) -- use uri from auth header per RFC 2617 */
+	n = lws_snprintf(tmp, sizeof(tmp), "%s:%s",
+			 method, uri_in[0] ? uri_in : "/");
+	if (lws_genhash_init(&hc, LWS_GENHASH_TYPE_MD5) ||
+	    lws_genhash_update(&hc, tmp, (size_t)n) ||
+	    lws_genhash_destroy(&hc, digest_raw)) {
+		lws_genhash_destroy(&hc, NULL);
+		return LCBA_FAILED_AUTH;
+	}
+	lws_hex_from_byte_array(digest_raw,
+				lws_genhash_size(LWS_GENHASH_TYPE_MD5),
+				a2_hex, sizeof(a2_hex));
+
+	/*
+	 * Compute the expected response:
+	 *   qop=auth:  MD5(HA1:nonce:nc:cnonce:qop:HA2)
+	 *   no qop:    MD5(HA1:nonce:HA2)
+	 */
+	if (qop[0])
+		n = lws_snprintf(tmp, sizeof(tmp), "%s:%s:%s:%s:%s:%s",
+				 ha1_hex, nonce_in, nc_str, cnonce, qop,
+				 a2_hex);
+	else
+		n = lws_snprintf(tmp, sizeof(tmp), "%s:%s:%s",
+				 ha1_hex, nonce_in, a2_hex);
+
+	if (lws_genhash_init(&hc, LWS_GENHASH_TYPE_MD5) ||
+	    lws_genhash_update(&hc, tmp, (size_t)n) ||
+	    lws_genhash_destroy(&hc, digest_raw)) {
+		lws_genhash_destroy(&hc, NULL);
+		return LCBA_FAILED_AUTH;
+	}
+	lws_hex_from_byte_array(digest_raw,
+				lws_genhash_size(LWS_GENHASH_TYPE_MD5),
+				expected_hex, sizeof(expected_hex));
+
+	/* Constant-time comparison to avoid timing side-channels */
+	if (strlen(expected_hex) != strlen(response_hex) ||
+	    lws_timingsafe_bcmp(expected_hex, response_hex,
+				(uint32_t)strlen(expected_hex))) {
+		lwsl_err("digest auth: response mismatch for user '%s'\n",
+			 username);
+		return LCBA_FAILED_AUTH;
+	}
+
+	/* Nonce has been consumed; discard stored value */
+	lws_free_set_NULL(wsi->http.digest_auth_nonce);
+
+	/*
+	 * Rewrite WSI_TOKEN_HTTP_AUTHORIZATION so it contains only the
+	 * authenticated username -- same convention as Basic Auth.
+	 */
+	lws_authorization_rewrite(wsi, username, strlen(username));
+
+	lwsl_wsi_info(wsi, "digest auth accepted for '%s'\n", username);
+
+	return LCBA_CONTINUE;
+#else
+	if (!htdigest_file)
+		return LCBA_CONTINUE;
+	return LCBA_FAILED_AUTH;
+#endif
+}
+
+#endif /* LWS_WITH_HTTP_DIGEST_AUTH */
+
 #if defined(LWS_WITH_HTTP_PROXY)
 /*
  * Set up an onward http proxy connection according to the mount this
@@ -2111,6 +2607,26 @@ lws_http_action(struct lws *wsi)
 	case LCBA_END_TRANSACTION:
 		lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
 		return lws_http_transaction_completed(wsi);
+	}
+#endif
+
+#if defined(LWS_WITH_HTTP_DIGEST_AUTH)
+
+	/* digest auth? */
+
+	if ((hit->auth_mask & AUTH_MODE_MASK) == LWSAUTHM_DIGEST_AUTH) {
+		switch (lws_check_digest_auth(wsi, hit->basic_auth_login_file,
+					      hit->basic_auth_realm)) {
+		case LCBA_CONTINUE:
+		case LCBA_AUTH_RETRY_KEEPALIVE:
+			break;
+		case LCBA_FAILED_AUTH:
+			return lws_unauthorised_digest_auth(wsi,
+						hit->basic_auth_realm);
+		case LCBA_END_TRANSACTION:
+			lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
+			return lws_http_transaction_completed(wsi);
+		}
 	}
 #endif
 
