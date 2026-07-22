@@ -321,7 +321,7 @@
 		},
 
 		"qir": {
-			"cmake":    "cd /opt/quic-interop-runner ; source venv/bin/activate ; rm -rf logs_* ; export QIR_LWS_BRANCH=main ; cd /opt/quic-interop-runner/lws ; if [ \"`docker ps -q`\" ] ; then docker kill $(docker ps -q) ; fi ;  docker system prune -a --volumes -f && docker build --build-arg QIR_LWS_BRANCH=${QIR_LWS_BRANCH} -t lws-quic-interop . --no-cache && cd .. && python3 run.py -c lws -s lws --delete-successful-logs ; python3 run.py -p webtransport -c lws -s lws --delete-successful-logs -t handshake,transfer-unidirectional-receive,transfer-unidirectional-send,transfer-bidirectional-receive,transfer-bidirectional-send,transfer-datagram-receive,transfer-datagram-send",
+			"cmake":    "cd /opt/quic-interop-runner ; source venv/bin/activate ; rm -rf logs_* ; export QIR_LWS_BRANCH=main ; cd /opt/quic-interop-runner/lws ; if [ \"`docker ps -q`\" ] ; then docker kill $(docker ps -q) ; fi ;  docker system prune && docker build --build-arg QIR_LWS_BRANCH=${QIR_LWS_BRANCH} -t lws-quic-interop . --no-cache && cd .. && python3 run.py -c lws -s lws --delete-successful-logs ; python3 run.py -p webtransport -c lws -s lws --delete-successful-logs -t handshake,transfer-unidirectional-receive,transfer-unidirectional-send,transfer-bidirectional-receive,transfer-bidirectional-send,transfer-datagram-receive,transfer-datagram-send",
 			"platforms":	"none, linux-debian13/x86_64-amd/gcc"
 		}
 
