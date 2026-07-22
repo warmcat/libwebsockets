@@ -72,6 +72,27 @@ gnutls_quic_secret_func(gnutls_session_t session,
 	if (!wsi || !wsi->tls.quic_secret_cb || secret_size > 48)
 		return 0;
 
+	/*
+	 * RFC 9001: report the negotiated AEAD so the QUIC role selects the
+	 * matching packet-protection and header-protection ciphers instead of
+	 * guessing from the secret length (AES-128-GCM and ChaCha20-Poly1305
+	 * both yield a 32-byte SHA-256 secret).
+	 */
+	switch (gnutls_cipher_get(session)) {
+	case GNUTLS_CIPHER_AES_128_GCM:
+		wsi->tls.quic_aead = LWS_TLS_QUIC_AEAD_AES_128_GCM;
+		break;
+	case GNUTLS_CIPHER_AES_256_GCM:
+		wsi->tls.quic_aead = LWS_TLS_QUIC_AEAD_AES_256_GCM;
+		break;
+	case GNUTLS_CIPHER_CHACHA20_POLY1305:
+		wsi->tls.quic_aead = LWS_TLS_QUIC_AEAD_CHACHA20_POLY1305;
+		break;
+	default:
+		/* leave any previously-reported suite in force */
+		break;
+	}
+
 	if (wsi->a.vhost)
 		is_client = lwsi_role_client(wsi) ? 1 : 0;
 	else

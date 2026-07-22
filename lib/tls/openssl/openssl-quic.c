@@ -33,6 +33,30 @@
 
 #if defined(LWS_HAVE_BORINGSSL_QUIC_API)
 
+/*
+ * RFC 9001: the QUIC AEAD and header-protection ciphers are fixed by the
+ * negotiated TLS 1.3 cipher suite, not by the traffic-secret length
+ * (AES-128-GCM and ChaCha20-Poly1305 both use a 32-byte SHA-256 secret).  Map
+ * the negotiated suite's IANA code point to the enum the QUIC role consumes.
+ * SSL_CIPHER_get_id() returns 0x0300<id> on OpenSSL/BoringSSL, so mask to the
+ * low 16 bits; an unrecognised id leaves LWS_TLS_QUIC_AEAD_UNKNOWN and the QUIC
+ * role falls back to its length heuristic.
+ */
+static enum lws_tls_quic_aead
+lws_openssl_quic_aead_from_id(uint32_t cipher_id)
+{
+	switch (cipher_id & 0xffff) {
+	case 0x1301: /* TLS_AES_128_GCM_SHA256 */
+		return LWS_TLS_QUIC_AEAD_AES_128_GCM;
+	case 0x1302: /* TLS_AES_256_GCM_SHA384 */
+		return LWS_TLS_QUIC_AEAD_AES_256_GCM;
+	case 0x1303: /* TLS_CHACHA20_POLY1305_SHA256 */
+		return LWS_TLS_QUIC_AEAD_CHACHA20_POLY1305;
+	default:
+		return LWS_TLS_QUIC_AEAD_UNKNOWN;
+	}
+}
+
 #if defined(USE_WOLFSSL)
 
 static int
@@ -43,9 +67,20 @@ set_encryption_secrets(WOLFSSL *ssl, enum wolfssl_encryption_level_t level,
 {
 	struct lws *wsi = (struct lws *)SSL_get_app_data((SSL *)ssl);
 	enum lws_tls_quic_secret_type rt, wt;
+	const SSL_CIPHER *c;
 
 	if (!wsi || secret_len > 48)
 		return 0;
+
+	/*
+	 * Report the negotiated AEAD (see lws_openssl_quic_aead_from_id). The
+	 * wolfSSL callback carries no cipher, so query the negotiated one via
+	 * the OpenSSL-compat API this file already uses for wolfSSL.
+	 */
+	c = SSL_get_current_cipher((SSL *)ssl);
+	if (c)
+		wsi->tls.quic_aead = lws_openssl_quic_aead_from_id(
+					(uint32_t)SSL_CIPHER_get_id(c));
 
 	switch (level) {
 	case wolfssl_encryption_early_data:
@@ -150,6 +185,11 @@ set_read_secret(SSL *ssl, enum ssl_encryption_level_t level,
 	if (!wsi || secret_len > 48)
 		return 0;
 
+	/* Report the negotiated AEAD (see lws_openssl_quic_aead_from_id). */
+	if (cipher)
+		wsi->tls.quic_aead = lws_openssl_quic_aead_from_id(
+					(uint32_t)SSL_CIPHER_get_id(cipher));
+
 	switch (level) {
 	case ssl_encryption_early_data:
 		t = LWS_TLS_QUIC_SECRET_CLIENT_EARLY;
@@ -180,6 +220,11 @@ set_write_secret(SSL *ssl, enum ssl_encryption_level_t level,
 
 	if (!wsi || secret_len > 48)
 		return 0;
+
+	/* Report the negotiated AEAD (see lws_openssl_quic_aead_from_id). */
+	if (cipher)
+		wsi->tls.quic_aead = lws_openssl_quic_aead_from_id(
+					(uint32_t)SSL_CIPHER_get_id(cipher));
 
 	switch (level) {
 	case ssl_encryption_early_data:

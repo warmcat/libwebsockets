@@ -528,6 +528,21 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 						return -1;
 					}
 
+					/*
+					 * RFC 9001: report the negotiated AEAD so the QUIC role
+					 * picks the matching packet-/header-protection ciphers
+					 * rather than guessing from the secret length. SChannel
+					 * hands us the symmetric algorithm and key size directly;
+					 * it does not currently negotiate ChaCha20-Poly1305, but
+					 * map it too for completeness.
+					 */
+					if (!wcscmp(secrets->SymmetricAlgId, L"CHACHA20_POLY1305"))
+						wsi->tls.quic_aead = LWS_TLS_QUIC_AEAD_CHACHA20_POLY1305;
+					else if (!wcscmp(secrets->SymmetricAlgId, L"AES"))
+						wsi->tls.quic_aead = secrets->KeySize == 256 ?
+							LWS_TLS_QUIC_AEAD_AES_256_GCM :
+							LWS_TLS_QUIC_AEAD_AES_128_GCM;
+
 					/* SChannel outputs `1` and `2` for BOTH Handshake and Application secrets. */
 					if (type == 1 || type == 2) {
 						int idx = type - 1; /* 0 for Client, 1 for Server */

@@ -131,6 +131,9 @@ struct lws_lws_tls {
 	size_t			quic_tp_send_len;
 	lws_tls_quic_secret_cb	quic_secret_cb;
 	int			quic_alert;
+	uint8_t			quic_aead; /* enum lws_tls_quic_aead, set by the
+					    * TLS backend from the negotiated
+					    * TLS 1.3 cipher suite */
 
 	unsigned int		use_ssl;
 	unsigned int		redirect_to_https:1;

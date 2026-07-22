@@ -38,6 +38,22 @@ enum lws_tls_quic_secret_type {
 	LWS_TLS_QUIC_SECRET_SERVER_APPLICATION,
 };
 
+/*
+ * RFC 9001 4.1 / 5.3 / 5.4: the QUIC packet-protection AEAD and the header-
+ * protection cipher are both fixed by the negotiated TLS 1.3 cipher suite, and
+ * cannot be inferred from the traffic-secret length alone (TLS_AES_128_GCM_
+ * SHA256 and TLS_CHACHA20_POLY1305_SHA256 both use SHA-256 and so produce a
+ * 32-byte secret).  The TLS backend reports the negotiated AEAD to the QUIC
+ * role via wsi->tls.quic_aead so the correct algorithms are selected.
+ */
+enum lws_tls_quic_aead {
+	LWS_TLS_QUIC_AEAD_UNKNOWN,	   /**< backend didn't report; caller
+					     * falls back to length heuristic */
+	LWS_TLS_QUIC_AEAD_AES_128_GCM,	   /**< TLS_AES_128_GCM_SHA256 */
+	LWS_TLS_QUIC_AEAD_AES_256_GCM,	   /**< TLS_AES_256_GCM_SHA384 */
+	LWS_TLS_QUIC_AEAD_CHACHA20_POLY1305, /**< TLS_CHACHA20_POLY1305_SHA256 */
+};
+
 enum lws_0rtt_status {
 	LWS_0RTT_STATUS_NONE,       /**< No 0-RTT attempted */
 	LWS_0RTT_STATUS_ATTEMPTED,  /**< Client sent 0-RTT, awaiting server decision */

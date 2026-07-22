@@ -24,6 +24,7 @@
 
 #include "private-lib-core.h"
 #include "private-lib-tls-mbedtls.h"
+#include <mbedtls/ssl_ciphersuites.h>
 
 void
 mbedtls_quic_bio_free(struct lws *wsi);
@@ -113,7 +114,8 @@ mbedtls_quic_set_traffic_secrets(mbedtls_ssl_context *ssl,
 			    mbedtls_ssl_secret_type_t type,
 			    const unsigned char *client_secret,
 			    const unsigned char *server_secret,
-			    size_t secret_len)
+			    size_t secret_len,
+			    int ciphersuite_id)
 {
 	struct lws *wsi = (struct lws *)mbedtls_ssl_get_user_data_p(ssl);
 	enum lws_tls_quic_secret_type ct, st;
@@ -123,6 +125,30 @@ mbedtls_quic_set_traffic_secrets(mbedtls_ssl_context *ssl,
 
 	if (wsi->tls.quic_secret_cb == (lws_tls_quic_secret_cb)1)
 		return 0;
+
+	/*
+	 * RFC 9001: the QUIC AEAD and header-protection algorithms are fixed
+	 * by the negotiated TLS 1.3 cipher suite, not by the secret length
+	 * (AES-128-GCM and ChaCha20-Poly1305 both use a 32-byte SHA-256
+	 * secret).  Record which one is in force so the QUIC role selects the
+	 * matching AEAD / HP cipher.  The negotiated suite is only available
+	 * here via the export callback: mbedtls_ssl_get_ciphersuite_id_from_
+	 * ssl() reads ssl->session, which is not yet populated mid-handshake.
+	 */
+	switch (ciphersuite_id) {
+	case MBEDTLS_TLS1_3_AES_128_GCM_SHA256:
+		wsi->tls.quic_aead = LWS_TLS_QUIC_AEAD_AES_128_GCM;
+		break;
+	case MBEDTLS_TLS1_3_AES_256_GCM_SHA384:
+		wsi->tls.quic_aead = LWS_TLS_QUIC_AEAD_AES_256_GCM;
+		break;
+	case MBEDTLS_TLS1_3_CHACHA20_POLY1305_SHA256:
+		wsi->tls.quic_aead = LWS_TLS_QUIC_AEAD_CHACHA20_POLY1305;
+		break;
+	default:
+		/* leave any previously-reported suite in force */
+		break;
+	}
 
 	switch (type) {
 	case MBEDTLS_SSL_SECRET_TYPE_EARLY:
