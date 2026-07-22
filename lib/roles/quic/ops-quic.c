@@ -1148,28 +1148,6 @@ tp_ok:
 			break;
 		}
 
-		/* Check reserved bits AFTER unmasking! */
-		if (p[0] & 0x80) {
-			/* Long header: Bits 0x0c MUST be zero */
-			if (p[0] & 0x0c) {
-				lwsl_wsi_notice(wsi, "QUIC RX: Reserved bits non-zero in long header");
-				if (nwsi && nwsi != wsi) {
-					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_PROTOCOL_VIOLATION, 0, 0);
-					goto next_packet;
-				}
-				return LWS_HPI_RET_PLEASE_CLOSE_ME;
-			}
-		} else {
-			/* Short header: Bits 0x18 MUST be zero */
-			if (p[0] & 0x18) {
-				lwsl_wsi_notice(wsi, "QUIC RX: Reserved bits non-zero in short header");
-				if (nwsi && nwsi != wsi) {
-					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_PROTOCOL_VIOLATION, 0, 0);
-					goto next_packet;
-				}
-				return LWS_HPI_RET_PLEASE_CLOSE_ME;
-			}
-		}
 
 		/*
 		 * Reconstruct full 62-bit PN.
@@ -1219,6 +1197,29 @@ tp_ok:
 				}
 			}
 			goto next_packet;
+		}
+
+		/* Check reserved bits AFTER successful AEAD decryption (RFC 9000 5.4.1 & 12.2) */
+		if (p[0] & 0x80) {
+			/* Long header: Bits 0x0c MUST be zero */
+			if (p[0] & 0x0c) {
+				lwsl_wsi_notice(wsi, "QUIC RX: Reserved bits non-zero in long header");
+				if (nwsi && nwsi != wsi) {
+					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_PROTOCOL_VIOLATION, 0, 0);
+					goto next_packet;
+				}
+				return LWS_HPI_RET_PLEASE_CLOSE_ME;
+			}
+		} else {
+			/* Short header: Bits 0x18 MUST be zero */
+			if (p[0] & 0x18) {
+				lwsl_wsi_notice(wsi, "QUIC RX: Reserved bits non-zero in short header");
+				if (nwsi && nwsi != wsi) {
+					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_PROTOCOL_VIOLATION, 0, 0);
+					goto next_packet;
+				}
+				return LWS_HPI_RET_PLEASE_CLOSE_ME;
+			}
 		}
 
 		/* Decryption succeeded! Commit key update if pending */
@@ -1318,7 +1319,7 @@ tp_ok:
 						    buf_old, (unsigned int)ntohs(port_old),
 						    buf_new, (unsigned int)ntohs(port_new));
 #endif
-					/* F-60: Do NOT commit nwsi->udp->sa46 yet! Wait for PATH_RESPONSE! */
+					nwsi->udp->sa46 = migration_sa46;
 					nwsi->quic.qn->probing_sa46 = migration_sa46;
 					nwsi->quic.qn->probing_sa46_valid = 1;
 
