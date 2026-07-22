@@ -708,13 +708,11 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 					)
 {
 	struct lws_tls_client_reuse *tcr;
-	X509_STORE *x509_store;
 	unsigned long error;
 	SSL_METHOD *method;
 	EVP_MD_CTX *mdctx;
 	unsigned int len;
 	uint8_t hash[32];
-	X509 *client_CA;
 	char c;
 	int n;
 
