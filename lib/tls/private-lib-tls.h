@@ -249,12 +249,14 @@ lws_tls_check_all_cert_lifetimes(struct lws_context *context);
 LWS_VISIBLE int
 lws_tls_cert_get_x509_remaining(struct lws_context *context, const char *filepath, int *days_left, int *total_days);
 
+#if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_CLIENT)
 int
 lws_tls_client_vhost_extra_cert_mem(struct lws_vhost *vh, const uint8_t *der, size_t len);
 
 int
 lws_tls_client_vhost_ca_mem_parse(struct lws_vhost *vh, const void *ca_mem,
 				  unsigned int ca_mem_len);
+#endif
 
 int
 lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,

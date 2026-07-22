@@ -316,6 +316,7 @@ struct lws_quic_netconn {
 	struct lws              *migration_probing_wsi;
 	lws_sockaddr46		probing_sa46;
 	uint8_t			probing_sa46_valid:1;
+	uint8_t			rx_has_non_probing:1;
 
 	/* ECN (Explicit Congestion Notification) */
 	uint64_t		ecn_rx_ect0;
