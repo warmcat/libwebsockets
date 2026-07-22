@@ -208,7 +208,7 @@ callback_cert_dist_server_stub(struct lws *wsi, enum lws_callback_reasons reason
 		if (!pss->parser_valid) break;
 
 		if (strlen(pss->args.secret) != strlen(vhd->secret) || lws_timingsafe_bcmp(pss->args.secret, vhd->secret, (uint32_t)strlen(vhd->secret))) {
-			lwsl_err("%s: Secret mismatch\n", __func__);
+			lwsl_err("%s: Secret mismatch (received secret len %d, expected len %d)\n", __func__, (int)strlen(pss->args.secret), (int)strlen(vhd->secret));
 			return -1;
 		}
 
@@ -376,22 +376,50 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 		const char *stub = lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub");
 		const char *vh_name = lws_get_vhost_name(lws_get_vhost(wsi));
 
-		/* Only initialize if the plugin is explicitly enabled on this vhost */
-		if (!in)
-			return 0;
-
 		/* Prevent spawning inside other plugins' stubs */
 		if (lws_cmdline_option_cx(lws_get_context(wsi), "--lws-dht-dnssec-monitor-root") ||
 		    lws_cmdline_option_cx(lws_get_context(wsi), "--lws-acme-client-root"))
 			return 0;
 
 		if (stub) {
-			/* In the stub process, we only initialize the specific vhost we were spawned for */
-			char expected_stub[256];
-			lws_snprintf(expected_stub, sizeof(expected_stub), "stub-%s", vh_name);
-			if (strcmp(stub, expected_stub))
+			if (strncmp(stub, "stub-", 5))
 				return 0;
+
+			const char *orig_vh = stub + 5;
+
+			vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
+							  lws_get_protocol(wsi),
+							  sizeof(struct vhd_cert_dist_server));
+			if (!vhd) return -1;
+			vhd->cx = lws_get_context(wsi);
+			vhd->vh = lws_get_vhost(wsi);
+			vhd->protocol = lws_get_protocol(wsi);
+			lws_strncpy(vhd->vh_name, orig_vh, sizeof(vhd->vh_name));
+			vhd->is_stub = 1;
+			lws_strncpy(vhd->pki_root, "/var/dnssec", sizeof(vhd->pki_root));
+
+			char uds_path[256];
+			lws_snprintf(uds_path, sizeof(uds_path), "/var/run/lws-cert-dist-server-stub-%s.sock", orig_vh);
+
+			struct lws_stub_config sc;
+			memset(&sc, 0, sizeof(sc));
+			sc.cx = vhd->cx;
+			sc.vh = vhd->vh;
+			sc.stub_name = stub;
+			sc.uds_path = uds_path;
+			sc.protocols = stub_protocols;
+
+			lws_dll2_add_tail(&vhd->list_vhd, &active_server_vhds);
+			if (lws_stub_server_init(&sc, vhd->secret, NULL, 0)) {
+				lws_dll2_remove(&vhd->list_vhd);
+				return -1;
+			}
+			return 0;
 		}
+
+		/* Only initialize unprivileged side if the plugin is explicitly enabled on this vhost */
+		if (!in)
+			return 0;
 
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 						  lws_get_protocol(wsi),
@@ -415,25 +443,6 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 		char stub_name[256];
 		lws_snprintf(stub_name, sizeof(stub_name), "stub-%s", vh_name);
-
-		if (stub) {
-			vhd->is_stub = 1;
-
-			struct lws_stub_config sc;
-			memset(&sc, 0, sizeof(sc));
-			sc.cx = vhd->cx;
-			sc.vh = vhd->vh;
-			sc.stub_name = stub_name;
-			sc.uds_path = uds_path;
-			sc.protocols = stub_protocols;
-
-			lws_dll2_add_tail(&vhd->list_vhd, &active_server_vhds);
-			if (lws_stub_server_init(&sc, vhd->secret, NULL, 0)) {
-				lws_dll2_remove(&vhd->list_vhd);
-				return -1;
-			}
-			return 0;
-		}
 
 		struct vhd_cert_dist_server *old_vhd = NULL;
 		lws_start_foreach_dll(struct lws_dll2 *, d, active_server_vhds.head) {
@@ -590,16 +599,17 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 				return -1;
 			}
 
+			const char *sec = lws_stub_get_secret(vhd->stub_mgr);
 			char tx[512];
 			lwsl_notice("%s: Requesting cert for %s from server UDS stub\n", __func__, pss->domain);
 			if (pss->hash[0]) {
 				lws_snprintf(tx, sizeof(tx),
-					"{\"secret\":\"\",\"subdomain\":\"%s\",\"domain\":\"%s\",\"hash\":\"%s\"}",
-					pss->subdomain, pss->domain, pss->hash);
+					"{\"secret\":\"%s\",\"subdomain\":\"%s\",\"domain\":\"%s\",\"hash\":\"%s\"}",
+					sec ? sec : "", pss->subdomain, pss->domain, pss->hash);
 			} else {
 				lws_snprintf(tx, sizeof(tx),
-					"{\"secret\":\"\",\"subdomain\":\"%s\",\"domain\":\"%s\"}",
-					pss->subdomain, pss->domain);
+					"{\"secret\":\"%s\",\"subdomain\":\"%s\",\"domain\":\"%s\"}",
+					sec ? sec : "", pss->subdomain, pss->domain);
 			}
 
 			if (lws_stub_request(vhd->stub_mgr, tx, NULL, 0, NULL, cert_dist_server_raw_cb, pss) < 0) {

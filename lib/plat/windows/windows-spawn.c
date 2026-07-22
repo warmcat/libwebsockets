@@ -657,7 +657,7 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 	ResumeThread(pi.hThread);
 	CloseHandle(pi.hThread);
 
-	lwsl_notice("%s: lsp %p spawned PID %d\n", __func__, lsp, lsp->child_pid);
+	lwsl_notice("%s: lsp %p spawned PID %d\n", __func__, lsp, (int)(intptr_t)lsp->child_pid);
 
 	lws_sul_schedule(context, i->tsi, &lsp->sul, lws_spawn_timeout,
 			 i->timeout_us ? i->timeout_us : 300 * LWS_US_PER_SEC);

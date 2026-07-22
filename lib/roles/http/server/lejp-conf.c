@@ -1438,12 +1438,13 @@ lwsws_get_config_vhosts(struct lws_context *context,
 	struct jpargs a;
 	char dd[128];
 
-	if (lws_cmdline_option_cx(context, "--lws-dht-dnssec-monitor-root")) {
+	if (lws_cmdline_option_cx(context, "--lws-dht-dnssec-monitor-root") ||
+	    lws_cmdline_option_cx(context, "--lws-stub")) {
 		struct lws_context_creation_info i;
 
-		lwsl_notice("%s: monitor process: skipping vhost parsing\n", __func__);
+		lwsl_notice("%s: stub/monitor process: skipping vhost parsing\n", __func__);
 		memset(&i, 0, sizeof(i));
-		i.vhost_name = "root-monitor-dummy";
+		i.vhost_name = "stub-dummy";
 		i.port = CONTEXT_PORT_NO_LISTEN;
 		i.options = info->options | LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT | LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS;
 		i.protocols = info->protocols;

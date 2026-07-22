@@ -2407,10 +2407,10 @@ connect_retry_cb(lws_sorted_usec_list_t *sul)
 	if (!lws_client_connect_via_info(&i)) {
 		pss->cwsi = NULL;
 		if (++pss->retry_count < 20) {
-			lwsl_notice("%s: UDS connection delayed, retrying (%d/20)\n", __func__, pss->retry_count);
+			lwsl_notice("dnssec_monitor: %s: UDS connection delayed, retrying (%d/20)\n", __func__, pss->retry_count);
 			lws_sul_schedule(vhd->context, 0, &pss->sul, connect_retry_cb, 250 * LWS_US_PER_MS);
 		} else {
-			lwsl_err("%s: failed to connect UI WS proxy to UDS server after retries\n", __func__);
+			lwsl_err("dnssec_monitor: %s: failed to connect UI WS proxy to UDS server after retries\n", __func__);
 			lws_wsi_close(pss->wsi, LWS_TO_KILL_ASYNC);
 		}
 	}
