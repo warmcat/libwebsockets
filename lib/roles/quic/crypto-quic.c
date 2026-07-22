@@ -39,6 +39,39 @@ static const uint8_t quic_v2_initial_salt[20] = {
 	0xf9, 0xbd, 0x2e, 0xd9
 };
 
+/*
+ * RFC 9001 5.3 / 5.4: the QUIC packet-protection AEAD and the header-protection
+ * cipher are both fixed by the negotiated TLS 1.3 cipher suite:
+ *
+ *   TLS_AES_128_GCM_SHA256       -> AEAD AES-128-GCM,       HP AES-128-ECB
+ *   TLS_AES_256_GCM_SHA384       -> AEAD AES-256-GCM,       HP AES-256-ECB
+ *   TLS_CHACHA20_POLY1305_SHA256 -> AEAD ChaCha20-Poly1305, HP ChaCha20
+ *
+ * They must NOT be inferred from the traffic-secret length: AES-128-GCM and
+ * ChaCha20-Poly1305 both use SHA-256, so both yield a 32-byte secret.  The TLS
+ * backend reports the negotiated AEAD in wsi->tls.quic_aead; only when it did
+ * not (LWS_TLS_QUIC_AEAD_UNKNOWN, e.g. a backend that doesn't plumb it through)
+ * do we fall back to the length heuristic, which can still tell AES-256-GCM
+ * (48-byte / SHA-384) from AES-128-GCM but is blind to ChaCha20.
+ *
+ * Maps to the internal cipher_type used throughout this file:
+ *   0 = AES-128-GCM, 1 = ChaCha20-Poly1305, 2 = AES-256-GCM.
+ */
+static uint8_t
+lws_quic_cipher_type(struct lws *wsi, size_t secret_len)
+{
+	switch (wsi->tls.quic_aead) {
+	case LWS_TLS_QUIC_AEAD_AES_128_GCM:
+		return 0;
+	case LWS_TLS_QUIC_AEAD_CHACHA20_POLY1305:
+		return 1;
+	case LWS_TLS_QUIC_AEAD_AES_256_GCM:
+		return 2;
+	default:
+		return (secret_len == 48) ? 2 : 0;
+	}
+}
+
 static int
 lws_quic_derive_key_iv_hp(uint8_t *secret, size_t secret_len, uint8_t cipher_type,
 			  uint8_t *iv, size_t iv_len,
@@ -265,7 +298,7 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
                 }
                 k->secret_len = secret_len > 48 ? 48 : secret_len;
                 memcpy(k->secret_rx, secret, k->secret_len);
-                if (k->cipher_type != 1) k->cipher_type = (k->secret_len == 48) ? 2 : 0;
+                k->cipher_type = lws_quic_cipher_type(wsi, k->secret_len);
                 if (lws_quic_derive_key_iv_hp(k->secret_rx, k->secret_len, k->cipher_type, k->iv_rx, sizeof(k->iv_rx),
                                               &k->el_aead_rx, k->key_aead_rx, &k->el_hp_rx, k->key_hp_rx))
                         return -1;
@@ -276,7 +309,7 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
                 }
                 k->secret_len = secret_len > 48 ? 48 : secret_len;
                 memcpy(k->secret_tx, secret, k->secret_len);
-                if (k->cipher_type != 1) k->cipher_type = (k->secret_len == 48) ? 2 : 0;
+                k->cipher_type = lws_quic_cipher_type(wsi, k->secret_len);
                 if (lws_quic_derive_key_iv_hp(k->secret_tx, k->secret_len, k->cipher_type, k->iv_tx, sizeof(k->iv_tx),
                                               &k->el_aead_tx, k->key_aead_tx, &k->el_hp_tx, k->key_hp_tx))
                         return -1;

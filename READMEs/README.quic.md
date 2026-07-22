@@ -148,8 +148,9 @@ config string will append the mbedtls version with +LWSQUIC.
     ```bash
     cmake .. \
         -DLWS_WITH_MBEDTLS=ON \
-        -DMBEDTLS_INCLUDE_DIRS="/path/to/mbedtls/include" \
-        -DMBEDTLS_LIBRARIES="/path/to/mbedtls/library/libmbedcrypto.a;/path/to/mbedtls/library/libmbedx509.a;/path/to/mbedtls/library/libmbedtls.a" \
+        -DLWS_MBEDTLS_INCLUDE_DIRS="/path/to/mbedtls/include" \
+        -DLWS_MBEDTLS_LIBRARIES="/path/to/mbedtls/library/libmbedtls.a;/path/to/mbedtls/library/libmbedx509.a;/path/to/mbedtls/library/libmbedcrypto.a" \
+        -DLWS_MBEDTLS_TF_PSA_PATH="/path/to/mbedtls/tf-psa-crypto" \
         -DLWS_ROLE_QUIC=ON
     make -j
     ```
