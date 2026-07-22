@@ -597,6 +597,68 @@ bail:
 	return 4;
 }
 
+int
+lws_tls_client_vhost_ca_mem_parse(struct lws_vhost *vh, const void *ca_mem,
+				  unsigned int ca_mem_len)
+{
+	const char *p = (const char *)ca_mem;
+	const char *end = p + ca_mem_len;
+	const char *b, *e;
+	uint8_t *der;
+	lws_filepos_t der_len;
+	int count = 0;
+
+	if (!ca_mem || !ca_mem_len)
+		return 0;
+
+	/* If it doesn't start with or contain PEM header, assume raw DER */
+	b = strstr(p, "-----BEGIN");
+	if (!b || b >= end) {
+		return lws_tls_client_vhost_extra_cert_mem(vh, (const uint8_t *)ca_mem,
+							   (size_t)ca_mem_len);
+	}
+
+	/* It's PEM - loop over all certificate blocks in the buffer */
+	while (p < end) {
+		b = strstr(p, "-----BEGIN");
+		if (!b || b >= end)
+			break;
+
+		e = strstr(b, "-----END");
+		if (!e || e >= end)
+			break;
+
+		/* Advance past "-----END ... -----\n" line */
+		e += 8;
+		while (e < end && *e != '\n' && *e != '\0')
+			e++;
+		if (e < end && *e == '\n')
+			e++;
+
+		der = NULL;
+		der_len = 0;
+		if (!lws_tls_alloc_pem_to_der_file(vh->context, NULL, b,
+						   (lws_filepos_t)lws_ptr_diff_size_t(e, b),
+						   &der, &der_len)) {
+			if (der && der_len) {
+				if (!lws_tls_client_vhost_extra_cert_mem(vh, der,
+									(size_t)der_len))
+					count++;
+				lws_free(der);
+			}
+		}
+
+		p = e;
+	}
+
+	if (!count) {
+		lwsl_err("%s: Unable to parse any CA certs from ca_mem\n", __func__);
+		return 1;
+	}
+
+	lwsl_info("%s: loaded %d CA cert(s) from ca_mem\n", __func__, count);
+	return 0;
+}
 
 #endif
 

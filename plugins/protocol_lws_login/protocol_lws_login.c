@@ -1304,27 +1304,35 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				const char *token = lws_spa_get_string(pss->spa, EPN_TOKEN);
 				const char *target = lws_spa_get_string(pss->spa, EPN_TARGET);
 
-				char origin[128];
-				if (token && vhd && vhd->auth_server_url && lws_hdr_copy(wsi, origin, sizeof(origin), WSI_TOKEN_ORIGIN) > 0) {
-					size_t olen = strlen(origin);
-					if (olen == 4 && !strcmp(origin, "null")) {
-						char referer[256];
-						if (lws_hdr_copy(wsi, referer, sizeof(referer), WSI_TOKEN_HTTP_REFERER) > 0) {
-							if (strncmp(referer, vhd->auth_server_url, strlen(vhd->auth_server_url))) {
-								lwsl_err("%s: blocking SSO CSRF due to bad Referer %s\n", __func__, referer);
-								token = NULL;
-							} else {
-								lwsl_notice("%s: allowing null origin due to valid Referer\n", __func__);
-							}
-						} else {
-							lwsl_err("%s: blocking SSO CSRF due to null origin with missing Referer\n", __func__);
+				char origin[128], referer[256];
+				const char *chk_url = NULL;
+				int has_origin = lws_hdr_copy(wsi, origin, sizeof(origin), WSI_TOKEN_ORIGIN) > 0;
+				int has_referer = lws_hdr_copy(wsi, referer, sizeof(referer), WSI_TOKEN_HTTP_REFERER) > 0;
+
+				if (has_origin && strcmp(origin, "null")) {
+					chk_url = origin;
+				} else if (has_referer) {
+					chk_url = referer;
+				}
+
+				if (token && vhd && vhd->auth_server_url && chk_url) {
+					lws_parse_uri_t *puri_auth = lws_parse_uri_create(vhd->auth_server_url);
+					lws_parse_uri_t *puri_chk = lws_parse_uri_create(chk_url);
+
+					if (puri_auth && puri_chk) {
+						if (strcmp(puri_auth->scheme, puri_chk->scheme) ||
+						    strcasecmp(puri_auth->host, puri_chk->host) ||
+						    puri_auth->port != puri_chk->port) {
+							lwsl_err("%s: blocking SSO CSRF from origin/referer %s (expected %s)\n",
+								 __func__, chk_url, vhd->auth_server_url);
 							token = NULL;
+						} else {
+							lwsl_notice("%s: allowing SSO request matching auth server origin %s\n",
+								    __func__, chk_url);
 						}
-					} else if (strncmp(origin, vhd->auth_server_url, olen) ||
-					    (vhd->auth_server_url[olen] != '\0' && vhd->auth_server_url[olen] != '/')) {
-						lwsl_err("%s: blocking SSO CSRF from origin %s\n", __func__, origin);
-						token = NULL; /* Nullify to force failure */
 					}
+					if (puri_auth) lws_parse_uri_destroy(&puri_auth);
+					if (puri_chk) lws_parse_uri_destroy(&puri_chk);
 				}
 
 				if (token && target && vhd) {
@@ -1342,11 +1350,31 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				if (target && target[0]) {
 					if (target[0] == '/' && target[1] != '/') {
 						final_target = target;
-					} else if (vhd->db) {
-						if (auth_verify_redirect_uri(vhd, target)) {
-							final_target = target;
-						} else {
-							lwsl_err("%s: untrusted absolute target %s\n", __func__, target);
+					} else {
+						lws_parse_uri_t *puri_tgt = lws_parse_uri_create(target);
+						if (puri_tgt) {
+							char host[128] = "";
+							const char *h = NULL;
+							if (lws_hdr_copy(wsi, host, sizeof(host), WSI_TOKEN_HOST) > 0)
+								h = host;
+#if defined(LWS_ROLE_H2)
+							else if (lws_hdr_copy(wsi, host, sizeof(host), WSI_TOKEN_HTTP_COLON_AUTHORITY) > 0)
+								h = host;
+#endif
+							if (!h) {
+								struct lws_vhost *vh = lws_get_vhost(wsi);
+								if (vh) h = lws_get_vhost_name(vh);
+							}
+							if (h && !strcasecmp(puri_tgt->host, h)) {
+								final_target = target;
+							} else if (vhd->db) {
+								if (auth_verify_redirect_uri(vhd, target)) {
+									final_target = target;
+								} else {
+									lwsl_err("%s: untrusted absolute target %s\n", __func__, target);
+								}
+							}
+							lws_parse_uri_destroy(&puri_tgt);
 						}
 					}
 				}

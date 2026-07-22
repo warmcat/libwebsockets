@@ -896,21 +896,10 @@ int lws_tls_client_create_vhost_context(
 	} else {
 		lwsl_notice("%s: loading CA from memory (%u bytes)\n", __func__,
 			    ca_mem_len);
-		if (lws_tls_alloc_pem_to_der_file(vh->context, NULL, ca_mem,
-						  ca_mem_len, &der_buf,
-						  &flen)) {
-			lwsl_err("%s: Unable to decode x.509 mem\n", __func__);
+		if (lws_tls_client_vhost_ca_mem_parse(vh, ca_mem, ca_mem_len)) {
+			lwsl_err("%s: Unable to load x.509 ca_mem\n", __func__);
 			goto bail_cfg;
 		}
-		ret = HITLS_CFG_LoadVerifyBuffer(
-		    config, der_buf, (uint32_t)flen, TLS_PARSE_FORMAT_ASN1);
-		lws_free_set_NULL(der_buf);
-		if (ret != HITLS_SUCCESS) {
-			lwsl_err(
-			    "Unable to load SSL Client certs from "
-			    "ssl_ca_mem -- client ssl isn't going to work\n");
-		} else
-			lwsl_info("loaded ssl_ca_mem\n");
 	}
 
 	/* Load client certificate if provided (OpenSSL order: filepath first).

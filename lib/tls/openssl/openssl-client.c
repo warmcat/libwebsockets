@@ -674,9 +674,13 @@ lws_tls_client_vhost_extra_cert_mem(struct lws_vhost *vh,
 
 	st = SSL_CTX_get_cert_store(vh->tls.ssl_client_ctx);
 	if (!st) {
-		lwsl_err("%s: failed to get cert store\n", __func__);
-		X509_free(x);
-		return 1;
+		st = X509_STORE_new();
+		if (!st) {
+			lwsl_err("%s: failed to create cert store\n", __func__);
+			X509_free(x);
+			return 1;
+		}
+		SSL_CTX_set_cert_store(vh->tls.ssl_client_ctx, st);
 	}
 
 	n = X509_STORE_add_cert(st, x);
@@ -968,46 +972,10 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 			lwsl_info("loaded ssl_ca_filepath\n");
 	} else {
 
-		lws_filepos_t amount = 0;
-		const uint8_t *up;
-		uint8_t *up1;
-
-		if (lws_tls_alloc_pem_to_der_file(vh->context, NULL, ca_mem,
-						  ca_mem_len, &up1, &amount)) {
-			lwsl_err("%s: Unable to decode x.509 mem\n", __func__);
-			lwsl_hexdump_notice(ca_mem, ca_mem_len);
+		if (lws_tls_client_vhost_ca_mem_parse(vh, ca_mem, ca_mem_len)) {
+			lwsl_err("%s: Unable to load x.509 ca_mem\n", __func__);
 			return 1;
 		}
-
-		up = up1;
-#if defined(USE_WOLFSSL)
-		client_CA = d2i_X509(NULL, &up, (int)amount);
-#else
-		client_CA = d2i_X509(NULL, &up, (long)amount);
-#endif
-		if (!client_CA) {
-			lwsl_err("%s: d2i_X509 failed\n", __func__);
-			lwsl_hexdump_notice(up1, (size_t)amount);
-			lws_tls_err_describe_clear();
-		} else {
-			x509_store = X509_STORE_new();
-			if (!X509_STORE_add_cert(x509_store, client_CA)) {
-				X509_STORE_free(x509_store);
-				lwsl_err("Unable to load SSL Client certs from "
-					 "ssl_ca_mem -- client ssl isn't going to "
-					 "work\n");
-				lws_tls_err_describe_clear();
-			} else {
-				/* it doesn't increment x509_store ref counter */
-				SSL_CTX_set_cert_store(vh->tls.ssl_client_ctx,
-						       x509_store);
-				lwsl_info("loaded ssl_ca_mem\n");
-			}
-		}
-		if (client_CA)
-			X509_free(client_CA);
-		lws_free(up1);
-	//	lws_tls_client_vhost_extra_cert_mem(vh, ca_mem, ca_mem_len);
 	}
 
 	/*

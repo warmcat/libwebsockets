@@ -250,6 +250,13 @@ LWS_VISIBLE int
 lws_tls_cert_get_x509_remaining(struct lws_context *context, const char *filepath, int *days_left, int *total_days);
 
 int
+lws_tls_client_vhost_extra_cert_mem(struct lws_vhost *vh, const uint8_t *der, size_t len);
+
+int
+lws_tls_client_vhost_ca_mem_parse(struct lws_vhost *vh, const void *ca_mem,
+				  unsigned int ca_mem_len);
+
+int
 lws_tls_alloc_pem_to_der_file(struct lws_context *context, const char *filename,
 			      const char *inbuf, lws_filepos_t inlen,
 			      uint8_t **buf, lws_filepos_t *amount);

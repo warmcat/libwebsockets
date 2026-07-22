@@ -84,6 +84,29 @@ int main(int argc, const char **argv)
 		goto bail;
 	}
 
+#if defined(LWS_WITH_CLIENT)
+	{
+		char multi_cert[4096];
+		struct lws_vhost *vh;
+		struct lws_context_creation_info vinfo;
+
+		lws_snprintf(multi_cert, sizeof(multi_cert), "%s%s", test_cert, test_cert);
+
+		memset(&vinfo, 0, sizeof(vinfo));
+		vinfo.vhost_name = "test_multi_ca_mem";
+		vinfo.client_ssl_ca_mem = multi_cert;
+		vinfo.client_ssl_ca_mem_len = (unsigned int)strlen(multi_cert);
+
+		vh = lws_create_vhost(context, &vinfo);
+		if (!vh) {
+			lwsl_err("lws_create_vhost failed for multi-cert ca_mem\n");
+			ret = 1;
+			goto bail;
+		}
+		lwsl_user("Multi-cert ca_mem vhost creation success\n");
+	}
+#endif
+
 	lwsl_user("Success\n");
 
 bail:

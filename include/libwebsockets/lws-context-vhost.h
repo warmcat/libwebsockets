@@ -607,7 +607,9 @@ struct lws_context_creation_info {
 	/**< VHOST: Client SSL context init: CA certificate filepath or NULL */
 	const void *client_ssl_ca_mem;
 	/**< VHOST: Client SSL context init: CA certificate memory buffer or
-	 * NULL... use this to load CA cert from memory instead of file */
+	 * NULL... use this to load CA cert(s) from memory instead of file.
+	 * Supports a single certificate (PEM or DER) or multiple concatenated
+	 * PEM certificates across all TLS backends. */
 
 	const char *client_ssl_cipher_list;
 	/**< VHOST: Client SSL context init: List of valid ciphers to use (eg,
