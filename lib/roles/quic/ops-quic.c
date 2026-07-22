@@ -1148,28 +1148,6 @@ tp_ok:
 			break;
 		}
 
-		/* Check reserved bits AFTER unmasking! */
-		if (p[0] & 0x80) {
-			/* Long header: Bits 0x0c MUST be zero */
-			if (p[0] & 0x0c) {
-				lwsl_wsi_notice(wsi, "QUIC RX: Reserved bits non-zero in long header");
-				if (nwsi && nwsi != wsi) {
-					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_PROTOCOL_VIOLATION, 0, 0);
-					goto next_packet;
-				}
-				return LWS_HPI_RET_PLEASE_CLOSE_ME;
-			}
-		} else {
-			/* Short header: Bits 0x18 MUST be zero */
-			if (p[0] & 0x18) {
-				lwsl_wsi_notice(wsi, "QUIC RX: Reserved bits non-zero in short header");
-				if (nwsi && nwsi != wsi) {
-					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_PROTOCOL_VIOLATION, 0, 0);
-					goto next_packet;
-				}
-				return LWS_HPI_RET_PLEASE_CLOSE_ME;
-			}
-		}
 
 		/*
 		 * Reconstruct full 62-bit PN.
@@ -1219,6 +1197,29 @@ tp_ok:
 				}
 			}
 			goto next_packet;
+		}
+
+		/* Check reserved bits AFTER successful AEAD decryption (RFC 9000 5.4.1 & 12.2) */
+		if (p[0] & 0x80) {
+			/* Long header: Bits 0x0c MUST be zero */
+			if (p[0] & 0x0c) {
+				lwsl_wsi_notice(wsi, "QUIC RX: Reserved bits non-zero in long header");
+				if (nwsi && nwsi != wsi) {
+					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_PROTOCOL_VIOLATION, 0, 0);
+					goto next_packet;
+				}
+				return LWS_HPI_RET_PLEASE_CLOSE_ME;
+			}
+		} else {
+			/* Short header: Bits 0x18 MUST be zero */
+			if (p[0] & 0x18) {
+				lwsl_wsi_notice(wsi, "QUIC RX: Reserved bits non-zero in short header");
+				if (nwsi && nwsi != wsi) {
+					lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_PROTOCOL_VIOLATION, 0, 0);
+					goto next_packet;
+				}
+				return LWS_HPI_RET_PLEASE_CLOSE_ME;
+			}
 		}
 
 		/* Decryption succeeded! Commit key update if pending */
@@ -1318,7 +1319,7 @@ tp_ok:
 						    buf_old, (unsigned int)ntohs(port_old),
 						    buf_new, (unsigned int)ntohs(port_new));
 #endif
-					/* F-60: Do NOT commit nwsi->udp->sa46 yet! Wait for PATH_RESPONSE! */
+					nwsi->quic.qn->rx_has_non_probing = 0;
 					nwsi->quic.qn->probing_sa46 = migration_sa46;
 					nwsi->quic.qn->probing_sa46_valid = 1;
 
@@ -1398,6 +1399,44 @@ tp_ok:
 			/* ALPN negotiation might have migrated the network WSI! */
 			if (nwsi && !nwsi->quic.qn) {
 				nwsi = lws_get_quic_network_wsi(nwsi);
+			}
+
+			/* RFC 9000 Section 9.3: Receiving non-probing frames (STREAM, ACK, etc.) from a new address
+			 * indicates that the peer has migrated (e.g. due to NAT rebinding or active client migration).
+			 * The server MUST commit its active path to the new address. */
+			if (nwsi && nwsi->quic.qn && nwsi->quic.qn->is_server &&
+			    nwsi->quic.qn->probing_sa46_valid && nwsi->quic.qn->rx_has_non_probing) {
+				char buf_old[64], buf_new[64];
+				uint16_t port_old, port_new;
+				lws_sa46_write_numeric_address(&nwsi->udp->sa46, buf_old, sizeof(buf_old));
+				lws_sa46_write_numeric_address(&nwsi->quic.qn->probing_sa46, buf_new, sizeof(buf_new));
+#if defined(LWS_WITH_IPV6)
+				port_old = nwsi->udp->sa46.sa4.sin_family == AF_INET ? nwsi->udp->sa46.sa4.sin_port : nwsi->udp->sa46.sa6.sin6_port;
+				port_new = nwsi->quic.qn->probing_sa46.sa4.sin_family == AF_INET ? nwsi->quic.qn->probing_sa46.sa4.sin_port : nwsi->quic.qn->probing_sa46.sa6.sin6_port;
+#else
+				port_old = nwsi->udp->sa46.sa4.sin_port;
+				port_new = nwsi->quic.qn->probing_sa46.sa4.sin_port;
+#endif
+				lwsl_notice("QUIC Server: Connection Migration committed via non-probing packet! Peer address updated from %s:%u to %s:%u\n",
+					    buf_old, (unsigned int)ntohs(port_old),
+					    buf_new, (unsigned int)ntohs(port_new));
+
+				nwsi->udp->sa46 = nwsi->quic.qn->probing_sa46;
+				nwsi->quic.qn->probing_sa46_valid = 0;
+
+				/* Reset Congestion Control State (RFC 9000 9.3.3) */
+				if (nwsi->quic.qn->cc_ops && nwsi->quic.qn->cc_ops->init)
+					nwsi->quic.qn->cc_ops->init(nwsi);
+
+				/* Reset RTT estimator */
+				nwsi->quic.qn->smoothed_rtt = 0;
+				nwsi->quic.qn->rttvar = 0;
+				nwsi->quic.qn->latest_rtt = 0;
+
+				/* Reset PMTUD */
+				nwsi->quic.qn->current_mtu = 1280;
+				nwsi->quic.qn->probed_mtu = 1380;
+				nwsi->quic.qn->pmtud_state = 1;
 			}
 
 			if (nwsi) {
