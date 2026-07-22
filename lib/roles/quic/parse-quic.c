@@ -1672,13 +1672,16 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 				}
 
 				if (port > 0) {
+					const char *host_str = (qn->nwsi && qn->nwsi->stash && qn->nwsi->stash->cis[CIS_HOST]) ?
+						qn->nwsi->stash->cis[CIS_HOST] : addr_str;
+
 					lwsl_wsi_notice(wsi, "QUIC TP: Migrating to preferred_address %s:%d", addr_str, port);
 					memset(&i, 0, sizeof(i));
 					i.context = wsi->a.context;
 					i.vhost = wsi->a.vhost;
 					i.address = addr_str;
-					i.host = addr_str;
-					i.origin = addr_str;
+					i.host = host_str;
+					i.origin = host_str;
 					i.port = port;
 					i.ssl_connection = LCCSCF_USE_SSL | LCCSCF_ALLOW_INSECURE;
 					i.quic_migrate_from_wsi = qn->nwsi;
