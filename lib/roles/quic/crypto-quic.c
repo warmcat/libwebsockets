@@ -259,7 +259,7 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
 	}
 
         if (is_rx) {
-                if (level == LWS_QUIC_LEVEL_APP && k->valid && k->secret_rx[0] && qn->handshake_done) {
+                if (level == LWS_QUIC_LEVEL_APP && k->valid && k->secret_rx[0]) {
                         lwsl_notice("%s: ignoring post-handshake TLS secret_rx update for APP level\n", __func__);
                         return 0;
                 }
@@ -270,7 +270,7 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
                                               &k->el_aead_rx, k->key_aead_rx, &k->el_hp_rx, k->key_hp_rx))
                         return -1;
         } else {
-                if (level == LWS_QUIC_LEVEL_APP && k->valid && k->secret_tx[0] && qn->handshake_done) {
+                if (level == LWS_QUIC_LEVEL_APP && k->valid && k->secret_tx[0]) {
                         lwsl_notice("%s: ignoring post-handshake TLS secret_tx update for APP level\n", __func__);
                         return 0;
                 }

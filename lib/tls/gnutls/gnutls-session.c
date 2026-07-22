@@ -174,7 +174,7 @@ lws_tls_session_new_gnutls(struct lws *wsi)
 	struct lws_vhost *vh;
 	lws_tls_scm_t *ts;
 	size_t nl;
-	gnutls_datum_t gd;
+	gnutls_datum_t gd = { NULL, 0 };
 #if (_LWS_ENABLED_LOGS & LLL_INFO)
 	const char *disposition = "reuse";
 #endif

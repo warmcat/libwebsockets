@@ -56,12 +56,12 @@ hello_world_state(void *userobj, void *h_src, lws_ss_constate_t state,
 
 	case LWSSSCS_QOS_ACK_REMOTE: /* server liked our request */
 
-		if (!lws_ss_get_metadata(g->ss, "ctype", (const void **)&ct, &ctl))
+		if (!lws_ss_get_metadata(g->ss, "ctype", (const void **)&ct, &ctl)) {
 			lwsl_ss_user(g->ss, "get_metadata ctype '%.*s'", (int)ctl, ct);
-		else
+			test_result &= ~1;
+		} else
 			lwsl_ss_user(g->ss, "get_metadata ctype missing");
 
-		test_result &= ~1;
 		break;
 
 	case LWSSSCS_DISCONNECTED: /* for our example, disconnect = done */
