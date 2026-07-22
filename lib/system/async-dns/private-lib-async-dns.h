@@ -211,6 +211,10 @@ int
 lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
 		 const char *expname, lws_async_dns_find_t cb, void *opaque);
 
+int
+lws_async_dns_estimate(const char *name, void *opaque, uint32_t ttl,
+			adns_query_type_t type, uint16_t rrpaylen, const uint8_t *payload);
+
 void
 lws_adns_parse_udp(lws_async_dns_t *dns, const uint8_t *pkt, size_t len,
 		   lws_async_dns_server_t *dsrv);

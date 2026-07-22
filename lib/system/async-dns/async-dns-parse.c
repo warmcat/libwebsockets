@@ -423,7 +423,7 @@ skip:
 		break;
 	} while (1);
 
-	if (!stp)
+	if (!stp || cb != lws_async_dns_estimate)
 		return 1; /* we didn't find anything, but we didn't error */
 
 	lwsl_info("%s: '%s' -> CNAME '%s' resolution not provided, recursing\n",

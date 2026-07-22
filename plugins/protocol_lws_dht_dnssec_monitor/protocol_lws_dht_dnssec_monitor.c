@@ -46,6 +46,7 @@
 #endif
 
 #define PSS_MAGIC 0x50535301
+#define MONITOR_IPC_BUF_SIZE 65536
 
 struct pss {
 	uint32_t magic;
@@ -56,11 +57,11 @@ struct pss {
 	int retry_count;
 
 	/* TX (proxy -> root) buffer */
-	uint8_t tx[LWS_PRE + 65536];
+	uint8_t tx[LWS_PRE + MONITOR_IPC_BUF_SIZE];
 	size_t tx_len;
 
 	/* RX (root -> proxy) buffer */
-	uint8_t rx[LWS_PRE + 65536];
+	uint8_t rx[LWS_PRE + MONITOR_IPC_BUF_SIZE];
 	size_t rx_len;
 
 	lws_dll2_t list;
@@ -94,7 +95,7 @@ struct vhd {
 	struct lws_jwk jwk;
 
 	/* UDS raw rx buffer for server */
-	uint8_t rx[LWS_PRE + 65536];
+	uint8_t rx[LWS_PRE + MONITOR_IPC_BUF_SIZE];
 	size_t rx_len;
 
 	char auth_token[129];
@@ -911,7 +912,7 @@ static void
 handle_req_reset_dist_pki(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
-	char *tx_end = tx + 65536 - 1;
+	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	char path[1024];
 	char domain[256] = "";
 	int fd;
@@ -955,7 +956,7 @@ static void
 handle_req_status(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
-	char *tx_end = tx + 65536 - 1;
+	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"status\",\"status\":\"ok\"}\n");
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
 }
@@ -964,7 +965,7 @@ static void
 handle_req_get_domains(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
-	char *tx_end = tx + 65536 - 1;
+	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	char path[1024];
 	DIR *d;
 	struct dirent *de;
@@ -1032,7 +1033,7 @@ static void
 handle_req_create_domain(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
-	char *tx_end = tx + 65536 - 1;
+	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	char d_path[1024];
 	int r = 0;
 
@@ -1079,7 +1080,7 @@ static void
 handle_req_delete_domain(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
-	char *tx_end = tx + 65536 - 1;
+	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	char d_path[1024];
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s", vhd->base_dir, a->domain);
@@ -1094,7 +1095,7 @@ static void
 handle_req_get_zone(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
-	char *tx_end = tx + 65536 - 1;
+	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	char d_path[1024];
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/%s.zone", vhd->base_dir, a->domain, a->domain);
@@ -1133,7 +1134,7 @@ static void
 handle_req_get_ipv6_suffix(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
-	char *tx_end = tx + 65536 - 1;
+	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	char path[1024];
 	char suffix[64] = {0};
 
@@ -1160,7 +1161,7 @@ static void
 handle_req_set_ipv6_suffix(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
-	char *tx_end = tx + 65536 - 1;
+	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	char path[1024];
 
 	lws_snprintf(path, sizeof(path), "%s/domains/ipv6_suffix.txt", vhd->base_dir);
@@ -1192,7 +1193,7 @@ static void
 handle_req_update_zone(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
-	char *tx_end = tx + 65536 - 1;
+	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	char d_path[1024];
 
 	if (!a->zone_buf) goto fail;
@@ -1281,7 +1282,7 @@ static void
 handle_req_get_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
-	char *tx_end = tx + 65536 - 1;
+	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	char d_path[1024];
 	DIR *d;
 	struct dirent *de;
@@ -1328,7 +1329,7 @@ static void
 handle_req_create_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
-	char *tx_end = tx + 65536 - 1;
+	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	char d_path[1024];
 	char p1[1024];
 	char buf[2048];
@@ -1386,7 +1387,7 @@ static void
 handle_req_delete_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
-	char *tx_end = tx + 65536 - 1;
+	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	char d_path[1024];
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/conf.d/%s.json", vhd->base_dir, a->domain, a->subdomain);
@@ -1401,7 +1402,7 @@ static void
 handle_req_save_acme_file(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a, const char *dir_suffix)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
-	char *tx_end = tx + 65536 - 1;
+	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	char d_path[1024];
 
 	if (!a->zone_buf || !a->domain[0] || !a->subdomain[0]) {
@@ -1512,7 +1513,7 @@ static void
 handle_req_save_dns_challenge(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
-	char *tx_end = tx + 65536 - 1;
+	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	char d_path[1024];
 
 	if (!a->zone_buf || !a->domain[0]) {
@@ -1558,7 +1559,7 @@ static void
 handle_req_cleanup_dns_challenge(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
-	char *tx_end = tx + 65536 - 1;
+	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	char d_path[1024];
 
 	if (!a->domain[0]) {
@@ -1594,7 +1595,7 @@ static void
 handle_req_get_all_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
-	char *tx_end = tx + 65536 - 1;
+	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	char d_path[1024];
 	DIR *d, *d2;
 	struct dirent *de, *de2;
@@ -1655,7 +1656,7 @@ static void
 handle_req_get_cert_validity(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
-	char *tx_end = tx + 65536 - 1;
+	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	char cert_path[512];
 	int days_left = 0, total_days = 0;
 
@@ -1687,7 +1688,7 @@ static void
 handle_req_get_acme_config(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
-	char *tx_end = tx + 65536 - 1;
+	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	char d_path[1024];
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/acme_config.json", vhd->base_dir);
@@ -1712,7 +1713,7 @@ static void
 handle_req_set_acme_config(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
-	char *tx_end = tx + 65536 - 1;
+	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	char d_path[1024];
 	char buf[4096];
 	int n, fd;
@@ -1749,7 +1750,7 @@ static void
 handle_req_set_domain_acme(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
-	char *tx_end = tx + 65536 - 1;
+	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	char d_path[1024];
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/acme_disabled", vhd->base_dir, a->domain);
@@ -1772,7 +1773,7 @@ static void
 handle_req_get_acme_log(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
-	char *tx_end = tx + 65536 - 1;
+	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	char d_path[1024];
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/acme.log", vhd->base_dir);
@@ -1809,7 +1810,7 @@ static void
 handle_req_trigger_resign(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
-	char *tx_end = tx + 65536 - 1;
+	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 
 	lwsl_notice("%s: ACME client triggered immediate re-sign for all zones\n", __func__);
 	lws_sul_schedule(vhd->context, 0, &vhd->sul_timer, parent_dnssec_monitor_timer_cb, 100 * LWS_US_PER_MS);
@@ -1842,7 +1843,7 @@ static void
 handle_req_regen_keys(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
-	char *tx_end = tx + 65536 - 1;
+	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 
 	if (vhd->ops && vhd->ops->keygen) {
 		struct lws_dht_dnssec_keygen_args kargs;
@@ -1907,7 +1908,9 @@ struct lws * handle_req_get_acme_profiles(struct vhd *vhd, struct pss *root_pss,
 	if (!wsi && afi) {
 		free(afi);
 		char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
-		root_pss->tx_len += (size_t)lws_snprintf(tx, 65536 - root_pss->tx_len, "{\"req\":\"get_acme_profiles\",\"status\":\"error\",\"msg\":\"Failed to connect to ACME directory\"}\n");
+		char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"get_acme_profiles\",\"status\":\"error\",\"msg\":\"Failed to connect to ACME directory\"}\n");
+		root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
 		lws_callback_on_writable_all_protocol(vhd->context, lws_get_protocol(root_pss->wsi));
 	}
 	return wsi;
@@ -1922,7 +1925,7 @@ static void
 handle_req_get_dist_server_domain(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
-	char *tx_end = tx + 65536 - 1;
+	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	char path[1024];
 	char domain[256] = "";
 	int fd;
@@ -1948,7 +1951,7 @@ static void
 handle_req_set_dist_server_domain(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
-	char *tx_end = tx + 65536 - 1;
+	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	char path[1024];
 	int fd;
 
@@ -1978,14 +1981,14 @@ static void
 handle_req_provisioning_bundle(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
-	char *tx_end = tx + 65536;
+	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	char path[512], *ca = NULL, *crt = NULL, *key = NULL;
 	struct stat st;
 	int fd;
 
 	if (!a->domain[0] || !a->subdomain[0]) {
-		root_pss->tx_len += (size_t)lws_snprintf(tx, 65536 - root_pss->tx_len, "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Missing domain or subdomain\"}\n", a->req);
-		return;
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Missing domain or subdomain\"}\n", a->req);
+		goto bail;
 	}
 
 	generate_client_cert(vhd, a->domain, a->subdomain);
@@ -2024,16 +2027,16 @@ handle_req_provisioning_bundle(struct vhd *vhd, struct pss *root_pss, struct mon
 	}
 
 	if (!ca || !crt || !key) {
-		root_pss->tx_len += (size_t)lws_snprintf(tx, 65536 - root_pss->tx_len, "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Certificate files not found on server\"}\n", a->req);
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Certificate files not found on server\"}\n", a->req);
 		goto bail;
 	}
 
 	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"subdomain\":\"%s\",\"ca\":\"", a->req, a->subdomain);
-	char *p = ca; while (p && *p) { if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
+	char *p = ca; while (p && *p) { if (tx >= tx_end - 2) break; if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
 	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\",\"cert\":\"");
-	p = crt; while (p && *p) { if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
+	p = crt; while (p && *p) { if (tx >= tx_end - 2) break; if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
 	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\",\"key\":\"");
-	p = key; while (p && *p) { if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
+	p = key; while (p && *p) { if (tx >= tx_end - 2) break; if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
 	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\"}\n");
 
 bail:
@@ -2047,7 +2050,7 @@ static void
 handle_req_download_dist_ca(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
-	char *tx_end = tx + 65536;
+	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	char path[512], *ca = NULL;
 	struct stat st;
 	int fd;
@@ -2064,12 +2067,13 @@ handle_req_download_dist_ca(struct vhd *vhd, struct pss *root_pss, struct monito
 	}
 
 	if (!ca) {
-		root_pss->tx_len += (size_t)lws_snprintf(tx, 65536 - root_pss->tx_len, "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"CA not found\"}\n", a->req);
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"CA not found\"}\n", a->req);
+		root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
 		return;
 	}
 
 	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"ca\":\"", a->req);
-	char *p = ca; while (p && *p) { if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
+	char *p = ca; while (p && *p) { if (tx >= tx_end - 2) break; if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
 	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\"}\n");
 
 	free(ca);
@@ -2080,13 +2084,14 @@ static void
 handle_req_download_dist_server(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
-	char *tx_end = tx + 65536;
+	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	char path[512], *ca = NULL, *crt = NULL, *key = NULL;
 	struct stat st;
 	int fd;
 
 	if (!a->domain[0]) {
-		root_pss->tx_len += (size_t)lws_snprintf(tx, 65536 - root_pss->tx_len, "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Missing domain parameter\"}\n", a->req);
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Missing domain parameter\"}\n", a->req);
+		root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
 		return;
 	}
 
@@ -2131,11 +2136,11 @@ handle_req_download_dist_server(struct vhd *vhd, struct pss *root_pss, struct mo
 	}
 
 	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"ca\":\"", a->req);
-	char *p = ca; while (p && *p) { if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
+	char *p = ca; while (p && *p) { if (tx >= tx_end - 2) break; if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
 	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\",\"cert\":\"");
-	p = crt; while (p && *p) { if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
+	p = crt; while (p && *p) { if (tx >= tx_end - 2) break; if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
 	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\",\"key\":\"");
-	p = key; while (p && *p) { if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
+	p = key; while (p && *p) { if (tx >= tx_end - 2) break; if (*p == '\n') { *tx++ = '\\'; *tx++ = 'n'; } else if (*p != '\r') *tx++ = *p; p++; }
 	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "\",\"domain\":\"%s\"}\n", a->domain);
 
 bail:
@@ -2224,7 +2229,7 @@ handle_req_check_cert(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 
 			lws_start_foreach_dll(struct lws_dll2 *, p, vhd->clients.head) {
 				struct pss *wpss = lws_container_of(p, struct pss, list);
-				if (wpss->tx_len + (size_t)n < 65536 - LWS_PRE) {
+				if (wpss->tx_len + (size_t)n < sizeof(wpss->tx) - LWS_PRE) {
 					memcpy(&wpss->tx[LWS_PRE + wpss->tx_len], json, (size_t)n);
 					wpss->tx_len += (size_t)n;
 					lws_callback_on_writable(wpss->wsi);
@@ -2282,6 +2287,7 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 	struct monitor_req_args a;
 	struct lejp_ctx jctx;
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
+	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	const size_t req_map_size = LWS_ARRAY_SIZE(req_map);
 
 	memset(&a, 0, sizeof(a));
@@ -2293,13 +2299,13 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 
 	if (m < 0 && m != LEJP_REJECT_UNKNOWN) {
 		lwsl_notice("[INSTRUMENT] handle_monitor_request: JSON parser failed! Error %d, len %d, in:\n%.*s\n", m, (int)len, (int)len, in);
-		root_pss->tx_len += (size_t)lws_snprintf(tx, 65536 - root_pss->tx_len, "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"JSON parse failed: %d\"}\n", a.req[0] ? a.req : "unknown", m);
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"JSON parse failed: %d\"}\n", a.req[0] ? a.req : "unknown", m);
 		goto done;
 	}
 
 	if (!a.req[0]) {
 		lwsl_notice("[INSTRUMENT] handle_monitor_request: Missing 'req' parameter in JSON payload!\n");
-		root_pss->tx_len += (size_t)lws_snprintf(tx, 65536 - root_pss->tx_len, "{\"status\":\"error\",\"msg\":\"Missing req\"}\n");
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"status\":\"error\",\"msg\":\"Missing req\"}\n");
 		goto done;
 	}
 
@@ -2313,31 +2319,31 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 
 		if (!a.jwt[0]) {
 			lwsl_notice("[INSTRUMENT] Missing JWT preamble token\n");
-			root_pss->tx_len += (size_t)lws_snprintf(tx, 65536 - root_pss->tx_len, "{\"status\":\"error\",\"msg\":\"Authentication Failed\"}\n");
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"status\":\"error\",\"msg\":\"Authentication Failed\"}\n");
 			goto done;
 		}
 
 		if (lws_jwt_signed_validate(vhd->context, &vhd->auth_jwk, "HS256", a.jwt, strlen(a.jwt), jwt_temp, sizeof(jwt_temp), jwt_out, &jwt_out_len)) {
 			lwsl_notice("[INSTRUMENT] Invalid/Forged JWT preamble token\n");
-			root_pss->tx_len += (size_t)lws_snprintf(tx, 65536 - root_pss->tx_len, "{\"status\":\"error\",\"msg\":\"Authentication Failed\"}\n");
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"status\":\"error\",\"msg\":\"Authentication Failed\"}\n");
 			goto done;
 		}
 
 		if (lws_jwt_token_sanity(jwt_out, jwt_out_len, "acme-ipc", "dnssec-monitor", NULL, NULL, 0, &exp_time)) {
 			lwsl_notice("[INSTRUMENT] Expired/Invalid JWT claims\n");
-			root_pss->tx_len += (size_t)lws_snprintf(tx, 65536 - root_pss->tx_len, "{\"status\":\"error\",\"msg\":\"Authentication Failed\"}\n");
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"status\":\"error\",\"msg\":\"Authentication Failed\"}\n");
 			goto done;
 		}
 	} else {
 		lwsl_notice("[INSTRUMENT] Warning: UDS monitor secret not bootstrapped, rejecting request!\n");
-		root_pss->tx_len += (size_t)lws_snprintf(tx, 65536 - root_pss->tx_len, "{\"status\":\"error\",\"msg\":\"Authentication Failed\"}\n");
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"status\":\"error\",\"msg\":\"Authentication Failed\"}\n");
 		goto done;
 	}
 
 	/* Prevent path traversal attacks */
 	if ((char *)strchr(a.domain, '/') || (char *)strstr(a.domain, "..") || (char *)strchr(a.subdomain, '/') || (char *)strstr(a.subdomain, "..")) {
 		lwsl_debug("[INSTRUMENT] handle_monitor_request: Path traversal parameters detected\n");
-		root_pss->tx_len += (size_t)lws_snprintf(tx, 65536 - root_pss->tx_len, "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Invalid chars in domain\"}\n", a.req);
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Invalid chars in domain\"}\n", a.req);
 		goto done;
 	}
 
@@ -2358,20 +2364,22 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 				strcmp(req_map[i].name, "set_dist_server_domain") &&
 				strcmp(req_map[i].name, "download_dist_ca")) {
 				lwsl_notice("[INSTRUMENT] handle_monitor_request: Missing required 'domain' param for %s\n", a.req);
-				root_pss->tx_len += (size_t)lws_snprintf(tx, 65536 - root_pss->tx_len, "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Missing arguments\"}\n", a.req);
+				tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Missing arguments\"}\n", a.req);
 				goto done;
 			}
 			lwsl_debug("[INSTRUMENT] handle_monitor_request: Calling map callback...\n");
 			req_map[i].cb(vhd, root_pss, &a);
 			lwsl_debug("[INSTRUMENT] handle_monitor_request: Callback generated response size %d\n", (int)root_pss->tx_len);
-			goto done;
+			goto done_free;
 		}
 	}
 
 	lwsl_notice("[INSTRUMENT] handle_monitor_request: Unknown request parameter '%s'\n", a.req);
-	root_pss->tx_len += (size_t)lws_snprintf(tx, 65536 - root_pss->tx_len, "{\"req\":\"unknown\",\"status\":\"error\",\"msg\":\"Unknown req %s\"}\n", a.req);
+	tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"unknown\",\"status\":\"error\",\"msg\":\"Unknown req %s\"}\n", a.req);
 
 done:
+	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
+done_free:
 	if (a.zone_buf) free(a.zone_buf);
 }
 
@@ -2407,10 +2415,10 @@ connect_retry_cb(lws_sorted_usec_list_t *sul)
 	if (!lws_client_connect_via_info(&i)) {
 		pss->cwsi = NULL;
 		if (++pss->retry_count < 20) {
-			lwsl_notice("%s: UDS connection delayed, retrying (%d/20)\n", __func__, pss->retry_count);
+			lwsl_notice("dnssec_monitor: %s: UDS connection delayed, retrying (%d/20)\n", __func__, pss->retry_count);
 			lws_sul_schedule(vhd->context, 0, &pss->sul, connect_retry_cb, 250 * LWS_US_PER_MS);
 		} else {
-			lwsl_err("%s: failed to connect UI WS proxy to UDS server after retries\n", __func__);
+			lwsl_err("dnssec_monitor: %s: failed to connect UI WS proxy to UDS server after retries\n", __func__);
 			lws_wsi_close(pss->wsi, LWS_TO_KILL_ASYNC);
 		}
 	}
@@ -2461,7 +2469,7 @@ static void extract_and_queue_cert_result(struct lws *wsi, struct vhd *vhd, stru
 
 		lws_start_foreach_dll(struct lws_dll2 *, p, vhd->clients.head) {
 			struct pss *wpss = lws_container_of(p, struct pss, list);
-			if (wpss->tx_len + (size_t)n < 65536 - LWS_PRE) {
+			if (wpss->tx_len + (size_t)n < sizeof(wpss->tx) - LWS_PRE) {
 				memcpy(&wpss->tx[LWS_PRE + wpss->tx_len], json, (size_t)n);
 				wpss->tx_len += (size_t)n;
 				lws_callback_on_writable(wpss->wsi);
@@ -2966,7 +2974,7 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RECEIVE:
 		lwsl_debug("[INSTRUMENT] LWS_CALLBACK_RECEIVE: Browser UI triggered WS message (len: %d). Proxy cwsi=%p, root_process_active=%d\n", (int)len, pss->cwsi, vhd ? vhd->root_process_active : -1);
 		if (vhd && vhd->root_process_active) {
-			if (len > 65536) {
+			if (len > MONITOR_IPC_BUF_SIZE) {
 				lwsl_err("%s: WS UI request too large\n", __func__);
 				return -1;
 			}
@@ -2986,7 +2994,7 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 					size_t out_len = 0;
 					size_t existing_len = pss->tx_len;
 
-					if (existing_len + offset + 512 + (len - offset) + 1 >= 65536 - LWS_PRE) {
+					if (existing_len + offset + 512 + (len - offset) + 1 >= sizeof(pss->tx) - LWS_PRE) {
 						lwsl_err("%s: WS UI request dropped, tx buffer full\n", __func__);
 						return -1;
 					}
@@ -2994,7 +3002,7 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 					memcpy(&pss->tx[LWS_PRE + existing_len], in, offset);
 					out_len += offset;
 
-					int n = lws_snprintf((char *)&pss->tx[LWS_PRE + existing_len + out_len], 65536 - LWS_PRE - existing_len - out_len, "\"jwt\":\"%s\",", jwt_buf);
+					int n = lws_snprintf((char *)&pss->tx[LWS_PRE + existing_len + out_len], sizeof(pss->tx) - LWS_PRE - existing_len - out_len, "\"jwt\":\"%s\",", jwt_buf);
 					out_len += (size_t)n;
 
 					memcpy(&pss->tx[LWS_PRE + existing_len + out_len], first_brace + 1, len - offset);
@@ -3010,7 +3018,7 @@ callback_dht_dnssec_monitor(struct lws *wsi, enum lws_callback_reasons reason,
 				}
 			} else {
 fallback:
-				if (pss->tx_len + len + 1 < 65536 - LWS_PRE) {
+				if (pss->tx_len + len + 1 < sizeof(pss->tx) - LWS_PRE) {
 					memcpy(&pss->tx[LWS_PRE + pss->tx_len], in, len);
 					pss->tx_len += len;
 					pss->tx[LWS_PRE + pss->tx_len] = '\n';
@@ -3084,7 +3092,7 @@ fallback:
 
 						lws_start_foreach_dll(struct lws_dll2 *, p, vhd->clients.head) {
 							struct pss *wpss = lws_container_of(p, struct pss, list);
-							if (wpss->tx_len + (size_t)n < 65536 - LWS_PRE) {
+							if (wpss->tx_len + (size_t)n < sizeof(wpss->tx) - LWS_PRE) {
 								memcpy(&wpss->tx[LWS_PRE + wpss->tx_len], json, (size_t)n);
 								wpss->tx_len += (size_t)n;
 								lws_callback_on_writable(wpss->wsi);
@@ -3173,8 +3181,8 @@ fallback:
 				if (found) {
 					struct pss *wpss = afi->root_pss;
 					size_t existing_len = wpss->tx_len;
-					if (existing_len + afi->json_len + 128 < 65536 - LWS_PRE) {
-						int n = lws_snprintf((char *)&wpss->tx[LWS_PRE + existing_len], 65536 - LWS_PRE - existing_len,
+					if (existing_len + afi->json_len + 128 < sizeof(wpss->tx) - LWS_PRE) {
+						int n = lws_snprintf((char *)&wpss->tx[LWS_PRE + existing_len], sizeof(wpss->tx) - LWS_PRE - existing_len,
 							"{\"req\":\"get_acme_profiles\",\"status\":\"ok\",\"profiles\":");
 						existing_len += (size_t)n;
 
@@ -3197,15 +3205,15 @@ fallback:
 								memcpy(&wpss->tx[LWS_PRE + existing_len], profiles_start, plen);
 								existing_len += plen;
 							} else {
-								int k = lws_snprintf((char *)&wpss->tx[LWS_PRE + existing_len], 65536 - LWS_PRE - existing_len, "{}");
+								int k = lws_snprintf((char *)&wpss->tx[LWS_PRE + existing_len], sizeof(wpss->tx) - LWS_PRE - existing_len, "{}");
 								existing_len += (size_t)k;
 							}
 						} else {
-							int k = lws_snprintf((char *)&wpss->tx[LWS_PRE + existing_len], 65536 - LWS_PRE - existing_len, "{}");
+							int k = lws_snprintf((char *)&wpss->tx[LWS_PRE + existing_len], sizeof(wpss->tx) - LWS_PRE - existing_len, "{}");
 							existing_len += (size_t)k;
 						}
 
-						int k = lws_snprintf((char *)&wpss->tx[LWS_PRE + existing_len], 65536 - LWS_PRE - existing_len, "}\n");
+						int k = lws_snprintf((char *)&wpss->tx[LWS_PRE + existing_len], sizeof(wpss->tx) - LWS_PRE - existing_len, "}\n");
 						wpss->tx_len = existing_len + (size_t)k;
 						if (wpss->cwsi) lws_callback_on_writable(wpss->cwsi);
 						if (wpss->wsi) lws_callback_on_writable(wpss->wsi);
@@ -3310,7 +3318,7 @@ fallback:
 			} else if (magic && *magic == PSS_MAGIC) {
 				struct pss *wpss = (struct pss *)magic;
 				/* 1: Proxy Unprivileged Client: root server just replied. */
-				if (wpss->rx_len + len > 65536 - LWS_PRE) return -1;
+				if (wpss->rx_len + len > sizeof(wpss->rx) - LWS_PRE) return -1;
 				memcpy(&wpss->rx[LWS_PRE + wpss->rx_len], in, len);
 				wpss->rx_len += len;
 				lws_callback_on_writable(wpss->wsi); /* trigger WS write */
@@ -3328,7 +3336,7 @@ fallback:
 					return -1;
 				}
 
-				if (vhd->rx_len + len > 65536 - 1) return -1;
+				if (vhd->rx_len + len > sizeof(vhd->rx) - LWS_PRE - 1) return -1;
 				memcpy(&vhd->rx[LWS_PRE + vhd->rx_len], in, len);
 				vhd->rx_len += len;
 				vhd->rx[LWS_PRE + vhd->rx_len] = '\0';

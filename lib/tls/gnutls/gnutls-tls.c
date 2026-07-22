@@ -277,9 +277,9 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	}
 
 #if defined(LWS_WITH_TLS_SESSIONS)
-	vh->tls_session_cache_max = info->tls_session_cache_max ?
+	vh->tls_session_cache_max = (info && info->tls_session_cache_max) ?
 				    info->tls_session_cache_max : 10;
-	lws_tls_session_cache(vh, info->tls_session_timeout);
+	lws_tls_session_cache(vh, info ? info->tls_session_timeout : 0);
 #endif
 
 	return 0;
@@ -377,6 +377,11 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 	wsi->tls.ssl = (lws_tls_conn *)session;
 
 	wsi->tls.ctx_ref = lws_tls_ctx_ref_get(wsi->a.vhost);
+	if (!wsi->tls.ctx_ref && (!wsi->a.vhost->tls.ssl_ctx)) {
+		lwsl_err("%s: No server SSL context on vhost\n", __func__);
+		gnutls_deinit(session);
+		return 1;
+	}
 	gnutls_priority_set(session, wsi->tls.ctx_ref ? wsi->tls.ctx_ref->ctx->priority : wsi->a.vhost->tls.ssl_ctx->priority);
 	gnutls_credentials_set(session, GNUTLS_CRD_CERTIFICATE, wsi->tls.ctx_ref ? wsi->tls.ctx_ref->ctx->creds : wsi->a.vhost->tls.ssl_ctx->creds);
 	gnutls_transport_set_int((gnutls_session_t)wsi->tls.ssl, (int)accept_fd);
@@ -460,6 +465,15 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	// gnutls_global_set_log_function(my_gnutls_log);
 	if (0)
 		return 1;
+
+	if (!wsi->a.vhost->tls.ssl_client_ctx) {
+		if (lws_tls_client_create_vhost_context(wsi->a.vhost, NULL, NULL, NULL, NULL, 0, NULL, NULL, 0, NULL, NULL, 0) ||
+		    !wsi->a.vhost->tls.ssl_client_ctx) {
+			lwsl_err("%s: No client SSL context on vhost %s\n", __func__, wsi->a.vhost->name);
+			gnutls_deinit(session);
+			return -1;
+		}
+	}
 
 	wsi->tls.ssl = (lws_tls_conn *)session;
 

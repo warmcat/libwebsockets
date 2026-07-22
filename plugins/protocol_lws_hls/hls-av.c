@@ -1564,10 +1564,9 @@ lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filena
 			/* Stop at end of segment on next video keyframe */
 			if (in_stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
 				if (pkt.flags & AV_PKT_FLAG_KEY) {
-					int64_t margin = av_rescale_q(500000, AV_TIME_BASE_Q, in_stream->time_base); /* 500ms margin */
 					/* If has_index and we know end_pts, stop EXACTLY at end_pts.
 					 * Otherwise fallback to math. */
-					if ((has_index && sinfo.end_pts != AV_NOPTS_VALUE && pkt.pts >= sinfo.end_pts - margin) || (!has_index && pkt_time >= end_time - 500000)) {
+					if ((has_index && sinfo.end_pts != AV_NOPTS_VALUE && pkt.pts >= sinfo.end_pts) || (!has_index && pkt_time >= end_time - 500000)) {
 						lwsl_info("HLS: Segment %d reached next video keyframe at pkt_time=%.3fs (pts=%lld, dts=%lld). Video finished.\n",
 							  segment_idx, (double)pkt_time / AV_TIME_BASE, (long long)pkt.pts, (long long)pkt.dts);
 						video_finished = 1;

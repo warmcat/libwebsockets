@@ -57,6 +57,7 @@ struct lws_stub_manager {
 	struct lws_context		*cx;
 	struct lws_vhost		*vh;
 	char				uds_path[256];
+	char				stub_name[128];
 	char				secret[129];
 	struct lws_spawn_piped		*lsp;
 	struct lws_stub_config		config;
@@ -92,7 +93,12 @@ lws_stub_spawn(const struct lws_stub_config *config)
 	mgr->cx = config->cx;
 	mgr->vh = config->vh;
 	memcpy(&mgr->config, config, sizeof(mgr->config));
-	lws_strncpy(mgr->uds_path, config->uds_path, sizeof(mgr->uds_path));
+	if (config->uds_path)
+		lws_strncpy(mgr->uds_path, config->uds_path, sizeof(mgr->uds_path));
+	mgr->config.uds_path = mgr->uds_path;
+	if (config->stub_name)
+		lws_strncpy(mgr->stub_name, config->stub_name, sizeof(mgr->stub_name));
+	mgr->config.stub_name = mgr->stub_name;
 	mgr->protocols = config->protocols;
 
 	/* Generate a secure 128-char secret */
@@ -147,7 +153,7 @@ lws_stub_spawn(const struct lws_stub_config *config)
 #endif
 
 	mgr->exec_array[n++] = exe_path;
-	lwsl_notice("%s: Spawning stub with exe: %s\n", __func__, exe_path);
+	lwsl_vhost_notice(mgr->vh, "%s: Spawning stub '%s' with exe: %s\n", __func__, config->stub_name, exe_path);
 	/* Construct the stub argument dynamically */
 	lws_snprintf(mgr->stub_arg, sizeof(mgr->stub_arg), "--lws-stub=%s", config->stub_name);
 	mgr->exec_array[n++] = mgr->stub_arg;
@@ -165,43 +171,43 @@ lws_stub_spawn(const struct lws_stub_config *config)
 		if (stdin_fd) {
 			DWORD bw;
 			if (!WriteFile(stdin_fd, mgr->secret, 128, &bw, NULL)) {
-				lwsl_err("%s: Failed writing secret to pipe\n", __func__);
+				lwsl_vhost_err(mgr->vh, "%s: stub '%s' failed writing secret to pipe\n", __func__, config->stub_name);
 				goto spawn_fail;
 			}
 			if (config->extra_payload && config->extra_payload_len) {
 				if (!WriteFile(stdin_fd, config->extra_payload, (DWORD)config->extra_payload_len, &bw, NULL)) {
-					lwsl_err("%s: Failed writing extra payload to pipe\n", __func__);
+					lwsl_vhost_err(mgr->vh, "%s: stub '%s' failed writing extra payload to pipe\n", __func__, config->stub_name);
 					goto spawn_fail;
 				}
 			}
 		} else {
-			lwsl_err("%s: No stdin pipe available\n", __func__);
+			lwsl_vhost_err(mgr->vh, "%s: stub '%s' no stdin pipe available\n", __func__, config->stub_name);
 			goto spawn_fail;
 		}
 #else
 		if (stdin_fd >= 0) {
 			if (write(stdin_fd, mgr->secret, 128) < 0) {
-				lwsl_err("%s: Failed writing secret to pipe\n", __func__);
+				lwsl_vhost_err(mgr->vh, "%s: stub '%s' failed writing secret to pipe\n", __func__, config->stub_name);
 				goto spawn_fail;
 			}
 			if (config->extra_payload && config->extra_payload_len) {
 				if (write(stdin_fd, config->extra_payload, (unsigned int)config->extra_payload_len) < 0) {
-					lwsl_err("%s: Failed writing extra payload to pipe\n", __func__);
+					lwsl_vhost_err(mgr->vh, "%s: stub '%s' failed writing extra payload to pipe\n", __func__, config->stub_name);
 					goto spawn_fail;
 				}
 			}
 		} else {
-			lwsl_err("%s: No stdin pipe available\n", __func__);
+			lwsl_vhost_err(mgr->vh, "%s: stub '%s' no stdin pipe available\n", __func__, config->stub_name);
 			goto spawn_fail;
 		}
 #endif
 	} else {
-		lwsl_vhost_err(mgr->vh, "%s: Failed to spawn stub %s\n", __func__, config->stub_name);
+		lwsl_vhost_err(mgr->vh, "%s: Failed to spawn stub '%s'\n", __func__, config->stub_name);
 		lws_free(mgr);
 		return NULL;
 	}
 
-	lwsl_vhost_notice(mgr->vh, "%s: Spawned stub %s\n", __func__, config->stub_name);
+	lwsl_vhost_notice(mgr->vh, "%s: Spawned stub '%s'\n", __func__, config->stub_name);
 
 	if (!mgr->sul.list.owner && !mgr->wsi_client)
 		lws_stub_client_connect(mgr);
@@ -210,7 +216,7 @@ lws_stub_spawn(const struct lws_stub_config *config)
 
 spawn_fail:
 	lws_spawn_piped_kill_child_process(mgr->lsp);
-	lwsl_vhost_err(mgr->vh, "%s: Failed to initialize spawned stub %s\n", __func__, config->stub_name);
+	lwsl_vhost_err(mgr->vh, "%s: Failed to initialize spawned stub '%s'\n", __func__, config->stub_name);
 	lws_free(mgr);
 	return NULL;
 }
@@ -238,7 +244,7 @@ lws_stub_server_init(const struct lws_stub_config *config, char *secret_out, voi
 	}
 
 	if (rx < 64) {
-		lwsl_err("%s: Failed to read secret from stdin\n", __func__);
+		lwsl_err("%s: stub '%s': Failed to read secret from stdin\n", __func__, config->stub_name ? config->stub_name : "unknown");
 		return -1;
 	}
 	secret_out[128] = '\0';
@@ -249,7 +255,7 @@ lws_stub_server_init(const struct lws_stub_config *config, char *secret_out, voi
 		 * and unknown to the child, and the pipe remains open for future IPC. */
 		ssize_t n = read(0, (void *)extra_out, (unsigned int)extra_len);
 		if (n < 0) {
-			lwsl_err("%s: Failed to read extra payload\n", __func__);
+			lwsl_err("%s: stub '%s': Failed to read extra payload\n", __func__, config->stub_name ? config->stub_name : "unknown");
 			/* Non-fatal */
 		}
 	}
@@ -265,7 +271,7 @@ lws_stub_server_init(const struct lws_stub_config *config, char *secret_out, voi
 	unlink(info.iface);
 	vh_uds = lws_create_vhost(config->cx, &info);
 	if (!vh_uds) {
-		lwsl_err("%s: Failed to create UDS vhost\n", __func__);
+		lwsl_err("%s: stub '%s': Failed to create UDS vhost\n", __func__, config->stub_name ? config->stub_name : "unknown");
 		return -1;
 	}
 
@@ -295,6 +301,25 @@ static const lws_retry_bo_t stub_retry = {
 static void
 stub_retry_cb(lws_sorted_usec_list_t *sul);
 
+#if (_LWS_ENABLED_LOGS & (LLL_NOTICE | LLL_ERR))
+static int
+lws_stub_child_is_alive(struct lws_stub_manager *mgr)
+{
+	if (!mgr || !mgr->lsp)
+		return 0;
+
+#if !defined(WIN32)
+	if (mgr->lsp->child_pid <= 0)
+		return 0;
+	if (kill(mgr->lsp->child_pid, 0) == 0 || errno == EPERM)
+		return 1;
+	return 0;
+#else
+	return 1;
+#endif
+}
+#endif
+
 static int
 lws_stub_client_connect(struct lws_stub_manager *mgr)
 {
@@ -317,7 +342,7 @@ lws_stub_client_connect(struct lws_stub_manager *mgr)
 	i.retry_and_idle_policy = &stub_retry;
 	i.method		= "RAW"; /* RAW connection */
 
-	lwsl_vhost_notice(mgr->vh, "protocol %s, addr %s\n", i.protocol, i.address);
+	lwsl_vhost_notice(mgr->vh, "%s: stub '%s', protocol %s, addr %s\n", __func__, mgr->config.stub_name, i.protocol, i.address);
 	mgr->wsi_client = lws_client_connect_via_info(&i);
 	if (!mgr->wsi_client) {
 		if (mgr->ctry < 10) {
@@ -325,8 +350,16 @@ lws_stub_client_connect(struct lws_stub_manager *mgr)
 				mgr->ctry < stub_retry.retry_ms_table_count ?
 				mgr->ctry : stub_retry.retry_ms_table_count - 1];
 			mgr->ctry++;
-			if (mgr->ctry > 1)
-				lwsl_notice("%s: Synchronous connect failed (errno %d), retrying in %u ms (attempt %d)\n", __func__, LWS_ERRNO, (unsigned int)ms, mgr->ctry);
+			if (mgr->ctry > 1) {
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+				int alive = lws_stub_child_is_alive(mgr);
+				lwsl_vhost_notice(mgr->vh, "%s: stub '%s': Synchronous connect failed (errno %d), stub process %s (PID %d), retrying in %u ms (attempt %d)\n",
+						  __func__, mgr->config.stub_name, LWS_ERRNO,
+						  alive ? "is alive" : "has DIED/DOES NOT EXIST",
+						  mgr->lsp ? (int)(intptr_t)mgr->lsp->child_pid : -1,
+						  (unsigned int)ms, mgr->ctry);
+#endif
+			}
 			lws_sul_schedule(mgr->cx, 0, &mgr->sul, stub_retry_cb, ms * 1000);
 		}
 
@@ -354,14 +387,21 @@ lws_callback_stub_client(struct lws *wsi, enum lws_callback_reasons reason,
 		return 0;
 
 	switch (reason) {
-	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
-		lwsl_err("%s: Client connection failed\n", __func__);
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR: {
+#if (_LWS_ENABLED_LOGS & LLL_ERR)
+		int alive = lws_stub_child_is_alive(mgr);
+		lwsl_vhost_err(mgr->vh, "%s: stub '%s': Client connection failed (stub process %s, PID %d)\n",
+			       __func__, mgr->config.stub_name,
+			       alive ? "is alive" : "has DIED/DOES NOT EXIST",
+			       mgr->lsp ? (int)(intptr_t)mgr->lsp->child_pid : -1);
+#endif
 		mgr->wsi_client = NULL;
 		lws_retry_sul_schedule(mgr->cx, 0, &mgr->sul, &stub_retry, stub_retry_cb, &mgr->ctry);
 		break;
+	}
 
 	case LWS_CALLBACK_RAW_CONNECTED:
-		lwsl_notice("%s: UDS connected to stub\n", __func__);
+		lwsl_vhost_notice(mgr->vh, "%s: stub '%s': UDS connected\n", __func__, mgr->config.stub_name);
 		mgr->ctry = 0; /* Reset retry counter on success */
 		if (mgr->config.connected_cb)
 			mgr->config.connected_cb(mgr);
@@ -409,7 +449,7 @@ lws_callback_stub_client(struct lws *wsi, enum lws_callback_reasons reason,
 		if (req->rx_cb) {
 			int m = lejp_parse(&req->jctx, (uint8_t *)in, (int)len);
 			if (m < 0 && m != LEJP_CONTINUE) {
-				lwsl_err("%s: lejp parse failed: %d\n", __func__, m);
+				lwsl_vhost_err(mgr->vh, "%s: stub '%s' lejp parse failed: %d\n", __func__, mgr->config.stub_name, m);
 				lws_dll2_remove(&req->list);
 				lws_free(req->tx_buf);
 				lejp_destruct(&req->jctx);
@@ -508,5 +548,13 @@ lws_stub_destroy(struct lws_stub_manager **_mgr)
 
 	lws_free(mgr);
 	*_mgr = NULL;
+}
+
+const char *
+lws_stub_get_secret(struct lws_stub_manager *mgr)
+{
+	if (!mgr)
+		return NULL;
+	return mgr->secret;
 }
 #endif

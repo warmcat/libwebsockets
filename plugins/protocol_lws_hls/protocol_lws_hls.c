@@ -85,33 +85,17 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 
 	switch (reason) {
 	case LWS_CALLBACK_PROTOCOL_INIT:
-		if (!in)
-			return 0;
-
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 				lws_get_protocol(wsi), sizeof(struct per_vhost_data__lws_hls));
 		if (!vhd)
 			return 1;
 
-		if ((pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "media-dir")))
-			vhd->media_dir = pvo->value;
-		else {
-			lwsl_err("%s: media-dir pvo required\n", __func__);
-			return 1;
-		}
-
-		if ((pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "jwt-jwk"))) {
-			if (pvo->value[0] == '{' || lws_jwk_load(&vhd->jwk, pvo->value, NULL, NULL)) {
-				if (lws_jwk_import(&vhd->jwk, NULL, NULL, pvo->value, strlen(pvo->value))) {
-					lwsl_err("%s: failed to load/import JWK\n", __func__);
-					return 1;
-				}
-			}
-			vhd->has_jwk = 1;
-		}
-
 #if defined(LWS_WITH_STUB)
-		if (lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub")) {
+		const char *stub = lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub");
+		if (stub) {
+			if (strcmp(stub, "lws-hls-stub"))
+				return 0;
+
 			struct lws_stub_config sc;
 			char secret[129];
 			char extra[512];
@@ -129,10 +113,21 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 			/* Update our media_dir to the one provided by the parent via extra_payload */
 			if (extra[0])
 				vhd->media_dir = strdup(extra);
+			else
+				vhd->media_dir = "/tmp";
 				
 			return 0;
 		}
+#endif
 
+		if (in && (pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "media-dir")))
+			vhd->media_dir = pvo->value;
+		else {
+			lwsl_err("%s: media-dir pvo required\n", __func__);
+			return 1;
+		}
+
+#if defined(LWS_WITH_STUB)
 		{
 			struct lws_stub_config sc;
 			memset(&sc, 0, sizeof(sc));
@@ -234,7 +229,7 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 
 		lwsl_info("HLS plugin received HTTP request for '%s'\n", url ? url : "NULL");
 		
-		lwsl_notice("HLS HTTP REQ: url='%s', waiting=%d\n", url ? url : "NULL", pss->waiting_for_thumbnail);
+		lwsl_info("HLS HTTP REQ: url='%s', waiting=%d\n", url ? url : "NULL", pss->waiting_for_thumbnail);
 
 		if (!strcmp(url, "")) {
 			/* Redirect to add trailing slash */
@@ -368,7 +363,7 @@ err_404:
 				uint8_t *p = start;
 				uint8_t *end = buf + sizeof(buf) - 1;
 
-				lwsl_notice("HLS WRITEABLE: sending headers for '%s', len=%zu\n", c->filename, len);
+				lwsl_info("HLS WRITEABLE: sending headers for '%s', len=%zu\n", c->filename, len);
 
 				if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "image/jpeg",
 								(lws_filepos_t)len, &p, end)) {
@@ -445,10 +440,10 @@ err_404:
 		}
 
 		int flags = (pss->segment_pos + chunk == pss->segment_len) ? LWS_WRITE_HTTP_FINAL : LWS_WRITE_HTTP;
-		lwsl_notice("HLS WRITEABLE chunk: pos=%zu, chunk=%zu, total=%zu, final=%d\n", pss->segment_pos, chunk, pss->segment_len, flags == LWS_WRITE_HTTP_FINAL);
+		lwsl_debug("HLS WRITEABLE chunk: pos=%zu, chunk=%zu, total=%zu, final=%d\n", pss->segment_pos, chunk, pss->segment_len, flags == LWS_WRITE_HTTP_FINAL);
 
 		int m = lws_write(wsi, pss->segment_buf + LWS_PRE + pss->segment_pos, chunk, (enum lws_write_protocol)flags);
-		lwsl_notice("HLS WRITEABLE chunk: lws_write returned %d\n", m);
+		lwsl_debug("HLS WRITEABLE chunk: lws_write returned %d\n", m);
 		
 		if (m < 0) {
 			free(pss->segment_buf);
@@ -465,7 +460,7 @@ err_404:
 		
 		free(pss->segment_buf);
 		pss->segment_buf = NULL;
-		lwsl_notice("HLS WRITEABLE: transaction completed\n");
+		lwsl_info("HLS WRITEABLE: transaction completed\n");
 		return lws_http_transaction_completed(wsi);
 
 	case LWS_CALLBACK_HTTP_DROP_PROTOCOL:
@@ -501,6 +496,28 @@ err_404:
 			pss->parser_valid = 0;
 		}
 		break;
+
+	case LWS_CALLBACK_RAW_RX_FILE: {
+		char buf[512];
+		ssize_t n;
+		int fd = (int)lws_get_socket_fd(wsi);
+
+		if (fd < 0)
+			return -1;
+
+		n = read(fd, buf, sizeof(buf) - 1);
+		if (n < 0) {
+			if (errno == EAGAIN || errno == EWOULDBLOCK)
+				return 0;
+			return -1;
+		}
+		if (n == 0)
+			return -1;
+
+		buf[n] = '\0';
+		lwsl_notice("[HLS-STUB] %s", buf);
+		break;
+	}
 
 	default:
 		break;
