@@ -118,11 +118,6 @@ struct lws *lws_get_network_wsi(struct lws *wsi) {
 	if (!wsi)
 		return NULL;
 
-#if defined(LWS_ROLE_QUIC)
-	if (wsi->quic.qn)
-		return wsi;
-#endif
-
 #if defined(LWS_WITH_HTTP2) || defined(LWS_ROLE_MQTT) || defined(LWS_ROLE_QUIC)
 	if (!wsi->mux_substream
 #if defined(LWS_WITH_CLIENT)
@@ -131,13 +126,8 @@ struct lws *lws_get_network_wsi(struct lws *wsi) {
 	   )
 		return wsi;
 
-	while (wsi->mux.parent_wsi) {
-#if defined(LWS_ROLE_QUIC)
-		if (wsi->quic.qn)
-			return wsi;
-#endif
+	while (wsi->mux.parent_wsi)
 		wsi = wsi->mux.parent_wsi;
-	}
 #endif
 
 	return wsi;

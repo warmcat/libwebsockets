@@ -315,6 +315,21 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, owner->head) {
 				struct lws_quic_rx_chunk *c = lws_container_of(d, struct lws_quic_rx_chunk, list);
 
+				if (c->offset < *expected_offset) {
+					if (c->offset + c->len <= *expected_offset) {
+						/* Completely obsolete chunk already delivered, discard */
+						lws_dll2_remove(&c->list);
+						lws_free(c);
+						flushed = 1;
+						break;
+					}
+					/* Trim overlapping prefix */
+					size_t overlap = (size_t)(*expected_offset - c->offset);
+					c->data += overlap;
+					c->len -= overlap;
+					c->offset = *expected_offset;
+				}
+
 				if (c->offset == *expected_offset) {
 					/* We found the next contiguous piece! */
 					if (is_crypto) {
@@ -542,6 +557,14 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 		consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &type);
 		if (!consumed) return -1;
 		pos += consumed;
+
+		/* Track non-probing frames (RFC 9000 Section 9.1) */
+		if (qn && type != LWS_QUIC_FT_PADDING &&
+		    type != LWS_QUIC_FT_PATH_CHALLENGE &&
+		    type != LWS_QUIC_FT_PATH_RESPONSE &&
+		    type != LWS_QUIC_FT_NEW_CONNECTION_ID) {
+			qn->rx_has_non_probing = 1;
+		}
 
 		/* Epoch Gating (RFC 9000 12.5) */
 		int is_allowed = 0;
@@ -1672,16 +1695,21 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 				}
 
 				if (port > 0) {
+					const char *host_str = (qn->nwsi && qn->nwsi->stash && qn->nwsi->stash->cis[CIS_HOST]) ?
+						qn->nwsi->stash->cis[CIS_HOST] : addr_str;
+
 					lwsl_wsi_notice(wsi, "QUIC TP: Migrating to preferred_address %s:%d", addr_str, port);
 					memset(&i, 0, sizeof(i));
 					i.context = wsi->a.context;
 					i.vhost = wsi->a.vhost;
 					i.address = addr_str;
-					i.host = addr_str;
-					i.origin = addr_str;
+					i.host = host_str;
+					i.origin = host_str;
 					i.port = port;
 					i.ssl_connection = LCCSCF_USE_SSL | LCCSCF_ALLOW_INSECURE;
 					i.quic_migrate_from_wsi = qn->nwsi;
+					i.method = "QUIC";
+					i.alpn = wsi->alpn;
 
 					lws_client_connect_via_info(&i);
 				}
