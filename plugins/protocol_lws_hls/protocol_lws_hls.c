@@ -85,33 +85,17 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 
 	switch (reason) {
 	case LWS_CALLBACK_PROTOCOL_INIT:
-		if (!in)
-			return 0;
-
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 				lws_get_protocol(wsi), sizeof(struct per_vhost_data__lws_hls));
 		if (!vhd)
 			return 1;
 
-		if ((pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "media-dir")))
-			vhd->media_dir = pvo->value;
-		else {
-			lwsl_err("%s: media-dir pvo required\n", __func__);
-			return 1;
-		}
-
-		if ((pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "jwt-jwk"))) {
-			if (pvo->value[0] == '{' || lws_jwk_load(&vhd->jwk, pvo->value, NULL, NULL)) {
-				if (lws_jwk_import(&vhd->jwk, NULL, NULL, pvo->value, strlen(pvo->value))) {
-					lwsl_err("%s: failed to load/import JWK\n", __func__);
-					return 1;
-				}
-			}
-			vhd->has_jwk = 1;
-		}
-
 #if defined(LWS_WITH_STUB)
-		if (lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub")) {
+		const char *stub = lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub");
+		if (stub) {
+			if (strcmp(stub, "lws-hls-stub"))
+				return 0;
+
 			struct lws_stub_config sc;
 			char secret[129];
 			char extra[512];
@@ -129,10 +113,21 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 			/* Update our media_dir to the one provided by the parent via extra_payload */
 			if (extra[0])
 				vhd->media_dir = strdup(extra);
+			else
+				vhd->media_dir = "/tmp";
 				
 			return 0;
 		}
+#endif
 
+		if (in && (pvo = lws_pvo_search((const struct lws_protocol_vhost_options *)in, "media-dir")))
+			vhd->media_dir = pvo->value;
+		else {
+			lwsl_err("%s: media-dir pvo required\n", __func__);
+			return 1;
+		}
+
+#if defined(LWS_WITH_STUB)
 		{
 			struct lws_stub_config sc;
 			memset(&sc, 0, sizeof(sc));
@@ -501,6 +496,28 @@ err_404:
 			pss->parser_valid = 0;
 		}
 		break;
+
+	case LWS_CALLBACK_RAW_RX_FILE: {
+		char buf[512];
+		ssize_t n;
+		int fd = (int)lws_get_socket_fd(wsi);
+
+		if (fd < 0)
+			return -1;
+
+		n = read(fd, buf, sizeof(buf) - 1);
+		if (n < 0) {
+			if (errno == EAGAIN || errno == EWOULDBLOCK)
+				return 0;
+			return -1;
+		}
+		if (n == 0)
+			return -1;
+
+		buf[n] = '\0';
+		lwsl_notice("[HLS-STUB] %s", buf);
+		break;
+	}
 
 	default:
 		break;

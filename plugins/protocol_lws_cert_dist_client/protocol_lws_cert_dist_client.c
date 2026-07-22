@@ -609,9 +609,8 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 					break;
 				}
 
-				/* Build UDS payload */
-				/* Expected by stub: {"secret":"...","subdomain":"...","fullchain":"...","privkey":"..."} */
-				int est_len = (pss->cert_len * 2) + (pss->key_len * 2) + (int)strlen(pss->subdomain) + (int)strlen(vhd->secret) + 128;
+				const char *sec = lws_stub_get_secret(vhd->stub_mgr);
+				int est_len = (pss->cert_len * 2) + (pss->key_len * 2) + (int)strlen(pss->subdomain) + (sec ? (int)strlen(sec) : 0) + 128;
 				pss->uds_tx = malloc((size_t)est_len + LWS_PRE);
 				if (!pss->uds_tx) {
 					lwsl_err("%s: OOM alloc uds tx\n", __func__);
@@ -619,7 +618,7 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 				}
 				pss->uds_tx_len = lws_snprintf(pss->uds_tx + LWS_PRE, (size_t)est_len,
 					"{\"secret\":\"%s\",\"subdomain\":\"%s\",\"fullchain\":\"",
-					vhd->secret, pss->subdomain);
+					sec ? sec : "", pss->subdomain);
 
 				char *p = pss->uds_tx + LWS_PRE + pss->uds_tx_len;
 				char *src = pss->cert;
@@ -704,20 +703,45 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_PROTOCOL_INIT:
 		{
 			const char *stub = lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub");
-                        char uds_path[256];
-                        char stub_name[256];
 
-                        if (!in)
+			if (stub) {
+				if (strncmp(stub, "stub-client-", 12) && strncmp(stub, "stub-", 5))
+					return 0;
+
+				const char *orig_vh = strncmp(stub, "stub-client-", 12) == 0 ? stub + 12 : stub + 5;
+				char uds_path[256];
+				lws_snprintf(uds_path, sizeof(uds_path), "/var/run/lws-cert-dist-stub-%s.sock", orig_vh);
+
+				vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
+								  lws_get_protocol(wsi),
+								  sizeof(struct vhd_cert_dist_client));
+				if (!vhd) return -1;
+				vhd->cx = lws_get_context(wsi);
+				vhd->vh = lws_get_vhost(wsi);
+				vhd->protocol = lws_get_protocol(wsi);
+				lws_strncpy(vhd->vh_name, orig_vh, sizeof(vhd->vh_name));
+				vhd->is_stub = 1;
+
+				struct lws_stub_config sc;
+				memset(&sc, 0, sizeof(sc));
+				sc.cx = vhd->cx;
+				sc.vh = vhd->vh;
+				sc.stub_name = stub;
+				sc.uds_path = uds_path;
+				sc.protocols = stub_protocols;
+
+				lws_dll2_add_tail(&vhd->list_vhd, &active_client_vhds);
+				if (lws_stub_server_init(&sc, vhd->secret, vhd->reload_cmd, sizeof(vhd->reload_cmd))) {
+					lws_dll2_remove(&vhd->list_vhd);
+					return -1;
+				}
+				return 0;
+			}
+
+			if (!in)
 				return 0;
 
 			const char *vh_name = lws_get_vhost_name(lws_get_vhost(wsi));
-
-			if (stub) {
-				char expected_stub[256];
-				lws_snprintf(expected_stub, sizeof(expected_stub), "stub-%s", vh_name);
-				if (strcmp(stub, expected_stub))
-					return 0;
-			}
 
 			vhd = lws_protocol_vh_priv_get(lws_get_vhost(wsi), lws_get_protocol(wsi));
 			if (vhd)
@@ -731,9 +755,11 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 				return -1;
 			}
 
+			char uds_path[256];
+			char stub_name[256];
 			lws_strncpy(vhd->vh_name, vh_name, sizeof(vhd->vh_name));
 			lws_snprintf(uds_path, sizeof(uds_path), "/var/run/lws-cert-dist-stub-%s.sock", vh_name);
-			lws_snprintf(stub_name, sizeof(stub_name), "stub-%s", vh_name);
+			lws_snprintf(stub_name, sizeof(stub_name), "stub-client-%s", vh_name);
 
 			lwsl_notice("%s: allocated vhd\n", __func__);
 
@@ -763,26 +789,6 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 					lws_strncpy(vhd->reload_cmd, pvo->value, sizeof(vhd->reload_cmd));
 				pvo = pvo->next;
 			}
-
-
-		if (stub) {
-                        struct lws_stub_config sc;
-
-			vhd->is_stub = 1;
-			memset(&sc, 0, sizeof(sc));
-			sc.cx = vhd->cx;
-			sc.vh = vhd->vh;
-			sc.stub_name = stub_name;
-			sc.uds_path = uds_path;
-			sc.protocols = stub_protocols;
-
-			lws_dll2_add_tail(&vhd->list_vhd, &active_client_vhds);
-			if (lws_stub_server_init(&sc, vhd->secret, vhd->reload_cmd, sizeof(vhd->reload_cmd))) {
-				lws_dll2_remove(&vhd->list_vhd);
-				return -1;
-			}
-			return 0;
-		}
 
 		lwsl_vhost_notice(lws_get_vhost(wsi), "%s: Protocol init. euid=%d\n", __func__, (int)getuid());
 

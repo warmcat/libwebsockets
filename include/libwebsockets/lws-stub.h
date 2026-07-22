@@ -106,6 +106,16 @@ lws_stub_request(struct lws_stub_manager *mgr,
 LWS_VISIBLE LWS_EXTERN void
 lws_stub_destroy(struct lws_stub_manager **_mgr);
 
+/**
+ * lws_stub_get_secret() - Retrieve the generated secret for a stub manager
+ *
+ * \param mgr: The manager returned by lws_stub_spawn
+ *
+ * Returns pointer to the 128-char secret string, or NULL if mgr is invalid.
+ */
+LWS_VISIBLE LWS_EXTERN const char *
+lws_stub_get_secret(struct lws_stub_manager *mgr);
+
 
 LWS_VISIBLE LWS_EXTERN int
 lws_callback_stub_client(struct lws *wsi, enum lws_callback_reasons reason,
