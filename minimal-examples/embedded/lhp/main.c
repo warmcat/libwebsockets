@@ -88,10 +88,8 @@ jit_trust_query(struct lws_context *cx, const uint8_t *skid,
 					   sizeof(jit_trust_blob), skid,
 					   skid_len, &der, &der_len);
 
-	if (der)
-		lwsl_info("%s: found len %d\n", __func__, (int)der_len);
-	else
-		lwsl_info("%s: not trusted\n", __func__);
+	lwsl_info("%s: %s (len %d)\n", __func__,
+		  der ? "found" : "not trusted", (int)der_len);
 
 	/* Once we have a result, pass it to the completion helper */
 

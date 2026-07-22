@@ -597,6 +597,7 @@ bail:
 	return 4;
 }
 
+#if defined(LWS_WITH_NETWORK) && defined(LWS_WITH_CLIENT)
 int
 lws_tls_client_vhost_ca_mem_parse(struct lws_vhost *vh, const void *ca_mem,
 				  unsigned int ca_mem_len)
@@ -659,6 +660,7 @@ lws_tls_client_vhost_ca_mem_parse(struct lws_vhost *vh, const void *ca_mem,
 	lwsl_info("%s: loaded %d CA cert(s) from ca_mem\n", __func__, count);
 	return 0;
 }
+#endif
 
 #endif
 

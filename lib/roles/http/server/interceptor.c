@@ -160,6 +160,29 @@ lws_interceptor_inject_header(struct lws *wsi, struct vhd_interceptor *vhd, cons
 }
 
 static int
+lws_interceptor_redirect(struct lws *wsi, const char *uri)
+{
+	char buf[LWS_PRE + 1024], *p = buf + LWS_PRE, *end = buf + sizeof(buf) - 1;
+
+	if (lws_add_http_header_status(wsi, HTTP_STATUS_SEE_OTHER,
+				       (unsigned char **)&p, (unsigned char *)end))
+		return 1;
+	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION,
+					 (unsigned char *)uri, (int)strlen(uri),
+					 (unsigned char **)&p, (unsigned char *)end))
+		return 1;
+	if (lws_finalize_http_header(wsi, (unsigned char **)&p,
+				     (unsigned char *)end))
+		return 1;
+
+	lws_write(wsi, (unsigned char *)buf + LWS_PRE,
+		  lws_ptr_diff_size_t(p, buf + LWS_PRE),
+		  LWS_WRITE_HTTP_HEADERS | LWS_WRITE_H2_STREAM_END);
+
+	return lws_http_transaction_completed(wsi);
+}
+
+static int
 lws_interceptor_issue_cookie(struct lws *wsi)
 {
 	struct vhd_interceptor *vhd = (struct vhd_interceptor *)lws_protocol_vh_priv_get(
@@ -522,35 +545,38 @@ lws_interceptor_handle_http(struct lws *wsi, void *user, const struct lws_interc
 	}
 
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)) {
+		unsigned long pre_delay_sec = (unsigned long)(vhd->pre_delay_ms / 1000);
+		unsigned long min_req_sec = pre_delay_sec > 1 ? pre_delay_sec - 1 : 0;
+
 		vs = sizeof(vbuf);
 
 		lws_interceptor_init_jwt_cookie(&vck, vhd, ip, "lws_interceptor_v");
 
 		if (lws_jwt_get_http_cookie_validate_jwt(wsi, &vck, vbuf, &vs)) {
 			lwsl_vhost_notice(vhd->vhost, "%s: POST: missing or invalid visit cookie", __func__);
-			return 1;
+			return lws_interceptor_redirect(wsi, uri);
 		}
 
 		iat_p = lws_json_simple_find(vbuf, vs, "\"iat\":", &iat_len);
 		if (!iat_p) {
 			lwsl_vhost_notice(vhd->vhost, "%s: POST: visit cookie missing iat", __func__);
-			return 1;
+			return lws_interceptor_redirect(wsi, uri);
 		}
 		iat = atoll(iat_p);
 
 		if (ops && ops->verify) {
 			lws_interceptor_result_t res = ops->verify(wsi, NULL, 0);
 			if (res == LWS_INTERCEPTOR_RET_REJECT)
-				return 1;
+				return lws_interceptor_redirect(wsi, uri);
 			if (res == LWS_INTERCEPTOR_RET_PASS)
 				return lws_interceptor_issue_cookie(wsi);
 
 			/* RET_DELAYED falls through to timer setup */
 		}
 
-		if (lws_now_secs() < (unsigned long)iat + (unsigned long)(vhd->pre_delay_ms / 1000)) {
+		if (lws_now_secs() < (unsigned long)iat + min_req_sec) {
 			lwsl_vhost_notice(vhd->vhost, "%s: POST: pre-delay not met", __func__);
-			return 1;
+			return lws_interceptor_redirect(wsi, uri);
 		}
 
 		lws_set_timeout(wsi, PENDING_TIMEOUT_CLIENT_CONN_IDLE, 25);
