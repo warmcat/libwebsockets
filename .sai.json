@@ -278,6 +278,9 @@
 		"ipv6-off":	{
 			"cmake":	"-DLWS_IPV6=OFF"
 		},
+		"ipv4-off":	{
+			"cmake":	"-DLWS_IPV4=OFF"
+		},
 		"nonetlink":	{
 			"cmake":	"-DLWS_WITH_NETLINK=0"
 		},

@@ -763,11 +763,13 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 			s->af = AF_INET6;
 		} else
 #endif
+#if defined(LWS_WITH_IPV4)
 		{
 			s->dest.sa4.sin_family = AF_INET;
 			s->dest.sa4.sin_addr.s_addr = INADDR_ANY;
 			s->af = AF_INET;
 		}
+#endif
 		lws_dll2_add_tail(&s->list, &wsi->dns_sorted_list);
 	}
 
@@ -836,10 +838,14 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 
 		/* ipv6 udp!!! */
 
+#if defined(LWS_WITH_IPV4)
 		if (s->dest.sa4.sin_family == AF_INET)
 			s->dest.sa4.sin_port = htons(wsi->c_port);
 #if defined(LWS_WITH_IPV6)
 		else
+#endif
+#endif
+#if defined(LWS_WITH_IPV6)
 			s->dest.sa6.sin6_port = htons(wsi->c_port);
 #endif
 
@@ -952,12 +958,17 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 	memset(&dest, 0, sizeof(dest));
 
 	if (r) {
+#if defined(LWS_WITH_IPV4)
 		if (r->ai_family == AF_INET) {
 			dest.sa4.sin_family = AF_INET;
 			memcpy(&dest.sa4.sin_addr, &((struct sockaddr_in *)r->ai_addr)->sin_addr, sizeof(struct in_addr));
 		}
 #if defined(LWS_WITH_IPV6)
-		else if (r->ai_family == AF_INET6) {
+		else
+#endif
+#endif
+#if defined(LWS_WITH_IPV6)
+		if (r->ai_family == AF_INET6) {
 			dest.sa6.sin6_family = AF_INET6;
 			memcpy(&dest.sa6.sin6_addr, &((struct sockaddr_in6 *)r->ai_addr)->sin6_addr, sizeof(struct in6_addr));
 		}
@@ -969,10 +980,12 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 			dest.sa6.sin6_family = AF_INET6;
 		} else
 #endif
+#if defined(LWS_WITH_IPV4)
 		{
 			dest.sa4.sin_family = AF_INET;
 			dest.sa4.sin_addr.s_addr = INADDR_ANY;
 		}
+#endif
 	}
 
 #if !defined(__linux__)
@@ -1013,10 +1026,14 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 	}
 #endif
 
+#if defined(LWS_WITH_IPV4)
 	if (dest.sa4.sin_family == AF_INET)
 		dest.sa4.sin_port = htons(wsi->c_port);
 #if defined(LWS_WITH_IPV6)
 	else
+#endif
+#endif
+#if defined(LWS_WITH_IPV6)
 		dest.sa6.sin6_port = htons(wsi->c_port);
 #endif
 

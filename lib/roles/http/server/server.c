@@ -557,13 +557,16 @@ _lws_vhost_init_server(const struct lws_context_creation_info *info,
 	      (vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY) &&
 	      (vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE))) {
 #endif
+#if defined(LWS_WITH_IPV4)
 		a.af = AF_INET;
 		n = _lws_vhost_init_server_af(&a);
 		if (n)
 			return n;
+#endif
 
 #if defined(LWS_WITH_IPV6)
 	}
+
 	if (LWS_IPV6_ENABLED(vhost)) {
 		a.af = AF_INET6;
 		n = _lws_vhost_init_server_af(&a);
