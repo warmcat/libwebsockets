@@ -2690,19 +2690,29 @@ rops_client_bind_quic(struct lws *wsi, const struct lws_client_connect_info *i)
 			memset(wsi->udp, 0, sizeof(*wsi->udp));
 		}
 
-		                /* Handle Make-Before-Break Active Migration */
-                if (wsi->quic.migrate_from_wsi && wsi->quic.migrate_from_wsi->quic.qn) {
-                        wsi->quic.qn = wsi->quic.migrate_from_wsi->quic.qn;
-                        wsi->quic.qn->migration_probing_wsi = wsi;
+		/* Handle Make-Before-Break Active Migration */
+		if (wsi->quic.migrate_from_wsi && wsi->quic.migrate_from_wsi->quic.qn) {
+			wsi->quic.qn = wsi->quic.migrate_from_wsi->quic.qn;
+			wsi->quic.qn->migration_probing_wsi = wsi;
 
-                        lws_quic_queue_path_challenge(wsi);
+			/*
+			 * The wsi was just created by lws_client_connect_via_info()
+			 * with ops=NULL, so wsi->role_ops is still NULL at this point.
+			 * We must bind the QUIC role_ops BEFORE anything that walks
+			 * them — lws_quic_queue_path_challenge() and
+			 * lws_callback_on_writable() both dereference role_ops via
+			 * lws_rops_fidx(), and doing so with role_ops == NULL is UB
+			 * (observed as SIGILL in quic-interop-runner connectionmigration).
+			 */
+			lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED,
+					    &role_ops_quic);
+			lws_quic_queue_path_challenge(wsi);
 
-                        lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED, &role_ops_quic);
-                        lws_callback_on_writable(wsi);
+			lws_callback_on_writable(wsi);
 
-                        /* Skip all initialization and key derivation, just return */
-                        return 1;
-                }
+			/* Skip all initialization and key derivation, just return */
+			return 1;
+		}
 
                 /* Allocate QUIC netconn for client! */
                 if (!wsi->quic.qn) {
@@ -3070,6 +3080,19 @@ rops_close_kill_connection_quic(struct lws *wsi, enum lws_close_status reason)
 	struct lws_quic_netconn *qn = wsi->quic.qn;
 	int i;
 
+	/*
+	 * A migration / make-before-break probing wsi only borrows the qn that
+	 * belongs to qn->nwsi (the original network wsi).  It must never free
+	 * qn, and it must detach itself so the owner doesn't see a stale wsi
+	 * pointer, then drop its borrowed reference so the rest of close (and
+	 * any later close of the owner) can't dereference qn through us.
+	 */
+	if (qn && qn->migration_probing_wsi == wsi && qn->nwsi != wsi) {
+		qn->migration_probing_wsi = NULL;
+		wsi->quic.qn = NULL;
+		qn = NULL;
+	}
+
 	if (wsi->mux.child_list)
 		lws_wsi_mux_close_children(wsi, (int)reason);
 
@@ -3094,6 +3117,15 @@ rops_close_kill_connection_quic(struct lws *wsi, enum lws_close_status reason)
 
 	/* If we are the network wsi, free the qn and all resources */
 	if (qn->nwsi == wsi) {
+		/*
+		 * If a make-before-break probing wsi is still borrowing this
+		 * qn, drop its back-pointer before we free qn underneath it.
+		 */
+		if (qn->migration_probing_wsi &&
+		    qn->migration_probing_wsi != wsi)
+			qn->migration_probing_wsi->quic.qn = NULL;
+		qn->migration_probing_wsi = NULL;
+
 		lws_sul_cancel(&qn->pto_sul);
 		lws_sul_cancel(&qn->pacer_sul);
 
