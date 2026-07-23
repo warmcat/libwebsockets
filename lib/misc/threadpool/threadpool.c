@@ -431,12 +431,36 @@ lws_threadpool_worker_sync(struct lws_pool *pool,
 
 		/*
 		 * if the wsi is no longer attached to this task, there is
-		 * nothing we can sync to usefully.  Since the work wants to
-		 * sync, it means we should react to the situation by telling
-		 * the task it can't continue usefully by stopping it.
+		 * nothing we can sync to usefully.
+		 *
+		 * For a task that does not wish to outlive its wsi, there is
+		 * also no consumer left for any further work, and the cond wait
+		 * below cannot be satisfied because nobody is left to call
+		 * lws_threadpool_task_sync() on us.  Leave such a task parked
+		 * here and it will spin (the goto below returns without ever
+		 * waiting, so the "tries" timeout can never collect it), or if
+		 * it does wait it will burn a worker for the whole 100 x 3s
+		 * late-sync window.  Either way the worker slot is wasted on a
+		 * task that has nowhere to deliver.  Destroy it now instead.
+		 *
+		 * For an LWS_TP_RETURN_FLAG_OUTLIVE task, the user explicitly
+		 * wants it to run to completion detached, so keep the original
+		 * behavior of asking it to stop (it will see STOPPING and is
+		 * expected to clean up and return STOPPED).
 		 */
 
 		if (!wsi) {
+			if (!task->outlive) {
+				lwsl_thread("%s: %s: task %p (%s): No longer "
+					 "bound to any wsi to sync to, "
+					 "destroying\n", __func__,
+					 pool->tp->name, task, task->name);
+
+				pthread_mutex_unlock(&pool->lock); /* --------- pool unlock */
+				lws_threadpool_dequeue_task(task);
+				return 1; /* destroyed task */
+			}
+
 			lwsl_thread("%s: %s: task %p (%s): No longer bound to any "
 				 "wsi to sync to\n", __func__, pool->tp->name,
 				 task, task->name);
