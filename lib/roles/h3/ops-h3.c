@@ -62,6 +62,15 @@ lws_h3_client_handshake(struct lws *wsi)
 	else if (wsi->a.protocol && !strcmp(wsi->a.protocol->name, "webtransport"))
 		meth = "CONNECT";
 #endif
+	/*
+	 * Client mux child streams carry the request line in the generic
+	 * client stash, not in ah header tokens (the same reason :authority
+	 * and :path below fall back to wsi->stash->cis[]).  Source the method
+	 * from there too when the token is absent, otherwise a non-GET request
+	 * (eg, POST) is silently encoded as :method GET and its body is lost.
+	 */
+	else if (!meth && wsi->stash && wsi->stash->cis[CIS_METHOD])
+		meth = wsi->stash->cis[CIS_METHOD];
 	else if (!meth)
 		meth = "GET";
 
