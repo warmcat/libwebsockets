@@ -232,6 +232,19 @@ LWS_VISIBLE LWS_EXTERN int
 lws_sa46_parse_numeric_address(const char *ads, lws_sockaddr46 *sa46);
 
 /**
+ * lws_sa46_is_ipv4_mapped() - is an AF_INET6 sa46 an IPv4-mapped address?
+ *
+ * \param sa46: the sa46 to test
+ *
+ * Returns 1 if \p sa46 is AF_INET6 and holds an IPv4-mapped IPv6 address
+ * (::ffff:a.b.c.d), else 0.  Useful for deciding that an AF_INET6 socket
+ * targeting this address must be dual-stack (IPV6_V6ONLY = 0) to actually
+ * reach the IPv4 peer through the mapping.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_sa46_is_ipv4_mapped(const lws_sockaddr46 *sa46);
+
+/**
  * lws_write_numeric_address() - convert network byte order ads to text
  *
  * \param ads: network byte order address array
