@@ -27,7 +27,7 @@ if (requirements)
 
 	lws_get_free_port(PORT_WS_H2_TXCR)
 
-	add_test(NAME api-test-ws-h2-txcredit COMMAND lws-api-test-ws-h2-txcredit -p ${PORT_WS_H2_TXCR})
+	add_test(NAME api-test-ws-h2-txcredit COMMAND lws-api-test-ws-h2-txcredit --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_WS_H2_TXCR})
 	set_tests_properties(api-test-ws-h2-txcredit
 			     PROPERTIES
 			     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-h2-txcredit

@@ -392,11 +392,14 @@ int main(int argc, const char **argv)
 	memset(&i, 0, sizeof(i));
 	i.context = context;
 	i.vhost = vh;
-	i.address = "127.0.0.1";
+	const char *srv = "127.0.0.1";
+	if ((p = lws_cmdline_option(argc, argv, "--server")))
+		srv = p;
+	i.address = srv;
 	i.port = port_tcp;
 	i.path = "/";
-	i.host = "localhost";
-	i.origin = "localhost";
+	i.host = srv;
+	i.origin = srv;
 	i.ssl_connection = LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED |
 			   LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
 	i.alpn = "h2";

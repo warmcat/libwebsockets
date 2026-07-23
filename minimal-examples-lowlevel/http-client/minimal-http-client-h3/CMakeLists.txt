@@ -44,7 +44,7 @@ if (requirements)
 		set_tests_properties(ki_hc_h3_srv PROPERTIES
 							 FIXTURES_CLEANUP hc_h3_srv)
 
-		add_test(NAME minimal-http-client-h3 COMMAND lws-minimal-http-client-h3 -l --server localhost -p ${PORT_H3_SRV})
+		add_test(NAME minimal-http-client-h3 COMMAND lws-minimal-http-client-h3 -l --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_H3_SRV})
 		set_tests_properties(minimal-http-client-h3
 				     PROPERTIES
 				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-client/minimal-http-client-h3

@@ -84,14 +84,14 @@ if (requirements)
 
 		set(mytests http-client-warmcat-h1)
 		if (has_h2)
-			add_test(NAME http-client-warmcat COMMAND lws-minimal-http-client -l --server localhost -p ${PORT_HC_SRV} )
+			add_test(NAME http-client-warmcat COMMAND lws-minimal-http-client -l --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_SRV} )
 			list(APPEND mytests http-client-warmcat)
 		endif()
 
-		add_test(NAME http-client-warmcat-h1 COMMAND lws-minimal-http-client -l --server localhost -p ${PORT_HC_SRV} --h1)
+		add_test(NAME http-client-warmcat-h1 COMMAND lws-minimal-http-client -l --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_SRV} --h1)
 		
 		if (has_h3)
-			add_test(NAME http-client-h3 COMMAND lws-minimal-http-client --h3 -l --server localhost -p ${PORT_HC_SRV} -d 1039)
+			add_test(NAME http-client-h3 COMMAND lws-minimal-http-client --h3 -l --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_SRV} -d 1039)
 			list(APPEND mytests http-client-h3)
 		endif()
 				     
@@ -102,76 +102,76 @@ if (requirements)
 			# creation related faults
 		
 			list(APPEND mytests http-client-fi-ctx1)
-			add_test(NAME http-client-fi-ctx1 COMMAND lws-minimal-http-client -l --server localhost -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "ctx_createfail1")
+			add_test(NAME http-client-fi-ctx1 COMMAND lws-minimal-http-client -l --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "ctx_createfail1")
 			
 			list(APPEND mytests http-client-fi-ctx2)
-			add_test(NAME http-client-fi-ctx2 COMMAND lws-minimal-http-client -l --server localhost -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "ctx_createfail_evlib_sel")
+			add_test(NAME http-client-fi-ctx2 COMMAND lws-minimal-http-client -l --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "ctx_createfail_evlib_sel")
 			
 			list(APPEND mytests http-client-fi-ctx3)
-			add_test(NAME http-client-fi-ctx3 COMMAND lws-minimal-http-client -l --server localhost -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "ctx_createfail_oom_ctx")
+			add_test(NAME http-client-fi-ctx3 COMMAND lws-minimal-http-client -l --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "ctx_createfail_oom_ctx")
 			
 			list(APPEND mytests http-client-fi-ctx4)
-			add_test(NAME http-client-fi-ctx4 COMMAND lws-minimal-http-client -l --server localhost -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "ctx_createfail_privdrop")
+			add_test(NAME http-client-fi-ctx4 COMMAND lws-minimal-http-client -l --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "ctx_createfail_privdrop")
 
 			list(APPEND mytests http-client-fi-ctx5)
-			add_test(NAME http-client-fi-ctx5 COMMAND lws-minimal-http-client -l --server localhost -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "ctx_createfail_maxfds")
+			add_test(NAME http-client-fi-ctx5 COMMAND lws-minimal-http-client -l --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "ctx_createfail_maxfds")
 			
 			list(APPEND mytests http-client-fi-ctx6)
-			add_test(NAME http-client-fi-ctx6 COMMAND lws-minimal-http-client -l --server localhost -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "ctx_createfail_oom_fds")
+			add_test(NAME http-client-fi-ctx6 COMMAND lws-minimal-http-client -l --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "ctx_createfail_oom_fds")
 			
 			list(APPEND mytests http-client-fi-ctx7)
-			add_test(NAME http-client-fi-ctx7 COMMAND lws-minimal-http-client -l --server localhost -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "ctx_createfail_plat_init")
+			add_test(NAME http-client-fi-ctx7 COMMAND lws-minimal-http-client -l --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "ctx_createfail_plat_init")
 			
 			list(APPEND mytests http-client-fi-ctx8)
-			add_test(NAME http-client-fi-ctx8 COMMAND lws-minimal-http-client -l --server localhost -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "ctx_createfail_evlib_init")
+			add_test(NAME http-client-fi-ctx8 COMMAND lws-minimal-http-client -l --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "ctx_createfail_evlib_init")
 			
 			list(APPEND mytests http-client-fi-ctx9)
-			add_test(NAME http-client-fi-ctx9 COMMAND lws-minimal-http-client -l --server localhost -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "ctx_createfail_evlib_pt")
+			add_test(NAME http-client-fi-ctx9 COMMAND lws-minimal-http-client -l --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "ctx_createfail_evlib_pt")
 			
 			if (NOT has_no_system_vhost)
 			
 				list(APPEND mytests http-client-fi-ctx10)
-				add_test(NAME http-client-fi-ctx10 COMMAND lws-minimal-http-client -l --server localhost -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "ctx_createfail_sys_vh")
+				add_test(NAME http-client-fi-ctx10 COMMAND lws-minimal-http-client -l --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "ctx_createfail_sys_vh")
 			
 				list(APPEND mytests http-client-fi-ctx11)
-				add_test(NAME http-client-fi-ctx11 COMMAND lws-minimal-http-client -l --server localhost -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "ctx_createfail_sys_vh_init")
+				add_test(NAME http-client-fi-ctx11 COMMAND lws-minimal-http-client -l --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "ctx_createfail_sys_vh_init")
 				
 			endif()
 			
 			list(APPEND mytests http-client-fi-ctx12)
-			add_test(NAME http-client-fi-ctx12 COMMAND lws-minimal-http-client -l --server localhost -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "ctx_createfail_def_vh")
+			add_test(NAME http-client-fi-ctx12 COMMAND lws-minimal-http-client -l --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "ctx_createfail_def_vh")
 			
 
 			list(APPEND mytests http-client-fi-vh1)
-			add_test(NAME http-client-fi-vh1 COMMAND lws-minimal-http-client -l --server localhost -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "vh/vh_create_oom")
+			add_test(NAME http-client-fi-vh1 COMMAND lws-minimal-http-client -l --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "vh/vh_create_oom")
 			
 			list(APPEND mytests http-client-fi-vh2)
-			add_test(NAME http-client-fi-vh2 COMMAND lws-minimal-http-client -l --server localhost -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "vh/vh_create_pcols_oom")
+			add_test(NAME http-client-fi-vh2 COMMAND lws-minimal-http-client -l --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "vh/vh_create_pcols_oom")
 			
 			list(APPEND mytests http-client-fi-vh3)
-			add_test(NAME http-client-fi-vh3 COMMAND lws-minimal-http-client -l --server localhost -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "vh/vh_create_ssl_srv")
+			add_test(NAME http-client-fi-vh3 COMMAND lws-minimal-http-client -l --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "vh/vh_create_ssl_srv")
 
 			list(APPEND mytests http-client-fi-vh4)
-			add_test(NAME http-client-fi-vh4 COMMAND lws-minimal-http-client -l --server localhost -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "vh/vh_create_ssl_cli")
+			add_test(NAME http-client-fi-vh4 COMMAND lws-minimal-http-client -l --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "vh/vh_create_ssl_cli")
 			
 			list(APPEND mytests http-client-fi-vh5)
-			add_test(NAME http-client-fi-vh5 COMMAND lws-minimal-http-client -l --server localhost -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "vh/vh_create_srv_init")
+			add_test(NAME http-client-fi-vh5 COMMAND lws-minimal-http-client -l --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_SRV} --expected-exit 5 --fault-injection "vh/vh_create_srv_init")
 
 
 			list(APPEND mytests http-client-fi-dnsfail)
-			add_test(NAME http-client-fi-dnsfail COMMAND lws-minimal-http-client -l --server localhost -p ${PORT_HC_SRV} --expected-exit 3 --fault-injection "wsi=user/dnsfail")
+			add_test(NAME http-client-fi-dnsfail COMMAND lws-minimal-http-client -l --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_SRV} --expected-exit 3 --fault-injection "wsi=user/dnsfail")
 			
 			list(APPEND mytests http-client-fi-connfail)
-			add_test(NAME http-client-fi-connfail COMMAND lws-minimal-http-client -l --server localhost -p ${PORT_HC_SRV} --expected-exit 3 --fault-injection "wsi=user/connfail")
+			add_test(NAME http-client-fi-connfail COMMAND lws-minimal-http-client -l --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_SRV} --expected-exit 3 --fault-injection "wsi=user/connfail")
 			
 			list(APPEND mytests http-client-fi-user-est-fail)
-			add_test(NAME http-client-fi-user-est-fail COMMAND lws-minimal-http-client -l --server localhost -p ${PORT_HC_SRV} --expected-exit 3 --fault-injection "wsi/user_reject_at_est")	
+			add_test(NAME http-client-fi-user-est-fail COMMAND lws-minimal-http-client -l --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_SRV} --expected-exit 3 --fault-injection "wsi/user_reject_at_est")	
 		else()
 			message("... NO LWS_WITH_SYS_FAULT_INJECTION")
 		endif()
 		if (has_mbedtls)
 			list(APPEND mytests http-client-mbedtls-wrong-ca)
-			add_test(NAME http-client-mbedtls-wrong-ca COMMAND lws-minimal-http-client --server localhost -p ${PORT_HC_SRV} -w --expected-exit 3)
+			add_test(NAME http-client-mbedtls-wrong-ca COMMAND lws-minimal-http-client --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_SRV} -w --expected-exit 3)
 			message("... adding mbedtls wrong CA test")
 		else()
 			message("... skipping mbedtls wrong CA test")

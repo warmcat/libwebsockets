@@ -151,6 +151,7 @@ lws_get_addresses(struct lws_vhost *vh, void *ads, char *name,
 		return 0;
 	} else
 #endif
+#if defined(LWS_WITH_IPV4)
 	{
 		addr4.sin_family = AF_INET;
 		addr4.sin_addr = ((struct sockaddr_in *)ads)->sin_addr;
@@ -174,13 +175,16 @@ lws_get_addresses(struct lws_vhost *vh, void *ads, char *name,
 #endif
 		}
 	}
+#endif
 
 	if (addr4.sin_family == AF_UNSPEC)
 		return -1;
 
+#if defined(LWS_WITH_IPV4)
 	if (lws_plat_inet_ntop(AF_INET, &addr4.sin_addr, rip,
 			       (socklen_t)rip_len) == NULL)
 		return -1;
+#endif
 
 	return 0;
 }
@@ -293,7 +297,9 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 #if defined(LWS_WITH_IPV6) && !defined(LWS_PLAT_OPTEE)
 	struct sockaddr_in6 serv_addr6;
 #endif
+#if defined(LWS_WITH_IPV4)
 	struct sockaddr_in serv_addr4;
+#endif
 #ifndef LWS_PLAT_OPTEE
 	socklen_t len = sizeof(struct sockaddr_storage);
 #endif
@@ -377,6 +383,7 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 #endif
 #endif
 
+#if defined(LWS_WITH_IPV4)
 	case AF_INET:
 		v = (struct sockaddr *)&serv_addr4;
 		n = sizeof(serv_addr4);
@@ -402,6 +409,7 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 #endif
 		serv_addr4.sin_port = htons((uint16_t)(unsigned int)port);
 		break;
+#endif
 	default:
 		return -1;
 	} /* switch */
@@ -500,9 +508,13 @@ lws_socket_bind(struct lws_vhost *vhost, struct lws *wsi,
 	} else
 #endif
 #if defined(LWS_WITH_IPV6)
+#if defined(LWS_WITH_IPV4)
 		port = (sin.ss_family == AF_INET6) ?
 			ntohs(((struct sockaddr_in6 *)psin)->sin6_port) :
 			ntohs(((struct sockaddr_in *)psin)->sin_port);
+#else
+		port = ntohs(((struct sockaddr_in6 *)psin)->sin6_port);
+#endif
 #else
 		{
 			struct sockaddr_in sain;
@@ -949,11 +961,15 @@ lws_sa46_parse_numeric_address(const char *ads, lws_sockaddr46 *sa46)
 	if (n != 4)
 		return -1;
 
+#if defined(LWS_WITH_IPV4)
 	sa46->sa4.sin_family = AF_INET;
 	memcpy(&sa46->sa4.sin_addr.s_addr, a,
 	       sizeof(sa46->sa4.sin_addr.s_addr));
 
 	return 0;
+#else
+	return -1;
+#endif
 }
 
 int
@@ -1033,9 +1049,11 @@ lws_sa46_write_numeric_address(lws_sockaddr46 *sa46, char *buf, size_t len)
 		return lws_write_numeric_address(
 				(uint8_t *)&sa46->sa6.sin6_addr, 16, buf, len);
 #endif
+#if defined(LWS_WITH_IPV4)
 	if (sa46->sa4.sin_family == AF_INET)
 		return lws_write_numeric_address(
 				(uint8_t *)&sa46->sa4.sin_addr, 4, buf, len);
+#endif
 
 #if defined(LWS_WITH_UNIX_SOCK)
 	if (sa46->sa4.sin_family == AF_UNIX)
@@ -1056,27 +1074,35 @@ lws_sa46_write_numeric_address(lws_sockaddr46 *sa46, char *buf, size_t len)
 int
 lws_sa46_compare_ads(const lws_sockaddr46 *sa46a, const lws_sockaddr46 *sa46b)
 {
+#if defined(LWS_WITH_IPV4)
 	uint8_t norm1[16], norm2[16];
+#endif
 	const uint8_t *p1, *p2;
 
+#if defined(LWS_WITH_IPV4)
 	if (sa46a->sa4.sin_family == AF_INET) {
 		p1 = norm1;
 		lws_4to6(norm1, (const uint8_t *)&sa46a->sa4.sin_addr);
-#if defined(LWS_WITH_IPV6)
-	} else if (sa46a->sa4.sin_family == AF_INET6) {
-		p1 = (const uint8_t *)&sa46a->sa6.sin6_addr;
-#endif
 	} else
+#endif
+#if defined(LWS_WITH_IPV6)
+	if (sa46a->sa4.sin_family == AF_INET6) {
+		p1 = (const uint8_t *)&sa46a->sa6.sin6_addr;
+	} else
+#endif
 		return 1;
 
+#if defined(LWS_WITH_IPV4)
 	if (sa46b->sa4.sin_family == AF_INET) {
 		p2 = norm2;
 		lws_4to6(norm2, (const uint8_t *)&sa46b->sa4.sin_addr);
-#if defined(LWS_WITH_IPV6)
-	} else if (sa46b->sa4.sin_family == AF_INET6) {
-		p2 = (const uint8_t *)&sa46b->sa6.sin6_addr;
-#endif
 	} else
+#endif
+#if defined(LWS_WITH_IPV6)
+	if (sa46b->sa4.sin_family == AF_INET6) {
+		p2 = (const uint8_t *)&sa46b->sa6.sin6_addr;
+	} else
+#endif
 		return 1;
 
 	return memcmp(p1, p2, 16);
@@ -1111,9 +1137,14 @@ int
 lws_sa46_on_net(const lws_sockaddr46 *sa46a, const lws_sockaddr46 *sa46_net,
 		int net_len)
 {
+#if defined(LWS_WITH_IPV4)
 	uint8_t mask = 0xff, norm[16];
+#else
+	uint8_t mask = 0xff;
+#endif
 	const uint8_t *p1, *p2;
 
+#if defined(LWS_WITH_IPV4)
 	if (sa46a->sa4.sin_family == AF_INET) {
 		p1 = (uint8_t *)&sa46a->sa4.sin_addr;
 		if (sa46_net->sa4.sin_family == AF_INET6) {
@@ -1122,14 +1153,16 @@ lws_sa46_on_net(const lws_sockaddr46 *sa46a, const lws_sockaddr46 *sa46_net,
 			lws_4to6(norm, p1);
 			p1 = norm;
 		}
-#if defined(LWS_WITH_IPV6)
 	} else
-		if (sa46a->sa4.sin_family == AF_INET6) {
-			p1 = (uint8_t *)&sa46a->sa6.sin6_addr;
 #endif
-		} else
-			return 1;
+#if defined(LWS_WITH_IPV6)
+	if (sa46a->sa4.sin_family == AF_INET6) {
+		p1 = (uint8_t *)&sa46a->sa6.sin6_addr;
+	} else
+#endif
+		return 1;
 
+#if defined(LWS_WITH_IPV4)
 	if (sa46_net->sa4.sin_family == AF_INET) {
 		p2 = (uint8_t *)&sa46_net->sa4.sin_addr;
 		if (sa46a->sa4.sin_family == AF_INET6) {
@@ -1140,13 +1173,14 @@ lws_sa46_on_net(const lws_sockaddr46 *sa46a, const lws_sockaddr46 *sa46_net,
 			/* because the mask length is for net v4 address */
 			net_len += 12 * 8;
 		}
-#if defined(LWS_WITH_IPV6)
 	} else
-		if (sa46a->sa4.sin_family == AF_INET6) {
-			p2 = (uint8_t *)&sa46_net->sa6.sin6_addr;
 #endif
-		} else
-			return 1;
+#if defined(LWS_WITH_IPV6)
+	if (sa46a->sa4.sin_family == AF_INET6) {
+		p2 = (uint8_t *)&sa46_net->sa6.sin6_addr;
+	} else
+#endif
+		return 1;
 
 	while (net_len > 0) {
 		if (net_len < 8)
@@ -1166,10 +1200,15 @@ lws_sa46_copy_address(lws_sockaddr46 *sa46a, const void *in, int af)
 {
 	sa46a->sa4.sin_family = (sa_family_t)af;
 
+#if defined(LWS_WITH_IPV4)
 	if (af == AF_INET)
 		memcpy(&sa46a->sa4.sin_addr, in, 4);
 #if defined(LWS_WITH_IPV6)
-	else if (af == AF_INET6)
+	else
+#endif
+#endif
+#if defined(LWS_WITH_IPV6)
+	if (af == AF_INET6)
 		memcpy(&sa46a->sa6.sin6_addr, in, sizeof(sa46a->sa6.sin6_addr));
 #endif
 }
@@ -1252,6 +1291,7 @@ lws_is_lan_address(const char *ads)
 	if (lws_sa46_parse_numeric_address(ads, &sa46) < 0)
 		return 0;
 
+#if defined(LWS_WITH_IPV4)
 	if (sa46.sa4.sin_family == AF_INET) {
 		uint8_t *p = (uint8_t *)&sa46.sa4.sin_addr.s_addr;
 
@@ -1259,7 +1299,7 @@ lws_is_lan_address(const char *ads)
 		if (p[0] == 10)
 			return 1;
 		/* 172.16.0.0/12 */
-		if (p[0] == 172 && (p[1] >= 16 && p[1] <= 31))
+		if (p[0] == 172 && p[1] >= 16 && p[1] <= 31)
 			return 1;
 		/* 192.168.0.0/16 */
 		if (p[0] == 192 && p[1] == 168)
@@ -1267,7 +1307,9 @@ lws_is_lan_address(const char *ads)
 		/* 127.0.0.0/8 */
 		if (p[0] == 127)
 			return 1;
-	} else if (sa46.sa4.sin_family == AF_INET6) {
+	} else
+#endif
+	if (sa46.sa4.sin_family == AF_INET6) {
 #if defined(LWS_WITH_IPV6)
 		uint8_t *p = (uint8_t *)&sa46.sa6.sin6_addr.s6_addr;
 

@@ -28,7 +28,7 @@ if (requirements)
 
 	lws_get_free_port(PORT_WS_H2_PMD)
 
-	add_test(NAME api-test-ws-h2-pmd COMMAND lws-api-test-ws-h2-pmd -p ${PORT_WS_H2_PMD})
+	add_test(NAME api-test-ws-h2-pmd COMMAND lws-api-test-ws-h2-pmd --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_WS_H2_PMD})
 	set_tests_properties(api-test-ws-h2-pmd
 			     PROPERTIES
 			     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-ws-h2-pmd

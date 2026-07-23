@@ -513,7 +513,11 @@ struct lws_context {
 #endif
 
 #if defined(LWS_PLAT_FREERTOS)
+#if defined(LWS_WITH_IPV4)
 	struct sockaddr_in			frt_pipe_si;
+#else
+	struct sockaddr_in6			frt_pipe_si;
+#endif
 #endif
 
 #if defined(LWS_WITH_HTTP2)

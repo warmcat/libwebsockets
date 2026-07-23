@@ -46,14 +46,14 @@ if (requirements)
 							 FIXTURES_CLEANUP qcs_srv)
 
 			add_test(NAME h3spec COMMAND
-				${H3SPEC_EXECUTABLE} 127.0.0.1 ${PORT_QCS} -n )
+				${H3SPEC_EXECUTABLE} ${LWS_CTEST_SERVER_RESOLVE} ${PORT_QCS} -n )
 			
 			set_tests_properties(h3spec PROPERTIES
 					     FIXTURES_REQUIRED "qcs_srv"
 					     TIMEOUT 120)
 		endif()
 
-		add_test(NAME ${SAMP} COMMAND ${SAMP} -p ${PORT_QCS_CLIENT})
+		add_test(NAME ${SAMP} COMMAND ${SAMP} --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_QCS_CLIENT})
 		set_tests_properties(${SAMP} PROPERTIES
 					     WORKING_DIRECTORY .
 					     TIMEOUT 20)

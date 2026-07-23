@@ -32,7 +32,7 @@ if (requirements)
 	lws_get_free_port(PORT_HE_TCP)
 	lws_get_free_port(PORT_HE_QUIC)
 
-	add_test(NAME api-test-happy-eyeballs COMMAND lws-api-test-happy-eyeballs -p ${PORT_HE_TCP} -q ${PORT_HE_QUIC})
+	add_test(NAME api-test-happy-eyeballs COMMAND lws-api-test-happy-eyeballs --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HE_TCP} -q ${PORT_HE_QUIC})
 	set_tests_properties(api-test-happy-eyeballs
 			     PROPERTIES
 			     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-happy-eyeballs

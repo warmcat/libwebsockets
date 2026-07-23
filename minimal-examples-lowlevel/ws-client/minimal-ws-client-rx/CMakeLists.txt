@@ -34,7 +34,7 @@ if (requirements)
 		set_tests_properties(ki_wsc_rx_srv PROPERTIES
 							 FIXTURES_CLEANUP wsc_rx_srv)
 
-		add_test(NAME ws-client-rx-warmcat COMMAND lws-minimal-ws-client-rx -t -l --server localhost -p ${PORT_WSC_RX_SRV})
+		add_test(NAME ws-client-rx-warmcat COMMAND lws-minimal-ws-client-rx -t -l --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_WSC_RX_SRV})
 		set_tests_properties(ws-client-rx-warmcat
 				     PROPERTIES
 				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/ws-client/minimal-ws-client-rx

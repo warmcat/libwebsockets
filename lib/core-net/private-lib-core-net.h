@@ -362,7 +362,11 @@ struct lws_context_per_thread {
 #endif
 
 #if defined(WIN32)
+#if defined(LWS_WITH_IPV4)
 	struct sockaddr_in frt_pipe_si;
+#else
+	struct sockaddr_in6 frt_pipe_si;
+#endif
 #endif
 
 #if defined(LWS_WITH_TLS)

@@ -36,8 +36,8 @@ if (requirements)
 		set_tests_properties(ki_hc_rxflow_srv PROPERTIES
 							 FIXTURES_CLEANUP hc_rxflow_srv)
 
-		add_test(NAME http-client-h2-rxflow-warmcat COMMAND lws-minimal-http-client-h2-rxflow -l --server localhost -p ${PORT_HC_RXFLOW_SRV})
-		add_test(NAME http-client-h2-rxflow-warmcat-h1 COMMAND lws-minimal-http-client-h2-rxflow -l --server localhost -p ${PORT_HC_RXFLOW_SRV} --h1)
+		add_test(NAME http-client-h2-rxflow-warmcat COMMAND lws-minimal-http-client-h2-rxflow -l --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_RXFLOW_SRV})
+		add_test(NAME http-client-h2-rxflow-warmcat-h1 COMMAND lws-minimal-http-client-h2-rxflow -l --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_RXFLOW_SRV} --h1)
 		set_tests_properties(http-client-h2-rxflow-warmcat
 				     http-client-h2-rxflow-warmcat-h1
 				     PROPERTIES

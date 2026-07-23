@@ -248,6 +248,18 @@ option(LWS_ONLY_SSPC "Remove everything from library except standalone SSPC clie
 #
 option(LWS_CTEST_INTERNET_AVAILABLE "CTest will performs tests that need the Internet" ON)
 
+if (NOT LWS_IPV4)
+	set(LWS_CTEST_SERVER_RESOLVE "::1")
+	set(LWS_CTEST_SERVER_URL_RESOLVE "[::1]")
+elseif(NOT LWS_IPV6)
+	set(LWS_CTEST_SERVER_RESOLVE "127.0.0.1")
+	set(LWS_CTEST_SERVER_URL_RESOLVE "127.0.0.1")
+else()
+	set(LWS_CTEST_SERVER_RESOLVE "localhost")
+	set(LWS_CTEST_SERVER_URL_RESOLVE "localhost")
+endif()
+
+
 #
 # TLS library options... all except mbedTLS are basically OpenSSL variants.
 #

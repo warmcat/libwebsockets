@@ -115,6 +115,7 @@ static int established_success = 0;
 static int next_step = 0;
 
 static int port_tcp = 7681;
+static const char *server_address = "localhost";
 static int port_quic = 7682;
 
 static void
@@ -126,9 +127,9 @@ start_client_connection(void)
 	i.context = context;
 	i.vhost = lws_get_vhost_by_name(context, "client");
 	i.port = port_tcp;
-	i.address = "localhost";
-	i.host = "localhost";
-	i.origin = "localhost";
+	i.address = server_address;
+	i.host = server_address;
+	i.origin = server_address;
 	i.ssl_connection = LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED |
 			   LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
 	i.protocol = "http";
@@ -284,6 +285,8 @@ int main(int argc, const char **argv)
 
 	if ((p = lws_cmdline_option(argc, argv, "-p")))
 		port_tcp = atoi(p);
+	if ((p = lws_cmdline_option(argc, argv, "--server")))
+		server_address = p;
 	if ((p = lws_cmdline_option(argc, argv, "-q")))
 		port_quic = atoi(p);
 

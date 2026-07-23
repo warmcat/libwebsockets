@@ -42,8 +42,8 @@ if (requirements)
 		#
 		sai_resource(warmcat_conns 1 40 hchugeurlw)
 	
-		add_test(NAME http-client-hugeurl-warmcat COMMAND lws-minimal-http-client-hugeurl -l --server localhost -p ${PORT_HC_HUGE_SRV})
-		add_test(NAME http-client-hugeurl-warmcat-h1 COMMAND lws-minimal-http-client-hugeurl -l --server localhost -p ${PORT_HC_HUGE_SRV} --h1)
+		add_test(NAME http-client-hugeurl-warmcat COMMAND lws-minimal-http-client-hugeurl -l --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_HUGE_SRV})
+		add_test(NAME http-client-hugeurl-warmcat-h1 COMMAND lws-minimal-http-client-hugeurl -l --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HC_HUGE_SRV} --h1)
 		set_tests_properties(http-client-hugeurl-warmcat
 				     http-client-hugeurl-warmcat-h1
 				     PROPERTIES

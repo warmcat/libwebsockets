@@ -121,31 +121,31 @@ endif()
 	#
 
 	add_test(NAME http-client-multi COMMAND lws-minimal-http-client-multi
-			-l --port ${PORT_HCM_SRV} -d 1151)
+			-l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV} -d 1151)
 	add_test(NAME http-client-multi-h1 COMMAND lws-minimal-http-client-multi
-			--h1 -l --port ${PORT_HCM_SRV} -d1151)
+			--h1 -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV} -d1151)
 	add_test(NAME http-client-multi-pipe COMMAND lws-minimal-http-client-multi
-			-p -l --port ${PORT_HCM_SRV} -d1151)
+			-p -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV} -d1151)
 	add_test(NAME http-client-multi-h1-pipe COMMAND lws-minimal-http-client-multi
-			--h1 -p -l --port ${PORT_HCM_SRV} -d1151)
+			--h1 -p -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV} -d1151)
 	add_test(NAME http-client-multi-stag COMMAND lws-minimal-http-client-multi
-			-s -l --port ${PORT_HCM_SRV} -d1151)
+			-s -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV} -d1151)
 	add_test(NAME http-client-multi-stag-h1 COMMAND lws-minimal-http-client-multi
-			--h1 -s -l --port ${PORT_HCM_SRV} -d1151)
+			--h1 -s -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV} -d1151)
 	add_test(NAME http-client-multi-stag-pipe COMMAND lws-minimal-http-client-multi
-			-p -s -l --port ${PORT_HCM_SRV} -d1151)
+			-p -s -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV} -d1151)
 	add_test(NAME http-client-multi-stag-h1-pipe COMMAND lws-minimal-http-client-multi
-			--h1 -p -s -l --port ${PORT_HCM_SRV} -d1151)
+			--h1 -p -s -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV} -d1151)
 
 	# confirm that the pipelined mode really is doing it in one connection
-	add_test(NAME http-client-multi-restrict-pipe COMMAND lws-minimal-http-client-multi -d1151 --limit 1 -p -l --port ${PORT_HCM_SRV})
-	add_test(NAME http-client-multi-restrict-h1-pipe COMMAND lws-minimal-http-client-multi -d1151 --limit 1 --h1 -p -l --port ${PORT_HCM_SRV})
-	add_test(NAME http-client-multi-restrict-stag-pipe COMMAND lws-minimal-http-client-multi -d1151 --limit 1 -p -s -l --port ${PORT_HCM_SRV})
-	add_test(NAME http-client-multi-restrict-stag-h1-pipe COMMAND lws-minimal-http-client-multi -d1151 --limit 1 --h1 -p -s -l --port ${PORT_HCM_SRV})
+	add_test(NAME http-client-multi-restrict-pipe COMMAND lws-minimal-http-client-multi -d1151 --limit 1 -p -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV})
+	add_test(NAME http-client-multi-restrict-h1-pipe COMMAND lws-minimal-http-client-multi -d1151 --limit 1 --h1 -p -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV})
+	add_test(NAME http-client-multi-restrict-stag-pipe COMMAND lws-minimal-http-client-multi -d1151 --limit 1 -p -s -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV})
+	add_test(NAME http-client-multi-restrict-stag-h1-pipe COMMAND lws-minimal-http-client-multi -d1151 --limit 1 --h1 -p -s -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV})
 	# confirm that we do fail with a one connection limit and no pipelining
-	add_test(NAME http-client-multi-restrict-nopipe-fail COMMAND lws-minimal-http-client-multi --limit 1 -l --port ${PORT_HCM_SRV} -d1151)
+	add_test(NAME http-client-multi-restrict-nopipe-fail COMMAND lws-minimal-http-client-multi --limit 1 -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV} -d1151)
 	set_property(TEST http-client-multi-restrict-nopipe-fail PROPERTY WILL_FAIL TRUE)
-	add_test(NAME http-client-multi-restrict-h1-nopipe-fail COMMAND lws-minimal-http-client-multi --limit 1 --h1 -l --port ${PORT_HCM_SRV} -d1151)
+	add_test(NAME http-client-multi-restrict-h1-nopipe-fail COMMAND lws-minimal-http-client-multi --limit 1 --h1 -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCM_SRV} -d1151)
 	set_property(TEST http-client-multi-restrict-h1-nopipe-fail PROPERTY WILL_FAIL TRUE)
 
 	set_tests_properties(http-client-multi-restrict-pipe
@@ -169,26 +169,26 @@ endif()
 
 	# POSTs against local http-server-form-post
 	add_test(NAME http-client-multi-post COMMAND lws-minimal-http-client-multi
-			--post -l --port ${PORT_HCMP_SRV} -d1151)
+			--post -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCMP_SRV} -d1151)
 	add_test(NAME http-client-multi-post-h1 COMMAND lws-minimal-http-client-multi
-			--post --h1 -l --port ${PORT_HCMP_SRV} -d1151)
+			--post --h1 -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCMP_SRV} -d1151)
 	add_test(NAME http-client-multi-post-pipe COMMAND lws-minimal-http-client-multi
-			--post -p -l --port ${PORT_HCMP_SRV} -d1151)
+			--post -p -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCMP_SRV} -d1151)
 	if (VALGRIND)
 		add_test(NAME http-client-multi-post-h1-pipe COMMAND ${VALGRIND} --tool=memcheck $<TARGET_FILE:lws-minimal-http-client-multi>
-			--post --h1 -p -l --port ${PORT_HCMP_SRV} -d1151)	
+			--post --h1 -p -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCMP_SRV} -d1151)	
 	else()
 		add_test(NAME http-client-multi-post-h1-pipe COMMAND lws-minimal-http-client-multi
-			--post --h1 -p -l --port ${PORT_HCMP_SRV} -d1151)
+			--post --h1 -p -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCMP_SRV} -d1151)
 	endif()
 	add_test(NAME http-client-multi-post-stag COMMAND lws-minimal-http-client-multi
-			--post -s -l -d1151 --port ${PORT_HCMP_SRV} -d1151)
+			--post -s -l -d1151 --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCMP_SRV} -d1151)
 	add_test(NAME http-client-multi-post-stag-h1 COMMAND lws-minimal-http-client-multi
-			--post --h1 -d1151 -s -l --port ${PORT_HCMP_SRV} -d1151)
+			--post --h1 -d1151 -s -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCMP_SRV} -d1151)
 	add_test(NAME http-client-multi-post-stag-pipe COMMAND lws-minimal-http-client-multi
-			--post -p -s -l --port ${PORT_HCMP_SRV} -d1151)
+			--post -p -s -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCMP_SRV} -d1151)
 	add_test(NAME http-client-multi-post-stag-h1-pipe COMMAND lws-minimal-http-client-multi
-			--post --h1 -p -s -l --port ${PORT_HCMP_SRV} -d1151)
+			--post --h1 -p -s -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCMP_SRV} -d1151)
 	set_tests_properties(http-client-multi-post
 			     http-client-multi-post-h1
 			     http-client-multi-post-pipe

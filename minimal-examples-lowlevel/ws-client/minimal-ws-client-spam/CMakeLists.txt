@@ -62,7 +62,7 @@ endif()
 	set_tests_properties(st_wcs_srv PROPERTIES WORKING_DIRECTORY . FIXTURES_SETUP wcs_srv TIMEOUT 800)
 	set_tests_properties(ki_wcs_srv PROPERTIES FIXTURES_CLEANUP wcs_srv)
 
-	add_test(NAME ws-client-spam COMMAND lws-minimal-ws-client-spam --server localhost --port ${PORT_WCS_SRV} -l 32 -c 3)
+	add_test(NAME ws-client-spam COMMAND lws-minimal-ws-client-spam --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_WCS_SRV} -l 32 -c 3)
 	set_tests_properties(ws-client-spam PROPERTIES
 			     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/ws-client/minimal-ws-client-spam
 			     FIXTURES_REQUIRED "wcs_srv"
