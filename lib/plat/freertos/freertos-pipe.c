@@ -30,7 +30,11 @@ int
 lws_plat_pipe_create(struct lws *wsi)
 {
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
+#if defined(LWS_WITH_IPV4)
 	struct sockaddr_in *si = &wsi->a.context->frt_pipe_si;
+#else
+	struct sockaddr_in6 *si = &wsi->a.context->frt_pipe_si;
+#endif
 	lws_sockfd_type *fd = pt->dummy_pipe_fds;
 	socklen_t sl;
 
@@ -43,6 +47,7 @@ lws_plat_pipe_create(struct lws *wsi)
 	 * ephemeral range for us.
 	 */
 
+#if defined(LWS_WITH_IPV4)
 	fd[0] = lwip_socket(AF_INET, SOCK_DGRAM, 0);
 	if (fd[0] < 0)
 		goto bail;
@@ -68,6 +73,27 @@ lws_plat_pipe_create(struct lws *wsi)
 
 	if (lwip_bind(fd[0], (const struct sockaddr *)si, sizeof(*si)) < 0)
 		goto bail;
+#else
+	fd[0] = lwip_socket(AF_INET6, SOCK_DGRAM, 0);
+	if (fd[0] < 0)
+		goto bail;
+
+	fd[1] = lwip_socket(AF_INET6, SOCK_DGRAM, 0);
+	if (fd[1] < 0)
+		goto bail;
+
+	si->sin6_family = AF_INET6;
+	si->sin6_addr = in6addr_loopback;
+	si->sin6_port = 0;
+
+	if (lwip_bind(fd[1], (const struct sockaddr *)si, sizeof(*si)) < 0)
+		goto bail;
+
+	si->sin6_port = 0;
+
+	if (lwip_bind(fd[0], (const struct sockaddr *)si, sizeof(*si)) < 0)
+		goto bail;
+#endif
 
 	/*
 	 * Query the socket to set context->frt_pipe_si to the full sockaddr it
@@ -81,8 +107,13 @@ lws_plat_pipe_create(struct lws *wsi)
 	if (lwip_getsockname(fd[0], (struct sockaddr *)si, &sl))
 		goto bail;
 
+#if defined(LWS_WITH_IPV4)
 	lwsl_info("%s: cancel UDP skt port %d\n", __func__,
 		  ntohs(si->sin_port));
+#else
+	lwsl_info("%s: cancel UDP skt port %d\n", __func__,
+		  ntohs(si->sin6_port));
+#endif
 
 	return 0;
 
@@ -96,7 +127,11 @@ int
 lws_plat_pipe_signal(struct lws_context *ctx, int tsi)
 {
 	struct lws_context_per_thread *pt = &ctx->pt[tsi];
+#if defined(LWS_WITH_IPV4)
 	struct sockaddr_in *si = &ctx->frt_pipe_si;
+#else
+	struct sockaddr_in6 *si = &ctx->frt_pipe_si;
+#endif
 	lws_sockfd_type *fd = pt->dummy_pipe_fds;
 	uint8_t u = 0;
 	int n;
