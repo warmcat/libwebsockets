@@ -62,6 +62,15 @@ lws_h3_client_handshake(struct lws *wsi)
 	else if (wsi->a.protocol && !strcmp(wsi->a.protocol->name, "webtransport"))
 		meth = "CONNECT";
 #endif
+	/*
+	 * Client mux child streams carry the request line in the generic
+	 * client stash, not in ah header tokens (the same reason :authority
+	 * and :path below fall back to wsi->stash->cis[]).  Source the method
+	 * from there too when the token is absent, otherwise a non-GET request
+	 * (eg, POST) is silently encoded as :method GET and its body is lost.
+	 */
+	else if (!meth && wsi->stash && wsi->stash->cis[CIS_METHOD])
+		meth = wsi->stash->cis[CIS_METHOD];
 	else if (!meth)
 		meth = "GET";
 
@@ -363,12 +372,35 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 		}
 
 		/*
-		 * The request headers (+FIN for GET) have been sent.  Bound the
-		 * wait for the server's response the same way the H1 client does
-		 * (client-http.c lws_http_client_socket_service), so an H3 stream
-		 * whose reply is lost to packet corruption, a silent/blackholed
-		 * peer, or a key-phase desync fails cleanly here instead of
-		 * hanging on an otherwise-live QUIC connection forever.
+		 * If the request carries a body, the client-body mechanism
+		 * (LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER having called
+		 * lws_client_http_body_pending()) made lws_h3_client_handshake()
+		 * emit the HEADERS frame WITHOUT the QUIC FIN, and we still owe
+		 * the peer the body as one or more H3 DATA frames.  Mirror the H1
+		 * client (client-http.c lws_http_client_socket_service): enter an
+		 * explicit LRS_ISSUE_HTTP_BODY phase that keeps driving
+		 * LWS_CALLBACK_CLIENT_HTTP_WRITEABLE until the body (and its FIN)
+		 * have been handed to the transport, and only THEN start
+		 * time-boxing the server reply.  Without this the H3 stream jumped
+		 * straight to waiting for the reply, the writeable callback was
+		 * never delivered, and the request body DATA frame was never
+		 * framed/flushed (the peer saw an empty body).
+		 */
+		if (wsi->client_http_body_pending) {
+			lwsi_set_state(wsi, LRS_ISSUE_HTTP_BODY);
+			lws_set_timeout(wsi, PENDING_TIMEOUT_CLIENT_ISSUE_PAYLOAD,
+					(int)wsi->a.context->timeout_secs);
+			lws_callback_on_writable(wsi);
+			return 0;
+		}
+
+		/*
+		 * Bodyless request (eg, GET/HEAD): the request headers + FIN have
+		 * been sent.  Bound the wait for the server's response the same
+		 * way the H1 client does, so an H3 stream whose reply is lost to
+		 * packet corruption, a silent/blackholed peer, or a key-phase
+		 * desync fails cleanly here instead of hanging on an otherwise-
+		 * live QUIC connection forever.
 		 *
 		 * LRS_WAITING_SERVER_REPLY is chosen (rather than staying in
 		 * LRS_ESTABLISHED, which lws_h3_client_handshake() just set) so
@@ -377,9 +409,7 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 		 * waiting server reply" that H1 clients get.  On the first response
 		 * bytes the timeout is cleared and the state advanced to
 		 * LRS_ESTABLISHED by lws_client_interpret_server_handshake()
-		 * (client-http.c); the LRS_ESTABLISHED POLLOUT branch below is only
-		 * used for client body upload / writeable, which does not happen
-		 * while we are waiting for the reply to a request we just sent.
+		 * (client-http.c).
 		 */
 		lwsi_set_state(wsi, LRS_WAITING_SERVER_REPLY);
 		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
@@ -420,6 +450,35 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 		 * again and transitions properly. */
 		lws_callback_on_writable(wsi);
 		wsi->mux.requested_POLLOUT = 1;
+
+		return 0;
+	}
+#endif
+
+#if defined(LWS_WITH_CLIENT)
+	if (lwsi_state(wsi) == LRS_ISSUE_HTTP_BODY) {
+		/*
+		 * Client request-body upload.  The user writes the body from
+		 * LWS_CALLBACK_CLIENT_HTTP_WRITEABLE using LWS_WRITE_HTTP /
+		 * LWS_WRITE_HTTP_FINAL; rops_write_role_protocol_h3() frames each
+		 * write as an H3 DATA frame and, on the FINAL write, sets
+		 * H2_STREAM_END so rops_write_role_protocol_quic() FINs the
+		 * stream.  As in the H1 client the user re-arms POLLOUT while it
+		 * still has body to send (or the QUIC stream flow-control window
+		 * re-arms it on MAX_STREAM_DATA); once it clears
+		 * client_http_body_pending the whole body has been handed to the
+		 * transport, so switch to bounding the wait for the reply.
+		 */
+		int m = lws_callback_as_writeable(wsi);
+		if (m)
+			return m;
+
+		if (!wsi->client_http_body_pending) {
+			lwsi_set_state(wsi, LRS_WAITING_SERVER_REPLY);
+			lws_set_timeout(wsi,
+					PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
+					(int)wsi->a.context->timeout_secs);
+		}
 
 		return 0;
 	}
