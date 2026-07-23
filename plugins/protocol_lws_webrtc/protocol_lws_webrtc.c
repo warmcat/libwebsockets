@@ -2192,7 +2192,7 @@ webrtc_handle_dtls(struct lws *wsi, struct pss_webrtc *pss, const struct sockadd
 #else
 			/* Fallback if unsupported crypto, accept for now */
 			lwsl_wsi_err(wsi, "DTLS fingerprint check not supported on this TLS backend");
-			verified = 0;
+			verified = 1;
 #endif
 			if (!verified) {
 				lwsl_err("%s: DTLS Fingerprint mismatch! Rejecting connection.\n", __func__);

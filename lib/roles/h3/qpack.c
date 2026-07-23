@@ -373,8 +373,8 @@ lws_add_http3_header_by_token(struct lws *wsi, enum lws_token_indexes token,
 
 	if (static_idx != -1) {
 		const char *static_val = NULL;
-		lws_qpack_get_static_token(static_idx, NULL, &static_val);
-		if (static_val && length == (int)strlen(static_val) && !strncmp(static_val, (const char *)value, (size_t)length)) {
+		if (!lws_qpack_get_static_token(static_idx, NULL, &static_val) &&
+		    static_val && length == (int)strlen(static_val) && !strncmp(static_val, (const char *)value, (size_t)length)) {
 			n = lws_qpack_encode_static(*p, lws_ptr_diff_size_t(end, *p), static_idx);
 		} else {
 			n = lws_qpack_encode_literal_with_name_ref(*p, lws_ptr_diff_size_t(end, *p), static_idx, (const char *)value, (size_t)length);

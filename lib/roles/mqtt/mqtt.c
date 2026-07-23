@@ -1180,9 +1180,6 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 		{
 			lws_mqtt_qos_levels_t qos;
 
-			if (!len)
-				return 0;
-
 			qos = (lws_mqtt_qos_levels_t)*buf++;
 			len--;
 			switch (qos) {
@@ -1289,8 +1286,6 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			 * There are 3 fixed bytes and then a VBI for the
 			 * property section length
 			 */
-			if (!len)
-				return 0;
 			par->fixed_seen[par->fixed++] = *buf++;
 			len--;
 			par->n++;
@@ -1340,8 +1335,6 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			/*
 			 * TODO: stash the props
 			 */
-			if (!len)
-				return 0;
 			par->props_consumed++;
 			len--;
 			buf++;

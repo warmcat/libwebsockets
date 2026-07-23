@@ -439,13 +439,15 @@ stub_req_cb(struct lejp_ctx *ctx, char reason)
 		lws_snprintf(sym_tmp, sizeof(sym_tmp), "%s.tmp", sym);
 		unlink(sym_tmp);
 		symlink(path, sym_tmp);
-		rename(sym_tmp, sym);
+		if (rename(sym_tmp, sym))
+			lwsl_err("%s: rename %s failed\n", __func__, sym);
 
 		lws_snprintf(sym, sizeof(sym), "%s/%s/privkey.pem", a->vhd->base_dir, a->subdomain);
 		lws_snprintf(sym_tmp, sizeof(sym_tmp), "%s.tmp", sym);
 		unlink(sym_tmp);
 		symlink(path2, sym_tmp);
-		rename(sym_tmp, sym);
+		if (rename(sym_tmp, sym))
+			lwsl_err("%s: rename %s failed\n", __func__, sym);
 
 		lwsl_notice("%s: Files updated for %s, active vhosts will rotate dynamically via proxy\n", __func__, a->subdomain);
 	}
