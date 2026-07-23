@@ -967,9 +967,55 @@ lws_sa46_parse_numeric_address(const char *ads, lws_sockaddr46 *sa46)
 	       sizeof(sa46->sa4.sin_addr.s_addr));
 
 	return 0;
+#elif defined(LWS_WITH_IPV6)
+	/*
+	 * IPv4 literal in a build with IPv4 compiled out: represent it as an
+	 * IPv4-mapped IPv6 address (::ffff:a.b.c.d) so it can be stored in an
+	 * AF_INET6 sockaddr and, on a dual-stack host (or behind NAT64),
+	 * actually reached.  On a host with no IPv4 route this connect will
+	 * simply fail cleanly at the socket layer; the alternative ("refuse
+	 * the literal") makes DNS-server discovery and similar config unusable
+	 * on otherwise-capable dual-stack hosts for no benefit.
+	 */
+	{
+		static uint8_t did_notice;
+
+		sa46->sa6.sin6_family = AF_INET6;
+		memset(sa46->sa6.sin6_addr.s6_addr, 0, 10);
+		sa46->sa6.sin6_addr.s6_addr[10] = 0xff;
+		sa46->sa6.sin6_addr.s6_addr[11] = 0xff;
+		memcpy(&sa46->sa6.sin6_addr.s6_addr[12], a, 4);
+
+		if (!did_notice) {
+			did_notice = 1;
+			lwsl_notice("IPv4 literal '%s' mapped to ::ffff: in this "
+				    "IPv6-only build; reachable only on dual-stack "
+				    "or via NAT64\n", ads);
+		}
+
+		return 0;
+	}
 #else
 	return -1;
 #endif
+}
+
+int
+lws_sa46_is_ipv4_mapped(const lws_sockaddr46 *sa46)
+{
+#if defined(LWS_WITH_IPV6)
+	if (sa46 && sa46->sa4.sin_family == AF_INET6) {
+		const uint8_t *a = sa46->sa6.sin6_addr.s6_addr;
+
+		return !a[0] && !a[1] && !a[2] && !a[3] && !a[4] && !a[5] &&
+		       !a[6] && !a[7] && !a[8] && !a[9] &&
+			a[10] == 0xff && a[11] == 0xff;
+	}
+#else
+	(void)sa46;
+#endif
+
+	return 0;
 }
 
 int
@@ -1312,6 +1358,27 @@ lws_is_lan_address(const char *ads)
 	if (sa46.sa4.sin_family == AF_INET6) {
 #if defined(LWS_WITH_IPV6)
 		uint8_t *p = (uint8_t *)&sa46.sa6.sin6_addr.s6_addr;
+
+		/*
+		 * An IPv4-mapped address (::ffff:a.b.c.d) is evaluated by its
+		 * embedded IPv4 address, so "is this LAN" agrees whether the
+		 * address is stored as AF_INET or as a mapped AF_INET6 (as
+		 * happens in an IPv6-only build).
+		 */
+		if (lws_sa46_is_ipv4_mapped(&sa46)) {
+			uint8_t *q = &p[12];
+
+			if (q[0] == 10)
+				return 1;
+			if (q[0] == 172 && q[1] >= 16 && q[1] <= 31)
+				return 1;
+			if (q[0] == 192 && q[1] == 168)
+				return 1;
+			if (q[0] == 127)
+				return 1;
+
+			return 0;
+		}
 
 		/* fc00::/7 */
 		if ((p[0] & 0xfe) == 0xfc)
