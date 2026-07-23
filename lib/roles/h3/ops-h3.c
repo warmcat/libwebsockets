@@ -361,6 +361,29 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 			lwsl_wsi_err(wsi, "lws_h3_client_handshake failed!");
 			return -1;
 		}
+
+		/*
+		 * The request headers (+FIN for GET) have been sent.  Bound the
+		 * wait for the server's response the same way the H1 client does
+		 * (client-http.c lws_http_client_socket_service), so an H3 stream
+		 * whose reply is lost to packet corruption, a silent/blackholed
+		 * peer, or a key-phase desync fails cleanly here instead of
+		 * hanging on an otherwise-live QUIC connection forever.
+		 *
+		 * LRS_WAITING_SERVER_REPLY is chosen (rather than staying in
+		 * LRS_ESTABLISHED, which lws_h3_client_handshake() just set) so
+		 * that, if the timeout fires, lws_sul_wsitimeout_cb() delivers the
+		 * informative LWS_CALLBACK_CLIENT_CONNECTION_ERROR "Timed out
+		 * waiting server reply" that H1 clients get.  On the first response
+		 * bytes the timeout is cleared and the state advanced to
+		 * LRS_ESTABLISHED by lws_client_interpret_server_handshake()
+		 * (client-http.c); the LRS_ESTABLISHED POLLOUT branch below is only
+		 * used for client body upload / writeable, which does not happen
+		 * while we are waiting for the reply to a request we just sent.
+		 */
+		lwsi_set_state(wsi, LRS_WAITING_SERVER_REPLY);
+		lws_set_timeout(wsi, PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
+				(int)wsi->a.context->timeout_secs);
 #endif
 		return 0;
 	}
