@@ -238,6 +238,7 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 			continue;
 
 		switch (ifc->ifa_addr->sa_family) {
+#if defined(LWS_WITH_IPV4)
 		case AF_INET:
 #ifdef LWS_WITH_IPV6
 			if (ipv6) {
@@ -255,6 +256,7 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 					(struct sockaddr_in *)ifc->ifa_addr,
 						    sizeof(struct sockaddr_in));
 			break;
+#endif
 #ifdef LWS_WITH_IPV6
 		case AF_INET6:
 			memcpy(&addr6->sin6_addr,
@@ -277,8 +279,10 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 			rc = LWS_ITOSA_USABLE;
 		else
 #endif
+#if defined(LWS_WITH_IPV4)
 		if (inet_pton(AF_INET, ifname, &addr->sin_addr) == 1)
 			rc = LWS_ITOSA_USABLE;
+#endif
 	}
 
 	return rc;
