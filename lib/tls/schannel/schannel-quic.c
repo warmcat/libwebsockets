@@ -523,11 +523,29 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 					uint8_t type = secrets->TrafficSecretType;
 					struct lws_tls_schannel_conn *conn = (struct lws_tls_schannel_conn *)wsi->tls.ssl;
 
+					if (secrets->TrafficSecretSize > 48) {
+						lwsl_err("%s: TrafficSecretSize %zu exceeds 48\n", __func__, secrets->TrafficSecretSize);
+						return -1;
+					}
+
 					/* SChannel outputs `1` and `2` for BOTH Handshake and Application secrets. */
-					if (type == 1 && conn->quic_secret_type_count[1] >= 1) {
-						type = 3; /* Map to Client Application */
-					} else if (type == 2 && conn->quic_secret_type_count[2] >= 1) {
-						type = 4; /* Map to Server Application */
+					if (type == 1 || type == 2) {
+						int idx = type - 1; /* 0 for Client, 1 for Server */
+						if (conn->quic_secret_type_count[type] == 0) {
+							/* First time seeing this. Save it to deduplicate. */
+							memcpy(conn->quic_hs_secrets[idx], secrets->TrafficSecret, secrets->TrafficSecretSize);
+							conn->quic_hs_secrets_len[idx] = secrets->TrafficSecretSize;
+						} else {
+							/* Check if it's identical to the handshake secret */
+							if (secrets->TrafficSecretSize == conn->quic_hs_secrets_len[idx] &&
+							    !memcmp(secrets->TrafficSecret, conn->quic_hs_secrets[idx], secrets->TrafficSecretSize)) {
+								/* It's a duplicate of the handshake secret! Ignore it completely! */
+								lwsl_notice("%s: Ignoring duplicate Handshake secret for type %d\n", __func__, type);
+								continue;
+							}
+							/* It's not identical, so it MUST be the Application secret! */
+							type = (type == 1) ? 3 : 4;
+						}
 					}
 
 					if (type <= 4) {
@@ -549,11 +567,6 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 						if (secrets->MsgSequenceStart > 0 && secrets->MsgSequenceStart < out_bufs[0].cbBuffer) {
 							if (split_offset == 0 || secrets->MsgSequenceStart < split_offset)
 								split_offset = secrets->MsgSequenceStart;
-						}
-
-						if (secrets->TrafficSecretSize > 48) {
-							lwsl_err("%s: TrafficSecretSize %zu exceeds 48\n", __func__, secrets->TrafficSecretSize);
-							return -1;
 						}
 
 						if (wsi->tls.quic_secret_cb(wsi, mapped_type, secrets->TrafficSecret, secrets->TrafficSecretSize) < 0) {

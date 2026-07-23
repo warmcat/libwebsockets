@@ -180,12 +180,12 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 	}
 
 	case LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED:
-		lwsl_notice("Server received new QUIC client connection!\n");
+		lwsl_wsi_notice(wsi, "Server received new QUIC client connection!");
 		lws_callback_on_writable(wsi);
 		break;
 
 	case LWS_CALLBACK_CLIENT_ESTABLISHED:
-		lwsl_notice("Client %p successfully established QUIC connection!\n", wsi);
+		lwsl_wsi_notice(wsi, "Client successfully established QUIC connection!");
 		/* Trigger a write to send bulk data */
 		lws_callback_on_writable(wsi);
 		break;
@@ -201,7 +201,7 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 		if (to_send > 1024)
 			to_send = 1024;
 		memset(&buf[LWS_PRE], (client_sent & 0xff), to_send);
-                lwsl_notice("CLIENT WSI allowance=%d\n", (int)lws_get_peer_write_allowance(wsi));
+                lwsl_wsi_notice(wsi, "CLIENT WSI allowance=%d", (int)lws_get_peer_write_allowance(wsi));
 		int n = lws_write(wsi, &buf[LWS_PRE], to_send, LWS_WRITE_BINARY);
                 if (n > 0) {
                         client_sent += (size_t)n;
@@ -211,7 +211,7 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 	}
 	case LWS_CALLBACK_ESTABLISHED:
-		lwsl_notice("SERVER ESTABLISHED!\n");
+		lwsl_wsi_notice(wsi, "SERVER ESTABLISHED!");
 		lws_callback_on_writable(wsi);
 		break;
 
@@ -228,7 +228,7 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 		if (to_send > 1024)
 			to_send = 1024;
 		memset(&buf[LWS_PRE], (server_sent & 0xff), to_send);
-                lwsl_notice("SERVER WSI allowance=%d\n", (int)lws_get_peer_write_allowance(wsi));
+                lwsl_wsi_notice(wsi, "SERVER WSI allowance=%d", (int)lws_get_peer_write_allowance(wsi));
 		int n = lws_write(wsi, &buf[LWS_PRE], to_send, LWS_WRITE_BINARY);
 		if (n > 0) {
 			server_sent += (size_t)n;
@@ -247,7 +247,7 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 		client_rx += len;
 		client_hash = simple_hash(client_hash, in, len);
 		if (client_rx >= TOTAL_DATA && !client_done) {
-			lwsl_notice("Client received all %lu bytes, hash %u\n", (unsigned long)client_rx, client_hash);
+			lwsl_wsi_notice(wsi, "Client received all %lu bytes, hash %u", (unsigned long)client_rx, client_hash);
 			client_done = 1;
 			check_test_completion(wsi);
 		}
@@ -261,7 +261,7 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 		server_rx += len;
 		server_hash = simple_hash(server_hash, in, len);
 		if (server_rx >= TOTAL_DATA && !server_done) {
-			lwsl_notice("Server received all %lu bytes, hash %u\n", (unsigned long)server_rx, server_hash);
+			lwsl_wsi_notice(wsi, "Server received all %lu bytes, hash %u", (unsigned long)server_rx, server_hash);
 			server_done = 1;
 			check_test_completion(wsi);
 		}

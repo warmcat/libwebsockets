@@ -113,6 +113,8 @@ struct lws_tls_schannel_conn {
 	char alpn[64];
     char hostname[128];
 	int quic_secret_type_count[5];
+	uint8_t quic_hs_secrets[2][48];
+	size_t quic_hs_secrets_len[2];
 };
 
 struct lws_tls_schannel_x509 {

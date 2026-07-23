@@ -69,7 +69,7 @@ callback_quic_server(struct lws *wsi, enum lws_callback_reasons reason,
 	}
 
 	case LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED:
-		lwsl_notice("Server received new QUIC client connection!\n");
+		lwsl_wsi_notice(wsi, "Server received new QUIC client connection!");
 		lws_callback_on_writable(wsi);
 		break;
 
@@ -105,7 +105,7 @@ callback_quic_server(struct lws *wsi, enum lws_callback_reasons reason,
 		pss->server_rx += len;
 		pss->server_hash = simple_hash(pss->server_hash, in, len);
 		if (pss->server_rx >= TOTAL_DATA && !pss->server_done) {
-			lwsl_notice("Server received all %lu bytes, hash %u\n",
+			lwsl_wsi_notice(wsi, "Server received all %lu bytes, hash %u",
 				    (unsigned long)pss->server_rx, pss->server_hash);
 			pss->server_done = 1;
 		}
