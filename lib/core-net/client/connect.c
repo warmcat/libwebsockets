@@ -208,10 +208,6 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 	wsi->client_proxy_onward = !!(i->ssl_connection & LCCSCF_SECSTREAM_PROXY_ONWARD);
 #endif
 
-#if defined(LWS_ROLE_QUIC)
-        wsi->quic.migrate_from_wsi = i->quic_migrate_from_wsi;
-#endif
-
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	wsi->fic.name = "wsi";
 	if (i->fic.fi_owner.count)

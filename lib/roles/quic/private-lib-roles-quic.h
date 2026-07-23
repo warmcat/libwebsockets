@@ -313,10 +313,21 @@ struct lws_quic_netconn {
 	/* Path Validation (RFC 9000 Section 8.2) */
 	uint8_t			path_challenge[8];
 	uint8_t			path_challenge_pending:1;
-	struct lws              *migration_probing_wsi;
 	lws_sockaddr46		probing_sa46;
 	uint8_t			probing_sa46_valid:1;
 	uint8_t			rx_has_non_probing:1;
+
+	/*
+	 * Client preferred_address migration (RFC 9000 Section 9.6).
+	 *
+	 * Unlike server-side passive migration, the client does NOT change its
+	 * source address: it only re-targets the server destination.  We save
+	 * the original peer address so a failed path validation can revert the
+	 * socket, and arm prefaddr_sul to bound the wait for PATH_RESPONSE.
+	 */
+	lws_sockaddr46		prefaddr_original_sa46;
+	uint8_t			prefaddr_active:1;
+	lws_sorted_usec_list_t	prefaddr_sul;
 
 	/* ECN (Explicit Congestion Notification) */
 	uint64_t		ecn_rx_ect0;
@@ -367,6 +378,16 @@ lws_quic_keys_destroy(struct lws_quic_keys *keys);
 
 void
 lws_quic_queue_path_challenge(struct lws *nwsi);
+
+/*
+ * Client preferred_address migration (RFC 9000 Section 9.6): re-target the
+ * existing client connection at the server's preferred address and validate
+ * the new path with PATH_CHALLENGE / PATH_RESPONSE.  The client source address
+ * is unchanged; only the server destination moves.  Returns 0 on success.
+ */
+int
+lws_quic_client_probe_preferred_address(struct lws *nwsi,
+					const lws_sockaddr46 *pref_sa46);
 
 void lws_quic_keys_free(struct lws_quic_keys *keys);
 
@@ -433,8 +454,6 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 struct _lws_quic_related {
         struct lws_quic_netconn *qn; /* malloc'd for root net conn */
         struct lws_quic_stream *qs; /* malloc'd for stream child wsi */
-
-        struct lws *migrate_from_wsi; /* if set, this nwsi is migrating from an existing nwsi */
 
         lws_usec_t quic_race_start_us;
 

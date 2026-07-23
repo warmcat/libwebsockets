@@ -42,12 +42,94 @@ lws_quic_queue_path_challenge(struct lws *nwsi)
                         lws_free(f_pc);
                         return;
                 }
-                memcpy(nwsi->quic.qn->path_challenge, f_pc->data, 8);
-                nwsi->quic.qn->path_challenge_pending = 1;
+		memcpy(nwsi->quic.qn->path_challenge, f_pc->data, 8);
+		nwsi->quic.qn->path_challenge_pending = 1;
 
-                lws_dll2_add_tail(&f_pc->list, &nwsi->quic.qn->pending_tx[LWS_QUIC_LEVEL_APP]);
-                lws_callback_on_writable(nwsi);
-        }
+		lws_dll2_add_tail(&f_pc->list, &nwsi->quic.qn->pending_tx[LWS_QUIC_LEVEL_APP]);
+		lws_callback_on_writable(nwsi);
+	}
+}
+
+/*
+ * Client preferred_address path-validation deadline (RFC 9000 §9.6).
+ *
+ * If the server's PATH_RESPONSE to our PATH_CHALLENGE toward the preferred
+ * address does not arrive in time, revert the socket to the original server
+ * address so the connection is not stranded on an unvalidated path.  A success
+ * case cancels this sul from the PATH_RESPONSE handler.
+ */
+#define LWS_QUIC_PREFADDR_DEADLINE_US (3 * LWS_USEC_PER_SEC)
+
+static void
+lws_quic_prefaddr_sul_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws_quic_netconn *qn = lws_container_of(sul,
+					struct lws_quic_netconn, prefaddr_sul);
+	struct lws *nwsi = qn->nwsi;
+
+	if (!nwsi)
+		return;
+
+	lwsl_wsi_notice(nwsi, "QUIC: preferred_address path validation timed out, "
+			   "reverting to original server address");
+
+	qn->probing_sa46_valid = 0;
+	qn->path_challenge_pending = 0;
+	qn->prefaddr_active = 0;
+	nwsi->udp->sa46 = qn->prefaddr_original_sa46;
+
+	if (lws_socket_is_valid(nwsi->desc.sockfd) &&
+	    connect(nwsi->desc.sockfd,
+		    sa46_sockaddr(&qn->prefaddr_original_sa46),
+		    sa46_socklen(&qn->prefaddr_original_sa46)) < 0)
+		lwsl_wsi_warn(nwsi, "QUIC: failed to re-connect to original addr, errno=%d",
+			     LWS_ERRNO);
+
+	lws_callback_on_writable(nwsi);
+}
+
+int
+lws_quic_client_probe_preferred_address(struct lws *nwsi,
+					const lws_sockaddr46 *pref_sa46)
+{
+	struct lws_quic_netconn *qn;
+
+	if (!nwsi || !nwsi->quic.qn || !nwsi->udp || !pref_sa46)
+		return 1;
+	qn = nwsi->quic.qn;
+
+	if (qn->is_server)
+		return 1;
+
+	/*
+	 * Save the current peer so a failed validation (or loss of the
+	 * PATH_RESPONSE) can restore the socket to the original server path.
+	 */
+	qn->prefaddr_original_sa46 = nwsi->udp->sa46;
+	qn->probing_sa46 = *pref_sa46;
+	qn->probing_sa46_valid = 1;
+	qn->prefaddr_active = 1;
+
+	/*
+	 * Re-target the existing UDP socket at the preferred address.  The
+	 * client source 4-tuple does not change (RFC 9000 §9.6: this is not a
+	 * client connection migration), so the server sees no migration and
+	 * must not flap.  A connected UDP socket can be re-connect()ed.
+	 */
+	if (lws_socket_is_valid(nwsi->desc.sockfd) &&
+	    connect(nwsi->desc.sockfd, sa46_sockaddr((lws_sockaddr46 *)pref_sa46),
+		    sa46_socklen((lws_sockaddr46 *)pref_sa46)) < 0)
+		lwsl_wsi_warn(nwsi, "QUIC: failed to connect preferred_address, errno=%d",
+			     LWS_ERRNO);
+
+	nwsi->udp->sa46 = *pref_sa46;
+
+	lws_quic_queue_path_challenge(nwsi);
+
+	lws_sul_schedule(nwsi->a.context, nwsi->tsi, &qn->prefaddr_sul,
+			 lws_quic_prefaddr_sul_cb, LWS_QUIC_PREFADDR_DEADLINE_US);
+
+	return 0;
 }
 
 static void
@@ -1675,38 +1757,33 @@ rops_handle_POLLOUT_quic(struct lws *wsi)
         if (!wsi->quic.initialized && !qn->is_server) {
                 wsi->quic.initialized = 1;
 
-                if (qn->migration_probing_wsi == wsi) {
-                        /* Active Migration: just queue path challenge! */
-                        lws_quic_queue_path_challenge(wsi);
-                } else {
 #if defined(LWS_WITH_TLS) && defined(LWS_WITH_CLIENT)
-                        if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
-                                if (!wsi->tls.ssl) {
-                                        const char *cce = NULL;
-                                        if (lws_client_create_tls(wsi, &cce, 0) == CCTLS_RETURN_ERROR) {
-                                                lwsl_wsi_err(wsi, "Failed to create TLS BIO: %s", cce ? cce : "unknown");
-                                                return LWS_HP_RET_BAIL_DIE;
-                                        }
-                                }
-                                /* The BIO was already created, just init QUIC TLS */
-                                if (lws_tls_quic_init(wsi, quic_secret_cb)) {
-                                        lwsl_wsi_err(wsi, "Failed to init QUIC TLS");
-                                        return LWS_HP_RET_BAIL_DIE;
-                                }
-                                /* Kick off the handshake */
-                                // lwsl_wsi_notice(wsi, "Kicking off QUIC TLS handshake");
-                                lws_tls_quic_rx_crypto(wsi, LWS_QUIC_LEVEL_INITIAL, NULL, 0);
+		if (wsi->tls.use_ssl & LCCSCF_USE_SSL) {
+			if (!wsi->tls.ssl) {
+				const char *cce = NULL;
+				if (lws_client_create_tls(wsi, &cce, 0) == CCTLS_RETURN_ERROR) {
+					lwsl_wsi_err(wsi, "Failed to create TLS BIO: %s", cce ? cce : "unknown");
+					return LWS_HP_RET_BAIL_DIE;
+				}
+			}
+			/* The BIO was already created, just init QUIC TLS */
+			if (lws_tls_quic_init(wsi, quic_secret_cb)) {
+				lwsl_wsi_err(wsi, "Failed to init QUIC TLS");
+				return LWS_HP_RET_BAIL_DIE;
+			}
+			/* Kick off the handshake */
+			// lwsl_wsi_notice(wsi, "Kicking off QUIC TLS handshake");
+			lws_tls_quic_rx_crypto(wsi, LWS_QUIC_LEVEL_INITIAL, NULL, 0);
 
-                                {
-                                        struct lws *nwsi = lws_get_quic_network_wsi(wsi);
-                                        if (nwsi) {
-                                                wsi = nwsi;
-                                                qn = wsi->quic.qn;
-                                        }
-                                }
-                        }
+			{
+				struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+				if (nwsi) {
+					wsi = nwsi;
+					qn = wsi->quic.qn;
+				}
+			}
+		}
 #endif
-                }
         }
 
 	if (qn->is_closing) {
@@ -2011,20 +2088,6 @@ send_frames:
 				break;
 
 			size_t send_len = f->len;
-
-			if (f->type == LWS_QUIC_FT_PATH_CHALLENGE || f->type == LWS_QUIC_FT_PATH_RESPONSE) {
-				if (qn->migration_probing_wsi && wsi != qn->migration_probing_wsi) {
-					/* Only send path validation frames on the new probing socket */
-					d = d1;
-					continue;
-				}
-			} else if (f->type != LWS_QUIC_FT_PADDING && f->type != LWS_QUIC_FT_NEW_CONNECTION_ID) {
-				if (qn->migration_probing_wsi && wsi == qn->migration_probing_wsi) {
-					/* Do not send non-probing frames on the new socket until validated */
-					d = d1;
-					continue;
-				}
-			}
 
 			if ((size_t)(p - pkt) + frame_header_max_len + send_len + 32 > max_udp_payload) {
 				if ((f->type & 0xf8) == LWS_QUIC_FT_STREAM || f->type == LWS_QUIC_FT_CRYPTO) {
@@ -2458,43 +2521,19 @@ end_children:
 		int have_pending_tx = 0;
 		for (level = 0; level < LWS_QUIC_LEVEL_COUNT; level++) {
 			if (qn->pending_tx[level].count && qn->keys[level] && qn->keys[level]->el_hp_tx.len) {
-				if (level == LWS_QUIC_LEVEL_APP && qn->migration_probing_wsi) {
-					lws_start_foreach_dll(struct lws_dll2 *, d, qn->pending_tx[level].head) {
-						struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
-						int is_path_frame = (f->type == LWS_QUIC_FT_PATH_CHALLENGE || f->type == LWS_QUIC_FT_PATH_RESPONSE);
-						if (wsi == qn->nwsi && is_path_frame) continue;
-						if (wsi == qn->migration_probing_wsi && !is_path_frame && f->type != LWS_QUIC_FT_PADDING && f->type != LWS_QUIC_FT_NEW_CONNECTION_ID) continue;
-						have_pending_tx = 1;
-						break;
-					} lws_end_foreach_dll(d);
-				} else {
-					have_pending_tx = 1;
-				}
-				if (have_pending_tx)
-					break;
+				have_pending_tx = 1;
+				break;
 			}
 		}
 
 		if (!blocked && can_process_children) {
 			if (lws_wsi_mux_action_pending_writeable_reqs(wsi))
 				return LWS_HP_RET_BAIL_DIE;
-				
+
 			for (level = 0; level < LWS_QUIC_LEVEL_COUNT; level++) {
 				if (qn->pending_tx[level].count && qn->keys[level] && qn->keys[level]->el_hp_tx.len) {
-					if (level == LWS_QUIC_LEVEL_APP && qn->migration_probing_wsi) {
-						lws_start_foreach_dll(struct lws_dll2 *, d, qn->pending_tx[level].head) {
-							struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
-							int is_path_frame = (f->type == LWS_QUIC_FT_PATH_CHALLENGE || f->type == LWS_QUIC_FT_PATH_RESPONSE);
-							if (wsi == qn->nwsi && is_path_frame) continue;
-							if (wsi == qn->migration_probing_wsi && !is_path_frame && f->type != LWS_QUIC_FT_PADDING && f->type != LWS_QUIC_FT_NEW_CONNECTION_ID) continue;
-							have_pending_tx = 1;
-							break;
-						} lws_end_foreach_dll(d);
-					} else {
-						have_pending_tx = 1;
-					}
-					if (have_pending_tx)
-						break;
+					have_pending_tx = 1;
+					break;
 				}
 			}
 		}
@@ -2690,31 +2729,7 @@ rops_client_bind_quic(struct lws *wsi, const struct lws_client_connect_info *i)
 			memset(wsi->udp, 0, sizeof(*wsi->udp));
 		}
 
-		/* Handle Make-Before-Break Active Migration */
-		if (wsi->quic.migrate_from_wsi && wsi->quic.migrate_from_wsi->quic.qn) {
-			wsi->quic.qn = wsi->quic.migrate_from_wsi->quic.qn;
-			wsi->quic.qn->migration_probing_wsi = wsi;
-
-			/*
-			 * The wsi was just created by lws_client_connect_via_info()
-			 * with ops=NULL, so wsi->role_ops is still NULL at this point.
-			 * We must bind the QUIC role_ops BEFORE anything that walks
-			 * them — lws_quic_queue_path_challenge() and
-			 * lws_callback_on_writable() both dereference role_ops via
-			 * lws_rops_fidx(), and doing so with role_ops == NULL is UB
-			 * (observed as SIGILL in quic-interop-runner connectionmigration).
-			 */
-			lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED,
-					    &role_ops_quic);
-			lws_quic_queue_path_challenge(wsi);
-
-			lws_callback_on_writable(wsi);
-
-			/* Skip all initialization and key derivation, just return */
-			return 1;
-		}
-
-                /* Allocate QUIC netconn for client! */
+		/* Allocate QUIC netconn for client! */
                 if (!wsi->quic.qn) {
                         wsi->quic.qn = lws_zalloc(sizeof(*wsi->quic.qn), "quic_netconn");
 			if (!wsi->quic.qn)
@@ -3080,19 +3095,6 @@ rops_close_kill_connection_quic(struct lws *wsi, enum lws_close_status reason)
 	struct lws_quic_netconn *qn = wsi->quic.qn;
 	int i;
 
-	/*
-	 * A migration / make-before-break probing wsi only borrows the qn that
-	 * belongs to qn->nwsi (the original network wsi).  It must never free
-	 * qn, and it must detach itself so the owner doesn't see a stale wsi
-	 * pointer, then drop its borrowed reference so the rest of close (and
-	 * any later close of the owner) can't dereference qn through us.
-	 */
-	if (qn && qn->migration_probing_wsi == wsi && qn->nwsi != wsi) {
-		qn->migration_probing_wsi = NULL;
-		wsi->quic.qn = NULL;
-		qn = NULL;
-	}
-
 	if (wsi->mux.child_list)
 		lws_wsi_mux_close_children(wsi, (int)reason);
 
@@ -3117,15 +3119,7 @@ rops_close_kill_connection_quic(struct lws *wsi, enum lws_close_status reason)
 
 	/* If we are the network wsi, free the qn and all resources */
 	if (qn->nwsi == wsi) {
-		/*
-		 * If a make-before-break probing wsi is still borrowing this
-		 * qn, drop its back-pointer before we free qn underneath it.
-		 */
-		if (qn->migration_probing_wsi &&
-		    qn->migration_probing_wsi != wsi)
-			qn->migration_probing_wsi->quic.qn = NULL;
-		qn->migration_probing_wsi = NULL;
-
+		lws_sul_cancel(&qn->prefaddr_sul);
 		lws_sul_cancel(&qn->pto_sul);
 		lws_sul_cancel(&qn->pacer_sul);
 

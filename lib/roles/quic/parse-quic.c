@@ -510,17 +510,6 @@ lws_quic_stream_find(struct lws *nwsi, uint64_t stream_id)
 		}
 	}
 
-	if (qn->migration_probing_wsi) {
-		wsi_child = qn->migration_probing_wsi->mux.child_list;
-		while (wsi_child) {
-			if (wsi_child->quic.qs && wsi_child->quic.qs->stream_id == stream_id)
-				return wsi_child;
-			if ((uint64_t)wsi_child->mux.my_sid == stream_id)
-				return wsi_child;
-			wsi_child = wsi_child->mux.sibling_list;
-		}
-	}
-
 	return NULL;
 }
 
@@ -1033,64 +1022,68 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 					lwsl_wsi_notice(nwsi, "QUIC RX: Path validated via PATH_RESPONSE!");
 					nwsi->quic.qn->address_validated = 1;
 					nwsi->quic.qn->path_challenge_pending = 0;
-					
-					if (nwsi->quic.qn->migration_probing_wsi == nwsi) {
-						struct lws *old_nwsi = nwsi->quic.qn->nwsi;
-						/* Reparent the connection! */
-						nwsi->quic.qn->nwsi = nwsi;
-						nwsi->quic.qn->migration_probing_wsi = NULL;
-						
-						if (old_nwsi && old_nwsi != nwsi) {
-							lwsl_wsi_notice(nwsi, "QUIC: Active Migration Make-Before-Break Complete! Closing old nwsi.");
-							old_nwsi->quic.qn = NULL; /* Detach so close doesn't free it */
 
-							/* Transition new nwsi to established state and cancel its timeout/grace timers */
-							lwsi_set_state(nwsi, LRS_ESTABLISHED);
-							lws_set_timeout(nwsi, NO_PENDING_TIMEOUT, 0);
-#if defined(LWS_WITH_CLIENT)
-							lws_sul_cancel(&nwsi->sul_h3_grace);
-							lws_sul_cancel(&nwsi->sul_happy_eyeballs);
-#endif
-							lws_sul_cancel(&nwsi->sul_connect_timeout);
-
-							/* Reparent all child streams to the new nwsi */
-							struct lws *w = old_nwsi->mux.child_list;
-							while (w) {
-								w->mux.parent_wsi = nwsi;
-								w = w->mux.sibling_list;
-							}
-							nwsi->mux.child_list = old_nwsi->mux.child_list;
-							old_nwsi->mux.child_list = NULL;
-							nwsi->mux.child_count = old_nwsi->mux.child_count;
-							old_nwsi->mux.child_count = 0;
-							nwsi->mux.highest_sid = old_nwsi->mux.highest_sid;
-
-#if defined(LWS_WITH_TLS)
-							extern int lws_tls_quic_migrate_wsi(struct lws *old_wsi, struct lws *new_wsi);
-							/* Move TLS object so we can decrypt NEW_SESSION_TICKET and KeyUpdate */
-							nwsi->tls = old_nwsi->tls;
-							memset(&old_nwsi->tls, 0, sizeof(old_nwsi->tls));
-							lws_tls_quic_migrate_wsi(old_nwsi, nwsi);
-#endif
-
-							lws_close_free_wsi(old_nwsi, LWS_CLOSE_STATUS_NOSTATUS, "migrated");
-						}
-					} else if (nwsi->quic.qn->probing_sa46_valid) {
-						/* F-60: Server received PATH_RESPONSE, commit the migration address */
-						nwsi->udp->sa46 = nwsi->quic.qn->probing_sa46;
+					if (nwsi->quic.qn->probing_sa46_valid) {
+						/*
+						 * A pending path probe succeeded.
+						 *
+						 * Server side (peer-address-change / NAT
+						 * rebinding): adopt the new peer address.
+						 *
+						 * Client side (preferred_address, RFC 9000
+						 * §9.6): the socket was already re-targeted
+						 * at the preferred address by the probe
+						 * helper, so udp->sa46 is already correct;
+						 * we just finalize and reset the path state.
+						 */
+						if (nwsi->quic.qn->is_server)
+							nwsi->udp->sa46 =
+								nwsi->quic.qn->probing_sa46;
 						nwsi->quic.qn->probing_sa46_valid = 0;
-						lwsl_wsi_notice(nwsi, "QUIC Server: PATH_RESPONSE validated, committed migration address!");
+						nwsi->quic.qn->prefaddr_active = 0;
+						lws_sul_cancel(&nwsi->quic.qn->prefaddr_sul);
+						lwsl_wsi_notice(nwsi,
+							"QUIC: PATH_RESPONSE validated, %s migration committed",
+							nwsi->quic.qn->is_server ?
+								"server" :
+								"preferred_address");
 
-						/* Reset Congestion Control State (RFC 9000 9.3.3) */
-						if (nwsi->quic.qn->cc_ops && nwsi->quic.qn->cc_ops->init)
+						/*
+						 * Keep the wsi-level route tracking
+						 * consistent with the new peer, so
+						 * netlink route-teardown culling
+						 * (peer_route_uidx) and routability
+						 * checks (sa46_peer) reason about
+						 * the path we are actually using
+						 * now, not the pre-migration one.
+						 * udp->sa46 holds the committed
+						 * peer address for both sides.
+						 */
+						if (nwsi->udp) {
+							nwsi->sa46_peer =
+								nwsi->udp->sa46;
+#if defined(LWS_WITH_ROUTING)
+							{
+								struct lws_context_per_thread *_pt =
+									&nwsi->a.context->pt[(int)nwsi->tsi];
+								lws_route_t *_er =
+									_lws_route_est_outgoing(
+										_pt,
+										&nwsi->sa46_peer);
+								if (_er)
+									nwsi->peer_route_uidx =
+										_er->uidx;
+							}
+#endif
+						}
+
+						/* Reset CC / RTT / PMTUD (RFC 9000 9.3.3) */
+						if (nwsi->quic.qn->cc_ops &&
+						    nwsi->quic.qn->cc_ops->init)
 							nwsi->quic.qn->cc_ops->init(nwsi);
-
-						/* Reset RTT estimator */
 						nwsi->quic.qn->smoothed_rtt = 0;
 						nwsi->quic.qn->rttvar = 0;
 						nwsi->quic.qn->latest_rtt = 0;
-
-						/* Reset PMTUD */
 						nwsi->quic.qn->current_mtu = 1280;
 						nwsi->quic.qn->probed_mtu = 1380;
 						nwsi->quic.qn->pmtud_state = 1;
@@ -1672,47 +1665,47 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 				lwsl_wsi_err(wsi, "QUIC TP error: Client sent server-only parameter %llu", (unsigned long long)param_id);
 				return -1;
 			}
-			if (param_len >= 4+2+16+2+1+16) {
-				/* Pick IPv4 if present, else IPv6 */
-				char addr_str[64];
-				int port = 0;
-				struct lws_client_connect_info i;
+			/*
+			 * RFC 9000 §18.2 layout: 4 IPv4 + 2 v4 port + 16 IPv6
+			 * + 2 v6 port + 1 cid-len + cid + 16 stateless-reset.
+			 * An all-zero IPv4 address means "no IPv4 advertised".
+			 */
+			if (param_len >= 4 + 2 + 16 + 2 + 1) {
+				lws_sockaddr46 pref;
+				uint16_t port;
+				const uint8_t *v4 = &buf[pos];
 
-				/* Try IPv4 first (RFC says it's 4 bytes IP + 2 bytes port) */
-				uint32_t ip4;
-				memcpy(&ip4, &buf[pos], 4);
-				if (ip4 != 0) {
-					lws_snprintf(addr_str, sizeof(addr_str), "%u.%u.%u.%u",
-						buf[pos], buf[pos+1], buf[pos+2], buf[pos+3]);
-					port = (buf[pos+4] << 8) | buf[pos+5];
+				memset(&pref, 0, sizeof(pref));
+
+				if (v4[0] | v4[1] | v4[2] | v4[3]) {
+					pref.sa4.sin_family = AF_INET;
+					memcpy(&pref.sa4.sin_addr.s_addr, v4, 4);
+					port = (uint16_t)((v4[4] << 8) | v4[5]);
 				} else {
-					/* Try IPv6 */
-					const uint8_t *v6 = &buf[pos+6];
-					lws_snprintf(addr_str, sizeof(addr_str), "[%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x]",
-						v6[0], v6[1], v6[2], v6[3], v6[4], v6[5], v6[6], v6[7],
-						v6[8], v6[9], v6[10], v6[11], v6[12], v6[13], v6[14], v6[15]);
-					port = (buf[pos+22] << 8) | buf[pos+23];
+#if defined(LWS_WITH_IPV6)
+					const uint8_t *v6 = &buf[pos + 6];
+					pref.sa6.sin6_family = AF_INET6;
+					memcpy(&pref.sa6.sin6_addr, v6, 16);
+					port = (uint16_t)((buf[pos + 22] << 8) |
+							buf[pos + 23]);
+#else
+					lwsl_wsi_notice(wsi,
+						"QUIC TP: preferred_address IPv6-only but no IPV6 build");
+					break;
+#endif
 				}
+				sa46_sockport(&pref, htons(port));
 
-				if (port > 0) {
-					const char *host_str = (qn->nwsi && qn->nwsi->stash && qn->nwsi->stash->cis[CIS_HOST]) ?
-						qn->nwsi->stash->cis[CIS_HOST] : addr_str;
-
-					lwsl_wsi_notice(wsi, "QUIC TP: Migrating to preferred_address %s:%d", addr_str, port);
-					memset(&i, 0, sizeof(i));
-					i.context = wsi->a.context;
-					i.vhost = wsi->a.vhost;
-					i.address = addr_str;
-					i.host = host_str;
-					i.origin = host_str;
-					i.port = port;
-					i.ssl_connection = LCCSCF_USE_SSL | LCCSCF_ALLOW_INSECURE;
-					i.quic_migrate_from_wsi = qn->nwsi;
-					i.method = "QUIC";
-					i.alpn = wsi->alpn;
-
-					lws_client_connect_via_info(&i);
-				}
+				if (port && qn->nwsi)
+					/*
+					 * Validate the new server path on the
+					 * EXISTING connection (RFC 9000 §9.6):
+					 * the client does not migrate its own
+					 * address, it only re-targets the server
+					 * destination after PATH_RESPONSE.
+					 */
+					lws_quic_client_probe_preferred_address(
+							qn->nwsi, &pref);
 			}
 			break;
 #endif

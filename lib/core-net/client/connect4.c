@@ -250,11 +250,7 @@ send_hs:
 #if defined(LWS_ROLE_QUIC)
 			if ((meth && !strcmp(meth, "QUIC")) ||
 			    !strcmp(wsi->role_ops->name, "quic")) {
-				if (wsi->quic.migrate_from_wsi) {
-					lwsi_set_state(wsi, LRS_ESTABLISHED);
-				} else {
-					lwsi_set_state(wsi, LRS_WAITING_SSL);
-				}
+				lwsi_set_state(wsi, LRS_WAITING_SSL);
 				wsi->hdr_parsing_completed = 1;
 				lws_callback_on_writable(wsi);
 				return wsi;
