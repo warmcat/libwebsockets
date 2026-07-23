@@ -248,6 +248,7 @@ lws_interface_to_sa(int ipv6,
 	}
 #endif
 
+#if defined(LWS_WITH_IPV4)
 	address = inet_addr(ifname);
 
 	if (address == INADDR_NONE) {
@@ -262,6 +263,9 @@ lws_interface_to_sa(int ipv6,
 	addr->sin_addr.s_addr = (unsigned long)(lws_intptr_t)address;
 
 	return LWS_ITOSA_USABLE;
+#else
+	return LWS_ITOSA_NOT_EXIST;
+#endif
 }
 
 void
@@ -494,6 +498,7 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, socklen_t cnt)
 		return NULL;
 	}
 
+#if defined(LWS_WITH_IPV4)
 	if (af == AF_INET) {
 		struct sockaddr_in srcaddr;
 		memset(&srcaddr, 0, sizeof(srcaddr));
@@ -505,7 +510,15 @@ lws_plat_inet_ntop(int af, const void *src, char *dst, socklen_t cnt)
 					(LPDWORD)&bufferlen))
 			ok = TRUE;
 #ifdef LWS_WITH_IPV6
+	} else
+#endif
+#endif
+#ifdef LWS_WITH_IPV6
+#if defined(LWS_WITH_IPV4)
 	} else if (af == AF_INET6) {
+#else
+	if (af == AF_INET6) {
+#endif
 		struct sockaddr_in6 srcaddr;
 		memset(&srcaddr, 0, sizeof(srcaddr));
 		srcaddr.sin6_family = AF_INET6;
@@ -552,6 +565,7 @@ lws_plat_inet_pton(int af, const char *src, void *dst)
 		return -1;
 	}
 
+#if defined(LWS_WITH_IPV4)
 	if (af == AF_INET) {
 		struct sockaddr_in dstaddr;
 		int dstaddrlen = sizeof(dstaddr);
@@ -564,7 +578,15 @@ lws_plat_inet_pton(int af, const char *src, void *dst)
 			memcpy(dst, &dstaddr.sin_addr, sizeof(dstaddr.sin_addr));
 		}
 #ifdef LWS_WITH_IPV6
+	} else
+#endif
+#endif
+#ifdef LWS_WITH_IPV6
+#if defined(LWS_WITH_IPV4)
 	} else if (af == AF_INET6) {
+#else
+	if (af == AF_INET6) {
+#endif
 		struct sockaddr_in6 dstaddr;
 		int dstaddrlen = sizeof(dstaddr);
 

@@ -393,6 +393,7 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 			continue;
 #endif
 
+#if defined(LWS_WITH_IPV4)
 		case AF_INET:
 #if defined(LWS_WITH_IPV6)
 			if (ipv6) {
@@ -419,6 +420,7 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 			memcpy(addr, (struct sockaddr_in *)ifc->ifa_addr,
 						    sizeof(struct sockaddr_in));
 			break;
+#endif
 #if defined(LWS_WITH_IPV6)
 		case AF_INET6:
 			p = (const uint8_t *)
@@ -570,7 +572,11 @@ lws_plat_BINDTODEVICE(lws_sockfd_type fd, const char *ifname)
 	struct ifreq i;
 
 	memset(&i, 0, sizeof(i));
+#if defined(LWS_WITH_IPV4)
 	i.ifr_addr.sa_family = AF_INET;
+#else
+	i.ifr_addr.sa_family = AF_INET6;
+#endif
 	lws_strncpy(i.ifr_ifrn.ifrn_name, ifname,
 		    sizeof(i.ifr_ifrn.ifrn_name));
 	if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, &i, sizeof(i)) < 0) {
@@ -606,6 +612,7 @@ lws_plat_ifconfig(int fd, lws_dhcpc_ifstate_t *is)
 		return 1;
 	}
 
+#if defined(LWS_WITH_IPV4)
 	if (is->sa46[LWSDH_SA46_IP].sa4.sin_family == AF_INET) {
 		struct sockaddr_in sin;
 
@@ -640,6 +647,7 @@ lws_plat_ifconfig(int fd, lws_dhcpc_ifstate_t *is)
 			return 1;
 		}
 	} else
+#endif
 		lws_plat_if_up(is->ifname, fd, 1);
 
 	return 0;
