@@ -290,6 +290,7 @@ enum {
 	LWS_SW_URL,
 	LWS_SW_PORT,
 	LWS_SW_SERVER_ONLY,
+	LWS_SW_SERVER,
 };
 
 static const struct lws_switches switches[] = {
@@ -297,6 +298,7 @@ static const struct lws_switches switches[] = {
 	[LWS_SW_URL]	= { "-u",	"URL to connect to (if absent, acts as server too)" },
 	[LWS_SW_PORT]	= { "-p",	"Port to connect to / listen on (default 7681)" },
 	[LWS_SW_SERVER_ONLY] = { "-s",	"Server only mode (do not launch client, do not send data unprompted)" },
+	[LWS_SW_SERVER]	= { "--server",	"Server address to connect to (default 127.0.0.1)" },
 };
 
 #if defined(WIN32) && defined(LWS_WITH_SCHANNEL)
@@ -369,6 +371,8 @@ int main(int argc, const char **argv)
 			return 1;
 		}
 		port = url_port;
+	} else {
+		address = lws_cmdline_option(argc, argv, switches[LWS_SW_SERVER].sw);
 	}
 
 	signal(SIGINT, sigint_handler);
@@ -376,8 +380,8 @@ int main(int argc, const char **argv)
 	info.port                               = 7681;
 	info.protocols                          = protocols;
 	info.options                            = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
-                                                 LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
-                                                 LWS_SERVER_OPTION_DISABLE_IPV6;
+                                                 LWS_SERVER_OPTION_EXPLICIT_VHOSTS | LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY |
+                                                 0;
 
 	context = lws_create_context(&info);
 	if (!context) {
@@ -430,8 +434,8 @@ int main(int argc, const char **argv)
 		memset(&i, 0, sizeof(i));
 		i.context		= context;
 		i.port			= port;
-		i.address		= p ? address : "127.0.0.1";
-		i.host			= p ? address : "localhost";
+		i.address		= address ? address : "127.0.0.1";
+		i.host			= address ? address : "localhost";
 		i.origin		= i.address;
 		i.vhost			= vh;
 		i.ssl_connection	= LCCSCF_USE_SSL;

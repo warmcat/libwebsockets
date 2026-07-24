@@ -320,19 +320,23 @@ int main(int argc, const char **argv)
 		goto bail;
 	}
 
+#if defined(LWS_WITH_IPV6)
 	if (!lws_create_adopt_udp(vh_quic_server, NULL, port_quic, LWS_CAUDP_BIND,
 				  "http", NULL, NULL, NULL,
 				  NULL, "quic_listen")) {
 		lwsl_err("Failed to bind QUIC UDP listener (IPv6)\n");
 		goto bail;
 	}
+#endif
 
+#if defined(LWS_WITH_IPV4)
 	if (!lws_create_adopt_udp(vh_quic_server, "127.0.0.1", port_quic, LWS_CAUDP_BIND,
 				  "http", NULL, NULL, NULL,
 				  NULL, "quic_listen")) {
 		lwsl_err("Failed to bind QUIC UDP listener (IPv4)\n");
 		goto bail;
 	}
+#endif
 
 	/* TCP server */
 	info.port = port_tcp;

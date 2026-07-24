@@ -46,7 +46,7 @@ if (requirements)
 							 FIXTURES_CLEANUP qcs_srv)
 
 			add_test(NAME h3spec COMMAND
-				${H3SPEC_EXECUTABLE} ${LWS_CTEST_SERVER_RESOLVE} ${PORT_QCS} -n )
+				${H3SPEC_EXECUTABLE} 127.0.0.1 ${PORT_QCS} -n )
 			
 			set_tests_properties(h3spec PROPERTIES
 					     FIXTURES_REQUIRED "qcs_srv"

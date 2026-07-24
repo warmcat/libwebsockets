@@ -756,19 +756,27 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		if (!s)
 			goto bail;
 
-#if defined(LWS_WITH_IPV6)
-		if (!lws_check_opt(wsi->a.context->options,
-				   LWS_SERVER_OPTION_DISABLE_IPV6)) {
-			s->dest.sa6.sin6_family = AF_INET6;
-			s->af = AF_INET6;
-		} else
-#endif
-#if defined(LWS_WITH_IPV4)
-		{
-			s->dest.sa4.sin_family = AF_INET;
-			s->dest.sa4.sin_addr.s_addr = INADDR_ANY;
-			s->af = AF_INET;
-		}
+#if defined(LWS_WITH_IPV6) && defined(LWS_WITH_IPV4)
+                if (!lws_check_opt(wsi->a.context->options,
+                                   LWS_SERVER_OPTION_DISABLE_IPV6)) {
+                        s->dest.sa6.sin6_family = AF_INET6;
+                        s->af = AF_INET6;
+                } else {
+                        s->dest.sa4.sin_family = AF_INET;
+                        s->dest.sa4.sin_addr.s_addr = INADDR_ANY;
+                        s->af = AF_INET;
+                }
+#elif defined(LWS_WITH_IPV6)
+                {
+                        s->dest.sa6.sin6_family = AF_INET6;
+                        s->af = AF_INET6;
+                }
+#elif defined(LWS_WITH_IPV4)
+                {
+                        s->dest.sa4.sin_family = AF_INET;
+                        s->dest.sa4.sin_addr.s_addr = INADDR_ANY;
+                        s->af = AF_INET;
+                }
 #endif
 		lws_dll2_add_tail(&s->list, &wsi->dns_sorted_list);
 	}
@@ -826,7 +834,6 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 
 #if defined(LWS_WITH_IPV6) && defined(IPV6_V6ONLY)
 		if (s->dest.sa4.sin_family == AF_INET6 &&
-		    !lws_sa46_is_ipv4_mapped(&s->dest) &&
 		    (!(wsi->a.vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY) ||
 		     (wsi->a.vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE))) {
 			int opt = 1;
@@ -1017,7 +1024,6 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 
 #if defined(LWS_WITH_IPV6) && defined(IPV6_V6ONLY)
 	if (dest.sa4.sin_family == AF_INET6 &&
-	    !lws_sa46_is_ipv4_mapped(&dest) &&
 	    (!(wsi->a.vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY) ||
 	     (wsi->a.vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE))) {
 		int opt = 1;
