@@ -380,7 +380,10 @@ int main(int argc, const char **argv)
 	info.port                               = 7681;
 	info.protocols                          = protocols;
 	info.options                            = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
-                                                 LWS_SERVER_OPTION_EXPLICIT_VHOSTS | LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY |
+                                                 LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
+#if !defined(WIN32)
+                                                 LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY |
+#endif
                                                  0;
 
 	context = lws_create_context(&info);
