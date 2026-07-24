@@ -2904,9 +2904,21 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 
 			if (users_count == 1) {
-				sqlite3_exec(vhd->db, "INSERT OR IGNORE INTO services (service_id, name) VALUES (1, '*')", NULL, NULL, NULL);
+				/*
+				 * First user gets the TOFU "god" wildcard grant
+				 * over the '*' service.  Insert the '*' service by
+				 * name only and let sqlite pick its service_id:
+				 * hardcoding service_id=1 collides with the
+				 * 'public' service created above (which also
+				 * autoincrements to 1), and INSERT OR IGNORE then
+				 * silently drops the '*' row, leaving the TOFU
+				 * user without superpowers.  Grant on whatever id
+				 * '*' actually got, the same way every other code
+				 * path looks up '*' by name.
+				 */
+				sqlite3_exec(vhd->db, "INSERT OR IGNORE INTO services (name) VALUES ('*')", NULL, NULL, NULL);
 				gstmt = NULL;
-				if (sqlite3_prepare_v2(vhd->db, "INSERT INTO grants (uid, service_id, grant_level) VALUES ((SELECT uid FROM users WHERE username=?), 1, 2)", -1, &gstmt, NULL) == SQLITE_OK) {
+				if (sqlite3_prepare_v2(vhd->db, "INSERT INTO grants (uid, service_id, grant_level) VALUES ((SELECT uid FROM users WHERE username=?), (SELECT service_id FROM services WHERE name='*'), 2)", -1, &gstmt, NULL) == SQLITE_OK) {
 					sqlite3_bind_text(gstmt, 1, email, -1, SQLITE_TRANSIENT);
 					sqlite3_step(gstmt);
 					sqlite3_finalize(gstmt);

@@ -4,7 +4,7 @@ Demonstrates how to send email through your local MTA
 
 ## build
 
-Requires lws was built with `-DLWS_WITH_SMTP=1` at cmake.
+Requires lws was built with the abstract SMTP protocol (`-DLWS_WITH_ABSTRACT=1` and the abstract smtp protocol source present). This example targets the older abstract SMTP sequencer API and is not built by current trees, where the abstract SMTP protocol has been removed in favour of the `lws-smtp-client` protocol plugin (see `plugins/protocol_lws_smtp_client/`).
 
 ```
  $ cmake . && make

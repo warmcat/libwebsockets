@@ -65,7 +65,10 @@ This example mounts the front-end UI at `/auth` and configures the `lws-auth-ser
     }],
     "ws-protocols": [{
       "lws-smtp-client": {
-        "status": "ok"
+        "status": "ok",
+        "smtp-host": "127.0.0.1",
+        "smtp-port": "25",
+        "smtp-tls": "none"
       },
       "lws-auth-server": {
         "status": "ok",
@@ -90,16 +93,18 @@ This example mounts the front-end UI at `/auth` and configures the `lws-auth-ser
 
 By default, the `registration_ui` option is disabled (`false` or `0`) to prevent public sign-ups in purely administrative environments.
 
-However, if the `users` table in your SQLite database is completely empty, the system will temporarily permit registration of your initial administrative user through the normal web UI **if and only if** you are connecting from localhost (`127.0.0.1`, `::1`, or `localhost`) or an unroutable private LAN address (e.g. `10.x.x.x`, `192.168.x.x`).
+However, if the `users` table in your SQLite database is completely empty, the system will temporarily permit registration of your initial administrative user through the normal web UI. **This bootstrap is intentionally not restricted to any source IP** — once the database is empty, registration is accepted from any interface so that the very first account can be created. (Restrict it at the network layer if you need to.)
+
+The bootstrap registration uses the same code path as ordinary registration: the credentials are staged in the `registrations` table and a verification link is emailed to the address given. **Email delivery must be working** (see the `lws-smtp-client` PVOs above) for the TOFU administrator to receive and click that link; if no SMTP relay is reachable the link never arrives and the account is never promoted into `users`. In other words: TOFU bootstrap depends on the SMTP client plugin being co-mounted and correctly configured, exactly like every other email-verifying flow.
 
 ### The TOFU "God" Grant
-The very first user created via this localhost bootstrap method is automatically provisioned with a literal `*` wildcard grant. This specialized grant establishes total, unrestricted administrative rights (or "god mode") across all applications verifying against this system.
+The very first user promoted into an empty `users` table (i.e. the one whose verification link is consumed first) is automatically provisioned with a literal `*` wildcard grant. This specialized grant establishes total, unrestricted administrative rights (or "god mode") across all applications verifying against this system.
 
 ### Web Administration Dashboard
 Users holding the `*` wildcard grant can gain access to the built-in JSON Web UI natively mounted at `/admin` **(Note: This path is relative to wherever you mounted the `callback://lws-auth-server` endpoint for the API itself, e.g. `https://auth.warmcat.com/api/admin` or `https://auth.warmcat.com/auth/api/admin`)**! This dashboard utilizes a bi-directional WebSocket backend to allow you to easily edit user grants, list accounts, or purge identities without manually writing raw SQL queries.  *(Note: For security reasons, the underlying system intrinsically prohibits anyone from deleting identities holding the `*` wildcard through the `/admin` UI to prevent irreversible lockout scenarios).*
 
 ### Complete Server Wipe Recovery
-If you catastrophically lose access to the single TOFU administrator account or severely corrupt the grants table to the point of a hard lockout, you can safely trigger a pristine reboot. Stop the server, delete the SQLite `db_path` file entirely (and optionally, the `jwk_path` to forcibly rotate all deployed cryptographic signatures downstream), and restart `libwebsockets`. A brand-new database schema will be generated, and the TOFU bootstrap portal will re-open for your IP natively.
+If you catastrophically lose access to the single TOFU administrator account or severely corrupt the grants table to the point of a hard lockout, you can safely trigger a pristine reboot. Stop the server, delete the SQLite `db_path` file entirely (and optionally, the `jwk_path` to forcibly rotate all deployed cryptographic signatures downstream), and restart `libwebsockets`. A brand-new database schema will be generated, and the TOFU bootstrap registration will be accepted again from any interface — provided email delivery is functional so you can complete the verification step.
 
 ## Database Schema
 

@@ -9,7 +9,7 @@ set(SAMP lws-unit-tests-smtp-client)
 set(SRCS main.c)
 
 set(requirements 1)
-require_lws_config(LWS_WITH_SMTP 1 requirements)
+require_lws_config(LWS_WITH_ABSTRACT 1 requirements)
 
 if (requirements)
 	add_executable(${SAMP} ${SRCS})

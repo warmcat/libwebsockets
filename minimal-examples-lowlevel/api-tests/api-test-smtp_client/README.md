@@ -9,7 +9,7 @@ confirm it can handle rejection by the "server" cleanly.
 
 ## build
 
-Requires lws was built with `-DLWS_WITH_SMTP=1` at cmake.
+Requires lws was built with the abstract layer (`-DLWS_WITH_ABSTRACT=1` and the abstract smtp protocol source present). This test drives the abstract SMTP protocol via the unit-test transport; it is not built by current trees, where the abstract SMTP protocol has been removed in favour of the `lws-smtp-client` protocol plugin (see `plugins/protocol_lws_smtp_client/`).
 
 ```
  $ cmake . && make
