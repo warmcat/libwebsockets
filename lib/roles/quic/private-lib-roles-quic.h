@@ -333,6 +333,7 @@ struct lws_quic_netconn {
 	lws_sockfd_type		prefaddr_sockfd;	/* new probe socket */
 	uint8_t			prefaddr_active:1;
 	uint8_t			prefaddr_committed:1;	/* PATH_RESPONSE done */
+	uint8_t			prefaddr_pending:1;	/* deferred until handshake done */
 	lws_sorted_usec_list_t	prefaddr_sul;
 
 	/* ECN (Explicit Congestion Notification) */

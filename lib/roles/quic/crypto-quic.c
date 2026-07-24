@@ -946,6 +946,19 @@ error_handling:
 
 		wsi->quic.qn->handshake_done = 1;
 
+		/*
+		 * If the client deferred its preferred_address migration until
+		 * the handshake was complete, execute it now: both sides have
+		 * APP keys so the PATH_CHALLENGE/RESPONSE will succeed.
+		 */
+		if (!wsi->quic.qn->is_server && wsi->quic.qn->prefaddr_pending) {
+			wsi->quic.qn->prefaddr_pending = 0;
+			lws_quic_client_probe_preferred_address(wsi,
+						&wsi->quic.qn->probing_sa46,
+						&wsi->quic.qn->prefaddr_rem_cid,
+						wsi->quic.qn->prefaddr_rem_token);
+		}
+
 		if (wsi->quic.qn->is_server) {
 			struct lws_quic_tx_frame *f_hd = lws_zalloc(sizeof(*f_hd), "HANDSHAKE_DONE");
 			if (f_hd) {

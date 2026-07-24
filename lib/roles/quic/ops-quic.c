@@ -60,7 +60,7 @@ lws_quic_queue_path_challenge(struct lws *nwsi)
  * validates the new path; a timeout reverts to a fresh socket on the original
  * server address with the original DCID.
  */
-#define LWS_QUIC_PREFADDR_DEADLINE_US (3 * LWS_USEC_PER_SEC)
+#define LWS_QUIC_PREFADDR_DEADLINE_US (10 * LWS_USEC_PER_SEC)
 
 static int
 lws_quic_prefaddr_swap_socket(struct lws *nwsi, const lws_sockaddr46 *to_sa46)
@@ -149,16 +149,29 @@ lws_quic_client_probe_preferred_address(struct lws *nwsi,
 	if (qn->is_server)
 		return 1;
 
+	/* Save the migration parameters */
 	qn->prefaddr_original_sa46 = nwsi->udp->sa46;
 	qn->prefaddr_original_rem_cid = qn->rem_cid;
+	qn->probing_sa46 = *pref_sa46;
+	qn->probing_sa46_valid = 1;
 	if (pref_cid) {
 		qn->prefaddr_rem_cid = *pref_cid;
 		if (pref_token)
 			memcpy(qn->prefaddr_rem_token, pref_token, 16);
 	}
 
-	qn->probing_sa46 = *pref_sa46;
-	qn->probing_sa46_valid = 1;
+	/*
+	 * Defer the actual socket swap + DCID change until the handshake is
+	 * complete: the preferred_address TP arrives during the handshake, and
+	 * swapping before both sides have APP keys strands the migration (the
+	 * server can't decrypt APP-level packets from the new source port).
+	 */
+	if (!qn->handshake_done) {
+		qn->prefaddr_pending = 1;
+		return 0;
+	}
+
+	qn->prefaddr_pending = 0;
 	qn->prefaddr_active = 1;
 	qn->prefaddr_committed = 0;
 
@@ -1434,9 +1447,19 @@ tp_ok:
 				nwsi->quic.qn->highest_rx_pn[pn_space] = full_pn;
 			}
 			
-			/* Connection Migration: Execute pending migration now that the packet is cryptographically verified */
+			/*
+			 * Connection Migration: Execute pending migration now that
+			 * the packet is cryptographically verified.  Skip if a probe
+			 * is already in flight for this address to avoid overwriting
+			 * the pending path_challenge (which would make the client's
+			 * PATH_RESPONSE not match).
+			 */
 			if (pending_migration) {
-				if (is_out_of_order) {
+				if (nwsi->quic.qn->probing_sa46_valid &&
+				    !lws_sa46_compare_ads(&migration_sa46,
+							  &nwsi->quic.qn->probing_sa46)) {
+					pending_migration = 0;
+				} else if (is_out_of_order) {
 					lwsl_notice("QUIC: Ignoring connection migration from out-of-order packet (PN %llu <= highest %llu)\n",
 						    (unsigned long long)full_pn, (unsigned long long)highest);
 					pending_migration = 0;
@@ -1464,20 +1487,21 @@ tp_ok:
 						    buf_old, (unsigned int)ntohs(port_old),
 						    buf_new, (unsigned int)ntohs(port_new));
 #endif
+					/*
+					 * Commit the peer address immediately: the
+					 * client has moved to a new source port, the
+					 * old path is dead.  Since we defer client
+					 * migration until handshake_done, there should
+					 * be no pending Handshake-level TX to race.
+					 * Queue PATH_CHALLENGE at the HEAD of APP
+					 * pending_tx so it is the first APP frame
+					 * emitted to the new path.
+					 */
+					nwsi->udp->sa46 = migration_sa46;
 					nwsi->quic.qn->rx_has_non_probing = 0;
 					nwsi->quic.qn->probing_sa46 = migration_sa46;
 					nwsi->quic.qn->probing_sa46_valid = 1;
 
-					/*
-					 * Queue PATH_CHALLENGE immediately, tagged to
-					 * the new 4-tuple via has_dest.  Do NOT commit
-					 * udp->sa46 yet — keep ordinary traffic (incl.
-					 * Handshake ACKs) flowing to the OLD path until
-					 * PATH_RESPONSE validates the new one.  This
-					 * ensures the first server datagram to the new
-					 * client port carries PATH_CHALLENGE (RFC 9000
-					 * §8.2 / QIR connectionmigration requirement).
-					 */
 					if (!nwsi->quic.qn->path_challenge_pending) {
 						struct lws_quic_tx_frame *f_pc =
 							lws_zalloc(sizeof(*f_pc) + 8,
@@ -1494,8 +1518,6 @@ tp_ok:
 							memcpy(nwsi->quic.qn->path_challenge,
 							       f_pc->data, 8);
 							nwsi->quic.qn->path_challenge_pending = 1;
-							f_pc->has_dest = 1;
-							f_pc->dest_sa46 = migration_sa46;
 							lws_dll2_add_head(&f_pc->list,
 								&nwsi->quic.qn->pending_tx[LWS_QUIC_LEVEL_APP]);
 						}
@@ -1582,47 +1604,13 @@ tp_ok:
 			}
 
 			/*
-			 * RFC 9000 Section 9.3: commit only when the non-probing packet
-			 * actually came FROM the address being probed, otherwise ordinary
-			 * traffic on the existing path makes us flap between paths.
+			 * The server commits the new path ONLY on PATH_RESPONSE
+			 * validation (handled in parse-quic.c).  Do NOT commit
+			 * here on non-probing packets: doing so would make the
+			 * first server datagram to the new client port be a
+			 * regular ACK/STREAM frame instead of the PATH_CHALLENGE
+			 * that QIR connectionmigration requires.
 			 */
-			if (nwsi && nwsi->quic.qn && nwsi->quic.qn->is_server &&
-			    nwsi->quic.qn->probing_sa46_valid && nwsi->quic.qn->rx_has_non_probing &&
-			    !lws_sa46_compare_ads(&sa46, &nwsi->quic.qn->probing_sa46)) {
-#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
-				char buf_old[64], buf_new[64];
-				uint16_t port_old, port_new;
-				lws_sa46_write_numeric_address(&nwsi->udp->sa46, buf_old, sizeof(buf_old));
-				lws_sa46_write_numeric_address(&nwsi->quic.qn->probing_sa46, buf_new, sizeof(buf_new));
-#if defined(LWS_WITH_IPV6)
-				port_old = nwsi->udp->sa46.sa4.sin_family == AF_INET ? nwsi->udp->sa46.sa4.sin_port : nwsi->udp->sa46.sa6.sin6_port;
-				port_new = nwsi->quic.qn->probing_sa46.sa4.sin_family == AF_INET ? nwsi->quic.qn->probing_sa46.sa4.sin_port : nwsi->quic.qn->probing_sa46.sa6.sin6_port;
-#else
-				port_old = nwsi->udp->sa46.sa4.sin_port;
-				port_new = nwsi->quic.qn->probing_sa46.sa4.sin_port;
-#endif
-				lwsl_notice("QUIC Server: Connection Migration committed via non-probing packet! Peer address updated from %s:%u to %s:%u\n",
-					    buf_old, (unsigned int)ntohs(port_old),
-					    buf_new, (unsigned int)ntohs(port_new));
-#endif
-
-				nwsi->udp->sa46 = nwsi->quic.qn->probing_sa46;
-				nwsi->quic.qn->probing_sa46_valid = 0;
-
-				/* Reset Congestion Control State (RFC 9000 9.3.3) */
-				if (nwsi->quic.qn->cc_ops && nwsi->quic.qn->cc_ops->init)
-					nwsi->quic.qn->cc_ops->init(nwsi);
-
-				/* Reset RTT estimator */
-				nwsi->quic.qn->smoothed_rtt = 0;
-				nwsi->quic.qn->rttvar = 0;
-				nwsi->quic.qn->latest_rtt = 0;
-
-				/* Reset PMTUD */
-				nwsi->quic.qn->current_mtu = 1280;
-				nwsi->quic.qn->probed_mtu = 1380;
-				nwsi->quic.qn->pmtud_state = 1;
-			}
 
 			if (nwsi) {
 				struct lws *w = nwsi->mux.child_list;
