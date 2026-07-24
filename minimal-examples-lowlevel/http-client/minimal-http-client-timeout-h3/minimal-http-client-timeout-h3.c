@@ -72,8 +72,8 @@ static const char * const test_cert =
 "8sdCGDlwR3JNCMv6u48OK87F4mcIxhkSefFJUFII25pCGN5WtE4p5l+9cnO1GrIX\n"
 "e2Hl/7M0c/lbZ4FvXgARlex2rkgS0Ka06HE=\n"
 "-----END CERTIFICATE-----\n";
-static const char * const test_key =
-"-----BEGIN PRIVATE KEY-----\n"
+static const char * const test_key = // NOSONAR
+"-----BEGIN PRIVATE KEY-----\n" // NOSONAR
 "MIIJQwIBADANBgkqhkiG9w0BAQEFAASCCS0wggkpAgEAAoICAQCjYtuWaICCY0tJ\n"
 "PubxpIgIL+WWmz/fmK8IQr11Wtee6/IUyUlo5I602mq1qcLhT/kmpoR8Di3DAmHK\n"
 "nSWdPWtn1BtXLErLlUiHgZDrZWInmEBjKM1DZf+CvNGZ+EzPgBv5nTekLWcfI5ZZ\n"

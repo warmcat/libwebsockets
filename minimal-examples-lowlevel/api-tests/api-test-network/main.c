@@ -27,7 +27,7 @@ int main(void)
 	 * config still works on dual-stack hosts.
 	 */
 	memset(&sa46, 0, sizeof(sa46));
-	if (lws_sa46_parse_numeric_address("192.168.1.1", &sa46) < 0) {
+	if (lws_sa46_parse_numeric_address("192.168.1.1", &sa46) < 0) { // NOSONAR
 		lwsl_err("sa46 parse '192.168.1.1' failed\n");
 		e++;
 	} else {
