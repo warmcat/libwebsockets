@@ -81,7 +81,8 @@ Lws is unusual in that
  - we support a lot of platforms in CI.  Code won't pass CI unless it takes care about the spread
    of platforms it will be tested on, eg, things that are platform-specific should go in lib/plat
    and for "not quite standard" platforms like POSIX on windows, we have to carefully use helpers
-   like `LWS_POSIX_LENGTH_CAST()` as glue to fill the differences where needed.
+   like `LWS_POSIX_LENGTH_CAST()` as glue to fill the differences where needed, and `lws_sockfd_type`
+   which can adapt to needing a HANDLE on windows rather than just assume int.
 
 ## Security
 

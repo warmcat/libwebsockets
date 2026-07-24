@@ -69,7 +69,7 @@ lws_quic_prefaddr_swap_socket(struct lws *nwsi, const lws_sockaddr46 *to_sa46)
 	struct lws_context_per_thread *pt = &cx->pt[(int)nwsi->tsi];
 	lws_sock_file_fd_type new_sock;
 	int fam = to_sa46->sa4.sin_family;
-	int n_fd;
+	lws_sockfd_type n_fd;
 
 	n_fd = socket(fam, SOCK_DGRAM, 0);
 	if (!lws_socket_is_valid(n_fd)) {
