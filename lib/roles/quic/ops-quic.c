@@ -76,15 +76,15 @@ lws_quic_prefaddr_swap_socket(struct lws *nwsi, const lws_sockaddr46 *to_sa46)
 		lwsl_wsi_warn(nwsi, "prefaddr: socket fail errno=%d", LWS_ERRNO);
 		return 1;
 	}
-	if (lws_plat_set_nonblocking(n_fd) ||
-	    lws_plat_apply_FD_CLOEXEC(n_fd)) {
+	if (lws_plat_apply_FD_CLOEXEC((int)n_fd) ||
+	    lws_plat_set_nonblocking(n_fd)) {
 		compatible_close(n_fd);
 		return 1;
 	}
 	{
 		int opt = 4 * 1024 * 1024;
-		setsockopt(n_fd, SOL_SOCKET, SO_RCVBUF, (const void *)&opt, sizeof(opt));
-		setsockopt(n_fd, SOL_SOCKET, SO_SNDBUF, (const void *)&opt, sizeof(opt));
+		setsockopt(n_fd, SOL_SOCKET, SO_RCVBUF, (const char *)&opt, sizeof(opt));
+		setsockopt(n_fd, SOL_SOCKET, SO_SNDBUF, (const char *)&opt, sizeof(opt));
 	}
 	if (connect(n_fd, sa46_sockaddr((lws_sockaddr46 *)to_sa46),
 		    sa46_socklen((lws_sockaddr46 *)to_sa46)) < 0)
