@@ -1468,6 +1468,39 @@ tp_ok:
 					nwsi->quic.qn->probing_sa46 = migration_sa46;
 					nwsi->quic.qn->probing_sa46_valid = 1;
 
+					/*
+					 * Queue PATH_CHALLENGE immediately, tagged to
+					 * the new 4-tuple via has_dest.  Do NOT commit
+					 * udp->sa46 yet — keep ordinary traffic (incl.
+					 * Handshake ACKs) flowing to the OLD path until
+					 * PATH_RESPONSE validates the new one.  This
+					 * ensures the first server datagram to the new
+					 * client port carries PATH_CHALLENGE (RFC 9000
+					 * §8.2 / QIR connectionmigration requirement).
+					 */
+					if (!nwsi->quic.qn->path_challenge_pending) {
+						struct lws_quic_tx_frame *f_pc =
+							lws_zalloc(sizeof(*f_pc) + 8,
+								   "quic path_chall");
+						if (f_pc) {
+							f_pc->type = LWS_QUIC_FT_PATH_CHALLENGE;
+							f_pc->len = 8;
+							f_pc->data = (uint8_t *)&f_pc[1];
+							if (lws_get_random(wsi->a.context,
+									   f_pc->data, 8) != 8) {
+								lws_free(f_pc);
+								return LWS_HPI_RET_HANDLED;
+							}
+							memcpy(nwsi->quic.qn->path_challenge,
+							       f_pc->data, 8);
+							nwsi->quic.qn->path_challenge_pending = 1;
+							f_pc->has_dest = 1;
+							f_pc->dest_sa46 = migration_sa46;
+							lws_dll2_add_head(&f_pc->list,
+								&nwsi->quic.qn->pending_tx[LWS_QUIC_LEVEL_APP]);
+						}
+					}
+
 				} else {
 #if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 					lwsl_notice("QUIC Client: Server address changed from %s:%u to %s:%u, re-connecting socket\n",
@@ -1504,9 +1537,15 @@ tp_ok:
 					nwsi->quic.qn->bytes_sent = 0;
 				}
 
-				/* Initiate Path Validation (Generate PATH_CHALLENGE) if none pending */
-				if (!nwsi->quic.qn->path_challenge_pending) {
-					struct lws_quic_tx_frame *f_pc = lws_zalloc(sizeof(*f_pc) + 8, "quic path_chall");
+				/*
+				 * Client path: queue PATH_CHALLENGE for the
+				 * server-address-change case (server already did
+				 * its own above).
+				 */
+				if (!nwsi->quic.qn->is_server &&
+				    !nwsi->quic.qn->path_challenge_pending) {
+					struct lws_quic_tx_frame *f_pc =
+						lws_zalloc(sizeof(*f_pc) + 8, "quic path_chall");
 					if (f_pc) {
 						f_pc->type = LWS_QUIC_FT_PATH_CHALLENGE;
 						f_pc->len = 8;
@@ -1517,16 +1556,11 @@ tp_ok:
 						}
 						memcpy(nwsi->quic.qn->path_challenge, f_pc->data, 8);
 						nwsi->quic.qn->path_challenge_pending = 1;
-
-						if (nwsi->quic.qn->is_server) {
-							f_pc->has_dest = 1;
-							f_pc->dest_sa46 = migration_sa46;
-						}
-
-						lws_dll2_add_head(&f_pc->list, &nwsi->quic.qn->pending_tx[LWS_QUIC_LEVEL_APP]);
-						lws_callback_on_writable(nwsi);
+						lws_dll2_add_head(&f_pc->list,
+							&nwsi->quic.qn->pending_tx[LWS_QUIC_LEVEL_APP]);
 					}
 				}
+				lws_callback_on_writable(nwsi);
 				}
 			}
 
