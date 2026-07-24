@@ -604,12 +604,14 @@ check_quic:
 #endif
 			if (!vhost->iface || !LWS_IPV6_ENABLED(vhost) || 
 			    (vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE)) {
+#if defined(LWS_WITH_IPV4)
 				const char *ads4 = vhost->iface ? vhost->iface : "0.0.0.0";
 				if (!lws_create_adopt_udp(vhost, ads4, vhost->listen_port,
 							  LWS_CAUDP_BIND, "quic", vhost->iface, NULL,
 							  NULL, NULL, "quic_listen")) {
 					lwsl_vhost_err(vhost, "Failed to bind QUIC IPv4 UDP listener");
 				}
+#endif
 			}
 		}
 	}

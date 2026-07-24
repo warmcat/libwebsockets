@@ -834,6 +834,7 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 
 #if defined(LWS_WITH_IPV6) && defined(IPV6_V6ONLY)
 		if (s->dest.sa4.sin_family == AF_INET6 &&
+		    !lws_sa46_is_ipv4_mapped(&s->dest) &&
 		    (!(wsi->a.vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY) ||
 		     (wsi->a.vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE))) {
 			int opt = 1;
@@ -942,8 +943,7 @@ resume:
 #endif
 
 bail:
-
-	/* caller must close */
+	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "adopt udp2 fail");
 
 	return NULL;
 }
@@ -1024,6 +1024,7 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 
 #if defined(LWS_WITH_IPV6) && defined(IPV6_V6ONLY)
 	if (dest.sa4.sin_family == AF_INET6 &&
+	    !lws_sa46_is_ipv4_mapped(&dest) &&
 	    (!(wsi->a.vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY) ||
 	     (wsi->a.vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE))) {
 		int opt = 1;
@@ -1097,6 +1098,8 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 resume:
 	compatible_close(sock.sockfd);
 bail:
+	lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "adopt udp2 fail");
+
 	return NULL;
 }
 #endif

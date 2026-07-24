@@ -644,6 +644,10 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 		if (ai->ai_family == AF_INET6)
 			goto next;
 #endif
+#if !defined(LWS_WITH_IPV4)
+		if (ai->ai_family == AF_INET)
+			goto next;
+#endif
 
 		ds = lws_zalloc(sizeof(*ds), __func__);
 		if (!ds)

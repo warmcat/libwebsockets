@@ -1490,17 +1490,29 @@ tp_ok:
 					/*
 					 * Commit the peer address immediately: the
 					 * client has moved to a new source port, the
-					 * old path is dead.  Since we defer client
-					 * migration until handshake_done, there should
-					 * be no pending Handshake-level TX to race.
-					 * Queue PATH_CHALLENGE at the HEAD of APP
-					 * pending_tx so it is the first APP frame
-					 * emitted to the new path.
+					 * old path is dead.  Discard any pending
+					 * Initial/Handshake TX (the handshake is done,
+					 * those ACKs are redundant) so they don't race
+					 * ahead of the PATH_CHALLENGE to the new path.
+					 * Queue PATH_CHALLENGE at HEAD of APP pending_tx.
 					 */
 					nwsi->udp->sa46 = migration_sa46;
 					nwsi->quic.qn->rx_has_non_probing = 0;
 					nwsi->quic.qn->probing_sa46 = migration_sa46;
 					nwsi->quic.qn->probing_sa46_valid = 1;
+
+					{
+						int _li;
+						for (_li = 0; _li <= LWS_QUIC_LEVEL_HANDSHAKE; _li++) {
+							lws_start_foreach_dll_safe(struct lws_dll2 *, _d, _d1,
+									nwsi->quic.qn->pending_tx[_li].head) {
+								struct lws_quic_tx_frame *_f = lws_container_of(_d,
+										struct lws_quic_tx_frame, list);
+								lws_dll2_remove(&_f->list);
+								lws_free(_f);
+							} lws_end_foreach_dll_safe(_d, _d1);
+						}
+					}
 
 					if (!nwsi->quic.qn->path_challenge_pending) {
 						struct lws_quic_tx_frame *f_pc =
