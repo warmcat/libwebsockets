@@ -944,6 +944,8 @@ lws_sa46_parse_numeric_address(const char *ads, lws_sockaddr46 *sa46)
 	uint8_t a[16];
 	int n;
 
+	memset(sa46, 0, sizeof(*sa46));
+
 	n = lws_parse_numeric_address(ads, a, sizeof(a));
 	if (n < 0)
 		return -1;

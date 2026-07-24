@@ -509,7 +509,12 @@ solo:
 		}
 #endif
 		n = lws_async_dns_query(wsi->a.context, wsi->tsi, adsin,
-				LWS_ADNS_RECORD_A, lws_client_connect_3_connect,
+#if defined(LWS_WITH_IPV6) && !defined(LWS_WITH_IPV4)
+				LWS_ADNS_RECORD_AAAA,
+#else
+				LWS_ADNS_RECORD_A,
+#endif
+				lws_client_connect_3_connect,
 				wsi, NULL, NULL);
 	}
 

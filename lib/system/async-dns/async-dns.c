@@ -222,7 +222,12 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 	p = &pkt[LWS_PRE];
 	memset(p, 0, DHO_SIZEOF);
 
-#if defined(LWS_WITH_IPV6)
+#if !defined(LWS_WITH_IPV4)
+	which = 1;
+	q->sent[0]++;
+	q->sent[1]++;
+	q->asked = 2; /* AAAA response bit is 2 (1 << 1) */
+#elif defined(LWS_WITH_IPV6)
 	if (q->qtype != LWS_ADNS_RECORD_A && q->qtype != LWS_ADNS_RECORD_AAAA) {
 		which = 0;
 		q->sent[0]++;
@@ -1330,12 +1335,20 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 			m = lws_adns_scan_hostsfile(name, ads, sizeof(ads), qtype & 0xff);
 
 		if (m < 4 && !strcmp(name, "localhost")) {
+#if defined(LWS_WITH_IPV4)
 			if ((qtype & 0xff) == LWS_ADNS_RECORD_A) {
 				ads[0] = 127; ads[1] = 0; ads[2] = 0; ads[3] = 1;
 				m = 4;
 			}
+#endif
 #if defined(LWS_WITH_IPV6)
-			else if ((qtype & 0xff) == LWS_ADNS_RECORD_AAAA) {
+			if (
+#if defined(LWS_WITH_IPV4)
+				(qtype & 0xff) == LWS_ADNS_RECORD_AAAA
+#else
+				1
+#endif
+			) {
 				memset(ads, 0, 15); ads[15] = 1;
 				m = 16;
 			}

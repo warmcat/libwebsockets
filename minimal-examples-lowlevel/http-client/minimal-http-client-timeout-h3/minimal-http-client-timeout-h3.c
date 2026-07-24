@@ -288,7 +288,11 @@ connect_sul_cb(lws_sorted_usec_list_t *sul)
 		return;
 	}
 
+#if defined(LWS_WITH_IPV4)
 	if (connect_client(g_context, g_client_vh, "127.0.0.1", port))
+#else
+	if (connect_client(g_context, g_client_vh, "::1", port))
+#endif
 		interrupted = 1;
 }
 
@@ -323,8 +327,10 @@ main(int argc, const char **argv)
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 
 	info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
-			LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
-			LWS_SERVER_OPTION_DISABLE_IPV6;
+			LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
+#if defined(LWS_WITH_IPV4)
+	info.options |= LWS_SERVER_OPTION_DISABLE_IPV6;
+#endif
 	info.protocols = server_protocols; /* used for the server vhost */
 	/*
 	 * Client reply timeout: short and deterministic for the test.  This is
