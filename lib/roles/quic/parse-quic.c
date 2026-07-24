@@ -1041,6 +1041,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 								nwsi->quic.qn->probing_sa46;
 						nwsi->quic.qn->probing_sa46_valid = 0;
 						nwsi->quic.qn->prefaddr_active = 0;
+						nwsi->quic.qn->prefaddr_committed = 1;
 						lws_sul_cancel(&nwsi->quic.qn->prefaddr_sul);
 						lwsl_wsi_notice(nwsi,
 							"QUIC: PATH_RESPONSE validated, %s migration committed",
@@ -1672,10 +1673,15 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 			 */
 			if (param_len >= 4 + 2 + 16 + 2 + 1) {
 				lws_sockaddr46 pref;
+				struct lws_quic_cid pcid;
+				uint8_t token[16];
 				uint16_t port;
 				const uint8_t *v4 = &buf[pos];
+				size_t off = pos + 4 + 2 + 16 + 2;
+				int have_cid = 0;
 
 				memset(&pref, 0, sizeof(pref));
+				memset(&pcid, 0, sizeof(pcid));
 
 				if (v4[0] | v4[1] | v4[2] | v4[3]) {
 					pref.sa4.sin_family = AF_INET;
@@ -1696,16 +1702,22 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 				}
 				sa46_sockport(&pref, htons(port));
 
+				if (off < pos + param_len) {
+					uint8_t clen = buf[off++];
+					if (clen && clen <= LWS_QUIC_MAX_CID_LEN &&
+					    off + clen + 16 <= pos + param_len) {
+						pcid.len = clen;
+						memcpy(pcid.id, &buf[off], clen);
+						memcpy(token, &buf[off + clen], 16);
+						have_cid = 1;
+					}
+				}
+
 				if (port && qn->nwsi)
-					/*
-					 * Validate the new server path on the
-					 * EXISTING connection (RFC 9000 §9.6):
-					 * the client does not migrate its own
-					 * address, it only re-targets the server
-					 * destination after PATH_RESPONSE.
-					 */
 					lws_quic_client_probe_preferred_address(
-							qn->nwsi, &pref);
+						qn->nwsi, &pref,
+						have_cid ? &pcid : NULL,
+						have_cid ? token : NULL);
 			}
 			break;
 #endif

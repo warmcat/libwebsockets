@@ -51,14 +51,64 @@ lws_quic_queue_path_challenge(struct lws *nwsi)
 }
 
 /*
- * Client preferred_address path-validation deadline (RFC 9000 §9.6).
+ * Client preferred_address active migration (RFC 9000 §9.5/§9.6).
  *
- * If the server's PATH_RESPONSE to our PATH_CHALLENGE toward the preferred
- * address does not arrive in time, revert the socket to the original server
- * address so the connection is not stranded on an unvalidated path.  A success
- * case cancels this sul from the PATH_RESPONSE handler.
+ * Swap the nwsi onto a fresh UDP socket (new source port) connected to the
+ * server's preferred address, and start using the new DCID the server
+ * advertised.  This is "break-before-make": the old path is abandoned at probe
+ * start and in-flight data is recovered by QUIC loss detection.  A PATH_RESPONSE
+ * validates the new path; a timeout reverts to a fresh socket on the original
+ * server address with the original DCID.
  */
 #define LWS_QUIC_PREFADDR_DEADLINE_US (3 * LWS_USEC_PER_SEC)
+
+static int
+lws_quic_prefaddr_swap_socket(struct lws *nwsi, const lws_sockaddr46 *to_sa46)
+{
+	struct lws_context *cx = nwsi->a.context;
+	struct lws_context_per_thread *pt = &cx->pt[(int)nwsi->tsi];
+	lws_sock_file_fd_type new_sock;
+	int fam = to_sa46->sa4.sin_family;
+	int n_fd;
+
+	n_fd = socket(fam, SOCK_DGRAM, 0);
+	if (!lws_socket_is_valid(n_fd)) {
+		lwsl_wsi_warn(nwsi, "prefaddr: socket fail errno=%d", LWS_ERRNO);
+		return 1;
+	}
+	if (lws_plat_set_nonblocking(n_fd) ||
+	    lws_plat_apply_FD_CLOEXEC(n_fd)) {
+		compatible_close(n_fd);
+		return 1;
+	}
+	{
+		int opt = 4 * 1024 * 1024;
+		setsockopt(n_fd, SOL_SOCKET, SO_RCVBUF, (const void *)&opt, sizeof(opt));
+		setsockopt(n_fd, SOL_SOCKET, SO_SNDBUF, (const void *)&opt, sizeof(opt));
+	}
+	if (connect(n_fd, sa46_sockaddr((lws_sockaddr46 *)to_sa46),
+		    sa46_socklen((lws_sockaddr46 *)to_sa46)) < 0)
+		lwsl_wsi_warn(nwsi, "prefaddr: connect fail errno=%d", LWS_ERRNO);
+
+	new_sock.sockfd = n_fd;
+
+	lws_pt_lock(pt, __func__);
+	if (lws_socket_is_valid(nwsi->desc.sockfd))
+		__remove_wsi_socket_from_fds(nwsi);
+	if (lws_socket_is_valid(nwsi->desc.sockfd))
+		compatible_close(nwsi->desc.sockfd);
+	nwsi->desc = new_sock;
+	if (__insert_wsi_socket_into_fds(cx, nwsi)) {
+		lws_pt_unlock(pt);
+		compatible_close(n_fd);
+		return 1;
+	}
+	lws_pt_unlock(pt);
+
+	nwsi->udp->sa46 = *to_sa46;
+
+	return 0;
+}
 
 static void
 lws_quic_prefaddr_sul_cb(lws_sorted_usec_list_t *sul)
@@ -71,26 +121,24 @@ lws_quic_prefaddr_sul_cb(lws_sorted_usec_list_t *sul)
 		return;
 
 	lwsl_wsi_notice(nwsi, "QUIC: preferred_address path validation timed out, "
-			   "reverting to original server address");
+			   "reverting to original server path");
 
 	qn->probing_sa46_valid = 0;
 	qn->path_challenge_pending = 0;
 	qn->prefaddr_active = 0;
-	nwsi->udp->sa46 = qn->prefaddr_original_sa46;
+	qn->rem_cid = qn->prefaddr_original_rem_cid;
 
-	if (lws_socket_is_valid(nwsi->desc.sockfd) &&
-	    connect(nwsi->desc.sockfd,
-		    sa46_sockaddr(&qn->prefaddr_original_sa46),
-		    sa46_socklen(&qn->prefaddr_original_sa46)) < 0)
-		lwsl_wsi_warn(nwsi, "QUIC: failed to re-connect to original addr, errno=%d",
-			     LWS_ERRNO);
+	if (lws_quic_prefaddr_swap_socket(nwsi, &qn->prefaddr_original_sa46))
+		lwsl_wsi_err(nwsi, "prefaddr: revert socket failed");
 
 	lws_callback_on_writable(nwsi);
 }
 
 int
 lws_quic_client_probe_preferred_address(struct lws *nwsi,
-					const lws_sockaddr46 *pref_sa46)
+					const lws_sockaddr46 *pref_sa46,
+					const struct lws_quic_cid *pref_cid,
+					const uint8_t *pref_token)
 {
 	struct lws_quic_netconn *qn;
 
@@ -101,28 +149,24 @@ lws_quic_client_probe_preferred_address(struct lws *nwsi,
 	if (qn->is_server)
 		return 1;
 
-	/*
-	 * Save the current peer so a failed validation (or loss of the
-	 * PATH_RESPONSE) can restore the socket to the original server path.
-	 */
 	qn->prefaddr_original_sa46 = nwsi->udp->sa46;
+	qn->prefaddr_original_rem_cid = qn->rem_cid;
+	if (pref_cid) {
+		qn->prefaddr_rem_cid = *pref_cid;
+		if (pref_token)
+			memcpy(qn->prefaddr_rem_token, pref_token, 16);
+	}
+
 	qn->probing_sa46 = *pref_sa46;
 	qn->probing_sa46_valid = 1;
 	qn->prefaddr_active = 1;
+	qn->prefaddr_committed = 0;
 
-	/*
-	 * Re-target the existing UDP socket at the preferred address.  The
-	 * client source 4-tuple does not change (RFC 9000 §9.6: this is not a
-	 * client connection migration), so the server sees no migration and
-	 * must not flap.  A connected UDP socket can be re-connect()ed.
-	 */
-	if (lws_socket_is_valid(nwsi->desc.sockfd) &&
-	    connect(nwsi->desc.sockfd, sa46_sockaddr((lws_sockaddr46 *)pref_sa46),
-		    sa46_socklen((lws_sockaddr46 *)pref_sa46)) < 0)
-		lwsl_wsi_warn(nwsi, "QUIC: failed to connect preferred_address, errno=%d",
-			     LWS_ERRNO);
+	if (lws_quic_prefaddr_swap_socket(nwsi, pref_sa46))
+		return 1;
 
-	nwsi->udp->sa46 = *pref_sa46;
+	if (pref_cid && pref_cid->len)
+		qn->rem_cid = *pref_cid;
 
 	lws_quic_queue_path_challenge(nwsi);
 
@@ -663,6 +707,13 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 				lwsl_debug("QUIC RX: found connection by orig_dcid! nwsi=%s\n", lws_wsi_tag(nwsi));
 				break;
 			}
+			/* Match the preferred_address CID we advertised (RFC 9000 §9.6) */
+			if (w->quic.qn && w->quic.qn->prefaddr_rem_cid.len == dcid_len &&
+			    !memcmp(w->quic.qn->prefaddr_rem_cid.id, dcid.id, dcid_len)) {
+				nwsi = w;
+				lwsl_debug("QUIC RX: found connection by prefaddr cid! nwsi=%s\n", lws_wsi_tag(nwsi));
+				break;
+			}
 			w = w->mux.sibling_list;
 		}
 	}
@@ -1003,6 +1054,11 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
                                         *pb++ = 8; /* Generating an 8-byte CID */
                                         /* CID Bytes */
                                         if (lws_get_random(wsi->a.context, pb, 8) != 8) goto tp_overflow;
+                                        /* Store so server can route migrated client packets addressed to it */
+                                        if (nwsi->quic.qn) {
+                                                nwsi->quic.qn->prefaddr_rem_cid.len = 8;
+                                                memcpy(nwsi->quic.qn->prefaddr_rem_cid.id, pb, 8);
+                                        }
                                         pb += 8;
                                         /* Stateless Reset Token */
                                         if (lws_get_random(wsi->a.context, pb, 16) != 16) goto tp_overflow;
@@ -1491,11 +1547,14 @@ tp_ok:
 				nwsi = lws_get_quic_network_wsi(nwsi);
 			}
 
-			/* RFC 9000 Section 9.3: Receiving non-probing frames (STREAM, ACK, etc.) from a new address
-			 * indicates that the peer has migrated (e.g. due to NAT rebinding or active client migration).
-			 * The server MUST commit its active path to the new address. */
+			/*
+			 * RFC 9000 Section 9.3: commit only when the non-probing packet
+			 * actually came FROM the address being probed, otherwise ordinary
+			 * traffic on the existing path makes us flap between paths.
+			 */
 			if (nwsi && nwsi->quic.qn && nwsi->quic.qn->is_server &&
-			    nwsi->quic.qn->probing_sa46_valid && nwsi->quic.qn->rx_has_non_probing) {
+			    nwsi->quic.qn->probing_sa46_valid && nwsi->quic.qn->rx_has_non_probing &&
+			    !lws_sa46_compare_ads(&sa46, &nwsi->quic.qn->probing_sa46)) {
 #if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 				char buf_old[64], buf_new[64];
 				uint16_t port_old, port_new;

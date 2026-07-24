@@ -318,15 +318,21 @@ struct lws_quic_netconn {
 	uint8_t			rx_has_non_probing:1;
 
 	/*
-	 * Client preferred_address migration (RFC 9000 Section 9.6).
+	 * Client preferred_address active migration (RFC 9000 Section 9.5/9.6).
 	 *
-	 * Unlike server-side passive migration, the client does NOT change its
-	 * source address: it only re-targets the server destination.  We save
-	 * the original peer address so a failed path validation can revert the
-	 * socket, and arm prefaddr_sul to bound the wait for PATH_RESPONSE.
+	 * The client migrates onto the server's preferred address using a NEW
+	 * source socket (so the server observes a second client 4-tuple) and
+	 * the new DCID the server advertised in the preferred_address TP.  We
+	 * save the original peer address + DCID so a failed path validation can
+	 * revert cleanly.
 	 */
 	lws_sockaddr46		prefaddr_original_sa46;
+	struct lws_quic_cid	prefaddr_original_rem_cid;
+	struct lws_quic_cid	prefaddr_rem_cid;	/* new DCID from TP */
+	uint8_t			prefaddr_rem_token[16];/* stateless reset token */
+	lws_sockfd_type		prefaddr_sockfd;	/* new probe socket */
 	uint8_t			prefaddr_active:1;
+	uint8_t			prefaddr_committed:1;	/* PATH_RESPONSE done */
 	lws_sorted_usec_list_t	prefaddr_sul;
 
 	/* ECN (Explicit Congestion Notification) */
@@ -380,14 +386,18 @@ void
 lws_quic_queue_path_challenge(struct lws *nwsi);
 
 /*
- * Client preferred_address migration (RFC 9000 Section 9.6): re-target the
- * existing client connection at the server's preferred address and validate
- * the new path with PATH_CHALLENGE / PATH_RESPONSE.  The client source address
- * is unchanged; only the server destination moves.  Returns 0 on success.
+ * Client preferred_address active migration (RFC 9000 Section 9.5/9.6):
+ * open a new source socket toward the server's preferred address, swap to the
+ * new DCID the server advertised, and validate the new path with
+ * PATH_CHALLENGE / PATH_RESPONSE.  On success the connection moves onto the
+ * new socket; on timeout it reverts.  pref_cid/pref_token may be NULL.
+ * Returns 0 on success.
  */
 int
 lws_quic_client_probe_preferred_address(struct lws *nwsi,
-					const lws_sockaddr46 *pref_sa46);
+					const lws_sockaddr46 *pref_sa46,
+					const struct lws_quic_cid *pref_cid,
+					const uint8_t *pref_token);
 
 void lws_quic_keys_free(struct lws_quic_keys *keys);
 
