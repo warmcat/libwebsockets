@@ -177,7 +177,7 @@ lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
 {
 	const uint8_t *e = pkt + len, *p, *pay;
 	struct label_stack stack[8];
-	int n = 0, stp = 0, ansc, m;
+	int n = 0, stp = 0, ansc, m, found = 0;
 	uint16_t rrtype, rrpaylen;
 	char *sp, inq;
 	uint32_t ttl;
@@ -204,7 +204,7 @@ lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
 
 	while (p + 14 < e && (inq || ansc)) {
 
-		if (!inq && !stp)
+		if (!inq)
 			ansc--;
 
 		/*
@@ -333,6 +333,7 @@ lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
 do_cb:
 #endif
 			cb(stack[0].name, opaque, ttl, rrtype, rrpaylen, p);
+			found++;
 			break;
 
 		case LWS_ADNS_RECORD_CNAME:
@@ -403,6 +404,8 @@ do_cb:
 			 */
 			// lwsl_notice("lws_adns_iterate: Calling CB for DNSSEC RR %d (len %d)\n", rrtype, rrpaylen);
 			cb(stack[0].name, opaque, ttl, rrtype, rrpaylen, p);
+			if (rrtype == LWS_ADNS_RECORD_HTTPS)
+				found++;
 			break;
 
 		default:
@@ -422,6 +425,9 @@ skip:
 
 		break;
 	} while (1);
+
+	if (found)
+		return 0; /* resolved from inside this response */
 
 	if (!stp || cb != lws_async_dns_estimate)
 		return 1; /* we didn't find anything, but we didn't error */
@@ -464,6 +470,7 @@ skip:
 	if (q->firstcache)
 		lws_adns_cache_destroy(q->firstcache);
 	q->firstcache = NULL;
+	q->last = NULL; /* it pointed into the cache we just freed */
 
 	/* overwrite the query name with the CNAME */
 
