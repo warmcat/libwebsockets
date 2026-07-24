@@ -31,7 +31,7 @@ one after the other and gets the same benefit from the same code.
 Isolating and collating the protocol code in one place also makes it very easy
 to maintain and understand.
 
-So it if highly recommended you put your protocol-specific code into the
+So it is highly recommended you put your protocol-specific code into the
 form of a "plugin" at the source level, even if you have no immediate plan to
 use it dynamically-loaded.
 
