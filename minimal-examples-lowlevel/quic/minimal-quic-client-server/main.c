@@ -381,9 +381,7 @@ int main(int argc, const char **argv)
 	info.protocols                          = protocols;
 	info.options                            = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
                                                  LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
-#if !defined(WIN32)
                                                  LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY |
-#endif
                                                  0;
 
 	context = lws_create_context(&info);
@@ -421,13 +419,33 @@ int main(int argc, const char **argv)
 	}
 
 	if (!p) {
-		/* Explicitly instantiate a UDP listener socket and bind it to QUIC! */
-               if (!lws_create_adopt_udp(vh, NULL, port, LWS_CAUDP_BIND,
-						"quic-test-protocol", NULL, NULL, NULL,
-						NULL, "quic_listen")) {
-			lwsl_err("Failed to bind QUIC UDP listener\n");
+		/*
+		 * Explicitly instantiate UDP listener socket(s) and bind them
+		 * to QUIC.  Bind per address-family rather than relying on a
+		 * single dual-stack :: socket: lws forces IPV6_V6ONLY=1 on IPv6
+		 * UDP sockets (matching the TCP listen path), so on Windows /
+		 * other v6-only-default stacks a lone :: listener would never
+		 * receive the client's IPv4 packets to 127.0.0.1.  Creating a
+		 * matching listener per compiled-in family mirrors the default
+		 * QUIC adoption path and works for the ipv4-only, ipv6-only and
+		 * dual-stack builds alike.
+		 */
+#if defined(LWS_WITH_IPV6)
+		if (!lws_create_adopt_udp(vh, "::", port, LWS_CAUDP_BIND,
+					  "quic-test-protocol", NULL, NULL, NULL,
+					  NULL, "quic_listen6")) {
+			lwsl_err("Failed to bind QUIC IPv6 UDP listener\n");
 			goto bail;
 		}
+#endif
+#if defined(LWS_WITH_IPV4)
+		if (!lws_create_adopt_udp(vh, "0.0.0.0", port, LWS_CAUDP_BIND,
+					  "quic-test-protocol", NULL, NULL, NULL,
+					  NULL, "quic_listen4")) {
+			lwsl_err("Failed to bind QUIC IPv4 UDP listener\n");
+			goto bail;
+		}
+#endif
 	}
 
 	if (!server_only) {
