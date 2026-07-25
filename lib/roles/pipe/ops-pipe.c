@@ -52,7 +52,7 @@ rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 	 */
 	n = (int)read(wsi->desc.sockfd, s, sizeof(s));
 	(void)n;
-	if (n < 0)
+	if (n <= 0)
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 #elif defined(WIN32)
 	char s[100];
