@@ -833,11 +833,27 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 		}
 
 #if defined(LWS_WITH_IPV6) && defined(IPV6_V6ONLY)
+		/*
+		 * For IPv6 UDP sockets we own the IPV6_V6ONLY state rather
+		 * than inheriting the OS default (which is 0 = dual-stack on
+		 * Linux/macOS but 1 = v6-only on Windows):
+		 *
+		 *   - by default (!MODIFY) we force v6-only, matching the TCP
+		 *     listen path.  Callers that want both families bind two
+		 *     sockets (:: and 0.0.0.0) and rely on this -- e.g. dht,
+		 *     auth_dns, extip.
+		 *   - MODIFY && !VALUE explicitly requests dual-stack, so a
+		 *     lone :: listener also receives IPv4-mapped packets
+		 *     (the QUIC adoption path).  Force V6ONLY=0 here, since
+		 *     the OS default cannot be relied on (Windows = 1).
+		 *   - MODIFY | VALUE explicitly requests v6-only.
+		 */
 		if (s->dest.sa4.sin_family == AF_INET6 &&
-		    !lws_sa46_is_ipv4_mapped(&s->dest) &&
-		    (!(wsi->a.vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY) ||
-		     (wsi->a.vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE))) {
-			int opt = 1;
+		    !lws_sa46_is_ipv4_mapped(&s->dest)) {
+			int opt = !(wsi->a.vhost->options &
+				    LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY) ||
+				  !!(wsi->a.vhost->options &
+				     LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE);
 			if (setsockopt(sock.sockfd, IPPROTO_IPV6, IPV6_V6ONLY,
 				       (const void *)&opt, sizeof(opt)) < 0) {
 				lwsl_vhost_notice(wsi->a.vhost, "set IPV6_V6ONLY fail");
@@ -1024,10 +1040,11 @@ lws_create_adopt_udp2(struct lws *wsi, const char *ads,
 
 #if defined(LWS_WITH_IPV6) && defined(IPV6_V6ONLY)
 	if (dest.sa4.sin_family == AF_INET6 &&
-	    !lws_sa46_is_ipv4_mapped(&dest) &&
-	    (!(wsi->a.vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY) ||
-	     (wsi->a.vhost->options & LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE))) {
-		int opt = 1;
+	    !lws_sa46_is_ipv4_mapped(&dest)) {
+		int opt = !(wsi->a.vhost->options &
+			    LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY) ||
+			  !!(wsi->a.vhost->options &
+			     LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE);
 		if (setsockopt(sock.sockfd, IPPROTO_IPV6, IPV6_V6ONLY,
 			       (const void *)&opt, sizeof(opt)) < 0) {
 			lwsl_vhost_notice(wsi->a.vhost, "set IPV6_V6ONLY fail");

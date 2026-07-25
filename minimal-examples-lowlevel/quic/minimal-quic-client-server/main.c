@@ -381,9 +381,7 @@ int main(int argc, const char **argv)
 	info.protocols                          = protocols;
 	info.options                            = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
                                                  LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
-#if !defined(WIN32)
                                                  LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY |
-#endif
                                                  0;
 
 	context = lws_create_context(&info);
@@ -422,9 +420,9 @@ int main(int argc, const char **argv)
 
 	if (!p) {
 		/* Explicitly instantiate a UDP listener socket and bind it to QUIC! */
-               if (!lws_create_adopt_udp(vh, NULL, port, LWS_CAUDP_BIND,
-						"quic-test-protocol", NULL, NULL, NULL,
-						NULL, "quic_listen")) {
+		if (!lws_create_adopt_udp(vh, NULL, port, LWS_CAUDP_BIND,
+					  "quic-test-protocol", NULL, NULL, NULL,
+					  NULL, "quic_listen")) {
 			lwsl_err("Failed to bind QUIC UDP listener\n");
 			goto bail;
 		}
