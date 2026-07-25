@@ -52,7 +52,17 @@ rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 	 */
 	n = (int)read(wsi->desc.sockfd, s, sizeof(s));
 	(void)n;
-	if (n <= 0)
+	/*
+	 * Only treat a real read error as a reason to close the pipe wsi.
+	 * read() returning 0 happens when the context is tearing down (the
+	 * write end is going away); closing the pipe wsi from inside its own
+	 * POLLIN handler during context destroy frees it out from under the
+	 * service loop that is still iterating on it, observed as a segfault
+	 * during lws_context_destroy() on libuv / distro-recommended builds.
+	 * The pipe is owned by the context and is explicitly closed as part
+	 * of normal pt destroy, so it does not need our help here.
+	 */
+	if (n < 0)
 		return LWS_HPI_RET_PLEASE_CLOSE_ME;
 #elif defined(WIN32)
 	char s[100];

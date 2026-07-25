@@ -149,11 +149,8 @@ lws_quic_client_probe_preferred_address(struct lws *nwsi,
 	if (qn->is_server)
 		return 1;
 
-	/* Save the migration parameters */
-	qn->prefaddr_original_sa46 = nwsi->udp->sa46;
-	qn->prefaddr_original_rem_cid = qn->rem_cid;
+	/* Save the migration parameters for later */
 	qn->probing_sa46 = *pref_sa46;
-	qn->probing_sa46_valid = 1;
 	if (pref_cid) {
 		qn->prefaddr_rem_cid = *pref_cid;
 		if (pref_token)
@@ -161,10 +158,10 @@ lws_quic_client_probe_preferred_address(struct lws *nwsi,
 	}
 
 	/*
-	 * Defer the actual socket swap + DCID change until the handshake is
-	 * complete: the preferred_address TP arrives during the handshake, and
-	 * swapping before both sides have APP keys strands the migration (the
-	 * server can't decrypt APP-level packets from the new source port).
+	 * Defer the actual socket swap + DCID change until the server confirms
+	 * handshake completion via HANDSHAKE_DONE.  The preferred_address TP
+	 * arrives during the handshake; swapping before both sides have APP
+	 * keys strands the migration.
 	 */
 	if (!qn->handshake_done) {
 		qn->prefaddr_pending = 1;
@@ -1272,7 +1269,9 @@ tp_ok:
 
 		/* F-57: Validate short header DCID */
 		if (!(p[0] & 0x80) && nwsi && nwsi->quic.qn && nwsi->quic.qn->loc_cid.len) {
-			if (local_dcid_len > (size_t)n - 1 || memcmp(&p[1], nwsi->quic.qn->loc_cid.id, local_dcid_len)) {
+			if (local_dcid_len > (size_t)n - 1 ||
+			    (memcmp(&p[1], nwsi->quic.qn->loc_cid.id, local_dcid_len) &&
+			     memcmp(&p[1], nwsi->quic.qn->prefaddr_rem_cid.id, local_dcid_len))) {
 				lwsl_wsi_notice(wsi, "QUIC RX: Short header DCID mismatch");
 				/* Drop packet */
 				p += packet_size;
@@ -1501,19 +1500,6 @@ tp_ok:
 					nwsi->quic.qn->probing_sa46 = migration_sa46;
 					nwsi->quic.qn->probing_sa46_valid = 1;
 
-					{
-						int _li;
-						for (_li = 0; _li <= LWS_QUIC_LEVEL_HANDSHAKE; _li++) {
-							lws_start_foreach_dll_safe(struct lws_dll2 *, _d, _d1,
-									nwsi->quic.qn->pending_tx[_li].head) {
-								struct lws_quic_tx_frame *_f = lws_container_of(_d,
-										struct lws_quic_tx_frame, list);
-								lws_dll2_remove(&_f->list);
-								lws_free(_f);
-							} lws_end_foreach_dll_safe(_d, _d1);
-						}
-					}
-
 					if (!nwsi->quic.qn->path_challenge_pending) {
 						struct lws_quic_tx_frame *f_pc =
 							lws_zalloc(sizeof(*f_pc) + 8,
@@ -1609,19 +1595,37 @@ tp_ok:
 			}
 
 			int parse_res = lws_quic_parse_frames(nwsi, pn_space, &p[pn_offset + (size_t)pn_len], (size_t)dec_len, &sa46);
-			
+
 			/* ALPN negotiation might have migrated the network WSI! */
 			if (nwsi && !nwsi->quic.qn) {
 				nwsi = lws_get_quic_network_wsi(nwsi);
 			}
 
 			/*
+			 * After frame parsing may have generated Handshake-level
+			 * ACKs, discard any pending Initial/Handshake TX so those
+			 * ACKs don't race ahead of PATH_CHALLENGE to the new path.
+			 * The handshake is done; only APP-level frames (including
+			 * PATH_CHALLENGE) should reach the new client port.
+			 */
+			if (nwsi && nwsi->quic.qn && nwsi->quic.qn->probing_sa46_valid &&
+			    nwsi->quic.qn->handshake_done) {
+				int _li;
+				for (_li = 0; _li <= LWS_QUIC_LEVEL_HANDSHAKE; _li++) {
+					lws_start_foreach_dll_safe(struct lws_dll2 *, _d, _d1,
+							nwsi->quic.qn->pending_tx[_li].head) {
+						struct lws_quic_tx_frame *_f = lws_container_of(_d,
+								struct lws_quic_tx_frame, list);
+						lws_dll2_remove(&_f->list);
+						lws_free(_f);
+					} lws_end_foreach_dll_safe(_d, _d1);
+				}
+			}
+
+			/*
 			 * The server commits the new path ONLY on PATH_RESPONSE
 			 * validation (handled in parse-quic.c).  Do NOT commit
-			 * here on non-probing packets: doing so would make the
-			 * first server datagram to the new client port be a
-			 * regular ACK/STREAM frame instead of the PATH_CHALLENGE
-			 * that QIR connectionmigration requires.
+			 * here on non-probing packets.
 			 */
 
 			if (nwsi) {

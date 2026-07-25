@@ -14,13 +14,48 @@ require_lws_config(USE_WOLFSSL 0 requirements)
 if (requirements)
 
 	add_executable(${PROJECT_NAME} main.c)
-	
+
 	if (LWS_CTEST_INTERNET_AVAILABLE)
 		add_test(NAME api-test-secure-streams COMMAND ${PROJECT_NAME})
 		set_tests_properties(api-test-secure-streams
 				     PROPERTIES
 				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-secure-streams
 				     TIMEOUT 90)
+	endif()
+
+	#
+	# Local-server variant: runs the same test logic against a local
+	# lws-minimal-http-server-httpbin over TLS, so it does not need any
+	# external network egress.  Suitable for IPv6-only / no-egress CI.
+	#
+
+	if (LWS_CTEST_INTERNET_AVAILABLE AND NOT WIN32 AND LWS_WITH_SERVER)
+		lws_get_free_port(PORT_ATS_SRV_TLS)
+
+		configure_file(policy-local.json.in policy-local.json @ONLY)
+
+		add_test(NAME st_ats_hbin
+			COMMAND ${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
+				ats_hbin $<TARGET_FILE:lws-minimal-http-server-httpbin>
+				-s -p ${PORT_ATS_SRV_TLS})
+		add_test(NAME ki_ats_hbin
+			COMMAND ${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
+				ats_hbin $<TARGET_FILE_NAME:lws-minimal-http-server-httpbin>
+				-p ${PORT_ATS_SRV_TLS})
+		set_tests_properties(st_ats_hbin PROPERTIES
+				WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-server/minimal-http-server-tls
+				FIXTURES_SETUP ats_hbin
+				TIMEOUT 800
+				ENVIRONMENT "SAI_LIST_PORT=${PORT_ATS_SRV_TLS}")
+		set_tests_properties(ki_ats_hbin PROPERTIES FIXTURES_CLEANUP ats_hbin)
+
+		add_test(NAME api-test-secure-streams-local
+			COMMAND ${PROJECT_NAME}
+				-c ${CMAKE_CURRENT_BINARY_DIR}/policy-local.json)
+		set_tests_properties(api-test-secure-streams-local PROPERTIES
+				WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-secure-streams
+				FIXTURES_REQUIRED "ats_hbin"
+				TIMEOUT 90)
 	endif()
 
 	if (websockets_shared)

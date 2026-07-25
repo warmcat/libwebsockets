@@ -1104,6 +1104,17 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 				return -1;
 			} else {
 				lws_quic_discard_keys(nwsi, LWS_QUIC_LEVEL_HANDSHAKE);
+
+				/*
+				 * Now that the server confirmed handshake completion,
+				 * both sides have APP keys — safe to execute a deferred
+				 * preferred_address migration.
+				 */
+				if (nwsi->quic.qn && nwsi->quic.qn->prefaddr_pending)
+					lws_quic_client_probe_preferred_address(nwsi,
+						&nwsi->quic.qn->probing_sa46,
+						&nwsi->quic.qn->prefaddr_rem_cid,
+						nwsi->quic.qn->prefaddr_rem_token);
 			}
 			break;
 

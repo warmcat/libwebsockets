@@ -17,6 +17,16 @@ static int interrupted, bad = 1;
 static lws_state_notify_link_t nl;
 static struct lws_context *context;
 
+enum {
+	LWS_SW_C,
+	LWS_SW_HELP,
+};
+
+static const struct lws_switches switches[] = {
+	[LWS_SW_C]	= { "-c",		"Policy JSON filepath" },
+	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+};
+
 static const char * const default_ss_policy =
 	"{"
 	  "\"release\":"			"\"01234567\","
@@ -397,7 +407,15 @@ sigint_handler(int sig)
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
+	const char *pp;
 	int n = 0;
+
+	(void)switches;
+
+	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
+		return 0;
+	}
 
 	signal(SIGINT, sigint_handler);
 
@@ -409,7 +427,17 @@ int main(int argc, const char **argv)
 
 	info.fd_limit_per_thread = 1 + 6 + 1;
 	info.port = CONTEXT_PORT_NO_LISTEN;
-	info.pss_policies_json = default_ss_policy;
+
+	/*
+	 * If we're given a policy JSON filepath, use it; otherwise fall back to
+	 * the built-in default policy (which reaches out to libwebsockets.org).
+	 */
+
+	if ((pp = lws_cmdline_option(argc, argv, switches[LWS_SW_C].sw)))
+		info.pss_policies_json = pp;
+	else
+		info.pss_policies_json = default_ss_policy;
+
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
 		       LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW;

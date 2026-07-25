@@ -286,6 +286,17 @@ callback_smtp_client(struct lws *wsi, enum lws_callback_reasons reason,
 	}
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
+		/*
+		 * PROTOCOL_INIT can return 0 without allocating vhd (eg when
+		 * --lws-stub is set, or when it is called with no pvo).  In
+		 * those cases there is nothing to clean up; touching vhd here
+		 * would dereference NULL, which segfaults during context
+		 * destruction on vhosts that list the protocol but did not
+		 * fully initialize it.
+		 */
+		if (!vhd)
+			break;
+
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
 					   vhd->emails_ready.head) {
 			struct smtp_email *e = lws_container_of(d, struct smtp_email, list);

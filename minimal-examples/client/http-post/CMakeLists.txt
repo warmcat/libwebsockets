@@ -128,6 +128,42 @@ if (requirements)
 		endif()
 
 
+		#
+		# Local-server variant: runs against a local
+		# lws-minimal-http-server-httpbin over TLS, so it does not need
+		# any external network egress.  Suitable for IPv6-only / no-egress CI.
+		#
+
+		if (LWS_WITH_SERVER)
+			lws_get_free_port(PORT_HP_SRV_TLS)
+
+			configure_file(policy-local.json.in policy-local.json @ONLY)
+
+			add_test(NAME st_hp_hbin
+				COMMAND ${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
+					hp_hbin $<TARGET_FILE:lws-minimal-http-server-httpbin>
+					-s -p ${PORT_HP_SRV_TLS})
+			add_test(NAME ki_hp_hbin
+				COMMAND ${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
+					hp_hbin $<TARGET_FILE_NAME:lws-minimal-http-server-httpbin>
+					-p ${PORT_HP_SRV_TLS})
+			set_tests_properties(st_hp_hbin PROPERTIES
+					WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-server/minimal-http-server-tls
+					FIXTURES_SETUP hp_hbin
+					TIMEOUT 800
+					ENVIRONMENT "SAI_LIST_PORT=${PORT_HP_SRV_TLS}")
+			set_tests_properties(ki_hp_hbin PROPERTIES FIXTURES_CLEANUP hp_hbin)
+
+			add_test(NAME msshttp-post-local
+				COMMAND ${PROJECT_NAME}
+					-c ${CMAKE_CURRENT_BINARY_DIR}/policy-local.json)
+			set_tests_properties(msshttp-post-local PROPERTIES
+					WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/client/http-post
+					FIXTURES_REQUIRED "hp_hbin"
+					TIMEOUT 40)
+		endif()
+
+
 		if (has_sys_state AND (HAS_LWS_WITH_SECURE_STREAMS_PROXY_API OR has_ss_proxy OR
 			LWS_WITH_SECURE_STREAMS_PROXY_API))
 
