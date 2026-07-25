@@ -25,39 +25,51 @@ if (requirements)
 	if (LWS_CTEST_INTERNET_AVAILABLE AND NOT WIN32)
 
 		#
-		# When running in CI, wait for a lease on the resources
-		# before starting this test, so the server does not get
-		# thousands of simultaneous tls connection attempts
+		# External-egress variant: the example's default policy points at
+		# warmcat.com, which needs real internet routing.  This is only
+		# registered for builds that can actually reach it (dual-stack /
+		# IPv4-capable); in an IPv6-only / no-egress CI build the test
+		# would hang on DNS / connect until the ctest timeout.  The
+		# -local variant below provides the IPv6 coverage instead.
 		#
-		# sai-resource holds the lease on the resources until
-		# the time given in seconds or the sai-resource instance
-		# exits, whichever happens first
-		#
-		# If running under Sai, creates a lock test called "res_sspcmin-stress"
-		#
+		if (LWS_IPV4)
 
-		sai_resource(warmcat_conns 1 40 sspcmin-stress)
+			#
+			# When running in CI, wait for a lease on the resources
+			# before starting this test, so the server does not get
+			# thousands of simultaneous tls connection attempts
+			#
+			# sai-resource holds the lease on the resources until
+			# the time given in seconds or the sai-resource instance
+			# exits, whichever happens first
+			#
+			# If running under Sai, creates a lock test called "res_sspcmin-stress"
+			#
 
-		#
-		# simple test not via proxy
-		#
+			sai_resource(warmcat_conns 1 40 sspcmin-stress)
 
-		if (VALGRIND)
-			message("testing via valgrind")
-			add_test(NAME ssstress-warmcat COMMAND
-				${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
-				$<TARGET_FILE:lws-minimal-secure-streams-stress> -c 2 --budget 3 --timeout_ms 60000)
-		else()
-			add_test(NAME ssstress-warmcat COMMAND lws-minimal-secure-streams-stress -c 2 --budget 3 --timeout_ms 50000)
-		endif()
+			#
+			# simple test not via proxy
+			#
 
-		set_tests_properties(ssstress-warmcat
-				     PROPERTIES
-				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/secure-streams/minimal-secure-streams-stress
-				     TIMEOUT 300)
-		if (DEFINED ENV{SAI_OVN})
-			set_tests_properties(ssstress-warmcat PROPERTIES FIXTURES_REQUIRED "res_sspcmin")
-		endif()
+			if (VALGRIND)
+				message("testing via valgrind")
+				add_test(NAME ssstress-warmcat COMMAND
+					${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
+					$<TARGET_FILE:lws-minimal-secure-streams-stress> -c 2 --budget 3 --timeout_ms 60000)
+			else()
+				add_test(NAME ssstress-warmcat COMMAND lws-minimal-secure-streams-stress -c 2 --budget 3 --timeout_ms 50000)
+			endif()
+
+			set_tests_properties(ssstress-warmcat
+					     PROPERTIES
+					     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/secure-streams/minimal-secure-streams-stress
+					     TIMEOUT 300)
+			if (DEFINED ENV{SAI_OVN})
+				set_tests_properties(ssstress-warmcat PROPERTIES FIXTURES_REQUIRED "res_sspcmin")
+			endif()
+
+		endif() # LWS_IPV4 (external-egress variant)
 
 		#
 		# Local-server variant: runs against a local

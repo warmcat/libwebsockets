@@ -64,68 +64,81 @@ if (requirements)
 	if (LWS_CTEST_INTERNET_AVAILABLE AND NOT WIN32)
 	
 		#
-		# When running in CI, wait for a lease on the resources
-		# before starting this test, so the server does not get
-		# thousands of simultaneous tls connection attempts
+		# External-egress variant: the example's default policy points at
+		# libwebsockets.org, which needs real internet routing.  This is
+		# only registered for builds that can actually reach it
+		# (dual-stack / IPv4-capable); in an IPv6-only / no-egress CI
+		# build the test would hang on DNS / connect until the ctest
+		# timeout.  The -local variant below provides the IPv6 coverage
+		# instead.
 		#
-		# sai-resource holds the lease on the resources until
-		# the time given in seconds or the sai-resource instance
-		# exits, whichever happens first
-		#
-		# If running under Sai, creates a lock test called "res_sspcmin" 
-		#
-		
-		sai_resource(warmcat_conns 1 40 sspcmin-http-post)
-		
-		#
-		# simple test not via proxy
-		#
-	
-		if (VALGRIND)
-			message("testing via valgrind")
-			add_test(NAME msshttp-post-warmcat COMMAND
-				${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
-				$<TARGET_FILE:${PROJECT_NAME}>)
-		else()
-			add_test(NAME msshttp-post-warmcat COMMAND ${PROJECT_NAME})
-		endif()
+		if (LWS_IPV4)
 
-		set_tests_properties(msshttp-post-warmcat
-				     PROPERTIES
-				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/client/http-post
-				     TIMEOUT 40)
-		if (DEFINED ENV{SAI_OVN})
-			set_tests_properties(msshttp-post-warmcat PROPERTIES FIXTURES_REQUIRED "res_msspcmin")		     
-		endif()
+			#
+			# When running in CI, wait for a lease on the resources
+			# before starting this test, so the server does not get
+			# thousands of simultaneous tls connection attempts
+			#
+			# sai-resource holds the lease on the resources until
+			# the time given in seconds or the sai-resource instance
+			# exits, whichever happens first
+			#
+			# If running under Sai, creates a lock test called "res_sspcmin"
+			#
 
-		if (has_fault_injection)
+			sai_resource(warmcat_conns 1 40 sspcmin-http-post)
+
+			#
+			# simple test not via proxy
+			#
+
 			if (VALGRIND)
-				add_test(NAME msshttp-post-warmcat-fi1 COMMAND
+				message("testing via valgrind")
+				add_test(NAME msshttp-post-warmcat COMMAND
 					${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
-					$<TARGET_FILE:${PROJECT_NAME}>
-					--fault-injection "ss/ss_create_destroy_me"
-					--expected-exit 1)
-				add_test(NAME msshttp-post-warmcat-fi2 COMMAND
-					${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
-					$<TARGET_FILE:${PROJECT_NAME}>
-					--fault-injection "ss/ss_no_streamtype_policy"
-					--expected-exit 1)
+					$<TARGET_FILE:${PROJECT_NAME}>)
 			else()
-				add_test(NAME msshttp-post-warmcat-fi1 COMMAND lws-minimal-secure-streams
-					 --fault-injection "ss/ss_create_destroy_me"
-					 --expected-exit 1)
-				add_test(NAME msshttp-post-warmcat-fi2 COMMAND lws-minimal-secure-streams
-					 --fault-injection "ss/ss_no_streamtype_policy"
-					 --expected-exit 1)
- 			 endif()
+				add_test(NAME msshttp-post-warmcat COMMAND ${PROJECT_NAME})
+			endif()
 
-			set_tests_properties(msshttp-post-warmcat-fi1
-					     msshttp-post-warmcat-fi2
-				     PROPERTIES
-				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/client/http-post
-				     TIMEOUT 5)
+			set_tests_properties(msshttp-post-warmcat
+					     PROPERTIES
+					     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/client/http-post
+					     TIMEOUT 40)
+			if (DEFINED ENV{SAI_OVN})
+				set_tests_properties(msshttp-post-warmcat PROPERTIES FIXTURES_REQUIRED "res_msspcmin")
+			endif()
 
-		endif()
+			if (has_fault_injection)
+				if (VALGRIND)
+					add_test(NAME msshttp-post-warmcat-fi1 COMMAND
+						${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
+						$<TARGET_FILE:${PROJECT_NAME}>
+						--fault-injection "ss/ss_create_destroy_me"
+						--expected-exit 1)
+					add_test(NAME msshttp-post-warmcat-fi2 COMMAND
+						${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
+						$<TARGET_FILE:${PROJECT_NAME}>
+						--fault-injection "ss/ss_no_streamtype_policy"
+						--expected-exit 1)
+				else()
+					add_test(NAME msshttp-post-warmcat-fi1 COMMAND lws-minimal-secure-streams
+						 --fault-injection "ss/ss_create_destroy_me"
+						 --expected-exit 1)
+					add_test(NAME msshttp-post-warmcat-fi2 COMMAND lws-minimal-secure-streams
+						 --fault-injection "ss/ss_no_streamtype_policy"
+						 --expected-exit 1)
+	 			 endif()
+
+				set_tests_properties(msshttp-post-warmcat-fi1
+						     msshttp-post-warmcat-fi2
+					     PROPERTIES
+					     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/client/http-post
+					     TIMEOUT 5)
+
+			endif()
+
+		endif() # LWS_IPV4 (external-egress variant)
 
 
 		#
