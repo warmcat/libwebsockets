@@ -59,6 +59,43 @@ if (requirements)
 			set_tests_properties(ssstress-warmcat PROPERTIES FIXTURES_REQUIRED "res_sspcmin")
 		endif()
 
+		#
+		# Local-server variant: runs against a local
+		# lws-minimal-http-server-httpbin over TLS, so it does not need
+		# any external network egress.  Suitable for IPv6-only / no-egress CI.
+		#
+
+		if (LWS_WITH_SERVER)
+			lws_get_free_port(PORT_SS_SRV_TLS)
+
+			configure_file(policy-local.json.in policy-local.json @ONLY)
+
+			add_test(NAME st_ss_hbin
+				COMMAND ${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
+					ss_hbin $<TARGET_FILE:lws-minimal-http-server-httpbin>
+					-s -p ${PORT_SS_SRV_TLS})
+			add_test(NAME ki_ss_hbin
+				COMMAND ${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
+					ss_hbin $<TARGET_FILE_NAME:lws-minimal-http-server-httpbin>
+					-p ${PORT_SS_SRV_TLS})
+			set_tests_properties(st_ss_hbin PROPERTIES
+					WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-server/minimal-http-server-tls
+					FIXTURES_SETUP ss_hbin
+					TIMEOUT 800
+					ENVIRONMENT "SAI_LIST_PORT=${PORT_SS_SRV_TLS}")
+			set_tests_properties(ki_ss_hbin PROPERTIES FIXTURES_CLEANUP ss_hbin)
+
+			add_test(NAME ssstress-local
+				COMMAND lws-minimal-secure-streams-stress
+					--policy ${CMAKE_CURRENT_BINARY_DIR}/policy-local.json
+					--cpd-bypass
+					-c 2 --budget 3 --timeout_ms 50000)
+			set_tests_properties(ssstress-local PROPERTIES
+					WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/secure-streams/minimal-secure-streams-stress
+					FIXTURES_REQUIRED "ss_hbin"
+					TIMEOUT 300)
+		endif()
+
 		if (HAS_LWS_WITH_SECURE_STREAMS_PROXY_API OR LWS_WITH_SECURE_STREAMS_PROXY_API)
 
 			#

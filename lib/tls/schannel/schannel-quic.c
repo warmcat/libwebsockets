@@ -535,13 +535,22 @@ lws_tls_quic_advance_handshake(struct lws *wsi, int level,
 					 * hands us the symmetric algorithm and key size directly;
 					 * it does not currently negotiate ChaCha20-Poly1305, but
 					 * map it too for completeness.
+					 *
+					 * SEC_TRAFFIC_SECRETS.KeySize is the symmetric key size
+					 * in BYTES (matching msquic's QuicParseTrafficSecrets,
+					 * which switches on 16 / 32), not bits.  The field name
+					 * is fixed by the Windows SDK header; copy it into a
+					 * local whose name carries the units so the comparison
+					 * cannot be misread as bits again.
 					 */
 					if (!wcscmp(secrets->SymmetricAlgId, L"CHACHA20_POLY1305"))
 						wsi->tls.quic_aead = LWS_TLS_QUIC_AEAD_CHACHA20_POLY1305;
-					else if (!wcscmp(secrets->SymmetricAlgId, L"AES"))
-						wsi->tls.quic_aead = secrets->KeySize == 256 ?
+					else if (!wcscmp(secrets->SymmetricAlgId, L"AES")) {
+						unsigned short key_size_bytes = secrets->KeySize;
+						wsi->tls.quic_aead = key_size_bytes == 32 ?
 							LWS_TLS_QUIC_AEAD_AES_256_GCM :
 							LWS_TLS_QUIC_AEAD_AES_128_GCM;
+					}
 
 					/* SChannel outputs `1` and `2` for BOTH Handshake and Application secrets. */
 					if (type == 1 || type == 2) {

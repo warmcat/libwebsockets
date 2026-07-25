@@ -31,31 +31,33 @@ enum {
 	LWS_SW_OTS,
 	LWS_SW_PASS_LIMIT,
 	LWS_SW_RESPMAP,
-	LWS_SW_TIMEOUT_MS,
-	LWS_SW_A,
-	LWS_SW_C,
-	LWS_SW_D,
-	LWS_SW_I,
-	LWS_SW_P,
-	LWS_SW_HELP,
-};
+		LWS_SW_TIMEOUT_MS,
+		LWS_SW_A,
+		LWS_SW_C,
+		LWS_SW_D,
+		LWS_SW_I,
+		LWS_SW_P,
+		LWS_SW_POLICY,
+		LWS_SW_HELP,
+	};
 
-static const struct lws_switches switches[] = {
-	[LWS_SW_BUDGET]	= { "--budget",        "Enable --budget feature" },
-	[LWS_SW_EXPECTED_EXIT]	= { "--expected-exit", "Enable --expected-exit feature" },
-	[LWS_SW_FORCE_NO_INTERNET]	= { "--force-no-internet", "Enable --force-no-internet feature" },
-	[LWS_SW_FORCE_PORTAL]	= { "--force-portal",  "Enable --force-portal feature" },
-	[LWS_SW_OTS]	= { "--ots",           "Enable --ots feature" },
-	[LWS_SW_PASS_LIMIT]	= { "--pass-limit",    "Enable --pass-limit feature" },
-	[LWS_SW_RESPMAP]	= { "--respmap",       "Enable --respmap feature" },
-	[LWS_SW_TIMEOUT_MS]	= { "--timeout_ms",    "Enable --timeout_ms feature" },
-	[LWS_SW_A]	= { "-a",              "Enable -a feature" },
-	[LWS_SW_C]	= { "-c",              "Client connections" },
-	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
-	[LWS_SW_I]	= { "-i",              "Interface to bind to" },
-	[LWS_SW_P]	= { "-p",              "Port number to listen or connect on" },
-	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
-};
+	static const struct lws_switches switches[] = {
+		[LWS_SW_BUDGET]	= { "--budget",        "Enable --budget feature" },
+		[LWS_SW_EXPECTED_EXIT]	= { "--expected-exit", "Enable --expected-exit feature" },
+		[LWS_SW_FORCE_NO_INTERNET]	= { "--force-no-internet", "Enable --force-no-internet feature" },
+		[LWS_SW_FORCE_PORTAL]	= { "--force-portal",  "Enable --force-portal feature" },
+		[LWS_SW_OTS]	= { "--ots",           "Enable --ots feature" },
+		[LWS_SW_PASS_LIMIT]	= { "--pass-limit",    "Enable --pass-limit feature" },
+		[LWS_SW_RESPMAP]	= { "--respmap",       "Enable --respmap feature" },
+		[LWS_SW_TIMEOUT_MS]	= { "--timeout_ms",    "Enable --timeout_ms feature" },
+		[LWS_SW_A]	= { "-a",              "Enable -a feature" },
+		[LWS_SW_C]	= { "-c",              "Client connections" },
+		[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
+		[LWS_SW_I]	= { "-i",              "Interface to bind to" },
+		[LWS_SW_P]	= { "-p",              "Port number to listen or connect on" },
+		[LWS_SW_POLICY]	= { "--policy",        "Policy JSON filepath" },
+		[LWS_SW_HELP]	= { "--help",		"Show this help information" },
+	};
 
 #include <string.h>
 #include <signal.h>
@@ -725,12 +727,20 @@ int main(int argc, const char **argv)
 		if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_A].sw)))
 			info.ss_proxy_address = p;
 	}
-#else
-	info.pss_policies_json = default_ss_policy;
-	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
-		       LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW |
-		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-#endif
+	#else
+		/*
+		 * If --policy <file> is given, use that instead of the built-in
+		 * default policy, so the test can be pointed at a locally-generated
+		 * policy targeting a local test server instead of warmcat.com.
+		 */
+		if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_POLICY].sw)))
+			info.pss_policies_json = p;
+		else
+			info.pss_policies_json = default_ss_policy;
+		info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
+			       LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW |
+			       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+	#endif
 
 #if defined(LWS_WITH_MBEDTLS)
 

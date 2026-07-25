@@ -38,10 +38,19 @@ int
 main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
+	const char *p;
 
 	lws_context_info_defaults(&info, "example-policy.json");
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 	signal(SIGINT, sigint_handler);
+
+	/*
+	 * If given, -c <policy-file> overrides the default example policy, so
+	 * the same binary can be pointed at a locally-generated policy that
+	 * targets a local test server instead of warmcat.com.
+	 */
+	if ((p = lws_cmdline_option(argc, argv, "-c")))
+		info.pss_policies_json = p;
 
 	cx = lws_create_context(&info);
 	if (!cx) {

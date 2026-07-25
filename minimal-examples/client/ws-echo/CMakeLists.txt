@@ -129,6 +129,49 @@ if (requirements)
 		endif()
 
 
+		#
+		# Local-server variant: runs against a local test-server over TLS
+		# (serving the lws-mirror-protocol ws echo), so it does not need
+		# any external network egress.  Suitable for IPv6-only / no-egress CI.
+		# test-server is given the localhost-100y cert/key with -C/-K so the
+		# client can trust it via the same local_test trust store as the
+		# httpbin-based local tests.
+		#
+
+		if (LWS_WITH_SERVER AND NOT LWS_WITHOUT_TEST_SERVER)
+			lws_get_free_port(PORT_WS_SRV_TLS)
+
+			configure_file(policy-local.json.in policy-local.json @ONLY)
+
+			set(LOCAL_CERT_DIR ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-server/minimal-http-server-tls)
+
+			add_test(NAME st_ws_srv
+				COMMAND ${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
+					ws_srv $<TARGET_FILE:test-server>
+					-s -p ${PORT_WS_SRV_TLS}
+					-C ${LOCAL_CERT_DIR}/localhost-100y.cert
+					-K ${LOCAL_CERT_DIR}/localhost-100y.key
+					-r ${CMAKE_BINARY_DIR}/share/libwebsockets-test-server)
+			add_test(NAME ki_ws_srv
+				COMMAND ${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
+					ws_srv $<TARGET_FILE_NAME:test-server> -p ${PORT_WS_SRV_TLS})
+			set_tests_properties(st_ws_srv PROPERTIES
+					WORKING_DIRECTORY .
+					FIXTURES_SETUP ws_srv
+					TIMEOUT 800
+					ENVIRONMENT "SAI_LIST_PORT=${PORT_WS_SRV_TLS}")
+			set_tests_properties(ki_ws_srv PROPERTIES FIXTURES_CLEANUP ws_srv)
+
+			add_test(NAME mssws_echo-local
+				COMMAND ${PROJECT_NAME}
+					-c ${CMAKE_CURRENT_BINARY_DIR}/policy-local.json)
+			set_tests_properties(mssws_echo-local PROPERTIES
+					WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/client/ws-echo
+					FIXTURES_REQUIRED "ws_srv"
+					TIMEOUT 40)
+		endif()
+
+
 		if (has_sys_state AND (HAS_LWS_WITH_SECURE_STREAMS_PROXY_API OR has_ss_proxy OR
 		    LWS_WITH_SECURE_STREAMS_PROXY_API))
 

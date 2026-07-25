@@ -80,14 +80,24 @@ else
 			sleep 0.5
 		done
 	else
-		CNT=0
-		while true ; do
-			if [ -n "$SAI_LIST_IS_UDP" ] ; then
-				MATCH="`netstat -an | grep "^udp" | tr -s ' ' | grep "[\.:]${SAI_LIST_PORT} "`"
-			else
-				MATCH="`netstat -an | grep "^tcp" | tr -s ' ' | grep "[\.:]${SAI_LIST_PORT} " | grep LISTEN`"
-			fi
-			if [ -n "$MATCH" ] ; then break ; fi
+			CNT=0
+			while true ; do
+				if [ -n "$SAI_LIST_IS_UDP" ] ; then
+					if command -v netstat >/dev/null 2>&1 ; then
+						MATCH="`netstat -an | grep "^udp" | tr -s ' ' | grep "[\.:]${SAI_LIST_PORT} "`"
+					else
+						# "ss" is the modern netstat replacement and is all
+						# that's available on some minimal/CI images
+						MATCH="`ss -lun | tr -s ' ' | grep "[\.:]${SAI_LIST_PORT} "`"
+					fi
+				else
+					if command -v netstat >/dev/null 2>&1 ; then
+						MATCH="`netstat -an | grep "^tcp" | tr -s ' ' | grep "[\.:]${SAI_LIST_PORT} " | grep LISTEN`"
+					else
+						MATCH="`ss -ltn | tr -s ' ' | grep "[\.:]${SAI_LIST_PORT} "`"
+					fi
+				fi
+				if [ -n "$MATCH" ] ; then break ; fi
 			if ! kill -0 $! 2>/dev/null ; then
 				echo "Background process died while waiting for port ${SAI_LIST_PORT}" >&2
 				echo "Background process logs:" >&2
@@ -100,8 +110,12 @@ else
 				ps -fp $! >&2
 				echo "Background process logs:" >&2
 				cat /tmp/ctest-background-$J >&2
-				echo "Netstat output:" >&2
-				netstat -an >&2
+				echo "Listen socket output:" >&2
+				if command -v netstat >/dev/null 2>&1 ; then
+					netstat -an >&2
+				else
+					ss -lntau >&2
+				fi
 				if command -v pgrep >/dev/null 2>&1; then
 					CPIDS=`pgrep -P $!`
 					for i in $CPIDS ; do
