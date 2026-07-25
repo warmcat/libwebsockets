@@ -690,6 +690,18 @@ lws_async_dns_create_server_wsi(struct lws_context *context)
 				return 1;
 			}
 
+			/*
+			 * lws_create_adopt_udp() only allocates wsi->udp once
+			 * the raw-skt adoption actually completes.  If adoption
+			 * did not complete (eg, the resolved nameserver address
+			 * produced no usable route and the wsi is pending close),
+			 * wsi->udp may still be NULL -- don't deref it blindly.
+			 */
+			if (!dsrv->wsi->udp) {
+				lwsl_cx_err(context, "adns wsi has no udp");
+				return 1;
+			}
+
 			dsrv->wsi->udp->sa46 = dsrv->sa46;
 		}
 
@@ -1520,6 +1532,28 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 
 
 		q->dsrv = dsrv;
+	}
+
+	/*
+	 * If the chosen DNS server has no wsi (eg, its UDP listener could not
+	 * be created / bound, as happens in an IPv6-only build where the only
+	 * nameserver was discovered as an IPv4 literal that maps to an
+	 * unreachable ::ffff: address), we cannot actually issue the query.
+	 * Fail it cleanly rather than dereferencing the NULL wsi in the retry
+	 * scheduler / writable callback below.
+	 */
+	if (!dsrv || !dsrv->wsi) {
+		lwsl_cx_notice(context, "no usable async dns server wsi");
+		/*
+		 * q is allocated but has not yet been published on dns->waiting
+		 * and has no scheduled sul / metrics caliper yet, so the failed:
+		 * path below (which expects a published q) would leak it.  Detach
+		 * any wsi bound to it and free q directly first.
+		 */
+		if (wsi)
+			lws_dll2_remove(&wsi->adns);
+		lws_free(q);
+		goto failed;
 	}
 
 	q->issue_time = lws_now_usecs();

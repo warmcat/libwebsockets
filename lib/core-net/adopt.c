@@ -1207,13 +1207,19 @@ lws_create_adopt_udp(struct lws_vhost *vhost, const char *ads, int port,
 					lws_create_adopt_udp2, wsi,
 					(void *)ifname, NULL);
 		// lwsl_notice("%s: dns query returned %d\n", __func__, n);
-		if (n == LADNS_RET_FAILED) {
-			lwsl_err("%s: async dns failed\n", __func__);
-			wsi = NULL;
+		if (n < LADNS_RET_FOUND) {
 			/*
-			 * It was already closed by calling callback with error
-			 * from lws_async_dns_query()
+			 * Any terminal failure retcode (< 0), including
+			 * LADNS_RET_FAILED_WSI_CLOSED which is what we get when
+			 * the synchronous numeric-address path ran the adopt
+			 * callback and it failed (eg, the resolved address had
+			 * no usable route, so lws_sort_dns() produced no results
+			 * and lws_create_adopt_udp2() closed the wsi).  The
+			 * callback has already closed the wsi in that case; we
+			 * must NOT return the now-dangling wsi pointer.
 			 */
+			lwsl_err("%s: async dns failed (%d)\n", __func__, n);
+			wsi = NULL;
 			goto bail;
 		}
 	} else {

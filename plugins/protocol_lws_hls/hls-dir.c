@@ -108,10 +108,10 @@ lws_hls_serve_dir(struct lws *wsi, const char *media_dir)
 		size_t rem = html_size - (size_t)(p_html - (html + LWS_PRE));
 		p_html += snprintf(p_html, rem,
 			"<div class='item'>"
-			"<a href='../player.html?v=hls/stream/%s'>"
+			"<a href='../player.html?v=hls/stream/%s&t=%llu'>"
 			"<img class='thumb' src='preview/%s' alt='Thumbnail'>"
 			"<br>%s</a>%s%s%s</div>",
-			ds.entries[i].name, ds.entries[i].name, ds.entries[i].name,
+			ds.entries[i].name, (unsigned long long)ds.entries[i].mtime, ds.entries[i].name, ds.entries[i].name,
 			can_delete ? "<button class='del-btn' onclick='delFile(this, event)' data-file='" : "",
 			can_delete ? ds.entries[i].name : "",
 			can_delete ? "'>&#x1F5D1;</button>" : "");
