@@ -888,6 +888,14 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			pss->ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, lws_login_jwt_auth_cb, wsi, NULL);
 
 		if (pss->ja) {
+			uint64_t exp = lws_jwt_auth_get_exp(pss->ja);
+			if (exp && exp < (uint64_t)lws_now_secs()) {
+				lwsl_info("%s: JWT expired (exp %llu, now %llu)\n", __func__, (unsigned long long)exp, (unsigned long long)lws_now_secs());
+				lws_jwt_auth_destroy(&pss->ja);
+			}
+		}
+
+		if (pss->ja) {
 			int level = lws_jwt_auth_query_grant(pss->ja, service_name);
 			if (level >= vhd->min_grant_level) {
 				if (vhd->db && !pss->silent_update_jwt) {
