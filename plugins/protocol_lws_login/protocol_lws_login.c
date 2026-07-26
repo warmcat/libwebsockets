@@ -1141,10 +1141,10 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				char *cookie = malloc((size_t)ck_len + 1);
 				if (cookie) {
 					if (lws_hdr_copy(wsi, cookie, ck_len + 1, WSI_TOKEN_HTTP_COOKIE) > 0) {
-						lws_http_cookie_get(wsi, "auth_csrf", csrf, &csrf_len);
-						
 						/* We just need to know it exists to proceed */
-						if (lws_http_cookie_get(wsi, "auth_refresh_session", refresh_session, &refresh_session_len) == 0 && csrf[0]) {
+						if (lws_http_cookie_get(wsi, "auth_csrf", csrf, &csrf_len) == 0 &&
+						    lws_http_cookie_get(wsi, "auth_refresh_session", refresh_session, &refresh_session_len) == 0 &&
+						    csrf[0]) {
 							struct pending_login_refresh *ps = malloc(sizeof(*ps));
 							if (ps) {
 								struct lws_client_connect_info i;
