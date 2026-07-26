@@ -69,7 +69,7 @@ callback_quic_server(struct lws *wsi, enum lws_callback_reasons reason,
 	}
 
 	case LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED:
-		lwsl_wsi_notice(wsi, "Server received new QUIC client connection!");
+		lwsl_wsi_info(wsi, "Server received new QUIC client connection!");
 		lws_callback_on_writable(wsi);
 		break;
 

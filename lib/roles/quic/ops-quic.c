@@ -1285,7 +1285,7 @@ tp_ok:
 		struct lws_quic_keys *k = nwsi->quic.qn->keys[level];
 
 		if (!k || !k->el_hp_rx.len) {
-			lwsl_wsi_notice(wsi, "QUIC RX: No valid keys for this packet level %d, skipping %zu bytes", level, packet_size);
+			lwsl_wsi_info(wsi, "QUIC RX: No valid keys for this packet level %d, skipping %zu bytes", level, packet_size);
 			p += packet_size;
 			n -= (int)packet_size;
 			continue;
