@@ -120,15 +120,36 @@ static const char * const canned_css =
         "@media(prefers-color-scheme:dark){.lws-login-avatar-user{color:#888;}}";
 
 static const char * const canned_js =
+        /* lwsLoginSilentRefresh: attempt a side-channel renewal via the BFF.
+         * Returns a tri-state so callers can distinguish a hard failure (the
+         * long-term login session is genuinely gone -> the auth server returns
+         * 401) from a transient failure (network blip, 5xx, captive-portal
+         * re-establishing on a freshly-woken device).  Only the hard failure
+         * should escalate to the login page; transient failures are
+         * retry-worthy because the long-term session may still be valid. */
         "window.lwsLoginSilentRefresh=async function(){"
         "try{"
         "var r=await fetch('/.lws-login-refresh',{method:'POST',credentials:'include'});"
-        "return r.ok;"
-        "}catch(e){return false;}"
+        "if(r.status===401)return 'dead';"
+        "return r.ok?'ok':'transient';"
+        "}catch(e){return 'transient';}"
+        "};"
+        /* lwsLoginEscalate: give up on silent renewal and send the user to the
+         * auth server login page, preserving the current location for the
+         * post-login redirect.  Idempotent via a guard flag so multiple
+         * concurrent 'dead' results only navigate once. */
+        "window.lwsLoginEscalate=function(login_url){"
+        "if(window.__lwsLoginEscalated)return;"
+        "window.__lwsLoginEscalated=1;"
+        "var s=login_url.split('redirect_uri=')[0]+'redirect_uri='+encodeURIComponent(window.location.href);"
+        "window.location.href=s;"
         "};"
         "window.renderLwsLoginStatus=async function(d){"
+        "window.__lwsLoginDiv=d;"
         "var e=document.getElementById(d);"
         "if(!e)return;"
+        "if(window.__lwsLoginInflight)return;"
+        "window.__lwsLoginInflight=1;"
         "if(!document.getElementById('lws-login-css')){"
         "var l=document.createElement('link');"
         "l.id='lws-login-css';l.rel='stylesheet';l.href='lws-login.css';"
@@ -138,16 +159,22 @@ static const char * const canned_js =
         "let r=await fetch('.lws-login-status');"
         "let st=await r.json();"
         "if(!st.logged_in){"
-        "if(await window.lwsLoginSilentRefresh()){"
+        "var sr=await window.lwsLoginSilentRefresh();"
+        "if(sr==='ok'){"
         "r=await fetch('.lws-login-status');"
         "st=await r.json();"
+        "}else if(sr==='dead'){"
+        /* long-term login gone: dump to the auth server login page */
+        "window.__lwsLoginInflight=0;"
+        "window.lwsLoginEscalate(st.login_url);"
+        "return;"
         "}"
         "}"
         "var c='<div class=\"lws-login-box\">';"
         "if(st.server_now){"
-        "var d=Math.abs(st.server_now-(Date.now()/1000));"
-        "if(d>300){"
-        "c+='<div class=\"lws-login-err\">Warning: Device clock off by '+Math.round(d/60)+' mins</div><br>';"
+        "var skew=Math.abs(st.server_now-(Date.now()/1000));"
+        "if(skew>300){"
+        "c+='<div class=\"lws-login-err\">Warning: Device clock off by '+Math.round(skew/60)+' mins</div><br>';"
         "c+='<img src=\"'+st.auth_server_url+'/refgirl-time.png\" class=\"lws-login-refgirl\">';"
         "}"
         "}"
@@ -165,13 +192,20 @@ static const char * const canned_js =
         "if(st.exp){"
         "var n=st.server_now?st.server_now:(Date.now()/1000);"
         "var m=st.exp-n;"
-        "if(m>0&&m<86400){"
+        /* Schedule a silent refresh before expiry.  The upper bound must be
+         * larger than any realistic cookie lifetime, otherwise long-lived
+         * sessions (eg the 24h default jwt-validity-secs) never schedule a
+         * refresh and the status div goes stale until a manual page reload.
+         * 30d (2592000s) is well past any sensible session token lifetime
+         * while still guarding against nonsensical multi-year exp values. */
+        "if(m>0&&m<2592000){"
         "setTimeout(async function(){"
-        "if(await window.lwsLoginSilentRefresh()){"
-        "window.renderLwsLoginStatus(d);"
-        "}else{"
-        "window.renderLwsLoginStatus(d);"
-        "}"
+        "var sr=await window.lwsLoginSilentRefresh();"
+        /* 'ok' or 'transient' -> re-render (re-render itself re-checks status
+         * and, if still expired, retries silent refresh / escalates).  'dead'
+         * -> escalate now rather than waiting for the next render. */
+        "if(sr==='dead')window.lwsLoginEscalate(st.login_url);"
+        "else window.renderLwsLoginStatus(d);"
         "},(m>60?m-60:0)*1000);"
         "}"
         "}"
@@ -179,6 +213,11 @@ static const char * const canned_js =
         "var s=st.login_url.split('redirect_uri=')[0]+'redirect_uri='+encodeURIComponent(window.location.href);"
         "c+='<div class=\"lws-login-mb\">Not logged in</div>';"
         "c+='<a class=\"lws-login-btn\" href=\"'+s+'\">Login &rarr;</a>';"
+        /* We reach here only when silent refresh returned 'transient' (a hard
+         * 'dead' already escalated out of the function above).  Back off and
+         * retry; if the long-term session is actually dead, the next
+         * renderLwsLoginStatus will get 'dead' from the silent-refresh attempt
+         * in the not-logged-in branch and escalate then. */
         "let iv=[1,2,5,10,30,60,300,600,1200,3600];let rt=window.lwsLoginRetry||0;let d_s=iv[rt]||3600;window.lwsLoginRetry=rt+1;"
         "setTimeout(function(){window.renderLwsLoginStatus(d);},d_s*1000);"
         "}"
@@ -215,12 +254,37 @@ static const char * const canned_js =
         "};"
         "}"
         "}"
+        "window.__lwsLoginInflight=0;"
         "}catch(er){"
         "console.log('lws-login fetch:',er);"
+        "window.__lwsLoginInflight=0;"
         "let iv=[1,2,5,10,30,60,300,600,1200,3600];let rt=window.lwsLoginRetry||0;let d_s=iv[rt]||3600;window.lwsLoginRetry=rt+1;"
         "setTimeout(function(){window.renderLwsLoginStatus(d);},d_s*1000);"
         "}"
-        "};";
+        "};"
+        /* Wake trigger: when the device/tab wakes (eg an Android tablet that
+         * slept through its renewal slot), fire a status check on visibility
+         * change or bfcache restore so the not-logged-in -> silent-refresh ->
+         * escalate flow runs without needing a manual page interaction.
+         * Debounced to 1s to coalesce rapid visibility flips, and skipped if a
+         * check is already in flight or we've already escalated to login. */
+        "window.__lwsLoginWake=function(){"
+        "if(window.__lwsLoginEscalated||window.__lwsLoginInflight)return;"
+        "if(!window.__lwsLoginDiv)return;"
+        "if(window.__lwsLoginWakeTimer)return;"
+        "window.__lwsLoginWakeTimer=setTimeout(function(){"
+        "window.__lwsLoginWakeTimer=null;"
+        "if(!window.__lwsLoginEscalated&&!window.__lwsLoginInflight)"
+        "window.renderLwsLoginStatus(window.__lwsLoginDiv);"
+        "},1000);"
+        "};"
+        "document.addEventListener('visibilitychange',function(){"
+        "if(!document.hidden)window.__lwsLoginWake();});"
+        "window.addEventListener('pageshow',function(ev){"
+        /* ev.persisted===true => restored from bfcache (a frozen tab reactivated,
+         * eg after the device slept) -> worth a wake check.  A fresh load
+         * (persisted===false) already runs its own initial render. */
+        "if(ev.persisted)window.__lwsLoginWake();});";
 
 static void
 sul_pending_refresh_cb(lws_sorted_usec_list_t *sul)
