@@ -19,7 +19,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             canDelete = true;
                         }
                     }
-                } catch (e) {}
+                } catch (e) {
+                    /* ignore */
+                }
             }
         }
     }
@@ -140,7 +142,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     localStorage.removeItem(hashKey);
                 }
             }
-        } catch(e) {}
+        } catch(e) {
+            /* ignore */
+        }
 
         video.addEventListener('timeupdate', function() {
             if (!video.duration || isNaN(video.duration)) return;
