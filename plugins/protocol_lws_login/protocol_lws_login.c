@@ -62,6 +62,9 @@ struct pss_login {
 	char                    *silent_update_jwt;
 	struct lws_spa          *spa;
 	struct lws_buflist      *tx_buflist;
+	size_t                  tx_remaining; /* body bytes not yet written, so the
+					       * FINAL write can be identified
+					       * correctly (see WRITEABLE) */
 };
 
 struct pending_login_refresh {
@@ -499,6 +502,7 @@ simple_response(struct lws *wsi, struct pss_login *pss, const char *msg, const c
 
 	if (lws_buflist_append_segment(&pss->tx_buflist, (unsigned char*)eb + LWS_PRE, (size_t)l) < 0)
 		return -1;
+	pss->tx_remaining = (size_t)l;
 
 	lws_callback_on_writable(wsi);
 
@@ -1101,6 +1105,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			int res = lws_buflist_append_segment(&pss->tx_buflist, (const uint8_t *)canned_css, len);
 			if (res < 0)
 				return -1;
+			pss->tx_remaining = len;
 			lws_callback_on_writable(wsi);
 
 			return 0;
@@ -1117,6 +1122,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			int res = lws_buflist_append_segment(&pss->tx_buflist, (const uint8_t *)canned_js, len);
 			if (res < 0)
 				return -1;
+			pss->tx_remaining = len;
 			lws_callback_on_writable(wsi);
 
 			return 0;
@@ -1305,6 +1311,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				"<html lang=\"en\"><head><meta http-equiv=\"refresh\" content=\"0; url=%s\"></head><body>Redirecting to <a href=\"%s\">%s</a></body></html>",
 				u, u, u);
 			if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)html, (size_t)html_len) < 0) return -1;
+			pss->tx_remaining = (size_t)html_len;
 
 			if (lws_add_http_common_headers(wsi, HTTP_STATUS_SEE_OTHER, "text/html", (unsigned int)html_len, (unsigned char **)&p, (unsigned char *)end)) return 1;
 			if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr1, (int)strlen(cookie_hdr1), (unsigned char **)&p, (unsigned char *)end)) return 1;
@@ -1320,6 +1327,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			"<html lang=\"en\"><head><meta http-equiv=\"refresh\" content=\"0; url=%s\"></head><body>Redirecting to <a href=\"%s\">%s</a></body></html>",
 			dest, dest, dest);
 		if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)html, (size_t)html_len) < 0) return -1;
+		pss->tx_remaining = (size_t)html_len;
 
 		if (lws_add_http_common_headers(wsi, HTTP_STATUS_SEE_OTHER, "text/html", (unsigned int)html_len, (unsigned char **)&p, (unsigned char *)end))
 			return 1;
@@ -1476,6 +1484,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 					lws_write(wsi, (unsigned char *)buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
 					int res = lws_buflist_append_segment(&pss->tx_buflist, (const uint8_t *)err, (size_t)err_len);
 					if (res < 0) return -1;
+					pss->tx_remaining = (size_t)err_len;
 					lws_callback_on_writable(wsi);
 					return 0;
 				}
@@ -1518,12 +1527,14 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 
 				lws_write(wsi, buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
 				if (lws_buflist_append_segment(&pss->tx_buflist, (const uint8_t *)"{\"success\":1}", 13) < 0) return -1;
+				pss->tx_remaining = 13;
 				lwsl_notice("%s: Successfully issued refreshed token to browser via BFF\n", __func__);
 			} else {
 				if (lws_add_http_common_headers(wsi, HTTP_STATUS_UNAUTHORIZED, "application/json", 13, (unsigned char **)&p, (unsigned char *)end)) return 1;
 				if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end)) return 1;
 				lws_write(wsi, buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
 				if (lws_buflist_append_segment(&pss->tx_buflist, (const uint8_t *)"{\"success\":0}", 13) < 0) return -1;
+				pss->tx_remaining = 13;
 				lwsl_notice("%s: BFF SSO Exchange denied by Server\n", __func__);
 			}
 
@@ -1545,19 +1556,31 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!bytes)
 			break;
 
+		/*
+		 * We must set LWS_WRITE_HTTP_FINAL on the write that sends the last
+		 * bytes of the body, so that under HTTP/2 the END_STREAM flag lands on
+		 * the final DATA frame.  Comparing chunk to lws_buflist_total_len() is
+		 * wrong once a segment is partly consumed: total_len() sums each
+		 * segment's original len without subtracting pos, so the second chunk
+		 * of a body larger than the write buffer never compares equal, FINAL
+		 * is never set, and browsers report NS_ERROR_NET_PARTIAL_TRANSFER.
+		 * struct lws_buflist is opaque to plugins, so we track the remaining
+		 * body length in pss->tx_remaining and mark FINAL when this chunk
+		 * brings it to zero.
+		 */
 		size_t chunk = bytes;
 		if (chunk > sizeof(buf) - LWS_PRE)
 			chunk = sizeof(buf) - LWS_PRE;
 
 		memcpy(p, pout, chunk);
 
-		int flags = LWS_WRITE_HTTP;
-		if (chunk == lws_buflist_total_len(&pss->tx_buflist))
-			flags = LWS_WRITE_HTTP_FINAL;
+		int flags = (chunk >= pss->tx_remaining) ?
+				LWS_WRITE_HTTP_FINAL : LWS_WRITE_HTTP;
 
 		int m = lws_write(wsi, p, (unsigned int)chunk, (enum lws_write_protocol)flags);
 		if (m < 0) return -1;
 
+		pss->tx_remaining -= (size_t)m;
 		lws_buflist_use_segment(&pss->tx_buflist, (size_t)m);
 
 		if (lws_buflist_next_segment_len(&pss->tx_buflist, &pout)) {
@@ -1568,10 +1591,12 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		return lws_http_transaction_completed(wsi);
 	}
 
-	case LWS_CALLBACK_CLOSED_HTTP:
-	case LWS_CALLBACK_CLOSED:
-		if (pss && pss->tx_buflist)
-			lws_buflist_destroy_all_segments(&pss->tx_buflist);
+		case LWS_CALLBACK_CLOSED_HTTP:
+		case LWS_CALLBACK_CLOSED:
+			if (pss && pss->tx_buflist) {
+				lws_buflist_destroy_all_segments(&pss->tx_buflist);
+				pss->tx_remaining = 0;
+			}
 
 		if (pss && pss->ja)
 			lws_jwt_auth_destroy(&pss->ja);
