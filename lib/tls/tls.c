@@ -265,7 +265,7 @@ lws_context_init_alpn(struct lws_vhost *vhost)
 	if (vhost->tls.alpn)
 		alpn_comma = vhost->tls.alpn;
 
-	lwsl_notice("%s: alpn_comma = '%s'\n", __func__, alpn_comma ? alpn_comma : "NULL");
+	lwsl_info("%s: alpn_comma = '%s'\n", __func__, alpn_comma ? alpn_comma : "NULL");
 
 	lwsl_info(" Server '%s' advertising ALPN: %s\n",
 		    vhost->name, alpn_comma);

@@ -1106,9 +1106,9 @@ ads_known:
 			}
 		}
 		if (wsi->disable_h3_fallback) {
-			lwsl_wsi_notice(wsi, "QUIC socket created, H3 fallback disabled");
+			lwsl_wsi_info(wsi, "QUIC socket created, H3 fallback disabled");
 		} else {
-			lwsl_wsi_notice(wsi, "QUIC socket created, starting grace timer %uus", (unsigned int)grace_us);
+			lwsl_wsi_info(wsi, "QUIC socket created, starting grace timer %uus", (unsigned int)grace_us);
 			lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->sul_h3_grace,
 					 lws_client_h3_grace_cb, grace_us);
 
@@ -1152,7 +1152,7 @@ conn_good:
 		}
 		wsi->parallel_count = 0;
 	} else {
-		lwsl_wsi_notice(wsi, "QUIC reached conn_good, keeping %d parallel TCP sockets alive", wsi->parallel_count);
+		lwsl_wsi_info(wsi, "QUIC reached conn_good, keeping %d parallel TCP sockets alive", wsi->parallel_count);
 	}
 #endif
 

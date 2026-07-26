@@ -178,7 +178,7 @@ gnutls_quic_read_func(gnutls_session_t session,
 	}
 
 	if (data_size == 5 && ((const uint8_t *)data)[0] == 24) {
-		lwsl_wsi_notice(wsi, "QUIC TLS TX: dropping 5-byte KeyUpdate message");
+		lwsl_wsi_info(wsi, "QUIC TLS TX: dropping 5-byte KeyUpdate message");
 		return 0;
 	}
 
