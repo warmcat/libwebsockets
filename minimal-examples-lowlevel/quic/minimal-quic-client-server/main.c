@@ -174,13 +174,13 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 	{
 #if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 		struct lws_vhost *vh = lws_get_vhost(wsi);
-		lwsl_vhost_notice(vh, "Protocol init");
+		lwsl_vhost_info(vh, "Protocol init");
 #endif
 		break;
 	}
 
 	case LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED:
-		lwsl_wsi_notice(wsi, "Server received new QUIC client connection!");
+		lwsl_wsi_info(wsi, "Server received new QUIC client connection!");
 		lws_callback_on_writable(wsi);
 		break;
 
@@ -201,7 +201,7 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 		if (to_send > 1024)
 			to_send = 1024;
 		memset(&buf[LWS_PRE], (client_sent & 0xff), to_send);
-                lwsl_wsi_notice(wsi, "CLIENT WSI allowance=%d", (int)lws_get_peer_write_allowance(wsi));
+                lwsl_wsi_info(wsi, "CLIENT WSI allowance=%d", (int)lws_get_peer_write_allowance(wsi));
 		int n = lws_write(wsi, &buf[LWS_PRE], to_send, LWS_WRITE_BINARY);
                 if (n > 0) {
                         client_sent += (size_t)n;
@@ -228,7 +228,7 @@ callback_quic_test(struct lws *wsi, enum lws_callback_reasons reason,
 		if (to_send > 1024)
 			to_send = 1024;
 		memset(&buf[LWS_PRE], (server_sent & 0xff), to_send);
-                lwsl_wsi_notice(wsi, "SERVER WSI allowance=%d", (int)lws_get_peer_write_allowance(wsi));
+                lwsl_wsi_info(wsi, "SERVER WSI allowance=%d", (int)lws_get_peer_write_allowance(wsi));
 		int n = lws_write(wsi, &buf[LWS_PRE], to_send, LWS_WRITE_BINARY);
 		if (n > 0) {
 			server_sent += (size_t)n;

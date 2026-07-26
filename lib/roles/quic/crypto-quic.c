@@ -304,7 +304,7 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
                         return -1;
         } else {
                 if (level == LWS_QUIC_LEVEL_APP && k->valid && k->secret_tx[0]) {
-                        lwsl_notice("%s: ignoring post-handshake TLS secret_tx update for APP level\n", __func__);
+                        lwsl_info("%s: ignoring post-handshake TLS secret_tx update for APP level\n", __func__);
                         return 0;
                 }
                 k->secret_len = secret_len > 48 ? 48 : secret_len;

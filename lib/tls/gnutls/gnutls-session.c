@@ -97,7 +97,7 @@ lws_tls_reuse_session(struct lws *wsi)
 	ts = __lws_tls_session_lookup_by_name(wsi->a.vhost, buf);
 
 	if (!ts) {
-		lwsl_notice("%s: no existing session for %s\n", __func__, buf);
+		lwsl_info("%s: no existing session for %s\n", __func__, buf);
 		goto bail;
 	}
 
@@ -194,20 +194,20 @@ lws_tls_session_new_gnutls(struct lws *wsi)
 
 	nl = strlen(buf);
 
-#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 	/* Check if a session ticket has actually been received (TLS 1.3 requirement) */
 	unsigned sess_flags = gnutls_session_get_flags((gnutls_session_t)wsi->tls.ssl);
-	lwsl_notice("%s: QUIC session ticket check: flags=0x%x, has_ticket=%d\n", __func__,
+	lwsl_info("%s: QUIC session ticket check: flags=0x%x, has_ticket=%d\n", __func__,
 		    sess_flags, !!(sess_flags & GNUTLS_SFLAGS_SESSION_TICKET));
 #endif
 
 	int ret = gnutls_session_get_data2((gnutls_session_t)wsi->tls.ssl, &gd);
-	lwsl_notice("%s: gnutls_session_get_data2 ret=%d, len=%u\n", __func__, ret, gd.size);
+	lwsl_info("%s: gnutls_session_get_data2 ret=%d, len=%u\n", __func__, ret, gd.size);
 	if (ret != GNUTLS_E_SUCCESS) {
 		if (ret == GNUTLS_E_INTERNAL_ERROR)
-			lwsl_notice("%s: gnutls_session_get_data2 INTERNAL_ERROR (no ticket yet?): %s\n", __func__, gnutls_strerror(ret));
+			lwsl_info("%s: gnutls_session_get_data2 INTERNAL_ERROR (no ticket yet?): %s\n", __func__, gnutls_strerror(ret));
 		else
-			lwsl_notice("%s: gnutls_session_get_data2 failed: %d (%s)\n", __func__, ret, gnutls_strerror(ret));
+			lwsl_info("%s: gnutls_session_get_data2 failed: %d (%s)\n", __func__, ret, gnutls_strerror(ret));
 		return 0;
 	}
 
@@ -216,7 +216,7 @@ lws_tls_session_new_gnutls(struct lws *wsi)
 	 * arrives.  Reject any suspiciously small blob to avoid persisting
 	 * a useless stub that will fail to resume on next connection. */
 	if (gd.size < 32) {
-		lwsl_notice("%s: session data too small (%u bytes), ignoring stub ticket\n",
+		lwsl_info("%s: session data too small (%u bytes), ignoring stub ticket\n",
 			    __func__, gd.size);
 		gnutls_free(gd.data);
 		return 0;

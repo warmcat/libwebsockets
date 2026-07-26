@@ -289,7 +289,7 @@ lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
 
 		if (n < 1 || n != m ||
 		    strncmp(stack[0].name, stack[stp].name, (unsigned int)n)) {
-			lwsl_notice("%s: skipping %s vs %s\n", __func__,
+			lwsl_info("%s: skipping %s vs %s\n", __func__,
 			stack[0].name, stack[stp].name);
 			goto skip;
 		}
