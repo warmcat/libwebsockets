@@ -822,6 +822,10 @@ lws_tls_quic_api_test(void)
 	lws_tls_quic_vhost_init(sctx);
 
 	/* Generate a quick temporary cert for the server */
+#if defined(LWS_HAVE_EVP_PKEY_Q_KEYGEN)
+	pkey = EVP_PKEY_Q_keygen(NULL, NULL, "RSA", (size_t)2048);
+	if (!pkey) goto fail;
+#else
 	pkey = EVP_PKEY_new();
 	e = BN_new();
 	rsa = RSA_new();
@@ -831,6 +835,9 @@ lws_tls_quic_api_test(void)
 		if (rsa) RSA_free(rsa);
 		goto fail;
 	}
+	BN_free(e);
+	e = NULL;
+#endif
 
 	x509 = X509_new();
 	X509_set_version(x509, 2);
