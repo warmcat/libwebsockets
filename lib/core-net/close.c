@@ -474,8 +474,6 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 			delete_from_fdwsi(wsi->a.context, wsi);
 #endif
 		}
-		lws_plat_pipe_close(pt->pipe_wsi);
-		pt->pipe_wsi = NULL;
 	}
 
 #if defined(LWS_WITH_SYS_METRICS) && \
@@ -1056,13 +1054,14 @@ __lws_close_free_wsi_final(struct lws *wsi)
 	}
 
 	/* ... if we're closing the cancel pipe, account for it */
-
 	{
 		struct lws_context_per_thread *pt =
 				&wsi->a.context->pt[(int)wsi->tsi];
 
-		if (pt->pipe_wsi == wsi)
+		if (pt->pipe_wsi == wsi) {
+			lws_plat_pipe_close(wsi);
 			pt->pipe_wsi = NULL;
+		}
 		if (pt->dummy_pipe_fds[0] == wsi->desc.sockfd)
                {
 #if !defined(LWS_PLAT_FREERTOS)
