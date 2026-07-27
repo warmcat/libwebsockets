@@ -26,6 +26,10 @@
  */
 #include "private-lib-core.h"
 #include "private-lib-tls-openssl.h"
+#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+#include <openssl/core_names.h>
+#include <openssl/param_build.h>
+#endif
 
 /*
  * Care: many openssl apis return 1 for success.  These are translated to the
@@ -41,6 +45,7 @@ lws_genrsa_destroy_elements(struct lws_gencrypto_keyelem *el)
 static int mode_map_crypt[] = { RSA_PKCS1_PADDING, RSA_PKCS1_OAEP_PADDING },
 	   mode_map_sig[]   = { RSA_PKCS1_PADDING, RSA_PKCS1_PSS_PADDING };
 
+#if !defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
 static int
 rsa_pkey_wrap(struct lws_genrsa_ctx *ctx, RSA *rsa)
 {
@@ -105,7 +110,40 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 	 *
 	 * assemble the OpenSSL RSA from the BIGNUMs
 	 */
+#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+	{
+		OSSL_PARAM params[6];
+		int pidx = 0;
+		EVP_PKEY_CTX *pctx;
+		EVP_PKEY *pkey = NULL;
+		
+		if (el[LWS_GENCRYPTO_RSA_KEYEL_N].buf)
+			params[pidx++] = OSSL_PARAM_construct_BN("n", (unsigned char *)el[LWS_GENCRYPTO_RSA_KEYEL_N].buf, el[LWS_GENCRYPTO_RSA_KEYEL_N].len);
+		if (el[LWS_GENCRYPTO_RSA_KEYEL_E].buf)
+			params[pidx++] = OSSL_PARAM_construct_BN("e", (unsigned char *)el[LWS_GENCRYPTO_RSA_KEYEL_E].buf, el[LWS_GENCRYPTO_RSA_KEYEL_E].len);
+		if (el[LWS_GENCRYPTO_RSA_KEYEL_D].buf)
+			params[pidx++] = OSSL_PARAM_construct_BN("d", (unsigned char *)el[LWS_GENCRYPTO_RSA_KEYEL_D].buf, el[LWS_GENCRYPTO_RSA_KEYEL_D].len);
+		if (el[LWS_GENCRYPTO_RSA_KEYEL_P].buf)
+			params[pidx++] = OSSL_PARAM_construct_BN("rsa-factor1", (unsigned char *)el[LWS_GENCRYPTO_RSA_KEYEL_P].buf, el[LWS_GENCRYPTO_RSA_KEYEL_P].len);
+		if (el[LWS_GENCRYPTO_RSA_KEYEL_Q].buf)
+			params[pidx++] = OSSL_PARAM_construct_BN("rsa-factor2", (unsigned char *)el[LWS_GENCRYPTO_RSA_KEYEL_Q].buf, el[LWS_GENCRYPTO_RSA_KEYEL_Q].len);
+		params[pidx] = OSSL_PARAM_construct_end();
 
+		pctx = EVP_PKEY_CTX_new_from_name(NULL, "RSA", NULL);
+		if (!pctx) goto bail;
+		if (EVP_PKEY_fromdata_init(pctx) <= 0 ||
+		    EVP_PKEY_fromdata(pctx, &pkey, EVP_PKEY_KEYPAIR, params) <= 0) {
+			EVP_PKEY_CTX_free(pctx);
+			goto bail;
+		}
+		EVP_PKEY_CTX_free(pctx);
+		
+		ctx->ctx = EVP_PKEY_CTX_new(pkey, NULL);
+		EVP_PKEY_free(pkey);
+		if (!ctx->ctx) goto bail;
+		return 0;
+	}
+#else
 	ctx->rsa = RSA_new();
 	if (!ctx->rsa) {
 		lwsl_notice("Failed to create RSA\n");
@@ -131,6 +169,7 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 
 	if (!rsa_pkey_wrap(ctx, ctx->rsa))
 		return 0;
+#endif
 
 bail:
 	for (n = 0; n < 5; n++)
@@ -152,13 +191,54 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 		       enum enum_genrsa_mode mode, struct lws_gencrypto_keyelem *el,
 		       int bits)
 {
+#if !defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
 	BIGNUM *bn;
+#endif
 	int n;
 
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->context = context;
 	ctx->mode = mode;
 
+#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+	{
+		EVP_PKEY *pkey = EVP_PKEY_Q_keygen(NULL, NULL, "RSA", (size_t)bits);
+		BIGNUM *mpi[5] = { NULL, NULL, NULL, NULL, NULL };
+
+		if (!pkey) return -1;
+		
+		if (!EVP_PKEY_get_bn_param(pkey, "n", &mpi[LWS_GENCRYPTO_RSA_KEYEL_N]) ||
+		    !EVP_PKEY_get_bn_param(pkey, "e", &mpi[LWS_GENCRYPTO_RSA_KEYEL_E]) ||
+		    !EVP_PKEY_get_bn_param(pkey, "d", &mpi[LWS_GENCRYPTO_RSA_KEYEL_D]) ||
+		    !EVP_PKEY_get_bn_param(pkey, "rsa-factor1", &mpi[LWS_GENCRYPTO_RSA_KEYEL_P]) ||
+		    !EVP_PKEY_get_bn_param(pkey, "rsa-factor2", &mpi[LWS_GENCRYPTO_RSA_KEYEL_Q])) {
+			goto cleanup_3;
+		}
+
+		for (n = 0; n < 5; n++) {
+			if (BN_num_bytes(mpi[n])) {
+				el[n].buf = lws_malloc(
+					(unsigned int)BN_num_bytes(mpi[n]), "genrsakey");
+				if (!el[n].buf)
+					goto cleanup_3;
+				el[n].len = (unsigned int)BN_num_bytes(mpi[n]);
+				BN_bn2bin(mpi[n], el[n].buf);
+			}
+			BN_clear_free(mpi[n]);
+			mpi[n] = NULL;
+		}
+		
+		ctx->ctx = EVP_PKEY_CTX_new(pkey, NULL);
+		EVP_PKEY_free(pkey);
+		if (!ctx->ctx) goto cleanup;
+		return 0;
+cleanup_3:
+		for (n = 0; n < 5; n++)
+			if (mpi[n]) BN_clear_free(mpi[n]);
+		EVP_PKEY_free(pkey);
+		goto cleanup;
+	}
+#else
 	ctx->rsa = RSA_new();
 	if (!ctx->rsa) {
 		lwsl_notice("Failed to create RSA\n");
@@ -204,14 +284,17 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 
 	if (!rsa_pkey_wrap(ctx, ctx->rsa))
 		return 0;
+#endif
 
 cleanup:
 	for (n = 0; n < LWS_GENCRYPTO_RSA_KEYEL_COUNT; n++)
 		if (el[n].buf)
 			lws_free_set_NULL(el[n].buf);
+#if !defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
 cleanup_1:
 	RSA_free(ctx->rsa);
 	ctx->rsa = NULL;
+#endif
 
 	return -1;
 }
@@ -225,6 +308,17 @@ int
 lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			  size_t in_len, uint8_t *out)
 {
+#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+	size_t out_len = (size_t)EVP_PKEY_size(EVP_PKEY_CTX_get0_pkey(ctx->ctx));
+	if (EVP_PKEY_encrypt_init(ctx->ctx) <= 0 ||
+	    EVP_PKEY_CTX_set_rsa_padding(ctx->ctx, mode_map_crypt[ctx->mode]) <= 0 ||
+	    EVP_PKEY_encrypt(ctx->ctx, out, &out_len, in, in_len) <= 0) {
+		lwsl_err("%s: EVP_PKEY_encrypt failed\n", __func__);
+		lws_tls_err_describe_clear();
+		return -1;
+	}
+	return (int)out_len;
+#else
 	int n = RSA_public_encrypt(SSL_SIZE_T_CAST(in_len), in, out, ctx->rsa,
 				   mode_map_crypt[ctx->mode]);
 	if (n < 0) {
@@ -234,12 +328,24 @@ lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	}
 
 	return n;
+#endif
 }
 
 int
 lws_genrsa_private_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			   size_t in_len, uint8_t *out)
 {
+#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+	size_t out_len = (size_t)EVP_PKEY_size(EVP_PKEY_CTX_get0_pkey(ctx->ctx));
+	if (EVP_PKEY_sign_init(ctx->ctx) <= 0 ||
+	    EVP_PKEY_CTX_set_rsa_padding(ctx->ctx, mode_map_crypt[ctx->mode]) <= 0 ||
+	    EVP_PKEY_sign(ctx->ctx, out, &out_len, in, in_len) <= 0) {
+		lwsl_err("%s: EVP_PKEY_sign failed\n", __func__);
+		lws_tls_err_describe_clear();
+		return -1;
+	}
+	return (int)out_len;
+#else
 	int n = RSA_private_encrypt(SSL_SIZE_T_CAST(in_len), in, out, ctx->rsa,
 			        mode_map_crypt[ctx->mode]);
 	if (n < 0) {
@@ -249,12 +355,23 @@ lws_genrsa_private_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	}
 
 	return n;
+#endif
 }
 
 int
 lws_genrsa_public_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			  size_t in_len, uint8_t *out, size_t out_max)
 {
+#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+	size_t out_len = out_max;
+	if (EVP_PKEY_verify_recover_init(ctx->ctx) <= 0 ||
+	    EVP_PKEY_CTX_set_rsa_padding(ctx->ctx, mode_map_crypt[ctx->mode]) <= 0 ||
+	    EVP_PKEY_verify_recover(ctx->ctx, out, &out_len, in, in_len) <= 0) {
+		lwsl_err("%s: EVP_PKEY_verify_recover failed\n", __func__);
+		return -1;
+	}
+	return (int)out_len;
+#else
 	int n = RSA_public_decrypt(SSL_SIZE_T_CAST(in_len), in, out, ctx->rsa,
 			       mode_map_crypt[ctx->mode]);
 	if (n < 0) {
@@ -263,12 +380,24 @@ lws_genrsa_public_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	}
 
 	return n;
+#endif
 }
 
 int
 lws_genrsa_private_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			   size_t in_len, uint8_t *out, size_t out_max)
 {
+#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+	size_t out_len = out_max;
+	if (EVP_PKEY_decrypt_init(ctx->ctx) <= 0 ||
+	    EVP_PKEY_CTX_set_rsa_padding(ctx->ctx, mode_map_crypt[ctx->mode]) <= 0 ||
+	    EVP_PKEY_decrypt(ctx->ctx, out, &out_len, in, in_len) <= 0) {
+		lwsl_err("%s: EVP_PKEY_decrypt failed\n", __func__);
+		lws_tls_err_describe_clear();
+		return -1;
+	}
+	return (int)out_len;
+#else
 	int n = RSA_private_decrypt(SSL_SIZE_T_CAST(in_len), in, out, ctx->rsa,
 			        mode_map_crypt[ctx->mode]);
 	if (n < 0) {
@@ -278,6 +407,7 @@ lws_genrsa_private_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	}
 
 	return n;
+#endif
 }
 
 int
@@ -293,6 +423,29 @@ lws_genrsa_hash_sig_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 		return -1;
 
 	switch(ctx->mode) {
+#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+	case LGRSAM_PKCS1_1_5:
+	case LGRSAM_PKCS1_OAEP_PSS:
+		{
+			EVP_PKEY_CTX *pctx = EVP_PKEY_CTX_new(EVP_PKEY_CTX_get0_pkey(ctx->ctx), NULL);
+			md = lws_gencrypto_openssl_hash_to_EVP_MD(hash_type);
+			if (!pctx || !md) {
+				if (pctx) EVP_PKEY_CTX_free(pctx);
+				return -1;
+			}
+			if (EVP_PKEY_verify_init(pctx) <= 0 ||
+			    EVP_PKEY_CTX_set_rsa_padding(pctx, mode_map_sig[ctx->mode]) <= 0 ||
+			    EVP_PKEY_CTX_set_signature_md(pctx, md) <= 0 ||
+			    (ctx->mode == LGRSAM_PKCS1_OAEP_PSS && EVP_PKEY_CTX_set_rsa_pss_saltlen(pctx, -1) <= 0) ||
+			    EVP_PKEY_verify(pctx, sig, sig_len, in, (size_t)h) <= 0) {
+				n = 0;
+			} else {
+				n = 1;
+			}
+			EVP_PKEY_CTX_free(pctx);
+		}
+		break;
+#else
 	case LGRSAM_PKCS1_1_5:
 		n = RSA_verify(n, in, (unsigned int)h, (uint8_t *)sig,
 			       (unsigned int)sig_len, ctx->rsa);
@@ -310,6 +463,7 @@ lws_genrsa_hash_sig_verify(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			(int)sig_len);
 #endif
 		break;
+#endif
 	default:
 		return -1;
 	}
@@ -340,11 +494,32 @@ lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 
 	switch(ctx->mode) {
 	case LGRSAM_PKCS1_1_5:
+#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+		{
+			EVP_PKEY_CTX *pctx = EVP_PKEY_CTX_new(EVP_PKEY_CTX_get0_pkey(ctx->ctx), NULL);
+			size_t slen = sig_len;
+			md = lws_gencrypto_openssl_hash_to_EVP_MD(hash_type);
+			if (!pctx || !md) {
+				if (pctx) EVP_PKEY_CTX_free(pctx);
+				goto bail;
+			}
+			if (EVP_PKEY_sign_init(pctx) <= 0 ||
+			    EVP_PKEY_CTX_set_rsa_padding(pctx, mode_map_sig[ctx->mode]) <= 0 ||
+			    EVP_PKEY_CTX_set_signature_md(pctx, md) <= 0 ||
+			    EVP_PKEY_sign(pctx, sig, &slen, in, (size_t)h) <= 0) {
+				EVP_PKEY_CTX_free(pctx);
+				goto bail;
+			}
+			used = (unsigned int)slen;
+			EVP_PKEY_CTX_free(pctx);
+		}
+#else
 		if (RSA_sign(n, in, (unsigned int)h, sig, &used, ctx->rsa) != 1) {
 			lwsl_err("%s: RSA_sign failed\n", __func__);
 
 			goto bail;
 		}
+#endif
 		break;
 
 	case LGRSAM_PKCS1_OAEP_PSS:
