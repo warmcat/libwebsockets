@@ -524,6 +524,7 @@ elops_accept_uv(struct lws *wsi)
 	if (n) {
 		lwsl_wsi_err(wsi, "uv_poll_init failed %d, sockfd=%p", n,
 				  (void *)(lws_intptr_t)wsi->desc.sockfd);
+		assert(n != UV_EEXIST);
 		lws_free(w_read->pwatcher);
 		w_read->pwatcher = NULL;
 		return -1;
@@ -633,7 +634,7 @@ elops_init_vhost_listen_wsi_uv(struct lws *wsi)
 	if (n) {
 		lwsl_wsi_err(wsi, "uv_poll_init failed %d, sockfd=%p", n,
 				  (void *)(lws_intptr_t)wsi->desc.sockfd);
-
+		assert(n != UV_EEXIST);
 		return -1;
 	}
 
@@ -945,6 +946,7 @@ elops_sock_accept_parallel_uv(struct lws *wsi, lws_sockfd_type fd, int pidx)
 
 	if (n) {
 		lwsl_wsi_err(wsi, "uv_poll_init failed %d", n);
+		assert(n != UV_EEXIST);
 		lws_free(w_read->pwatcher);
 		w_read->pwatcher = NULL;
 		return -1;
