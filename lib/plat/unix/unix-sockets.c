@@ -447,9 +447,27 @@ lws_interface_to_sa(int ipv6, const char *ifname, struct sockaddr_in *addr,
 
 	freeifaddrs(ifr);
 
-	if (rc &&
-	    !lws_sa46_parse_numeric_address(ifname, (lws_sockaddr46 *)addr))
-		rc = LWS_ITOSA_USABLE;
+	/*
+	 * ifname may be a numeric address literal rather than an interface
+	 * name.  Parse it into a full-width lws_sockaddr46 and copy back only
+	 * as much as fits in the caller's buffer: addr may be as small as a
+	 * struct sockaddr_in (eg, the AF_INET path in lws_socket_bind() passes
+	 * a 16-byte serv_addr4), so casting it to lws_sockaddr46 * and letting
+	 * lws_sa46_parse_numeric_address() memset sizeof(lws_sockaddr46) (28
+	 * bytes when IPv6 is enabled) straight through it overflows that buffer.
+	 */
+	if (rc) {
+		lws_sockaddr46 sa46;
+
+		if (!lws_sa46_parse_numeric_address(ifname, &sa46)) {
+			size_t n = (size_t)sa46_socklen(&sa46);
+
+			if (n > addrlen)
+				n = addrlen;
+			memcpy(addr, &sa46, n);
+			rc = LWS_ITOSA_USABLE;
+		}
+	}
 
 	return rc;
 }
