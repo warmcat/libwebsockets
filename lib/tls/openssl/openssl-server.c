@@ -644,9 +644,9 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 					SSL_CTX_set_cert_store(tls->ssl_ctx, x509_store);
 					STACK_OF(X509_NAME) *calist = sk_X509_NAME_new_null();
 					if (calist) {
-						X509_NAME *name = X509_get_subject_name(client_CA);
+						const X509_NAME *name = X509_get_subject_name(client_CA);
 						if (name)
-							sk_X509_NAME_push(calist, X509_NAME_dup(name));
+							sk_X509_NAME_push(calist, X509_NAME_dup((X509_NAME *)name));
 						SSL_CTX_set_client_CA_list(tls->ssl_ctx, calist);
 					}
 					lwsl_notice("%s: vh %s: mem CA OK\n", __func__, vhost->name);
@@ -940,7 +940,11 @@ lws_tls_acme_sni_cert_create(struct lws_vhost *vhost, const char *san_a,
 
 	X509_set_pubkey(vhost->tls.ss->x509, vhost->tls.ss->pkey);
 
-	name = X509_get_subject_name(vhost->tls.ss->x509);
+	/*
+	 * OpenSSL 4 constified the accessor, but the name is still owned by
+	 * the unsigned cert and is meant to be filled in here
+	 */
+	name = (X509_NAME *)X509_get_subject_name(vhost->tls.ss->x509);
 	X509_NAME_add_entry_by_txt(name, "C",  MBSTRING_ASC,
 				   (unsigned char *)"GB",          -1, -1, 0);
 	X509_NAME_add_entry_by_txt(name, "O",  MBSTRING_ASC,

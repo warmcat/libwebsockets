@@ -216,7 +216,7 @@ OpenSSL_client_verify_callback(int preverify_ok, X509_STORE_CTX *x509_ctx)
 				char cert_cn[256] = "unknown";
 				X509 *cert = X509_STORE_CTX_get_current_cert(x509_ctx);
 				if (cert) {
-					X509_NAME *subject = X509_get_subject_name(cert);
+					const X509_NAME *subject = X509_get_subject_name(cert);
 					if (subject)
 						X509_NAME_get_text_by_NID(subject, NID_commonName, cert_cn, sizeof(cert_cn));
 				}

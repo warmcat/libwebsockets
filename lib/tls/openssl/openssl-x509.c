@@ -100,7 +100,7 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 	int tag, xclass, r = 1;
 	long xlen, loc;
 #endif
-	X509_NAME *xn;
+	const X509_NAME *xn;
 #if !defined(LWS_PLAT_OPTEE)
 	char *p, *p1;
 	size_t rl;
@@ -140,7 +140,7 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 		xn = X509_get_subject_name(x509);
 		if (!xn)
 			return -1;
-		X509_NAME_oneline(xn, buf->ns.name, (int)len - 2);
+		X509_NAME_oneline((X509_NAME *)xn, buf->ns.name, (int)len - 2);
 		p = (char *)strstr(buf->ns.name, "/CN=");
 		if (p) {
 			p += 4;
@@ -159,7 +159,7 @@ lws_tls_openssl_cert_info(X509 *x509, enum lws_tls_cert_info type,
 		xn = X509_get_issuer_name(x509);
 		if (!xn)
 			return -1;
-		X509_NAME_oneline(xn, buf->ns.name, (int)len - 1);
+		X509_NAME_oneline((X509_NAME *)xn, buf->ns.name, (int)len - 1);
 		buf->ns.len = (int)strlen(buf->ns.name);
 		return 0;
 
@@ -487,11 +487,11 @@ lws_x509_verify(struct lws_x509_cert *x509, struct lws_x509_cert *trusted,
 	int ret;
 
 	if (common_name) {
-		X509_NAME *xn = X509_get_subject_name(x509->cert);
+		const X509_NAME *xn = X509_get_subject_name(x509->cert);
 		if (!xn)
 			return -1;
 		
-		if (X509_NAME_get_text_by_NID(xn, NID_commonName, c, sizeof(c)) < 0)
+		if (X509_NAME_get_text_by_NID((X509_NAME *)xn, NID_commonName, c, sizeof(c)) < 0)
 			return -1;
 
 		if (strcmp(c, common_name)) {
@@ -1020,7 +1020,11 @@ lws_x509_create_cert(struct lws_context *context,
 
 	X509_set_pubkey(x509, pkey);
 
-	name = X509_get_subject_name(x509);
+	/*
+	 * OpenSSL 4 constified the accessor, but the name is still owned by
+	 * the unsigned cert and is meant to be filled in here
+	 */
+	name = (X509_NAME *)X509_get_subject_name(x509);
 	X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
 				   (unsigned char *)info->san, -1, -1, 0);
 
