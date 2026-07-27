@@ -865,6 +865,16 @@ lws_tls_server_accept(struct lws *wsi)
 #endif
 
 #if defined(LWS_WITH_ACME)
+#if defined(LWS_HAVE_EVP_PKEY_Q_KEYGEN)
+static int
+lws_tls_openssl_rsa_new_key(EVP_PKEY **pkey, int bits)
+{
+	*pkey = EVP_PKEY_Q_keygen(NULL, NULL, "RSA", (size_t)bits);
+	if (*pkey)
+		return 0;
+	return 1;
+}
+#else
 static int
 lws_tls_openssl_rsa_new_key(RSA **rsa, int bits)
 {
@@ -895,11 +905,14 @@ lws_tls_openssl_rsa_new_key(RSA **rsa, int bits)
 
 	return 1;
 }
+#endif
 
 struct lws_tls_ss_pieces {
 	X509 *x509;
 	EVP_PKEY *pkey;
+#if !defined(LWS_HAVE_EVP_PKEY_Q_KEYGEN)
 	RSA *rsa;
+#endif
 };
 
 int
@@ -1073,7 +1086,9 @@ lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[],
 			    size_t *privkey_len)
 {
 	uint8_t *csr_in = csr;
+#if !defined(LWS_HAVE_EVP_PKEY_Q_KEYGEN)
 	RSA *rsakey;
+#endif
 	X509_REQ *req;
 	X509_NAME *subj;
 	EVP_PKEY *pkey;
@@ -1082,6 +1097,10 @@ lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[],
 	long bio_len;
 	int n, ret = -1;
 
+#if defined(LWS_HAVE_EVP_PKEY_Q_KEYGEN)
+	if (lws_tls_openssl_rsa_new_key(&pkey, 4096))
+		return -1;
+#else
 	if (lws_tls_openssl_rsa_new_key(&rsakey, 4096))
 		return -1;
 
@@ -1090,6 +1109,7 @@ lws_tls_acme_sni_csr_create(struct lws_context *context, const char *elements[],
 		goto bail0;
 	if (!EVP_PKEY_set1_RSA(pkey, rsakey))
 		goto bail1;
+#endif
 
 	req = X509_REQ_new();
 	if (!req)
@@ -1222,8 +1242,10 @@ bail2:
 	X509_REQ_free(req);
 bail1:
 	EVP_PKEY_free(pkey);
+#if !defined(LWS_HAVE_EVP_PKEY_Q_KEYGEN)
 bail0:
 	RSA_free(rsakey);
+#endif
 
 	return ret;
 }
@@ -1237,7 +1259,9 @@ lws_tls_acme_sni_csr_create_ecdsa(struct lws_context *context, const char *eleme
 	return -1;
 #else
 	uint8_t *csr_in = csr;
+#if !defined(LWS_HAVE_EVP_PKEY_Q_KEYGEN)
 	EC_KEY *eckey = NULL;
+#endif
 	X509_REQ *req;
 	X509_NAME *subj;
 	EVP_PKEY *pkey;
@@ -1246,6 +1270,11 @@ lws_tls_acme_sni_csr_create_ecdsa(struct lws_context *context, const char *eleme
 	long bio_len;
 	int n, ret = -1;
 
+#if defined(LWS_HAVE_EVP_PKEY_Q_KEYGEN)
+	pkey = EVP_PKEY_Q_keygen(NULL, NULL, "EC", "prime256v1");
+	if (!pkey)
+		return -1;
+#else
 	eckey = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
 	if (!eckey)
 		return -1;
@@ -1260,6 +1289,7 @@ lws_tls_acme_sni_csr_create_ecdsa(struct lws_context *context, const char *eleme
 		goto bail0;
 	if (!EVP_PKEY_assign_EC_KEY(pkey, eckey))
 		goto bail1;
+#endif
 
 	req = X509_REQ_new();
 	if (!req)
@@ -1394,8 +1424,10 @@ bail1:
 	EVP_PKEY_free(pkey);
 	return ret;
 bail0:
+#if !defined(LWS_HAVE_EVP_PKEY_Q_KEYGEN)
 	if (eckey)
 		EC_KEY_free(eckey);
+#endif
 	return -1;
 #endif
 }
