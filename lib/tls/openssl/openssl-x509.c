@@ -568,10 +568,34 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 			goto bail1;
 		}
 
+#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+		{
+			char curve_name[64];
+			size_t l = 0;
+			if (!EVP_PKEY_get_utf8_string_param(pkey, "group", curve_name, sizeof(curve_name), &l)) {
+				lwsl_err("%s: get curve name failed\n", __func__);
+				goto bail1;
+			}
+			if (lws_genec_confirm_curve_allowed_by_tls_id(curves, OBJ_txt2nid(curve_name), jwk))
+				goto bail1;
+
+			mpi[LWS_GENCRYPTO_EC_KEYEL_CRV] = NULL;
+			mpi[LWS_GENCRYPTO_EC_KEYEL_X] = NULL;
+			mpi[LWS_GENCRYPTO_EC_KEYEL_D] = NULL;
+			mpi[LWS_GENCRYPTO_EC_KEYEL_Y] = NULL;
+
+			if (!EVP_PKEY_get_bn_param(pkey, "qx", &mpi[LWS_GENCRYPTO_EC_KEYEL_X]) ||
+			    !EVP_PKEY_get_bn_param(pkey, "qy", &mpi[LWS_GENCRYPTO_EC_KEYEL_Y])) {
+				BN_clear_free(mpi[LWS_GENCRYPTO_EC_KEYEL_X]);
+				BN_clear_free(mpi[LWS_GENCRYPTO_EC_KEYEL_Y]);
+				lwsl_err("%s: get EC coords failed\n", __func__);
+				goto bail1;
+			}
+		}
+#else
 		ecpub = EVP_PKEY_get1_EC_KEY(pkey);
 		if (!ecpub) {
 			lwsl_notice("%s: missing EC pubkey\n", __func__);
-
 			goto bail1;
 		}
 
@@ -588,7 +612,6 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 		}
 
 		/* validate the curve against ones we allow */
-
 		if (lws_genec_confirm_curve_allowed_by_tls_id(curves,
 				EC_GROUP_get_curve_name(ecgroup), jwk))
 			/* already logged */
@@ -612,6 +635,7 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 			lwsl_err("%s: EC_POINT_get_aff failed\n", __func__);
 			goto bail2;
 		}
+#endif
 		count = LWS_GENCRYPTO_EC_KEYEL_COUNT;
 		n = LWS_GENCRYPTO_EC_KEYEL_X;
 		break;
@@ -620,17 +644,41 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 		lwsl_debug("%s: rsa key\n", __func__);
 		jwk->kty = LWS_GENCRYPTO_KTY_RSA;
 
+#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+		{
+			int bits = 0;
+			if (!EVP_PKEY_get_int_param(pkey, "bits", &bits)) {
+				lwsl_err("%s: missing RSA bits\n", __func__);
+				goto bail1;
+			}
+			if ((size_t)bits < (size_t)rsa_min_bits) {
+				lwsl_err("%s: key bits %d less than minimum %d\n",
+					 __func__, bits, rsa_min_bits);
+				goto bail1;
+			}
+
+			mpi[LWS_GENCRYPTO_RSA_KEYEL_N] = NULL;
+			mpi[LWS_GENCRYPTO_RSA_KEYEL_E] = NULL;
+			mpi[LWS_GENCRYPTO_RSA_KEYEL_D] = NULL;
+
+			if (!EVP_PKEY_get_bn_param(pkey, "n", &mpi[LWS_GENCRYPTO_RSA_KEYEL_N]) ||
+			    !EVP_PKEY_get_bn_param(pkey, "e", &mpi[LWS_GENCRYPTO_RSA_KEYEL_E])) {
+				BN_clear_free(mpi[LWS_GENCRYPTO_RSA_KEYEL_N]);
+				BN_clear_free(mpi[LWS_GENCRYPTO_RSA_KEYEL_E]);
+				lwsl_err("%s: get RSA param failed\n", __func__);
+				goto bail1;
+			}
+		}
+#else
 		rsapub = EVP_PKEY_get1_RSA(pkey);
 		if (!rsapub) {
 			lwsl_notice("%s: missing RSA pubkey\n", __func__);
-
 			goto bail1;
 		}
 
 		if ((size_t)RSA_size(rsapub) * 8 < (size_t)rsa_min_bits) {
 			lwsl_err("%s: key bits %d less than minimum %d\n",
 				 __func__, RSA_size(rsapub) * 8, rsa_min_bits);
-
 			goto bail2;
 		}
 
@@ -644,6 +692,7 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 		mpi[LWS_GENCRYPTO_RSA_KEYEL_E] = rsapub->e;
 		mpi[LWS_GENCRYPTO_RSA_KEYEL_N] = rsapub->n;
 		mpi[LWS_GENCRYPTO_RSA_KEYEL_D] = NULL;
+#endif
 #endif
 		count = LWS_GENCRYPTO_RSA_KEYEL_D;
 		n = LWS_GENCRYPTO_RSA_KEYEL_E;
@@ -663,6 +712,12 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 				BN_clear_free(mpi[LWS_GENCRYPTO_EC_KEYEL_X]);
 				BN_clear_free(mpi[LWS_GENCRYPTO_EC_KEYEL_Y]);
 			}
+#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+			if (id == NID_rsaEncryption) {
+				BN_clear_free(mpi[LWS_GENCRYPTO_RSA_KEYEL_N]);
+				BN_clear_free(mpi[LWS_GENCRYPTO_RSA_KEYEL_E]);
+			}
+#endif
 			goto bail2;
 		}
 		BN_bn2bin(mpi[n], jwk->e[n].buf);
@@ -672,14 +727,22 @@ lws_x509_public_to_jwk(struct lws_jwk *jwk, struct lws_x509_cert *x509,
 		BN_clear_free(mpi[LWS_GENCRYPTO_EC_KEYEL_X]);
 		BN_clear_free(mpi[LWS_GENCRYPTO_EC_KEYEL_Y]);
 	}
+#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+	if (id == NID_rsaEncryption) {
+		BN_clear_free(mpi[LWS_GENCRYPTO_RSA_KEYEL_N]);
+		BN_clear_free(mpi[LWS_GENCRYPTO_RSA_KEYEL_E]);
+	}
+#endif
 
 	ret = 0;
 
 bail2:
+#if !defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
 	if (id == NID_X9_62_id_ecPublicKey)
 		EC_KEY_free(ecpub);
 	else
 		RSA_free(rsapub);
+#endif
 
 bail1:
 	EVP_PKEY_free(pkey);
@@ -738,35 +801,55 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 
 			goto bail;
 		}
+#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+		{
+			BIGNUM *priv = NULL;
+			if (!EVP_PKEY_get_bn_param(pkey, "priv", &priv)) {
+				lwsl_notice("%s: missing EC key\n", __func__);
+				goto bail;
+			}
+			
+			n = (int)BN_num_bytes(priv);
+			if (jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y].len != (uint32_t)n) {
+				lwsl_err("%s: jwk key size doesn't match\n", __func__);
+				BN_clear_free(priv);
+				goto bail1;
+			}
+
+			jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].len = (unsigned int)n;
+			jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].buf = lws_malloc((unsigned int)n, "ec");
+			if (!jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].buf) {
+				BN_clear_free(priv);
+				goto bail1;
+			}
+
+			m = BN_bn2binpad(priv, jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].buf,
+					      (int32_t)jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].len);
+			BN_clear_free(priv);
+			if ((unsigned int)m != (unsigned int)n)
+				goto bail1;
+		}
+#else
 		ecpriv = EVP_PKEY_get1_EC_KEY(pkey);
 		if (!ecpriv) {
 			lwsl_notice("%s: missing EC key\n", __func__);
-
 			goto bail;
 		}
-
 		cmpi = EC_KEY_get0_private_key(ecpriv);
-
-		/* quick size check first */
-
 		n = (int)BN_num_bytes(cmpi);
 		if (jwk->e[LWS_GENCRYPTO_EC_KEYEL_Y].len != (uint32_t)n) {
 			lwsl_err("%s: jwk key size doesn't match\n", __func__);
-
 			goto bail1;
 		}
-
-		/* TODO.. check public curve / group + point */
-
 		jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].len = (unsigned int)n;
 		jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].buf = lws_malloc((unsigned int)n, "ec");
 		if (!jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].buf)
 			goto bail1;
-
 		m = BN_bn2binpad(cmpi, jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].buf,
 				      (int32_t)jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].len);
 		if ((unsigned int)m != (unsigned int)BN_num_bytes(cmpi))
 			goto bail1;
+#endif
 
 		break;
 
@@ -776,25 +859,36 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 
 			goto bail;
 		}
+#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+		{
+			if (!EVP_PKEY_get_bn_param(pkey, "n", &dummy[0]) ||
+			    !EVP_PKEY_get_bn_param(pkey, "e", &dummy[1]) ||
+			    !EVP_PKEY_get_bn_param(pkey, "rsa-factor1", &dummy[4]) ||
+			    !EVP_PKEY_get_bn_param(pkey, "rsa-factor2", &dummy[5]) ||
+			    !EVP_PKEY_get_bn_param(pkey, "d", &mpi)) {
+				lwsl_notice("%s: missing RSA key\n", __func__);
+				goto bail;
+			}
+		}
+#else
 		rsapriv = EVP_PKEY_get1_RSA(pkey);
 		if (!rsapriv) {
 			lwsl_notice("%s: missing RSA key\n", __func__);
-
 			goto bail;
 		}
-
 #if defined(LWS_HAVE_RSA_SET0_KEY) && !defined(USE_WOLFSSL)
-		RSA_get0_key(rsapriv, (const BIGNUM **)&dummy[0], /* n */
-				      (const BIGNUM **)&dummy[1], /* e */
-				      (const BIGNUM **)&mpi);	  /* d */
-		RSA_get0_factors(rsapriv, (const BIGNUM **)&dummy[4],  /* p */
-					  (const BIGNUM **)&dummy[5]); /* q */
+		RSA_get0_key(rsapriv, (const BIGNUM **)&dummy[0],
+				      (const BIGNUM **)&dummy[1],
+				      (const BIGNUM **)&mpi);
+		RSA_get0_factors(rsapriv, (const BIGNUM **)&dummy[4],
+					  (const BIGNUM **)&dummy[5]);
 #else
 		dummy[0] = rsapriv->n;
 		dummy[1] = rsapriv->e;
 		dummy[4] = rsapriv->p;
 		dummy[5] = rsapriv->q;
 		mpi = rsapriv->d;
+#endif
 #endif
 
 		/* quick size check first */
@@ -821,7 +915,13 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 		if (m) {
 			lwsl_err("%s: privkey doesn't match jwk pubkey\n",
 				 __func__);
-
+#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+			BN_clear_free(dummy[0]);
+			BN_clear_free(dummy[1]);
+			BN_clear_free(dummy[4]);
+			BN_clear_free(dummy[5]);
+			BN_clear_free(mpi);
+#endif
 			goto bail1;
 		}
 
@@ -852,6 +952,13 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 			goto bail1;
 		}
 		BN_bn2bin(dummy[5], jwk->e[LWS_GENCRYPTO_RSA_KEYEL_Q].buf);
+#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+		BN_clear_free(dummy[0]);
+		BN_clear_free(dummy[1]);
+		BN_clear_free(dummy[4]);
+		BN_clear_free(dummy[5]);
+		BN_clear_free(mpi);
+#endif
 		break;
 	default:
 		lwsl_err("%s: JWK has unknown kty %d\n", __func__, jwk->kty);
@@ -861,10 +968,12 @@ lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 	ret = 0;
 
 bail1:
+#if !defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
 	if (jwk->kty == LWS_GENCRYPTO_KTY_EC)
 		EC_KEY_free(ecpriv);
 	else
 		RSA_free(rsapriv);
+#endif
 
 bail:
 	EVP_PKEY_free(pkey);
@@ -1010,7 +1119,11 @@ lws_x509_create_cert(struct lws_context *context,
 	{
 		ASN1_INTEGER *serial = X509_get_serialNumber(x509);
 		BIGNUM *bn = BN_new();
+#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+		BN_rand(bn, 64, 0, 0);
+#else
 		BN_pseudo_rand(bn, 64, 0, 0);
+#endif
 		BN_to_ASN1_INTEGER(bn, serial);
 		BN_free(bn);
 	}
