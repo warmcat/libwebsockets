@@ -26,6 +26,10 @@
  */
 #include "private-lib-core.h"
 #include "private-lib-tls-openssl.h"
+#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+#include <openssl/core_names.h>
+#include <openssl/param_build.h>
+#endif
 
 #if !defined(OPENSSL_NO_EC) && defined(LWS_HAVE_EC_KEY_new_by_curve_name) && \
     (OPENSSL_VERSION_NUMBER >= 0x30000000l) && \
@@ -118,23 +122,44 @@ const struct lws_ec_curves lws_ec_curves[4] = {
 };
 
 static int
-lws_genec_eckey_import(int nid, EVP_PKEY *pkey,
+lws_genec_eckey_import(int nid, EVP_PKEY **pkey,
 		       const struct lws_gencrypto_keyelem *el)
 {
+#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+	OSSL_PARAM params[5];
+	int pidx = 0;
+	EVP_PKEY_CTX *pctx;
+	EVP_PKEY *tmp_pkey = NULL;
+	const char *cname = OBJ_nid2sn(nid);
+
+	if (!cname) return -1;
+	params[pidx++] = OSSL_PARAM_construct_utf8_string("group", (char *)cname, 0);
+	if (el[LWS_GENCRYPTO_EC_KEYEL_X].buf)
+		params[pidx++] = OSSL_PARAM_construct_BN("qx", (unsigned char *)el[LWS_GENCRYPTO_EC_KEYEL_X].buf, el[LWS_GENCRYPTO_EC_KEYEL_X].len);
+	if (el[LWS_GENCRYPTO_EC_KEYEL_Y].buf)
+		params[pidx++] = OSSL_PARAM_construct_BN("qy", (unsigned char *)el[LWS_GENCRYPTO_EC_KEYEL_Y].buf, el[LWS_GENCRYPTO_EC_KEYEL_Y].len);
+	if (el[LWS_GENCRYPTO_EC_KEYEL_D].buf && el[LWS_GENCRYPTO_EC_KEYEL_D].len)
+		params[pidx++] = OSSL_PARAM_construct_BN("priv", (unsigned char *)el[LWS_GENCRYPTO_EC_KEYEL_D].buf, el[LWS_GENCRYPTO_EC_KEYEL_D].len);
+	params[pidx] = OSSL_PARAM_construct_end();
+
+	pctx = EVP_PKEY_CTX_new_from_name(NULL, "EC", NULL);
+	if (!pctx) return -1;
+	if (EVP_PKEY_fromdata_init(pctx) <= 0 ||
+	    EVP_PKEY_fromdata(pctx, &tmp_pkey, EVP_PKEY_KEYPAIR, params) <= 0) {
+		EVP_PKEY_CTX_free(pctx);
+		return -1;
+	}
+	EVP_PKEY_CTX_free(pctx);
+	
+	*pkey = tmp_pkey;
+	return 0;
+#else
 	EC_KEY *ec = EC_KEY_new_by_curve_name(nid);
 	BIGNUM *bn_d, *bn_x, *bn_y;
 	int n;
 
 	if (!ec)
 		return -1;
-
-	/*
-	 * EC_KEY contains
-	 *
-	 * EC_GROUP * 	group
-	 * EC_POINT * 	pub_key
-	 * BIGNUM * 	priv_key  (ie, d)
-	 */
 
 	bn_x = BN_bin2bn(el[LWS_GENCRYPTO_EC_KEYEL_X].buf,
 					SSL_SIZE_T_CAST(el[LWS_GENCRYPTO_EC_KEYEL_X].len), NULL);
@@ -148,14 +173,6 @@ lws_genec_eckey_import(int nid, EVP_PKEY *pkey,
 		lwsl_err("%s: BN_bin2bn (y) fail\n", __func__);
 		goto bail1;
 	}
-
-	/*
-	 * EC_KEY_set_public_key_affine_coordinates sets the public key for
-	 * key based on its affine co-ordinates, i.e. it constructs an
-	 * EC_POINT object based on the supplied x and y values and sets
-	 * the public key to be this EC_POINT. It will also performs
-	 * certain sanity checks on the key to confirm that it is valid.
-	 */
 
 #if defined(USE_WOLFSSL)
 	n = wolfSSL_EC_POINT_set_affine_coordinates_GFp(ec->group,
@@ -190,8 +207,6 @@ lws_genec_eckey_import(int nid, EVP_PKEY *pkey,
 		}
 	}
 
-	/* explicitly confirm the key pieces are consistent */
-
 #if !defined(USE_WOLFSSL)
 	if (EC_KEY_check_key(ec) != 1) {
 		lwsl_err("%s: EC_KEY_set_private_key fail\n", __func__);
@@ -199,9 +214,14 @@ lws_genec_eckey_import(int nid, EVP_PKEY *pkey,
 	}
 #endif
 
-	n = EVP_PKEY_assign_EC_KEY(pkey, ec);
+	*pkey = EVP_PKEY_new();
+	if (!*pkey) goto bail;
+
+	n = EVP_PKEY_assign_EC_KEY(*pkey, ec);
 	if (n != 1) {
 		lwsl_err("%s: EVP_PKEY_set1_EC_KEY failed\n", __func__);
+		EVP_PKEY_free(*pkey);
+		*pkey = NULL;
 		return -1;
 	}
 
@@ -213,6 +233,7 @@ bail:
 	EC_KEY_free(ec);
 
 	return -1;
+#endif
 }
 
 static int
@@ -240,11 +261,7 @@ lws_genec_keypair_import(struct lws_genec_ctx *ctx,
 
 	ctx->has_private = !!el[LWS_GENCRYPTO_EC_KEYEL_D].len;
 
-	pkey = EVP_PKEY_new();
-	if (!pkey)
-		return -7;
-
-	if (lws_genec_eckey_import(curve->tls_lib_nid, pkey, el)) {
+	if (lws_genec_eckey_import(curve->tls_lib_nid, &pkey, el)) {
 		lwsl_err("%s: lws_genec_eckey_import fail\n", __func__);
 		goto bail;
 	}
@@ -344,12 +361,16 @@ lws_genec_new_keypair(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 		      const char *curve_name, struct lws_gencrypto_keyelem *el)
 {
 	const struct lws_ec_curves *curve;
+#if !defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
 	const EC_POINT *pubkey;
+#endif
 	EVP_PKEY *pkey = NULL;
 	int ret = -29, n, m;
 	BIGNUM *bn_x = NULL, *bn_y = NULL;
 	const BIGNUM *cbn[3];
+#if !defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
 	EC_KEY *ec;
+#endif
 
 	curve = lws_genec_curve(ctx->curve_table, curve_name);
 	if (!curve) {
@@ -359,6 +380,58 @@ lws_genec_new_keypair(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 		return -22;
 	}
 
+#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+	pkey = EVP_PKEY_Q_keygen(NULL, NULL, "EC", curve_name);
+	if (!pkey) goto bail;
+
+	ctx->ctx[side] = EVP_PKEY_CTX_new(pkey, NULL);
+	if (!ctx->ctx[side]) goto bail1;
+
+	if (!EVP_PKEY_get_bn_param(pkey, "qx", &bn_x) ||
+	    !EVP_PKEY_get_bn_param(pkey, "qy", &bn_y)) {
+		goto bail2;
+	}
+
+	cbn[0] = bn_x;
+	if (!EVP_PKEY_get_bn_param(pkey, "priv", (BIGNUM **)&cbn[1])) {
+		goto bail2;
+	}
+	cbn[2] = bn_y;
+
+	el[LWS_GENCRYPTO_EC_KEYEL_CRV].len = (uint32_t)strlen(curve_name) + 1;
+	el[LWS_GENCRYPTO_EC_KEYEL_CRV].buf =
+			lws_malloc(el[LWS_GENCRYPTO_EC_KEYEL_CRV].len, "ec");
+	if (!el[LWS_GENCRYPTO_EC_KEYEL_CRV].buf) {
+		lwsl_err("%s: OOM\n", __func__);
+		goto bail2;
+	}
+
+	strcpy((char *)el[LWS_GENCRYPTO_EC_KEYEL_CRV].buf, curve_name);
+
+	for (n = LWS_GENCRYPTO_EC_KEYEL_X; n < LWS_GENCRYPTO_EC_KEYEL_COUNT;
+	     n++) {
+		el[n].len = curve->key_bytes;
+		el[n].buf = lws_malloc(curve->key_bytes, "ec");
+		if (!el[n].buf)
+			goto bail2;
+
+		m = BN_bn2binpad(cbn[n - 1], el[n].buf, (int32_t)el[n].len);
+		if ((uint32_t)m != el[n].len)
+			goto bail2;
+	}
+
+	ctx->has_private = 1;
+
+	ret = 0;
+
+bail2:
+	BN_clear_free(bn_x);
+	BN_clear_free(bn_y);
+	if (cbn[1]) BN_clear_free((BIGNUM *)cbn[1]);
+bail1:
+	EVP_PKEY_free(pkey);
+bail:
+#else
 	ec = EC_KEY_new_by_curve_name(curve->tls_lib_nid);
 	if (!ec) {
 		lwsl_err("%s: unknown nid %d\n", __func__, curve->tls_lib_nid);
@@ -447,6 +520,7 @@ bail1:
 	EVP_PKEY_free(pkey);
 bail:
 	EC_KEY_free(ec);
+#endif
 
 	return ret;
 }
@@ -528,7 +602,9 @@ lws_genecdsa_hash_sign_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
 	size_t hs = lws_genhash_size(hash_type);
 	const BIGNUM *r = NULL, *s = NULL;
 	ECDSA_SIG *ecdsasig;
+#if !defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
 	EC_KEY *eckey;
+#endif
 
 	if (ctx->genec_alg != LEGENEC_ECDSA) {
 		lwsl_notice("%s: ctx alg %d\n", __func__, ctx->genec_alg);
@@ -543,8 +619,6 @@ lws_genecdsa_hash_sign_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
 			    (int)sig_len, (int)(hs * 2));
 		return -1;
 	}
-
-	eckey = EVP_PKEY_get1_EC_KEY(EVP_PKEY_CTX_get0_pkey(ctx->ctx[0]));
 
 	/*
 	 * The ECDSA P-256 SHA-256 digital signature is generated as follows:
@@ -565,8 +639,39 @@ lws_genecdsa_hash_sign_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
 	 * 4.  The resulting 64-octet sequence is the JWS Signature value.
 	 */
 
+#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+	{
+		EVP_PKEY_CTX *sctx;
+		unsigned char der_sig[256];
+		size_t der_sig_len = sizeof(der_sig);
+		const unsigned char *p = der_sig;
+
+		sctx = EVP_PKEY_CTX_new(EVP_PKEY_CTX_get0_pkey(ctx->ctx[0]), NULL);
+		if (!sctx) {
+			lwsl_notice("%s: EVP_PKEY_CTX_new fail\n", __func__);
+			goto bail;
+		}
+
+		if (EVP_PKEY_sign_init(sctx) <= 0) {
+			lwsl_notice("%s: EVP_PKEY_sign_init fail\n", __func__);
+			EVP_PKEY_CTX_free(sctx);
+			goto bail;
+		}
+
+		if (EVP_PKEY_sign(sctx, der_sig, &der_sig_len, in, hs) <= 0) {
+			lwsl_notice("%s: EVP_PKEY_sign fail\n", __func__);
+			EVP_PKEY_CTX_free(sctx);
+			goto bail;
+		}
+		EVP_PKEY_CTX_free(sctx);
+
+		ecdsasig = d2i_ECDSA_SIG(NULL, &p, (long)der_sig_len);
+	}
+#else
+	eckey = EVP_PKEY_get1_EC_KEY(EVP_PKEY_CTX_get0_pkey(ctx->ctx[0]));
 	ecdsasig = ECDSA_do_sign(in, SSL_SIZE_T_CAST(hs), eckey);
 	EC_KEY_free(eckey);
+#endif
 	if (!ecdsasig) {
 		lwsl_notice("%s: ECDSA_do_sign fail\n", __func__);
 		goto bail;
@@ -611,7 +716,9 @@ lws_genecdsa_hash_sig_verify_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
 			keybytes = lws_gencrypto_bits_to_bytes(keybits);
 	ECDSA_SIG *ecsig = ECDSA_SIG_new();
 	BIGNUM *r = NULL, *s = NULL;
+#if !defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
 	EC_KEY *eckey;
+#endif
 
 	if (!ecsig)
 		return -1;
@@ -655,10 +762,44 @@ lws_genecdsa_hash_sig_verify_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
 		goto bail1;
 	}
 
-	eckey = EVP_PKEY_get1_EC_KEY(EVP_PKEY_CTX_get0_pkey(ctx->ctx[0]));
+#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+	{
+		unsigned char *der = NULL;
+		int der_len;
+		EVP_PKEY_CTX *vctx;
 
+		der_len = i2d_ECDSA_SIG(ecsig, &der);
+		if (der_len <= 0) {
+			n = -1;
+			goto v_bail;
+		}
+
+		vctx = EVP_PKEY_CTX_new(EVP_PKEY_CTX_get0_pkey(ctx->ctx[0]), NULL);
+		if (!vctx) {
+			OPENSSL_free(der);
+			n = -1;
+			goto v_bail;
+		}
+
+		if (EVP_PKEY_verify_init(vctx) <= 0) {
+			EVP_PKEY_CTX_free(vctx);
+			OPENSSL_free(der);
+			n = -1;
+			goto v_bail;
+		}
+
+		n = EVP_PKEY_verify(vctx, der, (size_t)der_len, in, (size_t)hlen);
+		EVP_PKEY_CTX_free(vctx);
+		OPENSSL_free(der);
+v_bail:
+		;
+	}
+#else
+	eckey = EVP_PKEY_get1_EC_KEY(EVP_PKEY_CTX_get0_pkey(ctx->ctx[0]));
 	n = ECDSA_do_verify(in, SSL_SIZE_T_CAST(hlen), ecsig, eckey);
 	EC_KEY_free(eckey);
+#endif
+
 	if (n != 1) {
 		unsigned long err = ERR_get_error();
 		char buf[256];
@@ -687,8 +828,11 @@ int
 lws_genecdh_compute_shared_secret(struct lws_genec_ctx *ctx, uint8_t *ss,
 				  int *ss_len)
 {
-	int len, ret = -1;
+	int ret = -1;
+#if !defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+	int len;
 	EC_KEY *eckey[2];
+#endif
 
 	if (!ctx->ctx[LDHS_OURS] || !ctx->ctx[LDHS_THEIRS]) {
 		lwsl_err("%s: both sides must be set up\n", __func__);
@@ -696,6 +840,34 @@ lws_genecdh_compute_shared_secret(struct lws_genec_ctx *ctx, uint8_t *ss,
 		return -1;
 	}
 
+#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+	{
+		EVP_PKEY_CTX *dctx;
+		size_t slen = (size_t)*ss_len;
+
+		dctx = EVP_PKEY_CTX_new(EVP_PKEY_CTX_get0_pkey(ctx->ctx[LDHS_OURS]), NULL);
+		if (!dctx)
+			return -1;
+
+		if (EVP_PKEY_derive_init(dctx) <= 0) {
+			EVP_PKEY_CTX_free(dctx);
+			return -1;
+		}
+		if (EVP_PKEY_derive_set_peer(dctx, EVP_PKEY_CTX_get0_pkey(ctx->ctx[LDHS_THEIRS])) <= 0) {
+			EVP_PKEY_CTX_free(dctx);
+			return -1;
+		}
+
+		if (EVP_PKEY_derive(dctx, ss, &slen) <= 0) {
+			EVP_PKEY_CTX_free(dctx);
+			return -1;
+		}
+
+		*ss_len = (int)slen;
+		ret = 0;
+		EVP_PKEY_CTX_free(dctx);
+	}
+#else
 	eckey[LDHS_OURS] = EVP_PKEY_get1_EC_KEY(
 				EVP_PKEY_CTX_get0_pkey(ctx->ctx[LDHS_OURS]));
 	eckey[LDHS_THEIRS] = EVP_PKEY_get1_EC_KEY(
@@ -721,6 +893,7 @@ lws_genecdh_compute_shared_secret(struct lws_genec_ctx *ctx, uint8_t *ss,
 
 	EC_KEY_free(eckey[LDHS_OURS]);
 	EC_KEY_free(eckey[LDHS_THEIRS]);
+#endif
 
 	return ret;
 }
