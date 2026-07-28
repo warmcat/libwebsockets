@@ -1176,6 +1176,30 @@ tp_ok:
 			n--;
 			continue;
 		}
+
+		/*
+		 * Fixed bit (RFC 9000 §17.2 & §17.3).  This is the one bit in
+		 * the first byte that is NOT covered by header protection (the
+		 * HP mask only touches the low nibble of a long header and the
+		 * low 5 bits of a short header), so we can check it here, before
+		 * trusting any field derived from this byte and before AEAD.
+		 *
+		 * A compliant sender always sets it.  A cleared Fixed bit means
+		 * the byte is corrupt or not a QUIC packet; since every field we
+		 * would parse next (form, type, version, CID lengths) is derived
+		 * from this byte, we cannot trust the length field to find the
+		 * next coalesced packet boundary either, so drop the rest of the
+		 * datagram rather than advance blindly.
+		 *
+		 * The reserved bits (0x0c long / 0x18 short) are header-protected
+		 * and so cannot be checked until after lws_quic_unmask_header();
+		 * the existing post-AEAD check still handles those.
+		 */
+		if (!(p[0] & 0x40)) {
+			lwsl_wsi_notice(wsi, "QUIC RX: Fixed bit not set (0x%02x), "
+					      "dropping corrupt datagram", p[0]);
+			break;
+		}
 		if (p[0] & 0x80) {
 			                        uint8_t type = (uint8_t)((p[0] & 0x30) >> 4);
                         uint32_t parsed_pkt_version = (uint32_t)((p[1] << 24) | (p[2] << 16) | (p[3] << 8) | p[4]);
@@ -1318,8 +1342,18 @@ tp_ok:
 
 		if (!(p[0] & 0x80)) { /* Short header */
 			uint8_t kp = (p[0] & 0x04) >> 2;
-			if (nwsi->quic.qn && nwsi->quic.qn->handshake_done && nwsi->quic.qn->rx_key_phase != kp) {
-				/* Provisional key update */
+			if (nwsi->quic.qn && nwsi->quic.qn->handshake_done &&
+			    nwsi->quic.qn->rx_key_phase != kp &&
+			    nwsi->quic.qn->kp_probe_fail < LWS_QUIC_KP_PROBE_LIMIT) {
+				/*
+				 * Provisional key update.  The key-phase bit is
+				 * only 1 bit and is trivially flipped by wire
+				 * corruption, so this probe can fire on junk.
+				 * If it then fails AEAD we count it below and,
+				 * once kp_probe_fail saturates, we stop trusting
+				 * the bit entirely and treat mismatches as
+				 * corruption rather than a peer rotation.
+				 */
 				scratch_keys = *k;
 				scratch_keys.aead_rx = NULL;
 				scratch_keys.aead_tx = NULL;
@@ -1336,9 +1370,45 @@ tp_ok:
 		if (dec_len < 0) {
 			lwsl_wsi_notice(wsi, "QUIC RX: AEAD Decryption failed (bad tag or truncated)");
 			if (is_key_update) {
+				/*
+				 * The key-phase bit mismatched and the rotated
+				 * keys still failed AEAD: that mismatch was
+				 * corruption, not a peer key update.  Account
+				 * it so we stop chasing key rotations on junk
+				 * once it becomes a pattern.
+				 */
 				lws_quic_keys_release_aead_rx(&scratch_keys);
 				lws_quic_keys_release_aead_tx(&scratch_keys);
+				if (nwsi->quic.qn)
+					nwsi->quic.qn->kp_probe_fail++;
 			}
+
+			/*
+			 * Corruption circuit-breaker.  A single undecryptable
+			 * packet is normal (loss, a stale PN, a probe for a key
+			 * phase we discarded).  A sustained run with no progress
+			 * is wire/path corruption that the loss machinery cannot
+			 * recover from at this rate: rather than spin key
+			 * derivation and stall until PTO exhaustion, close the
+			 * connection cleanly with NO_VIABLE_PATH so the peer and
+			 * any test harness see a decisive transport error.
+			 */
+			if (nwsi && nwsi->quic.qn) {
+				if (++nwsi->quic.qn->consec_decrypt_fail[pn_space] >=
+				    LWS_QUIC_DECRYPT_FAIL_LIMIT) {
+					lwsl_wsi_warn(wsi,
+						"QUIC RX: %u consecutive decrypt "
+						"failures in pn_space %d with no "
+						"progress; path is corrupted, "
+						"closing",
+						nwsi->quic.qn->consec_decrypt_fail[pn_space],
+						pn_space);
+					lws_quic_enter_closing_state(nwsi,
+						LWS_QUIC_ERR_NO_VIABLE_PATH, 0, 0);
+					return LWS_HPI_RET_PLEASE_CLOSE_ME;
+				}
+			}
+
 			/* F-130: Stateless Reset Token detection */
 			if (nwsi && nwsi->quic.qn && (size_t)n >= 21) {
 				static const uint8_t zero_token[16] = {0};
@@ -1427,6 +1497,15 @@ tp_ok:
 		/* Check for duplicate/replayed packet numbers (Security Fix) */
 		int is_out_of_order = 0;
 		if (nwsi->quic.qn) {
+			/*
+			 * Reaching here means the packet authenticated cleanly,
+			 * so any prior decrypt-failure run for this pn_space is
+			 * over: reset the corruption circuit-breaker and the
+			 * key-phase-probe accounting.
+			 */
+			nwsi->quic.qn->consec_decrypt_fail[pn_space] = 0;
+			nwsi->quic.qn->kp_probe_fail = 0;
+
 			uint64_t highest = nwsi->quic.qn->highest_rx_pn[pn_space];
 			if ((nwsi->quic.qn->rx_pn_bitmask[pn_space] != 0 || highest != 0) && full_pn <= highest) {
 				uint64_t diff = highest - full_pn;
@@ -1439,6 +1518,29 @@ tp_ok:
 			} else {
 				if (nwsi->quic.qn->rx_pn_bitmask[pn_space] != 0 || highest != 0) {
 					uint64_t diff = full_pn - highest;
+					/*
+					 * Forward-PN plausibility guard.  A
+					 * corrupted truncated PN decodes to an
+					 * arbitrary value, and a huge forward
+					 * jump would rescale the receive
+					 * bitmask and bump highest_rx_pn past
+					 * thousands of imaginary gaps,
+					 * poisoning ACK and loss accounting.
+					 * QUIC senders never gap PNs by this
+					 * much in practice, so drop the packet
+					 * rather than trust the decode.
+					 */
+					if (diff > LWS_QUIC_PN_FORWARD_JUMP_LIMIT) {
+						lwsl_wsi_notice(wsi,
+							"QUIC RX: decoded PN %llu "
+							"jumps %llu ahead of "
+							"highest %llu; treating "
+							"as corrupted truncated PN",
+							(unsigned long long)full_pn,
+							(unsigned long long)diff,
+							(unsigned long long)highest);
+						goto next_packet;
+					}
 					if (diff >= 64)
 						nwsi->quic.qn->rx_pn_bitmask[pn_space] = 0;
 					else

@@ -145,6 +145,32 @@ enum lws_quic_frame_type {
 #define LWS_QUIC_ERR_NO_VIABLE_PATH           0x10
 
 /*
+ * Corruption-defense thresholds.
+ *
+ * LWS_QUIC_DECRYPT_FAIL_LIMIT: how many consecutive undecryptable packets in
+ *	a pn_space (with no successful decrypt in between) we tolerate before
+ *	declaring the path corrupted and closing with NO_VIABLE_PATH.  This is
+ *	deliberately generous: a burst of losses or coalesced junk from a
+ *	pmtud probe can produce several, and the PTO/loss machinery already
+ *	recovers genuine loss.  We only act on a sustained run that real loss
+ *	could not produce at this rate.
+ *
+ * LWS_QUIC_KP_PROBE_LIMIT: how many times we let a demasked key-phase
+ *	mismatch drive a provisional key update that then fails AEAD, before
+ *	we stop trusting the key-phase bit as a rotation signal.  Past this,
+ *	a KP mismatch is treated as corruption, not a peer-initiated update.
+ *
+ * LWS_QUIC_PN_FORWARD_JUMP_LIMIT: largest acceptable jump of a freshly
+ *	decoded packet number ahead of highest_rx_pn.  QUIC senders do not gap
+ *	PNs by hundreds for no reason; a decode that lands far ahead is almost
+ *	always a corrupted truncated PN, and committing it would wreck the
+ *	receive bitmask and ACK accounting.  We drop the packet instead.
+ */
+#define LWS_QUIC_DECRYPT_FAIL_LIMIT	256u
+#define LWS_QUIC_KP_PROBE_LIMIT		8u
+#define LWS_QUIC_PN_FORWARD_JUMP_LIMIT	1024u
+
+/*
  * A logical frame queued for transmission or in-flight waiting for ACK.
  */
 struct lws_quic_tx_frame {
@@ -265,6 +291,27 @@ struct lws_quic_netconn {
 	uint64_t		highest_rx_pn[LWS_QUIC_LEVEL_COUNT];
 	uint64_t		rx_pn_bitmask[LWS_QUIC_LEVEL_COUNT];
 	uint8_t			needs_ack[LWS_QUIC_LEVEL_COUNT];
+
+	/*
+	 * Corruption defense (inbound sanity self-checks).
+	 *
+	 * If a packet passes header protection but fails AEAD, it is either a
+	 * legitimate loss (the packet belongs to a key phase we no longer have,
+	 * or it is genuinely lost in flight) or it is wire/path corruption that
+	 * happened to look plausible enough to reach decryption.  We cannot tell
+	 * the two apart from a single failure, but a sustained run of failures
+	 * with no progress is corruption until proven otherwise.
+	 *
+	 * consec_decrypt_fail[] counts undecryptable packets per pn_space since
+	 * the last packet that decrypted cleanly; it is reset on every success.
+	 *
+	 * kp_probe_fail counts provisional key-update attempts (a short-header
+	 * packet whose demasked key-phase bit differs from rx_key_phase) that
+	 * subsequently failed AEAD.  A single bit flip in junk flips this, so we
+	 * refuse to keep re-deriving keys once it's clear the bit is just noise.
+	 */
+	uint32_t		consec_decrypt_fail[LWS_QUIC_LEVEL_COUNT];
+	uint32_t		kp_probe_fail;
 
 	/* RX Crypto Reassembly Buffers (Streams are handled by child WSIs) */
 	uint64_t		rx_crypto_offset[LWS_QUIC_LEVEL_COUNT];
