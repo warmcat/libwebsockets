@@ -493,8 +493,33 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 					return NULL;
 				}
 				lws_sul_cancel(&wsi->sul_happy_eyeballs);
-				if (pidx != -1)
+				if (pidx != -1) {
+					/*
+					 * A racing connect won.  The primary
+					 * socket is still open and still in the
+					 * fds table, and promote_parallel_fd()
+					 * is about to move the wsi's
+					 * position_in_fds_table to the racer's
+					 * slot, orphaning the primary's slot: it
+					 * still maps the primary fd to this wsi,
+					 * so pt->fds can never drain and eg the
+					 * "while (pt->fds_count)" loop in
+					 * lws_context_destroy() spins forever.
+					 *
+					 * Retire the primary the same way the
+					 * conn_good is_parallel path does.
+					 */
+					lws_pt_lock(pt, __func__);
+					__remove_wsi_socket_from_fds(wsi);
+					lws_pt_unlock(pt);
+
+					if (wsi->a.context->event_loop_ops->promote_parallel)
+						wsi->a.context->event_loop_ops->promote_parallel(wsi, pidx);
+					else
+						compatible_close(wsi->desc.sockfd);
+
 					promote_parallel_fd(wsi, pidx);
+				}
 				/* close all remaining parallel */
 				for (m = 0; m < wsi->parallel_count; m++)
 					if (wsi->parallel_conns[m].is_valid)
