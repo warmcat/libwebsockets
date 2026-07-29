@@ -1044,6 +1044,24 @@ ads_known:
 			goto conn_good;
 #endif
 
+#if !defined(WIN32)
+		/*
+		 * POSIX platforms must do specifically a POLLOUT poll to hear
+		 * about the connect completion as a POLLOUT event.
+		 *
+		 * This has to happen while wsi->desc / position_in_fds_table
+		 * still refer to the socket we just called connect() on, ie,
+		 * before the parallel swap is restored below: otherwise a
+		 * racing (parallel) connect only ever gets the POLLIN that
+		 * __insert_wsi_socket_into_fds() seeded, the POLLOUT lands on
+		 * the primary socket instead, and the racing connect can never
+		 * be seen to have completed (only to have failed, via POLLERR).
+		 */
+
+		if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
+			goto try_next_dns_result_fds;
+#endif
+
 		if (is_parallel) {
 			/* restore swap */
 			wsi->parallel_conns[pidx].position_in_fds_table = wsi->position_in_fds_table;
@@ -1079,14 +1097,6 @@ ads_known:
 				 lws_client_win32_conn_async_check,
 				 wsi->a.context->win32_connect_check_interval_usec
 		);
-#else
-		/*
-		 * POSIX platforms must do specifically a POLLOUT poll to hear
-		 * about the connect completion as a POLLOUT event
-		 */
-
-		if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
-			goto try_next_dns_result_fds;
 #endif
 
 		return wsi;
