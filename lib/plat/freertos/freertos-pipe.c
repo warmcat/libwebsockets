@@ -159,12 +159,12 @@ lws_plat_pipe_close(struct lws *wsi)
 	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	lws_sockfd_type *fd = pt->dummy_pipe_fds;
 
-	if (fd[0] && fd[0] != -1)
+	if (fd[0] != LWS_SOCK_INVALID)
 		close(fd[0]);
-	if (fd[1] && fd[1] != -1)
+	if (fd[1] != LWS_SOCK_INVALID)
 		close(fd[1]);
 
-	fd[0] = fd[1] = -1;
+	fd[0] = fd[1] = LWS_SOCK_INVALID;
 }
 
 int
