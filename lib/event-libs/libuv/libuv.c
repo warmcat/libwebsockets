@@ -524,6 +524,32 @@ elops_accept_uv(struct lws *wsi)
 	if (n) {
 		lwsl_wsi_err(wsi, "uv_poll_init failed %d, sockfd=%p", n,
 				  (void *)(lws_intptr_t)wsi->desc.sockfd);
+
+		/*
+		 * Diagnostic: UV_EEXIST means libuv's per-loop watcher table
+		 * still has a started-but-not-stopped poll handle for this fd
+		 * number.  Dump the lws-side state to help identify which wsi
+		 * or static asset leaked its handle.  Remove once root-caused.
+		 */
+		if (n == UV_EEXIST) {
+			int fd = (int)(lws_intptr_t)wsi->desc.sockfd;
+			struct lws *pw = pt->pipe_wsi;
+			lwsl_cx_err(wsi->a.context,
+				"EEXIST fd %d: pipe_wsi fd %d, "
+				"fds_count %u, extant_handles %d, "
+				"static_handles %d",
+				fd,
+				(pw && lws_socket_is_valid(pw->desc.sockfd)) ?
+					(int)pw->desc.sockfd : -1,
+				pt->fds_count, ptpriv->extant_handles,
+				pt->count_event_loop_static_asset_handles);
+		}
+		/*
+		 * Keep the hard stop: a core here captures the exact state of
+		 * loop->watchers[fd] and the leaked owning handle, which is what
+		 * we need to root-cause the residual leak.  The diagnostic above
+		 * is emitted to the log first.
+		 */
 		assert(n != UV_EEXIST);
 		lws_free(w_read->pwatcher);
 		w_read->pwatcher = NULL;

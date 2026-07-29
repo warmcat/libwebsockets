@@ -1283,6 +1283,17 @@ lws_create_context(const struct lws_context_creation_info *info)
 		context->pt[n].context = context;
 		context->pt[n].tid = (uint8_t)n;
 
+		/*
+		 * The cancel-pipe fds are valid kernel fds (which may legitimately
+		 * be 0, e.g. on a daemonized process whose stdin was closed and the
+		 * fd recycled by pipe2()/eventfd()/socket()).  Initialize them to the
+		 * invalid sentinel so the close paths can test != LWS_SOCK_INVALID
+		 * without an additional truthiness term that would wrongly treat
+		 * a valid fd 0 as "no pipe created".
+		 */
+		context->pt[n].dummy_pipe_fds[0] = LWS_SOCK_INVALID;
+		context->pt[n].dummy_pipe_fds[1] = LWS_SOCK_INVALID;
+
 #if !defined(LWS_PLAT_FREERTOS)
 		/*
 		 * We overallocated for a fakewsi (can't compose it in the
@@ -2014,11 +2025,8 @@ lws_pt_destroy(struct lws_context_per_thread *pt)
 		pt->pipe_wsi = NULL;
 	}
 
-	if ((pt->dummy_pipe_fds[0] || pt->dummy_pipe_fds[1])
-#if !defined(WIN32)
-	    && ((int)pt->dummy_pipe_fds[0] != -1 || (int)pt->dummy_pipe_fds[1] != -1)
-#endif
-	) {
+	if (pt->dummy_pipe_fds[0] != LWS_SOCK_INVALID ||
+	    pt->dummy_pipe_fds[1] != LWS_SOCK_INVALID) {
 #if defined(__COVERITY__)
 		struct lws wsi = { 0 };
 #else
