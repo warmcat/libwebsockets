@@ -97,9 +97,40 @@ lws_quic_prefaddr_swap_socket(struct lws *nwsi, const lws_sockaddr46 *to_sa46)
 	lws_pt_lock(pt, __func__);
 	if (lws_socket_is_valid(nwsi->desc.sockfd))
 		__remove_wsi_socket_from_fds(nwsi);
-	if (lws_socket_is_valid(nwsi->desc.sockfd))
-		compatible_close(nwsi->desc.sockfd);
+
+	/*
+	 * The fd number itself is changing: the event-loop handle that was
+	 * bound to the old fd at accept time cannot be repointed to the new
+	 * fd.  For libuv, leaving it in place leaks libuv's per-fd watcher
+	 * entry for the old fd (which was already closed below); when the
+	 * kernel later recycles that fd number, uv_poll_init_socket() trips
+	 * UV_EEXIST on the unrelated new socket.  Tear down the old handle
+	 * through the event-lib ops (which also closes the old kernel fd),
+	 * then build a fresh handle for the new fd, exactly as the redirect
+	 * / fd-handoff paths do.
+	 */
+#if defined(LWS_WITH_EVENT_LIBS)
+	if (cx->event_loop_ops->close_handle_manually)
+		cx->event_loop_ops->close_handle_manually(nwsi);
+	else
+#endif
+	{
+		if (lws_socket_is_valid(nwsi->desc.sockfd))
+			compatible_close(nwsi->desc.sockfd);
+		nwsi->desc.sockfd = LWS_SOCK_INVALID;
+	}
+
 	nwsi->desc = new_sock;
+
+#if defined(LWS_WITH_EVENT_LIBS)
+	if (cx->event_loop_ops->sock_accept)
+		if (cx->event_loop_ops->sock_accept(nwsi)) {
+			lws_pt_unlock(pt);
+			compatible_close(n_fd);
+			return 1;
+		}
+#endif
+
 	if (__insert_wsi_socket_into_fds(cx, nwsi)) {
 		lws_pt_unlock(pt);
 		compatible_close(n_fd);
