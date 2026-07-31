@@ -634,7 +634,25 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 		case LWS_QUIC_FT_ACK:
 		case LWS_QUIC_FT_ACK_ECN: {
 			uint64_t largest_ack, ack_delay, ack_range_count, first_ack_range;
-			uint64_t limit_counter = 0;
+
+			/*
+			 * ACK frames describe packet numbers we sent.  An ACK can
+			 * legitimately only refer to PNs we actually transmitted, so
+			 * the number of distinct lws_quic_handle_ack() invocations
+			 * that can do useful work is bounded by the number of packets
+			 * currently in flight at this level (plus a small margin for
+			 * races against loss detection draining the list).  Any ACK
+			 * claiming more is either corrupt or a deliberate attempt to
+			 * spin the event loop by describing a vast range of PNs.
+			 *
+			 * F1/F2 (GHSA / issue #3651 class): previously a single
+			 * attacker-controlled first_ack_range (up to 2^62) drove an
+			 * unbounded loop.  Cap the total work per ACK frame to what
+			 * could conceivably match something in our in-flight list.
+			 */
+			uint64_t in_flight_count = qn ? qn->in_flight[level].count : 0;
+			uint64_t ack_budget = in_flight_count + 16; /* margin */
+			uint64_t ack_processed = 0;
 
 			/* 1. Largest Acknowledged */
 			consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &largest_ack);
@@ -653,6 +671,28 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 			if (!consumed) return -1;
 			pos += consumed;
 
+			/*
+			 * F2: largest_ack must refer to a packet we actually sent.
+			 * keys[level]->pn_tx is the next PN to be sent, so the highest
+			 * PN ever sent at this level is pn_tx - 1 (when pn_tx == 0 we
+			 * have sent nothing and any ACK is bogus).  Reject ACKs for PNs
+			 * we never transmitted rather than walking in_flight for them.
+			 */
+			if (qn && qn->keys[level]) {
+				uint64_t highest_sent = qn->keys[level]->pn_tx ?
+						qn->keys[level]->pn_tx - 1 : 0;
+				if (qn->keys[level]->pn_tx == 0 ||
+				    largest_ack > highest_sent) {
+					lwsl_wsi_notice(nwsi, "QUIC RX: ACK largest %llu "
+						"exceeds highest sent PN %llu",
+						(unsigned long long)largest_ack,
+						(unsigned long long)highest_sent);
+					lws_quic_enter_closing_state(nwsi,
+						LWS_QUIC_ERR_FRAME_ENCODING_ERROR, type, 0);
+					return -1;
+				}
+			}
+
 			/* 4. First ACK Range */
 			consumed = lws_quic_parse_varint(&payload[pos], payload_len - pos, &first_ack_range);
 			if (!consumed) return -1;
@@ -668,13 +708,27 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 				return -1;
 			}
 			for (uint64_t i = 0; i <= first_ack_range; i++) {
+				if (ack_processed >= ack_budget)
+					break; /* budget exhausted: stop the costly
+						* handle_ack walk, but keep parsing the
+						* remaining range varints below so the
+						* parser offset stays valid. */
 				lws_quic_handle_ack(nwsi, level, pn - i, (i == 0) ? 1 : 0, actual_ack_delay_us);
-				if (++limit_counter > 100000) break;
+				ack_processed++;
 			}
 			pn -= (first_ack_range + 1);
 
-			/* 5. Additional ACK Ranges */
-			if (ack_range_count > 1024 || ack_range_count > (payload_len - pos) / 2) {
+			/*
+			 * 5. Additional ACK Ranges.
+			 *
+			 * F3: guard pos > payload_len explicitly before the unsigned
+			 * subtraction payload_len - pos, so a future change that
+			 * advanced pos past the end cannot turn this bound into a
+			 * no-op via wraparound.
+			 */
+			if (ack_range_count > 1024 ||
+			    pos > payload_len ||
+			    ack_range_count > (payload_len - pos) / 2) {
 				lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_FRAME_ENCODING_ERROR, type, 0);
 				return -1;
 			}
@@ -701,8 +755,10 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 					return -1;
 				}
 				for (uint64_t i = 0; i <= ack_range; i++) {
+					if (ack_processed >= ack_budget)
+						break; /* budget exhausted: see above */
 					lws_quic_handle_ack(nwsi, level, pn - i, 0, 0);
-					if (++limit_counter > 100000) break;
+					ack_processed++;
 				}
 				pn -= (ack_range + 1);
 			}

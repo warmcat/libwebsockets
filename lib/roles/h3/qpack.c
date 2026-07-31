@@ -796,8 +796,23 @@ lws_qpack_dynamic_insert(struct lws_qpack_context *ctx, int lws_hdr_idx, const c
 	struct lws_qpack_dynamic_table_entry *dte;
 	size_t entry_size;
 	char *alloc;
-	
+
 	if (!ctx || !ctx->dyn_table.entries || !ctx->dyn_table.num_entries)
+		return 1;
+
+	/*
+	 * F6: insert_count is a uint32_t monotonic counter referenced by the
+	 * peer via absolute indices to compute relative_idx arithmetic
+	 * (insert_count - 1 - absolute_idx).  It must never wrap.  The live
+	 * ring only ever holds num_entries (<=256) entries, but a misbehaving
+	 * peer can stream endless encoder-stream inserts to drive this counter
+	 * toward the 2^32 boundary purely to corrupt the index math.  Refuse
+	 * further inserts once we near the wrap point; this also bounds the
+	 * malloc/free churn such a peer can cause.  The decoder cross-checks
+	 * (absolute_idx >= insert_count) still hold, so references to the most
+	 * recent inserts remain resolvable.
+	 */
+	if (ctx->dyn_table.insert_count >= 0x80000000u)
 		return 1;
 
 	entry_size = name_len + val_len + 32;
