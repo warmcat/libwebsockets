@@ -1176,6 +1176,27 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 					lws_quic_enter_closing_state(nwsi, 0x0100 /* LWS_H3_NO_ERROR + 0x0100 (FRAME_ERROR) */, 0, 1);
 					return 1;
 				}
+
+				/*
+				 * F4: HEADERS frames feed the QPACK decoder, which
+				 * walks the encoded header block roughly byte-by-byte
+				 * (up to 8 Huffman-table steps per byte).  A legitimate
+				 * QPACK header block is tiny (RFC 9204 implies a few KB
+				 * at most), so the generic 100 MB frame cap is far too
+				 * generous here and lets a single HEADERS frame burn
+				 * ~800M table walks, multiplied across concurrent
+				 * streams.  Apply a dedicated, proportionate bound.
+				 */
+				if (wsi->h3.rx_frame_type == 0x01 /* HEADERS */ &&
+				    wsi->h3.rx_frame_len > 65536) {
+					struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+					lwsl_wsi_notice(wsi, "H3 RX: HEADERS block len "
+						"%llu exceeds 64KiB bound",
+						(unsigned long long)wsi->h3.rx_frame_len);
+					lws_quic_enter_closing_state(nwsi,
+						LWS_H3_EXCESSIVE_LOAD, 0, 1);
+					return 1;
+				}
 				wsi->h3.rx_frame_state = 2;
 				wsi->h3.rx_frame_payload_read = 0;
 				lwsl_wsi_info(wsi, "H3 RX: Frame Type %llu, Len %llu on stream type %d (unidi=%d)", 
