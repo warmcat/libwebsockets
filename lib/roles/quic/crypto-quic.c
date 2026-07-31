@@ -232,6 +232,63 @@ lws_quic_initiate_key_update(struct lws *wsi)
 	return 0;
 }
 
+/*
+ * Compile-time diagnostic for the APP-level key installation path, enabled by
+ * the LWS_WITH_QUIC_DEBUG_SET_KEYS CMake option (off by default).
+ *
+ * When on, every APP-level set_keys call on both endpoints prints:
+ *   - role (srv/cli), secret type, direction (rx/tx)
+ *   - secret_len and the resolved cipher_type (0=AES128 1=ChaCha 2=AES256)
+ *   - first 8 bytes of the incoming secret vs. the currently-installed one
+ *
+ * One QIR run with this on answers two questions at once:
+ *   1. Is the "ignored" post-handshake secret actually different from what is
+ *	installed?  (incoming != installed -> a refresh-on-change patch would
+ *	help; identical -> it would be a no-op)
+ *   2. Do client and server resolve a different cipher_type for the matching
+ *	direction?  (mismatch -> AEAD + HP both diverge, explaining a clean-link
+ *	"every 1-RTT fails AEAD" symptom with identical keylog secrets)
+ */
+#if defined(LWS_WITH_QUIC_DEBUG_SET_KEYS)
+static void
+lws_quic_dbg_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type,
+		      const uint8_t *secret, size_t secret_len,
+		      struct lws_quic_keys *k, int is_rx, int dropping)
+{
+	static const char *const tname[] = {
+		"CLIENT_EARLY", "CLIENT_HS", "SERVER_HS",
+		"CLIENT_APP", "SERVER_APP",
+	};
+	const uint8_t *prev = is_rx ? k->secret_rx : k->secret_tx;
+	char inb[17], pvb[17];
+	static const char hex[] = "0123456789abcdef";
+	size_t i, n = secret_len < 8 ? secret_len : 8;
+
+	for (i = 0; i < n; i++) {
+		inb[i * 2]     = hex[(secret[i] >> 4) & 0xf];
+		inb[i * 2 + 1] = hex[secret[i] & 0xf];
+	}
+	inb[n * 2] = 0;
+	for (i = 0; i < n; i++) {
+		pvb[i * 2]     = hex[(prev[i] >> 4) & 0xf];
+		pvb[i * 2 + 1] = hex[prev[i] & 0xf];
+	}
+	pvb[n * 2] = 0;
+
+	/* dropping=1 -> we are about to IGNORE this call as a dupe; 0 -> applying it */
+	lwsl_notice("%s: APP %s %s %s: len=%zu cipher_type=%u quic_aead=%u: %s "
+		    "incoming=%s installed=%s\n",
+		    __func__,
+		    (wsi->quic.qn && wsi->quic.qn->is_server) ? "srv" : "cli",
+		    tname[type], is_rx ? "rx" : "tx",
+		    secret_len,
+		    (unsigned)lws_quic_cipher_type(wsi, secret_len),
+		    (unsigned)wsi->tls.quic_aead,
+		    dropping ? "DROP(dupe)" : "APPLY",
+		    inb, prev[0] ? pvb : "(none)");
+}
+#endif
+
 int
 lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uint8_t *secret, size_t secret_len)
 {
@@ -293,23 +350,35 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
 
         if (is_rx) {
                 if (level == LWS_QUIC_LEVEL_APP && k->valid && k->secret_rx[0]) {
+#if defined(LWS_WITH_QUIC_DEBUG_SET_KEYS)
+                        lws_quic_dbg_set_keys(wsi, type, secret, secret_len, k, 1, 1);
+#endif
                         lwsl_notice("%s: ignoring post-handshake TLS secret_rx update for APP level\n", __func__);
                         return 0;
                 }
                 k->secret_len = secret_len > 48 ? 48 : secret_len;
                 memcpy(k->secret_rx, secret, k->secret_len);
                 k->cipher_type = lws_quic_cipher_type(wsi, k->secret_len);
+#if defined(LWS_WITH_QUIC_DEBUG_SET_KEYS)
+                lws_quic_dbg_set_keys(wsi, type, secret, secret_len, k, 1, 0);
+#endif
                 if (lws_quic_derive_key_iv_hp(k->secret_rx, k->secret_len, k->cipher_type, k->iv_rx, sizeof(k->iv_rx),
                                               &k->el_aead_rx, k->key_aead_rx, &k->el_hp_rx, k->key_hp_rx))
                         return -1;
         } else {
                 if (level == LWS_QUIC_LEVEL_APP && k->valid && k->secret_tx[0]) {
+#if defined(LWS_WITH_QUIC_DEBUG_SET_KEYS)
+                        lws_quic_dbg_set_keys(wsi, type, secret, secret_len, k, 0, 1);
+#endif
                         lwsl_info("%s: ignoring post-handshake TLS secret_tx update for APP level\n", __func__);
                         return 0;
                 }
                 k->secret_len = secret_len > 48 ? 48 : secret_len;
                 memcpy(k->secret_tx, secret, k->secret_len);
                 k->cipher_type = lws_quic_cipher_type(wsi, k->secret_len);
+#if defined(LWS_WITH_QUIC_DEBUG_SET_KEYS)
+                lws_quic_dbg_set_keys(wsi, type, secret, secret_len, k, 0, 0);
+#endif
                 if (lws_quic_derive_key_iv_hp(k->secret_tx, k->secret_len, k->cipher_type, k->iv_tx, sizeof(k->iv_tx),
                                               &k->el_aead_tx, k->key_aead_tx, &k->el_hp_tx, k->key_hp_tx))
                         return -1;
