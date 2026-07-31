@@ -67,6 +67,14 @@ struct pss_login {
 					       * correctly (see WRITEABLE) */
 };
 
+/*
+ * Renewal completion mode.  Both the background BFF (POST .lws-login-refresh from
+ * the page's widget JS) and the cold-load bouncer path run the exact same
+ * /api/sso_exchange side channel; they differ only in what we do with the result.
+ */
+#define LWS_LOGIN_REFRESH_BFF      0 /* 200+set-cookie on success, 401 on dead */
+#define LWS_LOGIN_REFRESH_COLDLOAD 1 /* 302-to-self with new cookie, else 303 to auth */
+
 struct pending_login_refresh {
 	lws_dll2_t              list;
 	lws_sorted_usec_list_t  sul;
@@ -82,6 +90,14 @@ struct pending_login_refresh {
 	int                     payload_pos;
 
 	char                    token[2048];
+
+	/* COLDLOAD: the original request path, so the success self-redirect
+	 * lands the browser back on the protected URL it asked for. */
+	char                    orig_path[256];
+	/* COLDLOAD: the pre-built auth-form URL (with service_name + redirect_uri),
+	 * used only on renewal failure to land the user on the login form. */
+	char                    authform_url[512];
+	int                     mode; /* LWS_LOGIN_REFRESH_* */
 };
 
 static const char * const canned_css =
@@ -298,6 +314,190 @@ sul_pending_refresh_cb(lws_sorted_usec_list_t *sul)
 	lwsl_info("%s: auth refresh timed out\n", __func__);
 	lws_dll2_remove(&ps->list);
 	free(ps);
+}
+
+/*
+ * Kick off a silent side-channel renewal against the auth server's
+ * /api/sso_exchange, forwarding the browser's full cookie jar (so the server
+ * sees auth_refresh_session + auth_csrf exactly as it would for a direct call).
+ *
+ * Used by both:
+ *  - the background BFF (.lws-login-refresh, mode=BFF), and
+ *  - the cold-load bouncer path (mode=COLDLOAD), which tries renewal before
+ *    bouncing the user to the login form.
+ *
+ * The browser wsi is suspended (we return without finalising headers); the
+ * side-channel client (callback_lws_login_client) parses {"token":...} into
+ * ps->token, and COMPLETED_CLIENT_HTTP wakes wsi_server, whose WRITEABLE
+ * completes the response according to ps->mode.
+ *
+ * Returns 1 if the renewal was kicked off (caller must stop processing and
+ * suspend), 0 if it could not start (no valid auth_refresh_session / auth_csrf
+ * present, or the auth-server URL won't parse) -- in the 0 case the caller
+ * proceeds with its existing fallback (303 to login form, or BFF 401).
+ *
+ * `ck_len` is lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE).  `cookie` is the
+ * caller-owned copy of that header (we lws_strncpy it into ps).  `orig_path` is
+ * NULL for BFF mode.  `authform_url` is the pre-built login-form URL to land on
+ * if a COLDLOAD renewal fails (NULL for BFF mode).
+ */
+static int
+lws_login_kick_refresh(struct vhd_login *vhd, struct lws *wsi, const char *cookie,
+		       const char *csrf, int mode, const char *orig_path,
+		       const char *authform_url)
+{
+	struct pending_login_refresh *ps;
+	struct lws_client_connect_info i;
+	lws_parse_uri_t *puri;
+
+	ps = malloc(sizeof(*ps));
+	if (!ps)
+		return 0;
+	memset(ps, 0, sizeof(*ps));
+	ps->vhd = vhd;
+	ps->wsi_server = wsi;
+	ps->mode = mode;
+	lws_strncpy(ps->cookie_hdr, cookie, sizeof(ps->cookie_hdr));
+	if (orig_path)
+		lws_strncpy(ps->orig_path, orig_path, sizeof(ps->orig_path));
+	if (authform_url)
+		lws_strncpy(ps->authform_url, authform_url,
+			    sizeof(ps->authform_url));
+
+	ps->payload_len = lws_snprintf(ps->payload, sizeof(ps->payload),
+				       "csrf_token=%s", csrf);
+	ps->payload_pos = 0;
+
+	lws_dll2_add_tail(&ps->list, &vhd->pending_refresh_list);
+	lws_sul_schedule(vhd->context, 0, &ps->sul, sul_pending_refresh_cb,
+			 5 * 60 * LWS_US_PER_SEC);
+
+	puri = lws_parse_uri_create(vhd->auth_server_url);
+	if (!puri) {
+		lws_sul_cancel(&ps->sul);
+		lws_dll2_remove(&ps->list);
+		free(ps);
+		return 0;
+	}
+
+	lwsl_notice("%s: initiating silent renewal via %s/api/sso_exchange (%s)\n",
+		    __func__, vhd->auth_server_url,
+		    mode == LWS_LOGIN_REFRESH_COLDLOAD ? "cold-load" : "bff");
+
+	memset(&i, 0, sizeof(i));
+	i.context        = vhd->context;
+	i.address        = puri->host;
+	i.port           = puri->port;
+	i.ssl_connection = !strcmp(puri->scheme, "http") ? 0 : LCCSCF_USE_SSL;
+	i.path           = "/api/sso_exchange";
+	i.host           = i.address;
+	i.origin         = i.address;
+	i.method         = "POST";
+	i.protocol       = "lws_login_client";
+	i.pwsi           = &ps->wsi_client;
+	i.userdata       = ps;
+
+	lws_client_connect_via_info(&i);
+	lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT, 30);
+	lws_parse_uri_destroy(&puri);
+
+	return 1;
+}
+
+/*
+ * Serve the protected page to the browser by re-issuing the JWT cookie and
+ * 302-ing back to the same URL the browser originally asked for.  Used by:
+ *  - the grant-mismatch "silent update" path (logged in, but grants changed),
+ *    and
+ *  - the cold-load renewal success path (was logged-out, just re-minted the
+ *    JWT server-side).
+ *
+ * In both cases the effect from the browser's POV is identical: the request
+ * completes as if it had been authenticated all along -- no navigation away,
+ * no flash of any other page.  `path` is the request's GET/POST URI.
+ *
+ * On any header-build failure returns non-zero so the caller can surface an
+ * error; on success the response is fully written and the transaction is
+ * completed, returning 0.
+ */
+static int
+lws_login_serve_self_redirect_with_cookie(struct lws *wsi, struct pss_login *pss,
+					  struct vhd_login *vhd,
+					  const char *token, const char *path,
+					  unsigned char *buf, unsigned char **pp,
+					  unsigned char *end)
+{
+	char cookie[LWS_SSO_MAX_COOKIE], host[128], fq_uri[512];
+	unsigned char *p = *pp;
+	const char *h = NULL;
+
+	if (vhd->cookie_domain[0])
+		lws_snprintf(cookie, sizeof(cookie),
+			 "%s=%s; Path=/; Domain=%s; Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
+			 vhd->cookie_name, token, vhd->cookie_domain,
+			 (unsigned long long)vhd->jwt_validity_secs);
+	else
+		lws_snprintf(cookie, sizeof(cookie),
+			 "%s=%s; Path=/; Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
+			 vhd->cookie_name, token,
+			 (unsigned long long)vhd->jwt_validity_secs);
+
+	host[0] = '\0';
+	if (lws_hdr_copy(wsi, host, sizeof(host), WSI_TOKEN_HOST) > 0)
+		h = host;
+#if defined(LWS_ROLE_H2)
+	else if (lws_hdr_copy(wsi, host, sizeof(host), WSI_TOKEN_HTTP_COLON_AUTHORITY) > 0)
+		h = host;
+#endif
+	if (!h) {
+		struct lws_vhost *vh = lws_get_vhost(wsi);
+		if (vh) {
+			const char *vname = lws_get_vhost_name(vh);
+			if (vname)
+				h = vname;
+		}
+	}
+
+	{
+		const char *scheme = "http";
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+		char proto[16] = "";
+
+		if (lws_hdr_custom_copy(wsi, proto, sizeof(proto),
+					"x-forwarded-proto:", 18) > 0) {
+			if (!strcasecmp(proto, "https"))
+				scheme = "https";
+		} else
+#endif
+		if (lws_is_ssl(lws_get_network_wsi(wsi))) {
+			scheme = "https";
+		}
+
+		lws_snprintf(fq_uri, sizeof(fq_uri), "%s://%s%s", scheme,
+			     h ? h : "localhost", path);
+	}
+
+	if (lws_add_http_common_headers(wsi, HTTP_STATUS_FOUND, "text/html", 0,
+					&p, end))
+		return 1;
+	if (lws_add_http_header_by_name(wsi, (const uint8_t *)"set-cookie:",
+					(const uint8_t *)cookie,
+					(int)strlen(cookie), &p, end))
+		return 1;
+	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION,
+					 (const uint8_t *)fq_uri,
+					 (int)strlen(fq_uri), &p, end))
+		return 1;
+	if (lws_finalize_http_header(wsi, &p, end))
+		return 1;
+
+	lws_write(wsi, (unsigned char *)buf + LWS_PRE,
+		  (size_t)lws_ptr_diff(p, buf + LWS_PRE),
+		  LWS_WRITE_HTTP_HEADERS | LWS_WRITE_H2_STREAM_END);
+
+	*pp = p;
+	(void)pss;
+	return 0;
 }
 
 static const char * const param_names[] = {
@@ -1026,66 +1226,22 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 
 			if (pss->silent_update_jwt) {
-				char cookie[LWS_SSO_MAX_COOKIE], host[128], fq_uri[512];
-				const char *h = NULL;
-
-				if (vhd->cookie_domain[0])
-					lws_snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Domain=%s; Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
-							 vhd->cookie_name, pss->silent_update_jwt, vhd->cookie_domain, (unsigned long long)vhd->jwt_validity_secs);
-				else
-					lws_snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
-							 vhd->cookie_name, pss->silent_update_jwt, (unsigned long long)vhd->jwt_validity_secs);
-
 				path[0] = '\0';
-				if (lws_hdr_copy(wsi, path, sizeof(path), WSI_TOKEN_GET_URI) < 0)
+				if (lws_hdr_copy(wsi, path, sizeof(path),
+						 WSI_TOKEN_GET_URI) < 0)
 					lwsl_debug("%s: URI copy failed\n", __func__);
 
-				host[0] = '\0';
-				if (lws_hdr_copy(wsi, host, sizeof(host), WSI_TOKEN_HOST) > 0)
-					h = host;
-#if defined(LWS_ROLE_H2)
-				else if (lws_hdr_copy(wsi, host, sizeof(host), WSI_TOKEN_HTTP_COLON_AUTHORITY) > 0)
-					h = host;
-#endif
-				if (!h) {
-					struct lws_vhost *vh = lws_get_vhost(wsi);
-					if (vh) {
-						const char *vname = lws_get_vhost_name(vh);
-						if (vname)
-							h = vname;
-					}
+				if (!lws_login_serve_self_redirect_with_cookie(
+						wsi, pss, vhd, pss->silent_update_jwt,
+						path, (unsigned char *)buf,
+						(unsigned char **)&p,
+						(unsigned char *)end)) {
+					free(pss->silent_update_jwt);
+					pss->silent_update_jwt = NULL;
+					return lws_http_transaction_completed(wsi);
 				}
-
-				{
-					const char *scheme = "http";
-#if defined(LWS_WITH_CUSTOM_HEADERS)
-					char proto[16] = "";
-
-					if (lws_hdr_custom_copy(wsi, proto, sizeof(proto), "x-forwarded-proto:", 18) > 0) {
-						if (!strcasecmp(proto, "https"))
-							scheme = "https";
-					} else
-#endif
-					if (lws_is_ssl(lws_get_network_wsi(wsi))) {
-						scheme = "https";
-					}
-
-					lws_snprintf(fq_uri, sizeof(fq_uri), "%s://%s%s",
-						     scheme,
-						     h ? h : "localhost", path);
-				}
-
-				if (lws_add_http_common_headers(wsi, HTTP_STATUS_FOUND, "text/html", 0, (unsigned char **)&p, (unsigned char *)end)) return 1;
-				if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie, (int)strlen(cookie), (unsigned char **)&p, (unsigned char *)end)) return 1;
-				if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION, (unsigned char *)fq_uri, (int)strlen(fq_uri), (unsigned char **)&p, (unsigned char *)end)) return 1;
-				if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end)) return 1;
-
-				lws_write(wsi, (unsigned char *)buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS | LWS_WRITE_H2_STREAM_END);
-
-				free(pss->silent_update_jwt);
-				pss->silent_update_jwt = NULL;
-
-				return lws_http_transaction_completed(wsi);
+				/* header build failed */
+				return 1;
 			}
 		}
 
@@ -1140,59 +1296,59 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			if (ck_len > 0) {
 				char *cookie = malloc((size_t)ck_len + 1);
 				if (cookie) {
-					if (lws_hdr_copy(wsi, cookie, ck_len + 1, WSI_TOKEN_HTTP_COOKIE) > 0) {
-						/* We just need to know it exists to proceed */
-						if (lws_http_cookie_get(wsi, "auth_csrf", csrf, &csrf_len) == 0 &&
-						    lws_http_cookie_get(wsi, "auth_refresh_session", refresh_session, &refresh_session_len) == 0 &&
-						    csrf[0]) {
-							struct pending_login_refresh *ps = malloc(sizeof(*ps));
-							if (ps) {
-								struct lws_client_connect_info i;
-								lws_parse_uri_t *puri;
-
-								memset(ps, 0, sizeof(*ps));
-								ps->vhd = vhd;
-								ps->wsi_server = wsi;
-								lws_strncpy(ps->cookie_hdr, cookie, sizeof(ps->cookie_hdr));
-
-								ps->payload_len = lws_snprintf(ps->payload, sizeof(ps->payload), "csrf_token=%s", csrf);
-								ps->payload_pos = 0;
-
-								lws_dll2_add_tail(&ps->list, &vhd->pending_refresh_list);
-								lws_sul_schedule(vhd->context, 0, &ps->sul, sul_pending_refresh_cb, 5 * 60 * LWS_US_PER_SEC);
-
-								puri = lws_parse_uri_create(vhd->auth_server_url);
-								if (puri) {
-									lwsl_notice("%s: Intercepted background refresh request, initiating proxy to %s/api/sso_exchange\n", __func__, vhd->auth_server_url);
-									memset(&i, 0, sizeof(i));
-									i.context        = vhd->context;
-									i.address        = puri->host;
-									i.port           = puri->port;
-									i.ssl_connection = !strcmp(puri->scheme, "http") ? 0 : LCCSCF_USE_SSL;
-									i.path           = "/api/sso_exchange";
-									i.host           = i.address;
-									i.origin         = i.address;
-									i.method         = "POST";
-									i.protocol       = "lws_login_client";
-									i.pwsi           = &ps->wsi_client;
-									i.userdata       = ps;
-
-									lws_client_connect_via_info(&i);
-									lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT, 30);
-									lws_parse_uri_destroy(&puri);
-
-									free(cookie);
-									return 0; // Suspend!
-								}
-								free(ps);
-							}
-						}
+					int kicked = 0;
+					if (lws_hdr_copy(wsi, cookie, ck_len + 1,
+							 WSI_TOKEN_HTTP_COOKIE) > 0) {
+						int got_csrf = lws_http_cookie_get(
+								wsi, "auth_csrf",
+								csrf, &csrf_len) == 0
+								&& csrf[0];
+						int got_refresh = lws_http_cookie_get(
+								wsi, "auth_refresh_session",
+								refresh_session,
+								&refresh_session_len) == 0
+								&& refresh_session[0];
+						if (got_csrf && got_refresh)
+							kicked = lws_login_kick_refresh(
+									vhd, wsi,
+									cookie, csrf,
+									LWS_LOGIN_REFRESH_BFF,
+									NULL, NULL);
+						else if (!got_csrf)
+							lwsl_notice("%s: background "
+								"refresh denied: "
+								"auth_csrf cookie "
+								"missing\n",
+								__func__);
+						else
+							lwsl_notice("%s: background "
+								"refresh denied: "
+								"auth_refresh_session "
+								"cookie missing "
+								"(not logged in via "
+								"refreshable session)\n",
+								__func__);
+					} else {
+						lwsl_notice("%s: background refresh "
+							    "denied: malformed "
+							    "Cookie header\n",
+							    __func__);
 					}
 					free(cookie);
+					if (kicked)
+						return 0; /* suspend */
 				}
+			} else {
+				/*
+				 * No Cookie header at all: normal for an
+				 * anonymous visitor whose page widget just fired
+				 * a renewal probe.  Info, not notice.
+				 */
+				lwsl_info("%s: background refresh with no Cookie "
+					  "header (anonymous visitor)\n",
+					  __func__);
 			}
 			/* Failure or no cookies, 401 Unauthorized */
-			lwsl_notice("%s: Missing or malformed cookies for background refresh\n", __func__);
                         return simple_response(wsi, pss, "Missing Authorization", "text/plain",
                                             HTTP_STATUS_UNAUTHORIZED, (unsigned char *)buf + LWS_PRE,
                                             (unsigned char **)&p, (unsigned char *)end);
@@ -1321,6 +1477,55 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		lwsl_info("%s: bouncing unauth to %s\n", __func__, dest);
+
+		/*
+		 * Cold-load silent renewal: this is a genuine page request whose JWT
+		 * is missing/expired, but the browser may still carry the long-term
+		 * auth_refresh_session + auth_csrf cookies.  Before bouncing the
+		 * user's main document to the auth server login form (which would
+		 * lose in-page state and flash a login page for nothing), try a
+		 * server-side renewal through the same /api/sso_exchange side channel
+		 * the background BFF uses.  On success we re-mint the JWT cookie and
+		 * 302 back to this same URL -- the page just loads, no navigation.
+		 * Only on a hard failure (long-term session genuinely gone) do we
+		 * fall through to the 303 below, landing the user on the form to
+		 * actually log in again.  Cookieless requests skip the hop entirely.
+		 */
+		{
+			int ck_len2 = lws_hdr_total_length(wsi,
+						WSI_TOKEN_HTTP_COOKIE);
+			if (ck_len2 > 0) {
+				char csrf2[64] = {0};
+				size_t csrf2_len = sizeof(csrf2);
+				char refresh2[128] = {0};
+				size_t refresh2_len = sizeof(refresh2);
+
+				if (lws_http_cookie_get(wsi, "auth_csrf",
+							csrf2, &csrf2_len) == 0 &&
+				    lws_http_cookie_get(wsi, "auth_refresh_session",
+							refresh2,
+							&refresh2_len) == 0 &&
+				    csrf2[0] && refresh2[0]) {
+					char *cookie2 = malloc((size_t)ck_len2 + 1);
+					if (cookie2) {
+						int kicked;
+						if (lws_hdr_copy(wsi, cookie2,
+								 ck_len2 + 1,
+								 WSI_TOKEN_HTTP_COOKIE) > 0)
+							kicked = lws_login_kick_refresh(
+								vhd, wsi, cookie2,
+								csrf2,
+								LWS_LOGIN_REFRESH_COLDLOAD,
+								path, dest);
+						else
+							kicked = 0;
+						free(cookie2);
+						if (kicked)
+							return 0; /* suspend */
+					}
+				}
+			}
+		}
 
 		char html[1024];
 		int html_len = lws_snprintf(html, sizeof(html),
@@ -1509,7 +1714,119 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		} lws_end_foreach_dll_safe(d, d1);
 
 		if (ps) {
-			if (ps->token[0]) {
+			if (ps->mode == LWS_LOGIN_REFRESH_COLDLOAD) {
+				/*
+				 * Cold-load renewal completion.  On success we
+				 * re-mint the JWT cookie and 302 back to the URL
+				 * the browser originally asked for -- the page
+				 * just loads, no navigation, no flash.  On failure
+				 * (long-term session genuinely gone) we issue the
+				 * 303 to the auth server login form we pre-built,
+				 * landing the user where they can actually log in.
+				 */
+				if (ps->token[0] &&
+				    !lws_login_serve_self_redirect_with_cookie(
+					wsi, pss, vhd, ps->token, ps->orig_path,
+					buf, &p, end)) {
+					lwsl_notice("%s: cold-load renewal ok, "
+						    "re-served %s\n", __func__,
+						    ps->orig_path);
+					lws_sul_cancel(&ps->sul);
+					lws_dll2_remove(&ps->list);
+					free(ps);
+					return lws_http_transaction_completed(wsi);
+				}
+
+				/* failure: 303 to the auth form */
+				if (ps->authform_url[0]) {
+					char html[1024];
+					int html_len;
+
+					lwsl_notice("%s: cold-load renewal failed, "
+						    "bouncing to auth form\n",
+						    __func__);
+					html_len = lws_snprintf(html,
+						sizeof(html),
+						"<html lang=\"en\"><head>"
+						"<meta http-equiv=\"refresh\" "
+						"content=\"0; url=%s\"></head>"
+						"<body>Redirecting to <a "
+						"href=\"%s\">%s</a></body></html>",
+						ps->authform_url,
+						ps->authform_url,
+						ps->authform_url);
+					if (lws_buflist_append_segment(
+							&pss->tx_buflist,
+							(uint8_t *)html,
+							(size_t)html_len) < 0) {
+						lws_sul_cancel(&ps->sul);
+						lws_dll2_remove(&ps->list);
+						free(ps);
+						return -1;
+					}
+					pss->tx_remaining = (size_t)html_len;
+
+					if (lws_add_http_common_headers(wsi,
+							HTTP_STATUS_SEE_OTHER,
+							"text/html",
+							(unsigned int)html_len,
+							(unsigned char **)&p,
+							(unsigned char *)end) ||
+					    lws_add_http_header_by_token(wsi,
+							WSI_TOKEN_HTTP_LOCATION,
+							(unsigned char *)
+								ps->authform_url,
+							(int)strlen(ps->authform_url),
+							(unsigned char **)&p,
+							(unsigned char *)end)) {
+						lws_sul_cancel(&ps->sul);
+						lws_dll2_remove(&ps->list);
+						free(ps);
+						return 1;
+					}
+					if (lws_finalize_http_header(wsi,
+							(unsigned char **)&p,
+							(unsigned char *)end)) {
+						lws_sul_cancel(&ps->sul);
+						lws_dll2_remove(&ps->list);
+						free(ps);
+						return 1;
+					}
+					lws_write(wsi,
+						  (unsigned char *)buf + LWS_PRE,
+						  lws_ptr_diff_size_t(p, buf + LWS_PRE),
+						  LWS_WRITE_HTTP_HEADERS);
+					lws_sul_cancel(&ps->sul);
+					lws_dll2_remove(&ps->list);
+					free(ps);
+					lws_callback_on_writable(wsi);
+					return 0;
+				}
+				/* no authform URL stashed (defensive): serve a 401 */
+				lwsl_notice("%s: cold-load renewal failed with no "
+					    "authform URL\n", __func__);
+				if (lws_add_http_common_headers(wsi,
+						HTTP_STATUS_UNAUTHORIZED,
+						"application/json", 13,
+						(unsigned char **)&p,
+						(unsigned char *)end) ||
+				    lws_finalize_http_header(wsi,
+						(unsigned char **)&p,
+						(unsigned char *)end)) {
+					lws_sul_cancel(&ps->sul);
+					lws_dll2_remove(&ps->list);
+					free(ps);
+					return 1;
+				}
+				lws_write(wsi, (unsigned char *)buf + LWS_PRE,
+					  lws_ptr_diff_size_t(p, buf + LWS_PRE),
+					  LWS_WRITE_HTTP_HEADERS);
+				lws_sul_cancel(&ps->sul);
+				lws_dll2_remove(&ps->list);
+				free(ps);
+				lws_callback_on_writable(wsi);
+				return 0;
+			} else if (ps->token[0]) {
 				char cookie[LWS_SSO_MAX_COOKIE];
 				int n;
 
