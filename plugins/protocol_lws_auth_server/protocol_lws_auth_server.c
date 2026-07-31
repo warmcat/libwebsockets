@@ -1288,6 +1288,65 @@ send:
 	return send_auth_headers(wsi, pss, "application/json", NULL, NULL);
 }
 
+/*
+ * Mint a fresh long-term refresh session for `uid`: generate a random code,
+ * insert an `auth_sessions` row expiring at now + refresh_token_validity_secs,
+ * and return the raw code in refresh_code_out (caller-owned buffer, >=65 chars)
+ * so it can be placed in the /api/token JSON for the delegate flow.  If
+ * refresh_hdr_out is non-NULL, also format the auth_refresh_session Set-Cookie
+ * into it (used by the native/direct login path, which sets the cookie on the
+ * auth server's own host); the delegate path passes NULL and sets the cookie
+ * itself on the app host.
+ *
+ * Returns 1 on success (code minted), 0 if refresh is disabled
+ * (refresh_token_validity_secs == 0) or the DB insert failed.
+ */
+static int
+lws_auth_mint_refresh(struct per_vhost_data__auth_server *vhd, uint32_t uid,
+		      char *refresh_code_out, char *refresh_hdr_out)
+{
+	sqlite3_stmt *stmt;
+	uint8_t r_rnd[32];
+	uint64_t r_exp;
+
+	if (vhd->refresh_token_validity_secs == 0)
+		return 0;
+
+	r_exp = (uint64_t)time(NULL) + vhd->refresh_token_validity_secs;
+	lws_get_random(vhd->context, r_rnd, 32);
+	lws_hex_from_byte_array(r_rnd, 32, refresh_code_out, 65);
+
+	if (sqlite3_prepare_v2(vhd->db, "INSERT INTO auth_sessions "
+			       "(session_id, uid, expires) VALUES (?, ?, ?)",
+			       -1, &stmt, NULL) != SQLITE_OK)
+		return 0;
+	sqlite3_bind_text(stmt, 1, refresh_code_out, -1, SQLITE_STATIC);
+	sqlite3_bind_int(stmt, 2, (int)uid);
+	sqlite3_bind_int64(stmt, 3, (sqlite_int64)r_exp);
+	if (sqlite3_step(stmt) != SQLITE_DONE) {
+		sqlite3_finalize(stmt);
+		return 0;
+	}
+	sqlite3_finalize(stmt);
+
+	if (refresh_hdr_out) {
+		if (vhd->cookie_domain[0])
+			lws_snprintf(refresh_hdr_out, LWS_SSO_MAX_COOKIE,
+				"auth_refresh_session=%s; Path=/; Domain=%s; "
+				"Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
+				refresh_code_out, vhd->cookie_domain,
+				vhd->refresh_token_validity_secs);
+		else
+			lws_snprintf(refresh_hdr_out, LWS_SSO_MAX_COOKIE,
+				"auth_refresh_session=%s; Path=/; "
+				"Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
+				refresh_code_out,
+				vhd->refresh_token_validity_secs);
+	}
+
+	return 1;
+}
+
 static int
 lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		   struct per_session_data__auth_server *pss)
@@ -1478,29 +1537,8 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		}
 
 		if (vhd->refresh_token_validity_secs > 0) {
-			uint8_t r_rnd[32];
 			char refresh_code[65];
-			uint64_t r_exp = (uint64_t)time(NULL) + vhd->refresh_token_validity_secs;
-			lws_get_random(vhd->context, r_rnd, 32);
-			lws_hex_from_byte_array(r_rnd, 32, refresh_code, 65);
-			
-			if (sqlite3_prepare_v2(vhd->db, "INSERT INTO auth_sessions (session_id, uid, expires) VALUES (?, ?, ?)", -1, &stmt, NULL) == SQLITE_OK) {
-				sqlite3_bind_text(stmt, 1, refresh_code, -1, SQLITE_STATIC);
-				sqlite3_bind_int(stmt, 2, (int)uid);
-				sqlite3_bind_int64(stmt, 3, (sqlite_int64)r_exp);
-				sqlite3_step(stmt);
-				sqlite3_finalize(stmt);
-			}
-
-			if (vhd->cookie_domain[0]) {
-				lws_snprintf(refresh_hdr, sizeof(refresh_hdr),
-					"auth_refresh_session=%s; Path=/; Domain=%s; Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
-					refresh_code, vhd->cookie_domain, vhd->refresh_token_validity_secs);
-			} else {
-				lws_snprintf(refresh_hdr, sizeof(refresh_hdr),
-					"auth_refresh_session=%s; Path=/; Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
-					refresh_code, vhd->refresh_token_validity_secs);
-			}
+			lws_auth_mint_refresh(vhd, uid, refresh_code, refresh_hdr);
 		}
 
 		goto send;
@@ -1521,7 +1559,7 @@ static int
 lws_auth_api_token(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		   struct per_session_data__auth_server *pss)
 {
-	char jwt[1024], pl[1024 + LWS_PRE];
+	char jwt[1024], pl[1280 + LWS_PRE];
 	const char *grant_type = lws_spa_get_string(pss->spa, EP_GRANT_TYPE);
 	const char *code = lws_spa_get_string(pss->spa, EP_CODE);
 	const char *client_id = lws_spa_get_string(pss->spa, EP_CLIENT_ID);
@@ -1660,8 +1698,32 @@ lws_auth_api_token(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	lws_get_peer_simple(wsi, peer, sizeof(peer));
 
 	if (!lws_auth_generate_token(vhd, username, uid, peer, jwt, &jwt_len)) {
+		/*
+		 * If long-term refresh sessions are enabled, mint one for this
+		 * user and include it in the response so the OAuth client (the
+		 * app server) can set auth_refresh_session on the app host --
+		 * the browser never talks to us directly here, so we cannot set
+		 * that cookie ourselves in the delegate flow.  Without this,
+		 * silent renewal (background + cold-load) has nothing to renew.
+		 */
+		char refresh_code[65];
+
 		pss->http_response_code = HTTP_STATUS_OK;
-		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"access_token\":\"%s\",\"token_type\":\"Bearer\",\"expires_in\":%llu}", jwt, vhd->jwt_validity_secs);
+		if (vhd->refresh_token_validity_secs > 0 &&
+		    lws_auth_mint_refresh(vhd, uid, refresh_code, NULL))
+			len = lws_snprintf(pl + LWS_PRE,
+				sizeof(pl) - LWS_PRE,
+				"{\"access_token\":\"%s\",\"token_type\":\"Bearer\","
+				"\"expires_in\":%llu,\"refresh_token\":\"%s\","
+				"\"refresh_expires_in\":%llu}",
+				jwt, vhd->jwt_validity_secs, refresh_code,
+				vhd->refresh_token_validity_secs);
+		else
+			len = lws_snprintf(pl + LWS_PRE,
+				sizeof(pl) - LWS_PRE,
+				"{\"access_token\":\"%s\",\"token_type\":\"Bearer\","
+				"\"expires_in\":%llu}",
+				jwt, vhd->jwt_validity_secs);
 		goto send;
 	}
 
