@@ -621,6 +621,31 @@ lws_http_remove_urlarg(struct lws *wsi, const char *name);
 LWS_VISIBLE LWS_EXTERN int
 lws_http_zap_header(struct lws *wsi, const char *name);
 
+/**
+ * lws_http_add_onward_header() - add a header to be forwarded to the proxy
+ *                                  backend
+ *
+ * \param wsi: the connection (typically the browser-side wsi an interceptor
+ *             sees during LWS_CALLBACK_HTTP_INTERCEPTOR_CHECK)
+ * \param name: the header name, eg "x-lws-login-admin"
+ * \param value: the header value (NUL-terminated)
+ *
+ * Interceptors authenticate the request and may want to pass the cooked,
+ * trusted result (eg logged-in subject, admin flag) to the backend app served
+ * behind a reverse-proxy mount, so the app does no auth of its own.  This
+ * appends "name: value\r\n" to the wsi's "extra onward headers" blob, which
+ * the HTTP and WS proxy paths forward to the backend.
+ *
+ * To prevent spoofing, an interceptor should call lws_http_zap_header() for
+ * the same name first (so a client-supplied copy can't reach the backend),
+ * exactly as the built-in lws interceptor does.
+ *
+ * Returns 0 on success or nonzero on OOM.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_http_add_onward_header(struct lws *wsi, const char *name,
+			   const char *value);
+
 ///@}
 
 /*! \defgroup HTTP-headers-create HTTP headers: create

@@ -57,6 +57,75 @@ proxy_header(struct lws *wsi, struct lws *par, unsigned char *temp,
 	return 0;
 }
 
+/*
+ * Forward any interceptor-injected "extra onward headers" the parent (browser-
+ * side) wsi has accumulated in ->http.extra_onward_headers onto the onward
+ * (proxied-to-backend) request.
+ *
+ * This mirrors what the HTTP proxy path already does
+ * (lib/roles/http/client/client-http.c reads the same field verbatim).  The WS
+ * handshake uses the *p/end cursor API, so we can't raw-append; we parse the
+ * "Name: value\r\n" lines the injector wrote and feed each via
+ * lws_add_http_header_by_name(), which is role-agnostic (h1/h2/h3).
+ *
+ * The field is NULL-terminated and formatted one header per
+ * "Name: value\r\n" line by the interceptor (see lws_interceptor_inject_header
+ * and friends), so splitting on "\r\n" and the first ": " is safe.  Anti-spoof
+ * handling (lws_http_zap_header before inject) is the interceptor's job.
+ */
+static void
+proxy_extra_onward_headers(struct lws *wsi, unsigned char **p,
+			   unsigned char *end)
+{
+	const char *eoh, *line, *nl, *colon, *next_line;
+	char name[64], value[256];
+
+	if (!wsi->parent)
+		return;
+
+	eoh = wsi->parent->http.extra_onward_headers;
+	if (!eoh)
+		return;
+
+	line = eoh;
+	while (line && *line) {
+		nl = strstr(line, "\r\n");
+		next_line = nl ? nl + 2 : NULL;
+
+		/* isolate a single "Name: value" line */
+		colon = strchr(line, ':');
+		if (colon && (!nl || colon < nl)) {
+			size_t nlen = (size_t)(colon - line);
+			const char *v = colon + 1;
+			size_t vlen;
+
+			while (v < (nl ? (const char *)nl : line + strlen(line)) &&
+			       (*v == ' ' || *v == '\t'))
+				v++;
+			vlen = nl ? (size_t)(nl - v) : strlen(v);
+
+			if (nlen && nlen < sizeof(name) && vlen < sizeof(value)) {
+				memcpy(name, line, nlen);
+				name[nlen] = '\0';
+				memcpy(value, v, vlen);
+				value[vlen] = '\0';
+
+				if (lws_add_http_header_by_name(wsi,
+						(const unsigned char *)name,
+						(const unsigned char *)value,
+						(int)vlen, p, end))
+					lwsl_wsi_notice(wsi,
+						"unable to append extra hdr %s",
+						name);
+			}
+		}
+
+		if (!next_line)
+			break;
+		line = next_line;
+	}
+}
+
 static int
 stream_close(struct lws *wsi)
 {
@@ -168,6 +237,14 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_X_FORWARDED_FOR,
 						 (uint8_t *)peer, (int)strlen(peer), p, end))
                 	lwsl_wsi_notice(wsi, "unable to append forwarded_for");
+
+		/*
+		 * Forward interceptor-injected headers (eg cooked auth state
+		 * from lws-login) so the proxied backend app can read them
+		 * without doing its own auth.  Same field the HTTP proxy path
+		 * forwards verbatim.
+		 */
+		proxy_extra_onward_headers(wsi, p, end);
 
 		break;
 	}

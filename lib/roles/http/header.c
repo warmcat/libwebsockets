@@ -885,11 +885,41 @@ lws_http_zap_header(struct lws *wsi, const char *name)
 				return 0;
 			}
 
-			prev = ll;
-			ll = lws_ser_ru32be((uint8_t *)&wsi->http.ah->data[ll + UHO_LL]);
-		}
+		prev = ll;
+		ll = lws_ser_ru32be((uint8_t *)&wsi->http.ah->data[ll + UHO_LL]);
 	}
+}
 #endif
+
+	return 0;
+}
+
+int
+lws_http_add_onward_header(struct lws *wsi, const char *name, const char *value)
+{
+	char line[512];
+	int n, cur_len = 0;
+	char *p;
+
+	if (!name)
+		return 1;
+
+	n = lws_snprintf(line, sizeof(line), "%s: %s\r\n", name,
+			 value ? value : "");
+	if (n < 0 || (size_t)n >= sizeof(line))
+		return 1;
+
+	if (wsi->http.extra_onward_headers)
+		cur_len = (int)strlen(wsi->http.extra_onward_headers);
+
+	p = lws_realloc(wsi->http.extra_onward_headers,
+			(size_t)cur_len + (size_t)n + 1, "extra headers");
+	if (!p)
+		return 1;
+
+	wsi->http.extra_onward_headers = p;
+	memcpy(p + cur_len, line, (size_t)n);
+	p[cur_len + n] = '\0';
 
 	return 0;
 }
