@@ -1537,7 +1537,7 @@ lws_prepare_access_log_info(struct lws *wsi, char *uri_ptr, int len, int meth);
 
 #if defined(_DEBUG)
 void
-lws_wsi_txc_describe(struct lws_tx_credit *txc, const char *at, uint32_t sid);
+lws_wsi_txc_describe(struct lws_tx_credit *txc, const char *at, uint64_t sid);
 #else
 #define lws_wsi_txc_describe(x, y, z) { (void)x; }
 #endif
