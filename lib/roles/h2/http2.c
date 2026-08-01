@@ -504,8 +504,8 @@ lws_h2_rst_stream(struct lws *wsi, uint32_t err, const char *reason)
 	if (!pps)
 		return 1;
 
-	lwsl_info("%s: RST_STREAM 0x%x, sid %d, REASON '%s'\n", __func__,
-		  (int)err, wsi->mux.my_sid, reason);
+	lwsl_info("%s: RST_STREAM 0x%x, sid %llu, REASON '%s'\n", __func__,
+		  (int)err, (unsigned long long)wsi->mux.my_sid, reason);
 
 	pps->u.rs.sid = (uint32_t)wsi->mux.my_sid;
 	pps->u.rs.err = err;
@@ -2775,8 +2775,8 @@ lws_h2_client_handshake(struct lws *wsi)
 			lws_wsi_tag(wsi), sid);
 
 
-	lwsl_info("%s: CLIENT_WAITING_TO_SEND_HEADERS: pollout (sid %d)\n",
-			__func__, wsi->mux.my_sid);
+	lwsl_info("%s: CLIENT_WAITING_TO_SEND_HEADERS: pollout (sid %llu)\n",
+			__func__, (unsigned long long)wsi->mux.my_sid);
 
 	p = start = buf = pt->serv_buf + LWS_PRE;
 	end = start + (wsi->a.context->pt_serv_buf_size / 2) - LWS_PRE - 1;

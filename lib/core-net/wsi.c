@@ -1650,9 +1650,9 @@ int lws_wsi_txc_check_skint(struct lws_tx_credit *txc, int32_t tx_cr) {
 
 #if defined(_DEBUG)
 void lws_wsi_txc_describe(struct lws_tx_credit *txc, const char *at,
-		uint32_t sid) {
-	lwsl_info("%s: %p: %s: sid %d: %speer-to-us: %d, us-to-peer: %d\n", __func__,
-			txc, at, (int)sid, txc->skint ? "SKINT, " : "",
+		uint64_t sid) {
+	lwsl_info("%s: %p: %s: sid %llu: %speer-to-us: %d, us-to-peer: %d\n", __func__,
+			txc, at, (unsigned long long)sid, txc->skint ? "SKINT, " : "",
 			(int)txc->peer_tx_cr_est, (int)txc->tx_cr);
 }
 #endif

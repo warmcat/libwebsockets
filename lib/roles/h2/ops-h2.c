@@ -1094,8 +1094,8 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 		}
                                   wa = wsi2; /* wsi2 is updated to point to the next element by move_child_to_tail */
 
-		lwsl_info("%s: child %s, sid %d, (wsistate 0x%x)\n",
-			  __func__, lws_wsi_tag(w), w->mux.my_sid,
+		lwsl_info("%s: child %s, sid %llu, (wsistate 0x%x)\n",
+			  __func__, lws_wsi_tag(w), (unsigned long long)w->mux.my_sid,
 			  (unsigned int)w->wsistate);
 
 		/* priority 1: post compression-transform buffered output */
