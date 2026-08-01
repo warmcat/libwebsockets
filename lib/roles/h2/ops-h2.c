@@ -573,7 +573,7 @@ rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 		wsi->h2.send_END_STREAM = 1;
 	}
 
-	n = lws_h2_frame_write(wsi, n, flags, wsi->mux.my_sid, (unsigned int)len, buf);
+	n = lws_h2_frame_write(wsi, n, flags, (unsigned int)wsi->mux.my_sid, (unsigned int)len, buf);
 	if (n < 0)
 		return n;
 

@@ -38,7 +38,13 @@ struct lws_muxable {
 	struct lws	*child_list;
 	struct lws	*sibling_list;
 
-	unsigned int	my_sid;
+	/*
+	 * Q-8: was unsigned int.  H2 stream IDs are 32-bit, but QUIC stream IDs
+	 * are 62-bit; a 32-bit field silently truncated them, so streams with
+	 * ids >= 2^32 were mis-looked-up and got frames emitted with the wrong
+	 * (truncated) id.  uint64_t holds both with room to spare.
+	 */
+	uint64_t	my_sid;
 	unsigned int	child_count;
 
 	uint32_t	highest_sid;
@@ -655,7 +661,7 @@ __lws_vhost_destroy2(struct lws_vhost *vh);
 #define mux_to_wsi(_m) lws_container_of(_m, struct lws, mux)
 
 void
-lws_wsi_mux_insert(struct lws *wsi, struct lws *parent_wsi, unsigned int sid);
+lws_wsi_mux_insert(struct lws *wsi, struct lws *parent_wsi, uint64_t sid);
 int
 lws_wsi_mux_mark_parents_needing_writeable(struct lws *wsi);
 struct lws *

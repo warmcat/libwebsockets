@@ -1199,6 +1199,7 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 				}
 				wsi->h3.rx_frame_state = 2;
 				wsi->h3.rx_frame_payload_read = 0;
+				wsi->h3.rx_setting_count = 0; /* Q-2: per-frame */
 				lwsl_wsi_info(wsi, "H3 RX: Frame Type %llu, Len %llu on stream type %d (unidi=%d)", 
 					(unsigned long long)wsi->h3.rx_frame_type, (unsigned long long)wsi->h3.rx_frame_len,
 					wsi->h3.stream_type, wsi->quic.qs ? wsi->quic.qs->is_unidirectional : 0);
@@ -1321,6 +1322,22 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 				const uint8_t *p = buf;
 				size_t clen = chunk;
 				while (clen > 0) {
+					/*
+					 * Q-2: cap the number of SETTINGS entries
+					 * per frame.  RFC 9114 defines ~7; 64 is a
+					 * generous ceiling that matches the QUIC
+					 * transport-parameter tracker.  Without
+					 * this a peer can burn CPU by stuffing
+					 * tens of thousands of junk entries (each
+					 * doing two varint parses + an if/else
+					 * chain) within the 100 MB frame budget.
+					 */
+					if (wsi->h3.rx_setting_count >= 64) {
+						struct lws *nwsi = lws_get_quic_network_wsi(wsi);
+						lwsl_wsi_notice(wsi, "H3 RX: SETTINGS entry count exceeds 64");
+						lws_quic_enter_closing_state(nwsi, LWS_H3_SETTINGS_ERROR, 0, 1);
+						return 1;
+					}
 					if (wsi->h3.rx_setting_state == 0) {
 						if (!lws_h3_parse_varint_accum(wsi, &p, &clen, &wsi->h3.rx_setting_id))
 							break;
@@ -1331,6 +1348,7 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 						if (!lws_h3_parse_varint_accum(wsi, &p, &clen, &val))
 							break;
 						wsi->h3.rx_setting_state = 0;
+						wsi->h3.rx_setting_count++; /* Q-2 */
 						uint64_t id = wsi->h3.rx_setting_id;
 						if (id == 0x00 || id == 0x02 || id == 0x03 || id == 0x04 || id == 0x05) {
 							/* Prohibited HTTP/2 setting */

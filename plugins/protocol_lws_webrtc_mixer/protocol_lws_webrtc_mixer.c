@@ -355,29 +355,12 @@ mixer_on_media(struct lws *wsi_ws, int tid, const uint8_t *buf, size_t len, int 
 		// Wait, pss IS defined in public header? No.
 		// But we cast lws_wsi_user(wsi) to struct pss_webrtc* in line 151.
 		// This implies we have the definition of struct pss_webrtc available here?
-		// Let's check headers included.
-		/* line 151: struct pss_webrtc *pss = ... */
-		/* If it compiles, we have the struct definition. */
-		/* So we can access pss->pt_video_h264 directly? */
-		/* Let's Try. If not, we need we_ops helper. */
-
-		/* Actually, lws-webrtc protocol plugin shares pss layout? */
-		/* Or maybe we should use we_ops if available. */
-		/* we_ops has get_audio_pt. Does it have get_video_pt? */
-		/* Let's assume we can access pss fields if we included the header properly or if we_ops provides it. */
-		/* But wait, pss_webrtc is defined in protocol_lws_webrtc.c usually? */
-		/* If this file compiles line 151, then pss_webrtc is visible. */
-
-		/* Let's assume we can access pss->pt_video_h264 if visible. */
-		/* IF NOT, we might need to rely on passed in tid matching implied functionality. */
-
-		/* Let's hack it: */
-		/* If we can't see pss layout, we can't checks pts. */
-		/* But we are in the SAME plugin (lws-webrtc-mixer)? No, different checks. */
-		/* usage of `struct pss_webrtc` suggests we have it. */
-
-		/* Let's try to access pss->pt_video_h264. */
-
+		/*
+		 * Q-35: classify the incoming RTP payload type into a codec.
+		 * We reach into the webrtc plugin's pss only through the
+		 * we_ops vtable (get_video_pt_*), which is the supported
+		 * abstraction across the two plugins.
+		 */
 		if (we_ops && we_ops->get_video_pt_h264 && tid == we_ops->get_video_pt_h264(pss)) {
 			msg.codec = LWS_CODEC_H264;
 		} else if (we_ops && we_ops->get_video_pt_av1 && tid == we_ops->get_video_pt_av1(pss)) {
