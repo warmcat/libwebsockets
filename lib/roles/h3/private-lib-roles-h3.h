@@ -115,8 +115,15 @@ struct _lws_h3_related {
 	uint8_t rx_varint_buf[16];
 	uint8_t rx_varint_len;
 	
-	uint8_t rx_setting_state; /* 0: id, 1: val */
-	uint64_t rx_setting_id;
+		uint8_t rx_setting_state; /* 0: id, 1: val */
+		uint64_t rx_setting_id;
+		/*
+		 * Q-2: per-SETTINGS-frame entry counter, so a peer can't burn
+		 * CPU by stuffing tens of thousands of tiny/junk entries (each
+		 * doing two varint parses + an if/else chain) within the
+		 * frame-body budget.
+		 */
+		uint16_t rx_setting_count;
 	
 	uint8_t rx_dec_instr_buf[16];
 	uint8_t rx_dec_instr_len;

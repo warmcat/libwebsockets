@@ -1536,8 +1536,9 @@ void lws_wsi_mux_dump_waiting_children(struct lws *wsi) {
 
 	wsi = wsi->mux.child_list;
 	while (wsi) {
-		lwsl_wsi_info(wsi, "  %c sid %u: 0x%x %s %s",
-				wsi->mux.requested_POLLOUT ? '*' : ' ', wsi->mux.my_sid,
+		lwsl_wsi_info(wsi, "  %c sid %llu: 0x%x %s %s",
+				wsi->mux.requested_POLLOUT ? '*' : ' ',
+				(unsigned long long)wsi->mux.my_sid,
 				lwsi_state(wsi), wsi->role_ops->name,
 				wsi->a.protocol ? wsi->a.protocol->name : "noprotocol");
 
@@ -1555,7 +1556,8 @@ int lws_wsi_mux_mark_parents_needing_writeable(struct lws *wsi) {
 	wsi2 = wsi;
 	while (wsi2) {
 		wsi2->mux.requested_POLLOUT = 1;
-		lwsl_wsi_debug(wsi2, "sid %u, pending writable", wsi2->mux.my_sid);
+		lwsl_wsi_debug(wsi2, "sid %llu, pending writable",
+			       (unsigned long long)wsi2->mux.my_sid);
 		wsi2 = wsi2->mux.parent_wsi;
 	}
 

@@ -340,9 +340,15 @@ struct lws_quic_netconn {
 	uint32_t		original_version;
 
 	uint64_t                conn_close_err;
-	size_t                  crypto_rx_expected_msg_len[4];
-	uint8_t                 *crypto_rx_buf[4];
-	size_t                  crypto_rx_buf_len[4];
+		/*
+		 * Q-19: was sized with a bare [4] while every sibling array in
+		 * this struct uses [LWS_QUIC_LEVEL_COUNT].  If the level enum
+		 * ever grows these would silently go undersized while every
+		 * consumer indexes them with the enum constant.
+		 */
+		size_t                  crypto_rx_expected_msg_len[LWS_QUIC_LEVEL_COUNT];
+		uint8_t                 *crypto_rx_buf[LWS_QUIC_LEVEL_COUNT];
+		size_t                  crypto_rx_buf_len[LWS_QUIC_LEVEL_COUNT];
 	uint8_t                 highest_rx_level;
 	uint8_t			pto_count;
 
