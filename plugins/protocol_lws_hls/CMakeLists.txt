@@ -27,6 +27,7 @@
 			protocol_lws_hls.c
 			hls-av.c
 			hls-dir.c
+			hls-sub.c
 		)
 		set(PLUGIN_HDR private-lws-hls.h)
 

@@ -23,6 +23,28 @@ video {
     height: auto;
     display: block;
 }
+
+/* Subtitle cue rendering. Cues arrive via the native <track> element that
+ * hls.js creates (renderTextTracksNatively). Font-size is expressed in vh
+ * units so it scales with the viewport (and thus the actual rendered video
+ * size) rather than the tiny default; in fullscreen it grows further via the
+ * :fullscreen rule below. The cue vertical position (VTTCue.line) is set in
+ * player.js, which also lifts cues higher when fullscreen so they clear
+ * tablet camera cutouts at the bottom edge. */
+video::cue {
+    font-size: 2.2vh;
+    line-height: 1.25;
+    background: rgba(0, 0, 0, 0.72);
+    color: #ffffff;
+    white-space: pre-wrap;
+}
+/* In fullscreen the video fills the viewport; bump the cue font to match the
+   larger frame (proportional to the size increase, not the same fixed size). */
+video:fullscreen::cue,
+video:-webkit-full-screen::cue {
+    font-size: 3.4vh;
+    line-height: 1.3;
+}
 .header {
     width: 100%;
     max-width: 800px;
@@ -63,8 +85,22 @@ video {
     width: 100%;
     max-width: 800px;
     display: flex;
-    justify-content: flex-end;
+    justify-content: space-between;
+    align-items: center;
     margin-top: 10px;
+    gap: 12px;
+}
+
+.button-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* put a little air between adjacent controls inside a group */
+.button-group .toggle-btn,
+.button-group select.toggle-btn {
+    margin-right: 0;
 }
 
 .toggle-btn {
@@ -83,6 +119,18 @@ video {
 .toggle-btn:hover {
     background-color: #3b3b3b;
     color: #ffffff;
+}
+
+/* "on" state, used for the CC toggle */
+.toggle-btn.active {
+    background-color: #2a7a2a;
+    color: #ffffff;
+    border-color: #3a9a3a;
+}
+
+#sub-lang {
+    padding: 5px 8px;
+    cursor: pointer;
 }
 
 .video-title {

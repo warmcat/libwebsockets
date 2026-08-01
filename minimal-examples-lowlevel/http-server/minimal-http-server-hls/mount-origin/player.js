@@ -55,6 +55,13 @@ document.addEventListener('DOMContentLoaded', function() {
     var videoSrc = urlParams.get('v');
     var rawSrc = urlParams.get('raw');
 
+    // Preferred subtitle languages (most-preferred first). Used to pick a
+    // sensible default in the CC dropdown; subtitles stay OFF until the
+    // user clicks CC.
+    var prefLangs = (navigator.languages && navigator.languages.length)
+            ? navigator.languages
+            : [navigator.language || 'en'];
+
     // Display sanitized filename above the playback window
     var filenameContainer = document.getElementById('video-filename');
     if (filenameContainer && (videoSrc || rawSrc)) {
@@ -121,7 +128,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         return new Promise(function(resolve) {
             var hash = 0;
-            for (var i = 0; i < str.length; i++) hash = ((hash << 5) - hash) + str.charCodeAt(i) | 0;
+            for (var i = 0; i < str.length; i++) hash = ((hash << 5) - hash) + str.codePointAt(i) | 0;
             resolve(hash.toString(36));
         });
     }
@@ -147,7 +154,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         video.addEventListener('timeupdate', function() {
-            if (!video.duration || isNaN(video.duration)) return;
+            if (!video.duration || Number.isNaN(video.duration)) return;
             var pct = video.currentTime / video.duration;
             if (pct >= 0.95) {
                 localStorage.removeItem(hashKey);
@@ -159,6 +166,88 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
 
+        // ---- subtitle (CC) UI ----
+        // Subtitles stay OFF until the user clicks CC. The dropdown
+        // remembers a preferred language (chosen against navigator.language
+        // when the track list arrives) and is used as the target when CC
+        // is toggled on.
+        var ccBtn = document.getElementById('cc-btn');
+        var subSel = document.getElementById('sub-lang');
+        var subState = { ccOn: false, reported: false };
+
+        function langPrefix(lang) {
+            return (lang || '').toLowerCase().split('-')[0];
+        }
+
+        // Natural-order string compare: compares digit runs numerically and
+        // everything else lexically, so "e2" < "e10" (not "e10" < "e2" as
+        // plain string compare would give). Used to sort the dropdown so the
+        // track list reads e2, e3, ..., e10, e11.
+        function natCmp(a, b) {
+            var i = 0, j = 0;
+            while (i < a.length && j < b.length) {
+                var ca = a.codePointAt(i), cb = b.codePointAt(j);
+                var da = (ca >= 48 && ca <= 57), db = (cb >= 48 && cb <= 57);
+                if (da && db) {
+                    // gather the whole digit run on each side
+                    var si = i, sj = j;
+                    while (i < a.length && a.codePointAt(i) >= 48 && a.codePointAt(i) <= 57) i++;
+                    while (j < b.length && b.codePointAt(j) >= 48 && b.codePointAt(j) <= 57) j++;
+                    var na = parseInt(a.slice(si, i), 10);
+                    var nb = parseInt(b.slice(sj, j), 10);
+                    if (na !== nb) return na < nb ? -1 : 1;
+                } else {
+                    if (ca !== cb) return ca < cb ? -1 : 1;
+                    i++; j++;
+                }
+            }
+            return (a.length - i) - (b.length - j);
+        }
+
+        // Pick the best-matching subtitle track ARRAY INDEX from a list of
+        // {id, name, lang, ...} using the browser's preferred languages.
+        // Returns -1 if none match. hls.subtitleTrack takes an index into
+        // hls.subtitleTracks (which equals the track's id when ids are 0..N-1,
+        // but using the index directly is unambiguous).
+        function pickDefaultSub(tracks) {
+            for (var pi = 0; pi < prefLangs.length; pi++) {
+                var pl = langPrefix(prefLangs[pi]);
+                if (!pl) continue;
+                for (var ti = 0; ti < tracks.length; ti++) {
+                    if (langPrefix(tracks[ti].lang) === pl)
+                        return ti;
+                }
+            }
+            return tracks.length ? 0 : -1;
+        }
+
+        if (ccBtn && subSel) {
+            ccBtn.addEventListener('click', function() {
+                var target = subSel.value;
+                if (subState.ccOn) {
+                    subState.ccOn = false;
+                    subOnOff(false);
+                    ccBtn.classList.remove('active');
+                    logMsg('subs: off');
+                } else if (target && target !== '-1') {
+                    subState.ccOn = true;
+                    subOnOff(target);
+                    ccBtn.classList.add('active');
+                    logMsg('subs: on (' + subSel.options[subSel.selectedIndex].text + ')');
+                }
+            });
+            subSel.addEventListener('change', function() {
+                if (subState.ccOn) {
+                    var t = subSel.value;
+                    if (t && t !== '-1') subOnOff(t);
+                }
+            });
+        }
+
+        // subOnOff() is bound per-branch below (hls.js sets hls.subtitleTrack;
+        // native HLS toggles textTracks[i].mode).
+        var subOnOff = function() {};
+
         if (Hls.isSupported()) {
             logMsg('hls.js supported');
             var hls = new Hls({
@@ -168,6 +257,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 maxBufferHole: 0.5,
                 startPosition: startPos,
                 nudgeMaxRetry: 5,
+                // Hand subtitle tracks to the <video>'s native TextTracks so
+                // the browser renders cues with its default styling. (This is
+                // hls.js's default in 1.5.8; set explicitly for clarity.)
+                renderTextTracksNatively: true,
             });
             hls.loadSource(videoSrc);
             hls.attachMedia(video);
@@ -212,6 +305,255 @@ document.addEventListener('DOMContentLoaded', function() {
                     logMsg('loading seg ' + data.frag.sn + ' (' + data.frag.start.toFixed(1) + 's - ' + (data.frag.start + data.frag.duration).toFixed(1) + 's)');
                 }
             });
+
+            // ---- subtitle diagnostics + UI ----
+            // We log liberally so the player logs panel shows exactly what
+            // hls.js thinks the subtitle situation is, without guessing.
+
+            // Raw manifest: fires for both master and media playlists. For a
+            // master playlist, data.subtitleTracks / data.audioTracks hold the
+            // parsed #EXT-X-MEDIA entries; for a media playlist (no subs),
+            // subtitleTracks is empty.
+            hls.on(Hls.Events.MANIFEST_LOADED, function(event, data) {
+                var nLevels = (data && data.levels) ? data.levels.length : 0;
+                var nSubs = (data && data.subtitleTracks) ? data.subtitleTracks.length : 0;
+                var nAudio = (data && data.audioTracks) ? data.audioTracks.length : 0;
+                logMsg('subs: MANIFEST_LOADED levels=' + nLevels +
+                       ' subtitleTracks=' + nSubs + ' audioTracks=' + nAudio +
+                       ' (' + (nLevels ? 'master' : 'media') + ' playlist)');
+            });
+
+            hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, function(event, data) {
+                var subs = (data && data.subtitleTracks) ? data.subtitleTracks : [];
+                subState.reported = true;
+                logMsg('subs: SUBTITLE_TRACKS_UPDATED -> ' + subs.length + ' track(s)');
+                subs.forEach(function(t, i) {
+                    logMsg('  sub track idx=' + i +
+                           ' id="' + (t.id !== undefined ? t.id : '') + '"' +
+                           ' name="' + (t.name || '') + '"' +
+                           ' lang="' + (t.lang || '') + '"' +
+                           ' type="' + (t.type || '') + '"' +
+                           ' groupId="' + (t.groupId || '') + '"' +
+                           ' url=' + (t.url || '(none)'));
+                });
+                if (!subs.length) {
+                    logMsg('subs: no subtitle tracks in this playlist ' +
+                           '(server found no usable text subs; bitmap subs ' +
+                           'like PGS/VOBSUB/DVB are skipped server-side)');
+                    return;
+                }
+                if (!ccBtn || !subSel) return;
+
+                // Build the dropdown in NATURAL order of the track name (which
+                // embeds the id like "Subtitles [e9, subrip]"), so the user
+                // sees e2, e3, ..., e10, e11 rather than the lexicographic
+                // e10, e11, e2, e3 that hls.js's array order yields. The
+                // <option value> is still the ORIGINAL array index into subs[],
+                // because that's what hls.subtitleTrack consumes — we keep a
+                // sorted list of (origIndex) so the value mapping is correct
+                // regardless of display order.
+                var order = subs.map(function(t, i) { return i; });
+                order.sort(function(a, b) {
+                    return natCmp(subs[a].name || '', subs[b].name || '');
+                });
+
+                subSel.innerHTML = '';
+                var off = document.createElement('option');
+                off.value = '-1';
+                off.textContent = 'Off';
+                subSel.appendChild(off);
+                order.forEach(function(origIdx) {
+                    var t = subs[origIdx];
+                    var o = document.createElement('option');
+                    o.value = String(origIdx);
+                    o.textContent = t.name || t.lang || ('track ' + origIdx);
+                    subSel.appendChild(o);
+                });
+
+                var def = pickDefaultSub(subs);
+                subSel.value = (def !== -1) ? String(def) : '-1';
+                if (def !== -1)
+                    logMsg('subs: preferred language "' + (prefLangs.join(',')) +
+                           '" -> default idx=' + def + ' "' +
+                           (subs[def] || {}).name +
+                           '" (off until CC clicked)');
+
+                ccBtn.classList.remove('hidden');
+                subSel.classList.remove('hidden');
+            });
+
+            hls.on(Hls.Events.SUBTITLE_TRACK_LOADED, function(event, data) {
+                logMsg('subs: track ' + (data && data.id !== undefined ? data.id : '?') +
+                       ' playlist loaded');
+            });
+
+            hls.on(Hls.Events.SUBTITLE_TRACK_SWITCH, function(event, data) {
+                logMsg('subs: switched to id=' + (data && data.id !== undefined ? data.id : '?'));
+            });
+
+            // Cues actually arrived from a sub segment and were parsed. This
+            // is the definitive "subs data reached hls.js" signal — distinct
+            // from "the playlist was fetched" (SUBTITLE_TRACK_LOADED). We also
+            // dump each decoded cue's text here so the operator can see, on
+            // the player page, exactly what subs the server produced.
+            hls.on(Hls.Events.CUES_PARSED, function(event, data) {
+                var cues = (data && data.cues) ? data.cues : [];
+                var ncues = cues.length;
+                var tname = (data && data.track)
+                        ? (data.track.lang || data.track.name || '?') : '?';
+                var first = ncues ? ('first=' + cues[0].startTime.toFixed(2) +
+                           '->' + cues[0].endTime.toFixed(2)) : '';
+                logMsg('subs: CUES_PARSED ' + ncues + ' cue(s) track="' +
+                       tname + '" ' + first);
+
+                // Dump the decoded cue text. Cap per-event to keep the log
+                // readable for long segments; note if truncated.
+                var MAXDUMP = 12;
+                var shown = Math.min(ncues, MAXDUMP);
+                for (var i = 0; i < shown; i++) {
+                    var c = cues[i];
+                    var body = (c.text || '').replace(/\n/g, ' / ');
+                    if (body.length > 120)
+                        body = body.slice(0, 117) + '...';
+                    logMsg('  cue[' + i + '] ' +
+                           c.startTime.toFixed(2) + '->' +
+                           c.endTime.toFixed(2) + ' "' + body + '"');
+                }
+                if (ncues > MAXDUMP)
+                    logMsg('  ...(' + (ncues - MAXDUMP) + ' more cue(s) not shown)');
+
+                // Position cues: snapToLines=false makes .line a percentage
+                // (0=top, 100=bottom). In windowed view, 86% sits cues just
+                // above the bottom edge. In fullscreen we lift them higher
+                // (~1 line) so they clear tablet front-camera cutouts that
+                // sit in the bottom bezel, and so descenders aren't clipped.
+                for (var k = 0; k < ncues; k++) {
+                    try {
+                        cues[k].snapToLines = false;
+                        cues[k].line = cueLineForView();
+                    } catch (e) { /* VTTCue props may be read-only in some impls */ }
+                }
+            });
+
+            // A subtitle fragment was processed. Useful to confirm the VTT
+            // segments are actually being downloaded and decoded.
+            hls.on(Hls.Events.SUBTITLE_FRAG_PROCESSED, function(event, data) {
+                var f = data && data.frag;
+                logMsg('subs: frag processed sn=' + (f ? f.sn : '?') +
+                       (f ? ' (' + f.start.toFixed(1) + 's-' + (f.start + f.duration).toFixed(1) + 's)' : ''));
+            });
+
+            // If by the time the main manifest is parsed we never got a
+            // SUBTITLE_TRACKS_UPDATED, say so explicitly (otherwise the user
+            // just sees the CC button never appear and has to guess why).
+            hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                setTimeout(function() {
+                    if (!subState.reported)
+                        logMsg('subs: no SUBTITLE_TRACKS_UPDATED event from ' +
+                               'hls.js (no subtitle tracks advertised in the ' +
+                               'playlist)');
+                }, 500);
+            });
+
+            // hls.js: hls.subtitleTrack takes the ARRAY INDEX into
+            // hls.subtitleTracks (-1 = off). It asynchronously fetches that
+            // track's playlist and cues; SUBTITLE_TRACK_LOADED /
+            // SUBTITLE_TRACK_SWITCH confirm it happened.
+            subOnOff = function(target) {
+                if (target === false) {
+                    hls.subtitleTrack = -1;
+                    logMsg('subs: hls.subtitleTrack = -1 (off)');
+                } else {
+                    var idx = parseInt(target, 10);
+                    var nAvail = (hls.subtitleTracks ? hls.subtitleTracks.length : -1);
+                    hls.subtitleTrack = idx;
+                    // readback + array size: if hls.js rejected the set
+                    // (e.g. idx >= tracksInGroup.length after dedup) the
+                    // readback will be -1 and we'll see the mismatch.
+                    var rb = hls.subtitleTrack;
+                    logMsg('subs: hls.subtitleTrack = ' + idx +
+                           ' (readback=' + rb +
+                           ', subtitleTracks.length=' + nAvail + ')');
+                    if (rb !== idx)
+                        logMsg('subs: WARNING - hls.js did not accept track ' +
+                               idx + ' (readback ' + rb + '): it may have ' +
+                               'deduped the playlist; check SUBTITLE_TRACKS_' +
+                               'UPDATED count above vs number of tracks');
+                    // After giving hls.js a moment to create the native
+                    // TextTrack + load the first fragment, dump its state so
+                    // we can see whether cues actually made it to the element
+                    // that the browser renders from.
+                    [250, 1500, 4000].forEach(function(ms) {
+                        setTimeout(dumpNativeTextTracks, ms);
+                    });
+                }
+            };
+
+            // Vertical position (as a % of the video height, 0=top 100=bottom)
+            // for the cue block. Lower (= further from 100) in fullscreen so
+            // cues clear bottom-bezel camera cutouts and aren't clipped.
+            function cueLineForView() {
+                return document.fullscreenElement ? 80 : 86;
+            }
+            // Re-apply the cue line to every cue on every text track when we
+            // enter/leave fullscreen (cues already parsed keep their old line
+            // otherwise). Safe no-op if there are no tracks yet.
+            function reapplyCueLines() {
+                var tts = video.textTracks;
+                if (!tts) return;
+                var line = cueLineForView();
+                for (var i = 0; i < tts.length; i++) {
+                    var cs = tts[i].cues;
+                    if (!cs) continue;
+                    for (var j = 0; j < cs.length; j++) {
+                        try {
+                            cs[j].snapToLines = false;
+                            cs[j].line = line;
+                        } catch (e) { /* ignore */ }
+                    }
+                }
+            }
+            ['fullscreenchange', 'webkitfullscreenchange'].forEach(function(ev) {
+                document.addEventListener(ev, function() {
+                    reapplyCueLines();
+                    logMsg('subs: fullscreen ' +
+                           (document.fullscreenElement ? 'entered' : 'left') +
+                           ', cue line -> ' + cueLineForView());
+                });
+            });
+
+            // Pure diagnostic: log each native video.textTracks entry (the
+            // rendering surface when renderTextTracksNatively is true) — its
+            // mode, cue count, first/last cue times, and first cue text. We do
+            // NOT mutate track modes here: with renderTextTracksNatively true,
+            // hls.js owns the native track modes, and forcing them ourselves
+            // (a previous version did) breaks selection when multiple tracks
+            // share the same language (it would activate all of them).
+            function dumpNativeTextTracks() {
+                var tts = video.textTracks;
+                if (!tts || !tts.length) {
+                    logMsg('subs: video.textTracks empty');
+                    return;
+                }
+                for (var i = 0; i < tts.length; i++) {
+                    var tt = tts[i];
+                    var c = tt.cues;
+                    var n = c ? c.length : 0;
+                    var fr = (n && c[0]) ? (fmtTC(c[0].startTime) + '->' + fmtTC(c[0].endTime)) : '';
+                    var lr = (n && c[n - 1]) ? (fmtTC(c[n - 1].startTime) + '->' + fmtTC(c[n - 1].endTime)) : '';
+                    logMsg('subs: textTrack[' + i + '] kind="' + tt.kind +
+                           '" lang="' + (tt.language || '') + '" label="' + (tt.label || '') +
+                           '" mode="' + tt.mode +
+                           '" cues=' + n + (n ? (' [' + fr + ' ... ' + lr + ']') : ''));
+                    if (n && c[0] && c[0].text) {
+                        var body = c[0].text.replace(/\n/g, ' / ');
+                        if (body.length > 120)
+                            body = body.slice(0, 117) + '...';
+                        logMsg('  textTrack[' + i + '] cue[0] text="' + body + '"');
+                    }
+                }
+            }
+            function fmtTC(t) { return (typeof t === 'number') ? t.toFixed(2) + 's' : '?'; }
         }
         // For Safari, which natively supports HLS
         else if (video.canPlayType('application/vnd.apple.mpegurl')) {
@@ -223,7 +565,62 @@ document.addEventListener('DOMContentLoaded', function() {
                     video.currentTime = startPos;
                 }
                 video.play();
+
+                // native HLS exposes subtitle variants as <video>.textTracks
+                populateNativeSubs();
             });
+
+            function populateNativeSubs() {
+                var tts = video.textTracks;
+                var i, subTracks = [];
+                for (i = 0; i < tts.length; i++) {
+                    if (tts[i].kind === 'subtitles' || tts[i].kind === 'captions') {
+                        subTracks.push({
+                            id: i,
+                            name: tts[i].label || tts[i].language || ('track ' + i),
+                            lang: tts[i].language || ''
+                        });
+                        // start everything disabled; CC toggle enables
+                        tts[i].mode = 'disabled';
+                    }
+                }
+                logMsg('subs: ' + subTracks.length + ' native track(s)');
+                if (!subTracks.length || !ccBtn || !subSel) return;
+
+                subSel.innerHTML = '';
+                var off = document.createElement('option');
+                off.value = '-1';
+                off.textContent = 'Off';
+                subSel.appendChild(off);
+                subTracks.forEach(function(t) {
+                    var o = document.createElement('option');
+                    o.value = t.id;
+                    o.textContent = t.name;
+                    subSel.appendChild(o);
+                });
+
+                var def = pickDefaultSub(subTracks);
+                subSel.value = (def !== -1) ? def : '-1';
+                ccBtn.classList.remove('hidden');
+                subSel.classList.remove('hidden');
+            }
+
+            // native HLS: target = numeric textTrack index, false = off
+            subOnOff = function(target) {
+                var tts = video.textTracks;
+                var i;
+                if (target === false) {
+                    for (i = 0; i < tts.length; i++)
+                        if (tts[i].kind === 'subtitles' || tts[i].kind === 'captions')
+                            tts[i].mode = 'disabled';
+                } else {
+                    for (i = 0; i < tts.length; i++) {
+                        if (tts[i].kind !== 'subtitles' && tts[i].kind !== 'captions')
+                            continue;
+                        tts[i].mode = (i === parseInt(target, 10)) ? 'showing' : 'disabled';
+                    }
+                }
+            };
 
             // Polling buffer status for native HLS
             setInterval(function() {
