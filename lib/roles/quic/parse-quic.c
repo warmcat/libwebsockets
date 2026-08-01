@@ -1309,8 +1309,8 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 					wsi_child = lws_create_new_server_wsi(nwsi->a.vhost, nwsi->tsi, LWSLCG_WSI_MUX, "quic stream");
 					if (!wsi_child) return -1;
 					
-					lws_wsi_mux_insert(wsi_child, nwsi, (unsigned int)stream_id);
-					wsi_child->mux.my_sid = (unsigned int)stream_id;
+					lws_wsi_mux_insert(wsi_child, nwsi, stream_id);
+					wsi_child->mux.my_sid = stream_id;
 					
 					/* Inherit the role from the network WSI, but use H3 role if H3 ALPN was negotiated */
 #if defined(LWS_ROLE_H3)

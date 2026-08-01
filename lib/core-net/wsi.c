@@ -1434,11 +1434,11 @@ int lws_wsi_keepalive_timeout_eff(struct lws *wsi) {
 #if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT) || defined(LWS_ROLE_QUIC)
 
 void lws_wsi_mux_insert(struct lws *wsi, struct lws *parent_wsi,
-		unsigned int sid) {
-	lwsl_wsi_info(wsi, "par %s: assign sid %d (curr %d)", lws_wsi_tag(parent_wsi),
-			sid, wsi->mux.my_sid);
+		uint64_t sid) {
+	lwsl_wsi_info(wsi, "par %s: assign sid %llu (curr %llu)", lws_wsi_tag(parent_wsi),
+			(unsigned long long)sid, (unsigned long long)wsi->mux.my_sid);
 
-	if (wsi->mux.my_sid && wsi->mux.my_sid != (unsigned int)sid)
+	if (wsi->mux.my_sid && wsi->mux.my_sid != sid)
 		assert(0);
 
 	wsi->mux.my_sid = sid;

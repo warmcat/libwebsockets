@@ -100,9 +100,15 @@ struct pss_webrtc {
 
 	uint8_t                 is_client;
 	uint8_t                 handshake_started;
-	char                    ice_ufrag[32];
+	/*
+	 * Q-21: RFC 8445 §5.3 says the ICE ufrag SHOULD have at least 128 bits
+	 * of randomness to resist off-path spoofing of STUN connectivity checks.
+	 * Hex-encoding 16 random bytes needs 32 chars + NUL; [40] gives room.
+	 * (ice_pwd already carried 128 bits.)
+	 */
+	char                    ice_ufrag[40];
 	char                    ice_pwd[64];
-	char                    ice_ufrag_remote[32];
+	char                    ice_ufrag_remote[40];
 	char                    ice_pwd_remote[64];
 	char                    fingerprint_remote[128];
 

@@ -1852,9 +1852,15 @@ lws_shared_webrtc_callback(struct lws *wsi, enum lws_callback_reasons reason,
 				char *pp = pss->ice_pwd;
 				int n;
 
-				lws_get_random(vhd->context, rand, 4);
-				lws_snprintf(pss->ice_ufrag, sizeof(pss->ice_ufrag),
-						"%02X%02X%02X%02X", rand[0], rand[1], rand[2], rand[3]);
+			lws_get_random(vhd->context, rand, 16);
+			/* Q-21: 128 bits of entropy (was 32) per RFC 8445 §5.3 */
+			lws_snprintf(pss->ice_ufrag, sizeof(pss->ice_ufrag),
+				"%02X%02X%02X%02X%02X%02X%02X%02X"
+				"%02X%02X%02X%02X%02X%02X%02X%02X",
+				rand[0], rand[1], rand[2], rand[3],
+				rand[4], rand[5], rand[6], rand[7],
+				rand[8], rand[9], rand[10], rand[11],
+				rand[12], rand[13], rand[14], rand[15]);
 
 				lws_get_random(vhd->context, rand, 16);
 				for (n = 0; n < 16; n++)

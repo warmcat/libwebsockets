@@ -437,8 +437,26 @@ lws_qpack_huftable_decode(int pos, char c)
 static struct lws_qpack_dynamic_table_entry *
 lws_qpack_get_dynamic_entry(struct lws_qpack_context *ctx, int relative_idx);
 
+/*
+ * Q-1: a QPACK header name/value string is decoded into a fixed-size buffer
+ * (name_buf[128] / val_buf[4096]).  Previously, once the buffer filled, the
+ * remaining declared str_len bytes were silently dropped while str_pos kept
+ * advancing, so an overlong header was emitted *truncated* as if complete --
+ * a header-smuggling / length-filter-bypass surface.  Instead, reject up front
+ * when the wire-declared length cannot fit the destination.  -1 means "too
+ * long"; 0 means OK.
+ */
+static int
+lws_qpack_str_len_fits(const struct lws_qpack_stream_state *state)
+{
+	size_t cap = state->is_name ? sizeof(state->name_buf) :
+				      sizeof(state->val_buf);
+	/* leave room for the terminating NUL written at emit time */
+	return state->str_len + 1 > cap ? -1 : 0;
+}
+
 LWS_VISIBLE int
-lws_qpack_decode_header_block(struct lws_qpack_stream_state *state, 
+lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 			      struct lws_qpack_context *ctx,
 			      const unsigned char *in, size_t in_len,
 			      lws_qpack_header_cb cb, void *user)
@@ -537,6 +555,11 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 					state->str_len = state->int_val;
 					state->str_pos = 0;
 					state->huff_pos = 0;
+					if (state->str_len && lws_qpack_str_len_fits(state)) {
+						lwsl_notice("QPACK name len %llu exceeds buffer\n",
+							    (unsigned long long)state->str_len);
+						return 1;
+					}
 					state->state = state->str_len ? LQP_DEC_STR_DATA : LQP_DEC_STR_LEN;
 				}
 			} else if ((c & 0xf0) == 0x10) {
@@ -570,20 +593,25 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 				return 1;
 			state->int_val += (uint64_t)(c & 0x7f) << state->int_shift;
 			state->int_shift += 7;
-			if (!(c & 0x80)) {
-				state->state = state->next_state;
-				if (state->state == LQP_DEC_STR_DATA) {
-					state->str_len = state->int_val;
-					state->str_pos = 0;
-					state->huff_pos = 0;
-					if (state->str_len == 0) {
-						if (state->is_name) {
-							state->state = LQP_DEC_STR_LEN;
-						} else {
-							goto do_emit;
+				if (!(c & 0x80)) {
+					state->state = state->next_state;
+					if (state->state == LQP_DEC_STR_DATA) {
+						state->str_len = state->int_val;
+						state->str_pos = 0;
+						state->huff_pos = 0;
+						if (state->str_len == 0) {
+							if (state->is_name) {
+								state->state = LQP_DEC_STR_LEN;
+							} else {
+								goto do_emit;
+							}
+						} else if (lws_qpack_str_len_fits(state)) {
+							lwsl_notice("QPACK %s len %llu exceeds buffer\n",
+								    state->is_name ? "name" : "value",
+								    (unsigned long long)state->str_len);
+							return 1;
 						}
-					}
-				} else if (state->state == LQP_DEC_STR_LEN) {
+					} else if (state->state == LQP_DEC_STR_LEN) {
 					state->hdr_idx = (int)state->int_val;
 				} else if (state->state == LQP_DEC_EMIT) {
 					goto do_emit;
@@ -629,6 +657,11 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 				if (state->str_len == 0) {
 					goto do_emit;
 				} else {
+					if (lws_qpack_str_len_fits(state)) {
+						lwsl_notice("QPACK value len %llu exceeds buffer\n",
+							    (unsigned long long)state->str_len);
+						return 1;
+					}
 					state->state = LQP_DEC_STR_DATA;
 				}
 			}
@@ -647,18 +680,36 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 					}
 					if (state->huff_pos & 0x8000) {
 						char dec = (char)(state->huff_pos & 0x7fff);
-						if (state->is_name && state->name_pos < sizeof(state->name_buf) - 1)
-							state->name_buf[state->name_pos++] = dec;
-						else if (!state->is_name && state->val_pos < sizeof(state->val_buf) - 1)
-							state->val_buf[state->val_pos++] = dec;
+						size_t capm1 = state->is_name ? sizeof(state->name_buf) - 1 :
+										 sizeof(state->val_buf) - 1;
+						size_t *pos = state->is_name ? &state->name_pos : &state->val_pos;
+						char *dst = state->is_name ? state->name_buf : state->val_buf;
+						/*
+						 * Q-1: fail rather than silently drop,
+						 * so a Huffman string that decodes
+						 * longer than the buffer cannot be
+						 * emitted truncated
+						 */
+						if (*pos >= capm1) {
+							lwsl_notice("QPACK %s overflow at decode\n",
+								    state->is_name ? "name" : "value");
+							return 1;
+						}
+						dst[(*pos)++] = dec;
 						state->huff_pos = 0;
 					}
 				}
 			} else {
-				if (state->is_name && state->name_pos < sizeof(state->name_buf) - 1)
-					state->name_buf[state->name_pos++] = (char)c;
-				else if (!state->is_name && state->val_pos < sizeof(state->val_buf) - 1)
-					state->val_buf[state->val_pos++] = (char)c;
+				size_t capm1 = state->is_name ? sizeof(state->name_buf) - 1 :
+								 sizeof(state->val_buf) - 1;
+				size_t *pos = state->is_name ? &state->name_pos : &state->val_pos;
+				char *dst = state->is_name ? state->name_buf : state->val_buf;
+				if (*pos >= capm1) {
+					lwsl_notice("QPACK %s overflow at decode\n",
+						    state->is_name ? "name" : "value");
+					return 1;
+				}
+				dst[(*pos)++] = (char)c;
 			}
 			
 			if (++state->str_pos >= state->str_len) {
@@ -917,13 +968,18 @@ lws_qpack_decode_encoder_stream(struct lws_qpack_stream_state *state,
 					state->int_shift = 0;
 					state->next_state = LQP_DEC_STR_DATA;
 					state->state = LQP_DEC_INT;
-				} else {
-					state->str_len = state->int_val;
-					state->str_pos = 0;
-					state->huff_pos = 0;
-					state->state = state->str_len ? LQP_DEC_STR_DATA : LQP_DEC_STR_LEN;
+			} else {
+				state->str_len = state->int_val;
+				state->str_pos = 0;
+				state->huff_pos = 0;
+				if (state->str_len && lws_qpack_str_len_fits(state)) {
+					lwsl_notice("QPACK enc name len %llu exceeds buffer\n",
+						    (unsigned long long)state->str_len);
+					return 1;
 				}
-			} else if ((c & 0xe0) == 0x20) {
+				state->state = state->str_len ? LQP_DEC_STR_DATA : LQP_DEC_STR_LEN;
+			}
+		} else if ((c & 0xe0) == 0x20) {
 				state->int_val = c & 0x1f;
 				if (state->int_val == 0x1f) {
 					state->int_shift = 0;
@@ -959,6 +1015,11 @@ lws_qpack_decode_encoder_stream(struct lws_qpack_stream_state *state,
 						} else {
 							goto do_emit_enc;
 						}
+					} else if (lws_qpack_str_len_fits(state)) {
+						lwsl_notice("QPACK enc %s len %llu exceeds buffer\n",
+							    state->is_name ? "name" : "value",
+							    (unsigned long long)state->str_len);
+						return 1;
 					}
 				} else if (state->state == LQP_DEC_STR_LEN) {
 					state->hdr_idx = (int)state->int_val;
@@ -984,6 +1045,11 @@ lws_qpack_decode_encoder_stream(struct lws_qpack_stream_state *state,
 				if (state->str_len == 0) {
 					goto do_emit_enc;
 				} else {
+					if (lws_qpack_str_len_fits(state)) {
+						lwsl_notice("QPACK enc value len %llu exceeds buffer\n",
+							    (unsigned long long)state->str_len);
+						return 1;
+					}
 					state->state = LQP_DEC_STR_DATA;
 				}
 			}
@@ -1002,18 +1068,36 @@ lws_qpack_decode_encoder_stream(struct lws_qpack_stream_state *state,
 					}
 					if (state->huff_pos & 0x8000) {
 						char dec = (char)(state->huff_pos & 0x7fff);
-						if (state->is_name && state->name_pos < sizeof(state->name_buf) - 1)
-							state->name_buf[state->name_pos++] = dec;
-						else if (!state->is_name && state->val_pos < sizeof(state->val_buf) - 1)
-							state->val_buf[state->val_pos++] = dec;
+						size_t capm1 = state->is_name ? sizeof(state->name_buf) - 1 :
+										 sizeof(state->val_buf) - 1;
+						size_t *pos = state->is_name ? &state->name_pos : &state->val_pos;
+						char *dst = state->is_name ? state->name_buf : state->val_buf;
+						/*
+						 * Q-1: fail rather than silently drop,
+						 * so a Huffman string that decodes
+						 * longer than the buffer cannot be
+						 * emitted truncated
+						 */
+						if (*pos >= capm1) {
+							lwsl_notice("QPACK %s overflow at decode\n",
+								    state->is_name ? "name" : "value");
+							return 1;
+						}
+						dst[(*pos)++] = dec;
 						state->huff_pos = 0;
 					}
 				}
 			} else {
-				if (state->is_name && state->name_pos < sizeof(state->name_buf) - 1)
-					state->name_buf[state->name_pos++] = (char)c;
-				else if (!state->is_name && state->val_pos < sizeof(state->val_buf) - 1)
-					state->val_buf[state->val_pos++] = (char)c;
+				size_t capm1 = state->is_name ? sizeof(state->name_buf) - 1 :
+								 sizeof(state->val_buf) - 1;
+				size_t *pos = state->is_name ? &state->name_pos : &state->val_pos;
+				char *dst = state->is_name ? state->name_buf : state->val_buf;
+				if (*pos >= capm1) {
+					lwsl_notice("QPACK %s overflow at decode\n",
+						    state->is_name ? "name" : "value");
+					return 1;
+				}
+				dst[(*pos)++] = (char)c;
 			}
 			
 			if (++state->str_pos >= state->str_len) {
