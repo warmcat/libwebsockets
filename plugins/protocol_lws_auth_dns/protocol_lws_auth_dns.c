@@ -905,27 +905,23 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		struct pending_dns_query *delayed_q = NULL;
 
 		if (reason == LWS_CALLBACK_USER) {
-			/* Either returning from DHT or from DNSBL */
-			/* Distinguish based on struct type or caller logic */
+			/*
+			 * Q-35: returning from either the DHT or the DNSBL
+			 * lookup.  struct pending_dns_query and struct
+			 * pending_dnsbl_query share an identical layout prefix
+			 * (list, vhd, wsi, sa46_peer, is_tcp, domain, packet,
+			 * packet_len) -- see lines 133/152 -- and below we read
+			 * only those common-prefix fields, so a single cast is
+			 * safe regardless of which struct the caller actually
+			 * passed.  No type discrimination is needed here.
+			 */
 			struct pending_dns_query *pqdht = (struct pending_dns_query *)in;
-
-			/* Hacky check: we only have two possible `in` types here.
-			   Both have `list` as first member then `vhd`. We can check if `pqbl->pending_lookups` is initialized, etc.
-			   Actually we can distinguish by looking at the originating list?
-			   Let's just use the `is_tcp` offset or `vhd` offset.
-			   Actually both share standard fields up to `packet_len`.
-			   We should probably add a magic number. But since we originate it...
-			   Let's check if the list head matches pending_dnsbl or pending_queries.
-			   No, it's removed from the list right before calling LWS_CALLBACK_USER!
-			   For now, assume if it has `is_blacklisted` logic it's coming from DNSBL if we dispatched it.
-			   Actually, let's just make both structurally compatible up to packet_len. */
 
 			p = pqdht->packet;
 			end = p + pqdht->packet_len;
 			is_tcp = pqdht->is_tcp;
 			req_len = (uint16_t)pqdht->packet_len;
 
-			/* It could be delayed_q or delayed_dnsbl. For extracting packet it doesn't matter since they start identical */
 			delayed_q = pqdht;
 			lws_sa46_write_numeric_address(&delayed_q->sa46_peer, peer_ip, sizeof(peer_ip));
 		} else {

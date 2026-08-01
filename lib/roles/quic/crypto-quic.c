@@ -335,10 +335,20 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
 		return -1;
 	}
 
+	/*
+	 * Q-6: We must not publish k into qn->keys[level] until the secret has
+	 * been successfully derived into it.  A derive failure on a published k
+	 * would leave a half-initialised keys object (with the secret and
+	 * partial key material) reachable through qn->keys[level] and never
+	 * freed or zeroised.  Track whether we allocated k so the failure path
+	 * can tear it down completely.
+	 */
+	int allocd = 0;
 	if (!qn->keys[level]) {
 		k = lws_zalloc(sizeof(*k), "quic_keys");
-		if (!k) return -1;
-		qn->keys[level] = k;
+		if (!k)
+			return -1;
+		allocd = 1;
 
 		/* Inherit packet number spaces between 0-RTT and 1-RTT */
 		if (level == LWS_QUIC_LEVEL_APP && qn->keys[LWS_QUIC_LEVEL_EARLY]) {
@@ -363,8 +373,13 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
                 lws_quic_dbg_set_keys(wsi, type, secret, secret_len, k, 1, 0);
 #endif
                 if (lws_quic_derive_key_iv_hp(k->secret_rx, k->secret_len, k->cipher_type, k->iv_rx, sizeof(k->iv_rx),
-                                              &k->el_aead_rx, k->key_aead_rx, &k->el_hp_rx, k->key_hp_rx))
+                                              &k->el_aead_rx, k->key_aead_rx, &k->el_hp_rx, k->key_hp_rx)) {
+			if (allocd) {
+				qn->keys[level] = NULL;
+				lws_quic_keys_destroy(k);
+			}
                         return -1;
+		}
         } else {
                 if (level == LWS_QUIC_LEVEL_APP && k->valid && k->secret_tx[0]) {
 #if defined(LWS_WITH_QUIC_DEBUG_SET_KEYS)
@@ -380,9 +395,18 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
                 lws_quic_dbg_set_keys(wsi, type, secret, secret_len, k, 0, 0);
 #endif
                 if (lws_quic_derive_key_iv_hp(k->secret_tx, k->secret_len, k->cipher_type, k->iv_tx, sizeof(k->iv_tx),
-                                              &k->el_aead_tx, k->key_aead_tx, &k->el_hp_tx, k->key_hp_tx))
+                                              &k->el_aead_tx, k->key_aead_tx, &k->el_hp_tx, k->key_hp_tx)) {
+			if (allocd) {
+				qn->keys[level] = NULL;
+				lws_quic_keys_destroy(k);
+			}
                         return -1;
+		}
         }
+
+	/* Only publish once derivation succeeded, so callers always see a usable key. */
+	if (allocd)
+		qn->keys[level] = k;
 
 	/* We mark it valid once BOTH directions are derived (or if we only need one direction for early data) */
 	/* For simplicity, we just mark valid and rely on tx/rx logic */
@@ -497,18 +521,38 @@ void lws_quic_keys_release_aead_tx(struct lws_quic_keys *keys) {
 int
 lws_quic_update_keys(struct lws_quic_keys *k, int is_rx)
 {
+	/*
+	 * Q-7: Previously each error return ran *before* the explicit_bzero of
+	 * new_secret, leaving the freshly-derived key-update secret on the
+	 * stack, and the early ones ran after the new secret had already been
+	 * copied into k->secret_rx/tx, leaving the key state half-rotated.
+	 *
+	 * Now derive the new secret and its key/iv into locals first; only
+	 * commit them into k once everything succeeded, and funnel every exit
+	 * through bail: so new_secret is always wiped.
+	 */
 	uint8_t new_secret[48];
+	uint8_t new_key[32];
+	uint8_t new_iv[12];
+	uint8_t *cur_secret;
+	int ret = -1;
 
 	size_t key_len = (k->cipher_type == 0) ? 16 : 32;
 
 	if (is_rx) {
                 enum lws_genhmac_types hash_type = (k->secret_len == 48) ? LWS_GENHMAC_TYPE_SHA384 : LWS_GENHMAC_TYPE_SHA256;
-                if (lws_genhkdf_expand_label(hash_type, k->secret_rx, k->secret_len, "quic ku", NULL, 0, new_secret, k->secret_len)) return -1;
-                memcpy(k->secret_rx, new_secret, k->secret_len);
+		cur_secret = k->secret_rx;
+                if (lws_genhkdf_expand_label(hash_type, cur_secret, k->secret_len, "quic ku", NULL, 0, new_secret, k->secret_len))
+			goto bail;
 
-                if (lws_genhkdf_expand_label(hash_type, new_secret, k->secret_len, "quic key", NULL, 0, k->key_aead_rx, key_len)) return -1;
-                if (lws_genhkdf_expand_label(hash_type, new_secret, k->secret_len, "quic iv", NULL, 0, k->iv_rx, 12)) return -1;
+                if (lws_genhkdf_expand_label(hash_type, new_secret, k->secret_len, "quic key", NULL, 0, new_key, key_len))
+			goto bail;
+                if (lws_genhkdf_expand_label(hash_type, new_secret, k->secret_len, "quic iv", NULL, 0, new_iv, 12))
+			goto bail;
 
+		memcpy(k->secret_rx, new_secret, k->secret_len);
+		memcpy(k->key_aead_rx, new_key, key_len);
+		memcpy(k->iv_rx, new_iv, 12);
                 k->el_aead_rx.buf = k->key_aead_rx;
                 k->el_aead_rx.len = (uint32_t)key_len;
 #if defined(LWS_WITH_GNUTLS)
@@ -519,12 +563,18 @@ lws_quic_update_keys(struct lws_quic_keys *k, int is_rx)
 #endif
         } else {
                 enum lws_genhmac_types hash_type = (k->secret_len == 48) ? LWS_GENHMAC_TYPE_SHA384 : LWS_GENHMAC_TYPE_SHA256;
-                if (lws_genhkdf_expand_label(hash_type, k->secret_tx, k->secret_len, "quic ku", NULL, 0, new_secret, k->secret_len)) return -1;
-                memcpy(k->secret_tx, new_secret, k->secret_len);
+		cur_secret = k->secret_tx;
+                if (lws_genhkdf_expand_label(hash_type, cur_secret, k->secret_len, "quic ku", NULL, 0, new_secret, k->secret_len))
+			goto bail;
 
-                if (lws_genhkdf_expand_label(hash_type, new_secret, k->secret_len, "quic key", NULL, 0, k->key_aead_tx, key_len)) return -1;
-                if (lws_genhkdf_expand_label(hash_type, new_secret, k->secret_len, "quic iv", NULL, 0, k->iv_tx, 12)) return -1;
+                if (lws_genhkdf_expand_label(hash_type, new_secret, k->secret_len, "quic key", NULL, 0, new_key, key_len))
+			goto bail;
+                if (lws_genhkdf_expand_label(hash_type, new_secret, k->secret_len, "quic iv", NULL, 0, new_iv, 12))
+			goto bail;
 
+		memcpy(k->secret_tx, new_secret, k->secret_len);
+		memcpy(k->key_aead_tx, new_key, key_len);
+		memcpy(k->iv_tx, new_iv, 12);
                 k->el_aead_tx.buf = k->key_aead_tx;
                 k->el_aead_tx.len = (uint32_t)key_len;
 #if defined(LWS_WITH_GNUTLS)
@@ -535,8 +585,14 @@ lws_quic_update_keys(struct lws_quic_keys *k, int is_rx)
 #endif
         }
 
+	ret = 0;
+
+bail:
 	lws_explicit_bzero(new_secret, sizeof(new_secret));
-	return 0;
+	lws_explicit_bzero(new_key, sizeof(new_key));
+	lws_explicit_bzero(new_iv, sizeof(new_iv));
+
+	return ret;
 }
 
 int

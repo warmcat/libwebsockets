@@ -160,8 +160,8 @@ lws_wt_create_stream(struct lws *wsi_session, int unidi)
 	cwsi->quic.qs->rx_window_size = LWS_QUIC_DEFAULT_WINDOW;
 	cwsi->quic.qs->last_rx_update_us = lws_now_usecs();
 
-	lws_wsi_mux_insert(cwsi, nwsi, (unsigned int)cwsi->quic.qs->stream_id);
-	cwsi->mux.my_sid = (unsigned int)cwsi->quic.qs->stream_id;
+	lws_wsi_mux_insert(cwsi, nwsi, cwsi->quic.qs->stream_id);
+	cwsi->mux.my_sid = cwsi->quic.qs->stream_id;
 	
 	cwsi->a.protocol = wsi_session->a.protocol;
 	

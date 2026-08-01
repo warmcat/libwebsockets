@@ -350,7 +350,24 @@ callback_smtp_client(struct lws *wsi, enum lws_callback_reasons reason,
 					last_line = &resp[i + 1];
 			}
 
-			code = atoi(last_line);
+			/*
+			 * Q-25: parse the server's SMTP reply code with strtol
+			 * (atoi silently returns 0 on non-numeric/garbage and
+			 * truncates on overflow).  A valid reply code is a 3-digit
+			 * value; reject anything that isn't pure digits or is out
+			 * of range rather than driving the state machine off 0.
+			 */
+			{
+				char *endp = NULL;
+				long c = strtol(last_line, &endp, 10);
+				if (endp == last_line || c < 100 || c > 599) {
+					size_t rl = len < 128 ? len : 128;
+					lwsl_err("SMTP: malformed reply code in '%.*s'\n",
+						 (int)rl, resp);
+					return -1;
+				}
+				code = (int)c;
+			}
 			if (code >= 400) {
 				lwsl_err("SMTP error: %.*s\n", (int)len, resp);
 				return -1;

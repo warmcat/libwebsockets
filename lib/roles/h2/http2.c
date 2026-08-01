@@ -162,7 +162,7 @@ lws_h2_update_peer_txcredit(struct lws *wsi, unsigned int sid, int bump)
 		return 0;
 
 	if (sid == (unsigned int)-1)
-		sid = wsi->mux.my_sid;
+		sid = (unsigned int)wsi->mux.my_sid;
 
 	lwsl_info("%s: sid %d: bump %d -> %d\n", __func__, sid, bump,
 			(int)wsi->txc.peer_tx_cr_est + bump);
@@ -507,7 +507,7 @@ lws_h2_rst_stream(struct lws *wsi, uint32_t err, const char *reason)
 	lwsl_info("%s: RST_STREAM 0x%x, sid %d, REASON '%s'\n", __func__,
 		  (int)err, wsi->mux.my_sid, reason);
 
-	pps->u.rs.sid = wsi->mux.my_sid;
+	pps->u.rs.sid = (uint32_t)wsi->mux.my_sid;
 	pps->u.rs.err = err;
 
 	lws_pps_schedule(wsi, pps);
@@ -1491,7 +1491,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 			h2n->swsi->h2.initialized = 1;
 
 			if (lws_h2_update_peer_txcredit(h2n->swsi,
-					h2n->swsi->mux.my_sid, 4 * 65536))
+					(unsigned int)h2n->swsi->mux.my_sid, 4 * 65536))
 				goto cleanup_wsi_l;
 		}
 
@@ -2744,7 +2744,7 @@ lws_h2_client_handshake(struct lws *wsi)
 	 * receives an unexpected stream identifier MUST respond with a
 	 * connection error (Section 5.4.1) of type PROTOCOL_ERROR.
 	 */
-	unsigned int sid = wsi->mux.my_sid;
+	unsigned int sid = (unsigned int)wsi->mux.my_sid;
 
 	/*
 	 * If this stream was already bound to a sid (the first client stream is
@@ -2977,7 +2977,7 @@ lws_h2_client_handshake(struct lws *wsi)
 		wsi->txc.manual = 1;
 	}
 
-	if (lws_h2_update_peer_txcredit(wsi, wsi->mux.my_sid, n))
+	if (lws_h2_update_peer_txcredit(wsi, (unsigned int)wsi->mux.my_sid, n))
 		return 1;
 
 	lws_h2_state(wsi, LWS_H2_STATE_OPEN);

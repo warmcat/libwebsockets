@@ -433,8 +433,15 @@ append_av1_obu(struct mixer_media_session *s, const uint8_t *data, size_t len)
 	size_t needed = s->video_len + hdr_len + leb_len + payload_len + 4;
 	if (needed > 16 * 1024 * 1024) return;
 	if (s->video_alloc < needed) {
-		s->video_alloc = needed + 4096;
-		s->video_buf = realloc(s->video_buf, s->video_alloc);
+		size_t na = needed + 4096;
+		/* Q-13: realloc to a temp; commit only on success so a NULL
+		 * return doesn't leak the old buffer or leave video_alloc
+		 * larger than the (now NULL) video_buf */
+		uint8_t *tmp = realloc(s->video_buf, na);
+		if (!tmp)
+			return;
+		s->video_buf = tmp;
+		s->video_alloc = na;
 	}
 
 	if (s->video_buf) {
@@ -567,8 +574,13 @@ process_session_media(struct mixer_media_session *s)
 							s->video_len = 0;
 						} else {
 							if (s->video_alloc < needed) {
-								s->video_buf = realloc(s->video_buf, needed + 1024);
-								s->video_alloc = needed + 1024;
+								/* Q-13: realloc to temp, commit on success */
+								size_t na = needed + 1024;
+								uint8_t *tmp = realloc(s->video_buf, na);
+								if (tmp) {
+									s->video_buf = tmp;
+									s->video_alloc = na;
+								}
 							}
 							if (s->video_buf) {
 								memcpy(s->video_buf + s->video_len, annexb_start, 4);
@@ -594,8 +606,13 @@ process_session_media(struct mixer_media_session *s)
 								break;
 							}
 							if (s->video_alloc < needed) {
-								s->video_buf = realloc(s->video_buf, needed + 1024);
-								s->video_alloc = needed + 1024;
+								/* Q-13: realloc to temp, commit on success */
+								size_t na = needed + 1024;
+								uint8_t *tmp = realloc(s->video_buf, na);
+								if (tmp) {
+									s->video_buf = tmp;
+									s->video_alloc = na;
+								}
 							}
 							if (s->video_buf) {
 								memcpy(s->video_buf + s->video_len, annexb_start, 4);
@@ -626,8 +643,13 @@ process_session_media(struct mixer_media_session *s)
 									s->fu_a_active = 0;
 								} else {
 									if (s->video_alloc < needed) {
-										s->video_buf = realloc(s->video_buf, needed + 4096);
-										s->video_alloc = needed + 4096;
+										/* Q-13: realloc to temp, commit on success */
+										size_t na = needed + 4096;
+										uint8_t *tmp = realloc(s->video_buf, na);
+										if (tmp) {
+											s->video_buf = tmp;
+											s->video_alloc = na;
+										}
 									}
 									if (s->video_buf) {
 										memcpy(s->video_buf + s->video_len, annexb_start, 4);
@@ -651,8 +673,13 @@ process_session_media(struct mixer_media_session *s)
 									s->fu_a_active = 0;
 								} else {
 									if (s->video_alloc < needed) {
-										s->video_buf = realloc(s->video_buf, needed + 4096);
-										s->video_alloc = needed + 4096;
+										/* Q-13: realloc to temp, commit on success */
+										size_t na = needed + 4096;
+										uint8_t *tmp = realloc(s->video_buf, na);
+										if (tmp) {
+											s->video_buf = tmp;
+											s->video_alloc = na;
+										}
 									}
 									if (s->video_buf) {
 										memcpy(s->video_buf + s->video_len, payload, payload_len);
@@ -765,8 +792,13 @@ process_session_media(struct mixer_media_session *s)
 									s->obu_len = 0;
 								} else {
 									if (s->obu_len + obu_size > s->obu_alloc) {
-										s->obu_alloc = s->obu_len + obu_size + 4096;
-										s->obu_buf = realloc(s->obu_buf, s->obu_alloc);
+										/* Q-13: realloc to temp, commit on success */
+										size_t na = s->obu_len + obu_size + 4096;
+										uint8_t *tmp = realloc(s->obu_buf, na);
+										if (tmp) {
+											s->obu_buf = tmp;
+											s->obu_alloc = na;
+										}
 									}
 									if (s->obu_buf) {
 										memcpy(s->obu_buf + s->obu_len, in_data + off, obu_size);
@@ -790,8 +822,13 @@ process_session_media(struct mixer_media_session *s)
 									/* Too large */
 								} else {
 									if (obu_size > s->obu_alloc) {
-										s->obu_alloc = obu_size + 4096;
-										s->obu_buf = realloc(s->obu_buf, s->obu_alloc);
+										/* Q-13: realloc to temp, commit on success */
+										size_t na = obu_size + 4096;
+										uint8_t *tmp = realloc(s->obu_buf, na);
+										if (tmp) {
+											s->obu_buf = tmp;
+											s->obu_alloc = na;
+										}
 									}
 									if (s->obu_buf && obu_size > 0) {
 										memcpy(s->obu_buf, in_data + off, obu_size);

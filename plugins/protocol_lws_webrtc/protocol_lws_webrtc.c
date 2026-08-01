@@ -56,6 +56,28 @@
 #endif
 #include <stdarg.h>
 
+/*
+ * Q-25: atoi silently returns 0 on non-numeric input and truncates on
+ * overflow with no signal.  This helper parses a (peer-SDP-supplied) token
+ * to a non-negative int in [0, max], returning -1 on any parse error.
+ */
+static int
+webrtc_sdtoi(const char *s, size_t len, int max)
+{
+	char tmp[16];
+	char *endp = NULL;
+	long v;
+	size_t copy = len < sizeof(tmp) - 1 ? len : sizeof(tmp) - 1;
+	if (!copy)
+		return -1;
+	memcpy(tmp, s, copy);
+	tmp[copy] = '\0';
+	v = strtol(tmp, &endp, 10);
+	if (endp == tmp || *endp != '\0' || v < 0 || v > max)
+		return -1;
+	return (int)v;
+}
+
 static void
 webrtc_pss_log(struct pss_webrtc *pss, const char *fmt, ...)
 {
@@ -848,7 +870,7 @@ handle_candidate(struct pss_webrtc *pss, struct vhd_webrtc *vhd, const char *can
 			}
 		} else if (state == 3) {
 			/* Port */
-			port = atoi(ts.token);
+			port = webrtc_sdtoi(ts.token, ts.token_len, 65535);
 			state = 5;
 			break;
 		}
@@ -984,7 +1006,7 @@ lws_webrtc_parse_sdp_codecs(struct pss_webrtc *pss, const char *sdp_clean)
 				int pt = -1;
 				while (lws_tokenize(&ts) != LWS_TOKZE_ENDED) {
 					if (ts.token_len > 0 && isdigit(ts.token[0])) {
-						pt = atoi(ts.token);
+						pt = webrtc_sdtoi(ts.token, ts.token_len, 127);
 						break; /* Found PT */
 					}
 				}
@@ -1037,7 +1059,7 @@ lws_webrtc_parse_sdp_codecs(struct pss_webrtc *pss, const char *sdp_clean)
 				int pt = -1;
 				while (lws_tokenize(&ts) != LWS_TOKZE_ENDED) {
 					if (ts.token_len > 0 && isdigit(ts.token[0])) {
-						pt = atoi(ts.token);
+						pt = webrtc_sdtoi(ts.token, ts.token_len, 127);
 						break; /* Found PT */
 					}
 				}
@@ -1067,7 +1089,7 @@ lws_webrtc_parse_sdp_codecs(struct pss_webrtc *pss, const char *sdp_clean)
 				/* Find PT first */
 				while (lws_tokenize(&ts) != LWS_TOKZE_ENDED) {
 					if (ts.token_len > 0 && isdigit(ts.token[0])) {
-						pt = atoi(ts.token);
+						pt = webrtc_sdtoi(ts.token, ts.token_len, 127);
 						break;
 					}
 				}
@@ -1318,7 +1340,7 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 				int pt = -1;
 				while (lws_tokenize(&ts) != LWS_TOKZE_ENDED) {
 					if (ts.token_len > 0 && isdigit(ts.token[0])) {
-						pt = atoi(ts.token);
+						pt = webrtc_sdtoi(ts.token, ts.token_len, 127);
 						break; /* Found PT */
 					}
 				}
@@ -1373,7 +1395,7 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 				int pt = -1;
 				while (lws_tokenize(&ts) != LWS_TOKZE_ENDED) {
 					if (ts.token_len > 0 && isdigit(ts.token[0])) {
-						pt = atoi(ts.token);
+						pt = webrtc_sdtoi(ts.token, ts.token_len, 127);
 						break; /* Found PT */
 					}
 				}
@@ -1407,7 +1429,7 @@ handle_offer(struct lws *wsi, struct pss_webrtc *pss, struct vhd_webrtc *vhd, co
 				/* Find PT first */
 				while (lws_tokenize(&ts) != LWS_TOKZE_ENDED) {
 					if (ts.token_len > 0 && isdigit(ts.token[0])) {
-						pt = atoi(ts.token);
+						pt = webrtc_sdtoi(ts.token, ts.token_len, 127);
 						break;
 					}
 				}
@@ -1852,9 +1874,15 @@ lws_shared_webrtc_callback(struct lws *wsi, enum lws_callback_reasons reason,
 				char *pp = pss->ice_pwd;
 				int n;
 
-				lws_get_random(vhd->context, rand, 4);
-				lws_snprintf(pss->ice_ufrag, sizeof(pss->ice_ufrag),
-						"%02X%02X%02X%02X", rand[0], rand[1], rand[2], rand[3]);
+			lws_get_random(vhd->context, rand, 16);
+			/* Q-21: 128 bits of entropy (was 32) per RFC 8445 §5.3 */
+			lws_snprintf(pss->ice_ufrag, sizeof(pss->ice_ufrag),
+				"%02X%02X%02X%02X%02X%02X%02X%02X"
+				"%02X%02X%02X%02X%02X%02X%02X%02X",
+				rand[0], rand[1], rand[2], rand[3],
+				rand[4], rand[5], rand[6], rand[7],
+				rand[8], rand[9], rand[10], rand[11],
+				rand[12], rand[13], rand[14], rand[15]);
 
 				lws_get_random(vhd->context, rand, 16);
 				for (n = 0; n < 16; n++)

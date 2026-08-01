@@ -188,12 +188,28 @@ gnutls_quic_read_func(gnutls_session_t session,
 		memcpy(b->out + b->out_len, data, data_size);
 		b->out_len += data_size;
 	} else {
-		uint8_t *p = lws_realloc(b->other_out[qlevel], b->other_out_len[qlevel] + data_size, "quic other out");
+		/*
+		 * Q-16: this is handshake output for a crypto level other than
+		 * the one currently being read.  The target_level path above
+		 * is bounded by out_max, but this path previously grew without
+		 * any cap or overflow check on the size_t add, so a peer that
+		 * triggers repeated handshake retransmits could grow it
+		 * unboundedly.  Cap at 256 KiB (matches the QUIC CRYPTO buffer
+		 * ceiling used elsewhere) and reject on overflow.
+		 */
+		size_t new_len = b->other_out_len[qlevel] + data_size;
+		if (new_len < b->other_out_len[qlevel] || /* size_t overflow */
+		    new_len > 256 * 1024) {
+			lwsl_wsi_warn(wsi, "QUIC TLS: other_out[%d] would exceed 256KiB cap",
+				      (int)qlevel);
+			return GNUTLS_E_MEMORY_ERROR;
+		}
+		uint8_t *p = lws_realloc(b->other_out[qlevel], new_len, "quic other out");
 		if (!p)
 			return GNUTLS_E_MEMORY_ERROR;
 		b->other_out[qlevel] = p;
 		memcpy(p + b->other_out_len[qlevel], data, data_size);
-		b->other_out_len[qlevel] += data_size;
+		b->other_out_len[qlevel] = new_len;
 	}
 
 	return 0;

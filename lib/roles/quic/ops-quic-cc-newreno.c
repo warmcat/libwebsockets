@@ -95,7 +95,13 @@ newreno_on_ack(struct lws *nwsi, size_t bytes_acked, lws_usec_t rtt)
 		st->cwnd += bytes_acked;
 	} else {
 		/* Congestion Avoidance */
-		st->cwnd += (mtu * bytes_acked) / st->cwnd;
+		/*
+		 * Q-14: guard against cwnd == 0 to avoid SIGFPE.  cwnd is
+		 * initialised to 10*mtu and floor-clamped to 2*mtu, so this
+		 * is defensive against state corruption or future changes;
+		 * cubic's sibling path uses the same guard.
+		 */
+		st->cwnd += (mtu * bytes_acked) / (st->cwnd ? st->cwnd : 1);
 	}
 }
 
@@ -222,7 +228,9 @@ newreno_get_pacing_delay(struct lws *nwsi, size_t bytes_to_send)
 
 	/* Not enough credit. Calculate how long to wait for the missing credit. */
 	size_t missing_credit = bytes_to_send - st->pacing_credit;
-	delay_us = (lws_usec_t)(((uint64_t)missing_credit * (uint64_t)rtt) / (uint64_t)st->cwnd);
+	/* Q-14: guard against cwnd == 0 (matches cubic pacing path) */
+	delay_us = (lws_usec_t)(((uint64_t)missing_credit * (uint64_t)rtt) /
+				(uint64_t)(st->cwnd ? st->cwnd : 1));
 
 	if (delay_us == 0)
 		delay_us = 1;

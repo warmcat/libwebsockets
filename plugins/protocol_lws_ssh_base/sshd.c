@@ -1721,7 +1721,28 @@ again:
 							pss->parser_state = SSHS_MSG_EAT_PADDING;
 							break;
 						}
-						scp->len = (uint64_t)atoll((const char *)pp);
+						/*
+						 * Q-25: parse client-supplied SCP
+						 * length with strtoull (atoll silently
+						 * returns 0 on non-numeric / neg, and
+						 * has no overflow signal).  Require the
+						 * next field separator to follow.
+						 */
+						{
+							char *endp = NULL;
+							unsigned long long L =
+								strtoull((const char *)pp,
+									 &endp, 10);
+							if (endp == (char *)pp ||
+							    *endp != ' ') {
+								write_task(pss, ch,
+								   SSH_WT_SCP_ACK_ERROR);
+								pss->parser_state =
+									SSHS_MSG_EAT_PADDING;
+								break;
+							}
+							scp->len = (uint64_t)L;
+						}
 						max_body = 100 * 1024 * 1024; /* hard limit for SCP in plugin */
 						
 						if (scp->len > max_body) {
