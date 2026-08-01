@@ -151,6 +151,7 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 
 		pthread_mutex_init(&vhd->lock, NULL);
 		pthread_cond_init(&vhd->cond, NULL);
+		pthread_mutex_init(&vhd->sub_lock, NULL);
 		vhd->thread_exit = 0;
 		if (pthread_create(&vhd->thumb_thread, NULL, lws_hls_thumbnail_worker, vhd)) {
 			lwsl_err("Failed to create thumbnail thread\n");
@@ -193,6 +194,26 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 			free(idx);
 			idx = next;
 		}
+
+		/* free subtitle cue cache */
+		pthread_mutex_lock(&vhd->sub_lock);
+		{
+			struct hls_sub_cache *sc = vhd->sub_cache_head;
+			while (sc) {
+				struct hls_sub_cache *next = sc->next;
+				int j;
+				if (sc->cues) {
+					for (j = 0; j < sc->n_cues; j++)
+						free(sc->cues[j].text);
+					free(sc->cues);
+				}
+				free(sc);
+				sc = next;
+			}
+			vhd->sub_cache_head = NULL;
+		}
+		pthread_mutex_unlock(&vhd->sub_lock);
+		pthread_mutex_destroy(&vhd->sub_lock);
 
 #if defined(LWS_WITH_STUB)
 		if (vhd->stub_mgr)
@@ -270,7 +291,71 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_filename_purify_inplace(filename);
 			if (strchr(filename, '/'))
 				goto err_404;
+			/* master playlist if subtitles exist, else the A/V
+			 * media playlist unchanged */
+			return lws_hls_serve_stream(wsi, vhd->media_dir, filename);
+		}
+		else if (!strncmp(url, "/avstream/", 10)) {
+			char filename[256];
+			lws_strncpy(filename, url + 10, sizeof(filename));
+			lws_filename_purify_inplace(filename);
+			if (strchr(filename, '/'))
+				goto err_404;
 			return lws_hls_serve_manifest(wsi, vhd->media_dir, filename);
+		}
+		else if (!strncmp(url, "/subsm/", 7)) {
+			/* /subsm/<filename>/<trackid> */
+			const char *p = url + 7;
+			const char *sep = strchr(p, '/');
+			char filename[256], trackid[16];
+			size_t fn_len, tid_len;
+
+			if (!sep)
+				goto err_404;
+			fn_len = (size_t)(sep - p);
+			if (fn_len >= sizeof(filename))
+				goto err_404;
+			memcpy(filename, p, fn_len);
+			filename[fn_len] = '\0';
+			lws_filename_purify_inplace(filename);
+			if (strchr(filename, '/'))
+				goto err_404;
+
+			tid_len = strlen(sep + 1);
+			if (tid_len == 0 || tid_len >= sizeof(trackid))
+				goto err_404;
+			lws_strncpy(trackid, sep + 1, sizeof(trackid));
+			return lws_hls_serve_sub_playlist(wsi, vhd,
+					vhd->media_dir, filename, trackid);
+		}
+		else if (!strncmp(url, "/subseg/", 8)) {
+			/* /subseg/<filename>/<trackid>/<idx> */
+			const char *p = url + 8;
+			const char *sep1 = strchr(p, '/');
+			const char *sep2;
+			char filename[256], trackid[16];
+			size_t fn_len, tid_len;
+
+			if (!sep1 || !(sep2 = strchr(sep1 + 1, '/')))
+				goto err_404;
+			fn_len = (size_t)(sep1 - p);
+			if (fn_len >= sizeof(filename))
+				goto err_404;
+			memcpy(filename, p, fn_len);
+			filename[fn_len] = '\0';
+			lws_filename_purify_inplace(filename);
+			if (strchr(filename, '/'))
+				goto err_404;
+
+			tid_len = (size_t)(sep2 - (sep1 + 1));
+			if (tid_len == 0 || tid_len >= sizeof(trackid))
+				goto err_404;
+			memcpy(trackid, sep1 + 1, tid_len);
+			trackid[tid_len] = '\0';
+
+			return lws_hls_serve_sub_segment(wsi, vhd,
+					vhd->media_dir, filename, trackid,
+					atoi(sep2 + 1));
 		}
 		else if (!strncmp(url, "/init/", 6)) {
 			char filename[256];

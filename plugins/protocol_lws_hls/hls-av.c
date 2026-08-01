@@ -2,8 +2,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define HLS_SEGMENT_DUR 10
-
 
 void *
 lws_hls_thumbnail_worker(void *d)
@@ -812,13 +810,6 @@ lws_hls_serve_init(struct lws *wsi, const char *media_dir, const char *filename)
 #define get_index_entry(st, idx) (&((st)->index_entries[idx]))
 #endif
 
-struct hls_segment_info {
-	int64_t start_pts;
-	int64_t end_pts;
-	int64_t seek_pts;
-	double duration_sec;
-};
-
 static int64_t
 get_entry_dts(AVStream *st, const AVIndexEntry *entry)
 {
@@ -837,7 +828,7 @@ get_entry_dts(AVStream *st, const AVIndexEntry *entry)
 	return entry->timestamp;
 }
 
-static int
+int
 lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filename,
                          AVFormatContext *in_ctx, int video_idx, int target_seg_idx,
 			 struct hls_segment_info *out_info, int *out_total_segments)

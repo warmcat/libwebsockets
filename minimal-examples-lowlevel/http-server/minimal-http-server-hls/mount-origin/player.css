@@ -23,6 +23,21 @@ video {
     height: auto;
     display: block;
 }
+
+/* Subtitle cue rendering. Cues arrive via the native <track> element that
+ * hls.js creates (renderTextTracksNatively). This is only a fallback style:
+ * player.js injects a dynamic <style> rule that sizes the cue font in real px
+ * computed from the video's rendered height (so it tracks the actual video
+ * size — small in the inline frame, proportional in fullscreen — instead of
+ * the unreliable :fullscreen / vh approaches). The cue vertical position
+ * (VTTCue.line) is likewise geometry-driven in player.js. */
+video::cue {
+    font-size: 18px;
+    line-height: 1.25;
+    background: rgba(0, 0, 0, 0.72);
+    color: #ffffff;
+    white-space: pre-wrap;
+}
 .header {
     width: 100%;
     max-width: 800px;
@@ -63,8 +78,22 @@ video {
     width: 100%;
     max-width: 800px;
     display: flex;
-    justify-content: flex-end;
+    justify-content: space-between;
+    align-items: center;
     margin-top: 10px;
+    gap: 12px;
+}
+
+.button-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* put a little air between adjacent controls inside a group */
+.button-group .toggle-btn,
+.button-group select.toggle-btn {
+    margin-right: 0;
 }
 
 .toggle-btn {
@@ -83,6 +112,18 @@ video {
 .toggle-btn:hover {
     background-color: #3b3b3b;
     color: #ffffff;
+}
+
+/* "on" state, used for the CC toggle */
+.toggle-btn.active {
+    background-color: #2a7a2a;
+    color: #ffffff;
+    border-color: #3a9a3a;
+}
+
+#sub-lang {
+    padding: 5px 8px;
+    cursor: pointer;
 }
 
 .video-title {
