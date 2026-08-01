@@ -431,11 +431,24 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 			char csrf_cookie[80];
 			char refresh_cookie[160];
 			int cl, rl = 0;
+			/*
+			 * auth_csrf guards silent renewal (the double-submit
+			 * check on the side-channel POST), so it must outlive the
+			 * short-lived auth_session JWT it was minted alongside --
+			 * otherwise renewal can never run once that JWT expires
+			 * (eg a suspended tablet waking after the JWT, but not the
+			 * long-term refresh session, has lapsed).  Give it the
+			 * refresh lifetime when we have a refresh token; fall back
+			 * to the JWT lifetime for non-refreshable sessions.
+			 */
+			unsigned long csrf_ma =
+				ps->refresh_token[0] && ps->refresh_expires_in_secs
+					? ps->refresh_expires_in_secs
+					: cookie_max_age(vhd, ps->expires_in_secs);
 			lws_snprintf(csrf_cookie, sizeof(csrf_cookie),
 				     "auth_csrf=%s; Path=/; Max-Age=%lu; "
 				     "SameSite=Lax; Secure; HttpOnly",
-				     ps->csrf,
-				     cookie_max_age(vhd, ps->expires_in_secs));
+				     ps->csrf, csrf_ma);
 			cl = (int)strlen(csrf_cookie);
 
 			/*
