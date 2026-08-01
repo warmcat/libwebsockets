@@ -515,7 +515,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 
 					if (wsi->a.context->event_loop_ops->promote_parallel)
 						wsi->a.context->event_loop_ops->promote_parallel(wsi, pidx);
-					else
+					else if (lws_socket_is_valid(wsi->desc.sockfd))
 						compatible_close(wsi->desc.sockfd);
 
 					promote_parallel_fd(wsi, pidx);

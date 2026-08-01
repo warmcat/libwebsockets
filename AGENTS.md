@@ -3,11 +3,13 @@
 ## Overview
 
 Please err on the side of high quality, not lazy, implementation decisions, because the code
-will have to be maintained for a long time.  And everybody, LLM or person, is able to work
+will have to be maintained for a long time.  Everybody, LLM or person, is able to work
 better if we keep the code clean and to a high standard to start with.
 
 Even if your instructions don't include specific admonishment about quality, it is always
-necessary.
+necessary.  Lws started in 2010 the main goal when working on a feature is to
+improve the library with the feature.  That means shortcuts and desperate
+incomplete hacks to deliver the feature are always wrong.
 
 Our work should follow the existing usage of apis in the project as much as possible.
 
@@ -54,13 +56,16 @@ We are very concerned about security, architecturally and in the code.  We avoid
 
  - `FILE *` and use apis like open(), read().
 
- - casual linked-lists and use `lws_dll2_t`.
+ - hand-rolled ad-hoc code when there are library helpers, eg no casual
+   linked-lists; use `lws_dll2_t` instead.
 
 We consider using:
 
  - lwsac instead of discrete allocations, if the pattern of allocations will benefit from it.
 
  - lws_struct to convert between sqlite storage <-> structs <-> JSON
+
+ - lws_tokenize instead of strtok() and variants
 
 We are very concerned about portability and all builds occur with -Werror -Wall -Wextra.
 
@@ -109,7 +114,7 @@ commands for the platform.
 
 minimal-examples-lowlevel/http-client/minimal-http-client-post/CMakeLists.txt shows how to use the fixtures
 stuff to magic peers into being while being sensitive to parallel CI using a CMake unique socket allocator
-function to make unique ports.
+function to select unique ports.
 
 In the case you can build and run ctest meaningfully, please do confirm the build passes before completing
 work on your goal.  Use parallel builds and eg, ctest -j8 to reduce the cost in realtime.
