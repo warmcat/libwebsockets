@@ -1663,11 +1663,33 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 			break;
 		case 0x08: /* initial_max_streams_bidi */
 			if (lws_quic_parse_varint(&buf[pos], param_len, &val) == param_len) {
+				/*
+				 * Q-9: RFC 9000 §18.2 caps initial_max_streams at
+				 * 2^60.  Without this, a malicious peer advertises
+				 * an enormous value and later stream-creation
+				 * checks against max_streams_*_remote let it open
+				 * unlimited streams (memory-exhaustion DoS).  The
+				 * MAX_STREAMS *frame* path already caps at 2^60;
+				 * mirror that here.  Caller closes with
+				 * TRANSPORT_PARAMETER_ERROR on our -1.
+				 */
+				if (val > (1ULL << 60)) {
+					lwsl_wsi_err(wsi, "QUIC TP error: "
+						     "initial_max_streams_bidi %llu > 2^60",
+						     (unsigned long long)val);
+					return -1;
+				}
 				qn->max_streams_bidi_remote = val;
 			} else return -1;
 			break;
 		case 0x09: /* initial_max_streams_uni */
 			if (lws_quic_parse_varint(&buf[pos], param_len, &val) == param_len) {
+				if (val > (1ULL << 60)) {
+					lwsl_wsi_err(wsi, "QUIC TP error: "
+						     "initial_max_streams_uni %llu > 2^60",
+						     (unsigned long long)val);
+					return -1;
+				}
 				qn->max_streams_unidi_remote = val;
 			} else return -1;
 			break;

@@ -947,7 +947,16 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 		{
 			uint8_t *local_tp_buf = lws_malloc(4096, "quic tp scratch");
 			if (!local_tp_buf) {
+				/*
+				 * Q-10: nwsi is fully allocated and linked by
+				 * here (qn, loc_cid, etc.).  Match the tp_overflow
+				 * cleanup so OOM doesn't leak the nwsi + qn + its
+				 * fd / TLS session.  local_tp_buf is NULL, so
+				 * there's nothing to free.
+				 */
 				lwsl_wsi_err(wsi, "OOM allocating tp scratch buffer");
+				lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS,
+						   "tp scratch oom");
 				return LWS_HPI_RET_HANDLED;
 			}
 			uint8_t *tp = local_tp_buf;
@@ -3725,7 +3734,17 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 			wsi->quic.qs->rx_window_size = LWS_QUIC_DEFAULT_WINDOW;
 			wsi->quic.qs->last_rx_update_us = lws_now_usecs();
 		} else {
-			lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS, "quic stream oom");
+			/*
+			 * Q-15: wsi has been hollowed out above (tls.ssl and
+			 * quic.qs both NULL, its state migrated into nwsi).
+			 * Closing only nwsi leaves wsi behind to be touched
+			 * with NULL tls.ssl/quic.qs.  Close wsi too so the
+			 * whole failed migration is torn down consistently.
+			 */
+			lws_close_free_wsi(nwsi, LWS_CLOSE_STATUS_NOSTATUS,
+					   "quic stream oom");
+			lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
+					   "quic migration oom");
 			return 1;
 		}
 	}
