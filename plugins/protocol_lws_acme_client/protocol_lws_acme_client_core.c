@@ -855,7 +855,16 @@ lws_acme_load_create_auth_keys(struct per_vhost_data__lws_acme_client *vhd,
         lwsl_vhost_notice(vhd->vhost, "falling back to ACME footprint IPC to save %s", vhd->active_cert->pvop[LWS_TLS_SET_AUTH_PATH]);
         char tmp_dir[256];
         char tmp_path[256];
-        lws_strncpy(tmp_dir, "/tmp/lws-acme-auth-XXXXXX", sizeof(tmp_dir)); // NOSONAR
+        /*
+         * Q-35/Q-31: this is a short-lived IPC relay, not a persisted key.
+         * The unprivileged ACME client cannot write the real key path, so
+         * it stages the JWK in a private mkdtemp dir (0700), reads it
+         * straight back, forwards it to the privileged daemon via
+         * acme_ipc_save_payload(), then unlink()+rmdir()s both below.
+         * The relay file itself is created mode 0600 by lws_plat_write_file.
+         * Window is milliseconds; nothing is left on disk on success.
+         */
+        lws_strncpy(tmp_dir, "/tmp/lws-acme-auth-XXXXXX", sizeof(tmp_dir));
         if (mkdtemp(tmp_dir)) {
             lws_snprintf(tmp_path, sizeof(tmp_path), "%s/jwk", tmp_dir);
         } else {
