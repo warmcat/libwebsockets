@@ -189,10 +189,17 @@ static const char * const canned_js =
         "r=await fetch('.lws-login-status');"
         "st=await r.json();"
         "}else if(sr==='dead'){"
-        /* long-term login gone: dump to the auth server login page */
+        /* long-term login gone.  If this mount allows anonymous access
+         * (unauth_allow), do NOT bounce to the auth server -- the user can
+         * legitimately use the page unauthenticated, and escalating them
+         * (especially a user whose JWT simply expired but who lacks the grant)
+         * traps them on the auth server's denial page.  Just render the
+         * anonymous state; they can click Login themselves if they want. */
+        "if(!st.unauth_allow){"
         "window.__lwsLoginInflight=0;"
         "window.lwsLoginEscalate(st.login_url);"
         "return;"
+        "}"
         "}"
         "}"
         "var c='<div class=\"lws-login-box\">';"
@@ -226,12 +233,22 @@ static const char * const canned_js =
         "if(m>0&&m<2592000){"
         "setTimeout(async function(){"
         "var sr=await window.lwsLoginSilentRefresh();"
-        /* 'ok' or 'transient' -> re-render (re-render itself re-checks status
-         * and, if still expired, retries silent refresh / escalates).  'dead'
-         * -> escalate now rather than waiting for the next render. */
-        "if(sr==='dead')window.lwsLoginEscalate(st.login_url);"
-        "else window.renderLwsLoginStatus(d);"
+        /* On a successful renewal, re-render to pick up the fresh exp.  On any
+         * failure ('dead' or 'transient'), do NOT escalate or immediately
+         * re-render: we are still rendering a LOGGED-IN box and the JWT is
+         * (or was very recently) valid.  Escalating a logged-in user -- eg
+         * one who merely lacks the grant on an unauth-allow mount, or whose
+         * refresh cookie simply expired -- traps them on the auth server's
+         * denial page.  Instead let the JWT ride out: the expiry timer below
+         * fires at actual expiry, re-fetches status, and only then (if the
+         * session is genuinely dead) does the not-logged-in branch escalate. */
+        "if(sr==='ok')window.renderLwsLoginStatus(d);"
         "},(m>60?m-60:0)*1000);"
+        /* Safety net: at actual expiry, re-render regardless.  If the JWT has
+         * expired and refresh never succeeded, this transitions cleanly to the
+         * not-logged-in branch (which decides escalation) rather than leaving
+         * a stale logged-in box. */
+        "setTimeout(function(){window.renderLwsLoginStatus(d);},(m+1)*1000);"
         "}"
         "}"
         "}else{"
@@ -1148,9 +1165,6 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		int unauth_allow = vhd->unauth_allow;
 		int n;
 
-		lwsl_notice("%s: HTTP path (vhd->unauth_allow=%d, logged_in=%d)\n",
-			    __func__, unauth_allow, pss && pss->ja);
-
 		if (!vhd)
 			return 1;
 
@@ -1501,10 +1515,10 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				int is_admin = lws_jwt_auth_query_grant(pss->ja, "*") >= 1 ||
 					       level >= 2;
 				int has_grant = level >= 1;
-				lws_snprintf(pl, sizeof(pl), "{\"logged_in\":1,\"server_now\":%llu,\"exp\":%llu,\"has_grant\":%d,\"grant_level\":%d,\"identity\":\"%s\",\"auth_server_url\":\"%s\",\"login_url\":\"%s\",\"is_admin\":%d}",
-					(unsigned long long)lws_now_secs(), (unsigned long long)lws_jwt_auth_get_exp(pss->ja), has_grant, level, sub ? sub : "Unknown", vhd->auth_server_url ? vhd->auth_server_url : "", dest, is_admin);
+				lws_snprintf(pl, sizeof(pl), "{\"logged_in\":1,\"server_now\":%llu,\"exp\":%llu,\"has_grant\":%d,\"grant_level\":%d,\"identity\":\"%s\",\"auth_server_url\":\"%s\",\"login_url\":\"%s\",\"is_admin\":%d,\"unauth_allow\":%d}",
+					(unsigned long long)lws_now_secs(), (unsigned long long)lws_jwt_auth_get_exp(pss->ja), has_grant, level, sub ? sub : "Unknown", vhd->auth_server_url ? vhd->auth_server_url : "", dest, is_admin, unauth_allow);
 			} else
-				lws_snprintf(pl, sizeof(pl), "{\"logged_in\":0,\"server_now\":%llu,\"auth_server_url\":\"%s\",\"login_url\":\"%s\"}", (unsigned long long)lws_now_secs(), vhd->auth_server_url ? vhd->auth_server_url : "", dest);
+				lws_snprintf(pl, sizeof(pl), "{\"logged_in\":0,\"server_now\":%llu,\"auth_server_url\":\"%s\",\"login_url\":\"%s\",\"unauth_allow\":%d}", (unsigned long long)lws_now_secs(), vhd->auth_server_url ? vhd->auth_server_url : "", dest, unauth_allow);
 
                         return simple_response(wsi, pss, pl, "application/json",
                                                HTTP_STATUS_OK, (unsigned char *)buf + LWS_PRE, (unsigned char **)&p,
@@ -1577,9 +1591,10 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		 * escape.  (CONFIRM_REQ_OK already let them through; this keeps
 		 * the HTTP path consistent with that decision.)
 		 */
+		lwsl_notice("%s: HTTP bounce decision path='%s' unauth_allow=%d -> %s\n",
+			    __func__, path, unauth_allow,
+			    unauth_allow ? "FALLTHROUGH" : "BOUNCE");
 		if (unauth_allow) {
-			lwsl_info("%s: ALLOWING unauth-allow fall-through (logged_in=%d)\n",
-				  __func__, pss && pss->ja);
 			return 0;
 		}
 
