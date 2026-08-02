@@ -233,11 +233,11 @@ lws_quic_initiate_key_update(struct lws *wsi)
 }
 
 /*
- * Compile-time diagnostic for the APP-level key installation path, enabled by
- * the LWS_WITH_QUIC_DEBUG_SET_KEYS CMake option (off by default).
+ * Compile-time diagnostic for the key installation path, enabled by the
+ * LWS_WITH_QUIC_DEBUG_SET_KEYS CMake option (off by default).
  *
- * When on, every APP-level set_keys call on both endpoints prints:
- *   - role (srv/cli), secret type, direction (rx/tx)
+ * When on, every set_keys call on both endpoints prints:
+ *   - role (srv/cli), protection level, secret type, direction (rx/tx)
  *   - secret_len and the resolved cipher_type (0=AES128 1=ChaCha 2=AES256)
  *   - first 8 bytes of the incoming secret vs. the currently-installed one
  *
@@ -263,6 +263,24 @@ lws_quic_dbg_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type,
 	char inb[17], pvb[17];
 	static const char hex[] = "0123456789abcdef";
 	size_t i, n = secret_len < 8 ? secret_len : 8;
+	int level;
+
+	switch (type) {
+	case LWS_TLS_QUIC_SECRET_CLIENT_EARLY:
+		level = LWS_QUIC_LEVEL_EARLY;
+		break;
+	case LWS_TLS_QUIC_SECRET_CLIENT_HANDSHAKE:
+	case LWS_TLS_QUIC_SECRET_SERVER_HANDSHAKE:
+		level = LWS_QUIC_LEVEL_HANDSHAKE;
+		break;
+	case LWS_TLS_QUIC_SECRET_CLIENT_APPLICATION:
+	case LWS_TLS_QUIC_SECRET_SERVER_APPLICATION:
+		level = LWS_QUIC_LEVEL_APP;
+		break;
+	default:
+		level = -1;
+		break;
+	}
 
 	for (i = 0; i < n; i++) {
 		inb[i * 2]     = hex[(secret[i] >> 4) & 0xf];
@@ -276,16 +294,17 @@ lws_quic_dbg_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type,
 	pvb[n * 2] = 0;
 
 	/* dropping=1 -> we are about to IGNORE this call as a dupe; 0 -> applying it */
-	lwsl_notice("%s: APP %s %s %s: len=%zu cipher_type=%u quic_aead=%u: %s "
+	lwsl_notice("%s: level=%d %s %s %s: len=%zu cipher_type=%u quic_aead=%u: %s "
 		    "incoming=%s installed=%s\n",
 		    __func__,
+		    level,
 		    (wsi->quic.qn && wsi->quic.qn->is_server) ? "srv" : "cli",
 		    tname[type], is_rx ? "rx" : "tx",
 		    secret_len,
 		    (unsigned)lws_quic_cipher_type(wsi, secret_len),
 		    (unsigned)wsi->tls.quic_aead,
 		    dropping ? "DROP(dupe)" : "APPLY",
-		    inb, prev[0] ? pvb : "(none)");
+		    inb, (is_rx ? k->app_rx_installed : k->app_tx_installed) ? pvb : "(none)");
 }
 #endif
 
@@ -359,7 +378,7 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
 	}
 
         if (is_rx) {
-                if (level == LWS_QUIC_LEVEL_APP && k->valid && k->secret_rx[0]) {
+                if (level == LWS_QUIC_LEVEL_APP && k->app_rx_installed) {
 #if defined(LWS_WITH_QUIC_DEBUG_SET_KEYS)
                         lws_quic_dbg_set_keys(wsi, type, secret, secret_len, k, 1, 1);
 #endif
@@ -380,8 +399,10 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
 			}
                         return -1;
 		}
+                if (level == LWS_QUIC_LEVEL_APP)
+                        k->app_rx_installed = 1;
         } else {
-                if (level == LWS_QUIC_LEVEL_APP && k->valid && k->secret_tx[0]) {
+                if (level == LWS_QUIC_LEVEL_APP && k->app_tx_installed) {
 #if defined(LWS_WITH_QUIC_DEBUG_SET_KEYS)
                         lws_quic_dbg_set_keys(wsi, type, secret, secret_len, k, 0, 1);
 #endif
@@ -402,6 +423,8 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
 			}
                         return -1;
 		}
+                if (level == LWS_QUIC_LEVEL_APP)
+                        k->app_tx_installed = 1;
         }
 
 	/* Only publish once derivation succeeded, so callers always see a usable key. */
