@@ -49,6 +49,12 @@ struct vhd_login {
 	char                    auth_domain[128];
 	char                    cookie_domain[128];
 	uint64_t                jwt_validity_secs;
+	uint64_t                csrf_max_age_secs;	/* auth_csrf cookie lifetime
+							 * minted/renewed by this bouncer;
+							 * default 30d. Decoupled from
+							 * jwt_validity_secs because the
+							 * csrf cookie must outlive the
+							 * short JWT to guard renewal. */
 
 	int                     unauth_allow;
 
@@ -341,6 +347,44 @@ sul_pending_refresh_cb(lws_sorted_usec_list_t *sul)
  * NULL for BFF mode.  `authform_url` is the pre-built login-form URL to land on
  * if a COLDLOAD renewal fails (NULL for BFF mode).
  */
+/*
+ * Mint a fresh auth_csrf value (32 hex chars + NUL) into out[33].  Used at
+ * renewal success to rotate the csrf cookie so its lifetime resets every
+ * renewal rather than dying on the original login's fixed schedule (which is
+ * what causes the background-timer redirect flash once it lapses).  Pure
+ * double-submit: the server stores nothing about csrf, so re-minting here
+ * needs no server-side change -- the next renewal reads the new cookie value
+ * and submits it as the matching csrf_token= form field.
+ */
+static void
+lws_login_mint_csrf(struct vhd_login *vhd, char *out)
+{
+	uint8_t rnd[16];
+	lws_get_random(vhd->context, rnd, sizeof(rnd));
+	lws_hex_from_byte_array(rnd, sizeof(rnd), out, 33);
+}
+
+/*
+ * Format an auth_csrf Set-Cookie string into out (caller buffer, >=96 bytes)
+ * using vhd's csrf_max_age_secs, and return its length.  Same shape/scoping as
+ * the auth_session cookie: HttpOnly; Secure; SameSite=Lax; optional Domain=.
+ */
+static int
+lws_login_build_csrf_cookie(struct vhd_login *vhd, const char *csrf, char *out,
+			    size_t out_len)
+{
+	if (vhd->cookie_domain[0])
+		return lws_snprintf(out, out_len,
+			"auth_csrf=%s; Path=/; Domain=%s; Max-Age=%llu; "
+			"SameSite=Lax; Secure; HttpOnly",
+			csrf, vhd->cookie_domain,
+			(unsigned long long)vhd->csrf_max_age_secs);
+
+	return lws_snprintf(out, out_len,
+		"auth_csrf=%s; Path=/; Max-Age=%llu; SameSite=Lax; Secure; HttpOnly",
+		csrf, (unsigned long long)vhd->csrf_max_age_secs);
+}
+
 static int
 lws_login_kick_refresh(struct vhd_login *vhd, struct lws *wsi, const char *cookie,
 		       const char *csrf, int mode, const char *orig_path,
@@ -425,7 +469,8 @@ lws_login_serve_self_redirect_with_cookie(struct lws *wsi, struct pss_login *pss
 					  struct vhd_login *vhd,
 					  const char *token, const char *path,
 					  unsigned char *buf, unsigned char **pp,
-					  unsigned char *end)
+					  unsigned char *end,
+					  const char *extra_set_cookie)
 {
 	char cookie[LWS_SSO_MAX_COOKIE], host[128], fq_uri[512];
 	unsigned char *p = *pp;
@@ -483,6 +528,11 @@ lws_login_serve_self_redirect_with_cookie(struct lws *wsi, struct pss_login *pss
 	if (lws_add_http_header_by_name(wsi, (const uint8_t *)"set-cookie:",
 					(const uint8_t *)cookie,
 					(int)strlen(cookie), &p, end))
+		return 1;
+	if (extra_set_cookie &&
+	    lws_add_http_header_by_name(wsi, (const uint8_t *)"set-cookie:",
+					(const uint8_t *)extra_set_cookie,
+					(int)strlen(extra_set_cookie), &p, end))
 		return 1;
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION,
 					 (const uint8_t *)fq_uri,
@@ -739,6 +789,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_strncpy(vhd->auth_domain, "auth.warmcat.com", sizeof(vhd->auth_domain));
 		lws_strncpy(vhd->db_path, "/var/db/lws-auth.sqlite3", sizeof(vhd->db_path));
 		vhd->jwt_validity_secs = 86400;
+		vhd->csrf_max_age_secs = 30 * 24 * 3600; /* 30d: csrf must outlive JWT */
 
 		if (lws_pvo_get_str(in, "cookie-name", &vhd->cookie_name))
 			lwsl_info("%s: default cookie-name %s\n", __func__, vhd->cookie_name);
@@ -796,6 +847,9 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (!lws_pvo_get_str(in, "jwt-validity-secs", &cp))
 			vhd->jwt_validity_secs = (uint64_t)atoll(cp);
+
+		if (!lws_pvo_get_str(in, "csrf-max-age-secs", &cp))
+			vhd->csrf_max_age_secs = (uint64_t)atoll(cp);
 
 		vhd->unauth_allow = 0;
 		if (!lws_pvo_get_str(in, "unauth-allow", &cp))
@@ -1235,7 +1289,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 						wsi, pss, vhd, pss->silent_update_jwt,
 						path, (unsigned char *)buf,
 						(unsigned char **)&p,
-						(unsigned char *)end)) {
+						(unsigned char *)end, NULL)) {
 					free(pss->silent_update_jwt);
 					pss->silent_update_jwt = NULL;
 					return lws_http_transaction_completed(wsi);
@@ -1409,7 +1463,19 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			if (pss && pss->ja) {
 				const char *sub = lws_jwt_auth_get_sub(pss->ja);
 				int level = lws_jwt_auth_query_grant(pss->ja, service_name);
-				int is_admin = lws_jwt_auth_query_grant(pss->ja, "*") >= 1;
+				/*
+				 * A user is an admin if they hold the wildcard
+				 * "*" grant (the established "god" grant) or if
+				 * they hold this service's named grant at level
+				 * >= 2 (the admin level).  Note
+				 * lws_jwt_auth_query_grant() already falls back
+				 * to a "*" grant for the named query, so |level|
+				 * also reflects a wildcard; the explicit "*"
+				 * query is kept so a level-1 wildcard still
+				 * counts as admin as before.
+				 */
+				int is_admin = lws_jwt_auth_query_grant(pss->ja, "*") >= 1 ||
+					       level >= 2;
 				int has_grant = level >= 1;
 				lws_snprintf(pl, sizeof(pl), "{\"logged_in\":1,\"server_now\":%llu,\"exp\":%llu,\"has_grant\":%d,\"grant_level\":%d,\"identity\":\"%s\",\"auth_server_url\":\"%s\",\"login_url\":\"%s\",\"is_admin\":%d}",
 					(unsigned long long)lws_now_secs(), (unsigned long long)lws_jwt_auth_get_exp(pss->ja), has_grant, level, sub ? sub : "Unknown", vhd->auth_server_url ? vhd->auth_server_url : "", dest, is_admin);
@@ -1724,17 +1790,38 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				 * 303 to the auth server login form we pre-built,
 				 * landing the user where they can actually log in.
 				 */
-				if (ps->token[0] &&
-				    !lws_login_serve_self_redirect_with_cookie(
-					wsi, pss, vhd, ps->token, ps->orig_path,
-					buf, &p, end)) {
-					lwsl_notice("%s: cold-load renewal ok, "
-						    "re-served %s\n", __func__,
-						    ps->orig_path);
+				if (ps->token[0]) {
+					/*
+					 * Rotate auth_csrf alongside the re-minted
+					 * JWT, same rationale as the BFF path: the
+					 * csrf cookie must reset its lifetime every
+					 * renewal or it dies on the original login's
+					 * schedule and the next renewal fails.
+					 */
+					char new_csrf[33];
+					char csrf_cookie[96];
+
+					lws_login_mint_csrf(vhd, new_csrf);
+					lws_login_build_csrf_cookie(vhd, new_csrf,
+								 csrf_cookie,
+								 sizeof(csrf_cookie));
+					if (!lws_login_serve_self_redirect_with_cookie(
+							wsi, pss, vhd, ps->token,
+							ps->orig_path, buf, &p, end,
+							csrf_cookie)) {
+						lwsl_notice("%s: cold-load renewal ok, "
+							    "re-served %s\n", __func__,
+							    ps->orig_path);
+						lws_sul_cancel(&ps->sul);
+						lws_dll2_remove(&ps->list);
+						free(ps);
+						return lws_http_transaction_completed(wsi);
+					}
+					/* header build failed */
 					lws_sul_cancel(&ps->sul);
 					lws_dll2_remove(&ps->list);
 					free(ps);
-					return lws_http_transaction_completed(wsi);
+					return 1;
 				}
 
 				/* failure: 303 to the auth form */
@@ -1828,7 +1915,9 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				return 0;
 			} else if (ps->token[0]) {
 				char cookie[LWS_SSO_MAX_COOKIE];
-				int n;
+				char csrf_cookie[96];
+				char new_csrf[33];
+				int n, cn;
 
 				if (vhd->cookie_domain[0]) {
 					n = lws_snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Domain=%s; Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
@@ -1838,8 +1927,22 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 							 vhd->cookie_name, ps->token, (unsigned long long)vhd->jwt_validity_secs);
 				}
 
+				/*
+				 * Rotate auth_csrf on every successful renewal so its
+				 * lifetime resets with the session instead of dying on
+				 * the original login's fixed schedule (which is what
+				 * makes the widget escalate to a redirect flash once it
+				 * lapses).  The next renewal reads this new value and
+				 * submits it as the matching csrf_token= form field.
+				 */
+				lws_login_mint_csrf(vhd, new_csrf);
+				cn = lws_login_build_csrf_cookie(vhd, new_csrf,
+								 csrf_cookie,
+								 sizeof(csrf_cookie));
+
 				if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "application/json", 13, (unsigned char **)&p, (unsigned char *)end)) return 1;
 				if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie, n, (unsigned char **)&p, (unsigned char *)end)) return 1;
+				if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)csrf_cookie, cn, (unsigned char **)&p, (unsigned char *)end)) return 1;
 				if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end)) return 1;
 
 				lws_write(wsi, buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
