@@ -89,6 +89,12 @@ struct lws_quic_keys {
 	/* 0 = AES-GCM (HP is AES-ECB), 1 = ChaCha20-Poly1305 (HP is ChaCha20) */
 	uint8_t		cipher_type;
 	uint8_t		valid:1;
+	uint8_t		app_rx_installed:1; /**< APP-level rx secret has been
+					   *  derived once; ignore later re-fires
+					   *  of the application secret callback */
+	uint8_t		app_tx_installed:1; /**< APP-level tx secret has been
+					   *  derived once; ignore later re-fires
+					   *  of the application secret callback */
 };
 
 /* QUIC Long Header Packet Types (RFC 9000, Section 17.2) */
