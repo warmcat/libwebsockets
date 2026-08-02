@@ -1127,13 +1127,14 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_jwt_auth_destroy(&ja);
 		}
 
-		lwsl_info("%s: INTERCEPTING (NO VALID COOKIE FOUND)\n", __func__);
+		lwsl_notice("%s: INTERCEPTOR no-valid-cookie-or-no-grant (unauth_allow=%d)\n", __func__, unauth_allow);
 
 		if (unauth_allow) {
-			lwsl_info("%s: ALLOWING UNAUTH (unauth-allow enabled)\n", __func__);
+			lwsl_notice("%s: ALLOWING UNAUTH (unauth-allow enabled)\n", __func__);
 			return 0;
 		}
 
+		lwsl_notice("%s: DENYING (intercept -> bounce)\n", __func__);
 		return 1; /* Unauthorized, intercept */
 	}
 
@@ -1143,7 +1144,12 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		const struct lws_http_mount *mount;
 		int whitelist_failed = 0;
 		const char *service_name;
+		const char *pmo_val;
+		int unauth_allow = vhd->unauth_allow;
 		int n;
+
+		lwsl_notice("%s: HTTP path (vhd->unauth_allow=%d, logged_in=%d)\n",
+			    __func__, unauth_allow, pss && pss->ja);
 
 		if (!vhd)
 			return 1;
@@ -1158,16 +1164,34 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		if (n > 0) {
 			mount = lws_find_mount(wsi, path, n);
 			if (mount) {
-				if (!lws_pmo_get_str(mount, "service-name", &service_name))
+				int target_sn = !lws_pmo_get_str(mount, "service-name", &service_name);
+				int target_ua = !lws_pmo_get_str(mount, "unauth-allow", &pmo_val);
+
+				if (target_sn)
 					lwsl_info("%s: using service_name %s from target pmo\n", __func__, service_name);
+				if (target_ua) {
+					unauth_allow = atoi(pmo_val);
+					lwsl_info("%s: using unauth_allow %d from target pmo\n", __func__, unauth_allow);
+				}
 
 #if defined(LWS_WITH_JOSE)
-				else if (mount->interceptor_path) {
+				if (!target_sn && mount->interceptor_path) {
 					const struct lws_http_mount *im = mount;
 					while (im && im->interceptor_path) {
 						im = lws_find_mount(wsi, im->interceptor_path, (int)strlen(im->interceptor_path));
 						if (im && !lws_pmo_get_str(im, "service-name", &service_name)) {
 							lwsl_info("%s: using service_name %s from interceptor pmo\n", __func__, service_name);
+							break;
+						}
+					}
+				}
+				if (!target_ua && mount->interceptor_path) {
+					const struct lws_http_mount *im = mount;
+					while (im && im->interceptor_path) {
+						im = lws_find_mount(wsi, im->interceptor_path, (int)strlen(im->interceptor_path));
+						if (im && !lws_pmo_get_str(im, "unauth-allow", &pmo_val)) {
+							unauth_allow = atoi(pmo_val);
+							lwsl_info("%s: using unauth_allow %d from interceptor pmo\n", __func__, unauth_allow);
 							break;
 						}
 					}
@@ -1540,6 +1564,23 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr1_host, (int)strlen(cookie_hdr1_host), (unsigned char **)&p, (unsigned char *)end)) return 1;
 			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION, (unsigned char *)u, (int)strlen(u), (unsigned char **)&p, (unsigned char *)end)) return 1;
 			goto fin_hdrs;
+		}
+
+		/*
+		 * If unauth-allow is set on this mount, let the request fall
+		 * through to the real mount content instead of bouncing to the
+		 * auth server.  This applies both to anonymous visitors and to
+		 * logged-in users who simply lack the required grant: the login
+		 * widget (.lws-login-status) reports their actual state so the
+		 * app can show itself with no admin rights, rather than trapping
+		 * them on an auth-server "you lack the grant" page they cannot
+		 * escape.  (CONFIRM_REQ_OK already let them through; this keeps
+		 * the HTTP path consistent with that decision.)
+		 */
+		if (unauth_allow) {
+			lwsl_info("%s: ALLOWING unauth-allow fall-through (logged_in=%d)\n",
+				  __func__, pss && pss->ja);
+			return 0;
 		}
 
 		lwsl_info("%s: bouncing unauth to %s\n", __func__, dest);
