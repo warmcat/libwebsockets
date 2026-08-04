@@ -1793,15 +1793,39 @@ tp_ok:
 			 * here on non-probing packets.
 			 */
 
+			/*
+			 * Walk with pointer-to-pointer so the link we hold is the
+			 * parent's child_list / previous sibling's sibling_list slot
+			 * itself, never a pointer to a node that may be freed out
+			 * from under us.
+			 *
+			 * The user RECEIVE callback that ran during parse_frames
+			 * above may have synchronously closed (and freed) an
+			 * arbitrary sibling stream via lws_wsi_close(..,
+			 * LWS_TO_KILL_SYNC); a cached "next" pointer would then
+			 * dangle.  After closing a node we must also re-seed from
+			 * the head, because closing this child can tear down the
+			 * network wsi (and the whole sibling list) as a side
+			 * effect.
+			 */
 			if (nwsi) {
-				struct lws *w = nwsi->mux.child_list;
-				while (w) {
-					struct lws *next = w->mux.sibling_list;
+				struct lws **pp = &nwsi->mux.child_list;
+				while (*pp) {
+					struct lws *w = *pp;
+
 					if (w->quic.qs && w->quic.qs->close_after_rx) {
 						lwsl_wsi_notice(w, "QUIC RX Post-Processing: Closing stream WSI");
 						lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "quic post rx stream close");
+						/*
+						 * w is freed and unlinked; *pp now
+						 * points at the next sibling (or
+						 * NULL). Re-seed from the head in
+						 * case the list itself moved.
+						 */
+						pp = &nwsi->mux.child_list;
+						continue;
 					}
-					w = next;
+					pp = &w->mux.sibling_list;
 				}
 			}
 
@@ -2840,13 +2864,23 @@ end_children:
 		}
                 
 		{
-			struct lws *w = wsi->mux.child_list;
-			while (w) {
-				struct lws *next = w->mux.sibling_list;
+			/*
+			 * Same reentrancy-safe traversal as the post-RX loop
+			 * above: a user callback may have synchronously freed a
+			 * sibling, so we must not cache a next pointer across the
+			 * close.  Use pointer-to-pointer and re-seed from the
+			 * head after each close.
+			 */
+			struct lws **pp = &wsi->mux.child_list;
+			while (*pp) {
+				struct lws *w = *pp;
+
 				if (w->quic.qs && w->quic.qs->close_after_rx) {
 					lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "quic post tx stream close");
+					pp = &wsi->mux.child_list;
+					continue;
 				}
-				w = next;
+				pp = &w->mux.sibling_list;
 			}
 		}
 
