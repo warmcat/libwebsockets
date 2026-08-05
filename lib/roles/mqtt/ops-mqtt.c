@@ -349,46 +349,57 @@ rops_handle_POLLOUT_mqtt(struct lws *wsi)
 
 	lws_wsi_mux_dump_waiting_children(wsi);
 
-	unsigned int to_examine = wsi->mux.child_list_owner.count;
-	do {
-		struct lws *w = lws_container_of(wsi->mux.child_list_owner.head,
-						struct lws, mux.sibling_list);
+	/*
+	 * Fair-share POLLOUT service via a forward walk; see
+	 * rops_perform_user_POLLOUT_h2() for the rationale.  _safe caches
+	 * next before the body so relocating/closing the current child is
+	 * safe and the walk terminates after one pass over the children
+	 * present at entry.  The choke test is post-tested (first iteration
+	 * skips it) so a pipe that already looks choked on entry cannot
+	 * starve every child.
+	 */
+	int first_iteration = 1;
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+			wsi->mux.child_list_owner.head) {
+		struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
 
-		if (!w->mux.requested_POLLOUT) {
-			lws_wsi_mux_move_child_to_tail(wsi);
-			if (--to_examine == 0)
-				break;
+		if (!first_iteration && lws_send_pipe_choked(wsi))
+			break;
+		first_iteration = 0;
+
+		if (!w->mux.requested_POLLOUT)
 			continue;
-		}
 
-		if (!lwsi_state_can_handle_POLLOUT(wsi)) {
-			lws_wsi_mux_move_child_to_tail(wsi);
-			if (--to_examine == 0)
-				break;
+		if (!lwsi_state_can_handle_POLLOUT(wsi))
 			continue;
-		}
-
-		/* we'll service this one; reset the pass counter in case
-		 * servicing it re-arms other children */
-		to_examine = wsi->mux.child_list_owner.count;
 
 		/*
 		 * If the nwsi is in the middle of a frame, we can only
 		 * continue to send that
 		 */
-
-		if (wsi->mqtt->inside_payload && !w->mqtt->inside_payload) {
-			lws_wsi_mux_move_child_to_tail(wsi);
+		if (wsi->mqtt->inside_payload && !w->mqtt->inside_payload)
 			continue;
-		}
 
 		/*
 		 * we're going to do writable callback for this child.
-		 * move him to be the last child
+		 * move him to be the last child (fair share); cached d1
+		 * stays valid across the relocate.
 		 */
-		w = lws_wsi_mux_move_child_to_tail(wsi);
-		if (!w)
-			continue;
+		lws_dll2_remove(&w->mux.sibling_list);
+		lws_dll2_add_tail(&w->mux.sibling_list,
+				  &wsi->mux.child_list_owner);
+
+		/*
+		 * Clear the POLLOUT request we acted on, as
+		 * lws_wsi_mux_move_child_to_tail() did when it was the
+		 * rotation primitive.  The body below re-arms explicitly
+		 * (PUBACK path) when it wants another cycle; without this
+		 * clear the normal path leaves it set and the post-loop
+		 * lws_wsi_mux_action_pending_writeable_reqs() re-arms POLLOUT
+		 * every pass -> level-triggered event loops spin at 100% CPU
+		 * on an always-writable socket.  See ops-h2.c.
+		 */
+		w->mux.requested_POLLOUT = 0;
 
 		lwsl_debug("%s: child %s (wsistate 0x%x)\n", __func__,
 			   lws_wsi_tag(w), (unsigned int)w->wsistate);
@@ -423,7 +434,7 @@ rops_handle_POLLOUT_mqtt(struct lws *wsi)
 					   "mqtt pollout handle");
 		}
 
-	} while (wsi->mux.child_list_owner.head && !lws_send_pipe_choked(wsi));
+	} lws_end_foreach_dll_safe(d, d1);
 
 	// lws_wsi_mux_dump_waiting_children(wsi);
 

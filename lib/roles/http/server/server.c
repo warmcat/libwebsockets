@@ -1890,7 +1890,22 @@ lws_http_action(struct lws *wsi)
 	if (!uri_ptr || uri_ptr[0] != '/') {
 #if (_LWS_ENABLED_LOGS & LLL_WARN)
 		char name[48];
-		lwsl_wsi_warn(wsi, "missing or non-absolute uri_ptr: %s", lws_get_peer_simple(wsi, name, sizeof(name)));
+		lwsl_wsi_warn(wsi, "missing or non-absolute uri_ptr (meth=%d, uri_len=%d, uri_ptr=%p): peer %s",
+				meth, (int)uri_len, (void *)uri_ptr,
+				lws_get_peer_simple(wsi, name, sizeof(name)));
+		/* TEMP DEBUG: dump the raw URI bytes (or AH tail) so we can see
+		 * what is actually arriving here. */
+		//if (uri_ptr && uri_len) {
+			// lwsl_wsi_warn(wsi, "uri_ptr hexdump (%d bytes):", (int)uri_len);
+			// lwsl_hexdump_warn(uri_ptr, (size_t)uri_len);
+		//} else 
+		if (wsi->http.ah) {
+			lwsl_wsi_warn(wsi, "no uri; AH data (pos=%d, data_length=%d):",
+					(int)wsi->http.ah->pos,
+					(int)wsi->http.ah->data_length);
+			lwsl_hexdump_warn(wsi->http.ah->data,
+					(size_t)wsi->http.ah->data_length);
+		}
 #endif
 		lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
 

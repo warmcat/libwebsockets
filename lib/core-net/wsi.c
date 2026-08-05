@@ -1471,10 +1471,10 @@ struct lws *lws_wsi_mux_from_id(struct lws *parent_wsi, unsigned int sid) {
 }
 
 void lws_wsi_mux_dump_children(struct lws *wsi) {
-#if defined(_DEBUG)
+#if defined(_DEBUG) && (_LWS_ENABLED_LOGS & LLL_INFO)
 	struct lws *parent;
 
-	if (!wsi->mux.parent_wsi || !lwsl_visible(LLL_INFO))
+	if (!wsi->mux.parent_wsi)
 		return;
 
 	parent = wsi->mux.parent_wsi;
@@ -1518,7 +1518,7 @@ void lws_wsi_mux_sibling_disconnect(struct lws *wsi) {
 }
 
 void lws_wsi_mux_dump_waiting_children(struct lws *wsi) {
-#if defined(_DEBUG)
+#if defined(_DEBUG) && (_LWS_ENABLED_LOGS & LLL_INFO)
 	lwsl_info("%s: %s: children waiting for POLLOUT service:\n", __func__,
 			lws_wsi_tag(wsi));
 

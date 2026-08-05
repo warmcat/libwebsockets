@@ -57,6 +57,13 @@ struct pending_auth_state {
 	char state[48];
 	char code_verifier[64];
 	char redirect_uri[256];
+	/* The absolute OAuth callback URL (https://<app-host>/oauth/callback) we
+	 * send to the auth server as redirect_uri at /oauth/login and /api/token.
+	 * Derived from the incoming request's scheme://host so it is correct for
+	 * cross-domain apps (a relative /oauth/callback would be followed on the
+	 * auth server's host, landing on the wrong origin).  Distinct from
+	 * redirect_uri above, which is the app page the user returns to. */
+	char oauth_redirect_uri[256];
 	char code[256];
 	char token[LWS_SSO_MAX_COOKIE];
 	int token_len;
@@ -237,10 +244,29 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_HTTP: {
 		char uri[256];
+		size_t ulen;
 
 		if (lws_hdr_copy(wsi, uri, sizeof(uri), WSI_TOKEN_GET_URI) < 0 &&
 		    lws_hdr_copy(wsi, uri, sizeof(uri), WSI_TOKEN_POST_URI) < 0)
 			break;
+
+		lwsl_wsi_notice(wsi, "oauth2-client HTTP dispatch: uri='%s'", uri);
+
+		/*
+		 * Tolerate a single trailing slash on our routes so callers that
+		 * build the Login URL as "<entry>/" + "?..." (eg lws-login's dest
+		 * construction at protocol_lws_login.c, which appends "/" when
+		 * auth-server-url doesn't end with one) still hit /oauth/login
+		 * rather than falling through unhandled.
+		 */
+		ulen = strlen(uri);
+		if (ulen > 1 && uri[ulen - 1] == '/') {
+			uri[ulen - 1] = '\0';
+			/* a bare "/" normalizes to "" -- restore it so the root
+			 * case isn't mishandled; our routes all start with /oauth */
+			if (uri[0] == '\0')
+				uri[0] = '/', uri[1] = '\0';
+		}
 
 		if (!strcmp(uri, "/oauth/login")) {
 			struct pending_auth_state *ps;
@@ -250,7 +276,13 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 			char sname[128] = {0};
 			char loc[1024];
 			struct lws_genhash_ctx hctx;
-			unsigned char buf[1024 + LWS_PRE], *p = buf + LWS_PRE, *end = buf + sizeof(buf) - 1;
+			/* Sized to absorb the vhost's default header block (CSP,
+			 * permissions-policy, HSTS, etc -- can be ~1KB on hosts
+			 * like libwebsockets.org) that lws_add_http_header_status
+			 * auto-appends, plus the Location: header and headroom.
+			 * A 1KB buffer ran out and the 302 silently failed there. */
+			unsigned char buf[LWS_SSO_MAX_COOKIE + 512 + LWS_PRE], *p = buf + LWS_PRE,
+					*end = buf + sizeof(buf) - 1;
 
 			ps = malloc(sizeof(*ps));
 			if (!ps)
@@ -291,23 +323,97 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 			if (lws_genhash_init(&hctx, LWS_GENHASH_TYPE_SHA256) ||
 			    lws_genhash_update(&hctx, ps->code_verifier, strlen(ps->code_verifier)) ||
 			    lws_genhash_destroy(&hctx, hash)) {
+				lwsl_wsi_notice(wsi, "/oauth/login: genhash failed");
 				free(ps);
 				return -1;
 			}
 			lws_b64_encode_string_url((const char *)hash, 32, code_challenge, sizeof(code_challenge));
 
+			/*
+			 * Build the absolute OAuth callback URL for this app origin.
+			 * The auth server echoes redirect_uri verbatim into the browser
+			 * navigation after authorize, so a relative /oauth/callback would
+			 * be followed on the auth server's host -- landing on the wrong
+			 * origin.  Derive scheme://host the same way lws-login's
+			 * silent-update path does: Host/:authority header for host,
+			 * x-forwarded-proto or lws_is_ssl() for scheme.
+			 */
+			{
+				char host[128];
+				const char *h = NULL;
+				host[0] = '\0';
+				if (lws_hdr_copy(wsi, host, sizeof(host),
+						 WSI_TOKEN_HOST) > 0)
+					h = host;
+#if defined(LWS_ROLE_H2)
+				else if (lws_hdr_copy(wsi, host, sizeof(host),
+						WSI_TOKEN_HTTP_COLON_AUTHORITY) > 0)
+					h = host;
+#endif
+				if (!h) {
+					struct lws_vhost *vh = lws_get_vhost(wsi);
+					if (vh) {
+						const char *vn = lws_get_vhost_name(vh);
+						if (vn)
+							h = vn;
+					}
+				}
+
+				{
+					const char *scheme = "http";
+#if defined(LWS_WITH_CUSTOM_HEADERS)
+					char proto[16] = "";
+					if (lws_hdr_custom_copy(wsi, proto, sizeof(proto),
+							"x-forwarded-proto:", 18) > 0) {
+						if (!strcasecmp(proto, "https"))
+							scheme = "https";
+					} else
+#endif
+					if (lws_is_ssl(lws_get_network_wsi(wsi)))
+						scheme = "https";
+
+					lws_snprintf(ps->oauth_redirect_uri,
+						sizeof(ps->oauth_redirect_uri),
+						"%s://%s/oauth/callback",
+						scheme, h ? h : "localhost");
+				}
+			}
+
 			lws_dll2_add_tail(&ps->list, &vhd->pending_auth_list);
 			lws_sul_schedule(vhd->context, 0, &ps->sul, sul_pending_auth_cb, 5 * 60 * LWS_US_PER_SEC);
 
-			lws_snprintf(loc, sizeof(loc), "%s/api/authorize?client_id=%s&redirect_uri=%%2Foauth%%2Fcallback&state=%s&code_challenge=%s&code_challenge_method=S256&response_type=code%s%s",
-				vhd->remote_auth_url, vhd->client_id, ps->state, code_challenge,
-				sname[0] ? "&service_name=" : "", sname);
+			{
+				char enc_uri[512];
+				lws_urlencode(enc_uri, ps->oauth_redirect_uri,
+					      sizeof(enc_uri));
+				lws_snprintf(loc, sizeof(loc),
+					"%s/api/authorize?client_id=%s&redirect_uri=%s&state=%s&code_challenge=%s&code_challenge_method=S256&response_type=code%s%s",
+					vhd->remote_auth_url, vhd->client_id,
+					enc_uri, ps->state, code_challenge,
+					sname[0] ? "&service_name=" : "", sname);
+			}
 
-			if (lws_add_http_header_status(wsi, HTTP_STATUS_FOUND, &p, end)) return 1;
-			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION, (unsigned char *)loc, (int)strlen(loc), &p, end)) return 1;
-			if (lws_finalize_http_header(wsi, &p, end)) return 1;
+			if (lws_add_http_header_status(wsi, HTTP_STATUS_FOUND, &p, end)) {
+				lwsl_wsi_notice(wsi, "/oauth/login: add_status failed");
+				return 1;
+			}
+			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION, (unsigned char *)loc, (int)strlen(loc), &p, end)) {
+				lwsl_wsi_notice(wsi, "/oauth/login: add_location failed (loc len %d, room %d)",
+						(int)strlen(loc), (int)lws_ptr_diff(end, p));
+				return 1;
+			}
+			if (lws_finalize_http_header(wsi, &p, end)) {
+				lwsl_wsi_notice(wsi, "/oauth/login: finalize failed");
+				return 1;
+			}
 
-			lws_write(wsi, buf + LWS_PRE, (size_t)lws_ptr_diff(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
+			lwsl_wsi_notice(wsi, "/oauth/login: writing 302 -> %s", loc);
+
+			/* headers-only 302: under h2 the HEADERS frame must carry
+			 * END_STREAM or the stream hangs open waiting for a body
+			 * that never comes (browser sees 0 bytes / no response). */
+			lws_write(wsi, buf + LWS_PRE, (size_t)lws_ptr_diff(p, buf + LWS_PRE),
+				  LWS_WRITE_HTTP_HEADERS | LWS_WRITE_H2_STREAM_END);
 			return lws_http_transaction_completed(wsi);
 		}
 
@@ -356,9 +462,18 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 			lejp_construct(&ps->jctx, oauth_lejp_cb, ps, lejp_paths, LWS_ARRAY_SIZE(lejp_paths));
 
-			ps->payload_len = lws_snprintf(ps->payload, sizeof(ps->payload),
-				"grant_type=authorization_code&client_id=%s&redirect_uri=%%2Foauth%%2Fcallback&code=%s&code_verifier=%s",
-				vhd->client_id, ps->code, ps->code_verifier);
+			{
+				/* Must byte-match the redirect_uri sent to /api/authorize
+				 * (the auth server compares it against oauth_codes). */
+				char enc_uri[512];
+				lws_urlencode(enc_uri, ps->oauth_redirect_uri,
+					      sizeof(enc_uri));
+				ps->payload_len = lws_snprintf(ps->payload,
+					sizeof(ps->payload),
+					"grant_type=authorization_code&client_id=%s&redirect_uri=%s&code=%s&code_verifier=%s",
+					vhd->client_id, enc_uri, ps->code,
+					ps->code_verifier);
+			}
 			ps->payload_pos = 0;
 
 			{
@@ -504,7 +619,10 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 		lejp_destruct(&ps->jctx);
 		free(ps);
 
-		lws_write(wsi, buf + LWS_PRE, (size_t)lws_ptr_diff(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
+		/* headers-only 302 (set-cookies + Location): under h2 the HEADERS
+		 * frame must carry END_STREAM or the stream hangs open. */
+		lws_write(wsi, buf + LWS_PRE, (size_t)lws_ptr_diff(p, buf + LWS_PRE),
+			  LWS_WRITE_HTTP_HEADERS | LWS_WRITE_H2_STREAM_END);
 		return lws_http_transaction_completed(wsi);
 	}
 

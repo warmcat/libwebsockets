@@ -1455,8 +1455,8 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 							lwsl_wsi_notice(wsi,
 								"background refresh denied: "
 								"auth_csrf cookie missing "
-								"(refresh_session %spresent)",
-								got_refresh ? "" : "ab");
+								"(refresh_session %s)",
+								got_refresh ? "present" : "absent");
 						else
 							lwsl_wsi_notice(wsi,
 								"background refresh denied: "

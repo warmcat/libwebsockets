@@ -1067,45 +1067,60 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 	if (!wsi->mux.child_list_owner.head)
 		return 0;
 
-	unsigned int to_examine = wsi->mux.child_list_owner.count;
-	int sanity = 1000;
-	do {
-		struct lws *w;
+	/*
+	 * Fair-share POLLOUT service via a forward walk.  _safe caches next
+	 * before the body, so relocating the current child to the tail
+	 * (fair-share rotation) or removing it (close) is safe and the walk
+	 * terminates after every child present at pass start has been seen.
+	 * Children a callback adds or re-arms land behind the cursor.
+	 *
+	 * The choke test is post-tested, matching the historical do/while:
+	 * the first iteration skips it so a pipe that already looks choked on
+	 * entry (buffered partial write, draining ws extension, stream-
+	 * compression buflist, ...) cannot starve every child.  From the
+	 * second iteration on we re-check before the next sibling, so writes
+	 * that re-arm via 'continue' are still gated the next time round.
+	 */
+	int first_iteration = 1;
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+			wsi->mux.child_list_owner.head) {
+		struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
 
-		if (!sanity--) {
-			lwsl_wsi_warn(wsi, "POLLOUT multiplexer loop sanity limit reached, closing");
-			return LWS_HP_RET_BAIL_DIE;
-		}
-
-		if (!wsi->mux.child_list_owner.head)
+		if (!first_iteration && lws_send_pipe_choked(wsi))
 			break;
+		first_iteration = 0;
 
-		/* operate on the current head child */
-		w = lws_container_of(wsi->mux.child_list_owner.head,
-				     struct lws, mux.sibling_list);
-
-		if (!w->mux.requested_POLLOUT) {
-			/* not interested; rotate to tail for fair share */
-			lws_wsi_mux_move_child_to_tail(wsi);
-			if (--to_examine == 0)
-				break;
-			continue;
-		}
-
-		/* we'll service this one; reset the pass counter in case
-		 * servicing it re-arms other children */
-		to_examine = wsi->mux.child_list_owner.count;
+		if (!w->mux.requested_POLLOUT)
+			continue;	/* not interested; leave in place */
 
 		/*
 		 * we're going to do writable callback for this child.
-		 * move him to be the last child
+		 * move him to be the last child (fair share); the cached d1
+		 * (next) stays valid across the relocate.
 		 */
-
 		lwsl_debug("servicing child %s\n", lws_wsi_tag(w));
+		lws_dll2_remove(&w->mux.sibling_list);
+		lws_dll2_add_tail(&w->mux.sibling_list,
+				  &wsi->mux.child_list_owner);
 
-		w = lws_wsi_mux_move_child_to_tail(wsi);
-		if (!w)
-			continue;
+		/*
+		 * We have selected this child for service: clear its POLLOUT
+		 * request now, exactly as the historical
+		 * lws_wsi_mux_move_child_to_tail() did when it was the
+		 * rotation primitive.  Placing the clear here (before the body,
+		 * matching the old helper) matters: every early 'continue' path
+		 * below was written assuming the flag is already clear, and
+		 * re-arms it explicitly via lws_callback_on_writable(w) /
+		 * requested_POLLOUT = 1 only when it wants another cycle.
+		 *
+		 * Without this clear the normal (non-error) path through
+		 * lws_callback_as_writeable() returns having done nothing more
+		 * while requested_POLLOUT stays set, so the post-loop
+		 * lws_wsi_mux_action_pending_writeable_reqs() re-arms POLLOUT
+		 * on the nwsi every pass; on a level-triggered event loop
+		 * (libuv) the always-writable socket spins at 100% CPU.
+		 */
+		w->mux.requested_POLLOUT = 0;
 
 		lwsl_info("%s: child %s, sid %llu, (wsistate 0x%x)\n",
 			  __func__, lws_wsi_tag(w), (unsigned long long)w->mux.my_sid,
@@ -1461,7 +1476,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			 if (w->h2.send_END_STREAM)
 				lws_h2_state(w, LWS_H2_STATE_HALF_CLOSED_LOCAL);
 
-	} while (wsi->mux.child_list_owner.head && !lws_send_pipe_choked(wsi));
+	} lws_end_foreach_dll_safe(d, d1);
 
 	// lws_wsi_mux_dump_waiting_children(wsi);
 
