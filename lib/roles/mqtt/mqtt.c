@@ -1447,8 +1447,7 @@ cmd_completion:
 
 bail1:
 				/* undo the insert */
-				wsi->mux.child_list = w->mux.sibling_list;
-				wsi->mux.child_count--;
+				lws_wsi_mux_sibling_disconnect(w);
 
 				if (w->user_space)
 					lws_free_set_NULL(w->user_space);
@@ -1467,8 +1466,9 @@ bail1:
 				 * Figure out which child asked for this
 				 */
 				n = 0;
-				lws_start_foreach_ll(struct lws *, w,
-						     wsi->mux.child_list) {
+				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				                           wsi->mux.child_list_owner.head) {
+				   struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
 					if (w->mqtt->unacked_publish &&
 					    w->mqtt->ack_pkt_id == par->cpkt_id) {
 						char requested_close = 0;
@@ -1502,7 +1502,7 @@ bail1:
 
 						break;
 					}
-				} lws_end_foreach_ll(w, mux.sibling_list);
+				} lws_end_foreach_dll_safe(d, d1);
 
 				if (!n) {
 					lwsl_err("%s: unsolicited PUBREC\n",
@@ -1517,15 +1517,16 @@ bail1:
 				lwsl_err("%s: cmd_completion: PUBCOMP\n",
 						__func__);
 				n = 0;
-				lws_start_foreach_ll(struct lws *, w,
-						     wsi->mux.child_list) {
+				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				                           wsi->mux.child_list_owner.head) {
+				   struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
 					if (w->mqtt->unacked_pubrel > 0 &&
 					    w->mqtt->ack_pkt_id == par->cpkt_id) {
 						w->mqtt->unacked_pubrel = 0;
 						n = 1;
 						lws_callback_on_writable(w);
 					}
-				} lws_end_foreach_ll(w, mux.sibling_list);
+				} lws_end_foreach_dll_safe(d, d1);
 
 				if (!n) {
 					lwsl_err("%s: unsolicited PUBCOMP\n",
@@ -1561,8 +1562,9 @@ bail1:
 					}
 				} lws_end_foreach_dll_safe(p, tp);
 
-				lws_start_foreach_ll(struct lws *, w,
-						      wsi->mux.child_list) {
+				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				                           wsi->mux.child_list_owner.head) {
+				   struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
 					uint16_t pid = par->cpkt_id;
 					if (w->a.protocol->callback(w,
 						    LWS_CALLBACK_MQTT_QOS2_RX_COMPLETE,
@@ -1570,7 +1572,7 @@ bail1:
 						    (void *)&pid, 0)) {
 						return 1;
 					}
-				} lws_end_foreach_ll(w, mux.sibling_list);
+				} lws_end_foreach_dll_safe(d, d1);
 
 				wsi->mqtt->send_pubcomp = 1;
 				lws_callback_on_writable(wsi);
@@ -1586,8 +1588,9 @@ bail1:
 				 */
 
 				n = 0;
-				lws_start_foreach_ll(struct lws *, w,
-						      wsi->mux.child_list) {
+				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				                           wsi->mux.child_list_owner.head) {
+				   struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
 					if (w->mqtt->unacked_publish &&
 					    w->mqtt->ack_pkt_id == par->cpkt_id) {
 						char requested_close = 0;
@@ -1618,7 +1621,7 @@ bail1:
 
 						break;
 					}
-				} lws_end_foreach_ll(w, mux.sibling_list);
+				} lws_end_foreach_dll_safe(d, d1);
 
 				if (!n) {
 					lwsl_err("%s: unsolicited PUBACK\n",
@@ -1654,8 +1657,9 @@ bail1:
 				 */
 
 				n = 0;
-				lws_start_foreach_ll(struct lws *, w,
-						      wsi->mux.child_list) {
+				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				                           wsi->mux.child_list_owner.head) {
+				   struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
 					if (w->mqtt->inside_subscribe &&
 					    w->mqtt->ack_pkt_id == par->cpkt_id) {
 						w->mqtt->inside_subscribe = 0;
@@ -1670,7 +1674,7 @@ bail1:
 						n = 1;
 						break;
 					}
-				} lws_end_foreach_ll(w, mux.sibling_list);
+				} lws_end_foreach_dll_safe(d, d1);
 
 				if (!n) {
 					lwsl_err("%s: unsolicited SUBACK\n",
@@ -1696,8 +1700,9 @@ bail1:
 				 * Figure out which child asked for this
 				 */
 				n = 0;
-				lws_start_foreach_ll(struct lws *, w,
-						      wsi->mux.child_list) {
+				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				                           wsi->mux.child_list_owner.head) {
+				   struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
 					if (w->mqtt->inside_unsubscribe &&
 					    w->mqtt->ack_pkt_id == par->cpkt_id) {
 						struct lws *nwsi = lws_get_network_wsi(w);
@@ -1727,7 +1732,7 @@ bail1:
 						}
 						break;
 					}
-				} lws_end_foreach_ll(w, mux.sibling_list);
+				} lws_end_foreach_dll_safe(d, d1);
 
 				if (!n) {
 					lwsl_err("%s: unsolicited UNSUBACK\n",
@@ -1769,8 +1774,9 @@ bail1:
 				if (chunk > len)
 					chunk = len;
 
-				lws_start_foreach_ll(struct lws *, w,
-						      wsi->mux.child_list) {
+				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				                           wsi->mux.child_list_owner.head) {
+				   struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
 					if (!wsi->mqtt->qos2_duplicate &&
 					    lws_mqtt_find_sub(w->mqtt,
 							      pub->topic))
@@ -1784,7 +1790,7 @@ bail1:
 								lws_free_set_NULL(wsi->mqtt->rx_cpkt_param);
 								return 1;
 							}
-				} lws_end_foreach_ll(w, mux.sibling_list);
+				} lws_end_foreach_dll_safe(d, d1);
 
 
 				pub->payload_pos += (uint32_t)chunk;
@@ -2605,7 +2611,7 @@ lws_wsi_mqtt_adopt(struct lws *parent_wsi, struct lws *wsi)
 {
 	/* no more children allowed by parent? */
 
-	if (parent_wsi->mux.child_count + 1 > LWS_MQTT_MAX_CHILDREN) {
+	if (lws_wsi_mux_child_count(parent_wsi) + 1 > LWS_MQTT_MAX_CHILDREN) {
 		lwsl_err("%s: reached concurrent stream limit\n", __func__);
 		return NULL;
 	}
@@ -2626,8 +2632,7 @@ lws_wsi_mqtt_adopt(struct lws *parent_wsi, struct lws *wsi)
 
 bail1:
 	/* undo the insert */
-	parent_wsi->mux.child_list = wsi->mux.sibling_list;
-	parent_wsi->mux.child_count--;
+	lws_wsi_mux_sibling_disconnect(wsi);
 
 	if (wsi->user_space)
 		lws_free_set_NULL(wsi->user_space);

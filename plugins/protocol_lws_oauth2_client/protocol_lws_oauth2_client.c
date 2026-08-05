@@ -69,6 +69,7 @@ struct pending_auth_state {
 	 * renew with.  Empty when the auth server has refresh disabled.
 	 */
 	char refresh_token[65];
+	int refresh_token_len;
 	unsigned long refresh_expires_in_secs;
 
 	char csrf[33];			/* random CSRF token issued with the session,
@@ -121,11 +122,18 @@ oauth_lejp_cb(struct lejp_ctx *ctx, char reason)
 		}
 		break;
 
-	case 3: /* refresh_token: long-term code for auth_refresh_session cookie */
-		if (ctx->npos &&
-		    strlen(ps->refresh_token) + ctx->npos < sizeof(ps->refresh_token))
-			lws_strncpy(ps->refresh_token + strlen(ps->refresh_token),
-				    (const char *)ctx->buf, ctx->npos + 1);
+	case 3: /* refresh_token: long-term code for auth_refresh_session cookie.
+		 * LEJP may deliver the value in multiple chunks; accumulate the
+		 * same way access_token does (raw memcpy + running length). */
+		if (ps->refresh_token_len + ctx->npos >=
+						(int)sizeof(ps->refresh_token) - 1) {
+			ps->fatal_error = "refresh token truncated";
+			return -1;
+		}
+		memcpy(ps->refresh_token + ps->refresh_token_len,
+		       ctx->buf, ctx->npos);
+		ps->refresh_token_len += ctx->npos;
+		ps->refresh_token[ps->refresh_token_len] = '\0';
 		break;
 
 	case 4: /* refresh_expires_in: lifetime of the refresh token, seconds */
@@ -471,6 +479,15 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 						  "SameSite=Lax; Secure; HttpOnly",
 						  ps->refresh_token, ma);
 			}
+
+			lwsl_wsi_notice(wsi, "/oauth/callback: issuing %s cookie "
+				"(Max-Age %lus) + auth_csrf (Max-Age %lus)%s",
+				vhd->cookie_name,
+				cookie_max_age(vhd, ps->expires_in_secs),
+				csrf_ma,
+				rl ? " + auth_refresh_session"
+				   : " [NO refresh token from auth server -> "
+				     "silent renewal will not work]");
 
 			// Issue the cookies and the 302
 			if (lws_add_http_header_status(wsi, HTTP_STATUS_FOUND, &p, end) ||

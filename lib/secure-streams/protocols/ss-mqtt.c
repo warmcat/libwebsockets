@@ -561,7 +561,10 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (h->policy->u.mqtt.birth_topic &&
 		    !wsi->mqtt->done_birth) {
 			struct lws *nwsi = lws_get_network_wsi(wsi);
-			lws_start_foreach_ll(struct lws *, w, nwsi->mux.child_list) {
+			lws_start_foreach_dll(struct lws_dll2 *, d,
+					nwsi->mux.child_list_owner.head) {
+				struct lws *w = lws_container_of(d, struct lws,
+								 mux.sibling_list);
 				if (w != wsi &&
 					(w->mqtt->done_birth || w->mqtt->inside_birth)) {
 					/*
@@ -572,7 +575,7 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 					wsi->mqtt->done_birth = 1;
 					break;
 				}
-			} lws_end_foreach_ll(w, mux.sibling_list);
+			} lws_end_foreach_dll(d);
 		}
 
 		if (!h->policy->u.mqtt.subscribe ||
@@ -873,7 +876,7 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			wsi->mqtt->done_shadow_subscribe = 0;
 			break;
 		}
-		if (nwsi && (nwsi->mux.child_count == 1))
+		if (nwsi && (lws_wsi_mux_child_count(nwsi) == 1))
 			lws_mqtt_client_send_disconnect(nwsi);
 		return -1;
 	}

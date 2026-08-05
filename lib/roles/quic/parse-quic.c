@@ -485,29 +485,34 @@ struct lws *
 lws_quic_stream_find(struct lws *nwsi, uint64_t stream_id)
 {
 	struct lws_quic_netconn *qn = nwsi ? nwsi->quic.qn : NULL;
-	struct lws *wsi_child;
 
 	if (!qn) {
-		wsi_child = nwsi ? nwsi->mux.child_list : NULL;
-		while (wsi_child) {
-			if (wsi_child->quic.qs && wsi_child->quic.qs->stream_id == stream_id)
-				return wsi_child;
-			if ((uint64_t)wsi_child->mux.my_sid == stream_id)
-				return wsi_child;
-			wsi_child = wsi_child->mux.sibling_list;
+		if (nwsi) {
+			lws_start_foreach_dll(struct lws_dll2 *, d,
+					nwsi->mux.child_list_owner.head) {
+				struct lws *w = lws_container_of(d, struct lws,
+								 mux.sibling_list);
+				if (w->quic.qs && w->quic.qs->stream_id == stream_id)
+					return w;
+				if ((uint64_t)w->mux.my_sid == stream_id)
+					return w;
+			}
+			lws_end_foreach_dll(d);
 		}
 		return NULL;
 	}
 
 	if (qn->nwsi) {
-		wsi_child = qn->nwsi->mux.child_list;
-		while (wsi_child) {
-			if (wsi_child->quic.qs && wsi_child->quic.qs->stream_id == stream_id)
-				return wsi_child;
-			if ((uint64_t)wsi_child->mux.my_sid == stream_id)
-				return wsi_child;
-			wsi_child = wsi_child->mux.sibling_list;
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				qn->nwsi->mux.child_list_owner.head) {
+			struct lws *w = lws_container_of(d, struct lws,
+							 mux.sibling_list);
+			if (w->quic.qs && w->quic.qs->stream_id == stream_id)
+				return w;
+			if ((uint64_t)w->mux.my_sid == stream_id)
+				return w;
 		}
+		lws_end_foreach_dll(d);
 	}
 
 	return NULL;
@@ -861,8 +866,10 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 				}
 			}
 
-			struct lws *child = nwsi->mux.child_list;
-			while (child) {
+			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+					nwsi->mux.child_list_owner.head) {
+				struct lws *child = lws_container_of(d, struct lws,
+								     mux.sibling_list);
 				if ((uint64_t)child->mux.my_sid == stream_id) {
 					lwsl_wsi_notice(child, "QUIC RX: Stream closed by peer via RESET_STREAM");
 #if defined(LWS_ROLE_H3)
@@ -876,8 +883,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 					lws_close_free_wsi(child, LWS_CLOSE_STATUS_ABNORMAL_CLOSE, "quic reset stream");
 					break;
 				}
-				child = child->mux.sibling_list;
-			}
+			} lws_end_foreach_dll_safe(d, d1);
 			break;
 		}
 
@@ -960,15 +966,16 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 			if (!consumed) return -1;
 			pos += consumed;
 			lwsl_wsi_info(nwsi, "QUIC RX: Parsed STOP_SENDING! stream_id %llu", (unsigned long long)stream_id);
-			struct lws *child = nwsi->mux.child_list;
-			while (child) {
+			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+					nwsi->mux.child_list_owner.head) {
+				struct lws *child = lws_container_of(d, struct lws,
+								     mux.sibling_list);
 				if ((uint64_t)child->mux.my_sid == stream_id) {
 					lwsl_wsi_notice(child, "QUIC RX: Stream closed by peer via STOP_SENDING");
 					lws_close_free_wsi(child, LWS_CLOSE_STATUS_ABNORMAL_CLOSE, "quic stop sending");
 					break;
 				}
-				child = child->mux.sibling_list;
-			}
+			} lws_end_foreach_dll_safe(d, d1);
 			break;
 		}
 

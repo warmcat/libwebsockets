@@ -1100,10 +1100,8 @@ __lws_close_free_wsi_final(struct lws *wsi)
 			wsi->h2.END_STREAM = wsi->h2.END_HEADERS = 0;
 #endif
 #if defined(LWS_ROLE_H2) || defined(LWS_ROLE_MQTT) || defined(LWS_ROLE_H3)
-		if (wsi->mux.parent_wsi) {
+		if (wsi->mux.parent_wsi)
 			lws_wsi_mux_sibling_disconnect(wsi);
-			wsi->mux.parent_wsi = NULL;
-		}
 #endif
 
 #if defined(LWS_WITH_TLS)
