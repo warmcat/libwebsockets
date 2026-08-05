@@ -1452,24 +1452,21 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 									LWS_LOGIN_REFRESH_BFF,
 									NULL, NULL);
 						else if (!got_csrf)
-							lwsl_notice("%s: background "
-								"refresh denied: "
-								"auth_csrf cookie "
-								"missing\n",
-								__func__);
+							lwsl_wsi_notice(wsi,
+								"background refresh denied: "
+								"auth_csrf cookie missing "
+								"(refresh_session %spresent)",
+								got_refresh ? "" : "ab");
 						else
-							lwsl_notice("%s: background "
-								"refresh denied: "
-								"auth_refresh_session "
-								"cookie missing "
-								"(not logged in via "
-								"refreshable session)\n",
-								__func__);
+							lwsl_wsi_notice(wsi,
+								"background refresh denied: "
+								"auth_refresh_session cookie "
+								"missing (not logged in via "
+								"refreshable session)");
 					} else {
-						lwsl_notice("%s: background refresh "
-							    "denied: malformed "
-							    "Cookie header\n",
-							    __func__);
+						lwsl_wsi_notice(wsi,
+							"background refresh denied: "
+							"malformed Cookie header");
 					}
 					free(cookie);
 					if (kicked)
@@ -1481,9 +1478,8 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				 * anonymous visitor whose page widget just fired
 				 * a renewal probe.  Info, not notice.
 				 */
-				lwsl_info("%s: background refresh with no Cookie "
-					  "header (anonymous visitor)\n",
-					  __func__);
+				lwsl_wsi_info(wsi, "background refresh with no "
+					      "Cookie header (anonymous visitor)");
 			}
 			/* Failure or no cookies, 401 Unauthorized */
                         return simple_response(wsi, pss, "Missing Authorization", "text/plain",

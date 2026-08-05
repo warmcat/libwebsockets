@@ -242,7 +242,7 @@ __lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 	}
 
 	/* no more children allowed by parent */
-	if (parent_wsi->mux.child_count + 1 >
+	if (lws_wsi_mux_child_count(parent_wsi) + 1 >
 	    parent_wsi->h2.h2n->our_set.s[H2SET_MAX_CONCURRENT_STREAMS]) {
 		lwsl_notice("reached concurrent stream limit\n");
 		return NULL;
@@ -310,8 +310,7 @@ __lws_wsi_server_new(struct lws_vhost *vh, struct lws *parent_wsi,
 
 bail1:
 	/* undo the insert */
-	parent_wsi->mux.child_list = wsi->mux.sibling_list;
-	parent_wsi->mux.child_count--;
+	lws_wsi_mux_sibling_disconnect(wsi);
 
 	if (wsi->user_space)
 		lws_free_set_NULL(wsi->user_space);
@@ -328,7 +327,7 @@ lws_wsi_h2_adopt(struct lws *parent_wsi, struct lws *wsi)
 	struct lws *nwsi = lws_get_network_wsi(parent_wsi);
 
 	/* no more children allowed by parent */
-	if (parent_wsi->mux.child_count + 1 >
+	if (lws_wsi_mux_child_count(parent_wsi) + 1 >
 	    parent_wsi->h2.h2n->our_set.s[H2SET_MAX_CONCURRENT_STREAMS]) {
 		lwsl_notice("reached concurrent stream limit\n");
 		return NULL;
@@ -382,8 +381,7 @@ lws_wsi_h2_adopt(struct lws *parent_wsi, struct lws *wsi)
 
 bail1:
 	/* undo the insert */
-	parent_wsi->mux.child_list = wsi->mux.sibling_list;
-	parent_wsi->mux.child_count--;
+	lws_wsi_mux_sibling_disconnect(wsi);
 
 	if (wsi->user_space)
 		lws_free_set_NULL(wsi->user_space);
@@ -582,8 +580,10 @@ lws_h2_settings(struct lws *wsi, struct http2_settings *settings,
 			 * the new value and the old value.
 			 */
 
-			lws_start_foreach_ll(struct lws *, w,
-					     nwsi->mux.child_list) {
+			lws_start_foreach_dll(struct lws_dll2 *, d,
+					     nwsi->mux.child_list_owner.head) {
+				struct lws *w = lws_container_of(d, struct lws,
+								 mux.sibling_list);
 				lwsl_info("%s: adi child tc cr %d +%d -> %d",
 					  __func__, (int)w->txc.tx_cr,
 					  b - (unsigned int)settings->s[a],
@@ -595,7 +595,7 @@ lws_h2_settings(struct lws *wsi, struct http2_settings *settings,
 						  (int32_t)(b - settings->s[a]))
 
 					lws_callback_on_writable(w);
-			} lws_end_foreach_ll(w, mux.sibling_list);
+			} lws_end_foreach_dll(d);
 
 			break;
 		case H2SET_MAX_FRAME_SIZE:
@@ -1456,7 +1456,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 
 		if (!h2n->swsi) {
 			/* no more children allowed by parent */
-			if (wsi->mux.child_count + 1 >
+			if (lws_wsi_mux_child_count(wsi) + 1 >
 			    wsi->h2.h2n->our_set.s[H2SET_MAX_CONCURRENT_STREAMS]) {
 				lws_h2_goaway(wsi, H2_ERR_PROTOCOL_ERROR,
 				"Another stream not allowed");
@@ -1515,12 +1515,14 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		 * transitions to the "closed" state when the first frame for
 		 * stream 7 is sent or received.
 		 */
-		lws_start_foreach_ll_safe(struct lws *, w, wsi->mux.child_list,
-					  mux.sibling_list) {
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				wsi->mux.child_list_owner.head) {
+			struct lws *w = lws_container_of(d, struct lws,
+							 mux.sibling_list);
 			if (w->mux.my_sid < h2n->sid &&
 			    w->h2.h2_state == LWS_H2_STATE_IDLE)
 				lws_close_free_wsi(w, 0, "h2 sid close");
-		} lws_end_foreach_ll_safe(w);
+		} lws_end_foreach_dll_safe(d, d1);
 
 		h2n->cont_exp = !(h2n->flags & LWS_H2_FLAG_END_HEADERS);
 		h2n->cont_exp_sid = h2n->sid;
@@ -2152,9 +2154,12 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		 * too)... for us and any children waiting on us... reassess
 		 * blockage for all children first
 		 */
-		lws_start_foreach_ll(struct lws *, w, wsi->mux.child_list) {
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				wsi->mux.child_list_owner.head) {
+			struct lws *w = lws_container_of(d, struct lws,
+							 mux.sibling_list);
 			lws_callback_on_writable(w);
-		} lws_end_foreach_ll(w, mux.sibling_list);
+		} lws_end_foreach_dll(d);
 
 		if (eff_wsi->txc.skint &&
 		    !lws_wsi_txc_check_skint(&eff_wsi->txc,
@@ -2984,10 +2989,13 @@ lws_h2_client_handshake(struct lws *wsi)
 	lwsi_set_state(wsi, LRS_ESTABLISHED);
 
 	if (wsi->mux.my_sid == 1) {
-		lws_start_foreach_ll(struct lws *, w1, nwsi->mux.child_list) {
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				nwsi->mux.child_list_owner.head) {
+			struct lws *w1 = lws_container_of(d, struct lws,
+							  mux.sibling_list);
 			if (w1 != wsi && lwsi_state(w1) == LRS_H2_WAITING_TO_SEND_HEADERS)
 				lws_callback_on_writable(w1);
-		} lws_end_foreach_ll(w1, mux.sibling_list);
+		} lws_end_foreach_dll(d);
 	}
 
 	if (wsi->flags & LCCSCF_HTTP_MULTIPART_MIME)

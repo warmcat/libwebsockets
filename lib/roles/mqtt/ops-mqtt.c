@@ -275,8 +275,6 @@ rops_client_bind_mqtt(struct lws *wsi, const struct lws_client_connect_info *i)
 static lws_handling_result_t
 rops_handle_POLLOUT_mqtt(struct lws *wsi)
 {
-	struct lws **wsi2;
-
 	lwsl_debug("%s\n", __func__);
 
 #if defined(LWS_WITH_CLIENT)
@@ -341,8 +339,7 @@ rops_handle_POLLOUT_mqtt(struct lws *wsi)
 
 	wsi->mux.requested_POLLOUT = 0;
 
-	wsi2 = &wsi->mux.child_list;
-	if (!*wsi2) {
+	if (!wsi->mux.child_list_owner.head) {
 		lwsl_debug("%s: no children\n", __func__);
 		return LWS_HP_RET_DROP_POLLOUT;
 	}
@@ -352,33 +349,46 @@ rops_handle_POLLOUT_mqtt(struct lws *wsi)
 
 	lws_wsi_mux_dump_waiting_children(wsi);
 
+	unsigned int to_examine = wsi->mux.child_list_owner.count;
 	do {
-		struct lws *w, **wa;
+		struct lws *w = lws_container_of(wsi->mux.child_list_owner.head,
+						struct lws, mux.sibling_list);
 
-		wa = &(*wsi2)->mux.sibling_list;
-		if (!(*wsi2)->mux.requested_POLLOUT)
-			goto next_child;
+		if (!w->mux.requested_POLLOUT) {
+			lws_wsi_mux_move_child_to_tail(wsi);
+			if (--to_examine == 0)
+				break;
+			continue;
+		}
 
-		if (!lwsi_state_can_handle_POLLOUT(wsi))
-			goto next_child;
+		if (!lwsi_state_can_handle_POLLOUT(wsi)) {
+			lws_wsi_mux_move_child_to_tail(wsi);
+			if (--to_examine == 0)
+				break;
+			continue;
+		}
+
+		/* we'll service this one; reset the pass counter in case
+		 * servicing it re-arms other children */
+		to_examine = wsi->mux.child_list_owner.count;
 
 		/*
 		 * If the nwsi is in the middle of a frame, we can only
 		 * continue to send that
 		 */
 
-		if (wsi->mqtt->inside_payload && !(*wsi2)->mqtt->inside_payload)
-			goto next_child;
+		if (wsi->mqtt->inside_payload && !w->mqtt->inside_payload) {
+			lws_wsi_mux_move_child_to_tail(wsi);
+			continue;
+		}
 
 		/*
 		 * we're going to do writable callback for this child.
 		 * move him to be the last child
 		 */
-		w = lws_wsi_mux_move_child_to_tail(wsi2);
-		if (!w) {
-			wa = &wsi->mux.child_list;
-			goto next_child;
-		}
+		w = lws_wsi_mux_move_child_to_tail(wsi);
+		if (!w)
+			continue;
 
 		lwsl_debug("%s: child %s (wsistate 0x%x)\n", __func__,
 			   lws_wsi_tag(w), (unsigned int)w->wsistate);
@@ -404,20 +414,16 @@ rops_handle_POLLOUT_mqtt(struct lws *wsi)
 			wsi->mqtt->send_puback = 0;
 			w->mux.requested_POLLOUT = 1;
 
-			wa = &wsi->mux.child_list;
-			goto next_child;
+			continue;
 		}
 
 		if (lws_callback_as_writeable(w)) {
 			lwsl_notice("%s: Closing child %s\n", __func__, lws_wsi_tag(w));
 			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 					   "mqtt pollout handle");
-			wa = &wsi->mux.child_list;
 		}
 
-next_child:
-		wsi2 = wa;
-	} while (wsi2 && *wsi2 && !lws_send_pipe_choked(wsi));
+	} while (wsi->mux.child_list_owner.head && !lws_send_pipe_choked(wsi));
 
 	// lws_wsi_mux_dump_waiting_children(wsi);
 
@@ -571,20 +577,21 @@ rops_close_kill_connection_mqtt(struct lws *wsi, enum lws_close_status reason)
 {
 	lwsl_info(" %s, his parent %s: child list %p, siblings:\n",
 			lws_wsi_tag(wsi),
-			lws_wsi_tag(wsi->mux.parent_wsi), wsi->mux.child_list);
+			lws_wsi_tag(wsi->mux.parent_wsi),
+			(void *)wsi->mux.child_list_owner.head);
 	//lws_wsi_mux_dump_children(wsi);
 
 	if (wsi->mux_substream
 #if defined(LWS_WITH_CLIENT)
 			|| wsi->client_mux_substream
 #endif
-	) {
+		) {
 		lwsl_info("closing %s: parent %s: first child %p\n",
 				lws_wsi_tag(wsi),
 				lws_wsi_tag(wsi->mux.parent_wsi),
-				wsi->mux.child_list);
+				(void *)wsi->mux.child_list_owner.head);
 
-		if (wsi->mux.child_list && lwsl_visible(LLL_INFO)) {
+		if (wsi->mux.child_list_owner.head && lwsl_visible(LLL_INFO)) {
 			lwsl_info(" parent %s: closing children: list:\n", lws_wsi_tag(wsi));
 			lws_wsi_mux_dump_children(wsi);
 		}

@@ -773,7 +773,7 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 		lwsl_info("closing %s: parent %s\n", lws_wsi_tag(wsi),
 				lws_wsi_tag(wsi->mux.parent_wsi));
 
-		if (wsi->mux.child_list && lwsl_visible(LLL_INFO)) {
+		if (wsi->mux.child_list_owner.head && lwsl_visible(LLL_INFO)) {
 			lwsl_info(" parent %s: closing children: list:\n", lws_wsi_tag(wsi));
 			lws_wsi_mux_dump_children(wsi);
 		}
@@ -803,10 +803,13 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 		    wsi->mux.parent_wsi->h2.h2n->swsi == wsi) {
 			struct lws *nwsi = wsi->mux.parent_wsi;
 			wsi->mux.parent_wsi->h2.h2n->swsi = NULL;
-			lws_start_foreach_ll(struct lws *, sibling, nwsi->mux.child_list) {
+			lws_start_foreach_dll(struct lws_dll2 *, d,
+					nwsi->mux.child_list_owner.head) {
+				struct lws *sibling = lws_container_of(d,
+						struct lws, mux.sibling_list);
 				if (sibling != wsi && lwsi_state(sibling) == LRS_H2_WAITING_TO_SEND_HEADERS)
 					lws_callback_on_writable(sibling);
-			} lws_end_foreach_ll(sibling, mux.sibling_list);
+			} lws_end_foreach_dll(d);
 		}
 
 		lws_wsi_mux_sibling_disconnect(wsi);
@@ -1046,7 +1049,6 @@ lws_h2_bind_for_post_before_action(struct lws *wsi)
 static int
 rops_perform_user_POLLOUT_h2(struct lws *wsi)
 {
-	struct lws **wsi2;
 #if defined(LWS_ROLE_WS)
 	int write_type = LWS_WRITE_PONG;
 #endif
@@ -1062,37 +1064,48 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 
 	lws_wsi_mux_dump_waiting_children(wsi);
 
-	wsi2 = &wsi->mux.child_list;
-	if (!*wsi2)
+	if (!wsi->mux.child_list_owner.head)
 		return 0;
 
+	unsigned int to_examine = wsi->mux.child_list_owner.count;
 	int sanity = 1000;
 	do {
-		struct lws *w, **wa;
+		struct lws *w;
 
 		if (!sanity--) {
 			lwsl_wsi_warn(wsi, "POLLOUT multiplexer loop sanity limit reached, closing");
 			return LWS_HP_RET_BAIL_DIE;
 		}
 
-		wa = &(*wsi2)->mux.sibling_list;
-		if (!(*wsi2)->mux.requested_POLLOUT)
-			goto next_child;
+		if (!wsi->mux.child_list_owner.head)
+			break;
+
+		/* operate on the current head child */
+		w = lws_container_of(wsi->mux.child_list_owner.head,
+				     struct lws, mux.sibling_list);
+
+		if (!w->mux.requested_POLLOUT) {
+			/* not interested; rotate to tail for fair share */
+			lws_wsi_mux_move_child_to_tail(wsi);
+			if (--to_examine == 0)
+				break;
+			continue;
+		}
+
+		/* we'll service this one; reset the pass counter in case
+		 * servicing it re-arms other children */
+		to_examine = wsi->mux.child_list_owner.count;
 
 		/*
 		 * we're going to do writable callback for this child.
 		 * move him to be the last child
 		 */
 
-		lwsl_debug("servicing child %s\n", lws_wsi_tag(*wsi2));
+		lwsl_debug("servicing child %s\n", lws_wsi_tag(w));
 
-		w = lws_wsi_mux_move_child_to_tail(wsi2);
-
-		if (!w) {
-			wa = &wsi->mux.child_list;
-			goto next_child;
-		}
-                                  wa = wsi2; /* wsi2 is updated to point to the next element by move_child_to_tail */
+		w = lws_wsi_mux_move_child_to_tail(wsi);
+		if (!w)
+			continue;
 
 		lwsl_info("%s: child %s, sid %llu, (wsistate 0x%x)\n",
 			  __func__, lws_wsi_tag(w), (unsigned long long)w->mux.my_sid,
@@ -1120,8 +1133,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 				lws_close_free_wsi(w,
 					LWS_CLOSE_STATUS_NOSTATUS,
 					"h2 end stream 1");
-				wa = &wsi->mux.child_list;
-				goto next_child;
+				continue;
 			}
 			if (!w->buflist_out)
 				/* fully drained: let the user write */
@@ -1130,8 +1142,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			 * else still skint: stay quiet, the
 			 * WINDOW_UPDATE handler re-arms every child
 			 */
-			wa = &wsi->mux.child_list;
-			goto next_child;
+			continue;
 		}
 #endif
 		/* ... for both ws-over-h2 and h2, deal with partial at nwsi */
@@ -1142,12 +1153,10 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 				lwsl_info("%s signalling to close\n", __func__);
 				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 						   "h2 end stream 1");
-				wa = &wsi->mux.child_list;
-				goto next_child;
+				continue;
 			}
 			lws_callback_on_writable(w);
-			wa = &wsi->mux.child_list;
-			goto next_child;
+			continue;
 		}
 
 #if defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)
@@ -1168,12 +1177,10 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 				lwsl_info("%s signalling to close\n", __func__);
 				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 						   "h2 ws ext drain");
-				wa = &wsi->mux.child_list;
-				goto next_child;
+				continue;
 			}
 			lws_callback_on_writable(w);
-			wa = &wsi->mux.child_list;
-			goto next_child;
+			continue;
 		}
 #endif
 
@@ -1195,8 +1202,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 						   "comp write fail");
 			}
 			lws_callback_on_writable(w);
-			wa = &wsi->mux.child_list;
-			goto next_child;
+			continue;
 		}
 #endif
 
@@ -1206,8 +1212,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			w->socket_is_permanently_unusable = 1;
 			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 					   "h2 end stream 1");
-			wa = &wsi->mux.child_list;
-			goto next_child;
+			continue;
 		}
 
 		/* if we arrived here, even by looping, we checked choked */
@@ -1224,8 +1229,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			lws_free_set_NULL(w->h2.pending_status_body);
 			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 					   "h2 end stream 1");
-			wa = &wsi->mux.child_list;
-			goto next_child;
+			continue;
 		}
 
 #if defined(LWS_WITH_CLIENT)
@@ -1233,14 +1237,13 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			if (w->mux.my_sid != 1 && (!wsi->client_mux_migrated ||
 			    (wsi->h2.h2n->swsi && lwsi_state(wsi->h2.h2n->swsi) == LRS_H2_WAITING_TO_SEND_HEADERS))) {
 				lwsl_info("%s: waiting for sid 1 to send headers\n", __func__);
-				wa = &wsi->mux.child_list;
-				goto next_child;
+				continue;
 			}
 
 			if (lws_h2_client_handshake(w))
 				return -1;
 
-			goto next_child;
+			continue;
 		}
 #endif
 
@@ -1280,7 +1283,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 
 			if (lwsi_state(w) == LRS_BODY &&
 			    w->h2.h2_state != LWS_H2_STATE_HALF_CLOSED_REMOTE)
-				goto next_child;
+				continue;
 
 			lwsl_info("  h2 action start...\n");
 			n = lws_http_action(w);
@@ -1302,13 +1305,9 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 				lwsl_info("closing stream after h2 action\n");
 				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 						   "h2 end stream");
-				wa = &wsi->mux.child_list;
 			}
 
-			if (n < 0)
-				wa = &wsi->mux.child_list;
-
-			goto next_child;
+			continue;
 		}
 
 #if defined(LWS_WITH_FILE_OPS)
@@ -1317,8 +1316,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 
 			if (lws_wsi_txc_check_skint(&w->txc,
 						    lws_h2_tx_cr_get(w))) {
-				wa = &wsi->mux.child_list;
-				goto next_child;
+				continue;
 			}
 
 			((volatile struct lws *)w)->leave_pollout_active = 0;
@@ -1341,8 +1339,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 						lws_wsi_tag(w));
 				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 						   "h2 end stream file");
-				wa = &wsi->mux.child_list;
-				goto next_child;
+				continue;
 			}
 			if (n > 0)
 				if (lws_http_transaction_completed(w))
@@ -1352,7 +1349,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 				(w)->mux.requested_POLLOUT = 1;
 			}
 
-			goto next_child;
+			continue;
 		}
 #endif
 #endif
@@ -1374,7 +1371,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 				lwsl_debug("sent close frame, awaiting ack\n");
 			}
 
-			goto next_child;
+			continue;
 		}
 
 		/*
@@ -1396,7 +1393,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 
 			lws_callback_on_writable(w);
 			w->mux.requested_POLLOUT = 1;
-			goto next_child;
+			continue;
 		}
 
 		if ((lwsi_role_ws(w) && w->ws->pong_pending_flag) ||
@@ -1421,15 +1418,14 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 				lwsi_set_state(w, LRS_RETURNED_CLOSE);
 				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 						   "returned close packet");
-				wa = &wsi->mux.child_list;
-				goto next_child;
+				continue;
 			}
 
 			lws_callback_on_writable(w);
 			(w)->mux.requested_POLLOUT = 1;
 
 			/* otherwise for PING, leave POLLOUT active both ways */
-			goto next_child;
+			continue;
 		}
 #endif
 
@@ -1453,7 +1449,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			} else
 				lwsl_err("%s: %s: failed to set long poll\n",
 						__func__, lws_wsi_tag(w));
-			goto next_child;
+			continue;
 		}
 
 		if (lws_callback_as_writeable(w)) {
@@ -1461,14 +1457,11 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 				  w->h2.send_END_STREAM);
 			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 					   "h2 pollout handle");
-			wa = &wsi->mux.child_list;
 		} else
 			 if (w->h2.send_END_STREAM)
 				lws_h2_state(w, LWS_H2_STATE_HALF_CLOSED_LOCAL);
 
-next_child:
-		wsi2 = wa;
-	} while (wsi2 && *wsi2 && !lws_send_pipe_choked(wsi));
+	} while (wsi->mux.child_list_owner.head && !lws_send_pipe_choked(wsi));
 
 	// lws_wsi_mux_dump_waiting_children(wsi);
 
