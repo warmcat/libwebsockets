@@ -34,9 +34,14 @@
  */
 
 struct lws_muxable {
-	struct lws	*parent_wsi;
-	struct lws	*child_list;
-	struct lws	*sibling_list;
+	struct lws		*parent_wsi;
+
+	/* mux child/sibling list: parent owns child_list_owner, each child
+	 * composes a sibling_list node.  All mutation goes through the
+	 * lws_wsi_mux_* helpers + the lws_dll2 primitives; the link pointers
+	 * must not be hand-edited. */
+	lws_dll2_owner_t	 child_list_owner;
+	lws_dll2_t		 sibling_list;
 
 	/*
 	 * Q-8: was unsigned int.  H2 stream IDs are 32-bit, but QUIC stream IDs
@@ -44,12 +49,11 @@ struct lws_muxable {
 	 * ids >= 2^32 were mis-looked-up and got frames emitted with the wrong
 	 * (truncated) id.  uint64_t holds both with room to spare.
 	 */
-	uint64_t	my_sid;
-	unsigned int	child_count;
+	uint64_t		my_sid;
 
-	uint32_t	highest_sid;
+	uint32_t		highest_sid;
 
-	uint8_t		requested_POLLOUT;
+	uint8_t			requested_POLLOUT;
 };
 
 #include "private-lib-roles.h"
@@ -660,12 +664,16 @@ __lws_vhost_destroy2(struct lws_vhost *vh);
 
 #define mux_to_wsi(_m) lws_container_of(_m, struct lws, mux)
 
+/* Number of mux children on wsi (kept in child_list_owner.count). */
+#define lws_wsi_mux_child_count(_wsi) \
+	((unsigned int)(_wsi)->mux.child_list_owner.count)
+
 void
 lws_wsi_mux_insert(struct lws *wsi, struct lws *parent_wsi, uint64_t sid);
 int
 lws_wsi_mux_mark_parents_needing_writeable(struct lws *wsi);
 struct lws *
-lws_wsi_mux_move_child_to_tail(struct lws **wsi2);
+lws_wsi_mux_move_child_to_tail(struct lws *parent_wsi);
 int
 lws_wsi_mux_action_pending_writeable_reqs(struct lws *wsi);
 

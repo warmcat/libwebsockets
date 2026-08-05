@@ -199,13 +199,14 @@ lws_wt_create_stream_from_child(struct lws *child_wsi, int unidi)
 {
 	struct lws *quic_nwsi = lws_get_quic_network_wsi(child_wsi);
 	if (quic_nwsi) {
-		struct lws *child = quic_nwsi->mux.child_list;
-		while (child) {
-			if (child->wt.is_session) {
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				quic_nwsi->mux.child_list_owner.head) {
+			struct lws *child = lws_container_of(d, struct lws,
+							     mux.sibling_list);
+			if (child->wt.is_session)
 				return lws_wt_create_stream(child, unidi);
-			}
-			child = child->mux.sibling_list;
 		}
+		lws_end_foreach_dll(d);
 	}
 	return NULL;
 }
@@ -215,13 +216,14 @@ lws_wt_get_session_wsi(struct lws *wsi)
 {
 	struct lws *quic_nwsi = lws_get_quic_network_wsi(wsi);
 	if (quic_nwsi) {
-		struct lws *child = quic_nwsi->mux.child_list;
-		while (child) {
-			if (child->wt.is_session) {
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				quic_nwsi->mux.child_list_owner.head) {
+			struct lws *child = lws_container_of(d, struct lws,
+							     mux.sibling_list);
+			if (child->wt.is_session)
 				return child;
-			}
-			child = child->mux.sibling_list;
 		}
+		lws_end_foreach_dll(d);
 	}
 	return NULL;
 }

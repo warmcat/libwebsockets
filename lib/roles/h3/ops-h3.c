@@ -913,14 +913,16 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 	struct lws *nwsi = lws_get_quic_network_wsi(wsi);
 	int has_wt_session = 0;
 	if (nwsi) {
-		struct lws *child = nwsi->mux.child_list;
-		while (child) {
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				nwsi->mux.child_list_owner.head) {
+			struct lws *child = lws_container_of(d, struct lws,
+							     mux.sibling_list);
 			if (child->wt.is_session) {
 				has_wt_session = 1;
 				break;
 			}
-			child = child->mux.sibling_list;
 		}
+		lws_end_foreach_dll(d);
 	}
 
 	if (has_wt_session) {
@@ -949,14 +951,16 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 				/* Find matching WT session */
 				struct lws *session_wsi = NULL;
 				if (nwsi) {
-					struct lws *child = nwsi->mux.child_list;
-					while (child) {
+					lws_start_foreach_dll(struct lws_dll2 *, d,
+							nwsi->mux.child_list_owner.head) {
+						struct lws *child = lws_container_of(d,
+								struct lws, mux.sibling_list);
 						if (child->wt.is_session && (child->mux.my_sid / 4 == session_id)) {
 							session_wsi = child;
 							break;
 						}
-						child = child->mux.sibling_list;
 					}
+					lws_end_foreach_dll(d);
 				}
 				
 				if (session_wsi) {
@@ -994,14 +998,16 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 				/* Check if it matches an active WT session */
 				struct lws *session_wsi = NULL;
 				if (nwsi) {
-					struct lws *child = nwsi->mux.child_list;
-					while (child) {
+					lws_start_foreach_dll(struct lws_dll2 *, d,
+							nwsi->mux.child_list_owner.head) {
+						struct lws *child = lws_container_of(d,
+								struct lws, mux.sibling_list);
 						if (child->wt.is_session && (child->mux.my_sid / 4 == session_id)) {
 							session_wsi = child;
 							break;
 						}
-						child = child->mux.sibling_list;
 					}
+					lws_end_foreach_dll(d);
 				}
 				
 				if (session_wsi) {
@@ -1390,11 +1396,13 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 					/* SETTINGS frame fully received, wake up children */
 					struct lws *nwsi = lws_get_quic_network_wsi(wsi);
 					if (nwsi) {
-						struct lws *child = nwsi->mux.child_list;
-						while (child) {
+						lws_start_foreach_dll(struct lws_dll2 *, d,
+								nwsi->mux.child_list_owner.head) {
+							struct lws *child = lws_container_of(
+								d, struct lws, mux.sibling_list);
 							lws_callback_on_writable(child);
-							child = child->mux.sibling_list;
 						}
+						lws_end_foreach_dll(d);
 					}
 				}
 
@@ -1586,9 +1594,12 @@ rops_alpn_negotiated_h3(struct lws *wsi, const char *alpn)
 
 	/* Notify all children and update their h3n */
 	{
-		struct lws *child = nwsi->mux.child_list;
-		lwsl_wsi_info(wsi, "H3 ALPN Negotiated, child_list=%p", child);
-		while (child) {
+		lwsl_wsi_info(wsi, "H3 ALPN Negotiated, child_list=%p",
+			      (void *)nwsi->mux.child_list_owner.head);
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				nwsi->mux.child_list_owner.head) {
+			struct lws *child = lws_container_of(d, struct lws,
+							     mux.sibling_list);
 			lwsl_wsi_info(child, "H3 ALPN child state=%d", lwsi_state(child));
 			child->h3.h3n = nwsi->h3.h3n;
 			child->h3.qpack_tx_encoder = nwsi->h3.qpack_tx_encoder;
@@ -1602,8 +1613,8 @@ rops_alpn_negotiated_h3(struct lws *wsi, const char *alpn)
 				lwsl_wsi_info(child, "H3 ALPN Negotiated, transitioning 0-RTT child to H3");
 				lws_role_transition(child, lwsi_role_client(nwsi) ? LWSIFR_CLIENT : LWSIFR_SERVER, LRS_ESTABLISHED, &role_ops_h3);
 			}
-			child = child->mux.sibling_list;
 		}
+		lws_end_foreach_dll(d);
 	}
 
 	return 0;

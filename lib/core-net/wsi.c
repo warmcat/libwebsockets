@@ -1455,76 +1455,64 @@ void lws_wsi_mux_insert(struct lws *wsi, struct lws *parent_wsi,
 	}
 #endif
 
-	/* new guy's sibling is whoever was the first child before */
-	wsi->mux.sibling_list = parent_wsi->mux.child_list;
-
-	/* first child is now the new guy */
-	parent_wsi->mux.child_list = wsi;
-
-	parent_wsi->mux.child_count++;
+	/* new guy becomes the head child of the parent's mux child list */
+	lws_dll2_add_head(&wsi->mux.sibling_list, &parent_wsi->mux.child_list_owner);
 }
 
 struct lws *lws_wsi_mux_from_id(struct lws *parent_wsi, unsigned int sid) {
-	lws_start_foreach_ll(struct lws *, wsi, parent_wsi->mux.child_list) {
-		if (wsi->mux.my_sid == sid)
+	lws_start_foreach_dll(struct lws_dll2 *, d, parent_wsi->mux.child_list_owner.head) {
+		struct lws *wsi = lws_container_of(d, struct lws, mux.sibling_list);
+		if ((unsigned int)wsi->mux.my_sid == sid)
 			return wsi;
 	}
-	lws_end_foreach_ll(wsi, mux.sibling_list);
+	lws_end_foreach_dll(d);
 
 	return NULL;
 }
 
 void lws_wsi_mux_dump_children(struct lws *wsi) {
 #if defined(_DEBUG)
+	struct lws *parent;
+
 	if (!wsi->mux.parent_wsi || !lwsl_visible(LLL_INFO))
 		return;
 
-	lws_start_foreach_llp(struct lws **, w, wsi->mux.parent_wsi->mux.child_list) {
+	parent = wsi->mux.parent_wsi;
+
+	lws_start_foreach_dll(struct lws_dll2 *, d, parent->mux.child_list_owner.head) {
+		struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
 		lwsl_wsi_info(wsi, "   \\---- child %s %s\n",
-				(*w)->role_ops ? (*w)->role_ops->name : "?", lws_wsi_tag(*w));
-		assert(*w != (*w)->mux.sibling_list);
+				w->role_ops ? w->role_ops->name : "?", lws_wsi_tag(w));
 	}
-	lws_end_foreach_llp(w, mux.sibling_list);
+	lws_end_foreach_dll(d);
 #endif
 }
 
 void lws_wsi_mux_close_children(struct lws *wsi, int reason) {
-	struct lws *wsi2;
-	struct lws **w;
 
-	if (!wsi->mux.child_list)
+	if (!wsi->mux.child_list_owner.head)
 		return;
 
-	w = &wsi->mux.child_list;
-	while (*w) {
-		lwsl_wsi_info((*w), "   closing child");
-		/* disconnect from siblings */
-		wsi2 = (*w)->mux.sibling_list;
-		assert(wsi2 != *w);
-		(*w)->mux.sibling_list = NULL;
-		(*w)->socket_is_permanently_unusable = 1;
-		__lws_close_free_wsi(*w, (enum lws_close_status)reason,
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   wsi->mux.child_list_owner.head) {
+		struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
+
+		lwsl_wsi_info(w, "   closing child");
+		w->socket_is_permanently_unusable = 1;
+		__lws_close_free_wsi(w, (enum lws_close_status)reason,
 				"mux child recurse");
-		*w = wsi2;
 	}
+	lws_end_foreach_dll_safe(d, d1);
 }
 
 void lws_wsi_mux_sibling_disconnect(struct lws *wsi) {
-	struct lws *wsi2;
 
-	lws_start_foreach_llp(struct lws **, w, wsi->mux.parent_wsi->mux.child_list) {
+	if (!wsi->mux.parent_wsi)
+		return;
 
-		/* disconnect from siblings */
-		if (*w == wsi) {
-			wsi2 = (*w)->mux.sibling_list;
-			(*w)->mux.sibling_list = NULL;
-			*w = wsi2;
-			lwsl_wsi_debug(wsi, " disentangled from sibling %s", lws_wsi_tag(wsi2));
-			break;
-		}
-	}
-	lws_end_foreach_llp(w, mux.sibling_list);
-	wsi->mux.parent_wsi->mux.child_count--;
+	lws_dll2_remove(&wsi->mux.sibling_list);
+	lwsl_wsi_debug(wsi, " disentangled from mux parent %s",
+		       lws_wsi_tag(wsi->mux.parent_wsi));
 
 	wsi->mux.parent_wsi = NULL;
 }
@@ -1534,16 +1522,15 @@ void lws_wsi_mux_dump_waiting_children(struct lws *wsi) {
 	lwsl_info("%s: %s: children waiting for POLLOUT service:\n", __func__,
 			lws_wsi_tag(wsi));
 
-	wsi = wsi->mux.child_list;
-	while (wsi) {
-		lwsl_wsi_info(wsi, "  %c sid %llu: 0x%x %s %s",
-				wsi->mux.requested_POLLOUT ? '*' : ' ',
-				(unsigned long long)wsi->mux.my_sid,
-				lwsi_state(wsi), wsi->role_ops->name,
-				wsi->a.protocol ? wsi->a.protocol->name : "noprotocol");
-
-		wsi = wsi->mux.sibling_list;
+	lws_start_foreach_dll(struct lws_dll2 *, d, wsi->mux.child_list_owner.head) {
+		struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
+		lwsl_wsi_info(w, "  %c sid %llu: 0x%x %s %s",
+				w->mux.requested_POLLOUT ? '*' : ' ',
+				(unsigned long long)w->mux.my_sid,
+				lwsi_state(w), w->role_ops->name,
+				w->a.protocol ? w->a.protocol->name : "noprotocol");
 	}
+	lws_end_foreach_dll(d);
 #endif
 }
 
@@ -1564,43 +1551,33 @@ int lws_wsi_mux_mark_parents_needing_writeable(struct lws *wsi) {
 	return 0; // already;
 }
 
-struct lws *lws_wsi_mux_move_child_to_tail(struct lws **wsi2) {
-	struct lws *w = *wsi2;
+/*
+ * Move the head mux child of parent_wsi to the tail of its sibling list, and
+ * clear its requested_POLLOUT.  Returns the moved child (formerly the head),
+ * or NULL if there are no children.  This implements the fair-share rotation
+ * used by the POLLOUT service loops.
+ */
+struct lws *lws_wsi_mux_move_child_to_tail(struct lws *parent_wsi) {
+	struct lws_dll2 *head;
+	struct lws *w;
 
-	while (w) {
-		if (!w->mux.sibling_list) { /* w is the current last */
-			lwsl_wsi_debug(w, "*wsi2 = %s\n", lws_wsi_tag(*wsi2));
+	head = lws_dll2_get_head(&parent_wsi->mux.child_list_owner);
+	if (!head)
+		return NULL;
 
-			if (w == *wsi2) /* we are already last */
-				break;
+	w = lws_container_of(head, struct lws, mux.sibling_list);
 
-			/* last points to us as new last */
-			w->mux.sibling_list = *wsi2;
-
-			/* guy pointing to us until now points to
-			 * our old next */
-			*wsi2 = (*wsi2)->mux.sibling_list;
-
-			/* we point to nothing because we are last */
-			w->mux.sibling_list->mux.sibling_list = NULL;
-
-			/* w becomes us */
-			w = w->mux.sibling_list;
-			break;
-		}
-		w = w->mux.sibling_list;
-	}
+	lws_dll2_remove(&w->mux.sibling_list);
+	lws_dll2_add_tail(&w->mux.sibling_list,
+			  &parent_wsi->mux.child_list_owner);
 
 	/* clear the waiting for POLLOUT on the guy that was chosen */
-
-	if (w)
-		w->mux.requested_POLLOUT = 0;
+	w->mux.requested_POLLOUT = 0;
 
 	return w;
 }
 
 int lws_wsi_mux_action_pending_writeable_reqs(struct lws *wsi) {
-	struct lws *w = wsi->mux.child_list;
 	struct lws *nwsi = lws_get_network_wsi(wsi);
 
 	if (wsi->mux.requested_POLLOUT) {
@@ -1609,14 +1586,16 @@ int lws_wsi_mux_action_pending_writeable_reqs(struct lws *wsi) {
 		return 0;
 	}
 
-	while (w) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, wsi->mux.child_list_owner.head) {
+		struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
+
 		if (w->mux.requested_POLLOUT) {
 			if (lws_change_pollfd(nwsi, 0, LWS_POLLOUT))
 				return -1;
 			return 0;
 		}
-		w = w->mux.sibling_list;
 	}
+	lws_end_foreach_dll(d);
 
 	if (lws_change_pollfd(nwsi, LWS_POLLOUT, 0))
 		return -1;

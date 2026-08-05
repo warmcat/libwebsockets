@@ -446,15 +446,17 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
 		struct lws *nwsi = lws_get_network_wsi(wsi);
 		if (nwsi) {
 			lws_wsi_mux_apply_queue(nwsi);
-			struct lws *w = nwsi->mux.child_list;
-			while (w) {
+			lws_start_foreach_dll(struct lws_dll2 *, d,
+					nwsi->mux.child_list_owner.head) {
+				struct lws *w = lws_container_of(d, struct lws,
+								 mux.sibling_list);
 				if (w->a.protocol && w->a.protocol->callback) {
 					int ret = w->a.protocol->callback(w,
 							LWS_CALLBACK_CLIENT_ESTABLISHED_EARLY,
 							w->user_space, NULL, 0);
 					if (ret == 1) {
 						lwsl_wsi_notice(w, "Stream %s opted into 0-RTT", lws_wsi_tag(w));
-						
+
 						if (!w->quic.qs) {
 							w->quic.qs = lws_zalloc(sizeof(*w->quic.qs), "quic stream");
 							if (w->quic.qs) {
@@ -477,8 +479,8 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
 						lwsl_wsi_notice(w, "Stream %s ignored 0-RTT", lws_wsi_tag(w));
 					}
 				}
-				w = w->mux.sibling_list;
 			}
+			lws_end_foreach_dll(d);
 		}
 	} else
 #endif

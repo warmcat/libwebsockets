@@ -498,13 +498,14 @@ lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t acked_pn, int is_large
 		 * so they can generate more application data.
 		 */
 		{
-			struct lws *w = nwsi->mux.child_list;
-
-			while (w) {
+			lws_start_foreach_dll(struct lws_dll2 *, d,
+					      nwsi->mux.child_list_owner.head) {
+				struct lws *w = lws_container_of(d, struct lws,
+								 mux.sibling_list);
 				if (w->mux.requested_POLLOUT)
 					lws_callback_on_writable(w);
-				w = w->mux.sibling_list;
 			}
+			lws_end_foreach_dll(d);
 		}
 	}
 
@@ -735,8 +736,10 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 		}
 	} else {
 		/* Server listener: search children */
-		struct lws *w = wsi->mux.child_list;
-		while (w) {
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      wsi->mux.child_list_owner.head) {
+			struct lws *w = lws_container_of(d, struct lws,
+							 mux.sibling_list);
 			if (w->quic.qn && w->quic.qn->loc_cid.len == dcid_len &&
 			    !memcmp(w->quic.qn->loc_cid.id, dcid.id, dcid_len)) {
 				nwsi = w;
@@ -757,8 +760,8 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 				lwsl_debug("QUIC RX: found connection by prefaddr cid! nwsi=%s\n", lws_wsi_tag(nwsi));
 				break;
 			}
-			w = w->mux.sibling_list;
 		}
+		lws_end_foreach_dll(d);
 	}
 
 
@@ -1138,10 +1141,7 @@ tp_ok:
 		/* Link it to the UDP listening socket */
 		lws_mux_mark_immortal(nwsi);
 		nwsi->mux_substream = 1;
-		nwsi->mux.parent_wsi = wsi;
-		nwsi->mux.sibling_list = wsi->mux.child_list;
-		wsi->mux.child_list = nwsi;
-		wsi->mux.child_count++;
+		lws_wsi_mux_insert(nwsi, wsi, nwsi->mux.my_sid);
 
 		/* Derive the Initial keys using the client's initial DCID */
 		if (lws_quic_derive_initial_keys(nwsi, &dcid)) {
@@ -1794,39 +1794,27 @@ tp_ok:
 			 */
 
 			/*
-			 * Walk with pointer-to-pointer so the link we hold is the
-			 * parent's child_list / previous sibling's sibling_list slot
-			 * itself, never a pointer to a node that may be freed out
-			 * from under us.
-			 *
 			 * The user RECEIVE callback that ran during parse_frames
 			 * above may have synchronously closed (and freed) an
 			 * arbitrary sibling stream via lws_wsi_close(..,
-			 * LWS_TO_KILL_SYNC); a cached "next" pointer would then
-			 * dangle.  After closing a node we must also re-seed from
-			 * the head, because closing this child can tear down the
-			 * network wsi (and the whole sibling list) as a side
-			 * effect.
+			 * LWS_TO_KILL_SYNC).  The dll2 _safe iterator caches the
+			 * next node before the body, and lws_close_free_wsi()
+			 * detaches the child via lws_wsi_mux_sibling_disconnect()
+			 * (-> lws_dll2_remove), so the cached next stays valid.
 			 */
 			if (nwsi) {
-				struct lws **pp = &nwsi->mux.child_list;
-				while (*pp) {
-					struct lws *w = *pp;
+				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+						nwsi->mux.child_list_owner.head) {
+					struct lws *w = lws_container_of(d,
+							struct lws, mux.sibling_list);
 
 					if (w->quic.qs && w->quic.qs->close_after_rx) {
 						lwsl_wsi_notice(w, "QUIC RX Post-Processing: Closing stream WSI");
-						lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "quic post rx stream close");
-						/*
-						 * w is freed and unlinked; *pp now
-						 * points at the next sibling (or
-						 * NULL). Re-seed from the head in
-						 * case the list itself moved.
-						 */
-						pp = &nwsi->mux.child_list;
-						continue;
+						lws_close_free_wsi(w,
+							LWS_CLOSE_STATUS_NOSTATUS,
+							"quic post rx stream close");
 					}
-					pp = &w->mux.sibling_list;
-				}
+				} lws_end_foreach_dll_safe(d, d1);
 			}
 
 			if (parse_res < 0) {
@@ -2011,23 +1999,20 @@ rops_handle_POLLOUT_quic(struct lws *wsi)
 	uint8_t pkt[2048]; memset(pkt, 0, sizeof(pkt));
 
 	if (!qn) {
-		struct lws *w;
 		lws_handling_result_t hr_ret = LWS_HP_RET_DROP_POLLOUT;
-		if (wsi->mux.child_list) {
-			w = wsi->mux.child_list;
-			while (w) {
-				struct lws *next = w->mux.sibling_list;
-				if (w->mux.requested_POLLOUT) {
-					w->mux.requested_POLLOUT = 0;
-					lws_handling_result_t hr_child = rops_handle_POLLOUT_quic(w);
-					if (hr_child == LWS_HP_RET_BAIL_DIE)
-						return LWS_HP_RET_BAIL_DIE;
-					if (hr_child == LWS_HP_RET_BAIL_OK)
-						hr_ret = LWS_HP_RET_BAIL_OK;
-				}
-				w = next;
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				wsi->mux.child_list_owner.head) {
+			struct lws *w = lws_container_of(d, struct lws,
+							 mux.sibling_list);
+			if (w->mux.requested_POLLOUT) {
+				w->mux.requested_POLLOUT = 0;
+				lws_handling_result_t hr_child = rops_handle_POLLOUT_quic(w);
+				if (hr_child == LWS_HP_RET_BAIL_DIE)
+					return LWS_HP_RET_BAIL_DIE;
+				if (hr_child == LWS_HP_RET_BAIL_OK)
+					hr_ret = LWS_HP_RET_BAIL_OK;
 			}
-		}
+		} lws_end_foreach_dll_safe(d, d1);
 		return hr_ret;
 	}
 
@@ -2707,13 +2692,14 @@ send_frames:
 		 * been stalled by the application-layer pacing throttle in tx_credit!
 		 */
 		if (level == LWS_QUIC_LEVEL_APP) {
-			struct lws *w = wsi->mux.child_list;
-
-			while (w) {
+			lws_start_foreach_dll(struct lws_dll2 *, d,
+					wsi->mux.child_list_owner.head) {
+				struct lws *w = lws_container_of(d, struct lws,
+								 mux.sibling_list);
 				if (w->mux.requested_POLLOUT)
 					lws_callback_on_writable(w);
-				w = w->mux.sibling_list;
 			}
+			lws_end_foreach_dll(d);
 		}
 	}
 
@@ -2726,97 +2712,103 @@ send_frames:
 		if (nwsi && lws_wsi_txc_check_skint(&nwsi->txc, (int32_t)nwsi->txc.tx_cr))
 			goto end_children;
 
-		struct lws **wsi2 = &wsi->mux.child_list;
+		/*
+		 * Fair-share POLLOUT service.  We examine the head child each
+		 * iteration; move_child_to_tail() rotates it to the tail so we
+		 * make full passes.  We must bound the loop by the number of
+		 * children: if nobody in a full pass wants POLLOUT, stop
+		 * (otherwise we'd rotate the list forever).
+		 */
+		if (wsi->mux.child_list_owner.head) {
+			unsigned int to_examine = wsi->mux.child_list_owner.count;
+			int sanity = 1000;
 
-		if (*wsi2) {
-			int sanity = 1000000;
-			do {
-				struct lws *w, **wa;
-				
+			while (to_examine && wsi->mux.child_list_owner.head &&
+			       wsi->txc.tx_cr > 0 &&
+			       (!nwsi || nwsi->txc.tx_cr > 0)) {
+				struct lws *w;
+
 				if (!sanity--) {
 					lwsl_wsi_warn(wsi, "POLLOUT multiplexer loop sanity limit reached, closing");
 					return LWS_HP_RET_BAIL_DIE;
 				}
 
-				wa = &(*wsi2)->mux.sibling_list;
-				
-				if (!(*wsi2)->mux.requested_POLLOUT)
-					goto next_child;
+				/* Examine the current head child */
+				w = lws_container_of(wsi->mux.child_list_owner.head,
+						     struct lws, mux.sibling_list);
 
-				w = lws_wsi_mux_move_child_to_tail(wsi2);
-				if (!w) {
-					wa = &wsi->mux.child_list;
-					goto next_child;
+				if (!w->mux.requested_POLLOUT) {
+					/* not interested; rotate to tail and move on */
+					lws_wsi_mux_move_child_to_tail(wsi);
+					to_examine--;
+					continue;
 				}
-				
-                wa = wsi2;
 
-                int is_peer_initiated = (w->mux.my_sid & 1) != (qn->is_server ? 1 : 0);
-                int is_unidiri = (w->mux.my_sid & 2);
-                if (is_peer_initiated && is_unidiri) {
-                        w->mux.requested_POLLOUT = 0;
-                        goto next_child;
-                }
+				/* move head to tail (fair share) and operate on it */
+				w = lws_wsi_mux_move_child_to_tail(wsi);
+				to_examine--;  /* we've examined this one */
 
-                int32_t usable_credit = w->txc.tx_cr;
+				if (!w)
+					break;
+
+				int is_peer_initiated = (w->mux.my_sid & 1) != (qn->is_server ? 1 : 0);
+				int is_unidiri = (w->mux.my_sid & 2);
+				if (is_peer_initiated && is_unidiri) {
+					w->mux.requested_POLLOUT = 0;
+					continue;
+				}
+
+				int32_t usable_credit = w->txc.tx_cr;
 				if (lws_rops_fidx(w->role_ops, LWS_ROPS_tx_credit)) {
 					usable_credit = lws_rops_func_fidx(w->role_ops, LWS_ROPS_tx_credit).
 								tx_credit(w, LWSTXCR_US_TO_PEER, 0);
 				}
-                                
-                                /* Check for actual flow control exhaustion */
-                                if (lws_wsi_txc_check_skint(&w->txc, w->txc.tx_cr)) {
-                                        if (!w->quic.tx_blocked_sent) {
-                                                struct lws_quic_tx_frame *f_sdb = lws_zalloc(sizeof(*f_sdb), "quic sdb");
-                                                if (f_sdb) {
-                                                        f_sdb->type = LWS_QUIC_FT_STREAM_DATA_BLOCKED;
-                                                        f_sdb->stream_id = w->mux.my_sid;
-                                                        f_sdb->limit = w->quic.qs ? w->quic.qs->tx_offset : 0;
-                                                        lws_dll2_add_head(&f_sdb->list, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
-                                                }
-                                                w->quic.tx_blocked_sent = 1;
-                                                lws_callback_on_writable(wsi); /* request POLLOUT for nwsi to send the frame */
-                                        }
-                                        if (lwsi_state(w) != LRS_FLUSHING_BEFORE_CLOSE) {
-                                                w->mux.requested_POLLOUT = 0;
-                                                goto next_child;
-                                        }
-                                }
 
-                                /* Check for local throttling (e.g., pending_tx queue full) */
-                                if (usable_credit <= 0 && lwsi_state(w) != LRS_FLUSHING_BEFORE_CLOSE) {
-                                        w->mux.requested_POLLOUT = 1;
-                                        break;
-                                }
+				/* Check for actual flow control exhaustion */
+				if (lws_wsi_txc_check_skint(&w->txc, w->txc.tx_cr)) {
+					if (!w->quic.tx_blocked_sent) {
+						struct lws_quic_tx_frame *f_sdb = lws_zalloc(sizeof(*f_sdb), "quic sdb");
+						if (f_sdb) {
+							f_sdb->type = LWS_QUIC_FT_STREAM_DATA_BLOCKED;
+							f_sdb->stream_id = w->mux.my_sid;
+							f_sdb->limit = w->quic.qs ? w->quic.qs->tx_offset : 0;
+							lws_dll2_add_head(&f_sdb->list, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
+						}
+						w->quic.tx_blocked_sent = 1;
+						lws_callback_on_writable(wsi);
+					}
+					if (lwsi_state(w) != LRS_FLUSHING_BEFORE_CLOSE) {
+						w->mux.requested_POLLOUT = 0;
+						continue;
+					}
+				}
 
-                w->mux.requested_POLLOUT = 0;
+				/* Check for local throttling (e.g., pending_tx queue full) */
+				if (usable_credit <= 0 && lwsi_state(w) != LRS_FLUSHING_BEFORE_CLOSE) {
+					w->mux.requested_POLLOUT = 1;
+					break;
+				}
+
+				w->mux.requested_POLLOUT = 0;
 
 				if (lws_rops_fidx(w->role_ops, LWS_ROPS_perform_user_POLLOUT)) {
 					if (lws_rops_func_fidx(w->role_ops, LWS_ROPS_perform_user_POLLOUT).
 									perform_user_POLLOUT(w) == -1) {
-
-						int _found = 0;
-						lws_start_foreach_ll(struct lws *, _w1, wsi->mux.child_list) {
-							if (_w1 == w) { _found = 1; break; }
-						} lws_end_foreach_ll(_w1, mux.sibling_list);
-						if (_found)
+						/* if the cb didn't already close w, close it */
+						if (!lws_dll2_is_detached(&w->mux.sibling_list))
 							lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "quic child write close");
-						wa = &wsi->mux.child_list;
 					}
 				} else {
 					if (lws_callback_as_writeable(w)) {
-						int _found = 0;
-						lws_start_foreach_ll(struct lws *, _w1, wsi->mux.child_list) {
-							if (_w1 == w) { _found = 1; break; }
-						} lws_end_foreach_ll(_w1, mux.sibling_list);
-						if (_found)
+						if (!lws_dll2_is_detached(&w->mux.sibling_list))
 							lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "quic child write close");
-						wa = &wsi->mux.child_list;
 					}
 				}
-next_child:
-				wsi2 = wa;
-			} while (wsi2 && *wsi2 && wsi->txc.tx_cr > 0 && (!nwsi || nwsi->txc.tx_cr > 0));
+
+				/* A child was serviced; new children may have queued or
+				 * re-requested POLLOUT, so reset the pass counter. */
+				to_examine = wsi->mux.child_list_owner.count;
+			}
 		}
 
 end_children:
@@ -2845,14 +2837,16 @@ end_children:
 
 		int children_need_POLLOUT = 0;
 		{
-			struct lws *w_child = wsi->mux.child_list;
-			while (w_child) {
+			lws_start_foreach_dll(struct lws_dll2 *, d,
+					wsi->mux.child_list_owner.head) {
+				struct lws *w_child = lws_container_of(d,
+						struct lws, mux.sibling_list);
 				if (w_child->mux.requested_POLLOUT) {
 					children_need_POLLOUT = 1;
 					break;
 				}
-				w_child = w_child->mux.sibling_list;
 			}
+			lws_end_foreach_dll(d);
 		}
 
 		if (((blocked && !eagain_blocked) || !have_pending_tx) && !children_need_POLLOUT) {
@@ -2865,23 +2859,21 @@ end_children:
                 
 		{
 			/*
-			 * Same reentrancy-safe traversal as the post-RX loop
-			 * above: a user callback may have synchronously freed a
-			 * sibling, so we must not cache a next pointer across the
-			 * close.  Use pointer-to-pointer and re-seed from the
-			 * head after each close.
+			 * Same reentrancy-safe situation as the post-RX loop
+			 * above; the dll2 _safe iterator keeps the cached next
+			 * valid across the close (which detaches via
+			 * lws_dll2_remove).
 			 */
-			struct lws **pp = &wsi->mux.child_list;
-			while (*pp) {
-				struct lws *w = *pp;
+			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+					wsi->mux.child_list_owner.head) {
+				struct lws *w = lws_container_of(d,
+						struct lws, mux.sibling_list);
 
-				if (w->quic.qs && w->quic.qs->close_after_rx) {
-					lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS, "quic post tx stream close");
-					pp = &wsi->mux.child_list;
-					continue;
-				}
-				pp = &w->mux.sibling_list;
-			}
+				if (w->quic.qs && w->quic.qs->close_after_rx)
+					lws_close_free_wsi(w,
+						LWS_CLOSE_STATUS_NOSTATUS,
+						"quic post tx stream close");
+			} lws_end_foreach_dll_safe(d, d1);
 		}
 
 		if (have_pending_tx)
@@ -2897,13 +2889,14 @@ end_children:
 		 * POLLOUT cycle to call lws_serve_http_file_fragment().
 		 */
 		{
-			struct lws *w = wsi->mux.child_list;
-
-			while (w) {
+			lws_start_foreach_dll(struct lws_dll2 *, d,
+					wsi->mux.child_list_owner.head) {
+				struct lws *w = lws_container_of(d, struct lws,
+								 mux.sibling_list);
 				if (w->mux.requested_POLLOUT)
 					return LWS_HP_RET_BAIL_OK;
-				w = w->mux.sibling_list;
 			}
+			lws_end_foreach_dll(d);
 		}
 	}
 
@@ -3410,13 +3403,13 @@ rops_close_kill_connection_quic(struct lws *wsi, enum lws_close_status reason)
 	struct lws_quic_netconn *qn = wsi->quic.qn;
 	int i;
 
-	if (wsi->mux.child_list)
+	if (wsi->mux.child_list_owner.head)
 		lws_wsi_mux_close_children(wsi, (int)reason);
 
 	if (wsi->mux.parent_wsi) {
 		struct lws *nwsi = wsi->mux.parent_wsi;
 		lws_wsi_mux_sibling_disconnect(wsi);
-		if (nwsi->mux.child_count == 0 && nwsi->quic.qn)
+		if (lws_wsi_mux_child_count(nwsi) == 0 && nwsi->quic.qn)
 			lws_set_timeout(nwsi, PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE,
 					nwsi->a.vhost->keepalive_timeout ?
 					nwsi->a.vhost->keepalive_timeout : 5);
@@ -3586,14 +3579,15 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 
 		/* Unblock if blocked */
 		if (wsi->txc.tx_cr > 0) {
-			struct lws *w = wsi->mux.child_list;
-
 			lws_callback_on_writable(wsi);
 
-			while (w) {
+			lws_start_foreach_dll(struct lws_dll2 *, d,
+					wsi->mux.child_list_owner.head) {
+				struct lws *w = lws_container_of(d, struct lws,
+								 mux.sibling_list);
 				lws_callback_on_writable(w);
-				w = w->mux.sibling_list;
 			}
+			lws_end_foreach_dll(d);
 		}
 		return 0;
 	}
@@ -3900,20 +3894,20 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	if (wsi->mux.parent_wsi)
                 lws_wsi_mux_sibling_disconnect(wsi);
 
-        struct lws *old_children = wsi->mux.child_list;
-        unsigned int old_child_count = wsi->mux.child_count;
+        /*
+         * Transfer all of wsi's mux children to nwsi.  Under dll2 this is a
+         * per-child remove+add_head; owner.count and the parent_wsi back-link
+         * are kept consistent as we go.
+         */
+        lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   wsi->mux.child_list_owner.head) {
+		struct lws *c = lws_container_of(d, struct lws, mux.sibling_list);
 
-        wsi->mux.child_list = NULL;
-        wsi->mux.child_count = 0;
-
-        nwsi->mux.child_list = old_children;
-        nwsi->mux.child_count = old_child_count;
-
-        struct lws *c = old_children;
-        while (c) {
-                c->mux.parent_wsi = nwsi;
-                c = c->mux.sibling_list;
-        }
+		lws_dll2_remove(&c->mux.sibling_list);
+		c->mux.parent_wsi = nwsi;
+		lws_dll2_add_head(&c->mux.sibling_list,
+				  &nwsi->mux.child_list_owner);
+	} lws_end_foreach_dll_safe(d, d1);
 
         lws_wsi_mux_insert(wsi, nwsi, 0); /* client first request is stream ID 0 */
         if (nwsi->quic.qn->next_stream_id_bidi_local == 0)
@@ -3922,10 +3916,7 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 
 	if (listener) {
 		nwsi->mux_substream = 1;
-		nwsi->mux.parent_wsi = listener;
-		nwsi->mux.sibling_list = listener->mux.child_list;
-		listener->mux.child_list = nwsi;
-		listener->mux.child_count++;
+		lws_wsi_mux_insert(nwsi, listener, nwsi->mux.my_sid);
 	}
 
 	/* Inform the H3 role that it negotiated ALPN */
