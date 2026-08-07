@@ -38,16 +38,27 @@ enum lws_cookie_nsc_f {
 	LWSC_NSC_COUNT,
 };
 
+/*
+ * Indices into c.f[] / c.l[].  The first group -- the cookie attributes that
+ * appear as "name=value" AVs after the cookie name=value pair -- is kept in
+ * EXACTLY the same order as the cft[] AV table below, so that a cft[] index
+ * can be used directly as a CE_* index in lws_parse_set_cookie().  The
+ * remaining elements are not AVs (the cookie's own name/value, and the
+ * host-only flag inferred from the absence of a Domain attribute).
+ */
 enum lws_cookie_elements {
+	/* --- AV-backed, order must match cft[] --- */
 	CE_DOMAIN,
 	CE_PATH,
 	CE_EXPIRES,
 	CE_MAXAGE,
+	CE_HTTPONLY,	/* bool, NULL = 0, non-NULL = 1 */
+	CE_SECURE,	/* bool, NULL = 0, non-NULL = 1 */
+
+	/* --- not AVs --- */
 	CE_NAME,
 	CE_VALUE,
-
-	CE_HOSTONLY, /* these are bool, NULL = 0, non-NULL = 1 */
-	CE_SECURE,
+	CE_HOSTONLY,	/* bool, NULL = 0, non-NULL = 1 */
 
 	CE_COUNT
 };
@@ -55,8 +66,6 @@ enum lws_cookie_elements {
 struct lws_cookie {
 	const char	*f[CE_COUNT];
 	size_t		l[CE_COUNT];
-
-	unsigned int httponly:1;
 };
 
 static size_t
@@ -621,16 +630,24 @@ lws_cookie_attach_cookies(struct lws *wsi, char *buf, char *end)
 	return (int)ret;
 }
 
+/*
+ * Attribute-value (AV) tokens recognized in a Set-Cookie after the name=value
+ * pair.  The order here MUST match the AV-backed group at the top of enum
+ * lws_cookie_elements: lws_parse_set_cookie() uses the cft[] index directly as
+ * a CE_* index, so the two stay in 1:1 alignment by construction.  This is
+ * the structural fix for issue #3652, where the orderings disagreed and the
+ * cft[] index silently aliased CE_NAME/CE_VALUE for httponly/secure.
+ */
 static struct {
 	const char		*const name;
 	uint8_t			len;
 } cft[] = {
-	{ "domain=",  7 },
-	{ "path=",    5 },
-	{ "expires=", 8 },
-	{ "max-age=", 8 },
-	{ "httponly", 8 },
-	{ "secure",   6 }
+	[CE_DOMAIN]  = { "domain=",  7 },
+	[CE_PATH]    = { "path=",    5 },
+	[CE_EXPIRES] = { "expires=", 8 },
+	[CE_MAXAGE]  = { "max-age=", 8 },
+	[CE_HTTPONLY]= { "httponly", 8 },
+	[CE_SECURE]  = { "secure",   6 }
 };
 
 int
@@ -740,25 +757,33 @@ parse_av:
 						cft[n].name, cft[n].len))
 					continue;
 
-				if (n == 4 || n == 5) {
+				/*
+				 * Matched AV cft[n].  Because the AV-backed
+				 * CE_* fields are kept in the same order as
+				 * cft[], n is a valid c.f[]/c.l[] index here.
+				 * Bare flags (httponly, secure) carry no value;
+				 * mark them present like CE_HOSTONLY (NULL = 0,
+				 * non-NULL = 1).  Value AVs record the value
+				 * after the "name=" prefix.
+				 */
+				if (cft[n].len && cft[n].name[cft[n].len - 1] == '=') {
+					c.f[n] = tk_head + cft[n].len;
+					c.l[n] = lws_ptr_diff_size_t(tk_end, c.f[n]) + 1;
+					lws_cookie_rm_sws(&c.f[n], &c.l[n]);
+
+					if (n == CE_DOMAIN && c.l[n] &&
+					    c.f[n][0] == '.') {
+						c.f[n]++;
+						c.l[n]--;
+					}
+				} else {
 					c.f[n] = "T";
 					c.l[n] = 1;
-					break;
-				}
-
-				c.f[n] = tk_head + cft[n].len;
-				c.l[n] = lws_ptr_diff_size_t(tk_end, c.f[n]) + 1;
-				lws_cookie_rm_sws(&c.f[n], &c.l[n]);
-
-				if (n == CE_DOMAIN && c.l[0] &&
-				    c.f[n][0] == '.'){
-					c.f[n]++;
-					c.l[n]--;
 				}
 
 				lwsl_cookie("%s: %s l %d v:%.*s\n", __func__,
-					    cft[n].name, (int)c.l[n],
-					    (int)c.l[n], c.f[n]);
+				    cft[n].name, (int)c.l[n],
+				    (int)c.l[n], c.f[n]);
 				break;
 			}
 
