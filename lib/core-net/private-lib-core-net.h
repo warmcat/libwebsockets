@@ -1331,6 +1331,15 @@ __lws_header_table_reset(struct lws *wsi, int autoservice);
 char * LWS_WARN_UNUSED_RESULT
 lws_hdr_simple_ptr(struct lws *wsi, enum lws_token_indexes h);
 
+/*
+ * Returns a pointer to the NUL-terminated request URI for a server-side wsi
+ * (held in the ah), or NULL if there is no ah / no request URI.  Unlike
+ * lws_http_get_uri_and_method() it has no logging side-effects, so it is safe
+ * to call from inside another log message.  Valid while the ah stays attached.
+ */
+const char *
+lws_wsi_request_uri(struct lws *wsi);
+
 int LWS_WARN_UNUSED_RESULT
 lws_hdr_simple_create(struct lws *wsi, enum lws_token_indexes h, const char *s);
 

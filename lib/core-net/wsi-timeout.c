@@ -93,8 +93,24 @@ lws_sul_wsitimeout_cb(lws_sorted_usec_list_t *sul)
 
 	/* no need to log normal idle keepalive timeout */
 //		if (wsi->pending_timeout != PENDING_TIMEOUT_HTTP_KEEPALIVE_IDLE)
+	if (wsi->pending_timeout == PENDING_TIMEOUT_HTTP_RESPONSE)
+		/*
+		 * We started sending the response (response headers went out)
+		 * but never completed it: under h2 / h3 no END_STREAM was sent
+		 * on a HEADERS frame, or the response body was never finished.
+		 * The usual cause is a headers-only response written without
+		 * LWS_WRITE_H2_STREAM_END -- the stream then hangs open with no
+		 * further write ever closing it.  Call out the reason explicitly
+		 * since this is a user-code bug, not a network condition.
+		 */
+		lwsl_wsi_warn(wsi, "HTTP response started but never completed "
+			      "(no END_STREAM); user code likely wrote a "
+			      "headers-only response without "
+			      "LWS_WRITE_H2_STREAM_END, protocol=%s, uri=\"%s\"",
+			      wsi->a.protocol ? wsi->a.protocol->name : "none",
+			      lws_wsi_request_uri(wsi) ?: "");
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-	if (wsi->pending_timeout != PENDING_TIMEOUT_USER_OK)
+	else if (wsi->pending_timeout != PENDING_TIMEOUT_USER_OK)
 		lwsl_wsi_info(wsi, "TIMEDOUT WAITING %d, dhdr %d, ah %p, wl %d",
 				   wsi->pending_timeout,
 				   wsi->hdr_parsing_completed, wsi->http.ah,

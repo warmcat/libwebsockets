@@ -111,6 +111,8 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 	struct lws *wsi1;
 	int n, m;
 
+	memset(&ebuf, 0, sizeof(ebuf));
+
 #ifdef LWS_WITH_CGI
 	if (wsi->http.cgi && (pollfd->revents & LWS_POLLOUT)) {
 		if (lws_handle_POLLOUT_event(wsi, pollfd))
@@ -540,6 +542,10 @@ rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 			flags |= LWS_H2_FLAG_END_STREAM;
 			wsi->h2.send_END_STREAM = 1;
 		}
+		/* server response headers are going out: arm the
+		 * response-completion watchdog (no-op for immortal streams
+		 * and idempotent across continuation frames). */
+		lws_http_response_started(wsi);
 	}
 
 	if (base == LWS_WRITE_HTTP_HEADERS_CONTINUATION) {
@@ -1472,9 +1478,28 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 				  w->h2.send_END_STREAM);
 			lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 					   "h2 pollout handle");
-		} else
+		} else {
 			 if (w->h2.send_END_STREAM)
 				lws_h2_state(w, LWS_H2_STATE_HALF_CLOSED_LOCAL);
+
+			/*
+			 * If we just finished writing the request body (the
+			 * user cleared client_http_body_pending from
+			 * LWS_CALLBACK_CLIENT_HTTP_WRITEABLE and the last chunk
+			 * carried END_STREAM on h2), advance to waiting for the
+			 * server's reply -- the same transition h1 makes at
+			 * client-http.c:~325 and h3 at ops-h3.c:~477.  Without
+			 * this the h2 client stream stayed in LRS_ISSUE_HTTP_BODY
+			 * after END_STREAM, never expecting a response.
+			 */
+			if (lwsi_state(w) == LRS_ISSUE_HTTP_BODY &&
+			    !w->client_http_body_pending) {
+				lwsi_set_state(w, LRS_WAITING_SERVER_REPLY);
+				lws_set_timeout(w,
+					PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
+					(int)w->a.context->timeout_secs);
+			}
+		}
 
 	} lws_end_foreach_dll_safe(d, d1);
 

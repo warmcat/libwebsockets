@@ -302,6 +302,12 @@ struct _lws_http_mode_related {
 	unsigned int multipart:1;
 	unsigned int cgi_transaction_complete:1;
 	unsigned int multipart_issue_boundary:1;
+	unsigned int sent_response_headers:1;
+	/**< set once we have written response headers on this transaction, so
+	 * we can distinguish "stream closed during request" from "stream closed
+	 * after we started responding but never sent END_STREAM" (the latter is
+	 * a user-code bug we want to warn about).  Cleared on transaction
+	 * rearm. */
 
 	char auth_username[64];
 	char auth_password[64];
@@ -370,6 +376,19 @@ lws_http_string_to_known_header(const char *s, size_t slen);
 
 int
 lws_http_date_render_from_unix(char *buf, size_t len, const time_t *t);
+
+/*
+ * Called from the role write paths (h1/h2/h3) the first time response
+ * headers are written on a server transaction.  It marks the transaction as
+ * having started its response and, unless the stream is immortal (SSE / long
+ * poll, which opt out of timeouts via lws_http_mark_sse / lws_mux_mark_immortal),
+ * arms PENDING_TIMEOUT_HTTP_RESPONSE so a response that never completes (no
+ * END_STREAM / no body drain -- a user-code bug) is closed and warned about
+ * rather than hanging the stream forever.  Idempotent: only acts on the first
+ * response-headers write of the transaction.
+ */
+void
+lws_http_response_started(struct lws *wsi);
 
 int
 lws_http_date_parse_unix(const char *b, size_t len, time_t *t);

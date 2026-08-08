@@ -205,7 +205,7 @@ lws_chunked_html_process(struct lws_process_html_args *args,
  *  argument in turn: the fragments contain urldecoded strings like x=1 or y=2.
  *
  *  As a convenience, lws has an api that will find the fragment with a
- *  given name= part, lws_get_urlarg_by_name().
+ *  given name= part, lws_get_urlarg_by_name_safe().
  */
 ///@{
 
@@ -542,20 +542,40 @@ lws_hdr_custom_name_foreach(struct lws *wsi, lws_hdr_custom_fe_cb_t cb, void *op
  * lws_get_urlarg_by_name_safe() - get copy and return length of y for x=y urlargs
  *
  * \param wsi: the connection to check
- * \param name: the arg name, like "token" or "token="
- * \param buf: the buffer to receive the urlarg value only (the name= prefix is
- *             stripped from the result via memmove); buf must be large enough
- *             for the full "name=value" fragment plus 2 bytes, because the
- *             check is fraglen + 1 < len
- * \param len: the length of buf
+ * \param name: the arg name to look for.  Including the trailing '=' is
+ *              recommended (eg "token="); if you omit it, a single '=' separator
+ *              in the matched arg is still trimmed from the result for you
+ * \param buf: the buffer to receive the urlarg *value* (the name= prefix is
+ *             not copied).  It only needs to be large enough for the value you
+ *             want back, plus the NUL terminator -- the name= prefix match is
+ *             done against the in-place parsed header storage and does not
+ *             depend on the size of buf
+ * \param len: the usable size of buf in bytes
  *
- * Returns -1 if not present, else the length of y in the urlarg name=y.  If
- * zero or greater, then buf contains a copy of the string y.  Any = after the
- * name match is trimmed off if the name does not end with = itself.
+ * Looks up the URI query arg "name" (from the request's ?... part) and copies
+ * its value into buf.
+ *
+ * Urlarg values may be fragmented in the parsed-header storage when the request
+ * line contains multiple ?x=y&w=z style args; this helper walks the full arg
+ * fragment chain to find the named one, so the buf size has no effect on which
+ * arg is matched -- only on whether the matched value fits.
+ *
+ * Returns one of:
+ *
+ *   >= 0: the arg was present and its value (length \p return_value, NUL not
+ *         included) is in buf, with a NUL written at buf[return_value].  A
+ *         returned length of 0 means the arg was given as a bare "name=" with
+ *         an empty value
+ *   -1:    the arg was not present, or there is no parsed header storage
+ *   -2:    the arg was found but its value will not fit in buf (len bytes,
+ *         including room for the NUL); buf is left unmodified.  Call again with
+ *         a larger buf if you need the value
  *
  * This returns the explicit length and so can deal with binary blobs that are
- * percent-encoded.  It also makes sure buf has a NUL just after the valid
- * length so it can work with NUL-based apis if you don't care about truncation.
+ * percent-encoded (the parser already percent-decodes the URI-args before they
+ * reach here).  It always writes a NUL just after the valid length so the
+ * result can also be used with NUL-based apis when you don't care about
+ * truncation.
  *
  * buf may have been written even when -1 is returned indicating no match.
  *
@@ -570,20 +590,20 @@ lws_get_urlarg_by_name_safe(struct lws *wsi, const char *name, char *buf, int le
  *
  * \param wsi: the connection to check
  * \param name: the arg name, like "token="
- * \param buf: the buffer to receive the urlarg value only (the name= prefix is
- *             stripped from the result via memmove); buf must be large enough
- *             for the full "name=value" fragment plus 2 bytes, because the
- *             check is fraglen + 1 < len
- * \param len: the length of buf
+ * \param buf: the buffer to receive the urlarg *value* (the name= prefix is
+ *             not returned); it only needs to be large enough for the value
+ *             you want back, plus the NUL terminator
+ * \param len: the usable size of buf in bytes
  *
- *     Returns NULL if not found or a pointer inside buf to just after the
- *     name= part.
+ *     Returns NULL if not found (or if the value did not fit in buf), or a
+ *     pointer to buf holding just the value (NUL-terminated).
  *
  * This assumed the argument can be represented with a NUL-terminated string.
  * It can't correctly deal with binary values encoded with %XX, eg. %00 will
  * be understood to terminate the string.
  *
- * Use lws_get_urlarg_by_name_safe() instead of this, which returns the length.
+ * Use lws_get_urlarg_by_name_safe() instead of this, which returns the length
+ * and distinguishes "not present" (-1) from "did not fit" (-2).
  */
 LWS_VISIBLE LWS_EXTERN const char *
 lws_get_urlarg_by_name(struct lws *wsi, const char *name, char *buf, int len)
@@ -646,6 +666,67 @@ LWS_VISIBLE LWS_EXTERN int
 lws_http_add_onward_header(struct lws *wsi, const char *name,
 			   const char *value);
 
+///@}
+
+/*! \defgroup lws-login-state Login state injection (lws-login)
+ * \ingroup http
+ *
+ * ## Login state injection
+ *
+ * When a mount is guarded by the `lws-login` bouncer plugin, the bouncer
+ * authenticates the request, decides the requestor's role from the verified
+ * JWT grants, and stamps the cooked, trusted result onto the browser-side wsi
+ * as "extra onward headers" (set with lws_http_add_onward_header() after
+ * lws_http_zap_header() anti-spoofs any client-supplied copy).  The HTTP/WS
+ * proxy paths then forward these to the backend app behind the mount, so the
+ * app does no JWT/grant work of its own -- it just reads the headers.
+ *
+ * The authoritative summary is the single header \ref LWS_LOGIN_HDR_STATE,
+ * whose value is the stringified \ref lws_login_state.  The finer-grained
+ * \ref LWS_LOGIN_HDR_GRANT_LEVEL (the raw integer grant level the bouncer used
+ * to decide the role for this mount) and \ref LWS_LOGIN_HDR_SUB (the subject
+ * identity) are also injected for apps that want the detail.  \ref
+ * LWS_LOGIN_HDR_ADMIN is kept for back-compat and is exactly equivalent to
+ * `state == LWS_LOGIN_STATE_GLOBAL_ADMIN`.
+ *
+ * Crucially, \ref LWS_LOGIN_STATE_APP_ADMIN (admin of THIS app only) and \ref
+ * LWS_LOGIN_STATE_GLOBAL_ADMIN (the TOFU "*" / "god" account, admin of the
+ * whole system) are distinct: a backend must not treat an app admin as a
+ * system-wide admin.  The states are strictly ordered by privilege, so
+ * `state >= LWS_LOGIN_STATE_APP_ADMIN` selects "any kind of admin" and
+ * `state == LWS_LOGIN_STATE_GLOBAL_ADMIN` selects "system-wide only".
+ *
+ * These headers are only trustworthy when they reach the backend through the
+ * bouncer's proxy path: the bouncer zaps any client-supplied copy first.  A
+ * backend reachable directly (bypassing the mount) must not trust them.
+ */
+///@{
+#define LWS_LOGIN_HDR_STATE        "x-lws-login-state"
+#define LWS_LOGIN_HDR_ADMIN        "x-lws-login-admin"
+#define LWS_LOGIN_HDR_GRANT_LEVEL  "x-lws-login-grant-level"
+#define LWS_LOGIN_HDR_SUB          "x-lws-login-sub"
+
+/**
+ * enum lws_login_state - summary role of the identity reaching a backend
+ *
+ * Value of \ref LWS_LOGIN_HDR_STATE as injected by the lws-login bouncer into
+ * backend apps behind a protected mount.  Members are ordered by privilege;
+ * higher == strictly more authority.
+ */
+enum lws_login_state {
+	/** No valid JWT.  Only observable on mounts with unauth-allow=1. */
+	LWS_LOGIN_STATE_ANON = 0,
+	/** Valid JWT, but no grant (and no "*" wildcard) for this service. */
+	LWS_LOGIN_STATE_NO_GRANT = 1,
+	/** Holds this service's grant at level >= 1 but < 2, no "*". */
+	LWS_LOGIN_STATE_USER = 2,
+	/** Holds this service's grant at level >= 2, no "*": admin of THIS
+	 * app only, NOT a system-wide admin. */
+	LWS_LOGIN_STATE_APP_ADMIN = 3,
+	/** Holds the "*" wildcard grant (the TOFU "god" account): admin of the
+	 * whole system.  Any "*" level >= 1 qualifies. */
+	LWS_LOGIN_STATE_GLOBAL_ADMIN = 4,
+};
 ///@}
 
 /*! \defgroup HTTP-headers-create HTTP headers: create
@@ -746,15 +827,24 @@ lws_finalize_http_header(struct lws *wsi, unsigned char **p,
 			 unsigned char *end);
 
 /**
- * lws_finalize_write_http_header() - Helper finializing and writing http headers
+ * lws_finalize_write_http_header() - Helper finalizing and writing http headers
  *
  * \param wsi: the connection to check
  * \param start: pointer to the start of headers in the buffer, eg &buf[LWS_PRE]
  * \param p: pointer to current position in buffer pointer
  * \param end: pointer to end of buffer
  *
- * Terminates the headers correctly accoring to the protocol in use (h1 / h2)
+ * Terminates the headers correctly according to the protocol in use (h1 / h2)
  * and writes the headers.  Returns nonzero for error.
+ *
+ * This is a convenience wrapper around lws_finalize_write_http_header_flags()
+ * (declared in lws-write.h, alongside the write-protocol enum) that passes
+ * plain LWS_WRITE_HTTP_HEADERS, suitable for responses that will send a body
+ * afterwards.  For a headers-only response (eg a 302 with no body), use
+ * lws_finalize_write_http_header_flags() with
+ * LWS_WRITE_HTTP_HEADERS | LWS_WRITE_H2_STREAM_END so that under h2 / h3 the
+ * HEADERS frame carries END_STREAM -- otherwise the stream hangs open waiting
+ * for a body that never comes and the client sees no response.
  */
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_finalize_write_http_header(struct lws *wsi, unsigned char *start,

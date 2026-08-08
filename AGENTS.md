@@ -22,7 +22,7 @@ Use cmake .. --fresh in order to force the build dir to align with your options 
 was in there before.
 
 While the idea is you should modify and test sources towards some goal, please do NOT modify the
-git state unless directly asked.
+git history or commit unless directly asked.
 
 Often although we are working on the same sources, they are being tested on devices you don't have
 access to.  So you must ask for access to data state on those remote machines; looking at the local

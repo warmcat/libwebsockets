@@ -670,6 +670,9 @@ auth_verify_redirect_uri(struct per_vhost_data__auth_server *vhd,
 			sqlite3_bind_text(stmt, 1, client_id, -1, SQLITE_STATIC);
 			if (sqlite3_step(stmt) == SQLITE_ROW) {
 				const char *uris = (const char *)sqlite3_column_text(stmt, 0);
+				// lwsl_notice("%s: client_id='%s' redirect_uri='%s' registered='%s'\n",
+				//	    __func__, client_id, redirect_uri,
+				//	    uris ? uris : "(null)");
 				if (uris) {
 					const char *p = uris;
 					while (p && *p) {
@@ -690,6 +693,9 @@ auth_verify_redirect_uri(struct per_vhost_data__auth_server *vhd,
 						p = comma ? comma + 1 : NULL;
 					}
 				}
+			} else {
+				lwsl_info("%s: no oauth_clients row for client_id='%s'\n",
+					  __func__, client_id);
 			}
 			sqlite3_finalize(stmt);
 		}
@@ -1606,12 +1612,17 @@ lws_auth_api_token(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		sqlite3_finalize(stmt);
 	}
 
-	if (!valid_client) {
-		pss->http_response_code = HTTP_STATUS_UNAUTHORIZED;
-		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"invalid_client\"}");
-		goto send;
-	}
-
+	/*
+	 * Look up the code before deciding client validity: a client may
+	 * authenticate either with a client_secret (confidential client) OR, per
+	 * RFC 7636, with PKCE -- a code_verifier that matches the code_challenge
+	 * stored when /api/authorize issued the code.  PKCE is specifically how
+	 * public clients (eg a web app server acting as OAuth client, which cannot
+	 * hold a secret) authenticate at the token endpoint, so we must not reject
+	 * a PKCE flow merely because no client_secret was sent.  The PKCE proof
+	 * itself is verified below; here we only establish that one of the two
+	 * authentication factors is available, and that the code is valid.
+	 */
 	uint32_t uid = 0;
 	char stored_challenge[128] = {0};
 	char stored_method[16] = {0};
@@ -1632,6 +1643,17 @@ lws_auth_api_token(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	if (!uid) {
 		pss->http_response_code = HTTP_STATUS_BAD_REQUEST;
 		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"invalid_grant\"}");
+		goto send;
+	}
+
+	/*
+	 * Client is authenticated if a secret matched, or if the code was issued
+	 * with a PKCE challenge (the challenge is verified below).  Reject only
+	 * when neither factor is present.
+	 */
+	if (!valid_client && !stored_challenge[0]) {
+		pss->http_response_code = HTTP_STATUS_UNAUTHORIZED;
+		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"invalid_client\"}");
 		goto send;
 	}
 
@@ -1671,10 +1693,36 @@ lws_auth_api_token(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 					q++;
 				}
 			}
-			if (strlen(b64) != strlen(stored_challenge) || lws_timingsafe_bcmp(b64, stored_challenge, (uint32_t)strlen(b64))) {
-				pss->http_response_code = HTTP_STATUS_BAD_REQUEST;
-				len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"invalid_grant\",\"error_description\":\"PKCE mismatch\"}");
-				goto send;
+			/*
+			 * RFC 7636: code_challenge is base64url, which has no
+			 * '=' padding.  Some client encoders (lws's own
+			 * lws_b64_encode_string_url, used by lws-oauth2-client)
+			 * emit '=' padding anyway; strip it from the stored
+			 * challenge before the comparison so a correctly-computed
+			 * challenge is not rejected as a "PKCE mismatch" purely on
+			 * padding differences.
+			 */
+			{
+				char stored_nopad[128];
+				const char *sp = stored_challenge;
+				size_t sm = 0;
+				while (*sp && *sp != '=' &&
+				       sm < sizeof(stored_nopad) - 1)
+					stored_nopad[sm++] = *sp++;
+				stored_nopad[sm] = '\0';
+
+				if (strlen(b64) != sm ||
+				    lws_timingsafe_bcmp(b64, stored_nopad,
+							(uint32_t)sm)) {
+					pss->http_response_code =
+							HTTP_STATUS_BAD_REQUEST;
+					len = lws_snprintf(pl + LWS_PRE,
+						sizeof(pl) - LWS_PRE,
+						"{\"error\":\"invalid_grant\","
+						"\"error_description\":"
+						"\"PKCE mismatch\"}");
+					goto send;
+				}
 			}
 		} else {
 			if (strlen(code_verifier) != strlen(stored_challenge) || lws_timingsafe_bcmp(code_verifier, stored_challenge, (uint32_t)strlen(code_verifier))) {
@@ -1731,6 +1779,9 @@ lws_auth_api_token(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"error\":\"server_error\"}");
 
 send:
+	lwsl_wsi_info(wsi, "%s: /api/token -> HTTP %u, body='%.*s'",
+			__func__, pss->http_response_code,
+			len, (char *)pl + LWS_PRE);
 	if (lws_buflist_append_segment(&pss->tx_buflist, (uint8_t *)pl, (size_t)len + LWS_PRE) < 0)
 		return -1;
 
@@ -3051,17 +3102,8 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				return lws_http_transaction_completed(wsi);
 			}
 
-			/* lws_get_urlarg_by_name_safe() returns the value verbatim from
-			 * the request line (the URI-arg parser does not percent-decode),
-			 * but the oauth2-client now sends an absolute, url-encoded
-			 * redirect_uri (eg "https%3A%2F%2Fhost%2Eorg%2Foauth%2Fcallback",
-			 * with the dot encoded as %2E).  Decode it to match the plaintext
-			 * registered URIs in oauth_clients, the same way /logout does.
-			 * This also keeps the value we store in oauth_codes byte-identical
-			 * to what /api/token later compares (the SPA POST parser *does*
-			 * decode, so without this the code-for-token swap would fail with
-			 * invalid_grant even if /authorize passed). */
-			lws_urldecode(redirect_uri, redirect_uri, sizeof(redirect_uri));
+			lwsl_info("%s: /authorize client_id='%s' redirect_uri='%s'\n",
+				    __func__, client_id, redirect_uri);
 
 			lws_get_urlarg_by_name_safe(wsi, "response_type=", response_type, sizeof(response_type));
 			lws_get_urlarg_by_name_safe(wsi, "state=", state, sizeof(state));
@@ -3069,6 +3111,9 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_get_urlarg_by_name_safe(wsi, "code_challenge_method=", code_challenge_method, sizeof(code_challenge_method));
 
 			if (strcmp(response_type, "code")) {
+				lwsl_info("%s: /authorize rejected: response_type "
+					  "('%s') != 'code'\n", __func__,
+					  response_type);
 				lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, "Unsupported response_type");
 				return lws_http_transaction_completed(wsi);
 			}
@@ -3081,56 +3126,84 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				return lws_http_transaction_completed(wsi);
 			}
 
-			char cookies[LWS_AUTH_MAX_COOKIE_LEN] = {0};
-			char session_id[65] = {0};
-			int has_session = 0;
+			/*
+			 * Resolve who is calling /authorize.  The auth_session cookie is a
+			 * signed JWT (not an opaque session id), so validate it via the
+			 * JWT helper; if that fails (eg the short-lived JWT has expired,
+			 * common when re-authenticating after the app's session lapsed but
+			 * the user is still validly logged in here), fall back to the
+			 * long-lived auth_refresh_session opaque token -- exactly the
+			 * resolution /api/status and /api/sso_exchange use.  Without this
+			 * fallback, /authorize bounces a still-logged-in user to /auth,
+			 * which (seeing logged_in from /api/status) bounces straight back
+			 * to /authorize -> infinite redirect loop.
+			 */
 			uint32_t session_uid = 0;
 
-			int ck_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE);
-			if (ck_len >= (int)sizeof(cookies)) {
-				lwsl_err("%s: OVERRUN! HTTP cookie header length (%d) exceeds allocated buffer size (%d), auth tracking tokens may be truncated!\n", __func__, ck_len, (int)sizeof(cookies));
-			}
+			if (vhd->cookie_name[0]) {
+				struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi,
+						&vhd->jwk, vhd->cookie_name,
+						NULL, NULL, NULL);
+				if (ja) {
+					session_uid = lws_jwt_auth_get_uid(ja);
+					lws_jwt_auth_destroy(&ja);
+				} else if (vhd->refresh_token_validity_secs > 0) {
+					char refresh_tk[128] = {0};
+					size_t refresh_len = sizeof(refresh_tk);
 
-			if (lws_hdr_copy(wsi, cookies, sizeof(cookies), WSI_TOKEN_HTTP_COOKIE) > 0) {
-				const char *p = strstr(cookies, "auth_session=");
-				if (p) {
-					p += 13;
-					size_t i = 0;
-					while (*p && *p != ';' && i < sizeof(session_id) - 1)
-						session_id[i++] = *p++;
-					session_id[i] = 0;
-					has_session = 1;
-				}
-			}
-
-			if (has_session) {
-				uint64_t now = (uint64_t)time(NULL);
-				if (sqlite3_prepare_v2(vhd->db, "SELECT uid, expires FROM auth_sessions WHERE session_id = ?", -1, &stmt, NULL) == SQLITE_OK) {
-					sqlite3_bind_text(stmt, 1, session_id, -1, SQLITE_TRANSIENT);
-					if (sqlite3_step(stmt) == SQLITE_ROW) {
-						session_uid = (uint32_t)sqlite3_column_int(stmt, 0);
-						uint64_t exp = (uint64_t)sqlite3_column_int64(stmt, 1);
-						if (now >= exp)
-							session_uid = 0;
-					}
-					sqlite3_finalize(stmt);
-				}
-
-				if (session_uid) {
-					char service_name[128] = {0};
-					lws_get_urlarg_by_name_safe(wsi, "service_name=", service_name, sizeof(service_name));
-					if (service_name[0]) {
-						struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL, NULL);
-						if (ja) {
-							int level = lws_jwt_auth_query_grant(ja, service_name);
-							lws_jwt_auth_destroy(&ja);
-							if (level < 1) { // Lacks required grant
-								session_uid = 0; // Force them to login screen
+					if (lws_http_cookie_get(wsi, "auth_refresh_session",
+							refresh_tk, &refresh_len) == 0 &&
+					    refresh_tk[0]) {
+						uint64_t now = (uint64_t)time(NULL);
+						if (sqlite3_prepare_v2(vhd->db,
+								"SELECT uid, expires FROM auth_sessions "
+								"WHERE session_id = ?", -1,
+								&stmt, NULL) == SQLITE_OK) {
+							sqlite3_bind_text(stmt, 1, refresh_tk,
+									  -1, SQLITE_TRANSIENT);
+							if (sqlite3_step(stmt) == SQLITE_ROW) {
+								uint64_t exp = (uint64_t)
+									sqlite3_column_int64(stmt, 1);
+								if (now < exp)
+									session_uid = (uint32_t)
+										sqlite3_column_int(stmt, 0);
 							}
-						} else {
-							session_uid = 0;
+							sqlite3_finalize(stmt);
 						}
 					}
+				}
+			}
+
+			if (session_uid) {
+				/*
+				 * If a service_name is requested, the resolved identity must
+				 * hold that grant (or the '*' wildcard) to be authorized for
+				 * this service; otherwise force them to the login screen.
+				 * Query the grants table by uid rather than the auth_session
+				 * JWT, so this works for the refresh-session fallback path
+				 * where there is no valid JWT to inspect.
+				 */
+				char service_name[128] = {0};
+				lws_get_urlarg_by_name_safe(wsi, "service_name=",
+						service_name, sizeof(service_name));
+				if (service_name[0]) {
+					int has_grant = 0;
+					if (sqlite3_prepare_v2(vhd->db,
+							"SELECT g.grant_level FROM grants g "
+							"JOIN services s ON g.service_id = s.service_id "
+							"WHERE g.uid = ? AND (s.name = ? OR s.name = '*')",
+							-1, &stmt, NULL) == SQLITE_OK) {
+						sqlite3_bind_int(stmt, 1, (int)session_uid);
+						sqlite3_bind_text(stmt, 2, service_name,
+								  -1, SQLITE_TRANSIENT);
+						while (sqlite3_step(stmt) == SQLITE_ROW) {
+							if (sqlite3_column_int(stmt, 0) >= 1)
+								has_grant = 1;
+						}
+						sqlite3_finalize(stmt);
+					}
+					if (!has_grant)
+						session_uid = 0;
 				}
 			}
 
@@ -3146,8 +3219,15 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				uint8_t *h_end = hdr_buf + sizeof(hdr_buf) - 1;
 				if (lws_add_http_common_headers(wsi, HTTP_STATUS_FOUND, "text/html", 0, &h_p, h_end) ||
 				    lws_add_http_header_by_name(wsi, (unsigned char *)"location:", (unsigned char *)loc, (int)strlen(loc), &h_p, h_end) ||
-				    lws_finalize_write_http_header(wsi, h_start, &h_p, h_end))
+				    /* headers-only 302: OR in LWS_WRITE_H2_STREAM_END so
+				     * the h2/h3 HEADERS frame carries END_STREAM and the
+				     * stream completes -- otherwise it hangs open. */
+				    lws_finalize_write_http_header_flags(wsi, h_start, &h_p, h_end,
+					LWS_WRITE_HTTP_HEADERS | LWS_WRITE_H2_STREAM_END)) {
+					lwsl_notice("%s: /authorize -> /auth header build failed\n",
+						    __func__);
 					return 1;
+				}
 				return lws_http_transaction_completed(wsi);
 			}
 
@@ -3172,20 +3252,46 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 			char loc[1024];
 			char host[128] = {0};
-			lws_hdr_copy(wsi, host, sizeof(host), WSI_TOKEN_HOST);
+			/*
+			 * iss (RFC 9207) must be the issuer URL of the auth server
+			 * itself, ie https://auth.warmcat.com -- the oauth2-client
+			 * checks it against its remote-auth-url to defeat code mix-up.
+			 * Read the request's host portably: WSI_TOKEN_HOST covers h1
+			 * and is synthesized from h2/h3 :authority, but be defensive
+			 * and fall back to :authority directly, then to the configured
+			 * auth-domain, so iss is never "https://" with an empty host
+			 * (which the client correctly rejects).
+			 */
+			if (lws_hdr_copy(wsi, host, sizeof(host), WSI_TOKEN_HOST) <= 0 ||
+			    !host[0]) {
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
+				host[0] = '\0';
+				if (lws_hdr_copy(wsi, host, sizeof(host),
+				                 WSI_TOKEN_HTTP_COLON_AUTHORITY) <= 0 ||
+				    !host[0])
+#endif
+					lws_strncpy(host, vhd->auth_domain,
+						    sizeof(host));
+			}
 			const char *delim = strchr(redirect_uri, '?') ? "&" : "?";
 			lws_snprintf(loc, sizeof(loc), "%s%scode=%s&state=%s&iss=https%%3A%%2F%%2F%s", redirect_uri, delim, code, state, host);
 
 			uint8_t hdr_buf[8192 + LWS_PRE];
 			uint8_t *h_start = hdr_buf + LWS_PRE;
-			uint8_t *h_p = h_start;
-			uint8_t *h_end = hdr_buf + sizeof(hdr_buf) - 1;
-			if (lws_add_http_common_headers(wsi, HTTP_STATUS_FOUND, "text/html", 0, &h_p, h_end) ||
-			    lws_add_http_header_by_name(wsi, (unsigned char *)"location:", (unsigned char *)loc, (int)strlen(loc), &h_p, h_end) ||
-			    lws_finalize_write_http_header(wsi, h_start, &h_p, h_end))
-				return 1;
-			return lws_http_transaction_completed(wsi);
-		}
+				uint8_t *h_p = h_start;
+				uint8_t *h_end = hdr_buf + sizeof(hdr_buf) - 1;
+				if (lws_add_http_common_headers(wsi, HTTP_STATUS_FOUND, "text/html", 0, &h_p, h_end) ||
+				    lws_add_http_header_by_name(wsi, (unsigned char *)"location:", (unsigned char *)loc, (int)strlen(loc), &h_p, h_end) ||
+				    /* headers-only 302: needs LWS_WRITE_H2_STREAM_END so the
+				     * h2/h3 HEADERS frame carries END_STREAM. */
+				    lws_finalize_write_http_header_flags(wsi, h_start, &h_p, h_end,
+					LWS_WRITE_HTTP_HEADERS | LWS_WRITE_H2_STREAM_END)) {
+					lwsl_notice("%s: /authorize -> code header build failed\n",
+						    __func__);
+					return 1;
+				}
+				return lws_http_transaction_completed(wsi);
+			}
 
 		if (in && ((char *)strstr((const char *)in, "login") || (char *)strstr((const char *)in, "register") || (char *)strstr((const char *)in, "forgot_password") || (char *)strstr((const char *)in, "reset_password") || (char *)strstr((const char *)in, "token") || (char *)strstr((const char *)in, "sso_exchange") || (char *)strstr((const char *)in, "device_auth") || (char *)strstr((const char *)in, "device_approve"))) {
 			lws_strncpy(pss->requesting_url, (const char *)in, sizeof(pss->requesting_url));
