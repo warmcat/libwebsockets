@@ -280,11 +280,7 @@ int main(int argc, const char **argv)
 	lwsl_user("Bytes received: %zu\n", received_len);
 	lwsl_user("========================================\n");
 
-	/*
-	 * openHiTLS currently traps in context teardown when a client and
-	 * embedded TLS server share the same context.  The test verdict is
-	 * known when the loop exits, so allow process exit to reclaim it.
-	 */
+	lws_context_destroy(context);
 
 	return bad;
 }

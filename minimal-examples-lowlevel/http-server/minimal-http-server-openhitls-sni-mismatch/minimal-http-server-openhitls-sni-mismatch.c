@@ -31,12 +31,12 @@ static const char *expected_cert_cn[] = {
 	"localhost"   /* Stage 3: no sni vhost, default cert */
 };
 
-static int test_ports[] = {
-	7781,  /* Stage 0 */
-	7782,  /* Stage 1 */
-    7783,  /* Stage 2 */
-    7784   /* Stage 3 */
-};
+/*
+ * Base listen port; each stage uses base_port + stage.  Default preserves
+ * standalone behaviour; ctest overrides it with a CI-allocated free port via
+ * --port so parallel runs (and sibling openHiTLS server tests) can't collide.
+ */
+static int base_port = 7781;
 static const struct lws_protocols protocols[];
 
 struct pss_sni_server {
@@ -189,27 +189,32 @@ create_context_for_stage(int stage)
         case 0:
             /* Stage 0: vhost="nosni.com" with default cert */
             lwsl_user("Stage 0: Creating vhost 'nosni.com' with default cert\n");
-            vh = create_vhost_with_sni(context, test_ports[0], "nosni.com",
+            vh = create_vhost_with_sni(context, base_port + 0, "nosni.com",
                               "certs/default.pem", "certs/default.key");
             break;
         case 1:
             /* Stage 1: vhost="sni.com" with sni.com cert */
             lwsl_user("Stage 1: Creating vhost 'sni.com' with sni.com cert\n");
-            vh = create_vhost_with_sni(context, test_ports[1], "sni.com",
+            vh = create_vhost_with_sni(context, base_port + 1, "sni.com",
                               "certs/sni.pem", "certs/sni.key");
             break;
         case 2:
             /* Stage 2: vhost="sni.com" with default cert */
             lwsl_user("Stage 2: Creating vhost 'sni.com' with default cert\n");
-            vh = create_vhost_with_sni(context, test_ports[2], "sni.com",
+            vh = create_vhost_with_sni(context, base_port + 2, "sni.com",
                               "certs/default.pem", "certs/default.key");
             break;
         case 3:
             /* Stage 3: no SNI vhost at all, only default vhost */
             lwsl_user("Stage 3: Creating default vhost 'localhost' (no SNI vhost)\n");
-            vh = create_vhost_with_sni(context, test_ports[3], "localhost",
+            vh = create_vhost_with_sni(context, base_port + 3, "localhost",
                               "certs/default.pem", "certs/default.key");
             break;
+        default:
+            /* stage is bounded to 0..3 by the caller; reject anything else */
+            lwsl_err("Stage %d: invalid stage\n", stage);
+            lws_context_destroy(context);
+            return NULL;
     }
     
     if (!vh) {
@@ -228,7 +233,7 @@ connect_to_stage(int stage)
     
     memset(&i, 0, sizeof(i));
     i.context = context;
-    i.port = test_ports[stage];
+    i.port = base_port + stage;
     i.address = "localhost";
     i.ssl_connection = LCCSCF_USE_SSL |
                    LCCSCF_ALLOW_SELFSIGNED |
@@ -254,13 +259,24 @@ connect_to_stage(int stage)
 
 int main(int argc, const char **argv)
 {
+    const char *p;
     int n = 0;
     int stage;
 
     signal(SIGINT, sigint_handler);
 
     lws_set_log_level(LLL_USER | LLL_ERR | LLL_WARN, NULL);
-    lwsl_user("LWS SNI Test - 4 Scenarios\n\n");
+
+    /*
+     * ctest passes --port allocated by lws_get_free_ports(4) so the whole
+     * base_port + 0..3 block is reserved and parallel runs can't tread on each
+     * other or sibling tests.  Default keeps the original standalone range.
+     */
+    p = lws_cmdline_option(argc, argv, "--port");
+    if (p)
+	    base_port = atoi(p);
+
+    lwsl_user("LWS SNI Test - 4 Scenarios (base port %d)\n\n", base_port);
 
     /* Test all 4 stages */
     for (stage = 0; stage < 4 && !bad && !interrupted; stage++) {
@@ -295,12 +311,7 @@ int main(int argc, const char **argv)
         
         lwsl_user("Stage %d: Completed\n\n", stage);
 
-        /*
-         * openHiTLS currently traps in context teardown when a client
-         * and embedded TLS server share the same context.  The test
-         * verdict is known when the loop exits, so allow process exit
-         * to reclaim it.
-         */
+        lws_context_destroy(context);
     }
 
     lwsl_user("========================================\n");

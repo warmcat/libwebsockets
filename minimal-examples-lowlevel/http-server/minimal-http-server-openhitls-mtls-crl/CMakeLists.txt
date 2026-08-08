@@ -28,8 +28,13 @@ if (requirements)
 	#
 	# CTest configuration
 	#
+	# This test opens three server sockets (one per stage, base_port + 0..2) in
+	# a single process, so reserve a contiguous block of three rather than a
+	# single port: otherwise a sibling test can grab an individual port from
+	# inside our block in parallel CI.
+	#
 	if (NOT WIN32)
-		lws_get_free_port(PORT_OH_MTLS_CRL)
+		lws_get_free_ports(PORT_OH_MTLS_CRL 3)
 
 		add_test(NAME http-server-mtls-crl COMMAND
 			${SAMP} --port ${PORT_OH_MTLS_CRL})
