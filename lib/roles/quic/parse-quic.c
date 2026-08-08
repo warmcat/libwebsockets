@@ -1714,12 +1714,18 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 				qn->peer_max_datagram_frame_size = val;
 			} else return -1;
 			break;
-		case 0x0b: /* max_ack_delay */
+		case 0x0b: /* max_ack_delay (milliseconds, RFC 9000 §18.2) */
 			if (lws_quic_parse_varint(&buf[pos], param_len, &val) == param_len) {
 				if (val >= 16384) { /* 2^14 */
 					lwsl_wsi_err(wsi, "QUIC TP error: max_ack_delay %llu >= 16384", (unsigned long long)val);
 					return -1;
 				}
+				/*
+				 * Bound our own delayed-ACK dwell time by what the peer
+				 * advertises it is willing to wait (RFC 9000 §13.2.1).
+				 * Stored in microseconds; defaults to 25ms if omitted.
+				 */
+				qn->peer_max_ack_delay_us = (lws_usec_t)val * LWS_US_PER_MS;
 			} else return -1;
 			break;
 		case 0x0e: /* active_connection_id_limit */
