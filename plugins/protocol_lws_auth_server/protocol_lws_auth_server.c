@@ -3207,7 +3207,27 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 			char loc[1024];
 			char host[128] = {0};
-			lws_hdr_copy(wsi, host, sizeof(host), WSI_TOKEN_HOST);
+			/*
+			 * iss (RFC 9207) must be the issuer URL of the auth server
+			 * itself, ie https://auth.warmcat.com -- the oauth2-client
+			 * checks it against its remote-auth-url to defeat code mix-up.
+			 * Read the request's host portably: WSI_TOKEN_HOST covers h1
+			 * and is synthesized from h2/h3 :authority, but be defensive
+			 * and fall back to :authority directly, then to the configured
+			 * auth-domain, so iss is never "https://" with an empty host
+			 * (which the client correctly rejects).
+			 */
+			if (lws_hdr_copy(wsi, host, sizeof(host), WSI_TOKEN_HOST) <= 0 ||
+			    !host[0]) {
+#if defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
+				host[0] = '\0';
+				if (lws_hdr_copy(wsi, host, sizeof(host),
+				                 WSI_TOKEN_HTTP_COLON_AUTHORITY) <= 0 ||
+				    !host[0])
+#endif
+					lws_strncpy(host, vhd->auth_domain,
+						    sizeof(host));
+			}
 			const char *delim = strchr(redirect_uri, '?') ? "&" : "?";
 			lws_snprintf(loc, sizeof(loc), "%s%scode=%s&state=%s&iss=https%%3A%%2F%%2F%s", redirect_uri, delim, code, state, host);
 
