@@ -3051,6 +3051,18 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				return lws_http_transaction_completed(wsi);
 			}
 
+			/* lws_get_urlarg_by_name_safe() returns the value verbatim from
+			 * the request line (the URI-arg parser does not percent-decode),
+			 * but the oauth2-client now sends an absolute, url-encoded
+			 * redirect_uri (eg "https%3A%2F%2Fhost%2Eorg%2Foauth%2Fcallback",
+			 * with the dot encoded as %2E).  Decode it to match the plaintext
+			 * registered URIs in oauth_clients, the same way /logout does.
+			 * This also keeps the value we store in oauth_codes byte-identical
+			 * to what /api/token later compares (the SPA POST parser *does*
+			 * decode, so without this the code-for-token swap would fail with
+			 * invalid_grant even if /authorize passed). */
+			lws_urldecode(redirect_uri, redirect_uri, sizeof(redirect_uri));
+
 			lws_get_urlarg_by_name_safe(wsi, "response_type=", response_type, sizeof(response_type));
 			lws_get_urlarg_by_name_safe(wsi, "state=", state, sizeof(state));
 			lws_get_urlarg_by_name_safe(wsi, "code_challenge=", code_challenge, sizeof(code_challenge));
