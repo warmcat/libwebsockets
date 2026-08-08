@@ -670,9 +670,9 @@ auth_verify_redirect_uri(struct per_vhost_data__auth_server *vhd,
 			sqlite3_bind_text(stmt, 1, client_id, -1, SQLITE_STATIC);
 			if (sqlite3_step(stmt) == SQLITE_ROW) {
 				const char *uris = (const char *)sqlite3_column_text(stmt, 0);
-				lwsl_info("%s: client_id='%s' redirect_uri='%s' registered='%s'\n",
-					  __func__, client_id, redirect_uri,
-					  uris ? uris : "(null)");
+				lwsl_notice("%s: client_id='%s' redirect_uri='%s' registered='%s'\n",
+					    __func__, client_id, redirect_uri,
+					    uris ? uris : "(null)");
 				if (uris) {
 					const char *p = uris;
 					while (p && *p) {
@@ -3057,8 +3057,8 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				return lws_http_transaction_completed(wsi);
 			}
 
-			lwsl_info("%s: /authorize client_id='%s' redirect_uri='%s'\n",
-				  __func__, client_id, redirect_uri);
+			lwsl_notice("%s: /authorize client_id='%s' redirect_uri='%s'\n",
+				    __func__, client_id, redirect_uri);
 
 			lws_get_urlarg_by_name_safe(wsi, "response_type=", response_type, sizeof(response_type));
 			lws_get_urlarg_by_name_safe(wsi, "state=", state, sizeof(state));
@@ -3146,7 +3146,19 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				uint8_t *h_end = hdr_buf + sizeof(hdr_buf) - 1;
 				if (lws_add_http_common_headers(wsi, HTTP_STATUS_FOUND, "text/html", 0, &h_p, h_end) ||
 				    lws_add_http_header_by_name(wsi, (unsigned char *)"location:", (unsigned char *)loc, (int)strlen(loc), &h_p, h_end) ||
-				    lws_finalize_write_http_header(wsi, h_start, &h_p, h_end))
+				    lws_finalize_http_header(wsi, &h_p, h_end)) {
+					lwsl_notice("%s: /authorize -> /auth header build failed\n", __func__);
+					return 1;
+				}
+				/* headers-only 302: under h2/h3 the HEADERS frame must
+				 * carry END_STREAM or the stream hangs open waiting for a
+				 * body that never comes (browser sees no response).  We
+				 * can't use lws_finalize_write_http_header() because it
+				 * hardcodes plain LWS_WRITE_HTTP_HEADERS. */
+				if (lws_write(wsi, h_start, lws_ptr_diff_size_t(h_p, h_start),
+					      LWS_WRITE_HTTP_HEADERS |
+						      LWS_WRITE_H2_STREAM_END) !=
+				    lws_ptr_diff(h_p, h_start))
 					return 1;
 				return lws_http_transaction_completed(wsi);
 			}
@@ -3182,7 +3194,17 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			uint8_t *h_end = hdr_buf + sizeof(hdr_buf) - 1;
 			if (lws_add_http_common_headers(wsi, HTTP_STATUS_FOUND, "text/html", 0, &h_p, h_end) ||
 			    lws_add_http_header_by_name(wsi, (unsigned char *)"location:", (unsigned char *)loc, (int)strlen(loc), &h_p, h_end) ||
-			    lws_finalize_write_http_header(wsi, h_start, &h_p, h_end))
+			    lws_finalize_http_header(wsi, &h_p, h_end)) {
+				lwsl_notice("%s: /authorize -> code header build failed\n",
+					    __func__);
+				return 1;
+			}
+			/* headers-only 302: see the note in the no-session branch
+			 * above -- under h2/h3 the HEADERS frame needs END_STREAM. */
+			if (lws_write(wsi, h_start, lws_ptr_diff_size_t(h_p, h_start),
+				      LWS_WRITE_HTTP_HEADERS |
+					      LWS_WRITE_H2_STREAM_END) !=
+			    lws_ptr_diff(h_p, h_start))
 				return 1;
 			return lws_http_transaction_completed(wsi);
 		}
