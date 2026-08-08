@@ -443,6 +443,28 @@ rops_perform_user_POLLOUT_h3(struct lws *wsi)
 
 		/* Detach the ah now that headers are processed, to prevent ah pool exhaustion */
 		lws_header_table_detach(wsi, 0);
+
+		/*
+		 * lws_http_action sets LRS_DOING_TRANSACTION on the wsi BEFORE
+		 * dispatching LWS_CALLBACK_HTTP (server.c:2157,2365).  If the
+		 * user returned 0 to suspend the transaction and wait for async
+		 * work, the wsi is still in LRS_DOING_TRANSACTION here.  In that
+		 * case we must NOT re-arm POLLOUT: doing so schedules an
+		 * immediate writeable that resumes the transaction before the
+		 * async work the user is waiting on has finished (h1 and h2
+		 * honor this -- they simply leave the wsi suspended until the
+		 * user's explicit lws_callback_on_writable).
+		 *
+		 * For the non-suspend case (eg file serving that transitions to
+		 * LRS_ISSUING_FILE and may have queued FIN synchronously without
+		 * sending it yet), preserve the original re-arm so the stream
+		 * gets polled again and flushes.
+		 */
+		if (lwsi_state(wsi) == LRS_DOING_TRANSACTION) {
+			lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
+			return 0;
+		}
+
 		lws_set_timeout(wsi, NO_PENDING_TIMEOUT, 0);
 
 		/* We are returning 0 because the file might be read synchronously and FIN queued,
@@ -1743,6 +1765,12 @@ rops_write_role_protocol_h3(struct lws *wsi, unsigned char *buf, size_t len,
 					write_role_protocol(wsi, (is_http || is_headers) ? pre : buf, len, wp);
 			if (n <= 0)
 				return n;
+
+			if (is_headers)
+				/* server response HEADERS frame went out: arm the
+				 * response-completion watchdog (no-op for immortal
+				 * streams, idempotent). */
+				lws_http_response_started(wsi);
 
 			if (is_http && wsi->http.tx_content_length) {
 				wsi->http.tx_content_remain -= olen;

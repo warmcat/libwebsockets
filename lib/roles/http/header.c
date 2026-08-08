@@ -155,8 +155,9 @@ int lws_finalize_http_header(struct lws *wsi, unsigned char **p,
 }
 
 int
-lws_finalize_write_http_header(struct lws *wsi, unsigned char *start,
-			       unsigned char **pp, unsigned char *end)
+lws_finalize_write_http_header_flags(struct lws *wsi, unsigned char *start,
+			             unsigned char **pp, unsigned char *end,
+			             enum lws_write_protocol flags)
 {
 	unsigned char *p;
 	int len;
@@ -167,10 +168,18 @@ lws_finalize_write_http_header(struct lws *wsi, unsigned char *start,
 	p = *pp;
 	len = lws_ptr_diff(p, start);
 
-	if (lws_write(wsi, start, (unsigned int)len, LWS_WRITE_HTTP_HEADERS) != len)
+	if (lws_write(wsi, start, (unsigned int)len, flags) != len)
 		return 1;
 
 	return 0;
+}
+
+int
+lws_finalize_write_http_header(struct lws *wsi, unsigned char *start,
+			       unsigned char **pp, unsigned char *end)
+{
+	return lws_finalize_write_http_header_flags(wsi, start, pp, end,
+						    LWS_WRITE_HTTP_HEADERS);
 }
 
 int

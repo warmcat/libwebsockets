@@ -234,9 +234,15 @@ static int lws_frag_start(struct lws *wsi, int hdr_token_idx)
 	     hdr_token_idx == WSI_TOKEN_HTTP_COLON_SCHEME) &&
 	     ah->frag_index[hdr_token_idx]) {
 		if (!(ah->frags[ah->frag_index[hdr_token_idx]].flags & 1)) {
+			const char *hn = (const char *)lws_token_to_string(
+					(enum lws_token_indexes)hdr_token_idx);
+			char reason[48];
+			lws_snprintf(reason, sizeof(reason),
+				     "Duplicated pseudoheader %s", hn ?: "?");
+			lwsl_wsi_warn(wsi, "%s: RX DUPLICATE pseudo-header "
+					"'%s' -> GOAWAY", __func__, hn ?: "?");
 			lws_h2_goaway(lws_get_network_wsi(wsi),
-				      H2_ERR_PROTOCOL_ERROR,
-				      "Duplicated pseudoheader");
+				      H2_ERR_PROTOCOL_ERROR, reason);
 			return 1;
 		}
 	}
@@ -1540,6 +1546,69 @@ int lws_add_http2_header_by_name(struct lws *wsi, const unsigned char *name,
 		if (name[len - 1] == ':')
 			len--;
 
+	/*
+	 * Transmit-side duplicate-pseudoheader guard.
+	 *
+	 * h2 pseudo-headers (:method, :path, :scheme, :authority, :protocol,
+	 * :status) MUST appear at most once in a HEADERS block; a strict peer
+	 * answers with GOAWAY PROTOCOL_ERROR "Duplicated pseudoheader" and
+	 * tears the connection down.  The receive side (lws_frag_start in
+	 * hpack.c) already rejects these, but the transmit side used to emit
+	 * the duplicate silently, so the bug only surfaced months later at a
+	 * peer that validated it.
+	 *
+	 * h2_pseudo_seen is cleared at the start of each HEADERS build
+	 * (lws_h2_client_handshake / the server response builders); each
+	 * pseudo-header add sets its bit.  If the bit is already set here, we
+	 * are emitting a duplicate -- an lws bug.  Assert at the construction
+	 * site so it's found in seconds under gdb, with the offending header
+	 * named in the log, instead of divined from a peer's GOAWAY weeks
+	 * later.
+	 */
+	if (len && name[0] == ':') {
+		static const struct {
+			const char *name;
+			uint8_t bit;
+		} pseudo[] = {
+			{ ":method",	1u << 0 },
+			{ ":path",	1u << 1 },
+			{ ":scheme",	1u << 2 },
+			{ ":authority", 1u << 3 },
+			{ ":protocol",	1u << 4 },
+			{ ":status",	1u << 5 },
+		};
+		size_t i;
+		for (i = 0; i < LWS_ARRAY_SIZE(pseudo); i++) {
+			if ((int)strlen(pseudo[i].name) == len &&
+			    !memcmp(pseudo[i].name, name, (size_t)len)) {
+				if (wsi->h2.h2_pseudo_seen & pseudo[i].bit) {
+					/*
+					 * Transmitting a duplicate pseudo-header
+					 * is an lws bug we do not tolerate on
+					 * the producer any more than on the
+					 * consumer (a strict peer GOAWAYs the
+					 * connection with "Duplicated
+					 * pseudoheader").  Assert at the
+					 * construction site with the offending
+					 * header named, so the cause is found
+					 * in seconds under gdb -- typically a
+					 * missing reset of per-HEADERS state on
+					 * wsi reuse (eg redirect).
+					 */
+					lwsl_wsi_warn(wsi, "%s: DUPLICATE h2 "
+						     "pseudo-header '%.*s' added "
+						     "to one HEADERS block -- lws "
+						     "transmit bug, asserting",
+						     __func__, len,
+						     (const char *)name);
+					assert(0);
+				}
+				wsi->h2.h2_pseudo_seen |= pseudo[i].bit;
+				break;
+			}
+		}
+	}
+
 	if (wsi->mux_substream && !strncmp((const char *)name,
 					     "transfer-encoding", (unsigned int)len)) {
 		lwsl_header("rejecting %s\n", name);
@@ -1593,6 +1662,9 @@ int lws_add_http2_header_status(struct lws *wsi, unsigned int code,
 	int n;
 
 	wsi->h2.send_END_STREAM = 0; // !!(code >= 400);
+
+	/* Reset the per-HEADERS duplicate-pseudoheader tracker (see hpack.c) */
+	wsi->h2.h2_pseudo_seen = 0;
 
 	n = lws_snprintf((char *)status, sizeof(status), "%u", code);
 	if (lws_add_http2_header_by_token(wsi, WSI_TOKEN_HTTP_COLON_STATUS,

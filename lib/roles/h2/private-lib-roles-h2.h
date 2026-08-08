@@ -313,6 +313,17 @@ struct _lws_h2_related {
 	uint8_t			send_END_STREAM:1;
 	uint8_t			long_poll:1;
 	uint8_t			initialized:1;
+
+	/*
+	 * Transmit-side duplicate-pseudoheader detection.  Reset to 0 at the
+	 * start of each HEADERS block build; each pseudo-header add sets its
+	 * bit.  If a bit is already set on add, we are emitting a duplicate
+	 * pseudo-header (an lws bug) -- assert at the construction site so it
+	 * is caught in seconds under gdb instead of surfacing months later as
+	 * a peer GOAWAY "Duplicated pseudoheader".  Bits:
+	 *   0=:method 1=:path 2=:scheme 3=:authority 4=:protocol 5=:status
+	 */
+	uint8_t			h2_pseudo_seen;
 };
 
 #define HTTP2_IS_TOPLEVEL_WSI(wsi) (!wsi->mux.parent_wsi)

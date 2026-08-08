@@ -277,6 +277,13 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 	/* start of label-formatted qname */
 
 	pl = p++;
+	*pl = 0; /* terminal length: also covers the empty/root-name case,
+		  * where the do/while below breaks on the first iteration
+		  * (l == 0) before ever writing *pl.  For a non-empty name
+		  * this is overwritten with the first label's length when that
+		  * label completes; for "." / "" it stays 0, which is exactly
+		  * the DNS root label, and avoids sending an uninitialised
+		  * byte in the query (oss-fuzz / valgrind). */
 
 	do {
 		if (*name == '.' || !*name) {

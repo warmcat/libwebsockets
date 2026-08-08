@@ -331,7 +331,20 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 		if (p)
 			lws_bind_protocol(wsi, p, __func__);
 		else
-			lwsl_wsi_info(wsi, "unknown protocol %s", local);
+			/*
+			 * The named protocol is not enabled on the bound vhost.
+			 * The wsi is left on the vhost's protocols[0]; any later
+			 * CLIENT_* callbacks are delivered to that callback, not
+			 * the one the caller asked for -- which typically shows
+			 * up as a request that hangs forever.  Promote to warn so
+			 * the misconfiguration is visible: either set i.vhost to
+			 * a vhost that has the protocol enabled, or add the
+			 * protocol to this vhost's ws-protocols list.
+			 */
+			lwsl_wsi_warn(wsi, "unknown protocol %s on vhost %s: "
+					"callbacks will be misrouted; set i.vhost "
+					"to a vhost that has it enabled",
+					local, wsi->a.vhost->name);
 
 		lwsl_wsi_info(wsi, "%s: %s %s entry",
 			    lws_wsi_tag(wsi), wsi->role_ops->name,

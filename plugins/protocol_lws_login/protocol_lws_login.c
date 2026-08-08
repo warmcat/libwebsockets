@@ -447,6 +447,16 @@ lws_login_kick_refresh(struct vhd_login *vhd, struct lws *wsi, const char *cooki
 
 	memset(&i, 0, sizeof(i));
 	i.context        = vhd->context;
+	/*
+	 * Bind the outbound client connection to the SAME vhost the lws-login
+	 * protocol is mounted on: lws resolves the named protocol
+	 * (lws_login_client) only from the bound vhost's protocols[] array,
+	 * and without i.vhost it falls back to _ss_default (which doesn't have
+	 * lws_login_client enabled), misrouting every CLIENT_* callback.  This
+	 * is the same bug class that stalled lws-oauth2-client's /api/token
+	 * fetch -- the vhost must be set explicitly.
+	 */
+	i.vhost          = vhd->vhost;
 	i.address        = puri->host;
 	i.port           = puri->port;
 	i.ssl_connection = !strcmp(puri->scheme, "http") ? 0 : LCCSCF_USE_SSL;
@@ -620,25 +630,41 @@ callback_lws_login_client(struct lws *wsi, enum lws_callback_reasons reason,
 						 (int)strlen(ps->cookie_hdr), p, end))
 			return -1;
 
+		/*
+		 * Arm the POST body write -- same canonical pattern as
+		 * minimal-http-client-post and lws-oauth2-client: set body-pending
+		 * and request WRITEABLE after appending the headers.  On h2 this
+		 * is required (no h1-style auto-arm fallback).
+		 */
+		lws_client_http_body_pending(wsi, 1);
+		lws_callback_on_writable(wsi);
+
 		break;
 	}
 
 	case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE: {
+		size_t chunk;
 		int n;
 
 		if (!ps || ps->payload_pos >= ps->payload_len)
 			break;
 
+		chunk = (size_t)(ps->payload_len - ps->payload_pos);
+
+		/*
+		 * Final body chunk: pair lws_client_http_body_pending(,0) with
+		 * LWS_WRITE_HTTP_FINAL so h2 puts END_STREAM on the last DATA
+		 * frame and the server knows the request body is complete.
+		 */
+		lws_client_http_body_pending(wsi, 0);
 		n = lws_write(wsi, (unsigned char *)ps->payload + ps->payload_pos,
-			      (size_t)(ps->payload_len - ps->payload_pos), LWS_WRITE_HTTP);
+			      chunk, LWS_WRITE_HTTP_FINAL);
 		if (n < 0)
 			return -1;
 		ps->payload_pos += n;
 
 		if (ps->payload_pos < ps->payload_len)
 			lws_callback_on_writable(wsi);
-		else
-			lws_client_http_body_pending(wsi, 0);
 		break;
 	}
 
@@ -777,9 +803,67 @@ simple_response(struct lws *wsi, struct pss_login *pss, const char *msg, const c
 }
 
 /*
+ * A "global admin" is solely the holder of the "*" wildcard grant -- the
+ * established "god" grant, the TOFU bootstrap account that can manage every
+ * user and account on the system.  This is the ONLY grant that unlocks the
+ * central auth-server Admin Console (/api/admin, which itself gates on the
+ * literal "*") and is the ONLY thing that should drive the "Admin Console"
+ * link in the status widget and x-lws-login-admin:1 for backends.
+ *
+ * A named, app-scoped grant at level >= 2 (eg lws-sai:2) makes the user an
+ * admin of *that one app*; it must NOT be reported as a global admin here,
+ * or the user gets shown an Admin Console link they cannot actually open.
+ * The app-local admin level is carried separately by x-lws-login-grant-level
+ * / "grant_level", so backends and the widget can apply their own threshold
+ * (eg the avatar badge at grant_level >= 2).
+ */
+static int
+lws_login_is_global_admin(struct lws_jwt_auth *ja)
+{
+	return lws_jwt_auth_query_grant(ja, "*") >= 1;
+}
+
+/*
+ * Reduce the verified grants for this request to a single \ref
+ * lws_login_state, the role injected as x-lws-login-state for the backend.
+ *
+ * The "*" wildcard is checked FIRST, so a global admin (god) is always
+ * LWS_LOGIN_STATE_GLOBAL_ADMIN regardless of any named grant on the token
+ * (any "*" level >= 1 qualifies, per lws_login_is_global_admin).  Below that,
+ * the named grant level for this mount decides USER vs APP_ADMIN, and a valid
+ * JWT with no usable grant here is NO_GRANT.  |level| may be -1 when no
+ * service grant (and no "*") was found.  A NULL ja (no/invalid JWT, only
+ * reachable on an unauth-allow mount) yields ANON.
+ */
+static enum lws_login_state
+lws_login_state_from_grants(struct lws_jwt_auth *ja, int level)
+{
+	if (lws_login_is_global_admin(ja))
+		return LWS_LOGIN_STATE_GLOBAL_ADMIN;
+	if (level >= 2)
+		return LWS_LOGIN_STATE_APP_ADMIN;
+	if (level >= 1)
+		return LWS_LOGIN_STATE_USER;
+	if (ja)
+		return LWS_LOGIN_STATE_NO_GRANT;
+	return LWS_LOGIN_STATE_ANON;
+}
+
+/*
  * Stamp the cooked login state onto the browser-side wsi as "extra onward
  * headers" so the proxy (HTTP or WS) forwards them to the backend app.  The
- * app then reads eg x-lws-login-admin:1 with no JWT/grant logic of its own.
+ * app then reads x-lws-login-state (the authoritative summary role) with no
+ * JWT/grant logic of its own.
+ *
+ *   x-lws-login-state:        stringified lws_login_state (authoritative)
+ *   x-lws-login-admin:        1 iff state == GLOBAL_ADMIN (back-compat)
+ *   x-lws-login-grant-level:  raw integer grant level used for this mount
+ *   x-lws-login-sub:          subject identity ("" if anonymous)
+ *
+ * x-lws-login-admin is derived from |state| so it stays consistent with
+ * x-lws-login-state by construction; a backend that wants "admin of my own
+ * app" should instead check `state >= LWS_LOGIN_STATE_APP_ADMIN` or read
+ * x-lws-login-grant-level.
  *
  * Mirrors lib/roles/http/server/interceptor.c lws_interceptor_inject_header:
  * anti-spoof any client-supplied copy first (lws_http_zap_header), then append
@@ -787,27 +871,33 @@ simple_response(struct lws *wsi, struct pss_login *pss, const char *msg, const c
  * trusts these because only the interceptor (which holds the JWK) can set
  * them -- a browser cannot elevate itself, its x-lws-login-* is zapped here.
  *
- * sub/level may be NULL/-1 for the anonymous (unauth-allow) case, in which
- * case we still inject x-lws-login-admin:0 so the backend sees an explicit
- * "not admin" rather than ambiguous absence.
+ * sub/level may be NULL/-1 for the anonymous (unauth-allow) case; we still
+ * inject the headers (with x-lws-login-state:0 / x-lws-login-admin:0) so the
+ * backend sees an explicit "anonymous" rather than ambiguous absence.
  */
 static void
-lws_login_inject_state(struct lws *wsi, const char *sub, int level, int is_admin)
+lws_login_inject_state(struct lws *wsi, const char *sub, int level,
+		       enum lws_login_state state)
 {
 	char buf[32];
 
 	/* anti-spoof any client-supplied copy first, then stamp trusted value */
-	lws_http_zap_header(wsi, "x-lws-login-admin");
-	lws_http_zap_header(wsi, "x-lws-login-grant-level");
-	lws_http_zap_header(wsi, "x-lws-login-sub");
+	lws_http_zap_header(wsi, LWS_LOGIN_HDR_STATE);
+	lws_http_zap_header(wsi, LWS_LOGIN_HDR_ADMIN);
+	lws_http_zap_header(wsi, LWS_LOGIN_HDR_GRANT_LEVEL);
+	lws_http_zap_header(wsi, LWS_LOGIN_HDR_SUB);
 
-	lws_http_add_onward_header(wsi, "x-lws-login-admin",
-				   is_admin ? "1" : "0");
+	lws_snprintf(buf, sizeof(buf), "%d", (int)state);
+	lws_http_add_onward_header(wsi, LWS_LOGIN_HDR_STATE, buf);
+
+	lws_http_add_onward_header(wsi, LWS_LOGIN_HDR_ADMIN,
+				   state == LWS_LOGIN_STATE_GLOBAL_ADMIN
+					   ? "1" : "0");
 
 	lws_snprintf(buf, sizeof(buf), "%d", level);
-	lws_http_add_onward_header(wsi, "x-lws-login-grant-level", buf);
+	lws_http_add_onward_header(wsi, LWS_LOGIN_HDR_GRANT_LEVEL, buf);
 
-	lws_http_add_onward_header(wsi, "x-lws-login-sub", sub ? sub : "");
+	lws_http_add_onward_header(wsi, LWS_LOGIN_HDR_SUB, sub ? sub : "");
 }
 
 static int
@@ -1172,14 +1262,17 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 
 			{
 				/* capture login state before destroying ja, and
-				 * stamp it for the proxy to forward to backend */
+				 * stamp it for the proxy to forward to backend.
+				 * The single lws_login_state encodes the role
+				 * (anon/user/app-admin/global-admin); the bouncer
+				 * no longer leaks a separate is_admin boolean. */
 				const char *sub = lws_jwt_auth_get_sub(ja);
-				int is_admin = lws_jwt_auth_query_grant(ja, "*") >= 1 ||
-					       level >= 2;
+				enum lws_login_state state =
+					lws_login_state_from_grants(ja, level);
 
 				lws_jwt_auth_destroy(&ja);
 
-				lws_login_inject_state(wsi, sub, level, is_admin);
+				lws_login_inject_state(wsi, sub, level, state);
 			}
 			lwsl_info("%s: ALLOWING (User has required grant)\n", __func__);
 			return 0; /* Let traffic through to the real mount */
@@ -1191,8 +1284,8 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 	lwsl_info("%s: INTERCEPTING (NO VALID COOKIE FOUND)\n", __func__);
 
 	if (unauth_allow) {
-		/* anonymous or no-grant-but-allowed: explicit not-admin */
-		lws_login_inject_state(wsi, NULL, -1, 0);
+		/* anonymous: explicit ANON state for the backend */
+		lws_login_inject_state(wsi, NULL, -1, LWS_LOGIN_STATE_ANON);
 		lwsl_info("%s: ALLOWING UNAUTH (unauth-allow enabled)\n", __func__);
 		return 0;
 	}
@@ -1543,23 +1636,25 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				const char *sub = lws_jwt_auth_get_sub(pss->ja);
 				int level = lws_jwt_auth_query_grant(pss->ja, service_name);
 				/*
-				 * A user is an admin if they hold the wildcard
-				 * "*" grant (the established "god" grant) or if
-				 * they hold this service's named grant at level
-				 * >= 2 (the admin level).  Note
-				 * lws_jwt_auth_query_grant() already falls back
-				 * to a "*" grant for the named query, so |level|
-				 * also reflects a wildcard; the explicit "*"
-				 * query is kept so a level-1 wildcard still
-				 * counts as admin as before.
+				 * Compute the single lws_login_state for this
+				 * request (same mapping as the backend header
+				 * injection) and derive the JSON booleans from
+				 * it so they can't drift apart.  is_admin means
+				 * a GLOBAL system admin only (the "*" wildcard),
+				 * the one thing that unlocks the auth-server
+				 * Admin Console and the "Admin Console" link in
+				 * the widget; an app-scoped level >= 2 is an
+				 * APP_ADMIN, reflected by login_state and
+				 * grant_level but not is_admin.
 				 */
-				int is_admin = lws_jwt_auth_query_grant(pss->ja, "*") >= 1 ||
-					       level >= 2;
-				int has_grant = level >= 1;
-				lws_snprintf(pl, sizeof(pl), "{\"logged_in\":1,\"server_now\":%llu,\"exp\":%llu,\"has_grant\":%d,\"grant_level\":%d,\"identity\":\"%s\",\"auth_server_url\":\"%s\",\"login_url\":\"%s\",\"is_admin\":%d,\"unauth_allow\":%d}",
-					(unsigned long long)lws_now_secs(), (unsigned long long)lws_jwt_auth_get_exp(pss->ja), has_grant, level, sub ? sub : "Unknown", vhd->auth_server_url ? vhd->auth_server_url : "", dest, is_admin, unauth_allow);
+				enum lws_login_state state =
+					lws_login_state_from_grants(pss->ja, level);
+				int is_admin = state == LWS_LOGIN_STATE_GLOBAL_ADMIN;
+				int has_grant = state >= LWS_LOGIN_STATE_USER;
+				lws_snprintf(pl, sizeof(pl), "{\"logged_in\":1,\"server_now\":%llu,\"exp\":%llu,\"has_grant\":%d,\"grant_level\":%d,\"login_state\":%d,\"identity\":\"%s\",\"auth_server_url\":\"%s\",\"login_url\":\"%s\",\"is_admin\":%d,\"unauth_allow\":%d}",
+					(unsigned long long)lws_now_secs(), (unsigned long long)lws_jwt_auth_get_exp(pss->ja), has_grant, level, (int)state, sub ? sub : "Unknown", vhd->auth_server_url ? vhd->auth_server_url : "", dest, is_admin, unauth_allow);
 			} else
-				lws_snprintf(pl, sizeof(pl), "{\"logged_in\":0,\"server_now\":%llu,\"auth_server_url\":\"%s\",\"login_url\":\"%s\",\"unauth_allow\":%d}", (unsigned long long)lws_now_secs(), vhd->auth_server_url ? vhd->auth_server_url : "", dest, unauth_allow);
+				lws_snprintf(pl, sizeof(pl), "{\"logged_in\":0,\"login_state\":%d,\"server_now\":%llu,\"auth_server_url\":\"%s\",\"login_url\":\"%s\",\"unauth_allow\":%d}", (int)LWS_LOGIN_STATE_ANON, (unsigned long long)lws_now_secs(), vhd->auth_server_url ? vhd->auth_server_url : "", dest, unauth_allow);
 
                         return simple_response(wsi, pss, pl, "application/json",
                                                HTTP_STATUS_OK, (unsigned char *)buf + LWS_PRE, (unsigned char **)&p,
