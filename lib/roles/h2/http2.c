@@ -145,7 +145,24 @@ lws_h2_state(struct lws *wsi, enum lws_h2_states s)
 	lwsl_info("%s: %s: state %s -> %s\n", __func__, lws_wsi_tag(wsi),
 			h2_state_names[wsi->h2.h2_state],
 			h2_state_names[s]);
-		
+
+	/*
+	 * If the stream is being closed after we started sending a response
+	 * but never sent END_STREAM (and it wasn't an immortal SSE / long-poll
+	 * stream that legitimately lives without END_STREAM), the response was
+	 * incomplete -- usually a headers-only response written without
+	 * LWS_WRITE_H2_STREAM_END.  Warn so the user code bug is visible even
+	 * when the peer (or the network) closed the stream before the
+	 * PENDING_TIMEOUT_HTTP_RESPONSE watchdog could fire.
+	 */
+	if (s == LWS_H2_STATE_CLOSED &&
+	    wsi->http.sent_response_headers && !wsi->h2.send_END_STREAM &&
+	    !wsi->mux_stream_immortal)
+		lwsl_wsi_warn(wsi, "h2 stream closed with response headers sent "
+			      "but no END_STREAM (incomplete response; user code "
+			      "likely wrote a headers-only response without "
+			      "LWS_WRITE_H2_STREAM_END)");
+
 	(void)h2_state_names;
 	wsi->h2.h2_state = (uint8_t)s;
 }

@@ -540,6 +540,10 @@ rops_write_role_protocol_h2(struct lws *wsi, unsigned char *buf, size_t len,
 			flags |= LWS_H2_FLAG_END_STREAM;
 			wsi->h2.send_END_STREAM = 1;
 		}
+		/* server response headers are going out: arm the
+		 * response-completion watchdog (no-op for immortal streams
+		 * and idempotent across continuation frames). */
+		lws_http_response_started(wsi);
 	}
 
 	if (base == LWS_WRITE_HTTP_HEADERS_CONTINUATION) {

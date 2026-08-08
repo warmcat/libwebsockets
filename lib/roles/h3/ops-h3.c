@@ -1744,6 +1744,12 @@ rops_write_role_protocol_h3(struct lws *wsi, unsigned char *buf, size_t len,
 			if (n <= 0)
 				return n;
 
+			if (is_headers)
+				/* server response HEADERS frame went out: arm the
+				 * response-completion watchdog (no-op for immortal
+				 * streams, idempotent). */
+				lws_http_response_started(wsi);
+
 			if (is_http && wsi->http.tx_content_length) {
 				wsi->http.tx_content_remain -= olen;
 				lwsl_info("%s: %s: tx_content_rem = %llu\n", __func__,

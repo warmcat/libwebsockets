@@ -3146,20 +3146,15 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				uint8_t *h_end = hdr_buf + sizeof(hdr_buf) - 1;
 				if (lws_add_http_common_headers(wsi, HTTP_STATUS_FOUND, "text/html", 0, &h_p, h_end) ||
 				    lws_add_http_header_by_name(wsi, (unsigned char *)"location:", (unsigned char *)loc, (int)strlen(loc), &h_p, h_end) ||
-				    lws_finalize_http_header(wsi, &h_p, h_end)) {
-					lwsl_notice("%s: /authorize -> /auth header build failed\n", __func__);
+				    /* headers-only 302: OR in LWS_WRITE_H2_STREAM_END so
+				     * the h2/h3 HEADERS frame carries END_STREAM and the
+				     * stream completes -- otherwise it hangs open. */
+				    lws_finalize_write_http_header_flags(wsi, h_start, &h_p, h_end,
+					LWS_WRITE_HTTP_HEADERS | LWS_WRITE_H2_STREAM_END)) {
+					lwsl_notice("%s: /authorize -> /auth header build failed\n",
+						    __func__);
 					return 1;
 				}
-				/* headers-only 302: under h2/h3 the HEADERS frame must
-				 * carry END_STREAM or the stream hangs open waiting for a
-				 * body that never comes (browser sees no response).  We
-				 * can't use lws_finalize_write_http_header() because it
-				 * hardcodes plain LWS_WRITE_HTTP_HEADERS. */
-				if (lws_write(wsi, h_start, lws_ptr_diff_size_t(h_p, h_start),
-					      LWS_WRITE_HTTP_HEADERS |
-						      LWS_WRITE_H2_STREAM_END) !=
-				    lws_ptr_diff(h_p, h_start))
-					return 1;
 				return lws_http_transaction_completed(wsi);
 			}
 
@@ -3190,24 +3185,20 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 			uint8_t hdr_buf[8192 + LWS_PRE];
 			uint8_t *h_start = hdr_buf + LWS_PRE;
-			uint8_t *h_p = h_start;
-			uint8_t *h_end = hdr_buf + sizeof(hdr_buf) - 1;
-			if (lws_add_http_common_headers(wsi, HTTP_STATUS_FOUND, "text/html", 0, &h_p, h_end) ||
-			    lws_add_http_header_by_name(wsi, (unsigned char *)"location:", (unsigned char *)loc, (int)strlen(loc), &h_p, h_end) ||
-			    lws_finalize_http_header(wsi, &h_p, h_end)) {
-				lwsl_notice("%s: /authorize -> code header build failed\n",
-					    __func__);
-				return 1;
+				uint8_t *h_p = h_start;
+				uint8_t *h_end = hdr_buf + sizeof(hdr_buf) - 1;
+				if (lws_add_http_common_headers(wsi, HTTP_STATUS_FOUND, "text/html", 0, &h_p, h_end) ||
+				    lws_add_http_header_by_name(wsi, (unsigned char *)"location:", (unsigned char *)loc, (int)strlen(loc), &h_p, h_end) ||
+				    /* headers-only 302: needs LWS_WRITE_H2_STREAM_END so the
+				     * h2/h3 HEADERS frame carries END_STREAM. */
+				    lws_finalize_write_http_header_flags(wsi, h_start, &h_p, h_end,
+					LWS_WRITE_HTTP_HEADERS | LWS_WRITE_H2_STREAM_END)) {
+					lwsl_notice("%s: /authorize -> code header build failed\n",
+						    __func__);
+					return 1;
+				}
+				return lws_http_transaction_completed(wsi);
 			}
-			/* headers-only 302: see the note in the no-session branch
-			 * above -- under h2/h3 the HEADERS frame needs END_STREAM. */
-			if (lws_write(wsi, h_start, lws_ptr_diff_size_t(h_p, h_start),
-				      LWS_WRITE_HTTP_HEADERS |
-					      LWS_WRITE_H2_STREAM_END) !=
-			    lws_ptr_diff(h_p, h_start))
-				return 1;
-			return lws_http_transaction_completed(wsi);
-		}
 
 		if (in && ((char *)strstr((const char *)in, "login") || (char *)strstr((const char *)in, "register") || (char *)strstr((const char *)in, "forgot_password") || (char *)strstr((const char *)in, "reset_password") || (char *)strstr((const char *)in, "token") || (char *)strstr((const char *)in, "sso_exchange") || (char *)strstr((const char *)in, "device_auth") || (char *)strstr((const char *)in, "device_approve"))) {
 			lws_strncpy(pss->requesting_url, (const char *)in, sizeof(pss->requesting_url));

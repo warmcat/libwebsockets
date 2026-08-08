@@ -3392,6 +3392,23 @@ lws_quic_stream_cleanup(struct lws *wsi)
 
 		/* If we're closing the stream before FINs were exchanged, notify the peer */
 		if (is_abort) {
+			/*
+			 * If we started sending a response (HEADERS went out)
+			 * but never sent our FIN (== h3 END_STREAM), and this
+			 * isn't an immortal SSE / long-poll stream, the response
+			 * was incomplete -- usually a headers-only response
+			 * written without LWS_WRITE_H2_STREAM_END.  Warn so the
+			 * user-code bug is visible even when the peer (or the
+			 * network) beat the PENDING_TIMEOUT_HTTP_RESPONSE
+			 * watchdog to closing the stream.
+			 */
+			if (wsi->http.sent_response_headers &&
+			    !wsi->quic.qs->sent_fin && !wsi->mux_stream_immortal)
+				lwsl_wsi_warn(wsi, "h3 stream closed with response "
+					      "headers sent but no END_STREAM "
+					      "(incomplete response; user code "
+					      "likely wrote a headers-only response "
+					      "without LWS_WRITE_H2_STREAM_END)");
 			/* Send RESET_STREAM to notify the peer that we're abandoning the stream */
 			struct lws_quic_tx_frame *f_reset = lws_zalloc(sizeof(*f_reset), "quic reset");
 			if (f_reset) {

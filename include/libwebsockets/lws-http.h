@@ -766,15 +766,24 @@ lws_finalize_http_header(struct lws *wsi, unsigned char **p,
 			 unsigned char *end);
 
 /**
- * lws_finalize_write_http_header() - Helper finializing and writing http headers
+ * lws_finalize_write_http_header() - Helper finalizing and writing http headers
  *
  * \param wsi: the connection to check
  * \param start: pointer to the start of headers in the buffer, eg &buf[LWS_PRE]
  * \param p: pointer to current position in buffer pointer
  * \param end: pointer to end of buffer
  *
- * Terminates the headers correctly accoring to the protocol in use (h1 / h2)
+ * Terminates the headers correctly according to the protocol in use (h1 / h2)
  * and writes the headers.  Returns nonzero for error.
+ *
+ * This is a convenience wrapper around lws_finalize_write_http_header_flags()
+ * (declared in lws-write.h, alongside the write-protocol enum) that passes
+ * plain LWS_WRITE_HTTP_HEADERS, suitable for responses that will send a body
+ * afterwards.  For a headers-only response (eg a 302 with no body), use
+ * lws_finalize_write_http_header_flags() with
+ * LWS_WRITE_HTTP_HEADERS | LWS_WRITE_H2_STREAM_END so that under h2 / h3 the
+ * HEADERS frame carries END_STREAM -- otherwise the stream hangs open waiting
+ * for a body that never comes and the client sees no response.
  */
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_finalize_write_http_header(struct lws *wsi, unsigned char *start,
