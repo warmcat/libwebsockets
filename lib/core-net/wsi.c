@@ -854,32 +854,55 @@ lws_parse_uri_destroy(lws_parse_uri_t **pcuri)
 
 int lws_get_urlarg_by_name_safe(struct lws *wsi, const char *name, char *buf,
 		int len) {
-	int n = 0, fraglen, sl = (int)strlen(name);
+	struct allocated_headers *ah = wsi->http.ah;
+	int sl = (int)strlen(name);
+	int fi;
 
-	do {
-		fraglen = lws_hdr_copy_fragment(wsi, buf, len, WSI_TOKEN_HTTP_URI_ARGS, n);
+	if (!ah || !len)
+		return -1;
 
-		if (fraglen == -1) /* no fragment or basic problem */
-			break;
+	/*
+	 * Walk the URI-args fragment chain directly.  We must match the "name="
+	 * prefix without requiring the *whole* "name=value" to fit into the
+	 * caller's value-sized buf: lws_hdr_copy_fragment() returns -2 when the
+	 * fragment exceeds the buffer it is given, so passing the caller's buf
+	 * (commonly sized only for the value, eg a 16-byte buffer for
+	 * response_type=code which is 18 bytes) made any such fragment
+	 * unmatchable -- it silently read back empty.  Comparing the prefix
+	 * against the in-place ah data decouples matching from buf size.
+	 */
 
-		if (fraglen > 0 && /* fragment could fit */
-				fraglen + 1 < len && fraglen >= sl && !strncmp(buf, name, (size_t)sl)) {
+	fi = ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS];
+	while (fi) {
+		struct lws_fragments *f = &ah->frags[fi];
+
+		if (f->len >= sl &&
+				!strncmp((const char *)&ah->data[f->offset],
+					 name, (size_t)sl)) {
+			ah_data_idx_t vo;	/* value start in ah->data */
+			int ol;			/* value length to copy */
+			int a_sl = sl;
+
 			/*
-			 * If he left off the trailing =, trim it from the
-			 * result
+			 * If he left off the trailing =, trim the single '='
+			 * separator from the result
 			 */
+			if (name[sl - 1] != '=' && sl < f->len &&
+					ah->data[f->offset + (ah_data_idx_t)sl] == '=')
+				a_sl++;
 
-			if (name[sl - 1] != '=' && sl < fraglen && buf[sl] == '=')
-				sl++;
+			vo = f->offset + (ah_data_idx_t)a_sl;
+			ol = (int)f->len - a_sl;
+			if (ol >= len)		/* value won't fit caller buf */
+				return -2;
 
-			memmove(buf, buf + sl, (size_t)(fraglen - sl));
-			buf[fraglen - sl] = '\0';
+			memcpy(buf, &ah->data[vo], (size_t)ol);
+			buf[ol] = '\0';
 
-			return fraglen - sl;
+			return ol;
 		}
-
-		n++;
-	} while (1);
+		fi = f->nfrag;
+	}
 
 	return -1;
 }

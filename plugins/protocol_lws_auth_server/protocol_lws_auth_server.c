@@ -670,9 +670,9 @@ auth_verify_redirect_uri(struct per_vhost_data__auth_server *vhd,
 			sqlite3_bind_text(stmt, 1, client_id, -1, SQLITE_STATIC);
 			if (sqlite3_step(stmt) == SQLITE_ROW) {
 				const char *uris = (const char *)sqlite3_column_text(stmt, 0);
-				lwsl_notice("%s: client_id='%s' redirect_uri='%s' DB row='%s'\n",
-					    __func__, client_id, redirect_uri,
-					    uris ? uris : "(null)");
+				lwsl_info("%s: client_id='%s' redirect_uri='%s' registered='%s'\n",
+					  __func__, client_id, redirect_uri,
+					  uris ? uris : "(null)");
 				if (uris) {
 					const char *p = uris;
 					while (p && *p) {
@@ -682,13 +682,7 @@ auth_verify_redirect_uri(struct per_vhost_data__auth_server *vhd,
 						while (len > 0 && (p[len - 1] == ' ' || p[len - 1] == '\r' || p[len - 1] == '\n')) len--;
 						while (len > 0 && p[len - 1] == '/') len--;
 						if (len > 0) {
-							int cmp = strncasecmp(redirect_uri, p, len);
-							char nxt = redirect_uri[len];
-							lwsl_notice("%s:   candidate '%.*s' (trimmed len %zu) vs '%s' cmp=%d next=%d('%c')\n",
-								    __func__, (int)len, p, len,
-								    redirect_uri, cmp, (int)nxt,
-								    nxt ? nxt : '.');
-							if (!cmp) {
+							if (!strncasecmp(redirect_uri, p, len)) {
 								char next = redirect_uri[len];
 								if (next == '\0' || next == '/' || next == '?' || next == '#') {
 									valid = 1;
@@ -700,8 +694,8 @@ auth_verify_redirect_uri(struct per_vhost_data__auth_server *vhd,
 					}
 				}
 			} else {
-				lwsl_notice("%s: NO oauth_clients row for client_id='%s'\n",
-					    __func__, client_id);
+				lwsl_info("%s: no oauth_clients row for client_id='%s'\n",
+					  __func__, client_id);
 			}
 			sqlite3_finalize(stmt);
 		}
@@ -3057,43 +3051,24 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			char client_id[128] = {0}, redirect_uri[256] = {0}, response_type[16] = {0}, state[128] = {0};
 			char code_challenge[128] = {0}, code_challenge_method[16] = {0};
 
-			lwsl_notice("%s: /authorize in='%s'\n", __func__,
-				    in ? (const char *)in : "(null)");
-
 			if (lws_get_urlarg_by_name_safe(wsi, "client_id=", client_id, sizeof(client_id)) < 0 ||
 			    lws_get_urlarg_by_name_safe(wsi, "redirect_uri=", redirect_uri, sizeof(redirect_uri)) < 0) {
 				lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, "Missing client_id or redirect_uri");
 				return lws_http_transaction_completed(wsi);
 			}
 
-			lwsl_notice("%s: /authorize got client_id='%s' (%zu) redirect_uri='%s' (%zu)\n",
-				    __func__, client_id, strlen(client_id),
-				    redirect_uri, strlen(redirect_uri));
+			lwsl_info("%s: /authorize client_id='%s' redirect_uri='%s'\n",
+				  __func__, client_id, redirect_uri);
 
 			lws_get_urlarg_by_name_safe(wsi, "response_type=", response_type, sizeof(response_type));
 			lws_get_urlarg_by_name_safe(wsi, "state=", state, sizeof(state));
 			lws_get_urlarg_by_name_safe(wsi, "code_challenge=", code_challenge, sizeof(code_challenge));
 			lws_get_urlarg_by_name_safe(wsi, "code_challenge_method=", code_challenge_method, sizeof(code_challenge_method));
 
-			lwsl_notice("%s: /authorize response_type='%s' state(len %zu) code_challenge(len %zu) ccm='%s'\n",
-				    __func__, response_type, strlen(state),
-				    strlen(code_challenge), code_challenge_method);
-			{
-				/* dump every URI-arg fragment so we can see exactly
-				 * what survived the h3/h1 path parser */
-				int fi = 0, fl;
-				char fb[300];
-				lwsl_notice("%s: /authorize URI-arg fragments:\n", __func__);
-				while ((fl = lws_hdr_copy_fragment(wsi, fb, sizeof(fb),
-						WSI_TOKEN_HTTP_URI_ARGS, fi++)) > 0)
-					lwsl_notice("%s:   [%d] len=%d '%.*s'\n",
-						    __func__, fi - 1, fl, fl, fb);
-			}
-
 			if (strcmp(response_type, "code")) {
-				lwsl_notice("%s: /authorize REJECTING: response_type "
-					    "('%s') != 'code'\n", __func__,
-					    response_type);
+				lwsl_info("%s: /authorize rejected: response_type "
+					  "('%s') != 'code'\n", __func__,
+					  response_type);
 				lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, "Unsupported response_type");
 				return lws_http_transaction_completed(wsi);
 			}
