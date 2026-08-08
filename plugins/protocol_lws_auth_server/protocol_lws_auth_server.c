@@ -3075,7 +3075,25 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_get_urlarg_by_name_safe(wsi, "code_challenge=", code_challenge, sizeof(code_challenge));
 			lws_get_urlarg_by_name_safe(wsi, "code_challenge_method=", code_challenge_method, sizeof(code_challenge_method));
 
+			lwsl_notice("%s: /authorize response_type='%s' state(len %zu) code_challenge(len %zu) ccm='%s'\n",
+				    __func__, response_type, strlen(state),
+				    strlen(code_challenge), code_challenge_method);
+			{
+				/* dump every URI-arg fragment so we can see exactly
+				 * what survived the h3/h1 path parser */
+				int fi = 0, fl;
+				char fb[300];
+				lwsl_notice("%s: /authorize URI-arg fragments:\n", __func__);
+				while ((fl = lws_hdr_copy_fragment(wsi, fb, sizeof(fb),
+						WSI_TOKEN_HTTP_URI_ARGS, fi++)) > 0)
+					lwsl_notice("%s:   [%d] len=%d '%.*s'\n",
+						    __func__, fi - 1, fl, fl, fb);
+			}
+
 			if (strcmp(response_type, "code")) {
+				lwsl_notice("%s: /authorize REJECTING: response_type "
+					    "('%s') != 'code'\n", __func__,
+					    response_type);
 				lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, "Unsupported response_type");
 				return lws_http_transaction_completed(wsi);
 			}
