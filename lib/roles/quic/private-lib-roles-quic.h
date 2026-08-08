@@ -333,6 +333,22 @@ struct lws_quic_netconn {
 	/* Pacing Timer */
 	lws_sorted_usec_list_t	pacer_sul;
 
+	/*
+	 * Delayed ACK coalescing (RFC 9000 §13.2.1)
+	 *
+	 * Endpoints SHOULD delay 1-RTT ACKs by ~RTT/8 (capped at the advertised
+	 * max_ack_delay) and SHOULD send an ACK immediately on every 2nd
+	 * ack-eliciting packet, so that a burst of N packets generates ~N/2 ACKs
+	 * instead of N.  Initial/Handshake ACKs and packets carrying
+	 * CONNECTION_CLOSE are always sent immediately (§13.2.1 rule 3).
+	 */
+	lws_sorted_usec_list_t	ack_delay_sul;	/* fires to send a deferred App-space ACK */
+	lws_usec_t		ack_delay_us;		/* configured max ACK delay (def 25ms) */
+	lws_usec_t		peer_max_ack_delay_us;	/* peer's advertised max_ack_delay (TP 0x0b) */
+	lws_usec_t		rx_ack_eliciting_since_us; /* time of 1st un-ACK'd eliciting App pkt */
+	uint8_t			rx_ack_eliciting_count;    /* eliciting pkts since last App ACK sent */
+	uint8_t			ack_delay_armed;	    /* ack_delay_sul is currently scheduled */
+
 	/* RTT Tracking */
 	lws_usec_t		smoothed_rtt;
 	lws_usec_t		rttvar;

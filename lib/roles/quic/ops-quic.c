@@ -227,6 +227,24 @@ lws_quic_pacer_cb(lws_sorted_usec_list_t *sul)
 		lws_callback_on_writable(qn->nwsi);
 }
 
+/*
+ * Delayed-ACK timer (RFC 9000 §13.2.1).  When it fires, a deferred App-space
+ * ACK is due; just wake the network wsi so rops_handle_POLLOUT_quic builds and
+ * sends it (the TX path cancels this sul and resets the counters as it emits
+ * the ACK frame).  We bypass CC/pacing there exactly as for an immediate ACK.
+ */
+static void
+lws_quic_ack_delay_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws_quic_netconn *qn = lws_container_of(sul, struct lws_quic_netconn,
+							ack_delay_sul);
+	if (qn) {
+		qn->ack_delay_armed = 0;
+		if (qn->nwsi)
+			lws_callback_on_writable(qn->nwsi);
+	}
+}
+
 static void
 lws_quic_pto_cb(lws_sorted_usec_list_t *sul)
 {
@@ -887,6 +905,8 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 		nwsi->quic.qn->max_streams_bidi_local = 400;
 		nwsi->quic.qn->max_streams_unidi_local = 400;
 		nwsi->quic.qn->peer_ack_delay_exponent = 3;
+		/* RFC 9000 §13.2.1 default max_ack_delay cap for delayed ACKs */
+		nwsi->quic.qn->ack_delay_us = 25 * LWS_US_PER_MS;
 
 		nwsi->quic.qn->current_mtu = 1280;
 		nwsi->quic.qn->probed_mtu = 1380; /* first probe size */
@@ -1835,9 +1855,67 @@ tp_ok:
 			}
 			goto next_packet;
 			} else if (parse_res > 0) {
+				/*
+				 * The packet contained at least one ack-eliciting
+				 * frame, so we must ACK it.  For Initial/Handshake
+				 * pn-spaces, and before the handshake completes, we
+				 * send the ACK immediately (RFC 9000 §13.2.1 rule 3
+				 * keeps handshake / loss-detection timely).  For
+				 * Application (1-RTT) pn-space we coalesce: send
+				 * immediately on every 2nd ack-eliciting packet
+				 * (§13.2.1 rule 4) and otherwise arm the delayed-ACK
+				 * timer, so a burst of N packets yields ~N/2 ACKs
+				 * instead of N.
+				 */
 				if (nwsi && nwsi->quic.qn) {
-					nwsi->quic.qn->needs_ack[pn_space] = 1;
-					lws_callback_on_writable(nwsi); /* Ensure POLLOUT fires so we send the ACK! */
+					struct lws_quic_netconn *qn = nwsi->quic.qn;
+
+					qn->needs_ack[pn_space] = 1;
+
+					if (pn_space != LWS_QUIC_LEVEL_APP ||
+					    !qn->handshake_done) {
+						lws_callback_on_writable(nwsi);
+						goto next_packet;
+					}
+
+					/*
+					 * App-space ACK: apply the 2nd-packet rule,
+					 * else defer to the delayed-ACK timer.
+					 */
+					if (++qn->rx_ack_eliciting_count >= 2 ||
+					    !qn->smoothed_rtt) {
+						lws_sul_cancel(&qn->ack_delay_sul);
+						qn->ack_delay_armed = 0;
+						lws_callback_on_writable(nwsi);
+						goto next_packet;
+					}
+
+					if (!qn->ack_delay_armed) {
+						/*
+						 * RTT/8 capped at the configured
+						 * max_ack_delay (ours or the peer's
+						 * advertised TP 0x0b, whichever is
+						 * smaller).  The TX path stamps the
+						 * real dwell time into the ACK
+						 * Delay field when it emits it.
+						 */
+						lws_usec_t delay = qn->smoothed_rtt / 8;
+						lws_usec_t cap = qn->ack_delay_us;
+
+						if (qn->peer_max_ack_delay_us &&
+						    qn->peer_max_ack_delay_us < cap)
+							cap = qn->peer_max_ack_delay_us;
+						if (delay > cap || !delay)
+							delay = cap;
+
+						qn->rx_ack_eliciting_since_us =
+							lws_now_usecs();
+						qn->ack_delay_armed = 1;
+						lws_sul_schedule(nwsi->a.context,
+								 0, &qn->ack_delay_sul,
+								 lws_quic_ack_delay_cb,
+								 delay);
+					}
 				}
 			}
 		}
@@ -2287,13 +2365,32 @@ send_frames:
 			}
 		}
 		if (qn->needs_ack[pn_space] && is_ack_allowed && !skip_ack_for_dest) {
+			/*
+			 * ACK Delay (RFC 9000 §19.3): encoded in microseconds
+			 * scaled by 2 ^ ack_delay_exponent.  We leave our
+			 * exponent implicitly defaulted to 3 (we don't emit TP
+			 * 0x0a), so divide by 8.  For App-space ACKs we report
+			 * how long we actually held the ACK (so the peer can
+			 * subtract it for RTT); Initial/Handshake ACKs are sent
+			 * immediately so their delay is genuinely 0.
+			 */
+			uint64_t ack_delay_enc = 0;
+
+			if (pn_space == LWS_QUIC_LEVEL_APP &&
+			    qn->rx_ack_eliciting_since_us) {
+				lws_usec_t held = lws_now_usecs() -
+					qn->rx_ack_eliciting_since_us;
+				if (held > 0)
+					ack_delay_enc = (uint64_t)(held >> 3);
+			}
+
                         if (qn->ecn_rx_ect0 || qn->ecn_rx_ect1 || qn->ecn_rx_ce) {
                                 *p++ = 0x03; /* ACK_ECN */
                         } else {
                                 *p++ = LWS_QUIC_FT_ACK; /* ACK (0x02) */
                         }
                         p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), qn->highest_rx_pn[pn_space]); /* Largest Acknowledged */
-                        p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), 0); /* ACK Delay (0 for now) */
+                        p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), ack_delay_enc); /* ACK Delay */
                         p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), 0); /* ACK Range Count */
                         uint64_t first_ack_range = 0;
                         uint64_t bm = qn->rx_pn_bitmask[pn_space] >> 1;
@@ -2302,14 +2399,26 @@ send_frames:
                                 bm >>= 1;
                         }
                         p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), first_ack_range); /* First ACK Range */
-                        
+
                         if (qn->ecn_rx_ect0 || qn->ecn_rx_ect1 || qn->ecn_rx_ce) {
                                 p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), qn->ecn_rx_ect0);
                                 p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), qn->ecn_rx_ect1);
                                 p += lws_quic_write_varint(p, sizeof(pkt) - (size_t)(p - pkt), qn->ecn_rx_ce);
                         }
-                        
+
                         qn->needs_ack[pn_space] = 0;
+			/*
+			 * Reset the delayed-ACK coalescing state for App-space:
+			 * the timer (if armed) is no longer needed and the
+			 * 2nd-packet counter restarts from the next eliciting
+			 * packet we receive.
+			 */
+			if (pn_space == LWS_QUIC_LEVEL_APP) {
+				lws_sul_cancel(&qn->ack_delay_sul);
+				qn->ack_delay_armed = 0;
+				qn->rx_ack_eliciting_count = 0;
+				qn->rx_ack_eliciting_since_us = 0;
+			}
                         has_ack = 1;
 		}
 
@@ -3044,6 +3153,8 @@ rops_client_bind_quic(struct lws *wsi, const struct lws_client_connect_info *i)
 		wsi->quic.qn->max_streams_bidi_local = 1000;
 		wsi->quic.qn->max_streams_unidi_local = 1000;
 		wsi->quic.qn->peer_ack_delay_exponent = 3;
+		/* RFC 9000 §13.2.1 default max_ack_delay cap for delayed ACKs */
+		wsi->quic.qn->ack_delay_us = 25 * LWS_US_PER_MS;
 
 		wsi->quic.qn->current_mtu = 1280;
 		wsi->quic.qn->probed_mtu = 1380; /* first probe size */
@@ -3421,6 +3532,7 @@ rops_close_kill_connection_quic(struct lws *wsi, enum lws_close_status reason)
 		lws_sul_cancel(&qn->prefaddr_sul);
 		lws_sul_cancel(&qn->pto_sul);
 		lws_sul_cancel(&qn->pacer_sul);
+		lws_sul_cancel(&qn->ack_delay_sul);
 
 #if defined(LWS_ROLE_H3)
 		if (wsi->h3.h3n)
