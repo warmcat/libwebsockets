@@ -3081,56 +3081,84 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				return lws_http_transaction_completed(wsi);
 			}
 
-			char cookies[LWS_AUTH_MAX_COOKIE_LEN] = {0};
-			char session_id[65] = {0};
-			int has_session = 0;
+			/*
+			 * Resolve who is calling /authorize.  The auth_session cookie is a
+			 * signed JWT (not an opaque session id), so validate it via the
+			 * JWT helper; if that fails (eg the short-lived JWT has expired,
+			 * common when re-authenticating after the app's session lapsed but
+			 * the user is still validly logged in here), fall back to the
+			 * long-lived auth_refresh_session opaque token -- exactly the
+			 * resolution /api/status and /api/sso_exchange use.  Without this
+			 * fallback, /authorize bounces a still-logged-in user to /auth,
+			 * which (seeing logged_in from /api/status) bounces straight back
+			 * to /authorize -> infinite redirect loop.
+			 */
 			uint32_t session_uid = 0;
 
-			int ck_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE);
-			if (ck_len >= (int)sizeof(cookies)) {
-				lwsl_err("%s: OVERRUN! HTTP cookie header length (%d) exceeds allocated buffer size (%d), auth tracking tokens may be truncated!\n", __func__, ck_len, (int)sizeof(cookies));
-			}
+			if (vhd->cookie_name[0]) {
+				struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi,
+						&vhd->jwk, vhd->cookie_name,
+						NULL, NULL, NULL);
+				if (ja) {
+					session_uid = lws_jwt_auth_get_uid(ja);
+					lws_jwt_auth_destroy(&ja);
+				} else if (vhd->refresh_token_validity_secs > 0) {
+					char refresh_tk[128] = {0};
+					size_t refresh_len = sizeof(refresh_tk);
 
-			if (lws_hdr_copy(wsi, cookies, sizeof(cookies), WSI_TOKEN_HTTP_COOKIE) > 0) {
-				const char *p = strstr(cookies, "auth_session=");
-				if (p) {
-					p += 13;
-					size_t i = 0;
-					while (*p && *p != ';' && i < sizeof(session_id) - 1)
-						session_id[i++] = *p++;
-					session_id[i] = 0;
-					has_session = 1;
-				}
-			}
-
-			if (has_session) {
-				uint64_t now = (uint64_t)time(NULL);
-				if (sqlite3_prepare_v2(vhd->db, "SELECT uid, expires FROM auth_sessions WHERE session_id = ?", -1, &stmt, NULL) == SQLITE_OK) {
-					sqlite3_bind_text(stmt, 1, session_id, -1, SQLITE_TRANSIENT);
-					if (sqlite3_step(stmt) == SQLITE_ROW) {
-						session_uid = (uint32_t)sqlite3_column_int(stmt, 0);
-						uint64_t exp = (uint64_t)sqlite3_column_int64(stmt, 1);
-						if (now >= exp)
-							session_uid = 0;
-					}
-					sqlite3_finalize(stmt);
-				}
-
-				if (session_uid) {
-					char service_name[128] = {0};
-					lws_get_urlarg_by_name_safe(wsi, "service_name=", service_name, sizeof(service_name));
-					if (service_name[0]) {
-						struct lws_jwt_auth *ja = lws_jwt_auth_create(wsi, &vhd->jwk, vhd->cookie_name, NULL, NULL, NULL);
-						if (ja) {
-							int level = lws_jwt_auth_query_grant(ja, service_name);
-							lws_jwt_auth_destroy(&ja);
-							if (level < 1) { // Lacks required grant
-								session_uid = 0; // Force them to login screen
+					if (lws_http_cookie_get(wsi, "auth_refresh_session",
+							refresh_tk, &refresh_len) == 0 &&
+					    refresh_tk[0]) {
+						uint64_t now = (uint64_t)time(NULL);
+						if (sqlite3_prepare_v2(vhd->db,
+								"SELECT uid, expires FROM auth_sessions "
+								"WHERE session_id = ?", -1,
+								&stmt, NULL) == SQLITE_OK) {
+							sqlite3_bind_text(stmt, 1, refresh_tk,
+									  -1, SQLITE_TRANSIENT);
+							if (sqlite3_step(stmt) == SQLITE_ROW) {
+								uint64_t exp = (uint64_t)
+									sqlite3_column_int64(stmt, 1);
+								if (now < exp)
+									session_uid = (uint32_t)
+										sqlite3_column_int(stmt, 0);
 							}
-						} else {
-							session_uid = 0;
+							sqlite3_finalize(stmt);
 						}
 					}
+				}
+			}
+
+			if (session_uid) {
+				/*
+				 * If a service_name is requested, the resolved identity must
+				 * hold that grant (or the '*' wildcard) to be authorized for
+				 * this service; otherwise force them to the login screen.
+				 * Query the grants table by uid rather than the auth_session
+				 * JWT, so this works for the refresh-session fallback path
+				 * where there is no valid JWT to inspect.
+				 */
+				char service_name[128] = {0};
+				lws_get_urlarg_by_name_safe(wsi, "service_name=",
+						service_name, sizeof(service_name));
+				if (service_name[0]) {
+					int has_grant = 0;
+					if (sqlite3_prepare_v2(vhd->db,
+							"SELECT g.grant_level FROM grants g "
+							"JOIN services s ON g.service_id = s.service_id "
+							"WHERE g.uid = ? AND (s.name = ? OR s.name = '*')",
+							-1, &stmt, NULL) == SQLITE_OK) {
+						sqlite3_bind_int(stmt, 1, (int)session_uid);
+						sqlite3_bind_text(stmt, 2, service_name,
+								  -1, SQLITE_TRANSIENT);
+						while (sqlite3_step(stmt) == SQLITE_ROW) {
+							if (sqlite3_column_int(stmt, 0) >= 1)
+								has_grant = 1;
+						}
+						sqlite3_finalize(stmt);
+					}
+					if (!has_grant)
+						session_uid = 0;
 				}
 			}
 
