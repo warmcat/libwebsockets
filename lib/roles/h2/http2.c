@@ -145,7 +145,26 @@ lws_h2_state(struct lws *wsi, enum lws_h2_states s)
 	lwsl_info("%s: %s: state %s -> %s\n", __func__, lws_wsi_tag(wsi),
 			h2_state_names[wsi->h2.h2_state],
 			h2_state_names[s]);
-		
+
+	/*
+	 * If the stream is being closed after we started sending a response
+	 * but never sent END_STREAM (and it wasn't an immortal SSE / long-poll
+	 * stream that legitimately lives without END_STREAM), the response was
+	 * incomplete -- usually a headers-only response written without
+	 * LWS_WRITE_H2_STREAM_END.  Warn so the user code bug is visible even
+	 * when the peer (or the network) closed the stream before the
+	 * PENDING_TIMEOUT_HTTP_RESPONSE watchdog could fire.
+	 */
+	if (s == LWS_H2_STATE_CLOSED &&
+	    wsi->http.sent_response_headers && !wsi->h2.send_END_STREAM &&
+	    !wsi->mux_stream_immortal)
+		lwsl_wsi_warn(wsi, "h2 stream closed with response headers sent "
+			      "but no END_STREAM (incomplete response; user code "
+			      "likely wrote a headers-only response without "
+			      "LWS_WRITE_H2_STREAM_END), protocol=%s, uri=\"%s\"",
+			      wsi->a.protocol ? wsi->a.protocol->name : "none",
+			      lws_wsi_request_uri(wsi) ?: "");
+
 	(void)h2_state_names;
 	wsi->h2.h2_state = (uint8_t)s;
 }
@@ -473,7 +492,8 @@ lws_h2_goaway(struct lws *wsi, uint32_t err, const char *reason)
 	if (!pps)
 		return 1;
 
-	lwsl_info("%s: %s: ERR 0x%x, '%s'\n", __func__, lws_wsi_tag(wsi), (int)err, reason);
+	lwsl_wsi_info(wsi, "%s: TX GOAWAY: err=0x%x, '%s'", __func__,
+			(unsigned int)err, reason);
 
 	pps->u.ga.err = err;
 	pps->u.ga.highest_sid = h2n->highest_sid;
@@ -2173,7 +2193,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		break;
 
 	case LWS_H2_FRAME_TYPE_GOAWAY:
-		lwsl_wsi_info(wsi, "RX GOAWAY: last sid %u, error 0x%08X, string '%s'\n",
+		lwsl_wsi_info(wsi, "RX GOAWAY: last sid %u, error 0x%08X, string '%s'",
 			  (unsigned int)h2n->goaway_last_sid,
 			  (unsigned int)h2n->goaway_err, h2n->goaway_str);
 
@@ -2786,6 +2806,9 @@ lws_h2_client_handshake(struct lws *wsi)
 	p = start = buf = pt->serv_buf + LWS_PRE;
 	end = start + (wsi->a.context->pt_serv_buf_size / 2) - LWS_PRE - 1;
 
+	/* Reset the per-HEADERS duplicate-pseudoheader tracker (hpack.c) */
+	wsi->h2.h2_pseudo_seen = 0;
+
 	/* it's time for us to send our client stream headers */
 
 	if (wsi->do_ws)
@@ -3000,6 +3023,31 @@ lws_h2_client_handshake(struct lws *wsi)
 
 	if (wsi->flags & LCCSCF_HTTP_MULTIPART_MIME)
 		lws_callback_on_writable(wsi);
+
+	/*
+	 * If the request carries a body (the user set body-pending from
+	 * LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER, eg a form-urlencoded
+	 * POST), drive the body write through LRS_ISSUE_HTTP_BODY -- the same
+	 * state machine h1 uses (client-http.c:~307) and h3 has natively
+	 * (ops-h3.c:~481).  rops_handle_POLLOUT_h2 already maps
+	 * LRS_ISSUE_HTTP_BODY to LWS_HP_RET_USER_SERVICE which delivers
+	 * CLIENT_HTTP_WRITEABLE on this stream.
+	 *
+	 * Without this, a plain (non-multipart) h2 client POST relies on the
+	 * user's writable arming being picked up by the next POLLOUT walk pass;
+	 * if the peer closes in the gap between the HEADERS frame and that next
+	 * pass (the server sees Content-Length but no DATA and tears the
+	 * connection down), CLIENT_HTTP_WRITEABLE never fires and the body is
+	 * never sent.  Moving to LRS_ISSUE_HTTP_BODY here makes the body write
+	 * part of the same transaction state, so it's delivered as soon as the
+	 * stream has tx credit / POLLOUT, before the event loop ticks.
+	 */
+	if (wsi->client_http_body_pending) {
+		lwsi_set_state(wsi, LRS_ISSUE_HTTP_BODY);
+		lws_set_timeout(wsi, PENDING_TIMEOUT_CLIENT_ISSUE_PAYLOAD,
+				(int)wsi->a.context->timeout_secs);
+		lws_callback_on_writable(wsi);
+	}
 
 	return 0;
 

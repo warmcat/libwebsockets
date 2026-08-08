@@ -212,6 +212,7 @@ callback_auth_device_client(struct lws *wsi, enum lws_callback_reasons reason, v
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER: {
 		unsigned char **ptr = (unsigned char **)in;
 		unsigned char *end = (*ptr) + len;
+		char cl[16];
 		if (!action || !session) break;
 
 		switch (action->phase) {
@@ -225,9 +226,21 @@ callback_auth_device_client(struct lws *wsi, enum lws_callback_reasons reason, v
 			goto dummy;
 		}
 
-		*ptr += lws_snprintf((char *)*ptr, lws_ptr_diff_size_t(end, *ptr),
-				"Content-Type: application/x-www-form-urlencoded\x0d\x0a"
-				"Content-Length: %d\x0d\x0a", plen);
+		/*
+		 * Add headers via the lws API, not raw lws_snprintf text: the
+		 * APPEND scratch buffer holds H1 text on h1, but HPACK on h2 /
+		 * QPACK on h3.  Writing "Content-Type: ...\r\n" as plain text is
+		 * correct for h1 but injects raw header bytes into the h2/h3
+		 * encoded header block, which the peer's decoder misparses.
+		 */
+		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
+				(unsigned char *)"application/x-www-form-urlencoded",
+				33, ptr, end) ||
+		    (lws_snprintf(cl, sizeof(cl), "%d", plen),
+		     lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH,
+				(unsigned char *)cl, (int)strlen(cl), ptr, end)))
+			return -1;
+
 		lws_client_http_body_pending(wsi, 1);
 		lws_callback_on_writable(wsi);
 		break;

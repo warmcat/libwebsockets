@@ -68,6 +68,29 @@ It intercepts the connection and issues a standard `HTTP 302 Found` bouncing the
 
 The central Auth Server portal will parse these parameters. If the user is unauthenticated, they will be prompted to log in. However, if the user successfully authenticates but strictly lacks the necessary `%service-name%` privilege assignment, the central Auth Server will cleanly deny them with an `Access Denied` status to prevent endless redirect looping between the two nodes!
 
+## Injected Backend Headers
+
+When a request is allowed through to the backend app mounted behind the bouncer, `lws-login` stamps the cooked, trusted authentication result onto the request as `x-lws-login-*` headers (anti-spoofed via `lws_http_zap_header()` first, so a browser cannot elevate itself). The backend reads these with no JWT or grant logic of its own. They are only trustworthy when the request actually transited the bouncer's proxy path; a backend reachable directly must not rely on them.
+
+| Header | Value | Meaning |
+|---|---|---|
+| `x-lws-login-state` | stringified `enum lws_login_state` (see `lws-http.h`) | **Authoritative summary role.** Prefer this. |
+| `x-lws-login-grant-level` | integer | Raw grant level the bouncer used to decide the role for this mount (e.g. `2`). Finer detail than the state. |
+| `x-lws-login-sub` | string | Verified subject identity (empty when anonymous). |
+| `x-lws-login-admin` | `0` or `1` | Back-compat: `1` exactly when `state == LWS_LOGIN_STATE_GLOBAL_ADMIN`. |
+
+The `lws_login_state` values are ordered by privilege:
+
+| Value | Name | Meaning |
+|---|---|---|
+| `0` | `LWS_LOGIN_STATE_ANON` | No valid JWT (only observable on mounts with `unauth-allow=1`). |
+| `1` | `LWS_LOGIN_STATE_NO_GRANT` | Valid JWT, but no grant (and no `*`) for this service. |
+| `2` | `LWS_LOGIN_STATE_USER` | Holds this service's grant at level `>= 1` but `< 2`, no `*`. |
+| `3` | `LWS_LOGIN_STATE_APP_ADMIN` | Holds this service's grant at level `>= 2`, no `*`: **admin of this app only**, not a system-wide admin. |
+| `4` | `LWS_LOGIN_STATE_GLOBAL_ADMIN` | Holds the `*` wildcard grant (the TOFU "god" account): admin of the whole system. Any `*` level `>= 1` qualifies. |
+
+Because the values are ordered, a backend can write `state >= LWS_LOGIN_STATE_APP_ADMIN` for "any kind of admin" and `state == LWS_LOGIN_STATE_GLOBAL_ADMIN` for "system-wide only". **Do not conflate `APP_ADMIN` with `GLOBAL_ADMIN`**: an app admin can administer only the app behind this mount, whereas a global admin can administer every user and account on the system (including from the central auth-server Admin Console at `/api/admin`, which itself gates on the literal `*` grant).
+
 ## Example JSON Configuration (`lwsws`)
 
 You can enable this bouncing natively via a standard JSON layout without compiling custom C code. This example protects a local dashboard physically sitting at `/var/www/dashboard`, demanding that connecting users hold at least a `level 2` clearance for `dashboard-service` before `lws-login` lets traffic pass.

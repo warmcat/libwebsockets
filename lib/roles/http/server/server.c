@@ -1893,19 +1893,6 @@ lws_http_action(struct lws *wsi)
 		lwsl_wsi_warn(wsi, "missing or non-absolute uri_ptr (meth=%d, uri_len=%d, uri_ptr=%p): peer %s",
 				meth, (int)uri_len, (void *)uri_ptr,
 				lws_get_peer_simple(wsi, name, sizeof(name)));
-		/* TEMP DEBUG: dump the raw URI bytes (or AH tail) so we can see
-		 * what is actually arriving here. */
-		//if (uri_ptr && uri_len) {
-			// lwsl_wsi_warn(wsi, "uri_ptr hexdump (%d bytes):", (int)uri_len);
-			// lwsl_hexdump_warn(uri_ptr, (size_t)uri_len);
-		//} else 
-		if (wsi->http.ah) {
-			lwsl_wsi_warn(wsi, "no uri; AH data (pos=%d, data_length=%d):",
-					(int)wsi->http.ah->pos,
-					(int)wsi->http.ah->data_length);
-			lwsl_hexdump_warn(wsi->http.ah->data,
-					(size_t)wsi->http.ah->data_length);
-		}
 #endif
 		lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
 
@@ -2936,10 +2923,38 @@ bail_nuke_ah:
 }
 #endif
 
+void
+lws_http_response_started(struct lws *wsi)
+{
+	unsigned int secs;
+
+	if (!wsi || wsi->http.sent_response_headers)
+		return;
+
+	wsi->http.sent_response_headers = 1;
+
+	/*
+	 * Immortal streams (SSE, long-poll) opt out of idle timeouts via
+	 * lws_http_mark_sse() / lws_mux_mark_immortal(); they intentionally
+	 * stay open after the response headers and must not be armed with a
+	 * response-completion watchdog.
+	 */
+	if (wsi->mux_stream_immortal)
+		return;
+
+	secs = wsi->a.context->timeout_secs;
+	if (secs < 30)
+		secs = 30;
+
+	lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_RESPONSE, (int)secs);
+}
+
 int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed(struct lws *wsi)
 {
 	lws_free_set_NULL(wsi->http.extra_onward_headers);
+
+	wsi->http.sent_response_headers = 0;
 
 	if (wsi->http.cgi_transaction_complete)
 		return 0;

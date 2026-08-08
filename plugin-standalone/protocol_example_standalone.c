@@ -34,11 +34,22 @@
 
 #include <string.h>
 
+/* period of the repeating "broadcast the current number" timer in us */
+#define DI_PERIOD_US 50000
+
 struct per_vhost_data__dumb_increment {
-	uv_timer_t timeout_watcher;
 	struct lws_context *context;
 	struct lws_vhost *vhost;
 	const struct lws_protocols *protocol;
+
+	/*
+	 * Repeating scheduler that, every DI_PERIOD_US us, asks lws to make
+	 * every connection on this vhost/protocol writable.  This is the lws
+	 * event-loop-agnostic equivalent of the libuv uv_timer_t the original
+	 * dumb_increment used: it works unchanged on the default poll() loop,
+	 * libuv, or any other lws event lib.
+	 */
+	lws_sorted_usec_list_t sul;
 };
 
 struct per_session_data__dumb_increment {
@@ -46,15 +57,16 @@ struct per_session_data__dumb_increment {
 };
 
 static void
-uv_timeout_cb_dumb_increment(uv_timer_t *w
-#if UV_VERSION_MAJOR == 0
-		, int status
-#endif
-)
+sul_cb_dumb_increment(lws_sorted_usec_list_t *sul)
 {
-	struct per_vhost_data__dumb_increment *vhd = lws_container_of(w,
-			struct per_vhost_data__dumb_increment, timeout_watcher);
+	struct per_vhost_data__dumb_increment *vhd = lws_container_of(sul,
+			struct per_vhost_data__dumb_increment, sul);
+
 	lws_callback_on_writable_all_protocol_vhost(vhd->vhost, vhd->protocol);
+
+	/* re-arm for the next period */
+	lws_sul_schedule(vhd->context, 0, &vhd->sul,
+			 sul_cb_dumb_increment, DI_PERIOD_US);
 }
 
 static int
@@ -79,16 +91,13 @@ callback_dumb_increment(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd->context = lws_get_context(wsi);
 		vhd->protocol = lws_get_protocol(wsi);
 		vhd->vhost = lws_get_vhost(wsi);
-		uv_timer_init(lws_uv_getloop(vhd->context, 0),
-			      &vhd->timeout_watcher);
-		uv_timer_start(&vhd->timeout_watcher,
-			       uv_timeout_cb_dumb_increment, 50, 50);
+		lws_sul_schedule(vhd->context, 0, &vhd->sul,
+				 sul_cb_dumb_increment, DI_PERIOD_US);
 		break;
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
-		if (!vhd)
-			break;
-		uv_timer_stop(&vhd->timeout_watcher);
+		if (vhd)
+			lws_sul_cancel(&vhd->sul);
 		break;
 
 	case LWS_CALLBACK_ESTABLISHED:
@@ -133,7 +142,12 @@ static const struct lws_protocols protocols[] = {
 	},
 };
 
-LWS_VISIBLE const lws_plugin_protocol_t protocol_example_standalone = {
+/*
+ * The exported lws_plugin_protocol_t struct MUST be named EXACTLY the same as
+ * your plugin's shared object suffix (after removing 'libprotocol_').
+ * lwsws uses this exact string directly in its dlsym() lookup on startup.
+ */
+LWS_VISIBLE const lws_plugin_protocol_t example_standalone = {
 	.hdr = {
 		.name = "standalone",
 		._class = "lws_protocol_plugin",

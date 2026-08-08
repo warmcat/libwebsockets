@@ -218,6 +218,41 @@ lws_write(struct lws *wsi, unsigned char *buf, size_t len,
 	lws_write(wsi, (unsigned char *)(buf), len, LWS_WRITE_HTTP)
 
 /**
+ * lws_finalize_write_http_header_flags() - finalize and write http headers with
+ *        caller-supplied write flags
+ *
+ * \param wsi: the connection the headers are for
+ * \param start: pointer to the start of the prepared headers in the buffer,
+ *		 eg &buf[LWS_PRE]
+ * \param p: pointer to current position in buffer pointer
+ * \param end: pointer to end of buffer
+ * \param flags: the write flags to pass to the internal lws_write(), typically
+ *		 LWS_WRITE_HTTP_HEADERS, or
+ *		 LWS_WRITE_HTTP_HEADERS | LWS_WRITE_H2_STREAM_END for a
+ *		 headers-only response
+ *
+ * Finalizes the prepared header buffer according to the protocol in use
+ * (h1 / h2 / h3) and writes it with the given write-protocol flags.
+ *
+ * For any response that sends headers and no body (eg a 302 redirect, or a
+ * status response with an empty body), you MUST pass
+ * LWS_WRITE_HTTP_HEADERS | LWS_WRITE_H2_STREAM_END: without
+ * LWS_WRITE_H2_STREAM_END, under h2 / h3 the HEADERS frame is emitted without
+ * END_STREAM, the stream never completes, the client waits indefinitely for a
+ * body that never comes, and lws has no timeout watching for it.  For responses
+ * that do send a body afterwards, pass plain LWS_WRITE_HTTP_HEADERS; END_STREAM
+ * then correctly goes on the final DATA frame.
+ *
+ * lws_finalize_write_http_header() (declared in lws-http.h) is a convenience
+ * wrapper that passes plain LWS_WRITE_HTTP_HEADERS.  Returns nonzero for error.
+ */
+LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
+lws_finalize_write_http_header_flags(struct lws *wsi, unsigned char *start,
+			                     unsigned char **p,
+			                     unsigned char *end,
+			             enum lws_write_protocol flags);
+
+/**
  * lws_write_ws_flags() - Helper for multi-frame ws message flags
  *
  * \param initial: the lws_write flag to use for the start fragment, eg,

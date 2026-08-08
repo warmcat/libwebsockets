@@ -54,6 +54,13 @@ struct pending_auth_state {
 	struct lejp_ctx jctx;
 	const char *fatal_error;
 
+	/* If /api/token returns an error JSON (no access_token), capture the
+	 * error / error_description strings so the bail log shows the actual
+	 * auth-server rejection instead of a generic "Failed to obtain access
+	 * token". */
+	char token_error[64];
+	char token_error_desc[128];
+
 	char state[48];
 	char code_verifier[64];
 	char redirect_uri[256];
@@ -75,7 +82,7 @@ struct pending_auth_state {
 	 * so lws-login's silent renewal (background + cold-load) has something to
 	 * renew with.  Empty when the auth server has refresh disabled.
 	 */
-	char refresh_token[65];
+	char refresh_token[128];
 	int refresh_token_len;
 	unsigned long refresh_expires_in_secs;
 
@@ -92,7 +99,9 @@ static const char * const lejp_paths[] = {
 	"access_token",
 	"expires_in",
 	"refresh_token",
-	"refresh_expires_in"
+	"refresh_expires_in",
+	"error",
+	"error_description"
 };
 
 static signed char
@@ -100,7 +109,18 @@ oauth_lejp_cb(struct lejp_ctx *ctx, char reason)
 {
 	struct pending_auth_state *ps = (struct pending_auth_state *)ctx->user;
 
-	if (reason != LEJP_FLAG_CB_IS_VALUE)
+	/*
+	 * String values arrive as LEJPCB_VAL_STR_CHUNK (possibly several
+	 * times for a long value) then LEJPCB_VAL_STR_END; numeric values as
+	 * LEJPCB_VAL_NUM_INT/FLOAT.  All of these have the LEJP_FLAG_CB_IS_VALUE
+	 * bit set.  The previous "reason != LEJP_FLAG_CB_IS_VALUE" test never
+	 * matched any real value (the full reason is eg VAL_STR_END = 0x40|13),
+	 * so access_token / expires_in / refresh_token / error were never
+	 * captured and the flow always bailed with "Failed to obtain access
+	 * token".  Bit-test the flag, like every other LEJP consumer in tree
+	 * (jws.c, jose.c, jwe.c, jose_key.c).
+	 */
+	if (!(reason & LEJP_FLAG_CB_IS_VALUE))
 		return 0;
 
 	switch (ctx->path_match) {
@@ -156,9 +176,54 @@ oauth_lejp_cb(struct lejp_ctx *ctx, char reason)
 			ps->refresh_expires_in_secs = (unsigned long)atoll(tmp);
 		}
 		break;
+
+	case 5: /* error: OAuth2 error code from /api/token (eg invalid_grant) */
+		if (ctx->npos) {
+			size_t copy = ctx->npos < sizeof(ps->token_error) - 1 ?
+					   ctx->npos : sizeof(ps->token_error) - 1;
+			memcpy(ps->token_error, ctx->buf, copy);
+			ps->token_error[copy] = '\0';
+		}
+		break;
+
+	case 6: /* error_description: human-readable detail from /api/token */
+		if (ctx->npos) {
+			size_t copy = ctx->npos < sizeof(ps->token_error_desc) - 1 ?
+					   ctx->npos : sizeof(ps->token_error_desc) - 1;
+			memcpy(ps->token_error_desc, ctx->buf, copy);
+			ps->token_error_desc[copy] = '\0';
+		}
+		break;
 	}
 
 	return 0;
+}
+
+/*
+ * ps is shared between two wsis: the incoming /oauth/callback server wsi
+ * (ps->wsi_server) and the outgoing /api/token client wsi (ps->wsi_client,
+ * which carries ps as its externally-allocated user_space).  Either leg may
+ * finish first; freeing ps while the other leg still references it is a
+ * use-after-free (the allocator may reuse or zero the block, so the surviving
+ * leg sees garbage -- eg payload_len silently becoming 0).
+ *
+ * Each leg clears its own back-pointer and calls here; ps is only torn down
+ * once BOTH legs are done.  The TIMEOUT_PENDING sul is also cancelled so a
+ * late 5min timeout cannot free ps under a still-live wsi either.
+ */
+static void
+pending_auth_release(struct pending_auth_state *ps)
+{
+	if (!ps)
+		return;
+
+	if (ps->wsi_server || ps->wsi_client)
+		return;
+
+	lws_sul_cancel(&ps->sul);
+	lws_dll2_remove(&ps->list);
+	lejp_destruct(&ps->jctx);
+	free(ps);
 }
 
 static void
@@ -167,10 +232,27 @@ sul_pending_auth_cb(lws_sorted_usec_list_t *sul)
 	struct pending_auth_state *ps = lws_container_of(sul,
 					struct pending_auth_state, sul);
 
-	lwsl_info("%s: auth state %s timed out\\n", __func__, ps->state);
-	lws_dll2_remove(&ps->list);
-	lejp_destruct(&ps->jctx);
-	free(ps);
+	lwsl_notice("%s: pending auth state %s timed out (server=%p, "
+		    "client=%p)\n", __func__, ps->state,
+		    (void *)ps->wsi_server, (void *)ps->wsi_client);
+
+	/*
+	 * The 5min validity of the auth code elapsed.  Close any still-live
+	 * wsis; their close callbacks clear the matching back-pointer and
+	 * call pending_auth_release(), so ps is freed only after both legs
+	 * are gone -- never while a wsi still references it (which was a
+	 * use-after-free in the old "free ps here unconditionally" code).
+	 */
+	if (ps->wsi_server)
+		lws_wsi_close(ps->wsi_server, LWS_TO_KILL_ASYNC);
+	if (ps->wsi_client)
+		lws_wsi_close(ps->wsi_client, LWS_TO_KILL_ASYNC);
+
+	/*
+	 * If both legs already finished, no close callback will fire, so
+	 * release here.  Otherwise the close callbacks do it.
+	 */
+	pending_auth_release(ps);
 }
 
 /*
@@ -293,9 +375,58 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 			if (lws_get_urlarg_by_name_safe(wsi, "redirect_uri=", ps->redirect_uri, sizeof(ps->redirect_uri)) < 0) {
 				lws_strncpy(ps->redirect_uri, "/", sizeof(ps->redirect_uri));
 			} else {
-				/* Prevent Open Redirect by enforcing relative local paths */
-				if (ps->redirect_uri[0] != '/' || ps->redirect_uri[1] == '/')
-					lws_strncpy(ps->redirect_uri, "/", sizeof(ps->redirect_uri));
+				/*
+				 * Open Redirect defense: the post-login redirect
+				 * target MUST be a relative local path.  Callers (eg
+				 * lws-login) may pass a fully-qualified same-origin
+				 * URL like "https://libwebsockets.org/sai"; if the
+				 * host matches the request's host, accept it by
+				 * reducing it to its path.  Anything else (absolute
+				 * URL on a different host, protocol-relative
+				 * "//evil.com", etc) is reset to "/".
+				 */
+				if (!strncmp(ps->redirect_uri, "http://", 7) ||
+				    !strncmp(ps->redirect_uri, "https://", 8)) {
+					char reqhost[160], urghost[160];
+					const char *hp, *pp;
+					size_t hlen;
+					int scheme_off = ps->redirect_uri[4] == ':' ? 7 : 8;
+					int got = 0;
+
+					hp = ps->redirect_uri + scheme_off;
+					pp = strchr(hp, '/');
+					hlen = pp ? (size_t)(pp - hp) : strlen(hp);
+					if (hlen >= sizeof(urghost))
+						hlen = sizeof(urghost) - 1;
+					memcpy(urghost, hp, hlen);
+					urghost[hlen] = '\0';
+
+					/* request host: Host header, else h2/h3 :authority */
+					reqhost[0] = '\0';
+					if (lws_hdr_copy(wsi, reqhost, sizeof(reqhost),
+						 WSI_TOKEN_HOST) > 0
+#if defined(LWS_ROLE_H2)
+					    || lws_hdr_copy(wsi, reqhost,
+						 sizeof(reqhost),
+						 WSI_TOKEN_HTTP_COLON_AUTHORITY) > 0
+#endif
+					    )
+						got = 1;
+
+					if (got && !strcmp(reqhost, urghost)) {
+						/* same-origin: keep just the path */
+						lws_strncpy(ps->redirect_uri,
+							    pp ? pp : "/",
+							    sizeof(ps->redirect_uri));
+					} else
+						lws_strncpy(ps->redirect_uri, "/",
+							    sizeof(ps->redirect_uri));
+				}
+				/* still enforce: relative, and not protocol-relative */
+				if (ps->redirect_uri[0] != '/' ||
+				    ps->redirect_uri[1] == '/')
+					lws_strncpy(ps->redirect_uri, "/",
+						    sizeof(ps->redirect_uri));
 			}
 
 			if (lws_get_urlarg_by_name_safe(wsi, "service_name=", sname, sizeof(sname)) < 0)
@@ -423,16 +554,24 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 			char iss_in[256];
 			struct pending_auth_state *ps = NULL;
 
+			// lwsl_wsi_notice(wsi, "/oauth/callback: handler entry");
+
 			if (lws_get_urlarg_by_name_safe(wsi, "state=", state_in, sizeof(state_in)) < 0 ||
 			    lws_get_urlarg_by_name_safe(wsi, "code=", code_in, sizeof(code_in)) < 0 ||
 			    lws_get_urlarg_by_name_safe(wsi, "iss=", iss_in, sizeof(iss_in)) < 0) {
+				lwsl_wsi_notice(wsi, "/oauth/callback: exit 1");
 				lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, "Missing state, code, or iss");
 				return lws_http_transaction_completed(wsi);
 			}
 
 			lws_urldecode(iss_in, iss_in, sizeof(iss_in));
 			if (strlen(iss_in) != strlen(vhd->remote_auth_url) || strcmp(iss_in, vhd->remote_auth_url)) {
-				lwsl_err("%s: Mix-up defense blocked callback for unknown iss %s\\n", __func__, iss_in);
+				lwsl_wsi_notice(wsi, "/oauth/callback: mix-up defense "
+						"blocked: iss='%s' != remote-auth-url "
+						"'%s'", iss_in,
+						vhd->remote_auth_url ?
+							vhd->remote_auth_url :
+							"(null)");
 				lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, "Invalid issuer parameter");
 				return lws_http_transaction_completed(wsi);
 			}
@@ -447,6 +586,8 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 			} lws_end_foreach_dll_safe(d, d1);
 
 			if (!ps) {
+				lwsl_wsi_notice(wsi, "/oauth/callback: invalid / expired state");
+
 				lws_return_http_status(wsi, HTTP_STATUS_BAD_REQUEST, "Invalid or expired state");
 				return lws_http_transaction_completed(wsi);
 			}
@@ -482,29 +623,78 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 				puri = lws_parse_uri_create(vhd->remote_auth_url);
 				if (!puri) {
-					lwsl_err("Failed to parse remote-auth-url\n");
+					lwsl_wsi_warn(wsi, "Failed to parse remote-auth-url\n");
 					lws_return_http_status(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR, "Invalid config");
 					return lws_http_transaction_completed(wsi);
 				}
 
-				memset(&i, 0, sizeof(i));
-				i.context = vhd->context;
-				i.address = puri->host;
-				i.port = puri->port;
-				i.ssl_connection = !strcmp(puri->scheme, "http") ? 0 : LCCSCF_USE_SSL;
-				i.path = "/api/token";
-				i.host = i.address;
-				i.origin = i.address;
-				i.method = "POST";
-				i.protocol = "lws-oauth2-client";
-				i.pwsi = &ps->wsi_client;
-				i.userdata = ps;
+			memset(&i, 0, sizeof(i));
+			i.context		= vhd->context;
+                       /*
+                        * Bind the outgoing /api/token client connection to the
+                        * SAME vhost the incoming /oauth/callback request was
+                        * served on.  lws routes CLIENT_* callbacks through
+                        * wsi->a.protocol->callback, and the protocol is resolved
+                        * by name ONLY from the bound vhost's protocols[] array
+                        * (lws_vhost_name_to_protocol in connect.c PHASE 5).
+                        *
+                        * If we leave i.vhost NULL, lws falls back to the
+                        * "default" / vhost_list head vhost, which does NOT have
+                        * "lws-oauth2-client" enabled; the lookup returns NULL,
+                        * the wsi is left on protocols[0] of the wrong vhost, and
+                        * LWS_CALLBACK_COMPLETED_CLIENT_HTTP / CLIENT_CONNECTION_ERROR
+                        * are delivered to the wrong callback.  Our plugin never
+                        * sees them, so lws_callback_on_writable(ps->wsi_server)
+                        * is never called and the server wsi hangs forever --
+                        * the browser sees "no response, no timeout" on
+                        * /oauth/callback.
+                        */
+			i.vhost			= vhd->vhost;
 
-				lws_client_connect_via_info(&i);
-				lws_parse_uri_destroy(&puri);
+			i.address		= puri->host;
+			i.port			= puri->port;
+			i.ssl_connection	= !strcmp(puri->scheme, "http") ? 0 : LCCSCF_USE_SSL;
+			i.path			= "/api/token";
+			i.host			= i.address;
+			i.origin		= i.address;
+			i.method		= "POST";
+			i.protocol		= "lws-oauth2-client";
+			i.pwsi			= &ps->wsi_client;
+			i.userdata		= ps;
+
+			if (!lws_client_connect_via_info(&i)) {
+				/*
+				 * The async /api/token client connection could
+				 * not even be created: no client wsi exists, so no
+				 * CLIENT_CONNECTION_ERROR / COMPLETED_CLIENT_HTTP
+				 * callback will ever fire to resume us.  Without
+				 * this, the server wsi would hang suspended forever
+				 * (the browser sees "no response, no timeout").  Drop
+				 * the pending state and fail the request now.
+				 */
+				lwsl_wsi_notice(wsi, "/oauth/callback: failed to "
+						"connect to %s for /api/token",
+						vhd->remote_auth_url ?
+							vhd->remote_auth_url :
+							"(null)");
+				/*
+				 * No client wsi was created, so the server leg is
+				 * the only owner; clear wsi_server and release.
+				 */
+				ps->wsi_server = NULL;
+				ps->wsi_client = NULL;
+				pending_auth_release(ps);
+				lws_return_http_status(wsi,
+					HTTP_STATUS_BAD_GATEWAY,
+					"Unable to reach auth server");
+				return lws_http_transaction_completed(wsi);
 			}
+			lwsl_wsi_notice(wsi, "/oauth/callback: client connect started");
 
-			return 0; // suspend without writing any header yet
+			lws_parse_uri_destroy(&puri);
+		}
+
+		return 0; // suspend without writing any header yet
 		}
 		break;
 	}
@@ -529,13 +719,34 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 
 		if (ps->fatal_error || !ps->token[0]) {
-			lwsl_notice("%s: bailing with fatal error: %s\n", __func__,
+			/*
+			 * If /api/token returned an OAuth2 error JSON, surface
+			 * the actual error code + description so the cause is
+			 * visible (eg invalid_grant / PKCE mismatch / invalid_client)
+			 * instead of a generic "Failed to obtain access token".
+			 */
+			if (!ps->fatal_error && (ps->token_error[0] ||
+						 ps->token_error_desc[0]))
+				lwsl_wsi_notice(wsi, "/api/token rejected: error='%s' "
+					    "desc='%s'\n",
+					    ps->token_error[0] ?
+						    ps->token_error : "(none)",
+					    ps->token_error_desc[0] ?
+						    ps->token_error_desc : "(none)");
+			lwsl_wsi_notice(wsi, "bailing with fatal error: %s",
 				    ps->fatal_error ? ps->fatal_error : "Failed to obtain access token");
 			lws_return_http_status(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR,
 					       ps->fatal_error ? ps->fatal_error : "Failed to obtain access token");
-			lws_dll2_remove(&ps->list);
-			lejp_destruct(&ps->jctx);
-			free(ps);
+			/*
+			 * The server leg is done.  Don't free ps outright: the
+			 * outgoing /api/token client wsi may still hold ps as its
+			 * user_space and fire callbacks on it -- freeing here is a
+			 * use-after-free.  Detach the server's back-pointer and let
+			 * pending_auth_release() tear ps down only when the client
+			 * leg is also done.
+			 */
+			ps->wsi_server = NULL;
+			pending_auth_release(ps);
 			return lws_http_transaction_completed(wsi);
 		}
 
@@ -614,10 +825,13 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 				return 1;
 		}
 
-		// Unlink and free it, we don't need it anymore
-		lws_dll2_remove(&ps->list);
-		lejp_destruct(&ps->jctx);
-		free(ps);
+		/*
+		 * Server leg is done (302 + cookies written).  As with the bail
+		 * path, don't free ps outright if the /api/token client wsi is
+		 * still alive -- it still references ps as its user_space.
+		 */
+		ps->wsi_server = NULL;
+		pending_auth_release(ps);
 
 		/* headers-only 302 (set-cookies + Location): under h2 the HEADERS
 		 * frame must carry END_STREAM or the stream hangs open. */
@@ -631,7 +845,11 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 					   lws_dll2_get_head(&vhd->pending_auth_list)) {
 			struct pending_auth_state *s = lws_container_of(d, struct pending_auth_state, list);
 			if (s->wsi_server == wsi) {
+				/* The /oauth/callback server wsi closed (eg the
+				 * browser gave up).  Detach the server leg; ps is
+				 * released if the client leg is also done. */
 				s->wsi_server = NULL;
+				pending_auth_release(s);
 			}
 		} lws_end_foreach_dll_safe(d, d1);
 		break;
@@ -639,35 +857,76 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER: {
 		struct pending_auth_state *ps = (struct pending_auth_state *)lws_wsi_user(wsi);
+		/*
+		 * Per the documented contract (lws-callbacks.h): `in` is a
+		 * pointer to the producer's write-cursor variable (so *p is the
+		 * current write position in the header scratch buffer), and `len`
+		 * is the number of bytes remaining from *p to the end of that
+		 * buffer (exclusive, already discounted by 12 for the CRLF CRLF
+		 * terminator lws appends after we return).
+		 */
 		unsigned char **p = (unsigned char **)in;
-		unsigned char *end = (unsigned char *)in + len - 1;
+		unsigned char *end = (*p) + len;
+		char cl[16];
 
 		if (!ps)
 			break;
 
-		*p += lws_snprintf((char *)*p, (size_t)lws_ptr_diff(end, *p),
-				   "Content-Type: application/x-www-form-urlencoded\x0d\x0a"
-				   "Content-Length: %d\x0d\x0a", ps->payload_len);
+		/*
+		 * Append the POST headers through the lws API, not by raw
+		 * lws_snprintf into the buffer: the APPEND scratch buffer holds
+		 * H1 text on h1 but HPACK on h2, so writing "Content-Type:..."
+		 * as plain text would inject raw header bytes into the h2 HPACK
+		 * block.  lws_add_http_header_by_token emits the correct bytes
+		 * for whichever role we are.
+		 */
+		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
+				(unsigned char *)"application/x-www-form-urlencoded",
+				33, p, end))
+			return 1;
+
+		lws_snprintf(cl, sizeof(cl), "%d", ps->payload_len);
+		if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH,
+				(unsigned char *)cl, (int)strlen(cl), p, end))
+			return 1;
+
+		/*
+		 * Arm the POST body write: the canonical pattern (see
+		 * minimal-http-client-post / test-client.c) of setting body-pending
+		 * and requesting WRITEABLE after appending Content-Type/Length.
+		 */
+		lws_client_http_body_pending(wsi, 1);
+		lws_callback_on_writable(wsi);
 		break;
 	}
 
 	case LWS_CALLBACK_CLIENT_HTTP_WRITEABLE: {
 		struct pending_auth_state *ps = (struct pending_auth_state *)lws_wsi_user(wsi);
+		size_t chunk;
 		int n;
 
 		if (!ps || ps->payload_pos >= ps->payload_len)
 			break;
 
+		chunk = (size_t)(ps->payload_len - ps->payload_pos);
+
+		/*
+		 * On the final body chunk, pair lws_client_http_body_pending(,0)
+		 * with LWS_WRITE_HTTP_FINAL.  As minimal-http-client-post notes,
+		 * this is "necessary to support H2, it means we will write no
+		 * more on this stream" -- it puts END_STREAM on the last DATA
+		 * frame so the server knows the request body is complete.
+		 */
+		lws_client_http_body_pending(wsi, 0);
+
 		n = lws_write(wsi, (unsigned char *)ps->payload + ps->payload_pos,
-			      (size_t)(ps->payload_len - ps->payload_pos), LWS_WRITE_HTTP);
+			      chunk, LWS_WRITE_HTTP_FINAL);
 		if (n < 0)
 			return -1;
 		ps->payload_pos += n;
 
 		if (ps->payload_pos < ps->payload_len)
 			lws_callback_on_writable(wsi);
-		else
-			lws_client_http_body_pending(wsi, 0);
 		break;
 	}
 
@@ -694,7 +953,10 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (ps->wsi_server)
 			lws_callback_on_writable(ps->wsi_server);
+		/* The client leg is done; release ps if the server leg already
+		 * finished too. */
 		ps->wsi_client = NULL;
+		pending_auth_release(ps);
 		break;
 	}
 
@@ -705,13 +967,31 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!ps)
 			break;
 
-		lwsl_notice("%s: client connection closed or errored\n", __func__);
+		/*
+		 * CLIENT_CONNECTION_ERROR delivers a human-readable reason in
+		 * (in, len); CLOSED_CLIENT_HTTP has in == NULL.  Logging the
+		 * reason is the difference between guessing why the /api/token
+		 * fetch failed and knowing -- lws sets cce strings like
+		 * "bio_create failed", "error sending h2 preface",
+		 * "first service failed", "Timed out waiting server reply",
+		 * or a TLS error from the handshake.
+		 */
+		if (reason == LWS_CALLBACK_CLIENT_CONNECTION_ERROR && in && len)
+			lwsl_wsi_notice(wsi, "%s: /api/token client connection "
+					"failed: %.*s", __func__,
+					(int)len, (const char *)in);
+		else
+			lwsl_wsi_notice(wsi, "%s: /api/token client connection "
+					"closed", __func__);
 
 		if (ps->wsi_server && !ps->token[0]) {
 			// Failed, resume server to throw 500
 			lws_callback_on_writable(ps->wsi_server);
 		}
+		/* The client leg is gone; release ps if the server leg already
+		 * finished too (otherwise the server's later teardown will). */
 		ps->wsi_client = NULL;
+		pending_auth_release(ps);
 		break;
 	}
 
