@@ -386,9 +386,21 @@ lws_http_date_render_from_unix(char *buf, size_t len, const time_t *t);
  * END_STREAM / no body drain -- a user-code bug) is closed and warned about
  * rather than hanging the stream forever.  Idempotent: only acts on the first
  * response-headers write of the transaction.
+ *
+ * The h2/h3 write paths that call this are shared between client and server
+ * builds, so when LWS_WITH_SERVER is off it collapses to a no-op stub -- the
+ * watchdog it arms lives in lib/roles/http/server/server.c which is server-only.
  */
+#if defined(LWS_WITH_SERVER)
 void
 lws_http_response_started(struct lws *wsi);
+#else
+static inline void
+lws_http_response_started(struct lws *wsi)
+{
+	(void)wsi;
+}
+#endif
 
 int
 lws_http_date_parse_unix(const char *b, size_t len, time_t *t);

@@ -108,7 +108,8 @@ lws_sul_wsitimeout_cb(lws_sorted_usec_list_t *sul)
 			      "headers-only response without "
 			      "LWS_WRITE_H2_STREAM_END, protocol=%s, uri=\"%s\"",
 			      wsi->a.protocol ? wsi->a.protocol->name : "none",
-			      lws_wsi_request_uri(wsi) ?: "");
+			      lws_wsi_request_uri(wsi) ?
+			      lws_wsi_request_uri(wsi) : "");
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	else if (wsi->pending_timeout != PENDING_TIMEOUT_USER_OK)
 		lwsl_wsi_info(wsi, "TIMEDOUT WAITING %d, dhdr %d, ah %p, wl %d",

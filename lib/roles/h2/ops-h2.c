@@ -1482,6 +1482,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 			 if (w->h2.send_END_STREAM)
 				lws_h2_state(w, LWS_H2_STATE_HALF_CLOSED_LOCAL);
 
+#if defined(LWS_WITH_CLIENT)
 			/*
 			 * If we just finished writing the request body (the
 			 * user cleared client_http_body_pending from
@@ -1499,6 +1500,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 					PENDING_TIMEOUT_AWAITING_SERVER_RESPONSE,
 					(int)w->a.context->timeout_secs);
 			}
+#endif
 		}
 
 	} lws_end_foreach_dll_safe(d, d1);
