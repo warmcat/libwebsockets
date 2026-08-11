@@ -505,6 +505,12 @@ lws_tls_server_abort_connection(struct lws *wsi)
 	/*
 	 * HITLS_Close() (called from __lws_tls_shutdown) has been observed to
 	 * corrupt heap metadata.  Skip it; HITLS_Free() handles full cleanup.
+	 *
+	 * The BSL_UIO was allocated by us in lws_tls_server_new_nonblocking()
+	 * and only associated (refcounted) with the HITLS_Ctx by HITLS_SetUio();
+	 * HITLS_Free() drops that association but does not free the UIO itself,
+	 * so we must BSL_UIO_Free() it.  Detach the fd first so neither
+	 * HITLS_Free() nor BSL_UIO_Free() touches the wsi-owned socket.
 	 */
 	uio = HITLS_GetUio(wsi->tls.ssl);
 	if (uio) {
@@ -512,6 +518,9 @@ lws_tls_server_abort_connection(struct lws *wsi)
 	}
 	HITLS_Free(wsi->tls.ssl);
 	wsi->tls.ssl = NULL;
+	if (uio) {
+		BSL_UIO_Free(uio);
+	}
 
 	return LWS_SSL_CAPABLE_DONE;
 }
@@ -1043,8 +1052,18 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
         return 0; /* no action */
 }
 
+/*
+ * Called by the tls ctx ref system (lws_tls_ctx_ref_destroy_all) when the
+ * server config's refcount drops to zero, and also from
+ * lws_tls_cert_updated() when retiring an old context after a hot cert
+ * update.  HITLS_Config is itself refcounted (HITLS_New up-refs it per
+ * connection, HITLS_Free down-refs), so this is safe to call from both the
+ * ref system and lws_ssl_SSL_CTX_destroy() like the OpenSSL backend does
+ * with SSL_CTX_free().
+ */
 void
 lws_tls_vhost_backend_free_ctx(lws_tls_ctx *ctx)
 {
-        /* no action */
+	if (ctx)
+		HITLS_CFG_FreeConfig((HITLS_Config *)ctx);
 }

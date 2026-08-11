@@ -476,7 +476,7 @@ lws_ssl_info_callback(const lws_tls_conn *ssl, int where, int ret)
 int
 lws_ssl_close(struct lws *wsi)
 {
-	lws_sockfd_type n;
+	lws_sockfd_type n = LWS_SOCK_INVALID;
 	BSL_UIO *uio;
 
 	if (!wsi->tls.ssl) {
@@ -496,14 +496,24 @@ lws_ssl_close(struct lws *wsi)
 	 * Get the fd before any cleanup that may invalidate it.
 	 */
 	uio = HITLS_GetUio(wsi->tls.ssl);
-	BSL_UIO_Ctrl(uio, BSL_UIO_GET_FD, sizeof(lws_sockfd_type), &n);
-
-	
+	if (uio)
+		BSL_UIO_Ctrl(uio, BSL_UIO_GET_FD, sizeof(lws_sockfd_type), &n);
 
 	if (lws_socket_is_valid(n))
 		compatible_close(n);
+	/*
+	 * Detach the fd from the UIO so neither HITLS_Free() nor BSL_UIO_Free()
+	 * can touch the (already closed) wsi-owned socket, then drop the TLS
+	 * context.  The UIO was allocated by us (in client bio create / server
+	 * new_nonblocking) and only associated with the HITLS_Ctx; HITLS_Free()
+	 * does not free it, so we must BSL_UIO_Free() it ourselves.
+	 */
+	if (uio)
+		BSL_UIO_SetFD(uio, -1);
 	HITLS_Free(wsi->tls.ssl);
 	wsi->tls.ssl = NULL;
+	if (uio)
+		BSL_UIO_Free(uio);
 	lws_tls_restrict_return(wsi);
 
 	return 1; /* handled */

@@ -18,7 +18,13 @@ static struct lws_context *context;
 static struct lws *client_wsi;
 
 static int test_stage;
-static int test_port = 7780;
+/*
+ * Base listen port; each stage uses base_port + stage (stages 0..2, so a
+ * contiguous block of three).  Default preserves standalone behaviour; ctest
+ * overrides it with a CI-allocated free port via --port so parallel runs (and
+ * sibling openHiTLS server tests) can't collide.
+ */
+static int base_port = 7780;
 static int app_data_sent;
 static int app_data_received;
 static int wsi_closed;
@@ -105,7 +111,7 @@ static struct lws_context* create_context_for_stage(int stage)
 	
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.protocols = protocols;
-	info.port = test_port + stage;
+	info.port = base_port + stage;
 	
 	switch (stage) {
 		case 0:
@@ -153,13 +159,24 @@ static void sigint_handler(int sig)
 
 int main(int argc, const char **argv)
 {
+	const char *p;
 	int n = 0;
 	int idx;
 
 	signal(SIGINT, sigint_handler);
 
 	lws_set_log_level(LLL_USER | LLL_ERR | LLL_WARN, NULL);
-	lwsl_user("LWS TLS12 mTLS with CRL test\n");
+
+	/*
+	 * ctest passes --port allocated by lws_get_free_ports(3) so the whole
+	 * base_port + 0..2 block is reserved and parallel runs can't tread on each
+	 * other or sibling tests.  Default keeps the original standalone range.
+	 */
+	p = lws_cmdline_option(argc, argv, "--port");
+	if (p)
+		base_port = atoi(p);
+
+	lwsl_user("LWS TLS12 mTLS with CRL test (base port %d)\n", base_port);
 	lwsl_user("Stage 0: Using NORMAL server cert + client cert required\n");
 	
 	context = create_context_for_stage(test_stage);
@@ -172,7 +189,7 @@ int main(int argc, const char **argv)
 	struct lws_client_connect_info i;
 	memset(&i, 0, sizeof(i));
 	i.context = context;
-	i.port = test_port;
+	i.port = base_port;
 	i.address = "localhost";
 	i.ssl_connection = LCCSCF_USE_SSL |
 			   LCCSCF_ALLOW_SELFSIGNED |
@@ -225,7 +242,7 @@ int main(int argc, const char **argv)
 				
 				memset(&i, 0, sizeof(i));
 				i.context = context;
-				i.port = test_port + test_stage;
+				i.port = base_port + test_stage;
 				i.address = "localhost";
 				i.ssl_connection = LCCSCF_USE_SSL |
 						   LCCSCF_ALLOW_SELFSIGNED |
@@ -260,13 +277,12 @@ int main(int argc, const char **argv)
 	lwsl_user("========================================\n");
 
 cleanup:
-	/*
-	 * openHiTLS currently traps in context teardown when a client and
-	 * embedded TLS server share the same context.  The test verdict is
-	 * known when the loop exits, so allow process exit to reclaim it.
-	 */
-	(void)all_contexts;
-	(void)idx;
+	for (idx = 0; idx < num_contexts; idx++) {
+		if (all_contexts[idx]) {
+			lws_context_destroy(all_contexts[idx]);
+			all_contexts[idx] = NULL;
+		}
+	}
 
 	return bad;
 }
