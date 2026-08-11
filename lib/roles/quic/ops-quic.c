@@ -62,8 +62,10 @@ lws_quic_dbg_1rtt_account(struct lws_quic_netconn *qn,
 	type = (uint8_t)f->type;
 	bytes = (uint64_t)f->len;
 
-	/* STREAM frames carry 0x08-0x0f depending on OFF/LEN/FIN bits */
-	if (type >= LWS_QUIC_FT_STREAM && type < (LWS_QUIC_FT_STREAM | 0x08))
+	/* STREAM frames carry 0x08-0x0f depending on OFF/LEN/FIN bits;
+	 * the enum is laid out so LWS_QUIC_FT_MAX_DATA (0x10) is the next
+	 * named value, so it bounds the STREAM range cleanly */
+	if (type >= LWS_QUIC_FT_STREAM && type < LWS_QUIC_FT_MAX_DATA)
 		name = "STREAM";
 	else switch (type) {
 	case LWS_QUIC_FT_PADDING:		    name = "PADDING";		break;
