@@ -48,9 +48,7 @@ lws_quic_dbg_1rtt_account(struct lws_quic_netconn *qn,
 			  const struct lws_quic_tx_frame *f,
 			  const char *where)
 {
-	uint64_t bytes;
-	const char *name;
-	uint8_t type;
+	uint64_t bytes = (uint64_t)f->len;
 
 	if (!qn || qn->is_server ||
 	    qn->early_data_status != LWS_0RTT_STATUS_ATTEMPTED)
@@ -59,42 +57,11 @@ lws_quic_dbg_1rtt_account(struct lws_quic_netconn *qn,
 	if (!f)
 		return;
 
-	type = (uint8_t)f->type;
-	bytes = (uint64_t)f->len;
-
-	/* STREAM frames carry 0x08-0x0f depending on OFF/LEN/FIN bits;
-	 * the enum is laid out so LWS_QUIC_FT_MAX_DATA (0x10) is the next
-	 * named value, so it bounds the STREAM range cleanly */
-	if (type >= LWS_QUIC_FT_STREAM && type < LWS_QUIC_FT_MAX_DATA)
-		name = "STREAM";
-	else switch (type) {
-	case LWS_QUIC_FT_PADDING:		    name = "PADDING";		break;
-	case LWS_QUIC_FT_PING:			    name = "PING";		break;
-	case LWS_QUIC_FT_ACK:			    name = "ACK";		break;
-	case LWS_QUIC_FT_ACK_ECN:		    name = "ACK_ECN";		break;
-	case LWS_QUIC_FT_RESET_STREAM:		    name = "RESET_STREAM";	break;
-	case LWS_QUIC_FT_STOP_SENDING:		    name = "STOP_SENDING";	break;
-	case LWS_QUIC_FT_CRYPTO:		    name = "CRYPTO";		break;
-	case LWS_QUIC_FT_MAX_DATA:		    name = "MAX_DATA";		break;
-	case LWS_QUIC_FT_MAX_STREAM_DATA:	    name = "MAX_STREAM_DATA";	break;
-	case LWS_QUIC_FT_MAX_STREAMS_BIDI:	    name = "MAX_STREAMS_BIDI";	break;
-	case LWS_QUIC_FT_MAX_STREAMS_UNIDI:	    name = "MAX_STREAMS_UNIDI";	break;
-	case LWS_QUIC_FT_DATA_BLOCKED:		    name = "DATA_BLOCKED";	break;
-	case LWS_QUIC_FT_STREAM_DATA_BLOCKED:	    name = "STREAM_DATA_BLOCKED";break;
-	case LWS_QUIC_FT_STREAMS_BLOCKED_BIDI:	    name = "STREAMS_BLOCKED_B";	break;
-	case LWS_QUIC_FT_STREAMS_BLOCKED_UNIDI:	    name = "STREAMS_BLOCKED_U";	break;
-	case LWS_QUIC_FT_NEW_CONNECTION_ID:	    name = "NEW_CONNECTION_ID";	break;
-	case LWS_QUIC_FT_RETIRE_CONNECTION_ID:	    name = "RETIRE_CONNECTION_ID";break;
-	case LWS_QUIC_FT_PATH_CHALLENGE:	    name = "PATH_CHALLENGE";	break;
-	case LWS_QUIC_FT_PATH_RESPONSE:		    name = "PATH_RESPONSE";	break;
-	case LWS_QUIC_FT_CONNECTION_CLOSE:	    name = "CONNECTION_CLOSE";	break;
-	case LWS_QUIC_FT_CONNECTION_CLOSE_APP:	    name = "CC_APP";		break;
-	case LWS_QUIC_FT_HANDSHAKE_DONE:		    name = "HANDSHAKE_DONE";	break;
-	case LWS_QUIC_FT_DATAGRAM:		    name = "DATAGRAM";		break;
-	case LWS_QUIC_FT_DATAGRAM + 1:		    name = "DATAGRAM_LEN";	break;
-	default:				    name = "OTHER";		break;
-	}
-
+	/*
+	 * The byte/frame counters stay maintained at every log level so a
+	 * future dump of qn->dbg_1rtt_* works regardless; only the per-frame
+	 * notice line and its label build are compiled out under no-logs.
+	 */
 	qn->dbg_1rtt_frames++;
 	qn->dbg_1rtt_bytes += bytes;
 	if (!qn->handshake_done) {
@@ -102,16 +69,57 @@ lws_quic_dbg_1rtt_account(struct lws_quic_netconn *qn,
 		qn->dbg_1rtt_pre_hs_bytes += bytes;
 	}
 
-	lwsl_wsi_notice(qn->nwsi, "0RTTDBG app-queue %-18s type=0x%02x len=%5llu "
-			"stream=%u sid=0x%x @%s (hs_done=%d) | "
-			"app-total: %llu frames / %llu bytes (pre-hs %llu / %llu)",
-			name, type, (unsigned long long)bytes,
-			f->stream_id != 0, (unsigned)f->stream_id, where,
-			qn->handshake_done,
-			(unsigned long long)qn->dbg_1rtt_frames,
-			(unsigned long long)qn->dbg_1rtt_bytes,
-			(unsigned long long)qn->dbg_1rtt_pre_hs_frames,
-			(unsigned long long)qn->dbg_1rtt_pre_hs_bytes);
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
+	{
+		const char *name;
+		uint8_t type = (uint8_t)f->type;
+
+		/* STREAM frames carry 0x08-0x0f depending on OFF/LEN/FIN bits;
+		 * the enum is laid out so LWS_QUIC_FT_MAX_DATA (0x10) is the
+		 * next named value, so it bounds the STREAM range cleanly */
+		if (type >= LWS_QUIC_FT_STREAM && type < LWS_QUIC_FT_MAX_DATA)
+			name = "STREAM";
+		else switch (type) {
+		case LWS_QUIC_FT_PADDING:		  name = "PADDING";		break;
+		case LWS_QUIC_FT_PING:			  name = "PING";		break;
+		case LWS_QUIC_FT_ACK:			  name = "ACK";			break;
+		case LWS_QUIC_FT_ACK_ECN:		  name = "ACK_ECN";		break;
+		case LWS_QUIC_FT_RESET_STREAM:		  name = "RESET_STREAM";	break;
+		case LWS_QUIC_FT_STOP_SENDING:		  name = "STOP_SENDING";	break;
+		case LWS_QUIC_FT_CRYPTO:		  name = "CRYPTO";		break;
+		case LWS_QUIC_FT_MAX_DATA:		  name = "MAX_DATA";		break;
+		case LWS_QUIC_FT_MAX_STREAM_DATA:	  name = "MAX_STREAM_DATA";	break;
+		case LWS_QUIC_FT_MAX_STREAMS_BIDI:	  name = "MAX_STREAMS_BIDI";	break;
+		case LWS_QUIC_FT_MAX_STREAMS_UNIDI:	  name = "MAX_STREAMS_UNIDI";	break;
+		case LWS_QUIC_FT_DATA_BLOCKED:		  name = "DATA_BLOCKED";	break;
+		case LWS_QUIC_FT_STREAM_DATA_BLOCKED:	  name = "STREAM_DATA_BLOCKED";	break;
+		case LWS_QUIC_FT_STREAMS_BLOCKED_BIDI:	  name = "STREAMS_BLOCKED_B";	break;
+		case LWS_QUIC_FT_STREAMS_BLOCKED_UNIDI:	  name = "STREAMS_BLOCKED_U";	break;
+		case LWS_QUIC_FT_NEW_CONNECTION_ID:	  name = "NEW_CONNECTION_ID";	break;
+		case LWS_QUIC_FT_RETIRE_CONNECTION_ID:	  name = "RETIRE_CONNECTION_ID";break;
+		case LWS_QUIC_FT_PATH_CHALLENGE:	  name = "PATH_CHALLENGE";	break;
+		case LWS_QUIC_FT_PATH_RESPONSE:		  name = "PATH_RESPONSE";	break;
+		case LWS_QUIC_FT_CONNECTION_CLOSE:	  name = "CONNECTION_CLOSE";	break;
+		case LWS_QUIC_FT_CONNECTION_CLOSE_APP:	  name = "CC_APP";		break;
+		case LWS_QUIC_FT_HANDSHAKE_DONE:	  name = "HANDSHAKE_DONE";	break;
+		case LWS_QUIC_FT_DATAGRAM:		  name = "DATAGRAM";		break;
+		case LWS_QUIC_FT_DATAGRAM + 1:		  name = "DATAGRAM_LEN";	break;
+		default:				  name = "OTHER";		break;
+		}
+
+		lwsl_wsi_notice(qn->nwsi, "0RTTDBG app-queue %-18s type=0x%02x len=%5llu "
+				"stream=%u sid=0x%x @%s (hs_done=%d) | "
+				"app-total: %llu frames / %llu bytes (pre-hs %llu / %llu)",
+				name, type, (unsigned long long)bytes,
+				f->stream_id != 0, (unsigned)f->stream_id, where,
+				qn->handshake_done,
+				(unsigned long long)qn->dbg_1rtt_frames,
+				(unsigned long long)qn->dbg_1rtt_bytes,
+				(unsigned long long)qn->dbg_1rtt_pre_hs_frames,
+				(unsigned long long)qn->dbg_1rtt_pre_hs_bytes);
+		(void)name;
+	}
+#endif
 }
 
 void
