@@ -1096,6 +1096,22 @@ error_handling:
 
 		wsi->quic.qn->handshake_done = 1;
 
+		/*
+		 * Diagnostic boundary marker: on a client that attempted 0-RTT
+		 * this is the moment frames queued at LWS_QUIC_LEVEL_APP start
+		 * being counted by the QUIC-Interop-Runner "zerortt" check as
+		 * "1-RTT data".  Summarize what was queued at APP *before* this
+		 * flip (those go out in the first 1-RTT packet burst).
+		 */
+		if (!wsi->quic.qn->is_server &&
+		    wsi->quic.qn->early_data_status == LWS_0RTT_STATUS_ATTEMPTED)
+			lwsl_wsi_notice(wsi, "0RTTDBG handshake_done flip: "
+				"app-queue held %llu frames / %llu bytes pre-hs "
+				"(earlier 0-RTT STREAM frames do NOT count against "
+				"the 1-RTT budget)",
+				(unsigned long long)wsi->quic.qn->dbg_1rtt_pre_hs_frames,
+				(unsigned long long)wsi->quic.qn->dbg_1rtt_pre_hs_bytes);
+
 		if (wsi->quic.qn->is_server) {
 			struct lws_quic_tx_frame *f_hd = lws_zalloc(sizeof(*f_hd), "HANDSHAKE_DONE");
 			if (f_hd) {

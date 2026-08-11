@@ -163,7 +163,8 @@ lws_h2_state(struct lws *wsi, enum lws_h2_states s)
 			      "likely wrote a headers-only response without "
 			      "LWS_WRITE_H2_STREAM_END), protocol=%s, uri=\"%s\"",
 			      wsi->a.protocol ? wsi->a.protocol->name : "none",
-			      lws_wsi_request_uri(wsi) ?: "");
+			      lws_wsi_request_uri(wsi) ?
+			      lws_wsi_request_uri(wsi) : "");
 
 	(void)h2_state_names;
 	wsi->h2.h2_state = (uint8_t)s;

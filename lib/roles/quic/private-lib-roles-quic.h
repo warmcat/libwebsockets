@@ -435,6 +435,20 @@ struct lws_quic_netconn {
 	uint8_t			retry_token[128];
 	size_t			retry_token_len;
 	struct lws_quic_cid	retry_scid;
+
+	/*
+	 * 0-RTT accounting (debug-only): on a client that attempted 0-RTT,
+	 * track every frame queued for Application-level (1-RTT) TX so the
+	 * QUIC-Interop-Runner "zerortt" check (which fails the test if the
+	 * client emits more than ~half the request byte budget in 1-RTT
+	 * packets) can be diagnosed.  Frames counted here end up in short-
+	 * header packets protected by CLIENT_TRAFFIC_SECRET_0 and so are
+	 * counted against the 1-RTT budget by the runner's pcap scorer.
+	 */
+	uint64_t		dbg_1rtt_frames;
+	uint64_t		dbg_1rtt_bytes;
+	uint64_t		dbg_1rtt_pre_hs_frames; /* queued before handshake_done */
+	uint64_t		dbg_1rtt_pre_hs_bytes;
 };
 
 struct lws_quic_cc_newreno {

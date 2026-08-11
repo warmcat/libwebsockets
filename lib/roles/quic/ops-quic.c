@@ -29,6 +29,89 @@
 
 static int quic_secret_cb(struct lws *wsi, enum lws_tls_quic_secret_type type, const uint8_t *secret, size_t secret_len);
 
+/*
+ * 0-RTT debug accounting helper for the QUIC-Interop-Runner "zerortt"
+ * failure mode (client emits too many bytes in 1-RTT packets after
+ * attempting 0-RTT; the runner fails the test if 1-RTT payload bytes
+ * exceed 0.5 * NUM_FILES * FILENAMELEN, i.e. 5000 bytes for the default
+ * 40-file / 250-char-name case).
+ *
+ * Fires ONLY on the bad path: client-side connections that attempted
+ * 0-RTT (early_data_status == LWS_0RTT_STATUS_ATTEMPTED).  In every
+ * other case it collapses to a single cheap branch and returns, so it
+ * is safe to call from every frame-queueing site without polluting
+ * normal H3 / server logs.  Defined here, above its first caller, so no
+ * forward declaration is needed.
+ */
+static void
+lws_quic_dbg_1rtt_account(struct lws_quic_netconn *qn,
+			  const struct lws_quic_tx_frame *f,
+			  const char *where)
+{
+	uint64_t bytes;
+	const char *name;
+	uint8_t type;
+
+	if (!qn || qn->is_server ||
+	    qn->early_data_status != LWS_0RTT_STATUS_ATTEMPTED)
+		return;
+
+	if (!f)
+		return;
+
+	type = (uint8_t)f->type;
+	bytes = (uint64_t)f->len;
+
+	/* STREAM frames carry 0x08-0x0f depending on OFF/LEN/FIN bits */
+	if (type >= LWS_QUIC_FT_STREAM && type < (LWS_QUIC_FT_STREAM | 0x08))
+		name = "STREAM";
+	else switch (type) {
+	case LWS_QUIC_FT_PADDING:		    name = "PADDING";		break;
+	case LWS_QUIC_FT_PING:			    name = "PING";		break;
+	case LWS_QUIC_FT_ACK:			    name = "ACK";		break;
+	case LWS_QUIC_FT_ACK_ECN:		    name = "ACK_ECN";		break;
+	case LWS_QUIC_FT_RESET_STREAM:		    name = "RESET_STREAM";	break;
+	case LWS_QUIC_FT_STOP_SENDING:		    name = "STOP_SENDING";	break;
+	case LWS_QUIC_FT_CRYPTO:		    name = "CRYPTO";		break;
+	case LWS_QUIC_FT_MAX_DATA:		    name = "MAX_DATA";		break;
+	case LWS_QUIC_FT_MAX_STREAM_DATA:	    name = "MAX_STREAM_DATA";	break;
+	case LWS_QUIC_FT_MAX_STREAMS_BIDI:	    name = "MAX_STREAMS_BIDI";	break;
+	case LWS_QUIC_FT_MAX_STREAMS_UNIDI:	    name = "MAX_STREAMS_UNIDI";	break;
+	case LWS_QUIC_FT_DATA_BLOCKED:		    name = "DATA_BLOCKED";	break;
+	case LWS_QUIC_FT_STREAM_DATA_BLOCKED:	    name = "STREAM_DATA_BLOCKED";break;
+	case LWS_QUIC_FT_STREAMS_BLOCKED_BIDI:	    name = "STREAMS_BLOCKED_B";	break;
+	case LWS_QUIC_FT_STREAMS_BLOCKED_UNIDI:	    name = "STREAMS_BLOCKED_U";	break;
+	case LWS_QUIC_FT_NEW_CONNECTION_ID:	    name = "NEW_CONNECTION_ID";	break;
+	case LWS_QUIC_FT_RETIRE_CONNECTION_ID:	    name = "RETIRE_CONNECTION_ID";break;
+	case LWS_QUIC_FT_PATH_CHALLENGE:	    name = "PATH_CHALLENGE";	break;
+	case LWS_QUIC_FT_PATH_RESPONSE:		    name = "PATH_RESPONSE";	break;
+	case LWS_QUIC_FT_CONNECTION_CLOSE:	    name = "CONNECTION_CLOSE";	break;
+	case LWS_QUIC_FT_CONNECTION_CLOSE_APP:	    name = "CC_APP";		break;
+	case LWS_QUIC_FT_HANDSHAKE_DONE:		    name = "HANDSHAKE_DONE";	break;
+	case LWS_QUIC_FT_DATAGRAM:		    name = "DATAGRAM";		break;
+	case LWS_QUIC_FT_DATAGRAM + 1:		    name = "DATAGRAM_LEN";	break;
+	default:				    name = "OTHER";		break;
+	}
+
+	qn->dbg_1rtt_frames++;
+	qn->dbg_1rtt_bytes += bytes;
+	if (!qn->handshake_done) {
+		qn->dbg_1rtt_pre_hs_frames++;
+		qn->dbg_1rtt_pre_hs_bytes += bytes;
+	}
+
+	lwsl_wsi_notice(qn->nwsi, "0RTTDBG app-queue %-18s type=0x%02x len=%5llu "
+			"stream=%u sid=0x%x @%s (hs_done=%d) | "
+			"app-total: %llu frames / %llu bytes (pre-hs %llu / %llu)",
+			name, type, (unsigned long long)bytes,
+			f->stream_id != 0, (unsigned)f->stream_id, where,
+			qn->handshake_done,
+			(unsigned long long)qn->dbg_1rtt_frames,
+			(unsigned long long)qn->dbg_1rtt_bytes,
+			(unsigned long long)qn->dbg_1rtt_pre_hs_frames,
+			(unsigned long long)qn->dbg_1rtt_pre_hs_bytes);
+}
+
 void
 lws_quic_queue_path_challenge(struct lws *nwsi)
 {
@@ -45,6 +128,7 @@ lws_quic_queue_path_challenge(struct lws *nwsi)
 		memcpy(nwsi->quic.qn->path_challenge, f_pc->data, 8);
 		nwsi->quic.qn->path_challenge_pending = 1;
 
+		lws_quic_dbg_1rtt_account(nwsi->quic.qn, f_pc, "path-challenge");
 		lws_dll2_add_tail(&f_pc->list, &nwsi->quic.qn->pending_tx[LWS_QUIC_LEVEL_APP]);
 		lws_callback_on_writable(nwsi);
 	}
@@ -289,6 +373,7 @@ lws_quic_pto_cb(lws_sorted_usec_list_t *sul)
 				ping->type = LWS_QUIC_FT_PING;
 				/* Add at HEAD so the PING is serialized first, before data frames
 				 * fill the MTU and cause pto_probe_needed to decrement prematurely */
+				lws_quic_dbg_1rtt_account(qn, ping, "pto-ping");
 				lws_dll2_add_head(&ping->list, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
 				lwsl_wsi_info(qn->nwsi, "QUIC PTO: Enqueued PING for level 3");
                                 qn->pto_probe_needed = 1;
@@ -385,7 +470,12 @@ lws_quic_detect_loss(struct lws *nwsi, int level, uint64_t largest_acked)
 				int pending_lvl = curlvl;
 				if (curlvl == LWS_QUIC_LEVEL_EARLY)
 					pending_lvl = LWS_QUIC_LEVEL_APP;
-					
+
+				if (pending_lvl == LWS_QUIC_LEVEL_APP)
+					lws_quic_dbg_1rtt_account(qn, f,
+						  curlvl == LWS_QUIC_LEVEL_EARLY ?
+							"loss-requeue-early"
+						      : "loss-requeue");
 				lws_dll2_add_tail(&f->list, &qn->pending_tx[pending_lvl]);
 			}
 		} lws_end_foreach_dll_safe(d, d1);
@@ -2059,6 +2149,8 @@ lws_quic_enter_closing_state(struct lws *wsi, uint64_t err_code, uint64_t frame_
 			f->type, (unsigned long long)err_code, target_level);
 		lwsl_hexdump_warn(f->data, f->len);
 
+		if (target_level == LWS_QUIC_LEVEL_APP)
+			lws_quic_dbg_1rtt_account(qn, f, "connection-close");
 		lws_dll2_add_tail(&f->list, &qn->pending_tx[target_level]);
 	}
 
@@ -2374,6 +2466,7 @@ send_frames:
 			 * subtract it for RTT); Initial/Handshake ACKs are sent
 			 * immediately so their delay is genuinely 0.
 			 */
+			uint8_t * const _ack_start = p;
 			uint64_t ack_delay_enc = 0;
 
 			if (pn_space == LWS_QUIC_LEVEL_APP &&
@@ -2420,6 +2513,15 @@ send_frames:
 				qn->rx_ack_eliciting_since_us = 0;
 			}
                         has_ack = 1;
+			if (pn_space == LWS_QUIC_LEVEL_APP) {
+				struct lws_quic_tx_frame _ackfake;
+				memset(&_ackfake, 0, sizeof(_ackfake));
+				_ackfake.type = (qn->ecn_rx_ect0 || qn->ecn_rx_ect1 ||
+						 qn->ecn_rx_ce) ? LWS_QUIC_FT_ACK_ECN
+								: LWS_QUIC_FT_ACK;
+				_ackfake.len = (uint64_t)(p - _ack_start);
+				lws_quic_dbg_1rtt_account(qn, &_ackfake, "ack-emit");
+			}
 		}
 
 		/*
@@ -2877,6 +2979,7 @@ send_frames:
 						f_sdb->type = LWS_QUIC_FT_STREAM_DATA_BLOCKED;
 						f_sdb->stream_id = w->mux.my_sid;
 						f_sdb->limit = w->quic.qs ? w->quic.qs->tx_offset : 0;
+						lws_quic_dbg_1rtt_account(qn, f_sdb, "stream-data-blocked-fairshare");
 						lws_dll2_add_head(&f_sdb->list, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
 					}
 					w->quic.tx_blocked_sent = 1;
@@ -3001,7 +3104,7 @@ end_children:
 	}
 
 	return LWS_HP_RET_DROP_POLLOUT;
-}
+	}
 
 static int
 rops_write_role_protocol_quic(struct lws *wsi, unsigned char *buf, size_t len,
@@ -3028,6 +3131,7 @@ rops_write_role_protocol_quic(struct lws *wsi, unsigned char *buf, size_t len,
 				f_sdb->type = LWS_QUIC_FT_STREAM_DATA_BLOCKED;
 				f_sdb->stream_id = wsi->mux.my_sid;
 				f_sdb->limit = wsi->quic.qs ? wsi->quic.qs->tx_offset : 0;
+				lws_quic_dbg_1rtt_account(qn, f_sdb, "stream-data-blocked");
 				lws_dll2_add_head(&f_sdb->list, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
 			}
 			wsi->quic.tx_blocked_sent = 1;
@@ -3040,6 +3144,7 @@ rops_write_role_protocol_quic(struct lws *wsi, unsigned char *buf, size_t len,
 			if (f_db) {
 				f_db->type = LWS_QUIC_FT_DATA_BLOCKED;
 				f_db->limit = qn->tx_conn_offset;
+				lws_quic_dbg_1rtt_account(qn, f_db, "data-blocked");
 				lws_dll2_add_head(&f_db->list, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
 			}
 			nwsi->quic.tx_blocked_sent = 1;
@@ -3106,6 +3211,8 @@ rops_write_role_protocol_quic(struct lws *wsi, unsigned char *buf, size_t len,
 		tx_level = LWS_QUIC_LEVEL_EARLY;
 	}
 
+	if (tx_level == LWS_QUIC_LEVEL_APP)
+		lws_quic_dbg_1rtt_account(qn, f, "stream-write");
 	lws_dll2_add_tail(&f->list, &qn->pending_tx[tx_level]);
 
 	/* Wake up the event loop to send the packet */
@@ -3413,7 +3520,8 @@ lws_quic_stream_cleanup(struct lws *wsi)
 					      wsi->a.protocol ?
 						      wsi->a.protocol->name :
 						      "none",
-					      lws_wsi_request_uri(wsi) ?: "");
+					      lws_wsi_request_uri(wsi) ?
+						      lws_wsi_request_uri(wsi) : "");
 
 			/* Send RESET_STREAM to notify the peer that we're abandoning the stream */
 			struct lws_quic_tx_frame *f_reset = lws_zalloc(sizeof(*f_reset), "quic reset");
@@ -3422,15 +3530,17 @@ lws_quic_stream_cleanup(struct lws *wsi)
 				f_reset->stream_id = sid;
 				f_reset->offset = 0; /* app error code */
 				f_reset->limit = wsi->quic.qs->tx_offset; /* final size */
+				lws_quic_dbg_1rtt_account(qn, f_reset, "reset-stream");
 				lws_dll2_add_head(&f_reset->list, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
 			}
-			
+
 			/* Send STOP_SENDING to tell peer to stop sending data to us */
 			struct lws_quic_tx_frame *f_stop = lws_zalloc(sizeof(*f_stop), "quic stop_sending");
 			if (f_stop) {
 				f_stop->type = LWS_QUIC_FT_STOP_SENDING;
 				f_stop->stream_id = sid;
 				f_stop->offset = 0; /* app error code */
+				lws_quic_dbg_1rtt_account(qn, f_stop, "stop-sending");
 				lws_dll2_add_head(&f_stop->list, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
 			}
 			
@@ -3658,6 +3768,7 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 						f_msd->stream_id = wsi->mux.my_sid;
 						f_msd->limit = wsi->quic.qs->rx_max_data;
 						wsi->quic.qs->advertised_rx_max_data = wsi->quic.qs->rx_max_data;
+						lws_quic_dbg_1rtt_account(qn, f_msd, "max-stream-data");
 						lws_dll2_add_tail(&f_msd->list, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
 					}
 					lws_callback_on_writable(nwsi);
@@ -3689,6 +3800,7 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 					f_md->type = LWS_QUIC_FT_MAX_DATA;
 					f_md->limit = qn->rx_max_data;
 					qn->advertised_rx_max_data = qn->rx_max_data;
+					lws_quic_dbg_1rtt_account(qn, f_md, "max-data");
 					lws_dll2_add_tail(&f_md->list, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
 				}
 				lws_callback_on_writable(nwsi);

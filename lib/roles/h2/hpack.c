@@ -238,9 +238,9 @@ static int lws_frag_start(struct lws *wsi, int hdr_token_idx)
 					(enum lws_token_indexes)hdr_token_idx);
 			char reason[48];
 			lws_snprintf(reason, sizeof(reason),
-				     "Duplicated pseudoheader %s", hn ?: "?");
+				     "Duplicated pseudoheader %s", hn ? hn : "?");
 			lwsl_wsi_warn(wsi, "%s: RX DUPLICATE pseudo-header "
-					"'%s' -> GOAWAY", __func__, hn ?: "?");
+					"'%s' -> GOAWAY", __func__, hn ? hn : "?");
 			lws_h2_goaway(lws_get_network_wsi(wsi),
 				      H2_ERR_PROTOCOL_ERROR, reason);
 			return 1;
