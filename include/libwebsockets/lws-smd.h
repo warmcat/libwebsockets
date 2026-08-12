@@ -103,7 +103,7 @@ lws_smd_msg_free(void **payload);
  * lws_smd_msg_send() - queue a previously allocated message
  *
  * \param ctx: the lws_context
- * \param msg: the prepared message
+ * \param payload: the prepared message
  *
  * Queues an allocated, prepared message for delivery to smd clients
  *

@@ -148,7 +148,7 @@ struct lws_dht_stats {
 /**
  * lws_dht_get_stats() - Retrieve current and historical DHT metrics
  *
- * \param ctx: DHT context
+ * \param vh: the vhost the DHT is running on
  * \param current: Pointer to store current un-rotated metrics, or NULL
  * \param history: Pointer to receive the internal history array pointer
  * \param head: Receives the index of the oldest history frame (next to be overwritten)

@@ -103,7 +103,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 /**
  * lws_async_dns_freeaddrinfo() - decrement refcount on cached addrinfo results
  *
- * \param pai: a pointert to a pointer to first addrinfo returned as result in the callback
+ * \param ai: a pointert to a pointer to first addrinfo returned as result in the callback
  *
  * Decrements the cache object's reference count.  When it reaches zero, the
  * cached object may be reaped subject to LRU rules.
