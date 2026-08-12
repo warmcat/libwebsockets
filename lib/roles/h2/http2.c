@@ -221,6 +221,15 @@ lws_h2_get_peer_txcredit_estimate(struct lws *wsi)
 	return (int)wsi->txc.peer_tx_cr_est;
 }
 
+uint32_t
+lws_h2_get_peer_rst_status(struct lws *wsi)
+{
+	if (!wsi)
+		return 0;
+
+	return wsi->h2.peer_rst_status;
+}
+
 static int
 lws_h2_update_peer_txcredit_thresh(struct lws *wsi, unsigned int sid, int threshold, int bump)
 {
@@ -2205,6 +2214,12 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			  (unsigned int)h2n->sid,
 			  (unsigned int)h2n->hpack_e_dep);
 		if (h2n->swsi) {
+			/*
+			 * Stash the peer's error code on the stream before
+			 * closing it, so user code can retrieve it from the
+			 * close callbacks via lws_h2_get_peer_rst_status().
+			 */
+			h2n->swsi->h2.peer_rst_status = h2n->hpack_e_dep;
 			lws_close_free_wsi(h2n->swsi, LWS_CLOSE_STATUS_NOSTATUS,
 					   "peer RST_STREAM");
 			h2n->swsi = NULL;

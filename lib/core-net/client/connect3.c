@@ -89,25 +89,51 @@ lws_client_h3_grace_cb(lws_sorted_usec_list_t *sul)
 		}
 	}
 
-	if (first_valid == -1 && !wsi->dns_sorted_list.count) {
-		/* There are no parallel TCP sockets, and no more DNS results to try!
-		 * We cannot fallback to TCP. Do not abort the QUIC race, just
-		 * let it run until the overall connect timeout expires. */
-		lwsl_wsi_notice(wsi, "H3 grace timer expired, but no TCP fallback available. Keeping QUIC.");
-		return;
-	}
-
-	lwsl_wsi_notice(wsi, "H3 grace timer expired, abandoning QUIC race");
+	if (first_valid == -1 && !wsi->dns_sorted_list.count)
+		/*
+		 * No parallel TCP sockets were opened (happy-eyeballs had
+		 * nothing to race with, or the DNS list was already drained)
+		 * and there are no more DNS results queued.  Don't just keep
+		 * waiting for QUIC to fail at the overall connect timeout —
+		 * abandon QUIC now and proactively start a fresh TCP attempt.
+		 */
+		lwsl_wsi_notice(wsi, "H3 grace timer expired, no TCP race in progress; abandoning QUIC to start TCP");
+	else
+		lwsl_wsi_notice(wsi, "H3 grace timer expired, abandoning QUIC race");
 
 	/* Mark H3 as FAILED in cache with 5s TTL */
 	if (wsi->a.context->h3_cap_cache && wsi->stash && wsi->stash->cis[CIS_HOST]) {
 		lws_h3_cap_info_t cap;
 		memset(&cap, 0, sizeof(cap));
 		cap.state = LWS_H3_STATE_FAILED_IGNORE;
-		lws_cache_write_through(wsi->a.context->h3_cap_cache, wsi->stash->cis[CIS_HOST], 
-					(const uint8_t *)&cap, sizeof(cap), 
+		lws_cache_write_through(wsi->a.context->h3_cap_cache, wsi->stash->cis[CIS_HOST],
+					(const uint8_t *)&cap, sizeof(cap),
 					lws_now_usecs() + (5000000ll), NULL);
 	}
+
+	/*
+	 * Temporarily demote the ALPN cache entry for this host so the
+	 * post-abandon connect path goes straight to TCP rather than
+	 * immediately retrying h3.  Use a short (60 s) TTL so the
+	 * preference is temporary.
+	 */
+	if (wsi->a.context->alpn_cache && wsi->stash && wsi->c_port) {
+		const char *_ads = wsi->stash->cis[CIS_ADDRESS] ?
+				   wsi->stash->cis[CIS_ADDRESS] :
+				   wsi->stash->cis[CIS_HOST];
+		char _key[256];
+		void *_p;
+
+		lws_snprintf(_key, sizeof(_key), "alpn_%s_%u", _ads,
+			     wsi->c_port);
+		lws_cache_write_through(wsi->a.context->alpn_cache, _key,
+					(const uint8_t *)"h2", 3,
+					lws_now_usecs() +
+					(60ll * LWS_US_PER_SEC), &_p);
+	}
+	/* Clear discovered ALPN so connect_2 does not see h3 from the
+	 * cache-hit path after the socket is rebuilt. */
+	wsi->alpn_discovered[0] = '\0';
 
 	/* Abort QUIC and revert to TCP */
 	if (lws_socket_is_valid(wsi->desc.sockfd)) {
@@ -122,6 +148,9 @@ lws_client_h3_grace_cb(lws_sorted_usec_list_t *sul)
 	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_close_kill_connection))
 		lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_close_kill_connection).close_kill_connection(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 
+	/* Stop happy-eyeballs from firing into the half-dismantled wsi */
+	lws_sul_cancel(&wsi->sul_happy_eyeballs);
+
 	/* Promote the first parallel TCP connection */
 	if (first_valid != -1) {
 		const struct lws_role_ops *r = lws_role_by_name("h2");
@@ -134,8 +163,31 @@ lws_client_h3_grace_cb(lws_sorted_usec_list_t *sul)
 		wsi->parallel_conns[first_valid].is_valid = 0;
 		/* We changed the primary fd, the event loop will trigger POLLOUT if it's connected */
 	} else {
-		/* No TCP sockets survived? Fail connection. */
-		lws_client_connect_3_connect(wsi, NULL, NULL, 0, NULL);
+		/*
+		 * No parallel TCP socket to promote.  Transition to h2/h1
+		 * and start a fresh TCP connect attempt: either from the
+		 * remaining DNS results, or a brand-new DNS lookup if the
+		 * sorted list was already drained.
+		 */
+		const struct lws_role_ops *r = lws_role_by_name("h2");
+		if (!r)
+			r = lws_role_by_name("h1");
+		if (r)
+			lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED, r);
+
+		if (wsi->dns_sorted_list.count) {
+			/* Try remaining DNS results as TCP */
+			lws_client_connect_3_connect(wsi, NULL, NULL, 0, NULL);
+		} else {
+			/*
+			 * No DNS results left, start a fresh DNS + TCP
+			 * lookup.  If it returns NULL the wsi has been
+			 * freed and there is nothing else to do.
+			 */
+			struct lws *_r =
+				lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(wsi);
+			(void)_r;
+		}
 	}
 }
 

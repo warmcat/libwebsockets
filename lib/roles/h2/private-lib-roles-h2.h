@@ -51,22 +51,11 @@ enum lws_h2_flags {
 	LWS_H2_FLAG_SETTINGS_ACK = 1,
 };
 
-enum lws_h2_errors {
-	H2_ERR_NO_ERROR,		   /* Graceful shutdown */
-	H2_ERR_PROTOCOL_ERROR,	   /* Protocol error detected */
-	H2_ERR_INTERNAL_ERROR,	   /* Implementation fault */
-	H2_ERR_FLOW_CONTROL_ERROR,  /* Flow-control limits exceeded */
-	H2_ERR_SETTINGS_TIMEOUT,	   /* Settings not acknowledged */
-	H2_ERR_STREAM_CLOSED,	   /* Frame received for closed stream */
-	H2_ERR_FRAME_SIZE_ERROR,	   /* Frame size incorrect */
-	H2_ERR_REFUSED_STREAM,	   /* Stream not processed */
-	H2_ERR_CANCEL,		   /* Stream cancelled */
-	H2_ERR_COMPRESSION_ERROR,   /* Compression state not updated */
-	H2_ERR_CONNECT_ERROR,	   /* TCP connection error for CONNECT method */
-	H2_ERR_ENHANCE_YOUR_CALM,   /* Processing capacity exceeded */
-	H2_ERR_INADEQUATE_SECURITY, /* Negotiated TLS parameters not acceptable */
-	H2_ERR_HTTP_1_1_REQUIRED,   /* Use HTTP/1.1 for the request */
-};
+/*
+ * HTTP/2 error codes are defined publicly in lws-http.h (enum lws_h2_errors,
+ * RFC 7540 section 11.4) so they can be returned to user code by
+ * lws_h2_get_peer_rst_status(); the H2_ERR_* names are kept unchanged.
+ */
 
 enum lws_h2_states {
 	LWS_H2_STATE_IDLE,
@@ -305,6 +294,15 @@ struct _lws_h2_related {
 	struct lws_h2_netconn	*h2n; /* malloc'd for root net conn */
 
 	char			*pending_status_body;
+
+	/*
+	 * On a stream wsi, stashed copy of the error code from a peer-sent
+	 * RST_STREAM (RFC 7540 section 11.4), captured in the rx path before
+	 * the stream is closed, so the user code can retrieve it via
+	 * lws_h2_get_peer_rst_status() from the close callbacks.  Zero (ie
+	 * H2_ERR_NO_ERROR) when the stream was not reset by the peer.
+	 */
+	uint32_t		peer_rst_status;
 
 	uint8_t			h2_state; /* RFC7540 state of the connection */
 

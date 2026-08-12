@@ -762,7 +762,17 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 #endif
 
 	if (wsi->mux_substream && wsi->h23_stream_carries_ws)
-		lws_h2_rst_stream(wsi, 0, "none");
+		/*
+		 * We reach here only while the stream is still in the h2 role
+		 * and the RFC 8441 extended-CONNECT ws upgrade it was carrying
+		 * has failed (a successful upgrade transitions to the ws role
+		 * at server-ws.c, so established streams take a different path).
+		 * RFC 8441 section 5 says a rejected extended-CONNECT must be
+		 * failed with REFUSED_STREAM so the peer knows the stream was
+		 * never processed and may safely retry it elsewhere.
+		 */
+		lws_h2_rst_stream(wsi, H2_ERR_REFUSED_STREAM,
+				  "ws-over-h2 handshake refused");
 /*	else
 		if (wsi->mux_substream)
 			lws_h2_rst_stream(wsi, H2_ERR_STREAM_CLOSED, "swsi got closed");

@@ -1202,5 +1202,46 @@ lws_h2_update_peer_txcredit(struct lws *wsi, unsigned int sid, int bump);
 LWS_VISIBLE LWS_EXTERN int
 lws_h2_get_peer_txcredit_estimate(struct lws *wsi);
 
+
+/**
+ * enum lws_h2_errors - HTTP/2 error code values
+ *
+ * These are the RST_STREAM and GOAWAY error codes defined in RFC 7540
+ * section 11.4.  They are returned by lws_h2_get_peer_rst_status() and used
+ * internally when emitting RST_STREAM frames.
+ */
+enum lws_h2_errors {
+	H2_ERR_NO_ERROR,		/**< Graceful shutdown */
+	H2_ERR_PROTOCOL_ERROR,		/**< Protocol error detected */
+	H2_ERR_INTERNAL_ERROR,		/**< Implementation fault */
+	H2_ERR_FLOW_CONTROL_ERROR,	/**< Flow-control limits exceeded */
+	H2_ERR_SETTINGS_TIMEOUT,	/**< Settings not acknowledged */
+	H2_ERR_STREAM_CLOSED,		/**< Frame received for closed stream */
+	H2_ERR_FRAME_SIZE_ERROR,	/**< Frame size incorrect */
+	H2_ERR_REFUSED_STREAM,		/**< Stream not processed */
+	H2_ERR_CANCEL,			/**< Stream cancelled */
+	H2_ERR_COMPRESSION_ERROR,	/**< Compression state not updated */
+	H2_ERR_CONNECT_ERROR,		/**< TCP connection error for CONNECT */
+	H2_ERR_ENHANCE_YOUR_CALM,	/**< Processing capacity exceeded */
+	H2_ERR_INADEQUATE_SECURITY,	/**< Negotiated TLS params not acceptable */
+	H2_ERR_HTTP_1_1_REQUIRED,	/**< Use HTTP/1.1 for the request */
+};
+
+/**
+ * lws_h2_get_peer_rst_status() - return the peer's RST_STREAM error code
+ *
+ * \param wsi: the h2 stream wsi that was reset by the peer
+ *
+ * Returns the RFC 7540 section 11.4 error code the peer carried in the
+ * RST_STREAM that closed this h2 stream, or 0 (H2_ERR_NO_ERROR) if the stream
+ * was not reset by the peer.  Valid from the stream's close callbacks
+ * (eg LWS_CALLBACK_CLOSED_CLIENT_HTTP, LWS_CALLBACK_CLIENT_CONNECTION_ERROR).
+ *
+ * This lets user code distinguish, for example, H2_ERR_REFUSED_STREAM (the
+ * stream was never processed and may be retried elsewhere) from other failures.
+ */
+LWS_VISIBLE LWS_EXTERN uint32_t
+lws_h2_get_peer_rst_status(struct lws *wsi);
+
 ///@}
 
