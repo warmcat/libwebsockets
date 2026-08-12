@@ -352,20 +352,53 @@ lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
 			if (ads_fallback[0] && host && path) {
 				lwsl_wsi_notice(wsi, "QUIC fail, trying next DNS result %s", ads_fallback);
 				lws_addrinfo_clean(wsi);
-				if (lws_client_reset(&wsi, (int)wsi->tls.use_ssl, ads_fallback, wsi->c_port, path, host, 1)) {
+				if (lws_client_reset(&wsi,
+						!!(wsi->tls.use_ssl & LCCSCF_USE_SSL),
+						ads_fallback, wsi->c_port, path, host, 1)) {
 					return;
 				}
 			}
 		}
-			
+
 		if (!ads) ads = host;
-		
+
 		if (ads && host && path) {
 			wsi->tried_quic = 0;
 			lwsl_wsi_notice(wsi, "QUIC connection failed, falling back to TCP");
 			lws_free_set_NULL(wsi->udp);
 			lws_addrinfo_clean(wsi);
-			if (lws_client_reset(&wsi, (int)wsi->tls.use_ssl, ads, wsi->c_port, path, host, 1)) {
+
+			/*
+			 * Invalidate any cached h3 ALPN for this host:port so
+			 * the post-reset connect path does not immediately try
+			 * QUIC again.  We write "h2" with a short (60 s) TTL so
+			 * the preference is temporary -- QUIC may work again
+			 * later when transient conditions clear.
+			 */
+			if (wsi->a.context->alpn_cache && wsi->c_port) {
+				char _key[256];
+				void *_p;
+				lws_snprintf(_key, sizeof(_key), "alpn_%s_%u",
+					     ads, wsi->c_port);
+				lws_cache_write_through(wsi->a.context->alpn_cache,
+							_key, (const uint8_t *)"h2", 3,
+							lws_now_usecs() +
+							(60ll * LWS_US_PER_SEC),
+							&_p);
+			}
+			/*
+			 * Clear discovered ALPN and the wsi's negotiated alpn
+			 * so connect_2_restart does not see h3 from either the
+			 * cache-hit path or the stash ALPN path.  lws_client_reset
+			 * will re-default the stash ALPN to "h2,http/1.1" when it
+			 * finds wsi->alpn empty.
+			 */
+			wsi->alpn_discovered[0] = '\0';
+			wsi->alpn[0] = '\0';
+
+			if (lws_client_reset(&wsi,
+					!!(wsi->tls.use_ssl & LCCSCF_USE_SSL),
+					ads, wsi->c_port, path, host, 1)) {
 				/* Successfully scheduled fallback */
 				return;
 			}
