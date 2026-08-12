@@ -220,8 +220,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     var si = i, sj = j;
                     while (i < a.length && a.codePointAt(i) >= 48 && a.codePointAt(i) <= 57) i++;
                     while (j < b.length && b.codePointAt(j) >= 48 && b.codePointAt(j) <= 57) j++;
-                    var na = parseInt(a.slice(si, i), 10);
-                    var nb = parseInt(b.slice(sj, j), 10);
+                    var na = Number.parseInt(a.slice(si, i), 10);
+                    var nb = Number.parseInt(b.slice(sj, j), 10);
                     if (na !== nb) return na < nb ? -1 : 1;
                 } else {
                     if (ca !== cb) return ca < cb ? -1 : 1;
@@ -420,7 +420,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (resumeState.subId) {
                     for (var oi = 0; oi < subSel.options.length; oi++) {
                         if (subSel.options[oi].textContent === resumeState.subId) {
-                            def = parseInt(subSel.options[oi].value, 10);
+                            def = Number.parseInt(subSel.options[oi].value, 10);
                             break;
                         }
                     }
@@ -539,7 +539,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     hls.subtitleTrack = -1;
                     logMsg('subs: hls.subtitleTrack = -1 (off)');
                 } else {
-                    var idx = parseInt(target, 10);
+                    var idx = Number.parseInt(target, 10);
                     var nAvail = (hls.subtitleTracks ? hls.subtitleTracks.length : -1);
                     hls.subtitleTrack = idx;
                     // readback + array size: if hls.js rejected the set
@@ -725,7 +725,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     for (i = 0; i < tts.length; i++) {
                         if (tts[i].kind !== 'subtitles' && tts[i].kind !== 'captions')
                             continue;
-                        tts[i].mode = (i === parseInt(target, 10)) ? 'showing' : 'disabled';
+                        tts[i].mode = (i === Number.parseInt(target, 10)) ? 'showing' : 'disabled';
                     }
                 }
             };
