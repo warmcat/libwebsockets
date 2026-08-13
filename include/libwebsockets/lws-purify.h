@@ -46,7 +46,7 @@ lws_sql_purify(char *escaped, const char *string, size_t len);
 /**
  * lws_sql_purify_len() - return length of purified version of input string
  *
- * \param string: input buffer ('/0' terminated)
+ * \param p: input buffer ('/0' terminated)
  *
  * Calculates any character escaping without writing it anywhere and returns the
  * calculated length of the purified string.

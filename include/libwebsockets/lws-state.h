@@ -54,7 +54,7 @@ typedef struct lws_state_manager {
 /**
  * lws_state_reg_notifier() - add dep handler for state notifications
  *
- * \param context: the lws_context
+ * \param mgr: the state manager
  * \param nl: the handler to add to the notifier linked-list
  *
  * Add \p notify_link to the context's list of notification handlers for system
@@ -79,7 +79,7 @@ lws_state_reg_deregister(lws_state_notify_link_t *nl);
 /**
  * lws_state_reg_notifier_list() - add dep handlers for state notifications
  *
- * \param context: the lws_context
+ * \param mgr: the state manager
  * \param nl: list of notification handlers
  *
  * Add a NULL-terminated list of notification handler pointers to a notification

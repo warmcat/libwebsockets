@@ -124,7 +124,7 @@ struct lws_conmon {
 /**
  * lws_conmon_wsi_take() - create a connection latency object from client wsi
  *
- * \param context: lws wsi
+ * \param wsi: lws wsi
  * \param dest: conmon struct to fill
  *
  * Copies wsi conmon data into the caller's struct.  Passes ownership of
