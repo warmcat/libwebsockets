@@ -97,13 +97,14 @@ alpn_cb(SSL *s, const unsigned char **out, unsigned char *outlen,
 	struct alpn_ctx *alpn_ctx = (struct alpn_ctx *)arg;
 
 	/*
-	 * On a QUIC connection, only QUIC-mapped ALPNs are meaningful (the
-	 * h3 family, and lws' webtransport "wt").  The vhost list also
-	 * carries the TCP ALPNs like "h2" / "http/1.1"; a QUIC client that
-	 * offers those (eg, one with a stale TCP list) must not have them
-	 * negotiated on top of the UDP transport, since the h2 role can
-	 * never work there.  If there is no QUIC-legal overlap, NOACK: the
-	 * peer fails the connection for lack of ALPN and tries something
+	 * Raw QUIC supports arbitrary ALPNs (eg, lws' own "lws-quic"), so we
+	 * cannot second-guess the vhost list here.  But the h1 / h2 role
+	 * alpns can only be serviced on top of TCP: if one of those got
+	 * selected on a QUIC conn, the conn would migrate to a role that
+	 * can never work on the UDP transport (eg, a client offering a
+	 * stale TCP list like "h2").  Skip those tokens when selecting on
+	 * a QUIC conn, and NOACK if that leaves no overlap: the peer fails
+	 * the connection for lack of a usable ALPN and tries something
 	 * else (eg, the TCP fallback of the alt-svc race).
 	 */
 	struct lws *wsi = SSL_get_ex_data(s, openssl_websocket_private_data_index);
@@ -113,14 +114,16 @@ alpn_cb(SSL *s, const unsigned char **out, unsigned char *outlen,
 
 		while (n < alpn_ctx->len) {
 			const unsigned char *e = &alpn_ctx->data[n + 1];
-			size_t el = alpn_ctx->data[n], m = 0;
+			size_t el = alpn_ctx->data[n];
 
 			if (n + 1 + el > alpn_ctx->len)
 				break;
 
-			/* h3, h3-xx drafts, and webtransport */
-			if ((el >= 2 && e[0] == 'h' && e[1] == '3') ||
-			    (el == 2 && e[0] == 'w' && e[1] == 't')) {
+			/* the h2 / h1 role alpns are TCP-only */
+			if (!((el == 2 && !memcmp(e, "h2", 2)) ||
+			      (el == 8 && !memcmp(e, "http/1.1", 8)))) {
+				size_t m = 0;
+
 				/* is it in the client's offered list? */
 				while (m < inlen) {
 					size_t cl = in[m];
