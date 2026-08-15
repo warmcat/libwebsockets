@@ -381,6 +381,13 @@ struct lws_quic_netconn {
 	/* DPLPMTUD (RFC 9000 Section 14, RFC 8899) */
 	uint32_t		current_mtu;
 	uint32_t		probed_mtu;
+	/*
+	 * PN of the packet currently in flight as a PMTUD probe.  PN 0 is a
+	 * perfectly valid probe PN (it's the usual case, since the first
+	 * app-data packet of a connection doubles as the probe), so "no probe
+	 * in flight" needs its own out-of-band sentinel rather than 0.
+	 */
+#define LWS_QUIC_PMTUD_PROBE_NONE	((uint64_t)~0ull)
 	uint64_t		pmtud_probe_pn;
 	uint16_t		consecutive_mtu_losses;
 	uint8_t			pmtud_state; /* 0=BASE, 1=SEARCHING, 2=SEARCH_COMPLETE */

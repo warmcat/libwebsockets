@@ -515,11 +515,12 @@ lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t acked_pn, int is_large
 	if (!qn) return;
 
 	/* PMTUD: Check if our active probe was acknowledged */
-	if (qn->pmtud_probe_pn != 0 && acked_pn == qn->pmtud_probe_pn) {
-		lwsl_wsi_info(nwsi, "QUIC PMTUD: Probe %llu ACKed! MTU upgraded from %d to %d", 
+	if (qn->pmtud_probe_pn != LWS_QUIC_PMTUD_PROBE_NONE &&
+	    acked_pn == qn->pmtud_probe_pn) {
+		lwsl_wsi_info(nwsi, "QUIC PMTUD: Probe %llu ACKed! MTU upgraded from %d to %d",
 			(unsigned long long)acked_pn, (int)qn->current_mtu, (int)qn->probed_mtu);
 		qn->current_mtu = qn->probed_mtu;
-		qn->pmtud_probe_pn = 0;
+		qn->pmtud_probe_pn = LWS_QUIC_PMTUD_PROBE_NONE;
 		qn->consecutive_mtu_losses = 0;
 		qn->probed_mtu += 100; /* Probe upward in 100-byte increments */
 		if (qn->probed_mtu > 1400) /* Cap at typical Ethernet MTU payload limit for this example */
@@ -1010,6 +1011,7 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 
 		nwsi->quic.qn->current_mtu = 1280;
 		nwsi->quic.qn->probed_mtu = 1380; /* first probe size */
+		nwsi->quic.qn->pmtud_probe_pn = LWS_QUIC_PMTUD_PROBE_NONE;
 		nwsi->quic.qn->pmtud_state = 1; /* SEARCHING */
 
 		if (nwsi->a.context->quic_cc_ops)
@@ -1811,6 +1813,7 @@ tp_ok:
 					/* Reset PMTUD */
 					nwsi->quic.qn->current_mtu = 1280;
 					nwsi->quic.qn->probed_mtu = 1380;
+					nwsi->quic.qn->pmtud_probe_pn = LWS_QUIC_PMTUD_PROBE_NONE;
 					nwsi->quic.qn->pmtud_state = 1;
 
 					/* Set path to unvalidated */
@@ -2271,9 +2274,10 @@ rops_handle_POLLOUT_quic(struct lws *wsi)
 				/* PMTUD Black Hole Detection */
 				if (f->sent_in_pn != last_lost_pn) {
 					last_lost_pn = f->sent_in_pn;
-					if (f->sent_in_pn == qn->pmtud_probe_pn) {
+					if (qn->pmtud_probe_pn != LWS_QUIC_PMTUD_PROBE_NONE &&
+					    f->sent_in_pn == qn->pmtud_probe_pn) {
 						/* Active probe was lost */
-						qn->pmtud_probe_pn = 0;
+						qn->pmtud_probe_pn = LWS_QUIC_PMTUD_PROBE_NONE;
 						qn->pmtud_state = 2; /* SEARCH_COMPLETE, stop probing */
 					} else if (f->packet_size >= qn->current_mtu - 16) {
 						qn->consecutive_mtu_losses++;
@@ -2727,7 +2731,9 @@ send_frames:
 		}
 
 		/* PMTUD: Send a probe if we are searching and don't currently have a probe in flight */
-		if (level == LWS_QUIC_LEVEL_APP && qn->pmtud_state == 1 && qn->pmtud_probe_pn == 0 && !(qn->is_server && !qn->address_validated)) {
+		if (level == LWS_QUIC_LEVEL_APP && qn->pmtud_state == 1 &&
+		    qn->pmtud_probe_pn == LWS_QUIC_PMTUD_PROBE_NONE &&
+		    !(qn->is_server && !qn->address_validated)) {
 			size_t target_payload_len = qn->probed_mtu - header_len - 16;
 			if (payload_len < target_payload_len) {
 				memset(p, LWS_QUIC_FT_PADDING, target_payload_len - payload_len);
@@ -3275,6 +3281,7 @@ rops_client_bind_quic(struct lws *wsi, const struct lws_client_connect_info *i)
 
 		wsi->quic.qn->current_mtu = 1280;
 		wsi->quic.qn->probed_mtu = 1380; /* first probe size */
+		wsi->quic.qn->pmtud_probe_pn = LWS_QUIC_PMTUD_PROBE_NONE;
 		wsi->quic.qn->pmtud_state = 1; /* SEARCHING */
 
 		if (wsi->a.context->quic_cc_ops)
