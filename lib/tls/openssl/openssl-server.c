@@ -174,7 +174,14 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 			  const char *mem_cert, size_t mem_cert_len,
 			  const char *mem_privkey, size_t mem_privkey_len)
 {
+	/*
+	 * The tmp ECDH apis are only used on old OpenSSL that lacks
+	 * SSL_CTX_set1_groups_list(); where the groups list api exists, the
+	 * vhost group list is applied on the SSL_CTX in
+	 * lws_tls_vhost_backend_create_ctx() instead.
+	 */
 #if !defined(OPENSSL_NO_EC) && defined(LWS_HAVE_EC_KEY_new_by_curve_name) && \
+    !defined(LWS_HAVE_SSL_CTX_set1_groups_list) && \
     ((OPENSSL_VERSION_NUMBER < 0x30000000l) || \
      defined(LWS_SUPPRESS_DEPRECATED_API_WARNINGS))
 	const char *ecdh_curve = "prime256v1";
@@ -428,10 +435,11 @@ check_key:
 
 
 #if !defined(OPENSSL_NO_EC) && defined(LWS_HAVE_EC_KEY_new_by_curve_name) && \
+    !defined(LWS_HAVE_SSL_CTX_set1_groups_list) && \
     ((OPENSSL_VERSION_NUMBER < 0x30000000l) || \
      defined(LWS_SUPPRESS_DEPRECATED_API_WARNINGS))
-	if (vhost->tls.ecdh_curve[0])
-		ecdh_curve = vhost->tls.ecdh_curve;
+	if (vhost->tls.cfg_ecdh_curve)
+		ecdh_curve = vhost->tls.cfg_ecdh_curve;
 
 	ecdh_nid = OBJ_sn2nid(ecdh_curve);
 	if (NID_undef == ecdh_nid) {
@@ -502,6 +510,8 @@ check_key:
 post_ecdh:
 #endif
 	vhost->tls.skipped_certs = 0;
+#elif defined(LWS_HAVE_SSL_CTX_set1_groups_list)
+	/* group list was applied on the SSL_CTX in create_ctx instead */
 #else
 	lwsl_notice(" OpenSSL doesn't support ECDH\n");
 #endif
@@ -587,6 +597,21 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 	if (tls->cfg_tls1_3_plus_cipher_list)
 		SSL_CTX_set_ciphersuites(tls->ssl_ctx,
 					 tls->cfg_tls1_3_plus_cipher_list);
+#endif
+
+#if defined(LWS_HAVE_SSL_CTX_set1_groups_list)
+	/* restrict the groups used for key exchange, if asked to */
+	if (tls->cfg_ecdh_curve) {
+		if (!SSL_CTX_set1_groups_list(tls->ssl_ctx,
+					      tls->cfg_ecdh_curve)) {
+			lwsl_err("%s: SSL_CTX_set1_groups_list '%s' failed\n",
+				 __func__, tls->cfg_ecdh_curve);
+			lws_tls_err_describe_clear();
+
+			return 1;
+		}
+		lwsl_notice(" SSL groups list '%s'\n", tls->cfg_ecdh_curve);
+	}
 #endif
 
 #if !defined(OPENSSL_NO_TLSEXT)

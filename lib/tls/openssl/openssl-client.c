@@ -698,6 +698,15 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 				    unsigned int key_mem_len
 					)
 {
+#if defined(LWS_HAVE_SSL_CTX_set1_groups_list)
+	/*
+	 * the client-specific group list if given, else the generic
+	 * .ecdh_curve one
+	 */
+	const char *group_list = vh->tls.cfg_client_ecdh_curve ?
+				 vh->tls.cfg_client_ecdh_curve :
+				 vh->tls.cfg_ecdh_curve;
+#endif
 	struct lws_tls_client_reuse *tcr;
 	unsigned long error;
 	SSL_METHOD *method;
@@ -774,6 +783,12 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 					 strlen(info->client_tls_1_3_plus_cipher_list));
 #endif
 	}
+
+#if defined(LWS_HAVE_SSL_CTX_set1_groups_list)
+	/* the group list also affects the identity of the client context */
+	if (group_list)
+		EVP_DigestUpdate(mdctx, group_list, strlen(group_list));
+#endif
 
 	if (!lws_check_opt(vh->options, LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS)) {
 		c = 1;
@@ -923,6 +938,22 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 						 info->client_tls_1_3_plus_cipher_list);
 #endif
 	}
+
+#if defined(LWS_HAVE_SSL_CTX_set1_groups_list)
+	/* restrict the groups offered to the peer, if asked to */
+	if (group_list) {
+		if (!SSL_CTX_set1_groups_list(vh->tls.ssl_client_ctx,
+					      group_list)) {
+			lwsl_err("%s: SSL_CTX_set1_groups_list '%s' failed\n",
+				 __func__, group_list);
+			lws_tls_err_describe_clear();
+
+			return 1;
+		}
+		lwsl_notice("%s: vh %s: client groups list '%s'\n", __func__,
+			    vh->name, group_list);
+	}
+#endif
 
 #ifdef LWS_SSL_CLIENT_USE_OS_CA_CERTS
 	if (!lws_check_opt(vh->options, LWS_SERVER_OPTION_DISABLE_OS_CA_CERTS))

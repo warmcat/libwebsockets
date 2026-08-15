@@ -873,8 +873,12 @@ lws_create_vhost(struct lws_context *context,
 	vh->tls.ssl_info_event_mask = info->ssl_info_event_mask;
 
 	if (info->ecdh_curve)
-		lws_strncpy(vh->tls.ecdh_curve, info->ecdh_curve,
-			    sizeof(vh->tls.ecdh_curve));
+		vh->tls.cfg_ecdh_curve = lws_strdup(info->ecdh_curve);
+#if defined(LWS_WITH_CLIENT)
+	if (info->client_ecdh_curve)
+		vh->tls.cfg_client_ecdh_curve =
+					lws_strdup(info->client_ecdh_curve);
+#endif
 
 	if (info->ssl_cipher_list)
 		vh->tls.cfg_ssl_cipher_list = lws_strdup(info->ssl_cipher_list);
@@ -1803,6 +1807,10 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 	lws_free_set_NULL(vh->tls.cfg_tls_client_cipher_list);
 	lws_free_set_NULL(vh->tls.cfg_tls_ciphers_iana);
 	lws_free_set_NULL(vh->tls.cfg_ssl_ca_filepath);
+	lws_free_set_NULL(vh->tls.cfg_ecdh_curve);
+#if defined(LWS_WITH_CLIENT)
+	lws_free_set_NULL(vh->tls.cfg_client_ecdh_curve);
+#endif
 	vh->tls.cfg_key_path = NULL;
 #endif
 

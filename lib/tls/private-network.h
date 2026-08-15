@@ -72,6 +72,10 @@ struct lws_vhost_tls {
 	char *cfg_tls_client_cipher_list;
 	char *cfg_tls_ciphers_iana;
 	char *cfg_ssl_ca_filepath;
+	char *cfg_ecdh_curve;
+#if defined(LWS_WITH_CLIENT)
+	char *cfg_client_ecdh_curve;
+#endif
 	const void *cfg_server_ssl_cert_mem;
 	unsigned int cfg_server_ssl_cert_mem_len;
 	const void *cfg_server_ssl_privkey_mem;
@@ -91,7 +95,6 @@ struct lws_vhost_tls {
 #if defined(LWS_WITH_MBEDTLS)
 	lws_tls_x509 *x509_client_CA;
 #endif
-	char ecdh_curve[16];
 	struct alpn_ctx alpn_ctx;
 
 	int use_ssl;

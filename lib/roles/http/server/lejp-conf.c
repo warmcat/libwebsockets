@@ -153,6 +153,7 @@ static const char * const paths_vhosts[] = {
 	"vhosts[].ssl-client-option-clear",
 	"vhosts[].tls13-ciphers",
 	"vhosts[].client-tls13-ciphers",
+	"vhosts[].client-ecdh-curve",
 	"vhosts[].strict-host-check",
 
 	"vhosts[].listen-accept-role",
@@ -251,6 +252,7 @@ enum lejp_vhost_paths {
 	LEJPVP_SSL_CLIENT_OPTION_CLEAR,
 	LEJPVP_TLS13_CIPHERS,
 	LEJPVP_CLIENT_TLS13_CIPHERS,
+	LEJPVP_CLIENT_ECDH_CURVE,
 	LEJPVP_FLAG_STRICT_HOST_CHECK,
 
 	LEJPVP_LISTEN_ACCEPT_ROLE,
@@ -966,6 +968,9 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		break;
 	case LEJPVP_CLIENT_TLS13_CIPHERS:
 		a->info->client_tls_1_3_plus_cipher_list = a->p;
+		break;
+	case LEJPVP_CLIENT_ECDH_CURVE:
+		a->info->client_ecdh_curve = a->p;
 		break;
 #endif
 

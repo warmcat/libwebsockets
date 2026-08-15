@@ -257,7 +257,9 @@ may have typed .../myapp, to get them to .../myapp/ where the app actually takes
 
  - "`client-tls13-ciphers`": "<cipher list>"  OPENSSL 1.1.1+ only: sets the allowed list of TLS1.3+ ciphers and key exchange protocols for the client SSL_CTX on the vhost.  The default is to allow all.
  
- - "`ecdh-curve`": "<curve name>"   The default ecdh curve is "prime256v1", but you can override it here, per-vhost
+ - "`ecdh-curve`": "<group list>"   OPENSSL only: colon-separated list of TLS group names (eg, "X25519:P-384", or a single group name like "prime256v1") restricting the groups used for key exchange on the vhost's serving SSL_CTX.  On old OpenSSL (<1.1.0), only a single curve name is understood and the default is "prime256v1".
+
+ - "`client-ecdh-curve`": "<group list>"   OPENSSL only: colon-separated list of TLS group names restricting the groups offered in the ClientHello by the vhost's client SSL_CTX.  If not given, `ecdh-curve` is used for the client SSL_CTX too.  This is useful to stop clients offering groups some servers cannot cope with, for example the post-quantum and ffdhe groups that OpenSSL 3.4+ includes in its defaults.
 
  - "`noipv6`": "on"  Disable ipv6 completely for this vhost
 
