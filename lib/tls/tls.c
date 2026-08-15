@@ -96,6 +96,52 @@ alpn_cb(SSL *s, const unsigned char **out, unsigned char *outlen,
 #if !defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_BEARSSL)
 	struct alpn_ctx *alpn_ctx = (struct alpn_ctx *)arg;
 
+	/*
+	 * On a QUIC connection, only QUIC-mapped ALPNs are meaningful (the
+	 * h3 family, and lws' webtransport "wt").  The vhost list also
+	 * carries the TCP ALPNs like "h2" / "http/1.1"; a QUIC client that
+	 * offers those (eg, one with a stale TCP list) must not have them
+	 * negotiated on top of the UDP transport, since the h2 role can
+	 * never work there.  If there is no QUIC-legal overlap, NOACK: the
+	 * peer fails the connection for lack of ALPN and tries something
+	 * else (eg, the TCP fallback of the alt-svc race).
+	 */
+	struct lws *wsi = SSL_get_ex_data(s, openssl_websocket_private_data_index);
+
+	if (wsi && wsi->role_ops && !strcmp(wsi->role_ops->name, "quic")) {
+		size_t n = 0;
+
+		while (n < alpn_ctx->len) {
+			const unsigned char *e = &alpn_ctx->data[n + 1];
+			size_t el = alpn_ctx->data[n], m = 0;
+
+			if (n + 1 + el > alpn_ctx->len)
+				break;
+
+			/* h3, h3-xx drafts, and webtransport */
+			if ((el >= 2 && e[0] == 'h' && e[1] == '3') ||
+			    (el == 2 && e[0] == 'w' && e[1] == 't')) {
+				/* is it in the client's offered list? */
+				while (m < inlen) {
+					size_t cl = in[m];
+
+					if (m + 1 + cl > inlen)
+						break;
+					if (cl == el && !memcmp(e, &in[m + 1], el)) {
+						*out = &in[m + 1];
+						*outlen = (unsigned char)cl;
+
+						return SSL_TLSEXT_ERR_OK;
+					}
+					m += 1 + cl;
+				}
+			}
+			n += 1 + el;
+		}
+
+		return SSL_TLSEXT_ERR_NOACK;
+	}
+
 	if (SSL_select_next_proto((unsigned char **)out, outlen, alpn_ctx->data,
 				  alpn_ctx->len, in, inlen) !=
 	    OPENSSL_NPN_NEGOTIATED)

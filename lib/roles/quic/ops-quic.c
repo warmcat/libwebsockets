@@ -3496,19 +3496,39 @@ lws_quic_stream_cleanup(struct lws *wsi)
 	if (qn) {
 		uint64_t sid = wsi->quic.qs->stream_id;
 
-		int is_abort = (!wsi->quic.qs->fin_received || !wsi->quic.qs->sent_fin);
-		
-		/* If this is a unidirectional stream, adjust abort logic */
+		/*
+		 * Work out which stream directions are still incomplete at
+		 * close, so we can do the right thing per direction:
+		 *
+		 *  tx_reset:  our own sending side never completed.  We must
+		 *             abandon it with RESET_STREAM, and drop anything
+		 *             of ours still queued or in flight for it.
+		 *  stop_peer: the peer's sending side never completed, and we
+		 *             are closing the stream anyway, so ask them to
+		 *             stop sending the rest.
+		 *
+		 * These are independent: a server that answers a POST without
+		 * draining the request body completes its own response side
+		 * cleanly (no RESET_STREAM, response frames must still go out)
+		 * while the peer is still mid-body (STOP_SENDING applies).
+		 */
 		int is_unidirectional = (sid & 2) != 0;
 		int is_remote_initiated = (qn->is_server && (sid & 1) == 0) || (!qn->is_server && (sid & 1) == 1);
 		int we_are_sender = (qn->is_server == is_remote_initiated) ? 1 : 0;
+		int tx_reset, stop_peer;
+
 		if (is_unidirectional) {
+			/* only one side is the sender on a unidi stream */
 			we_are_sender = is_remote_initiated ? 0 : 1;
-			is_abort = we_are_sender ? !wsi->quic.qs->sent_fin : !wsi->quic.qs->fin_received;
+			tx_reset  = we_are_sender && !wsi->quic.qs->sent_fin;
+			stop_peer = !we_are_sender && !wsi->quic.qs->fin_received;
+		} else {
+			tx_reset  = !wsi->quic.qs->sent_fin;
+			stop_peer = !wsi->quic.qs->fin_received;
 		}
 
-		/* If we're closing the stream before FINs were exchanged, notify the peer */
-		if (is_abort) {
+		/* If we're abandoning our own sending side, notify the peer */
+		if (tx_reset) {
 			/*
 			 * If we started sending a response (HEADERS went out)
 			 * but never sent our FIN (== h3 END_STREAM), and this
@@ -3543,19 +3563,30 @@ lws_quic_stream_cleanup(struct lws *wsi)
 				lws_quic_dbg_1rtt_account(qn, f_reset, "reset-stream");
 				lws_dll2_add_head(&f_reset->list, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
 			}
+		}
 
-			/* Send STOP_SENDING to tell peer to stop sending data to us */
+		/*
+		 * Send STOP_SENDING to tell the peer to stop sending data to
+		 * us.  This has to be queued at the TAIL: any frames for this
+		 * stream that are still queued ahead of it belong to our own,
+		 * cleanly-completed response and must reach the peer first.
+		 * If STOP_SENDING jumped ahead of them (as RESET_STREAM may,
+		 * above), the peer would tear the stream down on receipt and
+		 * discard the transaction we just finished delivering.
+		 */
+		if (stop_peer) {
 			struct lws_quic_tx_frame *f_stop = lws_zalloc(sizeof(*f_stop), "quic stop_sending");
 			if (f_stop) {
 				f_stop->type = LWS_QUIC_FT_STOP_SENDING;
 				f_stop->stream_id = sid;
 				f_stop->offset = 0; /* app error code */
 				lws_quic_dbg_1rtt_account(qn, f_stop, "stop-sending");
-				lws_dll2_add_head(&f_stop->list, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
+				lws_dll2_add_tail(&f_stop->list, &qn->pending_tx[LWS_QUIC_LEVEL_APP]);
 			}
-			
-			if (nwsi) lws_callback_on_writable(nwsi);
 		}
+
+		if ((tx_reset || stop_peer) && nwsi)
+			lws_callback_on_writable(nwsi);
 
 		/* If this was a remote-initiated stream, increase our limit and notify peer.
 		 *
@@ -3608,7 +3639,14 @@ lws_quic_stream_cleanup(struct lws *wsi)
 			if (nwsi) lws_callback_on_writable(nwsi);
 		}
 
-		if (is_abort) {
+		/*
+		 * Only drop our queued / in-flight frames for the stream if we
+		 * actually abandoned our own sending side with RESET_STREAM.
+		 * When only the peer's side is incomplete (eg, we answered a
+		 * POST without draining the body), our completed response
+		 * frames must still be delivered.
+		 */
+		if (tx_reset) {
 			for (i = 0; i < LWS_QUIC_LEVEL_COUNT; i++) {
 				/* Purge pending_tx */
 				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->pending_tx[i].head) {

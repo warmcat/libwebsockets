@@ -165,7 +165,7 @@ lws_client_alt_svc_parse(const char *val, size_t len,
 		   LWS_TOKENIZE_F_NO_FLOATS;
 
 	do {
-		ts.e = lws_tokenize(&ts);
+		ts.e = (int8_t)lws_tokenize(&ts);
 		switch (ts.e) {
 		case LWS_TOKZE_TOKEN_NAME_EQUALS:
 			/*
