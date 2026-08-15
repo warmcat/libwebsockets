@@ -81,25 +81,7 @@ lws_client_h3_grace_cb(lws_sorted_usec_list_t *sul)
 	if (!wsi->role_ops || strcmp(wsi->role_ops->name, "quic") != 0)
 		return;
 
-	int first_valid = -1;
-	for (int i = 0; i < wsi->parallel_count; i++) {
-		if (wsi->parallel_conns[i].is_valid) {
-			first_valid = i;
-			break;
-		}
-	}
-
-	if (first_valid == -1 && !wsi->dns_sorted_list.count)
-		/*
-		 * No parallel TCP sockets were opened (happy-eyeballs had
-		 * nothing to race with, or the DNS list was already drained)
-		 * and there are no more DNS results queued.  Don't just keep
-		 * waiting for QUIC to fail at the overall connect timeout —
-		 * abandon QUIC now and proactively start a fresh TCP attempt.
-		 */
-		lwsl_wsi_notice(wsi, "H3 grace timer expired, no TCP race in progress; abandoning QUIC to start TCP");
-	else
-		lwsl_wsi_notice(wsi, "H3 grace timer expired, abandoning QUIC race");
+	lwsl_wsi_notice(wsi, "H3 grace timer expired, abandoning QUIC for TCP");
 
 	/* Mark H3 as FAILED in cache with 5s TTL */
 	if (wsi->a.context->h3_cap_cache && wsi->stash && wsi->stash->cis[CIS_HOST]) {
@@ -135,59 +117,64 @@ lws_client_h3_grace_cb(lws_sorted_usec_list_t *sul)
 	 * cache-hit path after the socket is rebuilt. */
 	wsi->alpn_discovered[0] = '\0';
 
-	/* Abort QUIC and revert to TCP */
-	if (lws_socket_is_valid(wsi->desc.sockfd)) {
-		struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
-		lws_pt_lock(pt, __func__);
-		__remove_wsi_socket_from_fds(wsi);
-		lws_pt_unlock(pt);
-		compatible_close(wsi->desc.sockfd);
-		wsi->desc.sockfd = LWS_SOCK_INVALID;
-	}
-
+	/*
+	 * Free the QUIC netconn now, while it is still reachable from
+	 * wsi->quic.qn: the wsi reset below clears wsi->quic wholesale, and
+	 * the netconn (with its keys and pending frames) is only destroyed
+	 * by the role close_kill handler.  Call it here explicitly since
+	 * the close flow will find the already-cleared wsi->quic.
+	 */
 	if (lws_rops_fidx(wsi->role_ops, LWS_ROPS_close_kill_connection))
 		lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_close_kill_connection).close_kill_connection(wsi, LWS_CLOSE_STATUS_NOSTATUS);
 
-	/* Stop happy-eyeballs from firing into the half-dismantled wsi */
-	lws_sul_cancel(&wsi->sul_happy_eyeballs);
+	/*
+	 * Abort QUIC and revert to TCP using the same machinery as the
+	 * QUIC-fail path in lws_inform_client_conn_fail(): reset the wsi
+	 * and pass it through the close flow marked as a redirect.
+	 *
+	 * We can't just repurpose the live wsi by transitioning it to the
+	 * h2 role and starting a fresh connect attempt on it: the wsi still
+	 * owns the QUIC TLS session objects, so the TCP TLS handshake
+	 * reuses them (lws_client_create_tls() only builds a new SSL
+	 * session when wsi->tls.ssl is NULL) and can then never complete,
+	 * wedging the connection until timeout.  The redirect-marked close
+	 * flow destroys the QUIC role and TLS state properly (including
+	 * closing any parallel happy-eyeballs racers and the QUIC socket)
+	 * and restarts the connection from DNS with fresh state.
+	 */
+	{
+		const char *path = wsi->stash ? wsi->stash->cis[CIS_PATH]
+				: lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_URI);
+		const char *host = wsi->stash ? wsi->stash->cis[CIS_HOST]
+				: lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST);
+		const char *ads = wsi->stash ? wsi->stash->cis[CIS_ADDRESS]
+				: wsi->cli_hostname_copy;
 
-	/* Promote the first parallel TCP connection */
-	if (first_valid != -1) {
-		const struct lws_role_ops *r = lws_role_by_name("h2");
-		if (!r) r = lws_role_by_name("h1");
-		if (r) {
-			lws_role_transition(wsi, LWSIFR_CLIENT, LRS_WAITING_CONNECT, r);
-		}
-		wsi->desc.sockfd = wsi->parallel_conns[first_valid].desc.sockfd;
-		wsi->position_in_fds_table = wsi->parallel_conns[first_valid].position_in_fds_table;
-		wsi->parallel_conns[first_valid].is_valid = 0;
-		/* We changed the primary fd, the event loop will trigger POLLOUT if it's connected */
-	} else {
+#if defined(LWS_WITH_TLS)
 		/*
-		 * No parallel TCP socket to promote.  Transition to h2/h1
-		 * and start a fresh TCP connect attempt: either from the
-		 * remaining DNS results, or a brand-new DNS lookup if the
-		 * sorted list was already drained.
+		 * Clear the negotiated alpn so lws_client_reset() re-defaults
+		 * the stash ALPN to h2,http/1.1 rather than leading with h3
+		 * again
 		 */
-		const struct lws_role_ops *r = lws_role_by_name("h2");
-		if (!r)
-			r = lws_role_by_name("h1");
-		if (r)
-			lws_role_transition(wsi, LWSIFR_CLIENT, LRS_UNCONNECTED, r);
+		wsi->alpn[0] = '\0';
+#endif
 
-		if (wsi->dns_sorted_list.count) {
-			/* Try remaining DNS results as TCP */
-			lws_client_connect_3_connect(wsi, NULL, NULL, 0, NULL);
-		} else {
+		if (!ads || !host || !path ||
+		    !lws_client_reset(&wsi, !!(wsi->flags & LCCSCF_USE_SSL),
+				      ads, wsi->c_port, path, host, 1))
 			/*
-			 * No DNS results left, start a fresh DNS + TCP
-			 * lookup.  If it returns NULL the wsi has been
-			 * freed and there is nothing else to do.
+			 * No stash to restart from, or the reset failed:
+			 * the close below just fails the connection
 			 */
-			struct lws *_r =
-				lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(wsi);
-			(void)_r;
-		}
+			lwsl_wsi_info(wsi, "unable to reset wsi for TCP");
+
+		/*
+		 * If the reset succeeded, its redirect marking keeps the
+		 * wsi alive in the close flow and restarts the connect
+		 * from DNS on fresh TCP + TLS state
+		 */
+
+		lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS, "h3 grace cb");
 	}
 }
 
