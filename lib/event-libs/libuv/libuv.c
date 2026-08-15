@@ -473,6 +473,7 @@ static void
 elops_close_handle_manually_uv(struct lws *wsi)
 {
 	uv_handle_t *h = (uv_handle_t *)wsi_to_priv_uv(wsi)->w_read.pwatcher;
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
 	lwsl_wsi_debug(wsi, "lws_libuv_closehandle");
 
@@ -490,6 +491,11 @@ elops_close_handle_manually_uv(struct lws *wsi)
 	wsi->desc.sockfd = LWS_SOCK_INVALID;
 	wsi_to_priv_uv(wsi)->w_read.pwatcher = NULL;
 	wsi->told_event_loop_closed = 1;
+
+	/* the handle was accounted when it was created at accept time */
+
+	assert(pt_to_priv_uv(pt)->extant_handles);
+	pt_to_priv_uv(pt)->extant_handles--;
 
 	uv_close(h, lws_libuv_closewsi_m);
 }
@@ -526,10 +532,13 @@ elops_accept_uv(struct lws *wsi)
 				  (void *)(lws_intptr_t)wsi->desc.sockfd);
 
 		/*
-		 * Diagnostic: UV_EEXIST means libuv's per-loop watcher table
-		 * still has a started-but-not-stopped poll handle for this fd
-		 * number.  Dump the lws-side state to help identify which wsi
-		 * or static asset leaked its handle.  Remove once root-caused.
+		 * UV_EEXIST means libuv's per-loop watcher table still has a
+		 * started-but-not-stopped poll handle for this fd number...
+		 * ie, a previous user of this fd number leaked its uv handle
+		 * (this was seen in the wild from the happy-eyeballs primary
+		 * promote path).  Dump the lws-side state to help identify any
+		 * residual leakers.  Fail the adopt rather than aborting the
+		 * whole process, the caller closes the new fd cleanly.
 		 */
 		if (n == UV_EEXIST) {
 			int fd = (int)(lws_intptr_t)wsi->desc.sockfd;
@@ -544,13 +553,6 @@ elops_accept_uv(struct lws *wsi)
 				pt->fds_count, ptpriv->extant_handles,
 				pt->count_event_loop_static_asset_handles);
 		}
-		/*
-		 * Keep the hard stop: a core here captures the exact state of
-		 * loop->watchers[fd] and the leaked owning handle, which is what
-		 * we need to root-cause the residual leak.  The diagnostic above
-		 * is emitted to the log first.
-		 */
-		assert(n != UV_EEXIST);
 		lws_free(w_read->pwatcher);
 		w_read->pwatcher = NULL;
 		return -1;
@@ -660,7 +662,9 @@ elops_init_vhost_listen_wsi_uv(struct lws *wsi)
 	if (n) {
 		lwsl_wsi_err(wsi, "uv_poll_init failed %d, sockfd=%p", n,
 				  (void *)(lws_intptr_t)wsi->desc.sockfd);
-		assert(n != UV_EEXIST);
+		lws_free(w_read->pwatcher);
+		w_read->pwatcher = NULL;
+		w_read->context = NULL;
 		return -1;
 	}
 
@@ -972,7 +976,6 @@ elops_sock_accept_parallel_uv(struct lws *wsi, lws_sockfd_type fd, int pidx)
 
 	if (n) {
 		lwsl_wsi_err(wsi, "uv_poll_init failed %d", n);
-		assert(n != UV_EEXIST);
 		lws_free(w_read->pwatcher);
 		w_read->pwatcher = NULL;
 		return -1;
@@ -1015,12 +1018,19 @@ static void
 elops_close_handle_manually_parallel_uv(struct lws *wsi, int pidx)
 {
 	uv_handle_t *h = (uv_handle_t *)wsi_to_priv_uv(wsi)->racing[pidx].pwatcher;
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 
 	if (!h)
 		return;
 
 	h->data = (void *)(lws_intptr_t)wsi->parallel_conns[pidx].desc.sockfd;
 	wsi_to_priv_uv(wsi)->racing[pidx].pwatcher = NULL;
+
+	/* the handle was accounted when it was created at accept time */
+
+	assert(pt_to_priv_uv(pt)->extant_handles);
+	pt_to_priv_uv(pt)->extant_handles--;
+
 	uv_close(h, lws_libuv_closewsi_m);
 }
 
@@ -1028,11 +1038,20 @@ static int
 elops_promote_parallel_uv(struct lws *wsi, int pidx)
 {
 	struct lws_wsi_eventlibs_libuv *w = wsi_to_priv_uv(wsi);
+	struct lws_context_per_thread *pt = &wsi->a.context->pt[(int)wsi->tsi];
 	uv_handle_t *h = (uv_handle_t *)w->w_read.pwatcher;
 
 	if (h) {
 		h->data = (void *)LWS_SOCK_INVALID;
 		uv_close(h, lws_libuv_closewsi_m);
+
+		/*
+		 * The replaced primary handle was accounted at its accept
+		 * time; its close callback does not decrement, so do it here
+		 */
+
+		assert(pt_to_priv_uv(pt)->extant_handles);
+		pt_to_priv_uv(pt)->extant_handles--;
 	}
 
 	w->w_read = w->racing[pidx];

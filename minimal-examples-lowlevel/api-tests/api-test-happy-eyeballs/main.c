@@ -114,6 +114,8 @@ static struct lws *client_wsi = NULL;
 static int established_success = 0;
 static int next_step = 0;
 static char via[16]; /* x-via response header value for this step */
+static lws_sorted_usec_list_t sul_step;
+static const char *bind_iface;
 
 /* what protocol each step's response must have arrived by */
 static const char * const via_expect[] = { "h2", "h3", "h2" };
@@ -121,6 +123,61 @@ static const char * const via_expect[] = { "h2", "h3", "h2" };
 static int port_tcp = 7681;
 static const char *server_address = "localhost";
 static int port_quic = 7682;
+
+/*
+ * The between-step progression has to run from a sul on the event loop, not
+ * from between lws_service() calls in main: with an internal event lib loop
+ * like libuv, one lws_service() call blocks in the loop until the context is
+ * destroyed, so main never gets a chance to advance the steps between them.
+ */
+
+static void step_cb(lws_sorted_usec_list_t *sul);
+static void start_client_connection(void);
+
+static void
+step_cb(lws_sorted_usec_list_t *sul)
+{
+	(void)sul;
+
+	if (interrupted) {
+		/* the test is finished one way or the other... destroy the
+		 * context ourselves so a blocking internal event loop (eg,
+		 * libuv) unwinds via the loop stop in the destroy flow
+		 */
+
+		lws_context_destroy(context);
+		context = NULL;
+		return;
+	}
+
+	if (!next_step || client_wsi)
+		return;
+
+	next_step = 0;
+	if (client_step == 1) {
+		lwsl_notice("--- Starting Step 2: H3 success ---\n");
+		start_client_connection();
+	} else if (client_step == 2) {
+		lwsl_notice("--- Starting Step 3: H3 failure, TCP fallback ---\n");
+		if (vh_quic_server) {
+			lws_vhost_destroy(vh_quic_server);
+			vh_quic_server = NULL;
+		}
+		start_client_connection();
+	} else if (client_step == 3) {
+		lwsl_notice("--- Step 3 complete. Test passed. ---\n");
+		result = 0;
+		interrupted = 1;
+		lws_context_destroy(context);
+		context = NULL;
+	}
+}
+
+static void
+schedule_next_step(void)
+{
+	lws_sul_schedule(context, 0, &sul_step, step_cb, 1);
+}
 
 static void
 start_client_connection(void)
@@ -149,10 +206,12 @@ start_client_connection(void)
 		lwsl_err("Client connection failed for step %d\n", client_step);
 		result = 1;
 		interrupted = 1;
+		schedule_next_step();
 	} else if (!client_wsi && established_success) {
 		established_success = 0;
 		client_step++;
 		next_step = 1;
+		schedule_next_step();
 	}
 }
 
@@ -188,14 +247,17 @@ callback_client(struct lws *wsi, enum lws_callback_reasons reason,
 					 via_expect[client_step]);
 				result = 1;
 				interrupted = 1;
+				schedule_next_step();
 				break;
 			}
 			client_step++;
 			next_step = 1;
+			schedule_next_step();
 		} else {
 			lwsl_err("--- Failed to establish connection in step %d ---\n", client_step);
 			result = 1;
 			interrupted = 1;
+			schedule_next_step();
 		}
 		break;
 
@@ -316,12 +378,39 @@ int main(int argc, const char **argv)
 		server_address = p;
 	if ((p = lws_cmdline_option(argc, argv, "-q")))
 		port_quic = atoi(p);
+	/*
+	 * Bind the TCP listener to a specific iface (CI passes 127.0.0.1 while
+	 * resolving "localhost"): the client's first (v6) connect attempt is
+	 * then deterministically refused while the racing v4 attempt succeeds,
+	 * exercising the happy-eyeballs primary-failed promote path
+	 */
+	if ((p = lws_cmdline_option(argc, argv, "--bind")))
+		bind_iface = p;
 
 	signal(SIGINT, sigint_handler);
 
 	info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT |
 		       LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 		       LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW;
+
+	if (lws_cmdline_option(argc, argv, "--uv"))
+		/* run the whole test on the libuv event loop */
+		info.options |= LWS_SERVER_OPTION_LIBUV;
+
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+	if (lws_cmdline_option(argc, argv, "--race-fast")) {
+		/*
+		 * Shrink the RFC8305 200ms happy-eyeballs pacing to ~0us for
+		 * this test, so the racing socket exists before a
+		 * fast-failing primary (loopback ECONNREFUSED) is
+		 * dispositioned, and the primary-failed promote path runs
+		 */
+		lws_fi_t fi = { .name = "wsi/he_race_fast",
+				.type = LWSFI_ALWAYS, .count = 1, .pre = 0 };
+
+		lws_fi_add(&info.fic, &fi);
+	}
+#endif
 
 	context = lws_create_context(&info);
 	if (!context) {
@@ -372,6 +461,7 @@ int main(int argc, const char **argv)
 	info.listen_accept_protocol = "http";
 	info.alpn = "h2,http/1.1";
 	info.protocols = protocols_tcp;
+	info.iface = bind_iface;
 
 	vh_tcp_server = lws_create_vhost(context, &info);
 	if (!vh_tcp_server) {
@@ -384,6 +474,7 @@ int main(int argc, const char **argv)
 	info.vhost_name = "client";
 	info.listen_accept_role = NULL;
 	info.listen_accept_protocol = NULL;
+	info.iface = NULL;
 	info.alpn = "h3,h2,http/1.1";
 	info.protocols = protocols_client;
 	info.server_ssl_cert_mem = NULL;
@@ -400,30 +491,11 @@ int main(int argc, const char **argv)
 	start_client_connection();
 
 	int n = 0;
-	while (n >= 0 && !interrupted) {
+	while (n >= 0 && !interrupted && context)
 		n = lws_service(context, 0);
 
-		if (next_step && !client_wsi) {
-			next_step = 0;
-			if (client_step == 1) {
-				lwsl_notice("--- Starting Step 2: H3 success ---\n");
-				start_client_connection();
-			} else if (client_step == 2) {
-				lwsl_notice("--- Starting Step 3: H3 failure, TCP fallback ---\n");
-				if (vh_quic_server) {
-					lws_vhost_destroy(vh_quic_server);
-					vh_quic_server = NULL;
-				}
-				start_client_connection();
-			} else if (client_step == 3) {
-				lwsl_notice("--- Step 3 complete. Test passed. ---\n");
-				result = 0;
-				interrupted = 1;
-			}
-		}
-	}
-
 bail:
-	lws_context_destroy(context);
+	if (context)
+		lws_context_destroy(context);
 	return result;
 }

@@ -1107,17 +1107,29 @@ lws_async_dns_get_new_tid(struct lws_context *context, lws_adns_q_t *q)
 	return -1;
 }
 
+/* max matching addresses we will collect from the hosts file */
+
+#define LWS_ADNS_HOSTS_MAX_MATCHES 4
+
 #if !defined(LWS_PLAT_OPTEE) && !defined(LWS_PLAT_FREERTOS)
 
 /*
  * Search /etc/hosts or similar for the DNS name
+ *
+ * Collects up to max_ads matching addresses from any lines mentioning name,
+ * returning the number collected (0 if none).  lens[] gets the length of the
+ * corresponding address in ads (4 or 16).  This mirrors getaddrinfo()
+ * semantics for the hosts file, ie, a name with both v4 and v6 lines yields
+ * both addresses, so happy-eyeballs can race them.
  */
 
 int
-lws_adns_scan_hostsfile(const char *name, uint8_t *ads, size_t adslen, int qtype)
+lws_adns_scan_hostsfile(const char *name, uint8_t *ads, uint8_t *lens,
+			int max_ads, int qtype)
 {
 	char had_ads = 0, buf[128], finalized = 0;
-	int fd, ret = 0, l = 0, ol = -1;
+	uint8_t t[16];
+	int fd, l = 0, ol = -1, count = 0;
 	size_t nl = strlen(name);
 	struct lws_tokenize ts;
 
@@ -1176,8 +1188,12 @@ lws_adns_scan_hostsfile(const char *name, uint8_t *ads, size_t adslen, int qtype
 #endif
 				    (qtype == LWS_ADNS_RECORD_AAAA && l == 16) ||
 				    (qtype != LWS_ADNS_RECORD_A && qtype != LWS_ADNS_RECORD_AAAA)) {
-					ret = (int)l;
-					break;
+					if (count < max_ads) {
+						memcpy(ads + (size_t)count * 16, t,
+						       (size_t)l);
+						lens[count] = (uint8_t)l;
+						count++;
+					}
 				}
 			}
 			if (ts.e == LWS_TOKZE_TOKEN && !had_ads && ts.token_len < 50) {
@@ -1185,13 +1201,13 @@ lws_adns_scan_hostsfile(const char *name, uint8_t *ads, size_t adslen, int qtype
 				char temp_ads[64];
 				memcpy(temp_ads, ts.token, ts.token_len);
 				temp_ads[ts.token_len] = '\0';
-				l = lws_parse_numeric_address(temp_ads, ads, adslen);
+				l = lws_parse_numeric_address(temp_ads, t, sizeof(t));
 				had_ads = 1;
 			}
 
 		} while (ts.e > 0); /* no error yet */
 
-	} while (!ret && !finalized); /* no match yet */
+	} while (!finalized); /* whole file, so we get every matching line */
 
 #if defined(WIN32)
 	_close(fd);
@@ -1199,7 +1215,7 @@ lws_adns_scan_hostsfile(const char *name, uint8_t *ads, size_t adslen, int qtype
 	close(fd);
 #endif
 
-	return ret;
+	return count;
 }
 #endif
 
@@ -1236,10 +1252,13 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	size_t nlen = strlen(name);
 	lws_sockaddr46 *sa46;
 	lws_adns_cache_t *c;
-	struct addrinfo *ai;
+	struct addrinfo *ai, *ai_prev = NULL;
 	struct temp_q tmq;
 	lws_adns_q_t *q;
-	uint8_t ads[16];
+	/* room for several hosts-file / numeric matches, 16B each */
+	uint8_t ads[LWS_ADNS_HOSTS_MAX_MATCHES * 16];
+	uint8_t ads_lens[LWS_ADNS_HOSTS_MAX_MATCHES];
+	int matches = 0;
 	char *p;
 	int m = 0;
 	uint8_t want_dnssec = (qtype & LWS_ADNS_WANT_DNSSEC) ? 1 : 0;
@@ -1343,61 +1362,96 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	 */
 
 	if ((qtype & 0xff) == LWS_ADNS_RECORD_A || (qtype & 0xff) == LWS_ADNS_RECORD_AAAA) {
-		m = lws_parse_numeric_address(name, ads, sizeof(ads));
+		m = lws_parse_numeric_address(name, ads, 16);
+		if (m >= 4) {
+			ads_lens[0] = (uint8_t)m;
+			matches = 1;
+		}
 
 #if !defined(LWS_PLAT_OPTEE) && !defined(LWS_PLAT_FREERTOS)
-		if (m < 4 && !(qtype & LWS_ADNS_IGNORE_HOSTS_FILE))
+		if (!matches && !(qtype & LWS_ADNS_IGNORE_HOSTS_FILE))
 			/*
 			 * Not directly numeric and not explicitly bypassing...
 			 * look through /etc/hosts
 			 */
-			m = lws_adns_scan_hostsfile(name, ads, sizeof(ads), qtype & 0xff);
+			matches = lws_adns_scan_hostsfile(name, ads, ads_lens,
+					LWS_ADNS_HOSTS_MAX_MATCHES, qtype & 0xff);
 
-		if (m < 4 && !strcmp(name, "localhost")) {
+		if (!matches && !strcmp(name, "localhost")) {
 #if defined(LWS_WITH_IPV4)
 			if ((qtype & 0xff) == LWS_ADNS_RECORD_A) {
 				ads[0] = 127; ads[1] = 0; ads[2] = 0; ads[3] = 1;
-				m = 4;
+				ads_lens[0] = 4;
+				matches = 1;
 			}
 #endif
 #if defined(LWS_WITH_IPV6)
-			if (
+			if (!matches &&
 #if defined(LWS_WITH_IPV4)
-				(qtype & 0xff) == LWS_ADNS_RECORD_AAAA
+			    (qtype & 0xff) == LWS_ADNS_RECORD_AAAA
 #else
-				1
+			    1
 #endif
 			) {
 				memset(ads, 0, 15); ads[15] = 1;
-				m = 16;
+				ads_lens[0] = 16;
+				matches = 1;
 			}
 #endif
 		}
 #endif
 	}
 
-	if (m == 4
-#if defined(LWS_WITH_IPV6)
-		|| m == 16
-#endif
-	) {
+	if (matches) {
 		lws_async_dns_trim_cache(dns);
 
+		/* compose an addrinfo chain with one node per match */
+
 		c = lws_zalloc(sizeof(lws_adns_cache_t) +
-			       sizeof(struct addrinfo) +
-			       sizeof(lws_sockaddr46) + nlen + 1, "adns-numip");
+			       (size_t)matches * (sizeof(struct addrinfo) +
+					    sizeof(lws_sockaddr46)) +
+			       nlen + 1, "adns-numip");
 		if (!c)
 			goto failed;
 
-		ai = (struct addrinfo *)&c[1];
-		sa46 = (lws_sockaddr46 *)&ai[1];
+		c->results = (struct addrinfo *)&c[1];
+		ai = c->results;
+		for (m = 0; m < matches; m++) {
+			sa46 = (lws_sockaddr46 *)&ai[1];
 
-		ai->ai_socktype = SOCK_STREAM;
-		c->name = (const char *)&sa46[1];
-		memcpy((char *)c->name, name, nlen + 1);
-		ai->ai_canonname = (char *)&sa46[1];
+			if (m)
+				ai_prev->ai_next = ai;
+			ai->ai_socktype = SOCK_STREAM;
+			if (!m) {
+				c->name = (const char *)c->results +
+					  (size_t)matches *
+					  (sizeof(struct addrinfo) +
+					   sizeof(lws_sockaddr46));
+				memcpy((char *)c->name, name, nlen + 1);
+				ai->ai_canonname = (char *)c->name;
+			}
 
-		c->results = ai;
+			if (ads_lens[m] == 4) {
+				ai->ai_family = sa46->sa4.sin_family = AF_INET;
+				ai->ai_addrlen = sizeof(sa46->sa4);
+				ai->ai_addr = (struct sockaddr *)&sa46->sa4;
+				memcpy(&sa46->sa4.sin_addr,
+				       ads + (size_t)m * 16, 4);
+			}
+#if defined(LWS_WITH_IPV6)
+			else {
+				ai->ai_family = sa46->sa6.sin6_family = AF_INET6;
+				ai->ai_addrlen = sizeof(sa46->sa6);
+				ai->ai_addr = (struct sockaddr *)&sa46->sa6;
+				memcpy(&sa46->sa6.sin6_addr,
+				       ads + (size_t)m * 16, 16);
+			}
+#endif
+
+			ai_prev = ai;
+			ai = (struct addrinfo *)&sa46[1];
+		}
+
 		memset(&tmq.tq, 0, sizeof(tmq.tq));
 		tmq.tq.opaque = opaque;
 		if (wsi) {
@@ -1412,31 +1466,9 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 				 3600ll * LWS_US_PER_SEC);
 
 		lws_adns_dump(dns);
-	}
-
-	if (m == 4) {
-		ai = (struct addrinfo *)&c[1];
-		sa46 = (lws_sockaddr46 *)&ai[1];
-		ai->ai_family = sa46->sa4.sin_family = AF_INET;
-		ai->ai_addrlen = sizeof(sa46->sa4);
-		ai->ai_addr = (struct sockaddr *)&sa46->sa4;
-		memcpy(&sa46->sa4.sin_addr, ads, (unsigned int)m);
 
 		return lws_async_dns_complete(&tmq.tq, c);
 	}
-
-#if defined(LWS_WITH_IPV6)
-	if (m == 16) {
-		ai = (struct addrinfo *)&c[1];
-		sa46 = (lws_sockaddr46 *)&ai[1];
-		ai->ai_family = sa46->sa6.sin6_family = AF_INET6;
-		ai->ai_addrlen = sizeof(sa46->sa6);
-		ai->ai_addr = (struct sockaddr *)&sa46->sa6;
-		memcpy(&sa46->sa6.sin6_addr, ads, (unsigned int)m);
-
-		return lws_async_dns_complete(&tmq.tq, c);
-	}
-#endif
 
 	/*
 	 * to try anything else we need a remote server configured...
