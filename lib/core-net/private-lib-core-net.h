@@ -894,6 +894,12 @@ struct lws {
 	struct client_info_stash	*stash;
 	char				*cli_hostname_copy;
 	char				alpn_discovered[8];
+#if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
+	uint16_t			quic_alt_port;
+	/**< RFC 7838 alt-svc learned h3 port for the origin, 0 = none, so
+	 * the QUIC race aims at the advertised endpoint instead of the
+	 * origin port */
+#endif
 
 	struct lws_client_parallel_conn parallel_conns[LWS_MAX_PARALLEL_CONNS];
 	lws_sorted_usec_list_t		sul_happy_eyeballs;
@@ -1517,6 +1523,12 @@ lws_wsi_extract_from_loop(struct lws *wsi);
 #if defined(LWS_WITH_CLIENT)
 int
 lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd);
+
+void
+lws_client_alt_svc_learn(struct lws *wsi);
+
+void
+lws_client_alt_svc_forget(struct lws *wsi);
 
 int LWS_WARN_UNUSED_RESULT
 lws_http_transaction_completed_client(struct lws *wsi);

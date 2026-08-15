@@ -357,27 +357,52 @@ solo:
 
 #if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
 	if (wsi->tls.use_ssl && !wsi->tried_quic) {
-		const char *requested_alpn = NULL;
 		int try_quic = 0;
+		uint16_t alt_port = 0;
 
-		if (wsi->stash)
-			requested_alpn = wsi->stash->cis[CIS_ALPN];
-		else
-			requested_alpn = lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_ALPN);
+		/*
+		 * Discovery-only: race QUIC when we actually know about an
+		 * h3 endpoint for this origin, rather than merely because
+		 * the user offered h3 in his ALPN list (which would aim QUIC
+		 * at the origin port, where there is usually no UDP listener,
+		 * and stall until the grace timer).
+		 *
+		 * A learned RFC 7838 alt-svc alternative is aimed at its
+		 * advertised port; a remembered h3 ALPN negotiation means the
+		 * origin port itself speaks QUIC.
+		 */
 
-		if (wsi->alpn_discovered[0]) {
-			/* Cache hit */
-			if (strstr(wsi->alpn_discovered, "h3"))
-				try_quic = 1;
-		} else if (requested_alpn && strstr(requested_alpn, "h3")) {
-			/* Cache miss, but h3 is allowed */
-			try_quic = 1;
+		if (wsi->a.context->altsvc_cache && wsi->c_port) {
+			char key[256];
+			const uint8_t *payload;
+			size_t plen;
+
+			lws_snprintf(key, sizeof(key), "altsvc_%s_%u",
+				     adsin, wsi->c_port);
+			if (!lws_cache_item_get(wsi->a.context->altsvc_cache,
+						 key, (const void **)&payload,
+						 &plen) &&
+			    plen == 2) {
+				alt_port = (uint16_t)
+					(((uint16_t)payload[0] << 8) | payload[1]);
+				if (alt_port)
+					try_quic = 1;
+			}
 		}
+
+		if (!try_quic && wsi->alpn_discovered[0] &&
+		    strstr(wsi->alpn_discovered, "h3"))
+			/* we negotiated h3 on this origin port before */
+			try_quic = 1;
 
 		if (try_quic) {
 			const struct lws_role_ops *r = lws_role_by_name("quic");
 			if (r) {
-				lwsl_wsi_notice(wsi, "Attempting QUIC connection first");
+				if (alt_port)
+					lwsl_wsi_notice(wsi, "Attempting QUIC connection first to learned alt-svc port %u",
+							alt_port);
+				else
+					lwsl_wsi_notice(wsi, "Attempting QUIC connection first");
 				if (!wsi->udp) {
 					wsi->udp = lws_malloc(sizeof(*wsi->udp), "udp struct");
 					if (wsi->udp)
@@ -385,7 +410,26 @@ solo:
 				}
 				if (wsi->udp) {
 					struct lws_client_connect_info i;
+#if defined(LWS_WITH_TLS)
+					/*
+					 * The QUIC attempt's TLS must offer
+					 * h3 only: the wsi alpn is the TCP
+					 * list (eg, "h2,http/1.1"), and if
+					 * the QUIC server accepts "h2" from
+					 * it, the wsi transitions to the h2
+					 * role on top of the QUIC transport
+					 * and can never make progress.  The
+					 * QUIC TLS init happens lazily at
+					 * the first POLLOUT, so this has to
+					 * stay in place until then... the
+					 * fallback paths restore the
+					 * original from the ah header.
+					 */
+					lws_strncpy(wsi->alpn, "h3",
+						    sizeof(wsi->alpn));
+#endif
 					wsi->tried_quic = 1;
+					wsi->quic_alt_port = alt_port;
 #if defined(LWS_ROLE_QUIC)
 					wsi->quic.quic_race_start_us = lws_now_usecs();
 #endif

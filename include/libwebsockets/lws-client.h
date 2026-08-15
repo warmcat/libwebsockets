@@ -552,4 +552,43 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len);
 LWS_VISIBLE LWS_EXTERN int
 lws_tls_client_upgrade(struct lws *wsi, int ssl_flags);
 
+/**
+ * struct lws_alt_svc - result of parsing an Alt-Svc alternative (RFC 7838)
+ *
+ * \warning this is a fixed-size struct matched against sizeof in the api test,
+ * changing it is an ABI change
+ */
+struct lws_alt_svc {
+	char		host[64];
+	/**< alternative authority host, empty string means "same host as the
+	 * origin" */
+	uint32_t	ma_secs;
+	/**< max-age for the alternative in seconds, already capped at
+	 * 24h; 0 means "delete any existing alternative" */
+	uint16_t	port;
+	/**< the port the alternative is available on */
+};
+
+/**
+ * lws_client_alt_svc_parse() - parse an Alt-Svc header value for an h3
+ *				alternative
+ *
+ * \param val: the Alt-Svc header value
+ * \param len: length of \p val
+ * \param alt: lws_alt_svc struct to receive the result
+ *
+ * Parses header values like `h3=":443"; ma=86400`, looking for the first
+ * well-formed `h3` alternative.  This is a pure function of its inputs,
+ * suitable for unit testing.  The header value is untrusted input and
+ * anything malformed is ignored rather than partially trusted.
+ *
+ * Returns 1 if a well-formed h3 alternative was found and \p alt filled in
+ * (with \p host left empty for the same-host `":port"` form), or 0 if there
+ * is nothing usable for h3 in \p val.  The \p ma_secs field defaults to 24h
+ * capped when no explicit max-age was given.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_client_alt_svc_parse(const char *val, size_t len,
+			 struct lws_alt_svc *alt);
+
 ///@}

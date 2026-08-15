@@ -113,6 +113,10 @@ static int client_step = 0;
 static struct lws *client_wsi = NULL;
 static int established_success = 0;
 static int next_step = 0;
+static char via[16]; /* x-via response header value for this step */
+
+/* what protocol each step's response must have arrived by */
+static const char * const via_expect[] = { "h2", "h3", "h2" };
 
 static int port_tcp = 7681;
 static const char *server_address = "localhost";
@@ -159,6 +163,12 @@ callback_client(struct lws *wsi, enum lws_callback_reasons reason,
 	switch (reason) {
 	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
 		lwsl_notice("CLIENT ESTABLISHED HTTP: step %d\n", client_step);
+		/* capture which protocol the server tells us it served us by */
+		via[0] = '\0';
+		if (lws_hdr_custom_copy(wsi, via, sizeof(via) - 1,
+					"x-via:", 6) < 0)
+			via[0] = '\0';
+		lwsl_notice("served via: %s\n", via[0] ? via : "(unknown)");
 		established_success = 1;
 		return -1;
 
@@ -171,6 +181,15 @@ callback_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (established_success) {
 			established_success = 0;
+			if (strcmp(via, via_expect[client_step])) {
+				lwsl_err("--- Step %d arrived via '%s', expected '%s' ---\n",
+					 client_step,
+					 via[0] ? via : "(none)",
+					 via_expect[client_step]);
+				result = 1;
+				interrupted = 1;
+				break;
+			}
 			client_step++;
 			next_step = 1;
 		} else {
@@ -202,20 +221,24 @@ callback_quic_server(struct lws *wsi, enum lws_callback_reasons reason,
 			uint8_t buf[LWS_PRE + 2048], *start = &buf[LWS_PRE], *p = start,
 				*end = &buf[sizeof(buf) - 1];
 
-			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
-					"text/html",
-					13, &p, end))
-				return 1;
-			if (lws_finalize_write_http_header(wsi, start, &p, end))
-				return 1;
+		if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
+				"text/html",
+				13, &p, end))
+			return 1;
+		/* identify the protocol this response was served by */
+		if (lws_add_http_header_by_name(wsi, (unsigned char *)"x-via:",
+				(unsigned char *)"h3", 2, &p, end))
+			return 1;
+		if (lws_finalize_write_http_header(wsi, start, &p, end))
+			return 1;
 
-			uint8_t body[LWS_PRE + 16];
-			memcpy(body + LWS_PRE, "hello from h3", 13);
-			lws_write(wsi, body + LWS_PRE, 13, LWS_WRITE_HTTP_FINAL);
-			if (lws_http_transaction_completed(wsi))
-				return -1;
-			return 0;
-		}
+		uint8_t body[LWS_PRE + 16];
+		memcpy(body + LWS_PRE, "hello from h3", 13);
+		lws_write(wsi, body + LWS_PRE, 13, LWS_WRITE_HTTP_FINAL);
+		if (lws_http_transaction_completed(wsi))
+			return -1;
+		return 0;
+	}
 	default:
 		break;
 	}
@@ -237,6 +260,10 @@ callback_tcp_server(struct lws *wsi, enum lws_callback_reasons reason,
 			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
 					"text/html",
 					13, &p, end))
+				return 1;
+			/* identify the protocol this response was served by */
+			if (lws_add_http_header_by_name(wsi, (unsigned char *)"x-via:",
+					(unsigned char *)"h2", 2, &p, end))
 				return 1;
 			/* Inject Alt-Svc pointing to our QUIC vhost */
 			altsvc_len = lws_snprintf(altsvc, sizeof(altsvc), "h3=\":%d\"", port_quic);

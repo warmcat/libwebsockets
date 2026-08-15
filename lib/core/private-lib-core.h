@@ -608,6 +608,7 @@ struct lws_context {
 #if defined(LWS_WITH_CLIENT)
 	struct lws_cache_ttl_lru *alpn_cache;
 	struct lws_cache_ttl_lru *h3_cap_cache;
+	struct lws_cache_ttl_lru *altsvc_cache;
 #endif
 
 #if defined(LWS_WITH_SYS_NTPCLIENT)

@@ -215,9 +215,12 @@ __lws_reset_wsi(struct lws *wsi)
 	wsi->redirected_to_get = wsi->client_pipeline = wsi->client_h2_alpn =
 	wsi->client_mux_substream = wsi->client_mux_migrated =
 	wsi->tls_session_reused = wsi->perf_done =
-	wsi->tried_quic = 0;
+		wsi->tried_quic = 0;
 
 	wsi->immortal_substream_count = 0;
+#if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
+	wsi->quic_alt_port = 0;
+#endif
 #endif
 }
 
@@ -366,6 +369,12 @@ lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
 			wsi->tried_quic = 0;
 			lwsl_wsi_notice(wsi, "QUIC connection failed, falling back to TCP");
 			lws_free_set_NULL(wsi->udp);
+			/*
+			 * Forget any learned h3 alternative for this origin,
+			 * it just failed... per RFC 7838 return to the origin
+			 * until the alternative is advertised again
+			 */
+			lws_client_alt_svc_forget(wsi);
 			lws_addrinfo_clean(wsi);
 
 			/*
@@ -387,14 +396,25 @@ lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
 							&_p);
 			}
 			/*
-			 * Clear discovered ALPN and the wsi's negotiated alpn
-			 * so connect_2_restart does not see h3 from either the
-			 * cache-hit path or the stash ALPN path.  lws_client_reset
-			 * will re-default the stash ALPN to "h2,http/1.1" when it
-			 * finds wsi->alpn empty.
+			 * Clear discovered ALPN so connect_2_restart does not
+			 * see h3 from the cache-hit path.  Keep the original
+			 * offered ALPN for the retry, so an h1 streamtype does
+			 * not silently become h2... but if h3 was explicitly
+			 * offered, fall back to the TCP alpns for the retry.
 			 */
 			wsi->alpn_discovered[0] = '\0';
-			wsi->alpn[0] = '\0';
+			/* the QUIC attempt had set wsi alpn to h3, recover
+			 * the original from the ah headers, or TCP alpns */
+			if (strstr(wsi->alpn, "h3")) {
+				const char *orig = lws_hdr_simple_ptr(wsi,
+							_WSI_TOKEN_CLIENT_ALPN);
+
+				if (!orig || strstr(orig, "h3"))
+					orig = "h2,http/1.1";
+
+				lws_strncpy(wsi->alpn, orig,
+					    sizeof(wsi->alpn));
+			}
 
 			if (lws_client_reset(&wsi,
 					!!(wsi->tls.use_ssl & LCCSCF_USE_SSL),
@@ -1019,8 +1039,17 @@ async_close:
 				 */
 				lws_metrics_caliper_report_hist(hh->cal_txn, wsi);
 
-				hh->wsi = NULL;
-				wsi->a.opaque_user_data = NULL;
+				/*
+				 * If we're surviving this close as a redirect
+				 * (eg, QUIC attempt failed and we're falling
+				 * back to TCP on the same wsi), don't cut the
+				 * binding between the ss handle and the wsi
+				 * that is about to restart
+				 */
+				if (!wsi->close_is_redirect) {
+					hh->wsi = NULL;
+					wsi->a.opaque_user_data = NULL;
+				}
 			}
 		}
 	}

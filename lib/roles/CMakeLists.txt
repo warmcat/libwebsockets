@@ -87,9 +87,10 @@ if (NOT LWS_WITHOUT_SERVER OR LWS_WITH_SECURE_STREAMS_PROCESS_API)
 	add_subdir_include_directories(listen)
 endif()
 
-if (LWS_WITH_CLIENT AND (LWS_ROLE_H1 OR LWS_ROLE_H2 OR LWS_ROLE_H3))
+if (LWS_WITH_CLIENT AND (LWS_ROLE_H1 OR LWS_ROLE_H2 OR LWS_ROLE_H3 OR LWS_ROLE_QUIC))
 	list(APPEND SOURCES
-		roles/http/client/client-http.c)
+		roles/http/client/client-http.c
+		roles/http/client/altsvc.c)
 endif()
 
 if (LWS_WITH_NETLINK)

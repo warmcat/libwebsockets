@@ -1061,6 +1061,15 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 	if (!wsi->do_ws) {
 		/* we are being an http client...
 		 */
+
+		/*
+		 * Learn any h3 alternative the server advertises on this
+		 * authenticated response, so later connections to this origin
+		 * can race QUIC to the right endpoint
+		 */
+
+		lws_client_alt_svc_learn(wsi);
+
 #if defined(LWS_ROLE_WT)
 		if (wsi->a.protocol && !strcmp(wsi->a.protocol->name, "webtransport")) {
 			extern const struct lws_role_ops role_ops_wt;
@@ -2570,7 +2579,14 @@ lws_client_reset(struct lws **pwsi, int ssl, const char *address, int port,
 		    port, path, ssl, cisin[CIS_ALPN]);
 
 	{
-		void *opaque = wsi->stash ? wsi->stash->opaque_user_data : NULL;
+		/*
+		 * If we are being reset from inside the close flow (eg, the
+		 * h3 grace timer, or a failed QUIC attempt falling back to
+		 * TCP), the close flow has already freed the stash... take
+		 * the opaque binding from the wsi itself then
+		 */
+		void *opaque = wsi->stash ? wsi->stash->opaque_user_data :
+					   wsi->a.opaque_user_data;
 
 		if (lws_client_stash_create(wsi, cisin))
 			return NULL;

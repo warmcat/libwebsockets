@@ -16,6 +16,7 @@ require_lws_config(LWS_WITH_SERVER 1 requirements)
 require_lws_config(LWS_WITH_SYS_ASYNC_DNS 1 requirements)
 require_lws_config(LWS_WITH_UDP 1 requirements)
 require_lws_config(LWS_WITH_TLS 1 requirements)
+require_lws_config(LWS_WITH_CUSTOM_HEADERS 1 requirements)
 
 message("api-test-happy-eyeballs requirements: ${requirements}")
 
