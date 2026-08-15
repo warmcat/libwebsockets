@@ -402,6 +402,20 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 		}
 #endif
+		/*
+		 * If the user code already responded on this transaction (eg,
+		 * it answered the POST when the request headers arrived,
+		 * without draining the body first), a further response on the
+		 * same stream is a protocol error for muxed http (h2 / h3):
+		 * the peer receives a second response header set after the
+		 * response it already processed and kills the connection.
+		 * Complete the transaction instead of answering again.
+		 */
+		if (wsi->http.sent_response_headers) {
+			if (lws_http_transaction_completed(wsi))
+				return -1;
+			break;
+		}
 		if (lws_return_http_status(wsi, 200, NULL))
 			return -1;
 		break;
