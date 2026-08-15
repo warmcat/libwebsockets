@@ -290,7 +290,7 @@ lwsac_scan_extant(struct lwsac *head, uint8_t *find, size_t len, int nul);
 /**
  * lwsac_assert_valid() - checks if check..check + len is a valid pointer into memory owned by ac
  *
- * \param ac: the lwsac to confirm with
+ * \param aco: the lwsac to confirm with
  * \param check: the pointer to check
  * \param len: length in bytes of check area
  *

@@ -120,7 +120,7 @@ lws_led_gpio_destroy(struct lws_led_state *lcs);
  * lws_led_gpio_intensity() - set the static intensity of an led
  *
  * \param lo: the base class of the led controller
- * \param index: which led in the controller set
+ * \param name: which led in the controller set
  * \param inten: 16-bit unsigned intensity
  *
  * For LEDs controlled by a BOOL like GPIO, only inten b15 is significant.

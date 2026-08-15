@@ -1134,7 +1134,7 @@ lws_http_is_redirected_to_get(struct lws *wsi);
  * \param wsi: the wsi to check
  * \param name: name of the cookie
  * \param buf: buffer to store the cookie contents into
- * \param max_len: on entry, maximum length of buf... on exit, used len of buf
+ * \param max: on entry, maximum length of buf... on exit, used len of buf
  *
  * If no cookie header, or no cookie of the requested name, or the value is
  * larger than can fit in buf, returns nonzero.

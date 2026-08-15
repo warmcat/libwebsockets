@@ -376,7 +376,7 @@ lws_mqtt_client_send_subcribe(struct lws *wsi, lws_mqtt_subscribe_param_t *sub);
  * lws_mqtt_client_send_unsubcribe() - lws_write a unsubscribe packet
  *
  * \param wsi: the mqtt child wsi
- * \param sub: which topic(s) we want to unsubscribe from
+ * \param unsub: which topic(s) we want to unsubscribe from
  *
  * For topics other child streams are not subscribed to, send a packet
  * to the server asking to unsubscribe from them.  If all topics

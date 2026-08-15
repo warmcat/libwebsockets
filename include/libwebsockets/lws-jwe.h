@@ -89,8 +89,7 @@ lws_jwe_json_parse(struct lws_jwe *jwe, const uint8_t *buf, int len,
 /**
  * lws_jwe_auth_and_decrypt() - confirm and decrypt JWE
  *
- * \param jose: jose context
- * \param jws: jws / jwe context... .map and .map_b64 must be filled already
+ * \param jwe: the JWE context, its .jws.map and .jws.map_b64 must be filled already
  *
  * This is a high level JWE decrypt api that takes a jws with the maps
  * already processed, and if the authentication passes, returns the decrypted
@@ -115,8 +114,7 @@ lws_jwe_auth_and_decrypt(struct lws_jwe *jwe, char *temp, int *temp_len);
 /**
  * lws_jwe_encrypt() - perform JWE encryption
  *
- * \param jose: the JOSE header information (encryption types, etc)
- * \param jws: the JWE elements, pointer to jwk etc
+ * \param jwe: the JWE context, holding the JOSE header information, the JWE elements and the jwk
  * \param temp: parent-owned buffer to "allocate" elements into
  * \param temp_len: amount of space available in temp
  *
@@ -137,7 +135,7 @@ lws_jwe_encrypt(struct lws_jwe *jwe, char *temp, int *temp_len);
  * \param nonce: Nonse string to include in protected header
  * \param out: buffer to take signed packet
  * \param out_len: size of \p out buffer
- * \param conext: lws_context to get random from
+ * \param context: lws_context to get random from
  *
  * This creates a "flattened" JWS packet from the jwk and the plaintext
  * payload, and signs it.  The packet is written into \p out.

@@ -113,7 +113,7 @@ lws_fi(const lws_fi_ctx_t *fic, const char *fi_name);
  * lws_fi_range() - get a random number from a range
  *
  * \param fic: fault injection tracking context
- * \param fi_name: name of fault injection
+ * \param name: name of fault injection
  * \param result: points to uint64_t to be set to the result
  *
  * This lets you get a random number from an externally-set range, set using a
