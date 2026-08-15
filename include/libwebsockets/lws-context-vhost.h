@@ -522,8 +522,29 @@ struct lws_context_creation_info {
 	 * Note: Only supported on OpenSSL and mbedTLS backends.
 	 */
 	const char *ecdh_curve;
-	/**< VHOST: if NULL, defaults to initializing server with
-	 *   "prime256v1" */
+	/**< VHOST: Colon-separated list of TLS group names (eg,
+	 * "X25519:P-384:P-521", or a single group name like "prime256v1")
+	 * restricting the groups this vhost's server SSL_CTX will use for key
+	 * exchange.  If NULL, the TLS library defaults are used.
+	 *
+	 * On the OpenSSL backend this is applied with
+	 * SSL_CTX_set1_groups_list() where available (OpenSSL 1.1.0+); on
+	 * older OpenSSL lacking that api, only a single curve name is
+	 * understood, it is applied as the server tmp ECDH curve, and if this
+	 * is NULL, "prime256v1" is used.  Other TLS backends ignore it (with
+	 * GnuTLS, restrict groups via the priority string in
+	 * \p ssl_cipher_list instead).
+	 */
+	const char *client_ecdh_curve;
+	/**< VHOST: Colon-separated list of TLS group names restricting the
+	 * groups this vhost's client SSL_CTX offers in the ClientHello.  If
+	 * NULL, \p ecdh_curve is used instead, else the TLS library defaults.
+	 *
+	 * This is the way to stop clients offering groups that some servers
+	 * cannot cope with, for example the post-quantum and ffdhe groups
+	 * that OpenSSL 3.4+ includes in its defaults.  Only applied on the
+	 * OpenSSL backend with SSL_CTX_set1_groups_list() available.
+	 */
 	const char *tls1_3_plus_cipher_list;
 	/**< VHOST: List of valid ciphers to use for incoming server connections
 	 * ON TLS1.3 AND ABOVE (eg, "TLS_CHACHA20_POLY1305_SHA256" on this vhost

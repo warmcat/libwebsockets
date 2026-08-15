@@ -102,6 +102,7 @@
 #cmakedefine LWS_HAVE_SSL_CTX_load_verify_file
 #cmakedefine LWS_HAVE_SSL_CTX_load_verify_dir
 #cmakedefine LWS_HAVE_SSL_CTX_set1_param
+#cmakedefine LWS_HAVE_SSL_CTX_set1_groups_list
 #cmakedefine LWS_HAVE_SSL_CTX_set_ciphersuites
 #cmakedefine LWS_HAVE_SSL_CTX_set_keylog_callback
 #cmakedefine LWS_HAVE_SSL_CTX_SET_ECDH_AUTO
