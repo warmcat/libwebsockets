@@ -117,6 +117,14 @@ lws_client_h3_grace_cb(lws_sorted_usec_list_t *sul)
 	 * cache-hit path after the socket is rebuilt. */
 	wsi->alpn_discovered[0] = '\0';
 
+#if defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC)
+	/*
+	 * The learned h3 endpoint did not answer in the grace window...
+	 * forget it so we stop aiming QUIC attempts at it, per RFC 7838
+	 * clients should return to the origin until it is re-advertised
+	 */
+	lws_client_alt_svc_forget(wsi);
+#endif
 	/*
 	 * Free the QUIC netconn now, while it is still reachable from
 	 * wsi->quic.qn: the wsi reset below clears wsi->quic wholesale, and
@@ -152,11 +160,21 @@ lws_client_h3_grace_cb(lws_sorted_usec_list_t *sul)
 
 #if defined(LWS_WITH_TLS)
 		/*
-		 * Clear the negotiated alpn so lws_client_reset() re-defaults
-		 * the stash ALPN to h2,http/1.1 rather than leading with h3
-		 * again
+		 * Recover the original offered ALPN for the retried
+		 * connection (an h1 streamtype must not silently become
+		 * h2)... the QUIC attempt had set wsi alpn to h3, the
+		 * original is kept in the ah headers from connect time.
+		 * If it itself leads with h3, fall back to the TCP alpns.
 		 */
-		wsi->alpn[0] = '\0';
+		if (strstr(wsi->alpn, "h3")) {
+			const char *orig = lws_hdr_simple_ptr(wsi,
+						_WSI_TOKEN_CLIENT_ALPN);
+
+			if (!orig || strstr(orig, "h3"))
+				orig = "h2,http/1.1";
+
+			lws_strncpy(wsi->alpn, orig, sizeof(wsi->alpn));
+		}
 #endif
 
 		if (!ads || !host || !path ||
@@ -390,6 +408,18 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	const struct sockaddr *psa = NULL;
 	uint16_t port = wsi->conn_port;
 	char dcce[128], t16[16];
+
+#if defined(LWS_WITH_UDP) && \
+    (defined(LWS_ROLE_H3) || defined(LWS_ROLE_QUIC))
+	if (wsi->udp && wsi->quic_alt_port)
+		/*
+		 * The QUIC race is aimed at the RFC 7838 alt-svc endpoint
+		 * learned for this origin, not at the origin's own port.
+		 * TCP attempts on this wsi don't take this (wsi->udp is
+		 * only set for the QUIC attempt).
+		 */
+		port = wsi->quic_alt_port;
+#endif
 	lws_dns_sort_t *curr;
 	ssize_t plen = 0;
 	lws_dll2_t *d;

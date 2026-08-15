@@ -294,22 +294,13 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t len)
 			conn->f_handshake_finished = 1;
 			QueryContextAttributes(&conn->ctxt, SECPKG_ATTR_STREAM_SIZES, &conn->stream_sizes);
 
-			/* Check ALPN Negotiation Result */
-			SecPkgContext_ApplicationProtocol alpn_result;
-                       SECURITY_STATUS alpn_stat = QueryContextAttributes(&conn->ctxt, SECPKG_ATTR_APPLICATION_PROTOCOL, &alpn_result);
-                       lwsl_notice("%s: ALPN query status 0x%x, NegoStatus %d\n", __func__, (int)alpn_stat, alpn_stat == SEC_E_OK ? (int)alpn_result.ProtoNegoStatus : -1);
-                       if (alpn_stat == SEC_E_OK) {
-				if (alpn_result.ProtoNegoStatus == SecApplicationProtocolNegotiationStatus_Success) {
-					/* Inform LWS about negotiated protocol */
-					char negotiated[64];
-					if (alpn_result.ProtocolIdSize < sizeof(negotiated)) {
-						memcpy(negotiated, alpn_result.ProtocolId, alpn_result.ProtocolIdSize);
-						negotiated[alpn_result.ProtocolIdSize] = 0;
-                                               lwsl_notice("%s: ALPN negotiated %s\n", __func__, negotiated);
-						lws_role_call_alpn_negotiated(wsi, negotiated);
-					}
-				}
-			}
+			/*
+			 * Handle the negotiated ALPN through the shared
+			 * helper, so (for client connections) the negotiated
+			 * ALPN is also recorded in the client alpn cache like
+			 * the other TLS backends do
+			 */
+			lws_tls_schannel_server_conn_alpn(wsi);
                }
 
                if (conn->tx_buf) {
@@ -565,6 +556,31 @@ lws_tls_schannel_server_conn_alpn(struct lws *wsi)
                        memcpy(cstr, alpn_result.ProtocolId, alpn_result.ProtocolIdSize);
                        cstr[alpn_result.ProtocolIdSize] = 0;
                        lwsl_notice("%s: ALPN negotiated %s\n", __func__, cstr);
+
+#if defined(LWS_WITH_CLIENT)
+		       /*
+			* record the successful ALPN in the cache, the same
+			* as the generic helper does for the other backends
+			*/
+		       if (lwsi_role_client(wsi) && wsi->cli_hostname_copy &&
+		           wsi->a.context->alpn_cache && wsi->c_port) {
+			       char key[256];
+			       void *p;
+			       lws_snprintf(key, sizeof(key), "alpn_%s_%u",
+					    wsi->cli_hostname_copy,
+					    wsi->c_port);
+			       lws_cache_write_through(wsi->a.context->alpn_cache,
+						       key,
+						       (const uint8_t *)cstr,
+						       strlen(cstr) + 1,
+						       lws_now_usecs() +
+						       (lws_usec_t)(3600ULL * 1000000ULL),
+						       &p);
+			       lwsl_wsi_notice(wsi, "wrote ALPN %s to cache for %s",
+					       cstr, key);
+		       }
+#endif
+
                        return lws_role_call_alpn_negotiated(wsi, cstr);
                }
        }

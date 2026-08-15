@@ -1712,8 +1712,19 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 					    LRS_H2_WAITING_TO_SEND_HEADERS,
 					    &role_ops_h2);
 
-			/* pass on the initial headers to SID 1 */
+			/*
+			 * Pass on the initial headers to SID 1.  Do the
+			 * pointer handoff atomically: there are failure
+			 * paths between here and the end of the migration
+			 * (eg, a missing ss binding) that return early,
+			 * and both wsis sharing the ah afterwards leads to
+			 * a double-detach and use-after-free when the ah is
+			 * eventually destroyed.
+			 */
 			h2n->swsi->http.ah = wsi->http.ah;
+			wsi->http.ah = NULL;
+			if (h2n->swsi->http.ah)
+				h2n->swsi->http.ah->wsi = h2n->swsi;
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 			lws_fi_import(&h2n->swsi->fic, &wsi->fic);
 #endif
@@ -1778,10 +1789,6 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 #endif
 
 			wsi->user_space = NULL;
-
-			if (h2n->swsi->http.ah)
-				h2n->swsi->http.ah->wsi = h2n->swsi;
-			wsi->http.ah = NULL;
 
 			lwsl_info("%s: MIGRATING nwsi %s -> swsi %s\n", __func__,
 				  lws_wsi_tag(wsi), lws_wsi_tag(h2n->swsi));

@@ -1653,6 +1653,17 @@ lws_create_context(const struct lws_context_creation_info *info)
 			lwsl_cx_err(context, "Failed to init H3CAP cache");
 			goto bail;
 		}
+
+		/* learned RFC 7838 alt-svc h3 endpoints, keyed by origin
+		 * address + port, payload is the u16 alt port */
+		cci.name		= "ALTSVC";
+		cci.max_payload		= 2;
+
+		context->altsvc_cache = lws_cache_create(&cci);
+		if (!context->altsvc_cache) {
+			lwsl_cx_err(context, "Failed to init ALTSVC cache");
+			goto bail;
+		}
 	}
 #endif
 
@@ -2492,6 +2503,7 @@ next_l:
 #if defined(LWS_WITH_CLIENT)
 		lws_cache_destroy(&context->alpn_cache);
 		lws_cache_destroy(&context->h3_cap_cache);
+		lws_cache_destroy(&context->altsvc_cache);
 #endif
 
 

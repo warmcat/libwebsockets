@@ -692,15 +692,22 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 	} else {
 #if defined(LWS_WITH_CUSTOM_HEADERS)
 		struct allocated_headers *ah = wsi->http.ah;
-		if (ah && name && name_len > 0 && ah->pos + 8 + name_len + value_len < (unsigned int)wsi->a.context->max_http_header_data) {
+		if (ah && name && name_len > 0 && ah->pos + 8 + name_len + 1 + value_len < (unsigned int)wsi->a.context->max_http_header_data) {
 			uint32_t unk_pos = ah->pos;
 
-			lws_ser_wu16be((uint8_t *)&ah->data[unk_pos + 0], (uint16_t)name_len);
+			/*
+			 * Store the name with a trailing ':' to match the
+			 * h1 / hpack storage format that the
+			 * lws_hdr_custom_*() accessors expect
+			 */
+
+			lws_ser_wu16be((uint8_t *)&ah->data[unk_pos + 0], (uint16_t)(name_len + 1));
 			lws_ser_wu16be((uint8_t *)&ah->data[unk_pos + 2], (uint16_t)value_len);
 			lws_ser_wu32be((uint8_t *)&ah->data[unk_pos + 4], 0);
 
 			memcpy(&ah->data[unk_pos + 8], name, name_len);
-			memcpy(&ah->data[unk_pos + 8 + name_len], value, value_len);
+			ah->data[unk_pos + 8 + name_len] = ':';
+			memcpy(&ah->data[unk_pos + 8 + name_len + 1], value, value_len);
 
 			if (!ah->unk_ll_head)
 				ah->unk_ll_head = unk_pos;
@@ -708,7 +715,7 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 				lws_ser_wu32be((uint8_t *)&ah->data[ah->unk_ll_tail + 4], unk_pos);
 			ah->unk_ll_tail = unk_pos;
 
-			ah->pos += (ah_data_idx_t)(8 + name_len + value_len);
+			ah->pos += (ah_data_idx_t)(8 + name_len + 1 + value_len);
 			// lwsl_wsi_notice(wsi, "Added H3 custom header: %.*s = %.*s", (int)name_len, name, (int)value_len, value);
 		} else
 #endif

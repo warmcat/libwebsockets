@@ -496,12 +496,6 @@ no_client_cert:
 enum lws_ssl_capable_status
 lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 {
-#if (defined(LWS_HAVE_SSL_set_alpn_protos) || defined(OPENSSL_IS_AWSLC)) && \
-    (defined(LWS_HAVE_SSL_get0_alpn_selected) || defined(OPENSSL_IS_AWSLC))
-	const unsigned char *prot;
-	char a[32];
-	unsigned int len;
-#endif
 	int m, n, en;
 	unsigned long l;
 #if defined(LWS_WITH_TLS_SESSIONS) && defined(LWS_HAVE_SSL_SESSION_set_time)
@@ -556,17 +550,14 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 		return LWS_SSL_CAPABLE_MORE_SERVICE_WRITE;
 
 	if (n == 1 || m == SSL_ERROR_SYSCALL) {
-#if (defined(LWS_HAVE_SSL_set_alpn_protos) || defined(OPENSSL_IS_AWSLC)) && \
-    (defined(LWS_HAVE_SSL_get0_alpn_selected) || defined(OPENSSL_IS_AWSLC))
-		SSL_get0_alpn_selected(wsi->tls.ssl, &prot, &len);
-
-		if (len >= sizeof(a))
-			len = sizeof(a) - 1;
-		memcpy(a, (const char *)prot, len);
-		a[len] = '\0';
-
-		lws_role_call_alpn_negotiated(wsi, (const char *)a);
-#endif
+		/*
+		 * Handle the negotiated ALPN the same way at handshake
+		 * completion as the gnutls backend does: this also records
+		 * the negotiated ALPN in the client alpn cache, so later
+		 * connections to the same origin can take the stored
+		 * knowledge into account
+		 */
+		lws_tls_server_conn_alpn(wsi);
 #if defined(LWS_TLS_SYNTHESIZE_CB)
 		lws_sul_schedule(wsi->a.context, wsi->tsi,
 				 &wsi->tls.sul_cb_synth,
