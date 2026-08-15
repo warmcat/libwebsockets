@@ -507,7 +507,7 @@ lws_jwt_sign_via_info(struct lws_context *ctx, struct lws_jwk *jwk,
  * \param csrf_in: NULL, or the csrf token that came in on a URL
  * \param sub: a buffer to hold the subject name in the JWT (eg, account name)
  * \param sub_len: the max length of the sub buffer
- * \param secs_left: set to the number of seconds of valid auth left if valid
+ * \param exp_unix_time: set to the token expiry as a unix time, if valid
  *
  * This performs some generic sanity tests on validated JWT payload...
  *

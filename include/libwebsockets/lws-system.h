@@ -503,7 +503,7 @@ enum {
 /**
  * lws_system_adopt_stdin(): add stdin to be a wsi handled by the event loop
  *
- * \param context: the lws_context
+ * \param cx: the lws_context
  *
  * The user code should call this after context creation.  It will add stdin
  * to the context event loop and handle it one of two ways
