@@ -584,7 +584,14 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 
 					if (wsi->a.context->event_loop_ops->promote_parallel)
 						wsi->a.context->event_loop_ops->promote_parallel(wsi, pidx);
-					else if (lws_socket_is_valid(wsi->desc.sockfd))
+					/*
+					 * The promote op only reparents the
+					 * event lib watchers, it does not
+					 * close the losing primary's fd...
+					 * that is still our job here, in all
+					 * cases.
+					 */
+					if (lws_socket_is_valid(wsi->desc.sockfd))
 						compatible_close(wsi->desc.sockfd);
 
 					promote_parallel_fd(wsi, pidx);
@@ -618,12 +625,34 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 					return wsi; /* keep waiting for others */
 				} else {
 					/* primary failed */
+					lws_pt_lock(pt, __func__);
 					__remove_wsi_socket_from_fds(wsi);
+					lws_pt_unlock(pt);
 					compatible_close(wsi->desc.sockfd);
 					wsi->desc.sockfd = LWS_SOCK_INVALID;
 					/* if we have a parallel running, promote it */
 					for (m = 0; m < wsi->parallel_count; m++) {
 						if (wsi->parallel_conns[m].is_valid) {
+							/*
+							 * Promote the racer via the
+							 * event lib ops where they
+							 * exist.  Without this, on
+							 * event libs like libuv the
+							 * wsi's main watcher stays
+							 * bound to the now-closed
+							 * primary fd while the
+							 * racer's watcher is
+							 * orphaned, since is_valid
+							 * is cleared below and no
+							 * close path will visit it
+							 * again.  Both stale
+							 * watchers then trip
+							 * UV_EEXIST later when the
+							 * kernel recycles the fd
+							 * numbers.
+							 */
+							if (wsi->a.context->event_loop_ops->promote_parallel)
+								wsi->a.context->event_loop_ops->promote_parallel(wsi, m);
 							promote_parallel_fd(wsi, m);
 							return wsi;
 						}
@@ -740,7 +769,8 @@ ads_known:
 		new_fd = LWS_SOCK_INVALID;
 		saved_pos = -1;
 
-		if (wsi->a.context->event_loop_ops->check_client_connect_ok &&
+		if (!is_parallel &&
+		    wsi->a.context->event_loop_ops->check_client_connect_ok &&
 		    wsi->a.context->event_loop_ops->check_client_connect_ok(wsi)
 		) {
 			cce = "waiting for event loop watcher to close";
@@ -1179,7 +1209,14 @@ ads_known:
 			extern void lws_client_happy_eyeballs_cb(lws_sorted_usec_list_t *sul);
 			lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->sul_happy_eyeballs,
 					lws_client_happy_eyeballs_cb,
-					200 * LWS_US_PER_MS);
+					/*
+					 * normally RFC8305 pacing of 200ms, but
+					 * tests can shrink it via FI so a
+					 * fast-failing primary (eg, loopback
+					 * ECONNREFUSED) still meets the racer
+					 */
+					lws_fi(&wsi->fic, "he_race_fast") ?
+						1 : 200 * LWS_US_PER_MS);
 		}
 #if defined(WIN32)
 		/*
@@ -1239,7 +1276,11 @@ conn_good:
 
 		if (wsi->a.context->event_loop_ops->promote_parallel)
 			wsi->a.context->event_loop_ops->promote_parallel(wsi, pidx);
-		else
+		/*
+		 * The promote op only reparents the event lib watchers, it is
+		 * still our job to close the losing primary's fd in all cases
+		 */
+		if (lws_socket_is_valid(wsi->desc.sockfd))
 			compatible_close(wsi->desc.sockfd);
 
 		promote_parallel_fd(wsi, pidx);
