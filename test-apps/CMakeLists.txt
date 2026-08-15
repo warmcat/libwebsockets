@@ -29,6 +29,21 @@
 set(TEST_APP_LIST)
 if ((LWS_ROLE_H1 OR LWS_ROLE_H2))
 	#
+	# The test apps dlopen protocol plugins listed in the test-server conf
+	# at runtime.  Those plugins only exist as DSOs linked against
+	# websockets_shared, so a test app statically linked against the lib
+	# would end up with two independent lws instances in one process: the
+	# plugin's lws api calls resolve into the shared lib, while its wsis
+	# and role_ops belong to the static one.  Pointer-identity checks like
+	# lwsi_role_h3() then fail across the boundary, eg, h3 response headers
+	# get serialized with the hpack encoder.  If we are building shared
+	# protocol plugins, the test apps must bind the same shared lib.
+	#
+	if (LWS_WITH_PLUGINS AND LWS_WITH_SHARED AND NOT LWS_WITH_PLUGINS_BUILTIN)
+		set(LWS_TESTAPPS_PREFER_SHARED 1)
+		message(STATUS "Test apps link websockets_shared: shared protocol plugins are enabled")
+	endif()
+	#
 	# Helper function for adding a test app.
 	#
 	macro(create_test_app TEST_NAME MAIN_SRC S2 S3 S4 S5 S6)
@@ -73,7 +88,7 @@ if ((LWS_ROLE_H1 OR LWS_ROLE_H2))
 		add_executable(${TEST_NAME} ${TEST_SRCS} ${TEST_HDR})
 
 
-		if (LWS_LINK_TESTAPPS_DYNAMIC)
+		if (LWS_LINK_TESTAPPS_DYNAMIC OR LWS_TESTAPPS_PREFER_SHARED)
 			if (NOT LWS_WITH_SHARED)
 				message(FATAL_ERROR "Build of the shared library is disabled. LWS_LINK_TESTAPPS_DYNAMIC must be combined with LWS_WITH_SHARED.")
 			endif()
