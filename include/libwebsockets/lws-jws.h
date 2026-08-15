@@ -507,7 +507,7 @@ lws_jwt_sign_via_info(struct lws_context *ctx, struct lws_jwk *jwk,
  * \param csrf_in: NULL, or the csrf token that came in on a URL
  * \param sub: a buffer to hold the subject name in the JWT (eg, account name)
  * \param sub_len: the max length of the sub buffer
- * \param exp_unix_time: set to the token expiry as a unix time, if valid
+ * \param expiry_unix_time: set to the token expiry as a unix time, if valid
  *
  * This performs some generic sanity tests on validated JWT payload...
  *
@@ -518,15 +518,15 @@ lws_jwt_sign_via_info(struct lws_context *ctx, struct lws_jwk *jwk,
  *  - if csrf_in is not NULL, that the JWK has a csrf and it matches it
  *  - if sub is not NULL, that the JWK provides a subject (and copies it to sub)
  *
- * If the tests pass, *secs_left is set to the number of remaining seconds the
- * auth is valid.
+ * If the tests pass, *expiry_unix_time is set to the token's expiry
+ * time as an absolute unix time.
  *
  * Returns 0 if no inconsistency, else nonzero.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_jwt_token_sanity(const char *in, size_t in_len,
 		     const char *iss, const char *aud, const char *csrf_in,
-		     char *sub, size_t sub_len, unsigned long *exp_unix_time);
+		     char *sub, size_t sub_len, unsigned long *expiry_unix_time);
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2) || defined(LWS_ROLE_H3)
 

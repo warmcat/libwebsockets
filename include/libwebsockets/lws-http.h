@@ -1140,7 +1140,7 @@ lws_http_is_redirected_to_get(struct lws *wsi);
  * larger than can fit in buf, returns nonzero.
  *
  * If the cookie is found, copies its value into buf with a terminating NUL,
- * sets *max_len to the used length, and returns 0.
+ * sets *max to the used length, and returns 0.
  *
  * This handles the parsing of the possibly multi-cookie header string and
  * terminating the requested cookie at the next ; if present.
