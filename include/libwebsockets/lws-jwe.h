@@ -132,7 +132,7 @@ lws_jwe_encrypt(struct lws_jwe *jwe, char *temp, int *temp_len);
  * \param jwe: the struct lws_jwe we are trying to render
  * \param payload: unencoded payload JSON
  * \param len: length of unencoded payload JSON
- * \param nonce: Nonse string to include in protected header
+ * \param nonce: Nonce string to include in protected header
  * \param out: buffer to take signed packet
  * \param out_len: size of \p out buffer
  * \param context: lws_context to get random from

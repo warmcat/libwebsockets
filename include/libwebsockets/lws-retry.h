@@ -42,7 +42,7 @@ typedef struct lws_retry_bo {
  * \param conceal: pointer to flag set to nonzero if the try should be concealed
  *			in terms of creating an error
  *
- * Increments *\p try and retruns the number of ms that should elapse before the
+ * Increments *\p ctry and returns the number of ms that should elapse before the
  * next connection retry, according to the backoff table \p retry. *\p conceal is
  * set if the number of tries is less than the backoff table conceal_count, or
  * is zero if it exceeded it.  This lets you conceal a certain number of retries

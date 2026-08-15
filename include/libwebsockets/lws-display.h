@@ -193,7 +193,7 @@ lws_display_state_init(lws_display_state_t *lds, struct lws_context *ctx,
  * \param lds: the display state we are changing
  * \param pwmseq: the sequence definition to transition the brightness along
  *
- * Adjusts the brightness gradually twoards the target at 20Hz
+ * Adjusts the brightness gradually along the sequence at 20Hz
  */
 LWS_VISIBLE LWS_EXTERN void
 lws_display_state_set_brightness(lws_display_state_t *lds,

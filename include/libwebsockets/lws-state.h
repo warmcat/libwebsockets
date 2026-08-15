@@ -57,7 +57,7 @@ typedef struct lws_state_manager {
  * \param mgr: the state manager
  * \param nl: the handler to add to the notifier linked-list
  *
- * Add \p notify_link to the context's list of notification handlers for system
+ * Add \p nl to the manager's list of notification handlers for system
  * state changes.  The handlers can defeat or take over responsibility for
  * retrying the change after they have initiated some dependency.
  */
