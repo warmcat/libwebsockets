@@ -63,11 +63,19 @@ static int server_requests_count;
 struct pending_datagram {
 	char filename[256];
 	int is_push; /* 1 for PUSH, 0 for GET */
+	/* Send state for chunked PUSH */
+	int fd;
+	size_t file_len;
+	size_t sent;
+	int hdr_sent;
 };
 
 static struct pending_datagram dg_queue[512];
 static int dg_queue_head;
 static int dg_queue_tail;
+
+/* Datagrams must fit inside a single QUIC packet */
+#define DG_PAYLOAD_CHUNK 1024
 
 static void enqueue_datagram(const char *filename, int is_push)
 {
@@ -78,16 +86,25 @@ static void enqueue_datagram(const char *filename, int is_push)
 	struct pending_datagram *dg = &dg_queue[dg_queue_tail];
 	lws_strncpy(dg->filename, filename, sizeof(dg->filename));
 	dg->is_push = is_push;
+	dg->fd = -1;
+	dg->file_len = 0;
+	dg->sent = 0;
+	dg->hdr_sent = 0;
 	dg_queue_tail = (dg_queue_tail + 1) % 512;
 }
 
-static struct pending_datagram *dequeue_datagram(void)
+static struct pending_datagram *peek_datagram(void)
 {
 	if (dg_queue_head == dg_queue_tail)
 		return NULL;
-	struct pending_datagram *dg = &dg_queue[dg_queue_head];
+	return &dg_queue[dg_queue_head];
+}
+
+static void dequeue_datagram(void)
+{
+	if (dg_queue_head == dg_queue_tail)
+		return;
 	dg_queue_head = (dg_queue_head + 1) % 512;
-	return dg;
 }
 
 struct pss_qir {
@@ -115,6 +132,9 @@ struct pss_qir {
 	int push_hdr_done;
 	int initialized;
 	int write_completed;
+
+	/* Datagram reassembly state (session wsi) */
+	int dg_fd;
 };
 
 static void init_pss(struct pss_qir *pss)
@@ -122,6 +142,7 @@ static void init_pss(struct pss_qir *pss)
 	if (pss && !pss->initialized) {
 		pss->fd_in = -1;
 		pss->fd_out = -1;
+		pss->dg_fd = -1;
 		pss->request_index = -1;
 		pss->write_completed = 0;
 		pss->initialized = 1;
@@ -499,11 +520,37 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 	uint8_t buf[LWS_PRE + 4096], *p;
 	int n, m;
 
-	if (pss) {
-		init_pss(pss);
+	/*
+	 * Only these reasons carry per-session storage in user.  Others
+	 * (eg, PROTOCOL_INIT, OPENSSL_LOAD_EXTRA_SERVER_VERIFY_CERTS) pass
+	 * unrelated pointers there, which must not be touched as if they
+	 * were pss.
+	 */
+	switch (reason) {
+	case LWS_CALLBACK_ESTABLISHED:
+	case LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED:
+	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+	case LWS_CALLBACK_CLIENT_ESTABLISHED:
+	case LWS_CALLBACK_SERVER_WRITEABLE:
+	case LWS_CALLBACK_CLIENT_WRITEABLE:
+	case LWS_CALLBACK_RECEIVE:
+	case LWS_CALLBACK_CLOSED:
+	case LWS_CALLBACK_CLIENT_CLOSED:
+	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		if (pss)
+			init_pss(pss);
+		break;
+
+	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
+		pss = NULL;
+		break;
+
+	default:
+		/* not a per-session reason, ignore */
+		return 0;
 	}
 
-	if (!pss && reason != LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER)
+	if (!pss)
 		return 0;
 
 	switch (reason) {
@@ -582,7 +629,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 				char client_protos[256];
 				char negotiated[64] = "";
 				int cp_len = lws_hdr_custom_copy(wsi, client_protos, sizeof(client_protos) - 1,
-								 "wt-available-protocols", 22);
+								 "wt-available-protocols:", 23);
 				if (cp_len > 0) {
 					const char *env_protocols = getenv("PROTOCOLS_SERVER");
 					client_protos[cp_len] = '\0';
@@ -702,7 +749,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 
 			/* Parse and save negotiated protocol to /downloads/negotiated_protocol.txt */
 			char negotiated[64];
-			int nl = lws_hdr_custom_copy(wsi, negotiated, sizeof(negotiated) - 1, "wt-protocol", 11);
+			int nl = lws_hdr_custom_copy(wsi, negotiated, sizeof(negotiated) - 1, "wt-protocol:", 12);
 			lwsl_user("wt-protocol header lookup result: %d\n", nl);
 			if (nl > 0) {
 				negotiated[nl] = '\0';
@@ -737,62 +784,109 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 		case LWS_CALLBACK_SERVER_WRITEABLE:
-	case LWS_CALLBACK_CLIENT_WRITEABLE:
+		case LWS_CALLBACK_CLIENT_WRITEABLE:
 		if (pss->is_session) {
-			struct pending_datagram *dg = dequeue_datagram();
+			struct pending_datagram *dg = peek_datagram();
 			if (dg) {
 				if (dg->is_push) {
-					/* Send PUSH <filename>\n<contents> as a datagram */
+					/*
+					 * Send the file as a sequence of
+					 * datagrams, each small enough to
+					 * fit in a single QUIC packet:
+					 *
+					 *   "PUSH <filename>\n" + first chunk
+					 *   ... raw chunks ...
+					 *   "END <filename>"
+					 */
 					char filepath[512];
 					const char *endpoint = pss->endpoint[0] ? pss->endpoint : global_endpoint;
-					lws_snprintf(filepath, sizeof(filepath), "/www%s/%s", endpoint, dg->filename);
-					int fd = open(filepath, O_RDONLY);
-					if (fd >= 0) {
-						struct stat st;
-						if (fstat(fd, &st) == 0) {
-							uint8_t dgbuf[LWS_PRE + 65536];
-							int hn = lws_snprintf((char *)&dgbuf[LWS_PRE], sizeof(dgbuf) - LWS_PRE, "PUSH %s\n", dg->filename);
-							if (hn > 0 && (size_t)hn < sizeof(dgbuf) - LWS_PRE) {
-								int rn = (int)read(fd, &dgbuf[LWS_PRE + hn], sizeof(dgbuf) - LWS_PRE - (size_t)hn);
-								if (rn >= 0) {
-									size_t total_len = (size_t)hn + (size_t)rn;
-									if (total_len <= sizeof(dgbuf) - LWS_PRE) {
-										enum lws_write_protocol wp = LWS_WRITE_QUIC_DATAGRAM;
-										lws_write(wsi, &dgbuf[LWS_PRE], total_len, wp);
-										lwsl_user("Session WSI sent datagram PUSH: %s (%zu bytes)\n", dg->filename, total_len);
-										usleep(5000); /* Pace datagram sends to prevent queue overflow */
+					uint8_t dgbuf[LWS_PRE + DG_PAYLOAD_CHUNK];
+					int done = 0;
 
-										/* Mark completed on client side (if we are the client sending PUSH) */
-										if (!is_server) {
-											int r_idx = -1;
-											int i;
-											for (i = 0; i < client_requests_count; i++) {
-												if (strcmp(client_requests[i].filename, dg->filename) == 0) {
-													r_idx = i;
-													break;
-												}
-											}
-											if (r_idx >= 0) {
-												client_requests[r_idx].completed = 1;
-												lwsl_user("Client datagram transfer completed: %s\n", dg->filename);
-											}
-										}
+					if (dg->fd < 0) {
+						lws_snprintf(filepath, sizeof(filepath), "/www%s/%s", endpoint, dg->filename);
+						dg->fd = open(filepath, O_RDONLY);
+						if (dg->fd >= 0) {
+							struct stat st;
+							if (fstat(dg->fd, &st) == 0)
+								dg->file_len = (size_t)st.st_size;
+							dg->sent = 0;
+							dg->hdr_sent = 0;
+							lwsl_user("Datagram sender opened %s (%zu bytes)\n", filepath, dg->file_len);
+						}
+					}
+
+					if (dg->fd >= 0) {
+						size_t len, file_bytes;
+
+						if (!dg->hdr_sent) {
+							int hn = lws_snprintf((char *)&dgbuf[LWS_PRE],
+									      sizeof(dgbuf) - LWS_PRE,
+									      "PUSH %s\n", dg->filename);
+							int rn = (int)read(dg->fd, &dgbuf[LWS_PRE + hn],
+									    sizeof(dgbuf) - LWS_PRE - (size_t)hn);
+							if (rn < 0)
+								rn = 0;
+							len = (size_t)hn + (size_t)rn;
+							file_bytes = (size_t)rn;
+							dg->hdr_sent = 1;
+						} else if (dg->sent + DG_PAYLOAD_CHUNK <= dg->file_len) {
+							file_bytes = (size_t)read(dg->fd, &dgbuf[LWS_PRE], DG_PAYLOAD_CHUNK);
+							len = file_bytes;
+						} else {
+							/* final chunk or empty file */
+							size_t rem = dg->file_len - dg->sent;
+							file_bytes = rem ? (size_t)read(dg->fd, &dgbuf[LWS_PRE], rem) : 0;
+							len = file_bytes;
+						}
+						if ((ssize_t)file_bytes < 0)
+							file_bytes = 0;
+						dg->sent += file_bytes;
+
+						lws_write(wsi, &dgbuf[LWS_PRE], len, LWS_WRITE_QUIC_DATAGRAM);
+
+						if (dg->sent >= dg->file_len) {
+							/* send the END marker */
+							uint8_t eb[LWS_PRE + 300];
+							size_t el = (size_t)lws_snprintf((char *)&eb[LWS_PRE],
+									    sizeof(eb) - LWS_PRE, "END %s", dg->filename);
+							lws_write(wsi, &eb[LWS_PRE], el, LWS_WRITE_QUIC_DATAGRAM);
+							lwsl_user("Datagram sender completed %s (%zu bytes)\n",
+								  dg->filename, dg->sent);
+							close(dg->fd);
+							dg->fd = -1;
+							done = 1;
+
+							/* Mark completed on client side (if we are the client sending PUSH) */
+							if (!is_server) {
+								int r_idx = -1;
+								int i;
+								for (i = 0; i < client_requests_count; i++) {
+									if (strcmp(client_requests[i].filename, dg->filename) == 0) {
+										r_idx = i;
+										break;
 									}
+								}
+								if (r_idx >= 0) {
+									client_requests[r_idx].completed = 1;
+									lwsl_user("Client datagram transfer completed: %s\n", dg->filename);
 								}
 							}
 						}
-						close(fd);
 					} else {
-						lwsl_err("Failed to open file %s for datagram PUSH\n", filepath);
+						lwsl_err("Failed to open file %s for datagram PUSH\n", dg->filename);
+						done = 1;
 					}
+
+					if (done)
+						dequeue_datagram();
 				} else {
 					/* Send GET <filename> as a datagram */
 					uint8_t buf[LWS_PRE + 512];
 					size_t len = (size_t)lws_snprintf((char *)&buf[LWS_PRE], 512, "GET %s", dg->filename);
-					enum lws_write_protocol wp = LWS_WRITE_QUIC_DATAGRAM;
-					lws_write(wsi, &buf[LWS_PRE], len, wp);
+					lws_write(wsi, &buf[LWS_PRE], len, LWS_WRITE_QUIC_DATAGRAM);
 					lwsl_user("Session WSI sent datagram GET: %s\n", dg->filename);
-					usleep(5000); /* Pace datagram sends to prevent queue overflow */
+					dequeue_datagram();
 				}
 				/* Request next writable callback to process remaining queue items */
 				lws_callback_on_writable(wsi);
@@ -897,7 +991,14 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RECEIVE:
 		if (pss->is_session) {
-			/* Datagram received! format: GET <filename> or PUSH <filename>\n<data> */
+			/*
+			 * Datagram received.  Formats:
+			 *
+			 *   "GET <filename>"                       request a file
+			 *   "PUSH <filename>\n" + first chunk      start of file
+			 *   <raw chunk>                            file continuation
+			 *   "END <filename>"                       file complete
+			 */
 			char *payload = (char *)in;
 			size_t payload_len = len;
 
@@ -911,11 +1012,66 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 
 				lwsl_user("Session WSI received datagram GET: %s\n", filename);
 
-				/* Respond by sending PUSH <filename>\n<contents> as a datagram */
+				/* Respond by sending the file as datagrams */
 				enqueue_datagram(filename, 1); /* 1 for PUSH */
 				lws_callback_on_writable(wsi);
+			} else if (payload_len > 4 && strncmp(payload, "END ", 4) == 0) {
+				/* END <filename>: the file is complete */
+				char filename[256];
+				size_t fn_len = payload_len - 4;
+				if (fn_len >= sizeof(filename)) fn_len = sizeof(filename) - 1;
+				memcpy(filename, payload + 4, fn_len);
+				filename[fn_len] = '\0';
+
+				lwsl_user("Session WSI received datagram END: %s\n", filename);
+
+				if (pss->dg_fd >= 0) {
+					close(pss->dg_fd);
+					pss->dg_fd = -1;
+				}
+
+				/* Mark request completed */
+				if (!is_server) {
+					int r_idx = -1;
+					int i;
+					for (i = 0; i < client_requests_count; i++) {
+						if (strcmp(client_requests[i].filename, filename) == 0) {
+							r_idx = i;
+							break;
+						}
+					}
+					if (r_idx >= 0) {
+						client_requests[r_idx].completed = 1;
+						lwsl_user("Client datagram request index %d (%s) completed\n", r_idx, filename);
+					}
+				} else {
+					int r_idx = -1;
+					int i;
+					for (i = 0; i < server_requests_count; i++) {
+						if (strcmp(server_requests[i].filename, filename) == 0) {
+							r_idx = i;
+							break;
+						}
+					}
+					if (r_idx >= 0) {
+						server_requests[r_idx].completed = 1;
+						lwsl_user("Server datagram request index %d (%s) completed\n", r_idx, filename);
+
+						int all_done = 1;
+						for (i = 0; i < server_requests_count; i++) {
+							if (!server_requests[i].completed) {
+								all_done = 0;
+								break;
+							}
+						}
+						if (all_done) {
+							lwsl_user("All server requests completed. Setting interrupted = 1 to exit.\n");
+							interrupted = 1;
+						}
+					}
+				}
 			} else if (payload_len > 5 && strncmp(payload, "PUSH ", 5) == 0) {
-				/* PUSH <filename>\n<data> */
+				/* PUSH <filename>\n<first chunk> */
 				char *newline = memchr(payload, '\n', payload_len);
 				if (newline) {
 					char filename[256];
@@ -936,53 +1092,23 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 					}
 					lws_snprintf(filepath, sizeof(filepath), "%s/%s", dirpath, filename);
 
-					int fd = open(filepath, O_WRONLY | O_CREAT | O_TRUNC, 0666); // NOSONAR
-					if (fd >= 0) {
-						if (write(fd, data_start, LWS_POSIX_LENGTH_CAST(data_len)) < 0) {
+					if (pss->dg_fd >= 0) {
+						close(pss->dg_fd);
+						pss->dg_fd = -1;
+					}
+					pss->dg_fd = open(filepath, O_WRONLY | O_CREAT | O_TRUNC, 0666); // NOSONAR
+					if (pss->dg_fd >= 0) {
+						if (write(pss->dg_fd, data_start, LWS_POSIX_LENGTH_CAST(data_len)) < 0) {
 							lwsl_err("Failed to write datagram content\n");
 						}
-						close(fd);
-
-						/* Mark request completed for datagram-receive */
-						if (!is_server) {
-							int r_idx = -1;
-							int i;
-							for (i = 0; i < client_requests_count; i++) {
-								if (strcmp(client_requests[i].filename, filename) == 0) {
-									r_idx = i;
-									break;
-								}
-							}
-							if (r_idx >= 0) {
-								client_requests[r_idx].completed = 1;
-								lwsl_user("Client datagram request index %d (%s) completed (datagram received)\n", r_idx, filename);
-							}
-						} else {
-							int r_idx = -1;
-							int i;
-							for (i = 0; i < server_requests_count; i++) {
-								if (strcmp(server_requests[i].filename, filename) == 0) {
-									r_idx = i;
-									break;
-								}
-							}
-							if (r_idx >= 0) {
-								server_requests[r_idx].completed = 1;
-								lwsl_user("Server datagram request index %d (%s) completed (datagram received)\n", r_idx, filename);
-								
-								int all_done = 1;
-								for (i = 0; i < server_requests_count; i++) {
-									if (!server_requests[i].completed) {
-										all_done = 0;
-										break;
-									}
-								}
-								if (all_done) {
-									lwsl_user("All server requests completed. Setting interrupted = 1 to exit.\n");
-									interrupted = 1;
-								}
-							}
-						}
+					}
+				}
+			} else {
+				/* raw continuation chunk for the incoming file */
+				lwsl_user("Session WSI received datagram chunk: %zu bytes\n", payload_len);
+				if (pss->dg_fd >= 0) {
+					if (write(pss->dg_fd, payload, LWS_POSIX_LENGTH_CAST(payload_len)) < 0) {
+						lwsl_err("Failed to write datagram chunk\n");
 					}
 				}
 			}
@@ -1136,6 +1262,9 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_CLOSED:
 	case LWS_CALLBACK_CLIENT_CLOSED:
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+	{
+		int had_out = pss->fd_out >= 0;
+
 		if (pss->fd_in >= 0) {
 			close(pss->fd_in);
 			pss->fd_in = -1;
@@ -1144,9 +1273,24 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 			close(pss->fd_out);
 			pss->fd_out = -1;
 		}
+		if (pss->dg_fd >= 0) {
+			close(pss->dg_fd);
+			pss->dg_fd = -1;
+		}
 		if (!pss->is_session) {
 			if (pss->is_unidi && pss->is_initiator) {
 				lwsl_user("Initiator unidirectional GET stream closed (not marking request completed yet)\n");
+				break;
+			}
+			/*
+			 * A stream that neither received file data nor
+			 * completed sending one (eg, the server-side stream
+			 * that received "GET <file>" and spawned the response
+			 * stream) must not complete the request; the request
+			 * completes when the transfer stream itself is done.
+			 */
+			if (!had_out && !pss->write_completed) {
+				lwsl_user("Non-transfer stream closed (not marking any request completed)\n");
 				break;
 			}
 			if (!is_server) {
@@ -1194,6 +1338,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 		lwsl_user("WSI closed\n");
 		break;
+	}
 
 	default:
 		break;
@@ -1208,6 +1353,47 @@ static const struct lws_protocols protocols[] = {
 };
 
 static struct lws_protocols *dyn_protocols = NULL;
+
+/*
+ * Keep servicing the event loop for ms milliseconds, so queued, paced
+ * QUIC egress can actually be transmitted before the context is
+ * destroyed.  A sul is used to make sure poll() wakes up regularly
+ * even if nothing else is scheduled.
+ */
+static struct lws_sorted_usec_list sul_drain;
+static struct lws_context *drain_ctx;
+static int drain_done;
+
+static void
+drain_sul_cb(lws_sorted_usec_list_t *sul)
+{
+	(void)sul;
+	drain_done = 1;
+
+	/*
+	 * The sul callbacks run before the poll wait in the same
+	 * lws_service() call, so without this the loop below would sit in
+	 * poll() until the next unrelated scheduled event before it could
+	 * notice we are done.
+	 */
+	lws_cancel_service(drain_ctx);
+}
+
+static void
+drain_context(struct lws_context *context, int ms)
+{
+	int n = 0;
+
+	drain_done = 0;
+	drain_ctx = context;
+	lws_sul_schedule(context, 0, &sul_drain, drain_sul_cb,
+			 (lws_usec_t)ms * LWS_US_PER_MS);
+
+	while (n >= 0 && !drain_done)
+		n = lws_service(context, 0);
+
+	lws_sul_cancel(&sul_drain);
+}
 
 static void setup_dynamic_protocols(void)
 {
@@ -1408,8 +1594,8 @@ int main(int argc, const char **argv)
 					all_done = 0;
 			}
 			if (all_done && strcmp(testcase, "handshake") != 0) {
-				lwsl_user("All client requests completed. Waiting 500ms before exiting.\n");
-				usleep(500000);
+				lwsl_user("All client requests completed. Draining before exiting.\n");
+				drain_context(context, 500);
 				break;
 			}
 			/* Handshake testcase does not download files, just wait a bit and exit */
@@ -1425,6 +1611,15 @@ int main(int argc, const char **argv)
 			}
 		}
 	}
+
+	/*
+	 * QUIC egress is paced; anything still queued is dropped if we
+	 * destroy the context immediately, truncating downloads at the
+	 * peer.  Keep the event loop serviced for a grace period so it
+	 * can all leave before we go.
+	 */
+	if (n >= 0)
+		drain_context(context, 1000);
 
 	lws_context_destroy(context);
 

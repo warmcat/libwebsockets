@@ -1356,8 +1356,17 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 					} else
 						wsi_child->mux_substream = 1;
 					
-					/* Bind to protocol */
-					wsi_child->a.protocol = nwsi->a.protocol;
+					/*
+					 * Bind to protocol.  This takes care of
+					 * allocating the per-session user space
+					 * and the protocol bind callback, so the
+					 * adoption callback below is delivered
+					 * the same way as on other roles.
+					 */
+					if (nwsi->a.protocol &&
+					    lws_bind_protocol(wsi_child, nwsi->a.protocol, __func__))
+						return -1;
+
 					if (wsi_child->a.protocol && wsi_child->a.protocol->callback) {
 						wsi_child->a.protocol->callback(wsi_child, LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED, wsi_child->user_space, NULL, 0);
 					}
