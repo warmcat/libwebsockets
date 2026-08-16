@@ -322,6 +322,60 @@ lws_quic_client_probe_preferred_address(struct lws *nwsi,
 	return 0;
 }
 
+/*
+ * Find a server connection on this listener by DCID: either the CID we
+ * allocated for the connection, the original client DCID (it may not have
+ * switched yet), or the preferred_address CID we advertised (RFC 9000 9.6).
+ */
+static struct lws *
+lws_quic_find_child_by_dcid(struct lws *listener,
+			    const struct lws_quic_cid *dcid)
+{
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      listener->mux.child_list_owner.head) {
+		struct lws *w = lws_container_of(d, struct lws,
+						 mux.sibling_list);
+		if (!w->quic.qn)
+			continue;
+		if ((w->quic.qn->loc_cid.len == dcid->len &&
+		     !memcmp(w->quic.qn->loc_cid.id, dcid->id, dcid->len)) ||
+		    (w->quic.qn->orig_dcid.len == dcid->len &&
+		     !memcmp(w->quic.qn->orig_dcid.id, dcid->id, dcid->len)) ||
+		    (w->quic.qn->prefaddr_rem_cid.len == dcid->len &&
+		     !memcmp(w->quic.qn->prefaddr_rem_cid.id, dcid->id,
+			     dcid->len)))
+			return w;
+	} lws_end_foreach_dll(d);
+
+	return NULL;
+}
+
+/*
+ * Server egress fd for a peer that may have migrated onto a different address
+ * family than the listener that accepted the connection (eg, an IPv6
+ * connection actively migrating to our IPv4 preferred address): use the
+ * vhost's QUIC listener bound to the destination's family.
+ */
+static lws_sockfd_type
+lws_quic_server_egress_fd(struct lws_vhost *vh, int family,
+			  lws_sockfd_type fall_back)
+{
+	if (vh) {
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				lws_dll2_get_head(&vh->listen_wsi)) {
+			struct lws *lw = lws_container_of(d, struct lws,
+							  listen_list);
+			if (lw->role_ops != &role_ops_quic || !lw->udp)
+				continue;
+			if (lw->udp->sa46.sa4.sin_family == family &&
+			    lws_socket_is_valid(lw->desc.sockfd))
+				return lw->desc.sockfd;
+		} lws_end_foreach_dll_safe(d, d1);
+	}
+
+	return fall_back;
+}
+
 static void
 lws_quic_pacer_cb(lws_sorted_usec_list_t *sul)
 {
@@ -864,32 +918,27 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 		}
 	} else {
 		/* Server listener: search children */
-		lws_start_foreach_dll(struct lws_dll2 *, d,
-				      wsi->mux.child_list_owner.head) {
-			struct lws *w = lws_container_of(d, struct lws,
-							 mux.sibling_list);
-			if (w->quic.qn && w->quic.qn->loc_cid.len == dcid_len &&
-			    !memcmp(w->quic.qn->loc_cid.id, dcid.id, dcid_len)) {
-				nwsi = w;
-				lwsl_debug("QUIC RX: found connection by loc_cid! nwsi=%s\n", lws_wsi_tag(nwsi));
-				break;
-			}
-			/* Also match against the original DCID if the client hasn't switched to our loc_cid yet */
-			if (w->quic.qn && w->quic.qn->orig_dcid.len == dcid_len &&
-			    !memcmp(w->quic.qn->orig_dcid.id, dcid.id, dcid_len)) {
-				nwsi = w;
-				lwsl_debug("QUIC RX: found connection by orig_dcid! nwsi=%s\n", lws_wsi_tag(nwsi));
-				break;
-			}
-			/* Match the preferred_address CID we advertised (RFC 9000 §9.6) */
-			if (w->quic.qn && w->quic.qn->prefaddr_rem_cid.len == dcid_len &&
-			    !memcmp(w->quic.qn->prefaddr_rem_cid.id, dcid.id, dcid_len)) {
-				nwsi = w;
-				lwsl_debug("QUIC RX: found connection by prefaddr cid! nwsi=%s\n", lws_wsi_tag(nwsi));
-				break;
-			}
+		nwsi = lws_quic_find_child_by_dcid(wsi, &dcid);
+
+		/*
+		 * Active migration can move the client onto a path served by
+		 * a different one of the vhost's QUIC listeners (eg, an IPv6
+		 * connection migrating to the server's IPv4 preferred
+		 * address).  If the receiving listener doesn't know the DCID,
+		 * search the sibling QUIC listeners before giving up.
+		 */
+		if (!nwsi && wsi->a.vhost) {
+			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+					lws_dll2_get_head(&wsi->a.vhost->listen_wsi)) {
+				struct lws *lw = lws_container_of(d, struct lws,
+								listen_list);
+				if (lw == wsi || lw->role_ops != &role_ops_quic)
+					continue;
+				nwsi = lws_quic_find_child_by_dcid(lw, &dcid);
+				if (nwsi)
+					break;
+			} lws_end_foreach_dll_safe(d, d1);
 		}
-		lws_end_foreach_dll(d);
 	}
 
 
@@ -1180,8 +1229,17 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
                                                 port = atoi(colon + 1);
                                                 *colon = '\0';
                                         } else if (colon && !strchr(chunk, ']')) {
-                                                port = atoi(colon + 1);
-                                                *colon = '\0';
+                                                /*
+                                                 * No brackets: an "addr:port"
+                                                 * has exactly one colon.
+                                                 * More than one colon is a
+                                                 * bare IPv6 literal, which
+                                                 * takes the default port.
+                                                 */
+                                                if (strchr(chunk, ':') == colon) {
+                                                        port = atoi(colon + 1);
+                                                        *colon = '\0';
+                                                }
                                         }
                                         
                                         char *addr = chunk;
@@ -2806,6 +2864,26 @@ send_frames:
 					dest_sa46 = &wsi->udp->sa46;
 				else if (wsi->mux_substream && wsi->mux.parent_wsi && wsi->mux.parent_wsi->udp)
 					dest_sa46 = &wsi->mux.parent_wsi->udp->sa46;
+			}
+
+			if (!is_client && dest_sa46) {
+				/*
+				 * Family-aware egress: if the peer migrated to
+				 * the other address family, the listener that
+				 * accepted the connection can't reach the new
+				 * path.  Send via the vhost's QUIC listener
+				 * bound to the destination's family.
+				 */
+				struct lws *lw = wsi->mux_substream ?
+							wsi->mux.parent_wsi : wsi;
+
+				if (lw && lw->udp &&
+				    lw->udp->sa46.sa4.sin_family !=
+					    dest_sa46->sa4.sin_family)
+					fd = lws_quic_server_egress_fd(
+							wsi->a.vhost,
+							dest_sa46->sa4.sin_family,
+							fd);
 			}
 
 #if defined(WIN32) || defined(_WIN32)
