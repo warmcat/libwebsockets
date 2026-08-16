@@ -350,6 +350,7 @@ lws_quic_find_child_by_dcid(struct lws *listener,
 	return NULL;
 }
 
+#if defined(LWS_WITH_SERVER)
 /*
  * Server egress fd for a peer that may have migrated onto a different address
  * family than the listener that accepted the connection (eg, an IPv6
@@ -375,6 +376,7 @@ lws_quic_server_egress_fd(struct lws_vhost *vh, int family,
 
 	return fall_back;
 }
+#endif
 
 static void
 lws_quic_pacer_cb(lws_sorted_usec_list_t *sul)
@@ -919,7 +921,7 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 	} else {
 		/* Server listener: search children */
 		nwsi = lws_quic_find_child_by_dcid(wsi, &dcid);
-
+#if defined(LWS_WITH_SERVER)
 		/*
 		 * Active migration can move the client onto a path served by
 		 * a different one of the vhost's QUIC listeners (eg, an IPv6
@@ -939,6 +941,7 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 					break;
 			} lws_end_foreach_dll_safe(d, d1);
 		}
+#endif
 	}
 
 
@@ -2866,6 +2869,7 @@ send_frames:
 					dest_sa46 = &wsi->mux.parent_wsi->udp->sa46;
 			}
 
+#if defined(LWS_WITH_SERVER)
 			if (!is_client && dest_sa46) {
 				/*
 				 * Family-aware egress: if the peer migrated to
@@ -2885,6 +2889,7 @@ send_frames:
 							dest_sa46->sa4.sin_family,
 							fd);
 			}
+#endif
 
 #if defined(WIN32) || defined(_WIN32)
 			if (dest_sa46)
