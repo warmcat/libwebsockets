@@ -28,6 +28,17 @@
 #include <stdlib.h>
 
 
+/*
+ * The post-login return target has to survive the whole round trip through
+ * the auth server and back into the final 302 Location.  Apps deep-link
+ * with long query strings (eg sai's ?project=X&branch=Y&event=Z&task=<uuid>
+ * lands around 200 bytes decoded / 300 percent-encoded), so this must have
+ * comfortable headroom over any real deep link: too small and the tail of
+ * the URL -- whatever parameter happens to be last -- is silently chopped
+ * off where the user lands.
+ */
+#define OAUTH2_REDIRECT_URI_LEN 512
+
 struct vhd_oauth2_client {
 	struct lws_context *context;
 	struct lws_vhost *vhost;
@@ -63,7 +74,7 @@ struct pending_auth_state {
 
 	char state[48];
 	char code_verifier[64];
-	char redirect_uri[256];
+	char redirect_uri[OAUTH2_REDIRECT_URI_LEN];
 	/* The absolute OAuth callback URL (https://<app-host>/oauth/callback) we
 	 * send to the auth server as redirect_uri at /oauth/login and /api/token.
 	 * Derived from the incoming request's scheme://host so it is correct for
@@ -372,62 +383,95 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 			memset(ps, 0, sizeof(*ps));
 			ps->vhd = vhd;
 
-			if (lws_get_urlarg_by_name_safe(wsi, "redirect_uri=", ps->redirect_uri, sizeof(ps->redirect_uri)) < 0) {
-				lws_strncpy(ps->redirect_uri, "/", sizeof(ps->redirect_uri));
-			} else {
-				/*
-				 * Open Redirect defense: the post-login redirect
-				 * target MUST be a relative local path.  Callers (eg
-				 * lws-login) may pass a fully-qualified same-origin
-				 * URL like "https://libwebsockets.org/sai"; if the
-				 * host matches the request's host, accept it by
-				 * reducing it to its path.  Anything else (absolute
-				 * URL on a different host, protocol-relative
-				 * "//evil.com", etc) is reset to "/".
-				 */
-				if (!strncmp(ps->redirect_uri, "http://", 7) ||
-				    !strncmp(ps->redirect_uri, "https://", 8)) {
-					char reqhost[160], urghost[160];
-					const char *hp, *pp;
-					size_t hlen;
-					int scheme_off = ps->redirect_uri[4] == ':' ? 7 : 8;
-					int got = 0;
+			/*
+			 * The login widget navigates here with the user's
+			 * current page URL as the redirect_uri urlarg (built
+			 * with encodeURIComponent, so the wire form is
+			 * percent-encoded).  lws's URI parser has already
+			 * percent-decoded the args by the time we read them,
+			 * so this is the plaintext target, query included.
+			 *
+			 * It must fit ps->redirect_uri, which has to hold any
+			 * realistic app deep link for the whole auth server
+			 * round trip: with the old 256-byte field, longer ones
+			 * were either flattened to "/" here or -- on builds
+			 * where the urlarg copy truncated -- silently chopped
+			 * mid-query-parameter where the user landed.
+			 */
+			if (lws_get_urlarg_by_name_safe(wsi, "redirect_uri=",
+					ps->redirect_uri,
+					(int)sizeof(ps->redirect_uri)) < 0) {
+				lwsl_wsi_notice(wsi, "/oauth/login: no or "
+						"oversized redirect_uri, using '/'");
+				lws_strncpy(ps->redirect_uri, "/",
+					    sizeof(ps->redirect_uri));
+			}
 
-					hp = ps->redirect_uri + scheme_off;
-					pp = strchr(hp, '/');
-					hlen = pp ? (size_t)(pp - hp) : strlen(hp);
-					if (hlen >= sizeof(urghost))
-						hlen = sizeof(urghost) - 1;
-					memcpy(urghost, hp, hlen);
-					urghost[hlen] = '\0';
+			/*
+			 * Open Redirect defense: the post-login redirect
+			 * target MUST be a relative local path.  Callers (eg
+			 * lws-login) may pass a fully-qualified same-origin
+			 * URL like "https://libwebsockets.org/sai?a=b"; if the
+			 * host matches the request's host, accept it by
+			 * reducing it to its path (query included).  Anything
+			 * else (absolute URL on a different host,
+			 * protocol-relative "//evil.com", etc) is reset to "/".
+			 */
+			if (!strncmp(ps->redirect_uri, "http://", 7) ||
+			    !strncmp(ps->redirect_uri, "https://", 8)) {
+				char reqhost[160], urghost[160];
+				const char *hp, *pp;
+				size_t hlen;
+				int scheme_off = ps->redirect_uri[4] == ':' ? 7 : 8;
+				int got = 0;
 
-					/* request host: Host header, else h2/h3 :authority */
-					reqhost[0] = '\0';
-					if (lws_hdr_copy(wsi, reqhost, sizeof(reqhost),
-						 WSI_TOKEN_HOST) > 0
+				hp = ps->redirect_uri + scheme_off;
+				pp = strchr(hp, '/');
+				hlen = pp ? (size_t)(pp - hp) : strlen(hp);
+				if (hlen >= sizeof(urghost))
+					hlen = sizeof(urghost) - 1;
+				memcpy(urghost, hp, hlen);
+				urghost[hlen] = '\0';
+
+				/* request host: Host header, else h2/h3 :authority */
+				reqhost[0] = '\0';
+				if (lws_hdr_copy(wsi, reqhost, sizeof(reqhost),
+					 WSI_TOKEN_HOST) > 0
 #if defined(LWS_ROLE_H2)
-					    || lws_hdr_copy(wsi, reqhost,
-						 sizeof(reqhost),
-						 WSI_TOKEN_HTTP_COLON_AUTHORITY) > 0
+				    || lws_hdr_copy(wsi, reqhost,
+					 sizeof(reqhost),
+					 WSI_TOKEN_HTTP_COLON_AUTHORITY) > 0
 #endif
-					    )
-						got = 1;
+				    )
+					got = 1;
 
-					if (got && !strcmp(reqhost, urghost)) {
-						/* same-origin: keep just the path */
-						lws_strncpy(ps->redirect_uri,
-							    pp ? pp : "/",
-							    sizeof(ps->redirect_uri));
-					} else
-						lws_strncpy(ps->redirect_uri, "/",
-							    sizeof(ps->redirect_uri));
-				}
-				/* still enforce: relative, and not protocol-relative */
-				if (ps->redirect_uri[0] != '/' ||
-				    ps->redirect_uri[1] == '/')
+				if (got && !strcmp(reqhost, urghost)) {
+					/*
+					 * same-origin: keep just the path.
+					 * pp points into ps->redirect_uri
+					 * itself, so this has to move, not
+					 * strncpy: overlapping strncpy is UB
+					 * and mangled the target (flakily,
+					 * depending on length/alignment).
+					 */
+					size_t pl = pp ? strlen(pp) : 0;
+
+					if (!pp || !pl) {
+						ps->redirect_uri[0] = '/';
+						ps->redirect_uri[1] = '\0';
+					} else {
+						memmove(ps->redirect_uri, pp, pl);
+						ps->redirect_uri[pl] = '\0';
+					}
+				} else
 					lws_strncpy(ps->redirect_uri, "/",
 						    sizeof(ps->redirect_uri));
 			}
+			/* still enforce: relative, and not protocol-relative */
+			if (ps->redirect_uri[0] != '/' ||
+			    ps->redirect_uri[1] == '/')
+				lws_strncpy(ps->redirect_uri, "/",
+					    sizeof(ps->redirect_uri));
 
 			if (lws_get_urlarg_by_name_safe(wsi, "service_name=", sname, sizeof(sname)) < 0)
 				lwsl_debug("%s: no service_name bound\n", __func__);
@@ -701,9 +745,11 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_HTTP_WRITEABLE: {
 		struct pending_auth_state *ps = NULL;
-		char loc[512];
+		char loc[OAUTH2_REDIRECT_URI_LEN];
 		char cookie[LWS_SSO_MAX_COOKIE];
-		unsigned char buf[LWS_SSO_MAX_COOKIE + 512 + LWS_PRE], *p = buf + LWS_PRE, *end = buf + sizeof(buf) - 1;
+		unsigned char buf[LWS_SSO_MAX_COOKIE + OAUTH2_REDIRECT_URI_LEN +
+				  512 + LWS_PRE], *p = buf + LWS_PRE,
+			      *end = buf + sizeof(buf) - 1;
 
 		// Find if this WSI belongs to a pending auth state that just finished
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
@@ -930,6 +976,29 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 	}
 
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP: {
+		struct pending_auth_state *ps = (struct pending_auth_state *)lws_wsi_user(wsi);
+		char buffer[4096];
+		char *px = buffer + LWS_PRE;
+		int plen = (int)sizeof(buffer) - LWS_PRE;
+
+		if (!ps)
+			break;
+
+		/*
+		 * For h1, response body delivery requires the callback to
+		 * drain it itself (h2 delivers RECEIVE_CLIENT_HTTP_READ
+		 * directly from its mux polling) -- the canonical pattern
+		 * from minimal-http-client(-post).  Without this, over h1
+		 * the /api/token response was never read: the pending auth
+		 * hung until its 5min timeout and the user saw a dead
+		 * /oauth/callback.
+		 */
+		if (lws_http_client_read(wsi, &px, &plen) < 0)
+			return -1;
+		break;
+	}
+
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ: {
 		struct pending_auth_state *ps = (struct pending_auth_state *)lws_wsi_user(wsi);
 		int m;
@@ -953,8 +1022,15 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (ps->wsi_server)
 			lws_callback_on_writable(ps->wsi_server);
-		/* The client leg is done; release ps if the server leg already
-		 * finished too. */
+		/*
+		 * The client leg is done; release ps if the server leg
+		 * already finished too.  Clear the wsi's user pointer FIRST:
+		 * COMPLETED and CLOSED can both fire on this wsi, and after
+		 * the free here the later one would otherwise dereference
+		 * freed ps (a latent use-after-free that only shows up when
+		 * the token response is actually read, eg over h1).
+		 */
+		lws_set_wsi_user(wsi, NULL);
 		ps->wsi_client = NULL;
 		pending_auth_release(ps);
 		break;
@@ -966,6 +1042,8 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (!ps)
 			break;
+
+		lws_set_wsi_user(wsi, NULL);
 
 		/*
 		 * CLIENT_CONNECTION_ERROR delivers a human-readable reason in

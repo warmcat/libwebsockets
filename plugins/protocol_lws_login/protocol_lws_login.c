@@ -81,6 +81,15 @@ struct pss_login {
 #define LWS_LOGIN_REFRESH_BFF      0 /* 200+set-cookie on success, 401 on dead */
 #define LWS_LOGIN_REFRESH_COLDLOAD 1 /* 302-to-self with new cookie, else 303 to auth */
 
+/*
+ * COLDLOAD renewal has to send the browser back to the exact URL it asked
+ * for, query string included: app pages deep-link through the query (eg
+ * sai's ?project=X&branch=Y&event=Z&task=<uuid>), so losing it lands the
+ * freshly re-logged-in user on a shortened, unusable URL.  Sized with
+ * headroom over any realistic deep link.
+ */
+#define LWS_LOGIN_MAX_URI 512
+
 struct pending_login_refresh {
 	lws_dll2_t              list;
 	lws_sorted_usec_list_t  sul;
@@ -97,9 +106,10 @@ struct pending_login_refresh {
 
 	char                    token[2048];
 
-	/* COLDLOAD: the original request path, so the success self-redirect
-	 * lands the browser back on the protected URL it asked for. */
-	char                    orig_path[256];
+	/* COLDLOAD: the original request URI (path + query), so the success
+	 * self-redirect lands the browser back on the protected URL it
+	 * asked for. */
+	char                    orig_path[LWS_LOGIN_MAX_URI];
 	/* COLDLOAD: the pre-built auth-form URL (with service_name + redirect_uri),
 	 * used only on renewal failure to land the user on the login form. */
 	char                    authform_url[512];
@@ -499,7 +509,10 @@ lws_login_serve_self_redirect_with_cookie(struct lws *wsi, struct pss_login *pss
 					  unsigned char *end,
 					  const char *extra_set_cookie)
 {
-	char cookie[LWS_SSO_MAX_COOKIE], host[128], fq_uri[512];
+	/* path can be a full path + query (LWS_LOGIN_MAX_URI); add room for
+	 * scheme://host so composing the absolute Location cannot truncate */
+	char cookie[LWS_SSO_MAX_COOKIE], host[128],
+	      fq_uri[LWS_LOGIN_MAX_URI + 192];
 	unsigned char *p = *pp;
 	const char *h = NULL;
 
@@ -597,6 +610,56 @@ lws_login_ends_with(const char *str, const char *suffix)
 		return 0;
 
 	return !strcmp(str + len_str - len_suffix, suffix);
+}
+
+/*
+ * Reconstruct the full request URI (path + query string) into dest.
+ *
+ * lws seals WSI_TOKEN_GET_URI at the '?': the args live on in the
+ * WSI_TOKEN_HTTP_URI_ARGS fragment chain, one "name=value" fragment per
+ * query parameter.  Walking the fragments (like the CGI env code) recovers
+ * the URL the browser asked for, so re-login redirects can round-trip deep
+ * links like "/sai/?project=X&branch=Y&task=<uuid>" instead of landing on
+ * the bare path.
+ *
+ * The fragments have already been percent-decoded by the URI parser, so
+ * each is re-encoded on the way out: joining the decoded forms directly
+ * would let a value that contained an encoded '&' or '=' (say
+ * task=a%26b) re-emerge as a query STRUCTURE change (task=a&b).  If the
+ * joined URI would not fit, the query is dropped rather than silently
+ * truncated mid-parameter.
+ */
+static void
+lws_login_copy_uri_with_args(struct lws *wsi, const char *path, char *dest,
+			     size_t len)
+{
+	char arg[256], enc[768];
+	size_t ol;
+	int m = 0;
+
+	lws_strncpy(dest, path, len);
+	ol = strlen(dest);
+
+	while (ol < len - 1) {
+		int al = lws_hdr_copy_fragment(wsi, arg, (int)sizeof(arg),
+					       WSI_TOKEN_HTTP_URI_ARGS, m);
+		int n;
+
+		if (al <= 0)
+			break;
+
+		lws_urlencode(enc, arg, (int)sizeof(enc));
+		n = lws_snprintf(dest + ol, len - ol, "%s%s",
+				 m ? "&" : "?", enc);
+		if (n < 0 || ol + (size_t)n >= len) {
+			lwsl_wsi_notice(wsi, "%s: uri + query too long, "
+					 "dropping query", __func__);
+			dest[ol] = '\0';
+			break;
+		}
+		ol += (size_t)n;
+		m++;
+	}
 }
 
 static int
@@ -1765,7 +1828,16 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				    csrf2[0] && refresh2[0]) {
 					char *cookie2 = malloc((size_t)ck_len2 + 1);
 					if (cookie2) {
+						char orig_uri[LWS_LOGIN_MAX_URI];
 						int kicked;
+						/* the self-redirect target must
+						 * include the query string, or
+						 * the user's deep link comes
+						 * back shortened */
+						lws_login_copy_uri_with_args(
+								wsi, path,
+								orig_uri,
+								sizeof(orig_uri));
 						if (lws_hdr_copy(wsi, cookie2,
 								 ck_len2 + 1,
 								 WSI_TOKEN_HTTP_COOKIE) > 0)
@@ -1773,7 +1845,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 								vhd, wsi, cookie2,
 								csrf2,
 								LWS_LOGIN_REFRESH_COLDLOAD,
-								path, dest);
+								orig_uri, dest);
 						else
 							kicked = 0;
 						free(cookie2);
