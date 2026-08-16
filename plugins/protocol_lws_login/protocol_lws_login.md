@@ -151,3 +151,5 @@ ws.onclose = async function() {
 ```
 
 This functions by initiating an invisible HTTP `POST` to the localized `/.lws-login-refresh` endpoint. The `lws-login` C-plugin intercepts this, securely acts as a Backend-For-Frontend (BFF) proxy using Libwebsockets' asynchronous non-blocking client API, fetches the new token directly from the Auth Server, and sets your browser's new `auth_session` cookie. Because all of this occurs entirely over backend TLS interfaces, your frontend Javascript never directly touches or exposes the Cross-Site Request Forgery (CSRF) tokens or OAuth codes!
+
+The same renewal side channel is also used for **cold-load silent renewal**: when a browser holding a valid `auth_refresh_session` cookie requests a protected page whose JWT has lapsed, the bouncer renews server-side and answers with a `302` back to the exact URL that was asked for — **query string included** — so app deep links (eg `sai`'s `?project=…&task=…`) survive re-login intact instead of landing the user on a shortened, unusable URL.
