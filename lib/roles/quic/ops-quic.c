@@ -904,7 +904,7 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
 
 		/* The client MUST update its remote CID to the server's SCID from the first response */
 		if ((p[0] & 0x80) && scid.len) {
-			uint8_t type = (p[0] & 0x30) >> 4;
+			uint8_t type = (uint8_t)((p[0] & 0x30) >> 4);
 			if (type != LWS_QUIC_PT_RETRY) {
 				if (nwsi->quic.qn->rem_cid.len != scid.len || memcmp(nwsi->quic.qn->rem_cid.id, scid.id, scid.len)) {
 					nwsi->quic.qn->rem_cid = scid;
@@ -1573,7 +1573,7 @@ tp_ok:
 		int is_key_update = 0;
 
 		if (!(p[0] & 0x80)) { /* Short header */
-			uint8_t kp = (p[0] & 0x04) >> 2;
+			uint8_t kp = (uint8_t)((p[0] & 0x04) >> 2);
 			if (nwsi->quic.qn && nwsi->quic.qn->handshake_done &&
 			    nwsi->quic.qn->rx_key_phase != kp &&
 			    nwsi->quic.qn->kp_probe_fail < LWS_QUIC_KP_PROBE_LIMIT) {

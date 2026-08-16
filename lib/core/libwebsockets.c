@@ -996,8 +996,14 @@ lws_tokenize(struct lws_tokenize *ts)
 		if (utf8 < 0)
 			return LWS_TOKZE_ERR_BROKEN_UTF8;
 
-		if (!c)
+		if (!c) {
+			/*
+			 * we reached the NUL terminating the string...
+			 * don't let a further call read past it
+			 */
+			ts->len = 0;
 			break;
+		}
 
 		if (skipping) {
 			if (c != '\r' && c != '\n')

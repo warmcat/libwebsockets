@@ -997,13 +997,27 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 					lws_role_transition(wsi, lwsi_role_client(wsi) ? LWSIFR_CLIENT : LWSIFR_SERVER, LRS_ESTABLISHED, &role_ops_wt);
 					wsi->wt.is_unidi = 1;
 					wsi->wt.is_session = 0;
-					if (lws_bind_protocol(wsi, session_wsi->a.protocol, __func__))
+
+					/*
+					 * The stream was already bound to its
+					 * protocol (and the adoption callback
+					 * delivered) when the QUIC layer created
+					 * it.  Only rebind (which replaces the
+					 * user space, after letting the old
+					 * protocol unbind) when the target
+					 * protocol is actually different.
+					 */
+					if (wsi->a.protocol != session_wsi->a.protocol) {
+						if (lws_bind_protocol(wsi, session_wsi->a.protocol, __func__))
+							return 1;
+
+						if (wsi->a.protocol && wsi->a.protocol->callback) {
+							wsi->a.protocol->callback(wsi, LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED, wsi->user_space, NULL, 0);
+						}
+					} else if (!wsi->user_space &&
+						   lws_ensure_user_space(wsi))
 						return 1;
-					
-					if (wsi->a.protocol && wsi->a.protocol->callback) {
-						wsi->a.protocol->callback(wsi, LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED, wsi->user_space, NULL, 0);
-					}
-					
+
 					size_t total_consumed = consumed_type + consumed_sid;
 					if (len > total_consumed && wsi->a.protocol && wsi->a.protocol->callback) {
 						wsi->a.protocol->callback(wsi, LWS_CALLBACK_RECEIVE, wsi->user_space, (void *)(buf + total_consumed), len - total_consumed);
@@ -1044,13 +1058,23 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 					lws_role_transition(wsi, lwsi_role_client(wsi) ? LWSIFR_CLIENT : LWSIFR_SERVER, LRS_ESTABLISHED, &role_ops_wt);
 					wsi->wt.is_unidi = 0;
 					wsi->wt.is_session = 0;
-					if (lws_bind_protocol(wsi, session_wsi->a.protocol, __func__))
+
+					/*
+					 * Ditto, only rebind when the target
+					 * protocol differs from the one the
+					 * stream was created with.
+					 */
+					if (wsi->a.protocol != session_wsi->a.protocol) {
+						if (lws_bind_protocol(wsi, session_wsi->a.protocol, __func__))
+							return 1;
+
+						if (wsi->a.protocol && wsi->a.protocol->callback) {
+							wsi->a.protocol->callback(wsi, LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED, wsi->user_space, NULL, 0);
+						}
+					} else if (!wsi->user_space &&
+						   lws_ensure_user_space(wsi))
 						return 1;
-					
-					if (wsi->a.protocol && wsi->a.protocol->callback) {
-						wsi->a.protocol->callback(wsi, LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED, wsi->user_space, NULL, 0);
-					}
-					
+
 					size_t total_consumed = consumed_type + consumed_sid;
 					if (len > total_consumed && wsi->a.protocol && wsi->a.protocol->callback) {
 						wsi->a.protocol->callback(wsi, LWS_CALLBACK_RECEIVE, wsi->user_space, (void *)(buf + total_consumed), len - total_consumed);
@@ -1892,7 +1916,7 @@ rops_check_upgrades_h3(struct lws *wsi)
 
 		/* Subprotocol negotiation */
 		cp_len = lws_hdr_custom_copy(wsi, client_protos, sizeof(client_protos) - 1,
-					     "wt-available-protocols", 22);
+					     "wt-available-protocols:", 23);
 		if (cp_len > 0) {
 			const char *env_protocols = getenv("PROTOCOLS_SERVER");
 			client_protos[cp_len] = '\0';
@@ -1968,9 +1992,6 @@ rops_check_upgrades_h3(struct lws *wsi)
 			prot = lws_vhost_name_to_protocol(wsi->a.vhost, negotiated);
 		}
 		if (!prot) {
-			prot = lws_vhost_name_to_protocol(wsi->a.vhost, "webtransport-shared-world");
-		}
-		if (!prot) {
 			int n = wsi->a.vhost->default_protocol_index;
 			if (n < wsi->a.vhost->count_protocols) {
 				prot = &wsi->a.vhost->protocols[n];
@@ -1982,7 +2003,12 @@ rops_check_upgrades_h3(struct lws *wsi)
 				return LWS_UPG_RET_BAIL;
 			lwsl_notice("H3 WT Upgrade: bound to protocol '%s'\n", prot->name);
 
-			if (negotiated[0]) {
+			/*
+			 * Echo the protocol that got bound, so the client can
+			 * determine what was negotiated even if it offered no
+			 * protocol list of its own.
+			 */
+			{
 				char wt_prot_val[128];
 				int wpl = lws_snprintf(wt_prot_val, sizeof(wt_prot_val), "\"%s\"", prot->name);
 				if (lws_add_http_header_by_name(wsi,
