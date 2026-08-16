@@ -1785,22 +1785,52 @@ lws_quic_parse_transport_parameters(struct lws *wsi, const uint8_t *buf, size_t 
 				memset(&pref, 0, sizeof(pref));
 				memset(&pcid, 0, sizeof(pcid));
 
-				if (v4[0] | v4[1] | v4[2] | v4[3]) {
-					pref.sa4.sin_family = AF_INET;
-					memcpy(&pref.sa4.sin_addr.s_addr, v4, 4);
-					port = (uint16_t)((v4[4] << 8) | v4[5]);
-				} else {
+				/*
+				 * An all-zero address of a family means "not
+				 * advertised".  When both are advertised, prefer
+				 * the family the connection is already using:
+				 * migrating across families mid-connection is
+				 * legal but needs the server to handle the new
+				 * path on the other family, and keeping to the
+				 * current family matches what the server
+				 * accepted us on.
+				 */
+				{
+					int have_v4 = (v4[0] | v4[1] | v4[2] | v4[3]) != 0;
 #if defined(LWS_WITH_IPV6)
 					const uint8_t *v6 = &buf[pos + 6];
-					pref.sa6.sin6_family = AF_INET6;
-					memcpy(&pref.sa6.sin6_addr, v6, 16);
-					port = (uint16_t)((buf[pos + 22] << 8) |
-							buf[pos + 23]);
-#else
-					lwsl_wsi_notice(wsi,
-						"QUIC TP: preferred_address IPv6-only but no IPV6 build");
-					break;
+					uint16_t v6port = (uint16_t)((buf[pos + 22] << 8) |
+								buf[pos + 23]);
+					int have_v6 = 0, i;
+
+					for (i = 0; i < 16; i++)
+						if (v6[i])
+							have_v6 = 1;
+					have_v6 = have_v6 && v6port;
+
+					if (have_v6 && (!have_v4 ||
+					    (qn->nwsi && qn->nwsi->udp &&
+					     qn->nwsi->udp->sa46.sa4.sin_family
+								== AF_INET6))) {
+						pref.sa6.sin6_family = AF_INET6;
+						memcpy(&pref.sa6.sin6_addr, v6, 16);
+						port = v6port;
+					} else
 #endif
+					if (have_v4) {
+						pref.sa4.sin_family = AF_INET;
+						memcpy(&pref.sa4.sin_addr.s_addr, v4, 4);
+						port = (uint16_t)((v4[4] << 8) | v4[5]);
+					} else {
+#if defined(LWS_WITH_IPV6)
+						/* nothing advertised we can use */
+						break;
+#else
+						lwsl_wsi_notice(wsi,
+							"QUIC TP: preferred_address IPv6-only but no IPV6 build");
+						break;
+#endif
+					}
 				}
 				sa46_sockport(&pref, htons(port));
 

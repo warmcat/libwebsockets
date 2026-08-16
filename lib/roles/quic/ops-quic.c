@@ -276,6 +276,15 @@ lws_quic_client_probe_preferred_address(struct lws *nwsi,
 	if (qn->is_server)
 		return 1;
 
+	/*
+	 * Remember how to get back before we change anything, so the probe
+	 * timeout can revert to a fresh socket on the original server path
+	 * (and original DCID).  This is entered at most twice for one probe
+	 * (once at TP parse, once at HANDSHAKE_DONE), both before any swap.
+	 */
+	qn->prefaddr_original_sa46 = nwsi->udp->sa46;
+	qn->prefaddr_original_rem_cid = qn->rem_cid;
+
 	/* Save the migration parameters for later */
 	qn->probing_sa46 = *pref_sa46;
 	if (pref_cid) {
