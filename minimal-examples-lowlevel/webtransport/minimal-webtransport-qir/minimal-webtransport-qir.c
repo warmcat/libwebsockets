@@ -527,35 +527,12 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 	 * were pss.
 	 */
 	switch (reason) {
-	case LWS_CALLBACK_ESTABLISHED:
-	case LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED:
-	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
-	case LWS_CALLBACK_CLIENT_ESTABLISHED:
-	case LWS_CALLBACK_SERVER_WRITEABLE:
-	case LWS_CALLBACK_CLIENT_WRITEABLE:
-	case LWS_CALLBACK_RECEIVE:
-	case LWS_CALLBACK_CLOSED:
-	case LWS_CALLBACK_CLIENT_CLOSED:
-	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
-		if (pss)
-			init_pss(pss);
-		break;
-
 	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
-		pss = NULL;
-		break;
-
-	default:
-		/* not a per-session reason, ignore */
-		return 0;
-	}
-
-	if (!pss)
-		return 0;
-
-	switch (reason) {
-
-	case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
+	/*
+	 * This reason does not carry pss in user, everything it needs is
+	 * in in/len.  It must be handled here, before the !pss gate, since
+	 * it happens before the session exists.
+	 */
 	{
 		unsigned char **hp = (unsigned char **)in, *end = (*hp) + len;
 
@@ -603,8 +580,32 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 					(const unsigned char *)av_buf, (int)strlen(av_buf), hp, end))
 				return -1;
 		}
-		break;
+		return 0;
 	}
+
+	case LWS_CALLBACK_ESTABLISHED:
+	case LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED:
+	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+	case LWS_CALLBACK_CLIENT_ESTABLISHED:
+	case LWS_CALLBACK_SERVER_WRITEABLE:
+	case LWS_CALLBACK_CLIENT_WRITEABLE:
+	case LWS_CALLBACK_RECEIVE:
+	case LWS_CALLBACK_CLOSED:
+	case LWS_CALLBACK_CLIENT_CLOSED:
+	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		if (pss)
+			init_pss(pss);
+		break;
+
+	default:
+		/* not a per-session reason, ignore */
+		return 0;
+	}
+
+	if (!pss)
+		return 0;
+
+	switch (reason) {
 
 	case LWS_CALLBACK_ESTABLISHED:
 	case LWS_CALLBACK_SERVER_NEW_CLIENT_INSTANTIATED:
@@ -817,31 +818,39 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 					}
 
 					if (dg->fd >= 0) {
-						size_t len, file_bytes;
+						size_t len = 0;
+						int rn = 0;
 
 						if (!dg->hdr_sent) {
 							int hn = lws_snprintf((char *)&dgbuf[LWS_PRE],
 									      sizeof(dgbuf) - LWS_PRE,
 									      "PUSH %s\n", dg->filename);
-							int rn = (int)read(dg->fd, &dgbuf[LWS_PRE + hn],
-									    sizeof(dgbuf) - LWS_PRE - (size_t)hn);
+							rn = (int)read(dg->fd, &dgbuf[LWS_PRE + hn],
+								    LWS_POSIX_LENGTH_CAST(sizeof(dgbuf) - LWS_PRE - (size_t)hn));
 							if (rn < 0)
 								rn = 0;
 							len = (size_t)hn + (size_t)rn;
-							file_bytes = (size_t)rn;
 							dg->hdr_sent = 1;
 						} else if (dg->sent + DG_PAYLOAD_CHUNK <= dg->file_len) {
-							file_bytes = (size_t)read(dg->fd, &dgbuf[LWS_PRE], DG_PAYLOAD_CHUNK);
-							len = file_bytes;
+							rn = (int)read(dg->fd, &dgbuf[LWS_PRE],
+								       LWS_POSIX_LENGTH_CAST(DG_PAYLOAD_CHUNK));
+							if (rn < 0)
+								rn = 0;
+							len = (size_t)rn;
 						} else {
 							/* final chunk or empty file */
 							size_t rem = dg->file_len - dg->sent;
-							file_bytes = rem ? (size_t)read(dg->fd, &dgbuf[LWS_PRE], rem) : 0;
-							len = file_bytes;
+							if (rem) {
+								rn = (int)read(dg->fd, &dgbuf[LWS_PRE],
+									       LWS_POSIX_LENGTH_CAST(rem));
+								if (rn < 0)
+									rn = 0;
+							}
+							len = (size_t)rn;
 						}
-						if ((ssize_t)file_bytes < 0)
-							file_bytes = 0;
-						dg->sent += file_bytes;
+
+						/* dg->sent counts only file bytes, not the PUSH header */
+						dg->sent += (size_t)rn;
 
 						lws_write(wsi, &dgbuf[LWS_PRE], len, LWS_WRITE_QUIC_DATAGRAM);
 
@@ -921,7 +930,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 				if (!pss->is_unidi || pss->header_sent) {
 					/* Read and send file chunk */
 					p = &buf[LWS_PRE];
-					n = (int)read(pss->fd_in, p, sizeof(buf) - LWS_PRE);
+					n = (int)read(pss->fd_in, p, LWS_POSIX_LENGTH_CAST(sizeof(buf) - LWS_PRE));
 					if (n > 0) {
 						pss->sent_len += (size_t)n;
 						int is_final = (pss->sent_len == pss->file_len);
