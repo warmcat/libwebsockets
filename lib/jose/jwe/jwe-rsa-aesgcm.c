@@ -99,9 +99,14 @@ lws_jwe_encrypt_rsa_aes_gcm(struct lws_jwe *jwe, char *temp, int *temp_len)
 		goto bail;
 	}
 
+	/*
+	 * The alg table entry knows the OAEP hash for the specific alg,
+	 * SHA1 for "RSA-OAEP" and SHA256 for "RSA-OAEP-256" (RFC7518 s4.3)
+	 */
+
 	int res = lws_genrsa_create(&rsactx, jwe->jws.jwk->e, jwe->jws.context,
 				LGRSAM_PKCS1_OAEP_PSS,
-				LWS_GENHASH_TYPE_UNKNOWN);
+				jwe->jose.alg->hash_type);
 	if (res) {
 		lwsl_notice("%s: lws_genrsa_public_decrypt_create\n",
 			    __func__);
@@ -157,7 +162,7 @@ lws_jwe_auth_and_decrypt_rsa_aes_gcm(struct lws_jwe *jwe)
 
 	int res = lws_genrsa_create(&rsactx, jwe->jws.jwk->e, jwe->jws.context,
 					LGRSAM_PKCS1_OAEP_PSS,
-					LWS_GENHASH_TYPE_UNKNOWN);
+					jwe->jose.alg->hash_type);
 	if (res) {
 		lwsl_notice("%s: lws_genrsa_create\n",
 			    __func__);

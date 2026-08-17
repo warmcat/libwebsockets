@@ -355,6 +355,11 @@ bail:
 static const char *rsa256a128_jose =
 		"{ \"alg\":\"RSA-OAEP\",\"enc\":\"A128CBC-HS256\"}";
 
+/* same, but the CEK is wrapped using OAEP with SHA-256 / MGF1 SHA-256 */
+
+static const char *rsa_oaep256_jose =
+		"{ \"alg\":\"RSA-OAEP-256\",\"enc\":\"A128CBC-HS256\"}";
+
 static uint8_t
 
 	/* plaintext is 1024 bytes from /dev/urandom */
@@ -499,7 +504,8 @@ r256a128_cek[] = {
 ;
 
 static int
-test_jwe_ra_ptext_1024(struct lws_context *context, char *jwk_txt, int jwk_len)
+test_jwe_ra_ptext_1024(struct lws_context *context, char *jwk_txt, int jwk_len,
+		       const char *jose_hdr)
 {
 	char temp[4096], compact[4096];
 	struct lws_jwe jwe;
@@ -535,8 +541,8 @@ test_jwe_ra_ptext_1024(struct lws_context *context, char *jwk_txt, int jwk_len)
 		goto bail;
 	}
 
-	jwe.jws.map.buf[LJWE_JOSE] = rsa256a128_jose;
-	jwe.jws.map.len[LJWE_JOSE] = (uint32_t)strlen(rsa256a128_jose);
+	jwe.jws.map.buf[LJWE_JOSE] = (char *)jose_hdr;
+	jwe.jws.map.len[LJWE_JOSE] = (uint32_t)strlen(jose_hdr);
 
 	n = lws_jwe_parse_jose(&jwe.jose, jwe.jws.map.buf[LJWE_JOSE],
 			       (int)jwe.jws.map.len[LJWE_JOSE],
@@ -2305,25 +2311,32 @@ test_jwe(struct lws_context *context)
 	n |= test_jwe_a2(context) < 0;
 
 	n |= test_jwe_ra_ptext_1024(context, (char *)lws_jwe_ex_a2_jwk_json,
-				    (int)strlen((char *)lws_jwe_ex_a2_jwk_json)) < 0;
+				    (int)strlen((char *)lws_jwe_ex_a2_jwk_json),
+				    rsa256a128_jose) < 0;
 	n |= test_jwe_r256a192_ptext(context, (char *)lws_jwe_ex_a2_jwk_json,
 			(int)strlen((char *)lws_jwe_ex_a2_jwk_json)) < 0;
 	n |= test_jwe_r256a256_ptext(context, (char *)lws_jwe_ex_a2_jwk_json,
 			(int)strlen((char *)lws_jwe_ex_a2_jwk_json)) < 0;
 	n |= test_jwe_ra_ptext_1024(context, (char *)rsa_key_2048,
-			(int)strlen((char *)rsa_key_2048)) < 0;
+			(int)strlen((char *)rsa_key_2048),
+			rsa256a128_jose) < 0;
+	n |= test_jwe_ra_ptext_1024(context, (char *)rsa_key_2048,
+			(int)strlen((char *)rsa_key_2048),
+			rsa_oaep256_jose) < 0;
 	n |= test_jwe_r256a192_ptext(context, (char *)rsa_key_2048,
 			(int)strlen((char *)rsa_key_2048)) < 0;
 	n |= test_jwe_r256a256_ptext(context, (char *)rsa_key_2048,
 			(int)strlen((char *)rsa_key_2048)) < 0;
 	n |= test_jwe_ra_ptext_1024(context, (char *)rsa_key_4096,
-			(int)strlen((char *)rsa_key_4096)) < 0;
+			(int)strlen((char *)rsa_key_4096),
+			rsa256a128_jose) < 0;
 	n |= test_jwe_r256a192_ptext(context, (char *)rsa_key_4096,
 			(int)strlen((char *)rsa_key_4096)) < 0;
 	n |= test_jwe_r256a256_ptext(context, (char *)rsa_key_4096,
 			(int)strlen((char *)rsa_key_4096)) < 0;
 	n |= test_jwe_ra_ptext_1024(context, (char *)rsa_key_4096_no_optional,
-			(int)strlen((char *)rsa_key_4096_no_optional)) < 0;
+			(int)strlen((char *)rsa_key_4096_no_optional),
+			rsa256a128_jose) < 0;
 	n |= test_jwe_r256a192_ptext(context, (char *)rsa_key_4096_no_optional,
 			(int)strlen((char *)rsa_key_4096_no_optional)) < 0;
 	n |= test_jwe_r256a256_ptext(context, (char *)rsa_key_4096_no_optional,

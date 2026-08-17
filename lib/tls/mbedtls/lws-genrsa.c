@@ -47,6 +47,8 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 		  struct lws_context *context, enum enum_genrsa_mode mode,
 		  enum lws_genhash_types oaep_hashid)
 {
+	int hash_id;
+
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->ctx = lws_zalloc(sizeof(*ctx->ctx), "genrsa");
 	if (!ctx->ctx)
@@ -58,16 +60,32 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 	if (mode >= LGRSAM_COUNT)
 		return -1;
 
+	/*
+	 * OAEP needs a real md for the MGF1 hash... if the caller has no
+	 * preference, use the RFC8017 default of SHA-1.  The mapped md type
+	 * is otherwise unusable (-1) for OAEP operations.
+	 */
+
+	if (mode == LGRSAM_PKCS1_OAEP_PSS &&
+	    oaep_hashid == LWS_GENHASH_TYPE_UNKNOWN)
+		oaep_hashid = LWS_GENHASH_TYPE_SHA1;
+
+	hash_id = (int)lws_gencrypto_mbedtls_hash_to_MD_TYPE(oaep_hashid);
+
 #if !defined(MBEDTLS_VERSION_NUMBER) || MBEDTLS_VERSION_NUMBER < 0x03000000
-	mbedtls_rsa_init(ctx->ctx, mode_map[mode], 0);
+	mbedtls_rsa_init(ctx->ctx, mode_map[mode], hash_id);
 #else
 	mbedtls_rsa_init(ctx->ctx);
-	mbedtls_rsa_set_padding(ctx->ctx, mode_map[mode], 0);
-#endif
+	if (mbedtls_rsa_set_padding(ctx->ctx, mode_map[mode],
+				    mode == LGRSAM_PKCS1_OAEP_PSS ?
+					      (mbedtls_md_type_t)hash_id :
+					      MBEDTLS_MD_NONE)) {
+		lwsl_notice("%s: mbedtls_rsa_set_padding failed\n", __func__);
+		lws_free_set_NULL(ctx->ctx);
 
-	ctx->ctx->MBEDTLS_PRIVATE(padding) = mode_map[mode];
-	ctx->ctx->MBEDTLS_PRIVATE(hash_id) =
-			(int)lws_gencrypto_mbedtls_hash_to_MD_TYPE(oaep_hashid);
+		return -1;
+	}
+#endif
 
 	{
 		int n;
