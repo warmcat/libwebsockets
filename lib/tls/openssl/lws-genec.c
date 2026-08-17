@@ -366,7 +366,10 @@ lws_genec_new_keypair(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 #endif
 	EVP_PKEY *pkey = NULL;
 	int ret = -29, n, m;
-	BIGNUM *bn_x = NULL, *bn_y = NULL, *bn_d = NULL;
+	BIGNUM *bn_x = NULL, *bn_y = NULL;
+#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+	BIGNUM *bn_d = NULL;
+#endif
 	const BIGNUM *cbn[3];
 #if !defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
 	EC_KEY *ec;
