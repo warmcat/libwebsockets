@@ -60,9 +60,38 @@ struct server_request_item {
 static struct server_request_item server_requests[256];
 static int server_requests_count;
 
+/*
+ * Datagram testcases run on a lossy sim, but QUIC datagrams are
+ * unreliable by design.  The side whose testcase name contains
+ * "datagram" (the server for -send, the client for -receive) is the one
+ * that requests the files, so it owns recovery: it re-sends GET
+ * datagrams for anything not yet confirmed complete until everything
+ * has arrived.  In -send, the server then confirms completion to the
+ * client with a few DONE datagrams, so the client can stop waiting
+ * without guessing.  A hard cap keeps a stuck exchange inside the
+ * runner's own timeout.
+ */
+#define DG_RETRY_MS	400
+#define DG_DONE_COPIES	3
+#define DG_HARDCAP_MS	20000
+
+enum {
+	QIR_DG_GET,
+	QIR_DG_PUSH,
+	QIR_DG_DONE,
+};
+
+static struct lws *dg_session_wsi;
+static struct lws_sorted_usec_list sul_dgretry;
+static struct lws_sorted_usec_list sul_dghardcap;
+static int dg_done_started;
+static int dg_done_pumps;
+static int dg_retry_armed;
+static int dg_hardcap_armed;
+
 struct pending_datagram {
 	char filename[256];
-	int is_push; /* 1 for PUSH, 0 for GET */
+	int kind; /* QIR_DG_GET / QIR_DG_PUSH / QIR_DG_DONE */
 	/* Send state for chunked PUSH */
 	int fd;
 	size_t file_len;
@@ -77,15 +106,17 @@ static int dg_queue_tail;
 /* Datagrams must fit inside a single QUIC packet */
 #define DG_PAYLOAD_CHUNK 1024
 
-static void enqueue_datagram(const char *filename, int is_push)
+static void enqueue_datagram(const char *filename, int kind)
 {
 	if ((dg_queue_tail + 1) % 512 == dg_queue_head) {
 		lwsl_err("Datagram queue overflow!\n");
 		return;
 	}
 	struct pending_datagram *dg = &dg_queue[dg_queue_tail];
-	lws_strncpy(dg->filename, filename, sizeof(dg->filename));
-	dg->is_push = is_push;
+	dg->filename[0] = '\0';
+	if (filename)
+		lws_strncpy(dg->filename, filename, sizeof(dg->filename));
+	dg->kind = kind;
 	dg->fd = -1;
 	dg->file_len = 0;
 	dg->sent = 0;
@@ -364,6 +395,109 @@ static int parse_server_requests(void)
 	return server_requests_count;
 }
 
+static void
+dghardcap_sul_cb(struct lws_sorted_usec_list *sul)
+{
+	(void)sul;
+
+	if (!interrupted) {
+		lwsl_user("Datagram exchange hard cap reached, giving up\n");
+		interrupted = 1;
+	}
+}
+
+/*
+ * Runs on the GET initiator only (its testcase name contains "datagram").
+ * Anything not yet confirmed complete is re-requested each tick; PUSH is
+ * idempotent at the peer (files open O_TRUNC and END just re-marks
+ * completion), so duplicates are harmless.
+ */
+static void
+dgretry_sul_cb(struct lws_sorted_usec_list *sul)
+{
+	int i, all_done = 1;
+
+	(void)sul;
+
+	if (!dg_session_wsi) {
+		/* keep waiting for the session to exist */
+		lws_sul_schedule(context, 0, &sul_dgretry, dgretry_sul_cb,
+				 DG_RETRY_MS * LWS_US_PER_MS);
+		return;
+	}
+
+	if (is_server) {
+		for (i = 0; i < server_requests_count; i++)
+			if (!server_requests[i].completed) {
+				all_done = 0;
+				enqueue_datagram(server_requests[i].filename,
+						 QIR_DG_GET);
+			}
+	} else {
+		for (i = 0; i < client_requests_count; i++)
+			if (!client_requests[i].completed) {
+				all_done = 0;
+				enqueue_datagram(client_requests[i].filename,
+						 QIR_DG_GET);
+			}
+	}
+
+	if (all_done) {
+		/*
+		 * Pump a few DONE copies so at least one survives, then
+		 * exit.  For -send this releases the client, which cannot
+		 * otherwise know its PUSHes all arrived; for -receive it
+		 * lets the server exit promptly instead of waiting for the
+		 * hard cap when our own CONNECTION_CLOSE datagram is lost.
+		 */
+		if (!dg_done_started) {
+			dg_done_started = 1;
+			dg_done_pumps = DG_DONE_COPIES;
+		}
+		if (dg_done_pumps-- > 0) {
+			enqueue_datagram(NULL, QIR_DG_DONE);
+			lws_callback_on_writable(dg_session_wsi);
+			lws_sul_schedule(context, 0, &sul_dgretry,
+					 dgretry_sul_cb,
+					 DG_RETRY_MS *
+					 LWS_US_PER_MS);
+			return;
+		}
+		lwsl_user("All datagram transfers confirmed complete\n");
+		interrupted = 1;
+		return;
+	}
+
+	lws_callback_on_writable(dg_session_wsi);
+	lws_sul_schedule(context, 0, &sul_dgretry, dgretry_sul_cb,
+			 DG_RETRY_MS * LWS_US_PER_MS);
+}
+
+/*
+ * Idempotent.  On the initiator (testcase name contains "datagram") this
+ * starts re-request recovery; on the responder it only arms the hard cap,
+ * lazily, when the first datagram arrives and we learn this is a datagram
+ * exchange at all.
+ */
+static void
+start_datagram_recovery(void)
+{
+	if (!context)
+		return;
+
+	if (strstr(testcase, "datagram") && !dg_retry_armed) {
+		dg_retry_armed = 1;
+		lws_sul_schedule(context, 0, &sul_dgretry, dgretry_sul_cb,
+				 DG_RETRY_MS * LWS_US_PER_MS);
+	}
+
+	if (!dg_hardcap_armed) {
+		dg_hardcap_armed = 1;
+		lws_sul_schedule(context, 0, &sul_dghardcap, dghardcap_sul_cb,
+				 DG_HARDCAP_MS * LWS_US_PER_MS);
+	}
+}
+
 static void trigger_client_transfers(struct lws *wsi_session, const char *endpoint)
 {
 	int i;
@@ -431,7 +565,7 @@ static void trigger_client_transfers(struct lws *wsi_session, const char *endpoi
 				}
 			} else if (strstr(testcase, "datagram")) {
 				if (local_is_receiver) {
-					enqueue_datagram(item->filename, 0); /* 0 for GET */
+					enqueue_datagram(item->filename, QIR_DG_GET);
 					lws_callback_on_writable(wsi_session);
 				}
 			}
@@ -505,7 +639,7 @@ static void trigger_server_transfers(struct lws *wsi_session, const char *endpoi
 				}
 			} else if (strstr(testcase, "datagram")) {
 				if (local_is_receiver) {
-					enqueue_datagram(item->filename, 0); /* 0 for GET */
+					enqueue_datagram(item->filename, QIR_DG_GET);
 					lws_callback_on_writable(wsi_session);
 				}
 			}
@@ -624,6 +758,9 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_strncpy(global_endpoint, path, sizeof(global_endpoint));
 			}
 			lwsl_user("Server WebTransport session established on %s\n", pss->endpoint);
+
+			dg_session_wsi = wsi;
+			start_datagram_recovery();
 
 			/* Save negotiated protocol to /downloads/negotiated_protocol.txt */
 			{
@@ -744,6 +881,9 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 				}
 			}
 			lwsl_user("Client WebTransport session established on %s. Listing all custom headers:\n", pss->endpoint);
+
+			dg_session_wsi = wsi;
+			start_datagram_recovery();
 #if defined(LWS_WITH_CUSTOM_HEADERS)
 			lws_hdr_custom_name_foreach(wsi, print_custom_header_cb, wsi);
 #endif
@@ -789,7 +929,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 		if (pss->is_session) {
 			struct pending_datagram *dg = peek_datagram();
 			if (dg) {
-				if (dg->is_push) {
+				if (dg->kind == QIR_DG_PUSH) {
 					/*
 					 * Send the file as a sequence of
 					 * datagrams, each small enough to
@@ -866,21 +1006,14 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 							dg->fd = -1;
 							done = 1;
 
-							/* Mark completed on client side (if we are the client sending PUSH) */
-							if (!is_server) {
-								int r_idx = -1;
-								int i;
-								for (i = 0; i < client_requests_count; i++) {
-									if (strcmp(client_requests[i].filename, dg->filename) == 0) {
-										r_idx = i;
-										break;
-									}
-								}
-								if (r_idx >= 0) {
-									client_requests[r_idx].completed = 1;
-									lwsl_user("Client datagram transfer completed: %s\n", dg->filename);
-								}
-							}
+							/*
+							 * Completion is not known
+							 * until the peer confirms
+							 * it with DONE; a lost PUSH
+							 * or END would otherwise
+							 * hang or truncate the
+							 * exchange.
+							 */
 						}
 					} else {
 						lwsl_err("Failed to open file %s for datagram PUSH\n", dg->filename);
@@ -889,12 +1022,19 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 
 					if (done)
 						dequeue_datagram();
-				} else {
+				} else if (dg->kind == QIR_DG_GET) {
 					/* Send GET <filename> as a datagram */
 					uint8_t buf[LWS_PRE + 512];
 					size_t len = (size_t)lws_snprintf((char *)&buf[LWS_PRE], 512, "GET %s", dg->filename);
 					lws_write(wsi, &buf[LWS_PRE], len, LWS_WRITE_QUIC_DATAGRAM);
 					lwsl_user("Session WSI sent datagram GET: %s\n", dg->filename);
+					dequeue_datagram();
+				} else {
+					/* QIR_DG_DONE: completion confirmation */
+					uint8_t buf[LWS_PRE + 16];
+					size_t len = (size_t)lws_snprintf((char *)&buf[LWS_PRE], 16, "DONE");
+					lws_write(wsi, &buf[LWS_PRE], len, LWS_WRITE_QUIC_DATAGRAM);
+					lwsl_user("Session WSI sent datagram DONE\n");
 					dequeue_datagram();
 				}
 				/* Request next writable callback to process remaining queue items */
@@ -1007,11 +1147,24 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 			 *   "PUSH <filename>\n" + first chunk      start of file
 			 *   <raw chunk>                            file continuation
 			 *   "END <filename>"                       file complete
+			 *   "DONE"                                 all files complete
 			 */
 			char *payload = (char *)in;
 			size_t payload_len = len;
 
-			if (payload_len > 4 && strncmp(payload, "GET ", 4) == 0) {
+			/* a datagram exchange is happening, arm the safety cap */
+			start_datagram_recovery();
+
+			if (payload_len == 4 && memcmp(payload, "DONE", 4) == 0) {
+				lwsl_user("Session WSI received datagram DONE: peer confirmed all transfers\n");
+				if (!is_server) {
+					int i;
+					for (i = 0; i < client_requests_count; i++)
+						client_requests[i].completed = 1;
+				}
+				interrupted = 1;
+				break;
+			} else if (payload_len > 4 && strncmp(payload, "GET ", 4) == 0) {
 				/* GET <filename> */
 				char filename[256];
 				size_t fn_len = payload_len - 4;
@@ -1022,7 +1175,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 				lwsl_user("Session WSI received datagram GET: %s\n", filename);
 
 				/* Respond by sending the file as datagrams */
-				enqueue_datagram(filename, 1); /* 1 for PUSH */
+				enqueue_datagram(filename, QIR_DG_PUSH);
 				lws_callback_on_writable(wsi);
 			} else if (payload_len > 4 && strncmp(payload, "END ", 4) == 0) {
 				/* END <filename>: the file is complete */
@@ -1343,6 +1496,11 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 		} else {
 			lwsl_user("%s session closed. Setting interrupted = 1 to exit.\n", is_server ? "Server" : "Client");
+			if (wsi == dg_session_wsi) {
+				dg_session_wsi = NULL;
+				lws_sul_cancel(&sul_dgretry);
+				dg_retry_armed = 0;
+			}
 			interrupted = 1;
 		}
 		lwsl_user("WSI closed\n");
@@ -1542,6 +1700,13 @@ int main(int argc, const char **argv)
 		return 1;
 	}
 
+	/*
+	 * A datagram testcase initiator can also get stuck before any session
+	 * exists (eg, if the peer never connects), so start the recovery
+	 * machinery, including the hard cap, from startup.
+	 */
+	start_datagram_recovery();
+
 	/* Client connection triggering */
 	if (!is_server && client_requests_count > 0) {
 		int i;
@@ -1602,7 +1767,8 @@ int main(int argc, const char **argv)
 				if (!client_requests[i].completed)
 					all_done = 0;
 			}
-			if (all_done && strcmp(testcase, "handshake") != 0) {
+			if (all_done && strcmp(testcase, "handshake") != 0 &&
+			    !strstr(testcase, "datagram")) {
 				lwsl_user("All client requests completed. Draining before exiting.\n");
 				drain_context(context, 500);
 				break;
