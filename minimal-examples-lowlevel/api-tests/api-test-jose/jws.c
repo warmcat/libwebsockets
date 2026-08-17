@@ -758,12 +758,25 @@ static const char
 int
 test_jws_EdDSA(struct lws_context *context)
 {
+	struct lws_genec_ctx probe;
 	struct lws_jws_map map;
 	struct lws_jose jose;
 	struct lws_jwk jwk;
 	struct lws_jws jws;
 	char temp[2048], *p;
 	int ret = -1, l, n, temp_len = sizeof(temp);
+
+	/*
+	 * Some TLS backends, eg GnuTLS, do not implement EdDSA at all...
+	 * detect it via the public api and skip the selftest cleanly
+	 */
+
+	if (lws_geneddsa_create(&probe, context, NULL)) {
+		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n",
+			    __func__);
+		return 0;
+	}
+	lws_genec_destroy(&probe);
 
 	lws_jose_init(&jose);
 
