@@ -902,8 +902,10 @@ test_cose_keys(struct lws_context *context)
 	lwsl_user("%s: key_set1\n", __func__);
 	lws_dll2_owner_clear(&set);
 	ck = lws_cose_key_import(&set, NULL, NULL, cose_key_set1, sizeof(cose_key_set1));
-	if (!ck)
+	if (!ck) {
+		lwsl_err("%s: key_set1 import fail\n", __func__);
 		return 1;
+	}
 
 	lws_cose_key_set_destroy(&set);
 
@@ -915,17 +917,38 @@ test_cose_keys(struct lws_context *context)
 				   (1 << LWSCOSE_WKKO_ENCRYPT) |
 				   (1 << LWSCOSE_WKKO_DECRYPT),
 				   0, "P-256", (const uint8_t *)"the-keyid", 9);
-	if (!ck)
+	if (!ck) {
+		lwsl_err("%s: EC2 P-256 keygen fail\n", __func__);
 		return 1;
+	}
 
 	lws_cose_key_destroy(&ck);
+
+	/*
+	 * Some TLS backends, eg GnuTLS, do not implement EdDSA at all...
+	 * detect it via the public api and skip this part cleanly
+	 */
+
+	{
+		struct lws_genec_ctx probe;
+
+		if (lws_geneddsa_create(&probe, context, NULL)) {
+			lwsl_notice("%s: no EdDSA backend support, skipping "
+				    "OKP keygen\n", __func__);
+			return 0;
+		}
+
+		lws_genec_destroy(&probe);
+	}
 
 	ck = lws_cose_key_generate(context, LWSCOSE_WKKTV_OKP,
 				   (1 << LWSCOSE_WKKO_SIGN) |
 				   (1 << LWSCOSE_WKKO_VERIFY),
 				   0, "Ed25519", (const uint8_t *)"ed-keyid", 8);
-	if (!ck)
+	if (!ck) {
+		lwsl_err("%s: OKP Ed25519 keygen fail\n", __func__);
 		return 1;
+	}
 
 	lws_cose_key_destroy(&ck);
 

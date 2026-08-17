@@ -245,14 +245,7 @@ bail:
  * AES_128_CBC_HMAC_SHA_256 for content encryption.
  */
 
-/* "Live long and prosper." */
-static uint8_t
-
-ex_a2_ptext[] = {
-	76, 105, 118, 101, 32, 108, 111, 110,
-	103, 32, 97, 110, 100, 32,  112, 114,
-	111, 115, 112, 101, 114, 46
-}, *lws_jwe_ex_a2_jwk_json = (uint8_t *)
+static uint8_t *lws_jwe_ex_a2_jwk_json = (uint8_t *)
 	"{"
 	 "\"kty\":\"RSA\","
 	 "\"n\":\"sXchDaQebHnPiGvyDOAT4saGEUetSyo9MKLOoWFsueri23bOdgWp4Dy1Wl"
@@ -326,27 +319,16 @@ test_jwe_a2(struct lws_context *context)
 		goto bail;
 	}
 
+	/*
+	 * The A.2 example uses "RSA1_5" for key encryption.  RSA1_5 was
+	 * removed from lws for security reasons, so it must be rejected at
+	 * JOSE parsing time rather than decrypted
+	 */
+
 	n = lws_jwe_auth_and_decrypt(&jwe, lws_concat_temp(temp, temp_len),
 				     &temp_len);
-		if (n == -2) {
-		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
-		ret = 0;
-		goto bail;
-	}
-	if (n < 0) {
-		lwsl_err("%s: lws_jwe_auth_and_decrypt failed\n",
-			 __func__);
-		goto bail;
-	}
-
-	/* allowing for trailing padding, confirm the plaintext */
-	if (jwe.jws.map.len[LJWE_CTXT] < sizeof(ex_a2_ptext) ||
-	    lws_timingsafe_bcmp(jwe.jws.map.buf[LJWE_CTXT], ex_a2_ptext,
-			        sizeof(ex_a2_ptext))) {
-		lwsl_err("%s: plaintext AES decrypt wrong\n", __func__);
-		lwsl_hexdump_notice(ex_a2_ptext, sizeof(ex_a2_ptext));
-		lwsl_hexdump_notice(jwe.jws.map.buf[LJWE_CTXT],
-				    jwe.jws.map.len[LJWE_CTXT]);
+	if (n >= 0) {
+		lwsl_err("%s: RSA1_5 JWE was accepted\n", __func__);
 		goto bail;
 	}
 
@@ -368,8 +350,10 @@ bail:
  * the test above, and AES_128_CBC_HMAC_SHA_256 for content encryption.
  */
 
+/* RSA1_5 was removed from lws for security reasons, only RSA-OAEP */
+
 static const char *rsa256a128_jose =
-		"{ \"alg\":\"RSA1_5\",\"enc\":\"A128CBC-HS256\"}";
+		"{ \"alg\":\"RSA-OAEP\",\"enc\":\"A128CBC-HS256\"}";
 
 static uint8_t
 
@@ -649,7 +633,7 @@ bail:
 }
 
 static const char *rsa256a192_jose =
-		"{ \"alg\":\"RSA1_5\",\"enc\":\"A192CBC-HS384\"}";
+		"{ \"alg\":\"RSA-OAEP\",\"enc\":\"A192CBC-HS384\"}";
 
 static const uint8_t r256a192_cek[] = {
 		0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
@@ -799,7 +783,7 @@ bail:
 
 
 static const char *rsa256a256_jose =
-		"{ \"alg\":\"RSA1_5\",\"enc\":\"A256CBC-HS512\"}";
+		"{ \"alg\":\"RSA-OAEP\",\"enc\":\"A256CBC-HS512\"}";
 
 static const uint8_t r256a256_cek[] = {
 		0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
@@ -1151,27 +1135,15 @@ test_jwe_r256a128_jwe_openssl(struct lws_context *context)
 		goto bail;
 	}
 
+	/*
+	 * This is a fixed RSA1_5 ciphertext... RSA1_5 was removed from lws
+	 * for security reasons, so it must be rejected rather than decrypted
+	 */
+
 	n = lws_jwe_auth_and_decrypt(&jwe, lws_concat_temp(temp, temp_len),
 				     &temp_len);
-		if (n == -2) {
-		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
-		ret = 0;
-		goto bail;
-	}
-	if (n < 0) {
-		lwsl_err("%s: lws_jwe_auth_and_decrypt failed\n",
-			 __func__);
-		goto bail;
-	}
-
-	/* allowing for trailing padding, confirm the plaintext */
-	if (jwe.jws.map.len[LJWE_CTXT] < sizeof(ra_ptext_1024) ||
-	    lws_timingsafe_bcmp(jwe.jws.map.buf[LJWE_CTXT], ra_ptext_1024,
-			        sizeof(ra_ptext_1024))) {
-		lwsl_err("%s: plaintext RSA/AES decrypt wrong\n", __func__);
-		lwsl_hexdump_notice(ra_ptext_1024, sizeof(ra_ptext_1024));
-		lwsl_hexdump_notice(jwe.jws.map.buf[LJWE_CTXT],
-				    jwe.jws.map.len[LJWE_CTXT]);
+	if (n >= 0) {
+		lwsl_err("%s: RSA1_5 JWE was accepted\n", __func__);
 		goto bail;
 	}
 
@@ -1247,27 +1219,15 @@ test_jwe_r256a128_jwe_mbedtls(struct lws_context *context)
 		goto bail;
 	}
 
+	/*
+	 * This is a fixed RSA1_5 ciphertext... RSA1_5 was removed from lws
+	 * for security reasons, so it must be rejected rather than decrypted
+	 */
+
 	n = lws_jwe_auth_and_decrypt(&jwe, lws_concat_temp(temp, temp_len),
 				     &temp_len);
-		if (n == -2) {
-		lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
-		ret = 0;
-		goto bail;
-	}
-	if (n < 0) {
-		lwsl_err("%s: lws_jwe_auth_and_decrypt failed\n",
-			 __func__);
-		goto bail;
-	}
-
-	/* allowing for trailing padding, confirm the plaintext */
-	if (jwe.jws.map.len[LJWE_CTXT] < sizeof(ra_ptext_1024) ||
-	    lws_timingsafe_bcmp(jwe.jws.map.buf[LJWE_CTXT], ra_ptext_1024,
-			        sizeof(ra_ptext_1024))) {
-		lwsl_err("%s: plaintext RSA/AES decrypt wrong\n", __func__);
-		lwsl_hexdump_notice(ra_ptext_1024, sizeof(ra_ptext_1024));
-		lwsl_hexdump_notice(jwe.jws.map.buf[LJWE_CTXT],
-				    jwe.jws.map.len[LJWE_CTXT]);
+	if (n >= 0) {
+		lwsl_err("%s: RSA1_5 JWE was accepted\n", __func__);
 		goto bail;
 	}
 

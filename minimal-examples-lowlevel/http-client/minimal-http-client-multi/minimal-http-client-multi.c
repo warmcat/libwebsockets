@@ -135,7 +135,14 @@ struct req {
 static struct req reqs[COUNT];
 
 struct pss {
+	/*
+	 * pss arrives zeroed for every wsi bound to this protocol: that
+	 * includes the h3 control / qpack streams and the quic nwsi, which
+	 * never open a download file.  Track the outfile with an explicit
+	 * flag rather than fd alone, since fd 0 is a real fd (stdin).
+	 */
 	char body_part;
+	char outfile_open;
 	int fd;
 };
 
@@ -254,6 +261,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 			if (pss->fd < 0) {
 				lwsl_err("Failed to open %s for writing\n", path);
 			} else {
+				pss->outfile_open = 1;
 				lwsl_user("Opened %s for writing\n", path);
 			}
 		} else {
@@ -293,7 +301,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_user("RECEIVE_CLIENT_HTTP_READ: conn %d: read %d\n", idx, (int)len);
 		if (!pss)
 			break;
-		if (pss->fd >= 0) {
+		if (pss->outfile_open && pss->fd >= 0) {
 			if (write(pss->fd, in, (unsigned int)len) != (ssize_t)len)
 				lwsl_err("Write failed\n");
 		}
@@ -329,9 +337,10 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 			  lws_wsi_tag(wsi), idx);
 		if (!pss)
 			break;
-		if (pss->fd >= 0) {
+		if (pss->outfile_open && pss->fd >= 0) {
 			close(pss->fd);
 			pss->fd = -1;
+			pss->outfile_open = 0;
 		}
 		client_wsi[idx] = NULL;
 		if (conn_state[idx] == 2)
@@ -345,9 +354,10 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!pss)
 			break;
 
-		if (pss->fd >= 0) {
+		if (pss->outfile_open && pss->fd >= 0) {
 			close(pss->fd);
 			pss->fd = -1;
+			pss->outfile_open = 0;
 		}
 
 #if defined(LWS_WITH_CONMON)

@@ -366,7 +366,7 @@ lws_genec_new_keypair(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 #endif
 	EVP_PKEY *pkey = NULL;
 	int ret = -29, n, m;
-	BIGNUM *bn_x = NULL, *bn_y = NULL;
+	BIGNUM *bn_x = NULL, *bn_y = NULL, *bn_d = NULL;
 	const BIGNUM *cbn[3];
 #if !defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
 	EC_KEY *ec;
@@ -393,9 +393,9 @@ lws_genec_new_keypair(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 	}
 
 	cbn[0] = bn_x;
-	if (!EVP_PKEY_get_bn_param(pkey, "priv", (BIGNUM **)&cbn[1])) {
+	if (!EVP_PKEY_get_bn_param(pkey, "priv", &bn_d))
 		goto bail2;
-	}
+	cbn[1] = bn_d;
 	cbn[2] = bn_y;
 
 	el[LWS_GENCRYPTO_EC_KEYEL_CRV].len = (uint32_t)strlen(curve_name) + 1;
@@ -427,7 +427,7 @@ lws_genec_new_keypair(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 bail2:
 	BN_clear_free(bn_x);
 	BN_clear_free(bn_y);
-	if (cbn[1]) BN_clear_free((BIGNUM *)cbn[1]);
+	BN_clear_free(bn_d);
 bail1:
 	EVP_PKEY_free(pkey);
 bail:
