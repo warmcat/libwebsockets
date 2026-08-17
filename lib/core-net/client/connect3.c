@@ -542,8 +542,17 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 				for (m = 0; m < wsi->parallel_count; m++)
 					if (wsi->parallel_conns[m].is_valid && wsi->parallel_conns[m].desc.sockfd == check_fd)
 						pidx = m;
-				if (pidx == -1)
-					return NULL; /* obsolete parallel check? */
+				if (pidx == -1) {
+					/*
+					 * A stale event on an fd that is
+					 * neither the primary nor any live
+					 * racer (eg, the racer went away
+					 * under our feet).  The wsi is still
+					 * alive: callers must not treat this
+					 * as "wsi already closed and freed".
+					 */
+					return wsi;
+				}
 			}
 
 			switch (lws_client_connect_check(wsi, check_fd, &real_errno)) {
@@ -559,7 +568,12 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 					}
 					wsi->desc = saved_fd_tmp;
 					wsi->position_in_fds_table = saved_pos_tmp;
-					return NULL;
+					/*
+					 * The wsi is alive and still racing,
+					 * waiting to see if QUIC completes
+					 * inside the grace period
+					 */
+					return wsi;
 				}
 				lws_sul_cancel(&wsi->sul_happy_eyeballs);
 				if (pidx != -1) {
@@ -609,7 +623,15 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 					lws_client_win32_conn_async_check,
 					wsi->a.context->win32_connect_check_interval_usec);
 #endif
-				return NULL;
+				/*
+				 * The connect() on this fd is still in
+				 * progress (spurious wakeup); the wsi is
+				 * alive and should not be dispositioned.
+				 * Returning NULL here means to various
+				 * callers "the wsi was synchronously closed
+				 * and freed", which is not the case.
+				 */
+				return wsi;
 
 			default:
 				if (!real_errno)

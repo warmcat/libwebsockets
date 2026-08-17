@@ -80,8 +80,11 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	char hu[25];
 	lws_usec_t a1;
 #endif
+#if defined(LWS_WITH_SYS_METRICS)
+	lws_usec_t a;
+#endif
 #if defined(LWS_WITH_SYS_METRICS) || defined(LWS_WITH_WAKE_LOGGING)
-	lws_usec_t a, b = 0;
+	lws_usec_t b = 0;
 #endif
 	int n;
 #if (defined(LWS_ROLE_WS) && !defined(LWS_WITHOUT_EXTENSIONS)) || defined(LWS_WITH_TLS)
@@ -150,7 +153,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 	timeout_us /= LWS_US_PER_MS; /* ms now */
 
-#if defined(LWS_WITH_SYS_METRICS) || defined(LWS_WITH_WAKE_LOGGING)
+#if defined(LWS_WITH_SYS_METRICS)
 	a = lws_now_usecs() - b;
 #endif
 #if defined(LWS_WITH_WAKE_LOGGING)
