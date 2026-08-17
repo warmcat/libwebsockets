@@ -454,6 +454,16 @@ struct lws *
 lws_client_connect_4_established(struct lws *wsi, struct lws *wsi_piggyback,
 				 ssize_t plen);
 
+/*
+ * Returns wsi if it is still alive and in the caller's care (this covers
+ * "still connecting" and all "nothing changed" dispositions), or NULL if the
+ * wsi has been synchronously closed and freed (in which case callers must not
+ * touch or close the wsi again).
+ *
+ * The one exception is n == LADNS_RET_FAILED passed from the async dns
+ * completion path: NULL there means "dns failed, the dns caller handles the
+ * wsi's cleanup", not that the wsi is necessarily already freed.
+ */
 struct lws *
 lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 			     const struct addrinfo *result, int n, void *opaque);

@@ -358,7 +358,9 @@ pending_login_release(struct pending_login_refresh *ps)
 		ps->wsi_client = NULL;
 	}
 
-	pending_login_release(ps);
+	lws_sul_cancel(&ps->sul);
+	lws_dll2_remove(&ps->list);
+	free(ps);
 }
 
 static void
