@@ -41,6 +41,16 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 	ctx->u.hKey = NULL;
 
 	/*
+	 * OAEP needs a real hash... if the caller has no preference, use the
+	 * RFC8017 default of SHA-1
+	 */
+
+	ctx->oaep_hashid = oaep_hashid;
+	if (mode == LGRSAM_PKCS1_OAEP_PSS &&
+	    oaep_hashid == LWS_GENHASH_TYPE_UNKNOWN)
+		ctx->oaep_hashid = LWS_GENHASH_TYPE_SHA1;
+
+	/*
 	 * BCRYPT_RSAKEY_BLOB layout:
 	 *   BCRYPT_RSAKEY_BLOB header
 	 *   Public Exponent (cbPublicExp)
@@ -241,6 +251,21 @@ fail:
 	return -1;
 }
 
+static LPCWSTR
+oaep_hash_to_bcrypt_alg(enum lws_genhash_types oaep_hashid)
+{
+	switch (oaep_hashid) {
+	case LWS_GENHASH_TYPE_SHA256:
+		return BCRYPT_SHA256_ALGORITHM;
+	case LWS_GENHASH_TYPE_SHA384:
+		return BCRYPT_SHA384_ALGORITHM;
+	case LWS_GENHASH_TYPE_SHA512:
+		return BCRYPT_SHA512_ALGORITHM;
+	default:
+		return BCRYPT_SHA1_ALGORITHM;
+	}
+}
+
 int
 lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			  size_t in_len, uint8_t *out)
@@ -252,7 +277,7 @@ lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	DWORD dwFlags = BCRYPT_PAD_PKCS1;
 
 	if (ctx->mode == LGRSAM_PKCS1_OAEP_PSS) {
-		oaepInfo.pszAlgId = BCRYPT_SHA1_ALGORITHM; // Default or from ctx
+		oaepInfo.pszAlgId = oaep_hash_to_bcrypt_alg(ctx->oaep_hashid);
 		oaepInfo.pbLabel = NULL;
 		oaepInfo.cbLabel = 0;
 		pPaddingInfo = &oaepInfo;
@@ -384,7 +409,7 @@ lws_genrsa_private_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	DWORD dwFlags = BCRYPT_PAD_PKCS1;
 
 	if (ctx->mode == LGRSAM_PKCS1_OAEP_PSS) {
-		oaepInfo.pszAlgId = BCRYPT_SHA1_ALGORITHM;
+		oaepInfo.pszAlgId = oaep_hash_to_bcrypt_alg(ctx->oaep_hashid);
 		oaepInfo.pbLabel = NULL;
 		oaepInfo.cbLabel = 0;
 		pPaddingInfo = &oaepInfo;

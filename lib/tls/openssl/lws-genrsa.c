@@ -94,6 +94,16 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 	ctx->context = context;
 	ctx->mode = mode;
 
+	/*
+	 * OAEP needs a real hash for the OAEP and MGF1 digests... if the
+	 * caller has no preference, use the RFC8017 default of SHA-1
+	 */
+
+	ctx->oaep_hashid = oaep_hashid;
+	if (mode == LGRSAM_PKCS1_OAEP_PSS &&
+	    oaep_hashid == LWS_GENHASH_TYPE_UNKNOWN)
+		ctx->oaep_hashid = LWS_GENHASH_TYPE_SHA1;
+
 	/* Step 1:
 	 *
 	 * convert the MPI for e and n to OpenSSL BIGNUMs
@@ -305,6 +315,28 @@ cleanup_1:
  * based padding modes
  */
 
+#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+/*
+ * For OAEP mode, the EVP_PKEY_CTX digest selection is reset by the per-call
+ * operation init, so the OAEP and MGF1 digests must be (re)set on it each
+ * time after the init and padding selection
+ */
+static int
+rsa_oaep_set_md(EVP_PKEY_CTX *pctx, enum lws_genhash_types oaep_hashid)
+{
+	const EVP_MD *md = lws_gencrypto_openssl_hash_to_EVP_MD(oaep_hashid);
+
+	if (!md)
+		return -1;
+
+	if (EVP_PKEY_CTX_set_rsa_oaep_md(pctx, md) != 1 ||
+	    EVP_PKEY_CTX_set_rsa_mgf1_md(pctx, md) != 1)
+		return -1;
+
+	return 0;
+}
+#endif
+
 int
 lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 			  size_t in_len, uint8_t *out)
@@ -313,6 +345,8 @@ lws_genrsa_public_encrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	size_t out_len = (size_t)EVP_PKEY_size(EVP_PKEY_CTX_get0_pkey(ctx->ctx));
 	if (EVP_PKEY_encrypt_init(ctx->ctx) <= 0 ||
 	    EVP_PKEY_CTX_set_rsa_padding(ctx->ctx, mode_map_crypt[ctx->mode]) <= 0 ||
+	    (ctx->mode == LGRSAM_PKCS1_OAEP_PSS &&
+	     rsa_oaep_set_md(ctx->ctx, ctx->oaep_hashid) < 0) ||
 	    EVP_PKEY_encrypt(ctx->ctx, out, &out_len, in, in_len) <= 0) {
 		lwsl_err("%s: EVP_PKEY_encrypt failed\n", __func__);
 		lws_tls_err_describe_clear();
@@ -392,6 +426,8 @@ lws_genrsa_private_decrypt(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 	size_t out_len = out_max;
 	if (EVP_PKEY_decrypt_init(ctx->ctx) <= 0 ||
 	    EVP_PKEY_CTX_set_rsa_padding(ctx->ctx, mode_map_crypt[ctx->mode]) <= 0 ||
+	    (ctx->mode == LGRSAM_PKCS1_OAEP_PSS &&
+	     rsa_oaep_set_md(ctx->ctx, ctx->oaep_hashid) < 0) ||
 	    EVP_PKEY_decrypt(ctx->ctx, out, &out_len, in, in_len) <= 0) {
 		lwsl_err("%s: EVP_PKEY_decrypt failed\n", __func__);
 		lws_tls_err_describe_clear();
