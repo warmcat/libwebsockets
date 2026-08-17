@@ -540,18 +540,30 @@ lws_quic_detect_loss(struct lws *nwsi, int level, uint64_t largest_acked)
 					newest_lost = f->sent_time_us;
 
 				lws_dll2_remove(&f->list);
-				f->wire_len = 0;
-				
+
 				int pending_lvl = curlvl;
 				if (curlvl == LWS_QUIC_LEVEL_EARLY)
 					pending_lvl = LWS_QUIC_LEVEL_APP;
 
-				if (pending_lvl == LWS_QUIC_LEVEL_APP)
-					lws_quic_dbg_1rtt_account(qn, f,
-						  curlvl == LWS_QUIC_LEVEL_EARLY ?
-							"loss-requeue-early"
-						      : "loss-requeue");
-				lws_dll2_add_tail(&f->list, &qn->pending_tx[pending_lvl]);
+				if ((f->type & 0xfe) == LWS_QUIC_FT_DATAGRAM) {
+					/*
+					 * RFC 9221: DATAGRAM frames are
+					 * never retransmitted.  The lost
+					 * bytes still count for cc, but the
+					 * frame itself is freed, the same
+					 * as the PTO sweep path.
+					 */
+					lws_free(f);
+				} else {
+					f->wire_len = 0;
+
+					if (pending_lvl == LWS_QUIC_LEVEL_APP)
+						lws_quic_dbg_1rtt_account(qn, f,
+							  curlvl == LWS_QUIC_LEVEL_EARLY ?
+								"loss-requeue-early"
+							      : "loss-requeue");
+					lws_dll2_add_tail(&f->list, &qn->pending_tx[pending_lvl]);
+				}
 			}
 		} lws_end_foreach_dll_safe(d, d1);
 	}
