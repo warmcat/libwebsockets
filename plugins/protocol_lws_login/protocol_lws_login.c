@@ -338,6 +338,29 @@ static const char * const canned_js =
          * (persisted===false) already runs its own initial render. */
         "if(ev.persisted)window.__lwsLoginWake();});";
 
+/*
+ * Tear down ps wherever we decided its life is over (server response done,
+ * refresh timed out, creation unwinding).  The side-channel client wsi, if
+ * still alive, has ps as its user_space: clear that and close it off before
+ * freeing ps, or its later callbacks (RECEIVE_CLIENT_HTTP_READ, COMPLETED,
+ * CLOSED, CCE) would dereference freed ps.  Mirrors pending_auth_release()
+ * in protocol_lws_oauth2_client.c.
+ */
+static void
+pending_login_release(struct pending_login_refresh *ps)
+{
+	if (!ps)
+		return;
+
+	if (ps->wsi_client) {
+		lws_set_wsi_user(ps->wsi_client, NULL);
+		lws_wsi_close(ps->wsi_client, LWS_TO_KILL_ASYNC);
+		ps->wsi_client = NULL;
+	}
+
+	pending_login_release(ps);
+}
+
 static void
 sul_pending_refresh_cb(lws_sorted_usec_list_t *sul)
 {
@@ -345,8 +368,13 @@ sul_pending_refresh_cb(lws_sorted_usec_list_t *sul)
 					struct pending_login_refresh, sul);
 
 	lwsl_info("%s: auth refresh timed out\n", __func__);
-	lws_dll2_remove(&ps->list);
-	free(ps);
+	/*
+	 * The renewal exchange is taking too long: drop it and free ps via the
+	 * common path, which first detaches and closes the still-live client
+	 * leg (freeing directly here left the client wsi's user_space
+	 * dangling).
+	 */
+	pending_login_release(ps);
 }
 
 /*
@@ -445,9 +473,7 @@ lws_login_kick_refresh(struct vhd_login *vhd, struct lws *wsi, const char *cooki
 
 	puri = lws_parse_uri_create(vhd->auth_server_url);
 	if (!puri) {
-		lws_sul_cancel(&ps->sul);
-		lws_dll2_remove(&ps->list);
-		free(ps);
+		pending_login_release(ps);
 		return 0;
 	}
 
@@ -765,6 +791,8 @@ callback_lws_login_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (ps->wsi_server)
 			lws_callback_on_writable(ps->wsi_server);
+		/* detach us from the wsi: CLOSED can still fire after this */
+		lws_set_wsi_user(wsi, NULL);
 		ps->wsi_client = NULL;
 		break;
 	}
@@ -777,6 +805,7 @@ callback_lws_login_client(struct lws *wsi, enum lws_callback_reasons reason,
 		if (ps->wsi_server && !ps->token[0]) {
 			lws_callback_on_writable(ps->wsi_server);
 		}
+		lws_set_wsi_user(wsi, NULL);
 		ps->wsi_client = NULL;
 		break;
 	}
@@ -2075,15 +2104,11 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 						lwsl_notice("%s: cold-load renewal ok, "
 							    "re-served %s\n", __func__,
 							    ps->orig_path);
-						lws_sul_cancel(&ps->sul);
-						lws_dll2_remove(&ps->list);
-						free(ps);
+						pending_login_release(ps);
 						return lws_http_transaction_completed(wsi);
 					}
 					/* header build failed */
-					lws_sul_cancel(&ps->sul);
-					lws_dll2_remove(&ps->list);
-					free(ps);
+					pending_login_release(ps);
 					return 1;
 				}
 
@@ -2109,9 +2134,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 							&pss->tx_buflist,
 							(uint8_t *)html,
 							(size_t)html_len) < 0) {
-						lws_sul_cancel(&ps->sul);
-						lws_dll2_remove(&ps->list);
-						free(ps);
+						pending_login_release(ps);
 						return -1;
 					}
 					pss->tx_remaining = (size_t)html_len;
@@ -2129,26 +2152,20 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 							(int)strlen(ps->authform_url),
 							(unsigned char **)&p,
 							(unsigned char *)end)) {
-						lws_sul_cancel(&ps->sul);
-						lws_dll2_remove(&ps->list);
-						free(ps);
+						pending_login_release(ps);
 						return 1;
 					}
 					if (lws_finalize_http_header(wsi,
 							(unsigned char **)&p,
 							(unsigned char *)end)) {
-						lws_sul_cancel(&ps->sul);
-						lws_dll2_remove(&ps->list);
-						free(ps);
+						pending_login_release(ps);
 						return 1;
 					}
 					lws_write(wsi,
 						  (unsigned char *)buf + LWS_PRE,
 						  lws_ptr_diff_size_t(p, buf + LWS_PRE),
 						  LWS_WRITE_HTTP_HEADERS);
-					lws_sul_cancel(&ps->sul);
-					lws_dll2_remove(&ps->list);
-					free(ps);
+					pending_login_release(ps);
 					lws_callback_on_writable(wsi);
 					return 0;
 				}
@@ -2163,17 +2180,13 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				    lws_finalize_http_header(wsi,
 						(unsigned char **)&p,
 						(unsigned char *)end)) {
-					lws_sul_cancel(&ps->sul);
-					lws_dll2_remove(&ps->list);
-					free(ps);
+					pending_login_release(ps);
 					return 1;
 				}
 				lws_write(wsi, (unsigned char *)buf + LWS_PRE,
 					  lws_ptr_diff_size_t(p, buf + LWS_PRE),
 					  LWS_WRITE_HTTP_HEADERS);
-				lws_sul_cancel(&ps->sul);
-				lws_dll2_remove(&ps->list);
-				free(ps);
+				pending_login_release(ps);
 				lws_callback_on_writable(wsi);
 				return 0;
 			} else if (ps->token[0]) {
@@ -2221,9 +2234,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				lwsl_notice("%s: BFF SSO Exchange denied by Server\n", __func__);
 			}
 
-			lws_sul_cancel(&ps->sul);
-			lws_dll2_remove(&ps->list);
-			free(ps);
+			pending_login_release(ps);
 
 			lws_callback_on_writable(wsi);
 

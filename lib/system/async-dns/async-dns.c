@@ -109,12 +109,29 @@ lws_async_dns_retcode_t
 lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c)
 {
 	lws_async_dns_retcode_t ret = LADNS_RET_FOUND;
+	struct lws_dll2 *d;
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				   lws_dll2_get_head(&q->wsi_adns)) {
+	/*
+	 * The requester callbacks are user code (they run the connect flow,
+	 * CLIENT_CONNECTION_ERROR etc); any of them may synchronously close
+	 * a *different* requester wsi piggybacked on this query.  That close
+	 * cancels the wsi's dns wait, which would destroy q outright when it
+	 * sees the last requester go, while we are still iterating q and our
+	 * caller still uses q afterwards.
+	 *
+	 * So: while completing, cancel() detaches the closing wsi but leaves
+	 * q alive; and we never cache a "next" pointer across a callback.
+	 * Each serviced requester is removed from q first, so q's head is
+	 * always an unserviced, still-interested wsi, and wsis freed by other
+	 * callbacks were unlinked from q by their own cancel path.
+	 */
+	q->completing = 1;
+
+	while ((d = lws_dll2_get_head(&q->wsi_adns))) {
 		struct lws *w = lws_container_of(d, struct lws, adns);
 
 		lws_dll2_remove(d);
+
 		if (c && c->results) {
 			lwsl_wsi_debug(w, "q: %p, c: %p, refcount %d -> %d",
 				    q, c, c->refcount, c->refcount + 1);
@@ -131,8 +148,9 @@ lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c)
 			lwsl_info("%s: failed\n", __func__);
 			ret = LADNS_RET_FAILED_WSI_CLOSED;
 		}
+	}
 
-	} lws_end_foreach_dll_safe(d, d1);
+	q->completing = 0;
 
 	if (q->standalone_cb) {
 		if (c && c->results)
@@ -1039,7 +1057,7 @@ cancel(struct lws_dll2 *d, void *user)
 			 * currently, we can bail if we got a hit.
 			 */
 			lws_dll2_remove(d3);
-			if (!q->wsi_adns.count)
+			if (!q->wsi_adns.count && !q->completing)
 				lws_adns_q_destroy(q);
 			return 1;
 		}

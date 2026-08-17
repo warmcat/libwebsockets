@@ -148,10 +148,17 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 
 	if (lwsi_state(wsi) == LRS_WAITING_CONNECT) {
 #if defined(LWS_WITH_CLIENT)
-		if ((pollfd->revents & LWS_POLLOUT) &&
-		    lws_handle_POLLOUT_event(wsi, pollfd)) {
-			lwsl_debug("POLLOUT event closed it\n");
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+		if (pollfd->revents & LWS_POLLOUT) {
+			int hr = lws_handle_POLLOUT_event(wsi, pollfd);
+
+			if (hr < 0) {
+				/* connect racing already closed+freed the wsi */
+				return LWS_HPI_RET_WSI_ALREADY_DIED;
+			}
+			if (hr) {
+				lwsl_debug("POLLOUT event closed it\n");
+				return LWS_HPI_RET_PLEASE_CLOSE_ME;
+			}
 		}
 
 		n = lws_http_client_socket_service(wsi, pollfd);
@@ -163,16 +170,27 @@ rops_handle_POLLIN_h2(struct lws_context_per_thread *pt, struct lws *wsi,
 
 	/* 1: something requested a callback when it was OK to write */
 
-	if ((pollfd->revents & LWS_POLLOUT) &&
-	    lwsi_state_can_handle_POLLOUT(wsi) &&
-	    lws_handle_POLLOUT_event(wsi, pollfd)) {
-		if (lwsi_state(wsi) == LRS_RETURNED_CLOSE)
-			lwsi_set_state(wsi, LRS_FLUSHING_BEFORE_CLOSE);
-		/* the write failed... it's had it */
-		wsi->socket_is_permanently_unusable = 1;
+	if (pollfd->revents & LWS_POLLOUT) {
+		int hr;
 
-		return LWS_HPI_RET_PLEASE_CLOSE_ME;
+		if (!lwsi_state_can_handle_POLLOUT(wsi))
+			goto post_pollout;
+
+		hr = lws_handle_POLLOUT_event(wsi, pollfd);
+		if (hr < 0) {
+			/* connect racing already closed and freed the wsi */
+			return LWS_HPI_RET_WSI_ALREADY_DIED;
+		}
+		if (hr) {
+			if (lwsi_state(wsi) == LRS_RETURNED_CLOSE)
+				lwsi_set_state(wsi, LRS_FLUSHING_BEFORE_CLOSE);
+			/* the write failed... it's had it */
+			wsi->socket_is_permanently_unusable = 1;
+
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+		}
 	}
+post_pollout:
 
 	if (lwsi_state(wsi) == LRS_RETURNED_CLOSE ||
 	    lwsi_state(wsi) == LRS_WAITING_TO_SEND_CLOSE ||
@@ -1231,6 +1249,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 				lwsl_info("%s signalling to close\n", __func__);
 				lws_close_free_wsi(w, LWS_CLOSE_STATUS_NOSTATUS,
 						   "comp write fail");
+				continue;
 			}
 			lws_callback_on_writable(w);
 			continue;

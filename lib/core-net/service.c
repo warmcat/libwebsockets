@@ -149,7 +149,18 @@ lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd)
 #if defined(LWS_WITH_CLIENT)
 	/* Intercept POLLOUT for parallel sockets if we are racing H3 */
 	if (pollfd && wsi->parallel_count > 0 && pollfd->fd != wsi->desc.sockfd) {
-		lws_client_connect_3_connect(wsi, NULL, NULL, 0, pollfd);
+		if (!lws_client_connect_3_connect(wsi, NULL, NULL, 0, pollfd)) {
+			/*
+			 * The connect processing took over the wsi's fate...
+			 * it may already have been synchronously closed and
+			 * freed (eg, racer promotion followed by a connect_4
+			 * failure).  Callers must not touch or close the wsi
+			 * again: pass the "already died" disposition up rather
+			 * than "please close me", which would double-free.
+			 */
+			return -1;
+		}
+
 		return 0;
 	}
 #endif
@@ -1039,7 +1050,13 @@ lws_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 	n = _lws_plat_service_tsi(context, timeout_ms, tsi);
 
-	pt->inside_service = 0;
+	/*
+	 * _lws_plat_service_tsi may have finished off a context destroy that
+	 * was deferred from inside service; in that case it returns -1 and
+	 * the context, including pt, is already freed.  Mirrors lws_service.
+	 */
+	if (n != -1)
+		pt->inside_service = 0;
 
 	return n;
 }

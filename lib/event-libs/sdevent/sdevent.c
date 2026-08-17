@@ -144,8 +144,14 @@ sock_accept_handler(sd_event_source *s, int fd, uint32_t revents, void *userdata
 	 * allow further events
 	 *
 	 * Note:
-	 * do not move the assignment up, lws_service_fd_tsi may invalidate it!
+	 * lws_service_fd_tsi may have synchronously closed and freed the
+	 * wsi itself (not just invalidated the source): re-lookup the wsi
+	 * from the fd table rather than touching the wsi we came in with.
 	 */
+	wsi = wsi_from_fd(context, fd);
+	if (!wsi)
+		return 0;
+
 	watcher = wsi_to_priv_sd(wsi)->source;
 	if (watcher)
 		sd_event_source_set_enabled(watcher, SD_EVENT_ONESHOT);

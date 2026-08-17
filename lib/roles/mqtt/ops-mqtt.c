@@ -62,10 +62,17 @@ rops_handle_POLLIN_mqtt(struct lws_context_per_thread *pt, struct lws *wsi,
 			return LWS_HPI_RET_PLEASE_CLOSE_ME;
 		}
 
-		if ((pollfd->revents & LWS_POLLOUT) &&
-		    lws_handle_POLLOUT_event(wsi, pollfd)) {
-			lwsl_debug("POLLOUT event closed it\n");
-			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+		if (pollfd->revents & LWS_POLLOUT) {
+			int hr = lws_handle_POLLOUT_event(wsi, pollfd);
+
+			if (hr < 0) {
+				/* connect racing already closed+freed the wsi */
+				return LWS_HPI_RET_WSI_ALREADY_DIED;
+			}
+			if (hr) {
+				lwsl_debug("POLLOUT event closed it\n");
+				return LWS_HPI_RET_PLEASE_CLOSE_ME;
+			}
 		}
 
 		n = lws_mqtt_client_socket_service(wsi, pollfd, NULL);
@@ -77,14 +84,25 @@ rops_handle_POLLIN_mqtt(struct lws_context_per_thread *pt, struct lws *wsi,
 
 	/* 1: something requested a callback when it was OK to write */
 
-	if ((pollfd->revents & LWS_POLLOUT) &&
-	    lwsi_state_can_handle_POLLOUT(wsi) &&
-	    lws_handle_POLLOUT_event(wsi, pollfd)) {
-		if (lwsi_state(wsi) == LRS_RETURNED_CLOSE)
-			lwsi_set_state(wsi, LRS_FLUSHING_BEFORE_CLOSE);
+	if (pollfd->revents & LWS_POLLOUT) {
+		int hr;
 
-		return LWS_HPI_RET_PLEASE_CLOSE_ME;
+		if (!lwsi_state_can_handle_POLLOUT(wsi))
+			goto post_pollout;
+
+		hr = lws_handle_POLLOUT_event(wsi, pollfd);
+		if (hr < 0) {
+			/* connect racing already closed and freed the wsi */
+			return LWS_HPI_RET_WSI_ALREADY_DIED;
+		}
+		if (hr) {
+			if (lwsi_state(wsi) == LRS_RETURNED_CLOSE)
+				lwsi_set_state(wsi, LRS_FLUSHING_BEFORE_CLOSE);
+
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+		}
 	}
+post_pollout:
 
 	/* 3: buflist needs to be drained
 	 */
@@ -475,7 +493,15 @@ rops_close_role_mqtt(struct lws_context_per_thread *pt, struct lws *wsi)
 
 	c = &wsi->mqtt->client;
 
+	/*
+	 * These suls are owned by wsi->mqtt which is about to be freed; if
+	 * left linked into the pt sul owner they would fire on freed memory
+	 * after the timeout that armed them (eg, peer never sent UNSUBACK or
+	 * accepted the device shadow update before the connection died).
+	 */
 	lws_sul_cancel(&wsi->mqtt->sul_qos_puback_pubrec_wait);
+	lws_sul_cancel(&wsi->mqtt->sul_unsuback_wait);
+	lws_sul_cancel(&wsi->mqtt->sul_shadow_wait);
 
 	lws_mqtt_str_free(&c->username);
 	lws_mqtt_str_free(&c->password);

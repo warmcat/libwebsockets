@@ -2099,10 +2099,17 @@ next_packet:
 	}
 
 try_pollout:
-	if ((pollfd->revents & LWS_POLLOUT) &&
-	    lws_handle_POLLOUT_event(wsi, pollfd)) {
-		lwsl_debug("POLLOUT event closed it\n");
-		return LWS_HPI_RET_PLEASE_CLOSE_ME;
+	if (pollfd->revents & LWS_POLLOUT) {
+		int hr = lws_handle_POLLOUT_event(wsi, pollfd);
+
+		if (hr < 0) {
+			/* connect racing already closed and freed the wsi */
+			return LWS_HPI_RET_WSI_ALREADY_DIED;
+		}
+		if (hr) {
+			lwsl_debug("POLLOUT event closed it\n");
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+		}
 	}
 
 	return LWS_HPI_RET_HANDLED;
@@ -4063,8 +4070,15 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
 	const struct lws_role_ops *role;
 
 #if defined(LWS_WITH_CLIENT)
-	if (lwsi_role_client(wsi))
+	if (lwsi_role_client(wsi)) {
 		lws_sul_cancel(&wsi->sul_h3_grace);
+		/*
+		 * The happy eyeballs retry sul may still be armed from the
+		 * DNS-result staggering; after migration this wsi is an h3
+		 * mux child stream with no business opening TCP racers.
+		 */
+		lws_sul_cancel(&wsi->sul_happy_eyeballs);
+	}
 #endif
 
 	if (strcmp(alpn, "h3") && strcmp(alpn, "lws-quic"))
