@@ -192,6 +192,29 @@ struct expected expected1[] = {
 	expected18[] = {
 		{ LWS_TOKZE_TOKEN, "x=y", 3 },
 		{ LWS_TOKZE_ENDED, "", 0 },
+	},
+	expected19[] = {
+		{ LWS_TOKZE_TOKEN, "a+b", 3 },
+		{ LWS_TOKZE_ENDED, "", 0 },
+	},
+	/*
+	 * This is the exact flag set lws_process_ws_upgrade() uses to parse
+	 * Sec-WebSocket-Protocol... subprotocol names are RFC 2616 tokens, so
+	 * '+' is a legal character, eg, OPC UA's "opcua+uacp" and "opcua+json"
+	 */
+	expected20[] = {
+		{ LWS_TOKZE_TOKEN, "opcua+uacp", 10 },
+		{ LWS_TOKZE_DELIMITER, ",", 1 },
+		{ LWS_TOKZE_TOKEN, "opcua+json", 10 },
+		{ LWS_TOKZE_ENDED, "", 0 },
+	},
+	/*
+	 * ...without LWS_TOKENIZE_F_PLUS_NONTERM, the same list is rejected,
+	 * since the '+' inside the token is treated as an unexpected delimiter
+	 */
+	expected21[] = {
+		{ LWS_TOKZE_TOKEN, "opcua", 5 },
+		{ LWS_TOKZE_ERR_COMMA_LIST, "", 0 },
 	}
 ;
 
@@ -276,6 +299,23 @@ struct tests tests[] = {
 	{
 		"x=y", expected18,
 		LWS_ARRAY_SIZE(expected18), LWS_TOKENIZE_F_EQUALS_NONTERM
+	},
+	{
+		"a+b", expected19,
+		LWS_ARRAY_SIZE(expected19), LWS_TOKENIZE_F_PLUS_NONTERM
+	},
+	{
+		"opcua+uacp, opcua+json", expected20,
+		LWS_ARRAY_SIZE(expected20),
+		LWS_TOKENIZE_F_COMMA_SEP_LIST | LWS_TOKENIZE_F_MINUS_NONTERM |
+		LWS_TOKENIZE_F_DOT_NONTERM | LWS_TOKENIZE_F_PLUS_NONTERM |
+		LWS_TOKENIZE_F_RFC7230_DELIMS
+	},
+	{
+		"opcua+uacp", expected21,
+		LWS_ARRAY_SIZE(expected21),
+		LWS_TOKENIZE_F_COMMA_SEP_LIST | LWS_TOKENIZE_F_MINUS_NONTERM |
+		LWS_TOKENIZE_F_DOT_NONTERM | LWS_TOKENIZE_F_RFC7230_DELIMS
 	}
 };
 
@@ -350,7 +390,7 @@ int main(int argc, const char **argv)
 	char dotstar[512];
 	(void)switches;
 
-	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
+	if (lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
 		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
 		return 0;
 	}
