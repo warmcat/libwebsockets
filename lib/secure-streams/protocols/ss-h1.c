@@ -562,6 +562,30 @@ secstream_h1(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			r = lws_ss_event_helper(h, LWSSSCS_DISCONNECTED);
 			if (r == LWSSSSRET_DESTROY_ME)
 				return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
+		} else if (h->policy && !h->txn_ok &&
+#if defined(LWS_WITH_SERVER)
+			   !(h->info.flags & LWSSSINFLAGS_ACCEPTED) && /* not server */
+#endif
+			   !wsi->a.context->being_destroyed) {
+			/*
+			 * The connection died mid-transaction, before any
+			 * response headers arrived... because it never got as
+			 * far as CONNECTED, ss_dangling_connected is clear, and
+			 * without this, nobody would ever be told anything
+			 * leaving the app's stream silently stuck in
+			 * LWSSSCS_CONNECTING forever.
+			 *
+			 * Treat it identically to the connection attempt itself
+			 * failing in the CLIENT_CONNECTION_ERROR path: report
+			 * UNREACHABLE, and follow the policy retry / backoff.
+			 */
+			r = lws_ss_event_helper(h, LWSSSCS_UNREACHABLE);
+			if (r != LWSSSSRET_OK)
+				return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
+
+			r = lws_ss_backoff(h);
+			if (r != LWSSSSRET_OK)
+				return _lws_ss_handle_state_ret_CAN_DESTROY_HANDLE(r, wsi, &h);
 		}
 		break;
 
