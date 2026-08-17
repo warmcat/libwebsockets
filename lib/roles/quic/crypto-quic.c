@@ -445,9 +445,20 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
 
 		struct lws *nwsi = lws_get_network_wsi(wsi);
 		if (nwsi) {
+			struct lws_dll2 *d;
+
 			lws_wsi_mux_apply_queue(nwsi);
-			lws_start_foreach_dll(struct lws_dll2 *, d,
-					nwsi->mux.child_list_owner.head) {
+			/*
+			 * The CLIENT_ESTABLISHED_EARLY callback is user code and
+			 * may synchronously close and free any *other* child on
+			 * this list (eg, via lws_wsi_close(.., LWS_TO_KILL_SYNC)).
+			 * Keep the iteration state in the list itself: do not cache
+			 * a next pointer before the callback.  The current child
+			 * cannot close itself from its own callback, so it is
+			 * still alive afterwards and ->next is readable from it,
+			 * reflecting any list changes the callback made.
+			 */
+			for (d = nwsi->mux.child_list_owner.head; d; d = d->next) {
 				struct lws *w = lws_container_of(d, struct lws,
 								 mux.sibling_list);
 				if (w->a.protocol && w->a.protocol->callback) {
@@ -480,7 +491,6 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
 					}
 				}
 			}
-			lws_end_foreach_dll(d);
 		}
 	} else
 #endif

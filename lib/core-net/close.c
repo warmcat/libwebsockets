@@ -502,7 +502,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 	lws_ss_handle_t *hh = NULL;
 #endif
 	struct lws_context *context;
-	struct lws *wsi1, *wsi2;
+	struct lws *wsi2;
 	int n, ccb;
 
 	if (!wsi)
@@ -580,18 +580,22 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 #endif
 
 	/* if we have children, close them first */
-	if (wsi->child_list) {
+	while (wsi->child_list) {
 		wsi2 = wsi->child_list;
-		while (wsi2) {
-			wsi1 = wsi2->sibling_list;
-//			wsi2->parent = NULL;
-			/* stop it doing shutdown processing */
-			wsi2->socket_is_permanently_unusable = 1;
-			__lws_close_free_wsi(wsi2, reason,
-					     "general child recurse");
-			wsi2 = wsi1;
+		/* stop it doing shutdown processing */
+		wsi2->socket_is_permanently_unusable = 1;
+		__lws_close_free_wsi(wsi2, reason, "general child recurse");
+		if (wsi->child_list == wsi2) {
+			/*
+			 * The child's close processing did not detach it from
+			 * us: only possible when it bailed at the
+			 * LRS_DEAD_SOCKET check, ie, we were reentrantly closed
+			 * from the child's own close callbacks.  It's still
+			 * alive, just unlink it so we cannot spin.
+			 */
+			wsi->child_list = wsi2->sibling_list;
+			wsi2->parent = NULL;
 		}
-		wsi->child_list = NULL;
 	}
 
 #if defined(LWS_ROLE_RAW_FILE)

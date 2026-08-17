@@ -754,10 +754,17 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 //		return LWS_HPI_RET_HANDLED;
 
 #if defined(LWS_WITH_CLIENT)
-	if ((pollfd->revents & LWS_POLLOUT) &&
-	    lws_handle_POLLOUT_event(wsi, pollfd)) {
-		lwsl_debug("POLLOUT event closed it\n");
-		return LWS_HPI_RET_PLEASE_CLOSE_ME;
+	if (pollfd->revents & LWS_POLLOUT) {
+		int hr = lws_handle_POLLOUT_event(wsi, pollfd);
+
+		if (hr < 0) {
+			/* connect racing already closed and freed the wsi */
+			return LWS_HPI_RET_WSI_ALREADY_DIED;
+		}
+		if (hr) {
+			lwsl_debug("POLLOUT event closed it\n");
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+		}
 	}
 
 	// lwsl_notice("Calling lws_http_client_socket_service: state %x\n", lwsi_state(wsi));

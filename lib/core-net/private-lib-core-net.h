@@ -1502,6 +1502,11 @@ lws_create_new_server_wsi(struct lws_vhost *vhost, int fixed_tsi,
 char * LWS_WARN_UNUSED_RESULT
 lws_generate_client_handshake(struct lws *wsi, char *pkt, size_t pkt_len);
 
+/*
+ * Returns 0 = handled (wsi alive), 1 = caller should close the wsi (alive),
+ * or -1 = the wsi has already been synchronously closed and freed (client
+ * connect racing paths); callers must not touch or close the wsi again.
+ */
 int
 lws_handle_POLLOUT_event(struct lws *wsi, struct lws_pollfd *pollfd);
 

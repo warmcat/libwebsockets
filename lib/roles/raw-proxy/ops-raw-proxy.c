@@ -112,9 +112,17 @@ try_pollout:
 	if (!(pollfd->revents & LWS_POLLOUT))
 		return LWS_HPI_RET_HANDLED;
 
-	if (lws_handle_POLLOUT_event(wsi, pollfd)) {
-		lwsl_debug("POLLOUT event closed it\n");
-		return LWS_HPI_RET_PLEASE_CLOSE_ME;
+	{
+		int hr = lws_handle_POLLOUT_event(wsi, pollfd);
+
+		if (hr < 0) {
+			/* connect racing already closed and freed the wsi */
+			return LWS_HPI_RET_WSI_ALREADY_DIED;
+		}
+		if (hr) {
+			lwsl_debug("POLLOUT event closed it\n");
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+		}
 	}
 
 #if defined(LWS_WITH_CLIENT)
