@@ -66,10 +66,9 @@ static int server_requests_count;
  * "datagram" (the server for -send, the client for -receive) is the one
  * that requests the files, so it owns recovery: it re-sends GET
  * datagrams for anything not yet confirmed complete until everything
- * has arrived.  In -send, the server then confirms completion to the
- * client with a few DONE datagrams, so the client can stop waiting
- * without guessing.  A hard cap keeps a stuck exchange inside the
- * runner's own timeout.
+ * has arrived, then confirms completion to the peer with a few DONE
+ * datagrams so it can stop waiting without guessing.  A hard cap keeps a
+ * stuck exchange inside the runner's own timeout.
  */
 #define DG_RETRY_MS	400
 #define DG_DONE_COPIES	3

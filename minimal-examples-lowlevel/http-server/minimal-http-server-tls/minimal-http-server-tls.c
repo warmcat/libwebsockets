@@ -115,7 +115,11 @@ int main(int argc, const char **argv)
 	info.fd_limit_per_thread = 0;
 	lwsl_user("LWS minimal http server TLS | visit https://localhost:7681\n");
 
-	if (!info.port)
+	/*
+	 * lws_context_info_defaults() sets CONTEXT_PORT_NO_LISTEN (-1), so
+	 * the default port check has to cover that as well as 0
+	 */
+	if (info.port <= 0)
 		info.port = 7681;
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_PORT].sw)))
 		{

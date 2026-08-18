@@ -838,8 +838,16 @@ int main(int argc, const char **argv)
 #endif
 
 	/* force h1 even if h2 available */
-	if (lws_cmdline_option(argc, argv, "--h3"))
+	if (lws_cmdline_option(argc, argv, "--h3")) {
 		i.alpn = "h3";
+		/*
+		 * h3 was explicitly requested: falling back to TCP turns a
+		 * failing QUIC path into a silent success on the wrong
+		 * transport (eg, for interop testing where the result is
+		 * judged by whether h3 worked at all).
+		 */
+		i.disable_h3_fallback = 1;
+	}
 
 	if (lws_cmdline_option(argc, argv, "--quicv2"))
 		info.options |= LWS_SERVER_OPTION_QUIC_LATEST_VERSION;
