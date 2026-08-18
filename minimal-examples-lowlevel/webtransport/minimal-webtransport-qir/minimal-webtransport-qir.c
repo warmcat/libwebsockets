@@ -79,14 +79,55 @@ static int server_requests_count;
 #define DG_HARDCAP_MS	20000
 
 /*
+ * True if this testcase uses the session datagram exchange at all.
+ * The stream transfer testcases (transfer-unidirectional-{send,receive},
+ * transfer-bidirectional-{send,receive}, ...) move the files over
+ * WebTransport streams; only testcase names containing "datagram" use
+ * datagrams.
+ */
+static int dg_testcase(void)
+{
+	return strstr(testcase, "datagram") != NULL;
+}
+
+/*
  * True if we are the GET initiator for a datagram testcase, ie, the
  * receiver of the files: the client for -receive and the server for
- * -send.
+ * -send.  A mere "-send" / "-receive" in the testcase name is not
+ * enough to match: the stream transfer testcases contain them too, and
+ * if they matched, the unreliable datagram retry exchange would run
+ * alongside the streams and its lossy re-PUSHes would truncate files
+ * the streams had already written complete to the same paths.
  */
 static int dg_am_initiator(void)
 {
-	return (strstr(testcase, "-receive") && !is_server) ||
-	       (strstr(testcase, "-send") && is_server);
+	return dg_testcase() &&
+	       ((strstr(testcase, "-receive") && !is_server) ||
+	        (strstr(testcase, "-send") && is_server));
+}
+
+/*
+ * True if filename is one of our requests and it already completed.
+ * Stale GET retries queued at the peer can make it re-PUSH a file we
+ * already have; that duplicate must not be allowed to truncate the
+ * good copy, because if its (unreliable) re-send loses chunks nothing
+ * will fetch the file again.
+ */
+static int dg_request_completed(const char *filename)
+{
+	int i;
+
+	if (is_server) {
+		for (i = 0; i < server_requests_count; i++)
+			if (!strcmp(server_requests[i].filename, filename))
+				return server_requests[i].completed;
+	} else {
+		for (i = 0; i < client_requests_count; i++)
+			if (!strcmp(client_requests[i].filename, filename))
+				return client_requests[i].completed;
+	}
+
+	return 0;
 }
 
 enum {
@@ -113,7 +154,9 @@ struct pending_datagram {
 	int hdr_sent;
 };
 
-static struct pending_datagram dg_queue[512];
+#define DG_QUEUE_LEN	512
+
+static struct pending_datagram dg_queue[DG_QUEUE_LEN];
 static int dg_queue_head;
 static int dg_queue_tail;
 
@@ -127,7 +170,7 @@ static int dg_queue_tail;
 
 static void enqueue_datagram(const char *filename, int kind)
 {
-	if ((dg_queue_tail + 1) % 512 == dg_queue_head) {
+	if ((dg_queue_tail + 1) % DG_QUEUE_LEN == dg_queue_head) {
 		lwsl_err("Datagram queue overflow!\n");
 		return;
 	}
@@ -140,7 +183,7 @@ static void enqueue_datagram(const char *filename, int kind)
 	dg->file_len = 0;
 	dg->sent = 0;
 	dg->hdr_sent = 0;
-	dg_queue_tail = (dg_queue_tail + 1) % 512;
+	dg_queue_tail = (dg_queue_tail + 1) % DG_QUEUE_LEN;
 }
 
 static struct pending_datagram *peek_datagram(void)
@@ -154,7 +197,7 @@ static void dequeue_datagram(void)
 {
 	if (dg_queue_head == dg_queue_tail)
 		return;
-	dg_queue_head = (dg_queue_head + 1) % 512;
+	dg_queue_head = (dg_queue_head + 1) % DG_QUEUE_LEN;
 }
 
 struct pss_qir {
@@ -188,6 +231,7 @@ struct pss_qir {
 	char dg_cur_name[256];		/* file currently being reassembled */
 	size_t dg_cur_expect;		/* its advertised total length */
 	size_t dg_cur_got;		/* bytes of it received so far */
+	int dg_cur_discard;		/* reassembling a duplicate: drop it */
 };
 
 static void init_pss(struct pss_qir *pss)
@@ -508,7 +552,13 @@ dgretry_sul_cb(struct lws_sorted_usec_list *sul)
 static void
 start_datagram_recovery(void)
 {
-	if (!context)
+	/*
+	 * There is no datagram exchange to recover or cap unless this is a
+	 * datagram testcase.  In particular the hard cap must not apply to
+	 * the stream transfer testcases: their reliable transfers may
+	 * legitimately still be in flight at 20s on a slow, lossy sim.
+	 */
+	if (!context || !dg_testcase())
 		return;
 
 	if (dg_am_initiator() && !dg_retry_armed) {
@@ -1175,6 +1225,17 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RECEIVE:
 		if (pss->is_session) {
 			/*
+			 * Only datagram testcases have a datagram
+			 * protocol.  In the stream transfer
+			 * testcases any datagram is unrelated and
+			 * must never be actioned: acting on a PUSH
+			 * would reopen-and-truncate files the
+			 * streams are writing to the same paths.
+			 */
+			if (!dg_testcase())
+				break;
+
+			/*
 			 * Datagram received.  Formats:
 			 *
 			 *   "GET <filename>"                       request a file
@@ -1217,8 +1278,35 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 
 				lwsl_user("Session WSI received datagram GET: %s\n", filename);
 
-				/* Respond by sending the file as datagrams */
-				enqueue_datagram(filename, QIR_DG_PUSH);
+				/*
+				 * Respond by sending the file as
+				 * datagrams, unless a PUSH for it is
+				 * already in flight or queued: the
+				 * initiator's 400ms retries can queue
+				 * several GETs before the first PUSH
+				 * completes, and every duplicate would
+				 * re-send the whole file behind the
+				 * last one, long after the initiator
+				 * stopped needing it.
+				 */
+				{
+					int dup = 0, idx;
+
+					for (idx = dg_queue_head;
+					     idx != dg_queue_tail;
+					     idx = (idx + 1) % DG_QUEUE_LEN)
+						if (dg_queue[idx].kind == QIR_DG_PUSH &&
+						    !strcmp(dg_queue[idx].filename, filename)) {
+							dup = 1;
+							break;
+						}
+
+					if (dup)
+						lwsl_user("Datagram PUSH for %s already in flight, ignoring duplicate GET\n",
+							  filename);
+					else
+						enqueue_datagram(filename, QIR_DG_PUSH);
+				}
 				lws_callback_on_writable(wsi);
 			} else if (payload_len > 4 && strncmp(payload, "END ", 4) == 0) {
 				/* END <filename>: the file is complete */
@@ -1239,6 +1327,13 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 				 * logic.  Leave it incomplete instead; the
 				 * initiator's retry will bring it again.
 				 */
+				if (pss->dg_cur_discard &&
+				    !strcmp(pss->dg_cur_name, filename)) {
+					lwsl_user("Session WSI received datagram END: %s (duplicate of completed file, ignoring)\n", filename);
+					pss->dg_cur_discard = 0;
+					pss->dg_cur_name[0] = '\0';
+					break;
+				}
 				if (pss->dg_fd < 0 ||
 				    strcmp(pss->dg_cur_name, filename)) {
 					lwsl_user("Session WSI received datagram END: %s (no matching PUSH in progress, ignoring)\n", filename);
@@ -1347,10 +1442,26 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 						close(pss->dg_fd);
 						pss->dg_fd = -1;
 					}
-					pss->dg_fd = open(filepath, O_WRONLY | O_CREAT | O_TRUNC, 0666); // NOSONAR
+					pss->dg_cur_discard = dg_request_completed(filename);
 					lws_strncpy(pss->dg_cur_name, filename, sizeof(pss->dg_cur_name));
 					pss->dg_cur_expect = expect;
 					pss->dg_cur_got = 0;
+					if (pss->dg_cur_discard) {
+						/*
+						 * We already completed this
+						 * file; a stale queued GET
+						 * made the peer send it
+						 * again.  Drop the duplicate
+						 * instead of truncating the
+						 * good copy: if this attempt
+						 * loses chunks, nothing
+						 * would fetch it again.
+						 */
+						lwsl_user("Session WSI received datagram PUSH: %s (already complete, discarding duplicate)\n",
+							  filename);
+						break;
+					}
+					pss->dg_fd = open(filepath, O_WRONLY | O_CREAT | O_TRUNC, 0666); // NOSONAR
 					if (pss->dg_fd >= 0) {
 						long w = (long)write(pss->dg_fd, data_start,
 								     LWS_POSIX_LENGTH_CAST(data_len));
@@ -1362,6 +1473,10 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 				}
 			} else {
 				/* raw continuation chunk for the incoming file */
+				if (pss->dg_cur_discard) {
+					/* it belongs to a discarded duplicate */
+					break;
+				}
 				lwsl_user("Session WSI received datagram chunk: %zu bytes\n", payload_len);
 				if (pss->dg_fd >= 0) {
 					long w = (long)write(pss->dg_fd, payload,
