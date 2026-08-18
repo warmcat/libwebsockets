@@ -741,11 +741,14 @@ void
 lws_quic_discard_keys(struct lws *nwsi, int level)
 {
 	struct lws_quic_netconn *qn = nwsi->quic.qn;
+	int discarded = 0;
+
 	if (!qn) return;
 
 	if (qn->keys[level]) {
 		lws_quic_keys_destroy(qn->keys[level]);
 		qn->keys[level] = NULL;
+		discarded = 1;
 	}
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->pending_tx[level].head) {
@@ -765,6 +768,41 @@ lws_quic_discard_keys(struct lws *nwsi, int level)
 		lws_dll2_remove(&c->list);
 		lws_free(c);
 	} lws_end_foreach_dll_safe(d, d1);
+
+	/*
+	 * RFC 9002 A.11 (OnPacketNumberSpaceDiscarded): discarding a packet
+	 * number space resets the PTO backoff.  In both directions, getting
+	 * far enough to drop a space proves the peer processed at least one
+	 * of our packets (eg, a client that receives a Handshake packet
+	 * knows the server got its Initial), so any exponential backoff
+	 * accumulated on a dead-looking path no longer applies.
+	 *
+	 * Without this, a handshake that survived a long corruption streak
+	 * (eg, the interop corrupt-rate scenario) inherits a fully backed-off
+	 * PTO timer after the Initial phase, and a single further loss can
+	 * then never be retransmitted inside the client handshake timeout.
+	 */
+	if (discarded) {
+		int any_in_flight = 0, lvl;
+
+		qn->pto_count = 0;
+
+		for (lvl = 0; lvl < LWS_QUIC_LEVEL_COUNT; lvl++)
+			if (qn->in_flight[lvl].count) {
+				any_in_flight = 1;
+				break;
+			}
+
+		if (any_in_flight || !qn->handshake_done) {
+			lws_usec_t pto_base = qn->smoothed_rtt ?
+				(qn->smoothed_rtt + (4 * qn->rttvar) + 25000) :
+				LWS_QUIC_DEFAULT_PTO_US;
+
+			/* reschedule the PTO at the fresh, unbacked-off delay */
+			lws_sul_schedule(nwsi->a.context, 0, &qn->pto_sul,
+					 lws_quic_pto_cb, pto_base);
+		}
+	}
 }
 
 struct lws *

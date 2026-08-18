@@ -1179,8 +1179,17 @@ error_handling:
 			 * list that was offered by mistake): the connection can
 			 * never make progress, so fail it and let eg the TCP
 			 * fallback machinery take over
+			 *
+			 * The one exception is when the migration already
+			 * happened earlier: a client that attempts 0-RTT
+			 * migrates to the h3 role as soon as the CLIENT_EARLY
+			 * keys are derived, long before handshake_done.  This
+			 * callback then runs on the *migrated* nwsi (which is
+			 * never itself a mux substream), so accept the
+			 * connection when alpn_migrated is already set.
 			 */
-			if (!wsi->mux_substream) {
+			if (!wsi->mux_substream &&
+			    !(wsi->quic.qn && wsi->quic.qn->alpn_migrated)) {
 				lwsl_wsi_warn(wsi, "negotiated ALPN '%s' not usable on QUIC",
 						  wsi->alpn);
 				lws_quic_enter_closing_state(wsi,
