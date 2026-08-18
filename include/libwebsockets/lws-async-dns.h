@@ -37,6 +37,18 @@ typedef enum dns_query_type {
 	LWS_ADNS_RECORD_DNSKEY					= 0x30,
 	LWS_ADNS_RECORD_NSEC3					= 0x32,
 	LWS_ADNS_RECORD_HTTPS					= 0x41,
+
+	/*
+	 * Query types are combined by OR with the flag bits defined below
+	 * the enum (LWS_ADNS_SYNTHETIC .. LWS_ADNS_IGNORE_HOSTS_FILE; the
+	 * largest possible combination is 0x1f0041).  A C enum can only
+	 * hold values within the range of its listed constants, so this
+	 * sentinel extends the enum's range over the whole flag space...
+	 * without it, any OR'd combination is undefined behaviour, which
+	 * -fsanitize=enum trips on.
+	 */
+
+	LWS_ADNS_RECORD_TYPE_AND_FLAGS_MAX			= 0x1f0041,
 } adns_query_type_t;
 
 typedef enum {

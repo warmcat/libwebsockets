@@ -54,6 +54,80 @@ int main(void)
 #endif
 	}
 
+	/*
+	 * lws_sa46_on_net() has to give the same answers however the v4
+	 * addresses are represented: natively as AF_INET in dual builds, or
+	 * normalized to v4-mapped AF_INET6 in an IPv6-only build (the prefix
+	 * length is in v4 space in both cases)
+	 */
+	{
+		lws_sockaddr46 net;
+
+		if (lws_sa46_parse_numeric_address("192.168.1.1", &sa46) ||
+		    lws_sa46_parse_numeric_address("192.168.1.0", &net)) {
+			lwsl_err("on_net setup failed\n");
+			e++;
+		} else {
+			if (lws_sa46_on_net(&sa46, &net, 24)) {
+				lwsl_err("192.168.1.1 not on 192.168.1.0/24\n");
+				e++;
+			}
+			if (lws_sa46_on_net(&sa46, &net, 25)) {
+				lwsl_err("192.168.1.1 not on 192.168.1.0/25\n");
+				e++;
+			}
+			if (!lws_sa46_parse_numeric_address("192.168.1.129",
+							    &sa46) &&
+			    !lws_sa46_on_net(&sa46, &net, 25)) {
+				lwsl_err("192.168.1.129 wrongly on 192.168.1.0/25\n");
+				e++;
+			}
+		}
+	}
+
+#if defined(LWS_WITH_IPV6)
+	{
+		lws_sockaddr46 d6, n6;
+
+		if (lws_sa46_parse_numeric_address("2001:db8::1", &d6) ||
+		    lws_sa46_parse_numeric_address("2001:db8::", &n6)) {
+			lwsl_err("on_net v6 setup failed\n");
+			e++;
+		} else {
+			if (lws_sa46_on_net(&d6, &n6, 32)) {
+				lwsl_err("2001:db8::1 not on 2001:db8::/32\n");
+				e++;
+			}
+			if (!lws_sa46_parse_numeric_address("2001:db9::1", &d6) &&
+			    !lws_sa46_on_net(&d6, &n6, 32)) {
+				lwsl_err("2001:db9::1 wrongly on 2001:db8::/32\n");
+				e++;
+			}
+		}
+
+		/*
+		 * a v4 address (v4-mapped in IPv6-only builds) is not on a
+		 * native v6 net
+		 */
+		if (!lws_sa46_parse_numeric_address("192.168.1.1", &sa46) &&
+		    !lws_sa46_on_net(&sa46, &n6, 32)) {
+			lwsl_err("v4 address wrongly on native v6 net\n");
+			e++;
+		}
+
+		/*
+		 * comparison has to bridge the representations: a v4 address
+		 * and its v4-mapped form are the same address
+		 */
+		if (!lws_sa46_parse_numeric_address("192.168.1.1", &sa46) &&
+		    !lws_sa46_parse_numeric_address("::ffff:192.168.1.1", &d6) &&
+		    lws_sa46_compare_ads(&sa46, &d6)) {
+			lwsl_err("v4 and v4-mapped compare unequal\n");
+			e++;
+		}
+	}
+#endif
+
 	lwsl_user("Completed: %d fails\n", e);
 
 	return e;

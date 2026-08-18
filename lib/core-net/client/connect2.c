@@ -196,7 +196,7 @@ lws_client_connect_2_dnsreq_MAY_CLOSE_WSI(struct lws *wsi)
 {
 	struct addrinfo *result = NULL;
 	const char *meth = NULL;
-#if defined(LWS_WITH_IPV6)
+#if defined(LWS_WITH_IPV6) && defined(LWS_WITH_IPV4)
 	struct sockaddr_in addr;
 	const char *iface;
 #endif
@@ -461,6 +461,14 @@ solo:
 	/*
 	 * start off allowing ipv6 on connection if vhost allows it
 	 */
+#if !defined(LWS_WITH_IPV4)
+	/*
+	 * IPv6-only build: there is no v4 socket path to fall back to, the
+	 * v4-mapped address handling relies on the v6 path, so it's v6
+	 * regardless of any options
+	 */
+	wsi->ipv6 = 1;
+#else
 	wsi->ipv6 = LWS_IPV6_ENABLED(wsi->a.vhost);
 #ifdef LWS_WITH_IPV6
 	if (wsi->stash)
@@ -473,6 +481,7 @@ solo:
 		lwsl_wsi_notice(wsi, "client connection forced to IPv4");
 		wsi->ipv6 = 0;
 	}
+#endif
 #endif
 
 #if defined(LWS_CLIENT_HTTP_PROXYING) && \
@@ -553,13 +562,9 @@ solo:
 		}
 #endif
 		n = lws_async_dns_query(wsi->a.context, wsi->tsi, adsin,
-#if defined(LWS_WITH_IPV6) && !defined(LWS_WITH_IPV4)
-				LWS_ADNS_RECORD_AAAA,
-#else
-				LWS_ADNS_RECORD_A,
-#endif
-				lws_client_connect_3_connect,
-				wsi, NULL, NULL);
+					LWS_ADNS_RECORD_A,
+					lws_client_connect_3_connect,
+					wsi, NULL, NULL);
 	}
 
 	if (n == LADNS_RET_FAILED_WSI_CLOSED)

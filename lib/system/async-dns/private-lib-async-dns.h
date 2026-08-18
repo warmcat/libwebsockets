@@ -30,6 +30,17 @@
 #define DNS_QUERY_TIMEOUT	30	/* Query timeout, seconds	*/
 #define LWS_ADNS_MAX_PAYLOAD	1500	/* Maximum TCP payload size    */
 
+/*
+ * The overallocated results area behind lws_adns_cache_t is walked with a
+ * per-item stride of struct addrinfo + sockaddr (or lws_adns_rr_t + payload
+ * for non-address RRs).  Since eg sizeof(struct addrinfo) + sockaddr_in6 is
+ * 4 mod 8 on linux x86_64, round each item's footprint up to an 8-byte
+ * boundary so every object placed in the area keeps its natural alignment.
+ * The estimation pass has to use the same arithmetic as the storage pass.
+ */
+#define adns_align_len(n)	(((size_t)(n) + 7) & ~(size_t)7)
+#define adns_align_ptr(p)	((void *)(((uintptr_t)(p) + 7) & ~(uintptr_t)7))
+
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 
 /* RFC 4034, 5702, 6605, etc DNSSEC Algorithm Numbers */
