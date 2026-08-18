@@ -124,6 +124,8 @@ int
 lws_role_call_alpn_negotiated(struct lws *wsi, const char *alpn)
 {
 #if defined(LWS_WITH_TLS)
+	int is_quic;
+
 	if (!alpn)
 		return 0;
 
@@ -131,10 +133,19 @@ lws_role_call_alpn_negotiated(struct lws *wsi, const char *alpn)
 	lwsl_wsi_info(wsi, "'%s'", alpn);
 #endif
 
+	/*
+	 * A QUIC-transport wsi always hands the negotiated ALPN to its current
+	 * (quic) role for filtering and possible migration to the h3 role, and
+	 * must never be claimed by the by-ALPN-string fallback below: a TCP
+	 * ALPN like "h2" negotiated on top of the UDP transport would
+	 * transition the wsi to the h2 role where it can never make progress.
+	 */
+	is_quic = wsi->role_ops && !strcmp(wsi->role_ops->name, "quic");
+
 	/* First try the WSI's current role if it matches the ALPN or if it's QUIC */
 	if (wsi->role_ops && lws_rops_fidx(wsi->role_ops, LWS_ROPS_alpn_negotiated) &&
-	    ((wsi->role_ops->alpn && !strcmp(wsi->role_ops->alpn, alpn)) ||
-		 (!strcmp(wsi->role_ops->name, "quic") && !strcmp(alpn, "lws-quic")))) {
+	    (is_quic ||
+	     (wsi->role_ops->alpn && !strcmp(wsi->role_ops->alpn, alpn)))) {
 			lwsl_wsi_info(wsi, "lws_role_call_alpn_negotiated: Matched WSI current role: %s", wsi->role_ops->name);
 #if defined(LWS_WITH_SERVER)
 			lws_metrics_tag_wsi_add(wsi, "upg", wsi->role_ops->name);
@@ -142,6 +153,12 @@ lws_role_call_alpn_negotiated(struct lws *wsi, const char *alpn)
 			return (lws_rops_func_fidx(wsi->role_ops, LWS_ROPS_alpn_negotiated)).
 						   alpn_negotiated(wsi, alpn);
 	}
+
+	/* ... but a QUIC wsi has nowhere else to go: leave the decision to the
+	 * quic role's caller, which should fail the connection */
+
+	if (is_quic)
+		return 0;
 
 	LWS_FOR_EVERY_AVAILABLE_ROLE_START(ar)
 		if (ar->alpn && !strcmp(ar->alpn, alpn) &&

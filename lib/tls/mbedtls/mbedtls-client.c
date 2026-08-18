@@ -97,6 +97,19 @@ lws_ssl_client_bio_create(struct lws *wsi)
 	if (wsi->a.vhost->tls.alpn)
 		alpn_comma = wsi->a.vhost->tls.alpn;
 
+	if (wsi->role_ops && !strcmp(wsi->role_ops->name, "quic")) {
+		/*
+		 * QUIC only carries QUIC-mapped ALPNs (h3 family).  The
+		 * stash / vhost lists are the TCP ALPNs (eg, "h2,http/1.1"):
+		 * offering those on QUIC can get "h2" negotiated on top of
+		 * the UDP transport, where the h2 role can never make
+		 * progress.  For the alt-svc QUIC race, connect2 puts the
+		 * h3-only list in wsi->alpn (the TCP fallback restores the
+		 * original from there); native h3 streams also carry their
+		 * ALPN in wsi->alpn.
+		 */
+		alpn_comma = wsi->alpn[0] ? wsi->alpn : "h3";
+	} else
 	if (wsi->stash) {
 		if (wsi->stash->cis[CIS_ALPN])
 			alpn_comma = wsi->stash->cis[CIS_ALPN];
