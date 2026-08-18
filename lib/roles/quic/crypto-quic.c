@@ -1170,6 +1170,23 @@ error_handling:
 				lws_quic_enter_closing_state(wsi, 0x0100 + 120 /* no_application_protocol */, 0, 0);
 				return -1;
 			}
+
+			/*
+			 * A successful migration to the negotiated role marks
+			 * the wsi as a mux substream of a new network wsi.  If
+			 * that did not happen, no role could use the negotiated
+			 * ALPN on the QUIC transport (eg, "h2" from a TCP ALPN
+			 * list that was offered by mistake): the connection can
+			 * never make progress, so fail it and let eg the TCP
+			 * fallback machinery take over
+			 */
+			if (!wsi->mux_substream) {
+				lwsl_wsi_warn(wsi, "negotiated ALPN '%s' not usable on QUIC",
+						  wsi->alpn);
+				lws_quic_enter_closing_state(wsi,
+						0x0100 + 120 /* no_application_protocol */, 0, 0);
+				return -1;
+			}
 		}
 #endif
 
