@@ -197,6 +197,34 @@ _lws_route_table_ifdown(struct lws_context_per_thread *pt, int idx)
 	} lws_end_foreach_dll_safe(d, d1);
 }
 
+/*
+ * Is the route's gateway usable for reaching this dest?
+ *
+ *  dest    gw
+ *   4       4     OK
+ *   4       6     OK with ::ffff:x:x (v4 dest promoted for v6-only egress)
+ *   6n      6n    OK (native v6 dest via native v6 gateway)
+ *   6m      6m    OK (v4-mapped dest via v4-mapped gateway, ie, an
+ *                   IPv6-only build on a dual-stack host routing v4
+ *                   results through the v4 table using v4-mapped form)
+ *   6n      6m     no (native v6 cannot egress via a v4 gateway)
+ *   6m      6n     no (v4-mapped dests route via the v4 table)
+ *   6       4     not supported directly
+ */
+static int
+lws_route_gw_usable(const lws_sockaddr46 *dest, const lws_sockaddr46 *gw)
+{
+	if (dest->sa4.sin_family == AF_INET)
+		return gw->sa4.sin_family == AF_INET ||
+		       gw->sa4.sin_family == AF_INET6;
+
+	if (dest->sa4.sin_family == AF_INET6 && gw->sa4.sin_family == AF_INET6)
+		return !lws_sa46_is_ipv4_mapped(dest) ==
+		       !lws_sa46_is_ipv4_mapped(gw);
+
+	return 0;
+}
+
 lws_route_t *
 _lws_route_est_outgoing(struct lws_context_per_thread *pt,
 		        const lws_sockaddr46 *dest)
@@ -237,18 +265,7 @@ _lws_route_est_outgoing(struct lws_context_per_thread *pt,
 			      rou->priority);
 
 		if (rou->gateway.sa4.sin_family &&
-
-			/*
-			 *  dest  gw
-			 *   4     4    OK
-			 *   4     6    OK with ::ffff:x:x
-			 *   6     4    not supported directly
-			 *   6     6    OK
-			 */
-
-		    (dest->sa4.sin_family == rou->gateway.sa4.sin_family ||
-			(dest->sa4.sin_family == AF_INET &&
-			 rou->gateway.sa4.sin_family == AF_INET6)) &&
+		    lws_route_gw_usable(dest, &rou->gateway) &&
 		    rou->priority < best_gw_priority) {
 			lwsl_cx_info(pt->context, "gw hit");
 			best_gw_priority = rou->priority;

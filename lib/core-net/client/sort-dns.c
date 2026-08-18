@@ -644,17 +644,25 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 		if (ai->ai_family == AF_INET6)
 			goto next;
 #endif
-#if !defined(LWS_WITH_IPV4)
-		if (ai->ai_family == AF_INET)
-			goto next;
-#endif
-
 		ds = lws_zalloc(sizeof(*ds), __func__);
 		if (!ds)
 			return 1;
 
 		memcpy(&ds->dest, ai->ai_addr, (size_t)ai->ai_addrlen);
 		ds->dest.sa4.sin_family = (sa_family_t)ai->ai_family;
+
+#if defined(LWS_WITH_IPV6) && !defined(LWS_WITH_IPV4)
+		if (ai->ai_family == AF_INET)
+			/*
+			 * IPv6-only build: normalize AF_INET results into
+			 * v4-mapped AF_INET6, so they remain usable on
+			 * dual-stack hosts the same way as mapped IPv4
+			 * literals, and comparable with the (similarly
+			 * normalized) routing table entries
+			 */
+			lws_sa46_4to6(&ds->dest,
+				      (const uint8_t *)&ds->dest.sa4.sin_addr, 0);
+#endif
 
 		lws_sa46_write_numeric_address(&ds->dest, afip, sizeof(afip));
 
@@ -704,6 +712,16 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 		 * egress, then promote it to ipv6 and sort it
 		 */
 
+#if !defined(LWS_WITH_IPV4)
+		if (lws_sa46_is_ipv4_mapped(&ds->dest))
+			/*
+			 * A v4-mapped dest (IPv6-only build) egresses via the
+			 * host's v4 routing table, exactly like v4 dests in
+			 * dual builds: skip the v6 source address selection
+			 */
+			goto just_add;
+#endif
+
 		if (ds->dest.sa4.sin_family == AF_INET) {
 			if (!estr ||
 			    estr->dest.sa4.sin_family == AF_INET ||
@@ -744,9 +762,12 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 			/* gateway routes are skipped here */
 
 			if (ds->dest.sa6.sin6_family == AF_INET6 &&
-			    r->dest.sa4.sin_family == AF_INET6 && (!bestsrc ||
+			    r->dest.sa4.sin_family == AF_INET6 &&
+			    /* pair v4-mapped sources with v4-mapped dests */
+			    lws_sa46_is_ipv4_mapped(&r->dest) ==
+			    lws_sa46_is_ipv4_mapped(&ds->dest) && (!bestsrc ||
 			    lws_sort_dns_scomp(pt, bestsrc, r, &ds->dest.sa6) ==
-							    SAS_PREFER_B))
+								    SAS_PREFER_B))
 				bestsrc = r;
 
 		} lws_end_foreach_dll(d);

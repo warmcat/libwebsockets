@@ -112,7 +112,22 @@ _lws_vhost_init_server_af(struct vh_sock_args *a)
 	struct lws *wsi;
 	int m = 0, is = 0;
 #if defined(LWS_WITH_IPV6) && defined(IPV6_V6ONLY)
+#if defined(LWS_WITH_IPV4)
+	/*
+	 * The v6 listener is v6-only, a separate AF_INET listener serves v4
+	 */
 	int value = 1;
+#else
+	/*
+	 * IPv6-only build: no separate AF_INET listener can exist, so make
+	 * the listener dual-stack by default, letting v4 peers still reach
+	 * us via v4-mapped addresses.  Explicitly setting
+	 * IPV6_V6ONLY_MODIFY|_VALUE still forces v6-only.
+	 */
+	int value = lws_check_opt(a->vhost->options,
+				  LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY |
+				  LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE);
+#endif
 #endif
 
 	(void)method_names;
@@ -296,10 +311,10 @@ done_list:
 
 #if defined(LWS_WITH_IPV6) && defined(IPV6_V6ONLY)
 		/*
-		 * If we have an ipv6 listen socket, it only accepts ipv6.
-		 *
-		 * There will be a separate ipv4 listen socket if that's
-		 * enabled.
+		 * If we have an ipv6 listen socket, in dual builds it only
+		 * accepts ipv6 since there is a separate ipv4 listen socket
+		 * as well (if ipv4 is enabled).  In IPv6-only builds it is
+		 * dual-stack by default so v4-mapped peers can reach us.
 		 */
 		if (a->af == AF_INET6 && (!a->info || !a->info->vh_listen_sockfd) &&
 		    setsockopt(sockfd, IPPROTO_IPV6, IPV6_V6ONLY,

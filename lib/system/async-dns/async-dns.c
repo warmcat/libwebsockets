@@ -240,12 +240,13 @@ lws_async_dns_writeable(struct lws *wsi, lws_adns_q_t *q)
 	p = &pkt[LWS_PRE];
 	memset(p, 0, DHO_SIZEOF);
 
-#if !defined(LWS_WITH_IPV4)
-	which = 1;
-	q->sent[0]++;
-	q->sent[1]++;
-	q->asked = 2; /* AAAA response bit is 2 (1 << 1) */
-#elif defined(LWS_WITH_IPV6)
+#if defined(LWS_WITH_IPV6)
+	/*
+	 * This covers both dual-stack and IPv6-only builds: we want results
+	 * for A and AAAA before we consider the query complete (asked = 3).
+	 * In an IPv6-only build, A results are normalized to v4-mapped IPv6
+	 * addresses later, so they remain usable on dual-stack hosts.
+	 */
 	if (q->qtype != LWS_ADNS_RECORD_A && q->qtype != LWS_ADNS_RECORD_AAAA) {
 		which = 0;
 		q->sent[0]++;
@@ -431,8 +432,21 @@ callback_async_dns(struct lws *wsi, enum lws_callback_reasons reason,
 		case LWS_CALLBACK_RAW_CONNECTED:
 			lws_callback_on_writable(wsi);
 			break;
+		case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+			/*
+			 * The TCP fallback attempt could not connect (eg, the
+			 * DNS server doesn't accept TCP).  This is reliably
+			 * delivered to us on the wsi's connect failure path,
+			 * before the wsi is freed; without it q->wsi_tcp would
+			 * dangle at the freed wsi.
+			 */
 		case LWS_CALLBACK_RAW_CLOSE:
+			if (q->wsi_tcp != wsi)
+				/* stale notification for a wsi we already
+				 * disowned */
+				break;
 			q->wsi_tcp = NULL;
+			wsi->a.opaque_user_data = NULL;
 			if (q->go_nogo != METRES_GO) {
 				lws_async_dns_complete(q, NULL);
 				lws_adns_q_destroy(q);
@@ -1426,8 +1440,9 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 		/* compose an addrinfo chain with one node per match */
 
 		c = lws_zalloc(sizeof(lws_adns_cache_t) +
-			       (size_t)matches * (sizeof(struct addrinfo) +
-					    sizeof(lws_sockaddr46)) +
+			       (size_t)matches * adns_align_len(
+					sizeof(struct addrinfo) +
+					sizeof(lws_sockaddr46)) +
 			       nlen + 1, "adns-numip");
 		if (!c)
 			goto failed;
@@ -1442,9 +1457,9 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 			ai->ai_socktype = SOCK_STREAM;
 			if (!m) {
 				c->name = (const char *)c->results +
-					  (size_t)matches *
-					  (sizeof(struct addrinfo) +
-					   sizeof(lws_sockaddr46));
+					  (size_t)matches * adns_align_len(
+						sizeof(struct addrinfo) +
+						sizeof(lws_sockaddr46));
 				memcpy((char *)c->name, name, nlen + 1);
 				ai->ai_canonname = (char *)c->name;
 			}
@@ -1467,7 +1482,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 #endif
 
 			ai_prev = ai;
-			ai = (struct addrinfo *)&sa46[1];
+			ai = (struct addrinfo *)adns_align_ptr(&sa46[1]);
 		}
 
 		memset(&tmq.tq, 0, sizeof(tmq.tq));

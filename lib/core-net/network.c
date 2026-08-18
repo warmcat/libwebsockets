@@ -1186,46 +1186,56 @@ lws_sa46_on_net(const lws_sockaddr46 *sa46a, const lws_sockaddr46 *sa46_net,
 		int net_len)
 {
 #if defined(LWS_WITH_IPV4)
-	uint8_t mask = 0xff, norm[16];
-#else
-	uint8_t mask = 0xff;
+	uint8_t norm[2][16];
 #endif
 	const uint8_t *p1, *p2;
+	uint8_t mask = 0xff;
+
+	/*
+	 * Bring the two addresses into a common, comparable 16-byte form, so
+	 * IPv4 addresses are compared as IPv4-mapped IPv6 addresses whether
+	 * they arrived as AF_INET, or already normalized to v4-mapped AF_INET6
+	 * (as happens in an IPv6-only build).
+	 *
+	 * The prefix length is expressed in the address family space of
+	 * sa46_net, so when the net is (or is stored as) IPv4, the prefix
+	 * length is bumped by the 96 bits of v4-mapped prefix.
+	 */
 
 #if defined(LWS_WITH_IPV4)
 	if (sa46a->sa4.sin_family == AF_INET) {
-		p1 = (uint8_t *)&sa46a->sa4.sin_addr;
-		if (sa46_net->sa4.sin_family == AF_INET6) {
-			/* ip is v4, net is v6, promote ip to v6 */
+		/* ip is v4, compare it as v4-mapped v6 */
 
-			lws_4to6(norm, p1);
-			p1 = norm;
-		}
+		lws_4to6(norm[0], (const uint8_t *)&sa46a->sa4.sin_addr);
+		p1 = norm[0];
 	} else
 #endif
 #if defined(LWS_WITH_IPV6)
 	if (sa46a->sa4.sin_family == AF_INET6) {
-		p1 = (uint8_t *)&sa46a->sa6.sin6_addr;
+		p1 = (const uint8_t *)&sa46a->sa6.sin6_addr;
 	} else
 #endif
 		return 1;
 
 #if defined(LWS_WITH_IPV4)
 	if (sa46_net->sa4.sin_family == AF_INET) {
-		p2 = (uint8_t *)&sa46_net->sa4.sin_addr;
-		if (sa46a->sa4.sin_family == AF_INET6) {
-			/* ip is v6, net is v4, promote net to v6 */
+		/* net is v4, compare it as v4-mapped v6 */
 
-			lws_4to6(norm, p2);
-			p2 = norm;
-			/* because the mask length is for net v4 address */
-			net_len += 12 * 8;
-		}
+		lws_4to6(norm[1], (const uint8_t *)&sa46_net->sa4.sin_addr);
+		p2 = norm[1];
+		/* because the mask length is for net v4 address */
+		net_len += 12 * 8;
 	} else
 #endif
 #if defined(LWS_WITH_IPV6)
-	if (sa46a->sa4.sin_family == AF_INET6) {
-		p2 = (uint8_t *)&sa46_net->sa6.sin6_addr;
+	if (sa46_net->sa4.sin_family == AF_INET6) {
+		p2 = (const uint8_t *)&sa46_net->sa6.sin6_addr;
+		if (net_len <= 32 && lws_sa46_is_ipv4_mapped(sa46_net))
+			/*
+			 * The net is stored as v4-mapped (IPv6-only build),
+			 * so the prefix length is in v4 space
+			 */
+			net_len += 12 * 8;
 	} else
 #endif
 		return 1;
@@ -1248,13 +1258,24 @@ lws_sa46_copy_address(lws_sockaddr46 *sa46a, const void *in, int af)
 {
 	sa46a->sa4.sin_family = (sa_family_t)af;
 
+	if (af == AF_INET) {
 #if defined(LWS_WITH_IPV4)
-	if (af == AF_INET)
 		memcpy(&sa46a->sa4.sin_addr, in, 4);
-#if defined(LWS_WITH_IPV6)
-	else
+#elif defined(LWS_WITH_IPV6)
+		/*
+		 * IPv6-only build: there is a single internal address family,
+		 * AF_INET6.  IPv4 addresses from any source (eg, netlink route
+		 * information) are normalized to IPv4-mapped IPv6 form, the
+		 * same as IPv4 literals in
+		 * lws_sa46_parse_numeric_address(), so they can coexist and
+		 * compare with native IPv6 addresses consistently.
+		 */
+		lws_4to6(sa46a->sa6.sin6_addr.s6_addr, in);
+		sa46a->sa4.sin_family = AF_INET6;
 #endif
-#endif
+		return;
+	}
+
 #if defined(LWS_WITH_IPV6)
 	if (af == AF_INET6)
 		memcpy(&sa46a->sa6.sin6_addr, in, sizeof(sa46a->sa6.sin6_addr));

@@ -203,6 +203,33 @@ struct lws_peer {
 #define LWS_IPV6_ENABLED(context) (0)
 #endif
 
+#if defined(LWS_WITH_IPV6)
+/*
+ * lws_v6only_opt() - the IPV6_V6ONLY socketopt value for a v6 listener
+ *
+ * Dual builds default the v6 listener to v6-only and create a separate
+ * AF_INET listener for v4, so both families are served by their own
+ * sockets.
+ *
+ * In an IPv6-only build no AF_INET listener can exist, so the default is
+ * instead dual-stack: v4 peers can still reach us as v4-mapped
+ * addresses, consistent with the v4-mapped handling of client dests and
+ * DNS results in these builds.  Explicitly setting
+ * LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY|_VALUE still forces v6-only.
+ */
+static inline int
+lws_v6only_opt(uint64_t options)
+{
+#if defined(LWS_WITH_IPV4)
+	return !(options & LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY) ||
+	       !!(options & LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE);
+#else
+	return !!(options & LWS_SERVER_OPTION_IPV6_V6ONLY_MODIFY) &&
+	       !!(options & LWS_SERVER_OPTION_IPV6_V6ONLY_VALUE);
+#endif
+}
+#endif
+
 #ifdef LWS_WITH_UNIX_SOCK
 #define LWS_UNIX_SOCK_ENABLED(vhost) \
 	(vhost->options & LWS_SERVER_OPTION_UNIX_SOCK)

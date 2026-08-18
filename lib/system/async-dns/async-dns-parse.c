@@ -505,8 +505,8 @@ lws_async_dns_estimate(const char *name, void *opaque, uint32_t ttl,
 		my += sizeof(struct sockaddr_in);
 
 	/* DNSSEC records don't produce addrinfos, but need storage if we cache them
-	 * or pass them inside lws. Often we just evaluate them inline. But if
-	 * we need to stash them, we should do so.
+	 * or pass them inside lws. Often we just evaluate them inline. But if we
+	 * need to stash them, we should do so.
 	 */
 	if (type == LWS_ADNS_RECORD_DNSKEY || type == LWS_ADNS_RECORD_RRSIG ||
 	    type == LWS_ADNS_RECORD_DS || type == LWS_ADNS_RECORD_NSEC ||
@@ -516,7 +516,8 @@ lws_async_dns_estimate(const char *name, void *opaque, uint32_t ttl,
 		my += sizeof(lws_adns_rr_t) + rrpaylen;
 	}
 
-	*est += my;
+	/* must match the stride used by lws_async_dns_store() */
+	*est += adns_align_len(my);
 
 	return 0;
 }
@@ -570,7 +571,8 @@ lws_async_dns_store(const char *name, void *opaque, uint32_t ttl,
 
 		/* Advance the generic allocation pointer for the next item */
 		adst->pos = (struct addrinfo *)((uint8_t *)adst->pos +
-					sizeof(lws_adns_rr_t) + rrpaylen);
+					adns_align_len(sizeof(lws_adns_rr_t) +
+						       rrpaylen));
 		return 0;
 	}
 
@@ -615,7 +617,7 @@ lws_async_dns_store(const char *name, void *opaque, uint32_t ttl,
 	}
 
 	adst->pos = (struct addrinfo *)((uint8_t *)adst->pos +
-					sizeof(struct addrinfo) + i);
+				adns_align_len(sizeof(struct addrinfo) + i));
 
 #if defined(_DEBUG)
 	if (lws_write_numeric_address(payload,
