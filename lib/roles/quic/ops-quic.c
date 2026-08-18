@@ -48,14 +48,13 @@ lws_quic_dbg_1rtt_account(struct lws_quic_netconn *qn,
 			  const struct lws_quic_tx_frame *f,
 			  const char *where)
 {
-	uint64_t bytes = (uint64_t)f->len;
+	uint64_t bytes;
 
-	if (!qn || qn->is_server ||
+	if (!qn || !f || qn->is_server ||
 	    qn->early_data_status != LWS_0RTT_STATUS_ATTEMPTED)
 		return;
 
-	if (!f)
-		return;
+	bytes = (uint64_t)f->len;
 
 	/*
 	 * The byte/frame counters stay maintained at every log level so a
