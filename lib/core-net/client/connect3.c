@@ -1268,6 +1268,29 @@ ads_known:
 					grace_us = LWS_QUIC_GRACE_DEFAULT_US;
 			}
 		}
+#if defined(LWS_ROLE_QUIC)
+		/*
+		 * quic_race_start_us is only pre-set on the alt-svc "try QUIC
+		 * first" path in connect_2.  For a request that came in with
+		 * h3 ALPN directly (eg, --h3 clients), it is still zero here,
+		 * so the KNOWN_GOOD latency later computed from it in
+		 * rops_alpn_negotiated_quic() becomes "now - 0" and poisons
+		 * the h3 cap cache with huge latencies, producing grace
+		 * windows of minutes.  Start the clock at socket creation if
+		 * it is not already running.
+		 */
+		if (!wsi->quic.quic_race_start_us)
+			wsi->quic.quic_race_start_us = lws_now_usecs();
+#endif
+		/*
+		 * A single lost Initial or Handshake packet needs at least one
+		 * PTO round (~500ms with backoff) to recover; an adaptive
+		 * latency+margin window below the default grace cannot fit
+		 * even one round, so QUIC attempts that were recovering fine
+		 * get abandoned to TCP.  Only adapt the grace upwards.
+		 */
+		if (grace_us < LWS_QUIC_GRACE_DEFAULT_US)
+			grace_us = LWS_QUIC_GRACE_DEFAULT_US;
 		if (wsi->disable_h3_fallback) {
 			lwsl_wsi_info(wsi, "QUIC socket created, H3 fallback disabled");
 		} else {
@@ -1278,7 +1301,7 @@ ads_known:
 			if (wsi->dns_sorted_list.count) {
 				extern void lws_client_happy_eyeballs_cb(lws_sorted_usec_list_t *sul);
 				lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->sul_happy_eyeballs,
-						lws_client_happy_eyeballs_cb, 1);
+						 lws_client_happy_eyeballs_cb, 1);
 			}
 		}
 	}
