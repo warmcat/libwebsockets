@@ -12,6 +12,7 @@
 #include <libwebsockets.h>
 #include <string.h>
 #include <stdlib.h>
+#include <limits.h>
 #include <signal.h>
 #include <fcntl.h>
 #if defined(_WIN32)
@@ -67,12 +68,26 @@ static int server_requests_count;
  * that requests the files, so it owns recovery: it re-sends GET
  * datagrams for anything not yet confirmed complete until everything
  * has arrived, then confirms completion to the peer with a few DONE
- * datagrams so it can stop waiting without guessing.  A hard cap keeps a
- * stuck exchange inside the runner's own timeout.
+ * datagrams so it can stop waiting without guessing.  The responder
+ * only ever answers GETs with PUSHes: it has no way to know what has
+ * arrived at the peer, so it must not originate DONE or it will
+ * truncate the exchange while files are still in flight.  A hard cap
+ * keeps a stuck exchange inside the runner's own timeout.
  */
 #define DG_RETRY_MS	400
 #define DG_DONE_COPIES	3
 #define DG_HARDCAP_MS	20000
+
+/*
+ * True if we are the GET initiator for a datagram testcase, ie, the
+ * receiver of the files: the client for -receive and the server for
+ * -send.
+ */
+static int dg_am_initiator(void)
+{
+	return (strstr(testcase, "-receive") && !is_server) ||
+	       (strstr(testcase, "-send") && is_server);
+}
 
 enum {
 	QIR_DG_GET,
@@ -102,8 +117,13 @@ static struct pending_datagram dg_queue[512];
 static int dg_queue_head;
 static int dg_queue_tail;
 
-/* Datagrams must fit inside a single QUIC packet */
-#define DG_PAYLOAD_CHUNK 1024
+/*
+ * Datagrams must fit inside a single QUIC packet.  At the smallest MTU we
+ * use (1280), ops-quic leaves ~1180 bytes for a DATAGRAM frame payload,
+ * and this budget covers the PUSH header as well, so the frame is always
+ * placeable in an empty packet (DATAGRAM frames cannot be fragmented).
+ */
+#define DG_PAYLOAD_CHUNK 1152
 
 static void enqueue_datagram(const char *filename, int kind)
 {
@@ -165,6 +185,9 @@ struct pss_qir {
 
 	/* Datagram reassembly state (session wsi) */
 	int dg_fd;
+	char dg_cur_name[256];		/* file currently being reassembled */
+	size_t dg_cur_expect;		/* its advertised total length */
+	size_t dg_cur_got;		/* bytes of it received so far */
 };
 
 static void init_pss(struct pss_qir *pss)
@@ -418,6 +441,10 @@ dgretry_sul_cb(struct lws_sorted_usec_list *sul)
 
 	(void)sul;
 
+	/* only the GET initiator owns recovery and may originate DONE */
+	if (!dg_am_initiator())
+		return;
+
 	if (!dg_session_wsi) {
 		/* keep waiting for the session to exist */
 		lws_sul_schedule(context, 0, &sul_dgretry, dgretry_sul_cb,
@@ -484,7 +511,7 @@ start_datagram_recovery(void)
 	if (!context)
 		return;
 
-	if (strstr(testcase, "datagram") && !dg_retry_armed) {
+	if (dg_am_initiator() && !dg_retry_armed) {
 		dg_retry_armed = 1;
 		lws_sul_schedule(context, 0, &sul_dgretry, dgretry_sul_cb,
 				 DG_RETRY_MS * LWS_US_PER_MS);
@@ -934,9 +961,16 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 					 * datagrams, each small enough to
 					 * fit in a single QUIC packet:
 					 *
-					 *   "PUSH <filename>\n" + first chunk
+					 *   "PUSH <filename> <len>\n" + first chunk
 					 *   ... raw chunks ...
 					 *   "END <filename>"
+					 *
+					 * The receiver only completes the
+					 * file on END if the advertised
+					 * length fully arrived, so a lost
+					 * PUSH or middle chunk leaves it
+					 * incomplete and recoverable by
+					 * retry.
 					 */
 					char filepath[512];
 					const char *endpoint = pss->endpoint[0] ? pss->endpoint : global_endpoint;
@@ -963,7 +997,8 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 						if (!dg->hdr_sent) {
 							int hn = lws_snprintf((char *)&dgbuf[LWS_PRE],
 									      sizeof(dgbuf) - LWS_PRE,
-									      "PUSH %s\n", dg->filename);
+									      "PUSH %s %zu\n", dg->filename,
+									      dg->file_len);
 							rn = (int)read(dg->fd, &dgbuf[LWS_PRE + hn],
 								    LWS_POSIX_LENGTH_CAST(sizeof(dgbuf) - LWS_PRE - (size_t)hn));
 							if (rn < 0)
@@ -1143,7 +1178,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 			 * Datagram received.  Formats:
 			 *
 			 *   "GET <filename>"                       request a file
-			 *   "PUSH <filename>\n" + first chunk      start of file
+			 *   "PUSH <filename> <len>\n" + first chunk  start of file
 			 *   <raw chunk>                            file continuation
 			 *   "END <filename>"                       file complete
 			 *   "DONE"                                 all files complete
@@ -1156,12 +1191,21 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 
 			if (payload_len == 4 && memcmp(payload, "DONE", 4) == 0) {
 				lwsl_user("Session WSI received datagram DONE: peer confirmed all transfers\n");
-				if (!is_server) {
-					int i;
-					for (i = 0; i < client_requests_count; i++)
-						client_requests[i].completed = 1;
+				/*
+				 * Only the responder acts on DONE.  The
+				 * initiator owns completion through ENDs and
+				 * its own DONE pump; a DONE that arrives
+				 * while it is still missing files must not
+				 * stop it retrying.
+				 */
+				if (!dg_am_initiator()) {
+					if (!is_server) {
+						int i;
+						for (i = 0; i < client_requests_count; i++)
+							client_requests[i].completed = 1;
+					}
+					interrupted = 1;
 				}
-				interrupted = 1;
 				break;
 			} else if (payload_len > 4 && strncmp(payload, "GET ", 4) == 0) {
 				/* GET <filename> */
@@ -1184,12 +1228,33 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 				memcpy(filename, payload + 4, fn_len);
 				filename[fn_len] = '\0';
 
+				/*
+				 * END only completes the file it belongs to:
+				 * its PUSH must have been seen, and every
+				 * chunk of the advertised length accounted
+				 * for.  Per-datagram loss means an END can
+				 * survive without its PUSH or a middle
+				 * chunk; completing then would hide a
+				 * missing or truncated file from the retry
+				 * logic.  Leave it incomplete instead; the
+				 * initiator's retry will bring it again.
+				 */
+				if (pss->dg_fd < 0 ||
+				    strcmp(pss->dg_cur_name, filename)) {
+					lwsl_user("Session WSI received datagram END: %s (no matching PUSH in progress, ignoring)\n", filename);
+					break;
+				}
+				if (pss->dg_cur_expect != (size_t)-1 &&
+				    pss->dg_cur_got != pss->dg_cur_expect) {
+					lwsl_user("Session WSI received datagram END: %s (incomplete: %zu of %zu bytes, ignoring)\n",
+						  filename, pss->dg_cur_got, pss->dg_cur_expect);
+					break;
+				}
+
 				lwsl_user("Session WSI received datagram END: %s\n", filename);
 
-				if (pss->dg_fd >= 0) {
-					close(pss->dg_fd);
-					pss->dg_fd = -1;
-				}
+				close(pss->dg_fd);
+				pss->dg_fd = -1;
 
 				/* Mark request completed */
 				if (!is_server) {
@@ -1232,11 +1297,36 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 					}
 				}
 			} else if (payload_len > 5 && strncmp(payload, "PUSH ", 5) == 0) {
-				/* PUSH <filename>\n<first chunk> */
+				/* PUSH <filename> <len>\n<first chunk> */
 				char *newline = memchr(payload, '\n', payload_len);
 				if (newline) {
 					char filename[256];
 					size_t fn_len = (size_t)(newline - (payload + 5));
+					size_t expect = (size_t)-1;
+
+					/*
+					 * The length is the last token before
+					 * the newline, so filenames with
+					 * spaces still parse
+					 */
+					char *lsp = memchr(payload + 5, ' ', fn_len);
+					while (lsp) {
+						char *nxt = memchr(lsp + 1, ' ',
+								   (size_t)(newline - (lsp + 1)));
+						if (!nxt)
+							break;
+						lsp = nxt;
+					}
+					if (lsp) {
+						char *e;
+						unsigned long long v =
+							strtoull(lsp + 1, &e, 10);
+						if (e == newline && v != ULLONG_MAX) {
+							expect = (size_t)v;
+							fn_len = (size_t)(lsp - (payload + 5));
+						}
+					}
+
 					if (fn_len >= sizeof(filename)) fn_len = sizeof(filename) - 1;
 					memcpy(filename, payload + 5, fn_len);
 					filename[fn_len] = '\0';
@@ -1258,19 +1348,28 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 						pss->dg_fd = -1;
 					}
 					pss->dg_fd = open(filepath, O_WRONLY | O_CREAT | O_TRUNC, 0666); // NOSONAR
+					lws_strncpy(pss->dg_cur_name, filename, sizeof(pss->dg_cur_name));
+					pss->dg_cur_expect = expect;
+					pss->dg_cur_got = 0;
 					if (pss->dg_fd >= 0) {
-						if (write(pss->dg_fd, data_start, LWS_POSIX_LENGTH_CAST(data_len)) < 0) {
+						long w = (long)write(pss->dg_fd, data_start,
+								     LWS_POSIX_LENGTH_CAST(data_len));
+						if (w == (long)data_len)
+							pss->dg_cur_got += data_len;
+						else
 							lwsl_err("Failed to write datagram content\n");
-						}
 					}
 				}
 			} else {
 				/* raw continuation chunk for the incoming file */
 				lwsl_user("Session WSI received datagram chunk: %zu bytes\n", payload_len);
 				if (pss->dg_fd >= 0) {
-					if (write(pss->dg_fd, payload, LWS_POSIX_LENGTH_CAST(payload_len)) < 0) {
+					long w = (long)write(pss->dg_fd, payload,
+							     LWS_POSIX_LENGTH_CAST(payload_len));
+					if (w == (long)payload_len)
+						pss->dg_cur_got += payload_len;
+					else
 						lwsl_err("Failed to write datagram chunk\n");
-					}
 				}
 			}
 			break;
