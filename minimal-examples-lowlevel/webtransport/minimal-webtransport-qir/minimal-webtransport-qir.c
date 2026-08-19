@@ -20,8 +20,11 @@
 #include <direct.h>
 #define mkdir(path, mode) _mkdir(path)
 static void usleep(unsigned long l) { Sleep(l / 1000); }
+/* windows has no unlink(); ISO remove() is the same thing for files */
+#define qir_unlink(path) remove(path)
 #else
 #include <unistd.h>
+#define qir_unlink(path) unlink(path)
 #endif
 #include <sys/stat.h>
 #include <errno.h>
@@ -44,6 +47,7 @@ struct request_item {
 	char endpoint[128];
 	char filename[128];
 	struct lws *session_wsi;
+	struct dgr_rx *dgr;		/* datagram rx state, NULL when done */
 	int started;
 	int completed;
 };
@@ -54,6 +58,7 @@ static int client_requests_count;
 struct server_request_item {
 	char endpoint[128];
 	char filename[128];
+	struct dgr_rx *dgr;		/* datagram rx state, NULL when done */
 	int started;
 	int completed;
 };
@@ -62,21 +67,73 @@ static struct server_request_item server_requests[256];
 static int server_requests_count;
 
 /*
- * Datagram testcases run on a lossy sim, but QUIC datagrams are
- * unreliable by design.  The side whose testcase name contains
- * "datagram" (the server for -send, the client for -receive) is the one
- * that requests the files, so it owns recovery: it re-sends GET
- * datagrams for anything not yet confirmed complete until everything
+ * ---------------------------------------------------------------------------
+ * Datagram file transfer exchange
+ * ---------------------------------------------------------------------------
+ *
+ * Testcase names containing "datagram" move the files over WebTransport
+ * session datagrams.  QUIC datagrams are unreliable and unordered, so the
+ * exchange is a receiver-driven, resumable protocol:
+ *
+ *   GET <name>\n                 rx -> tx: (re)request a file
+ *   HDR <name> <len>\n           tx -> rx: announce the file length
+ *   CH <name> <idx>\n<data>      tx -> rx: file chunk idx (0-based)
+ *   MISS <name> <a>-<b>[,..]\n   rx -> tx: re-request missing chunk ranges
+ *   OK <name>\n                  rx -> tx: file fully received
+ *   DONE                         rx -> tx: all files received
+ *
+ * Chunks are self-describing (filename + index), so reassembly does not
+ * depend on datagram ordering and duplicates are idempotent.  Completion
+ * is receiver-side only: when every chunk of the advertised length has
+ * arrived, the .part file is atomically renamed into place and OK is
+ * sent.  Final paths therefore only ever hold complete files; an
+ * unfinished transfer leaves the file missing, never truncated.
+ *
+ * The side whose testcase name contains "datagram" (the server for
+ * -send, the client for -receive) is the receiver / GET initiator, so
+ * it owns recovery: it re-requests anything incomplete until everything
  * has arrived, then confirms completion to the peer with a few DONE
  * datagrams so it can stop waiting without guessing.  The responder
- * only ever answers GETs with PUSHes: it has no way to know what has
- * arrived at the peer, so it must not originate DONE or it will
+ * only ever answers GETs and MISSes: it has no way to know what has
+ * arrived at the peer, so it must not originate DONE or it would
  * truncate the exchange while files are still in flight.  A hard cap
  * keeps a stuck exchange inside the runner's own timeout.
+ *
+ * The runner only passes the full testcase name to the initiator's
+ * container: for -send, the client container is told just "transfer",
+ * with a bare endpoint URL in REQUESTS.  The responder therefore cannot
+ * know from its environment that its session carries the datagram
+ * exchange; it recognizes the exchange from the arriving protocol
+ * datagrams instead (see dg_peer_exchange) and leaves unrelated
+ * datagrams alone, so the stream transfer testcases are unaffected.
  */
-#define DG_RETRY_MS	400
-#define DG_DONE_COPIES	3
-#define DG_HARDCAP_MS	20000
+
+/* file data bytes per CH datagram */
+#define DGR_CHUNK		1024
+/*
+ * Datagrams must fit inside a single QUIC packet.  At the smallest MTU
+ * we use (1280), ops-quic leaves ~1180 bytes for a DATAGRAM frame
+ * payload; DATAGRAM frames cannot be fragmented, and lws silently wedges
+ * one that can never fit, so every composed datagram is kept under this.
+ */
+#define DGR_MAX_DGRAM		1180
+#define DGR_NAME_LEN		128	/* max filename on the wire */
+#define DGR_RETRY_MS		400	/* GET / MISS retry tick */
+#define DGR_DONE_COPIES		3	/* DONE copies so one survives */
+#define DGR_HARDCAP_MS		20000	/* give up inside the runner timeout */
+/*
+ * Egress is paced under the sim's bottleneck (10Mbps) so its 25-packet
+ * queue never overflows: datagrams get no retransmit, so loss here just
+ * means waiting for the next MISS round.  Control datagrams are tiny and
+ * coalesce into few packets, so they get a larger frame budget.
+ */
+#define DGR_PACE_US		20000	/* sender pace tick */
+#define DGR_DATA_BURST		8	/* CH datagrams per pace tick */
+#define DGR_CTL_BURST		32	/* control datagrams per pace tick */
+#define DGR_RANGES_PER_MISS	64	/* range entries packed per MISS */
+#define DGR_MISS_PER_TICK	4	/* MISS datagrams per file per tick */
+#define DGR_CTL_RING		512	/* control ring entries */
+#define DGR_RESEND_RING		1024	/* resend ring entries */
 
 /*
  * True if this testcase uses the session datagram exchange at all.
@@ -96,7 +153,7 @@ static int dg_testcase(void)
  * -send.  A mere "-send" / "-receive" in the testcase name is not
  * enough to match: the stream transfer testcases contain them too, and
  * if they matched, the unreliable datagram retry exchange would run
- * alongside the streams and its lossy re-PUSHes would truncate files
+ * alongside the streams and its lossy re-sends would truncate files
  * the streams had already written complete to the same paths.
  */
 static int dg_am_initiator(void)
@@ -106,98 +163,199 @@ static int dg_am_initiator(void)
 	        (strstr(testcase, "-send") && is_server));
 }
 
-/*
- * True if filename is one of our requests and it already completed.
- * Stale GET retries queued at the peer can make it re-PUSH a file we
- * already have; that duplicate must not be allowed to truncate the
- * good copy, because if its (unreliable) re-send loses chunks nothing
- * will fetch the file again.
- */
-static int dg_request_completed(const char *filename)
-{
-	int i;
-
-	if (is_server) {
-		for (i = 0; i < server_requests_count; i++)
-			if (!strcmp(server_requests[i].filename, filename))
-				return server_requests[i].completed;
-	} else {
-		for (i = 0; i < client_requests_count; i++)
-			if (!strcmp(client_requests[i].filename, filename))
-				return client_requests[i].completed;
-	}
-
-	return 0;
-}
-
 enum {
-	QIR_DG_GET,
-	QIR_DG_PUSH,
-	QIR_DG_DONE,
+	DGR_CTL_GET,
+	DGR_CTL_HDR,
+	DGR_CTL_MISS,
+	DGR_CTL_OK,
+	DGR_CTL_DONE,
+};
+
+/* control datagram waiting to go out */
+struct dgr_ctl {
+	uint8_t kind;
+	char name[DGR_NAME_LEN];
+	uint32_t a, b;			/* MISS: chunk range; HDR: length */
+};
+
+/* sender-side per-file state */
+struct dgr_tx {
+	struct lws_dll2 list;
+	char name[DGR_NAME_LEN];
+	char srcpath[512];		/* /www<endpoint>/<name> */
+	int fd;				/* -1 when closed after OK */
+	size_t len;
+	uint32_t chunks;
+	uint32_t cursor;		/* next unsent chunk of first pass */
+	int done;			/* peer sent OK */
+};
+
+/* receiver-side per-file state */
+struct dgr_rx {
+	char name[DGR_NAME_LEN];
+	char partpath[512];		/* .part file being assembled */
+	char finalpath[512];
+	int fd;
+	size_t len;
+	uint32_t chunks;
+	uint32_t got;			/* chunks received so far */
+	uint8_t *bm;			/* per-chunk received bitmap */
+	int req_index;			/* index into our request list */
 };
 
 static struct lws *dg_session_wsi;
 static struct lws_sorted_usec_list sul_dgretry;
 static struct lws_sorted_usec_list sul_dghardcap;
+static struct lws_sorted_usec_list sul_dgpace;
 static int dg_done_started;
 static int dg_done_pumps;
 static int dg_retry_armed;
 static int dg_hardcap_armed;
+static int dg_pace_armed;
+/*
+ * Set when a protocol datagram arrives on a session whose local testcase
+ * name does not itself say "datagram".  The runner tells the responder of
+ * the -send testcases (the client) just "transfer", so over there the
+ * exchange can only be recognized from the wire.  Until then, datagrams
+ * are treated as unrelated and ignored, as the stream transfer testcases
+ * require.
+ */
+static int dg_peer_exchange;
 
-struct pending_datagram {
-	char filename[256];
-	int kind; /* QIR_DG_GET / QIR_DG_PUSH / QIR_DG_DONE */
-	/* Send state for chunked PUSH */
-	int fd;
-	size_t file_len;
-	size_t sent;
-	int hdr_sent;
-};
+static struct dgr_ctl dg_ctl[DGR_CTL_RING];
+static int dg_ctl_head, dg_ctl_tail;
 
-#define DG_QUEUE_LEN	512
+static struct dgr_resend {
+	struct dgr_tx *tf;
+	uint32_t idx;
+} dg_resend[DGR_RESEND_RING];
+static int dg_resend_head, dg_resend_tail;
 
-static struct pending_datagram dg_queue[DG_QUEUE_LEN];
-static int dg_queue_head;
-static int dg_queue_tail;
+static lws_dll2_owner_t dg_tx_owner;
+
+static void dgr_kick(void);
+static void dgr_repace(void);
 
 /*
- * Datagrams must fit inside a single QUIC packet.  At the smallest MTU we
- * use (1280), ops-quic leaves ~1180 bytes for a DATAGRAM frame payload,
- * and this budget covers the PUSH header as well, so the frame is always
- * placeable in an empty packet (DATAGRAM frames cannot be fragmented).
+ * Test hook for local validation of the recovery paths: when set (0-99),
+ * a pseudorandom sample of incoming session datagrams is dropped before
+ * parsing, emulating the sim's loss without the sim.
  */
-#define DG_PAYLOAD_CHUNK 1152
+static int dg_dbg_drop_pct;
+static uint32_t dg_dbg_rng = 0x12345678;
 
-static void enqueue_datagram(const char *filename, int kind)
+static uint32_t dg_dbg_rand(void)
 {
-	if ((dg_queue_tail + 1) % DG_QUEUE_LEN == dg_queue_head) {
-		lwsl_err("Datagram queue overflow!\n");
+	dg_dbg_rng ^= dg_dbg_rng << 13;
+	dg_dbg_rng ^= dg_dbg_rng >> 17;
+	dg_dbg_rng ^= dg_dbg_rng << 5;
+
+	return dg_dbg_rng;
+}
+
+static void dgr_bm_set(uint8_t *bm, uint32_t idx)
+{
+	bm[idx >> 3] |= (uint8_t)(1u << (idx & 7));
+}
+
+static int dgr_bm_get(const uint8_t *bm, uint32_t idx)
+{
+	return (bm[idx >> 3] >> (idx & 7)) & 1;
+}
+
+/*
+ * Wire filenames are constrained so they can never carry a path
+ * component or break the header parsing.
+ */
+static int dgr_name_ok(const char *name)
+{
+	size_t n = strlen(name), i;
+
+	if (!n || n >= DGR_NAME_LEN)
+		return 0;
+
+	for (i = 0; i < n; i++)
+		if (name[i] == '/' || name[i] == ' ' || name[i] == '\n' ||
+		    name[i] == '\r')
+			return 0;
+
+	return 1;
+}
+
+/* bounded decimal parse of a NUL-terminated token, no libc locale edges */
+static int dgr_parse_u32(const char **pp, uint32_t *res)
+{
+	const char *p = *pp;
+	uint32_t v = 0;
+	int any = 0;
+
+	while (*p >= '0' && *p <= '9') {
+		if (v > (0xffffffffu - (uint32_t)(*p - '0')) / 10u)
+			return 0;	/* overflow */
+		v = (v * 10u) + (uint32_t)(*p - '0');
+		p++;
+		any = 1;
+	}
+	if (!any)
+		return 0;
+
+	*pp = p;
+	*res = v;
+
+	return 1;
+}
+
+/*
+ * True if a datagram's header line opens one of our exchange protocol
+ * messages.  This is how a session whose testcase name does not say
+ * "datagram" recognizes that the peer has started a datagram exchange,
+ * without actioning unrelated datagrams on the stream testcases.
+ */
+static int dgr_hdr_is_ctl(const char *hdr)
+{
+	return !strncmp(hdr, "GET ", 4) ||
+	       !strncmp(hdr, "HDR ", 4) ||
+	       !strncmp(hdr, "MISS ", 5) ||
+	       !strncmp(hdr, "OK ", 3) ||
+	       !strncmp(hdr, "CH ", 3) ||
+	       !strcmp(hdr, "DONE");
+}
+
+static void dgr_ctl_enqueue(int kind, const char *name, uint32_t a, uint32_t b)
+{
+	struct dgr_ctl *e;
+
+	if ((dg_ctl_tail + 1) % DGR_CTL_RING == dg_ctl_head) {
+		lwsl_err("Datagram ctl ring overflow (kind %d)\n", kind);
 		return;
 	}
-	struct pending_datagram *dg = &dg_queue[dg_queue_tail];
-	dg->filename[0] = '\0';
-	if (filename)
-		lws_strncpy(dg->filename, filename, sizeof(dg->filename));
-	dg->kind = kind;
-	dg->fd = -1;
-	dg->file_len = 0;
-	dg->sent = 0;
-	dg->hdr_sent = 0;
-	dg_queue_tail = (dg_queue_tail + 1) % DG_QUEUE_LEN;
+
+	e = &dg_ctl[dg_ctl_tail];
+	memset(e, 0, sizeof(*e));
+	e->kind = (uint8_t)kind;
+	if (name)
+		lws_strncpy(e->name, name, sizeof(e->name));
+	e->a = a;
+	e->b = b;
+	dg_ctl_tail = (dg_ctl_tail + 1) % DGR_CTL_RING;
 }
 
-static struct pending_datagram *peek_datagram(void)
+static void dgr_ctl_dequeue(void)
 {
-	if (dg_queue_head == dg_queue_tail)
-		return NULL;
-	return &dg_queue[dg_queue_head];
-}
-
-static void dequeue_datagram(void)
-{
-	if (dg_queue_head == dg_queue_tail)
+	if (dg_ctl_head == dg_ctl_tail)
 		return;
-	dg_queue_head = (dg_queue_head + 1) % DG_QUEUE_LEN;
+	dg_ctl_head = (dg_ctl_head + 1) % DGR_CTL_RING;
+}
+
+static void dgr_resend_enqueue(struct dgr_tx *tf, uint32_t idx)
+{
+	if ((dg_resend_tail + 1) % DGR_RESEND_RING == dg_resend_head) {
+		lwsl_err("Datagram resend ring overflow\n");
+		return;
+	}
+	dg_resend[dg_resend_tail].tf = tf;
+	dg_resend[dg_resend_tail].idx = idx;
+	dg_resend_tail = (dg_resend_tail + 1) % DGR_RESEND_RING;
 }
 
 struct pss_qir {
@@ -219,19 +377,14 @@ struct pss_qir {
 
 	/* Receive state */
 	int fd_out;
+	char out_part[512];		/* .part path being assembled */
+	char out_final[512];		/* path published on completion */
 	char push_hdr[512];
 	size_t push_hdr_len;
 	size_t push_hdr_read;
 	int push_hdr_done;
 	int initialized;
 	int write_completed;
-
-	/* Datagram reassembly state (session wsi) */
-	int dg_fd;
-	char dg_cur_name[256];		/* file currently being reassembled */
-	size_t dg_cur_expect;		/* its advertised total length */
-	size_t dg_cur_got;		/* bytes of it received so far */
-	int dg_cur_discard;		/* reassembling a duplicate: drop it */
 };
 
 static void init_pss(struct pss_qir *pss)
@@ -239,7 +392,6 @@ static void init_pss(struct pss_qir *pss)
 	if (pss && !pss->initialized) {
 		pss->fd_in = -1;
 		pss->fd_out = -1;
-		pss->dg_fd = -1;
 		pss->request_index = -1;
 		pss->write_completed = 0;
 		pss->initialized = 1;
@@ -473,15 +625,17 @@ dghardcap_sul_cb(struct lws_sorted_usec_list *sul)
 }
 
 /*
- * Runs on the GET initiator only (its testcase name contains "datagram").
- * Anything not yet confirmed complete is re-requested each tick; PUSH is
- * idempotent at the peer (files open O_TRUNC and END just re-marks
- * completion), so duplicates are harmless.
+ * Runs on the GET initiator only.  Each tick, anything not yet complete
+ * is progressed: files with no state yet get a fresh GET, files with
+ * holes in their chunk bitmap get MISS datagrams covering the missing
+ * ranges.  When everything has arrived, a few DONE copies are pumped so
+ * at least one survives, then we exit.
  */
 static void
 dgretry_sul_cb(struct lws_sorted_usec_list *sul)
 {
-	int i, all_done = 1;
+	int i, all_done = 1, count = is_server ? server_requests_count
+					       : client_requests_count;
 
 	(void)sul;
 
@@ -492,45 +646,73 @@ dgretry_sul_cb(struct lws_sorted_usec_list *sul)
 	if (!dg_session_wsi) {
 		/* keep waiting for the session to exist */
 		lws_sul_schedule(context, 0, &sul_dgretry, dgretry_sul_cb,
-				 DG_RETRY_MS * LWS_US_PER_MS);
+				 DGR_RETRY_MS * LWS_US_PER_MS);
 		return;
 	}
 
-	if (is_server) {
-		for (i = 0; i < server_requests_count; i++)
-			if (!server_requests[i].completed) {
-				all_done = 0;
-				enqueue_datagram(server_requests[i].filename,
-						 QIR_DG_GET);
+	for (i = 0; i < count; i++) {
+		struct dgr_rx *rx = is_server ? server_requests[i].dgr
+					      : client_requests[i].dgr;
+		int completed = is_server ? server_requests[i].completed
+					  : client_requests[i].completed;
+		const char *name = is_server ? server_requests[i].filename
+					     : client_requests[i].filename;
+		uint32_t j, a;
+		int miss = 0, in_run = 0;
+
+		if (completed)
+			continue;
+
+		all_done = 0;
+
+		if (!rx) {
+			/* no HDR yet: (re)request the whole file */
+			dgr_ctl_enqueue(DGR_CTL_GET, name, 0, 0);
+			continue;
+		}
+
+		/*
+		 * Scan the bitmap for runs of missing chunks and ask for
+		 * them, up to DGR_MISS_PER_TICK datagrams; the rest are
+		 * covered by later ticks as the early ranges fill in.
+		 */
+		for (j = 0; j <= rx->chunks; j++) {
+			int miss_bit = j < rx->chunks &&
+				       !dgr_bm_get(rx->bm, j);
+
+			if (miss_bit && !in_run) {
+				in_run = 1;
+				a = j;
+			} else if (!miss_bit && in_run) {
+				in_run = 0;
+				if (miss < DGR_MISS_PER_TICK) {
+					dgr_ctl_enqueue(DGR_CTL_MISS, name,
+							a, j - 1);
+					miss++;
+				}
 			}
-	} else {
-		for (i = 0; i < client_requests_count; i++)
-			if (!client_requests[i].completed) {
-				all_done = 0;
-				enqueue_datagram(client_requests[i].filename,
-						 QIR_DG_GET);
-			}
+		}
 	}
 
 	if (all_done) {
 		/*
 		 * Pump a few DONE copies so at least one survives, then
-		 * exit.  For -send this releases the client, which cannot
-		 * otherwise know its PUSHes all arrived; for -receive it
-		 * lets the server exit promptly instead of waiting for the
-		 * hard cap when our own CONNECTION_CLOSE datagram is lost.
+		 * exit.  For -send this releases the sender side, which
+		 * cannot otherwise know its chunks all arrived; for
+		 * -receive it lets it exit promptly instead of waiting for
+		 * the hard cap when our own CONNECTION_CLOSE datagram is
+		 * lost.
 		 */
 		if (!dg_done_started) {
 			dg_done_started = 1;
-			dg_done_pumps = DG_DONE_COPIES;
+			dg_done_pumps = DGR_DONE_COPIES;
 		}
 		if (dg_done_pumps-- > 0) {
-			enqueue_datagram(NULL, QIR_DG_DONE);
-			lws_callback_on_writable(dg_session_wsi);
+			dgr_ctl_enqueue(DGR_CTL_DONE, NULL, 0, 0);
+			dgr_kick();
 			lws_sul_schedule(context, 0, &sul_dgretry,
 					 dgretry_sul_cb,
-					 DG_RETRY_MS *
-					 LWS_US_PER_MS);
+					 DGR_RETRY_MS * LWS_US_PER_MS);
 			return;
 		}
 		lwsl_user("All datagram transfers confirmed complete\n");
@@ -538,9 +720,9 @@ dgretry_sul_cb(struct lws_sorted_usec_list *sul)
 		return;
 	}
 
-	lws_callback_on_writable(dg_session_wsi);
+	dgr_kick();
 	lws_sul_schedule(context, 0, &sul_dgretry, dgretry_sul_cb,
-			 DG_RETRY_MS * LWS_US_PER_MS);
+			 DGR_RETRY_MS * LWS_US_PER_MS);
 }
 
 /*
@@ -557,21 +739,524 @@ start_datagram_recovery(void)
 	 * datagram testcase.  In particular the hard cap must not apply to
 	 * the stream transfer testcases: their reliable transfers may
 	 * legitimately still be in flight at 20s on a slow, lossy sim.
+	 *
+	 * A wire-recognized exchange (dg_peer_exchange) counts too: our
+	 * testcase name may just say "transfer" although the peer is really
+	 * running the datagram protocol with us.
 	 */
-	if (!context || !dg_testcase())
+	if (!context || (!dg_testcase() && !dg_peer_exchange))
 		return;
 
 	if (dg_am_initiator() && !dg_retry_armed) {
 		dg_retry_armed = 1;
 		lws_sul_schedule(context, 0, &sul_dgretry, dgretry_sul_cb,
-				 DG_RETRY_MS * LWS_US_PER_MS);
+				 DGR_RETRY_MS * LWS_US_PER_MS);
 	}
 
 	if (!dg_hardcap_armed) {
 		dg_hardcap_armed = 1;
 		lws_sul_schedule(context, 0, &sul_dghardcap, dghardcap_sul_cb,
-				 DG_HARDCAP_MS * LWS_US_PER_MS);
+				 DGR_HARDCAP_MS * LWS_US_PER_MS);
 	}
+}
+
+/* --------------------------------------------------------------------
+ * datagram exchange engine
+ */
+
+/*
+ * Find our request-list entry for a filename.  Returns 1 and fills the
+ * out params on success.
+ */
+static int
+dgr_lookup_request(const char *name, int *idx, const char **endpoint,
+		   int *completed, struct dgr_rx **prx)
+{
+	int i;
+
+	if (is_server) {
+		for (i = 0; i < server_requests_count; i++)
+			if (!strcmp(server_requests[i].filename, name)) {
+				*idx = i;
+				*endpoint = server_requests[i].endpoint;
+				*completed = server_requests[i].completed;
+				*prx = server_requests[i].dgr;
+				return 1;
+			}
+	} else {
+		for (i = 0; i < client_requests_count; i++)
+			if (!strcmp(client_requests[i].filename, name)) {
+				*idx = i;
+				*endpoint = client_requests[i].endpoint;
+				*completed = client_requests[i].completed;
+				*prx = client_requests[i].dgr;
+				return 1;
+			}
+	}
+
+	return 0;
+}
+
+static struct dgr_tx *
+dgr_tx_find(const char *name)
+{
+	struct lws_dll2 *d;
+
+	for (d = dg_tx_owner.head; d; d = d->next) {
+		struct dgr_tx *tf = lws_container_of(d, struct dgr_tx, list);
+
+		if (!strcmp(tf->name, name))
+			return tf;
+	}
+
+	return NULL;
+}
+
+/*
+ * Create sender state for a file, queue its HDR and start it at the
+ * tail of the send FIFO.  Returns NULL if it cannot be served.
+ */
+static struct dgr_tx *
+dgr_tx_create(const char *name)
+{
+	struct dgr_tx *tf, *found;
+	char srcpath[512];
+	struct stat st;
+	int fd;
+
+	if (!dgr_name_ok(name))
+		return NULL;
+
+	found = dgr_tx_find(name);
+	if (found)
+		return found;
+
+	lws_snprintf(srcpath, sizeof(srcpath), "/www%s/%s",
+		     global_endpoint[0] ? global_endpoint : "", name);
+
+	fd = open(srcpath, O_RDONLY);
+	if (fd < 0) {
+		lwsl_info("Datagram sender cannot open %s\n", srcpath);
+		return NULL;
+	}
+	if (fstat(fd, &st) || st.st_size < 0 ||
+	    (uint64_t)st.st_size > 0x8000000ull /* 128MB sanity cap */) {
+		close(fd);
+		return NULL;
+	}
+
+	tf = calloc(1, sizeof(*tf));
+	if (!tf) {
+		close(fd);
+		return NULL;
+	}
+
+	lws_strncpy(tf->name, name, sizeof(tf->name));
+	lws_strncpy(tf->srcpath, srcpath, sizeof(tf->srcpath));
+	tf->fd = fd;
+	tf->len = (size_t)st.st_size;
+	tf->chunks = (uint32_t)((tf->len + DGR_CHUNK - 1) / DGR_CHUNK);
+
+	lws_dll2_add_tail(&tf->list, &dg_tx_owner);
+
+	/* the peer learns the length from this before any chunk */
+	dgr_ctl_enqueue(DGR_CTL_HDR, name, (uint32_t)tf->len, 0);
+
+	return tf;
+}
+
+/* a receiver that lost everything is asking again from scratch */
+static void
+dgr_tx_reset(struct dgr_tx *tf)
+{
+	tf->done = 0;
+	tf->cursor = 0;
+
+	if (tf->fd < 0)
+		tf->fd = open(tf->srcpath, O_RDONLY);
+
+	dgr_ctl_enqueue(DGR_CTL_HDR, tf->name, (uint32_t)tf->len, 0);
+}
+
+/*
+ * Create receiver state against the .part file.  The published path is
+ * only ever created by rename at completion, so a transfer that never
+ * finishes leaves the file missing rather than short.
+ */
+static struct dgr_rx *
+dgr_rx_create(const char *name, size_t len, const char *endpoint, int req_index)
+{
+	struct dgr_rx *rx;
+	char dirpath[512];
+
+	lws_snprintf(dirpath, sizeof(dirpath), "/downloads%s",
+		     endpoint[0] ? endpoint : "");
+	if (mkdir(dirpath, 0777) < 0 && errno != EEXIST) { // NOSONAR
+		lwsl_err("Failed to create directory %s: %d\n", dirpath, errno);
+		return NULL;
+	}
+
+	rx = calloc(1, sizeof(*rx));
+	if (!rx)
+		return NULL;
+
+	lws_strncpy(rx->name, name, sizeof(rx->name));
+	lws_snprintf(rx->finalpath, sizeof(rx->finalpath), "%s/%s",
+		     dirpath, name);
+	lws_snprintf(rx->partpath, sizeof(rx->partpath), "%s/.%s.part",
+		     dirpath, name);
+	rx->len = len;
+	rx->chunks = (uint32_t)((len + DGR_CHUNK - 1) / DGR_CHUNK);
+	rx->req_index = req_index;
+
+	{
+		/* calloc(0) may legitimately return NULL: always take 1 */
+		size_t bm_bytes = ((size_t)rx->chunks + 7) / 8;
+
+		if (!bm_bytes)
+			bm_bytes = 1;
+
+		rx->bm = calloc(1, bm_bytes);
+	}
+	if (!rx->bm) {
+		free(rx);
+		return NULL;
+	}
+
+	rx->fd = open(rx->partpath, O_WRONLY | O_CREAT | O_TRUNC, 0666); // NOSONAR
+	if (rx->fd < 0) {
+		lwsl_err("Failed to open %s: %d\n", rx->partpath, errno);
+		free(rx->bm);
+		free(rx);
+		return NULL;
+	}
+
+	return rx;
+}
+
+static void
+dgr_rx_destroy(struct dgr_rx *rx, int published)
+{
+	if (rx->fd >= 0) {
+		close(rx->fd);
+		rx->fd = -1;
+	}
+	if (!published)
+		qir_unlink(rx->partpath);
+
+	free(rx->bm);
+	free(rx);
+}
+
+/* the last chunk arrived: publish the file and ack the sender */
+static void
+dgr_rx_complete(struct dgr_rx *rx)
+{
+	close(rx->fd);
+	rx->fd = -1;
+
+	if (rename(rx->partpath, rx->finalpath) < 0) {
+		lwsl_err("Failed to publish %s: %d\n", rx->finalpath, errno);
+		/* leave the request incomplete: the hardcap ends us */
+		dgr_rx_destroy(rx, 0);
+		return;
+	}
+
+	lwsl_user("Datagram file %s complete (%u chunks, %zu bytes)\n",
+		  rx->name, rx->chunks, rx->len);
+
+	if (is_server) {
+		server_requests[rx->req_index].completed = 1;
+		server_requests[rx->req_index].dgr = NULL;
+	} else {
+		client_requests[rx->req_index].completed = 1;
+		client_requests[rx->req_index].dgr = NULL;
+	}
+
+	dgr_ctl_enqueue(DGR_CTL_OK, rx->name, 0, 0);
+	dgr_kick();
+
+	dgr_rx_destroy(rx, 1);
+}
+
+/*
+ * Apply one chunk datagram.  Only an exactly-sized chunk for a valid
+ * index is accepted, so a confused or hostile peer cannot complete a
+ * file with holes in it.
+ */
+static void
+dgr_rx_chunk(struct dgr_rx *rx, uint32_t idx, const uint8_t *data, size_t dlen)
+{
+	size_t expect = rx->len - (size_t)idx * DGR_CHUNK;
+	off_t off = (off_t)idx * DGR_CHUNK;
+
+	if (expect > DGR_CHUNK)
+		expect = DGR_CHUNK;
+
+	if (idx >= rx->chunks || dlen != expect || dgr_bm_get(rx->bm, idx))
+		return;		/* invalid or duplicate */
+
+	if (lseek(rx->fd, off, SEEK_SET) == (off_t)-1 ||
+	    (long)write(rx->fd, data,
+			LWS_POSIX_LENGTH_CAST(dlen)) != (long)dlen) {
+		lwsl_err("Failed to write %s chunk %u\n", rx->name, idx);
+		return;
+	}
+
+	dgr_bm_set(rx->bm, idx);
+	rx->got++;
+
+	if (rx->got == rx->chunks)
+		dgr_rx_complete(rx);
+}
+
+/*
+ * Send one chunk datagram.  Returns 0 on success, 1 if the chunk could
+ * not be read (skip it; the receiver's MISS will try again), or -1 on a
+ * write failure, which means the session is going away.
+ */
+static int
+dgr_send_chunk(struct lws *wsi, struct dgr_tx *tf, uint32_t idx)
+{
+	uint8_t buf[LWS_PRE + DGR_MAX_DGRAM];
+	size_t expect = tf->len - (size_t)idx * DGR_CHUNK;
+	int n, r;
+
+	if (expect > DGR_CHUNK)
+		expect = DGR_CHUNK;
+
+	/* name is validated <= 127, so n + 1024 always fits the budget */
+	n = lws_snprintf((char *)&buf[LWS_PRE], DGR_MAX_DGRAM,
+			 "CH %s %u\n", tf->name, idx);
+
+	if (lseek(tf->fd, (off_t)idx * DGR_CHUNK, SEEK_SET) == (off_t)-1 ||
+	    (r = (int)read(tf->fd, &buf[LWS_PRE + n],
+			   LWS_POSIX_LENGTH_CAST(expect))) < 0 ||
+	    (size_t)r != expect) {
+		lwsl_err("Failed reading %s chunk %u\n", tf->name, idx);
+		return 1;
+	}
+
+	return lws_write(wsi, &buf[LWS_PRE], (size_t)(n + r),
+			 LWS_WRITE_QUIC_DATAGRAM) < 0 ? -1 : 0;
+}
+
+/*
+ * Drain queued control datagrams, packing consecutive MISS ranges for
+ * the same file into shared datagrams.  Returns -1 on write failure.
+ */
+static int
+dgr_send_ctl(struct lws *wsi, int *budget)
+{
+	while (*budget > 0 && dg_ctl_head != dg_ctl_tail) {
+		uint8_t buf[LWS_PRE + DGR_MAX_DGRAM];
+		struct dgr_ctl *e = &dg_ctl[dg_ctl_head];
+		char *p = (char *)&buf[LWS_PRE];
+		size_t len = 0, lim = DGR_MAX_DGRAM;
+
+		switch (e->kind) {
+		case DGR_CTL_GET:
+			len = (size_t)lws_snprintf(p, lim, "GET %s\n", e->name);
+			dgr_ctl_dequeue();
+			break;
+
+		case DGR_CTL_HDR:
+			len = (size_t)lws_snprintf(p, lim, "HDR %s %u\n",
+						   e->name, e->a);
+			dgr_ctl_dequeue();
+			break;
+
+		case DGR_CTL_OK:
+			len = (size_t)lws_snprintf(p, lim, "OK %s\n", e->name);
+			dgr_ctl_dequeue();
+			break;
+
+		case DGR_CTL_DONE:
+			len = (size_t)lws_snprintf(p, lim, "DONE\n");
+			dgr_ctl_dequeue();
+			break;
+
+		case DGR_CTL_MISS:
+			/* the dequeued entry itself carries the first range */
+			len = (size_t)lws_snprintf(p, lim, "MISS %s %u-%u",
+						   e->name, e->a, e->b);
+			dgr_ctl_dequeue();
+			{
+				int ranges = 1;
+
+				/* pack any consecutive ranges for the same
+				 * file into the same datagram */
+				while (ranges < DGR_RANGES_PER_MISS &&
+				       dg_ctl_head != dg_ctl_tail) {
+					struct dgr_ctl *m = &dg_ctl[dg_ctl_head];
+					size_t l;
+
+					if (m->kind != DGR_CTL_MISS ||
+					    strcmp(m->name, e->name))
+						break;
+
+					l = (size_t)lws_snprintf(p + len, lim - len,
+								 ",%u-%u",
+								 m->a, m->b);
+					if (len + l + 1 >= lim)
+						break;
+					len += l;
+					ranges++;
+					dgr_ctl_dequeue();
+				}
+				/* the payload always ends in a newline */
+				if (len < lim)
+					p[len++] = '\n';
+			}
+			break;
+
+		default:
+			dgr_ctl_dequeue();
+			continue;
+		}
+
+		if (lws_write(wsi, &buf[LWS_PRE], len,
+			      LWS_WRITE_QUIC_DATAGRAM) < 0)
+			return -1;
+
+		(*budget)--;
+	}
+
+	return 0;
+}
+
+/*
+ * Called from the session WRITEABLE callback.  Sends a paced burst of
+ * control datagrams, then re-requested chunks, then first-pass chunks,
+ * and re-arms the pace sul if work remains.
+ */
+static void
+dgr_pump(struct lws *wsi)
+{
+	int ctl_budget = DGR_CTL_BURST, data_budget = DGR_DATA_BURST;
+	struct lws_dll2 *d;
+	int work;
+
+	if (!dg_session_wsi)
+		return;
+
+	if (dgr_send_ctl(wsi, &ctl_budget) < 0)
+		return;
+
+	/* re-requests first: they are blocking the receiver's completion */
+	while (data_budget > 0 && dg_resend_head != dg_resend_tail) {
+		struct dgr_tx *tf = dg_resend[dg_resend_head].tf;
+		uint32_t idx = dg_resend[dg_resend_head].idx;
+		int s;
+
+		dg_resend_head = (dg_resend_head + 1) % DGR_RESEND_RING;
+
+		if (!tf || tf->done || idx >= tf->chunks)
+			continue;
+
+		s = dgr_send_chunk(wsi, tf, idx);
+		if (s < 0)
+			return;		/* the session is failing */
+		if (!s)
+			data_budget--;
+	}
+
+	/* then the first pass over files, oldest request first */
+	for (d = dg_tx_owner.head; d && data_budget > 0; d = d->next) {
+		struct dgr_tx *tf = lws_container_of(d, struct dgr_tx, list);
+
+		while (data_budget > 0 && !tf->done && tf->cursor < tf->chunks) {
+			int s = dgr_send_chunk(wsi, tf, tf->cursor);
+
+			if (s < 0)
+				return;		/* the session is failing */
+			tf->cursor++;
+			if (!s)
+				data_budget--;
+		}
+	}
+
+	work = dg_ctl_head != dg_ctl_tail || dg_resend_head != dg_resend_tail;
+	if (!work)
+		for (d = dg_tx_owner.head; d; d = d->next) {
+			struct dgr_tx *tf = lws_container_of(d, struct dgr_tx, list);
+
+			if (!tf->done && tf->cursor < tf->chunks) {
+				work = 1;
+				break;
+			}
+		}
+
+	if (work)
+		dgr_repace();
+}
+
+static void
+dgpace_sul_cb(struct lws_sorted_usec_list *sul)
+{
+	(void)sul;
+
+	dg_pace_armed = 0;
+
+	/* the sul only wakes the session; sends happen in WRITEABLE */
+	if (dg_session_wsi)
+		lws_callback_on_writable(dg_session_wsi);
+}
+
+/* something new to send: drain promptly if the pacer is idle */
+static void
+dgr_kick(void)
+{
+	if (!context || !dg_session_wsi || dg_pace_armed)
+		return;
+
+	dg_pace_armed = 1;
+	lws_sul_schedule(context, 0, &sul_dgpace, dgpace_sul_cb, 1);
+}
+
+/* a burst was cut short: continue after the pace interval */
+static void
+dgr_repace(void)
+{
+	if (!context || !dg_session_wsi || dg_pace_armed)
+		return;
+
+	dg_pace_armed = 1;
+	lws_sul_schedule(context, 0, &sul_dgpace, dgpace_sul_cb, DGR_PACE_US);
+}
+
+/* free everything at session close or exit */
+static void
+dgr_teardown(void)
+{
+	struct lws_dll2 *d, *d1;
+	int i;
+
+	for (i = 0; i < client_requests_count; i++)
+		if (client_requests[i].dgr) {
+			dgr_rx_destroy(client_requests[i].dgr, 0);
+			client_requests[i].dgr = NULL;
+		}
+	for (i = 0; i < server_requests_count; i++)
+		if (server_requests[i].dgr) {
+			dgr_rx_destroy(server_requests[i].dgr, 0);
+			server_requests[i].dgr = NULL;
+		}
+
+	d = dg_tx_owner.head;
+	while (d) {
+		struct dgr_tx *tf = lws_container_of(d, struct dgr_tx, list);
+
+		d1 = d->next;
+		if (tf->fd >= 0)
+			close(tf->fd);
+		lws_dll2_remove(&tf->list);
+		free(tf);
+		d = d1;
+	}
+
+	dg_ctl_head = dg_ctl_tail = 0;
+	dg_resend_head = dg_resend_tail = 0;
 }
 
 static void trigger_client_transfers(struct lws *wsi_session, const char *endpoint)
@@ -641,8 +1326,10 @@ static void trigger_client_transfers(struct lws *wsi_session, const char *endpoi
 				}
 			} else if (strstr(testcase, "datagram")) {
 				if (local_is_receiver) {
-					enqueue_datagram(item->filename, QIR_DG_GET);
-					lws_callback_on_writable(wsi_session);
+					/* the retry tick re-requests as needed */
+					dgr_ctl_enqueue(DGR_CTL_GET,
+							item->filename, 0, 0);
+					dgr_kick();
 				}
 			}
 		}
@@ -715,8 +1402,10 @@ static void trigger_server_transfers(struct lws *wsi_session, const char *endpoi
 				}
 			} else if (strstr(testcase, "datagram")) {
 				if (local_is_receiver) {
-					enqueue_datagram(item->filename, QIR_DG_GET);
-					lws_callback_on_writable(wsi_session);
+					/* the retry tick re-requests as needed */
+					dgr_ctl_enqueue(DGR_CTL_GET,
+							item->filename, 0, 0);
+					dgr_kick();
 				}
 			}
 		}
@@ -1002,130 +1691,14 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 
 		case LWS_CALLBACK_SERVER_WRITEABLE:
 		case LWS_CALLBACK_CLIENT_WRITEABLE:
-		if (pss->is_session) {
-			struct pending_datagram *dg = peek_datagram();
-			if (dg) {
-				if (dg->kind == QIR_DG_PUSH) {
-					/*
-					 * Send the file as a sequence of
-					 * datagrams, each small enough to
-					 * fit in a single QUIC packet:
-					 *
-					 *   "PUSH <filename> <len>\n" + first chunk
-					 *   ... raw chunks ...
-					 *   "END <filename>"
-					 *
-					 * The receiver only completes the
-					 * file on END if the advertised
-					 * length fully arrived, so a lost
-					 * PUSH or middle chunk leaves it
-					 * incomplete and recoverable by
-					 * retry.
-					 */
-					char filepath[512];
-					const char *endpoint = pss->endpoint[0] ? pss->endpoint : global_endpoint;
-					uint8_t dgbuf[LWS_PRE + DG_PAYLOAD_CHUNK];
-					int done = 0;
-
-					if (dg->fd < 0) {
-						lws_snprintf(filepath, sizeof(filepath), "/www%s/%s", endpoint, dg->filename);
-						dg->fd = open(filepath, O_RDONLY);
-						if (dg->fd >= 0) {
-							struct stat st;
-							if (fstat(dg->fd, &st) == 0)
-								dg->file_len = (size_t)st.st_size;
-							dg->sent = 0;
-							dg->hdr_sent = 0;
-							lwsl_user("Datagram sender opened %s (%zu bytes)\n", filepath, dg->file_len);
-						}
-					}
-
-					if (dg->fd >= 0) {
-						size_t len = 0;
-						int rn = 0;
-
-						if (!dg->hdr_sent) {
-							int hn = lws_snprintf((char *)&dgbuf[LWS_PRE],
-									      sizeof(dgbuf) - LWS_PRE,
-									      "PUSH %s %zu\n", dg->filename,
-									      dg->file_len);
-							rn = (int)read(dg->fd, &dgbuf[LWS_PRE + hn],
-								    LWS_POSIX_LENGTH_CAST(sizeof(dgbuf) - LWS_PRE - (size_t)hn));
-							if (rn < 0)
-								rn = 0;
-							len = (size_t)hn + (size_t)rn;
-							dg->hdr_sent = 1;
-						} else if (dg->sent + DG_PAYLOAD_CHUNK <= dg->file_len) {
-							rn = (int)read(dg->fd, &dgbuf[LWS_PRE],
-								       LWS_POSIX_LENGTH_CAST(DG_PAYLOAD_CHUNK));
-							if (rn < 0)
-								rn = 0;
-							len = (size_t)rn;
-						} else {
-							/* final chunk or empty file */
-							size_t rem = dg->file_len - dg->sent;
-							if (rem) {
-								rn = (int)read(dg->fd, &dgbuf[LWS_PRE],
-									       LWS_POSIX_LENGTH_CAST(rem));
-								if (rn < 0)
-									rn = 0;
-							}
-							len = (size_t)rn;
-						}
-
-						/* dg->sent counts only file bytes, not the PUSH header */
-						dg->sent += (size_t)rn;
-
-						lws_write(wsi, &dgbuf[LWS_PRE], len, LWS_WRITE_QUIC_DATAGRAM);
-
-						if (dg->sent >= dg->file_len) {
-							/* send the END marker */
-							uint8_t eb[LWS_PRE + 300];
-							size_t el = (size_t)lws_snprintf((char *)&eb[LWS_PRE],
-									    sizeof(eb) - LWS_PRE, "END %s", dg->filename);
-							lws_write(wsi, &eb[LWS_PRE], el, LWS_WRITE_QUIC_DATAGRAM);
-							lwsl_user("Datagram sender completed %s (%zu bytes)\n",
-								  dg->filename, dg->sent);
-							close(dg->fd);
-							dg->fd = -1;
-							done = 1;
-
-							/*
-							 * Completion is not known
-							 * until the peer confirms
-							 * it with DONE; a lost PUSH
-							 * or END would otherwise
-							 * hang or truncate the
-							 * exchange.
-							 */
-						}
-					} else {
-						lwsl_err("Failed to open file %s for datagram PUSH\n", dg->filename);
-						done = 1;
-					}
-
-					if (done)
-						dequeue_datagram();
-				} else if (dg->kind == QIR_DG_GET) {
-					/* Send GET <filename> as a datagram */
-					uint8_t buf[LWS_PRE + 512];
-					size_t len = (size_t)lws_snprintf((char *)&buf[LWS_PRE], 512, "GET %s", dg->filename);
-					lws_write(wsi, &buf[LWS_PRE], len, LWS_WRITE_QUIC_DATAGRAM);
-					lwsl_user("Session WSI sent datagram GET: %s\n", dg->filename);
-					dequeue_datagram();
-				} else {
-					/* QIR_DG_DONE: completion confirmation */
-					uint8_t buf[LWS_PRE + 16];
-					size_t len = (size_t)lws_snprintf((char *)&buf[LWS_PRE], 16, "DONE");
-					lws_write(wsi, &buf[LWS_PRE], len, LWS_WRITE_QUIC_DATAGRAM);
-					lwsl_user("Session WSI sent datagram DONE\n");
-					dequeue_datagram();
-				}
-				/* Request next writable callback to process remaining queue items */
-				lws_callback_on_writable(wsi);
+			if (pss->is_session) {
+				/* datagram testcase egress is all through the pump;
+				 * dg_peer_exchange covers the responder of -send,
+				 * which only learns of the exchange from the wire */
+				if (dg_testcase() || dg_peer_exchange)
+					dgr_pump(wsi);
+				break;
 			}
-			break;
-		}
 
 		if (pss_is_file_sender(pss)) {
 			/* Sender: write file data */
@@ -1224,267 +1797,257 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RECEIVE:
 		if (pss->is_session) {
-			/*
-			 * Only datagram testcases have a datagram
-			 * protocol.  In the stream transfer
-			 * testcases any datagram is unrelated and
-			 * must never be actioned: acting on a PUSH
-			 * would reopen-and-truncate files the
-			 * streams are writing to the same paths.
-			 */
-			if (!dg_testcase())
-				break;
+			char hdr[DGR_NAME_LEN + 64];
+			const uint8_t *payload = (const uint8_t *)in;
+			const uint8_t *data;
+			size_t hl = 0;
 
 			/*
-			 * Datagram received.  Formats:
-			 *
-			 *   "GET <filename>"                       request a file
-			 *   "PUSH <filename> <len>\n" + first chunk  start of file
-			 *   <raw chunk>                            file continuation
-			 *   "END <filename>"                       file complete
-			 *   "DONE"                                 all files complete
+			 * The header line is copied out and NUL-terminated
+			 * for safe parsing; binary chunk data stays in place.
 			 */
-			char *payload = (char *)in;
-			size_t payload_len = len;
+			while (hl < len && hl < sizeof(hdr) - 1 &&
+			       payload[hl] != '\n')
+				hl++;
+			memcpy(hdr, payload, hl);
+			hdr[hl] = '\0';
+			trim_trailing_whitespace(hdr);
+			data = payload + (hl < len ? hl + 1 : hl);
+
+			/*
+			 * Only datagram testcases have a datagram protocol.
+			 * In the stream transfer testcases any datagram is
+			 * unrelated and must never be actioned, in particular
+			 * it must never touch the files the streams are
+			 * writing to the same paths.
+			 *
+			 * But the responder of a -send datagram testcase is
+			 * only told its testcase is "transfer": it discovers
+			 * the exchange from the peer's protocol datagrams.
+			 */
+			if (!dg_testcase() && !dg_peer_exchange) {
+				if (!dgr_hdr_is_ctl(hdr))
+					break;
+				dg_peer_exchange = 1;
+				lwsl_user("Peer started a datagram exchange "
+					  "on a non-datagram-named testcase\n");
+			}
+
+			/*
+			 * Debug loss hook: drop a pseudorandom sample of
+			 * incoming datagrams to exercise recovery locally.
+			 */
+			if (dg_dbg_drop_pct &&
+			    (int)(dg_dbg_rand() % 100) < dg_dbg_drop_pct)
+				break;
 
 			/* a datagram exchange is happening, arm the safety cap */
 			start_datagram_recovery();
 
-			if (payload_len == 4 && memcmp(payload, "DONE", 4) == 0) {
-				lwsl_user("Session WSI received datagram DONE: peer confirmed all transfers\n");
-				/*
-				 * Only the responder acts on DONE.  The
-				 * initiator owns completion through ENDs and
-				 * its own DONE pump; a DONE that arrives
-				 * while it is still missing files must not
-				 * stop it retrying.
-				 */
-				if (!dg_am_initiator()) {
-					if (!is_server) {
-						int i;
-						for (i = 0; i < client_requests_count; i++)
-							client_requests[i].completed = 1;
-					}
-					interrupted = 1;
-				}
-				break;
-			} else if (payload_len > 4 && strncmp(payload, "GET ", 4) == 0) {
-				/* GET <filename> */
-				char filename[256];
-				size_t fn_len = payload_len - 4;
-				if (fn_len >= sizeof(filename)) fn_len = sizeof(filename) - 1;
-				memcpy(filename, payload + 4, fn_len);
-				filename[fn_len] = '\0';
-
-				lwsl_user("Session WSI received datagram GET: %s\n", filename);
-
-				/*
-				 * Respond by sending the file as
-				 * datagrams, unless a PUSH for it is
-				 * already in flight or queued: the
-				 * initiator's 400ms retries can queue
-				 * several GETs before the first PUSH
-				 * completes, and every duplicate would
-				 * re-send the whole file behind the
-				 * last one, long after the initiator
-				 * stopped needing it.
-				 */
-				{
-					int dup = 0, idx;
-
-					for (idx = dg_queue_head;
-					     idx != dg_queue_tail;
-					     idx = (idx + 1) % DG_QUEUE_LEN)
-						if (dg_queue[idx].kind == QIR_DG_PUSH &&
-						    !strcmp(dg_queue[idx].filename, filename)) {
-							dup = 1;
-							break;
-						}
-
-					if (dup)
-						lwsl_user("Datagram PUSH for %s already in flight, ignoring duplicate GET\n",
-							  filename);
-					else
-						enqueue_datagram(filename, QIR_DG_PUSH);
-				}
-				lws_callback_on_writable(wsi);
-			} else if (payload_len > 4 && strncmp(payload, "END ", 4) == 0) {
-				/* END <filename>: the file is complete */
-				char filename[256];
-				size_t fn_len = payload_len - 4;
-				if (fn_len >= sizeof(filename)) fn_len = sizeof(filename) - 1;
-				memcpy(filename, payload + 4, fn_len);
-				filename[fn_len] = '\0';
-
-				/*
-				 * END only completes the file it belongs to:
-				 * its PUSH must have been seen, and every
-				 * chunk of the advertised length accounted
-				 * for.  Per-datagram loss means an END can
-				 * survive without its PUSH or a middle
-				 * chunk; completing then would hide a
-				 * missing or truncated file from the retry
-				 * logic.  Leave it incomplete instead; the
-				 * initiator's retry will bring it again.
-				 */
-				if (pss->dg_cur_discard &&
-				    !strcmp(pss->dg_cur_name, filename)) {
-					lwsl_user("Session WSI received datagram END: %s (duplicate of completed file, ignoring)\n", filename);
-					pss->dg_cur_discard = 0;
-					pss->dg_cur_name[0] = '\0';
-					break;
-				}
-				if (pss->dg_fd < 0 ||
-				    strcmp(pss->dg_cur_name, filename)) {
-					lwsl_user("Session WSI received datagram END: %s (no matching PUSH in progress, ignoring)\n", filename);
-					break;
-				}
-				if (pss->dg_cur_expect != (size_t)-1 &&
-				    pss->dg_cur_got != pss->dg_cur_expect) {
-					lwsl_user("Session WSI received datagram END: %s (incomplete: %zu of %zu bytes, ignoring)\n",
-						  filename, pss->dg_cur_got, pss->dg_cur_expect);
-					break;
-				}
-
-				lwsl_user("Session WSI received datagram END: %s\n", filename);
-
-				close(pss->dg_fd);
-				pss->dg_fd = -1;
-
-				/* Mark request completed */
-				if (!is_server) {
-					int r_idx = -1;
-					int i;
-					for (i = 0; i < client_requests_count; i++) {
-						if (strcmp(client_requests[i].filename, filename) == 0) {
-							r_idx = i;
-							break;
-						}
-					}
-					if (r_idx >= 0) {
-						client_requests[r_idx].completed = 1;
-						lwsl_user("Client datagram request index %d (%s) completed\n", r_idx, filename);
-					}
-				} else {
-					int r_idx = -1;
-					int i;
-					for (i = 0; i < server_requests_count; i++) {
-						if (strcmp(server_requests[i].filename, filename) == 0) {
-							r_idx = i;
-							break;
-						}
-					}
-					if (r_idx >= 0) {
-						server_requests[r_idx].completed = 1;
-						lwsl_user("Server datagram request index %d (%s) completed\n", r_idx, filename);
-
-						int all_done = 1;
-						for (i = 0; i < server_requests_count; i++) {
-							if (!server_requests[i].completed) {
-								all_done = 0;
-								break;
-							}
-						}
-						if (all_done) {
-							lwsl_user("All server requests completed. Setting interrupted = 1 to exit.\n");
-							interrupted = 1;
-						}
-					}
-				}
-			} else if (payload_len > 5 && strncmp(payload, "PUSH ", 5) == 0) {
-				/* PUSH <filename> <len>\n<first chunk> */
-				char *newline = memchr(payload, '\n', payload_len);
-				if (newline) {
-					char filename[256];
-					size_t fn_len = (size_t)(newline - (payload + 5));
-					size_t expect = (size_t)-1;
-
+			{
+				if (!strcmp(hdr, "DONE")) {
+					lwsl_user("Session WSI received datagram DONE: peer confirmed all transfers\n");
 					/*
-					 * The length is the last token before
-					 * the newline, so filenames with
-					 * spaces still parse
+					 * Only the responder acts on DONE.  The
+					 * initiator owns completion through
+					 * its chunk bitmaps and its own DONE
+					 * pump; a DONE that arrives while it
+					 * is still missing files must not
+					 * stop it retrying.
 					 */
-					char *lsp = memchr(payload + 5, ' ', fn_len);
-					while (lsp) {
-						char *nxt = memchr(lsp + 1, ' ',
-								   (size_t)(newline - (lsp + 1)));
-						if (!nxt)
-							break;
-						lsp = nxt;
-					}
-					if (lsp) {
-						char *e;
-						unsigned long long v =
-							strtoull(lsp + 1, &e, 10);
-						if (e == newline && v != ULLONG_MAX) {
-							expect = (size_t)v;
-							fn_len = (size_t)(lsp - (payload + 5));
+					if (!dg_am_initiator()) {
+						if (!is_server) {
+							int i;
+							for (i = 0; i < client_requests_count; i++)
+								client_requests[i].completed = 1;
 						}
+						interrupted = 1;
 					}
+				} else if (!strncmp(hdr, "GET ", 4)) {
+					/* GET <name>: peer wants the file */
+					const char *name = hdr + 4;
+					struct dgr_tx *tf;
 
-					if (fn_len >= sizeof(filename)) fn_len = sizeof(filename) - 1;
-					memcpy(filename, payload + 5, fn_len);
-					filename[fn_len] = '\0';
+					if (!dgr_name_ok(name))
+						break;
 
-					char *data_start = newline + 1;
-					size_t data_len = payload_len - (size_t)(data_start - payload);
-
-					lwsl_user("Session WSI received datagram PUSH: %s (%zu bytes)\n", filename, data_len);
-
-					char dirpath[512], filepath[512];
-					lws_snprintf(dirpath, sizeof(dirpath), "/downloads%s", pss->endpoint);
-					if (mkdir(dirpath, 0777) < 0 && errno != EEXIST) { // NOSONAR
-						lwsl_err("Failed to create directory %s: %d\n", dirpath, errno);
-					}
-					lws_snprintf(filepath, sizeof(filepath), "%s/%s", dirpath, filename);
-
-					if (pss->dg_fd >= 0) {
-						close(pss->dg_fd);
-						pss->dg_fd = -1;
-					}
-					pss->dg_cur_discard = dg_request_completed(filename);
-					lws_strncpy(pss->dg_cur_name, filename, sizeof(pss->dg_cur_name));
-					pss->dg_cur_expect = expect;
-					pss->dg_cur_got = 0;
-					if (pss->dg_cur_discard) {
+					tf = dgr_tx_find(name);
+					if (tf) {
 						/*
-						 * We already completed this
-						 * file; a stale queued GET
-						 * made the peer send it
-						 * again.  Drop the duplicate
-						 * instead of truncating the
-						 * good copy: if this attempt
-						 * loses chunks, nothing
-						 * would fetch it again.
+						 * A GET means the peer has
+						 * nothing: either the whole
+						 * first pass was lost after it
+						 * drained, or the peer lost
+						 * everything again after our
+						 * OK handling.  Restart the
+						 * first pass; a GET while
+						 * chunks are still going out
+						 * is just a duplicate.
 						 */
-						lwsl_user("Session WSI received datagram PUSH: %s (already complete, discarding duplicate)\n",
-							  filename);
+						if (tf->done ||
+						    tf->cursor >= tf->chunks)
+							dgr_tx_reset(tf);
+					} else
+						(void)dgr_tx_create(name);
+					dgr_kick();
+
+				} else if (!strncmp(hdr, "HDR ", 4)) {
+					/* HDR <name> <len>: file is incoming */
+					char name[DGR_NAME_LEN];
+					const char *p = hdr + 4, *sp;
+					uint32_t flen;
+					int ridx, completed;
+					const char *endpoint;
+					struct dgr_rx *rx;
+
+					sp = strchr(p, ' ');
+					if (!sp || (size_t)(sp - p) >= sizeof(name))
+						break;
+					memcpy(name, p, (size_t)(sp - p));
+					name[sp - p] = '\0';
+					p = sp + 1;
+					if (!dgr_name_ok(name) ||
+					    !dgr_parse_u32(&p, &flen) || *p)
+						break;
+
+					if (!dgr_lookup_request(name, &ridx,
+								&endpoint, &completed, &rx))
+						break;
+
+					if (completed) {
+						/* stale resend: re-ack it */
+						dgr_ctl_enqueue(DGR_CTL_OK, name, 0, 0);
+						dgr_kick();
 						break;
 					}
-					pss->dg_fd = open(filepath, O_WRONLY | O_CREAT | O_TRUNC, 0666); // NOSONAR
-					if (pss->dg_fd >= 0) {
-						long w = (long)write(pss->dg_fd, data_start,
-								     LWS_POSIX_LENGTH_CAST(data_len));
-						if (w == (long)data_len)
-							pss->dg_cur_got += data_len;
+					if (rx) {
+						if (rx->len == flen)
+							break;	/* duplicate */
+						/* restarted from scratch */
+						if (is_server)
+							server_requests[ridx].dgr = NULL;
 						else
-							lwsl_err("Failed to write datagram content\n");
+							client_requests[ridx].dgr = NULL;
+						dgr_rx_destroy(rx, 0);
 					}
-				}
-			} else {
-				/* raw continuation chunk for the incoming file */
-				if (pss->dg_cur_discard) {
-					/* it belongs to a discarded duplicate */
-					break;
-				}
-				lwsl_user("Session WSI received datagram chunk: %zu bytes\n", payload_len);
-				if (pss->dg_fd >= 0) {
-					long w = (long)write(pss->dg_fd, payload,
-							     LWS_POSIX_LENGTH_CAST(payload_len));
-					if (w == (long)payload_len)
-						pss->dg_cur_got += payload_len;
+
+					rx = dgr_rx_create(name, flen, endpoint, ridx);
+					if (!rx)
+						break;
+					if (is_server)
+						server_requests[ridx].dgr = rx;
 					else
-						lwsl_err("Failed to write datagram chunk\n");
+						client_requests[ridx].dgr = rx;
+
+					lwsl_user("Datagram file %s incoming (%u bytes)\n",
+						  name, flen);
+
+					/* an empty file is already complete */
+					if (!rx->chunks)
+						dgr_rx_complete(rx);
+
+				} else if (!strncmp(hdr, "CH ", 3)) {
+					/* CH <name> <idx>\n<data> */
+					char name[DGR_NAME_LEN];
+					const char *p = hdr + 3, *sp;
+					uint32_t idx;
+					int ridx, completed;
+					const char *endpoint;
+					struct dgr_rx *rx;
+
+					sp = strchr(p, ' ');
+					if (!sp || (size_t)(sp - p) >= sizeof(name))
+						break;
+					memcpy(name, p, (size_t)(sp - p));
+					name[sp - p] = '\0';
+					p = sp + 1;
+					if (!dgr_name_ok(name) ||
+					    !dgr_parse_u32(&p, &idx) || *p)
+						break;
+
+					if (!dgr_lookup_request(name, &ridx,
+								&endpoint, &completed, &rx) ||
+					    completed || !rx)
+						break;
+
+					dgr_rx_chunk(rx, idx, data,
+						     len - (size_t)(data - payload));
+
+				} else if (!strncmp(hdr, "MISS ", 5)) {
+					/* MISS <name> <a>-<b>[,..] */
+					char name[DGR_NAME_LEN];
+					const char *p = hdr + 5, *sp;
+					struct dgr_tx *tf;
+
+					sp = strchr(p, ' ');
+					if (!sp || (size_t)(sp - p) >= sizeof(name))
+						break;
+					memcpy(name, p, (size_t)(sp - p));
+					name[sp - p] = '\0';
+					p = sp + 1;
+					if (!dgr_name_ok(name))
+						break;
+
+					tf = dgr_tx_find(name);
+					if (!tf) {
+						tf = dgr_tx_create(name);
+						if (!tf)
+							break;
+					} else if (tf->done) {
+						/* our OK was lost */
+						tf->done = 0;
+						if (tf->fd < 0)
+							tf->fd = open(tf->srcpath,
+								      O_RDONLY);
+					}
+
+					for (;;) {
+						uint32_t a, b;
+
+						if (!dgr_parse_u32(&p, &a) ||
+						    *p != '-')
+							break;
+						p++;
+						if (!dgr_parse_u32(&p, &b))
+							break;
+
+						/* clamp into the file */
+						if (b >= tf->chunks)
+							b = tf->chunks ?
+								tf->chunks - 1 : 0;
+						if (tf->chunks && a <= b)
+							for (; a <= b; a++)
+								dgr_resend_enqueue(tf, a);
+
+						if (*p == ',') {
+							p++;
+							continue;
+						}
+						break;
+					}
+					if (*p)
+						lwsl_info("Trailing junk in MISS for %s\n",
+							  name);
+					dgr_kick();
+
+				} else if (!strncmp(hdr, "OK ", 3)) {
+					/* OK <name>: receiver has it all */
+					const char *name = hdr + 3;
+					struct dgr_tx *tf;
+
+					if (!dgr_name_ok(name))
+						break;
+
+					tf = dgr_tx_find(name);
+					if (tf && !tf->done) {
+						tf->done = 1;
+						if (tf->fd >= 0) {
+							close(tf->fd);
+							tf->fd = -1;
+						}
+						lwsl_user("Datagram sender: %s acknowledged complete\n",
+							  name);
+					}
 				}
 			}
 			break;
@@ -1518,18 +2081,28 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 										lws_strncpy(pss->filename, pss->push_hdr + 5, sizeof(pss->filename));
 										lwsl_user("RECEIVE: Parsed filename '%s'\n", pss->filename);
 									}
-									/* Open file regardless of rem */
-									char dirpath[512], filepath[512];
-									const char *endpoint = pss->endpoint[0] ? pss->endpoint : global_endpoint;
-									lws_snprintf(dirpath, sizeof(dirpath), "/downloads%s", endpoint);
-									if (mkdir(dirpath, 0777) < 0 && errno != EEXIST) { // NOSONAR
-										lwsl_err("Failed to create directory %s: %d\n", dirpath, errno);
-									}
-									lws_snprintf(filepath, sizeof(filepath), "%s/%s", dirpath, pss->filename);
-									pss->fd_out = open(filepath, O_WRONLY | O_CREAT | O_TRUNC, 0666); // NOSONAR
-									
-									size_t rem = data_len - i - 1;
-									lwsl_user("RECEIVE: Opened file '%s' -> fd %d (rem=%zu bytes written)\n", filepath, pss->fd_out, rem);
+								/* Open file regardless of rem.  Streams
+								 * are reliable, but the file only
+								 * appears at its final name when the
+								 * stream completes, so a connection
+								 * death leaves it missing rather than
+								 * truncated. */
+								char dirpath[512];
+								const char *endpoint = pss->endpoint[0] ? pss->endpoint : global_endpoint;
+								lws_snprintf(dirpath, sizeof(dirpath), "/downloads%s", endpoint);
+								if (mkdir(dirpath, 0777) < 0 && errno != EEXIST) { // NOSONAR
+									lwsl_err("Failed to create directory %s: %d\n", dirpath, errno);
+								}
+								lws_snprintf(pss->out_final, sizeof(pss->out_final),
+									     "%s/%s", dirpath, pss->filename);
+								lws_snprintf(pss->out_part, sizeof(pss->out_part),
+									     "%s/.%s.part", dirpath, pss->filename);
+								pss->fd_out = open(pss->out_part,
+										  O_WRONLY | O_CREAT | O_TRUNC, 0666); // NOSONAR
+
+								size_t rem = data_len - i - 1;
+								lwsl_user("RECEIVE: Opened file '%s' -> fd %d (rem=%zu bytes written)\n",
+									  pss->out_final, pss->fd_out, rem);
 									if (pss->fd_out >= 0 && rem > 0) {
 										if (write(pss->fd_out, data + i + 1, LWS_POSIX_LENGTH_CAST(rem)) < 0) {
 											lwsl_err("Failed to write stream chunk\n");
@@ -1551,15 +2124,20 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 				} else {
 					/* Bidirectional: no header, just raw file contents */
 					if (pss->fd_out < 0) {
-						char dirpath[512], filepath[512];
+						char dirpath[512];
 						const char *endpoint = pss->endpoint[0] ? pss->endpoint : global_endpoint;
 						lws_snprintf(dirpath, sizeof(dirpath), "/downloads%s", endpoint);
 						if (mkdir(dirpath, 0777) < 0 && errno != EEXIST) { // NOSONAR
 							lwsl_err("Failed to create directory %s: %d\n", dirpath, errno);
 						}
-						lws_snprintf(filepath, sizeof(filepath), "%s/%s", dirpath, pss->filename);
-						pss->fd_out = open(filepath, O_WRONLY | O_CREAT | O_TRUNC, 0666); // NOSONAR
-						lwsl_user("RECEIVE (bidi): Opened file '%s' -> fd %d\n", filepath, pss->fd_out);
+						lws_snprintf(pss->out_final, sizeof(pss->out_final),
+							     "%s/%s", dirpath, pss->filename);
+						lws_snprintf(pss->out_part, sizeof(pss->out_part),
+							     "%s/.%s.part", dirpath, pss->filename);
+						pss->fd_out = open(pss->out_part,
+								   O_WRONLY | O_CREAT | O_TRUNC, 0666); // NOSONAR
+						lwsl_user("RECEIVE (bidi): Opened file '%s' -> fd %d\n",
+							  pss->out_final, pss->fd_out);
 					}
 					if (pss->fd_out >= 0) {
 						if (write(pss->fd_out, data, LWS_POSIX_LENGTH_CAST(data_len)) < 0) {
@@ -1647,10 +2225,14 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 		if (pss->fd_out >= 0) {
 			close(pss->fd_out);
 			pss->fd_out = -1;
-		}
-		if (pss->dg_fd >= 0) {
-			close(pss->dg_fd);
-			pss->dg_fd = -1;
+			/*
+			 * The stream carried all it had: publish what was
+			 * received.  A stream that died early publishes a
+			 * short file, but only at a path this exchange owns.
+			 */
+			if (rename(pss->out_part, pss->out_final) < 0)
+				lwsl_err("Failed to publish %s: %d\n",
+					 pss->out_final, errno);
 		}
 		if (!pss->is_session) {
 			if (pss->is_unidi && pss->is_initiator) {
@@ -1713,6 +2295,9 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 				dg_session_wsi = NULL;
 				lws_sul_cancel(&sul_dgretry);
 				dg_retry_armed = 0;
+				lws_sul_cancel(&sul_dgpace);
+				dg_pace_armed = 0;
+				dgr_teardown();
 			}
 			interrupted = 1;
 		}
@@ -1866,6 +2451,25 @@ int main(int argc, const char **argv)
 	if (tc)
 		lws_strncpy(testcase, tc, sizeof(testcase));
 
+	/*
+	 * Local protocol-validation hook: drop a pseudorandom sample of
+	 * incoming session datagrams, emulating sim loss without the sim.
+	 */
+	{
+		const char *drop = getenv("QIR_DBG_DROP_PERCENT");
+
+		if (drop) {
+			dg_dbg_drop_pct = atoi(drop);
+			if (dg_dbg_drop_pct < 0)
+				dg_dbg_drop_pct = 0;
+			if (dg_dbg_drop_pct > 99)
+				dg_dbg_drop_pct = 99;
+			if (dg_dbg_drop_pct)
+				lwsl_user("DBG: dropping %d%% of received datagrams\n",
+					  dg_dbg_drop_pct);
+		}
+	}
+
 	lwsl_user("LWS WebTransport QIR Tool | Role: %s | Testcase: %s\n",
 		  is_server ? "server" : "client", testcase);
 
@@ -2008,6 +2612,9 @@ int main(int argc, const char **argv)
 	 */
 	if (n >= 0)
 		drain_context(context, 1000);
+
+	/* free datagram exchange state and drop any .part leftovers */
+	dgr_teardown();
 
 	lws_context_destroy(context);
 
