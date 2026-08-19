@@ -1025,8 +1025,13 @@ dgr_send_chunk(struct lws *wsi, struct dgr_tx *tf, uint32_t idx)
 	if (expect > DGR_CHUNK)
 		expect = DGR_CHUNK;
 
-	/* name is validated <= 127, so n + 1024 always fits the budget */
-	n = lws_snprintf((char *)&buf[LWS_PRE], DGR_MAX_DGRAM,
+	/*
+	 * The header is capped to the datagram budget outside the fixed chunk
+	 * payload, so however long the name is, header + payload can never
+	 * overrun the buffer (or the QUIC DATAGRAM budget).  Validated names
+	 * (<= 127 bytes) fit the cap without truncation.
+	 */
+	n = lws_snprintf((char *)&buf[LWS_PRE], DGR_MAX_DGRAM - DGR_CHUNK,
 			 "CH %s %u\n", tf->name, idx);
 
 	if (lseek(tf->fd, (off_t)idx * DGR_CHUNK, SEEK_SET) == (off_t)-1 ||
@@ -1037,7 +1042,7 @@ dgr_send_chunk(struct lws *wsi, struct dgr_tx *tf, uint32_t idx)
 		return 1;
 	}
 
-	return lws_write(wsi, &buf[LWS_PRE], (size_t)(n + r),
+	return lws_write(wsi, &buf[LWS_PRE], (size_t)n + (size_t)r,
 			 LWS_WRITE_QUIC_DATAGRAM) < 0 ? -1 : 0;
 }
 
