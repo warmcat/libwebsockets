@@ -378,7 +378,12 @@ lws_webrtc_send_video(struct lws_webrtc_peer_media *media, const uint8_t *buf, s
 				uint32_t s = 0; int shift = 0;
 				while (tr > 0) {
 					uint8_t b = *ts++; tr--;
-					s |= (uint32_t)(b & 0x7f) << shift;
+					/* only the first 5 bytes can affect a
+					 * uint32_t; shifting by >= its width is
+					 * UB, and pl is clamped to what is
+					 * left in the buffer anyway */
+					if (shift < 32)
+						s |= (uint32_t)(b & 0x7f) << shift;
 					if (!(b & 0x80)) break;
 					shift += 7;
 				}
@@ -420,7 +425,12 @@ lws_webrtc_send_video(struct lws_webrtc_peer_media *media, const uint8_t *buf, s
 				int shift = 0;
 				while (tr > 0) {
 					uint8_t b = *ts++; tr--;
-					s |= (uint32_t)(b & 0x7f) << shift;
+					/* only the first 5 bytes can affect a
+					 * uint32_t; shifting by >= its width is
+					 * UB, and pl is clamped to what is
+					 * left in the buffer anyway */
+					if (shift < 32)
+						s |= (uint32_t)(b & 0x7f) << shift;
 					if (!(b & 0x80)) break;
 					shift += 7;
 				}
@@ -434,8 +444,16 @@ lws_webrtc_send_video(struct lws_webrtc_peer_media *media, const uint8_t *buf, s
 
 			ps = src;
 			uint8_t stack_obu[4096], *tmp_obu = NULL;
-			uint8_t oh_no_size = (uint8_t)(oh & 0xfd);
-			size_t tl = 1 + (oh & 0x04 ? 1 : 0);
+			/*
+			 * Only claim the extension header byte if it actually
+			 * arrived: on a truncated OBU whose header is the last
+			 * byte of buf, obu_start[1] is out of bounds.  Drop the
+			 * ext flag from the rebuilt header in that case, so we
+			 * never emit a header promising an extension byte that
+			 * is not there.
+			 */
+			size_t tl = 1u + (((oh & 0x04) && obu_start + 1 < end) ? 1u : 0u);
+			uint8_t oh_no_size = (uint8_t)(oh & (tl > 1 ? 0xfd : 0xf9));
 
 			if (tl + pl <= sizeof(stack_obu)) {
 				tmp_obu = stack_obu;
@@ -445,7 +463,7 @@ lws_webrtc_send_video(struct lws_webrtc_peer_media *media, const uint8_t *buf, s
 
 			if (tmp_obu) {
 				tmp_obu[0] = oh_no_size;
-				if (oh & 0x04) tmp_obu[1] = obu_start[1];
+				if (tl > 1) tmp_obu[1] = obu_start[1];
 
 				uint8_t type = (tmp_obu[0] >> 3) & 0x0f;
 				if (type == 2 || type == 5 || type == 15) {
