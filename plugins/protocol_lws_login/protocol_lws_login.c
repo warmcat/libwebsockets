@@ -1359,10 +1359,22 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				 * stamp it for the proxy to forward to backend.
 				 * The single lws_login_state encodes the role
 				 * (anon/user/app-admin/global-admin); the bouncer
-				 * no longer leaks a separate is_admin boolean. */
-				const char *sub = lws_jwt_auth_get_sub(ja);
+				 * no longer leaks a separate is_admin boolean.
+				 *
+				 * lws_jwt_auth_get_sub() points into the ja
+				 * allocation itself, so it must be copied out
+				 * before ja is destroyed: the value is consumed
+				 * synchronously here, a stack copy is enough.
+				 * Sized to match ja's internal sub[]. */
+				char sub[128];
+				const char *s;
 				enum lws_login_state state =
 					lws_login_state_from_grants(ja, level);
+
+				s = lws_jwt_auth_get_sub(ja);
+				sub[0] = '\0';
+				if (s)
+					lws_strncpy(sub, s, sizeof(sub));
 
 				lws_jwt_auth_destroy(&ja);
 
