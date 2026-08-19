@@ -1020,7 +1020,8 @@ dgr_send_chunk(struct lws *wsi, struct dgr_tx *tf, uint32_t idx)
 {
 	uint8_t buf[LWS_PRE + DGR_MAX_DGRAM];
 	size_t expect = tf->len - (size_t)idx * DGR_CHUNK;
-	int n, r;
+	ssize_t r;
+	int n;
 
 	if (expect > DGR_CHUNK)
 		expect = DGR_CHUNK;
@@ -1035,8 +1036,8 @@ dgr_send_chunk(struct lws *wsi, struct dgr_tx *tf, uint32_t idx)
 			 "CH %s %u\n", tf->name, idx);
 
 	if (lseek(tf->fd, (off_t)idx * DGR_CHUNK, SEEK_SET) == (off_t)-1 ||
-	    (r = (int)read(tf->fd, &buf[LWS_PRE + n],
-			   LWS_POSIX_LENGTH_CAST(expect))) < 0 ||
+	    (r = read(tf->fd, &buf[LWS_PRE + n],
+		      LWS_POSIX_LENGTH_CAST(expect))) < 0 ||
 	    (size_t)r != expect) {
 		lwsl_err("Failed reading %s chunk %u\n", tf->name, idx);
 		return 1;
@@ -1422,6 +1423,7 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 {
 	struct pss_qir *pss = (struct pss_qir *)user;
 	uint8_t buf[LWS_PRE + 4096], *p;
+	ssize_t r;
 	int n, m;
 
 	/*
@@ -1732,16 +1734,16 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 				if (!pss->is_unidi || pss->header_sent) {
 					/* Read and send file chunk */
 					p = &buf[LWS_PRE];
-					n = (int)read(pss->fd_in, p, LWS_POSIX_LENGTH_CAST(sizeof(buf) - LWS_PRE));
-					if (n > 0) {
-						pss->sent_len += (size_t)n;
+					r = read(pss->fd_in, p, LWS_POSIX_LENGTH_CAST(sizeof(buf) - LWS_PRE));
+					if (r > 0) {
+						pss->sent_len += (size_t)r;
 						int is_final = (pss->sent_len == pss->file_len);
-						m = lws_write(wsi, p, (size_t)n, LWS_WRITE_BINARY | (is_final ? LWS_WRITE_H2_STREAM_END : LWS_WRITE_NO_FIN));
+						m = lws_write(wsi, p, (size_t)r, LWS_WRITE_BINARY | (is_final ? LWS_WRITE_H2_STREAM_END : LWS_WRITE_NO_FIN));
 						if (m < 0)
 							return -1;
-						if (m < n) {
+						if (m < r) {
 							/* Seek back the unwritten bytes and retry */
-							off_t diff = (off_t)(n - m);
+							off_t diff = (off_t)(r - m);
 							if (lseek(pss->fd_in, -diff, SEEK_CUR) == (off_t)-1) {
 								lwsl_err("lseek failed: %d\n", errno);
 								return -1;
