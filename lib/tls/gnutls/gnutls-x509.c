@@ -61,7 +61,12 @@ lws_x509_create_cert(struct lws_context *context,
 			goto bail;
 		}
 
-		if (gnutls_x509_privkey_generate(key, GNUTLS_PK_ECC, curve, 0))
+		info->key_bits = curvegnutls_ecc_curve_get_size(curve) * 8;
+		if (info->key_bits == 0) {
+			info->key_bits = 256;
+		}
+
+		if (gnutls_x509_privkey_generate(key, GNUTLS_PK_ECC, info->key_bits, 0))
 			goto bail;
 	} else {
 		if (gnutls_x509_privkey_generate(key, GNUTLS_PK_RSA, (unsigned int)(info->key_bits ? info->key_bits : 2048), 0))
