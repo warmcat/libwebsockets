@@ -56,6 +56,7 @@ struct lws_stub_req {
 struct lws_stub_manager {
 	struct lws_context		*cx;
 	struct lws_vhost		*vh;
+	struct lws_vhost		*vh_client;
 	char				uds_path[256];
 	char				stub_name[128];
 	char				secret[129];
@@ -77,6 +78,30 @@ struct lws_stub_manager {
 
 static int
 lws_stub_client_connect(struct lws_stub_manager *mgr);
+
+/*
+ * The stub client connection is made on its own private, no-listen vhost,
+ * with this as the vhost's protocols[0].  This has two effects:
+ *
+ *  - the client wsi protocol binding to "lws-stub-client" cannot fail
+ *    because the caller's vhost lacks it, which would misroute all the
+ *    client wsi callbacks elsewhere, and
+ *
+ *  - wsi destroy notifications are delivered to the vhost protocols[0],
+ *    ie, to lws_callback_stub_client, even for wsi that never established
+ *    and even when the context is being destroyed and other callbacks are
+ *    suppressed.  That is how we reliably learn our wsi was freed, so we
+ *    can stop holding a stale pointer to it.
+ */
+static const struct lws_protocols stub_client_protocols[] = {
+	{
+		.name			= "lws-stub-client",
+		.callback		= lws_callback_stub_client,
+		.per_session_data_size	= 0,
+		.rx_buffer_size		= 4096,
+	},
+	LWS_PROTOCOL_LIST_TERM
+};
 
 struct lws_stub_manager *
 lws_stub_spawn(const struct lws_stub_config *config)
@@ -161,6 +186,7 @@ lws_stub_spawn(const struct lws_stub_config *config)
 
 	spawn_info.exec_array = mgr->exec_array;
 	spawn_info.vh = mgr->vh;
+	spawn_info.opaque = mgr;
 	if (config->parent_protocol_name)
 		spawn_info.protocol_name = config->parent_protocol_name;
 
@@ -208,6 +234,25 @@ lws_stub_spawn(const struct lws_stub_config *config)
 	}
 
 	lwsl_vhost_notice(mgr->vh, "%s: Spawned stub '%s'\n", __func__, config->stub_name);
+
+	{
+		struct lws_context_creation_info ci;
+		char name[192];
+
+		memset(&ci, 0, sizeof(ci));
+		ci.port		= CONTEXT_PORT_NO_LISTEN;
+		ci.protocols	= stub_client_protocols;
+		lws_snprintf(name, sizeof(name), "%s-client", mgr->stub_name);
+		ci.vhost_name	= name;
+
+		mgr->vh_client = lws_create_vhost(mgr->cx, &ci);
+	}
+
+	if (!mgr->vh_client) {
+		lwsl_vhost_err(mgr->vh, "%s: stub '%s': failed to create client vhost\n",
+			       __func__, config->stub_name);
+		goto spawn_fail;
+	}
 
 	if (!mgr->sul.list.owner && !mgr->wsi_client)
 		lws_stub_client_connect(mgr);
@@ -325,9 +370,13 @@ lws_stub_client_connect(struct lws_stub_manager *mgr)
 {
 	struct lws_client_connect_info i;
 
+	if (mgr->cx->being_destroyed)
+		/* nobody will service anything we start from now on */
+		return -1;
+
 	memset(&i, 0, sizeof(i));
 	i.context		= mgr->cx;
-	i.vhost			= mgr->vh;
+	i.vhost			= mgr->vh_client;
 
 	/* UNIX domain socket addresses need a '+' prefix */
 	lws_snprintf(mgr->addr, sizeof(mgr->addr), "+%s", mgr->uds_path);
@@ -467,6 +516,18 @@ lws_callback_stub_client(struct lws *wsi, enum lws_callback_reasons reason,
 		mgr->wsi_client = NULL;
 		break;
 
+	case LWS_CALLBACK_WSI_DESTROY:
+		/*
+		 * Unconditional last call before the wsi memory is freed.
+		 * For wsi that never established, it's the only notification
+		 * we get at all when the context is being destroyed, since
+		 * the usual close callbacks are suppressed then.  Drop our
+		 * pointer to the wsi before its memory goes away.
+		 */
+		if (mgr->wsi_client == wsi)
+			mgr->wsi_client = NULL;
+		break;
+
 	default:
 		break;
 	}
@@ -528,6 +589,9 @@ lws_stub_destroy(struct lws_stub_manager **_mgr)
 	if (!mgr)
 		return;
 
+	/* the retry sul is embedded in us: stop it pointing at freed memory */
+	lws_sul_cancel(&mgr->sul);
+
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, mgr->reqs.head) {
 		struct lws_stub_req *req = lws_container_of(d, struct lws_stub_req, list);
 		lws_dll2_remove(d);
@@ -541,8 +605,16 @@ lws_stub_destroy(struct lws_stub_manager **_mgr)
 	if (mgr->wsi_client)
 		lws_set_opaque_user_data(mgr->wsi_client, NULL);
 
-	if (mgr->lsp)
+	if (mgr->lsp) {
 		lws_spawn_piped_kill_child_process(mgr->lsp);
+		/*
+		 * Any still-open stdwsi are marked to close asynchronously
+		 * here; stdwsi that already went through close processing
+		 * have been removed from lsp->stdwsi[] by their protocol
+		 * handler calling lws_spawn_stdwsi_closed().
+		 */
+		lws_spawn_piped_destroy(&mgr->lsp);
+	}
 
 	unlink(mgr->uds_path);
 
@@ -556,5 +628,14 @@ lws_stub_get_secret(struct lws_stub_manager *mgr)
 	if (!mgr)
 		return NULL;
 	return mgr->secret;
+}
+
+struct lws_spawn_piped *
+lws_stub_get_lsp(struct lws_stub_manager *mgr)
+{
+	if (!mgr)
+		return NULL;
+
+	return mgr->lsp;
 }
 #endif

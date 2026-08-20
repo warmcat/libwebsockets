@@ -42,7 +42,10 @@ struct lws_stub_config {
 	size_t				extra_payload_len;
 	void				*user;			/* Opaque user pointer passed to vhost */
 	void (*connected_cb)(struct lws_stub_manager *mgr);	/* Called when UDS connects */
-	const char			*parent_protocol_name;	/* Protocol to bind parent pipes to */
+	const char			*parent_protocol_name;	/* Protocol to bind parent pipes to.  If set, this
+								 * protocol must call lws_spawn_stdwsi_closed()
+								 * with lws_stub_get_lsp(mgr) from its
+								 * LWS_CALLBACK_RAW_CLOSE_FILE handler. */
 };
 
 struct lws_stub_manager;
@@ -54,6 +57,9 @@ struct lws_stub_manager;
  *
  * Spawns a child process using lws_spawn_piped, appending --lws-stub=<stub_name>.
  * It generates a 128-byte secure random secret and writes it to the child's stdin.
+ * The client connection to the stub is made on an internal no-listen vhost that
+ * this call creates, so the vhost in config->vh does not need to have registered
+ * a "lws-stub-client" protocol.
  * Returns an opaque manager object, or NULL on failure.
  */
 LWS_VISIBLE LWS_EXTERN struct lws_stub_manager *
@@ -115,6 +121,21 @@ lws_stub_destroy(struct lws_stub_manager **_mgr);
  */
 LWS_VISIBLE LWS_EXTERN const char *
 lws_stub_get_secret(struct lws_stub_manager *mgr);
+
+/**
+ * lws_stub_get_lsp() - Get the spawn object associated with a stub manager
+ *
+ * \param mgr: The manager returned by lws_stub_spawn
+ *
+ * Returns the lws_spawn_piped object used for the stub child process, or
+ * NULL if mgr is invalid.  If you set parent_protocol_name in the stub
+ * config, your protocol handler receives events from the spawn stdwsi; it
+ * must call lws_spawn_stdwsi_closed() with this lsp from its
+ * LWS_CALLBACK_RAW_CLOSE_FILE handler, so the spawn object can track its
+ * stdwsi and clean up correctly.
+ */
+LWS_VISIBLE LWS_EXTERN struct lws_spawn_piped *
+lws_stub_get_lsp(struct lws_stub_manager *mgr);
 
 
 LWS_VISIBLE LWS_EXTERN int
