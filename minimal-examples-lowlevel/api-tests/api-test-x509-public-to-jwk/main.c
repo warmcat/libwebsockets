@@ -209,12 +209,12 @@ int main(int argc, const char **argv)
 			.expected_result = 0
 		},
 		{
-			.name = "EC certificate - curve token mismatch still accepted",
+			.name = "EC certificate - curve token mismatch rejected",
 			.cert_path = "ec-p256-cert.crt",
 			.curves = "P-384",
 			.rsa_min_bits = 0,
 			.expected_kty = LWS_GENCRYPTO_KTY_EC,
-			.expected_result = 0
+			.expected_result = -1
 		},
 		{
 			.name = "EC certificate - unsupported curve id (P-224)",

@@ -63,23 +63,31 @@ lws_genec_confirm_curve_allowed_by_tls_id(const char *allowed, int id,
 		case LWS_TOKZE_TOKEN:
 			n = 0;
 			while (lws_ec_curves[n].name) {
-				if (id != lws_ec_curves[n].tls_lib_nid) {
-					n++;
-					continue;
+				/*
+				 * the curve the key is actually on must be
+				 * represented in the allowed list by name as
+				 * well as by tls id
+				 */
+				if (id == lws_ec_curves[n].tls_lib_nid &&
+				    ts.token_len ==
+					strlen(lws_ec_curves[n].name) &&
+				    !memcmp(ts.token, lws_ec_curves[n].name,
+					    ts.token_len)) {
+					lwsl_info("match curve %s\n",
+						  lws_ec_curves[n].name);
+					len = strlen(lws_ec_curves[n].name);
+					jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].len = (uint32_t)len;
+					jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf =
+							lws_malloc(len + 1, "cert crv");
+					if (!jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf) {
+						lwsl_err("%s: OOM\n", __func__);
+						return 1;
+					}
+					memcpy(jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf,
+					       lws_ec_curves[n].name, len + 1);
+					return 0;
 				}
-				lwsl_info("match curve %s\n",
-					  lws_ec_curves[n].name);
-				len = strlen(lws_ec_curves[n].name);
-				jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].len = (uint32_t)len;
-				jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf =
-						lws_malloc(len + 1, "cert crv");
-				if (!jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf) {
-					lwsl_err("%s: OOM\n", __func__);
-					return 1;
-				}
-				memcpy(jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf,
-				       lws_ec_curves[n].name, len + 1);
-				return 0;
+				n++;
 			}
 			break;
 
