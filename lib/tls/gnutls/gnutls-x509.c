@@ -51,17 +51,24 @@ lws_x509_create_cert(struct lws_context *context,
 	}
 
 	if (info->curve_name) {
-		gnutls_ecc_curve_t curve = GNUTLS_ECC_CURVE_INVALID;
-		if (!strcmp(info->curve_name, "P-521")) curve = GNUTLS_ECC_CURVE_SECP521R1;
-		else if (!strcmp(info->curve_name, "P-384")) curve = GNUTLS_ECC_CURVE_SECP384R1;
-		else if (!strcmp(info->curve_name, "P-256")) curve = GNUTLS_ECC_CURVE_SECP256R1;
+		/*
+		 * gnutls_x509_privkey_generate() takes the key strength in
+		 * bits, not a gnutls_ecc_curve_t... for ECC, the bits select
+		 * the curve.  Passing the curve enum there makes gnutls
+		 * generate a legacy secp192r1 key whatever curve was asked
+		 * for.
+		 */
+		unsigned int curve_bits;
 
-		if (curve == GNUTLS_ECC_CURVE_INVALID) {
+		if (!strcmp(info->curve_name, "P-521")) curve_bits = 521;
+		else if (!strcmp(info->curve_name, "P-384")) curve_bits = 384;
+		else if (!strcmp(info->curve_name, "P-256")) curve_bits = 256;
+		else {
 			lwsl_err("%s: unknown curve %s\n", __func__, info->curve_name);
 			goto bail;
 		}
 
-		if (gnutls_x509_privkey_generate(key, GNUTLS_PK_ECC, curve, 0))
+		if (gnutls_x509_privkey_generate(key, GNUTLS_PK_ECC, curve_bits, 0))
 			goto bail;
 	} else {
 		if (gnutls_x509_privkey_generate(key, GNUTLS_PK_RSA, (unsigned int)(info->key_bits ? info->key_bits : 2048), 0))

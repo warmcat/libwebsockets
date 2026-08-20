@@ -339,6 +339,26 @@ lws_spawn_piped_kill_child_process(struct lws_spawn_piped *lsp)
 	return 0;
 }
 
+/*
+ * The stdwsi have a pipe HANDLE rather than a POSIX fd, so the protocol
+ * callback cannot read the data himself on Windows.  We are the only one
+ * who knows the handle, so read what is available (the pipes are
+ * PIPE_NOWAIT) and pass it to the protocol callback in `in` / `len`, the
+ * same shape as an LWS_CALLBACK_RAW_RX delivery.
+ */
+static void
+spawn_pipe_deliver(struct lws *wsi, HANDLE h)
+{
+	char buf[4096];
+	DWORD br = 0;
+
+	if (!ReadFile(h, buf, (DWORD)sizeof(buf), &br, NULL) || !br)
+		return;
+
+	wsi->a.protocol->callback(wsi, LWS_CALLBACK_RAW_RX_FILE,
+				  wsi->user_space, buf, (size_t)br);
+}
+
 static void
 windows_pipe_poll_hack(lws_sorted_usec_list_t *sul)
 {
@@ -387,7 +407,7 @@ windows_pipe_poll_hack(lws_sorted_usec_list_t *sul)
 
 			if (lsp->stdwsi[LWS_STDIN]) {
                                lwsl_info("%s: closing stdin from stdout close\n",
-						__func__);
+					 __func__);
 				CloseHandle(lsp->stdwsi[LWS_STDIN]->desc.filefd);
 				wsi = lsp->stdwsi[LWS_STDIN];
 				lsp->stdwsi[LWS_STDIN]->desc.filefd = NULL;
@@ -400,10 +420,8 @@ windows_pipe_poll_hack(lws_sorted_usec_list_t *sul)
 			 * lsp may be destroyed by here... if we wanted to
 			 * handle a still-extant stderr we'll get it next time
 			 */
-		} else if (br) {
-			wsi->a.protocol->callback(wsi, LWS_CALLBACK_RAW_RX_FILE,
-						wsi->user_space, NULL, 0);
-		}
+		} else if (br)
+			spawn_pipe_deliver(wsi, lsp->pipe_fds[LWS_STDOUT][0]);
 	}
 
 	/*
@@ -427,10 +445,8 @@ windows_pipe_poll_hack(lws_sorted_usec_list_t *sul)
 			/*
 			 * lsp may have been destroyed above
 			 */
-		} else if (br) {
-			wsi1->a.protocol->callback(wsi1, LWS_CALLBACK_RAW_RX_FILE,
-						wsi1->user_space, NULL, 0);
-		}
+		} else if (br)
+			spawn_pipe_deliver(wsi1, lsp->pipe_fds[LWS_STDERR][0]);
 	}
 }
 

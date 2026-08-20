@@ -109,7 +109,7 @@ lws_x509_create(struct lws_x509_cert **x509);
  * \param key_bits: Key strength (e.g. 2048 for RSA)
  *
  * Creates a self-signed certificate and private key in memory (DER format).
- * The caller is responsible for freeing *cert_buf and *key_buf using lws_free().
+ * The caller is responsible for freeing *cert_buf and *key_buf using free().
  *
  * Returns 0 on success.
  */
@@ -141,7 +141,7 @@ struct lws_x509_cert_gen_info {
  * \param info: struct containing generation parameters
  *
  * Creates a certificate and private key in memory (DER format).
- * The caller is responsible for freeing *cert_buf and *key_buf using lws_free().
+ * The caller is responsible for freeing *cert_buf and *key_buf using free().
  *
  * Returns 0 on success.
  */
