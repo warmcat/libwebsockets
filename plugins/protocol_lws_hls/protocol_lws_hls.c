@@ -582,6 +582,20 @@ err_404:
 		}
 		break;
 
+	case LWS_CALLBACK_RAW_CLOSE_FILE:
+		/*
+		 * As the protocol named by the stub's parent_protocol_name,
+		 * we must keep the stub's spawn object informed about its
+		 * stdwsi closing, so it can track and clean up after the
+		 * child process
+		 */
+#if defined(LWS_WITH_STUB)
+		if (vhd && vhd->stub_mgr && lws_stub_get_lsp(vhd->stub_mgr))
+			lws_spawn_stdwsi_closed(
+				lws_stub_get_lsp(vhd->stub_mgr), wsi);
+#endif
+		break;
+
 	case LWS_CALLBACK_RAW_RX_FILE: {
 		char buf[512];
 		ssize_t n;

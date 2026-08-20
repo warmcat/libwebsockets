@@ -31,6 +31,15 @@
 static int interrupted;
 int is_stub = 0;
 
+/*
+ * When set, the stub manager is destroyed from PROTOCOL_DESTROY during
+ * lws_context_destroy() rather than explicitly by main, the same way the
+ * lwsws hls plugin does it.  This covers the teardown ordering where the
+ * stub's client wsi is closed and freed by the context destroy machinery
+ * before the stub manager itself is destroyed.
+ */
+static struct lws_stub_manager *g_stub_mgr;
+
 /* --- STUB (ROOT) PROCESS --- */
 
 struct pss_stub {
@@ -113,6 +122,22 @@ callback_stub_server(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RAW_CLOSE:
 		if (pss->parser_valid)
 			lejp_destruct(&pss->jctx);
+		break;
+
+	case LWS_CALLBACK_RAW_CLOSE_FILE:
+		/*
+		 * As the protocol named by parent_protocol_name, we must
+		 * keep the stub's spawn object informed about its stdwsi
+		 * closing, so it can track and clean up after the child
+		 */
+		if (g_stub_mgr && lws_stub_get_lsp(g_stub_mgr))
+			lws_spawn_stdwsi_closed(
+				lws_stub_get_lsp(g_stub_mgr), wsi);
+		break;
+
+	case LWS_CALLBACK_PROTOCOL_DESTROY:
+		if (g_stub_mgr)
+			lws_stub_destroy(&g_stub_mgr);
 		break;
 
 	default:
@@ -204,6 +229,103 @@ static void sigint_handler(int sig)
 	interrupted = 1;
 }
 
+/*
+ * Phase 2: destroy the context while the stub connection is established and
+ * the stub manager is only destroyed from PROTOCOL_DESTROY.
+ *
+ * The vhost used for spawning deliberately does NOT list "lws-stub-client"
+ * among its protocols, matching the lwsws hls plugin setup.  The stub must
+ * still connect (on its internal client vhost) and the teardown must be
+ * clean even though the stub outlives its client wsi until protocol destroy.
+ */
+
+static struct lws_protocols parent_protocols[] = {
+	{
+		.name = "lws-demo-stub",
+		.callback = callback_stub_server,
+		.per_session_data_size = sizeof(struct pss_stub),
+		.rx_buffer_size = 4096,
+	},
+	LWS_PROTOCOL_LIST_TERM
+};
+
+static int established;
+
+static void
+phase2_connected_cb(struct lws_stub_manager *mgr)
+{
+	established = 1;
+	lwsl_user("Phase 2: stub client connection established\n");
+}
+
+static int
+phase2(void)
+{
+	struct lws_context_creation_info info;
+	struct lws_stub_config sc;
+	struct lws_context *cx;
+	struct lws_vhost *vh;
+	lws_usec_t start;
+
+	established = 0;
+
+	lws_context_info_defaults(&info, NULL);
+	info.port = CONTEXT_PORT_NO_LISTEN;
+	info.protocols = parent_protocols;
+
+	cx = lws_create_context(&info);
+	if (!cx) {
+		lwsl_err("phase 2: lws_create_context failed\n");
+		return 1;
+	}
+
+	/*
+	 * This vhost lists only lws-demo-stub, NOT lws-stub-client,
+	 * deliberately, like the hls plugin's vhost in lwsws
+	 */
+	info.vhost_name = "phase2-vhost";
+	vh = lws_create_vhost(cx, &info);
+	if (!vh) {
+		lwsl_err("phase 2: lws_create_vhost failed\n");
+		lws_context_destroy(cx);
+		return 1;
+	}
+
+	memset(&sc, 0, sizeof(sc));
+	sc.cx = cx;
+	sc.vh = vh;
+	sc.stub_name = "demo-stub";
+	sc.uds_path = "/tmp/lws-demo-stub.sock"; // NOSONAR
+	sc.protocols = stub_protocols;
+	sc.parent_protocol_name = "lws-demo-stub";
+	/* the stub child always reads the extra payload in this test */
+	sc.extra_payload = "phase2";
+	sc.extra_payload_len = strlen("phase2") + 1;
+	sc.connected_cb = phase2_connected_cb;
+
+	g_stub_mgr = lws_stub_spawn(&sc);
+	if (!g_stub_mgr) {
+		lwsl_err("phase 2: failed to spawn stub process\n");
+		lws_context_destroy(cx);
+		return 1;
+	}
+
+	start = lws_now_usecs();
+	while (!established && lws_now_usecs() - start < 5000000) /* 5s */
+		lws_service(cx, 100);
+
+	/* stub is destroyed from PROTOCOL_DESTROY inside here, after its
+	 * client wsi was closed and freed */
+	lws_context_destroy(cx);
+
+	if (!established) {
+		lwsl_err("phase 2: stub connection never established\n");
+		return 1;
+	}
+
+	return 0;
+}
+
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
@@ -286,6 +408,9 @@ int main(int argc, const char **argv)
 			result = 1;
 			goto done;
 		}
+		/* the stub is destroyed from PROTOCOL_DESTROY at context
+		 * destroy, like lwsws plugins do it */
+		g_stub_mgr = ps.mgr;
 
 		/* Request something from the stub */
 		if (lws_stub_request(ps.mgr, "{\"hello\":\"world\"}", parent_rx_paths, 1, parent_rx_cb, NULL, &ps) < 0) {
@@ -313,11 +438,14 @@ int main(int argc, const char **argv)
 		}
 
 done:
-		if (ps.mgr)
-			lws_stub_destroy(&ps.mgr);
+		; /* stub destroyed via PROTOCOL_DESTROY during context destroy */
 	}
 
 	lws_context_destroy(cx);
+
+	if (!result)
+		result = phase2();
+
 	lwsl_user("Exiting with result %d\n", result);
 	return lws_cmdline_passfail(argc, argv, result);
 }
