@@ -130,6 +130,19 @@ lws_spawn_piped_destroy(struct lws_spawn_piped **_lsp)
 	if (!lsp)
 		return;
 
+	/*
+	 * Take the caller's pointer away and mark us underway, so a
+	 * re-entrant destroy attempt (eg, via PROTOCOL_DESTROY completing a
+	 * deferred vhost destruction inside the stdwsi closes below) sees it
+	 * cleared and leaves the outer call to finish and free lsp
+	 */
+	*_lsp = NULL;
+
+	if (lsp->destroying)
+		return;
+
+	lsp->destroying = 1;
+
 	lws_dll2_remove(&lsp->dll);
 
 	lws_sul_cancel(&lsp->sul);
@@ -151,7 +164,7 @@ lws_spawn_piped_destroy(struct lws_spawn_piped **_lsp)
 		}
 	}
 
-	lws_free_set_NULL((*_lsp));
+	lws_free(lsp);
 }
 
 int

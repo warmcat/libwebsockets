@@ -120,7 +120,13 @@ callback_auth_device_client(struct lws *wsi, enum lws_callback_reasons reason, v
 	struct per_vhost_data *vhd = (struct per_vhost_data *)lws_protocol_vh_priv_get(lws_get_vhost(wsi), lws_get_protocol(wsi));
 	struct client_action *action = (struct client_action *)lws_get_opaque_user_data(wsi);
 	struct auth_device_session *session = action ? action->session : NULL;
-	char payload[256];
+	/*
+	 * POST body scratch.  The body proper starts LWS_PRE bytes in:
+	 * lws_write() composes the h2/h3 DATA frame header into the bytes
+	 * immediately BEFORE the pointer it is given, so writing from a bare
+	 * buffer scribbles below it -- into other stack locals here.
+	 */
+	char payload[LWS_PRE + 256];
 	const char *p;
 	size_t al = 0;
 	int plen;
@@ -217,10 +223,16 @@ callback_auth_device_client(struct lws *wsi, enum lws_callback_reasons reason, v
 
 		switch (action->phase) {
 		case 1:
-			plen = lws_snprintf(payload, sizeof(payload), "client_id=%s", session->logical_name);
+			plen = lws_snprintf(payload + LWS_PRE,
+					    sizeof(payload) - LWS_PRE,
+					    "client_id=%s", session->logical_name);
 			break;
 		case 2:
-			plen = lws_snprintf(payload, sizeof(payload), "client_id=%s&grant_type=urn:ietf:params:oauth:grant-type:device_code&device_code=%s", session->logical_name, session->device_code);
+			plen = lws_snprintf(payload + LWS_PRE,
+					    sizeof(payload) - LWS_PRE,
+					    "client_id=%s&grant_type=urn:ietf:params:oauth:grant-type:device_code&device_code=%s",
+					    session->logical_name,
+					    session->device_code);
 			break;
 		default:
 			goto dummy;
@@ -250,16 +262,23 @@ callback_auth_device_client(struct lws *wsi, enum lws_callback_reasons reason, v
 		if (!action || !session) break;
 		switch (action->phase) {
 		case 1:
-			plen = lws_snprintf(payload, sizeof(payload), "client_id=%s", session->logical_name);
+			plen = lws_snprintf(payload + LWS_PRE,
+					    sizeof(payload) - LWS_PRE,
+					    "client_id=%s", session->logical_name);
 			break;
 		case 2:
-			plen = lws_snprintf(payload, sizeof(payload), "client_id=%s&grant_type=urn:ietf:params:oauth:grant-type:device_code&device_code=%s", session->logical_name, session->device_code);
+			plen = lws_snprintf(payload + LWS_PRE,
+					    sizeof(payload) - LWS_PRE,
+					    "client_id=%s&grant_type=urn:ietf:params:oauth:grant-type:device_code&device_code=%s",
+					    session->logical_name,
+					    session->device_code);
 			break;
 		default:
 			goto dummy;
 		}
 
-		if (lws_write(wsi, (unsigned char *)payload, (size_t)plen, LWS_WRITE_HTTP_FINAL) != plen) {
+		if (lws_write(wsi, (unsigned char *)payload + LWS_PRE,
+			      (size_t)plen, LWS_WRITE_HTTP_FINAL) != plen) {
 			lwsl_err("%s: failed to write HTTP body\n", __func__);
 			return -1;
 		}

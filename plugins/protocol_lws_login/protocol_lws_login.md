@@ -117,10 +117,23 @@ You can enable this bouncing natively via a standard JSON layout without compili
         "min-grant-level": "2",
         "unauth-allow": "0"
       }
+    },
+    {
+      "lws_login_client": {
+        "status": "ok"
+      }
     }]
   }]
 }
 ```
+
+**The `lws_login_client` entry is required on the same vhost as `lws-login`.**  The
+silent-renewal side channel is an ordinary lws client connection bound to the
+interceptor's own vhost, and its callbacks are routed by protocol name.  Without
+it, lws binds the side channel to the vhost's first protocol and misroutes every
+client callback, so the renewal never works and the exchange bookkeeping can
+dereference a freed wsi; the plugin detects this at runtime and refuses to start
+the exchange with an obvious error in the log instead.
 
 Notice that the `pmo` *(Per-Mount Option)* strictly binds the `dashboard-service` name to the `/dashboard` mount, cleanly overriding any default global values the protocol was initialized with.
 

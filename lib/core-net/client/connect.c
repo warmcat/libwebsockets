@@ -328,23 +328,69 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 		lwsl_wsi_info(wsi, "vh %s protocol binding to %s\n",
 				wsi->a.vhost->name, local);
 		p = lws_vhost_name_to_protocol(wsi->a.vhost, local);
-		if (p)
+		if (p) {
 			lws_bind_protocol(wsi, p, __func__);
-		else
+		} else {
 			/*
 			 * The named protocol is not enabled on the bound vhost.
 			 * The wsi is left on the vhost's protocols[0]; any later
 			 * CLIENT_* callbacks are delivered to that callback, not
 			 * the one the caller asked for -- which typically shows
-			 * up as a request that hangs forever.  Promote to warn so
-			 * the misconfiguration is visible: either set i.vhost to
-			 * a vhost that has the protocol enabled, or add the
-			 * protocol to this vhost's ws-protocols list.
+			 * up as a request that hangs forever.
+			 *
+			 * Protocol plugins are optional, so this is not an
+			 * assert.  But warn with enough context to identify the
+			 * connection (the wsi lc tag does not exist yet, so
+			 * name the peer explicitly) and to see what the vhost
+			 * does have enabled: either set i.vhost to a vhost that
+			 * has the protocol enabled, or add the protocol to this
+			 * vhost's ws-protocols list.
 			 */
-			lwsl_wsi_warn(wsi, "unknown protocol %s on vhost %s: "
+			char pro[192];
+			size_t pl = 0;
+			int m;
+
+			pro[0] = '\0';
+			for (m = 0; m < wsi->a.vhost->count_protocols; m++) {
+				const char *nm = wsi->a.vhost->protocols[m].name;
+				size_t nl;
+
+				if (!nm)
+					continue;
+				nl = strlen(nm);
+				if (pl + nl + 6 > sizeof(pro)) {
+					memcpy(&pro[pl], " ...", 4);
+					pl += 4;
+					break;
+				}
+				if (pl)
+					pro[pl++] = ',';
+				memcpy(&pro[pl], nm, nl);
+				pl += nl;
+				pro[pl] = '\0';
+			}
+
+			lwsl_wsi_warn(wsi, "unknown protocol %s on vhost %s%s%s: "
 					"callbacks will be misrouted; set i.vhost "
-					"to a vhost that has it enabled",
-					local, wsi->a.vhost->name);
+					"to a vhost that has it enabled, or add it "
+					"to this vhost (enabled: %s)",
+					local, wsi->a.vhost->name,
+					i->address ? " for " : "",
+					i->address ? i->address : "", pro);
+
+			/*
+			 * If the caller stashed user data on the wsi, or holds
+			 * the wsi pointer itself via i.pwsi, it is relying on
+			 * the misrouted CLIENT_* callbacks to learn the wsi
+			 * died.  It will never be told, and typically keeps
+			 * dereferencing the wsi after we free it.
+			 */
+			if (i->userdata || i->pwsi)
+				lwsl_wsi_warn(wsi, "external owner passed i.userdata/"
+						"i.pwsi: it will never receive the "
+						"CLIENT_* callbacks and may "
+						"dereference the wsi after free");
+		}
 
 		lwsl_wsi_info(wsi, "%s: %s %s entry",
 			    lws_wsi_tag(wsi), wsi->role_ops->name,

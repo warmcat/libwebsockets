@@ -100,7 +100,15 @@ struct pending_login_refresh {
 
 	char                    cookie_hdr[1024];
 
-	char                    payload[1024];
+	/*
+	 * POST body for the renewal exchange.  The body proper starts
+	 * LWS_PRE bytes into payload[]: lws_write() composes the h2/h3 DATA
+	 * frame header into the bytes immediately BEFORE the pointer it is
+	 * given, so a body buffer without LWS_PRE headroom gets scribbled
+	 * into (for h1 nothing is prepended, which is how this used to get
+	 * away with it).
+	 */
+	char                    payload[LWS_PRE + 1024];
 	int                     payload_len;
 	int                     payload_pos;
 
@@ -451,6 +459,25 @@ lws_login_kick_refresh(struct vhd_login *vhd, struct lws *wsi, const char *cooki
 	struct lws_client_connect_info i;
 	lws_parse_uri_t *puri;
 
+	/*
+	 * The side channel binds to THIS vhost and resolves its protocol by
+	 * name, so lws_login_client must be enabled on the same vhost the
+	 * interceptor runs on.  If it is not, lws silently binds the wsi to
+	 * the vhost's protocols[0] while still attaching ps as its user data:
+	 * every client callback (including the CLIENT_CONNECTION_ERROR when
+	 * the wsi is later freed) is then misrouted, ps->wsi_client dangles,
+	 * and pending_login_release() writes into freed memory.  Refuse to
+	 * start the exchange at all instead.
+	 */
+	if (!lws_vhost_name_to_protocol(vhd->vhost, "lws_login_client")) {
+		lwsl_wsi_err(wsi, "%s: vhost %s does not have the "
+			     "lws_login_client protocol enabled: refusing to "
+			     "start the renewal side channel (enable it in "
+			     "this vhost's ws-protocols)",
+			     __func__, lws_get_vhost_name(vhd->vhost));
+		return 0;
+	}
+
 	ps = malloc(sizeof(*ps));
 	if (!ps)
 		return 0;
@@ -465,7 +492,8 @@ lws_login_kick_refresh(struct vhd_login *vhd, struct lws *wsi, const char *cooki
 		lws_strncpy(ps->authform_url, authform_url,
 			    sizeof(ps->authform_url));
 
-	ps->payload_len = lws_snprintf(ps->payload, sizeof(ps->payload),
+	ps->payload_len = lws_snprintf(ps->payload + LWS_PRE,
+				       sizeof(ps->payload) - LWS_PRE,
 				       "csrf_token=%s", csrf);
 	ps->payload_pos = 0;
 
@@ -506,7 +534,19 @@ lws_login_kick_refresh(struct vhd_login *vhd, struct lws *wsi, const char *cooki
 	i.pwsi           = &ps->wsi_client;
 	i.userdata       = ps;
 
-	lws_client_connect_via_info(&i);
+	if (!lws_client_connect_via_info(&i)) {
+		/*
+		 * The side channel could not even start (lws NULLs *pwsi on
+		 * synchronous failure).  Unwind ps now rather than leaving
+		 * the suspended browser leg to time out against a pending
+		 * exchange that will never complete.
+		 */
+		pending_login_release(ps);
+		lws_parse_uri_destroy(&puri);
+
+		return 0;
+	}
+
 	lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT, 30);
 	lws_parse_uri_destroy(&puri);
 
@@ -748,7 +788,9 @@ callback_lws_login_client(struct lws *wsi, enum lws_callback_reasons reason,
 		 * frame and the server knows the request body is complete.
 		 */
 		lws_client_http_body_pending(wsi, 0);
-		n = lws_write(wsi, (unsigned char *)ps->payload + ps->payload_pos,
+		n = lws_write(wsi,
+			      (unsigned char *)ps->payload + LWS_PRE +
+			      ps->payload_pos,
 			      chunk, LWS_WRITE_HTTP_FINAL);
 		if (n < 0)
 			return -1;
