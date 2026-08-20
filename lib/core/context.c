@@ -2350,15 +2350,22 @@ next_l:
 #if defined(LWS_WITH_NETWORK)
 		/*
 		 * free all the per-vhost allocations
+		 *
+		 * destroy2() of a vhost issues PROTOCOL_DESTROY to its
+		 * protocols; that can synchronously close wsi on other vhosts
+		 * (eg, piped spawn stdwsi) and unbind the last one from a vhost
+		 * already marked being destroyed, triggering re-entrant
+		 * destroy2() that removes and frees other vhosts from
+		 * context->vhost_list.  So it's not safe to hold a pointer to
+		 * the next vhost across the call... instead always destroy the
+		 * current list head until the list is empty.  The vhost being
+		 * destroyed cannot re-enter itself, since destroy2() clears
+		 * being_destroyed before issuing PROTOCOL_DESTROY, and it
+		 * removes itself from vhost_list before it returns.
 		 */
 
-		vh = context->vhost_list;
-		while (vh) {
-			vh1 = vh->vhost_next;
-		//	lwsl_vhost_debug(vh, "vh %s destroy2", vh->name);
-			__lws_vhost_destroy2(vh);
-			vh = vh1;
-		}
+		while (context->vhost_list)
+			__lws_vhost_destroy2(context->vhost_list);
 
 		/* remove ourselves from the pending destruction list */
 
