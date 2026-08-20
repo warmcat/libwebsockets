@@ -101,7 +101,15 @@ struct pending_auth_state {
 						 * used by lws-login's renewal BFF for its
 						 * double-submit check */
 
-	char payload[1024];
+	/*
+	 * POST body for the token exchange.  The body proper starts LWS_PRE
+	 * bytes into payload[]: lws_write() composes the h2/h3 DATA frame
+	 * header into the bytes immediately BEFORE the pointer it is given,
+	 * so a body buffer without LWS_PRE headroom gets scribbled into
+	 * (for h1 nothing is prepended, which is how this used to get away
+	 * with it).
+	 */
+	char payload[LWS_PRE + 1024];
 	int payload_len;
 	int payload_pos;
 };
@@ -639,6 +647,35 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 			// We found it! Suspend timeout
 			lws_sul_cancel(&ps->sul);
 
+			/*
+			 * The /api/token side channel binds to THIS vhost and
+			 * resolves its protocol by name (see the comment at the
+			 * connect below).  If lws-oauth2-client is not enabled
+			 * here, every client callback is misrouted to the
+			 * vhost's protocols[0]: the plugin never hears
+			 * COMPLETED / CONNECTION_ERROR, ps->wsi_client dangles
+			 * after the wsi is freed, and the callback leg hangs.
+			 * Fail the request now instead.
+			 */
+			if (!lws_vhost_name_to_protocol(vhd->vhost,
+							"lws-oauth2-client")) {
+				lwsl_wsi_err(wsi, "%s: vhost %s does not have "
+					     "the lws-oauth2-client protocol "
+					     "enabled: refusing to start the "
+					     "/api/token side channel (enable "
+					     "it in this vhost's ws-protocols)",
+					     __func__,
+					     lws_get_vhost_name(vhd->vhost));
+				/* the state is consumed either way: the
+				 * pending entry's expiry sul was already
+				 * cancelled above, so release it ourselves */
+				pending_auth_release(ps);
+				lws_return_http_status(wsi,
+						HTTP_STATUS_INTERNAL_SERVER_ERROR,
+						"oauth client misconfigured");
+				return lws_http_transaction_completed(wsi);
+			}
+
 			lws_strncpy(ps->code, code_in, sizeof(ps->code));
 			ps->wsi_server = wsi;
 
@@ -653,8 +690,8 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 				char enc_uri[512];
 				lws_urlencode(enc_uri, ps->oauth_redirect_uri,
 					      sizeof(enc_uri));
-				ps->payload_len = lws_snprintf(ps->payload,
-					sizeof(ps->payload),
+				ps->payload_len = lws_snprintf(ps->payload + LWS_PRE,
+					sizeof(ps->payload) - LWS_PRE,
 					"grant_type=authorization_code&client_id=%s&redirect_uri=%s&code=%s&code_verifier=%s",
 					vhd->client_id, enc_uri, ps->code,
 					ps->code_verifier);
@@ -965,7 +1002,9 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 		 */
 		lws_client_http_body_pending(wsi, 0);
 
-		n = lws_write(wsi, (unsigned char *)ps->payload + ps->payload_pos,
+		n = lws_write(wsi,
+			      (unsigned char *)ps->payload + LWS_PRE +
+			      ps->payload_pos,
 			      chunk, LWS_WRITE_HTTP_FINAL);
 		if (n < 0)
 			return -1;

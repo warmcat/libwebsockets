@@ -589,6 +589,17 @@ lws_stub_destroy(struct lws_stub_manager **_mgr)
 	if (!mgr)
 		return;
 
+	/*
+	 * Take the caller's pointer away before we start.  Destroying the
+	 * lsp closes its stdwsi synchronously, and freeing the last stdwsi
+	 * can complete a deferred vhost destruction re-entrantly, issuing
+	 * PROTOCOL_DESTROY on our protocol; if the caller also destroys us
+	 * from there (as lwsws plugins and the api test do), the nested call
+	 * must see the pointer already cleared and do nothing, or we will
+	 * destroy the same lsp and mgr twice.
+	 */
+	*_mgr = NULL;
+
 	/* the retry sul is embedded in us: stop it pointing at freed memory */
 	lws_sul_cancel(&mgr->sul);
 
@@ -619,7 +630,6 @@ lws_stub_destroy(struct lws_stub_manager **_mgr)
 	unlink(mgr->uds_path);
 
 	lws_free(mgr);
-	*_mgr = NULL;
 }
 
 const char *

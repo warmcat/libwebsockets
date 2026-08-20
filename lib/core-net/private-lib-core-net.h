@@ -1157,6 +1157,13 @@ struct lws_spawn_piped {
 	uint8_t				we_killed_him_timeout:1;
 	uint8_t				we_killed_him_spew:1;
 	uint8_t				ungraceful:1;
+	/*
+	 * lws_spawn_piped_destroy() is underway on this lsp; a re-entrant call
+	 * (eg, from PROTOCOL_DESTROY of a vhost whose deferred destruction
+	 * completes when the last stdwsi unbinds during the synchronous stdwsi
+	 * closes inside destroy) must leave the outer call to finish and free
+	 */
+	uint8_t				destroying:1;
 };
 
 void

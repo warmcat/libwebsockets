@@ -133,6 +133,21 @@ lws_spawn_piped_destroy(struct lws_spawn_piped **_lsp)
 	if (!lsp)
 		return;
 
+	/*
+	 * Take the caller's pointer away and mark us underway before doing
+	 * anything.  The stdwsi closes below are synchronous, and freeing the
+	 * last stdwsi can complete a deferred vhost destruction re-entrantly,
+	 * issuing PROTOCOL_DESTROY and with it a nested destroy attempt on
+	 * this same lsp; it must see this stuff already cleared and leave the
+	 * outer call to finish and free lsp
+	 */
+	*_lsp = NULL;
+
+	if (lsp->destroying)
+		return;
+
+	lsp->destroying = 1;
+
 	if (lsp->hJob) {
 		CloseHandle(lsp->hJob);
 		lsp->hJob = NULL;
@@ -149,32 +164,47 @@ lws_spawn_piped_destroy(struct lws_spawn_piped **_lsp)
 		lsp->hPC = NULL;
 	}
 
-	for (n = 0; n < 3; n++) {
-		if (lsp->pipe_fds[n][!!(n == 0)]) {
+	/* close our side of the pipes: stdin:w, stdout:r, stderr:r */
+
+	for (n = 0; n < 3; n++)
+		if (lsp->pipe_fds[n][n == 0]) {
 			CloseHandle(lsp->pipe_fds[n][n == 0]);
 			lsp->pipe_fds[n][n == 0] = NULL;
 		}
 
-		for (n = 0; n < 3; n++) {
-			if (lsp->stdwsi[n]) {
-				lwsl_notice("%s: closing stdwsi %d\n", __func__, n);
-				wsi = lsp->stdwsi[n];
-				lsp->stdwsi[n]->desc.filefd = NULL;
-				lsp->stdwsi[n] = NULL;
-				lws_set_timeout(wsi, 1, LWS_TO_KILL_SYNC);
-			}
-		}
+	for (n = 0; n < 3; n++) {
+		if (!lsp->stdwsi[n])
+			continue;
+
+		lwsl_notice("%s: closing stdwsi %d\n", __func__, n);
+		wsi = lsp->stdwsi[n];
+		/* we closed the pipe above; stop the wsi close doing it again */
+		wsi->desc.filefd = NULL;
+		/*
+		 * Close synchronously; lws_spawn_stdwsi_closed() is called
+		 * back during this and clears lsp->stdwsi[n] itself if it
+		 * identifies us
+		 */
+		lws_set_timeout(wsi, 1, LWS_TO_KILL_SYNC);
+		if (lsp->stdwsi[n] == wsi)
+			lsp->stdwsi[n] = NULL;
 	}
 
 	lws_dll2_remove(&lsp->dll);
 
+	/* in case anything got scheduled again during the closes above */
 	lws_sul_cancel(&lsp->sul);
 	lws_sul_cancel(&lsp->sul_reap);
 	lws_sul_cancel(&lsp->sul_poll);
 
+	if (lsp->child_pid) {
+		CloseHandle(lsp->child_pid);
+		lsp->child_pid = NULL;
+	}
+
 	lwsl_warn("%s: deleting lsp\n", __func__);
 
-	lws_free_set_NULL((*_lsp));
+	lws_free(lsp);
 }
 
 int
@@ -269,6 +299,7 @@ lws_spawn_reap(struct lws_spawn_piped *lsp)
 
 	lsi.retcode = 0x10000 | (int)ex;
 	lwsl_notice("%s: process exit 0x%x\n", __func__, lsi.retcode);
+	CloseHandle(lsp->child_pid);
 	lsp->child_pid = NULL;
 
 	if (lsp->info.res)
@@ -735,7 +766,7 @@ lws_spawn_stdwsi_closed(struct lws_spawn_piped *lsp, struct lws *wsi)
 	assert(lsp);
 	lsp->pipes_alive--;
        lwsl_wsi_warn(wsi, "stdxxx down: pipes alive %d\n", lsp->pipes_alive);
-       if (!lsp->pipes_alive) {
+       if (!lsp->pipes_alive && !lsp->destroying) {
                lwsl_wsi_warn(wsi, "Scheduling reap");
 		lws_sul_schedule(lsp->info.vh->context, lsp->info.tsi,
 				&lsp->sul_reap, lws_spawn_sul_reap, 1);
