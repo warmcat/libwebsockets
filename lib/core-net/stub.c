@@ -156,23 +156,37 @@ lws_stub_spawn(const struct lws_stub_config *config)
 			exe_path = mgr->exe_path;
 		}
 	}
+#elif defined(WIN32)
+	{
+		/*
+		 * Windows has a first-class way to find our own executable
+		 * path, independent of how we were invoked or whether the
+		 * caller passed argc / argv into the context
+		 */
+		DWORD m = GetModuleFileNameA(NULL, mgr->exe_path,
+					     sizeof(mgr->exe_path));
+
+		if (m > 0 && m < sizeof(mgr->exe_path)) {
+			mgr->exe_path[m] = '\0';
+			exe_path = mgr->exe_path;
+		} else {
+			const char *argv0 = lws_cmdline_option_cx_argv0(mgr->cx);
+
+			if (argv0)
+				exe_path = argv0;
+		}
+	}
 #else
 	{
 		const char *argv0 = lws_cmdline_option_cx_argv0(mgr->cx);
 		if (argv0) {
-		if (argv0[0] == '/') {
-			lws_strncpy(mgr->exe_path, argv0, sizeof(mgr->exe_path));
-			exe_path = mgr->exe_path;
-		} else {
-#if !defined(WIN32)
-			if (realpath(argv0, mgr->exe_path))
+			if (argv0[0] == '/') {
+				lws_strncpy(mgr->exe_path, argv0, sizeof(mgr->exe_path));
+				exe_path = mgr->exe_path;
+			} else if (realpath(argv0, mgr->exe_path))
 				exe_path = mgr->exe_path;
 			else
 				exe_path = argv0;
-#else
-			exe_path = argv0;
-#endif
-		}
 		}
 	}
 #endif
