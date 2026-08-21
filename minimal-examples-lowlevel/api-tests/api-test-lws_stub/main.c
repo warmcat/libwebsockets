@@ -259,7 +259,7 @@ phase2_connected_cb(struct lws_stub_manager *mgr)
 }
 
 static int
-phase2(void)
+phase2(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	struct lws_stub_config sc;
@@ -272,6 +272,10 @@ phase2(void)
 	lws_context_info_defaults(&info, NULL);
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.protocols = parent_protocols;
+	/* the stub child is a re-exec of this same exe: it needs to be able
+	 * to find our executable path via the context */
+	info.argc = argc;
+	info.argv = argv;
 
 	cx = lws_create_context(&info);
 	if (!cx) {
@@ -444,7 +448,7 @@ done:
 	lws_context_destroy(cx);
 
 	if (!result)
-		result = phase2();
+		result = phase2(argc, argv);
 
 	lwsl_user("Exiting with result %d\n", result);
 	return lws_cmdline_passfail(argc, argv, result);
