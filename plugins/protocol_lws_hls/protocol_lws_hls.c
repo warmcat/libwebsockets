@@ -599,6 +599,18 @@ err_404:
 	case LWS_CALLBACK_RAW_RX_FILE: {
 		char buf[512];
 		ssize_t n;
+
+		if (in) {
+			/*
+			 * On Windows, the spawn pipe poll delivers the data
+			 * itself in `in` / `len`, since the stdwsi pipe has a
+			 * HANDLE rather than a POSIX fd we could read
+			 */
+			lwsl_notice("[HLS-STUB] %.*s", (int)len,
+				    (const char *)in);
+			break;
+		}
+
 		int fd = (int)lws_get_socket_fd(wsi);
 
 		if (fd < 0)

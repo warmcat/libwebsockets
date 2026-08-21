@@ -32,6 +32,33 @@ static int interrupted;
 int is_stub = 0;
 
 /*
+ * Where the stub's UDS lives.  The stub child computes exactly the same
+ * path for itself from the environment, so parent and child agree where
+ * to meet.  All users must go through this one helper so the phases
+ * cannot get out of step with the child.
+ */
+static const char *
+stub_uds_path(void)
+{
+	/* covers MAX_PATH-ish needs on windows and posix alike */
+	static char path[300];
+#if defined(WIN32)
+	const char *tmp = getenv("TMP");
+
+	if (!tmp)
+		tmp = getenv("TEMP");
+	if (!tmp)
+		tmp = ".";
+
+	lws_snprintf(path, sizeof(path), "%s\\lws-stub.sock", tmp);
+#else
+	lws_strncpy(path, "/tmp/lws-demo-stub.sock", sizeof(path)); // NOSONAR
+#endif
+
+	return path;
+}
+
+/*
  * When set, the stub manager is destroyed from PROTOCOL_DESTROY during
  * lws_context_destroy() rather than explicitly by main, the same way the
  * lwsws hls plugin does it.  This covers the teardown ordering where the
@@ -171,16 +198,7 @@ static int run_stub(struct lws_context *cx, const char *stub_name)
 	memset(&sc, 0, sizeof(sc));
 	sc.cx = cx;
 	sc.stub_name = stub_name;
-#if defined(WIN32)
-	static char win_uds[MAX_PATH];
-	const char *tmp = getenv("TMP");
-	if (!tmp) tmp = getenv("TEMP");
-	if (!tmp) tmp = ".";
-	lws_snprintf(win_uds, sizeof(win_uds), "%s\\lws-stub.sock", tmp);
-	sc.uds_path = win_uds;
-#else
-	sc.uds_path = "/tmp/lws-demo-stub.sock"; // NOSONAR
-#endif
+	sc.uds_path = stub_uds_path();
 	sc.protocols = stub_protocols;
 
 	if (lws_stub_server_init(&sc, secret, extra, sizeof(extra)) < 0) {
@@ -259,7 +277,7 @@ phase2_connected_cb(struct lws_stub_manager *mgr)
 }
 
 static int
-phase2(void)
+phase2(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
 	struct lws_stub_config sc;
@@ -272,6 +290,10 @@ phase2(void)
 	lws_context_info_defaults(&info, NULL);
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.protocols = parent_protocols;
+	/* the stub child is a re-exec of this same exe: it needs to be able
+	 * to find our executable path via the context */
+	info.argc = argc;
+	info.argv = argv;
 
 	cx = lws_create_context(&info);
 	if (!cx) {
@@ -295,7 +317,7 @@ phase2(void)
 	sc.cx = cx;
 	sc.vh = vh;
 	sc.stub_name = "demo-stub";
-	sc.uds_path = "/tmp/lws-demo-stub.sock"; // NOSONAR
+	sc.uds_path = stub_uds_path();
 	sc.protocols = stub_protocols;
 	sc.parent_protocol_name = "lws-demo-stub";
 	/* the stub child always reads the extra payload in this test */
@@ -386,16 +408,7 @@ int main(int argc, const char **argv)
 		sc.cx = cx;
 		sc.vh = vh;
 		sc.stub_name = "demo-stub";
-#if defined(WIN32)
-		static char win_uds2[MAX_PATH];
-		const char *tmp = getenv("TMP");
-		if (!tmp) tmp = getenv("TEMP");
-		if (!tmp) tmp = ".";
-		lws_snprintf(win_uds2, sizeof(win_uds2), "%s\\lws-stub.sock", tmp);
-		sc.uds_path = win_uds2;
-#else
-		sc.uds_path = "/tmp/lws-demo-stub.sock"; // NOSONAR
-#endif
+		sc.uds_path = stub_uds_path();
 		sc.protocols = stub_protocols;
 		sc.parent_protocol_name = "lws-demo-stub";
 		sc.extra_payload = "initialization_data_for_stub";
@@ -444,7 +457,7 @@ done:
 	lws_context_destroy(cx);
 
 	if (!result)
-		result = phase2();
+		result = phase2(argc, argv);
 
 	lwsl_user("Exiting with result %d\n", result);
 	return lws_cmdline_passfail(argc, argv, result);
