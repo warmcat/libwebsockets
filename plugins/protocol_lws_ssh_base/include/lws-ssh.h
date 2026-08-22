@@ -442,7 +442,7 @@ typedef union {
 struct per_session_data__sshd;
 
 struct lws_ssh_channel {
-	struct lws_ssh_channel *next;
+	lws_dll2_t list; /* membership of pss->ch_list */
 
 	struct per_session_data__sshd *pss;
 
@@ -466,7 +466,7 @@ struct lws_ssh_channel {
 struct per_vhost_data__sshd;
 
 struct per_session_data__sshd {
-	struct per_session_data__sshd *next;
+	lws_dll2_t list;	/* vhd->live_pss_list membership */
 	struct per_vhost_data__sshd *vhd;
 	struct lws *wsi;
 
@@ -482,7 +482,7 @@ struct per_session_data__sshd {
 	struct lws_ssh_keys active_keys_cts;
 	struct lws_ssh_keys active_keys_stc;
 	struct lws_ssh_userauth *ua;
-	struct lws_ssh_channel *ch_list;
+	lws_dll2_owner_t ch_list;
 	struct lws_ssh_channel *ch_temp;
 
 	uint8_t *last_alloc;
@@ -542,7 +542,7 @@ struct per_vhost_data__sshd {
 	struct lws_context *context;
 	struct lws_vhost *vhost;
 	const struct lws_protocols *protocol;
-	struct per_session_data__sshd *live_pss_list;
+	lws_dll2_owner_t live_pss_list;
 	const struct lws_ssh_ops *ops;
 };
 

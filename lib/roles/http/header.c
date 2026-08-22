@@ -549,7 +549,7 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 
 #if defined(LWS_ROLE_QUIC)
 	if (lws_wsi_is_h2(wsi) || !wsi->mux_substream) {
-		struct lws_vhost *vh = wsi->a.context->vhost_list;
+		struct lws_vhost *vh = lws_vhost_first(wsi->a.context);
 		int quic_listening = 0;
 		while (vh) {
 			if (vh->listen_port == wsi->a.vhost->listen_port) {
@@ -564,7 +564,7 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 			}
 			if (quic_listening)
 				break;
-			vh = vh->vhost_next;
+			vh = lws_vhost_next(vh);
 		}
 			if (quic_listening) {
 				char buf[64];
@@ -781,7 +781,7 @@ lws_sul_http_ah_lifecheck(lws_sorted_usec_list_t *sul)
 
 	lws_pt_lock(pt, __func__);
 
-	ah = pt->http.ah_list;
+	ah = lws_pt_first_ah(&pt->http.ah_owner);
 	while (ah) {
 		int len;
 		char buf[256];
@@ -791,7 +791,7 @@ lws_sul_http_ah_lifecheck(lws_sorted_usec_list_t *sul)
 		    (ah->wsi->a.vhost &&
 		     (now - ah->assigned) <
 		     ah->wsi->a.vhost->timeout_secs_ah_idle + 360)) {
-			ah = ah->next;
+			ah = lws_pt_next_ah(ah);
 			continue;
 		}
 
@@ -844,7 +844,7 @@ lws_sul_http_ah_lifecheck(lws_sorted_usec_list_t *sul)
 		__lws_close_free_wsi(wsi, LWS_CLOSE_STATUS_NOSTATUS,
 					     "excessive ah");
 
-		ah = pt->http.ah_list;
+		ah = lws_pt_first_ah(&pt->http.ah_owner);
 	}
 
 	lws_pt_unlock(pt);

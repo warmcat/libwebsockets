@@ -181,6 +181,7 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 {
 	struct lws_proxy_pkt *pkt;
 	struct lws_dll2 *dll;
+	struct lws *child;
 
 	switch (reason) {
 
@@ -300,15 +301,16 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 		return -1;
 
 	case LWS_CALLBACK_RECEIVE:
+		child = lws_get_child(wsi);
 
-               if (!wsi->child_list) {
-                       lwsl_wsi_warn(wsi, "Proxy Srv side RX: no child");
-                       break;
-               }
-               if (!wsi->child_list->ws) {
-                       lwsl_wsi_warn(wsi, "Proxy Srv side RX: child does not have ws");
-                       break;
-               }
+		if (!child) {
+			lwsl_wsi_warn(wsi, "Proxy Srv side RX: no child");
+			break;
+		}
+		if (!child->ws) {
+			lwsl_wsi_warn(wsi, "Proxy Srv side RX: child does not have ws");
+			break;
+		}
 
 		pkt = lws_zalloc(sizeof(*pkt) + LWS_PRE + len, __func__);
 		if (!pkt)
@@ -321,8 +323,9 @@ lws_callback_ws_proxy(struct lws *wsi, enum lws_callback_reasons reason,
 
 		memcpy(((uint8_t *)&pkt[1]) + LWS_PRE, in, len);
 
-		lws_dll2_add_tail(&pkt->pkt_list, &wsi->child_list->ws->proxy_owner);
-		lws_callback_on_writable(wsi->child_list);
+		lws_dll2_add_tail(&pkt->pkt_list,
+				  &child->ws->proxy_owner);
+		lws_callback_on_writable(child);
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
@@ -395,10 +398,10 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 #if defined(LWS_WITH_SERVER)
 	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
 #if defined(LWS_WITH_HTTP_PROXY)
-		if (wsi->child_list) {
+		if (lws_get_child(wsi)) {
 			lwsl_wsi_info(wsi, "HTTP_BODY_COMPLETION: %d",
 					   (int)len);
-			lws_callback_on_writable(wsi->child_list);
+			lws_callback_on_writable(lws_get_child(wsi));
 			break;
 		}
 #endif
@@ -429,13 +432,13 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 
 #if defined(LWS_WITH_HTTP_PROXY)
 	case LWS_CALLBACK_HTTP_BODY:
-		if (wsi->child_list) {
+		if (lws_get_child(wsi)) {
 			lwsl_wsi_info(wsi, "HTTP_BODY: stashing %d", (int)len);
 			if (lws_buflist_append_segment(
 				     &wsi->http.buflist_post_body, in, len) < 0)
 				return -1;
-			lws_client_http_body_pending(wsi->child_list, 1);
-			lws_callback_on_writable(wsi->child_list);
+			lws_client_http_body_pending(lws_get_child(wsi), 1);
+			lws_callback_on_writable(lws_get_child(wsi));
 		}
 		break;
 #endif

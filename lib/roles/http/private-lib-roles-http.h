@@ -117,7 +117,7 @@ lws_ranges_reset(struct lws_range_parsing *rp);
  */
 
 struct allocated_headers {
-	struct allocated_headers *next; /* linked list */
+	lws_dll2_t list; /* member of pt->http.ah_owner */
 	struct lws *wsi; /* owner */
 	char *data; /* prepared by context init to point to dedicated storage */
 	ah_data_idx_t data_length;
@@ -190,14 +190,30 @@ LWS_EXTERN int
 lws_rewrite_parse(struct lws_rewrite *r, const unsigned char *in, int in_len);
 #endif
 
+/* NULL-safe iteration helpers for an allocated-header pool owner */
+static LWS_INLINE struct allocated_headers *
+lws_pt_first_ah(lws_dll2_owner_t *ow)
+{
+	struct lws_dll2 *d = lws_dll2_get_head(ow);
+
+	return d ? lws_container_of(d, struct allocated_headers, list) : NULL;
+}
+
+static LWS_INLINE struct allocated_headers *
+lws_pt_next_ah(struct allocated_headers *ah)
+{
+	struct lws_dll2 *d = ah->list.next;
+
+	return d ? lws_container_of(d, struct allocated_headers, list) : NULL;
+}
+
 struct lws_pt_role_http {
-	struct allocated_headers *ah_list;
+	lws_dll2_owner_t ah_owner; /* allocated but not necessarily in use */
 	struct lws *ah_wait_list;
 #ifdef LWS_WITH_CGI
 	struct lws_cgi *cgi_list;
 #endif
 	int ah_wait_list_length;
-	uint32_t ah_pool_length;
 
 	int ah_count_in_use;
 };

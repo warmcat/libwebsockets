@@ -29,13 +29,12 @@
 struct search *
 find_search(struct lws_dht_ctx *ctx, unsigned short tid, int af)
 {
-	struct search *sr = ctx->searches;
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&ctx->searches)) {
+		struct search *sr = lws_container_of(d, struct search, list);
 
-	while (sr) {
 		if (sr->tid == tid && sr->af == af)
 			return sr;
-		sr = sr->next;
-	}
+	} lws_end_foreach_dll(d);
 
 	return NULL;
 }
@@ -110,25 +109,18 @@ found:
 void
 expire_searches(struct lws_dht_ctx *ctx)
 {
-	struct search *sr = ctx->searches, *previous = NULL;
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&ctx->searches)) {
+		struct search *sr = lws_container_of(d, struct search, list);
 
-	while (sr) {
-		struct search *next = sr->next;
 		if (sr->step_time < ctx->now.tv_sec - DHT_SEARCH_EXPIRE_TIME) {
-			if (previous)
-				previous->next = next;
-			else
-				ctx->searches = next;
+			lws_dll2_remove(d);
 			lws_dht_hash_destroy(&sr->id);
 			for (int i = 0; i < sr->numnodes; i++)
 				lws_dht_hash_destroy(&sr->nodes[i].id);
 			lws_free(sr);
-			ctx->numsearches--;
-		} else
-			previous = sr;
-
-		sr = next;
-	}
+		}
+	} lws_end_foreach_dll_safe(d, d1);
 }
 
 /* This must always return 0 or 1, never -1, not even on failure (see below). */
@@ -262,45 +254,46 @@ done:
 static struct search *
 new_search(struct lws_dht_ctx *ctx)
 {
-	struct search *sr, *oldest = NULL;
+	struct search *oldest = NULL;
 
 	/* Find the oldest done search */
-	sr = ctx->searches;
-	while (sr) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&ctx->searches)) {
+		struct search *sr = lws_container_of(d, struct search, list);
+
 		if (sr->done &&
 		    (oldest == NULL || oldest->step_time > sr->step_time))
 			oldest = sr;
-		sr = sr->next;
-	}
+	} lws_end_foreach_dll(d);
 
-	/* The oldest slot is expired. */
+	/* The oldest slot is expired, drop it and allocate a fresh one. */
 	if (oldest && oldest->step_time < ctx->now.tv_sec - DHT_SEARCH_EXPIRE_TIME) {
+		lws_dll2_remove(&oldest->list);
 		lws_dht_hash_destroy(&oldest->id);
 		for (int i = 0; i < oldest->numnodes; i++)
 			lws_dht_hash_destroy(&oldest->nodes[i].id);
 		lws_free(oldest);
-		ctx->numsearches--;
-
-		return NULL; /* Indicate that the slot was freed, caller should allocate new */
+		oldest = NULL;
 	}
 
 	/* Allocate a new slot. */
-	if (ctx->numsearches < DHT_MAX_SEARCHES) {
-		sr = lws_zalloc(sizeof(struct search), __func__);
+	if (ctx->searches.count < DHT_MAX_SEARCHES) {
+		struct search *sr = lws_zalloc(sizeof(struct search), __func__);
+
 		if (sr != NULL) {
-			sr->next = ctx->searches;
-			ctx->searches = sr;
-			ctx->numsearches++;
+			lws_dll2_add_head(&sr->list, &ctx->searches);
 			return sr;
 		}
 	}
 
 	/* Oh, well, never mind.  Re-use the oldest slot. */
 	if (oldest) {
+		lws_dll2_t list = oldest->list;
+
 		lws_dht_hash_destroy(&oldest->id);
 		for (int i = 0; i < oldest->numnodes; i++)
 			lws_dht_hash_destroy(&oldest->nodes[i].id);
-		memset(oldest, 0, sizeof(struct search)); // Clear old data
+		memset(oldest, 0, sizeof(*oldest)); /* Clear old data */
+		oldest->list = list; /* ... but stay on the searches list */
 	}
 	return oldest;
 }
@@ -309,17 +302,15 @@ new_search(struct lws_dht_ctx *ctx)
 static void
 insert_search_bucket(struct lws_dht_ctx *ctx, struct bucket *b, struct search *sr)
 {
-	struct node *n;
-
 	if (!b)
 		return;
 
-	n = b->nodes;
-	while (n) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&b->nodes)) {
+		struct node *n = lws_container_of(d, struct node, list);
+
 		insert_search_node(ctx, n->id, (struct sockaddr*)&n->ss, n->sslen,
 				sr, 0, NULL, 0);
-		n = n->next;
-	}
+	} lws_end_foreach_dll(d);
 }
 
 /*
@@ -396,12 +387,15 @@ lws_dht_search(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, int port, int 
 		}
 	}
 
-	sr = ctx->searches;
-	while (sr) {
-		if (sr->af == af && id_cmp(sr->id, id) == 0)
+	sr = NULL;
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&ctx->searches)) {
+		struct search *sr1 = lws_container_of(d, struct search, list);
+
+		if (sr1->af == af && id_cmp(sr1->id, id) == 0) {
+			sr = sr1;
 			break;
-		sr = sr->next;
-	}
+		}
+	} lws_end_foreach_dll(d);
 
 	if (sr) {
 		/*
@@ -438,22 +432,11 @@ lws_dht_search(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, int port, int 
 
 		if (!sr->id) {
 			/*
-			 * If we fail to dup the ID, we should free the search struct
-			 * and decrement numsearches if it was incremented.
-			 * For now, just return NULL and let the caller handle it.
-			 * This is a memory allocation failure, so returning -1 is appropriate.
+			 * If we fail to dup the ID, free the search struct and
+			 * take it back off the list again.
 			 */
-			if (sr == ctx->searches)
-				ctx->searches = sr->next;
-			else {
-				struct search *temp_sr = ctx->searches;
-				while (temp_sr && temp_sr->next != sr)
-					temp_sr = temp_sr->next;
-				if (temp_sr)
-					temp_sr->next = sr->next;
-			}
+			lws_dll2_remove(&sr->list);
 			lws_free(sr);
-			ctx->numsearches--;
 			errno = ENOMEM;
 			return -1;
 		}
@@ -466,9 +449,11 @@ lws_dht_search(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, int port, int 
 	insert_search_bucket(ctx, b, sr);
 
 	if (sr->numnodes < SEARCH_NODES) {
-		struct bucket *p = previous_bucket(ctx, b);
-		if (b->next)
-			insert_search_bucket(ctx, b->next, sr);
+		struct bucket *p = previous_bucket(b);
+		struct bucket *nb = bucket_next(b);
+
+		if (nb)
+			insert_search_bucket(ctx, nb, sr);
 		if (p)
 			insert_search_bucket(ctx, p, sr);
 	}

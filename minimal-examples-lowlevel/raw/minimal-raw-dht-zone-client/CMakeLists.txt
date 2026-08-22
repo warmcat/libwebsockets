@@ -28,7 +28,9 @@ if (requirements)
 	if (NOT LWS_WITH_PLUGINS_BUILTIN AND NOT LWS_WITH_PLUGINS)
 		target_compile_definitions(${SAMP} PRIVATE LWS_BUILDING_SHARED)
 		# Link against the plugin so it can instantiate lws-dht-dnssec
-		add_dependencies(${SAMP} protocol_lws_dht_dnssec)
+		if (TARGET protocol_lws_dht_dnssec)
+			add_dependencies(${SAMP} protocol_lws_dht_dnssec)
+		endif()
 	endif()
 
 	install(TARGETS ${SAMP}

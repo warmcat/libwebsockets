@@ -177,8 +177,8 @@ enum pmd_return {
 
 #if defined(LWS_WITH_PEER_LIMITS)
 struct lws_peer {
-	struct lws_peer *next;
-	struct lws_peer *peer_wait_list;
+	lws_dll2_t hash_list;	/* member of context->pl_hash_table[hash] */
+	lws_dll2_t wait_list;	/* member of context->peer_wait_owner */
 
 	lws_sockaddr46	sa46;
 
@@ -419,7 +419,7 @@ struct lws_context_per_thread {
 	unsigned char *serv_buf;
 
 	struct lws_pollfd *fds;
-	volatile struct lws_foreign_thread_pollfd * volatile foreign_pfd_list;
+	lws_dll2_owner_t	foreign_pfd_owner;
 
 	lws_sockfd_type dummy_pipe_fds[2];
 	struct lws *pipe_wsi;
@@ -584,7 +584,13 @@ struct lws_vhost {
 	const char *quic_preferred_addresses;
 
 	struct lws_context *context;
-	struct lws_vhost *vhost_next;
+
+	/*
+	 * Membership of the context's main vhost list, and after removal
+	 * from it, of the pending-destruction list (the two are mutually
+	 * exclusive, so one dll2 node serves both).
+	 */
+	lws_dll2_t			vhost_list;
 
 	const lws_retry_bo_t *retry_policy;
 
@@ -612,7 +618,7 @@ struct lws_vhost {
 	const struct lws_protocol_vhost_options *pvo;
 	const struct lws_protocol_vhost_options *headers;
 	struct lws_dll2_owner *same_vh_protocol_owner;
-	struct lws_vhost *no_listener_vhost_list;
+	lws_dll2_t			no_listener_vlist;
 	struct lws_dll2_owner abstract_instances_owner;		/* vh lock */
 
 #if defined(LWS_WITH_CLIENT)
@@ -903,9 +909,17 @@ struct lws {
 	struct lws_async_job		*async_worker_job;
 #endif
 
+	/*
+	 * Parent / child relationship for non-mux adoptions (reverse proxy
+	 * onward connections, cgi/spawn stdwsi, raw adopt with parent).  The
+	 * parent owns the dll2 list of its children; each child holds the
+	 * node and the backpointer to the parent wsi.  Mutations must go via
+	 * lws_dll2_add_head()/lws_dll2_remove() on sibling_list, so the
+	 * runtime _safe iterator guard and owner count apply.
+	 */
 	struct lws			*parent; /* points to parent, if any */
-	struct lws			*child_list; /* points to first child */
-	struct lws			*sibling_list; /* subsequent children at same level */
+	lws_dll2_owner_t		child_list_owner;
+	lws_dll2_t			sibling_list;
 	const struct lws_role_ops	*role_ops;
 	const lws_retry_bo_t		*retry_policy;
 
@@ -1458,7 +1472,8 @@ lws_libuv_closehandle(struct lws *wsi);
 int
 lws_libuv_check_watcher_active(struct lws *wsi);
 
-#if defined(LWS_WITH_EVLIB_PLUGINS) || defined(LWS_WITH_PLUGINS)
+#if defined(LWS_WITH_EVLIB_PLUGINS) || defined(LWS_WITH_PLUGINS) || \
+    defined(LWS_WITH_PLUGINS_API)
 const lws_plugin_header_t *
 lws_plat_dlopen(struct lws_plugin **pplugin, const char *libpath,
 		const char *sofilename, const char *_class,

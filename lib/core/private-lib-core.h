@@ -28,6 +28,17 @@
 #include "lws_config.h"
 #include "lws_config_private.h"
 
+/*
+ * Protocol plugins are available at runtime: either dlopenable .so files
+ * (LWS_WITH_PLUGINS) or compiled into the library (LWS_BUILTIN_PLUGIN_NAMES,
+ * ie, LWS_WITH_PLUGINS_BUILTIN).  Code paths that bind plugin protocols into
+ * vhosts should gate on this rather than on LWS_WITH_PLUGINS alone, so
+ * builtin-only builds work identically.
+ */
+#if defined(LWS_WITH_PLUGINS) || defined(LWS_BUILTIN_PLUGIN_NAMES)
+#define LWS_WITH_PROTOCOL_PLUGINS 1
+#endif
+
 #if !defined(LHP_URL_LEN)
 #define LHP_URL_LEN			240
 #endif
@@ -331,7 +342,8 @@ struct lws;
 #include "private-lib-system-metrics.h"
 
 struct lws_foreign_thread_pollfd {
-	struct lws_foreign_thread_pollfd *next;
+	/* member of pt->foreign_pfd_owner, under pt lock both sides */
+	lws_dll2_t list;
 	int fd_index;
 	int _and;
 	int _or;
@@ -644,10 +656,17 @@ struct lws_context {
 
 	/* pointers */
 
-	struct lws_vhost		*vhost_list;
-	struct lws_vhost		*no_listener_vhost_list;
-	struct lws_vhost		*vhost_pending_destruction_list;
 	struct lws_vhost		*vhost_system;
+
+	/* dll2 owners: the vhost_list node on struct lws_vhost is used for
+	 * the main list and, after removal from it, the pending-destruction
+	 * list; the no_listener_vlist node covers the independent
+	 * awaiting-a-listener list.  Use lws_vhost_first()/lws_vhost_next()
+	 * helpers to walk the main list.
+	 */
+	lws_dll2_owner_t		vhost_list_owner;
+	lws_dll2_owner_t		no_listener_vhost_owner;
+	lws_dll2_owner_t		vhost_pending_destruction_owner;
 
 #if defined(LWS_WITH_SERVER)
 	const char			*server_string;
@@ -660,7 +679,7 @@ struct lws_context {
 	const struct lws_tls_ops	*tls_ops;
 #endif
 
-#if defined(LWS_WITH_PLUGINS)
+#if defined(LWS_WITH_PROTOCOL_PLUGINS)
 	struct lws_plugin		*plugin_list;
 #endif
 #ifdef _WIN32
@@ -740,8 +759,8 @@ struct lws_context {
 #endif
 
 #if defined(LWS_WITH_PEER_LIMITS)
-	struct lws_peer			**pl_hash_table;
-	struct lws_peer			*peer_wait_list;
+	lws_dll2_owner_t		*pl_hash_table; /* peer limits hash buckets */
+	lws_dll2_owner_t		peer_wait_owner;
 	lws_peer_limits_notify_t	pl_notify_cb;
 	time_t				next_cull;
 #endif
@@ -883,7 +902,40 @@ struct lws_context {
 	uint8_t quic_retry_secret[16];
 };
 
-#define lws_get_context_protocol(ctx, x) ctx->vhost_list->protocols[x]
+#if defined(LWS_WITH_NETWORK)
+/*
+ * vhost list helpers (dll2-backed; see the owners on struct lws_context).
+ * Both are NULL-safe: NULL in / NULL out.
+ */
+static LWS_INLINE struct lws_vhost *
+lws_vhost_first(const struct lws_context *cx)
+{
+	struct lws_dll2 *d = lws_dll2_get_head(
+			(lws_dll2_owner_t *)&cx->vhost_list_owner);
+
+	return d ? lws_container_of(d, struct lws_vhost, vhost_list) : NULL;
+}
+
+static LWS_INLINE struct lws_vhost *
+lws_vhost_next(const struct lws_vhost *vh)
+{
+	struct lws_dll2 *d = vh->vhost_list.next;
+
+	return d ? lws_container_of(d, struct lws_vhost, vhost_list) : NULL;
+}
+
+#define lws_start_foreach_vhost(___vh, ___cx) \
+	lws_start_foreach_dll(struct lws_dll2 *, ___vh ## _dll, \
+			      (___cx)->vhost_list_owner.head) { \
+		struct lws_vhost *___vh = lws_container_of(___vh ## _dll, \
+					struct lws_vhost, vhost_list);
+
+#define lws_end_foreach_vhost(___vh) \
+	} lws_end_foreach_dll(___vh ## _dll)
+
+#define lws_get_context_protocol(ctx, x) lws_vhost_first(ctx)->protocols[x]
+#endif
+
 #define lws_get_vh_protocol(vh, x) vh->protocols[x]
 
 int

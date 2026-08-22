@@ -78,7 +78,7 @@ void
 lwsac_use_cached_file_start(lwsac_cached_file_t cache)
 {
 	struct lwsac *lac = cache_file_to_lac(cache);
-	struct lwsac_head *lachead = (struct lwsac_head *)&lac->head[1];
+	struct lwsac_head *lachead = (struct lwsac_head *)&lwsac_chunk_head(lac)[1];
 
 	lachead->refcount++;
 	// lwsl_debug("%s: html refcount: %d\n", __func__, lachead->refcount);
@@ -94,7 +94,7 @@ lwsac_use_cached_file_end(lwsac_cached_file_t *cache)
 		return;
 
 	lac = cache_file_to_lac(*cache);
-	lachead = (struct lwsac_head *)&lac->head[1];
+	lachead = (struct lwsac_head *)&lwsac_chunk_head(lac)[1];
 
 	if (!lachead->refcount)
 		lwsl_err("%s: html refcount zero on entry\n", __func__);
@@ -115,7 +115,7 @@ lwsac_use_cached_file_detach(lwsac_cached_file_t *cache)
 	struct lwsac_head *lachead = NULL;
 
 	if (lac) {
-		lachead = (struct lwsac_head *)&lac->head[1];
+		lachead = (struct lwsac_head *)&lwsac_chunk_head(lac)[1];
 
 		lachead->detached = 1;
 		if (lachead->refcount)

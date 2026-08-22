@@ -10,8 +10,8 @@ lws_hls_thumbnail_worker(void *d)
 
         while (1) {
                 pthread_mutex_lock(&vhd->lock);
-                
-                while (!vhd->thread_exit && !vhd->task_head) {
+
+                while (!vhd->thread_exit && !lws_dll2_get_head(&vhd->tasks)) {
                         pthread_cond_wait(&vhd->cond, &vhd->lock);
                 }
                 if (vhd->thread_exit) {
@@ -19,13 +19,13 @@ lws_hls_thumbnail_worker(void *d)
                         break;
                 }
 
-                struct thumb_task *t = vhd->task_head;
-                vhd->task_head = t->next;
-                if (vhd->task_tail == t)
-                        vhd->task_tail = NULL;
+                struct thumb_task *t = lws_container_of(
+                                lws_dll2_get_head(&vhd->tasks),
+                                struct thumb_task, list);
+                lws_dll2_remove(&t->list);
 
-                strncpy(vhd->current_task_filename, t->filename, sizeof(vhd->current_task_filename));
-                vhd->current_task_filename[sizeof(vhd->current_task_filename) - 1] = '\0';
+                lws_strncpy(vhd->current_task_filename, t->filename,
+                            sizeof(vhd->current_task_filename));
                 
                 pthread_mutex_unlock(&vhd->lock);
                 
@@ -126,29 +126,27 @@ lws_hls_thumbnail_worker(void *d)
                 }
                 
                 pthread_mutex_lock(&vhd->lock);
-                
+
                 struct thumb_cache *c = malloc(sizeof(*c));
-                strncpy(c->filename, t->filename, sizeof(c->filename));
+                lws_strncpy(c->filename, t->filename, sizeof(c->filename));
                 c->data = jpeg_data;
                 c->len = (size_t)jpeg_size;
-                
-                c->next = vhd->cache_head;
-                vhd->cache_head = c;
+
+                lws_dll2_clear(&c->list);
+                lws_dll2_add_head(&c->list, &vhd->thumb_cache);
                 vhd->cache_count++;
-                
+
                 if (vhd->cache_count > 20) {
-                        struct thumb_cache *prev = NULL;
-                        struct thumb_cache *curr = vhd->cache_head;
-                        while (curr && curr->next) {
-                                prev = curr;
-                                curr = curr->next;
-                        }
-                        if (prev) {
-                                prev->next = NULL;
-                                if (curr->data) free(curr->data);
-                                free(curr);
-                                vhd->cache_count--;
-                        }
+                        /* drop the least-recently-used guy at the tail */
+                        struct thumb_cache *curr = lws_container_of(
+                                        lws_dll2_get_tail(&vhd->thumb_cache),
+                                        struct thumb_cache, list);
+
+                        lws_dll2_remove(&curr->list);
+                        if (curr->data)
+                                free(curr->data);
+                        free(curr);
+                        vhd->cache_count--;
                 }
                 
                 vhd->current_task_filename[0] = '\0';
@@ -173,53 +171,57 @@ lws_hls_serve_thumbnail(struct lws *wsi, const char *media_dir, const char *file
         if (!vhd || !pss) return -1;
 
         pthread_mutex_lock(&vhd->lock);
-        
-        struct thumb_cache *c = vhd->cache_head;
-        while (c) {
-                if (!strcmp(c->filename, filename))
+
+        struct thumb_cache *c = NULL;
+        lws_start_foreach_dll(struct lws_dll2 *, d,
+                              lws_dll2_get_head(&vhd->thumb_cache)) {
+                struct thumb_cache *cc = lws_container_of(d,
+                                                struct thumb_cache, list);
+
+                if (!strcmp(cc->filename, filename)) {
+                        c = cc;
                         break;
-                c = c->next;
-        }
-        
+                }
+        } lws_end_foreach_dll(d);
+
         if (c) {
                 pthread_mutex_unlock(&vhd->lock);
-                strncpy(pss->thumb_filename, filename, sizeof(pss->thumb_filename));
+                lws_strncpy(pss->thumb_filename, filename,
+                            sizeof(pss->thumb_filename));
                 pss->waiting_for_thumbnail = 1;
                 lws_callback_on_writable(wsi);
-                return 0; 
+                return 0;
         }
-        
-        struct thumb_task *t = vhd->task_head;
+
         int already_queued = 0;
-        while (t) {
+        lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&vhd->tasks)) {
+                struct thumb_task *t = lws_container_of(d2,
+                                                struct thumb_task, list);
+
                 if (!strcmp(t->filename, filename)) {
                         already_queued = 1;
                         break;
                 }
-                t = t->next;
-        }
-        
+        } lws_end_foreach_dll(d2);
+
         if (!already_queued) {
                 struct thumb_task *nt = malloc(sizeof(*nt));
                 if (!nt) {
                         pthread_mutex_unlock(&vhd->lock);
                         return -1;
                 }
-                strncpy(nt->filename, filename, sizeof(nt->filename));
-                nt->next = NULL;
-                
-                if (vhd->task_tail)
-                        vhd->task_tail->next = nt;
-                else
-                        vhd->task_head = nt;
-                vhd->task_tail = nt;
-                
+                lws_strncpy(nt->filename, filename, sizeof(nt->filename));
+                lws_dll2_clear(&nt->list);
+
+                lws_dll2_add_tail(&nt->list, &vhd->tasks);
+
                 pthread_cond_signal(&vhd->cond);
         }
         
         pthread_mutex_unlock(&vhd->lock);
         
-        strncpy(pss->thumb_filename, filename, sizeof(pss->thumb_filename));
+        lws_strncpy(pss->thumb_filename, filename,
+                    sizeof(pss->thumb_filename));
         pss->waiting_for_thumbnail = 1;
         lws_set_timeout(wsi, PENDING_TIMEOUT_HTTP_CONTENT, 30);
         
@@ -840,14 +842,17 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 	struct hls_file_index *idx = NULL;
 	if (vhd) {
 		pthread_mutex_lock(&vhd->lock);
-		struct hls_file_index *curr = vhd->index_head;
-		while (curr) {
-			if (!strcmp(curr->filename, filename) && curr->video_idx == video_idx) {
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&vhd->index_list)) {
+			struct hls_file_index *curr = lws_container_of(d,
+						struct hls_file_index, list);
+
+			if (!strcmp(curr->filename, filename) &&
+			    curr->video_idx == video_idx) {
 				idx = curr;
 				break;
 			}
-			curr = curr->next;
-		}
+		} lws_end_foreach_dll(d);
 		pthread_mutex_unlock(&vhd->lock);
 	}
 
@@ -933,8 +938,9 @@ lws_hls_get_segment_info(struct per_vhost_data__lws_hls *vhd, const char *filena
 					av_seek_frame(in_ctx, video_idx, 0, AVSEEK_FLAG_BACKWARD);
 
 					pthread_mutex_lock(&vhd->lock);
-					new_idx->next = vhd->index_head;
-					vhd->index_head = new_idx;
+					lws_dll2_clear(&new_idx->list);
+					lws_dll2_add_head(&new_idx->list,
+							  &vhd->index_list);
 					idx = new_idx;
 					pthread_mutex_unlock(&vhd->lock);
 				} else {
@@ -1303,6 +1309,31 @@ lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filena
                 }
         }
 
+	/*
+	 * these are declared and initialized before any goto done below, so
+	 * that the error paths at done: never see them indeterminate
+	 */
+	int64_t last_dts[32];
+	for (int i = 0; i < 32; i++) {
+		last_dts[i] = AV_NOPTS_VALUE;
+	}
+	int started = 0;
+	int64_t actual_start_pts = AV_NOPTS_VALUE;
+	int video_finished = 0;
+	AVPacket audio_buffer[512];
+	int audio_buffer_count = 0;
+	memset(audio_buffer, 0, sizeof(audio_buffer));
+
+	/* Diagnostics variables */
+	int64_t first_video_pts = AV_NOPTS_VALUE, last_video_pts = AV_NOPTS_VALUE;
+	int64_t first_video_dts = AV_NOPTS_VALUE, last_video_dts = AV_NOPTS_VALUE;
+	int64_t first_audio_pts = AV_NOPTS_VALUE, last_audio_pts = AV_NOPTS_VALUE;
+	int64_t first_audio_dts = AV_NOPTS_VALUE, last_audio_dts = AV_NOPTS_VALUE;
+	int video_packets_written = 0, audio_packets_written = 0;
+	int video_packets_discarded = 0, audio_packets_discarded = 0;
+	AVRational video_out_time_base = {0, 0};
+	AVRational audio_out_time_base = {0, 0};
+
         out_ctx->avoid_negative_ts = 0;
         if (avformat_write_header(out_ctx, &opts) < 0) {
 
@@ -1378,27 +1409,6 @@ lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filena
 		lwsl_info("HLS: Segment %d generic seek requested to %.3fs -> ret=%d\n",
 			  segment_idx, (double)start_time / AV_TIME_BASE, ret);
 	}
-
-	int64_t last_dts[32];
-	for (int i = 0; i < 32; i++) {
-		last_dts[i] = AV_NOPTS_VALUE;
-	}
-	int started = 0;
-	int64_t actual_start_pts = AV_NOPTS_VALUE;
-	int video_finished = 0;
-	AVPacket audio_buffer[512];
-	int audio_buffer_count = 0;
-	memset(audio_buffer, 0, sizeof(audio_buffer));
-
-	/* Diagnostics variables */
-	int64_t first_video_pts = AV_NOPTS_VALUE, last_video_pts = AV_NOPTS_VALUE;
-	int64_t first_video_dts = AV_NOPTS_VALUE, last_video_dts = AV_NOPTS_VALUE;
-	int64_t first_audio_pts = AV_NOPTS_VALUE, last_audio_pts = AV_NOPTS_VALUE;
-	int64_t first_audio_dts = AV_NOPTS_VALUE, last_audio_dts = AV_NOPTS_VALUE;
-	int video_packets_written = 0, audio_packets_written = 0;
-	int video_packets_discarded = 0, audio_packets_discarded = 0;
-	AVRational video_out_time_base = {0, 0};
-	AVRational audio_out_time_base = {0, 0};
 
 	int64_t next_video_dts = AV_NOPTS_VALUE;
 	if (has_index) {

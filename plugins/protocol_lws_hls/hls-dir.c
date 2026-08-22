@@ -51,8 +51,8 @@ hls_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		if (!strncmp(path, ds->base_dir, base_len) && path[base_len] == '/')
 			rel_path = path + base_len + 1;
 			
-		strncpy(ds->entries[ds->count].name, rel_path, sizeof(ds->entries[ds->count].name) - 1);
-		ds->entries[ds->count].name[sizeof(ds->entries[ds->count].name) - 1] = '\0';
+		lws_strncpy(ds->entries[ds->count].name, rel_path,
+			    sizeof(ds->entries[ds->count].name));
 		ds->entries[ds->count].mtime = st.st_mtime;
 		ds->count++;
 	}

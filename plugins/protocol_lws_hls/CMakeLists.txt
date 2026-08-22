@@ -31,9 +31,25 @@
 		)
 		set(PLUGIN_HDR private-lws-hls.h)
 
+		# ffmpeg libs and includes, for the standalone plugin target and
+		# for the lib itself when we are built into it (create_plugin
+		# forwards these to the lib build in that case)
+		set(PLUGIN_LINK_LIBS
+			${PC_AVFORMAT_LIBRARIES}
+			${PC_AVCODEC_LIBRARIES}
+			${PC_AVUTIL_LIBRARIES}
+			${PC_SWSCALE_LIBRARIES}
+			${PC_SWRESAMPLE_LIBRARIES})
+		set(PLUGIN_INCLUDE "")
+		foreach(_d ${PC_AVFORMAT_INCLUDE_DIRS} ${PC_AVCODEC_INCLUDE_DIRS}
+			   ${PC_AVUTIL_INCLUDE_DIRS} ${PC_SWSCALE_INCLUDE_DIRS}
+			   ${PC_SWRESAMPLE_INCLUDE_DIRS})
+			list(APPEND PLUGIN_INCLUDE ${_d})
+		endforeach()
+
 		# Create the plugin target using the macro from plugins/CMakeLists.txt
 		create_plugin(${PLUGIN_NAME}
-			      ""
+			      "${PLUGIN_INCLUDE}"
 			      "${PLUGIN_SRCS}"
 			      ""
 			      ""
@@ -41,17 +57,12 @@
 
 		if (TARGET ${PLUGIN_NAME})
 			target_compile_definitions(${PLUGIN_NAME} PRIVATE LWS_BUILDING_SHARED)
-			target_include_directories(${PLUGIN_NAME} PRIVATE 
+			target_include_directories(${PLUGIN_NAME} PRIVATE
 				${PC_AVFORMAT_INCLUDE_DIRS}
 				${PC_AVCODEC_INCLUDE_DIRS}
 				${PC_AVUTIL_INCLUDE_DIRS}
 				${PC_SWSCALE_INCLUDE_DIRS}
 				${PC_SWRESAMPLE_INCLUDE_DIRS})
-			target_link_libraries(${PLUGIN_NAME} 
-				${PC_AVFORMAT_LIBRARIES}
-				${PC_AVCODEC_LIBRARIES}
-				${PC_AVUTIL_LIBRARIES}
-				${PC_SWSCALE_LIBRARIES}
-				${PC_SWRESAMPLE_LIBRARIES})
+			target_link_libraries(${PLUGIN_NAME} ${PLUGIN_LINK_LIBS})
 		endif()
 	endif()

@@ -83,12 +83,12 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		timeout_ms = 2000000000;
 	timeout_us = ((lws_usec_t)timeout_ms) * LWS_US_PER_MS;
 
-	if (!pt->service_tid_detected && context->vhost_list) {
+	if (!pt->service_tid_detected && context->vhost_list_owner.head) {
 		lws_fakewsi_def_plwsa(pt);
 
 		lws_fakewsi_prep_plwsa_ctx(context);
 
-		pt->service_tid = context->vhost_list->protocols[0].callback(
+		pt->service_tid = lws_vhost_first(context)->protocols[0].callback(
 			(struct lws *)plwsa, LWS_CALLBACK_GET_THREAD_ID,
 			NULL, NULL, 0);
 		pt->service_tid_detected = 1;

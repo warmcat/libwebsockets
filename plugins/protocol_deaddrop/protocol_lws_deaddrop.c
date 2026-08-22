@@ -67,7 +67,7 @@ struct vhd_deaddrop {
 	struct lws_vhost		*vh;
 	const struct lws_protocols	*protocol;
 
-	struct pss_deaddrop		*pss_head;
+	lws_dll2_owner_t		pss_head; /* list of live pss */
 
 	const char			*upload_dir;
 	const char			*cookie_name;
@@ -101,7 +101,7 @@ struct pss_deaddrop {
 	lws_filefd_type			fd;
 	int				response_code;
 
-	struct pss_deaddrop		*pss_list;
+	lws_dll2_t			pss_list; /* vhd->pss_head membership */
 
 	struct lwsac			*lwsac_head;
 	struct dir_entry		*dire;
@@ -193,11 +193,14 @@ deaddrop_broadcast_userlist_update(struct vhd_deaddrop *vhd)
 {
 	vhd->userlist_version++;
 
-	lws_start_foreach_llp(struct pss_deaddrop **, ppss, vhd->pss_head) {
-		if (!(*ppss)->ws_ongoing_send)
-			deaddrop_start_sending_dir(*ppss);
-		lws_callback_on_writable((*ppss)->wsi);
-	} lws_end_foreach_llp(ppss, pss_list);
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->pss_head)) {
+		struct pss_deaddrop *pss = lws_container_of(d, struct pss_deaddrop,
+						    pss_list);
+
+		if (!pss->ws_ongoing_send)
+			deaddrop_start_sending_dir(pss);
+		lws_callback_on_writable(pss->wsi);
+	} lws_end_foreach_dll(d);
 }
 
 static void
@@ -205,11 +208,14 @@ deaddrop_broadcast_filelist_update(struct vhd_deaddrop *vhd)
 {
 	vhd->filelist_version++;
 
-	lws_start_foreach_llp(struct pss_deaddrop **, ppss, vhd->pss_head) {
-		if (!(*ppss)->ws_ongoing_send)
-			deaddrop_start_sending_dir(*ppss);
-		lws_callback_on_writable((*ppss)->wsi);
-	} lws_end_foreach_llp(ppss, pss_list);
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->pss_head)) {
+		struct pss_deaddrop *pss = lws_container_of(d, struct pss_deaddrop,
+						    pss_list);
+
+		if (!pss->ws_ongoing_send)
+			deaddrop_start_sending_dir(pss);
+		lws_callback_on_writable(pss->wsi);
+	} lws_end_foreach_dll(d);
 }
 
 
@@ -788,8 +794,7 @@ deaddrop_handler_server_ws_established(struct vhd_deaddrop *vhd,
 	lws_get_peer_simple(wsi, pss->ip, sizeof(pss->ip));
 
 	/* add ourselves to the list of live pss held in the vhd */
-	pss->pss_list		= vhd->pss_head;
-	vhd->pss_head		= pss;
+	lws_dll2_add_head(&pss->pss_list, &vhd->pss_head);
 
 	deaddrop_broadcast_userlist_update(vhd);
 }
@@ -803,13 +808,7 @@ deaddrop_handler_server_ws_closed(struct vhd_deaddrop *vhd, struct pss_deaddrop 
 	if (pss->lwsac_head)
 		lwsac_unreference(&pss->lwsac_head);
 	/* remove our closing pss from the list of live pss */
-	lws_start_foreach_llp(struct pss_deaddrop **,
-			      ppss, vhd->pss_head) {
-		if (*ppss == pss) {
-			*ppss = pss->pss_list;
-			break;
-		}
-	} lws_end_foreach_llp(ppss, pss_list);
+	lws_dll2_remove(&pss->pss_list);
 
 	deaddrop_broadcast_userlist_update(vhd);
 }
@@ -914,23 +913,27 @@ deaddrop_handler_server_ws_writeable(struct vhd_deaddrop *vhd, struct pss_deaddr
 					  ", \"connected_users\":[");
 
 			int first_user = 1;
-			lws_start_foreach_llp(struct pss_deaddrop **, ppss,
-					      vhd->pss_head) {
+			lws_start_foreach_dll(struct lws_dll2 *, d,
+					      lws_dll2_get_head(&vhd->pss_head)) {
+				struct pss_deaddrop *pss1 =
+					lws_container_of(d, struct pss_deaddrop,
+							 pss_list);
+
 				/* Only list authenticated connections */
-				if ((*ppss)->wsi && (*ppss)->user[0]) {
+				if (pss1->wsi && pss1->user[0]) {
 					p += lws_snprintf((char *)p,
 							  lws_ptr_diff_size_t(end, p),
 						"%c{\"user\":\"%s\", \"ip\":\"%s\", "
 						"\"platform\":\"%s\", \"browser\":\"%s\"%s%s}",
 						first_user ? ' ' : ',',
-						(*ppss)->user, (*ppss)->ip, (*ppss)->platform,
-						(*ppss)->browser,
-						(*ppss)->has_star_grant ? ", \"is_admin\":1" : "",
-						((*ppss) == pss) ? ", \"is_self\":1" : "");
+						pss1->user, pss1->ip, pss1->platform,
+						pss1->browser,
+						pss1->has_star_grant ? ", \"is_admin\":1" : "",
+						(pss1 == pss) ? ", \"is_self\":1" : "");
 
 					first_user = 0;
 				}
-			} lws_end_foreach_llp(ppss, pss_list);
+			} lws_end_foreach_dll(d);
 
 			p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "]");
 		}

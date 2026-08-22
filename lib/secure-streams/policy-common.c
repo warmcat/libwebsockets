@@ -487,16 +487,16 @@ lws_ss_policy_set(struct lws_context *context, const char *name)
 		 * short time later, the vhost is actually destroyed.
 		 */
 
-		v = context->vhost_list;
+		v = lws_vhost_first(context);
 		while (v) {
 			if (v->from_ss_policy) {
-				struct lws_vhost *vh = v->vhost_next;
+				struct lws_vhost *vh = lws_vhost_next(v);
 				lwsl_debug("%s: destroying %s\n", __func__, lws_vh_tag(v));
 				lws_vhost_destroy(v);
 				v = vh;
 				continue;
 			}
-			v = v->vhost_next;
+			v = lws_vhost_next(v);
 		}
 	}
 
@@ -544,10 +544,10 @@ lws_ss_policy_set(struct lws_context *context, const char *name)
 	 * which socks5 proxy to use...
 	 */
 
-	v = context->vhost_list;
+	v = lws_vhost_first(context);
 	while (v) {
 		lws_set_socks(v, args->socks5_proxy);
-		v = v->vhost_next;
+		v = lws_vhost_next(v);
 	}
 	if (context->vhost_system)
 		lws_set_socks(context->vhost_system, args->socks5_proxy);

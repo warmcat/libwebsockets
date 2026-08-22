@@ -197,6 +197,69 @@
                 } lws_end_foreach_llp(___ppss, ___m_list); \
 	}
 
+/*
+ * The legacy singly-linked-list macros are banned inside libwebsockets,
+ * permanently.
+ * --------------------------------------------------------------------
+ *
+ * dll2 owners bring the member count, an owner backpointer per node and the
+ * runtime _safe iterator guard; hand-rolled next-chains have been behind a
+ * number of iterator-lifetime bugs here.  All list usage inside the library,
+ * including self-contained datastructure internals like lwsac chunks, the
+ * fts trie and dht tables, is on a one-time conversion to
+ * lws_dll2_owner_t + lws_dll2_t; when the last one is converted the total
+ * ban below is armed by setting LWS_DLL2_ARM_TOTAL_BAN to 1.
+ *
+ * When armed, the ban is enforced at compile time by poisoning the macros
+ * when building the library itself: LWS_BUILDING_STATIC / LWS_BUILDING_SHARED
+ * are PRIVATE to the libwebsockets compile targets, so they are defined when
+ * compiling the library sources and nothing else -- plugins, minimal examples
+ * and user code keep full access to the legacy macros for their own use,
+ * indefinitely.
+ *
+ * Any use inside the library then fails at the use site with the poison
+ * identifier naming the reason.
+ */
+
+/* conversion complete: the total ban is armed */
+#define LWS_DLL2_ARM_TOTAL_BAN 1
+
+#if LWS_DLL2_ARM_TOTAL_BAN && \
+	(defined(LWS_BUILDING_STATIC) || defined(LWS_BUILDING_SHARED))
+
+#undef	lws_start_foreach_ll
+#undef	lws_end_foreach_ll
+#undef	lws_start_foreach_ll_safe
+#undef	lws_end_foreach_ll_safe
+#undef	lws_start_foreach_llp
+#undef	lws_end_foreach_llp
+#undef	lws_start_foreach_llp_safe
+#undef	lws_end_foreach_llp_safe
+#undef	lws_ll_fwd_insert
+#undef	lws_ll_fwd_remove
+
+#define lws_start_foreach_ll(...) \
+	LWS_LIB_MAY_NOT_USE_LEGACY_LIST_MACROS_see_lws_dll2_h
+#define lws_end_foreach_ll(...) \
+	LWS_LIB_MAY_NOT_USE_LEGACY_LIST_MACROS_see_lws_dll2_h
+#define lws_start_foreach_ll_safe(...) \
+	LWS_LIB_MAY_NOT_USE_LEGACY_LIST_MACROS_see_lws_dll2_h
+#define lws_end_foreach_ll_safe(...) \
+	LWS_LIB_MAY_NOT_USE_LEGACY_LIST_MACROS_see_lws_dll2_h
+#define lws_start_foreach_llp(...) \
+	LWS_LIB_MAY_NOT_USE_LEGACY_LIST_MACROS_see_lws_dll2_h
+#define lws_end_foreach_llp(...) \
+	LWS_LIB_MAY_NOT_USE_LEGACY_LIST_MACROS_see_lws_dll2_h
+#define lws_start_foreach_llp_safe(...) \
+	LWS_LIB_MAY_NOT_USE_LEGACY_LIST_MACROS_see_lws_dll2_h
+#define lws_end_foreach_llp_safe(...) \
+	LWS_LIB_MAY_NOT_USE_LEGACY_LIST_MACROS_see_lws_dll2_h
+#define lws_ll_fwd_insert(...) \
+	LWS_LIB_MAY_NOT_USE_LEGACY_LIST_MACROS_see_lws_dll2_h
+#define lws_ll_fwd_remove(...) \
+	LWS_LIB_MAY_NOT_USE_LEGACY_LIST_MACROS_see_lws_dll2_h
+#endif
+
 
 /*
  * doubly linked-list
@@ -236,11 +299,15 @@ typedef struct lws_dll2_owner {
 	uint32_t		count;
 
 	/*
-	 * Monotonic "generation" of the list contents: bumped by every
-	 * mutation (add*, remove, clear).  The _safe iterator helpers use it
-	 * to cheaply notice that the list changed during the loop body, so
-	 * they can validate their cached next pointer is still a list member
-	 * before using it.  Never compare generations for ordering across
+	 * Monotonic "generation" of the list contents: bumped by every add*
+	 * and remove, and reset to 0 by lws_dll2_owner_clear() (which also
+	 * serves as the owner initializer and so writes it without reading).
+	 * The _safe iterator helpers use it to cheaply notice that the list
+	 * changed during the loop body, so they can validate their cached
+	 * next pointer is still a list member before using it.  Since an
+	 * iterable owner must have had at least one add, a live iterator's
+	 * cached generation is never 0 and the clear reset is still always
+	 * detectable.  Never compare generations for ordering across
 	 * different owners, only inequality on the same owner.
 	 */
 	uint32_t		generation;
@@ -307,14 +374,22 @@ lws_dll2_is_in_list(struct lws_dll2_owner *owner, struct lws_dll2 *d);
  * Guarded advance for the _safe iterator macros: validates that cand (the
  * cached next node) is still a member of ow's list if anything mutated the
  * list (ow->generation != *gen) since it was cached.  If cand went away, it
- * asserts (unless lws_dll2_guard_quiet) and recovers along the live list
- * (from cur's successor if cur survived, else from the live head), so even
- * release builds stop walking into freed nodes.  Returns the node the
- * iterator should advance to.
+ * asserts (unless lws_dll2_guard_quiet) and recovers by restarting from the
+ * live head, so even release builds stop walking into freed nodes.  Returns
+ * the node the iterator should advance to.
+ *
+ * Notice there is deliberately no "current node" parameter to resume from
+ * its successor: the supported usage is that the loop body may remove and
+ * free the current node itself, so by the time this runs that pointer may
+ * refer to freed memory.  Passing it here (even without dereferencing it)
+ * is exactly the use-after-free pattern static analysis must reject.  The
+ * consequence is that recovery revisits still-listed nodes before the
+ * invalidation point; _safe loop bodies must tolerate being re-run for
+ * nodes they already saw (act by predicate, not one-shot).
  */
 LWS_VISIBLE LWS_EXTERN struct lws_dll2 *
 _lws_dll2_safe_next(struct lws_dll2_owner *ow, uint32_t *gen,
-		    struct lws_dll2 *cur, struct lws_dll2 *cand);
+		    struct lws_dll2 *cand);
 
 /*
  * Set to nonzero by tests (or apps that must not die) to make the _safe
@@ -362,6 +437,10 @@ lws_dll2_describe(struct lws_dll2_owner *owner, const char *desc);
  *
  * NOTE: ___start must be side-effect-free since it is evaluated once into
  * a temporary.
+ *
+ * NOTE: the recovery path restarts from the live head, which can revisit
+ * earlier nodes still on the list; loop bodies must be idempotent under
+ * being re-run for a node they already saw.
  */
 
 #define lws_start_foreach_dll_safe(___type, ___it, ___tmp, ___start) \
@@ -375,7 +454,7 @@ lws_dll2_describe(struct lws_dll2_owner *owner, const char *desc);
 	for (___type ___it = ___st_##___it; \
 	     ___it && (((___tmp) = (___it)->next), 1); \
 	     ___it = _lws_dll2_safe_next(___ow_##___it, &___gen_##___it, \
-					 ___it, ___tmp)) {
+					 ___tmp)) {
 
 #define lws_end_foreach_dll_safe(___it, ___tmp) \
 	} \

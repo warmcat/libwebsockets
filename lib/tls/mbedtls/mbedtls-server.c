@@ -76,18 +76,18 @@ lws_mbedtls_sni_cb(void *arg, mbedtls_ssl_context *mbedtls_ctx,
 	 * mbedtls does not have SSL_get_SSL_CTX.
 	 * But we can just search all vhosts.
 	 */
-	vh = context->vhost_list;
+	vh = lws_vhost_first(context);
 	while (vh) {
 		if (!vh->being_destroyed && vh->tls.ssl_ctx && &vh->tls.ssl_ctx->conf == mbedtls_ctx->MBEDTLS_PRIVATE(conf))
 			break;
-		vh = vh->vhost_next;
+		vh = lws_vhost_next(vh);
 	}
 
 	if (!vh) {
 		/* Not strictly found, maybe just use first vhost with TLS */
-		vh = context->vhost_list;
+		vh = lws_vhost_first(context);
 		while (vh && !vh->tls.ssl_ctx)
-			vh = vh->vhost_next;
+			vh = lws_vhost_next(vh);
 		if (!vh)
 			return 0;
 	}

@@ -94,7 +94,7 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 	lws_memory_barrier();
 
 	if (vpt->inside_poll) {
-		struct lws_foreign_thread_pollfd *ftp, **ftp1;
+		struct lws_foreign_thread_pollfd *ftp;
 		/*
 		 * We are certainly a foreign thread trying to change events
 		 * while the service thread is in the poll() wait.
@@ -102,7 +102,7 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 		 * Create a list of changes to be applied after poll() exit,
 		 * instead of trying to apply them now.
 		 */
-		ftp = lws_malloc(sizeof(*ftp), "ftp");
+		ftp = lws_zalloc(sizeof(*ftp), "ftp");
 		if (!ftp) {
 			vpt->foreign_spinlock = 0;
 			lws_memory_barrier();
@@ -112,19 +112,13 @@ _lws_change_pollfd(struct lws *wsi, int _and, int _or, struct lws_pollargs *pa)
 
 		ftp->_and = _and;
 		ftp->_or = _or;
-		ftp->next = NULL;
 
 		lws_pt_lock(pt, __func__);
 		assert(wsi->position_in_fds_table < (int)pt->fds_count);
 		ftp->fd_index = wsi->position_in_fds_table;
 
 		/* place at END of list to maintain order */
-		ftp1 = (struct lws_foreign_thread_pollfd **)
-						&vpt->foreign_pfd_list;
-		while (*ftp1)
-			ftp1 = &((*ftp1)->next);
-
-		*ftp1 = ftp;
+		lws_dll2_add_tail(&ftp->list, &pt->foreign_pfd_owner);
 		vpt->foreign_spinlock = 0;
 		lws_memory_barrier();
 
@@ -224,7 +218,7 @@ static void
 lws_accept_modulation(struct lws_context *context,
 		      struct lws_context_per_thread *pt, int allow)
 {
-	struct lws_vhost *vh = context->vhost_list;
+	struct lws_vhost *vh = lws_vhost_first(context);
 	struct lws_pollargs pa1;
 
 	while (vh) {
@@ -237,7 +231,7 @@ lws_accept_modulation(struct lws_context *context,
 						allow ? LWS_POLLIN : 0, &pa1);
 		} lws_end_foreach_dll(d);
 
-		vh = vh->vhost_next;
+		vh = lws_vhost_next(vh);
 	}
 }
 #endif
@@ -673,7 +667,7 @@ lws_callback_on_writable_all_protocol(const struct lws_context *context,
 	if (!context)
 		return 0;
 
-	vhost = context->vhost_list;
+	vhost = lws_vhost_first(context);
 
 	while (vhost) {
 		for (n = 0; n < vhost->count_protocols; n++)
@@ -685,7 +679,7 @@ lws_callback_on_writable_all_protocol(const struct lws_context *context,
 			lws_callback_on_writable_all_protocol_vhost(
 				vhost, &vhost->protocols[n]);
 
-		vhost = vhost->vhost_next;
+		vhost = lws_vhost_next(vhost);
 	}
 
 	return 0;

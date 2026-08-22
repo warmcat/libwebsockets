@@ -170,14 +170,14 @@ lws_ssl_server_name_cb(HITLS_Ctx *ssl, int *alert, void *arg)
 		return HITLS_ACCEPT_SNI_ERR_NOACK;
 	}
 
-	vh = context->vhost_list;
+	vh = lws_vhost_first(context);
 	while (vh) {
 		lws_tls_ctx *ctx = (lws_tls_ctx *)vh->tls.ssl_ctx;
 
 		if (!vh->being_destroyed && ctx && ctx == HITLS_GetGlobalConfig(ssl)) {
 			break;
 		}
-		vh = vh->vhost_next;
+		vh = lws_vhost_next(vh);
 	}
 
 	if (!vh) {

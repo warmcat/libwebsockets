@@ -123,7 +123,7 @@ lws_h2_dump_settings(struct http2_settings *set)
 struct lws_h2_protocol_send *
 lws_h2_new_pps(enum lws_h2_protocol_send_type type)
 {
-	struct lws_h2_protocol_send *pps = lws_malloc(sizeof(*pps), "pps");
+	struct lws_h2_protocol_send *pps = lws_zalloc(sizeof(*pps), "pps");
 
 	if (pps)
 		pps->type = type;
@@ -497,17 +497,16 @@ lws_pps_schedule(struct lws *wsi, struct lws_h2_protocol_send *pps)
 		return;
 	}
 
-	if (pps->type != LWS_H2_PPS_GOAWAY && h2n->pps_count >= 50) {
+	if (pps->type != LWS_H2_PPS_GOAWAY &&
+	    h2n->pps_owner.count >= 50) {
 		lwsl_warn("%s: too many pending protocol sends (%u), dropping conn\n",
-			  __func__, (unsigned int)h2n->pps_count);
+			  __func__, (unsigned int)h2n->pps_owner.count);
 		lws_free(pps);
 		lws_h2_goaway(nwsi, H2_ERR_ENHANCE_YOUR_CALM, "too many pending pps");
 		return;
 	}
 
-	pps->next = h2n->pps;
-	h2n->pps = pps;
-	h2n->pps_count++;
+	lws_dll2_add_head(&pps->list, &h2n->pps_owner);
 	lws_rx_flow_control(wsi, LWS_RXFLOW_REASON_APPLIES_DISABLE |
 				 LWS_RXFLOW_REASON_H2_PPS_PENDING);
 	lws_callback_on_writable(wsi);
@@ -931,19 +930,16 @@ int lws_h2_do_pps_send(struct lws *wsi)
 
 	/* get the oldest pps */
 
-	lws_start_foreach_llp(struct lws_h2_protocol_send **, pps1, h2n->pps) {
-		if ((*pps1)->next == NULL) { /* we are the oldest in the list */
-			pps = *pps1; /* remove us from the list */
-			*pps1 = NULL;
-			break;
-		}
-	} lws_end_foreach_llp(pps1, next);
+	{
+		struct lws_dll2 *d = lws_dll2_get_tail(&h2n->pps_owner);
 
-	if (!pps)
-		return 1;
+		if (!d)
+			return 1;
 
-	if (h2n->pps_count)
-		h2n->pps_count--;
+		/* take the oldest pps (they are added at the head) */
+		pps = lws_container_of(d, struct lws_h2_protocol_send, list);
+		lws_dll2_remove(d);
+	}
 
 	lwsl_info("%s: %s: %d\n", __func__, lws_wsi_tag(wsi), pps->type);
 
@@ -3139,7 +3135,7 @@ lws_h2_ws_handshake(struct lws *wsi)
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_PROTOCOL) > 64)
 		return -1;
 
-	if (wsi->proxied_ws_parent && wsi->child_list) {
+	if (wsi->proxied_ws_parent && lws_get_child(wsi)) {
 		if (lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL)) {
 			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_PROTOCOL,
 				(uint8_t *)lws_hdr_simple_ptr(wsi,

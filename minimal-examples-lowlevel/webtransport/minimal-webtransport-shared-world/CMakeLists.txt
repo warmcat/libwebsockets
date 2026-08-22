@@ -6,7 +6,8 @@ include(CheckCSourceCompiles)
 include(LwsCheckRequirements)
 
 set(SAMP lws-minimal-webtransport-shared-world)
-set(SRCS minimal-webtransport-shared-world.c ../../../../plugins/protocol_webtransport_shared_world/protocol_webtransport_shared_world.c)
+set(SRCS minimal-webtransport-shared-world.c
+	"${CMAKE_SOURCE_DIR}/plugins/protocol_webtransport_shared_world/protocol_webtransport_shared_world.c")
 
 set(requirements 1)
 require_lws_config(LWS_ROLE_WT 1 requirements)

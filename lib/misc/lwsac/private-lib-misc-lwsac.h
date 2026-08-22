@@ -43,11 +43,29 @@
  */
 
 struct lwsac {
-	struct lwsac *next;
-	struct lwsac *head; /* pointer back to the first chunk */
+	/* chunk chain node; the first chunk's `chunks` owner owns them all */
+	lws_dll2_t	list;
+	lws_dll2_owner_t	chunks; /* only meaningful on the first chunk */
 	size_t alloc_size; /* alloc size of the whole chunk */
 	size_t ofs; /* next writeable position inside chunk */
 };
+
+/* NULL-safe next-chunk-in-lwsac helper */
+static LWS_INLINE struct lwsac *
+lwsac_next_chunk(struct lwsac *lac)
+{
+	struct lws_dll2 *d = lac->list.next;
+
+	return d ? lws_container_of(d, struct lwsac, list) : NULL;
+}
+
+/* the first chunk of the lwsac that owns this chunk */
+static LWS_INLINE struct lwsac *
+lwsac_chunk_head(struct lwsac *lac)
+{
+	return lac->list.owner ?
+		lws_container_of(lac->list.owner, struct lwsac, chunks) : lac;
+}
 
 /*
  * One of these per lwsac, at start of first chunk

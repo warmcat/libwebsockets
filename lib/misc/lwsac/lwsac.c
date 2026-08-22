@@ -66,7 +66,7 @@ lwsac_get_tail_pos(struct lwsac *lac)
 struct lwsac *
 lwsac_get_next(struct lwsac *lac)
 {
-	return lac->next;
+	return lwsac_next_chunk(lac);
 }
 
 int
@@ -114,7 +114,7 @@ _lwsac_use(struct lwsac **head, size_t ensure, size_t chunk_size, char backfill)
 			if (bf->alloc_size - bf->ofs >= ensure)
 				goto do_use;
 
-			bf = bf->next;
+			bf = lwsac_next_chunk(bf);
 		}
 	else {
 		/*
@@ -160,6 +160,9 @@ _lwsac_use(struct lwsac **head, size_t ensure, size_t chunk_size, char backfill)
 	 */
 	bf->ofs = sizeof(*bf);
 
+	/* the node starts detached either way */
+	lws_dll2_clear(&bf->list);
+
 	if (!*head) {
 		/*
 		 * We are the first, head, entry...
@@ -171,13 +174,12 @@ _lwsac_use(struct lwsac **head, size_t ensure, size_t chunk_size, char backfill)
 		bf->ofs += sizeof(*lachead);
 		lachead = (struct lwsac_head *)&bf[1];
 		memset(lachead, 0, sizeof(*lachead));
-	} else
-		if (lachead->curr)
-			lachead->curr->next = bf;
+		lws_dll2_owner_clear(&bf->chunks);
+	}
+
+	lws_dll2_add_tail(&bf->list, &(*head)->chunks);
 
 	lachead->curr = bf;
-	bf->head = *head;
-	bf->next = NULL;
 	bf->alloc_size = alloc;
 
 	lachead->total_alloc_size += alloc;
@@ -227,7 +229,7 @@ lwsac_scan_extant(struct lwsac *head, uint8_t *find, size_t len, int nul)
 				pos++;
 			}
 
-		head = head->next;
+		head = lwsac_next_chunk(head);
 	}
 
 	return NULL;
@@ -241,7 +243,7 @@ lwsac_total_overhead(struct lwsac *head)
 	while (head) {
 		overhead += (head->alloc_size - head->ofs) + sizeof(*head);
 
-		head = head->next;
+		head = lwsac_next_chunk(head);
 	}
 
 	return overhead;
@@ -267,7 +269,7 @@ lwsac_free(struct lwsac **head)
 	// lwsl_debug("%s: head %p\n", __func__, *head);
 
 	while (it) {
-		struct lwsac *tmp = it->next;
+		struct lwsac *tmp = lwsac_next_chunk(it);
 
 		free(it);
 		it = tmp;
@@ -370,7 +372,7 @@ _lwsac_assert_valid(struct lwsac *aco, void *check, size_t len, const char *name
 		if (check >= pos && (void *)(((uint8_t *)check) + len) <= end)
 			return 0;
 
-		ac = ac->next;
+		ac = lwsac_next_chunk(ac);
 	}
 
 #if !defined(LWS_WITH_NO_LOGS) && (_LWS_ENABLED_LOGS & LLL_NOTICE)
@@ -382,7 +384,7 @@ _lwsac_assert_valid(struct lwsac *aco, void *check, size_t len, const char *name
 
 		lwsl_notice("%s: ac chunk  %p -> %p\n", __func__, pos, end);
 
-		ac = ac->next;
+		ac = lwsac_next_chunk(ac);
 	}
 #endif
 

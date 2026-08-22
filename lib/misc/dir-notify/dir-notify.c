@@ -123,7 +123,7 @@ lws_dir_notify_create(struct lws_context *ctx, const char *path,
 	int wd;
 
 	if (!vh) {
-		vh = ctx->vhost_list;
+		vh = lws_vhost_first(ctx);
 		if (!vh)
 			return NULL;
 	}
@@ -233,7 +233,7 @@ lws_dir_notify_create(struct lws_context *ctx, const char *path,
 	struct kevent kev;
 
 	if (!vh) {
-		vh = ctx->vhost_list;
+		vh = lws_vhost_first(ctx);
 		if (!vh)
 			return NULL;
 	}

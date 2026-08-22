@@ -228,12 +228,12 @@ lws_tls_check_cert_lifetime(struct lws_vhost *v)
 int
 lws_tls_check_all_cert_lifetimes(struct lws_context *context)
 {
-	struct lws_vhost *v = context->vhost_list;
+	struct lws_vhost *v = lws_vhost_first(context);
 
 	while (v) {
 		if (lws_tls_check_cert_lifetime(v) < 0)
 			return -1;
-		v = v->vhost_next;
+		v = lws_vhost_next(v);
 	}
 
 	return 0;
@@ -300,7 +300,7 @@ lws_tls_cert_updated(struct lws_context *context, const char *certpath,
 
 	wsi.a.context = context;
 
-	lws_start_foreach_ll(struct lws_vhost *, v, context->vhost_list) {
+	lws_start_foreach_vhost(v, context) {
 		wsi.a.vhost = v; /* not a real bound wsi */
 		if (v->tls.cfg_alloc_cert_path && v->tls.cfg_key_path &&
 		    !strcmp(v->tls.cfg_alloc_cert_path, certpath) &&
@@ -342,7 +342,7 @@ lws_tls_cert_updated(struct lws_context *context, const char *certpath,
 			if (v->tls.skipped_certs)
 				lwsl_vhost_notice(v, "vhost %s: cert unset", v->name);
 		}
-	} lws_end_foreach_ll(v, vhost_next);
+	} lws_end_foreach_vhost(v);
 
 	return 0;
 }
@@ -350,7 +350,7 @@ lws_tls_cert_updated(struct lws_context *context, const char *certpath,
 int
 lws_gate_accepts(struct lws_context *context, int on)
 {
-	struct lws_vhost *v = context->vhost_list;
+	struct lws_vhost *v = lws_vhost_first(context);
 
 	if (context->tls_gate_accepts == (char)on)
 		return 0;
@@ -371,7 +371,7 @@ lws_gate_accepts(struct lws_context *context, int on)
 				lwsl_cx_notice(context, "Unable to set POLLIN %d", on);
 		} lws_end_foreach_dll(d);
 
-		v = v->vhost_next;
+		v = lws_vhost_next(v);
 	}
 
 	return 0;

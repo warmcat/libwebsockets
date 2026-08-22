@@ -170,47 +170,52 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 		pthread_cond_destroy(&vhd->cond);
 		
 		/* free cache */
-		struct thumb_cache *c = vhd->cache_head;
-		while (c) {
-			struct thumb_cache *next = c->next;
+		while (lws_dll2_get_head(&vhd->thumb_cache)) {
+			struct thumb_cache *c = lws_container_of(
+					lws_dll2_get_head(&vhd->thumb_cache),
+					struct thumb_cache, list);
+
+			lws_dll2_remove(&c->list);
 			free(c->data);
 			free(c);
-			c = next;
 		}
-		
+
 		/* free task queue */
-		struct thumb_task *t = vhd->task_head;
-		while (t) {
-			struct thumb_task *next = t->next;
+		while (lws_dll2_get_head(&vhd->tasks)) {
+			struct thumb_task *t = lws_container_of(
+					lws_dll2_get_head(&vhd->tasks),
+					struct thumb_task, list);
+
+			lws_dll2_remove(&t->list);
 			free(t);
-			t = next;
 		}
 
 		/* free index cache */
-		struct hls_file_index *idx = vhd->index_head;
-		while (idx) {
-			struct hls_file_index *next = idx->next;
+		while (lws_dll2_get_head(&vhd->index_list)) {
+			struct hls_file_index *idx = lws_container_of(
+					lws_dll2_get_head(&vhd->index_list),
+					struct hls_file_index, list);
+
+			lws_dll2_remove(&idx->list);
 			free(idx->entries);
 			free(idx);
-			idx = next;
 		}
 
 		/* free subtitle cue cache */
 		pthread_mutex_lock(&vhd->sub_lock);
-		{
-			struct hls_sub_cache *sc = vhd->sub_cache_head;
-			while (sc) {
-				struct hls_sub_cache *next = sc->next;
-				int j;
-				if (sc->cues) {
-					for (j = 0; j < sc->n_cues; j++)
-						free(sc->cues[j].text);
-					free(sc->cues);
-				}
-				free(sc);
-				sc = next;
+		while (lws_dll2_get_head(&vhd->sub_cache)) {
+			struct hls_sub_cache *sc = lws_container_of(
+					lws_dll2_get_head(&vhd->sub_cache),
+					struct hls_sub_cache, list);
+			int j;
+
+			lws_dll2_remove(&sc->list);
+			if (sc->cues) {
+				for (j = 0; j < sc->n_cues; j++)
+					free(sc->cues[j].text);
+				free(sc->cues);
 			}
-			vhd->sub_cache_head = NULL;
+			free(sc);
 		}
 		pthread_mutex_unlock(&vhd->sub_lock);
 		pthread_mutex_destroy(&vhd->sub_lock);
@@ -226,7 +231,7 @@ callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_HTTP_BIND_PROTOCOL:
 		if (vhd && pss) {
 			pss->wsi = wsi;
-			lws_ll_fwd_insert(pss, pss_list, vhd->pss_list);
+			lws_dll2_add_head(&pss->pss_list, &vhd->pss_list);
 		}
 		break;
 
@@ -421,24 +426,31 @@ err_404:
 
 		if (!vhd)
 			break;
-		/* Thread finished a thumbnail. Wake up all waiting HTTP sessions */
-		lws_start_foreach_llp(struct per_session_data__lws_hls **,
-				      ppss, vhd->pss_list) {
-			if ((*ppss)->waiting_for_thumbnail) {
-				lws_callback_on_writable((*ppss)->wsi);
-			}
-		} lws_end_foreach_llp(ppss, pss_list);
-		break;
+	/* Thread finished a thumbnail. Wake up all waiting HTTP sessions */
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->pss_list)) {
+		struct per_session_data__lws_hls *pss = lws_container_of(d,
+					struct per_session_data__lws_hls, pss_list);
+
+		if (pss->waiting_for_thumbnail)
+			lws_callback_on_writable(pss->wsi);
+	} lws_end_foreach_dll(d);
+	break;
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
 		if (pss && pss->waiting_for_thumbnail) {
 			pthread_mutex_lock(&vhd->lock);
-			struct thumb_cache *c = vhd->cache_head;
-			while (c) {
-				if (!strcmp(c->filename, pss->thumb_filename))
+			struct thumb_cache *c = NULL;
+			lws_start_foreach_dll(struct lws_dll2 *, d,
+					      lws_dll2_get_head(&vhd->thumb_cache)) {
+				struct thumb_cache *cc = lws_container_of(d,
+							struct thumb_cache, list);
+
+				if (!strcmp(cc->filename, pss->thumb_filename)) {
+					c = cc;
 					break;
-				c = c->next;
-			}
+				}
+			} lws_end_foreach_dll(d);
 			
 			if (c) {
 				/* Found it in cache! */
@@ -488,14 +500,16 @@ err_404:
 			
 			/* Not in cache. Did it fail? */
 			int is_pending = 0;
-			struct thumb_task *t = vhd->task_head;
-			while (t) {
+			lws_start_foreach_dll(struct lws_dll2 *, d2,
+					      lws_dll2_get_head(&vhd->tasks)) {
+				struct thumb_task *t = lws_container_of(d2,
+							struct thumb_task, list);
+
 				if (!strcmp(t->filename, pss->thumb_filename)) {
 					is_pending = 1;
 					break;
 				}
-				t = t->next;
-			}
+			} lws_end_foreach_dll(d2);
 
 			if (!is_pending && vhd->current_task_filename[0] &&
 			    !strcmp(vhd->current_task_filename, pss->thumb_filename)) {
@@ -552,8 +566,7 @@ err_404:
 	case LWS_CALLBACK_CLOSED_HTTP:
 		if (pss) {
 			if (vhd)
-				lws_ll_fwd_remove(struct per_session_data__lws_hls, pss_list,
-						  pss, vhd->pss_list);
+				lws_dll2_remove(&pss->pss_list);
 			if (pss->segment_buf) {
 				free(pss->segment_buf);
 				pss->segment_buf = NULL;

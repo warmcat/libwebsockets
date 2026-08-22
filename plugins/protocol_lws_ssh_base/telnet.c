@@ -31,12 +31,12 @@ struct per_vhost_data__telnet {
 	struct lws_context *context;
 	struct lws_vhost *vhost;
 	const struct lws_protocols *protocol;
-	struct per_session_data__telnet *live_pss_list;
+	lws_dll2_owner_t live_pss_list;
 	const struct lws_ssh_ops *ops;
 };
 
 struct per_session_data__telnet {
-	struct per_session_data__telnet *next;
+	lws_dll2_t list;	/* vhd->live_pss_list membership */
 	struct per_vhost_data__telnet *vhd;
 	uint32_t rx_tail;
 	void *priv;
@@ -117,7 +117,7 @@ lws_callback_raw_telnet(struct lws *wsi, enum lws_callback_reasons reason,
 			void *user, void *in, size_t len)
 {
 	struct per_session_data__telnet *pss =
-			(struct per_session_data__telnet *)user, **p;
+			(struct per_session_data__telnet *)user;
 	struct per_vhost_data__telnet *vhd =
 			(struct per_vhost_data__telnet *)
 			lws_protocol_vh_priv_get(lws_get_vhost(wsi),
@@ -155,8 +155,7 @@ lws_callback_raw_telnet(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
         case LWS_CALLBACK_RAW_ADOPT:
-		pss->next = vhd->live_pss_list;
-		vhd->live_pss_list = pss;
+		lws_dll2_add_head(&pss->list, &vhd->live_pss_list);
 		pss->vhd = vhd;
 		pss->state = LTST_WAIT_IAC;
 		pss->initial = 0;
@@ -166,17 +165,9 @@ lws_callback_raw_telnet(struct lws *wsi, enum lws_callback_reasons reason,
                 break;
 
 	case LWS_CALLBACK_RAW_CLOSE:
-		p = &vhd->live_pss_list;
-
-		while (*p) {
-			if ((*p) == pss) {
-				if (vhd->ops->channel_destroy)
-					vhd->ops->channel_destroy(pss->priv);
-				*p = pss->next;
-				continue;
-			}
-			p = &((*p)->next);
-		}
+		if (vhd->ops->channel_destroy)
+			vhd->ops->channel_destroy(pss->priv);
+		lws_dll2_remove(&pss->list);
 		break;
 
 	case LWS_CALLBACK_RAW_RX:

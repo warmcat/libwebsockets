@@ -162,8 +162,8 @@ __lws_adopt_descriptor_vhost1(struct lws_vhost *vh, lws_adoption_type type,
 
 	if (parent) {
 		new_wsi->parent = parent;
-		new_wsi->sibling_list = parent->child_list;
-		parent->child_list = new_wsi;
+		lws_dll2_add_head(&new_wsi->sibling_list,
+				  &parent->child_list_owner);
 	}
 
 	if (vh_prot_name) {
@@ -228,7 +228,7 @@ bail:
 
 	lwsl_wsi_notice(new_wsi, "exiting on bail");
 	if (parent)
-		parent->child_list = new_wsi->sibling_list;
+		lws_dll2_remove(&new_wsi->sibling_list);
 	if (new_wsi->user_space)
 		lws_free(new_wsi->user_space);
 
@@ -637,7 +637,7 @@ lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd)
 struct lws *
 lws_adopt_socket(struct lws_context *context, lws_sockfd_type accept_fd)
 {
-	return lws_adopt_socket_vhost(context->vhost_list, accept_fd);
+	return lws_adopt_socket_vhost(lws_vhost_first(context), accept_fd);
 }
 
 /* Common read-buffer adoption for lws_adopt_*_readbuf */

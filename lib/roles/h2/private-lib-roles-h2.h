@@ -190,7 +190,7 @@ enum lws_h2_protocol_send_type {
 };
 
 struct lws_h2_protocol_send {
-	struct lws_h2_protocol_send *next; /* linked list */
+	lws_dll2_t list; /* member of h2n->pps_owner */
 	enum lws_h2_protocol_send_type type;
 
 	union uu {
@@ -211,11 +211,6 @@ struct lws_h2_protocol_send {
 			uint32_t	credit;
 		} update_window;
 	} u;
-};
-
-struct lws_h2_ghost_sid {
-	struct lws_h2_ghost_sid *next;
-	uint32_t sid;
 };
 
 /*
@@ -239,8 +234,7 @@ struct lws_h2_netconn {
 	uint8_t one_setting[LWS_H2_SETTINGS_LEN];
 	char goaway_str[32]; /* for rx */
 	struct lws *swsi;
-	struct lws_h2_protocol_send *pps; /* linked list */
-	uint32_t pps_count;
+	lws_dll2_owner_t pps_owner; /* protocol sends to issue, oldest at tail */
 
 	enum http2_hpack_state hpack;
 	enum http2_hpack_type hpack_type;

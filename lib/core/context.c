@@ -1314,8 +1314,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 		u += plev->ops->evlib_size_pt;
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-		context->pt[n].http.ah_list = NULL;
-		context->pt[n].http.ah_pool_length = 0;
+		lws_dll2_owner_clear(&context->pt[n].http.ah_owner);
 #endif
 		lws_pt_mutex_init(&context->pt[n]);
 
@@ -1340,7 +1339,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 	context->pl_hash_elements =
 		(context->count_threads * context->fd_limit_per_thread) / 16;
-	context->pl_hash_table = lws_zalloc(sizeof(struct lws_peer *) *
+	context->pl_hash_table = lws_zalloc(sizeof(lws_dll2_owner_t) *
 			context->pl_hash_elements, "peer limits hash table");
 
 	context->ip_limit_ah = info->ip_limit_ah;
@@ -2001,7 +2000,7 @@ lws_context_is_deprecated(struct lws_context *cx)
 static void
 lws_pt_destroy(struct lws_context_per_thread *pt)
 {
-	volatile struct lws_foreign_thread_pollfd *ftp, *next;
+	struct lws_foreign_thread_pollfd *ftp;
 	volatile struct lws_context_per_thread *vpt;
 #if defined(LWS_WITH_CGI)
 	lws_ctx_t ctx = pt->context;
@@ -2012,13 +2011,12 @@ lws_pt_destroy(struct lws_context_per_thread *pt)
 #endif
 
 	vpt = (volatile struct lws_context_per_thread *)pt;
-	ftp = vpt->foreign_pfd_list;
-	while (ftp) {
-		next = ftp->next;
+	while (vpt->foreign_pfd_owner.head) {
+		ftp = lws_container_of(vpt->foreign_pfd_owner.head,
+				       struct lws_foreign_thread_pollfd, list);
+		lws_dll2_remove(&ftp->list);
 		lws_free((void *)ftp);
-		ftp = next;
 	}
-	vpt->foreign_pfd_list = NULL;
 
 	lws_pt_lock(pt, __func__);
 
@@ -2061,8 +2059,10 @@ lws_pt_destroy(struct lws_context_per_thread *pt)
 #endif
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-		while (pt->http.ah_list)
-			_lws_destroy_ah(pt, pt->http.ah_list);
+		while (pt->http.ah_owner.head)
+			_lws_destroy_ah(pt, lws_container_of(
+					pt->http.ah_owner.head,
+					struct allocated_headers, list));
 #endif
 
 #endif
@@ -2154,11 +2154,11 @@ lws_context_destroy(struct lws_context *context)
 		 */
 
 		if (context->protocol_init_done)
-			vh = context->vhost_list;
+			vh = lws_vhost_first(context);
 
 		while (vh) {
 			lwsl_vhost_info(vh, "start close");
-			vh1 = vh->vhost_next;
+			vh1 = lws_vhost_next(vh);
 			lws_vhost_destroy1(vh);
 			vh = vh1;
 		}
@@ -2364,14 +2364,16 @@ next_l:
 		 * removes itself from vhost_list before it returns.
 		 */
 
-		while (context->vhost_list)
-			__lws_vhost_destroy2(context->vhost_list);
+		while (lws_vhost_first(context))
+			__lws_vhost_destroy2(lws_vhost_first(context));
 
 		/* remove ourselves from the pending destruction list */
 
-		while (context->vhost_pending_destruction_list)
+		while (context->vhost_pending_destruction_owner.head)
 			/* removes itself from list */
-			__lws_vhost_destroy2(context->vhost_pending_destruction_list);
+			__lws_vhost_destroy2(lws_container_of(
+					context->vhost_pending_destruction_owner.head,
+					struct lws_vhost, vhost_list));
 #endif
 
 #if defined(LWS_WITH_NETWORK)
@@ -2382,12 +2384,11 @@ next_l:
 #if defined(LWS_WITH_PEER_LIMITS)
 		if (context->pl_hash_table)
 			for (nu = 0; nu < context->pl_hash_elements; nu++)	{
-				if (!context->pl_hash_table[nu])
-					continue;
-				struct lws_peer **peer = &context->pl_hash_table[nu];
-				while (*peer) {
-					struct lws_peer *df = *peer;
-					*peer = df->next;
+				while (context->pl_hash_table[nu].head) {
+					struct lws_peer *df = lws_container_of(
+						context->pl_hash_table[nu].head,
+						struct lws_peer, hash_list);
+					lws_dll2_remove(&df->hash_list);
 					lws_free(df);
 				}
 			}
@@ -2415,8 +2416,10 @@ next_l:
 #endif
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-			while (pt->http.ah_list)
-				_lws_destroy_ah(pt, pt->http.ah_list);
+			while (pt->http.ah_owner.head)
+				_lws_destroy_ah(pt, lws_container_of(
+						pt->http.ah_owner.head,
+						struct allocated_headers, list));
 #endif
 			lwsl_cx_info(context, "pt destroy %d", n);
 			lws_pt_destroy(pt);

@@ -30,21 +30,13 @@ static void
 __lws_peer_remove_from_peer_wait_list(struct lws_context *context,
 				      struct lws_peer *peer)
 {
-	struct lws_peer *df;
+	if (lws_dll2_is_detached(&peer->wait_list))
+		return;
 
-	lws_start_foreach_llp(struct lws_peer **, p, context->peer_wait_list) {
-		if (*p == peer) {
-			df = *p;
+	lws_dll2_remove(&peer->wait_list);
 
-			*p = df->peer_wait_list;
-			df->peer_wait_list = NULL;
-
-			if (!context->peer_wait_list)
-				lws_sul_cancel(&context->pt[0].sul_peer_limits);
-
-			return;
-		}
-	} lws_end_foreach_llp(p, peer_wait_list);
+	if (!context->peer_wait_owner.head)
+		lws_sul_cancel(&context->pt[0].sul_peer_limits);
 }
 
 void
@@ -66,8 +58,7 @@ __lws_peer_add_to_peer_wait_list(struct lws_context *context,
 {
 	__lws_peer_remove_from_peer_wait_list(context, peer);
 
-	peer->peer_wait_list = context->peer_wait_list;
-	context->peer_wait_list = peer;
+	lws_dll2_add_head(&peer->wait_list, &context->peer_wait_owner);
 
 	if (!context->pt[0].sul_peer_limits.list.owner)
 		lws_sul_schedule(context, 0, &context->pt[0].sul_peer_limits,
@@ -117,8 +108,10 @@ lws_get_or_create_peer(struct lws_vhost *vhost, lws_sockfd_type sockfd)
 
 	lws_context_lock(context, "peer search"); /* <======================= */
 
-	lws_start_foreach_ll(struct lws_peer *, peerx,
-			     context->pl_hash_table[hash]) {
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      context->pl_hash_table[hash].head) {
+		struct lws_peer *peerx = lws_container_of(d, struct lws_peer,
+							 hash_list);
 		if (peerx->sa46.sa4.sin_family == sa46.sa4.sin_family) {
 			int hit = 0;
 #if defined(LWS_WITH_IPV6)
@@ -136,7 +129,7 @@ lws_get_or_create_peer(struct lws_vhost *vhost, lws_sockfd_type sockfd)
 				return peerx;
 			}
 		}
-	} lws_end_foreach_ll(peerx, next);
+	} lws_end_foreach_dll(d);
 
 	lwsl_info("%s: creating new peer\n", __func__);
 
@@ -148,10 +141,9 @@ lws_get_or_create_peer(struct lws_vhost *vhost, lws_sockfd_type sockfd)
 	}
 
 	context->count_peers++;
-	peer->next = context->pl_hash_table[hash];
 	peer->hash = hash;
 	peer->sa46 = sa46;
-	context->pl_hash_table[hash] = peer;
+	lws_dll2_add_head(&peer->hash_list, &context->pl_hash_table[hash]);
 	time(&peer->time_created);
 	/*
 	 * On creation, the peer has no wsi attached, so is created on the
@@ -169,19 +161,14 @@ lws_get_or_create_peer(struct lws_vhost *vhost, lws_sockfd_type sockfd)
 static int
 __lws_peer_destroy(struct lws_context *context, struct lws_peer *peer)
 {
-	lws_start_foreach_llp(struct lws_peer **, p,
-			      context->pl_hash_table[peer->hash]) {
-		if (*p == peer) {
-			struct lws_peer *df = *p;
-			*p = df->next;
-			lws_free(df);
-			context->count_peers--;
+	if (lws_dll2_is_detached(&peer->hash_list))
+		return 1;
 
-			return 0;
-		}
-	} lws_end_foreach_llp(p, next);
+	lws_dll2_remove(&peer->hash_list);
+	lws_free(peer);
+	context->count_peers--;
 
-	return 1;
+	return 0;
 }
 
 void
@@ -199,20 +186,18 @@ lws_peer_cull_peer_wait_list(struct lws_context *context)
 
 	context->next_cull = t + 5;
 
-	struct lws_peer **p = &context->peer_wait_list;
-	while (*p) {
-		if (t - (*p)->time_closed_all > 10) {
-			df = *p;
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   context->peer_wait_owner.head) {
+		df = lws_container_of(d, struct lws_peer, wait_list);
 
-			/* remove us from the peer wait list */
-			*p = df->peer_wait_list;
-			df->peer_wait_list = NULL;
+		if (!(t - df->time_closed_all > 10))
+			continue;
 
-			__lws_peer_destroy(context, df);
-		} else {
-			p = &(*p)->peer_wait_list;
-		}
-	}
+		/* remove us from the peer wait list */
+		lws_dll2_remove(&df->wait_list);
+
+		__lws_peer_destroy(context, df);
+	} lws_end_foreach_dll_safe(d, d1);
 
 	lws_context_unlock(context); /* ====================================> */
 }

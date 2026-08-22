@@ -202,12 +202,13 @@ static int
 buffer_closest_nodes(struct lws_dht_ctx *ctx, struct node **nodes, int numnodes,
 		const lws_dht_hash_t *id, struct bucket *b)
 {
-	struct node *n = b->nodes;
-	while (n) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&b->nodes)) {
+		struct node *n = lws_container_of(d, struct node, list);
+
 		if (node_good(ctx, n))
 			numnodes = insert_closest_node(nodes, numnodes, id, n);
-		n = n->next;
-	}
+	} lws_end_foreach_dll(d);
+
 	return numnodes;
 }
 
@@ -350,10 +351,12 @@ send_closest_nodes(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t sa
 	if ((want & WANT4)) {
 		b = find_bucket(ctx, id, AF_INET);
 		if (b) {
+			struct bucket *nb = bucket_next(b);
+
 			numnodes = buffer_closest_nodes(ctx, nodes, numnodes, id, b);
-			if (b->next)
-				numnodes = buffer_closest_nodes(ctx, nodes, numnodes, id, b->next);
-			b = previous_bucket(ctx, b);
+			if (nb)
+				numnodes = buffer_closest_nodes(ctx, nodes, numnodes, id, nb);
+			b = previous_bucket(b);
 			if (b)
 				numnodes = buffer_closest_nodes(ctx, nodes, numnodes, id, b);
 		}
@@ -362,11 +365,13 @@ send_closest_nodes(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t sa
 	if ((want & WANT6)) {
 		b = find_bucket(ctx, id, AF_INET6);
 		if (b) {
+			struct bucket *nb = bucket_next(b);
+
 			numnodes6 = buffer_closest_nodes(ctx, nodes6, numnodes6, id, b);
-			if (b->next)
+			if (nb)
 				numnodes6 =
-					buffer_closest_nodes(ctx, nodes6, numnodes6, id, b->next);
-			b = previous_bucket(ctx, b);
+					buffer_closest_nodes(ctx, nodes6, numnodes6, id, nb);
+			b = previous_bucket(b);
 			if (b)
 				numnodes6 = buffer_closest_nodes(ctx, nodes6, numnodes6, id, b);
 		}

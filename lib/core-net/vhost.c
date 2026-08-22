@@ -363,7 +363,7 @@ lws_vhd_find_by_pvo(struct lws_context *cx, const char *protname,
 
 	/* let's go through all the vhosts */
 
-	vh = cx->vhost_list;
+	vh = lws_vhost_first(cx);
 	while (vh) {
 
 		if (vh->protocol_vh_privs) {
@@ -395,7 +395,7 @@ lws_vhd_find_by_pvo(struct lws_context *cx, const char *protname,
 		}
 		} else
 			lwsl_vhost_notice(vh, "no privs yet");
-		vh = vh->vhost_next;
+		vh = lws_vhost_next(vh);
 	}
 
 	return NULL;
@@ -501,7 +501,7 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 
 		if (pvo || (vh->options & LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS)
 
-#if !defined(LWS_WITH_PLUGINS)
+#if !defined(LWS_WITH_PROTOCOL_PLUGINS)
 				/*
 				 * with plugins, you have to explicitly
 				 * instantiate them per-vhost with pvos.
@@ -593,7 +593,7 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 
 		if (pvo || (vh->options & LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS)
 
-#if !defined(LWS_WITH_PLUGINS)
+#if !defined(LWS_WITH_PROTOCOL_PLUGINS)
 				/*
 				 * with plugins, you have to explicitly
 				 * instantiate them per-vhost with pvos.
@@ -636,7 +636,7 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 int
 lws_protocol_init(struct lws_context *context)
 {
-	struct lws_vhost *vh = context->vhost_list;
+	struct lws_vhost *vh = lws_vhost_first(context);
 	int any = 0, r = 0, spd = 0;
 
 	if (context->doing_protocol_init)
@@ -660,7 +660,7 @@ lws_protocol_init(struct lws_context *context)
 			r = -1;
 		}
 next:
-		vh = vh->vhost_next;
+		vh = lws_vhost_next(vh);
 	}
 
 	context->doing_protocol_init = 0;
@@ -716,12 +716,12 @@ struct lws_vhost *
 lws_create_vhost(struct lws_context *context,
 		 const struct lws_context_creation_info *info)
 {
-	struct lws_vhost *vh, **vh1 = &context->vhost_list;
+	struct lws_vhost *vh;
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	const struct lws_http_mount *mounts;
 #endif
 	const struct lws_protocols *pcols = info->protocols;
-#ifdef LWS_WITH_PLUGINS
+#if defined(LWS_WITH_PROTOCOL_PLUGINS)
 	struct lws_plugin *plugin = context->plugin_list;
 #endif
 	struct lws_protocols *lwsp;
@@ -1021,7 +1021,7 @@ lws_create_vhost(struct lws_context *context,
 	 * 3: async dns protocol (first vhost only)
 	 */
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
-	if (!context->vhost_list) {
+	if (!context->vhost_list_owner.head) {
 		uint8_t seen = 0;
 
 		for (n = 0; n < m; n++)
@@ -1076,7 +1076,7 @@ lws_create_vhost(struct lws_context *context,
 	    !(vh->options & LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS))
 		f = 0;
 	(void)f;
-#ifdef LWS_WITH_PLUGINS
+#if defined(LWS_WITH_PROTOCOL_PLUGINS)
 	if (plugin) {
 		vh->plugin_protocol_bind = m;
 		while (plugin) {
@@ -1265,16 +1265,10 @@ lws_create_vhost(struct lws_context *context,
 #endif
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
-	n = !!context->vhost_list;
+	n = !!context->vhost_list_owner.head;
 #endif
 
-	while (1) {
-		if (!(*vh1)) {
-			*vh1 = vh;
-			break;
-		}
-		vh1 = &(*vh1)->vhost_next;
-	};
+	lws_dll2_add_tail(&vh->vhost_list, &context->vhost_list_owner);
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 	if (!n)
@@ -1515,7 +1509,7 @@ int
 lws_vhost_foreach_listen_wsi(struct lws_context *cx, void *arg,
 			     lws_dll2_foreach_cb_t cb)
 {
-	struct lws_vhost *v = cx->vhost_list;
+	struct lws_vhost *v = lws_vhost_first(cx);
 	int n;
 
 	while (v) {
@@ -1524,7 +1518,7 @@ lws_vhost_foreach_listen_wsi(struct lws_context *cx, void *arg,
 		if (n)
 			return n;
 
-		v = v->vhost_next;
+		v = lws_vhost_next(v);
 	}
 
 	return 0;
@@ -1595,8 +1589,7 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 		 * ipv4 and ipv6 sockets will both match and be migrated.
 		 */
 
-		lws_start_foreach_ll(struct lws_vhost *, v,
-				     context->vhost_list) {
+		lws_start_foreach_vhost(v, context) {
 			if (v != vh && !v->being_destroyed &&
 			    lws_vhost_compare_listen(v, vh)) {
 				/*
@@ -1632,7 +1625,7 @@ lws_vhost_destroy1(struct lws_vhost *vh)
 				v->count_bound_wsi--;
 				break;
 			}
-		} lws_end_foreach_ll(v, vhost_next);
+		} lws_end_foreach_vhost(v);
 
 	} lws_end_foreach_dll_safe(d, d1);
 
@@ -1687,7 +1680,6 @@ void
 __lws_vhost_destroy2(struct lws_vhost *vh)
 {
 	const struct lws_protocols *protocol = NULL;
-	struct lws_context *context = vh->context;
 #if defined(__COVERITY__)
 	struct lws wsi = { 0 };
 #else
@@ -1700,18 +1692,15 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 	// lwsl_info("%s: %s\n", __func__, vh->name);
 
 	/*
-	 * remove ourselves from the defer binding list
+	 * remove ourselves from the defer binding list.  Vhosts that bound
+	 * their listener normally (or never had one, like the internal
+	 * system vhost) were never on it; that is the common case and not
+	 * an error.
 	 */
-	lws_start_foreach_llp(struct lws_vhost **, pv,
-			      vh->context->no_listener_vhost_list) {
-		if (*pv == vh) {
-			lwsl_debug("deferred iface: removing vh %s\n",
-					(*pv)->name);
-			*pv = vh->no_listener_vhost_list;
-			vh->no_listener_vhost_list = NULL;
-			break;
-		}
-	} lws_end_foreach_llp(pv, no_listener_vhost_list);
+	if (!lws_dll2_is_detached(&vh->no_listener_vlist)) {
+		lwsl_debug("deferred iface: removing vh %s\n", vh->name);
+		lws_dll2_remove(&vh->no_listener_vlist);
+	}
 
 	/*
 	 * let the protocols destroy the per-vhost protocol objects
@@ -1760,31 +1749,19 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 	 * remove vhost from context list of vhosts
 	 */
 
-	lws_start_foreach_llp(struct lws_vhost **, pv, context->vhost_list) {
-		if (*pv == vh) {
-			*pv = vh->vhost_next;
-			break;
-		}
-	} lws_end_foreach_llp(pv, vhost_next);
+	lws_dll2_remove(&vh->vhost_list);
 
 	/* add ourselves to the pending destruction list */
 
-	if (vh->context->vhost_pending_destruction_list != vh) {
-		vh->vhost_next = vh->context->vhost_pending_destruction_list;
-		vh->context->vhost_pending_destruction_list = vh;
-	}
+	if (lws_dll2_is_detached(&vh->vhost_list))
+		lws_dll2_add_head(&vh->vhost_list,
+				  &vh->context->vhost_pending_destruction_owner);
 
 	//lwsl_debug("%s: do dfl '%s'\n", __func__, vh->name);
 
 	/* remove ourselves from the pending destruction list */
 
-	lws_start_foreach_llp(struct lws_vhost **, pv,
-			      context->vhost_pending_destruction_list) {
-		if ((*pv) == vh) {
-			*pv = (*pv)->vhost_next;
-			break;
-		}
-	} lws_end_foreach_llp(pv, vhost_next);
+	lws_dll2_remove(&vh->vhost_list);
 
 	/*
 	 * Free all the allocations associated with the vhost
@@ -1812,8 +1789,8 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 	lws_free(vh->same_vh_protocol_owner);
 
 	if (
-#if defined(LWS_WITH_PLUGINS)
-		context->plugin_list ||
+#if defined(LWS_WITH_PROTOCOL_PLUGINS)
+		vh->context->plugin_list ||
 #endif
 	    vh->allocated_vhost_protocols)
 		lws_free((void *)vh->protocols);
@@ -1977,7 +1954,7 @@ lws_get_vhost_listen_port(struct lws_vhost *vhost)
 void
 lws_context_deprecate(struct lws_context *cx, lws_reload_func cb)
 {
-	struct lws_vhost *vh = cx->vhost_list;
+	struct lws_vhost *vh = lws_vhost_first(cx);
 
 	/*
 	 * "deprecation" means disable the cx from accepting any new
@@ -2004,7 +1981,7 @@ lws_context_deprecate(struct lws_context *cx, lws_reload_func cb)
 
 		} lws_end_foreach_dll_safe(d, d1);
 
-		vh = vh->vhost_next;
+		vh = lws_vhost_next(vh);
 	}
 
 	cx->deprecated = 1;
@@ -2017,12 +1994,11 @@ lws_context_deprecate(struct lws_context *cx, lws_reload_func cb)
 struct lws_vhost *
 lws_get_vhost_by_name(struct lws_context *context, const char *name)
 {
-	lws_start_foreach_ll(struct lws_vhost *, v,
-			     context->vhost_list) {
+	lws_start_foreach_vhost(v, context) {
 		if (!v->being_destroyed && !strcmp(v->name, name))
 			return v;
 
-	} lws_end_foreach_ll(v, vhost_next);
+	} lws_end_foreach_vhost(v);
 
 	return NULL;
 }

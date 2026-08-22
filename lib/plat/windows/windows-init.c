@@ -67,7 +67,7 @@ lws_plat_context_early_init(void)
 	return 1;
 }
 
-#if defined(LWS_WITH_PLUGINS)
+#if defined(LWS_WITH_PROTOCOL_PLUGINS)
 static int
 protocol_plugin_cb(struct lws_plugin *pin, void *each_user)
 {
