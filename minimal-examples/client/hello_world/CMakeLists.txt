@@ -87,7 +87,7 @@ if (requirements)
 		# simple test not via proxy
 		#
 	
-		if (VALGRIND)
+		if (VALGRIND AND NOT LWS_WITH_ASAN)
 			message("testing via valgrind")
 			add_test(NAME mss-${PROJECT_NAME} COMMAND
 				${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
@@ -105,7 +105,7 @@ if (requirements)
 		endif()
 
 		if (has_fault_injection)
-			if (VALGRIND)
+			if (VALGRIND AND NOT LWS_WITH_ASAN)
 				add_test(NAME mss-${PROJECT_NAME}-fi1 COMMAND
 					${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
 					$<TARGET_FILE:${PROJECT_NAME}>
@@ -166,7 +166,7 @@ if (requirements)
 			# the client part that will connect to the proxy
 			#
 
-			if (VALGRIND)
+			if (VALGRIND AND NOT LWS_WITH_ASAN)
 				message("testing via valgrind")
 				add_test(NAME msspc-${PROJECT_NAME} COMMAND
 					${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
