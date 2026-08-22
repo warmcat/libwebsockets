@@ -84,7 +84,7 @@ lws_create_basic_wsi(struct lws_context *context, int tsi,
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	struct lws *new_wsi;
 
-	if (!context->vhost_list)
+	if (!context->vhost_list_owner.head)
 		return NULL;
 
 	if ((unsigned int)context->pt[tsi].fds_count ==
@@ -460,7 +460,7 @@ windows_pipe_poll_hack(lws_sorted_usec_list_t *sul)
 struct lws_spawn_piped *
 lws_spawn_piped(const struct lws_spawn_piped_info *i)
 {
-	const struct lws_protocols *pcol = i->vh->context->vhost_list->protocols;
+	const struct lws_protocols *pcol = lws_vhost_first(i->vh->context)->protocols;
 	struct lws_context *context = i->vh->context;
 	struct lws_spawn_piped *lsp;
 	PROCESS_INFORMATION pi;

@@ -62,18 +62,18 @@ lws_sul_plat_unix(lws_sorted_usec_list_t *sul)
 
 #if defined(LWS_WITH_SERVER)
 	lws_context_lock(context, "periodic checks");
-	lws_start_foreach_llp(struct lws_vhost **, pv,
-			      context->no_listener_vhost_list) {
-		struct lws_vhost *v = *pv;
-		lwsl_debug("deferred iface: checking if on vh %s\n", (*pv)->name);
-		if (_lws_vhost_init_server(NULL, *pv) == 0) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   context->no_listener_vhost_owner.head) {
+		struct lws_vhost *v = lws_container_of(d, struct lws_vhost,
+						       no_listener_vlist);
+		lwsl_debug("deferred iface: checking if on vh %s\n", v->name);
+		if (_lws_vhost_init_server(NULL, v) == 0) {
 			/* became happy */
 			lwsl_notice("vh %s: became connected\n", v->name);
-			*pv = v->no_listener_vhost_list;
-			v->no_listener_vhost_list = NULL;
+			lws_dll2_remove(&v->no_listener_vlist);
 			break;
 		}
-	} lws_end_foreach_llp(pv, no_listener_vhost_list);
+	} lws_end_foreach_dll_safe(d, d1);
 	lws_context_unlock(context);
 #endif
 

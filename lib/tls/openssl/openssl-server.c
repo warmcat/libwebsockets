@@ -111,12 +111,12 @@ lws_ssl_server_name_cb(SSL *ssl, int *ad, void *arg)
 	 * find out which listening one took us and only match vhosts on the
 	 * same port.
 	 */
-	vh = context->vhost_list;
+	vh = lws_vhost_first(context);
 	while (vh) {
 		if (!vh->being_destroyed &&
 		    vh->tls.ssl_ctx == SSL_get_SSL_CTX(ssl))
 			break;
-		vh = vh->vhost_next;
+		vh = lws_vhost_next(vh);
 	}
 
 	if (!vh) {

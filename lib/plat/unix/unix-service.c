@@ -114,15 +114,15 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	if (context->event_loop_ops->run_pt)
 		context->event_loop_ops->run_pt(context, tsi);
 
-	if (!pt->service_tid_detected && context->vhost_list) {
+	if (!pt->service_tid_detected && context->vhost_list_owner.head) {
 		lws_fakewsi_def_plwsa(pt);
 
 		lws_fakewsi_prep_plwsa_ctx(context);
 
-		pt->service_tid = context->vhost_list->protocols[0].callback(
+		pt->service_tid = lws_vhost_first(context)->protocols[0].callback(
 					(struct lws *)plwsa,
 					LWS_CALLBACK_GET_THREAD_ID,
-					context->vhost_list->protocols[0].user,
+					lws_vhost_first(context)->protocols[0].user,
 					NULL, 0);
 		pt->service_tid_detected = 1;
 	}

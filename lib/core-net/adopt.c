@@ -637,7 +637,7 @@ lws_adopt_socket_vhost(struct lws_vhost *vh, lws_sockfd_type accept_fd)
 struct lws *
 lws_adopt_socket(struct lws_context *context, lws_sockfd_type accept_fd)
 {
-	return lws_adopt_socket_vhost(context->vhost_list, accept_fd);
+	return lws_adopt_socket_vhost(lws_vhost_first(context), accept_fd);
 }
 
 /* Common read-buffer adoption for lws_adopt_*_readbuf */

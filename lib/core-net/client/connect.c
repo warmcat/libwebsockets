@@ -187,14 +187,14 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 			vh = lws_get_vhost_by_name(i->context, "default");
 			if (!vh) {
 
-				vh = i->context->vhost_list;
+				vh = lws_vhost_first(i->context);
 
 				if (!vh) { /* coverity */
 					lwsl_cx_err(i->context, "no vhost");
 					goto bail; /* this frees the wsi */
 				}
 				if (!strcmp(vh->name, "system"))
-					vh = vh->vhost_next;
+					vh = lws_vhost_next(vh);
 			}
 		}
 	}

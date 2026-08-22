@@ -112,13 +112,13 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	else
 		timeout_ms = 2000000000;
 
-	if (!pt->service_tid_detected && context->vhost_list) {
+	if (!pt->service_tid_detected && context->vhost_list_owner.head) {
 		struct lws _lws;
 
 		memset(&_lws, 0, sizeof(_lws));
 		_lws.context = context;
 
-		pt->service_tid = context->vhost_list->protocols[0].callback(
+		pt->service_tid = lws_vhost_first(context)->protocols[0].callback(
 			&_lws, LWS_CALLBACK_GET_THREAD_ID, NULL, NULL, 0);
 		pt->service_tid_detected = 1;
 	}

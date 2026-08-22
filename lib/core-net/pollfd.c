@@ -224,7 +224,7 @@ static void
 lws_accept_modulation(struct lws_context *context,
 		      struct lws_context_per_thread *pt, int allow)
 {
-	struct lws_vhost *vh = context->vhost_list;
+	struct lws_vhost *vh = lws_vhost_first(context);
 	struct lws_pollargs pa1;
 
 	while (vh) {
@@ -237,7 +237,7 @@ lws_accept_modulation(struct lws_context *context,
 						allow ? LWS_POLLIN : 0, &pa1);
 		} lws_end_foreach_dll(d);
 
-		vh = vh->vhost_next;
+		vh = lws_vhost_next(vh);
 	}
 }
 #endif
@@ -673,7 +673,7 @@ lws_callback_on_writable_all_protocol(const struct lws_context *context,
 	if (!context)
 		return 0;
 
-	vhost = context->vhost_list;
+	vhost = lws_vhost_first(context);
 
 	while (vhost) {
 		for (n = 0; n < vhost->count_protocols; n++)
@@ -685,7 +685,7 @@ lws_callback_on_writable_all_protocol(const struct lws_context *context,
 			lws_callback_on_writable_all_protocol_vhost(
 				vhost, &vhost->protocols[n]);
 
-		vhost = vhost->vhost_next;
+		vhost = lws_vhost_next(vhost);
 	}
 
 	return 0;

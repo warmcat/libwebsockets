@@ -160,7 +160,7 @@ lws_tls_server_accept_completed(struct lws *wsi, int n)
 	}
 
 	/* adapt our vhost to match the SNI SSL_CTX that was chosen */
-	vh = context->vhost_list;
+	vh = lws_vhost_first(context);
 	while (vh) {
 		if (!vh->being_destroyed && wsi->tls.ssl &&
 		    vh->tls.ssl_ctx == lws_tls_ctx_from_wsi(wsi)) {
@@ -168,7 +168,7 @@ lws_tls_server_accept_completed(struct lws *wsi, int n)
 			lws_vhost_bind_wsi(vh, wsi);
 			break;
 		}
-		vh = vh->vhost_next;
+		vh = lws_vhost_next(vh);
 	}
 
 	/* OK, we are accepted... give him some time to negotiate */

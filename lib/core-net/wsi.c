@@ -1034,7 +1034,7 @@ lws_pmo_get_str(const struct lws_http_mount *mount, const char *name,
 
 int lws_broadcast(struct lws_context_per_thread *pt, int reason, void *in,
 		size_t len) {
-	struct lws_vhost *v = pt->context->vhost_list;
+	struct lws_vhost *v = lws_vhost_first(pt->context);
 	lws_fakewsi_def_plwsa(pt);
 	int n, ret = 0;
 
@@ -1057,7 +1057,7 @@ int lws_broadcast(struct lws_context_per_thread *pt, int reason, void *in,
 			p++;
 		}
 
-		v = v->vhost_next;
+		v = lws_vhost_next(v);
 	}
 
 	return ret;

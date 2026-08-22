@@ -216,7 +216,7 @@ lws_async_ipc_connect(struct lws_async_ipc *ipc)
 	i.userdata       = ipc;
 	i.vhost          = lws_get_vhost_by_name(ipc->cx, "default"); /* typically need a vhost */
 	if (!i.vhost)
-		i.vhost = ipc->cx->vhost_list;
+		i.vhost = lws_vhost_first(ipc->cx);
 
 	/* Register the protocol if it's not already in the vhost */
 	/* Actually, we should just use the context's internal logic, or register dynamically? */

@@ -584,7 +584,13 @@ struct lws_vhost {
 	const char *quic_preferred_addresses;
 
 	struct lws_context *context;
-	struct lws_vhost *vhost_next;
+
+	/*
+	 * Membership of the context's main vhost list, and after removal
+	 * from it, of the pending-destruction list (the two are mutually
+	 * exclusive, so one dll2 node serves both).
+	 */
+	lws_dll2_t			vhost_list;
 
 	const lws_retry_bo_t *retry_policy;
 
@@ -612,7 +618,7 @@ struct lws_vhost {
 	const struct lws_protocol_vhost_options *pvo;
 	const struct lws_protocol_vhost_options *headers;
 	struct lws_dll2_owner *same_vh_protocol_owner;
-	struct lws_vhost *no_listener_vhost_list;
+	lws_dll2_t			no_listener_vlist;
 	struct lws_dll2_owner abstract_instances_owner;		/* vh lock */
 
 #if defined(LWS_WITH_CLIENT)

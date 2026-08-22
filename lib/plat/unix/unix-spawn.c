@@ -85,7 +85,7 @@ lws_create_stdwsi(struct lws_context *context, int tsi,
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	struct lws *new_wsi;
 
-	if (!context->vhost_list)
+	if (!context->vhost_list_owner.head)
 		return NULL;
 
 	if ((unsigned int)pt->fds_count == context->fd_limit_per_thread - 1) {
@@ -424,7 +424,7 @@ lws_spawn_get_self_cgroup(char *cgroup, size_t max)
 struct lws_spawn_piped *
 lws_spawn_piped(const struct lws_spawn_piped_info *i)
 {
-	const struct lws_protocols *pcol = i->vh->context->vhost_list->protocols;
+	const struct lws_protocols *pcol = lws_vhost_first(i->vh->context)->protocols;
 	struct lws_context *context = i->vh->context;
 	struct lws_spawn_piped *lsp;
 #if defined(__linux__)

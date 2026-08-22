@@ -205,7 +205,7 @@ lws_uv_finalize_pt(struct lws_context_per_thread *pt)
 	lws_context_lock(pt->context, __func__);
 
 	if (!--pt->context->undestroyed_threads) {
-		struct lws_vhost *vh = pt->context->vhost_list;
+		struct lws_vhost *vh = lws_vhost_first(pt->context);
 
 		/*
 		 * eventually, we emptied all the pts...
@@ -217,7 +217,7 @@ lws_uv_finalize_pt(struct lws_context_per_thread *pt)
 
 		while (vh) {
 			lws_vhost_destroy1(vh);
-			vh = vh->vhost_next;
+			vh = lws_vhost_next(vh);
 		}
 
 		if (!pt->count_event_loop_static_asset_handles &&

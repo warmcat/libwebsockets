@@ -644,10 +644,17 @@ struct lws_context {
 
 	/* pointers */
 
-	struct lws_vhost		*vhost_list;
-	struct lws_vhost		*no_listener_vhost_list;
-	struct lws_vhost		*vhost_pending_destruction_list;
 	struct lws_vhost		*vhost_system;
+
+	/* dll2 owners: the vhost_list node on struct lws_vhost is used for
+	 * the main list and, after removal from it, the pending-destruction
+	 * list; the no_listener_vlist node covers the independent
+	 * awaiting-a-listener list.  Use lws_vhost_first()/lws_vhost_next()
+	 * helpers to walk the main list.
+	 */
+	lws_dll2_owner_t		vhost_list_owner;
+	lws_dll2_owner_t		no_listener_vhost_owner;
+	lws_dll2_owner_t		vhost_pending_destruction_owner;
 
 #if defined(LWS_WITH_SERVER)
 	const char			*server_string;
@@ -883,7 +890,37 @@ struct lws_context {
 	uint8_t quic_retry_secret[16];
 };
 
-#define lws_get_context_protocol(ctx, x) ctx->vhost_list->protocols[x]
+/*
+ * vhost list helpers (dll2-backed; see the owners on struct lws_context).
+ * Both are NULL-safe: NULL in / NULL out.
+ */
+static LWS_INLINE struct lws_vhost *
+lws_vhost_first(const struct lws_context *cx)
+{
+	struct lws_dll2 *d = lws_dll2_get_head(
+			(lws_dll2_owner_t *)&cx->vhost_list_owner);
+
+	return d ? lws_container_of(d, struct lws_vhost, vhost_list) : NULL;
+}
+
+static LWS_INLINE struct lws_vhost *
+lws_vhost_next(const struct lws_vhost *vh)
+{
+	struct lws_dll2 *d = vh->vhost_list.next;
+
+	return d ? lws_container_of(d, struct lws_vhost, vhost_list) : NULL;
+}
+
+#define lws_start_foreach_vhost(___vh, ___cx) \
+	lws_start_foreach_dll(struct lws_dll2 *, ___vh ## _dll, \
+			      (___cx)->vhost_list_owner.head) { \
+		struct lws_vhost *___vh = lws_container_of(___vh ## _dll, \
+					struct lws_vhost, vhost_list);
+
+#define lws_end_foreach_vhost(___vh) \
+	} lws_end_foreach_dll(___vh ## _dll)
+
+#define lws_get_context_protocol(ctx, x) lws_vhost_first(ctx)->protocols[x]
 #define lws_get_vh_protocol(vh, x) vh->protocols[x]
 
 int

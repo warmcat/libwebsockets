@@ -2154,11 +2154,11 @@ lws_context_destroy(struct lws_context *context)
 		 */
 
 		if (context->protocol_init_done)
-			vh = context->vhost_list;
+			vh = lws_vhost_first(context);
 
 		while (vh) {
 			lwsl_vhost_info(vh, "start close");
-			vh1 = vh->vhost_next;
+			vh1 = lws_vhost_next(vh);
 			lws_vhost_destroy1(vh);
 			vh = vh1;
 		}
@@ -2364,14 +2364,16 @@ next_l:
 		 * removes itself from vhost_list before it returns.
 		 */
 
-		while (context->vhost_list)
-			__lws_vhost_destroy2(context->vhost_list);
+		while (lws_vhost_first(context))
+			__lws_vhost_destroy2(lws_vhost_first(context));
 
 		/* remove ourselves from the pending destruction list */
 
-		while (context->vhost_pending_destruction_list)
+		while (context->vhost_pending_destruction_owner.head)
 			/* removes itself from list */
-			__lws_vhost_destroy2(context->vhost_pending_destruction_list);
+			__lws_vhost_destroy2(lws_container_of(
+					context->vhost_pending_destruction_owner.head,
+					struct lws_vhost, vhost_list));
 #endif
 
 #if defined(LWS_WITH_NETWORK)

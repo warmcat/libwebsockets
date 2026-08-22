@@ -158,19 +158,17 @@ deal:
 			/* treat as fatal */
 			return -1;
 
-		lws_start_foreach_llp(struct lws_vhost **, pv,
-				      cx->no_listener_vhost_list) {
-			if (is >= LWS_ITOSA_USABLE && *pv == a->vhost) {
-				/* on the list and shouldn't be: remove it */
+		if (!lws_dll2_is_detached(&a->vhost->no_listener_vlist)) {
+			/* on the list */
+			if (is >= LWS_ITOSA_USABLE) {
+				/* ... and shouldn't be: remove it */
 				lwsl_debug("deferred iface: removing vh %s\n",
-						(*pv)->name);
-				*pv = a->vhost->no_listener_vhost_list;
-				a->vhost->no_listener_vhost_list = NULL;
+						a->vhost->name);
+				lws_dll2_remove(&a->vhost->no_listener_vlist);
 				goto done_list;
 			}
-			if (is < LWS_ITOSA_USABLE && *pv == a->vhost)
-				goto done_list;
-		} lws_end_foreach_llp(pv, no_listener_vhost_list);
+			goto done_list;
+		}
 
 		/* not on the list... */
 
@@ -180,9 +178,8 @@ deal:
 
 			lwsl_debug("deferred iface: adding vh %s\n",
 					a->vhost->name);
-			a->vhost->no_listener_vhost_list =
-					cx->no_listener_vhost_list;
-			cx->no_listener_vhost_list = a->vhost;
+			lws_dll2_add_head(&a->vhost->no_listener_vlist,
+					  &cx->no_listener_vhost_owner);
 		}
 
 done_list:
@@ -639,7 +636,7 @@ check_quic:
 struct lws_vhost *
 lws_select_vhost(struct lws_context *context, int port, const char *servername)
 {
-	struct lws_vhost *vhost = context->vhost_list;
+	struct lws_vhost *vhost = lws_vhost_first(context);
 	const char *p;
 	int n, colon;
 
@@ -657,7 +654,7 @@ lws_select_vhost(struct lws_context *context, int port, const char *servername)
 			lwsl_info("SNI: Found: %s\n", servername);
 			return vhost;
 		}
-		vhost = vhost->vhost_next;
+		vhost = lws_vhost_next(vhost);
 	}
 
 	/*
@@ -667,7 +664,7 @@ lws_select_vhost(struct lws_context *context, int port, const char *servername)
 	 * never reach here.  SSL will still fail it if the cert doesn't allow
 	 * *.x.com.
 	 */
-	vhost = context->vhost_list;
+	vhost = lws_vhost_first(context);
 	while (vhost) {
 		int m = (int)strlen(vhost->name);
 		if (port && port == vhost->listen_port &&
@@ -678,19 +675,19 @@ lws_select_vhost(struct lws_context *context, int port, const char *servername)
 				    servername, vhost->name);
 			return vhost;
 		}
-		vhost = vhost->vhost_next;
+		vhost = lws_vhost_next(vhost);
 	}
 
 	/* Priority 3: match the first vhost on our port */
 
-	vhost = context->vhost_list;
+	vhost = lws_vhost_first(context);
 	while (vhost) {
 		if (port && port == vhost->listen_port) {
 			lwsl_info("%s: vhost match to %s based on port %d\n",
 					__func__, vhost->name, port);
 			return vhost;
 		}
-		vhost = vhost->vhost_next;
+		vhost = lws_vhost_next(vhost);
 	}
 
 	/* no match */

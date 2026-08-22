@@ -699,7 +699,7 @@ lws_async_dns_create_server_wsi(struct lws_context *context)
 	lws_async_dns_t *dns = &context->async_dns;
 	char ads[48];
 
-	if (!context->vhost_list) { /* coverity... system vhost always present */
+	if (!context->vhost_list_owner.head) { /* coverity... system vhost always present */
 		lwsl_cx_err(context, "no system vhost");
 		return 1;
 	}
@@ -721,7 +721,7 @@ lws_async_dns_create_server_wsi(struct lws_context *context)
 
 			/* wsi opaque is the dsrv */
 			dsrv->wsi = lws_create_adopt_udp(
-					context->vhost_list, ads, port, 0,
+					lws_vhost_first(context), ads, port, 0,
 					lws_async_dns_protocol.name, NULL,
 					NULL, dsrv, &retry_policy, "asyncdns");
 			if (!dsrv->wsi) {
