@@ -45,6 +45,15 @@ struct vhd_oauth2_client {
 	const char *remote_auth_url;
 	const char *client_id;
 	const char *cookie_name;
+	/*
+	 * Optional Domain= attribute for the auth_session / auth_csrf /
+	 * auth_refresh_session cookies we mint.  When lws-login on the same
+	 * deployment sets its cookie-domain, this must match it: the two
+	 * plugins otherwise mint parallel host-only and Domain-scoped cookies
+	 * with different birthdays, and the csrf sidecar can end up expiring
+	 * on a different schedule from the refresh session it belongs with.
+	 */
+	char cookie_domain[128];
 	unsigned long cookie_max_age_secs;	/* fallback Max-Age when no expires_in is available */
 
 	lws_dll2_owner_t pending_auth_list;
@@ -326,6 +335,10 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 					vhd->client_id = pvo->value;
 				if (!strcmp(pvo->name, "cookie-name"))
 					vhd->cookie_name = pvo->value;
+				if (!strcmp(pvo->name, "cookie-domain") &&
+				    pvo->value && pvo->value[0])
+					lws_strncpy(vhd->cookie_domain, pvo->value,
+						    sizeof(vhd->cookie_domain));
 				if (!strcmp(pvo->name, "cookie-max-age-secs") &&
 				    pvo->value && pvo->value[0])
 					vhd->cookie_max_age_secs =
@@ -834,10 +847,16 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		// Found the finished state!
-		lws_snprintf(cookie, sizeof(cookie),
-			 "%s=%s; Path=/; Max-Age=%lu; SameSite=Lax; Secure; HttpOnly",
-			 vhd->cookie_name, ps->token,
-			 cookie_max_age(vhd, ps->expires_in_secs));
+		if (vhd->cookie_domain[0])
+			lws_snprintf(cookie, sizeof(cookie),
+				 "%s=%s; Path=/; Domain=%s; Max-Age=%lu; HttpOnly; SameSite=Lax; Secure",
+				 vhd->cookie_name, ps->token, vhd->cookie_domain,
+				 cookie_max_age(vhd, ps->expires_in_secs));
+		else
+			lws_snprintf(cookie, sizeof(cookie),
+				 "%s=%s; Path=/; Max-Age=%lu; SameSite=Lax; Secure; HttpOnly",
+				 vhd->cookie_name, ps->token,
+				 cookie_max_age(vhd, ps->expires_in_secs));
 
 		lws_strncpy(loc, ps->redirect_uri, sizeof(loc));
 
@@ -845,8 +864,8 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 		// before we drop ps; emitted as extra set-cookies below, alongside
 		// auth_session.
 		{
-			char csrf_cookie[80];
-			char refresh_cookie[160];
+			char csrf_cookie[256];
+			char refresh_cookie[256];
 			int cl, rl = 0;
 			/*
 			 * auth_csrf guards silent renewal (the double-submit
@@ -862,10 +881,16 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 				ps->refresh_token[0] && ps->refresh_expires_in_secs
 					? ps->refresh_expires_in_secs
 					: cookie_max_age(vhd, ps->expires_in_secs);
-			lws_snprintf(csrf_cookie, sizeof(csrf_cookie),
-				     "auth_csrf=%s; Path=/; Max-Age=%lu; "
-				     "SameSite=Lax; Secure; HttpOnly",
-				     ps->csrf, csrf_ma);
+			if (vhd->cookie_domain[0])
+				lws_snprintf(csrf_cookie, sizeof(csrf_cookie),
+					     "auth_csrf=%s; Path=/; Domain=%s; "
+					     "Max-Age=%lu; SameSite=Lax; Secure; HttpOnly",
+					     ps->csrf, vhd->cookie_domain, csrf_ma);
+			else
+				lws_snprintf(csrf_cookie, sizeof(csrf_cookie),
+					     "auth_csrf=%s; Path=/; Max-Age=%lu; "
+					     "SameSite=Lax; Secure; HttpOnly",
+					     ps->csrf, csrf_ma);
 			cl = (int)strlen(csrf_cookie);
 
 			/*
@@ -881,18 +906,28 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 				unsigned long ma = ps->refresh_expires_in_secs;
 				if (!ma)
 					ma = cookie_max_age(vhd, 0);
-				rl = lws_snprintf(refresh_cookie,
-						  sizeof(refresh_cookie),
-						  "auth_refresh_session=%s; "
-						  "Path=/; Max-Age=%lu; "
-						  "SameSite=Lax; Secure; HttpOnly",
-						  ps->refresh_token, ma);
+				if (vhd->cookie_domain[0])
+					rl = lws_snprintf(refresh_cookie,
+							  sizeof(refresh_cookie),
+							  "auth_refresh_session=%s; "
+							  "Path=/; Domain=%s; Max-Age=%lu; "
+							  "SameSite=Lax; Secure; HttpOnly",
+							  ps->refresh_token,
+							  vhd->cookie_domain, ma);
+				else
+					rl = lws_snprintf(refresh_cookie,
+							  sizeof(refresh_cookie),
+							  "auth_refresh_session=%s; "
+							  "Path=/; Max-Age=%lu; "
+							  "SameSite=Lax; Secure; HttpOnly",
+							  ps->refresh_token, ma);
 			}
 
 			lwsl_wsi_notice(wsi, "/oauth/callback: issuing %s cookie "
-				"(Max-Age %lus) + auth_csrf (Max-Age %lus)%s",
+				"(Max-Age %lus%s) + auth_csrf (Max-Age %lus)%s",
 				vhd->cookie_name,
 				cookie_max_age(vhd, ps->expires_in_secs),
+				vhd->cookie_domain[0] ? ", Domain set" : "",
 				csrf_ma,
 				rl ? " + auth_refresh_session"
 				   : " [NO refresh token from auth server -> "

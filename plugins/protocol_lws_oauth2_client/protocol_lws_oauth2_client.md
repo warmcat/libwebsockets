@@ -27,6 +27,7 @@ This plugin handles the following PVO options:
 | `remote-auth-url` | **Required.** The base URI of the central auth server (e.g. `https://auth.warmcat.com`). The plugin will target `/api/authorize` and `/api/token` under this root. |
 | `client-id` | **Required.** The globally unique identifier assigned to this client application by the Auth Server. |
 | `cookie-name` | Custom name emitted for holding the session token upon successful callback. Defaults to `"auth_session"`. |
+| `cookie-domain` | Optional `Domain=` attribute for the `auth_session` / `auth_csrf` / `auth_refresh_session` cookies minted at `/oauth/callback`. Set it to the same value as `lws-login`'s `cookie-domain` on the same deployment: otherwise the two plugins mint parallel host-only and `Domain=`-scoped cookies with different birthdays, and the `auth_csrf` sidecar can end up expiring on a different schedule from the `auth_refresh_session` it belongs with. Omit entirely (do not set it on just one of the plugins) to keep all cookies host-only. |
 | `cookie-max-age-secs` | Fallback `Max-Age` for the session cookie, in seconds. Defaults to `3600` (1h) for backwards compatibility, but the actual `expires_in` returned by `/api/token` is used in preference when present. Raise this (or the server's `jwt-validity-secs`) to lengthen the session. |
 
 ## Keeping the session alive (token renewal)

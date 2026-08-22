@@ -98,7 +98,14 @@ struct pending_login_refresh {
 	struct lws              *wsi_server;
 	struct lws              *wsi_client;
 
-	char                    cookie_hdr[1024];
+	/*
+	 * The browser's Cookie header we forward verbatim to the auth server.
+	 * Real jars carry several cookies plus parallel host-only / Domain=
+	 * duplicates of the auth ones, so this needs LWS_SSO_MAX_COOKIE (4096):
+	 * at 1024 a large jar truncated silently, and the truncated tail could
+	 * contain exactly the auth_refresh_session the exchange needs.
+	 */
+	char                    cookie_hdr[LWS_SSO_MAX_COOKIE];
 
 	/*
 	 * POST body for the renewal exchange.  The body proper starts
@@ -430,24 +437,45 @@ lws_login_mint_csrf(struct vhd_login *vhd, char *out)
 }
 
 /*
- * Format an auth_csrf Set-Cookie string into out (caller buffer, >=96 bytes)
- * using vhd's csrf_max_age_secs, and return its length.  Same shape/scoping as
- * the auth_session cookie: HttpOnly; Secure; SameSite=Lax; optional Domain=.
+ * Worst-case auth_csrf Set-Cookie string: "auth_csrf=" (10) + 32 hex chars
+ * + "; Path=/; Domain=" (17) + cookie_domain (<= 127, vhd cap) + "; Max-Age="
+ * (10) + u64 decimal (<= 20) + "; SameSite=Lax; Secure; HttpOnly" (32).
+ * 256 covers it with headroom.  Callers MUST size their buffers with this:
+ * at one point the BFF rotation used a 96-byte buffer, and the 30d default
+ * Max-Age (2592000) alone grows the string to 100 bytes -- the truncated
+ * string embedded its NUL into the response headers (over h1 the client
+ * parser rejected it; over h2 the rotated cookie never reached the browser
+ * at all, so renewals never refreshed the csrf sidecar's lifetime and it
+ * died on the original login's schedule).
+ */
+#define LWS_LOGIN_CSRF_COOKIE_SZ 256
+
+/*
+ * Format an auth_csrf Set-Cookie string into out (caller buffer,
+ * LWS_LOGIN_CSRF_COOKIE_SZ bytes) using vhd's csrf_max_age_secs, and return
+ * its length.  Same shape/scoping as the auth_session cookie: HttpOnly;
+ * Secure; SameSite=Lax; optional Domain=.
+ *
+ * Returns strlen(out) rather than the lws_snprintf() would-be length, so a
+ * truncated result can never cause a caller to copy the NUL terminator out
+ * of the buffer and into a header.
  */
 static int
 lws_login_build_csrf_cookie(struct vhd_login *vhd, const char *csrf, char *out,
 			    size_t out_len)
 {
 	if (vhd->cookie_domain[0])
-		return lws_snprintf(out, out_len,
+		lws_snprintf(out, out_len,
 			"auth_csrf=%s; Path=/; Domain=%s; Max-Age=%llu; "
 			"SameSite=Lax; Secure; HttpOnly",
 			csrf, vhd->cookie_domain,
 			(unsigned long long)vhd->csrf_max_age_secs);
+	else
+		lws_snprintf(out, out_len,
+			"auth_csrf=%s; Path=/; Max-Age=%llu; SameSite=Lax; Secure; HttpOnly",
+			csrf, (unsigned long long)vhd->csrf_max_age_secs);
 
-	return lws_snprintf(out, out_len,
-		"auth_csrf=%s; Path=/; Max-Age=%llu; SameSite=Lax; Secure; HttpOnly",
-		csrf, (unsigned long long)vhd->csrf_max_age_secs);
+	return (int)strlen(out);
 }
 
 static int
@@ -551,6 +579,60 @@ lws_login_kick_refresh(struct vhd_login *vhd, struct lws *wsi, const char *cooki
 	lws_parse_uri_destroy(&puri);
 
 	return 1;
+}
+
+/*
+ * Kick a side-channel renewal when the browser's jar has the
+ * auth_refresh_session cookie but not its auth_csrf sidecar.  That state is
+ * reachable without anything being wrong server-side: the two cookies are
+ * minted by different flows (the delegate /oauth/callback pairs them, but a
+ * native login on the auth server's own host plants an unpaired Domain-scoped
+ * refresh cookie, and browser-side eviction or a device sleeping past the
+ * csrf cookie's expiry can age the sidecar out first).  Treating it as a hard
+ * denial made the login widget classify a live session as dead and navigate
+ * the whole page to the auth form.
+ *
+ * The auth server's csrf check on /api/sso_exchange is a double-submit
+ * comparison between the csrf_token= form field and the auth_csrf cookie in
+ * the forwarded jar -- both of which this side channel itself produces.  So
+ * when the jar lacks auth_csrf, mint a fresh value and inject the matching
+ * pair into the exchange: a browser without access to the HttpOnly cookies
+ * cannot reach this code, and a cross-site form POST cannot carry the
+ * SameSite=Lax auth_refresh_session, so the browser-side csrf cookie was not
+ * adding protection the refresh cookie does not already provide.  If the
+ * refresh session is genuinely invalid the auth server still 401s the
+ * exchange and the caller sees exactly the outcome it saw before.
+ *
+ * On exchange success the BFF / cold-load completion paths rotate a fresh
+ * auth_csrf cookie into the browser jar themselves, healing the underlying
+ * state.
+ *
+ * The minted cookie is prepended to the forwarded jar so that even if a very
+ * large jar has to be truncated into ps->cookie_hdr, the pair we are about to
+ * double-submit survives intact.
+ */
+static int
+lws_login_kick_refresh_selfheal(struct vhd_login *vhd, struct lws *wsi,
+				const char *cookie, int mode,
+				const char *orig_path, const char *authform_url)
+{
+	char minted[33];
+	size_t alen = strlen(cookie) + sizeof(minted) + 16;
+	char *jar;
+	int kicked;
+
+	jar = malloc(alen);
+	if (!jar)
+		return 0;
+
+	lws_login_mint_csrf(vhd, minted);
+	lws_snprintf(jar, alen, "auth_csrf=%s; %s", minted, cookie);
+
+	kicked = lws_login_kick_refresh(vhd, wsi, jar, minted, mode,
+					orig_path, authform_url);
+	free(jar);
+
+	return kicked;
 }
 
 /*
@@ -798,6 +880,28 @@ callback_lws_login_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (ps->payload_pos < ps->payload_len)
 			lws_callback_on_writable(wsi);
+		break;
+	}
+
+	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP: {
+		char buffer[4096];
+		char *px = buffer + LWS_PRE;
+		int plen = (int)sizeof(buffer) - LWS_PRE;
+
+		if (!ps)
+			break;
+
+		/*
+		 * For h1, response body delivery requires the callback to
+		 * drain it itself (h2 delivers RECEIVE_CLIENT_HTTP_READ
+		 * directly from its mux polling) -- the canonical pattern
+		 * from minimal-http-client(-post) and lws-oauth2-client.
+		 * Without this, over h1 the /api/sso_exchange response was
+		 * never read: the suspended browser leg hung until its
+		 * timeout.
+		 */
+		if (lws_http_client_read(wsi, &px, &plen) < 0)
+			return -1;
 		break;
 	}
 
@@ -1692,18 +1796,39 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 									cookie, csrf,
 									LWS_LOGIN_REFRESH_BFF,
 									NULL, NULL);
-						else if (!got_csrf)
+						else if (got_refresh) {
+							/*
+							 * Refresh session present but its csrf
+							 * sidecar is gone: self-heal instead of
+							 * denying, or the widget classifies a live
+							 * session as dead and trashes the page.
+							 * Log the raw jar: recurrences on devices
+							 * we cannot inspect are otherwise
+							 * undiagnosable.
+							 */
 							lwsl_wsi_notice(wsi,
-								"background refresh denied: "
-								"auth_csrf cookie missing "
-								"(refresh_session %s)",
-								got_refresh ? "present" : "absent");
-						else
+								"background refresh self-heal: "
+								"auth_csrf cookie missing but "
+								"auth_refresh_session present, "
+								"minting side-channel csrf pair "
+								"(jar: '%s')", cookie);
+							kicked = lws_login_kick_refresh_selfheal(
+									vhd, wsi, cookie,
+									LWS_LOGIN_REFRESH_BFF,
+									NULL, NULL);
+						} else if (got_csrf)
 							lwsl_wsi_notice(wsi,
 								"background refresh denied: "
 								"auth_refresh_session cookie "
 								"missing (not logged in via "
-								"refreshable session)");
+								"refreshable session) "
+								"(jar: '%s')", cookie);
+						else
+							lwsl_wsi_notice(wsi,
+								"background refresh denied: no "
+								"auth_csrf and no "
+								"auth_refresh_session "
+								"(jar: '%s')", cookie);
 					} else {
 						lwsl_wsi_notice(wsi,
 							"background refresh denied: "
@@ -1896,50 +2021,72 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		 * fall through to the 303 below, landing the user on the form to
 		 * actually log in again.  Cookieless requests skip the hop entirely.
 		 */
-		{
-			int ck_len2 = lws_hdr_total_length(wsi,
-						WSI_TOKEN_HTTP_COOKIE);
-			if (ck_len2 > 0) {
-				char csrf2[64] = {0};
-				size_t csrf2_len = sizeof(csrf2);
-				char refresh2[128] = {0};
-				size_t refresh2_len = sizeof(refresh2);
-
-				if (lws_http_cookie_get(wsi, "auth_csrf",
-							csrf2, &csrf2_len) == 0 &&
-				    lws_http_cookie_get(wsi, "auth_refresh_session",
+			{
+				int ck_len2 = lws_hdr_total_length(wsi,
+							WSI_TOKEN_HTTP_COOKIE);
+				if (ck_len2 > 0) {
+					char csrf2[64] = {0};
+					size_t csrf2_len = sizeof(csrf2);
+					char refresh2[128] = {0};
+					size_t refresh2_len = sizeof(refresh2);
+					int got_csrf2 = lws_http_cookie_get(wsi,
+							"auth_csrf", csrf2,
+							&csrf2_len) == 0 && csrf2[0];
+					int got_refresh2 =
+						lws_http_cookie_get(wsi,
+							"auth_refresh_session",
 							refresh2,
 							&refresh2_len) == 0 &&
-				    csrf2[0] && refresh2[0]) {
-					char *cookie2 = malloc((size_t)ck_len2 + 1);
-					if (cookie2) {
-						char orig_uri[LWS_LOGIN_MAX_URI];
-						int kicked;
-						/* the self-redirect target must
-						 * include the query string, or
-						 * the user's deep link comes
-						 * back shortened */
-						lws_login_copy_uri_with_args(
-								wsi, path,
-								orig_uri,
-								sizeof(orig_uri));
-						if (lws_hdr_copy(wsi, cookie2,
-								 ck_len2 + 1,
-								 WSI_TOKEN_HTTP_COOKIE) > 0)
-							kicked = lws_login_kick_refresh(
-								vhd, wsi, cookie2,
-								csrf2,
-								LWS_LOGIN_REFRESH_COLDLOAD,
-								orig_uri, dest);
-						else
-							kicked = 0;
-						free(cookie2);
-						if (kicked)
-							return 0; /* suspend */
+							refresh2[0];
+
+					if (got_refresh2) {
+						char *cookie2 = malloc((size_t)ck_len2 + 1);
+						if (cookie2) {
+							char orig_uri[LWS_LOGIN_MAX_URI];
+							int kicked;
+							/* the self-redirect target must
+							 * include the query string, or
+							 * the user's deep link comes
+							 * back shortened */
+							lws_login_copy_uri_with_args(
+									wsi, path,
+									orig_uri,
+									sizeof(orig_uri));
+							if (lws_hdr_copy(wsi, cookie2,
+									 ck_len2 + 1,
+									 WSI_TOKEN_HTTP_COOKIE) > 0) {
+								if (got_csrf2)
+									kicked = lws_login_kick_refresh(
+										vhd, wsi, cookie2,
+										csrf2,
+										LWS_LOGIN_REFRESH_COLDLOAD,
+										orig_uri, dest);
+								else {
+									/* csrf sidecar missing:
+									 * self-heal rather than
+									 * bounce (see
+									 * ..._selfheal comment) */
+									lwsl_wsi_notice(wsi,
+										"cold-load renewal self-heal: "
+										"auth_csrf cookie missing but "
+										"auth_refresh_session present, "
+										"minting side-channel csrf pair "
+										"(jar: '%s')", cookie2);
+									kicked = lws_login_kick_refresh_selfheal(
+											vhd, wsi, cookie2,
+											LWS_LOGIN_REFRESH_COLDLOAD,
+											orig_uri, dest);
+								}
+							}
+							else
+								kicked = 0;
+							free(cookie2);
+							if (kicked)
+								return 0; /* suspend */
+						}
 					}
 				}
 			}
-		}
 
 		char html[1024];
 		int html_len = lws_snprintf(html, sizeof(html),
@@ -2147,7 +2294,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 					 * schedule and the next renewal fails.
 					 */
 					char new_csrf[33];
-					char csrf_cookie[96];
+					char csrf_cookie[LWS_LOGIN_CSRF_COOKIE_SZ];
 
 					lws_login_mint_csrf(vhd, new_csrf);
 					lws_login_build_csrf_cookie(vhd, new_csrf,
@@ -2247,7 +2394,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				return 0;
 			} else if (ps->token[0]) {
 				char cookie[LWS_SSO_MAX_COOKIE];
-				char csrf_cookie[96];
+				char csrf_cookie[LWS_LOGIN_CSRF_COOKIE_SZ];
 				char new_csrf[33];
 				int n, cn;
 
