@@ -465,13 +465,7 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 
 	if (p) {
 		/* Insert after p */
-		c->list.prev = p;
-		c->list.next = p->next;
-		c->list.owner = owner;
-		if (p->next) p->next->prev = &c->list;
-		else owner->tail = &c->list;
-		p->next = &c->list;
-		owner->count++;
+		lws_dll2_add_insert(&c->list, p);
 	} else {
 		/* Insert at head */
 		lws_dll2_add_head(&c->list, owner);

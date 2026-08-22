@@ -234,6 +234,16 @@ typedef struct lws_dll2_owner {
 	struct lws_dll2		*head;
 
 	uint32_t		count;
+
+	/*
+	 * Monotonic "generation" of the list contents: bumped by every
+	 * mutation (add*, remove, clear).  The _safe iterator helpers use it
+	 * to cheaply notice that the list changed during the loop body, so
+	 * they can validate their cached next pointer is still a list member
+	 * before using it.  Never compare generations for ordering across
+	 * different owners, only inequality on the same owner.
+	 */
+	uint32_t		generation;
 } lws_dll2_owner_t;
 
 LWS_VISIBLE LWS_EXTERN int
@@ -284,6 +294,36 @@ lws_dll2_add_sorted_priv(lws_dll2_t *d, lws_dll2_owner_t *own, void *priv,
 			 int (*compare3)(void *priv, const lws_dll2_t *d,
 					 const lws_dll2_t *i));
 
+/*
+ * Returns nonzero if d is currently a member of owner's list.  Only compares
+ * pointers walking the live list members; never dereferences d itself, so it
+ * is safe to call with a candidate pointer that may have been freed, exactly
+ * for validating cached iterator state.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dll2_is_in_list(struct lws_dll2_owner *owner, struct lws_dll2 *d);
+
+/*
+ * Guarded advance for the _safe iterator macros: validates that cand (the
+ * cached next node) is still a member of ow's list if anything mutated the
+ * list (ow->generation != *gen) since it was cached.  If cand went away, it
+ * asserts (unless lws_dll2_guard_quiet) and recovers along the live list
+ * (from cur's successor if cur survived, else from the live head), so even
+ * release builds stop walking into freed nodes.  Returns the node the
+ * iterator should advance to.
+ */
+LWS_VISIBLE LWS_EXTERN struct lws_dll2 *
+_lws_dll2_safe_next(struct lws_dll2_owner *ow, uint32_t *gen,
+		    struct lws_dll2 *cur, struct lws_dll2 *cand);
+
+/*
+ * Set to nonzero by tests (or apps that must not die) to make the _safe
+ * iterator guard log + recover from cached-next invalidation instead of
+ * asserting.  The default, 0, asserts loudly at the exact point of the
+ * misuse, which is what you want during development.
+ */
+LWS_VISIBLE LWS_EXTERN_FOR_DATA int lws_dll2_guard_quiet;
+
 LWS_VISIBLE LWS_EXTERN void *
 _lws_dll2_search_sz_pl(lws_dll2_owner_t *own, const char *name, size_t namelen,
 		      size_t dll2_ofs, size_t ptr_ofs);
@@ -308,14 +348,34 @@ lws_dll2_describe(struct lws_dll2_owner *owner, const char *desc);
 
 /*
  * these are safe against the current container object getting deleted,
- * since the hold his next in a temp and go to that next.  ___tmp is
+ * since they hold his next in a temp and go to that next.  ___tmp is
  * the temp.
+ *
+ * Additionally the iterator is guarded at runtime: if the loop body
+ * removes (and possibly frees) some *other* member of the list, e.g. the
+ * cached next node itself, the guarded advance validates the cached next
+ * against the live list (by pointer identity only, it is never
+ * dereferenced) and, if it went away, asserts with a clear reason and
+ * recovers by restarting from the live head, instead of walking into
+ * freed memory and failing far away with no clue why.  The fast path when
+ * nothing mutated the list is a single 32-bit compare per iteration.
+ *
+ * NOTE: ___start must be side-effect-free since it is evaluated once into
+ * a temporary.
  */
 
 #define lws_start_foreach_dll_safe(___type, ___it, ___tmp, ___start) \
 { \
 	___type ___tmp; \
-	for (___type ___it = ___start; ___it && (((___tmp) = (___it)->next), 1); ___it = ___tmp) {
+	struct lws_dll2 *___st_##___it = (___start); \
+	struct lws_dll2_owner *___ow_##___it = \
+			___st_##___it ? ___st_##___it->owner : NULL; \
+	uint32_t ___gen_##___it = ___ow_##___it ? \
+				      ___ow_##___it->generation : 0; \
+	for (___type ___it = ___st_##___it; \
+	     ___it && (((___tmp) = (___it)->next), 1); \
+	     ___it = _lws_dll2_safe_next(___ow_##___it, &___gen_##___it, \
+					 ___it, ___tmp)) {
 
 #define lws_end_foreach_dll_safe(___it, ___tmp) \
 	} \
