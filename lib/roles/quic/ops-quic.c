@@ -3695,7 +3695,15 @@ lws_quic_stream_cleanup(struct lws *wsi)
 			 * watchdog to closing the stream.
 			 */
 			if (wsi->http.sent_response_headers &&
-			    !wsi->quic.qs->sent_fin && !wsi->mux_stream_immortal)
+			    !wsi->quic.qs->sent_fin && !wsi->mux_stream_immortal &&
+			    /*
+			     * Only the server response side can be "user code
+			     * left the response incomplete": client streams also
+			     * get sent_response_headers set when they write
+			     * their request HEADERS, and a client need not have
+			     * sent FIN when the transaction completes cleanly
+			     */
+			    lwsi_role_server(wsi))
 				lwsl_wsi_warn(wsi, "h3 stream closed with response "
 					      "headers sent but no END_STREAM "
 					      "(incomplete response; user code "

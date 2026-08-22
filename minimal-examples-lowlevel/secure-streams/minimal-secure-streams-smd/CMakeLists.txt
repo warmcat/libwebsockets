@@ -23,7 +23,7 @@ if (requirements)
 
 	if (LWS_CTEST_INTERNET_AVAILABLE AND NOT WIN32)
 	
-		if (VALGRIND)
+		if (VALGRIND AND NOT LWS_WITH_ASAN)
 			add_test(NAME ss-smd COMMAND
 				${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
 				$<TARGET_FILE:lws-minimal-secure-streams-smd>)
@@ -37,7 +37,7 @@ if (requirements)
 				     TIMEOUT 20)
 
                if (has_fault_injection)
-                       if (VALGRIND)
+                       if (VALGRIND AND NOT LWS_WITH_ASAN)
                                add_test(NAME ss-smd-fi1 COMMAND
                                        ${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
                                        $<TARGET_FILE:lws-minimal-secure-streams-smd>
@@ -132,7 +132,7 @@ if (requirements)
 		# the client part that will connect to the proxy
 		#
 
-		if (VALGRIND)
+		if (VALGRIND AND NOT LWS_WITH_ASAN)
 			message("testing via valgrind")
 			add_test(NAME sspcsmd_sspc COMMAND
 				${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
@@ -180,7 +180,7 @@ if (requirements)
 		# multi tests for the client part that will connect to the proxy
 		#
 
-		if (VALGRIND)
+		if (VALGRIND AND NOT LWS_WITH_ASAN)
 			message("testing via valgrind")
 			add_test(NAME mulsspcsmd_sspc COMMAND
 				${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20

@@ -154,17 +154,41 @@ lws_h2_state(struct lws *wsi, enum lws_h2_states s)
 	 * LWS_WRITE_H2_STREAM_END.  Warn so the user code bug is visible even
 	 * when the peer (or the network) closed the stream before the
 	 * PENDING_TIMEOUT_HTTP_RESPONSE watchdog could fire.
+	 *
+	 * Two normal situations must not trip it though:
+	 *
+	 *  - client streams also end up here with sent_response_headers set,
+	 *    since lws_http_response_started() is called from the shared h2
+	 *    write path for any HEADERS write... for a client that is the
+	 *    request HEADERS, and lws does not (by default) put END_STREAM on
+	 *    bodyless request HEADERS.  The warning is only about server user
+	 *    code leaving a response incomplete, so restrict it to the server
+	 *    role; and
+	 *
+	 *  - if the peer is RST_STREAMing the stream away from under us (eg,
+	 *    a browser cancelling an <img> load that returned HTML), that is
+	 *    not a local response bug either.
 	 */
 	if (s == LWS_H2_STATE_CLOSED &&
 	    wsi->http.sent_response_headers && !wsi->h2.send_END_STREAM &&
-	    !wsi->mux_stream_immortal)
-		lwsl_wsi_warn(wsi, "h2 stream closed with response headers sent "
-			      "but no END_STREAM (incomplete response; user code "
-			      "likely wrote a headers-only response without "
-			      "LWS_WRITE_H2_STREAM_END), protocol=%s, uri=\"%s\"",
-			      wsi->a.protocol ? wsi->a.protocol->name : "none",
-			      lws_wsi_request_uri(wsi) ?
-			      lws_wsi_request_uri(wsi) : "");
+	    !wsi->mux_stream_immortal && lwsi_role_server(wsi) &&
+	    !wsi->h2.peer_rst_status) {
+		struct lws *nwsi = lws_get_network_wsi(wsi);
+
+		if (!nwsi->h2.h2n || nwsi->h2.h2n->type !=
+				     LWS_H2_FRAME_TYPE_RST_STREAM ||
+		    nwsi->h2.h2n->swsi != wsi)
+			lwsl_wsi_warn(wsi, "h2 stream closed with response "
+				      "headers sent but no END_STREAM "
+				      "(incomplete response; user code "
+				      "likely wrote a headers-only response "
+				      "without LWS_WRITE_H2_STREAM_END), "
+				      "protocol=%s, uri=\"%s\"",
+				      wsi->a.protocol ?
+					      wsi->a.protocol->name : "none",
+				      lws_wsi_request_uri(wsi) ?
+				      lws_wsi_request_uri(wsi) : "");
+	}
 
 	(void)h2_state_names;
 	wsi->h2.h2_state = (uint8_t)s;
@@ -1745,6 +1769,14 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 #endif
 #if defined(LWS_WITH_CLIENT)
 			h2n->swsi->flags = wsi->flags;
+			/*
+			 * The no-follow preference lives in its own bitfield,
+			 * it has to be brought over separately or the first
+			 * stream on the connection follows redirects the user
+			 * code asked not to follow
+			 */
+			h2n->swsi->client_no_follow_redirect =
+					wsi->client_no_follow_redirect;
 #if defined(LWS_WITH_CONMON)
 			/* sid1 needs to represent the connection experience
 			 * ... we take over responsibility for the DNS list
@@ -1975,15 +2007,24 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 		/*
 		 * If we already had the END_STREAM along with the END_HEADERS,
-		 * we have already transitioned to STATE_CLOSED and we are not
-		 * going to be doing anything further on this stream.
+		 * the peer's sending side is done and we are not going to be
+		 * hearing anything further on this stream.
 		 *
-		 * In that case handle the transaction completion and
-		 * finalize the stream for the peer
+		 * That is always the case when we were HALF_CLOSED_LOCAL (the
+		 * state machine above moved us to CLOSED).  But it is also the
+		 * case for a headers-only response (eg, a redirect or a HEAD
+		 * response) received while we are still OPEN: by default the
+		 * lws client does not put END_STREAM on bodyless request
+		 * HEADERS, so the stream moves to HALF_CLOSED_REMOTE instead
+		 * and will never reach CLOSED by itself.  In both cases,
+		 * handle the transaction completion and finalize the stream
+		 * for the peer now, rather than leaving it to time out.
 		 */
 
-		if (h2n->swsi->h2.h2_state == LWS_H2_STATE_CLOSED &&
-			h2n->swsi->client_mux_substream) {
+		if (h2n->swsi->client_mux_substream &&
+		    (h2n->swsi->h2.h2_state == LWS_H2_STATE_CLOSED ||
+		     (h2n->swsi->h2.h2_state == LWS_H2_STATE_HALF_CLOSED_REMOTE &&
+		      h2n->swsi->h2.END_STREAM))) {
 
 			lws_h2_rst_stream(h2n->swsi, H2_ERR_NO_ERROR,
 				"client done");

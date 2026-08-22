@@ -3598,7 +3598,18 @@ lws_serve_http_file(struct lws *wsi, const char *file, const char *content_type,
 	if (lws_finalize_http_header(wsi, &p, end))
 		goto bail;
 
-	ret = lws_write(wsi, response, lws_ptr_diff_size_t(p, response), LWS_WRITE_HTTP_HEADERS);
+	/*
+	 * For HEAD, no body will follow the headers: the response is complete
+	 * at this point, so on h2 / h3 the headers write must also carry
+	 * END_STREAM.  Otherwise the stream is left half-closed locally with
+	 * the peer waiting for a body that will never come.
+	 */
+	n = LWS_WRITE_HTTP_HEADERS;
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_HEAD_URI))
+		n |= LWS_WRITE_H2_STREAM_END;
+
+	ret = lws_write(wsi, response, lws_ptr_diff_size_t(p, response),
+			(enum lws_write_protocol)n);
 	if (ret != (p - response)) {
 		lwsl_err("_write returned %d from %ld\n", ret,
 			 (long)(p - response));

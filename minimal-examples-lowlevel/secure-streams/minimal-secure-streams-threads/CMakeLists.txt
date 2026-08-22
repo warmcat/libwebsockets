@@ -24,7 +24,7 @@ if (requirements AND NOT WIN32)
 
 	if (LWS_CTEST_INTERNET_AVAILABLE AND NOT WIN32)
 
-		if (VALGRIND)
+		if (VALGRIND AND NOT LWS_WITH_ASAN)
 			add_test(NAME ss-threads COMMAND
 				${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
 				$<TARGET_FILE:lws-minimal-secure-streams-threads>)
@@ -93,7 +93,7 @@ if (requirements AND NOT WIN32)
 		# the client part that will connect to the proxy
 		#
 
-		if (VALGRIND)
+		if (VALGRIND AND NOT LWS_WITH_ASAN)
 			message("testing via valgrind")
 			add_test(NAME sspcthreads_sspc COMMAND
 				${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20

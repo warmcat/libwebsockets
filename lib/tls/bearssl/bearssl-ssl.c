@@ -32,8 +32,27 @@ int lws_ssl_get_error(struct lws *wsi, int n)
 	return 0;
 }
 
+void
+lws_ssl_SSL_CTX_destroy(struct lws_vhost *vhost)
+{
+	if (vhost->tls.ssl_ctx) {
+		lws_tls_vhost_backend_free_ctx(vhost->tls.ssl_ctx);
+		vhost->tls.ssl_ctx = NULL;
+	}
+
+	if (!vhost->tls.user_supplied_ssl_ctx && vhost->tls.ssl_client_ctx) {
+		lws_tls_vhost_backend_free_ctx(vhost->tls.ssl_client_ctx);
+		vhost->tls.ssl_client_ctx = NULL;
+	}
+}
+
 void lws_ssl_destroy(struct lws_vhost *vhost)
 {
+	if (!lws_check_opt(vhost->context->options,
+			   LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT))
+		return;
+
+	lws_ssl_SSL_CTX_destroy(vhost);
 }
 
 int
@@ -320,10 +339,6 @@ int lws_ssl_close(struct lws *wsi)
 	return 0;
 }
 
-void lws_ssl_SSL_CTX_destroy(struct lws_vhost *vhost)
-{
-}
-
 void lws_ssl_context_destroy(struct lws_context *context)
 {
 }
@@ -396,6 +411,26 @@ lws_tls_vhost_backend_free_ctx(lws_tls_ctx *ctx)
 	if (!ctx)
 		return;
 
+	if (ctx->trust_anchors) {
+		size_t n;
+
+		for (n = 0; n < ctx->num_trust_anchors; n++) {
+			br_x509_trust_anchor *ta = &ctx->trust_anchors[n];
+
+			lws_free(ta->dn.data);
+			switch (ta->pkey.key_type) {
+			case BR_KEYTYPE_RSA:
+				lws_free(ta->pkey.key.rsa.n);
+				lws_free(ta->pkey.key.rsa.e);
+				break;
+			case BR_KEYTYPE_EC:
+				lws_free(ta->pkey.key.ec.q);
+				break;
+			}
+		}
+		lws_free(ctx->trust_anchors);
+	}
+
 	if (ctx->chain) {
 		size_t i;
 		for (i = 0; i < ctx->chain_len; i++)
@@ -403,6 +438,9 @@ lws_tls_vhost_backend_free_ctx(lws_tls_ctx *ctx)
 				lws_free(ctx->chain[i].data);
 		lws_free(ctx->chain);
 	}
+
+	/* rsa_key / ec_key point into key_buf */
+	lws_free(ctx->key_buf);
 
 #if defined(LWS_WITH_TLS_SESSIONS)
 	if (ctx->lru_buffer)

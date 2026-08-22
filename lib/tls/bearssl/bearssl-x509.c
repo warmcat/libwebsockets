@@ -645,6 +645,11 @@ int lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi, const ch
 		uint8_t *buf;
 		lws_filepos_t amount;
 		if (!lws_tls_alloc_pem_to_der_file(vhost->context, private_key, mem_privkey, mem_privkey_len, &buf, &amount)) {
+			/*
+			 * the decoder does not copy; rsa_key / ec_key point
+			 * into buf, so the ctx takes ownership of it
+			 */
+			ctx->key_buf = buf;
 			br_skey_decoder_init(&ctx->skc);
 			br_skey_decoder_push(&ctx->skc, buf, amount);
 			err = br_skey_decoder_last_error(&ctx->skc);
