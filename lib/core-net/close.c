@@ -178,6 +178,18 @@ __lws_reset_wsi(struct lws *wsi)
 		lws_rops_func_fidx(wsi->role_ops,
 				   LWS_ROPS_destroy_role).destroy_role(wsi);
 
+#if defined(LWS_ROLE_WS)
+	/*
+	 * A ws struct can have been attached to the wsi while it was still
+	 * in an http role, for example a ws upgrade that was refused, or a
+	 * client ws bind on a connection that then failed.  If the wsi is
+	 * destroyed under its old role, the role destroy above cannot have
+	 * freed it.  Take care of any leftover; for an established ws wsi,
+	 * the ws role destroy has already freed and NULLed it.
+	 */
+	lws_free_set_NULL(wsi->ws);
+#endif
+
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	__lws_header_table_detach(wsi, 0);
 #endif
