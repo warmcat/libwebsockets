@@ -211,6 +211,23 @@ lws_get_peer_simple_fd(lws_sockfd_type fd, char *name, size_t namelen)
 const char *
 lws_get_peer_simple(struct lws *wsi, char *name, size_t namelen)
 {
+#if defined(LWS_WITH_UDP) && defined(LWS_ROLE_QUIC)
+	/*
+	 * On QUIC, the mux parent chain continues past the connection's
+	 * network wsi up to the shared UDP listener wsi, whose udp->sa46
+	 * holds the listener's *bind* address (eg, "::" or "0.0.0.0") and
+	 * not any peer address.  The connection's peer is tracked in
+	 * udp->sa46 on the wsi that owns the QUIC netconn, so stop the
+	 * walk there
+	 */
+	while (wsi && !wsi->quic.qn && wsi->mux.parent_wsi)
+		wsi = wsi->mux.parent_wsi;
+
+	if (wsi && wsi->quic.qn && wsi->udp) {
+		lws_sa46_write_numeric_address(&wsi->udp->sa46, name, namelen);
+		return name;
+	}
+#endif
 	wsi = lws_get_network_wsi(wsi);
 #if defined(LWS_WITH_UDP)
 	if (wsi->udp) {
