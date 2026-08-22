@@ -28,6 +28,74 @@
 #include <sys/types.h>
 #endif
 
+/*
+ * Default is to assert at the exact point a _safe iterator's cached next
+ * node was invalidated by the loop body; tests can set this to recover
+ * quietly instead of dying.
+ */
+int lws_dll2_guard_quiet;
+
+int
+lws_dll2_is_in_list(struct lws_dll2_owner *owner, struct lws_dll2 *d)
+{
+	struct lws_dll2 *p = owner->head;
+
+	/*
+	 * Deliberately only walks live members and compares pointers: it must
+	 * never touch d itself, so a freed candidate can be safely probed.
+	 */
+	while (p) {
+		if (p == d)
+			return 1;
+		p = p->next;
+	}
+
+	return 0;
+}
+
+struct lws_dll2 *
+_lws_dll2_safe_next(struct lws_dll2_owner *ow, uint32_t *gen,
+		    struct lws_dll2 *cur, struct lws_dll2 *cand)
+{
+	if (!ow || ow->generation == *gen)
+		/* fast path: nothing touched the list since cand was cached */
+		return cand;
+
+	*gen = ow->generation;
+
+	if (!cand || lws_dll2_is_in_list(ow, cand))
+		/* the list changed, but our cached next is still a member */
+		return cand;
+
+	/*
+	 * The cached next node was removed during the loop body... if the body
+	 * also freed it, advancing to it is a UAF read.  This is the exact
+	 * point the mistake becomes visible, rather than dying somewhere
+	 * unrelated later, so make it as loud as the build allows.
+	 */
+	lwsl_err("%s: dll2 _safe iterator: cached next %p removed from list "
+		 "%p during loop body (gen %u, count %u): fix the loop body "
+		 "to re-seed (see the ops-quic close_after_rx loops)\n",
+		 __func__, cand, ow, (unsigned int)*gen,
+		 (unsigned int)ow->count);
+
+	/*
+	 * Die right here at the point of the mistake, unless the app/test
+	 * explicitly opted to recover quietly via lws_dll2_guard_quiet
+	 */
+	assert(lws_dll2_guard_quiet);
+
+	/* recover in release builds: follow the live list, not the cache */
+
+	if (cur && lws_dll2_is_in_list(ow, cur))
+		/* the current node survived: continue from his successor */
+		return cur->next;
+
+	/* even the current node went away: restart from the live head */
+
+	return ow->head;
+}
+
 int
 lws_dll2_is_detached(const struct lws_dll2 *d)
 {
@@ -91,6 +159,7 @@ lws_dll2_add_head(struct lws_dll2 *d, struct lws_dll2_owner *owner)
 
 	d->owner = owner;
 	owner->count++;
+	owner->generation++;
 }
 
 /*
@@ -134,6 +203,7 @@ lws_dll2_add_before(struct lws_dll2 *d, struct lws_dll2 *after)
 	after->prev = d;
 
 	owner->count++;
+	owner->generation++;
 }
 
 /* add us to the list that prev is in, just after him
@@ -170,6 +240,7 @@ lws_dll2_add_insert(struct lws_dll2 *d, struct lws_dll2 *prev)
 		owner->tail = d;
 
 	owner->count++;
+	owner->generation++;
 }
 
 void
@@ -196,6 +267,7 @@ lws_dll2_add_tail(struct lws_dll2 *d, struct lws_dll2_owner *owner)
 
 	d->owner = owner;
 	owner->count++;
+	owner->generation++;
 }
 
 void
@@ -221,6 +293,7 @@ lws_dll2_remove(struct lws_dll2 *d)
 		d->owner->head = d->next;
 
 	d->owner->count--;
+	d->owner->generation++;
 
 	/* we're out of the list, we should not point anywhere any more */
 	d->owner = NULL;
@@ -242,6 +315,7 @@ lws_dll2_owner_clear(struct lws_dll2_owner *d)
 	d->head = NULL;
 	d->tail = NULL;
 	d->count = 0;
+	d->generation++;
 }
 
 void

@@ -1035,21 +1035,6 @@ lws_x509_create_cert(struct lws_context *context,
 							  MBEDTLS_X509_KU_KEY_ENCIPHERMENT);
 	}
 
-#if defined(MBEDTLS_OID_SERVER_AUTH) && defined(MBEDTLS_OID_CLIENT_AUTH)
-	{
-		const char *serverAuth = MBEDTLS_OID_SERVER_AUTH;
-		const char *clientAuth = MBEDTLS_OID_CLIENT_AUTH;
-		mbedtls_asn1_named_data *ext_key_usage = NULL;
-
-		if (info->is_server) {
-			if (mbedtls_asn1_store_named_data(&ext_key_usage, serverAuth, strlen(serverAuth), NULL, 0) == NULL)
-				goto bail;
-		}
-		if (mbedtls_asn1_store_named_data(&ext_key_usage, clientAuth, strlen(clientAuth), NULL, 0) == NULL)
-			goto bail;
-	}
-#endif
-
 	/* Cert Output */
 	len = mbedtls_x509write_crt_der(&crt, buf, sizeof(buf), mbedtls_ctr_drbg_random, pdrbg);
 	if (len < 0) {

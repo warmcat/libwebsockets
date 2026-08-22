@@ -441,9 +441,7 @@ chunk_copy_l:
 			} lws_end_foreach_dll_safe(p, p1);
 
 			lwsac_free(&args->ac_chunks);
-			args->chunks_owner.count = 0;
-			args->chunks_owner.head = NULL;
-			args->chunks_owner.tail = NULL;
+			lws_dll2_owner_clear(&args->chunks_owner);
 			args->chunks_length = 0;
 
 			if (lim) {
@@ -467,9 +465,7 @@ chunk_copy_l:
 cleanup:
 	lwsl_notice("%s: cleanup\n", __func__);
 	lwsac_free(&args->ac_chunks);
-	args->chunks_owner.count = 0;
-	args->chunks_owner.head = NULL;
-	args->chunks_owner.tail = NULL;
+	lws_dll2_owner_clear(&args->chunks_owner);
 
 	return 1;
 }
