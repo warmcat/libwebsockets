@@ -419,7 +419,7 @@ struct lws_context_per_thread {
 	unsigned char *serv_buf;
 
 	struct lws_pollfd *fds;
-	volatile struct lws_foreign_thread_pollfd * volatile foreign_pfd_list;
+	lws_dll2_owner_t	foreign_pfd_owner;
 
 	lws_sockfd_type dummy_pipe_fds[2];
 	struct lws *pipe_wsi;

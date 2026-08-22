@@ -71,7 +71,7 @@ _lws_plat_service_forced_tsi(struct lws_context *context, int tsi)
 int
 _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 {
-	volatile struct lws_foreign_thread_pollfd *ftp, *next;
+	struct lws_foreign_thread_pollfd *ftp;
 	volatile struct lws_context_per_thread *vpt;
 	struct lws_context_per_thread *pt;
 	lws_usec_t timeout_us, us;
@@ -215,28 +215,30 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 	lws_pt_lock(pt, __func__);
 
-	ftp = vpt->foreign_pfd_list;
-	//lwsl_notice("cleared list %p\n", ftp);
+	/* head read still via the volatile pt view */
+	ftp = lws_container_of((struct lws_dll2 *)vpt->foreign_pfd_owner.head,
+				struct lws_foreign_thread_pollfd, list);
 	while (ftp) {
 		struct lws *wsi;
 		struct lws_pollfd *pfd;
+		struct lws_dll2 *d = ftp->list.next;
 
-		next = ftp->next;
 		pfd = &vpt->fds[ftp->fd_index];
 		if (lws_socket_is_valid(pfd->fd)) {
 			wsi = wsi_from_fd(context, pfd->fd);
 			if (wsi)
-				__lws_change_pollfd(wsi, ftp->_and,
-						    ftp->_or);
+				__lws_change_pollfd((struct lws *)wsi,
+						    ftp->_and, ftp->_or);
 		}
 #if defined(LWS_WITH_WAKE_LOGGING)
 		else
 			lwsl_cx_notice(context, "*** WOKE on Invalid fd in foreign pfd list");
 #endif
+		lws_dll2_remove(&ftp->list);
 		lws_free((void *)ftp);
-		ftp = next;
+		ftp = d ? lws_container_of(d, struct lws_foreign_thread_pollfd,
+					   list) : NULL;
 	}
-	vpt->foreign_pfd_list = NULL;
 	lws_memory_barrier();
 
 	lws_pt_unlock(pt);

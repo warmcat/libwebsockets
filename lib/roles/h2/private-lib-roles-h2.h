@@ -213,11 +213,6 @@ struct lws_h2_protocol_send {
 	} u;
 };
 
-struct lws_h2_ghost_sid {
-	struct lws_h2_ghost_sid *next;
-	uint32_t sid;
-};
-
 /*
  * http/2 connection info that is only used by the root connection that has
  * the network connection.

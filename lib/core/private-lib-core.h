@@ -331,7 +331,8 @@ struct lws;
 #include "private-lib-system-metrics.h"
 
 struct lws_foreign_thread_pollfd {
-	struct lws_foreign_thread_pollfd *next;
+	/* member of pt->foreign_pfd_owner, under pt lock both sides */
+	lws_dll2_t list;
 	int fd_index;
 	int _and;
 	int _or;

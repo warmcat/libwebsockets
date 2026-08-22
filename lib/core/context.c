@@ -2000,7 +2000,7 @@ lws_context_is_deprecated(struct lws_context *cx)
 static void
 lws_pt_destroy(struct lws_context_per_thread *pt)
 {
-	volatile struct lws_foreign_thread_pollfd *ftp, *next;
+	struct lws_foreign_thread_pollfd *ftp;
 	volatile struct lws_context_per_thread *vpt;
 #if defined(LWS_WITH_CGI)
 	lws_ctx_t ctx = pt->context;
@@ -2011,13 +2011,12 @@ lws_pt_destroy(struct lws_context_per_thread *pt)
 #endif
 
 	vpt = (volatile struct lws_context_per_thread *)pt;
-	ftp = vpt->foreign_pfd_list;
-	while (ftp) {
-		next = ftp->next;
+	while (vpt->foreign_pfd_owner.head) {
+		ftp = lws_container_of(vpt->foreign_pfd_owner.head,
+				       struct lws_foreign_thread_pollfd, list);
+		lws_dll2_remove(&ftp->list);
 		lws_free((void *)ftp);
-		ftp = next;
 	}
-	vpt->foreign_pfd_list = NULL;
 
 	lws_pt_lock(pt, __func__);
 
