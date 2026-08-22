@@ -166,3 +166,26 @@ ws.onclose = async function() {
 This functions by initiating an invisible HTTP `POST` to the localized `/.lws-login-refresh` endpoint. The `lws-login` C-plugin intercepts this, securely acts as a Backend-For-Frontend (BFF) proxy using Libwebsockets' asynchronous non-blocking client API, fetches the new token directly from the Auth Server, and sets your browser's new `auth_session` cookie. Because all of this occurs entirely over backend TLS interfaces, your frontend Javascript never directly touches or exposes the Cross-Site Request Forgery (CSRF) tokens or OAuth codes!
 
 The same renewal side channel is also used for **cold-load silent renewal**: when a browser holding a valid `auth_refresh_session` cookie requests a protected page whose JWT has lapsed, the bouncer renews server-side and answers with a `302` back to the exact URL that was asked for — **query string included** — so app deep links (eg `sai`'s `?project=…&task=…`) survive re-login intact instead of landing the user on a shortened, unusable URL.
+
+### CSRF sidecar self-heal
+
+The renewal double-submit on the auth server compares the `csrf_token=` form
+field against the `auth_csrf` cookie in the browser's forwarded jar — both of
+which the side channel itself produces.  If the browser's jar has a valid
+`auth_refresh_session` but its `auth_csrf` sidecar has been lost or expired
+(they can be minted by different flows with different scopes and birthdays —
+eg a native login on the auth server's own host plants an unpaired
+`Domain=`-scoped refresh cookie), the BFF and the cold-load renewal simply
+mint a fresh matching pair for the exchange instead of denying it.  A browser
+without access to the `HttpOnly` cookies cannot reach that code, and a
+cross-site form POST cannot carry the `SameSite=Lax` `auth_refresh_session`,
+so the browser-side csrf cookie was not adding protection the refresh cookie
+does not already provide.  On exchange success the response rotates a fresh
+`auth_csrf` cookie into the browser jar, healing the underlying state; if the
+refresh session is genuinely invalid the auth server still 401s and the
+widget escalates as before.  Without this, a live session whose sidecar died
+was classified as dead and the user's whole page was navigated to the auth
+form — trashing eg an in-progress HLS playback for a split-second re-login
+round trip.  These self-heal events (and any remaining denials) are logged
+with the raw cookie jar at `notice`, since the affected devices usually
+cannot be inspected.
