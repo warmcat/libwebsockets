@@ -718,8 +718,8 @@ handshake_0405(struct lws_context *context, struct lws *wsi)
 		const char *prot = wsi->a.protocol->name;
 
 #if defined(LWS_WITH_HTTP_PROXY)
-		if (wsi->proxied_ws_parent && wsi->child_list)
-			prot = wsi->child_list->ws->actual_protocol;
+		if (wsi->proxied_ws_parent && lws_get_child(wsi))
+			prot = lws_get_child(wsi)->ws->actual_protocol;
 #endif
 
 #if defined(LWS_WITH_SECURE_STREAMS) && defined(LWS_WITH_SERVER)

@@ -475,7 +475,6 @@ int user_callback_handle_rxflow(lws_callback_function callback_function,
 }
 
 int __lws_rx_flow_control(struct lws *wsi) {
-	struct lws *wsic = wsi->child_list;
 
 	// h2 ignores rx flow control atm
 	if (lwsi_role_h2(wsi) || wsi->mux_substream ||
@@ -483,12 +482,12 @@ int __lws_rx_flow_control(struct lws *wsi) {
 		return 0;
 
 	/* if he has children, do those if they were changed */
-	while (wsic) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, wsi->child_list_owner.head) {
+		struct lws *wsic = lws_container_of(d, struct lws, sibling_list);
+
 		if (wsic->rxflow_change_to & LWS_RXFLOW_PENDING_CHANGE)
 			__lws_rx_flow_control(wsic);
-
-		wsic = wsic->sibling_list;
-	}
+	} lws_end_foreach_dll(d);
 
 	/* there is no pending change */
 	if (!(wsi->rxflow_change_to & LWS_RXFLOW_PENDING_CHANGE))
@@ -1078,7 +1077,13 @@ void lws_set_wsi_user(struct lws *wsi, void *data) {
 
 struct lws *lws_get_parent(const struct lws *wsi) { return wsi->parent; }
 
-struct lws *lws_get_child(const struct lws *wsi) { return wsi->child_list; }
+struct lws *lws_get_child(const struct lws *wsi)
+{
+	struct lws_dll2 *d = lws_dll2_get_head(
+			(lws_dll2_owner_t *)&wsi->child_list_owner);
+
+	return d ? lws_container_of(d, struct lws, sibling_list) : NULL;
+}
 
 void *lws_get_opaque_parent_data(const struct lws *wsi) {
 	return wsi->opaque_parent_data;

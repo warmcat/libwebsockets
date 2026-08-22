@@ -312,33 +312,24 @@ __lws_free_wsi(struct lws *wsi)
 void
 lws_remove_child_from_any_parent(struct lws *wsi)
 {
-	struct lws **pwsi;
-	int seen = 0;
-
 	if (!wsi->parent)
 		return;
 
-	/* detach ourselves from parent's child list */
-	pwsi = &wsi->parent->child_list;
-	while (*pwsi) {
-		if (*pwsi == wsi) {
-			lwsl_wsi_info(wsi, "detach from parent %s",
-					    lws_wsi_tag(wsi->parent));
-
-			if (wsi->parent->a.protocol)
-				wsi->parent->a.protocol->callback(wsi,
-						LWS_CALLBACK_CHILD_CLOSING,
-					       wsi->parent->user_space, wsi, 0);
-
-			*pwsi = wsi->sibling_list;
-			seen = 1;
-			break;
-		}
-		pwsi = &(*pwsi)->sibling_list;
-	}
-	if (!seen)
+	if (lws_dll2_is_detached(&wsi->sibling_list)) {
 		lwsl_wsi_err(wsi, "failed to detach from parent");
+		wsi->parent = NULL;
+		return;
+	}
 
+	lwsl_wsi_info(wsi, "detach from parent %s",
+			    lws_wsi_tag(wsi->parent));
+
+	if (wsi->parent->a.protocol)
+		wsi->parent->a.protocol->callback(wsi,
+				LWS_CALLBACK_CHILD_CLOSING,
+				wsi->parent->user_space, wsi, 0);
+
+	lws_dll2_remove(&wsi->sibling_list);
 	wsi->parent = NULL;
 }
 
@@ -592,12 +583,13 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 #endif
 
 	/* if we have children, close them first */
-	while (wsi->child_list) {
-		wsi2 = wsi->child_list;
+	while (wsi->child_list_owner.head) {
+		wsi2 = lws_container_of(wsi->child_list_owner.head,
+					struct lws, sibling_list);
 		/* stop it doing shutdown processing */
 		wsi2->socket_is_permanently_unusable = 1;
 		__lws_close_free_wsi(wsi2, reason, "general child recurse");
-		if (wsi->child_list == wsi2) {
+		if (wsi->child_list_owner.head == &wsi2->sibling_list) {
 			/*
 			 * The child's close processing did not detach it from
 			 * us: only possible when it bailed at the
@@ -605,7 +597,7 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 			 * from the child's own close callbacks.  It's still
 			 * alive, just unlink it so we cannot spin.
 			 */
-			wsi->child_list = wsi2->sibling_list;
+			lws_dll2_remove(&wsi2->sibling_list);
 			wsi2->parent = NULL;
 		}
 	}
@@ -635,9 +627,6 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 			 * We need to keep the logical cgi around so we can
 			 * drain it
 			 */
-
-//			if (wsi->parent->child_list == wsi && !wsi->sibling_list)
-//				lws_cgi_remove_and_kill(wsi->parent);
 
 			/* end the binding between us and network connection */
 			if (wsi->parent->http.cgi && wsi->parent->http.cgi->lsp)

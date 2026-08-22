@@ -583,8 +583,8 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 
 		if (i->opt_parent) {
 			lsp->stdwsi[n]->parent = i->opt_parent;
-			lsp->stdwsi[n]->sibling_list = i->opt_parent->child_list;
-			i->opt_parent->child_list = lsp->stdwsi[n];
+			lws_dll2_add_head(&lsp->stdwsi[n]->sibling_list,
+					  &i->opt_parent->child_list_owner);
 		}
 	}
 

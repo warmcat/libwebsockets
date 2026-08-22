@@ -197,6 +197,69 @@
                 } lws_end_foreach_llp(___ppss, ___m_list); \
 	}
 
+/*
+ * The legacy singly-linked-list macros are banned inside libwebsockets,
+ * permanently.
+ * --------------------------------------------------------------------
+ *
+ * dll2 owners bring the member count, an owner backpointer per node and the
+ * runtime _safe iterator guard; hand-rolled next-chains have been behind a
+ * number of iterator-lifetime bugs here.  All list usage inside the library,
+ * including self-contained datastructure internals like lwsac chunks, the
+ * fts trie and dht tables, is on a one-time conversion to
+ * lws_dll2_owner_t + lws_dll2_t; when the last one is converted the total
+ * ban below is armed by setting LWS_DLL2_ARM_TOTAL_BAN to 1.
+ *
+ * When armed, the ban is enforced at compile time by poisoning the macros
+ * when building the library itself: LWS_BUILDING_STATIC / LWS_BUILDING_SHARED
+ * are PRIVATE to the libwebsockets compile targets, so they are defined when
+ * compiling the library sources and nothing else -- plugins, minimal examples
+ * and user code keep full access to the legacy macros for their own use,
+ * indefinitely.
+ *
+ * Any use inside the library then fails at the use site with the poison
+ * identifier naming the reason.
+ */
+
+/* conversion in progress: set to 1 to arm the total ban */
+#define LWS_DLL2_ARM_TOTAL_BAN 0
+
+#if LWS_DLL2_ARM_TOTAL_BAN && \
+	(defined(LWS_BUILDING_STATIC) || defined(LWS_BUILDING_SHARED))
+
+#undef	lws_start_foreach_ll
+#undef	lws_end_foreach_ll
+#undef	lws_start_foreach_ll_safe
+#undef	lws_end_foreach_ll_safe
+#undef	lws_start_foreach_llp
+#undef	lws_end_foreach_llp
+#undef	lws_start_foreach_llp_safe
+#undef	lws_end_foreach_llp_safe
+#undef	lws_ll_fwd_insert
+#undef	lws_ll_fwd_remove
+
+#define lws_start_foreach_ll(...) \
+	LWS_LIB_MAY_NOT_USE_LEGACY_LIST_MACROS_see_lws_dll2_h
+#define lws_end_foreach_ll(...) \
+	LWS_LIB_MAY_NOT_USE_LEGACY_LIST_MACROS_see_lws_dll2_h
+#define lws_start_foreach_ll_safe(...) \
+	LWS_LIB_MAY_NOT_USE_LEGACY_LIST_MACROS_see_lws_dll2_h
+#define lws_end_foreach_ll_safe(...) \
+	LWS_LIB_MAY_NOT_USE_LEGACY_LIST_MACROS_see_lws_dll2_h
+#define lws_start_foreach_llp(...) \
+	LWS_LIB_MAY_NOT_USE_LEGACY_LIST_MACROS_see_lws_dll2_h
+#define lws_end_foreach_llp(...) \
+	LWS_LIB_MAY_NOT_USE_LEGACY_LIST_MACROS_see_lws_dll2_h
+#define lws_start_foreach_llp_safe(...) \
+	LWS_LIB_MAY_NOT_USE_LEGACY_LIST_MACROS_see_lws_dll2_h
+#define lws_end_foreach_llp_safe(...) \
+	LWS_LIB_MAY_NOT_USE_LEGACY_LIST_MACROS_see_lws_dll2_h
+#define lws_ll_fwd_insert(...) \
+	LWS_LIB_MAY_NOT_USE_LEGACY_LIST_MACROS_see_lws_dll2_h
+#define lws_ll_fwd_remove(...) \
+	LWS_LIB_MAY_NOT_USE_LEGACY_LIST_MACROS_see_lws_dll2_h
+#endif
+
 
 /*
  * doubly linked-list

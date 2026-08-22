@@ -3139,7 +3139,7 @@ lws_h2_ws_handshake(struct lws *wsi)
 	if (lws_hdr_total_length(wsi, WSI_TOKEN_PROTOCOL) > 64)
 		return -1;
 
-	if (wsi->proxied_ws_parent && wsi->child_list) {
+	if (wsi->proxied_ws_parent && lws_get_child(wsi)) {
 		if (lws_hdr_simple_ptr(wsi, WSI_TOKEN_PROTOCOL)) {
 			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_PROTOCOL,
 				(uint8_t *)lws_hdr_simple_ptr(wsi,

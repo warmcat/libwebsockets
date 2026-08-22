@@ -134,7 +134,7 @@ struct lws *
 lws_client_connect_via_info(const struct lws_client_connect_info *i)
 {
 	const char *local = i->protocol;
-	struct lws *wsi, *safe = NULL;
+	struct lws *wsi;
 	const struct lws_protocols *p;
 	const char *cisin[CIS_COUNT];
 	char buf_localport[8];
@@ -513,8 +513,8 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 		lwsl_wsi_info(wsi, "created as child %s",
 			      lws_wsi_tag(i->parent_wsi));
 		wsi->parent = i->parent_wsi;
-		safe = wsi->sibling_list = i->parent_wsi->child_list;
-		i->parent_wsi->child_list = wsi;
+		lws_dll2_add_head(&wsi->sibling_list,
+				  &i->parent_wsi->child_list_owner);
 	}
 
 	/*
@@ -529,7 +529,7 @@ lws_client_connect_via_info(const struct lws_client_connect_info *i)
 
 		if (n && i->parent_wsi)
 			/* unpick from parent */
-			i->parent_wsi->child_list = safe;
+			lws_dll2_remove(&wsi->sibling_list);
 
 		if (n < 0)
 			/* we didn't survive, wsi is freed */

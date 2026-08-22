@@ -903,9 +903,17 @@ struct lws {
 	struct lws_async_job		*async_worker_job;
 #endif
 
+	/*
+	 * Parent / child relationship for non-mux adoptions (reverse proxy
+	 * onward connections, cgi/spawn stdwsi, raw adopt with parent).  The
+	 * parent owns the dll2 list of its children; each child holds the
+	 * node and the backpointer to the parent wsi.  Mutations must go via
+	 * lws_dll2_add_head()/lws_dll2_remove() on sibling_list, so the
+	 * runtime _safe iterator guard and owner count apply.
+	 */
 	struct lws			*parent; /* points to parent, if any */
-	struct lws			*child_list; /* points to first child */
-	struct lws			*sibling_list; /* subsequent children at same level */
+	lws_dll2_owner_t		child_list_owner;
+	lws_dll2_t			sibling_list;
 	const struct lws_role_ops	*role_ops;
 	const lws_retry_bo_t		*retry_policy;
 
