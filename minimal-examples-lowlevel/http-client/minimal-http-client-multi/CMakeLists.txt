@@ -57,7 +57,7 @@ else()
 	#
 	# mbedtls is too slow to keep up on some targets, when ctest is in parallel
 	#
-	if (VALGRIND AND NOT MBEDTLS)
+	if (VALGRIND AND NOT MBEDTLS AND NOT LWS_WITH_ASAN)
 		add_test(NAME st_hcm_srv COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 				hcm_srv ${VALGRIND} --tool=memcheck $<TARGET_FILE:lws-minimal-http-server-tls>
@@ -174,7 +174,7 @@ endif()
 			--post --h1 -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCMP_SRV} -d1151)
 	add_test(NAME http-client-multi-post-pipe COMMAND lws-minimal-http-client-multi
 			--post -p -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCMP_SRV} -d1151)
-	if (VALGRIND)
+	if (VALGRIND AND NOT LWS_WITH_ASAN)
 		add_test(NAME http-client-multi-post-h1-pipe COMMAND ${VALGRIND} --tool=memcheck $<TARGET_FILE:lws-minimal-http-client-multi>
 			--post --h1 -p -l --server ${LWS_CTEST_SERVER_RESOLVE} --port ${PORT_HCMP_SRV} -d1151)	
 	else()

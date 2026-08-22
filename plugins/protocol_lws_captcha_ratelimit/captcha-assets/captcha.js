@@ -26,7 +26,20 @@ document.addEventListener('DOMContentLoaded', function() {
     if (headerImg) {
         var images = ['scrapers-1.jpg', 'scrapers-2.jpg', 'scrapers-3.jpg'];
         var randomImg = images[Math.floor(Math.random() * images.length)];
-        headerImg.src = randomImg;
+
+        /*
+         * This page is served at the URI that was originally asked for (the
+         * diverted, protected URL).  A relative image URI would resolve
+         * against that URL, so the browser would ask the protected mount for
+         * eg /git/.../scrapers-2.jpg, get the HTML captcha page back for an
+         * <img> and cancel the load.  Ask for the image on the interceptor
+         * mount instead, where the real image file lives.  When the page is
+         * served directly from the interceptor mount (no diversion), fall
+         * back to a plain relative URI.
+         */
+        headerImg.src = (typeof lws_interceptor_path !== 'undefined')
+            ? lws_interceptor_path + '/' + randomImg
+            : randomImg;
     }
 
     btn.style.display = 'none';

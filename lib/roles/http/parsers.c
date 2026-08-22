@@ -1686,10 +1686,16 @@ lws_jwt_get_http_cookie_validate_jwt(struct lws *wsi,
 	return 0;
 }
 
-int
-lws_jwt_sign_token_set_http_cookie(struct lws *wsi,
-				   const struct lws_jwt_sign_set_cookie *i,
-				   uint8_t **p, uint8_t *end)
+/*
+ * Core of the cookie helpers: sign the JWT described by \p i and format just
+ * the cookie value ("__Host-name=jwt;attrs") into val.  Returns the length of
+ * the value written, or -1 on failure / it did not fit.
+ */
+
+static int
+jwt_sign_cookie_value(struct lws *wsi,
+		      const struct lws_jwt_sign_set_cookie *i,
+		      char *val, size_t val_len)
 {
 	char plain[MAX_JWT_SIZE + 1], temp[MAX_JWT_SIZE * 2], csrf[17];
 	size_t pl = sizeof(plain);
@@ -1715,7 +1721,7 @@ lws_jwt_sign_token_set_http_cookie(struct lws *wsi,
 			         i->extra_json ? "}" : "")) {
 		lwsl_err("%s: failed to create JWT\n", __func__);
 
-		return 1;
+		return -1;
 	}
 
 	/*
@@ -1723,7 +1729,7 @@ lws_jwt_sign_token_set_http_cookie(struct lws *wsi,
 	 * expiry time, so set it to be the same.
 	 */
 
-	n = lws_snprintf(temp, sizeof(temp), "__Host-%s=%s;"
+	n = lws_snprintf(val, val_len, "__Host-%s=%s;"
 			 "HttpOnly;"
 			 "Secure;"
 			 "SameSite=None;"
@@ -1731,11 +1737,52 @@ lws_jwt_sign_token_set_http_cookie(struct lws *wsi,
 			 "Max-Age=%lu",
 			 i->cookie_name, plain, i->expiry_unix_time);
 
+	if ((size_t)n >= val_len)
+		return -1;
+
+	return n;
+}
+
+int
+lws_jwt_sign_token_set_http_cookie(struct lws *wsi,
+				   const struct lws_jwt_sign_set_cookie *i,
+				   uint8_t **p, uint8_t *end)
+{
+	char temp[MAX_JWT_SIZE * 2];
+	int n;
+
+	n = jwt_sign_cookie_value(wsi, i, temp, sizeof(temp));
+	if (n < 0)
+		return 1;
+
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_SET_COOKIE,
 					 (uint8_t *)temp, n, p, end)) {
 		lwsl_err("%s: failed to add JWT cookie header\n", __func__);
 		return 1;
 	}
+
+	return 0;
+}
+
+int
+lws_jwt_sign_token_set_cookie_ascii(struct lws *wsi,
+				    const struct lws_jwt_sign_set_cookie *i,
+				    char *buf, size_t len)
+{
+	int n;
+
+	/* format the cookie value after where the header name will go */
+
+	n = jwt_sign_cookie_value(wsi, i, buf + sizeof("set-cookie: ") - 1,
+				  len - sizeof("set-cookie: ") - 1);
+	if (n < 0)
+		return 1;
+
+	memcpy(buf, "set-cookie: ", sizeof("set-cookie: ") - 1);
+	n += (int)(sizeof("set-cookie: ") - 1);
+	buf[n++] = '\x0d';
+	buf[n++] = '\x0a';
+	buf[n] = '\0';
 
 	return 0;
 }

@@ -364,7 +364,8 @@ lws_interceptor_handle_http(struct lws *wsi, void *user, const struct lws_interc
 	struct vhd_interceptor *vhd = (struct vhd_interceptor *)lws_protocol_vh_priv_get(
 			lws_get_vhost(wsi), lws_get_protocol(wsi));
 	char buf[LWS_PRE + 2048], *p = buf + LWS_PRE, *end = buf + sizeof(buf) - 1;
-	char argbuf[256] = "", junk[256], ip[64], uri[512], vbuf[1024], *pv, *vend;
+	char argbuf[256] = "", junk[256], ip[64], uri[512];
+	char vbuf[LWS_JWT_COOKIE_ASCII_LEN];
 	const char *ctype = "text/html", *file_part, *iat_p;
 	struct lws_jwt_sign_set_cookie vck;
 	int n, frag = 0, first = 1, js_len, auth_valid = 0;
@@ -391,6 +392,8 @@ lws_interceptor_handle_http(struct lws *wsi, void *user, const struct lws_interc
 	}
 
 	n = lws_hdr_copy(wsi, (char *)uri, sizeof(uri), WSI_TOKEN_GET_URI);
+	if (n <= 0)
+		n = lws_hdr_copy(wsi, (char *)uri, sizeof(uri), WSI_TOKEN_HEAD_URI);
 	if (n <= 0)
 		n = lws_hdr_copy(wsi, (char *)uri, sizeof(uri), WSI_TOKEN_POST_URI);
 	if (n < 0) {
@@ -438,7 +441,13 @@ lws_interceptor_handle_http(struct lws *wsi, void *user, const struct lws_interc
 		return lws_http_transaction_completed(wsi);
 	}
 
-	if (lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI)) {
+	/*
+	 * HEAD is handled like GET: the page and asset selection is the same,
+	 * lws_serve_http_file() already answers a HEAD with headers only (and,
+	 * on h2 / h3, END_STREAM on the headers).
+	 */
+	if (lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI) ||
+	    lws_hdr_total_length(wsi, WSI_TOKEN_HEAD_URI)) {
 		file_part = uri;
 
 		p1 = (char *)strrchr(uri, '/');
@@ -518,9 +527,6 @@ lws_interceptor_handle_http(struct lws *wsi, void *user, const struct lws_interc
 
 		vhd->count_served++;
 
-		pv = vbuf;
-		vend = vbuf + sizeof(vbuf) - 1;
-
 		lws_interceptor_init_jwt_cookie(&vck, vhd, ip, "lws_interceptor_v");
 		vck.expiry_unix_time = 3600; /* valid for 1h */
 
@@ -535,10 +541,16 @@ lws_interceptor_handle_http(struct lws *wsi, void *user, const struct lws_interc
 			}
 		}
 
-		if (!lws_jwt_sign_token_set_http_cookie(wsi, &vck, (uint8_t **)&pv, (uint8_t *)vend)) {
-			*pv = '\0';
-			return lws_serve_http_file(wsi, argbuf, ctype, vbuf, lws_ptr_diff(pv, vbuf));
-		}
+		/*
+		 * The cookie goes to lws_serve_http_file() as "other_headers",
+		 * which are always ascii "name: value\r\n" lines... building it
+		 * with the wsi header apis here would produce hpack when the
+		 * wsi is h2, which cannot be mixed into the response headers
+		 */
+		if (!lws_jwt_sign_token_set_cookie_ascii(wsi, &vck, vbuf,
+							sizeof(vbuf)))
+			return lws_serve_http_file(wsi, argbuf, ctype, vbuf,
+						    (int)strlen(vbuf));
 
 		lwsl_vhost_err(vhd->vhost, "%s: failed to sign visit cookie", __func__);
 		goto serve_file;

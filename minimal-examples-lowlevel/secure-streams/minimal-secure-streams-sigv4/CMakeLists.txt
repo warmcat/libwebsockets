@@ -20,7 +20,7 @@ if (requirements)
 	find_program(VALGRIND "valgrind")
 
 	if (LWS_CTEST_INTERNET_AVAILABLE AND NOT WIN32 AND 0)
-		if (VALGRIND)
+		if (VALGRIND AND NOT LWS_WITH_ASAN)
 			message("testing via valgrind")
 			add_test(NAME ss-sigv4 COMMAND
 				${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
@@ -65,7 +65,7 @@ if (requirements)
 			# the client part that will connect to the proxy
 			#
 
-			if (VALGRIND)
+			if (VALGRIND AND NOT LWS_WITH_ASAN)
 				message("testing via valgrind")
 				add_test(NAME sspc-sigv4 COMMAND
 					${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20

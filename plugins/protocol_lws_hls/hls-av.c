@@ -252,7 +252,7 @@ static int write_packet(void *opaque, uint8_t *buf, int buf_size) {
 static size_t find_moof_offset(uint8_t *buf, size_t size) {
     size_t offset = 0;
     while (offset + 8 <= size) {
-        uint32_t box_size = (buf[offset] << 24) | (buf[offset+1] << 16) | (buf[offset+2] << 8) | buf[offset+3];
+        uint32_t box_size = lws_ser_ru32be(&buf[offset]);
         if (box_size == 1 || box_size < 8) break;
         if (memcmp(buf + offset + 4, "moof", 4) == 0) {
             return offset;

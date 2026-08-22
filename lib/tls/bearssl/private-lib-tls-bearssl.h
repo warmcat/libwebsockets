@@ -38,6 +38,11 @@ struct lws_tls_ctx {
 	br_ec_private_key ec_key;
 	int is_rsa;
 	br_skey_decoder_context skc;
+	/*
+	 * the DER buffer the skey decoder consumed; rsa_key / ec_key point
+	 * into it, so it must be kept until the ctx is destroyed
+	 */
+	uint8_t *key_buf;
 #if defined(LWS_WITH_TLS_SESSIONS)
 	br_ssl_session_cache_lru lru;
 	uint8_t *lru_buffer;

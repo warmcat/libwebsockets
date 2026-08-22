@@ -38,7 +38,7 @@ if (WIN32)
 	add_test(NAME st_wcs_srv COMMAND cmd.exe /c start /b $<TARGET_FILE:test-server> -s --port ${PORT_WCS_SRV})
 	add_test(NAME ki_wcs_srv COMMAND taskkill /F /IM $<TARGET_FILE_NAME:test-server> /T)
 else()
-	if (VALGRIND)
+	if (VALGRIND AND NOT LWS_WITH_ASAN)
 		add_test(NAME st_wcs_srv COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 			wcs_srv ${VALGRIND} --tool=memcheck $<TARGET_FILE:test-server>

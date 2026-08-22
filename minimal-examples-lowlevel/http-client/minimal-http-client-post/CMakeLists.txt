@@ -44,7 +44,7 @@ else()
 	#
 	# mbedtls is too slow to keep up on some targets, when ctest is in parallel
 	#
-	if (VALGRIND AND NOT MBEDTLS)
+	if (VALGRIND AND NOT MBEDTLS AND NOT LWS_WITH_ASAN)
 		add_test(NAME st_hcp_srv COMMAND
 			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
 					hcp_srv ${VALGRIND} --tool=memcheck 

@@ -95,3 +95,9 @@ In this example:
 3.  `/captcha` is handled by the `lws_captcha_ratelimit` protocol.
 4.  The plugin serves the interceptor UI.
 5.  Upon success, a cookie is set, and the user is redirected back to `/`.
+
+Note that the interceptor UI references its assets (css, js and images) on the
+interceptor mount itself, via the `lws_interceptor_path` injected into
+`interceptor-config.js`.  The page is served at the originally requested,
+protected URL; relative asset URIs would resolve against that URL and get the
+HTML captcha page back instead of the asset.

@@ -32,7 +32,7 @@ if (requirements)
 
 		configure_file(policy-local.json.in policy-local.json @ONLY)
 
-		if (VALGRIND)
+		if (VALGRIND AND NOT LWS_WITH_ASAN)
 			add_test(NAME ss-tf COMMAND
 				${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
 				$<TARGET_FILE:lws-minimal-secure-streams-testsfail>
@@ -112,7 +112,7 @@ if (requirements)
 			# the client part that will connect to the proxy
 			#
 
-			if (VALGRIND)
+			if (VALGRIND AND NOT LWS_WITH_ASAN)
 				add_test(NAME sspc-minimaltf COMMAND
 					${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
 					$<TARGET_FILE:lws-minimal-secure-streams-testsfail-client> -i +${CTEST_SOCKET_PATH} -d1039)

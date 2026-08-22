@@ -592,6 +592,29 @@ LWS_VISIBLE LWS_EXTERN int
 lws_jwt_sign_token_set_http_cookie(struct lws *wsi,
 				   const struct lws_jwt_sign_set_cookie *i,
 				   uint8_t **p, uint8_t *end);
+
+/**
+ * lws_jwt_sign_token_set_cookie_ascii() - create a set-cookie header line for
+ *					   a JWT, as plain ascii
+ *
+ * \param wsi: the wsi the cookie is being created for
+ * \param i: structure describing what should be in the JWT
+ * \param buf: buffer to receive the ascii header line
+ * \param len: size of \p buf
+ *
+ * Like lws_jwt_sign_token_set_http_cookie(), but instead of adding the header
+ * through the wsi header apis (which produce hpack on h2 and h1-style headers
+ * on h1), it writes a self-contained "set-cookie: ...\r\n" ascii line into
+ * \p buf.  This is what you want when the header is going to be passed to,
+ * eg, lws_serve_http_file() as other_headers, since that expects ascii lines
+ * regardless of the wsi's protocol role.  \p buf should be at least
+ * #LWS_JWT_COOKIE_ASCII_LEN bytes.  Returns 0 if successful.
+ */
+#define LWS_JWT_COOKIE_ASCII_LEN (1280)
+LWS_VISIBLE LWS_EXTERN int
+lws_jwt_sign_token_set_cookie_ascii(struct lws *wsi,
+				    const struct lws_jwt_sign_set_cookie *i,
+				    char *buf, size_t len);
 LWS_VISIBLE LWS_EXTERN int
 lws_jwt_get_http_cookie_validate_jwt(struct lws *wsi,
 				     struct lws_jwt_sign_set_cookie *i,

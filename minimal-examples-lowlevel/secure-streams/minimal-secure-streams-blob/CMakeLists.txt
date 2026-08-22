@@ -42,7 +42,7 @@ if (requirements)
 		# simple test not via proxy
 		#
 	
-		if (VALGRIND)
+		if (VALGRIND AND NOT LWS_WITH_ASAN)
 			message("testing via valgrind")
 			add_test(NAME ssblob-warmcat COMMAND
 				${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
@@ -94,7 +94,7 @@ if (requirements)
 			# the client part that will connect to the proxy
 			#
 
-			if (VALGRIND)
+			if (VALGRIND AND NOT LWS_WITH_ASAN)
 				message("testing via valgrind")
 				add_test(NAME sspcblob-minimal COMMAND
 					${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20

@@ -1736,8 +1736,6 @@ int lws_wsi_mux_apply_queue(struct lws *wsi) {
 
 		lwsl_wsi_notice(wsi, "evaluating queued conn %s (state 0x%x, par role %s)",
 				lws_wsi_tag(w), lwsi_state(w), wsi->role_ops ? wsi->role_ops->name : "none");
-        lwsl_notice("AGY-MUX: parent role=%s, child state=0x%x (expected 0x%x)\n",
-                wsi->role_ops ? wsi->role_ops->name : "none", lwsi_state(w), LRS_H2_WAITING_TO_SEND_HEADERS);
 
 #if defined(LWS_ROLE_H2)
 		if (lwsi_role_h2(wsi) &&
