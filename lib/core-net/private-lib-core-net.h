@@ -686,6 +686,11 @@ void
 lws_dht_destroy_all_on_vhost(struct lws_vhost *vh);
 #endif
 
+#if defined(LWS_WITH_STUB)
+void
+lws_stub_destroy_all_on_vhost(struct lws_vhost *vh);
+#endif
+
 void
 __lws_vhost_destroy2(struct lws_vhost *vh);
 

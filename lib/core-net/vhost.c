@@ -1743,6 +1743,19 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 		}
 	}
 
+#if defined(LWS_WITH_STUB)
+	/*
+	 * Destroy stubs spawned on this vhost that are still alive, eg,
+	 * because PROTOCOL_DESTROY was never delivered for their parent
+	 * protocol to clean them up (in a plugins build, vhost protocols
+	 * that were never instantiated with pvos get no protocol
+	 * callbacks at all).  This is done after the explicit protocol
+	 * destroys above, so those have already taken down their stubs
+	 * and removed them from the tracking list.
+	 */
+	lws_stub_destroy_all_on_vhost(vh);
+#endif
+
 	/*
 	 * remove vhost from context list of vhosts
 	 */

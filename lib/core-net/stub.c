@@ -63,6 +63,8 @@ struct lws_stub_manager {
 	struct lws_spawn_piped		*lsp;
 	struct lws_stub_config		config;
 
+	struct lws_dll2			cx_list; /* cx->owner_stub_mgrs */
+
 	const struct lws_protocols	*protocols;
 
 	struct lws			*wsi_client;
@@ -125,6 +127,14 @@ lws_stub_spawn(const struct lws_stub_config *config)
 		lws_strncpy(mgr->stub_name, config->stub_name, sizeof(mgr->stub_name));
 	mgr->config.stub_name = mgr->stub_name;
 	mgr->protocols = config->protocols;
+
+	/*
+	 * track the mgr on the context, so a stub can never outlive either
+	 * the context or the vhost it was spawned on, even if the caller
+	 * never gets a PROTOCOL_DESTROY to destroy it from (eg, in a
+	 * plugins build, his vhost protocol was never instantiated)
+	 */
+	lws_dll2_add_tail(&mgr->cx_list, &config->cx->owner_stub_mgrs);
 
 	/* Generate a secure 128-char secret */
 	lws_get_random(mgr->cx, rand, sizeof(rand));
@@ -243,7 +253,7 @@ lws_stub_spawn(const struct lws_stub_config *config)
 #endif
 	} else {
 		lwsl_vhost_err(mgr->vh, "%s: Failed to spawn stub '%s'\n", __func__, config->stub_name);
-		lws_free(mgr);
+		lws_stub_destroy(&mgr);
 		return NULL;
 	}
 
@@ -274,9 +284,8 @@ lws_stub_spawn(const struct lws_stub_config *config)
 	return mgr;
 
 spawn_fail:
-	lws_spawn_piped_kill_child_process(mgr->lsp);
 	lwsl_vhost_err(mgr->vh, "%s: Failed to initialize spawned stub '%s'\n", __func__, config->stub_name);
-	lws_free(mgr);
+	lws_stub_destroy(&mgr);
 	return NULL;
 }
 #endif
@@ -614,6 +623,9 @@ lws_stub_destroy(struct lws_stub_manager **_mgr)
 	 */
 	*_mgr = NULL;
 
+	/* we are tracked on the context, stop that */
+	lws_dll2_remove(&mgr->cx_list);
+
 	/* the retry sul is embedded in us: stop it pointing at freed memory */
 	lws_sul_cancel(&mgr->sul);
 
@@ -661,5 +673,25 @@ lws_stub_get_lsp(struct lws_stub_manager *mgr)
 		return NULL;
 
 	return mgr->lsp;
+}
+
+/*
+ * This is called from __lws_vhost_destroy2() for every vhost, so stubs
+ * spawned on the vhost are destroyed with it even if nobody else destroys
+ * them.  It is legal (and expected) that PROTOCOL_DESTROY-based destroy
+ * paths already removed the mgr from the tracking list.
+ */
+void
+lws_stub_destroy_all_on_vhost(struct lws_vhost *vh)
+{
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   vh->context->owner_stub_mgrs.head) {
+		struct lws_stub_manager *mgr =
+			lws_container_of(d, struct lws_stub_manager, cx_list);
+
+		if (mgr->vh == vh)
+			lws_stub_destroy(&mgr);
+
+	} lws_end_foreach_dll_safe(d, d1);
 }
 #endif
