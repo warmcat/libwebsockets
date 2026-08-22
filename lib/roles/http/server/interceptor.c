@@ -197,6 +197,11 @@ lws_interceptor_issue_cookie(struct lws *wsi)
 
 	lws_get_peer_simple(wsi, ip, sizeof(ip));
 
+	lwsl_vhost_notice(vhd->vhost, "%s: %s minting cookie '%s' for peer %s",
+			  __func__,
+			  wsi->role_ops ? wsi->role_ops->name : "?",
+			  vhd->cookie_name, ip);
+
 	lws_interceptor_init_jwt_cookie(&ck, vhd, ip, vhd->cookie_name);
 	ck.expiry_unix_time	= (unsigned long)vhd->jwt_expiry;
 
@@ -337,7 +342,10 @@ lws_interceptor_check(struct lws *wsi, const struct lws_protocols *prot)
 		}
 
 		if (!allow) {
-			lwsl_vhost_notice(vhd->vhost, "%s: IP mismatch %s vs %s", __func__, sub_claim, ip);
+			lwsl_vhost_notice(vhd->vhost, "%s: %s IP mismatch %s vs %s",
+					  __func__,
+					  wsi->role_ops ? wsi->role_ops->name : "?",
+					  sub_claim, ip);
 			lws_interceptor_inject_header(wsi, vhd, NULL);
 			return vhd->always_pass ? 0 : 1;
 		}
@@ -529,6 +537,12 @@ lws_interceptor_handle_http(struct lws *wsi, void *user, const struct lws_interc
 
 		lws_interceptor_init_jwt_cookie(&vck, vhd, ip, "lws_interceptor_v");
 		vck.expiry_unix_time = 3600; /* valid for 1h */
+
+		lwsl_vhost_notice(vhd->vhost,
+				  "%s: %s minting cookie 'lws_interceptor_v' for peer %s",
+				  __func__,
+				  wsi->role_ops ? wsi->role_ops->name : "?",
+				  ip);
 
 		if (ops && ops->init_visit_cookie) {
 			/* Plugin can add its own claims here if it wants */
