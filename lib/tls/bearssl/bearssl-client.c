@@ -55,6 +55,7 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 		{
 			const char *alpn_comma = wsi->a.context->tls.alpn_default;
 			uint8_t openssl_alpn[128];
+			char temp_alpn[128];
 			int n;
 
 			if (wsi->a.vhost->tls.alpn)
@@ -62,7 +63,6 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 			if (wsi->stash) {
 				alpn_comma = wsi->stash->cis[CIS_ALPN];
 			} else {
-				char temp_alpn[128];
 				if (lws_hdr_copy(wsi, temp_alpn, sizeof(temp_alpn), _WSI_TOKEN_CLIENT_ALPN) > 0)
 					alpn_comma = temp_alpn;
 			}
