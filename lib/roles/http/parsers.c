@@ -46,13 +46,12 @@ _lws_create_ah(struct lws_context_per_thread *pt, ah_data_idx_t data_size)
 
 		return NULL;
 	}
-	ah->next = pt->http.ah_list;
-	pt->http.ah_list = ah;
+	lws_dll2_add_head(&ah->list, &pt->http.ah_owner);
 	ah->data_length = data_size;
-	pt->http.ah_pool_length++;
 
 	lwsl_info("%s: created ah %p (size %d): pool length %u\n", __func__,
-		    ah, (int)data_size, (unsigned int)pt->http.ah_pool_length);
+		    ah, (int)data_size,
+		    (unsigned int)pt->http.ah_owner.count);
 
 	return ah;
 }
@@ -60,13 +59,11 @@ _lws_create_ah(struct lws_context_per_thread *pt, ah_data_idx_t data_size)
 int
 _lws_destroy_ah(struct lws_context_per_thread *pt, struct allocated_headers *ah)
 {
-	lws_start_foreach_llp(struct allocated_headers **, a, pt->http.ah_list) {
-		if ((*a) == ah) {
-			*a = ah->next;
-			pt->http.ah_pool_length--;
+	if (!lws_dll2_is_detached(&ah->list)) {
+			lws_dll2_remove(&ah->list);
 			lwsl_info("%s: freed ah %p : pool length %u\n",
 				    __func__, ah,
-				    (unsigned int)pt->http.ah_pool_length);
+				    (unsigned int)pt->http.ah_owner.count);
 			/* Remove any dangling wsi references to the ah we are about to free */
 			if (ah->wsi) {
 				ah->wsi->http.ah = NULL;
@@ -77,8 +74,7 @@ _lws_destroy_ah(struct lws_context_per_thread *pt, struct allocated_headers *ah)
 			lws_free(ah);
 
 			return 0;
-		}
-	} lws_end_foreach_llp(a, next);
+	}
 
 	return 1;
 }

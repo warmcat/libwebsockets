@@ -458,7 +458,7 @@ rops_handle_POLLOUT_h2(struct lws *wsi)
 #if defined(LWS_WITH_CLIENT)
 			|| wsi->client_h2_alpn
 #endif
-			) && wsi->h2.h2n->pps) {
+			) && wsi->h2.h2n->pps_owner.head) {
 		lwsl_info("servicing pps\n");
 		/*
 		 * this is called on the network connection, but may close
@@ -468,7 +468,7 @@ rops_handle_POLLOUT_h2(struct lws *wsi)
 			wsi->socket_is_permanently_unusable = 1;
 			return LWS_HP_RET_BAIL_DIE;
 		}
-		if (wsi->h2.h2n->pps)
+		if (wsi->h2.h2n->pps_owner.head)
 			return LWS_HP_RET_BAIL_OK;
 
 		/* we can resume whatever we were doing */
@@ -735,7 +735,7 @@ rops_destroy_role_h2(struct lws *wsi)
 	lwsl_info("%s: %s: ah det due to close\n", __func__, lws_wsi_tag(wsi));
 	__lws_header_table_detach(wsi, 0);
 
-	ah = pt->http.ah_list;
+	ah = lws_pt_first_ah(&pt->http.ah_owner);
 
 	while (ah) {
 		if (ah->in_use && ah->wsi == wsi) {
@@ -745,7 +745,7 @@ rops_destroy_role_h2(struct lws *wsi)
 			pt->http.ah_count_in_use--;
 			break;
 		}
-		ah = ah->next;
+		ah = lws_pt_next_ah(ah);
 	}
 
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)
@@ -816,14 +816,12 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 
 	if (wsi->upgraded_to_http2) {
 		/* remove pps */
-		struct lws_h2_protocol_send *w = wsi->h2.h2n->pps, *w1;
-
-		while (w) {
-			w1 = w->next;
-			lws_free(w);
-			w = w1;
+		while (wsi->h2.h2n->pps_owner.head) {
+			struct lws_dll2 *d = wsi->h2.h2n->pps_owner.head;
+			lws_dll2_remove(d);
+			lws_free(lws_container_of(d,
+					struct lws_h2_protocol_send, list));
 		}
-		wsi->h2.h2n->pps = NULL;
 	}
 
 	if ((
@@ -876,7 +874,7 @@ rops_callback_on_writable_h2(struct lws *wsi)
 
 	/* is this for DATA or for control messages? */
 
-	if (wsi->upgraded_to_http2 && !wsi->h2.h2n->pps &&
+	if (wsi->upgraded_to_http2 && !wsi->h2.h2n->pps_owner.head &&
 	    lws_wsi_txc_check_skint(&wsi->txc, lws_h2_tx_cr_get(wsi))) {
 		/*
 		 * refuse his efforts to get WRITABLE if we have no credit and
@@ -1546,7 +1544,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 	 * the queued pps would never be flushed, stalling the transfer.  Keep
 	 * POLLOUT asserted while the netconn still has pps pending.
 	 */
-	if (wsi->h2.h2n && wsi->h2.h2n->pps) {
+	if (wsi->h2.h2n && wsi->h2.h2n->pps_owner.head) {
 		if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
 			return -1;
 		return 0;

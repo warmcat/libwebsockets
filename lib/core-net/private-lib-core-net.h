@@ -177,8 +177,8 @@ enum pmd_return {
 
 #if defined(LWS_WITH_PEER_LIMITS)
 struct lws_peer {
-	struct lws_peer *next;
-	struct lws_peer *peer_wait_list;
+	lws_dll2_t hash_list;	/* member of context->pl_hash_table[hash] */
+	lws_dll2_t wait_list;	/* member of context->peer_wait_owner */
 
 	lws_sockaddr46	sa46;
 

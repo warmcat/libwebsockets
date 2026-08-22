@@ -964,7 +964,7 @@ rops_destroy_role_h1(struct lws *wsi)
 	lwsl_info("%s: ah det due to close\n", __func__);
 	__lws_header_table_detach(wsi, 0);
 
-	 ah = pt->http.ah_list;
+	ah = lws_pt_first_ah(&pt->http.ah_owner);
 
 	while (ah) {
 		if (ah->in_use && ah->wsi == wsi) {
@@ -975,7 +975,7 @@ rops_destroy_role_h1(struct lws *wsi)
 			pt->http.ah_count_in_use--;
 			break;
 		}
-		ah = ah->next;
+		ah = lws_pt_next_ah(ah);
 	}
 
 #if defined(LWS_WITH_HTTP_STREAM_COMPRESSION)

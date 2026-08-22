@@ -747,8 +747,8 @@ struct lws_context {
 #endif
 
 #if defined(LWS_WITH_PEER_LIMITS)
-	struct lws_peer			**pl_hash_table;
-	struct lws_peer			*peer_wait_list;
+	lws_dll2_owner_t		*pl_hash_table; /* peer limits hash buckets */
+	lws_dll2_owner_t		peer_wait_owner;
 	lws_peer_limits_notify_t	pl_notify_cb;
 	time_t				next_cull;
 #endif
