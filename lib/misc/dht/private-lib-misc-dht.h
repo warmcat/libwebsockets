@@ -121,18 +121,17 @@ struct node {
 	time_t                  reply_time;          /* time of last correct reply received */
 	time_t                  pinged_time;         /* time of last request */
 	int                     pinged;              /* how many requests we sent since last reply */
-	struct node *next;
+	lws_dll2_t              list;                /* bucket ->nodes membership */
 };
 
 struct bucket {
 	int                     af;
 	lws_dht_hash_t          *first;
-	int                     count;                  /* number of nodes */
 	int                     time;                   /* time of last reply in this bucket */
-	struct node *           nodes;
+	lws_dll2_owner_t        nodes;                   /* node list, nodes.count is node count */
 	struct sockaddr_storage cached;			/* the address of a likely candidate */
 	size_t                  cachedlen;
-	struct bucket *         next;
+	lws_dll2_t              list;                /* ctx ->buckets / ->buckets6 membership */
 };
 
 struct search_node {
@@ -157,7 +156,7 @@ struct search {
 	int                     done;
 	struct search_node      nodes[SEARCH_NODES];
 	int                     numnodes;
-	struct search           *next;
+	lws_dll2_t              list;                /* ctx ->searches membership */
 };
 
 struct peer {
@@ -168,7 +167,7 @@ struct peer {
 };
 
 struct subscriber {
-	struct subscriber       *next;
+	lws_dll2_t              list;                /* storage ->subscribers membership */
 	struct sockaddr_storage ss;
 	size_t                  sslen;
 	uint8_t                 tid[16];
@@ -185,8 +184,8 @@ struct storage {
 	lws_dht_hash_t          *id;
 	int                     numpeers, maxpeers;
 	struct peer             *peers;
-	struct subscriber       *subscribers;
-	struct storage          *next;
+	lws_dll2_owner_t        subscribers;
+	lws_dll2_t              list;                /* ctx ->storage membership */
 };
 
 #endif
@@ -214,13 +213,11 @@ struct lws_dht_ctx {
 	lws_dht_hash_t		*myid;
 
 #if defined(LWS_WITH_DHT_BACKEND)
-	struct bucket		*buckets;
-	struct bucket		*buckets6;
-	struct storage		*storage;
-	int			numstorage;
+	lws_dll2_owner_t	buckets;
+	lws_dll2_owner_t	buckets6;
+	lws_dll2_owner_t	storage;
 
-	struct search		*searches;
-	int			numsearches;
+	lws_dll2_owner_t	searches;
 	unsigned short		search_id;
 #endif
 
@@ -276,6 +273,29 @@ struct lws_dht_ctx {
 	lws_dll2_owner_t	ts_owner;
 	lws_dll2_owner_t	verb_owner;
 };
+
+#if defined(LWS_WITH_DHT_BACKEND)
+/*
+ * The bucket chains are dll2 owners, but the code needs to walk them in
+ * id order by struct bucket *.  These helpers hide the container_of dance.
+ */
+
+static LWS_INLINE struct bucket *
+bucket_head(struct lws_dht_ctx *ctx, int af)
+{
+	lws_dll2_t *d = lws_dll2_get_head(af == AF_INET ? &ctx->buckets :
+							  &ctx->buckets6);
+
+	return d ? lws_container_of(d, struct bucket, list) : NULL;
+}
+
+static LWS_INLINE struct bucket *
+bucket_next(struct bucket *b)
+{
+	return b->list.next ? lws_container_of(b->list.next, struct bucket, list)
+			    : NULL;
+}
+#endif
 
 
 typedef struct lws_dht_ts {
@@ -334,12 +354,12 @@ int lowbit(const lws_dht_hash_t *id);
 int common_bits(const lws_dht_hash_t *id1, const lws_dht_hash_t *id2);
 #if defined(LWS_WITH_DHT_BACKEND)
 struct bucket * find_bucket(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, int af);
-struct bucket * previous_bucket(struct lws_dht_ctx *ctx, struct bucket *b);
+struct bucket * previous_bucket(struct bucket *b);
 struct node * find_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, int af);
 int node_good(struct lws_dht_ctx *ctx, struct node *node);
 void blacklist_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, const struct sockaddr *sa, size_t salen);
 struct node * maybe_new_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, const struct sockaddr *sa, size_t salen, int confirm);
-int expire_buckets(struct lws_dht_ctx *ctx, struct bucket *b);
+int expire_buckets(struct lws_dht_ctx *ctx, lws_dll2_owner_t *bo);
 void lws_dht_dump_tables(struct lws_dht_ctx *ctx);
 int bucket_maintenance(struct lws_dht_ctx *ctx, int af);
 int neighbourhood_maintenance(struct lws_dht_ctx *ctx, int af);

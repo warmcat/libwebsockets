@@ -442,6 +442,12 @@ option(LWS_WITH_FANALYZER "Enable gcc -fanalyzer if compiler supports" OFF)
 option(LWS_HTTP_HEADERS_ALL "Override header reduction optimization and include all like older lws versions" OFF)
 option(LWS_WITH_SUL_DEBUGGING "Enable zombie lws_sul checking on object deletion" OFF)
 option(LWS_WITH_PLUGINS_API "Build generic lws_plugins apis (see LWS_WITH_PLUGINS to also build protocol plugins)" OFF)
+
+# both dlopened and builtin protocol plugins need the generic plugin apis at
+# runtime to register and bind their protocols (see lws_plugins_handle_builtin)
+if (LWS_WITH_PLUGINS OR LWS_WITH_PLUGINS_BUILTIN)
+	set(LWS_WITH_PLUGINS_API ON)
+endif()
 option(LWS_WITH_CONMON "Collect introspectable connection latency stats on individual client connections" ON)
 option(LWS_WITH_WOL "Wake On Lan support" ON)
 option(LWS_WITHOUT_EVENTFD "Force using pipe instead of eventfd" OFF)
@@ -1343,6 +1349,11 @@ ${PLUGIN_PTRS}
 ")
 	file(WRITE "${PROJECT_BINARY_DIR}/lws_builtin_plugin_pcols.c" "${PLUGIN_BUILTIN_C_CONTENT}")
 	list(APPEND SOURCES "${PROJECT_BINARY_DIR}/lws_builtin_plugin_pcols.c")
+
+	# plugins built into the lib may need extra libs (eg, hls -> ffmpeg)
+	if (LWS_PLUGIN_BUILTIN_LIBS)
+		list(APPEND LIB_LIST ${LWS_PLUGIN_BUILTIN_LIBS})
+	endif()
 endif()
 
 

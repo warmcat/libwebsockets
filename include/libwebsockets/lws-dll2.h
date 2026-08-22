@@ -221,8 +221,8 @@
  * identifier naming the reason.
  */
 
-/* conversion in progress: set to 1 to arm the total ban */
-#define LWS_DLL2_ARM_TOTAL_BAN 0
+/* conversion complete: the total ban is armed */
+#define LWS_DLL2_ARM_TOTAL_BAN 1
 
 #if LWS_DLL2_ARM_TOTAL_BAN && \
 	(defined(LWS_BUILDING_STATIC) || defined(LWS_BUILDING_SHARED))

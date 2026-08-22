@@ -49,7 +49,7 @@ struct mirror_instance;
 struct per_session_data__lws_mirror {
 	struct lws *wsi;
 	struct mirror_instance *mi;
-	struct per_session_data__lws_mirror *same_mi_pss_list;
+	lws_dll2_t same_mi_list;	/* membership of mi->same_mi_pss_list */
 	uint32_t tail;
 };
 
@@ -60,9 +60,9 @@ struct a_message {
 };
 
 struct mirror_instance {
-	struct mirror_instance *next;
+	lws_dll2_t list;	/* membership of vhost mi_list */
 	lws_pthread_mutex(lock) /* protects all mirror instance data */
-	struct per_session_data__lws_mirror *same_mi_pss_list;
+	lws_dll2_owner_t same_mi_pss_list;
 	/**< must hold the the per_vhost_data__lws_mirror.lock as well
 	 * to change mi list membership */
 	struct lws_ring *ring;
@@ -73,7 +73,7 @@ struct mirror_instance {
 
 struct per_vhost_data__lws_mirror {
 	lws_pthread_mutex(lock) /* protects mi_list membership changes */
-	struct mirror_instance *mi_list;
+	lws_dll2_owner_t mi_list;
 };
 
 
@@ -81,10 +81,14 @@ struct per_vhost_data__lws_mirror {
 static void
 __mirror_rxflow_instance(struct mirror_instance *mi, int enable)
 {
-	lws_start_foreach_ll(struct per_session_data__lws_mirror *,
-			     pss, mi->same_mi_pss_list) {
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&mi->same_mi_pss_list)) {
+		struct per_session_data__lws_mirror *pss =
+			lws_container_of(d, struct per_session_data__lws_mirror,
+					 same_mi_list);
+
 		lws_rx_flow_control(pss->wsi, enable);
-	} lws_end_foreach_ll(pss, same_mi_pss_list);
+	} lws_end_foreach_dll(d);
 
 	mi->rx_enabled = (char)enable;
 }
@@ -119,16 +123,20 @@ __mirror_update_worst_tail(struct mirror_instance *mi)
 
 	oldest = lws_ring_get_oldest_tail(mi->ring);
 
-	lws_start_foreach_ll(struct per_session_data__lws_mirror *,
-			     pss, mi->same_mi_pss_list) {
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&mi->same_mi_pss_list)) {
+		struct per_session_data__lws_mirror *pss =
+			lws_container_of(d, struct per_session_data__lws_mirror,
+					 same_mi_list);
+
 		wai = (uint32_t)lws_ring_get_count_waiting_elements(mi->ring,
-								&pss->tail);
+									&pss->tail);
 		if (wai >= worst) {
 			worst = wai;
 			worst_tail = pss->tail;
 			worst_pss = pss;
 		}
-	} lws_end_foreach_ll(pss, same_mi_pss_list);
+	} lws_end_foreach_dll(d);
 
 	if (!worst_pss)
 		return 0;
@@ -154,8 +162,12 @@ __mirror_update_worst_tail(struct mirror_instance *mi)
 	 * the FIFO entries he has not read yet.  Don't allow those guys to
 	 * block the FIFO operation for very long.
 	 */
-	lws_start_foreach_ll(struct per_session_data__lws_mirror *,
-			     pss, mi->same_mi_pss_list) {
+	lws_start_foreach_dll(struct lws_dll2 *, d2,
+			      lws_dll2_get_head(&mi->same_mi_pss_list)) {
+		struct per_session_data__lws_mirror *pss =
+			lws_container_of(d2, struct per_session_data__lws_mirror,
+					 same_mi_list);
+
 		if (pss->tail == worst_tail)
 			/*
 			 * Our policy is if you are the slowest connection,
@@ -165,7 +177,7 @@ __mirror_update_worst_tail(struct mirror_instance *mi)
 			 */
 			lws_set_timeout(pss->wsi,
 					PENDING_TIMEOUT_USER_REASON_BASE, 3);
-	} lws_end_foreach_ll(pss, same_mi_pss_list);
+	} lws_end_foreach_dll(d2);
 
 	return 1;
 }
@@ -174,10 +186,14 @@ static void
 __mirror_callback_all_in_mi_on_writable(struct mirror_instance *mi)
 {
 	/* ask for WRITABLE callback for every wsi on this mi */
-	lws_start_foreach_ll(struct per_session_data__lws_mirror *,
-			     pss, mi->same_mi_pss_list) {
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&mi->same_mi_pss_list)) {
+		struct per_session_data__lws_mirror *pss =
+			lws_container_of(d, struct per_session_data__lws_mirror,
+					 same_mi_list);
+
 		lws_callback_on_writable(pss->wsi);
-	} lws_end_foreach_ll(pss, same_mi_pss_list);
+	} lws_end_foreach_dll(d);
 }
 
 static void
@@ -205,7 +221,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 	const struct a_message *msg;
 	struct a_message amsg;
 	uint32_t oldest_tail;
-	int n, count_mi = 0;
+	int n;
 
 	switch (reason) {
 	case LWS_CALLBACK_ESTABLISHED:
@@ -235,52 +251,55 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 
 		/* is there already a mirror instance of this name? */
 
-		lws_pthread_mutex_lock(&v->lock); /* vhost lock { */
+	lws_pthread_mutex_lock(&v->lock); /* vhost lock { */
 
-		lws_start_foreach_ll(struct mirror_instance *, mi1,
-				     v->mi_list) {
-			count_mi++;
-			if (!strcmp(pn, mi1->name)) {
-				/* yes... we will join it */
-				mi = mi1;
-				break;
-			}
-		} lws_end_foreach_ll(mi1, next);
+	/* is there already a mirror instance of this name? */
 
-		if (!mi) {
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&v->mi_list)) {
+		struct mirror_instance *mi1 = lws_container_of(d,
+						struct mirror_instance, list);
 
-			/* no existing mirror instance for name */
-			if (count_mi == MAX_MIRROR_INSTANCES) {
-				lws_pthread_mutex_unlock(&v->lock); /* } vh lock */
-				return -1;
-			}
+		if (!strcmp(pn, mi1->name)) {
+			/* yes... we will join it */
+			mi = mi1;
+			break;
+		}
+	} lws_end_foreach_dll(d);
 
-			/* create one with this name, and join it */
-			mi = malloc(sizeof(*mi));
-			if (!mi)
-				goto bail1;
-			memset(mi, 0, sizeof(*mi));
-			mi->ring = lws_ring_create(sizeof(struct a_message),
-						   QUEUELEN,
-						   __mirror_destroy_message);
-			if (!mi->ring) {
-				free(mi);
-				goto bail1;
-			}
+	if (!mi) {
 
-			mi->next = v->mi_list;
-			v->mi_list = mi;
-			lws_snprintf(mi->name, sizeof(mi->name) - 1, "%s", pn);
-			mi->rx_enabled = 1;
-
-			lws_pthread_mutex_init(&mi->lock);
-
-			lwsl_notice("Created new mi %p '%s'\n", mi, pn);
+		/* no existing mirror instance for name */
+		if (v->mi_list.count == MAX_MIRROR_INSTANCES) {
+			lws_pthread_mutex_unlock(&v->lock); /* } vh lock */
+			return -1;
 		}
 
-		/* add our pss to list of guys bound to this mi */
+		/* create one with this name, and join it */
+		mi = malloc(sizeof(*mi));
+		if (!mi)
+			goto bail1;
+		memset(mi, 0, sizeof(*mi));
+		mi->ring = lws_ring_create(sizeof(struct a_message),
+					   QUEUELEN,
+					   __mirror_destroy_message);
+		if (!mi->ring) {
+			free(mi);
+			goto bail1;
+		}
 
-		lws_ll_fwd_insert(pss, same_mi_pss_list, mi->same_mi_pss_list);
+		lws_dll2_add_head(&mi->list, &v->mi_list);
+		lws_snprintf(mi->name, sizeof(mi->name) - 1, "%s", pn);
+		mi->rx_enabled = 1;
+
+		lws_pthread_mutex_init(&mi->lock);
+
+		lwsl_notice("Created new mi %p '%s'\n", mi, pn);
+	}
+
+	/* add our pss to list of guys bound to this mi */
+
+	lws_dll2_add_head(&pss->same_mi_list, &mi->same_mi_pss_list);
 
 		/* init the pss */
 
@@ -299,43 +318,35 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 
 		lws_pthread_mutex_lock(&v->lock); /* vhost lock { */
 
-		/* remove our closing pss from its mirror instance list */
-		lws_ll_fwd_remove(struct per_session_data__lws_mirror,
-				  same_mi_pss_list, pss, mi->same_mi_pss_list);
-		pss->mi = NULL;
+	/* remove our closing pss from its mirror instance list */
+	lws_dll2_remove(&pss->same_mi_list);
+	pss->mi = NULL;
 
-		if (mi->same_mi_pss_list) {
-			/*
-			 * Still other pss using the mirror instance.  The pss
-			 * going away may have had the oldest tail, reconfirm
-			 * using the remaining pss what is the current oldest
-			 * tail.  If the oldest tail moves on, this call also
-			 * will re-enable rx flow control when appropriate.
-			 */
-			lws_pthread_mutex_lock(&mi->lock); /* mi lock { */
-			__mirror_update_worst_tail(mi);
-			lws_pthread_mutex_unlock(&mi->lock); /* } mi lock */
-			lws_pthread_mutex_unlock(&v->lock); /* } vhost lock */
-			break;
-		}
-
-		/* No more pss using the mirror instance... delete mi */
-
-		lws_start_foreach_llp(struct mirror_instance **,
-				pmi, v->mi_list) {
-			if (*pmi == mi) {
-				*pmi = (*pmi)->next;
-
-				lws_ring_destroy(mi->ring);
-				lws_pthread_mutex_destroy(&mi->lock);
-
-				free(mi);
-				break;
-			}
-		} lws_end_foreach_llp(pmi, next);
-
+	if (mi->same_mi_pss_list.count) {
+		/*
+		 * Still other pss using the mirror instance.  The pss
+		 * going away may have had the oldest tail, reconfirm
+		 * using the remaining pss what is the current oldest
+		 * tail.  If the oldest tail moves on, this call also
+		 * will re-enable rx flow control when appropriate.
+		 */
+		lws_pthread_mutex_lock(&mi->lock); /* mi lock { */
+		__mirror_update_worst_tail(mi);
+		lws_pthread_mutex_unlock(&mi->lock); /* } mi lock */
 		lws_pthread_mutex_unlock(&v->lock); /* } vhost lock */
 		break;
+	}
+
+	/* No more pss using the mirror instance... delete mi */
+
+	lws_dll2_remove(&mi->list);
+	lws_ring_destroy(mi->ring);
+	lws_pthread_mutex_destroy(&mi->lock);
+
+	free(mi);
+
+	lws_pthread_mutex_unlock(&v->lock); /* } vhost lock */
+	break;
 
 	case LWS_CALLBACK_CONFIRM_EXTENSION_OKAY:
 		return 1; /* disallow compression */

@@ -52,12 +52,12 @@
 #define HLS_SEGMENT_DUR 10
 
 struct thumb_task {
-	struct thumb_task *next;
+	lws_dll2_t list;	/* vhd->tasks FIFO membership */
 	char filename[256];
 };
 
 struct thumb_cache {
-	struct thumb_cache *next;
+	lws_dll2_t list;	/* vhd->thumb_cache membership, MRU first */
 	char filename[256];
 	uint8_t *data;
 	size_t len;
@@ -75,19 +75,18 @@ struct per_vhost_data__lws_hls {
 	pthread_mutex_t lock;
 	pthread_cond_t cond;
 	int thread_exit;
-	
-	struct thumb_task *task_head;
-	struct thumb_task *task_tail;
+
+	lws_dll2_owner_t tasks;		/* pending thumbnail work, FIFO */
 	char current_task_filename[256];
-	
-	struct thumb_cache *cache_head;
+
+	lws_dll2_owner_t thumb_cache;	/* finished thumbnails, MRU first */
 	int cache_count;
-	
-	struct hls_file_index *index_head;
-	struct per_session_data__lws_hls *pss_list; /* active sessions */
+
+	lws_dll2_owner_t index_list;	/* per-file keyframe index cache */
+	lws_dll2_owner_t pss_list; /* active sessions */
 
 	/* WebVTT subtitle cue cache (per media file + track id) */
-	struct hls_sub_cache *sub_cache_head;
+	lws_dll2_owner_t sub_cache;	/* decoded cue lists, MRU first */
 	int sub_cache_count;
 	pthread_mutex_t sub_lock;
 
@@ -108,7 +107,7 @@ struct hls_index_entry {
 };
 
 struct hls_file_index {
-	struct hls_file_index *next;
+	lws_dll2_t list;	/* vhd->index_list membership */
 	char filename[256];
 	int video_idx;
 	int count;
@@ -136,7 +135,7 @@ enum hls_sub_kind {
  * "sN" for the Nth sidecar file (sorted alphabetically). */
 struct hls_sub_track {
 	enum hls_sub_kind kind;
-	char id[8];          /* "eN" or "sN" */
+	char id[16];          /* "eN" or "sN" */
 	char lang[16];       /* BCP47-ish: "en", "pt-BR", or "und" */
 	char name[64];       /* human-readable, e.g. "English" */
 	int  stream_index;   /* embedded only: AVStream index */
@@ -153,14 +152,14 @@ struct hls_webvtt_cue {
 
 /* Cached decoded cues for one (filename, track id) pair. */
 struct hls_sub_cache {
-	struct hls_sub_cache *next;
+	lws_dll2_t list;	/* vhd->sub_cache membership, MRU first */
 	char key[280];               /* "<filename>|<trackid>" */
 	struct hls_webvtt_cue *cues;
 	int n_cues;
 };
 
 struct per_session_data__lws_hls {
-	struct per_session_data__lws_hls *pss_list;
+	lws_dll2_t pss_list; /* vhd pss_list membership */
 	struct lws *wsi;
 	uint8_t *segment_buf;
 	size_t segment_len;

@@ -261,6 +261,7 @@ int main(int argc, const char **argv)
 	app_protocols[1].name			= NULL;
 	app_protocols[1].callback		= NULL;
 
+#if defined(LWS_WITH_PLUGINS)
 	static const char * const pdirs[] = {
 		"./lib",
 		"../lib",
@@ -269,13 +270,16 @@ int main(int argc, const char **argv)
 		"../../lib",
 		NULL
 	};
+#endif
 
 	info.port				= CONTEXT_PORT_NO_LISTEN;
 	info.options				= LWS_SERVER_OPTION_EXPLICIT_VHOSTS | LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 	info.protocols				= app_protocols;
 	info.fd_limit_per_thread		= 100;
 	info.pvo 				= NULL;
+#if defined(LWS_WITH_PLUGINS)
 	info.plugin_dirs			= pdirs;
+#endif
 
         nl.name					= "app";
         nl.notify_cb				= app_system_state_nf;

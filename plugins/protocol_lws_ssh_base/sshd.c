@@ -467,13 +467,14 @@ state_get_u32(struct per_session_data__sshd *pss, int next)
 static struct lws_ssh_channel *
 ssh_get_server_ch(struct per_session_data__sshd *pss, uint32_t chi)
 {
-	struct lws_ssh_channel *ch = pss->ch_list;
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&pss->ch_list)) {
+		struct lws_ssh_channel *ch = lws_container_of(d,
+						struct lws_ssh_channel, list);
 
-	while (ch) {
 		if (ch->server_ch == chi)
 			return ch;
-		ch = ch->next;
-	}
+	} lws_end_foreach_dll(d);
 
 	return NULL;
 }
@@ -482,13 +483,14 @@ ssh_get_server_ch(struct per_session_data__sshd *pss, uint32_t chi)
 static struct lws_ssh_channel *
 ssh_get_peer_ch(struct per_session_data__sshd *pss, uint32_t chi)
 {
-	struct lws_ssh_channel *ch = pss->ch_list;
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&pss->ch_list)) {
+		struct lws_ssh_channel *ch = lws_container_of(d,
+						struct lws_ssh_channel, list);
 
-	while (ch) {
 		if (ch->sender_ch == chi)
 			return ch;
-		ch = ch->next;
-	}
+	} lws_end_foreach_dll(d);
 
 	return NULL;
 }
@@ -498,22 +500,20 @@ static void
 ssh_destroy_channel(struct per_session_data__sshd *pss,
 		    struct lws_ssh_channel *ch)
 {
-	lws_start_foreach_llp(struct lws_ssh_channel **, ppch, pss->ch_list) {
-		if (*ppch == ch) {
-			lwsl_info("Deleting ch %p\n", ch);
-			if (pss->vhd && pss->vhd->ops &&
-			    pss->vhd->ops->channel_destroy)
-				pss->vhd->ops->channel_destroy(ch->priv);
-			*ppch = ch->next;
-			if (ch->sub)
-				free(ch->sub);
-			free(ch);
+	if (lws_dll2_is_detached(&ch->list)) {
+		lwsl_notice("Failed to delete ch\n");
 
-			return;
-		}
-	} lws_end_foreach_llp(ppch, next);
+		return;
+	}
 
-	lwsl_notice("Failed to delete ch\n");
+	lwsl_info("Deleting ch %p\n", ch);
+	if (pss->vhd && pss->vhd->ops &&
+	    pss->vhd->ops->channel_destroy)
+		pss->vhd->ops->channel_destroy(ch->priv);
+	lws_dll2_remove(&ch->list);
+	if (ch->sub)
+		free(ch->sub);
+	free(ch);
 }
 
 static void
@@ -811,7 +811,7 @@ again:
 				 * uint32    recipient channel
 				 * uint32    bytes to add
 				 */
-				if (!pss->ch_list)
+				if (!pss->ch_list.count)
 					goto bail;
 
 				if (pss->ssh_auth_state != SSH_AUTH_STATE_GAVE_AUTH_IGNORE_REQS) goto bail;
@@ -1349,19 +1349,13 @@ again:
 				pss->reason = 3;
 				goto ch_fail;
 			}
-			{
-				int count = 0;
-				struct lws_ssh_channel *c = pss->ch_list;
-				while (c) {
-					count++;
-					c = c->next;
-				}
-				if (count >= 8) {
-					lwsl_notice("Too many channels\n");
-					pss->reason = 4;
-					goto ch_fail;
-				}
+		{
+			if (pss->ch_list.count >= 8) {
+				lwsl_notice("Too many channels\n");
+				pss->reason = 4;
+				goto ch_fail;
 			}
+		}
 			lwsl_info("SSHS_NVC_CHOPEN_TYPE: creating session\n");
 			pss->ch_temp = sshd_zalloc(sizeof(*pss->ch_temp));
 			if (!pss->ch_temp)
@@ -1394,8 +1388,7 @@ again:
 			 * as write task needs it and will NULL down
 			 */
 			lwsl_info("creating new session ch\n");
-			pss->ch_temp->next = pss->ch_list;
-			pss->ch_list = pss->ch_temp;
+			lws_dll2_add_head(&pss->ch_temp->list, &pss->ch_list);
 			if (pss->vhd->ops && pss->vhd->ops->channel_create)
 				pss->vhd->ops->channel_create(pss->wsi,
 						&pss->ch_temp->priv);
@@ -2056,7 +2049,7 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 		      void *user, void *in, size_t len)
 {
 	struct per_session_data__sshd *pss =
-			(struct per_session_data__sshd *)user, **p;
+			(struct per_session_data__sshd *)user;
 	struct per_vhost_data__sshd *vhd = NULL;
 	uint8_t buf[LWS_PRE + 1024], *pp, *ps = &buf[LWS_PRE + 512], *ps1 = NULL;
 	const struct lws_protocol_vhost_options *pvo;
@@ -2144,8 +2137,7 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_info("LWS_CALLBACK_RAW_ADOPT\n");
 		if (!vhd || !pss)
 			return -1;
-		pss->next = vhd->live_pss_list;
-		vhd->live_pss_list = pss;
+		lws_dll2_add_head(&pss->list, &vhd->live_pss_list);
 		pss->parser_state = SSH_INITIALIZE_TRANSIENT;
 		pss->wsi = wsi;
 		pss->vhd = vhd;
@@ -2177,21 +2169,15 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 
 		ssh_free_set_NULL(pss->last_alloc);
 
-		while (pss->ch_list)
-			ssh_destroy_channel(pss, pss->ch_list);
+		while (lws_dll2_get_head(&pss->ch_list))
+			ssh_destroy_channel(pss, lws_container_of(
+					lws_dll2_get_head(&pss->ch_list),
+					struct lws_ssh_channel, list));
 
 		lws_chacha_destroy(&pss->active_keys_cts);
 		lws_chacha_destroy(&pss->active_keys_stc);
 
-		p = &vhd->live_pss_list;
-
-		while (*p) {
-			if ((*p) == pss) {
-				*p = pss->next;
-				continue;
-			}
-			p = &((*p)->next);
-		}
+		lws_dll2_remove(&pss->list);
 		break;
 
 	case LWS_CALLBACK_RAW_RX:
@@ -2497,7 +2483,7 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 			else
 				*pp++ = SSH_MSG_CHANNEL_EXTENDED_DATA;
 			/* ps + 6 */
-			lws_p32(pp, pss->ch_list->sender_ch);
+			lws_p32(pp, ch->sender_ch);
 			m = 14;
 			if (n == LWS_STDERR) {
 				pp += 4;
@@ -2637,9 +2623,12 @@ bail:
 		 * we have the child PID in len... we need to match it to a
 		 * channel that is on the wsi
 		 */
-		ch = pss->ch_list;
 
-		while (ch) {
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				      lws_dll2_get_head(&pss->ch_list)) {
+			struct lws_ssh_channel *ch = lws_container_of(d,
+						struct lws_ssh_channel, list);
+
 			if (ch->spawn_pid == len) {
 				lwsl_notice("starting close of ch with PID %d\n",
 					    (int)len);
@@ -2647,8 +2636,7 @@ bail:
 				write_task(pss, ch, SSH_WT_CH_CLOSE);
 				break;
 			}
-			ch = ch->next;
-		}
+		} lws_end_foreach_dll(d);
 		break;
 
 	default:

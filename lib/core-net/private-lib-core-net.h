@@ -1472,7 +1472,8 @@ lws_libuv_closehandle(struct lws *wsi);
 int
 lws_libuv_check_watcher_active(struct lws *wsi);
 
-#if defined(LWS_WITH_EVLIB_PLUGINS) || defined(LWS_WITH_PLUGINS)
+#if defined(LWS_WITH_EVLIB_PLUGINS) || defined(LWS_WITH_PLUGINS) || \
+    defined(LWS_WITH_PLUGINS_API)
 const lws_plugin_header_t *
 lws_plat_dlopen(struct lws_plugin **pplugin, const char *libpath,
 		const char *sofilename, const char *_class,

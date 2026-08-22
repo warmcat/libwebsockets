@@ -44,38 +44,41 @@ typedef enum {
 } e_walk;
 
 struct per_session_data__lws_status {
-	struct per_session_data__lws_status *next;
+	lws_dll2_t list;	/* membership of vhd->live_pss_list */
 	struct lws *wsi;
 	time_t time_est;
 	char user_agent[256];
 
 	e_walk walk;
-	struct per_session_data__lws_status *walk_next;
+	lws_dll2_t *walk_next;
 	unsigned char subsequent:1;
 	unsigned char changed_partway:1;
 	unsigned char wss_over_h2:1;
 };
 
 struct per_vhost_data__lws_status {
-	struct per_session_data__lws_status *live_pss_list;
+	lws_dll2_owner_t live_pss_list;
 	struct lws_context *context;
 	struct lws_vhost *vhost;
 	const struct lws_protocols *protocol;
-	int count_live_pss;
 };
 
 static void
 trigger_resend(struct per_vhost_data__lws_status *vhd)
 {
-	lws_start_foreach_ll(struct per_session_data__lws_status *, pss,
-			     vhd->live_pss_list) {
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->live_pss_list)) {
+		struct per_session_data__lws_status *pss =
+			lws_container_of(d, struct per_session_data__lws_status,
+					 list);
+
 		if (pss->walk == WALK_NONE) {
 			pss->subsequent = 0;
-			pss->walk_next = vhd->live_pss_list;
+			pss->walk_next = lws_dll2_get_head(&vhd->live_pss_list);
 			pss->walk = WALK_INITIAL;
 		} else
 			pss->changed_partway = 1;
-	} lws_end_foreach_ll(pss, next);
+	} lws_end_foreach_dll(d);
 
 	lws_callback_on_writable_all_protocol(vhd->context, vhd->protocol);
 }
@@ -124,9 +127,7 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 		 * memory needed to make the data vs time to send it.
 		 */
 
-		vhd->count_live_pss++;
-		pss->next = vhd->live_pss_list;
-		vhd->live_pss_list = pss;
+		lws_dll2_add_head(&pss->list, &vhd->live_pss_list);
 
 		pss->wss_over_h2 = !!len;
 
@@ -153,9 +154,9 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 				      lws_get_library_version(),
 				      pss->wss_over_h2,
 				      lws_canonical_hostname(vhd->context),
-				      vhd->count_live_pss);
+				      (int)vhd->live_pss_list.count);
 			pss->walk = WALK_LIST;
-			pss->walk_next = vhd->live_pss_list;
+			pss->walk_next = lws_dll2_get_head(&vhd->live_pss_list);
 			break;
 		case WALK_LIST:
 			n = LWS_WRITE_CONTINUATION | LWS_WRITE_NO_FIN;
@@ -166,34 +167,41 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 				*p++ = ',';
 			pss->subsequent = 1;
 
-			m = 0;
-			lws_start_foreach_ll(struct per_session_data__lws_status *,
-					     pss2, vhd->live_pss_list) {
-				if (pss2 == pss->walk_next) {
-					m = 1;
-					break;
-				}
-			} lws_end_foreach_ll(pss2, next);
+			/*
+			 * our cached next guy may have gone away... the check
+			 * only compares pointers against the live list, it
+			 * never dereferences the possibly-freed candidate
+			 */
 
-			if (!m) {
+			if (!lws_dll2_is_in_list(&vhd->live_pss_list,
+						 pss->walk_next)) {
 				/* our next guy went away */
 				pss->walk = WALK_FINAL;
 				pss->changed_partway = 1;
 				break;
 			}
 
-			char esc_ip[96];
-			char esc_ua[384];
-			strcpy(ip, "unknown");
-			lws_get_peer_simple(pss->walk_next->wsi, ip, sizeof(ip));
-			lws_json_purify(esc_ip, ip, sizeof(esc_ip), NULL);
-			lws_json_purify(esc_ua, pss->walk_next->user_agent, sizeof(esc_ua), NULL);
-			
-			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
-					"{\"peer\":\"%s\",\"time\":\"%ld\","
-					"\"ua\":\"%s\"}",
-					esc_ip, (unsigned long)pss->walk_next->time_est,
-					esc_ua);
+			{
+				struct per_session_data__lws_status *walk_pss =
+					lws_container_of(pss->walk_next,
+							 struct per_session_data__lws_status,
+							 list);
+				char esc_ip[96];
+				char esc_ua[384];
+
+				strcpy(ip, "unknown");
+				lws_get_peer_simple(walk_pss->wsi, ip, sizeof(ip));
+				lws_json_purify(esc_ip, ip, sizeof(esc_ip), NULL);
+				lws_json_purify(esc_ua, walk_pss->user_agent,
+						sizeof(esc_ua), NULL);
+
+				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
+						"{\"peer\":\"%s\",\"time\":\"%ld\","
+						"\"ua\":\"%s\"}",
+						esc_ip, (unsigned long)walk_pss->time_est,
+						esc_ua);
+			}
+
 			pss->walk_next = pss->walk_next->next;
 			if (!pss->walk_next)
 				pss->walk = WALK_FINAL;
@@ -205,7 +213,7 @@ walk_final:
 			if (pss->changed_partway) {
 				pss->changed_partway = 0;
 				pss->subsequent = 0;
-				pss->walk_next = vhd->live_pss_list;
+				pss->walk_next = lws_dll2_get_head(&vhd->live_pss_list);
 				pss->walk = WALK_INITIAL;
 			} else
 				pss->walk = WALK_NONE;
@@ -230,13 +238,7 @@ walk_final:
 
 	case LWS_CALLBACK_CLOSED:
 		// lwsl_debug("****** LWS_CALLBACK_CLOSED\n");
-		lws_start_foreach_llp(struct per_session_data__lws_status **,
-			ppss, vhd->live_pss_list) {
-			if (*ppss == pss) {
-				*ppss = pss->next;
-				break;
-			}
-		} lws_end_foreach_llp(ppss, next);
+		lws_dll2_remove(&pss->list);
 
 		trigger_resend(vhd);
 		break;

@@ -457,7 +457,7 @@ done_embedded:
 		qsort(tracks, (size_t)count, sizeof(*tracks), track_cmp);
 		for (i = 0; i < count; i++) {
 			if (tracks[i].kind == HLS_SUB_SIDECAR) {
-				snprintf(tracks[i].id, sizeof(tracks[i].id),
+				lws_snprintf(tracks[i].id, sizeof(tracks[i].id),
 					 "s%d", sidx++);
 			}
 		}
@@ -885,22 +885,23 @@ static struct hls_sub_cache *
 cache_get(struct per_vhost_data__lws_hls *vhd, const char *filename,
 	  const char *trackid, struct hls_sub_track *tk, const char *media_dir)
 {
-	struct hls_sub_cache *c, *prev = NULL;
+	struct hls_sub_cache *c;
 	char key[sizeof(c->key)];
 
 	snprintf(key, sizeof(key), "%s|%s", filename, trackid);
 
-	for (c = vhd->sub_cache_head; c; prev = c, c = c->next) {
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->sub_cache)) {
+		c = lws_container_of(d, struct hls_sub_cache, list);
+
 		if (!strcmp(c->key, key)) {
 			/* LRU: move to head */
-			if (prev) {
-				prev->next = c->next;
-				c->next = vhd->sub_cache_head;
-				vhd->sub_cache_head = c;
-			}
+			lws_dll2_remove(&c->list);
+			lws_dll2_add_head(&c->list, &vhd->sub_cache);
+
 			return c;
 		}
-	}
+	} lws_end_foreach_dll(d);
 
 	/* miss: decode + insert at head, evicting oldest if over cap */
 	c = calloc(1, sizeof(*c));
@@ -920,22 +921,17 @@ cache_get(struct per_vhost_data__lws_hls *vhd, const char *filename,
 			    "spanning %.2fs..%.2fs\n", filename, trackid,
 			    c->n_cues, first, last);
 	}
-	c->next = vhd->sub_cache_head;
-	vhd->sub_cache_head = c;
+	lws_dll2_add_head(&c->list, &vhd->sub_cache);
 	vhd->sub_cache_count++;
 
 	while (vhd->sub_cache_count > HLS_SUB_CACHE_CAP &&
-	       vhd->sub_cache_head) {
+	       lws_dll2_get_head(&vhd->sub_cache)) {
 		/* drop the tail */
-		struct hls_sub_cache *t = vhd->sub_cache_head, *p2 = NULL;
-		while (t->next) {
-			p2 = t;
-			t = t->next;
-		}
-		if (p2)
-			p2->next = NULL;
-		else
-			vhd->sub_cache_head = NULL;
+		struct hls_sub_cache *t = lws_container_of(
+				lws_dll2_get_tail(&vhd->sub_cache),
+				struct hls_sub_cache, list);
+
+		lws_dll2_remove(&t->list);
 		free_cues(t->cues, t->n_cues);
 		free(t);
 		vhd->sub_cache_count--;
@@ -1282,7 +1278,7 @@ fmt_vtt_ts(char *buf, size_t bufsz, double t)
 			mm++;
 		}
 	}
-	snprintf(buf, bufsz, "%02u:%02u:%02u.%03u", hh, mm, ss_whole, ms);
+	lws_snprintf(buf, bufsz, "%02u:%02u:%02u.%03u", hh, mm, ss_whole, ms);
 }
 
 int

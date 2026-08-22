@@ -30,15 +30,14 @@
 struct storage *
 find_storage(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id)
 {
-	struct storage *st = ctx->storage;
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&ctx->storage)) {
+		struct storage *st = lws_container_of(d, struct storage, list);
 
-	while (st) {
 		if (!id_cmp(id, st->id))
-			break;
-		st = st->next;
-	}
+			return st;
+	} lws_end_foreach_dll(d);
 
-	return st;
+	return NULL;
 }
 
 int
@@ -68,7 +67,7 @@ storage_store(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 	st = find_storage(ctx, id);
 
 	if (st == NULL) {
-		if (ctx->numstorage >= DHT_MAX_HASHES)
+		if (ctx->storage.count >= DHT_MAX_HASHES)
 			return -1;
 
 		st = lws_zalloc(sizeof(struct storage), __func__);
@@ -79,9 +78,7 @@ storage_store(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 			lws_free(st);
 			return -1;
 		}
-		st->next	= ctx->storage;
-		ctx->storage	= st;
-		ctx->numstorage++;
+		lws_dll2_add_head(&st->list, &ctx->storage);
 	}
 
 	for (i = 0; i < st->numpeers; i++)
@@ -124,9 +121,11 @@ storage_store(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 int
 expire_storage(struct lws_dht_ctx *ctx)
 {
-	struct storage *st = ctx->storage, *previous = NULL;
-	while (st) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   lws_dll2_get_head(&ctx->storage)) {
+		struct storage *st = lws_container_of(d, struct storage, list);
 		int i = 0;
+
 		while (i < st->numpeers) {
 			if (st->peers[i].time < ctx->now.tv_sec - 32 * 60) {
 				if (i != st->numpeers - 1)
@@ -138,27 +137,22 @@ expire_storage(struct lws_dht_ctx *ctx)
 		}
 
 		if (st->numpeers == 0) {
-			lws_free(st->peers);
-			if (previous)
-				previous->next = st->next;
-			else
-				ctx->storage = st->next;
-			lws_dht_hash_destroy(&st->id);
-			lws_free(st->peers);
-			lws_free(st);
-			if (previous)
-				st = previous->next;
-			else
-				st = ctx->storage;
-			ctx->numstorage--;
-			if (ctx->numstorage < 0) {
-				lwsl_dht_err("%s: Eek... numstorage became negative\n", __func__);
-				ctx->numstorage = 0;
+			lws_dll2_remove(d);
+
+			while (lws_dll2_get_head(&st->subscribers)) {
+				struct subscriber *sub = lws_container_of(
+					lws_dll2_get_head(&st->subscribers),
+					struct subscriber, list);
+
+				lws_dll2_remove(&sub->list);
+				lws_free(sub);
 			}
-		} else {
-			previous = st;
-			st = st->next;
+
+			lws_free(st->peers);
+			lws_dht_hash_destroy(&st->id);
+			lws_free(st);
 		}
-	}
+	} lws_end_foreach_dll_safe(d, d1);
+
 	return 1;
 }

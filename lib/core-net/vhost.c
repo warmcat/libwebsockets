@@ -501,7 +501,7 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 
 		if (pvo || (vh->options & LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS)
 
-#if !defined(LWS_WITH_PLUGINS)
+#if !defined(LWS_WITH_PROTOCOL_PLUGINS)
 				/*
 				 * with plugins, you have to explicitly
 				 * instantiate them per-vhost with pvos.
@@ -593,7 +593,7 @@ lws_protocol_init_vhost(struct lws_vhost *vh, int *any)
 
 		if (pvo || (vh->options & LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS)
 
-#if !defined(LWS_WITH_PLUGINS)
+#if !defined(LWS_WITH_PROTOCOL_PLUGINS)
 				/*
 				 * with plugins, you have to explicitly
 				 * instantiate them per-vhost with pvos.
@@ -721,7 +721,7 @@ lws_create_vhost(struct lws_context *context,
 	const struct lws_http_mount *mounts;
 #endif
 	const struct lws_protocols *pcols = info->protocols;
-#ifdef LWS_WITH_PLUGINS
+#if defined(LWS_WITH_PROTOCOL_PLUGINS)
 	struct lws_plugin *plugin = context->plugin_list;
 #endif
 	struct lws_protocols *lwsp;
@@ -1076,7 +1076,7 @@ lws_create_vhost(struct lws_context *context,
 	    !(vh->options & LWS_SERVER_OPTION_VH_INSTANTIATE_ALL_PROTOCOLS))
 		f = 0;
 	(void)f;
-#ifdef LWS_WITH_PLUGINS
+#if defined(LWS_WITH_PROTOCOL_PLUGINS)
 	if (plugin) {
 		vh->plugin_protocol_bind = m;
 		while (plugin) {
@@ -1788,7 +1788,7 @@ __lws_vhost_destroy2(struct lws_vhost *vh)
 	lws_free(vh->same_vh_protocol_owner);
 
 	if (
-#if defined(LWS_WITH_PLUGINS)
+#if defined(LWS_WITH_PROTOCOL_PLUGINS)
 		vh->context->plugin_list ||
 #endif
 	    vh->allocated_vhost_protocols)

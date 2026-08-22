@@ -82,8 +82,7 @@ lws_sul_plat_unix(lws_sorted_usec_list_t *sul)
 }
 #endif
 
-#if (defined(LWS_WITH_PLUGINS) && !defined(LWS_WITH_PLUGINS_BUILTIN)) || \
-    (defined(LWS_BUILTIN_PLUGIN_NAMES) && defined(LWS_WITH_PLUGINS))
+#if defined(LWS_WITH_PROTOCOL_PLUGINS)
 static int
 protocol_plugin_cb(struct lws_plugin *pin, void *each_user)
 {
@@ -228,7 +227,7 @@ lws_plat_init(struct lws_context *context,
 	}
 
 #endif
-#if defined(LWS_BUILTIN_PLUGIN_NAMES) && defined(LWS_WITH_PLUGINS)
+#if defined(LWS_BUILTIN_PLUGIN_NAMES)
 	lws_plugins_handle_builtin(&context->plugin_list,
 				   protocol_plugin_cb, context);
 #endif
@@ -263,7 +262,7 @@ lws_plat_context_early_destroy(struct lws_context *context)
 void
 lws_plat_context_late_destroy(struct lws_context *context)
 {
-#if defined(LWS_WITH_PLUGINS)
+#if defined(LWS_WITH_PROTOCOL_PLUGINS)
 	if (context->plugin_list)
 		lws_plugins_destroy(&context->plugin_list, NULL, NULL);
 #endif

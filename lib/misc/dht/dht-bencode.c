@@ -1057,26 +1057,33 @@ skip_ip_tracking:
 		/* Validation passed, register the subscriber */
 		{
 			struct storage *st = find_storage(ctx, mp.info_hash);
-			struct subscriber *sub;
+			struct subscriber *sub = NULL;
 			int found = 0;
 
 			if (!st) {
+				if (ctx->storage.count >= DHT_MAX_HASHES)
+					goto fail;
+
 				st = lws_zalloc(sizeof(*st), "dht storage");
 				if (!st) goto fail;
 				st->id = lws_dht_hash_dup(mp.info_hash);
-				st->next = ctx->storage;
-				ctx->storage = st;
+				if (!st->id) {
+					lws_free(st);
+					goto fail;
+				}
+				lws_dll2_add_head(&st->list, &ctx->storage);
 			}
 
-			sub = st->subscribers;
-			while (sub) {
+			lws_start_foreach_dll(struct lws_dll2 *, d,
+					      lws_dll2_get_head(&st->subscribers)) {
+				sub = lws_container_of(d, struct subscriber, list);
+
 				if (sub->sslen == fromlen && !memcmp(&sub->ss, from, fromlen) &&
 				    sub->tid_len == mp.tid_len && !memcmp(sub->tid, mp.tid, mp.tid_len)) {
 					found = 1;
 					break;
 				}
-				sub = sub->next;
-			}
+			} lws_end_foreach_dll(d);
 
 			if (!found) {
 				sub = lws_zalloc(sizeof(*sub), "dht subscriber");
@@ -1085,8 +1092,7 @@ skip_ip_tracking:
 				sub->sslen = fromlen;
 				memcpy(sub->tid, mp.tid, mp.tid_len);
 				sub->tid_len = mp.tid_len;
-				sub->next = st->subscribers;
-				st->subscribers = sub;
+				lws_dll2_add_head(&sub->list, &st->subscribers);
 			}
 
 			sub->expire = ctx->now.tv_sec + 3600; /* 1 hour TTL */

@@ -64,6 +64,13 @@ static const char * const plugin_dirs[] = {
 	NULL
 };
 #else
+#if !defined(LWS_BUILTIN_PLUGIN_NAMES)
+/*
+ * When the plugins are compiled into the library itself, we must not
+ * also statically include their sources here: their symbols are already
+ * in the library and duplicating them fails the link.  We only need the
+ * vendored-in copies when there are no protocol plugins available at all.
+ */
 #if !defined (LWS_PLUGIN_STATIC)
 #define LWS_PLUGIN_STATIC
 #endif
@@ -73,6 +80,7 @@ static const char * const plugin_dirs[] = {
 #include "../plugins/protocol_dumb_increment/protocol_dumb_increment.c"
 #endif
 #include "../plugins/protocol_post_demo/protocol_post_demo.c"
+#endif
 #endif
 
 #if defined(LWS_WITH_EXTERNAL_POLL)
@@ -197,7 +205,7 @@ static struct lws_protocols protocols[] = {
 	/* first protocol must always be HTTP handler */
 
 	{ "http-only", lws_callback_http, 0, 0, 0, NULL, 0 },
-#if !defined(LWS_WITH_PLUGINS)
+#if !defined(LWS_WITH_PLUGINS) && !defined(LWS_BUILTIN_PLUGIN_NAMES)
 #if defined(LWS_ROLE_WS)
 	LWS_PLUGIN_PROTOCOL_DUMB_INCREMENT,
 	LWS_PLUGIN_PROTOCOL_MIRROR,

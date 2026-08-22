@@ -28,6 +28,17 @@
 #include "lws_config.h"
 #include "lws_config_private.h"
 
+/*
+ * Protocol plugins are available at runtime: either dlopenable .so files
+ * (LWS_WITH_PLUGINS) or compiled into the library (LWS_BUILTIN_PLUGIN_NAMES,
+ * ie, LWS_WITH_PLUGINS_BUILTIN).  Code paths that bind plugin protocols into
+ * vhosts should gate on this rather than on LWS_WITH_PLUGINS alone, so
+ * builtin-only builds work identically.
+ */
+#if defined(LWS_WITH_PLUGINS) || defined(LWS_BUILTIN_PLUGIN_NAMES)
+#define LWS_WITH_PROTOCOL_PLUGINS 1
+#endif
+
 #if !defined(LHP_URL_LEN)
 #define LHP_URL_LEN			240
 #endif
@@ -668,7 +679,7 @@ struct lws_context {
 	const struct lws_tls_ops	*tls_ops;
 #endif
 
-#if defined(LWS_WITH_PLUGINS)
+#if defined(LWS_WITH_PROTOCOL_PLUGINS)
 	struct lws_plugin		*plugin_list;
 #endif
 #ifdef _WIN32
@@ -891,6 +902,7 @@ struct lws_context {
 	uint8_t quic_retry_secret[16];
 };
 
+#if defined(LWS_WITH_NETWORK)
 /*
  * vhost list helpers (dll2-backed; see the owners on struct lws_context).
  * Both are NULL-safe: NULL in / NULL out.
@@ -922,6 +934,8 @@ lws_vhost_next(const struct lws_vhost *vh)
 	} lws_end_foreach_dll(___vh ## _dll)
 
 #define lws_get_context_protocol(ctx, x) lws_vhost_first(ctx)->protocols[x]
+#endif
+
 #define lws_get_vh_protocol(vh, x) vh->protocols[x]
 
 int
