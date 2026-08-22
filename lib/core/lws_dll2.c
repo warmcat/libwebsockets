@@ -55,7 +55,7 @@ lws_dll2_is_in_list(struct lws_dll2_owner *owner, struct lws_dll2 *d)
 
 struct lws_dll2 *
 _lws_dll2_safe_next(struct lws_dll2_owner *ow, uint32_t *gen,
-		    struct lws_dll2 *cur, struct lws_dll2 *cand)
+		    struct lws_dll2 *cand)
 {
 	if (!ow || ow->generation == *gen)
 		/* fast path: nothing touched the list since cand was cached */
@@ -85,13 +85,17 @@ _lws_dll2_safe_next(struct lws_dll2_owner *ow, uint32_t *gen,
 	 */
 	assert(lws_dll2_guard_quiet);
 
-	/* recover in release builds: follow the live list, not the cache */
-
-	if (cur && lws_dll2_is_in_list(ow, cur))
-		/* the current node survived: continue from his successor */
-		return cur->next;
-
-	/* even the current node went away: restart from the live head */
+	/*
+	 * Recover in release builds by restarting from the live head.  Note
+	 * the current node cannot be used as an anchor to resume from its
+	 * successor: the supported usage is that the loop body may remove
+	 * and free the current node itself, so by the time we run it may no
+	 * longer exist at all and must not be passed in or touched.
+	 *
+	 * Re-seeding from the head means nodes before the invalidation point
+	 * that are still on the list are revisited; loop bodies must be
+	 * written to tolerate that (ie, act by predicate, not one-shot).
+	 */
 
 	return ow->head;
 }
@@ -315,7 +319,16 @@ lws_dll2_owner_clear(struct lws_dll2_owner *d)
 	d->head = NULL;
 	d->tail = NULL;
 	d->count = 0;
-	d->generation++;
+
+	/*
+	 * This is also the way callers initialize stack owners, so it must
+	 * never read (and then modify) the generation.  Set it back to the
+	 * epoch instead of bumping: any live _safe iterator can only exist
+	 * on an owner with members, which implies at least one add since
+	 * the last clear, so its cached generation is nonzero and the reset
+	 * to 0 is still always detectable as a list change.
+	 */
+	d->generation = 0;
 }
 
 void

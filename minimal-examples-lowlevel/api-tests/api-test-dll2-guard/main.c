@@ -9,8 +9,8 @@
  * Exercises the lws_dll2 _safe iterator runtime guard: classic current-node
  * removal must keep working cheaply, while a loop body that invalidates the
  * cached NEXT node (the use-after-free class seen in the QUIC close_after_rx
- * external report) must be detected at the iteration step and recovered along
- * the live list instead of walking into freed nodes.
+ * external report) must be detected at the iteration step and recovered by
+ * re-seeding from the live head instead of walking into freed nodes.
  */
 
 #include <libwebsockets.h>
@@ -24,8 +24,7 @@ struct tdll {
 	int			n;
 };
 
-static int ecount, seq[8], seqn;
-
+static int ecount, seq[8], seqn, armed;
 static struct tdll *
 td(int n)
 {
@@ -111,9 +110,10 @@ int main(int argc, const char **argv)
 	free(Z);
 
 	lws_dll2_add_tail(&A->list, &ow);
+	g = ow.generation;
 	lws_dll2_owner_clear(&ow);
 	if (ow.generation == g)
-		bad++, printf("FAIL: owner_clear did not bump generation\n");
+		bad++, printf("FAIL: owner_clear did not change generation\n");
 	free(A);
 
 	if (bad)
@@ -158,6 +158,11 @@ int main(int argc, const char **argv)
 	 * 3: the reported bug class... the body removes AND FREES the cached
 	 *    NEXT node.  Keep the guard nonfatal so we can assert the recovery
 	 *    from here.
+	 *
+	 *    The recovery re-seeds from the live head, so the surviving current
+	 *    node A is revisited before the walk continues down the list.  The
+	 *    "armed" one-shot makes the revisit explicit: _safe loop bodies
+	 *    must tolerate being re-run for a node they already saw.
 	 */
 
 	memset(&ow, 0, sizeof(ow));
@@ -170,14 +175,16 @@ int main(int argc, const char **argv)
 	lws_dll2_guard_quiet = 1;	/* tests only: recover, don't assert */
 
 	seqn = 0;
+	armed = 1;
 	lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1, ow.head) {
 		struct tdll *t = lws_container_of(p, struct tdll, list);
 
 		seq[seqn++] = t->n;
 
-		if (t->n == 1) {
+		if (t->n == 1 && armed) {
 			/* free the cached-next node B under the iterator */
 			assert(p1 == &B->list);
+			armed = 0;
 			lws_dll2_remove(p1);
 			free(B);
 		}
@@ -185,11 +192,12 @@ int main(int argc, const char **argv)
 
 	lws_dll2_guard_quiet = 0;
 
-	/* A, then recovery from A's live successor C, then D */
-	if (seqn != 3 || seq[0] != 1 || seq[1] != 3 || seq[2] != 4)
+	/* A, then the head-restart revisits A, then C, then D */
+	if (seqn != 4 || seq[0] != 1 || seq[1] != 1 || seq[2] != 3 ||
+	    seq[3] != 4)
 		bad++, printf("FAIL: cached-next free not recovered: "
-				"n %d {%d,%d,%d}\n", seqn, seq[0], seq[1],
-				seq[2]);
+				"n %d {%d,%d,%d,%d}\n", seqn, seq[0], seq[1],
+				seq[2], seq[3]);
 	if (ow.count != 3)
 		bad++, printf("FAIL: recovery munged count (%u)\n", ow.count);
 
@@ -210,12 +218,14 @@ int main(int argc, const char **argv)
 
 	lws_dll2_guard_quiet = 1;
 	seqn = 0;
+	armed = 1;
 	lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1, ow.head) {
 		struct tdll *t = lws_container_of(p, struct tdll, list);
 
 		seq[seqn++] = t->n;
 
-		if (t->n == 1) {
+		if (t->n == 1 && armed) {
+			armed = 0;
 			lws_dll2_remove(&B->list);
 			free(B);
 			lws_dll2_remove(&C->list);
@@ -224,9 +234,11 @@ int main(int argc, const char **argv)
 	} lws_end_foreach_dll_safe(p, p1);
 	lws_dll2_guard_quiet = 0;
 
-	if (seqn != 2 || seq[0] != 1 || seq[1] != 4)
+	/* A, head-restart revisits A, then D */
+	if (seqn != 3 || seq[0] != 1 || seq[1] != 1 || seq[2] != 4)
 		bad++, printf("FAIL: double-next free not recovered: "
-				"n %d {%d,%d}\n", seqn, seq[0], seq[1]);
+				"n %d {%d,%d,%d}\n", seqn, seq[0], seq[1],
+				seq[2]);
 	if (ow.count != 2)
 		bad++, printf("FAIL: recovery munged count (%u)\n", ow.count);
 
