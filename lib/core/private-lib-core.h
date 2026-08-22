@@ -542,6 +542,12 @@ struct lws_context {
 
 	lws_dll2_owner_t		owner_vh_being_destroyed;
 
+#if defined(LWS_WITH_STUB)
+	lws_dll2_owner_t		owner_stub_mgrs;
+	/**< lws_stub_manager tracking, so stubs can never outlive the
+	 *   context or the vhost they were spawned on */
+#endif
+
 	lws_metric_t			*mt_service; /* doing service */
 	const lws_metric_policy_t	*metrics_policies;
 	const char			*metrics_prefix;
