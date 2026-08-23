@@ -69,6 +69,18 @@ rops_handle_POLLIN_cgi(struct lws_context_per_thread *pt, struct lws *wsi,
 		return LWS_HPI_RET_HANDLED;
 	}
 
+	if (wsi->lsp_channel == LWS_STDIN)
+		/*
+		 * The cgi has drained its stdin pipe enough to accept more
+		 * body... if quenching rx on the parent network wsi while
+		 * the pipe was full, reallow it so the stashed body tail is
+		 * reoffered to the cgi stdin
+		 */
+		lws_rx_flow_control(wsi->parent,
+				LWS_RXFLOW_REASON_USER_BOOL |
+				LWS_RXFLOW_REASON_APPLIES_ENABLE |
+				LWS_RXFLOW_REASON_FLAG_PROCESS_NOW);
+
 	if (!wsi->parent->http.cgi) {
 		lwsl_wsi_notice(wsi, "stdwsi content with deleted cgi object");
 
@@ -146,6 +158,18 @@ rops_pt_init_destroy_cgi(struct lws_context *context,
 static int
 rops_close_role_cgi(struct lws_context_per_thread *pt, struct lws *wsi)
 {
+	/*
+	 * If this is the stdin stdwsi going away (body completed, cgi exited
+	 * or torn down), any rx quench we put on the parent network wsi while
+	 * the stdin pipe was full must be released, or the network transaction
+	 * can be left unable to make progress
+	 */
+	if (wsi->lsp_channel == LWS_STDIN && wsi->parent)
+		lws_rx_flow_control(wsi->parent,
+				LWS_RXFLOW_REASON_USER_BOOL |
+				LWS_RXFLOW_REASON_APPLIES_ENABLE |
+				LWS_RXFLOW_REASON_FLAG_PROCESS_NOW);
+
 	if (wsi->parent && wsi->parent->http.cgi && wsi->parent->http.cgi->lsp)
 		lws_spawn_stdwsi_closed(wsi->parent->http.cgi->lsp, wsi);
 

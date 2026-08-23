@@ -970,9 +970,54 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 
 		n = (int)write(n, args->data, (unsigned int)args->len);
 //		lwsl_hexdump_notice(args->data, args->len);
-		if (n < args->len)
+		if (n < 0) {
+			/*
+			 * The cgi stdin pipe is nonblocking... it being
+			 * momentarily full is a normal backpressure
+			 * condition, not a transaction error.  Report that
+			 * nothing was consumed, so the caller keeps it
+			 * accounted and reoffers it when the pipe drains.
+			 *
+			 * Anything else (eg, EPIPE from the cgi going away)
+			 * really is fatal for the transaction.
+			 */
+			if (errno == EAGAIN || errno == EWOULDBLOCK ||
+			    errno == EINTR)
+				n = 0;
+			else
+				return -1;
+		}
+
+		if (n < args->len) {
 			lwsl_wsi_notice(wsi, "CGI_STDIN_DATA: "
-				    "sent %d only %d went", n, args->len);
+				    "sent %d only %d went", args->len, n);
+
+			if (wsi->mux_substream || lwsi_role_h2(wsi))
+				/*
+				 * h2 streams can't use the wsi rxflow
+				 * control machinery to stop the body
+				 * refeed... fail the stream closed rather
+				 * than leave unconsumed body unaccounted
+				 */
+				return -1;
+
+			/*
+			 * Quench further network rx on the transaction wsi
+			 * while the stdin pipe is full, so the body tail
+			 * stays stashed and is not spun on, and arrange to
+			 * be told when the cgi has drained its stdin
+			 * enough to take more... the cgi role ops STDIN
+			 * POLLOUT path reallows rx on the wsi then.
+			 */
+			lws_rx_flow_control(wsi,
+					LWS_RXFLOW_REASON_USER_BOOL |
+					LWS_RXFLOW_REASON_APPLIES_DISABLE |
+					LWS_RXFLOW_REASON_FLAG_PROCESS_NOW);
+			if (args->stdwsi[LWS_STDIN] &&
+			    lws_change_pollfd(args->stdwsi[LWS_STDIN],
+					      0, LWS_POLLOUT))
+				return -1;
+		}
 
 		lwsl_wsi_info(wsi, "proxied %d bytes", n);
 
