@@ -24,14 +24,6 @@
  * This is included from private-lib-core.h if LWS_ROLE_WS
  */
 
-#if defined(LWS_WITH_ZLIB)
-#if defined(LWS_WITH_MINIZ)
-#include <miniz.h>
-#else
-#include <zlib.h>
-#endif
-#endif
-
 extern const struct lws_role_ops role_ops_cgi;
 
 #define lwsi_role_cgi(wsi) (wsi->role_ops == &role_ops_cgi)
@@ -66,10 +58,6 @@ struct lws_cgi {
 	unsigned char *headers_end;
 
 	char summary[128];
-#if defined(LWS_WITH_ZLIB)
-	z_stream inflate;
-	uint8_t inflate_buf[1024];
-#endif
 
 	lws_filepos_t post_in_expected;
 	lws_filepos_t content_length;
@@ -86,8 +74,6 @@ struct lws_cgi {
 	unsigned char explicitly_chunked:1;
 	unsigned char cgi_transaction_over:1;
 	unsigned char implied_chunked:1;
-	unsigned char gzip_inflate:1;
-	unsigned char gzip_init:1;
 
 	unsigned char chunked_grace;
 };

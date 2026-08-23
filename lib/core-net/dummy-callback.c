@@ -872,7 +872,7 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		args = (struct lws_cgi_args *)in;
 		/*
 		 * The data is only consumed using its explicit length
-		 * (write() to the stdin pipe, or inflate())... do not try
+		 * (write() to the stdin pipe)... do not try
 		 * to NUL-terminate it here, the buffer it arrives in is not
 		 * guaranteed to have a spare byte after the payload.  This
 		 * was historically done and comprised a 1-byte OOB write
@@ -883,87 +883,6 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		n = lws_get_socket_fd(args->stdwsi[LWS_STDIN]);
 		if (n < 0)
 			return -1;
-
-#if defined(LWS_WITH_ZLIB)
-		if (wsi->http.cgi->gzip_inflate) {
-			/* gzip handling */
-
-			if (!wsi->http.cgi->gzip_init) {
-				lwsl_wsi_info(wsi, "inflating gzip");
-
-				memset(&wsi->http.cgi->inflate, 0,
-				       sizeof(wsi->http.cgi->inflate));
-
-				if (inflateInit2(&wsi->http.cgi->inflate,
-						 16 + 15) != Z_OK) {
-					lwsl_wsi_err(wsi, "iniflateInit fail");
-					return -1;
-				}
-
-				wsi->http.cgi->gzip_init = 1;
-			}
-
-			wsi->http.cgi->inflate.next_in = args->data;
-			wsi->http.cgi->inflate.avail_in = (unsigned int)args->len;
-
-			do {
-
-				wsi->http.cgi->inflate.next_out =
-						wsi->http.cgi->inflate_buf;
-				wsi->http.cgi->inflate.avail_out =
-					sizeof(wsi->http.cgi->inflate_buf);
-
-				n = inflate(&wsi->http.cgi->inflate,
-					    Z_SYNC_FLUSH);
-
-				switch (n) {
-				case Z_NEED_DICT:
-				case Z_STREAM_ERROR:
-				case Z_DATA_ERROR:
-				case Z_MEM_ERROR:
-					inflateEnd(&wsi->http.cgi->inflate);
-					wsi->http.cgi->gzip_init = 0;
-					lwsl_wsi_err(wsi, "zlib err inflate %d", n);
-					return -1;
-				}
-
-				if (wsi->http.cgi->inflate.avail_out !=
-					   sizeof(wsi->http.cgi->inflate_buf)) {
-					int written;
-
-					written = (int)write(args->stdwsi[LWS_STDIN]->desc.filefd,
-						wsi->http.cgi->inflate_buf,
-						sizeof(wsi->http.cgi->inflate_buf) -
-						wsi->http.cgi->inflate.avail_out);
-
-					if (written != (int)(
-						sizeof(wsi->http.cgi->inflate_buf) -
-						wsi->http.cgi->inflate.avail_out)) {
-						lwsl_wsi_notice(wsi,
-							"CGI_STDIN_DATA: "
-							"sent %d only %d went",
-							n, args->len);
-					}
-
-					if (n == Z_STREAM_END) {
-						lwsl_wsi_err(wsi,
-							    "gzip inflate end");
-						inflateEnd(&wsi->http.cgi->inflate);
-						wsi->http.cgi->gzip_init = 0;
-						break;
-					}
-
-				} else
-					break;
-
-				if (wsi->http.cgi->inflate.avail_out)
-					break;
-
-			} while (1);
-
-			return args->len;
-		}
-#endif /* WITH_ZLIB */
 
 		n = (int)write(n, args->data, (unsigned int)args->len);
 //		lwsl_hexdump_notice(args->data, args->len);
