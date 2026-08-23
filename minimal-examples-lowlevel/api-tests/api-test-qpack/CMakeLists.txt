@@ -94,4 +94,8 @@ if (requirements)
 			target_link_libraries(${SAMP} ${LSQPACK_LIBRARY})
 		endif()
 	endif()
+
+	# the QIF datasets are referenced relative to the build dir
+	add_test(NAME api-test-qpack COMMAND ${SAMP}
+		 WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
 endif()
