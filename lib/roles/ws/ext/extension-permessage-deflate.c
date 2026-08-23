@@ -44,6 +44,38 @@ const struct lws_ext_options lws_ext_pm_deflate_options[] = {
 	{ NULL, 0 }, /* sentinel */
 };
 
+/*
+ * The args have to stay in sane ranges no matter who set them.  The public
+ * RFC7692 params are the server/client window bits; the rest are local-only
+ * tuning params that a ws peer has no business sending at all, but the
+ * client parses the server's extension response through the full option
+ * table.  The buf pwr2 args directly size per-connection allocations
+ * (LWS_PRE + 7 + 5 + (1 << pwr2)) so an unchecked one from a malicious ws
+ * server means ~1GiB per connection; zlib would reject out-of-range comp /
+ * mem level itself, but only at the first payload, after the connection was
+ * already accepted.
+ */
+
+static int
+lws_ext_pm_deflate_arg_valid(int option_index, int v)
+{
+	switch (option_index) {
+	case PMD_SERVER_MAX_WINDOW_BITS:
+	case PMD_CLIENT_MAX_WINDOW_BITS:
+		return v >= 8 && v <= 15;
+	case PMD_RX_BUF_PWR2:
+	case PMD_TX_BUF_PWR2:
+		/* 128B .. 128KB chunk buffers */
+		return v >= 7 && v <= 17;
+	case PMD_COMP_LEVEL:
+		return v >= 0 && v <= 9;
+	case PMD_MEM_LEVEL:
+		return v >= 1 && v <= 9;
+	}
+
+	return 1;
+}
+
 static void
 lws_extension_pmdeflate_restrict_args(struct lws *wsi,
 				      struct lws_ext_pm_deflate_priv *priv)
@@ -63,6 +95,16 @@ lws_extension_pmdeflate_restrict_args(struct lws *wsi,
 	if (extra < priv->args[PMD_RX_BUF_PWR2]) {
 		priv->args[PMD_RX_BUF_PWR2] = (unsigned char)extra;
 		lwsl_wsi_info(wsi, " Capping pmd rx to %d", 1 << extra);
+	}
+
+	/*
+	 * ... and the TX buf the same, so a peer cannot size our per-
+	 * connection deflate output allocation via the negotiation
+	 */
+
+	if (extra < priv->args[PMD_TX_BUF_PWR2]) {
+		priv->args[PMD_TX_BUF_PWR2] = (unsigned char)extra;
+		lwsl_wsi_info(wsi, " Capping pmd tx to %d", 1 << extra);
 	}
 }
 
@@ -108,10 +150,10 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 			 oa->option_index, oa->start, oa->len);
 		if (oa->start) {
 			int v = atoi(oa->start);
-			if (oa->option_index == PMD_SERVER_MAX_WINDOW_BITS ||
-			    oa->option_index == PMD_CLIENT_MAX_WINDOW_BITS) {
-				if (v < 8 || v > 15)
-					return -1;
+			if (!lws_ext_pm_deflate_arg_valid(oa->option_index, v)) {
+				lwsl_wsi_notice(wsi, "pmd option %d invalid value %d",
+						oa->option_index, v);
+				return -1;
 			}
 			priv->args[oa->option_index] = (unsigned char)v;
 		} else
@@ -124,11 +166,14 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		break;
 
 	case LWS_EXT_CB_OPTION_CONFIRM:
-		if (priv->args[PMD_SERVER_MAX_WINDOW_BITS] < 8 ||
-		    priv->args[PMD_SERVER_MAX_WINDOW_BITS] > 15 ||
-		    priv->args[PMD_CLIENT_MAX_WINDOW_BITS] < 8 ||
-		    priv->args[PMD_CLIENT_MAX_WINDOW_BITS] > 15)
-			return -1;
+		/*
+		 * lws_ext_parse_options() drops the return from OPTION_SET,
+		 * so re-check the stored args here: this is the client-side
+		 * gate on the server's extension response
+		 */
+		for (n = 0; n < PMD_ARG_COUNT; n++)
+			if (!lws_ext_pm_deflate_arg_valid(n, priv->args[n]))
+				return -1;
 		break;
 
 	case LWS_EXT_CB_CLIENT_CONSTRUCT:
