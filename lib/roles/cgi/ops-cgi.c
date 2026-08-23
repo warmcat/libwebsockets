@@ -115,22 +115,6 @@ rops_handle_POLLOUT_cgi(struct lws *wsi)
 	return LWS_HP_RET_USER_SERVICE;
 }
 
-static int
-rops_destroy_role_cgi(struct lws *wsi)
-{
-#if defined(LWS_WITH_ZLIB)
-	if (!wsi->http.cgi)
-		return 0;
-	if (!wsi->http.cgi->gzip_init)
-		return 0;
-
-	inflateEnd(&wsi->http.cgi->inflate);
-	wsi->http.cgi->gzip_init = 0;
-#endif
-
-	return 0;
-}
-
 void
 lws_cgi_sul_cb(lws_sorted_usec_list_t *sul)
 {
@@ -181,7 +165,6 @@ static const lws_rops_t rops_table_cgi[] = {
 	/*  2 */ { .handle_POLLIN	= rops_handle_POLLIN_cgi },
 	/*  3 */ { .handle_POLLOUT	= rops_handle_POLLOUT_cgi },
 	/*  4 */ { .close_role		= rops_close_role_cgi },
-	/*  5 */ { .destroy_role	= rops_destroy_role_cgi },
 };
 
 const struct lws_role_ops role_ops_cgi = {
@@ -207,7 +190,7 @@ const struct lws_role_ops role_ops_cgi = {
 	  /* LWS_ROPS_close_role */
 	  /* LWS_ROPS_close_kill_connection */		0x40,
 	  /* LWS_ROPS_destroy_role */
-	  /* LWS_ROPS_adoption_bind */			0x50,
+	  /* LWS_ROPS_adoption_bind */			0x00,
 	  /* LWS_ROPS_client_bind */
 	  /* LWS_ROPS_issue_keepalive */		0x00,
 					},

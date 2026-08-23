@@ -190,14 +190,6 @@ lws_cgi_via_info(struct lws_cgi_info * cgiinfo)
 
 	sum += lws_snprintf(sum, lws_ptr_diff_size_t(sumend, sum), "%s ", cgiinfo->exec_array[0]);
 
-	if (0) {
-		char *pct = lws_hdr_simple_ptr(cgiinfo->wsi,
-				WSI_TOKEN_HTTP_CONTENT_ENCODING);
-
-		if (pct && !strcmp(pct, "gzip"))
-			cgiinfo->wsi->http.cgi->gzip_inflate = 1;
-	}
-
 	/* prepare his CGI env */
 
 	n = 0;
@@ -396,12 +388,11 @@ lws_cgi_via_info(struct lws_cgi_info * cgiinfo)
 			  lws_hdr_simple_ptr(cgiinfo->wsi, WSI_TOKEN_HTTP_CONTENT_TYPE)))
 				goto bail;
 		}
-		if (!cgiinfo->wsi->http.cgi->gzip_inflate &&
-		    lws_hdr_total_length(cgiinfo->wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
-			if (lws_cgi_env_add(env_array, &n, (int)LWS_ARRAY_SIZE(env_array), &p, end,
-					  "CONTENT_LENGTH=%s",
-					  lws_hdr_simple_ptr(cgiinfo->wsi,
-					  WSI_TOKEN_HTTP_CONTENT_LENGTH)))
+		if (lws_hdr_total_length(cgiinfo->wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH)) {
+			if (lws_cgi_env_add(env_array, &n, (int)LWS_ARRAY_SIZE(env_array),
+					    &p, end, "CONTENT_LENGTH=%s",
+					    lws_hdr_simple_ptr(cgiinfo->wsi,
+					    WSI_TOKEN_HTTP_CONTENT_LENGTH)))
 				goto bail;
 		}
 
