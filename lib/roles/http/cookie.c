@@ -89,6 +89,33 @@ lws_cookie_domain_len(const char *domain)
 	return strlen(domain);
 }
 
+/*
+ * RFC 6265 suffix-domain matching is only meaningful for domain names: a
+ * host that is not a domain name (an IP literal) must match stored cookies
+ * on the exact host string only.  Decide if the host is a bracketed IPv6
+ * literal or an IPv4-style string of digits and dots (including numeric
+ * lookalikes that no real domain can produce).
+ */
+static int
+lws_cookie_is_ip_literal(const char *host, size_t len)
+{
+	size_t n;
+
+	if (!host || !len)
+		return 0;
+
+	/* bracketed IPv6 literal, eg, "[::1]" */
+	if (host[0] == '[')
+		return 1;
+
+	/* IPv4-style numeric host? */
+	for (n = 0; n < len; n++)
+		if ((host[n] < '0' || host[n] > '9') && host[n] != '.')
+			return 0;
+
+	return 1;
+}
+
 static int
 lws_cookie_parse_date(const char *d, size_t len, time_t *t)
 {
@@ -478,6 +505,7 @@ lws_cookie_attach_cookies(struct lws *wsi, char *buf, char *end)
 	lws_cache_results_t cr;
 	struct lws_cookie c;
 	int hostdomain = 1;
+	int ip_host;
 	char *p, *p1, *cache_name;
 
 	if (!wsi)
@@ -546,6 +574,16 @@ lws_cookie_attach_cookies(struct lws *wsi, char *buf, char *end)
 		p = NULL;
 	else
 		p = buf;
+
+	/*
+	 * RFC 6265: a request host that is an IP literal, not a domain name,
+	 * matches cookies stored for exactly that host only.  Do the initial
+	 * exact-host lookup below, but do not then walk the dot-suffixes of a
+	 * numeric host -- they are unrelated hosts, eg, a cookie stored under
+	 * "168.0.1" must not replay to 192.168.0.1 or 10.168.0.1.
+	 */
+	ip_host = lws_cookie_is_ip_literal(domain,
+					   lws_cookie_domain_len(domain));
 
 	/* iterate through domain and path levels to find matching cookies */
 	dl_domain = domain;
@@ -622,6 +660,10 @@ lws_cookie_attach_cookies(struct lws *wsi, char *buf, char *end)
 		}
 
 		lws_free(cache_name);
+
+		/* IP-literal hosts match on the exact host only */
+		if (ip_host)
+			break;
 
 		domain = dl_domain + 1;
 		hostdomain = 0;
@@ -790,6 +832,21 @@ parse_av:
 			}
 
 		} while (tk_end != buf_end);
+
+		/*
+		 * RFC 6265: reject cookies scoped by Domain= to something that
+		 * is not a domain name (a numeric / IP-literal host).  Cookies
+		 * for IP hosts are host-only, for the exact host only, so a
+		 * numeric Domain= is never a legitimate scope and would only
+		 * feed the suffix walk cross-host replays.
+		 */
+		if (c.f[CE_DOMAIN] &&
+		    lws_cookie_is_ip_literal(c.f[CE_DOMAIN], c.l[CE_DOMAIN])) {
+			lwsl_notice("%s: dropping cookie with non-domain "
+				    "Domain=%.*s\n", __func__,
+				    (int)c.l[CE_DOMAIN], c.f[CE_DOMAIN]);
+			continue;
+		}
 
 		if (lws_cookie_write_nsc(wsi, &c))
 			lwsl_err("%s:failed to write nsc\n", __func__);
