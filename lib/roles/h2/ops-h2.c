@@ -383,7 +383,16 @@ drain:
 			return LWS_HPI_RET_WSI_ALREADY_DIED;
 		}
 
-		if (n && buffered) {
+		if (buffered) {
+			/*
+			 * it's in the buflist; we didn't use any... retain
+			 * the segment for the next attempt, appending a
+			 * copy of it would duplicate the data
+			 */
+
+			if (!n)
+				break;
+
 			// lwsl_notice("%s: h2 use %d\n", __func__, n);
 			m = (int)lws_buflist_use_segment(&wsi->buflist, (size_t)n);
 			lwsl_info("%s: draining rxflow: used %d, next %d\n",
@@ -394,7 +403,11 @@ drain:
 				lws_dll2_remove(&wsi->dll_buflist);
 			}
 		} else
-			/* cov: both n and ebuf.len are int */
+			/*
+			 * direct read: any remainder goes on the buflist
+			 *
+			 * cov: both n and ebuf.len are int
+			 */
 			if (n >= 0 && n < ebuf.len && ebuf.len > 0) {
 				// lwsl_notice("%s: h2 append seg %d\n", __func__, ebuf.len - n);
 				m = lws_buflist_append_segment(&wsi->buflist,
