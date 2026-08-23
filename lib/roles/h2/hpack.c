@@ -379,8 +379,19 @@ lws_token_from_index(struct lws *wsi, int index, const char **arg, int *len,
 		return static_token[index];
 	}
 
-	if (!dyn) {
-		lwsl_notice("no dynamic table\n");
+	/*
+	 * dyn is the address of a member inside h2n and can never be NULL.
+	 * What is possible is the table storage is not allocated (it was
+	 * destroyed, eg, by a peer dynamic table size update of 0), or the
+	 * table is empty.  Either way there is nothing at this dynamic
+	 * index: treat it as the compression error it is rather than
+	 * dereferencing dyn->entries.
+	 */
+	if (!dyn->entries || !dyn->used_entries) {
+		lwsl_info("%s: dynamic table empty for index %d\n", __func__,
+			  index);
+		lws_h2_goaway(wsi, H2_ERR_COMPRESSION_ERROR,
+			      "index into empty dynamic table");
 		return -1;
 	}
 
@@ -593,7 +604,13 @@ lws_hpack_dynamic_size(struct lws *wsi, int size)
 
 	if (!size) {
 		size = dyn->num_entries * 8;
-		lws_hpack_destroy_dynamic_header(wsi);
+		/*
+		 * wsi here is normally the substream whose HEADERS block we
+		 * are interpreting; the dynamic table belongs to the network
+		 * connection.  destroy is a no-op on a wsi without h2n, so we
+		 * have to pass the network wsi we already resolved.
+		 */
+		lws_hpack_destroy_dynamic_header(nwsi);
 	}
 
 	if (size < 0) {
@@ -624,7 +641,12 @@ lws_hpack_dynamic_size(struct lws *wsi, int size)
 	if (min > dyn->used_entries)
 		min = dyn->used_entries;
 
-	if (size == dyn->num_entries)
+	/*
+	 * Nothing to do if the slot count is unchanged... but if the entries
+	 * storage went away (a resize to 0 destroys it above), we have to
+	 * fall through and reallocate, or the table stays unusable.
+	 */
+	if (dyn->entries && size == dyn->num_entries)
 		return 0;
 
 	if (dyn->num_entries < min)
@@ -696,6 +718,21 @@ lws_hpack_destroy_dynamic_header(struct lws *wsi)
 			lws_free_set_NULL(dyn->entries[n].value);
 
 	lws_free_set_NULL(dyn->entries);
+
+	/*
+	 * The table storage is gone, so the table is now empty: the
+	 * accounting and ringbuffer state have to return to the empty
+	 * state as well, or later users of the table trust used_entries
+	 * and virtual_payload_usage that describe freed storage.
+	 *
+	 * num_entries is left alone... it describes the current slot
+	 * capacity, which lws_hpack_dynamic_size() still needs after
+	 * calling us on a resize to zero (and at teardown, h2n is freed
+	 * whole immediately afterwards anyway).
+	 */
+	dyn->used_entries = 0;
+	dyn->pos = 0;
+	dyn->virtual_payload_usage = 0;
 }
 
 static int
