@@ -1001,6 +1001,13 @@ lws_qpack_decode_encoder_stream(struct lws_qpack_stream_state *state,
 			break;
 
 		case LQP_DEC_INT:
+			/*
+			 * F-015: endless continuation bytes from the peer
+			 * would otherwise accumulate at shifts >= 64 bits,
+			 * which is undefined behavior, not a masked shift
+			 */
+			if (state->int_shift >= 64)
+				return 1;
 			state->int_val += (uint64_t)(c & 0x7f) << state->int_shift;
 			state->int_shift += 7;
 			if (!(c & 0x80)) {

@@ -100,6 +100,103 @@ static int test_qpack_encoder(struct lws_context *ctx)
 	return fails;
 }
 
+/*
+ * F-015: a peer can stretch any varint on the QPACK encoder stream or a
+ * header block with endless continuation bytes.  After 9 continuation
+ * bytes int_shift is 63; from the 11th onwards the accumulation would
+ * shift by >= 70 bits, which is undefined behavior in C rather than a
+ * masked shift.  Both varint consumers must fail the decode cleanly
+ * before that point, while still accepting well-formed extended varints.
+ */
+static int test_qpack_varint_limits(void)
+{
+	struct lws_qpack_stream_state state;
+	struct lws_qpack_context qctx;
+	int fails = 0;
+
+	lwsl_user("\n--- 9. QPACK over-long varint rejection (F-015) ---\n");
+
+	memset(&qctx, 0, sizeof(qctx));
+	/* ops-h3.c sets this from LWS_QPACK_CAP_VAL before any decode */
+	qctx.dyn_table.virtual_payload_limit = 4096;
+
+	/* Well-formed 2-byte-extended Set Capacity (4096) must be accepted */
+	{
+		static const uint8_t cap[] = {
+			0x3f,			/* 001|11111: Set Capacity, extended */
+			0xe1, 0x1f,		/* 97 + 31 << 7 => capacity 4096 */
+		};
+
+		memset(&state, 0, sizeof(state));
+		state.state = LQP_DEC_INSTRUCTION;
+		if (lws_qpack_decode_encoder_stream(&state, &qctx,
+						    cap, sizeof(cap))) {
+			lwsl_err("9.1: legit extended Set Capacity rejected\n");
+			fails++;
+		}
+	}
+
+	/*
+	 * Set Capacity whose varint never converges: the 11th continuation
+	 * byte would accumulate at shift 70.  Must fail, not compute it.
+	 */
+	{
+		static const uint8_t overlong[] = {
+			0x3f,			/* 001|11111: Set Capacity, extended */
+			0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+			0xff, 0xff, 0xff, 0xff,	/* 10 bytes: int_shift reaches 63 */
+			0xff,			/* ...this one would shift by 70 bits */
+			0x01
+		};
+
+		memset(&state, 0, sizeof(state));
+		state.state = LQP_DEC_INSTRUCTION;
+		if (!lws_qpack_decode_encoder_stream(&state, &qctx,
+						     overlong, sizeof(overlong))) {
+			lwsl_err("9.2: over-long encoder stream varint accepted\n");
+			fails++;
+		}
+	}
+
+	/* Same property on the header block decoder, via Indexed Field Line */
+	{
+		static const uint8_t blk[] = {
+			0x00, 0x00,		/* header block prefix: RIC=0, Base=0 */
+			0xff,			/* 1|111111: Indexed Field Line, extended */
+			0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+			0xff, 0xff, 0xff, 0xff, 0xff, 0x01
+		};
+
+		memset(&state, 0, sizeof(state));
+		if (!lws_qpack_decode_header_block(&state, NULL, blk,
+						   sizeof(blk),
+						   test_qpack_cb, &fails)) {
+			lwsl_err("9.3: over-long header block varint accepted\n");
+			fails++;
+		}
+	}
+
+	/* Well-formed extended Indexed Field Line (static idx 65) is accepted */
+	{
+		static const uint8_t blk[] = {
+			0x00, 0x00,		/* header block prefix: RIC=0, Base=0 */
+			0xff, 0x02,		/* 1|111111 + 2 => static index 65 */
+		};
+
+		memset(&state, 0, sizeof(state));
+		if (lws_qpack_decode_header_block(&state, NULL, blk,
+						  sizeof(blk),
+						  test_qpack_cb, &fails)) {
+			lwsl_err("9.4: legit extended header block varint rejected\n");
+			fails++;
+		}
+	}
+
+	lws_qpack_destroy_dynamic_header(&qctx);
+
+	return fails;
+}
+
 struct test_qif_state {
 	int fails;
 	int expected_idx;
@@ -653,6 +750,7 @@ int main(int argc, const char **argv)
 	}
 	
 	fails += test_qpack_encoder(context);
+	fails += test_qpack_varint_limits();
 
 	if (fails) {
 		lwsl_err("Failed %d tests\n", fails);
