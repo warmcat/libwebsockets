@@ -121,6 +121,17 @@ struct pending_login_refresh {
 
 	char                    token[2048];
 
+	/*
+	 * What the auth server actually said, so the browser-leg completion
+	 * log can state the real denial reason instead of an anonymous
+	 * "denied by Server": the HTTP status, the JSON "error" member of the
+	 * response body, and -- when the side channel died before any
+	 * response -- the client connection error string.
+	 */
+	unsigned                resp_status;
+	char                    resp_error[96];
+	char                    conn_error[160];
+
 	/* COLDLOAD: the original request URI (path + query), so the success
 	 * self-redirect lands the browser back on the protected URL it
 	 * asked for. */
@@ -384,7 +395,11 @@ sul_pending_refresh_cb(lws_sorted_usec_list_t *sul)
 	struct pending_login_refresh *ps = lws_container_of(sul,
 					struct pending_login_refresh, sul);
 
-	lwsl_info("%s: auth refresh timed out\n", __func__);
+	/*
+	 * Log against the suspended browser leg where possible, so the timeout
+	 * is attributable to the peer that is waiting on it.
+	 */
+	lwsl_wsi_info(ps->wsi_server, "auth refresh timed out");
 	/*
 	 * The renewal exchange is taking too long: drop it and free ps via the
 	 * common path, which first detaches and closes the still-live client
@@ -535,9 +550,9 @@ lws_login_kick_refresh(struct vhd_login *vhd, struct lws *wsi, const char *cooki
 		return 0;
 	}
 
-	lwsl_notice("%s: initiating silent renewal via %s/api/sso_exchange (%s)\n",
-		    __func__, vhd->auth_server_url,
-		    mode == LWS_LOGIN_REFRESH_COLDLOAD ? "cold-load" : "bff");
+	lwsl_wsi_notice(wsi, "initiating silent renewal via "
+			"%s/api/sso_exchange (%s)", vhd->auth_server_url,
+			mode == LWS_LOGIN_REFRESH_COLDLOAD ? "cold-load" : "bff");
 
 	memset(&i, 0, sizeof(i));
 	i.context        = vhd->context;
@@ -905,10 +920,21 @@ callback_lws_login_client(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 	}
 
+	case LWS_CALLBACK_ESTABLISHED_CLIENT_HTTP:
+		if (!ps)
+			break;
+		/*
+		 * Capture the auth server's actual verdict so the browser-leg
+		 * completion can log WHY the renewal was denied (401 Invalid
+		 * session vs 403 CSRF vs 5xx) instead of an anonymous "denied".
+		 */
+		ps->resp_status = lws_http_client_http_response(wsi);
+		break;
+
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ: {
 		struct lws_tokenize ts;
 		lws_tokenize_elem e;
-		int state = 0;
+		int state = 0, estate = 0;
 
 		if (!ps || !in || !len)
 			break;
@@ -925,9 +951,28 @@ callback_lws_login_client(struct lws *wsi, enum lws_callback_reasons reason,
 			} else if (state == 2 && e == LWS_TOKZE_QUOTED_STRING) {
 				if (ts.token_len < sizeof(ps->token)) {
 					lws_strncpy(ps->token, ts.token, ts.token_len + 1);
-					lwsl_notice("%s: Extracted OAuth token natively via BFF\n", __func__);
+					lwsl_wsi_notice(wsi, "Extracted OAuth token natively via BFF");
 				}
 				break;
+			} else if (estate == 0 && e == LWS_TOKZE_QUOTED_STRING &&
+				   ts.token_len == 5 &&
+				   !strncmp(ts.token, "error", 5)) {
+				estate = 1;
+			} else if (estate == 1 && e == LWS_TOKZE_DELIMITER &&
+				   ts.token[0] == ':') {
+				estate = 2;
+			} else if (estate == 2 && e == LWS_TOKZE_QUOTED_STRING) {
+				/* denial reason, eg {"error":"Invalid session"}:
+				 * capture once for the browser-leg log */
+				size_t c = (size_t)ts.token_len;
+
+				if (c >= sizeof(ps->resp_error))
+					c = sizeof(ps->resp_error) - 1;
+				if (!ps->resp_error[0]) {
+					memcpy(ps->resp_error, ts.token, c);
+					ps->resp_error[c] = '\0';
+				}
+				estate = 3;
 			}
 		}
 		break;
@@ -946,10 +991,29 @@ callback_lws_login_client(struct lws *wsi, enum lws_callback_reasons reason,
 	}
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		if (!ps)
+			break;
+		/*
+		 * in carries the human-readable connection failure: keep it
+		 * for the browser-leg denial log, since "denied" with no
+		 * response at all is usually this (unreachable auth server,
+		 * TLS problem, IP ban on the auth server side...).
+		 */
+		lws_snprintf(ps->conn_error, sizeof(ps->conn_error), "%s",
+			     in ? (const char *)in : "unknown");
+		lwsl_wsi_notice(wsi, "renewal side channel failed: %s",
+				ps->conn_error);
+		if (ps->wsi_server && !ps->token[0]) {
+			lws_callback_on_writable(ps->wsi_server);
+		}
+		lws_set_wsi_user(wsi, NULL);
+		ps->wsi_client = NULL;
+		break;
+
 	case LWS_CALLBACK_CLOSED_CLIENT_HTTP: {
 		if (!ps)
 			break;
-		lwsl_notice("%s: client connection closed or errored\n", __func__);
+		lwsl_wsi_info(wsi, "renewal side channel closed");
 		if (ps->wsi_server && !ps->token[0]) {
 			lws_callback_on_writable(ps->wsi_server);
 		}
@@ -2304,9 +2368,9 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 							wsi, pss, vhd, ps->token,
 							ps->orig_path, buf, &p, end,
 							csrf_cookie)) {
-						lwsl_notice("%s: cold-load renewal ok, "
-							    "re-served %s\n", __func__,
-							    ps->orig_path);
+						lwsl_wsi_notice(wsi, "cold-load "
+							"renewal ok, re-served %s",
+							ps->orig_path);
 						pending_login_release(ps);
 						return lws_http_transaction_completed(wsi);
 					}
@@ -2320,9 +2384,23 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 					char html[1024];
 					int html_len;
 
-					lwsl_notice("%s: cold-load renewal failed, "
-						    "bouncing to auth form\n",
-						    __func__);
+					if (ps->resp_status)
+						lwsl_wsi_notice(wsi, "cold-load "
+							"renewal denied: auth server "
+							"answered HTTP %u '%s', "
+							"bouncing to auth form",
+							ps->resp_status,
+							ps->resp_error[0] ?
+								ps->resp_error :
+								"(no error detail)");
+					else
+						lwsl_wsi_notice(wsi, "cold-load "
+							"renewal denied: no auth "
+							"server response (%s), "
+							"bouncing to auth form",
+							ps->conn_error[0] ?
+								ps->conn_error :
+								"connection failed");
 					html_len = lws_snprintf(html,
 						sizeof(html),
 						"<html lang=\"en\"><head>"
@@ -2373,8 +2451,8 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 					return 0;
 				}
 				/* no authform URL stashed (defensive): serve a 401 */
-				lwsl_notice("%s: cold-load renewal failed with no "
-					    "authform URL\n", __func__);
+				lwsl_wsi_notice(wsi, "cold-load renewal failed "
+					"with no authform URL");
 				if (lws_add_http_common_headers(wsi,
 						HTTP_STATUS_UNAUTHORIZED,
 						"application/json", 13,
@@ -2399,12 +2477,16 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				int n, cn;
 
 				if (vhd->cookie_domain[0]) {
-					n = lws_snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Domain=%s; Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
+					lws_snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Domain=%s; Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
 							 vhd->cookie_name, ps->token, vhd->cookie_domain, (unsigned long long)vhd->jwt_validity_secs);
 				} else {
-					n = lws_snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
+					lws_snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
 							 vhd->cookie_name, ps->token, (unsigned long long)vhd->jwt_validity_secs);
 				}
+				/* strlen, not the snprintf return: it answers the
+				 * truncated size, which would plant the string's
+				 * NUL inside the header */
+				n = (int)strlen(cookie);
 
 				/*
 				 * Rotate auth_csrf on every successful renewal so its
@@ -2427,14 +2509,34 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_write(wsi, buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
 				if (lws_buflist_append_segment(&pss->tx_buflist, (const uint8_t *)"{\"success\":1}", 13) < 0) return -1;
 				pss->tx_remaining = 13;
-				lwsl_notice("%s: Successfully issued refreshed token to browser via BFF\n", __func__);
+				lwsl_wsi_notice(wsi, "Successfully issued refreshed token to browser via BFF");
 			} else {
 				if (lws_add_http_common_headers(wsi, HTTP_STATUS_UNAUTHORIZED, "application/json", 13, (unsigned char **)&p, (unsigned char *)end)) return 1;
 				if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end)) return 1;
 				lws_write(wsi, buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
 				if (lws_buflist_append_segment(&pss->tx_buflist, (const uint8_t *)"{\"success\":0}", 13) < 0) return -1;
 				pss->tx_remaining = 13;
-				lwsl_notice("%s: BFF SSO Exchange denied by Server\n", __func__);
+				/*
+				 * No token came back.  Say WHY, using what the
+				 * side channel captured: the auth server's HTTP
+				 * status + JSON error member when it answered,
+				 * or the connection failure when it never did.
+				 */
+				if (ps->resp_status)
+					lwsl_wsi_notice(wsi,
+						"BFF renewal denied: auth "
+						"server answered HTTP %u '%s'",
+						ps->resp_status,
+						ps->resp_error[0] ?
+							ps->resp_error :
+							"(no error detail)");
+				else
+					lwsl_wsi_notice(wsi,
+						"BFF renewal denied: no "
+						"auth server response (%s)",
+						ps->conn_error[0] ?
+							ps->conn_error :
+							"connection failed");
 			}
 
 			pending_login_release(ps);
@@ -2515,7 +2617,8 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 
                                 if (s->wsi_server == wsi) {
 					s->wsi_server = NULL;
-					lwsl_notice("%s: cleared dangling wsi_server from pending refresh\n", __func__);
+					lwsl_wsi_notice(wsi, "cleared dangling "
+						"wsi_server from pending refresh");
 				}
 			} lws_end_foreach_dll_safe(d, d1);
 		}
