@@ -176,6 +176,22 @@ http_postbody:
 					(void *)&args, 0);
 				if ((int)n < 0)
 					goto bail;
+
+				/*
+				 * The cgi stdin pipe is nonblocking and may
+				 * only have been able to accept part of the
+				 * chunk... the callback return is the
+				 * authoritative count of bytes actually
+				 * consumed.  Keep account for the unconsumed
+				 * tail as remaining body, so it stays stashed
+				 * on the wsi buflist and is re-offered to the
+				 * cgi stdin when the pipe drains, instead of
+				 * being mistaken for a completed body or
+				 * reparsed as a new pipelined request.
+				 */
+				if (n < body_chunk_len)
+					wsi->http.rx_content_remain +=
+							body_chunk_len - n;
 			} else {
 #endif
 				if (lwsi_state(wsi) != LRS_DISCARD_BODY) {
