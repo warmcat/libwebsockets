@@ -382,7 +382,8 @@ lws_cookie_write_nsc(struct lws *wsi, struct lws_cookie *c)
 	    lws_cookie_parse_date(c->f[CE_EXPIRES], c->l[CE_EXPIRES], &expires)) {
 		lwsl_err("%s: can't parse date %.*s\n", __func__,
 			 (int)c->l[CE_EXPIRES], c->f[CE_EXPIRES]);
-		return -1;
+		ret = -1;
+		goto exit;
 	}
 
 	if (c->f[CE_EXPIRES])
@@ -408,9 +409,10 @@ lws_cookie_write_nsc(struct lws *wsi, struct lws_cookie *c)
 	size += c->l[CE_NAME] + c->l[CE_VALUE] + c->l[CE_DOMAIN] + c->l[CE_PATH];
 	cookie_string = (char *)lws_malloc(size, __func__);
 	if (!cookie_string) {
-		lwsl_err("%s: OOM\n",__func__);
+		lwsl_err("%s: OOM\n", __func__);
 
-		return -1;	
+		ret = -1;
+		goto exit;
 	}
 
 	lws_snprintf(cookie_string, size, LWS_COOKIE_NSC_FORMAT,
