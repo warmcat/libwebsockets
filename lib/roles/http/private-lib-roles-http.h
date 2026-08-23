@@ -390,6 +390,15 @@ lws_http_multipart_headers(struct lws *wsi, uint8_t *p);
 int
 lws_http_string_to_known_header(const char *s, size_t slen);
 
+/*
+ * Returns nonzero if the header token can carry peer credentials
+ * (Authorization, Cookie, Set-Cookie, x-auth-token, Proxy-Authorization
+ * where the build has it).  Debug header dumps use this to log presence
+ * and length for these tokens instead of copying the values to the log.
+ */
+int
+lws_hdr_token_is_credential(enum lws_token_indexes tok);
+
 int
 lws_http_date_render_from_unix(char *buf, size_t len, const time_t *t);
 

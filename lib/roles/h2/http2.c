@@ -1955,7 +1955,20 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 				}
 
 				len = lws_hdr_total_length(h2n->swsi, (enum lws_token_indexes)n);
-				if (!len || len > (int)sizeof(buf) - 1) {
+				if (!len) {
+					n++;
+					continue;
+				}
+
+				if (lws_hdr_token_is_credential((enum lws_token_indexes)n)) {
+					/* keep the diagnostic, lose the credential */
+					lwsl_info("    %s = <%d bytes, redacted>\n",
+						  (char *)c, len);
+					n++;
+					continue;
+				}
+
+				if (len > (int)sizeof(buf) - 1) {
 					n++;
 					continue;
 				}
