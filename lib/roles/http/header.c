@@ -596,7 +596,7 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 	unsigned char *p = pt->serv_buf + LWS_PRE;
 	unsigned char *start = p;
 	unsigned char *end = p + context->pt_serv_buf_size - LWS_PRE;
-	char *body = (char *)start + context->pt_serv_buf_size - 512;
+	unsigned char *body;
 	int n = 0, m = 0, len;
 	char slen[20];
 
@@ -620,18 +620,38 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 	/* if the redirect failed, just do a simple status */
 	p = start;
 
+	/*
+	 * The html body is staged into the last 512 bytes of the per-thread
+	 * scratch buffer, and the headers are composed into the space before
+	 * it, with `body` passed as their end limit.  That keeps the header
+	 * block from invading the staged body, and the body append after the
+	 * finalized headers from writing past the end of the scratch buffer
+	 * (and so into whatever follows it in the context allocation).
+	 *
+	 * 128 is the most the mandatory status line, content-type and
+	 * content-length headers can need; with less than that before the
+	 * staged body, no status page can be composed at all.
+	 */
+	if (lws_ptr_diff(end, start) < 512 + 128) {
+		lwsl_err("%s: pt_serv_buf_size %u too small for status page\n",
+			 __func__, context->pt_serv_buf_size);
+
+		return 1;
+	}
+	body = end - 512;
+
 	if (!html_body)
 		html_body = "";
 
-	if (lws_add_http_header_status(wsi, code, &p, end))
+	if (lws_add_http_header_status(wsi, code, &p, body))
 		return 1;
 
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_TYPE,
 					 (unsigned char *)"text/html", 9,
-					 &p, end))
+					 &p, body))
 		return 1;
 
-	len = lws_snprintf(body, 510, "<html><head>"
+	len = lws_snprintf((char *)body, 510, "<html><head>"
 		"<meta charset=utf-8 http-equiv=\"Content-Language\" "
 			"content=\"en\"/>"
 		"<link rel=\"stylesheet\" type=\"text/css\" "
@@ -641,10 +661,10 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 
 	n = lws_snprintf(slen, 12, "%d", len);
 	if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_CONTENT_LENGTH,
-					 (unsigned char *)slen, n, &p, end))
+					 (unsigned char *)slen, n, &p, body))
 		return 1;
 
-	if (lws_finalize_http_header(wsi, &p, end))
+	if (lws_finalize_http_header(wsi, &p, body))
 		return 1;
 
 #if defined(LWS_WITH_HTTP2)
@@ -679,7 +699,7 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 		if (!wsi->h2.pending_status_body)
 			return -1;
 
-		strcpy(wsi->h2.pending_status_body + LWS_PRE, body);
+		strcpy(wsi->h2.pending_status_body + LWS_PRE, (char *)body);
 		lws_callback_on_writable(wsi);
 
 		return 0;
@@ -692,7 +712,24 @@ lws_return_http_status(struct lws *wsi, unsigned int code,
 		 */
 
 		n = lws_ptr_diff(p, start) + len;
-		memcpy(p, body, (unsigned int)len);
+
+		/*
+		 * the headers were composed against the staged body, so this
+		 * should always be in range; enforce it rather than trust it
+		 */
+
+		if (p + len > end) {
+			lwsl_err("%s: status page overflow\n", __func__);
+
+			return 1;
+		}
+
+		/*
+		 * memmove rather than memcpy: with tight buffers, the append
+		 * can overlap the staged body it is copying from
+		 */
+
+		memmove(p, body, (unsigned int)len);
 		m = lws_write(wsi, start, (unsigned int)n, LWS_WRITE_HTTP);
 		if (m != n)
 			return 1;
