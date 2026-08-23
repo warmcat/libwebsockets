@@ -1400,14 +1400,25 @@ lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filena
 	if (video_idx >= 0 && has_index) {
 		int64_t target_ts = sinfo.start_pts;
 		int64_t max_ts = sinfo.seek_pts;
-		
+
+		/* the seek itself is functional, only the ret capture is for logs */
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 		int ret = avformat_seek_file(in_ctx, video_idx, target_ts - 500, target_ts, max_ts, AVSEEK_FLAG_FRAME);
+
 		lwsl_info("HLS-DEBUG: Segment %d video seek requested to %lld -> ret=%d\n",
 			  segment_idx, (long long)target_ts, ret);
+#else
+		avformat_seek_file(in_ctx, video_idx, target_ts - 500, target_ts, max_ts, AVSEEK_FLAG_FRAME);
+#endif
 	} else {
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 		int ret = avformat_seek_file(in_ctx, -1, INT64_MIN, start_time, start_time, 0);
+
 		lwsl_info("HLS: Segment %d generic seek requested to %.3fs -> ret=%d\n",
 			  segment_idx, (double)start_time / AV_TIME_BASE, ret);
+#else
+		avformat_seek_file(in_ctx, -1, INT64_MIN, start_time, start_time, 0);
+#endif
 	}
 
 	int64_t next_video_dts = AV_NOPTS_VALUE;
@@ -1463,8 +1474,11 @@ lws_hls_serve_segment(struct lws *wsi, const char *media_dir, const char *filena
 
 		/* Use PTS for boundary checks (always valid after synthesis) */
 		int64_t pkt_ts = pkt.pts != AV_NOPTS_VALUE ? pkt.pts : pkt.dts;
+		/* these are only referenced from info logs, which may be built out */
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 		const char *type = (in_stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) ? "VIDEO" : "AUDIO";
 		int is_key = (pkt.flags & AV_PKT_FLAG_KEY) != 0;
+#endif
 
 		if (pkt_ts != AV_NOPTS_VALUE) {
 			int64_t pkt_time = av_rescale_q(pkt_ts, in_stream->time_base, AV_TIME_BASE_Q);

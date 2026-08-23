@@ -1568,12 +1568,41 @@ forbid:
 
 static const char * const cookie_prefixes[] = { "", "__Host-", "__Secure-" };
 
+/*
+ * Core of the cookie getters' match action: copy the whole cookie value
+ * starting at vs (bounded by pe, ie, the end of the header frag, or the ';'
+ * starting the next cookie in it) into buf.
+ *
+ * Returns 0 if it fit (buf then holds the NUL-terminated value and *max_len
+ * is set to the value length) or 2 if the value, with its terminating NUL,
+ * needs more than *max_len bytes.  On a nonzero return, buf and *max_len are
+ * untouched: partial values are never handed out, since callers use these to
+ * resolve credentials.
+ */
+static int
+cookie_value_copy(const char *vs, const char *pe, char *buf, size_t *max_len)
+{
+	const char *ve = vs;
+
+	while (ve < pe && *ve != ';')
+		ve++;
+
+	if (lws_ptr_diff_size_t(ve, vs) + 1 > *max_len)
+		return 2;
+
+	*max_len = lws_ptr_diff_size_t(ve, vs);
+	memcpy(buf, vs, *max_len);
+	buf[*max_len] = '\0';
+
+	return 0;
+}
+
 int
 lws_http_cookie_get(struct lws *wsi, const char *name, char *buf,
 		    size_t *max_len)
 {
-	size_t max = *max_len, bl;
-	char *p, *bo = buf;
+	size_t bl;
+	char *p;
 	int n, m;
 
 	for (m = 0; m < (int)LWS_ARRAY_SIZE(cookie_prefixes); m++) {
@@ -1603,17 +1632,10 @@ lws_http_cookie_get(struct lws *wsi, const char *name, char *buf,
 
 				while (vp < pe) {
 					if ((size_t)(pe - vp) > bl && !memcmp(vp, use_name, bl) && vp[bl] == '=') {
-						if (vp == p || vp[-1] == ' ' || vp[-1] == ';') {
-							vp += bl + 1;
-							while (vp < pe && *vp != ';' && max > 1) {
-								*buf++ = *vp++;
-								max--;
-							}
-							*buf = '\0';
-							*max_len = lws_ptr_diff_size_t(buf, bo);
-
-							return 0;
-						}
+						if (vp == p || vp[-1] == ' ' || vp[-1] == ';')
+							return cookie_value_copy(
+									vp + bl + 1,
+									pe, buf, max_len);
 					}
 					vp++;
 				}
@@ -1639,8 +1661,10 @@ lws_http_cookie_get(struct lws *wsi, const char *name, char *buf,
  * until this returns nonzero.
  *
  * Returns 0 and fills buf (NUL-terminated, *max_len set to the value length)
- * if the n-th occurrence exists, nonzero if there is no such occurrence (in
- * which case buf is untouched).
+ * if the n-th occurrence exists and fits.  Returns nonzero if there is no such
+ * occurrence (1) or the value, with its terminating NUL, is too large for buf
+ * (2); in those cases buf and *max_len are untouched, so no partial value is
+ * ever handed out.
  *
  * Unlike lws_http_cookie_get(), no __Host- / __Secure- prefix aliases are
  * tried: it resolves exactly the name asked for, so the occurrence ordering
@@ -1669,20 +1693,10 @@ lws_http_cookie_get_nth(struct lws *wsi, const char *name, int n,
 			while (vp < pe) {
 				if ((size_t)(pe - vp) > bl && !memcmp(vp, name, bl) && vp[bl] == '=') {
 					if (vp == p || vp[-1] == ' ' || vp[-1] == ';') {
-						if (!n--) {
-							size_t max = *max_len;
-							char *bo = buf;
-
-							vp += bl + 1;
-							while (vp < pe && *vp != ';' && max > 1) {
-								*buf++ = *vp++;
-								max--;
-							}
-							*buf = '\0';
-							*max_len = lws_ptr_diff_size_t(buf, bo);
-
-							return 0;
-						}
+						if (!n--)
+							return cookie_value_copy(
+								   vp + bl + 1,
+								   pe, buf, max_len);
 					}
 				}
 				vp++;
@@ -1706,12 +1720,14 @@ lws_jwt_get_http_cookie_validate_jwt(struct lws *wsi,
 	char temp[MAX_JWT_SIZE * 2];
 	size_t cml = *out_len;
 	const char *cp;
+	int n;
 
 	/* first use out to hold the encoded JWT */
 
-	if (lws_http_cookie_get(wsi, i->cookie_name, out, out_len)) {
-		lwsl_debug("%s: cookie %s not provided\n", __func__,
-				i->cookie_name);
+	n = lws_http_cookie_get(wsi, i->cookie_name, out, out_len);
+	if (n) {
+		lwsl_debug("%s: cookie %s %s\n", __func__, i->cookie_name,
+			   n == 2 ? "too large for buffer" : "not provided");
 		return 1;
 	}
 

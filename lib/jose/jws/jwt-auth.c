@@ -213,10 +213,13 @@ lws_jwt_auth_create(struct lws *wsi, struct lws_jwk *jwk,
 	char jwt[8192];
 	size_t jwt_len = sizeof(jwt);
 	struct lws_jwt_auth *ja;
+	int n;
 
-	if (lws_http_cookie_get(wsi, cookie_name, jwt, &jwt_len)) {
+	n = lws_http_cookie_get(wsi, cookie_name, jwt, &jwt_len);
+	if (n) {
 		if (reason)
-			*reason = "Cookie not found";
+			*reason = n == 2 ? "Cookie value too large for buffer" :
+					   "Cookie not found";
 		return NULL;
 	}
 
