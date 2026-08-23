@@ -907,20 +907,27 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 				if (!ma)
 					ma = cookie_max_age(vhd, 0);
 				if (vhd->cookie_domain[0])
-					rl = lws_snprintf(refresh_cookie,
-							  sizeof(refresh_cookie),
-							  "auth_refresh_session=%s; "
-							  "Path=/; Domain=%s; Max-Age=%lu; "
-							  "SameSite=Lax; Secure; HttpOnly",
-							  ps->refresh_token,
-							  vhd->cookie_domain, ma);
+					lws_snprintf(refresh_cookie,
+						  sizeof(refresh_cookie),
+						  "auth_refresh_session=%s; "
+						  "Path=/; Domain=%s; Max-Age=%lu; "
+						  "SameSite=Lax; Secure; HttpOnly",
+						  ps->refresh_token,
+						  vhd->cookie_domain, ma);
 				else
-					rl = lws_snprintf(refresh_cookie,
-							  sizeof(refresh_cookie),
-							  "auth_refresh_session=%s; "
-							  "Path=/; Max-Age=%lu; "
-							  "SameSite=Lax; Secure; HttpOnly",
-							  ps->refresh_token, ma);
+					lws_snprintf(refresh_cookie,
+						  sizeof(refresh_cookie),
+						  "auth_refresh_session=%s; "
+						  "Path=/; Max-Age=%lu; "
+						  "SameSite=Lax; Secure; HttpOnly",
+						  ps->refresh_token, ma);
+				/*
+				 * Use the strlen, not the snprintf return:
+				 * lws_snprintf answers the truncated size,
+				 * which would run past the string's NUL and
+				 * plant it inside the header.
+				 */
+				rl = (int)strlen(refresh_cookie);
 			}
 
 			lwsl_wsi_notice(wsi, "/oauth/callback: issuing %s cookie "

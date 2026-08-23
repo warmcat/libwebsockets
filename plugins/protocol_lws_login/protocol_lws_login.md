@@ -189,3 +189,18 @@ form — trashing eg an in-progress HLS playback for a split-second re-login
 round trip.  These self-heal events (and any remaining denials) are logged
 with the raw cookie jar at `notice`, since the affected devices usually
 cannot be inspected.
+
+### Denial observability
+
+When an exchange is refused, both ends now say exactly why, attributed to the
+wsi (so the peer is identifiable against interleaved bot traffic): the
+completion log on the app side states the auth server's actual answer —
+`BFF renewal denied: auth server answered HTTP 401 'Invalid session'` — or the
+client-connection failure string when there was no response at all.  On the
+auth server, `/api/sso_exchange` denial logs account for every presented
+credential: which of `auth_session` / `auth_refresh_session` was absent, and
+what happened to each same-named refresh value (`2 value(s) presented: 1
+expired, 1 not in db, 0 live` — browsers legitimately hold several
+`auth_refresh_session` values at once, ordered oldest-first, so resolution
+walks them all rather than trusting the first).  CSRF double-submit failures
+log which half was missing and the lengths, never the values themselves.
