@@ -1840,10 +1840,22 @@ lws_jwt_sign_token_set_cookie_ascii(struct lws *wsi,
 {
 	int n;
 
-	/* format the cookie value after where the header name will go */
+	/*
+	 * We need room for the header name, at least one char of cookie value
+	 * and the CRLF + NUL appended after it; reject undersized buffers up
+	 * front so the size arithmetic below cannot underflow
+	 */
+
+	if (len < sizeof("set-cookie: ") + 4)
+		return 1;
+
+	/*
+	 * Format the cookie value after where the header name will go,
+	 * reserving room for the CRLF + NUL that we append after it
+	 */
 
 	n = jwt_sign_cookie_value(wsi, i, buf + sizeof("set-cookie: ") - 1,
-				  len - sizeof("set-cookie: ") - 1);
+				  len - sizeof("set-cookie: ") - 3);
 	if (n < 0)
 		return 1;
 

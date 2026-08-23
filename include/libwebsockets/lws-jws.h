@@ -608,7 +608,9 @@ lws_jwt_sign_token_set_http_cookie(struct lws *wsi,
  * \p buf.  This is what you want when the header is going to be passed to,
  * eg, lws_serve_http_file() as other_headers, since that expects ascii lines
  * regardless of the wsi's protocol role.  \p buf should be at least
- * #LWS_JWT_COOKIE_ASCII_LEN bytes.  Returns 0 if successful.
+ * #LWS_JWT_COOKIE_ASCII_LEN bytes.  Returns 0 if successful, or nonzero if
+ * the header line does not fit in \p len (buffers smaller than the header
+ * name, CRLF and NUL, never mind the JWT, are rejected immediately).
  */
 #define LWS_JWT_COOKIE_ASCII_LEN (1280)
 LWS_VISIBLE LWS_EXTERN int
