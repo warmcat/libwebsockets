@@ -305,36 +305,26 @@ static int lws_frag_end(struct lws *wsi)
 
 static void lws_dump_header(struct lws *wsi, int hdr)
 {
+	char s[200];
+#if (_LWS_ENABLED_LOGS & LLL_HEADER)
+	const unsigned char *p;
+#endif
+	int len;
+
 	if (hdr == LWS_HPACK_IGNORE_ENTRY) {
 		lwsl_notice("hdr tok ignored\n");
 		return;
 	}
 
-#if defined(_DEBUG)
-	{
-		const unsigned char *p;
-		char s[200];
-		int len;
-
-		p = lws_token_to_string((enum lws_token_indexes)hdr);
-
-		if (lws_hdr_token_is_credential((enum lws_token_indexes)hdr)) {
-			/* keep the diagnostic, lose the credential */
-			lwsl_header("  hdr tok %d (%s) = '<redacted>' (len %d)\n",
-				    hdr, p ? (char *)p : (char *)"null",
-				    lws_hdr_total_length(wsi,
-						(enum lws_token_indexes)hdr));
-			return;
-		}
-
-		len = lws_hdr_copy(wsi, s, sizeof(s) - 1, (enum lws_token_indexes)hdr);
-		if (len < 0)
-			strcpy(s, "(too big to show)");
-		else
-			s[len] = '\0';
-		lwsl_header("  hdr tok %d (%s) = '%s' (len %d)\n", hdr,
-			   p ? (char *)p : (char *)"null", s, len);
-	}
+	len = lws_hdr_copy(wsi, s, sizeof(s) - 1, (enum lws_token_indexes)hdr);
+	if (len < 0)
+		strcpy(s, "(too big to show)");
+	else
+		s[len] = '\0';
+#if (_LWS_ENABLED_LOGS & LLL_HEADER)
+	p = lws_token_to_string((enum lws_token_indexes)hdr);
+	lwsl_header("  hdr tok %d (%s) = '%s' (len %d)\n", hdr,
+		   p ? (char *)p : (char *)"null", s, len);
 #endif
 }
 
@@ -676,7 +666,11 @@ lws_hpack_dynamic_size(struct lws *wsi, int size)
 	if (!dte)
 		goto bail;
 
-	while (dyn->virtual_payload_usage && dyn->used_entries &&
+	/*
+	 * The entries storage may have gone away above, if this is a move
+	 * away from a table size of 0... there is nothing to evict then.
+	 */
+	while (dyn->entries && dyn->virtual_payload_usage && dyn->used_entries &&
 	       dyn->virtual_payload_usage > dyn->virtual_payload_max) {
 		n = lws_safe_modulo(dyn->pos - dyn->used_entries, dyn->num_entries);
 		if (n < 0)
