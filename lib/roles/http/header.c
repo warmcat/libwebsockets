@@ -804,6 +804,32 @@ lws_http_headers_detach(struct lws *wsi)
 
 #if defined(LWS_WITH_SERVER)
 
+/*
+ * The lifecheck dump exists to diagnose connections holding an ah, not to
+ * harvest peer credentials: header values that can carry credentials must
+ * never be copied into the logs, where they typically outlive the connection
+ * and reach a wider audience than their owner.  For these tokens we log the
+ * presence and length only.
+ */
+static int
+ah_lifecheck_token_is_credential(enum lws_token_indexes tok)
+{
+	switch (tok) {
+	case WSI_TOKEN_HTTP_AUTHORIZATION:
+	case WSI_TOKEN_HTTP_COOKIE:
+	case WSI_TOKEN_HTTP_SET_COOKIE:
+	case WSI_TOKEN_X_AUTH_TOKEN:
+#if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS) || defined(LWS_ROLE_H2) || \
+    defined(LWS_HTTP_HEADERS_ALL)
+	case WSI_TOKEN_HTTP_PROXY_AUTHORIZATION:
+#endif
+		return 1;
+
+	default:
+		return 0;
+	}
+}
+
 void
 lws_sul_http_ah_lifecheck(lws_sorted_usec_list_t *sul)
 {
@@ -859,7 +885,20 @@ lws_sul_http_ah_lifecheck(lws_sorted_usec_list_t *sul)
 				break;
 
 			len = lws_hdr_total_length(wsi, (enum lws_token_indexes)m);
-			if (!len || len > (int)sizeof(buf) - 1) {
+			if (!len) {
+				m++;
+				continue;
+			}
+
+			if (ah_lifecheck_token_is_credential((enum lws_token_indexes)m)) {
+				/* keep the diagnostic, lose the credential */
+				lwsl_notice("   %s = <%d bytes, redacted>\n",
+					    (const char *)c, len);
+				m++;
+				continue;
+			}
+
+			if (len > (int)sizeof(buf) - 1) {
 				m++;
 				continue;
 			}
