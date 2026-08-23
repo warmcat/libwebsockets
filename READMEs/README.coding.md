@@ -1014,7 +1014,9 @@ named option changed.
 
 The extension may decide to alter or disallow the change, in the
 example above permessage-deflate restricts the size of his rx
-output buffer also considering the protocol's rx_buf_size member.
+output buffer also considering the protocol's rx_buf_size member;
+his tx output buffer is capped the same way, and out-of-range
+values are refused.
 
 
 @section httpsclient Client connections as HTTP[S] rather than WS[S]
