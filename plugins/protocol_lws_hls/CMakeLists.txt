@@ -14,6 +14,13 @@
 # all copies or substantial portions of the Software.
 #
 
+# The folded-in jwt auth used for the "hls:2" grant check needs JOSE
+
+set(requirements 1)
+require_lws_config(LWS_WITH_JOSE 1 requirements)
+
+if (requirements)
+
 	find_package(PkgConfig QUIET)
 	pkg_check_modules(PC_AVFORMAT libavformat)
 	pkg_check_modules(PC_AVCODEC libavcodec)
@@ -55,3 +62,5 @@
 				${PC_SWRESAMPLE_LIBRARIES})
 		endif()
 	endif()
+
+endif()
