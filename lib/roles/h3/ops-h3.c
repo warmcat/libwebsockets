@@ -32,6 +32,58 @@ static int
 rops_write_role_protocol_h3(struct lws *wsi, unsigned char *buf, size_t len,
 			    enum lws_write_protocol *wp);
 
+#if (_LWS_ENABLED_LOGS & LLL_DEBUG)
+/*
+ * F-016: :path is not itself a credential token, but its value can carry app
+ * session / auth tokens in the urlargs.  For the debug dumps, show the path
+ * part only.
+ */
+static size_t
+lws_h3_dbg_value_len(int tok, const char *value, size_t value_len)
+{
+	const char *q;
+
+	if (tok == WSI_TOKEN_HTTP_COLON_PATH) {
+		q = memchr(value, '?', value_len);
+		if (q)
+			return (size_t)(q - value);
+	}
+
+	return value_len;
+}
+#endif
+
+#if (_LWS_ENABLED_LOGS & (LLL_INFO | LLL_NOTICE))
+/*
+ * F-016: urlargs are a common place for apps to put session or authorization
+ * tokens.  When a log line wants to show the request path, show it truncated
+ * at the '?' so the query string never reaches log sinks, which outlive the
+ * connection.
+ *
+ * Returns path copied into buf, NUL-terminated, truncated at the first '?'
+ * and to len - 1 bytes... or "NULL" if path is NULL.
+ */
+static const char *
+lws_h3_log_path_sans_urlargs(char *buf, size_t len, const char *path)
+{
+	const char *q;
+	size_t n;
+
+	if (!path)
+		return "NULL";
+
+	q = strchr(path, '?');
+	n = q ? (size_t)(q - path) : strlen(path);
+	if (n > len - 1)
+		n = len - 1;
+
+	memcpy(buf, path, n);
+	buf[n] = '\0';
+
+	return buf;
+}
+#endif
+
 static lws_handling_result_t
 rops_handle_POLLIN_h3(struct lws_context_per_thread *pt, struct lws *wsi,
 		      struct lws_pollfd *pollfd)
@@ -622,12 +674,32 @@ lws_h3_qpack_header_cb(void *user, int name_idx, const char *name, size_t name_l
 	}
 
 	if (name) {
-		lwsl_wsi_debug(wsi, "QPACK decoded header: name=%.*s, value=%.*s", (int)name_len, name, (int)value_len, value);
 		/* It's an unknown header, or string-based. We need to match it. */
 		tok = lws_http_string_to_known_header(name, name_len);
-		if (name_len > 0 && name[0] == ':') is_pseudo = 1;
+		if (name_len > 0 && name[0] == ':')
+			is_pseudo = 1;
+		if (tok >= 0 && tok < WSI_TOKEN_COUNT &&
+		    lws_hdr_token_is_credential((enum lws_token_indexes)tok))
+			/* keep the diagnostic, lose the credential */
+			lwsl_wsi_debug(wsi, "QPACK decoded header: name=%.*s, value=<%u bytes, redacted>",
+				       (int)name_len, name, (unsigned int)value_len);
+		else
+			lwsl_wsi_debug(wsi, "QPACK decoded header: name=%.*s, value=%.*s",
+				       (int)name_len, name,
+				       (int)lws_h3_dbg_value_len(tok, value, value_len),
+				       value);
 	} else {
-		lwsl_wsi_debug(wsi, "QPACK decoded header: tok=%d (%s), value=%.*s", tok, (const char *)lws_token_to_string((enum lws_token_indexes)tok), (int)value_len, value);
+		if (tok >= 0 && tok < WSI_TOKEN_COUNT &&
+		    lws_hdr_token_is_credential((enum lws_token_indexes)tok))
+			/* keep the diagnostic, lose the credential */
+			lwsl_wsi_debug(wsi, "QPACK decoded header: tok=%d (%s), value=<%u bytes, redacted>",
+				       tok, (const char *)lws_token_to_string((enum lws_token_indexes)tok),
+				       (unsigned int)value_len);
+		else
+			lwsl_wsi_debug(wsi, "QPACK decoded header: tok=%d (%s), value=%.*s",
+				       tok, (const char *)lws_token_to_string((enum lws_token_indexes)tok),
+				       (int)lws_h3_dbg_value_len(tok, value, value_len),
+				       value);
 		if (tok == WSI_TOKEN_HTTP_COLON_AUTHORITY ||
 		    tok == WSI_TOKEN_HTTP_COLON_METHOD ||
 		    tok == WSI_TOKEN_HTTP_COLON_PATH ||
@@ -1484,8 +1556,14 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 					/* duplicate :path into the individual method uri header index */
 					const char *p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_METHOD);
 #if (_LWS_ENABLED_LOGS & LLL_INFO)
-					const char *path_val = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH);
-					lwsl_wsi_info(wsi, "Decoded method: %s, Decoded path: %s", p ? p : "NULL", path_val ? path_val : "NULL");
+					{
+						char pbuf[128];
+						/* F-016: show the path, but not any query string */
+						lwsl_wsi_info(wsi, "Decoded method: %s, Decoded path: %s",
+							      p ? p : "NULL",
+							      lws_h3_log_path_sans_urlargs(pbuf, sizeof(pbuf),
+						lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH)));
+					}
 #endif
 					
 					static const char * const method_names[] = {
@@ -1967,7 +2045,13 @@ rops_check_upgrades_h3(struct lws *wsi)
 		if (!negotiated[0]) {
 			char *uri_ptr = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH);
 			int uri_len = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH);
-			lwsl_notice("H3 WT Upgrade: path '%.*s'\n", uri_len, uri_ptr ? uri_ptr : "NULL");
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+			char pbuf[128];
+			/* F-016: show the path, but not any query string */
+			lwsl_notice("H3 WT Upgrade: path '%s'\n",
+				    lws_h3_log_path_sans_urlargs(pbuf, sizeof(pbuf),
+								 uri_ptr));
+#endif
 			if (uri_ptr && uri_len > 0) {
 				const struct lws_http_mount *hit = lws_find_mount(wsi, uri_ptr, uri_len);
 				if (hit) {
