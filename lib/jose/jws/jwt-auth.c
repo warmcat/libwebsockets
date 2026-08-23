@@ -144,9 +144,9 @@ jwt_auth_lejp_cb(struct lejp_ctx *ctx, char reason)
 		} else if (ctx->path_match == JAP_SEC + 1) {
 			pctx->ja->session_epoch = (uint32_t)atoi(ctx->buf);
 		} else if (ctx->path_match == JAP_GRANTS_ANY + 1 && pctx->parsing_grants) {
-			struct lws_jwt_auth_grant *g = malloc(sizeof(*g));
+			struct lws_jwt_auth_grant *g =
+					lws_zalloc(sizeof(*g), __func__);
 			if (g) {
-				memset(g, 0, sizeof(*g));
 				lws_strncpy(g->service_name, ctx->path + 7, sizeof(g->service_name));
 				g->grant_level = atoi(ctx->buf);
 				lws_dll2_add_tail(&g->list, &pctx->ja->grants);
@@ -175,7 +175,7 @@ lws_jwt_auth_update(struct lws_jwt_auth *ja, const char *jwt, const char **reaso
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, ja->grants.head) {
 		struct lws_jwt_auth_grant *g = lws_container_of(d, struct lws_jwt_auth_grant, list);
 		lws_dll2_remove(&g->list);
-		free(g);
+		lws_free(g);
 	} lws_end_foreach_dll_safe(d, d1);
 
 	if (lws_jwt_signed_validate(ja->cx, ja->jwk, "ES256,ES384,ES512,RS256,RS384,RS512,HS256",
@@ -220,14 +220,13 @@ lws_jwt_auth_create(struct lws *wsi, struct lws_jwk *jwk,
 		return NULL;
 	}
 
-	ja = malloc(sizeof(*ja));
+	ja = lws_zalloc(sizeof(*ja), __func__);
 	if (!ja) {
 		if (reason)
 			*reason = "OOM";
 		return NULL;
 	}
 
-	memset(ja, 0, sizeof(*ja));
 	ja->cx = lws_get_context(wsi);
 	ja->wsi = wsi;
 	ja->jwk = jwk;
@@ -236,7 +235,7 @@ lws_jwt_auth_create(struct lws *wsi, struct lws_jwk *jwk,
 	lws_strncpy(ja->cookie_name, cookie_name, sizeof(ja->cookie_name));
 
 	if (lws_jwt_auth_update(ja, jwt, reason)) {
-		free(ja);
+		lws_free(ja);
 		return NULL;
 	}
 
@@ -273,10 +272,10 @@ lws_jwt_auth_destroy(struct lws_jwt_auth **ja)
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, (*ja)->grants.head) {
 		struct lws_jwt_auth_grant *g = lws_container_of(d, struct lws_jwt_auth_grant, list);
 		lws_dll2_remove(&g->list);
-		free(g);
+		lws_free(g);
 	} lws_end_foreach_dll_safe(d, d1);
 
-	free(*ja);
+	lws_free(*ja);
 	*ja = NULL;
 }
 

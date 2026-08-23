@@ -573,7 +573,7 @@ lws_jwe_create_packet(struct lws_jwe *jwe, const char *payload, size_t len,
 	 * here temporarily.
 	 */
 	n = LWS_PRE + 2048;
-	buf = malloc((unsigned int)n);
+	buf = lws_malloc((unsigned int)n, __func__);
 	if (!buf) {
 		lwsl_notice("%s: malloc %d failed\n", __func__, n);
 		return -1;
@@ -656,13 +656,13 @@ lws_jwe_create_packet(struct lws_jwe *jwe, const char *payload, size_t len,
 	p1 += n;
 	p1 += lws_snprintf(p1, lws_ptr_diff_size_t(end1, p1), "\"}");
 
-	free(buf);
+	lws_free(buf);
 
 	return lws_ptr_diff(p1, out);
 
 bail:
 	lws_jws_destroy(&jws);
-	free(buf);
+	lws_free(buf);
 
 	return -1;
 }
