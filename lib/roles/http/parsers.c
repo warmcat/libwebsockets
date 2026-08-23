@@ -1625,6 +1625,75 @@ lws_http_cookie_get(struct lws *wsi, const char *name, char *buf,
 	return 1;
 }
 
+/*
+ * Same cookie extraction as lws_http_cookie_get(), but returns the n-th
+ * (0-based) occurrence of the named cookie rather than only the first.
+ *
+ * Browsers legitimately present multiple same-name cookies at once: a
+ * host-only cookie and a Domain-scoped cookie for the same name can coexist
+ * in one jar (eg auth.warmcat.com host-only auth_refresh_session alongside a
+ * Domain=.warmcat.com one set by a different flow).  RFC 6265 orders
+ * same-path cookies oldest-first, so first-match-only resolution can pick a
+ * stale value while a live one sits behind it in the same header.  Callers
+ * that resolve a credential from a cookie should iterate with n = 0, 1, ...
+ * until this returns nonzero.
+ *
+ * Returns 0 and fills buf (NUL-terminated, *max_len set to the value length)
+ * if the n-th occurrence exists, nonzero if there is no such occurrence (in
+ * which case buf is untouched).
+ *
+ * Unlike lws_http_cookie_get(), no __Host- / __Secure- prefix aliases are
+ * tried: it resolves exactly the name asked for, so the occurrence ordering
+ * is deterministic against the raw header.
+ */
+int
+lws_http_cookie_get_nth(struct lws *wsi, const char *name, int n,
+			char *buf, size_t *max_len)
+{
+	size_t bl = strlen(name);
+	char *p;
+
+	if (n < 0 || lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COOKIE) < (int)bl + 1)
+		return 1;
+
+	{
+		int f = wsi->http.ah->frag_index[WSI_TOKEN_HTTP_COOKIE];
+		size_t fl;
+
+		while (f) {
+			p = wsi->http.ah->data + wsi->http.ah->frags[f].offset;
+			fl = (size_t)wsi->http.ah->frags[f].len;
+			char *pe = p + fl;
+			char *vp = p;
+
+			while (vp < pe) {
+				if ((size_t)(pe - vp) > bl && !memcmp(vp, name, bl) && vp[bl] == '=') {
+					if (vp == p || vp[-1] == ' ' || vp[-1] == ';') {
+						if (!n--) {
+							size_t max = *max_len;
+							char *bo = buf;
+
+							vp += bl + 1;
+							while (vp < pe && *vp != ';' && max > 1) {
+								*buf++ = *vp++;
+								max--;
+							}
+							*buf = '\0';
+							*max_len = lws_ptr_diff_size_t(buf, bo);
+
+							return 0;
+						}
+					}
+				}
+				vp++;
+			}
+			f = wsi->http.ah->frags[f].nfrag;
+		}
+	}
+
+	return 1;
+}
+
 #if defined(LWS_WITH_JOSE)
 
 #define MAX_JWT_SIZE 1024

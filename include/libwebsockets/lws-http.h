@@ -1149,6 +1149,32 @@ LWS_VISIBLE LWS_EXTERN int
 lws_http_cookie_get(struct lws *wsi, const char *name, char *buf, size_t *max);
 
 /**
+ * lws_http_cookie_get_nth() - return copy of the n-th same-named cookie
+ *
+ * \param wsi: the wsi to check
+ * \param name: name of the cookie
+ * \param n: the 0-based occurrence of the cookie to fetch
+ * \param buf: buffer to store the cookie contents into
+ * \param max: on entry, maximum length of buf... on exit, used len of buf
+ *
+ * Browsers can legitimately present multiple cookies with the same name (eg a
+ * host-only cookie alongside a Domain-scoped one set by a different flow), and
+ * RFC 6265 orders same-path cookies oldest-first.  This lets credential
+ * resolution walk every value with n = 0, 1, ... rather than trusting that the
+ * first one is the live one.
+ *
+ * If no n-th cookie of the requested name exists, or the value is larger than
+ * can fit in buf, returns nonzero.  Otherwise copies the value into buf with a
+ * terminating NUL, sets *max to the used length, and returns 0.
+ *
+ * Unlike lws_http_cookie_get(), no __Host- / __Secure- prefixed aliases of the
+ * name are considered; exactly \p name is resolved.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_http_cookie_get_nth(struct lws *wsi, const char *name, int n,
+			char *buf, size_t *max);
+
+/**
  * lws_http_client_http_error() - determine if the response code indicates an error
  *
  * \param code: the response code to test

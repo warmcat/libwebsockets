@@ -33,8 +33,25 @@ rops_handle_POLLIN_cgi(struct lws_context_per_thread *pt, struct lws *wsi,
 	assert(wsi->role_ops == &role_ops_cgi);
 
 	if (wsi->lsp_channel >= LWS_STDOUT &&
-	    !(pollfd->revents & pollfd->events & LWS_POLLIN))
-		return LWS_HPI_RET_PLEASE_CLOSE_ME;
+	    !(pollfd->revents & pollfd->events & LWS_POLLIN)) {
+		/*
+		 * We were woken without POLLIN in revents... normally that
+		 * means the pipe is dead and we should close our end.
+		 *
+		 * But if the cgi exited, Linux can wake us with POLLHUP
+		 * alone even though there is still undrained payload in the
+		 * pipe (revents does not necessarily include POLLIN for it).
+		 * Closing here would silently discard the tail of the cgi
+		 * response.  For stdout, pass it into the drain machinery,
+		 * which deals with both the remaining data and the EOF, and
+		 * brings about the close itself when it has finished.
+		 * stderr has no flow-controlled drain path, so it keeps the
+		 * old "nothing readable -> dead" handling.
+		 */
+		if (wsi->lsp_channel != LWS_STDOUT ||
+		    !(pollfd->revents & LWS_POLLHUP))
+			return LWS_HPI_RET_PLEASE_CLOSE_ME;
+	}
 
 	if (wsi->lsp_channel == LWS_STDIN &&
 	    !(pollfd->revents & pollfd->events & LWS_POLLOUT))

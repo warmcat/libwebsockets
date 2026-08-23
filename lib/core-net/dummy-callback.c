@@ -873,7 +873,14 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_CGI_STDIN_DATA:  /* POST body for stdin */
 		args = (struct lws_cgi_args *)in;
-		args->data[args->len] = '\0';
+		/*
+		 * The data is only consumed using its explicit length
+		 * (write() to the stdin pipe, or inflate())... do not try
+		 * to NUL-terminate it here, the buffer it arrives in is not
+		 * guaranteed to have a spare byte after the payload.  This
+		 * was historically done and comprised a 1-byte OOB write
+		 * past the end of pt->serv_buf on the direct-read path.
+		 */
 		if (!args->stdwsi[LWS_STDIN])
 			return -1;
 		n = lws_get_socket_fd(args->stdwsi[LWS_STDIN]);
