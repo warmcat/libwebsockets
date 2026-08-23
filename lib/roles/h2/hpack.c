@@ -305,26 +305,36 @@ static int lws_frag_end(struct lws *wsi)
 
 static void lws_dump_header(struct lws *wsi, int hdr)
 {
-	char s[200];
-	const unsigned char *p;
-	int len;
-
 	if (hdr == LWS_HPACK_IGNORE_ENTRY) {
 		lwsl_notice("hdr tok ignored\n");
 		return;
 	}
 
-	(void)p;
-
-	len = lws_hdr_copy(wsi, s, sizeof(s) - 1, (enum lws_token_indexes)hdr);
-	if (len < 0)
-		strcpy(s, "(too big to show)");
-	else
-		s[len] = '\0';
 #if defined(_DEBUG)
-	p = lws_token_to_string((enum lws_token_indexes)hdr);
-	lwsl_header("  hdr tok %d (%s) = '%s' (len %d)\n", hdr,
-		   p ? (char *)p : (char *)"null", s, len);
+	{
+		const unsigned char *p;
+		char s[200];
+		int len;
+
+		p = lws_token_to_string((enum lws_token_indexes)hdr);
+
+		if (lws_hdr_token_is_credential((enum lws_token_indexes)hdr)) {
+			/* keep the diagnostic, lose the credential */
+			lwsl_header("  hdr tok %d (%s) = '<redacted>' (len %d)\n",
+				    hdr, p ? (char *)p : (char *)"null",
+				    lws_hdr_total_length(wsi,
+						(enum lws_token_indexes)hdr));
+			return;
+		}
+
+		len = lws_hdr_copy(wsi, s, sizeof(s) - 1, (enum lws_token_indexes)hdr);
+		if (len < 0)
+			strcpy(s, "(too big to show)");
+		else
+			s[len] = '\0';
+		lwsl_header("  hdr tok %d (%s) = '%s' (len %d)\n", hdr,
+			   p ? (char *)p : (char *)"null", s, len);
+	}
 #endif
 }
 
@@ -557,10 +567,18 @@ lws_dynamic_token_insert(struct lws *wsi, int hdr_len,
 	dyn->virtual_payload_usage = (uint32_t)(dyn->virtual_payload_usage +
 					(unsigned int)hdr_len + len);
 
-	lwsl_info("%s: index %ld: lws_hdr_index 0x%x, hdr len %d, '%s' len %d\n",
-		  __func__, (long)LWS_ARRAY_SIZE(static_token),
-		  lws_hdr_index, hdr_len, dyn->entries[new_index].value ?
-				 dyn->entries[new_index].value : "null", (int)len);
+	if (lws_hdr_index != LWS_HPACK_IGNORE_ENTRY &&
+	    lws_hdr_token_is_credential((enum lws_token_indexes)lws_hdr_index))
+		/* keep the diagnostic, lose the credential */
+		lwsl_info("%s: index %ld: lws_hdr_index 0x%x, hdr len %d, "
+			  "'<redacted>' len %d\n",
+			  __func__, (long)LWS_ARRAY_SIZE(static_token),
+			  lws_hdr_index, hdr_len, (int)len);
+	else
+		lwsl_info("%s: index %ld: lws_hdr_index 0x%x, hdr len %d, '%s' len %d\n",
+			  __func__, (long)LWS_ARRAY_SIZE(static_token),
+			  lws_hdr_index, hdr_len, dyn->entries[new_index].value ?
+					dyn->entries[new_index].value : "null", (int)len);
 
 	dyn->pos = (uint16_t)lws_safe_modulo(dyn->pos + 1, dyn->num_entries);
 
