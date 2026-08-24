@@ -205,6 +205,15 @@ static const char * const canned_js =
         "var s=login_url.split('redirect_uri=')[0]+'redirect_uri='+encodeURIComponent(window.location.href);"
         "window.location.href=s;"
         "};"
+        /* lwsLoginEsc: HTML-escape for the innerHTML render boundary.  Every
+         * dynamic string composed into the widget's markup passes through
+         * this (or, for URL query values like device_code,
+         * encodeURIComponent).  Not all producers are trusted here: the
+         * preauth widget renders device-provided name / user_code that
+         * arrived over an UNauthenticated websocket, so the rule is that
+         * dynamic data can inject text, never markup. */
+        "window.lwsLoginEsc=function(s){var m={'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'};"
+        "return String(s).replace(/[&<>\"']/g,function(c){return m[c];});};"
         "window.renderLwsLoginStatus=async function(d){"
         "window.__lwsLoginDiv=d;"
         "var e=document.getElementById(d);"
@@ -243,19 +252,19 @@ static const char * const canned_js =
         "var skew=Math.abs(st.server_now-(Date.now()/1000));"
         "if(skew>300){"
         "c+='<div class=\"lws-login-err\">Warning: Device clock off by '+Math.round(skew/60)+' mins</div><br>';"
-        "c+='<img src=\"'+st.auth_server_url+'/refgirl-time.png\" class=\"lws-login-refgirl\">';"
+        "c+='<img src=\"'+window.lwsLoginEsc(st.auth_server_url)+'/refgirl-time.png\" class=\"lws-login-refgirl\">';"
         "}"
         "}"
         "if(st.logged_in){"
         "window.lwsLoginRetry=0;"
         "var u='.lws-login-logout?redirect_uri='+encodeURIComponent(window.location.href);"
-        "var a=st.is_admin?'<a class=\"lws-login-link\" href=\"'+st.auth_server_url+'/api/admin\">Admin Console</a>':'';"
+        "var a=st.is_admin?'<a class=\"lws-login-link\" href=\"'+window.lwsLoginEsc(st.auth_server_url)+'/api/admin\">Admin Console</a>':'';"
         "var av='<svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" stroke=\"currentColor\" stroke-width=\"2\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2\"></path><circle cx=\"12\" cy=\"7\" r=\"4\"></circle></svg>';"
         "var gl=st.is_admin?255:(st.grant_level||0);"
         "var ac=gl>=2?'lws-login-avatar-admin':'lws-login-avatar-user';"
         "c+='<span class=\"'+ac+'\">'+av+'</span>';"
-        "c+='<strong class=\"lws-login-identity\">'+st.identity+'</strong><br>';"
-        "c+=a+' <a class=\"lws-login-link lws-login-logout\" href=\"'+u+'\">Logout</a>';"
+        "c+='<strong class=\"lws-login-identity\">'+window.lwsLoginEsc(st.identity)+'</strong><br>';"
+        "c+=a+' <a class=\"lws-login-link lws-login-logout\" href=\"'+window.lwsLoginEsc(u)+'\">Logout</a>';"
         "if(!st.has_grant&&!st.is_admin)c+='<div class=\"lws-login-err\">login lacks grant</div><br>';"
         "if(st.exp){"
         "var n=st.server_now?st.server_now:(Date.now()/1000);"
@@ -290,7 +299,7 @@ static const char * const canned_js =
         "}else{"
         "var s=st.login_url.split('redirect_uri=')[0]+'redirect_uri='+encodeURIComponent(window.location.href);"
         "c+='<div class=\"lws-login-mb\">Not logged in</div>';"
-        "c+='<a class=\"lws-login-btn\" href=\"'+s+'\">Login &rarr;</a>';"
+        "c+='<a class=\"lws-login-btn\" href=\"'+window.lwsLoginEsc(s)+'\">Login &rarr;</a>';"
         /* We reach here only when silent refresh returned 'transient' (a hard
          * 'dead' already escalated out of the function above).  Back off and
          * retry; if the long-term session is actually dead, the next
@@ -316,9 +325,9 @@ static const char * const canned_js =
         "var d=devs[k];var left=d.expires-now;if(left<=0){delete devs[k];continue;}"
         "var pct=left/300.0;var dash=(1-pct)*31.4;"
         "h+='<div class=\"lws-preauth-banner\"><div class=\"lws-preauth-info\">';"
-        "h+='<span class=\"lws-preauth-title\">New Device: '+d.name+'</span>';"
+        "h+='<span class=\"lws-preauth-title\">New Device: '+window.lwsLoginEsc(d.name)+'</span>';"
         "h+='<span class=\"lws-preauth-desc\">Requires authorization</span></div>';"
-        "h+='<a class=\"lws-preauth-link\" href=\"'+st.auth_server_url+'/?device_code='+d.user_code+'\" target=\"_blank\">';"
+        "h+='<a class=\"lws-preauth-link\" href=\"'+window.lwsLoginEsc(st.auth_server_url)+'/?device_code='+encodeURIComponent(d.user_code)+'\" target=\"_blank\">';"
         "h+='<svg class=\"pie-timer\" viewBox=\"0 0 10 10\"><circle cx=\"5\" cy=\"5\" r=\"5\" stroke-dashoffset=\"'+dash+'\"></circle></svg>';"
         "h+='Authorize</a></div>';"
         "}"
