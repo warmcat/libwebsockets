@@ -204,6 +204,10 @@ lws_chunked_html_process(struct lws_process_html_args *args,
  *  you can use the fragment-aware api lws_hdr_copy_fragment() to access each
  *  argument in turn: the fragments contain urldecoded strings like x=1 or y=2.
  *
+ *  The parser refuses (403 on h1) any request whose URI contains a C0
+ *  control byte or DEL, raw or percent-encoded, so urlarg values only ever
+ *  contain printable and high (>= 0x80, eg UTF-8) bytes.
+ *
  *  As a convenience, lws has an api that will find the fragment with a
  *  given name= part, lws_get_urlarg_by_name_safe().
  */
@@ -571,7 +575,11 @@ lws_hdr_custom_name_foreach(struct lws *wsi, lws_hdr_custom_fe_cb_t cb, void *op
  *         including room for the NUL); buf is left unmodified.  Call again with
  *         a larger buf if you need the value
  *
- * This returns the explicit length and so can deal with binary blobs that are
+ * The parser refuses any request whose URI contains a C0 control byte or
+ * DEL (raw or percent-encoded), so the returned value only ever contains
+ * printable and high (>= 0x80, eg UTF-8) bytes.
+ *
+ * This returns the explicit length and so can deal with values that are
  * percent-encoded (the parser already percent-decodes the URI-args before they
  * reach here).  It always writes a NUL just after the valid length so the
  * result can also be used with NUL-based apis when you don't care about
@@ -777,6 +785,12 @@ lws_add_http_header_status(struct lws *wsi,
  * \param end: pointer to end of buffer
  *
  * Appends name: value to the headers
+ *
+ * The add fails (returns 1, nothing emitted) if the name or the value
+ * contains a C0 control byte other than TAB, or DEL: header values are
+ * RFC 9110 field-content (VCHAR / SP / HTAB / obs-text), and emitting
+ * such bytes is at best invalid and at worst response splitting over
+ * h1.  This also fences misconfiguration (CR/LF in vhost header strings).
  */
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_add_http_header_by_name(struct lws *wsi, const unsigned char *name,
@@ -794,6 +808,9 @@ lws_add_http_header_by_name(struct lws *wsi, const unsigned char *name,
  *
  * Appends name=value to the headers, but is able to take advantage of better
  * HTTP/2 coding mechanisms where possible.
+ *
+ * As with lws_add_http_header_by_name(), the add fails (returns 1, nothing
+ * emitted) if the value contains a C0 control byte other than TAB, or DEL.
  */
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_add_http_header_by_token(struct lws *wsi, enum lws_token_indexes token,

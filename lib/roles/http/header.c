@@ -104,11 +104,49 @@ lws_wsi_is_h3(struct lws *wsi)
 }
 #endif
 
+/*
+ * F-018 follow-up fence: header field values are RFC 9110 field-content,
+ * VCHAR / SP / HTAB / obs-text.  No caller can compose a header with a C0
+ * control byte (except TAB) or DEL in it -- over h1 that is response
+ * splitting; over h2/h3 it poisons the encoded field for strict peers.
+ * This also fences operator misconfiguration (CRLF in vhost header pvo
+ * strings, server_string, ...) which previously passed to the wire
+ * verbatim.  The refusal is fail-closed: the add fails (returns 1) and
+ * callers bail without emitting anything.
+ *
+ * Applies to exactly [value, value + length): callers may pass value ==
+ * NULL with a length for sizing (the cookie apis do), and obs-text
+ * (bytes >= 0x80, eg UTF-8) stays allowed.
+ */
+static int
+lws_hdr_add_value_bad(const unsigned char *value, int length)
+{
+	int n;
+
+	if (!value)
+		return 0;
+
+	for (n = 0; n < length; n++)
+		if ((value[n] < 0x20 && value[n] != '\t') || value[n] == 0x7f)
+			return 1;
+
+	return 0;
+}
+
 int
 lws_add_http_header_by_name(struct lws *wsi, const unsigned char *name,
 			    const unsigned char *value, int length,
 			    unsigned char **p, unsigned char *end)
 {
+	if ((name && lws_hdr_add_value_bad(name,
+				(int)strlen((const char *)name))) ||
+	    lws_hdr_add_value_bad(value, length)) {
+		lwsl_info("%s: refusing header with control bytes in "
+			  "name or value\n", __func__);
+
+		return 1;
+	}
+
 #ifdef LWS_ROLE_H3
 	if (wsi && lws_wsi_is_h3(wsi))
 		return lws_add_http3_header_by_name(wsi, name,
@@ -216,6 +254,18 @@ lws_add_http_header_by_token(struct lws *wsi, enum lws_token_indexes token,
 			     unsigned char **p, unsigned char *end)
 {
 	const unsigned char *name;
+
+	/*
+	 * This has its own h2/h3 dispatch and never reaches by_name on those
+	 * roles, so it needs its own copy of the value fence
+	 */
+	if (lws_hdr_add_value_bad(value, length)) {
+		lwsl_info("%s: refusing header value with control bytes\n",
+			  __func__);
+
+		return 1;
+	}
+
 #ifdef LWS_ROLE_H3
 	if (wsi && lws_wsi_is_h3(wsi))
 		return lws_add_http3_header_by_token(wsi, token, value,

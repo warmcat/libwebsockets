@@ -133,19 +133,17 @@ static const char * const lejp_paths[] = {
 };
 
 /*
- * F-018: the lws uri parser percent-decodes urlarg values in place with no
- * filtering of the decoded bytes, so anything read back from a urlarg is
- * attacker-controlled at the byte level.  Values we interpolate into
- * response headers (the Location: of both 302s) or into URLs carried by
- * them must not contain C0 control bytes: they are invalid header field
- * bytes at best (the peer or an intermediary may reject or mangle the
- * response) and attack surface at worst.  The parser does happen to
- * truncate urlarg values at a decoded CR/LF today, but that is an
- * implementation detail of one h1 codepath, not a contract -- h2/h3
- * :path handling or future parser changes must not be able to turn a
- * urlarg into header-splitting bytes here.  SP (0x20) is allowed: legit
- * deep links carry %20 / '+'-decoded spaces and a bare SP cannot split a
- * header.
+ * F-018: anything read back from a urlarg is attacker-controlled at the
+ * byte level (the uri parser percent-decodes %XX in place).  Values we
+ * interpolate into response headers (the Location: of both 302s) or into
+ * URLs carried by them must not contain C0 control bytes: they are
+ * invalid header field bytes at best and attack surface at worst.
+ *
+ * The core uri fence already refuses requests whose URI carries control
+ * bytes (403 on h1), so these gates are defense-in-depth against any
+ * other route such bytes could take into these fields.  SP (0x20) is
+ * allowed: legit deep links carry %20 / '+'-decoded spaces and a bare SP
+ * cannot split a header.
  *
  * Callers treat a tripped gate like any other invalid input:
  * redirect_uri falls back to "/", service_name and code are dropped /
@@ -466,8 +464,7 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 			/*
 			 * F-018: this value is replayed verbatim as the
 			 * post-login 302 Location:, so it must not contain
-			 * control bytes (the uri parser decodes %01 etc raw
-			 * into urlarg values).  Degrade to "/" like the other
+			 * control bytes.  Degrade to "/" like the other
 			 * invalid-target cases.  Don't log the payload: it is
 			 * attacker-controlled and may itself contain log-
 			 * hostile bytes.
@@ -739,11 +736,9 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 			/*
 			 * F-018 class: the code urlarg is forwarded into the
-			 * /api/token POST body.  The uri parser truncates it
-			 * at a decoded CR/LF today, but any other control
-			 * bytes decode raw into the value; don't forward
-			 * those to the auth server.  The state is consumed
-			 * either way (its expiry sul is already cancelled), so
+			 * /api/token POST body; don't pass control bytes on
+			 * to the auth server.  The state is consumed either
+			 * way (its expiry sul is already cancelled), so
 			 * release it like the misconfiguration bail below.
 			 */
 			if (urlarg_has_control_bytes(code_in)) {
