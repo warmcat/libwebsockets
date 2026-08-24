@@ -132,6 +132,37 @@ static const char * const lejp_paths[] = {
 	"error_description"
 };
 
+/*
+ * F-018: the lws uri parser percent-decodes urlarg values in place with no
+ * filtering of the decoded bytes, so anything read back from a urlarg is
+ * attacker-controlled at the byte level.  Values we interpolate into
+ * response headers (the Location: of both 302s) or into URLs carried by
+ * them must not contain C0 control bytes: they are invalid header field
+ * bytes at best (the peer or an intermediary may reject or mangle the
+ * response) and attack surface at worst.  The parser does happen to
+ * truncate urlarg values at a decoded CR/LF today, but that is an
+ * implementation detail of one h1 codepath, not a contract -- h2/h3
+ * :path handling or future parser changes must not be able to turn a
+ * urlarg into header-splitting bytes here.  SP (0x20) is allowed: legit
+ * deep links carry %20 / '+'-decoded spaces and a bare SP cannot split a
+ * header.
+ *
+ * Callers treat a tripped gate like any other invalid input:
+ * redirect_uri falls back to "/", service_name and code are dropped /
+ * rejected.
+ */
+static int
+urlarg_has_control_bytes(const char *s)
+{
+	while (*s) {
+		if ((unsigned char)*s < 0x20)
+			return 1;
+		s++;
+	}
+
+	return 0;
+}
+
 static signed char
 oauth_lejp_cb(struct lejp_ctx *ctx, char reason)
 {
@@ -388,7 +419,11 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 			uint8_t hash[32];
 			char code_challenge[64];
 			char sname[128] = {0};
-			char loc[1024];
+			/* F-018: sized for the worst case: config urls + the
+			 * 512-byte enc_uri + 3x-expanded (percent-encoded)
+			 * service_name + fixed text, so a long-but-clean
+			 * service_name cannot silently truncate the Location */
+			char loc[1600];
 			struct lws_genhash_ctx hctx;
 			/* Sized to absorb the vhost's default header block (CSP,
 			 * permissions-policy, HSTS, etc -- can be ~1KB on hosts
@@ -424,6 +459,23 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 					(int)sizeof(ps->redirect_uri)) < 0) {
 				lwsl_wsi_notice(wsi, "/oauth/login: no or "
 						"oversized redirect_uri, using '/'");
+				lws_strncpy(ps->redirect_uri, "/",
+					    sizeof(ps->redirect_uri));
+			}
+
+			/*
+			 * F-018: this value is replayed verbatim as the
+			 * post-login 302 Location:, so it must not contain
+			 * control bytes (the uri parser decodes %01 etc raw
+			 * into urlarg values).  Degrade to "/" like the other
+			 * invalid-target cases.  Don't log the payload: it is
+			 * attacker-controlled and may itself contain log-
+			 * hostile bytes.
+			 */
+			if (urlarg_has_control_bytes(ps->redirect_uri)) {
+				lwsl_wsi_notice(wsi, "/oauth/login: control "
+						"bytes in redirect_uri urlarg, "
+						"using '/'");
 				lws_strncpy(ps->redirect_uri, "/",
 					    sizeof(ps->redirect_uri));
 			}
@@ -494,8 +546,23 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_strncpy(ps->redirect_uri, "/",
 					    sizeof(ps->redirect_uri));
 
-			if (lws_get_urlarg_by_name_safe(wsi, "service_name=", sname, sizeof(sname)) < 0)
+			if (lws_get_urlarg_by_name_safe(wsi, "service_name=",
+							sname, sizeof(sname)) < 0)
 				lwsl_debug("%s: no service_name bound\n", __func__);
+			else
+				/*
+				 * F-018: this value is interpolated into the
+				 * /api/authorize URL carried by the hop 1
+				 * Location: header; drop it if it carries
+				 * control bytes rather than pass them on
+				 */
+				if (urlarg_has_control_bytes(sname)) {
+					lwsl_wsi_notice(wsi, "/oauth/login: "
+							"control bytes in "
+							"service_name urlarg, "
+							"dropping it");
+					sname[0] = '\0';
+				}
 
 			lws_get_random(vhd->context, rand_bytes, 16);
 			lws_b64_encode_string_url((const char *)rand_bytes, 16, ps->state, sizeof(ps->state));
@@ -580,13 +647,23 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 			{
 				char enc_uri[512];
+				/* F-018: percent-encode the service_name into
+				 * the query: interpolated raw, a decoded & # %
+				 * in it would corrupt the authorize URL's
+				 * structure (fabricated / mangled params for
+				 * the auth server) */
+				char enc_sname[LWS_ARRAY_SIZE(sname) * 3];
+
 				lws_urlencode(enc_uri, ps->oauth_redirect_uri,
 					      sizeof(enc_uri));
+				lws_urlencode(enc_sname, sname,
+					      (int)sizeof(enc_sname));
 				lws_snprintf(loc, sizeof(loc),
 					"%s/api/authorize?client_id=%s&redirect_uri=%s&state=%s&code_challenge=%s&code_challenge_method=S256&response_type=code%s%s",
 					vhd->remote_auth_url, vhd->client_id,
 					enc_uri, ps->state, code_challenge,
-					sname[0] ? "&service_name=" : "", sname);
+					sname[0] ? "&service_name=" : "",
+					enc_sname);
 			}
 
 			if (lws_add_http_header_status(wsi, HTTP_STATUS_FOUND, &p, end)) {
@@ -659,6 +736,25 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 			// We found it! Suspend timeout
 			lws_sul_cancel(&ps->sul);
+
+			/*
+			 * F-018 class: the code urlarg is forwarded into the
+			 * /api/token POST body.  The uri parser truncates it
+			 * at a decoded CR/LF today, but any other control
+			 * bytes decode raw into the value; don't forward
+			 * those to the auth server.  The state is consumed
+			 * either way (its expiry sul is already cancelled), so
+			 * release it like the misconfiguration bail below.
+			 */
+			if (urlarg_has_control_bytes(code_in)) {
+				lwsl_wsi_notice(wsi, "/oauth/callback: control "
+						"bytes in code urlarg");
+				pending_auth_release(ps);
+				lws_return_http_status(wsi,
+						HTTP_STATUS_BAD_REQUEST,
+						"Invalid code parameter");
+				return lws_http_transaction_completed(wsi);
+			}
 
 			/*
 			 * The /api/token side channel binds to THIS vhost and
