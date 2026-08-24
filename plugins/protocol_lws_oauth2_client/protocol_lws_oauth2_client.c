@@ -39,6 +39,19 @@
  */
 #define OAUTH2_REDIRECT_URI_LEN 512
 
+/*
+ * F-022: worst-case composed Set-Cookie string this plugin can build, for
+ * buffer sizing:  cookie-name (<= 63, enforced at protocol init) + '=' +
+ * value (<= value_len) + "; Path=/" (8) + "; Domain=" (9) +
+ * vhd->cookie_domain (<= 127, vhd cap) + "; Max-Age=" (10) + u64 decimal
+ * (<= 20 digits) + "; HttpOnly; SameSite=Lax; Secure" (32) + NUL.  With
+ * buffers sized this way the lws_http_cookie_compose() fence is unreachable
+ * for in-cap inputs; it stays as defense-in-depth and fails the response
+ * rather than ever emitting a cookie whose attribute tail was truncated.
+ */
+#define OAUTH2_SET_COOKIE_BUFL(value_len) \
+	(63 + 1 + (value_len) + 8 + 9 + 127 + 10 + 20 + 32 + 1)
+
 struct vhd_oauth2_client {
 	struct lws_context *context;
 	struct lws_vhost *vhost;
@@ -425,6 +438,18 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 			if (!vhd->remote_auth_url || !vhd->client_id) {
 				lwsl_vhost_err(vhd->vhost, "%s: lws-oauth2-client requires remote-auth-url and client-id\n", __func__);
+				return 1;
+			}
+
+			/*
+			 * F-022: the Set-Cookie buffers are sized for a
+			 * cookie-name up to 63 chars (OAUTH2_SET_COOKIE_BUFL);
+			 * anything longer is a misconfiguration, refuse it at
+			 * init rather than discover it mid-login
+			 */
+			if (!vhd->cookie_name ||
+			    strlen(vhd->cookie_name) > 63) {
+				lwsl_vhost_err(vhd->vhost, "%s: cookie-name must be 1..63 chars\n", __func__);
 				return 1;
 			}
 
@@ -940,9 +965,18 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_HTTP_WRITEABLE: {
 		struct pending_auth_state *ps = NULL;
 		char loc[OAUTH2_REDIRECT_URI_LEN];
-		char cookie[LWS_SSO_MAX_COOKIE];
-		unsigned char buf[LWS_SSO_MAX_COOKIE + OAUTH2_REDIRECT_URI_LEN +
-				  512 + LWS_PRE], *p = buf + LWS_PRE,
+		char cookie[OAUTH2_SET_COOKIE_BUFL(LWS_SSO_MAX_COOKIE - 1)];
+		/*
+		 * F-022: response staging must fit status + common headers +
+		 * Location + all three composed cookies at their worst case,
+		 * so no header write can fail for room and cost a cookie its
+		 * attribute tail
+		 */
+		unsigned char buf[LWS_PRE + OAUTH2_REDIRECT_URI_LEN + 512 +
+				  OAUTH2_SET_COOKIE_BUFL(LWS_SSO_MAX_COOKIE - 1) +
+				  OAUTH2_SET_COOKIE_BUFL(32) +
+				  OAUTH2_SET_COOKIE_BUFL(127) + 128],
+			      *p = buf + LWS_PRE,
 			      *end = buf + sizeof(buf) - 1;
 
 		// Find if this WSI belongs to a pending auth state that just finished
@@ -991,16 +1025,35 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 		}
 
 		// Found the finished state!
-		if (vhd->cookie_domain[0])
-			lws_snprintf(cookie, sizeof(cookie),
-				 "%s=%s; Path=/; Domain=%s; Max-Age=%lu; HttpOnly; SameSite=Lax; Secure",
-				 vhd->cookie_name, ps->token, vhd->cookie_domain,
-				 cookie_max_age(vhd, ps->expires_in_secs));
-		else
-			lws_snprintf(cookie, sizeof(cookie),
-				 "%s=%s; Path=/; Max-Age=%lu; SameSite=Lax; Secure; HttpOnly",
-				 vhd->cookie_name, ps->token,
-				 cookie_max_age(vhd, ps->expires_in_secs));
+		/*
+		 * F-022: compose the session cookie with the fail-closed
+		 * helper.  If the complete string with its full attribute
+		 * tail cannot fit, fail this login loudly (500) rather than
+		 * emit a truncated cookie: a Set-Cookie missing its
+		 * HttpOnly / SameSite / Secure tail is JS-readable and
+		 * http-sendable, which is what those attributes exist to
+		 * prevent.
+		 */
+		if (lws_http_cookie_compose(cookie, sizeof(cookie),
+					    vhd->cookie_name, ps->token,
+					    vhd->cookie_domain,
+					    cookie_max_age(vhd,
+							   ps->expires_in_secs),
+					    NULL) < 0) {
+			lwsl_wsi_err(wsi, "/oauth/callback: %s Set-Cookie "
+				     "too large for the composed buffer "
+				     "(token %d, domain %d): refusing to "
+				     "emit a truncated cookie",
+				     vhd->cookie_name,
+				     (int)strlen(ps->token),
+				     (int)strlen(vhd->cookie_domain));
+			ps->wsi_server = NULL;
+			pending_auth_release(ps);
+			lws_return_http_status(wsi,
+					HTTP_STATUS_INTERNAL_SERVER_ERROR,
+					"Set-Cookie too large");
+			return lws_http_transaction_completed(wsi);
+		}
 
 		lws_strncpy(loc, ps->redirect_uri, sizeof(loc));
 
@@ -1008,9 +1061,9 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 		// before we drop ps; emitted as extra set-cookies below, alongside
 		// auth_session.
 		{
-			char csrf_cookie[256];
-			char refresh_cookie[256];
-			int cl, rl = 0;
+			char csrf_cookie[OAUTH2_SET_COOKIE_BUFL(32)];
+			char refresh_cookie[OAUTH2_SET_COOKIE_BUFL(127)];
+			int cl = 0, rl = 0;
 			/*
 			 * auth_csrf guards silent renewal (the double-submit
 			 * check on the side-channel POST), so it must outlive the
@@ -1025,17 +1078,30 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 				ps->refresh_token[0] && ps->refresh_expires_in_secs
 					? ps->refresh_expires_in_secs
 					: cookie_max_age(vhd, ps->expires_in_secs);
-			if (vhd->cookie_domain[0])
-				lws_snprintf(csrf_cookie, sizeof(csrf_cookie),
-					     "auth_csrf=%s; Path=/; Domain=%s; "
-					     "Max-Age=%lu; SameSite=Lax; Secure; HttpOnly",
-					     ps->csrf, vhd->cookie_domain, csrf_ma);
-			else
-				lws_snprintf(csrf_cookie, sizeof(csrf_cookie),
-					     "auth_csrf=%s; Path=/; Max-Age=%lu; "
-					     "SameSite=Lax; Secure; HttpOnly",
-					     ps->csrf, csrf_ma);
-			cl = (int)strlen(csrf_cookie);
+
+			/*
+			 * F-022: the sidecars are composed through the same
+			 * fail-closed helper.  These are auxiliary (the login
+			 * itself is carried by auth_session), so a cookie that
+			 * cannot be composed whole is skipped with an err --
+			 * the degraded mode the flow already has when the auth
+			 * server issues no refresh token -- rather than failing
+			 * the whole login.
+			 */
+			cl = lws_http_cookie_compose(csrf_cookie,
+						     sizeof(csrf_cookie),
+						     "auth_csrf", ps->csrf,
+						     vhd->cookie_domain,
+						     csrf_ma, NULL);
+			if (cl < 0) {
+				lwsl_wsi_err(wsi, "/oauth/callback: auth_csrf "
+					     "Set-Cookie too large (domain "
+					     "%d): skipping rather than "
+					     "emit a truncated cookie",
+					     (int)strlen(vhd->cookie_domain));
+				csrf_cookie[0] = '\0';
+				cl = 0;
+			}
 
 			/*
 			 * If the auth server minted a long-term refresh token, set
@@ -1050,28 +1116,24 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 				unsigned long ma = ps->refresh_expires_in_secs;
 				if (!ma)
 					ma = cookie_max_age(vhd, 0);
-				if (vhd->cookie_domain[0])
-					lws_snprintf(refresh_cookie,
-						  sizeof(refresh_cookie),
-						  "auth_refresh_session=%s; "
-						  "Path=/; Domain=%s; Max-Age=%lu; "
-						  "SameSite=Lax; Secure; HttpOnly",
-						  ps->refresh_token,
-						  vhd->cookie_domain, ma);
-				else
-					lws_snprintf(refresh_cookie,
-						  sizeof(refresh_cookie),
-						  "auth_refresh_session=%s; "
-						  "Path=/; Max-Age=%lu; "
-						  "SameSite=Lax; Secure; HttpOnly",
-						  ps->refresh_token, ma);
-				/*
-				 * Use the strlen, not the snprintf return:
-				 * lws_snprintf answers the truncated size,
-				 * which would run past the string's NUL and
-				 * plant it inside the header.
-				 */
-				rl = (int)strlen(refresh_cookie);
+				rl = lws_http_cookie_compose(refresh_cookie,
+							     sizeof(refresh_cookie),
+							     "auth_refresh_session",
+							     ps->refresh_token,
+							     vhd->cookie_domain,
+							     ma, NULL);
+				if (rl < 0) {
+					lwsl_wsi_err(wsi, "/oauth/callback: "
+						     "auth_refresh_session "
+						     "Set-Cookie too large "
+						     "(token %d, domain %d): "
+						     "skipping rather than "
+						     "emit a truncated cookie",
+						     (int)strlen(ps->refresh_token),
+						     (int)strlen(vhd->cookie_domain));
+					refresh_cookie[0] = '\0';
+					rl = 0;
+				}
 			}
 
 			lwsl_wsi_notice(wsi, "/oauth/callback: issuing %s cookie "
@@ -1088,7 +1150,7 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 			if (lws_add_http_header_status(wsi, HTTP_STATUS_FOUND, &p, end) ||
 			    lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION, (unsigned char *)loc, (int)strlen(loc), &p, end) ||
 			    lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_SET_COOKIE, (unsigned char *)cookie, (int)strlen(cookie), &p, end) ||
-			    lws_add_http_header_by_name(wsi, (const uint8_t *)"set-cookie:", (const uint8_t *)csrf_cookie, cl, &p, end) ||
+			    (cl && lws_add_http_header_by_name(wsi, (const uint8_t *)"set-cookie:", (const uint8_t *)csrf_cookie, cl, &p, end)) ||
 			    (rl && lws_add_http_header_by_name(wsi, (const uint8_t *)"set-cookie:", (const uint8_t *)refresh_cookie, rl, &p, end)) ||
 			    lws_finalize_http_header(wsi, &p, end))
 				return 1;

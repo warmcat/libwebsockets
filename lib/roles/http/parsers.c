@@ -1683,7 +1683,7 @@ lws_http_cookie_get(struct lws *wsi, const char *name, char *buf,
  */
 int
 lws_http_cookie_get_nth(struct lws *wsi, const char *name, int n,
-			char *buf, size_t *max_len)
+			char *buf, size_t *max)
 {
 	size_t bl = strlen(name);
 	char *p;
@@ -1707,7 +1707,7 @@ lws_http_cookie_get_nth(struct lws *wsi, const char *name, int n,
 						if (!n--)
 							return cookie_value_copy(
 								   vp + bl + 1,
-								   pe, buf, max_len);
+								   pe, buf, max);
 					}
 				}
 				vp++;
@@ -1718,6 +1718,69 @@ lws_http_cookie_get_nth(struct lws *wsi, const char *name, int n,
 
 	return 1;
 }
+
+int
+lws_http_cookie_compose(char *buf, size_t len, const char *name,
+			const char *value, const char *domain,
+			unsigned long long max_age, const char *expires)
+{
+	/*
+	 * Fixed attribute text lengths, kept adjacent to the format strings
+	 * below so they cannot drift apart silently
+	 */
+	size_t need, o = 0;
+	char ma[24]; /* u64 decimal: max 20 digits + NUL */
+	int mal;
+
+	if (!name || !value)
+		return -1;
+
+	mal = lws_snprintf(ma, sizeof(ma), "%llu", max_age);
+
+	/* "name=value" + "; Path=/" */
+	need = strlen(name) + 1 + strlen(value) + 8;
+	if (domain && domain[0])
+		need += 9 + strlen(domain);	/* "; Domain=" */
+	if (expires)
+		need += 10 + strlen(expires);	/* "; Expires=" */
+	need += 10 + (size_t)mal;		/* "; Max-Age=" */
+	need += 32;				/* "; HttpOnly; SameSite=Lax; Secure" */
+
+	if (!buf)
+		return need <= (size_t)0x7fffffff ? (int)need : -1;
+
+	if (need + 1 > len) {
+		if (len)
+			buf[0] = '\0';
+		return -1;
+	}
+
+	o = (size_t)lws_snprintf(buf, len, "%s=%s; Path=/", name, value);
+	if (domain && domain[0])
+		o += (size_t)lws_snprintf(buf + o, len - o,
+					  "; Domain=%s", domain);
+	if (expires)
+		o += (size_t)lws_snprintf(buf + o, len - o,
+					  "; Expires=%s", expires);
+	o += (size_t)lws_snprintf(buf + o, len - o,
+				  "; Max-Age=%s; HttpOnly; SameSite=Lax; "
+				  "Secure", ma);
+
+	/*
+	 * The precheck above means the appends cannot truncate; this postcheck
+	 * turns any drift between the size accounting and the format strings
+	 * into a loud failure instead of a cookie with a chopped attribute
+	 * tail.
+	 */
+	if (o != need || strlen(buf) != need) {
+		if (len)
+			buf[0] = '\0';
+		return -1;
+	}
+
+	return (int)need;
+}
+
 
 #if defined(LWS_WITH_JOSE)
 

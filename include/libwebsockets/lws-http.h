@@ -1196,6 +1196,41 @@ lws_http_cookie_get_nth(struct lws *wsi, const char *name, int n,
 			char *buf, size_t *max);
 
 /**
+ * lws_http_cookie_compose() - compose a complete set-cookie: header value
+ *
+ * \param buf: buffer to compose the header value into, or NULL to only measure
+ * \param len: bytes available at buf; ignored when buf is NULL
+ * \param name: cookie name; must be non-NULL (use "" never to clear)
+ * \param value: cookie value; must be non-NULL ("" for a clearing cookie)
+ * \param domain: optional Domain attribute; NULL or "" for a host-only cookie
+ * \param max_age: Max-Age attribute, seconds (0 when clearing)
+ * \param expires: optional Expires attribute (RFC 1123 date string), or NULL
+ *
+ * Composes "name=value; Path=/; [Domain=..; ][Expires=..; ]Max-Age=N;
+ * HttpOnly; SameSite=Lax; Secure" -- the fixed scoping the lws SSO plugins
+ * mint their session cookies with -- into buf, ready to pass to
+ * lws_add_http_header_by_name() as a set-cookie: value.
+ *
+ * The attribute tail is never silently truncated: a Set-Cookie whose
+ * HttpOnly / SameSite / Secure attributes were chopped off is
+ * browser-readable and http-sendable, exactly what the attribute tail exists
+ * to prevent.  If the complete string with its full attribute set does not
+ * fit in buf, nothing is composed, buf[0] is set to '\0' (when buf and len
+ * are usable) and -1 is returned; callers must fail the response or skip the
+ * cookie, never emit the partial string.
+ *
+ * With buf set to NULL, returns the length the composed string would have
+ * (excluding the terminating NUL), so callers can size a buffer first.
+ *
+ * Returns the length of the composed string in buf (excluding the NUL), or
+ * -1 if it would not fit / the arguments are unusable.
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_http_cookie_compose(char *buf, size_t len, const char *name,
+			const char *value, const char *domain,
+			unsigned long long max_age, const char *expires);
+
+/**
  * lws_http_client_http_error() - determine if the response code indicates an error
  *
  * \param code: the response code to test
