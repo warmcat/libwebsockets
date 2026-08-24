@@ -126,6 +126,14 @@ pss_queue(struct pss__xip *pss, const char *frame, size_t len)
 	return 0;
 }
 
+/* queue a built frame; builders return -1 on overflow, meaning no frame */
+static void
+pss_queue_n(struct pss__xip *pss, const char *frame, int n)
+{
+	if (n > 0)
+		pss_queue(pss, frame, (size_t)n);
+}
+
 /* queue a full chunked clip to one session */
 static int
 queue_clip_to(struct pss__xip *t, const uint8_t *data, size_t len,
@@ -333,7 +341,7 @@ handle_hello(struct vhd__xip *vhd, struct pss__xip *pss,
 
 	if (pss->authed) {
 		n = xip_build_error(frame, sizeof(frame), "auth");
-		pss_queue(pss, frame, (size_t)n);
+		pss_queue_n(pss, frame, n);
 		pss->auth_fail = 1;
 
 		return 0;
@@ -344,7 +352,7 @@ handle_hello(struct vhd__xip *vhd, struct pss__xip *pss,
 			 m->token, strlen(m->token))) {
 		lwsl_notice("xip: auth failed for new connection\n");
 		n = xip_build_error(frame, sizeof(frame), "auth");
-		pss_queue(pss, frame, (size_t)n);
+		pss_queue_n(pss, frame, n);
 		pss->auth_fail = 1;
 
 		return 0;
@@ -366,7 +374,7 @@ handle_hello(struct vhd__xip *vhd, struct pss__xip *pss,
 	n = xip_build_welcome(frame, sizeof(frame), pss->id,
 			      (vhd->cache && pss->grp->have_clip) ?
 					pss->grp->clip_hash : NULL);
-	pss_queue(pss, frame, (size_t)n);
+	pss_queue_n(pss, frame, n);
 
 	return 0;
 }
@@ -387,7 +395,7 @@ handle_msg(struct pss__xip *pss, const struct xip_msg *m)
 	case XIP_MSG_FETCH:
 		if (!pss->authed) {
 			n = xip_build_error(frame, sizeof(frame), "auth");
-			pss_queue(pss, frame, (size_t)n);
+			pss_queue_n(pss, frame, n);
 			pss->auth_fail = 1;
 			break;
 		}
@@ -400,7 +408,7 @@ handle_msg(struct pss__xip *pss, const struct xip_msg *m)
 	case XIP_MSG_CLIP:
 		if (!pss->authed) {
 			n = xip_build_error(frame, sizeof(frame), "auth");
-			pss_queue(pss, frame, (size_t)n);
+			pss_queue_n(pss, frame, n);
 			pss->auth_fail = 1;
 			break;
 		}
@@ -410,7 +418,7 @@ handle_msg(struct pss__xip *pss, const struct xip_msg *m)
 				    "%u\n", pss->id);
 			n = xip_build_error(frame, sizeof(frame),
 					    "too-large");
-			pss_queue(pss, frame, (size_t)n);
+			pss_queue_n(pss, frame, n);
 			break;
 		}
 		if (r == 1) {
@@ -609,7 +617,7 @@ callback_xip(struct lws *wsi, enum lws_callback_reasons reason,
 		if (r < 0) {
 			lwsl_info("xip: protocol parse error\n");
 			n = xip_build_error(frame, sizeof(frame), "bad-json");
-			pss_queue(pss, frame, (size_t)n);
+			pss_queue_n(pss, frame, n);
 			pss->auth_fail = 1;
 			break;
 		}

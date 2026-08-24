@@ -52,6 +52,18 @@ xip_chunker_next(struct xip_chunker *c, char *buf, size_t cap, size_t *outlen)
 		return -1;
 	prefix = (size_t)n;
 
+	/*
+	 * Provable bound before encoding: b64 of `piece` bytes is at most
+	 * 4 * ceil(piece / 3); +4 covers closing quote, brace, NUL and the
+	 * encoder's own NUL.  Keeps the write into buf evidently in-cap.
+	 */
+	{
+		size_t b64max = (piece + 2) / 3 * 4;
+
+		if (prefix + b64max + 4 > cap)
+			return -1;
+	}
+
 	/* base64-encode straight into the frame */
 	n = lws_b64_encode_string((const char *)c->data + c->off, (int)piece,
 				  buf + prefix, (int)(cap - prefix - 2));

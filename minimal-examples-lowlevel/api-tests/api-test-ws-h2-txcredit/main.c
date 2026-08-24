@@ -23,7 +23,9 @@
  *  - the client ever received more payload than it granted credit for
  *    (the ws frame headers ride inside DATA too, so payload > granted can
  *    only happen when the server ignored the window), or
- *  - the received pattern is corrupted / the transfer doesn't complete.
+ *  - the received pattern is corrupted / the transfer doesn't complete,
+ *  - the header add apis accept the NULL-name (h1 status-line) form on
+ *    the live h2 wsi instead of refusing it.
  */
 
 #include <libwebsockets.h>
@@ -216,10 +218,26 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 	     void *user, void *in, size_t len)
 {
 	switch (reason) {
-	case LWS_CALLBACK_CLIENT_ESTABLISHED:
+	case LWS_CALLBACK_CLIENT_ESTABLISHED: {
+		unsigned char hbuf[64], *hp = hbuf;
+
 		lwsl_user("%s: client: established\n", __func__);
 		if (lws_get_network_wsi(wsi) == wsi) {
 			lwsl_err("--- not encapsulated in h2 ---\n");
+			interrupted = 1;
+			return -1;
+		}
+		/*
+		 * We hold a live h2 wsi: the header add apis must refuse the
+		 * NULL-name (h1 status-line composition) form on it, rather
+		 * than pass NULL to the hpack coder to strlen()
+		 */
+		if (!lws_add_http_header_by_name(wsi, NULL,
+				(const unsigned char *)"x", 1,
+				&hp, hbuf + sizeof(hbuf) - 1)) {
+			lwsl_err("--- NULL-name header add accepted on an "
+				 "h2 wsi ---\n");
+			result = 1;
 			interrupted = 1;
 			return -1;
 		}
@@ -227,6 +245,7 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_sul_schedule(context, 0, &sul_grant, sul_grant_cb,
 				 GRANT_US);
 		break;
+	}
 
 	case LWS_CALLBACK_CLIENT_RECEIVE:
 		for (size_t i = 0; i < len; i++)
