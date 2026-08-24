@@ -403,13 +403,68 @@ lws_quic_ack_delay_cb(lws_sorted_usec_list_t *sul)
 	}
 }
 
+/*
+ * RFC 9002 5.3 PTO interval without an RTT sample yet, or with the current
+ * smoothed_rtt / rttvar estimate.
+ */
+static lws_usec_t
+lws_quic_pto_base_us(const struct lws_quic_netconn *qn)
+{
+	return qn->smoothed_rtt ?
+		(qn->smoothed_rtt + (4 * qn->rttvar) + 25000) :
+		LWS_QUIC_DEFAULT_PTO_US;
+}
+
+/*
+ * RFC 9002 6.2 PTO interval with exponential backoff: pto_count consecutive
+ * PTO firings double the delay.  The shift is clamped so a large pto_count
+ * (which the count-based death conditions do not always bound) saturates
+ * instead of producing an out-of-range shift.
+ *
+ * While the TLS handshake is still incomplete, the backoff is capped at 4x the
+ * base interval.  Pre-handshake_done, the death of a peer we have heard
+ * nothing from is owned by the wsi connect timeout
+ * (PENDING_TIMEOUT_AWAITING_CONNECT_RESPONSE, default 20s), not by this
+ * backoff; with unbounded doubling from the 500ms default base only ~6
+ * Initial probes fit in that window, which is too few to ride out a
+ * corruption streak (interop corrupt-rate scenario, 30% each direction:
+ * P(all 6 probes corrupted) ~ 7e-4 per connection).  Capping the probe
+ * spacing fits ~12 probes in the same window (P ~ 5e-7).  For handshakes that
+ * did make some progress, the RFC 9002 A.11 backoff reset on PN space discard
+ * in lws_quic_discard_keys() handles the accumulated backoff instead.
+ */
+static lws_usec_t
+lws_quic_pto_delay_us(const struct lws_quic_netconn *qn, uint8_t count)
+{
+	lws_usec_t base = lws_quic_pto_base_us(qn);
+	uint8_t shift = count > 6 ? 6 : count;
+	lws_usec_t delay = base << shift;
+
+	if (!qn->handshake_done && delay > base * 4)
+		delay = base * 4;
+	if (delay > 10000000)
+		delay = 10000000;
+
+	return delay;
+}
+
 static void
 lws_quic_pto_cb(lws_sorted_usec_list_t *sul)
 {
 	struct lws_quic_netconn *qn = lws_container_of(sul, struct lws_quic_netconn, pto_sul);
 	if (qn && qn->nwsi) {
 		qn->pto_count++;
-		if (qn->pto_count >= 8) {
+		/*
+		 * Pre-handshake_done on the client, leave the death of a silent
+		 * peer to the wsi connect timeout so the capped probe spacing in
+		 * lws_quic_pto_delay_us() can keep probing for the whole
+		 * connect window (otherwise the counter would kill it at
+		 * ~4x base x 8 first).  Server-side, keep the reap: it is the
+		 * only bound on half-open connections from clients that vanish
+		 * mid-handshake, and the capped spacing only makes it fire
+		 * sooner.
+		 */
+		if (qn->pto_count >= 8 && (qn->is_server || qn->handshake_done)) {
 			lwsl_wsi_notice(qn->nwsi, "QUIC connection dead: max PTO count (%d) reached\n", qn->pto_count);
 			lws_close_free_wsi(qn->nwsi, LWS_CLOSE_STATUS_NOSTATUS, "quic pto timeout");
 			return;
@@ -480,10 +535,7 @@ lws_quic_pto_cb(lws_sorted_usec_list_t *sul)
 		}
 
 		if (any_in_flight || !qn->handshake_done) {
-			lws_usec_t pto_base = qn->smoothed_rtt ? (qn->smoothed_rtt + (4 * qn->rttvar) + 25000) : LWS_QUIC_DEFAULT_PTO_US;
-			lws_usec_t pto_delay = pto_base << qn->pto_count;
-			if (pto_delay > 10000000)
-				pto_delay = 10000000;
+			lws_usec_t pto_delay = lws_quic_pto_delay_us(qn, qn->pto_count);
 			lws_sul_schedule(qn->nwsi->a.context, 0, &qn->pto_sul, lws_quic_pto_cb, pto_delay);
 		}
 	}
@@ -727,9 +779,7 @@ lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t acked_pn, int is_large
 			 * we just reset pto_count above) so the doubled timer from the
 			 * PTO callback is replaced by a fresh base-rate timer.
 			 */
-			lws_usec_t pto_base2 = qn->smoothed_rtt ?
-				(qn->smoothed_rtt + (4 * qn->rttvar) + 25000) :
-				LWS_QUIC_DEFAULT_PTO_US;
+			lws_usec_t pto_base2 = lws_quic_pto_base_us(qn);
 			lws_sul_schedule(nwsi->a.context, 0, &qn->pto_sul,
 					 lws_quic_pto_cb, pto_base2);
 		}
@@ -793,9 +843,7 @@ lws_quic_discard_keys(struct lws *nwsi, int level)
 			}
 
 		if (any_in_flight || !qn->handshake_done) {
-			lws_usec_t pto_base = qn->smoothed_rtt ?
-				(qn->smoothed_rtt + (4 * qn->rttvar) + 25000) :
-				LWS_QUIC_DEFAULT_PTO_US;
+			lws_usec_t pto_base = lws_quic_pto_base_us(qn);
 
 			/* reschedule the PTO at the fresh, unbacked-off delay */
 			lws_sul_schedule(nwsi->a.context, 0, &qn->pto_sul,
@@ -2327,10 +2375,7 @@ rops_handle_POLLOUT_quic(struct lws *wsi)
 
 	wsi->mux.requested_POLLOUT = 0;
 
-	lws_usec_t pto_base = qn->smoothed_rtt ? (qn->smoothed_rtt + (4 * qn->rttvar) + 25000) : LWS_QUIC_DEFAULT_PTO_US;
-        lws_usec_t pto_delay = pto_base << qn->pto_count;
-        if (pto_delay > 10000000)
-                pto_delay = 10000000;
+	lws_usec_t pto_delay = lws_quic_pto_delay_us(qn, qn->pto_count);
 
         if (!wsi->quic.initialized && !qn->is_server) {
                 wsi->quic.initialized = 1;
@@ -2389,9 +2434,8 @@ rops_handle_POLLOUT_quic(struct lws *wsi)
 				(long long)(now - f->sent_time_us));
 
 			/* Use the PTO delay that triggered this sweep, not the newly doubled one */
-			lws_usec_t sweep_pto_base = qn->smoothed_rtt ? (qn->smoothed_rtt + (4 * qn->rttvar) + 25000) : LWS_QUIC_DEFAULT_PTO_US;
-			lws_usec_t sweep_pto_delay = sweep_pto_base << (qn->pto_count > 0 ? qn->pto_count - 1 : 0);
-			if (sweep_pto_delay > 10000000) sweep_pto_delay = 10000000;
+			lws_usec_t sweep_pto_delay = lws_quic_pto_delay_us(qn,
+				qn->pto_count > 0 ? qn->pto_count - 1 : 0);
 
 			/* Allow a 5ms epsilon for timer jitter */
 			if (now + 5000 >= f->sent_time_us + sweep_pto_delay) {
