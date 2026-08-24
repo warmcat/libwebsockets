@@ -147,15 +147,37 @@ lws_add_http_header_by_name(struct lws *wsi, const unsigned char *name,
 		return 1;
 	}
 
+	/*
+	 * A NULL name asks for h1 status-line composition (value emitted with
+	 * no field name).  That has no h2/h3 representation: the status is the
+	 * :status pseudo-header, emitted by the dedicated _status helpers.
+	 * Refuse it fail-closed rather than let the encoders strlen(NULL).
+	 */
 #ifdef LWS_ROLE_H3
-	if (wsi && lws_wsi_is_h3(wsi))
+	if (wsi && lws_wsi_is_h3(wsi)) {
+		if (!name) {
+			lwsl_wsi_info(wsi, "%s: refusing nameless header "
+					  "over h3\n", __func__);
+
+			return 1;
+		}
+
 		return lws_add_http3_header_by_name(wsi, name,
 						    value, length, p, end);
+	}
 #endif
 #ifdef LWS_WITH_HTTP2
-	if (wsi && lws_wsi_is_h2(wsi))
+	if (wsi && lws_wsi_is_h2(wsi)) {
+		if (!name) {
+			lwsl_wsi_info(wsi, "%s: refusing nameless header "
+					  "over h2\n", __func__);
+
+			return 1;
+		}
+
 		return lws_add_http2_header_by_name(wsi, name,
 						    value, length, p, end);
+	}
 #endif
 	if (!wsi) {
 		/* Used occasionally by tests that pass NULL wsi */

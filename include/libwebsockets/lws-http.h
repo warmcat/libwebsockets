@@ -791,6 +791,11 @@ lws_add_http_header_status(struct lws *wsi,
  * RFC 9110 field-content (VCHAR / SP / HTAB / obs-text), and emitting
  * such bytes is at best invalid and at worst response splitting over
  * h1.  This also fences misconfiguration (CR/LF in vhost header strings).
+ *
+ * A NULL name composes the value with no field name (used for the h1
+ * status line); h2/h3 have no such representation (the status is the
+ * :status pseudo-header from the _status helpers), so over h2/h3 a NULL
+ * name fails the add (returns 1, nothing emitted).
  */
 LWS_VISIBLE LWS_EXTERN int LWS_WARN_UNUSED_RESULT
 lws_add_http_header_by_name(struct lws *wsi, const unsigned char *name,
