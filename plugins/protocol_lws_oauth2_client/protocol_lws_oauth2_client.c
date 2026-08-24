@@ -161,6 +161,53 @@ urlarg_has_control_bytes(const char *s)
 	return 0;
 }
 
+/*
+ * F-019: the post-login Location: target must also be safe at the byte
+ * level, not just at the "starts with one slash" level.  Browsers using
+ * the WHATWG URL algorithm (Chrome, Firefox, Safari) treat '\' like '/'
+ * in the paths of special schemes, so a redirect_uri that survives the
+ * protocol-relative '//' check as "/\evil.com" navigates the freshly
+ * logged-in user to //evil.com: an open redirect straight off the
+ * trusted origin.  '\' is 0x5c, so the F-018 control-byte gate above
+ * cannot see it.
+ *
+ * Rather than blacklist known-bad bytes, only allow the RFC 3986
+ * path/query character set (unreserved, sub-delims, the path/query
+ * delimiters ":/?#@") plus '%'.  Deviations from a strict ASCII set,
+ * both deliberate:
+ *
+ *  - bytes >= 0x80 pass: legit deep links carry UTF-8 IRI text after
+ *    the uri parser percent-decodes them; they are inert to URL
+ *    structure and valid header obs-text
+ *
+ *  - '#' passes: the login widget sends window.location.href, which
+ *    includes any fragment; a fragment cannot affect the host, the
+ *    path or header framing, only the client-side anchor
+ *
+ * The value reaching this check has already been reduced to a path by
+ * the same-origin handling above, so this set covers everything a
+ * genuine target contains.  Callers degrade to "/" like the other
+ * invalid-target cases.
+ */
+static int
+redirect_uri_has_unsafe_path_bytes(const char *s)
+{
+	static const char allowed[] = "-._~%!$&'()*+,;=/:@?#";
+	unsigned char c;
+
+	while ((c = (unsigned char)*s++)) {
+		if (c >= 0x80)
+			continue;
+		if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+		    (c >= '0' && c <= '9'))
+			continue;
+		if (!strchr(allowed, c))
+			return 1;
+	}
+
+	return 0;
+}
+
 static signed char
 oauth_lejp_cb(struct lejp_ctx *ctx, char reason)
 {
@@ -537,9 +584,15 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 					lws_strncpy(ps->redirect_uri, "/",
 						    sizeof(ps->redirect_uri));
 			}
-			/* still enforce: relative, and not protocol-relative */
+			/*
+			 * Still enforce: relative, not protocol-relative, and
+			 * -- F-019 -- free of bytes outside the URL path/query
+			 * set, so browser-side '\' normalization cannot
+			 * reinterpret the target off-origin
+			 */
 			if (ps->redirect_uri[0] != '/' ||
-			    ps->redirect_uri[1] == '/')
+			    ps->redirect_uri[1] == '/' ||
+			    redirect_uri_has_unsafe_path_bytes(ps->redirect_uri))
 				lws_strncpy(ps->redirect_uri, "/",
 					    sizeof(ps->redirect_uri));
 
