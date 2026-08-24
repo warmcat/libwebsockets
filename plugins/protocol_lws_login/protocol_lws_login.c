@@ -2225,12 +2225,38 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 					chk_url = referer;
 				}
 
-				if (token && vhd && vhd->auth_server_url && chk_url) {
-					lws_parse_uri_t *puri_auth = lws_parse_uri_create(vhd->auth_server_url);
-					lws_parse_uri_t *puri_chk = lws_parse_uri_create(chk_url);
+				/*
+				 * A presented token gets planted as the
+				 * browser's session cookie, so it must come
+				 * with positive proof it originated at the
+				 * configured auth server: an Origin (non-"null",
+				 * sandboxed iframes send "null") or a Referer
+				 * matching auth-server-url's scheme+host+port.
+				 * Fail closed on every path where a positive
+				 * match cannot be made.  A cross-site form POST
+				 * suppressing both headers used to skip the
+				 * check entirely and plant its token: login
+				 * CSRF.  The legit flow, the auth server's
+				 * auto-submitting form POST, always carries one
+				 * of the two.
+				 */
+				if (token && vhd) {
+					lws_parse_uri_t *puri_auth = NULL, *puri_chk = NULL;
 
-					if (puri_auth && puri_chk) {
-						if (strcmp(puri_auth->scheme, puri_chk->scheme) ||
+					if (!vhd->auth_server_url) {
+						lwsl_err("%s: blocking SSO token: no auth-server-url to check origin against\n",
+							 __func__);
+						token = NULL;
+					} else if (!chk_url) {
+						lwsl_err("%s: blocking SSO token: no origin/referer to check against %s (login CSRF?)\n",
+							 __func__, vhd->auth_server_url);
+						token = NULL;
+					} else {
+						puri_auth = lws_parse_uri_create(vhd->auth_server_url);
+						puri_chk = lws_parse_uri_create(chk_url);
+
+						if (!puri_auth || !puri_chk ||
+						    strcmp(puri_auth->scheme, puri_chk->scheme) ||
 						    strcasecmp(puri_auth->host, puri_chk->host) ||
 						    puri_auth->port != puri_chk->port) {
 							lwsl_err("%s: blocking SSO CSRF from origin/referer %s (expected %s)\n",
@@ -2241,8 +2267,11 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 								    __func__, chk_url);
 						}
 					}
-					if (puri_auth) lws_parse_uri_destroy(&puri_auth);
-					if (puri_chk) lws_parse_uri_destroy(&puri_chk);
+
+					if (puri_auth)
+						lws_parse_uri_destroy(&puri_auth);
+					if (puri_chk)
+						lws_parse_uri_destroy(&puri_chk);
 				}
 
 				if (token && target && vhd) {
