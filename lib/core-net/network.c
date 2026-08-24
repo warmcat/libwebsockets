@@ -872,7 +872,6 @@ lws_parse_numeric_address(const char *ads, uint8_t *result, size_t max_len)
 				u = strtol(t, NULL, 16);
 				if (u > 0xffff)
 					return -5;
-				*result++ = (uint8_t)(u >> 8);
 			} else {
 				if (ts.token_len > 3)
 					return -1;
@@ -887,6 +886,19 @@ lws_parse_numeric_address(const char *ads, uint8_t *result, size_t max_len)
 			}
 			if (u < 0)
 				return -7;
+			/*
+			 * The whole group must fit in what's left of the
+			 * result buffer (2 bytes for an ipv6 group, 1 for
+			 * an ipv4 octet) before we write any of it, else
+			 * overlong literals like a 9-group ipv6 or a
+			 * 5-octet ipv4 write past the end of the caller's
+			 * buffer before the group count check at ENDED
+			 * rejects them
+			 */
+			if (result - orig + (ipv6 ? 2 : 1) > (int)max_len)
+				return -15;
+			if (ipv6)
+				*result++ = (uint8_t)(u >> 8);
 			*result++ = (uint8_t)u;
 			sects++;
 			break;
@@ -898,6 +910,8 @@ lws_parse_numeric_address(const char *ads, uint8_t *result, size_t max_len)
 				if (*ts.token != ':')
 					return -9;
 				/* back to back : */
+				if (result - orig + 2 > (int)max_len)
+					return -15;
 				*result++ = 0;
 				*result++ = 0;
 				skip_point = lws_ptr_diff(result, orig);

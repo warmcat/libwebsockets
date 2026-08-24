@@ -25,7 +25,7 @@ static const struct lws_switches switches[] = {
 
 #include <signal.h>
 
-static int interrupted, dtest, ok, fail, _exp = 18;
+static int interrupted, dtest, ok, fail, _exp = 22;
 static uint32_t fail_mask;
 struct lws_context *context;
 
@@ -79,6 +79,24 @@ static const struct ipparser_tests {
 			{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 } },
 
 	{ "1.2.3.4", 4, "1.2.3.4", 7, { 1, 2, 3, 4 } },
+
+	/*
+	 * F-017 regression cases: overlong literals must fail with -15 when
+	 * the next group does not fit in the result buffer, rather than
+	 * writing 1 - 2 bytes past the end of it first
+	 */
+
+	{ "1:2:3:4:5:6:7:8:9", -15, "", 0,
+			{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 } },
+
+	{ "1:2:3:4:5:6:7:8::", -15, "", 0,
+			{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 } },
+
+	{ "::ffff:1.2.3.4.5", -15, "", 0,
+			{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 } },
+
+	{ "1.2.3.4.5", -12, "", 0,
+			{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 } },
 };
 
 #define TEST_FLAG_NOCHECK_RESULT_IP 0x100000
