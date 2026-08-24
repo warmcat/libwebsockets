@@ -55,6 +55,47 @@ int main(void)
 	}
 
 	/*
+	 * F-017 regression: overlong literals must be rejected without
+	 * writing past the end of the 16-byte buffer the sa46 parser uses
+	 * internally.  These are peer-reachable via client redirect targets.
+	 */
+	{
+		static const char * const overlong[] = {
+			"1:2:3:4:5:6:7:8:9",	/* 9th ipv6 group     */
+			"1:2:3:4:5:6:7:8::",	/* :: after 8 groups  */
+			"::ffff:1.2.3.4.5",	/* 5th mapped octet   */
+			"1.2.3.4.5",		/* 5th ipv4 octet     */
+		};
+		size_t n;
+
+		for (n = 0; n < LWS_ARRAY_SIZE(overlong); n++)
+			if (!lws_sa46_parse_numeric_address(overlong[n],
+							    &sa46)) {
+				lwsl_err("sa46 accepted overlong '%s'\n",
+					 overlong[n]);
+				e++;
+			}
+	}
+
+	/*
+	 * ... and the same for the raw parser with an exact-size ipv4 result
+	 * buffer, where the extra octet goes 1 byte past the end
+	 */
+	{
+		uint8_t q[4] = { 0xff, 0xff, 0xff, 0xff };
+
+		if (lws_parse_numeric_address("1.2.3.4", q, sizeof(q)) != 4 ||
+		    q[0] != 1 || q[1] != 2 || q[2] != 3 || q[3] != 4) {
+			lwsl_err("exact-size ipv4 buffer parse broken\n");
+			e++;
+		}
+		if (lws_parse_numeric_address("1.2.3.4.5", q, sizeof(q)) >= 0) {
+			lwsl_err("5-octet ipv4 accepted, 4-byte buffer\n");
+			e++;
+		}
+	}
+
+	/*
 	 * lws_sa46_on_net() has to give the same answers however the v4
 	 * addresses are represented: natively as AF_INET in dual builds, or
 	 * normalized to v4-mapped AF_INET6 in an IPv6-only build (the prefix
