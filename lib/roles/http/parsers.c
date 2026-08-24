@@ -858,18 +858,25 @@ lws_parse_urldecode(struct lws *wsi, uint8_t *_c)
 	 *  leave /.dir or whatever alone
 	 */
 
-	if (!c && (!ah->frag_index[WSI_TOKEN_HTTP_URI_ARGS] ||
-		   !ah->post_literal_equal)) {
-		/*
-		 * Since user code is typically going to parse the path using
-		 * NUL-terminated apis, it's too dangerous to allow NUL
-		 * injection here.
-		 *
-		 * It's allowed in the urlargs, because the apis to access
-		 * those only allow retreival with explicit length.
-		 */
-		lwsl_warn("%s: saw NUL outside of uri args\n", __func__);
-		return -1;
+	/*
+	 * Post-decode byte policing: any C0 control byte or DEL is forbidden
+	 * in the request URI, whether it arrived raw or via %XX decoding.
+	 *
+	 * Decoded CR/LF used to terminate the urlarg value here and silently
+	 * skip the rest of the request line, while other control bytes passed
+	 * into the urlarg value raw, for apps to interpolate into response
+	 * headers (the F-018 class); now the whole request is refused (403 on
+	 * h1, connection error on h2/h3 :path).
+	 *
+	 * NUL used to be allowed inside urlargs ("retrieval with explicit
+	 * length"), but consumers overwhelmingly treat urlarg values as C
+	 * strings, so that contract was unusable in practice and is withdrawn.
+	 * Spaces (from %20 or '+') and bytes >= 0x80 (UTF-8) are unaffected.
+	 */
+	if (c < 0x20 || c == 0x7f) {
+		lwsl_warn("%s: refusing control byte 0x%02X in uri\n",
+			  __func__, c);
+		return LPUR_FORBID;
 	}
 
 	switch (ah->ups) {
