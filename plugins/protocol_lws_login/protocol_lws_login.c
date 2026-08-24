@@ -463,16 +463,50 @@ lws_login_mint_csrf(struct vhd_login *vhd, char *out)
 /*
  * Worst-case auth_csrf Set-Cookie string: "auth_csrf=" (10) + 32 hex chars
  * + "; Path=/; Domain=" (17) + cookie_domain (<= 127, vhd cap) + "; Max-Age="
- * (10) + u64 decimal (<= 20) + "; SameSite=Lax; Secure; HttpOnly" (32).
+ * (10) + u64 decimal (<= 20) + "; HttpOnly; SameSite=Lax; Secure" (32).
  * 256 covers it with headroom.  Callers MUST size their buffers with this:
  * at one point the BFF rotation used a 96-byte buffer, and the 30d default
  * Max-Age (2592000) alone grows the string to 100 bytes -- the truncated
  * string embedded its NUL into the response headers (over h1 the client
  * parser rejected it; over h2 the rotated cookie never reached the browser
  * at all, so renewals never refreshed the csrf sidecar's lifetime and it
- * died on the original login's schedule).
+ * died on the original login's schedule).  Composition itself now goes
+ * through lws_http_cookie_compose() (F-022), which fails closed rather than
+ * truncate if the inputs ever outgrow this derivation: a Set-Cookie missing
+ * its trailing HttpOnly / SameSite / Secure attributes is JS-readable and
+ * http-sendable.
  */
 #define LWS_LOGIN_CSRF_COOKIE_SZ 256
+
+/*
+ * F-022: worst-case composed auth_session Set-Cookie: cookie-name (<= 63,
+ * enforced at protocol init) + '=' + value (<= LWS_SSO_MAX_COOKIE - 1) +
+ * "; Path=/" (8) + "; Domain=" (9) + cookie_domain (<= 127, vhd cap) +
+ * "; Max-Age=" (10) + u64 decimal (<= 20) + "; HttpOnly; SameSite=Lax;
+ * Secure" (32) + NUL.
+ */
+#define LWS_LOGIN_SESSION_COOKIE_SZ \
+	(63 + 1 + (LWS_SSO_MAX_COOKIE - 1) + 8 + 9 + 127 + 10 + 20 + 32 + 1)
+
+/*
+ * F-022: worst-case composed cookie *clearing* Set-Cookie (empty value +
+ * Expires):  name (<= 63) + '=' + "; Path=/" (8) + "; Domain=" (9) +
+ * cookie_domain (<= 127) + "; Expires=" (10) + RFC 1123 date (29) +
+ * "; Max-Age=0" (11) + "; HttpOnly; SameSite=Lax; Secure" (32) + NUL.
+ */
+#define LWS_LOGIN_CLEAR_COOKIE_SZ \
+	(63 + 1 + 8 + 9 + 127 + 10 + 29 + 11 + 32 + 1)
+
+/*
+ * F-022: response-header staging for the paths that emit the composed
+ * session Set-Cookie: it must fit status line + common headers + Location
+ * (cold-load serves an absolute fq_uri: LWS_LOGIN_MAX_URI + 192) + the
+ * session cookie at its worst case + the csrf sidecar + framing, so a
+ * header write can never fail for room and cost a cookie its tail.
+ */
+#define LWS_LOGIN_HTTP_BUFL \
+	(LWS_PRE + 192 + (LWS_LOGIN_MAX_URI + 192) + \
+	 LWS_LOGIN_SESSION_COOKIE_SZ + LWS_LOGIN_CSRF_COOKIE_SZ + 64)
 
 /*
  * Format an auth_csrf Set-Cookie string into out (caller buffer,
@@ -480,26 +514,19 @@ lws_login_mint_csrf(struct vhd_login *vhd, char *out)
  * its length.  Same shape/scoping as the auth_session cookie: HttpOnly;
  * Secure; SameSite=Lax; optional Domain=.
  *
- * Returns strlen(out) rather than the lws_snprintf() would-be length, so a
- * truncated result can never cause a caller to copy the NUL terminator out
- * of the buffer and into a header.
+ * Returns strlen(out), or -1 if the complete string would not fit (in which
+ * case out is empty): callers must skip the cookie, never emit a truncated
+ * attribute tail.
  */
 static int
 lws_login_build_csrf_cookie(struct vhd_login *vhd, const char *csrf, char *out,
 			    size_t out_len)
 {
-	if (vhd->cookie_domain[0])
-		lws_snprintf(out, out_len,
-			"auth_csrf=%s; Path=/; Domain=%s; Max-Age=%llu; "
-			"SameSite=Lax; Secure; HttpOnly",
-			csrf, vhd->cookie_domain,
-			(unsigned long long)vhd->csrf_max_age_secs);
-	else
-		lws_snprintf(out, out_len,
-			"auth_csrf=%s; Path=/; Max-Age=%llu; SameSite=Lax; Secure; HttpOnly",
-			csrf, (unsigned long long)vhd->csrf_max_age_secs);
-
-	return (int)strlen(out);
+	return lws_http_cookie_compose(out, out_len, "auth_csrf", csrf,
+				       vhd->cookie_domain,
+				       (unsigned long long)
+							vhd->csrf_max_age_secs,
+				       NULL);
 }
 
 static int
@@ -685,21 +712,30 @@ lws_login_serve_self_redirect_with_cookie(struct lws *wsi, struct pss_login *pss
 {
 	/* path can be a full path + query (LWS_LOGIN_MAX_URI); add room for
 	 * scheme://host so composing the absolute Location cannot truncate */
-	char cookie[LWS_SSO_MAX_COOKIE], host[128],
+	char cookie[LWS_LOGIN_SESSION_COOKIE_SZ], host[128],
 	      fq_uri[LWS_LOGIN_MAX_URI + 192];
 	unsigned char *p = *pp;
 	const char *h = NULL;
 
-	if (vhd->cookie_domain[0])
-		lws_snprintf(cookie, sizeof(cookie),
-			 "%s=%s; Path=/; Domain=%s; Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
-			 vhd->cookie_name, token, vhd->cookie_domain,
-			 (unsigned long long)vhd->jwt_validity_secs);
-	else
-		lws_snprintf(cookie, sizeof(cookie),
-			 "%s=%s; Path=/; Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
-			 vhd->cookie_name, token,
-			 (unsigned long long)vhd->jwt_validity_secs);
+	/*
+	 * F-022: compose through the fail-closed helper.  A session cookie
+	 * whose HttpOnly / SameSite / Secure tail was truncated is
+	 * JS-readable and http-sendable; refuse to serve the redirect with
+	 * a mangled cookie (the caller treats nonzero as header-build
+	 * failure).
+	 */
+	if (lws_http_cookie_compose(cookie, sizeof(cookie),
+				     vhd->cookie_name, token,
+				     vhd->cookie_domain,
+				     (unsigned long long)
+							vhd->jwt_validity_secs,
+				     NULL) < 0) {
+		lwsl_wsi_err(wsi, "%s: %s Set-Cookie too large for the "
+			     "composed buffer (token %d, domain %d)",
+			     __func__, vhd->cookie_name, (int)strlen(token),
+			     (int)strlen(vhd->cookie_domain));
+		return 1;
+	}
 
 	host[0] = '\0';
 	if (lws_hdr_copy(wsi, host, sizeof(host), WSI_TOKEN_HOST) > 0)
@@ -1220,7 +1256,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 	struct vhd_login *vhd = (struct vhd_login *)lws_protocol_vh_priv_get(
 			lws_get_vhost(wsi), reason == LWS_CALLBACK_HTTP_INTERCEPTOR_CHECK ? (const struct lws_protocols *)in : lws_get_protocol(wsi));
 	struct pss_login *pss = (struct pss_login *)user;
-	char buf[LWS_PRE + LWS_SSO_MAX_COOKIE], *p = buf + LWS_PRE, *end = buf + sizeof(buf) - 1;
+	char buf[LWS_LOGIN_HTTP_BUFL], *p = buf + LWS_PRE, *end = buf + sizeof(buf) - 1;
 	const char *cp;
 
 	switch ((int)reason) {
@@ -1247,6 +1283,19 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (lws_pvo_get_str(in, "cookie-name", &vhd->cookie_name))
 			lwsl_info("%s: default cookie-name %s\n", __func__, vhd->cookie_name);
+
+		/*
+		 * F-022: the Set-Cookie buffers are sized for a cookie-name
+		 * up to 63 chars (LWS_LOGIN_SESSION_COOKIE_SZ /
+		 * LWS_LOGIN_CLEAR_COOKIE_SZ); refuse a longer name at init
+		 * rather than discover it mid-login
+		 */
+		if (!vhd->cookie_name || !vhd->cookie_name[0] ||
+		    strlen(vhd->cookie_name) > 63) {
+			lwsl_err("%s: cookie-name must be 1..63 chars\n",
+				 __func__);
+			return -1;
+		}
 
 		{
 			const struct lws_protocol_vhost_options *pvo = (const struct lws_protocol_vhost_options *)in;
@@ -2010,7 +2059,8 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		if (lws_login_ends_with(path, "/.lws-login-logout")) {
 			char redirect_uri[512];
 			char u[1024];
-			char cookie_hdr1[256], cookie_hdr1_host[256];
+			char cookie_hdr1[LWS_LOGIN_CLEAR_COOKIE_SZ],
+			     cookie_hdr1_host[LWS_LOGIN_CLEAR_COOKIE_SZ];
 			char exp[64];
 			time_t t = 0;
 #if defined(WIN32) || defined(_WIN32)
@@ -2031,12 +2081,26 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			if (!redirect_uri[0])
 				lws_strncpy(redirect_uri, "/", sizeof(redirect_uri));
 
-			if (vhd->cookie_domain[0])
-				lws_snprintf(cookie_hdr1, sizeof(cookie_hdr1), "%s=; Path=/; Domain=%s; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", vhd->cookie_name, vhd->cookie_domain, exp);
-			else
-				lws_snprintf(cookie_hdr1, sizeof(cookie_hdr1), "%s=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", vhd->cookie_name, exp);
-
-			lws_snprintf(cookie_hdr1_host, sizeof(cookie_hdr1_host), "%s=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", vhd->cookie_name, exp);
+			/*
+			 * F-022: clearing cookies compose through the same
+			 * fail-closed helper -- a truncated clear-string
+			 * silently fails to log the session out.
+			 */
+			if (lws_http_cookie_compose(cookie_hdr1,
+					sizeof(cookie_hdr1), vhd->cookie_name,
+					"", vhd->cookie_domain[0] ?
+							vhd->cookie_domain : NULL,
+					0, exp) < 0 ||
+			    lws_http_cookie_compose(cookie_hdr1_host,
+					sizeof(cookie_hdr1_host),
+					vhd->cookie_name, "", NULL, 0,
+					exp) < 0) {
+				lwsl_wsi_err(wsi, "%s: %s clearing Set-Cookie "
+					     "too large (domain %d)", __func__,
+					     vhd->cookie_name,
+					     (int)strlen(vhd->cookie_domain));
+				return 1;
+			}
 
 			char urlenc_path[512];
 			lws_urlencode(urlenc_path, redirect_uri, sizeof(urlenc_path));
@@ -2284,7 +2348,17 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				}
 
 				if (token && target && vhd) {
-					char temp[2048], out[2048];
+					/*
+					 * F-022: the spa already accepts
+					 * tokens up to LWS_SSO_MAX_COOKIE;
+					 * the validate scratch must accept
+					 * them too, or large-but-valid JWTs
+					 * are silently rejected (and the
+					 * cookie compose below could never
+					 * run at its sizing limit).
+					 */
+					char temp[LWS_SSO_MAX_COOKIE],
+					     out[LWS_SSO_MAX_COOKIE];
 					size_t out_len = sizeof(out);
 
 					/* Ensure signature is authentic using broad algorithms. */
@@ -2328,13 +2402,36 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				}
 
 				if (pss->silent_update_jwt && final_target) {
-					char cookie[LWS_SSO_MAX_COOKIE];
-					if (vhd->cookie_domain[0]) {
-						lws_snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Domain=%s; Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
-							     vhd->cookie_name, pss->silent_update_jwt, vhd->cookie_domain, (unsigned long long)vhd->jwt_validity_secs);
-					} else {
-						lws_snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
-							     vhd->cookie_name, pss->silent_update_jwt, (unsigned long long)vhd->jwt_validity_secs);
+					char cookie[LWS_LOGIN_SESSION_COOKIE_SZ];
+
+					/*
+					 * F-022: fail-closed composition; a
+					 * session cookie missing its
+					 * HttpOnly / SameSite / Secure tail
+					 * is JS-readable and http-sendable,
+					 * so refuse to plant a truncated one
+					 */
+					if (lws_http_cookie_compose(
+							cookie, sizeof(cookie),
+							vhd->cookie_name,
+							pss->silent_update_jwt,
+							vhd->cookie_domain,
+							(unsigned long long)
+								vhd->jwt_validity_secs,
+							NULL) < 0) {
+						lwsl_wsi_err(wsi, "%s: %s "
+							     "Set-Cookie too "
+							     "large for the "
+							     "composed buffer "
+							     "(token %d, "
+							     "domain %d)",
+							     __func__,
+							     vhd->cookie_name,
+							     (int)strlen(pss->silent_update_jwt),
+							     (int)strlen(vhd->cookie_domain));
+						free(pss->silent_update_jwt);
+						pss->silent_update_jwt = NULL;
+						return 1;
 					}
 
 					if (lws_add_http_common_headers(wsi, HTTP_STATUS_FOUND, "text/html", 0, (unsigned char **)&p, (unsigned char *)end)) return 1;
@@ -2363,7 +2460,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
 	{
-		unsigned char buf[LWS_SSO_MAX_COOKIE + LWS_PRE], *p = buf + LWS_PRE, *end = buf + sizeof(buf) - 1;
+		unsigned char buf[LWS_LOGIN_HTTP_BUFL], *p = buf + LWS_PRE, *end = buf + sizeof(buf) - 1;
 		struct pending_login_refresh *ps = NULL;
 
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
@@ -2397,11 +2494,24 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 					 */
 					char new_csrf[33];
 					char csrf_cookie[LWS_LOGIN_CSRF_COOKIE_SZ];
+					int cn;
 
 					lws_login_mint_csrf(vhd, new_csrf);
-					lws_login_build_csrf_cookie(vhd, new_csrf,
-								 csrf_cookie,
-								 sizeof(csrf_cookie));
+					cn = lws_login_build_csrf_cookie(
+							vhd, new_csrf,
+							csrf_cookie,
+							sizeof(csrf_cookie));
+					if (cn < 0) {
+						/* F-022: never a truncated
+						 * attribute tail */
+						lwsl_wsi_err(wsi, "%s: auth_csrf "
+							     "Set-Cookie too "
+							     "large (domain "
+							     "%d)", __func__,
+							     (int)strlen(vhd->cookie_domain));
+						pending_login_release(ps);
+						return 1;
+					}
 					if (!lws_login_serve_self_redirect_with_cookie(
 							wsi, pss, vhd, ps->token,
 							ps->orig_path, buf, &p, end,
@@ -2509,27 +2619,42 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_callback_on_writable(wsi);
 				return 0;
 			} else if (ps->token[0]) {
-				char cookie[LWS_SSO_MAX_COOKIE];
+				char cookie[LWS_LOGIN_SESSION_COOKIE_SZ];
 				char csrf_cookie[LWS_LOGIN_CSRF_COOKIE_SZ];
 				char new_csrf[33];
 				int n, cn;
 
-				if (vhd->cookie_domain[0]) {
-					lws_snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Domain=%s; Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
-							 vhd->cookie_name, ps->token, vhd->cookie_domain, (unsigned long long)vhd->jwt_validity_secs);
-				} else {
-					lws_snprintf(cookie, sizeof(cookie), "%s=%s; Path=/; Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
-							 vhd->cookie_name, ps->token, (unsigned long long)vhd->jwt_validity_secs);
+				/*
+				 * F-022: both cookies compose through the
+				 * fail-closed helper; either failing to fit
+				 * fails the response rather than emitting a
+				 * cookie whose HttpOnly / SameSite / Secure
+				 * tail was truncated.
+				 */
+				n = lws_http_cookie_compose(cookie,
+							    sizeof(cookie),
+							    vhd->cookie_name,
+							    ps->token,
+							    vhd->cookie_domain,
+							    (unsigned long long)
+								vhd->jwt_validity_secs,
+							    NULL);
+				if (n < 0) {
+					lwsl_wsi_err(wsi, "%s: %s Set-Cookie "
+						     "too large for the composed "
+						     "buffer (token %d, domain "
+						     "%d)", __func__,
+						     vhd->cookie_name,
+						     (int)strlen(ps->token),
+						     (int)strlen(vhd->cookie_domain));
+					pending_login_release(ps);
+					return 1;
 				}
-				/* strlen, not the snprintf return: it answers the
-				 * truncated size, which would plant the string's
-				 * NUL inside the header */
-				n = (int)strlen(cookie);
 
 				/*
 				 * Rotate auth_csrf on every successful renewal so its
-				 * lifetime resets with the session instead of dying on
-				 * the original login's fixed schedule (which is what
+				 * lifetime resets with the session instead of dying
+				 * on the original login's fixed schedule (which is what
 				 * makes the widget escalate to a redirect flash once it
 				 * lapses).  The next renewal reads this new value and
 				 * submits it as the matching csrf_token= form field.
@@ -2538,6 +2663,14 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				cn = lws_login_build_csrf_cookie(vhd, new_csrf,
 								 csrf_cookie,
 								 sizeof(csrf_cookie));
+				if (cn < 0) {
+					lwsl_wsi_err(wsi, "%s: auth_csrf "
+						     "Set-Cookie too large "
+						     "(domain %d)", __func__,
+						     (int)strlen(vhd->cookie_domain));
+					pending_login_release(ps);
+					return 1;
+				}
 
 				if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "application/json", 13, (unsigned char **)&p, (unsigned char *)end)) return 1;
 				if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie, n, (unsigned char **)&p, (unsigned char *)end)) return 1;
