@@ -317,15 +317,104 @@ struct jpargs {
 #endif
 };
 
-static void *
-lwsws_align(struct jpargs *a)
-{
-	if ((lws_intptr_t)(a->p) & 15)
-		a->p += 16 - ((lws_intptr_t)(a->p) & 15);
+/*
+ * Everything the config callbacks parse out of the JSON, both structs and
+ * their strings, lives in one fixed-size "config strings" arena provided by
+ * the caller.  a->end is exclusive, ie, the last byte of the underlying
+ * allocation is deliberately never used.  All arena allocation goes through
+ * these checked helpers, so a->p <= a->end always holds.
+ */
 
+/* will "need" bytes at "at" fit in what's left of the arena? */
+static int
+lwsws_room(struct jpargs *a, char *at, size_t need)
+{
+	return at <= a->end && (size_t)(a->end - at) >= need;
+}
+
+/*
+ * Bump-allocate len bytes at 16-byte alignment.  Returns the allocation
+ * start and advances a->p past it, or NULL if the request can't be
+ * satisfied, in which case the caller must fail the parse
+ */
+static void *
+lwsws_alloc(struct jpargs *a, size_t len)
+{
+	char *p = a->p;
+
+	if ((lws_intptr_t)p & 15)
+		p += 16 - ((lws_intptr_t)p & 15);
+
+	if (!lwsws_room(a, p, len))
+		return NULL;
+
+	a->p = p + len;
 	a->chunk = 0;
 
-	return a->p;
+	return p;
+}
+
+/*
+ * The arena is exhausted, or no wildcard name is available where one is
+ * required.  Fail the parse naming the config path that ran out, so the
+ * operator can act on it.
+ *
+ * The callback contract is checked differently by lejp depending on the
+ * reason: -1 is the only return that is treated as failure for all of them
+ */
+static signed char
+lwsws_exhausted(struct lejp_ctx *ctx)
+{
+	lwsl_err("config strings arena exhausted at %s\n", ctx->path);
+
+	return -1;
+}
+
+/*
+ * Copy the wildcard name from the matched path into the arena, laid out as
+ * name + term + '\0'.  Returns the name pointer with a->p left just past
+ * the '\0' ready for the associated value string, or NULL if it can't be
+ * done
+ */
+static char *
+lwsws_name(struct jpargs *a, struct lejp_ctx *ctx, char term)
+{
+	char wild[LEJP_MAX_PATH];
+	char *name;
+	int n;
+
+	/* the wildcard can only be as long as the path it is taken from */
+	n = lejp_get_wildcard(ctx, 0, wild, (int)sizeof(wild));
+	if (n < 1)
+		return NULL;
+
+	name = lwsws_alloc(a, (size_t)n + 1);
+	if (!name)
+		return NULL;
+
+	memcpy(name, wild, (size_t)n - 1);
+	name[n - 1] = term;
+	name[n] = '\0';
+
+	return name;
+}
+
+/*
+ * How many arena bytes does it take to store string s, with any install
+ * datadir escapes expanded?  Not counting the terminating NUL
+ */
+static size_t
+lwsws_string_len(const char *s)
+{
+	const char *e;
+	size_t esc = strlen(ESC_INSTALL_DATADIR), total = 0;
+
+	while ((e = strstr(s, ESC_INSTALL_DATADIR)) != NULL) {
+		total += (size_t)(e - s) + strlen(LWS_INSTALL_DATADIR);
+		s = e + esc;
+	}
+
+	return total + strlen(s);
 }
 
 static int
@@ -358,25 +447,25 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 {
 	struct jpargs *a = (struct jpargs *)ctx->user;
 	struct lws_protocol_vhost_options *rej;
-	int n;
 
 	/* we only match on the prepared path strings */
 	if (!(reason & LEJP_FLAG_CB_IS_VALUE) || !ctx->path_match)
 		return 0;
 
-	/* this catches, eg, vhosts[].headers[].xxx */
+	/* this catches, eg, global.reject-service-keywords[].xxx */
 	if (reason == LEJPCB_VAL_STR_END &&
 	    ctx->path_match == LWJPGP_REJECT_SERVICE_KEYWORDS_NAME + 1) {
-		rej = lwsws_align(a);
-		a->p += sizeof(*rej);
+		rej = lwsws_alloc(a, sizeof(*rej));
+		if (!rej)
+			return lwsws_exhausted(ctx);
 
-		n = lejp_get_wildcard(ctx, 0, a->p, lws_ptr_diff(a->end, a->p));
+		rej->name = lwsws_name(a, ctx, '\0');
+		if (!rej->name)
+			return lwsws_exhausted(ctx);
+
 		rej->next = a->info->reject_service_keywords;
 		a->info->reject_service_keywords = rej;
-		rej->name = a->p;
-		// lwsl_notice("  adding rej %s=%s\n", a->p, ctx->buf);
-		a->p += n - 1;
-		*(a->p++) = '\0';
+		// lwsl_notice("  adding rej %s=%s\n", rej->name, ctx->buf);
 		rej->value = a->p;
 		rej->options = NULL;
 		goto dostring;
@@ -472,6 +561,9 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 	}
 
 dostring:
+	if (!lwsws_room(a, a->p, strlen(ctx->buf) + 1))
+		return lwsws_exhausted(ctx);
+
 	a->p += lws_snprintf(a->p, lws_ptr_diff_size_t(a->end, a->p), "%s", ctx->buf);
 	*(a->p)++ = '\0';
 
@@ -608,16 +700,18 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	/* this catches, eg, vhosts[].ws-protocols[].xxx-protocol */
 	if (reason == LEJPCB_OBJECT_START &&
 	    ctx->path_match == LEJPVP_PROTOCOL_NAME + 1) {
-		a->pvo = lwsws_align(a);
-		a->p += sizeof(*a->pvo);
+		a->pvo = lwsws_alloc(a, sizeof(*a->pvo));
+		if (!a->pvo)
+			return lwsws_exhausted(ctx);
 
-		n = lejp_get_wildcard(ctx, 0, a->p, lws_ptr_diff(a->end, a->p));
+		a->pvo->name = lwsws_name(a, ctx, '\0');
+		if (!a->pvo->name)
+			return lwsws_exhausted(ctx);
+
 		/* ie, enable this protocol, no options yet */
 		a->pvo->next = a->info->pvo;
 		a->info->pvo = a->pvo;
-		a->pvo->name = a->p;
-		lwsl_info("  adding protocol %s\n", a->p);
-		a->p += n;
+		lwsl_info("  adding protocol %s\n", a->pvo->name);
 		a->pvo->value = a->p;
 		a->pvo->options = NULL;
 		goto dostring;
@@ -628,23 +722,20 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	    ctx->path_match == LEJPVP_HEADERS_NAME + 1) {
 
 		if (!a->chunk) {
-			headers = lwsws_align(a);
-			a->p += sizeof(*headers);
+			headers = lwsws_alloc(a, sizeof(*headers));
+			if (!headers)
+				return lwsws_exhausted(ctx);
 
-			n = lejp_get_wildcard(ctx, 0, a->p,
-					lws_ptr_diff(a->end, a->p));
+			headers->name = lwsws_name(a, ctx, ':');
+			if (!headers->name)
+				return lwsws_exhausted(ctx);
+
 			/* ie, add this header */
 			headers->next = a->info->headers;
 			a->info->headers = headers;
-			headers->name = a->p;
 
-			lwsl_notice("  adding header %s=%s\n", a->p, ctx->buf);
-			a->p += n - 1;
-			*(a->p++) = ':';
-			if (a->p < a->end)
-				*(a->p++) = '\0';
-			else
-				*(a->p - 1) = '\0';
+			lwsl_notice("  adding header %s=%s\n", headers->name,
+				    ctx->buf);
 			headers->value = a->p;
 			headers->options = NULL;
 		}
@@ -657,24 +748,21 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	    ctx->path_match == LEJPVP_MOUNTPOINT_HEADERS_NAME + 1) {
 
 		if (!a->chunk) {
-			headers = lwsws_align(a);
-			a->p += sizeof(*headers);
+			headers = lwsws_alloc(a, sizeof(*headers));
+			if (!headers)
+				return lwsws_exhausted(ctx);
 
-			n = lejp_get_wildcard(ctx, 0, a->p,
-					lws_ptr_diff(a->end, a->p));
+			headers->name = lwsws_name(a, ctx, ':');
+			if (!headers->name)
+				return lwsws_exhausted(ctx);
+
 			/* ie, add this header */
 			/* linked-list of pvos start held in a->pvo_mp */
 			headers->next = a->pvo_mp;
 			a->pvo_mp = headers;
-			headers->name = a->p;
 
-			lwsl_notice("  adding header %s=%s\n", a->p, ctx->buf);
-			a->p += n - 1;
-			*(a->p++) = ':';
-			if (a->p < a->end)
-				*(a->p++) = '\0';
-			else
-				*(a->p - 1) = '\0';
+			lwsl_notice("  adding header %s=%s\n", headers->name,
+				    ctx->buf);
 			headers->value = a->p;
 			headers->options = NULL;
 		}
@@ -758,8 +846,10 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		if (!a->dht_active)
 			return 0;
 
-		d = lwsws_align(a);
-		a->p += sizeof(*d);
+		d = lwsws_alloc(a, sizeof(*d));
+		if (!d)
+			return lwsws_exhausted(ctx);
+
 		d->info = a->dht;
 		d->next = NULL;
 
@@ -794,7 +884,10 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 			return 1;
 		}
 		lwsl_debug("adding mount %s\n", a->m.mountpoint);
-		m = lwsws_align(a);
+		m = lwsws_alloc(a, sizeof(*m));
+		if (!m)
+			return lwsws_exhausted(ctx);
+
 		memcpy(m, &a->m, sizeof(*m));
 		if (a->last)
 			a->last->mount_next = m;
@@ -818,7 +911,6 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		m->headers = a->pvo_mp;
 		a->pvo_mp = NULL;
 
-		a->p += sizeof(*m);
 		if (!a->head)
 			a->head = m;
 
@@ -989,15 +1081,16 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		if (a->chunk)
 			goto dostring;
 
-		mp_cgienv = lwsws_align(a);
-		a->p += sizeof(*a->m.cgienv);
+		mp_cgienv = lwsws_alloc(a, sizeof(*mp_cgienv));
+		if (!mp_cgienv)
+			return lwsws_exhausted(ctx);
+
+		mp_cgienv->name = lwsws_name(a, ctx, '\0');
+		if (!mp_cgienv->name)
+			return lwsws_exhausted(ctx);
 
 		mp_cgienv->next = a->m.cgienv;
 		a->m.cgienv = mp_cgienv;
-
-		n = lejp_get_wildcard(ctx, 0, a->p, lws_ptr_diff(a->end, a->p));
-		mp_cgienv->name = a->p;
-		a->p += n;
 		mp_cgienv->value = a->p;
 		mp_cgienv->options = NULL;
 		//lwsl_notice("    adding pmo / cgi-env '%s' = '%s'\n",
@@ -1060,10 +1153,17 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 			}
 
 			if (!pvo_cur) {
-				pvo_cur = lwsws_align(a);
-				a->p += sizeof(*pvo_cur);
-				pvo_cur->name = a->p;
-				a->p += lws_snprintf(a->p, lws_ptr_diff_size_t(a->end, a->p), "%s", key_buf) + 1;
+				size_t kl = strlen(key_buf) + 1;
+
+				pvo_cur = lwsws_alloc(a, sizeof(*pvo_cur));
+				if (!pvo_cur)
+					return lwsws_exhausted(ctx);
+
+				pvo_cur->name = lwsws_alloc(a, kl);
+				if (!pvo_cur->name)
+					return lwsws_exhausted(ctx);
+				memcpy((char *)pvo_cur->name, key_buf, kl);
+
 				pvo_cur->value = NULL;
 				pvo_cur->options = NULL;
 
@@ -1086,16 +1186,19 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		if (a->chunk)
 			goto dostring;
 
-		a->pvo_em = lwsws_align(a);
-		a->p += sizeof(*a->pvo_em);
+		a->pvo_em = lwsws_alloc(a, sizeof(*a->pvo_em));
+		if (!a->pvo_em)
+			return lwsws_exhausted(ctx);
 
-		n = lejp_get_wildcard(ctx, 0, a->p, lws_ptr_diff(a->end, a->p));
+		a->pvo_em->name = lwsws_name(a, ctx, '\0');
+		if (!a->pvo_em->name)
+			return lwsws_exhausted(ctx);
+
 		/* ie, enable this protocol, no options yet */
 		a->pvo_em->next = a->m.extra_mimetypes;
 		a->m.extra_mimetypes = a->pvo_em;
-		a->pvo_em->name = a->p;
-		lwsl_notice("  + extra-mimetypes %s -> %s\n", a->p, ctx->buf);
-		a->p += n;
+		lwsl_notice("  + extra-mimetypes %s -> %s\n", a->pvo_em->name,
+			    ctx->buf);
 		a->pvo_em->value = a->p;
 		a->pvo_em->options = NULL;
 		goto dostring;
@@ -1104,17 +1207,19 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 		if (a->chunk)
 			goto dostring;
 
-		a->pvo_int = lwsws_align(a);
-		a->p += sizeof(*a->pvo_int);
+		a->pvo_int = lwsws_alloc(a, sizeof(*a->pvo_int));
+		if (!a->pvo_int)
+			return lwsws_exhausted(ctx);
 
-		n = lejp_get_wildcard(ctx, 0, a->p, lws_ptr_diff(a->end, a->p));
+		a->pvo_int->name = lwsws_name(a, ctx, '\0');
+		if (!a->pvo_int->name)
+			return lwsws_exhausted(ctx);
+
 		/* ie, enable this protocol, no options yet */
 		a->pvo_int->next = a->m.interpret;
 		a->m.interpret = a->pvo_int;
-		a->pvo_int->name = a->p;
-		lwsl_notice("  adding interpret %s -> %s\n", a->p,
+		lwsl_notice("  adding interpret %s -> %s\n", a->pvo_int->name,
 			    ctx->buf);
-		a->p += n;
 		a->pvo_int->value = a->p;
 		a->pvo_int->options = NULL;
 		goto dostring;
@@ -1269,11 +1374,19 @@ dostring:
 
 	if (reason != LEJPCB_VAL_STR_END)
 		p[LEJP_STRING_CHUNK] = '\0';
+
+	/* the whole value string, with any datadir escapes expanded, has to
+	 * fit in what's left of the arena or the parse fails loudly... this
+	 * also stops a->p from ever being able to advance past a->end and
+	 * turning the bounded copies below into unbounded ones
+	 */
+
+	if (!lwsws_room(a, a->p, lwsws_string_len(p) + 1))
+		return lwsws_exhausted(ctx);
+
 	p1 = (char *)strstr(p, ESC_INSTALL_DATADIR);
 	if (p1) {
 		n = lws_ptr_diff(p1, p);
-		if (n > a->end - a->p)
-			n = lws_ptr_diff(a->end, a->p);
 		lws_strncpy(a->p, p, (unsigned int)n + 1u);
 		a->p += n;
 		a->p += lws_snprintf(a->p, lws_ptr_diff_size_t(a->end, a->p), "%s",
@@ -1372,12 +1485,14 @@ lwsws_get_config_globals(struct lws_context_creation_info *info, const char *d,
 	a.end = (a.p + *len) - 1;
 	a.valid = 0;
 
-	lwsws_align(&a);
+	a.plugin_dirs = lwsws_alloc(&a, MAX_PLUGIN_DIRS * sizeof(void *)); /* writeable version */
+	if (!a.plugin_dirs) {
+		lwsl_err("config strings arena too small\n");
+		return 1;
+	}
 #if defined(LWS_WITH_PLUGINS)
-	info->plugin_dirs = (void *)a.p;
+	info->plugin_dirs = (void *)a.plugin_dirs;
 #endif
-	a.plugin_dirs = (void *)a.p; /* writeable version */
-	a.p += MAX_PLUGIN_DIRS * sizeof(void *);
 
 #if defined(LWS_WITH_PLUGINS)
 	/* copy any default paths */
