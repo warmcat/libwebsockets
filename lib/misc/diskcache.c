@@ -384,14 +384,16 @@ lws_diskcache_trim(struct lws_diskcache_scan *lds)
 		cache_size_limit = 256 * 1024 * 1024;
 
 	if (lds->agg_size > cache_size_limit) {
-		lws_dll2_t *tail = lws_dll2_get_tail(&lds->batch_sorted);
-
 		/*
 		 * walk the batch from the tail backwards using the dll2
 		 * prev pointers... it's oldest-first now...
 		 */
 
-		while (tail && lds->agg_size > cache_size_limit) {
+		lws_start_foreach_dll_back(lws_dll2_t *, tail,
+					   lws_dll2_get_tail(&lds->batch_sorted)) {
+			if (lds->agg_size <= cache_size_limit)
+				break;
+
 			p = lws_container_of(tail, struct file_entry, sorted);
 
 			lws_snprintf(filepath, sizeof(filepath), "%s/%c/%c/%s",
@@ -406,8 +408,7 @@ lws_diskcache_trim(struct lws_diskcache_scan *lds)
 				lwsl_notice("%s: Failed to unlink %s\n",
 					    __func__, filepath);
 
-			tail = lws_dll2_get_prev(tail);
-		}
+		} lws_end_foreach_dll_back(tail);
 
 		if (files_trimmed)
 			lwsl_notice("%s: %s: trimmed %d files totalling "

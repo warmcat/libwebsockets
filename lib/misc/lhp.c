@@ -2807,17 +2807,15 @@ lws_css_cascade_get_prop_atr(lhp_ctx_t *ctx, lcsp_props_t prop)
 lhp_pstack_t *
 lws_css_get_parent_block(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 {
-	do {
+	lws_start_foreach_dll_back(lws_dll2_t *, d,
+				   lws_dll2_get_prev(&ps->list)) {
+		lhp_pstack_t *tp = lws_container_of(d, lhp_pstack_t, list);
 
-		if (!lws_dll2_get_prev(&ps->list))
-			return NULL;
+		if (tp->dlo)
+			return tp;
+	} lws_end_foreach_dll_back(d);
 
-		ps = lws_container_of(lws_dll2_get_prev(&ps->list), lhp_pstack_t, list);
-
-		if (ps->dlo)
-			return ps;
-
-	} while(1);
+	return NULL;
 }
 
 const char *

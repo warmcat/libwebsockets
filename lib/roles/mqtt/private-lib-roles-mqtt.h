@@ -315,7 +315,7 @@ typedef enum {
 } lws_mqtt_match_topic_return_t;
 
 typedef struct lws_mqtt_subs {
-	struct lws_mqtt_subs	*next;
+	lws_dll2_t		list;
 
 	uint8_t			ref_count; /* number of children referencing */
 
@@ -366,7 +366,7 @@ struct _lws_mqtt_related {
 	lws_sorted_usec_list_t	sul_shadow_wait; /* Device Shadow wait TO */
 	struct lws_dll2_owner	qos2_rx_list;
 	struct lws		*wsi; /**< so sul can use lws_container_of */
-	lws_mqtt_subs_t		*subs_head; /**< Linked-list of heap-allocated subscription objects */
+	lws_dll2_owner_t	subs_owner; /**< heap-allocated subscription objects */
 	void			*rx_cpkt_param;
 	uint16_t		pkt_id;
 	uint16_t		ack_pkt_id;

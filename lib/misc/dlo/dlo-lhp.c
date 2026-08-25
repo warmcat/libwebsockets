@@ -646,17 +646,15 @@ lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 
 	case LHPCB_COMPLETE:
 		{
-			lws_dll2_t *d = lws_dll2_get_tail(&ctx->stack);
-
-			while (d) {
+			lws_start_foreach_dll_back(lws_dll2_t *, d,
+					lws_dll2_get_tail(&ctx->stack)) {
 				lhp_pstack_t *ps = lws_container_of(d, lhp_pstack_t, list);
 
 				if (ps->dlo && lws_dll2_get_prev(&ps->list)) {
 					lwsl_info("%s: finalizing stranded dlo %p\n", __func__, ps->dlo);
 					lhp_set_dlo_adjust_to_contents(ps);
 				}
-				d = lws_dll2_get_prev(d);
-			}
+			} lws_end_foreach_dll_back(d);
 		}
 
 		break;

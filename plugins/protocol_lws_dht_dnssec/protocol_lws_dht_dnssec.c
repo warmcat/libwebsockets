@@ -4101,14 +4101,14 @@ do_signzone(struct lws_context *context, struct lws_dht_dnssec_signzone_args *ar
 	struct lws_dht_dnssec_domain *dom = NULL;
 
 	if (v && args->domain) {
-		lws_dll2_t *d;
-		for (d = lws_dll2_get_head(&v->owner_domains); d; d = lws_dll2_get_next(d)) {
+		lws_start_foreach_dll(lws_dll2_t *, d,
+					 lws_dll2_get_head(&v->owner_domains)) {
 			struct lws_dht_dnssec_domain *td = lws_container_of(d, struct lws_dht_dnssec_domain, list);
 			if (!strcmp(td->domain_name, args->domain)) {
 				dom = td;
 				break;
 			}
-		}
+		} lws_end_foreach_dll(d);
 	}
 
 	if ((dom && lws_dll2_count(&dom->owner_temp_records) > 0) || has_acmefile) {
@@ -4131,8 +4131,8 @@ do_signzone(struct lws_context *context, struct lws_dht_dnssec_signzone_args *ar
 
 				/* Append ACME temp zones */
 				lws_dll2_t *d2;
-				for (d2 = dom ? lws_dll2_get_head(
-					&dom->owner_temp_records) : NULL; d2; d2 = lws_dll2_get_next(d2)) {
+				lws_start_foreach_dll(lws_dll2_t *, d2, dom ?
+				lws_dll2_get_head(&dom->owner_temp_records) : NULL) {
 					struct lws_dht_dnssec_temp_record *rec =
 						lws_container_of(d2, struct lws_dht_dnssec_temp_record, list);
 					if (rec->zone_str) {
@@ -4140,7 +4140,7 @@ do_signzone(struct lws_context *context, struct lws_dht_dnssec_signzone_args *ar
 						write(fd_out, rec->zone_str, strlen(rec->zone_str));
 						write(fd_out, "\n", 1);
 					}
-				}
+				} lws_end_foreach_dll(d2);
 
 				/* Append .acme file if present */
 				if (has_acmefile) {
@@ -4203,20 +4203,20 @@ do_add_temp_zone(struct lws_context *context, const char *domain, const char *zo
 	struct vhd_dht_dnssec *v = get_dnssec_vhd(context, lws_get_vhost_by_name(context, "default"));
 	struct lws_dht_dnssec_domain *dom = NULL;
 	struct lws_dht_dnssec_temp_record *rec;
-	lws_dll2_t *d;
 
 	if (!v) {
 		lwsl_err("%s: no vhd found\n", __func__);
 		return 1;
 	}
 
-	for (d = lws_dll2_get_head(&v->owner_domains); d; d = lws_dll2_get_next(d)) {
+	lws_start_foreach_dll(lws_dll2_t *, d,
+				 lws_dll2_get_head(&v->owner_domains)) {
 		struct lws_dht_dnssec_domain *td = lws_container_of(d, struct lws_dht_dnssec_domain, list);
 		if (!strcmp(td->domain_name, domain)) {
 			dom = td;
 			break;
 		}
-	}
+	} lws_end_foreach_dll(d);
 
 	if (!dom) {
 		struct lws_genhash_ctx ctx;
@@ -4244,7 +4244,7 @@ do_add_temp_zone(struct lws_context *context, const char *domain, const char *zo
 		}
 
 		lws_dll2_add_tail(&dom->list, &v->owner_domains);
-	}
+	} lws_end_foreach_dll(d);
 
 	/* Create the new temporary zone record */
 	rec = malloc(sizeof(*rec));

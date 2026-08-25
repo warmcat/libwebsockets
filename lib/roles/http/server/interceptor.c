@@ -26,6 +26,8 @@
 
 
 
+/* deliberately a plain singly-linked chain: parsed once from mount
+ * options, only walked read-only when matching connections */
 struct lws_interceptor_cidr {
 	struct lws_interceptor_cidr	*next;
 	lws_sockaddr46			sa46;

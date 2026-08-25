@@ -2941,15 +2941,15 @@ send_frames:
 		size_t send_len = (size_t)(p - pkt) + 16;
 
 		/* PMTUD: tag in-flight frames with this packet's wire length so we can track MTU losses */
-		struct lws_dll2 *d = qn->in_flight[level].tail;
-		while (d) {
+		lws_start_foreach_dll_back(struct lws_dll2 *, d,
+					   lws_dll2_get_tail(&qn->in_flight[level])) {
 			struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
-			if (f->sent_in_pn == my_pn)
-				f->packet_size = (uint16_t)send_len;
-			else
+
+			if (f->sent_in_pn != my_pn)
 				break;
-			d = lws_dll2_get_prev(d);
-		}
+
+			f->packet_size = (uint16_t)send_len;
+		} lws_end_foreach_dll_back(d);
 
 		/* Fault Injection for dropping UDP packets (simulating packet loss) */
 		if (lws_fi(&wsi->fic, "quic_tx_drop")) {

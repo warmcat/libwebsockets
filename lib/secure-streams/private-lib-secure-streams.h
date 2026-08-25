@@ -443,6 +443,16 @@ typedef struct lws_sspc_handle {
 	uint8_t			ss_dangling_connected:1;
 } lws_sspc_handle_t;
 
+/*
+ * Policy parsing builds one singly-linked chain per object type via
+ * jpargs .heads[] / .curr[] (union u below), so named objects can be
+ * looked up while later parts of the JSON are still parsing.  This is a
+ * deliberate hand-rolled arrangement, not an lws_dll2 conversion
+ * candidate: it is single-threaded parse-time state with no
+ * mutation-during-walk (the walks only run between object allocations),
+ * and the listed structs are also used for compiled-in policies where
+ * extra dll2 members would bloat them on size-constrained targets.
+ */
 typedef struct backoffs {
 	struct backoffs *next;
 	const char *name;

@@ -58,6 +58,8 @@ struct wac {
 	char once;
 };
 
+/* deliberately a plain singly-linked pipeline: built once from the index
+ * file into an lwsac and drained by the caller before the ac is freed */
 struct linetable {
 	struct linetable *next;
 

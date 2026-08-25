@@ -51,7 +51,7 @@ struct lws_dsh_search {
 
 static int
 _lws_dsh_alloc_tail(lws_dsh_t *dsh, int kind, const void *src1, size_t size1,
-		    const void *src2, size_t size2, lws_dll2_t *replace);
+		    const void *src2, size_t size2);
 
 static size_t
 lws_dsh_align(size_t length)
@@ -217,7 +217,7 @@ lws_dsh_get_size(struct lws_dsh *dsh, int kind)
 
 static int
 _lws_dsh_alloc_tail(lws_dsh_t *dsh, int kind, const void *src1, size_t size1,
-		    const void *src2, size_t size2, lws_dll2_t *replace)
+		    const void *src2, size_t size2)
 {
 	size_t asize = sizeof(lws_dsh_obj_t) + lws_dsh_align(size1 + size2);
 	struct lws_dsh_search s;
@@ -367,20 +367,9 @@ _lws_dsh_alloc_tail(lws_dsh_t *dsh, int kind, const void *src1, size_t size1,
 		if (src2)
 			memcpy((uint8_t *)&s.best[1] + size1, src2, size2);
 
-		if (replace) {
-			s.best->list.prev = lws_dll2_get_prev(replace);
-			s.best->list.next = lws_dll2_get_next(replace);
-			s.best->list.owner = lws_dll2_owner(replace);
-			if (lws_dll2_get_prev(replace))
-				lws_dll2_get_prev(replace)->next = &s.best->list;
-			if (lws_dll2_get_next(replace))
-				lws_dll2_get_next(replace)->prev = &s.best->list;
-		} else {
-			assert(!(((unsigned long)(intptr_t)(s.best)) &
-					(sizeof(int *) - 1)));
-			lws_dll2_add_tail(&s.best->list,
-					&dsh->oha[kind].owner);
-		}
+		assert(!(((unsigned long)(intptr_t)(s.best)) &
+				(sizeof(int *) - 1)));
+		lws_dll2_add_tail(&s.best->list, &dsh->oha[kind].owner);
 
 		assert(s.dsh->locally_free >= s.best->asize);
 		s.dsh->locally_free -= s.best->asize;
@@ -440,20 +429,9 @@ _lws_dsh_alloc_tail(lws_dsh_t *dsh, int kind, const void *src1, size_t size1,
 		if (src2)
 			memcpy((uint8_t *)&s.best[1] + size1, src2, size2);
 
-		if (replace) {
-			s.best->list.prev = lws_dll2_get_prev(replace);
-			s.best->list.next = lws_dll2_get_next(replace);
-			s.best->list.owner = lws_dll2_owner(replace);
-			if (lws_dll2_get_prev(replace))
-				lws_dll2_get_prev(replace)->next = &s.best->list;
-			if (lws_dll2_get_next(replace))
-				lws_dll2_get_next(replace)->prev = &s.best->list;
-		} else {
-			assert(!(((unsigned long)(intptr_t)(s.best)) &
-					(sizeof(int *) - 1)));
-			lws_dll2_add_tail(&s.best->list,
-					  &dsh->oha[kind].owner);
-		}
+		assert(!(((unsigned long)(intptr_t)(s.best)) &
+				(sizeof(int *) - 1)));
+		lws_dll2_add_tail(&s.best->list, &dsh->oha[kind].owner);
 
 		assert(s.dsh->locally_free >= asize);
 		dsh->oha[kind].total_size += asize;
@@ -485,7 +463,7 @@ lws_dsh_alloc_tail(lws_dsh_t *dsh, int kind, const void *src1, size_t size1,
 				if (s1 + s2 > dsh->splitat)
 					s2 = dsh->splitat - s1;
 			}
-		r =  _lws_dsh_alloc_tail(dsh, kind, src1, s1, src2, s2, NULL);
+		r =  _lws_dsh_alloc_tail(dsh, kind, src1, s1, src2, s2);
 		if (r)
 			return r;
 		src1 = (void *)((uint8_t *)src1 + s1);

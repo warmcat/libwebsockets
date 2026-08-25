@@ -69,6 +69,9 @@ typedef enum {
  * appended to the allocation
  */
 
+/* deliberately a plain singly-linked payload chain inside cache entries
+ * (the cache entries themselves are dll2-managed): walked once while
+ * parsing or formatting a response, never mutated mid-walk */
 typedef struct lws_adns_rr {
 	struct lws_adns_rr	*next;
 	adns_query_type_t	type;

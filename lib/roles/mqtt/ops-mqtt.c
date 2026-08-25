@@ -485,7 +485,7 @@ static int
 rops_close_role_mqtt(struct lws_context_per_thread *pt, struct lws *wsi)
 {
 	struct lws *nwsi = lws_get_network_wsi(wsi);
-	lws_mqtt_subs_t	*s, *s1, *mysub;
+	lws_mqtt_subs_t	*s, *mysub;
 	lws_mqttc_t *c;
 
 	if (!wsi->mqtt)
@@ -511,10 +511,10 @@ rops_close_role_mqtt(struct lws_context_per_thread *pt, struct lws *wsi)
 
 	/* clean up any subscription allocations */
 
-	s = wsi->mqtt->subs_head;
-	wsi->mqtt->subs_head = NULL;
-	while (s) {
-		s1 = s->next;
+	lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp,
+				   lws_dll2_get_head(&wsi->mqtt->subs_owner)) {
+		s = lws_container_of(p, lws_mqtt_subs_t, list);
+
 		/*
 		 * Account for children no longer using nwsi subscription
 		 */
@@ -524,9 +524,9 @@ rops_close_role_mqtt(struct lws_context_per_thread *pt, struct lws *wsi)
 			assert(mysub->ref_count);
 			mysub->ref_count--;
 		}
+		lws_dll2_remove(p);
 		lws_free(s);
-		s = s1;
-	}
+	} lws_end_foreach_dll_safe(p, tp);
 
 	/* clean up QoS2 rx list */
 	{

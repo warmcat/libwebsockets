@@ -68,7 +68,7 @@ struct vhd__xip {
 	size_t			 max_bytes;
 	int			 cache;
 
-	struct grp__xip		*groups;	/* path-keyed groups */
+	lws_dll2_owner_t	 groups;	/* path-keyed groups */
 	unsigned int		 next_id;
 };
 
@@ -80,11 +80,11 @@ struct vhd__xip {
  * connections cannot pin memory.
  */
 struct grp__xip {
-	struct grp__xip		*next, *prev;	/* vhd's group list */
+	lws_dll2_t		 list;		/* vhd's group list */
 	struct vhd__xip		*vhd;
 	char			 path[XIP_PATH_MAX + 1];
 
-	struct pss__xip		*sessions;
+	lws_dll2_owner_t	 sessions;	/* group session list */
 
 	/* cached last clip */
 	uint8_t		       *clip_data;
@@ -97,7 +97,7 @@ struct grp__xip {
 
 /* per-session state */
 struct pss__xip {
-	struct pss__xip	*next, *prev;	/* group session list */
+	lws_dll2_t	 list;			/* group session list */
 	struct lws		*wsi;
 	struct vhd__xip	*vhd;
 	struct grp__xip	*grp;
@@ -160,20 +160,23 @@ broadcast_clip(struct grp__xip *grp, struct pss__xip *sender,
 {
 	struct xip_chunker ch;
 	static char frame[XIP_FRAME_MAX];
-	struct pss__xip *t;
 	size_t fl;
 	int sent = 0;
 
 	if (xip_chunker_init(&ch, data, len, mime, seq))
 		return -1;
 	while (xip_chunker_next(&ch, frame, sizeof(frame), &fl) == 1)
-		for (t = grp->sessions; t; t = t->next) {
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+					      lws_dll2_get_head(&grp->sessions)) {
+			struct pss__xip *t = lws_container_of(d,
+							struct pss__xip, list);
+
 			if (t != sender && t->authed) {
 				if (!xip_txq_append(&t->txq, frame, fl))
 					lws_callback_on_writable(t->wsi);
 				sent++;
 			}
-		}
+		} lws_end_foreach_dll_safe(d, d1);
 
 	return sent;
 }
@@ -181,45 +184,32 @@ broadcast_clip(struct grp__xip *grp, struct pss__xip *sender,
 static void
 session_link(struct grp__xip *grp, struct pss__xip *pss)
 {
-	pss->prev = NULL;
-	pss->next = grp->sessions;
-	if (grp->sessions)
-		grp->sessions->prev = pss;
-	grp->sessions = pss;
+	lws_dll2_add_head(&pss->list, &grp->sessions);
 }
 
 static void
 session_unlink(struct grp__xip *grp, struct pss__xip *pss)
 {
-	if (pss->prev)
-		pss->prev->next = pss->next;
-	else
-		grp->sessions = pss->next;
-	if (pss->next)
-		pss->next->prev = pss->prev;
-	pss->next = pss->prev = NULL;
+	lws_dll2_remove(&pss->list);
 }
 
 static int
 group_session_count(const struct grp__xip *grp)
 {
-	const struct pss__xip *t;
-	int n = 0;
-
-	for (t = grp->sessions; t; t = t->next)
-		n++;
-
-	return n;
+	return (int)lws_dll2_count(&grp->sessions);
 }
 
 static struct grp__xip *
 group_find(struct vhd__xip *vhd, const char *path)
 {
-	struct grp__xip *g;
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+			      lws_dll2_get_head(&vhd->groups)) {
+		struct grp__xip *g = lws_container_of(d,
+						struct grp__xip, list);
 
-	for (g = vhd->groups; g; g = g->next)
 		if (!strcmp(g->path, path))
 			return g;
+	} lws_end_foreach_dll(d);
 
 	return NULL;
 }
@@ -238,10 +228,7 @@ group_get(struct vhd__xip *vhd, const char *path)
 
 	lws_strncpy(g->path, path, sizeof(g->path));
 	g->vhd = vhd;
-	g->next = vhd->groups;
-	if (vhd->groups)
-		vhd->groups->prev = g;
-	vhd->groups = g;
+	lws_dll2_add_head(&g->list, &vhd->groups);
 	lwsl_notice("xip: new group '%s'\n", g->path);
 
 	return g;
@@ -251,17 +238,12 @@ group_get(struct vhd__xip *vhd, const char *path)
 static void
 group_put(struct vhd__xip *vhd, struct grp__xip *grp)
 {
-	if (grp->sessions)
+	if (!lws_dll2_is_empty(&grp->sessions))
 		return;
 	if (vhd->cache && grp->have_clip)
 		return;		/* keep the late-joiner cache warm */
 
-	if (grp->prev)
-		grp->prev->next = grp->next;
-	else
-		vhd->groups = grp->next;
-	if (grp->next)
-		grp->next->prev = grp->prev;
+	lws_dll2_remove(&grp->list);
 
 	free(grp->clip_data);
 	free(grp);
@@ -647,10 +629,12 @@ callback_xip(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
 		if (vhd) {
-			while (vhd->groups) {
-				struct grp__xip *g = vhd->groups;
+			while (!lws_dll2_is_empty(&vhd->groups)) {
+				struct grp__xip *g = lws_container_of(
+					lws_dll2_get_head(&vhd->groups),
+					struct grp__xip, list);
 
-				vhd->groups = g->next;
+				lws_dll2_remove(&g->list);
 				free(g->clip_data);
 				free(g);
 			}

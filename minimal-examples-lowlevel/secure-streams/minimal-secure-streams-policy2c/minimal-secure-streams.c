@@ -213,7 +213,7 @@ int main(int argc, const char **argv)
 				if (a->orig == (const char *)pol->retry_bo)
 					break;
 
-				a = lws_dll2_get_next(a);
+				a = a->next;
 			}
 
 			if (!a) {
@@ -268,7 +268,7 @@ int main(int argc, const char **argv)
 				if (a->orig == (const char *)pol->trust.store)
 					break;
 
-				a = lws_dll2_get_next(a);
+				a = a->next;
 			}
 
 			if (!a) {
@@ -627,7 +627,7 @@ int main(int argc, const char **argv)
 				if (a->orig == (const char *)pol->retry_bo)
 					break;
 
-				a = lws_dll2_get_next(a);
+				a = a->next;
 			}
 			if (!a)
 				goto bail;

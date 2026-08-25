@@ -368,6 +368,7 @@ lws_mqtt_create_sub(struct _lws_mqtt_related *mqtt, const char *topic)
 				 __func__);
 			return NULL;
 		}
+		lws_dll2_clear(&mysub->list);
 		mysub->wildcard = (flag == LMVTR_VALID_WILDCARD);
 		mysub->shadow = (flag == LMVTR_VALID_SHADOW);
 		break;
@@ -378,8 +379,7 @@ lws_mqtt_create_sub(struct _lws_mqtt_related *mqtt, const char *topic)
 		return NULL;
 	}
 
-	mysub->next = mqtt->subs_head;
-	mqtt->subs_head = mysub;
+	lws_dll2_add_head(&mysub->list, &mqtt->subs_owner);
 	memcpy(mysub->topic, topic, strlen(topic) + 1);
 	mysub->ref_count = 1;
 
@@ -392,27 +392,25 @@ lws_mqtt_create_sub(struct _lws_mqtt_related *mqtt, const char *topic)
 static int
 lws_mqtt_client_remove_subs(struct _lws_mqtt_related *mqtt)
 {
-	lws_mqtt_subs_t *s = mqtt->subs_head;
-	lws_mqtt_subs_t *temp = NULL;
-
-
 	lwsl_info("%s: Called to remove subs from wsi->mqtt %p\n",
 		  __func__, mqtt);
 
-	while (s && s->next) {
-		if (s->next->ref_count == 0)
-			break;
-		s = s->next;
-	}
+	lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp,
+				   lws_dll2_get_head(&mqtt->subs_owner)) {
+		lws_mqtt_subs_t *s = lws_container_of(p,
+						lws_mqtt_subs_t, list);
 
-	if (s && s->next) {
-		temp = s->next;
-		lwsl_info("%s: Removing sub %p from wsi->mqtt %p\n",
-			  __func__, temp, mqtt);
-		s->next = temp->next;
-		lws_free(temp);
-		return 0;
-	}
+		if (!s->ref_count) {
+			/* remove the first unreferenced subscription */
+			lwsl_info("%s: Removing sub %p from wsi->mqtt %p\n",
+				  __func__, s, mqtt);
+			lws_dll2_remove(p);
+			lws_free(s);
+
+			return 0;
+		}
+	} lws_end_foreach_dll_safe(p, tp);
+
 	return 1;
 }
 
@@ -514,24 +512,25 @@ lws_mqtt_is_topic_matched(const char* sub, const char* pub)
 	return LMMTR_TOPIC_NOMATCH;
 }
 
-lws_mqtt_subs_t* lws_mqtt_find_sub(struct _lws_mqtt_related* mqtt,
-				   const char* ptopic) {
-	lws_mqtt_subs_t *s = mqtt->subs_head;
+lws_mqtt_subs_t *
+lws_mqtt_find_sub(struct _lws_mqtt_related *mqtt, const char *ptopic)
+{
+	lws_start_foreach_dll(struct lws_dll2 *, p,
+			      lws_dll2_get_head(&mqtt->subs_owner)) {
+		lws_mqtt_subs_t *s = lws_container_of(p,
+						lws_mqtt_subs_t, list);
 
-	while (s) {
 		/*  SUB topic  ==   PUB topic  ? */
 		/* foo/bar/xyz ==  foo/bar/xyz ? */
 		if (!s->wildcard) {
-			if (!strcmp((const char*)s->topic, ptopic))
+			if (!strcmp(s->topic, ptopic))
 				return s;
 		} else {
 			if (lws_mqtt_is_topic_matched(
 			    s->topic, ptopic) == LMMTR_TOPIC_MATCH)
 				return s;
 		}
-
-		s = s->next;
-	}
+	} lws_end_foreach_dll(p);
 
 	return NULL;
 }

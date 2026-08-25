@@ -438,6 +438,15 @@ typedef struct lws_ss_sinks {
 } lws_ss_sinks_t;
 #endif
 
+/*
+ * This is a deliberate hand-rolled singly-linked FIFO, not an lws_dll2
+ * conversion candidate: segments are only ever appended at the tail and
+ * consumed/destroyed at the head, so the mid-list mutation and stale
+ * cached-iterator problems lws_dll2 exists to prevent cannot arise here.
+ * An lws_dll2_t would add prev + owner pointers to every rx segment on
+ * the hot buffering path for features a FIFO queue does not use; see
+ * buflist2 for the dll2-backed variant used by newer code.
+ */
 typedef struct lws_buflist {
 	struct lws_buflist			*next;
 	size_t					len;

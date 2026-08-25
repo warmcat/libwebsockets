@@ -458,7 +458,7 @@ lws_metric_destroy(lws_metric_t **pmt, int keep)
 		pub->u.hist.head = NULL;
 
 		while (b) {
-			b1 = lws_dll2_get_next(b);
+			b1 = b->next;
 			lws_free(b);
 			b = b1;
 		}
@@ -709,7 +709,7 @@ lws_metrics_dump_cb(lws_metric_pub_t *pub, void *user)
 		pub->u.hist.head = NULL;
 
 		while (b) {
-			b1 = lws_dll2_get_next(b);
+			b1 = b->next;
 			lws_free(b);
 			b = b1;
 		}

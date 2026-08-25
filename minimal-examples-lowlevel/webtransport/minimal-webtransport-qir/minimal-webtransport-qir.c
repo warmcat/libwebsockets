@@ -800,14 +800,13 @@ dgr_lookup_request(const char *name, int *idx, const char **endpoint,
 static struct dgr_tx *
 dgr_tx_find(const char *name)
 {
-	struct lws_dll2 *d;
-
-	for (d = dg_tx_owner.head; d; d = lws_dll2_get_next(d)) {
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+				 lws_dll2_get_head(&dg_tx_owner)) {
 		struct dgr_tx *tf = lws_container_of(d, struct dgr_tx, list);
 
 		if (!strcmp(tf->name, name))
 			return tf;
-	}
+	} lws_end_foreach_dll(d);
 
 	return NULL;
 }
@@ -1140,7 +1139,6 @@ static void
 dgr_pump(struct lws *wsi)
 {
 	int ctl_budget = DGR_CTL_BURST, data_budget = DGR_DATA_BURST;
-	struct lws_dll2 *d;
 	int work;
 
 	if (!dg_session_wsi)
@@ -1168,8 +1166,12 @@ dgr_pump(struct lws *wsi)
 	}
 
 	/* then the first pass over files, oldest request first */
-	for (d = dg_tx_owner.head; d && data_budget > 0; d = lws_dll2_get_next(d)) {
+	lws_start_foreach_dll(struct lws_dll2 *, d,
+				 lws_dll2_get_head(&dg_tx_owner)) {
 		struct dgr_tx *tf = lws_container_of(d, struct dgr_tx, list);
+
+		if (!data_budget)
+			break;
 
 		while (data_budget > 0 && !tf->done && tf->cursor < tf->chunks) {
 			int s = dgr_send_chunk(wsi, tf, tf->cursor);
@@ -1180,18 +1182,19 @@ dgr_pump(struct lws *wsi)
 			if (!s)
 				data_budget--;
 		}
-	}
+	} lws_end_foreach_dll(d);
 
 	work = dg_ctl_head != dg_ctl_tail || dg_resend_head != dg_resend_tail;
 	if (!work)
-		for (d = dg_tx_owner.head; d; d = lws_dll2_get_next(d)) {
+		lws_start_foreach_dll(struct lws_dll2 *, d,
+				 lws_dll2_get_head(&dg_tx_owner)) {
 			struct dgr_tx *tf = lws_container_of(d, struct dgr_tx, list);
 
 			if (!tf->done && tf->cursor < tf->chunks) {
 				work = 1;
 				break;
 			}
-		}
+		} lws_end_foreach_dll(d);
 
 	if (work)
 		dgr_repace();
