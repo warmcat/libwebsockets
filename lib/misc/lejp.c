@@ -200,7 +200,10 @@ lejp_get_wildcard(struct lejp_ctx *ctx, int wildcard, char *dest, int len)
 {
 	int n;
 
-	if (wildcard >= ctx->wildcount || !len)
+	/* len <= 0 means no room to write anything: fail rather than copy
+	 * without an effective bound
+	 */
+	if (wildcard >= ctx->wildcount || len <= 0)
 		return 0;
 
 	n = ctx->wild[wildcard];

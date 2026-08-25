@@ -741,6 +741,40 @@ struct lejp_results_pkg {
 
 static unsigned int m, step;
 
+/* set when the F-023 regression checks below see a problem */
+static int wild_fail;
+
+static signed char
+wild_cb(struct lejp_ctx *ctx, char reason)
+{
+	char wild[16];
+
+	if (reason != LEJPCB_VAL_STR_END || !ctx->path_match)
+		return 0;
+
+	/* positive-length sanity: the wildcard is the object name "name"
+	 * and its length including the terminator is reported */
+
+	memset(wild, 0x55, sizeof(wild));
+	if (lejp_get_wildcard(ctx, 0, wild, (int)sizeof(wild)) != 5 ||
+	    strcmp(wild, "name"))
+		wild_fail |= 1;
+
+	/* F-023 regression: a non-positive len must mean "no room" and
+	 * fail cleanly, rather than copy with no effective bound
+	 */
+
+	memset(wild, 0x55, sizeof(wild));
+	if (lejp_get_wildcard(ctx, 0, wild, -5) || wild[0] != 0x55)
+		wild_fail |= 2;
+
+	memset(wild, 0x55, sizeof(wild));
+	if (lejp_get_wildcard(ctx, 0, wild, 0) || wild[0] != 0x55)
+		wild_fail |= 4;
+
+	return 0;
+}
+
 
 
 static signed char
@@ -864,6 +898,25 @@ int main(int argc, const char **argv)
 					    "\"auth_user\":", &cslen);
 		if (cslen != 16) {
 			lwsl_err("%s: wrong string len %d isolated\n", __func__, (int)cslen);
+			e++;
+		}
+	}
+
+	/*
+	 * F-023 companion: lejp_get_wildcard() with a negative length must
+	 * refuse to copy anything
+	 */
+	{
+		static const char * const wpaths[] = { "x.*" };
+
+		lejp_construct(&ctx, wild_cb, NULL, wpaths, 1);
+		n = lejp_parse(&ctx,
+			(const unsigned char *)"{\"x\":{\"name\":\"value\"}}", 22);
+		lejp_destruct(&ctx);
+
+		if (n < 0 || wild_fail) {
+			lwsl_err("%s: wildcard len guard failed (0x%x)\n",
+				 __func__, wild_fail);
 			e++;
 		}
 	}

@@ -1338,6 +1338,9 @@ lws_vhost_destroy(struct lws_vhost *vh);
  * This function prepares a n lws_context_creation_info struct with global
  * settings from a file d.
  *
+ * If the config strings arena is too small for the parsed content, the
+ * parse fails and nonzero is returned.
+ *
  * Requires CMake option LWS_WITH_LEJP_CONF to have been enabled
  */
 LWS_VISIBLE LWS_EXTERN int
@@ -1356,6 +1359,9 @@ lwsws_get_config_globals(struct lws_context_creation_info *info, const char *d,
  *
  * This function creates vhosts into a context according to the settings in
  *JSON files found in directory d.
+ *
+ * If the config strings arena is too small for the parsed content, the
+ * parse fails and nonzero is returned.
  *
  * Requires CMake option LWS_WITH_LEJP_CONF to have been enabled
  */
