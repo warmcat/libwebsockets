@@ -532,8 +532,7 @@ create_dbus_listener(struct vhd_dbus_proxy *vhd, int tsi)
 #if 0
         vhd->dctx.ctx.tsi = tsi;
         vhd->dctx.ctx.vh = vhd->vhost;
-        vhd->dctx.ctx.next.prev = NULL;
-        vhd->dctx.ctx.next.next = NULL;
+        lws_dll2_clear(&vhd->dctx.ctx.next);
         vhd->dctx.vhd = vhd;
         vhd->dctx.cwsi = NULL;
 
@@ -617,7 +616,7 @@ destroy_dbus_server_listener(struct vhd_dbus_proxy *vhd)
 	dbus_server_disconnect(vhd->ctx_listener.dbs);
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, rdt, nx,
-			vhd->ctx_listener.owner.head) {
+			lws_dll2_get_head(&vhd->ctx_listener.owner)) {
 		struct lws_dbus_ctx *r = lws_container_of(rdt,
 						struct lws_dbus_ctx, next);
 

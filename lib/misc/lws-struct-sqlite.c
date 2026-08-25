@@ -497,7 +497,7 @@ lws_struct_sq3_serialize(sqlite3 *pdb, const lws_struct_map_t *schema,
 {
 	uint32_t idx = manual_idx;
 
-	lws_start_foreach_dll(struct lws_dll2 *, p, owner->head) {
+	lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(owner)) {
 		void *item = (void *)((uint8_t *)p - schema->ofs_clist);
 		if (_lws_struct_sq3_ser_one(pdb, schema, idx++, item))
 			return 1;

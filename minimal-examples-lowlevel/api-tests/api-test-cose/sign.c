@@ -721,10 +721,10 @@ test_cose_sign(struct lws_context *context)
 	}
 
 	o = lws_cose_validate_results(cps);
-	if (o->count != 1)
+	if (lws_dll2_count(o) != 1)
 		goto bail1;
 
-	res = lws_container_of(o->head, lws_cose_validate_res_t, list);
+	res = lws_container_of(lws_dll2_get_head(o), lws_cose_validate_res_t, list);
 	if (res->result)
 		goto bail1;
 
@@ -754,10 +754,10 @@ test_cose_sign(struct lws_context *context)
 	}
 
 	o = lws_cose_validate_results(cps);
-	if (o->count != 1)
+	if (lws_dll2_count(o) != 1)
 		goto bail1;
 
-	res = lws_container_of(o->head, lws_cose_validate_res_t, list);
+	res = lws_container_of(lws_dll2_get_head(o), lws_cose_validate_res_t, list);
 	if (!res->result)
 		goto bail1;
 
@@ -793,10 +793,10 @@ test_cose_sign(struct lws_context *context)
 	}
 
 	o = lws_cose_validate_results(cps);
-	if (o->count != 1)
+	if (lws_dll2_count(o) != 1)
 		goto bail1;
 
-	res = lws_container_of(o->head, lws_cose_validate_res_t, list);
+	res = lws_container_of(lws_dll2_get_head(o), lws_cose_validate_res_t, list);
 	if (res->result)
 		goto bail1;
 
@@ -832,10 +832,10 @@ test_cose_sign(struct lws_context *context)
 	}
 
 	o = lws_cose_validate_results(cps);
-	if (o->count != 1)
+	if (lws_dll2_count(o) != 1)
 		goto bail1;
 
-	res = lws_container_of(o->head, lws_cose_validate_res_t, list);
+	res = lws_container_of(lws_dll2_get_head(o), lws_cose_validate_res_t, list);
 	if (res->result)
 		goto bail1;
 
@@ -898,10 +898,10 @@ test_cose_sign(struct lws_context *context)
 	}
 
 	o = lws_cose_validate_results(cps);
-	if (o->count != 1)
+	if (lws_dll2_count(o) != 1)
 		goto bail1;
 
-	res = lws_container_of(o->head, lws_cose_validate_res_t, list);
+	res = lws_container_of(lws_dll2_get_head(o), lws_cose_validate_res_t, list);
 	if (!res->result)
 		/* validation result must be fail */
 		goto bail1;
@@ -936,10 +936,10 @@ test_cose_sign(struct lws_context *context)
 	}
 
 	o = lws_cose_validate_results(cps);
-	if (o->count != 1)
+	if (lws_dll2_count(o) != 1)
 		goto bail1;
 
-	res = lws_container_of(o->head, lws_cose_validate_res_t, list);
+	res = lws_container_of(lws_dll2_get_head(o), lws_cose_validate_res_t, list);
 	if (!res->result)
 		/* validation result must be fail */
 		goto bail1;
@@ -974,10 +974,10 @@ test_cose_sign(struct lws_context *context)
 	}
 
 	o = lws_cose_validate_results(cps);
-	if (o->count != 1)
+	if (lws_dll2_count(o) != 1)
 		goto bail1;
 
-	res = lws_container_of(o->head, lws_cose_validate_res_t, list);
+	res = lws_container_of(lws_dll2_get_head(o), lws_cose_validate_res_t, list);
 	if (!res->result)
 		/* validation result must be fail */
 		goto bail1;
@@ -1012,10 +1012,10 @@ test_cose_sign(struct lws_context *context)
 	}
 
 	o = lws_cose_validate_results(cps);
-	if (o->count != 1)
+	if (lws_dll2_count(o) != 1)
 		goto bail1;
 
-	res = lws_container_of(o->head, lws_cose_validate_res_t, list);
+	res = lws_container_of(lws_dll2_get_head(o), lws_cose_validate_res_t, list);
 	if (!res->result)
 		/* validation result must be fail */
 		goto bail1;
@@ -1050,10 +1050,10 @@ test_cose_sign(struct lws_context *context)
 	}
 
 	o = lws_cose_validate_results(cps);
-	if (o->count != 1)
+	if (lws_dll2_count(o) != 1)
 		goto bail1;
 
-	res = lws_container_of(o->head, lws_cose_validate_res_t, list);
+	res = lws_container_of(lws_dll2_get_head(o), lws_cose_validate_res_t, list);
 	if (!res->result)
 		/* validation result must be fail */
 		goto bail1;
@@ -1088,12 +1088,12 @@ test_cose_sign(struct lws_context *context)
 	}
 
 	o = lws_cose_validate_results(cps);
-	if (o->count != 1) {
-		lwsl_notice("%s: results: %d\n", __func__, o->count);
+	if (lws_dll2_count(o) != 1) {
+		lwsl_notice("%s: results: %d\n", __func__, lws_dll2_count(o));
 		goto bail1;
 	}
 
-	res = lws_container_of(o->head, lws_cose_validate_res_t, list);
+	res = lws_container_of(lws_dll2_get_head(o), lws_cose_validate_res_t, list);
 	if (res->result)
 		goto bail1;
 
@@ -1129,12 +1129,12 @@ test_cose_sign(struct lws_context *context)
 	}
 
 	o = lws_cose_validate_results(cps);
-	if (o->count != 1) {
-		lwsl_notice("%s: results: %d\n", __func__, o->count);
+	if (lws_dll2_count(o) != 1) {
+		lwsl_notice("%s: results: %d\n", __func__, lws_dll2_count(o));
 		goto bail1;
 	}
 
-	res = lws_container_of(o->head, lws_cose_validate_res_t, list);
+	res = lws_container_of(lws_dll2_get_head(o), lws_cose_validate_res_t, list);
 	if (res->result)
 		goto bail1;
 
@@ -1170,12 +1170,12 @@ test_cose_sign(struct lws_context *context)
 	}
 
 	o = lws_cose_validate_results(cps);
-	if (o->count != 1) {
-		lwsl_notice("%s: results: %d\n", __func__, o->count);
+	if (lws_dll2_count(o) != 1) {
+		lwsl_notice("%s: results: %d\n", __func__, lws_dll2_count(o));
 		goto bail1;
 	}
 
-	res = lws_container_of(o->head, lws_cose_validate_res_t, list);
+	res = lws_container_of(lws_dll2_get_head(o), lws_cose_validate_res_t, list);
 	if (res->result)
 		goto bail1;
 
@@ -1238,12 +1238,12 @@ test_cose_sign(struct lws_context *context)
 	}
 
 	o = lws_cose_validate_results(cps);
-	if (o->count != 1) {
-		lwsl_notice("%s: results: %d\n", __func__, o->count);
+	if (lws_dll2_count(o) != 1) {
+		lwsl_notice("%s: results: %d\n", __func__, lws_dll2_count(o));
 		goto bail1;
 	}
 
-	res = lws_container_of(o->head, lws_cose_validate_res_t, list);
+	res = lws_container_of(lws_dll2_get_head(o), lws_cose_validate_res_t, list);
 	if (!res->result)
 		goto bail1;
 
@@ -1277,8 +1277,8 @@ test_cose_sign(struct lws_context *context)
 	}
 
 	o = lws_cose_validate_results(cps);
-	if (o->count != 1) {
-		lwsl_notice("%s: results: %d\n", __func__, o->count);
+	if (lws_dll2_count(o) != 1) {
+		lwsl_notice("%s: results: %d\n", __func__, lws_dll2_count(o));
 		goto bail1;
 	}
 
@@ -1312,8 +1312,8 @@ test_cose_sign(struct lws_context *context)
 	}
 
 	o = lws_cose_validate_results(cps);
-	if (o->count != 1) {
-		lwsl_notice("%s: results: %d\n", __func__, o->count);
+	if (lws_dll2_count(o) != 1) {
+		lwsl_notice("%s: results: %d\n", __func__, lws_dll2_count(o));
 		goto bail1;
 	}
 
@@ -1347,12 +1347,12 @@ test_cose_sign(struct lws_context *context)
 	}
 
 	o = lws_cose_validate_results(cps);
-	if (o->count != 1) {
-		lwsl_notice("%s: results: %d\n", __func__, o->count);
+	if (lws_dll2_count(o) != 1) {
+		lwsl_notice("%s: results: %d\n", __func__, lws_dll2_count(o));
 		goto bail1;
 	}
 
-	res = lws_container_of(o->head, lws_cose_validate_res_t, list);
+	res = lws_container_of(lws_dll2_get_head(o), lws_cose_validate_res_t, list);
 	if (!res->result)
 		goto bail1;
 
@@ -1386,12 +1386,12 @@ test_cose_sign(struct lws_context *context)
 	}
 
 	o = lws_cose_validate_results(cps);
-	if (o->count != 1) {
-		lwsl_notice("%s: results: %d\n", __func__, o->count);
+	if (lws_dll2_count(o) != 1) {
+		lwsl_notice("%s: results: %d\n", __func__, lws_dll2_count(o));
 		goto bail1;
 	}
 
-	res = lws_container_of(o->head, lws_cose_validate_res_t, list);
+	res = lws_container_of(lws_dll2_get_head(o), lws_cose_validate_res_t, list);
 	if (!res->result)
 		goto bail1;
 
@@ -1426,12 +1426,12 @@ test_cose_sign(struct lws_context *context)
 	}
 
 	o = lws_cose_validate_results(cps);
-	if (o->count != 1) {
-		lwsl_err("%s: count %d\n", __func__, o->count);
+	if (lws_dll2_count(o) != 1) {
+		lwsl_err("%s: count %d\n", __func__, lws_dll2_count(o));
 		goto bail1;
 	}
 
-	res = lws_container_of(o->head, lws_cose_validate_res_t, list);
+	res = lws_container_of(lws_dll2_get_head(o), lws_cose_validate_res_t, list);
 	if (res->result) {
 		lwsl_err("%s: result is fail\n", __func__);
 		goto bail1;
@@ -1467,12 +1467,12 @@ test_cose_sign(struct lws_context *context)
 	}
 
 	o = lws_cose_validate_results(cps);
-	if (o->count != 1) {
-		lwsl_err("%s: count %d\n", __func__, o->count);
+	if (lws_dll2_count(o) != 1) {
+		lwsl_err("%s: count %d\n", __func__, lws_dll2_count(o));
 		goto bail1;
 	}
 
-	res = lws_container_of(o->head, lws_cose_validate_res_t, list);
+	res = lws_container_of(lws_dll2_get_head(o), lws_cose_validate_res_t, list);
 	if (res->result) {
 		lwsl_err("%s: result is fail\n", __func__);
 		goto bail1;
@@ -1509,12 +1509,12 @@ test_cose_sign(struct lws_context *context)
 	}
 
 	o = lws_cose_validate_results(cps);
-	if (o->count != 1) {
-		lwsl_err("%s: count %d\n", __func__, o->count);
+	if (lws_dll2_count(o) != 1) {
+		lwsl_err("%s: count %d\n", __func__, lws_dll2_count(o));
 		goto bail1;
 	}
 
-	res = lws_container_of(o->head, lws_cose_validate_res_t, list);
+	res = lws_container_of(lws_dll2_get_head(o), lws_cose_validate_res_t, list);
 	if (res->result) {
 		lwsl_err("%s: result is fail\n", __func__);
 		goto bail1;
@@ -1550,12 +1550,12 @@ test_cose_sign(struct lws_context *context)
 	}
 
 	o = lws_cose_validate_results(cps);
-	if (o->count != 1) {
-		lwsl_err("%s: count %d\n", __func__, o->count);
+	if (lws_dll2_count(o) != 1) {
+		lwsl_err("%s: count %d\n", __func__, lws_dll2_count(o));
 		goto bail1;
 	}
 
-	res = lws_container_of(o->head, lws_cose_validate_res_t, list);
+	res = lws_container_of(lws_dll2_get_head(o), lws_cose_validate_res_t, list);
 	if (!res->result) {
 		lwsl_err("%s: result is wrongly succeeding\n", __func__);
 		goto bail1;
@@ -1591,12 +1591,12 @@ test_cose_sign(struct lws_context *context)
 	}
 
 	o = lws_cose_validate_results(cps);
-	if (o->count != 1) {
-		lwsl_err("%s: count %d\n", __func__, o->count);
+	if (lws_dll2_count(o) != 1) {
+		lwsl_err("%s: count %d\n", __func__, lws_dll2_count(o));
 		goto bail1;
 	}
 
-	res = lws_container_of(o->head, lws_cose_validate_res_t, list);
+	res = lws_container_of(lws_dll2_get_head(o), lws_cose_validate_res_t, list);
 	if (res->result) {
 		lwsl_err("%s: result is fail\n", __func__);
 		goto bail1;
@@ -1632,12 +1632,12 @@ test_cose_sign(struct lws_context *context)
 	}
 
 	o = lws_cose_validate_results(cps);
-	if (o->count != 1) {
-		lwsl_err("%s: count %d\n", __func__, o->count);
+	if (lws_dll2_count(o) != 1) {
+		lwsl_err("%s: count %d\n", __func__, lws_dll2_count(o));
 		goto bail1;
 	}
 
-	res = lws_container_of(o->head, lws_cose_validate_res_t, list);
+	res = lws_container_of(lws_dll2_get_head(o), lws_cose_validate_res_t, list);
 	if (res->result) {
 		lwsl_err("%s: result is fail\n", __func__);
 		goto bail1;
@@ -1673,12 +1673,12 @@ test_cose_sign(struct lws_context *context)
 	}
 
 	o = lws_cose_validate_results(cps);
-	if (o->count != 1) {
-		lwsl_err("%s: count %d\n", __func__, o->count);
+	if (lws_dll2_count(o) != 1) {
+		lwsl_err("%s: count %d\n", __func__, lws_dll2_count(o));
 		goto bail1;
 	}
 
-	res = lws_container_of(o->head, lws_cose_validate_res_t, list);
+	res = lws_container_of(lws_dll2_get_head(o), lws_cose_validate_res_t, list);
 	if (res->result) {
 		lwsl_err("%s: result is fail\n", __func__);
 		goto bail1;
@@ -1714,12 +1714,12 @@ test_cose_sign(struct lws_context *context)
 	}
 
 	o = lws_cose_validate_results(cps);
-	if (o->count != 1) {
-		lwsl_err("%s: count %d\n", __func__, o->count);
+	if (lws_dll2_count(o) != 1) {
+		lwsl_err("%s: count %d\n", __func__, lws_dll2_count(o));
 		goto bail1;
 	}
 
-	res = lws_container_of(o->head, lws_cose_validate_res_t, list);
+	res = lws_container_of(lws_dll2_get_head(o), lws_cose_validate_res_t, list);
 	if (res->result) {
 		lwsl_err("%s: result is fail\n", __func__);
 		goto bail1;
@@ -1755,12 +1755,12 @@ test_cose_sign(struct lws_context *context)
 	}
 
 	o = lws_cose_validate_results(cps);
-	if (o->count != 1) {
-		lwsl_err("%s: count %d\n", __func__, o->count);
+	if (lws_dll2_count(o) != 1) {
+		lwsl_err("%s: count %d\n", __func__, lws_dll2_count(o));
 		goto bail1;
 	}
 
-	res = lws_container_of(o->head, lws_cose_validate_res_t, list);
+	res = lws_container_of(lws_dll2_get_head(o), lws_cose_validate_res_t, list);
 	if (!res->result) {
 		lwsl_err("%s: result wrongly succeeds\n", __func__);
 		goto bail1;
@@ -1796,12 +1796,12 @@ test_cose_sign(struct lws_context *context)
 	}
 
 	o = lws_cose_validate_results(cps);
-	if (o->count != 1) {
-		lwsl_err("%s: count %d\n", __func__, o->count);
+	if (lws_dll2_count(o) != 1) {
+		lwsl_err("%s: count %d\n", __func__, lws_dll2_count(o));
 		goto bail1;
 	}
 
-	res = lws_container_of(o->head, lws_cose_validate_res_t, list);
+	res = lws_container_of(lws_dll2_get_head(o), lws_cose_validate_res_t, list);
 	if (res->result) {
 		lwsl_err("%s: result is fail\n", __func__);
 		goto bail1;
@@ -1837,12 +1837,12 @@ test_cose_sign(struct lws_context *context)
 	}
 
 	o = lws_cose_validate_results(cps);
-	if (o->count != 1) {
-		lwsl_err("%s: result count %d\n", __func__, o->count);
+	if (lws_dll2_count(o) != 1) {
+		lwsl_err("%s: result count %d\n", __func__, lws_dll2_count(o));
 		goto bail1;
 	}
 
-	res = lws_container_of(o->head, lws_cose_validate_res_t, list);
+	res = lws_container_of(lws_dll2_get_head(o), lws_cose_validate_res_t, list);
 	if (res->result) {
 		lwsl_err("%s: result is fail\n", __func__);
 		goto bail1;

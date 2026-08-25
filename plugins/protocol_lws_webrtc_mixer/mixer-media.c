@@ -1050,7 +1050,7 @@ skip_encode:
 
 		/* Broadcast previously encoded H264 frames */
 		pthread_mutex_lock(&r->encode_mutex);
-		while (lws_dll2_get_head(&r->h264_queue)) {
+		while(!lws_dll2_is_empty(&r->h264_queue)) {
 			struct mixer_encoded_frame *f = lws_container_of(lws_dll2_get_head(&r->h264_queue), struct mixer_encoded_frame, list);
 			lws_dll2_remove(&f->list);
 			pthread_mutex_unlock(&r->encode_mutex);
@@ -1081,7 +1081,7 @@ next_tx_h264:;
 		}
 
 		/* Broadcast previously encoded AV1 frames */
-		while (lws_dll2_get_head(&r->av1_queue)) {
+		while(!lws_dll2_is_empty(&r->av1_queue)) {
 			struct mixer_encoded_frame *f = lws_container_of(lws_dll2_get_head(&r->av1_queue), struct mixer_encoded_frame, list);
 			lws_dll2_remove(&f->list);
 			pthread_mutex_unlock(&r->encode_mutex);
@@ -1496,7 +1496,7 @@ on_decoder_pad_added(GstElement *element, GstPad *new_pad, gpointer data)
 	if (p && p->room && p->room->compositor) {
 		if (!s->compositor_pad) {
 			s->compositor_pad = gst_element_request_pad_simple(p->room->compositor, "sink_%u");
-			if (p->room->participants.count <= 1) p->room->master_pts = 0;
+			if (lws_dll2_count(&p->room->participants) <= 1) p->room->master_pts = 0;
 		}
 
 		/* Link: decoder -> compositor_sink */
@@ -1613,7 +1613,7 @@ init_participant_media(struct participant *p, enum lws_video_codec codec)
 
 		if (!s->compositor_pad) {
 			s->compositor_pad = gst_element_request_pad_simple(p->room->compositor, "sink_%u");
-			if (p->room->participants.count <= 1) p->room->master_pts = 0;
+			if (lws_dll2_count(&p->room->participants) <= 1) p->room->master_pts = 0;
 		}
 
 		/* Set compositor pad to be as lenient as possible */

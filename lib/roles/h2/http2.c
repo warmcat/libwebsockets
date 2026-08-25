@@ -498,9 +498,9 @@ lws_pps_schedule(struct lws *wsi, struct lws_h2_protocol_send *pps)
 	}
 
 	if (pps->type != LWS_H2_PPS_GOAWAY &&
-	    h2n->pps_owner.count >= 50) {
+	    lws_dll2_count(&h2n->pps_owner) >= 50) {
 		lwsl_warn("%s: too many pending protocol sends (%u), dropping conn\n",
-			  __func__, (unsigned int)h2n->pps_owner.count);
+			  __func__, (unsigned int)lws_dll2_count(&h2n->pps_owner));
 		lws_free(pps);
 		lws_h2_goaway(nwsi, H2_ERR_ENHANCE_YOUR_CALM, "too many pending pps");
 		return;
@@ -634,7 +634,7 @@ lws_h2_settings(struct lws *wsi, struct http2_settings *settings,
 			 */
 
 			lws_start_foreach_dll(struct lws_dll2 *, d,
-					     nwsi->mux.child_list_owner.head) {
+					     lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
 				struct lws *w = lws_container_of(d, struct lws,
 								 mux.sibling_list);
 				lwsl_info("%s: adi child tc cr %d +%d -> %d",
@@ -1566,7 +1566,7 @@ lws_h2_parse_frame_header(struct lws *wsi)
 		 * stream 7 is sent or received.
 		 */
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				wsi->mux.child_list_owner.head) {
+				lws_dll2_get_head(&wsi->mux.child_list_owner)) {
 			struct lws *w = lws_container_of(d, struct lws,
 							 mux.sibling_list);
 			if (w->mux.my_sid < h2n->sid &&
@@ -2242,7 +2242,7 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 		 * blockage for all children first
 		 */
 		lws_start_foreach_dll(struct lws_dll2 *, d,
-				wsi->mux.child_list_owner.head) {
+				lws_dll2_get_head(&wsi->mux.child_list_owner)) {
 			struct lws *w = lws_container_of(d, struct lws,
 							 mux.sibling_list);
 			lws_callback_on_writable(w);
@@ -3086,7 +3086,7 @@ lws_h2_client_handshake(struct lws *wsi)
 
 	if (wsi->mux.my_sid == 1) {
 		lws_start_foreach_dll(struct lws_dll2 *, d,
-				nwsi->mux.child_list_owner.head) {
+				lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
 			struct lws *w1 = lws_container_of(d, struct lws,
 							  mux.sibling_list);
 			if (w1 != wsi && lwsi_state(w1) == LRS_H2_WAITING_TO_SEND_HEADERS)

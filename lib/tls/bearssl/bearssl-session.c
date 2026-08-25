@@ -55,7 +55,7 @@ __lws_tls_session_destroy(lws_tls_scm_t *ts)
 static lws_tls_scm_t *
 __lws_tls_session_lookup_by_name(struct lws_vhost *vh, const char *name)
 {
-	lws_start_foreach_dll(struct lws_dll2 *, d, vh->tls_sessions.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vh->tls_sessions)) {
 		lws_tls_scm_t *ts = lws_container_of(d, lws_tls_scm_t, list);
 
 		if (!strcmp(name, (const char *)&ts[1]))
@@ -161,7 +161,7 @@ static void
 lws_tls_session_expiry_cb(lws_sorted_usec_list_t *sul)
 {
 	lws_tls_scm_t *ts = lws_container_of(sul, lws_tls_scm_t, sul_ttl);
-	struct lws_vhost *vh = lws_container_of(ts->list.owner,
+	struct lws_vhost *vh = lws_dll2_owner_container(&ts->list,
 						struct lws_vhost, tls_sessions);
 
 	lws_context_lock(vh->context, __func__); /* -------------- cx { */
@@ -209,13 +209,13 @@ lws_tls_session_new_bearssl(struct lws *wsi)
 		 * We have to make our own, new session
 		 */
 
-		if (vh->tls_sessions.count == vh->tls_session_cache_max) {
+		if (lws_dll2_count(&vh->tls_sessions) == vh->tls_session_cache_max) {
 
 			/*
 			 * We have reached the vhost's session cache limit,
 			 * prune the LRU / head
 			 */
-			ts = lws_container_of(vh->tls_sessions.head,
+			ts = lws_container_of(lws_dll2_get_head(&vh->tls_sessions),
 					      lws_tls_scm_t, list);
 
 			lwsl_tlssess("%s: pruning oldest session (hit max %u)\n",
@@ -275,7 +275,7 @@ lws_tls_session_new_bearssl(struct lws *wsi)
 
 	lwsl_tlssess("%s: %s: %s %s, (%s:%u)\n", __func__,
 		     wsi->lc.gutag, disposition, buf, vh->name,
-		     (unsigned int)vh->tls_sessions.count);
+		     (unsigned int)lws_dll2_count(&vh->tls_sessions));
 
 	return 1;
 

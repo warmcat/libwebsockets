@@ -120,13 +120,13 @@ lws_cose_sign_payload_chunk(struct lws_cose_sign_context *csc,
 		 * and decide.
 		 */
 
-		if (!csc->algs.count) {
+		if (!lws_dll2_count(&csc->algs)) {
 			lwsl_err("%s: must add at least one signature\n", __func__);
 			return 1;
 		}
 
 		csc->type = SIGTYPE_MULTI;
-		alg = lws_container_of(csc->algs.head, lws_cose_sig_alg_t, list);
+		alg = lws_container_of(lws_dll2_get_head(&csc->algs), lws_cose_sig_alg_t, list);
 
 		switch (alg->cose_alg) {
 		case LWSCOSE_WKAHMAC_256_64:
@@ -140,7 +140,7 @@ lws_cose_sign_payload_chunk(struct lws_cose_sign_context *csc,
 			break;
 		}
 
-		if (csc->algs.count == 1) {
+		if (lws_dll2_count(&csc->algs) == 1) {
 			if (!csc->info.sigtype && csc->type == SIGTYPE_MAC) {
 			    if (csc->info.flags & LCSC_FL_ADD_CBOR_PREFER_MAC0)
 				csc->type = SIGTYPE_MAC0;
@@ -204,7 +204,7 @@ lws_cose_sign_payload_chunk(struct lws_cose_sign_context *csc,
 		switch (csc->type) {
 		case SIGTYPE_SINGLE:
 		case SIGTYPE_MAC0:
-			alg = lws_container_of(csc->algs.head,
+			alg = lws_container_of(lws_dll2_get_head(&csc->algs),
 					       lws_cose_sig_alg_t, list);
 
 			lws_lec_init(&lec, lbuf, sizeof(lbuf));
@@ -261,7 +261,7 @@ lws_cose_sign_payload_chunk(struct lws_cose_sign_context *csc,
 		switch (csc->type) {
 		case SIGTYPE_SINGLE:
 		case SIGTYPE_MAC0:
-			alg = lws_container_of(csc->algs.head,
+			alg = lws_container_of(lws_dll2_get_head(&csc->algs),
 					       lws_cose_sig_alg_t, list);
 			ke = &alg->cose_key->meta[COSEKEY_META_KID];
 			if (ke->len) {
@@ -390,13 +390,13 @@ lws_cose_sign_payload_chunk(struct lws_cose_sign_context *csc,
 
 		if (csc->type == SIGTYPE_MULTI) {
 
-			csc->alg = lws_container_of(csc->algs.head,
+			csc->alg = lws_container_of(lws_dll2_get_head(&csc->algs),
 						lws_cose_sig_alg_t, list);
 			lws_lec_init(&lec1, lb, sizeof(lb));
 			lws_lec_int(&lec1, LWS_CBOR_MAJTYP_ARRAY, 0,
-				    csc->algs.count);
+				    lws_dll2_count(&csc->algs));
 			lws_lec_int(csc->info.lec, LWS_CBOR_MAJTYP_ARRAY, 0,
-					csc->algs.count);
+					lws_dll2_count(&csc->algs));
 			csc->tli = ST_INNER_PROTECTED;
 			goto inner_protected_l;
 		}
@@ -421,13 +421,13 @@ lws_cose_sign_payload_chunk(struct lws_cose_sign_context *csc,
 				return ret;
 
 		if (csc->type == SIGTYPE_MAC) {
-			csc->alg = lws_container_of(csc->algs.head,
+			csc->alg = lws_container_of(lws_dll2_get_head(&csc->algs),
 						lws_cose_sig_alg_t, list);
 			lws_lec_init(&lec1, lb, sizeof(lb));
 			lws_lec_int(&lec1, LWS_CBOR_MAJTYP_ARRAY, 0,
-				    csc->algs.count);
+				    lws_dll2_count(&csc->algs));
 			lws_lec_int(csc->info.lec, LWS_CBOR_MAJTYP_ARRAY, 0,
-					csc->algs.count);
+					lws_dll2_count(&csc->algs));
 			csc->tli = ST_INNER_PROTECTED;
 			goto inner_protected_l;
 		}
@@ -477,7 +477,7 @@ inner_protected_l:
 
 		switch (csc->type) {
 		case SIGTYPE_MULTI:
-			alg = lws_container_of(csc->algs.head,
+			alg = lws_container_of(lws_dll2_get_head(&csc->algs),
 					       lws_cose_sig_alg_t, list);
 			ke = &alg->cose_key->meta[COSEKEY_META_KID];
 			if (ke->len) {
@@ -510,8 +510,8 @@ inner_protected_l:
 		if (ret != LWS_LECPCTX_RET_FINISHED)
 			return ret;
 
-		if (csc->alg->list.next) {
-			csc->alg = (lws_cose_sig_alg_t *)csc->alg->list.next;
+		if (lws_dll2_get_next(&csc->alg->list)) {
+			csc->alg = (lws_cose_sig_alg_t *)lws_dll2_get_next(&csc->alg->list);
 			csc->tli = ST_INNER_PROTECTED;
 		}
 		break;

@@ -175,7 +175,7 @@ ltm_ch_payload(lws_transport_mux_ch_t *tmc, const uint8_t *buf, size_t len)
 static int
 ltm_ch_opens_serial(lws_transport_mux_ch_t *tmc, int determination)
 {
-	lws_transport_mux_t *tm = lws_container_of(tmc->list.owner,
+	lws_transport_mux_t *tm = lws_dll2_owner_container(&tmc->list,
 						   lws_transport_mux_t, owner);
 	struct lws_sspc_handle *h = (struct lws_sspc_handle *)tmc->priv;
 

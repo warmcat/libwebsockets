@@ -172,7 +172,7 @@ lws_jwt_auth_update(struct lws_jwt_auth *ja, const char *jwt, const char **reaso
 	struct jwt_auth_parse_ctx pctx;
 	int m;
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, ja->grants.head) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&ja->grants)) {
 		struct lws_jwt_auth_grant *g = lws_container_of(d, struct lws_jwt_auth_grant, list);
 		lws_dll2_remove(&g->list);
 		lws_free(g);
@@ -253,7 +253,7 @@ lws_jwt_auth_query_grant(struct lws_jwt_auth *ja, const char *service_name)
 	if (!ja)
 		return -1;
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, ja->grants.head) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&ja->grants)) {
 		struct lws_jwt_auth_grant *g = lws_container_of(d, struct lws_jwt_auth_grant, list);
 		if (!strcmp(g->service_name, service_name))
 			return g->grant_level;
@@ -272,7 +272,7 @@ lws_jwt_auth_destroy(struct lws_jwt_auth **ja)
 
 	lws_sul_cancel(&((*ja)->sul));
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, (*ja)->grants.head) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&(*ja)->grants)) {
 		struct lws_jwt_auth_grant *g = lws_container_of(d, struct lws_jwt_auth_grant, list);
 		lws_dll2_remove(&g->list);
 		lws_free(g);
@@ -319,7 +319,7 @@ lws_jwt_auth_count_grants(struct lws_jwt_auth *ja)
 {
 	if (!ja)
 		return 0;
-	return ja->grants.count;
+	return lws_dll2_count(&ja->grants);
 }
 
 uint32_t

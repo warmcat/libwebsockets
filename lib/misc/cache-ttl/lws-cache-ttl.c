@@ -34,7 +34,7 @@
 void
 lws_cache_clear_matches(lws_dll2_owner_t *results_owner)
 {
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, results_owner->head) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(results_owner)) {
 		lws_cache_match_t *item = lws_container_of(d, lws_cache_match_t,
 							   list);
 		lws_dll2_remove(d);

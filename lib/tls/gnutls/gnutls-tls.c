@@ -150,7 +150,7 @@ lws_gnutls_anti_replay_db_add(void *db_ptr, long int exp_time,
                         return GNUTLS_E_DB_ENTRY_EXISTS;
         } lws_end_foreach_dll(d);
 
-        if (owner->count >= 256) {
+        if (lws_dll2_count(owner) >= 256) {
                 e = lws_container_of(lws_dll2_get_head(owner), struct lws_gnutls_ar_entry, list);
                 lws_dll2_remove(&e->list);
                 lws_free(e);

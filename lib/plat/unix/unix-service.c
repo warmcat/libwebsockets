@@ -114,7 +114,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 	if (context->event_loop_ops->run_pt)
 		context->event_loop_ops->run_pt(context, tsi);
 
-	if (!pt->service_tid_detected && context->vhost_list_owner.head) {
+	if (!pt->service_tid_detected && lws_dll2_get_head(&context->vhost_list_owner)) {
 		lws_fakewsi_def_plwsa(pt);
 
 		lws_fakewsi_prep_plwsa_ctx(context);
@@ -215,13 +215,14 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 
 	lws_pt_lock(pt, __func__);
 
-	/* head read still via the volatile pt view */
+	/* head read still via the volatile pt view: the helpers take a
+	 * non-volatile owner pointer, so this one stays a direct read */
 	ftp = lws_container_of((struct lws_dll2 *)vpt->foreign_pfd_owner.head,
 				struct lws_foreign_thread_pollfd, list);
 	while (ftp) {
 		struct lws *wsi;
 		struct lws_pollfd *pfd;
-		struct lws_dll2 *d = ftp->list.next;
+		struct lws_dll2 *d = lws_dll2_get_next(&ftp->list);
 
 		pfd = &vpt->fds[ftp->fd_index];
 		if (lws_socket_is_valid(pfd->fd)) {

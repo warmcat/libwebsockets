@@ -357,7 +357,7 @@ rops_handle_POLLOUT_mqtt(struct lws *wsi)
 
 	wsi->mux.requested_POLLOUT = 0;
 
-	if (!wsi->mux.child_list_owner.head) {
+	if(lws_dll2_is_empty(&wsi->mux.child_list_owner)) {
 		lwsl_debug("%s: no children\n", __func__);
 		return LWS_HP_RET_DROP_POLLOUT;
 	}
@@ -378,7 +378,7 @@ rops_handle_POLLOUT_mqtt(struct lws *wsi)
 	 */
 	int first_iteration = 1;
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-			wsi->mux.child_list_owner.head) {
+			lws_dll2_get_head(&wsi->mux.child_list_owner)) {
 		struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
 
 		if (!first_iteration && lws_send_pipe_choked(wsi))
@@ -532,7 +532,8 @@ rops_close_role_mqtt(struct lws_context_per_thread *pt, struct lws *wsi)
 	{
 		lws_mqtt_qos2_rx_t *rx;
 
-		lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp, wsi->mqtt->qos2_rx_list.head) {
+		lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp, lws_dll2_get_head(
+			&wsi->mqtt->qos2_rx_list)) {
 			rx = lws_container_of(p, lws_mqtt_qos2_rx_t, list);
 			lws_dll2_remove(&rx->list);
 			lws_free(rx);
@@ -615,7 +616,7 @@ rops_close_kill_connection_mqtt(struct lws *wsi, enum lws_close_status reason)
 	lwsl_info(" %s, his parent %s: child list %p, siblings:\n",
 			lws_wsi_tag(wsi),
 			lws_wsi_tag(wsi->mux.parent_wsi),
-			(void *)wsi->mux.child_list_owner.head);
+			(void *)lws_dll2_get_head(&wsi->mux.child_list_owner));
 	//lws_wsi_mux_dump_children(wsi);
 
 	if (wsi->mux_substream
@@ -626,9 +627,9 @@ rops_close_kill_connection_mqtt(struct lws *wsi, enum lws_close_status reason)
 		lwsl_info("closing %s: parent %s: first child %p\n",
 				lws_wsi_tag(wsi),
 				lws_wsi_tag(wsi->mux.parent_wsi),
-				(void *)wsi->mux.child_list_owner.head);
+				(void *)lws_dll2_get_head(&wsi->mux.child_list_owner));
 
-		if (wsi->mux.child_list_owner.head && lwsl_visible(LLL_INFO)) {
+		if (lws_dll2_get_head(&wsi->mux.child_list_owner) && lwsl_visible(LLL_INFO)) {
 			lwsl_info(" parent %s: closing children: list:\n", lws_wsi_tag(wsi));
 			lws_wsi_mux_dump_children(wsi);
 		}

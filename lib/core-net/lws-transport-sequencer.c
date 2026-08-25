@@ -249,7 +249,7 @@ lws_transport_sequencer_acknowledge_sack(struct lws_transport_sequencer *ts,
 	ts->stats.rx_bytes += 64;
 
 	/* Mark cumulative ACKs in scoreboard and retire from DSH */
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, ts->scoreboard.head) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&ts->scoreboard)) {
 		r = lws_container_of(d, struct lws_transport_sequencer_range, list);
 		if (r->offset + r->len <= cumulative_offset) {
 			r->acked = 1;
@@ -260,7 +260,7 @@ lws_transport_sequencer_acknowledge_sack(struct lws_transport_sequencer *ts,
 
 	/* Mark SACK blocks */
 	for (i = 0; i < num_blocks; i++) {
-		lws_start_foreach_dll(struct lws_dll2 *, d, ts->scoreboard.head) {
+		lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&ts->scoreboard)) {
 			r = lws_container_of(d, struct lws_transport_sequencer_range, list);
 			if (r->offset >= blocks[i].start &&
 			    r->offset + r->len <= blocks[i].start + blocks[i].len) {
@@ -272,7 +272,7 @@ lws_transport_sequencer_acknowledge_sack(struct lws_transport_sequencer *ts,
 	}
 
 	/* Retire contiguous ACKed packets from scoreboard */
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, ts->scoreboard.head) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&ts->scoreboard)) {
 		r = lws_container_of(d, struct lws_transport_sequencer_range, list);
 
 		if (!r->acked)
@@ -336,7 +336,7 @@ lws_transport_sequencer_rx(struct lws_transport_sequencer *ts,
 		return 0;
 	}
 
-	lws_start_foreach_dll(struct lws_dll2 *, d, ts->rx_scoreboard.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&ts->rx_scoreboard)) {
 		r = lws_container_of(d, struct lws_transport_sequencer_range, list);
 
 		/*
@@ -383,7 +383,7 @@ lws_transport_sequencer_rx(struct lws_transport_sequencer *ts,
 	 * Since we delivered immediately, we just need to keep next_rx_offset
 	 * up to date for cumulative ACKs by checking the scoreboard for contiguous blocks.
 	 */
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, ts->rx_scoreboard.head) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&ts->rx_scoreboard)) {
 		r = lws_container_of(d, struct lws_transport_sequencer_range, list);
 
 		if (r->offset > ts->next_rx_offset)
@@ -426,7 +426,7 @@ lws_transport_sequencer_get_sack_blocks(struct lws_transport_sequencer *ts,
 	struct lws_transport_sequencer_range *r;
 	size_t n = 0;
 
-	lws_start_foreach_dll(struct lws_dll2 *, d, ts->rx_scoreboard.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&ts->rx_scoreboard)) {
 		r = lws_container_of(d, struct lws_transport_sequencer_range, list);
 
 		if (n >= max_blocks)

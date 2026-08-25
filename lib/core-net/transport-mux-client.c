@@ -131,11 +131,11 @@ lws_transport_mux_ch_req_write(lws_transport_priv_t priv)
 	lws_transport_mux_t *tm;
 
 	assert_is_tmch(tmc);
-	if (!tmc->list.owner) {
+	if (!lws_dll2_owner(&tmc->list)) {
 		lwsl_err("%s: unlisted tmc %p\n", __func__, tmc);
 		return;
 	}
-	tm = lws_container_of(tmc->list.owner, lws_transport_mux_t, owner);
+	tm = lws_dll2_owner_container(&tmc->list, lws_transport_mux_t, owner);
 	assert_is_tm(tm);
 
 	lws_transport_mux_client_request_tx(tm);
@@ -157,7 +157,7 @@ static int
 lws_transport_mux_write(lws_transport_priv_t priv, uint8_t *buf, size_t len)
 {
 	lws_transport_mux_ch_t *tmc = (lws_transport_mux_ch_t *)priv;
-	lws_transport_mux_t *tm = lws_container_of(tmc->list.owner,
+	lws_transport_mux_t *tm = lws_dll2_owner_container(&tmc->list,
 						   lws_transport_mux_t, owner);
 
 	assert_is_tmch(tmc);
@@ -301,7 +301,7 @@ lws_transport_mux_event_closed(lws_transport_priv_t priv)
 {
 	lws_transport_mux_ch_t *tmc = (lws_transport_mux_ch_t *)priv;
 #if defined(_DEBUG)
-	lws_transport_mux_t *tm = lws_container_of(tmc->list.owner,
+	lws_transport_mux_t *tm = lws_dll2_owner_container(&tmc->list,
 				   lws_transport_mux_t, owner);
 #endif
 	assert_is_tmch(tmc);

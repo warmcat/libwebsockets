@@ -95,7 +95,7 @@ lws_netdev_wifi_scan_select(lws_netdev_instance_wifi_t *wnd)
 	 * limit we are allowed to keep track of...
 	 */
 
-	while (wnd->scan.count > LWS_WIFI_MAX_SCAN_TRACK) {
+	while (lws_dll2_count(&wnd->scan) > LWS_WIFI_MAX_SCAN_TRACK) {
 		struct lws_dll2 *p = lws_dll2_get_tail(&wnd->scan);
 		lws_wifi_sta_t *w = lws_container_of(p, lws_wifi_sta_t, list);
 
@@ -132,11 +132,11 @@ lws_netdev_wifi_scan_select(lws_netdev_instance_wifi_t *wnd)
 	 * have credentials... if we do, pick the one we least-recently tried
 	 */
 
-	lws_start_foreach_dll(struct lws_dll2 *, p1, wnd->scan.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, p1, lws_dll2_get_head(&wnd->scan)) {
 		lws_wifi_sta_t *w = lws_container_of(p1, lws_wifi_sta_t, list);
 
 		lws_start_foreach_dll(struct lws_dll2 *, q,
-				      netdevs->owner_creds.head) {
+				      lws_dll2_get_head(&netdevs->owner_creds)) {
 			lws_wifi_creds_t *c = lws_container_of(q,
 							       lws_wifi_creds_t,
 							       list);

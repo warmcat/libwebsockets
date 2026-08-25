@@ -802,7 +802,7 @@ dgr_tx_find(const char *name)
 {
 	struct lws_dll2 *d;
 
-	for (d = dg_tx_owner.head; d; d = d->next) {
+	for (d = dg_tx_owner.head; d; d = lws_dll2_get_next(d)) {
 		struct dgr_tx *tf = lws_container_of(d, struct dgr_tx, list);
 
 		if (!strcmp(tf->name, name))
@@ -1168,7 +1168,7 @@ dgr_pump(struct lws *wsi)
 	}
 
 	/* then the first pass over files, oldest request first */
-	for (d = dg_tx_owner.head; d && data_budget > 0; d = d->next) {
+	for (d = dg_tx_owner.head; d && data_budget > 0; d = lws_dll2_get_next(d)) {
 		struct dgr_tx *tf = lws_container_of(d, struct dgr_tx, list);
 
 		while (data_budget > 0 && !tf->done && tf->cursor < tf->chunks) {
@@ -1184,7 +1184,7 @@ dgr_pump(struct lws *wsi)
 
 	work = dg_ctl_head != dg_ctl_tail || dg_resend_head != dg_resend_tail;
 	if (!work)
-		for (d = dg_tx_owner.head; d; d = d->next) {
+		for (d = dg_tx_owner.head; d; d = lws_dll2_get_next(d)) {
 			struct dgr_tx *tf = lws_container_of(d, struct dgr_tx, list);
 
 			if (!tf->done && tf->cursor < tf->chunks) {
@@ -1253,7 +1253,7 @@ dgr_teardown(void)
 	while (d) {
 		struct dgr_tx *tf = lws_container_of(d, struct dgr_tx, list);
 
-		d1 = d->next;
+		d1 = lws_dll2_get_next(d);
 		if (tf->fd >= 0)
 			close(tf->fd);
 		lws_dll2_remove(&tf->list);

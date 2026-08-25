@@ -157,7 +157,7 @@ smd_cb_network(void *opaque, lws_smd_class_t c, lws_usec_t ts, void *buf, size_t
 	struct vhd *vhd = (struct vhd *)opaque;
 	if ((c & LWSSMDCL_NETWORK) && buf && (char *)strstr((const char *)buf, "\"ext-ips\"")) {
 		lws_strncpy(vhd->ext_ips, (const char *)buf, sizeof(vhd->ext_ips));
-		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->ui_clients.head) {
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->ui_clients)) {
 			struct pss *pss = lws_container_of(d, struct pss, list);
 			pss->send_ext_ips = 1;
 			lws_callback_on_writable(pss->wsi);
@@ -2227,7 +2227,7 @@ handle_req_check_cert(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 			int n = lws_snprintf(json, sizeof(json), "{\"req\":\"cert_status\",\"subdomain\":\"%s\",\"port\":%d,\"status\":\"error\",\"msg\":\"%s\",\"local_msg\":\"%s\",\"issuer\":\"%s\"}\n",
 				cr->fqdn, cr->port, cr->msg, cr->local_msg, cr->issuer);
 
-			lws_start_foreach_dll(struct lws_dll2 *, p, vhd->clients.head) {
+			lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(&vhd->clients)) {
 				struct pss *wpss = lws_container_of(p, struct pss, list);
 				if (wpss->tx_len + (size_t)n < sizeof(wpss->tx) - LWS_PRE) {
 					memcpy(&wpss->tx[LWS_PRE + wpss->tx_len], json, (size_t)n);
@@ -2467,7 +2467,7 @@ static void extract_and_queue_cert_result(struct lws *wsi, struct vhd *vhd, stru
 		int n = lws_snprintf(json, sizeof(json), "{\"req\":\"cert_status\",\"subdomain\":\"%s\",\"port\":%d,\"status\":\"%s\",\"msg\":\"%s\",\"local_msg\":\"%s\",\"issuer\":\"%s\"}\n",
 			cr->fqdn, cr->port, cr->status_err ? "error" : "ok", cr->msg, cr->local_msg, cr->issuer);
 
-		lws_start_foreach_dll(struct lws_dll2 *, p, vhd->clients.head) {
+		lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(&vhd->clients)) {
 			struct pss *wpss = lws_container_of(p, struct pss, list);
 			if (wpss->tx_len + (size_t)n < sizeof(wpss->tx) - LWS_PRE) {
 				memcpy(&wpss->tx[LWS_PRE + wpss->tx_len], json, (size_t)n);
@@ -3090,7 +3090,7 @@ fallback:
 						int n = lws_snprintf(json, sizeof(json), "{\"req\":\"cert_status\",\"subdomain\":\"%s\",\"port\":%d,\"status\":\"error\",\"msg\":\"%s\",\"local_msg\":\"%s\",\"issuer\":\"%s\"}\n",
 							cr->fqdn, cr->port, cr->msg, cr->local_msg, cr->issuer);
 
-						lws_start_foreach_dll(struct lws_dll2 *, p, vhd->clients.head) {
+						lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(&vhd->clients)) {
 							struct pss *wpss = lws_container_of(p, struct pss, list);
 							if (wpss->tx_len + (size_t)n < sizeof(wpss->tx) - LWS_PRE) {
 								memcpy(&wpss->tx[LWS_PRE + wpss->tx_len], json, (size_t)n);
@@ -3170,10 +3170,10 @@ fallback:
 
 				int found = 0;
 				if (vhd) {
-					lws_start_foreach_dll(struct lws_dll2 *, p, vhd->clients.head) {
+					lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(&vhd->clients)) {
 						if (lws_container_of(p, struct pss, list) == afi->root_pss) found = 1;
 					} lws_end_foreach_dll(p);
-					lws_start_foreach_dll(struct lws_dll2 *, p, vhd->ui_clients.head) {
+					lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(&vhd->ui_clients)) {
 						if (lws_container_of(p, struct pss, list) == afi->root_pss) found = 1;
 					} lws_end_foreach_dll(p);
 				}

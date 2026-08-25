@@ -586,7 +586,7 @@ int main(int argc, const char **argv)
 
 			lwsl_notice("builder.hostname = '%s', timeout = %d, targets (%d)\n",
 				    b->hostname, b->nspawn_timeout,
-				    b->targets.count);
+				    lws_dll2_count(&b->targets));
 
 			lws_dll2_foreach_safe(&b->targets, NULL, show_target);
 		} else {

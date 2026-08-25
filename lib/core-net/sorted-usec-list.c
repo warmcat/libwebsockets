@@ -103,7 +103,7 @@ __lws_sul_service_ripe(lws_dll2_owner_t *own, int own_len, lws_usec_t usnow)
 			lws_container_of(own, struct lws_context_per_thread,
 					 pt_sul_owner);
 
-	if (pt->attach_owner.count)
+	if (lws_dll2_count(&pt->attach_owner))
 		lws_system_do_attach(pt);
 
 	lws_pt_assert_lock_held(pt);

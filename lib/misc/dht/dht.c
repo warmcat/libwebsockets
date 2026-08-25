@@ -381,7 +381,7 @@ lws_dht_get_ts(struct lws_dht_ctx *ctx, const struct sockaddr *dest, size_t sale
 			return dts->ts;
 		}
 
-		d = d->next;
+		d = lws_dll2_get_next(d);
 	}
 
 	if (!create)
@@ -579,10 +579,10 @@ lws_dht_get_stats(struct lws_vhost *vh, struct lws_dht_stats *current,
 {
 	struct lws_dht_ctx *ctx;
 
-	if (!vh || !vh->dht_owner.head)
+	if (!vh || !lws_dll2_get_head(&vh->dht_owner))
 		return 1;
 
-	ctx = lws_container_of(vh->dht_owner.head, struct lws_dht_ctx, list);
+	ctx = lws_container_of(lws_dll2_get_head(&vh->dht_owner), struct lws_dht_ctx, list);
 
 	if (current)
 		*current = ctx->stats_current;
@@ -621,8 +621,8 @@ lws_dht_create(const lws_dht_info_t *info)
 	struct lws_dht_ctx *ctx;
 	int rc;
 
-	if (info->vhost && info->vhost->dht_owner.head) {
-		return lws_container_of(info->vhost->dht_owner.head, struct lws_dht_ctx, list);
+	if (info->vhost && lws_dll2_get_head(&info->vhost->dht_owner)) {
+		return lws_container_of(lws_dll2_get_head(&info->vhost->dht_owner), struct lws_dht_ctx, list);
 	}
 
 	ctx = lws_zalloc(sizeof(*ctx), "dht ctx");
@@ -829,7 +829,7 @@ lws_dht_destroy(struct lws_dht_ctx **pctx)
 		struct bucket *b = lws_container_of(lws_dll2_get_head(bo),
 						    struct bucket, list);
 
-		while (lws_dll2_get_head(&b->nodes)) {
+		while(!lws_dll2_is_empty(&b->nodes)) {
 			struct node *n = lws_container_of(lws_dll2_get_head(&b->nodes),
 							  struct node, list);
 
@@ -842,11 +842,11 @@ lws_dht_destroy(struct lws_dht_ctx **pctx)
 		lws_free(b);
 	}
 
-	while (lws_dll2_get_head(&ctx->storage)) {
+	while(!lws_dll2_is_empty(&ctx->storage)) {
 		struct storage *st = lws_container_of(lws_dll2_get_head(&ctx->storage),
 						      struct storage, list);
 
-		while (lws_dll2_get_head(&st->subscribers)) {
+		while(!lws_dll2_is_empty(&st->subscribers)) {
 			struct subscriber *sub = lws_container_of(
 					lws_dll2_get_head(&st->subscribers),
 					struct subscriber, list);
@@ -861,7 +861,7 @@ lws_dht_destroy(struct lws_dht_ctx **pctx)
 		lws_free(st);
 	}
 
-	while (lws_dll2_get_head(&ctx->searches)) {
+	while(!lws_dll2_is_empty(&ctx->searches)) {
 		struct search *sr = lws_container_of(lws_dll2_get_head(&ctx->searches),
 						     struct search, list);
 
@@ -875,7 +875,7 @@ lws_dht_destroy(struct lws_dht_ctx **pctx)
 
 	lws_dll2_t *d = lws_dll2_get_head(&ctx->ts_owner);
 	while (d) {
-		lws_dll2_t *d1 = d->next;
+		lws_dll2_t *d1 = lws_dll2_get_next(d);
 		lws_dht_ts_t *dts = lws_container_of(d, lws_dht_ts_t, list);
 
 		lws_sul_cancel(&dts->sul_idle);
@@ -1133,7 +1133,7 @@ lws_dht_register_verbs(struct lws_dht_ctx *ctx, const char **verbs, int count, c
 struct lws_dht_ctx *
 lws_dht_get_by_name(struct lws_vhost *vhost, const char *name)
 {
-	lws_start_foreach_dll(struct lws_dll2 *, d, vhost->dht_owner.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhost->dht_owner)) {
 		struct lws_dht_ctx *ctx = lws_container_of(d, struct lws_dht_ctx, list);
 
 		if (ctx->name && !strcmp(ctx->name, name))
@@ -1146,8 +1146,8 @@ lws_dht_get_by_name(struct lws_vhost *vhost, const char *name)
 void
 lws_dht_destroy_all_on_vhost(struct lws_vhost *vh)
 {
-	while (vh->dht_owner.head) {
-		struct lws_dht_ctx *ctx = lws_container_of(vh->dht_owner.head,
+	while(!lws_dll2_is_empty(&vh->dht_owner)) {
+		struct lws_dht_ctx *ctx = lws_container_of(lws_dll2_get_head(&vh->dht_owner),
 							   struct lws_dht_ctx,
 							   list);
 
@@ -1171,14 +1171,14 @@ lws_dht_get_fallback_node(struct lws_context *cx, const char *custom_path, char 
 		return 1;
 	}
 
-	if (!policy->seeds.count) {
+	if (!lws_dll2_count(&policy->seeds)) {
 		lwsl_err("%s: No seeds in policy\n", __func__);
 		lws_system_policy_free(policy);
 		return 1;
 	}
 
 	lws_get_random(cx, &random_val, sizeof(random_val));
-	target_idx = (int)(random_val % policy->seeds.count);
+	target_idx = (int)(random_val % lws_dll2_count(&policy->seeds));
 
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&policy->seeds)) {
 		if (current_idx++ == target_idx) {

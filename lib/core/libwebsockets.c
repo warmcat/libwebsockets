@@ -1943,7 +1943,7 @@ lws_cmdline_option_handle_builtin(int argc, const char **argv,
 	lws_set_log_level(logs, NULL);
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
-	if (info->fic.fi_owner.count)
+	if (lws_dll2_count(&info->fic.fi_owner))
 		lwsl_notice("%s: Fault Injection seed %llu\n", __func__,
 				(unsigned long long)seed);
 #endif

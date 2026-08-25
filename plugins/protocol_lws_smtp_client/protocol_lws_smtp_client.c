@@ -93,7 +93,7 @@ trigger_smtp_if_needed(struct per_vhost_data__smtp_client *vhd)
 	if (vhd->wsi)
 		return;
 
-	if (!vhd->emails_ready.count)
+	if (!lws_dll2_count(&vhd->emails_ready))
 		return;
 
 	/*
@@ -298,7 +298,7 @@ callback_smtp_client(struct lws *wsi, enum lws_callback_reasons reason,
 			break;
 
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-					   vhd->emails_ready.head) {
+					   lws_dll2_get_head(&vhd->emails_ready)) {
 			struct smtp_email *e = lws_container_of(d, struct smtp_email, list);
 			lws_dll2_remove(&e->list);
 			free(e->from);
@@ -312,8 +312,8 @@ callback_smtp_client(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RAW_CONNECTED:
 		pss->starttls = (vhd->tls_mode == SMTP_TLS_STARTTLS);
 		pss->state = SMTP_STATE_GREETING;
-		if (vhd->emails_ready.head) {
-			pss->email = lws_container_of(vhd->emails_ready.head, struct smtp_email, list);
+		if(!lws_dll2_is_empty(&vhd->emails_ready)) {
+			pss->email = lws_container_of(lws_dll2_get_head(&vhd->emails_ready), struct smtp_email, list);
 		} else {
 			return -1;
 		}

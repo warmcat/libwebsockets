@@ -1214,7 +1214,7 @@ acme_ipc_cb(const struct lws_async_ipc_cb_args *args)
 	case LWS_ASYNC_IPC_STATE_ERROR:
 		if (vhd->aging_current_cert) {
 			lwsl_vhost_err(vhd->vhost, "ACME IPC aging check failed!");
-			vhd->aging_current_cert = vhd->aging_current_cert->next;
+			vhd->aging_current_cert = lws_dll2_get_next(vhd->aging_current_cert);
 			acme_aging_next_cert(vhd);
 		} else {
 			lwsl_vhost_err(vhd->vhost, "ACME IPC failed! Retrying acquisition from scratch...");
@@ -1264,7 +1264,7 @@ acme_ipc_cb(const struct lws_async_ipc_cb_args *args)
 				vhd->aging_current_cert = NULL;
 			} else {
 				lwsl_vhost_notice(vhd->vhost, "acme: cert %s: %d days left, total %d (skip renewal)", cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME], days_left, total_days);
-				vhd->aging_current_cert = vhd->aging_current_cert->next;
+				vhd->aging_current_cert = lws_dll2_get_next(vhd->aging_current_cert);
 				acme_aging_next_cert(vhd);
 			}
 		}
@@ -1376,7 +1376,8 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
                 lwsl_err("acme: Failed to scan domains dir %s (err %d)\n", path, ret);
             else
 
-                lwsl_notice("acme: Found %d cert configs in base dir\n", (int)vhd->cert_configs.count);
+                lwsl_notice("acme: Found %d cert configs in base dir\n", (int)lws_dll2_count(
+                	&vhd->cert_configs));
         }
 
         /* Start polling domain cert lifetimes */
@@ -2337,7 +2338,7 @@ acme_aging_next_cert(struct per_vhost_data__lws_acme_client *vhd)
 
 		if (!cfg->pvop[LWS_TLS_SET_CERT_PATH] || !cfg->pvop[LWS_TLS_SET_KEY_PATH]) {
 			lwsl_vhost_notice(vhd->vhost, "acme_aging: skipping %s: missing cert/key paths in pvop\n", cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME]);
-			vhd->aging_current_cert = vhd->aging_current_cert->next;
+			vhd->aging_current_cert = lws_dll2_get_next(vhd->aging_current_cert);
 			continue;
 		}
 
@@ -2347,14 +2348,14 @@ acme_aging_next_cert(struct per_vhost_data__lws_acme_client *vhd)
 				vhd->dns_base_dir, domain);
 			if (access(disabled_path, F_OK) == 0) {
 				lwsl_vhost_notice(vhd->vhost, "acme_aging: skipping %s: acme_disabled file present at %s\n", domain, disabled_path);
-				vhd->aging_current_cert = vhd->aging_current_cert->next;
+				vhd->aging_current_cert = lws_dll2_get_next(vhd->aging_current_cert);
 				continue;
 			}
 		}
 
 		if (vhd->last_acme_failure && lws_now_usecs() - vhd->last_acme_failure < 60 * LWS_US_PER_SEC) {
 			lwsl_vhost_notice(vhd->vhost, "acme_aging: skipping %s: last_acme_failure cooldown\n", cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME]);
-			vhd->aging_current_cert = vhd->aging_current_cert->next;
+			vhd->aging_current_cert = lws_dll2_get_next(vhd->aging_current_cert);
 			continue;
 		}
 
@@ -2372,7 +2373,7 @@ acme_aging_next_cert(struct per_vhost_data__lws_acme_client *vhd)
 			return;
 		} else {
 			lwsl_vhost_err(vhd->vhost, "acme_aging: async IPC not available");
-			vhd->aging_current_cert = vhd->aging_current_cert->next;
+			vhd->aging_current_cert = lws_dll2_get_next(vhd->aging_current_cert);
 			continue;
 		}
 	}
@@ -2384,7 +2385,7 @@ LWS_VISIBLE int
 lws_acme_core_cert_aging(struct per_vhost_data__lws_acme_client *vhd,
 			 const struct lws_acme_cert_aging_args *caa)
 {
-	if (!vhd || !vhd->cert_configs.head) {
+	if (!vhd || !lws_dll2_get_head(&vhd->cert_configs)) {
 		if (vhd)
 			lwsl_vhost_notice(vhd->vhost, "acme_aging: aborting, cert_configs.head is empty\n");
 		else
@@ -2451,7 +2452,7 @@ lws_acme_core_cert_aging(struct per_vhost_data__lws_acme_client *vhd,
 	lwsl_notice("acme_aging: starting evaluation of cert_configs (has_config: %d, is_production: %d)\n", has_config, vhd->aging_is_production);
 
 	/* Start evaluating from the head */
-	vhd->aging_current_cert = vhd->cert_configs.head;
+	vhd->aging_current_cert = lws_dll2_get_head(&vhd->cert_configs);
 	acme_aging_next_cert(vhd);
 
 	return 0;

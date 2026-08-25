@@ -409,7 +409,7 @@ destroy_dbus_server_listener(struct lws_dbus_ctx *ctx)
 	dbus_server_disconnect(ctx->dbs);
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, rdt, nx,
-				   ctx->owner.head) {
+				   lws_dll2_get_head(&ctx->owner)) {
 		struct lws_dbus_ctx *r =
 			lws_container_of(rdt, struct lws_dbus_ctx, next);
 
@@ -434,7 +434,7 @@ spam_connected_clients(struct lws_dbus_ctx *ctx)
 	/* send connected clients an unsolicited message */
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, rdt, nx,
-				   ctx->owner.head) {
+				   lws_dll2_get_head(&ctx->owner)) {
 		struct lws_dbus_ctx *r =
 			lws_container_of(rdt, struct lws_dbus_ctx, next);
 

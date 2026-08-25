@@ -316,7 +316,7 @@ typedef struct lws_dll2_owner {
 LWS_VISIBLE LWS_EXTERN int
 lws_dll2_is_detached(const struct lws_dll2 *d);
 
-static LWS_INLINE const struct lws_dll2_owner *
+static LWS_INLINE struct lws_dll2_owner *
 lws_dll2_owner(const struct lws_dll2 *d) { return d ? d->owner : NULL; }
 
 static LWS_INLINE struct lws_dll2 *

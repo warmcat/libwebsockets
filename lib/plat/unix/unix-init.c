@@ -63,7 +63,7 @@ lws_sul_plat_unix(lws_sorted_usec_list_t *sul)
 #if defined(LWS_WITH_SERVER)
 	lws_context_lock(context, "periodic checks");
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				   context->no_listener_vhost_owner.head) {
+				   lws_dll2_get_head(&context->no_listener_vhost_owner)) {
 		struct lws_vhost *v = lws_container_of(d, struct lws_vhost,
 						       no_listener_vlist);
 		lwsl_debug("deferred iface: checking if on vh %s\n", v->name);

@@ -482,7 +482,7 @@ int __lws_rx_flow_control(struct lws *wsi) {
 		return 0;
 
 	/* if he has children, do those if they were changed */
-	lws_start_foreach_dll(struct lws_dll2 *, d, wsi->child_list_owner.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&wsi->child_list_owner)) {
 		struct lws *wsic = lws_container_of(d, struct lws, sibling_list);
 
 		if (wsic->rxflow_change_to & LWS_RXFLOW_PENDING_CHANGE)
@@ -1178,7 +1178,7 @@ int _lws_generic_transaction_completed_active_conn(struct lws **_wsi,
 	 * For that reason, see if we have any queued child now...
 	 */
 
-	if (!wsi->dll2_cli_txn_queue_owner.head) {
+	if(lws_dll2_is_empty(&wsi->dll2_cli_txn_queue_owner)) {
 		/*
 		 * Nothing pipelined... we should hang around a bit
 		 * in case something turns up... otherwise we'll close
@@ -1199,7 +1199,7 @@ int _lws_generic_transaction_completed_active_conn(struct lws **_wsi,
 	if (take_vh_lock)
 		lws_vhost_lock(wsi->a.vhost);
 
-	wnew = lws_container_of(wsi->dll2_cli_txn_queue_owner.head, struct lws,
+	wnew = lws_container_of(lws_dll2_get_head(&wsi->dll2_cli_txn_queue_owner), struct lws,
 			dll2_cli_txn_queue);
 
 	assert(wsi != wnew);
@@ -1281,7 +1281,7 @@ int _lws_generic_transaction_completed_active_conn(struct lws **_wsi,
 	/* move any queued guys to queue on new active conn */
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-			wsi->dll2_cli_txn_queue_owner.head) {
+			lws_dll2_get_head(&wsi->dll2_cli_txn_queue_owner)) {
 		struct lws *ww = lws_container_of(d, struct lws, dll2_cli_txn_queue);
 
 		lws_dll2_remove(&ww->dll2_cli_txn_queue);
@@ -1525,7 +1525,7 @@ void lws_wsi_mux_insert(struct lws *wsi, struct lws *parent_wsi,
 }
 
 struct lws *lws_wsi_mux_from_id(struct lws *parent_wsi, unsigned int sid) {
-	lws_start_foreach_dll(struct lws_dll2 *, d, parent_wsi->mux.child_list_owner.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&parent_wsi->mux.child_list_owner)) {
 		struct lws *wsi = lws_container_of(d, struct lws, mux.sibling_list);
 		if ((unsigned int)wsi->mux.my_sid == sid)
 			return wsi;
@@ -1544,7 +1544,7 @@ void lws_wsi_mux_dump_children(struct lws *wsi) {
 
 	parent = wsi->mux.parent_wsi;
 
-	lws_start_foreach_dll(struct lws_dll2 *, d, parent->mux.child_list_owner.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&parent->mux.child_list_owner)) {
 		struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
 		lwsl_wsi_info(wsi, "   \\---- child %s %s\n",
 				w->role_ops ? w->role_ops->name : "?", lws_wsi_tag(w));
@@ -1555,11 +1555,11 @@ void lws_wsi_mux_dump_children(struct lws *wsi) {
 
 void lws_wsi_mux_close_children(struct lws *wsi, int reason) {
 
-	if (!wsi->mux.child_list_owner.head)
+	if(lws_dll2_is_empty(&wsi->mux.child_list_owner))
 		return;
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				   wsi->mux.child_list_owner.head) {
+				   lws_dll2_get_head(&wsi->mux.child_list_owner)) {
 		struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
 
 		lwsl_wsi_info(w, "   closing child");
@@ -1587,7 +1587,7 @@ void lws_wsi_mux_dump_waiting_children(struct lws *wsi) {
 	lwsl_info("%s: %s: children waiting for POLLOUT service:\n", __func__,
 			lws_wsi_tag(wsi));
 
-	lws_start_foreach_dll(struct lws_dll2 *, d, wsi->mux.child_list_owner.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&wsi->mux.child_list_owner)) {
 		struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
 		lwsl_wsi_info(w, "  %c sid %llu: 0x%x %s %s",
 				w->mux.requested_POLLOUT ? '*' : ' ',
@@ -1651,7 +1651,7 @@ int lws_wsi_mux_action_pending_writeable_reqs(struct lws *wsi) {
 		return 0;
 	}
 
-	lws_start_foreach_dll(struct lws_dll2 *, d, wsi->mux.child_list_owner.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&wsi->mux.child_list_owner)) {
 		struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
 
 		if (w->mux.requested_POLLOUT) {
@@ -1736,7 +1736,7 @@ int lws_wsi_mux_apply_queue(struct lws *wsi) {
 	lws_vhost_lock(wsi->a.vhost);
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-			wsi->dll2_cli_txn_queue_owner.head) {
+			lws_dll2_get_head(&wsi->dll2_cli_txn_queue_owner)) {
 		struct lws *w = lws_container_of(d, struct lws, dll2_cli_txn_queue);
 
 		lwsl_wsi_notice(wsi, "evaluating queued conn %s (state 0x%x, par role %s)",

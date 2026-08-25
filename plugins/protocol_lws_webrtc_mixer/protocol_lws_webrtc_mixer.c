@@ -1087,7 +1087,7 @@ callback_mixer(struct lws *wsi, enum lws_callback_reasons reason,
 							lws_dll2_add_tail(&cm->list, &p->room->chat_history);
 
 							/* Prune if > 20 */
-							if (p->room->chat_history.count > 20) {
+							if (lws_dll2_count(&p->room->chat_history) > 20) {
 								struct chat_message *old = lws_container_of(lws_dll2_get_head(&p->room->chat_history), struct chat_message, list);
 								lws_dll2_remove(&old->list);
 								free(old->sender);

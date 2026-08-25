@@ -811,7 +811,7 @@ again:
 				 * uint32    recipient channel
 				 * uint32    bytes to add
 				 */
-				if (!pss->ch_list.count)
+				if (!lws_dll2_count(&pss->ch_list))
 					goto bail;
 
 				if (pss->ssh_auth_state != SSH_AUTH_STATE_GAVE_AUTH_IGNORE_REQS) goto bail;
@@ -1350,7 +1350,7 @@ again:
 				goto ch_fail;
 			}
 		{
-			if (pss->ch_list.count >= 8) {
+			if (lws_dll2_count(&pss->ch_list) >= 8) {
 				lwsl_notice("Too many channels\n");
 				pss->reason = 4;
 				goto ch_fail;
@@ -2169,7 +2169,7 @@ lws_callback_raw_sshd(struct lws *wsi, enum lws_callback_reasons reason,
 
 		ssh_free_set_NULL(pss->last_alloc);
 
-		while (lws_dll2_get_head(&pss->ch_list))
+		while(!lws_dll2_is_empty(&pss->ch_list))
 			ssh_destroy_channel(pss, lws_container_of(
 					lws_dll2_get_head(&pss->ch_list),
 					struct lws_ssh_channel, list));

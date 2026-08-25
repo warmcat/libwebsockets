@@ -434,7 +434,7 @@ lws_ss_policy_set(struct lws_context *context, const char *name)
 
 #if defined(LWS_WITH_SYS_METRICS)
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-					   context->owner_mtr_dynpol.head) {
+					   lws_dll2_get_head(&context->owner_mtr_dynpol)) {
 			lws_metric_policy_dyn_t *dm =
 				lws_container_of(d, lws_metric_policy_dyn_t, list);
 

@@ -346,7 +346,7 @@ lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
 		const char *host = wsi->stash ? wsi->stash->cis[CIS_HOST] : lws_hdr_simple_ptr(wsi, _WSI_TOKEN_CLIENT_HOST);
 		const char *ads = wsi->stash ? wsi->stash->cis[CIS_ADDRESS] : wsi->cli_hostname_copy;
 		
-		if (wsi->dns_sorted_list.count) {
+		if (lws_dll2_count(&wsi->dns_sorted_list)) {
 			struct lws_dll2 *d = lws_dll2_get_head(&wsi->dns_sorted_list);
 			lws_dns_sort_t *ds = lws_container_of(d, lws_dns_sort_t, list);
 			char ads_fallback[48];
@@ -452,7 +452,7 @@ lws_addrinfo_clean(struct lws *wsi)
 	while (d) {
 		lws_dns_sort_t *r = lws_container_of(d, lws_dns_sort_t, list);
 
-		d1 = d->next;
+		d1 = lws_dll2_get_next(d);
 		lws_dll2_remove(d);
 		lws_free(r);
 
@@ -473,8 +473,8 @@ lws_async_worker_wait_and_reap(struct lws *wsi)
 			break;
 		}
 		struct lws_async_job *job = wsi->async_worker_job;
-		if (job->list.owner == &wsi->a.context->async_worker_waiting ||
-		    job->list.owner == &wsi->a.context->async_worker_finished ||
+		if (lws_dll2_owner(&job->list) == &wsi->a.context->async_worker_waiting ||
+		    lws_dll2_owner(&job->list) == &wsi->a.context->async_worker_finished ||
 		    job->handled_by_main) {
 			/* Not actively running. We can safely detach it and reap it. */
 			wsi->async_worker_job = NULL;
@@ -583,13 +583,13 @@ __lws_close_free_wsi(struct lws *wsi, enum lws_close_status reason,
 #endif
 
 	/* if we have children, close them first */
-	while (wsi->child_list_owner.head) {
-		wsi2 = lws_container_of(wsi->child_list_owner.head,
+	while(!lws_dll2_is_empty(&wsi->child_list_owner)) {
+		wsi2 = lws_container_of(lws_dll2_get_head(&wsi->child_list_owner),
 					struct lws, sibling_list);
 		/* stop it doing shutdown processing */
 		wsi2->socket_is_permanently_unusable = 1;
 		__lws_close_free_wsi(wsi2, reason, "general child recurse");
-		if (wsi->child_list_owner.head == &wsi2->sibling_list) {
+		if (lws_dll2_get_head(&wsi->child_list_owner) == &wsi2->sibling_list) {
 			/*
 			 * The child's close processing did not detach it from
 			 * us: only possible when it bailed at the

@@ -308,7 +308,7 @@ lws_sspc_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 #if !defined(STANDALONE) && defined(LWS_WITH_SYS_FAULT_INJECTION)
 	h->fic.name = "sspc";
 	lws_xos_init(&h->fic.xos, lws_xos(&context->fic.xos));
-	if (ssi->fic.fi_owner.count)
+	if (lws_dll2_count(&ssi->fic.fi_owner))
 		lws_fi_import(&h->fic, &ssi->fic);
 
 	lws_fi_inherit_copy(&h->fic, &context->fic, "ss", ssi->streamtype);

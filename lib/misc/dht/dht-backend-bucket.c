@@ -47,10 +47,10 @@ find_bucket(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id, int af)
 struct bucket *
 previous_bucket(struct bucket *b)
 {
-	if (!b->list.prev)
+	if (!lws_dll2_get_prev(&b->list))
 		return NULL;
 
-	return lws_container_of(b->list.prev, struct bucket, list);
+	return lws_container_of(lws_dll2_get_prev(&b->list), struct bucket, list);
 }
 
 /* Every bucket contains an unordered list of nodes. */
@@ -79,15 +79,15 @@ random_node(struct lws_dht_ctx *ctx, struct bucket *b)
 	lws_dll2_t *d;
 	int nn;
 
-	if (!b->nodes.count)
+	if (!lws_dll2_count(&b->nodes))
 		return NULL;
 
 	nn = (int)(lws_get_random(ctx->vhost->context, &nn, sizeof(nn)) %
-		   (unsigned int)b->nodes.count);
+		   (unsigned int)lws_dll2_count(&b->nodes));
 	d = lws_dll2_get_head(&b->nodes);
 
 	while (nn > 0 && d) {
-		d = d->next;
+		d = lws_dll2_get_next(d);
 		nn--;
 	}
 
@@ -375,7 +375,7 @@ maybe_new_node(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 		}
 	} lws_end_foreach_dll(d2);
 
-	if (b->nodes.count >= 8) {
+	if (lws_dll2_count(&b->nodes) >= 8) {
 		/* Bucket full.  Ping a dubious node */
 		int dubious = 0;
 
@@ -495,7 +495,7 @@ dump_bucket(struct lws_dht_ctx *ctx, struct bucket *b)
 	lwsl_dht_info("Bucket ");
 	lwsl_hexdump_dht(b->first->id, b->first->len);
 	lwsl_dht_info(" count %u age %d%s%s:\n",
-			(unsigned int)b->nodes.count,
+			(unsigned int)lws_dll2_count(&b->nodes),
 			(int)(ctx->now.tv_sec - b->time),
 			(id_cmp(b->first, ctx->myid) <= 0 &&
 			 (bucket_next(b) == NULL ||
@@ -636,14 +636,14 @@ bucket_maintenance(struct lws_dht_ctx *ctx, int af)
 			 * We also sometimes do it gratuitiously to recover from
 			 * buckets full of broken nodes.
 			 */
-			if (bucket_next(q) && (q->nodes.count == 0 ||
+			if (bucket_next(q) && (lws_dll2_count(&q->nodes) == 0 ||
 					((lws_get_random(ctx->vhost->context, &rc, sizeof(rc)), rc) & 7) == 0))
 				q = bucket_next(b);
-			if (q && (q->nodes.count == 0 ||
+			if (q && (lws_dll2_count(&q->nodes) == 0 ||
 					((lws_get_random(ctx->vhost->context, &rc, sizeof(rc)), rc) & 7) == 0)) {
 				struct bucket *r = previous_bucket(b);
 
-				if (r && r->nodes.count > 0)
+				if (r && lws_dll2_count(&r->nodes) > 0)
 					q = r;
 			}
 
@@ -656,7 +656,7 @@ bucket_maintenance(struct lws_dht_ctx *ctx, int af)
 					if (ctx->wsi_v4 && ctx->wsi_v6) {
 						struct bucket *otherbucket = find_bucket(ctx, id, af == AF_INET ? AF_INET6 : AF_INET);
 
-						if (otherbucket && otherbucket->nodes.count < 8)
+						if (otherbucket && lws_dll2_count(&otherbucket->nodes) < 8)
 							/*
 							 * The corresponding bucket in the other family
 							 * is emptyish -- querying both is useful.
@@ -710,14 +710,14 @@ neighbourhood_maintenance(struct lws_dht_ctx *ctx, int af)
 	if (!id) return 0;
 	id->id[id->len - 1] = (uint8_t)((lws_get_random(ctx->vhost->context, &id->id[id->len - 1], 1), id->id[id->len - 1]) & 0xFF);
 	q = b;
-	if (bucket_next(q) && (q->nodes.count == 0 ||
+	if (bucket_next(q) && (lws_dll2_count(&q->nodes) == 0 ||
 			((lws_get_random(ctx->vhost->context, &id->id[0], 1), id->id[0]) & 7) == 0))
 		q = bucket_next(b);
-	if (!q || q->nodes.count == 0 ||
+	if (!q || lws_dll2_count(&q->nodes) == 0 ||
 	    ((lws_get_random(ctx->vhost->context, &id->id[0], 1), id->id[0]) & 7) == 0) {
 		struct bucket *r = previous_bucket(b);
 
-		if (r && r->nodes.count > 0)
+		if (r && lws_dll2_count(&r->nodes) > 0)
 			q = r;
 	}
 

@@ -464,7 +464,7 @@ lws_csp_px(const lcsp_atr_t *a, lhp_pstack_t *ps)
 	if (!a)
 		return NULL;
 
-	ctx = lws_container_of(ps->list.owner, lhp_ctx_t, stack);
+	ctx = lws_dll2_owner_container(&ps->list, lhp_ctx_t, stack);
 	f = ps->font;
 
        /*
@@ -481,10 +481,11 @@ lws_csp_px(const lcsp_atr_t *a, lhp_pstack_t *ps)
 
 	switch (a->unit) {
 	case LCSP_UNIT_LENGTH_REM:
-		if (!ctx->stack.head)
+		if(lws_dll2_is_empty(&ctx->stack))
 			break;
 		return lws_fx_mul((lws_fx_t *)&a->r, &a->u.i,
-			&((lhp_pstack_t *)lws_container_of(ctx->stack.head, lhp_pstack_t, list))->font->em);
+			&((lhp_pstack_t *)lws_container_of(lws_dll2_get_head(
+				&ctx->stack), lhp_pstack_t, list))->font->em);
 
 	case LCSP_UNIT_CALC:
 		{
@@ -630,7 +631,7 @@ lws_csp_px(const lcsp_atr_t *a, lhp_pstack_t *ps)
 static lhp_atr_t *
 lhp_atr_new(lhp_ctx_t *ctx, size_t name_len, size_t value_len)
 {
-	lhp_pstack_t *ps = lws_container_of(ctx->stack.tail, lhp_pstack_t, list);
+	lhp_pstack_t *ps = lws_container_of(lws_dll2_get_tail(&ctx->stack), lhp_pstack_t, list);
 
 	/* create the element name attribute */
 	lhp_atr_t *a = lws_malloc(sizeof(*a) + name_len + 1 + value_len + 1,
@@ -640,7 +641,7 @@ lhp_atr_new(lhp_ctx_t *ctx, size_t name_len, size_t value_len)
 	if (!a)
 		return NULL;
 
-	if (!ps->atr.count) {
+	if (!lws_dll2_count(&ps->atr)) {
 		/* only check the tag string, not the attributes */
 		ctx->u.f.void_element = 0;
 
@@ -841,12 +842,12 @@ static int
 lws_css_cascade_atr_match(lhp_ctx_t *ctx, lhp_pstack_t *ps, const char *tag,
 			  size_t tag_len)
 {
-	lws_start_foreach_dll(struct lws_dll2 *, q, ctx->css.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, q, lws_dll2_get_head(&ctx->css)) {
 		lcsp_stanza_t *stz = lws_container_of(q, lcsp_stanza_t, list);
 
 		/* ... does this stanza mention our name? */
 
-		lws_start_foreach_dll(struct lws_dll2 *, z, stz->names.head) {
+		lws_start_foreach_dll(struct lws_dll2 *, z, lws_dll2_get_head(&stz->names)) {
 			lcsp_names_t *nm = lws_container_of(z, lcsp_names_t,
 							    list);
 			const char *p = (const char *)&nm[1];
@@ -886,8 +887,8 @@ lws_css_cascade_atr_match(lhp_ctx_t *ctx, lhp_pstack_t *ps, const char *tag,
 								goto matched;
 						} else {
 							/* tag.class: check if element has p1 as tag */
-							if (ps->atr.head) {
-								lhp_atr_t *ta = lws_container_of(ps->atr.head, lhp_atr_t, list);
+							if(!lws_dll2_is_empty(&ps->atr)) {
+								lhp_atr_t *ta = lws_container_of(lws_dll2_get_head(&ps->atr), lhp_atr_t, list);
 								if (ta->name_len == p1_len && !memcmp(&ta[1], p, p1_len))
 									goto matched;
 							}
@@ -957,14 +958,14 @@ lhp_resolve_var_color(lhp_ctx_t *ctx, const lcsp_atr_t *a)
 	/* lwsl_err("RESOLVE: '%.*s'\n", (int)len, n); */
 
 	/* look it up in css_vars */
-	lws_start_foreach_dll(struct lws_dll2 *, d, ctx->css_vars.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&ctx->css_vars)) {
 		lhp_css_var_t *v = lws_container_of(d, lhp_css_var_t, list);
 		const char *vn = (const char *)&v[1];
 
 		if (v->name_len == len && !strncmp(vn, n, len)) {
 			/* found it */
-			if (v->def && v->def->atrs.head) {
-				lcsp_atr_t *ra = lws_container_of(v->def->atrs.head, lcsp_atr_t, list);
+			if (v->def && lws_dll2_get_head(&v->def->atrs)) {
+				lcsp_atr_t *ra = lws_container_of(lws_dll2_get_head(&v->def->atrs), lcsp_atr_t, list);
 				if (ra->unit == LCSP_UNIT_RGBA)
 					return ra;
 			}
@@ -993,7 +994,7 @@ lhp_shorthand_TRBL(lhp_ctx_t *ctx, lcsp_props_t prop, int idx)
 	 * 4 values: top, right, bottom, left
 	 */
 
-	c = (int)ctx->active_atr.count;
+	c = (int)lws_dll2_count(&ctx->active_atr);
 	if (!c)
 		return NULL;
 
@@ -1021,7 +1022,7 @@ lhp_shorthand_TRBL(lhp_ctx_t *ctx, lcsp_props_t prop, int idx)
 		return a;
 	}
 
-	lws_start_foreach_dll(struct lws_dll2 *, d, ctx->active_atr.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&ctx->active_atr)) {
 		lcsp_atr_ptr_t *ap = lws_container_of(d, lcsp_atr_ptr_t, list);
 		if (!use_idx--)
 			return ap->atr;
@@ -1048,7 +1049,7 @@ lhp_shorthand_radii(lhp_ctx_t *ctx, lcsp_props_t prop, int idx)
 	 * 4 values: top-left, top-right, bottom-right, bottom-left
 	 */
 
-	c = (int)ctx->active_atr.count;
+	c = (int)lws_dll2_count(&ctx->active_atr);
 	if (!c) return NULL;
 
 	if (c == 1) /* apply to all */
@@ -1093,7 +1094,7 @@ lhp_shorthand_radii(lhp_ctx_t *ctx, lcsp_props_t prop, int idx)
 		return a;
 	}
 
-	lws_start_foreach_dll(struct lws_dll2 *, d, ctx->active_atr.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&ctx->active_atr)) {
 		lcsp_atr_ptr_t *ap = lws_container_of(d, lcsp_atr_ptr_t, list);
 		if (!use_idx--)
 			return ap->atr;
@@ -1118,7 +1119,7 @@ lws_css_cascade(lhp_ctx_t *ctx)
 
 	/* let's proceed through the html element stack that applies */
 
-	lws_start_foreach_dll(struct lws_dll2 *, p, ctx->stack.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(&ctx->stack)) {
 		lhp_pstack_t *ps = lws_container_of(p, lhp_pstack_t, list);
 
 		/*
@@ -1126,13 +1127,13 @@ lws_css_cascade(lhp_ctx_t *ctx)
 		 * stack level, add its stanza to the results
 		 */
 
-		lws_start_foreach_dll(struct lws_dll2 *, ha, ps->atr.head) {
+		lws_start_foreach_dll(struct lws_dll2 *, ha, lws_dll2_get_head(&ps->atr)) {
 			lhp_atr_t *a = lws_container_of(ha, lhp_atr_t, list);
 			struct lws_tokenize ts;
 
 			memset(&ts, 0, sizeof(ts));
 
-			if (ha == ps->atr.head) {
+			if (ha == lws_dll2_get_head(&ps->atr)) {
 				ts.start = (const char *)&a[1];
 				ts.len = a->name_len;
 			}
@@ -1149,7 +1150,7 @@ lws_css_cascade(lhp_ctx_t *ctx)
 				ts.e = (int8_t)lws_tokenize(&ts);
 				if (ts.e == LWS_TOKZE_TOKEN) {
 
-					if (ha == ps->atr.head &&
+					if (ha == lws_dll2_get_head(&ps->atr) &&
 					    ts.token_len == 4 &&
 					    !memcmp(ts.token, "body", 4))
 						ctx->in_body = 1;
@@ -1268,7 +1269,7 @@ lws_lhp_tag_dlo_id(lhp_ctx_t *ctx, lhp_pstack_t *ps, lws_dlo_t *dlo)
 lws_stateful_ret_t
 lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len)
 {
-	lhp_pstack_t *ps1, *ps = lws_container_of(ctx->stack.tail,
+	lhp_pstack_t *ps1, *ps = lws_container_of(lws_dll2_get_tail(&ctx->stack),
 						  lhp_pstack_t, list);
 	struct lws_context *cx = (struct lws_context *)ctx->user1;
 	lws_dl_rend_t *drt = (lws_dl_rend_t *)ctx->user;
@@ -1347,7 +1348,7 @@ lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len)
 
 				ctx->state = LHPS_TAG;
 
-				if (ctx->stack.count == LHP_MAX_ELEMS_NEST /* sanity */) {
+				if (lws_dll2_count(&ctx->stack) == LHP_MAX_ELEMS_NEST /* sanity */) {
 					lwsl_err("%s: MAX_ELEMS_NEST\n", __func__);
 					ps->cb(ctx, LHPCB_FAILED);
 					return LWS_SRET_FATAL;
@@ -1413,7 +1414,7 @@ lws_lhp_parse(lhp_ctx_t *ctx, const uint8_t **buf, size_t *len)
 			if (c == '/' && ctx->u.f.first) {
 				/* remove the level we just prepared for this */
 				lhp_clean_level(ps);
-				ps = lws_container_of(ctx->stack.tail,
+				ps = lws_container_of(lws_dll2_get_tail(&ctx->stack),
 						      lhp_pstack_t, list);
 				ctx->u.f.closing = 1;
 				ctx->u.f.first = 0;
@@ -1763,13 +1764,13 @@ issue_elem_start:
 
 check_closing:
 			if (ctx->u.f.closing || ctx->u.f.void_element){
-				if (ctx->stack.count == 1) {
+				if (lws_dll2_count(&ctx->stack) == 1) {
 					lwsl_err("%s: element close mismatch\n", __func__);
 					ps->cb(ctx, LHPCB_FAILED);
 					return LWS_SRET_FATAL;
 				}
-				if (ps->atr.head) {
-					lhp_atr_t *a = lws_container_of(ps->atr.head, lhp_atr_t, list);
+				if(!lws_dll2_is_empty(&ps->atr)) {
+					lhp_atr_t *a = lws_container_of(lws_dll2_get_head(&ps->atr), lhp_atr_t, list);
 					memcpy(ctx->buf, &a[1], a->name_len);
 					ctx->npos = (int)a->name_len;
 				}
@@ -1778,7 +1779,7 @@ check_closing:
 				/* remove the start level */
 				lhp_clean_level(ps);
 				lws_css_cascade(ctx);
-				ps = lws_container_of(ctx->stack.tail,
+				ps = lws_container_of(lws_dll2_get_tail(&ctx->stack),
 						      lhp_pstack_t, list);
 			}
 			ctx->npos = 0;
@@ -2763,19 +2764,19 @@ lws_css_cascade_get_prop_atr(lhp_ctx_t *ctx, lcsp_props_t prop)
 	 * the property we care about
 	 */
 
-	lws_start_foreach_dll(struct lws_dll2 *, q, ctx->active_stanzas.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, q, lws_dll2_get_head(&ctx->active_stanzas)) {
 		lcsp_stanza_ptr_t *pstz = lws_container_of(q, lcsp_stanza_ptr_t,
 							   list);
 
 		/* each def entry in the stanza in turn */
 
-		lws_start_foreach_dll(struct lws_dll2 *, p, pstz->stz->defs.head) {
+		lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(&pstz->stz->defs)) {
 			lcsp_defs_t *def = lws_container_of(p, lcsp_defs_t, list);
 
 			if (def->prop == prop) {
 
 				lws_start_foreach_dll(struct lws_dll2 *, z,
-						      def->atrs.head) {
+						      lws_dll2_get_head(&def->atrs)) {
 					lcsp_atr_ptr_t *patr = lwsac_use_zero(
 							&ctx->propatrac,
 							sizeof(*patr),
@@ -2795,10 +2796,10 @@ lws_css_cascade_get_prop_atr(lhp_ctx_t *ctx, lcsp_props_t prop)
 
 	} lws_end_foreach_dll(q);
 
-	if (!ctx->active_atr.count)
+	if (!lws_dll2_count(&ctx->active_atr))
 		return NULL;
 
-	ap = lws_container_of(ctx->active_atr.tail, lcsp_atr_ptr_t, list);
+	ap = lws_container_of(lws_dll2_get_tail(&ctx->active_atr), lcsp_atr_ptr_t, list);
 
 	return ap->atr;
 }
@@ -2808,10 +2809,10 @@ lws_css_get_parent_block(lhp_ctx_t *ctx, lhp_pstack_t *ps)
 {
 	do {
 
-		if (!ps->list.prev)
+		if (!lws_dll2_get_prev(&ps->list))
 			return NULL;
 
-		ps = lws_container_of(ps->list.prev, lhp_pstack_t, list);
+		ps = lws_container_of(lws_dll2_get_prev(&ps->list), lhp_pstack_t, list);
 
 		if (ps->dlo)
 			return ps;
@@ -2827,10 +2828,10 @@ lws_css_pstack_name(lhp_pstack_t *ps)
 	if (!ps)
 		return "(null ps)";
 
-	if (!ps->atr.head)
+	if(lws_dll2_is_empty(&ps->atr))
 		return "no-name";
 
-	a = lws_container_of(ps->atr.head, lhp_atr_t, list);
+	a = lws_container_of(lws_dll2_get_head(&ps->atr), lhp_atr_t, list);
 
 	return (const char *)&a[1];
 }
@@ -2845,10 +2846,10 @@ lhp_prop_axis(const lcsp_atr_t *a)
 {
 	const lcsp_defs_t *d;
 
-	if (!a->list.owner)
+	if (!lws_dll2_owner(&a->list))
 		return LWS_LHPREF_NONE;
 
-	d = lws_container_of(a->list.owner, lcsp_defs_t, atrs);
+	d = lws_dll2_owner_container(&a->list, lcsp_defs_t, atrs);
 
 	switch (d->prop) {
 	/* referenced to height */

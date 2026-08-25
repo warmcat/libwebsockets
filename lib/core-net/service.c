@@ -457,7 +457,7 @@ lws_service_adjust_timeout(struct lws_context *context, int timeout_ms, int tsi)
 	 *    it, we should not wait in poll
 	 */
 
-	lws_start_foreach_dll(struct lws_dll2 *, d, pt->dll_buflist_owner.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&pt->dll_buflist_owner)) {
 		struct lws *wsi = lws_container_of(d, struct lws, dll_buflist);
 
 		if (!lws_is_flowcontrolled(wsi) &&
@@ -619,7 +619,7 @@ lws_service_do_ripe_rxflow(struct lws_context_per_thread *pt)
 {
 	struct lws_pollfd pfd;
 
-	if (!pt->dll_buflist_owner.head)
+	if(lws_dll2_is_empty(&pt->dll_buflist_owner))
 		return;
 
 	/*
@@ -630,7 +630,7 @@ lws_service_do_ripe_rxflow(struct lws_context_per_thread *pt)
 	lws_pt_lock(pt, __func__);
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				   pt->dll_buflist_owner.head) {
+				   lws_dll2_get_head(&pt->dll_buflist_owner)) {
 		struct lws *wsi = lws_container_of(d, struct lws, dll_buflist);
 
 		pfd.events = LWS_POLLIN;
@@ -683,7 +683,7 @@ lws_service_flag_pending(struct lws_context *context, int tsi)
 	 *    it, we should not wait in poll
 	 */
 
-	lws_start_foreach_dll(struct lws_dll2 *, d, pt->dll_buflist_owner.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&pt->dll_buflist_owner)) {
 		struct lws *wsi = lws_container_of(d, struct lws, dll_buflist);
 
 		if (!lws_is_flowcontrolled(wsi) &&

@@ -304,7 +304,7 @@ display_splash(lws_display_state_t *lds)
 						    4096 - fs_splash_html->len,
 				"<tr><td>%d</td><td>%d</td><td>%s</td></tr>",
 				rssi_averaged(w), w->ch, (const char *)&w[1]);
-		d = d->prev;
+		d = lws_dll2_get_prev(d);
 	};
 
 	fs_splash_html->len += lws_snprintf(p + fs_splash_html->len, 4096 - fs_splash_html->len, "</table></div></body></html>");

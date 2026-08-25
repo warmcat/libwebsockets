@@ -1447,7 +1447,7 @@ lws_client_interpret_server_handshake(struct lws *wsi)
 			lws_vhost_lock(wsi->a.vhost);
 			lws_start_foreach_dll_safe(struct lws_dll2 *,
 						   d, d1,
-			  wsi->dll2_cli_txn_queue_owner.head) {
+			  lws_dll2_get_head(&wsi->dll2_cli_txn_queue_owner)) {
 				struct lws *ww = lws_container_of(d,
 					struct lws,
 					dll2_cli_txn_queue);

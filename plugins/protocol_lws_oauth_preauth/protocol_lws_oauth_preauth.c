@@ -66,7 +66,7 @@ send_json(struct pss_oauth_preauth *pss, const char *json)
 static void
 broadcast_to_listeners(struct vhd_oauth_preauth *vhd, const char *json)
 {
-	lws_start_foreach_dll(struct lws_dll2 *, d, vhd->listeners.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->listeners)) {
 		struct pss_oauth_preauth *pss = lws_container_of(d, struct pss_oauth_preauth, list);
 		send_json(pss, json);
 	} lws_end_foreach_dll(d);
@@ -143,7 +143,7 @@ callback_lws_oauth_preauth(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_dll2_add_tail(&pss->list, &vhd->listeners);
 
 			/* dump current waiters to the new listener */
-			lws_start_foreach_dll(struct lws_dll2 *, d, vhd->devices.head) {
+			lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->devices)) {
 				struct pss_oauth_preauth *dpss = lws_container_of(d, struct pss_oauth_preauth, list);
 				if (dpss->serial[0]) {
 					char buf[512];
@@ -153,8 +153,9 @@ callback_lws_oauth_preauth(struct lws *wsi, enum lws_callback_reasons reason,
 				}
 			} lws_end_foreach_dll(d);
 		} else {
-			if (vhd->devices.count >= vhd->max_devices) {
-				lwsl_wsi_warn(wsi, "rejecting device: too many pending devices (%u)", vhd->devices.count);
+			if (lws_dll2_count(&vhd->devices) >= vhd->max_devices) {
+				lwsl_wsi_warn(wsi, "rejecting device: too many pending devices (%u)", lws_dll2_count(
+					&vhd->devices));
 				return -1;
 			}
 			lwsl_wsi_notice(wsi, "new device connected, peer: %s", peerip);
@@ -193,7 +194,7 @@ callback_lws_oauth_preauth(struct lws *wsi, enum lws_callback_reasons reason,
 						target_serial[n++] = *s++;
 					target_serial[n] = '\0';
 
-					lws_start_foreach_dll(struct lws_dll2 *, d, vhd->devices.head) {
+					lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->devices)) {
 						struct pss_oauth_preauth *dpss = lws_container_of(d, struct pss_oauth_preauth, list);
 						if (!strcmp(dpss->serial, target_serial)) {
 							send_json(dpss, "{\"cmd\":\"identify\"}");

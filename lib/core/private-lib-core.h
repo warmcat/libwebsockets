@@ -919,14 +919,14 @@ lws_vhost_first(const struct lws_context *cx)
 static LWS_INLINE struct lws_vhost *
 lws_vhost_next(const struct lws_vhost *vh)
 {
-	struct lws_dll2 *d = vh->vhost_list.next;
+	struct lws_dll2 *d = lws_dll2_get_next(&vh->vhost_list);
 
 	return d ? lws_container_of(d, struct lws_vhost, vhost_list) : NULL;
 }
 
 #define lws_start_foreach_vhost(___vh, ___cx) \
 	lws_start_foreach_dll(struct lws_dll2 *, ___vh ## _dll, \
-			      (___cx)->vhost_list_owner.head) { \
+			      lws_dll2_get_head(&(___cx)->vhost_list_owner)) { \
 		struct lws_vhost *___vh = lws_container_of(___vh ## _dll, \
 					struct lws_vhost, vhost_list);
 

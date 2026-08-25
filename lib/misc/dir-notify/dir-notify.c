@@ -410,7 +410,7 @@ lws_dir_notify_rx(struct lws *wsi, enum lws_callback_reasons reason,
 			struct lws_dir_notify_thread_ctx *tctx = (struct lws_dir_notify_thread_ctx *)dn->wsi;
 
 			EnterCriticalSection(&tctx->cs);
-			while (tctx->events.count) {
+			while (lws_dll2_count(&tctx->events)) {
 				struct dir_event *ev = lws_container_of(lws_dll2_get_head(&tctx->events), struct dir_event, list);
 				lws_dll2_remove(&ev->list);
 				LeaveCriticalSection(&tctx->cs);
@@ -524,7 +524,7 @@ lws_dir_notify_destroy(struct lws_dir_notify **pdn)
 		CloseHandle(tctx->hQuitEvent);
 		CloseHandle(tctx->hDir);
 
-		while (tctx->events.count) {
+		while (lws_dll2_count(&tctx->events)) {
 			struct dir_event *ev = lws_container_of(lws_dll2_get_head(&tctx->events), struct dir_event, list);
 			lws_dll2_remove(&ev->list);
 			lws_free(ev);

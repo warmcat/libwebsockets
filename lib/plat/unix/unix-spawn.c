@@ -85,7 +85,7 @@ lws_create_stdwsi(struct lws_context *context, int tsi,
 	struct lws_context_per_thread *pt = &context->pt[tsi];
 	struct lws *new_wsi;
 
-	if (!context->vhost_list_owner.head)
+	if(lws_dll2_is_empty(&context->vhost_list_owner))
 		return NULL;
 
 	if ((unsigned int)pt->fds_count == context->fd_limit_per_thread - 1) {

@@ -37,7 +37,7 @@ lws_metrics_tag_add(lws_dll2_owner_t *owner, const char *name, const char *val)
 	 * Remove (in order to replace) any existing tag of same name
 	 */
 
-	lws_start_foreach_dll(struct lws_dll2 *, d, owner->head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(owner)) {
 		tag = lws_container_of(d, lws_metrics_tag_t, list);
 
 		if (!strcmp(name, tag->name)) {
@@ -96,7 +96,7 @@ lws_metrics_tags_destroy(lws_dll2_owner_t *owner)
 {
 	lws_metrics_tag_t *t;
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, owner->head) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(owner)) {
 		t = lws_container_of(d, lws_metrics_tag_t, list);
 
 		lws_dll2_remove(&t->list);
@@ -111,13 +111,13 @@ lws_metrics_tags_serialize(lws_dll2_owner_t *owner, char *buf, size_t len)
 	char *end = buf + len - 1, *p = buf;
 	lws_metrics_tag_t *t;
 
-	lws_start_foreach_dll(struct lws_dll2 *, d, owner->head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(owner)) {
 		t = lws_container_of(d, lws_metrics_tag_t, list);
 
 		p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
 				  "%s=\"%s\"", t->name, (const char *)&t[1]);
 
-		if (d->next && p + 2 < end)
+		if (lws_dll2_get_next(d) && p + 2 < end)
 			*p++ = ',';
 
 	} lws_end_foreach_dll(d);
@@ -132,7 +132,7 @@ lws_metrics_tag_get(lws_dll2_owner_t *owner, const char *name)
 {
 	lws_metrics_tag_t *t;
 
-	lws_start_foreach_dll(struct lws_dll2 *, d, owner->head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(owner)) {
 		t = lws_container_of(d, lws_metrics_tag_t, list);
 
 		if (!strcmp(name, t->name))
@@ -160,13 +160,13 @@ lws_metrics_periodic_cb(lws_sorted_usec_list_t *sul)
 {
 	lws_metric_policy_dyn_t *dmp = lws_container_of(sul,
 						lws_metric_policy_dyn_t, sul);
-	struct lws_context *ctx = lws_container_of(dmp->list.owner,
+	struct lws_context *ctx = lws_dll2_owner_container(&dmp->list,
 					struct lws_context, owner_mtr_dynpol);
 
 	if (!ctx->system_ops || !ctx->system_ops->metric_report)
 		return;
 
-	lws_start_foreach_dll(struct lws_dll2 *, d, dmp->owner.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&dmp->owner)) {
 		lws_metric_t *mt = lws_container_of(d, lws_metric_t, list);
 		lws_metric_pub_t *pub = lws_metrics_priv_to_pub(mt);
 
@@ -226,7 +226,7 @@ lws_metric_policy_dyn_t *
 lws_metrics_policy_get_dyn(struct lws_context *ctx,
 			   const lws_metric_policy_t *po)
 {
-	lws_start_foreach_dll(struct lws_dll2 *, d, ctx->owner_mtr_dynpol.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&ctx->owner_mtr_dynpol)) {
 		lws_metric_policy_dyn_t *dm =
 			lws_container_of(d, lws_metric_policy_dyn_t, list);
 
@@ -391,16 +391,16 @@ lws_metric_get_policy(lws_metric_t *mt)
 	 * Our metric must either be on the "no policy" context list or
 	 * listed by the dynamic part of the policy it is bound to
 	 */
-	assert(mt->list.owner);
+	assert(lws_dll2_owner(&mt->list));
 
-	if ((char *)mt->list.owner >= (char *)mt->ctx &&
-	    (char *)mt->list.owner < (char *)mt->ctx + sizeof(struct lws_context))
+	if ((char *)lws_dll2_owner(&mt->list) >= (char *)mt->ctx &&
+	    (char *)lws_dll2_owner(&mt->list) < (char *)mt->ctx + sizeof(struct lws_context))
 		/* we are on the "no policy" context list */
 		return NULL;
 
 	/* we are listed by a dynamic policy owner */
 
-	dp = lws_container_of(mt->list.owner, lws_metric_policy_dyn_t, owner);
+	dp = lws_dll2_owner_container(&mt->list, lws_metric_policy_dyn_t, owner);
 
 	/* return the const policy the dynamic policy represents */
 
@@ -414,7 +414,7 @@ lws_metric_rebind_policies(struct lws_context *ctx)
 	lws_metric_policy_dyn_t *dmp;
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				   ctx->owner_mtr_no_pol.head) {
+				   lws_dll2_get_head(&ctx->owner_mtr_no_pol)) {
 		lws_metric_t *mt = lws_container_of(d, lws_metric_t, list);
 		lws_metric_pub_t *pub = lws_metrics_priv_to_pub(mt);
 
@@ -458,7 +458,7 @@ lws_metric_destroy(lws_metric_t **pmt, int keep)
 		pub->u.hist.head = NULL;
 
 		while (b) {
-			b1 = b->next;
+			b1 = lws_dll2_get_next(b);
 			lws_free(b);
 			b = b1;
 		}
@@ -505,7 +505,7 @@ lws_metric_policy_dyn_destroy(lws_metric_policy_dyn_t *dm, int keep)
 {
 	lws_sul_cancel(&dm->sul);
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, dm->owner.head) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&dm->owner)) {
 		lws_metric_t *m = lws_container_of(d, lws_metric_t, list);
 
 		lws_metric_destroy(&m, keep);
@@ -526,7 +526,7 @@ void
 lws_metrics_destroy(struct lws_context *ctx)
 {
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				   ctx->owner_mtr_dynpol.head) {
+				   lws_dll2_get_head(&ctx->owner_mtr_dynpol)) {
 		lws_metric_policy_dyn_t *dm =
 			lws_container_of(d, lws_metric_policy_dyn_t, list);
 
@@ -537,7 +537,7 @@ lws_metrics_destroy(struct lws_context *ctx)
 	/* destroy metrics with no current policy too... */
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				   ctx->owner_mtr_no_pol.head) {
+				   lws_dll2_get_head(&ctx->owner_mtr_no_pol)) {
 		lws_metric_t *mt = lws_container_of(d, lws_metric_t, list);
 
 		lws_metric_destroy(&mt, 0); /* don't keep */
@@ -649,7 +649,7 @@ lws_metrics_foreach(struct lws_context *ctx, void *user,
 	int n;
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				   ctx->owner_mtr_no_pol.head) {
+				   lws_dll2_get_head(&ctx->owner_mtr_no_pol)) {
 		lws_metric_t *mt = lws_container_of(d, lws_metric_t, list);
 
 		n = cb(lws_metrics_priv_to_pub(mt), user);
@@ -659,12 +659,12 @@ lws_metrics_foreach(struct lws_context *ctx, void *user,
 	} lws_end_foreach_dll_safe(d, d1);
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d2, d3,
-				   ctx->owner_mtr_dynpol.head) {
+				   lws_dll2_get_head(&ctx->owner_mtr_dynpol)) {
 		lws_metric_policy_dyn_t *dm =
 			lws_container_of(d2, lws_metric_policy_dyn_t, list);
 
 		lws_start_foreach_dll_safe(struct lws_dll2 *, e, e1,
-					   dm->owner.head) {
+					   lws_dll2_get_head(&dm->owner)) {
 
 			lws_metric_t *mt = lws_container_of(e, lws_metric_t, list);
 
@@ -709,7 +709,7 @@ lws_metrics_dump_cb(lws_metric_pub_t *pub, void *user)
 		pub->u.hist.head = NULL;
 
 		while (b) {
-			b1 = b->next;
+			b1 = lws_dll2_get_next(b);
 			lws_free(b);
 			b = b1;
 		}

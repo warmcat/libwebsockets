@@ -303,9 +303,7 @@ lws_struct_default_lejp_cb(struct lejp_ctx *ctx, char reason)
 
 				return 1;
 			}
-			coll->chunks.prev = NULL;
-			coll->chunks.next = NULL;
-			coll->chunks.owner = NULL;
+			lws_dll2_clear(&coll->chunks);
 
 			coll->len = ctx->npos;
 			lws_dll2_add_tail(&coll->chunks, &args->chunks_owner);
@@ -427,7 +425,7 @@ chunk_copy_l:
 			s[lim] = '\0';
 			/* copy up to lim from the string chunk ac first */
 			lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1,
-						args->chunks_owner.head) {
+						lws_dll2_get_head(&args->chunks_owner)) {
 				lejp_collation_t *coll = (lejp_collation_t *)p;
 
 				if (lim) {
@@ -868,7 +866,7 @@ check_up:
 				*buf++ = '}';
 				len--;
 
-				p = j->dllpos = j->dllpos->next;
+				p = j->dllpos = lws_dll2_get_next(j->dllpos);
 				if (j->dllpos) {
 					/*
 					 * there was another item in the array to do... let's

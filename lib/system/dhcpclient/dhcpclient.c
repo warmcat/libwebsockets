@@ -58,7 +58,7 @@ lws_dhcpc_status(struct lws_context *context, lws_sockaddr46 *sa46)
 {
 	lws_dhcpc_req_t *r;
 
-	lws_start_foreach_dll(struct lws_dll2 *, p, context->dhcpc_owner.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(&context->dhcpc_owner)) {
 		r = (lws_dhcpc_req_t *)p;
 
 		if (r->state == LDHC_BOUND) {
@@ -81,7 +81,7 @@ lws_dhcpc_find(struct lws_context *context, const char *iface, int af)
 
 	/* see if we are already looking after this af / iface combination */
 
-	lws_start_foreach_dll(struct lws_dll2 *, p, context->dhcpc_owner.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(&context->dhcpc_owner)) {
 		r = (lws_dhcpc_req_t *)p;
 
 		if (!strcmp((const char *)&r[1], iface) && af == r->af)

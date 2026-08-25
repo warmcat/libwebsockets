@@ -3820,7 +3820,8 @@ int lws_serve_http_file_fragment(struct lws *wsi)
 
 			/* enqueue */
 			pthread_mutex_lock(&wsi->a.context->async_worker_mutex);
-			if (wsi->a.context->async_worker_waiting.count >= (uint32_t)(wsi->a.context->count_async_threads * 10)) {
+			if (lws_dll2_count(&wsi->a.context->async_worker_waiting) >=
+			    (uint32_t)(wsi->a.context->count_async_threads * 10)) {
 				pthread_mutex_unlock(&wsi->a.context->async_worker_mutex);
 				lws_free(job);
 				wsi->async_worker_job = NULL;

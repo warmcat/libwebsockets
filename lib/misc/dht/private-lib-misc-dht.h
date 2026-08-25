@@ -292,7 +292,8 @@ bucket_head(struct lws_dht_ctx *ctx, int af)
 static LWS_INLINE struct bucket *
 bucket_next(struct bucket *b)
 {
-	return b->list.next ? lws_container_of(b->list.next, struct bucket, list)
+	return lws_dll2_get_next(
+		&b->list) ? lws_container_of(lws_dll2_get_next(&b->list), struct bucket, list)
 			    : NULL;
 }
 #endif

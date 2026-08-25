@@ -202,7 +202,7 @@ lws_pt_first_ah(lws_dll2_owner_t *ow)
 static LWS_INLINE struct allocated_headers *
 lws_pt_next_ah(struct allocated_headers *ah)
 {
-	struct lws_dll2 *d = ah->list.next;
+	struct lws_dll2 *d = lws_dll2_get_next(&ah->list);
 
 	return d ? lws_container_of(d, struct allocated_headers, list) : NULL;
 }

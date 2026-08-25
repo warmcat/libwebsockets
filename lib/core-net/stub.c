@@ -278,7 +278,7 @@ lws_stub_spawn(const struct lws_stub_config *config)
 		goto spawn_fail;
 	}
 
-	if (!mgr->sul.list.owner && !mgr->wsi_client)
+	if (!lws_dll2_owner(&mgr->sul.list) && !mgr->wsi_client)
 		lws_stub_client_connect(mgr);
 
 	return mgr;
@@ -503,7 +503,7 @@ lws_callback_stub_client(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_free(req);
 			
 			/* If there are more requests queued, ask for writable again */
-			if (lws_dll2_get_head(&mgr->reqs))
+			if(!lws_dll2_is_empty(&mgr->reqs))
 				lws_callback_on_writable(wsi);
 		}
 		break;
@@ -590,7 +590,7 @@ lws_stub_request(struct lws_stub_manager *mgr,
 	lws_dll2_add_tail(&req->list, &mgr->reqs);
 
 	if (!mgr->wsi_client) {
-		if (!mgr->sul.list.owner) {
+		if (!lws_dll2_owner(&mgr->sul.list)) {
 			if (mgr->ctry >= 10) {
 				/* If we hit max retries, reset and try again if new requests come in */
 				mgr->ctry = 0;
@@ -629,7 +629,7 @@ lws_stub_destroy(struct lws_stub_manager **_mgr)
 	/* the retry sul is embedded in us: stop it pointing at freed memory */
 	lws_sul_cancel(&mgr->sul);
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, mgr->reqs.head) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&mgr->reqs)) {
 		struct lws_stub_req *req = lws_container_of(d, struct lws_stub_req, list);
 		lws_dll2_remove(d);
 		if (req->tx_buf)
@@ -685,7 +685,7 @@ void
 lws_stub_destroy_all_on_vhost(struct lws_vhost *vh)
 {
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				   vh->context->owner_stub_mgrs.head) {
+				   lws_dll2_get_head(&vh->context->owner_stub_mgrs)) {
 		struct lws_stub_manager *mgr =
 			lws_container_of(d, struct lws_stub_manager, cx_list);
 

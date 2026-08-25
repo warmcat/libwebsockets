@@ -302,7 +302,7 @@ lws_sspc_txp_tx(lws_sspc_handle_t *h, size_t metadata_limit)
 		 * changes?
 		 */
 
-		if (h->metadata_owner.count) {
+		if (lws_dll2_count(&h->metadata_owner)) {
 			lws_sspc_metadata_t *md = lws_container_of(
 				lws_dll2_get_tail(&h->metadata_owner),
 				lws_sspc_metadata_t, list);
@@ -373,7 +373,7 @@ lws_sspc_txp_tx(lws_sspc_handle_t *h, size_t metadata_limit)
 		cp = p = pkt + LWS_PRE;
 		end = p + metadata_limit;
 
-		if (h->metadata_owner.count) {
+		if (lws_dll2_count(&h->metadata_owner)) {
 			lws_sspc_metadata_t *md = lws_container_of(
 				lws_dll2_get_tail(&h->metadata_owner),
 				lws_sspc_metadata_t, list);

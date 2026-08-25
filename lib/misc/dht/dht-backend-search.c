@@ -276,7 +276,7 @@ new_search(struct lws_dht_ctx *ctx)
 	}
 
 	/* Allocate a new slot. */
-	if (ctx->searches.count < DHT_MAX_SEARCHES) {
+	if (lws_dll2_count(&ctx->searches) < DHT_MAX_SEARCHES) {
 		struct search *sr = lws_zalloc(sizeof(struct search), __func__);
 
 		if (sr != NULL) {

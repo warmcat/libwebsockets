@@ -299,7 +299,7 @@ lws_dbus_sul_cb(lws_sorted_usec_list_t *sul)
 		}
 	} lws_end_foreach_dll_safe(rdt, nx);
 
-	if (pt->dbus.timer_list_owner.count)
+	if (lws_dll2_count(&pt->dbus.timer_list_owner))
 		lws_sul_schedule(pt->context, pt->tid, &pt->dbus.sul,
 				 lws_dbus_sul_cb, 3 * LWS_US_PER_SEC);
 }
@@ -328,12 +328,10 @@ lws_dbus_add_timeout(DBusTimeout *t, void *data)
 
 	dbt->data = t;
 	dbt->fire = ti + (ms < 1000);
-	dbt->timer_list.prev = NULL;
-	dbt->timer_list.next = NULL;
-	dbt->timer_list.owner = NULL;
+	lws_dll2_clear(&dbt->timer_list);
 	lws_dll2_add_head(&dbt->timer_list, &pt->dbus.timer_list_owner);
 
-	if (!pt->dbus.sul.list.owner)
+	if (!lws_dll2_owner(&pt->dbus.sul.list))
 		lws_sul_schedule(pt->context, pt->tid, &pt->dbus.sul,
 				 lws_dbus_sul_cb, 3 * LWS_US_PER_SEC);
 
@@ -362,7 +360,7 @@ lws_dbus_remove_timeout(DBusTimeout *t, void *data)
 		}
 	} lws_end_foreach_dll_safe(rdt, nx);
 
-	if (!pt->dbus.timer_list_owner.count)
+	if (!lws_dll2_count(&pt->dbus.timer_list_owner))
 		lws_sul_cancel(&pt->dbus.sul);
 }
 

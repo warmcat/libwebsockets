@@ -95,7 +95,7 @@ lws_cache_heap_item_destroy(lws_cache_ttl_lru_t_heap_t *cache,
 	 */
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				   cache->items_lru.head) {
+				   lws_dll2_get_head(&cache->items_lru)) {
 		lws_cache_ttl_item_heap_t *i = lws_container_of(d,
 						lws_cache_ttl_item_heap_t,
 						list_lru);
@@ -154,10 +154,10 @@ lws_cache_item_evict_lru(lws_cache_ttl_lru_t_heap_t *cache)
 {
 	lws_cache_ttl_item_heap_t *ei;
 
-	if (!cache->items_lru.head)
+	if(lws_dll2_is_empty(&cache->items_lru))
 		return;
 
-	ei = lws_container_of(cache->items_lru.head,
+	ei = lws_container_of(lws_dll2_get_head(&cache->items_lru),
 			      lws_cache_ttl_item_heap_t, list_lru);
 
 	lws_cache_heap_item_destroy(cache, ei, 0);
@@ -176,10 +176,10 @@ expiry_cb(lws_sorted_usec_list_t *sul)
 
 	lwsl_cache("%s: %s\n", __func__, cache->cache.info.name);
 
-	while (cache->items_expiry.head) {
+	while(!lws_dll2_is_empty(&cache->items_expiry)) {
 		lws_cache_ttl_item_heap_t *item;
 
-		item = lws_container_of(cache->items_expiry.head,
+		item = lws_container_of(lws_dll2_get_head(&cache->items_expiry),
 					lws_cache_ttl_item_heap_t, list_expiry);
 
 		if (item->expiry > now)
@@ -198,10 +198,10 @@ earliest_expiry(lws_cache_ttl_lru_t_heap_t *cache, lws_usec_t *pearliest)
 {
 	lws_cache_ttl_item_heap_t *item;
 
-	if (!cache->items_expiry.head)
+	if(lws_dll2_is_empty(&cache->items_expiry))
 		return 1;
 
-	item = lws_container_of(cache->items_expiry.head,
+	item = lws_container_of(lws_dll2_get_head(&cache->items_expiry),
 				lws_cache_ttl_item_heap_t, list_expiry);
 
 	*pearliest = item->expiry;
@@ -234,7 +234,7 @@ static lws_cache_ttl_item_heap_t *
 lws_cache_heap_specific(lws_cache_ttl_lru_t_heap_t *cache,
 			const char *specific_key)
 {
-	lws_start_foreach_dll(struct lws_dll2 *, d, cache->items_lru.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&cache->items_lru)) {
 		lws_cache_ttl_item_heap_t *item = lws_container_of(d,
 						lws_cache_ttl_item_heap_t,
 						list_lru);
@@ -262,7 +262,7 @@ lws_cache_heap_lookup(struct lws_cache_ttl_lru *_c, const char *wildcard_key,
 	lws_cache_ttl_lru_t_heap_t *cache = (lws_cache_ttl_lru_t_heap_t *)_c;
 	size_t sklen = strlen(wildcard_key);
 
-	lws_start_foreach_dll(struct lws_dll2 *, d, cache->items_lru.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&cache->items_lru)) {
 		lws_cache_ttl_item_heap_t *item = lws_container_of(d,
 						lws_cache_ttl_item_heap_t,
 						list_lru);
@@ -280,7 +280,7 @@ lws_cache_heap_lookup(struct lws_cache_ttl_lru *_c, const char *wildcard_key,
 			 */
 
 			lws_start_foreach_dll(struct lws_dll2 *, e,
-					results_owner->head) {
+					lws_dll2_get_head(results_owner)) {
 				lws_cache_match_t *i = lws_container_of(e,
 							lws_cache_match_t, list);
 				if (i->tag_size == ilen &&
@@ -341,7 +341,7 @@ lws_cache_heap_write(struct lws_cache_ttl_lru *_c, const char *specific_key,
 		backing = backing->info.parent;
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				   cache->items_lru.head) {
+				   lws_dll2_get_head(&cache->items_lru)) {
 		lws_cache_ttl_item_heap_t *i = lws_container_of(d,
 						lws_cache_ttl_item_heap_t,
 						list_lru);
@@ -372,8 +372,8 @@ lws_cache_heap_write(struct lws_cache_ttl_lru *_c, const char *specific_key,
 	        cache->cache.current_footprint + size >
 					     cache->cache.info.max_footprint) ||
 	       (cache->cache.info.max_items &&
-		cache->items_lru.count + 1 > cache->cache.info.max_items)) &&
-	       cache->items_lru.head)
+		lws_dll2_count(&cache->items_lru) + 1 > cache->cache.info.max_items)) &&
+	       lws_dll2_get_head(&cache->items_lru))
 		lws_cache_item_evict_lru(cache);
 
 	/* remove any existing entry of the same key */
@@ -409,7 +409,7 @@ lws_cache_heap_write(struct lws_cache_ttl_lru *_c, const char *specific_key,
 		/* adding to expiry is optional, on nonzero expiry */
 		lws_dll2_add_sorted(&item->list_expiry, &cache->items_expiry,
 				    sort_expiry);
-		ei = lws_container_of(cache->items_expiry.head,
+		ei = lws_container_of(lws_dll2_get_head(&cache->items_expiry),
 				      lws_cache_ttl_item_heap_t, list_expiry);
 		lwsl_debug("%s: setting exp %llu\n", __func__,
 						(unsigned long long)ei->expiry);
@@ -467,7 +467,7 @@ lws_cache_heap_invalidate(struct lws_cache_ttl_lru *_c, const char *specific_key
 	 */
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				   cache->items_lru.head) {
+				   lws_dll2_get_head(&cache->items_lru)) {
 		lws_cache_ttl_item_heap_t *i = lws_container_of(d,
 						lws_cache_ttl_item_heap_t,
 						list_lru);
@@ -578,14 +578,14 @@ lws_cache_heap_debug_dump(struct lws_cache_ttl_lru *_c)
 #if !defined(LWS_WITH_NO_LOGS)
 	lws_cache_ttl_item_heap_t *item = NULL;
 
-	lws_dll2_t *d = cache->items_expiry.head;
+	lws_dll2_t *d = lws_dll2_get_head(&cache->items_expiry);
 
 	if (d)
 		item = lws_container_of(d, lws_cache_ttl_item_heap_t,
 						list_expiry);
 
 	lwsl_cache("%s: %s: items %d, earliest %llu\n", __func__,
-			cache->cache.info.name, (int)cache->items_lru.count,
+			cache->cache.info.name, (int)lws_dll2_count(&cache->items_lru),
 			item ? (unsigned long long)item->expiry : 0ull);
 #endif
 

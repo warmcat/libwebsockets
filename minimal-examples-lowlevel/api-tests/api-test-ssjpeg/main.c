@@ -44,7 +44,7 @@ static void
 rasterize(lws_sorted_usec_list_t *sul)
 {
 	lws_dlo_rasterize_t *rast = lws_container_of(sul, lws_dlo_rasterize_t, sul);
-	lws_flow_t *flow = lws_container_of(rast->owner.head, lws_flow_t, list);
+	lws_flow_t *flow = lws_container_of(lws_dll2_get_head(&rast->owner), lws_flow_t, list);
 	myss_t *m = lws_container_of(flow, myss_t, flow);
 	const uint8_t *pix = NULL;
 	lws_stateful_ret_t r;
@@ -132,7 +132,7 @@ static lws_ss_state_return_t
 myss_rx(void *userobj, const uint8_t *buf, size_t len, int flags)
 {
 	myss_t *m = (myss_t *)userobj;
-	lws_dlo_rasterize_t *rast1 = lws_container_of(m->flow.list.owner,
+	lws_dlo_rasterize_t *rast1 = lws_dll2_owner_container(&m->flow.list,
 						lws_dlo_rasterize_t, owner);
 
 	if (len && lws_buflist_append_segment(&m->flow.bl, buf, len) < 0)

@@ -124,7 +124,7 @@ __lws_lc_tag(struct lws_context *context, lws_lifecycle_group_t *grp,
 	lwsl_refcount_cx(lc->log_cx, 1);
 
 #if defined(LWS_LOG_TAG_LIFECYCLE)
-	lwsl_cx_info(context, " ++ %s (%d)", lc->gutag, (int)grp->owner.count);
+	lwsl_cx_info(context, " ++ %s (%d)", lc->gutag, (int)lws_dll2_count(&grp->owner));
 #endif
 }
 
@@ -176,7 +176,7 @@ __lws_lc_untag(struct lws_context *context, lws_lifecycle_t *lc)
 		return;
 	}
 
-	if (!lc->list.owner) { /* we already untagged this object... */
+	if (!lws_dll2_owner(&lc->list)) { /* we already untagged this object... */
 		lwsl_cx_err(context, "%s untagged twice", lc->gutag);
 		assert(0);
 		return;
@@ -190,7 +190,7 @@ __lws_lc_untag(struct lws_context *context, lws_lifecycle_t *lc)
 		     humanize_schema_us) > 0)
 
 	lwsl_cx_info(context, " -- %s (%d) %s", lc->gutag,
-		    (int)lc->list.owner->count - 1, buf);
+		    (int)lws_dll2_count(lws_dll2_owner(&lc->list)) - 1, buf);
 #endif
 
 	lws_dll2_remove(&lc->list);

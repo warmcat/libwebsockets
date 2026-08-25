@@ -1253,7 +1253,7 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	h->fic.name = "ss";
 	lws_xos_init(&h->fic.xos, lws_xos(&context->fic.xos));
-	if (ssi->fic.fi_owner.count)
+	if (lws_dll2_count(&ssi->fic.fi_owner))
 		lws_fi_import(&h->fic, &ssi->fic);
 
 	lws_fi_inherit_copy(&h->fic, &context->fic, "ss", ssi->streamtype);
@@ -1288,7 +1288,7 @@ lws_ss_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 					 */
 
 					if (sn->info.state(h + 1, h, LWSSSCS_SINK_JOIN,
-							    sn->accepts.count)) {
+							    lws_dll2_count(&sn->accepts))) {
 						lwsl_ss_notice(h, "sink rejected");
 						goto fail_creation;
 					}
@@ -1849,7 +1849,7 @@ void
 lws_ss_server_foreach_client(struct lws_ss_handle *h, lws_sssfec_cb cb,
 			     void *arg)
 {
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, h->src_list.head) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&h->src_list)) {
 		struct lws_ss_handle *hh =
 			lws_container_of(d, struct lws_ss_handle, cli_list);
 
@@ -2192,7 +2192,7 @@ lws_ss_assert_extant(struct lws_context *cx, int tsi, struct lws_ss_handle *h)
 {
 	struct lws_context_per_thread *pt = &cx->pt[tsi];
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, pt->ss_owner.head) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&pt->ss_owner)) {
 		struct lws_ss_handle *h1 = lws_container_of(d,
 						struct lws_ss_handle, list);
 
@@ -2215,9 +2215,9 @@ lws_ss_dump_extant(struct lws_context *cx, int tsi)
 #if (_LWS_ENABLED_LOGS & LLL_NOTICE)
 	struct lws_context_per_thread *pt = &cx->pt[tsi];
 
-	lwsl_cx_notice(cx, "pt%d SS Rollcall (%d members)", tsi, (int)pt->ss_owner.count);
+	lwsl_cx_notice(cx, "pt%d SS Rollcall (%d members)", tsi, (int)lws_dll2_count(&pt->ss_owner));
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, pt->ss_owner.head) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&pt->ss_owner)) {
 		struct lws_ss_handle *h = lws_container_of(d,
 						struct lws_ss_handle, list);
 

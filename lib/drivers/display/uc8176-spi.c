@@ -867,8 +867,8 @@ go_l:
 		 */
 
 		priv->partial = 0;
-		if (ids && ids->count) {
-			id = lws_container_of(ids->head, lws_display_id_t, list);
+		if (ids && lws_dll2_count(ids)) {
+			id = lws_container_of(lws_dll2_get_head(ids), lws_display_id_t, list);
 			if (id->exists)
 				priv->partial = 1;
 		}

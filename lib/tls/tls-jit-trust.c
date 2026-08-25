@@ -198,7 +198,7 @@ lws_tls_jit_trust_sort_kids(struct lws *wsi, lws_tls_kid_chain_t *ch)
 	 */
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
-			      wsi->a.context->jit_inflight.head) {
+			      lws_dll2_get_head(&wsi->a.context->jit_inflight)) {
 		inf = lws_container_of(d, lws_tls_jit_inflight_t, list);
 
 		if (!strcmp((const char *)&inf[1], host))
@@ -438,7 +438,7 @@ lws_tls_jit_trust_got_cert_cb(struct lws_context *cx, void *got_opaque,
 	 * trusted CA, it will just cause temporary conn fail.
 	 */
 
-	lws_start_foreach_dll(struct lws_dll2 *, e, cx->jit_inflight.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, e, lws_dll2_get_head(&cx->jit_inflight)) {
 		lws_tls_jit_inflight_t *i = lws_container_of(e,
 						lws_tls_jit_inflight_t, list);
 		if (i == inf) {

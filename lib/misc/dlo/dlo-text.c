@@ -403,7 +403,7 @@ lws_font_choose(struct lws_context *cx, const lws_font_choice_t *hints)
 	struct track t;
 
 	t.hints			= hints;
-	t.best			= (const lws_display_font_t *)cx->fonts.head;
+	t.best			= (const lws_display_font_t *)lws_dll2_get_head(&cx->fonts);
 	t.best_score		= 99999999;
 
 	if (t.hints)

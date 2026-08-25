@@ -35,7 +35,7 @@ __lws_peer_remove_from_peer_wait_list(struct lws_context *context,
 
 	lws_dll2_remove(&peer->wait_list);
 
-	if (!context->peer_wait_owner.head)
+	if(lws_dll2_is_empty(&context->peer_wait_owner))
 		lws_sul_cancel(&context->pt[0].sul_peer_limits);
 }
 
@@ -60,7 +60,7 @@ __lws_peer_add_to_peer_wait_list(struct lws_context *context,
 
 	lws_dll2_add_head(&peer->wait_list, &context->peer_wait_owner);
 
-	if (!context->pt[0].sul_peer_limits.list.owner)
+	if (!lws_dll2_owner(&context->pt[0].sul_peer_limits.list))
 		lws_sul_schedule(context, 0, &context->pt[0].sul_peer_limits,
 				lws_sul_peer_limits_cb, 10 * LWS_US_PER_SEC);
 }
@@ -187,7 +187,7 @@ lws_peer_cull_peer_wait_list(struct lws_context *context)
 	context->next_cull = t + 5;
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				   context->peer_wait_owner.head) {
+				   lws_dll2_get_head(&context->peer_wait_owner)) {
 		df = lws_container_of(d, struct lws_peer, wait_list);
 
 		if (!(t - df->time_closed_all > 10))

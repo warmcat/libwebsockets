@@ -799,7 +799,7 @@ lws_create_vhost(struct lws_context *context,
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	vh->fic.name = "vh";
-	if (info->fic.fi_owner.count)
+	if (lws_dll2_count(&info->fic.fi_owner))
 		/*
 		 * This moves all the lws_fi_t from info->fi to the vhost fi,
 		 * leaving it empty
@@ -1021,7 +1021,7 @@ lws_create_vhost(struct lws_context *context,
 	 * 3: async dns protocol (first vhost only)
 	 */
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
-	if (!context->vhost_list_owner.head) {
+	if(lws_dll2_is_empty(&context->vhost_list_owner)) {
 		uint8_t seen = 0;
 
 		for (n = 0; n < m; n++)
@@ -1265,7 +1265,7 @@ lws_create_vhost(struct lws_context *context,
 #endif
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
-	n = !!context->vhost_list_owner.head;
+	n = !!lws_dll2_get_head(&context->vhost_list_owner);
 #endif
 
 	lws_dll2_add_tail(&vh->vhost_list, &context->vhost_list_owner);
@@ -1453,7 +1453,7 @@ __lws_vhost_destroy_pt_wsi_dieback_start(struct lws_vhost *vh)
 	 * (and will otherwise be missed for destruction)
 	 */
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-			      vh->vh_awaiting_socket_owner.head) {
+			      lws_dll2_get_head(&vh->vh_awaiting_socket_owner)) {
 		struct lws *w =
 			lws_container_of(d, struct lws, vh_awaiting_socket);
 
@@ -2042,8 +2042,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 #endif
 
 	if (!lws_dll2_is_detached(&wsi->dll2_cli_txn_queue)) {
-		struct lws *w = lws_container_of(
-				wsi->dll2_cli_txn_queue.owner, struct lws,
+		struct lws *w = lws_dll2_owner_container(&wsi->dll2_cli_txn_queue, struct lws,
 				dll2_cli_txn_queue_owner);
 		*nwsi = w;
 
@@ -2066,7 +2065,7 @@ lws_vhost_active_conns(struct lws *wsi, struct lws **nwsi, const char *adsin)
 	lws_vhost_lock(wsi->a.vhost); /* ----------------------------------- { */
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				   wsi->a.vhost->dll_cli_active_conns_owner.head) {
+				   lws_dll2_get_head(&wsi->a.vhost->dll_cli_active_conns_owner)) {
 		struct lws *w = lws_container_of(d, struct lws,
 						 dll_cli_active_conns);
 

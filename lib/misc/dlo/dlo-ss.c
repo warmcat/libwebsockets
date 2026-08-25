@@ -69,8 +69,8 @@ lws_lhp_image_dimensions_cb(lws_sorted_usec_list_t *sul)
 		lws_dlo_contents(dlo, &dim);
 		lws_display_dlo_adjust_dims(dlo, &dim);
 
-		if (dlo->list.owner) {
-			dlo = lws_container_of(dlo->list.owner, lws_dlo_t, children);
+		if (lws_dll2_owner(&dlo->list)) {
+			dlo = lws_dll2_owner_container(&dlo->list, lws_dlo_t, children);
 
 			lws_dlo_contents(dlo, &dim);
 			lws_display_dlo_adjust_dims(dlo, &dim);

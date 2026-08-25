@@ -310,8 +310,10 @@ auth_dns_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	free(buf);
 
 	/* Limit cache */
-	while (vhd->zones.count > 0 && (uint32_t)vhd->zones.count >= vhd->cache_max_zones) {
-		struct auth_dns_cache_entry *old = lws_container_of(vhd->zones.tail, struct auth_dns_cache_entry, list);
+	while (lws_dll2_count(
+		&vhd->zones) > 0 && (uint32_t)lws_dll2_count(&vhd->zones) >= vhd->cache_max_zones) {
+		struct auth_dns_cache_entry *old = lws_container_of(lws_dll2_get_tail(
+			&vhd->zones), struct auth_dns_cache_entry, list);
 		char dpath[1024];
 		lws_snprintf(dpath, sizeof(dpath), "%s/%s", dirpath, old->filename);
 		unlink(dpath);
@@ -423,7 +425,7 @@ auth_dns_local_zone_cb(void *opaque, const char *domain, const char *payload_pat
 					int serial_is_newer = 1;
 
 					/* Remove old versions from memory cache */
-					lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->zones.head) {
+					lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->zones)) {
 						struct auth_dns_cache_entry *old = lws_container_of(d, struct auth_dns_cache_entry, list);
 						if (!strncmp(old->filename, clean_origin, (size_t)col) && old->filename[col] == '_') {
 							if ((int32_t)((uint32_t)serial - (uint32_t)old->serial) <= 0) {
@@ -452,8 +454,10 @@ auth_dns_local_zone_cb(void *opaque, const char *domain, const char *payload_pat
 					}
 
 					/* Enforce cache limits */
-					while (vhd->zones.count > 0 && (uint32_t)vhd->zones.count >= vhd->cache_max_zones) {
-						struct auth_dns_cache_entry *old = lws_container_of(vhd->zones.tail, struct auth_dns_cache_entry, list);
+					while (lws_dll2_count(
+						&vhd->zones) > 0 && (uint32_t)lws_dll2_count(&vhd->zones) >= vhd->cache_max_zones) {
+						struct auth_dns_cache_entry *old = lws_container_of(lws_dll2_get_tail(
+							&vhd->zones), struct auth_dns_cache_entry, list);
 						char dpath[1024];
 						if (tzdir[0]) {
 							lws_snprintf(dpath, sizeof(dpath), "%s/%s", tzdir, old->filename);
@@ -481,10 +485,10 @@ auth_dns_local_zone_cb(void *opaque, const char *domain, const char *payload_pat
 						memset(&z, 0, sizeof(z)); /* Prevent free_zone locally */
 
 						/* Safely repoint all child elements to the new heap owner instead of the original stack address */
-						lws_start_foreach_dll(struct lws_dll2 *, d, ce->zone.rrset_list.head) {
+						lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&ce->zone.rrset_list)) {
 							struct auth_dns_rrset *rs = lws_container_of(d, struct auth_dns_rrset, list);
 							d->owner = &ce->zone.rrset_list;
-							lws_start_foreach_dll(struct lws_dll2 *, d2, rs->rr_list.head) {
+							lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&rs->rr_list)) {
 								d2->owner = &rs->rr_list;
 							} lws_end_foreach_dll(d2);
 						} lws_end_foreach_dll(d);
@@ -529,7 +533,7 @@ auth_dns_fetch_cb(void *opaque, const char *domain, int status)
 		 */
 	}
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->pending_queries.head) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->pending_queries)) {
 		struct pending_dns_query *q = lws_container_of(d, struct pending_dns_query, list);
 		if (!strcmp(q->domain, domain)) {
 			lws_sul_cancel(&q->sul_timeout);
@@ -563,7 +567,7 @@ dnsbl_cache_add(struct per_vhost_data__auth_dns *vhd, const char *target, int is
 	struct dnsbl_cache_entry *c;
 
 	/* Search if already exists */
-	lws_start_foreach_dll(struct lws_dll2 *, d, vhd->dnsbl_cache.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->dnsbl_cache)) {
 		c = lws_container_of(d, struct dnsbl_cache_entry, list);
 		if (!strcmp(c->target, target)) {
 			c->is_blacklisted = is_blacklisted;
@@ -573,8 +577,8 @@ dnsbl_cache_add(struct per_vhost_data__auth_dns *vhd, const char *target, int is
 	} lws_end_foreach_dll(d);
 
 	/* Limit cache size */
-	if (vhd->dnsbl_cache.count > 1024) {
-		c = lws_container_of(vhd->dnsbl_cache.tail, struct dnsbl_cache_entry, list);
+	if (lws_dll2_count(&vhd->dnsbl_cache) > 1024) {
+		c = lws_container_of(lws_dll2_get_tail(&vhd->dnsbl_cache), struct dnsbl_cache_entry, list);
 		lws_sul_cancel(&c->sul_expire);
 		lws_dll2_remove(&c->list);
 		free(c);
@@ -594,7 +598,7 @@ dnsbl_cache_add(struct per_vhost_data__auth_dns *vhd, const char *target, int is
 static int
 dnsbl_cache_lookup(struct per_vhost_data__auth_dns *vhd, const char *target, int *is_blacklisted)
 {
-	lws_start_foreach_dll(struct lws_dll2 *, d, vhd->dnsbl_cache.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->dnsbl_cache)) {
 		struct dnsbl_cache_entry *c = lws_container_of(d, struct dnsbl_cache_entry, list);
 		if (!strcmp(c->target, target)) {
 			*is_blacklisted = c->is_blacklisted;
@@ -616,7 +620,7 @@ auth_dns_evict_cb(lws_sorted_usec_list_t *sul)
 	else
 		return;
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->zones.head) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->zones)) {
 		struct auth_dns_cache_entry *ce = lws_container_of(d, struct auth_dns_cache_entry, list);
 		if ((ce->ttl_expiry && now >= ce->ttl_expiry) ||
 		    (ce->sig_expiry && now >= ce->sig_expiry)) {
@@ -842,7 +846,7 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		{
 			lws_sul_cancel(&vhd->sul_evict);
 
-			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->zones.head) {
+			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->zones)) {
 				struct auth_dns_cache_entry *ce = lws_container_of(d, struct auth_dns_cache_entry, list);
 				lws_sul_cancel(&ce->sul_subscribe);
 				lws_auth_dns_free_zone(&ce->zone);
@@ -850,7 +854,7 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				free(ce);
 			} lws_end_foreach_dll_safe(d, d1);
 
-			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->pending_queries.head) {
+			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->pending_queries)) {
 				struct pending_dns_query *q = lws_container_of(d, struct pending_dns_query, list);
 				lws_dll2_remove(&q->list);
 				if (vhd->dht_ops && vhd->dht_ops->fetch_zone) {
@@ -865,14 +869,14 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				free(q);
 			} lws_end_foreach_dll_safe(d, d1);
 
-			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->pending_dnsbl.head) {
+			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->pending_dnsbl)) {
 				struct pending_dnsbl_query *q = lws_container_of(d, struct pending_dnsbl_query, list);
 				lws_sul_cancel(&q->sul_timeout);
 				lws_dll2_remove(&q->list);
 				free(q);
 			} lws_end_foreach_dll_safe(d, d1);
 
-			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->dnsbl_cache.head) {
+			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->dnsbl_cache)) {
 				struct dnsbl_cache_entry *c = lws_container_of(d, struct dnsbl_cache_entry, list);
 				lws_sul_cancel(&c->sul_expire);
 				lws_dll2_remove(&c->list);
@@ -883,7 +887,7 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 	case LWS_CALLBACK_RAW_CLOSE:
 		if (vhd) {
-			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->pending_queries.head) {
+			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->pending_queries)) {
 				struct pending_dns_query *q = lws_container_of(d, struct pending_dns_query, list);
 				if (q->wsi == wsi && q->is_tcp) {
 					q->wsi = NULL;
@@ -1038,7 +1042,7 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		struct auth_dns_cache_entry *matched_ce = NULL;
 		struct auth_dns_rrset *found_rs = NULL;
 
-		lws_start_foreach_dll(struct lws_dll2 *, d, vhd->zones.head) {
+		lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->zones)) {
 			struct auth_dns_cache_entry *ce = lws_container_of(d, struct auth_dns_cache_entry, list);
 			int ql = (int)strlen(qname);
 			int ol = (int)strlen(ce->zone.origin);
@@ -1091,14 +1095,14 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				int ip_domains_count = 0;
 				int ip_total_queries = 0;
 
-				lws_start_foreach_dll(struct lws_dll2 *, d, vhd->pending_queries.head) {
+				lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->pending_queries)) {
 					struct pending_dns_query *q = lws_container_of(d, struct pending_dns_query, list);
 
 					if (!strcmp(q->domain, base))
 						is_already_fetching_globally = 1;
 
 					int is_unique_global = 1;
-					lws_start_foreach_dll(struct lws_dll2 *, d2, vhd->pending_queries.head) {
+					lws_start_foreach_dll(struct lws_dll2 *, d2, lws_dll2_get_head(&vhd->pending_queries)) {
 						if (d2 == d) break;
 						struct pending_dns_query *q2 = lws_container_of(d2, struct pending_dns_query, list);
 						if (!strcmp(q->domain, q2->domain)) {
@@ -1145,7 +1149,7 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 					goto send_refused;
 				}
 
-				if ((uint32_t)vhd->pending_queries.count >= 1024) {
+				if ((uint32_t)lws_dll2_count(&vhd->pending_queries) >= 1024) {
 					lwsl_notice("dht pending queries absolute queue limit (1024) reached for %s from %s\n", base, peer_ip);
 					goto send_refused;
 				}
@@ -1236,8 +1240,9 @@ send_nxdomain:
 				rp += qlen;
 
 				/* Serialize SOA */
-				if (soa_rs && soa_rs->rr_list.head) {
-					struct auth_dns_rr *soa_rr = lws_container_of(soa_rs->rr_list.head, struct auth_dns_rr, list);
+				if (soa_rs && lws_dll2_get_head(&soa_rs->rr_list)) {
+					struct auth_dns_rr *soa_rr = lws_container_of(lws_dll2_get_head(
+						&soa_rs->rr_list), struct auth_dns_rr, list);
 					if ((size_t)(rp - dbuf) + 16 + soa_rr->wire_rdata_len <= max_buf) {
 						int ql = (int)strlen(qname);
 						int ol = (int)strlen(matched_ce->zone.origin);
@@ -1264,8 +1269,9 @@ send_nxdomain:
 							/* check if it's an RRSIG for NSEC3 */
 							int is_nsec3_rrsig = 0;
 							if (rs->type == 46) {
-								if (rs->rr_list.head) {
-									struct auth_dns_rr *rr = lws_container_of(rs->rr_list.head, struct auth_dns_rr, list);
+								if(!lws_dll2_is_empty(&rs->rr_list)) {
+									struct auth_dns_rr *rr = lws_container_of(lws_dll2_get_head(
+										&rs->rr_list), struct auth_dns_rr, list);
 									if (rr->wire_rdata_len >= 2 && ((rr->wire_rdata[0] << 8) | rr->wire_rdata[1]) == 50)
 										is_nsec3_rrsig = 1;
 								}

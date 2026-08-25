@@ -1011,11 +1011,11 @@ lws_threadpool_dequeue(struct lws *wsi) /* deprecated */
 {
 	struct lws_threadpool_task *task;
 
-	if (!wsi->tp_task_owner.count)
+	if (!lws_dll2_count(&wsi->tp_task_owner))
 		return 0;
-	assert(wsi->tp_task_owner.count != 1);
+	assert(lws_dll2_count(&wsi->tp_task_owner) != 1);
 
-	task = lws_container_of(wsi->tp_task_owner.head,
+	task = lws_container_of(lws_dll2_get_head(&wsi->tp_task_owner),
 				struct lws_threadpool_task, list);
 
 	return lws_threadpool_dequeue_task(task);
@@ -1146,14 +1146,14 @@ lws_threadpool_task_status_wsi(struct lws *wsi,
 {
 	struct lws_threadpool_task *task;
 
-	if (!wsi->tp_task_owner.count) {
+	if (!lws_dll2_count(&wsi->tp_task_owner)) {
 		lwsl_notice("%s: wsi has no task, ~=FINISHED\n", __func__);
 		return LWS_TP_STATUS_FINISHED;
 	}
 
-	assert(wsi->tp_task_owner.count == 1); /* see deprecation docs in hdr */
+	assert(lws_dll2_count(&wsi->tp_task_owner) == 1); /* see deprecation docs in hdr */
 
-	task = lws_container_of(wsi->tp_task_owner.head,
+	task = lws_container_of(lws_dll2_get_head(&wsi->tp_task_owner),
 				struct lws_threadpool_task, list);
 
 	*_task = task;
@@ -1199,16 +1199,16 @@ lws_threadpool_foreach_task_wsi(struct lws *wsi, void *user,
 {
 	struct lws_threadpool_task *task1;
 
-	if (wsi->tp_task_owner.head == NULL)
+	if (lws_dll2_is_empty(&wsi->tp_task_owner))
 		return 0;
 
-	task1 = lws_container_of(wsi->tp_task_owner.head,
+	task1 = lws_container_of(lws_dll2_get_head(&wsi->tp_task_owner),
 				 struct lws_threadpool_task, list);
 
 	pthread_mutex_lock(&task1->tp->lock); /* ================ tpool lock */
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				   wsi->tp_task_owner.head) {
+				   lws_dll2_get_head(&wsi->tp_task_owner)) {
 		struct lws_threadpool_task *task = lws_container_of(d,
 					struct lws_threadpool_task, list);
 
@@ -1258,10 +1258,10 @@ lws_threadpool_wsi_closing(struct lws *wsi)
 struct lws_threadpool_task *
 lws_threadpool_get_task_wsi(struct lws *wsi)
 {
-	if (wsi->tp_task_owner.head == NULL)
+	if (lws_dll2_is_empty(&wsi->tp_task_owner))
 		return NULL;
 
-	return lws_container_of(wsi->tp_task_owner.head,
+	return lws_container_of(lws_dll2_get_head(&wsi->tp_task_owner),
 				 struct lws_threadpool_task, list);
 }
 

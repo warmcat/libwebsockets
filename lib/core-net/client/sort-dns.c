@@ -574,7 +574,7 @@ lws_sort_dns_dump(struct lws *wsi)
 
 	(void)n; /* nologs */
 
-	if (!lws_dll2_get_head(&wsi->dns_sorted_list))
+	if(lws_dll2_is_empty(&wsi->dns_sorted_list))
 		lwsl_wsi_notice(wsi, "empty");
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
@@ -677,7 +677,7 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 		 * we don't have a way to use it if we listed it
 		 */
 
-		if (pt->context->routing_table.count && !wsi->do_bind) {
+		if (lws_dll2_count(&pt->context->routing_table) && !wsi->do_bind) {
 
 			estr = _lws_route_est_outgoing(pt, &ds->dest);
 			if (!estr) {
@@ -774,7 +774,7 @@ lws_sort_dns(struct lws *wsi, const struct addrinfo *result)
 
 		/* bestsrc is the best source route, or NULL if none */
 
-		if (!bestsrc && pt->context->routing_table.count) {
+		if (!bestsrc && lws_dll2_count(&pt->context->routing_table)) {
 			/* drop it, no usable source route */
 			lws_free(ds);
 			goto next;
@@ -817,5 +817,5 @@ next:
 	lws_sort_dns_dump(wsi);
 #endif
 
-	return !wsi->dns_sorted_list.count;
+	return !lws_dll2_count(&wsi->dns_sorted_list);
 }

@@ -29,7 +29,7 @@
 static lws_fi_priv_t *
 lws_fi_lookup(const lws_fi_ctx_t *fic, const char *name)
 {
-	lws_start_foreach_dll(struct lws_dll2 *, p, fic->fi_owner.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(&fic->fi_owner)) {
 		lws_fi_priv_t *pv = lws_container_of(p, lws_fi_priv_t, list);
 
 		if (!strcmp(pv->fi.name, name))
@@ -181,7 +181,7 @@ lws_fi_import(lws_fi_ctx_t *fic_dest, const lws_fi_ctx_t *fic_src)
 	lws_xos_init(&fic_dest->xos, lws_xos((lws_xos_t *)&fic_src->xos));
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1,
-				   fic_src->fi_owner.head) {
+				   lws_dll2_get_head(&fic_src->fi_owner)) {
 		lws_fi_priv_t *pv = lws_container_of(p, lws_fi_priv_t, list);
 
 		lws_dll2_remove(&pv->list);
@@ -224,7 +224,7 @@ lws_fi_inherit_copy(lws_fi_ctx_t *fic_dest, const lws_fi_ctx_t *fic_src,
 		vl = strlen(value);
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1,
-				   fic_src->fi_owner.head) {
+				   lws_dll2_get_head(&fic_src->fi_owner)) {
 		lws_fi_priv_t *pv = lws_container_of(p, lws_fi_priv_t, list);
 		size_t nl = strlen(pv->fi.name);
 
@@ -250,7 +250,7 @@ void
 lws_fi_destroy(const lws_fi_ctx_t *fic)
 {
 	lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1,
-				   fic->fi_owner.head) {
+				   lws_dll2_get_head(&fic->fi_owner)) {
 		lws_fi_priv_t *pv = lws_container_of(p, lws_fi_priv_t, list);
 
 		if (pv->fi.type == LWSFI_PATTERN_ALLOC && pv->fi.pattern) {

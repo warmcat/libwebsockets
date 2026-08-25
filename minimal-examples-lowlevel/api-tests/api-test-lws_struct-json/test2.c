@@ -155,7 +155,7 @@ static int
 t2_configs_dump(t2_configs_t *t2cs)
 {
 	lwsl_notice("%s: number of configs: %d\n", __func__,
-		    t2cs->configs.count);
+		    lws_dll2_count(&t2cs->configs));
 
 	lws_dll2_foreach_safe(&t2cs->configs, NULL, t2_config_dump);
 

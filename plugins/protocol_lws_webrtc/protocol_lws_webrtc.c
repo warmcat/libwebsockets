@@ -2021,7 +2021,7 @@ lws_shared_webrtc_callback(struct lws *wsi, enum lws_callback_reasons reason,
 	static struct pss_webrtc *
 webrtc_find_session(struct vhd_webrtc *vhd, const struct sockaddr_in *sin)
 {
-	lws_start_foreach_dll(struct lws_dll2 *, d, vhd->sessions.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->sessions)) {
 		struct pss_webrtc *s = lws_container_of(d, struct pss_webrtc, list);
 		if (s->media && s->media->has_peer_sa46) {
 			uint32_t stored_a = 0;
@@ -2089,7 +2089,7 @@ webrtc_handle_stun(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrtc **
 					const char *u_dest = username; // Server Ufrag (Ours)
 					const char *u_src = colon + 1; // Client Ufrag (Theirs)
 
-					lws_start_foreach_dll(struct lws_dll2 *, d, vhd->sessions.head) {
+					lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->sessions)) {
 						struct pss_webrtc *s = lws_container_of(d, struct pss_webrtc, list);
 						// Match first part against our ufrag
 						if (!strcmp(s->ice_ufrag, u_dest)) {
@@ -2114,7 +2114,7 @@ webrtc_handle_stun(struct lws *wsi, struct vhd_webrtc *vhd, struct pss_webrtc **
 		}
 
 		if (!pss) {
-			lws_start_foreach_dll(struct lws_dll2 *, d, vhd->sessions.head) {
+			lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->sessions)) {
 				struct pss_webrtc *s = lws_container_of(d, struct pss_webrtc, list);
 				webrtc_pss_log(s, "Received STUN packet that could not be mapped (found_username=%d)\n", found_username);
 			} lws_end_foreach_dll(d);

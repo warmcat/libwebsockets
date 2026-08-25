@@ -676,7 +676,7 @@ auth_record_strike(struct per_vhost_data__auth_server *vhd, const char *ip)
 	}
 
 	/* Find existing strike record */
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->ip_strikes.head) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->ip_strikes)) {
 		auth_server_strike_t *s = lws_container_of(d, auth_server_strike_t, list);
 		if (!strcmp(s->ip, ip)) {
 			strike = s;
@@ -685,9 +685,10 @@ auth_record_strike(struct per_vhost_data__auth_server *vhd, const char *ip)
 	} lws_end_foreach_dll_safe(d, d1);
 
 	if (!strike) {
-		if (vhd->ip_strikes.count >= 128) {
+		if (lws_dll2_count(&vhd->ip_strikes) >= 128) {
 			/* LRU eviction */
-			auth_server_strike_t *s = lws_container_of(vhd->ip_strikes.head, auth_server_strike_t, list);
+			auth_server_strike_t *s = lws_container_of(lws_dll2_get_head(
+				&vhd->ip_strikes), auth_server_strike_t, list);
 			lws_dll2_remove(&s->list);
 			free(s);
 		}
@@ -737,7 +738,7 @@ auth_record_strike(struct per_vhost_data__auth_server *vhd, const char *ip)
 static void
 auth_clear_strike(struct per_vhost_data__auth_server *vhd, const char *ip)
 {
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->ip_strikes.head) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->ip_strikes)) {
 		auth_server_strike_t *s = lws_container_of(d, auth_server_strike_t, list);
 		if (!strcmp(s->ip, ip)) {
 			lws_dll2_remove(&s->list);
@@ -2411,13 +2412,13 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				sqlite3_close(vhd->db);
 			lws_jwk_destroy(&vhd->jwk);
 
-			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->ip_strikes.head) {
+			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->ip_strikes)) {
 				auth_server_strike_t *s = lws_container_of(d, auth_server_strike_t, list);
 				lws_dll2_remove(&s->list);
 				free(s);
 			} lws_end_foreach_dll_safe(d, d1);
 
-			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->ip_bans.head) {
+			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->ip_bans)) {
 				auth_server_ban_t *b = lws_container_of(d, auth_server_ban_t, list);
 				lws_dll2_remove(&b->list);
 				free(b);
@@ -2434,7 +2435,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 			/* Rapid ban-check */
 			int is_banned = 0;
-			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->ip_bans.head) {
+			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->ip_bans)) {
 				auth_server_ban_t *b = lws_container_of(d, auth_server_ban_t, list);
 				if (!strcmp(b->ip, peer)) {
 					if (now > b->banned_until) {
@@ -2769,7 +2770,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				int strikes = 0;
 				lws_get_peer_simple(wsi, peer, sizeof(peer));
 
-				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->ip_strikes.head) {
+				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->ip_strikes)) {
 					auth_server_strike_t *s = lws_container_of(d, auth_server_strike_t, list);
 					if (!strcmp(s->ip, peer)) {
 						if ((uint64_t)time(NULL) - s->last_strike > 120)

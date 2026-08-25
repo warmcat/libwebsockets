@@ -109,7 +109,7 @@ req_cb(struct lejp_ctx *ctx, char reason)
 		 * errors is only the current batch entry.
 		 */
 
-		jrpc = lws_container_of(r->list.owner, lws_jrpc_t, req_owner);
+		jrpc = lws_dll2_owner_container(&r->list, lws_jrpc_t, req_owner);
 		r->pmethod = lws_jrpc_method_lookup(jrpc, r->method);
 		if (!r->pmethod || !r->pmethod->cb)
 			/*
@@ -129,7 +129,7 @@ req_cb(struct lejp_ctx *ctx, char reason)
 		if (!r->has_jrpc_member)
 			goto fail_invalid_request;
 		if (r->method[0] && !r->pmethod) {
-			jrpc = lws_container_of(r->list.owner, lws_jrpc_t,
+			jrpc = lws_dll2_owner_container(&r->list, lws_jrpc_t,
 						req_owner);
 			r->pmethod = lws_jrpc_method_lookup(jrpc, r->method);
 			if (!r->pmethod || !r->pmethod->cb)
@@ -375,7 +375,7 @@ lws_jrpc_destroy(lws_jrpc_t **_jrpc)
 		return;
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1,
-				   jrpc->req_owner.head) {
+				   lws_dll2_get_head(&jrpc->req_owner)) {
 		lws_jrpc_obj_t *r = lws_container_of(p, lws_jrpc_obj_t, list);
 
 		lws_jrpc_obj_destroy(&r);

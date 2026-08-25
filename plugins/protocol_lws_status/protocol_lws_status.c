@@ -154,7 +154,7 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 				      lws_get_library_version(),
 				      pss->wss_over_h2,
 				      lws_canonical_hostname(vhd->context),
-				      (int)vhd->live_pss_list.count);
+				      (int)lws_dll2_count(&vhd->live_pss_list));
 			pss->walk = WALK_LIST;
 			pss->walk_next = lws_dll2_get_head(&vhd->live_pss_list);
 			break;
@@ -202,7 +202,7 @@ callback_lws_status(struct lws *wsi, enum lws_callback_reasons reason,
 						esc_ua);
 			}
 
-			pss->walk_next = pss->walk_next->next;
+			pss->walk_next = lws_dll2_get_next(pss->walk_next);
 			if (!pss->walk_next)
 				pss->walk = WALK_FINAL;
 			break;

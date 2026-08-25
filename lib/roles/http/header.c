@@ -653,7 +653,7 @@ lws_add_http_header_status(struct lws *wsi, unsigned int _code,
 		int quic_listening = 0;
 		while (vh) {
 			if (vh->listen_port == wsi->a.vhost->listen_port) {
-				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d_tmp, vh->listen_wsi.head) {
+				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d_tmp, lws_dll2_get_head(&vh->listen_wsi)) {
 					struct lws *lw = lws_container_of(d, struct lws, listen_list);
 					if (lw->role_ops && lw->role_ops->name &&
 					    !strcmp(lw->role_ops->name, "quic")) {

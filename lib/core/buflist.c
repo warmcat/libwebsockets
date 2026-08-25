@@ -368,7 +368,7 @@ lws_buflist2_append_segment(struct lws_buflist2_owner *owner, const uint8_t *buf
 			    size_t len)
 {
 	struct lws_buflist2 *nbuf;
-	int first = !owner->owner.head;
+	int first = !lws_dll2_get_head(&owner->owner);
 	size_t limit = owner->limit ? owner->limit : LWS_BUFLIST_OOM_LIMIT;
 
 	if (!buf)
@@ -407,7 +407,7 @@ int
 lws_buflist2_append_segment_take_ownership(struct lws_buflist2_owner *owner, uint8_t *buf, size_t len)
 {
 	struct lws_buflist2 *nbuf;
-	int first = !owner->owner.head;
+	int first = !lws_dll2_get_head(&owner->owner);
 	size_t limit = owner->limit ? owner->limit : LWS_BUFLIST_OOM_LIMIT;
 
 	if (!buf)
@@ -443,10 +443,10 @@ lws_buflist2_destroy_segment(struct lws_buflist2_owner *owner)
 {
 	struct lws_buflist2 *old;
 	
-	if (!owner->owner.head)
+	if(lws_dll2_is_empty(&owner->owner))
 		return 1;
 		
-	old = (struct lws_buflist2 *)owner->owner.head;
+	old = (struct lws_buflist2 *)lws_dll2_get_head(&owner->owner);
 	owner->total_len -= old->len;
 	lws_dll2_remove(&old->list);
 
@@ -454,13 +454,13 @@ lws_buflist2_destroy_segment(struct lws_buflist2_owner *owner)
 		lws_free(old->heap_alloc);
 	lws_free(old);
 
-	return !owner->owner.head; /* returns 1 if last segment just destroyed */
+	return !lws_dll2_get_head(&owner->owner); /* returns 1 if last segment just destroyed */
 }
 
 void
 lws_buflist2_destroy_all_segments(struct lws_buflist2_owner *owner)
 {
-	while (owner->owner.head)
+	while(!lws_dll2_is_empty(&owner->owner))
 		lws_buflist2_destroy_segment(owner);
 }
 
@@ -472,19 +472,19 @@ lws_buflist2_next_segment_len(struct lws_buflist2_owner *owner, uint8_t **buf)
 	if (buf)
 		*buf = NULL;
 
-	if (!owner->owner.head)
+	if(lws_dll2_is_empty(&owner->owner))
 		return 0;
 
-	b = (struct lws_buflist2 *)owner->owner.head;
+	b = (struct lws_buflist2 *)lws_dll2_get_head(&owner->owner);
 
-	if (!b->len && b->list.next)
+	if (!b->len && lws_dll2_get_next(&b->list))
 		if (lws_buflist2_destroy_segment(owner))
 			return 0;
 
-	if (!owner->owner.head)
+	if(lws_dll2_is_empty(&owner->owner))
 		return 0;
 		
-	b = (struct lws_buflist2 *)owner->owner.head;
+	b = (struct lws_buflist2 *)lws_dll2_get_head(&owner->owner);
 	assert(b->pos < b->len);
 
 	if (buf) {
@@ -502,10 +502,10 @@ lws_buflist2_use_segment(struct lws_buflist2_owner *owner, size_t len)
 {
 	struct lws_buflist2 *b;
 
-	if (!owner->owner.head)
+	if(lws_dll2_is_empty(&owner->owner))
 		return 0;
 		
-	b = (struct lws_buflist2 *)owner->owner.head;
+	b = (struct lws_buflist2 *)lws_dll2_get_head(&owner->owner);
 	assert(len);
 	assert(b->pos + len <= b->len);
 
@@ -531,10 +531,10 @@ lws_buflist2_fragment_use(struct lws_buflist2_owner *owner, uint8_t *buf,
 	size_t s;
 	struct lws_buflist2 *b;
 
-	if (!owner->owner.head)
+	if(lws_dll2_is_empty(&owner->owner))
 		return 0;
 		
-	b = (struct lws_buflist2 *)owner->owner.head;
+	b = (struct lws_buflist2 *)lws_dll2_get_head(&owner->owner);
 
 	s = b->len - b->pos;
 	if (s > len)
@@ -564,10 +564,10 @@ lws_buflist2_get_frag_start_or_NULL(struct lws_buflist2_owner *owner)
 {
 	struct lws_buflist2 *b;
 
-	if (!owner->owner.head)
+	if(lws_dll2_is_empty(&owner->owner))
 		return NULL;	/* there is no segment to work on */
 		
-	b = (struct lws_buflist2 *)owner->owner.head;
+	b = (struct lws_buflist2 *)lws_dll2_get_head(&owner->owner);
 
 	if (b->heap_alloc)
 		return b->heap_alloc;

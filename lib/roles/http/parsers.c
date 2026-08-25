@@ -51,7 +51,7 @@ _lws_create_ah(struct lws_context_per_thread *pt, ah_data_idx_t data_size)
 
 	lwsl_info("%s: created ah %p (size %d): pool length %u\n", __func__,
 		    ah, (int)data_size,
-		    (unsigned int)pt->http.ah_owner.count);
+		    (unsigned int)lws_dll2_count(&pt->http.ah_owner));
 
 	return ah;
 }
@@ -63,7 +63,7 @@ _lws_destroy_ah(struct lws_context_per_thread *pt, struct allocated_headers *ah)
 			lws_dll2_remove(&ah->list);
 			lwsl_info("%s: freed ah %p : pool length %u\n",
 				    __func__, ah,
-				    (unsigned int)pt->http.ah_owner.count);
+				    (unsigned int)lws_dll2_count(&pt->http.ah_owner));
 			/* Remove any dangling wsi references to the ah we are about to free */
 			if (ah->wsi) {
 				ah->wsi->http.ah = NULL;

@@ -104,7 +104,7 @@ custom_poll_run(custom_poll_ctx_t *cpcx)
 
 		lws_usec_t timeout_us = 2000000000, now = lws_now_usecs();
 
-		if (cpcx->scheduler.count) {
+		if (lws_dll2_count(&cpcx->scheduler)) {
 			lws_sorted_usec_list_t *sul = (lws_sorted_usec_list_t *)
 					lws_dll2_get_head(&cpcx->scheduler);
 			if (sul->us < now)

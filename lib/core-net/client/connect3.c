@@ -473,9 +473,9 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 		return wsi;
 
 	if (n < 0 &&  /* calling back with a problem */
-	    !wsi->dns_sorted_list.count && /* there's no results */
+	    !lws_dll2_count(&wsi->dns_sorted_list) && /* there's no results */
 	    !lws_socket_is_valid(wsi->desc.sockfd) && /* no attempt ongoing */
-	    !wsi->speculative_connect_owner.count /* no spec attempt */ ) {
+	    !lws_dll2_count(&wsi->speculative_connect_owner) /* no spec attempt */ ) {
 		lwsl_wsi_notice(wsi, "dns lookup failed %d", n);
 
 		/*
@@ -502,10 +502,11 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	struct lws_pollfd *pollfd = (struct lws_pollfd *)opaque;
 	lws_sockfd_type check_fd = pollfd ? pollfd->fd : LWS_SOCK_INVALID;
 
-	int is_quic_race = (wsi->role_ops && !strcmp(wsi->role_ops->name, "quic") && wsi->sul_h3_grace.list.owner);
+	int is_quic_race = (wsi->role_ops && !strcmp(wsi->role_ops->name, "quic") && lws_dll2_owner(
+		&wsi->sul_h3_grace.list));
 	if ((lwsi_state(wsi) == LRS_WAITING_CONNECT || (is_quic_race && pollfd != NULL)) &&
 	    (lws_socket_is_valid(wsi->desc.sockfd) || wsi->parallel_count > 0)) {
-		if (lwsi_state(wsi) == LRS_WAITING_CONNECT && !wsi->sul_connect_timeout.list.owner)
+		if (lwsi_state(wsi) == LRS_WAITING_CONNECT && !lws_dll2_owner(&wsi->sul_connect_timeout.list))
 			/* no ongoing timeout for one */
 			goto connect_to;
 
@@ -699,7 +700,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 			 * bookkeeping (position_in_fds_table).  The happy-eyeballs
 			 * timer is already gated on the "poll" loop where it is
 			 */
-			if (!wsi->dns_sorted_list.count ||
+			if (!lws_dll2_count(&wsi->dns_sorted_list) ||
 		    wsi->parallel_count >= LWS_MAX_PARALLEL_CONNS)
 			return wsi;
 		}
@@ -741,10 +742,10 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	 * We have a sorted dll2 list with the head one most preferable
 	 */
 
-	if (!wsi->dns_sorted_list.count)
+	if (!lws_dll2_count(&wsi->dns_sorted_list))
 		goto failed1;
 
-	while (wsi->dns_sorted_list.count) {
+	while (lws_dll2_count(&wsi->dns_sorted_list)) {
 		cce = "Unable to connect";
 
 	/*
@@ -1227,7 +1228,7 @@ ads_known:
 						 LWS_USEC_PER_SEC);
 
 		/* schedule happy eyeballs timer if we have more dns results and the event loop supports it */
-		if (wsi->dns_sorted_list.count) {
+		if (lws_dll2_count(&wsi->dns_sorted_list)) {
 			extern void lws_client_happy_eyeballs_cb(lws_sorted_usec_list_t *sul);
 			lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->sul_happy_eyeballs,
 					lws_client_happy_eyeballs_cb,
@@ -1298,7 +1299,7 @@ ads_known:
 			lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->sul_h3_grace,
 					 lws_client_h3_grace_cb, grace_us);
 
-			if (wsi->dns_sorted_list.count) {
+			if (lws_dll2_count(&wsi->dns_sorted_list)) {
 				extern void lws_client_happy_eyeballs_cb(lws_sorted_usec_list_t *sul);
 				lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->sul_happy_eyeballs,
 						 lws_client_happy_eyeballs_cb, 1);
@@ -1332,7 +1333,8 @@ conn_good:
 	}
 
 #if defined(LWS_WITH_CLIENT)
-	int is_quic_race = (wsi->role_ops && !strcmp(wsi->role_ops->name, "quic") && wsi->sul_h3_grace.list.owner);
+	int is_quic_race = (wsi->role_ops && !strcmp(wsi->role_ops->name, "quic") && lws_dll2_owner(
+		&wsi->sul_h3_grace.list));
 	if (!is_quic_race) {
 		/* kill all remaining parallel connections */
 		for (int i = 0; i < wsi->parallel_count; i++) {

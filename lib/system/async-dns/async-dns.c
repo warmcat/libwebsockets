@@ -536,7 +536,7 @@ callback_async_dns(struct lws *wsi, enum lws_callback_reasons reason,
 	case LWS_CALLBACK_RAW_WRITEABLE:
 		//lwsl_wsi_user(wsi, "LWS_CALLBACK_RAW_WRITEABLE");
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-					   dns->waiting.head) {
+					   lws_dll2_get_head(&dns->waiting)) {
 			lws_adns_q_t *q = lws_container_of(d, lws_adns_q_t,
 							   list);
 
@@ -560,7 +560,7 @@ callback_async_dns(struct lws *wsi, enum lws_callback_reasons reason,
 lws_async_dns_server_t *
 __lws_async_dns_server_find_wsi(lws_async_dns_t *dns, struct lws *wsi)
 {
-	lws_start_foreach_dll(struct lws_dll2 *, d, dns->nameservers.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&dns->nameservers)) {
 		lws_async_dns_server_t *s = lws_container_of(d,
 						lws_async_dns_server_t, list);
 
@@ -574,7 +574,7 @@ __lws_async_dns_server_find_wsi(lws_async_dns_t *dns, struct lws *wsi)
 lws_async_dns_server_t *
 __lws_async_dns_server_find(lws_async_dns_t *dns, const lws_sockaddr46 *sa46)
 {
-	lws_start_foreach_dll(struct lws_dll2 *, d, dns->nameservers.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&dns->nameservers)) {
 		lws_async_dns_server_t *s = lws_container_of(d,
 						lws_async_dns_server_t, list);
 
@@ -625,7 +625,7 @@ __lws_async_dns_server_destroy(lws_async_dns_server_t *dsrv)
 	if (dsrv->refcount)
 		return;
 
-	dns = (lws_async_dns_t *)dsrv->list.owner;
+	dns = (lws_async_dns_t *)lws_dll2_owner(&dsrv->list);
 
 	if (dns) {
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
@@ -699,7 +699,7 @@ lws_async_dns_create_server_wsi(struct lws_context *context)
 	lws_async_dns_t *dns = &context->async_dns;
 	char ads[48];
 
-	if (!context->vhost_list_owner.head) { /* coverity... system vhost always present */
+	if(lws_dll2_is_empty(&context->vhost_list_owner)) { /* coverity... system vhost always present */
 		lwsl_cx_err(context, "no system vhost");
 		return 1;
 	}
@@ -804,7 +804,7 @@ lws_async_dns_init(struct lws_context *context)
 	}
 
 	n = lws_plat_asyncdns_init(context, dns);
-	if (!dns->nameservers.count) {
+	if (!lws_dll2_count(&dns->nameservers)) {
 		lwsl_cx_warn(context, "no valid dns server, retry");
 
 		return 1;
@@ -858,7 +858,7 @@ void
 lws_adns_server_dump(lws_async_dns_server_t *dsrv)
 {
 #if (_LWS_ENABLED_LOGS & LLL_INFO)
-	lws_async_dns_t *dns = (lws_async_dns_t *)dsrv->list.owner;
+	lws_async_dns_t *dns = (lws_async_dns_t *)lws_dll2_owner(&dsrv->list);
 	char ads[64];
 
 	lws_sa46_write_numeric_address(&dsrv->sa46, ads, sizeof(ads));
@@ -886,7 +886,7 @@ lws_adns_dump(lws_async_dns_t *dns)
 		return;
 
 	lwsl_cx_info(dns->cx, "ADNS cache %u entries",
-			(unsigned int)dns->cached.count);
+			(unsigned int)lws_dll2_count(&dns->cached));
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			      lws_dll2_get_head(&dns->cached)) {
@@ -991,12 +991,12 @@ lws_async_dns_trim_cache(lws_async_dns_t *dns)
 {
 	lws_adns_cache_t *c1;
 
-	if (dns->cached.count + 1< MAX_CACHE_ENTRIES)
+	if (lws_dll2_count(&dns->cached) + 1< MAX_CACHE_ENTRIES)
 		return;
 
 	/* we want to make space for one new one */
 
-	if (!dns->cached.count)
+	if (!lws_dll2_count(&dns->cached))
 		return;
 
 	c1 = lws_container_of(lws_dll2_get_tail(&dns->cached),
@@ -1022,7 +1022,7 @@ ns_clean(struct lws_dll2 *d, void *user)
 {
 	lws_async_dns_server_t *dsrv = lws_container_of(d,
 					lws_async_dns_server_t, list);
-	lws_async_dns_t *dns = (lws_async_dns_t *)dsrv->list.owner;
+	lws_async_dns_t *dns = (lws_async_dns_t *)lws_dll2_owner(&dsrv->list);
 
 	/* Since waiting queue is now on dns, we can't iterate dsrv->waiting. We should just let dns deinit handle the global queue. But we can clean up any queries specifically bound to this server if not broadsiding. */
 	lws_start_foreach_dll_safe(struct lws_dll2 *, dwait, dwait1,
@@ -1071,7 +1071,7 @@ cancel(struct lws_dll2 *d, void *user)
 			 * currently, we can bail if we got a hit.
 			 */
 			lws_dll2_remove(d3);
-			if (!q->wsi_adns.count && !q->completing)
+			if (!lws_dll2_count(&q->wsi_adns) && !q->completing)
 				lws_adns_q_destroy(q);
 			return 1;
 		}
@@ -1326,7 +1326,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	if (wsi) {
 		if (!lws_dll2_is_detached(&wsi->adns)) {
 			lwsl_cx_err(context, "%s already bound to query %p",
-					lws_wsi_tag(wsi), wsi->adns.owner);
+					lws_wsi_tag(wsi), lws_dll2_owner(&wsi->adns));
 			goto failed;
 		}
 		wsi->adns_cb = cb;
@@ -1507,7 +1507,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 	 * to try anything else we need a remote server configured...
 	 */
 
-	if (!context->async_dns.nameservers.head &&
+	if (!lws_dll2_get_head(&context->async_dns.nameservers) &&
 	    lws_async_dns_init(context)) {
 		lwsl_cx_notice(context, "init failed");
 		goto failed;
@@ -1578,7 +1578,7 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 			}
 		} lws_end_foreach_dll_safe(d, d1);
 
-		if (dns->nameservers.count && all_failed) {
+		if (lws_dll2_count(&dns->nameservers) && all_failed) {
 			if (lws_now_usecs() - dns->time_last_reload > 5000000) {
 				lwsl_cx_notice(context, "Async DNS fallback reload triggered");
 				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
@@ -1595,12 +1595,14 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 
 		if (q->broadsiding)
 			/* Just peg it to the first for tracking purposes, but it will be skipped visually */
-			dsrv = lws_container_of(context->async_dns.nameservers.head, lws_async_dns_server_t, list);
+			dsrv = lws_container_of(lws_dll2_get_head(
+				&context->async_dns.nameservers), lws_async_dns_server_t, list);
 		else if (best_dsrv)
 			/* Pick servers near the 'best' round-robin style maybe, or just pick the best. For simplicity: best one */
 			dsrv = best_dsrv;
 		else
-			dsrv = lws_container_of(context->async_dns.nameservers.head, lws_async_dns_server_t, list);
+			dsrv = lws_container_of(lws_dll2_get_head(
+				&context->async_dns.nameservers), lws_async_dns_server_t, list);
 
 
 		q->dsrv = dsrv;

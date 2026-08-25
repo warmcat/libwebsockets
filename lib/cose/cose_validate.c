@@ -192,7 +192,7 @@ apply_external(struct lws_cose_validate_context *cps)
 	lws_cose_sig_alg_t *alg;
 	uint8_t t[9];
 
-	alg = lws_container_of(cps->algs.head, lws_cose_sig_alg_t, list);
+	alg = lws_container_of(lws_dll2_get_head(&cps->algs), lws_cose_sig_alg_t, list);
 	if (!alg)
 		/* expected if no key */
 		return 0;
@@ -777,7 +777,7 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 			     ctx->item.u.u64);
 
 		if (cps->info.sigtype == SIGTYPE_SINGLE) {
-			alg = lws_container_of(cps->algs.head,
+			alg = lws_container_of(lws_dll2_get_head(&cps->algs),
 					       lws_cose_sig_alg_t, list);
 			if (!alg)
 				/* expected if no key */
@@ -820,7 +820,7 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 				cps->payload_pos += ctx->npos;
 				break;
 			}
-			alg = lws_container_of(cps->algs.head,
+			alg = lws_container_of(lws_dll2_get_head(&cps->algs),
 					       lws_cose_sig_alg_t, list);
 			if (!alg)
 				/* expected if no key */
@@ -890,7 +890,7 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 				cps->payload_pos += ctx->npos;
 				break;
 			}
-			alg = lws_container_of(cps->algs.head,
+			alg = lws_container_of(lws_dll2_get_head(&cps->algs),
 					       lws_cose_sig_alg_t, list);
 			if (!alg)
 				/* expected if no key */
@@ -910,7 +910,7 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 				ctx->npos);
 			cps->sig_agg_pos += ctx->npos;
 
-			alg = lws_container_of(cps->algs.head,
+			alg = lws_container_of(lws_dll2_get_head(&cps->algs),
 					lws_cose_sig_alg_t, list);
 			lwsl_notice("b\n");
 			if (alg)

@@ -389,10 +389,10 @@ bail3:
 			result = 1;
 		else {
 			os = lws_snprintf(buf, sizeof(buf),
-					  "\nresults count %d\n", o->count);
+					  "\nresults count %d\n", lws_dll2_count(o));
 			write(fdout, buf, (size_t)os);
 
-			if (!o->count)
+			if (!lws_dll2_count(o))
 				result = 1;
 		}
 

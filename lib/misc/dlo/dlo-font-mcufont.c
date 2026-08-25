@@ -188,7 +188,7 @@ write_ref_codeword(mcu_glyph_t *g, const uint8_t *bf, uint8_t c)
 static void
 mcufont_next_code(mcu_glyph_t *g)
 {
-	lws_dlo_text_t *t = lws_container_of(g->fg.list.owner, lws_dlo_text_t,
+	lws_dlo_text_t *t = lws_dll2_owner_container(&g->fg.list, lws_dlo_text_t,
 					     glyphs);
 	const uint8_t *bf = (const uint8_t *)t->font->data;
 	uint8_t c = *g->comp++;

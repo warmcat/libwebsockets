@@ -458,7 +458,7 @@ lws_quic_set_keys(struct lws *wsi, enum lws_tls_quic_secret_type type, const uin
 			 * still alive afterwards and ->next is readable from it,
 			 * reflecting any list changes the callback made.
 			 */
-			for (d = nwsi->mux.child_list_owner.head; d; d = d->next) {
+			for (d = lws_dll2_get_head(&nwsi->mux.child_list_owner); d; d = lws_dll2_get_next(d)) {
 				struct lws *w = lws_container_of(d, struct lws,
 								 mux.sibling_list);
 				if (w->a.protocol && w->a.protocol->callback) {

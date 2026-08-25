@@ -1374,7 +1374,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
 		if (vhd) {
-			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->wl.head) {
+			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->wl)) {
 				struct login_whitelist *w = lws_container_of(d, struct login_whitelist, list);
 				lws_dll2_remove(d);
 				free(w);
@@ -1533,14 +1533,14 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 		}
 
-		if (vhd->wl.count) {
+		if (lws_dll2_count(&vhd->wl)) {
 			char ip[64];
 			lws_sockaddr46 sa46;
 			int match = 0;
 
 			lws_get_peer_simple(wsi, ip, sizeof(ip));
 			if (!lws_sa46_parse_numeric_address(ip, &sa46)) {
-				lws_start_foreach_dll(struct lws_dll2 *, d, vhd->wl.head) {
+				lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->wl)) {
 					struct login_whitelist *w = lws_container_of(d, struct login_whitelist, list);
 					if (!lws_sa46_on_net(&sa46, &w->sa46, w->net_len)) {
 						match = 1;
@@ -1726,14 +1726,14 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 		}
 
-		if (vhd->wl.count) {
+		if (lws_dll2_count(&vhd->wl)) {
 			char ip[64];
 			lws_sockaddr46 sa46;
 			int match = 0;
 
 			lws_get_peer_simple(wsi, ip, sizeof(ip));
 			if (!lws_sa46_parse_numeric_address(ip, &sa46)) {
-				lws_start_foreach_dll(struct lws_dll2 *, d, vhd->wl.head) {
+				lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->wl)) {
 					struct login_whitelist *w = lws_container_of(d, struct login_whitelist, list);
 					if (!lws_sa46_on_net(&sa46, &w->sa46, w->net_len)) {
 						match = 1;

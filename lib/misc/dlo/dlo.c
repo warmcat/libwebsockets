@@ -44,17 +44,17 @@ lws_display_dl_init(lws_displaylist_t *dl, lws_display_state_t *ds)
 int
 lws_display_dlo_add(lws_displaylist_t *dl, lws_dlo_t *dlo_parent, lws_dlo_t *dlo)
 {
-	if (!dlo_parent && !dl->dl.head) {
+	if (!dlo_parent && !lws_dll2_get_head(&dl->dl)) {
 		lws_dll2_add_tail(&dlo->list, &dl->dl);
 
 		return 0;
 	}
 
 	if (!dlo_parent) {
-		if (!dl->dl.head)
+		if(lws_dll2_is_empty(&dl->dl))
 			return 0;
 
-		dlo_parent = lws_container_of(dl->dl.head, lws_dlo_t, list);
+		dlo_parent = lws_container_of(lws_dll2_get_head(&dl->dl), lws_dlo_t, list);
 	}
 
 	lws_dll2_add_tail(&dlo->list, &dlo_parent->children);
@@ -154,8 +154,8 @@ lws_dlo_contents(lws_dlo_t *parent, lws_dlo_dim_t *dim)
 
 	} lws_end_foreach_dll(d);
 
-	if (parent->col_list.owner) {
-		lhp_table_col_t *tc = lws_container_of(parent->col_list.owner,
+	if (lws_dll2_owner(&parent->col_list)) {
+		lhp_table_col_t *tc = lws_dll2_owner_container(&parent->col_list,
 					lhp_table_col_t, col_dlos);
 
 		if (lws_fx_comp(&dim->w, &tc->width) < 0) {
@@ -165,8 +165,8 @@ lws_dlo_contents(lws_dlo_t *parent, lws_dlo_dim_t *dim)
 		}
 	}
 
-	if (parent->row_list.owner) {
-		lhp_table_row_t *tr = lws_container_of(parent->row_list.owner,
+	if (lws_dll2_owner(&parent->row_list)) {
+		lhp_table_row_t *tr = lws_dll2_owner_container(&parent->row_list,
 					lhp_table_row_t, row_dlos);
 
 		if (lws_fx_comp(&dim->h, &tr->height) < 0) {
@@ -208,9 +208,9 @@ lws_display_dlo_adjust_dims(lws_dlo_t *dlo, lws_dlo_dim_t *dim)
 	/* move peers below him accordingly */
 
 	do {
-		lws_dlo_t *dp = lws_container_of(dlo->list.owner, lws_dlo_t, children);
+		lws_dlo_t *dp = lws_dll2_owner_container(&dlo->list, lws_dlo_t, children);
 
-		if (!dlo->list.owner)
+		if (!lws_dll2_owner(&dlo->list))
 			break;
 
 		/*
@@ -218,7 +218,7 @@ lws_display_dlo_adjust_dims(lws_dlo_t *dlo, lws_dlo_dim_t *dim)
 		 */
 
 		do {
-			dlo = lws_container_of(dlo->list.next, lws_dlo_t, list);
+			dlo = lws_container_of(lws_dll2_get_next(&dlo->list), lws_dlo_t, list);
 			if (dlo) {
 				//lwsl_notice("%s: dlo %p: adj y %d -> %d\n", __func__, dlo, dlo->box.y.whole, dlo->box.y.whole + delta.h.whole);
 				lws_fx_add(&dlo->box.y, &dlo->box.y, &delta.h);
@@ -308,7 +308,7 @@ lws_display_dl_dump(lws_displaylist_t *dl)
 				sp, ind, dlo, b[0], b[1], b[2], b[3],
 				b1[0], b1[1], b1[2], b1[3], dt);
 
-		d = dlo->list.next;
+		d = lws_dll2_get_next(&dlo->list);
 		if (d)
 			st[sp].dlo = lws_container_of(d, lws_dlo_t, list);
 		else
@@ -316,13 +316,13 @@ lws_display_dl_dump(lws_displaylist_t *dl)
 
 		/* go into any children */
 
-		if (dlo->children.head) {
+		if(!lws_dll2_is_empty(&dlo->children)) {
 			if (sp + 1 == LWS_ARRAY_SIZE(st)) {
 				lwsl_err("%s: DLO stack overflow\n", __func__);
 				return;
 			}
 			st[++sp].dlo = lws_container_of(
-				dlo->children.head, lws_dlo_t, list);
+				lws_dll2_get_head(&dlo->children), lws_dlo_t, list);
 			st[sp].co = co;
 		}
 
@@ -392,7 +392,7 @@ lws_display_get_ids_boxes(lws_display_render_state_t *rs)
 
 		/* next sibling at this level if any */
 
-		d = dlo->list.next;
+		d = lws_dll2_get_next(&dlo->list);
 		if (d)
 			rs->st[rs->sp].dlo = lws_container_of(d,
 						lws_dlo_t, list);
@@ -401,14 +401,14 @@ lws_display_get_ids_boxes(lws_display_render_state_t *rs)
 
 		/* go into any children */
 
-		if (dlo->children.head) {
+		if(!lws_dll2_is_empty(&dlo->children)) {
 			if (rs->sp + 1 == LWS_ARRAY_SIZE(rs->st)) {
 				lwsl_err("%s: DLO stack overflow A\n",
 						__func__);
 				return LWS_SRET_FATAL;
 			}
 			rs->st[++rs->sp].dlo = lws_container_of(
-				dlo->children.head, lws_dlo_t, list);
+				lws_dll2_get_head(&dlo->children), lws_dlo_t, list);
 			rs->st[rs->sp].co = co;
 			continue;
 		}
@@ -469,7 +469,7 @@ lws_display_list_render_line(lws_display_render_state_t *rs)
 		lws_fx_add(&t2, &co.y, &dlo->box.h);
 
 		if (rs->curr > lws_fx_roundup(&t2) && dlo->box.h.whole > 3) {
-			d = dlo->list.next;
+			d = lws_dll2_get_next(&dlo->list);
 			rs->st[rs->sp].dlo = d ? lws_container_of(d, lws_dlo_t,
 								list) : NULL;
 
@@ -494,7 +494,7 @@ lws_display_list_render_line(lws_display_render_state_t *rs)
 
 			/* next sibling at this level if any */
 
-			d = dlo->list.next;
+			d = lws_dll2_get_next(&dlo->list);
 
 			if (d)
 				rs->st[rs->sp].dlo = lws_container_of(d,
@@ -505,21 +505,21 @@ lws_display_list_render_line(lws_display_render_state_t *rs)
 
 			/* go into any children */
 
-			if (dlo->children.head) {
+			if(!lws_dll2_is_empty(&dlo->children)) {
 				if (rs->sp + 1 == LWS_ARRAY_SIZE(rs->st)) {
 					lwsl_err("%s: DLO stack overflow B\n",
 							__func__);
 					return LWS_SRET_FATAL;
 				}
 				rs->st[++rs->sp].dlo = lws_container_of(
-					dlo->children.head, lws_dlo_t, list);
+					lws_dll2_get_head(&dlo->children), lws_dlo_t, list);
 				rs->st[rs->sp].co = co;
 				continue;
 			}
 		} else {
 			/* next sibling at this level if any */
 
-			d = dlo->list.next;
+			d = lws_dll2_get_next(&dlo->list);
 			if (d)
 				rs->st[rs->sp].dlo = lws_container_of(d,
 							lws_dlo_t, list);
@@ -567,8 +567,8 @@ lws_display_dlo_destroy(lws_dlo_t **r)
 	lws_dll2_remove(&rr->col_list);
 	lws_dll2_remove(&rr->row_list);
 
-	while (rr->children.head) {
-		lws_dlo_t *d = lws_container_of(rr->children.head,
+	while(!lws_dll2_is_empty(&rr->children)) {
+		lws_dlo_t *d = lws_container_of(lws_dll2_get_head(&rr->children),
 							lws_dlo_t, list);
 
 		lws_display_dlo_destroy(&d);
@@ -591,8 +591,8 @@ lws_display_list_destroy(struct lws_context *cx, lws_displaylist_t *dl)
 
 	//lws_dlo_ss_stop_any_active(cx);
 
-	while (dl->dl.head) {
-		lws_dlo_t *d = lws_container_of(dl->dl.head, lws_dlo_t, list);
+	while(!lws_dll2_is_empty(&dl->dl)) {
+		lws_dlo_t *d = lws_container_of(lws_dll2_get_head(&dl->dl), lws_dlo_t, list);
 
 		lws_display_dlo_destroy(&d);
 	}

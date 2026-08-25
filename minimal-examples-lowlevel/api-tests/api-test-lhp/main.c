@@ -143,10 +143,11 @@ dump_css_atr(lws_dll2_t *d, void *user)
 static lws_stateful_ret_t
 test_cb(lhp_ctx_t *ctx, char reason)
 {
-	lhp_pstack_t *ps = lws_container_of(ctx->stack.tail, lhp_pstack_t, list);
+	lhp_pstack_t *ps = lws_container_of(lws_dll2_get_tail(&ctx->stack), lhp_pstack_t, list);
 	const lcsp_atr_t *a;
 
-	printf("{ %s, %u, \"%.*s\", %u, { ", cb_reasons[(unsigned int)reason], ctx->npos, ctx->npos, ctx->buf, ps->atr.count);
+	printf("{ %s, %u, \"%.*s\", %u, { ", cb_reasons[(unsigned int)reason], ctx->npos, ctx->npos, ctx->buf, lws_dll2_count(
+		&ps->atr));
 
 	if (reason == LHPCB_ELEMENT_START || reason == LHPCB_ELEMENT_END) {
 		lws_dll2_foreach_safe(&ps->atr, NULL, dump_atr);

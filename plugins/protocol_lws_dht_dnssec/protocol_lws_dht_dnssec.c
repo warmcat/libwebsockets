@@ -186,7 +186,7 @@ static void
 add_peer_strike(struct vhd_dht_dnssec *vhd, const lws_sockaddr46 *sa)
 {
 	struct notify_strike *ns = NULL, *oldest = NULL;
-	lws_start_foreach_dll(struct lws_dll2 *, d, vhd->notify_strikes.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->notify_strikes)) {
 		struct notify_strike *n = lws_container_of(d, struct notify_strike, list);
 		if (n->sa.sa4.sin_family == sa->sa4.sin_family) {
 			if (n->sa.sa4.sin_family == AF_INET && !memcmp(&n->sa.sa4.sin_addr, &sa->sa4.sin_addr, 4)) {
@@ -205,7 +205,7 @@ add_peer_strike(struct vhd_dht_dnssec *vhd, const lws_sockaddr46 *sa)
 		lws_dll2_add_tail(&ns->list, &vhd->notify_strikes);
 		lws_sul_schedule(vhd->context, 0, &ns->sul_expire, notify_strike_expire_cb, 3600 * LWS_US_PER_SEC);
 	} else {
-		if (vhd->notify_strikes.count > 64 && oldest) {
+		if (lws_dll2_count(&vhd->notify_strikes) > 64 && oldest) {
 			lws_dll2_remove(&oldest->list);
 			lws_sul_cancel(&oldest->sul_expire);
 			free(oldest);
@@ -229,7 +229,7 @@ dht_dnssec_blacklist_cb(const struct sockaddr *saddr, size_t salen)
 
 	const lws_sockaddr46 *sa = (const lws_sockaddr46 *)saddr;
 
-	lws_start_foreach_dll(struct lws_dll2 *, d, vhd->notify_strikes.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->notify_strikes)) {
 		struct notify_strike *n = lws_container_of(d, struct notify_strike, list);
 		if (n->sa.sa4.sin_family == sa->sa4.sin_family) {
 			if (n->sa.sa4.sin_family == AF_INET && !memcmp(&n->sa.sa4.sin_addr, &sa->sa4.sin_addr, 4)) {
@@ -255,7 +255,8 @@ notify_fetch_completion_cb(void *opaque, const char *domain, int status)
 	} else if (status < 0) {
 		lwsl_notice("%s: Fetch for %s failed DNSSEC validation, skipping strike penalty for peer\n", __func__, domain);
 	} else if (status == 1) {
-		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, trk->vhd->notify_strikes.head) {
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(
+			&trk->vhd->notify_strikes)) {
 			struct notify_strike *n = lws_container_of(d, struct notify_strike, list);
 			if (n->sa.sa4.sin_family == trk->sa.sa4.sin_family) {
 				int match = 0;
@@ -1015,7 +1016,7 @@ dht_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 				lwsl_user("%s: Broadcasting fresh SOA serial %llu for %s to DHT nodes\n", __func__, (unsigned long long)serial, frag->domain);
 				dht_dnssec_broadcast_notify(vhd, frag->domain, serial);
 
-				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->fetch_reqs.head) {
+				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->fetch_reqs)) {
 					struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
 					if (!strcmp(req->target_hash, frag->safe_hash)) {
 						if (req->cache_dir[0]) {
@@ -1089,7 +1090,7 @@ drop:
 		vhd->cb_completion(vhd->cb_closure, 1);
 	}
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->fetch_reqs.head) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->fetch_reqs)) {
 		struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
 		if (!strcmp(req->target_hash, frag->safe_hash)) {
 			if (req->cb) req->cb(req->opaque, req->domain, -1);
@@ -1173,7 +1174,7 @@ drop:
 	if (frag->vhd->cb_completion && !frag->vhd->cli_put_file)
 		frag->vhd->cb_completion(frag->vhd->cb_closure, 1);
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, frag->vhd->fetch_reqs.head) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&frag->vhd->fetch_reqs)) {
 		struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
 		if (!strcmp(req->target_hash, frag->safe_hash)) {
 			if (req->cb) req->cb(req->opaque, req->domain, -1);
@@ -1563,7 +1564,7 @@ drop:
 		lws_dht_send_data(ctx, from, err, strlen(err));
 	}
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->fetch_reqs.head) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->fetch_reqs)) {
 		struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
 		if (!strcmp(req->target_hash, frag->safe_hash)) {
 			if (req->cb) req->cb(req->opaque, req->domain, -1);
@@ -1820,7 +1821,7 @@ drop:
 	if (vhd->cb_completion && !vhd->cli_put_file)
 		vhd->cb_completion(vhd->cb_closure, 1);
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, vhd->fetch_reqs.head) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->fetch_reqs)) {
 		struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
 		if (!strcmp(req->target_hash, frag->safe_hash)) {
 			if (req->cb) req->cb(req->opaque, req->domain, -1);
@@ -2015,7 +2016,7 @@ dht_dnssec_sul_bootstrap_cb(struct lws_sorted_usec_list *sul)
 		}
 
 		/* Kick off fetches for any domains that were subscribed before we had a routing table */
-		lws_start_foreach_dll(struct lws_dll2 *, d, vhd->subscribed_domains.head) {
+		lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->subscribed_domains)) {
 			struct lws_dht_dnssec_subscribed_domain *sub = lws_container_of(d, struct lws_dht_dnssec_subscribed_domain, list);
 			if (sub->needs_initial_fetch) {
 				sub->needs_initial_fetch = 0;
@@ -2107,7 +2108,7 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 			lwsl_notice("%s: Received NOTIFY from %s:%u for domain hash with SOA %llu!\n", __func__, peer_ip, peer_port, (unsigned long long)newer_soa);
 
 			struct notify_ratelimit *nrl = NULL, *oldest_nrl = NULL;
-			lws_start_foreach_dll(struct lws_dll2 *, d, vhd->notify_ratelimiters.head) {
+			lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->notify_ratelimiters)) {
 				struct notify_ratelimit *n = lws_container_of(d, struct notify_ratelimit, list);
 				if (n->sa.sa4.sin_family == from->sa_family) {
 					if (n->sa.sa4.sin_family == AF_INET && !memcmp(&n->sa.sa4.sin_addr, &((const struct sockaddr_in *)from)->sin_addr, 4)) {
@@ -2131,7 +2132,7 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 				lws_dll2_remove(&nrl->list);
 				lws_dll2_add_tail(&nrl->list, &vhd->notify_ratelimiters);
 			} else {
-				if (vhd->notify_ratelimiters.count > 128 && oldest_nrl) {
+				if (lws_dll2_count(&vhd->notify_ratelimiters) > 128 && oldest_nrl) {
 					lws_dll2_remove(&oldest_nrl->list);
 					lws_sul_cancel(&oldest_nrl->sul_decay);
 					free(oldest_nrl);
@@ -2168,7 +2169,7 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 		struct lws_dht_dnssec_subscribed_domain *found_sub = NULL;
 		struct lws_dht_dnssec_domain *found_owner = NULL;
 
-		lws_start_foreach_dll(struct lws_dll2 *, d, vhd->subscribed_domains.head) {
+		lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->subscribed_domains)) {
 			struct lws_dht_dnssec_subscribed_domain *sub = lws_container_of(d, struct lws_dht_dnssec_subscribed_domain, list);
 			if (!memcmp(sub->hash, info_hash->id, info_hash->len)) {
 				lws_strncpy(target_domain, sub->domain, sizeof(target_domain));
@@ -2179,7 +2180,7 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 		} lws_end_foreach_dll(d);
 
 		if (!found) {
-			lws_start_foreach_dll(struct lws_dll2 *, d, vhd->owner_domains.head) {
+			lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->owner_domains)) {
 				struct lws_dht_dnssec_domain *dom = lws_container_of(d, struct lws_dht_dnssec_domain, list);
 				if (!memcmp(dom->hash, info_hash->id, info_hash->len)) {
 					lws_strncpy(target_domain, dom->domain_name, sizeof(target_domain));
@@ -2231,7 +2232,7 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 				}
 
 				/* Re-find the sub we just created or were already looking for */
-				lws_start_foreach_dll(struct lws_dll2 *, d, vhd->subscribed_domains.head) {
+				lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->subscribed_domains)) {
 					struct lws_dht_dnssec_subscribed_domain *sub = lws_container_of(d, struct lws_dht_dnssec_subscribed_domain, list);
 					if (!memcmp(sub->hash, info_hash->id, info_hash->len)) {
 						found_sub = sub;
@@ -2376,8 +2377,9 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 		if (!found) {
 			char h1[128], h2[128] = "NONE";
 			lws_hex_from_byte_array(info_hash->id, info_hash->len, h1, sizeof(h1));
-			if (vhd->subscribed_domains.head) {
-				struct lws_dht_dnssec_subscribed_domain *sub = lws_container_of(vhd->subscribed_domains.head, struct lws_dht_dnssec_subscribed_domain, list);
+			if(!lws_dll2_is_empty(&vhd->subscribed_domains)) {
+				struct lws_dht_dnssec_subscribed_domain *sub = lws_container_of(lws_dll2_get_head(
+					&vhd->subscribed_domains), struct lws_dht_dnssec_subscribed_domain, list);
 				lws_hex_from_byte_array(sub->hash, info_hash->len, h2, sizeof(h2));
 			}
 			lwsl_notice("%s: Incoming NOTIFY hash (%s) does not match any active local subscriptions (first sub is %s). [RELAY ONLY]\n", __func__, h1, h2);
@@ -2512,7 +2514,7 @@ verb_notify_handler(struct lws_dht_ctx *ctx, struct vhd_dht_dnssec *vhd, const s
 		}
 
 		int strikes = 0;
-		lws_start_foreach_dll(struct lws_dll2 *, d, vhd->notify_strikes.head) {
+		lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->notify_strikes)) {
 			struct notify_strike *ns = lws_container_of(d, struct notify_strike, list);
 			if (ns->sa.sa4.sin_family == sa46.sa4.sin_family) {
 				if (ns->sa.sa4.sin_family == AF_INET && !memcmp(&ns->sa.sa4.sin_addr, &sa46.sa4.sin_addr, 4)) {
@@ -2571,13 +2573,13 @@ dht_dnssec_sul_timeout_cb(struct lws_sorted_usec_list *sul)
 	vhd->put_retries++;
 	lwsl_user("%s: UDP timeout, initiating retry %d/3\n", __func__, vhd->put_retries);
 
-	if (vhd->cli_get_hash || vhd->cli_get_domain || vhd->fragments.count > 0) {
+	if (vhd->cli_get_hash || vhd->cli_get_domain || lws_dll2_count(&vhd->fragments) > 0) {
 		struct dht_fragment *frag = NULL;
 
 		if (vhd->cli_get_hash)
 			frag = dht_dnssec_find_fragment(vhd, vhd->cli_get_hash);
-		else if (vhd->fragments.count > 0)
-			frag = lws_container_of(vhd->fragments.head, struct dht_fragment, list);
+		else if (lws_dll2_count(&vhd->fragments) > 0)
+			frag = lws_container_of(lws_dll2_get_head(&vhd->fragments), struct dht_fragment, list);
 
 		if (frag) {
 			/* Retry next chunk specifically */
@@ -2646,7 +2648,7 @@ dht_dnssec_sul_cap_cb(struct lws_sorted_usec_list *sul)
 
 static void start_next_dht_upload(struct vhd_dht_dnssec *vhd)
 {
-	if (!vhd->upload_queue.head) {
+	if(lws_dll2_is_empty(&vhd->upload_queue)) {
 		if (vhd->cli_put_file) {
 			free((void *)vhd->cli_put_file);
 			vhd->cli_put_file = NULL;
@@ -2658,7 +2660,8 @@ static void start_next_dht_upload(struct vhd_dht_dnssec *vhd)
 		return;
 	}
 
-	struct dht_upload_job *job = lws_container_of(vhd->upload_queue.head, struct dht_upload_job, list);
+	struct dht_upload_job *job = lws_container_of(lws_dll2_get_head(
+		&vhd->upload_queue), struct dht_upload_job, list);
 
 	if (vhd->cli_put_file) free((void *)vhd->cli_put_file);
 	vhd->cli_put_file = job->jws_filepath;
@@ -3155,8 +3158,9 @@ callback_dht_dnssec(struct lws* wsi, enum lws_callback_reasons reason,
 
 		lws_system_policy_t *policy = NULL;
 		if (!vhd->target_ip && !lws_system_parse_policy(vhd->context, "/etc/lwsws/policy", &policy)) {
-			if (policy->seeds.head) {
-				lws_system_seed_t *seed = lws_container_of(policy->seeds.head, lws_system_seed_t, list);
+			if(!lws_dll2_is_empty(&policy->seeds)) {
+				lws_system_seed_t *seed = lws_container_of(lws_dll2_get_head(
+					&policy->seeds), lws_system_seed_t, list);
 				lws_strncpy(vhd->policy_resolved_ip, seed->hostname, sizeof(vhd->policy_resolved_ip));
 				char *colon = (char *)strchr(vhd->policy_resolved_ip, ':');
 				if (colon) {
@@ -4098,7 +4102,7 @@ do_signzone(struct lws_context *context, struct lws_dht_dnssec_signzone_args *ar
 
 	if (v && args->domain) {
 		lws_dll2_t *d;
-		for (d = v->owner_domains.head; d; d = d->next) {
+		for (d = lws_dll2_get_head(&v->owner_domains); d; d = lws_dll2_get_next(d)) {
 			struct lws_dht_dnssec_domain *td = lws_container_of(d, struct lws_dht_dnssec_domain, list);
 			if (!strcmp(td->domain_name, args->domain)) {
 				dom = td;
@@ -4107,9 +4111,9 @@ do_signzone(struct lws_context *context, struct lws_dht_dnssec_signzone_args *ar
 		}
 	}
 
-	if ((dom && dom->owner_temp_records.count > 0) || has_acmefile) {
+	if ((dom && lws_dll2_count(&dom->owner_temp_records) > 0) || has_acmefile) {
 		lws_snprintf(withacme_path, sizeof(withacme_path), "%s.withacme", zone_in);
-		int in_mem = dom ? (int)dom->owner_temp_records.count : 0;
+		int in_mem = dom ? (int)lws_dll2_count(&dom->owner_temp_records) : 0;
 		if (in_mem > 0 || has_acmefile)
 			lwsl_notice("%s: Merging %d in-memory temp zones and/or .acme file into %s\n", __func__, in_mem, withacme_path);
 
@@ -4127,7 +4131,8 @@ do_signzone(struct lws_context *context, struct lws_dht_dnssec_signzone_args *ar
 
 				/* Append ACME temp zones */
 				lws_dll2_t *d2;
-				for (d2 = dom ? dom->owner_temp_records.head : NULL; d2; d2 = d2->next) {
+				for (d2 = dom ? lws_dll2_get_head(
+					&dom->owner_temp_records) : NULL; d2; d2 = lws_dll2_get_next(d2)) {
 					struct lws_dht_dnssec_temp_record *rec =
 						lws_container_of(d2, struct lws_dht_dnssec_temp_record, list);
 					if (rec->zone_str) {
@@ -4205,7 +4210,7 @@ do_add_temp_zone(struct lws_context *context, const char *domain, const char *zo
 		return 1;
 	}
 
-	for (d = v->owner_domains.head; d; d = d->next) {
+	for (d = lws_dll2_get_head(&v->owner_domains); d; d = lws_dll2_get_next(d)) {
 		struct lws_dht_dnssec_domain *td = lws_container_of(d, struct lws_dht_dnssec_domain, list);
 		if (!strcmp(td->domain_name, domain)) {
 			dom = td;
@@ -4378,7 +4383,7 @@ do_fetch_zone(struct lws_context *context, struct lws_dht_dnssec_fetch_zone_args
 	if (!v || !args->domain) return 1;
 
 	if (args->is_cancel) {
-		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, v->fetch_reqs.head) {
+		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&v->fetch_reqs)) {
 			struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
 			if (!strcmp(req->domain, args->domain) && req->opaque == args->opaque) {
 				lws_sul_cancel(&req->sul_timeout);
@@ -4438,7 +4443,7 @@ do_fetch_zone(struct lws_context *context, struct lws_dht_dnssec_fetch_zone_args
 	}
 
 	int already = 0;
-	lws_start_foreach_dll(struct lws_dll2 *, d, v->fetch_reqs.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&v->fetch_reqs)) {
 		struct lws_dht_dnssec_fetch_req *req = lws_container_of(d, struct lws_dht_dnssec_fetch_req, list);
 		if (!strcmp(req->domain, args->domain) && req->opaque == args->opaque) {
 			already = 1;
@@ -4783,7 +4788,7 @@ do_subscribe_zone(struct lws_vhost *vhost, const char *domain)
 
 	/* Add or update subscription tracker so we can map info_hash back to domain strings on NOTIFY */
 	int exists = 0;
-	lws_start_foreach_dll(struct lws_dll2 *, d, vhd->subscribed_domains.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->subscribed_domains)) {
 		struct lws_dht_dnssec_subscribed_domain *sub = lws_container_of(d, struct lws_dht_dnssec_subscribed_domain, list);
 		if (!strcmp(sub->domain, domain)) {
 			exists = 1;
@@ -4836,7 +4841,7 @@ do_subscribe_zone(struct lws_vhost *vhost, const char *domain)
 		/* Bypass the background waiting loop completely since we are natively synchronized! */
 		int do_fetch = 0;
 		time_t now = time(NULL);
-		lws_start_foreach_dll(struct lws_dll2 *, d, vhd->subscribed_domains.head) {
+		lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->subscribed_domains)) {
 			struct lws_dht_dnssec_subscribed_domain *sub = lws_container_of(d, struct lws_dht_dnssec_subscribed_domain, list);
 			if (!strcmp(sub->domain, domain)) {
 				if (sub->needs_initial_fetch || now - sub->last_notify_fetch >= 60) {

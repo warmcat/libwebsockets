@@ -350,7 +350,7 @@ dist_server_dir_notify_cb(const char *path, int is_file, void *user)
 	struct vhd_cert_dist_server *vhd = (struct vhd_cert_dist_server *)user;
 
 	if ((char *)strstr(path, "fullchain.pem") || (char *)strstr(path, "privkey.pem") || (char *)strstr(path, "crt") || (char *)strstr(path, "key")) {
-		lws_start_foreach_dll(struct lws_dll2 *, d, vhd->connections.head) {
+		lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->connections)) {
 			struct pss_cert_dist_server *pss = lws_container_of(d, struct pss_cert_dist_server, list);
 			if ((char *)strstr(path, pss->domain)) {
 				pss->needs_cert_update = 1;

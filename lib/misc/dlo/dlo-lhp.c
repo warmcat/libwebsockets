@@ -164,10 +164,10 @@ newline(lhp_ctx_t *ctx, lhp_pstack_t *psb, lhp_pstack_t *ps,
 	if (lws_fx_comp(&w, &psb->widest) > 0)
 		psb->widest = w;
 
-	if (!dlo || !dlo->children.tail)
+	if (!dlo || !lws_dll2_get_tail(&dlo->children))
 		return;
 
-	d = lws_container_of(dlo->children.tail, lws_dlo_t, list);
+	d = lws_container_of(lws_dll2_get_tail(&dlo->children), lws_dlo_t, list);
 
 	/*
 	 * We may be at the end of a line of text
@@ -194,10 +194,10 @@ newline(lhp_ctx_t *ctx, lhp_pstack_t *psb, lhp_pstack_t *ps,
 		if (!d->flag_runon)
 			break;
 
-		if (!d->list.prev)
+		if (!lws_dll2_get_prev(&d->list))
 			break;
 
-		d = lws_container_of(d->list.prev, lws_dlo_t, list);
+		d = lws_container_of(lws_dll2_get_prev(&d->list), lws_dlo_t, list);
 	};
 
 	/* mark the related text dlos with information about group bl and h,
@@ -226,9 +226,9 @@ newline(lhp_ctx_t *ctx, lhp_pstack_t *psb, lhp_pstack_t *ps,
 			lws_fx_add(&d1->box.y, &d1->box.y, &ft);
 		}
 
-		if (!d1->list.next)
+		if (!lws_dll2_get_next(&d1->list))
 			break;
-		d1 = lws_container_of(d1->list.next, lws_dlo_t, list);
+		d1 = lws_container_of(lws_dll2_get_next(&d1->list), lws_dlo_t, list);
 	};
 
 	w = psb->curx;
@@ -269,9 +269,9 @@ fixup_l:
 
 			do {
 				lws_fx_add(&d->box.x, &d->box.x, &add);
-				if (!d->list.next)
+				if (!lws_dll2_get_next(&d->list))
 					break;
-				d = lws_container_of(d->list.next, lws_dlo_t,
+				d = lws_container_of(lws_dll2_get_next(&d->list), lws_dlo_t,
 							list);
 			} while (1);
 			break;
@@ -307,7 +307,7 @@ lhp_set_dlo_padding_margin(lhp_pstack_t *ps, lws_dlo_t *dlo)
 void
 lhp_set_dlo_adjust_to_contents(lhp_pstack_t *ps)
 {
-	lhp_pstack_t *psb = lws_container_of(ps->list.prev, lhp_pstack_t, list);
+	lhp_pstack_t *psb = lws_container_of(lws_dll2_get_prev(&ps->list), lhp_pstack_t, list);
 	lws_dlo_dim_t dim;
 
 	lws_dlo_contents(ps->dlo, &dim);
@@ -411,9 +411,8 @@ lws_lhp_dlo_adjust_div_type_element(lhp_ctx_t *ctx, lhp_pstack_t *psb,
 
 	/* if a td, deal with columnar changes in width */
 
-	if (ps->dlo->col_list.owner) {
-		lhp_table_col_t *tc = lws_container_of(
-				ps->dlo->col_list.owner,
+	if (lws_dll2_owner(&ps->dlo->col_list)) {
+		lhp_table_col_t *tc = lws_dll2_owner_container(&ps->dlo->col_list,
 				lhp_table_col_t, col_dlos);
 		lws_fx_t wdelta, ow;
 
@@ -456,9 +455,9 @@ lws_lhp_dlo_adjust_div_type_element(lhp_ctx_t *ctx, lhp_pstack_t *psb,
 			 * to the right also need their
 			 * x adjusting then */
 
-			while (dloc->row_list.next) {
+			while (lws_dll2_get_next(&dloc->row_list)) {
 				dloc = lws_container_of(
-					dloc->row_list.next,
+					lws_dll2_get_next(&dloc->row_list),
 					lws_dlo_t, row_list);
 
 				lws_fx_add(&dloc->box.x,
@@ -469,9 +468,8 @@ lws_lhp_dlo_adjust_div_type_element(lhp_ctx_t *ctx, lhp_pstack_t *psb,
 
 	/* if a td, deal with row changes in height */
 
-	if (ps->dlo->row_list.owner) {
-		lhp_table_row_t *tr = lws_container_of(
-				ps->dlo->row_list.owner,
+	if (lws_dll2_owner(&ps->dlo->row_list)) {
+		lhp_table_row_t *tr = lws_dll2_owner_container(&ps->dlo->row_list,
 				lhp_table_row_t, row_dlos);
 		lws_fx_t hdelta, oh;
 
@@ -511,9 +509,9 @@ lws_lhp_dlo_adjust_div_type_element(lhp_ctx_t *ctx, lhp_pstack_t *psb,
 			/* ... so all of their col-mates below
 			 * also need their y adjusting then */
 
-			while (dlor->col_list.next) {
+			while (lws_dll2_get_next(&dlor->col_list)) {
 				dlor = lws_container_of(
-					dlor->col_list.next,
+					lws_dll2_get_next(&dlor->col_list),
 					lws_dlo_t, col_list);
 
 				lws_fx_add(&dlor->box.y,
@@ -576,7 +574,7 @@ lws_stateful_ret_t
 lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 {
 	lhp_pstack_t *psb = NULL, *pst = NULL, *psp = NULL,
-		     *ps = lws_container_of(ctx->stack.tail, lhp_pstack_t, list);
+		     *ps = lws_container_of(lws_dll2_get_tail(&ctx->stack), lhp_pstack_t, list);
 	struct lws_context *cx = (struct lws_context *)ctx->user1;
 	lws_dl_rend_t *drt = (lws_dl_rend_t *)ctx->user;
 	lws_fx_t br[4], t1, indent, ox, w, h;
@@ -653,11 +651,11 @@ lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 			while (d) {
 				lhp_pstack_t *ps = lws_container_of(d, lhp_pstack_t, list);
 
-				if (ps->dlo && ps->list.prev) {
+				if (ps->dlo && lws_dll2_get_prev(&ps->list)) {
 					lwsl_info("%s: finalizing stranded dlo %p\n", __func__, ps->dlo);
 					lhp_set_dlo_adjust_to_contents(ps);
 				}
-				d = d->prev;
+				d = lws_dll2_get_prev(d);
 			}
 		}
 
@@ -715,7 +713,7 @@ lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 				break;
 			}
 
-			if (pst->td_idx >= (int)pst->dlo->table_cols.count) {
+			if (pst->td_idx >= (int)lws_dll2_count(&pst->dlo->table_cols)) {
 				tcol = lws_zalloc(sizeof(*tcol), __func__);
 				if (!tcol) {
 					lwsl_err("%s: OOM\n", __func__);
@@ -723,14 +721,14 @@ lhp_displaylist_layout(lhp_ctx_t *ctx, char reason)
 				}
 				lws_dll2_add_tail(&tcol->list, &pst->dlo->table_cols);
 			} else {
-				tcol = lws_container_of(pst->dlo->table_cols.head, lhp_table_col_t, list);
+				tcol = lws_container_of(lws_dll2_get_head(&pst->dlo->table_cols), lhp_table_col_t, list);
 				n = pst->td_idx;
 				while (n--)
-					tcol = lws_container_of(tcol->list.next, lhp_table_col_t, list);
+					tcol = lws_container_of(lws_dll2_get_next(&tcol->list), lhp_table_col_t, list);
 			}
 
-			if (pst->dlo->table_rows.tail)
-				trow = lws_container_of(pst->dlo->table_rows.tail, lhp_table_row_t, list);
+			if (lws_dll2_get_tail(&pst->dlo->table_rows))
+				trow = lws_container_of(lws_dll2_get_tail(&pst->dlo->table_rows), lhp_table_row_t, list);
 
 			goto do_rect_l;
 
@@ -832,7 +830,7 @@ do_rect_l:
 			if (ps->css_border_radius[3])
 				br[3] = *lws_csp_px(ps->css_border_radius[3], ps);
 
-			psp = lws_container_of(ps->list.prev, lhp_pstack_t, list);
+			psp = lws_container_of(lws_dll2_get_prev(&ps->list), lhp_pstack_t, list);
 
 			ps->dlo = (lws_dlo_t *)lws_display_dlo_rect_new(drt->dl,
 					ps->css_position->propval == LCSP_PROPVAL_ABSOLUTE ? NULL : psp->dlo,

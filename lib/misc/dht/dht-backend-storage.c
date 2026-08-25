@@ -67,7 +67,7 @@ storage_store(struct lws_dht_ctx *ctx, const lws_dht_hash_t *id,
 	st = find_storage(ctx, id);
 
 	if (st == NULL) {
-		if (ctx->storage.count >= DHT_MAX_HASHES)
+		if (lws_dll2_count(&ctx->storage) >= DHT_MAX_HASHES)
 			return -1;
 
 		st = lws_zalloc(sizeof(struct storage), __func__);
@@ -139,7 +139,7 @@ expire_storage(struct lws_dht_ctx *ctx)
 		if (st->numpeers == 0) {
 			lws_dll2_remove(d);
 
-			while (lws_dll2_get_head(&st->subscribers)) {
+			while(!lws_dll2_is_empty(&st->subscribers)) {
 				struct subscriber *sub = lws_container_of(
 					lws_dll2_get_head(&st->subscribers),
 					struct subscriber, list);

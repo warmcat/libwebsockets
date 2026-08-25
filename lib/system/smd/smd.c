@@ -91,7 +91,7 @@ _lws_smd_dump(lws_smd_t *smd)
 	int n = 1;
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1,
-				   smd->owner_messages.head) {
+				   lws_dll2_get_head(&smd->owner_messages)) {
 		lws_smd_msg_t *msg = lws_container_of(p, lws_smd_msg_t, list);
 
 		lwsl_info(" msg %d: %p: ref %d, lat %dms, cls: 0x%x, len %u: '%s'\n",
@@ -103,7 +103,7 @@ _lws_smd_dump(lws_smd_t *smd)
 	} lws_end_foreach_dll_safe(p, p1);
 
 	n = 1;
-	lws_start_foreach_dll(struct lws_dll2 *, p, smd->owner_peers.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(&smd->owner_peers)) {
 		lws_smd_peer_t *pr = lws_container_of(p, lws_smd_peer_t, list);
 
 		lwsl_info(" peer %d: %p: tail: %p, filt 0x%x\n",
@@ -131,7 +131,7 @@ _lws_smd_msg_assess_peers_interested(lws_smd_t *smd, lws_smd_msg_t *msg,
 	struct lws_context *ctx = lws_container_of(smd, struct lws_context, smd);
 	int interested = 0;
 
-	lws_start_foreach_dll(struct lws_dll2 *, p, ctx->smd.owner_peers.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(&ctx->smd.owner_peers)) {
 		lws_smd_peer_t *pr = lws_container_of(p, lws_smd_peer_t, list);
 
 		if (pr != exc && _lws_smd_msg_peer_interested_in_msg(pr, msg))
@@ -151,7 +151,7 @@ _lws_smd_class_mask_union(lws_smd_t *smd)
 	uint32_t mask = 0;
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1,
-				   smd->owner_peers.head) {
+				   lws_dll2_get_head(&smd->owner_peers)) {
 		lws_smd_peer_t *pr = lws_container_of(p, lws_smd_peer_t, list);
 
 		mask |= pr->_class_filter;
@@ -174,7 +174,7 @@ _lws_smd_msg_destroy(struct lws_context *cx, lws_smd_t *smd, lws_smd_msg_t *msg)
 	 */
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1,
-				   smd->owner_peers.head) {
+				   lws_dll2_get_head(&smd->owner_peers)) {
 		lws_smd_peer_t *xpr = lws_container_of(p, lws_smd_peer_t, list);
 
 		if (xpr->tail == msg) {
@@ -207,7 +207,7 @@ _lws_smd_msg_send(struct lws_context *ctx, void *pay, struct lws_smd_peer *exc)
 				LWS_SMD_SS_RX_HEADER_LEN_EFF - sizeof(*msg));
 	int locked_peers = 0;
 
-	if (ctx->smd.owner_messages.count >= ctx->smd_queue_depth) {
+	if (lws_dll2_count(&ctx->smd.owner_messages) >= ctx->smd_queue_depth) {
 		// lwsl_cx_debug(ctx, "rejecting message on queue depth %d",
 		//		  (int)ctx->smd.owner_messages.count);
 		/* reject the message due to max queue depth reached */
@@ -254,7 +254,7 @@ _lws_smd_msg_send(struct lws_context *ctx, void *pay, struct lws_smd_peer *exc)
 	 * should become his tail
 	 */
 
-	lws_start_foreach_dll(struct lws_dll2 *, p, ctx->smd.owner_peers.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(&ctx->smd.owner_peers)) {
 		lws_smd_peer_t *pr = lws_container_of(p, lws_smd_peer_t, list);
 
 		if (pr != exc &&
@@ -268,7 +268,7 @@ _lws_smd_msg_send(struct lws_context *ctx, void *pay, struct lws_smd_peer *exc)
 
 #if defined(LWS_SMD_DEBUG)
 	lwsl_smd("%s: added %p (refc %u) depth now %d\n", __func__,
-		 msg, msg->refcount, ctx->smd.owner_messages.count);
+		 msg, msg->refcount, lws_dll2_count(&ctx->smd.owner_messages));
 	_lws_smd_dump(&ctx->smd);
 #endif
 
@@ -475,7 +475,7 @@ lws_smd_sspc_rx_forward(void *ss_user, const uint8_t *buf, size_t len)
 static void
 _lws_smd_peer_destroy(lws_smd_peer_t *pr)
 {
-	lws_smd_t *smd = lws_container_of(pr->list.owner, lws_smd_t,
+	lws_smd_t *smd = lws_dll2_owner_container(&pr->list, lws_smd_t,
 					  owner_peers);
 
 	if (lws_mutex_lock(smd->lock_messages)) /* +++++++++ messages */
@@ -490,7 +490,7 @@ _lws_smd_peer_destroy(lws_smd_peer_t *pr)
 
 	while (pr->tail) {
 
-		lws_smd_msg_t *m1 = lws_container_of(pr->tail->list.next,
+		lws_smd_msg_t *m1 = lws_container_of(lws_dll2_get_next(&pr->tail->list),
 							lws_smd_msg_t, list);
 
 		if (_lws_smd_msg_peer_interested_in_msg(pr, pr->tail)) {
@@ -513,7 +513,7 @@ _lws_smd_msg_next_matching_filter(lws_smd_peer_t *pr)
 	lws_smd_msg_t *msg;
 
 	do {
-		tail = tail->next;
+		tail = lws_dll2_get_next(tail);
 		if (!tail)
 			return NULL;
 
@@ -605,7 +605,7 @@ lws_smd_msg_distribute(struct lws_context *ctx)
 
 	/* commonly, no messages and nothing to do... */
 
-	if (!ctx->smd.owner_messages.count)
+	if (!lws_dll2_count(&ctx->smd.owner_messages))
 		return 0;
 
 
@@ -615,7 +615,7 @@ lws_smd_msg_distribute(struct lws_context *ctx)
 			return 1; /* For Coverity */
 
 		lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1,
-					   ctx->smd.owner_peers.head) {
+					   lws_dll2_get_head(&ctx->smd.owner_peers)) {
 			lws_smd_peer_t *pr = lws_container_of(p, lws_smd_peer_t, list);
 
 			more = (char)(more | !!_lws_smd_msg_deliver_peer(ctx, pr));
@@ -675,7 +675,7 @@ lws_smd_register(struct lws_context *ctx, void *opaque, int flags,
 	 */
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1,
-				   ctx->smd.owner_messages.head) {
+				   lws_dll2_get_head(&ctx->smd.owner_messages)) {
 		lws_smd_msg_t *msg = lws_container_of(p, lws_smd_msg_t, list);
 
 		if (_lws_smd_msg_peer_interested_in_msg(pr, msg))
@@ -688,7 +688,7 @@ lws_smd_register(struct lws_context *ctx, void *opaque, int flags,
 	lws_mutex_unlock(ctx->smd.lock_messages); /* messages ------- */
 
 	lwsl_cx_info(ctx, "peer %p (count %u) registered", pr,
-			(unsigned int)ctx->smd.owner_peers.count);
+			(unsigned int)lws_dll2_count(&ctx->smd.owner_peers));
 
 bail1:
 	if (locked_peers)
@@ -700,7 +700,7 @@ bail1:
 void
 lws_smd_unregister(struct lws_smd_peer *pr)
 {
-	lws_smd_t *smd = lws_container_of(pr->list.owner, lws_smd_t, owner_peers);
+	lws_smd_t *smd = lws_dll2_owner_container(&pr->list, lws_smd_t, owner_peers);
 	int locked_peers = 0;
 
 	if (!smd->delivering || !lws_thread_is(smd->tid_holding)) {
@@ -725,7 +725,7 @@ lws_smd_message_pending(struct lws_context *ctx)
 	 * definitely nothing for this tsi or anything else
 	 */
 
-	if (!ctx->smd.owner_messages.count)
+	if (!lws_dll2_count(&ctx->smd.owner_messages))
 		return 0;
 
 	/*
@@ -742,7 +742,7 @@ lws_smd_message_pending(struct lws_context *ctx)
 		goto bail; /* For Coverity */
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1,
-				   ctx->smd.owner_messages.head) {
+				   lws_dll2_get_head(&ctx->smd.owner_messages)) {
 		lws_smd_msg_t *msg = lws_container_of(p, lws_smd_msg_t, list);
 
 		if ((lws_now_usecs() - msg->timestamp) > ctx->smd_ttl_us) {
@@ -758,7 +758,7 @@ lws_smd_message_pending(struct lws_context *ctx)
 			 */
 
 			lws_start_foreach_dll_safe(struct lws_dll2 *, pp, pp1,
-						   ctx->smd.owner_peers.head) {
+						   lws_dll2_get_head(&ctx->smd.owner_peers)) {
 				lws_smd_peer_t *pr = lws_container_of(pp,
 							lws_smd_peer_t, list);
 
@@ -782,7 +782,7 @@ lws_smd_message_pending(struct lws_context *ctx)
 	 * Walk the peer list
 	 */
 
-	lws_start_foreach_dll(struct lws_dll2 *, p, ctx->smd.owner_peers.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(&ctx->smd.owner_peers)) {
 		lws_smd_peer_t *pr = lws_container_of(p, lws_smd_peer_t, list);
 
 		if (pr->tail)
@@ -815,7 +815,7 @@ _lws_smd_destroy(struct lws_context *ctx)
 	 */
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1,
-				   ctx->smd.owner_messages.head) {
+				   lws_dll2_get_head(&ctx->smd.owner_messages)) {
 		lws_smd_msg_t *msg = lws_container_of(p, lws_smd_msg_t, list);
 
 		lws_dll2_remove(&msg->list);
@@ -828,7 +828,7 @@ _lws_smd_destroy(struct lws_context *ctx)
 	 */
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, p, p1,
-				   ctx->smd.owner_peers.head) {
+				   lws_dll2_get_head(&ctx->smd.owner_peers)) {
 		lws_smd_peer_t *pr = lws_container_of(p, lws_smd_peer_t, list);
 
 		pr->tail = NULL; /* we just nuked all the messages, ignore */

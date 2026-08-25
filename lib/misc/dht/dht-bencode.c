@@ -1061,7 +1061,7 @@ skip_ip_tracking:
 			int found = 0;
 
 			if (!st) {
-				if (ctx->storage.count >= DHT_MAX_HASHES)
+				if (lws_dll2_count(&ctx->storage) >= DHT_MAX_HASHES)
 					goto fail;
 
 				st = lws_zalloc(sizeof(*st), "dht storage");

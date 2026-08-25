@@ -70,7 +70,7 @@ lws_transport_mux_next_free(lws_transport_mux_t *tm, lws_mux_ch_idx_t *result)
 {
 	int n = tm->info.flags & LWSTMINFO_SERVER ? 1 : LWS_MUCH_RANGE - 1;
 
-	if (tm->owner.count >= LWS_MUCH_RANGE - 3)
+	if (lws_dll2_count(&tm->owner) >= LWS_MUCH_RANGE - 3)
 		/* too full to be safe against new muc ch selection collision */
 		return 1;
 
@@ -105,8 +105,8 @@ lws_transport_set_link(lws_transport_mux_t *tm, int link_state)
 
 		lwsl_user("%s: ******* transport mux link is DOWN\n", __func__);
 		/* destroy any mux channels that were using the link */
-		while (tm->owner.head) {
-			mc = lws_container_of(tm->owner.head,
+		while(!lws_dll2_is_empty(&tm->owner)) {
+			mc = lws_container_of(lws_dll2_get_head(&tm->owner),
 					      lws_transport_mux_ch_t, list);
 			lws_transport_mux_destroy_channel(&mc);
 		}
@@ -298,7 +298,7 @@ lws_transport_mux_pending(lws_transport_mux_t *tm, uint8_t *buf, size_t *len,
 	/* let's do any mux control packets first */
 
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				   tm->pending_tx.head) {
+				   lws_dll2_get_head(&tm->pending_tx)) {
 		mc = lws_container_of(d, lws_transport_mux_ch_t,
 				      list_pending_tx);
 
@@ -363,7 +363,7 @@ lws_transport_mux_pending(lws_transport_mux_t *tm, uint8_t *buf, size_t *len,
 
 	if (buf == p) {
 		//lwsl_notice("%s: looking for OPERATIONAL\n", __func__);
-		lws_start_foreach_dll(struct lws_dll2 *, d, tm->pending_tx.head) {
+		lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&tm->pending_tx)) {
 			mc = lws_container_of(d, lws_transport_mux_ch_t,
 					      list_pending_tx);
 
@@ -381,7 +381,7 @@ lws_transport_mux_pending(lws_transport_mux_t *tm, uint8_t *buf, size_t *len,
 		} lws_end_foreach_dll(d);
 	}
 
-	if (tm->pending_tx.head || buf != p)
+	if (lws_dll2_get_head(&tm->pending_tx) || buf != p)
 		cbs->txp_req_write(tm);
 
 issue:
@@ -736,7 +736,7 @@ lws_transport_mux_destroy_channel(lws_transport_mux_ch_t **_mc)
 	if (!mc)
 		return;
 
-	tm = lws_container_of(mc->list.owner,
+	tm = lws_dll2_owner_container(&mc->list,
 						lws_transport_mux_t, owner);
 	*_mc = NULL;
 
@@ -812,8 +812,8 @@ lws_transport_mux_destroy(lws_transport_mux_t **tm)
 {
 	lws_transport_mux_ch_t *mc;
 
-	while ((*tm)->owner.head) {
-		mc = lws_container_of((*tm)->owner.head,
+	while(!lws_dll2_is_empty(&(*tm)->owner)) {
+		mc = lws_container_of(lws_dll2_get_head(&(*tm)->owner),
 				      lws_transport_mux_ch_t, list);
 		lws_transport_mux_destroy_channel(&mc);
 	}

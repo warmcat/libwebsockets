@@ -969,7 +969,7 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			if (pub->qos == QOS2) {
 				lws_mqtt_qos2_rx_t *rx;
 
-				lws_start_foreach_dll(struct lws_dll2 *, p, wsi->mqtt->qos2_rx_list.head) {
+				lws_start_foreach_dll(struct lws_dll2 *, p, lws_dll2_get_head(&wsi->mqtt->qos2_rx_list)) {
 					rx = lws_container_of(p, lws_mqtt_qos2_rx_t, list);
 					if (rx->packet_id == par->cpkt_id) {
 						wsi->mqtt->qos2_duplicate = 1;
@@ -1467,7 +1467,7 @@ bail1:
 				 */
 				n = 0;
 				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				                           wsi->mux.child_list_owner.head) {
+				                           lws_dll2_get_head(&wsi->mux.child_list_owner)) {
 				   struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
 					if (w->mqtt->unacked_publish &&
 					    w->mqtt->ack_pkt_id == par->cpkt_id) {
@@ -1518,7 +1518,7 @@ bail1:
 						__func__);
 				n = 0;
 				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				                           wsi->mux.child_list_owner.head) {
+				                           lws_dll2_get_head(&wsi->mux.child_list_owner)) {
 				   struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
 					if (w->mqtt->unacked_pubrel > 0 &&
 					    w->mqtt->ack_pkt_id == par->cpkt_id) {
@@ -1549,7 +1549,8 @@ bail1:
 				lwsl_info("%s: cmd_completion: PUBREL\n",
 						__func__);
 
-				lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp, wsi->mqtt->qos2_rx_list.head) {
+				lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp, lws_dll2_get_head(
+					&wsi->mqtt->qos2_rx_list)) {
 					rx = lws_container_of(p, lws_mqtt_qos2_rx_t, list);
 					if (rx->packet_id == par->cpkt_id) {
 						const char *cid = wsi->mqtt->client.id ? (const char *)wsi->mqtt->client.id->buf : "unknown";
@@ -1563,7 +1564,7 @@ bail1:
 				} lws_end_foreach_dll_safe(p, tp);
 
 				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				                           wsi->mux.child_list_owner.head) {
+				                           lws_dll2_get_head(&wsi->mux.child_list_owner)) {
 				   struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
 					uint16_t pid = par->cpkt_id;
 					if (w->a.protocol->callback(w,
@@ -1589,7 +1590,7 @@ bail1:
 
 				n = 0;
 				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				                           wsi->mux.child_list_owner.head) {
+				                           lws_dll2_get_head(&wsi->mux.child_list_owner)) {
 				   struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
 					if (w->mqtt->unacked_publish &&
 					    w->mqtt->ack_pkt_id == par->cpkt_id) {
@@ -1658,7 +1659,7 @@ bail1:
 
 				n = 0;
 				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				                           wsi->mux.child_list_owner.head) {
+				                           lws_dll2_get_head(&wsi->mux.child_list_owner)) {
 				   struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
 					if (w->mqtt->inside_subscribe &&
 					    w->mqtt->ack_pkt_id == par->cpkt_id) {
@@ -1701,7 +1702,7 @@ bail1:
 				 */
 				n = 0;
 				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				                           wsi->mux.child_list_owner.head) {
+				                           lws_dll2_get_head(&wsi->mux.child_list_owner)) {
 				   struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
 					if (w->mqtt->inside_unsubscribe &&
 					    w->mqtt->ack_pkt_id == par->cpkt_id) {
@@ -1775,7 +1776,7 @@ bail1:
 					chunk = len;
 
 				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				                           wsi->mux.child_list_owner.head) {
+				                           lws_dll2_get_head(&wsi->mux.child_list_owner)) {
 				   struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
 					if (!wsi->mqtt->qos2_duplicate &&
 					    lws_mqtt_find_sub(w->mqtt,

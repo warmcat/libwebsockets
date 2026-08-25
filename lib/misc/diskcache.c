@@ -406,7 +406,7 @@ lws_diskcache_trim(struct lws_diskcache_scan *lds)
 				lwsl_notice("%s: Failed to unlink %s\n",
 					    __func__, filepath);
 
-			tail = tail->prev;
+			tail = lws_dll2_get_prev(tail);
 		}
 
 		if (files_trimmed)

@@ -559,7 +559,7 @@ omc_lws_om_get_other_side_pss_client(struct vhd *vhd, struct pss *pss)
 	 * same proxy path
 	 */
 	lws_start_foreach_dll(struct lws_dll2 *, d,
-			vhd->bind_partner_vhd->clients.head) {
+			lws_dll2_get_head(&vhd->bind_partner_vhd->clients)) {
 		struct pss *apss = lws_container_of(d, struct pss, list);
 
 		if (!strcmp(pss->proxy_path, apss->proxy_path))
@@ -661,7 +661,7 @@ callback_lws_openmetrics_prox_agg(struct lws *wsi,
 		lws_strnncpy(pss->proxy_path, (const char *)in, len,
 			     sizeof(pss->proxy_path));
 
-		if (pss->list.owner) {
+		if (lws_dll2_owner(&pss->list)) {
 			lwsl_warn("%s: double HTTP?\n", __func__);
 			return 0;
 		}
@@ -669,7 +669,7 @@ callback_lws_openmetrics_prox_agg(struct lws *wsi,
 		pss->wsi = wsi;
 
 		lws_start_foreach_dll(struct lws_dll2 *, d,
-				      vhd->bind_partner_vhd->clients.head) {
+				      lws_dll2_get_head(&vhd->bind_partner_vhd->clients)) {
 			struct pss *apss = lws_container_of(d, struct pss, list);
 
 			if (!strcmp((const char *)in, apss->proxy_path)) {
@@ -848,7 +848,7 @@ callback_lws_openmetrics_prox_server(struct lws *wsi,
 		lws_dll2_remove(&pss->list);
 		lwsl_warn("%s: client %s left (%u)\n", __func__,
 				pss->proxy_path,
-				(unsigned int)vhd->clients.count);
+				(unsigned int)lws_dll2_count(&vhd->clients));
 		lwsac_free(&pss->ac);
 
 		/* let's kill the scraper connection accordingly, if still up */

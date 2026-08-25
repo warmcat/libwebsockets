@@ -312,7 +312,7 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 		int flushed = 0;
 		do {
 			flushed = 0;
-			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, owner->head) {
+			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(owner)) {
 				struct lws_quic_rx_chunk *c = lws_container_of(d, struct lws_quic_rx_chunk, list);
 
 				if (c->offset < *expected_offset) {
@@ -431,9 +431,9 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 
 	/* 4. It's in the future. We must buffer it! */
 #if defined(LWS_WITH_FREERTOS)
-	if (owner->count >= 16)
+	if (lws_dll2_count(owner) >= 16)
 #else
-	if (owner->count >= 4096)
+	if (lws_dll2_count(owner) >= 4096)
 #endif
 	{
 		lwsl_wsi_notice(nwsi, "QUIC RX: Dropping future chunk, reassembly buffer full");
@@ -451,7 +451,7 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 
 	/* Insert sorted by offset */
 	struct lws_dll2 *p = NULL;
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, owner->head) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(owner)) {
 		struct lws_quic_rx_chunk *existing = lws_container_of(d, struct lws_quic_rx_chunk, list);
 		if (existing->offset == offset) {
 			/* Duplicate future chunk, just ignore */
@@ -483,7 +483,7 @@ lws_quic_stream_find(struct lws *nwsi, uint64_t stream_id)
 	if (!qn) {
 		if (nwsi) {
 			lws_start_foreach_dll(struct lws_dll2 *, d,
-					nwsi->mux.child_list_owner.head) {
+					lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
 				struct lws *w = lws_container_of(d, struct lws,
 								 mux.sibling_list);
 				if (w->quic.qs && w->quic.qs->stream_id == stream_id)
@@ -498,7 +498,7 @@ lws_quic_stream_find(struct lws *nwsi, uint64_t stream_id)
 
 	if (qn->nwsi) {
 		lws_start_foreach_dll(struct lws_dll2 *, d,
-				qn->nwsi->mux.child_list_owner.head) {
+				lws_dll2_get_head(&qn->nwsi->mux.child_list_owner)) {
 			struct lws *w = lws_container_of(d, struct lws,
 							 mux.sibling_list);
 			if (w->quic.qs && w->quic.qs->stream_id == stream_id)
@@ -861,7 +861,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 			}
 
 			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-					nwsi->mux.child_list_owner.head) {
+					lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
 				struct lws *child = lws_container_of(d, struct lws,
 								     mux.sibling_list);
 				if ((uint64_t)child->mux.my_sid == stream_id) {
@@ -961,7 +961,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 			pos += consumed;
 			lwsl_wsi_info(nwsi, "QUIC RX: Parsed STOP_SENDING! stream_id %llu", (unsigned long long)stream_id);
 			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-					nwsi->mux.child_list_owner.head) {
+					lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
 				struct lws *child = lws_container_of(d, struct lws,
 								     mux.sibling_list);
 				if ((uint64_t)child->mux.my_sid == stream_id) {

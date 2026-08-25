@@ -425,7 +425,8 @@ lws_server_socket_service_ssl(struct lws *wsi, lws_sockfd_type accept_fd, char f
 			//lwsl_notice("%s: %s: QUEUING LWS_AQ_SSL_ACCEPT\n", __func__, lws_wsi_tag(wsi));
 
 			pthread_mutex_lock(&context->async_worker_mutex);
-			if (context->async_worker_waiting.count >= (uint32_t)(context->count_async_threads * 10)) {
+			if (lws_dll2_count(&context->async_worker_waiting) >=
+			    (uint32_t)(context->count_async_threads * 10)) {
 				pthread_mutex_unlock(&context->async_worker_mutex);
 				lws_free(job);
 				wsi->async_worker_job = NULL;

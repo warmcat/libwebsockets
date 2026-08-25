@@ -471,7 +471,7 @@ rops_handle_POLLOUT_h2(struct lws *wsi)
 #if defined(LWS_WITH_CLIENT)
 			|| wsi->client_h2_alpn
 #endif
-			) && wsi->h2.h2n->pps_owner.head) {
+			) && lws_dll2_get_head(&wsi->h2.h2n->pps_owner)) {
 		lwsl_info("servicing pps\n");
 		/*
 		 * this is called on the network connection, but may close
@@ -481,7 +481,7 @@ rops_handle_POLLOUT_h2(struct lws *wsi)
 			wsi->socket_is_permanently_unusable = 1;
 			return LWS_HP_RET_BAIL_DIE;
 		}
-		if (wsi->h2.h2n->pps_owner.head)
+		if(!lws_dll2_is_empty(&wsi->h2.h2n->pps_owner))
 			return LWS_HP_RET_BAIL_OK;
 
 		/* we can resume whatever we were doing */
@@ -820,7 +820,7 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 		lwsl_info("closing %s: parent %s\n", lws_wsi_tag(wsi),
 				lws_wsi_tag(wsi->mux.parent_wsi));
 
-		if (wsi->mux.child_list_owner.head && lwsl_visible(LLL_INFO)) {
+		if (lws_dll2_get_head(&wsi->mux.child_list_owner) && lwsl_visible(LLL_INFO)) {
 			lwsl_info(" parent %s: closing children: list:\n", lws_wsi_tag(wsi));
 			lws_wsi_mux_dump_children(wsi);
 		}
@@ -829,8 +829,8 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 
 	if (wsi->upgraded_to_http2) {
 		/* remove pps */
-		while (wsi->h2.h2n->pps_owner.head) {
-			struct lws_dll2 *d = wsi->h2.h2n->pps_owner.head;
+		while(!lws_dll2_is_empty(&wsi->h2.h2n->pps_owner)) {
+			struct lws_dll2 *d = lws_dll2_get_head(&wsi->h2.h2n->pps_owner);
 			lws_dll2_remove(d);
 			lws_free(lws_container_of(d,
 					struct lws_h2_protocol_send, list));
@@ -849,7 +849,7 @@ rops_close_kill_connection_h2(struct lws *wsi, enum lws_close_status reason)
 			struct lws *nwsi = wsi->mux.parent_wsi;
 			wsi->mux.parent_wsi->h2.h2n->swsi = NULL;
 			lws_start_foreach_dll(struct lws_dll2 *, d,
-					nwsi->mux.child_list_owner.head) {
+					lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
 				struct lws *sibling = lws_container_of(d,
 						struct lws, mux.sibling_list);
 				if (sibling != wsi && lwsi_state(sibling) == LRS_H2_WAITING_TO_SEND_HEADERS)
@@ -887,7 +887,7 @@ rops_callback_on_writable_h2(struct lws *wsi)
 
 	/* is this for DATA or for control messages? */
 
-	if (wsi->upgraded_to_http2 && !wsi->h2.h2n->pps_owner.head &&
+	if (wsi->upgraded_to_http2 && !lws_dll2_get_head(&wsi->h2.h2n->pps_owner) &&
 	    lws_wsi_txc_check_skint(&wsi->txc, lws_h2_tx_cr_get(wsi))) {
 		/*
 		 * refuse his efforts to get WRITABLE if we have no credit and
@@ -1109,7 +1109,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 
 	lws_wsi_mux_dump_waiting_children(wsi);
 
-	if (!wsi->mux.child_list_owner.head)
+	if(lws_dll2_is_empty(&wsi->mux.child_list_owner))
 		return 0;
 
 	/*
@@ -1128,7 +1128,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 	 */
 	int first_iteration = 1;
 	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-			wsi->mux.child_list_owner.head) {
+			lws_dll2_get_head(&wsi->mux.child_list_owner)) {
 		struct lws *w = lws_container_of(d, struct lws, mux.sibling_list);
 
 		if (!first_iteration && lws_send_pipe_choked(wsi))
@@ -1557,7 +1557,7 @@ rops_perform_user_POLLOUT_h2(struct lws *wsi)
 	 * the queued pps would never be flushed, stalling the transfer.  Keep
 	 * POLLOUT asserted while the netconn still has pps pending.
 	 */
-	if (wsi->h2.h2n && wsi->h2.h2n->pps_owner.head) {
+	if (wsi->h2.h2n && lws_dll2_get_head(&wsi->h2.h2n->pps_owner)) {
 		if (lws_change_pollfd(wsi, 0, LWS_POLLOUT))
 			return -1;
 		return 0;

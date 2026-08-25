@@ -270,7 +270,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 	if (!mi) {
 
 		/* no existing mirror instance for name */
-		if (v->mi_list.count == MAX_MIRROR_INSTANCES) {
+		if (lws_dll2_count(&v->mi_list) == MAX_MIRROR_INSTANCES) {
 			lws_pthread_mutex_unlock(&v->lock); /* } vh lock */
 			return -1;
 		}
@@ -322,7 +322,7 @@ callback_lws_mirror(struct lws *wsi, enum lws_callback_reasons reason,
 	lws_dll2_remove(&pss->same_mi_list);
 	pss->mi = NULL;
 
-	if (mi->same_mi_pss_list.count) {
+	if (lws_dll2_count(&mi->same_mi_pss_list)) {
 		/*
 		 * Still other pss using the mirror instance.  The pss
 		 * going away may have had the oldest tail, reconfirm

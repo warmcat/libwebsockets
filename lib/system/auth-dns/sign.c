@@ -1098,7 +1098,7 @@ void
 lws_auth_dns_sort_zone(struct lws_auth_dns_sign_info *info, struct auth_dns_zone *z)
 {
 	/* Sort RRsets */
-	int num_rrsets = (int)z->rrset_list.count;
+	int num_rrsets = (int)lws_dll2_count(&z->rrset_list);
 	if (num_rrsets > 1) {
 		struct auth_dns_rrset **arr = lws_malloc(sizeof(void *) * (size_t)num_rrsets, "sort_zones");
 		if (arr) {
@@ -1121,7 +1121,7 @@ lws_auth_dns_sort_zone(struct lws_auth_dns_sign_info *info, struct auth_dns_zone
 	/* Sort RRs within each RRset */
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&z->rrset_list)) {
 		struct auth_dns_rrset *rs = lws_container_of(d, struct auth_dns_rrset, list);
-		int num_rrs = (int)rs->rr_list.count;
+		int num_rrs = (int)lws_dll2_count(&rs->rr_list);
 		if (num_rrs > 1) {
 			struct auth_dns_rr **arr = lws_malloc(sizeof(void *) * (size_t)num_rrs, "sort_rrs");
 			if (arr) {

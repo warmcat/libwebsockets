@@ -445,7 +445,7 @@ second_half:
 			lws_pt_unlock(pt);
 
 			lwsl_cx_netlink_debug(cx, "route list size %u",
-				cx->routing_table.count);
+				lws_dll2_count(&cx->routing_table));
 
 			/*
 			 * 3. Close anyything we cant reach anymore due to the removal.
@@ -477,9 +477,9 @@ inform_l:
 			_lws_routing_entry_dump(cx, &robj);
 #endif
 			lws_pt_lock(pt, __func__);
-			removed = cx->routing_table.count;
+			removed = lws_dll2_count(&cx->routing_table);
 			_lws_route_remove(pt, &robj, LRR_MATCH_SRC | LRR_IGNORE_PRI);
-			removed -= cx->routing_table.count;
+			removed -= lws_dll2_count(&cx->routing_table);
 			lws_pt_unlock(pt);
 			_lws_route_pt_close_unroutable(pt);
 			if (removed > 0)
@@ -526,7 +526,7 @@ inform_l:
 
 	if (!cx->nl_initial_done &&
 	    pt == &cx->pt[0] &&
-	    cx->routing_table.count) {
+	    lws_dll2_count(&cx->routing_table)) {
 		/*
 		 * While netlink info still coming, keep moving the timer for
 		 * calling it "done" to +100ms until after it stops coming

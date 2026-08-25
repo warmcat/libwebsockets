@@ -329,7 +329,7 @@ typedef struct lws_async_dns {
 	uint8_t			dnssec_mode; /* lws_async_dns_dnssec_mode_t */
 } lws_async_dns_t;
 
-#define lws_async_dns_from_server(_s) ((lws_async_dns_t *)_s->list.owner)
+#define lws_async_dns_from_server(_s) ((lws_async_dns_t *)lws_dll2_owner(&_s->list))
 
 typedef enum {
 	LADNS_CONF_SERVER_UNKNOWN				= -1,
@@ -704,7 +704,7 @@ __lws_vhost_destroy2(struct lws_vhost *vh);
 
 /* Number of mux children on wsi (kept in child_list_owner.count). */
 #define lws_wsi_mux_child_count(_wsi) \
-	((unsigned int)(_wsi)->mux.child_list_owner.count)
+	((unsigned int)lws_dll2_count(&(_wsi)->mux.child_list_owner))
 
 void
 lws_wsi_mux_insert(struct lws *wsi, struct lws *parent_wsi, uint64_t sid);
@@ -1935,7 +1935,7 @@ void
 lws_netdev_wifi_scan(lws_sorted_usec_list_t *sul);
 
 #define lws_netdevs_from_ndi(ni) \
-		lws_container_of((ni)->list.owner, lws_netdevs_t, owner)
+		lws_dll2_owner_container(&(ni)->list, lws_netdevs_t, owner)
 
 #define lws_context_from_netdevs(nd) \
 		lws_container_of(nd, struct lws_context, netdevs)

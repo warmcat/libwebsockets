@@ -54,8 +54,8 @@ init_openhitls(void)
 static void
 cleanup_vhost_sessions(struct lws_vhost *vh)
 {
-	while (vh->tls_sessions.head) {
-		struct test_sco *ts = lws_container_of(vh->tls_sessions.head,
+	while(!lws_dll2_is_empty(&vh->tls_sessions)) {
+		struct test_sco *ts = lws_container_of(lws_dll2_get_head(&vh->tls_sessions),
 						       struct test_sco, list);
 
 		lws_dll2_remove(&ts->list);

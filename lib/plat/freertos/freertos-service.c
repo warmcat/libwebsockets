@@ -83,7 +83,7 @@ _lws_plat_service_tsi(struct lws_context *context, int timeout_ms, int tsi)
 		timeout_ms = 2000000000;
 	timeout_us = ((lws_usec_t)timeout_ms) * LWS_US_PER_MS;
 
-	if (!pt->service_tid_detected && context->vhost_list_owner.head) {
+	if (!pt->service_tid_detected && lws_dll2_get_head(&context->vhost_list_owner)) {
 		lws_fakewsi_def_plwsa(pt);
 
 		lws_fakewsi_prep_plwsa_ctx(context);

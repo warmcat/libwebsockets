@@ -562,7 +562,7 @@ secstream_mqtt(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		    !wsi->mqtt->done_birth) {
 			struct lws *nwsi = lws_get_network_wsi(wsi);
 			lws_start_foreach_dll(struct lws_dll2 *, d,
-					nwsi->mux.child_list_owner.head) {
+					lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
 				struct lws *w = lws_container_of(d, struct lws,
 								 mux.sibling_list);
 				if (w != wsi &&

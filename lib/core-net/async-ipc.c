@@ -55,7 +55,7 @@ lws_async_ipc_timeout_cb(lws_sorted_usec_list_t *sul)
 	lwsl_err("lws_async_ipc: timeout waiting for IPC %s\n", ipc->uds_path);
 
 	/* Clear queue */
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, ipc->msg_queue.head) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&ipc->msg_queue)) {
 		struct lws_async_ipc_msg *msg = lws_container_of(d, struct lws_async_ipc_msg, list);
 		lws_dll2_remove(d);
 		lws_free(msg);
@@ -103,7 +103,7 @@ callback_async_ipc(struct lws *wsi, enum lws_callback_reasons reason,
 			lws_sul_cancel(&ipc->sul_timeout);
 
 			/* Clear queue */
-			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, ipc->msg_queue.head) {
+			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&ipc->msg_queue)) {
 				struct lws_async_ipc_msg *msg = lws_container_of(d, struct lws_async_ipc_msg, list);
 				lws_dll2_remove(d);
 				lws_free(msg);
@@ -135,9 +135,11 @@ callback_async_ipc(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RAW_WRITEABLE:
 	case LWS_CALLBACK_CLIENT_WRITEABLE:
-		lwsl_notice("lws_async_ipc: WRITEABLE (ipc=%p, msg_queue.head=%p)\n", ipc, ipc ? ipc->msg_queue.head : NULL);
-		if (ipc && ipc->msg_queue.head) {
-			struct lws_async_ipc_msg *msg = lws_container_of(ipc->msg_queue.head, struct lws_async_ipc_msg, list);
+		lwsl_notice("lws_async_ipc: WRITEABLE (ipc=%p, msg_queue.head=%p)\n",
+			    ipc, ipc ? lws_dll2_get_head(&ipc->msg_queue) : NULL);
+		if (ipc && lws_dll2_get_head(&ipc->msg_queue)) {
+			struct lws_async_ipc_msg *msg = lws_container_of(lws_dll2_get_head(
+				&ipc->msg_queue), struct lws_async_ipc_msg, list);
 
 			/* Pre-allocate buffer for LWS_PRE padding */
 			uint8_t *buf = lws_malloc(LWS_PRE + msg->len, "async_ipc_tx");
@@ -158,7 +160,7 @@ callback_async_ipc(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_sul_schedule(ipc->cx, 0, &ipc->sul_timeout, lws_async_ipc_timeout_cb, 5 * LWS_US_PER_SEC);
 			}
 
-			if (ipc->msg_queue.head)
+			if(!lws_dll2_is_empty(&ipc->msg_queue))
 				lws_callback_on_writable(wsi);
 		}
 		break;
@@ -267,7 +269,7 @@ lws_async_ipc_destroy(struct lws_async_ipc **_ipc)
 
 	lws_sul_cancel(&ipc->sul_timeout);
 
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, ipc->msg_queue.head) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&ipc->msg_queue)) {
 		struct lws_async_ipc_msg *msg = lws_container_of(d, struct lws_async_ipc_msg, list);
 		lws_dll2_remove(d);
 		lws_free(msg);

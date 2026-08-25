@@ -46,7 +46,7 @@ static void
 __lws_tls_session_destroy(lws_tls_scm_t *ts)
 {
 	lwsl_tlssess("%s: %s (%u)\n", __func__, (const char *)&ts[1],
-				     (unsigned int)(ts->list.owner->count - 1));
+				     (unsigned int)(lws_dll2_count(lws_dll2_owner(&ts->list)) - 1));
 
 	lws_sul_cancel(&ts->sul_ttl);
 	lws_dll2_remove(&ts->list);		/* vh lock */
@@ -178,7 +178,7 @@ static void
 lws_tls_session_expiry_cb(lws_sorted_usec_list_t *sul)
 {
 	lws_tls_scm_t *ts = lws_container_of(sul, lws_tls_scm_t, sul_ttl);
-	struct lws_vhost *vh = lws_container_of(ts->list.owner,
+	struct lws_vhost *vh = lws_dll2_owner_container(&ts->list,
 						struct lws_vhost, tls_sessions);
 
 	lws_context_lock(vh->context, __func__); /* -------------- cx { */
@@ -229,13 +229,13 @@ lws_tls_session_new_mbedtls(struct lws *wsi)
 		 * We have to make our own, new session
 		 */
 
-		if (vh->tls_sessions.count == vh->tls_session_cache_max) {
+		if (lws_dll2_count(&vh->tls_sessions) == vh->tls_session_cache_max) {
 
 			/*
 			 * We have reached the vhost's session cache limit,
 			 * prune the LRU / head
 			 */
-			ts = lws_container_of(vh->tls_sessions.head,
+			ts = lws_container_of(lws_dll2_get_head(&vh->tls_sessions),
 					      lws_tls_scm_t, list);
 
 			lwsl_tlssess("%s: pruning oldest session (hit max %u)\n",
@@ -329,7 +329,7 @@ lws_tls_session_new_mbedtls(struct lws *wsi)
 
 	lwsl_tlssess("%s: %s: %s %s, (%s:%u)\n", __func__,
 		     wsi->lc.gutag, disposition, buf, vh->name,
-		     (unsigned int)vh->tls_sessions.count);
+		     (unsigned int)lws_dll2_count(&vh->tls_sessions));
 
 	/*
 	 * indicate we will hold on to the SSL_SESSION reference, and take

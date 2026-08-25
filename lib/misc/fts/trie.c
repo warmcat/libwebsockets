@@ -179,7 +179,7 @@ fts_child_head(struct lws_fts_entry *e)
 static struct lws_fts_entry *
 fts_entry_next(struct lws_fts_entry *e)
 {
-	struct lws_dll2 *d = e->sibling.next;
+	struct lws_dll2 *d = lws_dll2_get_next(&e->sibling);
 
 	return d ? lws_container_of(d, struct lws_fts_entry, sibling) : NULL;
 }
@@ -187,7 +187,7 @@ fts_entry_next(struct lws_fts_entry *e)
 static struct lws_fts_filepath *
 fts_fp_next(struct lws_fts_filepath *fp)
 {
-	struct lws_dll2 *d = fp->list.next;
+	struct lws_dll2 *d = lws_dll2_get_next(&fp->list);
 
 	return d ? lws_container_of(d, struct lws_fts_filepath, list) : NULL;
 }
@@ -195,7 +195,7 @@ fts_fp_next(struct lws_fts_filepath *fp)
 static struct lws_fts_filepath *
 fts_fp_prev(struct lws_fts_filepath *fp)
 {
-	struct lws_dll2 *d = fp->list.prev;
+	struct lws_dll2 *d = lws_dll2_get_prev(&fp->list);
 
 	return d ? lws_container_of(d, struct lws_fts_filepath, list) : NULL;
 }
@@ -396,7 +396,7 @@ lws_fts_entry_child_add(struct lws_fts *t, unsigned char c,
 	lws_dll2_clear(&e->sibling);
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,
-			      parent->child_list_owner.head) {
+			      lws_dll2_get_head(&parent->child_list_owner)) {
 		struct lws_fts_entry *e2 = lws_container_of(d,
 					struct lws_fts_entry, sibling);
 
@@ -742,7 +742,7 @@ lws_fts_fill(struct lws_fts *t, uint32_t file_index, const char *buf,
 
 		{
 			lws_start_foreach_dll(struct lws_dll2 *, d,
-					      e->child_list_owner.head) {
+					      lws_dll2_get_head(&e->child_list_owner)) {
 				assert(lws_container_of(d, struct lws_fts_entry,
 							sibling)->parent == e);
 			} lws_end_foreach_dll(d);
@@ -857,9 +857,9 @@ seal:
 
 			lws_dll2_owner_clear(&stash);
 
-			while (t->parser->child_list_owner.head) {
+			while(!lws_dll2_is_empty(&t->parser->child_list_owner)) {
 				struct lws_dll2 *d =
-					t->parser->child_list_owner.head;
+					lws_dll2_get_head(&t->parser->child_list_owner);
 
 				lws_dll2_remove(d);
 				lws_dll2_add_tail(d, &stash);
@@ -1157,12 +1157,12 @@ lws_fts_serialize(struct lws_fts *t)
 		for (n = 0; n <= sp; n++) {
 			s[n]->agg_inst_count += s[sp]->instance_count;
 			s[n]->agg_child_count +=
-					s[sp]->child_list_owner.count;
+					lws_dll2_count(&s[sp]->child_list_owner);
 		}
 
 		/* handle any children before the parent */
 
-		if (s[sp]->child_list_owner.head) {
+		if(!lws_dll2_is_empty(&s[sp]->child_list_owner)) {
 			if (sp + 1 == LWS_ARRAY_SIZE(s)) {
 				lwsl_err("Stack too deep\n");
 
@@ -1175,7 +1175,7 @@ lws_fts_serialize(struct lws_fts *t)
 		}
 
 		do {
-			if (s[sp]->sibling.next) {
+			if (lws_dll2_get_next(&s[sp]->sibling)) {
 				s[sp] = fts_entry_next(s[sp]);
 				break;
 			} else
@@ -1185,7 +1185,7 @@ lws_fts_serialize(struct lws_fts *t)
 
 	/* dump the filepaths */
 
-	fp = lws_container_of(t->filepath_list_owner.head,
+	fp = lws_container_of(lws_dll2_get_head(&t->filepath_list_owner),
 			      struct lws_fts_filepath, list);
 	bp = 0;
 	while (fp) {
@@ -1224,8 +1224,8 @@ lws_fts_serialize(struct lws_fts *t)
 
 	/* dump the filepath map, starting from index 0, which is at the tail */
 
-	fp = t->filepath_list_owner.tail ?
-			lws_container_of(t->filepath_list_owner.tail,
+	fp = lws_dll2_get_tail(&t->filepath_list_owner) ?
+			lws_container_of(lws_dll2_get_tail(&t->filepath_list_owner),
 					 struct lws_fts_filepath, list) : NULL;
 	bp = 0;
 	while (fp) {
@@ -1250,7 +1250,7 @@ lws_fts_serialize(struct lws_fts *t)
 
 		/* handle any children before the parent */
 
-		if (!do_parent && s[sp]->child_list_owner.head) {
+		if (!do_parent && lws_dll2_get_head(&s[sp]->child_list_owner)) {
 
 			if (sp + 1 == LWS_ARRAY_SIZE(s)) {
 				lwsl_err("Stack too deep\n");
@@ -1273,7 +1273,7 @@ lws_fts_serialize(struct lws_fts *t)
 		spill((3 * MAX_VLI), 0);
 
 		bp += wq32(&buf[bp], e->ofs_last_inst_file);
-		bp += wq32(&buf[bp], e->child_list_owner.count);
+		bp += wq32(&buf[bp], lws_dll2_count(&e->child_list_owner));
 		bp += wq32(&buf[bp], e->instance_count);
 		bp += wq32(&buf[bp], e->agg_inst_count);
 
@@ -1286,9 +1286,9 @@ lws_fts_serialize(struct lws_fts *t)
 
 			/* bubble sort keeps going until nothing changed */
 
-			pd = e->child_list_owner.head;
+			pd = lws_dll2_get_head(&e->child_list_owner);
 			while (pd) {
-				struct lws_dll2 *nx = pd->next;
+				struct lws_dll2 *nx = lws_dll2_get_next(pd);
 
 				te1 = lws_container_of(pd,
 						struct lws_fts_entry, sibling);
@@ -1355,7 +1355,7 @@ lws_fts_serialize(struct lws_fts *t)
 
 				lwsl_err("*** %c CRI inst %d ch %d\n", e1->parent->c,
 						e1->instance_count,
-						e1->child_list_owner.count);
+						lws_dll2_count(&e1->child_list_owner));
 			}
 #endif
 			e1 = fts_entry_next(e1);
@@ -1370,7 +1370,7 @@ lws_fts_serialize(struct lws_fts *t)
 				break;
 		}
 
-		if (s[sp]->sibling.next)
+		if (lws_dll2_get_next(&s[sp]->sibling))
 			s[sp] = fts_entry_next(s[sp]);
 		else {
 			/* if there are no siblings, do the parent */

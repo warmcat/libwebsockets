@@ -180,7 +180,7 @@ ltm_ch_payload(lws_transport_mux_ch_t *tmc, const uint8_t *buf, size_t len)
 	assert_is_tmch(tmc);
 
 #if defined(_DEBUG)
-	tm = lws_container_of(tmc->list.owner, lws_transport_mux_t, owner);
+	tm = lws_dll2_owner_container(&tmc->list, lws_transport_mux_t, owner);
 	assert_is_tm(tm);
 #endif
 
@@ -204,7 +204,7 @@ ltm_ch_opens(lws_transport_mux_ch_t *tmc, int determination)
 	lwsl_notice("%s\n", __func__);
 
 	assert_is_tmch(tmc);
-	tm = lws_container_of(tmc->list.owner, lws_transport_mux_t, owner);
+	tm = lws_dll2_owner_container(&tmc->list, lws_transport_mux_t, owner);
 		assert_is_tm(tm);
 
 	if (lws_txp_inside_proxy.event_new_conn(
@@ -323,7 +323,7 @@ lws_transport_mux_proxy_req_write(lws_transport_priv_t priv)
 
 	assert_is_tmch(tmc);
 
-	tm = lws_container_of(tmc->list.owner, lws_transport_mux_t, owner);
+	tm = lws_dll2_owner_container(&tmc->list, lws_transport_mux_t, owner);
 	assert_is_tm(tm);
 
 	if (!tm->info.txp_ppath.priv_onw)
@@ -346,7 +346,7 @@ lws_transport_mux_proxy_write(lws_transport_priv_t priv, uint8_t *buf, size_t *l
 
 	assert_is_tmch(tmc);
 
-	tm = lws_container_of(tmc->list.owner, lws_transport_mux_t, owner);
+	tm = lws_dll2_owner_container(&tmc->list, lws_transport_mux_t, owner);
 	assert_is_tm(tm);
 
 	assert(*len < 0xffff);

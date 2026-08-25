@@ -526,7 +526,7 @@ solo:
 
 #if !defined(LWS_WITH_SYS_ASYNC_DNS)
 	n = 0;
-	if (!wsi->dns_sorted_list.count) {
+	if (!lws_dll2_count(&wsi->dns_sorted_list)) {
 		/*
 		 * blocking dns resolution
 		 */

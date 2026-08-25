@@ -734,7 +734,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	context->fic.name = "ctx";
-	if (info->fic.fi_owner.count)
+	if (lws_dll2_count(&info->fic.fi_owner))
 		/*
 		 * This moves all the lws_fi_t from info->fi to the context fi,
 		 * leaving it empty, so no injection added to default vhost
@@ -1049,7 +1049,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->fops_zip = fops_zip;
 	prev->next = &context->fops_zip;
 	context->fops_zip.cx = context;
-	prev = (struct lws_plat_file_ops *)prev->next;
+	prev = (struct lws_plat_file_ops *)lws_dll2_get_next(prev);
 #endif
 
 	/* if user provided fops, tack them on the end of the list */
@@ -1871,8 +1871,8 @@ free_context_fail2:
 		lws_metrics_destroy(context);
 #endif
 #if defined(LWS_WITH_SYS_STATE) && defined(LWS_WITH_NETWORK)
-		while (context->mgr_system.notify_list.head)
-			lws_dll2_remove(context->mgr_system.notify_list.head);
+		while(!lws_dll2_is_empty(&context->mgr_system.notify_list))
+			lws_dll2_remove(lws_dll2_get_head(&context->mgr_system.notify_list));
 #endif
 		lws_fi_destroy(&context->fic);
 	}
@@ -2011,6 +2011,8 @@ lws_pt_destroy(struct lws_context_per_thread *pt)
 #endif
 
 	vpt = (volatile struct lws_context_per_thread *)pt;
+	/* helpers take non-volatile owner pointers: keep the direct reads via
+	 * the volatile pt view */
 	while (vpt->foreign_pfd_owner.head) {
 		ftp = lws_container_of(vpt->foreign_pfd_owner.head,
 				       struct lws_foreign_thread_pollfd, list);
@@ -2051,17 +2053,17 @@ lws_pt_destroy(struct lws_context_per_thread *pt)
 	}
 
 #if defined(LWS_WITH_SECURE_STREAMS)
-	while (pt->ss_owner.head)
-		lws_ss_destroy_dll(pt->ss_owner.head, NULL);
+	while(!lws_dll2_is_empty(&pt->ss_owner))
+		lws_ss_destroy_dll(lws_dll2_get_head(&pt->ss_owner), NULL);
 
 #if defined(LWS_WITH_SECURE_STREAMS_PROXY_API) && defined(LWS_WITH_CLIENT)
 	lws_dll2_foreach_safe(&pt->ss_client_owner, NULL, lws_sspc_destroy_dll);
 #endif
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-		while (pt->http.ah_owner.head)
+		while(!lws_dll2_is_empty(&pt->http.ah_owner))
 			_lws_destroy_ah(pt, lws_container_of(
-					pt->http.ah_owner.head,
+					lws_dll2_get_head(&pt->http.ah_owner),
 					struct allocated_headers, list));
 #endif
 
@@ -2369,10 +2371,10 @@ next_l:
 
 		/* remove ourselves from the pending destruction list */
 
-		while (context->vhost_pending_destruction_owner.head)
+		while(!lws_dll2_is_empty(&context->vhost_pending_destruction_owner))
 			/* removes itself from list */
 			__lws_vhost_destroy2(lws_container_of(
-					context->vhost_pending_destruction_owner.head,
+					lws_dll2_get_head(&context->vhost_pending_destruction_owner),
 					struct lws_vhost, vhost_list));
 #endif
 
@@ -2416,9 +2418,9 @@ next_l:
 #endif
 
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
-			while (pt->http.ah_owner.head)
+			while(!lws_dll2_is_empty(&pt->http.ah_owner))
 				_lws_destroy_ah(pt, lws_container_of(
-						pt->http.ah_owner.head,
+						lws_dll2_get_head(&pt->http.ah_owner),
 						struct allocated_headers, list));
 #endif
 			lwsl_cx_info(context, "pt destroy %d", n);
@@ -2567,7 +2569,7 @@ next_l:
 			lws_ss_sinks_t *sn = lws_container_of(d, lws_ss_sinks_t,
 							      list);
 
-			assert(!sn->accepts.count);
+			assert(!lws_dll2_count(&sn->accepts));
 
 			lws_dll2_remove(&sn->list);
 			lws_free(sn);
@@ -2626,8 +2628,8 @@ next_l:
 #endif
 
 #if defined(LWS_WITH_SYS_STATE) && defined(LWS_WITH_NETWORK)
-		while (context->mgr_system.notify_list.head)
-			lws_dll2_remove(context->mgr_system.notify_list.head);
+		while(!lws_dll2_is_empty(&context->mgr_system.notify_list))
+			lws_dll2_remove(lws_dll2_get_head(&context->mgr_system.notify_list));
 #endif
 
 		lwsl_refcount_cx(context->log_cx, -1);

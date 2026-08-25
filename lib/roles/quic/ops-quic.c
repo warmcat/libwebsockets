@@ -331,7 +331,7 @@ lws_quic_find_child_by_dcid(struct lws *listener,
 			    const struct lws_quic_cid *dcid)
 {
 	lws_start_foreach_dll(struct lws_dll2 *, d,
-			      listener->mux.child_list_owner.head) {
+			      lws_dll2_get_head(&listener->mux.child_list_owner)) {
 		struct lws *w = lws_container_of(d, struct lws,
 						 mux.sibling_list);
 		if (!w->quic.qn)
@@ -746,7 +746,7 @@ lws_quic_handle_ack(struct lws *nwsi, int level, uint64_t acked_pn, int is_large
 		 */
 		{
 			lws_start_foreach_dll(struct lws_dll2 *, d,
-					      nwsi->mux.child_list_owner.head) {
+					      lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
 				struct lws *w = lws_container_of(d, struct lws,
 								 mux.sibling_list);
 				if (w->mux.requested_POLLOUT)
@@ -2094,7 +2094,7 @@ tp_ok:
 			 */
 			if (nwsi) {
 				lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-						nwsi->mux.child_list_owner.head) {
+						lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
 					struct lws *w = lws_container_of(d,
 							struct lws, mux.sibling_list);
 
@@ -2358,7 +2358,7 @@ rops_handle_POLLOUT_quic(struct lws *wsi)
 	if (!qn) {
 		lws_handling_result_t hr_ret = LWS_HP_RET_DROP_POLLOUT;
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				wsi->mux.child_list_owner.head) {
+				lws_dll2_get_head(&wsi->mux.child_list_owner)) {
 			struct lws *w = lws_container_of(d, struct lws,
 							 mux.sibling_list);
 			if (w->mux.requested_POLLOUT) {
@@ -2948,7 +2948,7 @@ send_frames:
 				f->packet_size = (uint16_t)send_len;
 			else
 				break;
-			d = d->prev;
+			d = lws_dll2_get_prev(d);
 		}
 
 		/* Fault Injection for dropping UDP packets (simulating packet loss) */
@@ -3046,7 +3046,7 @@ send_frames:
 				while (d) {
 					struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
 					if (f->sent_in_pn == my_pn) {
-						struct lws_dll2 *prev = d->prev;
+						struct lws_dll2 *prev = lws_dll2_get_prev(d);
 						lws_dll2_remove(d);
 						f->sent_in_pn = 0;
 						f->sent_time_us = 0;
@@ -3112,7 +3112,7 @@ send_frames:
 		 */
 		if (level == LWS_QUIC_LEVEL_APP) {
 			lws_start_foreach_dll(struct lws_dll2 *, d,
-					wsi->mux.child_list_owner.head) {
+					lws_dll2_get_head(&wsi->mux.child_list_owner)) {
 				struct lws *w = lws_container_of(d, struct lws,
 								 mux.sibling_list);
 				if (w->mux.requested_POLLOUT)
@@ -3147,7 +3147,7 @@ send_frames:
 		 */
 		int first_iteration = 1;
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				wsi->mux.child_list_owner.head) {
+				lws_dll2_get_head(&wsi->mux.child_list_owner)) {
 			struct lws *w = lws_container_of(d, struct lws,
 							 mux.sibling_list);
 
@@ -3249,7 +3249,7 @@ end_children:
 		int children_need_POLLOUT = 0;
 		{
 			lws_start_foreach_dll(struct lws_dll2 *, d,
-					wsi->mux.child_list_owner.head) {
+					lws_dll2_get_head(&wsi->mux.child_list_owner)) {
 				struct lws *w_child = lws_container_of(d,
 						struct lws, mux.sibling_list);
 				if (w_child->mux.requested_POLLOUT) {
@@ -3276,7 +3276,7 @@ end_children:
 			 * lws_dll2_remove).
 			 */
 			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-					wsi->mux.child_list_owner.head) {
+					lws_dll2_get_head(&wsi->mux.child_list_owner)) {
 				struct lws *w = lws_container_of(d,
 						struct lws, mux.sibling_list);
 
@@ -3301,7 +3301,7 @@ end_children:
 		 */
 		{
 			lws_start_foreach_dll(struct lws_dll2 *, d,
-					wsi->mux.child_list_owner.head) {
+					lws_dll2_get_head(&wsi->mux.child_list_owner)) {
 				struct lws *w = lws_container_of(d, struct lws,
 								 mux.sibling_list);
 				if (w->mux.requested_POLLOUT)
@@ -3648,7 +3648,7 @@ rops_adoption_bind_quic(struct lws *wsi, int type, const char *vh_prot_name)
 		if ((type & _LWS_ADOPT_FINISH) && wsi->do_bind) {
 			wsi->listener = 1;
 #if defined(LWS_WITH_SERVER)
-			if (!wsi->listen_list.owner)
+			if (!lws_dll2_owner(&wsi->listen_list))
 				lws_dll2_add_tail(&wsi->listen_list, &wsi->a.vhost->listen_wsi);
 #endif
 		}
@@ -3685,7 +3685,7 @@ lws_quic_stream_cleanup(struct lws *wsi)
 		return;
 
 	/* 1. Free RX chunks */
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, wsi->quic.qs->rx_chunks.head) {
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&wsi->quic.qs->rx_chunks)) {
 		struct lws_quic_rx_chunk *c = lws_container_of(d, struct lws_quic_rx_chunk, list);
 		lws_dll2_remove(&c->list);
 		lws_free(c);
@@ -3893,7 +3893,7 @@ rops_close_kill_connection_quic(struct lws *wsi, enum lws_close_status reason)
 	struct lws_quic_netconn *qn = wsi->quic.qn;
 	int i;
 
-	if (wsi->mux.child_list_owner.head)
+	if(!lws_dll2_is_empty(&wsi->mux.child_list_owner))
 		lws_wsi_mux_close_children(wsi, (int)reason);
 
 	if (wsi->mux.parent_wsi) {
@@ -4075,7 +4075,7 @@ rops_tx_credit_quic(struct lws *wsi, char peer_to_us, int add)
 			lws_callback_on_writable(wsi);
 
 			lws_start_foreach_dll(struct lws_dll2 *, d,
-					wsi->mux.child_list_owner.head) {
+					lws_dll2_get_head(&wsi->mux.child_list_owner)) {
 				struct lws *w = lws_container_of(d, struct lws,
 								 mux.sibling_list);
 				lws_callback_on_writable(w);
@@ -4308,7 +4308,7 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
                 lws_dll2_add_tail(&nwsi->dll_cli_active_conns, &wsi->a.vhost->dll_cli_active_conns_owner); 
         } 
         lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, 
-                        wsi->dll2_cli_txn_queue_owner.head) { 
+                        lws_dll2_get_head(&wsi->dll2_cli_txn_queue_owner)) { 
                 struct lws *ww = lws_container_of(d, struct lws, dll2_cli_txn_queue); 
                 lws_dll2_remove(&ww->dll2_cli_txn_queue); 
                 lws_dll2_add_tail(&ww->dll2_cli_txn_queue, &nwsi->dll2_cli_txn_queue_owner); 
@@ -4400,7 +4400,7 @@ rops_alpn_negotiated_quic(struct lws *wsi, const char *alpn)
          * are kept consistent as we go.
          */
         lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				   wsi->mux.child_list_owner.head) {
+				   lws_dll2_get_head(&wsi->mux.child_list_owner)) {
 		struct lws *c = lws_container_of(d, struct lws, mux.sibling_list);
 
 		lws_dll2_remove(&c->mux.sibling_list);

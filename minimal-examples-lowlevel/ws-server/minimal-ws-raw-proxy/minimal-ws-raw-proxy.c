@@ -165,7 +165,7 @@ callback_proxy_ws_server(struct lws *wsi, enum lws_callback_reasons reason,
 		 * Onward conn still alive...
 		 * does he have stuff left to deliver?
 		 */
-		if (pc->pending_msg_to_raw.count) {
+		if (lws_dll2_count(&pc->pending_msg_to_raw)) {
 			/*
 			 * Yes, let him get on with trying to send
 			 * the remaining pieces... but put a time limit
@@ -187,10 +187,10 @@ callback_proxy_ws_server(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
-		if (!pc || !pc->pending_msg_to_ws.count)
+		if (!pc || !lws_dll2_count(&pc->pending_msg_to_ws))
 			break;
 
-		msg = lws_container_of(pc->pending_msg_to_ws.head,
+		msg = lws_container_of(lws_dll2_get_head(&pc->pending_msg_to_ws),
 				       proxy_msg_t, list);
 		data = (uint8_t *)&msg[1] + LWS_PRE;
 
@@ -208,7 +208,7 @@ callback_proxy_ws_server(struct lws *wsi, enum lws_callback_reasons reason,
 		/*
 		 * If more to do...
 		 */
-		if (pc->pending_msg_to_ws.count)
+		if (lws_dll2_count(&pc->pending_msg_to_ws))
 			lws_callback_on_writable(wsi);
 		break;
 
@@ -299,7 +299,7 @@ callback_proxy_raw_client(struct lws *wsi, enum lws_callback_reasons reason,
 		 * Original ws conn still alive...
 		 * does he have stuff left to deliver?
 		 */
-		if (pc->pending_msg_to_ws.count) {
+		if (lws_dll2_count(&pc->pending_msg_to_ws)) {
 			/*
 			 * Yes, let him get on with trying to send
 			 * the remaining pieces... but put a time limit
@@ -347,10 +347,10 @@ callback_proxy_raw_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_RAW_WRITEABLE:
 		lwsl_user("LWS_CALLBACK_RAW_WRITEABLE\n");
-		if (!pc || !pc->pending_msg_to_raw.count)
+		if (!pc || !lws_dll2_count(&pc->pending_msg_to_raw))
 			break;
 
-		msg = lws_container_of(pc->pending_msg_to_raw.head,
+		msg = lws_container_of(lws_dll2_get_head(&pc->pending_msg_to_raw),
 				       proxy_msg_t, list);
 		data = (uint8_t *)&msg[1] + LWS_PRE;
 
@@ -368,7 +368,7 @@ callback_proxy_raw_client(struct lws *wsi, enum lws_callback_reasons reason,
 		/*
 		 * If more to do...
 		 */
-		if (pc->pending_msg_to_raw.count)
+		if (lws_dll2_count(&pc->pending_msg_to_raw))
 			lws_callback_on_writable(wsi);
 		break;
 	default:

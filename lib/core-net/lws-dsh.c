@@ -240,7 +240,7 @@ _lws_dsh_alloc_tail(lws_dsh_t *dsh, int kind, const void *src1, size_t size1,
 	s.coalesce		= 0;
 	s.natural_required	= 0;
 	/* list is at the very start, so we can cast */
-	s.tail_obj		= (lws_dsh_obj_t *)dsh->oha[kind].owner.tail;
+	s.tail_obj		= (lws_dsh_obj_t *)lws_dll2_get_tail(&dsh->oha[kind].owner);
 
 	if (s.tail_obj) {
 
@@ -368,13 +368,13 @@ _lws_dsh_alloc_tail(lws_dsh_t *dsh, int kind, const void *src1, size_t size1,
 			memcpy((uint8_t *)&s.best[1] + size1, src2, size2);
 
 		if (replace) {
-			s.best->list.prev = replace->prev;
-			s.best->list.next = replace->next;
-			s.best->list.owner = replace->owner;
-			if (replace->prev)
-				replace->prev->next = &s.best->list;
-			if (replace->next)
-				replace->next->prev = &s.best->list;
+			s.best->list.prev = lws_dll2_get_prev(replace);
+			s.best->list.next = lws_dll2_get_next(replace);
+			s.best->list.owner = lws_dll2_owner(replace);
+			if (lws_dll2_get_prev(replace))
+				lws_dll2_get_prev(replace)->next = &s.best->list;
+			if (lws_dll2_get_next(replace))
+				lws_dll2_get_next(replace)->prev = &s.best->list;
 		} else {
 			assert(!(((unsigned long)(intptr_t)(s.best)) &
 					(sizeof(int *) - 1)));
@@ -441,13 +441,13 @@ _lws_dsh_alloc_tail(lws_dsh_t *dsh, int kind, const void *src1, size_t size1,
 			memcpy((uint8_t *)&s.best[1] + size1, src2, size2);
 
 		if (replace) {
-			s.best->list.prev = replace->prev;
-			s.best->list.next = replace->next;
-			s.best->list.owner = replace->owner;
-			if (replace->prev)
-				replace->prev->next = &s.best->list;
-			if (replace->next)
-				replace->next->prev = &s.best->list;
+			s.best->list.prev = lws_dll2_get_prev(replace);
+			s.best->list.next = lws_dll2_get_next(replace);
+			s.best->list.owner = lws_dll2_owner(replace);
+			if (lws_dll2_get_prev(replace))
+				lws_dll2_get_prev(replace)->next = &s.best->list;
+			if (lws_dll2_get_next(replace))
+				lws_dll2_get_next(replace)->prev = &s.best->list;
 		} else {
 			assert(!(((unsigned long)(intptr_t)(s.best)) &
 					(sizeof(int *) - 1)));
@@ -500,7 +500,7 @@ lws_dsh_alloc_tail(lws_dsh_t *dsh, int kind, const void *src1, size_t size1,
 void
 lws_dsh_consume(struct lws_dsh *dsh, int kind, size_t len)
 {
-	lws_dsh_obj_t *h = (lws_dsh_obj_t *)dsh->oha[kind + 1].owner.head;
+	lws_dsh_obj_t *h = (lws_dsh_obj_t *)lws_dll2_get_head(&dsh->oha[kind + 1].owner);
 
 	assert(len <= h->size);
 	assert(h->pos + len <= h->size);
@@ -553,7 +553,7 @@ lws_dsh_free(void **pobj)
 	 * Because the free list is sorted, if there is such a guy he is
 	 * already our list.next */
 
-	_o2 = (lws_dsh_obj_t *)_o->list.next;
+	_o2 = (lws_dsh_obj_t *)lws_dll2_get_next(&_o->list);
 	if (_o2 && (uint8_t *)_o + _o->asize == (uint8_t *)_o2) {
 		/*
 		 * since we are freeing _obj, we can coalesce with a
@@ -571,7 +571,7 @@ lws_dsh_free(void **pobj)
 	 * Because the free list is sorted, if there is such a guy he is
 	 * already our list.prev */
 
-	_o2 = (lws_dsh_obj_t *)_o->list.prev;
+	_o2 = (lws_dsh_obj_t *)lws_dll2_get_prev(&_o->list);
 	if (_o2 && (uint8_t *)_o2 + _o2->asize == (uint8_t *)_o) {
 		/*
 		 * since we are freeing obj, we can coalesce it with

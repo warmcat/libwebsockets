@@ -54,7 +54,7 @@ struct lwsac {
 static LWS_INLINE struct lwsac *
 lwsac_next_chunk(struct lwsac *lac)
 {
-	struct lws_dll2 *d = lac->list.next;
+	struct lws_dll2 *d = lws_dll2_get_next(&lac->list);
 
 	return d ? lws_container_of(d, struct lwsac, list) : NULL;
 }
@@ -63,8 +63,8 @@ lwsac_next_chunk(struct lwsac *lac)
 static LWS_INLINE struct lwsac *
 lwsac_chunk_head(struct lwsac *lac)
 {
-	return lac->list.owner ?
-		lws_container_of(lac->list.owner, struct lwsac, chunks) : lac;
+	return lws_dll2_owner(&lac->list) ?
+		lws_dll2_owner_container(&lac->list, struct lwsac, chunks) : lac;
 }
 
 /*

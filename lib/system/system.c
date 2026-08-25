@@ -180,7 +180,7 @@ __lws_system_attach(struct lws_context *context, int tsi, lws_attach_cb_t cb,
 
 	*get = NULL;
 #if defined(LWS_WITH_SYS_STATE)
-	if (!pt->attach_owner.count)
+	if (!lws_dll2_count(&pt->attach_owner))
 		return 0;
 
 	/*
@@ -217,7 +217,7 @@ lws_system_do_attach(struct lws_context_per_thread *pt)
 	 * If nothing to do, we just return immediately
 	 */
 
-	while (pt->attach_owner.count) {
+	while (lws_dll2_count(&pt->attach_owner)) {
 
 		struct lws_attach_item *item;
 

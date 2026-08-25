@@ -90,7 +90,7 @@ rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 
 		lws_dll2_owner_clear(&handled);
 		pthread_mutex_lock(&pt->context->async_worker_mutex);
-		if (pt->context->async_worker_finished.count) {
+		if (lws_dll2_count(&pt->context->async_worker_finished)) {
 			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&pt->context->async_worker_finished)) {
 				struct lws_async_job *job = lws_container_of(d, struct lws_async_job, list);
 
@@ -165,10 +165,10 @@ rops_handle_POLLIN_pipe(struct lws_context_per_thread *pt, struct lws *wsi,
 	 * is going down
 	 */
 
-	if (pt->context->owner_vh_being_destroyed.head) {
+	if(!lws_dll2_is_empty(&pt->context->owner_vh_being_destroyed)) {
 
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-				      pt->context->owner_vh_being_destroyed.head) {
+				      lws_dll2_get_head(&pt->context->owner_vh_being_destroyed)) {
 			struct lws_vhost *v =
 				lws_container_of(d, struct lws_vhost,
 						 vh_being_destroyed_list);

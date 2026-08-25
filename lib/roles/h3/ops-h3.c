@@ -1015,7 +1015,7 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 	int has_wt_session = 0;
 	if (nwsi) {
 		lws_start_foreach_dll(struct lws_dll2 *, d,
-				nwsi->mux.child_list_owner.head) {
+				lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
 			struct lws *child = lws_container_of(d, struct lws,
 							     mux.sibling_list);
 			if (child->wt.is_session) {
@@ -1053,7 +1053,7 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 				struct lws *session_wsi = NULL;
 				if (nwsi) {
 					lws_start_foreach_dll(struct lws_dll2 *, d,
-							nwsi->mux.child_list_owner.head) {
+							lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
 						struct lws *child = lws_container_of(d,
 								struct lws, mux.sibling_list);
 						if (child->wt.is_session && (child->mux.my_sid / 4 == session_id)) {
@@ -1114,7 +1114,7 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 				struct lws *session_wsi = NULL;
 				if (nwsi) {
 					lws_start_foreach_dll(struct lws_dll2 *, d,
-							nwsi->mux.child_list_owner.head) {
+							lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
 						struct lws *child = lws_container_of(d,
 								struct lws, mux.sibling_list);
 						if (child->wt.is_session && (child->mux.my_sid / 4 == session_id)) {
@@ -1522,7 +1522,7 @@ lws_h3_rx_stream_data(struct lws *wsi, const uint8_t *buf, size_t len)
 					struct lws *nwsi = lws_get_quic_network_wsi(wsi);
 					if (nwsi) {
 						lws_start_foreach_dll(struct lws_dll2 *, d,
-								nwsi->mux.child_list_owner.head) {
+								lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
 							struct lws *child = lws_container_of(
 								d, struct lws, mux.sibling_list);
 							lws_callback_on_writable(child);
@@ -1726,9 +1726,9 @@ rops_alpn_negotiated_h3(struct lws *wsi, const char *alpn)
 	/* Notify all children and update their h3n */
 	{
 		lwsl_wsi_info(wsi, "H3 ALPN Negotiated, child_list=%p",
-			      (void *)nwsi->mux.child_list_owner.head);
+			      (void *)lws_dll2_get_head(&nwsi->mux.child_list_owner));
 		lws_start_foreach_dll(struct lws_dll2 *, d,
-				nwsi->mux.child_list_owner.head) {
+				lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
 			struct lws *child = lws_container_of(d, struct lws,
 							     mux.sibling_list);
 			lwsl_wsi_info(child, "H3 ALPN child state=%d", lwsi_state(child));

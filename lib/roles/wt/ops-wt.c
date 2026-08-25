@@ -200,7 +200,7 @@ lws_wt_create_stream_from_child(struct lws *child_wsi, int unidi)
 	struct lws *quic_nwsi = lws_get_quic_network_wsi(child_wsi);
 	if (quic_nwsi) {
 		lws_start_foreach_dll(struct lws_dll2 *, d,
-				quic_nwsi->mux.child_list_owner.head) {
+				lws_dll2_get_head(&quic_nwsi->mux.child_list_owner)) {
 			struct lws *child = lws_container_of(d, struct lws,
 							     mux.sibling_list);
 			if (child->wt.is_session)
@@ -217,7 +217,7 @@ lws_wt_get_session_wsi(struct lws *wsi)
 	struct lws *quic_nwsi = lws_get_quic_network_wsi(wsi);
 	if (quic_nwsi) {
 		lws_start_foreach_dll(struct lws_dll2 *, d,
-				quic_nwsi->mux.child_list_owner.head) {
+				lws_dll2_get_head(&quic_nwsi->mux.child_list_owner)) {
 			struct lws *child = lws_container_of(d, struct lws,
 							     mux.sibling_list);
 			if (child->wt.is_session)

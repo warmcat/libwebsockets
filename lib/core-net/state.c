@@ -66,7 +66,7 @@ _report(lws_state_manager_t *mgr, int a, int b)
 	char temp8[8];
 #endif
 
-	lws_start_foreach_dll(struct lws_dll2 *, d, mgr->notify_list.head) {
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&mgr->notify_list)) {
 		lws_state_notify_link_t *l =
 			lws_container_of(d, lws_state_notify_link_t, list);
 

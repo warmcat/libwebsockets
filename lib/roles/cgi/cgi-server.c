@@ -184,7 +184,7 @@ lws_cgi_via_info(struct lws_cgi_info * cgiinfo)
 	pt->http.cgi_list = cgi;
 
 	/* if it's not already running, start the cleanup timer */
-	if (!pt->sul_cgi.list.owner)
+	if (!lws_dll2_owner(&pt->sul_cgi.list))
 		lws_sul_schedule(pt->context, (int)(pt - pt->context->pt), &pt->sul_cgi,
 				 lws_cgi_sul_cb, 3 * LWS_US_PER_SEC);
 
