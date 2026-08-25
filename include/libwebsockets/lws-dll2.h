@@ -325,6 +325,32 @@ lws_dll2_get_head(struct lws_dll2_owner *owner) { return owner ? owner->head : N
 static LWS_INLINE struct lws_dll2 *
 lws_dll2_get_tail(struct lws_dll2_owner *owner) { return owner ? owner->tail : NULL; }
 
+/*
+ * Read-only accessors for list state, in the same NULL-tolerant style as
+ * lws_dll2_get_head() / lws_dll2_get_tail(): a NULL owner or node gives 0 /
+ * NULL, a detached node has no next or prev.  User code should use these
+ * rather than reach into the struct members directly, so the members and
+ * their invariants stay the business of lws_dll2.c alone.
+ */
+
+static LWS_INLINE uint32_t
+lws_dll2_count(const struct lws_dll2_owner *owner)
+{
+	return owner ? owner->count : 0;
+}
+
+static LWS_INLINE int
+lws_dll2_is_empty(const struct lws_dll2_owner *owner)
+{
+	return !lws_dll2_count(owner);
+}
+
+static LWS_INLINE struct lws_dll2 *
+lws_dll2_get_next(const struct lws_dll2 *d) { return d ? d->next : NULL; }
+
+static LWS_INLINE struct lws_dll2 *
+lws_dll2_get_prev(const struct lws_dll2 *d) { return d ? d->prev : NULL; }
+
 LWS_VISIBLE LWS_EXTERN void
 lws_dll2_add_head(struct lws_dll2 *d, struct lws_dll2_owner *owner);
 
@@ -392,6 +418,16 @@ _lws_dll2_safe_next(struct lws_dll2_owner *ow, uint32_t *gen,
 		    struct lws_dll2 *cand);
 
 /*
+ * Guarded backwards advance for the _safe_back iterator macros: identical
+ * contract to _lws_dll2_safe_next(), except the cached node it validates is
+ * the one towards the head, and invalidation recovers by restarting from the
+ * live tail.
+ */
+LWS_VISIBLE LWS_EXTERN struct lws_dll2 *
+_lws_dll2_safe_prev(struct lws_dll2_owner *ow, uint32_t *gen,
+		    struct lws_dll2 *cand);
+
+/*
  * Set to nonzero by tests (or apps that must not die) to make the _safe
  * iterator guard log + recover from cached-next invalidation instead of
  * asserting.  The default, 0, asserts loudly at the exact point of the
@@ -411,8 +447,33 @@ _lws_dll2_search_sz_pl(lws_dll2_owner_t *own, const char *name, size_t namelen,
 
 #define lws_dll2_search_sz_pl(own, name, namelen, type, membd2list, membptr) \
 		((type *)_lws_dll2_search_sz_pl(own, name, namelen, \
-				       offsetof(type, membd2list), \
-				       offsetof(type, membptr)))
+					       offsetof(type, membd2list), \
+					       offsetof(type, membptr)))
+
+static LWS_INLINE void *
+_lws_dll2_owner_container(const struct lws_dll2 *d, size_t owner_ofs)
+{
+	return d && d->owner ?
+		(void *)((char *)d->owner - owner_ofs) : NULL;
+}
+
+/*
+ * lws_dll2_owner_container(): get the object containing the owner the node
+ * is attached to
+ *
+ * \param d: lws_dll2_t * member of some listed object
+ * \param type: type of the object that embeds the lws_dll2_owner_t
+ * \param membowner: member name of the lws_dll2_owner_t inside type
+ *
+ * Returns the object whose owner member the node is attached to, or NULL if
+ * the node is detached (or NULL).  This is the dll2-native way to express
+ * the lws_container_of(d->owner, type, membowner) idiom.  The node
+ * expression is evaluated exactly once.
+ */
+
+#define lws_dll2_owner_container(___d, ___type, ___membowner) \
+	((___type *)_lws_dll2_owner_container(___d, \
+					offsetof(___type, ___membowner)))
 
 #if defined(_DEBUG)
 void
@@ -462,9 +523,55 @@ lws_dll2_describe(struct lws_dll2_owner *owner, const char *desc);
 
 #define lws_start_foreach_dll(___type, ___it, ___start) \
 { \
-	for (___type ___it = ___start; ___it; ___it = (___it)->next) {
+	for (___type ___it = (___start); ___it; ___it = (___it)->next) {
 
 #define lws_end_foreach_dll(___it) \
+	} \
+}
+
+/*
+ * These are the same as the two iterators above, but walk the list
+ * backwards: ___start is normally the owner's tail, eg
+ * lws_dll2_get_tail(owner), and the walk advances along ->prev until it
+ * reaches the head.  As with the forwards iterators, the plain version is
+ * for loops that do not touch the list membership during the body.
+ */
+
+#define lws_start_foreach_dll_back(___type, ___it, ___start) \
+{ \
+	for (___type ___it = (___start); ___it; ___it = (___it)->prev) {
+
+#define lws_end_foreach_dll_back(___it) \
+	} \
+}
+
+/*
+ * This is the _safe version of the backwards iterator: the cached previous
+ * node is validated against the live list using the same generation-count
+ * guard as the forwards _safe iterator, with a single 32-bit compare per
+ * iteration when nothing has mutated the list.  If the loop body removed
+ * (and possibly freed) the cached previous node, it asserts with a clear
+ * reason and recovers by restarting from the live tail, so loop bodies
+ * must be idempotent under being re-run for nodes they already saw.
+ *
+ * NOTE: ___start must be side-effect-free since it is evaluated once into
+ * a temporary.
+ */
+
+#define lws_start_foreach_dll_safe_back(___type, ___it, ___tmp, ___start) \
+{ \
+	___type ___tmp; \
+	struct lws_dll2 *___st_##___it = (___start); \
+	struct lws_dll2_owner *___ow_##___it = \
+			___st_##___it ? ___st_##___it->owner : NULL; \
+	uint32_t ___gen_##___it = ___ow_##___it ? \
+				      ___ow_##___it->generation : 0; \
+	for (___type ___it = ___st_##___it; \
+	     ___it && (((___tmp) = (___it)->prev), 1); \
+	     ___it = _lws_dll2_safe_prev(___ow_##___it, &___gen_##___it, \
+					 ___tmp)) {
+
+#define lws_end_foreach_dll_safe_back(___it, ___tmp) \
 	} \
 }
 

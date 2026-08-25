@@ -11,6 +11,10 @@
  * cached NEXT node (the use-after-free class seen in the QUIC close_after_rx
  * external report) must be detected at the iteration step and recovered by
  * re-seeding from the live head instead of walking into freed nodes.
+ *
+ * Also covers the read accessors (count / emptiness / head / tail / next /
+ * prev), the owner-container resolution helper and the backwards iterators,
+ * including the tail-restart recovery of the guarded backwards walk.
  */
 
 #include <libwebsockets.h>
@@ -22,6 +26,11 @@
 struct tdll {
 	lws_dll2_t		list;
 	int			n;
+};
+
+/* the owner side of the owner-container helper test */
+struct td_owner {
+	lws_dll2_owner_t	ow;
 };
 
 static int ecount, seq[8], seqn, armed;
@@ -66,6 +75,7 @@ cb_remove_current(struct lws_dll2 *d, void *user)
 int main(int argc, const char **argv)
 {
 	lws_dll2_owner_t ow;
+	struct td_owner to;
 	struct tdll *A, *B, *C, *D, *Z;
 	uint32_t g;
 	int n, bad = 0;
@@ -280,6 +290,164 @@ int main(int argc, const char **argv)
 		bad++, printf("FAIL: recovery munged count (%u)\n", ow.count);
 
 	lws_dll2_remove(&C->list);	free(C);
+	lws_dll2_remove(&D->list);	free(D);
+
+	/*
+	 * 6: read accessors and owner-container resolution
+	 */
+
+	memset(&ow, 0, sizeof(ow));
+	lws_dll2_owner_clear(&ow);
+
+	if (!lws_dll2_is_empty(&ow) || lws_dll2_count(&ow))
+		bad++, printf("FAIL: cleared owner not reported empty\n");
+	if (!lws_dll2_is_empty(NULL) || lws_dll2_count(NULL))
+		bad++, printf("FAIL: NULL owner not reported empty\n");
+	if (lws_dll2_get_head(&ow) || lws_dll2_get_tail(&ow) ||
+	    lws_dll2_get_head(NULL) || lws_dll2_get_tail(NULL))
+		bad++, printf("FAIL: empty owner has a head or tail\n");
+	if (lws_dll2_get_next(NULL) || lws_dll2_get_prev(NULL))
+		bad++, printf("FAIL: NULL node has a next or prev\n");
+
+	A = td_add(&ow, 1);
+	B = td_add(&ow, 2);
+	C = td_add(&ow, 3);
+	D = td_add(&ow, 4);
+
+	if (lws_dll2_is_empty(&ow) || lws_dll2_count(&ow) != 4)
+		bad++, printf("FAIL: count wrong (%u)\n",
+				(unsigned int)lws_dll2_count(&ow));
+	if (lws_dll2_get_head(&ow) != &A->list ||
+	    lws_dll2_get_tail(&ow) != &D->list)
+		bad++, printf("FAIL: head or tail wrong\n");
+	if (lws_dll2_get_next(&A->list) != &B->list ||
+	    lws_dll2_get_next(&B->list) != &C->list ||
+	    lws_dll2_get_next(&D->list) ||
+	    lws_dll2_get_prev(&A->list) ||
+	    lws_dll2_get_prev(&B->list) != &A->list ||
+	    lws_dll2_get_prev(&D->list) != &C->list)
+		bad++, printf("FAIL: next or prev chain wrong\n");
+
+	/* a detached node has no links in either direction */
+
+	lws_dll2_remove(&B->list);
+	if (lws_dll2_get_next(&B->list) || lws_dll2_get_prev(&B->list) ||
+	    !lws_dll2_is_detached(&B->list))
+		bad++, printf("FAIL: detached node still has links\n");
+	free(B);
+	lws_dll2_remove(&A->list);	free(A);
+	lws_dll2_remove(&C->list);	free(C);
+	lws_dll2_remove(&D->list);	free(D);
+
+	memset(&to, 0, sizeof(to));
+	lws_dll2_owner_clear(&to.ow);
+
+	Z = td_add(&to.ow, 5);
+	if (lws_dll2_owner_container(&Z->list, struct td_owner, ow) != &to)
+		bad++, printf("FAIL: owner container resolution wrong\n");
+	if (lws_dll2_owner_container(NULL, struct td_owner, ow))
+		bad++, printf("FAIL: NULL node resolves a container\n");
+
+	lws_dll2_remove(&Z->list);
+	if (lws_dll2_owner_container(&Z->list, struct td_owner, ow))
+		bad++, printf("FAIL: detached node resolves a container\n");
+	free(Z);
+
+	/*
+	 * 7: backwards iteration, plain and guarded
+	 */
+
+	memset(&ow, 0, sizeof(ow));
+	A = td_add(&ow, 1);
+	B = td_add(&ow, 2);
+	C = td_add(&ow, 3);
+	D = td_add(&ow, 4);
+
+	seqn = 0;
+	lws_start_foreach_dll_back(struct lws_dll2 *, p, ow.tail) {
+		struct tdll *t = lws_container_of(p, struct tdll, list);
+
+		seq[seqn++] = t->n;
+	} lws_end_foreach_dll_back(p);
+
+	if (seqn != 4 || seq[0] != 4 || seq[1] != 3 || seq[2] != 2 ||
+	    seq[3] != 1)
+		bad++, printf("FAIL: backwards walk order wrong: "
+				"n %d {%d,%d,%d,%d}\n", seqn, seq[0], seq[1],
+				seq[2], seq[3]);
+
+	lws_dll2_remove(&A->list);	free(A);
+	lws_dll2_remove(&B->list);	free(B);
+	lws_dll2_remove(&C->list);	free(C);
+	lws_dll2_remove(&D->list);	free(D);
+
+	/* backwards _safe with the body removing the current node */
+
+	memset(&ow, 0, sizeof(ow));
+	for (n = 1; n <= 6; n++)
+		td_add(&ow, n);
+
+	ecount = 0;
+	lws_start_foreach_dll_safe_back(struct lws_dll2 *, p, p1, ow.tail) {
+		struct tdll *t = lws_container_of(p, struct tdll, list);
+
+		ecount += t->n;
+		lws_dll2_remove(p);
+		free(t);
+	} lws_end_foreach_dll_safe_back(p, p1);
+
+	if (ecount != 1 + 2 + 3 + 4 + 5 + 6)
+		bad++, printf("FAIL: backwards current-node removal lost "
+				"nodes (%d)\n", ecount);
+	if (lws_dll2_count(&ow))
+		bad++, printf("FAIL: backwards walk list not drained (%u)\n",
+				(unsigned int)lws_dll2_count(&ow));
+
+	/*
+	 * 8: the reported bug class in the backwards walk... the body frees
+	 *    the cached PREV node.  Recovery must restart from the live tail
+	 *    rather than walk into the freed node.
+	 */
+
+	memset(&ow, 0, sizeof(ow));
+	A = td_add(&ow, 1);
+	B = td_add(&ow, 2);
+	C = td_add(&ow, 3);
+	D = td_add(&ow, 4);
+
+	assert(!lws_dll2_guard_quiet);
+	lws_dll2_guard_quiet = 1;	/* tests only: recover, don't assert */
+
+	seqn = 0;
+	armed = 1;
+	lws_start_foreach_dll_safe_back(struct lws_dll2 *, p, p1, ow.tail) {
+		struct tdll *t = lws_container_of(p, struct tdll, list);
+
+		seq[seqn++] = t->n;
+
+		if (t->n == 4 && armed) {
+			/* free the cached-prev node C under the iterator */
+			assert(p1 == &C->list);
+			armed = 0;
+			lws_dll2_remove(p1);
+			free(C);
+		}
+	} lws_end_foreach_dll_safe_back(p, p1);
+
+	lws_dll2_guard_quiet = 0;
+
+	/* D, then the tail-restart revisits D, then B, then A */
+	if (seqn != 4 || seq[0] != 4 || seq[1] != 4 || seq[2] != 2 ||
+	    seq[3] != 1)
+		bad++, printf("FAIL: cached-prev free not recovered: "
+				"n %d {%d,%d,%d,%d}\n", seqn, seq[0], seq[1],
+				seq[2], seq[3]);
+	if (lws_dll2_count(&ow) != 3)
+		bad++, printf("FAIL: backwards recovery munged count (%u)\n",
+				(unsigned int)lws_dll2_count(&ow));
+
+	lws_dll2_remove(&A->list);	free(A);
+	lws_dll2_remove(&B->list);	free(B);
 	lws_dll2_remove(&D->list);	free(D);
 
 done:

@@ -53,9 +53,10 @@ lws_dll2_is_in_list(struct lws_dll2_owner *owner, struct lws_dll2 *d)
 	return 0;
 }
 
-struct lws_dll2 *
-_lws_dll2_safe_next(struct lws_dll2_owner *ow, uint32_t *gen,
-		    struct lws_dll2 *cand)
+static struct lws_dll2 *
+_lws_dll2_safe_advance(struct lws_dll2_owner *ow, uint32_t *gen,
+		       struct lws_dll2 *cand, const char *dir,
+		       struct lws_dll2 *restart)
 {
 	if (!ow || ow->generation == *gen)
 		/* fast path: nothing touched the list since cand was cached */
@@ -64,19 +65,19 @@ _lws_dll2_safe_next(struct lws_dll2_owner *ow, uint32_t *gen,
 	*gen = ow->generation;
 
 	if (!cand || lws_dll2_is_in_list(ow, cand))
-		/* the list changed, but our cached next is still a member */
+		/* the list changed, but our cached node is still a member */
 		return cand;
 
 	/*
-	 * The cached next node was removed during the loop body... if the body
+	 * The cached node was removed during the loop body... if the body
 	 * also freed it, advancing to it is a UAF read.  This is the exact
 	 * point the mistake becomes visible, rather than dying somewhere
 	 * unrelated later, so make it as loud as the build allows.
 	 */
-	lwsl_err("%s: dll2 _safe iterator: cached next %p removed from list "
+	lwsl_err("%s: dll2 _safe iterator: cached %s %p removed from list "
 		 "%p during loop body (gen %u, count %u): fix the loop body "
 		 "to re-seed (see the ops-quic close_after_rx loops)\n",
-		 __func__, cand, ow, (unsigned int)*gen,
+		 __func__, dir, cand, ow, (unsigned int)*gen,
 		 (unsigned int)ow->count);
 
 	/*
@@ -86,18 +87,35 @@ _lws_dll2_safe_next(struct lws_dll2_owner *ow, uint32_t *gen,
 	assert(lws_dll2_guard_quiet);
 
 	/*
-	 * Recover in release builds by restarting from the live head.  Note
-	 * the current node cannot be used as an anchor to resume from its
-	 * successor: the supported usage is that the loop body may remove
-	 * and free the current node itself, so by the time we run it may no
-	 * longer exist at all and must not be passed in or touched.
+	 * Recover in release builds by restarting from the live end of the
+	 * list the walk began at (head for forwards, tail for backwards).
+	 * Note the current node cannot be used as an anchor to resume from
+	 * its successor: the supported usage is that the loop body may
+	 * remove and free the current node itself, so by the time we run it
+	 * may no longer exist at all and must not be passed in or touched.
 	 *
-	 * Re-seeding from the head means nodes before the invalidation point
-	 * that are still on the list are revisited; loop bodies must be
-	 * written to tolerate that (ie, act by predicate, not one-shot).
+	 * Re-seeding from the start means nodes before the invalidation
+	 * point that are still on the list are revisited; loop bodies must
+	 * be written to tolerate that (ie, act by predicate, not one-shot).
 	 */
 
-	return ow->head;
+	return restart;
+}
+
+struct lws_dll2 *
+_lws_dll2_safe_next(struct lws_dll2_owner *ow, uint32_t *gen,
+		    struct lws_dll2 *cand)
+{
+	return _lws_dll2_safe_advance(ow, gen, cand, "next",
+				      ow ? ow->head : NULL);
+}
+
+struct lws_dll2 *
+_lws_dll2_safe_prev(struct lws_dll2_owner *ow, uint32_t *gen,
+		    struct lws_dll2 *cand)
+{
+	return _lws_dll2_safe_advance(ow, gen, cand, "prev",
+				      ow ? ow->tail : NULL);
 }
 
 int

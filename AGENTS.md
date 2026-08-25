@@ -57,7 +57,9 @@ We are very concerned about security, architecturally and in the code.  We avoid
  - `FILE *` and use apis like open(), read().
 
  - hand-rolled ad-hoc code when there are library helpers, eg no casual
-   linked-lists; use `lws_dll2_t` instead.
+   linked-lists or primitive lws ll api lists; use `lws_dll2_t` instead.
+   Outside of the `lws_dll2_t` implementation, use helpers rather than
+   direct member accesses.
 
 We consider using:
 
