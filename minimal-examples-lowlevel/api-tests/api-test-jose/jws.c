@@ -693,6 +693,9 @@ test_jws_ES512(struct lws_context *context)
 		unsigned long long ull = lws_now_secs();
 		char buf[8192];
 		size_t cml = 2048, cml2 = 2048;
+		/* compact token with a JOSE header that has no "alg" member */
+		static const char no_alg_jwt[] =
+				"eyJ0eXAiOiJKV1QifQ.e30.AQ";
 
 		if (lws_jwt_sign_compact(context, &jwk, "ES512",
 					(char *)buf, &cml2,
@@ -722,6 +725,19 @@ test_jws_ES512(struct lws_context *context)
 
 		lwsl_notice("%s: jwt valid, payload '%s'\n",
 				__func__, buf + 4096);
+
+		/*
+		 * A JOSE header with no "alg" must be cleanly rejected
+		 * here, not deref NULL
+		 */
+
+		if (lws_jwt_signed_validate(context, &jwk, "ES512",
+					    no_alg_jwt, strlen(no_alg_jwt),
+					    (char *)buf + 2048, 2048,
+					    (char *)buf + 4096, &cml) != 1) {
+			lwsl_err("%s: alg-less JWT not rejected\n", __func__);
+			goto bail1;
+		}
 	}
 
 	/* end */
