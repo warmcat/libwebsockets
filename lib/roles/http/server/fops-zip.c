@@ -314,6 +314,76 @@ lws_fops_zip_reset_inflate(lws_fops_zip_t priv)
 	return 0;
 }
 
+/*
+ * Raw inflate of the current zip entry's compressed payload.  Compressed
+ * input is taken from the underlying zip fd in priv->rbuf-sized chunks
+ * bounded by the entry's compressed extent, decompressed output is produced
+ * into buf for up to len bytes.
+ *
+ * Only the inflate state and the underlying zip fd position are touched;
+ * the caller takes care of the fop fd position bookkeeping.  *amount is set
+ * to the number of decompressed bytes actually produced, which may be less
+ * than len if the entry's compressed data ran out first.
+ */
+
+static int
+lws_fops_zip_inflate(lws_fops_zip_t priv, lws_filepos_t *amount,
+		     uint8_t *buf, lws_filepos_t len)
+{
+	lws_filepos_t ramount = 0, rlen, cur = lws_vfs_tell(priv->zip_fop_fd);
+	int ret;
+
+	priv->inflate.avail_out = (unsigned int)len;
+	priv->inflate.next_out = buf;
+
+	do {
+		if (!priv->inflate.avail_in) {
+			/* only take compressed data belonging to this entry */
+			rlen = priv->content_start + eff_size(priv) - cur;
+			if (rlen > sizeof(priv->rbuf))
+				rlen = sizeof(priv->rbuf);
+
+			if (!rlen)
+				/* the entry's compressed extent is all eaten */
+				break;
+
+			if (priv->zip_fop_fd->fops->LWS_FOP_READ(
+					priv->zip_fop_fd, &ramount, priv->rbuf,
+					rlen))
+				return LWS_FZ_ERR_READ_CONTENT;
+
+			if (!ramount)
+				/* truncated entry, no more input available */
+				break;
+
+			cur += ramount;
+
+			priv->inflate.avail_in = (unsigned int)ramount;
+			priv->inflate.next_in = priv->rbuf;
+		}
+
+		ret = inflate(&priv->inflate, Z_NO_FLUSH);
+		if (ret == Z_STREAM_ERROR)
+			return ret;
+
+		switch (ret) {
+		case Z_NEED_DICT:
+			ret = Z_DATA_ERROR;
+			/* fallthru */
+		case Z_DATA_ERROR:
+		case Z_MEM_ERROR:
+
+			return ret;
+		}
+
+	} while (!priv->inflate.avail_in && priv->inflate.avail_out &&
+		 cur != priv->content_start + eff_size(priv));
+
+	*amount = len - priv->inflate.avail_out;
+
+	return 0;
+}
+
 static lws_fop_fd_t
 lws_fops_zip_open(const struct lws_plat_file_ops *fops_own,
 		  const struct lws_plat_file_ops *fops, const char *vfs_path,
@@ -489,7 +559,54 @@ lws_fops_zip_close(lws_fop_fd_t *fd)
 static lws_fileofs_t
 lws_fops_zip_seek_cur(lws_fop_fd_t fd, lws_fileofs_t offset_from_cur_pos)
 {
-	fd->pos = (lws_filepos_t)((lws_fileofs_t)fd->pos + offset_from_cur_pos);
+	lws_fops_zip_t priv = fop_fd_to_priv(fd);
+	lws_filepos_t np;
+	lws_fileofs_t n = (lws_fileofs_t)fd->pos + offset_from_cur_pos;
+
+	/* keep the virtual position inside the logical file extent */
+
+	if (n < 0)
+		np = 0;
+	else {
+		np = (lws_filepos_t)n;
+		if (np > fd->len)
+			np = fd->len;
+	}
+
+	if (!priv->decompress) {
+		/*
+		 * For directly served entries, reposition the underlying zip
+		 * fd at the entry payload offset matching the new virtual
+		 * position, so reads after the seek serve bytes from the
+		 * right place in the zip.
+		 *
+		 * Deflated entries served by inflating them cannot be
+		 * repositioned cheaply... the next read notices the virtual
+		 * position moved and recovers by re-inflating from the start
+		 * of the entry, discarding output until it reaches the new
+		 * position.
+		 */
+		lws_filepos_t payload = np;
+
+		if (priv->add_gzip_container) {
+			/* the virtual file has a 10-byte canned gzip header
+			 * in front of the entry payload */
+			if (payload > sizeof(hd))
+				payload -= sizeof(hd);
+			else
+				payload = 0;
+		}
+
+		if (payload > eff_size(priv))
+			payload = eff_size(priv);
+
+		if (lws_vfs_file_seek_set(priv->zip_fop_fd,
+				(lws_fileofs_t)(priv->content_start +
+						payload)) < 0)
+			return -1;
+	}
+
+	fd->pos = np;
 
 	return (lws_fileofs_t)fd->pos;
 }
@@ -504,64 +621,46 @@ lws_fops_zip_read(lws_fop_fd_t fd, lws_filepos_t *amount, uint8_t *buf,
 
 	if (priv->decompress) {
 
+		if (!len) {
+			*amount = 0;
+			return 0;
+		}
+
 		if (priv->exp_uncomp_pos != fd->pos) {
 			/*
-			 *  there has been a seek in the uncompressed fop_fd
+			 * there has been a seek in the uncompressed fop_fd,
 			 * we have to restart the decompression and loop eating
-			 * the decompressed data up to the seek point
+			 * the decompressed data up to the seek point, using
+			 * the caller's buffer as scratch to discard it into
 			 */
 			lwsl_info("seek in decompressed\n");
 
-			lws_fops_zip_reset_inflate(priv);
+			ret = lws_fops_zip_reset_inflate(priv);
+			if (ret)
+				return ret;
 
-			while (priv->exp_uncomp_pos != fd->pos) {
-				rlen = len;
-				if (rlen > fd->pos - priv->exp_uncomp_pos)
-					rlen = fd->pos - priv->exp_uncomp_pos;
-				if (lws_fops_zip_read(fd, amount, buf, rlen))
+			while (priv->exp_uncomp_pos < fd->pos) {
+				rlen = fd->pos - priv->exp_uncomp_pos;
+				if (rlen > len)
+					rlen = len;
+				ret = lws_fops_zip_inflate(priv, amount, buf,
+							   rlen);
+				if (ret)
 					return LWS_FZ_ERR_SEEK_COMPRESSED;
+				if (!*amount)
+					/*
+					 * the inflated data ran out before we
+					 * could reach the seek point
+					 */
+					return LWS_FZ_ERR_SEEK_COMPRESSED;
+				priv->exp_uncomp_pos += *amount;
 			}
 			*amount = 0;
 		}
 
-		priv->inflate.avail_out = (unsigned int)len;
-		priv->inflate.next_out = buf;
-
-		do {
-		if (!priv->inflate.avail_in) {
-			rlen = sizeof(priv->rbuf);
-			if (rlen > eff_size(priv) - (cur - priv->content_start))
-				rlen = eff_size(priv) - (cur - priv->content_start);
-
-			if (priv->zip_fop_fd->fops->LWS_FOP_READ(
-					priv->zip_fop_fd, &ramount, priv->rbuf,
-					rlen))
-				return LWS_FZ_ERR_READ_CONTENT;
-
-			cur += ramount;
-
-			priv->inflate.avail_in = (unsigned int)ramount;
-			priv->inflate.next_in = priv->rbuf;
-		}
-
-		ret = inflate(&priv->inflate, Z_NO_FLUSH);
-		if (ret == Z_STREAM_ERROR)
+		ret = lws_fops_zip_inflate(priv, amount, buf, len);
+		if (ret)
 			return ret;
-
-		switch (ret) {
-		case Z_NEED_DICT:
-			ret = Z_DATA_ERROR;
-			/* fallthru */
-		case Z_DATA_ERROR:
-		case Z_MEM_ERROR:
-
-			return ret;
-		}
-
-		} while (!priv->inflate.avail_in && priv->inflate.avail_out &&
-		         cur != priv->content_start + priv->hdr.comp_size);
-
-		*amount = len - priv->inflate.avail_out;
 
 		priv->exp_uncomp_pos += *amount;
 		fd->pos += *amount;

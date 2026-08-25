@@ -1049,6 +1049,7 @@ lws_create_context(const struct lws_context_creation_info *info)
 	context->fops_zip = fops_zip;
 	prev->next = &context->fops_zip;
 	context->fops_zip.cx = context;
+	/* the fops list is singly-linked struct lws_plat_file_ops, not dll2 */
 	prev = (struct lws_plat_file_ops *)prev->next;
 #endif
 
