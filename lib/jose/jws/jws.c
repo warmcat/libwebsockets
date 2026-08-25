@@ -1128,7 +1128,8 @@ lws_jwt_signed_validate(struct lws_context *ctx, struct lws_jwk *jwk,
 	 */
 
 	if (lws_jws_parse_jose(&jose, jws.map.buf[LJWS_JOSE],
-			       (int)jws.map.len[LJWS_JOSE], temp, &tl) < 0) {
+			       (int)jws.map.len[LJWS_JOSE], temp, &tl) < 0 ||
+	    !jose.alg) {
 		lwsl_err("%s: JOSE parse failed\n", __func__);
 		goto bail;
 	}
@@ -1234,7 +1235,8 @@ static int lws_jwt_vsign_via_info(struct lws_context *ctx, struct lws_jwk *jwk,
 		 * if it's ok
 		 */
 		if (lws_jws_parse_jose(&jose, info->jose_hdr,
-				       (int)actual_hdr_len, info->temp, &tlr)) {
+				       (int)actual_hdr_len, info->temp, &tlr) ||
+		    !jose.alg) {
 			lwsl_err("%s: invalid jose header\n", __func__);
 			r = __LINE__; goto bail;
 		}
