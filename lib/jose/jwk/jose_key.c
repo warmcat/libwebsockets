@@ -96,6 +96,23 @@ static unsigned int tok_map[] = {
 	F_RSA | F_EC | F_OCT | F_OKP | F_META |		       JWK_META_ALG,
 };
 
+/*
+ * Import limits on JWK meta members.  Unlike key data, these are not
+ * bounded by LWS_JWE_LIMIT_KEY_ELEMENT_BYTES, only indirectly by the
+ * ~1.3KB string collation buffer jps->b64; without their own caps a
+ * hostile import can still carry oversized meta strings into fixed-size
+ * export buffers at consumers of the imported key.
+ */
+
+static const uint16_t jwk_meta_limit[LWS_COUNT_JWK_ELEMENTS] = {
+	[JWK_META_KTY]		= 8,	/* "RSA", "EC", "oct", "OKP" */
+	[JWK_META_KID]		= 256,	/* typically a short key id or URL */
+	[JWK_META_USE]		= 8,	/* "sig" or "enc" */
+	[JWK_META_KEY_OPS]	= 128,	/* all defined ops, space-separated */
+	[JWK_META_X5C]		= 8192,	/* one base64 cert from the chain */
+	[JWK_META_ALG]		= 32,	/* JWA alg name */
+};
+
 struct lexico {
 	const char *name;
 	int idx;
@@ -386,6 +403,12 @@ cont:
 			goto elements_mismatch;
 
 		if (idx & F_META) {
+			if (jps->pos > (int)jwk_meta_limit[idx & 0x7f]) {
+				lwsl_notice("%s: oversize meta %s\n", __func__,
+					    jwk_tok[ctx->path_match - 1]);
+				goto bail;
+			}
+
 			if (_lws_jwk_set_el_jwk(&jwk->meta[idx & 0x7f],
 						jps->b64, (unsigned int)jps->pos) < 0)
 				goto bail;
@@ -469,12 +492,80 @@ lws_jwk_import(struct lws_jwk *jwk, lws_jwk_key_import_callback cb, void *user,
 }
 
 
+/*
+ * lws_jwk_export() composition helpers.  These fail with a nonzero return if
+ * the content does not fit in the caller's buffer before the end pointer,
+ * instead of truncating or writing past it.  They never move *pp past end,
+ * so a failed export can still NUL-terminate at *pp safely.
+ */
+
+static int
+_jwk_ex_printf(char **pp, char *end, const char *format, ...) LWS_FORMAT(3);
+
+static int
+_jwk_ex_printf(char **pp, char *end, const char *format, ...)
+{
+	va_list ap;
+	size_t size = lws_ptr_diff_size_t(end, *pp);
+	int n;
+
+	va_start(ap, format);
+	n = vsnprintf(*pp, size, format, ap);
+	va_end(ap);
+
+	if (n < 0 || (size_t)n >= size)
+		return 1;
+
+	*pp += n;
+
+	return 0;
+}
+
+static int
+_jwk_ex_putc(char **pp, char *end, char c)
+{
+	if (*pp >= end)
+		return 1;
+
+	*(*pp)++ = c;
+
+	return 0;
+}
+
+static int
+_jwk_ex_putn(char **pp, char *end, const void *src, size_t srclen)
+{
+	const char *hit = memchr(src, 0, srclen);
+	size_t len = hit ? (size_t)((const char *)hit - (const char *)src)
+			 : srclen;
+
+	/*
+	 * String members may have their terminating NUL included in .len
+	 * (genec stores the curve name that way), don't copy it into the
+	 * JSON... the content and a NUL must fit
+	 */
+
+	if (len + 1 > lws_ptr_diff_size_t(end, *pp))
+		return 1;
+
+	memcpy(*pp, src, len);
+	(*pp)[len] = '\0';
+	*pp += len;
+
+	return 0;
+}
+
 int
 lws_jwk_export(struct lws_jwk *jwk, int flags, char *p, int *len)
 {
-	char *start = p, *end = &p[*len - 1];
+	char *start = p, *end;
 	int n, m, limit, first = 1, asym = 0;
 	struct lexico *l;
+
+	if (!p || !len || *len < 3)
+		return -1;
+
+	end = &p[*len - 1];
 
 	/* RFC7638 lexicographic order requires
 	 *  RSA: e -> kty -> n
@@ -483,7 +574,8 @@ lws_jwk_export(struct lws_jwk *jwk, int flags, char *p, int *len)
 	 * ie, meta and key data elements appear interleaved in name alpha order
 	 */
 
-	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "{");
+	if (_jwk_ex_printf(&p, end, "{"))
+		goto trunc;
 
 	switch (jwk->kty) {
 	case LWS_GENCRYPTO_KTY_OCT:
@@ -520,21 +612,22 @@ lws_jwk_export(struct lws_jwk *jwk, int flags, char *p, int *len)
 
 			switch (l->idx) {
 			case JWK_META_KTY:
-				if (!first)
-					*p++ = ',';
+				if (!first && _jwk_ex_putc(&p, end, ','))
+					goto trunc;
 				first = 0;
-				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\"%s\":\"%s\"",
-						  l->name, kty_names[jwk->kty]);
+				if (_jwk_ex_printf(&p, end, "\"%s\":\"%s\"",
+						   l->name, kty_names[jwk->kty]))
+					goto trunc;
 				break;
 			case JWK_META_KEY_OPS:
-				if (!first)
-					*p++ = ',';
+				if (!first && _jwk_ex_putc(&p, end, ','))
+					goto trunc;
 				first = 0;
 				q = (const char *)jwk->meta[l->idx].buf;
 				q_end = q + jwk->meta[l->idx].len;
 
-				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
-						  "\"%s\":[", l->name);
+				if (_jwk_ex_printf(&p, end, "\"%s\":[", l->name))
+					goto trunc;
 				/*
 				 * For the public version, usages that
 				 * require the private part must be
@@ -552,16 +645,18 @@ lws_jwk_export(struct lws_jwk *jwk, int flags, char *p, int *len)
 					if ((flags & LWSJWKF_EXPORT_PRIVATE) ||
 					    !asym || (strcmp(tok, "sign") &&
 						      strcmp(tok, "encrypt"))) {
-						if (!f)
-							*p++ = ',';
+						if (!f && _jwk_ex_putc(&p, end, ','))
+							goto trunc;
 						f = 0;
-						p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
-							"\"%s\"", tok);
+						if (_jwk_ex_printf(&p, end,
+								"\"%s\"", tok))
+							goto trunc;
 					}
 					q++;
 				}
 
-				*p++ = ']';
+				if (_jwk_ex_putc(&p, end, ']'))
+					goto trunc;
 
 				break;
 
@@ -570,55 +665,76 @@ lws_jwk_export(struct lws_jwk *jwk, int flags, char *p, int *len)
 				if (!(flags & LWSJWKF_EXPORT_PRIVATE) &&
 				    asym && l->idx == (int)JWK_META_USE)
 					break;
-				if (!first)
-					*p++ = ',';
+				if (!first && _jwk_ex_putc(&p, end, ','))
+					goto trunc;
 				first = 0;
-				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\"%s\":\"",
-						  l->name);
-				lws_strnncpy(p, (const char *)jwk->meta[l->idx].buf,
-					     jwk->meta[l->idx].len, end - p);
-				p += strlen(p);
-				p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\"");
+				if (_jwk_ex_printf(&p, end, "\"%s\":\"",
+						   l->name))
+					goto trunc;
+				if (_jwk_ex_putn(&p, end, jwk->meta[l->idx].buf,
+						 jwk->meta[l->idx].len))
+					goto trunc;
+				if (_jwk_ex_printf(&p, end, "\""))
+					goto trunc;
 				break;
 			}
 		}
 
 		if ((!(l->meta & 1)) && jwk->e[l->idx].buf &&
 		    ((flags & LWSJWKF_EXPORT_PRIVATE) || !(l->meta & 2))) {
-			if (!first)
-				*p++ = ',';
+			if (!first && _jwk_ex_putc(&p, end, ','))
+				goto trunc;
 			first = 0;
 
-			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\"%s\":\"", l->name);
+			if (_jwk_ex_printf(&p, end, "\"%s\":\"", l->name))
+				goto trunc;
 
 			if ((jwk->kty == LWS_GENCRYPTO_KTY_EC ||
 			     jwk->kty == LWS_GENCRYPTO_KTY_OKP) &&
 			    l->idx == (int)LWS_GENCRYPTO_EC_KEYEL_CRV) {
-				lws_strnncpy(p,
-					     (const char *)jwk->e[l->idx].buf,
-					     jwk->e[l->idx].len, end - p);
-				m = (int)strlen(p);
-			} else
+				if (_jwk_ex_putn(&p, end, jwk->e[l->idx].buf,
+						 jwk->e[l->idx].len))
+					goto trunc;
+			} else {
+				/*
+				 * keep the - 4 reserve from wrapping when
+				 * the buffer is nearly exhausted
+				 */
+				if (lws_ptr_diff(end, p) < 5)
+					goto trunc;
 				m = lws_jws_base64_enc(
 					(const char *)jwk->e[l->idx].buf,
-					jwk->e[l->idx].len, p, lws_ptr_diff_size_t(end, p) - 4);
-			if (m < 0) {
-				lwsl_notice("%s: enc failed\n", __func__);
-				return -1;
+					jwk->e[l->idx].len, p,
+					lws_ptr_diff_size_t(end, p) - 4);
+				if (m < 0) {
+					lwsl_notice("%s: enc failed\n", __func__);
+					goto trunc;
+				}
+				p += m;
 			}
-			p += m;
-			p += lws_snprintf(p, lws_ptr_diff_size_t(end, p), "\"");
+			if (_jwk_ex_printf(&p, end, "\""))
+				goto trunc;
 		}
 
 		l++;
 	}
 
-	p += lws_snprintf(p, lws_ptr_diff_size_t(end, p),
-			  (flags & LWSJWKF_EXPORT_NOCRLF) ? "}" : "}\n");
+	if (_jwk_ex_printf(&p, end,
+			   (flags & LWSJWKF_EXPORT_NOCRLF) ? "}" : "}\n"))
+		goto trunc;
 
 	*len -= lws_ptr_diff(p, start);
 
 	return lws_ptr_diff(p, start);
+
+trunc:
+	/* p cannot have passed end, so this stays in bounds */
+
+	*p = '\0';
+	*len = 0;
+	lwsl_notice("%s: buffer too small\n", __func__);
+
+	return -1;
 }
 
 int

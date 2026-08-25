@@ -334,6 +334,104 @@ test_jwk(struct lws_context *context)
 
 	lws_jwk_destroy(&jwk);
 
+	/*
+	 * F-026: oversize meta from an untrusted JWK is rejected at import,
+	 * and export fails loudly without writing outside the buffer when it
+	 * cannot hold the whole key
+	 */
+
+	{
+		char j[4608], big[512], *ex;
+		int n, l, m;
+
+		/* a hostile oversized kid is rejected at import... */
+
+		l = lws_snprintf(j, sizeof(j),
+				 "{\"kty\":\"oct\",\"k\":\"GawgguFyGrWKav7AX4VKUg\","
+				 "\"kid\":\"");
+		if (l < 0 || (size_t)l + 1024 + 3 > sizeof(j))
+			goto bail1;
+		memset(j + l, 'A', 1024);
+		l += 1024;
+		l += lws_snprintf(j + l, sizeof(j) - (size_t)l, "\"}");
+
+		if (lws_jwk_import(&jwk, NULL, NULL, j, (size_t)l) == 0) {
+			lwsl_notice("%s: oversize kid accepted at import\n",
+				    __func__);
+			goto bail1;
+		}
+
+		/* ...while a kid inside the cap imports fine */
+
+		l = lws_snprintf(j, sizeof(j),
+				 "{\"kty\":\"oct\",\"k\":\"GawgguFyGrWKav7AX4VKUg\","
+				 "\"key_ops\":\"sign verify encrypt decrypt\","
+				 "\"kid\":\"");
+		if (l < 0 || (size_t)l + 200 + 3 > sizeof(j))
+			goto bail1;
+		memset(j + l, 'B', 200);
+		l += 200;
+		l += lws_snprintf(j + l, sizeof(j) - (size_t)l, "\"}");
+
+		if (lws_jwk_import(&jwk, NULL, NULL, j, (size_t)l) < 0) {
+			lwsl_notice("%s: failed sane kid import\n", __func__);
+			goto bail1;
+		}
+
+		/* the whole export fits comfortably in big[] */
+
+		m = (int)sizeof(big);
+		n = lws_jwk_export(&jwk, LWSJWKF_EXPORT_NOCRLF, big, &m);
+		if (n < 0 || (size_t)n >= sizeof(big)) {
+			lwsl_notice("%s: export of test key failed\n", __func__);
+			lws_jwk_destroy(&jwk);
+			goto bail1;
+		}
+
+		/*
+		 * Exporting into a buffer with exactly the needed space
+		 * works, while anything shorter must fail with -1, stay
+		 * NUL-terminated inside the given length, and leave the 8
+		 * guard bytes after the buffer untouched.  The needed space
+		 * is the content, a spare byte at end and the NUL.
+		 */
+
+		ex = malloc((size_t)n + 2 + 8);
+		if (!ex) {
+			lws_jwk_destroy(&jwk);
+			goto bail1;
+		}
+
+		memset(ex, 0xa5, (size_t)n + 2 + 8);
+		l = n + 2;
+		if (lws_jwk_export(&jwk, LWSJWKF_EXPORT_NOCRLF, ex, &l) != n ||
+		    memcmp(ex, big, (size_t)n) ||
+		    memcmp(ex + n + 2, "\xa5\xa5\xa5\xa5\xa5\xa5\xa5\xa5", 8)) {
+			lwsl_notice("%s: exact-fit export misbehaved\n", __func__);
+			free(ex);
+			lws_jwk_destroy(&jwk);
+			goto bail1;
+		}
+
+		for (l = 3; l <= n + 1; l++) {
+			m = l;
+			memset(ex, 0xa5, (size_t)n + 2 + 8);
+			if (lws_jwk_export(&jwk, LWSJWKF_EXPORT_NOCRLF, ex,
+					   &m) != -1 ||
+			    !memchr(ex, 0, (size_t)l) ||
+			    memcmp(ex + l, "\xa5\xa5\xa5\xa5\xa5\xa5\xa5\xa5", 8)) {
+				lwsl_notice("%s: len %d export not clean\n",
+					    __func__, l);
+				free(ex);
+				lws_jwk_destroy(&jwk);
+				goto bail1;
+			}
+		}
+
+		free(ex);
+		lws_jwk_destroy(&jwk);
+	}
+
 	/* end */
 
 	lwsl_notice("%s: selftest OK\n", __func__);
