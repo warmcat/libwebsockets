@@ -129,6 +129,10 @@ lws_jwk_dup_oct(struct lws_jwk *jwk, const void *key, int len);
  *
  * Returns length of the used part of the buffer if OK, or -1 for error.
  *
+ * If the whole export does not fit in the buffer, -1 is returned rather than
+ * a truncated export being emitted; on error the buffer is NUL-terminated
+ * within its bounds and *len is set to 0.
+ *
  * \p flags can be OR-ed together
  *
  * LWSJWKF_EXPORT_PRIVATE: default is only public part, set this to also export
