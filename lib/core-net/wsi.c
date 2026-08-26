@@ -1079,8 +1079,7 @@ struct lws *lws_get_parent(const struct lws *wsi) { return wsi->parent; }
 
 struct lws *lws_get_child(const struct lws *wsi)
 {
-	struct lws_dll2 *d = lws_dll2_get_head(
-			(lws_dll2_owner_t *)&wsi->child_list_owner);
+	struct lws_dll2 *d = lws_dll2_get_head(&wsi->child_list_owner);
 
 	return d ? lws_container_of(d, struct lws, sibling_list) : NULL;
 }

@@ -1638,12 +1638,14 @@ lws_http_cookie_get(struct lws *wsi, const char *name, char *buf,
 				char *vp = p;
 
 				while (vp < pe) {
-					if ((size_t)(pe - vp) > bl && !memcmp(vp, use_name, bl) && vp[bl] == '=') {
-						if (vp == p || vp[-1] == ' ' || vp[-1] == ';')
-							return cookie_value_copy(
-									vp + bl + 1,
-									pe, buf, max_len);
-					}
+					if ((size_t)(pe - vp) > bl &&
+					    !memcmp(vp, use_name, bl) &&
+					    vp[bl] == '=' &&
+					    (vp == p || vp[-1] == ' ' ||
+					     vp[-1] == ';'))
+						return cookie_value_copy(
+								vp + bl + 1,
+								pe, buf, max_len);
 					vp++;
 				}
 				f = wsi->http.ah->frags[f].nfrag;
@@ -1698,14 +1700,13 @@ lws_http_cookie_get_nth(struct lws *wsi, const char *name, int n,
 			char *vp = p;
 
 			while (vp < pe) {
-				if ((size_t)(pe - vp) > bl && !memcmp(vp, name, bl) && vp[bl] == '=') {
-					if (vp == p || vp[-1] == ' ' || vp[-1] == ';') {
-						if (!n--)
-							return cookie_value_copy(
-								   vp + bl + 1,
-								   pe, buf, max);
-					}
-				}
+				if ((size_t)(pe - vp) > bl &&
+				    !memcmp(vp, name, bl) && vp[bl] == '=' &&
+				    (vp == p || vp[-1] == ' ' || vp[-1] == ';') &&
+				    !n--)
+					return cookie_value_copy(
+						   vp + bl + 1,
+						   pe, buf, max);
 				vp++;
 			}
 			f = wsi->http.ah->frags[f].nfrag;

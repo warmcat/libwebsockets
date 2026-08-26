@@ -253,17 +253,8 @@ group_put(struct vhd__xip *vhd, struct grp__xip *grp)
 static int
 ct_token_eq(const char *a, size_t alen, const char *b, size_t blen)
 {
-	volatile unsigned char d = 0;
-	size_t i, n = alen > blen ? alen : blen;
-
-	if (alen != blen)
-		d = 1;
-	for (i = 0; i < n; i++) {
-		d |= (unsigned char)(i < alen ? a[i] : 0) ^
-		     (unsigned char)(i < blen ? b[i] : 0);
-	}
-
-	return d == 0;
+	return alen == blen &&
+	       !lws_timingsafe_bcmp(a, b, (uint32_t)alen);
 }
 
 static void

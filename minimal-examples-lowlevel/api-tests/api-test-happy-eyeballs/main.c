@@ -288,8 +288,8 @@ callback_quic_server(struct lws *wsi, enum lws_callback_reasons reason,
 				13, &p, end))
 			return 1;
 		/* identify the protocol this response was served by */
-		if (lws_add_http_header_by_name(wsi, (unsigned char *)"x-via:",
-				(unsigned char *)"h3", 2, &p, end))
+		if (lws_add_http_header_by_name(wsi, (const unsigned char *)"x-via:",
+				(const unsigned char *)"h3", 2, &p, end))
 			return 1;
 		if (lws_finalize_write_http_header(wsi, start, &p, end))
 			return 1;
@@ -324,13 +324,13 @@ callback_tcp_server(struct lws *wsi, enum lws_callback_reasons reason,
 					13, &p, end))
 				return 1;
 			/* identify the protocol this response was served by */
-			if (lws_add_http_header_by_name(wsi, (unsigned char *)"x-via:",
-					(unsigned char *)"h2", 2, &p, end))
+			if (lws_add_http_header_by_name(wsi, (const unsigned char *)"x-via:",
+					(const unsigned char *)"h2", 2, &p, end))
 				return 1;
 			/* Inject Alt-Svc pointing to our QUIC vhost */
 			altsvc_len = lws_snprintf(altsvc, sizeof(altsvc), "h3=\":%d\"", port_quic);
-			if (lws_add_http_header_by_name(wsi, (unsigned char *)"alt-svc:",
-					(unsigned char *)altsvc, altsvc_len, &p, end))
+			if (lws_add_http_header_by_name(wsi, (const unsigned char *)"alt-svc:",
+					(const unsigned char *)altsvc, altsvc_len, &p, end))
 				return 1;
 			if (lws_finalize_write_http_header(wsi, start, &p, end))
 				return 1;

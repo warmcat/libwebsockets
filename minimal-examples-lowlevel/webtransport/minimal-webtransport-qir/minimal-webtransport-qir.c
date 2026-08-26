@@ -225,10 +225,12 @@ static int dg_peer_exchange;
 static struct dgr_ctl dg_ctl[DGR_CTL_RING];
 static int dg_ctl_head, dg_ctl_tail;
 
-static struct dgr_resend {
+struct dgr_resend {
 	struct dgr_tx *tf;
 	uint32_t idx;
-} dg_resend[DGR_RESEND_RING];
+};
+
+static struct dgr_resend dg_resend[DGR_RESEND_RING];
 static int dg_resend_head, dg_resend_tail;
 
 static lws_dll2_owner_t dg_tx_owner;
@@ -839,7 +841,7 @@ dgr_tx_create(const char *name)
 		return NULL;
 	}
 	if (fstat(fd, &st) || st.st_size < 0 ||
-	    (uint64_t)st.st_size > 0x8000000ull /* 128MB sanity cap */) {
+	    (uint64_t)st.st_size > 0x8000000ULL /* 128MB sanity cap */) {
 		close(fd);
 		return NULL;
 	}
@@ -1034,10 +1036,12 @@ dgr_send_chunk(struct lws *wsi, struct dgr_tx *tf, uint32_t idx)
 	n = lws_snprintf((char *)&buf[LWS_PRE], DGR_MAX_DGRAM - DGR_CHUNK,
 			 "CH %s %u\n", tf->name, idx);
 
-	if (lseek(tf->fd, (off_t)idx * DGR_CHUNK, SEEK_SET) == (off_t)-1 ||
-	    (r = read(tf->fd, &buf[LWS_PRE + n],
-		      LWS_POSIX_LENGTH_CAST(expect))) < 0 ||
-	    (size_t)r != expect) {
+	r = -1;
+	if (lseek(tf->fd, (off_t)idx * DGR_CHUNK, SEEK_SET) != (off_t)-1)
+		r = read(tf->fd, &buf[LWS_PRE + n],
+			 LWS_POSIX_LENGTH_CAST(expect));
+
+	if (r < 0 || (size_t)r != expect) {
 		lwsl_err("Failed reading %s chunk %u\n", tf->name, idx);
 		return 1;
 	}
@@ -1264,8 +1268,10 @@ dgr_teardown(void)
 		d = d1;
 	}
 
-	dg_ctl_head = dg_ctl_tail = 0;
-	dg_resend_head = dg_resend_tail = 0;
+	dg_ctl_head = 0;
+	dg_ctl_tail = 0;
+	dg_resend_head = 0;
+	dg_resend_tail = 0;
 }
 
 static void trigger_client_transfers(struct lws *wsi_session, const char *endpoint)
@@ -1904,20 +1910,20 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 				} else if (!strncmp(hdr, "HDR ", 4)) {
 					/* HDR <name> <len>: file is incoming */
 					char name[DGR_NAME_LEN];
-					const char *p = hdr + 4, *sp;
+					const char *cp = hdr + 4, *sp;
 					uint32_t flen;
 					int ridx, completed;
 					const char *endpoint;
 					struct dgr_rx *rx;
 
-					sp = strchr(p, ' ');
-					if (!sp || (size_t)(sp - p) >= sizeof(name))
+					sp = strchr(cp, ' ');
+					if (!sp || (size_t)(sp - cp) >= sizeof(name))
 						break;
-					memcpy(name, p, (size_t)(sp - p));
-					name[sp - p] = '\0';
-					p = sp + 1;
+					memcpy(name, cp, (size_t)(sp - cp));
+					name[sp - cp] = '\0';
+					cp = sp + 1;
 					if (!dgr_name_ok(name) ||
-					    !dgr_parse_u32(&p, &flen) || *p)
+					    !dgr_parse_u32(&cp, &flen) || *cp)
 						break;
 
 					if (!dgr_lookup_request(name, &ridx,
@@ -1959,20 +1965,20 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 				} else if (!strncmp(hdr, "CH ", 3)) {
 					/* CH <name> <idx>\n<data> */
 					char name[DGR_NAME_LEN];
-					const char *p = hdr + 3, *sp;
+					const char *cp = hdr + 3, *sp;
 					uint32_t idx;
 					int ridx, completed;
 					const char *endpoint;
 					struct dgr_rx *rx;
 
-					sp = strchr(p, ' ');
-					if (!sp || (size_t)(sp - p) >= sizeof(name))
+					sp = strchr(cp, ' ');
+					if (!sp || (size_t)(sp - cp) >= sizeof(name))
 						break;
-					memcpy(name, p, (size_t)(sp - p));
-					name[sp - p] = '\0';
-					p = sp + 1;
+					memcpy(name, cp, (size_t)(sp - cp));
+					name[sp - cp] = '\0';
+					cp = sp + 1;
 					if (!dgr_name_ok(name) ||
-					    !dgr_parse_u32(&p, &idx) || *p)
+					    !dgr_parse_u32(&cp, &idx) || *cp)
 						break;
 
 					if (!dgr_lookup_request(name, &ridx,
@@ -1986,15 +1992,15 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 				} else if (!strncmp(hdr, "MISS ", 5)) {
 					/* MISS <name> <a>-<b>[,..] */
 					char name[DGR_NAME_LEN];
-					const char *p = hdr + 5, *sp;
+					const char *cp = hdr + 5, *sp;
 					struct dgr_tx *tf;
 
-					sp = strchr(p, ' ');
-					if (!sp || (size_t)(sp - p) >= sizeof(name))
+					sp = strchr(cp, ' ');
+					if (!sp || (size_t)(sp - cp) >= sizeof(name))
 						break;
-					memcpy(name, p, (size_t)(sp - p));
-					name[sp - p] = '\0';
-					p = sp + 1;
+					memcpy(name, cp, (size_t)(sp - cp));
+					name[sp - cp] = '\0';
+					cp = sp + 1;
 					if (!dgr_name_ok(name))
 						break;
 
@@ -2014,11 +2020,11 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 					for (;;) {
 						uint32_t a, b;
 
-						if (!dgr_parse_u32(&p, &a) ||
-						    *p != '-')
+						if (!dgr_parse_u32(&cp, &a) ||
+						    *cp != '-')
 							break;
-						p++;
-						if (!dgr_parse_u32(&p, &b))
+						cp++;
+						if (!dgr_parse_u32(&cp, &b))
 							break;
 
 						/* clamp into the file */
@@ -2029,13 +2035,13 @@ static int callback_qir(struct lws *wsi, enum lws_callback_reasons reason,
 							for (; a <= b; a++)
 								dgr_resend_enqueue(tf, a);
 
-						if (*p == ',') {
-							p++;
+						if (*cp == ',') {
+							cp++;
 							continue;
 						}
 						break;
 					}
-					if (*p)
+					if (*cp)
 						lwsl_info("Trailing junk in MISS for %s\n",
 							  name);
 					dgr_kick();
@@ -2355,17 +2361,17 @@ drain_sul_cb(lws_sorted_usec_list_t *sul)
 }
 
 static void
-drain_context(struct lws_context *context, int ms)
+drain_context(struct lws_context *cx, int ms)
 {
 	int n = 0;
 
 	drain_done = 0;
-	drain_ctx = context;
-	lws_sul_schedule(context, 0, &sul_drain, drain_sul_cb,
+	drain_ctx = cx;
+	lws_sul_schedule(cx, 0, &sul_drain, drain_sul_cb,
 			 (lws_usec_t)ms * LWS_US_PER_MS);
 
 	while (n >= 0 && !drain_done)
-		n = lws_service(context, 0);
+		n = lws_service(cx, 0);
 
 	lws_sul_cancel(&sul_drain);
 }

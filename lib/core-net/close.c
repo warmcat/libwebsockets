@@ -395,7 +395,7 @@ lws_inform_client_conn_fail(struct lws *wsi, void *arg, size_t len)
 				lws_cache_write_through(wsi->a.context->alpn_cache,
 							_key, (const uint8_t *)"h2", 3,
 							lws_now_usecs() +
-							(60ll * LWS_US_PER_SEC),
+							(60LL * LWS_US_PER_SEC),
 							&_p);
 			}
 			/*

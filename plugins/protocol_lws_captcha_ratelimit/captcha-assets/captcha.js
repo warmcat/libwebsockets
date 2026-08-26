@@ -37,9 +37,9 @@ document.addEventListener('DOMContentLoaded', function() {
          * served directly from the interceptor mount (no diversion), fall
          * back to a plain relative URI.
          */
-        headerImg.src = (typeof lws_interceptor_path !== 'undefined')
-            ? lws_interceptor_path + '/' + randomImg
-            : randomImg;
+        headerImg.src = (typeof lws_interceptor_path === 'undefined')
+            ? randomImg
+            : lws_interceptor_path + '/' + randomImg;
     }
 
     btn.style.display = 'none';

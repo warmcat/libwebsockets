@@ -429,11 +429,11 @@ err_404:
 	/* Thread finished a thumbnail. Wake up all waiting HTTP sessions */
 	lws_start_foreach_dll(struct lws_dll2 *, d,
 			      lws_dll2_get_head(&vhd->pss_list)) {
-		struct per_session_data__lws_hls *pss = lws_container_of(d,
+		struct per_session_data__lws_hls *ps = lws_container_of(d,
 					struct per_session_data__lws_hls, pss_list);
 
-		if (pss->waiting_for_thumbnail)
-			lws_callback_on_writable(pss->wsi);
+		if (ps->waiting_for_thumbnail)
+			lws_callback_on_writable(ps->wsi);
 	} lws_end_foreach_dll(d);
 	break;
 

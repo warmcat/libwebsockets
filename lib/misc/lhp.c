@@ -1769,11 +1769,13 @@ check_closing:
 					ps->cb(ctx, LHPCB_FAILED);
 					return LWS_SRET_FATAL;
 				}
-				if(!lws_dll2_is_empty(&ps->atr)) {
-					lhp_atr_t *a = lws_container_of(lws_dll2_get_head(&ps->atr), lhp_atr_t, list);
-					memcpy(ctx->buf, &a[1], a->name_len);
-					ctx->npos = (int)a->name_len;
-				}
+			if(!lws_dll2_is_empty(&ps->atr)) {
+				a = lws_container_of(
+					lws_dll2_get_head(&ps->atr),
+					lhp_atr_t, list);
+				memcpy(ctx->buf, &a[1], a->name_len);
+				ctx->npos = (int)a->name_len;
+			}
 				ps->cb(ctx, LHPCB_ELEMENT_END);
 				ctx->npos = 0;
 				/* remove the start level */

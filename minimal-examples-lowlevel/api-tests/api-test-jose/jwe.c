@@ -245,7 +245,7 @@ bail:
  * AES_128_CBC_HMAC_SHA_256 for content encryption.
  */
 
-static uint8_t *lws_jwe_ex_a2_jwk_json = (uint8_t *)
+static const char *lws_jwe_ex_a2_jwk_json =
 	"{"
 	 "\"kty\":\"RSA\","
 	 "\"n\":\"sXchDaQebHnPiGvyDOAT4saGEUetSyo9MKLOoWFsueri23bOdgWp4Dy1Wl"
@@ -276,9 +276,9 @@ static uint8_t *lws_jwe_ex_a2_jwk_json = (uint8_t *)
 	 "\"qi\":\"eNho5yRBEBxhGBtQRww9QirZsB66TrfFReG_CcteI1aCneT0ELGhYlRlC"
 		 "tUkTRclIfuEPmNsNDPbLoLqqCVznFbvdB7x-Tl-m0l_eFTj2KiqwGqE9PZ"
 		 "B9nNTwMVvH3VRRSLWACvPnSiwP8N5Usy-WRXS-V7TbpxIhvepTfE0NNo\""
-	"}",
+	"}";
 
-*ex_a2_compact = (uint8_t *)
+static uint8_t *ex_a2_compact = (uint8_t *)
 	"eyJhbGciOiJSU0ExXzUiLCJlbmMiOiJBMTI4Q0JDLUhTMjU2In0"
 	"."
 	"UGhIOguC7IuEvf_NPVaXsGMoLOmwvc1GyqlIKOK1nN94nHPoltGRhWhw7Zx0-kFm"
@@ -304,8 +304,8 @@ test_jwe_a2(struct lws_context *context)
 
 	lws_jwe_init(&jwe, context);
 
-	if (lws_jwk_import(&jwe.jwk, NULL, NULL, (char *)lws_jwe_ex_a2_jwk_json,
-			   strlen((char *)lws_jwe_ex_a2_jwk_json)) < 0) {
+	if (lws_jwk_import(&jwe.jwk, NULL, NULL, lws_jwe_ex_a2_jwk_json,
+			   strlen(lws_jwe_ex_a2_jwk_json)) < 0) {
 		lwsl_notice("%s: Failed to decode JWK test key\n", __func__);
 		goto bail;
 	}
@@ -504,7 +504,8 @@ r256a128_cek[] = {
 ;
 
 static int
-test_jwe_ra_ptext_1024(struct lws_context *context, char *jwk_txt, int jwk_len,
+test_jwe_ra_ptext_1024(struct lws_context *context, const char *jwk_txt,
+		       int jwk_len,
 		       const char *jose_hdr)
 {
 	char temp[4096], compact[4096];
@@ -652,7 +653,8 @@ static const uint8_t r256a192_cek[] = {
 ;
 
 static int
-test_jwe_r256a192_ptext(struct lws_context *context, char *jwk_txt, int jwk_len)
+test_jwe_r256a192_ptext(struct lws_context *context, const char *jwk_txt,
+			  int jwk_len)
 {
 	struct lws_jwe jwe;
 	char temp[4096], compact[4096];
@@ -804,7 +806,8 @@ static const uint8_t r256a256_cek[] = {
 ;
 
 static int
-test_jwe_r256a256_ptext(struct lws_context *context, char *jwk_txt, int jwk_len)
+test_jwe_r256a256_ptext(struct lws_context *context, const char *jwk_txt,
+			  int jwk_len)
 {
 	struct lws_jwe jwe;
 	char temp[4096], compact[4096];
@@ -1126,8 +1129,8 @@ test_jwe_r256a128_jwe_openssl(struct lws_context *context)
 
 	lws_jwe_init(&jwe, context);
 
-	if (lws_jwk_import(&jwe.jwk, NULL, NULL, (char *)lws_jwe_ex_a2_jwk_json,
-			   strlen((char *)lws_jwe_ex_a2_jwk_json)) < 0) {
+	if (lws_jwk_import(&jwe.jwk, NULL, NULL, lws_jwe_ex_a2_jwk_json,
+			   strlen(lws_jwe_ex_a2_jwk_json)) < 0) {
 		lwsl_notice("%s: Failed to decode JWK test key\n", __func__);
 		goto bail;
 	}
@@ -1210,8 +1213,8 @@ test_jwe_r256a128_jwe_mbedtls(struct lws_context *context)
 
 	lws_jwe_init(&jwe, context);
 
-	if (lws_jwk_import(&jwe.jwk, NULL, NULL, (char *)lws_jwe_ex_a2_jwk_json,
-			   strlen((char *)lws_jwe_ex_a2_jwk_json)) < 0) {
+	if (lws_jwk_import(&jwe.jwk, NULL, NULL, lws_jwe_ex_a2_jwk_json,
+			   strlen(lws_jwe_ex_a2_jwk_json)) < 0) {
 		lwsl_notice("%s: Failed to decode JWK test key\n", __func__);
 		goto bail;
 	}
@@ -2310,37 +2313,37 @@ test_jwe(struct lws_context *context)
 
 	n |= test_jwe_a2(context) < 0;
 
-	n |= test_jwe_ra_ptext_1024(context, (char *)lws_jwe_ex_a2_jwk_json,
-				    (int)strlen((char *)lws_jwe_ex_a2_jwk_json),
+	n |= test_jwe_ra_ptext_1024(context, lws_jwe_ex_a2_jwk_json,
+				    (int)strlen(lws_jwe_ex_a2_jwk_json),
 				    rsa256a128_jose) < 0;
-	n |= test_jwe_r256a192_ptext(context, (char *)lws_jwe_ex_a2_jwk_json,
-			(int)strlen((char *)lws_jwe_ex_a2_jwk_json)) < 0;
-	n |= test_jwe_r256a256_ptext(context, (char *)lws_jwe_ex_a2_jwk_json,
-			(int)strlen((char *)lws_jwe_ex_a2_jwk_json)) < 0;
-	n |= test_jwe_ra_ptext_1024(context, (char *)rsa_key_2048,
-			(int)strlen((char *)rsa_key_2048),
+	n |= test_jwe_r256a192_ptext(context, lws_jwe_ex_a2_jwk_json,
+			(int)strlen(lws_jwe_ex_a2_jwk_json)) < 0;
+	n |= test_jwe_r256a256_ptext(context, lws_jwe_ex_a2_jwk_json,
+			(int)strlen(lws_jwe_ex_a2_jwk_json)) < 0;
+	n |= test_jwe_ra_ptext_1024(context, rsa_key_2048,
+			(int)strlen(rsa_key_2048),
 			rsa256a128_jose) < 0;
-	n |= test_jwe_ra_ptext_1024(context, (char *)rsa_key_2048,
-			(int)strlen((char *)rsa_key_2048),
+	n |= test_jwe_ra_ptext_1024(context, rsa_key_2048,
+			(int)strlen(rsa_key_2048),
 			rsa_oaep256_jose) < 0;
-	n |= test_jwe_r256a192_ptext(context, (char *)rsa_key_2048,
-			(int)strlen((char *)rsa_key_2048)) < 0;
-	n |= test_jwe_r256a256_ptext(context, (char *)rsa_key_2048,
-			(int)strlen((char *)rsa_key_2048)) < 0;
-	n |= test_jwe_ra_ptext_1024(context, (char *)rsa_key_4096,
-			(int)strlen((char *)rsa_key_4096),
+	n |= test_jwe_r256a192_ptext(context, rsa_key_2048,
+			(int)strlen(rsa_key_2048)) < 0;
+	n |= test_jwe_r256a256_ptext(context, rsa_key_2048,
+			(int)strlen(rsa_key_2048)) < 0;
+	n |= test_jwe_ra_ptext_1024(context, rsa_key_4096,
+			(int)strlen(rsa_key_4096),
 			rsa256a128_jose) < 0;
-	n |= test_jwe_r256a192_ptext(context, (char *)rsa_key_4096,
-			(int)strlen((char *)rsa_key_4096)) < 0;
-	n |= test_jwe_r256a256_ptext(context, (char *)rsa_key_4096,
-			(int)strlen((char *)rsa_key_4096)) < 0;
-	n |= test_jwe_ra_ptext_1024(context, (char *)rsa_key_4096_no_optional,
-			(int)strlen((char *)rsa_key_4096_no_optional),
+	n |= test_jwe_r256a192_ptext(context, rsa_key_4096,
+			(int)strlen(rsa_key_4096)) < 0;
+	n |= test_jwe_r256a256_ptext(context, rsa_key_4096,
+			(int)strlen(rsa_key_4096)) < 0;
+	n |= test_jwe_ra_ptext_1024(context, rsa_key_4096_no_optional,
+			(int)strlen(rsa_key_4096_no_optional),
 			rsa256a128_jose) < 0;
-	n |= test_jwe_r256a192_ptext(context, (char *)rsa_key_4096_no_optional,
-			(int)strlen((char *)rsa_key_4096_no_optional)) < 0;
-	n |= test_jwe_r256a256_ptext(context, (char *)rsa_key_4096_no_optional,
-			(int)strlen((char *)rsa_key_4096_no_optional)) < 0;
+	n |= test_jwe_r256a192_ptext(context, rsa_key_4096_no_optional,
+			(int)strlen(rsa_key_4096_no_optional)) < 0;
+	n |= test_jwe_r256a256_ptext(context, rsa_key_4096_no_optional,
+			(int)strlen(rsa_key_4096_no_optional)) < 0;
 
 	/* AESKW decrypt all variations */
 

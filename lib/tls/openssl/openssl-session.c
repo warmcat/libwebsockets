@@ -43,8 +43,12 @@ typedef struct lws_tls_session_cache_openssl {
 static void
 __lws_tls_session_destroy(lws_tls_sco_t *ts)
 {
+	unsigned int count = lws_dll2_count(lws_dll2_owner(&ts->list));
+
+	(void)count; /* logs-off builds drop the only use */
+
 	lwsl_tlssess("%s: %s (%u)\n", __func__, (const char *)&ts[1],
-				     lws_dll2_count(lws_dll2_owner(&ts->list)) - 1);
+		     count ? count - 1 : 0);
 
 	lws_sul_cancel(&ts->sul_ttl);
 	SSL_SESSION_free(ts->session);

@@ -71,9 +71,10 @@ lws_ext_pm_deflate_arg_valid(int option_index, int v)
 		return v >= 0 && v <= 9;
 	case PMD_MEM_LEVEL:
 		return v >= 1 && v <= 9;
+	default:
+		/* the NO_CONTEXT_TAKEOVER flag args take any value */
+		return 1;
 	}
-
-	return 1;
 }
 
 static void

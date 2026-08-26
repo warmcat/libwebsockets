@@ -111,7 +111,7 @@ lws_client_h3_grace_cb(lws_sorted_usec_list_t *sul)
 		lws_cache_write_through(wsi->a.context->alpn_cache, _key,
 					(const uint8_t *)"h2", 3,
 					lws_now_usecs() +
-					(60ll * LWS_US_PER_SEC), &_p);
+					(60LL * LWS_US_PER_SEC), &_p);
 	}
 	/* Clear discovered ALPN so connect_2 does not see h3 from the
 	 * cache-hit path after the socket is rebuilt. */
@@ -701,8 +701,8 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 			 * timer is already gated on the "poll" loop where it is
 			 */
 			if (!lws_dll2_count(&wsi->dns_sorted_list) ||
-		    wsi->parallel_count >= LWS_MAX_PARALLEL_CONNS)
-			return wsi;
+			    wsi->parallel_count >= LWS_MAX_PARALLEL_CONNS)
+				return wsi;
 		}
 	}
 
@@ -1333,8 +1333,8 @@ conn_good:
 	}
 
 #if defined(LWS_WITH_CLIENT)
-	int is_quic_race = (wsi->role_ops && !strcmp(wsi->role_ops->name, "quic") && lws_dll2_owner(
-		&wsi->sul_h3_grace.list));
+	is_quic_race = (wsi->role_ops && !strcmp(wsi->role_ops->name, "quic") &&
+			lws_dll2_owner(&wsi->sul_h3_grace.list));
 	if (!is_quic_race) {
 		/* kill all remaining parallel connections */
 		for (int i = 0; i < wsi->parallel_count; i++) {

@@ -6,7 +6,7 @@
 # form "bytes=<count>\n", so the test client can check the CGI received
 # the complete POST body intact.
 
-n=`wc -c | tr -d ' \t\r\n'`
+n=$(wc -c | tr -d ' \t\r\n')
 b="bytes=$n"
 
 printf 'content-type: text/plain\r\n'

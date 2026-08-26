@@ -1154,15 +1154,19 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 
 			if (!pvo_cur) {
 				size_t kl = strlen(key_buf) + 1;
+				char *nm;
 
 				pvo_cur = lwsws_alloc(a, sizeof(*pvo_cur));
 				if (!pvo_cur)
 					return lwsws_exhausted(ctx);
 
-				pvo_cur->name = lwsws_alloc(a, kl);
-				if (!pvo_cur->name)
+				/* the pvo member is const; copy via a
+				 * writable handle */
+				nm = lwsws_alloc(a, kl);
+				if (!nm)
 					return lwsws_exhausted(ctx);
-				memcpy((char *)pvo_cur->name, key_buf, kl);
+				memcpy(nm, key_buf, kl);
+				pvo_cur->name = nm;
 
 				pvo_cur->value = NULL;
 				pvo_cur->options = NULL;

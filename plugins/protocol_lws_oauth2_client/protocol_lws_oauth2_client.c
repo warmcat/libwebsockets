@@ -179,9 +179,9 @@ urlarg_has_control_bytes(const char *s)
  * level, not just at the "starts with one slash" level.  Browsers using
  * the WHATWG URL algorithm (Chrome, Firefox, Safari) treat '\' like '/'
  * in the paths of special schemes, so a redirect_uri that survives the
- * protocol-relative '//' check as "/\evil.com" navigates the freshly
- * logged-in user to //evil.com: an open redirect straight off the
- * trusted origin.  '\' is 0x5c, so the F-018 control-byte gate above
+ * protocol-relative double-slash check as "/\evil.com" navigates the
+ * freshly logged-in user to evil.com via a scheme-relative URL: an
+ * open redirect straight off the trusted origin.  '\' is 0x5c, so the F-018 control-byte gate above
  * cannot see it.
  *
  * Rather than blacklist known-bad bytes, only allow the RFC 3986
@@ -557,7 +557,8 @@ callback_lws_oauth2_client(struct lws *wsi, enum lws_callback_reasons reason,
 			 * host matches the request's host, accept it by
 			 * reducing it to its path (query included).  Anything
 			 * else (absolute URL on a different host,
-			 * protocol-relative "//evil.com", etc) is reset to "/".
+			 * protocol-relative scheme-relative URLs naming
+			 * other hosts, etc) is reset to "/".
 			 */
 			if (!strncmp(ps->redirect_uri, "http://", 7) ||
 			    !strncmp(ps->redirect_uri, "https://", 8)) {

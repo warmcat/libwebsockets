@@ -320,10 +320,10 @@ static LWS_INLINE struct lws_dll2_owner *
 lws_dll2_owner(const struct lws_dll2 *d) { return d ? d->owner : NULL; }
 
 static LWS_INLINE struct lws_dll2 *
-lws_dll2_get_head(struct lws_dll2_owner *owner) { return owner ? owner->head : NULL; }
+lws_dll2_get_head(const struct lws_dll2_owner *owner) { return owner ? owner->head : NULL; }
 
 static LWS_INLINE struct lws_dll2 *
-lws_dll2_get_tail(struct lws_dll2_owner *owner) { return owner ? owner->tail : NULL; }
+lws_dll2_get_tail(const struct lws_dll2_owner *owner) { return owner ? owner->tail : NULL; }
 
 /*
  * Read-only accessors for list state, in the same NULL-tolerant style as
@@ -432,8 +432,10 @@ _lws_dll2_safe_prev(struct lws_dll2_owner *ow, uint32_t *gen,
  * iterator guard log + recover from cached-next invalidation instead of
  * asserting.  The default, 0, asserts loudly at the exact point of the
  * misuse, which is what you want during development.
+ *
+ * Deliberately mutable runtime state, not a const table entry.
  */
-LWS_VISIBLE LWS_EXTERN_FOR_DATA int lws_dll2_guard_quiet;
+LWS_VISIBLE LWS_EXTERN_FOR_DATA int lws_dll2_guard_quiet; /* NOSONAR */
 
 LWS_VISIBLE LWS_EXTERN void *
 _lws_dll2_search_sz_pl(lws_dll2_owner_t *own, const char *name, size_t namelen,
