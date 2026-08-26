@@ -944,6 +944,15 @@ lws_timingsafe_bcmp(const void *a, const void *b, uint32_t len)
 	return sum;
 }
 
+/*
+ * token_len sentinel meaning "we are discarding the remainder of a token
+ * that already overflowed collect[] in an earlier call": for non-chunked
+ * users, LWS_TOKZE_TOO_LONG applies to the whole token, so the rest of it
+ * must be discarded until it terminates... it must never be re-collected
+ * from the middle and returned as if a fresh, valid token had appeared.
+ */
+#define LWS_TOKENIZE_DISCARDING	((size_t)-1)
+
 lws_tokenize_elem
 lws_tokenize(struct lws_tokenize *ts)
 {
@@ -985,7 +994,17 @@ lws_tokenize(struct lws_tokenize *ts)
 		ts->token_len = 0;
 		ts->reset_token = 0;
 	} else if (ts->token_len == sizeof(ts->collect) - 1) {
-		ts->token_len = 0;
+		/*
+		 * The last call hit the collect[] limit... chunked users
+		 * restart collection here (they concatenate _CHUNK results),
+		 * but a non-chunked caller coming back for more results
+		 * mid-token is having the rest of the overlong token
+		 * discarded: re-collecting it from the middle would
+		 * fabricate a "valid" token out of the overlong token's
+		 * tail.
+		 */
+		ts->token_len = (ts->flags & LWS_TOKENIZE_F_CHUNK) ?
+					0 : LWS_TOKENIZE_DISCARDING;
 	}
 
 	while (ts->len) {
@@ -1058,6 +1077,11 @@ lws_tokenize(struct lws_tokenize *ts)
 
 			if (ts->state == LWS_TOKZS_QUOTED_STRING) {
 				ts->reset_token = 1;
+
+				if (ts->token_len == LWS_TOKENIZE_DISCARDING) {
+					ts->token_len = 0;
+					return LWS_TOKZE_TOO_LONG;
+				}
 
 				return LWS_TOKZE_QUOTED_STRING;
 			}
@@ -1162,6 +1186,9 @@ lws_tokenize(struct lws_tokenize *ts)
 
 			case LWS_TOKZS_QUOTED_STRING:
 agg_l:
+				if (ts->token_len == LWS_TOKENIZE_DISCARDING)
+					/* overlong token content: discard */
+					continue;
 				ts->collect[ts->token_len++] = c;
 				if (ts->token_len == sizeof(ts->collect) - 1) {
 					if (ts->flags & LWS_TOKENIZE_F_CHUNK) {
@@ -1170,6 +1197,15 @@ agg_l:
 							LWS_TOKZE_QUOTED_STRING_CHUNK :
 							LWS_TOKZE_TOKEN_CHUNK;
 					}
+					/*
+					 * Non-chunked: the whole token is overlong.
+					 * reset_token may still be set from when
+					 * this token started; clear it or the
+					 * next call "resets" mid-token and
+					 * re-collects the tail as a fresh token
+					 * instead of discarding it.
+					 */
+					ts->reset_token = 0;
 					return LWS_TOKZE_TOO_LONG;
 				}
 				ts->collect[ts->token_len] = '\0';
@@ -1209,6 +1245,9 @@ agg_l:
 
 		case LWS_TOKZS_QUOTED_STRING:
 		case LWS_TOKZS_TOKEN:
+			if (ts->token_len == LWS_TOKENIZE_DISCARDING)
+				/* overlong token content: discard */
+				continue;
 			ts->collect[ts->token_len++] = c;
 			if (ts->token_len == sizeof(ts->collect) - 1) {
 				if (ts->flags & LWS_TOKENIZE_F_CHUNK) {
@@ -1217,6 +1256,14 @@ agg_l:
 						LWS_TOKZE_QUOTED_STRING_CHUNK :
 						LWS_TOKZE_TOKEN_CHUNK;
 				}
+				/*
+				 * Non-chunked: the whole token is overlong.
+				 * reset_token may still be set from when this
+				 * token started; clear it or the next call
+				 * "resets" mid-token and re-collects the tail
+				 * as a fresh token instead of discarding it.
+				 */
+				ts->reset_token = 0;
 				return LWS_TOKZE_TOO_LONG;
 			}
 			ts->collect[ts->token_len] = '\0';
@@ -1249,8 +1296,14 @@ checknum_l:
 	if (utf8) /* ended partway through a multibyte char */
 		return LWS_TOKZE_ERR_BROKEN_UTF8;
 
-	if (ts->state == LWS_TOKZS_QUOTED_STRING)
+	if (ts->state == LWS_TOKZS_QUOTED_STRING) {
+		if (ts->token_len == LWS_TOKENIZE_DISCARDING) {
+			ts->reset_token = 1;
+			ts->token_len = 0;
+			return LWS_TOKZE_TOO_LONG;
+		}
 		return LWS_TOKZE_ERR_UNTERM_STRING;
+	}
 
 	if (ts->state != LWS_TOKZS_TOKEN_POST_TERMINAL &&
 	    ts->state != LWS_TOKZS_TOKEN) {
@@ -1264,6 +1317,13 @@ checknum_l:
 	/* report the pending token */
 
 token_or_numeric:
+
+	if (ts->token_len == LWS_TOKENIZE_DISCARDING) {
+		/* the whole pending token overran collect[]: TOO_LONG it */
+		ts->reset_token = 1;
+		ts->token_len = 0;
+		return LWS_TOKZE_TOO_LONG;
+	}
 
 	ts->reset_token = 1;
 
@@ -1279,7 +1339,8 @@ token_or_numeric:
 int
 lws_tokenize_cstr(struct lws_tokenize *ts, char *str, size_t max)
 {
-	if (ts->token_len + 1 >= max)
+	if (ts->token_len == LWS_TOKENIZE_DISCARDING ||
+	    ts->token_len + 1 >= max)
 		return 1;
 
 	memcpy(str, ts->token, ts->token_len);

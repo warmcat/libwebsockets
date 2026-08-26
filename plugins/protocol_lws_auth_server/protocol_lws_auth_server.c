@@ -926,7 +926,7 @@ auth_resolve_refresh_session(struct lws *wsi,
 {
 	char refresh_tk[128];
 	uint64_t now = (uint64_t)time(NULL);
-	int n = 0, expired = 0, unknown = 0;
+	int n, expired = 0, unknown = 0, seen = 0;
 	uint32_t uid = 0;
 
 	for (n = 0; n < 16; n++) {
@@ -936,6 +936,8 @@ auth_resolve_refresh_session(struct lws *wsi,
 		if (lws_http_cookie_get_nth(wsi, "auth_refresh_session", n,
 					    refresh_tk, &rl))
 			break;
+
+		seen++;
 
 		if (!refresh_tk[0]) {
 			unknown++;
@@ -956,7 +958,6 @@ auth_resolve_refresh_session(struct lws *wsi,
 			if (now < exp) {
 				uid = (uint32_t)sqlite3_column_int(stmt, 0);
 				sqlite3_finalize(stmt);
-				n++;
 				break;
 			}
 			expired++;
@@ -967,7 +968,7 @@ auth_resolve_refresh_session(struct lws *wsi,
 
 	lws_snprintf(note, note_len, "%d auth_refresh_session value(s) "
 			"presented: %d expired, %d not in db, %d live",
-			n, expired, unknown, uid ? 1 : 0);
+			seen, expired, unknown, uid ? 1 : 0);
 
 	return uid;
 }

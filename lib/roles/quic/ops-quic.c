@@ -1328,7 +1328,8 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
                                         if (colon && colon > strchr(chunk, ']')) {
                                                 port = atoi(colon + 1);
                                                 *colon = '\0';
-                                        } else if (colon && !strchr(chunk, ']')) {
+                                        } else if (colon && !strchr(chunk, ']') &&
+                                                   strchr(chunk, ':') == colon) {
                                                 /*
                                                  * No brackets: an "addr:port"
                                                  * has exactly one colon.
@@ -1336,10 +1337,8 @@ rops_handle_POLLIN_quic(struct lws_context_per_thread *pt, struct lws *wsi,
                                                  * bare IPv6 literal, which
                                                  * takes the default port.
                                                  */
-                                                if (strchr(chunk, ':') == colon) {
-                                                        port = atoi(colon + 1);
-                                                        *colon = '\0';
-                                                }
+                                                port = atoi(colon + 1);
+                                                *colon = '\0';
                                         }
                                         
                                         char *addr = chunk;

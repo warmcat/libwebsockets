@@ -499,10 +499,7 @@ lws_jwk_import(struct lws_jwk *jwk, lws_jwk_key_import_callback cb, void *user,
  * so a failed export can still NUL-terminate at *pp safely.
  */
 
-static int
-_jwk_ex_printf(char **pp, char *end, const char *format, ...) LWS_FORMAT(3);
-
-static int
+static int LWS_FORMAT(3)
 _jwk_ex_printf(char **pp, char *end, const char *format, ...)
 {
 	va_list ap;

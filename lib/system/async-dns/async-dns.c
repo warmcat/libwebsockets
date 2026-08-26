@@ -1456,12 +1456,13 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 				ai_prev->ai_next = ai;
 			ai->ai_socktype = SOCK_STREAM;
 			if (!m) {
-				c->name = (const char *)c->results +
+				char *nm = (char *)c->results +
 					  (size_t)matches * adns_align_len(
 						sizeof(struct addrinfo) +
 						sizeof(lws_sockaddr46));
-				memcpy((char *)c->name, name, nlen + 1);
-				ai->ai_canonname = (char *)c->name;
+				memcpy(nm, name, nlen + 1);
+				c->name = nm;
+				ai->ai_canonname = nm;
 			}
 
 			if (ads_lens[m] == 4) {

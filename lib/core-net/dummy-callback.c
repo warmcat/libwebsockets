@@ -599,6 +599,8 @@ lws_callback_http_dummy(struct lws *wsi, enum lws_callback_reasons reason,
 		char *out = buf + LWS_PRE;
 
 		assert(lws_get_parent(wsi));
+		if (!lws_get_parent(wsi))
+			break;
 
 #if defined(LWS_WITH_LATENCY)
 		lws_usec_t _proxy_wr_start = lws_now_usecs();

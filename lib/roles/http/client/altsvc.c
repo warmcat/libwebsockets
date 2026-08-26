@@ -192,9 +192,11 @@ lws_client_alt_svc_parse(const char *val, size_t len,
 			    !alt_svc_parse_authority(ts.token, ts.token_len,
 						     alt->host,
 						     sizeof(alt->host),
-						     &alt->port))
+						     &alt->port)) {
 				/* we keep the first well-formed h3 one */
-				got = cur_valid = 1;
+				got = 1;
+				cur_valid = 1;
+			}
 			want = 0;
 			break;
 
