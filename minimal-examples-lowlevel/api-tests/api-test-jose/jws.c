@@ -226,6 +226,100 @@ bail:
 	return 1;
 }
 
+/*
+ * Exercise the b64 map flavour of the confirm api with a real 3-block HS256
+ * compact serialization: the good signature must confirm, tampered or
+ * missing signature blocks must be cleanly rejected
+ */
+
+int
+test_jws_b64_map(struct lws_context *context)
+{
+	struct lws_jws_map map_b64;
+	struct lws_jwk jwk;
+	char temp[2048], cser[256];
+	int temp_len, n, ret = 1;
+
+	/* the RFC7515 A-1 HS256 elements from test_jws_HS256, as one cser */
+
+	n = lws_snprintf(cser, sizeof(cser), "%s.%s.%s", test1_enc, test2_enc,
+			 hash_enc);
+
+	if (lws_jwk_import(&jwk, NULL, NULL, key_jwk, strlen(key_jwk)) < 0) {
+		lwsl_notice("%s: Failed to decode JWK test key\n", __func__);
+		return 1;
+	}
+
+	/* the known-good signature must confirm via the b64 map api */
+
+	if (lws_jws_b64_compact_map(cser, n, &map_b64) != 3) {
+		lwsl_err("%s: b64 compact map failed\n", __func__);
+		goto bail;
+	}
+
+	temp_len = sizeof(temp);
+	if (lws_jws_sig_confirm_compact_b64_map(&map_b64, &jwk, context, temp,
+						&temp_len)) {
+		lwsl_notice("%s: confirm good sig failed\n", __func__);
+		goto bail;
+	}
+
+	/* a tampered signature block must fail the confirm */
+
+	cser[n - 1] = cser[n - 1] == 'k' ? 'j' : 'k';
+	if (lws_jws_b64_compact_map(cser, n, &map_b64) != 3) {
+		lwsl_err("%s: b64 compact map failed\n", __func__);
+		goto bail;
+	}
+
+	temp_len = sizeof(temp);
+	if (!lws_jws_sig_confirm_compact_b64_map(&map_b64, &jwk, context, temp,
+						 &temp_len)) {
+		lwsl_notice("%s: tampered sig confirmed\n", __func__);
+		goto bail;
+	}
+
+	/* a cser with no signature block at all must fail cleanly */
+
+	cser[strlen(test1_enc) + 1 + strlen(test2_enc)] = '\0';
+	if (lws_jws_b64_compact_map(cser, (int)strlen(cser), &map_b64) != 2) {
+		lwsl_err("%s: b64 compact map failed\n", __func__);
+		goto bail;
+	}
+
+	temp_len = sizeof(temp);
+	if (!lws_jws_sig_confirm_compact_b64_map(&map_b64, &jwk, context, temp,
+						 &temp_len)) {
+		lwsl_notice("%s: sig-less cser confirmed\n", __func__);
+		goto bail;
+	}
+
+	/* a 4-block cser is a JWE shape, not a valid JWS: must be rejected */
+
+	n = lws_snprintf(cser, sizeof(cser), "%s.%s.%s.x", test1_enc, test2_enc,
+			 hash_enc);
+	if (lws_jws_b64_compact_map(cser, n, &map_b64) != 4) {
+		lwsl_err("%s: b64 compact map failed\n", __func__);
+		goto bail;
+	}
+
+	temp_len = sizeof(temp);
+	if (!lws_jws_sig_confirm_compact_b64_map(&map_b64, &jwk, context, temp,
+						 &temp_len)) {
+		lwsl_notice("%s: 4-block cser confirmed\n", __func__);
+		goto bail;
+	}
+
+	ret = 0;
+
+bail:
+	lws_jwk_destroy(&jwk);
+
+	lwsl_notice("%s: selftest %s\n", __func__, ret ? "FAIL" : "OK");
+
+	return ret;
+}
+
 
 static const char
 	/* the key from worked example in RFC7515 A-2, as a JWK */
@@ -1110,6 +1204,7 @@ test_jws(struct lws_context *context)
 
 	n |= test_jws_none(context);
 	n |= test_jws_HS256(context);
+	n |= test_jws_b64_map(context);
 	n |= test_jws_RS256(context);
 	n |= test_jws_ES256(context);
 	n |= test_jws_ES512(context);

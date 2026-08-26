@@ -369,31 +369,37 @@ static int
 lws_jws_compact_decode_map(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 			   char *out, int *out_len)
 {
-	int n, m = 0;
+	int blocks = 0, n, dec;
+
+	memset(map, 0, sizeof(*map));
 
 	for (n = 0; n < LWS_JWS_MAX_COMPACT_BLOCKS; n++) {
-		if ((int)map_b64->len[m]) {
-			n = lws_b64_decode_string_len(map_b64->buf[m], (int)map_b64->len[m],
-						      out, *out_len);
-			if (n < 0) {
+		if ((int)map_b64->len[n]) {
+			dec = lws_b64_decode_string_len(map_b64->buf[n],
+							(int)map_b64->len[n],
+							out, *out_len);
+			if (dec < 0) {
 				lwsl_err("%s: b64 decode failed len %d\n",
-						__func__, (int)map_b64->len[m]);
+						__func__, (int)map_b64->len[n]);
 
 				return -1;
 			}
 			/* replace the map entry with the decoded content */
-			map->buf[m] = out;
-			map->len[m++] = (unsigned int)n;
-		} else
-			m++;
-		out += n;
-		*out_len -= n;
+			if (dec)
+				map->buf[n] = out;
+			else
+				map->buf[n] = NULL;
+			map->len[n] = (unsigned int)dec;
+			out += dec;
+			*out_len -= dec;
+			blocks = n + 1;
+		}
 
 		if (*out_len < 1)
 			return -1;
 	}
 
-	return 0;
+	return blocks;
 }
 
 int
