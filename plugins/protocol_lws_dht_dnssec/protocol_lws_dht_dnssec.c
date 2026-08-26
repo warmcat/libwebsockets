@@ -4130,7 +4130,6 @@ do_signzone(struct lws_context *context, struct lws_dht_dnssec_signzone_args *ar
 				}
 
 				/* Append ACME temp zones */
-				lws_dll2_t *d2;
 				lws_start_foreach_dll(lws_dll2_t *, d2, dom ?
 				lws_dll2_get_head(&dom->owner_temp_records) : NULL) {
 					struct lws_dht_dnssec_temp_record *rec =
@@ -4244,7 +4243,7 @@ do_add_temp_zone(struct lws_context *context, const char *domain, const char *zo
 		}
 
 		lws_dll2_add_tail(&dom->list, &v->owner_domains);
-	} lws_end_foreach_dll(d);
+	}
 
 	/* Create the new temporary zone record */
 	rec = malloc(sizeof(*rec));
