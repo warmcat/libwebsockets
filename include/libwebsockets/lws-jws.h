@@ -118,6 +118,21 @@ lws_jws_sig_confirm_compact(struct lws_jws_map *map, struct lws_jwk *jwk,
 			    struct lws_context *context,
 			    char *temp, int *temp_len);
 
+/**
+ * lws_jws_sig_confirm_compact_b64_map() - check signature on mapped b64 JWS
+ *
+ * \param map_b64: b64 JWS element map, eg, from lws_jws_b64_compact_map()
+ * \param jwk: public key
+ * \param context: lws_context
+ * \param temp: scratchpad
+ * \param temp_len: size of scratchpad
+ *
+ * Confirms the signature on a JWS.  Use if you have the b64 elements already
+ * mapped (pointers and lengths into your compact serialization string)... it'll
+ * make a temp plain version needed for comparison.
+ *
+ * Returns 0 on match, else nonzero.
+ */
 LWS_VISIBLE LWS_EXTERN int
 lws_jws_sig_confirm_compact_b64_map(struct lws_jws_map *map_b64,
 				    struct lws_jwk *jwk,
