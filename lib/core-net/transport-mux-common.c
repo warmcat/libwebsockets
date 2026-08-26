@@ -690,11 +690,9 @@ lws_transport_mux_create_channel(lws_transport_mux_t *tm, lws_mux_ch_idx_t i)
 	if (lws_transport_mux_get_channel(tm, i))
 		return NULL;
 
-	mc = malloc(sizeof(*mc));
+	mc = lws_zalloc(sizeof(*mc), "mux ch");
 	if (!mc)
 		return NULL;
-
-	memset(mc, 0, sizeof(*mc));
 
 #if defined(_DEBUG)
 	mc->magic = LWS_TRANSPORT_MUXCH_MAGIC;
@@ -775,18 +773,16 @@ lws_transport_mux_destroy_channel(lws_transport_mux_ch_t **_mc)
 		ppath_ops->event_close_conn(priv);
 	}
 
-	free(mc);
+	lws_free(mc);
 }
 
 lws_transport_mux_t *
 lws_transport_mux_create(struct lws_context *cx, lws_transport_info_t *info,
 		void *txp_handle)
 {
-	lws_transport_mux_t *tm = malloc(sizeof(*tm));
+	lws_transport_mux_t *tm = lws_zalloc(sizeof(*tm), "mux");
 
 	if (tm) {
-		memset(tm, 0, sizeof(*tm));
-
 #if defined(_DEBUG)
 		tm->magic = LWS_TRANSPORT_MUX_MAGIC;
 #endif
@@ -810,13 +806,14 @@ lws_transport_mux_create(struct lws_context *cx, lws_transport_info_t *info,
 void
 lws_transport_mux_destroy(lws_transport_mux_t **tm)
 {
+	lws_transport_mux_t *mux = *tm;
 	lws_transport_mux_ch_t *mc;
 
-	while(!lws_dll2_is_empty(&(*tm)->owner)) {
-		mc = lws_container_of(lws_dll2_get_head(&(*tm)->owner),
+	while (!lws_dll2_is_empty(&mux->owner)) {
+		mc = lws_container_of(lws_dll2_get_head(&mux->owner),
 				      lws_transport_mux_ch_t, list);
 		lws_transport_mux_destroy_channel(&mc);
 	}
-	free(*tm);
 	*tm = NULL;
+	lws_free(mux);
 }

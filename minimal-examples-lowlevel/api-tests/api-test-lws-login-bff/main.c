@@ -25,7 +25,11 @@
  * Scenarios:
  *
  *  - "paired-jar": both cookies present -> renewal runs, 200 + rotated
- *    auth_session / auth_csrf cookies;
+ *    auth_session / auth_csrf cookies;  the mock answers with the real
+ *    minted multi-KB JWT, and the rotation fence asserts the planted
+ *    auth_session carries the COMPLETE token: the side-channel extraction
+ *    once truncated >255-byte tokens to their tail and planted the
+ *    truncation as the session cookie, an infinite-bounce loop;
  *
  *  - "self-heal": only auth_refresh_session present -> the BFF mints the
  *    double-submit pair for the side channel itself, the exchange succeeds
@@ -211,7 +215,14 @@ struct pss_auth {
 	size_t		body_len;
 };
 
-#define MOCK_TOKEN_JSON "{\"token\":\"apitest.refreshed.jwt\"}"
+/*
+ * Built in main() from the genuinely-minted SSO JWT (~4KB): the mock must
+ * answer the side-channel exchange with a REAL, >255-byte token, since the
+ * tokenizer-based extraction in the plugin used to silently keep only the
+ * token's tail for anything over its internal 255-byte limit... the rotated
+ * auth_session cookie assertions below catch any such truncation.
+ */
+static char MOCK_TOKEN_JSON[LWS_SSO_MAX_COOKIE];
 
 /*
  * The response is written from its own sul callback a few ms after the POST
@@ -224,7 +235,8 @@ sul_respond_cb(lws_sorted_usec_list_t *sul)
 {
 	struct pss_auth *pss = lws_container_of(sul, struct pss_auth, sul_resp);
 	struct lws *wsi = pss->wsi;
-	uint8_t buf[LWS_PRE + 256], *start = &buf[LWS_PRE], *p = start,
+	uint8_t buf[LWS_PRE + sizeof(MOCK_TOKEN_JSON) + 64],
+		*start = &buf[LWS_PRE], *p = start,
 		*end = &buf[sizeof(buf) - 1];
 	size_t blen = strlen(MOCK_TOKEN_JSON);
 
@@ -703,186 +715,184 @@ step_advance(void)
 	if (sequence_done || step >= N_SCENARIOS)
 		return;
 
-	for (;;) {
-		if (interrupted) {
-			result = 1;
-			sequence_done = 1;
-			lws_cancel_service(context);
-			return;
-		}
+	if (interrupted) {
+		result = 1;
+		sequence_done = 1;
+		lws_cancel_service(context);
+		return;
+	}
 
-		if (step_done <= 0) {
-			if (step_done < 0) {
-				lwsl_err("%s: scenario '%s' failed\n", __func__,
-					 scenarios[step].name);
-				fail++;
-				result = 1;
-				sequence_done = 1;
-				lws_cancel_service(context);
-				return;
-			}
-			return; /* still in flight */
-		}
-
-		lws_sul_cancel(&sul_timeout);
-		tests++;
-
-		if (got_status != scenarios[step].expect_status) {
-			fail++;
-			lwsl_err("%s: FAIL scenario '%s': status %d, "
-				 "expect %d (set-cookie '%s')\n", __func__,
-				 scenarios[step].name, got_status,
-				 scenarios[step].expect_status, got_sc);
-			result = 1;
-			sequence_done = 1;
-			lws_cancel_service(context);
-			return;
-		}
-
-		if (scenarios[step].expect_pair &&
-		    (!mock_hits || !mock_got_refresh || !mock_pair_ok)) {
-			fail++;
-			lwsl_err("%s: FAIL scenario '%s': exchange not "
-				 "validated (hits=%d refresh=%d pair=%d)\n",
-				 __func__, scenarios[step].name, mock_hits,
-				 mock_got_refresh, mock_pair_ok);
-			result = 1;
-			sequence_done = 1;
-			lws_cancel_service(context);
-			return;
-		}
-
-		if (!scenarios[step].expect_pair && mock_hits) {
-			fail++;
-			lwsl_err("%s: FAIL scenario '%s': exchange started "
-				 "but must not\n", __func__,
+	if (step_done <= 0) {
+		if (step_done < 0) {
+			lwsl_err("%s: scenario '%s' failed\n", __func__,
 				 scenarios[step].name);
-			result = 1;
-			sequence_done = 1;
-			lws_cancel_service(context);
-			return;
-		}
-
-		if (scenarios[step].expect_rotate &&
-		    (!strstr(got_sc, "auth_session=") ||
-		     !strstr(got_sc, "auth_csrf=") ||
-		     !strstr(got_sc, "Domain=127.0.0.1"))) {
 			fail++;
-			lwsl_err("%s: FAIL scenario '%s': rotated cookies "
-				 "missing (set-cookie '%s')\n", __func__,
-				 scenarios[step].name, got_sc);
 			result = 1;
 			sequence_done = 1;
 			lws_cancel_service(context);
 			return;
 		}
+		return; /* still in flight */
+	}
 
-		if (scenarios[step].expect_sso > 0 &&
-		    (!strstr(got_sc, "auth_session=") ||
-		     !strstr(got_sc, minted_jwt))) {
-			fail++;
-			lwsl_err("%s: FAIL scenario '%s': SSO cookie not "
-				 "planted with the submitted token "
-				 "(set-cookie '%s')\n", __func__,
-				 scenarios[step].name, got_sc);
-			result = 1;
-			sequence_done = 1;
-			lws_cancel_service(context);
-			return;
-		}
+	lws_sul_cancel(&sul_timeout);
+	tests++;
 
-		if (scenarios[step].expect_sso < 0 &&
-		    strstr(got_sc, "auth_session=")) {
-			fail++;
-			lwsl_err("%s: FAIL scenario '%s': token planted "
-				 "despite failed origin check (set-cookie "
-				 "'%s')\n", __func__, scenarios[step].name,
-				 got_sc);
-			result = 1;
-			sequence_done = 1;
-			lws_cancel_service(context);
-			return;
-		}
+	if (got_status != scenarios[step].expect_status) {
+		fail++;
+		lwsl_err("%s: FAIL scenario '%s': status %d, "
+			 "expect %d (set-cookie '%s')\n", __func__,
+			 scenarios[step].name, got_status,
+			 scenarios[step].expect_status, got_sc);
+		result = 1;
+		sequence_done = 1;
+		lws_cancel_service(context);
+		return;
+	}
 
+	if (scenarios[step].expect_pair &&
+	    (!mock_hits || !mock_got_refresh || !mock_pair_ok)) {
+		fail++;
+		lwsl_err("%s: FAIL scenario '%s': exchange not "
+			 "validated (hits=%d refresh=%d pair=%d)\n",
+			 __func__, scenarios[step].name, mock_hits,
+			 mock_got_refresh, mock_pair_ok);
+		result = 1;
+		sequence_done = 1;
+		lws_cancel_service(context);
+		return;
+	}
+
+	if (!scenarios[step].expect_pair && mock_hits) {
+		fail++;
+		lwsl_err("%s: FAIL scenario '%s': exchange started "
+			 "but must not\n", __func__,
+			 scenarios[step].name);
+		result = 1;
+		sequence_done = 1;
+		lws_cancel_service(context);
+		return;
+	}
+
+	if (scenarios[step].expect_rotate &&
+	    (!strstr(got_sc, "auth_session=") ||
+	     !strstr(got_sc, minted_jwt) ||
+	     !strstr(got_sc, "auth_csrf=") ||
+	     !strstr(got_sc, "Domain=127.0.0.1"))) {
+		fail++;
+		lwsl_err("%s: FAIL scenario '%s': rotated cookies "
+			 "missing (set-cookie '%s')\n", __func__,
+			 scenarios[step].name, got_sc);
+		result = 1;
+		sequence_done = 1;
+		lws_cancel_service(context);
+		return;
+	}
+
+	if (scenarios[step].expect_sso > 0 &&
+	    (!strstr(got_sc, "auth_session=") ||
+	     !strstr(got_sc, minted_jwt))) {
+		fail++;
+		lwsl_err("%s: FAIL scenario '%s': SSO cookie not "
+			 "planted with the submitted token "
+			 "(set-cookie '%s')\n", __func__,
+			 scenarios[step].name, got_sc);
+		result = 1;
+		sequence_done = 1;
+		lws_cancel_service(context);
+		return;
+	}
+
+	if (scenarios[step].expect_sso < 0 &&
+	    strstr(got_sc, "auth_session=")) {
+		fail++;
+		lwsl_err("%s: FAIL scenario '%s': token planted "
+			 "despite failed origin check (set-cookie "
+			 "'%s')\n", __func__, scenarios[step].name,
+			 got_sc);
+		result = 1;
+		sequence_done = 1;
+		lws_cancel_service(context);
+		return;
+	}
+
+	/*
+	 * F-022 class fence: every cookie the plugin minted must
+	 * keep its complete HttpOnly / SameSite / Secure tail.
+	 */
+	if ((scenarios[step].expect_rotate ||
+	     scenarios[step].expect_sso > 0) &&
+	    sc_frag_tail_check()) {
+		fail++;
+		result = 1;
+		sequence_done = 1;
+		lws_cancel_service(context);
+		return;
+	}
+
+	if (scenarios[step].expect_js) {
 		/*
-		 * F-022 class fence: every cookie the plugin minted must
-		 * keep its complete HttpOnly / SameSite / Secure tail.
+		 * F-021 render-boundary fence, asserted against the
+		 * actually-served lws-login.js: the escaper must exist
+		 * and every dynamic innerHTML interpolation must go
+		 * through it (or encodeURIComponent for the query
+		 * value).  The banned patterns are the raw
+		 * interpolations as they existed pre-fix.
 		 */
-		if ((scenarios[step].expect_rotate ||
-		     scenarios[step].expect_sso > 0) &&
-		    sc_frag_tail_check()) {
+		static const char * const fence_need[] = {
+			"window.lwsLoginEsc=function",
+			"window.lwsLoginEsc(d.name)",
+			"window.lwsLoginEsc(st.identity)",
+			"encodeURIComponent(d.user_code)",
+		};
+		static const char * const fence_banned[] = {
+			"+d.name+'",
+			"+st.identity+'",
+			"+d.user_code+'",
+		};
+		size_t fi;
+		int bad = got_body_trunc;
+
+		got_body[got_body_len] = '\0';
+
+		for (fi = 0; fi < LWS_ARRAY_SIZE(fence_need); fi++)
+			if (!strstr(got_body, fence_need[fi])) {
+				lwsl_err("%s: FAIL scenario '%s': "
+					 "served lws-login.js lacks "
+					 "'%s'\n", __func__,
+					 scenarios[step].name,
+					 fence_need[fi]);
+				bad = 1;
+			}
+
+		for (fi = 0; fi < LWS_ARRAY_SIZE(fence_banned); fi++)
+			if (strstr(got_body, fence_banned[fi])) {
+				lwsl_err("%s: FAIL scenario '%s': "
+					 "served lws-login.js still "
+					 "composes '%s' raw into "
+					 "innerHTML\n", __func__,
+					 scenarios[step].name,
+					 fence_banned[fi]);
+				bad = 1;
+			}
+
+		if (bad) {
 			fail++;
 			result = 1;
 			sequence_done = 1;
 			lws_cancel_service(context);
 			return;
 		}
+	}
 
-		if (scenarios[step].expect_js) {
-			/*
-			 * F-021 render-boundary fence, asserted against the
-			 * actually-served lws-login.js: the escaper must exist
-			 * and every dynamic innerHTML interpolation must go
-			 * through it (or encodeURIComponent for the query
-			 * value).  The banned patterns are the raw
-			 * interpolations as they existed pre-fix.
-			 */
-			static const char * const fence_need[] = {
-				"window.lwsLoginEsc=function",
-				"window.lwsLoginEsc(d.name)",
-				"window.lwsLoginEsc(st.identity)",
-				"encodeURIComponent(d.user_code)",
-			};
-			static const char * const fence_banned[] = {
-				"+d.name+'",
-				"+st.identity+'",
-				"+d.user_code+'",
-			};
-			size_t fi;
-			int bad = got_body_trunc;
+	lwsl_user("  scenario[%d] '%s': PASS\n", step,
+		  scenarios[step].name);
 
-			got_body[got_body_len] = '\0';
+	step_done = 0;
+	current_wsi = NULL;
 
-			for (fi = 0; fi < LWS_ARRAY_SIZE(fence_need); fi++)
-				if (!strstr(got_body, fence_need[fi])) {
-					lwsl_err("%s: FAIL scenario '%s': "
-						 "served lws-login.js lacks "
-						 "'%s'\n", __func__,
-						 scenarios[step].name,
-						 fence_need[fi]);
-					bad = 1;
-				}
-
-			for (fi = 0; fi < LWS_ARRAY_SIZE(fence_banned); fi++)
-				if (strstr(got_body, fence_banned[fi])) {
-					lwsl_err("%s: FAIL scenario '%s': "
-						 "served lws-login.js still "
-						 "composes '%s' raw into "
-						 "innerHTML\n", __func__,
-						 scenarios[step].name,
-						 fence_banned[fi]);
-					bad = 1;
-				}
-
-			if (bad) {
-				fail++;
-				result = 1;
-				sequence_done = 1;
-				lws_cancel_service(context);
-				return;
-			}
-		}
-
-		lwsl_user("  scenario[%d] '%s': PASS\n", step,
-			  scenarios[step].name);
-
-		step_done = 0;
-		current_wsi = NULL;
-
-		step++;
-		if (step >= N_SCENARIOS)
-			break;
-
+	step++;
+	if (step < N_SCENARIOS) {
 		lws_sul_schedule(context, 0, &sul_next, start_step, 1);
 		return;
 	}
@@ -979,7 +989,6 @@ int main(int argc, const char **argv)
 	{
 		struct lws_jwk jwk;
 		static char pad[LWS_SSO_MAX_COOKIE];
-		char payload[LWS_SSO_MAX_COOKIE];
 		/* must hold the b64 jose + payload + sig segments at once */
 		char temp[LWS_SSO_MAX_COOKIE * 2];
 		size_t padlen = 2900;
@@ -997,14 +1006,12 @@ int main(int argc, const char **argv)
 		for (;;) {
 			size_t out_len = sizeof(minted_jwt);
 
-			lws_snprintf(payload, sizeof(payload),
-				     "{\"iss\":\"apitest\",\"sub\":\"sso\","
-				     "\"pad\":\"%.*s\"}",
-				     (int)padlen, pad);
-
 			if (lws_jwt_sign_compact(context, &jwk, "ES256",
 						 minted_jwt, &out_len, temp,
-						 sizeof(temp), payload)) {
+						 sizeof(temp),
+						 "{\"iss\":\"apitest\",\"sub\":"
+						 "\"sso\",\"pad\":\"%.*s\"}",
+						 (int)padlen, pad)) {
 				lws_jwk_destroy(&jwk);
 				lwsl_err("%s: SSO token mint failed\n",
 					 __func__);
@@ -1028,6 +1035,9 @@ int main(int argc, const char **argv)
 			padlen += (4060 - out_len) * 3 / 4;
 		}
 		lws_jwk_destroy(&jwk);
+
+		lws_snprintf(MOCK_TOKEN_JSON, sizeof(MOCK_TOKEN_JSON),
+			     "{\"token\":\"%s\"}", minted_jwt);
 
 		lws_snprintf(sso_body, sizeof(sso_body), "token=%s&target=/",
 			     minted_jwt);
