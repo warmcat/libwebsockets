@@ -215,8 +215,29 @@ struct expected expected1[] = {
 	expected21[] = {
 		{ LWS_TOKZE_TOKEN, "opcua", 5 },
 		{ LWS_TOKZE_ERR_COMMA_LIST, "", 0 },
+	},
+	/*
+	 * A quoted string overrunning the tokenizer's 255-byte collect[]
+	 * limit must be reported as LWS_TOKZE_TOO_LONG, never silently
+	 * delivered as a "valid" quoted string holding only the token's
+	 * tail (which is how a >255-byte JWT once got planted as a session
+	 * cookie: see the lws-login BFF extraction)
+	 */
+	expected22[] = {
+		{ LWS_TOKZE_TOO_LONG, "", 0 },
+	},
+	/* same for an unquoted token */
+	expected23[] = {
+		{ LWS_TOKZE_TOO_LONG, "", 0 },
 	}
 ;
+
+/*
+ * >255-char token material for expected22 / expected23, filled in main()
+ * (too big to spell out literarily)
+ */
+static char	overlong_quoted[512],
+		overlong_token[512];
 
 struct tests tests[] = {
 	{
@@ -316,6 +337,16 @@ struct tests tests[] = {
 		LWS_ARRAY_SIZE(expected21),
 		LWS_TOKENIZE_F_COMMA_SEP_LIST | LWS_TOKENIZE_F_MINUS_NONTERM |
 		LWS_TOKENIZE_F_DOT_NONTERM | LWS_TOKENIZE_F_RFC7230_DELIMS
+	},
+	{
+		overlong_quoted, expected22,
+		LWS_ARRAY_SIZE(expected22),
+		LWS_TOKENIZE_F_MINUS_NONTERM | LWS_TOKENIZE_F_DOT_NONTERM
+	},
+	{
+		overlong_token, expected23,
+		LWS_ARRAY_SIZE(expected23),
+		LWS_TOKENIZE_F_MINUS_NONTERM | LWS_TOKENIZE_F_DOT_NONTERM
 	}
 };
 
@@ -401,6 +432,14 @@ int main(int argc, const char **argv)
 
 	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_F].sw)))
 		flags = atoi(p);
+
+	/* 300 'a's inside quotes / bare: both overrun collect[256] */
+	memset(overlong_quoted, 'a', sizeof(overlong_quoted));
+	overlong_quoted[0] = '"';
+	overlong_quoted[301] = '"';
+	overlong_quoted[302] = '\0';
+	memset(overlong_token, 'a', sizeof(overlong_token));
+	overlong_token[300] = '\0';
 
 
 	lws_context_info_defaults(&info, NULL);
@@ -1084,6 +1123,91 @@ int main(int argc, const char **argv)
 			exp++;
 
 		} while (e > 0);
+
+		if (fail == in_fail)
+			ok++;
+	}
+
+	/*
+	 * Non-chunked overlong-token recovery: after LWS_TOKZE_TOO_LONG the
+	 * tokenizer must discard the REST of the same overlong token and then
+	 * keep delivering the following tokens normally.  It used to restart
+	 * collection mid-token, fabricating a "valid" token out of the
+	 * overlong token's tail.
+	 */
+	{
+		char big[600];
+		int in_fail = fail, seen_too_long = 0;
+		struct expected follow[] = {
+			{ LWS_TOKZE_TOKEN,	"subsequent", 10 },
+			{ LWS_TOKZE_TOKEN,	"tokens", 6 },
+			{ LWS_TOKZE_DELIMITER,	",", 1 },
+			{ LWS_TOKZE_TOKEN,	"after", 5 },
+			{ LWS_TOKZE_ENDED,	NULL, 0 },
+		};
+		size_t fl = 0;
+
+		/* <300-char dotted token> subsequent tokens, after */
+		memset(big, 'a', sizeof(big));
+		memcpy(big + 100, ".bbbb", 5); /* ensure dots survive nonterm */
+		memcpy(big + 300, " subsequent tokens, after", 25);
+		big[325] = '\0';
+
+		memset(&ts, 0, sizeof(ts));
+		ts.start = big;
+		ts.len = strlen(big);
+		ts.flags = LWS_TOKENIZE_F_MINUS_NONTERM |
+			   LWS_TOKENIZE_F_DOT_NONTERM;
+
+		do {
+			e = lws_tokenize(&ts);
+
+			/*
+			 * One TOO_LONG when collect[] fills, another when the
+			 * overlong token finally terminates: both must be
+			 * TOO_LONG, never a fabricated tail token
+			 */
+			if (e == LWS_TOKZE_TOO_LONG) {
+				seen_too_long++;
+				continue;
+			}
+			if (!seen_too_long) {
+				lws_strnncpy(dotstar, ts.token,
+					     ts.token_len, sizeof(dotstar));
+				lwsl_notice("fail: expected TOO_LONG, got %s "
+					    "'%s'\n",
+					    element_names[e + LWS_TOKZE_ERRS],
+					    dotstar);
+				fail++;
+				break;
+			}
+
+			if (e != follow[fl].e) {
+				lwsl_notice("fail: post-TOO_LONG elem %s, "
+					    "expected %s\n",
+					    element_names[e + LWS_TOKZE_ERRS],
+					    element_names[follow[fl].e +
+							LWS_TOKZE_ERRS]);
+				fail++;
+				break;
+			}
+			if (e > 0 && (ts.token_len != follow[fl].len ||
+				      memcmp(follow[fl].value, ts.token,
+					     follow[fl].len))) {
+				lws_strnncpy(dotstar, ts.token,
+					     ts.token_len, sizeof(dotstar));
+				lwsl_notice("fail: post-TOO_LONG token "
+					    "mismatch at %d: got %s '%s' "
+					    "(%d) want '%s' (%d)\n", (int)fl,
+					    element_names[e + LWS_TOKZE_ERRS],
+					    dotstar, (int)ts.token_len,
+					    follow[fl].value,
+					    (int)follow[fl].len);
+				fail++;
+				break;
+			}
+			fl++;
+		} while (e != LWS_TOKZE_ENDED);
 
 		if (fail == in_fail)
 			ok++;

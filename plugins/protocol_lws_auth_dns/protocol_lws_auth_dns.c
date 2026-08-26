@@ -217,6 +217,32 @@ auth_dns_sul_subscribe_cb(lws_sorted_usec_list_t *sul)
 	}
 }
 
+/*
+ * Cache admission control: evict the oldest zone cache entry (the list tail,
+ * fresh entries go on the head).  The on-disk zone file under dir_prefix, if
+ * any, is removed along with it.
+ */
+static void
+auth_dns_evict_oldest(struct per_vhost_data__auth_dns *vhd,
+		      const char *dir_prefix)
+{
+	struct auth_dns_cache_entry *old = lws_container_of(
+			lws_dll2_get_tail(&vhd->zones),
+			struct auth_dns_cache_entry, list);
+	char dpath[1024];
+
+	if (dir_prefix && dir_prefix[0]) {
+		lws_snprintf(dpath, sizeof(dpath), "%s/%s", dir_prefix,
+			     old->filename);
+		unlink(dpath);
+	}
+
+	lws_sul_cancel(&old->sul_subscribe);
+	lws_auth_dns_free_zone(&old->zone);
+	lws_dll2_remove(&old->list);
+	free(old);
+}
+
 static int
 auth_dns_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 {
@@ -310,18 +336,9 @@ auth_dns_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 	free(buf);
 
 	/* Limit cache */
-	while (lws_dll2_count(
-		&vhd->zones) > 0 && (uint32_t)lws_dll2_count(&vhd->zones) >= vhd->cache_max_zones) {
-		struct auth_dns_cache_entry *old = lws_container_of(lws_dll2_get_tail(
-			&vhd->zones), struct auth_dns_cache_entry, list);
-		char dpath[1024];
-		lws_snprintf(dpath, sizeof(dpath), "%s/%s", dirpath, old->filename);
-		unlink(dpath);
-		lws_sul_cancel(&old->sul_subscribe);
-		lws_auth_dns_free_zone(&old->zone);
-		lws_dll2_remove(&old->list);
-		free(old);
-	}
+	while (lws_dll2_count(&vhd->zones) > 0 &&
+	       lws_dll2_count(&vhd->zones) >= vhd->cache_max_zones)
+		auth_dns_evict_oldest(vhd, dirpath);
 
 	ce->vhd = vhd;
 	lws_dll2_add_head(&ce->list, &vhd->zones);
@@ -454,20 +471,9 @@ auth_dns_local_zone_cb(void *opaque, const char *domain, const char *payload_pat
 					}
 
 					/* Enforce cache limits */
-					while (lws_dll2_count(
-						&vhd->zones) > 0 && (uint32_t)lws_dll2_count(&vhd->zones) >= vhd->cache_max_zones) {
-						struct auth_dns_cache_entry *old = lws_container_of(lws_dll2_get_tail(
-							&vhd->zones), struct auth_dns_cache_entry, list);
-						char dpath[1024];
-						if (tzdir[0]) {
-							lws_snprintf(dpath, sizeof(dpath), "%s/%s", tzdir, old->filename);
-							unlink(dpath);
-						}
-						lws_sul_cancel(&old->sul_subscribe);
-						lws_auth_dns_free_zone(&old->zone);
-						lws_dll2_remove(&old->list);
-						free(old);
-					}
+					while (lws_dll2_count(&vhd->zones) > 0 &&
+					       lws_dll2_count(&vhd->zones) >= vhd->cache_max_zones)
+						auth_dns_evict_oldest(vhd, tzdir);
 
 					struct auth_dns_cache_entry *ce = malloc(sizeof(*ce));
 					if (ce) {

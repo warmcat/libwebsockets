@@ -320,10 +320,10 @@ static LWS_INLINE struct lws_dll2_owner *
 lws_dll2_owner(const struct lws_dll2 *d) { return d ? d->owner : NULL; }
 
 static LWS_INLINE struct lws_dll2 *
-lws_dll2_get_head(struct lws_dll2_owner *owner) { return owner ? owner->head : NULL; }
+lws_dll2_get_head(const struct lws_dll2_owner *owner) { return owner ? owner->head : NULL; }
 
 static LWS_INLINE struct lws_dll2 *
-lws_dll2_get_tail(struct lws_dll2_owner *owner) { return owner ? owner->tail : NULL; }
+lws_dll2_get_tail(const struct lws_dll2_owner *owner) { return owner ? owner->tail : NULL; }
 
 /*
  * Read-only accessors for list state, in the same NULL-tolerant style as
