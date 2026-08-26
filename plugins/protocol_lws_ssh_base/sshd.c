@@ -2626,14 +2626,14 @@ bail:
 
 		lws_start_foreach_dll(struct lws_dll2 *, d,
 				      lws_dll2_get_head(&pss->ch_list)) {
-			struct lws_ssh_channel *ch = lws_container_of(d,
+			struct lws_ssh_channel *chan = lws_container_of(d,
 						struct lws_ssh_channel, list);
 
-			if (ch->spawn_pid == len) {
+			if (chan->spawn_pid == len) {
 				lwsl_notice("starting close of ch with PID %d\n",
 					    (int)len);
-				ch->scheduled_close = 1;
-				write_task(pss, ch, SSH_WT_CH_CLOSE);
+				chan->scheduled_close = 1;
+				write_task(pss, chan, SSH_WT_CH_CLOSE);
 				break;
 			}
 		} lws_end_foreach_dll(d);

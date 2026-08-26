@@ -107,7 +107,6 @@ int main(int argc, const char **argv)
 	lws_dll2_remove(&A->list);
 	if (ow.generation == g)
 		bad++, printf("FAIL: remove did not bump generation\n");
-	g = ow.generation;
 
 	/* removed-but-still-allocated node is correctly reported as absent */
 	if (lws_dll2_is_in_list(&ow, &A->list))

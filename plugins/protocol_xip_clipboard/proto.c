@@ -119,12 +119,11 @@ xip_build_welcome(char *buf, size_t cap, unsigned id, const char *hash_or_null)
 	if (put(buf, cap, &p, "{\"t\":\"welcome\",\"id\":") ||
 	    put(buf, cap, &p, num))
 		return -1;
-	if (hash_or_null && hash_or_null[0]) {
-		if (put(buf, cap, &p, ",\"hash\":\"") ||
-		    put_escaped(buf, cap, &p, hash_or_null) ||
-		    put(buf, cap, &p, "\""))
-			return -1;
-	}
+	if (hash_or_null && hash_or_null[0] &&
+	    (put(buf, cap, &p, ",\"hash\":\"") ||
+	     put_escaped(buf, cap, &p, hash_or_null) ||
+	     put(buf, cap, &p, "\"")))
+		return -1;
 
 	if (put(buf, cap, &p, "}"))
 		return -1;
@@ -357,9 +356,11 @@ xip_parser_reset(struct xip_parser *p)
 	memset(&p->msg, 0, sizeof(p->msg));
 	p->field[0] = '\0';
 	p->acc = NULL;
-	p->acc_len = p->acc_cap = 0;
+	p->acc_len = 0;
+	p->acc_cap = 0;
 	p->acc_active = 0;
-	p->complete = p->failed = 0;
+	p->complete = 0;
+	p->failed = 0;
 	lejp_construct(&p->lejp, lejp_cb, p, NULL, 0);
 }
 

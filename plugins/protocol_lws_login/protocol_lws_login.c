@@ -119,7 +119,32 @@ struct pending_login_refresh {
 	int                     payload_len;
 	int                     payload_pos;
 
-	char                    token[2048];
+	/*
+	 * The minted JWT from the auth server's {"token":"..."} response.
+	 * Sized to the same LWS_SSO_MAX_COOKIE cap the whole SSO pipeline
+	 * uses (spa param, session cookie compose): any valid token the
+	 * auth server can issue must fit, or the renewal fails loudly
+	 * rather than planting a truncated cookie.
+	 */
+	char                    token[LWS_SSO_MAX_COOKIE];
+
+	/*
+	 * Chunked tokenizer state for the /api/sso_exchange JSON body,
+	 * persisting across LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ chunks.
+	 * Real JWTs are far bigger than the tokenizer's internal collect[]
+	 * limit, and the body can arrive split across any number of reads:
+	 * the token ("token" member) and the denial reason ("error" member)
+	 * must be accumulated as concatenations of tokenizer _CHUNK results.
+	 * tok_state: 0 = want "token" name, 1 = want ':', 2 = in value,
+	 * 3 = value complete; err_state mirrors that for "error".
+	 */
+	lws_tokenize_t          ts;
+	size_t                  tok_len;
+	size_t                  err_len;
+	unsigned char           ts_active;
+	unsigned char           tok_state;
+	unsigned char           err_state;
+	unsigned char           tok_overflow;	/* token didn't fit: deny */
 
 	/*
 	 * What the auth server actually said, so the browser-leg completion
@@ -977,47 +1002,110 @@ callback_lws_login_client(struct lws *wsi, enum lws_callback_reasons reason,
 		break;
 
 	case LWS_CALLBACK_RECEIVE_CLIENT_HTTP_READ: {
-		struct lws_tokenize ts;
 		lws_tokenize_elem e;
-		int state = 0, estate = 0;
 
-		if (!ps || !in || !len)
+		if (!ps || !in || !len || ps->tok_state == 3)
 			break;
 
-		lws_tokenize_init(&ts, (char *)in, LWS_TOKENIZE_F_DOT_NONTERM | LWS_TOKENIZE_F_MINUS_NONTERM);
-		ts.len = len;
+		/*
+		 * The JSON body can arrive split across any number of READ
+		 * chunks, and any real JWT dwarfs the tokenizer's internal
+		 * collect[] limit, so the tokenizer state lives in ps and is
+		 * driven with the chunked API: re-arm .start/.len at each new
+		 * chunk and keep going.  Long quoted strings (the token, or a
+		 * denial reason) arrive as one or more _CHUNK results followed
+		 * by the completed QUOTED_STRING, which we concatenate.
+		 *
+		 * This used to create the tokenizer per chunk with no chunked
+		 * flag: a >255-byte token came back as a "valid" quoted string
+		 * holding only the token's TAIL (lws_tokenize's non-chunked
+		 * overflow behavior), which was then planted verbatim as the
+		 * browser's auth_session cookie... an undecodable session that
+		 * bounced straight back to another renewal, forever.
+		 */
+		if (!ps->ts_active) {
+			memset(&ps->ts, 0, sizeof(ps->ts));
+			lws_tokenize_init(&ps->ts, (char *)in,
+					  LWS_TOKENIZE_F_DOT_NONTERM |
+					  LWS_TOKENIZE_F_MINUS_NONTERM |
+					  LWS_TOKENIZE_F_CHUNK |
+					  LWS_TOKENIZE_F_EXPECT_MORE);
+			ps->ts_active = 1;
+		} else {
+			ps->ts.start = (const char *)in;
+		}
+		ps->ts.len = len;
 
-		while ((e = lws_tokenize(&ts)) != LWS_TOKZE_ENDED) {
-			if (state == 0 && e == LWS_TOKZE_QUOTED_STRING &&
-			    ts.token_len == 5 && !strncmp(ts.token, "token", 5)) {
-				state = 1;
-			} else if (state == 1 && e == LWS_TOKZE_DELIMITER && ts.token[0] == ':') {
-				state = 2;
-			} else if (state == 2 && e == LWS_TOKZE_QUOTED_STRING) {
-				if (ts.token_len < sizeof(ps->token)) {
-					lws_strncpy(ps->token, ts.token, ts.token_len + 1);
-					lwsl_wsi_notice(wsi, "Extracted OAuth token natively via BFF");
+		while ((e = lws_tokenize(&ps->ts)) != LWS_TOKZE_ENDED &&
+		       e != LWS_TOKZE_WANT_READ) {
+
+			if (ps->tok_state == 0 && e == LWS_TOKZE_QUOTED_STRING &&
+			    ps->ts.token_len == 5 &&
+			    !strncmp(ps->ts.token, "token", 5)) {
+				ps->tok_state = 1;
+			} else if (ps->tok_state == 1 &&
+				   e == LWS_TOKZE_DELIMITER &&
+				   ps->ts.token[0] == ':') {
+				ps->tok_state = 2;
+				ps->tok_len = 0;
+			} else if (ps->tok_state == 2 &&
+				   (e == LWS_TOKZE_QUOTED_STRING ||
+				    e == LWS_TOKZE_QUOTED_STRING_CHUNK)) {
+				size_t c = ps->tok_len + ps->ts.token_len;
+
+				if (!ps->tok_overflow) {
+					if (c >= sizeof(ps->token)) {
+						ps->tok_overflow = 1;
+						ps->token[0] = '\0';
+						lwsl_wsi_err(wsi, "renewal token "
+							"%llu bytes exceeds "
+							"buffer %llu, denying",
+							(unsigned long long)c,
+							(unsigned long long)
+								sizeof(ps->token));
+					} else {
+						memcpy(ps->token + ps->tok_len,
+						       ps->ts.token,
+						       ps->ts.token_len);
+						ps->tok_len = c;
+						ps->token[c] = '\0';
+					}
 				}
-				break;
-			} else if (estate == 0 && e == LWS_TOKZE_QUOTED_STRING &&
-				   ts.token_len == 5 &&
-				   !strncmp(ts.token, "error", 5)) {
-				estate = 1;
-			} else if (estate == 1 && e == LWS_TOKZE_DELIMITER &&
-				   ts.token[0] == ':') {
-				estate = 2;
-			} else if (estate == 2 && e == LWS_TOKZE_QUOTED_STRING) {
+				if (e == LWS_TOKZE_QUOTED_STRING) {
+					ps->tok_state = 3;
+					if (!ps->tok_overflow)
+						lwsl_wsi_notice(wsi, "Extracted "
+							"OAuth token natively "
+							"via BFF (%llu bytes)",
+							(unsigned long long)
+								ps->tok_len);
+					break;
+				}
+			} else if (ps->err_state == 0 &&
+				   e == LWS_TOKZE_QUOTED_STRING &&
+				   ps->ts.token_len == 5 &&
+				   !strncmp(ps->ts.token, "error", 5)) {
+				ps->err_state = 1;
+			} else if (ps->err_state == 1 &&
+				   e == LWS_TOKZE_DELIMITER &&
+				   ps->ts.token[0] == ':') {
+				ps->err_state = 2;
+				ps->err_len = 0;
+			} else if (ps->err_state == 2 &&
+				   (e == LWS_TOKZE_QUOTED_STRING ||
+				    e == LWS_TOKZE_QUOTED_STRING_CHUNK)) {
 				/* denial reason, eg {"error":"Invalid session"}:
 				 * capture once for the browser-leg log */
-				size_t c = (size_t)ts.token_len;
+				size_t room = sizeof(ps->resp_error) - 1 - ps->err_len;
+				size_t c = ps->ts.token_len < room ?
+						ps->ts.token_len : room;
 
-				if (c >= sizeof(ps->resp_error))
-					c = sizeof(ps->resp_error) - 1;
-				if (!ps->resp_error[0]) {
-					memcpy(ps->resp_error, ts.token, c);
-					ps->resp_error[c] = '\0';
-				}
-				estate = 3;
+				memcpy(ps->resp_error + ps->err_len,
+				       ps->ts.token, c);
+				ps->err_len += c;
+				ps->resp_error[ps->err_len] = '\0';
+				if (e == LWS_TOKZE_QUOTED_STRING)
+					ps->err_state = 3;
 			}
 		}
 		break;
@@ -1814,12 +1902,34 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 							uint64_t now = (uint64_t)time(NULL);
 							uint64_t exp = now + vhd->jwt_validity_secs;
 							const char *sub = lws_jwt_auth_get_sub(pss->ja);
+							uint32_t session_epoch = 0;
+							sqlite3_stmt *stmt2;
+
+							/*
+							 * The rewritten JWT must carry the
+							 * CURRENT session_epoch from the db:
+							 * the interceptor gates every later
+							 * request on sec matching the db, so a
+							 * sec-less rewrite (as this used to
+							 * mint) could never satisfy the gate
+							 * again -> redirect loop.
+							 */
+							if (sqlite3_prepare_v2(vhd->db,
+									"SELECT session_epoch FROM users WHERE uid = ?",
+									-1, &stmt2, NULL) == SQLITE_OK) {
+								sqlite3_bind_int(stmt2, 1, (int)uid);
+								if (sqlite3_step(stmt2) == SQLITE_ROW)
+									session_epoch = (uint32_t)sqlite3_column_int(stmt2, 0);
+								sqlite3_finalize(stmt2);
+							}
 
 							if (!lws_jwt_sign_compact(vhd->context, &vhd->jwk, "ES256",
 													  out, &out_len, temp, sizeof(temp),
 													  "{\"iss\":\"%s\",\"sub\":\"%s\",\"uid\":%u,"
+													  "\"sec\":%u,"
 													  "\"iat\":%llu,\"exp\":%llu,%s}",
 													  vhd->auth_domain, sub ? sub : "Unknown", uid,
+													  session_epoch,
 													  (unsigned long long)now, (unsigned long long)exp,
 													  current_grants)) {
 								pss->silent_update_jwt = strdup(out);
@@ -2460,7 +2570,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
 	{
-		unsigned char buf[LWS_LOGIN_HTTP_BUFL], *p = buf + LWS_PRE, *end = buf + sizeof(buf) - 1;
+		unsigned char ubuf[LWS_LOGIN_HTTP_BUFL], *up = ubuf + LWS_PRE, *uend = ubuf + sizeof(ubuf) - 1;
 		struct pending_login_refresh *ps = NULL;
 
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
@@ -2514,7 +2624,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 					}
 					if (!lws_login_serve_self_redirect_with_cookie(
 							wsi, pss, vhd, ps->token,
-							ps->orig_path, buf, &p, end,
+							ps->orig_path, ubuf, &up, uend,
 							csrf_cookie)) {
 						lwsl_wsi_notice(wsi, "cold-load "
 							"renewal ok, re-served %s",
@@ -2572,27 +2682,27 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 							HTTP_STATUS_SEE_OTHER,
 							"text/html",
 							(unsigned int)html_len,
-							(unsigned char **)&p,
-							(unsigned char *)end) ||
+							(unsigned char **)&up,
+							(unsigned char *)uend) ||
 					    lws_add_http_header_by_token(wsi,
 							WSI_TOKEN_HTTP_LOCATION,
 							(unsigned char *)
 								ps->authform_url,
 							(int)strlen(ps->authform_url),
-							(unsigned char **)&p,
-							(unsigned char *)end)) {
+							(unsigned char **)&up,
+							(unsigned char *)uend)) {
 						pending_login_release(ps);
 						return 1;
 					}
 					if (lws_finalize_http_header(wsi,
-							(unsigned char **)&p,
-							(unsigned char *)end)) {
+							(unsigned char **)&up,
+							(unsigned char *)uend)) {
 						pending_login_release(ps);
 						return 1;
 					}
 					lws_write(wsi,
-						  (unsigned char *)buf + LWS_PRE,
-						  lws_ptr_diff_size_t(p, buf + LWS_PRE),
+						  (unsigned char *)ubuf + LWS_PRE,
+						  lws_ptr_diff_size_t(up, ubuf + LWS_PRE),
 						  LWS_WRITE_HTTP_HEADERS);
 					pending_login_release(ps);
 					lws_callback_on_writable(wsi);
@@ -2604,16 +2714,16 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				if (lws_add_http_common_headers(wsi,
 						HTTP_STATUS_UNAUTHORIZED,
 						"application/json", 13,
-						(unsigned char **)&p,
-						(unsigned char *)end) ||
+						(unsigned char **)&up,
+						(unsigned char *)uend) ||
 				    lws_finalize_http_header(wsi,
-						(unsigned char **)&p,
-						(unsigned char *)end)) {
+						(unsigned char **)&up,
+						(unsigned char *)uend)) {
 					pending_login_release(ps);
 					return 1;
 				}
-				lws_write(wsi, (unsigned char *)buf + LWS_PRE,
-					  lws_ptr_diff_size_t(p, buf + LWS_PRE),
+				lws_write(wsi, (unsigned char *)ubuf + LWS_PRE,
+					  lws_ptr_diff_size_t(up, ubuf + LWS_PRE),
 					  LWS_WRITE_HTTP_HEADERS);
 				pending_login_release(ps);
 				lws_callback_on_writable(wsi);
@@ -2672,19 +2782,19 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 					return 1;
 				}
 
-				if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "application/json", 13, (unsigned char **)&p, (unsigned char *)end)) return 1;
-				if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie, n, (unsigned char **)&p, (unsigned char *)end)) return 1;
-				if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)csrf_cookie, cn, (unsigned char **)&p, (unsigned char *)end)) return 1;
-				if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end)) return 1;
+				if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "application/json", 13, (unsigned char **)&up, (unsigned char *)uend)) return 1;
+				if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie, n, (unsigned char **)&up, (unsigned char *)uend)) return 1;
+				if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)csrf_cookie, cn, (unsigned char **)&up, (unsigned char *)uend)) return 1;
+				if (lws_finalize_http_header(wsi, (unsigned char **)&up, (unsigned char *)uend)) return 1;
 
-				lws_write(wsi, buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
+				lws_write(wsi, ubuf + LWS_PRE, lws_ptr_diff_size_t(up, ubuf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
 				if (lws_buflist_append_segment(&pss->tx_buflist, (const uint8_t *)"{\"success\":1}", 13) < 0) return -1;
 				pss->tx_remaining = 13;
 				lwsl_wsi_notice(wsi, "Successfully issued refreshed token to browser via BFF");
 			} else {
-				if (lws_add_http_common_headers(wsi, HTTP_STATUS_UNAUTHORIZED, "application/json", 13, (unsigned char **)&p, (unsigned char *)end)) return 1;
-				if (lws_finalize_http_header(wsi, (unsigned char **)&p, (unsigned char *)end)) return 1;
-				lws_write(wsi, buf + LWS_PRE, lws_ptr_diff_size_t(p, buf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
+				if (lws_add_http_common_headers(wsi, HTTP_STATUS_UNAUTHORIZED, "application/json", 13, (unsigned char **)&up, (unsigned char *)uend)) return 1;
+				if (lws_finalize_http_header(wsi, (unsigned char **)&up, (unsigned char *)uend)) return 1;
+				lws_write(wsi, ubuf + LWS_PRE, lws_ptr_diff_size_t(up, ubuf + LWS_PRE), LWS_WRITE_HTTP_HEADERS);
 				if (lws_buflist_append_segment(&pss->tx_buflist, (const uint8_t *)"{\"success\":0}", 13) < 0) return -1;
 				pss->tx_remaining = 13;
 				/*
@@ -2739,15 +2849,15 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		 * brings it to zero.
 		 */
 		size_t chunk = bytes;
-		if (chunk > sizeof(buf) - LWS_PRE)
-			chunk = sizeof(buf) - LWS_PRE;
+		if (chunk > sizeof(ubuf) - LWS_PRE)
+			chunk = sizeof(ubuf) - LWS_PRE;
 
-		memcpy(p, pout, chunk);
+		memcpy(up, pout, chunk);
 
 		int flags = (chunk >= pss->tx_remaining) ?
 				LWS_WRITE_HTTP_FINAL : LWS_WRITE_HTTP;
 
-		int m = lws_write(wsi, p, (unsigned int)chunk, (enum lws_write_protocol)flags);
+		int m = lws_write(wsi, up, (unsigned int)chunk, (enum lws_write_protocol)flags);
 		if (m < 0) return -1;
 
 		pss->tx_remaining -= (size_t)m;

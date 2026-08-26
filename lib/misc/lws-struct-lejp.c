@@ -866,7 +866,8 @@ check_up:
 				*buf++ = '}';
 				len--;
 
-				p = j->dllpos = lws_dll2_get_next(j->dllpos);
+				j->dllpos = lws_dll2_get_next(j->dllpos);
+				p = j->dllpos;
 				if (j->dllpos) {
 					/*
 					 * there was another item in the array to do... let's

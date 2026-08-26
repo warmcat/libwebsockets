@@ -107,7 +107,10 @@ test3(void)
 {
 	struct lws_dsh *dsh, *dsh2;
 	lws_dll2_owner_t owner;
-	uint8_t blob[4096];
+	/* big enough that the umeetable 5000-byte request below is a real,
+	 * in-bounds source: the request must fail because the 4096-byte dsh
+	 * cannot hold it, not because the caller lied about the length */
+	uint8_t blob[8192];
 
 	memset(blob, 0, sizeof(blob));
 

@@ -919,8 +919,7 @@ struct lws_context {
 static LWS_INLINE struct lws_vhost *
 lws_vhost_first(const struct lws_context *cx)
 {
-	struct lws_dll2 *d = lws_dll2_get_head(
-			(lws_dll2_owner_t *)&cx->vhost_list_owner);
+	struct lws_dll2 *d = lws_dll2_get_head(&cx->vhost_list_owner);
 
 	return d ? lws_container_of(d, struct lws_vhost, vhost_list) : NULL;
 }
@@ -1310,7 +1309,8 @@ lws_transport_mux_ch_t *
 lws_transport_mux_add_channel(lws_transport_mux_t *tm, lws_transport_priv_t priv);
 
 void
-lws_transport_mux_destroy_channel(lws_transport_mux_ch_t **_mc);
+lws_transport_mux_destroy_channel(lws_transport_mux_t *tm,
+				  lws_transport_mux_ch_t **_mc);
 
 lws_transport_mux_ch_t *
 lws_transport_mux_get_channel(lws_transport_mux_t *tm, lws_mux_ch_idx_t i);
