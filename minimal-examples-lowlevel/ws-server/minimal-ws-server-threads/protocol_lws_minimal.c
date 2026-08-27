@@ -166,6 +166,14 @@ callback_minimal(struct lws *wsi, enum lws_callback_reasons reason,
 
 		pthread_mutex_init(&vhd->lock_ring, NULL);
 
+		/*
+		 * We are also instantiated on vhosts that have no pvo for
+		 * us (eg, Secure Streams' internal vhosts)... only our own
+		 * vhost passes the pvo chain in
+		 */
+		if (!in)
+			break;
+
 		/* recover the pointer to the globals struct */
 		pvo = lws_pvo_search(
 			(const struct lws_protocol_vhost_options *)in,
