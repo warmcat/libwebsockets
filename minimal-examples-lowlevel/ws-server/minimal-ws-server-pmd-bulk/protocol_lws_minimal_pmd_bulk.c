@@ -87,7 +87,8 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
         struct vhd_minimal_pmd_bulk *vhd = (struct vhd_minimal_pmd_bulk *)
                         lws_protocol_vh_priv_get(lws_get_vhost(wsi),
                                 lws_get_protocol(wsi));
-	uint8_t buf[LWS_PRE + MESSAGE_SIZE], *start = &buf[LWS_PRE], *p;
+	uint8_t buf[LWS_PRE + MESSAGE_CHUNK_SIZE];
+	uint8_t *start = &buf[LWS_PRE], *p;
 	enum lws_write_protocol flags;
 	int n, m, olen, amount;
 
@@ -131,6 +132,21 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 		if ((*vhd->options) & 2) {
 			amount = MESSAGE_SIZE;
 			lwsl_user("(writing as one blob of %d)\n", amount);
+
+			/*
+			 * For the whole-message-in-one-call case, show the
+			 * lws_write() contract explicitly: the buffer only
+			 * has to stay valid until lws_write() returns.  With
+			 * permessage-deflate the library may still be
+			 * deflating the tail of it in later service
+			 * iterations, so it takes its own copy of anything it
+			 * still needs.
+			 */
+
+			start = malloc((size_t)(LWS_PRE + MESSAGE_SIZE));
+			if (!start)
+				return -1;
+			start += LWS_PRE;
 		}
 
 		/* fill up one chunk's worth of message content */
@@ -170,6 +186,8 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 		n = lws_ptr_diff(p, start);
 		m = lws_write(wsi, start, (unsigned int)n, flags);
 		lwsl_user("LWS_CALLBACK_SERVER_WRITEABLE: wrote %d\n", n);
+		if (start != &buf[LWS_PRE])
+			free(start - LWS_PRE);
 		if (m < n) {
 			lwsl_err("ERROR %d / %d writing ws\n", m, n);
 			return -1;
