@@ -17,6 +17,7 @@ Both the server and client side must use the same options
 
  - `-n` disable permessage-deflate extension
  - `-c` send compressible text instead of uncompressible binary data
+ - `--port <port>` connect to a different port (default 7681)
 
 ```
  $ ./lws-minimal-ws-client-pmd-bulk

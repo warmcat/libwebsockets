@@ -20,14 +20,16 @@ enum {
 	LWS_SW_C,
 	LWS_SW_D,
 	LWS_SW_N,
+	LWS_SW_PORT,
 	LWS_SW_HELP,
 };
 
 static const struct lws_switches switches[] = {
-	[LWS_SW_B]	= { "-b",              "Enable -b feature" },
-	[LWS_SW_C]	= { "-c",              "Client connections" },
+	[LWS_SW_B]	= { "-b",              "Send the message as one giant blob" },
+	[LWS_SW_C]	= { "-c",              "Send compressible content" },
 	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
-	[LWS_SW_N]	= { "-n",              "Enable -n feature" },
+	[LWS_SW_N]	= { "-n",              "Disable permessage-deflate" },
+	[LWS_SW_PORT]	= { "--port",          "Port to listen on (default 7681)" },
 	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
 };
 
@@ -43,7 +45,7 @@ static struct lws_protocols protocols[] = {
 	LWS_PROTOCOL_LIST_TERM
 };
 
-static int interrupted, options;
+static int interrupted, options, port = 7681;
 
 /* pass pointers to shared vars to the protocol */
 
@@ -97,7 +99,6 @@ int main(int argc, const char **argv)
 	struct lws_context_creation_info info;
 	struct lws_context *context;
 	int n = 0;
-	(void)switches;
 
 	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
 		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
@@ -108,12 +109,21 @@ int main(int argc, const char **argv)
 	signal(SIGINT, sigint_handler);
 
 
-	lwsl_user("LWS minimal ws server + permessage-deflate | visit http://localhost:7681\n");
-	lwsl_user("   %s [-n (no exts)] [-c (compressible)] [-b (blob)]\n", argv[0]);
+	{
+		const char *p = lws_cmdline_option(argc, argv,
+						   switches[LWS_SW_PORT].sw);
+
+		if (p)
+			port = atoi(p);
+	}
+
+	lwsl_user("LWS minimal ws server + permessage-deflate | visit http://localhost:%d\n", port);
+	lwsl_user("   %s [-n (no exts)] [-c (compressible)] [-b (blob)] [--port <port>]\n", argv[0]);
 
 	lws_context_info_defaults(&info, NULL);
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
-	info.port = 7681;
+
+	info.port = port;
 	info.mounts = &mount;
 	info.protocols = protocols;
 	info.pvo = &pvo;

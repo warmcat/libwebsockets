@@ -99,6 +99,15 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
                 if (!vhd)
                         return -1;
 
+                /*
+                 * Other vhosts than ours also instantiate us with no pvo
+                 * (eg, Secure Streams' "_ss_default" vhost gets all the
+                 * context protocols).  Only our own vhost has the pvo.
+                 */
+
+                if (!in)
+                        break;
+
                 /* get the pointer to "interrupted" we were passed in pvo */
                 vhd->interrupted = (int *)lws_pvo_search(
                         (const struct lws_protocol_vhost_options *)in,
@@ -173,6 +182,22 @@ callback_minimal_pmd_bulk(struct lws *wsi, enum lws_callback_reasons reason,
 		lwsl_user("LWS_CALLBACK_RECEIVE: %4d (pss->pos=%d, rpp %5d, last %d)\n",
 				(int)len, (int)pss->position_rx, (int)lws_remaining_packet_payload(wsi),
 				lws_is_final_fragment(wsi));
+
+		/*
+		 * The final fragment indication has to agree with where the
+		 * message content actually ends... with compression, one ws
+		 * frame may be delivered to us in several callbacks and the
+		 * final indication must only appear on the last one
+		 */
+
+		if (lws_is_final_fragment(wsi) !=
+		    !!(pss->position_rx + (int)len == MESSAGE_SIZE)) {
+			lwsl_user("final fragment indicated %s the message end\n",
+				  lws_is_final_fragment(wsi) ?
+					  "before" : "without reaching");
+			return -1;
+		}
+
 		olen = (int)len;
 
 		if (*vhd->options & 1) {
