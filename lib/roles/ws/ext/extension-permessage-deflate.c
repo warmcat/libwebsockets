@@ -227,6 +227,7 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		lwsl_wsi_ext(wsi, "LWS_EXT_CB_DESTROY");
 		lws_free(priv->buf_rx_inflated);
 		lws_free(priv->buf_tx_deflated);
+		lws_free(priv->buf_tx_holding);
 		if (priv->rx_init)
 			(void)inflateEnd(&priv->rx);
 		if (priv->tx_init)
@@ -554,9 +555,49 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 		 * track how much input was used and advance it
 		 */
 
-		pmdrx->eb_in.token = pmdrx->eb_in.token +
-					((unsigned int)pmdrx->eb_in.len - (unsigned int)priv->tx.avail_in);
-		pmdrx->eb_in.len = (int)priv->tx.avail_in;
+		if (pmdrx->eb_in.token) {
+			pmdrx->eb_in.token = pmdrx->eb_in.token +
+					((unsigned int)pmdrx->eb_in.len -
+					 (unsigned int)priv->tx.avail_in);
+			pmdrx->eb_in.len = (int)priv->tx.avail_in;
+		}
+
+		if (pmdrx->eb_in.len && pmdrx->eb_in.token) {
+			/*
+			 * We could not consume all of the caller's input yet,
+			 * but lws_write() is about to return to him... the tx
+			 * draining continues later from the POLLOUT handler,
+			 * by which time he may legitimately have reused or
+			 * freed his write buffer.  Move the remaining input
+			 * somewhere we own, so the deflate stream only
+			 * references our own buffer from now on.
+			 */
+			if (priv->len_tx_holding < (size_t)pmdrx->eb_in.len) {
+				lws_free(priv->buf_tx_holding);
+				priv->len_tx_holding = (size_t)pmdrx->eb_in.len;
+				priv->buf_tx_holding = lws_malloc(
+						priv->len_tx_holding,
+						"pmd tx holding buf");
+				if (!priv->buf_tx_holding) {
+					priv->len_tx_holding = 0;
+					return PMDR_FAILED;
+				}
+			}
+			memcpy(priv->buf_tx_holding, pmdrx->eb_in.token,
+			       (size_t)pmdrx->eb_in.len);
+			priv->tx.next_in = priv->buf_tx_holding;
+
+			lwsl_wsi_ext(wsi, "TX holding %u unconsumed input",
+					(unsigned int)pmdrx->eb_in.len);
+		} else if (!priv->tx.avail_in && priv->buf_tx_holding) {
+			/*
+			 * any held input is fully deflated now, we can stop
+			 * holding onto it
+			 */
+			lws_free_set_NULL(priv->buf_tx_holding);
+			priv->len_tx_holding = 0;
+			priv->tx.next_in = NULL;
+		}
 
 		priv->compressed_out = 1;
 		pmdrx->eb_out.len = lws_ptr_diff(priv->tx.next_out,

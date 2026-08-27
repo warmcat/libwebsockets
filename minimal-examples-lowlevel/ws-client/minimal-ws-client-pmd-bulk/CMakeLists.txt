@@ -41,6 +41,7 @@ if (requirements)
 
 		lws_get_free_port(PORT_PMDBLK_FRAG)
 		lws_get_free_port(PORT_PMDBLK_BLOB)
+		lws_get_free_port(PORT_PMDBLK_RBLOB)
 
 		#
 		# Fixture: server sending compressible data in fragments
@@ -101,6 +102,39 @@ if (requirements)
 				--port ${PORT_PMDBLK_BLOB} -c)
 		set_tests_properties(ws-client-pmd-bulk-blob PROPERTIES
 					     FIXTURES_REQUIRED pmdblk_blob
+					     TIMEOUT 60)
+
+		#
+		# Fixture: server sending its whole message as one
+		# uncompressible blob.  The compressed form is larger than one
+		# pmd output chunk, so the library is still deflating the
+		# caller's buffer in later service iterations after
+		# lws_write() already returned to user code that freed it
+		#
+
+		add_test(NAME st_pmdblk_rblob COMMAND
+			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
+				pmdblk_rblob
+				$<TARGET_FILE:lws-minimal-ws-server-pmd-bulk>
+				--port ${PORT_PMDBLK_RBLOB} -b)
+		add_test(NAME ki_pmdblk_rblob COMMAND
+			${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
+				pmdblk_rblob
+				$<TARGET_FILE_NAME:lws-minimal-ws-server-pmd-bulk>)
+
+		set_tests_properties(st_pmdblk_rblob PROPERTIES
+					     WORKING_DIRECTORY .
+					     FIXTURES_SETUP pmdblk_rblob
+					     ENVIRONMENT "SAI_LIST_PORT=${PORT_PMDBLK_RBLOB}"
+					     TIMEOUT 800)
+		set_tests_properties(ki_pmdblk_rblob PROPERTIES
+					     FIXTURES_CLEANUP pmdblk_rblob)
+
+		add_test(NAME ws-client-pmd-bulk-rblob COMMAND
+			$<TARGET_FILE:lws-minimal-ws-client-pmd-bulk>
+				--port ${PORT_PMDBLK_RBLOB})
+		set_tests_properties(ws-client-pmd-bulk-rblob PROPERTIES
+					     FIXTURES_REQUIRED pmdblk_rblob
 					     TIMEOUT 60)
 	endif()
 endif()
