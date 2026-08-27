@@ -83,6 +83,14 @@ callback_minimal_server_echo(struct lws *wsi, enum lws_callback_reasons reason,
 		vhd->context = lws_get_context(wsi);
 		vhd->vhost = lws_get_vhost(wsi);
 
+		/*
+		 * We are also instantiated on vhosts that have no pvo for
+		 * us (eg, Secure Streams' internal vhosts)... only our own
+		 * vhost passes the pvo chain in
+		 */
+		if (!in)
+			break;
+
 		/* get the pointers we were passed in pvo */
 
 		vhd->interrupted = (int *)lws_pvo_search(
