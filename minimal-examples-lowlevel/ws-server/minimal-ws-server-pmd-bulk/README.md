@@ -10,9 +10,12 @@
 
 ```
  $ ./lws-minimal-ws-server-pmd-bulk
-[2018/03/04 09:30:02:7986] USER: LWS minimal ws server | visit http://localhost:7681
-[2018/03/04 09:30:02:7986] NOTICE: Creating Vhost 'default' port 7681, 1 protocols, IPv6 on
 ```
+
+ - `-n` disable permessage-deflate extension
+ - `-c` send compressible text instead of uncompressible binary data
+ - `-b` send the whole message as a single blob, instead of in fragments
+ - `--port <port>` listen on a different port (default 7681)
 
 Visit http://localhost:7681 in your browser
 

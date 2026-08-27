@@ -59,6 +59,17 @@ _lws_ws_client_rx_payload_passthrough(struct lws *wsi, const uint8_t *buf,
 		}
 		if (n == PMDR_DID_NOTHING)
 			break;
+
+		/*
+		 * We want the user callback done with the draining state set
+		 * if the extension still has pending output, because
+		 * lws_is_final_fragment() hides that it was final until the
+		 * last chunk of the inflated message has been delivered
+		 */
+		if (n == PMDR_HAS_PENDING)
+			lws_add_wsi_to_draining_ext_list(wsi);
+		else
+			lws_remove_wsi_from_draining_ext_list(wsi);
 #endif
 
 		if (wsi->ws->check_utf8 && !wsi->ws->defeat_check_utf8) {

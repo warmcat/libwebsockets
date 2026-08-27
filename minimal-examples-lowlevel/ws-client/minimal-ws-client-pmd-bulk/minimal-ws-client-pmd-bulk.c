@@ -25,13 +25,15 @@ enum {
 	LWS_SW_C,
 	LWS_SW_D,
 	LWS_SW_N,
+	LWS_SW_PORT,
 	LWS_SW_HELP,
 };
 
 static const struct lws_switches switches[] = {
-	[LWS_SW_C]	= { "-c",              "Client connections" },
+	[LWS_SW_C]	= { "-c",              "Compressible content" },
 	[LWS_SW_D]	= { "-d",              "Debug logs (e.g. -d 15)" },
-	[LWS_SW_N]	= { "-n",              "Enable -n feature" },
+	[LWS_SW_N]	= { "-n",              "Disable permessage-deflate" },
+	[LWS_SW_PORT]	= { "--port",          "Port to connect to (default 7681)" },
 	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
 };
 
@@ -47,7 +49,7 @@ static struct lws_protocols protocols[] = {
 	LWS_PROTOCOL_LIST_TERM
 };
 
-static int interrupted, options;
+static int interrupted, options, port = 7681;
 
 /* pass pointers to shared vars to the protocol */
 
@@ -58,8 +60,15 @@ static const struct lws_protocol_vhost_options pvo_options = {
 	(void *)&options	/* pvo value */
 };
 
-static const struct lws_protocol_vhost_options pvo_interrupted = {
+static const struct lws_protocol_vhost_options pvo_port = {
 	&pvo_options,
+	NULL,
+	"port",			/* pvo name */
+	(void *)&port		/* pvo value */
+};
+
+static const struct lws_protocol_vhost_options pvo_interrupted = {
+	&pvo_port,
 	NULL,
 	"interrupted",		/* pvo name */
 	(void *)&interrupted	/* pvo value */
@@ -92,7 +101,6 @@ int main(int argc, const char **argv)
 	struct lws_context_creation_info info;
 	struct lws_context *context;
 	int n = 0;
-	(void)switches;
 
 	if ((argc == 1) || lws_cmdline_option(argc, argv, switches[LWS_SW_HELP].sw)) {
 		lws_switches_print_help(argv[0], switches, LWS_ARRAY_SIZE(switches));
@@ -105,10 +113,18 @@ int main(int argc, const char **argv)
 
 	lwsl_user("LWS minimal ws client + permessage-deflate + multifragment bulk message\n");
 	lwsl_user("   needs minimal-ws-server-pmd-bulk running to communicate with\n");
-	lwsl_user("   %s [-n (no exts)] [-c (compressible)]\n", argv[0]);
+	lwsl_user("   %s [-n (no exts)] [-c (compressible)] [--port <port>]\n", argv[0]);
 
 	lws_context_info_defaults(&info, NULL);
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
+
+	/*
+	 * lws_context_info_defaults() sets EXPLICIT_VHOSTS, but we want the
+	 * context to create the default vhost with our protocols and pvo
+	 */
+
+	info.options &= ~((uint64_t)LWS_SERVER_OPTION_EXPLICIT_VHOSTS);
+
 	info.port = CONTEXT_PORT_NO_LISTEN;
 	info.protocols = protocols;
 	info.pvo = &pvo;
@@ -118,6 +134,14 @@ int main(int argc, const char **argv)
 
 	if (lws_cmdline_option(argc, argv, switches[LWS_SW_C].sw))
 		options |= 1;
+
+	{
+		const char *p = lws_cmdline_option(argc, argv,
+						   switches[LWS_SW_PORT].sw);
+
+		if (p)
+			port = atoi(p);
+	}
 
 	/*
 	 * since we know this lws context is only ever going to be used with
