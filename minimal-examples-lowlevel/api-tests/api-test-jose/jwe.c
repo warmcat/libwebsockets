@@ -2131,6 +2131,178 @@ bail:
 	return ret;
 }
 
+/*
+ * F-030: every decrypt error path after the backend EC context is created
+ * used to leak that context (~5KB/attempt with the openssl backend).  An
+ * attacker-controlled malformed epk in the protected header is the cheapest
+ * way to reach those paths, so hammer two variants of it: the decrypt must
+ * fail cleanly each time and (in ASAN/LSan builds) leave nothing behind.
+ */
+
+static int
+test_ecdhes_malformed_epk(struct lws_context *context)
+{
+	/* valid EC shape, but 1 byte short of P-256's x length */
+	uint8_t bad_x[31];
+	/* P-256-sized coordinates that are not a point on the curve */
+	uint8_t offcurve_xy[32];
+	char jose[384], x_b64[64], y_b64[64], jose_b64[512], compact[2048],
+	     tampered[2048], temp[4096], *p1;
+	struct lws_jwe jwe;
+	int n, m, ret = -1, temp_len = sizeof(temp), variant, nloops;
+	const char *x_str;
+
+	lws_jwe_init(&jwe, context);
+
+	/* create a valid ECDH-ES + AESkw JWE for the peer public key */
+
+	if (lws_jws_dup_element(&jwe.jws.map, LJWS_JOSE,
+				lws_concat_temp(temp, temp_len), &temp_len,
+				ecdhes_t1_jose_hdr_esakw128_128,
+				strlen(ecdhes_t1_jose_hdr_esakw128_128), 0))
+		goto bail;
+
+	if (lws_jwe_parse_jose(&jwe.jose, ecdhes_t1_jose_hdr_esakw128_128,
+			       (int)strlen(ecdhes_t1_jose_hdr_esakw128_128),
+			       temp, &temp_len) < 0) {
+		lwsl_err("%s: JOSE parse failed\n", __func__);
+
+		goto bail;
+	}
+
+	if (lws_jwk_import(&jwe.jwk, NULL, NULL, ecdhes_t1_peer_p256_public_key,
+			   strlen(ecdhes_t1_peer_p256_public_key)) < 0) {
+		lwsl_notice("%s: Failed to decode JWK test key\n", __func__);
+		goto bail;
+	}
+
+	if (lws_jws_dup_element(&jwe.jws.map, LJWE_CTXT,
+				lws_concat_temp(temp, temp_len), &temp_len,
+				ecdhes_t1_plaintext,
+				strlen(ecdhes_t1_plaintext),
+				lws_gencrypto_padded_length(LWS_AES_CBC_BLOCKLEN,
+						strlen(ecdhes_t1_plaintext)))) {
+		lwsl_notice("%s: Not enough temp space for ptext\n", __func__);
+		goto bail;
+	}
+
+	n = lws_jwe_encrypt(&jwe, lws_concat_temp(temp, temp_len), &temp_len);
+		if (n == -2) {
+			lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
+			ret = 0;
+			goto bail;
+		}
+		if (n < 0) {
+			lwsl_err("%s: lws_jwe_encrypt failed\n", __func__);
+			goto bail;
+		}
+
+	n = lws_jwe_render_compact(&jwe, compact, sizeof(compact));
+	if (n < 0) {
+		lwsl_err("%s: lws_jwe_render_compact failed: %d\n",
+			 __func__, n);
+		goto bail;
+	}
+
+	/*
+	 * Keep the four compact elements after the protected header from the
+	 * valid JWE, and swap in our own protected header with the malformed
+	 * epk, the way an attacker would
+	 */
+
+	p1 = strchr(compact, '.');
+	if (!p1) {
+		lwsl_err("%s: bad compact serialization\n", __func__);
+		goto bail;
+	}
+
+	memset(bad_x, 0x11, sizeof(bad_x));
+	memset(offcurve_xy, 0xa5, sizeof(offcurve_xy));
+
+	for (variant = 0; variant < 2; variant++) {
+
+		if (lws_b64_encode_string_url((const char *)offcurve_xy,
+					      (int)sizeof(offcurve_xy), y_b64,
+					      (int)sizeof(y_b64)) < 0) {
+			lwsl_err("%s: b64 encode failed\n", __func__);
+			goto bail;
+		}
+
+		x_str = variant ? (const char *)offcurve_xy
+				: (const char *)bad_x;
+		if (lws_b64_encode_string_url(x_str,
+					      variant ? (int)sizeof(offcurve_xy)
+						      : (int)sizeof(bad_x),
+					      x_b64, (int)sizeof(x_b64)) < 0) {
+			lwsl_err("%s: b64 encode failed\n", __func__);
+			goto bail;
+		}
+
+		lws_snprintf(jose, sizeof(jose),
+			     "{\"alg\":\"ECDH-ES+A128KW\",\"enc\":\"A128CBC-HS256\","
+			     "\"epk\":{\"kty\":\"EC\",\"crv\":\"P-256\","
+			     "\"x\":\"%s\",\"y\":\"%s\"}}", x_b64, y_b64);
+
+		if (lws_b64_encode_string_url(jose, (int)strlen(jose), jose_b64,
+					      (int)sizeof(jose_b64)) < 0) {
+			lwsl_err("%s: b64 encode failed\n", __func__);
+			goto bail;
+		}
+
+		m = lws_snprintf(tampered, sizeof(tampered), "%s%s",
+				 jose_b64, p1);
+
+		/*
+		 * Repeatedly try to decrypt it as the recipient with our
+		 * private key: each attempt fails at epk import, and none
+		 * may leak the backend EC context on the way out
+		 */
+
+		for (nloops = 0; nloops < 8; nloops++) {
+
+			lws_jwe_destroy(&jwe);
+			temp_len = sizeof(temp);
+			lws_jwe_init(&jwe, context);
+
+			if (lws_jwk_import(&jwe.jwk, NULL, NULL,
+					   ecdhes_t1_peer_p256_private_key,
+					   strlen(ecdhes_t1_peer_p256_private_key)) < 0) {
+				lwsl_notice("%s: Failed to decode JWK test key\n",
+					    __func__);
+				goto bail;
+			}
+
+			if (lws_jws_compact_decode(tampered, m, &jwe.jws.map,
+						   &jwe.jws.map_b64, temp,
+						   &temp_len) != 5) {
+				lwsl_err("%s: lws_jws_compact_decode failed\n",
+					 __func__);
+				goto bail;
+			}
+
+			n = lws_jwe_auth_and_decrypt(&jwe,
+					lws_concat_temp(temp, temp_len),
+					&temp_len);
+			if (n >= 0) {
+				lwsl_err("%s: malformed epk accepted (variant %d)\n",
+					 __func__, variant);
+				goto bail;
+			}
+		}
+	}
+
+	ret = 0;
+
+bail:
+	lws_jwe_destroy(&jwe);
+	if (ret)
+		lwsl_err("%s: selftest failed +++++++++++++++++++\n", __func__);
+	else
+		lwsl_notice("%s: selftest OK\n", __func__);
+
+	return ret;
+}
+
 /* AES Key Wrap and AES_XXX_CBC_HMAC_SHA_YYY variations
  *
  * These were created using the node-jose node.js package
@@ -2443,6 +2615,10 @@ test_jwe(struct lws_context *context)
 	/* F-029: oversized attacker EKEY must be rejected on decrypt */
 
 	n |= test_ecdhes_ekey_oversize(context) < 0;
+
+	/* F-030: malformed attacker epk must fail cleanly without leaking */
+
+	n |= test_ecdhes_malformed_epk(context) < 0;
 
 	n |= test_jwe_a1(context) < 0;
 

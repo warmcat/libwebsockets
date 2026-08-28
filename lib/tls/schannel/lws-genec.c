@@ -150,7 +150,10 @@ lws_genecdh_set_key(struct lws_genec_ctx *ctx, const struct lws_gencrypto_keyele
 	}
 
 	/* Close previous key if any */
-	if (*target_key_handle) BCryptDestroyKey(*target_key_handle);
+	if (*target_key_handle) {
+		BCryptDestroyKey(*target_key_handle);
+		*target_key_handle = NULL;
+	}
 
 	status = BCryptImportKeyPair(ctx->u.hAlg, NULL,
 		el[LWS_GENCRYPTO_EC_KEYEL_D].len ? BCRYPT_ECCPRIVATE_BLOB : BCRYPT_ECCPUBLIC_BLOB,

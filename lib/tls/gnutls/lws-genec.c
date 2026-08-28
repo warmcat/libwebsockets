@@ -159,17 +159,21 @@ lws_genecdh_set_key(struct lws_genec_ctx *ctx, const struct lws_gencrypto_keyele
 				goto bail;
 			if (gnutls_privkey_import_ecc_raw(ctx->priv, curve, &x, &y, &d) < 0) {
 				gnutls_privkey_deinit(ctx->priv);
+				ctx->priv = NULL;
 				goto bail;
 			}
 			ctx->has_private = 1;
 		}
 		if (x.size && y.size) {
-			if (ctx->pub)
+			if (ctx->pub) {
 				gnutls_pubkey_deinit(ctx->pub);
+				ctx->pub = NULL;
+			}
 			if (gnutls_pubkey_init(&ctx->pub) < 0)
 				goto bail;
 			if (gnutls_pubkey_import_ecc_raw(ctx->pub, curve, &x, &y) < 0) {
 				gnutls_pubkey_deinit(ctx->pub);
+				ctx->pub = NULL;
 				goto bail;
 			}
 		}
@@ -180,12 +184,15 @@ lws_genecdh_set_key(struct lws_genec_ctx *ctx, const struct lws_gencrypto_keyele
 			 * but we might need one for ECDH.
 			 * Actually we can just store it in ctx->pub if it's the peer's.
 			 */
-			if (ctx->pub)
+			if (ctx->pub) {
 				gnutls_pubkey_deinit(ctx->pub);
+				ctx->pub = NULL;
+			}
 			if (gnutls_pubkey_init(&ctx->pub) < 0)
 				goto bail;
 			if (gnutls_pubkey_import_ecc_raw(ctx->pub, curve, &x, &y) < 0) {
 				gnutls_pubkey_deinit(ctx->pub);
+				ctx->pub = NULL;
 				goto bail;
 			}
 		}
@@ -272,8 +279,10 @@ bail_datum:
 	gnutls_free(y.data);
 	gnutls_free(d.data);
 bail:
-	if (ret)
+	if (ret) {
 		gnutls_privkey_deinit(ctx->priv);
+		ctx->priv = NULL;
+	}
 
 	return ret;
 }
