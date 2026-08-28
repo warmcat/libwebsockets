@@ -186,13 +186,29 @@ b:
 	return lws_ptr_diff_size_t(t, ot);
 }
 
+/*
+ * The alg list head as an alg pointer, NULL if the list is empty.
+ *
+ * The !alg checks at the call sites rely on this returning NULL for an
+ * empty list; that must not be done with a bare container_of() on the
+ * list head, which is only NULL while list is the first member of
+ * lws_cose_sig_alg_t.
+ */
+static lws_cose_sig_alg_t *
+alg_get_head(struct lws_cose_validate_context *cps)
+{
+	struct lws_dll2 *d = lws_dll2_get_head(&cps->algs);
+
+	return d ? lws_container_of(d, lws_cose_sig_alg_t, list) : NULL;
+}
+
 static int
 apply_external(struct lws_cose_validate_context *cps)
 {
 	lws_cose_sig_alg_t *alg;
 	uint8_t t[9];
 
-	alg = lws_container_of(lws_dll2_get_head(&cps->algs), lws_cose_sig_alg_t, list);
+	alg = alg_get_head(cps);
 	if (!alg)
 		/* expected if no key */
 		return 0;
@@ -777,8 +793,7 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 			     ctx->item.u.u64);
 
 		if (cps->info.sigtype == SIGTYPE_SINGLE) {
-			alg = lws_container_of(lws_dll2_get_head(&cps->algs),
-					       lws_cose_sig_alg_t, list);
+			alg = alg_get_head(cps);
 			if (!alg)
 				/* expected if no key */
 				break;
@@ -820,8 +835,7 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 				cps->payload_pos += ctx->npos;
 				break;
 			}
-			alg = lws_container_of(lws_dll2_get_head(&cps->algs),
-					       lws_cose_sig_alg_t, list);
+			alg = alg_get_head(cps);
 			if (!alg)
 				/* expected if no key */
 				break;
@@ -890,8 +904,7 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 				cps->payload_pos += ctx->npos;
 				break;
 			}
-			alg = lws_container_of(lws_dll2_get_head(&cps->algs),
-					       lws_cose_sig_alg_t, list);
+			alg = alg_get_head(cps);
 			if (!alg)
 				/* expected if no key */
 				break;
@@ -910,8 +923,7 @@ cb_cose_sig(struct lecp_ctx *ctx, char reason)
 				ctx->npos);
 			cps->sig_agg_pos += ctx->npos;
 
-			alg = lws_container_of(lws_dll2_get_head(&cps->algs),
-					lws_cose_sig_alg_t, list);
+			alg = alg_get_head(cps);
 			lwsl_notice("b\n");
 			if (alg)
 				lws_cose_val_alg_destroy(cps, &alg,
