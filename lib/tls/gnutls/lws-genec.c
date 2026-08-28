@@ -164,6 +164,8 @@ lws_genecdh_set_key(struct lws_genec_ctx *ctx, const struct lws_gencrypto_keyele
 			ctx->has_private = 1;
 		}
 		if (x.size && y.size) {
+			if (ctx->pub)
+				gnutls_pubkey_deinit(ctx->pub);
 			if (gnutls_pubkey_init(&ctx->pub) < 0)
 				goto bail;
 			if (gnutls_pubkey_import_ecc_raw(ctx->pub, curve, &x, &y) < 0) {
@@ -178,6 +180,8 @@ lws_genecdh_set_key(struct lws_genec_ctx *ctx, const struct lws_gencrypto_keyele
 			 * but we might need one for ECDH.
 			 * Actually we can just store it in ctx->pub if it's the peer's.
 			 */
+			if (ctx->pub)
+				gnutls_pubkey_deinit(ctx->pub);
 			if (gnutls_pubkey_init(&ctx->pub) < 0)
 				goto bail;
 			if (gnutls_pubkey_import_ecc_raw(ctx->pub, curve, &x, &y) < 0) {
