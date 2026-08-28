@@ -389,6 +389,7 @@ int
 lws_jwe_encrypt(struct lws_jwe *jwe, char *temp, int *temp_len)
 {
 	int valid_aescbc_hmac, valid_aesgcm, ot = *temp_len, ret = -1;
+	char dotstar[96];
 
 	if (jwe->jose.recipients >= (int)LWS_ARRAY_SIZE(jwe->jose.recipient)) {
 		lwsl_err("%s: max recipients reached\n", __func__);
@@ -403,6 +404,14 @@ lws_jwe_encrypt(struct lws_jwe *jwe, char *temp, int *temp_len)
 			       (int)jwe->jws.map.len[LJWS_JOSE], temp, temp_len) < 0) {
 		lwsl_err("%s: JOSE parse failed\n", __func__);
 		goto bail;
+	}
+
+	if (!jwe->jose.alg) {
+		lws_strnncpy(dotstar, jwe->jws.map.buf[LJWS_JOSE],
+			     jwe->jws.map.len[LJWS_JOSE], sizeof(dotstar));
+		lwsl_err("%s: no jose.alg: %s\n", __func__, dotstar);
+
+		return -1;
 	}
 
 	temp += ot - *temp_len;
@@ -738,6 +747,14 @@ lws_jwe_render_flattened(struct lws_jwe *jwe, char *out, size_t out_len)
 	jlen = lws_jose_render(&jwe->jose, jwe->jws.jwk, buf, sizeof(buf));
 	if (jlen < 0) {
 		lwsl_err("%s: lws_jose_render failed\n", __func__);
+
+		return -1;
+	}
+
+	/* lws_jose_render only checked jose.alg: JWEs also need an enc */
+
+	if (!jwe->jose.enc_alg) {
+		lwsl_err("%s: no jose.enc_alg\n", __func__);
 
 		return -1;
 	}

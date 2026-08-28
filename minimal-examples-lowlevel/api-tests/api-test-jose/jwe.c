@@ -2303,6 +2303,97 @@ bail:
 	return ret;
 }
 
+/*
+ * F-031: the create-side apis used to deref jose.alg / jose.enc_alg without
+ * confirming the JOSE parse had actually set them.  An app-supplied header
+ * missing "alg" (encrypt path) or "enc" (flattened render path) must be
+ * failed cleanly rather than dereferencing NULL.
+ */
+
+static const char
+	*jwe_cg_jose_no_alg = "{\"enc\":\"A128GCM\"}",
+	*jwe_cg_jose_no_enc = "{\"alg\":\"A128KW\"}",
+
+	/* Alice's ephemeral P-256 key from JWA appendix C, but no "alg" */
+	*jwe_cg_jose_no_alg_epk =
+		"{\"enc\":\"A128GCM\",\"epk\":{\"kty\":\"EC\",\"crv\":\"P-256\","
+		"\"x\":\"gI0GAILBdu7T53akrFmMyGcsF3n5dO7MmwNBHKW5SV0\","
+		"\"y\":\"SLW_xSffzlPWrHEVI30DHM_4egVwt3NQqeUD7nMFpps\"}}"
+;
+
+static int
+test_jwe_create_side_guards(struct lws_context *context)
+{
+	struct lws_jwe jwe;
+	char temp[2048], out[2048];
+	int n, ret = -1, temp_len = sizeof(temp);
+
+	lws_jwe_init(&jwe, context);
+
+	/* the parse accepts a header with no "alg": jose.alg stays NULL */
+
+	jwe.jws.map.buf[LJWS_JOSE] = (char *)jwe_cg_jose_no_alg;
+	jwe.jws.map.len[LJWS_JOSE] = (uint32_t)strlen(jwe_cg_jose_no_alg);
+
+	n = lws_jwe_encrypt(&jwe, lws_concat_temp(temp, temp_len), &temp_len);
+	if (n >= 0) {
+		lwsl_err("%s: alg-less JOSE header accepted by encrypt\n",
+			 __func__);
+		goto bail;
+	}
+
+	/* "alg" without "enc": jose.enc_alg stays NULL for the render */
+
+	lws_jwe_destroy(&jwe);
+	lws_jwe_init(&jwe, context);
+	temp_len = sizeof(temp);
+
+	if (lws_jwe_parse_jose(&jwe.jose, jwe_cg_jose_no_enc,
+			       (int)strlen(jwe_cg_jose_no_enc), temp,
+			       &temp_len) < 0) {
+		lwsl_err("%s: JOSE parse failed\n", __func__);
+		goto bail;
+	}
+
+	n = lws_jwe_render_flattened(&jwe, out, sizeof(out));
+	if (n >= 0) {
+		lwsl_err("%s: enc-less JOSE header accepted by render\n",
+			 __func__);
+		goto bail;
+	}
+
+	/*
+	 * Same as the first case but with an epk in the header: the parse
+	 * heap-allocates the ephemeral key elements, the reject must leave
+	 * them for the caller's lws_jwe_destroy() (no leak in LSan builds)
+	 */
+
+	lws_jwe_destroy(&jwe);
+	lws_jwe_init(&jwe, context);
+	temp_len = sizeof(temp);
+
+	jwe.jws.map.buf[LJWS_JOSE] = (char *)jwe_cg_jose_no_alg_epk;
+	jwe.jws.map.len[LJWS_JOSE] = (uint32_t)strlen(jwe_cg_jose_no_alg_epk);
+
+	n = lws_jwe_encrypt(&jwe, lws_concat_temp(temp, temp_len), &temp_len);
+	if (n >= 0) {
+		lwsl_err("%s: alg-less JOSE header with epk accepted\n",
+			 __func__);
+		goto bail;
+	}
+
+	ret = 0;
+
+bail:
+	lws_jwe_destroy(&jwe);
+	if (ret)
+		lwsl_err("%s: selftest failed +++++++++++++++++++\n", __func__);
+	else
+		lwsl_notice("%s: selftest OK\n", __func__);
+
+	return ret;
+}
+
 /* AES Key Wrap and AES_XXX_CBC_HMAC_SHA_YYY variations
  *
  * These were created using the node-jose node.js package
@@ -2619,6 +2710,10 @@ test_jwe(struct lws_context *context)
 	/* F-030: malformed attacker epk must fail cleanly without leaking */
 
 	n |= test_ecdhes_malformed_epk(context) < 0;
+
+	/* F-031: create-side headers missing alg / enc must fail cleanly */
+
+	n |= test_jwe_create_side_guards(context) < 0;
 
 	n |= test_jwe_a1(context) < 0;
 
