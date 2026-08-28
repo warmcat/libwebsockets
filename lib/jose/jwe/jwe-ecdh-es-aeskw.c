@@ -546,10 +546,18 @@ lws_jwe_auth_and_decrypt_ecdh(struct lws_jwe *jwe)
 		struct lws_genaes_ctx aesctx;
 		int m;
 
-		/* Confirm space for EKEY */
+		/*
+		 * The EKEY must be exactly the "enc" algorithm's CEK length
+		 * plus the RFC3394 wrap overhead.  The KW unwrap emits len - 8
+		 * bytes into shared_secret[] with no output size argument, so
+		 * any other EKEY length is not only malformed, it would smash
+		 * the stack before the payload is authenticated.
+		 */
 
-		if (jwe->jws.map.len[LJWE_EKEY] < (unsigned int)enc_hlen) {
-			lwsl_err("%s: missing EKEY\n", __func__);
+		if (jwe->jws.map.len[LJWE_EKEY] != (unsigned int)enc_hlen +
+					LWS_JWE_RFC3394_OVERHEAD_BYTES) {
+			lwsl_err("%s: bad EKEY len %u\n", __func__,
+				 jwe->jws.map.len[LJWE_EKEY]);
 
 			goto bail;
 		}

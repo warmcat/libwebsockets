@@ -2000,6 +2000,137 @@ bail:
 	return ret;
 }
 
+/*
+ * F-029: the KW branch of the ECDH-ES decrypt path used to unwrap an
+ * attacker-chosen EKEY of any length into a fixed 512-byte stack buffer
+ * before any authentication.  A JWE carrying an oversized encrypted_key must
+ * be rejected cleanly.
+ */
+
+static int
+test_ecdhes_ekey_oversize(struct lws_context *context)
+{
+	/* RFC3394 unwrap emits len - 8 bytes: this overflows shared_secret[] */
+	uint8_t big_ekey[LWS_JWE_LIMIT_KEY_ELEMENT_BYTES + 8 * 8];
+	char temp[4096], compact[2048], b64[1024], tampered[4096], *p1, *p2;
+	struct lws_jwe jwe;
+	int n, m, ret = -1, temp_len = sizeof(temp);
+
+	lws_jwe_init(&jwe, context);
+
+	/* create a valid ECDH-ES + AESKW JWE for the peer public key */
+
+	if (lws_jws_dup_element(&jwe.jws.map, LJWS_JOSE,
+				lws_concat_temp(temp, temp_len), &temp_len,
+				ecdhes_t1_jose_hdr_esakw128_128,
+				strlen(ecdhes_t1_jose_hdr_esakw128_128), 0))
+		goto bail;
+
+	if (lws_jwe_parse_jose(&jwe.jose, ecdhes_t1_jose_hdr_esakw128_128,
+			       (int)strlen(ecdhes_t1_jose_hdr_esakw128_128),
+			       temp, &temp_len) < 0) {
+		lwsl_err("%s: JOSE parse failed\n", __func__);
+
+		goto bail;
+	}
+
+	if (lws_jwk_import(&jwe.jwk, NULL, NULL, ecdhes_t1_peer_p256_public_key,
+			   strlen(ecdhes_t1_peer_p256_public_key)) < 0) {
+		lwsl_notice("%s: Failed to decode JWK test key\n", __func__);
+		goto bail;
+	}
+
+	if (lws_jws_dup_element(&jwe.jws.map, LJWE_CTXT,
+				lws_concat_temp(temp, temp_len), &temp_len,
+				ecdhes_t1_plaintext,
+				strlen(ecdhes_t1_plaintext),
+				lws_gencrypto_padded_length(LWS_AES_CBC_BLOCKLEN,
+						strlen(ecdhes_t1_plaintext)))) {
+		lwsl_notice("%s: Not enough temp space for ptext\n", __func__);
+		goto bail;
+	}
+
+	n = lws_jwe_encrypt(&jwe, lws_concat_temp(temp, temp_len), &temp_len);
+		if (n == -2) {
+			lwsl_notice("%s: selftest skipped (unsupported algorithm)\n", __func__);
+			ret = 0;
+			goto bail;
+		}
+		if (n < 0) {
+			lwsl_err("%s: lws_jwe_encrypt failed\n", __func__);
+			goto bail;
+		}
+
+	n = lws_jwe_render_compact(&jwe, compact, sizeof(compact));
+	if (n < 0) {
+		lwsl_err("%s: lws_jwe_render_compact failed: %d\n",
+			 __func__, n);
+		goto bail;
+	}
+
+	/*
+	 * Tamper with it the way an attacker would: swap the EKEY (the second
+	 * of the five compact elements) for an oversized one.  It doesn't need
+	 * to be a valid wrapped key, the attack is the attacker-controlled
+	 * unwrapped length.
+	 */
+
+	memset(big_ekey, 0xa5, sizeof(big_ekey));
+	if (lws_b64_encode_string_url((const char *)big_ekey,
+				      (int)sizeof(big_ekey), b64,
+				      (int)sizeof(b64)) < 0) {
+		lwsl_err("%s: b64 encode failed\n", __func__);
+		goto bail;
+	}
+
+	p1 = strchr(compact, '.');
+	p2 = p1 ? strchr(p1 + 1, '.') : NULL;
+	if (!p2) {
+		lwsl_err("%s: bad compact serialization\n", __func__);
+		goto bail;
+	}
+
+	m = lws_snprintf(tampered, sizeof(tampered), "%.*s.%s%s",
+			 (int)(p1 - compact), compact, b64, p2);
+
+	/* try to decrypt the tampered form as the recipient, with our privkey */
+
+	lws_jwe_destroy(&jwe);
+	temp_len = sizeof(temp);
+	lws_jwe_init(&jwe, context);
+
+	if (lws_jwk_import(&jwe.jwk, NULL, NULL,
+			   ecdhes_t1_peer_p256_private_key,
+			   strlen(ecdhes_t1_peer_p256_private_key)) < 0) {
+		lwsl_notice("%s: Failed to decode JWK test key\n", __func__);
+		goto bail;
+	}
+
+	if (lws_jws_compact_decode(tampered, m, &jwe.jws.map, &jwe.jws.map_b64,
+				   temp, &temp_len) != 5) {
+		lwsl_err("%s: lws_jws_compact_decode failed\n", __func__);
+		goto bail;
+	}
+
+	n = lws_jwe_auth_and_decrypt(&jwe, lws_concat_temp(temp, temp_len),
+				     &temp_len);
+	if (n >= 0) {
+		lwsl_err("%s: oversized EKEY accepted\n", __func__);
+		goto bail;
+	}
+
+	ret = 0;
+
+bail:
+	lws_jwe_destroy(&jwe);
+	if (ret)
+		lwsl_err("%s: selftest failed +++++++++++++++++++\n", __func__);
+	else
+		lwsl_notice("%s: selftest OK\n", __func__);
+
+	return ret;
+}
+
 /* AES Key Wrap and AES_XXX_CBC_HMAC_SHA_YYY variations
  *
  * These were created using the node-jose node.js package
@@ -2308,6 +2439,10 @@ test_jwe(struct lws_context *context)
 	n |= test_ecdhes_t1(context, ecdhes_t1_jose_hdr_esakw256_256,
 			    ecdhes_t1_peer_p521_public_key,
 			    ecdhes_t1_peer_p521_private_key) < 0;
+
+	/* F-029: oversized attacker EKEY must be rejected on decrypt */
+
+	n |= test_ecdhes_ekey_oversize(context) < 0;
 
 	n |= test_jwe_a1(context) < 0;
 
