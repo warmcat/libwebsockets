@@ -464,6 +464,13 @@ lws_jwe_auth_and_decrypt_ecdh(struct lws_jwe *jwe)
 	struct lws_genec_ctx ecctx;
 	int n, ret = -1, ss_len = sizeof(shared_secret);
 
+	/*
+	 * The backend ec context is destroyed at bail: on every path, so it
+	 * must stay destroyable (== all-NULL slots) even if
+	 * lws_genecdh_create() itself fails partway
+	 */
+	memset(&ecctx, 0, sizeof(ecctx));
+
 	if (jwe->jws.jwk->kty != LWS_GENCRYPTO_KTY_EC) {
 		lwsl_err("%s: unexpected kty %d\n", __func__, jwe->jws.jwk->kty);
 
@@ -514,8 +521,6 @@ lws_jwe_auth_and_decrypt_ecdh(struct lws_jwe *jwe)
 
 		goto bail;
 	}
-
-	lws_genec_destroy(&ecctx);
 
 	if (ss_len < enc_hlen) {
 		lwsl_err("%s: ss_len %d ekbytes %d\n", __func__, ss_len, enc_hlen);
@@ -606,6 +611,10 @@ lws_jwe_auth_and_decrypt_ecdh(struct lws_jwe *jwe)
 	ret = 0;
 
 bail:
+	/* the ec context outlives the shared secret computation, on any path */
+
+	lws_genec_destroy(&ecctx);
+
 	/* cleanse wrapped on stack that contained the CEK / wrapped key */
 	lws_explicit_bzero(derived, (unsigned int)ekbytes);
 	/* cleanse the shared secret */
