@@ -23,8 +23,12 @@ sdevent, glib and uloop, as well as custom event libs.
 
 ![overview](./doc-assets/lws-overview.png)
 
-V5.0 now available... please upgrade to this as there are many
-security fixes only available on v5.0 and main.
+**V5.0 now available... please upgrade to this or preferably v5.0-stable or main, as there are many
+security fixes only available on v5.0-stable and main; pre-5.0 releases are effectively deprecated.**
+
+There's a continuous incremental security audit in place finding and fixing new problems all the
+time at the moment, it's not a sign the code is weak: it's a sign I am using frontier models to
+make it extremely strong.
 
 ** NEW features available on v5.0 **
 
