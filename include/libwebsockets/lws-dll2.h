@@ -248,6 +248,12 @@ lws_dll2_get_head(struct lws_dll2_owner *owner) { return owner ? owner->head : N
 static LWS_INLINE struct lws_dll2 *
 lws_dll2_get_tail(struct lws_dll2_owner *owner) { return owner ? owner->tail : NULL; }
 
+static LWS_INLINE uint32_t
+lws_dll2_count(const struct lws_dll2_owner *owner)
+{
+	return owner ? owner->count : 0;
+}
+
 LWS_VISIBLE LWS_EXTERN void
 lws_dll2_add_head(struct lws_dll2 *d, struct lws_dll2_owner *owner);
 

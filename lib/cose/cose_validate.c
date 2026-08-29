@@ -187,22 +187,6 @@ b:
 	return lws_ptr_diff_size_t(t, ot);
 }
 
-/*
- * The alg list head as an alg pointer, NULL if the list is empty.
- *
- * The !alg checks at the call sites rely on this returning NULL for an
- * empty list; that must not be done with a bare container_of() on the
- * list head, which is only NULL while list is the first member of
- * lws_cose_sig_alg_t.
- */
-static lws_cose_sig_alg_t *
-alg_get_head(struct lws_cose_validate_context *cps)
-{
-	struct lws_dll2 *d = lws_dll2_get_head(&cps->algs);
-
-	return d ? lws_container_of(d, lws_cose_sig_alg_t, list) : NULL;
-}
-
 static int
 apply_external(struct lws_cose_validate_context *cps)
 {
