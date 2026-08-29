@@ -659,7 +659,7 @@ static const uint8_t
 int
 test_cose_keys(struct lws_context *context)
 {
-	struct lws_cose_key *ck;
+	struct lws_cose_key *ck, *ck2;
 	lws_dll2_owner_t set;
 	lws_lec_pctx_t wc;
 	uint8_t buf[4096];
@@ -950,9 +950,58 @@ test_cose_keys(struct lws_context *context)
 		return 1;
 	}
 
+	/*
+	 * The generated OKP key has to survive an export -> import round
+	 * trip with its EdDSA curve intact: the export converts the curve
+	 * to its COSE int form and the import has to map it back to the
+	 * same curve name the crypto backend keys off
+	 */
+
+	lwsl_user("%s: OKP key export -> import\n", __func__);
+
+	lws_lec_init(&wc, buf, sizeof(buf));
+	n = (int)lws_cose_key_export(ck, &wc, LWSJWKF_EXPORT_PRIVATE);
+	if (n != LWS_LECPCTX_RET_FINISHED)
+		goto bail;
+
+	ck2 = lws_cose_key_import(NULL, NULL, NULL, buf, wc.used);
+	if (!ck2) {
+		lwsl_err("%s: OKP round trip import fail\n", __func__);
+		goto bail1;
+	}
+
+	if (ck2->kty != LWSCOSE_WKKTV_OKP ||
+	    ck2->gencrypto_kty != LWS_GENCRYPTO_KTY_OKP ||
+	    ck2->e[LWS_GENCRYPTO_OKP_KEYEL_CRV].len != 7 ||
+	    memcmp(ck2->e[LWS_GENCRYPTO_OKP_KEYEL_CRV].buf, "Ed25519", 7) ||
+	    ck2->e[LWS_GENCRYPTO_OKP_KEYEL_X].len !=
+				ck->e[LWS_GENCRYPTO_OKP_KEYEL_X].len ||
+	    memcmp(ck2->e[LWS_GENCRYPTO_OKP_KEYEL_X].buf,
+		   ck->e[LWS_GENCRYPTO_OKP_KEYEL_X].buf,
+		   ck->e[LWS_GENCRYPTO_OKP_KEYEL_X].len) ||
+	    ck2->e[LWS_GENCRYPTO_OKP_KEYEL_D].len !=
+				ck->e[LWS_GENCRYPTO_OKP_KEYEL_D].len ||
+	    memcmp(ck2->e[LWS_GENCRYPTO_OKP_KEYEL_D].buf,
+		   ck->e[LWS_GENCRYPTO_OKP_KEYEL_D].buf,
+		   ck->e[LWS_GENCRYPTO_OKP_KEYEL_D].len) ||
+	    ck2->meta[COSEKEY_META_KID].len !=
+				ck->meta[COSEKEY_META_KID].len ||
+	    memcmp(ck2->meta[COSEKEY_META_KID].buf,
+		   ck->meta[COSEKEY_META_KID].buf,
+		   ck->meta[COSEKEY_META_KID].len)) {
+		lwsl_err("%s: OKP round trip checks fail\n", __func__);
+		lws_cose_key_destroy(&ck2);
+		goto bail1;
+	}
+
+	lws_cose_key_destroy(&ck2);
+
 	lws_cose_key_destroy(&ck);
 
 	return 0;
+
+bail1:
+	lws_cose_key_destroy(&ck);
 
 bail:
 	lwsl_err("%s: selftest failed ++++++++++++++++++++\n", __func__);

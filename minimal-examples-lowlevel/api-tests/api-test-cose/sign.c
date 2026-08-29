@@ -1927,3 +1927,230 @@ bail:
 
 	return 1;
 }
+
+/*
+ * EdDSA end-to-end: F-033 found EdDSA COSE crashed in key checks on both
+ * sign and validate, so it had plausibly never worked.  These sign a sign1
+ * with EdDSA and validate the result, for both a freshly-generated key and
+ * an imported OKP key that arrives with an int curve (cose_key10, kid "11").
+ */
+
+static const uint8_t eddsa_payload[] = "This is the content.";
+
+static int
+eddsa_sign1(struct lws_context *cx, lws_dll2_owner_t *set,
+	    const lws_cose_key_t *ck, uint8_t *out, size_t out_len,
+	    size_t *out_total)
+{
+	lws_cose_sign_create_info_t i;
+	struct lws_cose_sign_context *csc;
+	lws_lec_pctx_t lec;
+	size_t tot = 0;
+	int n = 0;
+
+	memset(&i, 0, sizeof(i));
+	i.cx			= cx;
+	i.keyset		= set;
+	i.lec			= &lec;
+	i.sigtype		= SIGTYPE_SINGLE;
+	i.inline_payload_len	= sizeof(eddsa_payload) - 1;
+	i.flags			= LCSC_FL_ADD_CBOR_TAG;
+
+	lws_lec_init(&lec, out, out_len);
+
+	csc = lws_cose_sign_create(&i);
+	if (!csc)
+		return 1;
+
+	if (lws_cose_sign_add(csc, LWSCOSE_WKAEDDSA_ALG_EDDSA, ck)) {
+		lws_cose_sign_destroy(&csc);
+		return 1;
+	}
+
+	do {
+		n = lws_cose_sign_payload_chunk(csc, eddsa_payload,
+						 i.inline_payload_len);
+		if (n == LWS_LECPCTX_RET_FAIL)
+			goto bail;
+
+		if (!lec.used)
+			continue;
+
+		tot += lec.used;
+		if (tot >= out_len && n == LWS_LECPCTX_RET_AGAIN)
+			/* no room left for the rest of it */
+			goto bail;
+
+		lws_lec_setbuf(&lec, out + tot, out_len - tot);
+
+	} while (n == LWS_LECPCTX_RET_AGAIN);
+
+	lws_cose_sign_destroy(&csc);
+
+	*out_total = tot;
+
+	return 0;
+
+bail:
+	lws_cose_sign_destroy(&csc);
+
+	return 1;
+}
+
+/*
+ * Validates the sign1 in against keyset... non-zero return means the
+ * result was not what want_fail asks for (0: signature must validate,
+ * 1: validation of the object must fail)
+ */
+
+static int
+eddsa_validate(struct lws_context *cx, lws_dll2_owner_t *set,
+	       const uint8_t *in, size_t in_len, int want_fail)
+{
+	lws_cose_validate_create_info_t info;
+	struct lws_cose_validate_context *cps;
+	lws_cose_validate_res_t *res;
+	lws_dll2_owner_t *o;
+	int n = 1;
+
+	memset(&info, 0, sizeof(info));
+	info.cx		= cx;
+	info.keyset	= set;
+	info.sigtype	= SIGTYPE_SINGLE;
+
+	cps = lws_cose_validate_create(&info);
+	if (!cps)
+		return 1;
+
+	if (lws_cose_validate_chunk(cps, in, in_len, NULL))
+		goto bail;
+
+	o = lws_cose_validate_results(cps);
+	if (lws_dll2_count(o) != 1)
+		goto bail;
+
+	res = lws_container_of(lws_dll2_get_head(o), lws_cose_validate_res_t, list);
+
+	/* non-zero result is a validation failure */
+
+	n = res->result ? 1 : 0;
+	if (want_fail)
+		n = !n;
+
+bail:
+	lws_cose_validate_destroy(&cps);
+
+	return n;
+}
+
+static int
+eddsa_sign1_ok(struct lws_context *cx, lws_dll2_owner_t *set,
+	       const lws_cose_key_t *ck)
+{
+	uint8_t out[512];
+	size_t ol;
+
+	if (eddsa_sign1(cx, set, ck, out, sizeof(out), &ol)) {
+		lwsl_err("%s: EdDSA sign1 fail\n", __func__);
+		return 1;
+	}
+
+	if (eddsa_validate(cx, set, out, ol, 0)) {
+		lwsl_err("%s: EdDSA sign1 does not validate\n", __func__);
+		return 1;
+	}
+
+	/* a tampered trailing signature byte must fail validation */
+
+	out[ol - 1] ^= 0x80;
+	if (eddsa_validate(cx, set, out, ol, 1)) {
+		lwsl_err("%s: tampered EdDSA sign1 wrongly validated\n",
+				__func__);
+		return 1;
+	}
+
+	return 0;
+}
+
+int
+test_cose_sign_eddsa(struct lws_context *context)
+{
+	lws_cose_key_t *ck;
+	lws_dll2_owner_t set;
+	cose_param_t alg;
+
+	/*
+	 * Some TLS backends, eg GnuTLS, do not implement EdDSA at all...
+	 * detect it via the public api and skip this part cleanly
+	 */
+
+	{
+		struct lws_genec_ctx probe;
+
+		if (lws_geneddsa_create(&probe, context, NULL)) {
+			lwsl_notice("%s: no EdDSA backend support, skipping "
+				    "EdDSA sign tests\n", __func__);
+			return 0;
+		}
+
+		lws_genec_destroy(&probe);
+	}
+
+	/* the alg name lookup has to be able to find EdDSA */
+
+	alg = lws_cose_name_to_alg("EdDSA");
+	if (alg != LWSCOSE_WKAEDDSA_ALG_EDDSA) {
+		lwsl_err("%s: EdDSA alg name lookup fail\n", __func__);
+		return 1;
+	}
+
+	/*
+	 * Sign and validate with a freshly-generated Ed25519 key
+	 */
+
+	lwsl_user("%s: eddsa/sign1 generated key\n", __func__);
+
+	ck = lws_cose_key_generate(context, LWSCOSE_WKKTV_OKP,
+				   (1 << LWSCOSE_WKKO_SIGN) |
+				   (1 << LWSCOSE_WKKO_VERIFY),
+				   0, "Ed25519", (const uint8_t *)"ed-keyid", 8);
+	if (!ck) {
+		lwsl_err("%s: OKP Ed25519 keygen fail\n", __func__);
+		return 1;
+	}
+
+	lws_dll2_owner_clear(&set);
+	lws_dll2_add_tail(&ck->list, &set);
+
+	if (eddsa_sign1_ok(context, &set, ck))
+		goto bail;
+
+	lws_cose_key_set_destroy(&set);
+
+	/*
+	 * Sign and validate with an imported OKP key using an int curve
+	 */
+
+	lwsl_user("%s: eddsa/sign1 imported int-crv key\n", __func__);
+
+	lws_dll2_owner_clear(&set);
+	ck = lws_cose_key_import(&set, NULL, NULL, key10.set, key10.len);
+	if (!ck) {
+		lwsl_err("%s: key10 import fail\n", __func__);
+		return 1;
+	}
+
+	if (eddsa_sign1_ok(context, &set, ck))
+		goto bail;
+
+	lws_cose_key_set_destroy(&set);
+
+	return 0;
+
+bail:
+	lws_cose_key_set_destroy(&set);
+
+	lwsl_err("%s: selftest failed ++++++++++++++++++++\n", __func__);
+
+	return 1;
+}

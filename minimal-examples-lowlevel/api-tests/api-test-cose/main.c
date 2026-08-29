@@ -24,6 +24,8 @@ int
 test_cose_keys(struct lws_context *context);
 int
 test_cose_sign(struct lws_context *context);
+int
+test_cose_sign_eddsa(struct lws_context *context);
 
 int main(int argc, const char **argv)
 {
@@ -55,6 +57,7 @@ int main(int argc, const char **argv)
 
 	result |= test_cose_keys(context);
 	result |= test_cose_sign(context);
+	result |= test_cose_sign_eddsa(context);
 
 	lwsl_user("Completed: %s\n", result ? "FAIL" : "PASS");
 
