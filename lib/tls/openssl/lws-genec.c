@@ -126,33 +126,88 @@ lws_genec_eckey_import(int nid, EVP_PKEY **pkey,
 		       const struct lws_gencrypto_keyelem *el)
 {
 #if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
-	OSSL_PARAM params[5];
-	int pidx = 0;
+	/*
+	 * largest curve we support is P-521, whose uncompressed SEC1 public
+	 * point is 1 + (2 * 66) bytes
+	 */
+	uint8_t pub[133];
+	OSSL_PARAM_BLD *bld;
+	OSSL_PARAM *params = NULL;
 	EVP_PKEY_CTX *pctx;
 	EVP_PKEY *tmp_pkey = NULL;
 	const char *cname = OBJ_nid2sn(nid);
+	BIGNUM *bn_d = NULL;
+	int ret = -1;
 
-	if (!cname) return -1;
-	params[pidx++] = OSSL_PARAM_construct_utf8_string("group", (char *)cname, 0);
-	if (el[LWS_GENCRYPTO_EC_KEYEL_X].buf)
-		params[pidx++] = OSSL_PARAM_construct_BN("qx", (unsigned char *)el[LWS_GENCRYPTO_EC_KEYEL_X].buf, el[LWS_GENCRYPTO_EC_KEYEL_X].len);
-	if (el[LWS_GENCRYPTO_EC_KEYEL_Y].buf)
-		params[pidx++] = OSSL_PARAM_construct_BN("qy", (unsigned char *)el[LWS_GENCRYPTO_EC_KEYEL_Y].buf, el[LWS_GENCRYPTO_EC_KEYEL_Y].len);
-	if (el[LWS_GENCRYPTO_EC_KEYEL_D].buf && el[LWS_GENCRYPTO_EC_KEYEL_D].len)
-		params[pidx++] = OSSL_PARAM_construct_BN("priv", (unsigned char *)el[LWS_GENCRYPTO_EC_KEYEL_D].buf, el[LWS_GENCRYPTO_EC_KEYEL_D].len);
-	params[pidx] = OSSL_PARAM_construct_end();
+	if (!cname)
+		return -1;
+
+	if (!el[LWS_GENCRYPTO_EC_KEYEL_X].buf ||
+	    !el[LWS_GENCRYPTO_EC_KEYEL_Y].buf ||
+	    el[LWS_GENCRYPTO_EC_KEYEL_X].len +
+	    el[LWS_GENCRYPTO_EC_KEYEL_Y].len + 1 > sizeof(pub)) {
+		lwsl_err("%s: bad x/y elements\n", __func__);
+		return -1;
+	}
+
+	/*
+	 * The EC keymgmt import does not accept qx/qy; the public parts must
+	 * be given as a single SEC1-encoded point.  BIGNUM params have to be
+	 * in the provider's native word layout, OSSL_PARAM_BLD_push_BN()
+	 * takes care of that for us.
+	 */
+
+	pub[0] = 0x04; /* SEC1 uncompressed point */
+	memcpy(pub + 1, el[LWS_GENCRYPTO_EC_KEYEL_X].buf,
+	       el[LWS_GENCRYPTO_EC_KEYEL_X].len);
+	memcpy(pub + 1 + el[LWS_GENCRYPTO_EC_KEYEL_X].len,
+	       el[LWS_GENCRYPTO_EC_KEYEL_Y].buf,
+	       el[LWS_GENCRYPTO_EC_KEYEL_Y].len);
+
+	bld = OSSL_PARAM_BLD_new();
+	if (!bld)
+		return -1;
+
+	if (!OSSL_PARAM_BLD_push_utf8_string(bld, "group", cname, 0) ||
+	    !OSSL_PARAM_BLD_push_octet_string(bld, "pub", pub,
+			el[LWS_GENCRYPTO_EC_KEYEL_X].len +
+			el[LWS_GENCRYPTO_EC_KEYEL_Y].len + 1))
+		goto bail;
+
+	if (el[LWS_GENCRYPTO_EC_KEYEL_D].buf &&
+	    el[LWS_GENCRYPTO_EC_KEYEL_D].len) {
+		bn_d = BN_bin2bn(el[LWS_GENCRYPTO_EC_KEYEL_D].buf,
+				 (int)el[LWS_GENCRYPTO_EC_KEYEL_D].len, NULL);
+		if (!bn_d)
+			goto bail;
+		if (!OSSL_PARAM_BLD_push_BN(bld, "priv", bn_d))
+			goto bail;
+	}
+
+	params = OSSL_PARAM_BLD_to_param(bld);
+	if (!params)
+		goto bail;
 
 	pctx = EVP_PKEY_CTX_new_from_name(NULL, "EC", NULL);
-	if (!pctx) return -1;
+	if (!pctx)
+		goto bail1;
 	if (EVP_PKEY_fromdata_init(pctx) <= 0 ||
 	    EVP_PKEY_fromdata(pctx, &tmp_pkey, EVP_PKEY_KEYPAIR, params) <= 0) {
 		EVP_PKEY_CTX_free(pctx);
-		return -1;
+		goto bail1;
 	}
 	EVP_PKEY_CTX_free(pctx);
-	
+
 	*pkey = tmp_pkey;
-	return 0;
+	ret = 0;
+
+bail1:
+	OSSL_PARAM_free(params);
+bail:
+	OSSL_PARAM_BLD_free(bld);
+	BN_clear_free(bn_d);
+
+	return ret;
 #else
 	EC_KEY *ec = EC_KEY_new_by_curve_name(nid);
 	BIGNUM *bn_d, *bn_x, *bn_y;
@@ -825,7 +880,13 @@ v_bail:
 		unsigned long err = ERR_get_error();
 		char buf[256];
 		ERR_error_string_n(LWS_TLS_ERR_CAST(err), buf, sizeof(buf));
-		lwsl_err("%s: ECDSA_do_verify fail, n=%d, hlen %d, err=%lu (%s)\n", __func__, n, (int)hlen, err, buf);
+#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+		lwsl_err("%s: EVP_PKEY_verify fail, n=%d, hlen %d, err=%lu (%s)\n",
+			 __func__, n, (int)hlen, err, buf);
+#else
+		lwsl_err("%s: ECDSA_do_verify fail, n=%d, hlen %d, err=%lu (%s)\n",
+			 __func__, n, (int)hlen, err, buf);
+#endif
 		lws_tls_err_describe_clear();
 		goto bail;
 	}
