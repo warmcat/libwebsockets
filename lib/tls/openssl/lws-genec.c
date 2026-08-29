@@ -239,11 +239,12 @@ bail:
 static int
 lws_genec_keypair_import(struct lws_genec_ctx *ctx,
 			 const struct lws_ec_curves *curve_table,
-			 EVP_PKEY_CTX **pctx,
+			 enum enum_lws_dh_side side,
 			 const struct lws_gencrypto_keyelem *el)
 {
 	EVP_PKEY *pkey = NULL;
 	const struct lws_ec_curves *curve;
+	EVP_PKEY_CTX **pctx = &ctx->ctx[side];
 
 	if (el[LWS_GENCRYPTO_EC_KEYEL_CRV].len < 4)
 		return -2;
@@ -259,7 +260,18 @@ lws_genec_keypair_import(struct lws_genec_ctx *ctx,
 	    el[LWS_GENCRYPTO_EC_KEYEL_Y].len != curve->key_bytes)
 		return -4;
 
-	ctx->has_private = !!el[LWS_GENCRYPTO_EC_KEYEL_D].len;
+	/*
+	 * last-set-wins: if the slot already holds a key, release it before
+	 * importing the replacement, so re-setting a slot cannot leak it
+	 */
+
+	if (*pctx) {
+		EVP_PKEY_CTX_free(*pctx);
+		*pctx = NULL;
+	}
+
+	if (side == LDHS_OURS)
+		ctx->has_private = 0;
 
 	if (lws_genec_eckey_import(curve->tls_lib_nid, &pkey, el)) {
 		lwsl_err("%s: lws_genec_eckey_import fail\n", __func__);
@@ -272,6 +284,10 @@ lws_genec_keypair_import(struct lws_genec_ctx *ctx,
 
 	if (!*pctx)
 		goto bail;
+
+	/* has_private reflects the our-side slot only */
+	if (side == LDHS_OURS)
+		ctx->has_private = !!el[LWS_GENCRYPTO_EC_KEYEL_D].len;
 
 	return 0;
 
@@ -320,7 +336,7 @@ lws_genecdh_set_key(struct lws_genec_ctx *ctx, const struct lws_gencrypto_keyele
 	if (ctx->genec_alg != LEGENEC_ECDH)
 		return -1;
 
-	return lws_genec_keypair_import(ctx, ctx->curve_table, &ctx->ctx[side], el);
+	return lws_genec_keypair_import(ctx, ctx->curve_table, side, el);
 }
 
 int
@@ -330,7 +346,7 @@ lws_genecdsa_set_key(struct lws_genec_ctx *ctx,
 	if (ctx->genec_alg != LEGENEC_ECDSA)
 		return -1;
 
-	return lws_genec_keypair_import(ctx, ctx->curve_table, &ctx->ctx[0], el);
+	return lws_genec_keypair_import(ctx, ctx->curve_table, LDHS_OURS, el);
 }
 
 static void
@@ -354,6 +370,8 @@ lws_genec_destroy(struct lws_genec_ctx *ctx)
 		lws_genec_keypair_destroy(&ctx->ctx[0]);
 	if (ctx->ctx[1])
 		lws_genec_keypair_destroy(&ctx->ctx[1]);
+
+	ctx->has_private = 0;
 }
 
 static int
@@ -938,12 +956,10 @@ lws_geneddsa_set_key(struct lws_genec_ctx *ctx,
 		pkey = EVP_PKEY_new_raw_private_key(nid, NULL,
 				el[LWS_GENCRYPTO_OKP_KEYEL_D].buf,
 				el[LWS_GENCRYPTO_OKP_KEYEL_D].len);
-		ctx->has_private = 1;
 	} else if (el[LWS_GENCRYPTO_OKP_KEYEL_X].len) {
 		pkey = EVP_PKEY_new_raw_public_key(nid, NULL,
 				el[LWS_GENCRYPTO_OKP_KEYEL_X].buf,
 				el[LWS_GENCRYPTO_OKP_KEYEL_X].len);
-		ctx->has_private = 0;
 	} else
 		return -1;
 
@@ -952,6 +968,17 @@ lws_geneddsa_set_key(struct lws_genec_ctx *ctx,
 		return -1;
 	}
 
+	/*
+	 * last-set-wins: if the slot already holds a key, release it before
+	 * importing the replacement, so re-setting a slot cannot leak it
+	 */
+
+	if (ctx->ctx[0]) {
+		EVP_PKEY_CTX_free(ctx->ctx[0]);
+		ctx->ctx[0] = NULL;
+	}
+	ctx->has_private = 0;
+
 	ctx->ctx[0] = EVP_PKEY_CTX_new(pkey, NULL);
 	EVP_PKEY_free(pkey);
 
@@ -959,6 +986,8 @@ lws_geneddsa_set_key(struct lws_genec_ctx *ctx,
 		lwsl_err("%s: EVP_PKEY_CTX_new fail\n", __func__);
 		return -1;
 	}
+
+	ctx->has_private = !!el[LWS_GENCRYPTO_OKP_KEYEL_D].len;
 
 	return 0;
 #else

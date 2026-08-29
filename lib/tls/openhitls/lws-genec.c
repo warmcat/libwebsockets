@@ -235,12 +235,13 @@ lws_genec_import_key_material(CRYPT_EAL_PkeyCtx *pctx, CRYPT_PKEY_AlgId pkeyAlg,
 static int
 lws_genec_keypair_import(struct lws_genec_ctx *ctx,
 		         const struct lws_ec_curves *curve_table,
-		         CRYPT_EAL_PkeyCtx **pctx,
+		         enum enum_lws_dh_side side,
 		         const struct lws_gencrypto_keyelem *el)
 {
 	const struct lws_ec_curves *curve;
 	CRYPT_PKEY_ParaId curveId;
 	CRYPT_PKEY_AlgId pkeyAlg;
+	CRYPT_EAL_PkeyCtx **pctx = &ctx->ctx[side];
 	int ret;
 	int have_private_key = (el[LWS_GENCRYPTO_EC_KEYEL_D].len == 0) ? 0 : 1;
 
@@ -266,11 +267,22 @@ lws_genec_keypair_import(struct lws_genec_ctx *ctx,
 		return -4;
 	}
 
-	ctx->has_private = (char)have_private_key;
-
 	/* Determine algorithm based on context */
 	pkeyAlg = (ctx->genec_alg == LEGENEC_ECDSA) ?
 		  CRYPT_PKEY_ECDSA : CRYPT_PKEY_ECDH;
+
+	/*
+	 * last-set-wins: if the slot already holds a key, release it before
+	 * importing the replacement, so re-setting a slot cannot leak it
+	 */
+
+	if (*pctx) {
+		CRYPT_EAL_PkeyFreeCtx(*pctx);
+		*pctx = NULL;
+	}
+
+	if (side == LDHS_OURS)
+		ctx->has_private = 0;
 
 	*pctx = CRYPT_EAL_PkeyNewCtx(pkeyAlg);
 	if (*pctx == NULL) {
@@ -292,6 +304,10 @@ lws_genec_keypair_import(struct lws_genec_ctx *ctx,
 		goto err;
 	}
 
+	/* has_private reflects the our-side slot only */
+	if (side == LDHS_OURS)
+		ctx->has_private = (char)have_private_key;
+
 	return 0;
 
 err:
@@ -308,7 +324,7 @@ lws_genecdh_set_key(struct lws_genec_ctx *ctx,
 	if (ctx->genec_alg != LEGENEC_ECDH)
 		return -1;
 
-	return lws_genec_keypair_import(ctx, ctx->curve_table, &ctx->ctx[side], el);
+	return lws_genec_keypair_import(ctx, ctx->curve_table, side, el);
 }
 
 int
@@ -318,7 +334,7 @@ lws_genecdsa_set_key(struct lws_genec_ctx *ctx,
 	if (ctx->genec_alg != LEGENEC_ECDSA)
 		return -1;
 
-	return lws_genec_keypair_import(ctx, ctx->curve_table, &ctx->ctx[0], el);
+	return lws_genec_keypair_import(ctx, ctx->curve_table, LDHS_OURS, el);
 }
 
 void
@@ -330,6 +346,7 @@ lws_genec_destroy(struct lws_genec_ctx *ctx)
 		CRYPT_EAL_PkeyFreeCtx(ctx->ctx[1]);
 	ctx->ctx[0] = NULL;
 	ctx->ctx[1] = NULL;
+	ctx->has_private = 0;
 }
 
 static int
@@ -729,8 +746,10 @@ lws_geneddsa_set_key(struct lws_genec_ctx *ctx,
 	    !el[LWS_GENCRYPTO_OKP_KEYEL_X].len)
 		return -1;
 
-	if (ctx->ctx[0])
+	if (ctx->ctx[0]) {
 		CRYPT_EAL_PkeyFreeCtx(ctx->ctx[0]);
+		ctx->ctx[0] = NULL;
+	}
 
 	ctx->ctx[0] = CRYPT_EAL_PkeyNewCtx(alg);
 	if (!ctx->ctx[0]) {

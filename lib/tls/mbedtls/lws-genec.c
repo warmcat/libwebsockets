@@ -238,6 +238,8 @@ lws_genec_destroy(struct lws_genec_ctx *ctx)
 	default:
 		break;
 	}
+
+	ctx->has_private = 0;
 }
 
 int
@@ -604,6 +606,7 @@ lws_genec_keypair_import(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 	psa_ecc_family_t family;
 	size_t bits;
 	psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
+	int has_private;
 
 	if (el[LWS_GENCRYPTO_EC_KEYEL_CRV].len < 4)
 		return -21;
@@ -614,13 +617,15 @@ lws_genec_keypair_import(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 	family = lws_genec_to_psa_curve(curve->tls_lib_nid, &bits);
 	if (!family) return -22;
 
-	ctx->has_private = !!el[LWS_GENCRYPTO_EC_KEYEL_D].len;
+	has_private = !!el[LWS_GENCRYPTO_EC_KEYEL_D].len;
 
 	if (side == LDHS_THEIRS) {
 		/* We are importing the peer's public key for ECDH.
 		 * psa_raw_key_agreement just takes the peer key as bytes. */
 		size_t len = el[LWS_GENCRYPTO_EC_KEYEL_X].len;
 		if (len * 2 + 1 > 133) return -1;
+		/* last-set-wins: replace any existing peer public key */
+		lws_free_set_NULL(ctx->peer_key);
 		ctx->peer_key = lws_malloc(1 + len * 2, "peer_key");
 		if (!ctx->peer_key) return -1;
 		ctx->peer_key[0] = 0x04;
@@ -630,7 +635,7 @@ lws_genec_keypair_import(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 		return 0;
 	}
 
-	psa_set_key_type(&attr, ctx->has_private ? PSA_KEY_TYPE_ECC_KEY_PAIR(family) : PSA_KEY_TYPE_ECC_PUBLIC_KEY(family));
+	psa_set_key_type(&attr, has_private ? PSA_KEY_TYPE_ECC_KEY_PAIR(family) : PSA_KEY_TYPE_ECC_PUBLIC_KEY(family));
 	psa_set_key_bits(&attr, bits);
 
 	if (ctx->genec_alg == LEGENEC_ECDH) {
@@ -641,7 +646,14 @@ lws_genec_keypair_import(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 		psa_set_key_algorithm(&attr, PSA_ALG_ECDSA(PSA_ALG_ANY_HASH));
 	}
 
-	if (ctx->has_private) {
+	/* last-set-wins: destroy any key already in the slot */
+	if (ctx->key_id) {
+		psa_destroy_key(ctx->key_id);
+		ctx->key_id = 0;
+	}
+	ctx->has_private = 0;
+
+	if (has_private) {
 		if (psa_import_key(&attr, el[LWS_GENCRYPTO_EC_KEYEL_D].buf, el[LWS_GENCRYPTO_EC_KEYEL_D].len, &ctx->key_id) != PSA_SUCCESS)
 			return -1;
 	} else {
@@ -654,6 +666,9 @@ lws_genec_keypair_import(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 		if (psa_import_key(&attr, pub, 1 + len * 2, &ctx->key_id) != PSA_SUCCESS)
 			return -1;
 	}
+
+	/* has_private reflects the our-side slot only */
+	ctx->has_private = has_private;
 
 	return 0;
 }
@@ -708,6 +723,7 @@ lws_genec_destroy(struct lws_genec_ctx *ctx)
 	if (ctx->peer_key) {
 		lws_free_set_NULL(ctx->peer_key);
 	}
+	ctx->has_private = 0;
 }
 
 static int
