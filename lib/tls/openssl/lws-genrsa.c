@@ -90,6 +90,10 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 {
 	int n;
 
+	/* re-init over a live ctx releases the previous incarnation first */
+	if (ctx->created_mark == LWS_GENRSA_CTX_CREATED_MARK)
+		lws_genrsa_destroy(ctx);
+
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->context = context;
 	ctx->mode = mode;
@@ -178,8 +182,10 @@ bail_mpi:
 		for (m = 0; m < 5; m++)
 			BN_clear_free(mpi[m]);
 
-		if (ok)
+		if (ok) {
+			ctx->created_mark = LWS_GENRSA_CTX_CREATED_MARK;
 			return 0;
+		}
 
 		goto bail;
 	}
@@ -215,8 +221,10 @@ bail_mpi:
 	ctx->rsa->q = ctx->bn[LWS_GENCRYPTO_RSA_KEYEL_Q];
 #endif
 
-	if (!rsa_pkey_wrap(ctx, ctx->rsa))
+	if (!rsa_pkey_wrap(ctx, ctx->rsa)) {
+		ctx->created_mark = LWS_GENRSA_CTX_CREATED_MARK;
 		return 0;
+	}
 #endif
 
 bail:
@@ -243,6 +251,10 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 	BIGNUM *bn;
 #endif
 	int n;
+
+	/* re-init over a live ctx releases the previous incarnation first */
+	if (ctx->created_mark == LWS_GENRSA_CTX_CREATED_MARK)
+		lws_genrsa_destroy(ctx);
 
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->context = context;
@@ -279,6 +291,7 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 		ctx->ctx = EVP_PKEY_CTX_new(pkey, NULL);
 		EVP_PKEY_free(pkey);
 		if (!ctx->ctx) goto cleanup;
+		ctx->created_mark = LWS_GENRSA_CTX_CREATED_MARK;
 		return 0;
 cleanup_3:
 		for (n = 0; n < 5; n++)
@@ -330,8 +343,10 @@ cleanup_3:
 			}
 	}
 
-	if (!rsa_pkey_wrap(ctx, ctx->rsa))
+	if (!rsa_pkey_wrap(ctx, ctx->rsa)) {
+		ctx->created_mark = LWS_GENRSA_CTX_CREATED_MARK;
 		return 0;
+	}
 #endif
 
 cleanup:
@@ -653,10 +668,11 @@ bail:
 void
 lws_genrsa_destroy(struct lws_genrsa_ctx *ctx)
 {
-	if (!ctx->ctx)
-		return;
+	if (ctx->ctx) {
+		EVP_PKEY_CTX_free(ctx->ctx);
+		ctx->ctx = NULL;
+	}
 
-	EVP_PKEY_CTX_free(ctx->ctx);
-	ctx->ctx = NULL;
 	ctx->rsa = NULL;
+	ctx->created_mark = 0;
 }

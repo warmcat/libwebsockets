@@ -249,6 +249,10 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 {
 	int ret;
 
+	/* re-init over a live ctx releases the previous incarnation first */
+	if (ctx->created_mark == LWS_GENRSA_CTX_CREATED_MARK)
+		lws_genrsa_destroy(ctx);
+
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->context = context;
 	ctx->mode = mode;
@@ -282,8 +286,10 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 	}
 
 	/* Set private key elements if present */
-	if (el[LWS_GENCRYPTO_RSA_KEYEL_D].len == 0)
+	if (el[LWS_GENCRYPTO_RSA_KEYEL_D].len == 0) {
+		ctx->created_mark = LWS_GENRSA_CTX_CREATED_MARK;
 		return 0;
+	}
 
 	CRYPT_EAL_PkeyPrv prvKey = {
 		.id = CRYPT_PKEY_RSA,
@@ -309,6 +315,8 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 		goto bail;
 	}
 
+	ctx->created_mark = LWS_GENRSA_CTX_CREATED_MARK;
+
 	return 0;
 
 bail:
@@ -326,6 +334,10 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 	CRYPT_RsaPara *rsaPara = &para.para.rsaPara;
 	struct lws_genrsa_keypair_bufs bufs;
 	int ret;
+
+	/* re-init over a live ctx releases the previous incarnation first */
+	if (ctx->created_mark == LWS_GENRSA_CTX_CREATED_MARK)
+		lws_genrsa_destroy(ctx);
 
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->context = context;
@@ -413,6 +425,8 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 
 	/* Note: Padding mode is set separately during encrypt/decrypt operations,
 	 * not during key generation */
+
+	ctx->created_mark = LWS_GENRSA_CTX_CREATED_MARK;
 
 	return 0;
 
@@ -635,9 +649,10 @@ lws_genrsa_hash_sign(struct lws_genrsa_ctx *ctx, const uint8_t *in,
 void
 lws_genrsa_destroy(struct lws_genrsa_ctx *ctx)
 {
-	if (!ctx->ctx)
-		return;
+	if (ctx->ctx) {
+		CRYPT_EAL_PkeyFreeCtx(ctx->ctx);
+		ctx->ctx = NULL;
+	}
 
-	CRYPT_EAL_PkeyFreeCtx(ctx->ctx);
-	ctx->ctx = NULL;
+	ctx->created_mark = 0;
 }

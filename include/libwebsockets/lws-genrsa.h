@@ -46,6 +46,16 @@ enum enum_genrsa_mode {
 	LGRSAM_COUNT
 };
 
+/*
+ * The ctx is user-allocated storage, and may be uninitialized when first
+ * passed to a create() api.  create() marks the ctx once it has brought it
+ * to a known state, so it can distinguish a ctx that may hold live backend
+ * key handles (and must release them before re-initializing) from
+ * uninitialized storage; lws_genrsa_destroy() clears the mark.
+ */
+
+#define LWS_GENRSA_CTX_CREATED_MARK 0x4c574752u /* "LWGR" */
+
 struct lws_genrsa_ctx {
 #if defined(LWS_WITH_MBEDTLS)
 #if !defined(LWS_HAVE_MBEDTLS_V4)
@@ -78,6 +88,8 @@ struct lws_genrsa_ctx {
 	struct lws_context *context;
 	enum enum_genrsa_mode mode;
 	enum lws_genhash_types oaep_hashid;
+
+	uint32_t created_mark;
 };
 
 /** lws_genrsa_public_decrypt_create() - Create RSA public decrypt context
