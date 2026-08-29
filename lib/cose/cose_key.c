@@ -154,7 +154,12 @@ lws_cose_key_checks(const lws_cose_key_t *key, int64_t kty, cose_param_t alg,
 	assert(kty);
 	assert(alg);
 	assert(key_op);
-	assert((kty != LWSCOSE_WKKTV_OKP && kty != LWSCOSE_WKKTV_EC2) || crv);
+	/*
+	 * The expected curve is only imposed from outside for EC2, where the
+	 * alg pins it.  OKP keys bring their own curve (Ed25519 / Ed448) since
+	 * EdDSA does not pin one, so crv is NULL for them.
+	 */
+	assert(kty != LWSCOSE_WKKTV_EC2 || crv);
 
 	/* RFC8152 8.1:
 	 *
@@ -220,11 +225,42 @@ lws_cose_key_checks(const lws_cose_key_t *key, int64_t kty, cose_param_t alg,
 	 * key, and check it is what we expect
 	 */
 
-	if (kty == LWSCOSE_WKKTV_OKP || kty == LWSCOSE_WKKTV_EC2) {
-		if (kty == LWSCOSE_WKKTV_OKP)
-			ke = &key->e[LWS_GENCRYPTO_OKP_KEYEL_CRV];
-		else
-			ke = &key->e[LWS_GENCRYPTO_EC_KEYEL_CRV];
+	if (kty == LWSCOSE_WKKTV_OKP) {
+		/*
+		 * EdDSA works with either Ed25519 or Ed448, so the curve
+		 * comes from the key rather than the alg.  The crypto layer
+		 * accepts the same names, with or without a counted NUL.
+		 * Compare by length + memcmp since key elements are not
+		 * guaranteed NUL-terminated.
+		 */
+		static const struct okp_curve {
+			const char	*name;
+			size_t		len;
+		} okp_curves[] = {
+			{ "Ed25519",	7 },
+			{ "Ed448",	5 },
+		};
+		size_t n;
+
+		ke = &key->e[LWS_GENCRYPTO_OKP_KEYEL_CRV];
+
+		if (!ke->buf)
+			goto bail;
+
+		for (n = 0; n < LWS_ARRAY_SIZE(okp_curves); n++)
+			if (ke->len >= okp_curves[n].len &&
+			    ke->len <= okp_curves[n].len + 1 &&
+			    !memcmp(ke->buf, okp_curves[n].name,
+				    okp_curves[n].len))
+				break;
+
+		if (n == LWS_ARRAY_SIZE(okp_curves)) {
+			lwsl_notice("%s: OKP curve not usable with EdDSA\n",
+					__func__);
+			goto bail;
+		}
+	} else if (kty == LWSCOSE_WKKTV_EC2) {
+		ke = &key->e[LWS_GENCRYPTO_EC_KEYEL_CRV];
 
 		if (!ke->buf)
 			goto bail;
@@ -268,8 +304,12 @@ static struct {
 	{ "P-521",	LWSCOSE_WKEC_P521 },
 	{ "X25519",	LWSCOSE_WKEC_X25519 },
 	{ "X448",	LWSCOSE_WKEC_X448 },
-	{ "ED25519",	LWSCOSE_WKEC_ED25519 },
-	{ "ED448",	LWSCOSE_WKEC_ED448 },
+	/*
+	 * The OKP curve names are case-sensitive and must match the crypto
+	 * backend's expectations (and RFC8037's spellings) exactly
+	 */
+	{ "Ed25519",	LWSCOSE_WKEC_ED25519 },
+	{ "Ed448",	LWSCOSE_WKEC_ED448 },
 	{ "SECP256K1",	LWSCOSE_WKEC_SECP256K1 },
 };
 
@@ -430,14 +470,14 @@ cb_cose_key(struct lecp_ctx *ctx, char reason)
 				break;
 			case LWSCOSE_WKK_KEY_OPS:
 				if (!cps->pkey_set &&
-				    (ctx->pst[ctx->sp].ppos != 3 ||
+				    (ctx->pst[ctx->pst_sp].ppos != 3 ||
 				     strcmp(ctx->path, ".[]"))) {
 					lwsl_warn("%s: unexpected kops\n",
 								__func__);
 					goto bail;
 				}
 				if (cps->pkey_set &&
-				    (ctx->pst[ctx->sp].ppos != 5 ||
+				    (ctx->pst[ctx->pst_sp].ppos != 5 ||
 				     strcmp(ctx->path, "[].[]"))) {
 					lwsl_warn("%s: unexpected kops\n",
 								__func__);
@@ -464,7 +504,12 @@ cb_cose_key(struct lecp_ctx *ctx, char reason)
 				goto bail;
 			}
 
-			cps->cose_state = 0;
+			/*
+			 * Keep the key_ops state for any further items in
+			 * its array
+			 */
+			if (cps->cose_state != LWSCOSE_WKK_KEY_OPS)
+				cps->cose_state = 0;
 			break;
 		}
 
