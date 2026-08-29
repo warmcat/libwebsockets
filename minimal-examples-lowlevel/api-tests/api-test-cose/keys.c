@@ -253,6 +253,40 @@ static const uint8_t
 			0x1c, 0xae, 0x7f, 0x60
 	},
 
+	/*
+	 * key1's material with the curve and alg given as CBOR text strings
+	 * rather than ints: {1: 2, 3: "ES256", -1: "P-256", -2: x, -3: y,
+	 * -4: d} (F-035)
+	 */
+
+	cose_key1_tstrcrv[] = {
+			0xa6, 0x01, 0x02, 0x03, 0x65,
+			0x45, 0x53, 0x32, 0x35, 0x36,
+			0x20, 0x65, 0x50, 0x2d, 0x32,
+			0x35, 0x36, 0x21, 0x58, 0x20,
+			0xba, 0xc5, 0xb1, 0x1c, 0xad,
+			0x8f, 0x99, 0xf9, 0xc7, 0x2b,
+			0x05, 0xcf, 0x4b, 0x9e, 0x26,
+			0xd2, 0x44, 0xdc, 0x18, 0x9f,
+			0x74, 0x52, 0x28, 0x25, 0x5a,
+			0x21, 0x9a, 0x86, 0xd6, 0xa0,
+			0x9e, 0xff, 0x22, 0x58, 0x20,
+			0x20, 0x13, 0x8b, 0xf8, 0x2d,
+			0xc1, 0xb6, 0xd5, 0x62, 0xbe,
+			0x0f, 0xa5, 0x4a, 0xb7, 0x80,
+			0x4a, 0x3a, 0x64, 0xb6, 0xd7,
+			0x2c, 0xcf, 0xed, 0x6b, 0x6f,
+			0xb6, 0xed, 0x28, 0xbb, 0xfc,
+			0x11, 0x7e, 0x23, 0x58, 0x20,
+			0x57, 0xc9, 0x20, 0x77, 0x66,
+			0x41, 0x46, 0xe8, 0x76, 0x76,
+			0x0c, 0x95, 0x20, 0xd0, 0x54,
+			0xaa, 0x93, 0xc3, 0xaf, 0xb0,
+			0x4e, 0x30, 0x67, 0x05, 0xdb,
+			0x60, 0x90, 0x30, 0x85, 0x07,
+			0xb4, 0xd3,
+	},
+
 	cose_key_set1[] = {
 
 			0x89,
@@ -746,6 +780,90 @@ test_cose_keys(struct lws_context *context)
 		goto bail;
 
 	// lwsl_hexdump_notice(buf, wc.used);
+
+	/*
+	 * The same key material with the curve and alg as CBOR text strings
+	 * has to import with both stored NUL-terminated, so the strcmp-based
+	 * curve name lookup at export stays inside the allocation and
+	 * resolves the curve to its COSE int form (F-035)
+	 */
+
+	lwsl_user("%s: key 1 text-curve import + export\n", __func__);
+
+	ck = lws_cose_key_import(NULL, NULL, NULL, cose_key1_tstrcrv,
+				 sizeof(cose_key1_tstrcrv));
+	if (!ck) {
+		lwsl_err("%s: text-curve key import fail\n", __func__);
+		goto bail;
+	}
+
+	if (ck->kty != LWSCOSE_WKKTV_EC2 ||
+	    ck->gencrypto_kty != LWS_GENCRYPTO_KTY_EC ||
+	    ck->cose_curve != LWSCOSE_WKEC_P256 ||
+	    ck->cose_alg != LWSCOSE_WKAECDSA_ALG_ES256 ||
+	    ck->e[LWS_GENCRYPTO_EC_KEYEL_CRV].len != 5 ||
+	    memcmp(ck->e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf, "P-256", 5) ||
+	    ck->e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf[5] || /* NUL-terminated */
+	    ck->meta[COSEKEY_META_ALG].len != 5 ||
+	    memcmp(ck->meta[COSEKEY_META_ALG].buf, "ES256", 5) ||
+	    ck->meta[COSEKEY_META_ALG].buf[5] ||
+	    ck->e[LWS_GENCRYPTO_EC_KEYEL_X].len != sizeof(key1_x) ||
+	    memcmp(ck->e[LWS_GENCRYPTO_EC_KEYEL_X].buf, key1_x, sizeof(key1_x)) ||
+	    ck->e[LWS_GENCRYPTO_EC_KEYEL_Y].len != sizeof(key1_y) ||
+	    memcmp(ck->e[LWS_GENCRYPTO_EC_KEYEL_Y].buf, key1_y, sizeof(key1_y)) ||
+	    ck->e[LWS_GENCRYPTO_EC_KEYEL_D].len != sizeof(key1_d) ||
+	    memcmp(ck->e[LWS_GENCRYPTO_EC_KEYEL_D].buf, key1_d, sizeof(key1_d))) {
+		lwsl_err("%s: text-curve key checks fail\n", __func__);
+		lws_cose_key_destroy(&ck);
+		goto bail;
+	}
+
+	lws_lec_init(&wc, buf, sizeof(buf));
+	n = (int)lws_cose_key_export(ck, &wc, LWSJWKF_EXPORT_PRIVATE);
+	lws_cose_key_destroy(&ck);
+	if (n != LWS_LECPCTX_RET_FINISHED) {
+		lwsl_err("%s: text-curve key export fail\n", __func__);
+		goto bail;
+	}
+
+	/*
+	 * The first two pairs out are kty then the curve; the curve has to
+	 * come out as the COSE int for P-256, not fall back to a text string
+	 * because the name lookup walked off the end of the element
+	 */
+
+	if (wc.used < 5 || buf[0] != 0xa6 || buf[1] != 0x01 || buf[2] != 0x02 ||
+	    buf[3] != 0x20 || buf[4] != LWSCOSE_WKEC_P256) {
+		lwsl_err("%s: text-curve key export wrong form\n", __func__);
+		goto bail;
+	}
+
+	/* the exported form has to import back to the same key */
+
+	ck = lws_cose_key_import(NULL, NULL, NULL, buf, wc.used);
+	if (!ck) {
+		lwsl_err("%s: text-curve round trip import fail\n", __func__);
+		goto bail;
+	}
+
+	if (ck->kty != LWSCOSE_WKKTV_EC2 ||
+	    ck->cose_curve != LWSCOSE_WKEC_P256 ||
+	    ck->cose_alg != LWSCOSE_WKAECDSA_ALG_ES256 ||
+	    ck->e[LWS_GENCRYPTO_EC_KEYEL_CRV].len != 5 ||
+	    memcmp(ck->e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf, "P-256", 5) ||
+	    ck->e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf[5] ||
+	    ck->e[LWS_GENCRYPTO_EC_KEYEL_X].len != sizeof(key1_x) ||
+	    memcmp(ck->e[LWS_GENCRYPTO_EC_KEYEL_X].buf, key1_x, sizeof(key1_x)) ||
+	    ck->e[LWS_GENCRYPTO_EC_KEYEL_Y].len != sizeof(key1_y) ||
+	    memcmp(ck->e[LWS_GENCRYPTO_EC_KEYEL_Y].buf, key1_y, sizeof(key1_y)) ||
+	    ck->e[LWS_GENCRYPTO_EC_KEYEL_D].len != sizeof(key1_d) ||
+	    memcmp(ck->e[LWS_GENCRYPTO_EC_KEYEL_D].buf, key1_d, sizeof(key1_d))) {
+		lwsl_err("%s: text-curve round trip checks fail\n", __func__);
+		lws_cose_key_destroy(&ck);
+		goto bail;
+	}
+
+	lws_cose_key_destroy(&ck);
 
 	/* key2 import */
 
