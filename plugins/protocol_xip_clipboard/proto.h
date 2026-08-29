@@ -18,6 +18,10 @@ int xip_build_welcome(char *buf, size_t cap, unsigned id, const char *hash_or_nu
 int xip_build_fetch(char *buf, size_t cap);
 int xip_build_bye(char *buf, size_t cap);
 int xip_build_error(char *buf, size_t cap, const char *reason);
+/* the clip envelope up to the opening quote of the "d" payload */
+int xip_build_clip_head(char *buf, size_t cap, const char *mime,
+			const char *hash, unsigned seq, unsigned i,
+			unsigned n);
 int xip_build_clip(char *buf, size_t cap, const char *mime, const char *hash,
 		   unsigned seq, unsigned i, unsigned n,
 		   const char *b64, size_t b64len);

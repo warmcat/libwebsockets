@@ -462,7 +462,7 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 {
 	enum enum_genrsa_mode padding = LGRSAM_PKCS1_1_5;
 	char temp[256];
-	int n, h_len, b = 3, temp_len = sizeof(temp);
+	int n, h_len, b = 3, temp_len = sizeof(temp), ret = -1;
 	uint8_t digest[LWS_GENHASH_LARGEST];
 	struct lws_genhash_ctx hash_ctx;
 	struct lws_genec_ctx ecdsactx;
@@ -479,7 +479,7 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 	if (lws_jws_parse_jose(&jose, map->buf[LJWS_JOSE], (int)map->len[LJWS_JOSE],
 			       temp, &temp_len) < 0 || !jose.alg) {
 		lwsl_notice("%s: parse failed\n", __func__);
-		return -1;
+		goto bail;
 	}
 
 	if (!strcmp(jose.alg->alg, "none")) {
@@ -488,13 +488,13 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 		 * If an application explicitly wants to accept unsigned tokens,
 		 * it should not be calling a signature confirmation API.
 		 */
-		return -1;
+		goto bail;
 	}
 
 	/* all other have 3 blocks: jose.payload.sig */
 	if (b != 3 || !jwk) {
 		lwsl_notice("%s: %d blocks\n", __func__, b);
-		return -1;
+		goto bail;
 	}
 
 	switch (jose.alg->algtype_signing) {
@@ -507,12 +507,12 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 		/* RSASSA-PKCS1-v1_5 or OAEP using SHA-256/384/512 */
 
 		if (jwk->kty != LWS_GENCRYPTO_KTY_RSA)
-			return -1;
+			goto bail;
 
 		/* 6(RSA): compute the hash of the payload into "digest" */
 
 		if (lws_genhash_init(&hash_ctx, jose.alg->hash_type))
-			return -1;
+			goto bail;
 
 		/*
 		 * JWS Signing Input value:
@@ -529,7 +529,7 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 		    lws_genhash_destroy(&hash_ctx, digest)) {
 			lws_genhash_destroy(&hash_ctx, NULL);
 
-			return -1;
+			goto bail;
 		}
 		// h_len = lws_genhash_size(jose.alg->hash_type);
 
@@ -537,7 +537,7 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 				LWS_GENHASH_TYPE_UNKNOWN)) {
 			lwsl_notice("%s: lws_genrsa_public_decrypt_create\n",
 				    __func__);
-			return -1;
+			goto bail;
 		}
 
 		n = lws_genrsa_hash_sig_verify(&rsactx, digest,
@@ -548,7 +548,7 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 		lws_genrsa_destroy(&rsactx);
 		if (n < 0) {
 			lwsl_notice("%s: decrypt fail\n", __func__);
-			return -1;
+			goto bail;
 		}
 
 		break;
@@ -558,7 +558,7 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 		/* SHA256/384/512 HMAC */
 
 		if (jwk->kty != LWS_GENCRYPTO_KTY_OCT)
-			return -1;
+			goto bail;
 
 		h_len = (int)lws_genhmac_size(jose.alg->hmac_type);
 
@@ -567,7 +567,7 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 		if (lws_genhmac_init(&ctx, jose.alg->hmac_type,
 				     jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].buf,
 				     jwk->e[LWS_GENCRYPTO_OCT_KEYEL_K].len))
-			return -1;
+			goto bail;
 
 		/*
 		 * JWS Signing Input value:
@@ -584,7 +584,7 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 		    lws_genhmac_destroy(&ctx, digest)) {
 			lws_genhmac_destroy(&ctx, NULL);
 
-			return -1;
+			goto bail;
 		}
 
 		/* 7) Compare the computed and decoded hashes */
@@ -592,7 +592,7 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 		if (lws_timingsafe_bcmp(digest, map->buf[2], (uint32_t)h_len)) {
 			lwsl_notice("digest mismatch\n");
 
-			return -1;
+			goto bail;
 		}
 
 		break;
@@ -603,27 +603,27 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 		size_t in_len;
 
 		if (jwk->kty != LWS_GENCRYPTO_KTY_OKP)
-			return -1;
+			goto bail;
 
 		if (!jwk->e[LWS_GENCRYPTO_OKP_KEYEL_CRV].buf)
-			return -1;
+			goto bail;
 
 		if (lws_geneddsa_create(&ecdsactx, context, NULL)) {
 			lwsl_notice("%s: lws_geneddsa_create\n", __func__);
-			return -1;
+			goto bail;
 		}
 
 		if (lws_geneddsa_set_key(&ecdsactx, jwk->e)) {
 			lws_genec_destroy(&ecdsactx);
 			lwsl_notice("%s: eddsa key import fail\n", __func__);
-			return -1;
+			goto bail;
 		}
 
 		in_len = map_b64->len[LJWS_JOSE] + 1 + map_b64->len[LJWS_PYLD];
 		in = lws_malloc(in_len, "jws eddsa in");
 		if (!in) {
 			lws_genec_destroy(&ecdsactx);
-			return -1;
+			goto bail;
 		}
 
 		memcpy(in, map_b64->buf[LJWS_JOSE], map_b64->len[LJWS_JOSE]);
@@ -638,7 +638,7 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 
 		if (n < 0) {
 			lwsl_notice("%s: verify fail\n", __func__);
-			return -1;
+			goto bail;
 		}
 
 		break;
@@ -652,16 +652,16 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 
 		/* has to be an EC key :-) */
 		if (jwk->kty != LWS_GENCRYPTO_KTY_EC)
-			return -1;
+			goto bail;
 
 		/* key must state its curve */
 		if (!jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf)
-			return -1;
+			goto bail;
 
 		/* key must match the selected alg curve */
 		if (strcmp((const char *)jwk->e[LWS_GENCRYPTO_EC_KEYEL_CRV].buf,
 				jose.alg->curve_name))
-			return -1;
+			goto bail;
 
 		/*
 		 * JWS Signing Input value:
@@ -691,7 +691,7 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 		    lws_genhash_destroy(&hash_ctx, digest)) {
 			lws_genhash_destroy(&hash_ctx, NULL);
 
-			return -1;
+			goto bail;
 		}
 
 		h_len = (int)lws_genhash_size(jose.alg->hash_type);
@@ -699,13 +699,13 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 		if (lws_genecdsa_create(&ecdsactx, context, NULL)) {
 			lwsl_notice("%s: lws_genrsa_public_decrypt_create\n",
 				    __func__);
-			return -1;
+			goto bail;
 		}
 
 		if (lws_genecdsa_set_key(&ecdsactx, jwk->e)) {
 			lws_genec_destroy(&ecdsactx);
 			lwsl_notice("%s: ec key import fail\n", __func__);
-			return -1;
+			goto bail;
 		}
 
 		n = lws_genecdsa_hash_sig_verify_jws(&ecdsactx, digest,
@@ -716,17 +716,22 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 		lws_genec_destroy(&ecdsactx);
 		if (n < 0) {
 			lwsl_notice("%s: verify fail\n", __func__);
-			return -1;
+			goto bail;
 		}
 
 		break;
 
 	default:
 		lwsl_err("%s: unknown alg from jose\n", __func__);
-		return -1;
+		goto bail;
 	}
 
-	return 0;
+	ret = 0;
+
+bail:
+	lws_jose_destroy(&jose);
+
+	return ret;
 }
 
 /* it's already a b64 map, we will make a temp plain version */

@@ -71,20 +71,31 @@ lws_genecdh_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 		   const struct lws_ec_curves *curve_table)
 {
 	int nid = 0;
+	NTSTATUS status;
+
+	/* re-init over a live ctx releases the previous incarnation first */
+	if (ctx->created_mark == LWS_GENEC_CTX_CREATED_MARK)
+		lws_genec_destroy(ctx);
+
+	memset(ctx, 0, sizeof(*ctx));
 
 	ctx->context = context;
 	ctx->curve_table = curve_table;
 	ctx->genec_alg = LEGENEC_ECDH;
-	ctx->u.hAlg = NULL;
-	ctx->u.hKey = NULL;
-	ctx->u.hKeyPeer = NULL;
 
 	if (curve_table && curve_table->name)
 		nid = curve_table->tls_lib_nid;
 
 	/* Open specific algorithm provider based on curve if known */
-	NTSTATUS status = BCryptOpenAlgorithmProvider(&ctx->u.hAlg, lws_schannel_get_curve_alg(nid, 0), NULL, 0);
-	return BCRYPT_SUCCESS(status) ? 0 : -1;
+	status = BCryptOpenAlgorithmProvider(&ctx->u.hAlg, lws_schannel_get_curve_alg(nid, 0), NULL, 0);
+	if (!BCRYPT_SUCCESS(status)) {
+		ctx->u.hAlg = NULL;
+		return -1;
+	}
+
+	ctx->created_mark = LWS_GENEC_CTX_CREATED_MARK;
+
+	return 0;
 }
 
 int
@@ -180,6 +191,12 @@ lws_genecdh_new_keypair(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 		else if ((char *)strstr(curve_name, "521")) bits = 521;
 	}
 
+	/* last-set-wins: destroy any key already in the slot */
+	if (ctx->u.hKey) {
+		BCryptDestroyKey(ctx->u.hKey);
+		ctx->u.hKey = NULL;
+	}
+
 	status = BCryptGenerateKeyPair(ctx->u.hAlg, &ctx->u.hKey, bits, 0);
 	if (!BCRYPT_SUCCESS(status)) return -1;
 
@@ -259,19 +276,31 @@ lws_genecdsa_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 		    const struct lws_ec_curves *curve_table)
 {
 	int nid = 0;
+	NTSTATUS status;
+
+	/* re-init over a live ctx releases the previous incarnation first */
+	if (ctx->created_mark == LWS_GENEC_CTX_CREATED_MARK)
+		lws_genec_destroy(ctx);
+
+	memset(ctx, 0, sizeof(*ctx));
 
 	ctx->context = context;
 	ctx->curve_table = curve_table;
 	ctx->genec_alg = LEGENEC_ECDSA;
-	ctx->u.hKey = NULL;
-	ctx->u.hKeyPeer = NULL;
 
 	if (curve_table && curve_table->name)
 		nid = curve_table->tls_lib_nid;
 
 	/* Default to P256 alg provider or specific if known */
-	NTSTATUS status = BCryptOpenAlgorithmProvider(&ctx->u.hAlg, lws_schannel_get_curve_alg(nid, 1), NULL, 0);
-	return BCRYPT_SUCCESS(status) ? 0 : -1;
+	status = BCryptOpenAlgorithmProvider(&ctx->u.hAlg, lws_schannel_get_curve_alg(nid, 1), NULL, 0);
+	if (!BCRYPT_SUCCESS(status)) {
+		ctx->u.hAlg = NULL;
+		return -1;
+	}
+
+	ctx->created_mark = LWS_GENEC_CTX_CREATED_MARK;
+
+	return 0;
 }
 
 int
@@ -328,6 +357,7 @@ lws_genec_destroy(struct lws_genec_ctx *ctx)
 	}
 
 	ctx->has_private = 0;
+	ctx->created_mark = 0;
 }
 /*
 void

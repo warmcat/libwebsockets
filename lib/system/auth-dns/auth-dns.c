@@ -441,7 +441,7 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 
 	if (lws_auth_dns_parse_zone_buf(expbuf, uout, &zone, info->ipv4, info->ipv6)) {
 		lwsl_err("Failed to parse zone\n");
-		goto bail;
+		goto bail_zone;
 	}
 
 	lws_auth_dns_inject_mock_keys(info, &zone);
@@ -452,7 +452,7 @@ lws_auth_dns_sign_zone(struct lws_auth_dns_sign_info *info)
 	fd = open(info->output_filepath ? info->output_filepath : "signed.zone", LWS_O_WRONLY | LWS_O_CREAT | LWS_O_TRUNC, 0644);
 	if (fd < 0) {
 		lwsl_err("Failed to open output file for signing results\n");
-		goto bail;
+		goto bail_zone;
 	}
 
 	/* Write generic setup string at top */
@@ -632,6 +632,8 @@ bail_ofd:
 bail_jwk:
 	lws_jwk_destroy(&jwk);
 bail_jws:
+	lws_auth_dns_free_zone(&zone);
+bail_zone:
 	lws_free(expbuf);
 	lws_free(buf);
 

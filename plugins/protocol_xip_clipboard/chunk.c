@@ -32,7 +32,6 @@ int
 xip_chunker_next(struct xip_chunker *c, char *buf, size_t cap, size_t *outlen)
 {
 	size_t piece, prefix;
-	char nums[96];
 	int n;
 
 	if (c->next_i >= c->n)
@@ -42,12 +41,8 @@ xip_chunker_next(struct xip_chunker *c, char *buf, size_t cap, size_t *outlen)
 	if (piece > XIP_CHUNK_RAW)
 		piece = XIP_CHUNK_RAW;
 
-	lws_snprintf(nums, sizeof(nums),
-		     "\",\"seq\":%u,\"i\":%u,\"n\":%u,\"d\":\"",
-		     c->seq, c->next_i, c->n);
-
-	n = lws_snprintf(buf, cap, "{\"t\":\"clip\",\"mime\":\"%s\",\"hash\":\"%s%s",
-			 c->mime, c->hash, nums);
+	n = xip_build_clip_head(buf, cap, c->mime, c->hash,
+				c->seq, c->next_i, c->n);
 	if (n < 0)
 		return -1;
 	prefix = (size_t)n;

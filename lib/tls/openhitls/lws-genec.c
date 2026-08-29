@@ -151,12 +151,16 @@ int
 lws_genecdh_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 		   const struct lws_ec_curves *curve_table)
 {
+	/* re-init over a live ctx releases the previous incarnation first */
+	if (ctx->created_mark == LWS_GENEC_CTX_CREATED_MARK)
+		lws_genec_destroy(ctx);
+
+	memset(ctx, 0, sizeof(*ctx));
 	ctx->context = context;
-	ctx->ctx[0] = NULL;
-	ctx->ctx[1] = NULL;
 	/* Use openHiTLS curve table if NULL is passed */
 	ctx->curve_table = curve_table ? curve_table : lws_ec_curves;
 	ctx->genec_alg = LEGENEC_ECDH;
+	ctx->created_mark = LWS_GENEC_CTX_CREATED_MARK;
 
 	return 0;
 }
@@ -165,12 +169,16 @@ int
 lws_genecdsa_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 		    const struct lws_ec_curves *curve_table)
 {
+	/* re-init over a live ctx releases the previous incarnation first */
+	if (ctx->created_mark == LWS_GENEC_CTX_CREATED_MARK)
+		lws_genec_destroy(ctx);
+
+	memset(ctx, 0, sizeof(*ctx));
 	ctx->context = context;
-	ctx->ctx[0] = NULL;
-	ctx->ctx[1] = NULL;
 	/* Use openHiTLS curve table if NULL is passed */
 	ctx->curve_table = curve_table ? curve_table : lws_ec_curves;
 	ctx->genec_alg = LEGENEC_ECDSA;
+	ctx->created_mark = LWS_GENEC_CTX_CREATED_MARK;
 
 	return 0;
 }
@@ -347,6 +355,7 @@ lws_genec_destroy(struct lws_genec_ctx *ctx)
 	ctx->ctx[0] = NULL;
 	ctx->ctx[1] = NULL;
 	ctx->has_private = 0;
+	ctx->created_mark = 0;
 }
 
 static int
@@ -429,6 +438,13 @@ lws_genecdh_new_keypair(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 	/* Create appropriate pkey context based on algorithm type */
 	pkeyAlg = (ctx->genec_alg == LEGENEC_ECDSA) ?
 		  CRYPT_PKEY_ECDSA : CRYPT_PKEY_ECDH;
+
+	/* last-set-wins: release any key already in the slot */
+	if (ctx->ctx[side]) {
+		CRYPT_EAL_PkeyFreeCtx(ctx->ctx[side]);
+		ctx->ctx[side] = NULL;
+	}
+
 	ctx->ctx[side] = CRYPT_EAL_PkeyNewCtx(pkeyAlg);
 	if (!ctx->ctx[side]) {
 		lwsl_err("%s: CRYPT_EAL_PkeyNewCtx failed\n", __func__);
@@ -709,11 +725,15 @@ int
 lws_geneddsa_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 		    const struct lws_ec_curves *curve_table)
 {
+	/* re-init over a live ctx releases the previous incarnation first */
+	if (ctx->created_mark == LWS_GENEC_CTX_CREATED_MARK)
+		lws_genec_destroy(ctx);
+
+	memset(ctx, 0, sizeof(*ctx));
 	ctx->context = context;
-	ctx->ctx[0] = NULL;
-	ctx->ctx[1] = NULL;
 	ctx->curve_table = curve_table;
 	ctx->genec_alg = LEGENEC_EDDSA;
+	ctx->created_mark = LWS_GENEC_CTX_CREATED_MARK;
 
 	return 0;
 }
@@ -813,8 +833,10 @@ lws_geneddsa_new_keypair(struct lws_genec_ctx *ctx, const char *curve_name,
 	if (lws_hitls_init_rand() < 0)
 		return -1;
 
-	if (ctx->ctx[0])
+	if (ctx->ctx[0]) {
 		CRYPT_EAL_PkeyFreeCtx(ctx->ctx[0]);
+		ctx->ctx[0] = NULL;
+	}
 	ctx->ctx[0] = CRYPT_EAL_PkeyNewCtx(alg);
 	if (!ctx->ctx[0]) {
 		lwsl_err("%s: CRYPT_EAL_PkeyNewCtx failed\n", __func__);

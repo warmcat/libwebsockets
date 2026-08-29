@@ -448,15 +448,21 @@ void lws_genec_destroy(struct lws_genec_ctx *ctx)
 	lws_free_set_NULL(ctx->kbuf_priv);
 	lws_free_set_NULL(ctx->kbuf_pub);
 	ctx->has_private = 0;
+	ctx->created_mark = 0;
 }
 
 int
 lws_genecdsa_create(struct lws_genec_ctx *ctx, struct lws_context *context, const struct lws_ec_curves *el)
 {
+	/* re-init over a live ctx releases the previous incarnation first */
+	if (ctx->created_mark == LWS_GENEC_CTX_CREATED_MARK)
+		lws_genec_destroy(ctx);
+
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->context = context;
 	ctx->curve_table = el;
 	ctx->genec_alg = LEGENEC_ECDSA;
+	ctx->created_mark = LWS_GENEC_CTX_CREATED_MARK;
 	return 0;
 }
 
@@ -476,6 +482,18 @@ lws_genecdsa_new_keypair(struct lws_genec_ctx *ctx, const char *curve_name, stru
 	impl = br_ec_get_default();
 	if (!impl)
 		return -1;
+
+	/*
+	 * last-set-wins: release any key already in the ctx, without
+	 * disturbing its created state
+	 */
+	lws_free_set_NULL(ctx->kbuf_priv);
+	lws_free_set_NULL(ctx->kbuf_pub);
+	if (ctx->pub.q) {
+		lws_free((void *)ctx->pub.q);
+		ctx->pub.q = NULL;
+	}
+	ctx->has_private = 0;
 
 	prng.vtable = &lws_br_prng_vtable;
 	prng.context = ctx->context;
@@ -725,10 +743,15 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len, uint
 int
 lws_genecdh_create(struct lws_genec_ctx *ctx, struct lws_context *context, const struct lws_ec_curves *curve_table)
 {
+	/* re-init over a live ctx releases the previous incarnation first */
+	if (ctx->created_mark == LWS_GENEC_CTX_CREATED_MARK)
+		lws_genec_destroy(ctx);
+
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->context = context;
 	ctx->curve_table = curve_table;
 	ctx->genec_alg = LEGENEC_ECDH;
+	ctx->created_mark = LWS_GENEC_CTX_CREATED_MARK;
 	return 0;
 }
 

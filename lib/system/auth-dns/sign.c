@@ -317,7 +317,7 @@ lws_auth_dns_rdata_to_wire(struct auth_dns_zone *z, struct auth_dns_rr *rr, uint
 				int win = ty / 256;
 				int byte_idx = (ty % 256) / 8;
 				int bit_idx = 7 - (ty % 8);
-				window_blocks[win][byte_idx] |= (1 << bit_idx);
+				window_blocks[win][byte_idx] |= (uint8_t)(1u << bit_idx);
 				if (byte_idx >= window_max[win]) window_max[win] = (uint8_t)(byte_idx + 1);
 			}
 		}
@@ -1056,6 +1056,13 @@ lws_auth_dns_add_nsec3(struct auth_dns_zone *z, const char *salt_hex, int iterat
 				lws_dll2_add_tail(&rr->list, &rrset->rr_list);
 			}
 		}
+	}
+
+	/*
+	 * the chain references earlier nodes while wrapping around the end,
+	 * so the nodes can only be freed once it is all built
+	 */
+	for (int i = 0; i < num_names; i++) {
 		lws_free(nodes[i]->name);
 		lws_free(nodes[i]);
 	}
@@ -1633,7 +1640,9 @@ lws_auth_dns_verify_zone(struct lws_auth_dns_sign_info *info)
 								if (lws_genecdsa_set_key(target_genec, tmp.e) == 0) {
 									if (flags == 257) {
 										has_ksk = 1;
-										/* we must persist the KSK e to match keytags below */
+										/* we must persist the KSK e to match keytags below;
+										 * last-set-wins: free any previous key's elements */
+										lws_jwk_destroy(&ksk);
 										ksk.kty = tmp.kty;
 										for (int i=0; i<8; i++) {
 											ksk.e[i] = tmp.e[i];
@@ -1641,6 +1650,8 @@ lws_auth_dns_verify_zone(struct lws_auth_dns_sign_info *info)
 											tmp.e[i].buf = NULL;
 										}
 									} else {
+										/* last-set-wins: free any previous key's elements */
+										lws_jwk_destroy(&zsk);
 										zsk.kty = tmp.kty;
 										for (int i=0; i<8; i++) {
 											zsk.e[i] = tmp.e[i];

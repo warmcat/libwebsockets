@@ -166,10 +166,10 @@ xip_build_error(char *buf, size_t cap, const char *reason)
 	return finish(buf, cap, &p);
 }
 
+/* the clip envelope up to the opening quote of the "d" payload */
 int
-xip_build_clip(char *buf, size_t cap, const char *mime, const char *hash,
-	       unsigned seq, unsigned i, unsigned n,
-	       const char *b64, size_t b64len)
+xip_build_clip_head(char *buf, size_t cap, const char *mime, const char *hash,
+		     unsigned seq, unsigned i, unsigned n)
 {
 	size_t p = 0;
 	char nums[96];
@@ -183,6 +183,21 @@ xip_build_clip(char *buf, size_t cap, const char *mime, const char *hash,
 	    put_escaped(buf, cap, &p, hash) ||
 	    put(buf, cap, &p, nums))
 		return -1;
+
+	return (int)p;
+}
+
+int
+xip_build_clip(char *buf, size_t cap, const char *mime, const char *hash,
+	       unsigned seq, unsigned i, unsigned n,
+	       const char *b64, size_t b64len)
+{
+	size_t p;
+	int h = xip_build_clip_head(buf, cap, mime, hash, seq, i, n);
+
+	if (h < 0)
+		return -1;
+	p = (size_t)h;
 
 	if (p + b64len + 2 > cap)
 		return -1;
