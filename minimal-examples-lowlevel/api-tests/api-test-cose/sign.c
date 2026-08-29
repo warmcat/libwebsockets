@@ -1946,7 +1946,7 @@ eddsa_sign1(struct lws_context *cx, lws_dll2_owner_t *set,
 	struct lws_cose_sign_context *csc;
 	lws_lec_pctx_t lec;
 	size_t tot = 0;
-	int n = 0;
+	enum lws_lec_pctx_ret n = LWS_LECPCTX_RET_FINISHED;
 
 	memset(&i, 0, sizeof(i));
 	i.cx			= cx;
@@ -2059,6 +2059,11 @@ eddsa_sign1_ok(struct lws_context *cx, lws_dll2_owner_t *set,
 		lwsl_err("%s: EdDSA sign1 does not validate\n", __func__);
 		return 1;
 	}
+
+	/* we need at least the trailing signature byte to tamper with */
+
+	if (!ol || ol > sizeof(out))
+		return 1;
 
 	/* a tampered trailing signature byte must fail validation */
 
