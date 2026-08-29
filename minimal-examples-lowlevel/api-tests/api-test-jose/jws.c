@@ -869,6 +869,7 @@ int
 test_jws_EdDSA(struct lws_context *context)
 {
 	struct lws_genec_ctx probe;
+	memset(&probe, 0, sizeof(probe));
 	struct lws_jws_map map;
 	struct lws_jose jose;
 	struct lws_jwk jwk;

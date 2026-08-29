@@ -201,6 +201,8 @@ lws_jwk_generate(struct lws_context *context, struct lws_jwk *jwk,
 	{
 		struct lws_genrsa_ctx ctx;
 
+		memset(&ctx, 0, sizeof(ctx));
+
 		lwsl_notice("%s: generating %d bit RSA key\n", __func__, bits);
 		n = lws_genrsa_new_keypair(context, &ctx, LGRSAM_PKCS1_1_5,
 					    jwk->e, bits);
@@ -227,6 +229,8 @@ lws_jwk_generate(struct lws_context *context, struct lws_jwk *jwk,
 	{
 		struct lws_genec_ctx ctx;
 
+		memset(&ctx, 0, sizeof(ctx));
+
 		if (!curve) {
 			lwsl_err("%s: must have a named curve\n", __func__);
 
@@ -251,6 +255,8 @@ lws_jwk_generate(struct lws_context *context, struct lws_jwk *jwk,
 	case LWS_GENCRYPTO_KTY_OKP:
 	{
 		struct lws_genec_ctx ctx;
+
+		memset(&ctx, 0, sizeof(ctx));
 
 		if (!curve) {
 			lwsl_err("%s: must have a named curve\n", __func__);

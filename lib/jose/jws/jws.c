@@ -468,6 +468,9 @@ lws_jws_sig_confirm(struct lws_jws_map *map_b64, struct lws_jws_map *map,
 	struct lws_genec_ctx ecdsactx;
 	struct lws_genrsa_ctx rsactx;
 	struct lws_genhmac_ctx ctx;
+
+	memset(&ecdsactx, 0, sizeof(ecdsactx));
+	memset(&rsactx, 0, sizeof(rsactx));
 	struct lws_jose jose;
 
 	lws_jose_init(&jose);
@@ -817,6 +820,9 @@ lws_jws_sign_from_b64(struct lws_jose *jose, struct lws_jws *jws,
 	struct lws_genhmac_ctx hmac_ctx;
 	struct lws_genec_ctx ecdsactx;
 	struct lws_genrsa_ctx rsactx;
+
+	memset(&ecdsactx, 0, sizeof(ecdsactx));
+	memset(&rsactx, 0, sizeof(rsactx));
 	uint8_t *buf;
 	int n, m;
 

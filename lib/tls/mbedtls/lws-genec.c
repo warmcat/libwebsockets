@@ -162,9 +162,9 @@ int
 lws_genecdh_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 		   const struct lws_ec_curves *curve_table)
 {
-	/* re-init over a live ctx releases the previous incarnation first */
+	/* the caller must hand us a zeroed ctx; a still-live ctx is a misuse */
 	if (ctx->created_mark == LWS_GENEC_CTX_CREATED_MARK)
-		lws_genec_destroy(ctx);
+		return -1;
 
 	memset(ctx, 0, sizeof(*ctx));
 
@@ -187,9 +187,9 @@ int
 lws_genecdsa_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 		    const struct lws_ec_curves *curve_table)
 {
-	/* re-init over a live ctx releases the previous incarnation first */
+	/* the caller must hand us a zeroed ctx; a still-live ctx is a misuse */
 	if (ctx->created_mark == LWS_GENEC_CTX_CREATED_MARK)
-		lws_genec_destroy(ctx);
+		return -1;
 
 	memset(ctx, 0, sizeof(*ctx));
 
@@ -703,9 +703,9 @@ int
 lws_genecdh_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 		   const struct lws_ec_curves *curve_table)
 {
-	/* re-init over a live ctx releases the previous incarnation first */
+	/* the caller must hand us a zeroed ctx; a still-live ctx is a misuse */
 	if (ctx->created_mark == LWS_GENEC_CTX_CREATED_MARK)
-		lws_genec_destroy(ctx);
+		return -1;
 
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->context = context;
@@ -719,9 +719,9 @@ int
 lws_genecdsa_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 		    const struct lws_ec_curves *curve_table)
 {
-	/* re-init over a live ctx releases the previous incarnation first */
+	/* the caller must hand us a zeroed ctx; a still-live ctx is a misuse */
 	if (ctx->created_mark == LWS_GENEC_CTX_CREATED_MARK)
-		lws_genec_destroy(ctx);
+		return -1;
 
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->context = context;

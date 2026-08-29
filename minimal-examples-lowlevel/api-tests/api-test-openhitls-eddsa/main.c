@@ -37,6 +37,10 @@ test_ed25519_roundtrip(void)
 	struct lws_gencrypto_keyelem key[LWS_GENCRYPTO_MAX_KEYEL_COUNT];
 	struct lws_gencrypto_keyelem pub[LWS_GENCRYPTO_MAX_KEYEL_COUNT];
 	struct lws_genec_ctx signer, verifier, imported;
+
+	memset(&signer, 0, sizeof(signer));
+	memset(&verifier, 0, sizeof(verifier));
+	memset(&imported, 0, sizeof(imported));
 	uint8_t sig[64], sig2[64];
 	int n, n2, ret = 1;
 
@@ -120,6 +124,7 @@ test_ed448_explicitly_unsupported(void)
 {
 	struct lws_gencrypto_keyelem key[LWS_GENCRYPTO_MAX_KEYEL_COUNT];
 	struct lws_genec_ctx ctx;
+	memset(&ctx, 0, sizeof(ctx));
 	uint8_t x[57] = {0};
 	uint8_t crv[] = "Ed448";
 	int ret = 1;

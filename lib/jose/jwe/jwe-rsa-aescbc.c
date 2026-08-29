@@ -51,6 +51,8 @@ lws_jwe_encrypt_rsa_aes_cbc_hs(struct lws_jwe *jwe,
 	char ekey[LWS_GENHASH_LARGEST];
 	struct lws_genrsa_ctx rsactx;
 
+	memset(&rsactx, 0, sizeof(rsactx));
+
 	if (jwe->jws.jwk->kty != LWS_GENCRYPTO_KTY_RSA) {
 		lwsl_err("%s: unexpected kty %d\n", __func__, jwe->jws.jwk->kty);
 
@@ -144,6 +146,8 @@ lws_jwe_auth_and_decrypt_rsa_aes_cbc_hs(struct lws_jwe *jwe)
 {
 	int n;
 	struct lws_genrsa_ctx rsactx;
+
+	memset(&rsactx, 0, sizeof(rsactx));
 	uint8_t enc_cek[512];
 
 	if (jwe->jws.jwk->kty != LWS_GENCRYPTO_KTY_RSA) {

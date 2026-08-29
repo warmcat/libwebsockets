@@ -1946,7 +1946,7 @@ eddsa_sign1(struct lws_context *cx, lws_dll2_owner_t *set,
 	struct lws_cose_sign_context *csc;
 	lws_lec_pctx_t lec;
 	size_t tot = 0;
-	int n = 0;
+	enum lws_lec_pctx_ret n = LWS_LECPCTX_RET_FINISHED;
 
 	memset(&i, 0, sizeof(i));
 	i.cx			= cx;
@@ -2048,12 +2048,19 @@ eddsa_sign1_ok(struct lws_context *cx, lws_dll2_owner_t *set,
 	       const lws_cose_key_t *ck)
 {
 	uint8_t out[512];
-	size_t ol;
+	size_t ol, last;
 
 	if (eddsa_sign1(cx, set, ck, out, sizeof(out), &ol)) {
 		lwsl_err("%s: EdDSA sign1 fail\n", __func__);
 		return 1;
 	}
+
+	/* we need at least the trailing signature byte to tamper with */
+
+	if (!ol || ol > sizeof(out))
+		return 1;
+
+	last = ol - 1; /* index of final signature byte */
 
 	if (eddsa_validate(cx, set, out, ol, 0)) {
 		lwsl_err("%s: EdDSA sign1 does not validate\n", __func__);
@@ -2062,7 +2069,7 @@ eddsa_sign1_ok(struct lws_context *cx, lws_dll2_owner_t *set,
 
 	/* a tampered trailing signature byte must fail validation */
 
-	out[ol - 1] ^= 0x80;
+	out[last] ^= 0x80;
 	if (eddsa_validate(cx, set, out, ol, 1)) {
 		lwsl_err("%s: tampered EdDSA sign1 wrongly validated\n",
 				__func__);
@@ -2086,6 +2093,7 @@ test_cose_sign_eddsa(struct lws_context *context)
 
 	{
 		struct lws_genec_ctx probe;
+		memset(&probe, 0, sizeof(probe));
 
 		if (lws_geneddsa_create(&probe, context, NULL)) {
 			lwsl_notice("%s: no EdDSA backend support, skipping "

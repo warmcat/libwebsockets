@@ -54,6 +54,8 @@ static int
 test_ecdh_p256(struct lws_context *context)
 {
 	struct lws_genec_ctx ctx_a, ctx_b;
+	memset(&ctx_a, 0, sizeof(ctx_a));
+	memset(&ctx_b, 0, sizeof(ctx_b));
 	struct lws_gencrypto_keyelem el_a[LWS_GENCRYPTO_EC_KEYEL_COUNT];
 	struct lws_gencrypto_keyelem el_b[LWS_GENCRYPTO_EC_KEYEL_COUNT];
 	struct lws_gencrypto_keyelem peer_a[LWS_GENCRYPTO_EC_KEYEL_COUNT];
@@ -159,6 +161,7 @@ static int
 test_ecdsa_p256(struct lws_context *context)
 {
 	struct lws_genec_ctx ctx;
+	memset(&ctx, 0, sizeof(ctx));
 	struct lws_gencrypto_keyelem el[LWS_GENCRYPTO_EC_KEYEL_COUNT];
 	struct lws_genhash_ctx hash_ctx;
 	uint8_t hash[32], sig[64], wrong_hash[32];
@@ -252,6 +255,8 @@ static int
 test_ecdh_p384(struct lws_context *context)
 {
 	struct lws_genec_ctx ctx_a, ctx_b;
+	memset(&ctx_a, 0, sizeof(ctx_a));
+	memset(&ctx_b, 0, sizeof(ctx_b));
 	struct lws_gencrypto_keyelem el_a[LWS_GENCRYPTO_EC_KEYEL_COUNT];
 	struct lws_gencrypto_keyelem el_b[LWS_GENCRYPTO_EC_KEYEL_COUNT];
 	struct lws_gencrypto_keyelem peer_a[LWS_GENCRYPTO_EC_KEYEL_COUNT];
@@ -348,6 +353,7 @@ static int
 test_edge_cases(struct lws_context *context)
 {
 	struct lws_genec_ctx ctx;
+	memset(&ctx, 0, sizeof(ctx));
 	struct lws_gencrypto_keyelem el[LWS_GENCRYPTO_EC_KEYEL_COUNT];
 	uint8_t ss[64];
 	int ss_len, n;
@@ -467,6 +473,8 @@ static int
 test_ecdh_set_key(struct lws_context *context)
 {
 	struct lws_genec_ctx ctx_a, ctx_b;
+	memset(&ctx_a, 0, sizeof(ctx_a));
+	memset(&ctx_b, 0, sizeof(ctx_b));
 	struct lws_gencrypto_keyelem el_a[LWS_GENCRYPTO_EC_KEYEL_COUNT];
 	struct lws_gencrypto_keyelem el_b_theirs[LWS_GENCRYPTO_EC_KEYEL_COUNT];
 	struct lws_gencrypto_keyelem peer_for_a[LWS_GENCRYPTO_EC_KEYEL_COUNT];

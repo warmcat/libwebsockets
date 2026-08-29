@@ -294,9 +294,9 @@ bail:
 }
 
 /*
- * F-045 fence: create() and new_keypair() over a ctx that already holds a
- * live key incarnation must release the previous incarnation (no leak) and
- * leave the ctx operating with the new key
+ * F-045 fence: ctx liveness rules.  create() and new_keypair() over a ctx
+ * that still holds a live key incarnation must fail cleanly; after
+ * destroy(), the same ctx can be recreated and operates with the new key
  */
 static int
 test_genrsa_recreate(struct lws_context *context)
@@ -370,20 +370,28 @@ test_genrsa_recreate(struct lws_context *context)
 	}
 
 	/*
-	 * re-create over the live ctx with key 1's elements: it must release
-	 * key 0's incarnation and take on key 1
+	 * create() over the live ctx must fail; after destroy(), the same ctx
+	 * can be recreated with key 1's elements
 	 */
+
+	if (!lws_genrsa_create(&ctx, el[1], context, LGRSAM_PKCS1_1_5,
+			       LWS_GENHASH_TYPE_UNKNOWN)) {
+		lwsl_err("%s: create over live ctx accepted\n", __func__);
+		goto bail;
+	}
+
+	lws_genrsa_destroy(&ctx);
 
 	if (lws_genrsa_create(&ctx, el[1], context, LGRSAM_PKCS1_1_5,
 			      LWS_GENHASH_TYPE_UNKNOWN)) {
-		lwsl_err("%s: re-create over live ctx failed\n", __func__);
+		lwsl_err("%s: recreate after destroy failed\n", __func__);
 		goto bail;
 	}
 
 	n = lws_genrsa_private_encrypt(&ctx, plain_b, sizeof(plain_b) - 1,
 				       cipher);
 	if (n < 0) {
-		lwsl_err("%s: private_encrypt after re-create failed\n",
+		lwsl_err("%s: private_encrypt after recreate failed\n",
 			 __func__);
 		goto bail;
 	}
@@ -392,7 +400,7 @@ test_genrsa_recreate(struct lws_context *context)
 				      key_bytes);
 	if (m != (int)(sizeof(plain_b) - 1) ||
 	    lws_timingsafe_bcmp(plain, plain_b, sizeof(plain_b) - 1)) {
-		lwsl_err("%s: re-created ctx not operating with key 1\n",
+		lwsl_err("%s: recreated ctx not operating with key 1\n",
 			 __func__);
 		goto bail;
 	}
@@ -403,23 +411,25 @@ test_genrsa_recreate(struct lws_context *context)
 				      key_bytes);
 	if (m == (int)(sizeof(plain_b) - 1) &&
 	    !lws_timingsafe_bcmp(plain, plain_b, sizeof(plain_b) - 1)) {
-		lwsl_err("%s: re-created ctx still operating with key 0\n",
+		lwsl_err("%s: recreated ctx still operating with key 0\n",
 			 __func__);
 		goto bail;
 	}
 
-	/* a second re-create restores key 0 */
+	/* destroy + recreate again restores key 0 */
+
+	lws_genrsa_destroy(&ctx);
 
 	if (lws_genrsa_create(&ctx, el[0], context, LGRSAM_PKCS1_1_5,
 			      LWS_GENHASH_TYPE_UNKNOWN)) {
-		lwsl_err("%s: second re-create over live ctx failed\n", __func__);
+		lwsl_err("%s: recreate with key 0 failed\n", __func__);
 		goto bail;
 	}
 
 	n = lws_genrsa_private_encrypt(&ctx, plain_a, sizeof(plain_a) - 1,
 				       cipher);
 	if (n < 0) {
-		lwsl_err("%s: private_encrypt after second re-create failed\n",
+		lwsl_err("%s: private_encrypt after second recreate failed\n",
 			 __func__);
 		goto bail;
 	}
@@ -428,15 +438,26 @@ test_genrsa_recreate(struct lws_context *context)
 				      key_bytes);
 	if (n != (int)(sizeof(plain_a) - 1) ||
 	    lws_timingsafe_bcmp(plain, plain_a, sizeof(plain_a) - 1)) {
-		lwsl_err("%s: second re-create roundtrip mismatch\n", __func__);
+		lwsl_err("%s: second recreate roundtrip mismatch\n", __func__);
 		goto bail;
 	}
 
-	/* new_keypair() into the live keyed ctx displaces the old key */
+	/*
+	 * new_keypair() over the live keyed ctx must fail too; after
+	 * destroy() it generates a fresh key into the same ctx
+	 */
+
+	if (!lws_genrsa_new_keypair(context, &ctx, LGRSAM_PKCS1_1_5, gen,
+				    2048)) {
+		lwsl_err("%s: new_keypair over live ctx accepted\n", __func__);
+		goto bail;
+	}
+
+	lws_genrsa_destroy(&ctx);
 
 	if (lws_genrsa_new_keypair(context, &ctx, LGRSAM_PKCS1_1_5, gen,
 				   2048)) {
-		lwsl_err("%s: new_keypair over live ctx failed\n", __func__);
+		lwsl_err("%s: new_keypair after destroy failed\n", __func__);
 		goto bail;
 	}
 
