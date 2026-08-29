@@ -104,11 +104,86 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 	    oaep_hashid == LWS_GENHASH_TYPE_UNKNOWN)
 		ctx->oaep_hashid = LWS_GENHASH_TYPE_SHA1;
 
-	/* Step 1:
+	/* Step 1 + 2:
 	 *
-	 * convert the MPI for e and n to OpenSSL BIGNUMs
+	 * convert the element MPIs to OpenSSL BIGNUMs and assemble the
+	 * OpenSSL RSA key from them
 	 */
+#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
+	{
+		static const char *pnames[5] = {
+			"e", "n", "d", "rsa-factor1", "rsa-factor2"
+		};
+		OSSL_PARAM_BLD *bld;
+		OSSL_PARAM *params = NULL;
+		EVP_PKEY_CTX *pctx;
+		EVP_PKEY *pkey = NULL;
+		BIGNUM *mpi[5] = { NULL, NULL, NULL, NULL, NULL };
+		int m, ok = 0;
 
+		/*
+		 * BIGNUM OSSL_PARAMs have to be in the provider's native
+		 * word layout, OSSL_PARAM_BLD_push_BN() takes care of that;
+		 * the raw big-endian MPIs must not be given straight to
+		 * OSSL_PARAM_construct_BN()
+		 */
+
+		for (m = 0; m < 5; m++)
+			if (el[m].buf && el[m].len) {
+				mpi[m] = BN_bin2bn(el[m].buf, (int)el[m].len,
+						   NULL);
+				if (!mpi[m]) {
+					lwsl_notice("%s: mpi load failed\n",
+						    __func__);
+					goto bail_mpi;
+				}
+			}
+
+		bld = OSSL_PARAM_BLD_new();
+		if (!bld)
+			goto bail_mpi;
+
+		for (m = 0; m < 5; m++)
+			if (mpi[m] &&
+			    !OSSL_PARAM_BLD_push_BN(bld, pnames[m], mpi[m]))
+				goto bail_bld;
+
+		params = OSSL_PARAM_BLD_to_param(bld);
+		if (!params)
+			goto bail_bld;
+
+		pctx = EVP_PKEY_CTX_new_from_name(NULL, "RSA", NULL);
+		if (!pctx)
+			goto bail_params;
+		if (EVP_PKEY_fromdata_init(pctx) <= 0 ||
+		    EVP_PKEY_fromdata(pctx, &pkey, EVP_PKEY_KEYPAIR,
+				      params) <= 0) {
+			EVP_PKEY_CTX_free(pctx);
+			goto bail_params;
+		}
+		EVP_PKEY_CTX_free(pctx);
+
+		ctx->ctx = EVP_PKEY_CTX_new(pkey, NULL);
+		EVP_PKEY_free(pkey);
+		if (!ctx->ctx)
+			goto bail_params;
+
+		ok = 1;
+
+bail_params:
+		OSSL_PARAM_free(params);
+bail_bld:
+		OSSL_PARAM_BLD_free(bld);
+bail_mpi:
+		for (m = 0; m < 5; m++)
+			BN_clear_free(mpi[m]);
+
+		if (ok)
+			return 0;
+
+		goto bail;
+	}
+#else
 	for (n = 0; n < 5; n++) {
 		ctx->bn[n] = BN_bin2bn(el[n].buf, SSL_SIZE_T_CAST(el[n].len), NULL);
 		if (!ctx->bn[n]) {
@@ -117,44 +192,6 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 		}
 	}
 
-	/* Step 2:
-	 *
-	 * assemble the OpenSSL RSA from the BIGNUMs
-	 */
-#if defined(LWS_HAVE_EVP_PKEY_GET_BN_PARAM)
-	{
-		OSSL_PARAM params[6];
-		int pidx = 0;
-		EVP_PKEY_CTX *pctx;
-		EVP_PKEY *pkey = NULL;
-		
-		if (el[LWS_GENCRYPTO_RSA_KEYEL_N].buf)
-			params[pidx++] = OSSL_PARAM_construct_BN("n", (unsigned char *)el[LWS_GENCRYPTO_RSA_KEYEL_N].buf, el[LWS_GENCRYPTO_RSA_KEYEL_N].len);
-		if (el[LWS_GENCRYPTO_RSA_KEYEL_E].buf)
-			params[pidx++] = OSSL_PARAM_construct_BN("e", (unsigned char *)el[LWS_GENCRYPTO_RSA_KEYEL_E].buf, el[LWS_GENCRYPTO_RSA_KEYEL_E].len);
-		if (el[LWS_GENCRYPTO_RSA_KEYEL_D].buf)
-			params[pidx++] = OSSL_PARAM_construct_BN("d", (unsigned char *)el[LWS_GENCRYPTO_RSA_KEYEL_D].buf, el[LWS_GENCRYPTO_RSA_KEYEL_D].len);
-		if (el[LWS_GENCRYPTO_RSA_KEYEL_P].buf)
-			params[pidx++] = OSSL_PARAM_construct_BN("rsa-factor1", (unsigned char *)el[LWS_GENCRYPTO_RSA_KEYEL_P].buf, el[LWS_GENCRYPTO_RSA_KEYEL_P].len);
-		if (el[LWS_GENCRYPTO_RSA_KEYEL_Q].buf)
-			params[pidx++] = OSSL_PARAM_construct_BN("rsa-factor2", (unsigned char *)el[LWS_GENCRYPTO_RSA_KEYEL_Q].buf, el[LWS_GENCRYPTO_RSA_KEYEL_Q].len);
-		params[pidx] = OSSL_PARAM_construct_end();
-
-		pctx = EVP_PKEY_CTX_new_from_name(NULL, "RSA", NULL);
-		if (!pctx) goto bail;
-		if (EVP_PKEY_fromdata_init(pctx) <= 0 ||
-		    EVP_PKEY_fromdata(pctx, &pkey, EVP_PKEY_KEYPAIR, params) <= 0) {
-			EVP_PKEY_CTX_free(pctx);
-			goto bail;
-		}
-		EVP_PKEY_CTX_free(pctx);
-		
-		ctx->ctx = EVP_PKEY_CTX_new(pkey, NULL);
-		EVP_PKEY_free(pkey);
-		if (!ctx->ctx) goto bail;
-		return 0;
-	}
-#else
 	ctx->rsa = RSA_new();
 	if (!ctx->rsa) {
 		lwsl_notice("Failed to create RSA\n");
