@@ -909,6 +909,92 @@ test_cose_keys(struct lws_context *context)
 
 	lws_cose_key_set_destroy(&set);
 
+	/*
+	 * Degenerate and malformed inputs must be rejected with NULL rather
+	 * than dereferencing the never-created key or leaking the
+	 * partially-created one (F-034)
+	 */
+
+	lwsl_user("%s: degenerate import rejections\n", __func__);
+
+	{
+		static const uint8_t empty[] = { /* nothing at all */ },
+			empty_array[] = { 0x80 },	/* [] */
+			nullval[] = { 0xf6 },		/* null */
+			trueval[] = { 0xf5 },		/* true */
+			bare_int[] = { 0x01 },
+			empty_bstr[] = { 0x40 },
+			empty_map[] = { 0xa0 },		/* {}: kty never appears */
+			tagged_null[] = { 0xd8, 0x65, 0xf6 }, /* tag(101) null */
+			trunc_tag[] = { 0xd8, 0x65 };	/* tag(101), no body */
+		struct { const uint8_t *buf; size_t len; } adj[] = {
+			{ empty,		sizeof(empty) },
+			{ empty_array,		sizeof(empty_array) },
+			{ nullval,		sizeof(nullval) },
+			{ trueval,		sizeof(trueval) },
+			{ bare_int,		sizeof(bare_int) },
+			{ empty_bstr,		sizeof(empty_bstr) },
+			{ empty_map,		sizeof(empty_map) },
+			{ tagged_null,		sizeof(tagged_null) },
+			{ trunc_tag,		sizeof(trunc_tag) },
+		};
+		size_t n;
+
+		for (n = 0; n < LWS_ARRAY_SIZE(adj); n++) {
+			ck = lws_cose_key_import(NULL, NULL, NULL,
+						 adj[n].buf, adj[n].len);
+			if (ck) {
+				lwsl_err("%s: degenerate %u accepted\n",
+					 __func__, (unsigned int)n);
+				lws_cose_key_destroy(&ck);
+				goto bail;
+			}
+		}
+
+		/* the key-set form of the same thing */
+
+		lws_dll2_owner_clear(&set);
+		ck = lws_cose_key_import(&set, NULL, NULL,
+					 empty_array, sizeof(empty_array));
+		if (ck || lws_dll2_count(&set)) {
+			lwsl_err("%s: empty key set accepted\n", __func__);
+			lws_cose_key_destroy(&ck);
+			lws_cose_key_set_destroy(&set);
+			goto bail;
+		}
+
+		/*
+		 * Truncated key: the parser needs more input, the callback
+		 * never reaches its own bail cleanup, so import itself has
+		 * to destroy the partial key
+		 */
+
+		memcpy(buf, cose_key3, sizeof(cose_key3));
+		ck = lws_cose_key_import(NULL, NULL, NULL,
+					 buf, sizeof(cose_key3) - 8);
+		if (ck) {
+			lwsl_err("%s: truncated key accepted\n", __func__);
+			lws_cose_key_destroy(&ck);
+			goto bail;
+		}
+
+		/*
+		 * Malformed CBOR mid-key: a bstr header with reserved
+		 * additional info 29 makes lecp fail at parser level...
+		 * again import has to clean up the partial key itself
+		 */
+
+		memcpy(buf, cose_key3, sizeof(cose_key3));
+		buf[16] = 0x5d;
+		ck = lws_cose_key_import(NULL, NULL, NULL,
+					 buf, sizeof(cose_key3));
+		if (ck) {
+			lwsl_err("%s: malformed key accepted\n", __func__);
+			lws_cose_key_destroy(&ck);
+			goto bail;
+		}
+	}
+
 	/* generate */
 
 	ck = lws_cose_key_generate(context, LWSCOSE_WKKTV_EC2,
