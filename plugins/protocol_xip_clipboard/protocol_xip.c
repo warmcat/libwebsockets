@@ -460,6 +460,14 @@ callback_xip(struct lws *wsi, enum lws_callback_reasons reason,
 
 	switch (reason) {
 	case LWS_CALLBACK_PROTOCOL_INIT:
+		/*
+		 * in == NULL means the protocol is not instantiated on this
+		 * vhost; stay quiet, we are just being dragged along with
+		 * the other plugins in the process
+		 */
+		if (!in)
+			return 0;
+
 		vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 						  lws_get_protocol(wsi),
 						  sizeof(*vhd));

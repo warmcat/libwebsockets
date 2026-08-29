@@ -36,9 +36,13 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 	ULONG bloblen;
 	uint8_t *p;
 
+	/* re-init over a live ctx releases the previous incarnation first */
+	if (ctx->created_mark == LWS_GENRSA_CTX_CREATED_MARK)
+		lws_genrsa_destroy(ctx);
+
+	memset(ctx, 0, sizeof(*ctx));
 	ctx->context = context;
 	ctx->mode = mode;
-	ctx->u.hKey = NULL;
 
 	/*
 	 * OAEP needs a real hash... if the caller has no preference, use the
@@ -61,8 +65,10 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 	 */
 
 	status = BCryptOpenAlgorithmProvider(&ctx->u.hAlg, BCRYPT_RSA_ALGORITHM, NULL, 0);
-	if (!BCRYPT_SUCCESS(status))
+	if (!BCRYPT_SUCCESS(status)) {
+		ctx->u.hAlg = NULL;
 		return -1;
+	}
 
 	/* Calculate total blob length */
 	bloblen = sizeof(BCRYPT_RSAKEY_BLOB);
@@ -84,6 +90,7 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 	rsablob = (BCRYPT_RSAKEY_BLOB *)lws_malloc(bloblen, "genrsa blob");
 	if (!rsablob) {
 		BCryptCloseAlgorithmProvider(ctx->u.hAlg, 0);
+		ctx->u.hAlg = NULL;
 		return -1;
 	}
 
@@ -140,8 +147,11 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 
 	if (!BCRYPT_SUCCESS(status)) {
 		BCryptCloseAlgorithmProvider(ctx->u.hAlg, 0);
+		ctx->u.hAlg = NULL;
 		return -1;
 	}
+
+	ctx->created_mark = LWS_GENRSA_CTX_CREATED_MARK;
 
 	return 0;
 }
@@ -163,12 +173,19 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 	ULONG reslen = 0;
 	uint8_t *p;
 
+	/* re-init over a live ctx releases the previous incarnation first */
+	if (ctx->created_mark == LWS_GENRSA_CTX_CREATED_MARK)
+		lws_genrsa_destroy(ctx);
+
+	memset(ctx, 0, sizeof(*ctx));
 	ctx->context = context;
 	ctx->mode = mode;
 
 	status = BCryptOpenAlgorithmProvider(&ctx->u.hAlg, BCRYPT_RSA_ALGORITHM, NULL, 0);
-	if (!BCRYPT_SUCCESS(status))
+	if (!BCRYPT_SUCCESS(status)) {
+		ctx->u.hAlg = NULL;
 		return -1;
+	}
 
 	status = BCryptGenerateKeyPair(ctx->u.hAlg, &ctx->u.hKey, bits, 0);
 	if (!BCRYPT_SUCCESS(status)) {
@@ -242,6 +259,9 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 	el[LWS_GENCRYPTO_RSA_KEYEL_D].buf = NULL;
 
 	lws_free(rsablob);
+
+	ctx->created_mark = LWS_GENRSA_CTX_CREATED_MARK;
+
 	return 0;
 
 fail:
@@ -504,6 +524,7 @@ lws_genrsa_destroy(struct lws_genrsa_ctx *ctx)
 		BCryptCloseAlgorithmProvider(ctx->u.hAlg, 0);
 	ctx->u.hKey = NULL;
 	ctx->u.hAlg = NULL;
+	ctx->created_mark = 0;
 }
 
 /* ASN.1 helpers */

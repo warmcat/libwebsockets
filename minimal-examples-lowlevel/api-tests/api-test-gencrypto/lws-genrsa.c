@@ -292,6 +292,171 @@ bail:
 
 	return ret;
 }
+
+/*
+ * F-045 fence: create() and new_keypair() over a ctx that already holds a
+ * live key incarnation must release the previous incarnation (no leak) and
+ * leave the ctx operating with the new key
+ */
+static int
+test_genrsa_recreate(struct lws_context *context)
+{
+	static const uint8_t plain_a[] = "recreate roundtrip A";
+	static const uint8_t plain_b[] = "recreate roundtrip B";
+	struct lws_genrsa_ctx ctx, ctx2, pub1, pub2;
+	struct lws_gencrypto_keyelem el[2][LWS_GENCRYPTO_RSA_KEYEL_COUNT];
+	struct lws_gencrypto_keyelem pub_el[2][LWS_GENCRYPTO_RSA_KEYEL_COUNT];
+	struct lws_gencrypto_keyelem gen[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
+	uint8_t *cipher = NULL, *plain = NULL;
+	size_t key_bytes;
+	int n, m, ret = 1;
+
+	memset(&ctx, 0, sizeof(ctx));
+	memset(&ctx2, 0, sizeof(ctx2));
+	memset(&pub1, 0, sizeof(pub1));
+	memset(&pub2, 0, sizeof(pub2));
+	memset(el, 0, sizeof(el));
+	memset(pub_el, 0, sizeof(pub_el));
+	memset(gen, 0, sizeof(gen));
+
+	/* two independent keypairs, in two live ctxs */
+
+	if (lws_genrsa_new_keypair(context, &ctx, LGRSAM_PKCS1_1_5, el[0],
+				   2048)) {
+		lwsl_err("%s: new_keypair 0 failed\n", __func__);
+		goto bail;
+	}
+
+	if (lws_genrsa_new_keypair(context, &ctx2, LGRSAM_PKCS1_1_5, el[1],
+				   2048)) {
+		lwsl_err("%s: new_keypair 1 failed\n", __func__);
+		goto bail;
+	}
+
+	test_genrsa_prepare_public_elements(pub_el[0], el[0]);
+	test_genrsa_prepare_public_elements(pub_el[1], el[1]);
+
+	if (lws_genrsa_create(&pub1, pub_el[0], context, LGRSAM_PKCS1_1_5,
+			      LWS_GENHASH_TYPE_UNKNOWN) ||
+	    lws_genrsa_create(&pub2, pub_el[1], context, LGRSAM_PKCS1_1_5,
+			      LWS_GENHASH_TYPE_UNKNOWN)) {
+		lwsl_err("%s: pub ctx create failed\n", __func__);
+		goto bail;
+	}
+
+	key_bytes = el[0][LWS_GENCRYPTO_RSA_KEYEL_N].len;
+	cipher = malloc(key_bytes);
+	plain = malloc(key_bytes);
+	if (!cipher || !plain) {
+		lwsl_err("%s: OOM allocating recreate buffers\n", __func__);
+		goto bail;
+	}
+
+	/* sanity: ctx currently operates with key 0 */
+
+	n = lws_genrsa_private_encrypt(&ctx, plain_a, sizeof(plain_a) - 1,
+				       cipher);
+	if (n < 0) {
+		lwsl_err("%s: private_encrypt sanity failed\n", __func__);
+		goto bail;
+	}
+
+	n = lws_genrsa_public_decrypt(&pub1, cipher, (size_t)n, plain,
+				      key_bytes);
+	if (n != (int)(sizeof(plain_a) - 1) ||
+	    lws_timingsafe_bcmp(plain, plain_a, sizeof(plain_a) - 1)) {
+		lwsl_err("%s: sanity roundtrip mismatch\n", __func__);
+		goto bail;
+	}
+
+	/*
+	 * re-create over the live ctx with key 1's elements: it must release
+	 * key 0's incarnation and take on key 1
+	 */
+
+	if (lws_genrsa_create(&ctx, el[1], context, LGRSAM_PKCS1_1_5,
+			      LWS_GENHASH_TYPE_UNKNOWN)) {
+		lwsl_err("%s: re-create over live ctx failed\n", __func__);
+		goto bail;
+	}
+
+	n = lws_genrsa_private_encrypt(&ctx, plain_b, sizeof(plain_b) - 1,
+				       cipher);
+	if (n < 0) {
+		lwsl_err("%s: private_encrypt after re-create failed\n",
+			 __func__);
+		goto bail;
+	}
+
+	m = lws_genrsa_public_decrypt(&pub2, cipher, (size_t)n, plain,
+				      key_bytes);
+	if (m != (int)(sizeof(plain_b) - 1) ||
+	    lws_timingsafe_bcmp(plain, plain_b, sizeof(plain_b) - 1)) {
+		lwsl_err("%s: re-created ctx not operating with key 1\n",
+			 __func__);
+		goto bail;
+	}
+
+	/* ...and it must no longer be operating with key 0 */
+
+	m = lws_genrsa_public_decrypt(&pub1, cipher, (size_t)n, plain,
+				      key_bytes);
+	if (m == (int)(sizeof(plain_b) - 1) &&
+	    !lws_timingsafe_bcmp(plain, plain_b, sizeof(plain_b) - 1)) {
+		lwsl_err("%s: re-created ctx still operating with key 0\n",
+			 __func__);
+		goto bail;
+	}
+
+	/* a second re-create restores key 0 */
+
+	if (lws_genrsa_create(&ctx, el[0], context, LGRSAM_PKCS1_1_5,
+			      LWS_GENHASH_TYPE_UNKNOWN)) {
+		lwsl_err("%s: second re-create over live ctx failed\n", __func__);
+		goto bail;
+	}
+
+	n = lws_genrsa_private_encrypt(&ctx, plain_a, sizeof(plain_a) - 1,
+				       cipher);
+	if (n < 0) {
+		lwsl_err("%s: private_encrypt after second re-create failed\n",
+			 __func__);
+		goto bail;
+	}
+
+	n = lws_genrsa_public_decrypt(&pub1, cipher, (size_t)n, plain,
+				      key_bytes);
+	if (n != (int)(sizeof(plain_a) - 1) ||
+	    lws_timingsafe_bcmp(plain, plain_a, sizeof(plain_a) - 1)) {
+		lwsl_err("%s: second re-create roundtrip mismatch\n", __func__);
+		goto bail;
+	}
+
+	/* new_keypair() into the live keyed ctx displaces the old key */
+
+	if (lws_genrsa_new_keypair(context, &ctx, LGRSAM_PKCS1_1_5, gen,
+				   2048)) {
+		lwsl_err("%s: new_keypair over live ctx failed\n", __func__);
+		goto bail;
+	}
+
+	ret = 0;
+
+bail:
+	if (cipher)
+		free(cipher);
+	if (plain)
+		free(plain);
+	lws_genrsa_destroy(&pub2);
+	lws_genrsa_destroy(&pub1);
+	lws_genrsa_destroy(&ctx2);
+	lws_genrsa_destroy(&ctx);
+	lws_genrsa_destroy_elements(el[0]);
+	lws_genrsa_destroy_elements(el[1]);
+	lws_genrsa_destroy_elements(gen);
+
+	return ret;
+}
 #endif
 
 int
@@ -302,6 +467,9 @@ test_genrsa(struct lws_context *context)
 		goto bail;
 
 	if (test_genrsa_fixed_vectors(context))
+		goto bail;
+
+	if (test_genrsa_recreate(context))
 		goto bail;
 #else
 	lwsl_notice("%s: Skipping RSA encrypt/decrypt tests (unsupported on this backend)\n", __func__);

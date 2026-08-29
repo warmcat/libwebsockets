@@ -36,6 +36,10 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 {
 	gnutls_datum_t m, e, d, p, q, u, e1, e2;
 
+	/* re-init over a live ctx releases the previous incarnation first */
+	if (ctx->created_mark == LWS_GENRSA_CTX_CREATED_MARK)
+		lws_genrsa_destroy(ctx);
+
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->context = context;
 	ctx->mode = mode;
@@ -68,19 +72,32 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 
 		if (gnutls_privkey_import_rsa_raw(ctx->priv, &m, &e, &d, &p, &q, &u, &e1, &e2) < 0) {
 			gnutls_privkey_deinit(ctx->priv);
+			ctx->priv = NULL;
 			return 1;
 		}
 	}
 
 	if (m.data && e.data) {
-		if (gnutls_pubkey_init(&ctx->pub) < 0)
+		if (gnutls_pubkey_init(&ctx->pub) < 0) {
+			if (ctx->priv) {
+				gnutls_privkey_deinit(ctx->priv);
+				ctx->priv = NULL;
+			}
 			return 1;
+		}
 
 		if (gnutls_pubkey_import_rsa_raw(ctx->pub, &m, &e) < 0) {
 			gnutls_pubkey_deinit(ctx->pub);
+			ctx->pub = NULL;
+			if (ctx->priv) {
+				gnutls_privkey_deinit(ctx->priv);
+				ctx->priv = NULL;
+			}
 			return 1;
 		}
 	}
+
+	ctx->created_mark = LWS_GENRSA_CTX_CREATED_MARK;
 
 	return 0;
 }
@@ -103,6 +120,10 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 {
 	gnutls_datum_t m, e, d, p, q, u, e1, e2;
 	int ret = -1;
+
+	/* re-init over a live ctx releases the previous incarnation first */
+	if (ctx->created_mark == LWS_GENRSA_CTX_CREATED_MARK)
+		lws_genrsa_destroy(ctx);
 
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->context = context;
@@ -153,8 +174,16 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 	ret = 0;
 
 bail:
-	if (ret)
+	if (!ret) {
+		ctx->created_mark = LWS_GENRSA_CTX_CREATED_MARK;
+		return 0;
+	}
+
+	if (ctx->priv) {
 		gnutls_privkey_deinit(ctx->priv);
+		ctx->priv = NULL;
+	}
+
 	return ret;
 }
 
@@ -323,6 +352,7 @@ lws_genrsa_destroy(struct lws_genrsa_ctx *ctx)
 
 	ctx->priv = NULL;
 	ctx->pub = NULL;
+	ctx->created_mark = 0;
 }
 
 void

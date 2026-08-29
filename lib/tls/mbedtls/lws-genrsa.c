@@ -49,6 +49,13 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 {
 	int hash_id;
 
+	/* re-init over a live ctx releases the previous incarnation first */
+	if (ctx->created_mark == LWS_GENRSA_CTX_CREATED_MARK)
+		lws_genrsa_destroy(ctx);
+
+	if (mode >= LGRSAM_COUNT)
+		return -1;
+
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->ctx = lws_zalloc(sizeof(*ctx->ctx), "genrsa");
 	if (!ctx->ctx)
@@ -56,9 +63,6 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 
 	ctx->context = context;
 	ctx->mode = mode;
-
-	if (mode >= LGRSAM_COUNT)
-		return -1;
 
 	/*
 	 * OAEP needs a real md for the MGF1 hash... if the caller has no
@@ -133,6 +137,8 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 
 	ctx->ctx->MBEDTLS_PRIVATE(len) = el[LWS_GENCRYPTO_RSA_KEYEL_N].len;
 
+	ctx->created_mark = LWS_GENRSA_CTX_CREATED_MARK;
+
 	return 0;
 }
 
@@ -152,6 +158,13 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 {
 	int n;
 
+	/* re-init over a live ctx releases the previous incarnation first */
+	if (ctx->created_mark == LWS_GENRSA_CTX_CREATED_MARK)
+		lws_genrsa_destroy(ctx);
+
+	if (mode >= LGRSAM_COUNT)
+		return -1;
+
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->ctx = lws_zalloc(sizeof(*ctx->ctx), "genrsa");
 	if (!ctx->ctx)
@@ -159,9 +172,6 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 
 	ctx->context = context;
 	ctx->mode = mode;
-
-	if (mode >= LGRSAM_COUNT)
-		return -1;
 
 #if !defined(MBEDTLS_VERSION_NUMBER) || MBEDTLS_VERSION_NUMBER < 0x03000000
 	mbedtls_rsa_init(ctx->ctx, mode_map[mode], 0);
@@ -200,6 +210,8 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 					goto cleanup;
 			}
 	}
+
+	ctx->created_mark = LWS_GENRSA_CTX_CREATED_MARK;
 
 	return 0;
 
@@ -575,11 +587,13 @@ lws_genrsa_render_pkey_asn1(struct lws_genrsa_ctx *ctx, int _private,
 void
 lws_genrsa_destroy(struct lws_genrsa_ctx *ctx)
 {
-	if (!ctx->ctx)
-		return;
-	mbedtls_rsa_free(ctx->ctx);
-	lws_free(ctx->ctx);
-	ctx->ctx = NULL;
+	if (ctx->ctx) {
+		mbedtls_rsa_free(ctx->ctx);
+		lws_free(ctx->ctx);
+		ctx->ctx = NULL;
+	}
+
+	ctx->created_mark = 0;
 }
 #else /* LWS_HAVE_MBEDTLS_V4 */
 
@@ -664,6 +678,10 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 	struct lws_gencrypto_keyelem version = { (uint8_t *)"\0", 1 };
 	psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
 
+	/* re-init over a live ctx releases the previous incarnation first */
+	if (ctx->created_mark == LWS_GENRSA_CTX_CREATED_MARK)
+		lws_genrsa_destroy(ctx);
+
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->context = context;
 	ctx->mode = mode;
@@ -700,6 +718,8 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 	if (psa_import_key(&attr, der, (size_t)(p - der), &ctx->key_id) != PSA_SUCCESS)
 		return -1;
 
+	ctx->created_mark = LWS_GENRSA_CTX_CREATED_MARK;
+
 	return 0;
 }
 
@@ -711,6 +731,10 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 	psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
 	uint8_t der[4096];
 	size_t der_len;
+
+	/* re-init over a live ctx releases the previous incarnation first */
+	if (ctx->created_mark == LWS_GENRSA_CTX_CREATED_MARK)
+		lws_genrsa_destroy(ctx);
 
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->context = context;
@@ -730,8 +754,11 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 	if (psa_generate_key(&attr, &ctx->key_id) != PSA_SUCCESS)
 		return -1;
 
-	if (psa_export_key(ctx->key_id, der, sizeof(der), &der_len) != PSA_SUCCESS)
+	if (psa_export_key(ctx->key_id, der, sizeof(der), &der_len) != PSA_SUCCESS) {
+		psa_destroy_key(ctx->key_id);
+		ctx->key_id = 0;
 		return -1;
+	}
 
 	{
 		uint8_t *p = der;
@@ -783,10 +810,14 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 		}
 	}
 
+	ctx->created_mark = LWS_GENRSA_CTX_CREATED_MARK;
+
 	return 0;
 
 cleanup_der:
 	lws_genrsa_destroy_elements(el);
+	psa_destroy_key(ctx->key_id);
+	ctx->key_id = 0;
 	return -1;
 }
 
@@ -881,6 +912,8 @@ void
 lws_genrsa_destroy(struct lws_genrsa_ctx *ctx)
 {
 	psa_destroy_key(ctx->key_id);
+	ctx->key_id = 0;
+	ctx->created_mark = 0;
 }
 
 #endif

@@ -208,6 +208,11 @@ lws_genhmac_destroy(struct lws_genhmac_ctx *ctx, void *result)
 int
 lws_genrsa_create(struct lws_genrsa_ctx *ctx, const struct lws_gencrypto_keyelem *el, struct lws_context *context, enum enum_genrsa_mode mode, enum lws_genhash_types hash_type)
 {
+	/* re-init over a live ctx releases the previous incarnation first */
+	if (ctx->created_mark == LWS_GENRSA_CTX_CREATED_MARK)
+		lws_genrsa_destroy(ctx);
+
+	memset(ctx, 0, sizeof(*ctx));
 	ctx->context = context;
 	ctx->mode = mode;
 
@@ -236,6 +241,8 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx, const struct lws_gencrypto_keyelem
 		ctx->priv.p = NULL;
 	}
 
+	ctx->created_mark = LWS_GENRSA_CTX_CREATED_MARK;
+
 	return 0;
 }
 
@@ -250,6 +257,10 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx, 
 	size_t dlen;
 	uint32_t pubexp = 65537;
 	int ret = -1;
+
+	/* re-init over a live ctx releases the previous incarnation first */
+	if (ctx->created_mark == LWS_GENRSA_CTX_CREATED_MARK)
+		lws_genrsa_destroy(ctx);
 
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->context = context;
@@ -317,6 +328,7 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx, 
 		goto bail;
 
 	ret = 0;
+	ctx->created_mark = LWS_GENRSA_CTX_CREATED_MARK;
 
 bail:
 	if (dbuf)
@@ -437,6 +449,7 @@ void lws_genrsa_destroy(struct lws_genrsa_ctx *ctx)
 {
 	lws_free_set_NULL(ctx->kbuf_priv);
 	lws_free_set_NULL(ctx->kbuf_pub);
+	ctx->created_mark = 0;
 }
 
 void lws_genec_destroy(struct lws_genec_ctx *ctx)
