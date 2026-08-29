@@ -279,6 +279,101 @@ bail:
 	return 1;
 }
 
+/*
+ * F-040 regression: the v4/PSA import built the peer EC point using X's
+ * length for both the X and the Y memcpy, so a full-length X with a short Y
+ * read past the end of the Y element's heap allocation.  Elements whose
+ * lengths disagree with the curve (or with each other) must be rejected
+ * cleanly on every backend.
+ */
+static int
+test_genec3(struct lws_context *context)
+{
+	static const struct {
+		/* element lengths in bytes; 0 for a missing d */
+		uint32_t xl, yl, dl;
+		const char *crv;
+		enum enum_lws_dh_side side;
+	} cases[] = {
+		/* the finding's worst case: P-521 X with a 1-byte Y */
+		{ 66, 1,  0, "P-521", LDHS_THEIRS },
+		/* X shorter than the curve length */
+		{ 1,  32, 0, "P-256", LDHS_THEIRS },
+		/* d present but not at the curve length */
+		{ 32, 32, 1, "P-256", LDHS_OURS   },
+	};
+	struct lws_genec_ctx ctx;
+	struct lws_gencrypto_keyelem el[LWS_GENCRYPTO_EC_KEYEL_COUNT];
+	char crv[8];
+	size_t n;
+
+	for (n = 0; n < LWS_ARRAY_SIZE(cases); n++) {
+
+		memset(el, 0, sizeof(el));
+		memset(&ctx, 0, sizeof(ctx));
+		memset(crv, 0, sizeof(crv));
+		lws_strncpy(crv, cases[n].crv, sizeof(crv));
+
+		el[LWS_GENCRYPTO_EC_KEYEL_CRV].buf = (uint8_t *)crv;
+		el[LWS_GENCRYPTO_EC_KEYEL_CRV].len = (uint32_t)strlen(crv) + 1;
+
+		/*
+		 * Exact-size heap allocations, so an overlong copy of any
+		 * element shows up as an OOB read under ASAN.  The elements
+		 * stay owned by the test; the import must only read them.
+		 */
+
+		el[LWS_GENCRYPTO_EC_KEYEL_X].buf = malloc(cases[n].xl);
+		el[LWS_GENCRYPTO_EC_KEYEL_Y].buf = malloc(cases[n].yl);
+		if (cases[n].dl)
+			el[LWS_GENCRYPTO_EC_KEYEL_D].buf = malloc(cases[n].dl);
+		if (!el[LWS_GENCRYPTO_EC_KEYEL_X].buf ||
+		    !el[LWS_GENCRYPTO_EC_KEYEL_Y].buf ||
+		    (cases[n].dl && !el[LWS_GENCRYPTO_EC_KEYEL_D].buf))
+			goto bail;
+
+		memset(el[LWS_GENCRYPTO_EC_KEYEL_X].buf, 0x5a, cases[n].xl);
+		memset(el[LWS_GENCRYPTO_EC_KEYEL_Y].buf, 0xa5, cases[n].yl);
+		if (cases[n].dl)
+			memset(el[LWS_GENCRYPTO_EC_KEYEL_D].buf, 0x33,
+			       cases[n].dl);
+
+		el[LWS_GENCRYPTO_EC_KEYEL_X].len = cases[n].xl;
+		el[LWS_GENCRYPTO_EC_KEYEL_Y].len = cases[n].yl;
+		el[LWS_GENCRYPTO_EC_KEYEL_D].len = cases[n].dl;
+
+		if (lws_genecdh_create(&ctx, context, NULL))
+			goto bail;
+
+		if (lws_genecdh_set_key(&ctx, el, cases[n].side) >= 0) {
+			lws_genec_destroy(&ctx);
+			lwsl_err("%s: case %u lengths accepted\n", __func__,
+				 (unsigned int)n);
+			goto bail;
+		}
+
+		/* the failed ctx must still be destroyable */
+
+		lws_genec_destroy(&ctx);
+
+		free(el[LWS_GENCRYPTO_EC_KEYEL_X].buf);
+		free(el[LWS_GENCRYPTO_EC_KEYEL_Y].buf);
+		if (cases[n].dl)
+			free(el[LWS_GENCRYPTO_EC_KEYEL_D].buf);
+	}
+
+	return 0;
+
+bail:
+	lws_genec_destroy(&ctx);
+	free(el[LWS_GENCRYPTO_EC_KEYEL_X].buf);
+	free(el[LWS_GENCRYPTO_EC_KEYEL_Y].buf);
+	if (cases[n].dl)
+		free(el[LWS_GENCRYPTO_EC_KEYEL_D].buf);
+
+	return 1;
+}
+
 int
 test_genec(struct lws_context *context)
 {
@@ -286,6 +381,9 @@ test_genec(struct lws_context *context)
 		goto bail;
 
 	if (test_genec2(context))
+		goto bail;
+
+	if (test_genec3(context))
 		goto bail;
 
 	/* end */

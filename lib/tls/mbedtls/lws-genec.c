@@ -617,6 +617,17 @@ lws_genec_keypair_import(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 	family = lws_genec_to_psa_curve(curve->tls_lib_nid, &bits);
 	if (!family) return -22;
 
+	/*
+	 * d (the private part) may be missing, otherwise it and everything
+	 * else must match the expected bignum size
+	 */
+
+	if ((el[LWS_GENCRYPTO_EC_KEYEL_D].len &&
+	     el[LWS_GENCRYPTO_EC_KEYEL_D].len != curve->key_bytes) ||
+	    el[LWS_GENCRYPTO_EC_KEYEL_X].len != curve->key_bytes ||
+	    el[LWS_GENCRYPTO_EC_KEYEL_Y].len != curve->key_bytes)
+		return -23;
+
 	has_private = !!el[LWS_GENCRYPTO_EC_KEYEL_D].len;
 
 	if (side == LDHS_THEIRS) {
@@ -668,7 +679,7 @@ lws_genec_keypair_import(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 	}
 
 	/* has_private reflects the our-side slot only */
-	ctx->has_private = has_private;
+	ctx->has_private = !!has_private;
 
 	return 0;
 }

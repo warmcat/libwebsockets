@@ -2135,8 +2135,10 @@ bail:
  * F-030: every decrypt error path after the backend EC context is created
  * used to leak that context (~5KB/attempt with the openssl backend).  An
  * attacker-controlled malformed epk in the protected header is the cheapest
- * way to reach those paths, so hammer two variants of it: the decrypt must
+ * way to reach those paths, so hammer three variants of it: the decrypt must
  * fail cleanly each time and (in ASAN/LSan builds) leave nothing behind.
+ * F-040 adds the third variant: the epk element lengths were never checked
+ * against the curve, and the v4/PSA import read Y using X's length.
  */
 
 static int
@@ -2144,13 +2146,16 @@ test_ecdhes_malformed_epk(struct lws_context *context)
 {
 	/* valid EC shape, but 1 byte short of P-256's x length */
 	uint8_t bad_x[31];
+	/* F-040: full-length x with a 1-byte y */
+	uint8_t bad_y[1];
 	/* P-256-sized coordinates that are not a point on the curve */
 	uint8_t offcurve_xy[32];
 	char jose[384], x_b64[64], y_b64[64], jose_b64[512], compact[2048],
 	     tampered[2048], temp[4096], *p1;
 	struct lws_jwe jwe;
 	int n, m, ret = -1, temp_len = sizeof(temp), variant, nloops;
-	const char *x_str;
+	const uint8_t *xp, *yp;
+	size_t xl, yl;
 
 	lws_jwe_init(&jwe, context);
 
@@ -2219,20 +2224,31 @@ test_ecdhes_malformed_epk(struct lws_context *context)
 	memset(bad_x, 0x11, sizeof(bad_x));
 	memset(offcurve_xy, 0xa5, sizeof(offcurve_xy));
 
-	for (variant = 0; variant < 2; variant++) {
+	for (variant = 0; variant < 3; variant++) {
 
-		if (lws_b64_encode_string_url((const char *)offcurve_xy,
-					      (int)sizeof(offcurve_xy), y_b64,
-					      (int)sizeof(y_b64)) < 0) {
-			lwsl_err("%s: b64 encode failed\n", __func__);
-			goto bail;
+		/*
+		 * variant 0: x 1 byte short of the curve length
+		 * variant 1: full-length x and y, but not a curve point
+		 * variant 2 (F-040): full-length x with a 1-byte y
+		 */
+
+		xp = offcurve_xy;
+		xl = sizeof(offcurve_xy);
+		yp = offcurve_xy;
+		yl = sizeof(offcurve_xy);
+
+		if (!variant) {
+			xp = bad_x;
+			xl = sizeof(bad_x);
+		}
+		if (variant == 2) {
+			yp = bad_y;
+			yl = sizeof(bad_y);
 		}
 
-		x_str = variant ? (const char *)offcurve_xy
-				: (const char *)bad_x;
-		if (lws_b64_encode_string_url(x_str,
-					      variant ? (int)sizeof(offcurve_xy)
-						      : (int)sizeof(bad_x),
+		if (lws_b64_encode_string_url((const char *)yp, (int)yl,
+					      y_b64, (int)sizeof(y_b64)) < 0 ||
+		    lws_b64_encode_string_url((const char *)xp, (int)xl,
 					      x_b64, (int)sizeof(x_b64)) < 0) {
 			lwsl_err("%s: b64 encode failed\n", __func__);
 			goto bail;
