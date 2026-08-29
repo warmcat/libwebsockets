@@ -447,6 +447,7 @@ void lws_genec_destroy(struct lws_genec_ctx *ctx)
 	}
 	lws_free_set_NULL(ctx->kbuf_priv);
 	lws_free_set_NULL(ctx->kbuf_pub);
+	ctx->has_private = 0;
 }
 
 int
@@ -527,6 +528,7 @@ lws_genecdsa_new_keypair(struct lws_genec_ctx *ctx, const char *curve_name, stru
 	return 0;
 
 bail:
+	lws_free_set_NULL(ctx->pub.q);
 	lws_free_set_NULL(ctx->kbuf_priv);
 	lws_free_set_NULL(ctx->kbuf_pub);
 	return -1;
@@ -554,6 +556,9 @@ lws_genecdsa_set_key(struct lws_genec_ctx *ctx, const struct lws_gencrypto_keyel
 		q[0] = 0x04; /* Uncompressed format */
 		memcpy(q + 1, el[LWS_GENCRYPTO_EC_KEYEL_X].buf, el[LWS_GENCRYPTO_EC_KEYEL_X].len);
 		memcpy(q + 1 + el[LWS_GENCRYPTO_EC_KEYEL_X].len, el[LWS_GENCRYPTO_EC_KEYEL_Y].buf, el[LWS_GENCRYPTO_EC_KEYEL_Y].len);
+
+		/* last-set-wins: replace any existing pub allocation */
+		lws_free((void *)ctx->pub.q);
 
 		ctx->pub.curve = ctx->curve_table->tls_lib_nid;
 		ctx->pub.q = q;

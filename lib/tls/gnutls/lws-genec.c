@@ -155,6 +155,11 @@ lws_genecdh_set_key(struct lws_genec_ctx *ctx, const struct lws_gencrypto_keyele
 
 	if (side == LDHS_OURS) {
 		if (d.size) {
+			if (ctx->priv) {
+				gnutls_privkey_deinit(ctx->priv);
+				ctx->priv = NULL;
+				ctx->has_private = 0;
+			}
 			if (gnutls_privkey_init(&ctx->priv) < 0)
 				goto bail;
 			if (gnutls_privkey_import_ecc_raw(ctx->priv, curve, &x, &y, &d) < 0) {
@@ -205,8 +210,6 @@ bail:
 	lws_free(d_pad);
 
 	return ret;
-
-	return 0;
 }
 
 int
@@ -231,6 +234,12 @@ lws_genecdh_new_keypair(struct lws_genec_ctx *ctx, enum enum_lws_dh_side side,
 	if (!c) {
 		lwsl_err("lws_genec_curve failed to find curve %s\n", curve_name);
 		return -1;
+	}
+
+	if (ctx->priv) {
+		gnutls_privkey_deinit(ctx->priv);
+		ctx->priv = NULL;
+		ctx->has_private = 0;
 	}
 
 	if (gnutls_privkey_init(&ctx->priv) < 0) {
@@ -480,6 +489,7 @@ lws_genec_destroy(struct lws_genec_ctx *ctx)
 
 	ctx->priv = NULL;
 	ctx->pub = NULL;
+	ctx->has_private = 0;
 }
 
 int

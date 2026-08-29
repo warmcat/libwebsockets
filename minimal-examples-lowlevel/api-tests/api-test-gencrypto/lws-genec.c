@@ -113,10 +113,179 @@ test_genec1(struct lws_context *context)
 //	return -1;
 }
 
+/*
+ * F-036 regression: setting both sides of an ECDH ctx, then re-setting
+ * either side, must free the displaced key (no leak) and leave the ctx
+ * with last-set-wins state that derives the same secret as a fresh ctx
+ * built with the same keys
+ */
+static int
+test_genec2(struct lws_context *context)
+{
+	struct lws_genec_ctx ctx, fresh, ecdsa, kp[3];
+	struct lws_gencrypto_keyelem el[3][LWS_GENCRYPTO_EC_KEYEL_COUNT];
+	struct lws_gencrypto_keyelem pub[LWS_GENCRYPTO_EC_KEYEL_COUNT];
+	uint8_t hash[32], sig[64];
+	uint8_t s_ab[32], s_ac[32], s_ac_fresh[32], s_cc[32], s_cc_fresh[32];
+	int ss_len, n;
+
+	memset(el, 0, sizeof(el));
+	memset(&ctx, 0, sizeof(ctx));
+	memset(&fresh, 0, sizeof(fresh));
+	memset(&ecdsa, 0, sizeof(ecdsa));
+	memset(kp, 0, sizeof(kp));
+
+	/* three independent P-256 keypairs, exported to elements */
+
+	for (n = 0; n < 3; n++) {
+		if (lws_genecdh_create(&kp[n], context, NULL) ||
+		    lws_genecdh_new_keypair(&kp[n], LDHS_OURS, "P-256", el[n]))
+			goto bail;
+
+		/* the element buffers are copies, the keygen ctx is done */
+		lws_genec_destroy(&kp[n]);
+	}
+
+	/* a peer-side element set has only the public parts */
+
+	memset(pub, 0, sizeof(pub));
+	pub[LWS_GENCRYPTO_EC_KEYEL_CRV] = el[1][LWS_GENCRYPTO_EC_KEYEL_CRV];
+	pub[LWS_GENCRYPTO_EC_KEYEL_X]   = el[1][LWS_GENCRYPTO_EC_KEYEL_X];
+	pub[LWS_GENCRYPTO_EC_KEYEL_Y]   = el[1][LWS_GENCRYPTO_EC_KEYEL_Y];
+
+	if (lws_genecdh_create(&ctx, context, NULL) ||
+	    lws_genecdh_set_key(&ctx, el[0], LDHS_OURS) ||
+	    lws_genecdh_set_key(&ctx, pub, LDHS_THEIRS))
+		goto bail;
+
+	ss_len = (int)sizeof(s_ab);
+	if (lws_genecdh_compute_shared_secret(&ctx, s_ab, &ss_len) ||
+	    ss_len != (int)sizeof(s_ab)) {
+		lwsl_err("%s: derive 0x1 failed\n", __func__);
+		goto bail;
+	}
+
+	/* re-set the peer side to keypair 2's public */
+
+	pub[LWS_GENCRYPTO_EC_KEYEL_CRV] = el[2][LWS_GENCRYPTO_EC_KEYEL_CRV];
+	pub[LWS_GENCRYPTO_EC_KEYEL_X]   = el[2][LWS_GENCRYPTO_EC_KEYEL_X];
+	pub[LWS_GENCRYPTO_EC_KEYEL_Y]   = el[2][LWS_GENCRYPTO_EC_KEYEL_Y];
+
+	if (lws_genecdh_set_key(&ctx, pub, LDHS_THEIRS))
+		goto bail;
+
+	ss_len = (int)sizeof(s_ac);
+	if (lws_genecdh_compute_shared_secret(&ctx, s_ac, &ss_len) ||
+	    ss_len != (int)sizeof(s_ac)) {
+		lwsl_err("%s: derive 0x2 failed\n", __func__);
+		goto bail;
+	}
+
+	/* a different peer must yield a different shared secret */
+
+	if (!memcmp(s_ab, s_ac, sizeof(s_ab))) {
+		lwsl_err("%s: peer re-set had no effect\n", __func__);
+		goto bail;
+	}
+
+	/* ...and the re-set ctx must derive what a fresh ctx derives */
+
+	if (lws_genecdh_create(&fresh, context, NULL) ||
+	    lws_genecdh_set_key(&fresh, el[0], LDHS_OURS) ||
+	    lws_genecdh_set_key(&fresh, pub, LDHS_THEIRS))
+		goto bail;
+
+	ss_len = (int)sizeof(s_ac_fresh);
+	if (lws_genecdh_compute_shared_secret(&fresh, s_ac_fresh, &ss_len))
+		goto bail;
+
+	if (lws_timingsafe_bcmp(s_ac, s_ac_fresh, sizeof(s_ac))) {
+		lwsl_err("%s: re-set peer state != fresh state\n", __func__);
+		goto bail;
+	}
+
+	lws_genec_destroy(&fresh);
+
+	/* re-set our side to keypair 2 as well (self-agreement) */
+
+	if (lws_genecdh_set_key(&ctx, el[2], LDHS_OURS))
+		goto bail;
+
+	ss_len = (int)sizeof(s_cc);
+	if (lws_genecdh_compute_shared_secret(&ctx, s_cc, &ss_len) ||
+	    ss_len != (int)sizeof(s_cc)) {
+		lwsl_err("%s: derive 0x2x0x2 failed\n", __func__);
+		goto bail;
+	}
+
+	if (!memcmp(s_cc, s_ac, sizeof(s_cc))) {
+		lwsl_err("%s: our-side re-set had no effect\n", __func__);
+		goto bail;
+	}
+
+	if (lws_genecdh_create(&fresh, context, NULL) ||
+	    lws_genecdh_set_key(&fresh, el[2], LDHS_OURS) ||
+	    lws_genecdh_set_key(&fresh, pub, LDHS_THEIRS))
+		goto bail;
+
+	ss_len = (int)sizeof(s_cc_fresh);
+	if (lws_genecdh_compute_shared_secret(&fresh, s_cc_fresh, &ss_len))
+		goto bail;
+
+	if (lws_timingsafe_bcmp(s_cc, s_cc_fresh, sizeof(s_cc))) {
+		lwsl_err("%s: re-set our-side state != fresh state\n", __func__);
+		goto bail;
+	}
+
+	lws_genec_destroy(&fresh);
+	lws_genec_destroy(&ctx);
+
+	/* ECDSA re-set: last-set-wins keeps the ctx usable for signing */
+
+	for (n = 0; n < (int)sizeof(hash); n++)
+		hash[n] = (uint8_t)(n * 7);
+
+	if (lws_genecdsa_create(&ecdsa, context, NULL) ||
+	    lws_genecdsa_set_key(&ecdsa, el[0]) ||
+	    lws_genecdsa_set_key(&ecdsa, el[1]))
+		goto bail;
+
+	/* sign returns the sig length, or zero, depending on backend */
+
+	n = lws_genecdsa_hash_sign_jws(&ecdsa, hash,
+				       LWS_GENHASH_TYPE_SHA256, 256,
+				       sig, sizeof(sig));
+	if (n < 0) {
+		lwsl_err("%s: sign after ECDSA re-set failed\n", __func__);
+		goto bail;
+	}
+
+	lws_genec_destroy(&ecdsa);
+
+	for (n = 0; n < 3; n++)
+		lws_genec_destroy_elements(el[n]);
+
+	return 0;
+
+bail:
+	for (n = 0; n < 3; n++) {
+		lws_genec_destroy(&kp[n]);
+		lws_genec_destroy_elements(el[n]);
+	}
+	lws_genec_destroy(&ctx);
+	lws_genec_destroy(&fresh);
+	lws_genec_destroy(&ecdsa);
+
+	return 1;
+}
+
 int
 test_genec(struct lws_context *context)
 {
 	if (test_genec1(context))
+		goto bail;
+
+	if (test_genec2(context))
 		goto bail;
 
 	/* end */

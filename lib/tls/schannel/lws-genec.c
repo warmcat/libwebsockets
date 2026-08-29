@@ -314,9 +314,20 @@ lws_genecdsa_hash_sign_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
 void
 lws_genec_destroy(struct lws_genec_ctx *ctx)
 {
-	if (ctx->u.hKey) BCryptDestroyKey(ctx->u.hKey);
-	if (ctx->u.hKeyPeer) BCryptDestroyKey(ctx->u.hKeyPeer);
-	if (ctx->u.hAlg) BCryptCloseAlgorithmProvider(ctx->u.hAlg, 0);
+	if (ctx->u.hKey) {
+		BCryptDestroyKey(ctx->u.hKey);
+		ctx->u.hKey = NULL;
+	}
+	if (ctx->u.hKeyPeer) {
+		BCryptDestroyKey(ctx->u.hKeyPeer);
+		ctx->u.hKeyPeer = NULL;
+	}
+	if (ctx->u.hAlg) {
+		BCryptCloseAlgorithmProvider(ctx->u.hAlg, 0);
+		ctx->u.hAlg = NULL;
+	}
+
+	ctx->has_private = 0;
 }
 /*
 void
