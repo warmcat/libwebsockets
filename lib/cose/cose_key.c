@@ -1003,6 +1003,27 @@ lws_cose_key_import(lws_dll2_owner_t *pkey_set, lws_cose_key_import_callback cb,
 
 	if (m < 0) {
 		lwsl_notice("%s: parse got %d\n", __func__, m);
+		/*
+		 * The callback's own bail path already destroyed and NULLed
+		 * these; for parser-level failures (malformed or truncated
+		 * CBOR) it was never called, so we must clean up any
+		 * partially-created key here
+		 */
+		lws_cose_key_destroy(&cps.ck);
+		if (cps.pkey_set)
+			lws_cose_key_set_destroy(cps.pkey_set);
+
+		return NULL;
+	}
+
+	/*
+	 * The parse completed, but the input never opened a key map, eg,
+	 * `[]`, `null` or empty input.  Without a key there is nothing to
+	 * return.
+	 */
+
+	if (!cps.ck) {
+		lwsl_notice("%s: no key map in input\n", __func__);
 		if (cps.pkey_set)
 			lws_cose_key_set_destroy(cps.pkey_set);
 
