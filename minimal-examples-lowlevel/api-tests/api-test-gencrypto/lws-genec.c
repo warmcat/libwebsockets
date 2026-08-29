@@ -345,7 +345,12 @@ test_genec3(struct lws_context *context)
 		if (lws_genecdh_create(&ctx, context, NULL))
 			goto bail;
 
-		if (lws_genecdh_set_key(&ctx, el, cases[n].side) >= 0) {
+		/*
+		 * failure is nonzero: backends variously signal it with -9
+		 * (openssl-style) or +1 (gnutls-style), so only 0 is acceptance
+		 */
+
+		if (!lws_genecdh_set_key(&ctx, el, cases[n].side)) {
 			lws_genec_destroy(&ctx);
 			lwsl_err("%s: case %u lengths accepted\n", __func__,
 				 (unsigned int)n);
@@ -374,6 +379,137 @@ bail:
 	return 1;
 }
 
+/*
+ * F-041 regression: create() over a ctx that already holds keys must release
+ * the old incarnation (no leak) and leave a ctx that behaves like a fresh
+ * one; new_keypair() into a live ctx displaces the key it holds the same way
+ */
+static int
+test_genec4(struct lws_context *context)
+{
+	struct lws_genec_ctx ctx, fresh, kpc;
+	struct lws_gencrypto_keyelem el[2][LWS_GENCRYPTO_EC_KEYEL_COUNT];
+	struct lws_gencrypto_keyelem pub[LWS_GENCRYPTO_EC_KEYEL_COUNT];
+	struct lws_gencrypto_keyelem gen[LWS_GENCRYPTO_EC_KEYEL_COUNT];
+	uint8_t hash[32], sig[64];
+	uint8_t s_live[32], s_fresh[32];
+	int ss_len, n;
+
+	memset(el, 0, sizeof(el));
+	memset(gen, 0, sizeof(gen));
+	memset(&ctx, 0, sizeof(ctx));
+	memset(&fresh, 0, sizeof(fresh));
+	memset(&kpc, 0, sizeof(kpc));
+
+	/* two independent P-256 keypairs, exported to elements */
+
+	for (n = 0; n < 2; n++) {
+		if (lws_genecdh_create(&kpc, context, NULL) ||
+		    lws_genecdh_new_keypair(&kpc, LDHS_OURS, "P-256", el[n]))
+			goto bail;
+
+		lws_genec_destroy(&kpc);
+	}
+
+	/* a peer-side element set has only the public parts */
+
+	memset(pub, 0, sizeof(pub));
+	pub[LWS_GENCRYPTO_EC_KEYEL_CRV] = el[1][LWS_GENCRYPTO_EC_KEYEL_CRV];
+	pub[LWS_GENCRYPTO_EC_KEYEL_X]   = el[1][LWS_GENCRYPTO_EC_KEYEL_X];
+	pub[LWS_GENCRYPTO_EC_KEYEL_Y]   = el[1][LWS_GENCRYPTO_EC_KEYEL_Y];
+
+	/* ECDH: two-sided live ctx, then re-create over it */
+
+	if (lws_genecdh_create(&ctx, context, NULL) ||
+	    lws_genecdh_set_key(&ctx, el[0], LDHS_OURS) ||
+	    lws_genecdh_set_key(&ctx, pub, LDHS_THEIRS))
+		goto bail;
+
+	if (lws_genecdh_create(&ctx, context, NULL))
+		goto bail;
+
+	/*
+	 * the re-created ctx must be usable from scratch and derive the same
+	 * secret as a fresh ctx built with the same keys
+	 */
+
+	if (lws_genecdh_set_key(&ctx, el[0], LDHS_OURS) ||
+	    lws_genecdh_set_key(&ctx, pub, LDHS_THEIRS))
+		goto bail;
+
+	ss_len = (int)sizeof(s_live);
+	if (lws_genecdh_compute_shared_secret(&ctx, s_live, &ss_len))
+		goto bail;
+
+	if (lws_genecdh_create(&fresh, context, NULL) ||
+	    lws_genecdh_set_key(&fresh, el[0], LDHS_OURS) ||
+	    lws_genecdh_set_key(&fresh, pub, LDHS_THEIRS))
+		goto bail;
+
+	ss_len = (int)sizeof(s_fresh);
+	if (lws_genecdh_compute_shared_secret(&fresh, s_fresh, &ss_len))
+		goto bail;
+
+	if (lws_timingsafe_bcmp(s_live, s_fresh, sizeof(s_live))) {
+		lwsl_err("%s: re-created ctx state != fresh state\n", __func__);
+		goto bail;
+	}
+
+	lws_genec_destroy(&fresh);
+	lws_genec_destroy(&ctx);
+
+	/* ECDSA: re-create over a live ctx keeps it usable for signing */
+
+	for (n = 0; n < (int)sizeof(hash); n++)
+		hash[n] = (uint8_t)(n * 5);
+
+	if (lws_genecdsa_create(&ctx, context, NULL) ||
+	    lws_genecdsa_set_key(&ctx, el[0]))
+		goto bail;
+
+	if (lws_genecdsa_create(&ctx, context, NULL) ||
+	    lws_genecdsa_set_key(&ctx, el[1]))
+		goto bail;
+
+	/* sign returns the sig length, or zero, depending on backend */
+
+	n = lws_genecdsa_hash_sign_jws(&ctx, hash, LWS_GENHASH_TYPE_SHA256,
+				       256, sig, sizeof(sig));
+	if (n < 0) {
+		lwsl_err("%s: sign after re-create failed\n", __func__);
+		goto bail;
+	}
+
+	lws_genec_destroy(&ctx);
+
+	/* new_keypair() into a live, keyed ctx displaces the old key */
+
+	if (lws_genecdh_create(&ctx, context, NULL) ||
+	    lws_genecdh_set_key(&ctx, el[0], LDHS_OURS))
+		goto bail;
+
+	if (lws_genecdh_new_keypair(&ctx, LDHS_OURS, "P-256", gen))
+		goto bail;
+
+	lws_genec_destroy(&ctx);
+
+	for (n = 0; n < 2; n++)
+		lws_genec_destroy_elements(el[n]);
+	lws_genec_destroy_elements(gen);
+
+	return 0;
+
+bail:
+	lws_genec_destroy(&kpc);
+	lws_genec_destroy(&fresh);
+	lws_genec_destroy(&ctx);
+	for (n = 0; n < 2; n++)
+		lws_genec_destroy_elements(el[n]);
+	lws_genec_destroy_elements(gen);
+
+	return 1;
+}
+
 int
 test_genec(struct lws_context *context)
 {
@@ -384,6 +520,9 @@ test_genec(struct lws_context *context)
 		goto bail;
 
 	if (test_genec3(context))
+		goto bail;
+
+	if (test_genec4(context))
 		goto bail;
 
 	/* end */

@@ -9,4 +9,5 @@ api-test-fts|LWS Full-text Search api
 api-test-gencrypto|LWS Generic Crypto apis
 api-test-jose|LWS JOSE apis
 api-test-smtp_client|SMTP client for sending emails
+api-test-xip|xip clipboard plugin clip chunking, parsing and reassembly
 

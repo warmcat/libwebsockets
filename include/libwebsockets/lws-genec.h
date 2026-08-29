@@ -34,6 +34,16 @@ enum enum_genec_alg {
 	LEGENEC_EDDSA
 };
 
+/*
+ * The ctx is user-allocated storage, and may be uninitialized when first
+ * passed to a create() api.  create() marks the ctx once it has brought it
+ * to a known state, so it can distinguish a ctx that may hold live backend
+ * key handles (and must release them before re-initializing) from
+ * uninitialized storage; lws_genec_destroy() clears the mark.
+ */
+
+#define LWS_GENEC_CTX_CREATED_MARK 0x4c574745u /* "LWGE" */
+
 struct lws_genec_ctx {
 #if defined(LWS_WITH_MBEDTLS)
 #if !defined(LWS_HAVE_MBEDTLS_V4)
@@ -70,6 +80,7 @@ struct lws_genec_ctx {
 	const struct lws_ec_curves *curve_table;
 	enum enum_genec_alg genec_alg;
 
+	uint32_t created_mark;
 	char has_private;
 };
 

@@ -162,6 +162,10 @@ int
 lws_genecdh_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 		   const struct lws_ec_curves *curve_table)
 {
+	/* re-init over a live ctx releases the previous incarnation first */
+	if (ctx->created_mark == LWS_GENEC_CTX_CREATED_MARK)
+		lws_genec_destroy(ctx);
+
 	memset(ctx, 0, sizeof(*ctx));
 
 	ctx->context = context;
@@ -174,6 +178,8 @@ lws_genecdh_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 
 	mbedtls_ecdh_init(ctx->u.ctx_ecdh);
 
+	ctx->created_mark = LWS_GENEC_CTX_CREATED_MARK;
+
 	return 0;
 }
 
@@ -181,6 +187,10 @@ int
 lws_genecdsa_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 		    const struct lws_ec_curves *curve_table)
 {
+	/* re-init over a live ctx releases the previous incarnation first */
+	if (ctx->created_mark == LWS_GENEC_CTX_CREATED_MARK)
+		lws_genec_destroy(ctx);
+
 	memset(ctx, 0, sizeof(*ctx));
 
 	ctx->context = context;
@@ -192,6 +202,8 @@ lws_genecdsa_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 		return 1;
 
 	mbedtls_ecdsa_init(ctx->u.ctx_ecdsa);
+
+	ctx->created_mark = LWS_GENEC_CTX_CREATED_MARK;
 
 	return 0;
 }
@@ -240,6 +252,7 @@ lws_genec_destroy(struct lws_genec_ctx *ctx)
 	}
 
 	ctx->has_private = 0;
+	ctx->created_mark = 0;
 }
 
 int
@@ -321,7 +334,8 @@ bail2:
 bail1:
 	mbedtls_ecdsa_free(&ecdsa);
 
-	lws_free_set_NULL(ctx->u.ctx_ecdh);
+	/* release the ctx's internal state as well as the heap ctx */
+	lws_genec_destroy(ctx);
 
 	return -1;
 }
@@ -400,7 +414,8 @@ bail2:
 			lws_free_set_NULL(el[n].buf);
 bail1:
 
-	lws_free_set_NULL(ctx->u.ctx_ecdsa);
+	/* release the ctx's internal state as well as the heap ctx */
+	lws_genec_destroy(ctx);
 
 	return -1;
 }
@@ -688,10 +703,15 @@ int
 lws_genecdh_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 		   const struct lws_ec_curves *curve_table)
 {
+	/* re-init over a live ctx releases the previous incarnation first */
+	if (ctx->created_mark == LWS_GENEC_CTX_CREATED_MARK)
+		lws_genec_destroy(ctx);
+
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->context = context;
 	ctx->curve_table = curve_table;
 	ctx->genec_alg = LEGENEC_ECDH;
+	ctx->created_mark = LWS_GENEC_CTX_CREATED_MARK;
 	return 0;
 }
 
@@ -699,10 +719,15 @@ int
 lws_genecdsa_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 		    const struct lws_ec_curves *curve_table)
 {
+	/* re-init over a live ctx releases the previous incarnation first */
+	if (ctx->created_mark == LWS_GENEC_CTX_CREATED_MARK)
+		lws_genec_destroy(ctx);
+
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->context = context;
 	ctx->curve_table = curve_table;
 	ctx->genec_alg = LEGENEC_ECDSA;
+	ctx->created_mark = LWS_GENEC_CTX_CREATED_MARK;
 	return 0;
 }
 
@@ -735,6 +760,7 @@ lws_genec_destroy(struct lws_genec_ctx *ctx)
 		lws_free_set_NULL(ctx->peer_key);
 	}
 	ctx->has_private = 0;
+	ctx->created_mark = 0;
 }
 
 static int

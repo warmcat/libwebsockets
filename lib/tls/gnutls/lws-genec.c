@@ -75,10 +75,15 @@ int
 lws_genecdh_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 		   const struct lws_ec_curves *curve_table)
 {
+	/* re-init over a live ctx releases the previous incarnation first */
+	if (ctx->created_mark == LWS_GENEC_CTX_CREATED_MARK)
+		lws_genec_destroy(ctx);
+
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->context = context;
 	ctx->curve_table = curve_table;
 	ctx->genec_alg = LEGENEC_ECDH;
+	ctx->created_mark = LWS_GENEC_CTX_CREATED_MARK;
 
 	return 0;
 }
@@ -104,6 +109,18 @@ lws_genecdh_set_key(struct lws_genec_ctx *ctx, const struct lws_gencrypto_keyele
 		return 1;
 
 	keybytes = c->key_bytes;
+
+	/*
+	 * element lengths must match the curve exactly, except d which may
+	 * be absent... the same contract the openssl and mbedtls imports
+	 * already enforce.  Anything else is a malformed key.
+	 */
+
+	if ((el[LWS_GENCRYPTO_EC_KEYEL_D].len &&
+	     el[LWS_GENCRYPTO_EC_KEYEL_D].len != (uint32_t)keybytes) ||
+	    el[LWS_GENCRYPTO_EC_KEYEL_X].len != (uint32_t)keybytes ||
+	    el[LWS_GENCRYPTO_EC_KEYEL_Y].len != (uint32_t)keybytes)
+		return 1;
 
 	if (el[LWS_GENCRYPTO_EC_KEYEL_X].len) {
 		x_pad = lws_zalloc((size_t)keybytes, "x_pad");
@@ -339,10 +356,15 @@ int
 lws_genecdsa_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 		    const struct lws_ec_curves *curve_table)
 {
+	/* re-init over a live ctx releases the previous incarnation first */
+	if (ctx->created_mark == LWS_GENEC_CTX_CREATED_MARK)
+		lws_genec_destroy(ctx);
+
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->context = context;
 	ctx->curve_table = curve_table;
 	ctx->genec_alg = LEGENEC_ECDSA;
+	ctx->created_mark = LWS_GENEC_CTX_CREATED_MARK;
 
 	return 0;
 }
@@ -490,6 +512,7 @@ lws_genec_destroy(struct lws_genec_ctx *ctx)
 	ctx->priv = NULL;
 	ctx->pub = NULL;
 	ctx->has_private = 0;
+	ctx->created_mark = 0;
 }
 
 int
