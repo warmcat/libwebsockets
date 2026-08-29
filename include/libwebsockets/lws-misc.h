@@ -959,12 +959,17 @@ lws_cmdline_option_handle_builtin(int argc, const char **argv,
 				  struct lws_context_creation_info *info);
 
 /**
- * lws_parse_iso8601() - parse ISO8601 date string into unixtime
+ * lws_parse_iso8601() - strictly parse an ISO8601 / RFC3339-style date string
  *
  * \param ads: the date string to parse
  *
  * Returns the unixtime represented by the string, or 0 if parsing failed.
- * Supports YYYY-MM-DDTHH:MM:SSZ and some common simple variations.
+ *
+ * Accepts YYYY-MM-DD alone, or followed by 'T', 't' or ' ' and a complete
+ * HH:MM:SS time part.  Fields must be zero-padded to their full width and
+ * within range; any fraction or timezone indicator trailing the seconds is
+ * validated for shape but otherwise ignored, the time is always taken as
+ * UTC.
  */
 LWS_VISIBLE LWS_EXTERN lws_usec_t
 lws_parse_iso8601(const char *ads);

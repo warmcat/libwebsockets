@@ -2434,28 +2434,215 @@ lws_fx_string(const lws_fx_t *a, char *buf, size_t size)
 	return buf;
 }
 
+/*
+ * Convert a fixed number of ASCII decimal digits to an unsigned value.  The
+ * tokenizer has already established the characters are all '0' - '9' and the
+ * length matches the expected field width, so this cannot overflow.
+ */
+static unsigned int
+iso8601_dec(const char *t, size_t len)
+{
+	unsigned int v = 0;
+
+	while (len--)
+		v = (v * 10u) + (unsigned int)(*t++ - '0');
+
+	return v;
+}
+
+/*
+ * Require a bounded region to consist of exactly three fixed-width integer
+ * fields separated by single, identical separators:
+ *
+ *   date:  dddd-dd-dd   (first field width 4, separator '-')
+ *   time:  dd:dd:dd     (first field width 2, separator ':')
+ *
+ * Returns 0 if the region matches that shape exactly, else nonzero.
+ */
+static int
+iso8601_triplet(const char *s, size_t len, char sep, int w0, unsigned int *v)
+{
+	lws_tokenize_t ts;
+	int stage;
+
+	lws_tokenize_init(&ts, s, 0);
+	ts.len = len;
+
+	for (stage = 0; stage < 5; stage++) {
+		ts.e = (int8_t)lws_tokenize(&ts);
+
+		if (!(stage & 1)) {
+			/* expecting a zero-padded integer field */
+			int w = stage ? 2 : w0;
+
+			if (ts.e != LWS_TOKZE_INTEGER ||
+			    ts.token_len != (size_t)w)
+				return 1;
+			v[stage >> 1] = iso8601_dec(ts.token, ts.token_len);
+			continue;
+		}
+
+		/* expecting a single copy of the separator */
+		if (ts.e != LWS_TOKZE_DELIMITER || ts.token_len != 1 ||
+		    ts.token[0] != sep)
+			return 1;
+	}
+
+	/* the region must end cleanly after the third field */
+
+	return lws_tokenize(&ts) != LWS_TOKZE_ENDED;
+}
+
+/*
+ * Returns 0 if all len characters at t are ASCII decimal digits.
+ */
+static int
+iso8601_alldigits(const char *t, size_t len)
+{
+	while (len--) {
+		if (*t < '0' || *t > '9')
+			return 1;
+		t++;
+	}
+
+	return 0;
+}
+
+/*
+ * Validate the shape of anything trailing the seconds, ie, an optional
+ * fraction, then an optional zone indicator:
+ *
+ *   [ "." d+ ] [ ( "Z" | "z" | ("+" | "-") dd [ ":" dd ] ) ]
+ *
+ * These are validated but otherwise ignored; as has always been the case
+ * the time itself is interpreted as UTC.  Returns 0 if the trailing part is
+ * wellformed or absent, else nonzero.
+ */
+static int
+iso8601_suffix(const char *s, size_t len)
+{
+	/* where we are in the optional trailing [fraction][zone] sequence */
+	enum { SUF_TZ, SUF_DIGITS, SUF_MM_OPT, SUF_DONE } st = SUF_TZ;
+	lws_tokenize_t ts;
+	int seen_frac = 0;
+
+	lws_tokenize_init(&ts, s, 0);
+	ts.len = len;
+
+	do {
+		ts.e = (int8_t)lws_tokenize(&ts);
+
+		switch (st) {
+		case SUF_TZ:
+			if (ts.e == LWS_TOKZE_ENDED)
+				return 0;
+			if (!seen_frac && ts.e == LWS_TOKZE_DELIMITER &&
+			    ts.token_len == 1 && ts.token[0] == '.') {
+				seen_frac = 1;
+				st = SUF_DIGITS;
+				break;
+			}
+			if (ts.e == LWS_TOKZE_TOKEN && ts.token_len == 1 &&
+			    (ts.token[0] == 'Z' || ts.token[0] == 'z')) {
+				st = SUF_DONE;
+				break;
+			}
+			if (ts.e == LWS_TOKZE_DELIMITER && ts.token_len == 1 &&
+			    (ts.token[0] == '+' || ts.token[0] == '-')) {
+				if ((int8_t)lws_tokenize(&ts) !=
+							LWS_TOKZE_INTEGER ||
+				    ts.token_len != 2)
+					return 1;
+				st = SUF_MM_OPT;
+				break;
+			}
+			return 1;
+
+		case SUF_DIGITS:
+			/*
+			 * The fraction digits... since 'Z' is part of the
+			 * tokenizer's token charset, a zone 'Z' directly
+			 * behind the digits arrives glommed onto them as a
+			 * single TOKEN, eg ".123Z" -> "123Z"
+			 */
+			if (ts.e == LWS_TOKZE_INTEGER) {
+				st = SUF_TZ;
+				break;
+			}
+			if (ts.e == LWS_TOKZE_TOKEN && ts.token_len > 1 &&
+			    (ts.token[ts.token_len - 1] == 'Z' ||
+			     ts.token[ts.token_len - 1] == 'z') &&
+			    !iso8601_alldigits(ts.token, ts.token_len - 1)) {
+				st = SUF_DONE;
+				break;
+			}
+			return 1;
+
+		case SUF_MM_OPT:
+			if (ts.e == LWS_TOKZE_ENDED)
+				return 0;
+			if (ts.e == LWS_TOKZE_DELIMITER && ts.token_len == 1 &&
+			    ts.token[0] == ':') {
+				if ((int8_t)lws_tokenize(&ts) !=
+							LWS_TOKZE_INTEGER ||
+				    ts.token_len != 2)
+					return 1;
+				st = SUF_DONE;
+				break;
+			}
+			return 1;
+
+		case SUF_DONE:
+			return ts.e != LWS_TOKZE_ENDED;
+		}
+	} while (1);
+}
+
 lws_usec_t
 lws_parse_iso8601(const char *ads)
 {
+	unsigned int v[3] = { 0, 0, 0 };
 	struct tm tm;
-	const char *p = ads;
+	size_t slen;
 
 	if (!ads)
 		return 0;
 
+	slen = strlen(ads);
+
 	memset(&tm, 0, sizeof(tm));
 
-	/* ISO8601 / WHOIS dates: YYYY-MM-DDTHH:MM:SSZ and variants */
-	if (sscanf(p, "%d-%d-%dT%d:%d:%d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday,
-		   &tm.tm_hour, &tm.tm_min, &tm.tm_sec) < 3) {
-		/* Try with space instead of T */
-		if (sscanf(p, "%d-%d-%d %d:%d:%d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday,
-			   &tm.tm_hour, &tm.tm_min, &tm.tm_sec) < 3)
+	/* the date is a fixed-width YYYY-MM-DD at the start */
+
+	if (slen < 10 || iso8601_triplet(ads, 10, '-', 4, v))
+		return 0;
+
+	if (v[1] < 1 || v[1] > 12 || v[2] < 1 || v[2] > 31)
+		return 0;
+
+	tm.tm_year = (int)v[0] - 1900;
+	tm.tm_mon  = (int)v[1] - 1;
+	tm.tm_mday = (int)v[2];
+
+	/* an optional complete HH:MM:SS may follow behind 'T', 't' or ' ' */
+
+	if (slen > 10) {
+		size_t tl = slen - 11 > 8 ? 8 : slen - 11;
+
+		if ((ads[10] != 'T' && ads[10] != 't' && ads[10] != ' ') ||
+		    iso8601_triplet(ads + 11, tl, ':', 2, v) ||
+		    v[0] > 23 || v[1] > 59 || v[2] > 59)
+			return 0;
+
+		tm.tm_hour = (int)v[0];
+		tm.tm_min  = (int)v[1];
+		tm.tm_sec  = (int)v[2];
+
+		/* any trailing fraction / zone indicator must be wellformed */
+
+		if (slen > 19 && iso8601_suffix(ads + 19, slen - 19))
 			return 0;
 	}
-
-	tm.tm_year -= 1900;
-	tm.tm_mon -= 1;
 
 #if defined(LWS_HAVE_TIMEGM)
 	return (lws_usec_t)timegm(&tm);
