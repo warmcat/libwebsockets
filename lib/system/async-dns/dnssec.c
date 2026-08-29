@@ -281,6 +281,8 @@ lws_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 
 					if (alg == LWS_ADNS_DSA_ECDSAP256SHA256 || alg == LWS_ADNS_DSA_ECDSAP384SHA384) {
 						struct lws_genec_ctx ctx;
+
+						memset(&ctx, 0, sizeof(ctx));
 						size_t curvelen = (alg == LWS_ADNS_DSA_ECDSAP256SHA256) ? 32 : 48;
 						enum lws_genhash_types hashtype = (alg == LWS_ADNS_DSA_ECDSAP256SHA256) ? LWS_GENHASH_TYPE_SHA256 : LWS_GENHASH_TYPE_SHA384;
 
@@ -314,6 +316,8 @@ lws_dnssec_dnskey_cb(struct lws *wsi, const char *name, const struct addrinfo *d
 						}
 					} else if (alg == LWS_ADNS_DSA_RSA_SHA256 || alg == LWS_ADNS_DSA_RSA_SHA512) {
 						struct lws_genrsa_ctx ctx;
+
+						memset(&ctx, 0, sizeof(ctx));
 						enum lws_genhash_types hashtype = (alg == LWS_ADNS_DSA_RSA_SHA256) ? LWS_GENHASH_TYPE_SHA256 : LWS_GENHASH_TYPE_SHA512;
 
 						if (key_data_len < 1)

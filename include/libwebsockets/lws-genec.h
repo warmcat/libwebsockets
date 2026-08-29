@@ -114,6 +114,11 @@ struct lws_ec_curves {
  *		       .name = NULL, of curves you want to allow
  *
  * Initializes a genecdh
+ *
+ * \p ctx must be zeroed (eg, using memset) before it is passed to create
+ * apis the first time; if the ctx is still live from an earlier create, the
+ * call fails and returns nonzero.  After lws_genec_destroy() the same ctx
+ * can be passed to the create apis again.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_genecdh_create(struct lws_genec_ctx *ctx, struct lws_context *context,
@@ -159,7 +164,9 @@ lws_genecdh_compute_shared_secret(struct lws_genec_ctx *ctx, uint8_t *ss,
  *		       struct lws_ec_curves array, terminated by an entry with
  *		       .name = NULL, of curves you want to allow
  *
- * Initializes a genecdh
+ * Initializes a genecdsa.  \p ctx follows the same lifetime rules as for
+ * lws_genecdh_create(): zeroed before first use, and create over a ctx that
+ * is still live fails until lws_genec_destroy() is called on it.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_genecdsa_create(struct lws_genec_ctx *ctx, struct lws_context *context,
@@ -248,7 +255,9 @@ lws_genecdsa_hash_sign_jws(struct lws_genec_ctx *ctx, const uint8_t *in,
  *		       struct lws_ec_curves array, terminated by an entry with
  *		       .name = NULL, of curves you want to allow
  *
- * Initializes a geneddsa
+ * Initializes a geneddsa.  \p ctx follows the same lifetime rules as for
+ * lws_genecdh_create(): zeroed before first use, and create over a ctx that
+ * is still live fails until lws_genec_destroy() is called on it.
  */
 LWS_VISIBLE LWS_EXTERN int
 lws_geneddsa_create(struct lws_genec_ctx *ctx, struct lws_context *context,

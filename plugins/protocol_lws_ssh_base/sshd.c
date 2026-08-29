@@ -1248,6 +1248,7 @@ again:
 			 */
 
 			memset(e, 0, sizeof(e));
+			memset(&ctx, 0, sizeof(ctx));
 			pp = pss->ua->pubkey;
 			m = lws_g32(&pp);
 			pp += m;

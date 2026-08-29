@@ -836,6 +836,9 @@ lws_acme_load_create_auth_keys(struct per_vhost_data__lws_acme_client *vhd,
 			"will take a little while\n");
 
 	struct lws_genec_ctx ecdsa;
+
+	memset(&ecdsa, 0, sizeof(ecdsa));
+
 	if (lws_genecdsa_create(&ecdsa, vhd->context, NULL)) {
 		lwsl_vhost_warn(vhd->vhost, "failed to create ecdsa ctx");
 		return 1;

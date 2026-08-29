@@ -33,6 +33,8 @@ lws_jwe_encrypt_rsa_aes_gcm(struct lws_jwe *jwe, char *temp, int *temp_len)
 {
 	int ekbytes = jwe->jose.enc_alg->keybits_fixed / 8;
 	struct lws_genrsa_ctx rsactx;
+
+	memset(&rsactx, 0, sizeof(rsactx));
 	int n, ret = -1, ot = *temp_len;
 
 	if (jwe->jws.jwk->kty != LWS_GENCRYPTO_KTY_RSA) {
@@ -138,6 +140,8 @@ lws_jwe_auth_and_decrypt_rsa_aes_gcm(struct lws_jwe *jwe)
 {
 	int n;
 	struct lws_genrsa_ctx rsactx;
+
+	memset(&rsactx, 0, sizeof(rsactx));
 	uint8_t enc_cek[LWS_JWE_LIMIT_KEY_ELEMENT_BYTES];
 
 	if (jwe->jws.jwk->kty != LWS_GENCRYPTO_KTY_RSA) {

@@ -36,9 +36,9 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 	ULONG bloblen;
 	uint8_t *p;
 
-	/* re-init over a live ctx releases the previous incarnation first */
+	/* the caller must hand us a zeroed ctx; a still-live ctx is a misuse */
 	if (ctx->created_mark == LWS_GENRSA_CTX_CREATED_MARK)
-		lws_genrsa_destroy(ctx);
+		return -1;
 
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->context = context;
@@ -173,9 +173,9 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 	ULONG reslen = 0;
 	uint8_t *p;
 
-	/* re-init over a live ctx releases the previous incarnation first */
+	/* the caller must hand us a zeroed ctx; a still-live ctx is a misuse */
 	if (ctx->created_mark == LWS_GENRSA_CTX_CREATED_MARK)
-		lws_genrsa_destroy(ctx);
+		return -1;
 
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->context = context;
