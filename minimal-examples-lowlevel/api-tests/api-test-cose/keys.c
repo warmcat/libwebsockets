@@ -1135,6 +1135,7 @@ test_cose_keys(struct lws_context *context)
 
 	{
 		struct lws_genec_ctx probe;
+		memset(&probe, 0, sizeof(probe));
 
 		if (lws_geneddsa_create(&probe, context, NULL)) {
 			lwsl_notice("%s: no EdDSA backend support, skipping "

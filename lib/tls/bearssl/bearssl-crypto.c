@@ -208,9 +208,9 @@ lws_genhmac_destroy(struct lws_genhmac_ctx *ctx, void *result)
 int
 lws_genrsa_create(struct lws_genrsa_ctx *ctx, const struct lws_gencrypto_keyelem *el, struct lws_context *context, enum enum_genrsa_mode mode, enum lws_genhash_types hash_type)
 {
-	/* re-init over a live ctx releases the previous incarnation first */
+	/* the caller must hand us a zeroed ctx; a still-live ctx is a misuse */
 	if (ctx->created_mark == LWS_GENRSA_CTX_CREATED_MARK)
-		lws_genrsa_destroy(ctx);
+		return -1;
 
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->context = context;
@@ -258,9 +258,9 @@ lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx, 
 	uint32_t pubexp = 65537;
 	int ret = -1;
 
-	/* re-init over a live ctx releases the previous incarnation first */
+	/* the caller must hand us a zeroed ctx; a still-live ctx is a misuse */
 	if (ctx->created_mark == LWS_GENRSA_CTX_CREATED_MARK)
-		lws_genrsa_destroy(ctx);
+		return -1;
 
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->context = context;
@@ -467,9 +467,9 @@ void lws_genec_destroy(struct lws_genec_ctx *ctx)
 int
 lws_genecdsa_create(struct lws_genec_ctx *ctx, struct lws_context *context, const struct lws_ec_curves *el)
 {
-	/* re-init over a live ctx releases the previous incarnation first */
+	/* the caller must hand us a zeroed ctx; a still-live ctx is a misuse */
 	if (ctx->created_mark == LWS_GENEC_CTX_CREATED_MARK)
-		lws_genec_destroy(ctx);
+		return -1;
 
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->context = context;
@@ -756,9 +756,9 @@ lws_genaes_crypt(struct lws_genaes_ctx *ctx, const uint8_t *in, size_t len, uint
 int
 lws_genecdh_create(struct lws_genec_ctx *ctx, struct lws_context *context, const struct lws_ec_curves *curve_table)
 {
-	/* re-init over a live ctx releases the previous incarnation first */
+	/* the caller must hand us a zeroed ctx; a still-live ctx is a misuse */
 	if (ctx->created_mark == LWS_GENEC_CTX_CREATED_MARK)
-		lws_genec_destroy(ctx);
+		return -1;
 
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->context = context;

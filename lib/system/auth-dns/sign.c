@@ -1612,6 +1612,7 @@ lws_auth_dns_verify_zone(struct lws_auth_dns_sign_info *info)
 					int raw_l = lws_b64_decode_string(b64, (char *)raw, sizeof(raw));
 					if (raw_l > 0) {
 						struct lws_genec_ctx *target_genec = (flags == 257) ? &genec_ksk : &genec_zsk;
+						lws_genec_destroy(target_genec); /* may already hold an earlier DNSKEY */
 						if (lws_genecdsa_create(target_genec, info->cx, NULL) == 0) {
 							/* We need to re-construct an ephemeral struct lws_jwk's EC elements
 							 * from the RAW ANS.1/DNSKEY export format: [flags][proto][alg][key...]

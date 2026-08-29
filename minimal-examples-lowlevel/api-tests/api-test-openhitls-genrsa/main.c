@@ -29,6 +29,7 @@ static int
 test_keypair_generation(struct lws_context *context)
 {
 	struct lws_genrsa_ctx ctx;
+	memset(&ctx, 0, sizeof(ctx));
 	struct lws_gencrypto_keyelem el[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
 	int n;
 
@@ -101,6 +102,8 @@ test_encdec_pkcs1(struct lws_context *context)
 {
 	static const uint8_t plaintext[] = "Hello RSA!";
 	struct lws_genrsa_ctx gen_ctx, encdec_ctx;
+	memset(&gen_ctx, 0, sizeof(gen_ctx));
+	memset(&encdec_ctx, 0, sizeof(encdec_ctx));
 	struct lws_gencrypto_keyelem el[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
 	uint8_t cipher[256], recovered[256];
 	size_t key_bytes;
@@ -174,6 +177,7 @@ test_encdec_oaep(struct lws_context *context)
 {
 	static const uint8_t plaintext[] = "OAEP roundtrip test";
 	struct lws_genrsa_ctx ctx;
+	memset(&ctx, 0, sizeof(ctx));
 	struct lws_gencrypto_keyelem el[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
 	uint8_t cipher[256], recovered[256];
 	size_t key_bytes;
@@ -236,6 +240,7 @@ test_sign_verify(struct lws_context *context)
 {
 	static const uint8_t message[] = "sign this message please";
 	struct lws_genrsa_ctx ctx;
+	memset(&ctx, 0, sizeof(ctx));
 	struct lws_gencrypto_keyelem el[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
 	struct lws_genhash_ctx hash_ctx;
 	uint8_t hash[LWS_GENHASH_LARGEST];
@@ -320,6 +325,8 @@ test_public_only(struct lws_context *context)
 {
 	static const uint8_t plaintext[] = "public only test";
 	struct lws_genrsa_ctx gen_ctx, pub_ctx;
+	memset(&gen_ctx, 0, sizeof(gen_ctx));
+	memset(&pub_ctx, 0, sizeof(pub_ctx));
 	struct lws_gencrypto_keyelem el[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
 	struct lws_gencrypto_keyelem pub_el[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
 	uint8_t cipher[256];
@@ -381,6 +388,7 @@ static int
 test_edge_cases(void)
 {
 	struct lws_genrsa_ctx ctx;
+	memset(&ctx, 0, sizeof(ctx));
 	struct lws_gencrypto_keyelem el[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
 
 	lwsl_user("  F) Edge cases\n");
@@ -408,6 +416,7 @@ test_private_enc_public_dec(struct lws_context *context)
 {
 	static const uint8_t plaintext[] = "private enc test!";
 	struct lws_genrsa_ctx ctx;
+	memset(&ctx, 0, sizeof(ctx));
 	struct lws_gencrypto_keyelem el[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
 	uint8_t cipher[256], recovered[256];
 	size_t key_bytes;
@@ -470,6 +479,7 @@ test_sign_verify_pss(struct lws_context *context)
 {
 	static const uint8_t message[] = "PSS sign test message";
 	struct lws_genrsa_ctx ctx;
+	memset(&ctx, 0, sizeof(ctx));
 	struct lws_gencrypto_keyelem el[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
 	struct lws_genhash_ctx hash_ctx;
 	uint8_t hash[LWS_GENHASH_LARGEST];
@@ -554,6 +564,7 @@ test_sign_verify_sha384_512(struct lws_context *context)
 {
 	static const uint8_t message[] = "multi-hash test";
 	struct lws_genrsa_ctx ctx;
+	memset(&ctx, 0, sizeof(ctx));
 	struct lws_gencrypto_keyelem el[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
 	enum lws_genhash_types hash_types[] = {
 		LWS_GENHASH_TYPE_SHA384,

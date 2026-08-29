@@ -73,9 +73,9 @@ lws_genecdh_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 	int nid = 0;
 	NTSTATUS status;
 
-	/* re-init over a live ctx releases the previous incarnation first */
+	/* the caller must hand us a zeroed ctx; a still-live ctx is a misuse */
 	if (ctx->created_mark == LWS_GENEC_CTX_CREATED_MARK)
-		lws_genec_destroy(ctx);
+		return -1;
 
 	memset(ctx, 0, sizeof(*ctx));
 
@@ -278,9 +278,9 @@ lws_genecdsa_create(struct lws_genec_ctx *ctx, struct lws_context *context,
 	int nid = 0;
 	NTSTATUS status;
 
-	/* re-init over a live ctx releases the previous incarnation first */
+	/* the caller must hand us a zeroed ctx; a still-live ctx is a misuse */
 	if (ctx->created_mark == LWS_GENEC_CTX_CREATED_MARK)
-		lws_genec_destroy(ctx);
+		return -1;
 
 	memset(ctx, 0, sizeof(*ctx));
 

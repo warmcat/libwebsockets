@@ -104,6 +104,11 @@ struct lws_genrsa_ctx {
  * Creates an RSA context with a public key associated with it, formed from
  * the key elements in \p el.
  *
+ * \p ctx must be zeroed (eg, using memset) before it is passed to create
+ * apis the first time; if the ctx is still live from an earlier create, the
+ * call fails and returns nonzero.  After lws_genrsa_destroy() the same ctx
+ * can be passed to the create apis again.
+ *
  * Mode LGRSAM_PKCS1_1_5 is in widespread use but has weaknesses.  It's
  * recommended to use LGRSAM_PKCS1_OAEP_PSS for new implementations.
  *
@@ -141,6 +146,10 @@ lws_genrsa_destroy_elements(struct lws_gencrypto_keyelem *el);
  *
  * Creates a new RSA context and generates a new keypair into it, with \p bits
  * bits.
+ *
+ * \p ctx follows the same lifetime rules as for lws_genrsa_create(): it must
+ * be zeroed before first use and must not still be live from an earlier
+ * create or new_keypair, the call fails otherwise.
  *
  * Returns 0 for OK or nonzero for error.
  *

@@ -30,6 +30,7 @@ test_genec1(struct lws_context *context)
 	int n;
 
 	memset(el, 0, sizeof(el));
+	memset(&ctx, 0, sizeof(ctx));
 
 	if (lws_genecdh_create(&ctx, context, NULL))
 		return 1;
@@ -380,9 +381,10 @@ bail:
 }
 
 /*
- * F-041 regression: create() over a ctx that already holds keys must release
- * the old incarnation (no leak) and leave a ctx that behaves like a fresh
- * one; new_keypair() into a live ctx displaces the key it holds the same way
+ * F-041 regression: ctx liveness rules.  create() over a ctx that is still
+ * live must fail cleanly instead of leaking or displacing it; after
+ * destroy(), the same ctx can be recreated and behaves like a fresh one.
+ * new_keypair() into a live ctx still displaces the key it holds.
  */
 static int
 test_genec4(struct lws_context *context)
@@ -418,24 +420,31 @@ test_genec4(struct lws_context *context)
 	pub[LWS_GENCRYPTO_EC_KEYEL_X]   = el[1][LWS_GENCRYPTO_EC_KEYEL_X];
 	pub[LWS_GENCRYPTO_EC_KEYEL_Y]   = el[1][LWS_GENCRYPTO_EC_KEYEL_Y];
 
-	/* ECDH: two-sided live ctx, then re-create over it */
+	/* ECDH: two-sided live ctx; create() over it must fail */
 
 	if (lws_genecdh_create(&ctx, context, NULL) ||
 	    lws_genecdh_set_key(&ctx, el[0], LDHS_OURS) ||
 	    lws_genecdh_set_key(&ctx, pub, LDHS_THEIRS))
 		goto bail;
 
-	if (lws_genecdh_create(&ctx, context, NULL))
+	if (!lws_genecdh_create(&ctx, context, NULL)) {
+		lwsl_err("%s: create over live ctx accepted\n", __func__);
+		goto bail;
+	}
+
+	/* after destroy(), the same ctx must come back like a fresh one */
+
+	lws_genec_destroy(&ctx);
+
+	if (lws_genecdh_create(&ctx, context, NULL) ||
+	    lws_genecdh_set_key(&ctx, el[0], LDHS_OURS) ||
+	    lws_genecdh_set_key(&ctx, pub, LDHS_THEIRS))
 		goto bail;
 
 	/*
-	 * the re-created ctx must be usable from scratch and derive the same
+	 * the recreated ctx must be usable from scratch and derive the same
 	 * secret as a fresh ctx built with the same keys
 	 */
-
-	if (lws_genecdh_set_key(&ctx, el[0], LDHS_OURS) ||
-	    lws_genecdh_set_key(&ctx, pub, LDHS_THEIRS))
-		goto bail;
 
 	ss_len = (int)sizeof(s_live);
 	if (lws_genecdh_compute_shared_secret(&ctx, s_live, &ss_len))
@@ -451,14 +460,14 @@ test_genec4(struct lws_context *context)
 		goto bail;
 
 	if (lws_timingsafe_bcmp(s_live, s_fresh, sizeof(s_live))) {
-		lwsl_err("%s: re-created ctx state != fresh state\n", __func__);
+		lwsl_err("%s: recreated ctx state != fresh state\n", __func__);
 		goto bail;
 	}
 
 	lws_genec_destroy(&fresh);
 	lws_genec_destroy(&ctx);
 
-	/* ECDSA: re-create over a live ctx keeps it usable for signing */
+	/* ECDSA: create over live ctx fails; recreated ctx signs with new key */
 
 	for (n = 0; n < (int)sizeof(hash); n++)
 		hash[n] = (uint8_t)(n * 5);
@@ -466,6 +475,13 @@ test_genec4(struct lws_context *context)
 	if (lws_genecdsa_create(&ctx, context, NULL) ||
 	    lws_genecdsa_set_key(&ctx, el[0]))
 		goto bail;
+
+	if (!lws_genecdsa_create(&ctx, context, NULL)) {
+		lwsl_err("%s: ecdsa create over live ctx accepted\n", __func__);
+		goto bail;
+	}
+
+	lws_genec_destroy(&ctx);
 
 	if (lws_genecdsa_create(&ctx, context, NULL) ||
 	    lws_genecdsa_set_key(&ctx, el[1]))
@@ -476,7 +492,7 @@ test_genec4(struct lws_context *context)
 	n = lws_genecdsa_hash_sign_jws(&ctx, hash, LWS_GENHASH_TYPE_SHA256,
 				       256, sig, sizeof(sig));
 	if (n < 0) {
-		lwsl_err("%s: sign after re-create failed\n", __func__);
+		lwsl_err("%s: sign after recreate failed\n", __func__);
 		goto bail;
 	}
 

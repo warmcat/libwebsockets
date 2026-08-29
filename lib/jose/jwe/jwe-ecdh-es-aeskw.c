@@ -206,6 +206,8 @@ lws_jwe_encrypt_ecdh(struct lws_jwe *jwe, char *temp, int *temp_len,
 	struct lws_genec_ctx ecctx;
 	struct lws_jwk *ephem = &jwe->jose.recipient[jwe->recip].jwk_ephemeral;
 
+	memset(&ecctx, 0, sizeof(ecctx));
+
 	if (jwe->jws.jwk->kty != LWS_GENCRYPTO_KTY_EC) {
 		lwsl_err("%s: unexpected kty %d\n", __func__, jwe->jws.jwk->kty);
 

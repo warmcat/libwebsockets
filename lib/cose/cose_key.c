@@ -929,6 +929,8 @@ lws_cose_key_generate(struct lws_context *context, cose_param_t cose_kty,
 	{
 		struct lws_genec_ctx ctx;
 
+		memset(&ctx, 0, sizeof(ctx));
+
 		if (cose_kty == LWSCOSE_WKKTV_OKP)
 			ck->gencrypto_kty = LWS_GENCRYPTO_KTY_OKP;
 		else
