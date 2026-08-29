@@ -730,11 +730,14 @@ cb_cose_key(struct lecp_ctx *ctx, char reason)
 				ke = &cps->ck->e[LWS_GENCRYPTO_OKP_KEYEL_CRV];
 			else
 				ke = &cps->ck->e[LWS_GENCRYPTO_EC_KEYEL_CRV];
-			ke->len = ctx->npos;
-			ke->buf = lws_malloc(ctx->npos, __func__);
-			if (!ke->buf)
+			/*
+			 * The curve element is later consumed as a C string,
+			 * eg, by the strcmp() table walk at key export, so it
+			 * has to be stored NUL-terminated like every other
+			 * string element
+			 */
+			if (lws_ck_set_el(ke, ctx->buf, ctx->npos))
 				goto bail;
-			memcpy(ke->buf, ctx->buf, ctx->npos);
 		}
 
 		if (!lecp_parse_map_is_key(ctx) &&
@@ -754,11 +757,8 @@ cb_cose_key(struct lecp_ctx *ctx, char reason)
 					  __func__, (int)ctx->npos, ctx->buf);
 
 			ke = &cps->ck->meta[COSEKEY_META_ALG];
-			ke->len = ctx->npos;
-			ke->buf = lws_malloc(ctx->npos, __func__);
-			if (!ke->buf)
+			if (lws_ck_set_el(ke, ctx->buf, ctx->npos))
 				goto bail;
-			memcpy(ke->buf, ctx->buf, ctx->npos);
 		}
 
 		break;
