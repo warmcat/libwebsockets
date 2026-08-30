@@ -77,6 +77,45 @@ enum enum_param_names {
         EP_COUNT
 };
 
+/*
+ * F-048: worst-case composed cookie *clearing* Set-Cookie (empty value +
+ * Expires):  cookie_name (<= 63, vhd cap) + '=' + "; Path=/" (8) +
+ * "; Domain=" (9) + cookie_domain (<= 127, vhd cap) + "; Expires=" (10) +
+ * RFC 1123 date (29) + "; Max-Age=0" (11) + "; HttpOnly; SameSite=Lax;
+ * Secure" (32) + NUL.  The logout / session-destroy paths used to compose
+ * these into 256-byte buffers with lws_snprintf, which silently truncated
+ * exactly the Expires / Max-Age=0 / HttpOnly / SameSite / Secure tail when
+ * cookie_domain approached its 127-byte cap, so the browser never actually
+ * cleared the cookie and the empty value was emitted without HttpOnly /
+ * Secure.  Composition goes through the fail-closed lws_http_cookie_compose()
+ * (F-022 class) and this sizing, matching the login plugin's conversion.
+ */
+#define AUTH_SERVER_CLEAR_COOKIE_SZ \
+	(63 + 1 + 8 + 9 + 127 + 10 + 29 + 11 + 32 + 1)
+
+/*
+ * F-048: compose one of the logout / session-destroy *clearing* Set-Cookies
+ * (empty value, Expires at epoch, Max-Age=0) into out
+ * (AUTH_SERVER_CLEAR_COOKIE_SZ bytes); domain may be NULL / "" for the
+ * host-only variant.  On failure out is emptied and the error logged: the
+ * caller must skip the cookie rather than emit a truncated attribute tail --
+ * a clearing cookie missing its Expires / Max-Age=0 / HttpOnly / SameSite /
+ * Secure tail is not actually cleared by the browser, so the session would
+ * survive logout on shared machines.
+ */
+static void
+auth_server_clear_cookie(char *out, const char *name, const char *domain,
+			 const char *expires)
+{
+	if (lws_http_cookie_compose(out, AUTH_SERVER_CLEAR_COOKIE_SZ, name,
+				    "", domain, 0, expires) < 0) {
+		lwsl_err("auth-server: clearing Set-Cookie for %s too "
+			 "large for the composed buffer (domain %d)",
+			 name, domain ? (int)strlen(domain) : 0);
+		out[0] = '\0';
+	}
+}
+
 struct per_vhost_data__auth_server {
 	struct lws_context		*context;
 	struct lws_vhost		*vhost;
@@ -1057,18 +1096,23 @@ lws_auth_api_sso_exchange(struct lws *wsi, struct per_vhost_data__auth_server *v
 		pss->http_response_code = HTTP_STATUS_OK;
 		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"token\":\"%s\"}", jwt);
 		
-		if (was_refreshed && vhd->cookie_name[0]) {
-			if (vhd->cookie_domain[0]) {
-				lws_snprintf(cookie_hdr, sizeof(cookie_hdr),
-					"%s=%s; Path=/; Domain=%s; Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
-					vhd->cookie_name, jwt, vhd->cookie_domain,
-					vhd->jwt_validity_secs);
-			} else {
-				lws_snprintf(cookie_hdr, sizeof(cookie_hdr),
-					"%s=%s; Path=/; Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
-					vhd->cookie_name, jwt,
-					vhd->jwt_validity_secs);
-			}
+		if (was_refreshed && vhd->cookie_name[0] &&
+		    lws_http_cookie_compose(cookie_hdr, sizeof(cookie_hdr),
+					    vhd->cookie_name, jwt,
+					    vhd->cookie_domain,
+					    vhd->jwt_validity_secs,
+					    NULL) < 0) {
+			/*
+			 * F-048: fail closed rather than emit a Set-Cookie
+			 * whose HttpOnly / SameSite / Secure tail was
+			 * truncated; the token is still in the JSON body
+			 */
+			lwsl_wsi_err(wsi, "%s: %s Set-Cookie too large "
+				     "for the composed buffer (token %d, "
+				     "domain %d)", __func__, vhd->cookie_name,
+				     (int)strlen(jwt),
+				     (int)strlen(vhd->cookie_domain));
+			cookie_hdr[0] = '\0';
 		}
 		goto send;
 	}
@@ -1512,19 +1556,22 @@ lws_auth_mint_refresh(struct per_vhost_data__auth_server *vhd, uint32_t uid,
 	}
 	sqlite3_finalize(stmt);
 
-	if (refresh_hdr_out) {
-		if (vhd->cookie_domain[0])
-			lws_snprintf(refresh_hdr_out, LWS_SSO_MAX_COOKIE,
-				"auth_refresh_session=%s; Path=/; Domain=%s; "
-				"Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
-				refresh_code_out, vhd->cookie_domain,
-				vhd->refresh_token_validity_secs);
-		else
-			lws_snprintf(refresh_hdr_out, LWS_SSO_MAX_COOKIE,
-				"auth_refresh_session=%s; Path=/; "
-				"Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
-				refresh_code_out,
-				vhd->refresh_token_validity_secs);
+	if (refresh_hdr_out &&
+	    lws_http_cookie_compose(refresh_hdr_out, LWS_SSO_MAX_COOKIE,
+				    "auth_refresh_session", refresh_code_out,
+				    vhd->cookie_domain,
+				    vhd->refresh_token_validity_secs,
+				    NULL) < 0) {
+		/*
+		 * F-048: fail closed rather than emit a truncated attribute
+		 * tail; callers gate on refresh_hdr_out[0], so the refresh
+		 * cookie is simply skipped (the code stays in the JSON body
+		 * for the delegate flow)
+		 */
+		lwsl_err("auth-server: auth_refresh_session Set-Cookie "
+			 "too large for the composed buffer (domain %d)",
+			 (int)strlen(vhd->cookie_domain));
+		refresh_hdr_out[0] = '\0';
 	}
 
 	return 1;
@@ -1705,18 +1752,19 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 	if (!lws_auth_generate_token(vhd, user, uid, peer, jwt, &jwt_len)) {
 		pss->http_response_code = HTTP_STATUS_OK;
 		len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"token\":\"%s\"}", jwt);
-		if (vhd->cookie_name[0]) {
-			if (vhd->cookie_domain[0]) {
-				lws_snprintf(cookie_hdr, sizeof(cookie_hdr),
-					"%s=%s; Path=/; Domain=%s; Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
-					vhd->cookie_name, jwt, vhd->cookie_domain,
-					vhd->jwt_validity_secs);
-			} else {
-				lws_snprintf(cookie_hdr, sizeof(cookie_hdr),
-					"%s=%s; Path=/; Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
-					vhd->cookie_name, jwt,
-					vhd->jwt_validity_secs);
-			}
+		if (vhd->cookie_name[0] &&
+		    lws_http_cookie_compose(cookie_hdr, sizeof(cookie_hdr),
+					    vhd->cookie_name, jwt,
+					    vhd->cookie_domain,
+					    vhd->jwt_validity_secs,
+					    NULL) < 0) {
+			/* F-048: fail closed, never a truncated tail */
+			lwsl_wsi_err(wsi, "%s: %s Set-Cookie too large "
+				     "for the composed buffer (token %d, "
+				     "domain %d)", __func__, vhd->cookie_name,
+				     (int)strlen(jwt),
+				     (int)strlen(vhd->cookie_domain));
+			cookie_hdr[0] = '\0';
 		}
 
 		if (vhd->refresh_token_validity_secs > 0) {
@@ -2678,9 +2726,12 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 					seen, deleted);
 			}
 
-			char cookie_hdr1[256], cookie_hdr1_host[256];
-			char cookie_hdr2[256], cookie_hdr2_host[256];
-			char cookie_hdr3[256], cookie_hdr3_host[256];
+			char cookie_hdr1[AUTH_SERVER_CLEAR_COOKIE_SZ];
+			char cookie_hdr1_host[AUTH_SERVER_CLEAR_COOKIE_SZ];
+			char cookie_hdr2[AUTH_SERVER_CLEAR_COOKIE_SZ];
+			char cookie_hdr2_host[AUTH_SERVER_CLEAR_COOKIE_SZ];
+			char cookie_hdr3[AUTH_SERVER_CLEAR_COOKIE_SZ];
+			char cookie_hdr3_host[AUTH_SERVER_CLEAR_COOKIE_SZ];
 			char exp[64];
 			time_t t = 0;
 #if defined(WIN32) || defined(_WIN32)
@@ -2695,18 +2746,26 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			else
 				exp[0] = '\0';
 
-			if (vhd->cookie_domain[0]) {
-				lws_snprintf(cookie_hdr1, sizeof(cookie_hdr1), "%s=; Path=/; Domain=%s; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", vhd->cookie_name, vhd->cookie_domain, exp);
-				lws_snprintf(cookie_hdr2, sizeof(cookie_hdr2), "auth_csrf=; Path=/; Domain=%s; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", vhd->cookie_domain, exp);
-				lws_snprintf(cookie_hdr3, sizeof(cookie_hdr3), "auth_refresh_session=; Path=/; Domain=%s; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", vhd->cookie_domain, exp);
-			} else {
-				lws_snprintf(cookie_hdr1, sizeof(cookie_hdr1), "%s=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", vhd->cookie_name, exp);
-				lws_snprintf(cookie_hdr2, sizeof(cookie_hdr2), "auth_csrf=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", exp);
-				lws_snprintf(cookie_hdr3, sizeof(cookie_hdr3), "auth_refresh_session=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", exp);
-			}
-			lws_snprintf(cookie_hdr1_host, sizeof(cookie_hdr1_host), "%s=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", vhd->cookie_name, exp);
-			lws_snprintf(cookie_hdr2_host, sizeof(cookie_hdr2_host), "auth_csrf=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", exp);
-			lws_snprintf(cookie_hdr3_host, sizeof(cookie_hdr3_host), "auth_refresh_session=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", exp);
+			/*
+			 * F-048: clearing cookies compose via the fail-closed
+			 * lws_http_cookie_compose(); an empty buffer means
+			 * the cookie is skipped, never emitted with a
+			 * truncated attribute tail
+			 */
+			auth_server_clear_cookie(cookie_hdr1, vhd->cookie_name,
+						 vhd->cookie_domain, exp);
+			auth_server_clear_cookie(cookie_hdr2, "auth_csrf",
+						 vhd->cookie_domain, exp);
+			auth_server_clear_cookie(cookie_hdr3,
+						 "auth_refresh_session",
+						 vhd->cookie_domain, exp);
+			auth_server_clear_cookie(cookie_hdr1_host,
+						 vhd->cookie_name, NULL, exp);
+			auth_server_clear_cookie(cookie_hdr2_host, "auth_csrf",
+						 NULL, exp);
+			auth_server_clear_cookie(cookie_hdr3_host,
+						 "auth_refresh_session",
+						 NULL, exp);
 
 			char html[LWS_PRE + 1024];
 			char urlenc_path[512];
@@ -2724,12 +2783,12 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			if (lws_add_http_common_headers(wsi, HTTP_STATUS_SEE_OTHER, "text/html", (unsigned int)html_len, (unsigned char **)&p, (unsigned char *)end))
 				return 1;
 
-			if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr1, (int)strlen(cookie_hdr1), (unsigned char **)&p, (unsigned char *)end)) return 1;
-			if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr1_host, (int)strlen(cookie_hdr1_host), (unsigned char **)&p, (unsigned char *)end)) return 1;
-			if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr2, (int)strlen(cookie_hdr2), (unsigned char **)&p, (unsigned char *)end)) return 1;
-			if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr2_host, (int)strlen(cookie_hdr2_host), (unsigned char **)&p, (unsigned char *)end)) return 1;
-			if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr3, (int)strlen(cookie_hdr3), (unsigned char **)&p, (unsigned char *)end)) return 1;
-			if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr3_host, (int)strlen(cookie_hdr3_host), (unsigned char **)&p, (unsigned char *)end)) return 1;
+			if (cookie_hdr1[0] && lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr1, (int)strlen(cookie_hdr1), (unsigned char **)&p, (unsigned char *)end)) return 1;
+			if (cookie_hdr1_host[0] && lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr1_host, (int)strlen(cookie_hdr1_host), (unsigned char **)&p, (unsigned char *)end)) return 1;
+			if (cookie_hdr2[0] && lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr2, (int)strlen(cookie_hdr2), (unsigned char **)&p, (unsigned char *)end)) return 1;
+			if (cookie_hdr2_host[0] && lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr2_host, (int)strlen(cookie_hdr2_host), (unsigned char **)&p, (unsigned char *)end)) return 1;
+			if (cookie_hdr3[0] && lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr3, (int)strlen(cookie_hdr3), (unsigned char **)&p, (unsigned char *)end)) return 1;
+			if (cookie_hdr3_host[0] && lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr3_host, (int)strlen(cookie_hdr3_host), (unsigned char **)&p, (unsigned char *)end)) return 1;
 			if (lws_add_http_header_by_token(wsi, WSI_TOKEN_HTTP_LOCATION,
 							 (unsigned char *)redirect_uri, (int)strlen(redirect_uri),
 							 (unsigned char **)&p, (unsigned char *)end))
@@ -2834,18 +2893,23 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 							char jwt[1024];
 							size_t jwt_len = sizeof(jwt);
 							
-							if (!lws_auth_generate_token(vhd, username, suid, peer, jwt, &jwt_len)) {
-								if (vhd->cookie_domain[0]) {
-									lws_snprintf(set_cookie_jwt, sizeof(set_cookie_jwt),
-										"%s=%s; Path=/; Domain=%s; Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
-										vhd->cookie_name, jwt, vhd->cookie_domain,
-										(unsigned long long)vhd->jwt_validity_secs);
-								} else {
-									lws_snprintf(set_cookie_jwt, sizeof(set_cookie_jwt),
-										"%s=%s; Path=/; Max-Age=%llu; HttpOnly; SameSite=Lax; Secure",
-										vhd->cookie_name, jwt,
-										(unsigned long long)vhd->jwt_validity_secs);
-								}
+							if (!lws_auth_generate_token(vhd, username, suid, peer, jwt, &jwt_len) &&
+							    lws_http_cookie_compose(set_cookie_jwt,
+										    sizeof(set_cookie_jwt),
+										    vhd->cookie_name, jwt,
+										    vhd->cookie_domain,
+										    vhd->jwt_validity_secs,
+										    NULL) < 0) {
+								/* F-048: fail closed, never a truncated tail */
+								lwsl_wsi_err(wsi, "%s: %s "
+									"Set-Cookie too large for "
+									"the composed buffer "
+									"(token %d, domain %d)",
+									__func__,
+									vhd->cookie_name,
+									(int)strlen(jwt),
+									(int)strlen(vhd->cookie_domain));
+								set_cookie_jwt[0] = '\0';
 							}
 						}
 
@@ -2903,7 +2967,12 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 					users_empty = 0;
 					lacks_grant = 0;
 
-					char cookie_hdr1[256], cookie_hdr1_host[256], cookie_hdr2[256], cookie_hdr2_host[256], cookie_hdr3[256], cookie_hdr3_host[256];
+					char cookie_hdr1[AUTH_SERVER_CLEAR_COOKIE_SZ],
+					     cookie_hdr1_host[AUTH_SERVER_CLEAR_COOKIE_SZ],
+					     cookie_hdr2[AUTH_SERVER_CLEAR_COOKIE_SZ],
+					     cookie_hdr2_host[AUTH_SERVER_CLEAR_COOKIE_SZ],
+					     cookie_hdr3[AUTH_SERVER_CLEAR_COOKIE_SZ],
+					     cookie_hdr3_host[AUTH_SERVER_CLEAR_COOKIE_SZ];
 					char exp[64];
 					time_t t = 0;
 #if defined(WIN32) || defined(_WIN32)
@@ -2918,18 +2987,32 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 					else
 						exp[0] = '\0';
 
-					if (vhd->cookie_domain[0]) {
-						lws_snprintf(cookie_hdr1, sizeof(cookie_hdr1), "%s=; Path=/; Domain=%s; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", vhd->cookie_name, vhd->cookie_domain, exp);
-						lws_snprintf(cookie_hdr2, sizeof(cookie_hdr2), "auth_csrf=; Path=/; Domain=%s; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", vhd->cookie_domain, exp);
-						lws_snprintf(cookie_hdr3, sizeof(cookie_hdr3), "auth_refresh_session=; Path=/; Domain=%s; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", vhd->cookie_domain, exp);
-					} else {
-						lws_snprintf(cookie_hdr1, sizeof(cookie_hdr1), "%s=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", vhd->cookie_name, exp);
-						lws_snprintf(cookie_hdr2, sizeof(cookie_hdr2), "auth_csrf=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", exp);
-						lws_snprintf(cookie_hdr3, sizeof(cookie_hdr3), "auth_refresh_session=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", exp);
-					}
-					lws_snprintf(cookie_hdr1_host, sizeof(cookie_hdr1_host), "%s=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", vhd->cookie_name, exp);
-					lws_snprintf(cookie_hdr2_host, sizeof(cookie_hdr2_host), "auth_csrf=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", exp);
-					lws_snprintf(cookie_hdr3_host, sizeof(cookie_hdr3_host), "auth_refresh_session=; Path=/; Expires=%s; Max-Age=0; HttpOnly; SameSite=Lax; Secure", exp);
+					/*
+					 * F-048: clearing cookies compose via
+					 * the fail-closed
+					 * lws_http_cookie_compose(); an empty
+					 * buffer means the cookie is skipped,
+					 * never emitted with a truncated
+					 * attribute tail
+					 */
+					auth_server_clear_cookie(cookie_hdr1,
+								 vhd->cookie_name,
+								 vhd->cookie_domain, exp);
+					auth_server_clear_cookie(cookie_hdr2,
+								 "auth_csrf",
+								 vhd->cookie_domain, exp);
+					auth_server_clear_cookie(cookie_hdr3,
+								 "auth_refresh_session",
+								 vhd->cookie_domain, exp);
+					auth_server_clear_cookie(cookie_hdr1_host,
+								 vhd->cookie_name,
+								 NULL, exp);
+					auth_server_clear_cookie(cookie_hdr2_host,
+								 "auth_csrf",
+								 NULL, exp);
+					auth_server_clear_cookie(cookie_hdr3_host,
+								 "auth_refresh_session",
+								 NULL, exp);
 
 					/* same all-values teardown as /api/logout */
 					{
@@ -2971,12 +3054,12 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 
 					if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK, "application/json", (lws_filepos_t)payload_len, &p, end)) return -1;
 					if (lws_add_http_header_by_name(wsi, (unsigned char *)"Cache-Control:", (unsigned char *)"no-cache, no-store, must-revalidate", 35, &p, end)) return -1;
-					if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr1, (int)strlen(cookie_hdr1), &p, end)) return -1;
-					if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr1_host, (int)strlen(cookie_hdr1_host), &p, end)) return -1;
-					if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr2, (int)strlen(cookie_hdr2), &p, end)) return -1;
-					if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr2_host, (int)strlen(cookie_hdr2_host), &p, end)) return -1;
-					if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr3, (int)strlen(cookie_hdr3), &p, end)) return -1;
-					if (lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr3_host, (int)strlen(cookie_hdr3_host), &p, end)) return -1;
+					if (cookie_hdr1[0] && lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr1, (int)strlen(cookie_hdr1), &p, end)) return -1;
+					if (cookie_hdr1_host[0] && lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr1_host, (int)strlen(cookie_hdr1_host), &p, end)) return -1;
+					if (cookie_hdr2[0] && lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr2, (int)strlen(cookie_hdr2), &p, end)) return -1;
+					if (cookie_hdr2_host[0] && lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr2_host, (int)strlen(cookie_hdr2_host), &p, end)) return -1;
+					if (cookie_hdr3[0] && lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr3, (int)strlen(cookie_hdr3), &p, end)) return -1;
+					if (cookie_hdr3_host[0] && lws_add_http_header_by_name(wsi, (unsigned char *)"set-cookie:", (unsigned char *)cookie_hdr3_host, (int)strlen(cookie_hdr3_host), &p, end)) return -1;
 					if (lws_finalize_write_http_header(wsi, start, &p, end)) return -1;
 
 					char pl[LWS_PRE + 64];
@@ -3007,6 +3090,18 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 					return -1;
 
 				if (!has_csrf) {
+					/*
+					 * F-048: deliberately NOT composed via
+					 * lws_http_cookie_compose(): this is a
+					 * browser-session cookie (no Max-Age),
+					 * which that api's fixed scoping does
+					 * not express.  Every input here is
+					 * fixed-shape (name "auth_csrf", a
+					 * 32-hex-char value, no Domain), so
+					 * the result is provably 82 bytes and
+					 * cannot truncate in the 128-byte
+					 * buffer.
+					 */
 					char cookie_hdr[128];
 					lws_snprintf(cookie_hdr, sizeof(cookie_hdr), "auth_csrf=%s; Path=/; SameSite=Lax; HttpOnly; Secure", csrf);
 					return send_auth_headers(wsi, pss, "application/json", cookie_hdr, set_cookie_jwt[0] ? set_cookie_jwt : NULL);
