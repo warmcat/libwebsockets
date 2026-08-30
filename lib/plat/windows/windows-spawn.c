@@ -460,7 +460,7 @@ windows_pipe_poll_hack(lws_sorted_usec_list_t *sul)
 struct lws_spawn_piped *
 lws_spawn_piped(const struct lws_spawn_piped_info *i)
 {
-	const struct lws_protocols *pcol = i->vh->context->vhost_list->protocols;
+	const struct lws_protocols *pcol = NULL;
 	struct lws_context *context = i->vh->context;
 	struct lws_spawn_piped *lsp;
 	PROCESS_INFORMATION pi;
@@ -471,9 +471,27 @@ lws_spawn_piped(const struct lws_spawn_piped_info *i)
 
 	if (i->protocol_name)
 		pcol = lws_vhost_name_to_protocol(i->vh, i->protocol_name);
+
+	if (!pcol && i->ops)
+		/*
+		 * Spawns that bring their own role ops (eg, CGI) service
+		 * POLLIN themselves and never dispatch through
+		 * wsi->a.protocol->callback, so the first protocol on the
+		 * first vhost is usable for those
+		 */
+               pcol = context->vhost_list->protocols;
+
 	if (!pcol) {
-		lwsl_err("%s: unknown protocol %s\n", __func__,
-			 i->protocol_name ? i->protocol_name : "default");
+		/*
+		 * The first vhost is the internal system vhost, whose [0]
+		 * protocol is async-dns; a callback that ignores
+		 * LWS_CALLBACK_RAW_RX_FILE.  Binding it silently means the
+		 * first thing the child writes to stdout or stderr leaves
+		 * the pipe permanently POLLIN, spinning the event loop at
+		 * 100% CPU forever.
+		 */
+		lwsl_err("%s: no usable protocol for stdio pipes (%s)\n", __func__,
+			 i->protocol_name ? i->protocol_name : "none given");
 
 		return NULL;
 	}

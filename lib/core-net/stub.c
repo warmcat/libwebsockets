@@ -113,6 +113,15 @@ lws_stub_spawn(const struct lws_stub_config *config)
 	int n = 0;
 	uint8_t rand[64];
 
+	if (!config->parent_protocol_name) {
+		lwsl_err("%s: stub '%s': parent_protocol_name is required, "
+			 "the stub stdio pipes need a protocol that "
+			 "drains them\n", __func__,
+			 config->stub_name ? config->stub_name : "?");
+
+		return NULL;
+	}
+
 	mgr = lws_zalloc(sizeof(*mgr), "stub_mgr");
 	if (!mgr)
 		return NULL;
