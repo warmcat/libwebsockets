@@ -37,6 +37,7 @@ MACRO(require_lws_config reqconfig _val result)
                        endif()
 		endif()
 		set(${result} 0)
+		set(MET 0)
 	else()
 		if (LWS_WITH_MINIMAL_EXAMPLES)
 			set(MET ${SAME})
@@ -59,6 +60,14 @@ MACRO(require_lws_config reqconfig _val result)
 			else()
 				message(FATAL_ERROR "Lws configuration of ${reqconfig} is incompatible with this project")
 			endif()
+		endif()
+
+		# for non-requirements result vars, export whether the requirement
+		# was met, so callers can gate optional features on it (eg, proxy
+		# api ctests).  "requirements" keeps its earlier-failed sticky 0.
+
+		if (NOT _cmp)
+			set(${result} ${MET})
 		endif()
 
 	endif()

@@ -21,6 +21,7 @@ protocol it uses is kept separated in policy-database.c
 Commandline option|Meaning
 ---|---
 -d <loglevel>|Debug verbosity in decimal, eg, -d15
+-c <policy-file>|Use the policy from this JSON file instead of the compiled-in one, eg to target a local test server
 -f| Force connecting to the wrong endpoint to check backoff retry flow
 -p| Run as proxy server for clients to connect to over unix domain socket
 --force-portal|Force the SS Captive Portal Detection to feel it's behind a portal

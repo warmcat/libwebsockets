@@ -21,6 +21,7 @@ same results.
 Commandline option|Meaning
 ---|---
 -d <loglevel>|Debug verbosity in decimal, eg, -d15
+-c <policy-file>|Use the policy from this JSON file instead of the compiled-in one, eg to target a local test server
 
 ```
 [2021/03/31 15:29:46:5162] U: LWS secure streams test client [-d<verb>]

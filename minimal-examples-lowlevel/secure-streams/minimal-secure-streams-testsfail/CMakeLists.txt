@@ -23,7 +23,7 @@ if (requirements)
 
 	find_program(VALGRIND "valgrind")
 
-	if (LWS_CTEST_INTERNET_AVAILABLE AND NOT WIN32)
+	if (NOT WIN32)
 		lws_get_free_port(PORT_TF_SRV)
 		lws_get_free_port(PORT_TF_SRV_TLS)
 		lws_get_free_port(PORT_TF_SRV_B_HOST)

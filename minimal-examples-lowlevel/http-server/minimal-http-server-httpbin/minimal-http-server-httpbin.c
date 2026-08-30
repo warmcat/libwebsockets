@@ -7,7 +7,11 @@
  * Universal Public Domain Dedication.
  *
  * This demonstrates a minimal http server that mimics basic httpbin.org functionality
- * used by lws ctests for testing offline, e.g. /status/200, /delay/10, /bytes/1000.
+ * used by lws ctests for testing offline, e.g. /status/200, /delay/10,
+ * /bytes/1000 and /urlarg/?x=... (echoes back the x= uri argument).
+ *
+ * The routes respond to POSTs the same as GETs, after consuming the request
+ * body.
  */
 
 #include <libwebsockets.h>
@@ -31,11 +35,15 @@ struct pss {
 	lws_sorted_usec_list_t sul;
 	struct lws *wsi;
 	char path[128];
+	char urlarg[8192];
+	size_t urlarg_len;
 	int status_code;
 	int delay_secs;
 	size_t bytes_left;
 	int headers_sent;
 	int writing_bytes;
+	int echoing_urlarg;
+	int is_post;
 };
 
 static int interrupted;
@@ -81,6 +89,8 @@ callback_httpbin(struct lws *wsi, enum lws_callback_reasons reason,
 		pss->bytes_left = 0;
 		pss->headers_sent = 0;
 		pss->writing_bytes = 0;
+		pss->echoing_urlarg = 0;
+		pss->is_post = !!lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI);
 
 		lwsl_notice("%s: HTTP: URI %s\n", __func__, uri);
 
@@ -88,9 +98,30 @@ callback_httpbin(struct lws *wsi, enum lws_callback_reasons reason,
 			pss->status_code = atoi(uri + 8);
 		} else if (!strncmp(uri, "/delay/", 7)) {
 			pss->delay_secs = atoi(uri + 7);
+		} else if (!strncmp(uri, "/urlarg", 7)) {
+			/*
+			 * Echo back the x= uri argument content, like the
+			 * urlarg plugin on warmcat's test server
+			 */
+			int alen = lws_get_urlarg_by_name_safe(wsi, "x",
+					pss->urlarg, sizeof(pss->urlarg) - 1);
+
+			if (alen < 0) {
+				pss->status_code = 400;
+			} else {
+				pss->urlarg_len = (size_t)alen;
+				pss->bytes_left = (size_t)alen;
+				pss->writing_bytes = 1;
+				pss->echoing_urlarg = 1;
+			}
 		} else if (!strncmp(uri, "/bytes/", 7)) {
 			pss->bytes_left = (size_t)atoll(uri + 7);
 			pss->writing_bytes = 1;
+		}
+
+		if (pss->is_post) {
+			/* consume the POST body, reply after it has all come */
+			return 0;
 		}
 
 		if (pss->delay_secs > 0) {
@@ -103,6 +134,18 @@ callback_httpbin(struct lws *wsi, enum lws_callback_reasons reason,
 		lws_callback_on_writable(wsi);
 		return 0;
 	}
+
+	case LWS_CALLBACK_HTTP_BODY:
+		/* we just discard POST body content */
+		return 0;
+
+	case LWS_CALLBACK_HTTP_BODY_COMPLETION:
+		pss->wsi = wsi;
+		pss->status_code = 200;
+		pss->headers_sent = 0;
+		/* keep any route-set response body, eg POST /bytes/1000 */
+		lws_callback_on_writable(wsi);
+		return 0;
 
 	case LWS_CALLBACK_HTTP_WRITEABLE:
 
@@ -142,7 +185,12 @@ callback_httpbin(struct lws *wsi, enum lws_callback_reasons reason,
 			if (chunk > sizeof(buf) - LWS_PRE)
 				chunk = sizeof(buf) - LWS_PRE;
 
-			memset(start, 'A', chunk);
+			if (pss->echoing_urlarg)
+				memcpy(start,
+				       pss->urlarg + (pss->urlarg_len -
+						      pss->bytes_left), chunk);
+			else
+				memset(start, 'A', chunk);
 
 			n = lws_write(wsi, start, chunk, (pss->bytes_left == chunk) ? LWS_WRITE_HTTP_FINAL : LWS_WRITE_HTTP);
 			if (n < 0)

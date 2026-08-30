@@ -19,69 +19,6 @@ if (requirements)
 	
 	find_program(VALGRIND "valgrind")
 
-	if (LWS_CTEST_INTERNET_AVAILABLE AND NOT WIN32 AND 0)
-		if (VALGRIND AND NOT LWS_WITH_ASAN)
-			message("testing via valgrind")
-			add_test(NAME ss-sigv4 COMMAND
-				${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
-				$<TARGET_FILE:lws-minimal-secure-streams-sigv4>)
-		else()
-			add_test(NAME ss-sigv4 COMMAND lws-minimal-secure-streams-sigv4)
-		endif()
-
-		set_tests_properties(ss-sigv4
-				     PROPERTIES
-				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/secure-streams/minimal-secure-streams-sigv4
-				     TIMEOUT 20)
-
-		if (HAS_LWS_WITH_SECURE_STREAMS_PROXY_API OR LWS_WITH_SECURE_STREAMS_PROXY_API)
-
-			#
-			# Define test dep to bring up and take down the test
-			# proxy
-			#
-
-			if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
-				# uds abstract namespace for linux
-				set(CTEST_SOCKET_PATH "@ctest-sspsigv4-$ENV{SAI_PROJECT}-$ENV{SAI_OVN}")
-			else()
-				# filesystem socket for others
-				string(SUBSTRING "$ENV{SAI_OVN}" 32 16 SHORT_HASH)
-				set(CTEST_SOCKET_PATH "/tmp/ctest-sspsigv4-$ENV{SAI_PROJECT}-${SHORT_HASH}")
-			endif()
-			add_test(NAME st_ssproxysigv4 COMMAND
-				${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
-				ssproxysigv4 $<TARGET_FILE:lws-minimal-secure-streams-proxy>
-				-i ${CTEST_SOCKET_PATH} )
-			set_tests_properties(st_ssproxysigv4 PROPERTIES WORKING_DIRECTORY . FIXTURES_SETUP ssproxysigv4 TIMEOUT 800)
-
-			add_test(NAME ki_ssproxysigv4 COMMAND
-				${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
-				ssproxysigv4 $<TARGET_FILE:lws-minimal-secure-streams-proxy>
-				-i ${CTEST_SOCKET_PATH})
-			set_tests_properties(ki_ssproxysigv4 PROPERTIES FIXTURES_CLEANUP ssproxysigv4)
-
-			#
-			# the client part that will connect to the proxy
-			#
-
-			if (VALGRIND AND NOT LWS_WITH_ASAN)
-				message("testing via valgrind")
-				add_test(NAME sspc-sigv4 COMMAND
-					${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
-					$<TARGET_FILE:lws-minimal-secure-streams-sigv4-client> -i +${CTEST_SOCKET_PATH})
-			else()
-				add_test(NAME sspc-sigv4 COMMAND lws-minimal-secure-streams-sigv4-client -i +${CTEST_SOCKET_PATH})
-			endif()
-			set_tests_properties(sspc-sigv4 PROPERTIES
-				WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/secure-streams/minimal-secure-streams-sigv4
-				FIXTURES_REQUIRED "ssproxysigv4"
-				TIMEOUT 40)
-
-		endif()
-
-	endif()
-
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared)
 		add_dependencies(${SAMP} websockets_shared)

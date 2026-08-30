@@ -15,21 +15,13 @@ if (requirements)
 
 	add_executable(${PROJECT_NAME} main.c)
 
-	if (LWS_CTEST_INTERNET_AVAILABLE)
-		add_test(NAME api-test-secure-streams COMMAND ${PROJECT_NAME})
-		set_tests_properties(api-test-secure-streams
-				     PROPERTIES
-				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-secure-streams
-				     TIMEOUT 90)
-	endif()
-
 	#
 	# Local-server variant: runs the same test logic against a local
 	# lws-minimal-http-server-httpbin over TLS, so it does not need any
 	# external network egress.  Suitable for IPv6-only / no-egress CI.
 	#
 
-	if (LWS_CTEST_INTERNET_AVAILABLE AND NOT WIN32 AND LWS_WITH_SERVER)
+	if (NOT WIN32 AND LWS_WITH_SERVER)
 		lws_get_free_port(PORT_ATS_SRV_TLS)
 
 		configure_file(policy-local.json.in policy-local.json @ONLY)

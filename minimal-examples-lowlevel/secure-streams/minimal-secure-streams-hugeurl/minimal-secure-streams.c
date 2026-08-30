@@ -13,6 +13,7 @@
 #include <libwebsockets.h>
 
 enum {
+	LWS_SW_POLICY_FILE,
 	LWS_SW_A,
 	LWS_SW_H,
 	LWS_SW_I,
@@ -21,6 +22,7 @@ enum {
 };
 
 static const struct lws_switches switches[] = {
+	[LWS_SW_POLICY_FILE]	= { "-c",              "Policy JSON file path, overrides the compiled-in policy" },
 	[LWS_SW_A]	= { "-a",              "Enable -a feature" },
 	[LWS_SW_H]	= { "-h",              "Strict Host Check / Help" },
 	[LWS_SW_I]	= { "-i",              "Interface to bind to" },
@@ -410,6 +412,12 @@ int main(int argc, const char **argv)
 		info.ss_proxy_address = p;
 #else
 	info.pss_policies_json = default_ss_policy;
+
+	/* if given, -c overrides the compiled-in policy with a policy from
+	 * a file, so the same binary can be pointed at a locally-generated
+	 * policy targeting a local test server */
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_POLICY_FILE].sw)))
+		info.pss_policies_json = p;
 	info.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
 		       LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW |
 		       LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;

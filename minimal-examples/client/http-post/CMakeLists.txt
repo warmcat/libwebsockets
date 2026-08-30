@@ -61,7 +61,13 @@ if (requirements)
 
 	find_program(VALGRIND "valgrind")
 
-	if (LWS_CTEST_INTERNET_AVAILABLE AND NOT WIN32)
+	if (NOT WIN32)
+
+		# Note: no fault-injection ctests here: these examples return
+		# nonzero directly when SS creation fails, so --expected-exit
+		# cannot be reported through them.  The equivalent coverage is
+		# in the minimal-secure-streams* examples' fi tests.
+
 	
 		#
 		# External-egress variant: the example's default policy points at
@@ -86,60 +92,49 @@ if (requirements)
 			# If running under Sai, creates a lock test called "res_sspcmin"
 			#
 
-			sai_resource(warmcat_conns 1 40 sspcmin-http-post)
-
 			#
 			# simple test not via proxy
 			#
 
-			if (VALGRIND AND NOT LWS_WITH_ASAN)
-				message("testing via valgrind")
-				add_test(NAME msshttp-post-warmcat COMMAND
-					${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
-					$<TARGET_FILE:${PROJECT_NAME}>)
-			else()
-				add_test(NAME msshttp-post-warmcat COMMAND ${PROJECT_NAME})
-			endif()
 
-			set_tests_properties(msshttp-post-warmcat
-					     PROPERTIES
-					     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/client/http-post
-					     TIMEOUT 40)
 			if (DEFINED ENV{SAI_OVN})
-				set_tests_properties(msshttp-post-warmcat PROPERTIES FIXTURES_REQUIRED "res_msspcmin")
-			endif()
-
-			if (has_fault_injection)
-				if (VALGRIND AND NOT LWS_WITH_ASAN)
-					add_test(NAME msshttp-post-warmcat-fi1 COMMAND
-						${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
-						$<TARGET_FILE:${PROJECT_NAME}>
-						--fault-injection "ss/ss_create_destroy_me"
-						--expected-exit 1)
-					add_test(NAME msshttp-post-warmcat-fi2 COMMAND
-						${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
-						$<TARGET_FILE:${PROJECT_NAME}>
-						--fault-injection "ss/ss_no_streamtype_policy"
-						--expected-exit 1)
-				else()
-					add_test(NAME msshttp-post-warmcat-fi1 COMMAND lws-minimal-secure-streams
-						 --fault-injection "ss/ss_create_destroy_me"
-						 --expected-exit 1)
-					add_test(NAME msshttp-post-warmcat-fi2 COMMAND lws-minimal-secure-streams
-						 --fault-injection "ss/ss_no_streamtype_policy"
-						 --expected-exit 1)
-	 			 endif()
-
-				set_tests_properties(msshttp-post-warmcat-fi1
-						     msshttp-post-warmcat-fi2
-					     PROPERTIES
-					     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/client/http-post
-					     TIMEOUT 5)
-
 			endif()
 
 		endif() # LWS_IPV4 (external-egress variant)
 
+
+
+
+		if (has_sys_state AND (HAS_LWS_WITH_SECURE_STREAMS_PROXY_API OR has_ss_proxy OR
+			LWS_WITH_SECURE_STREAMS_PROXY_API))
+
+			#
+			# Define test dep to bring up and take down the test
+			# proxy
+			#
+
+			if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+				# uds abstract namespace for linux
+				set(CTEST_SOCKET_PATH "@ctest-mssphttp-post--$ENV{SAI_PROJECT}-$ENV{SAI_OVN}")
+			else()
+				# filesystem socket for others
+				string(SUBSTRING "$ENV{SAI_OVN}" 32 16 SHORT_HASH)
+				set(CTEST_SOCKET_PATH "/tmp/ctest-mssphttp-post-$ENV{SAI_PROJECT}-${SHORT_HASH}")
+			endif()
+			#
+			# the client part that will connect to the proxy
+			#
+
+			
+			set(fixlist "msshttp-post-proxy")
+			if (DEFINED ENV{SAI_OVN})
+				list(APPEND fixlist "res_msshttp-post-proxy")
+			endif()
+			
+
+		endif()
+
+	endif()
 
 		#
 		# Local-server variant: runs against a local
@@ -177,69 +172,59 @@ if (requirements)
 		endif()
 
 
-		if (has_sys_state AND (HAS_LWS_WITH_SECURE_STREAMS_PROXY_API OR has_ss_proxy OR
-			LWS_WITH_SECURE_STREAMS_PROXY_API))
+	### <--- related to ctest / CI END
 
-			#
-			# Define test dep to bring up and take down the test
-			# proxy
-			#
 
-			if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
-				# uds abstract namespace for linux
-				set(CTEST_SOCKET_PATH "@ctest-mssphttp-post--$ENV{SAI_PROJECT}-$ENV{SAI_OVN}")
-			else()
-				# filesystem socket for others
-				string(SUBSTRING "$ENV{SAI_OVN}" 32 16 SHORT_HASH)
-				set(CTEST_SOCKET_PATH "/tmp/ctest-mssphttp-post-$ENV{SAI_PROJECT}-${SHORT_HASH}")
-			endif()
-			add_test(NAME st_msshttp-post-proxy COMMAND
-				${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
-				msshttp-post-proxy $<TARGET_FILE:lws-minimal-secure-streams-proxy>
-				-i ${CTEST_SOCKET_PATH} )
-			set_tests_properties(st_msshttp-post-proxy PROPERTIES
-						WORKING_DIRECTORY .
-						FIXTURES_SETUP msshttp-post-proxy
-						TIMEOUT 800)
+	#
+	# Local-proxy variant: the proxy uses the local policy and the local
+	# peer instead of fetching a policy from warmcat.com, so this needs no
+	# external network egress.  Deliberately outside the
+	#
 
-			add_test(NAME ki_msshttp-post-proxy COMMAND
-				${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
-				msshttp-post-proxy $<TARGET_FILE:lws-minimal-secure-streams-proxy>
-				-i ${CTEST_SOCKET_PATH})
-			set_tests_properties(ki_msshttp-post-proxy PROPERTIES
-						FIXTURES_CLEANUP msshttp-post-proxy)
+	if (NOT WIN32 AND (HAS_LWS_WITH_SECURE_STREAMS_PROXY_API OR
+			   LWS_WITH_SECURE_STREAMS_PROXY_API))
 
-			#
-			# the client part that will connect to the proxy
-			#
-
-			if (VALGRIND AND NOT LWS_WITH_ASAN)
-				message("testing via valgrind")
-				add_test(NAME msspc-http-post-minimal COMMAND
-					${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
-					$<TARGET_FILE:${PROJECT_NAME}-client>
-					--ssproxy-iface +${CTEST_SOCKET_PATH})
-			else()
-				add_test(NAME msspc-http-post-minimal COMMAND
-					  ${PROJECT_NAME}-client
-					  --ssproxy-iface +${CTEST_SOCKET_PATH})
-			endif()
-			
-			set(fixlist "msshttp-post-proxy")
+		if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+			# uds abstract namespace for linux
+			set(CTEST_LOCAL_SOCKET_PATH "@ctest-ssphpp-local-$ENV{SAI_PROJECT}-$ENV{SAI_OVN}")
+		else()
+			# filesystem socket for others
 			if (DEFINED ENV{SAI_OVN})
-				list(APPEND fixlist "res_msshttp-post-proxy")
+				string(SUBSTRING "$ENV{SAI_OVN}" 32 16 SHORT_HASH)
+			else()
+				set(SHORT_HASH "0")
 			endif()
-			
-			set_tests_properties(msspc-http-post-minimal PROPERTIES
-				WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/client/http-post
-				FIXTURES_REQUIRED "${fixlist}"
-				TIMEOUT 40)
-
+			set(CTEST_LOCAL_SOCKET_PATH "/tmp/ctest-ssphpp-local-$ENV{SAI_PROJECT}-${SHORT_HASH}")
 		endif()
 
-	endif()
+		configure_file(policy-local.json.in policy-local.json @ONLY)
 
-	### <--- related to ctest / CI END
+		add_test(NAME st_hpp_proxy_local COMMAND
+			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
+			hpp_proxy_local $<TARGET_FILE:lws-minimal-secure-streams-proxy>
+			-i ${CTEST_LOCAL_SOCKET_PATH}
+			-c ${CMAKE_CURRENT_BINARY_DIR}/policy-local.json)
+		set_tests_properties(st_hpp_proxy_local PROPERTIES
+			WORKING_DIRECTORY .
+			FIXTURES_SETUP hpp_proxy_local
+			FIXTURES_REQUIRED "hp_hbin"
+			TIMEOUT 800)
+
+		add_test(NAME ki_hpp_proxy_local COMMAND
+			${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
+			hpp_proxy_local $<TARGET_FILE:lws-minimal-secure-streams-proxy>
+			-i ${CTEST_LOCAL_SOCKET_PATH}
+			-c ${CMAKE_CURRENT_BINARY_DIR}/policy-local.json)
+		set_tests_properties(ki_hpp_proxy_local PROPERTIES FIXTURES_CLEANUP hpp_proxy_local)
+
+		add_test(NAME msspc-http-post-local COMMAND lws-minimal-ss-http-post-client --ssproxy-iface +${CTEST_LOCAL_SOCKET_PATH}
+			 -i ${CTEST_LOCAL_SOCKET_PATH})
+		set_tests_properties(msspc-http-post-local PROPERTIES
+			WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/client/http-post
+			FIXTURES_REQUIRED "hpp_proxy_local;hp_hbin"
+			TIMEOUT 40)
+
+	endif()
 
 endif()
 

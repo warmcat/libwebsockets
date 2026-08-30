@@ -240,14 +240,10 @@ option(LWS_ONLY_SSPC "Remove everything from library except standalone SSPC clie
 #
 # CTest options
 #
-#
 # If you build with LWS_WITH_MINIMAL_EXAMPLES, you can use CTest / make test to run
-# examples that can give a pass/fail response.  By default it runs tests both against
-# a local server peer and warmcat.com, if your CI wants to do the tests but does not
-# have internet routing, then you can still run a subset of tests with CTest / make
-# test that only does local tests by disabling this option.
+# examples that can give a pass/fail response.  All of the ctests run against local
+# server peers only, they do not need any internet routing.
 #
-option(LWS_CTEST_INTERNET_AVAILABLE "CTest will performs tests that need the Internet" ON)
 
 if (NOT LWS_IPV4)
 	set(LWS_CTEST_SERVER_RESOLVE "::1")

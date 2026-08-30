@@ -23,7 +23,4 @@ if (requirements)
 	else()
 		target_link_libraries(${SAMP} websockets ${LIBWEBSOCKETS_DEP_LIBS})
 	endif()
-
-	if (LWS_CTEST_INTERNET_AVAILABLE)
-	endif()
 endif()
