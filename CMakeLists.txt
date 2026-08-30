@@ -207,6 +207,12 @@ option(LWS_WITH_HTTP_DIGEST_AUTH "Support Digest Auth (caution deprecated crypto
 option(LWS_WITH_HTTP_UNCOMMON_HEADERS "Include less common http header support" ON)
 option(LWS_WITH_SYS_STATE "lws_system state support" ON)
 option(LWS_WITH_SYS_SMD "Lws System Message Distribution" ON)
+if (LWS_WITH_SYS_ASYNC_DNS)
+	# The async dns resolver detects platform DNS server config changes by
+	# watching for them and distributing the new server set on SMD... it
+	# depends on SMD being built in
+	set(LWS_WITH_SYS_SMD ON)
+endif()
 option(LWS_WITH_SYS_FAULT_INJECTION "Enable fault injection support" OFF)
 option(LWS_WITH_SYS_METRICS "Lws Metrics API" OFF)
 option(LWS_WITH_LATENCY "Event loop latency tracking and monitoring (see ../READMEs/README.LWS_WITH_LATENCY.md)" OFF)

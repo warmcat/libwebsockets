@@ -11,6 +11,18 @@
 
 #include <libwebsockets.h>
 
+#if !defined(WIN32)
+#include <fcntl.h>
+#include <unistd.h>
+/*
+ * We test the platform DNS server watcher end to end by pointing the whole
+ * discovery machinery at a scratch resolv.conf we control, and checking the
+ * SMD LWSSMDCL_DNS publications that come out of it.
+ */
+#define RESOLV_TEST_CONF	"resolv-test.conf"
+#define RESOLV_TEST_WATCH_MS	"200"
+#endif
+
 enum {
 	LWS_SW_D,
 	LWS_SW_L,
@@ -233,6 +245,233 @@ static uint8_t canned_c_msn_com[] = {
 };
 
 static lws_sorted_usec_list_t sul, sul_timeout;
+
+/*
+ * SMD observer for LWSSMDCL_DNS: registered as an early smd participant so
+ * it's in place before the async dns machinery publishes its initial server
+ * list during context creation.
+ */
+
+static int watch_msgs, watch_fail;
+static char watch_last_payload[256];
+
+static int
+smd_dns_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
+	   void *buf, size_t len)
+{
+	size_t l = len;
+
+	(void)opaque;
+	(void)timestamp;
+
+	if (_class != LWSSMDCL_DNS)
+		return 0;
+
+	if (l >= sizeof(watch_last_payload))
+		l = sizeof(watch_last_payload) - 1;
+	memcpy(watch_last_payload, buf, l);
+	watch_last_payload[l] = '\0';
+	watch_msgs++;
+
+	lwsl_user("SMD LWSSMDCL_DNS: %s\n", watch_last_payload);
+
+	return 0;
+}
+
+#if !defined(WIN32)
+
+/*
+ * Watcher test leg:
+ *
+ * 1) wait for the gratuitous initial publication of the server set from the
+ *    scratch resolv.conf (one nameserver),
+ * 2) append a second nameserver to the scratch file,
+ * 3) wait for a new publication that contains it.
+ *
+ * When the leg is done (or has failed), the real async dns subtests start.
+ */
+
+static void next_test_cb(lws_sorted_usec_list_t *sul);
+
+static lws_sorted_usec_list_t sul_watch_leg;
+static int watch_leg_phase, watch_leg_ticks;
+
+static void
+sul_watch_leg_cb(lws_sorted_usec_list_t *s)
+{
+	switch (watch_leg_phase) {
+
+	case 0: /* waiting for the initial gratuitous report */
+		if (!watch_msgs)
+			break;
+
+		{
+			int fd = open(RESOLV_TEST_CONF, O_WRONLY | O_APPEND);
+
+			if (fd < 0) {
+				lwsl_err("%s: can't append to " RESOLV_TEST_CONF "\n", __func__);
+				goto fail;
+			}
+			if (write(fd, "nameserver 127.0.0.2\n", 21) < 0) {
+				close(fd);
+				goto fail;
+			}
+			close(fd);
+			watch_leg_phase = 1;
+		}
+		break;
+
+	case 1: /* waiting for the change to be detected and published */
+		if (strstr(watch_last_payload, "127.0.0.2"))
+			goto pass;
+		break;
+	}
+
+	if (++watch_leg_ticks < 40) { /* ~8s at the test poll interval */
+		lws_sul_schedule(context, 0, &sul_watch_leg,
+				 sul_watch_leg_cb, 200 * LWS_US_PER_MS);
+		return;
+	}
+
+fail:
+	lwsl_err("%s: watcher test leg failed (phase %d, msgs %d, last '%s')\n",
+			__func__, watch_leg_phase, watch_msgs,
+			watch_last_payload);
+	watch_fail++;
+
+pass:
+
+	/* kick off the real async dns subtests */
+
+	lws_sul_schedule(context, 0, &sul, next_test_cb, 1);
+}
+#endif
+
+#if !defined(WIN32) && defined(LWS_WITH_SYS_STATE)
+
+/*
+ * State gate leg: uses its own context with no pinned DNS servers and an
+ * initially empty platform server set (the scratch resolv.conf).  The
+ * system state must hold at LWS_SYSTATE_DNS until the watcher acquires a
+ * server, and then reach OPERATIONAL; we observe both via SMD.
+ */
+
+static struct lws_context *gate_cx;
+static lws_sorted_usec_list_t sul_gate;
+static int gate_interrupted, gate_dns_seen, gate_op_before, gate_op_after;
+static int gate_leg_ticks;
+
+static int
+payload_contains(void *buf, size_t len, const char *needle)
+{
+	char tmp[256];
+	size_t l = len;
+
+	if (l >= sizeof(tmp))
+		l = sizeof(tmp) - 1;
+	memcpy(tmp, buf, l);
+	tmp[l] = '\0';
+
+	return !!strstr(tmp, needle);
+}
+
+static int
+smd_gate_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
+	    void *buf, size_t len)
+{
+	(void)opaque;
+	(void)timestamp;
+
+	if (_class == LWSSMDCL_DNS) {
+		/* only count a non-empty server set as "servers acquired" */
+		if (payload_contains(buf, len, "127.0.0.3")) {
+			gate_dns_seen = 1;
+			lwsl_user("GATE: SMD DNS: %.*s\n", (int)len,
+					(const char *)buf);
+		}
+
+		return 0;
+	}
+
+	if (_class == LWSSMDCL_SYSTEM_STATE &&
+	    payload_contains(buf, len, "OPERATIONAL")) {
+		if (gate_dns_seen)
+			gate_op_after = 1;
+		else
+			gate_op_before = 1;
+		lwsl_user("GATE: SMD STATE: %.*s\n", (int)len,
+				(const char *)buf);
+	}
+
+	return 0;
+}
+
+static void
+sul_gate_cb(lws_sorted_usec_list_t *s)
+{
+	(void)s;
+
+	switch (gate_leg_ticks++) {
+	case 5: /* ~1s in: the platform gets its first DNS server */
+		{
+			int fd = open(RESOLV_TEST_CONF, O_WRONLY | O_APPEND);
+
+			if (fd < 0)
+				break;
+			if (write(fd, "nameserver 127.0.0.3\n", 21) < 0)
+				lwsl_err("%s: append failed\n", __func__);
+			close(fd);
+		}
+		break;
+
+	case 12: /* ~2.4s in: done */
+		gate_interrupted = 1;
+		return;
+	}
+
+	lws_sul_schedule(gate_cx, 0, &sul_gate, sul_gate_cb,
+			 200 * LWS_US_PER_MS);
+}
+
+static void
+gate_test(void)
+{
+	struct lws_context_creation_info gi;
+
+	lws_context_info_defaults(&gi, NULL);
+	gi.early_smd_cb = smd_gate_cb;
+	gi.early_smd_class_filter = LWSSMDCL_DNS | LWSSMDCL_SYSTEM_STATE;
+
+	gate_cx = lws_create_context(&gi);
+	if (!gate_cx) {
+		lwsl_err("%s: gate context create failed\n", __func__);
+		watch_fail++;
+		return;
+	}
+
+	lws_sul_schedule(gate_cx, 0, &sul_gate, sul_gate_cb,
+			 200 * LWS_US_PER_MS);
+
+	while (!gate_interrupted)
+		if (lws_service(gate_cx, 0) < 0)
+			break;
+
+	lws_context_destroy(gate_cx);
+	gate_cx = NULL;
+
+	if (gate_op_before) {
+		lwsl_err("%s: reached OPERATIONAL with no DNS servers\n",
+				__func__);
+		watch_fail++;
+	} else if (!gate_dns_seen || !gate_op_after) {
+		lwsl_err("%s: no OPERATIONAL after servers appeared "
+			 "(dns %d, op_after %d)\n", __func__,
+			 gate_dns_seen, gate_op_after);
+		watch_fail++;
+	} else
+		lwsl_user("Gate leg: PASS\n");
+}
+#endif
 
 struct lws *
 cb1(struct lws *wsi_unused, const char *ads, const struct addrinfo *a, int n,
@@ -541,6 +780,42 @@ main(int argc, const char **argv)
 	static const char *dns[] = { "8.8.8.8", NULL };
 	const char *p;
 
+#if !defined(WIN32)
+	{
+		int fd = open(RESOLV_TEST_CONF, O_CREAT | O_WRONLY | O_TRUNC,
+			      0600);
+
+		if (fd < 0) {
+			lwsl_err("%s: can't create " RESOLV_TEST_CONF "\n",
+					__func__);
+			return 1;
+		}
+		close(fd);
+
+		setenv("LWS_ASYNCDNS_RESOLV_CONF", RESOLV_TEST_CONF, 1);
+		setenv("LWS_ASYNCDNS_WATCH_MS", RESOLV_TEST_WATCH_MS, 1);
+
+#if defined(LWS_WITH_SYS_STATE)
+		lwsl_user("*** state gate test leg\n");
+		gate_test();
+#endif
+
+		/* platform server set for the main context's watcher leg */
+
+		fd = open(RESOLV_TEST_CONF, O_WRONLY | O_TRUNC, 0600);
+		if (fd < 0) {
+			lwsl_err("%s: can't reset " RESOLV_TEST_CONF "\n",
+					__func__);
+			return 1;
+		}
+		if (write(fd, "nameserver 127.0.0.1\n", 21) < 0) {
+			close(fd);
+			return 1;
+		}
+		close(fd);
+	}
+#endif
+
 	if ((p = lws_cmdline_option(argc, argv, "-s")))
 		dns[0] = p;
 
@@ -551,6 +826,8 @@ main(int argc, const char **argv)
 	ops.async_dns_dnssec_mode = LWS_ADNS_DNSSEC_REQUIRE;
 	info.system_ops = &ops;
 	info.async_dns_servers = dns;
+	info.early_smd_cb = smd_dns_cb;
+	info.early_smd_class_filter = LWSSMDCL_DNS;
 
 	context = lws_create_context(&info);
 	if (!context) {
@@ -675,7 +952,13 @@ main(int argc, const char **argv)
 
 	/* kick off the async dns tests */
 
+#if !defined(WIN32)
+	lwsl_user("*** watcher test leg\n");
+	lws_sul_schedule(context, 0, &sul_watch_leg, sul_watch_leg_cb,
+			 100 * LWS_US_PER_MS);
+#else
 	lws_sul_schedule(context, 0, &sul, next_test_cb, 1);
+#endif
 	lws_sul_schedule(context, 0, &sul_timeout, timeout_cb, 45 * LWS_USEC_PER_SEC);
 
 evloop:
@@ -686,6 +969,10 @@ evloop:
 		n = lws_service(context, 0);
 
 	lws_context_destroy(context);
+
+#if !defined(WIN32)
+	unlink(RESOLV_TEST_CONF);
+#endif
 
 	_exp += (int)LWS_ARRAY_SIZE(adt);
 
@@ -698,5 +985,10 @@ evloop:
 	} else
 		lwsl_user("Completed: ALL PASS: %d / %d\n", ok, _exp);
 
-	return !(ok == _exp && !fail);
+#if !defined(WIN32)
+	lwsl_user("Watcher leg: %s (%d publications)\n",
+		  watch_fail ? "FAIL" : "PASS", watch_msgs);
+#endif
+
+	return !(ok == _exp && !fail && !watch_fail);
 }

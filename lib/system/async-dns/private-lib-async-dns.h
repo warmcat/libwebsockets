@@ -226,6 +226,37 @@ int
 lws_adns_iterate(lws_adns_q_t *q, const uint8_t *pkt, int len,
 		 const char *expname, lws_async_dns_find_t cb, void *opaque);
 
+#if defined(LWS_WITH_SYS_SMD)
+/*
+ * One watcher acquisition pass: pull the platform's current effective DNS
+ * server list via lws_plat_asyncdns_get_server(), and if it differs from the
+ * last list we published, publish the new one on SMD class LWSSMDCL_DNS.
+ *
+ * Threadsafe to call from a non-service thread (platform push watchers like
+ * the macOS dynamic store dispatch callback do exactly that).
+ */
+void
+lws_adns_watch_trigger(struct lws_context *cx);
+#endif
+
+/*
+ * Shared /etc/resolv.conf "nameserver" line parser used by the unix resolv
+ * implementation, and by the apple one as a fallback where the platform has
+ * no native DNS config store api (iOS etc).  Honors the
+ * LWS_ASYNCDNS_RESOLV_CONF env override for the file path (for testing).
+ */
+int
+lws_asyncdns_parse_resolv_conf(struct lws_context *context, int index,
+			       lws_sockaddr46 *sa46);
+
+#if defined(__APPLE__)
+/* native push watch of the dynamic store, macOS only (no-ops elsewhere) */
+int
+lws_plat_asyncdns_watch_start(struct lws_context *cx);
+void
+lws_plat_asyncdns_watch_stop(struct lws_context *cx);
+#endif
+
 int
 lws_async_dns_estimate(const char *name, void *opaque, uint32_t ttl,
 			adns_query_type_t type, uint16_t rrpaylen, const uint8_t *payload);

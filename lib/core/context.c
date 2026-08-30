@@ -77,6 +77,7 @@ static const char * system_state_names[] = {
 	"AUTH1",
 	"AUTH2",
 	"ONE_TIME_UPDATES",
+	"DNS",
 	"OPERATIONAL",
 	"POLICY_INVALID",
 	"DESTROYING",
@@ -165,6 +166,25 @@ lws_state_notify_protocol_init(struct lws_state_manager *mgr,
 	    context->netlink &&
 	    !context->nl_initial_done) {
 		lwsl_cx_info(context, "waiting for netlink coldplug");
+
+		return 1;
+	}
+#endif
+
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+	/*
+	 * Don't let it past here until the async dns resolver actually has at
+	 * least one DNS server, either acquired from the platform or pinned by
+	 * user code.  The watcher's next acquisition attempt or platform push
+	 * notification (delivered via SMD) will retry the transition; arrange
+	 * a near-term acquisition attempt so we don't have to wait for the
+	 * next poll interval for it.
+	 */
+
+	if (target == LWS_SYSTATE_DNS && !lws_adns_servers_known(context)) {
+		lwsl_cx_info(context, "waiting for async dns servers");
+
+		lws_adns_kick(context);
 
 		return 1;
 	}
@@ -1862,6 +1882,9 @@ fail_event_libs:
 free_context_fail:
 	if (context) {
 #if defined(LWS_WITH_SYS_SMD)
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+		lws_adns_smd_destroy(context);
+#endif
 		_lws_smd_destroy(context);
 #endif
 	}
@@ -2521,6 +2544,14 @@ next_l:
 
 
 #if defined(LWS_WITH_SYS_SMD)
+		/*
+		 * The async dns watcher may emit SMD from a non-service thread
+		 * (eg, from macOS GCD), and holds an SMD peer... both must be
+		 * gone before the SMD locks and peers are destroyed below.
+		 */
+#if defined(LWS_WITH_SYS_ASYNC_DNS)
+		lws_adns_smd_destroy(context);
+#endif
 		_lws_smd_destroy(context);
 #endif
 

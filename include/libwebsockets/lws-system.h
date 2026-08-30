@@ -142,6 +142,12 @@ typedef enum { /* keep system_state_names[] in sync in context.c */
 					  * one-time upgrades to state before
 					  * OPERATIONAL */
 
+	LWS_SYSTATE_DNS,		 /* async dns has acquired at least one
+					  * usable DNS server from the platform,
+					  * or user code pinned one.  With
+					  * LWS_WITH_SYS_ASYNC_DNS, transitions
+					  * hold here until that's true */
+
 	LWS_SYSTATE_OPERATIONAL,	 /* user code can operate normally */
 
 	LWS_SYSTATE_POLICY_INVALID,	 /* user code is changing its policies
