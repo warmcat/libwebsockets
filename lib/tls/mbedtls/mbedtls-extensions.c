@@ -321,11 +321,17 @@ lws_x509_get_general_names(uint8_t **p, const uint8_t *end,
 			   (MBEDTLS_ASN1_CONSTRUCTED | MBEDTLS_ASN1_SEQUENCE))
 			return 1;
 
+		/* bind this entry's tag and extents to the list slot
+		 * before they are used, eg, by parse_general_name() */
+		buf = &(cur->MBEDTLS_PRIVATE_V30_ONLY(buf));
+		buf->MBEDTLS_PRIVATE_V30_ONLY(tag) = tag;
+		buf->MBEDTLS_PRIVATE_V30_ONLY(p) = *p;
+		buf->MBEDTLS_PRIVATE_V30_ONLY(len) = tag_len;
+
 		/*
 		 * Check that the name is structured correctly.
 		 */
-		r = lws_mbedtls_x509_parse_general_name(
-					&cur->MBEDTLS_PRIVATE_V30_ONLY(buf), &dnb);
+		r = lws_mbedtls_x509_parse_general_name(buf, &dnb);
 		/*
 		 * In case the extension is malformed, return an error,
 		 * and clear the allocated sequences.
@@ -359,11 +365,6 @@ lws_x509_get_general_names(uint8_t **p, const uint8_t *end,
 
 			cur = cur->MBEDTLS_PRIVATE_V30_ONLY(next);
 		}
-
-		buf = &(cur->MBEDTLS_PRIVATE_V30_ONLY(buf));
-		buf->MBEDTLS_PRIVATE_V30_ONLY(tag) = tag;
-		buf->MBEDTLS_PRIVATE_V30_ONLY(p) = *p;
-		buf->MBEDTLS_PRIVATE_V30_ONLY(len) = tag_len;
 
 		*p += buf->MBEDTLS_PRIVATE_V30_ONLY(len);
 	}
