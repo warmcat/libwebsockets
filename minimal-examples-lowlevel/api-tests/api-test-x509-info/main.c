@@ -125,6 +125,87 @@ expect_cert_info_small_buffer(struct lws_x509_cert *x509,
 }
 #endif
 
+#if defined(LWS_WITH_MBEDTLS)
+/*
+ * F-046 fence: the crafted cert's AKID issuer DirName carries two large
+ * RDN entries.  Each one is individually smaller than the caller's
+ * buffer, but cumulatively larger than it; the documented stack-union
+ * usage pattern below must not be written past len.
+ */
+static int
+test_multi_aki_issuer(const char *cert_dir)
+{
+	char cert_path[512];
+	/* exactly the documented stack usage pattern: buffer is one cert
+	 * info results union, len is sizeof(ns.name) */
+	char small[sizeof(union lws_tls_cert_info_results)];
+	union lws_tls_cert_info_results *buf =
+			(union lws_tls_cert_info_results *)small;
+	size_t len = sizeof(buf->ns.name);
+	struct lws_x509_cert *x509 = NULL;
+	char pem[8192];
+	size_t ssize;
+	FILE *fp;
+	int ret, fail = 0;
+
+	lws_snprintf(cert_path, sizeof(cert_path),
+		     "%s/x509-multi-aki-issuer.crt", cert_dir);
+
+	fp = fopen(cert_path, "rb");
+	if (!fp) {
+		lwsl_err("%s: Failed to open %s", __func__, cert_path);
+		return 1;
+	}
+	ssize = fread(pem, 1, sizeof(pem) - 1, fp);
+	fclose(fp);
+	pem[ssize] = '\0';
+
+	if (lws_x509_create(&x509)) {
+		lwsl_err("%s: lws_x509_create failed", __func__);
+		return 1;
+	}
+
+	if (lws_x509_parse_from_pem(x509, pem, ssize + 1)) {
+		lwsl_err("%s: lws_x509_parse_from_pem failed", __func__);
+		lws_x509_destroy(&x509);
+		return 1;
+	}
+
+	lws_explicit_bzero(small, sizeof(small));
+	ret = lws_x509_info(x509, LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID_ISSUER,
+			    buf, len);
+
+	lwsl_user("\n=== multi-entry AKID issuer (len=%zu) ===\n"
+		  "Return: %d, issuer len: %d", len, ret, buf->ns.len);
+
+	if (ret) {
+		lwsl_err("%s: returned %d", __func__, ret);
+		fail = 1;
+	} else {
+		if (buf->ns.len <= 0 || (size_t)buf->ns.len >= len) {
+			lwsl_err("%s: bad ns.len %d for len %zu",
+				 __func__, buf->ns.len, len);
+			fail = 1;
+		}
+		/* the entries are OU=A... and OU=B...; only the first
+		 * one fits the buffer */
+		if (buf->ns.len > 0 && buf->ns.name[0] != 'A') {
+			lwsl_err("%s: unexpected content '%c'",
+				 __func__, buf->ns.name[0]);
+			fail = 1;
+		}
+		if (buf->ns.len > 0 && buf->ns.name[buf->ns.len]) {
+			lwsl_err("%s: not NUL-terminated", __func__);
+			fail = 1;
+		}
+	}
+
+	lws_x509_destroy(&x509);
+
+	return fail;
+}
+#endif
+
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
@@ -200,6 +281,9 @@ int main(int argc, const char **argv)
 	fail |= expect_cert_info_small_buffer(x509,
 			LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID_ISSUER,
 			"AUTHORITY_KEY_ID_ISSUER");
+#endif
+#if defined(LWS_WITH_MBEDTLS)
+	fail |= test_multi_aki_issuer(cert_dir);
 #endif
 	lws_x509_destroy(&x509);
 	lwsl_user("\n---");

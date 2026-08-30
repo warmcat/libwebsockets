@@ -103,6 +103,24 @@ lws_tls_mbedtls_get_x509_name(mbedtls_x509_name *name,
 }
 
 
+/* lws_x509_get_crt_ext() chains any authorityCertIssuer entries onto
+ * akid->authorityCertIssuer; free the allocated chain tail again
+ * (the head is embedded in the caller's stack akid) */
+static void
+lws_x509_akid_issuer_destroy(lws_mbedtls_x509_authority *akid)
+{
+	mbedtls_x509_sequence *n =
+			akid->authorityCertIssuer.MBEDTLS_PRIVATE_V30_ONLY(next), *n1;
+
+	while (n) {
+		n1 = n->MBEDTLS_PRIVATE_V30_ONLY(next);
+		lws_free(n);
+		n = n1;
+	}
+
+	akid->authorityCertIssuer.MBEDTLS_PRIVATE_V30_ONLY(next) = NULL;
+}
+
 int
 lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
 			  union lws_tls_cert_info_results *buf, size_t len)
@@ -243,6 +261,7 @@ lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
 		memset(&skid, 0, sizeof(skid));
 
 		lws_x509_get_crt_ext(x509, &skid, &akid);
+		lws_x509_akid_issuer_destroy(&akid);
 		if (akid.keyIdentifier.MBEDTLS_PRIVATE_V30_ONLY(tag) != MBEDTLS_ASN1_OCTET_STRING)
 			return 1;
 		buf->ns.len = (int)akid.keyIdentifier.MBEDTLS_PRIVATE_V30_ONLY(len);
@@ -265,18 +284,31 @@ lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
 		buf->ns.len = 0;
 
 		while (ip) {
+			size_t used = (size_t)buf->ns.len, cl;
+
 			if (akid.keyIdentifier.MBEDTLS_PRIVATE_V30_ONLY(tag) != MBEDTLS_ASN1_OCTET_STRING ||
 			    !ip->MBEDTLS_PRIVATE_V30_ONLY(buf).MBEDTLS_PRIVATE_V30_ONLY(p) ||
-			    ip->MBEDTLS_PRIVATE_V30_ONLY(buf).MBEDTLS_PRIVATE_V30_ONLY(len) < 9 ||
-			    len < (size_t)ip->MBEDTLS_PRIVATE_V30_ONLY(buf).MBEDTLS_PRIVATE_V30_ONLY(len) - 9u)
-			break;
+			    ip->MBEDTLS_PRIVATE_V30_ONLY(buf).MBEDTLS_PRIVATE_V30_ONLY(len) < 9)
+				break;
 
-			memcpy(buf->ns.name + buf->ns.len, ip->MBEDTLS_PRIVATE_V30_ONLY(buf).MBEDTLS_PRIVATE_V30_ONLY(p),
-					(size_t)ip->MBEDTLS_PRIVATE_V30_ONLY(buf).MBEDTLS_PRIVATE_V30_ONLY(len) - 9);
-			buf->ns.len = buf->ns.len + (int)ip->MBEDTLS_PRIVATE_V30_ONLY(buf).MBEDTLS_PRIVATE_V30_ONLY(len) - 9;
+			/*
+			 * Skip the 9-byte per-RDN header (30 LL 06 03 55 04
+			 * tt 13 ss) and append the value string; it must fit
+			 * in the space remaining after entries already
+			 * copied, leaving room for a NUL
+			 */
+			cl = (size_t)ip->MBEDTLS_PRIVATE_V30_ONLY(buf).MBEDTLS_PRIVATE_V30_ONLY(len) - 9u;
+			if (used > len || cl >= len - used)
+				break;
+
+			memcpy(buf->ns.name + used,
+			       ip->MBEDTLS_PRIVATE_V30_ONLY(buf).MBEDTLS_PRIVATE_V30_ONLY(p) + 9, cl);
+			buf->ns.len = (int)(used + cl);
+			buf->ns.name[buf->ns.len] = '\0';
 
 			ip = ip->MBEDTLS_PRIVATE_V30_ONLY(next);
 		}
+		lws_x509_akid_issuer_destroy(&akid);
 		break;
 	}
 	case LWS_TLS_CERT_INFO_AUTHORITY_KEY_ID_SERIAL:
@@ -285,6 +317,7 @@ lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
 		memset(&skid, 0, sizeof(skid));
 
 		lws_x509_get_crt_ext(x509, &skid, &akid);
+		lws_x509_akid_issuer_destroy(&akid);
 
 		if (akid.authorityCertSerialNumber.MBEDTLS_PRIVATE_V30_ONLY(tag) != MBEDTLS_ASN1_OCTET_STRING)
 			return 1;
@@ -302,6 +335,7 @@ lws_tls_mbedtls_cert_info(mbedtls_x509_crt *x509, enum lws_tls_cert_info type,
 		memset(&skid, 0, sizeof(skid));
 
 		lws_x509_get_crt_ext(x509, &skid, &akid);
+		lws_x509_akid_issuer_destroy(&akid);
 
 		if (skid.MBEDTLS_PRIVATE_V30_ONLY(tag) != MBEDTLS_ASN1_OCTET_STRING)
 			return 1;
