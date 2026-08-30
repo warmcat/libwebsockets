@@ -17,6 +17,7 @@ the entire URL.
 Commandline option|Meaning
 ---|---
 -d <loglevel>|Debug verbosity in decimal, eg, -d15
+-c <policy-file>|Use the policy from this JSON file instead of the compiled-in one, eg to target a local test server
 -h <hugeurl size>|Default 4000
 --h1|Force http/1.1 instead of default h2
 

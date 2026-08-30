@@ -21,12 +21,35 @@ if (requirements)
 	enable_language(CXX)
 	add_executable(${SAMP} main.cxx)
 
-	if (LWS_CTEST_INTERNET_AVAILABLE)
-		add_test(NAME sscpp-warmcat COMMAND lws-minimal-secure-streams-cpp)
-		set_tests_properties(sscpp-warmcat
-				     PROPERTIES
-				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/secure-streams/minimal-secure-streams-cpp
-				     TIMEOUT 20)
+	#
+	# Local-server variant: runs against a local lws-minimal-http-server-httpbin
+	# over plain http, so it does not need any external network egress.
+	# deliberately outside the internet gate.
+	#
+
+	if (NOT WIN32 AND LWS_WITH_SERVER)
+		lws_get_free_port(PORT_CPP_HBIN)
+
+		add_test(NAME st_cpp_hbin
+			COMMAND ${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
+				cpp_hbin $<TARGET_FILE:lws-minimal-http-server-httpbin>
+				-p ${PORT_CPP_HBIN})
+		add_test(NAME ki_cpp_hbin
+			COMMAND ${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
+				cpp_hbin $<TARGET_FILE_NAME:lws-minimal-http-server-httpbin>
+				-p ${PORT_CPP_HBIN})
+		set_tests_properties(st_cpp_hbin PROPERTIES
+				WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-server/minimal-http-server-tls
+				FIXTURES_SETUP cpp_hbin
+				TIMEOUT 800
+				ENVIRONMENT "SAI_LIST_PORT=${PORT_CPP_HBIN}")
+		set_tests_properties(ki_cpp_hbin PROPERTIES FIXTURES_CLEANUP cpp_hbin)
+
+		add_test(NAME sscpp-warmcat-local COMMAND lws-minimal-secure-streams-cpp
+			 -u http://${LWS_CTEST_SERVER_URL_RESOLVE}:${PORT_CPP_HBIN})
+		set_tests_properties(sscpp-warmcat-local PROPERTIES
+				FIXTURES_REQUIRED "cpp_hbin"
+				TIMEOUT 40)
 	endif()
 
 	if (websockets_shared)

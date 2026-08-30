@@ -25,11 +25,13 @@
 
 enum {
 	LWS_SW_URL,
+	LWS_SW_POLICY_FILE,
 	LWS_SW_HELP,
 };
 
 static const struct lws_switches switches[] = {
-	[LWS_SW_URL]	= { "--url",           "Enable --url feature" },
+	[LWS_SW_URL]	= { "--url",           "URL to fetch from the default streamtype" },
+	[LWS_SW_POLICY_FILE]	= { "-c",      "Policy JSON file path, overrides the default policy" },
 	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
 };
 
@@ -62,6 +64,12 @@ main(int argc, const char **argv)
 
 	lws_cmdline_option_handle_builtin(argc, argv, &info);
 	signal(SIGINT, sigint_handler);
+
+	/* if given, -c overrides the default policy with a policy from a
+	 * file, so the same binary can be pointed at a locally-generated
+	 * policy targeting a local test server */
+	if ((p = lws_cmdline_option(argc, argv, switches[LWS_SW_POLICY_FILE].sw)))
+		info.pss_policies_json = p;
 
 	p = lws_cmdline_option(argc, argv, switches[LWS_SW_URL].sw);
 	if (p)

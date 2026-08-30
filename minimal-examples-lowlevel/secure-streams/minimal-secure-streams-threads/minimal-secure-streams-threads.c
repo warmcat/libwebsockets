@@ -25,20 +25,20 @@
 #include <libwebsockets.h>
 
 enum {
+	LWS_SW_POLICY_FILE,
 	LWS_SW_A,
 	LWS_SW_I,
 	LWS_SW_P,
 	LWS_SW_HELP,
 };
 
-#if defined(LWS_SS_USE_SSPC)
 static const struct lws_switches switches[] = {
+	[LWS_SW_POLICY_FILE]	= { "-c",              "Policy JSON file path, overrides the compiled-in policy" },
 	[LWS_SW_A]	= { "-a",              "Enable -a feature" },
 	[LWS_SW_I]	= { "-i",              "Interface to bind to" },
 	[LWS_SW_P]	= { "-p",              "Port number to listen or connect on" },
 	[LWS_SW_HELP]	= { "--help",		"Show this help information" },
 };
-#endif
 
 #include <string.h>
 #include <signal.h>
@@ -246,6 +246,17 @@ int main(int argc, const char **argv)
 	info.port			= CONTEXT_PORT_NO_LISTEN;
 #if !defined(LWS_SS_USE_SSPC)
 	info.pss_policies_json		= default_ss_policy;
+
+	/* if given, -c overrides the compiled-in policy with a policy from
+	 * a file, so the same binary can be pointed at a locally-generated
+	 * policy targeting a local test server */
+	{
+		const char *pc = lws_cmdline_option(argc, argv,
+						switches[LWS_SW_POLICY_FILE].sw);
+
+		if (pc)
+			info.pss_policies_json = pc;
+	}
 #else
 	info.protocols			= lws_sspc_protocols;
 	{

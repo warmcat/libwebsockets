@@ -35,9 +35,8 @@ process exiting with exit code 0 as success, anything else as failure.
 
 ## Generating the tests
 
-The main tests just need `-DLWS_WITH_MINIMAL_EXAMPLES=1`.  You can optionally set
-`-DLWS_CTEST_INTERNET_AVAILABLE=0` to indicate you can't run the tests that need
-internet connectivity.
+The main tests just need `-DLWS_WITH_MINIMAL_EXAMPLES=1`.  All of the tests run
+against local server peers only and do not need any internet connectivity.
 
 ## Preparing to run the tests
 

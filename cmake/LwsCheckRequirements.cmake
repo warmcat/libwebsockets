@@ -37,6 +37,7 @@ MACRO(require_lws_config reqconfig _val result)
                        endif()
 		endif()
 		set(${result} 0)
+		set(MET 0)
 	else()
 		if (LWS_WITH_MINIMAL_EXAMPLES)
 			set(MET ${SAME})
@@ -59,6 +60,14 @@ MACRO(require_lws_config reqconfig _val result)
 			else()
 				message(FATAL_ERROR "Lws configuration of ${reqconfig} is incompatible with this project")
 			endif()
+		endif()
+
+		# for non-requirements result vars, export whether the requirement
+		# was met, so callers can gate optional features on it (eg, proxy
+		# api ctests).  "requirements" keeps its earlier-failed sticky 0.
+
+		if (NOT _cmp)
+			set(${result} ${MET})
 		endif()
 
 	endif()
@@ -114,7 +123,7 @@ MACRO(sai_resource SR_NAME SR_AMOUNT SR_LEASE SR_SCOPE)
 
 		set_tests_properties(st_res_${SR_SCOPE} PROPERTIES
 				     WORKING_DIRECTORY .
-				     FIXTURES_SETUP res_sspcmin
+				     FIXTURES_SETUP res_${SR_SCOPE}
 				     TIMEOUT 100)
 
 		add_test(NAME ki_res_${SR_SCOPE} COMMAND

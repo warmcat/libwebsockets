@@ -23,7 +23,7 @@ if (requirements)
 
 	find_program(VALGRIND "valgrind")
 
-	if (LWS_CTEST_INTERNET_AVAILABLE AND NOT WIN32)
+	if (NOT WIN32)
 	
 		#
 		# When running in CI, wait for a lease on the resources
@@ -37,57 +37,20 @@ if (requirements)
 		# If running under Sai, creates a lock test called "res_sspcmin" 
 		#
 		
-		sai_resource(warmcat_conns 1 40 sspcmin)
-		
 		#
 		# simple test not via proxy
 		#
 	
-		if (VALGRIND AND NOT LWS_WITH_ASAN)
-			message("testing via valgrind")
-			add_test(NAME ss-warmcat COMMAND
-				${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
-				$<TARGET_FILE:lws-minimal-secure-streams>)
-		else()
-			add_test(NAME ss-warmcat COMMAND lws-minimal-secure-streams)
-		endif()
-
-		set_tests_properties(ss-warmcat
-				     PROPERTIES
-				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/secure-streams/minimal-secure-streams
-				     TIMEOUT 40)
-		if (DEFINED ENV{SAI_OVN})
-			set_tests_properties(ss-warmcat PROPERTIES FIXTURES_REQUIRED "res_sspcmin")		     
+				if (DEFINED ENV{SAI_OVN})
+					     
 		endif()
 
 		if (has_fault_injection)
 			if (VALGRIND AND NOT LWS_WITH_ASAN)
-				add_test(NAME ss-warmcat-fi1 COMMAND
-					${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
-					$<TARGET_FILE:lws-minimal-secure-streams>
-					--fault-injection "ss/ss_create_destroy_me"
-					--expected-exit 1)
-				add_test(NAME ss-warmcat-fi2 COMMAND
-					${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
-					$<TARGET_FILE:lws-minimal-secure-streams>
-					--fault-injection "ss/ss_no_streamtype_policy"
-					--expected-exit 1)
-			else()
-				add_test(NAME ss-warmcat-fi1 COMMAND lws-minimal-secure-streams
-					 --fault-injection "ss/ss_create_destroy_me"
-					 --expected-exit 1)
-				add_test(NAME ss-warmcat-fi2 COMMAND lws-minimal-secure-streams
-					 --fault-injection "ss/ss_no_streamtype_policy"
-					 --expected-exit 1)
- 			 endif()
+											else()
+								 			 endif()
 
-			set_tests_properties(ss-warmcat-fi1
-					     ss-warmcat-fi2
-				     PROPERTIES
-				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/secure-streams/minimal-secure-streams
-				     TIMEOUT 5)
-
-		endif()
+					endif()
 
 
 		if (HAS_LWS_WITH_SECURE_STREAMS_PROXY_API OR LWS_WITH_SECURE_STREAMS_PROXY_API)
@@ -109,44 +72,46 @@ if (requirements)
 				endif()
 				set(CTEST_SOCKET_PATH "/tmp/ctest-ssp-$ENV{SAI_PROJECT}-${SHORT_HASH}")
 			endif()
-			add_test(NAME st_ssproxy COMMAND
-				${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
-				ssproxy $<TARGET_FILE:lws-minimal-secure-streams-proxy>
-				-i ${CTEST_SOCKET_PATH} )
-			set_tests_properties(st_ssproxy PROPERTIES WORKING_DIRECTORY . FIXTURES_SETUP ssproxy TIMEOUT 800)
-
-			add_test(NAME ki_ssproxy COMMAND
-				${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
-				ssproxy $<TARGET_FILE:lws-minimal-secure-streams-proxy>
-				-i ${CTEST_SOCKET_PATH})
-			set_tests_properties(ki_ssproxy PROPERTIES FIXTURES_CLEANUP ssproxy)
-
 			#
 			# the client part that will connect to the proxy
 			#
 
-			if (VALGRIND AND NOT LWS_WITH_ASAN)
-				message("testing via valgrind")
-				add_test(NAME sspc-minimal COMMAND
-					${VALGRIND} --tool=memcheck --leak-check=yes --num-callers=20
-					$<TARGET_FILE:lws-minimal-secure-streams-client> -i +${CTEST_SOCKET_PATH})
-			else()
-				add_test(NAME sspc-minimal COMMAND lws-minimal-secure-streams-client -i +${CTEST_SOCKET_PATH})
-			endif()
 			
 			set(fixlist "ssproxy")
 			if (DEFINED ENV{SAI_OVN})
 				list(APPEND fixlist "res_ssproxy")
 			endif()
 			
-			set_tests_properties(sspc-minimal PROPERTIES
-				WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/secure-streams/minimal-secure-streams
-				FIXTURES_REQUIRED "${fixlist}"
-				TIMEOUT 40)
-
-		endif()
+					endif()
 
 	endif()
+
+	#
+	# Local-server variant: runs against a local lws-minimal-http-server-httpbin
+	# over TLS, so it does not need any external network egress.
+	#
+
+	if (NOT WIN32 AND LWS_WITH_SERVER)
+		lws_get_free_port(PORT_MS_HBIN_TLS)
+
+		configure_file(policy-local.json.in policy-local.json @ONLY)
+
+		add_test(NAME st_ms_hbin
+			COMMAND ${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
+				ms_hbin $<TARGET_FILE:lws-minimal-http-server-httpbin>
+				-s -p ${PORT_MS_HBIN_TLS})
+		add_test(NAME ki_ms_hbin
+			COMMAND ${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
+				ms_hbin $<TARGET_FILE_NAME:lws-minimal-http-server-httpbin>
+				-p ${PORT_MS_HBIN_TLS})
+		set_tests_properties(st_ms_hbin PROPERTIES
+				WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/http-server/minimal-http-server-tls
+				FIXTURES_SETUP ms_hbin
+				TIMEOUT 800
+				ENVIRONMENT "SAI_LIST_PORT=${PORT_MS_HBIN_TLS}")
+		set_tests_properties(ki_ms_hbin PROPERTIES FIXTURES_CLEANUP ms_hbin)
+
+					endif()
 
 	if (websockets_shared)
 		target_link_libraries(${SAMP} websockets_shared ${LIBWEBSOCKETS_DEP_LIBS})
@@ -168,5 +133,50 @@ if (requirements)
 			target_link_libraries(${SAMP}-client websockets ${LIBWEBSOCKETS_DEP_LIBS})
 		endif()
 	endif()
+
+
+	#
+	# Local-proxy variant: the proxy uses the local policy and the local
+	# httpbin peer instead of fetching a policy from warmcat.com, so this
+	# needs no external network egress.  Deliberately outside the
+	#
+
+	if (NOT WIN32 AND LWS_WITH_SERVER AND
+	    (HAS_LWS_WITH_SECURE_STREAMS_PROXY_API OR LWS_WITH_SECURE_STREAMS_PROXY_API))
+
+		if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+			# uds abstract namespace for linux
+			set(CTEST_LOCAL_SOCKET_PATH "@ctest-sspmin2-local-$ENV{SAI_PROJECT}-$ENV{SAI_OVN}")
+		else()
+			# filesystem socket for others
+			if (DEFINED ENV{SAI_OVN})
+				string(SUBSTRING "$ENV{SAI_OVN}" 32 16 SHORT_HASH)
+			else()
+				set(SHORT_HASH "0")
+			endif()
+			set(CTEST_LOCAL_SOCKET_PATH "/tmp/ctest-sspmin2-local-$ENV{SAI_PROJECT}-${SHORT_HASH}")
+		endif()
+
+		configure_file(policy-local.json.in policy-local.json @ONLY)
+
+		add_test(NAME st_ms_proxy_local COMMAND
+			${CMAKE_SOURCE_DIR}/scripts/ctest-background.sh
+			ms_proxy_local $<TARGET_FILE:lws-minimal-secure-streams-proxy>
+			-i ${CTEST_LOCAL_SOCKET_PATH}
+			-c ${CMAKE_CURRENT_BINARY_DIR}/policy-local.json)
+		set_tests_properties(st_ms_proxy_local PROPERTIES
+			WORKING_DIRECTORY .
+			FIXTURES_SETUP ms_proxy_local
+			FIXTURES_REQUIRED "ms_hbin"
+			TIMEOUT 800)
+
+		add_test(NAME ki_ms_proxy_local COMMAND
+			${CMAKE_SOURCE_DIR}/scripts/ctest-background-kill.sh
+			ms_proxy_local $<TARGET_FILE:lws-minimal-secure-streams-proxy>
+			-i ${CTEST_LOCAL_SOCKET_PATH}
+			-c ${CMAKE_CURRENT_BINARY_DIR}/policy-local.json)
+		set_tests_properties(ki_ms_proxy_local PROPERTIES FIXTURES_CLEANUP ms_proxy_local)
+
+					endif()
 
 endif()

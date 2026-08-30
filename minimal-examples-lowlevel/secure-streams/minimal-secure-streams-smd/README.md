@@ -76,6 +76,7 @@ which send and confirm SMD messages between each other via the SS proxy.
 Commandline option|Meaning
 ---|---
 -d <loglevel>|Debug verbosity in decimal, eg, -d15
+-c <policy-file>|Use the policy from this JSON file instead of the compiled-in one, eg to target a local test server
 --multi|Fork four worker processes that send and check messages to each other over sspc proxy
 
 ```
