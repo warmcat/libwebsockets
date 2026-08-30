@@ -323,8 +323,29 @@ typedef struct lws_async_dns {
 
 	struct lws_context	*cx;
 
-	time_t			time_resolv_check;
 	lws_usec_t		time_last_reload;
+
+	/*
+	 * Platform DNS server change detection + publication on SMD.
+	 *
+	 * The watcher side (in async-dns.c) acquires the platform's current
+	 * server list via lws_plat_asyncdns_get_server(), flattens it into a
+	 * deterministic string and compares against watch_last; on change it
+	 * publishes the list on SMD class LWSSMDCL_DNS.  The SMD message is a
+	 * trigger for the single lws-side listener to requery the platform
+	 * and apply the result, and an event for user observers.
+	 */
+
+#define LWS_ASYNCDNS_WATCH_BUF	384 /* sized to fit LWS_SMD_MAX_PAYLOAD */
+
+#if defined(LWS_WITH_SYS_SMD)
+	struct lws_smd_peer	*smd_peer;
+#endif
+	lws_sorted_usec_list_t	sul_watch;	/* poll fallback cadence */
+	lws_mutex_t		lock_watch;	/* guards watch_last */
+	void			*plat_watch;	/* platform push watcher state */
+	char			watch_last[LWS_ASYNCDNS_WATCH_BUF];
+	uint8_t			watch_started:1;
 
 	uint8_t			dnssec_mode; /* lws_async_dns_dnssec_mode_t */
 } lws_async_dns_t;
@@ -1810,6 +1831,12 @@ int
 lws_async_dns_init(struct lws_context *context);
 void
 lws_async_dns_deinit(lws_async_dns_t *dns);
+int
+lws_adns_servers_known(struct lws_context *context);
+void
+lws_adns_kick(struct lws_context *context);
+void
+lws_adns_smd_destroy(struct lws_context *context);
 #endif
 
 int

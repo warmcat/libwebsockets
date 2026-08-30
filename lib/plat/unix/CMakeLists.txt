@@ -60,7 +60,28 @@ if (LWS_WITH_NETWORK)
 		if (LWS_PLAT_ANDROID)
 			list(APPEND SOURCES plat/unix/android/android-resolv.c)
 		else()
-			list(APPEND SOURCES plat/unix/unix-resolv.c)
+			if (APPLE)
+				# native DNS server discovery + push watch via the
+				# SystemConfiguration dynamic store
+				list(APPEND SOURCES plat/unix/apple/apple-resolv.c)
+				# link the frameworks by path: a bare name would be
+				# munged into -l<name> by cmake, and '-framework
+				# <name>' as two items gets the name item -l-munged
+				# too.  CoreFoundation is needed directly (not just
+				# via SystemConfiguration) for our own CF references.
+				find_library(LWS_SYSCONFIG_FW NAMES SystemConfiguration)
+				if (NOT LWS_SYSCONFIG_FW)
+					message(FATAL_ERROR "SystemConfiguration framework not found")
+				endif()
+				find_library(LWS_COREFOUNDATION_FW NAMES CoreFoundation)
+				if (NOT LWS_COREFOUNDATION_FW)
+					message(FATAL_ERROR "CoreFoundation framework not found")
+				endif()
+				list(APPEND LIB_LIST_AT_END ${LWS_SYSCONFIG_FW}
+						       ${LWS_COREFOUNDATION_FW})
+			else()
+				list(APPEND SOURCES plat/unix/unix-resolv.c)
+			endif()
 		endif()
 	endif()
 	if (LWS_WITH_SDEVENT AND LWS_HAVE_SYSTEMD_H)

@@ -8,6 +8,7 @@ set(SRCS main.c)
 require_lws_config(LWS_ROLE_H1 1 requirements)
 require_lws_config(LWS_WITH_CLIENT 1 requirements)
 require_lws_config(LWS_WITH_SYS_ASYNC_DNS 1 requirements)
+require_lws_config(LWS_WITH_SYS_SMD 1 requirements)
 require_lws_config(LWS_WITH_AUTHORITATIVE_DNS 1 requirements)
 require_lws_config(LWS_WITH_SERVER 1 requirements)
 

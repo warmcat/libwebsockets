@@ -227,6 +227,7 @@ The generic states defined are:
 |`LWS_SYSTATE_AUTH1`|The device identity has produced a time-limited access token|
 |`LWS_SYSTATE_AUTH2`|Optional second access token for different services|
 |`LWS_SYSTATE_ONE_TIME_UPDATES`|If firmware updates need to do one-time operations on data, they should do it at this point before OPERATIONAL|
+|`LWS_SYSTATE_DNS`|With `LWS_WITH_SYS_ASYNC_DNS`, the async dns resolver has acquired at least one usable DNS server from the platform, or user code pinned one via `info.async_dns_servers` / `lws_async_dns_server_add()`... transitions hold here until then.  The current platform server set is published on SMD class `LWSSMDCL_DNS` when it changes.|
 |`LWS_SYSTATE_OPERATIONAL`|The system is ready for user code to work normally|
 |`LWS_SYSTATE_POLICY_INVALID`|All connections are being dropped because policy information is changing.  It will transition back to `LWS_SYSTATE_INITIALIZED` and onward to `OPERATIONAL` again afterwards with the new policy|
 |`LWS_SYSTATE_CONTEXT_DESTROYING`|Context is going down and smd with it|

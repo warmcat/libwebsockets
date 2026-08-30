@@ -789,6 +789,14 @@ lws_plat_asyncdns_init(struct lws_context *context, lws_async_dns_t *dns)
 	return s;
 }
 
+#if defined(LWS_WITH_SYS_SMD)
+static int
+lws_adns_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
+		void *buf, size_t len);
+static void
+lws_adns_watch_start(struct lws_context *cx);
+#endif
+
 int
 lws_async_dns_init(struct lws_context *context)
 {
@@ -803,8 +811,25 @@ lws_async_dns_init(struct lws_context *context)
 		dns->dnssec_mode = 0;
 	}
 
+#if defined(LWS_WITH_SYS_SMD)
+	/*
+	 * Register the single lws-side SMD consumer of DNS server change
+	 * events before the watcher can produce any, including the gratuitous
+	 * initial report from lws_adns_watch_start() below.
+	 */
+	if (!dns->smd_peer)
+		dns->smd_peer = lws_smd_register(context, context, 0,
+						 LWSSMDCL_DNS,
+						 lws_adns_smd_cb);
+#endif
+
 	n = lws_plat_asyncdns_init(context, dns);
-	if (!dns->nameservers.count) {
+
+#if defined(LWS_WITH_SYS_SMD)
+	lws_adns_watch_start(context);
+#endif
+
+	if (!lws_dll2_count(&dns->nameservers)) {
 		lwsl_cx_warn(context, "no valid dns server, retry");
 
 		return 1;
@@ -823,6 +848,272 @@ lws_async_dns_server_reload(struct lws_context *context)
 {
 	return lws_async_dns_init(context);
 }
+
+#if defined(LWS_WITH_SYS_SMD)
+
+/*
+ * Platform DNS server change watching
+ *
+ * Platforms expose their effective DNS server list via
+ * lws_plat_asyncdns_get_server() (resolv.conf, android system properties,
+ * macOS dynamic store, windows GetNetworkParams...).  Some platforms can
+ * also tell us when it changed (macOS dynamic store notifications on a
+ * dispatch queue); everywhere else we poll on a sul.
+ *
+ * Either way it comes to the same place: flatten the platform list into a
+ * deterministic string and, if it differs from the last one we published,
+ * send it out on SMD class LWSSMDCL_DNS as JSON like {"ns":["1.1.1.1"]}.
+ *
+ * The SMD message is a trigger for lws_adns_smd_cb() to requery the
+ * platform for the authoritative list and apply it, and an event for user
+ * observers; it's deliberately not the payload the resolver itself consumes
+ * (SMD delivery is best-effort, so the control path must not depend on it).
+ * Equally, we only commit watch_last when we managed to publish, so a
+ * failed send is retried at the next acquisition pass.
+ */
+
+static lws_usec_t
+lws_adns_watch_interval(void)
+{
+#if defined(LWS_HAVE_GETENV)
+	const char *e = getenv("LWS_ASYNCDNS_WATCH_MS");
+#else
+	const char *e = NULL;
+#endif
+	/*
+	 * The interval only bounds worst-case detection latency on platforms
+	 * without push notifications (and retries of unpublished lists); the
+	 * default is set so it's negligible compared to a DNS round trip.
+	 * The LWS_ASYNCDNS_WATCH_MS env override (giving the poll interval in
+	 * ms) is for tests.
+	 */
+
+	if (e && atoi(e) > 0)
+		return (lws_usec_t)atoi(e) * LWS_US_PER_MS;
+
+	return 3 * LWS_US_PER_SEC;
+}
+
+/*
+ * Pull the platform's current effective server list into buf as a
+ * deterministic quoted, comma-separated string like
+ *
+ *   "192.168.1.1","1.1.1.1"
+ *
+ * truncated at entry boundaries if the whole list can't fit.
+ */
+
+static void
+lws_adns_watch_acquire(struct lws_context *cx, char *buf, size_t len)
+{
+	lws_sockaddr46 sa46;
+	size_t used = 0;
+	int idx = 0;
+
+	buf[0] = '\0';
+
+	while (lws_plat_asyncdns_get_server(cx, idx++, &sa46) == 0) {
+		char ads[48];
+		size_t al, need;
+
+		lws_sa46_write_numeric_address(&sa46, ads, sizeof(ads));
+		al = strlen(ads);
+		need = al + 4; /* quotes, comma, NUL */
+
+		if (used + need > len)
+			break;
+
+		if (used)
+			buf[used++] = ',';
+		buf[used++] = '"';
+		memcpy(buf + used, ads, al);
+		used += al;
+		buf[used++] = '"';
+		buf[used] = '\0';
+	}
+}
+
+void
+lws_adns_watch_trigger(struct lws_context *cx)
+{
+	lws_async_dns_t *dns = &cx->async_dns;
+	char buf[LWS_ASYNCDNS_WATCH_BUF];
+
+	if (!dns->watch_started)
+		return;
+
+	lws_adns_watch_acquire(cx, buf, sizeof(buf));
+
+	lws_mutex_lock(dns->lock_watch);
+
+	if (!strcmp(buf, dns->watch_last)) {
+		lws_mutex_unlock(dns->lock_watch);
+		return;
+	}
+
+	if (!lws_smd_msg_printf(cx, LWSSMDCL_DNS, "{\"ns\":[%s]}", buf)) {
+		lws_strncpy(dns->watch_last, buf, sizeof(dns->watch_last));
+		lwsl_cx_notice(cx, "platform DNS servers now: {\"ns\":[%s]}",
+				buf);
+	} else
+		lwsl_cx_notice(cx, "unable to publish DNS server list");
+
+	lws_mutex_unlock(dns->lock_watch);
+}
+
+static void
+lws_adns_sul_watch_cb(lws_sorted_usec_list_t *sul)
+{
+	lws_async_dns_t *dns = lws_container_of(sul, lws_async_dns_t, sul_watch);
+
+	lws_adns_watch_trigger(dns->cx);
+	lws_sul_schedule(dns->cx, 0, &dns->sul_watch, lws_adns_sul_watch_cb,
+			 lws_adns_watch_interval());
+}
+
+/*
+ * Called from the LWS_SYSTATE_DNS gate while it's denying the transition
+ * because we have no servers yet: make sure an acquisition pass happens
+ * soon rather than at the next poll interval.
+ */
+
+void
+lws_adns_kick(struct lws_context *cx)
+{
+	if (cx->async_dns.watch_started)
+		lws_sul_schedule(cx, 0, &cx->async_dns.sul_watch,
+				 lws_adns_sul_watch_cb,
+				 250 * LWS_US_PER_MS);
+}
+
+static void
+lws_adns_watch_start(struct lws_context *cx)
+{
+	lws_async_dns_t *dns = &cx->async_dns;
+
+	if (dns->watch_started)
+		return;
+
+	dns->watch_started = 1;
+	lws_mutex_init(dns->lock_watch);
+
+	/*
+	 * Seed the compare cache with what init just acquired and publish the
+	 * initial list gratuitously, so observers get the current state at
+	 * context creation deterministically.
+	 */
+
+	lws_adns_watch_acquire(cx, dns->watch_last,
+			       sizeof(dns->watch_last));
+
+	if (!lws_smd_msg_printf(cx, LWSSMDCL_DNS, "{\"ns\":[%s]}",
+				dns->watch_last))
+		lwsl_cx_notice(cx, "platform DNS servers: {\"ns\":[%s]}",
+				dns->watch_last);
+
+#if defined(__APPLE__)
+	if (lws_plat_asyncdns_watch_start(cx))
+		lwsl_cx_notice(cx, "native DNS watch unavailable, polling");
+#endif
+
+	lws_sul_schedule(cx, 0, &dns->sul_watch, lws_adns_sul_watch_cb,
+			 lws_adns_watch_interval());
+}
+
+/*
+ * Must be called before the context's SMD peers and locks are destroyed.
+ * Stops any platform push watcher, stops the poll sul and drops our SMD
+ * peer registration.
+ */
+
+void
+lws_adns_smd_destroy(struct lws_context *cx)
+{
+	lws_async_dns_t *dns = &cx->async_dns;
+
+	if (!dns->watch_started)
+		return;
+
+	dns->watch_started = 0;
+
+	lws_sul_cancel(&dns->sul_watch);
+
+#if defined(__APPLE__)
+	lws_plat_asyncdns_watch_stop(cx);
+#endif
+
+	if (dns->smd_peer) {
+		lws_smd_unregister(dns->smd_peer);
+		dns->smd_peer = NULL;
+	}
+
+	lws_mutex_destroy(dns->lock_watch);
+}
+
+/*
+ * The single lws-side SMD listener for DNS server change events.  The
+ * message body is informational (see lws_adns_watch_trigger()): treat the
+ * event as a trigger to requery the platform and apply whatever we find
+ * there.
+ */
+
+static int
+lws_adns_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
+		void *buf, size_t len)
+{
+	struct lws_context *cx = (struct lws_context *)opaque;
+
+	(void)buf;
+	(void)len;
+	(void)timestamp;
+
+	if (_class != LWSSMDCL_DNS)
+		return 0;
+
+	lws_async_dns_server_reload(cx);
+
+#if defined(LWS_WITH_SYS_STATE)
+	/*
+	 * If we were holding the system state at LWS_SYSTATE_DNS waiting for
+	 * a server to appear, try to move on now.
+	 */
+	if (cx->mgr_system.state < LWS_SYSTATE_OPERATIONAL)
+		lws_state_transition_steps(&cx->mgr_system,
+					   LWS_SYSTATE_OPERATIONAL);
+#endif
+
+	return 0;
+}
+
+int
+lws_adns_servers_known(struct lws_context *cx)
+{
+	return !!lws_dll2_count(&cx->async_dns.nameservers);
+}
+
+#else /* no SMD */
+
+int
+lws_adns_servers_known(struct lws_context *cx)
+{
+	(void)cx;
+
+	return 1;
+}
+
+void
+lws_adns_kick(struct lws_context *cx)
+{
+	(void)cx;
+}
+
+void
+lws_adns_smd_destroy(struct lws_context *cx)
+{
+	(void)cx;
+}
+
+#endif
 
 lws_adns_cache_t *
 lws_adns_get_cache(lws_async_dns_t *dns, const char *name)
@@ -1299,19 +1590,6 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 
 	lwsl_cx_info(context, "entry %s", name);
 	lws_adns_dump(dns);
-
-#if !defined(LWS_PLAT_OPTEE) && !defined(LWS_PLAT_FREERTOS) && !defined(WIN32)
-	{
-		struct stat st;
-		if (!stat("/etc/resolv.conf", &st)) {
-			if (dns->time_resolv_check && st.st_mtime > dns->time_resolv_check) {
-				lwsl_cx_notice(context, "/etc/resolv.conf updated, reloading");
-				lws_async_dns_server_reload(context);
-			}
-			dns->time_resolv_check = st.st_mtime;
-		}
-	}
-#endif
 
 #if !defined(LWS_WITH_IPV6)
 	if (qtype == LWS_ADNS_RECORD_AAAA) {

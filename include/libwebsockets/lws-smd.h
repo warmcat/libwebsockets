@@ -57,6 +57,16 @@ enum {
 	 * An SS client process is reporting a metric to the proxy (this class
 	 * is special in that it is not rebroadcast by the proxy)
 	 */
+	LWSSMDCL_DNS						= (1 << 4),
+	/**<
+	 * The set of DNS servers available from the platform changed.  Emitted
+	 * by the async dns platform watcher at context creation and whenever
+	 * the effective server list changes afterwards... payload is JSON like
+	 * {"ns":["192.168.1.1","1.1.1.1"]}.  The message is a trigger for lws
+	 * itself to requery the platform for the authoritative list, and an
+	 * event for user observers (it is also rebroadcast to client processes
+	 * by the secure streams proxy)
+	 */
 
 	LWSSMDCL_USER_BASE_BITNUM				= 24
 };
