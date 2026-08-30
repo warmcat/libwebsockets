@@ -359,18 +359,27 @@ lws_extension_callback_pm_deflate(struct lws_context *context,
 
 		/*
 		 * track how much input was used, and advance it
+		 *
+		 * A drain call legitimately comes in with eb_in.len == 0 while
+		 * we still hold unconsumed input from an earlier call (and the
+		 * synthetic zlib trailer case counts 4 bytes of "input" that
+		 * was never in the caller's buffer at all).  So the unconsumed
+		 * rx.avail_in we hold can exceed what we were offered this
+		 * call; that is not an error.  Only advance the caller's token
+		 * and remaining length when the whole of what we hold actually
+		 * came from what he offered us this call, otherwise the token
+		 * arithmetic would underflow (this is what COV was complaining
+		 * about, "eb_in.len == 0 and rx->avail_in == 4").
 		 */
 
-		/* COV says we can overflow if "eb_in.len == 0 and rx->avail_in == 4" */
-
-		if ((unsigned int)priv->rx.avail_in > (unsigned int)pmdrx->eb_in.len) {
-			lwsl_wsi_err(wsi, "rx buffer underflow");
-			return PMDR_FAILED;
-		}
-
-		pmdrx->eb_in.token = pmdrx->eb_in.token +
-				         ((unsigned int)pmdrx->eb_in.len - (unsigned int)priv->rx.avail_in);
-		pmdrx->eb_in.len = (int)priv->rx.avail_in;
+		if ((unsigned int)pmdrx->eb_in.len >= (unsigned int)priv->rx.avail_in) {
+			pmdrx->eb_in.token = pmdrx->eb_in.token +
+					 ((unsigned int)pmdrx->eb_in.len -
+					  (unsigned int)priv->rx.avail_in);
+			pmdrx->eb_in.len = (int)priv->rx.avail_in;
+		} else
+			/* nothing of the offered token could be consumed yet */
+			pmdrx->eb_in.len = 0;
 
 		lwsl_wsi_debug(wsi, "%d %d %d %d %d",
 				priv->rx.avail_in,
