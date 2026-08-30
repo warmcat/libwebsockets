@@ -1,5 +1,18 @@
 // auth.js - CSP Compliant Frontend Logic
 
+/*
+ * F-050: html escaper for every dynamic string composed into
+ * innerHTML.  Covers the urlarg-sourced service_name (reflected),
+ * and, as defense-in-depth, the /api/status-sourced fields.  Escapes
+ * the F-021 set including quotes, so the same escaper serves both
+ * text and attribute contexts.
+ */
+function lwsAuthEsc(s) {
+    const m = { '&': '&amp;', '<': '&lt;', '>': '&gt;',
+                '"': '&quot;', "'": '&#39;' };
+    return String(s).replace(/[&<>"']/g, c => m[c]);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     // Elements
     const loginForm = document.getElementById('login-form');
@@ -73,7 +86,7 @@ document.addEventListener('DOMContentLoaded', () => {
         let grantsHtml = Object.keys(data.grants || {}).length
             ? '<table class="auth-grants-table">' +
               '<tr><th>Service</th><th class="level-col">Level</th></tr>' +
-              Object.keys(data.grants).map(k => `<tr><td>${k}</td><td class="level-col">L${data.grants[k]}</td></tr>`).join('') +
+              Object.keys(data.grants).map(k => `<tr><td>${lwsAuthEsc(k)}</td><td class="level-col">L${lwsAuthEsc(data.grants[k])}</td></tr>`).join('') +
               '</table>'
             : '<div class="auth-grants-empty">No Active Grants</div>';
 
@@ -81,13 +94,13 @@ document.addEventListener('DOMContentLoaded', () => {
             ? '<p class="auth-session-title auth-log-title">Valid JWK Peers</p>' +
               '<table class="auth-log-table">' +
               '<tr><th>Date / Time</th><th class="ip-col">IP Address</th></tr>' +
-              data.logs.map(lg => `<tr><td class="time-col">${new Date(lg.time * 1000).toLocaleString()}</td><td class="ip-col">${lg.ip}</td></tr>`).join('') +
+              data.logs.map(lg => `<tr><td class="time-col">${lwsAuthEsc(new Date(lg.time * 1000).toLocaleString())}</td><td class="ip-col">${lwsAuthEsc(lg.ip)}</td></tr>`).join('') +
               '</table>'
             : '';
 
         let headerHtml = `<div class="auth-status-row success-row">
             <span class="auth-status-icon">✅</span>
-            <span class="auth-status-text">Logged in as ${data.email || 'Unknown User'}</span>
+            <span class="auth-status-text">Logged in as ${lwsAuthEsc(data.email || 'Unknown User')}</span>
         </div>`;
 
         if (data.is_admin) {
@@ -100,7 +113,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (isDenied) {
             headerHtml += `<div class="auth-status-row error-row auth-status-spacer">
                 <span class="auth-status-icon">❌</span>
-                <span class="auth-status-text">Doesn't grant '${serviceName || 'required service'}'</span>
+                <span class="auth-status-text">Doesn't grant '${lwsAuthEsc(serviceName || 'required service')}'</span>
             </div>`;
         } else {
             headerHtml += `<div class="auth-status-spacer"></div>`;
@@ -197,7 +210,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                         <span class="auth-status-icon">❌</span>
                                         <span class="auth-status-text">Security Violation</span>
                                     </div>
-                                    <p class="auth-session-email">${errData.error || 'Untrusted Redirect URI'}</p>
+                                    <p class="auth-session-email">${lwsAuthEsc(errData.error || 'Untrusted Redirect URI')}</p>
                                     <p class="redirect-whitelist-error">The specified redirection target is not whitelisted by the network administrator.</p>
                                 </div>`;
                                 subtitle.innerText = "Access Blocked";
