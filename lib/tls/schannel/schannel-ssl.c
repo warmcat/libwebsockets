@@ -975,11 +975,22 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 		polHttps.cbStruct = sizeof(HTTPSPolicyCallbackData);
 		polHttps.dwAuthType = AUTHTYPE_SERVER;
 
-		/* Convert stored hostname to WCHAR for validation */
+		/*
+		 * Convert stored hostname to WCHAR for validation.  If the
+		 * hostname is not valid UTF-8 (or does not fit), we must fail
+		 * closed: leaving pwszServerName NULL makes the SSL chain
+		 * policy skip name matching entirely (F-047).
+		 */
 		WCHAR wszServerName[128];
-		if (MultiByteToWideChar(CP_UTF8, 0, conn->hostname, -1, wszServerName, LWS_ARRAY_SIZE(wszServerName))) {
-			polHttps.pwszServerName = wszServerName;
+		if (!MultiByteToWideChar(CP_UTF8, 0, conn->hostname, -1,
+					 wszServerName,
+					 LWS_ARRAY_SIZE(wszServerName))) {
+			lws_snprintf(ebuf, ebuf_len,
+				     "hostname not valid UTF-8, refusing to"
+				     " skip peer name check");
+			goto bail;
 		}
+		polHttps.pwszServerName = wszServerName;
 
 		CERT_CHAIN_POLICY_PARA PolicyPara;
 		memset(&PolicyPara, 0, sizeof(PolicyPara));
@@ -1025,6 +1036,7 @@ lws_tls_client_confirm_peer_cert(struct lws *wsi, char *ebuf, size_t ebuf_len)
 			}
 		}
 
+bail:
 		CertFreeCertificateChain(pChainContext);
 	}
 
