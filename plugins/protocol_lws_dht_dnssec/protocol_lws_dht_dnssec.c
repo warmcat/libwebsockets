@@ -1417,6 +1417,30 @@ dht_dnssec_trigger_validation(struct lws_dht_ctx *ctx, struct vhd_dht_dnssec *vh
 
 /* --- Verb Handlers --- */
 
+/*
+ * F-051 defense-in-depth: the wire hash token is composed into filesystem
+ * paths (tmp files, storage install paths), so only accept exactly what the
+ * protocol generates: 2 - 128 lowercase hex chars.  The parser in
+ * lws_dht_msg_parse() already enforces this; refuse here too before any
+ * path composition in case that gate is ever loosened.
+ */
+static int
+dht_dnssec_hash_token_ok(const char *hash)
+{
+	size_t i, len = strlen(hash);
+
+	if (len < 2 || len > LWS_GENHASH_LARGEST * 2)
+		return 0;
+
+	for (i = 0; i < len; i++) {
+		char c = hash[i];
+		if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')))
+			return 0;
+	}
+
+	return 1;
+}
+
 static int
 verb_put_handler(struct vhd_dht_dnssec *vhd, struct lws_dht_verb_dispatch_args *args)
 {
@@ -1429,6 +1453,11 @@ verb_put_handler(struct vhd_dht_dnssec *vhd, struct lws_dht_verb_dispatch_args *
 	int n;
 
 	lwsl_user("%s: PUT [START] %s offset %llu len %llu payload_len %zu\n", __func__, msg->hash, msg->offset, msg->len, msg->payload_len);
+
+	if (!dht_dnssec_hash_token_ok(msg->hash)) {
+		lwsl_warn("%s: rejecting PUT with malformed hash token\n", __func__);
+		return -1;
+	}
 
 	/*
 	 * DNSSEC PUT Filter:
@@ -1596,6 +1625,11 @@ verb_get_handler(struct vhd_dht_dnssec *vhd, struct lws_dht_verb_dispatch_args *
 
 	// lwsl_user("%s: GET %s offset %llu len %llu\n", __func__, msg->hash, msg->offset, msg->len);
 
+	if (!dht_dnssec_hash_token_ok(msg->hash)) {
+		lwsl_warn("%s: rejecting GET with malformed hash token\n", __func__);
+		return -1;
+	}
+
 	lws_snprintf(path, sizeof(path), "%s/%s", vhd->storage_path, msg->hash);
 	fd = open(path, O_RDONLY);
 	if (fd < 0) {
@@ -1693,6 +1727,11 @@ verb_rsp_handler(struct vhd_dht_dnssec *vhd, struct lws_dht_verb_dispatch_args *
 	struct lws_dht_dnssec_fetch_req *req;
 
 	lwsl_user("%s: RSP for %s offset %llu len %llu payload %zu\n", __func__, msg->hash, msg->offset, msg->len, msg->payload_len);
+
+	if (!dht_dnssec_hash_token_ok(msg->hash)) {
+		lwsl_warn("%s: rejecting RSP with malformed hash token\n", __func__);
+		return -1;
+	}
 
 	req = dht_dnssec_find_fetch_req(vhd, msg->hash);
 	if (!req) {

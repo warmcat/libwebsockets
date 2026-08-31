@@ -1010,7 +1010,26 @@ lws_dht_msg_parse(const char *in, size_t len, struct lws_dht_msg *out)
 			if (tlen >= sizeof(out->verb)) tlen = sizeof(out->verb) - 1;
 			lws_strncpy(out->verb, token_start, tlen + 1);
 		} else if (step == 1) {
-			if (tlen >= sizeof(out->hash)) tlen = sizeof(out->hash) - 1;
+			size_t i;
+
+			/*
+			 * F-051: the hash token is composed into
+			 * filesystem paths by the object-store and dnssec
+			 * plugins, so it must be exactly lowercase hex
+			 * (the only shape the protocol generates) and not
+			 * something like "../x" or an absolute path.
+			 * Reject the whole datagram otherwise.
+			 */
+			if (tlen < 2 || tlen >= sizeof(out->hash))
+				return -1;
+
+			for (i = 0; i < tlen; i++) {
+				char c = token_start[i];
+				if (!((c >= '0' && c <= '9') ||
+				      (c >= 'a' && c <= 'f')))
+					return -1;
+			}
+
 			lws_strncpy(out->hash, token_start, tlen + 1);
 		} else if (step == 2) {
 			char tmp[32];
