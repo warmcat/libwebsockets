@@ -111,6 +111,12 @@ if (requirements)
 				ENVIRONMENT "SAI_LIST_PORT=${PORT_MS_HBIN_TLS}")
 		set_tests_properties(ki_ms_hbin PROPERTIES FIXTURES_CLEANUP ms_hbin)
 
+		add_test(NAME ss-warmcat-local COMMAND lws-minimal-secure-streams
+			 -c ${CMAKE_CURRENT_BINARY_DIR}/policy-local.json)
+		set_tests_properties(ss-warmcat-local PROPERTIES
+			 FIXTURES_REQUIRED "ms_hbin"
+			 TIMEOUT 40)
+
 					endif()
 
 	if (websockets_shared)
@@ -176,6 +182,13 @@ if (requirements)
 			-i ${CTEST_LOCAL_SOCKET_PATH}
 			-c ${CMAKE_CURRENT_BINARY_DIR}/policy-local.json)
 		set_tests_properties(ki_ms_proxy_local PROPERTIES FIXTURES_CLEANUP ms_proxy_local)
+
+		add_test(NAME sspc-minimal-local COMMAND lws-minimal-secure-streams-client
+			 -i +${CTEST_LOCAL_SOCKET_PATH})
+		set_tests_properties(sspc-minimal-local PROPERTIES
+			 WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/secure-streams/minimal-secure-streams
+			 FIXTURES_REQUIRED "ms_proxy_local;ms_hbin"
+			 TIMEOUT 40)
 
 					endif()
 

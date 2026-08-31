@@ -68,6 +68,12 @@ if (requirements)
 				ENVIRONMENT "SAI_LIST_PORT=${PORT_PERF_HBIN_TLS}")
 		set_tests_properties(ki_perf_hbin PROPERTIES FIXTURES_CLEANUP perf_hbin)
 
+		add_test(NAME ssperf-warmcat-local COMMAND lws-minimal-secure-streams-perf
+			 -c ${CMAKE_CURRENT_BINARY_DIR}/policy-local.json)
+		set_tests_properties(ssperf-warmcat-local PROPERTIES
+			 FIXTURES_REQUIRED "perf_hbin"
+			 TIMEOUT 40)
+
 					endif()
 
 
@@ -112,6 +118,13 @@ if (requirements)
 			-i ${CTEST_LOCAL_SOCKET_PATH}
 			-c ${CMAKE_CURRENT_BINARY_DIR}/policy-local.json)
 		set_tests_properties(ki_perf_proxy_local PROPERTIES FIXTURES_CLEANUP perf_proxy_local)
+
+		add_test(NAME ssperfpc-minimal-local COMMAND lws-minimal-secure-streams-perf-client
+			 -i +${CTEST_LOCAL_SOCKET_PATH})
+		set_tests_properties(ssperfpc-minimal-local PROPERTIES
+			 WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/secure-streams/minimal-secure-streams-perf
+			 FIXTURES_REQUIRED "perf_proxy_local;perf_hbin"
+			 TIMEOUT 40)
 
 					endif()
 

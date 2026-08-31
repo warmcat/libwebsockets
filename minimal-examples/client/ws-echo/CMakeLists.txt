@@ -118,7 +118,7 @@ if (requirements)
 		# httpbin-based local tests.
 		#
 
-		if (LWS_WITH_SERVER AND NOT LWS_WITHOUT_TEST_SERVER)
+		if (NOT WIN32 AND LWS_WITH_SERVER AND NOT LWS_WITHOUT_TEST_SERVER)
 			lws_get_free_port(PORT_WS_SRV_TLS)
 
 			configure_file(policy-local.json.in policy-local.json @ONLY)
@@ -197,6 +197,12 @@ if (requirements)
 			-c ${CMAKE_CURRENT_BINARY_DIR}/policy-local.json)
 		set_tests_properties(ki_wse_proxy_local PROPERTIES FIXTURES_CLEANUP wse_proxy_local)
 
+		add_test(NAME msspcws-echo-minimal-local COMMAND
+			${PROJECT_NAME}-client --ssproxy-iface +${CTEST_LOCAL_SOCKET_PATH})
+		set_tests_properties(msspcws-echo-minimal-local PROPERTIES
+			WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/client/ws-echo
+			FIXTURES_REQUIRED "wse_proxy_local;ws_srv"
+			TIMEOUT 40)
 
 	endif()
 

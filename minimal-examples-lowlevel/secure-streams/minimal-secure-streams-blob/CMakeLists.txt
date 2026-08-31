@@ -47,6 +47,12 @@ if (requirements)
 				ENVIRONMENT "SAI_LIST_PORT=${PORT_BLOB_HBIN_TLS}")
 		set_tests_properties(ki_blob_hbin PROPERTIES FIXTURES_CLEANUP blob_hbin)
 
+		add_test(NAME ssblob-warmcat-local COMMAND lws-minimal-secure-streams-blob
+			 -c ${CMAKE_CURRENT_BINARY_DIR}/policy-local.json)
+		set_tests_properties(ssblob-warmcat-local PROPERTIES
+			 FIXTURES_REQUIRED "blob_hbin"
+			 TIMEOUT 40)
+
 					endif()
 
 	if (websockets_shared)
@@ -112,6 +118,13 @@ if (requirements)
 			-i ${CTEST_LOCAL_SOCKET_PATH}
 			-c ${CMAKE_CURRENT_BINARY_DIR}/policy-local.json)
 		set_tests_properties(ki_blob_proxy_local PROPERTIES FIXTURES_CLEANUP blob_proxy_local)
+
+		add_test(NAME sspcblob-minimal-local COMMAND lws-minimal-secure-streams-blob-client
+			 -i +${CTEST_LOCAL_SOCKET_PATH} --timeout_ms 65000)
+		set_tests_properties(sspcblob-minimal-local PROPERTIES
+			 WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/secure-streams/minimal-secure-streams-blob
+			 FIXTURES_REQUIRED "blob_proxy_local;blob_hbin"
+			 TIMEOUT 70)
 
 					endif()
 

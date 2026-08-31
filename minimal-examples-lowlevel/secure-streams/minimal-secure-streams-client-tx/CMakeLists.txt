@@ -32,8 +32,10 @@ if (requirements)
 	#
 	# Local-server variant: runs a local lws-minimal-http-server-httpbin over
 	# TLS, and the proxy with a local policy, so it does not need any external
-	# gate.
+	# network egress.
 	#
+
+	if (NOT WIN32 AND LWS_WITH_SERVER)
 
 	lws_get_free_port(PORT_TX_HBIN_TLS)
 
@@ -51,6 +53,8 @@ if (requirements)
 				TIMEOUT 800
 				ENVIRONMENT "SAI_LIST_PORT=${PORT_TX_HBIN_TLS}")
 		set_tests_properties(ki_tx_hbin PROPERTIES FIXTURES_CLEANUP tx_hbin)
+
+	endif()
 
 
 	#
@@ -95,6 +99,13 @@ if (requirements)
 			-c ${CMAKE_CURRENT_BINARY_DIR}/policy-local.json)
 		set_tests_properties(ki_tx_proxy_local PROPERTIES FIXTURES_CLEANUP tx_proxy_local)
 
-					endif()
+		add_test(NAME sspc-minimaltx-local COMMAND lws-minimal-secure-streams-client-tx
+			 -i +${CTEST_LOCAL_SOCKET_PATH})
+		set_tests_properties(sspc-minimaltx-local PROPERTIES
+			WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/secure-streams/minimal-secure-streams-client-tx
+			FIXTURES_REQUIRED "tx_proxy_local;tx_hbin"
+			TIMEOUT 40)
+
+	endif()
 
 endif()
