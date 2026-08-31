@@ -45,7 +45,7 @@ The plugin can be enabled on any vhost. Its behavior is customized using Per-Vho
 
 You can enable this plugin on a vhost without writing any C code at all by supplying a standard JSON configuration to `lwsws` or any LWS server parsing `lejp-conf`.
 
-This example mounts the front-end UI at `/auth` and configures the `lws-auth-server` protocol with its required PVOs:
+This example mounts the front-end UI at `/` (the assets dir with `index.html` as the default) and configures the `lws-auth-server` protocol with its required PVOs.  Note the UI must live at the root of the auth vhost: `/api/authorize` redirects anonymous inbound OAuth2 logins to `/?client_id=...` (with the OAuth2 params preserved in the query for `auth.js` to replay after login), the same URL shape `lws-login`'s `login_url` convention uses.
 
 ```json
 {
