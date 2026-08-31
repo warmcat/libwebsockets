@@ -303,7 +303,7 @@ lws_x509_get_general_names(uint8_t **p, const uint8_t *end,
 	if (*p + len != end)
 		return 1;
 
-	while (*p < end) {
+	while (*p && *p < end) {
 		lws_mbedtls_x509_subject_alternative_name dnb;
 		memset(&dnb, 0, sizeof(dnb));
 
@@ -313,6 +313,13 @@ lws_x509_get_general_names(uint8_t **p, const uint8_t *end,
 		r = mbedtls_asn1_get_len(p, end, &tag_len);
 		if (r)
 		    return r;
+
+		/* the extents of the entry have to fit inside the extents we
+		 * were given; asn1_get_len() should ensure it, but these are
+		 * attacker-controlled so fence it explicitly rather than rely
+		 * on the helper's postconditions */
+		if (tag_len > (size_t)(end - *p))
+			return 1;
 
 		/* Tag shall be CONTEXT_SPECIFIC or SET */
 		if ((tag & LWS_MBEDTLS_ASN1_TAG_CLASS_MASK) !=
@@ -366,7 +373,10 @@ lws_x509_get_general_names(uint8_t **p, const uint8_t *end,
 			cur = cur->MBEDTLS_PRIVATE_V30_ONLY(next);
 		}
 
-		*p += buf->MBEDTLS_PRIVATE_V30_ONLY(len);
+		/* tag_len == buf->len here; the helper takes buf as const, and
+		 * using the bounded local keeps us clear of the list slot that
+		 * cur may have advanced away from */
+		*p += tag_len;
 	}
 
 	/* Set final sequence entry's next pointer to NULL */
