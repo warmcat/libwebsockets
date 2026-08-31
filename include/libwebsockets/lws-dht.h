@@ -194,7 +194,8 @@ lws_dht_send_notify(struct lws_dht_ctx *ctx, const struct sockaddr *sa, size_t s
  * \param len: length of raw message
  * \param out: struct to populate with parsed data
  *
- * Safe parsing of DHT command messages.
+ * Safe parsing of DHT command messages.  The hash token must be 2 - 128
+ * lowercase hex chars, otherwise the message is rejected.
  *
  * \return 0 on success, non-zero on error
  */
