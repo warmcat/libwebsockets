@@ -1741,10 +1741,51 @@ lws_auth_api_login(struct lws *wsi, struct per_vhost_data__auth_server *vhd,
 		char host[128] = {0};
 		lws_hdr_copy(wsi, host, sizeof(host), WSI_TOKEN_HOST);
 		const char *delim = strchr(redirect_uri, '?') ? "&" : "?";
-		if (state && state[0])
+			if (state && state[0])
 			len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"redirect\":\"%s%scode=%s&state=%s&iss=https%%3A%%2F%%2F%s\"}", redirect_uri, delim, code, state, host);
 		else
 			len = lws_snprintf(pl + LWS_PRE, sizeof(pl) - LWS_PRE, "{\"redirect\":\"%s%scode=%s&iss=https%%3A%%2F%%2F%s\"}", redirect_uri, delim, code, host);
+
+		/*
+		 * The delegate login is still a login on the auth server's
+		 * own origin: plant the same auth_session JWT cookie and
+		 * long-term auth_refresh_session the native branch does.
+		 * Without these, the user authenticates, the oauth2 code
+		 * flow completes -- and the auth server immediately forgets
+		 * them: the next /api/authorize can neither see a session
+		 * nor fall back to a refresh session, and the app-side
+		 * .lws-login-refresh BFF has no auth_refresh_session to
+		 * forward, so the user must do a full credential (and TOTP)
+		 * login again every time the 1h app JWT expires.
+		 */
+		if (lws_auth_generate_token(vhd, user, uid, peer, jwt, &jwt_len)) {
+			lwsl_wsi_err(wsi, "%s: delegate login: session "
+				     "token generation failed (uid %u)",
+				     __func__, uid);
+		} else {
+			if (vhd->cookie_name[0] &&
+			    lws_http_cookie_compose(cookie_hdr,
+						    sizeof(cookie_hdr),
+						    vhd->cookie_name, jwt,
+						    vhd->cookie_domain,
+						    vhd->jwt_validity_secs,
+						    NULL) < 0) {
+				/* F-048: fail closed, never a truncated tail */
+				lwsl_wsi_err(wsi, "%s: %s Set-Cookie too "
+					     "large for the composed buffer "
+					     "(token %d, domain %d)",
+					     __func__, vhd->cookie_name,
+					     (int)strlen(jwt),
+					     (int)strlen(vhd->cookie_domain));
+				cookie_hdr[0] = '\0';
+			}
+
+			if (vhd->refresh_token_validity_secs > 0) {
+				char refresh_code[65];
+				lws_auth_mint_refresh(vhd, uid, refresh_code,
+						      refresh_hdr);
+			}
+		}
 		goto send;
 	}
 
