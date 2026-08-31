@@ -227,8 +227,23 @@ lws_state_notify_protocol_init(struct lws_state_manager *mgr,
 			return 0; /* allow it */
 
 		/*
-		 * Don't allow it to move past here until we get an IP and
-		 * CPD passes, driven by SMD
+		 * We may be on a platform where the platform stack already
+		 * did the DHCP and told us about it via SMD "ipacq", in which
+		 * case we already have an IP on an interface by now, and
+		 * holding system progress here waiting on our own CPD answer
+		 * is superfluous: if the CPD attempt itself can't complete, we
+		 * would wedge the context pre-OPERATIONAL indefinitely.  The
+		 * CPD outcome stays available via SMD and
+		 * lws_system_cpd_state_get() for consumers that care about it,
+		 * but it is advisory for system state progression.
+		 */
+
+		if (context->ipacq_seen)
+			return 0;
+
+		/*
+		 * Don't allow it to move past here until we get an IP on some
+		 * interface, driven by SMD
 		 */
 
 		return 1;
@@ -304,8 +319,19 @@ lws_system_smd_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 		 * IP acquisition on any interface triggers captive portal
 		 * check on default route
 		 */
-		if (!lws_json_simple_strcmp(buf, len, "\"type\":", "ipacq"))
+		if (!lws_json_simple_strcmp(buf, len, "\"type\":", "ipacq")) {
+			/*
+			 * The platform already did the DHCP and gave us an IP
+			 * on an interface, so system progress can continue
+			 * without waiting on the CPD answer
+			 */
+			cx->ipacq_seen = 1;
 			lws_system_cpd_start(cx);
+#if defined(LWS_WITH_SYS_STATE)
+			lws_state_transition_steps(&cx->mgr_system,
+						   LWS_SYSTATE_OPERATIONAL);
+#endif
+		}
 
 #if defined(LWS_WITH_SYS_NTPCLIENT)
 	/*
