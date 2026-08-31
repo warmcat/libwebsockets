@@ -135,6 +135,12 @@ if (requirements)
 				ENVIRONMENT "SAI_LIST_PORT=${PORT_SMD_HBIN_TLS}")
 		set_tests_properties(ki_smd_hbin PROPERTIES FIXTURES_CLEANUP smd_hbin)
 
+		add_test(NAME ss-smd-local COMMAND lws-minimal-secure-streams-smd
+			 -c ${CMAKE_CURRENT_BINARY_DIR}/policy-local.json)
+		set_tests_properties(ss-smd-local PROPERTIES
+			 FIXTURES_REQUIRED "smd_hbin"
+			 TIMEOUT 80)
+
 					endif()
 
 

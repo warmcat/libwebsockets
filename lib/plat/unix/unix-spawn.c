@@ -74,6 +74,15 @@ lws_spawn_sul_reap(struct lws_sorted_usec_list *sul)
 				 __func__, lsp);
 			lsp->reap_retry_budget = 20;
 			lws_spawn_piped_kill_child_process(lsp);
+			/*
+			 * If the stdwsi are already gone (why we are here),
+			 * there will be no more pipe close events to call
+			 * lws_spawn_reap()... keep retrying until the killed
+			 * child is actually reapable.
+			 */
+			lws_sul_schedule(lsp->info.vh->context, lsp->info.tsi,
+					 &lsp->sul_reap, lws_spawn_sul_reap,
+					 250 * LWS_US_PER_MS);
 		}
 	}
 }

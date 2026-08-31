@@ -23,6 +23,9 @@ sdevent, glib and uloop, as well as custom event libs.
 
 ![overview](./doc-assets/lws-overview.png)
 
+ - on main, all of the ctests can now be run without external networking available, lws
+   orchestrates appropriate local peers as test fixtures 
+
 **V5.0 now available... please upgrade to this or preferably v5.0-stable or main, as there are many
 security fixes only available on v5.0-stable and main; pre-5.0 releases are effectively deprecated.**
 

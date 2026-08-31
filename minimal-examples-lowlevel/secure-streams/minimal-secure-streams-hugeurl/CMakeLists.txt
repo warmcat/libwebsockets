@@ -69,6 +69,18 @@ if (requirements)
 				ENVIRONMENT "SAI_LIST_PORT=${PORT_HURL_HBIN_TLS}")
 		set_tests_properties(ki_hurl_hbin PROPERTIES FIXTURES_CLEANUP hurl_hbin)
 
+		add_test(NAME ss-warmcat-hurl-local COMMAND lws-minimal-secure-streams-hugeurl
+			 -c ${CMAKE_CURRENT_BINARY_DIR}/policy-local.json -h 1024 --h1)
+		set_tests_properties(ss-warmcat-hurl-local PROPERTIES
+			 FIXTURES_REQUIRED "hurl_hbin"
+			 TIMEOUT 40)
+
+		add_test(NAME ss-warmcat-hurl-local-h2 COMMAND lws-minimal-secure-streams-hugeurl
+			 -c ${CMAKE_CURRENT_BINARY_DIR}/policy-local.json -h 1024)
+		set_tests_properties(ss-warmcat-hurl-local-h2 PROPERTIES
+			 FIXTURES_REQUIRED "hurl_hbin"
+			 TIMEOUT 40)
+
 									endif()
 
 
@@ -113,6 +125,13 @@ if (requirements)
 			-i ${CTEST_LOCAL_SOCKET_PATH}
 			-c ${CMAKE_CURRENT_BINARY_DIR}/policy-local.json)
 		set_tests_properties(ki_hurl_proxy_local PROPERTIES FIXTURES_CLEANUP hurl_proxy_local)
+
+		add_test(NAME sspc-minimal-hurl-local COMMAND lws-minimal-secure-streams-hugeurl-client
+			 -i +${CTEST_LOCAL_SOCKET_PATH})
+		set_tests_properties(sspc-minimal-hurl-local PROPERTIES
+			 WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/secure-streams/minimal-secure-streams-hugeurl
+			 FIXTURES_REQUIRED "hurl_proxy_local;hurl_hbin"
+			 TIMEOUT 40)
 
 					endif()
 

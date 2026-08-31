@@ -114,7 +114,7 @@ if (requirements)
 		# any external network egress.  Suitable for IPv6-only / no-egress CI.
 		#
 
-		if (LWS_WITH_SERVER)
+		if (NOT WIN32 AND LWS_WITH_SERVER)
 			lws_get_free_port(PORT_HP_SRV_TLS)
 
 			configure_file(policy-local.json.in policy-local.json @ONLY)
@@ -189,8 +189,8 @@ if (requirements)
 			-c ${CMAKE_CURRENT_BINARY_DIR}/policy-local.json)
 		set_tests_properties(ki_hpp_proxy_local PROPERTIES FIXTURES_CLEANUP hpp_proxy_local)
 
-		add_test(NAME msspc-http-post-local COMMAND lws-minimal-ss-http-post-client --ssproxy-iface +${CTEST_LOCAL_SOCKET_PATH}
-			 -i ${CTEST_LOCAL_SOCKET_PATH})
+		add_test(NAME msspc-http-post-local COMMAND lws-minimal-ss-http-post-client
+			 --ssproxy-iface +${CTEST_LOCAL_SOCKET_PATH})
 		set_tests_properties(msspc-http-post-local PROPERTIES
 			WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/client/http-post
 			FIXTURES_REQUIRED "hpp_proxy_local;hp_hbin"
