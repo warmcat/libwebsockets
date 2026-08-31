@@ -944,7 +944,13 @@ lws_adns_watch_trigger(struct lws_context *cx)
 
 	lws_adns_watch_acquire(cx, buf, sizeof(buf));
 
-	lws_mutex_lock(dns->lock_watch);
+	/*
+	 * On freertos, lws_mutex_lock() is an expression (it returns 0 for
+	 * OK), so the result has to be consumed like smd.c does
+	 */
+
+	if (lws_mutex_lock(dns->lock_watch))
+		return;
 
 	if (!strcmp(buf, dns->watch_last)) {
 		lws_mutex_unlock(dns->lock_watch);
@@ -972,17 +978,39 @@ lws_adns_sul_watch_cb(lws_sorted_usec_list_t *sul)
 }
 
 /*
+ * Boot gate retry: while the LWS_SYSTATE_DNS gate is denying, periodically
+ * run an acquisition pass AND re-attempt the state walk.  The re-attempt is
+ * the critical half: without it, the walk is only retried if a server ever
+ * appears (via the SMD path), so a platform that stays serverless would
+ * hold the context pre-OPERATIONAL forever.
+ */
+
+static void
+lws_adns_sul_gate_cb(lws_sorted_usec_list_t *sul)
+{
+	lws_async_dns_t *dns = lws_container_of(sul, lws_async_dns_t, sul_gate);
+
+	lws_adns_watch_trigger(dns->cx);
+
+#if defined(LWS_WITH_SYS_STATE)
+	if (dns->cx->mgr_system.state < LWS_SYSTATE_OPERATIONAL)
+		lws_state_transition_steps(&dns->cx->mgr_system,
+					   LWS_SYSTATE_OPERATIONAL);
+#endif
+}
+
+/*
  * Called from the LWS_SYSTATE_DNS gate while it's denying the transition
- * because we have no servers yet: make sure an acquisition pass happens
- * soon rather than at the next poll interval.
+ * because we have no servers yet: make sure an acquisition pass and a
+ * transition re-attempt happen soon.
  */
 
 void
 lws_adns_kick(struct lws_context *cx)
 {
 	if (cx->async_dns.watch_started)
-		lws_sul_schedule(cx, 0, &cx->async_dns.sul_watch,
-				 lws_adns_sul_watch_cb,
+		lws_sul_schedule(cx, 0, &cx->async_dns.sul_gate,
+				 lws_adns_sul_gate_cb,
 				 250 * LWS_US_PER_MS);
 }
 
@@ -1037,6 +1065,7 @@ lws_adns_smd_destroy(struct lws_context *cx)
 	dns->watch_started = 0;
 
 	lws_sul_cancel(&dns->sul_watch);
+	lws_sul_cancel(&dns->sul_gate);
 
 #if defined(__APPLE__)
 	lws_plat_asyncdns_watch_stop(cx);
@@ -1091,10 +1120,71 @@ lws_adns_servers_known(struct lws_context *cx)
 	return !!lws_dll2_count(&cx->async_dns.nameservers);
 }
 
+/*
+ * The LWS_SYSTATE_DNS gate: hold transitions while we have no DNS servers,
+ * so user code waiting for OPERATIONAL can rely on lookups working... but
+ * only for a bounded time.  A platform that never produces a server (an
+ * offline device, a restricted daemon environment, or a discovery source
+ * we can't read) must not wedge the context pre-OPERATIONAL forever; after
+ * the wait we proceed with a notice and the watcher keeps fixing the
+ * server list in the background if one appears later.
+ */
+
+static lws_usec_t
+lws_adns_gate_max_us(void)
+{
+#if defined(LWS_HAVE_GETENV)
+	const char *e = getenv("LWS_ASYNCDNS_GATE_MAX_MS");
+#else
+	const char *e = NULL;
+#endif
+
+	if (e && atoi(e) > 0)
+		return (lws_usec_t)atoi(e) * LWS_US_PER_MS;
+
+	return 10 * LWS_US_PER_SEC;
+}
+
+int
+lws_adns_gate_ok(struct lws_context *cx)
+{
+	lws_async_dns_t *dns = &cx->async_dns;
+	lws_usec_t now;
+
+	if (lws_adns_servers_known(cx))
+		return 1;
+
+	now = lws_now_usecs();
+
+	if (!dns->time_gate_first) {
+		dns->time_gate_first = now;
+
+		return 0;
+	}
+
+	if (now - dns->time_gate_first > lws_adns_gate_max_us()) {
+		lwsl_cx_notice(cx,
+			"no platform DNS servers after %dms, proceeding",
+			(int)(lws_adns_gate_max_us() / LWS_US_PER_MS));
+
+		return 1;
+	}
+
+	return 0;
+}
+
 #else /* no SMD */
 
 int
 lws_adns_servers_known(struct lws_context *cx)
+{
+	(void)cx;
+
+	return 1;
+}
+
+int
+lws_adns_gate_ok(struct lws_context *cx)
 {
 	(void)cx;
 

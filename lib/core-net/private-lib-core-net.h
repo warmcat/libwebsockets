@@ -342,6 +342,8 @@ typedef struct lws_async_dns {
 	struct lws_smd_peer	*smd_peer;
 #endif
 	lws_sorted_usec_list_t	sul_watch;	/* poll fallback cadence */
+	lws_sorted_usec_list_t	sul_gate;	/* boot gate retry, while denying */
+	lws_usec_t		time_gate_first;/* us of first LWS_SYSTATE_DNS deny */
 	lws_mutex_t		lock_watch;	/* guards watch_last */
 	void			*plat_watch;	/* platform push watcher state */
 	char			watch_last[LWS_ASYNCDNS_WATCH_BUF];
@@ -1833,6 +1835,8 @@ void
 lws_async_dns_deinit(lws_async_dns_t *dns);
 int
 lws_adns_servers_known(struct lws_context *context);
+int
+lws_adns_gate_ok(struct lws_context *context);
 void
 lws_adns_kick(struct lws_context *context);
 void

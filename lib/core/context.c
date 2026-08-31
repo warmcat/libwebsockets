@@ -173,15 +173,16 @@ lws_state_notify_protocol_init(struct lws_state_manager *mgr,
 
 #if defined(LWS_WITH_SYS_ASYNC_DNS)
 	/*
-	 * Don't let it past here until the async dns resolver actually has at
-	 * least one DNS server, either acquired from the platform or pinned by
-	 * user code.  The watcher's next acquisition attempt or platform push
-	 * notification (delivered via SMD) will retry the transition; arrange
-	 * a near-term acquisition attempt so we don't have to wait for the
-	 * next poll interval for it.
+	 * Don't let it past here until the async dns resolver actually has
+	 * at least one DNS server, either acquired from the platform or
+	 * pinned by user code.  lws_adns_gate_ok() also bounds how long we
+	 * will hold the walk if the platform never produces one, so an
+	 * offline or restricted environment can't wedge the context
+	 * pre-OPERATIONAL.  While denying, lws_adns_kick() arranges for an
+	 * acquisition pass and a transition re-attempt shortly.
 	 */
 
-	if (target == LWS_SYSTATE_DNS && !lws_adns_servers_known(context)) {
+	if (target == LWS_SYSTATE_DNS && !lws_adns_gate_ok(context)) {
 		lwsl_cx_info(context, "waiting for async dns servers");
 
 		lws_adns_kick(context);

@@ -158,20 +158,30 @@ lws_plat_asyncdns_get_server(struct lws_context *context, int index,
 	int total;
 
 	store = SCDynamicStoreCreate(NULL, CFSTR("lws-adns"), NULL, NULL);
-	if (!store)
-		return -1;
+	if (store) {
+		total = lws_adns_store_list(store, ads,
+					    LWS_APPLE_DNS_MAX_SERVERS);
+		CFRelease(store);
 
-	total = lws_adns_store_list(store, ads, LWS_APPLE_DNS_MAX_SERVERS);
-	CFRelease(store);
+		if (total > index) {
+			memset(sa46, 0, sizeof(*sa46));
+			if (!lws_sa46_parse_numeric_address(ads[index], sa46))
+				return 0;
+		}
 
-	if (index >= total)
-		return -1;
+		if (total)
+			/* we could read the store; past its list end */
+			return -1;
+	}
 
-	memset(sa46, 0, sizeof(*sa46));
-	if (lws_sa46_parse_numeric_address(ads[index], sa46) < 0)
-		return -1;
+	/*
+	 * The store yielded nothing at all, or we couldn't get a session for
+	 * it... fall back to parsing the compat file, which mirrors the
+	 * primary service's resolver set.  This is better than reporting no
+	 * servers in restricted environments where the store isn't readable.
+	 */
 
-	return 0;
+	return lws_asyncdns_parse_resolv_conf(context, index, sa46);
 }
 
 /*
