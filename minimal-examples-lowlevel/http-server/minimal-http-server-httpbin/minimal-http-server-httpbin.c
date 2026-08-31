@@ -291,6 +291,7 @@ int main(int argc, const char **argv)
 	info.mounts = &mount_dyn;
 	info.vhost_name = "http";
 
+#if defined(LWS_WITH_TLS)
 	/*
 	 * This is a test peer for h1 / h2 ctests.  Without an explicit alpn,
 	 * an h3-capable lws gives the vhost the context default alpn list
@@ -301,6 +302,7 @@ int main(int argc, const char **argv)
 	 * this peer to h2 and h1.
 	 */
 	info.alpn = "h2,http/1.1";
+#endif
 
 	if (!lws_create_vhost(context, &info)) {
 		lwsl_err("Failed to create vhost\n");

@@ -123,6 +123,12 @@ if (requirements AND NOT WIN32)
 				ENVIRONMENT "SAI_LIST_PORT=${PORT_THR_HBIN_TLS}")
 		set_tests_properties(ki_thr_hbin PROPERTIES FIXTURES_CLEANUP thr_hbin)
 
+		add_test(NAME ss-threads-local COMMAND lws-minimal-secure-streams-threads
+			 -c ${CMAKE_CURRENT_BINARY_DIR}/policy-local.json)
+		set_tests_properties(ss-threads-local PROPERTIES
+			 FIXTURES_REQUIRED "thr_hbin"
+			 TIMEOUT 40)
+
 					endif()
 
 

@@ -173,9 +173,8 @@ if (requirements)
 		set_tests_properties(ki_hw_proxy_local PROPERTIES FIXTURES_CLEANUP hw_proxy_local)
 
 		add_test(NAME msspc-hello_world-local COMMAND lws-minimal-ss-hello_world-client
-			--ssproxy-iface +${CTEST_LOCAL_SOCKET_PATH}
 			--url https://${LWS_CTEST_SERVER_URL_RESOLVE}:${PORT_HW_HBIN_TLS}/httpbin/bytes/2000
-			 -i ${CTEST_LOCAL_SOCKET_PATH})
+			--ssproxy-iface +${CTEST_LOCAL_SOCKET_PATH})
 		set_tests_properties(msspc-hello_world-local PROPERTIES
 			WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples/client/hello_world
 			FIXTURES_REQUIRED "hw_proxy_local;hw2_hbin"
