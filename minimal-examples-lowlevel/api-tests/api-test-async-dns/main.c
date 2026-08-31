@@ -359,7 +359,7 @@ pass:
 static struct lws_context *gate_cx;
 static lws_sorted_usec_list_t sul_gate;
 static int gate_interrupted, gate_dns_seen, gate_op_before, gate_op_after;
-static int gate_leg_ticks;
+static int gate_leg_ticks, gate_do_write;
 
 static int
 payload_contains(void *buf, size_t len, const char *needle)
@@ -401,6 +401,14 @@ smd_gate_cb(void *opaque, lws_smd_class_t _class, lws_usec_t timestamp,
 			gate_op_before = 1;
 		lwsl_user("GATE: SMD STATE: %.*s\n", (int)len,
 				(const char *)buf);
+
+		/*
+		 * In the give-up scenario, reaching OPERATIONAL without any
+		 * server is the expected outcome... we're done
+		 */
+
+		if (!gate_do_write && gate_op_before)
+			gate_interrupted = 1;
 	}
 
 	return 0;
@@ -411,32 +419,49 @@ sul_gate_cb(lws_sorted_usec_list_t *s)
 {
 	(void)s;
 
-	switch (gate_leg_ticks++) {
-	case 5: /* ~1s in: the platform gets its first DNS server */
-		{
-			int fd = open(RESOLV_TEST_CONF, O_WRONLY | O_APPEND);
+	if (gate_do_write && gate_leg_ticks == 5) {
+		/* ~1s in: the platform gets its first DNS server */
+		int fd = open(RESOLV_TEST_CONF, O_WRONLY | O_APPEND);
 
-			if (fd < 0)
-				break;
+		if (fd < 0)
+			lwsl_err("%s: can't open " RESOLV_TEST_CONF "\n",
+					__func__);
+		else {
 			if (write(fd, "nameserver 127.0.0.3\n", 21) < 0)
 				lwsl_err("%s: append failed\n", __func__);
 			close(fd);
 		}
-		break;
-
-	case 12: /* ~2.4s in: done */
-		gate_interrupted = 1;
-		return;
 	}
 
-	lws_sul_schedule(gate_cx, 0, &sul_gate, sul_gate_cb,
-			 200 * LWS_US_PER_MS);
+	if (++gate_leg_ticks > 14) /* ~3s: give up waiting */
+		gate_interrupted = 1;
+	else
+		lws_sul_schedule(gate_cx, 0, &sul_gate, sul_gate_cb,
+				 200 * LWS_US_PER_MS);
 }
 
 static void
-gate_test(void)
+gate_reset(void)
+{
+	int fd = open(RESOLV_TEST_CONF, O_WRONLY | O_TRUNC, 0600);
+
+	gate_interrupted = gate_dns_seen = gate_op_before = gate_op_after = 0;
+	gate_leg_ticks = 0;
+
+	if (fd < 0) {
+		lwsl_err("%s: can't reset " RESOLV_TEST_CONF "\n", __func__);
+		watch_fail++;
+		return;
+	}
+	close(fd);
+}
+
+static int
+gate_run(void)
 {
 	struct lws_context_creation_info gi;
+
+	gate_reset();
 
 	lws_context_info_defaults(&gi, NULL);
 	gi.early_smd_cb = smd_gate_cb;
@@ -445,8 +470,7 @@ gate_test(void)
 	gate_cx = lws_create_context(&gi);
 	if (!gate_cx) {
 		lwsl_err("%s: gate context create failed\n", __func__);
-		watch_fail++;
-		return;
+		return 1;
 	}
 
 	lws_sul_schedule(gate_cx, 0, &sul_gate, sul_gate_cb,
@@ -459,6 +483,22 @@ gate_test(void)
 	lws_context_destroy(gate_cx);
 	gate_cx = NULL;
 
+	return 0;
+}
+
+/*
+ * Scenario A: no servers at first, a server appears at ~1s; the state must
+ * hold at LWS_SYSTATE_DNS until then and reach OPERATIONAL after.
+ */
+
+static void
+gate_hold_release_test(void)
+{
+	if (gate_run()) {
+		watch_fail++;
+		return;
+	}
+
 	if (gate_op_before) {
 		lwsl_err("%s: reached OPERATIONAL with no DNS servers\n",
 				__func__);
@@ -469,7 +509,35 @@ gate_test(void)
 			 gate_dns_seen, gate_op_after);
 		watch_fail++;
 	} else
-		lwsl_user("Gate leg: PASS\n");
+		lwsl_user("Gate hold/release leg: PASS\n");
+}
+
+/*
+ * Scenario B: no server ever appears; the bounded hold must give way and
+ * let the context reach OPERATIONAL anyway (with a warning), rather than
+ * wedging pre-OPERATIONAL forever.
+ */
+
+static void
+gate_giveup_test(void)
+{
+	setenv("LWS_ASYNCDNS_GATE_MAX_MS", "300", 1);
+
+	if (gate_run()) {
+		watch_fail++;
+		goto bail;
+	}
+
+	if (!gate_op_before || gate_dns_seen) {
+		lwsl_err("%s: expected bounded give-up to OPERATIONAL "
+			 "(op %d, dns %d)\n", __func__,
+			 gate_op_before, gate_dns_seen);
+		watch_fail++;
+	} else
+		lwsl_user("Gate give-up leg: PASS\n");
+
+bail:
+	unsetenv("LWS_ASYNCDNS_GATE_MAX_MS");
 }
 #endif
 
@@ -796,8 +864,11 @@ main(int argc, const char **argv)
 		setenv("LWS_ASYNCDNS_WATCH_MS", RESOLV_TEST_WATCH_MS, 1);
 
 #if defined(LWS_WITH_SYS_STATE)
-		lwsl_user("*** state gate test leg\n");
-		gate_test();
+		lwsl_user("*** state gate test legs\n");
+		gate_do_write = 1;
+		gate_hold_release_test();
+		gate_do_write = 0;
+		gate_giveup_test();
 #endif
 
 		/* platform server set for the main context's watcher leg */
