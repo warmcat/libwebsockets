@@ -544,6 +544,54 @@ dnssec_monitor_fast_timer_cb(struct lws_sorted_usec_list *sul)
 #include <dirent.h>
 #include <errno.h>
 
+/*
+ * Any string interpolated into composed JSON, whether it came from an IPC
+ * request or was read off storage, must be escaped first: lws_json_purify()
+ * produces the \t / \n / \r / \\ / \uXXXX forms so quotes and control chars
+ * cannot break out of the string and inject arbitrary JSON members.
+ *
+ * esc must be sized for 6x expansion of the worst-case input plus the NUL.
+ */
+static const char *
+json_escape(char *esc, size_t esc_len, const char *s)
+{
+	return lws_json_purify(esc, s, (int)esc_len, NULL);
+}
+
+/*
+ * Buffer sizes for escaping each kind of interpolated string: the largest
+ * expansion lws_json_purify() can apply is 6x, plus the NUL.
+ */
+#define MON_ESC_DOMAIN_SZ	(6 * 256 + 8)
+#define MON_ESC_FIELD_SZ	(6 * 128 + 8)
+
+/*
+ * A raw file snippet is only interpolated into a response as a JSON value if
+ * it actually parses as JSON; otherwise a corrupt or hostile file could break
+ * the whole response envelope.  Returns 1 if buf parses cleanly.
+ */
+static signed char
+json_snippet_lejp_cb(struct lejp_ctx *ctx, char reason)
+{
+	(void)ctx;
+	(void)reason;
+
+	return 0;
+}
+
+static int
+json_snippet_valid(const char *buf)
+{
+	struct lejp_ctx jctx;
+	int n;
+
+	lejp_construct(&jctx, json_snippet_lejp_cb, NULL, NULL, 0);
+	n = lejp_parse(&jctx, (const uint8_t *)buf, (int)strlen(buf));
+	lejp_destruct(&jctx);
+
+	return n >= 0 || n == LEJP_REJECT_UNKNOWN;
+}
+
 struct monitor_req_args {
 	char req[32];
 	char domain[128];
@@ -979,10 +1027,11 @@ handle_req_get_domains(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"get_domains\",\"status\":\"ok\",\"domains\":[");
 		while ((de = readdir(d))) {
 			if (de->d_name[0] == '.') continue;
-			if (de->d_type == DT_DIR || de->d_type == DT_UNKNOWN) {
+				if (de->d_type == DT_DIR || de->d_type == DT_UNKNOWN) {
 				char whois_path[1024], whois_buf[2048] = "{}";
 				char dns_path[1024], dns_buf[1024] = "{}";
 				char ds_path[1024], ds_buf[256] = "";
+				char esc_name[MON_ESC_DOMAIN_SZ], esc_ds[MON_ESC_FIELD_SZ];
 				char disabled_path[1024];
 				int acme_enabled = 1;
 				int fd;
@@ -1019,7 +1068,11 @@ handle_req_get_domains(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 				if (!first) tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), ",");
 				tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx),
 					"{\"name\":\"%s\",\"whois\":%s,\"dns\":%s,\"local_ds\":\"%s\",\"acme_enabled\":%s}",
-					de->d_name, whois_buf[0] ? whois_buf : "{}", dns_buf[0] ? dns_buf : "{}", ds_buf, acme_enabled ? "true" : "false");
+					json_escape(esc_name, sizeof(esc_name), de->d_name),
+					whois_buf[0] && json_snippet_valid(whois_buf) ? whois_buf : "{}",
+					dns_buf[0] && json_snippet_valid(dns_buf) ? dns_buf : "{}",
+					json_escape(esc_ds, sizeof(esc_ds), ds_buf),
+					acme_enabled ? "true" : "false");
 				first = 0;
 			}
 		}
@@ -1284,20 +1337,23 @@ handle_req_get_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_arg
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
 	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	char d_path[1024];
+	char esc_domain[MON_ESC_FIELD_SZ];
 	DIR *d;
 	struct dirent *de;
+
+	json_escape(esc_domain, sizeof(esc_domain), a->domain);
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/conf.d", vhd->base_dir, a->domain);
 	d = opendir(d_path);
 	if (!d) {
-		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"domain\":\"%s\",\"tls\":[]}\n", a->req, a->domain);
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"domain\":\"%s\",\"tls\":[]}\n", a->req, esc_domain);
 	} else {
 		int first = 1;
-		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"domain\":\"%s\",\"tls\":[", a->req, a->domain);
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"ok\",\"domain\":\"%s\",\"tls\":[", a->req, esc_domain);
 		while ((de = readdir(d))) {
 			if (de->d_name[0] == '.') continue;
 			if ((char *)strstr(de->d_name, ".port")) {
-				char p_path[1024], sub[256];
+				char p_path[1024], sub[256], esc_sub[MON_ESC_DOMAIN_SZ];
 				lws_strncpy(sub, de->d_name, sizeof(sub));
 				char *ext = (char *)strstr(sub, ".port");
 				if (ext) *ext = '\0';
@@ -1312,7 +1368,7 @@ handle_req_get_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_arg
 						get_dane_hash(vhd->base_dir, a->domain, vhd->acme_production ? "production" : "staging", sub, 0, dane0, sizeof(dane0));
 						get_dane_hash(vhd->base_dir, a->domain, vhd->acme_production ? "production" : "staging", sub, 1, dane1, sizeof(dane1));
 						if (!first) tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), ",");
-						tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"fqdn\":\"%s\",\"port\":%d,\"dane0\":\"%s\",\"dane1\":\"%s\"}", sub, atoi(buf), dane0, dane1);
+						tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"fqdn\":\"%s\",\"port\":%d,\"dane0\":\"%s\",\"dane1\":\"%s\"}", json_escape(esc_sub, sizeof(esc_sub), sub), atoi(buf), dane0, dane1);
 						first = 0;
 					}
 					close(fd);
@@ -1332,7 +1388,9 @@ handle_req_create_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	char d_path[1024];
 	char p1[1024];
-	char buf[2048];
+	char buf[4096];
+	char esc_sub[MON_ESC_FIELD_SZ], esc_email[MON_ESC_FIELD_SZ];
+	char esc_org[MON_ESC_FIELD_SZ], esc_url[6 * 256 + 8];
 	int n, fd;
 
 	lws_snprintf(p1, sizeof(p1), "%s/domains/%s", vhd->base_dir, a->domain);
@@ -1351,10 +1409,11 @@ handle_req_create_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 			"  \"email\": \"%s\",\n  \"acme\": {\n"
 			"    \"organization\": \"%s\",\n"
 			"    \"directory-url\": \"%s\"\n  }\n}\n",
-			a->subdomain,
-			a->email[0] ? a->email : "",
-			a->organization[0] ? a->organization : "",
-			a->directory_url[0] ? a->directory_url : "https://acme-v02.api.letsencrypt.org/directory");
+			json_escape(esc_sub, sizeof(esc_sub), a->subdomain),
+			json_escape(esc_email, sizeof(esc_email), a->email),
+			json_escape(esc_org, sizeof(esc_org), a->organization),
+			json_escape(esc_url, sizeof(esc_url),
+				a->directory_url[0] ? a->directory_url : "https://acme-v02.api.letsencrypt.org/directory"));
 
 		if (write(fd, buf, (size_t)n) == (ssize_t)n) {
 			if (a->port > 0) {
@@ -1608,17 +1667,17 @@ handle_req_get_all_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 	if (d) {
 		while ((de = readdir(d))) {
 			if (de->d_name[0] == '.') continue;
-			char conf_path[1024];
+			char conf_path[1024], esc_name[MON_ESC_DOMAIN_SZ];
 			lws_snprintf(conf_path, sizeof(conf_path), "%s/domains/%s/conf.d", vhd->base_dir, de->d_name);
 			d2 = opendir(conf_path);
 			if (d2) {
 				if (!first_dom) tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), ",");
-				tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"domain\":\"%s\",\"tls\":[", de->d_name);
+				tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"domain\":\"%s\",\"tls\":[", json_escape(esc_name, sizeof(esc_name), de->d_name));
 				int first_tls = 1;
 				while ((de2 = readdir(d2))) {
 					if (de2->d_name[0] == '.') continue;
 					if ((char *)strstr(de2->d_name, ".port")) {
-						char p_path[1024], sub[256];
+						char p_path[1024], sub[256], esc_sub[MON_ESC_DOMAIN_SZ];
 						lws_strncpy(sub, de2->d_name, sizeof(sub));
 						char *ext = (char *)strstr(sub, ".port");
 						if (ext) *ext = '\0';
@@ -1633,7 +1692,7 @@ handle_req_get_all_tls(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 								get_dane_hash(vhd->base_dir, de->d_name, vhd->acme_production ? "production" : "staging", sub, 0, dane0, sizeof(dane0));
 								get_dane_hash(vhd->base_dir, de->d_name, vhd->acme_production ? "production" : "staging", sub, 1, dane1, sizeof(dane1));
 								if (!first_tls) tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), ",");
-								tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"fqdn\":\"%s\",\"port\":%d,\"dane0\":\"%s\",\"dane1\":\"%s\"}", sub, atoi(buf), dane0, dane1);
+								tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"fqdn\":\"%s\",\"port\":%d,\"dane0\":\"%s\",\"dane1\":\"%s\"}", json_escape(esc_sub, sizeof(esc_sub), sub), atoi(buf), dane0, dane1);
 								first_tls = 0;
 							}
 							close(fd);
@@ -1698,7 +1757,8 @@ handle_req_get_acme_config(struct vhd *vhd, struct pss *root_pss, struct monitor
 		ssize_t n = read(fd, buf, sizeof(buf) - 1);
 		if (n > 0) {
 			buf[n] = '\0';
-			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"get_acme_config\",\"status\":\"ok\",\"config\":%s}\n", buf);
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"get_acme_config\",\"status\":\"ok\",\"config\":%s}\n",
+					json_snippet_valid(buf) ? buf : "{}");
 		} else {
 			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"get_acme_config\",\"status\":\"ok\",\"config\":{}}\n");
 		}
@@ -1716,6 +1776,9 @@ handle_req_set_acme_config(struct vhd *vhd, struct pss *root_pss, struct monitor
 	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	char d_path[1024];
 	char buf[4096];
+	char esc_email[MON_ESC_FIELD_SZ], esc_org[MON_ESC_FIELD_SZ];
+	char esc_country[MON_ESC_FIELD_SZ], esc_state[MON_ESC_FIELD_SZ];
+	char esc_locality[MON_ESC_FIELD_SZ], esc_profile[MON_ESC_FIELD_SZ];
 	int n, fd;
 
 	lws_snprintf(d_path, sizeof(d_path), "%s/acme_config.json", vhd->base_dir);
@@ -1729,7 +1792,12 @@ handle_req_set_acme_config(struct vhd *vhd, struct pss *root_pss, struct monitor
 			"  \"locality\": \"%s\",\n  \"profile\": \"%s\",\n  \"sign_validity_days\": %d\n}\n",
 			a->enabled ? "true" : "false",
 			a->production ? "true" : "false",
-			a->email, a->organization, a->country, a->state, a->locality, a->profile,
+			json_escape(esc_email, sizeof(esc_email), a->email),
+			json_escape(esc_org, sizeof(esc_org), a->organization),
+			json_escape(esc_country, sizeof(esc_country), a->country),
+			json_escape(esc_state, sizeof(esc_state), a->state),
+			json_escape(esc_locality, sizeof(esc_locality), a->locality),
+			json_escape(esc_profile, sizeof(esc_profile), a->profile),
 			a->sign_validity_days ? a->sign_validity_days : 21);
 
 		if (write(fd, buf, (size_t)n) == (ssize_t)n) {
@@ -2344,6 +2412,19 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 	if ((char *)strchr(a.domain, '/') || (char *)strstr(a.domain, "..") || (char *)strchr(a.subdomain, '/') || (char *)strstr(a.subdomain, "..")) {
 		lwsl_debug("[INSTRUMENT] handle_monitor_request: Path traversal parameters detected\n");
 		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Invalid chars in domain\"}\n", a.req);
+		goto done;
+	}
+
+	/*
+	 * domain / subdomain become directory names and are interpolated into
+	 * responses and config files, so they must be syntactically valid DNS
+	 * names: this rejects quote-bearing and other hostile strings that the
+	 * traversal-only check above lets through
+	 */
+	if ((a.domain[0] && !lws_dht_valid_domain_name(a.domain)) ||
+	    (a.subdomain[0] && !lws_dht_valid_domain_name(a.subdomain))) {
+		lwsl_notice("%s: Rejecting malformed domain/subdomain string\n", __func__);
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Invalid domain name\"}\n", a.req);
 		goto done;
 	}
 
