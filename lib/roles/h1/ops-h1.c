@@ -788,9 +788,26 @@ rops_handle_POLLIN_h1(struct lws_context_per_thread *pt, struct lws *wsi,
 		return LWS_HPI_RET_WSI_ALREADY_DIED;
 #endif
 
+#if defined(LWS_WITH_CLIENT)
 	if (lwsi_state(wsi) == LRS_WAITING_CONNECT &&
-	    (pollfd->revents & LWS_POLLHUP))
-		return LWS_HPI_RET_PLEASE_CLOSE_ME;
+	    (pollfd->revents & LWS_POLLHUP)) {
+		/*
+		 * This fd's connect attempt failed.  But if we are racing
+		 * parallel connect attempts, the failing fd may only be the
+		 * primary while a racer is still live and able to win.
+		 *
+		 * Let connect_3 disposition the failed attempt (promoting a
+		 * live racer, or trying the next dns result, or informing
+		 * the connect failure if nothing is left) rather than
+		 * killing the whole wsi here.
+		 */
+		if (!lws_client_connect_3_connect(wsi, NULL, NULL, 0, pollfd))
+			/* the wsi was synchronously closed and freed */
+			return LWS_HPI_RET_WSI_ALREADY_DIED;
+
+		return LWS_HPI_RET_HANDLED;
+	}
+#endif
 
 	return LWS_HPI_RET_HANDLED;
 }
