@@ -203,6 +203,23 @@ LWS_VISIBLE LWS_EXTERN int
 lws_dht_msg_parse(const char *in, size_t len, struct lws_dht_msg *out);
 
 /**
+ * lws_dht_valid_domain_name() - Check a domain string is a safe DNS name
+ *
+ * \param domain: NUL-terminated domain string
+ *
+ * F-052: domain strings arriving on DHT NOTIFY datagrams are later
+ * composed into filesystem paths (zone cache paths, lws_dir walks), so
+ * they must be restricted to presentation-format DNS names: 1 - 253
+ * chars of [A-Za-z0-9._-] split into non-empty labels of at most 63
+ * chars, with an optional single trailing root dot.  Anything else
+ * (path separators, "..", empty labels, junk bytes) is refused.
+ *
+ * \return 1 if the name is safe, 0 otherwise
+ */
+LWS_VISIBLE LWS_EXTERN int
+lws_dht_valid_domain_name(const char *domain);
+
+/**
  * lws_dht_msg_gen() - Generate a raw DHT message
  *
  * \param out: buffer to write message to

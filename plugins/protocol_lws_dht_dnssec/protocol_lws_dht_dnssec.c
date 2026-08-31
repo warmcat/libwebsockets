@@ -2132,13 +2132,27 @@ cb_dht(void *closure, int event, const lws_dht_hash_t *info_hash,
 				    ((uint64_t)p[4] << 24) | ((uint64_t)p[5] << 16) |
 				    ((uint64_t)p[6] << 8) | p[7];
 
-			if (data_len > 8) {
-				size_t dl = data_len - 8;
-				if (dl > sizeof(newer_domain) - 1) dl = sizeof(newer_domain) - 1;
-				memcpy(newer_domain, p + 8, dl);
-				newer_domain[dl] = '\0';
+				if (data_len > 8) {
+					size_t dl = data_len - 8;
+					if (dl > sizeof(newer_domain) - 1) dl = sizeof(newer_domain) - 1;
+					memcpy(newer_domain, p + 8, dl);
+					newer_domain[dl] = '\0';
+				}
 			}
-		}
+
+			/*
+			 * F-052: this unauthenticated datagram's domain
+			 * string is stored in subscription state and later
+			 * composed into filesystem paths (zone cache paths,
+			 * lws_dir walks), so it must be a syntactically
+			 * valid DNS name and not eg "../../x".
+			 */
+			if (newer_domain[0] &&
+			    !lws_dht_valid_domain_name(newer_domain)) {
+				lwsl_notice("%s: Rejecting NOTIFY with malformed domain string\n", __func__);
+				break;
+			}
+
 
 		{
 			char peer_ip[64];
@@ -4444,6 +4458,18 @@ do_fetch_zone(struct lws_context *context, struct lws_dht_dnssec_fetch_zone_args
 
 	if (!strncmp(clean_domain, "dht-hash-", 9)) {
 		lws_strncpy(hex, clean_domain + 9, sizeof(hex));
+
+		/*
+		 * F-052: the remainder is used verbatim for the
+		 * lws_dir() storage walk and outgoing GET target hash,
+		 * so it must be exactly the lowercase-hex shape the
+		 * parser gate (F-051) would have produced.
+		 */
+		if (!dht_dnssec_hash_token_ok(hex)) {
+			lwsl_warn("%s: refusing fetch with malformed hash token\n", __func__);
+			return 1;
+		}
+
 		lws_hex_to_byte_array(hex, hash, (int)lws_genhash_size(LWS_DHT_STORE_GENHASH));
 	} else {
 		char domain_str[256];
@@ -4816,6 +4842,18 @@ do_subscribe_zone(struct lws_vhost *vhost, const char *domain)
 	for (int i = 0; i < (int)strlen(clean_domain); i++)
 		clean_domain[i] = (char)tolower(clean_domain[i]);
 
+	/*
+	 * F-052 defense-in-depth: the stored domain string is later
+	 * composed into filesystem paths (zone cache paths, lws_dir
+	 * walks), so refuse anything that is not a syntactically valid
+	 * DNS name.  This covers ops-side callers as well as the
+	 * cb_dht NOTIFY intake gate.
+	 */
+	if (!lws_dht_valid_domain_name(clean_domain)) {
+		lwsl_warn("%s: refusing subscription for malformed domain string\n", __func__);
+		return 1;
+	}
+
 	lwsl_notice("%s: Normalizing domain to %s for DHT hash calculation\n", __func__, clean_domain);
 	lws_snprintf(domain_str, sizeof(domain_str), "lws-dnssec-dht-%s", clean_domain);
 	if (lws_genhash_init(&ctx, LWS_DHT_STORE_GENHASH) ||
@@ -4828,7 +4866,7 @@ do_subscribe_zone(struct lws_vhost *vhost, const char *domain)
 	int exists = 0;
 	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->subscribed_domains)) {
 		struct lws_dht_dnssec_subscribed_domain *sub = lws_container_of(d, struct lws_dht_dnssec_subscribed_domain, list);
-		if (!strcmp(sub->domain, domain)) {
+		if (!strcmp(sub->domain, clean_domain)) {
 			exists = 1;
 			break;
 		}
@@ -4838,7 +4876,7 @@ do_subscribe_zone(struct lws_vhost *vhost, const char *domain)
 		struct lws_dht_dnssec_subscribed_domain *nsub = malloc(sizeof(*nsub));
 		if (nsub) {
 			memset(nsub, 0, sizeof(*nsub));
-			lws_strncpy(nsub->domain, domain, sizeof(nsub->domain));
+			lws_strncpy(nsub->domain, clean_domain, sizeof(nsub->domain));
 			memcpy(nsub->hash, hash, (size_t)lws_genhash_size(LWS_DHT_STORE_GENHASH));
 
 			char hex[65];
@@ -4871,7 +4909,7 @@ do_subscribe_zone(struct lws_vhost *vhost, const char *domain)
 		struct lws_dht_dnssec_fetch_zone_args args;
 		memset(&args, 0, sizeof(args));
 		args.vhost = vhd->vhost;
-		args.domain = domain;
+		args.domain = clean_domain;
 		args.cache_dir = NULL;
 		args.cb = NULL;
 		args.opaque = NULL;
@@ -4881,7 +4919,7 @@ do_subscribe_zone(struct lws_vhost *vhost, const char *domain)
 		time_t now = time(NULL);
 		lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&vhd->subscribed_domains)) {
 			struct lws_dht_dnssec_subscribed_domain *sub = lws_container_of(d, struct lws_dht_dnssec_subscribed_domain, list);
-			if (!strcmp(sub->domain, domain)) {
+			if (!strcmp(sub->domain, clean_domain)) {
 				if (sub->needs_initial_fetch || now - sub->last_notify_fetch >= 60) {
 					sub->needs_initial_fetch = 0;
 					sub->last_notify_fetch = now;

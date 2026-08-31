@@ -981,6 +981,39 @@ lws_dht_msg_gen(char *out, size_t len, const char *verb, const char *hash, unsig
 }
 
 int
+lws_dht_valid_domain_name(const char *domain)
+{
+	size_t i, len, label = 0;
+
+	if (!domain)
+		return 0;
+
+	len = strlen(domain);
+	if (!len || len > 253)
+		return 0;
+
+	for (i = 0; i < len; i++) {
+		char c = domain[i];
+
+		if (c == '.') {
+			/* empty label (".." or leading dot) or overlong */
+			if (!label || label > 63)
+				return 0;
+			label = 0;
+			continue;
+		}
+
+		if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+		      (c >= '0' && c <= '9') || c == '-' || c == '_'))
+			return 0;
+		label++;
+	}
+
+	/* final label may be empty only for a single trailing root dot */
+	return label || domain[len - 1] == '.';
+}
+
+int
 lws_dht_msg_parse(const char *in, size_t len, struct lws_dht_msg *out)
 {
 	int step = 0;
