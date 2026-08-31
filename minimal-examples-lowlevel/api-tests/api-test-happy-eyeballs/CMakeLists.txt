@@ -57,6 +57,11 @@ if (requirements)
 	# run both bind directions to be sure the refused one can be the
 	# primary on any box.
 	#
+	# If the local resolver returns only one family for the server name (eg
+	# NODATA for AAAA "localhost"), the race setup is impossible in that
+	# environment; the test detects it from the conmon DNS results and
+	# exits success with a "not applicable" notice rather than failing.
+	#
 
 	set(uv_requirements 1)
 	require_lws_config(LWS_WITH_LIBUV 1 uv_requirements)
