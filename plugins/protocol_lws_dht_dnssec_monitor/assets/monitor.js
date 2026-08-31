@@ -11,6 +11,16 @@ window.activeTls = [];
 window.allTlsCache = {};
 window.certStatusCache = {};
 
+/* Escape untrusted text before it reaches an innerHTML sink */
+function escapeHtml(s) {
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 function processCertQueue() {
     while (concurrentChecks < MAX_CONCURRENT && certCheckQueue.length > 0) {
         let task = certCheckQueue.shift();
@@ -821,7 +831,7 @@ function renderWhoisHeader() {
     const expiryDateStr = w.expiry_date ? new Date(w.expiry_date * 1000).toLocaleDateString() : 'Unknown';
     const expiryInterval = w.expiry_date ? formatExpiryInterval(w.expiry_date) : '';
     const expiryDate = w.expiry_date ? `${expiryDateStr} (${expiryInterval})` : 'Unknown';
-    const nsList = (w.nameservers || []).join('<br>') || 'None';
+    const nsList = (w.nameservers || []).map(escapeHtml).join('<br>') || 'None';
 
     let dsStatusHTML = '';
     let isSigned = false;

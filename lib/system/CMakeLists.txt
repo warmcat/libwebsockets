@@ -67,7 +67,8 @@ if (LWS_WITH_NETWORK)
 	
 	if (LWS_WITH_SYS_WHOIS)
 		list(APPEND SOURCES
-			system/whois/whois.c)
+			system/whois/whois.c
+			system/whois/whois-json.c)
 	endif()
 
 	if (LWS_WITH_SYS_DHCP_CLIENT)

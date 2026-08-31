@@ -713,6 +713,16 @@ monitor_req_cb(struct lejp_ctx *ctx, char reason)
 				a->zone_buf = malloc((size_t)a->zone_alloc);
 				if (!a->zone_buf) return -1;
 			}
+			/*
+			 * Bounded growth: a peer sending an arbitrarily
+			 * large "zone" string must not drive unbounded
+			 * allocation.  128 KiB covers the largest legit
+			 * payload (whole zones) with wide margin.
+			 */
+			if (a->zone_len + ctx->npos > 128 * 1024) {
+				lwsl_notice("%s: Oversized zone string rejected\n", __func__);
+				return -1;
+			}
 			if (a->zone_len + ctx->npos >= a->zone_alloc) {
 				a->zone_alloc *= 2;
 				char *nb = realloc(a->zone_buf, (size_t)a->zone_alloc);
@@ -1028,7 +1038,8 @@ handle_req_get_domains(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 		while ((de = readdir(d))) {
 			if (de->d_name[0] == '.') continue;
 				if (de->d_type == DT_DIR || de->d_type == DT_UNKNOWN) {
-				char whois_path[1024], whois_buf[2048] = "{}";
+				char whois_path[1024], whois_buf[LWS_WHOIS_CANON_MAX];
+				char whois_canon[LWS_WHOIS_CANON_MAX + 1] = "{}";
 				char dns_path[1024], dns_buf[1024] = "{}";
 				char ds_path[1024], ds_buf[256] = "";
 				char esc_name[MON_ESC_DOMAIN_SZ], esc_ds[MON_ESC_FIELD_SZ];
@@ -1039,8 +1050,20 @@ handle_req_get_domains(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 				lws_snprintf(whois_path, sizeof(whois_path), "%s/domains/%s/whois.json", vhd->base_dir, de->d_name);
 				if ((fd = open(whois_path, O_RDONLY)) >= 0) {
 					ssize_t nw = read(fd, whois_buf, sizeof(whois_buf) - 1);
-					if (nw > 0) whois_buf[nw] = '\0';
 					close(fd);
+					/*
+					 * The file content is untrusted: embed
+					 * only its canonicalized form, falling
+					 * back to the empty object
+					 */
+					if (nw > 0) {
+						whois_buf[nw] = '\0';
+						if (lws_whois_json_purify(whois_canon,
+									  sizeof(whois_canon),
+									  whois_buf, (size_t)nw,
+									  NULL) < 0)
+							strcpy(whois_canon, "{}");
+					}
 				}
 
 				lws_snprintf(dns_path, sizeof(dns_path), "%s/domains/%s/dns_state.json", vhd->base_dir, de->d_name);
@@ -1069,7 +1092,7 @@ handle_req_get_domains(struct vhd *vhd, struct pss *root_pss, struct monitor_req
 				tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx),
 					"{\"name\":\"%s\",\"whois\":%s,\"dns\":%s,\"local_ds\":\"%s\",\"acme_enabled\":%s}",
 					json_escape(esc_name, sizeof(esc_name), de->d_name),
-					whois_buf[0] && json_snippet_valid(whois_buf) ? whois_buf : "{}",
+					whois_canon,
 					dns_buf[0] && json_snippet_valid(dns_buf) ? dns_buf : "{}",
 					json_escape(esc_ds, sizeof(esc_ds), ds_buf),
 					acme_enabled ? "true" : "false");
@@ -1891,19 +1914,49 @@ static void
 handle_req_update_whois(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char *tx = (char *)&root_pss->tx[LWS_PRE + root_pss->tx_len];
-	if (a->domain[0] && a->zone_buf) {
+	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
+	char decoded[8192], canon[LWS_WHOIS_CANON_MAX + 1];
+	int n, m, problems = 0;
+
+	if (!a->domain[0] || !a->zone_buf) {
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"update_whois\",\"status\":\"error\",\"msg\":\"Missing arguments\"}\n");
+		goto done;
+	}
+
+	/*
+	 * The whois payload is peer-supplied and untrusted: only its
+	 * canonicalized form may be stored, and only if every member of
+	 * the payload was schema-conformant.  Otherwise the stored file is
+	 * left untouched rather than being truncated with junk.
+	 */
+	n = lws_b64_decode_string(a->zone_buf, decoded, sizeof(decoded));
+	m = n > 0 ? lws_whois_json_purify(canon, sizeof(canon), decoded,
+					  (size_t)n, &problems) : -1;
+	if (m < 0 || problems) {
+		lwsl_notice("%s: Rejecting non-canonical whois payload\n", __func__);
+		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"update_whois\",\"status\":\"error\",\"msg\":\"Invalid whois content\"}\n");
+		goto done;
+	}
+
+	{
 		char path[1024];
+		int fd;
+
 		lws_snprintf(path, sizeof(path), "%s/domains/%s/whois.json", vhd->base_dir, a->domain);
-		int fd = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0640);
+		fd = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0640);
 		if (fd >= 0) {
 			if (vhd->proxy_uid != (uid_t)-1 || vhd->proxy_gid != (gid_t)-1)
 				fchown(fd, vhd->proxy_uid, vhd->proxy_gid);
-			char decoded[8192];
-			int n = lws_b64_decode_string(a->zone_buf, decoded, sizeof(decoded));
-			if (n > 0) write(fd, decoded, (size_t)n);
+			if (write(fd, canon, (size_t)m) < 0)
+				lwsl_err("%s: Failed to write whois.json\n", __func__);
 			close(fd);
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"update_whois\",\"status\":\"ok\"}\n");
+		} else {
+			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"update_whois\",\"status\":\"error\",\"msg\":\"Could not open whois.json\"}\n");
 		}
 	}
+
+done:
 	root_pss->tx_len = lws_ptr_diff_size_t(tx, (char *)&root_pss->tx[LWS_PRE]);
 }
 
