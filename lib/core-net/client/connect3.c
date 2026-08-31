@@ -69,7 +69,7 @@ lws_client_happy_eyeballs_cb(lws_sorted_usec_list_t *sul)
 	struct lws *wsi = lws_container_of(sul, struct lws,
 					   sul_happy_eyeballs);
 
-	lwsl_wsi_info(wsi, "happy eyeballs timer fired, initiating parallel connect");
+	lwsl_wsi_notice(wsi, "happy eyeballs timer fired, initiating parallel connect");
 	lws_client_connect_3_connect(wsi, NULL, NULL, 0, NULL);
 }
 
@@ -578,6 +578,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 				}
 				lws_sul_cancel(&wsi->sul_happy_eyeballs);
 				if (pidx != -1) {
+					lwsl_wsi_notice(wsi, "racing connect %d won, promoting", pidx);
 					/*
 					 * A racing connect won.  The primary
 					 * socket is still open and still in the
@@ -640,7 +641,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 				lws_snprintf(dcce, sizeof(dcce), "conn fail: %s",
 					     lws_errno_describe(real_errno, t16, sizeof(t16)));
 				cce = dcce;
-				lwsl_wsi_debug(wsi, "%s", dcce);
+				lwsl_wsi_notice(wsi, "%s", dcce);
 				lws_metrics_caliper_report(wsi->cal_conn, METRES_NOGO);
 
 				if (pidx != -1) {
@@ -674,6 +675,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 							 * kernel recycles the fd
 							 * numbers.
 							 */
+							lwsl_wsi_notice(wsi, "primary failed, promoting parallel racer %d", m);
 							if (wsi->a.context->event_loop_ops->promote_parallel)
 								wsi->a.context->event_loop_ops->promote_parallel(wsi, m);
 							promote_parallel_fd(wsi, m);
@@ -1081,7 +1083,8 @@ ads_known:
 		char buf[64];
 
 		lws_sa46_write_numeric_address((lws_sockaddr46 *)psa, buf, sizeof(buf));
-		lwsl_wsi_info(wsi, "trying %s", buf);
+		lwsl_wsi_notice(wsi, "trying %s%s", buf,
+				 is_parallel ? " (parallel racer)" : "");
 	}
 
 #if defined(LWS_WITH_SYS_FAULT_INJECTION)
@@ -1180,6 +1183,8 @@ ads_known:
 			}
 #endif
 #endif
+			if (is_parallel)
+				lwsl_wsi_notice(wsi, "parallel racer failed connect() synchronously");
 			goto try_next_dns_result_fds;
 		}
 
@@ -1311,6 +1316,7 @@ conn_good:
 
 	if (is_parallel) {
 		/* promote parallel to primary right away */
+		lwsl_wsi_notice(wsi, "parallel racer %d connected synchronously, promoting", pidx);
 		wsi->parallel_conns[pidx].position_in_fds_table = wsi->position_in_fds_table;
 		wsi->position_in_fds_table = saved_pos;
 		wsi->desc = saved_fd;
@@ -1412,7 +1418,7 @@ conn_good:
 		wsi->a.protocol->callback(wsi, LWS_CALLBACK_WSI_CREATE,
 					  wsi->user_space, NULL, 0);
 
-	lwsl_wsi_debug(wsi, "going into connect_4");
+	lwsl_wsi_notice(wsi, "going into connect_4");
 
 	return lws_client_connect_4_established(wsi, NULL, plen);
 
@@ -1518,6 +1524,7 @@ try_next_dns_result:
 		}
 		if (any_valid) {
 			/* some connection is still running */
+			lwsl_wsi_notice(wsi, "attempt failed, others still running");
 			return wsi;
 		}
 	}
