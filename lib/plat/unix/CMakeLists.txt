@@ -60,6 +60,9 @@ if (LWS_WITH_NETWORK)
 		if (LWS_PLAT_ANDROID)
 			list(APPEND SOURCES plat/unix/android/android-resolv.c)
 		else()
+			# unix-resolv.c also provides the shared resolv.conf
+			# parse helper on Apple (apple-resolv.c falls back to it)
+			list(APPEND SOURCES plat/unix/unix-resolv.c)
 			if (APPLE)
 				# native DNS server discovery + push watch via the
 				# SystemConfiguration dynamic store
@@ -79,8 +82,6 @@ if (LWS_WITH_NETWORK)
 				endif()
 				list(APPEND LIB_LIST_AT_END ${LWS_SYSCONFIG_FW}
 						       ${LWS_COREFOUNDATION_FW})
-			else()
-				list(APPEND SOURCES plat/unix/unix-resolv.c)
 			endif()
 		endif()
 	endif()

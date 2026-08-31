@@ -92,11 +92,19 @@ lws_asyncdns_parse_resolv_conf(struct lws_context *context, int index,
 	return -1;
 }
 
+#if defined(__APPLE__)
+/*
+ * On Apple platforms, apple-resolv.c provides the platform function (the
+ * native dynamic store, falling back to the parse above); this file only
+ * contributes the shared parse helper there.
+ */
+#else
 int
 lws_plat_asyncdns_get_server(struct lws_context *context, int index,
 			     lws_sockaddr46 *sa46)
 {
 	return lws_asyncdns_parse_resolv_conf(context, index, sa46);
 }
+#endif
 
 
