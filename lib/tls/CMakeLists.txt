@@ -241,9 +241,12 @@ if (LWS_WITH_SSL)
 	elseif (LWS_WITH_OPENHITLS)
 		list(APPEND SOURCES
 			tls/openhitls/openhitls-tls.c
-			tls/openhitls/openhitls-session.c
 			tls/openhitls/openhitls-ssl.c
 			tls/openhitls/openhitls-x509.c)
+		if (LWS_WITH_TLS_SESSIONS)
+			list(APPEND SOURCES
+				tls/openhitls/openhitls-session.c)
+		endif()
 		if (NOT LWS_WITHOUT_SERVER)
 			list(APPEND SOURCES
 				tls/openhitls/openhitls-server.c)
@@ -860,4 +863,3 @@ set(TEST_SERVER_SSL_KEY "${TEST_SERVER_SSL_KEY}" PARENT_SCOPE)
 set(TEST_SERVER_SSL_CERT "${TEST_SERVER_SSL_CERT}" PARENT_SCOPE)
 set(TEST_SERVER_DATA ${TEST_SERVER_DATA} PARENT_SCOPE)
 set(LWS_DEP_LIB_PATHS ${LWS_DEP_LIB_PATHS} PARENT_SCOPE)
-

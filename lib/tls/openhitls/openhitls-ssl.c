@@ -84,7 +84,7 @@ lws_openhitls_klog_dump(HITLS_Ctx *ctx, const char *line)
 int
 lws_openhitls_describe_cipher(struct lws *wsi)
 {
-#if !defined(LWS_WITH_NO_LOGS)
+#if (_LWS_ENABLED_LOGS & LLL_INFO)
 	const HITLS_Cipher *cipher;
 	const char *desc = "";
 	const char *name = "(NONE)";
