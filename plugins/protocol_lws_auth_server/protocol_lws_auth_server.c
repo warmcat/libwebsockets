@@ -3406,6 +3406,7 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 		if (!strncmp((const char *)in, "/authorize", 10)) {
 			char client_id[128] = {0}, redirect_uri[256] = {0}, response_type[16] = {0}, state[128] = {0};
 			char code_challenge[128] = {0}, code_challenge_method[16] = {0};
+			char service_name[128] = {0};
 
 			if (lws_get_urlarg_by_name_safe(wsi, "client_id=", client_id, sizeof(client_id)) < 0 ||
 			    lws_get_urlarg_by_name_safe(wsi, "redirect_uri=", redirect_uri, sizeof(redirect_uri)) < 0) {
@@ -3472,7 +3473,6 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 				 * JWT, so this works for the refresh-session fallback path
 				 * where there is no valid JWT to inspect.
 				 */
-				char service_name[128] = {0};
 				lws_get_urlarg_by_name_safe(wsi, "service_name=",
 						service_name, sizeof(service_name));
 				if (service_name[0]) {
@@ -3497,10 +3497,34 @@ callback_auth_server(struct lws *wsi, enum lws_callback_reasons reason,
 			}
 
 			if (!session_uid) {
-				char loc[1024];
-				/* lws_urlencode is typically available, but if not we assume frontend can parse mostly raw */
-				lws_snprintf(loc, sizeof(loc), "/auth?client_id=%s&redirect_uri=%s&response_type=code&state=%s&code_challenge=%s&code_challenge_method=%s",
-					client_id, redirect_uri, state, code_challenge, code_challenge_method);
+				/*
+				 * Anonymous: bounce to the login UI with the OAuth2
+				 * params preserved in the query, so auth.js can replay
+				 * them to /api/authorize (or /api/login) after the user
+				 * authenticates.  The UI lives at the auth server root
+				 * ("/", the index.html filesystem mount -- the same URL
+				 * lws-login's login_url convention points at); the old
+				 * "/auth?..." target assumed a mount that does not
+				 * exist in the standard layout and 404'd the whole
+				 * login flow.  Values are percent-encoded: they came
+				 * decoded out of the request urlargs and are replayed
+				 * verbatim into the next Location:, so a '&' or '#'
+				 * inside any of them must not be able to reshape the
+				 * query.
+				 */
+				char enc_redirect[768], enc_state[384], enc_cc[384];
+				char enc_ccm[48], enc_sn[384];
+				char loc[2048];
+
+				lws_urlencode(enc_redirect, redirect_uri, (int)sizeof(enc_redirect));
+				lws_urlencode(enc_state, state, (int)sizeof(enc_state));
+				lws_urlencode(enc_cc, code_challenge, (int)sizeof(enc_cc));
+				lws_urlencode(enc_ccm, code_challenge_method, (int)sizeof(enc_ccm));
+				lws_urlencode(enc_sn, service_name, (int)sizeof(enc_sn));
+
+				lws_snprintf(loc, sizeof(loc), "/?client_id=%s&redirect_uri=%s&response_type=code&state=%s&code_challenge=%s&code_challenge_method=%s%s%s",
+					client_id, enc_redirect, enc_state, enc_cc, enc_ccm,
+					service_name[0] ? "&service_name=" : "", enc_sn);
 
 				uint8_t hdr_buf[8192 + LWS_PRE];
 				uint8_t *h_start = hdr_buf + LWS_PRE;
