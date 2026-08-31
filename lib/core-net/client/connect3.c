@@ -69,7 +69,7 @@ lws_client_happy_eyeballs_cb(lws_sorted_usec_list_t *sul)
 	struct lws *wsi = lws_container_of(sul, struct lws,
 					   sul_happy_eyeballs);
 
-	lwsl_wsi_notice(wsi, "happy eyeballs timer fired, initiating parallel connect");
+	lwsl_wsi_info(wsi, "happy eyeballs timer fired, initiating parallel connect");
 	lws_client_connect_3_connect(wsi, NULL, NULL, 0, NULL);
 }
 
@@ -641,7 +641,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 				lws_snprintf(dcce, sizeof(dcce), "conn fail: %s",
 					     lws_errno_describe(real_errno, t16, sizeof(t16)));
 				cce = dcce;
-				lwsl_wsi_notice(wsi, "%s", dcce);
+				lwsl_wsi_debug(wsi, "%s", dcce);
 				lws_metrics_caliper_report(wsi->cal_conn, METRES_NOGO);
 
 				if (pidx != -1) {
@@ -1101,7 +1101,7 @@ ads_known:
 		char buf[64];
 
 		lws_sa46_write_numeric_address((lws_sockaddr46 *)psa, buf, sizeof(buf));
-		lwsl_wsi_notice(wsi, "trying %s:%u%s", buf, port,
+		lwsl_wsi_info(wsi, "trying %s:%u%s", buf, port,
 				 is_parallel ? " (parallel racer)" : "");
 	}
 
@@ -1436,7 +1436,7 @@ conn_good:
 		wsi->a.protocol->callback(wsi, LWS_CALLBACK_WSI_CREATE,
 					  wsi->user_space, NULL, 0);
 
-	lwsl_wsi_notice(wsi, "going into connect_4");
+	lwsl_wsi_debug(wsi, "going into connect_4");
 
 	return lws_client_connect_4_established(wsi, NULL, plen);
 
@@ -1542,7 +1542,7 @@ try_next_dns_result:
 		}
 		if (any_valid) {
 			/* some connection is still running */
-			lwsl_wsi_notice(wsi, "attempt failed, others still running");
+			lwsl_wsi_info(wsi, "attempt failed, others still running");
 			return wsi;
 		}
 	}
