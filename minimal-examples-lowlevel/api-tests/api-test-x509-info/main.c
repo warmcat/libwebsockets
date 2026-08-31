@@ -186,17 +186,20 @@ test_multi_aki_issuer(const char *cert_dir)
 			lwsl_err("%s: bad ns.len %d for len %zu",
 				 __func__, buf->ns.len, len);
 			fail = 1;
-		}
-		/* the entries are OU=A... and OU=B...; only the first
-		 * one fits the buffer */
-		if (buf->ns.len > 0 && buf->ns.name[0] != 'A') {
-			lwsl_err("%s: unexpected content '%c'",
-				 __func__, buf->ns.name[0]);
-			fail = 1;
-		}
-		if (buf->ns.len > 0 && buf->ns.name[buf->ns.len]) {
-			lwsl_err("%s: not NUL-terminated", __func__);
-			fail = 1;
+		} else {
+			/* the entries are OU=A... and OU=B...; only the first
+			 * one fits the buffer */
+			if (buf->ns.name[0] != 'A') {
+				lwsl_err("%s: unexpected content '%c'",
+					 __func__, buf->ns.name[0]);
+				fail = 1;
+			}
+			/* the terminating NUL must sit inside the extents we
+			 * validated above */
+			if (buf->ns.name[buf->ns.len]) {
+				lwsl_err("%s: not NUL-terminated", __func__);
+				fail = 1;
+			}
 		}
 	}
 
