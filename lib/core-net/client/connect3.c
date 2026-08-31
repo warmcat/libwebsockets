@@ -684,6 +684,23 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 					}
 					/* all failed */
 					wsi->parallel_count = 0;
+					/*
+					 * The primary was dispositioned before
+					 * any parallel racer could start (eg,
+					 * loopback ECONNREFUSED arriving ahead
+					 * of the happy-eyeballs pacing timer on
+					 * a loaded box).  Rather than failing
+					 * the connection, try the remaining
+					 * sorted DNS results sequentially, the
+					 * same as a synchronously-failing
+					 * connect() would.
+					 */
+					if (lws_dll2_count(&wsi->dns_sorted_list)) {
+						lwsl_wsi_notice(wsi,
+							  "primary failed before racer, trying next DNS result");
+						lws_sul_cancel(&wsi->sul_happy_eyeballs);
+						goto next_dns_result_seq;
+					}
 					goto try_next_dns_result;
 				}
 			}
@@ -744,6 +761,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 	 * We have a sorted dll2 list with the head one most preferable
 	 */
 
+next_dns_result_seq:
 	if (!lws_dll2_count(&wsi->dns_sorted_list))
 		goto failed1;
 
@@ -1083,7 +1101,7 @@ ads_known:
 		char buf[64];
 
 		lws_sa46_write_numeric_address((lws_sockaddr46 *)psa, buf, sizeof(buf));
-		lwsl_wsi_notice(wsi, "trying %s%s", buf,
+		lwsl_wsi_notice(wsi, "trying %s:%u%s", buf, port,
 				 is_parallel ? " (parallel racer)" : "");
 	}
 
