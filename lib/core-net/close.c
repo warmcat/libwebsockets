@@ -818,7 +818,7 @@ just_kill_connection:
 	     !wsi->close_is_redirect) {
 		static const char _reason[] = "closed before established";
 
-		lwsl_wsi_debug(wsi, "closing in unestablished state 0x%x",
+		lwsl_wsi_notice(wsi, "closing in unestablished state 0x%x",
 				lwsi_state(wsi));
 		wsi->socket_is_permanently_unusable = 1;
 
