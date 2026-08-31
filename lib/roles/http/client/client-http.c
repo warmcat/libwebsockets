@@ -71,7 +71,13 @@ lws_http_client_socket_service(struct lws *wsi, struct lws_pollfd *pollfd)
 		 * we are under PENDING_TIMEOUT_SENT_CLIENT_HANDSHAKE
 		 * timeout protection set in client-handshake.c
 		 */
-		if (pollfd->revents & LWS_POLLOUT)
+		/*
+		 * A hangup or error here means this fd's attempt failed;
+		 * disposition it via connect_3 so any parallel racing
+		 * attempt on the same wsi can still be promoted instead of
+		 * being lost when the wsi is killed
+		 */
+		if (pollfd->revents & (LWS_POLLOUT | LWS_POLLHUP))
 			if (lws_client_connect_3_connect(wsi, NULL, NULL, 0, pollfd) == NULL) {
 				lwsl_client("closed\\n");
 				return LWS_HPI_RET_WSI_ALREADY_DIED;

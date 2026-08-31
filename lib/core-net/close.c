@@ -829,8 +829,11 @@ just_kill_connection:
 	     !wsi->close_is_redirect) {
 		static const char _reason[] = "closed before established";
 
-		lwsl_wsi_debug(wsi, "closing in unestablished state 0x%x",
-				lwsi_state(wsi));
+		lwsl_wsi_notice(wsi, "closing in unestablished state 0x%x "
+				"(fd %d, parallels %d, redirect %d)",
+				lwsi_state(wsi),
+				(int)wsi->desc.sockfd, wsi->parallel_count,
+				wsi->close_is_redirect);
 		wsi->socket_is_permanently_unusable = 1;
 
 		lws_inform_client_conn_fail(wsi,
