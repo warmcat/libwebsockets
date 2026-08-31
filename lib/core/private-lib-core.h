@@ -884,6 +884,8 @@ struct lws_context {
 #if defined(LWS_WITH_ROUTING)
 	unsigned int nl_initial_done:1;
 #endif
+	/* some interface has acquired an IP, via SMD "ipacq" */
+	unsigned int ipacq_seen:1;
 
 	unsigned short count_threads;
 	unsigned short undestroyed_threads;
