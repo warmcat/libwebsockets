@@ -116,6 +116,13 @@ static int next_step = 0;
 static char via[16]; /* x-via response header value for this step */
 static lws_sorted_usec_list_t sul_step;
 static const char *bind_iface;
+/* the --race-fast variants require "localhost" to resolve to both families,
+ * so the refused primary deterministically meets a live racer on the other
+ * family.  If the local resolver only returns one family, the race setup is
+ * impossible in this environment and the variant is not applicable. */
+#if defined(LWS_WITH_CONMON)
+static int race_expected;
+#endif
 
 /* what protocol each step's response must have arrived by */
 static const char * const via_expect[] = { "h2", "h3", "h2" };
@@ -193,8 +200,12 @@ start_client_connection(void)
 	i.origin = server_address;
 	i.ssl_connection = LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED |
 			   LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
-	i.protocol = "http";
-	if (client_step == 0)
+#if defined(LWS_WITH_CONMON)
+	if (race_expected)
+		/* we inspect the DNS results if the race variant fails */
+		i.ssl_connection |= LCCSCF_CONMON;
+#endif
+	i.protocol = "http";	if (client_step == 0)
 		i.alpn = "h2,http/1.1";
 	else
 		i.alpn = "h3,h2";
@@ -233,6 +244,46 @@ callback_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
 		lwsl_notice("CLIENT CONNECTION ERROR: %s\n", in ? (char *)in : "(null)");
+
+#if defined(LWS_WITH_CONMON)
+		if (race_expected && client_step == 0 && !established_success) {
+			/*
+			 * The race variants need "localhost" to resolve to
+			 * both families here.  Some CI resolvers answer AAAA
+			 * for "localhost" with NODATA, leaving nothing for
+			 * the refused primary to race or fall back against,
+			 * which is an environment limitation, not a failure
+			 * of the code under test.
+			 */
+			struct lws_conmon cm;
+			struct addrinfo *ai;
+			int have_v4 = 0, have_v6 = 0;
+
+			memset(&cm, 0, sizeof(cm));
+			lws_conmon_wsi_take(wsi, &cm);
+			for (ai = cm.dns_results_copy; ai; ai = ai->ai_next) {
+				if (ai->ai_family == AF_INET)
+					have_v4 = 1;
+				if (ai->ai_family == AF_INET6)
+					have_v6 = 1;
+			}
+			lws_conmon_release(&cm);
+
+			if (!have_v4 || !have_v6) {
+				lwsl_notice("--- Test not applicable here: '%s' "
+					   "resolves to %s only, race variant "
+					   "skipped ---\n",
+					   server_address,
+					   have_v4 ? "IPv4" :
+					   have_v6 ? "IPv6" : "no addresses");
+				result = 0;
+				interrupted = 1;
+				client_wsi = NULL;
+				schedule_next_step();
+				break;
+			}
+		}
+#endif
 		/* fallthru */
 	case LWS_CALLBACK_CLIENT_CLOSED:
 		lwsl_notice("CLIENT CLOSED/ERROR: step %d\n", client_step);
@@ -397,8 +448,11 @@ int main(int argc, const char **argv)
 		/* run the whole test on the libuv event loop */
 		info.options |= LWS_SERVER_OPTION_LIBUV;
 
-#if defined(LWS_WITH_SYS_FAULT_INJECTION)
 	if (lws_cmdline_option(argc, argv, "--race-fast")) {
+#if defined(LWS_WITH_CONMON)
+		race_expected = 1;
+#endif
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
 		/*
 		 * Shrink the RFC8305 200ms happy-eyeballs pacing to ~0us for
 		 * this test, so the racing socket exists before a
@@ -409,8 +463,8 @@ int main(int argc, const char **argv)
 				.type = LWSFI_ALWAYS, .count = 1, .pre = 0 };
 
 		lws_fi_add(&info.fic, &fi);
-	}
 #endif
+	}
 
 	context = lws_create_context(&info);
 	if (!context) {
