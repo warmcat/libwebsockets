@@ -43,6 +43,13 @@
 
 #define LWS_AUTH_DNS_MAX_ZONE_SIZE (1024 * 1024)
 
+#if !defined(O_NOFOLLOW)
+#define O_NOFOLLOW 0
+#endif
+#if !defined(O_DIRECTORY)
+#define O_DIRECTORY 0
+#endif
+
 #if defined(LWS_WITH_AUTHORITATIVE_DNS)
 
 static int
@@ -243,11 +250,103 @@ auth_dns_evict_oldest(struct per_vhost_data__auth_dns *vhd,
 	free(old);
 }
 
+/*
+ * F-055: cache entries mint a filename label from the zone origin,
+ * <origin>_<ttl-expiry>_<sig-expiry>_<serial>.zone, that is later used to
+ * compose unlink paths inside the zone dir and to prefix-match other cache
+ * entries.  Restrict the origin part to presentation-format DNS names
+ * without underscores, so '_' can only act as the decorator separator and
+ * the prefix matching cannot be made ambiguous (eg, a zone for
+ * "a_b.example" matching victim prefix "a_").
+ */
+static int
+auth_dns_zone_origin_valid(const char *origin)
+{
+	size_t i, len = strlen(origin), label = 0;
+
+	if (!len || len > 253)
+		return 0;
+
+	for (i = 0; i < len; i++) {
+		char c = origin[i];
+
+		if (c == '.') {
+			if (!label || label > 63)
+				return 0;
+			label = 0;
+			continue;
+		}
+
+		if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+		      (c >= '0' && c <= '9') || c == '-'))
+			return 0;
+		label++;
+	}
+
+	/* final label may be empty only for a single trailing root dot */
+	return label || origin[len - 1] == '.';
+}
+
+/*
+ * F-055: the init dir-scan only accepts zone files named in the decorated
+ * <origin>_<ttl-expiry>_<sig-expiry>_<serial>.zone shape the plugin itself
+ * labels cache entries with; filenames other than that shape are not
+ * trusted for cache admission regardless of their content.
+ *
+ * Returns 0 and fills \p origin and the numeric fields from \p name when it
+ * has exactly that shape, else nonzero.
+ */
+static int
+auth_dns_zone_filename_parse(const char *name, char *origin, size_t origin_len,
+			     unsigned long long *ttl_exp,
+			     unsigned long long *sig_exp,
+			     unsigned long long *serial)
+{
+	unsigned long long *field[3] = { serial, sig_exp, ttl_exp };
+	size_t len = strlen(name), e, s;
+	int f;
+
+	if (len < 12 || memcmp(&name[len - 5], ".zone", 5))
+		return 1;
+
+	/* from the right: serial, sig expiry, ttl expiry, '_' delimited */
+
+	e = len - 5;
+	for (f = 0; f < 3; f++) {
+		s = e;
+		while (s > 0 && isdigit((unsigned char)name[s - 1]))
+			s--;
+		if (s == e || e - s > 20)
+			return 1;	/* empty or silly-sized numeric field */
+		if (!s || name[s - 1] != '_')
+			return 1;
+		*field[f] = 0;
+		{
+			size_t i;
+
+			for (i = s; i < e; i++)
+				*field[f] = (*field[f] * 10) +
+					(unsigned long long)(name[i] - '0');
+		}
+		e = s - 1;
+	}
+
+	if (!e || e + 1 > origin_len)
+		return 1;
+	memcpy(origin, name, e);
+	origin[e] = '\0';
+
+	return !auth_dns_zone_origin_valid(origin);
+}
+
 static int
 auth_dns_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 {
 	struct per_vhost_data__auth_dns *vhd = (struct per_vhost_data__auth_dns *)user;
 	char filepath[1024];
+	char name[256];		/* same size as auth_dns_cache_entry.filename */
+	char origin[256];
+	unsigned long long ttl_exp, sig_exp, serial;
 	int fd;
 	size_t len;
 	char *buf;
@@ -260,16 +359,44 @@ auth_dns_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		return 0;
 
 	len = strlen(lde->name);
-	if (len < 6 || strcmp(&lde->name[len - 5], ".zone"))
-			/* With DHT integration we don't try to sync initial loads since it comes ad-hoc */{ lwsl_notice("open failed\n"); return 0; }
+	if (len >= sizeof(name)) {
+		lwsl_notice("%s: name too long\n", __func__);
+		return 0;
+	}
+	lws_strncpy(name, lde->name, sizeof(name));
 
-	lws_snprintf(filepath, sizeof(filepath), "%s/%s", dirpath, lde->name);
+	/*
+	 * F-055: with DHT integration initial loads come ad-hoc anyway; only
+	 * the plugin's own decorated filename shape is admitted from the
+	 * local dir scan
+	 */
+	if (auth_dns_zone_filename_parse(name, origin, sizeof(origin),
+					 &ttl_exp, &sig_exp, &serial)) {
+		lwsl_notice("%s: ignoring zone file with foreign name %s\n",
+				__func__, name);
+		return 0;
+	}
 
-	fd = open(filepath, O_RDONLY);
+	lws_snprintf(filepath, sizeof(filepath), "%s/%s", dirpath, name);
+
+	fd = open(filepath, O_RDONLY | O_NOFOLLOW);
 	if (fd < 0) { lwsl_notice("open failed\n"); return 0; }
 
 	if (fstat(fd, &st) < 0 || st.st_size <= 0 || st.st_size >= LWS_AUTH_DNS_MAX_ZONE_SIZE) {
 		lwsl_notice("fstat failed or size invalid\n");
+		close(fd);
+		return 0;
+	}
+
+	/*
+	 * F-055: everything loaded from here is served as authoritative data
+	 * and its filename drives later unlinks in this dir; only files the
+	 * service uid owns, that nobody else can write, are admitted
+	 */
+	if (!S_ISREG(st.st_mode) || st.st_uid != geteuid() ||
+	    (st.st_mode & (S_IWGRP | S_IWOTH))) {
+		lwsl_notice("%s: refusing foreign or group/world-writable zone file %s\n",
+				__func__, lde->name);
 		close(fd);
 		return 0;
 	}
@@ -297,25 +424,11 @@ auth_dns_dir_cb(const char *dirpath, void *user, struct lws_dir_entry *lde)
 		return 0;
 	}
 	memset(ce, 0, sizeof(*ce));
-	lws_strncpy(ce->filename, lde->name, sizeof(ce->filename));
+	lws_strncpy(ce->filename, name, sizeof(ce->filename));
 
-	/* Parse suffix format: domain_ttl_sig_serial.zone */
-	{
-		char *p = ce->filename + (len - 5);
-		while (p > ce->filename && *(p - 1) != '_') p--;
-		if (p > ce->filename) {
-			ce->serial = strtoull(p, NULL, 10);
-			p--;
-			while (p > ce->filename && *(p - 1) != '_') p--;
-			if (p > ce->filename) {
-				ce->sig_expiry = (time_t)strtoull(p, NULL, 10);
-				p--;
-				while (p > ce->filename && *(p - 1) != '_') p--;
-				if (p > ce->filename)
-					ce->ttl_expiry = (time_t)strtoull(p, NULL, 10);
-			}
-		}
-	}
+	ce->serial = serial;
+	ce->sig_expiry = (time_t)sig_exp;
+	ce->ttl_expiry = (time_t)ttl_exp;
 
 	time_t now = time(NULL);
 	if ((ce->ttl_expiry && now >= ce->ttl_expiry) ||
@@ -437,6 +550,23 @@ auth_dns_local_zone_cb(void *opaque, const char *domain, const char *payload_pat
 					if (col > 0 && clean_origin[col - 1] == '.') {
 						clean_origin[col - 1] = '\0';
 						col--;
+					}
+
+					/*
+					 * F-055: the origin becomes the cache
+					 * entry's filename label, which is
+					 * used to compose unlink paths and
+					 * prefix-match other entries in the
+					 * zone dir; keep it to unambiguous
+					 * presentation-format DNS names
+					 */
+					if (!auth_dns_zone_origin_valid(clean_origin)) {
+						lwsl_notice("%s: refusing zone with invalid origin '%s'\n",
+								__func__, z.origin);
+						lws_auth_dns_free_zone(&z);
+						if (buf) free(buf);
+						close(fpin);
+						return;
 					}
 
 					int serial_is_newer = 1;
@@ -799,11 +929,57 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 				}
 				pvo = pvo->next;
 			}
+
+			/*
+			 * F-055: there is no default zone dir.  A missing
+			 * "zone-dir" pvo used to default to shared
+			 * /tmp/lws-auth-dns, where any local user could
+			 * pre-create the directory and have their zone
+			 * files served as authoritative (and victim zone
+			 * files unlinked); the protocol now refuses to
+			 * start instead.
+			 */
 			if (vhd->zone_dir[0] == '\0') {
-				lws_strncpy(vhd->zone_dir, "/tmp/lws-auth-dns", sizeof(vhd->zone_dir)); // NOSONAR
-				if (!lws_vhost_name_to_protocol(vhd->vhost, "lws-dht-dnssec"))
-					lwsl_vhost_warn(vhd->vhost, "%s: Missing pvo \"zone-dir\", defaulting to %s",
-						 __func__, vhd->zone_dir);
+				lwsl_vhost_err(vhd->vhost, "%s: the \"zone-dir\" pvo is "
+						"required, refusing to start",
+						__func__);
+				return -1;
+			}
+
+			/*
+			 * F-055: fail closed on a zone dir that is not
+			 * exclusively controlled by the service uid: it
+			 * must already exist, be a real directory (not a
+			 * symlink), belong to our effective uid and not be
+			 * group- or world-writable.  Otherwise the dir scan
+			 * would load, and the expiry / evict paths unlink,
+			 * files other local users control.
+			 */
+			{
+				struct stat st;
+				int dfd = open(vhd->zone_dir,
+					       O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+
+				if (dfd < 0) {
+					lwsl_vhost_err(vhd->vhost,
+						"%s: zone dir %s cannot be opened "
+						"(errno %d), refusing to start",
+						__func__, vhd->zone_dir, errno);
+					return -1;
+				}
+
+				if (fstat(dfd, &st) < 0 || !S_ISDIR(st.st_mode) ||
+				    st.st_uid != geteuid() ||
+				    (st.st_mode & (S_IWGRP | S_IWOTH))) {
+					lwsl_vhost_err(vhd->vhost,
+						"%s: zone dir %s is not a service-owned, "
+						"non-group/world-writable directory, "
+						"refusing to start",
+						__func__, vhd->zone_dir);
+					close(dfd);
+					return -1;
+				}
+				close(dfd);
 			}
 		}
 
@@ -936,6 +1112,15 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	case LWS_CALLBACK_USER:
 	case LWS_CALLBACK_RAW_RX: {
 		uint8_t *p = (uint8_t *)in;
+
+		/*
+		 * The vhost listener can still accept TCP conns when our
+		 * protocol init failed (eg, F-055 zone dir policy refusal,
+		 * which frees vhd); nothing can be served without it.
+		 */
+		if (!vhd)
+			return -1;
+
 		uint8_t *end = p + len;
 		int is_tcp = (lws_get_udp(wsi) == NULL);
 		uint16_t req_len = 0;
