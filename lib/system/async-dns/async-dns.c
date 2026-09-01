@@ -150,7 +150,14 @@ lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c)
 		}
 	}
 
-	q->completing = 0;
+	/*
+	 * The completing state has to extend over the standalone callback as
+	 * well: it runs user code that may legitimately try to cancel and
+	 * destroy this very query (eg, lws_async_dns_cancel_by_opaque() from
+	 * an opaque that is being freed by the callback itself).  Our caller
+	 * still uses q after we return, so it must stay protected until the
+	 * whole completion is over.
+	 */
 
 	if (q->standalone_cb) {
 		if (c && c->results)
@@ -166,6 +173,8 @@ lws_async_dns_complete(lws_adns_q_t *q, lws_adns_cache_t *c)
 				 q->opaque) == NULL)
 			ret = LADNS_RET_FAILED_WSI_CLOSED;
 	}
+
+	q->completing = 0;
 
 	lws_adns_dump(q->dns);
 
@@ -1470,6 +1479,37 @@ void
 lws_async_dns_cancel(struct lws *wsi)
 {
 	lws_dll2_foreach_safe(&wsi->a.context->async_dns.waiting, wsi, cancel);
+}
+
+static int
+cancel_by_opaque(struct lws_dll2 *d, void *user)
+{
+	lws_adns_q_t *q = lws_container_of(d, lws_adns_q_t, list);
+
+	if (q->standalone_cb && q->opaque == user) {
+		/*
+		 * The object the callback would be invoked on is going away,
+		 * so the callback and opaque are detached first; a resolver
+		 * reply for this query can no longer reach it.
+		 */
+		q->standalone_cb = NULL;
+		q->opaque = NULL;
+
+		/*
+		 * If wsi(s) piggybacked on this query, they still want the
+		 * answer... leave it to the last one out to destroy q.
+		 */
+		if (!lws_dll2_count(&q->wsi_adns) && !q->completing)
+			lws_adns_q_destroy(q);
+	}
+
+	return 0;
+}
+
+void
+lws_async_dns_cancel_by_opaque(struct lws_context *cx, void *opaque)
+{
+	lws_dll2_foreach_safe(&cx->async_dns.waiting, opaque, cancel_by_opaque);
 }
 
 

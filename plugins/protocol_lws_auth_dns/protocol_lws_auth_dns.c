@@ -668,6 +668,15 @@ dnsbl_timeout_cb(lws_sorted_usec_list_t *sul)
 	struct pending_dnsbl_query *q = lws_container_of(sul, struct pending_dnsbl_query, sul_timeout);
 	lwsl_info("%s: dnsbl timeout for query\n", __func__);
 
+	/*
+	 * The resolver may still be holding in-flight lookups issued with q
+	 * as their opaque... they must not be able to call back into freed
+	 * heap if they complete later.  Cancelling before the replay also
+	 * means lookups the replay re-issues get fresh resolver queries,
+	 * instead of piggybacking onto these doomed ones.
+	 */
+	lws_async_dns_cancel_by_opaque(q->vhd->context, q);
+
 	/* Assume clean if timeout */
 	if (!q->is_blacklisted && q->wsi) {
 		const struct lws_protocols *prot = lws_get_protocol(q->wsi);
@@ -687,12 +696,17 @@ dnsbl_query_cb(struct lws *wsi, const char *ads, const struct addrinfo *result, 
 
 	q->pending_lookups--;
 
+	/*
+	 * ads is only NULL on the synchronous-failure path out of
+	 * lws_async_dns_query(); there is nothing cacheable we can key it by
+	 * then.
+	 */
 	if (n >= 0 && (n & ~LWS_ADNS_DNSSEC_VALID) == LADNS_RET_FOUND) {
 		/* Found an A record on the DNSBL - it's blacklisted! */
 		lwsl_notice("%s: DNSBL HIT for %s\n", __func__, ads ? ads : "known target");
 		dnsbl_cache_add(q->vhd, ads, 1);
 		q->is_blacklisted = 1;
-	} else if (n == LADNS_RET_NXDOMAIN || n == LADNS_RET_TIMEDOUT || n == LADNS_RET_FAILED) {
+	} else if (ads && (n == LADNS_RET_NXDOMAIN || n == LADNS_RET_TIMEDOUT || n == LADNS_RET_FAILED)) {
 		/* Clean or timeout */
 		dnsbl_cache_add(q->vhd, ads, 0);
 	}
@@ -710,6 +724,9 @@ dnsbl_query_cb(struct lws *wsi, const char *ads, const struct addrinfo *result, 
 				prot->callback(q->wsi, LWS_CALLBACK_USER, lws_wsi_user(q->wsi), q, 0);
 		}
 
+		/* any stragglers must not call back into freed q */
+		lws_async_dns_cancel_by_opaque(q->vhd->context, q);
+
 		lws_dll2_remove(&q->list);
 		free(q);
 	}
@@ -717,7 +734,7 @@ dnsbl_query_cb(struct lws *wsi, const char *ads, const struct addrinfo *result, 
 	if (result)
 		lws_async_dns_freeaddrinfo(&result);
 
-	return wsi;
+	return wsi ? wsi : LADNS_NO_WSI_BUT_OK;
 }
 
 static int
@@ -878,6 +895,8 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->pending_dnsbl)) {
 				struct pending_dnsbl_query *q = lws_container_of(d, struct pending_dnsbl_query, list);
 				lws_sul_cancel(&q->sul_timeout);
+				/* in-flight resolver lookups hold q as opaque */
+				lws_async_dns_cancel_by_opaque(vhd->context, q);
 				lws_dll2_remove(&q->list);
 				free(q);
 			} lws_end_foreach_dll_safe(d, d1);
@@ -895,6 +914,18 @@ callback_auth_dns(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if (vhd) {
 			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->pending_queries)) {
 				struct pending_dns_query *q = lws_container_of(d, struct pending_dns_query, list);
+				if (q->wsi == wsi && q->is_tcp) {
+					q->wsi = NULL;
+				}
+			} lws_end_foreach_dll_safe(d, d1);
+
+			/*
+			 * Same for queries suspended on DNSBL lookups: the
+			 * TCP client wsi is about to be destroyed, later
+			 * completion / timeout must not deref it.
+			 */
+			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(&vhd->pending_dnsbl)) {
+				struct pending_dnsbl_query *q = lws_container_of(d, struct pending_dnsbl_query, list);
 				if (q->wsi == wsi && q->is_tcp) {
 					q->wsi = NULL;
 				}
@@ -1464,11 +1495,15 @@ after_refused:
 								lwsl_notice("%s: Issuing DNSBL lookup for %s\n", __func__, lookup);
 								q->pending_lookups++;
 
-								if (lws_async_dns_query(vhd->context, 0, lookup,
+								/*
+								 * The cb accounts for the
+								 * increment on every outcome,
+								 * including the synchronous
+								 * failure path.
+								 */
+								lws_async_dns_query(vhd->context, 0, lookup,
 										LWS_ADNS_RECORD_A, dnsbl_query_cb,
-										NULL, q, NULL) == LADNS_RET_FAILED) {
-									q->pending_lookups--;
-								}
+										NULL, q, NULL);
 							}
 						}
 					}
