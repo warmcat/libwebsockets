@@ -113,6 +113,31 @@ lws_async_dns_query(struct lws_context *context, int tsi, const char *name,
 		    struct lws *wsi, void *opaque, struct lws_adns_q **pq);
 
 /**
+ * lws_async_dns_cancel_by_opaque() - cancel ongoing standalone queries by opaque
+ *
+ * \param context: the lws_context
+ * \param opaque: the opaque pointer the queries of interest were issued with
+ *
+ * Destroys any ongoing standalone queries (queries issued with a NULL wsi)
+ * that were issued with the given \p opaque as the callback opaque, without
+ * calling their callbacks.
+ *
+ * Use this when the object you passed as \p opaque to lws_async_dns_query()
+ * is going away, eg, on its timeout or destruction.  Without it, a resolver
+ * reply that arrives later will call your callback with a pointer to freed
+ * heap.
+ *
+ * If wsis have piggybacked on a matching query, the query is left for the
+ * last piggybacking wsi to destroy, but the standalone callback and opaque
+ * are detached first so your disappearing object is not dereferenced by the
+ * eventual completion.
+ *
+ * Must be called from the service thread.
+ */
+LWS_VISIBLE LWS_EXTERN void
+lws_async_dns_cancel_by_opaque(struct lws_context *context, void *opaque);
+
+/**
  * lws_async_dns_freeaddrinfo() - decrement refcount on cached addrinfo results
  *
  * \param ai: a pointert to a pointer to first addrinfo returned as result in the callback
