@@ -39,6 +39,12 @@
  */
 
 /*
+ * The longest streamtype string (excluding NUL) that the serialization to
+ * the proxy can carry; lws_sspc_create() refuses longer streamtypes.
+ */
+#define LWS_SS_SER_STREAMTYPE_MAX_LEN 31
+
+/*
  * Helper translation so user code written to lws_ss_ can be built for
  * lws_sspc_ in one step by #define LWS_SS_USE_SSPC before including
  */

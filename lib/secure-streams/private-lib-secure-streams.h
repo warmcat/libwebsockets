@@ -311,8 +311,13 @@ typedef enum {
 	RPAR_ORD0,
 } rx_parser_t;
 
+/*
+ * LWS_SS_SER_STREAMTYPE_MAX_LEN is defined in
+ * lws-secure-streams-client.h: the streamtype[] size here must follow it
+ */
+
 struct lws_ss_serialization_parser {
-	char			streamtype[32];
+	char			streamtype[LWS_SS_SER_STREAMTYPE_MAX_LEN + 1];
 	char			rideshare[32];
 	char			metadata_name[32];
 
