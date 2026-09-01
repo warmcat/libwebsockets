@@ -41,6 +41,14 @@ struct vhd_login {
 	const char              *cookie_name;
 	const char              *service_name;
 	const char              *auth_server_url;
+	/*
+	 * The absolute base of the auth server's own API surface, used for
+	 * the sso_exchange side channel, /api/logout, the SSO origin check
+	 * and the widget's auth-server links.  Defaults to auth-server-url;
+	 * needs its own PVO when auth-server-url is deliberately a local
+	 * BFF entry (eg the oauth2-client's "/oauth/login").
+	 */
+	const char              *auth_api_url;
 	const char              *unauth_protocols;
 	int                     min_grant_level;
 
@@ -605,14 +613,14 @@ lws_login_kick_refresh(struct vhd_login *vhd, struct lws *wsi, const char *cooki
 	lws_sul_schedule(vhd->context, 0, &ps->sul, sul_pending_refresh_cb,
 			 5 * 60 * LWS_US_PER_SEC);
 
-	puri = lws_parse_uri_create(vhd->auth_server_url);
+	puri = lws_parse_uri_create(vhd->auth_api_url);
 	if (!puri) {
 		pending_login_release(ps);
 		return 0;
 	}
 
 	lwsl_wsi_notice(wsi, "initiating silent renewal via "
-			"%s/api/sso_exchange (%s)", vhd->auth_server_url,
+			"%s/api/sso_exchange (%s)", vhd->auth_api_url,
 			mode == LWS_LOGIN_REFRESH_COLDLOAD ? "cold-load" : "bff");
 
 	memset(&i, 0, sizeof(i));
@@ -1414,6 +1422,27 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			return -1;
 		}
 
+		/*
+		 * auth-api-url is where the auth server's APIs actually live.
+		 * It defaults to auth-server-url, which is correct when the
+		 * login entry is on the auth server itself.  But
+		 * auth-server-url may deliberately be a local BFF entry like
+		 * the oauth2-client's "/oauth/login" so the Login button goes
+		 * through the PKCE delegate flow -- such a relative URL can
+		 * never reach /api/sso_exchange, /api/logout or provide the
+		 * origin for the SSO check, so those must use this PVO set to
+		 * the real absolute auth server URL instead.
+		 */
+		if (lws_pvo_get_str(in, "auth-api-url", &vhd->auth_api_url))
+			vhd->auth_api_url = vhd->auth_server_url;
+
+		if (!strstr(vhd->auth_api_url, "://"))
+			lwsl_err("%s: auth-api-url '%s' is not an absolute "
+				 "http(s) URL: silent renewal, logout and "
+				 "the SSO origin check cannot work -- set "
+				 "auth-api-url to the auth server's absolute "
+				 "base URL\n", __func__, vhd->auth_api_url);
+
 		if (!lws_pvo_get_str(in, "min-grant-level", &cp))
 			vhd->min_grant_level = atoi(cp);
 
@@ -2157,9 +2186,9 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				int is_admin = state == LWS_LOGIN_STATE_GLOBAL_ADMIN;
 				int has_grant = state >= LWS_LOGIN_STATE_USER;
 				lws_snprintf(pl, sizeof(pl), "{\"logged_in\":1,\"server_now\":%llu,\"exp\":%llu,\"has_grant\":%d,\"grant_level\":%d,\"login_state\":%d,\"identity\":\"%s\",\"auth_server_url\":\"%s\",\"login_url\":\"%s\",\"is_admin\":%d,\"unauth_allow\":%d}",
-					(unsigned long long)lws_now_secs(), (unsigned long long)lws_jwt_auth_get_exp(pss->ja), has_grant, level, (int)state, sub ? sub : "Unknown", vhd->auth_server_url ? vhd->auth_server_url : "", dest, is_admin, unauth_allow);
+					(unsigned long long)lws_now_secs(), (unsigned long long)lws_jwt_auth_get_exp(pss->ja), has_grant, level, (int)state, sub ? sub : "Unknown", vhd->auth_api_url ? vhd->auth_api_url : "", dest, is_admin, unauth_allow);
 			} else
-				lws_snprintf(pl, sizeof(pl), "{\"logged_in\":0,\"login_state\":%d,\"server_now\":%llu,\"auth_server_url\":\"%s\",\"login_url\":\"%s\",\"unauth_allow\":%d}", (int)LWS_LOGIN_STATE_ANON, (unsigned long long)lws_now_secs(), vhd->auth_server_url ? vhd->auth_server_url : "", dest, unauth_allow);
+				lws_snprintf(pl, sizeof(pl), "{\"logged_in\":0,\"login_state\":%d,\"server_now\":%llu,\"auth_server_url\":\"%s\",\"login_url\":\"%s\",\"unauth_allow\":%d}", (int)LWS_LOGIN_STATE_ANON, (unsigned long long)lws_now_secs(), vhd->auth_api_url ? vhd->auth_api_url : "", dest, unauth_allow);
 
                         return simple_response(wsi, pss, pl, "application/json",
                                                HTTP_STATUS_OK, (unsigned char *)buf + LWS_PRE, (unsigned char **)&p,
@@ -2215,8 +2244,8 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 			char urlenc_path[512];
 			lws_urlencode(urlenc_path, redirect_uri, sizeof(urlenc_path));
 
-			if (vhd->auth_server_url && vhd->auth_server_url[0]) {
-				lws_snprintf(u, sizeof(u), "%s/api/logout?redirect_uri=%s", vhd->auth_server_url, urlenc_path);
+			if (vhd->auth_api_url && vhd->auth_api_url[0]) {
+				lws_snprintf(u, sizeof(u), "%s/api/logout?redirect_uri=%s", vhd->auth_api_url, urlenc_path);
 			} else {
 				/* Fallback if auth_server_url somehow missing */
 				lws_strncpy(u, redirect_uri, sizeof(u));
@@ -2426,16 +2455,16 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 				if (token && vhd) {
 					lws_parse_uri_t *puri_auth = NULL, *puri_chk = NULL;
 
-					if (!vhd->auth_server_url) {
-						lwsl_err("%s: blocking SSO token: no auth-server-url to check origin against\n",
+					if (!vhd->auth_api_url) {
+						lwsl_err("%s: blocking SSO token: no auth-api-url to check origin against\n",
 							 __func__);
 						token = NULL;
 					} else if (!chk_url) {
 						lwsl_err("%s: blocking SSO token: no origin/referer to check against %s (login CSRF?)\n",
-							 __func__, vhd->auth_server_url);
+							 __func__, vhd->auth_api_url);
 						token = NULL;
 					} else {
-						puri_auth = lws_parse_uri_create(vhd->auth_server_url);
+						puri_auth = lws_parse_uri_create(vhd->auth_api_url);
 						puri_chk = lws_parse_uri_create(chk_url);
 
 						if (!puri_auth || !puri_chk ||
@@ -2443,7 +2472,7 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 						    strcasecmp(puri_auth->host, puri_chk->host) ||
 						    puri_auth->port != puri_chk->port) {
 							lwsl_err("%s: blocking SSO CSRF from origin/referer %s (expected %s)\n",
-								 __func__, chk_url, vhd->auth_server_url);
+								 __func__, chk_url, vhd->auth_api_url);
 							token = NULL;
 						} else {
 							lwsl_notice("%s: allowing SSO request matching auth server origin %s\n",

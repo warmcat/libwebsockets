@@ -168,10 +168,19 @@ lws_h2_state(struct lws *wsi, enum lws_h2_states s)
 	 *  - if the peer is RST_STREAMing the stream away from under us (eg,
 	 *    a browser cancelling an <img> load that returned HTML), that is
 	 *    not a local response bug either.
+	 *
+	 *  - an established websocket (RFC 8441 extended CONNECT over h2):
+	 *    its :status handshake response is headers-only with no
+	 *    END_STREAM by design -- the stream then carries ws frames
+	 *    until one side closes it.  Without this exemption every ws
+	 *    peer disconnect trips the warning spuriously.
 	 */
 	if (s == LWS_H2_STATE_CLOSED &&
 	    wsi->http.sent_response_headers && !wsi->h2.send_END_STREAM &&
 	    !wsi->mux_stream_immortal && lwsi_role_server(wsi) &&
+#if defined(LWS_ROLE_WS)
+	    !lwsi_role_ws(wsi) &&
+#endif
 	    !wsi->h2.peer_rst_status) {
 		struct lws *nwsi = lws_get_network_wsi(wsi);
 

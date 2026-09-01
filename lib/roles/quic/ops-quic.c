@@ -3746,6 +3746,16 @@ lws_quic_stream_cleanup(struct lws *wsi)
 			     * their request HEADERS, and a client need not have
 			     * sent FIN when the transaction completes cleanly
 			     */
+			    /*
+			     * An established websocket's h3 handshake response
+			     * is headers-only with no END_STREAM by design; the
+			     * stream then carries ws frames until one side
+			     * closes it, so a ws peer disconnect is not an
+			     * incomplete-response bug.
+			     */
+#if defined(LWS_ROLE_WS)
+			    !lwsi_role_ws(wsi) &&
+#endif
 			    lwsi_role_server(wsi))
 				lwsl_wsi_warn(wsi, "h3 stream closed with response "
 					      "headers sent but no END_STREAM "
