@@ -1,6 +1,11 @@
 #include <libwebsockets.h>
 #include <string.h>
 #include <signal.h>
+#if !defined(WIN32)
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <dirent.h>
+#endif
 
 static int interrupted;
 
@@ -46,6 +51,34 @@ int main(int argc, const char **argv)
 	const char *z = "../minimal-examples-lowlevel/api-tests/api-test-dns-server/zones-api-test/";
 	if ((p = lws_cmdline_option(argc, argv, "-z")))
 		z = p;
+
+#if !defined(WIN32)
+	/*
+	 * The plugin only admits a service-owned, non-group/world-writable
+	 * zone dir with like-mode zone files (F-055); a umask-002 checkout
+	 * produces group-writable files, so normalize the fixture modes.
+	 */
+	{
+		DIR *d = opendir(z);
+		struct dirent *de;
+
+		if (chmod(z, 0755))
+			lwsl_err("%s: chmod %s failed\n", __func__, z);
+		if (d) {
+			while ((de = readdir(d))) {
+				size_t l = strlen(de->d_name);
+				char path[1024];
+
+				if (l < 6 || strcmp(de->d_name + l - 5, ".zone"))
+					continue;
+				lws_snprintf(path, sizeof(path), "%s/%s", z,
+					     de->d_name);
+				chmod(path, 0644);
+			}
+			closedir(d);
+		}
+	}
+#endif
 
 	const struct lws_protocol_vhost_options pvo1 = {
 		NULL, NULL, "zone-dir", z
