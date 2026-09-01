@@ -443,6 +443,101 @@ rsa_hash_alg_from_ident(const char *ident)
         return -1;
 }
 
+/*
+ * Walk a single RFC4251 length-prefixed item out of a peer-supplied blob:
+ * if a whole u32 length fits before end, fetch it into *elen and advance *pp
+ * past the length field.  The item body must also fit inside what remains of
+ * the blob, or the caller would go on to use data from beyond the allocation.
+ */
+static int
+ssh_blob_item_get(uint8_t **pp, const uint8_t *end, uint32_t *elen)
+{
+	if (end - *pp < 4)
+		return 1;
+
+	*elen = lws_g32(pp);
+
+	if (*elen > (uint32_t)(end - *pp))
+		return 1;
+
+	return 0;
+}
+
+/*
+ * Parse the peer's public key blob into RSA key elements
+ *
+ *   string    "ssh-rsa"
+ *   mpint     e
+ *   mpint     n
+ *
+ * The blob is untrusted, so every inner length is bounded against the outer
+ * blob length and the items must exactly consume it.  The elements' bufs
+ * point into the blob, which must outlive the RSA ctx they are imported to.
+ */
+static int
+ssh_parse_pubkey_blob(struct lws_gencrypto_keyelem *e,
+		      uint8_t *blob, uint32_t blob_len)
+{
+	uint8_t *pp = blob, *pe = blob + blob_len;
+	uint32_t m;
+
+	/* string  algo name */
+
+	if (ssh_blob_item_get(&pp, pe, &m))
+		return 1;
+	pp += m;
+
+	/* mpint  e */
+
+	if (ssh_blob_item_get(&pp, pe, &m))
+		return 1;
+	e[LWS_GENCRYPTO_RSA_KEYEL_E].buf = pp;
+	e[LWS_GENCRYPTO_RSA_KEYEL_E].len = m;
+	pp += m;
+
+	/* mpint  n: the last item must exactly consume the blob */
+
+	if (ssh_blob_item_get(&pp, pe, &m) || pp + m != pe)
+		return 1;
+	e[LWS_GENCRYPTO_RSA_KEYEL_N].buf = pp;
+	e[LWS_GENCRYPTO_RSA_KEYEL_N].len = m;
+
+	return 0;
+}
+
+/*
+ * Locate the signature MPI inside the peer's signature blob
+ *
+ *   string    algo name the signature was made with
+ *   string    signature
+ *
+ * As with the pubkey blob, inner lengths are bounded against the blob length
+ * and the signature must exactly consume the rest of the blob.
+ */
+static int
+ssh_parse_sig_blob(uint8_t *blob, uint32_t blob_len,
+		   const uint8_t **sig, uint32_t *sig_len)
+{
+	uint8_t *pp = blob, *pe = blob + blob_len;
+	uint32_t m;
+
+	/* string  algo name */
+
+	if (ssh_blob_item_get(&pp, pe, &m))
+		return 1;
+	pp += m;
+
+	/* string  signature: must exactly consume the blob */
+
+	if (ssh_blob_item_get(&pp, pe, &m) || pp + m != pe)
+		return 1;
+
+	*sig = pp;
+	*sig_len = m;
+
+	return 0;
+}
+
 static void
 state_get_string_alloc(struct per_session_data__sshd *pss, int next)
 {
@@ -536,8 +631,9 @@ lws_ssh_parse_plaintext(struct per_session_data__sshd *pss, uint8_t *p, size_t l
 	struct lws_ssh_channel *ch;
 	struct lws_subprotocol_scp *scp;
 	uint8_t *pp, *ps;
+	const uint8_t *sigp;
+	uint32_t siglen;
 	uint8_t hash[32];
-	uint32_t m;
 	int n;
 
 	while (len --) {
@@ -1244,46 +1340,47 @@ again:
 
 			/*
 			 * Prepare the RSA decryption context: load in
-			 * the E and N factors
+			 * the E and N factors.  Both the pubkey blob and
+			 * the sig blob are attacker-controlled, they're
+			 * walked bounded and have to exactly consume
+			 * their allocations or we're reading from wild
+			 * pointers.
 			 */
-
 			memset(e, 0, sizeof(e));
 			memset(&ctx, 0, sizeof(ctx));
-			pp = pss->ua->pubkey;
-			m = lws_g32(&pp);
-			pp += m;
-			m = lws_g32(&pp);
-			e[LWS_GENCRYPTO_RSA_KEYEL_E].buf = pp;
-			e[LWS_GENCRYPTO_RSA_KEYEL_E].len = m;
-			pp += m;
-			m = lws_g32(&pp);
-			e[LWS_GENCRYPTO_RSA_KEYEL_N].buf = pp;
-			e[LWS_GENCRYPTO_RSA_KEYEL_N].len = m;
+
+			if (ssh_parse_pubkey_blob(e, pss->ua->pubkey,
+						  pss->ua->pubkey_len)) {
+				lwsl_notice("malformed pubkey blob\n");
+				goto ua_fail;
+			}
+
+			/*
+			 * point to the encrypted signature payload we
+			 * were sent
+			 */
+			if (ssh_parse_sig_blob(pss->ua->sig, pss->ua->sig_len,
+					       &sigp, &siglen)) {
+				lwsl_notice("malformed sig blob\n");
+				goto ua_fail;
+			}
 
 			if (lws_genrsa_create(&ctx, e, pss->vhd->context,
 					      LGRSAM_PKCS1_1_5,
 					      LWS_GENHASH_TYPE_UNKNOWN))
 				goto ua_fail;
-			/*
-			 * point to the encrypted signature payload we
-			 * were sent
-			 */
-			pp = pss->ua->sig;
-			m = lws_g32(&pp);
-			pp += m;
-			m = lws_g32(&pp);
 
 			n = lws_genrsa_hash_sig_verify(&ctx, hash,
 				(enum lws_genhash_types)rsa_hash_alg_from_ident(pss->ua->alg),
-				pp, m) == 0 ? 1 : 0;
+				sigp, siglen) == 0 ? 1 : 0;
 
 			lws_genrsa_destroy(&ctx);
 
 			/*
-			 * if no good, m is nonzero and inform peer
+			 * if no good, inform peer
 			 */
 			if (n <= 0) {
-				lwsl_notice("hash sig verify fail: %d\n", m);
+				lwsl_notice("hash sig verify fail\n");
 				goto ua_fail;
 			}
 
@@ -1586,14 +1683,12 @@ again:
 			 * fake scp
 			 */
 
-			/* we only alloc "exec" of scp for scp destination */
-			n = 1;
-			if (pss->last_alloc[0] != 's' ||
-			    pss->last_alloc[1] != 'c' ||
-			    pss->last_alloc[2] != 'p' ||
-			    pss->last_alloc[3] != ' ')
-				/* disallow it */
-				n = 0;
+			/* we only alloc "exec" of scp for scp destination...
+			 * npos is the length of the exec command string,
+			 * don't look for the prefix past the end of it
+			 */
+			n = pss->npos >= 4 &&
+			    !memcmp(pss->last_alloc, "scp ", 4);
 
 			ssh_free_set_NULL(pss->last_alloc);
 			if (!n)
