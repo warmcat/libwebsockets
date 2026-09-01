@@ -274,6 +274,19 @@ lws_sspc_txp_tx(lws_sspc_handle_t *h, size_t metadata_limit)
 		 * streamtype
 		 */
 		// lwsl_sspc_notice(h, "LPCSCLI_SENDING_INITIAL_TX");
+
+		/*
+		 * The streamtype must fit in the scratch buffer after the
+		 * 12-byte header (3-byte txpreamble + 9 fixed bytes), or the
+		 * length prefix would describe more than we actually composed
+		 */
+
+		if (strlen(h->ssi.streamtype) >
+				(sizeof(_s) - LWS_PRE) - 12 - 1) {
+			lwsl_sspc_err(h, "streamtype too long");
+			goto hangup;
+		}
+
 		txl = strlen(h->ssi.streamtype) + 1 + 4 + 4;
 
 		cp = s;

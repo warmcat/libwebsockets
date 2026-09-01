@@ -292,6 +292,20 @@ lws_sspc_create(struct lws_context *context, int tsi, const lws_ss_info_t *ssi,
 	lws_service_assert_loop_thread(context, tsi);
 #endif
 
+	/*
+	 * The streamtype has to survive serialization to the proxy, which
+	 * can only accept streamtypes up to a fixed maximum length.  Reject
+	 * it here rather than trying to serialize an over-long name.
+	 */
+
+	if (strlen(ssi->streamtype) > LWS_SS_SER_STREAMTYPE_MAX_LEN) {
+		lwsl_cx_err(context, "sspc streamtype '%s' too long (%u > %u)",
+			    ssi->streamtype,
+			    (unsigned int)strlen(ssi->streamtype),
+			    LWS_SS_SER_STREAMTYPE_MAX_LEN);
+		return 1;
+	}
+
 	/* allocate the handle (including ssi), the user alloc,
 	 * and the streamname */
 
