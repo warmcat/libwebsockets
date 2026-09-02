@@ -156,12 +156,6 @@ lws_genrsa_create(struct lws_genrsa_ctx *ctx,
 	return 0;
 }
 
-void
-lws_genrsa_destroy_elements(struct lws_gencrypto_keyelem *el)
-{
-	lws_gencrypto_destroy_elements(el, LWS_GENCRYPTO_RSA_KEYEL_COUNT);
-}
-
 int
 lws_genrsa_new_keypair(struct lws_context *context, struct lws_genrsa_ctx *ctx,
 		       enum enum_genrsa_mode mode, struct lws_gencrypto_keyelem *el,

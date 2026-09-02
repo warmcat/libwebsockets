@@ -87,9 +87,9 @@ int main(int argc, const char **argv)
 
 	/* an overlong fraction must fail cleanly, not trip any limit */
 
-	memset(overlong, '7', sizeof(overlong) - 1);
-	overlong[sizeof(overlong) - 1] = '\0';
 	memcpy(overlong, "2020-01-01T12:00:00.", 20);
+	memset(overlong + 20, '7', sizeof(overlong) - 1 - 20);
+	overlong[sizeof(overlong) - 1] = '\0';
 
 	m = lws_parse_iso8601(overlong);
 	if (m) {

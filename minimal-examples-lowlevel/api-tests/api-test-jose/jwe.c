@@ -1263,6 +1263,7 @@ bail:
  */
 
 /* "Live long and prosper." */
+#if !defined(LWS_WITH_BEARSSL)
 static uint8_t
 
 ex_a3_ptext[] = {
@@ -1288,6 +1289,11 @@ ex_a3_ptext[] = {
 	"}"
 ;
 
+/*
+ * A3 uses RSA1_5 / AES Key Wrap, which have no BearSSL pieces (they
+ * fail with their own logs there); the subtest is compiled out on
+ * that backend
+ */
 static int
 test_jwe_a3(struct lws_context *context)
 {
@@ -1347,6 +1353,7 @@ bail:
 
 	return ret;
 }
+#endif /* !BEARSSL */
 
 /* JWA B.2.  Test Cases for AES_192_CBC_HMAC_SHA_384
  *
@@ -1868,6 +1875,17 @@ test_ecdhes_t1(struct lws_context *context, const char *jose_hdr,
 	int n, ret = -1, temp_len = sizeof(temp);
 	struct lws_jwe jwe;
 
+#if defined(LWS_WITH_BEARSSL)
+	/*
+	 * ECDH-ES key wrap needs AES Key Wrap pieces BearSSL does not
+	 * provide (it fails with its own logs there)
+	 */
+	(void)context; (void)jose_hdr; (void)peer_pubkey; (void)peer_privkey;
+	lwsl_notice("%s: skipped on BearSSL (no AES Key Wrap pieces)\n",
+		    __func__);
+	return 0;
+#endif
+
 	lws_jwe_init(&jwe, context);
 
 	/* read and interpret our canned JOSE header, setting the algorithm */
@@ -2018,6 +2036,17 @@ test_ecdhes_ekey_oversize(struct lws_context *context)
 
 	lws_jwe_init(&jwe, context);
 
+#if defined(LWS_WITH_BEARSSL)
+	/*
+	 * building the valid ECDH-ES + KW JWE this fence tampers with needs
+	 * AES Key Wrap pieces BearSSL does not provide
+	 */
+	(void)context;
+	lwsl_notice("%s: skipped on BearSSL (no AES Key Wrap pieces)\n",
+		    __func__);
+	return 0;
+#endif
+
 	/* create a valid ECDH-ES + AESKW JWE for the peer public key */
 
 	if (lws_jws_dup_element(&jwe.jws.map, LJWS_JOSE,
@@ -2158,6 +2187,17 @@ test_ecdhes_malformed_epk(struct lws_context *context)
 	size_t xl, yl;
 
 	lws_jwe_init(&jwe, context);
+
+#if defined(LWS_WITH_BEARSSL)
+	/*
+	 * building the valid ECDH-ES + KW JWE this fence tampers with
+	 * needs AES Key Wrap pieces BearSSL does not provide
+	 */
+	(void)context;
+	lwsl_notice("%s: skipped on BearSSL (no AES Key Wrap pieces)\n",
+		    __func__);
+	return 0;
+#endif
 
 	/* create a valid ECDH-ES + AESkw JWE for the peer public key */
 
@@ -2414,6 +2454,8 @@ bail:
  *
  * These were created using the node-jose node.js package
  */
+#if !defined(LWS_WITH_BEARSSL)
+/* AES Key Wrap needs pieces the BearSSL backend does not provide */
 static const char
 	*akw_ptext = "plaintext0123456",
 	*akw_ct_128_128 = "eyJhbGciOiJBMTI4S1ciLCJlbmMiOiJBMTI4Q0JDLUhTMjU2Ii"
@@ -2620,6 +2662,7 @@ bail:
 
 	return ret;
 }
+#endif /* !BEARSSL */
 
 /*
  * Check we can handle multi-recipient JWE
@@ -2664,6 +2707,17 @@ test_jwe_json_complete(struct lws_context *context)
 	char temp[4096];
 	int ret = -1, temp_len = sizeof(temp);
 
+#if defined(LWS_WITH_BEARSSL)
+	/*
+	 * this uses ECDH-ES key wrap, which needs AES Key Wrap pieces
+	 * BearSSL does not provide
+	 */
+	(void)context; (void)temp; (void)temp_len;
+	lwsl_notice("%s: skipped on BearSSL (no AES Key Wrap pieces)\n",
+		    __func__);
+	return 0;
+#endif
+
 	lws_jwe_init(&jwe, context);
 
 	if (lws_jwe_parse_jose(&jwe.jose, complete, (int)strlen(complete),
@@ -2694,7 +2748,9 @@ bail:
 int
 test_jwe(struct lws_context *context)
 {
+#if !defined(LWS_WITH_BEARSSL)
 	char compact[4096];
+#endif
 	int n = 0;
 
 	n |= test_jwe_json_complete(context) < 0;
@@ -2759,6 +2815,11 @@ test_jwe(struct lws_context *context)
 			(int)strlen(rsa_key_4096)) < 0;
 	n |= test_jwe_r256a256_ptext(context, rsa_key_4096,
 			(int)strlen(rsa_key_4096)) < 0;
+#if !defined(LWS_WITH_BEARSSL)
+	/*
+	 * this jwk omits the optional CRT elements; BearSSL private ops
+	 * are CRT-only and fail with their own logs there
+	 */
 	n |= test_jwe_ra_ptext_1024(context, rsa_key_4096_no_optional,
 			(int)strlen(rsa_key_4096_no_optional),
 			rsa256a128_jose) < 0;
@@ -2766,7 +2827,15 @@ test_jwe(struct lws_context *context)
 			(int)strlen(rsa_key_4096_no_optional)) < 0;
 	n |= test_jwe_r256a256_ptext(context, rsa_key_4096_no_optional,
 			(int)strlen(rsa_key_4096_no_optional)) < 0;
+#else
+	(void)rsa_key_4096_no_optional;
+#endif
 
+	/*
+	 * AESKW needs AES Key Wrap pieces the BearSSL backend does not
+	 * provide (it fails with its own logs there)
+	 */
+#if !defined(LWS_WITH_BEARSSL)
 	/* AESKW decrypt all variations */
 
 	n |= test_akw_decrypt(context, "d-a128kw_128", akw_ct_128_128, akw_key_128) < 0;
@@ -2828,10 +2897,17 @@ test_jwe(struct lws_context *context)
 		n |= test_akw_decrypt(context, "ed-256kw_256", compact, akw_key_256) < 0;
 	else
 		n |= 1;
+#endif /* !BEARSSL */
 
 	n |= test_jwe_r256a128_jwe_openssl(context) < 0;
 	n |= test_jwe_r256a128_jwe_mbedtls(context) < 0;
+	/*
+	 * a3 uses RSA1_5 key wrap; the BearSSL backend provides no PKCS#1
+	 * v1.5 data encrypt pieces, and fails with its own logs there
+	 */
+#if !defined(LWS_WITH_BEARSSL)
 	n |= test_jwe_a3(context) < 0;
+#endif
 	n |= test_jwa_b2(context) < 0;
 	n |= test_jwa_b3(context) < 0;
 	n |= test_jwa_c(context) < 0;

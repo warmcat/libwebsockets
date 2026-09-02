@@ -109,12 +109,10 @@ struct lws_genaes_ctx {
 	union {
 		br_aes_ct_cbcenc_keys cbcenc;
 		br_aes_ct_cbcdec_keys cbcdec;
-		br_aes_ct_ctr_keys ctr;
+		br_aes_ct_ctr_keys ctr;		/* GCM's underlying CTR */
+		br_aes_ct_ctrcbc_keys ctrcbc;	/* CTR mode */
 	} u;
 	br_gcm_context gcm;
-	const br_block_cbcenc_class *cbcenc_vtable;
-	const br_block_cbcdec_class *cbcdec_vtable;
-	const br_block_ctr_class *ctr_vtable;
 #elif defined(LWS_WITH_OPENHITLS)
 	CRYPT_EAL_CipherCtx *ctx;
 #else

@@ -401,7 +401,6 @@ drive_cb(lws_sorted_usec_list_t *sul)
 		r = recv(cli_fd, buf, sizeof(buf), 0);
 		if (r < 12)
 			break;
-		n = (int)r;
 
 		for (i = 0; i < MAX_Q; i++) {
 			if (!cur->q[i].name)
@@ -706,7 +705,13 @@ main(int argc, const char **argv)
 		unplant_fixtures();
 		return 1;
 	}
-	fcntl(cli_fd, F_SETFL, O_NONBLOCK);
+
+	if (fcntl(cli_fd, F_SETFL, O_NONBLOCK) < 0) {
+		lwsl_err("client socket fcntl failed\n");
+		close(cli_fd);
+		unplant_fixtures();
+		return 1;
+	}
 
 	lwsl_user("LWS API selftest: auth dns zone dir trust (F-055)\n");
 
