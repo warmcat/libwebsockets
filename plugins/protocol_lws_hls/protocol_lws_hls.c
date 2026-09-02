@@ -52,25 +52,24 @@ stub_req_cb(struct lejp_ctx *ctx, char reason)
 	return 0;
 }
 
+#if defined(LWS_PLUGIN_STATIC)
+int
+#else
 static int
+#endif
 callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 		 void *user, void *in, size_t len);
-
-#define LWS_PLUGIN_PROTOCOL_LWS_HLS \
-	{ \
-		"lws-hls", \
-		callback_lws_hls, \
-		sizeof(struct per_session_data__lws_hls), \
-		1024, \
-		0, NULL, 0 \
-	}
 
 static const struct lws_protocols stub_prots[] = {
 	LWS_PLUGIN_PROTOCOL_LWS_HLS,
 	LWS_PROTOCOL_LIST_TERM
 };
 
+#if defined(LWS_PLUGIN_STATIC)
+int
+#else
 static int
+#endif
 callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
 		 void *user, void *in, size_t len)
 {

@@ -14,6 +14,9 @@
  * all copies or substantial portions of the Software.
  */
 
+#if !defined(PRIVATE_LWS_HLS_H)
+#define PRIVATE_LWS_HLS_H
+
 #if !defined (LWS_PLUGIN_STATIC)
 #if !defined(LWS_DLL)
 #define LWS_DLL
@@ -39,10 +42,63 @@
 #include <libswresample/swresample.h>
 
 #include <pthread.h>
+#include <stdarg.h>
+#include <stdio.h>
 
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic pop
 #endif
+
+/*
+ * Clamped-cursor composition helper.  The naive `q += snprintf(q, rem, ...)`
+ * pattern advances q by the *would-have-written* length on truncation, so the
+ * cursor can pass the end of the buffer and the next `rem = cap - used`
+ * underflows to a huge size_t, making the following snprintf write unbounded
+ * past the allocation (F-059).  This variant only advances by what actually
+ * fit, and holds the cursor still at the end of the buffer instead.
+ *
+ * Shared by hls-dir.c (directory listing HTML) and hls-sub.c (playlist
+ * composition).  q and buf are body-area pointers; cap is the body size.
+ */
+static inline char *
+hls_append_fmt(char *q, char *buf, size_t cap, const char *fmt, ...)
+{
+	va_list ap;
+	size_t used = (size_t)(q - buf);
+	size_t rem = (cap > used) ? (cap - used) : 0;
+	int n;
+
+	if (rem == 0)
+		return q;
+
+	va_start(ap, fmt);
+	n = vsnprintf(q, rem, fmt, ap);
+	va_end(ap);
+
+	if (n < 0)
+		return q; /* encoding error; leave cursor unchanged */
+	if ((size_t)n >= rem)
+		n = (int)(rem - 1); /* clamp to what actually fit (sans NUL) */
+
+	return q + n;
+}
+
+#if defined(LWS_PLUGIN_STATIC)
+/* when the plugin sources are folded into another build (api tests), the
+ * hosting code needs the callback and the protocol table entry */
+int
+callback_lws_hls(struct lws *wsi, enum lws_callback_reasons reason,
+		 void *user, void *in, size_t len);
+#endif
+
+#define LWS_PLUGIN_PROTOCOL_LWS_HLS \
+	{ \
+		"lws-hls", \
+		callback_lws_hls, \
+		sizeof(struct per_session_data__lws_hls), \
+		1024, \
+		0, NULL, 0 \
+	}
 
 /*
  * Segment duration in seconds. Shared by the A/V playlist generator
@@ -240,3 +296,4 @@ int
 lws_hls_serve_sub_segment(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
 			  const char *media_dir, const char *filename,
 			  const char *trackid, int seg_idx);
+#endif /* PRIVATE_LWS_HLS_H */
