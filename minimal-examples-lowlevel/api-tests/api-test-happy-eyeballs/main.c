@@ -124,6 +124,16 @@ static const char *bind_iface;
 static int race_expected;
 #endif
 
+/*
+ * --midrace-timeout mode: repeatedly connect while FI simulates the connect
+ * wait timeout firing mid-race (primary attempt abandoned while a happy
+ * eyeballs racer is still live).  The subsequent connections must all still
+ * succeed: a leaked stale racer watcher trips UV_EEXIST in the event lib
+ * accept path once the kernel recycles the racer's fd number.
+ */
+static int midrace_mode;
+static const int midrace_conns = 6;
+
 /* what protocol each step's response must have arrived by */
 static const char * const via_expect[] = { "h2", "h3", "h2" };
 
@@ -161,6 +171,23 @@ step_cb(lws_sorted_usec_list_t *sul)
 		return;
 
 	next_step = 0;
+
+	if (midrace_mode) {
+		if (client_step < midrace_conns) {
+			lwsl_notice("--- midrace-timeout: connection %d of %d ---\n",
+				    client_step + 1, midrace_conns);
+			start_client_connection();
+		} else {
+			lwsl_notice("--- %d connections completed. Test passed. ---\n",
+				    midrace_conns);
+			result = 0;
+			interrupted = 1;
+			lws_context_destroy(context);
+			context = NULL;
+		}
+		return;
+	}
+
 	if (client_step == 1) {
 		lwsl_notice("--- Starting Step 2: H3 success ---\n");
 		start_client_connection();
@@ -205,7 +232,7 @@ start_client_connection(void)
 		/* we inspect the DNS results if the race variant fails */
 		i.ssl_connection |= LCCSCF_CONMON;
 #endif
-	i.protocol = "http";	if (client_step == 0)
+	i.protocol = "http";	if (client_step == 0 || midrace_mode)
 		i.alpn = "h2,http/1.1";
 	else
 		i.alpn = "h3,h2";
@@ -291,11 +318,13 @@ callback_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 		if (established_success) {
 			established_success = 0;
-			if (strcmp(via, via_expect[client_step])) {
+			const char *expect = midrace_mode ? "h2" :
+					     via_expect[client_step];
+			if (strcmp(via, expect)) {
 				lwsl_err("--- Step %d arrived via '%s', expected '%s' ---\n",
 					 client_step,
 					 via[0] ? via : "(none)",
-					 via_expect[client_step]);
+					 expect);
 				result = 1;
 				interrupted = 1;
 				schedule_next_step();
@@ -379,8 +408,14 @@ callback_tcp_server(struct lws *wsi, enum lws_callback_reasons reason,
 					(const unsigned char *)"h2", 2, &p, end))
 				return 1;
 			/* Inject Alt-Svc pointing to our QUIC vhost */
-			altsvc_len = lws_snprintf(altsvc, sizeof(altsvc), "h3=\":%d\"", port_quic);
-			if (lws_add_http_header_by_name(wsi, (const unsigned char *)"alt-svc:",
+			if (midrace_mode)
+				/* the midrace variant stays on TCP for every
+				 * connection, so it is deterministic */
+				altsvc_len = 0;
+			else
+				altsvc_len = lws_snprintf(altsvc, sizeof(altsvc), "h3=\":%d\"", port_quic);
+			if (altsvc_len &&
+			    lws_add_http_header_by_name(wsi, (const unsigned char *)"alt-svc:",
 					(const unsigned char *)altsvc, altsvc_len, &p, end))
 				return 1;
 			if (lws_finalize_write_http_header(wsi, start, &p, end))
@@ -462,6 +497,28 @@ int main(int argc, const char **argv)
 		lws_fi_t fi = { .name = "wsi/he_race_fast",
 				.type = LWSFI_ALWAYS, .count = 1, .pre = 0 };
 
+		lws_fi_add(&info.fic, &fi);
+#endif
+	}
+
+	if (lws_cmdline_option(argc, argv, "--midrace-timeout")) {
+		midrace_mode = 1;
+#if defined(LWS_WITH_CONMON)
+		race_expected = 1;
+#endif
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+		/*
+		 * Shrink the happy-eyeballs pacing to ~0us so the racer
+		 * exists before the primary's first disposition event, then
+		 * simulate the connect wait timeout firing mid-race on that
+		 * disposition, abandoning the primary while the racer is
+		 * still live
+		 */
+		lws_fi_t fi = { .name = "wsi/he_race_fast",
+				.type = LWSFI_ALWAYS, .count = 1, .pre = 0 };
+		lws_fi_add(&info.fic, &fi);
+
+		fi.name = "wsi/conn_wait_timeout";
 		lws_fi_add(&info.fic, &fi);
 #endif
 	}

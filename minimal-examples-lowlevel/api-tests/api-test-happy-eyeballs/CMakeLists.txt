@@ -36,6 +36,8 @@ if (requirements)
 	lws_get_free_port(PORT_HE_QUIC_UV)
 	lws_get_free_port(PORT_HE_TCP_UV6)
 	lws_get_free_port(PORT_HE_QUIC_UV6)
+	lws_get_free_port(PORT_HE_TCP_MR)
+	lws_get_free_port(PORT_HE_QUIC_MR)
 
 	add_test(NAME api-test-happy-eyeballs COMMAND lws-api-test-happy-eyeballs --server ${LWS_CTEST_SERVER_RESOLVE} -p ${PORT_HE_TCP} -q ${PORT_HE_QUIC})
 	set_tests_properties(api-test-happy-eyeballs
@@ -92,6 +94,30 @@ if (requirements)
 		endif()
 
 		set_tests_properties(api-test-happy-eyeballs-libuv
+				     PROPERTIES
+				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-happy-eyeballs
+				     ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/lib"
+				     TIMEOUT 60)
+
+		#
+		# FI simulates the connect wait timeout firing mid-race: the
+		# primary attempt is abandoned while a happy-eyeballs racer is
+		# still live, taking the try_next_dns_result_fds promote path
+		# in lws_client_connect_3_connect().  A follow-on sequence of
+		# fresh connections then has to keep succeeding, since a stale
+		# racer watcher orphaned there trips UV_EEXIST in the accept
+		# path once the kernel recycles the racer's fd number (this was
+		# seen in the wild taking down a production server ~30 mins
+		# after start).  If the local resolver only returns one family
+		# for the server name, no racer ever exists and the variant
+		# silently degrades to plain connection success.
+		#
+
+		add_test(NAME api-test-happy-eyeballs-libuv-midrace
+			 COMMAND lws-api-test-happy-eyeballs --uv --midrace-timeout
+				 --server ${LWS_CTEST_SERVER_RESOLVE}
+				 -p ${PORT_HE_TCP_MR} -q ${PORT_HE_QUIC_MR})
+		set_tests_properties(api-test-happy-eyeballs-libuv-midrace
 				     PROPERTIES
 				     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/minimal-examples-lowlevel/api-tests/api-test-happy-eyeballs
 				     ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_BINARY_DIR}/lib"

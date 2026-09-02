@@ -506,6 +506,26 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 		&wsi->sul_h3_grace.list));
 	if ((lwsi_state(wsi) == LRS_WAITING_CONNECT || (is_quic_race && pollfd != NULL)) &&
 	    (lws_socket_is_valid(wsi->desc.sockfd) || wsi->parallel_count > 0)) {
+#if defined(LWS_WITH_SYS_FAULT_INJECTION)
+		if (lwsi_state(wsi) == LRS_WAITING_CONNECT && wsi->parallel_count > 0) {
+			int any_parallel = 0;
+
+			for (m = 0; m < wsi->parallel_count; m++)
+				if (wsi->parallel_conns[m].is_valid)
+					any_parallel = 1;
+
+			/*
+			 * FI: simulate the connect wait timeout having fired
+			 * mid-race, so the primary attempt is abandoned via
+			 * the same path as the real timeout while a racing
+			 * attempt is still live.  Only eligible when a racer
+			 * actually exists, so earlier re-entries (eg, the
+			 * happy-eyeballs racer creation) don't consume it.
+			 */
+			if (any_parallel && lws_fi(&wsi->fic, "conn_wait_timeout"))
+				goto connect_to;
+		}
+#endif
 		if (lwsi_state(wsi) == LRS_WAITING_CONNECT && !lws_dll2_owner(&wsi->sul_connect_timeout.list))
 			/* no ongoing timeout for one */
 			goto connect_to;
@@ -1525,9 +1545,19 @@ try_next_dns_result_fds:
 			}
 		}
 		if (first_valid != -1) {
-			wsi->desc.sockfd = wsi->parallel_conns[first_valid].desc.sockfd;
-			wsi->position_in_fds_table = wsi->parallel_conns[first_valid].position_in_fds_table;
-			wsi->parallel_conns[first_valid].is_valid = 0;
+			/*
+			 * Promote the racer via the event lib ops where they
+			 * exist.  Without this, on event libs like libuv the
+			 * wsi's main watcher stays bound to the now-closed
+			 * primary fd while the racer's watcher is orphaned,
+			 * since is_valid is cleared below and no close path
+			 * will visit it again.  Both stale watchers then trip
+			 * UV_EEXIST later when the kernel recycles the fd
+			 * numbers.
+			 */
+			if (wsi->a.context->event_loop_ops->promote_parallel)
+				wsi->a.context->event_loop_ops->promote_parallel(wsi, first_valid);
+			promote_parallel_fd(wsi, first_valid);
 		}
 #endif
 	}
