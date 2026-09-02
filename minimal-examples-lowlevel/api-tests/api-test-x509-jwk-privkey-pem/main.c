@@ -145,7 +145,7 @@ run_test_case(struct lws_context *context, const struct test_case *tc, const cha
 	lwsl_user("\n=== Test: %s ===", tc->name);
 
 #if defined(LWS_WITH_MBEDTLS) && defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER < 0x03000000
-       if (tc->passphrase && 
+       if (tc->passphrase &&
            (!strcmp(tc->name, "RSA 2048-bit encrypted private key (correct passphrase)") ||
             !strcmp(tc->name, "RSA 2048-bit encrypted private key (wrong passphrase)") ||
             !strcmp(tc->name, "EC P-256 encrypted private key (correct passphrase)") ||
@@ -153,6 +153,17 @@ run_test_case(struct lws_context *context, const struct test_case *tc, const cha
                lwsl_user("Skipping test '%s' on mbedtls < 3 (lacks hmacWithSHA256 PBES2)\n", tc->name);
                return 0;
        }
+#endif
+#if defined(LWS_WITH_BEARSSL)
+	/*
+	 * BearSSL provides no encrypted private key PEM pieces, so these
+	 * can only fail there (with their own log saying so)
+	 */
+	if (tc->passphrase) {
+		lwsl_user("Skipping test '%s' on BearSSL (no encrypted "
+			  "private key PEM pieces)\n", tc->name);
+		return 0;
+	}
 #endif
 
 	lwsl_user("Certificate: %s", cert_full_path);

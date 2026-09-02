@@ -170,12 +170,6 @@ bail:
 	return -1;
 }
 
-void
-lws_genrsa_destroy_elements(struct lws_gencrypto_keyelem *el)
-{
-	lws_gencrypto_destroy_elements(el, LWS_GENCRYPTO_RSA_KEYEL_COUNT);
-}
-
 struct lws_genrsa_keypair_bufs {
 	uint8_t *n;
 	uint8_t *e;

@@ -692,6 +692,12 @@ lws_gencrypto_destroy_elements(struct lws_gencrypto_keyelem *el, int m)
 			lws_free_set_NULL(el[n].buf);
 }
 
+void
+lws_genrsa_destroy_elements(struct lws_gencrypto_keyelem *el)
+{
+	lws_gencrypto_destroy_elements(el, LWS_GENCRYPTO_RSA_KEYEL_COUNT);
+}
+
 size_t lws_gencrypto_padded_length(size_t pad_block_size, size_t len)
 {
 	return (len / pad_block_size + 1) * pad_block_size;

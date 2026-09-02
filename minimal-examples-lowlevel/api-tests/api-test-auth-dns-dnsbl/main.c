@@ -488,7 +488,12 @@ main(int argc, const char **argv)
 		lwsl_err("stub socket failed\n");
 		return 1;
 	}
-	fcntl(stub_fd, F_SETFL, O_NONBLOCK);
+
+	if (fcntl(stub_fd, F_SETFL, O_NONBLOCK) < 0) {
+		lwsl_err("stub socket fcntl failed\n");
+		close(stub_fd);
+		return 1;
+	}
 
 	memset(&sa, 0, sizeof(sa));
 	sa.sin_family = AF_INET;
@@ -509,7 +514,13 @@ main(int argc, const char **argv)
 		close(stub_fd);
 		return 1;
 	}
-	fcntl(cli_udp_fd, F_SETFL, O_NONBLOCK);
+
+	if (fcntl(cli_udp_fd, F_SETFL, O_NONBLOCK) < 0) {
+		lwsl_err("client socket fcntl failed\n");
+		close(cli_udp_fd);
+		close(stub_fd);
+		return 1;
+	}
 
 	/*
 	 * The auth dns vhost: UDP + TCP listeners on auth_port, serving
