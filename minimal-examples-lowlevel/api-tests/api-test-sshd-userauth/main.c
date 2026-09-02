@@ -544,8 +544,9 @@ cli_rx(const void *in, size_t len)
 				rxlen = 0;
 				return 0;
 			}
-			memmove(rxbuf, rxbuf + n + 1, rxlen - n - 1);
 			rxlen -= n + 1;
+			if (rxlen)
+				memmove(rxbuf, rxbuf + n + 1, rxlen);
 			cli_state = ST_CLI_SVC_ACCEPT;
 			continue;
 		}

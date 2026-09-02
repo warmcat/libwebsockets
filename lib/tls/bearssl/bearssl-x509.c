@@ -355,122 +355,219 @@ bail:
 	return -1;
 }
 
+struct der_buf {
+	unsigned char buf[4096];
+	size_t len;
+	unsigned char overflow;
+};
+
+static void
+pem_der_dest(void *dest_ctx, const void *data, size_t len)
+{
+	struct der_buf *db = (struct der_buf *)dest_ctx;
+
+	if (db->len + len > sizeof(db->buf)) {
+		db->overflow = 1;
+		return;
+	}
+
+	memcpy(db->buf + db->len, data, len);
+	db->len += len;
+}
+
+/*
+ * Walk the eight INTEGERs of an RSAPrivateKey SEQUENCE with the bounded
+ * TLV walker; the returned element pointers aim into the DER buffer, in
+ * DER order n, e, d, p, q, dp, dq, qinv
+ */
+static int
+rsa_der_walk_seq(const uint8_t *seq, size_t seq_len,
+		 const uint8_t *els[8], size_t el_lens[8])
+{
+	const uint8_t *p = seq, *end = seq + seq_len;
+	int tag, i;
+
+	/* version */
+	if (lws_asn1_get_tlv(&p, end, &tag, &el_lens[0]) || tag != 0x02)
+		return -1;
+	p += el_lens[0];
+
+	for (i = 0; i < 8; i++) {
+		if (lws_asn1_get_tlv(&p, end, &tag, &el_lens[i]) || tag != 0x02)
+			return -1;
+		els[i] = p;
+		p += el_lens[i];
+	}
+
+	/*
+	 * canonical unsigned-minimal form (DER INTEGERs may carry sign
+	 * padding zeros), as the cert side and bearssl key ops expect
+	 */
+	for (i = 0; i < 8; i++)
+		while (el_lens[i] > 1 && els[i][0] == 0) {
+			els[i]++;
+			el_lens[i]--;
+		}
+
+	return 0;
+}
+
+/*
+ * Walk an RSAPrivateKey, either raw or PKCS#8-wrapped; anything else
+ * (including an EC key) is rejected
+ */
+static int
+rsa_der_walk(const uint8_t *der, size_t der_len,
+	     const uint8_t *els[8], size_t el_lens[8])
+{
+	const uint8_t *p = der, *end = der + der_len, *seq;
+	size_t n, seq_len;
+	int tag;
+
+	if (lws_asn1_get_tlv(&p, end, &tag, &seq_len) || tag != 0x30)
+		return -1;
+	seq = p;
+
+	/* version */
+	if (lws_asn1_get_tlv(&p, end, &tag, &n) || tag != 0x02)
+		return -1;
+	p += n;
+
+	if (p < end && *p == 0x30) {
+		/* PKCS#8 OneAsymmetricKey: SEQUENCE algid, OCTET STRING key */
+
+		if (lws_asn1_get_tlv(&p, end, &tag, &n) || tag != 0x30)
+			return -1;
+		p += n;
+
+		if (lws_asn1_get_tlv(&p, end, &tag, &n) || tag != 0x04 ||
+		    n < 2)
+			return -1;
+
+		/* the wrapped key is itself a DER SEQUENCE */
+		return rsa_der_walk(p, n, els, el_lens);
+	}
+
+	return rsa_der_walk_seq(seq, seq_len, els, el_lens);
+}
+
 int lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 			     void *pem, size_t len, const char *passphrase)
 {
+	static const int rsa_el_map[8] = {
+		LWS_GENCRYPTO_RSA_KEYEL_N, LWS_GENCRYPTO_RSA_KEYEL_E,
+		LWS_GENCRYPTO_RSA_KEYEL_D, LWS_GENCRYPTO_RSA_KEYEL_P,
+		LWS_GENCRYPTO_RSA_KEYEL_Q, LWS_GENCRYPTO_RSA_KEYEL_DP,
+		LWS_GENCRYPTO_RSA_KEYEL_DQ, LWS_GENCRYPTO_RSA_KEYEL_QI,
+	};
+	struct der_buf db;
 	br_pem_decoder_context pc;
-	br_skey_decoder_context sc;
-	const br_rsa_private_key *rsa;
-	const br_ec_private_key *ec;
 	const uint8_t *p = (const uint8_t *)pem;
 	size_t remaining = len;
-	int found = 0;
 
-	memset(jwk, 0, sizeof(*jwk));
+	/*
+	 * The caller's jwk already carries the matching public parts from
+	 * lws_x509_public_to_jwk(); we add the private elements to it
+	 */
+
+	memset(&db, 0, sizeof(db));
 
 	br_pem_decoder_init(&pc);
-	br_skey_decoder_init(&sc);
-	br_pem_decoder_setdest(&pc, (void (*)(void *, const void *, size_t))br_skey_decoder_push, &sc);
+	br_pem_decoder_setdest(&pc, pem_der_dest, &db);
 
 	while (remaining > 0) {
 		size_t pushed = br_pem_decoder_push(&pc, p, remaining);
+
 		p += pushed;
 		remaining -= pushed;
 
-		int ev = br_pem_decoder_event(&pc);
-		if (ev == BR_PEM_END_OBJ) {
-			if (br_skey_decoder_last_error(&sc) == 0 &&
-			    br_skey_decoder_key_type(&sc) != 0) {
-				found = 1;
-				break;
+		switch (br_pem_decoder_event(&pc)) {
+		case BR_PEM_BEGIN_OBJ:
+			if (!strncmp(br_pem_decoder_name(&pc),
+				     "ENCRYPTED PRIVATE KEY", 21)) {
+				lwsl_err("%s: BearSSL provides no encrypted "
+					 "private key PEM pieces\n", __func__);
+				return -1;
 			}
-			br_skey_decoder_init(&sc);
+			break;
+
+		case BR_PEM_END_OBJ:
+			goto done;
+
+		default:
+			break;
 		}
 	}
 
-	if (!found) {
+done:
+	if (db.overflow || db.len < 8) {
 		lwsl_err("%s: privkey decode failed\n", __func__);
 		return -1;
 	}
 
-	switch (br_skey_decoder_key_type(&sc)) {
-	case BR_KEYTYPE_RSA:
-		if (jwk->kty != LWS_GENCRYPTO_KTY_RSA) {
-			lwsl_err("%s: RSA privkey, non-RSA jwk\n", __func__);
-			goto bail;
+	/* RSA: the DER carries n and e too, so the key can be confirmed
+	 * against the jwk's public parts exactly */
+
+	{
+		const uint8_t *els[8];
+		size_t el_lens[8];
+		int n;
+
+		if (!rsa_der_walk(db.buf, db.len, els, el_lens)) {
+			if (jwk->kty != LWS_GENCRYPTO_KTY_RSA) {
+				lwsl_err("%s: RSA privkey, non-RSA jwk\n", __func__);
+				goto bail;
+			}
+
+			if (el_lens[1] != jwk->e[rsa_el_map[1]].len ||
+			    lws_timingsafe_bcmp(els[1],
+					jwk->e[rsa_el_map[1]].buf,
+					(unsigned int)el_lens[1]) ||
+			    el_lens[0] != jwk->e[rsa_el_map[0]].len ||
+			    lws_timingsafe_bcmp(els[0],
+					jwk->e[rsa_el_map[0]].buf,
+					(unsigned int)el_lens[0])) {
+				lwsl_err("%s: privkey doesn't match jwk pubkey\n",
+					 __func__);
+				goto bail;
+			}
+
+			for (n = 2; n < 8; n++) {
+				jwk->e[rsa_el_map[n]].buf =
+						lws_malloc(el_lens[n], "certjwk");
+				if (!jwk->e[rsa_el_map[n]].buf)
+					goto bail;
+				jwk->e[rsa_el_map[n]].len = (uint32_t)el_lens[n];
+				memcpy(jwk->e[rsa_el_map[n]].buf, els[n],
+				       el_lens[n]);
+			}
+
+			return 0;
 		}
-		rsa = br_skey_decoder_get_rsa(&sc);
-		if (!rsa) goto bail;
+	}
 
-		uint32_t pubexp = br_rsa_compute_pubexp_get_default()(rsa);
+	/* EC */
 
-		{
-			uint32_t jwk_e = 0;
-			for (size_t i = 0; i < jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].len; i++) {
-				jwk_e = (jwk_e << 8) | jwk->e[LWS_GENCRYPTO_RSA_KEYEL_E].buf[i];
-			}
-			if (pubexp != jwk_e) {
-				lwsl_err("%s: privkey E doesn't match jwk pubkey\n", __func__);
-				goto bail;
-			}
+	{
+		br_skey_decoder_context sc;
+		const br_ec_private_key *ec;
 
-			size_t nlen = br_rsa_compute_modulus_get_default()(NULL, rsa);
-			if (nlen != jwk->e[LWS_GENCRYPTO_RSA_KEYEL_N].len) {
-				lwsl_err("%s: privkey N len doesn't match jwk pubkey\n", __func__);
-				goto bail;
-			}
-
-			uint8_t *tmp_n = lws_malloc(nlen, "tmpN");
-			if (!tmp_n) goto bail;
-			br_rsa_compute_modulus_get_default()(tmp_n, rsa);
-			if (memcmp(tmp_n, jwk->e[LWS_GENCRYPTO_RSA_KEYEL_N].buf, nlen)) {
-				lws_free(tmp_n);
-				lwsl_err("%s: privkey N doesn't match jwk pubkey\n", __func__);
-				goto bail;
-			}
-			lws_free(tmp_n);
+		br_skey_decoder_init(&sc);
+		br_skey_decoder_push(&sc, db.buf, db.len);
+		if (br_skey_decoder_last_error(&sc) ||
+		    br_skey_decoder_key_type(&sc) != BR_KEYTYPE_EC) {
+			lwsl_err("%s: privkey decode failed\n", __func__);
+			return -1;
 		}
 
-		size_t dlen = br_rsa_compute_privexp_get_default()(NULL, rsa, pubexp);
-
-		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_D].buf = lws_malloc(dlen, "certjwk");
-		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_P].buf = lws_malloc(rsa->plen, "certjwk");
-		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_Q].buf = lws_malloc(rsa->qlen, "certjwk");
-		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_DP].buf = lws_malloc(rsa->dplen, "certjwk");
-		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_DQ].buf = lws_malloc(rsa->dqlen, "certjwk");
-		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_QI].buf = lws_malloc(rsa->iqlen, "certjwk");
-
-		if (!jwk->e[LWS_GENCRYPTO_RSA_KEYEL_D].buf || !jwk->e[LWS_GENCRYPTO_RSA_KEYEL_P].buf ||
-		    !jwk->e[LWS_GENCRYPTO_RSA_KEYEL_Q].buf || !jwk->e[LWS_GENCRYPTO_RSA_KEYEL_DP].buf ||
-		    !jwk->e[LWS_GENCRYPTO_RSA_KEYEL_DQ].buf || !jwk->e[LWS_GENCRYPTO_RSA_KEYEL_QI].buf)
-			goto bail;
-
-		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_D].len = (uint32_t)dlen;
-		br_rsa_compute_privexp_get_default()(jwk->e[LWS_GENCRYPTO_RSA_KEYEL_D].buf, rsa, pubexp);
-
-		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_P].len = (uint32_t)rsa->plen;
-		memcpy(jwk->e[LWS_GENCRYPTO_RSA_KEYEL_P].buf, rsa->p, rsa->plen);
-
-		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_Q].len = (uint32_t)rsa->qlen;
-		memcpy(jwk->e[LWS_GENCRYPTO_RSA_KEYEL_Q].buf, rsa->q, rsa->qlen);
-
-		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_DP].len = (uint32_t)rsa->dplen;
-		memcpy(jwk->e[LWS_GENCRYPTO_RSA_KEYEL_DP].buf, rsa->dp, rsa->dplen);
-
-		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_DQ].len = (uint32_t)rsa->dqlen;
-		memcpy(jwk->e[LWS_GENCRYPTO_RSA_KEYEL_DQ].buf, rsa->dq, rsa->dqlen);
-
-		jwk->e[LWS_GENCRYPTO_RSA_KEYEL_QI].len = (uint32_t)rsa->iqlen;
-		memcpy(jwk->e[LWS_GENCRYPTO_RSA_KEYEL_QI].buf, rsa->iq, rsa->iqlen);
-		break;
-
-	case BR_KEYTYPE_EC:
 		if (jwk->kty != LWS_GENCRYPTO_KTY_EC) {
 			lwsl_err("%s: EC privkey, non-EC jwk\n", __func__);
 			goto bail;
 		}
+
 		ec = br_skey_decoder_get_ec(&sc);
-		if (!ec) goto bail;
+		if (!ec)
+			goto bail;
 
 		jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].buf = lws_malloc(ec->xlen, "certjwk");
 		if (!jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].buf)
@@ -478,14 +575,9 @@ int lws_x509_jwk_privkey_pem(struct lws_context *cx, struct lws_jwk *jwk,
 
 		jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].len = (uint32_t)ec->xlen;
 		memcpy(jwk->e[LWS_GENCRYPTO_EC_KEYEL_D].buf, ec->x, ec->xlen);
-		break;
 
-	default:
-		lwsl_err("%s: unusable key type %d\n", __func__, br_skey_decoder_key_type(&sc));
-		goto bail;
+		return 0;
 	}
-
-	return 0;
 
 bail:
 	lws_jwk_destroy(jwk);

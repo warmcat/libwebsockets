@@ -911,6 +911,7 @@ lws_genaes_run_hex_case(const struct lws_genaes_hex_case *tc)
 	uint8_t *ivp, *sbp;
 	size_t key_len, iv_len, in_len, out_len, off;
 	size_t *offp;
+	int n;
 
 	key_len = lws_genaes_hex_to_buf(tc->key_hex, key, sizeof(key));
 	iv_len = lws_genaes_hex_to_buf(tc->iv_hex, iv_src, sizeof(iv_src));
@@ -926,8 +927,14 @@ lws_genaes_run_hex_case(const struct lws_genaes_hex_case *tc)
 
 	lws_genaes_reset_state(tc->mode, iv_src, iv_len, iv, &ivp, sb, &sbp,
 			       &off, &offp);
-	if (lws_genaes_create(&ctx, LWS_GAESO_ENC, tc->mode, &e,
-			      tc->padding, NULL)) {
+	n = lws_genaes_create(&ctx, LWS_GAESO_ENC, tc->mode, &e,
+			      tc->padding, NULL);
+	if (n) {
+		if (n == -2) {
+			lwsl_notice("%s: %s unsupported on this backend\n",
+				    __func__, tc->name);
+			return 0;
+		}
 		lwsl_err("%s: %s enc create failed\n", __func__, tc->name);
 		return -1;
 	}
@@ -947,8 +954,14 @@ lws_genaes_run_hex_case(const struct lws_genaes_hex_case *tc)
 
 	lws_genaes_reset_state(tc->mode, iv_src, iv_len, iv, &ivp, sb, &sbp,
 			       &off, &offp);
-	if (lws_genaes_create(&ctx, LWS_GAESO_DEC, tc->mode, &e,
-			      tc->padding, NULL)) {
+	n = lws_genaes_create(&ctx, LWS_GAESO_DEC, tc->mode, &e,
+			      tc->padding, NULL);
+	if (n) {
+		if (n == -2) {
+			lwsl_notice("%s: %s unsupported on this backend\n",
+				    __func__, tc->name);
+			return 0;
+		}
 		lwsl_err("%s: %s dec create failed\n", __func__, tc->name);
 		return -1;
 	}

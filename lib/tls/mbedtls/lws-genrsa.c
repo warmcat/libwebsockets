@@ -29,16 +29,6 @@
 #include "private-lib-tls-mbedtls.h"
 #include <mbedtls/rsa.h>
 
-void
-lws_genrsa_destroy_elements(struct lws_gencrypto_keyelem *el)
-{
-	int n;
-
-	for (n = 0; n < LWS_GENCRYPTO_RSA_KEYEL_COUNT; n++)
-		if (el[n].buf)
-			lws_free_set_NULL(el[n].buf);
-}
-
 static int mode_map[] = { MBEDTLS_RSA_PKCS_V15, MBEDTLS_RSA_PKCS_V21 };
 
 int
@@ -599,15 +589,6 @@ lws_genrsa_destroy(struct lws_genrsa_ctx *ctx)
 
 #include "private-lib-tls-mbedtls.h"
 #include <psa/crypto.h>
-
-void
-lws_genrsa_destroy_elements(struct lws_gencrypto_keyelem *el)
-{
-	int n;
-	for (n = 0; n < LWS_GENCRYPTO_RSA_KEYEL_COUNT; n++)
-		if (el[n].buf)
-			lws_free_set_NULL(el[n].buf);
-}
 
 static int write_asn1_integer(uint8_t **p, uint8_t *end, const struct lws_gencrypto_keyelem *el)
 {

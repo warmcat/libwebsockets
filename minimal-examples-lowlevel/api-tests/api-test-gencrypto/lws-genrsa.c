@@ -10,9 +10,50 @@
  #include <libwebsockets.h>
  #include <stdlib.h>
  
- #if !defined(LWS_WITH_GNUTLS) && !(defined(LWS_WITH_MBEDTLS) && defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000)
- static int
- test_genrsa_roundtrips(struct lws_context *context)
+/*
+ * The PKCS#1 v1.5 data encrypt / decrypt class of the generic RSA apis is
+ * only available on some backends; GnuTLS, mbedTLS v3 and BearSSL fail
+ * those calls with their own logs, so subtests using them are skipped there
+ */
+#if !defined(LWS_WITH_GNUTLS) && \
+    !(defined(LWS_WITH_MBEDTLS) && defined(MBEDTLS_VERSION_NUMBER) && \
+      MBEDTLS_VERSION_NUMBER >= 0x03000000) && \
+    !defined(LWS_WITH_BEARSSL)
+#define GENRSA_HAS_PKCS1_DATAOPS
+#endif
+
+/*
+ * OAEP-mode data encrypt / decrypt is available on the PKCS#1 data-op
+ * backends and on BearSSL (which provides OAEP pieces only)
+ */
+#if defined(GENRSA_HAS_PKCS1_DATAOPS) || defined(LWS_WITH_BEARSSL)
+#define GENRSA_HAS_OAEP
+#endif
+
+/*
+ * Every backend apart from GnuTLS and mbedTLS v3 can generate keypairs and
+ * drive the sign / verify apis the ctx liveness fence probes with
+ */
+#if !defined(LWS_WITH_GNUTLS) && \
+    !(defined(LWS_WITH_MBEDTLS) && defined(MBEDTLS_VERSION_NUMBER) && \
+      MBEDTLS_VERSION_NUMBER >= 0x03000000)
+#define GENRSA_HAS_KEYGEN_SIGNVERIFY
+#endif
+
+#if defined(GENRSA_HAS_PKCS1_DATAOPS) || defined(GENRSA_HAS_OAEP) ||     defined(GENRSA_HAS_KEYGEN_SIGNVERIFY)
+static void
+test_genrsa_prepare_public_elements(struct lws_gencrypto_keyelem *dest,
+				    const struct lws_gencrypto_keyelem *src)
+{
+	memset(dest, 0, sizeof(*dest) * LWS_GENCRYPTO_RSA_KEYEL_COUNT);
+	dest[LWS_GENCRYPTO_RSA_KEYEL_E] = src[LWS_GENCRYPTO_RSA_KEYEL_E];
+	dest[LWS_GENCRYPTO_RSA_KEYEL_N] = src[LWS_GENCRYPTO_RSA_KEYEL_N];
+}
+#endif
+
+#if defined(GENRSA_HAS_PKCS1_DATAOPS)
+static int
+test_genrsa_roundtrips(struct lws_context *context)
  {
      static const uint8_t priv_plain[] = "private encrypt roundtrip";
      static const uint8_t pub_plain[] = "public encrypt roundtrip";
@@ -205,15 +246,6 @@ static const uint8_t genrsa_expected_priv_enc[] = {
     0xB6, 0x8D, 0x99, 0x4A
 };
 
-static void
-test_genrsa_prepare_public_elements(struct lws_gencrypto_keyelem *dest,
-				    const struct lws_gencrypto_keyelem *src)
-{
-	memset(dest, 0, sizeof(*dest) * LWS_GENCRYPTO_RSA_KEYEL_COUNT);
-	dest[LWS_GENCRYPTO_RSA_KEYEL_E] = src[LWS_GENCRYPTO_RSA_KEYEL_E];
-	dest[LWS_GENCRYPTO_RSA_KEYEL_N] = src[LWS_GENCRYPTO_RSA_KEYEL_N];
-}
-
 static int
 test_genrsa_fixed_vectors(struct lws_context *context)
 {
@@ -292,11 +324,106 @@ bail:
 
 	return ret;
 }
+#endif
+
+#if defined(GENRSA_HAS_OAEP)
+/*
+ * OAEP-mode data encrypt / decrypt roundtrip: the data-op path BearSSL can
+ * take part in, since BearSSL provides OAEP pieces.  Both ctxs are created
+ * from the generated elements with the same OAEP hash, the way JOSE
+ * creates them from a jwk
+ */
+static int
+test_genrsa_oaep_roundtrips(struct lws_context *context)
+{
+	static const uint8_t plain[] = "public encrypt roundtrip";
+	struct lws_genrsa_ctx gen, ctx, pub_ctx;
+	struct lws_gencrypto_keyelem el[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
+	struct lws_gencrypto_keyelem pub_el[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
+	uint8_t cipher[512], back[512];
+	int n, ret = 1;
+
+	memset(&gen, 0, sizeof(gen));
+	memset(&ctx, 0, sizeof(ctx));
+	memset(&pub_ctx, 0, sizeof(pub_ctx));
+	memset(el, 0, sizeof(el));
+	memset(pub_el, 0, sizeof(pub_el));
+
+	if (lws_genrsa_new_keypair(context, &gen, LGRSAM_PKCS1_OAEP_PSS, el,
+				   2048)) {
+		lwsl_err("%s: lws_genrsa_new_keypair failed\n", __func__);
+		goto bail;
+	}
+
+	/* the generation ctx has done its job */
+	lws_genrsa_destroy(&gen);
+
+	test_genrsa_prepare_public_elements(pub_el, el);
+
+	if (lws_genrsa_create(&pub_ctx, pub_el, context,
+			      LGRSAM_PKCS1_OAEP_PSS,
+			      LWS_GENHASH_TYPE_SHA256) ||
+	    lws_genrsa_create(&ctx, el, context, LGRSAM_PKCS1_OAEP_PSS,
+			      LWS_GENHASH_TYPE_SHA256)) {
+		lwsl_err("%s: lws_genrsa_create failed\n", __func__);
+		goto bail;
+	}
+
+	n = lws_genrsa_public_encrypt(&pub_ctx, plain, sizeof(plain) - 1,
+				      cipher);
+	if (n < 0) {
+		lwsl_err("%s: lws_genrsa_public_encrypt failed\n", __func__);
+		goto bail;
+	}
+
+	n = lws_genrsa_private_decrypt(&ctx, cipher, (size_t)n, back,
+				       sizeof(back));
+	if (n < 0) {
+		lwsl_err("%s: lws_genrsa_private_decrypt failed\n", __func__);
+		goto bail;
+	}
+
+	if (n != (int)(sizeof(plain) - 1) ||
+	    lws_timingsafe_bcmp(back, plain, sizeof(plain) - 1)) {
+		lwsl_err("%s: OAEP roundtrip mismatch\n", __func__);
+		goto bail;
+	}
+
+	ret = 0;
+
+bail:
+	lws_genrsa_destroy(&pub_ctx);
+	lws_genrsa_destroy(&ctx);
+	lws_genrsa_destroy_elements(el);
+
+	return ret;
+}
+#endif
+
+#if defined(GENRSA_HAS_KEYGEN_SIGNVERIFY)
+
+/* hash with the generic hash api, for the sign / verify probes */
+
+static int
+test_genrsa_hash32(const void *in, size_t in_len, uint8_t *hash32)
+{
+	struct lws_genhash_ctx gh;
+
+	if (lws_genhash_init(&gh, LWS_GENHASH_TYPE_SHA256) ||
+	    lws_genhash_update(&gh, in, in_len) ||
+	    lws_genhash_destroy(&gh, hash32))
+		return 1;
+
+	return 0;
+}
 
 /*
  * F-045 fence: ctx liveness rules.  create() and new_keypair() over a ctx
  * that still holds a live key incarnation must fail cleanly; after
  * destroy(), the same ctx can be recreated and operates with the new key
+ *
+ * The probes use the sign / verify apis, which every backend this fence
+ * runs on provides
  */
 static int
 test_genrsa_recreate(struct lws_context *context)
@@ -307,9 +434,8 @@ test_genrsa_recreate(struct lws_context *context)
 	struct lws_gencrypto_keyelem el[2][LWS_GENCRYPTO_RSA_KEYEL_COUNT];
 	struct lws_gencrypto_keyelem pub_el[2][LWS_GENCRYPTO_RSA_KEYEL_COUNT];
 	struct lws_gencrypto_keyelem gen[LWS_GENCRYPTO_RSA_KEYEL_COUNT];
-	uint8_t *cipher = NULL, *plain = NULL;
-	size_t key_bytes;
-	int n, m, ret = 1;
+	uint8_t hash[32], sig[512];
+	int n, ret = 1;
 
 	memset(&ctx, 0, sizeof(ctx));
 	memset(&ctx2, 0, sizeof(ctx2));
@@ -344,28 +470,24 @@ test_genrsa_recreate(struct lws_context *context)
 		goto bail;
 	}
 
-	key_bytes = el[0][LWS_GENCRYPTO_RSA_KEYEL_N].len;
-	cipher = malloc(key_bytes);
-	plain = malloc(key_bytes);
-	if (!cipher || !plain) {
-		lwsl_err("%s: OOM allocating recreate buffers\n", __func__);
-		goto bail;
-	}
-
 	/* sanity: ctx currently operates with key 0 */
 
-	n = lws_genrsa_private_encrypt(&ctx, plain_a, sizeof(plain_a) - 1,
-				       cipher);
-	if (n < 0) {
-		lwsl_err("%s: private_encrypt sanity failed\n", __func__);
+	if (test_genrsa_hash32(plain_a, sizeof(plain_a) - 1, hash)) {
+		lwsl_err("%s: hash failed\n", __func__);
 		goto bail;
 	}
 
-	n = lws_genrsa_public_decrypt(&pub1, cipher, (size_t)n, plain,
-				      key_bytes);
-	if (n != (int)(sizeof(plain_a) - 1) ||
-	    lws_timingsafe_bcmp(plain, plain_a, sizeof(plain_a) - 1)) {
-		lwsl_err("%s: sanity roundtrip mismatch\n", __func__);
+	n = lws_genrsa_hash_sign(&ctx, hash, LWS_GENHASH_TYPE_SHA256,
+				 sig, sizeof(sig));
+	if (n < 0) {
+		lwsl_err("%s: sign sanity failed\n", __func__);
+		goto bail;
+	}
+
+	if (lws_genrsa_hash_sig_verify(&pub1, hash,
+				       LWS_GENHASH_TYPE_SHA256,
+				       sig, (size_t)n)) {
+		lwsl_err("%s: sanity sign/verify mismatch\n", __func__);
 		goto bail;
 	}
 
@@ -388,18 +510,21 @@ test_genrsa_recreate(struct lws_context *context)
 		goto bail;
 	}
 
-	n = lws_genrsa_private_encrypt(&ctx, plain_b, sizeof(plain_b) - 1,
-				       cipher);
-	if (n < 0) {
-		lwsl_err("%s: private_encrypt after recreate failed\n",
-			 __func__);
+	if (test_genrsa_hash32(plain_b, sizeof(plain_b) - 1, hash)) {
+		lwsl_err("%s: hash failed\n", __func__);
 		goto bail;
 	}
 
-	m = lws_genrsa_public_decrypt(&pub2, cipher, (size_t)n, plain,
-				      key_bytes);
-	if (m != (int)(sizeof(plain_b) - 1) ||
-	    lws_timingsafe_bcmp(plain, plain_b, sizeof(plain_b) - 1)) {
+	n = lws_genrsa_hash_sign(&ctx, hash, LWS_GENHASH_TYPE_SHA256,
+				 sig, sizeof(sig));
+	if (n < 0) {
+		lwsl_err("%s: sign after recreate failed\n", __func__);
+		goto bail;
+	}
+
+	if (lws_genrsa_hash_sig_verify(&pub2, hash,
+				       LWS_GENHASH_TYPE_SHA256,
+				       sig, (size_t)n)) {
 		lwsl_err("%s: recreated ctx not operating with key 1\n",
 			 __func__);
 		goto bail;
@@ -407,10 +532,9 @@ test_genrsa_recreate(struct lws_context *context)
 
 	/* ...and it must no longer be operating with key 0 */
 
-	m = lws_genrsa_public_decrypt(&pub1, cipher, (size_t)n, plain,
-				      key_bytes);
-	if (m == (int)(sizeof(plain_b) - 1) &&
-	    !lws_timingsafe_bcmp(plain, plain_b, sizeof(plain_b) - 1)) {
+	if (!lws_genrsa_hash_sig_verify(&pub1, hash,
+					LWS_GENHASH_TYPE_SHA256,
+					sig, (size_t)n)) {
 		lwsl_err("%s: recreated ctx still operating with key 0\n",
 			 __func__);
 		goto bail;
@@ -426,19 +550,24 @@ test_genrsa_recreate(struct lws_context *context)
 		goto bail;
 	}
 
-	n = lws_genrsa_private_encrypt(&ctx, plain_a, sizeof(plain_a) - 1,
-				       cipher);
+	if (test_genrsa_hash32(plain_a, sizeof(plain_a) - 1, hash)) {
+		lwsl_err("%s: hash failed\n", __func__);
+		goto bail;
+	}
+
+	n = lws_genrsa_hash_sign(&ctx, hash, LWS_GENHASH_TYPE_SHA256,
+				 sig, sizeof(sig));
 	if (n < 0) {
-		lwsl_err("%s: private_encrypt after second recreate failed\n",
+		lwsl_err("%s: sign after second recreate failed\n",
 			 __func__);
 		goto bail;
 	}
 
-	n = lws_genrsa_public_decrypt(&pub1, cipher, (size_t)n, plain,
-				      key_bytes);
-	if (n != (int)(sizeof(plain_a) - 1) ||
-	    lws_timingsafe_bcmp(plain, plain_a, sizeof(plain_a) - 1)) {
-		lwsl_err("%s: second recreate roundtrip mismatch\n", __func__);
+	if (lws_genrsa_hash_sig_verify(&pub1, hash,
+				       LWS_GENHASH_TYPE_SHA256,
+				       sig, (size_t)n)) {
+		lwsl_err("%s: second recreate sign/verify mismatch\n",
+			 __func__);
 		goto bail;
 	}
 
@@ -464,10 +593,6 @@ test_genrsa_recreate(struct lws_context *context)
 	ret = 0;
 
 bail:
-	if (cipher)
-		free(cipher);
-	if (plain)
-		free(plain);
 	lws_genrsa_destroy(&pub2);
 	lws_genrsa_destroy(&pub1);
 	lws_genrsa_destroy(&ctx2);
@@ -483,24 +608,36 @@ bail:
 int
 test_genrsa(struct lws_context *context)
 {
-#if !defined(LWS_WITH_GNUTLS) && !(defined(LWS_WITH_MBEDTLS) && defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000)
+#if !defined(GENRSA_HAS_PKCS1_DATAOPS) && !defined(GENRSA_HAS_OAEP) && \
+    !defined(GENRSA_HAS_KEYGEN_SIGNVERIFY)
+	lwsl_notice("%s: Skipping RSA tests (unsupported on this backend)\n",
+		    __func__);
+	lwsl_notice("%s: selftest OK\n", __func__);
+
+	return 0;
+#else
+#if defined(GENRSA_HAS_PKCS1_DATAOPS)
 	if (test_genrsa_roundtrips(context))
 		goto bail;
 
 	if (test_genrsa_fixed_vectors(context))
 		goto bail;
+#endif
 
+#if defined(GENRSA_HAS_OAEP)
+	if (test_genrsa_oaep_roundtrips(context))
+		goto bail;
+#endif
+
+#if defined(GENRSA_HAS_KEYGEN_SIGNVERIFY)
 	if (test_genrsa_recreate(context))
 		goto bail;
-#else
-	lwsl_notice("%s: Skipping RSA encrypt/decrypt tests (unsupported on this backend)\n", __func__);
 #endif
 
 	lwsl_notice("%s: selftest OK\n", __func__);
 
 	return 0;
 
-#if !defined(LWS_WITH_GNUTLS) && !(defined(LWS_WITH_MBEDTLS) && defined(MBEDTLS_VERSION_NUMBER) && MBEDTLS_VERSION_NUMBER >= 0x03000000)
 bail:
 	lwsl_err("%s: selftest failed ++++++++++++++++++++\n", __func__);
 

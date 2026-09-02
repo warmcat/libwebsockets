@@ -36,12 +36,6 @@
  * lws convention of 0 for success.
  */
 
-void
-lws_genrsa_destroy_elements(struct lws_gencrypto_keyelem *el)
-{
-	lws_gencrypto_destroy_elements(el, LWS_GENCRYPTO_RSA_KEYEL_COUNT);
-}
-
 static int mode_map_crypt[] = { RSA_PKCS1_PADDING, RSA_PKCS1_OAEP_PADDING },
 	   mode_map_sig[]   = { RSA_PKCS1_PADDING, RSA_PKCS1_PSS_PADDING };
 
