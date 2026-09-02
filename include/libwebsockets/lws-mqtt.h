@@ -161,6 +161,15 @@ typedef struct topic_elem {
 } lws_mqtt_topic_elem_t;
 
 /*
+ * The maximum number of topic elements that can be passed in a single
+ * lws_mqtt_client_send_subcribe() or lws_mqtt_client_send_unsubcribe()
+ * call, ie, the top end of the valid range for
+ * lws_mqtt_subscribe_param_t.num_topics.  Calls with a num_topics of
+ * zero or greater than this are rejected with a nonzero return.
+ */
+#define LWS_MQTT_MAX_TOPICS 8
+
+/*
  * MQTT publish parameters
 */
 typedef struct lws_mqtt_subscribe_param_s {

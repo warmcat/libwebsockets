@@ -623,6 +623,17 @@ rops_close_kill_connection_mqtt(struct lws *wsi, enum lws_close_status reason)
 #if defined(LWS_WITH_CLIENT)
 			|| wsi->client_mux_substream
 #endif
+			/*
+			 * The connection wsi itself is not marked as a
+			 * substream, but it owns the mux children (the wsi
+			 * created at CONNACK that holds the connection-level
+			 * state, and anything adopted under it).  If we don't
+			 * close them here, they are orphaned with a dangling
+			 * mux.parent_wsi, and only get found (and set loose on
+			 * it) at context destroy.  h2 covers the same case for
+			 * its nwsi via upgraded_to_http2 in its own gate.
+			 */
+			|| !lws_dll2_is_empty(&wsi->mux.child_list_owner)
 		) {
 		lwsl_info("closing %s: parent %s: first child %p\n",
 				lws_wsi_tag(wsi),

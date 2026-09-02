@@ -1394,6 +1394,14 @@ cmd_completion:
 				wsi->client_mux_migrated = 1;
 				wsi->told_user_closed = 1; /* don't tell nwsi closed */
 
+				/*
+				 * He came from lws_create_new_server_wsi(), so
+				 * he is still on the pt pre-natal "last resort"
+				 * list of wsi with no identity yet.  He has one
+				 * now; the mux linkage tracks him from here.
+				 */
+				lws_dll2_remove(&w->pre_natal);
+
 				lwsi_set_state(w, LRS_ESTABLISHED);
 				lwsi_set_state(wsi, LRS_ESTABLISHED);
 				lwsi_set_role(w, lwsi_role(wsi));
@@ -2262,7 +2270,7 @@ lws_mqtt_client_send_subcribe(struct lws *wsi, lws_mqtt_subscribe_param_t *sub)
 	uint8_t *b = (uint8_t *)pt->serv_buf + LWS_PRE, *start = b, *p = start;
 	struct lws *nwsi = lws_get_network_wsi(wsi);
 	lws_mqtt_str_t mqtt_vh_payload;
-	uint8_t exists[8], extant;
+	uint8_t exists[LWS_MQTT_MAX_TOPICS], extant;
 	lws_mqtt_subs_t *mysub;
 	uint32_t rem_len;
 #if defined(_DEBUG)
@@ -2270,8 +2278,18 @@ lws_mqtt_client_send_subcribe(struct lws *wsi, lws_mqtt_subscribe_param_t *sub)
 #endif
 	uint32_t n;
 
-	assert(sub->num_topics);
-	assert(sub->num_topics < sizeof(exists));
+	/*
+	 * num_topics comes from the application and is used to index the
+	 * fixed-size exists[] scratch, so it has to stay inside the published
+	 * range or we would walk off the end of it
+	 */
+	if (!sub->num_topics || sub->num_topics > LWS_MQTT_MAX_TOPICS) {
+		lwsl_err("%s: num_topics %u out of range (1 - %u)\n",
+			 __func__, (unsigned int)sub->num_topics,
+			 (unsigned int)LWS_MQTT_MAX_TOPICS);
+
+		return 1;
+	}
 
 	switch (lwsi_state(wsi)) {
 	case LRS_ESTABLISHED: /* Protocol connection established */
@@ -2448,7 +2466,7 @@ lws_mqtt_client_send_unsubcribe(struct lws *wsi,
 	uint8_t *b = (uint8_t *)pt->serv_buf + LWS_PRE, *start = b, *p = start;
 	struct lws *nwsi = lws_get_network_wsi(wsi);
 	lws_mqtt_str_t mqtt_vh_payload;
-	uint8_t send_unsub[8], orphaned;
+	uint8_t send_unsub[LWS_MQTT_MAX_TOPICS], orphaned;
 	uint32_t rem_len, n;
 	lws_mqtt_subs_t *mysub;
 #if defined(_DEBUG)
@@ -2456,6 +2474,19 @@ lws_mqtt_client_send_unsubcribe(struct lws *wsi,
 #endif
 
 	lwsl_info("%s: Enter\n", __func__);
+
+	/*
+	 * num_topics comes from the application and is used to index the
+	 * fixed-size send_unsub[] scratch, so it has to stay inside the
+	 * published range or we would walk off the end of it
+	 */
+	if (!unsub->num_topics || unsub->num_topics > LWS_MQTT_MAX_TOPICS) {
+		lwsl_err("%s: num_topics %u out of range (1 - %u)\n",
+			 __func__, (unsigned int)unsub->num_topics,
+			 (unsigned int)LWS_MQTT_MAX_TOPICS);
+
+		return 1;
+	}
 
 	switch (lwsi_state(wsi)) {
 	case LRS_ESTABLISHED: /* Protocol connection established */
