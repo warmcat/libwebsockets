@@ -936,6 +936,18 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 	}
 	break;
 
+	case LWS_CALLBACK_RAW_CLOSE_FILE:
+		/*
+		 * As the protocol named by the stub's parent_protocol_name,
+		 * we must keep the stub's spawn object informed about its
+		 * stdwsi closing, so it can track and clean up after the
+		 * child process
+		 */
+		if (vhd && vhd->stub_mgr && lws_stub_get_lsp(vhd->stub_mgr))
+			lws_spawn_stdwsi_closed(
+				lws_stub_get_lsp(vhd->stub_mgr), wsi);
+		break;
+
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
 		if (!vhd)
 			break;
