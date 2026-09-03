@@ -228,6 +228,11 @@ int
 lws_dlo_ss_find(struct lws_context *cx, const char *url, lws_dlo_image_t *u)
 {
 #if defined(LWS_WITH_SECURE_STREAMS)
+	if (!cx)
+		/* standalone use with no lws_context: nothing to search */
+
+		return 1; /* not found */
+
 	// lwsl_notice("searching '%s'\n", url);
 
 	lws_start_foreach_dll(struct lws_dll2 *, d,

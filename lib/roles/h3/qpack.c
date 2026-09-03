@@ -1217,7 +1217,12 @@ lws_qpack_dynamic_size(struct lws_qpack_context *ctx, int size)
 	ctx->dyn_table.entries = dte;
 	ctx->dyn_table.num_entries = (uint16_t)n;
 	ctx->dyn_table.used_entries = (uint16_t)min;
-	ctx->dyn_table.pos = (uint16_t)min;
+	/*
+	 * pos is the next-write ring slot and must stay inside the table.
+	 * If the kept entries exactly fill the new table (min == n), the
+	 * next insert has to wrap to 0 rather than write entries[n]
+	 */
+	ctx->dyn_table.pos = (uint16_t)(min % n);
 	ctx->dyn_table.virtual_payload_max = (uint32_t)size;
 
 	return 0;

@@ -197,6 +197,47 @@ static int test_qpack_varint_limits(void)
 	return fails;
 }
 
+/*
+ * A peer can Set Capacity such that the kept entries exactly fill the
+ * shrunken table.  The next-write ring slot must wrap to 0 then, not point
+ * one past the end of the entries array for the next insert to write
+ * through, corrupting the heap.
+ */
+static int test_qpack_shrink_ring_bounds(void)
+{
+	struct lws_qpack_stream_state state;
+	struct lws_qpack_context qctx;
+	int fails = 0;
+
+	lwsl_user("\n--- 10. QPACK shrink-to-full ring bounds ---\n");
+
+	{
+		static const uint8_t shrink_full[] = {
+			0x3f, 0xe1, 0x1f,	/* Set Capacity 4096 => 128 slots */
+			0xcf, 0x01, 'a',	/* Insert Name Ref static 15, "a" */
+			0xcf, 0x01, 'b',	/* Insert Name Ref static 15, "b" */
+			0x3f, 0x21,		/* Set Capacity 64 => 2 slots, full */
+			0x00,			/* Duplicate dynamic index 0 */
+		};
+
+		memset(&state, 0, sizeof(state));
+		state.state = LQP_DEC_INSTRUCTION;
+		memset(&qctx, 0, sizeof(qctx));
+		qctx.dyn_table.virtual_payload_limit = 4096;
+
+		if (lws_qpack_decode_encoder_stream(&state, &qctx,
+						    shrink_full,
+						    sizeof(shrink_full))) {
+			lwsl_err("10.1: legit shrink-to-full stream rejected\n");
+			fails++;
+		}
+	}
+
+	lws_qpack_destroy_dynamic_header(&qctx);
+
+	return fails;
+}
+
 struct test_qif_state {
 	int fails;
 	int expected_idx;
@@ -628,8 +669,19 @@ int main(int argc, const char **argv)
 	len = lws_qpack_encode_string(buf, sizeof(buf), "hello", 5);
 	if (len != 6 || buf[0] != 0x05 || memcmp(buf + 1, "hello", 5)) { lwsl_err("4.1\n"); fails++; }
 
-	len = lws_qpack_encode_string(buf, sizeof(buf), "A very long string that exceeds the normal 7 bit prefix threshold of 127 bytes by being repeated. A very long string that exceeds the normal 7 bit prefix threshold of 127 bytes by being repeated.", 197);
-	if (len != 199 || buf[0] != 0x7f || buf[1] != (197 - 127) || buf[2] != 'A') { lwsl_err("4.2\n"); fails++; }
+	/* 4.2: string longer than the 7-bit prefix threshold, extended len */
+
+	{
+		static const char longstr[] = "A very long string that exceeds the "
+			"normal 7 bit prefix threshold of 127 bytes by being "
+			"repeated. A very long string that exceeds the normal "
+			"7 bit prefix threshold of 127 bytes by being repeated.";
+		size_t longlen = strlen(longstr);
+
+		len = lws_qpack_encode_string(buf, sizeof(buf), longstr, longlen);
+		if (len != (int)(2 + longlen) || buf[0] != 0x7f ||
+		    buf[1] != (int)(longlen - 127) || buf[2] != 'A') { lwsl_err("4.2\n"); fails++; }
+	}
 
 	/* 5. Native Encoder Primitives */
 	{
@@ -751,6 +803,7 @@ int main(int argc, const char **argv)
 	
 	fails += test_qpack_encoder(context);
 	fails += test_qpack_varint_limits();
+	fails += test_qpack_shrink_ring_bounds();
 
 	if (fails) {
 		lwsl_err("Failed %d tests\n", fails);

@@ -218,6 +218,7 @@ option(LWS_WITH_SYS_METRICS "Lws Metrics API" OFF)
 option(LWS_WITH_LATENCY "Event loop latency tracking and monitoring (see ../READMEs/README.LWS_WITH_LATENCY.md)" OFF)
 option(LWS_WITH_UPNG "Enable stateful PNG stream decoder" ON)
 option(LWS_WITH_GZINFLATE "Enable internal minimal gzip inflator" ON)
+option(LWS_WITH_FUZZERS "Build libFuzzer targets against untrusted-input parsers in ./fuzz (needs clang)" OFF)
 option(LWS_WITH_JPEG "Enable stateful JPEG stream decoder" ON)
 option(LWS_WITH_DLO "Enable Display List Objects" ON)
 option(LWS_WITH_WEBRTC "Enable WebRTC" OFF)
@@ -1366,6 +1367,15 @@ list(APPEND LIB_LIST ${LIB_LIST_AT_END})
 # Second-level CMakeLists
 #
 
+if (LWS_WITH_FUZZERS)
+	#
+	# Instrument the whole lib for libFuzzer coverage + ASan, for the
+	# targets in ./fuzz.  The fuzz targets themselves add the libFuzzer
+	# runtime when they link.  Requires clang and libclang-rt-*-dev.
+	#
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=fuzzer-no-link,address -fno-omit-frame-pointer -g")
+endif()
+
 include_directories("${PROJECT_SOURCE_DIR}/lib")
 add_subdirectory(lib)
 
@@ -1435,6 +1445,10 @@ endif()
 
 if (NOT LWS_WITHOUT_TESTAPPS)
 	add_subdirectory(test-apps)
+endif()
+
+if (LWS_WITH_FUZZERS)
+	add_subdirectory(fuzz)
 endif()
 
 if (NOT LWS_WITH_PLUGINS_BUILTIN)
