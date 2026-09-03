@@ -1838,12 +1838,17 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 
 			/* set our initial window size */
 			if (!wsi->h2.initialized) {
-				wsi->txc.tx_cr = (int32_t)
-				     h2n->peer_set.s[H2SET_INITIAL_WINDOW_SIZE];
-
-				lwsl_info("%s: initial tx credit for us to "
-					  "write on nwsi %s: %d\n", __func__,
-					  lws_wsi_tag(wsi), (int)wsi->txc.tx_cr);
+				/*
+				 * SETTINGS_INITIAL_WINDOW_SIZE applies to stream
+				 * windows only: the connection window starts at
+				 * 65535 and is only changed by WINDOW_UPDATE
+				 * frames.  If we seed it from the peer's stream
+				 * setting instead (servers commonly advertise
+				 * 0x10000), a legal connection WINDOW_UPDATE of
+				 * +0x7fff0000 then computes one past the 2^31-1
+				 * cap and we wrongly GOAWAY the server
+				 */
+				wsi->txc.tx_cr = 65535;
 				wsi->h2.initialized = 1;
 			}
 
@@ -3058,10 +3063,15 @@ lws_h2_client_handshake(struct lws *wsi)
 
 	m = LWS_WRITE_HTTP_HEADERS;
 #if defined(LWS_WITH_CLIENT)
-	/* below is not needed in spec, indeed it destroys the long poll
-	 * feature, but required by nghttp2 */
-	if ((wsi->flags & LCCSCF_H2_QUIRK_NGHTTP2_END_STREAM) &&
-	    !(wsi->client_http_body_pending  || lws_has_buffered_out(wsi)))
+	/*
+	 * RFC 9113 8.1: a request with no body must set END_STREAM on the
+	 * HEADERS frame.  Without it, spec-conformant servers wait for a
+	 * request body that never comes, while we wait for the response.
+	 * Historically this was only done behind the nghttp2 compat quirk
+	 * flag, so bodyless requests to most h2 servers wedged both ways
+	 */
+	if (!wsi->do_ws &&
+	    !(wsi->client_http_body_pending || lws_has_buffered_out(wsi)))
 		m |= LWS_WRITE_H2_STREAM_END;
 #endif
 

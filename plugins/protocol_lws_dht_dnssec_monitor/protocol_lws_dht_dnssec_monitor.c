@@ -528,10 +528,41 @@ dnssec_monitor_expiry_timer_cb(struct lws_sorted_usec_list *sul)
 }
 
 static void
-dnssec_monitor_fast_timer_cb(struct lws_sorted_usec_list *sul)
+dnssec_monitor_fast_timer_cb(lws_sorted_usec_list_t *sul);
+
+static void
+refresh_acme_production(struct vhd *vhd)
+{
+	char d_path[256], buf[1024];
+	struct stat st;
+	int fd;
+	ssize_t n;
+
+	lws_snprintf(d_path, sizeof(d_path), "%s/acme_config.json", vhd->base_dir);
+	fd = open(d_path, O_RDONLY);
+	if (fd < 0)
+		return; /* keep current setting */
+
+	if (fstat(fd, &st) || st.st_size <= 0 ||
+	    (size_t)st.st_size >= sizeof(buf) ||
+	    (n = read(fd, buf, (size_t)st.st_size)) != (ssize_t)st.st_size) {
+		close(fd);
+		return;
+	}
+	buf[n] = '\0';
+	close(fd);
+
+	vhd->acme_production = ((char *)strstr(buf, "\"production\": true") ||
+				 (char *)strstr(buf, "\"production\":true")) ? 1 : 0;
+}
+
+static void
+dnssec_monitor_fast_timer_cb(lws_sorted_usec_list_t *sul)
 {
 	struct vhd *vhd = lws_container_of(sul, struct vhd, sul_fast_timer);
 	char scan_path[1024];
+
+	refresh_acme_production(vhd);
 
 	lws_snprintf(scan_path, sizeof(scan_path), "%s/domains", vhd->base_dir);
 	lws_dir(scan_path, vhd, scan_dir_cb_fast);
@@ -1575,10 +1606,18 @@ handle_req_save_auth_key(struct vhd *vhd, struct pss *root_pss, struct monitor_r
 	handle_req_save_acme_file(vhd, root_pss, a, "");
 }
 
+/*
+ * vhd->acme_production decides which certs/ subdir we save into, read
+ * validity from and embed DANE records for.  It's owned by the contents of
+ * <base_dir>/acme_config.json (the same source the acme client re-reads
+ * each aging pass), so refresh our copy from it rather than relying on
+ * some earlier state going stale
+ */
 static void
 handle_req_save_cert(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char dir_suffix[64];
+	refresh_acme_production(vhd);
 	lws_snprintf(dir_suffix, sizeof(dir_suffix), "certs/%s/crt", vhd->acme_production ? "production" : "staging");
 	handle_req_save_acme_file(vhd, root_pss, a, dir_suffix);
 }
@@ -1587,6 +1626,7 @@ static void
 handle_req_save_key(struct vhd *vhd, struct pss *root_pss, struct monitor_req_args *a)
 {
 	char dir_suffix[64];
+	refresh_acme_production(vhd);
 	lws_snprintf(dir_suffix, sizeof(dir_suffix), "certs/%s/key", vhd->acme_production ? "production" : "staging");
 	handle_req_save_acme_file(vhd, root_pss, a, dir_suffix);
 }
@@ -1608,7 +1648,7 @@ handle_req_save_dns_challenge(struct vhd *vhd, struct pss *root_pss, struct moni
 		goto done;
 	}
 
-	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/dns/%s.zone.acme", vhd->base_dir, a->domain, a->domain);
+	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/%s.zone.acme", vhd->base_dir, a->domain, a->domain);
 
 	int fd = open(d_path, O_CREAT | O_WRONLY | O_TRUNC, 0640);
 	if (fd >= 0) {
@@ -1619,9 +1659,12 @@ handle_req_save_dns_challenge(struct vhd *vhd, struct pss *root_pss, struct moni
 		}
 		close(fd);
 
-		/* Force resign */
+		/*
+		 * Remove the signed zone so the resign scanner notices it is
+		 * missing and re-signs with the .acme challenge TXT merged in
+		 */
 		char zone_path[512];
-		lws_snprintf(zone_path, sizeof(zone_path), "%s/domains/%s/dns/%s.zone.signed", vhd->base_dir, a->domain, a->domain);
+		lws_snprintf(zone_path, sizeof(zone_path), "%s/domains/%s/%s.zone.signed", vhd->base_dir, a->domain, a->domain);
 		unlink(zone_path);
 
 		char trigger_path[512];
@@ -1654,12 +1697,12 @@ handle_req_cleanup_dns_challenge(struct vhd *vhd, struct pss *root_pss, struct m
 		goto done;
 	}
 
-	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/dns/%s.zone.acme", vhd->base_dir, a->domain, a->domain);
+	lws_snprintf(d_path, sizeof(d_path), "%s/domains/%s/%s.zone.acme", vhd->base_dir, a->domain, a->domain);
 	unlink(d_path);
 
-	/* Force resign */
+	/* Remove the signed zone so the resign scanner produces a clean one */
 	char zone_path[512];
-	lws_snprintf(zone_path, sizeof(zone_path), "%s/domains/%s/dns/%s.zone.signed", vhd->base_dir, a->domain, a->domain);
+	lws_snprintf(zone_path, sizeof(zone_path), "%s/domains/%s/%s.zone.signed", vhd->base_dir, a->domain, a->domain);
 	unlink(zone_path);
 
 	char trigger_path[512];
@@ -1741,6 +1784,8 @@ handle_req_get_cert_validity(struct vhd *vhd, struct pss *root_pss, struct monit
 	char *tx_end = (char *)root_pss->tx + sizeof(root_pss->tx);
 	char cert_path[512];
 	int days_left = 0, total_days = 0;
+
+	refresh_acme_production(vhd);
 
 	if (!a->domain[0] || !a->subdomain[0]) {
 		tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Missing domain or subdomain\"}\n", a->req);
@@ -1826,6 +1871,8 @@ handle_req_set_acme_config(struct vhd *vhd, struct pss *root_pss, struct monitor
 		if (write(fd, buf, (size_t)n) == (ssize_t)n) {
 			if (a->sign_validity_days > 0)
 				vhd->signature_duration = (uint32_t)(a->sign_validity_days * 24 * 3600);
+			/* keep our env choice in step with what we just wrote */
+			vhd->acme_production = a->production ? 1 : 0;
 			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"set_acme_config\",\"status\":\"ok\"}\n");
 		} else {
 			tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"set_acme_config\",\"status\":\"error\",\"msg\":\"Write failed\"}\n");
@@ -2281,7 +2328,15 @@ handle_req_check_cert(struct vhd *vhd, struct pss *root_pss, struct monitor_req_
 	i.vhost = vh ? vh : vhd->vhost;
 	i.address = a->subdomain;
 	i.port = a->port;
-	i.ssl_connection = LCCSCF_ALLOW_SELFSIGNED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+	/*
+	 * This is a validity probe, not a trust decision: we want to
+	 * report the cert the peer actually serves however broken the
+	 * chain, so no cert condition may block the handshake
+	 */
+	i.ssl_connection = LCCSCF_ALLOW_SELFSIGNED |
+			   LCCSCF_ALLOW_INSECURE |
+			   LCCSCF_ALLOW_EXPIRED |
+			   LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
 	int starttls = (a->port == 25 || a->port == 587);
 	if (!starttls) i.ssl_connection |= LCCSCF_USE_SSL;
 	i.alpn = "http/1.1"; i.method = "RAW"; i.path = "/"; i.host = i.address; i.origin = i.address; i.protocol = "lws-dht-dnssec-monitor";
@@ -3438,7 +3493,7 @@ fallback:
 				}
 				if (cci->starttls_state == 3 && !strncmp((const char *)in, "220", 3)) {
 					cci->starttls_state = 4;
-					if (lws_tls_client_upgrade(wsi, LCCSCF_USE_SSL | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_ALLOW_EXPIRED) < 0) return -1;
+					if (lws_tls_client_upgrade(wsi, LCCSCF_USE_SSL | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_ALLOW_EXPIRED | LCCSCF_ALLOW_INSECURE) < 0) return -1;
 					lws_callback_on_writable(wsi); return 0;
 				}
 				return 0;

@@ -25,6 +25,26 @@
 #include "private-lib-core.h"
 #include "private-lib-tls-bearssl.h"
 
+/*
+ * LCCSCF_ALLOW_EXPIRED time source: by always reporting "now" is inside the
+ * cert validity window, chain parsing is not aborted at the validity check
+ * (which happens before the EE public key is parsed) and the rest of the
+ * validation proceeds normally
+ */
+static int
+lws_bearssl_time_always_in_window(void *tctx,
+	uint32_t not_before_days, uint32_t not_before_seconds,
+	uint32_t not_after_days, uint32_t not_after_seconds)
+{
+	(void)tctx;
+	(void)not_before_days;
+	(void)not_before_seconds;
+	(void)not_after_days;
+	(void)not_after_seconds;
+
+	return 0;
+}
+
 enum lws_ssl_capable_status
 lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 {
@@ -46,6 +66,14 @@ lws_tls_client_connect(struct lws *wsi, char *errbuf, size_t elen)
 
 		conn->tls_use_ssl = wsi->tls.use_ssl;
 		lws_bearssl_x509_wrap_conn(conn);
+
+		if (wsi->tls.use_ssl & LCCSCF_ALLOW_EXPIRED)
+			/*
+			 * Must come after br_ssl_client_init_full(), which
+			 * resets the x509 context including the time source
+			 */
+			br_x509_minimal_set_time_callback(&conn->x509_ctx, NULL,
+					lws_bearssl_time_always_in_window);
 
 #if defined(LWS_WITH_TLS_JIT_TRUST)
 		conn->wsi = wsi;

@@ -663,8 +663,26 @@ wrap_end_chain(const br_x509_class **ctx)
 	lws_tls_conn *conn = lws_container_of((br_x509_minimal_context *)ctx, lws_tls_conn, x509_ctx);
 	unsigned err = br_x509_minimal_vtable.end_chain(ctx);
 
-	if (err == BR_ERR_X509_NOT_TRUSTED && (conn->tls_use_ssl & (LCCSCF_ALLOW_SELFSIGNED | LCCSCF_ALLOW_INSECURE))) {
-		lwsl_notice("%s: bypassing validation err %u due to ALLOW_SELFSIGNED/INSECURE\n", __func__, err);
+	if (!err)
+		return 0;
+
+	if (err == BR_ERR_X509_EXPIRED && (conn->tls_use_ssl & LCCSCF_ALLOW_EXPIRED)) {
+		lwsl_notice("%s: bypassing validation err %u due to ALLOW_EXPIRED\n", __func__, err);
+		return 0;
+	}
+
+	/*
+	 * LCCSCF_ALLOW_INSECURE means we don't care about the trust status of
+	 * the peer cert at all, eg, we are probing it to report on it; any
+	 * validation result is acceptable
+	 */
+	if (conn->tls_use_ssl & LCCSCF_ALLOW_INSECURE) {
+		lwsl_notice("%s: bypassing validation err %u due to ALLOW_INSECURE\n", __func__, err);
+		return 0;
+	}
+
+	if (err == BR_ERR_X509_NOT_TRUSTED && (conn->tls_use_ssl & LCCSCF_ALLOW_SELFSIGNED)) {
+		lwsl_notice("%s: bypassing validation err %u due to ALLOW_SELFSIGNED\n", __func__, err);
 		return 0;
 	}
 

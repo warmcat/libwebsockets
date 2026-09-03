@@ -58,11 +58,23 @@ typedef enum {
 	ACME_STATE_AUTHZ,	/* */
 	ACME_STATE_START_CHALL, /* notify server ready for one challenge */
 	ACME_STATE_POLLING,	/* he should be trying our challenge */
-	ACME_STATE_POLLING_CSR,	/* sent CSR, checking result */
+	ACME_STATE_POLLING_CSR, /* sent CSR, checking result */
 	ACME_STATE_DOWNLOAD_CERT,
 
 	ACME_STATE_FINISHED
 } lws_acme_state;
+
+static const char *
+acme_state_name(lws_acme_state s)
+{
+	static const char *const n[] = {
+		"DIRECTORY", "NEW-NONCE", "NEW-ACCOUNT", "NEW-ORDER",
+		"AUTHZ", "START-CHALL", "POLLING", "POLLING-CSR",
+		"DOWNLOAD-CERT", "FINISHED",
+	};
+
+	return s <= ACME_STATE_FINISHED ? n[s] : "unknown";
+}
 
 struct acme_connection {
 	char buf[4096];
@@ -131,7 +143,15 @@ struct per_vhost_data__lws_acme_client {
     struct lws_acme_cert_config *active_cert;
     lws_sorted_usec_list_t sul_aging;
     lws_sorted_usec_list_t sul_acquisition;
+    lws_sorted_usec_list_t sul_watchdog;
     lws_usec_t last_acme_failure;
+    /*
+     * LE allows 5 duplicate certs / 7 days: repeated acquisition attempts
+     * for an unchanged cert must back off exponentially or we can be
+     * locked out of ordering for the rest of the week
+     */
+    int acme_fail_count;
+    lws_usec_t acme_retry_not_before;
 
 	int count_live_pss;
 	char *dest;
@@ -774,6 +794,12 @@ lws_acme_client_connect(struct lws_context *context, struct lws_vhost *vh,
 	i->method = method;
 	i->pwsi = pwsi;
 	i->protocol = "lws-acme-client-core";
+	/*
+	 * Pin http/1.1: if we let the context default ALPN be offered, CAs
+	 * like LE negotiate h2, and the h1 transaction wedges trying to adopt
+	 * the h2 mux instead of issuing the request, with no error
+	 */
+	i->alpn = "http/1.1";
 
 	wsi = lws_client_connect_via_info(i);
 	if (!wsi) {
@@ -795,9 +821,20 @@ static void
 lws_acme_finished(struct per_vhost_data__lws_acme_client *vhd)
 {
 	lwsl_notice("%s\n", __func__);
-    lws_sul_cancel(&vhd->sul_aging);
+
+	lws_sul_cancel(&vhd->sul_watchdog);
 
 	if (vhd->ac) {
+		/*
+		 * We must not try to close ac->cwsi here: if the connection
+		 * was adopted into h2 by ALPN, it became an internal nwsi that
+		 * we get no close notification for, so the pointer can name an
+		 * already-freed wsi.  h1 transaction connections clean up via
+		 * their own lws timeouts, and CLIENT_CONNECTION_ERROR /
+		 * CLOSED_CLIENT_HTTP null ac->cwsi as they go.
+		 */
+		vhd->ac->cwsi = NULL;
+
 		if (vhd->ac->vhost)
 			lws_vhost_destroy(vhd->ac->vhost);
 		if (vhd->ac->alloc_privkey_pem)
@@ -807,16 +844,74 @@ lws_acme_finished(struct per_vhost_data__lws_acme_client *vhd)
 
 	lws_jwk_destroy(&vhd->jwk);
 
-	if (vhd->dns_base_dir) {
-		free(vhd->dns_base_dir);
-		vhd->dns_base_dir = NULL;
-	}
+	/*
+	 * This runs at the end of each acquisition attempt, not on vhost
+	 * destroy: dns_base_dir, the cert_configs list and the periodic
+	 * aging timer are persistent state and must survive it
+	 */
 
 	vhd->ac = NULL;
 	vhd->last_acme_failure = 0;
 #if defined(LWS_WITH_ESP32)
 	lws_esp32.acme = 0; /* enable scanning */
 #endif
+}
+
+/* seconds to wait after the n'th consecutive failed acquisition:
+ * 1h, 2h, 4h, 8h, 16h, capped at 24h... still comfortably inside the
+ * renewal margin of a 6-day cert renewed at 25% life */
+static lws_usec_t
+acme_backoff_us(int fails)
+{
+	lws_usec_t u = 3600ll * LWS_USEC_PER_SEC << (fails > 5 ? 5 : fails);
+
+	return u > 24 * 3600ll * LWS_USEC_PER_SEC ?
+			24 * 3600ll * LWS_USEC_PER_SEC : u;
+}
+
+static void
+acme_note_failure(struct per_vhost_data__lws_acme_client *vhd)
+{
+	vhd->acme_fail_count++;
+	vhd->acme_retry_not_before = lws_now_usecs() +
+				     acme_backoff_us(vhd->acme_fail_count);
+	lwsl_vhost_warn(vhd->vhost, "acme: failed acquisition #%d, next "
+			"attempt in %llds", vhd->acme_fail_count,
+			(long long)(acme_backoff_us(vhd->acme_fail_count) /
+				    LWS_USEC_PER_SEC));
+}
+
+/*
+ * If any single acquisition attempt wedges (eg, the CA connection stops
+ * responding, or a connection error is not noticed), the busy marker vhd->ac
+ * would otherwise block all future renewal attempts until restart
+ */
+static void
+lws_acme_watchdog_cb(lws_sorted_usec_list_t *sul)
+{
+	struct per_vhost_data__lws_acme_client *vhd = lws_container_of(sul,
+			struct per_vhost_data__lws_acme_client, sul_watchdog);
+
+	if (!vhd->ac)
+		return;
+
+	{
+		const char *cn = vhd->active_cert ?
+				vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME] : NULL;
+		lwsl_vhost_warn(vhd->vhost, "ACME transaction watchdog timeout for %s "
+				"(state %s), abandoning this attempt",
+				cn ? cn : "unknown",
+				acme_state_name(vhd->ac->state));
+	}
+
+	if (vhd->ops && vhd->ops->challenge_cleanup)
+		vhd->ops->challenge_cleanup(vhd->vhost, vhd->challenge_priv);
+
+	lws_acme_report_status(vhd->vhost, LWS_CUS_FAILED,
+			       "ACME transaction watchdog timeout");
+	lws_acme_finished(vhd);
+	vhd->last_acme_failure = lws_now_usecs();
+	acme_note_failure(vhd);
 }
 
 
@@ -921,6 +1016,9 @@ static int
 lws_acme_start_acquisition(struct per_vhost_data__lws_acme_client *vhd,
 		struct lws_vhost *v);
 
+LWS_VISIBLE void
+lws_acme_core_destroy_vhost(struct per_vhost_data__lws_acme_client *vhd);
+
 static void
 lws_acme_start_acquisition_cb(lws_sorted_usec_list_t *sul)
 {
@@ -960,6 +1058,12 @@ lws_acme_start_acquisition(struct per_vhost_data__lws_acme_client *vhd,
 
 	vhd->ac = malloc(sizeof(*vhd->ac));
 	memset(vhd->ac, 0, sizeof(*vhd->ac));
+
+	/* a healthy acquisition, including the 20s dns-01 propagation wait
+	 * and LE-side validation polling, completes in well under this; the
+	 * watchdog unwedges stuck ones */
+	lws_sul_schedule(vhd->context, 0, &vhd->sul_watchdog,
+			 lws_acme_watchdog_cb, 600 * LWS_US_PER_SEC);
 
 	/*
 	 * So if we don't have it, the first job is get the directory.
@@ -1235,6 +1339,10 @@ acme_ipc_cb(const struct lws_async_ipc_cb_args *args)
 				if (vhd->ac && vhd->ac->state == ACME_STATE_DOWNLOAD_CERT) {
 					lws_acme_finished(vhd);
 					lws_acme_report_status(vhd->vhost, LWS_CUS_SUCCESS, NULL);
+					/* cert fetched AND stored: clear the
+					 * acquisition failure backoff */
+					vhd->acme_fail_count = 0;
+					vhd->acme_retry_not_before = 0;
 				}
 			}
 		} else if (vhd->aging_current_cert) {
@@ -1252,6 +1360,23 @@ acme_ipc_cb(const struct lws_async_ipc_cb_args *args)
 
 			struct lws_acme_cert_config *cfg = lws_container_of(vhd->aging_current_cert, struct lws_acme_cert_config, list);
 			if ((char *)strstr(safe_buf, "\"status\":\"error\"") || (total_days && days_left <= (total_days / 4))) {
+				lws_usec_t now = lws_now_usecs();
+
+				if (now < vhd->acme_retry_not_before) {
+					/* a recent acquisition for this failed:
+					 * don't hammer the CA with repeated
+					 * orders for the same cert (LE allows
+					 * 5 duplicates / 7 days) */
+					lwsl_vhost_notice(vhd->vhost, "acme_aging: %s still needs a cert "
+						"but backing off, next attempt in %llds",
+						cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME],
+						(long long)((vhd->acme_retry_not_before - now) /
+							    LWS_USEC_PER_SEC));
+					vhd->aging_current_cert = lws_dll2_get_next(vhd->aging_current_cert);
+					acme_aging_next_cert(vhd);
+					break;
+				}
+
 				if ((char *)strstr(safe_buf, "\"status\":\"error\""))
 					lwsl_notice("acme_aging: triggering acquisition for %s: root daemon could not read cert\n", cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME]);
 				else
@@ -1390,7 +1515,7 @@ callback_acme_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 	case LWS_CALLBACK_PROTOCOL_DESTROY:
 		if (vhd) {
-			lws_acme_finished(vhd);
+			lws_acme_core_destroy_vhost(vhd);
 			if (vhd->ipc)
 				lws_async_ipc_destroy(&vhd->ipc);
 		}
@@ -2229,6 +2354,35 @@ poll_again:
 		}
 		break;
 
+	/*
+	 * Without this, any CA connection failure (TLS trust, network, DNS)
+	 * leaves vhd->ac set forever, and every subsequent aging pass aborts
+	 * with "already busy" until restart
+	 */
+	case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+		if (vhd && vhd->ac && wsi == vhd->ac->cwsi) {
+			/*
+			 * Only a failure of the current transaction connection
+			 * is fatal for the acquisition: older step connections
+			 * are deliberately closed with -1 after their successor
+			 * connected, and lws reports those closes this way too
+			 */
+			lwsl_vhost_warn(vhd->vhost, "ACME connection failed: %s",
+					in ? (const char *)in : "unknown");
+			/* the failed: return -1 below closes this wsi */
+			vhd->ac->cwsi = NULL;
+			failreason = in ? (char *)in : (char *)"connection failed";
+			goto failed;
+		}
+		break;
+
+	/* keep ac->cwsi nulled when its connection goes away by itself, so
+	 * lws_acme_finished() can rely on it only ever naming a live wsi */
+	case LWS_CALLBACK_CLOSED_CLIENT_HTTP:
+		if (vhd && vhd->ac && wsi == vhd->ac->cwsi)
+			vhd->ac->cwsi = NULL;
+		break;
+
 	case LWS_CALLBACK_USER + 0xac33:
 		if (!vhd)
 			break;
@@ -2255,6 +2409,8 @@ failed:
 	lwsl_vhost_warn(vhd->vhost, "Failed out");
 	lws_acme_report_status(vhd->vhost, LWS_CUS_FAILED, failreason);
 	lws_acme_finished(vhd);
+	vhd->last_acme_failure = lws_now_usecs();
+	acme_note_failure(vhd);
 
 	return -1;
 }
@@ -2293,8 +2449,16 @@ LWS_VISIBLE void
 lws_acme_core_destroy_vhost(struct per_vhost_data__lws_acme_client *vhd)
 {
 	/* lws_dll2 list cleanup happens in the overarching protocol destroy loop */
-	if (vhd)
+	if (vhd) {
+		lws_sul_cancel(&vhd->sul_aging);
+		lws_sul_cancel(&vhd->sul_acquisition);
 		lws_acme_finished(vhd);
+
+		if (vhd->dns_base_dir) {
+			free(vhd->dns_base_dir);
+			vhd->dns_base_dir = NULL;
+		}
+	}
 }
 
 static void
@@ -2388,9 +2552,14 @@ LWS_VISIBLE int
 lws_acme_core_cert_aging(struct per_vhost_data__lws_acme_client *vhd,
 			 const struct lws_acme_cert_aging_args *caa)
 {
+	/* caa != NULL means we were called from lws vhost cert aging rather
+	 * than our own periodic scan: identify the caller in the logs so
+	 * concurrent entries can be told apart */
+	const char *src = caa ? "vhost-cert-aging" : "periodic-scan";
+
 	if (!vhd || !lws_dll2_get_head(&vhd->cert_configs)) {
 		if (vhd)
-			lwsl_vhost_notice(vhd->vhost, "acme_aging: aborting, cert_configs.head is empty\n");
+			lwsl_vhost_notice(vhd->vhost, "acme_aging: aborting (%s), cert_configs.head is empty\n", src);
 		else
 			lwsl_notice("acme_aging: aborting, no vhd\n");
 		return 0;
@@ -2398,13 +2567,23 @@ lws_acme_core_cert_aging(struct per_vhost_data__lws_acme_client *vhd,
 
 	/* If we are already doing an ACME check, busy. Try again later */
 	if (vhd->ac) {
-		lwsl_vhost_notice(vhd->vhost, "acme_aging: aborting, ACME check already busy\n");
+		const char *cn = vhd->active_cert ?
+				vhd->active_cert->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME] : NULL;
+		lwsl_vhost_notice(vhd->vhost, "acme_aging: aborting (%s), "
+				"acquisition for %s already in progress (state %s)\n",
+				src, cn ? cn : "unknown",
+				acme_state_name(vhd->ac->state));
 		return 0;
 	}
 
 	/* Prevent re-entrancy if already iterating */
 	if (vhd->aging_current_cert) {
-		lwsl_vhost_notice(vhd->vhost, "acme_aging: aborting, already iterating cert configs\n");
+		struct lws_acme_cert_config *cfg = lws_container_of(vhd->aging_current_cert,
+				struct lws_acme_cert_config, list);
+		const char *cn = cfg->pvop[LWS_TLS_REQ_ELEMENT_COMMON_NAME];
+		lwsl_vhost_notice(vhd->vhost, "acme_aging: aborting (%s), "
+				"already iterating cert configs (at %s)\n",
+				src, cn ? cn : "unknown");
 		return 0;
 	}
 
