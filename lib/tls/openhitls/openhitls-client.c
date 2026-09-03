@@ -385,6 +385,9 @@ int lws_ssl_client_bio_create(struct lws *wsi)
 {
 	char hostname[128];
 	char alpn_buf[128];
+#if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
+	char temp_alpn[128];
+#endif
 	const char *alpn_comma = wsi->a.context->tls.alpn_default;
 	HITLS_Ctx *ssl;
 	lws_system_blob_t *b;
@@ -518,9 +521,9 @@ int lws_ssl_client_bio_create(struct lws *wsi)
 		alpn_comma = wsi->stash->cis[CIS_ALPN];
 #if defined(LWS_ROLE_H1) || defined(LWS_ROLE_H2)
 	} else {
-		if (lws_hdr_copy(wsi, alpn_buf, sizeof(alpn_buf),
+		if (lws_hdr_copy(wsi, temp_alpn, sizeof(temp_alpn),
 				 _WSI_TOKEN_CLIENT_ALPN) > 0) {
-			alpn_comma = alpn_buf;
+			alpn_comma = temp_alpn;
 		}
 #endif
 	}
@@ -528,9 +531,9 @@ int lws_ssl_client_bio_create(struct lws *wsi)
 	lwsl_info("%s client conn using alpn list '%s'\n", wsi->role_ops->name,
 		  alpn_comma);
 
-    n = lws_alpn_comma_to_openssl(alpn_comma, (uint8_t *)alpn_buf,
-                        sizeof(alpn_buf) - 1);
-    ret = HITLS_SetAlpnProtos(ssl, (uint8_t *)alpn_buf, (uint32_t)n);
+	n = lws_alpn_comma_to_openssl(alpn_comma, (uint8_t *)alpn_buf,
+				      sizeof(alpn_buf) - 1);
+	ret = HITLS_SetAlpnProtos(ssl, (uint8_t *)alpn_buf, (uint32_t)n);
 
 	/* OpenHiTLS_client_verify_callback will be called @ HITLS_Connect(). */
 	HITLS_SetUserData(ssl, wsi);
