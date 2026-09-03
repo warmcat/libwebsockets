@@ -2048,7 +2048,7 @@ eddsa_sign1_ok(struct lws_context *cx, lws_dll2_owner_t *set,
 	       const lws_cose_key_t *ck)
 {
 	uint8_t out[512];
-	size_t ol, last;
+	size_t ol;
 
 	if (eddsa_sign1(cx, set, ck, out, sizeof(out), &ol)) {
 		lwsl_err("%s: EdDSA sign1 fail\n", __func__);
@@ -2060,8 +2060,6 @@ eddsa_sign1_ok(struct lws_context *cx, lws_dll2_owner_t *set,
 	if (!ol || ol > sizeof(out))
 		return 1;
 
-	last = ol - 1; /* index of final signature byte */
-
 	if (eddsa_validate(cx, set, out, ol, 0)) {
 		lwsl_err("%s: EdDSA sign1 does not validate\n", __func__);
 		return 1;
@@ -2069,7 +2067,7 @@ eddsa_sign1_ok(struct lws_context *cx, lws_dll2_owner_t *set,
 
 	/* a tampered trailing signature byte must fail validation */
 
-	out[last] ^= 0x80;
+	out[ol - 1] ^= 0x80;
 	if (eddsa_validate(cx, set, out, ol, 1)) {
 		lwsl_err("%s: tampered EdDSA sign1 wrongly validated\n",
 				__func__);

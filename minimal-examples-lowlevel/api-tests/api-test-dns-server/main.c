@@ -56,13 +56,14 @@ int main(int argc, const char **argv)
 	/*
 	 * The plugin only admits a service-owned, non-group/world-writable
 	 * zone dir with like-mode zone files (F-055); a umask-002 checkout
-	 * produces group-writable files, so normalize the fixture modes.
+	 * produces group-writable files, so normalize the fixture modes to
+	 * owner-only, the least access the plugin accepts.
 	 */
 	{
 		DIR *d = opendir(z);
 		struct dirent *de;
 
-		if (chmod(z, 0755))
+		if (chmod(z, 0700))
 			lwsl_err("%s: chmod %s failed\n", __func__, z);
 		if (d) {
 			while ((de = readdir(d))) {
@@ -73,7 +74,7 @@ int main(int argc, const char **argv)
 					continue;
 				lws_snprintf(path, sizeof(path), "%s/%s", z,
 					     de->d_name);
-				chmod(path, 0644);
+				chmod(path, 0600);
 			}
 			closedir(d);
 		}

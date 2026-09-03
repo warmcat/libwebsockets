@@ -35,6 +35,7 @@
 
 #include <libwebsockets.h>
 #include <string.h>
+#include <stdlib.h>
 #include <signal.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -210,7 +211,7 @@ touch(const char *dir, const char *name)
 
 	lws_snprintf(path, sizeof(path), "%s/%s", dir, name);
 
-	fd = open(path, O_CREAT | O_WRONLY, 0644);
+	fd = open(path, O_CREAT | O_WRONLY, 0600);
 	if (fd < 0) {
 		lwsl_err("%s: open %s: %s\n", __func__, path,
 			 strerror(errno));
@@ -227,12 +228,18 @@ build_fixture_dir(void)
 	char name[LONG_NAME_LEN + 1];
 	int i;
 
-	lws_snprintf(fixture_dir, sizeof(fixture_dir),
-		     "/tmp/lws-hls-dir-test-%d", (int)getpid());
+	/*
+	 * The fixture media dir holds deliberately hostile names for the
+	 * plugin to list, and lives in /tmp so it works from any cwd; mkdtemp
+	 * gives it an unpredictable, owner-private name rather than a
+	 * guessable, possibly pre-created one.
+	 */
 
-	if (mkdir(fixture_dir, 0755) && errno != EEXIST) {
-		lwsl_err("%s: mkdir %s: %s\n", __func__, fixture_dir,
-			 strerror(errno));
+	lws_strncpy(fixture_dir, "/tmp/lws-hls-dir-test-XXXXXX",
+		    sizeof(fixture_dir));
+
+	if (!mkdtemp(fixture_dir)) {
+		lwsl_err("%s: mkdtemp: %s\n", __func__, strerror(errno));
 		return 1;
 	}
 

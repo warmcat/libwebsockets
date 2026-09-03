@@ -67,10 +67,16 @@ int main(int argc, const char **argv)
 	 * We don't need a live proxy for this test: the length cap fires at
 	 * creation time, before any connection attempt.  Point at a UDS path
 	 * that doesn't exist so nothing accidental can succeed either.
+	 *
+	 * The path is never created, followed or written to; it is only ever
+	 * a doomed connect() target, and the context is destroyed immediately
+	 * after the length checks under test.  Nothing sensitive can be sent
+	 * to whatever might be listening there, so the fixed /tmp name is
+	 * safe here.
 	 */
 
-	info.ss_proxy_bind	= "/tmp/lws-api-test-sspc-streamtype";
-	info.ss_proxy_address	= "/tmp/lws-api-test-sspc-streamtype";
+	info.ss_proxy_bind	= "/tmp/lws-api-test-sspc-streamtype"; // NOSONAR
+	info.ss_proxy_address	= "/tmp/lws-api-test-sspc-streamtype"; // NOSONAR
 	info.port		= CONTEXT_PORT_NO_LISTEN;
 
 	cx = lws_create_context(&info);

@@ -140,7 +140,7 @@ mk_zone_dir(const char *path, mode_t mode)
 {
 	struct stat st;
 
-	if (mkdir(path, 0755) < 0 && errno != EEXIST) {
+	if (mkdir(path, 0700) < 0 && errno != EEXIST) {
 		lwsl_err("%s: mkdir %s failed errno %d\n", __func__, path,
 				errno);
 		return 1;
@@ -180,7 +180,7 @@ write_zone(const char *dir, const char *fname, const char *origin,
 			"www	IN	A	%s\n",
 			origin, origin, origin, origin, ip);
 
-	fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
 	if (fd < 0) {
 		lwsl_err("%s: open %s failed\n", __func__, path);
 		return 1;
