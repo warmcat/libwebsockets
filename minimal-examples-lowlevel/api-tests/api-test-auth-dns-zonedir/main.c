@@ -608,52 +608,52 @@ main(int argc, const char **argv)
 			.name		= "good dir serves decorated zone",
 			.zdir		= "good",
 			.q		= {
-				{ "www.ok.example", 0x1101, 0, 1, -1, -1 },
+				{ "www.ok.example", 0x1101, 0, 1, -1, -1, 0 },
 			}
 		}, {
 			.name		= "missing zone-dir pvo refused",
 			.zdir		= NULL,
 			.check_port_free = 1,
 			.q		= {
-				{ "www.any.example", 0x1102, -1, 0, -1, -1 },
+				{ "www.any.example", 0x1102, -1, 0, -1, -1, 0 },
 			}
 		}, {
 			.name		= "world-writable zone dir refused",
 			.zdir		= "ww",
 			.check_port_free = 1,
 			.q		= {
-				{ "www.pwn.example", 0x1103, -1, 0, -1, -1 },
+				{ "www.pwn.example", 0x1103, -1, 0, -1, -1, 0 },
 			}
 		}, {
 			.name		= "symlinked zone dir refused",
 			.zdir		= "symlink",
 			.check_port_free = 1,
 			.q		= {
-				{ "www.via.example", 0x1104, -1, 0, -1, -1 },
+				{ "www.via.example", 0x1104, -1, 0, -1, -1, 0 },
 			}
 		}, {
 			.name		= "foreign files in good dir ignored",
 			.zdir		= "files",
 			.q		= {
-				{ "www.ok2.example", 0x1105, 0, 1, -1, -1 },
-				{ "www.plain.example", 0x2105, 5, 0, -1, -1 },
-				{ "www.short.example", 0x3105, 5, 0, -1, -1 },
-				{ "www.badmode.example", 0x4105, 5, 0, -1, -1 },
-				{ "www.linked.example", 0x5105, 5, 0, -1, -1 },
+				{ "www.ok2.example", 0x1105, 0, 1, -1, -1, 0 },
+				{ "www.plain.example", 0x2105, 5, 0, -1, -1, 0 },
+				{ "www.short.example", 0x3105, 5, 0, -1, -1, 0 },
+				{ "www.badmode.example", 0x4105, 5, 0, -1, -1, 0 },
+				{ "www.linked.example", 0x5105, 5, 0, -1, -1, 0 },
 			}
 		}, {
 			.name		= "another uid's file ignored",
 			.zdir		= "rootfile",
 			.q		= {
-				{ "www.okroot.example", 0x1106, 0, 1, -1, -1 },
-				{ "www.foreign.example", 0x2106, 5, 0, -1, -1 },
+				{ "www.okroot.example", 0x1106, 0, 1, -1, -1, 0 },
+				{ "www.foreign.example", 0x2106, 5, 0, -1, -1, 0 },
 			}
 		}, {
 			.name		= "another uid's zone dir refused",
 			.zdir		= "rootdir",
 			.check_port_free = 1,
 			.q		= {
-				{ "www.another.example", 0x1107, -1, 0, -1, -1 },
+				{ "www.another.example", 0x1107, -1, 0, -1, -1, 0 },
 			}
 		},
 	};

@@ -632,7 +632,7 @@ rops_close_kill_connection_mqtt(struct lws *wsi, enum lws_close_status reason)
 			 * it) at context destroy.  h2 covers the same case for
 			 * its nwsi via upgraded_to_http2 in its own gate.
 			 */
-			|| !lws_dll2_is_empty(&wsi->mux.child_list_owner)
+                       || wsi->mux.child_list_owner.head
 		) {
 		lwsl_info("closing %s: parent %s: first child %p\n",
 				lws_wsi_tag(wsi),
