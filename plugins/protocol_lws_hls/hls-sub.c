@@ -1043,36 +1043,9 @@ out:
 /* response helpers                                                    */
 /* ------------------------------------------------------------------ */
 
-/* printf into a growing-but-fixed buffer safely. snprintf() returns the
- * number of chars that WOULD have been written given infinite room, so naively
- * doing `q += snprintf(q, rem, ...)` advances q past the buffer end when the
- * output is truncated — and the NEXT call then computes rem = cap - (q-buf)
- * as a huge underflowed value, causing a heap smash. This wrapper clamps the
- * cursor advance to the bytes actually written (bounded by rem-1), so a
- * too-small cap can never corrupt memory: the output is merely truncated.
- * Returns the new cursor. */
-static char *
-append_fmt(char *q, char *buf, size_t cap, const char *fmt, ...)
-{
-	va_list ap;
-	size_t used = (size_t)(q - buf);
-	size_t rem = (cap > used) ? (cap - used) : 0;
-	int n;
-
-	if (rem == 0)
-		return q;
-
-	va_start(ap, fmt);
-	n = vsnprintf(q, rem, fmt, ap);
-	va_end(ap);
-
-	if (n < 0)
-		return q; /* encoding error; leave cursor unchanged */
-	if ((size_t)n >= rem)
-		n = (int)(rem - 1); /* clamp to what actually fit (sans NUL) */
-
-	return q + n;
-}
+/* printf into a growing-but-fixed buffer safely; see hls_append_fmt() in
+ * private-lws-hls.h (shared with hls-dir.c) for why the naive
+ * `q += snprintf(q, rem, ...)` cursor pattern is a heap smash. */
 
 /* Stash a body in pss and begin an HTTP response with the given content type
  * and length. The generic LWS_CALLBACK_HTTP_WRITEABLE handler drains it. */
@@ -1164,12 +1137,12 @@ lws_hls_serve_stream(struct lws *wsi, const char *media_dir, const char *filenam
 			return -1;
 		}
 		q = buf;
-		q = append_fmt(q, buf, cap,
+		q = hls_append_fmt(q, buf, cap,
 			       "#EXTM3U\n"
 			       "#EXT-X-VERSION:7\n\n");
 
 		for (i = 0; i < ntracks; i++) {
-			q = append_fmt(q, buf, cap,
+			q = hls_append_fmt(q, buf, cap,
 				"#EXT-X-MEDIA:TYPE=SUBTITLES,"
 				"GROUP-ID=\"subs\",NAME=\"%s\","
 				"DEFAULT=NO,AUTOSELECT=NO,FORCED=NO,"
@@ -1178,7 +1151,7 @@ lws_hls_serve_stream(struct lws *wsi, const char *media_dir, const char *filenam
 				tracks[i].id);
 		}
 
-		q = append_fmt(q, buf, cap,
+		q = hls_append_fmt(q, buf, cap,
 			"\n#EXT-X-STREAM-INF:BANDWIDTH=1,AVERAGE-BANDWIDTH=1,"
 			"SUBTITLES=\"subs\"\n"
 			"../avstream/%s\n",
@@ -1239,7 +1212,7 @@ lws_hls_serve_sub_playlist(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
 		return -1;
 	}
 	q = buf;
-	q = append_fmt(q, buf, cap,
+	q = hls_append_fmt(q, buf, cap,
 		"#EXTM3U\n"
 		"#EXT-X-VERSION:7\n"
 		"#EXT-X-TARGETDURATION:%d\n"
@@ -1250,12 +1223,12 @@ lws_hls_serve_sub_playlist(struct lws *wsi, struct per_vhost_data__lws_hls *vhd,
 	/* The sub playlist is at /subsm/<file>/<id>, so segment URIs are
 	 * two levels up: ../../subseg/<file>/<id>/<idx>. */
 	for (i = 0; i < tl.count; i++) {
-		q = append_fmt(q, buf, cap,
+		q = hls_append_fmt(q, buf, cap,
 			"#EXTINF:%f,\n"
 			"../../subseg/%s/%s/%d\n",
 			tl.durations[i], filename, trackid, i);
 	}
-	q = append_fmt(q, buf, cap, "#EXT-X-ENDLIST\n");
+	q = hls_append_fmt(q, buf, cap, "#EXT-X-ENDLIST\n");
 
 	ret = send_body(wsi, "application/vnd.apple.mpegurl",
 			(uint8_t *)buf, (size_t)(q - buf));
