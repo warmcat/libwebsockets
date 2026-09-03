@@ -462,7 +462,12 @@ lws_csp_px(const lcsp_atr_t *a, lhp_pstack_t *ps)
 	assert(ps);
 
 	if (!a)
-		return NULL;
+		/*
+		 * An absent attribute is normal (eg, no margins set); all
+		 * callers expect a dereferenceable result, so treat it as 0
+		 */
+
+		return &c_0;
 
 	ctx = lws_dll2_owner_container(&ps->list, lhp_ctx_t, stack);
 	f = ps->font;
@@ -1599,15 +1604,19 @@ elem_start:
 						pname = (const char *)(aa + 1);
 				}
 
-				assert(ctx->base_url);
+				/*
+				 * Without a base url we can't resolve the
+				 * asset URL at all; it's not a parse error
+				 */
+
+				if (!ctx->base_url)
+					goto check_closing;
 
 				if (!pname)
 					goto issue_elem_start;
 
 				/* we should be in an <img tag or
 				 * something with a background image */
-
-				assert(ctx->base_url);
 
 				if (lws_http_rel_to_url(url, sizeof(url),
 							ctx->base_url, pname))
@@ -1646,6 +1655,16 @@ elem_start:
 					box.h = *lws_csp_px(ps->css_height, ps);
 
 				memset(&u, 0, sizeof(u));
+
+				if (!cx)
+					/*
+					 * Standalone parse with no lws_context
+					 * (no Secure Streams backing): there
+					 * is no way to look for or fetch image
+					 * assets, leave the element empty
+					 */
+					goto check_closing;
+
 				if (lws_dlo_ss_find(cx, url, &u)) {
 
 					i.cx			= cx;

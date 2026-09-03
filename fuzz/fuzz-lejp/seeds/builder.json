@@ -1,0 +1,1 @@
+{"schema":"com-warmcat-sai-builder","hostname":"learn","nspawn_timeout":1800,"targets":[{"name":"target1","someflag":true},{"name":"target2","someflag":false}]}

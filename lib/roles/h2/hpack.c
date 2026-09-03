@@ -515,6 +515,16 @@ lws_dynamic_token_insert(struct lws *wsi, int hdr_len,
 
 		return 1;
 	}
+
+	if (!dyn->num_entries)
+		/*
+		 * A peer can set SETTINGS_HEADER_TABLE_SIZE under 8, ie, to a
+		 * table of zero slots.  His inserts legally continue but
+		 * self-evict immediately, so accept and store nothing: the
+		 * destroy path only frees values in num_entries slots.
+		 */
+		return 0;
+
 	lws_h2_dynamic_table_dump(wsi);
 
 	new_index = lws_safe_modulo(dyn->pos, dyn->num_entries);
@@ -698,6 +708,25 @@ lws_hpack_dynamic_size(struct lws *wsi, int size)
 			if (m < 0)
 				m += dyn->num_entries;
 			dte[n] = dyn->entries[m];
+		}
+
+		/*
+		 * Entries that did not fit the smaller table are evicted...
+		 * ownership of the kept ones moved into dte[], but the
+		 * dropped ones' heap storage has to be freed here, or it is
+		 * lost with the old entries array
+		 */
+
+		for (n = min; n < dyn->used_entries; n++) {
+			m = (dyn->pos - dyn->used_entries + n) %
+						dyn->num_entries;
+			if (m < 0)
+				m += dyn->num_entries;
+			lws_free_set_NULL(dyn->entries[m].value);
+			dyn->virtual_payload_usage = (uint32_t)
+				(dyn->virtual_payload_usage -
+				 (unsigned int)(dyn->entries[m].hdr_len +
+						dyn->entries[m].value_len));
 		}
 
 		lws_free(dyn->entries);

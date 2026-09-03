@@ -1,0 +1,3 @@
+GET http://fuzz/a/b?c=d HTTP/1.1
+Host: fuzz
+

@@ -66,7 +66,7 @@ static char body[64 * 1024];
 static size_t body_len;
 static int got_status;
 static long got_cl = -1;
-static char done;
+static int done;               /* 1 = completed, -1 = failed */
 
 /* -------------------------------------------------------------- server */
 

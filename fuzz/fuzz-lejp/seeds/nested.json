@@ -1,0 +1,1 @@
+{"schema":"com-warmcat-sai-builder","targets":[{"name":"target1","unrecognized":"xyz","child":{"somename":"abc","junk":{"x":"y"}}},{"name":"target2"}]}

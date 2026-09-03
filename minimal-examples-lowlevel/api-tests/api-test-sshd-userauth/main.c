@@ -526,7 +526,7 @@ static int
 cli_rx(const void *in, size_t len)
 {
 	const uint8_t *p = (const uint8_t *)in;
-	uint32_t plen, pad, n;
+	uint32_t plen, pad, n, remain;
 
 	while (len--) {
 		if (rxlen >= sizeof(rxbuf))
@@ -544,9 +544,16 @@ cli_rx(const void *in, size_t len)
 				rxlen = 0;
 				return 0;
 			}
-			rxlen -= n + 1;
-			if (rxlen)
-				memmove(rxbuf, rxbuf + n + 1, rxlen);
+			/* n -> length of the id string including the '\n' */
+			if (++n == sizeof(rxbuf)) {
+				/* the '\n' was the last buffered byte */
+				rxlen = 0;
+			} else {
+				/* keep anything already buffered after it */
+				rxlen -= n;
+				if (rxlen)
+					memmove(rxbuf, rxbuf + n, rxlen);
+			}
 			cli_state = ST_CLI_SVC_ACCEPT;
 			continue;
 		}
@@ -559,14 +566,24 @@ cli_rx(const void *in, size_t len)
 
 		if (plen < 6 || plen >= sizeof(rxbuf) - 4)
 			return test_fail("bad rx packet length");
+		if (pad + 2 > plen)	/* payload must have >= 1 byte */
+			return test_fail("bad rx padding");
 		if (rxlen < 4 + plen)
 			return 0;	/* wait for the rest of it */
+
+		/*
+		 * Snapshot the post-packet rxbuf length now, from the
+		 * validated plen and rxlen, so it stays provably in range
+		 * across the handle_msg() call below
+		 */
+		remain = rxlen - 4 - plen;
 
 		if (handle_msg(rxbuf[5], rxbuf + 6, plen - 1 - pad))
 			return 1;
 
-		memmove(rxbuf, rxbuf + 4 + plen, rxlen - 4 - plen);
-		rxlen -= 4 + plen;
+		/* keep any further whole packets already buffered */
+		memmove(rxbuf, rxbuf + 4 + plen, remain);
+		rxlen = remain;
 	}
 }
 

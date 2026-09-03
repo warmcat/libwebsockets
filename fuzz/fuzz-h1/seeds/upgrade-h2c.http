@@ -1,0 +1,6 @@
+GET / HTTP/1.1
+Host: fuzz
+Connection: Upgrade
+Upgrade: h2c
+HTTP2-Settings: AAEAABAAAAMAAACAAAQAAP//AAUAAEAA
+

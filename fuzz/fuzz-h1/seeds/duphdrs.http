@@ -1,0 +1,7 @@
+GET / HTTP/1.1
+Host: fuzz
+X-A: 1
+X-A: 2
+Cookie: a=b
+Cookie: c=d
+
