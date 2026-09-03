@@ -107,7 +107,13 @@ static const char * const html_tests[] = {
 	 "</div>"
         "hello</body></html>",
 
-        "<style> a { width: 0em }</style><a><body>"
+        "<style> a { width: 0em }</style><a><body>",
+
+	/* standalone parse with no lws_context and an <img> with an absolute
+	 * url: must leave the element empty rather than deref the (absent)
+	 * context or assert on the (empty) base url */
+
+	"<html><head></head><body><img src=\"file://x\"></body></html>"
 };
 
 static unsigned int m, step;

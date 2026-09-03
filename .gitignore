@@ -49,6 +49,7 @@ build/
 doc
 /build2/
 /build3/
+/build-fuzz/
 /cov-int/
 /.vs/
 /build-mtls/
