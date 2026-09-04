@@ -24,12 +24,17 @@
 #include <io.h>
 #define getpid _getpid
 #define open _open
+#define write _write
 #define close _close
 #define dup2 _dup2
 #endif
 
 static int interrupted;
 int is_stub = 0;
+
+/* stub names used by the test phases */
+#define STUB_NAME	"demo-stub"
+#define STUB_NAME_P3	"demo-stub-p3"
 
 /*
  * Where the stub's UDS lives.  The stub child computes exactly the same
@@ -38,7 +43,7 @@ int is_stub = 0;
  * cannot get out of step with the child.
  */
 static const char *
-stub_uds_path(void)
+stub_uds_path(const char *stub_name)
 {
 	/* covers MAX_PATH-ish needs on windows and posix alike */
 	static char path[300];
@@ -50,13 +55,29 @@ stub_uds_path(void)
 	if (!tmp)
 		tmp = ".";
 
-	lws_snprintf(path, sizeof(path), "%s\\lws-stub.sock", tmp);
+	lws_snprintf(path, sizeof(path), "%s\\lws-%s.sock", tmp, stub_name);
 #else
-	lws_strncpy(path, "/tmp/lws-demo-stub.sock", sizeof(path)); // NOSONAR
+	lws_snprintf(path, sizeof(path), "/tmp/lws-%s.sock", stub_name); // NOSONAR
 #endif
 
 	return path;
 }
+
+#if !defined(WIN32)
+/*
+ * Marker file the phase 3 stub child creates from its parent_gone_cb, so
+ * the test can prove the autonomous cleanup path really ran in the child
+ */
+static const char *
+stub_gone_marker_path(void)
+{
+	static char path[300];
+
+	lws_snprintf(path, sizeof(path), "/tmp/lws-%s.gone", STUB_NAME_P3);
+
+	return path;
+}
+#endif
 
 /*
  * When set, the stub manager is destroyed from PROTOCOL_DESTROY during
@@ -189,6 +210,42 @@ static struct lws_protocols stub_protocols[] = {
 	LWS_PROTOCOL_LIST_TERM
 };
 
+/*
+ * Stub process side: called by lws_stub when it decided the parent has died
+ * (or a SIGTERM we would otherwise have died to arrived), just before it
+ * unlinks the UDS socket and exits the process autonomously.
+ */
+static void stub_parent_gone_cb(void *user)
+{
+	const char *stub_name = (const char *)user;
+	char path[300];
+	char ok = 'g';
+	int fd;
+
+	lwsl_user("Stub '%s': parent gone, running autonomous exit cleanup\n",
+		  stub_name);
+
+#if !defined(WIN32)
+	if (strcmp(stub_name, STUB_NAME_P3))
+		/* only the phase 3 stub leaves a marker for the test */
+		return;
+
+	/* leave a marker so the test can prove this ran in the stub child */
+	lws_snprintf(path, sizeof(path), "/tmp/lws-%s.gone", stub_name);
+	fd = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+	if (fd >= 0) {
+		if (write(fd, &ok, 1) < 0)
+			lwsl_err("%s: marker write failed\n", __func__);
+		close(fd);
+	} else
+		lwsl_err("%s: marker open failed\n", __func__);
+#else
+	(void)path;
+	(void)ok;
+	(void)fd;
+#endif
+}
+
 static int run_stub(struct lws_context *cx, const char *stub_name)
 {
 	struct lws_stub_config sc;
@@ -198,8 +255,10 @@ static int run_stub(struct lws_context *cx, const char *stub_name)
 	memset(&sc, 0, sizeof(sc));
 	sc.cx = cx;
 	sc.stub_name = stub_name;
-	sc.uds_path = stub_uds_path();
+	sc.uds_path = stub_uds_path(stub_name);
 	sc.protocols = stub_protocols;
+	sc.user = (void *)stub_name;
+	sc.parent_gone_cb = stub_parent_gone_cb;
 
 	if (lws_stub_server_init(&sc, secret, extra, sizeof(extra)) < 0) {
 		lwsl_err("lws_stub_server_init failed\n");
@@ -316,8 +375,8 @@ phase2(int argc, const char **argv)
 	memset(&sc, 0, sizeof(sc));
 	sc.cx = cx;
 	sc.vh = vh;
-	sc.stub_name = "demo-stub";
-	sc.uds_path = stub_uds_path();
+	sc.stub_name = STUB_NAME;
+	sc.uds_path = stub_uds_path(STUB_NAME);
 	sc.protocols = stub_protocols;
 	sc.parent_protocol_name = "lws-demo-stub";
 	/* the stub child always reads the extra payload in this test */
@@ -348,6 +407,200 @@ phase2(int argc, const char **argv)
 	return 0;
 }
 
+#if !defined(WIN32)
+
+/*
+ * Phase 3: prove the stub exits autonomously when its parent dies.
+ *
+ * We fork an intermediate process that becomes the stub's parent (it spawns
+ * the stub and waits for the UDS connection to establish), then SIGKILL the
+ * intermediate so it has no chance to clean anything up.  The stub must then
+ * notice by itself that its parent is gone, run its parent_gone_cb (observed
+ * via the marker file), unlink its UDS socket and exit.
+ */
+
+static int p3_established;
+
+static void
+phase3_connected_cb(struct lws_stub_manager *mgr)
+{
+	p3_established = 1;
+	lwsl_user("Phase 3: stub client connection established\n");
+}
+
+/*
+ * This runs in the forked intermediate process that plays the stub's parent.
+ * It stays alive with the stub connection established until the real test
+ * process kills it with SIGKILL.
+ */
+static int
+phase3_intermediate(int ready_fd, int argc, const char **argv)
+{
+	struct lws_context_creation_info info;
+	struct lws_stub_config sc;
+	struct lws_context *cx;
+	struct lws_vhost *vh;
+	lws_usec_t start;
+	char ok = '1';
+
+	lws_context_info_defaults(&info, NULL);
+	info.port = CONTEXT_PORT_NO_LISTEN;
+	info.protocols = parent_protocols;
+	/* the stub child is a re-exec of this same exe */
+	info.argc = argc;
+	info.argv = argv;
+
+	cx = lws_create_context(&info);
+	if (!cx)
+		return 1;
+
+	info.vhost_name = "phase3-vhost";
+	vh = lws_create_vhost(cx, &info);
+	if (!vh) {
+		lws_context_destroy(cx);
+		return 1;
+	}
+
+	memset(&sc, 0, sizeof(sc));
+	sc.cx = cx;
+	sc.vh = vh;
+	sc.stub_name = STUB_NAME_P3;
+	sc.uds_path = stub_uds_path(STUB_NAME_P3);
+	sc.protocols = stub_protocols;
+	sc.parent_protocol_name = "lws-demo-stub";
+	sc.extra_payload = "phase3";
+	sc.extra_payload_len = strlen("phase3") + 1;
+	sc.connected_cb = phase3_connected_cb;
+
+	g_stub_mgr = lws_stub_spawn(&sc);
+	if (!g_stub_mgr) {
+		lws_context_destroy(cx);
+		return 1;
+	}
+
+	start = lws_now_usecs();
+	while (!p3_established && lws_now_usecs() - start < 5000000) /* 5s */
+		lws_service(cx, 100);
+
+	if (!p3_established) {
+		lwsl_err("phase 3: stub connection never established\n");
+		return 1;
+	}
+
+	/*
+	 * Stay alive with the stub connection established for a while, so we
+	 * can also prove the stub does NOT clean up while its parent lives
+	 */
+	start = lws_now_usecs();
+	while (lws_now_usecs() - start < 1000000) /* 1s */
+		lws_service(cx, 100);
+
+	/* tell the test process we are ready to be killed */
+	if (write(ready_fd, &ok, 1) != 1)
+		return 1;
+
+	/* keep servicing until the test process SIGKILLs us */
+	while (lws_service(cx, 100) >= 0)
+		;
+
+	return 0;
+}
+
+static int
+phase3(int argc, const char **argv)
+{
+	struct stat st;
+	lws_usec_t start;
+	int fds[2], pid, n, result = 1;
+	char ok;
+
+	/* clean up any leftovers from earlier runs */
+	unlink(stub_uds_path(STUB_NAME_P3));
+	unlink(stub_gone_marker_path());
+
+	if (pipe(fds)) {
+		lwsl_err("phase 3: pipe failed\n");
+		return 1;
+	}
+
+	pid = fork();
+	if (pid < 0) {
+		lwsl_err("phase 3: fork failed\n");
+		close(fds[0]);
+		close(fds[1]);
+		return 1;
+	}
+
+	if (!pid) {
+		close(fds[0]);
+		_exit(phase3_intermediate(fds[1], argc, argv));
+	}
+
+	close(fds[1]);
+
+	/* wait for the intermediate to tell us the stub connection is up */
+	n = (int)read(fds[0], &ok, 1);
+	close(fds[0]);
+	if (n != 1 || ok != '1') {
+		lwsl_err("phase 3: intermediate failed to establish the stub connection\n");
+		goto bail;
+	}
+
+	/*
+	 * The stub's parent is still alive: the stub must still be running,
+	 * with its UDS socket present and no parent-gone cleanup having run
+	 */
+	if (!stat(stub_gone_marker_path(), &st)) {
+		lwsl_err("phase 3: stub ran parent-gone cleanup while parent alive\n");
+		goto bail;
+	}
+	if (stat(stub_uds_path(STUB_NAME_P3), &st)) {
+		lwsl_err("phase 3: stub UDS socket missing while parent alive\n");
+		goto bail;
+	}
+
+	/* kill the stub's parent with no chance to clean up after itself */
+	if (kill(pid, SIGKILL)) {
+		lwsl_err("phase 3: kill failed\n");
+		goto bail;
+	}
+	waitpid(pid, NULL, 0);
+
+	/*
+	 * The stub should now notice by itself, run its parent_gone_cb (the
+	 * marker file appears), unlink its UDS socket and exit
+	 */
+	start = lws_now_usecs();
+	while (lws_now_usecs() - start < 10000000) { /* 10s */
+		if (!stat(stub_gone_marker_path(), &st) &&
+		    stat(stub_uds_path(STUB_NAME_P3), &st))
+			break;
+		usleep(100000);
+	}
+
+	if (stat(stub_gone_marker_path(), &st)) {
+		lwsl_err("phase 3: stub never ran its parent-gone cleanup\n");
+		goto bail;
+	}
+
+	if (!stat(stub_uds_path(STUB_NAME_P3), &st)) {
+		lwsl_err("phase 3: stub left its UDS socket behind\n");
+		goto bail;
+	}
+
+	lwsl_user("Phase 3: stub detected parent death, cleaned up and exited by itself\n");
+	result = 0;
+
+bail:
+	/* belt and braces: take down anything still hanging around */
+	kill(pid, SIGKILL);
+	waitpid(pid, NULL, 0);
+	unlink(stub_gone_marker_path());
+
+	return result;
+}
+#endif /* !WIN32 */
+
 int main(int argc, const char **argv)
 {
 	struct lws_context_creation_info info;
@@ -364,7 +617,10 @@ int main(int argc, const char **argv)
 		       "  -d <log level>    Set LWS log level (default: User+Err+Warn+Notice)\n"
 		       "  --help            Show this help message\n\n"
 		       "Note: This tool spawns a child process and communicates via UDS.\n"
-		       "      Do not pass --lws-stub manually unless you are the spawned child.\n");
+		       "      Do not pass --lws-stub manually unless you are the spawned child.\n"
+		       "      The test runs in phases: request / reply over UDS, teardown at\n"
+		       "      context destroy, and the stub noticing its parent died and\n"
+		       "      exiting autonomously (POSIX only).\n");
 		return 0;
 	}
 
@@ -404,15 +660,15 @@ int main(int argc, const char **argv)
 		memset(&ps, 0, sizeof(ps));
 		ps.cx = cx;
 
-		memset(&sc, 0, sizeof(sc));
-		sc.cx = cx;
-		sc.vh = vh;
-		sc.stub_name = "demo-stub";
-		sc.uds_path = stub_uds_path();
-		sc.protocols = stub_protocols;
-		sc.parent_protocol_name = "lws-demo-stub";
-		sc.extra_payload = "initialization_data_for_stub";
-		sc.extra_payload_len = strlen((const char *)sc.extra_payload) + 1;
+	memset(&sc, 0, sizeof(sc));
+	sc.cx = cx;
+	sc.vh = vh;
+	sc.stub_name = STUB_NAME;
+	sc.uds_path = stub_uds_path(STUB_NAME);
+	sc.protocols = stub_protocols;
+	sc.parent_protocol_name = "lws-demo-stub";
+	sc.extra_payload = "initialization_data_for_stub";
+	sc.extra_payload_len = strlen((const char *)sc.extra_payload) + 1;
 
 		lwsl_user("Spawning root stub process...\n");
 		ps.mgr = lws_stub_spawn(&sc);
@@ -458,6 +714,10 @@ done:
 
 	if (!result)
 		result = phase2(argc, argv);
+#if !defined(WIN32)
+	if (!result)
+		result = phase3(argc, argv);
+#endif
 
 	lwsl_user("Exiting with result %d\n", result);
 	return lws_cmdline_passfail(argc, argv, result);

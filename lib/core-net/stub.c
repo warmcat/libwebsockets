@@ -28,6 +28,14 @@
 #include "private-lib-core.h"
 #include <string.h>
 
+#if defined(LWS_STUB_AUTONOMOUS_EXIT)
+#include <signal.h>
+#include <stdlib.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+#endif
+
 #if defined(WIN32)
 #include <fcntl.h>
 #include <io.h>
@@ -35,6 +43,18 @@
 
 #if defined(__APPLE__)
 #include <mach-o/dyld.h>
+#endif
+
+#if defined(LWS_HAVE_GETPPID) && defined(LWS_HAVE_SIGACTION)
+/*
+ * The spawned stub process can detect by itself that the parent process
+ * which spawned it has died, clean up its UDS socket and exit, rather than
+ * lingering on uselessly.  It needs getppid() to notice it was re-parented
+ * because the original parent died, and sigaction() to convert the linux
+ * PR_SET_PDEATHSIG SIGTERM (armed by lws_spawn_piped()) into an orderly
+ * exit instead of an abrupt default-disposition death.
+ */
+#define LWS_STUB_AUTONOMOUS_EXIT
 #endif
 
 #if defined(__FreeBSD__)
@@ -299,6 +319,165 @@ spawn_fail:
 }
 #endif
 
+#if defined(LWS_STUB_AUTONOMOUS_EXIT)
+
+/* how often we check if the parent process is still alive */
+#define LWS_STUB_WATCHDOG_US (250 * LWS_US_PER_MS)
+
+/*
+ * Child-side state for the stub server vhost we created, used to detect the
+ * death of the spawning parent process and exit autonomously.  The design is
+ * one stub server per process (the child is exec'd with a single
+ * --lws-stub=<name>), so a single instance is enough.
+ */
+static struct {
+	struct lws_context	*cx;
+	lws_sorted_usec_list_t	sul;
+	char			uds_path[256];
+	char			stub_name[128];
+	void			(*parent_gone_cb)(void *user);
+	void			*user;
+	pid_t			ppid0;
+	/* identity of the socket file we created, so at exit we only remove
+	 * the file if it is still ours */
+	dev_t			uds_dev;
+	ino_t			uds_ino;
+	char			have_uds_ino;
+	char			inited;
+} stub_child;
+
+static volatile sig_atomic_t stub_child_sigterm;
+
+static void
+lws_stub_child_sigterm_cb(int sig)
+{
+	(void)sig;
+
+	stub_child_sigterm = 1;
+}
+
+/*
+ * Remove our UDS socket file, but only if it is still ours: if the socket
+ * file at the path has a different inode (eg, a newer stub instance that has
+ * already re-used the path, or our parent already removed it and something
+ * else appeared there), we must not touch it.
+ */
+static void
+lws_stub_child_unlink_own_uds(void)
+{
+	struct stat st;
+
+	if (!stub_child.have_uds_ino)
+		return;
+
+	if (stat(stub_child.uds_path, &st))
+		/* nothing there any more */
+		return;
+
+	if (st.st_dev != stub_child.uds_dev || st.st_ino != stub_child.uds_ino)
+		/* the socket file belongs to somebody else */
+		return;
+
+	unlink(stub_child.uds_path);
+}
+
+/*
+ * Called from the service loop: if the parent that spawned us is gone, or we
+ * accepted a SIGTERM that would otherwise have killed us abruptly, perform
+ * the stub's final cleanup and exit the process.  Without the parent, the
+ * stub process has no further reason to exist.
+ */
+static void
+lws_stub_child_watchdog(lws_sorted_usec_list_t *sul)
+{
+	if (!stub_child_sigterm) {
+		if (getppid() == stub_child.ppid0) {
+			/* parent still alive, keep watching */
+			lws_sul_schedule(stub_child.cx, 0, &stub_child.sul,
+					 lws_stub_child_watchdog,
+					 LWS_STUB_WATCHDOG_US);
+			return;
+		}
+		lwsl_notice("%s: stub '%s': parent PID %d died, cleaning up "
+			    "and exiting\n", __func__, stub_child.stub_name,
+			    (int)stub_child.ppid0);
+	} else
+		lwsl_notice("%s: stub '%s': SIGTERM, cleaning up and "
+			    "exiting\n", __func__, stub_child.stub_name);
+
+	if (stub_child.parent_gone_cb)
+		stub_child.parent_gone_cb(stub_child.user);
+
+	lws_stub_child_unlink_own_uds();
+
+	exit(0);
+}
+
+static void
+lws_stub_child_watchdog_init(const struct lws_stub_config *config)
+{
+	struct sigaction sa_now, sa;
+	struct stat st;
+
+	if (stub_child.inited)
+		lwsl_warn("%s: stub '%s': autonomous exit is already "
+			  "tracking stub '%s', replacing it\n", __func__,
+			  config->stub_name ? config->stub_name : "?",
+			  stub_child.stub_name);
+
+	/*
+	 * Remember the current parent pid, so re-parenting (the kernel
+	 * reparents us to init / a subreaper when the real parent dies)
+	 * reliably tells us the spawning process has gone
+	 */
+	stub_child.cx		= config->cx;
+	stub_child.ppid0	= getppid();
+	stub_child.parent_gone_cb = config->parent_gone_cb;
+	stub_child.user		= config->user;
+	lws_strncpy(stub_child.uds_path, config->uds_path,
+		    sizeof(stub_child.uds_path));
+	lws_strncpy(stub_child.stub_name,
+		    config->stub_name ? config->stub_name : "?",
+		    sizeof(stub_child.stub_name));
+
+	/*
+	 * Record the identity of the socket file we just created, so at exit
+	 * we only unlink it if it is still ours.  Comparing the path stat
+	 * against the listener fd does not work for UDS: on linux they live
+	 * in different filesystems (eg, tmpfs dirent vs sockfs).
+	 */
+	stub_child.have_uds_ino = !stat(config->uds_path, &st);
+	stub_child.uds_dev = st.st_dev;
+	stub_child.uds_ino = st.st_ino;
+	if (!stub_child.have_uds_ino)
+		lwsl_warn("%s: stub '%s': cannot identify our own UDS "
+			  "socket file\n", __func__,
+			  config->stub_name ? config->stub_name : "?");
+
+	stub_child.inited	= 1;
+
+	/*
+	 * lws_spawn_piped() arms PR_SET_PDEATHSIG on linux, so parent death
+	 * arrives as a SIGTERM that, with default disposition, would kill us
+	 * abruptly with no chance to clean up.  If the application has not
+	 * given SIGTERM its own handler, take it over so we can convert it
+	 * into an orderly stub exit.  Applications that handle SIGTERM
+	 * themselves are left completely in control.
+	 */
+	if (!sigaction(SIGTERM, NULL, &sa_now) &&
+	    sa_now.sa_handler == SIG_DFL) {
+		memset(&sa, 0, sizeof(sa));
+		sa.sa_handler = lws_stub_child_sigterm_cb;
+		sigemptyset(&sa.sa_mask);
+		sa.sa_flags = SA_RESTART;
+		sigaction(SIGTERM, &sa, NULL);
+	}
+
+	lws_sul_cancel(&stub_child.sul);
+	lws_sul_schedule(stub_child.cx, 0, &stub_child.sul,
+			 lws_stub_child_watchdog, LWS_STUB_WATCHDOG_US);
+}
+#endif /* LWS_STUB_AUTONOMOUS_EXIT */
 
 int
 lws_stub_server_init(const struct lws_stub_config *config, char *secret_out, void *extra_out, size_t extra_len)
@@ -355,6 +534,15 @@ lws_stub_server_init(const struct lws_stub_config *config, char *secret_out, voi
 	/* 3. Secure permissions: Only root (and unprivileged clients dropping privs) */
 #if !defined(WIN32)
 	chmod(info.iface, 0600);
+#endif
+
+#if defined(LWS_STUB_AUTONOMOUS_EXIT)
+	/*
+	 * 4. Arm detection of the parent dying, so we clean up our UDS
+	 *    socket and exit autonomously instead of lingering with no
+	 *    parent to serve
+	 */
+	lws_stub_child_watchdog_init(config);
 #endif
 
 	/* Signal ready */

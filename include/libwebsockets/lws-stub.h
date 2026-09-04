@@ -42,6 +42,14 @@ struct lws_stub_config {
 	size_t				extra_payload_len;
 	void				*user;			/* Opaque user pointer passed to vhost */
 	void (*connected_cb)(struct lws_stub_manager *mgr);	/* Called when UDS connects */
+	void (*parent_gone_cb)(void *user);			/* Stub process side only: called when the
+								 * stub is about to exit autonomously
+								 * because its parent died (or SIGTERM was
+								 * received and no app handler was
+								 * installed), just before the UDS socket
+								 * is unlinked and the process exits.  This
+								 * is the stub's last chance to clean up
+								 * or persist its own state. */
 	const char			*parent_protocol_name;	/* Protocol to bind parent pipes to.  If set, this
 								 * protocol must call lws_spawn_stdwsi_closed()
 								 * with lws_stub_get_lsp(mgr) from its
@@ -74,6 +82,16 @@ lws_stub_spawn(const struct lws_stub_config *config);
  * Called by the child stub process upon startup. It reads the secret from stdin,
  * creates a raw UDS vhost bound to config->uds_path with 0600 permissions,
  * and sets up JSON-RPC dispatching for config->rpc_methods.
+ *
+ * On platforms with getppid() and sigaction(), the stub also arranges to
+ * detect that the parent process that spawned it has died (it notices it has
+ * been re-parented, and, where lws_spawn armed it, accepts the resulting
+ * SIGTERM instead of dying abruptly to it).  When that happens, the stub
+ * calls config->parent_gone_cb() if set, unlinks its UDS socket (only if the
+ * socket file is still its own) and exits the process autonomously.  A stub
+ * process has no reason to exist without its parent, so no other shutdown
+ * path is taken or possible.
+ *
  * Returns 0 on success, < 0 on failure.
  */
 LWS_VISIBLE LWS_EXTERN int
