@@ -71,6 +71,21 @@
  *    must be encodeURIComponent'd.  Asserting against the served bytes (not
  *    the C source) keeps the fence honest about what deployments get.
  *
+ * plus a widget-CSS self-contained colour-scheme fence:
+ *
+ *  - "widget-css-fence": GET /lws-login.css and check the served bytes
+ *    assert the widget's own complete colour scheme.  The status div and the
+ *    preauth dropdown render inside arbitrary host pages, so any property
+ *    they leave to inherit comes from the page -- pre-fix the status box
+ *    left its background translucent, unreadable whenever the host page's
+ *    colours disagreed with the widget's asserted text colour.  The scheme
+ *    must also be one static choice: adapting to the browser's
+ *    prefers-color-scheme showed a dark widget on light-styled pages viewed
+ *    with a dark-mode preference.  So .lws-login-box and the dropdown (which
+ *    floats directly over the host page) must each paint a fully-opaque
+ *    background behind an asserted text colour, with no
+ *    prefers-color-scheme media queries anywhere in the stylesheet.
+ *
  * plus an F-022 Set-Cookie attribute-tail fence, applied to every scenario
  * that mints cookies: the SSO token is deliberately minted near the
  * LWS_SSO_MAX_COOKIE cap, so composing its auth_session cookie runs the
@@ -111,6 +126,11 @@ struct scenario {
 	int		expect_js;	/* 1 = response body is lws-login.js and
 					 * must carry the F-021 render-boundary
 					 * escaping fence */
+	int		expect_css;	/* 1 = response body is lws-login.css and
+					 * must carry the static self-contained
+					 * colour scheme (opaque backgrounds
+					 * behind asserted text colours, no
+					 * prefers-color-scheme adaptation) */
 };
 
 /* minted in main() once the context and allocated ports exist */
@@ -131,37 +151,42 @@ static const struct scenario scenarios[] = {
 	{ "paired-jar", "/.lws-login-refresh", NULL, NULL, NULL,
 	  "auth_refresh_session=0123456789abcdef0123456789abcdef; "
 	  "auth_csrf=fedcba9876543210fedcba9876543210", 200u, 1, 1, 0,
-	  "POST", 0 },
+	  "POST", 0, 0 },
 	{ "self-heal", "/.lws-login-refresh", NULL, NULL, NULL,
 	  "auth_refresh_session=0123456789abcdef0123456789abcdef", 200u, 1, 1, 0,
-	  "POST", 0 },
+	  "POST", 0, 0 },
 	{ "anonymous", "/.lws-login-refresh", NULL, NULL, NULL, NULL, 401u, 0, 0, 0,
-	  "POST", 0 },
+	  "POST", 0, 0 },
 
 	/* F-027: an auth_session cookie holding a compact JWT whose JOSE
 	 * header has no "alg" member must be cleanly rejected by the
 	 * per-request session gate, not kill the server process */
 	{ "alg-less-session-jwt", "/", NULL, NULL, NULL,
-	  "auth_session=eyJ0eXAiOiJKV1QifQ.e30.AQ", 303u, 0, 0, 0, "GET", 0 },
+	  "auth_session=eyJ0eXAiOiJKV1QifQ.e30.AQ", 303u, 0, 0, 0, "GET", 0, 0 },
 
 	/* F-020: the token below is genuinely signed by the plugin's own JWK
 	 * (the throwaway key carries its private member), so these scenarios
 	 * exercise the origin/referer gate and nothing else */
 	{ "sso-nohdrs", "/.lws-login-sso", sso_body, NULL, NULL, NULL,
-	  403u, 0, 0, -1, "POST", 0 },
+	  403u, 0, 0, -1, "POST", 0, 0 },
 	{ "sso-origin-null", "/.lws-login-sso", sso_body, "null", NULL, NULL,
-	  403u, 0, 0, -1, "POST", 0 },
+	  403u, 0, 0, -1, "POST", 0, 0 },
 	{ "sso-origin-good", "/.lws-login-sso", sso_body, o_origin_good, NULL,
-	  NULL, 302u, 0, 0, 1, "POST", 0 },
+	  NULL, 302u, 0, 0, 1, "POST", 0, 0 },
 	{ "sso-origin-evil", "/.lws-login-sso", sso_body, o_origin_evil, NULL,
-	  NULL, 403u, 0, 0, -1, "POST", 0 },
+	  NULL, 403u, 0, 0, -1, "POST", 0, 0 },
 	{ "sso-referer-good", "/.lws-login-sso", sso_body, NULL, o_referer_good,
-	  NULL, 302u, 0, 0, 1, "POST", 0 },
+	  NULL, 302u, 0, 0, 1, "POST", 0, 0 },
 
 	/* F-021: the widget JS served to (admin) pages must HTML-escape every
 	 * dynamic string at its innerHTML render boundary */
 	{ "widget-js-fence", "/lws-login.js", NULL, NULL, NULL, NULL, 200u, 0, 0,
-	  0, "GET", 1 },
+	  0, "GET", 1, 0 },
+
+	/* the widget CSS served to pages must assert a complete, self-contained
+	 * colour scheme (see the css fence in step_advance) */
+	{ "widget-css-fence", "/lws-login.css", NULL, NULL, NULL, NULL, 200u, 0,
+	  0, 0, "GET", 0, 1 },
 };
 
 #define N_SCENARIOS  (int)LWS_ARRAY_SIZE(scenarios)
@@ -490,11 +515,11 @@ callback_cli(struct lws *wsi, enum lws_callback_reasons reason,
 		got_sc_nfrags++;
 	}
 
-		if (scenarios[step].expect_js) {
+		if (scenarios[step].expect_js || scenarios[step].expect_css) {
 			/*
-			 * The body (the served lws-login.js) is what the
-			 * fence scenario asserts on: keep the connection and
-			 * drain it via RECEIVE_CLIENT_HTTP(_READ).
+			 * The body (the served lws-login.js / lws-login.css)
+			 * is what the fence scenarios assert on: keep the
+			 * connection and drain it via RECEIVE_CLIENT_HTTP(_READ).
 			 */
 			got_body_len = 0;
 			got_body_trunc = 0;
@@ -647,6 +672,63 @@ sc_frag_tail_check(void)
 				 got_sc_frags[i]);
 			return 1;
 		}
+	}
+
+	return 0;
+}
+
+/*
+ * Extract the declaration list of the first css rule beginning with prefix
+ * (eg ".lws-login-box{") into decls, nul-terminated.  Returns 1 if the rule
+ * was found, 0 otherwise.
+ */
+static int
+css_rule_decls(const char *css, const char *prefix, char *decls, size_t len)
+{
+	const char *start = strstr(css, prefix), *end;
+	size_t pl = strlen(prefix), n;
+
+	if (!start)
+		return 0;
+
+	end = strchr(start + pl, '}');
+	if (!end)
+		return 0;
+
+	n = (size_t)(end - (start + pl));
+	if (n >= len)
+		n = len - 1;
+	memcpy(decls, start + pl, n);
+	decls[n] = '\0';
+
+	return 1;
+}
+
+/*
+ * widget-css fence: every widget surface that floats on the host page must
+ * assert its own complete colour scheme.  The prefix names the rule (see
+ * css_rule_decls); its background declaration must be a fully-opaque colour
+ * (background:#hex -- background:rgba(... blends the host page's colour
+ * back in through the widget) and it must explicitly assert a text colour.
+ * Decorative rgba (borders, shadows) is fine: it cannot affect readability.
+ */
+static int
+css_rule_solid_bg_check(const char *css, const char *prefix, const char *what)
+{
+	char decls[512];
+
+	if (!css_rule_decls(css, prefix, decls, sizeof(decls))) {
+		lwsl_err("%s: served lws-login.css lacks rule '%s'\n",
+			 __func__, what);
+		return 1;
+	}
+
+	if (!strstr(decls, "background:#") ||
+	    strstr(decls, "background:rgba(") ||
+	    !strstr(decls, "color:#")) {
+		lwsl_err("%s: rule '%s' does not assert its own colour "
+			 "scheme: '%s'\n", __func__, what, decls);
+		return 1;
 	}
 
 	return 0;
@@ -881,6 +963,42 @@ step_advance(void)
 		}
 	}
 
+	if (scenarios[step].expect_css) {
+		/*
+		 * Asserted against the actually-served lws-login.css: the
+		 * status box's colour scheme must be one static choice -- a
+		 * fully-opaque background behind an asserted text colour, with
+		 * no prefers-color-scheme adaptation (a widget following the
+		 * browser preference showed up dark on light-styled pages
+		 * that ignore it) and no translucent background handing the
+		 * colour back to the host page (the pre-fix rgba(0,0,0,0.02)
+		 * was unreadable on dark pages).  The preauth dropdown floats
+		 * directly over the host page, so the same applies to it.
+		 */
+		int bad = got_body_trunc;
+
+		got_body[got_body_len] = '\0';
+
+		bad |= css_rule_solid_bg_check(got_body,
+				".lws-login-box{", ".lws-login-box");
+		bad |= css_rule_solid_bg_check(got_body,
+				".lws-preauth-widget{", ".lws-preauth-widget");
+
+		if (strstr(got_body, "prefers-color-scheme")) {
+			lwsl_err("%s: served lws-login.css adapts to "
+				 "prefers-color-scheme\n", __func__);
+			bad = 1;
+		}
+
+		if (bad) {
+			fail++;
+			result = 1;
+			sequence_done = 1;
+			lws_cancel_service(context);
+			return;
+		}
+	}
+
 	lwsl_user("  scenario[%d] '%s': PASS\n", step,
 		  scenarios[step].name);
 
@@ -939,7 +1057,7 @@ int main(int argc, const char **argv)
 	signal(SIGINT, sigint_handler);
 
 	lwsl_user("LWS API selftest: lws-login BFF refresh / csrf self-heal"
-		  " + SSO origin gate + widget JS fence\n");
+		  " + SSO origin gate + widget JS/CSS fence\n");
 
 	{
 		static char auth_url[128];

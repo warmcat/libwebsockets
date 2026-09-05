@@ -175,13 +175,25 @@ struct pending_login_refresh {
 	int                     mode; /* LWS_LOGIN_REFRESH_* */
 };
 
+/*
+ * Everything the widget depends on for readability is asserted here, because
+ * it renders inside arbitrary host pages: any property left to inherit comes
+ * from the page.  The status box's colour scheme is one static choice -- a
+ * fully-opaque background behind the asserted text colour -- rather than
+ * following the browser's prefers-color-scheme: pages that ignore the dark
+ * mode preference render light, and a preference-following widget showed up
+ * as a dark box on their white background (translucent backgrounds were
+ * worse still: unreadable whenever the page's colours disagreed with the
+ * widget's asserted text colour).  A host page that wants the widget to match
+ * its own theme can override these rules in its own stylesheet.  The
+ * property is fenced against the actually-served css by the widget-css-fence
+ * scenario of api-test-lws-login-bff.
+ */
 static const char * const canned_css =
         ".lws-login-box{position:relative;font-family:-apple-system,system-ui,sans-serif;padding:"
-        "16px;border-radius:8px;background:rgba(0,0,0,0.02);border:1px solid "
-        "rgba(0,0,0,0.08);display:inline-block;font-size:14px;line-height:1.4;"
+        "16px;border-radius:8px;background:#fff;border:1px solid "
+        "#e0e0e0;display:inline-block;font-size:14px;line-height:1.4;"
         "color:#333;}\n"
-        "@media(prefers-color-scheme:dark){.lws-login-box{background:rgba(255,255,"
-        "255,0.05);border-color:rgba(255,255,255,0.1);color:#888;}}\n"
         ".lws-login-btn{display:inline-block;padding:8px "
         "16px;background:#007bff;color:#fff!important;text-decoration:none;border-"
         "radius:6px;font-weight:600;font-size:13px;transition:background "
@@ -207,11 +219,10 @@ static const char * const canned_css =
         ".pie-timer{width:20px;height:20px;transform:rotate(-90deg);border-radius:50%;}"
         ".pie-timer circle{fill:none;stroke:#fff;stroke-width:10;stroke-dasharray:31.4;transition:stroke-dashoffset 1s linear;}"
         ".lws-login-refgirl{position:absolute;bottom:0px;right:-10px;height:120px;opacity:0.8;pointer-events:none;z-index:1;}"
-        ".lws-preauth-widget{display:none;position:absolute;top:0;left:100%;margin-left:15px;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px;max-height:200px;overflow-y:auto;background:#2b2d31;box-shadow:0 8px 16px rgba(0,0,0,0.3);z-index:1000;min-width:280px;}"
+        ".lws-preauth-widget{display:none;position:absolute;top:0;left:100%;margin-left:15px;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px;max-height:200px;overflow-y:auto;background:#2b2d31;color:#e0e0e0;box-shadow:0 8px 16px rgba(0,0,0,0.3);z-index:1000;min-width:280px;}"
         ".lws-preauth-widget.active{display:block;}"
         ".lws-login-avatar-admin{color:#007bff;margin-right:6px;display:inline-block;vertical-align:middle;}"
-        ".lws-login-avatar-user{color:#333;margin-right:6px;display:inline-block;vertical-align:middle;}"
-        "@media(prefers-color-scheme:dark){.lws-login-avatar-user{color:#888;}}";
+        ".lws-login-avatar-user{color:#333;margin-right:6px;display:inline-block;vertical-align:middle;}";
 
 static const char * const canned_js =
         /* lwsLoginSilentRefresh: attempt a side-channel renewal via the BFF.

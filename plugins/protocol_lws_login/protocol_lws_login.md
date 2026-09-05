@@ -151,6 +151,10 @@ To leverage this, ensure your HTML includes the dynamically generated helper scr
 <script src="lws-login.js"></script>
 ```
 
+### Status widget styling
+
+The same `lws-login.js` also renders the login status widget into a div of your choosing (via `window.renderLwsLoginStatus("element-id")`), pulling in the canned `lws-login.css`. The widget deliberately asserts its own complete, **static** colour scheme — including a solid background on the status box and the preauth dropdown — because it renders inside arbitrary host pages: any property it leaves to inherit comes from the page, and a translucent widget background combined with the widget's asserted text colour is unreadable when the page's own colours disagree. The scheme is a single static choice (a light status box) rather than following the browser's `prefers-color-scheme`, since many pages ignore that preference and a preference-following widget showed up as a dark box on their white background. A page that wants the widget to match its own theme can override these rules in its own stylesheet. The `widget-css-fence` scenario of `api-test-lws-login-bff` asserts the served stylesheet keeps it that way.
+
 Then, you can hook the `window.lwsLoginSilentRefresh` helper directly into your WebSocket `onclose` retry handler:
 
 ```javascript
