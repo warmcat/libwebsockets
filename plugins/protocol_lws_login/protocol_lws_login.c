@@ -1802,11 +1802,18 @@ callback_lws_login(struct lws *wsi, enum lws_callback_reasons reason,
 		int whitelist_failed = 0;
 		const char *service_name;
 		const char *pmo_val;
-		int unauth_allow = vhd->unauth_allow;
 		int n;
 
 		if (!vhd)
 			return 1;
+
+		/*
+		 * Must come after the vhd NULL check: a protocol enabled on
+		 * the vhost with a NULL options chain never initializes its
+		 * vhd, dereferencing it here crashed the service instead of
+		 * refusing the transaction cleanly
+		 */
+		int unauth_allow = vhd->unauth_allow;
 
 		service_name = vhd->service_name;
 

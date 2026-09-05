@@ -3932,8 +3932,17 @@ rops_close_kill_connection_quic(struct lws *wsi, enum lws_close_status reason)
 		lws_sul_cancel(&qn->ack_delay_sul);
 
 #if defined(LWS_ROLE_H3)
-		if (wsi->h3.h3n)
+		if (wsi->h3.h3n) {
+			/*
+			 * Both QPACK tables own malloc'd per-entry strings;
+			 * freeing h3n without these leaked them per connection
+			 */
+			lws_qpack_destroy_dynamic_header(
+					&wsi->h3.h3n->qpack_dec_ctx);
+			lws_qpack_tx_encoder_destroy(
+					&wsi->h3.h3n->qpack_tx_encoder);
 			lws_free_set_NULL(wsi->h3.h3n);
+		}
 #endif
 
 		for (i = 0; i < LWS_QUIC_LEVEL_COUNT; i++) {

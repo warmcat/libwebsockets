@@ -65,6 +65,21 @@ lws_wsi_h3_can_adopt(struct lws *parent_wsi);
 
 
 
+/*
+ * The QPACK dynamic table capacity we advertise with
+ * SETTINGS_QPACK_MAX_TABLE_CAPACITY and enforce on the peer's Set Dynamic
+ * Table Capacity instruction.  LWS_QPACK_CAP_VARINT is the first byte of
+ * the 2-byte RFC 9114 s16 varint encoding of LWS_QPACK_CAP_VAL (0x50 ->
+ * 4096, 0x60 -> 8192); the second byte (0x00) is emitted with it.
+ */
+#if defined(LWS_PLAT_FREERTOS)
+#define LWS_QPACK_CAP_VARINT 0x50 /* 4096 */
+#define LWS_QPACK_CAP_VAL 4096
+#else
+#define LWS_QPACK_CAP_VARINT 0x60 /* 8192 */
+#define LWS_QPACK_CAP_VAL 8192
+#endif
+
 struct lws_h3_netconn {
 	struct lws *nwsi;
 
@@ -80,8 +95,17 @@ struct lws_h3_netconn {
 
 	struct lws_qpack_tx_encoder qpack_tx_encoder;
 	struct lws_qpack_tx_table_entry tx_entries[32];
-	
+
+	/*
+	 * The peer's QPACK dynamic table, mirrored from its encoder stream.
+	 * Without this storage, every dynamic insert was silently refused and
+	 * every dynamic reference in a field block was silently dropped --
+	 * RFC-conformant encoders (browsers) lost headers like origin/referer
+	 * while literal-only encoders kept working.  Sized so every capacity
+	 * up to the advertised LWS_QPACK_CAP_VAL has a slot (cap / 32).
+	 */
 	struct lws_qpack_context qpack_dec_ctx;
+	struct lws_qpack_dynamic_table_entry rx_entries[LWS_QPACK_CAP_VAL / 32];
 
 	uint8_t peer_supports_ws:1;
 	uint8_t peer_supports_webtransport:1;

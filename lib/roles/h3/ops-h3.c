@@ -872,14 +872,6 @@ rops_adoption_bind_h3(struct lws *wsi, int type, const char *vh_prot_name)
 	return 0;
 }
 
-#if defined(LWS_PLAT_FREERTOS)
-#define LWS_QPACK_CAP_VARINT 0x50 /* 4096 */
-#define LWS_QPACK_CAP_VAL 4096
-#else
-#define LWS_QPACK_CAP_VARINT 0x60 /* 8192 */
-#define LWS_QPACK_CAP_VAL 8192
-#endif
-
 static struct lws *
 lws_h3_create_unidi_stream(struct lws *nwsi, uint8_t type)
 {
@@ -927,7 +919,18 @@ lws_h3_create_unidi_stream(struct lws *nwsi, uint8_t type)
 		size_t send_len = 1;
 		pre[LWS_PRE] = type;
 		if (type == 0x00) {
-			/* HTTP/3 Control Stream MUST send a SETTINGS frame (Type 0x04) immediately */
+			/*
+			 * HTTP/3 Control Stream MUST send a SETTINGS frame
+			 * (Type 0x04) immediately.
+			 *
+			 * The SETTINGS_QPACK_MAX_TABLE_CAPACITY value is a 2-byte
+			 * HTTP/3 varint (RFC 9114 s16: 01 = 2-byte form), so eg
+			 * 0x50 0x00 = 4096 and 0x60 0x00 = 8192: the second byte
+			 * is part of the value, not a stray entry.  It must stay
+			 * in sync with LWS_QPACK_CAP_VAL, which is the cap the
+			 * decoder actually enforces on the peer's Set Dynamic
+			 * Table Capacity instruction.
+			 */
 
 			if (nwsi->a.vhost->h2.set.s[H2SET_ENABLE_CONNECT_PROTOCOL]) {
 				pre[LWS_PRE + 1] = 0x04; /* SETTINGS */
@@ -1703,6 +1706,18 @@ rops_alpn_negotiated_h3(struct lws *wsi, const char *alpn)
 		h3n->qpack_tx_encoder.virtual_payload_max = 4096;
 		nwsi->h3.qpack_tx_encoder = &h3n->qpack_tx_encoder;
 
+		/*
+		 * Initialize the QPACK decoder context: the storage for the
+		 * peer's dynamic table must exist or lws_qpack_dynamic_insert()
+		 * refuses every encoder-stream insert, insert_count stays 0 and
+		 * every dynamic reference in a field block is silently dropped.
+		 * Real-browser encoders (which use the dynamic table we invite
+		 * with SETTINGS_QPACK_MAX_TABLE_CAPACITY) then lose headers --
+		 * eg the SSO origin/referer CSRF gate saw "no origin/referer".
+		 */
+		h3n->qpack_dec_ctx.dyn_table.entries = h3n->rx_entries;
+		h3n->qpack_dec_ctx.dyn_table.num_entries =
+				LWS_ARRAY_SIZE(h3n->rx_entries);
 		h3n->qpack_dec_ctx.dyn_table.virtual_payload_limit = LWS_QPACK_CAP_VAL;
 
 		/* Create the 3 local control streams */

@@ -48,6 +48,7 @@ static int test_qpack_encoder(struct lws_context *ctx)
 	
 	memset(&state, 0, sizeof(state));
 	memset(&qctx, 0, sizeof(qctx));
+	qctx.dyn_table.virtual_payload_limit = 4096;
 	lws_qpack_dynamic_size(&qctx, 4096);
 	memset(&tx_enc, 0, sizeof(tx_enc));
 	tx_enc.entries = tx_entries;
@@ -238,6 +239,163 @@ static int test_qpack_shrink_ring_bounds(void)
 	return fails;
 }
 
+/*
+ * 11. Browser-shaped dynamic table regression.
+ *
+ * Real-browser QPACK encoders (which use the dynamic table we invite with
+ * SETTINGS_QPACK_MAX_TABLE_CAPACITY) insert entries on the encoder stream
+ * -- including "Insert With Name Reference" to a dynamic entry when a
+ * header NAME repeats with a different VALUE -- and reference them from
+ * the field block.  Two regressions silently lost such headers, matching
+ * the live "SSO POST arrives with no origin/referer" failure:
+ *
+ *   - the decoder-side dynamic table storage never existing, so every
+ *     insert was refused and every reference skipped silently
+ *   - a dynamic reference that resolves to nothing being dropped instead
+ *     of failed
+ *
+ * This drives the exact wire shape Chrome produces for
+ * origin: https://auth.warmcat.com after origin: https://warmcat.com was
+ * already tabled by an earlier request on the same connection.
+ */
+
+struct browser_shape_state {
+	int fails;
+	int got_method_get;
+	int got_origin_auth;
+};
+
+static int
+test_browser_shape_cb(void *user, int name_idx, const char *name,
+		      size_t name_len, const char *value, size_t value_len)
+{
+	struct browser_shape_state *b = (struct browser_shape_state *)user;
+
+	if (!name && name_idx == WSI_TOKEN_HTTP_COLON_METHOD &&
+	    value && value_len == 3 && !memcmp(value, "GET", 3))
+		b->got_method_get = 1;
+
+	if (name && name_len == 6 && !memcmp(name, "origin", 6) &&
+	    value && value_len == 24 &&
+	    !memcmp(value, "https://auth.warmcat.com", 24))
+		b->got_origin_auth = 1;
+
+	return 0;
+}
+
+static int test_qpack_browser_shape(void)
+{
+	struct lws_qpack_stream_state enc_state, hdr_state;
+	static struct lws_qpack_dynamic_table_entry entries[128];
+	struct lws_qpack_context qctx;
+	struct browser_shape_state b;
+
+	lwsl_user("\n--- 11. QPACK browser-shaped dynamic table ---\n");
+
+	memset(&b, 0, sizeof(b));
+	memset(&qctx, 0, sizeof(qctx));
+
+	/* exactly what ops-h3 wires up for an h3 connection's decoder */
+	qctx.dyn_table.entries = entries;
+	qctx.dyn_table.num_entries = LWS_ARRAY_SIZE(entries);
+	qctx.dyn_table.virtual_payload_limit = 4096;
+
+	{
+		/* Set Dynamic Table Capacity 4096 */
+		static const uint8_t setcap[] = { 0x3f, 0xe1, 0x1f };
+		/* Insert literal name "origin", value "https://warmcat.com" (19) */
+		static const uint8_t ins1[] = {
+			0x46, 'o','r','i','g','i','n',
+			19, 'h','t','t','p','s',':','/','/','w','a','r','m','c','a','t','.','c','o','m'
+		};
+		/* Insert With Name Reference (dynamic rel 0), value
+		 * "https://auth.warmcat.com" (24) */
+		static const uint8_t ins2[] = {
+			0x80, 24,
+			'h','t','t','p','s',':','/','/','a','u','t','h','.','w','a','r','m','c','a','t','.','c','o','m'
+		};
+		/* Field block: wire Ric = (2 mod 256) + 1 = 3, S=0 delta 0
+		 * => base = 2; :method GET (static 18); indexed dynamic
+		 * relative 0 = the auth origin insert */
+		static const uint8_t block[] = { 0x03, 0x00, 0xd1, 0x80 };
+
+		memset(&enc_state, 0, sizeof(enc_state));
+		enc_state.state = LQP_DEC_INSTRUCTION;
+
+		if (lws_qpack_decode_encoder_stream(&enc_state, &qctx, setcap,
+						    sizeof(setcap)) ||
+		    lws_qpack_decode_encoder_stream(&enc_state, &qctx, ins1,
+						    sizeof(ins1)) ||
+		    lws_qpack_decode_encoder_stream(&enc_state, &qctx, ins2,
+						    sizeof(ins2))) {
+			lwsl_err("11.1: encoder stream rejected\n");
+			b.fails++;
+		}
+
+		if (qctx.dyn_table.used_entries != 2 ||
+		    qctx.dyn_table.insert_count != 2) {
+			lwsl_err("11.2: inserts not retained (used %u, count %u)\n",
+				 qctx.dyn_table.used_entries,
+				 qctx.dyn_table.insert_count);
+			b.fails++;
+		}
+
+		memset(&hdr_state, 0, sizeof(hdr_state));
+		if (lws_qpack_decode_header_block(&hdr_state, &qctx, block,
+						  sizeof(block),
+						  test_browser_shape_cb, &b)) {
+			lwsl_err("11.3: field block rejected\n");
+			b.fails++;
+		}
+
+		if (!b.got_method_get) {
+			lwsl_err("11.4: static :method GET lost\n");
+			b.fails++;
+		}
+
+		if (!b.got_origin_auth) {
+			lwsl_err("11.5: dynamic origin reference LOST\n");
+			b.fails++;
+		}
+
+		/*
+		 * 11.6: a capacity change on a table with embedded storage
+		 * must adjust the byte budget and evict, never free or resize
+		 * the caller's entries array.  96 bytes has a different slot
+		 * count than 4096, which is exactly the case that used to
+		 * free the embedded array and corrupt the heap
+		 */
+		{
+			static const uint8_t shrink96[] = { 0x3f, 0x41 };
+			/* 8192 with a 4096 limit must be rejected loudly */
+			static const uint8_t overlimit[] = { 0x3f, 0xe1, 0x3f };
+
+			if (lws_qpack_decode_encoder_stream(&enc_state, &qctx,
+							    shrink96,
+							    sizeof(shrink96))) {
+				lwsl_err("11.6: legit capacity shrink rejected\n");
+				b.fails++;
+			}
+
+			if (qctx.dyn_table.entries != entries) {
+				lwsl_err("11.7: embedded entries array replaced\n");
+				b.fails++;
+			}
+
+			if (!lws_qpack_decode_encoder_stream(&enc_state, &qctx,
+							     overlimit,
+							     sizeof(overlimit))) {
+				lwsl_err("11.8: over-limit capacity accepted\n");
+				b.fails++;
+			}
+		}
+	}
+
+	lws_qpack_destroy_dynamic_header(&qctx);
+
+	return b.fails;
+}
+
 struct test_qif_state {
 	int fails;
 	int expected_idx;
@@ -327,6 +485,7 @@ test_qif_roundtrip(struct lws_context *ctx, const char *filepath)
 	memset(&enc_state, 0, sizeof(enc_state));
 	enc_state.state = LQP_DEC_INSTRUCTION;
 	memset(&qctx, 0, sizeof(qctx));
+	qctx.dyn_table.virtual_payload_limit = 4096;
 	lws_qpack_dynamic_size(&qctx, 4096);
 	memset(&tx_enc, 0, sizeof(tx_enc));
 	tx_enc.entries = tx_entries;
@@ -458,6 +617,7 @@ test_qif_file(const char *filepath)
 	}
 
 	memset(&qctx, 0, sizeof(qctx));
+	qctx.dyn_table.virtual_payload_limit = 4096;
 	lws_qpack_dynamic_size(&qctx, 4096);
 	
 	states_len = 64;
@@ -634,21 +794,26 @@ int main(int argc, const char **argv)
 	 * Phase 1 Testing: Static Table & Encoded Integer Sanity Checks
 	 */
 	
-	/* 1. lws_qpack_get_static_token */
+	/*
+	 * 1. lws_qpack_get_static_token: RFC 9204's static table is 0-based
+	 * on the wire (index 0 is :authority), unlike HPACK
+	 */
 	if (lws_qpack_get_static_token(0, &tok, &val)) { lwsl_err("1.1\n"); fails++; }
 	if (tok != WSI_TOKEN_HTTP_COLON_AUTHORITY || strcmp(val, "")) { lwsl_err("1.2\n"); fails++; }
-	
+
 	if (lws_qpack_get_static_token(17, &tok, &val)) { lwsl_err("1.3\n"); fails++; }
 	if (tok != WSI_TOKEN_HTTP_COLON_METHOD || strcmp(val, "GET")) { lwsl_err("1.4\n"); fails++; }
-	
+
 	if (lws_qpack_get_static_token(98, &tok, &val)) { lwsl_err("1.5\n"); fails++; }
 	if (tok != LWS_QPACK_IGNORE_ENTRY || strcmp(val, "sameorigin")) { lwsl_err("1.6\n"); fails++; }
 
-	/* 2. lws_qpack_find_static_index */
+	if (!lws_qpack_get_static_token(99, &tok, &val)) { lwsl_err("1.7\n"); fails++; }
+
+	/* 2. lws_qpack_find_static_index returns the 0-based wire index */
 	if (lws_qpack_find_static_index(WSI_TOKEN_HTTP_COLON_METHOD, "GET", 3) != 17) { lwsl_err("2.1\n"); fails++; }
 	if (lws_qpack_find_static_index(WSI_TOKEN_HTTP_COLON_METHOD, "POST", 4) != 20) { lwsl_err("2.2\n"); fails++; }
 	if (lws_qpack_find_static_index(WSI_TOKEN_HTTP_COLON_STATUS, "200", 3) != 25) { lwsl_err("2.3\n"); fails++; }
-	
+
 	/* 3. lws_qpack_encode_static */
 	len = lws_qpack_encode_static(buf, sizeof(buf), 0);
 	if (len != 1 || buf[0] != 0xc0) { lwsl_err("3.1\n"); fails++; }
@@ -693,7 +858,7 @@ int main(int argc, const char **argv)
 		if (n != 2 || enc_buf[p] != 0x00 || enc_buf[p+1] != 0x00) { lwsl_err("5.1\n"); fails++; }
 		p += (size_t)n;
 		
-		n = lws_qpack_encode_literal_with_name_ref(enc_buf + p, sizeof(enc_buf) - p, 15, "OTHER", 5);
+		n = lws_qpack_encode_literal_with_name_ref(enc_buf + p, sizeof(enc_buf) - p, 15, "OTHER", 5); /* static name idx 15 = set-cookie */
 		if (n != 8 || enc_buf[p] != 0x5f || enc_buf[p+1] != 0x00 || enc_buf[p+2] != 0x05) { lwsl_err("5.2\n"); fails++; }
 		p += (size_t)n;
 		
@@ -804,6 +969,7 @@ int main(int argc, const char **argv)
 	fails += test_qpack_encoder(context);
 	fails += test_qpack_varint_limits();
 	fails += test_qpack_shrink_ring_bounds();
+	fails += test_qpack_browser_shape();
 
 	if (fails) {
 		lwsl_err("Failed %d tests\n", fails);

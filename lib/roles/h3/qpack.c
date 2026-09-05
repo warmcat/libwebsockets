@@ -27,8 +27,9 @@
 #include "../h2/huftable.h"
 
 /*
- * QPACK Static Table (RFC 9204 Appendix A)
- * 99 entries.
+ * QPACK Static Table (RFC 9204 Appendix A).  Unlike HPACK, QPACK's static
+ * table is 0-based on the wire: index 0 is :authority.  The array is
+ * indexed directly with the wire index.
  */
 static const unsigned char qpack_static_token[99] = {
 	WSI_TOKEN_HTTP_COLON_AUTHORITY,
@@ -149,26 +150,26 @@ LWS_VISIBLE int
 lws_qpack_find_static_index(int lws_hdr_idx, const char *value, int value_len)
 {
 	int i;
-	
+
 	/* Fast path for matches with value */
 	if (value && value_len > 0) {
 		for (i = 0; i < 99; i++) {
 			if (qpack_static_token[i] == lws_hdr_idx) {
-				if (!strncmp(qpack_canned[i], value, (size_t)value_len) && 
+				if (!strncmp(qpack_canned[i], value, (size_t)value_len) &&
 				    qpack_canned[i][value_len] == '\0') {
 					return i;
 				}
 			}
 		}
 	}
-	
+
 	/* Fallback to matching just the name, taking the first match */
 	for (i = 0; i < 99; i++) {
 		if (qpack_static_token[i] == lws_hdr_idx) {
 			return i;
 		}
 	}
-	
+
 	return -1;
 }
 
@@ -177,12 +178,12 @@ lws_qpack_get_static_token(int index, int *lws_hdr_idx, const char **value)
 {
 	if (index < 0 || index >= 99)
 		return 1;
-		
+
 	if (lws_hdr_idx)
 		*lws_hdr_idx = qpack_static_token[index];
 	if (value)
 		*value = qpack_canned[index];
-		
+
 	return 0;
 }
 
@@ -747,6 +748,11 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 						idx = dte->lws_hdr_idx;
 						name = dte->value;
 						val = dte->value + name_len + 1;
+					} else {
+						lwsl_notice("%s: indexed dyn ref rel %d "
+							    "unresolvable\n", __func__,
+							    relative_idx);
+						return 1;
 					}
 				} else if ((state->opcode & 0xf0) == 0x50 || (state->opcode & 0xf0) == 0x70) {
 					if (lws_qpack_get_static_token((int)state->hdr_idx, &idx, NULL)) return 1;
@@ -764,6 +770,11 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 					if (dte && dte->value) {
 						idx = dte->lws_hdr_idx;
 						name = dte->value;
+					} else {
+						lwsl_notice("%s: dyn name ref rel %d "
+							    "unresolvable\n", __func__,
+							    relative_idx);
+						return 1;
 					}
 					state->val_buf[state->val_pos] = '\0';
 					val = state->val_buf;
@@ -786,6 +797,11 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 						idx = dte->lws_hdr_idx;
 						name = dte->value;
 						val = dte->value + name_len + 1;
+					} else {
+						lwsl_notice("%s: post-base indexed ref "
+							    "rel %d unresolvable\n",
+							    __func__, relative_idx);
+						return 1;
 					}
 				} else if ((state->opcode & 0xf0) == 0x00) {
 					int absolute_idx = (int)(state->base + (uint64_t)(unsigned int)state->hdr_idx);
@@ -796,17 +812,18 @@ lws_qpack_decode_header_block(struct lws_qpack_stream_state *state,
 					int relative_idx = ctx ? (int)(ctx->dyn_table.insert_count - 1 - (uint32_t)absolute_idx) : -1;
 					struct lws_qpack_dynamic_table_entry *dte = 
 						lws_qpack_get_dynamic_entry(ctx, relative_idx);
-					// DEBUG
-					/* lwsl_user("Post-Base Name Ref: base=%d hdr_idx=%d abs=%d rel=%d used=%d name=%s\n", 
-						(int)state->base, state->hdr_idx, absolute_idx, relative_idx, 
-						ctx ? ctx->dyn_table.used_entries : -1, dte ? (dte->value ? dte->value : "null") : "null"); */
-					if (dte && dte->value) {
-						idx = dte->lws_hdr_idx;
-						name = dte->value;
+						if (dte && dte->value) {
+							idx = dte->lws_hdr_idx;
+							name = dte->value;
+						} else {
+							lwsl_notice("%s: post-base name ref "
+								    "rel %d unresolvable\n",
+								    __func__, relative_idx);
+							return 1;
+						}
+						state->val_buf[state->val_pos] = '\0';
+						val = state->val_buf;
 					}
-					state->val_buf[state->val_pos] = '\0';
-					val = state->val_buf;
-				}
 				
 				/* lwsl_user("EMIT: opcode=%02x idx=%d name=%s val=%s val_len=%d\n", state->opcode, idx, name ? name : "null", val ? val : "null", val ? (int)strlen(val) : 0); */
 				
@@ -1171,11 +1188,18 @@ do_emit_enc:
 LWS_VISIBLE int
 lws_qpack_dynamic_size(struct lws_qpack_context *ctx, int size)
 {
-	struct lws_qpack_dynamic_table_entry *dte;
-	int n, min, m;
+	int n;
 
 	if ((uint32_t)size > ctx->dyn_table.virtual_payload_limit) {
-		lwsl_err("LWS_QPACK_ENCODER_STREAM_ERROR: table capacity limit exceeded!\n");
+		/*
+		 * The limit is the SETTINGS_QPACK_MAX_TABLE_CAPACITY we
+		 * advertised (LWS_QPACK_CAP_VAL); a conformant peer can never
+		 * exceed it, so state both numbers for diagnosing the peer or
+		 * a desynced encoder stream
+		 */
+		lwsl_err("%s: peer Set Dynamic Table Capacity %u exceeds "
+			 "advertised max %u\n", __func__, (unsigned int)size,
+			 (unsigned int)ctx->dyn_table.virtual_payload_limit);
 		return 1;
 	}
 
@@ -1184,46 +1208,48 @@ lws_qpack_dynamic_size(struct lws_qpack_context *ctx, int size)
 		return 0;
 	}
 
-	n = size / 32;
-	if (!n) n = 1;
-	
-	if (n == ctx->dyn_table.num_entries) {
+	/*
+	 * If storage was never provided (standalone users like api tests),
+	 * create it now sized for this capacity
+	 */
+	if (!ctx->dyn_table.entries) {
+		n = size / 32;
+		if (!n)
+			n = 1;
+
+		ctx->dyn_table.entries = lws_zalloc(sizeof(*ctx->dyn_table.entries) *
+						    (size_t)n, "qpack dyn");
+		if (!ctx->dyn_table.entries)
+			return 1;
+		ctx->dyn_table.num_entries = (uint16_t)n;
 		ctx->dyn_table.virtual_payload_max = (uint32_t)size;
+
 		return 0;
 	}
 
-	dte = lws_zalloc(sizeof(*dte) * (size_t)n, "qpack dyn");
-	if (!dte)
-		return 1;
-
-	min = ctx->dyn_table.used_entries;
-	if (min > n)
-		min = n;
-
-	if (ctx->dyn_table.entries) {
-		for (m = 0; m < min; m++) {
-			int old_idx = (ctx->dyn_table.pos - min + m + ctx->dyn_table.num_entries) % ctx->dyn_table.num_entries;
-			dte[m] = ctx->dyn_table.entries[old_idx];
-		}
-		
-		for (m = 0; m < ctx->dyn_table.used_entries - min; m++) {
-			int old_idx = (ctx->dyn_table.pos - ctx->dyn_table.used_entries + m + ctx->dyn_table.num_entries) % ctx->dyn_table.num_entries;
-			if (ctx->dyn_table.entries[old_idx].value)
-				lws_free(ctx->dyn_table.entries[old_idx].value);
-		}
-		lws_free(ctx->dyn_table.entries);
-	}
-	
-	ctx->dyn_table.entries = dte;
-	ctx->dyn_table.num_entries = (uint16_t)n;
-	ctx->dyn_table.used_entries = (uint16_t)min;
 	/*
-	 * pos is the next-write ring slot and must stay inside the table.
-	 * If the kept entries exactly fill the new table (min == n), the
-	 * next insert has to wrap to 0 rather than write entries[n]
+	 * Capacity change on an existing table: the slot array stays as-is
+	 * (for h3 connections it is embedded in h3n and must not be freed or
+	 * resized); only the byte budget moves, and entries are evicted
+	 * oldest-first until what remains fits the reduced capacity, the
+	 * same eviction the peer performed on its side
 	 */
-	ctx->dyn_table.pos = (uint16_t)(min % n);
 	ctx->dyn_table.virtual_payload_max = (uint32_t)size;
+
+	while (ctx->dyn_table.used_entries &&
+	       ctx->dyn_table.virtual_payload_usage > (uint32_t)size) {
+		int old_idx = (ctx->dyn_table.pos - ctx->dyn_table.used_entries +
+			       ctx->dyn_table.num_entries) %
+			      ctx->dyn_table.num_entries;
+
+		if (ctx->dyn_table.entries[old_idx].value) {
+			lws_free(ctx->dyn_table.entries[old_idx].value);
+			ctx->dyn_table.entries[old_idx].value = NULL;
+		}
+		ctx->dyn_table.virtual_payload_usage -=
+				ctx->dyn_table.entries[old_idx].hdr_len;
+		ctx->dyn_table.used_entries--;
+	}
 
 	return 0;
 }
@@ -1236,16 +1262,20 @@ lws_qpack_destroy_dynamic_header(struct lws_qpack_context *ctx)
 	if (!ctx->dyn_table.entries)
 		return;
 
+	/*
+	 * The entries array itself belongs to the embedder (h3n's rx_entries
+	 * array): free the per-entry strings and reset the table state, but
+	 * leave the array alone so the connection can continue using it,
+	 * eg after a peer dynamic table size update to 0
+	 */
 	for (i = 0; i < ctx->dyn_table.num_entries; i++)
-		if (ctx->dyn_table.entries[i].value)
+		if (ctx->dyn_table.entries[i].value) {
 			lws_free(ctx->dyn_table.entries[i].value);
+			ctx->dyn_table.entries[i].value = NULL;
+		}
 
-	lws_free(ctx->dyn_table.entries);
-	ctx->dyn_table.entries = NULL;
-	ctx->dyn_table.num_entries = 0;
 	ctx->dyn_table.used_entries = 0;
 	ctx->dyn_table.pos = 0;
-	ctx->dyn_table.virtual_payload_max = 0;
 	ctx->dyn_table.virtual_payload_usage = 0;
 }
 
