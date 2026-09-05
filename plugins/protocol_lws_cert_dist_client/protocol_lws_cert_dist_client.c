@@ -44,6 +44,7 @@ struct pss_cert_dist_client {
 struct dist_client_conn {
 	struct lws_dll2                 list;
 	lws_sorted_usec_list_t          sul;
+	lws_sorted_usec_list_t          sul_timeout;
 	struct lws                      *wsi;
 	uint16_t                        retry_count;
 	struct vhd_cert_dist_client     *vhd;
@@ -128,6 +129,25 @@ hash_rx_cb(struct lejp_ctx *ctx, char reason)
 static const char * const hash_paths[] = { "hash" };
 
 /*
+ * If the stub never answers the hash request, proceed without the hash
+ * rather than waiting forever
+ */
+static void
+hash_timeout_cb(lws_sorted_usec_list_t *sul)
+{
+	struct dist_client_conn *conn = lws_container_of(sul, struct dist_client_conn, sul_timeout);
+
+	if (!conn->fetching_hash)
+		return; /* hash reply beat us to it */
+
+	lwsl_warn("%s: no hash reply for %s, connecting without it\n",
+		  __func__, conn->name);
+	conn->fetching_hash = 0;
+	conn->hash[0] = '\0';
+	lws_sul_schedule(conn->vhd->cx, 0, &conn->sul, connect_client, 1);
+}
+
+/*
  * If we have a cert currently, let's hash it and let the server tell us
  * if the remote one is newer. If we don't have a cert, we don't have
  * anything to hash and want to get any remote cert.
@@ -147,8 +167,13 @@ fetch_local_hash(lws_sorted_usec_list_t *sul)
 	}
 
 	conn->fetching_hash = 1;
-	lws_snprintf(req, sizeof(req), "{\"secret\":\"%s\",\"subdomain\":\"%s\",\"get_hash\":true}",
-		     conn->vhd->secret, conn->name);
+	{
+		/* the secret is owned by the stub manager, vhd->secret is
+		 * only filled in on the stub child side */
+		const char *sec = lws_stub_get_secret(conn->vhd->stub_mgr);
+		lws_snprintf(req, sizeof(req), "{\"secret\":\"%s\",\"subdomain\":\"%s\",\"get_hash\":true}",
+			     sec ? sec : "", conn->name);
+	}
 
 	if (lws_stub_request(conn->vhd->stub_mgr, req, hash_paths, 1, hash_rx_cb, NULL, conn) < 0) {
 		lwsl_err("%s: Failed requesting hash for %s\n", __func__, conn->name);
@@ -156,7 +181,9 @@ fetch_local_hash(lws_sorted_usec_list_t *sul)
 		conn->hash[0] = '\0';
 		conn->fetching_hash = 0;
 		lws_sul_schedule(conn->vhd->cx, 0, &conn->sul, connect_client, 1);
-	}
+	} else
+		lws_sul_schedule(conn->vhd->cx, 0, &conn->sul_timeout, hash_timeout_cb,
+				 5 * LWS_US_PER_SEC);
 }
 
 static const char * const client_rx_paths[] = {
@@ -276,6 +303,10 @@ static signed char
 stub_req_cb(struct lejp_ctx *ctx, char reason)
 {
 	struct stub_req_args *a = (struct stub_req_args *)ctx->user;
+
+	/* "get_hash":true is a JSON bool, not a string */
+	if (reason == LEJPCB_VAL_TRUE && ctx->path_match - 1 == STUB_GET_HASH)
+		a->get_hash = 1;
 
 	if (reason == LEJPCB_VAL_STR_CHUNK || reason == LEJPCB_VAL_STR_END) {
 		switch (ctx->path_match - 1) {
@@ -707,10 +738,26 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 			const char *stub = lws_cmdline_option_cx(lws_get_context(wsi), "--lws-stub");
 
 			if (stub) {
-				if (strncmp(stub, "stub-client-", 12) && strncmp(stub, "stub-", 5))
+				/* only our own stubs: other plugins' "stub-*"
+				 * children must not have their stdin secret
+				 * consumed by us */
+				if (strncmp(stub, "stub-client-", 12))
 					return 0;
 
-				const char *orig_vh = strncmp(stub, "stub-client-", 12) == 0 ? stub + 12 : stub + 5;
+				const char *orig_vh = stub + 12;
+
+				/*
+				 * We are instantiated on every vhost in the
+				 * stub child, but the stub secret can only be
+				 * consumed from stdin once: later
+				 * instantiations must not block on the pipe
+				 */
+				lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&active_client_vhds)) {
+					struct vhd_cert_dist_client *v = lws_container_of(d,
+							struct vhd_cert_dist_client, list_vhd);
+					if (!strcmp(v->vh_name, orig_vh))
+						return 0; /* already initialized */
+				} lws_end_foreach_dll(d);
 				char uds_path[256];
 				lws_snprintf(uds_path, sizeof(uds_path), "/var/run/lws-cert-dist-stub-%s.sock", orig_vh);
 
@@ -732,10 +779,43 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 				sc.uds_path = uds_path;
 				sc.protocols = stub_protocols;
 
+				/* preload defaults in case there is no payload */
+				lws_strncpy(vhd->base_dir, "/etc/lwsws-pki", sizeof(vhd->base_dir));
+
 				lws_dll2_add_tail(&vhd->list_vhd, &active_client_vhds);
 				if (lws_stub_server_init(&sc, vhd->secret, vhd->reload_cmd, sizeof(vhd->reload_cmd))) {
 					lws_dll2_remove(&vhd->list_vhd);
 					return -1;
+				}
+
+				/*
+				 * the parent packs {"base_dir":...,"reload_cmd":...}
+				 * into the extra payload... recover base_dir from it
+				 */
+				{
+					char *p = (char *)strstr(vhd->reload_cmd, "\"base_dir\":\"");
+					if (p) {
+						char *q;
+						p += 12;
+						q = (char *)strchr(p, '"');
+						if (q && (size_t)(q - p) < sizeof(vhd->base_dir)) {
+							memcpy(vhd->base_dir, p, (size_t)(q - p));
+							vhd->base_dir[q - p] = '\0';
+						}
+					}
+					p = (char *)strstr(vhd->reload_cmd, "\"reload_cmd\":\"");
+					if (p) {
+						char tmp[256];
+						char *q;
+						p += 14;
+						q = (char *)strchr(p, '"');
+						if (q && (size_t)(q - p) < sizeof(tmp)) {
+							memcpy(tmp, p, (size_t)(q - p));
+							tmp[q - p] = '\0';
+							lws_strncpy(vhd->reload_cmd, tmp, sizeof(vhd->reload_cmd));
+						}
+					} else
+						vhd->reload_cmd[0] = '\0';
 				}
 				return 0;
 			}
@@ -821,11 +901,19 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 			sc.protocols = stub_protocols;
 			sc.parent_protocol_name = "lws-cert-dist-client";
 
+			/*
+			 * The stub child process starts with a clean context
+			 * and can't see our PVOs: pass it what it needs to
+			 * build file paths (base_dir) plus the reload command
+			 * via the stub extra payload
+			 */
 			char rc[256];
 			memset(rc, 0, sizeof(rc));
-			lws_strncpy(rc, vhd->reload_cmd, sizeof(rc));
+			lws_snprintf(rc, sizeof(rc),
+				     "{\"base_dir\":\"%s\",\"reload_cmd\":\"%s\"}",
+				     vhd->base_dir, vhd->reload_cmd);
 			sc.extra_payload = rc;
-			sc.extra_payload_len = 256;
+			sc.extra_payload_len = sizeof(rc);
 
 			vhd->stub_mgr = lws_stub_spawn(&sc);
 			if (!vhd->stub_mgr)
@@ -887,6 +975,15 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 						lws_strncpy(conn->prot, pcuri->scheme, sizeof(conn->prot));
 						lws_strncpy(conn->name, certs_pvo->name, sizeof(conn->name));
 
+						/*
+						 * Track it on vhd->clients: otherwise
+						 * vhost teardown can't cancel its suls or
+						 * free it, and the DIST-STUB-READY pass
+						 * that kick-starts connections finds
+						 * nothing
+						 */
+						lws_dll2_add_tail(&conn->list, &vhd->clients);
+
 						/* Schedule connection for this domain by fetching hash first */
 						lws_sul_schedule(vhd->cx, 0, &conn->sul, fetch_local_hash, 100 * LWS_US_PER_MS);
 					}
@@ -931,7 +1028,7 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 
 		lws_start_foreach_dll_safe(struct lws_dll2 *, p, tp, lws_dll2_get_head(&vhd->clients)) {
 			struct dist_client_conn *conn = lws_container_of(p, struct dist_client_conn, list);
-			lws_sul_schedule(vhd->cx, 0, &conn->sul, connect_client, 1);
+			lws_sul_schedule(vhd->cx, 0, &conn->sul, fetch_local_hash, 1);
 		} lws_end_foreach_dll_safe(p, tp);
 	}
 	break;
@@ -960,6 +1057,7 @@ callback_cert_dist_client(struct lws *wsi, enum lws_callback_reasons reason,
 			struct dist_client_conn *conn = lws_container_of(p, struct dist_client_conn, list);
 
 			lws_sul_cancel(&conn->sul);
+			lws_sul_cancel(&conn->sul_timeout);
 			lws_dll2_remove(&conn->list);
 			free(conn);
 		} lws_end_foreach_dll_safe(p, tp);

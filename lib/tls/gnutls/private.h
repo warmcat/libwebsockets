@@ -36,6 +36,7 @@ struct lws_tls_gnutls_ctx {
 	gnutls_datum_t ticket_key;
 	uint8_t ticket_key_valid;
 #endif
+	uint8_t has_client_cert;	/* creds contain a client cert pair */
 };
 
 struct lws_x509_cert {

@@ -109,6 +109,18 @@ lws_tls_vhost_backend_create_ctx(struct lws_vhost *vhost)
 		return 1;
 	}
 
+	/*
+	 * As a server, the vhost CA file is the trust store used to verify
+	 * client certificates presented to us, the same role
+	 * SSL_CTX_load_verify_locations() plays in the openssl backend
+	 */
+	if (vhost->tls.cfg_ssl_ca_filepath &&
+	    gnutls_certificate_set_x509_trust_file(vhost->tls.ssl_ctx->creds,
+			vhost->tls.cfg_ssl_ca_filepath,
+			GNUTLS_X509_FMT_PEM) < 0)
+		lwsl_err("%s: unable to load trust file %s\n", __func__,
+			 vhost->tls.cfg_ssl_ca_filepath);
+
 	if (gnutls_priority_init(&vhost->tls.ssl_ctx->priority,
 				 vhost->tls.cfg_ssl_cipher_list ?
 				 vhost->tls.cfg_ssl_cipher_list : "NORMAL", NULL) < 0) {
@@ -244,24 +256,60 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	}
 
 	if (ca_filepath) {
-		gnutls_certificate_set_x509_trust_file(vh->tls.ssl_client_ctx->creds,
-						      ca_filepath, GNUTLS_X509_FMT_PEM);
+		if (gnutls_certificate_set_x509_trust_file(
+				vh->tls.ssl_client_ctx->creds,
+				ca_filepath, GNUTLS_X509_FMT_PEM) < 0) {
+			lwsl_err("%s: unable to load trust file %s\n",
+				 __func__, ca_filepath);
+			goto bail;
+		}
 	} else if (ca_mem && ca_mem_len) {
 		if (lws_tls_client_vhost_ca_mem_parse(vh, ca_mem, ca_mem_len)) {
 			lwsl_err("%s: Unable to load x.509 ca_mem\n", __func__);
-			return 1;
+			goto bail;
 		}
 	} else {
 		gnutls_certificate_set_x509_system_trust(vh->tls.ssl_client_ctx->creds);
 	}
 
+	/*
+	 * The client cert pair for mTLS: the openssl backend loads these
+	 * from the same info members, on gnutls they have to be set into
+	 * the client credentials or we can never present one
+	 */
+	if (cert_filepath && private_key_filepath) {
+		if (gnutls_certificate_set_x509_key_file(
+				vh->tls.ssl_client_ctx->creds,
+				cert_filepath, private_key_filepath,
+				GNUTLS_X509_FMT_PEM) < 0) {
+			lwsl_err("%s: unable to load client cert %s / key %s\n",
+				 __func__, cert_filepath, private_key_filepath);
+			goto bail;
+		}
+		vh->tls.ssl_client_ctx->has_client_cert = 1;
+		lwsl_notice("%s: vh %s: loaded client cert %s\n", __func__,
+			    vh->name, cert_filepath);
+	} else if (cert_mem && cert_mem_len && key_mem && key_mem_len) {
+		gnutls_datum_t dcert, dkey;
+
+		dcert.data = (unsigned char *)cert_mem;
+		dcert.size = (unsigned)cert_mem_len;
+		dkey.data = (unsigned char *)key_mem;
+		dkey.size = (unsigned)key_mem_len;
+
+		if (gnutls_certificate_set_x509_key_mem(
+				vh->tls.ssl_client_ctx->creds,
+				&dcert, &dkey, GNUTLS_X509_FMT_PEM) < 0) {
+			lwsl_err("%s: unable to load client cert from mem\n",
+				 __func__);
+			goto bail;
+		}
+	}
+
 	if (gnutls_priority_init(&vh->tls.ssl_client_ctx->priority,
 				 cipher_list ? cipher_list : "NORMAL", NULL) < 0) {
 		lwsl_err("%s: gnutls_priority_init failed\n", __func__);
-		gnutls_certificate_free_credentials(vh->tls.ssl_client_ctx->creds);
-		lws_free(vh->tls.ssl_client_ctx);
-		vh->tls.ssl_client_ctx = NULL;
-		return 1;
+		goto bail;
 	}
 
 #if defined(LWS_WITH_TLS_SESSIONS)
@@ -271,6 +319,13 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 #endif
 
 	return 0;
+
+bail:
+	gnutls_certificate_free_credentials(vh->tls.ssl_client_ctx->creds);
+	lws_free(vh->tls.ssl_client_ctx);
+	vh->tls.ssl_client_ctx = NULL;
+
+	return 1;
 }
 #endif
 
@@ -308,6 +363,19 @@ lws_gnutls_server_name_cb(gnutls_session_t session)
 
 	/* select the credentials from the selected vhost for this session */
 	gnutls_credentials_set(session, GNUTLS_CRD_CERTIFICATE, vhost->tls.ssl_ctx->creds);
+
+	/*
+	 * The "request a client certificate" state we applied at session
+	 * creation time followed the LISTENING vhost's options: reapply it
+	 * for the vhost the SNI name actually selected, or a cert-requiring
+	 * vhost served through a shared listener never asks for one
+	 */
+	if (lws_check_opt(vhost->options,
+			  LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT))
+		gnutls_certificate_server_set_request(session,
+			lws_check_opt(vhost->options,
+				      LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED) ?
+				GNUTLS_CERT_REQUEST : GNUTLS_CERT_REQUIRE);
 
 	/* And update wsi's bound vhost! */
 	lws_vhost_bind_wsi(vhost, wsi);
@@ -372,6 +440,21 @@ lws_tls_server_new_nonblocking(struct lws *wsi, lws_sockfd_type accept_fd)
 	}
 	gnutls_priority_set(session, wsi->tls.ctx_ref ? wsi->tls.ctx_ref->ctx->priority : wsi->a.vhost->tls.ssl_ctx->priority);
 	gnutls_credentials_set(session, GNUTLS_CRD_CERTIFICATE, wsi->tls.ctx_ref ? wsi->tls.ctx_ref->ctx->creds : wsi->a.vhost->tls.ssl_ctx->creds);
+
+	/*
+	 * GnuTLS keeps the "request a client certificate" state on the
+	 * session, not the credentials, so it must be applied here
+	 * per-connection, mirroring what SSL_CTX_set_verify() does for the
+	 * openssl backend.  Presented certs are verified by gnutls against
+	 * the vhost credential trust store
+	 */
+	if (lws_check_opt(wsi->a.vhost->options,
+			  LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT))
+		gnutls_certificate_server_set_request(session,
+			lws_check_opt(wsi->a.vhost->options,
+				      LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED) ?
+				GNUTLS_CERT_REQUEST : GNUTLS_CERT_REQUIRE);
+
 	gnutls_transport_set_int((gnutls_session_t)wsi->tls.ssl, (int)accept_fd);
 
 	gnutls_session_set_ptr(session, wsi);
@@ -467,6 +550,11 @@ lws_ssl_client_bio_create(struct lws *wsi)
 
 	gnutls_priority_set(session, wsi->a.vhost->tls.ssl_client_ctx->priority);
 	gnutls_credentials_set(session, GNUTLS_CRD_CERTIFICATE, wsi->a.vhost->tls.ssl_client_ctx->creds);
+
+	lwsl_notice("%s: vh %s: client session, ctx has cert %d\n", __func__,
+		    wsi->a.vhost->name,
+		    wsi->a.vhost->tls.ssl_client_ctx->has_client_cert);
+
 	gnutls_transport_set_int(session, (int)wsi->desc.sockfd);
 
 	gnutls_server_name_set(session, GNUTLS_NAME_DNS, hostname, strlen(hostname));
@@ -685,13 +773,12 @@ lws_tls_server_certs_load(struct lws_vhost *vhost, struct lws *wsi,
 int
 lws_tls_server_client_cert_verify_config(struct lws_vhost *vh)
 {
-	/* In GnuTLS, this is typically handled per-session during handshake setup,
-	 * but we don't have a vhost-wide global option for it outside of the credentials.
-	 * We can note that it's active. lws_tls_server_new_nonblocking would normally
-	 * call gnutls_certificate_server_set_request(session, GNUTLS_CERT_REQUEST);
-	 * Since GnuTLS doesn't store this state purely in the credential context like OpenSSL,
-	 * we will just return 0 to indicate it was "configured" and the LWS core should
-	 * apply it dynamically when creating sessions if LWS_SERVER_OPTION_REQUIRE_VALID_CLIENT_CERT is set. */
+	/*
+	 * GnuTLS keeps the "request a client certificate" state on the
+	 * session rather than the credential context, so it is applied per-
+	 * connection in lws_tls_server_new_nonblocking() based on the vhost
+	 * options; nothing to do at vhost ctx creation time
+	 */
 	return 0;
 }
 #endif
@@ -744,7 +831,12 @@ lws_tls_peer_cert_info(struct lws *wsi, enum lws_tls_cert_info type,
 		break;
 
 	case LWS_TLS_CERT_INFO_COMMON_NAME:
-		if (gnutls_x509_crt_get_dn(crt, buf->ns.name, &len) < 0)
+		/*
+		 * the CN component only: rendering the whole subject DN here
+		 * would give consumers "CN=foo.com" when they expect "foo.com"
+		 */
+		if (gnutls_x509_crt_get_dn_by_oid(crt, GNUTLS_OID_X520_COMMON_NAME,
+						  0, 0, buf->ns.name, &len) < 0)
 			goto bail;
 		buf->ns.len = (int)len;
 		ret = 0;

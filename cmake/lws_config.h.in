@@ -64,6 +64,8 @@
 #cmakedefine LWS_HAVE_GETGRNAM_R
 #cmakedefine LWS_HAVE_GETPWUID_R
 #cmakedefine LWS_HAVE_GETPWNAM_R
+#cmakedefine LWS_HAVE_GETPPID
+#cmakedefine LWS_HAVE_SIGACTION
 #cmakedefine LWS_HAVE_LIBCAP
 #cmakedefine LWS_HAVE_HMAC_CTX_new
 #cmakedefine LWS_HAVE_MALLOC_H

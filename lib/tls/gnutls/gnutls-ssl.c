@@ -161,8 +161,73 @@ lws_tls_server_accept(struct lws *wsi)
 	}
 #endif
 
-	if (n == GNUTLS_E_SUCCESS)
+	if (n == GNUTLS_E_SUCCESS) {
+		int opt_req = lws_check_opt(wsi->a.vhost->options,
+				LWS_SERVER_OPTION_REQUIRE_VALID_OPENSSL_CLIENT_CERT);
+		int opt_opt = lws_check_opt(wsi->a.vhost->options,
+				LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED);
+
+		if (opt_req || opt_opt) {
+			/*
+			 * The vhost asked for client certs.  gnutls does not
+			 * verify presented client certs as part of the
+			 * handshake by itself, so the outcome is both
+			 * enforced and made visible here
+			 */
+			unsigned int status = 0;
+
+			if (gnutls_certificate_verify_peers2(
+					(gnutls_session_t)wsi->tls.ssl,
+					&status) < 0) {
+				lwsl_notice("%s: vh %s: mTLS: no client cert presented\n",
+					    __func__, wsi->a.vhost->name);
+
+				/* absent cert is only OK if it was optional */
+				if (!opt_opt)
+					return LWS_SSL_CAPABLE_ERROR;
+			} else if (status &&
+				   !lws_check_opt(wsi->a.vhost->options,
+						LWS_SERVER_OPTION_PEER_CERT_NOT_REQUIRED)) {
+				/* presented, but did not verify: reject */
+				gnutls_datum_t out;
+				char rbuf[160];
+
+				rbuf[0] = '\0';
+				if (!gnutls_certificate_verification_status_print(
+						status,
+						gnutls_certificate_type_get(
+							(gnutls_session_t)wsi->tls.ssl),
+						&out, 0)) {
+					lws_strncpy(rbuf, (const char *)out.data,
+						    sizeof(rbuf) - 1);
+					gnutls_free(out.data);
+				}
+
+				lwsl_notice("%s: vh %s: mTLS: rejecting client "
+					    "cert: %s\n", __func__,
+					    wsi->a.vhost->name,
+					    rbuf[0] ? rbuf : "verification failed");
+
+				return LWS_SSL_CAPABLE_ERROR;
+			} else {
+				union lws_tls_cert_info_results ir;
+				char cn[80];
+
+				if (!lws_tls_peer_cert_info(wsi,
+						LWS_TLS_CERT_INFO_COMMON_NAME,
+						&ir, sizeof(ir)))
+					lws_strncpy(cn, ir.ns.name, sizeof(cn));
+				else
+					lws_strncpy(cn, "unknown", sizeof(cn));
+
+				lwsl_notice("%s: vh %s: mTLS: accepted client "
+					    "cert CN=%s\n", __func__,
+					    wsi->a.vhost->name, cn);
+			}
+		}
+
 		return LWS_SSL_CAPABLE_DONE;
+	}
 
 	if (n == GNUTLS_E_AGAIN || n == GNUTLS_E_INTERRUPTED) {
 		if (gnutls_record_get_direction((gnutls_session_t)wsi->tls.ssl) == 0) {
@@ -178,7 +243,35 @@ lws_tls_server_accept(struct lws *wsi)
 		}
 	}
 
-	lwsl_info("gnutls_handshake (server) failed: %s (%d)\n", gnutls_strerror(n), n);
+	/*
+	 * The handshake failed for good: say why, and if it was about the
+	 * peer certificate, render the verification status in human terms
+	 */
+	{
+		unsigned int status = 0;
+		char rbuf[160];
+
+		rbuf[0] = '\0';
+		if (!gnutls_certificate_verify_peers2(
+				(gnutls_session_t)wsi->tls.ssl, &status)) {
+			gnutls_datum_t out;
+
+			if (!gnutls_certificate_verification_status_print(
+					status,
+					gnutls_certificate_type_get(
+						(gnutls_session_t)wsi->tls.ssl),
+					&out, 0)) {
+				lws_strncpy(rbuf, (const char *)out.data,
+					    sizeof(rbuf) - 1);
+				gnutls_free(out.data);
+			}
+		}
+
+		lwsl_notice("%s: vh %s: server TLS handshake failed: %s (%d)%s%s\n",
+			    __func__, wsi->a.vhost->name,
+			    gnutls_strerror(n), n,
+			    rbuf[0] ? ", peer cert: " : "", rbuf);
+	}
 
 	return LWS_SSL_CAPABLE_ERROR;
 }

@@ -118,12 +118,6 @@ int lws_context_init_client_ssl(const struct lws_context_creation_info *info,
 	if (vhost->options & LWS_SERVER_OPTION_ADOPT_APPLY_LISTEN_ACCEPT_CONFIG)
 		return 0;
 
-	if (vhost->tls.ssl_ctx) {
-		cert_filepath = NULL;
-		private_key_filepath = NULL;
-		ca_filepath = NULL;
-	}
-
 	/*
 	 *  for backwards-compatibility default to using ssl_... members, but
 	 * if the newer client-specific ones are given, use those
@@ -137,6 +131,22 @@ int lws_context_init_client_ssl(const struct lws_context_creation_info *info,
 
 	if (info->client_ssl_ca_filepath)
 		ca_filepath = info->client_ssl_ca_filepath;
+
+	/*
+	 * The "vhost also has a server ctx, reuse the server cert members"
+	 * compat path can only be applied when no explicit client TLS
+	 * config was given: some backends (eg, gnutls) create the server
+	 * ctx unconditionally for all vhosts, so testing vhost->tls.ssl_ctx
+	 * alone would wrongly discard explicit client_ssl_* config there
+	 */
+	if (vhost->tls.ssl_ctx &&
+	    !info->client_ssl_cert_filepath &&
+	    !info->client_ssl_private_key_filepath &&
+	    !info->client_ssl_ca_filepath) {
+		cert_filepath = NULL;
+		private_key_filepath = NULL;
+		ca_filepath = NULL;
+	}
 
 	if (vhost->tls.ssl_client_ctx)
 		return 0;
@@ -169,7 +179,7 @@ int lws_context_init_client_ssl(const struct lws_context_creation_info *info,
 						))
 		return 1;
 
-	lwsl_info("created client ssl context for %s\n", vhost->name);
+	lwsl_notice("created client ssl context for %s\n", vhost->name);
 
 	/*
 	 * give him a fake wsi with context set, so he can use

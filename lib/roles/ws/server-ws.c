@@ -416,7 +416,12 @@ lws_process_ws_upgrade2(struct lws *wsi)
 	}
 
 	if (lws_server_init_wsi_for_ws(wsi)) {
-		lwsl_notice("%s: user ESTABLISHED failed connection\n", __func__);
+#if (_LWS_ENABLED_LOGS & LLL_NOTICE)
+		char peer[64];
+		lwsl_wsi_notice(wsi, "user ESTABLISHED failed connection: protocol=%s, peer=%s",
+				wsi->a.protocol->name,
+				lws_get_peer_simple(wsi, peer, sizeof(peer)));
+#endif
 		return 1;
 	}
 	lwsl_parser("accepted v%02d connection\n", wsi->ws->ietf_spec_revision);

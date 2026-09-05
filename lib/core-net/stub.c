@@ -723,9 +723,18 @@ lws_callback_stub_client(struct lws *wsi, enum lws_callback_reasons reason,
 				lws_free(req->tx_buf);
 				lejp_destruct(&req->jctx);
 				lws_free(req);
-			} else if (req->jctx.pst[req->jctx.pst_sp].callback == NULL) {
-				/* If parse complete (or if the callback indicates completion) */
-				/* Actually, we can just rely on LEJPCB_OBJECT_END in the callback */
+			} else if (m == 0) {
+				/*
+				 * The reply completed the request: retire it,
+				 * or it stays at the head of the queue forever
+				 * and blocks every later queued request
+				 */
+				lws_dll2_remove(&req->list);
+				lws_free(req->tx_buf);
+				lejp_destruct(&req->jctx);
+				lws_free(req);
+				if (!lws_dll2_is_empty(&mgr->reqs))
+					lws_callback_on_writable(wsi);
 			}
 		}
 		break;

@@ -2551,6 +2551,7 @@ handle_monitor_request(struct vhd *vhd, struct pss *root_pss, const char *in, si
 				strcmp(req_map[i].name, "get_acme_log") &&
 				strcmp(req_map[i].name, "get_dist_server_domain") &&
 				strcmp(req_map[i].name, "set_dist_server_domain") &&
+				strcmp(req_map[i].name, "reset_dist_pki") &&
 				strcmp(req_map[i].name, "download_dist_ca")) {
 				lwsl_notice("[INSTRUMENT] handle_monitor_request: Missing required 'domain' param for %s\n", a.req);
 				tx += lws_snprintf(tx, lws_ptr_diff_size_t(tx_end, tx), "{\"req\":\"%s\",\"status\":\"error\",\"msg\":\"Missing arguments\"}\n", a.req);

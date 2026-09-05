@@ -382,10 +382,29 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 			return 0;
 
 		if (stub) {
+			/* "stub-client-..." stubs belong to the cert dist client
+			 * plugin: claiming one here steals its stdin secret and
+			 * breaks its UDS listener */
+			if (!strncmp(stub, "stub-client-", 12))
+				return 0;
+
 			if (strncmp(stub, "stub-", 5))
 				return 0;
 
 			const char *orig_vh = stub + 5;
+
+			/*
+			 * We are instantiated on every vhost in the stub
+			 * child, but the stub secret can only be consumed
+			 * from stdin once: later instantiations must not
+			 * block on the pipe
+			 */
+			lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(&active_server_vhds)) {
+				struct vhd_cert_dist_server *v = lws_container_of(d,
+						struct vhd_cert_dist_server, list_vhd);
+				if (!strcmp(v->vh_name, orig_vh))
+					return 0; /* already initialized */
+			} lws_end_foreach_dll(d);
 
 			vhd = lws_protocol_vh_priv_zalloc(lws_get_vhost(wsi),
 							  lws_get_protocol(wsi),
@@ -409,10 +428,34 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 			sc.uds_path = uds_path;
 			sc.protocols = stub_protocols;
 
-			lws_dll2_add_tail(&vhd->list_vhd, &active_server_vhds);
-			if (lws_stub_server_init(&sc, vhd->secret, NULL, 0)) {
-				lws_dll2_remove(&vhd->list_vhd);
-				return -1;
+			/*
+			 * The parent packs our pki_root into the extra
+			 * payload at spawn time, since the stub child
+			 * cannot see PVOs: recover it from what was read
+			 * off stdin
+			 */
+			{
+				char buf[256];
+				memset(buf, 0, sizeof(buf));
+
+				lws_dll2_add_tail(&vhd->list_vhd, &active_server_vhds);
+				if (lws_stub_server_init(&sc, vhd->secret, buf, sizeof(buf))) {
+					lws_dll2_remove(&vhd->list_vhd);
+					return -1;
+				}
+
+				{
+					char *p = (char *)strstr(buf, "\"pki_root\":\"");
+					if (p) {
+						char *q;
+						p += 12;
+						q = (char *)strchr(p, '"');
+						if (q && (size_t)(q - p) < sizeof(vhd->pki_root)) {
+							memcpy(vhd->pki_root, p, (size_t)(q - p));
+							vhd->pki_root[q - p] = '\0';
+						}
+					}
+				}
 			}
 			return 0;
 		}
@@ -467,6 +510,14 @@ callback_cert_dist_server(struct lws *wsi, enum lws_callback_reasons reason,
 			sc.uds_path = uds_path;
 			sc.protocols = stub_protocols;
 			sc.parent_protocol_name = "lws-cert-dist-server";
+
+			/* hand the stub child our pki_root via the extra payload */
+			char ep[256];
+			memset(ep, 0, sizeof(ep));
+			lws_snprintf(ep, sizeof(ep), "{\"pki_root\":\"%s\"}",
+				     vhd->pki_root);
+			sc.extra_payload = ep;
+			sc.extra_payload_len = sizeof(ep);
 
 			vhd->stub_mgr = lws_stub_spawn(&sc);
 			if (!vhd->stub_mgr)
