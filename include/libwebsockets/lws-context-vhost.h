@@ -1341,6 +1341,14 @@ lws_vhost_destroy(struct lws_vhost *vh);
  * If the config strings arena is too small for the parsed content, the
  * parse fails and nonzero is returned.
  *
+ * The JSON is preprocessed for scoped substitution defines: pairs whose
+ * name starts with '=' define a symbol scoped to the object they appear in
+ * (visible until the object closes, ie, defines at the root of the file
+ * apply for the rest of that file), and ${NAME} sequences in string values
+ * are expanded from the visible defines before the values are used.  It is
+ * a parse error to reference an undefined symbol, to use an invalid define
+ * name, or to give a define a non-string value.
+ *
  * Requires CMake option LWS_WITH_LEJP_CONF to have been enabled
  */
 LWS_VISIBLE LWS_EXTERN int
@@ -1362,6 +1370,9 @@ lwsws_get_config_globals(struct lws_context_creation_info *info, const char *d,
  *
  * If the config strings arena is too small for the parsed content, the
  * parse fails and nonzero is returned.
+ *
+ * The JSON is preprocessed for scoped substitution defines as described at
+ * lwsws_get_config_globals().
  *
  * Requires CMake option LWS_WITH_LEJP_CONF to have been enabled
  */

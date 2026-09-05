@@ -33,6 +33,10 @@ replaced with the LWS install data directory path, eg, "/usr/share" or whatever 
 set when LWS was built + installed.  That lets you refer to installed paths without
 having to change the config if your install path was different.
 
+ - Scoped substitution defines: a pair whose name starts with '=' is not part of the
+config schema, it defines a substitution symbol instead.  See
+"Scoped substitution defines" below.
+
 There is a single file intended for global settings
 
 /etc/lwsws/conf
@@ -80,6 +84,52 @@ on port 7681, non-SSL is provided.  To set it up
 	# cp ./lwsws/etc-lwsws-conf.d-localhost-EXAMPLE /etc/lwsws/conf.d/test-server
 	# sudo lwsws
 ```
+
+## Scoped substitution defines
+
+A pair whose name starts with `=` is not passed through to the config schema.
+It defines a substitution symbol, and its value is used to expand `${NAME}`
+sequences in string values of the config that are produced while it is in
+scope:
+
+```
+	{
+	  "global": {
+	   "=PKI_ROOT": "/var/dnssec",     # define PKI_ROOT for this object
+	   "server-string": "lwsws",
+	   "reject-service-keywords": [{
+	      "=BADBOT": "scumbot/1.0",     # define scoped to this array item
+	      "name": "${BADBOT}"           # -> "scumbot/1.0"
+	   }]
+	  }
+	}
+```
+
+The rules are:
+
+ - A define is visible from where it is defined, until the close of the JSON
+object it was defined in.  The value string may itself use `${NAME}`
+sequences referencing defines already defined in the same or an enclosing
+object.
+
+ - Defines in an inner object may shadow ones with the same name from
+enclosing objects.  Within the same object, the redefinition replaces the
+earlier define from that point on.
+
+ - Each file is parsed with a fresh set of defines, so defines at the root
+object of a file only apply to that file, they do not leak into other files
+from conf or conf.d/.
+
+ - Define names are 1...31 characters from `a-z`, `A-Z`, `0-9` and `_`.
+
+ - Strings are substituted as they are parsed, so any string value in the
+config can use `${NAME}`, including values used to build other define
+values.  Substitution applies to string values only, pair names are not
+substituted.
+
+ - Problems fail the config load loudly at the file and line concerned:
+using an undefined symbol, an invalid define name, or giving a define a
+non-string value.  Pair names starting with `=` are reserved for this.
 
 ## Using Letsencrypt or other ACME providers
 

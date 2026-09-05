@@ -447,6 +447,13 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 {
 	struct jpargs *a = (struct jpargs *)ctx->user;
 	struct lws_protocol_vhost_options *rej;
+	char *p;
+
+	if (reason == LEJPCB_VAL_STR_START ||
+	    reason == LEJPCB_VAL_STR_CHUNK ||
+	    reason == LEJPCB_VAL_STR_END)
+		if (lejp_string_unify_part(ctx, &a->ac, reason))
+			return 1;
 
 	/* we only match on the prepared path strings */
 	if (!(reason & LEJP_FLAG_CB_IS_VALUE) || !ctx->path_match)
@@ -561,10 +568,29 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 	}
 
 dostring:
-	if (!lwsws_room(a, a->p, strlen(ctx->buf) + 1))
+	/*
+	 * The value string may have arrived in multiple chunks with any
+	 * ${define} substitutions applied; only act on it as a whole at the
+	 * string end
+	 */
+	if (reason == LEJPCB_VAL_STR_CHUNK) {
+		a->chunk = 1;
+		return 0;
+	}
+
+	if (reason == LEJPCB_VAL_STR_END) {
+		if (lejp_string_unify(ctx, &a->ac))
+			return lwsws_exhausted(ctx);
+		p = ctx->su.fp;
+	} else
+		p = ctx->buf;
+
+	a->chunk = 0;
+
+	if (!lwsws_room(a, a->p, strlen(p) + 1))
 		return lwsws_exhausted(ctx);
 
-	a->p += lws_snprintf(a->p, lws_ptr_diff_size_t(a->end, a->p), "%s", ctx->buf);
+	a->p += lws_snprintf(a->p, lws_ptr_diff_size_t(a->end, a->p), "%s", p);
 	*(a->p)++ = '\0';
 
 	return 0;
@@ -1406,6 +1432,427 @@ dostring:
 }
 
 /*
+ * Scoped substitution preprocessing
+ *
+ * Pairs whose name starts with '=', like
+ *
+ *   "=PKI_ROOT": "/var/dnssec"
+ *
+ * are consumed here as scoped preprocessor defines and concealed from the
+ * user callback.  String values have any ${NAME} sequences expanded from
+ * the defines visible at that point, before the user callback sees them,
+ *
+ *   "pki-root": "${PKI_ROOT}/zone-master.key"
+ *
+ * A define is visible from where it is defined until the close of the JSON
+ * object it was defined in; defines from enclosing objects stay visible and
+ * may be shadowed by redefinition in an inner object.  The symbols defined
+ * at each object nesting level live in a per-scope lwsac listed on a
+ * per-scope dll2 owner, so closing the object just unpicks the owner and
+ * destroys the lwsac.  Each config file is parsed with a fresh set of
+ * defines, ie, root scope means "the rest of this file".
+ *
+ * lws_strexp is inherently incremental, so the substitution is applied to
+ * the lejp string chunks as they are produced: the substituted result is
+ * re-chunked into ctx->buf and passed on to the user callback using the
+ * same chunking rules lejp itself uses.
+ */
+
+#define LEJP_CONF_SCOPE_DEPTH	16	/* tracked object nesting levels */
+#define LEJP_CONF_NAME_MAX	31	/* matches lws_strexp name limit */
+#define LEJP_CONF_EXP_BUF	512	/* strexp output scratch */
+#define LEJP_CONF_LWSAC_CHUNK	512
+
+struct lejp_conf_symbol {
+	lws_dll2_t	list;		/* on the defining scope's owner */
+	char		*value;		/* fully-substituted value, in scope ac */
+	char		name[];		/* define name without the '=', in ac */
+};
+
+struct lejp_conf_scope {
+	struct lwsac		*ac;	/* storage for symbols defined here */
+	lws_dll2_owner_t	owner;	/* lejp_conf_symbol list on ac */
+};
+
+struct lejp_conf_subs {
+	/* where preprocessed callbacks are forwarded */
+	lejp_callback		 cb;
+	void			 *user;
+
+	struct lejp_conf_scope	 scopes[LEJP_CONF_SCOPE_DEPTH];
+	int			 depth;		/* innermost scope is depth - 1 */
+	int			 untracked;	/* object nesting beyond the
+						 * tracked scope stack */
+
+	/* substitution session for the string value being parsed */
+	lws_strexp_t		 exp;
+	char			 out[LEJP_CONF_EXP_BUF];
+
+	/* "=name" pair whose value we are consuming */
+	char			 pending_name[LEJP_CONF_NAME_MAX + 1];
+	char			*pending_val;	/* substituted value assembly */
+	size_t			 pending_len;
+	size_t			 pending_alloc;
+
+	unsigned char		 pending:1;
+};
+
+static signed char
+lejp_conf_forward(struct lejp_conf_subs *subs, struct lejp_ctx *ctx,
+		  char reason)
+{
+	signed char n;
+	void *u = ctx->user;
+
+	ctx->user = subs->user;
+	n = subs->cb(ctx, reason);
+	ctx->user = u;
+
+	return n;
+}
+
+/* destroy everything related to defines, used at scope end and parse end */
+
+static void
+lejp_conf_subs_reset(struct lejp_conf_subs *subs)
+{
+	while (subs->depth > 0) {
+		struct lejp_conf_scope *s = &subs->scopes[--subs->depth];
+
+		lwsac_free(&s->ac);
+		memset(s, 0, sizeof(*s));
+	}
+	subs->untracked = 0;
+
+	if (subs->pending_val)
+		lws_free(subs->pending_val);
+	subs->pending_val = NULL;
+	subs->pending_len = 0;
+	subs->pending_alloc = 0;
+	subs->pending = 0;
+}
+
+/*
+ * Innermost scope first, and newest definition first within a scope, so
+ * inner and later defines shadow outer and earlier ones
+ */
+static struct lejp_conf_symbol *
+lejp_conf_sym_find(struct lejp_conf_subs *subs, const char *name)
+{
+	lws_dll2_t *d;
+	int lvl;
+
+	for (lvl = subs->depth; lvl > 0; lvl--)
+		for (d = lws_dll2_get_tail(&subs->scopes[lvl - 1].owner); d;
+		     d = lws_dll2_get_prev(d)) {
+			struct lejp_conf_symbol *sym =
+				lws_container_of(d, struct lejp_conf_symbol,
+						 list);
+
+			if (!strcmp(sym->name, name))
+				return sym;
+		}
+
+	return NULL;
+}
+
+/* lws_strexp resolver: copy the symbol value out, resuming after FILLED_OUT */
+
+static int
+lejp_conf_sym_expand(void *priv, const char *name, char *out, size_t *pos,
+		     size_t olen, size_t *exp_ofs)
+{
+	struct lejp_conf_subs *subs = (struct lejp_conf_subs *)priv;
+	struct lejp_conf_symbol *sym = lejp_conf_sym_find(subs, name);
+	size_t total, rem;
+
+	if (!sym) {
+		lwsl_err("%s: unknown conf symbol '${%s}'\n", __func__, name);
+
+		return LSTRX_FATAL_NAME_UNKNOWN;
+	}
+
+	/* continue from where we left off last time */
+	total = strlen(sym->value);
+	rem = total - *exp_ofs;
+
+	if (out) {
+		const char *v = sym->value + *exp_ofs;
+
+		/* leave the last byte for the NUL expand() adds itself */
+		while (rem && *pos < olen - 1) {
+			out[(*pos)++] = *v++;
+			rem--;
+		}
+	}
+
+	*exp_ofs = total - rem;
+
+	return rem ? LSTRX_FILLED_OUT : LSTRX_DONE;
+}
+
+static int
+lejp_conf_pending_append(struct lejp_conf_subs *subs, const char *in,
+			 size_t len)
+{
+	size_t need = subs->pending_len + len + 1, alloc;
+	char *np;
+
+	if (need > subs->pending_alloc) {
+		alloc = subs->pending_alloc ? subs->pending_alloc : 128;
+		while (alloc < need)
+			alloc <<= 1;
+
+		np = lws_realloc(subs->pending_val, alloc, "lejp-conf-defval");
+		if (!np)
+			return -1;
+
+		subs->pending_val = np;
+		subs->pending_alloc = alloc;
+	}
+
+	memcpy(subs->pending_val + subs->pending_len, in, len);
+	subs->pending_len += len;
+	subs->pending_val[subs->pending_len] = '\0';
+
+	return 0;
+}
+
+/* the define's string value completed: create its symbol in current scope */
+
+static signed char
+lejp_conf_define_complete(struct lejp_conf_subs *subs, struct lejp_ctx *ctx)
+{
+	struct lejp_conf_scope *s = &subs->scopes[subs->depth - 1];
+	struct lejp_conf_symbol *sym;
+	size_t nl = strlen(subs->pending_name);
+	char *v;
+
+	sym = lwsac_use_zero(&s->ac, sizeof(*sym) + nl + 1,
+			     LEJP_CONF_LWSAC_CHUNK);
+	v = lwsac_use(&s->ac, subs->pending_len + 1, LEJP_CONF_LWSAC_CHUNK);
+	if (!sym || !v) {
+		lwsl_err("%s: line %u: OOM creating define '%s'\n", __func__,
+			 ctx->line, subs->pending_name);
+
+		return -1;
+	}
+
+	memcpy(sym->name, subs->pending_name, nl + 1);
+	sym->value = v;
+	memcpy(v, subs->pending_val, subs->pending_len);
+	v[subs->pending_len] = '\0';
+
+	lws_dll2_add_tail(&sym->list, &s->owner);
+
+	subs->pending = 0;
+	subs->pending_len = 0;
+
+	return 0;
+}
+
+/*
+ * Substitute lejp's current string chunk in ctx->buf / ctx->npos.  If we
+ * are consuming a define, the result is accumulated as the define value,
+ * otherwise it is re-chunked into ctx->buf and passed on to the user
+ * callback.  The final piece of the final chunk is passed on using the
+ * reason we got, so the user callback sees the string end exactly once, and
+ * never sees a chunk piece larger than lejp's own.
+ */
+static signed char
+lejp_conf_str_chunk(struct lejp_conf_subs *subs, struct lejp_ctx *ctx,
+		    char reason)
+{
+	char insp[LEJP_STRING_CHUNK];
+	const char *in = insp;
+	size_t in_len = ctx->npos, used_in, used_out;
+	int n, final;
+	signed char ret;
+
+	/*
+	 * The re-chunked output goes into ctx->buf, so the input needs its
+	 * own copy for when the out buffer fills mid-chunk and we continue
+	 * from where we left off
+	 */
+	assert(in_len <= sizeof(insp));
+	memcpy(insp, ctx->buf, in_len);
+
+	do {
+		n = lws_strexp_expand(&subs->exp, in, in_len, &used_in,
+				      &used_out);
+		if (n < 0) {
+			lwsl_err("%s: line %u: substitution failed\n",
+				 __func__, ctx->line);
+
+			return -1;
+		}
+
+		final = (n == LSTRX_DONE && reason == LEJPCB_VAL_STR_END);
+
+		if (subs->pending) {
+			if (lejp_conf_pending_append(subs, subs->out, used_out))
+				return -1;
+
+			if (final && lejp_conf_define_complete(subs, ctx))
+				return -1;
+		} else {
+			size_t ofs = 0;
+
+			/* an empty, non-final piece needs nothing passing on */
+			if (!used_out && !final)
+				goto filled;
+
+			for (;;) {
+				size_t m = used_out - ofs;
+
+				if (m > LEJP_STRING_CHUNK)
+					m = LEJP_STRING_CHUNK;
+
+				memcpy(ctx->buf, subs->out + ofs, m);
+				ctx->npos = (uint8_t)m;
+				ctx->buf[m] = '\0';
+
+				ret = lejp_conf_forward(subs, ctx,
+						(final && ofs + m == used_out) ?
+							reason :
+							LEJPCB_VAL_STR_CHUNK);
+				if (ret)
+					return ret;
+
+				ofs += m;
+				if (ofs == used_out)
+					break;
+			}
+		}
+filled:
+		/*
+		 * used_out counts from the last out buffer reset, so it
+		 * must be reset after every emit, not only when it filled
+		 */
+		lws_strexp_reset_out(&subs->exp, subs->out,
+				     sizeof(subs->out));
+		if (n == LSTRX_FILLED_OUT) {
+			in += used_in;
+			in_len -= used_in;
+		}
+	} while (n == LSTRX_FILLED_OUT);
+
+	return 0;
+}
+
+/* lejp callback performing the scoped define preprocessing */
+
+static signed char
+lejp_conf_preproc_cb(struct lejp_ctx *ctx, char reason)
+{
+	struct lejp_conf_subs *subs = (struct lejp_conf_subs *)ctx->user;
+	unsigned char nm_ofs;
+	char *nm;
+	size_t nl;
+
+	if (subs->pending) {
+		/* the define's value must be a string, and stays concealed */
+		switch (reason) {
+		case LEJPCB_VAL_STR_START:
+			lws_strexp_init(&subs->exp, subs, lejp_conf_sym_expand,
+					subs->out, sizeof(subs->out));
+			return 0;
+		case LEJPCB_VAL_STR_CHUNK:
+		case LEJPCB_VAL_STR_END:
+			return lejp_conf_str_chunk(subs, ctx, reason);
+		case LEJPCB_FAILED:
+		case LEJPCB_DESTRUCTED:
+			lejp_conf_subs_reset(subs);
+			return lejp_conf_forward(subs, ctx, reason);
+		default:
+			lwsl_err("%s: line %u: define '%s': value must be a "
+				 "string\n", __func__, ctx->line,
+				 subs->pending_name);
+			return -1;
+		}
+	}
+
+	switch (reason) {
+	case LEJPCB_CONSTRUCTED:
+	case LEJPCB_DESTRUCTED:
+	case LEJPCB_FAILED:
+		/* defines only live for a single parse */
+		lejp_conf_subs_reset(subs);
+		break;
+
+	case LEJPCB_OBJECT_START:
+		if (subs->depth == LEJP_CONF_SCOPE_DEPTH) {
+			/* objects nested deeper than we track scopes for */
+			subs->untracked++;
+			break;
+		}
+		memset(&subs->scopes[subs->depth], 0,
+		       sizeof(subs->scopes[0]));
+		subs->depth++;
+		break;
+
+	case LEJPCB_OBJECT_END:
+		if (subs->untracked)
+			subs->untracked--;
+		else
+			if (subs->depth) {
+				struct lejp_conf_scope *s =
+					&subs->scopes[--subs->depth];
+
+				lwsac_free(&s->ac);
+				memset(s, 0, sizeof(*s));
+			}
+		break;
+
+	case LEJPCB_PAIR_NAME:
+		/* the new pair name is at the end of ctx->path[] */
+		nm_ofs = (unsigned char)ctx->st[ctx->sp].p;
+		nm = &ctx->path[nm_ofs];
+		nl = (size_t)(ctx->pst[ctx->pst_sp].ppos - nm_ofs);
+
+		if (*nm != '=')
+			break;
+
+		if (subs->untracked || !subs->depth) {
+			lwsl_err("%s: line %u: define nested too deeply\n",
+				 __func__, ctx->line);
+			return -1;
+		}
+
+		nm++;
+		nl--;
+
+		if (!nl || nl > LEJP_CONF_NAME_MAX ||
+		    strspn(nm, "abcdefghijklmnopqrstuvwxyz"
+			       "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") != nl) {
+			lwsl_err("%s: line %u: invalid define name\n",
+				 __func__, ctx->line);
+			return -1;
+		}
+
+		memcpy(subs->pending_name, nm, nl);
+		subs->pending_name[nl] = '\0';
+		subs->pending = 1;
+
+		return 0;	/* concealed from the user callback */
+
+	case LEJPCB_VAL_STR_START:
+		lws_strexp_init(&subs->exp, subs, lejp_conf_sym_expand,
+				subs->out, sizeof(subs->out));
+		break;
+
+	case LEJPCB_VAL_STR_CHUNK:
+	case LEJPCB_VAL_STR_END:
+		return lejp_conf_str_chunk(subs, ctx, reason);
+
+	default:
+		break;
+	}
+
+	return lejp_conf_forward(subs, ctx, reason);
+}
+
+/*
  * returns 0 = OK, 1 = can't open, 2 = parsing error
  */
 
@@ -1415,9 +1862,13 @@ lwsws_get_config(void *user, const char *f, const char * const *paths,
 {
 	unsigned char buf[128];
 	struct lejp_ctx ctx;
+	struct lejp_conf_subs subs;
 	int n, m = 0, fd;
 
 	memset(&ctx, 0, sizeof(ctx));
+	memset(&subs, 0, sizeof(subs));
+	subs.cb = cb;
+	subs.user = user;
 
 	fd = lws_open(f, O_RDONLY);
 	if (fd < 0) {
@@ -1425,7 +1876,8 @@ lwsws_get_config(void *user, const char *f, const char * const *paths,
 		return 2;
 	}
 	lwsl_info("%s: %s\n", __func__, f);
-	lejp_construct(&ctx, cb, user, paths, (uint8_t)(unsigned int)count_paths);
+	lejp_construct(&ctx, lejp_conf_preproc_cb, &subs, paths,
+		       (uint8_t)(unsigned int)count_paths);
 
 	do {
 		n = (int)read(fd, buf, sizeof(buf));
@@ -1518,7 +1970,11 @@ lwsws_get_config_globals(struct lws_context_creation_info *info, const char *d,
 	da.count_paths = LWS_ARRAY_SIZE(paths_global),
 	da.cb = lejp_globals_cb;
 
-	if (lws_dir(dd, &da, lwsws_get_config_d_cb) > 1)
+	/*
+	 * lws_dir() returns 0 if our callback asked to stop, which it does
+	 * by returning nonzero when a conf.d file could not be parsed
+	 */
+	if (!lws_dir(dd, &da, lwsws_get_config_d_cb))
 		return 1;
 
 	a.plugin_dirs[a.count_plugin_dirs] = NULL;
@@ -1613,7 +2069,8 @@ lwsws_get_config_vhosts(struct lws_context *context,
 	da.count_paths = LWS_ARRAY_SIZE(paths_vhosts),
 	da.cb = lejp_vhosts_cb;
 
-	if (lws_dir(dd, &da, lwsws_get_config_d_cb) > 1)
+	/* as in lwsws_get_config_globals(), lws_dir() 0 means a file failed */
+	if (!lws_dir(dd, &da, lwsws_get_config_d_cb))
 		return 1;
 
 	*cs = a.p;

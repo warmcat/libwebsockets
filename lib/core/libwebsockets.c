@@ -1427,9 +1427,20 @@ lws_strexp_expand(lws_strexp_t *exp, const char *in, size_t len,
 				exp->exp_ofs = 0;
 				break;
 			}
-			/* treat as a literal */
-			if (exp->olen - exp->pos < 3)
-				return -1;
+			/*
+			 * Treat as a literal.  If we can't be sure the '$' +
+			 * this char (and a following byte for the NUL) will
+			 * fit in the out buffer, report the out buffer as
+			 * filled rather than failing: the caller can reset
+			 * the out buffer and call us again to continue, the
+			 * pending '$' has already been consumed.
+			 */
+			if (exp->olen - exp->pos < 3) {
+				*pused_in = used;
+				*pused_out = exp->pos;
+
+				return LSTRX_FILLED_OUT;
+			}
 
 			if (exp->out) {
 				exp->out[exp->pos++] = '$';
