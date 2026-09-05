@@ -168,6 +168,7 @@ struct per_vhost_data__lws_acme_client {
 	struct lws_dll2 *aging_current_cert;
 	int aging_is_production;
 	char aging_global_email[128];
+	char aging_global_profile[128];
 	struct lws_acme_cert_aging_args aging_caa;
 };
 
@@ -2501,6 +2502,18 @@ acme_aging_next_cert(struct per_vhost_data__lws_acme_client *vhd)
 				lws_strncpy(safe_global_email, vhd->aging_global_email, sizeof(safe_global_email));
 				cfg->pvop[LWS_TLS_REQ_ELEMENT_EMAIL] = safe_global_email;
 			}
+
+			/*
+			 * The global profile (eg, "shortlived") from the dnssec
+			 * monitor's settings applies to all certs; without it in
+			 * the newOrder, the CA defaults to its classic 90-day
+			 * profile
+			 */
+			if (vhd->aging_global_profile[0]) {
+				static char safe_global_profile[128];
+				lws_strncpy(safe_global_profile, vhd->aging_global_profile, sizeof(safe_global_profile));
+				cfg->profile = safe_global_profile;
+			}
 		}
 
 		if (!cfg->pvop[LWS_TLS_SET_CERT_PATH] || !cfg->pvop[LWS_TLS_SET_KEY_PATH]) {
@@ -2591,6 +2604,7 @@ lws_acme_core_cert_aging(struct per_vhost_data__lws_acme_client *vhd,
 	int has_config = 0;
 	int global_enabled = 1;
 	vhd->aging_global_email[0] = '\0';
+	vhd->aging_global_profile[0] = '\0';
 
 	if (caa)
 		vhd->aging_caa = *caa;
@@ -2619,6 +2633,16 @@ lws_acme_core_cert_aging(struct per_vhost_data__lws_acme_client *vhd,
 					vhd->aging_global_email[(size_t)(email_end - email_start)] = '\0';
 				}
 			}
+
+			const char *profile_start = strstr(buf, "\"profile\": \"");
+			if (profile_start) {
+				profile_start += 12;
+				const char *profile_end = strchr(profile_start, '"');
+				if (profile_end && (size_t)(profile_end - profile_start) < sizeof(vhd->aging_global_profile)) {
+					memcpy(vhd->aging_global_profile, profile_start, (size_t)(profile_end - profile_start));
+					vhd->aging_global_profile[(size_t)(profile_end - profile_start)] = '\0';
+				}
+			}
 			has_config = 1;
 		}
 		close(fd_cfg);
@@ -2631,7 +2655,9 @@ lws_acme_core_cert_aging(struct per_vhost_data__lws_acme_client *vhd,
 		return 0;
 	}
 
-	lwsl_notice("acme_aging: starting evaluation of cert_configs (has_config: %d, is_production: %d)\n", has_config, vhd->aging_is_production);
+	lwsl_notice("acme_aging: starting evaluation of cert_configs (has_config: %d, is_production: %d, profile: %s)\n",
+			has_config, vhd->aging_is_production,
+			vhd->aging_global_profile[0] ? vhd->aging_global_profile : "ca default");
 
 	/* Start evaluating from the head */
 	vhd->aging_current_cert = lws_dll2_get_head(&vhd->cert_configs);

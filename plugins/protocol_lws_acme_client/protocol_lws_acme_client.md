@@ -26,6 +26,7 @@ For example, config for `example.com` and its subdomains goes in `$dns_base_dir/
 | `common-name` | CSR Subject: The primary domain being certified (e.g. `example.com`). **Required** to start acquisition. |
 | `challenge-type` | The ACME challenge to use: either `"http-01"` or `"dns-01"`. Defaults to `"http-01"`. |
 | `email` | Registration email for ACME account (used for expiry notifications by the CA). |
+| `profile` | ACME certificate profile to request in the newOrder, e.g. `"classic"` (90-day) or `"shortlived"` (~6-day). If unset, the global `profile` from `acme_config.json` applies; if that is also unset, the CA's default profile is used. |
 | `acme` | A nested JSON object containing ACME-specific properties for this certificate. |
 
 ### The `acme` sub-object properties
@@ -129,3 +130,15 @@ Place this file for another domain (e.g., `/etc/dnssec/domains/my-other-domain.c
   }
 }
 ```
+
+## Global settings (`$dns_base_dir/acme_config.json`)
+
+The `lws-dht-dnssec-monitor` Global Settings form persists its settings into `$dns_base_dir/acme_config.json`; the ACME client re-reads this file before each acquisition round and applies it to every configured certificate.
+
+| JSON Key | Description |
+|---|---|
+| `enabled` | Global ACME kill-switch: when `false`, no acquisitions are attempted. |
+| `production` | Selects the Let's Encrypt production or staging directory URL for all certs, and which `certs/` subdirectory keys and certs are stored under. |
+| `email` | Registration email applied to all certs, overriding any per-cert `email`. |
+| `profile` | ACME certificate profile (e.g. `"shortlived"` for ~6-day certs, `"classic"` for 90-day) applied to all certs, overriding any per-cert `profile`. If neither is set, the CA's default profile is used. |
+
