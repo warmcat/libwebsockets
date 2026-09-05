@@ -641,7 +641,7 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 				goto conn_good;
 			case LCCCR_CONTINUE:
 #if defined(WIN32)
-				lws_sul_schedule(wsi->a.context, 0, &wsi->win32_sul_connect_async_check,
+				lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->win32_sul_connect_async_check,
 					lws_client_win32_conn_async_check,
 					wsi->a.context->win32_connect_check_interval_usec);
 #endif
@@ -740,8 +740,19 @@ lws_client_connect_3_connect(struct lws *wsi, const char *ads,
 			 * timer is already gated on the "poll" loop where it is
 			 */
 			if (!lws_dll2_count(&wsi->dns_sorted_list) ||
-			    wsi->parallel_count >= LWS_MAX_PARALLEL_CONNS)
+			    wsi->parallel_count >= LWS_MAX_PARALLEL_CONNS) {
+#if defined(WIN32)
+				/*
+				 * Every fd is still in-flight.  Keep polling at
+				 * intervals until one completes, fails, or the
+				 * connect timeout fires.
+				 */
+				lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->win32_sul_connect_async_check,
+					lws_client_win32_conn_async_check,
+					wsi->a.context->win32_connect_check_interval_usec);
+#endif
 				return wsi;
+			}
 		}
 	}
 
@@ -1290,7 +1301,7 @@ ads_known:
 		 * callback to poll checking its status
 		 */
 
-		lws_sul_schedule(wsi->a.context, 0, &wsi->win32_sul_connect_async_check,
+		lws_sul_schedule(wsi->a.context, wsi->tsi, &wsi->win32_sul_connect_async_check,
 				 lws_client_win32_conn_async_check,
 				 wsi->a.context->win32_connect_check_interval_usec
 		);
