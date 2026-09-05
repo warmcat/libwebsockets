@@ -1452,6 +1452,15 @@ dostring:
  * destroys the lwsac.  Each config file is parsed with a fresh set of
  * defines, ie, root scope means "the rest of this file".
  *
+ * On top of that, the caller may supply a struct lws_lejp_conf_defs
+ * container as an install-wide scope.  It is always visible in the walked
+ * files.  The globals walk additionally uses it in "shared root" mode,
+ * where the "global" section object of each walked file IS the container,
+ * so defines there accumulate into it across the walked files.  The vhosts
+ * walk uses "ancestor" mode, where the container cannot be added to; defines
+ * in vhost config files stay scoped to the file they were created in.  The
+ * caller destroys the container after all JSON files have been walked.
+ *
  * lws_strexp is inherently incremental, so the substitution is applied to
  * the lejp string chunks as they are produced: the substituted result is
  * re-chunked into ctx->buf and passed on to the user callback using the
@@ -1469,18 +1478,28 @@ struct lejp_conf_symbol {
 	char		name[];		/* define name without the '=', in ac */
 };
 
-struct lejp_conf_scope {
-	struct lwsac		*ac;	/* storage for symbols defined here */
-	lws_dll2_owner_t	owner;	/* lejp_conf_symbol list on ac */
-};
+/* one object nesting level of defines... this is the public carrier type */
 
 struct lejp_conf_subs {
 	/* where preprocessed callbacks are forwarded */
 	lejp_callback		 cb;
 	void			 *user;
 
-	struct lejp_conf_scope	 scopes[LEJP_CONF_SCOPE_DEPTH];
-	int			 depth;		/* innermost scope is depth - 1 */
+	/*
+	 * Caller's install-wide defines container, NULL if none.  It rides
+	 * below every parsed file, so its defines are always visible.  In
+	 * shared root mode, the file's "global" section object IS the
+	 * container as well, so defines there accumulate into it across
+	 * the walked files; see the comment above
+	 */
+	struct lws_lejp_conf_defs *defs;
+	unsigned char		 shared_root:1;
+
+	/* scope stack for this file, innermost active scope is depth - 1 */
+	struct lws_lejp_conf_defs *scopes[LEJP_CONF_SCOPE_DEPTH];
+	struct lws_lejp_conf_defs	 store[LEJP_CONF_SCOPE_DEPTH];
+	int			 store_used;
+	int			 depth;
 	int			 untracked;	/* object nesting beyond the
 						 * tracked scope stack */
 
@@ -1517,11 +1536,16 @@ static void
 lejp_conf_subs_reset(struct lejp_conf_subs *subs)
 {
 	while (subs->depth > 0) {
-		struct lejp_conf_scope *s = &subs->scopes[--subs->depth];
+		struct lws_lejp_conf_defs *s = subs->scopes[--subs->depth];
+
+		/* the caller's container is borrowed, not ours to destroy */
+		if (s == subs->defs)
+			continue;
 
 		lwsac_free(&s->ac);
 		memset(s, 0, sizeof(*s));
 	}
+	subs->store_used = 0;
 	subs->untracked = 0;
 
 	if (subs->pending_val)
@@ -1530,6 +1554,13 @@ lejp_conf_subs_reset(struct lejp_conf_subs *subs)
 	subs->pending_len = 0;
 	subs->pending_alloc = 0;
 	subs->pending = 0;
+
+	/*
+	 * the caller's container rides below every file we parse, so its
+	 * defines are always visible to lookups
+	 */
+	if (subs->defs)
+		subs->scopes[subs->depth++] = subs->defs;
 }
 
 /*
@@ -1543,7 +1574,7 @@ lejp_conf_sym_find(struct lejp_conf_subs *subs, const char *name)
 	int lvl;
 
 	for (lvl = subs->depth; lvl > 0; lvl--)
-		for (d = lws_dll2_get_tail(&subs->scopes[lvl - 1].owner); d;
+		for (d = lws_dll2_get_tail(&subs->scopes[lvl - 1]->owner); d;
 		     d = lws_dll2_get_prev(d)) {
 			struct lejp_conf_symbol *sym =
 				lws_container_of(d, struct lejp_conf_symbol,
@@ -1623,7 +1654,7 @@ lejp_conf_pending_append(struct lejp_conf_subs *subs, const char *in,
 static signed char
 lejp_conf_define_complete(struct lejp_conf_subs *subs, struct lejp_ctx *ctx)
 {
-	struct lejp_conf_scope *s = &subs->scopes[subs->depth - 1];
+	struct lws_lejp_conf_defs *s = subs->scopes[subs->depth - 1];
 	struct lejp_conf_symbol *sym;
 	size_t nl = strlen(subs->pending_name);
 	char *v;
@@ -1786,9 +1817,29 @@ lejp_conf_preproc_cb(struct lejp_ctx *ctx, char reason)
 			subs->untracked++;
 			break;
 		}
-		memset(&subs->scopes[subs->depth], 0,
-		       sizeof(subs->scopes[0]));
-		subs->depth++;
+
+		/*
+		 * In shared root mode, the "global" section object directly
+		 * under the file root object IS the caller's container, so
+		 * defines there accumulate into it across the walked files.
+		 * The path tail at object start is the pair name the object
+		 * is the value of.  At that point the scope stack holds the
+		 * caller's container plus the file root object
+		 */
+		if (subs->defs && subs->shared_root && subs->depth == 2 &&
+		    !strcmp(&ctx->path[(unsigned char)ctx->st[ctx->sp].p],
+			    "global")) {
+			subs->scopes[subs->depth++] = subs->defs;
+			break;
+		}
+
+		{
+			struct lws_lejp_conf_defs *s =
+					&subs->store[subs->store_used++];
+
+			memset(s, 0, sizeof(*s));
+			subs->scopes[subs->depth++] = s;
+		}
 		break;
 
 	case LEJPCB_OBJECT_END:
@@ -1796,11 +1847,14 @@ lejp_conf_preproc_cb(struct lejp_ctx *ctx, char reason)
 			subs->untracked--;
 		else
 			if (subs->depth) {
-				struct lejp_conf_scope *s =
-					&subs->scopes[--subs->depth];
+				struct lws_lejp_conf_defs *s =
+					subs->scopes[--subs->depth];
 
-				lwsac_free(&s->ac);
-				memset(s, 0, sizeof(*s));
+				if (s != subs->defs) {
+					lwsac_free(&s->ac);
+					memset(s, 0, sizeof(*s));
+					subs->store_used--;
+				}
 			}
 		break;
 
@@ -1858,7 +1912,8 @@ lejp_conf_preproc_cb(struct lejp_ctx *ctx, char reason)
 
 static int
 lwsws_get_config(void *user, const char *f, const char * const *paths,
-		 int count_paths, lejp_callback cb)
+		 int count_paths, lejp_callback cb,
+		 struct lws_lejp_conf_defs *defs, int shared_root)
 {
 	unsigned char buf[128];
 	struct lejp_ctx ctx;
@@ -1869,6 +1924,8 @@ lwsws_get_config(void *user, const char *f, const char * const *paths,
 	memset(&subs, 0, sizeof(subs));
 	subs.cb = cb;
 	subs.user = user;
+	subs.defs = defs;
+	subs.shared_root = (unsigned char)!!shared_root;
 
 	fd = lws_open(f, O_RDONLY);
 	if (fd < 0) {
@@ -1905,6 +1962,8 @@ struct lws_dir_args {
 	const char * const *paths;
 	int count_paths;
 	lejp_callback cb;
+	struct lws_lejp_conf_defs *defs;
+	int shared_root;
 };
 
 static int
@@ -1919,13 +1978,21 @@ lwsws_get_config_d_cb(const char *dirpath, void *user,
 
 	lws_snprintf(path, sizeof(path) - 1, "%s/%s", dirpath, lde->name);
 
-	return lwsws_get_config(da->user, path, da->paths,
-				da->count_paths, da->cb);
+	return lwsws_get_config(da->user, path, da->paths, da->count_paths,
+				da->cb, da->defs, da->shared_root);
 }
 
 int
 lwsws_get_config_globals(struct lws_context_creation_info *info, const char *d,
 			 char **cs, int *len)
+{
+	return lwsws_get_config_globals_defs(NULL, info, d, cs, len);
+}
+
+int
+lwsws_get_config_globals_defs(struct lws_lejp_conf_defs *defs,
+			      struct lws_context_creation_info *info,
+			      const char *d, char **cs, int *len)
 {
 	struct lws_dir_args da;
 	struct jpargs a;
@@ -1961,7 +2028,8 @@ lwsws_get_config_globals(struct lws_context_creation_info *info, const char *d,
 
 	lws_snprintf(dd, sizeof(dd) - 1, "%s/conf", d);
 	if (lwsws_get_config(&a, dd, paths_global,
-			     LWS_ARRAY_SIZE(paths_global), lejp_globals_cb) > 1)
+			     LWS_ARRAY_SIZE(paths_global), lejp_globals_cb,
+			     defs, 1) > 1)
 		return 1;
 	lws_snprintf(dd, sizeof(dd) - 1, "%s/conf.d", d);
 
@@ -1969,6 +2037,8 @@ lwsws_get_config_globals(struct lws_context_creation_info *info, const char *d,
 	da.paths = paths_global;
 	da.count_paths = LWS_ARRAY_SIZE(paths_global),
 	da.cb = lejp_globals_cb;
+	da.defs = defs;
+	da.shared_root = 1;
 
 	/*
 	 * lws_dir() returns 0 if our callback asked to stop, which it does
@@ -2013,6 +2083,15 @@ int
 lwsws_get_config_vhosts(struct lws_context *context,
 			struct lws_context_creation_info *info, const char *d,
 			char **cs, int *len)
+{
+	return lwsws_get_config_vhosts_defs(NULL, context, info, d, cs, len);
+}
+
+int
+lwsws_get_config_vhosts_defs(struct lws_lejp_conf_defs *defs,
+			     struct lws_context *context,
+			     struct lws_context_creation_info *info,
+			     const char *d, char **cs, int *len)
 {
 	struct lws_dir_args da;
 	struct jpargs a;
@@ -2060,7 +2139,8 @@ lwsws_get_config_vhosts(struct lws_context *context,
 
 	lws_snprintf(dd, sizeof(dd) - 1, "%s/conf", d);
 	if (lwsws_get_config(&a, dd, paths_vhosts,
-			     LWS_ARRAY_SIZE(paths_vhosts), lejp_vhosts_cb) > 1)
+			     LWS_ARRAY_SIZE(paths_vhosts), lejp_vhosts_cb,
+			     defs, 0) > 1)
 		return 1;
 	lws_snprintf(dd, sizeof(dd) - 1, "%s/conf.d", d);
 
@@ -2068,6 +2148,8 @@ lwsws_get_config_vhosts(struct lws_context *context,
 	da.paths = paths_vhosts;
 	da.count_paths = LWS_ARRAY_SIZE(paths_vhosts),
 	da.cb = lejp_vhosts_cb;
+	da.defs = defs;
+	da.shared_root = 0;
 
 	/* as in lwsws_get_config_globals(), lws_dir() 0 means a file failed */
 	if (!lws_dir(dd, &da, lwsws_get_config_d_cb))

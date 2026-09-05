@@ -38,7 +38,17 @@
  *    regress into submitting an inconsistent pair;
  *
  *  - "anonymous": no auth cookies at all -> still denied with 401 (an
- *    anonymous visitor's renewal probe must never start an exchange).
+ *    anonymous visitor's renewal probe must never start an exchange);
+ *
+ *  - "relative-authapi": a second app vhost whose lws-login has only a
+ *    relative auth-server-url ("/oauth/login", the BFF-delegate shape with
+ *    no auth-api-url PVO) and a paired jar -> the side channel must be
+ *    refused up-front: an immediate 401 with no exchange attempt.  A
+ *    relative URL parses into an empty host / port 0, and kicking the
+ *    exchange against that died asynchronously as an anonymous "no auth
+ *    server response (connection failed)" while nothing ever reached the
+ *    auth server -- exactly the shape that kept silent renewal silently
+ *    broken on the sai deployment.
  *
  * plus /.lws-login-sso scenarios exercising the origin/referer CSRF gate
  * around the cross-domain SSO form POST (F-020):
@@ -127,10 +137,14 @@ struct scenario {
 					 * must carry the F-021 render-boundary
 					 * escaping fence */
 	int		expect_css;	/* 1 = response body is lws-login.css and
-					 * must carry the static self-contained
-					 * colour scheme (opaque backgrounds
-					 * behind asserted text colours, no
-					 * prefers-color-scheme adaptation) */
+						 * must carry the static self-contained
+						 * colour scheme (opaque backgrounds
+						 * behind asserted text colours, no
+						 * prefers-color-scheme adaptation) */
+	int		app2;		/* 1 = target the second app vhost, whose
+					 * lws-login is configured with only a
+					 * relative auth-server-url (no
+					 * auth-api-url PVO) */
 };
 
 /* minted in main() once the context and allocated ports exist */
@@ -151,42 +165,49 @@ static const struct scenario scenarios[] = {
 	{ "paired-jar", "/.lws-login-refresh", NULL, NULL, NULL,
 	  "auth_refresh_session=0123456789abcdef0123456789abcdef; "
 	  "auth_csrf=fedcba9876543210fedcba9876543210", 200u, 1, 1, 0,
-	  "POST", 0, 0 },
+	  "POST", 0, 0, 0 },
 	{ "self-heal", "/.lws-login-refresh", NULL, NULL, NULL,
 	  "auth_refresh_session=0123456789abcdef0123456789abcdef", 200u, 1, 1, 0,
-	  "POST", 0, 0 },
+	  "POST", 0, 0, 0 },
 	{ "anonymous", "/.lws-login-refresh", NULL, NULL, NULL, NULL, 401u, 0, 0, 0,
-	  "POST", 0, 0 },
+	  "POST", 0, 0, 0 },
 
 	/* F-027: an auth_session cookie holding a compact JWT whose JOSE
 	 * header has no "alg" member must be cleanly rejected by the
 	 * per-request session gate, not kill the server process */
 	{ "alg-less-session-jwt", "/", NULL, NULL, NULL,
-	  "auth_session=eyJ0eXAiOiJKV1QifQ.e30.AQ", 303u, 0, 0, 0, "GET", 0, 0 },
+	  "auth_session=eyJ0eXAiOiJKV1QifQ.e30.AQ", 303u, 0, 0, 0, "GET", 0, 0, 0 },
 
 	/* F-020: the token below is genuinely signed by the plugin's own JWK
 	 * (the throwaway key carries its private member), so these scenarios
 	 * exercise the origin/referer gate and nothing else */
 	{ "sso-nohdrs", "/.lws-login-sso", sso_body, NULL, NULL, NULL,
-	  403u, 0, 0, -1, "POST", 0, 0 },
+	  403u, 0, 0, -1, "POST", 0, 0, 0 },
 	{ "sso-origin-null", "/.lws-login-sso", sso_body, "null", NULL, NULL,
-	  403u, 0, 0, -1, "POST", 0, 0 },
+	  403u, 0, 0, -1, "POST", 0, 0, 0 },
 	{ "sso-origin-good", "/.lws-login-sso", sso_body, o_origin_good, NULL,
-	  NULL, 302u, 0, 0, 1, "POST", 0, 0 },
+	  NULL, 302u, 0, 0, 1, "POST", 0, 0, 0 },
 	{ "sso-origin-evil", "/.lws-login-sso", sso_body, o_origin_evil, NULL,
-	  NULL, 403u, 0, 0, -1, "POST", 0, 0 },
+	  NULL, 403u, 0, 0, -1, "POST", 0, 0, 0 },
 	{ "sso-referer-good", "/.lws-login-sso", sso_body, NULL, o_referer_good,
-	  NULL, 302u, 0, 0, 1, "POST", 0, 0 },
+	  NULL, 302u, 0, 0, 1, "POST", 0, 0, 0 },
 
 	/* F-021: the widget JS served to (admin) pages must HTML-escape every
 	 * dynamic string at its innerHTML render boundary */
 	{ "widget-js-fence", "/lws-login.js", NULL, NULL, NULL, NULL, 200u, 0, 0,
-	  0, "GET", 1, 0 },
+	  0, "GET", 1, 0, 0 },
 
 	/* the widget CSS served to pages must assert a complete, self-contained
 	 * colour scheme (see the css fence in step_advance) */
 	{ "widget-css-fence", "/lws-login.css", NULL, NULL, NULL, NULL, 200u, 0,
-	  0, 0, "GET", 0, 1 },
+	  0, 0, "GET", 0, 1, 0 },
+
+	/* refusal must be immediate and legible: no exchange started against
+	 * the empty host the relative URL parses to (second app vhost) */
+	{ "relative-authapi", "/.lws-login-refresh", NULL, NULL, NULL,
+	  "auth_refresh_session=0123456789abcdef0123456789abcdef; "
+	  "auth_csrf=fedcba9876543210fedcba9876543210", 401u, 0, 0, 0,
+	  "POST", 0, 0, 1 },
 };
 
 #define N_SCENARIOS  (int)LWS_ARRAY_SIZE(scenarios)
@@ -196,7 +217,7 @@ static const struct scenario scenarios[] = {
 static struct lws_context *context;
 static volatile sig_atomic_t interrupted;
 
-static int	g_port_app, g_port_auth;
+static int	g_port_app, g_port_auth, g_port_app2;
 static struct lws_vhost *g_vh_cli;
 
 static int	step;
@@ -631,6 +652,21 @@ static struct lws_protocol_vhost_options
 	pvo_login	= { NULL, NULL, "lws-login", NULL },
 	pvo_lc		= { NULL, NULL, "lws_login_client", NULL };
 
+/*
+ * Second app vhost's lws-login options, mirroring the sai deployment shape
+ * the relative-authapi scenario exists to fence: auth-server-url is a local
+ * BFF delegate entry (relative) and no auth-api-url PVO is set, so the
+ * plugin's effective auth-api-url is relative and silent renewal must be
+ * refused rather than kicked against the empty host it parses to.
+ */
+static struct lws_protocol_vhost_options
+	pvo_dbpath2	= { NULL, NULL, "db-path", NULL },
+	pvo_cdom2	= { NULL, NULL, "cookie-domain", "127.0.0.1" },
+	pvo_asu2	= { NULL, NULL, "auth-server-url", "/oauth/login" },
+	pvo_jwk2	= { NULL, NULL, "jwt-jwk", jwk_json },
+	pvo_login2	= { NULL, NULL, "lws-login", NULL },
+	pvo_lc2		= { NULL, NULL, "lws_login_client", NULL };
+
 /* -------------------------------------------------------------- driver */
 
 static lws_sorted_usec_list_t sul_next;
@@ -752,14 +788,16 @@ start_step(lws_sorted_usec_list_t *sul)
 	mock_got_refresh = 0;
 	mock_pair_ok = 0;
 
-	/* Host: header must name the app vhost */
-	lws_snprintf(host_hdr, sizeof(host_hdr), "127.0.0.1:%d", g_port_app);
+	/* Host: header must name the app vhost this scenario targets */
+	lws_snprintf(host_hdr, sizeof(host_hdr), "127.0.0.1:%d",
+		     scenarios[step].app2 ? g_port_app2 : g_port_app);
 
 	memset(&i, 0, sizeof(i));
 	i.context		= context;
 	i.vhost		= g_vh_cli;
 	i.address		= "127.0.0.1";
-	i.port			= g_port_app;
+	i.port			= scenarios[step].app2 ? g_port_app2
+							 : g_port_app;
 	i.path			= scenarios[step].path;
 	i.host			= host_hdr;
 	/* see APPEND_HANDSHAKE_HEADER: SSO scenarios own their Origin header,
@@ -1049,6 +1087,7 @@ int main(int argc, const char **argv)
 	if ((p = lws_cmdline_option(argc, argv, "-p")))
 		g_port_app = atoi(p);
 	g_port_auth = g_port_app + 1;
+	g_port_app2 = g_port_app + 2;
 
 	pvo_dbpath.value = lws_cmdline_option(argc, argv, "--db-path");
 	if (!pvo_dbpath.value)
@@ -1077,6 +1116,16 @@ int main(int argc, const char **argv)
 	/* protocol-enabling chain: lws-login (with options) then the
 	 * optionless side-channel client protocol */
 	pvo_login.next	= &pvo_lc;
+
+	/* second app vhost's chain: same shape but the relative BFF-delegate
+	 * auth-server-url and no auth-api-url, exactly the misconfiguration
+	 * the relative-authapi scenario fences (db-path shared with app) */
+	pvo_dbpath2.value = pvo_dbpath.value;
+	pvo_jwk2.next	= &pvo_asu2;
+	pvo_asu2.next	= &pvo_cdom2;
+	pvo_cdom2.next	= &pvo_dbpath2;
+	pvo_login2.options = &pvo_jwk2;
+	pvo_login2.next	= &pvo_lc2;
 
 	/* --------------------------------------------------- context/vhosts */
 
@@ -1186,6 +1235,17 @@ int main(int argc, const char **argv)
 
 	if (!lws_create_vhost(context, &info)) {
 		lwsl_err("Failed to create app vhost\n");
+		goto bail;
+	}
+
+	/* second app vhost: lws-login with a relative auth-server-url and no
+	 * auth-api-url, for the relative-authapi refusal scenario */
+	info.port		= g_port_app2;
+	info.vhost_name		= "app2";
+	info.pvo		= &pvo_login2;
+
+	if (!lws_create_vhost(context, &info)) {
+		lwsl_err("Failed to create second app vhost\n");
 		goto bail;
 	}
 

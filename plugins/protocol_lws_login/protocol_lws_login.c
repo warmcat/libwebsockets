@@ -630,6 +630,26 @@ lws_login_kick_refresh(struct vhd_login *vhd, struct lws *wsi, const char *cooki
 		return 0;
 	}
 
+	/*
+	 * A relative auth-api-url (the BFF-delegate shape, where the PVO is
+	 * missing and auth-server-url is a local "/oauth/login" entry) parses
+	 * "successfully" into an empty host with port 0: the side channel is
+	 * kicked against nothing and dies later as an anonymous "no auth
+	 * server response (connection failed)", with nothing in the auth
+	 * server's logs.  Refuse it here so the failure is immediate and
+	 * names the PVO to fix.
+	 */
+	if (!puri->host[0] || !puri->port) {
+		lwsl_wsi_err(wsi, "auth-api-url '%s' is not an absolute "
+			     "http(s) URL: set the auth-api-url PVO on this "
+			     "vhost to the auth server's absolute base URL to "
+			     "enable silent renewal", vhd->auth_api_url);
+		pending_login_release(ps);
+		lws_parse_uri_destroy(&puri);
+
+		return 0;
+	}
+
 	lwsl_wsi_notice(wsi, "initiating silent renewal via "
 			"%s/api/sso_exchange (%s)", vhd->auth_api_url,
 			mode == LWS_LOGIN_REFRESH_COLDLOAD ? "cold-load" : "bff");

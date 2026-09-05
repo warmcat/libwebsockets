@@ -23,9 +23,10 @@ require_lws_config(LWS_WITH_STRUCT_SQLITE3 1 requirements)
 if (requirements)
 	add_executable(${SAMP} ${SRCS})
 
-	# app vhost + mock auth vhost listen on adjacent ports; the plugin's
-	# optional sqlite grants db stays inside the build dir
-	lws_get_free_ports(PORT_LOGINBFF 2)
+	# app + second app (relative auth-api-url) + mock auth vhosts listen on
+	# adjacent ports; the plugin's optional sqlite grants db stays inside the
+	# build dir
+	lws_get_free_ports(PORT_LOGINBFF 3)
 
 	add_test(NAME api-test-lws-login-bff
 		 COMMAND lws-api-test-lws-login-bff -p ${PORT_LOGINBFF}

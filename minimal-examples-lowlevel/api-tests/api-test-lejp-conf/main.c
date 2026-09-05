@@ -102,6 +102,24 @@ run_globals(const char *name, struct lws_context_creation_info *info)
 	return lwsws_get_config_globals(info, dir, &cs, &len);
 }
 
+static int
+run_globals_defs(struct lws_lejp_conf_defs *defs, const char *name,
+		 struct lws_context_creation_info *info)
+{
+	static char arena[4096];
+	char *cs = arena;
+	char dir[128];
+	int len = (int)sizeof(arena);
+
+	memset(arena, 0, sizeof(arena));
+	memset(info, 0, sizeof(*info));
+	memset(defs, 0, sizeof(*defs));
+
+	lws_snprintf(dir, sizeof(dir), "%s/%s", dirbase, name);
+
+	return lwsws_get_config_globals_defs(defs, info, dir, &cs, &len);
+}
+
 /*
  * Check info->reject_service_keywords is exactly expect_count entries all
  * named "name", with exactly one entry for each string in expected[] (order
@@ -350,6 +368,95 @@ int main(int argc, const char **argv)
 	else if (!info.username || strcmp(info.username, "1") ||
 		 !info.groupname || strcmp(info.groupname, "22"))
 		e += fail("multifile", "per-file defines");
+
+	/*
+	 * 7: with a defs container, globals root defines accumulate across
+	 * the walked files and stay visible to later walked files
+	 */
+
+	if (setup_case("persist",
+		"{\n\"global\": {\n"
+		  "\"=A\": \"1\",\n"
+		  "\"username\": \"${A}\"\n"
+		"}\n}\n",
+		"extra",
+		"{\n\"global\": {\n"
+		  "\"=B\": \"2\",\n"
+		  "\"groupname\": \"${A}${B}\"\n"
+		"}\n}\n"))
+		return fail("persist", "setup");
+
+	{
+		struct lws_lejp_conf_defs defs;
+
+		n = run_globals_defs(&defs, "persist", &info);
+		if (n)
+			e += fail("persist", "parse failed");
+		else if (!info.username || strcmp(info.username, "1") ||
+			 !info.groupname || strcmp(info.groupname, "12"))
+			e += fail("persist", "cross-file globals defines");
+
+		lwsac_free(&defs.ac);
+	}
+
+	/*
+	 * 8: the globals defs container stays visible (read-only) in the
+	 * vhost config files, like lwsws does it.  This needs a real
+	 * context and a real vhost with a listen port
+	 */
+
+	{
+		static char arena[8192];
+		struct lws_lejp_conf_defs defs;
+		struct lws_context_creation_info i;
+		struct lws_context *cx;
+		char conf[256], *cs = arena;
+		int len = (int)sizeof(arena);
+
+		lws_snprintf(conf, sizeof(conf),
+			"{\n\"vhosts\": [{\n"
+			  "\"name\": \"${VHROOT}-vh\",\n"
+			  "\"port\": \"%u\",\n"
+			  "\"interface\": \"127.0.0.1\"\n"
+			"}]}\n", LEJP_CONF_VH_PORT);
+
+		if (setup_case("vhinstall",
+			"{\n\"global\": {\n"
+			  "\"=VHROOT\": \"lejp-conf-test\"\n"
+			"}\n}\n",
+			"vh", conf))
+			return fail("vhinstall", "setup");
+
+		memset(&i, 0, sizeof(i));
+		i.options = LWS_SERVER_OPTION_EXPLICIT_VHOSTS;
+		i.port = CONTEXT_PORT_NO_LISTEN;
+
+		cx = lws_create_context(&i);
+		if (!cx) {
+			e += fail("vhinstall", "no context");
+			goto done_vh;
+		}
+
+		memset(&defs, 0, sizeof(defs));
+		if (run_globals_defs(&defs, "vhinstall", &info))
+			e += fail("vhinstall", "globals parse failed");
+		else if (lwsws_get_config_vhosts_defs(&defs, cx, &i,
+						      "test-lejp-conf/vhinstall",
+						      &cs, &len))
+			e += fail("vhinstall", "vhosts parse failed");
+		else {
+			/* the substituted name must be the one that exists */
+			if (!lws_get_vhost_by_name(cx, "lejp-conf-test-vh"))
+				e += fail("vhinstall", "substituted vhost name");
+			if (lws_get_vhost_by_name(cx, "${VHROOT}-vh"))
+				e += fail("vhinstall", "raw name visible");
+		}
+
+		lwsac_free(&defs.ac);
+		lws_context_destroy(cx);
+done_vh:
+		;
+	}
 
 	/*
 	 * error cases: all of these must fail the parse loudly

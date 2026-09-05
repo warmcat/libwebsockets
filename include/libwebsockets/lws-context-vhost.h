@@ -1327,6 +1327,21 @@ LWS_VISIBLE LWS_EXTERN void
 lws_vhost_destroy(struct lws_vhost *vh);
 
 /**
+ * struct lws_lejp_conf_defs - carrier for install-wide JSON conf defines
+ *
+ * Zero the struct to initialize it, pass it to
+ * lwsws_get_config_globals_defs() and then to lwsws_get_config_vhosts_defs(),
+ * and destroy it with lwsac_free(&defs->ac) once all the config files have
+ * been walked.  Defines created in the "global" section of files walked by
+ * lwsws_get_config_globals_defs() accumulate here, and stay visible (but
+ * cannot be added to) in all files walked by lwsws_get_config_vhosts_defs().
+ */
+struct lws_lejp_conf_defs {
+	struct lwsac		*ac;
+	lws_dll2_owner_t	owner;
+};
+
+/**
  * lwsws_get_config_globals() - Parse a JSON server config file
  * \param info:		pointer to struct with parameters
  * \param d:		filepath of the config file
@@ -1349,11 +1364,41 @@ lws_vhost_destroy(struct lws_vhost *vh);
  * a parse error to reference an undefined symbol, to use an invalid define
  * name, or to give a define a non-string value.
  *
+ * This variant parses with a fresh set of defines.  Use
+ * lwsws_get_config_globals_defs() if you want root defines to stay visible
+ * when the vhosts config is parsed later.
+ *
  * Requires CMake option LWS_WITH_LEJP_CONF to have been enabled
  */
 LWS_VISIBLE LWS_EXTERN int
 lwsws_get_config_globals(struct lws_context_creation_info *info, const char *d,
 			 char **config_strings, int *len);
+
+/**
+ * lwsws_get_config_globals_defs() - Parse a JSON server config file
+ * \param defs:		caller's install-wide defines container, zeroed to
+ * 			initialize; defines created in the "global" section of
+ * 			the walked files accumulate into it
+ * \param info:		pointer to struct with parameters
+ * \param d:		filepath of the config file
+ * \param config_strings: storage for the config strings extracted from JSON,
+ * 			  the pointer is incremented as strings are stored
+ * \param len:		pointer to the remaining length left in config_strings
+ *			  the value is decremented as strings are stored
+ *
+ * Behaves as lwsws_get_config_globals(), except that defines created in the
+ * "global" section of the walked files accumulate into \p defs, so they are
+ * visible in later walked files, and can be made visible to a later
+ * vhosts config walk by passing the same \p defs to
+ * lwsws_get_config_vhosts_defs().  Destroy \p defs with lwsac_free(&defs->ac)
+ * after the last config walk that uses it.
+ *
+ * Requires CMake option LWS_WITH_LEJP_CONF to have been enabled
+ */
+LWS_VISIBLE LWS_EXTERN int
+lwsws_get_config_globals_defs(struct lws_lejp_conf_defs *defs,
+			      struct lws_context_creation_info *info,
+			      const char *d, char **config_strings, int *len);
 
 /**
  * lwsws_get_config_vhosts() - Create vhosts from a JSON server config file
@@ -1374,12 +1419,45 @@ lwsws_get_config_globals(struct lws_context_creation_info *info, const char *d,
  * The JSON is preprocessed for scoped substitution defines as described at
  * lwsws_get_config_globals().
  *
+ * This variant parses each file with a fresh set of defines.  Use
+ * lwsws_get_config_vhosts_defs() with the same \p defs container filled by
+ * lwsws_get_config_globals_defs() to have the globals config defines stay
+ * visible in the vhost files.
+ *
  * Requires CMake option LWS_WITH_LEJP_CONF to have been enabled
  */
 LWS_VISIBLE LWS_EXTERN int
 lwsws_get_config_vhosts(struct lws_context *context,
 			struct lws_context_creation_info *info, const char *d,
 			char **config_strings, int *len);
+
+/**
+ * lwsws_get_config_vhosts_defs() - Create vhosts from a JSON server config
+ * file, with install-wide defines
+ * \param defs:		caller's install-wide defines container previously
+ * 			filled by lwsws_get_config_globals_defs(); the defines
+ * 			in it are visible (read-only) in every walked file
+ * \param context:	pointer to result of lws_create_context()
+ * \param info:		pointer to struct with parameters
+ * \param d:		filepath of the config file
+ * \param config_strings: storage for the config strings extracted from JSON,
+ * 			  the pointer is incremented as strings are stored
+ * \param len:		pointer to the remaining length left in config_strings
+ *			  the value is decremented as strings are stored
+ *
+ * Behaves as lwsws_get_config_vhosts(), except that the defines in \p defs
+ * are visible in every walked file, where file-local defines may shadow
+ * them.  Defines created in the walked files themselves remain scoped to
+ * the file they were created in.  Destroy \p defs with lwsac_free(&defs->ac)
+ * after this returns, when no further config walk will use it.
+ *
+ * Requires CMake option LWS_WITH_LEJP_CONF to have been enabled
+ */
+LWS_VISIBLE LWS_EXTERN int
+lwsws_get_config_vhosts_defs(struct lws_lejp_conf_defs *defs,
+			     struct lws_context *context,
+			     struct lws_context_creation_info *info,
+			     const char *d, char **config_strings, int *len);
 
 /**
  * lws_get_vhost() - return the vhost a wsi belongs to

@@ -116,9 +116,14 @@ object.
 enclosing objects.  Within the same object, the redefinition replaces the
 earlier define from that point on.
 
- - Each file is parsed with a fresh set of defines, so defines at the root
-object of a file only apply to that file, they do not leak into other files
-from conf or conf.d/.
+ - Defines in the "global" section of the globals config files (conf and
+conf.d/) are install-wide: they accumulate across the globals config
+fragments, and stay visible in all the vhost config files, until all config
+files have been walked.  Defines in the vhost config files themselves stay
+isolated to the file they were created in.
+
+ - Each file is otherwise parsed with a fresh set of defines, so defines do
+not leak between unrelated files.
 
  - Define names are 1...31 characters from `a-z`, `A-Z`, `0-9` and `_`.
 

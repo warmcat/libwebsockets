@@ -139,6 +139,7 @@ context_creation(int argc, const char **argv)
 {
 	int cs_len = LWSWS_CONFIG_STRING_SIZE - 1;
 	struct lws_context_creation_info info;
+	struct lws_lejp_conf_defs defs;
 	char *cs, *config_strings;
 	void *foreign_loops[1];
 
@@ -149,6 +150,7 @@ context_creation(int argc, const char **argv)
 	}
 
 	memset(&info, 0, sizeof(info));
+	memset(&defs, 0, sizeof(defs));
 
 	info.external_baggage_free_on_destroy = config_strings;
 	info.pt_serv_buf_size = 8192;
@@ -163,9 +165,11 @@ context_creation(int argc, const char **argv)
 	lwsl_notice("Using config dir: \"%s\"\n", config_dir);
 
 	/*
-	 *  first go through the config for creating the outer context
+	 * first go through the config for creating the outer context.  Root
+	 * defines from the globals config files accumulate into defs, and
+	 * stay visible in the vhost config files below
 	 */
-	if (lwsws_get_config_globals(&info, config_dir, &cs, &cs_len))
+	if (lwsws_get_config_globals_defs(&defs, &info, config_dir, &cs, &cs_len))
 		goto init_failed;
 
 	const char *stub = lws_cmdline_option(argc, argv, "--lws-stub");
@@ -202,14 +206,21 @@ context_creation(int argc, const char **argv)
 
 	info.extensions = exts;
 
-	if (lwsws_get_config_vhosts(context, &info, config_dir, &cs, &cs_len))
+	if (lwsws_get_config_vhosts_defs(&defs, context, &info, config_dir,
+					 &cs, &cs_len)) {
+		lwsac_free(&defs.ac);
 		return 1;
+	}
+
+	/* the install-wide defines have been used by everything now */
+	lwsac_free(&defs.ac);
 
 	lws_sul_schedule(context, 0, &sul_lwsws, lwsws_min, 60 * LWS_US_PER_SEC);
 
 	return 0;
 
 init_failed:
+	lwsac_free(&defs.ac);
 	free(config_strings);
 
 	return 1;
