@@ -547,7 +547,7 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 	const char *q;
 	const void *p;
 	long long li;
-	int n, used;
+	int n, used = 0;
 
 	*written = 0;
 	*buf = '\0';

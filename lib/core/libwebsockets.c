@@ -573,17 +573,40 @@ lws_sql_purify_len(const char *p)
 const char *
 lws_json_purify(char *escaped, const char *string, int len, int *in_used)
 {
-	const char *p = string;
+	return lws_json_purify_flags(escaped, string, len, in_used, 0);
+}
+
+const char *
+lws_json_purify_flags(char *escaped, const char *string, int len, int *in_used,
+		      int flags)
+{
+	const char *p = string, *op = string;
 	char *q = escaped;
+	int inlim = 0x7fffffff;
 
 	if (!p) {
 		escaped[0] = '\0';
+		if (in_used)
+			*in_used = 0;
+
 		return escaped;
 	}
 
-	while (*p && len > 6) {
+	/*
+	 * If the caller set a positive input cap, respect it.  This is
+	 * needed for processing chunks of non-NUL-terminated data, eg,
+	 * blobs or diffs.  Otherwise, the cap is effectively unlimited and
+	 * we stop on the NUL or when the output buffer is full.
+	 */
+
+	if (in_used && *in_used > 0)
+		inlim = *in_used;
+
+	while ((int)(p - op) < inlim && *p && len > 6) {
+		unsigned char c = (unsigned char)*p;
+
 		len--;
-		if (*p == '\t') {
+		if (c == '\t') {
 			p++;
 			*q++ = '\\';
 			*q++ = 't';
@@ -591,7 +614,7 @@ lws_json_purify(char *escaped, const char *string, int len, int *in_used)
 			continue;
 		}
 
-		if (*p == '\n') {
+		if (c == '\n') {
 			p++;
 			*q++ = '\\';
 			*q++ = 'n';
@@ -599,7 +622,7 @@ lws_json_purify(char *escaped, const char *string, int len, int *in_used)
 			continue;
 		}
 
-		if (*p == '\r') {
+		if (c == '\r') {
 			p++;
 			*q++ = '\\';
 			*q++ = 'r';
@@ -607,7 +630,7 @@ lws_json_purify(char *escaped, const char *string, int len, int *in_used)
 			continue;
 		}
 
-		if (*p == '\\') {
+		if (c == '\\') {
 			p++;
 			*q++ = '\\';
 			*q++ = '\\';
@@ -615,13 +638,23 @@ lws_json_purify(char *escaped, const char *string, int len, int *in_used)
 			continue;
 		}
 
-		if (*p == '\"' || *p < 0x20) {
+		/*
+		 * The HTML_SAFE flag also escapes chars that are legal JSON
+		 * but would be interpreted as markup if the JSON is inlined
+		 * into an HTML page.  Notice c is unsigned: we must not
+		 * "escape" high-bit set UTF-8 bytes as if they were control
+		 * characters.
+		 */
+
+		if (c == '\"' || c < 0x20 ||
+		    ((flags & LWS_JSON_PURIFY_FLAG_HTML_SAFE) &&
+		     (c == '&' || c == '<' || c == '>' || c == '='))) {
 			*q++ = '\\';
 			*q++ = 'u';
 			*q++ = '0';
 			*q++ = '0';
-			*q++ = hex[((*p) >> 4) & 15];
-			*q++ = hex[(*p) & 15];
+			*q++ = hex[(c >> 4) & 15];
+			*q++ = hex[c & 15];
 			len -= 5;
 			p++;
 		} else
@@ -648,7 +681,8 @@ lws_json_purify_len(const char *string)
 			continue;
 		}
 
-		if (*p == '\"' || *p == '\\' || *p < 0x20) {
+		if (*p == '\"' || *p == '\\' ||
+		    (unsigned char)*p < 0x20) {
 			len += 6;
 			p++;
 			continue;

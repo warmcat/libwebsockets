@@ -31,6 +31,7 @@
 #if defined(LWS_STUB_AUTONOMOUS_EXIT)
 #include <signal.h>
 #include <stdlib.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -361,24 +362,64 @@ lws_stub_child_sigterm_cb(int sig)
  * file at the path has a different inode (eg, a newer stub instance that has
  * already re-used the path, or our parent already removed it and something
  * else appeared there), we must not touch it.
+ *
+ * We hold a fd on the socket file's parent directory, and issue both the
+ * identity check and the unlink against it using only the basename: the
+ * path is not re-resolved between the check and the use, and symlinks at
+ * the socket path are not followed when deciding.  POSIX can only unlink
+ * by name, so a race on the basename inside the one directory is inherent;
+ * the dev+ino comparison limits the damage of that to removing a socket
+ * file we created ourselves.
  */
 static void
 lws_stub_child_unlink_own_uds(void)
 {
+	char dir[sizeof(stub_child.uds_path)];
 	struct stat st;
+	const char *base;
+	char *slash;
+	int dirfd;
 
 	if (!stub_child.have_uds_ino)
 		return;
 
-	if (stat(stub_child.uds_path, &st))
-		/* nothing there any more */
+	slash = strrchr(stub_child.uds_path, '/');
+	base = slash ? slash + 1 : stub_child.uds_path;
+
+	if (!*base)
+		/* path has no basename (eg, it ends in '/'), not our socket */
 		return;
 
-	if (st.st_dev != stub_child.uds_dev || st.st_ino != stub_child.uds_ino)
-		/* the socket file belongs to somebody else */
-		return;
+	if (!slash) {
+		/* bare filename in the current working directory */
+		dirfd = AT_FDCWD;
+	} else {
+		size_t dn = (size_t)(slash - stub_child.uds_path);
 
-	unlink(stub_child.uds_path);
+		if (dn) {
+			memcpy(dir, stub_child.uds_path, dn);
+			dir[dn] = '\0';
+		} else
+			/* the socket file sits directly under "/" */
+			dir[0] = '/', dir[1] = '\0';
+
+		dirfd = lws_open(dir, O_RDONLY | O_DIRECTORY);
+		if (dirfd < 0)
+			/* cannot get at the directory, so cannot check */
+			return;
+	}
+
+	/*
+	 * Only unlink it if what is at the basename now is still the socket
+	 * file we created, rather than a symlink or a replacement file
+	 */
+	if (!fstatat(dirfd, base, &st, AT_SYMLINK_NOFOLLOW) &&
+	    st.st_dev == stub_child.uds_dev &&
+	    st.st_ino == stub_child.uds_ino)
+		unlinkat(dirfd, base, 0);
+
+	if (slash)
+		close(dirfd);
 }
 
 /*
@@ -447,9 +488,10 @@ lws_stub_child_watchdog_init(const struct lws_stub_config *config)
 	 * in different filesystems (eg, tmpfs dirent vs sockfs).
 	 */
 	stub_child.have_uds_ino = !stat(config->uds_path, &st);
-	stub_child.uds_dev = st.st_dev;
-	stub_child.uds_ino = st.st_ino;
-	if (!stub_child.have_uds_ino)
+	if (stub_child.have_uds_ino) {
+		stub_child.uds_dev = st.st_dev;
+		stub_child.uds_ino = st.st_ino;
+	} else
 		lwsl_warn("%s: stub '%s': cannot identify our own UDS "
 			  "socket file\n", __func__,
 			  config->stub_name ? config->stub_name : "?");

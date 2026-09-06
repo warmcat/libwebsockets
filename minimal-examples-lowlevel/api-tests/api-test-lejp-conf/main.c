@@ -232,34 +232,31 @@ int main(int argc, const char **argv)
 	 */
 
 	{
-		char conf[1024], expect[512];
-		size_t o = 0;
-		int i;
+		char conf[1024], expect[512], a250[251], b100[101];
 
-		o += (size_t)lws_snprintf(conf + o, sizeof(conf) - o,
-			"{\n\"global\": {\n"
-			"\"=ROOT\": \"/var\",\n"
-			"\"=LONG\": \"");
+		/*
+		 * Compose each buffer with a single, bounded snprintf from
+		 * pieces of compile-time size.  Accumulating lws_snprintf()
+		 * returns into an offset and then indexing with it is not
+		 * safe, since on truncation it returns the buffer size rather
+		 * than the number of bytes it actually wrote.
+		 */
 
 		/* 250 a's, so "${ROOT}" straddles the 254-byte chunk seam */
-		for (i = 0; i < 250; i++)
-			conf[o++] = 'a';
-		o += (size_t)lws_snprintf(conf + o, sizeof(conf) - o, "${ROOT}");
-		for (i = 0; i < 100; i++)
-			conf[o++] = 'b';
+		memset(a250, 'a', sizeof(a250) - 1);
+		a250[sizeof(a250) - 1] = '\0';
+		memset(b100, 'b', sizeof(b100) - 1);
+		b100[sizeof(b100) - 1] = '\0';
 
-		lws_snprintf(conf + o, sizeof(conf) - o,
-			"\",\n"
+		lws_snprintf(conf, sizeof(conf),
+			"{\n\"global\": {\n"
+			"\"=ROOT\": \"/var\",\n"
+			"\"=LONG\": \"%s${ROOT}%s\",\n"
 			"\"username\": \"${LONG}/x${ROOT}/y\"\n"
-			"}\n}\n");
+			"}\n}\n", a250, b100);
 
-		o = 0;
-		for (i = 0; i < 250; i++)
-			expect[o++] = 'a';
-		o += (size_t)lws_snprintf(expect + o, sizeof(expect) - o, "/var");
-		for (i = 0; i < 100; i++)
-			expect[o++] = 'b';
-		lws_snprintf(expect + o, sizeof(expect) - o, "/x/var/y");
+		lws_snprintf(expect, sizeof(expect), "%s/var%s/x/var/y",
+			     a250, b100);
 
 		if (setup_case("chunky", conf, NULL, NULL))
 			return fail("chunky", "setup");

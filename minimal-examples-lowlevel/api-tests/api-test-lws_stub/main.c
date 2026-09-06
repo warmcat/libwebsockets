@@ -77,6 +77,28 @@ stub_gone_marker_path(void)
 
 	return path;
 }
+
+/*
+ * Check the marker by opening and reading it, rather than stat()ing the
+ * path and later unlinking the same path: the test cleans the marker up
+ * unconditionally, so there is nothing to gain from a path existence check
+ * and it avoids the check-then-use-on-path pattern.
+ */
+static int
+gone_marker_present(void)
+{
+	char c;
+	int fd, n;
+
+	fd = lws_open(stub_gone_marker_path(), O_RDONLY);
+	if (fd < 0)
+		return 0;
+
+	n = (int)read(fd, &c, 1);
+	close(fd);
+
+	return n == 1;
+}
 #endif
 
 /*
@@ -550,7 +572,7 @@ phase3(int argc, const char **argv)
 	 * The stub's parent is still alive: the stub must still be running,
 	 * with its UDS socket present and no parent-gone cleanup having run
 	 */
-	if (!stat(stub_gone_marker_path(), &st)) {
+	if (gone_marker_present()) {
 		lwsl_err("phase 3: stub ran parent-gone cleanup while parent alive\n");
 		goto bail;
 	}
@@ -572,13 +594,13 @@ phase3(int argc, const char **argv)
 	 */
 	start = lws_now_usecs();
 	while (lws_now_usecs() - start < 10000000) { /* 10s */
-		if (!stat(stub_gone_marker_path(), &st) &&
+		if (gone_marker_present() &&
 		    stat(stub_uds_path(STUB_NAME_P3), &st))
 			break;
 		usleep(100000);
 	}
 
-	if (stat(stub_gone_marker_path(), &st)) {
+	if (!gone_marker_present()) {
 		lwsl_err("phase 3: stub never ran its parent-gone cleanup\n");
 		goto bail;
 	}

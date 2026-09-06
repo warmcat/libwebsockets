@@ -130,7 +130,7 @@ static int alsa_json_control_cb(void *user, const struct lws_alsa_control *c)
 {
 	struct json_dump_ctx *j = (struct json_dump_ctx *)user;
 	char safe_name[256];
-	int len;
+	int len = 0;
 
 	if (lws_ptr_diff_size_t(j->end, j->p) < 128)
 		return 1;
