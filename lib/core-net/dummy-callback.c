@@ -28,10 +28,21 @@
 #define MAXHDRVAL 1024
 
 #if defined(LWS_WITH_HTTP_PROXY)
+/*
+ * Copy header `index` from the parent (or onward client) wsi ah into the
+ * headers being serialized at *p.
+ *
+ * The caller passes a fixed stack temp for the common case; headers can be
+ * legitimately longer than any fixed buffer we could afford on the stack (eg,
+ * a 1KB+ SSO cookie chain), so rather than drop them, oversize values get a
+ * right-sized heap temp.  n is bounded by the ah's own data limit, since the
+ * parent side already had to accept and store the header.
+ */
 static int
 proxy_header(struct lws *wsi, struct lws *par, unsigned char *temp,
 	     int temp_len, int index, unsigned char **p, unsigned char *end)
 {
+	unsigned char *heap = NULL;
 	int n = lws_hdr_total_length(par, (enum lws_token_indexes)index);
 
 	if (n < 1) {
@@ -40,9 +51,23 @@ proxy_header(struct lws *wsi, struct lws *par, unsigned char *temp,
 		return 0;
 	}
 
+	if (n >= temp_len) {
+		heap = lws_malloc((size_t)n + 1, __func__);
+		if (!heap) {
+			lwsl_wsi_notice(wsi, "oom par hdr idx %d (len %d)",
+					      index, n);
+
+			return -1;
+		}
+		temp = heap;
+		temp_len = n + 1;
+	}
+
 	if (lws_hdr_copy(par, (char *)temp, temp_len, (enum lws_token_indexes)index) < 0) {
 		lwsl_wsi_notice(wsi, "unable to copy par hdr idx %d (len %d)",
 				      index, n);
+		lws_free(heap);
+
 		return -1;
 	}
 
@@ -51,8 +76,12 @@ proxy_header(struct lws *wsi, struct lws *par, unsigned char *temp,
 	if (lws_add_http_header_by_token(wsi, (enum lws_token_indexes)index, temp, n, p, end)) {
 		lwsl_wsi_notice(wsi, "unable to append par hdr idx %d (len %d)",
 				     index, n);
+		lws_free(heap);
+
 		return -1;
 	}
+
+	lws_free(heap);
 
 	return 0;
 }
@@ -72,7 +101,11 @@ proxy_header(struct lws *wsi, struct lws *par, unsigned char *temp,
  * "Name: value\r\n" line by the interceptor (see lws_interceptor_inject_header
  * and friends), so splitting on "\r\n" and the first ": " is safe.  Anti-spoof
  * handling (lws_http_zap_header before inject) is the interceptor's job.
+ *
+ * Only the ws proxy below uses it; it lives under the same guard so the
+ * proxy-only, ws-less build dimension does not warn it is unused.
  */
+#if defined(LWS_WITH_HTTP_PROXY) && defined(LWS_ROLE_WS)
 static void
 proxy_extra_onward_headers(struct lws *wsi, unsigned char **p,
 			   unsigned char *end)
@@ -125,6 +158,7 @@ proxy_extra_onward_headers(struct lws *wsi, unsigned char **p,
 		line = next_line;
 	}
 }
+#endif
 
 static int
 stream_close(struct lws *wsi)
@@ -144,13 +178,32 @@ stream_close(struct lws *wsi)
 		return 0;
 	}
 
-	*out++ = '0';
-	*out++ = '\x0d';
-	*out++ = '\x0a';
-	*out++ = '\x0d';
-	*out++ = '\x0a';
+	/*
+	 * We only put the parent response into chunked framing when the
+	 * backend gave no content-length (prh_content_length stays
+	 * (size_t)-1 then).  A parent response with a known content-length
+	 * is already complete after the body; writing the chunk terminator
+	 * there sends stray bytes to the client after the end of the
+	 * message.
+	 */
 
-	if (lws_write(wsi, (unsigned char *)buf + LWS_PRE, 5,
+	if (wsi->http.prh_content_length == (size_t)-1) {
+		*out++ = '0';
+		*out++ = '\x0d';
+		*out++ = '\x0a';
+		*out++ = '\x0d';
+		*out++ = '\x0a';
+
+		if (lws_write(wsi, (unsigned char *)buf + LWS_PRE, 5,
+			      LWS_WRITE_HTTP_FINAL) < 0)
+			goto bail;
+
+		return 0;
+	}
+
+	/* non-chunked: just mark the response complete */
+
+	if (lws_write(wsi, (unsigned char *)buf + LWS_PRE, 0,
 		      LWS_WRITE_HTTP_FINAL) < 0)
 		goto bail;
 
