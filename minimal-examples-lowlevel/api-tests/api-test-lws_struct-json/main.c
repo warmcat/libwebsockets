@@ -1027,6 +1027,92 @@ done:
 	}
 
 	{
+		/*
+		 * A single string member longer than the fragment buffer must
+		 * be emitted over several LSJS_RESULT_CONTINUE chunks, and the
+		 * chunks must reassemble to exactly the escaped string
+		 */
+
+		typedef struct sai_bigstr {
+			char			s[176];
+		} sai_bigstr_t;
+
+		const lws_struct_map_t lsm_bigstr[] = {
+			LSM_CARRAY	(sai_bigstr_t, s,			"s"),
+		};
+		const lws_struct_map_t lsm_schema_bigstr[] = {
+			LSM_SCHEMA	(sai_bigstr_t, NULL, lsm_bigstr,
+						      "com.warmcat.sai.bigstr"),
+		};
+		lws_struct_serialize_t *jser;
+		sai_bigstr_t bs;
+		uint8_t ubuf[128], re[512];
+		char pun[256], exp[384];
+		size_t w, ttot = 0;
+		int bn, chunks = 0;
+
+		memset(&bs, 0, sizeof(bs));
+
+		/* every 16th char needs \uXXXX escaping */
+		for (bn = 0; bn < (int)sizeof(bs.s) - 1; bn++)
+			bs.s[bn] = (bn & 15) ? (char)('A' + (bn % 26)) : '"';
+		bs.s[sizeof(bs.s) - 1] = '\0';
+
+		jser = lws_struct_json_serialize_create(lsm_schema_bigstr,
+					LWS_ARRAY_SIZE(lsm_schema_bigstr),
+					0, &bs);
+		if (!jser) {
+			lwsl_err("%s: bigstr: failed to create serializer\n",
+					__func__);
+			goto bail;
+		}
+
+		do {
+			bn = (int)lws_struct_json_serialize(jser, ubuf,
+							     sizeof(ubuf), &w);
+			if (bn == LSJS_RESULT_ERROR) {
+				lwsl_err("%s: bigstr: serialization failed\n",
+						__func__);
+				goto bail;
+			}
+			if (ttot + w > sizeof(re) - 1) {
+				lwsl_err("%s: bigstr: reassembly too big\n",
+						__func__);
+				goto bail;
+			}
+			memcpy(re + ttot, ubuf, w);
+			ttot += w;
+			chunks++;
+		} while (bn == LSJS_RESULT_CONTINUE);
+
+		lws_struct_json_serialize_destroy(&jser);
+
+		re[ttot] = '\0';
+
+		if (chunks < 3) {
+			lwsl_err("%s: bigstr: only %d chunks\n", __func__,
+					chunks);
+			goto bail;
+		}
+
+		lws_json_purify(pun, bs.s, sizeof(pun) - 1, NULL);
+		lws_snprintf(exp, sizeof(exp),
+			     "{\"schema\":\"com.warmcat.sai.bigstr\","
+			     "\"s\":\"%s\"}", pun);
+
+		if (strcmp((char *)re, exp)) {
+			lwsl_err("%s: bigstr: reassembled != expected\n",
+					__func__);
+			lwsl_hexdump_notice(re, ttot);
+			lwsl_hexdump_notice(exp, strlen(exp));
+			goto bail;
+		}
+
+		lwsl_notice("%s: bigstr: %d chunks, %u bytes, exact match\n",
+			    __func__, chunks, (unsigned int)ttot);
+	}
+
+	{
 		const char *msg = "{\"schema\":\"com.warmcat.sai.builder_registration\",\"builder_name\":\"freebsd\",\"power_controller_name\":\"p1\",\"platforms\":[{\"name\":\"freebsd.freebsd/aarch64/llvm\"}]}";
 		const char *msg1 = "{\"schema\":\"com.warmcat.sai.builder_registration\",\"platforms\":[{\"name\":\"freebsd.freebsd/aarch64/llvm\"}],\"builder_name\":\"freebsd\",\"power_controller_name\":\"p1\"}";
 

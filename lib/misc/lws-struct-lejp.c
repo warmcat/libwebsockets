@@ -767,14 +767,20 @@ lws_struct_json_serialize(lws_struct_serialize_t *js, uint8_t *buf,
 			 * This is going to escape as much as it can fit, and
 			 * let us know the amount of input that was consumed
 			 * in "used".
+			 *
+			 * A positive *in_used on entry is an input cap, so it
+			 * must be cleared or it would limit this string to
+			 * what was consumed of the last one
 			 */
 
+			used = 0;
 			lws_json_purify((char *)buf, q, (int)len, &used);
 			m = strlen((const char *)buf);
 			buf += m;
 			len -= m;
 			js->remaining = budget - (unsigned int)used;
-			js->offset = (unsigned int)used;
+			/* js->offset is from the start of the member string */
+			js->offset += (unsigned int)used;
 			if (!js->remaining)
 				js->offset = 0;
 
