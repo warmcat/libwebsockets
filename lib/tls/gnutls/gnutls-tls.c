@@ -292,9 +292,12 @@ lws_tls_client_create_vhost_context(struct lws_vhost *vh,
 	} else if (cert_mem && cert_mem_len && key_mem && key_mem_len) {
 		gnutls_datum_t dcert, dkey;
 
-		dcert.data = (unsigned char *)cert_mem;
+		/* gnutls_datum_t data lacks const, so has to alias the
+		 * caller's const buffers via a cast that doesn't drop it
+		 */
+		dcert.data = (unsigned char *)(uintptr_t)cert_mem;
 		dcert.size = (unsigned)cert_mem_len;
-		dkey.data = (unsigned char *)key_mem;
+		dkey.data = (unsigned char *)(uintptr_t)key_mem;
 		dkey.size = (unsigned)key_mem_len;
 
 		if (gnutls_certificate_set_x509_key_mem(

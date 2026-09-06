@@ -449,11 +449,11 @@ lejp_globals_cb(struct lejp_ctx *ctx, char reason)
 	struct lws_protocol_vhost_options *rej;
 	char *p;
 
-	if (reason == LEJPCB_VAL_STR_START ||
-	    reason == LEJPCB_VAL_STR_CHUNK ||
-	    reason == LEJPCB_VAL_STR_END)
-		if (lejp_string_unify_part(ctx, &a->ac, reason))
-			return 1;
+	if ((reason == LEJPCB_VAL_STR_START ||
+	     reason == LEJPCB_VAL_STR_CHUNK ||
+	     reason == LEJPCB_VAL_STR_END) &&
+	    lejp_string_unify_part(ctx, &a->ac, reason))
+		return 1;
 
 	/* we only match on the prepared path strings */
 	if (!(reason & LEJP_FLAG_CB_IS_VALUE) || !ctx->path_match)
@@ -605,11 +605,11 @@ lejp_vhosts_cb(struct lejp_ctx *ctx, char reason)
 	char *p, *p1;
 	int n;
 
-	if (reason == LEJPCB_VAL_STR_START ||
-	    reason == LEJPCB_VAL_STR_CHUNK ||
-	    reason == LEJPCB_VAL_STR_END)
-		if (lejp_string_unify_part(ctx, &a->ac, reason))
-			return 1;
+	if ((reason == LEJPCB_VAL_STR_START ||
+	     reason == LEJPCB_VAL_STR_CHUNK ||
+	     reason == LEJPCB_VAL_STR_END) &&
+	    lejp_string_unify_part(ctx, &a->ac, reason))
+		return 1;
 
 #if 0
 	lwsl_notice(" %d: %s (%d)\n", reason, ctx->path, ctx->path_match);

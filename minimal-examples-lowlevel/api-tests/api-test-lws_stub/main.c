@@ -19,6 +19,7 @@
 #if !defined(WIN32)
 #include <unistd.h>
 #include <sys/wait.h>
+#include <time.h>
 #else
 #include <process.h>
 #include <io.h>
@@ -73,7 +74,7 @@ stub_gone_marker_path(void)
 {
 	static char path[300];
 
-	lws_snprintf(path, sizeof(path), "/tmp/lws-%s.gone", STUB_NAME_P3);
+	lws_snprintf(path, sizeof(path), "/tmp/lws-%s.gone", STUB_NAME_P3); // NOSONAR
 
 	return path;
 }
@@ -253,7 +254,7 @@ static void stub_parent_gone_cb(void *user)
 		return;
 
 	/* leave a marker so the test can prove this ran in the stub child */
-	lws_snprintf(path, sizeof(path), "/tmp/lws-%s.gone", stub_name);
+	lws_snprintf(path, sizeof(path), "/tmp/lws-%s.gone", stub_name); // NOSONAR
 	fd = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
 	if (fd >= 0) {
 		if (write(fd, &ok, 1) < 0)
@@ -279,7 +280,7 @@ static int run_stub(struct lws_context *cx, const char *stub_name)
 	sc.stub_name = stub_name;
 	sc.uds_path = stub_uds_path(stub_name);
 	sc.protocols = stub_protocols;
-	sc.user = (void *)stub_name;
+	sc.user = (void *)(uintptr_t)stub_name;
 	sc.parent_gone_cb = stub_parent_gone_cb;
 
 	if (lws_stub_server_init(&sc, secret, extra, sizeof(extra)) < 0) {
@@ -594,10 +595,11 @@ phase3(int argc, const char **argv)
 	 */
 	start = lws_now_usecs();
 	while (lws_now_usecs() - start < 10000000) { /* 10s */
+		struct timespec ts = { .tv_nsec = 100 * 1000 * 1000 };
 		if (gone_marker_present() &&
 		    stat(stub_uds_path(STUB_NAME_P3), &st))
 			break;
-		usleep(100000);
+		nanosleep(&ts, NULL);
 	}
 
 	if (!gone_marker_present()) {
