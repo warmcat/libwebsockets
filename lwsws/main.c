@@ -430,7 +430,14 @@ int main(int argc, char **argv)
 
 	lws_service(context, 0);
 
-	lwsl_err("%s: closing\n", __func__);
+	/*
+	 * If we fell out of the event loop unexpectedly, these show the state
+	 * that caused it; match them against the destroy-initiation logs in
+	 * the lib to find who started the exit
+	 */
+	lwsl_err("%s: closing (ctx deprecated %d, uv loop alive %d)\n", __func__,
+			lws_context_is_deprecated(context),
+			uv_loop_alive(&loop));
 
 	for (n = 0; n < 3; n++) {
 		uv_signal_stop(&signal_outer[n]);

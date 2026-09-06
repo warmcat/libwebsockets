@@ -148,6 +148,9 @@ lws_io_cb(uv_poll_t *watcher, int status, int revents)
 	lws_service_fd_tsi(context, &eventfd, wsi->tsi);
 
 	if (pt->destroy_self) {
+		lwsl_cx_notice(context, "%s: wsi %s: pt destroy_self -> "
+				      "context destroy", __func__,
+				      lws_wsi_tag(wsi));
 		lws_context_destroy(pt->context);
 		return;
 	}
@@ -173,6 +176,9 @@ lws_libuv_stop(struct lws_context *context)
 		lwsl_cx_err(context, "ignoring");
 		return;
 	}
+
+	lwsl_cx_notice(context, "%s: initiating loop stop + context destroy",
+			      __func__);
 
 	context->requested_stop_internal_loops = 1;
 	lws_context_destroy(context);
@@ -211,7 +217,8 @@ lws_uv_finalize_pt(struct lws_context_per_thread *pt)
 		 * eventually, we emptied all the pts...
 		 */
 
-		lwsl_cx_debug(pt->context, "all pts down now");
+		lwsl_cx_notice(pt->context, "%s: last pt down, closing vhosts",
+			      __func__);
 
 		/* protocols may have initialized libuv objects */
 
@@ -222,7 +229,9 @@ lws_uv_finalize_pt(struct lws_context_per_thread *pt)
 
 		if (!pt->count_event_loop_static_asset_handles &&
 		    pt->event_loop_foreign) {
-			lwsl_cx_info(pt->context, "resuming context_destroy");
+			lwsl_cx_notice(pt->context,
+				       "%s: foreign loop, resuming context destroy",
+				       __func__);
 			lws_context_unlock(pt->context);
 			lws_context_destroy(pt->context);
 			/*
@@ -293,8 +302,13 @@ lws_uv_close_cb_sa(uv_handle_t *handle)
 
 	lwsl_cx_info(context, "thr %d: seen final static handle gone", tsi);
 
-	if (!pt->event_loop_foreign)
+	if (!pt->event_loop_foreign) {
+		lwsl_cx_notice(context,
+			       "%s: thr %d: all lws handles gone from "
+			       "internal loop, destroying context",
+			       __func__, tsi);
 		lws_context_destroy(context);
+	}
 
 	lws_uv_finalize_pt(pt);
 
@@ -329,8 +343,12 @@ lws_libuv_static_refcount_del(uv_handle_t *h)
 void
 lws_libuv_stop_without_kill(const struct lws_context *context, int tsi)
 {
-	if (pt_to_priv_uv(&context->pt[tsi])->io_loop)
+	if (pt_to_priv_uv(&context->pt[tsi])->io_loop) {
+		lwsl_cx_notice((struct lws_context *)context,
+			       "%s: tsi %d: stopping loop without "
+			       "context destroy", __func__, tsi);
 		uv_stop(pt_to_priv_uv(&context->pt[tsi])->io_loop);
+	}
 }
 
 uv_loop_t *
@@ -685,8 +703,26 @@ elops_init_vhost_listen_wsi_uv(struct lws *wsi)
 static void
 elops_run_pt_uv(struct lws_context *context, int tsi)
 {
-	if (pt_to_priv_uv(&context->pt[tsi])->io_loop)
-		uv_run(pt_to_priv_uv(&context->pt[tsi])->io_loop, 0);
+	if (pt_to_priv_uv(&context->pt[tsi])->io_loop) {
+		uv_loop_t *io_loop = pt_to_priv_uv(&context->pt[tsi])->io_loop;
+
+		uv_run(io_loop, 0);
+
+		/*
+		 * This is the point the whole app falls out of its event
+		 * loop.  If we get here unexpectedly, either something called
+		 * uv_stop() on the loop (loop still "alive"), or every handle
+		 * on the loop became inactive/closed.  The initiation logs in
+		 * the destroy paths show who started that.
+		 */
+		lwsl_cx_notice(context,
+			       "%s: tsi %d: uv_run exited: loop alive %d, "
+			       "ctx being_destroyed %d, deprecated %d",
+			       __func__, tsi,
+			       uv_loop_alive(io_loop),
+			       context->being_destroyed,
+			       lws_context_is_deprecated(context));
+	}
 }
 
 static void
@@ -704,7 +740,8 @@ elops_destroy_pt_uv(struct lws_context *context, int tsi)
 
 	if (pt->event_loop_destroy_processing_done) {
 		if (!pt->event_loop_foreign) {
-			lwsl_warn("%s: stopping event loop\n", __func__);
+			lwsl_cx_notice(context, "%s: thr %d: stopping event loop",
+					      __func__, tsi);
 			uv_stop(pt_to_priv_uv(pt)->io_loop);
 		}
 		return;

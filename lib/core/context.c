@@ -2184,6 +2184,15 @@ lws_context_destroy(struct lws_context *context)
 	lws_context_lock(context, __func__);
 	context->inside_context_destroy = 1;
 
+	if (context->destroy_state == LWSCD_NO_DESTROY)
+		/*
+		 * Only log the actual initiation of the destroy flow, not the
+		 * later state machine re-entries.  If this appears without a
+		 * preceding libuv / signal initiation notice, the caller is
+		 * outside those paths (app or plugin code).
+		 */
+		lwsl_cx_notice(context, "%s: initiated", __func__);
+
 	lwsl_cx_info(context, "destroy_state %d", context->destroy_state);
 
 	switch (context->destroy_state) {
