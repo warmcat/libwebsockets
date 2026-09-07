@@ -162,8 +162,13 @@ static struct async_dns_tests {
 //		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 	{ "tcp-fallback.libwebsockets.org", LWS_ADNS_SYNTHETIC | LWS_ADNS_RECORD_A | LWS_ADNS_INDICATE_LACKS_DNSSEC, 0,
 		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
-	{ "mudpuddle.shwaine.com", LWS_ADNS_RECORD_A | LWS_ADNS_INDICATE_LACKS_DNSSEC, 4,
-		{ 174, 134, 58, 54, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
+	/*
+	 * CNAME to a shorter name (mudpuddle.shwaine.com -> shwaine.com),
+	 * covers the cache name length after CNAME.  Third-party address,
+	 * has changed before, so we only check that it resolves.
+	 */
+	{ "mudpuddle.shwaine.com", TEST_FLAG_NOCHECK_RESULT_IP | LWS_ADNS_RECORD_A | LWS_ADNS_INDICATE_LACKS_DNSSEC, 4,
+		{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 	{ "awsrealm.majicrealm.com", LWS_ADNS_RECORD_A | LWS_ADNS_INDICATE_LACKS_DNSSEC, 4,
 		{ 35, 88, 197, 177, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, } },
 	{ "lwsbiglongtesthostname.lociterm.com", LWS_ADNS_RECORD_A | LWS_ADNS_INDICATE_LACKS_DNSSEC, 4,
