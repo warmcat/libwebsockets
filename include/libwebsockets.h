@@ -137,6 +137,22 @@ typedef int suseconds_t;
 #define lws_thread_is(x)	pthread_equal(x, pthread_self())
 #define lws_thread_id()		pthread_self()
 
+#else
+/*
+ * Native win32 without an external pthreads: use the win32 slim
+ * reader/writer lock, which is header-only, needs no destroy, and lets
+ * SMD and async-dns build without pthreads.  Lock must evaluate to 0 on
+ * success like the pthreads and freertos flavours.
+ */
+#define lws_mutex_t		SRWLOCK
+#define lws_mutex_init(x)	InitializeSRWLock(&(x))
+#define lws_mutex_destroy(x)	((void)(x))
+#define lws_mutex_lock(x)	(AcquireSRWLockExclusive(&(x)), 0)
+#define lws_mutex_unlock(x)	ReleaseSRWLockExclusive(&(x))
+
+#define lws_tid_t		DWORD
+#define lws_thread_is(x)	((x) == GetCurrentThreadId())
+#define lws_thread_id()		GetCurrentThreadId()
 #endif
 
 #if !defined(LWS_EXTERN) && defined(LWS_BUILDING_SHARED)
@@ -209,6 +225,21 @@ typedef pthread_mutex_t lws_mutex_t;
 #define lws_tid_t		pthread_t
 #define lws_thread_is(x)	pthread_equal(x, pthread_self())
 #define lws_thread_id()		pthread_self()
+#else
+/*
+ * No threading support on this platform: the lws_mutex_t apis become
+ * no-ops so single-threaded builds of SMD and async-dns still work.
+ * Lock must evaluate to 0 on success like the other flavours.
+ */
+typedef char lws_mutex_t;
+#define lws_mutex_init(x)	((void)(x))
+#define lws_mutex_destroy(x)	((void)(x))
+#define lws_mutex_lock(x)	((void)(x), 0)
+#define lws_mutex_unlock(x)	((void)(x))
+
+#define lws_tid_t		int
+#define lws_thread_is(x)	((void)(x), 1)
+#define lws_thread_id()		0
 #endif
 #endif /* freertos */
 

@@ -84,7 +84,7 @@
  #include <sys/stat.h>
 #endif
 
-#if LWS_MAX_SMP > 1 || defined(LWS_WITH_SYS_SMD)
+#if LWS_MAX_SMP > 1 || (defined(LWS_WITH_SYS_SMD) && defined(LWS_HAVE_PTHREAD_H))
  /* https://stackoverflow.com/questions/33557506/timespec-redefinition-error */
  #define HAVE_STRUCT_TIMESPEC
  #include <pthread.h>
