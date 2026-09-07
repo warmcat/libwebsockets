@@ -3885,6 +3885,20 @@ int lws_serve_http_file_fragment(struct lws *wsi)
 #endif
 			if (lws_vfs_file_read(wsi->http.fop_fd, &amount, p, poss) < 0)
 				goto file_had_it; /* caller will close */
+
+			/*
+			 * A 0-byte success short of the length the fops
+			 * reported at open means the backing data is
+			 * truncated; retrying would never progress, and
+			 * this loop only exits on progress or a choked pipe
+			 */
+			if (!amount && poss &&
+			    wsi->http.filepos < wsi->http.filelen) {
+				lwsl_wsi_notice(wsi, "short file read at %llu / %llu",
+						(unsigned long long)wsi->http.filepos,
+						(unsigned long long)wsi->http.filelen);
+				goto file_had_it;
+			}
 #if defined(LWS_WITH_LATENCY)
 				lws_latency_note(pt, _lws_start, 500, "read:%uus ",
 					(unsigned int)(lws_now_usecs() - _lws_start));

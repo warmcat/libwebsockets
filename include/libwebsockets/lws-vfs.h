@@ -117,7 +117,10 @@ struct lws_plat_file_ops {
 	/**< seek from current position */
 	int (*LWS_FOP_READ)(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 			    uint8_t *buf, lws_filepos_t len);
-	/**< Read from file, on exit *amount is set to amount actually read */
+	/**< Read from file.  Returns 0 on success with *amount set to the
+	 * bytes actually read (0 only at end of file), or < 0 on failure with
+	 * *amount set to 0.  Callers treat 0 with *amount == 0 as EOF, so an
+	 * implementation must never report a failure as a 0-byte success. */
 	int (*LWS_FOP_WRITE)(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 			     uint8_t *buf, lws_filepos_t len);
 	/**< Write to file, on exit *amount is set to amount actually written */

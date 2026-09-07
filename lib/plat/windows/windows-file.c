@@ -125,7 +125,8 @@ _lws_plat_file_read(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 	if (!ReadFile((HANDLE)fop_fd->filesystem_priv, buf, (DWORD)len, &_amount, NULL)) {
 		*amount = 0;
 
-		return 1;
+		/* the fops contract is < 0 on failure, callers test that */
+		return -1;
 	}
 
 	fop_fd->pos += _amount;
@@ -143,7 +144,7 @@ _lws_plat_file_write(lws_fop_fd_t fop_fd, lws_filepos_t *amount,
 	if (!WriteFile((HANDLE)fop_fd->filesystem_priv, buf, (DWORD)len, &_amount, NULL)) {
 		*amount = 0;
 
-		return 1;
+		return -1;
 	}
 
 	fop_fd->pos += _amount;
