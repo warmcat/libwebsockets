@@ -646,12 +646,32 @@ lws_h2_settings(struct lws *wsi, struct http2_settings *settings,
 					     lws_dll2_get_head(&nwsi->mux.child_list_owner)) {
 				struct lws *w = lws_container_of(d, struct lws,
 								 mux.sibling_list);
-				lwsl_info("%s: adi child tc cr %d +%d -> %d",
+				/*
+				 * Do the adjustment in 64-bit: the stream
+				 * window may already be at 2^31 - 1 from
+				 * WINDOW_UPDATE, and adding a positive delta
+				 * to that overflows int32 (UB).  RFC 7540
+				 * 6.9.2 requires a change that takes any
+				 * window past the maximum to be a connection
+				 * error of type FLOW_CONTROL_ERROR.  Going
+				 * negative is legal and handled by
+				 * lws_h2_tx_cr_get() clamping to zero.
+				 */
+				int64_t cr = (int64_t)w->txc.tx_cr +
+					     (int64_t)b -
+					     (int64_t)settings->s[a];
+
+				lwsl_info("%s: adi child tc cr %d +%d -> %lld",
 					  __func__, (int)w->txc.tx_cr,
 					  b - (unsigned int)settings->s[a],
-					  (int)(w->txc.tx_cr + (int)b -
-						  (int)settings->s[a]));
-				w->txc.tx_cr += (int)b - (int)settings->s[a];
+					  (long long)cr);
+				if (cr > 0x7fffffffll || cr < -0x80000000ll) {
+					lws_h2_goaway(nwsi,
+						      H2_ERR_FLOW_CONTROL_ERROR,
+						      "Initial Window delta overflow");
+					return 1;
+				}
+				w->txc.tx_cr = (int32_t)cr;
 				if (w->txc.tx_cr > 0 &&
 				    w->txc.tx_cr <=
 						  (int32_t)(b - settings->s[a]))
@@ -2303,14 +2323,22 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			break; /* ignore */
 		}
 
+		/*
+		 * tx_cr may legitimately be negative (the peer is allowed to
+		 * shrink SETTINGS_INITIAL_WINDOW_SIZE below what a stream
+		 * already consumed), so the sum must be done as signed
+		 * 64-bit: casting a negative int32 to uint64 sign-extends
+		 * and made every later WINDOW_UPDATE on the stream look like
+		 * an overflow, leaving it permanently unsendable.
+		 */
 		if (eff_wsi->a.vhost->options &
 		        LWS_SERVER_OPTION_H2_JUST_FIX_WINDOW_UPDATE_OVERFLOW &&
-		    (uint64_t)eff_wsi->txc.tx_cr + (uint64_t)h2n->hpack_e_dep >
-		    (uint64_t)0x7fffffff)
+		    (int64_t)eff_wsi->txc.tx_cr + (int64_t)h2n->hpack_e_dep >
+		    0x7fffffffll)
 			h2n->hpack_e_dep = (uint32_t)(0x7fffffff - eff_wsi->txc.tx_cr);
 
-		if ((uint64_t)eff_wsi->txc.tx_cr + (uint64_t)h2n->hpack_e_dep >
-		    (uint64_t)0x7fffffff) {
+		if ((int64_t)eff_wsi->txc.tx_cr + (int64_t)h2n->hpack_e_dep >
+		    0x7fffffffll) {
 			lwsl_warn("%s: WINDOW_UPDATE 0x%llx + 0x%llx = 0x%llx, too high\n",
 					__func__, (unsigned long long)eff_wsi->txc.tx_cr,
 					(unsigned long long)h2n->hpack_e_dep,
