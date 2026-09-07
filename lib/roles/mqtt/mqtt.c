@@ -598,6 +598,19 @@ _lws_mqtt_rx_parser(struct lws *wsi, lws_mqtt_parser_t *par,
 			break;
 
 		case LMQCPP_CONNECT_PACKET:
+#if defined(LWS_WITH_CLIENT)
+			/*
+			 * CONNECT only ever goes client -> server.  A broker
+			 * sending it to us is a protocol error, and as a
+			 * client we have no business walking its property
+			 * block.  Mirrors the CONNACK direction check.
+			 */
+			if (lwsi_role_client(wsi)) {
+				lwsl_notice("%s: CONNECT from server\n",
+					    __func__);
+				goto send_protocol_error_and_close;
+			}
+#endif
 			lwsl_debug("%s: received CONNECT pkt\n", __func__);
 			par->state = LMQCPP_CONNECT_REMAINING_LEN_VBI;
 			lws_mqtt_vbi_init(&par->vbit);
@@ -1848,7 +1861,12 @@ bail1:
 				break;
 			case LMSPR_COMPLETED:
 				par->consumed = (uint32_t)((unsigned int)par->consumed + (unsigned int)(unsigned char)par->vbit.consumed);
-				if (par->vbit.value >
+				/*
+				 * property_valid[] has LWS_ARRAY_SIZE()
+				 * entries, so the last valid index is one less
+				 * than that
+				 */
+				if (par->vbit.value >=
 				    LWS_ARRAY_SIZE(property_valid)) {
 					lwsl_notice("%s: undef prop id 0x%x\n",
 						  __func__, (int)par->vbit.value);
