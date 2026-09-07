@@ -1052,6 +1052,19 @@ int lws_h2_do_pps_send(struct lws *wsi)
 			h2n->swsi->h2.initialized = 1;
 			/* demanded by HTTP2 */
 			h2n->swsi->h2.END_STREAM = 1;
+			/*
+			 * RFC 7540 3.2: the upgraded h1 request is stream 1
+			 * and is in the half-closed (remote) state.  It never
+			 * passes through the HEADERS end-of-frame path, so
+			 * mark its header block as done here too; otherwise
+			 * the stream is left IDLE with no headers seen, and a
+			 * later HEADERS on sid 1 would be taken as a fresh
+			 * request and dispatched a second time (and a HEADERS
+			 * on a higher sid would close sid 1 as an idle
+			 * stream while it is being served).
+			 */
+			h2n->swsi->hdr_parsing_completed = 1;
+			lws_h2_state(h2n->swsi, LWS_H2_STATE_HALF_CLOSED_REMOTE);
 			lwsl_info("servicing initial http request\n");
 
 #if defined(LWS_WITH_SERVER)
@@ -1913,6 +1926,60 @@ lws_h2_parse_end_of_frame(struct lws *wsi)
 			break;
 		case LWS_H2_STATE_RESERVED_REMOTE:
 			lws_h2_state(h2n->swsi, LWS_H2_STATE_HALF_CLOSED_LOCAL);
+			break;
+		}
+
+		if (h2n->swsi->hdr_parsing_completed) {
+			/*
+			 * We already processed a complete header block on
+			 * this stream, so this second block is trailers
+			 * (RFC 7540 8.1; the frame header stage only lets it
+			 * in with END_STREAM).  hpack already decoded it into
+			 * the ah, which keeps the connection's dynamic table
+			 * in step with the peer.
+			 *
+			 * The request (or response) was dispatched from the
+			 * first block: we must NOT re-read content-length,
+			 * re-run the pseudoheader checks or re-enter
+			 * LRS_DEFERRING_ACTION, all of which would dispatch
+			 * the same request a second time on the same stream
+			 * (freeing and re-creating the user's per-session
+			 * state, or spawning a second CGI, underneath the
+			 * first dispatch).  Only the END_STREAM it carries
+			 * has any effect, handled the same way as END_STREAM
+			 * on a DATA frame.
+			 */
+			if (lws_hdr_total_length(h2n->swsi,
+						 WSI_TOKEN_HTTP_CONTENT_LENGTH) &&
+			    h2n->swsi->h2.END_STREAM &&
+			    h2n->swsi->http.rx_content_length &&
+			    h2n->swsi->http.rx_content_remain) {
+				lws_h2_rst_stream(h2n->swsi,
+						  H2_ERR_PROTOCOL_ERROR,
+						  "Not enough rx content");
+				break;
+			}
+
+			if (!h2n->swsi->h2.END_STREAM)
+				break;
+
+			if (h2n->swsi->h2.h2_state == LWS_H2_STATE_OPEN)
+				lws_h2_state(h2n->swsi,
+					     LWS_H2_STATE_HALF_CLOSED_REMOTE);
+			else if (h2n->swsi->h2.h2_state ==
+						LWS_H2_STATE_HALF_CLOSED_LOCAL)
+				lws_h2_state(h2n->swsi, LWS_H2_STATE_CLOSED);
+
+#if defined(LWS_WITH_CLIENT)
+			if (h2n->swsi->client_mux_substream) {
+				lws_h2_rst_stream(h2n->swsi, H2_ERR_NO_ERROR,
+						  "client done");
+
+				if (lws_http_transaction_completed_client(
+								h2n->swsi))
+					lwsl_debug("tx completed returned close\n");
+			}
+#endif
 			break;
 		}
 
