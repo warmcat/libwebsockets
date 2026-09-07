@@ -143,6 +143,72 @@ lws_quic_queue_path_challenge(struct lws *nwsi)
 	}
 }
 
+int
+lws_quic_sa46_same_path(const lws_sockaddr46 *a, const lws_sockaddr46 *b)
+{
+	if (a->sa4.sin_family != b->sa4.sin_family)
+		return 0;
+#if defined(LWS_WITH_IPV6)
+	if (a->sa4.sin_family == AF_INET6)
+		return a->sa6.sin6_port == b->sa6.sin6_port &&
+		       !memcmp(&a->sa6.sin6_addr, &b->sa6.sin6_addr,
+			       sizeof(struct in6_addr));
+#endif
+	return a->sa4.sin_port == b->sa4.sin_port &&
+	       a->sa4.sin_addr.s_addr == b->sa4.sin_addr.s_addr;
+}
+
+void
+lws_quic_path_probe_abandon(struct lws *nwsi)
+{
+	struct lws_quic_netconn *qn = nwsi ? nwsi->quic.qn : NULL;
+
+	if (!qn || !qn->is_server || !qn->probing_sa46_valid)
+		return;
+
+	lwsl_wsi_notice(nwsi, "QUIC: path probe abandoned, staying on validated path");
+
+	lws_sul_cancel(&qn->path_probe_sul);
+	qn->probing_sa46_valid = 0;
+	qn->path_challenge_pending = 0;
+	/*
+	 * probing_sa46 and the probe byte counters are deliberately kept: if
+	 * the same address shows up again, its allowance and what we already
+	 * sent there carry over, so the 3x bound holds per address across
+	 * probe attempts and is not reset by simply retriggering a probe.
+	 */
+
+	/*
+	 * Drop our unsent PATH_CHALLENGE.  Anything of ours still in flight
+	 * to the abandoned address is purged by the tx path when loss
+	 * recovery requeues it, since its destination then matches neither
+	 * the committed path nor a live probe.
+	 */
+	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+				   qn->pending_tx[LWS_QUIC_LEVEL_APP].head) {
+		struct lws_quic_tx_frame *f = lws_container_of(d,
+					struct lws_quic_tx_frame, list);
+
+		if (f->type == LWS_QUIC_FT_PATH_CHALLENGE) {
+			lws_dll2_remove(&f->list);
+			lws_free(f);
+		}
+	} lws_end_foreach_dll_safe(d, d1);
+}
+
+static void
+lws_quic_path_probe_sul_cb(lws_sorted_usec_list_t *sul)
+{
+	struct lws_quic_netconn *qn = lws_container_of(sul,
+					struct lws_quic_netconn, path_probe_sul);
+
+	if (!qn->nwsi)
+		return;
+
+	lwsl_wsi_notice(qn->nwsi, "QUIC: path validation timed out (RFC 9000 8.2.4)");
+	lws_quic_path_probe_abandon(qn->nwsi);
+}
+
 /*
  * Client preferred_address active migration (RFC 9000 §9.5/§9.6).
  *
@@ -1839,6 +1905,16 @@ tp_ok:
 		/* F-69: Only count bytes_received for valid (decrypted) datagrams */
 		if (valid_datagram_bytes == 0 && nwsi->quic.qn) {
 			nwsi->quic.qn->bytes_received += (uint64_t)orig_n;
+			/*
+			 * ... and separately for the path we are probing, since
+			 * that path's 3x anti-amplification allowance (RFC 9000
+			 * 9.3.1) is only earned by bytes that arrived from it.
+			 */
+			if (pending_migration && nwsi->quic.qn->is_server &&
+			    nwsi->quic.qn->probing_sa46_valid &&
+			    lws_quic_sa46_same_path(&migration_sa46,
+						    &nwsi->quic.qn->probing_sa46))
+				nwsi->quic.qn->probe_bytes_received += (uint64_t)orig_n;
 			valid_datagram_bytes = 1;
 		}
 
@@ -1907,8 +1983,8 @@ tp_ok:
 			 */
 			if (pending_migration) {
 				if (nwsi->quic.qn->probing_sa46_valid &&
-				    !lws_sa46_compare_ads(&migration_sa46,
-							  &nwsi->quic.qn->probing_sa46)) {
+				    lws_quic_sa46_same_path(&migration_sa46,
+							    &nwsi->quic.qn->probing_sa46)) {
 					pending_migration = 0;
 				} else if (is_out_of_order) {
 					lwsl_notice("QUIC: Ignoring connection migration from out-of-order packet (PN %llu <= highest %llu)\n",
@@ -1939,23 +2015,42 @@ tp_ok:
 						    buf_new, (unsigned int)ntohs(port_new));
 #endif
 					/*
-					 * Commit the peer address immediately: the
-					 * client has moved to a new source port, the
-					 * old path is dead.  Discard any pending
-					 * Initial/Handshake TX (the handshake is done,
-					 * those ACKs are redundant) so they don't race
-					 * ahead of the PATH_CHALLENGE to the new path.
-					 * Queue PATH_CHALLENGE at HEAD of APP pending_tx.
+					 * RFC 9000 9.3 / 9.5: do NOT commit to the new
+					 * address on the strength of a packet that
+					 * merely arrived from it; UDP sources are
+					 * spoofable, and an authenticated client could
+					 * otherwise redirect this connection's whole
+					 * output (response data, retransmissions, PMTUD
+					 * probes) at a third party.  Keep udp->sa46 so
+					 * everything continues on the validated path,
+					 * and probe the new address with a PATH_CHALLENGE
+					 * addressed to it alone.  Only a PATH_RESPONSE
+					 * arriving from that address commits the
+					 * migration (parse-quic.c); until then the tx
+					 * path limits what goes there to 3x what we got
+					 * from it, and the probe is abandoned on timeout
+					 * (8.2.4).  A probe to a different address that
+					 * is still outstanding is superseded.
 					 */
-					nwsi->udp->sa46 = migration_sa46;
+					lws_quic_path_probe_abandon(nwsi);
 					nwsi->quic.qn->rx_has_non_probing = 0;
-					nwsi->quic.qn->probing_sa46 = migration_sa46;
+					if (lws_quic_sa46_same_path(&migration_sa46,
+						    &nwsi->quic.qn->probing_sa46))
+						/* same address as last probe: credit accrues */
+						nwsi->quic.qn->probe_bytes_received += (uint64_t)orig_n;
+					else {
+						nwsi->quic.qn->probing_sa46 = migration_sa46;
+						nwsi->quic.qn->probe_bytes_received = (uint64_t)orig_n;
+						nwsi->quic.qn->probe_bytes_sent = 0;
+					}
 					nwsi->quic.qn->probing_sa46_valid = 1;
 
-					if (!nwsi->quic.qn->path_challenge_pending) {
+					{
 						struct lws_quic_tx_frame *f_pc =
 							lws_zalloc(sizeof(*f_pc) + 8,
 								   "quic path_chall");
+						lws_usec_t pto;
+
 						if (f_pc) {
 							f_pc->type = LWS_QUIC_FT_PATH_CHALLENGE;
 							f_pc->len = 8;
@@ -1968,9 +2063,23 @@ tp_ok:
 							memcpy(nwsi->quic.qn->path_challenge,
 							       f_pc->data, 8);
 							nwsi->quic.qn->path_challenge_pending = 1;
+							f_pc->dest_sa46 = migration_sa46;
+							f_pc->has_dest = 1;
 							lws_dll2_add_head(&f_pc->list,
 								&nwsi->quic.qn->pending_tx[LWS_QUIC_LEVEL_APP]);
 						}
+
+						/*
+						 * RFC 9000 8.2.4: give up after three
+						 * times the larger of the current PTO
+						 * and the initial PTO
+						 */
+						pto = lws_quic_pto_base_us(nwsi->quic.qn);
+						if (pto < LWS_QUIC_DEFAULT_PTO_US)
+							pto = LWS_QUIC_DEFAULT_PTO_US;
+						lws_sul_schedule(nwsi->a.context, nwsi->tsi,
+							&nwsi->quic.qn->path_probe_sul,
+							lws_quic_path_probe_sul_cb, 3 * pto);
 					}
 
 				} else {
@@ -2649,6 +2758,89 @@ send_frames:
 			p += 2;
 		}
 
+		/*
+		 * If a path probe is pending, promote PATH_CHALLENGE to the
+		 * very front of pending_tx so it is the first APP frame sent
+		 * to the new address (QIR requires this for connectionmigration
+		 * and rebind-addr tests).  This must happen before ACK
+		 * generation below so that, on the server, the probe packet
+		 * carries nothing but probing frames.
+		 */
+		if (level == LWS_QUIC_LEVEL_APP &&
+		    qn->probing_sa46_valid && qn->path_challenge_pending) {
+			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+					qn->pending_tx[level].head) {
+				struct lws_quic_tx_frame *f =
+					lws_container_of(d, struct lws_quic_tx_frame, list);
+				if (f->type == LWS_QUIC_FT_PATH_CHALLENGE) {
+					lws_dll2_remove(&f->list);
+					lws_dll2_add_head(&f->list,
+						&qn->pending_tx[level]);
+					break;
+				}
+			} lws_end_foreach_dll_safe(d, d1);
+		}
+
+		/*
+		 * Server-side path probing (RFC 9000 9.3): frames that carry
+		 * their own destination are PATH_CHALLENGE / PATH_RESPONSE.
+		 * When that destination is a peer address we have not validated
+		 * yet, what we send there must stay within 3x the bytes we
+		 * received from it (9.3.1 / 21.1.1.1), so clamp this packet's
+		 * size to the remaining allowance and abandon the probe once
+		 * even the smallest packet no longer fits.  Frames addressed to
+		 * a path that is neither the committed one nor the one being
+		 * probed are stale (the probe was abandoned or superseded) and
+		 * are dropped rather than sent to an address we never validated.
+		 */
+		uint64_t probe_budget = 0;
+		int to_probe_path = 0, has_path_challenge = 0;
+
+		if (level == LWS_QUIC_LEVEL_APP && qn->is_server && wsi->udp) {
+			if (qn->probing_sa46_valid && qn->pending_tx[level].head) {
+				struct lws_quic_tx_frame *first_f = lws_container_of(
+					qn->pending_tx[level].head,
+					struct lws_quic_tx_frame, list);
+
+				if (first_f->has_dest &&
+				    lws_quic_sa46_same_path(&first_f->dest_sa46,
+							    &qn->probing_sa46)) {
+					uint64_t allowance = 3 * qn->probe_bytes_received;
+
+					if (qn->probe_bytes_sent +
+					    LWS_QUIC_PROBE_MIN_DATAGRAM > allowance) {
+						lwsl_wsi_notice(wsi, "QUIC TX: probe path "
+							"anti-amplification limit reached "
+							"(sent %llu, rx %llu)",
+							(unsigned long long)qn->probe_bytes_sent,
+							(unsigned long long)qn->probe_bytes_received);
+						lws_quic_path_probe_abandon(wsi);
+					} else {
+						probe_budget = allowance - qn->probe_bytes_sent;
+						to_probe_path = 1;
+						if (mtu > probe_budget)
+							mtu = (uint32_t)probe_budget;
+					}
+				}
+			}
+
+			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
+					qn->pending_tx[level].head) {
+				struct lws_quic_tx_frame *f =
+					lws_container_of(d, struct lws_quic_tx_frame, list);
+
+				if (f->has_dest &&
+				    !lws_quic_sa46_same_path(&f->dest_sa46,
+							     &wsi->udp->sa46) &&
+				    (!qn->probing_sa46_valid ||
+				     !lws_quic_sa46_same_path(&f->dest_sa46,
+							      &qn->probing_sa46))) {
+					lws_dll2_remove(&f->list);
+					lws_free(f);
+				}
+			} lws_end_foreach_dll_safe(d, d1);
+		}
+
 		/* 1.5 Generate ACK frame if needed */
 		int has_ack = 0;
 		int skip_ack_for_dest = 0;
@@ -2727,27 +2919,6 @@ send_frames:
 			}
 		}
 
-		/*
-		 * If a path probe is pending, promote PATH_CHALLENGE to the
-		 * very front of pending_tx so it is the first APP frame sent
-		 * to the new address (QIR requires this for connectionmigration
-		 * and rebind-addr tests).
-		 */
-		if (level == LWS_QUIC_LEVEL_APP &&
-		    qn->probing_sa46_valid && qn->path_challenge_pending) {
-			lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1,
-					qn->pending_tx[level].head) {
-				struct lws_quic_tx_frame *f =
-					lws_container_of(d, struct lws_quic_tx_frame, list);
-				if (f->type == LWS_QUIC_FT_PATH_CHALLENGE) {
-					lws_dll2_remove(&f->list);
-					lws_dll2_add_head(&f->list,
-						&qn->pending_tx[level]);
-					break;
-				}
-			} lws_end_foreach_dll_safe(d, d1);
-		}
-
 		/* 2. Bundle frames from pending_tx until MTU is reached */
 		lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, qn->pending_tx[level].head) {
 			struct lws_quic_tx_frame *f = lws_container_of(d, struct lws_quic_tx_frame, list);
@@ -2808,6 +2979,8 @@ send_frames:
 			if (send_len < f->len && (type & 0xf8) == LWS_QUIC_FT_STREAM) {
 				type &= 0xfe; /* Clear FIN bit for intermediate fragment */
 			}
+			if (type == LWS_QUIC_FT_PATH_CHALLENGE)
+				has_path_challenge = 1;
 			*p++ = type;
 
 			/* Serialize frame-specific headers */
@@ -2919,9 +3092,15 @@ send_frames:
 			}
 		}
 
-		/* PMTUD: Send a probe if we are searching and don't currently have a probe in flight */
+		/*
+		 * PMTUD: Send a probe if we are searching and don't currently
+		 * have a probe in flight.  Never on a packet with its own
+		 * destination: that is a path probe to an address whose MTU
+		 * and validity we know nothing about yet.
+		 */
 		if (level == LWS_QUIC_LEVEL_APP && qn->pmtud_state == 1 &&
 		    qn->pmtud_probe_pn == LWS_QUIC_PMTUD_PROBE_NONE &&
+		    !has_packet_dest &&
 		    !(qn->is_server && !qn->address_validated)) {
 			size_t target_payload_len = qn->probed_mtu - header_len - 16;
 			if (payload_len < target_payload_len) {
@@ -2929,6 +3108,29 @@ send_frames:
 				p += (target_payload_len - payload_len);
 				payload_len = target_payload_len;
 				qn->pmtud_probe_pn = my_pn;
+			}
+		}
+
+		/*
+		 * RFC 9000 8.2.1: a datagram carrying PATH_CHALLENGE is expanded
+		 * to 1200 bytes so validation also proves the new path can carry
+		 * a minimum-MTU datagram, but only as far as the unvalidated
+		 * path's anti-amplification allowance permits.
+		 */
+		if (to_probe_path && has_path_challenge) {
+			size_t target = 1200;
+
+			if (target > probe_budget)
+				target = (size_t)probe_budget;
+			if (target > sizeof(pkt))
+				target = sizeof(pkt);
+			if (target > header_len + 16 &&
+			    payload_len < target - header_len - 16) {
+				size_t target_payload_len = target - header_len - 16;
+
+				memset(p, LWS_QUIC_FT_PADDING, target_payload_len - payload_len);
+				p += (target_payload_len - payload_len);
+				payload_len = target_payload_len;
 			}
 		}
 
@@ -3092,6 +3294,8 @@ send_frames:
 		}
 
 		qn->bytes_sent += (uint64_t)n;
+		if (to_probe_path)
+			qn->probe_bytes_sent += (uint64_t)n;
 
 		/* Find the first frame we sent in this packet to attach wire_len to */
 		int ack_eliciting = 0;
@@ -3955,6 +4159,7 @@ rops_close_kill_connection_quic(struct lws *wsi, enum lws_close_status reason)
 	/* If we are the network wsi, free the qn and all resources */
 	if (qn->nwsi == wsi) {
 		lws_sul_cancel(&qn->prefaddr_sul);
+		lws_sul_cancel(&qn->path_probe_sul);
 		lws_sul_cancel(&qn->pto_sul);
 		lws_sul_cancel(&qn->pacer_sul);
 		lws_sul_cancel(&qn->ack_delay_sul);

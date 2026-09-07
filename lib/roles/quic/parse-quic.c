@@ -1209,6 +1209,22 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 				}
 			} else if (type == LWS_QUIC_FT_PATH_RESPONSE && nwsi->quic.qn) {
 				if (nwsi->quic.qn->path_challenge_pending && !memcmp(nwsi->quic.qn->path_challenge, path_data, 8)) {
+					/*
+					 * RFC 9000 8.2.2: a PATH_RESPONSE only validates
+					 * the path it was received on.  A server probing
+					 * a new peer address must see the response come
+					 * from that address; the same data from the old
+					 * path (or from anywhere else) proves nothing
+					 * about the new one and must not commit it.
+					 */
+					if (nwsi->quic.qn->is_server &&
+					    nwsi->quic.qn->probing_sa46_valid &&
+					    (!sa46 || !lws_quic_sa46_same_path(sa46,
+						&nwsi->quic.qn->probing_sa46))) {
+						lwsl_wsi_notice(nwsi, "QUIC RX: PATH_RESPONSE not from probed path, ignoring");
+						break;
+					}
+
 					lwsl_wsi_notice(nwsi, "QUIC RX: Path validated via PATH_RESPONSE!");
 					nwsi->quic.qn->address_validated = 1;
 					nwsi->quic.qn->path_challenge_pending = 0;
@@ -1226,9 +1242,13 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 						 * helper, so udp->sa46 is already correct;
 						 * we just finalize and reset the path state.
 						 */
-						if (nwsi->quic.qn->is_server)
+						if (nwsi->quic.qn->is_server) {
 							nwsi->udp->sa46 =
 								nwsi->quic.qn->probing_sa46;
+							lws_sul_cancel(&nwsi->quic.qn->path_probe_sul);
+							nwsi->quic.qn->probe_bytes_received = 0;
+							nwsi->quic.qn->probe_bytes_sent = 0;
+						}
 						nwsi->quic.qn->probing_sa46_valid = 0;
 						nwsi->quic.qn->prefaddr_active = 0;
 						nwsi->quic.qn->prefaddr_committed = 1;
