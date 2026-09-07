@@ -1605,7 +1605,14 @@ bail1:
 						    LWS_CALLBACK_MQTT_QOS2_RX_COMPLETE,
 						    w->user_space,
 						    (void *)&pid, 0)) {
-						return 1;
+						/*
+						 * Callers only treat < 0 as a
+						 * close request; anything
+						 * else lets the connection
+						 * continue with the parser
+						 * desynced.
+						 */
+						return -1;
 					}
 				} lws_end_foreach_dll_safe(d, d1);
 
@@ -1823,7 +1830,14 @@ bail1:
 								par->payload_consumed = 0;
 								lws_free_set_NULL(pub->topic);
 								lws_free_set_NULL(wsi->mqtt->rx_cpkt_param);
-								return 1;
+								/*
+								 * user asked to
+								 * close: callers
+								 * only act on
+								 * < 0, and we
+								 * are mid-payload
+								 */
+								return -1;
 							}
 				} lws_end_foreach_dll_safe(d, d1);
 
