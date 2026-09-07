@@ -461,7 +461,12 @@ fetch_fail:
 		goto bail1;
 	}
 
-	if (strncmp("ES512", p, alen)) {
+	/*
+	 * Compare the whole value, not just the manifest's alen bytes of it:
+	 * a length-blind strncmp() accepts any strict prefix of the string we
+	 * are checking against.
+	 */
+	if (alen != strlen("ES512") || memcmp("ES512", p, alen)) {
 		lwsl_err("%s: bad alg %.*s %d\n", __func__, (int)alen, p, (int)alen);
 		goto bail1;
 	}
@@ -480,7 +485,20 @@ fetch_fail:
 
 	p = lws_json_simple_find(map.buf[LJWS_PYLD], map.len[LJWS_PYLD],
 					 "\"variant\":", &alen);
-	if (!p || strncmp(lws_ota_variant, p, alen)) {
+	if (!p) {
+		lwsl_err("%s: no variant\n", __func__);
+		goto bail1;
+	}
+
+	/*
+	 * This is the anti-brick gate: a manifest that is validly signed but
+	 * for a different product variant must be refused.  It has to be an
+	 * exact match, since a strncmp() limited to the manifest's length
+	 * would accept any variant name that is a strict prefix of ours
+	 * ("myproduct" for a "myproduct2" build).
+	 */
+	if (alen != strlen(lws_ota_variant) ||
+	    memcmp(lws_ota_variant, p, alen)) {
 		lwsl_err("%s: wrong variant %.*s\n", __func__, (int)alen, p);
 		goto bail1;
 	}
