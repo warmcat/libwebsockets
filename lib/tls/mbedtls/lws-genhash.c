@@ -175,35 +175,40 @@ lws_genhash_destroy(struct lws_genhash_ctx *ctx, void *result)
 
 	return 0;
 #else
+	int ret = 0;
+
+	/*
+	 * A NULL result means the caller is discarding the hash, typically on
+	 * an error path.  The mbedtls finish functions write the digest to
+	 * the output pointer unconditionally, so only finish when there is
+	 * somewhere to put it, and always free the ctx.
+	 */
+
 	switch (ctx->type) {
 	case LWS_GENHASH_TYPE_MD5:
-		if (mbedtls_md5_finish_ret(&ctx->u.md5, result))
-			return 1;
+		if (result && mbedtls_md5_finish_ret(&ctx->u.md5, result))
+			ret = 1;
 		mbedtls_md5_free(&ctx->u.md5);
 		break;
 	case LWS_GENHASH_TYPE_SHA1:
-		if (mbedtls_sha1_finish_ret(&ctx->u.sha1, result))
-			return 1;
+		if (result && mbedtls_sha1_finish_ret(&ctx->u.sha1, result))
+			ret = 1;
 		mbedtls_sha1_free(&ctx->u.sha1);
 		break;
 	case LWS_GENHASH_TYPE_SHA256:
-		if (mbedtls_sha256_finish_ret(&ctx->u.sha256, result))
-			return 1;
+		if (result && mbedtls_sha256_finish_ret(&ctx->u.sha256, result))
+			ret = 1;
 		mbedtls_sha256_free(&ctx->u.sha256);
 		break;
 	case LWS_GENHASH_TYPE_SHA384:
-		if (mbedtls_sha512_finish_ret(&ctx->u.sha512, result))
-			return 1;
-		mbedtls_sha512_free(&ctx->u.sha512);
-		break;
 	case LWS_GENHASH_TYPE_SHA512:
-		if (mbedtls_sha512_finish_ret(&ctx->u.sha512, result))
-			return 1;
+		if (result && mbedtls_sha512_finish_ret(&ctx->u.sha512, result))
+			ret = 1;
 		mbedtls_sha512_free(&ctx->u.sha512);
 		break;
 	}
 
-	return 0;
+	return ret;
 #endif
 }
 
@@ -276,25 +281,28 @@ lws_genhash_update(struct lws_genhash_ctx *ctx, const void *in, size_t len)
 int
 lws_genhash_destroy(struct lws_genhash_ctx *ctx, void *result)
 {
+	/* NULL result: caller is discarding the hash, just free the ctx */
+
 	switch (ctx->type) {
 	case LWS_GENHASH_TYPE_MD5:
-		mbedtls_md5_finish(&ctx->u.md5, result);
+		if (result)
+			mbedtls_md5_finish(&ctx->u.md5, result);
 		mbedtls_md5_free(&ctx->u.md5);
 		break;
 	case LWS_GENHASH_TYPE_SHA1:
-		mbedtls_sha1_finish(&ctx->u.sha1, result);
+		if (result)
+			mbedtls_sha1_finish(&ctx->u.sha1, result);
 		mbedtls_sha1_free(&ctx->u.sha1);
 		break;
 	case LWS_GENHASH_TYPE_SHA256:
-		mbedtls_sha256_finish(&ctx->u.sha256, result);
+		if (result)
+			mbedtls_sha256_finish(&ctx->u.sha256, result);
 		mbedtls_sha256_free(&ctx->u.sha256);
 		break;
 	case LWS_GENHASH_TYPE_SHA384:
-		mbedtls_sha512_finish(&ctx->u.sha512, result);
-		mbedtls_sha512_free(&ctx->u.sha512);
-		break;
 	case LWS_GENHASH_TYPE_SHA512:
-		mbedtls_sha512_finish(&ctx->u.sha512, result);
+		if (result)
+			mbedtls_sha512_finish(&ctx->u.sha512, result);
 		mbedtls_sha512_free(&ctx->u.sha512);
 		break;
 	}
