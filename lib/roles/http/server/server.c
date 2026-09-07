@@ -1937,6 +1937,13 @@ lws_http_action(struct lws *wsi)
 
 		wsi->http.rx_content_length = 0;
 		wsi->http.content_length_explicitly_zero = 0;
+		/*
+		 * Per-transaction: a stale 1 from an earlier framed POST on
+		 * this keepalive connection must not let a later unframed
+		 * POST bypass the "no content length, close" resync rule in
+		 * lws_http_transaction_completed().
+		 */
+		wsi->http.content_length_given = 0;
 		if (lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)
 #if defined(LWS_WITH_HTTP_UNCOMMON_HEADERS)
 				||
