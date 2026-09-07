@@ -23,7 +23,7 @@ static const uint8_t prelude[] =
 	"HTTP2-Settings: AAEAABAAAAMAAACAAAQAAP//AAUAAEAA\x0d\x0a"
 	"\x0d\x0a"
 	"PRI * HTTP/2.0\x0d\x0a\x0d\x0aSM\x0d\x0a\x0d\x0a"
-	"\x00\x00" "\x04" "\x00" "\x00\x00\x00\x00"; /* empty SETTINGS */
+	"\x00\x00\x00" "\x04" "\x00" "\x00\x00\x00\x00"; /* empty SETTINGS */
 
 /*
  * Fuzzing means constantly feeding the parser garbage, so its rejection

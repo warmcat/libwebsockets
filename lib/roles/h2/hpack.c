@@ -291,7 +291,17 @@ static int lws_frag_append(struct lws *wsi, unsigned char c)
 
 static int lws_frag_end(struct lws *wsi)
 {
+	struct allocated_headers *ah = wsi->http.ah;
+
 	lwsl_header("%s\n", __func__);
+
+	/*
+	 * Only a fragment that was started by lws_frag_start() or lws_parse()
+	 * can be ended, and both of those bound ah->nfrag
+	 */
+	if (ah->nfrag >= LWS_ARRAY_SIZE(ah->frags))
+		return 1;
+
 	if (lws_frag_append(wsi, 0))
 		return 1;
 
@@ -1156,10 +1166,16 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 			h2n->hpack_len += h2n->hpack_m;
 		}
 
-		if (h2n->value && !h2n->hpack_len) {
-			lwsl_debug("%s: zero-length header data\n", __func__);
-			h2n->hpack = HPKS_TYPE;
-			goto fin;
+		if (!h2n->value && !h2n->hpack_len) {
+			/*
+			 * A zero-length literal header name is malformed (a
+			 * field-name is 1*tchar).  Left alone, the decrement
+			 * in HPKS_DATA would wrap hpack_len and the rest of
+			 * the header block would be swallowed as the name.
+			 */
+			lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
+				      "Zero-length header name");
+			return 1;
 		}
 
 		h2n->hpack = HPKS_DATA;
@@ -1229,6 +1245,25 @@ int lws_hpack_interpret(struct lws *wsi, unsigned char c)
 				return 1;
 			}
 			break;
+		}
+
+		if (!h2n->hpack_len) {
+			/*
+			 * Zero-length value: no HPKS_DATA bytes are coming and
+			 * the header is already complete.  We only take this
+			 * shortcut after the per-header setup above, so the
+			 * indexed-name case has had its lws_frag_start() (and
+			 * that function's bounds check on ah->nfrag) and the
+			 * literal-name case has hdr_idx set up for the
+			 * lws_frag_end() at fin, exactly as for a nonzero
+			 * length value.  Taking it earlier left fin operating
+			 * on a fragment slot nobody had started for us, which
+			 * is one past the end of ah->frags[] once all the
+			 * slots are in use.
+			 */
+			lwsl_debug("%s: zero-length header data\n", __func__);
+			h2n->hpack = HPKS_TYPE;
+			goto fin;
 		}
 		break;
 
@@ -1484,6 +1519,35 @@ fin:
 				m = LWS_HPACK_IGNORE_ENTRY;
 			}
 add_it:
+			if (m == LWS_HPACK_IGNORE_ENTRY) {
+				/*
+				 * There is no lws token for this header, so
+				 * nobody started a fragment for it and
+				 * ah->frags[ah->nfrag] is not ours to look at:
+				 * it is whatever the previous header left
+				 * there or, once all the frag slots are used,
+				 * one past the end of the array.  Store the
+				 * placeholder entry without any value, so our
+				 * dynamic table indexes stay aligned with the
+				 * peer's.
+				 */
+				if (lws_dynamic_token_insert(wsi,
+						(int)h2n->hpack_hdr_len, m,
+						NULL, 0)) {
+					lwsl_notice("%s: tok_insert fail\n",
+						    __func__);
+					return 1;
+				}
+				break;
+			}
+
+			/*
+			 * The fragment was started by lws_frag_start() or by
+			 * lws_parse(), both of which bound ah->nfrag
+			 */
+			if (ah->nfrag >= LWS_ARRAY_SIZE(ah->frags))
+				return 1;
+
 			/*
 			 * mark us as having been set at the time of dynamic
 			 * token insertion.
@@ -1502,9 +1566,6 @@ add_it:
 			break;
 		}
 
-		if (h2n->hdr_idx != LWS_HPACK_IGNORE_ENTRY && lws_frag_end(wsi))
-			return 1;
-
 		if (h2n->hpack_type != HPKT_INDEXED_HDR_6_VALUE_INCR) {
 
 			if (h2n->hpack_type == HPKT_LITERAL_HDR_VALUE ||
@@ -1518,6 +1579,32 @@ add_it:
 							 NULL, NULL, NULL);
 		}
 
+		if (m == WSI_TOKEN_HTTP_COLON_PATH &&
+		    h2n->hdr_idx != LWS_HPACK_IGNORE_ENTRY &&
+		    ah->ups == URIPS_SEEN_SLASH_DOT_DOT) {
+			/*
+			 * :path ended in "/..": back up one dir level if
+			 * possible, the same as the h1 parser does at the end
+			 * of the request URI.  This has to act on the
+			 * still-open fragment, before lws_frag_end() below
+			 * terminates it and moves ah->nfrag on to the next
+			 * slot (which is one past the end of ah->frags[] when
+			 * all the slots are in use).
+			 */
+			if (ah->frags[ah->nfrag].len > 2) {
+				ah->pos--;
+				ah->frags[ah->nfrag].len--;
+				do {
+					ah->pos--;
+					ah->frags[ah->nfrag].len--;
+				} while (ah->frags[ah->nfrag].len > 1 &&
+					 ah->data[ah->pos] != '/');
+			}
+		}
+
+		if (h2n->hdr_idx != LWS_HPACK_IGNORE_ENTRY && lws_frag_end(wsi))
+			return 1;
+
 		if (m != -1 && m != LWS_HPACK_IGNORE_ENTRY)
 			lws_dump_header(wsi, m);
 
@@ -1525,29 +1612,18 @@ add_it:
 			return 1;
 
 		if (m == WSI_TOKEN_HTTP_COLON_PATH) {
-			if (ah->ups == URIPS_SEEN_SLASH_DOT_DOT) {
-				if (ah->frags[ah->nfrag].len > 2) {
-					ah->pos--;
-					ah->frags[ah->nfrag].len--;
-					do {
-						ah->pos--;
-						ah->frags[ah->nfrag].len--;
-					} while (ah->frags[ah->nfrag].len > 1 &&
-						 ah->data[ah->pos] != '/');
-				}
-			}
-			{
-				char *p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH);
-				int plen = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH);
-				if (p) {
-					int i;
-					for (i = 0; i < plen; i++) {
-						if (p[i] == '\r' || p[i] == '\n') {
-							lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR, "CRLF in path");
-							return 1;
-						}
+			char *p = lws_hdr_simple_ptr(wsi, WSI_TOKEN_HTTP_COLON_PATH);
+			int plen = lws_hdr_total_length(wsi, WSI_TOKEN_HTTP_COLON_PATH);
+
+			if (p) {
+				int i;
+
+				for (i = 0; i < plen; i++)
+					if (p[i] == '\r' || p[i] == '\n') {
+						lws_h2_goaway(nwsi, H2_ERR_PROTOCOL_ERROR,
+							      "CRLF in path");
+						return 1;
 					}
-				}
 			}
 		}
 
