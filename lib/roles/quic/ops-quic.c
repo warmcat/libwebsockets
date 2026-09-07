@@ -836,6 +836,7 @@ lws_quic_discard_keys(struct lws *nwsi, int level)
 		lws_dll2_remove(&c->list);
 		lws_free(c);
 	} lws_end_foreach_dll_safe(d, d1);
+	qn->rx_crypto_buffered[level] = 0;
 
 	/*
 	 * RFC 9002 A.11 (OnPacketNumberSpaceDiscarded): discarding a packet
@@ -3708,6 +3709,14 @@ lws_quic_stream_cleanup(struct lws *wsi)
 		lws_dll2_remove(&c->list);
 		lws_free(c);
 	} lws_end_foreach_dll_safe(d, d1);
+	/* ... and stop charging them against the connection */
+	if (qn) {
+		if (qn->rx_stream_buffered >= wsi->quic.qs->rx_buffered)
+			qn->rx_stream_buffered -= wsi->quic.qs->rx_buffered;
+		else
+			qn->rx_stream_buffered = 0;
+	}
+	wsi->quic.qs->rx_buffered = 0;
 
 	/* 2. Purge pending and in-flight TX frames for this stream from parent network connection */
 	if (qn) {

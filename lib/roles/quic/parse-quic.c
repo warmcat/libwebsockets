@@ -175,6 +175,78 @@ lws_quic_write_varint(uint8_t *buf, size_t len, uint64_t val)
 }
 
 /*
+ * Release accounting for out-of-order bytes we stop holding, whether because
+ * the chunk was delivered, trimmed or discarded.  nwsi may have been swapped
+ * by an ALPN migration during delivery, so the netconn is looked up fresh.
+ */
+static void
+lws_quic_rx_buffered_sub(struct lws *nwsi, struct lws_quic_stream *qs,
+			 int is_crypto, int level, size_t bytes)
+{
+	struct lws_quic_netconn *qn = nwsi ? nwsi->quic.qn : NULL;
+
+	if (is_crypto) {
+		if (qn)
+			qn->rx_crypto_buffered[level] -=
+				bytes > qn->rx_crypto_buffered[level] ?
+					qn->rx_crypto_buffered[level] : bytes;
+		return;
+	}
+
+	if (qs)
+		qs->rx_buffered -= bytes > qs->rx_buffered ?
+						qs->rx_buffered : bytes;
+	if (qn)
+		qn->rx_stream_buffered -= bytes > qn->rx_stream_buffered ?
+						qn->rx_stream_buffered : bytes;
+}
+
+/*
+ * Deliver a chunk of in-order stream data to a non-h3 protocol callback.
+ *
+ * Returns 0 if the stream is still there and wants more, nonzero if the
+ * caller must stop touching wsi_child / qs: either the callback returned
+ * nonzero (the lws way to ask for the stream to be closed, honoured after
+ * this rx pass completes via close_after_rx) or the callback closed the
+ * stream itself synchronously, in which case qs and any buffered chunks
+ * are already freed.
+ */
+static int
+lws_quic_rx_deliver_protocol(struct lws *nwsi, struct lws *wsi_child,
+			     struct lws_quic_stream *qs, uint8_t *buf,
+			     size_t len)
+{
+	enum lws_callback_reasons reason =
+		wsi_child->role_ops->rx_cb[lwsi_role_server(wsi_child)] ?
+		(enum lws_callback_reasons)wsi_child->role_ops->rx_cb[lwsi_role_server(wsi_child)] :
+		(lwsi_role_client(wsi_child) ?
+		 LWS_CALLBACK_QT_CLIENT_RECEIVE : LWS_CALLBACK_QT_SERVER_RECEIVE);
+	uint64_t sid = qs->stream_id;
+	int n;
+
+	n = wsi_child->a.protocol->callback(wsi_child, reason,
+					    wsi_child->user_space, buf, len);
+
+	/*
+	 * Re-validate the stream before dereferencing anything under it: the
+	 * child list is the only thing that survives a synchronous close.
+	 */
+	if (lws_quic_stream_find(nwsi, sid) != wsi_child)
+		return 1;
+
+	if (n) {
+		lwsl_wsi_info(wsi_child, "QUIC RX: protocol asked to close stream");
+		qs->close_after_rx = 1;
+		return 1;
+	}
+
+	/* Data consumed by application, replenish rx credit to generate MAX_DATA! */
+	lws_wsi_tx_credit(wsi_child, LWSTXCR_PEER_TO_US, (int)len);
+
+	return 0;
+}
+
+/*
  * QUIC RX Reassembly Engine
  *
  * Takes an incoming chunk of data, buffers it if it's out of order, or
@@ -246,16 +318,8 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 #endif
 			if (wsi_child && wsi_child->a.protocol && wsi_child->a.protocol->callback) {
 				/* Application Stream Data */
-				enum lws_callback_reasons reason =
-					wsi_child->role_ops->rx_cb[lwsi_role_server(wsi_child)] ?
-					(enum lws_callback_reasons)wsi_child->role_ops->rx_cb[lwsi_role_server(wsi_child)] :
-					(lwsi_role_client(wsi_child) ?
-					 LWS_CALLBACK_QT_CLIENT_RECEIVE : LWS_CALLBACK_QT_SERVER_RECEIVE);
-				int n = wsi_child->a.protocol->callback(wsi_child, reason, wsi_child->user_space, buf, len);
-				if (n == 0) {
-					/* Data consumed by application, replenish rx credit to generate MAX_DATA! */
-					lws_wsi_tx_credit(wsi_child, LWSTXCR_PEER_TO_US, (int)len);
-				}
+				if (lws_quic_rx_deliver_protocol(nwsi, wsi_child, qs, buf, len))
+					wsi_child = NULL;
 			}
 
 			if (is_final && wsi_child) {
@@ -319,6 +383,7 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 					if (c->offset + c->len <= *expected_offset) {
 						/* Completely obsolete chunk already delivered, discard */
 						lws_dll2_remove(&c->list);
+						lws_quic_rx_buffered_sub(nwsi, qs, is_crypto, level, c->len);
 						lws_free(c);
 						flushed = 1;
 						break;
@@ -328,6 +393,7 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 					c->data += overlap;
 					c->len -= overlap;
 					c->offset = *expected_offset;
+					lws_quic_rx_buffered_sub(nwsi, qs, is_crypto, level, overlap);
 				}
 
 				if (c->offset == *expected_offset) {
@@ -355,16 +421,8 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 						} else
 #endif
 						if (wsi_child->a.protocol && wsi_child->a.protocol->callback) {
-							enum lws_callback_reasons reason =
-								wsi_child->role_ops->rx_cb[lwsi_role_server(wsi_child)] ?
-								(enum lws_callback_reasons)wsi_child->role_ops->rx_cb[lwsi_role_server(wsi_child)] :
-								(lwsi_role_client(wsi_child) ?
-								 LWS_CALLBACK_QT_CLIENT_RECEIVE : LWS_CALLBACK_QT_SERVER_RECEIVE);
-							int n = wsi_child->a.protocol->callback(wsi_child, reason, wsi_child->user_space, c->data, c->len);
-							if (n == 0) {
-								/* Data consumed by application, replenish rx credit to generate MAX_DATA! */
-								lws_wsi_tx_credit(wsi_child, LWSTXCR_PEER_TO_US, (int)c->len);
-							}
+							if (lws_quic_rx_deliver_protocol(nwsi, wsi_child, qs, c->data, c->len))
+								wsi_child = NULL;
 						}
 
 						if (wsi_child && qs && qs->fin_received && *expected_offset + c->len == qs->rx_final_size && !qs->fin_delivered) {
@@ -410,15 +468,17 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 
 					if (!is_crypto && !wsi_child) {
                                                 /*
-                                                 * The WSI was closed and freed. Its cleanup routine
-                                                 * already freed all buffered chunks, including c.
-                                                 * We must not touch c, qs or the list anymore.
+                                                 * The WSI was closed and freed (its cleanup routine
+                                                 * already freed all buffered chunks, including c),
+                                                 * or is flagged close_after_rx.  Either way we must
+                                                 * not touch c, qs or the list anymore.
                                                  */
 						return;
 					}
 
 					*expected_offset += c->len;
 					lws_dll2_remove(&c->list);
+					lws_quic_rx_buffered_sub(nwsi, qs, is_crypto, level, c->len);
 					lws_free(c);
 					flushed = 1;
 					break; /* Restart the sweep since we modified the list */
@@ -440,35 +500,98 @@ lws_quic_rx_reassemble(struct lws *nwsi, struct lws *wsi_child, struct lws_quic_
 		return;
 	}
 
-	struct lws_quic_rx_chunk *c = lws_malloc(sizeof(*c) + len, "quic rx chunk");
-	if (!c) return; /* OOM */
-
-	c->offset = offset;
-	c->len = len;
-	c->data = (uint8_t *)&c[1];
-	memcpy(c->data, buf, len);
-	lws_dll2_clear(&c->list);
-
-	/* Insert sorted by offset */
+	/*
+	 * Find the insertion point in the offset-sorted list, and on the way
+	 * trim the new chunk against what we already hold, so a differently
+	 * sliced retransmission of data we have is not stored (or charged)
+	 * twice.  Chunks starting at or before us eat our head; the first
+	 * chunk starting after us eats our tail if it holds all of it.
+	 */
 	struct lws_dll2 *p = NULL;
-	lws_start_foreach_dll_safe(struct lws_dll2 *, d, d1, lws_dll2_get_head(owner)) {
-		struct lws_quic_rx_chunk *existing = lws_container_of(d, struct lws_quic_rx_chunk, list);
-		if (existing->offset == offset) {
-			/* Duplicate future chunk, just ignore */
-			lws_free(c);
-			return;
-		}
-		if (existing->offset > offset)
-			break;
-		p = d;
-	} lws_end_foreach_dll_safe(d, d1);
+	struct lws_quic_rx_chunk *next = NULL;
 
-	if (p) {
-		/* Insert after p */
-		lws_dll2_add_insert(&c->list, p);
-	} else {
-		/* Insert at head */
-		lws_dll2_add_head(&c->list, owner);
+	lws_start_foreach_dll(struct lws_dll2 *, d, lws_dll2_get_head(owner)) {
+		struct lws_quic_rx_chunk *existing = lws_container_of(d, struct lws_quic_rx_chunk, list);
+
+		if (existing->offset > offset) {
+			next = existing;
+			break;
+		}
+		if (len && existing->offset + existing->len > offset) {
+			size_t overlap = (size_t)(existing->offset + existing->len - offset);
+
+			if (overlap >= len)
+				return; /* we already hold all of it */
+			buf += overlap;
+			offset += overlap;
+			len -= overlap;
+		} else if (!len && existing->offset == offset)
+			return; /* duplicate zero-length (FIN) chunk */
+		p = d;
+	} lws_end_foreach_dll(d);
+
+	if (next && len && next->offset < offset + len &&
+	    next->offset + next->len >= offset + len)
+		len = (size_t)(next->offset - offset);
+
+	/*
+	 * Bound what we buffer by the bytes we actually hold, not just by the
+	 * highest offset seen: the flow control checks in the frame parsers
+	 * only limit the latter, so without this a peer can pin far more
+	 * memory than the window it was granted by never filling the first
+	 * gap and sending overlapping chunks at distinct offsets.
+	 */
+	{
+		struct lws_quic_netconn *qn = nwsi->quic.qn;
+
+		if (is_crypto) {
+			if (qn && (uint64_t)qn->rx_crypto_buffered[level] + len >
+							LWS_QUIC_CRYPTO_RX_MAX) {
+				lwsl_wsi_notice(nwsi, "QUIC RX: CRYPTO reassembly buffer exceeded");
+				lws_quic_enter_closing_state(nwsi,
+					LWS_QUIC_ERR_CRYPTO_BUFFER_EXCEEDED, 0, 0);
+				return;
+			}
+		} else {
+			uint64_t scap = qs->rx_window_size ? qs->rx_window_size :
+							LWS_QUIC_DEFAULT_WINDOW,
+				 ccap = qn && qn->rx_window_size ? qn->rx_window_size :
+							LWS_QUIC_DEFAULT_WINDOW;
+
+			if ((uint64_t)qs->rx_buffered + len > scap ||
+			    (qn && (uint64_t)qn->rx_stream_buffered + len > ccap)) {
+				lwsl_wsi_notice(nwsi, "QUIC RX: buffered out-of-order stream data exceeds window");
+				lws_quic_enter_closing_state(nwsi,
+					LWS_QUIC_ERR_FLOW_CONTROL_ERROR, 0, 0);
+				return;
+			}
+		}
+
+		struct lws_quic_rx_chunk *c = lws_malloc(sizeof(*c) + len, "quic rx chunk");
+		if (!c) return; /* OOM */
+
+		c->offset = offset;
+		c->len = len;
+		c->data = (uint8_t *)&c[1];
+		memcpy(c->data, buf, len);
+		lws_dll2_clear(&c->list);
+
+		if (is_crypto) {
+			if (qn)
+				qn->rx_crypto_buffered[level] += len;
+		} else {
+			qs->rx_buffered += len;
+			if (qn)
+				qn->rx_stream_buffered += len;
+		}
+
+		if (p) {
+			/* Insert after p */
+			lws_dll2_add_insert(&c->list, p);
+		} else {
+			/* Insert at head */
+			lws_dll2_add_head(&c->list, owner);
+		}
 	}
 }
 
@@ -614,7 +737,7 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 				return -1;
 			}
 
-			if (offset + len > 262144) {
+			if (offset + len > LWS_QUIC_CRYPTO_RX_MAX) {
 				lwsl_wsi_notice(nwsi, "QUIC RX: CRYPTO frame exceeds maximum buffer size");
 				lws_quic_enter_closing_state(nwsi, LWS_QUIC_ERR_CRYPTO_BUFFER_EXCEEDED, type, 0);
 				return -1;
@@ -1456,7 +1579,13 @@ lws_quic_parse_frames(struct lws *nwsi, int level, uint8_t *payload, size_t payl
 							return -1;
 						}
 					}
-					if (len || fin) {
+					/*
+					 * A stream whose protocol asked for it to be
+					 * closed (nonzero callback return) gets no
+					 * more deliveries; it is closed once this rx
+					 * pass completes.
+					 */
+					if ((len || fin) && !wsi_child->quic.qs->close_after_rx) {
 						lws_quic_rx_reassemble(nwsi, wsi_child, wsi_child->quic.qs,
 							       offset, &payload[pos], (size_t)len, 0, level);
 					}
