@@ -118,7 +118,7 @@ lws_wsi_is_h3(struct lws *wsi)
  * NULL with a length for sizing (the cookie apis do), and obs-text
  * (bytes >= 0x80, eg UTF-8) stays allowed.
  */
-static int
+int
 lws_hdr_add_value_bad(const unsigned char *value, int length)
 {
 	int n;
@@ -1062,6 +1062,21 @@ lws_http_add_onward_header(struct lws *wsi, const char *name, const char *value)
 
 	if (!name)
 		return 1;
+
+	/*
+	 * The line is spliced verbatim into the onward request head: refuse
+	 * CR / LF / control bytes in either part so a value that came from
+	 * a JSON claim or similar cannot terminate the line and smuggle a
+	 * second, trusted-looking header to the backend.
+	 */
+	if (lws_hdr_add_value_bad((const unsigned char *)name,
+				  (int)strlen(name)) ||
+	    (value && lws_hdr_add_value_bad((const unsigned char *)value,
+					    (int)strlen(value)))) {
+		lwsl_wsi_info(wsi, "refusing onward header with control bytes");
+
+		return 1;
+	}
 
 	n = lws_snprintf(line, sizeof(line), "%s: %s\r\n", name,
 			 value ? value : "");

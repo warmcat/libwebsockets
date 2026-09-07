@@ -145,6 +145,18 @@ lws_interceptor_inject_header(struct lws *wsi, struct vhd_interceptor *vhd, cons
 	/* Authoritatively remove any existing copy of the header to prevent spoofing */
 	lws_http_zap_header(wsi, vhd->auth_header_name);
 
+	/*
+	 * The claim string is spliced into the onward request head as a
+	 * header line: a CR / LF inside it would end the line early and let
+	 * the token issuer smuggle extra headers to the backend.  Treat such
+	 * a value as absent (the header is still zapped and emitted empty).
+	 */
+	if (value && lws_hdr_add_value_bad((const unsigned char *)value,
+					   (int)strlen(value))) {
+		lwsl_wsi_notice(wsi, "control bytes in claim, injecting empty");
+		value = NULL;
+	}
+
 	n = lws_snprintf(h, sizeof(h), "%s: %s\x0d\x0a", vhd->auth_header_name,
 			 value ? value : "");
 
